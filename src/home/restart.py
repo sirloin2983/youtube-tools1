@@ -3,7 +3,9 @@
 
 取り込んだツール(スタジオ・編集・cut2resolve)は入口と同じプロセスで動くので、版の赤い帯を直すには入口ごと起動し直す必要がある。
 手順(src/home/launch.py の POST api/ytt/restart-self):
-  1. can_restart(): 重い処理・まとめて実行が動いていれば断る(理由の文を返す)
+  1. can_restart(): 重い処理・取り込んだツールの処理が動いていれば断る(理由の文を返す)。まとめて実行の待ち・実行中は断らない
+     (線 D の M5 で、起動し直したあとに同じ実行が続きから進むため。入口 0.41.0)。実行中の段がツールで動かしている仕事
+     (文字起こし・解析・パック。起動し直したあとに頭からやり直す)も数えない。書き出しの段・人が始めた仕事は今までどおり断る
   2. spawn_new_launcher(): 新しい入口を、今の入口とは別のコンソール(見えない)で起動する。引数に --wait-port を付ける
   3. 今の入口は「すべて終了」と同じ後始末(子を止める・取り込みを外す・.runtime を消す)をして終わる
   4. 新しい入口は wait_port_free() で同じポートが空くまで(最大 30 秒)待ってから待ち受ける
@@ -30,6 +32,7 @@ from ytt_core import layout   # 入口の launch.py が src を sys.path に入�
 WAIT_PORT_TIMEOUT = 30.0   # 新しい入口が、古い入口がポートを離すのを待つ最長(秒)。古い入口の後始末は子1つにつき最大 8 秒
 WAIT_PORT_POLL = 0.25
 BUSY_MESSAGE = "実行中の処理があります%s。終わってから起動し直してください"   # %s = (何が動いているか)
+RESUME_NOTICE = "まとめて実行の待ち・実行中の %d 件は、起動し直したあとに続きから進めます"   # 起動し直す応答の notice(M5。入口 0.41.0)
 SW_SHOWMINNOACTIVE = 7     # 見えるコンソールで起動するとき: 最小化して、前に出さない(画面の操作を邪魔しない)
 
 
@@ -126,23 +129,39 @@ def wait_port_free(port, timeout=WAIT_PORT_TIMEOUT, host="127.0.0.1", poll=WAIT_
         sleep(poll)
 
 
-def can_restart(status, runs=None, busy_tools=()):
+def _redo_item(item, redo):
+    """重い処理の枠の 1 つが、まとめて実行の実行中の段の仕事(redo)のものか。枠の名前は仕事の名前の頭(長い名前は切り詰められる)"""
+    if not isinstance(item, dict) or item.get("tool") != redo["tool"]:
+        return False
+    if redo.get("labels") is None:
+        return True
+    label = str(item.get("label") or "")
+    return bool(label) and any(str(x).startswith(label) for x in redo["labels"])
+
+
+def can_restart(status, busy_tools=(), redo=None):
     """起動し直してよいか。よければ None、だめなら画面に出す理由の文。
     status: Supervisor.status()(heavy = ytt_core.jobs.SLOTS.snapshot(): {"limit", "active": [{tool, label, seconds}], "waiting": [...]})
-    runs: まとめて実行の実行の一覧(AutoRunner.snapshot()["runs"]。state が queued / running のものがあれば断る)。
-          まとめて実行は段と段の間は重い処理の枠を持たないので、heavy だけでは見落とす。
-          あとから解析(mode post_analyze。測るためだけ)は数えない: 入口の終了で止まり、一覧に残って次の起動で続く(試した回数は増やさない)。
-          その解析がスタジオで持っている重い処理の枠は、呼ぶ側(launch.py の restart_self)が先に止めてから status を取る
-    busy_tools: 取り込んだツールのうち busy() が真のものの名前(「すべて終了」の確認と同じ判定。任意)"""
+    busy_tools: 取り込んだツールのうち busy() が真のもの。名前か (ツールの ID, 名前)(「すべて終了」の確認と同じ判定。任意)
+    redo: まとめて実行の実行中の段がツールで動かしている仕事(AutoRunner.restart_info の redo。起動し直したあとに頭からやり直せる段だけで、
+          書き出しの段は入らない = 書き出し中は今までどおり断る)。{"tool": ツールの ID, "labels": [仕事の名前] か None(そのツールの枠すべて),
+          "others": [同じツールのほかの仕事の名前]}。others が空のとき(人が始めた仕事が同じツールに無いと確かめられたとき)だけ、
+          その仕事の重い処理の枠と、そのツールの busy を数えない。
+    まとめて実行の待ち・実行中そのものは数えない(線 D の M5 で起動し直したあとに続きから進むため。入口 0.41.0。呼ぶ側が RESUME_NOTICE で知らせる)。
+    あとから解析(mode post_analyze)がスタジオで持っている重い処理の枠は、呼ぶ側(launch.py の restart_self)が先に止めてから status を取る"""
     heavy = (status or {}).get("heavy") or {}
     items = list(heavy.get("active") or []) + list(heavy.get("waiting") or [])
+    mine = redo if isinstance(redo, dict) and redo.get("tool") and redo.get("others") == [] else None
+    if mine:
+        items = [i for i in items if not _redo_item(i, mine)]
     labels = [str(i.get("label") or i.get("tool") or "") for i in items if isinstance(i, dict)]
-    active_runs = [r for r in (runs or []) if isinstance(r, dict) and r.get("state") in ("queued", "running") and r.get("mode") != "post_analyze"]
-    if active_runs:
-        labels.append("まとめて実行 %d 件" % len(active_runs))
-    busy = [str(n) for n in (busy_tools or ()) if n]
+    busy = []
+    for b in busy_tools or ():
+        tid, name = b if isinstance(b, (tuple, list)) else (None, b)
+        if name and not (mine and tid == mine["tool"]):
+            busy.append(str(name))
     labels += busy
-    if not items and not active_runs and not busy:
+    if not items and not busy:
         return None
     shown = [x for x in dict.fromkeys(labels) if x][:3]
     return BUSY_MESSAGE % ("(%s)" % "・".join(shown) if shown else "")

@@ -927,6 +927,26 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual(a.after_tick(), 0)                                    # 済んだ録画はもう触らない
         self.assertEqual(len(self.calls), n)
 
+    def test_progress_for_the_band(self):
+        """スタジオの LIVE の帯に出す進み具合(入口 0.41.0): GET /live/api/exports の archiveInfo.afterStream の progress と text"""
+        a = {"state": "export", "label": A.AFTER_LABELS["export"], "message": "3 本を採用しました", "jobs": ["j1", "j2", "j3", "j4"]}
+        jobs = [{"id": "j1", "state": "done", "archive": {"state": "done"}, "runId": "r1", "tx": {"state": "done"}},
+                {"id": "j2", "state": "done", "archive": {"state": "done"}, "runId": "r2", "tx": {"state": "running"}},
+                {"id": "j3", "state": "error", "failure": {"kind": "export", "text": "書き出せませんでした"}},
+                {"id": "other", "state": "done", "runId": "r9", "tx": {"state": "done"}}]   # 人の書き出し(数えない)
+        p = A.after_progress(a, jobs)
+        self.assertEqual(p, {"total": 4, "exported": 2, "archived": 2, "handed": 2, "finished": 1, "failed": 1})   # j4 は一覧から消えた(total だけ)
+        self.assertEqual(A.after_text(a, p), "配信後の自動の切り抜き: 書き出し → 本番版 → パック(4 本のうち 書き出し 2・本番版 2・文字起こし → パックへ 2・パックまで済み 1・失敗 1)")
+        w = {"state": "wait", "label": A.AFTER_LABELS["wait"], "message": "アーカイブはまだ処理中です"}
+        self.assertEqual(A.after_text(w, A.after_progress(w, jobs)), "配信後の自動の切り抜き: アーカイブの用意を待っています(アーカイブはまだ処理中です)")
+        self.assertEqual(A.after_progress({}, None)["total"], 0)
+        ar = self.archiver()
+        self.assertNotIn("afterStream", ar.info_view("local", REC, []))   # 配信後の全自動が無い録画は今までどおり
+        ar._after_set("local", REC, state="export", jobs=["j1", "j2"], message="2 本を採用しました")
+        st = ar.info_view("local", REC, jobs)["afterStream"]
+        self.assertEqual((st["jobs"], st["progress"]["finished"], st["text"]), (2, 1, A.after_text(st, st["progress"])))
+        self.assertEqual(ar.info_view("local", REC)["afterStream"]["progress"]["total"], 2)   # jobs を渡さなければ書き出しの一覧から
+
     def test_off_old_no_video_and_failure_text(self):
         a = self.archiver()
         self.on = False

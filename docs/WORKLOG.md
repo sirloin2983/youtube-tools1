@@ -1881,3 +1881,27 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - WinForms の AutoScroll のパネルは、大きさが変わった直後に前の幅の子でスクロールバーを決め、あとで子を狭めても横のスクロールバーが残ることがある。子を並べ直したあとに `PerformLayout()` を呼ぶと消える(VStack と行の入れ物でそうした)
   - `docs/HANDOVER.md`・`plan/`・`AGENTS.md` の friend-apps の記述(版・「テスト 31 件」・common の行)は担当外なので直していない。`plan/improvements.md` の 4(1・4・6 は済み)と 9 の 1・2 行目(済み)の更新はまとめ役へ
 - 未コミット: なし(このコミット。`friend-apps/` と `docs/WORKLOG.md` の自分の記録だけ。ほかの担当の `src/` などの未コミットの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: home 0.41.0(「起動し直す」はまとめて実行で断らない・M7 の進み具合を帯の応答へ・lint の home の分)
+- 変更:
+  - 「起動し直す」(`src/home/restart.py` の can_restart・`launch.py` の restart_self・`autorun.py` の restart_info / _redo_work / Run.owned): まとめて実行の待ち・実行中では断らず、応答の notice と launcher.log に「まとめて実行の待ち・実行中の N 件は、起動し直したあとに続きから進めます」(M5 で戻るため)。
+    実行中の段のうち REDO_STEPS(解析・文字起こし・話者分離・パック)がツールで動かしている仕事は、ツールの一覧(編集 /api/jobs・スタジオ /api/queue・cut2resolve /api/job)を 5 秒で読み、**同じツールに人の仕事が無いと確かめられたときだけ**数えない(重い処理の枠は名前の頭で突き合わせ・busy は (ID, 名前) で渡す)。
+    書き出しの段・人の仕事・ほかの重い処理(波形・30fps・ライブの書き出しなど)・一覧を読めないときは今までどおり断る。① 全自動で届けたパックはすぐ autorun-active.json に残す(_deliver_one。段の途中で起動し直しても二度置かない)
+  - M7 の進み具合(`live_archive.py` の after_progress・after_text・info_view(jobs)、`live.py`): GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream に progress {total, exported, archived, handed, finished, failed} と text(帯の 1 行)を足した。afterStream 自体は 0.40.0 から同じ応答に入っていた(スタジオの帯 = review.js の pollLiveJobs が読んでいる)。**帯への表示はスタジオの担当**(README に注記)
+  - lint: health.py の `layout`・test_autorun の `threading` を消した。e2e の長い関数を場面ごとの関数に(e2e_portal の run_mounted_phase 419 → 55 行 + `_mounted_*` 6 本・e2e_live_studio の run 670 → 191 行 + `_scene_*` 11 本・e2e_live_archive の run 639 → 258 行 + `_scene_*` 7 本)。
+    値は `types.SimpleNamespace`(cx)で渡し、あとの場面・後始末で使う値(rid・pg・mob など)は場面が cx に戻す。確かめる中身と順番は同じ(元と新の関数呼び出しを ast で突き合わせ: 元の呼び出しは全部そのまま・増えたのは場面の呼び出しと cx だけ。JS の文字列の中の字下げも変えていない)
+  - テスト: test_restart(2 件を新しい決まりに書き換え + 1)・test_autorun(TestRestartInfo 5 件)・test_launch(+1。偽の autorun に restart_info)・test_live_archive(+1)
+- 版: 入口 0.40.1 → 0.41.0(launch.py の VERSION・README の見出しと履歴)
+- 決定・理由(仮で決めたこと。まとめ役が確認):
+  - (a) 実行中の段の仕事も止めてよい(M5 の受け入れ条件「文字起こしの途中で止めて起動し直すと続きから」と同じ扱い)。ただし人の仕事と区別できるときだけ: 区別できないと、人が始めた文字起こしを黙って捨てるため
+  - (b) 「録画中」は今までも断っていない(起動し直しても録画の部品は止めない = 録画は続く)。録画中の書き出しは重い処理の枠(live)で今までどおり断る。新しく「録画中は断る」は足していない
+  - (c) 届けたらすぐ記録に残す(_deliver_one)は、断らなくしたことで段の途中で起動し直す場面が増えるための手当て(すべて終了 → 起動でも同じ穴があった)
+  - (d) notice は応答と launcher.log まで。帯(ui-kit の UIKit.restart)は応答の本文を読まないので「起動し直しています…」のまま = 出すなら ui-kit の担当
+  - (e) 帯の 1 行(text)の文言は入口が作る(失敗の文を live_failures が作るのと同じく 1 か所に)。スタジオはそのまま出せばよい
+- lint: home の分 前 7(unused-import 2・long-function 3・dup-block 2)→ 後 3(test_mount の `time` = cut2resolve の担当のファイル・dup-block 2 = launch.py の Handler の検査。今回は触らない約束)
+- 確かめ方(基準 9): bcf5fcc の src と、それの src/home だけを今の物に替えた写しで、同じ入力(一時の作業データ・つながらない録画元・書き出しのジョブ 3 本と afterStream をメモリに入れる)の応答を集めて突き合わせた:
+  GET /api/status・/api/health(オフ・オン)・POST api/ytt/live(オフ・オン)・GET /live/api/info・/live/api/exports(全部・録画 1 本)・/live/api/marks・/live/(302)・/live/api/nothing(404)。違いは版の文字と、afterStream の progress・text(1 の追加)だけ。restart-self は 2 で決まりを変えたので単体テストで確かめた
+- テスト: home の単体 13 本 377 件 OK(skip 2。前 369 件 + 8)・test_mount 26 件 OK(cut2resolve の担当が直したあと)・e2e(PYTHONIOENCODING=utf-8・1 本ずつ)e2e_portal・e2e_autorun・e2e_window・e2e_live・e2e_live_studio(119 件)・e2e_live_archive(99 件)すべて OK
+- 未完了・次(担当外なのでまとめ役へ): スタジオの LIVE の帯に archiveInfo.afterStream.text を出す(studio)・「起動し直す」の帯に notice を出す(ui-kit)・`plan/improvements.md` の 9 の home の 2 行(M7 の帯・M5 の起動し直す)と `plan/data.js` の入口の版(0.40.1 → 0.41.0)・test_mount の未使用の `time`
+- 注意: e2e_live_studio の出力に、/api/health の応答を書く途中でブラウザが接続を切った ConnectionAbortedError の記録が 1 回出る(画面の要求の取り消し。テストは OK・今回の変更とは関係しない)。scratchpad は他の担当と共有なので、写しは scratchpad/home-r2/ に置いた
+- 未コミット: なし(このコミット。src/home の自分の 14 ファイルと docs/WORKLOG.md だけ。test_mount.py・ほかの担当の未コミットの変更は入れていない)

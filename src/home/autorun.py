@@ -129,6 +129,11 @@ RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが�
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
               "pack": ("transcribe", "cut2resolve"), "deliver": ()}
+# 画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)で、ツールの仕事を止めてよい段(起動し直したあとに頭からやり直す = M5)。
+# 書き出し(export)は入れない: 書き出し中は今までどおり断る
+REDO_STEPS = ("analyze", "transcribe", "diarize", "pack")
+TX_ACTIVE = ("queued", "loading", "extracting", "running")   # 「編集」のジョブの動いている状態(src/editor/ed_jobs.py の ACTIVE_STATES)
+QUEUE_ACTIVE = ("waiting", "running")                       # スタジオの解析のキューの動いている状態(src/studio/batch.py)
 RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
 
 
@@ -298,6 +303,7 @@ class Run:
         self.preempted = False     # あとから解析を、新しい実行を先にするために止めた(人の中止・失敗と分ける = 試した回数を増やさない)
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
+        self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         keys = list(MODE_STEPS[mode])
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
@@ -826,6 +832,41 @@ class AutoRunner:
                     r.message = "%s止めています(あとで続けます)" % reason
             return self.cv.wait_for(lambda: not any(r.mode == POST_MODE and r.state == "running" for r in self.runs), wait)
 
+    def restart_info(self, timeout=5):
+        """画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)が断るかを決める材料。待ち・実行中は起動し直したあとに戻る(M5)ので、それだけでは断らない。
+        -> {"runs": 待ち・実行中の数(あとから解析は数えない), "redo": restart.can_restart の redo か None}。
+        redo は、実行中の段が REDO_STEPS で、その段がツールで動かしている仕事を、ツールの一覧(timeout 秒で読む)で確かめられたときだけ"""
+        with self.cv:
+            active = self._active_runs()
+            run = next((r for r in active if r.state == "running"), None)
+            owned = run.owned if run is not None else None
+            step = next((s["key"] for s in run.steps if s["state"] == "run"), None) if run is not None else None
+        out = {"runs": len(active), "redo": None}
+        if not owned or step not in REDO_STEPS:
+            return out
+        client = ToolClient(self.client.endpoint, self.client.token, timeout) if isinstance(self.client, ToolClient) else self.client
+        try:
+            out["redo"] = self._redo_work(client, owned[0], list(owned[1]))
+        except (StepError, http.client.HTTPException):   # 読めなければ今までどおり(ツールの仕事を数えて断る)
+            pass
+        return out
+
+    @staticmethod
+    def _redo_work(client, tool, ids):
+        """ツールの仕事の一覧を読み、この実行の分(ids)の名前(重い処理の枠の名前の元)と、ほかの仕事の名前に分ける -> restart_info の redo"""
+        if tool == "cut2resolve":   # パックは 1 つずつ(別の処理の最中は断られる)。この実行のジョブが動いていれば、枠はそのジョブのもの
+            j = client.ok(tool, "GET", "/api/job?id=" + urllib.parse.quote(str(ids[0] if ids else "")))
+            return {"tool": tool, "labels": None, "others": []} if j.get("state") == "running" else None
+        if tool == "transcribe":   # 「編集」のジョブ(枠の名前は題名の頭。src/editor/ed_jobs.py の work_one)
+            items = [j for j in client.ok(tool, "GET", "/api/jobs").get("jobs") or [] if isinstance(j, dict) and j.get("state") in TX_ACTIVE]
+            key, name = "id", lambda j: str(j.get("title") or "")
+        elif tool == "studio":   # スタジオの解析のキュー(枠の名前は題名か配信の ID。src/studio/batch.py)
+            items = [i for i in client.ok(tool, "GET", "/api/queue").get("items") or [] if isinstance(i, dict) and i.get("status") in QUEUE_ACTIVE]
+            key, name = "qid", lambda i: str(i.get("title") or i.get("videoId") or "")
+        else:
+            return None
+        return {"tool": tool, "labels": [name(i) for i in items if i.get(key) in ids], "others": [name(i) for i in items if i.get(key) not in ids]}
+
     def cancel(self, run_id):
         ended = False
         with self.cv:
@@ -1338,6 +1379,7 @@ class AutoRunner:
                                     else "スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
         st["detail"] += fl_note
+        run.owned = ("studio", [qid]) if qid else None   # 人が入れた解析(qid なし)を待つときは自分の仕事にしない
         try:
             while True:
                 self._wait(run)
@@ -1355,6 +1397,8 @@ class AutoRunner:
             if qid:   # この実行が入れた解析だけ取り消す(人がスタジオで入れた解析 = qid なし は止めない)
                 self._cancel_analysis(qid)
             raise
+        finally:
+            run.owned = None
 
     def _cancel_analysis(self, qid):
         """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
@@ -1475,6 +1519,7 @@ class AutoRunner:
             return None
         opts = self._tx_opts()
         jobs = []
+        run.owned = ("transcribe", jobs)   # 入れたジョブ(同じリストに足していく)
         try:
             for m in todo:
                 self._check(run)
@@ -1493,6 +1538,8 @@ class AutoRunner:
             for j in jobs:
                 self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": j})
             raise
+        finally:
+            run.owned = None
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
         run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
@@ -1617,6 +1664,7 @@ class AutoRunner:
         if status != 200:
             raise StepError("パックを作れませんでした: %s" % (res.get("message") or "HTTP %d" % status))
         jid = (res.get("job") or {}).get("id")
+        run.owned = ("cut2resolve", [jid])
         try:
             while True:
                 self._wait(run)
@@ -1628,6 +1676,8 @@ class AutoRunner:
         except Cancelled:
             self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid})
             raise
+        finally:
+            run.owned = None
         if j.get("state") != "done":
             err = j.get("error")
             raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or j.get("state")))
@@ -1709,6 +1759,7 @@ class AutoRunner:
 
     def _wait_job(self, run, jid, st=None, what="文字起こし"):
         """「編集」のジョブ 1 つが終わるまで待つ(st があれば進み具合を出す)。中止されたらジョブを取り消して上げる。-> 終わったジョブ"""
+        run.owned = ("transcribe", [jid])
         try:
             while True:
                 self._wait(run)
@@ -1721,6 +1772,8 @@ class AutoRunner:
         except Cancelled:
             self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid})
             raise
+        finally:
+            run.owned = None
 
     def _doc_transcribe(self, run, st):
         doc = self._doc(run)
@@ -1860,6 +1913,7 @@ class AutoRunner:
         try:
             deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, d), check=lambda: self._check(run))
             run.delivered.append(d)
+            self._save_active()   # 届けたことをすぐ残す(段の途中で起動し直しても、同じパックを二度置かない。M5・入口 0.41.0)
         except OSError as e:
             raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
 

@@ -7,7 +7,6 @@ import os
 import shutil
 import sys
 import tempfile
-import threading
 import time
 import unittest
 from unittest import mock
@@ -1075,6 +1074,81 @@ class TestRestore(Base):
             ready["studio"] = True
             done = self.until(lambda: (lambda x: x if x and x["state"] not in ("queued", "running") else None)(self.snap(run.id)))
         self.assertEqual(done["state"], "done", done)
+
+
+class TestRestartInfo(Base):
+    """画面の「起動し直す」の材料(restart_info。入口 0.41.0): 待ち・実行中の数と、実行中の段がツールで動かしている仕事(書き出しの段は入れない)"""
+
+    def until(self, fn, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            v = fn()
+            if v:
+                return v
+            time.sleep(0.01)
+        self.fail("待ちきれません")
+
+    def step_state(self, key):
+        runs = [x for x in self.r.snapshot()["runs"] if x["state"] == "running"]
+        return next((s["state"] for s in runs[0]["steps"] if s["key"] == key), None) if runs else None
+
+    def test_idle_and_export(self):
+        self.assertEqual(self.r.restart_info(), {"runs": 0, "redo": None})
+        self.tools.hold = True
+        self.r.start(VID, "adopted")
+        self.r.start("zzzzzzzzzzz", "adopted")
+        self.until(lambda: self.step_state("export") == "run")
+        self.assertEqual(self.r.restart_info(), {"runs": 2, "redo": None})   # 書き出しの段は redo にしない(書き出し中は今までどおり断る)
+
+    def test_transcribe_jobs_and_others(self):
+        media = os.path.join(self.tmp, "ライブ.mp4")
+        open(media, "wb").close()
+        self.tools.hold = True
+        self.r.start_file(media, title="ライブの切り抜き")
+        self.until(lambda: self.r.restart_info()["redo"])   # ジョブを入れて待ち始めるまで
+        jid = next(iter(self.tools.tx_jobs))
+        self.tools.tx_jobs[jid]["title"] = "ライブの切り抜き"
+        self.assertEqual(self.r.restart_info(), {"runs": 1, "redo": {"tool": "transcribe", "labels": ["ライブの切り抜き"], "others": []}})
+        self.tools.tx_jobs["u1"] = {"id": "u1", "state": "running", "title": "人が入れた文字起こし"}
+        self.tools.tx_jobs["u2"] = {"id": "u2", "state": "done", "title": "済んだもの"}
+        self.assertEqual(self.r.restart_info(timeout=1)["redo"]["others"], ["人が入れた文字起こし"])
+
+    def test_analyze_queue(self):
+        self.tools.video["analysis"] = None
+        self.tools.hold_q = True
+        self.r.start(VID, "full", 2)
+        redo = self.until(lambda: self.r.restart_info()["redo"])
+        self.assertEqual(redo, {"tool": "studio", "labels": [VID], "others": []})   # 枠の名前は題名か配信の ID(偽のキューには題名が無い)
+        self.tools.queue.append({"qid": "q9", "videoId": "zzzzzzzzzzz", "title": "人が入れた解析", "status": "waiting"})
+        self.assertEqual(self.r.restart_info()["redo"]["others"], ["人が入れた解析"])
+
+    def test_pack_job(self):
+        """パック(cut2resolve は 1 つずつ): この実行のジョブが動いていれば、そのツールの枠すべてがこの実行のもの"""
+        self.tools.hold = True
+        self.tools.c2r = {"job": {"id": "c1", "state": "running"}, "body": {"spec": {"video": "x"}}}
+        self.assertEqual(A.AutoRunner._redo_work(self.tools, "cut2resolve", ["c1"]), {"tool": "cut2resolve", "labels": None, "others": []})
+        self.tools.c2r["job"]["state"] = "done"
+        self.assertIsNone(A.AutoRunner._redo_work(self.tools, "cut2resolve", ["c1"]))
+        self.assertIsNone(A.AutoRunner._redo_work(self.tools, "intake", ["x"]))
+
+    def test_delivered_is_saved_at_once(self):
+        """届けたパックはすぐ待ちの記録に残す(段の途中で起動し直しても、同じパックを二度置かない)"""
+        logs = os.path.join(self.tmp, "logs")
+        self.r.close()
+        self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, log_dir=logs)
+        pack = os.path.join(self.tmp, "a_pack")
+        os.makedirs(pack)
+        open(os.path.join(pack, "cut-plan.json"), "w").close()
+        out = os.path.join(self.tmp, "出力")
+        run = A.Run(VID, "配信", "request_auto", 1, deliver_dir=out)
+        run.state = "running"
+        with self.r.cv:
+            self.r.runs.append(run)
+        self.r._deliver_one(run, pack)
+        with open(os.path.join(logs, A.ACTIVE_FILE), encoding="utf-8") as f:
+            saved = json.load(f)["runs"]
+        self.assertEqual([x["delivered"] for x in saved], [[os.path.normpath(pack)]])
+        self.assertEqual(len(os.listdir(out)), 1)
 
 
 class TestRequests(Base):

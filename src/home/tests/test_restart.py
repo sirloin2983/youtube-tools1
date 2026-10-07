@@ -4,7 +4,7 @@
 - spawn_new_launcher: 一時フォルダに偽の home/launch.py(受け取った引数・環境変数・作業フォルダを書いて終わる)を置き、
   本物の Python で起動して、引数・環境・作業フォルダ・待ち受けのソケットを引き継がないことを確かめる
 - wait_port_free / port_free: 本物の待ち受けのソケット(少しあとで閉じる)で
-- can_restart: 重い処理の枠(ytt_core.jobs.SLOTS.snapshot() の形)・まとめて実行の状態で
+- can_restart: 重い処理の枠(ytt_core.jobs.SLOTS.snapshot() の形)・取り込んだツールの busy・まとめて実行の実行中の段の仕事(redo。0.41.0)で
 """
 import json
 import os
@@ -188,7 +188,7 @@ class CanRestartTest(unittest.TestCase):
         self.assertIsNone(R.can_restart(self.status()))
         self.assertIsNone(R.can_restart({}))
         self.assertIsNone(R.can_restart(None))
-        self.assertIsNone(R.can_restart(self.status(), runs=[{"state": "done"}, {"state": "error"}, {"state": "cancelled"}]))
+        self.assertIsNone(R.can_restart(self.status(), (), {"tool": "transcribe", "labels": [], "others": ["人の"]}))   # 何も動いていなければ redo も関係ない
         self.assertIsNone(R.can_restart({"heavy": jobs.HeavySlots().snapshot()}))   # 本物の形(何も動いていない)
 
     def test_heavy_active_or_waiting(self):
@@ -205,12 +205,32 @@ class CanRestartTest(unittest.TestCase):
         self.assertIsNone(R.can_restart({"heavy": slots.snapshot()}))
 
     def test_autorun_and_busy_tools(self):
-        self.assertIn("まとめて実行 2 件", R.can_restart(self.status(), runs=[{"state": "running"}, {"state": "queued"}, {"state": "done"}]))
+        # まとめて実行の待ち・実行中そのものでは断らない(M5 で起動し直したあとに続く。入口 0.41.0。前は「まとめて実行 N 件」で断っていた)
+        self.assertIsNone(R.can_restart(self.status()))
+        self.assertEqual(R.RESUME_NOTICE % 2, "まとめて実行の待ち・実行中の 2 件は、起動し直したあとに続きから進めます")
         self.assertIn("編集", R.can_restart(self.status(), busy_tools=["編集"]))
+        self.assertIn("編集", R.can_restart(self.status(), busy_tools=[("transcribe", "編集")]))   # (ツールの ID, 名前) でも
         self.assertIsNone(R.can_restart(self.status(), busy_tools=["", None]))
-        # あとから解析(測るため)だけなら起動し直せる(終了で止まり、一覧に残って次の起動で続く。2026-10-05)
-        self.assertIsNone(R.can_restart(self.status(), runs=[{"state": "running", "mode": "post_analyze"}, {"state": "done"}]))
-        self.assertIn("まとめて実行 1 件", R.can_restart(self.status(), runs=[{"state": "running", "mode": "post_analyze"}, {"state": "queued", "mode": "request"}]))
+
+    def test_autorun_redo_work_is_not_counted(self):
+        """まとめて実行の実行中の段がツールで動かしている仕事(起動し直したあとに頭からやり直す)は数えない。
+        同じツールに人が始めた仕事があれば(others)・書き出し・名前の合わない枠は今までどおり断る(入口 0.41.0)"""
+        tx = self.status(active=[{"tool": "transcribe", "label": "配信Aの切り抜き1"}], waiting=[{"tool": "transcribe", "label": "配信Aの切り抜き2"}])
+        redo = {"tool": "transcribe", "labels": ["配信Aの切り抜き1", "配信Aの切り抜き2(とても長い題名の続き)"], "others": []}
+        self.assertIsNone(R.can_restart(tx, [("transcribe", "編集")], redo))
+        self.assertIn("配信Aの切り抜き1", R.can_restart(tx, [("transcribe", "編集")], dict(redo, others=["人が入れた文字起こし"])))   # 人の仕事がある
+        self.assertIn("編集", R.can_restart(self.status(), [("transcribe", "編集")], dict(redo, others=["人の"])))
+        self.assertIn("配信Aの切り抜き1", R.can_restart(tx, (), dict(redo, labels=["別の題"])))                                    # 名前が合わない枠
+        self.assertIn("波形 a.mp4", R.can_restart(self.status(active=[{"tool": "transcribe", "label": "波形 a.mp4"}]), (), redo))   # 編集のジョブ以外の枠
+        self.assertIn("スタジオ", R.can_restart(tx, [("transcribe", "編集"), ("studio", "スタジオ")], redo))                          # 別のツール
+        self.assertIn("書き出し 2 本", R.can_restart(self.status(active=[{"tool": "studio", "label": "書き出し 2 本"}]), (), redo))
+        self.assertIn("配信Aの切り抜き1", R.can_restart(tx, (), None))                                                               # 確かめられない = 今までどおり
+        # パック(cut2resolve は 1 つずつ): labels None = そのツールの枠すべて
+        c2r = self.status(active=[{"tool": "cut2resolve", "label": "パックの作成"}])
+        self.assertIsNone(R.can_restart(c2r, [("cut2resolve", "cut2resolve")], {"tool": "cut2resolve", "labels": None, "others": []}))
+        self.assertIn("パックの作成", R.can_restart(c2r, (), {"tool": "transcribe", "labels": None, "others": []}))
+        # あとから解析(測るため)は、呼ぶ側が先に止めるので can_restart には来ない(2026-10-05)。止まっていれば何も数えない
+        self.assertIsNone(R.can_restart(self.status(), busy_tools=()))
 
     def test_message_lists_at_most_three(self):
         act = [{"tool": "t", "label": "処理%d" % i} for i in range(5)]

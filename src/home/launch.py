@@ -34,6 +34,8 @@
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。src/home/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
+  POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/home/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
+                                          まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか。0.41.0)
   GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
                                           録画を始める /live/api/begin・録画元(src/recorder/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
                                           サーバー側の「マーク + 書き出し」/live/api/adopt(線 D の M1。0.39.0)。
@@ -89,7 +91,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.40.1"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.41.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -901,29 +903,32 @@ class PortalServer(ThreadingHTTPServer):
 
     def restart_self(self):
         """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
-        重い処理・まとめて実行・取り込んだツールの処理が動いていれば 409 で断る(理由の文)。-> (HTTP の番号, JSON)"""
+        重い処理・取り込んだツールの処理(人が始めたもの・まとめて実行の書き出し)が動いていれば 409 で断る(理由の文)。
+        まとめて実行の待ち・実行中は断らない(M5 で起動し直したあとに続きから進む。入口 0.41.0): 応答の notice と記録で何件続くかを知らせる。
+        -> (HTTP の番号, JSON)"""
         if self.closing.is_set():
             return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
-        runs = self._autorun.snapshot().get("runs") if self._autorun is not None else None
-        if runs and any(r.get("mode") == autorun_mod.POST_MODE and r.get("state") == "running" for r in runs) \
-                and not restart_mod.can_restart(None, runs):
-            # あとから解析(測るため)だけが動いている: 止めて(スタジオの解析と重い処理の枠も空く。一覧に残り、次の起動で続く)から確かめる
-            if not self._autorun.stop_deferred():
+        ar = self._autorun
+        runs = ar.snapshot().get("runs") if ar is not None else None
+        if runs and any(r.get("mode") == autorun_mod.POST_MODE and r.get("state") == "running" for r in runs):
+            # あとから解析(測るため)が動いている: 止めて(スタジオの解析と重い処理の枠も空く。一覧に残り、次の起動で続く)から確かめる
+            if not ar.stop_deferred():
                 return 409, {"ok": False, "error": "busy", "message": "あとから解析(測るため)を止めています。少し待ってからもう一度押してください"}
-            runs = self._autorun.snapshot().get("runs")
-        busy = [t.spec["name"] for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
-        why = restart_mod.can_restart(self.sup.status(), runs, busy)
+        info = ar.restart_info() if ar is not None else {}
+        busy = [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
+        why = restart_mod.can_restart(self.sup.status(), busy, info.get("redo"))
         if why:
             return 409, {"ok": False, "error": "busy", "message": why}
+        notice = restart_mod.RESUME_NOTICE % info["runs"] if info.get("runs") else ""
         only = [t.id for t in self.sup.tools] if len(self.sup.tools) < len(TOOLS) else ()
         try:
             restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts),
                                            log=self.sup.log)
         except OSError as e:
             return 500, {"ok": False, "error": "spawn", "message": "新しい入口を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
-        self.sup.log("画面から「起動し直す」が押されました")
+        self.sup.log("画面から「起動し直す」が押されました" + ("(%s)" % notice if notice else ""))
         threading.Timer(0.3, self.request_shutdown).start()   # 応答を返してから後始末(新しい入口はポートが空くのを待っている)
-        return 200, {"ok": True}
+        return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
 
     def purge_trash(self):
         """起動時: 14 日を過ぎたごみ箱フォルダの日付を消す(裏で)"""

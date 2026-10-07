@@ -40,6 +40,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import urllib.error
 import urllib.request
 
@@ -244,6 +245,7 @@ def run(tmp, shots, force_chromium):
 
     rid = rid2 = None
     errors, not_found = [], []
+    cx = types.SimpleNamespace()   # 場面の関数(下の _scene_*)と分け合う値
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
@@ -265,502 +267,22 @@ def run(tmp, shots, force_chromium):
                     pg.on("pageerror", lambda e: errors.append("%s: %s" % (name, e)))
                     pg.on("response", lambda r: not_found.append("%s: %s" % (name, r.url)) if r.status == 404 else None)
 
-                # ---------------- 13. オフのとき ----------------
-                pg = ctx.new_page()
-                watch(pg, "off")
-                queued = []
-
-                def fake_queue(route):
-                    queued.append(route.request.post_data_json)
-                    route.fulfill(status=200, content_type="application/json", body=json.dumps({"added": [], "rejected": []}))
-                pg.route("**/studio/api/queue/add", fake_queue)
-                begins = []
-                pg.on("request", lambda r: begins.append(r.url) if "/live/api/begin" in r.url else None)
-                pg.goto(studio_url)
-                wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
-                pg.click('#steps [data-step="queue"]')
-                pg.fill("#qUrls", YT1)
-                pg.click("#qAdd")
-                check(wait_for(lambda: queued, 10), "13 オフ: URL を入れて「解析に追加」→ 今までどおり /api/queue/add: %s" % queued[:1])
-                check(not begins and not probes, "13 オフ: begin に進まない(配信の状態も調べない)")
-                pg.wait_for_timeout(500)
-                check(pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !b || b.hidden; }"), "13 オフ: ヘッダーに録画の札が出ない")
-                pg.close()
-                # オフのときの 404(入口の ../live/api/info は機能がオフなら 404 = 画面が「使えない」と知る手段)は想定内
-                not_found[:] = [x for x in not_found if not x.startswith("off: ") or not x.endswith("/live/api/info")]
-                errors[:] = [x for x in errors if not (x.startswith("off: ") and "404" in x)]
-
-                # ---------------- 1. ホームでオンにする ----------------
-                pg = ctx.new_page()
-                watch(pg, "home")
-                pg.goto(base + "/")
-                pg.evaluate("document.getElementById('advancedBox').open = true")
-                wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden")
-                pg.click("#liveEnabled")
-                check(wait_js(pg, "document.getElementById('liveMsg').hidden === false") and srv.prefs.get(["live"])["live"]["enabled"] is True,
-                      "1 ホームの「試験中の機能」でオンにする")
-                # M2: オンにすると「書き出したあとの自動の流れ」(live.auto)の欄が出て、選ぶと設定に入る
-                check(wait_js(pg, "!document.getElementById('liveAutoBox').hidden", 5000), "M2 ホームの「試験中の機能」に「書き出したあとの自動の流れ」が出る")
-                pg.evaluate("document.getElementById('liveAutoBox').open = true")
-                pg.select_option("#liveAutoEngine", "whisper.cpp")
-                pg.fill("#liveAutoModel", "large-v3")
-                pg.press("#liveAutoModel", "Tab")
-                check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),
-                      "M2 エンジン・モデルを選ぶと live.auto に入る: %s" % srv.prefs.get(["live"])["live"]["auto"])
-                # M7: 配信後の全自動のスイッチと 1 時間あたりの数(既定オフ・6)
-                check(pg.evaluate("document.getElementById('liveAfterStream').checked") is False and pg.input_value("#liveAfterPerHour") == "6",
-                      "M7 「配信が終わったら、アーカイブの解析で自動で切り抜く」は既定オフ・1 時間あたり 6")
-                pg.click("#liveAfterStream")
-                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is True, 8), "M7 付けると live.autoAfterStream = true")
-                pg.fill("#liveAfterPerHour", "8")
-                pg.press("#liveAfterPerHour", "Tab")
-                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["afterStreamPerHour"] == 8, 8), "M7 1 時間あたりを 8 に")
-                pg.click("#liveAfterStream")   # 外す(この e2e の録画で配信後の全自動を動かさない)
-                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is False, 8), "M7 外すと live.autoAfterStream = false")
-                pg.close()
-
-                # ---------------- 2. ② の URL 欄から録画を始める ----------------
-                pg = ctx.new_page()
-                watch(pg, "studio")
-                pg.goto(studio_url)
-                wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
-                wait_js(pg, "() => !document.querySelector('#rvOpenForm .rv-openlive').hidden", 8000)
-                pg.click('#steps [data-step="queue"]')
-                pg.fill("#qUrls", YT1)
-                pg.click("#qAdd")
-                check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000),
-                      "2 録画が始まり、自動で ③ 確認・書き出しへ移って LIVE の帯(録画の行)が出る")
-                code, vs = api("GET", "/studio/api/videos")
-                lv = [v for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"]
-                rid = lv[0]["id"] if lv else None
-                check(len(lv) == 1 and LX.REC_RE.match(rid or "") and lv[0]["live"]["url"] == YT1 and lv[0]["live"]["recorder"] == "local"
-                      and lv[0]["live"]["videoId"] == "TESTlive001", "2 スタジオの一覧に kind live の配信(id = 録画の id): %s" % (lv[:1],))
-                check(lv and lv[0]["title"] == TITLE, "2 題は yt-dlp の題(HTML にしない): %s" % (lv[0]["title"] if lv else None))
-                check(pg.evaluate("() => document.querySelector('#rvTitle').value") == TITLE and pg.evaluate("() => !document.querySelector('#rvTitle b')"),
-                      "2 ③ の題の欄に配信の題")
-                check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
-                check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
-
-                # ---------------- 3. 自動で再生・録画中・札 ----------------
-                check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 20000),
-                      "3 録画の状態が「録画中」: %s" % pg.text_content("#rvRecState"))
-                check(pg.is_visible("#rvLiveBar") and pg.text_content("#rvLiveBadge") == "LIVE", "3 LIVE の帯が出る")
-                if edge:
-                    check(wait_js(pg, "() => { const v = %s; return v && !v.paused && v.currentTime > 0.5; }" % VIDEO, 25000), "3 数秒で再生が自動で始まる(Edge)")
-                    t1 = pg.evaluate("() => %s.currentTime" % VIDEO)
-                    pg.wait_for_timeout(1500)
-                    t2 = pg.evaluate("() => %s.currentTime" % VIDEO)
-                    check(t2 > t1 + 0.8, "3 再生位置が進む: %.2f → %.2f" % (t1, t2))
-                    check(pg.evaluate("() => !!window.__hls && !!window.__hls.playingDate"), "3 hls.js で再生している(playingDate がある)")
-                else:
-                    check(wait_js(pg, "() => !!%s" % VIDEO, 20000), "3 録画のプレーヤーができる(chromium: H.264 は再生できないので読み込みまで)")
-                    skip("3 自動再生(chromium は H.264 を再生できない)")
-                check(wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden && /録画中 1/.test(b.textContent); }", 15000),
-                      "3 ヘッダーに「録画中 1」の札")
-                guide = pg.text_content("#rvLiveGuide") or ""
-                check("マーク" in guide and pg.is_visible("#rvLiveGuide"), "3 次にすることの案内: %s" % guide)
-                # 15. 書き出したあと・配信者(帯)
-                check(pg.input_value("#rvAfter") == "check" and pg.is_visible("#rvAfter"), "15 帯の「書き出したあと」は既定で「文字起こしまで」(今までの自動の文字起こしがオン)")
-                check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 兎田ぺこら'", 8000),
-                      "15 帯の「配信者」はチャンネル名から自動で決まる: %s" % pg.text_content("#rvLiveWhoText"))
-                pg.select_option("#rvAfter", "auto")
-                check(wait_for(lambda: ((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review", {}).get("liveAfter") == "auto", 8),
-                      "15 「全自動」を選ぶとスタジオの設定 review.liveAfter に残る")
-                if shots:
-                    pg.evaluate("window.scrollTo(0, 0)")
-                    pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_00_band.png"))
-
-                # 8. 見回りで作り直されないか(ここで要素を掴んでおく)
-                pg.evaluate("""() => { window.__keep = ['#rvLiveBar', '#rvRecState', '#rvAutoExp', '#rvRecStop', '#rvLiveGuide', '#rvEdge', '#rvTitle',
-                  '[data-ui-live] .ui-live-btn', '#rvAfter', '#rvLiveWho', '#rvLiveWhoIn', '#rvLiveWhoText'].map(s => [s, document.querySelector(s)]); }""")
-                keep_at = time.time()
-
-                # ---------------- 4・5. I → O → 追加 → すぐ書き出す ----------------
-                check(pg.is_checked("#rvAutoExp"), "4 「マークしたらすぐ書き出す」は既定オン")
-                if edge:
-                    wait_js(pg, "() => %s.currentTime > 3" % VIDEO, 15000)
-                at_in = pg.evaluate("() => { const pd = window.__hls && window.__hls.playingDate; document.querySelector('#rvIn').click(); return pd ? pd.getTime() : null; }")
-                pg.wait_for_timeout(3200)
-                at_out = pg.evaluate("() => { const pd = window.__hls && window.__hls.playingDate; document.querySelector('#rvOut').click(); return pd ? pd.getTime() : null; }")
-                pg.evaluate("() => document.querySelector('#rvAdd').click()")
-                check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === 1", 5000), "4 マークが1つ付く")
-                seen = []
-                deadline = time.time() + 120
-                while time.time() < deadline:
-                    t = pg.evaluate("() => [...document.querySelectorAll('#rvExpList .rv-ejob .pill')].map(x => x.textContent.trim()).join('|')")
-                    if t and (not seen or seen[-1] != t):
-                        seen.append(t)
-                    if "済み" in t or "失敗" in t:
-                        break
-                    time.sleep(0.15)
-                check(seen and "済み" in seen[-1], "4 書き出しの欄の状態: %s" % " → ".join(seen))
-                check(any(s.startswith(("録画待ち", "取得中", "作り直し中")) for s in seen), "4 途中の状態(録画待ち・取得中・作り直し中)が欄に出る")
-                code, jj = api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)
-                jobs = (jj or {}).get("jobs") or []
-                job = next((j for j in jobs if j.get("studio")), None)
-                check(code == 200 and len(jobs) == 1 and job and job["state"] == "done", "4 入口の書き出しのジョブ(この録画で絞った一覧): %s" % [(j.get("id"), j.get("state")) for j in jobs])
-                code, other = api("GET", "/live/api/exports?recorder=local&recording=20991231-000000")
-                check(code == 200 and other.get("jobs") == [], "4 別の録画で絞ると空")
-                code, vv = api("GET", "/studio/api/video?id=%s" % rid)
-                mk = ((vv or {}).get("video") or {}).get("marks") or []
-                if job and job["state"] == "done":
-                    info = normalize.probe(job["path"])
-                    want = mk[0]["end"] - mk[0]["start"] if mk else 0
-                    check(normalize.is_30fps(info), "4 書き出した mp4 は 30fps: %s" % (info or {}).get("r_frame_rate"))
-                    check(abs((info or {}).get("duration", 0) - want) <= 0.15, "4 長さが区間と合う: %.2f 秒(区間 %.2f 秒)" % ((info or {}).get("duration", 0), want))
-                    clip, warn = schemas.load_clip_file(schemas.find_clip_path(job["path"]))
-                    check(clip and clip["source"]["kind"] == "live" and clip["source"]["live"]["studio"]["video"] == rid and clip["source"]["live"]["url"] == YT1,
-                          "4 .clip.json の source.kind は live(スタジオの配信・配信の URL): %s" % ((clip or {}).get("source"), ))
-                    check(clip and clip["source"].get("title") == TITLE, "4 .clip.json の題は配信の題: %s(%s)" % ((clip or {}).get("source", {}).get("title"), job["path"]))
-                    check(handed and handed[0] == (job["path"], "auto"), "15 帯で「全自動」→ 入口がまとめて実行へ flow auto で渡す: %s" % handed[:1])
-                    check(handed_who[:1] == ["兎田ぺこら"], "15 配信者の名前(チャンネル名から)もまとめて実行へ渡る: %s" % handed_who[:1])
-                    check(job.get("after") == "auto" and job.get("streamer") == "兎田ぺこら", "15 ジョブに after と streamer が残る: %s %s" % (job.get("after"), job.get("streamer")))
-                    check(wait_js(pg, "() => { const t = document.querySelector('#rvExpList').textContent; return t.includes('文字起こし → パック: 実行中') && t.includes('Resolve パック'); }", 10000),
-                          "15 書き出しの行に、まとめて実行の進み具合(全自動: 文字起こし → パック)")
-                    ok_exp = wait_for(lambda: (lambda m: m and m[0]["status"] == "exported" and os.path.normcase(m[0].get("path") or "") == os.path.normcase(job["path"]))(
-                        ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks")), 15)
-                    check(ok_exp, "4 スタジオのマークが「書き出し済み」(path は書き出した mp4)")
-                    check(wait_js(pg, "() => !!document.querySelector('#rvList .rv-mark-row .rv-chip.exported')", 8000), "4 ③ のマークの行に「書き出し済み」")
-                    # 5. マークの位置(書き出しの絶対時刻とマークした時点の hls.playingDate)
-                    if edge and at_in and at_out:
-                        d_in = LX.iso_epoch(job["start"]) - at_in / 1000
-                        d_out = LX.iso_epoch(job["end"]) - at_out / 1000
-                        check(abs(d_in) <= 0.3 and abs(d_out) <= 0.3, "5 書き出した区間の絶対時刻 = マークした時点の playingDate ± 0.3 秒(開始 %+.3f 秒・終了 %+.3f 秒)" % (d_in, d_out))
-                    else:
-                        skip("5 マークの位置(再生できないので playingDate が無い)")
-                if shots:
-                    pg.evaluate("window.scrollTo(0, 0)")
-                    pg.screenshot(path=os.path.join(shots, "live_01_recording_marked_exported.png"))
-                    pg.click('#rvJump [data-jump="export"]')
-                    pg.wait_for_timeout(400)
-                    pg.screenshot(path=os.path.join(shots, "live_02_export_drawer.png"))
-                    pg.click("#rvExpClose")
-                    pg.wait_for_timeout(300)
-
-                # ---------------- 6. シーク ----------------
-                if edge:
-                    before = pg.evaluate("() => %s.currentTime" % VIDEO)
-                    box = pg.locator("#rvTl").bounding_box()
-                    pg.mouse.click(box["x"] + 3, box["y"] + box["height"] / 2)
-                    check(wait_js(pg, "() => %s.currentTime < 3" % VIDEO, 5000), "6 タイムラインの頭を押すと頭へ戻る: %.1f → %.1f" % (before, pg.evaluate("() => %s.currentTime" % VIDEO)))
-                    pg.click("#rvEdge")
-                    check(wait_js(pg, "() => %s.currentTime > %f" % (VIDEO, before - 4), 5000), "6 「ライブ端へ」で端へ戻る: %.1f" % pg.evaluate("() => %s.currentTime" % VIDEO))
-                else:
-                    skip("6 シーク(再生できない)")
-
-                # ---------------- 7. ③ を離れると止まる ----------------
-                if edge:
-                    wait_js(pg, "() => !%s.paused" % VIDEO, 5000)
-                    pg.click('#steps [data-step="queue"]')
-                    check(wait_js(pg, "() => %s.paused" % VIDEO, 3000), "7 ② へ移ると再生が止まる")
-                    pos = pg.evaluate("() => %s.currentTime" % VIDEO)
-                    pg.wait_for_timeout(1200)
-                    pg.click('#steps [data-step="review"]')
-                    check(wait_js(pg, "() => !!%s && Math.abs(%s.currentTime - %f) < 0.5" % (VIDEO, VIDEO, pos)) and not pg.is_hidden("#rvLiveRec"),
-                          "7 戻ると同じ録画が開いていて、止めた位置から")
-                    pg.evaluate("() => document.activeElement && document.activeElement.blur()")
-                    pg.keyboard.press("Space")   # 再生・停止(共通の再生キー)
-                    check(wait_js(pg, "() => !%s.paused" % VIDEO, 3000), "7 戻ってから再生を続けられる")
-                else:
-                    skip("7 離れると止まる(再生できない)")
-
-                # ---------------- 8. 作り直されない ----------------
-                rest = 10 - (time.time() - keep_at)
-                if rest > 0:
-                    pg.wait_for_timeout(int(rest * 1000))
-                pg.evaluate("() => { window.__keepRow = document.querySelector('#rvExpList .rv-ejob'); }")
-                pg.wait_for_timeout(4000)
-                gone = pg.evaluate("() => window.__keep.filter(([s, el]) => !el || !el.isConnected).map(([s]) => s).concat(window.__keepRow && window.__keepRow.isConnected ? [] : ['#rvExpList .rv-ejob'])")
-                check(not gone, "8 見回り(10 秒余り)で帯・札・書き出しの行が作り直されない: %s" % gone)
-                check(pg.input_value("#rvAfter") == "auto" and pg.text_content("#rvLiveWhoText") == "配信者: 兎田ぺこら",
-                      "15 見回りのあとも「書き出したあと」と配信者の値が戻らない: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
-
-                # ---------------- 欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置 ----------------
-                live_src.down = True
-                check(wait_js(pg, "() => /つなぎ直し中/.test(document.querySelector('#rvRecState').textContent)", 30000),
-                      "欠け: 配信が切れると「つなぎ直し中」: %s" % pg.text_content("#rvRecState"))
-                pg.wait_for_timeout(3000)
-                live_src.down = False
-                check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent) && /つなぎ直し 1 回/.test(document.querySelector('#rvRecMsg').textContent)", 45000),
-                      "欠け: 戻ると「録画中」と「つなぎ直し 1 回」: %s %s" % (pg.text_content("#rvRecState"), pg.text_content("#rvRecMsg")))
-                n_jobs = 1
-                if edge:
-                    GAP_JS = """() => { const h = window.__hls; const lv = h && h.levels && h.levels[Math.max(0, h.currentLevel)]; const fr = lv && lv.details ? lv.details.fragments : [];
-                      if (fr.length < 2) return null; const base = fr[0].programDateTime;
-                      for (let i = 0; i + 1 < fr.length; i++){ const e = fr[i].programDateTime + fr[i].duration * 1000, n = fr[i + 1].programDateTime;
-                        if (n - e > 1500) return { from: (e - base) / 1000, to: (n - base) / 1000, media: fr[i + 1].start, last: (fr[fr.length - 1].programDateTime - base) / 1000 }; }
-                      return null; }"""
-                    gap = None
-                    end = time.time() + 30
-                    while time.time() < end:
-                        gap = pg.evaluate(GAP_JS)
-                        if gap and gap["last"] > gap["to"] + 4:
-                            break
-                        time.sleep(0.5)
-                    check(gap, "欠け: 再生リストの受信時刻に欠けがある: %s" % gap)
-                    if gap:
-                        mid = (gap["from"] + gap["to"]) / 2
-                        pg.evaluate("() => %s.pause()" % VIDEO)   # 止めてから移す(再生を続けると位置が進んで比べられない)
-                        pg.wait_for_timeout(300)
-                        pg.fill("#rvNow", "%d:%04.1f" % (int(mid // 60), mid % 60))
-                        pg.press("#rvNow", "Enter")
-                        pg.wait_for_timeout(800)
-                        ct = pg.evaluate("() => %s.currentTime" % VIDEO)
-                        now = pg.input_value("#rvNow")
-                        mm, ss = now.split(":")[-2:]
-                        now_s = int(mm) * 60 + float(ss)
-                        check(abs(ct - gap["media"]) < 0.6 and now_s >= gap["to"] - 0.3,
-                              "欠け: 欠けの中(%.1f 秒)へ移ると、欠けのあとの頭(%.1f 秒・メディア %.2f)から: currentTime %.2f・時刻の欄 %s"
-                              % (mid, gap["to"], gap["media"], ct, now))
-                        dur_shown = pg.text_content("#rvDur") or ""
-                        check(abs(float(dur_shown.split(":")[-1]) + 60 * int(dur_shown.replace("/", "").strip().split(":")[-2]) - gap["last"]) < 4,
-                              "欠け: 録画の長さは欠けの間も進む(受信時刻の幅): 表示 %s・最後のセグメント %.1f 秒" % (dur_shown, gap["last"]))
-                        # 欠けのあとでマーク(ライブ端の近く)→ 書き出しの絶対時刻 = playingDate
-                        pg.click("#rvEdge")
-                        pg.wait_for_timeout(2500)
-                        a_in = pg.evaluate("() => { const pd = window.__hls.playingDate; document.querySelector('#rvIn').click(); return pd ? pd.getTime() : null; }")
-                        pg.wait_for_timeout(2500)
-                        a_out = pg.evaluate("() => { const pd = window.__hls.playingDate; document.querySelector('#rvOut').click(); document.querySelector('#rvAdd').click(); return pd ? pd.getTime() : null; }")
-                        n_jobs = 2
-                        jobs = wait_for(lambda: (lambda js: len(js) == 2 and all(j["state"] in ("done", "error") for j in js) and js)(
-                            (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []), 90, 0.5)
-                        jg = jobs and max(jobs, key=lambda j: j["studio"]["start"])
-                        check(jg and jg["state"] == "done", "欠け: 欠けのあとのマークも書き出せる: %s %s" % ((jg or {}).get("state"), (jg or {}).get("error")))
-                        if jg and jg["state"] == "done" and a_in and a_out:
-                            d_in, d_out = LX.iso_epoch(jg["start"]) - a_in / 1000, LX.iso_epoch(jg["end"]) - a_out / 1000
-                            check(abs(d_in) <= 0.3 and abs(d_out) <= 0.3, "5 欠けのあとでも、書き出した区間の絶対時刻 = playingDate ± 0.3 秒(開始 %+.3f 秒・終了 %+.3f 秒)" % (d_in, d_out))
-                            info = normalize.probe(jg["path"])
-                            check(normalize.is_30fps(info) and abs(info.get("duration", 0) - (jg["studio"]["end"] - jg["studio"]["start"])) <= 0.15,
-                                  "欠け: 欠けのあとの書き出しも 30fps・長さが区間と合う: %.2f 秒" % info.get("duration", 0))
-                else:
-                    skip("欠けをまたぐ seek・欠けのあとのマークの位置(再生できない)")
-
-                # ---------------- 11. 設定の引き出し ----------------
-                pg.click("#btnSettings")
-                check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "11 設定の引き出しに「ライブの録画」")
-                check(wait_js(pg, "() => /空き/.test(document.querySelector('#liveFree').textContent) && document.querySelector('#liveFolderNow').textContent.toLowerCase() === %s"
-                              % json.dumps(rfolder.lower()), 8000),
-                      "11 置き場所と空き: %s / %s" % (pg.text_content("#liveFolderNow"), pg.text_content("#liveFree")))
-                check(wait_js(pg, "() => document.querySelector('#liveFolderSave').disabled", 5000), "11 録画中は置き場所を変えられない")
-                check(pg.input_value("#liveQuality") == "1080p", "11 画質の既定は 1080p")
-                pg.select_option("#liveQuality", "720p")
-                check(wait_for(lambda: srv.prefs.get(["live"])["live"]["quality"] == "720p", 5), "11 画質を変えると設定 live.quality に残る")
-                if shots:
-                    pg.screenshot(path=os.path.join(shots, "live_03_settings.png"))
-                pg.keyboard.press("Escape")
-                pg.wait_for_timeout(300)
-
-                # ---------------- 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す(UIKit.sound。2026-10-05) ----------------
-                other = ctx.new_page()
-                other.goto(base + "/")
-                other.evaluate("() => { window.__got = []; window.__ch = new BroadcastChannel('ytt-sound'); window.__ch.onmessage = e => window.__got.push(e.data); }")
-                say = "(on) => window.__ch.postMessage({ id: 'e2e-editor', tool: 'transcribe', playing: on })"
-                check(pg.evaluate("() => document.querySelector('#rvDuck').value") == "low" and pg.is_hidden("#rvDuckNote"), "8b 既定は「音を下げる」・鳴っていなければ案内なし")
-                if edge:
-                    pg.evaluate("() => { const v = %s; v.muted = false; v.play().catch(() => {}); }" % VIDEO)
-                    vol0 = pg.evaluate("() => %s.volume" % VIDEO)
-                    check(wait_js(other, "() => window.__got.some(d => d.tool === 'studio' && d.playing === true)", 8000), "8b スタジオの配信が鳴っている間、ほかの窓へ知らせる")
-                    other.evaluate(say, True)
-                    check(wait_js(pg, "() => Math.abs(%s.volume - %s * 0.2) < 0.02 && !%s.muted && !document.querySelector('#rvDuckNote').hidden" % (VIDEO, vol0, VIDEO), 5000),
-                          "8b 編集で再生中: 配信の音を 2 割に下げて、案内を出す: %s" % pg.evaluate("() => %s.volume" % VIDEO))
-                    pg.select_option("#rvDuck", "mute")
-                    check(wait_js(pg, "() => %s.muted" % VIDEO, 3000) and "消しています" in (pg.text_content("#rvDuckNote") or ""), "8b 「音を消す」に切り替えると消音")
-                    check(pg.evaluate("() => document.querySelector('#rvMute').checked") is False, "8b 設定の消音そのものは変えない")
-                    other.evaluate(say, False)
-                    check(wait_js(pg, "() => !%s.muted && Math.abs(%s.volume - %s) < 0.02 && document.querySelector('#rvDuckNote').hidden" % (VIDEO, VIDEO, vol0), 5000), "8b 編集の再生が止まると元の音に戻る")
-                    other.evaluate(say, True)
-                    check(wait_js(pg, "() => %s.muted" % VIDEO, 3000), "8b もう一度鳴ると消音")
-                    check(wait_js(pg, "() => !%s.muted" % VIDEO, 12000), "8b 知らせが 6 秒来なければ(窓を閉じた)元に戻る")
-                    pg.select_option("#rvDuck", "low")
-                other.close()
-
-                # ---------------- 9. 札 → 一覧 → 停止(二度押し) ----------------
-                pg.click("[data-ui-live] .ui-live-btn")
-                check(wait_js(pg, "() => !document.querySelector('.ui-live-panel').hidden", 3000), "9 札を押すと録画の一覧")
-                row_title = pg.text_content(".ui-live-row .ui-live-title") or ""
-                check(row_title == TITLE, "9 一覧の題(文字のまま): %s" % row_title)
-                if shots:
-                    pg.screenshot(path=os.path.join(shots, "live_04_badge_panel.png"))
-                stop = pg.locator(".ui-live-row .btn.danger")
-                stop.click()
-                pg.wait_for_timeout(300)
-                check(pg.evaluate("() => /録画中/.test(document.querySelector('#rvRecState').textContent)"), "9 停止は一度押しただけでは止まらない")
-                stop.click()
-                check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 45000), "9 二度押しで録画が止まる: %s" % pg.text_content("#rvRecState"))
-                check(wait_js(pg, "() => /録画は終わりました/.test(document.querySelector('#rvLiveGuide').textContent)", 10000),
-                      "9 帯が「録画は終わりました…」に変わる: %s" % pg.text_content("#rvLiveGuide"))
-                check(pg.evaluate("() => document.querySelector('#rvLiveBar').classList.contains('is-ended') && document.querySelector('#rvLiveBadge').textContent === '録画'")
-                      and pg.is_hidden("#rvRecStop") and pg.is_hidden("#rvEdge"), "9 帯は終わった見た目(LIVE → 録画・停止とライブ端へは消える)")
-                check(wait_js(pg, "() => /録画終了/.test(document.querySelector('[data-ui-live]').textContent)", 15000),
-                      "9 札が「録画終了」になる: %s" % pg.text_content("[data-ui-live] .ui-live-btn"))
-                # 2026-10-05 の直し 4 点: 止めたら札の一覧は閉じる・「停止」の札に「停止しました」を重ねない・録画ではマークの「ライブ」の印と件数を出さない・標準のコントロールを出さない
-                check(pg.evaluate("() => document.querySelector('.ui-live-panel').hidden"), "9 止めたら札の一覧は閉じる")
-                check("停止しました" not in (pg.text_content("#rvRecMsg") or ""), "9 「停止」の札の横に「停止しました」を重ねない: %s" % pg.text_content("#rvRecMsg"))
-                check(pg.evaluate("() => !document.querySelector('#rvMarkList .rv-chip.live, .rv-mark-row .rv-chip.live') && document.querySelector('#rvLiveMarks').hidden"),
-                      "9 録画ではマークの「ライブ」の印と件数を出さない")
-                check(pg.evaluate("() => { const v = document.querySelector('#rvHost video'); return !!v && v.controls === false; }"), "9 録画のプレイヤーは標準のコントロールを出さない")
-                code, pl = 0, b""
-                try:
-                    with urllib.request.urlopen(base + "/live/r/local/%s/index.m3u8" % rid, timeout=10) as r:
-                        pl = r.read()
-                except urllib.error.URLError:
-                    pass
-                check(b"#EXT-X-ENDLIST" in pl, "9 再生リストに終わりの印")
-                if edge:
-                    check(wait_js(pg, "() => isFinite(%s.duration) && %s.duration > 10" % (VIDEO, VIDEO), 20000),
-                          "9 終わった録画の duration が有限: %s" % pg.evaluate("() => %s.duration" % VIDEO))
-                    pg.evaluate("() => { const v = %s; v.currentTime = Math.max(0, v.duration - 2); v.play(); }" % VIDEO)
-                    check(wait_js(pg, "() => %s.ended || %s.currentTime >= %s.duration - 0.3" % (VIDEO, VIDEO, VIDEO), 10000), "9 最後まで再生できる")
-                else:
-                    skip("9 最後まで再生(再生できない)")
-                if shots:
-                    pg.evaluate("window.scrollTo(0, 0)")
-                    pg.screenshot(path=os.path.join(shots, "live_05_ended.png"))
-
-                # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
-                pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
-                check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
-                # 15. 帯で配信者を直し、書き出したあとを「文字起こしまで」に → 次の(手動の)書き出しに渡る
-                pg.select_option("#rvAfter", "check")
-                pg.click("#rvLiveWho > summary")
-                check(wait_js(pg, "() => document.querySelector('#rvLiveWho').open && !!document.querySelector('#rvLiveWhoIn').offsetParent", 3000), "15 「配信者」を押すと名前の欄が開く")
-                if shots:
-                    pg.evaluate("window.scrollTo(0, 0)")
-                    pg.screenshot(path=os.path.join(shots, "live_00b_band_streamer.png"))
-                pg.fill("#rvLiveWhoIn", "宝鐘マリン")
-                pg.press("#rvLiveWhoIn", "Enter")
-                check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン' && !document.querySelector('#rvLiveWho').open", 5000),
-                      "15 名前を直して Enter → 帯が「配信者: 宝鐘マリン」・欄は閉じる: %s" % pg.text_content("#rvLiveWhoText"))
-                st_mem = wait_for(lambda: (lambda m: m if m["videos"].get(rid) == "宝鐘マリン" and m["channels"].get(CHANNEL) == "宝鐘マリン" else None)(srv.prefs.get(["streamer"])["streamer"]), 8)
-                check(st_mem, "15 直した名前は、この録画とこのチャンネルに覚える(次からそれを使う): %s" % srv.prefs.get(["streamer"])["streamer"])
-                n_handed = len(handed)
-                if edge:
-                    pg.evaluate("() => { const v = %s; v.pause(); v.currentTime = 5; }" % VIDEO)
-                else:
-                    pg.fill("#rvNow", "0:05.0"); pg.keyboard.press("Enter")
-                pg.wait_for_timeout(500)
-                pg.evaluate("() => document.querySelector('#rvIn').click()")
-                if edge:
-                    pg.evaluate("() => { %s.currentTime = 8; }" % VIDEO)
-                else:
-                    pg.fill("#rvNow", "0:08.0"); pg.keyboard.press("Enter")
-                pg.wait_for_timeout(500)
-                pg.evaluate("() => { document.querySelector('#rvOut').click(); document.querySelector('#rvAdd').click(); }")
-                check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n_jobs + 1), 5000), "10 終わった録画にマークを足せる")
-                check(wait_js(pg, "() => !!document.querySelector('#rvList .rv-mark-row.st-cand')", 3000), "10 スイッチを外すとマークは候補のまま(すぐ書き出さない)")
-                pg.click('#rvList .rv-mark-row.st-cand [data-act="st"][data-st="adopted"]')
-                pg.click('#rvJump [data-jump="export"]')
-                pg.wait_for_timeout(400)
-                check(wait_js(pg, "() => !document.querySelector('#rvExpRun').disabled && /1件を書き出す/.test(document.querySelector('#rvExpRun').textContent)", 5000),
-                      "10 「1件を書き出す」が押せる: %s" % pg.text_content("#rvExpRun"))
-                pg.click("#rvExpRun")
-                done2 = wait_for(lambda: (lambda js: len(js) == n_jobs + 1 and all(j["state"] == "done" for j in js) and js)(
-                    (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []), 90, 0.5)
-                check(done2, "10 終わった録画でも「書き出す」で書き出せる")
-                check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_who[-1] == "宝鐘マリン",
-                      "15 直した配信者・「文字起こしまで」が次の書き出しに渡る: %s %s" % (handed[-1:], handed_who[-1:]))
-                check(wait_for(lambda: [m["status"] for m in ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks") or []] == ["exported"] * (n_jobs + 1), 15),
-                      "10 2つ目のマークも「書き出し済み」")
-                if done2:
-                    j2 = next(j for j in done2 if abs(j["studio"]["start"] - 5) < 1)
-                    info = normalize.probe(j2["path"])
-                    check(normalize.is_30fps(info) and abs(info.get("duration", 0) - (j2["studio"]["end"] - j2["studio"]["start"])) <= 0.15,
-                          "10 2本目も 30fps・長さが区間と合う: %.2f 秒" % (info or {}).get("duration", 0))
-                pg.click("#rvExpClose")
-
-                # ---------------- 12. 読み込み直す ----------------
-                pg.goto(studio_url + "?video=" + rid)
-                check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden && document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n_jobs + 1), 15000),
-                      "12 ?video=<id> で開き直すと、その録画が開いてマークが残っている")
-                check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")
-                check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.exported').length") == n_jobs + 1, "12 マークは全部「書き出し済み」")
-                check(pg.input_value("#rvAfter") == "check" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
-                      "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
-
-                # ---------------- 11 の続き: 次の begin はその画質で ----------------
-                # 画面の Studio.live.begin(① 探す の「録画する」と同じ呼び方)。yt-dlp がチャンネル名を返さないときは、呼んだ側の名前(① 探す の行)を入れる
-                live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": "", "message": ""}
-                b2 = pg.evaluate("async (u) => { const b = await Studio.live.begin(u, { channel: 'Marine Ch. 宝鐘マリン' }); return b && { id: b.video.id, channel: b.video.channel, rch: b.recording.channel }; }", YT2)
-                rid2 = (b2 or {}).get("id")
-                check(b2 and starts[-1]["quality"] == "720p" and starts[-1]["url"] == YT2,
-                      "11 次の begin は設定の画質 720p で録画元へ頼む: %s" % (starts[-1] if starts else None))
-                check(b2 and b2["rch"] == "" and b2["channel"] == "Marine Ch. 宝鐘マリン",
-                      "15 begin がチャンネル名を返さないときは、呼んだ側(① 探す の行)の名前がスタジオの配信に入る: %s" % b2)
-                if rid2:
-                    code, d = api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid2})
-                    check(code == 200 and d.get("ok"), "11 2本目を止める")
-
-                # ---------------- M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt。画面を閉じていても) ----------------
-                pg.goto("about:blank")   # スタジオの画面を閉じる(③ でこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
-                n_handed = len(handed)
-
-                def marks_of(v):
-                    return ((api("GET", "/studio/api/video?id=%s" % v)[1] or {}).get("video") or {}).get("marks") or []
-                code, ad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.04, "end": 13.0, "label": "自動の山", "origin": "auto"})
-                check(code == 200 and ad and ad["origin"] == "auto" and ad["existing"] is False and ad["job"]["after"] == "check",
-                      "M1 adopt を受け付ける(after は設定 live.auto.after = 既定の文字起こしまで): %s" % ((ad or {}).get("job") or ad,))
-                jid = ((ad or {}).get("job") or {}).get("id")
-                done3 = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(
-                    [j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j["id"] == jid]), 90, 0.5)
-                check(done3 and done3["state"] == "done", "M1 画面なしで書き出しまで通る: %s" % (((done3 or {}).get("state"), (done3 or {}).get("error")),))
-                mk3 = wait_for(lambda: (lambda m: m if m and m["status"] == "exported" else None)(next((m for m in marks_of(rid) if m["id"] == (ad or {}).get("mark")), None)), 15)
-                check(mk3 and mk3["start"] == 10.0 and mk3["end"] == 13.0 and done3 and os.path.normcase(mk3.get("path") or "") == os.path.normcase(done3["path"]),
-                      "M1 スタジオの一覧にマークが出て「書き出し済み」(入口が付けた。区間はスタジオの丸め): %s" % (mk3,))
-                if done3 and done3["state"] == "done":
-                    clip3, _w = schemas.load_clip_file(schemas.find_clip_path(done3["path"]))
-                    check(clip3 and clip3["source"]["live"]["origin"] == "auto" and clip3["mark"]["src"] == "auto" and clip3["source"]["live"]["studio"]["mark"] == mk3["id"],
-                          "M1 .clip.json に origin auto(mark.src も auto): %s" % ((clip3 or {}).get("mark"),))
-                    info3 = normalize.probe(done3["path"])
-                    check(normalize.is_30fps(info3) and abs(info3.get("duration", 0) - 3.0) <= 0.15, "M1 30fps・長さが区間と合う: %.2f 秒" % (info3 or {}).get("duration", 0))
-                check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_kw[-1] == {"engine": "whisper.cpp", "model": "large-v3"},
-                      "M2 live.auto のエンジン・モデルがまとめて実行へ渡る: %s %s" % (handed[-1:], handed_kw[-1:]))
-                try:
-                    with open(os.path.join(live.store_dir, LX.FEEDBACK), encoding="utf-8") as f:
-                        fb3 = [json.loads(x) for x in f if x.strip()]
-                except OSError:
-                    fb3 = []
-                check(fb3 and fb3[-1]["origin"] == "auto" and fb3[-1]["human"] is False and fb3[-1]["verdict"] is None and fb3[-1]["jobId"] == jid,
-                      "M1 live_feedback.jsonl に origin(自動は「良い」に数えない): %s" % fb3[-1:])
-                code, ad2 = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.0, "end": 13.0, "origin": "auto"})
-                check(code == 200 and ad2["existing"] is True and ad2["job"]["id"] == jid and len(marks_of(rid)) == n_jobs + 2,
-                      "M1 同じ区間をもう一度 → 新しく作らない(マークもジョブも増えない)")
-                code, bad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 1.0, "end": 3.0, "origin": "robot"})
-                check(code == 400, "M1 origin は manual・auto・archive だけ: %s" % (code,))
-                pg.goto(studio_url + "?video=" + rid)
-                check(wait_js(pg, "() => Studio.step === 'review' && document.querySelectorAll('#rvList .rv-chip.exported').length === %d" % (n_jobs + 2), 15000),
-                      "M1 ③ で開くと、足したマークも「書き出し済み」")
-                # M3: 「調子」にリアルタイム切り抜きの失敗の行(この通しでは失敗が無い = 「なし」)
-                code, hh = api("GET", "/api/health")
-                check(code == 200 and isinstance(((hh or {}).get("live") or {}).get("failures"), list), "M3 「調子」の live に failures: %s" % (((hh or {}).get("live") or {}).get("failures"),))
-
-                # ---------------- 14. 狭い画面・エラー ----------------
-                pg.set_viewport_size({"width": 375, "height": 812})
-                pg.wait_for_timeout(400)
-                check(pg.evaluate(NO_HSCROLL_JS), "14 375px の ③(録画を開いている)で横にはみ出さない")
-                wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden; }", 15000)
-                if pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !!b && !b.hidden; }"):
-                    pg.click("[data-ui-live] .ui-live-btn")
-                    pg.wait_for_timeout(300)
-                    check(pg.evaluate(NO_HSCROLL_JS) and pg.evaluate("() => { const r = document.querySelector('.ui-live-panel').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1; }"),
-                          "14 375px で札の一覧が画面に収まる")
-                    if shots:
-                        pg.screenshot(path=os.path.join(shots, "live_06_narrow_badge.png"))
-                    pg.keyboard.press("Escape")
-                if shots:
-                    pg.evaluate("window.scrollTo(0, 0)")
-                    pg.screenshot(path=os.path.join(shots, "live_07_narrow.png"), full_page=True)
-                # 想定内: ホームの画面は「編集」の /transcribe/api/transcripts を読むが、このテストはスタジオだけを取り込む(編集は無い)ので 404
-                # 想定内: Edge は /favicon.ico を自分で読みに行く(どのツールの画面にもアイコンは無い。画面のコードの要求ではない)
-                not_found[:] = [x for x in not_found if not (x.startswith("home: ") and "/transcribe/" in x) and not x.endswith("/favicon.ico")]
-                errors[:] = [x for x in errors if not ("404" in x and ((x.startswith("home: ") and "/transcribe/" in x) or "/favicon.ico" in x))]
-                csp = pg.evaluate("() => window.__csp")
-                check(not csp, "14 CSP の違反なし: %s" % csp)
-                check(not errors, "14 コンソールのエラーなし: %s" % errors[:6])
-                check(not not_found, "14 404 なし: %s" % not_found[:6])
+                cx.__dict__.update(locals())   # 場面の関数へ渡す値(この run の中の値。場面が作って、あとで使う値は場面が cx に戻す)
+                _scene_off(cx)
+                _scene_turn_on(cx)
+                _scene_begin_and_play(cx)
+                _scene_mark_and_export(cx)
+                _scene_seek_and_leave(cx)
+                _scene_gap(cx)
+                _scene_settings_and_sound(cx)
+                _scene_badge_stop(cx)
+                _scene_after_end(cx)
+                _scene_adopt_api(cx)
+                _scene_narrow_and_errors(cx)
             finally:
                 browser.close()
     finally:
-        for r in (rid, rid2):
+        for r in (getattr(cx, k, None) for k in ("rid", "rid2")):   # 場面の関数が録画を始めたら cx に入れる
             if not r:
                 continue
             try:
@@ -785,6 +307,552 @@ def run(tmp, shots, force_chromium):
     print("結果: %d 件中 %d 件 OK" % (len(results), sum(results)))
     print("ALL OK" if ok else "SOME FAILED", flush=True)
     return 0 if ok else 1
+
+
+def _scene_off(cx):
+    """13. オフのとき"""
+    check, ctx, errors, not_found, probes, studio_url, watch = cx.check, cx.ctx, cx.errors, cx.not_found, cx.probes, cx.studio_url, cx.watch
+    # ---------------- 13. オフのとき ----------------
+    pg = ctx.new_page()
+    watch(pg, "off")
+    queued = []
+
+    def fake_queue(route):
+        queued.append(route.request.post_data_json)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"added": [], "rejected": []}))
+    pg.route("**/studio/api/queue/add", fake_queue)
+    begins = []
+    pg.on("request", lambda r: begins.append(r.url) if "/live/api/begin" in r.url else None)
+    pg.goto(studio_url)
+    wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
+    pg.click('#steps [data-step="queue"]')
+    pg.fill("#qUrls", YT1)
+    pg.click("#qAdd")
+    check(wait_for(lambda: queued, 10), "13 オフ: URL を入れて「解析に追加」→ 今までどおり /api/queue/add: %s" % queued[:1])
+    check(not begins and not probes, "13 オフ: begin に進まない(配信の状態も調べない)")
+    pg.wait_for_timeout(500)
+    check(pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !b || b.hidden; }"), "13 オフ: ヘッダーに録画の札が出ない")
+    pg.close()
+    # オフのときの 404(入口の ../live/api/info は機能がオフなら 404 = 画面が「使えない」と知る手段)は想定内
+    not_found[:] = [x for x in not_found if not x.startswith("off: ") or not x.endswith("/live/api/info")]
+    errors[:] = [x for x in errors if not (x.startswith("off: ") and "404" in x)]
+    cx.pg = pg
+
+
+def _scene_turn_on(cx):
+    """1. ホームでオンにする"""
+    base, check, ctx, srv, watch = cx.base, cx.check, cx.ctx, cx.srv, cx.watch
+    # ---------------- 1. ホームでオンにする ----------------
+    pg = ctx.new_page()
+    watch(pg, "home")
+    pg.goto(base + "/")
+    pg.evaluate("document.getElementById('advancedBox').open = true")
+    wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden")
+    pg.click("#liveEnabled")
+    check(wait_js(pg, "document.getElementById('liveMsg').hidden === false") and srv.prefs.get(["live"])["live"]["enabled"] is True,
+          "1 ホームの「試験中の機能」でオンにする")
+    # M2: オンにすると「書き出したあとの自動の流れ」(live.auto)の欄が出て、選ぶと設定に入る
+    check(wait_js(pg, "!document.getElementById('liveAutoBox').hidden", 5000), "M2 ホームの「試験中の機能」に「書き出したあとの自動の流れ」が出る")
+    pg.evaluate("document.getElementById('liveAutoBox').open = true")
+    pg.select_option("#liveAutoEngine", "whisper.cpp")
+    pg.fill("#liveAutoModel", "large-v3")
+    pg.press("#liveAutoModel", "Tab")
+    check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),
+          "M2 エンジン・モデルを選ぶと live.auto に入る: %s" % srv.prefs.get(["live"])["live"]["auto"])
+    # M7: 配信後の全自動のスイッチと 1 時間あたりの数(既定オフ・6)
+    check(pg.evaluate("document.getElementById('liveAfterStream').checked") is False and pg.input_value("#liveAfterPerHour") == "6",
+          "M7 「配信が終わったら、アーカイブの解析で自動で切り抜く」は既定オフ・1 時間あたり 6")
+    pg.click("#liveAfterStream")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is True, 8), "M7 付けると live.autoAfterStream = true")
+    pg.fill("#liveAfterPerHour", "8")
+    pg.press("#liveAfterPerHour", "Tab")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["afterStreamPerHour"] == 8, 8), "M7 1 時間あたりを 8 に")
+    pg.click("#liveAfterStream")   # 外す(この e2e の録画で配信後の全自動を動かさない)
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is False, 8), "M7 外すと live.autoAfterStream = false")
+    pg.close()
+    cx.pg = pg
+
+
+def _scene_begin_and_play(cx):
+    """2. ② の URL 欄から録画を始める / 3. 自動で再生・録画中・札"""
+    LX, api, check, ctx, edge, shots, skip, starts = cx.LX, cx.api, cx.check, cx.ctx, cx.edge, cx.shots, cx.skip, cx.starts
+    studio_url, watch = cx.studio_url, cx.watch
+    # ---------------- 2. ② の URL 欄から録画を始める ----------------
+    pg = ctx.new_page()
+    watch(pg, "studio")
+    pg.goto(studio_url)
+    wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
+    wait_js(pg, "() => !document.querySelector('#rvOpenForm .rv-openlive').hidden", 8000)
+    pg.click('#steps [data-step="queue"]')
+    pg.fill("#qUrls", YT1)
+    pg.click("#qAdd")
+    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000),
+          "2 録画が始まり、自動で ③ 確認・書き出しへ移って LIVE の帯(録画の行)が出る")
+    code, vs = api("GET", "/studio/api/videos")
+    lv = [v for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"]
+    rid = cx.rid = lv[0]["id"] if lv else None
+    check(len(lv) == 1 and LX.REC_RE.match(rid or "") and lv[0]["live"]["url"] == YT1 and lv[0]["live"]["recorder"] == "local"
+          and lv[0]["live"]["videoId"] == "TESTlive001", "2 スタジオの一覧に kind live の配信(id = 録画の id): %s" % (lv[:1],))
+    check(lv and lv[0]["title"] == TITLE, "2 題は yt-dlp の題(HTML にしない): %s" % (lv[0]["title"] if lv else None))
+    check(pg.evaluate("() => document.querySelector('#rvTitle').value") == TITLE and pg.evaluate("() => !document.querySelector('#rvTitle b')"),
+          "2 ③ の題の欄に配信の題")
+    check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
+    check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
+
+    # ---------------- 3. 自動で再生・録画中・札 ----------------
+    check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 20000),
+          "3 録画の状態が「録画中」: %s" % pg.text_content("#rvRecState"))
+    check(pg.is_visible("#rvLiveBar") and pg.text_content("#rvLiveBadge") == "LIVE", "3 LIVE の帯が出る")
+    if edge:
+        check(wait_js(pg, "() => { const v = %s; return v && !v.paused && v.currentTime > 0.5; }" % VIDEO, 25000), "3 数秒で再生が自動で始まる(Edge)")
+        t1 = pg.evaluate("() => %s.currentTime" % VIDEO)
+        pg.wait_for_timeout(1500)
+        t2 = pg.evaluate("() => %s.currentTime" % VIDEO)
+        check(t2 > t1 + 0.8, "3 再生位置が進む: %.2f → %.2f" % (t1, t2))
+        check(pg.evaluate("() => !!window.__hls && !!window.__hls.playingDate"), "3 hls.js で再生している(playingDate がある)")
+    else:
+        check(wait_js(pg, "() => !!%s" % VIDEO, 20000), "3 録画のプレーヤーができる(chromium: H.264 は再生できないので読み込みまで)")
+        skip("3 自動再生(chromium は H.264 を再生できない)")
+    check(wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden && /録画中 1/.test(b.textContent); }", 15000),
+          "3 ヘッダーに「録画中 1」の札")
+    guide = pg.text_content("#rvLiveGuide") or ""
+    check("マーク" in guide and pg.is_visible("#rvLiveGuide"), "3 次にすることの案内: %s" % guide)
+    # 15. 書き出したあと・配信者(帯)
+    check(pg.input_value("#rvAfter") == "check" and pg.is_visible("#rvAfter"), "15 帯の「書き出したあと」は既定で「文字起こしまで」(今までの自動の文字起こしがオン)")
+    check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 兎田ぺこら'", 8000),
+          "15 帯の「配信者」はチャンネル名から自動で決まる: %s" % pg.text_content("#rvLiveWhoText"))
+    pg.select_option("#rvAfter", "auto")
+    check(wait_for(lambda: ((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review", {}).get("liveAfter") == "auto", 8),
+          "15 「全自動」を選ぶとスタジオの設定 review.liveAfter に残る")
+    if shots:
+        pg.evaluate("window.scrollTo(0, 0)")
+        pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_00_band.png"))
+
+    # 8. 見回りで作り直されないか(ここで要素を掴んでおく)
+    pg.evaluate("""() => { window.__keep = ['#rvLiveBar', '#rvRecState', '#rvAutoExp', '#rvRecStop', '#rvLiveGuide', '#rvEdge', '#rvTitle',
+                  '[data-ui-live] .ui-live-btn', '#rvAfter', '#rvLiveWho', '#rvLiveWhoIn', '#rvLiveWhoText'].map(s => [s, document.querySelector(s)]); }""")
+    keep_at = time.time()
+    cx.keep_at, cx.pg = keep_at, pg
+
+
+def _scene_mark_and_export(cx):
+    """4・5. I → O → 追加 → すぐ書き出す"""
+    LX, api, check, edge, handed, handed_who, normalize, pg = cx.LX, cx.api, cx.check, cx.edge, cx.handed, cx.handed_who, cx.normalize, cx.pg
+    rid, schemas, shots, skip = cx.rid, cx.schemas, cx.shots, cx.skip
+    # ---------------- 4・5. I → O → 追加 → すぐ書き出す ----------------
+    check(pg.is_checked("#rvAutoExp"), "4 「マークしたらすぐ書き出す」は既定オン")
+    if edge:
+        wait_js(pg, "() => %s.currentTime > 3" % VIDEO, 15000)
+    at_in = pg.evaluate("() => { const pd = window.__hls && window.__hls.playingDate; document.querySelector('#rvIn').click(); return pd ? pd.getTime() : null; }")
+    pg.wait_for_timeout(3200)
+    at_out = pg.evaluate("() => { const pd = window.__hls && window.__hls.playingDate; document.querySelector('#rvOut').click(); return pd ? pd.getTime() : null; }")
+    pg.evaluate("() => document.querySelector('#rvAdd').click()")
+    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === 1", 5000), "4 マークが1つ付く")
+    seen = []
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        t = pg.evaluate("() => [...document.querySelectorAll('#rvExpList .rv-ejob .pill')].map(x => x.textContent.trim()).join('|')")
+        if t and (not seen or seen[-1] != t):
+            seen.append(t)
+        if "済み" in t or "失敗" in t:
+            break
+        time.sleep(0.15)
+    check(seen and "済み" in seen[-1], "4 書き出しの欄の状態: %s" % " → ".join(seen))
+    check(any(s.startswith(("録画待ち", "取得中", "作り直し中")) for s in seen), "4 途中の状態(録画待ち・取得中・作り直し中)が欄に出る")
+    code, jj = api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)
+    jobs = (jj or {}).get("jobs") or []
+    job = next((j for j in jobs if j.get("studio")), None)
+    check(code == 200 and len(jobs) == 1 and job and job["state"] == "done", "4 入口の書き出しのジョブ(この録画で絞った一覧): %s" % [(j.get("id"), j.get("state")) for j in jobs])
+    code, other = api("GET", "/live/api/exports?recorder=local&recording=20991231-000000")
+    check(code == 200 and other.get("jobs") == [], "4 別の録画で絞ると空")
+    code, vv = api("GET", "/studio/api/video?id=%s" % rid)
+    mk = ((vv or {}).get("video") or {}).get("marks") or []
+    if job and job["state"] == "done":
+        info = normalize.probe(job["path"])
+        want = mk[0]["end"] - mk[0]["start"] if mk else 0
+        check(normalize.is_30fps(info), "4 書き出した mp4 は 30fps: %s" % (info or {}).get("r_frame_rate"))
+        check(abs((info or {}).get("duration", 0) - want) <= 0.15, "4 長さが区間と合う: %.2f 秒(区間 %.2f 秒)" % ((info or {}).get("duration", 0), want))
+        clip, warn = schemas.load_clip_file(schemas.find_clip_path(job["path"]))
+        check(clip and clip["source"]["kind"] == "live" and clip["source"]["live"]["studio"]["video"] == rid and clip["source"]["live"]["url"] == YT1,
+              "4 .clip.json の source.kind は live(スタジオの配信・配信の URL): %s" % ((clip or {}).get("source"), ))
+        check(clip and clip["source"].get("title") == TITLE, "4 .clip.json の題は配信の題: %s(%s)" % ((clip or {}).get("source", {}).get("title"), job["path"]))
+        check(handed and handed[0] == (job["path"], "auto"), "15 帯で「全自動」→ 入口がまとめて実行へ flow auto で渡す: %s" % handed[:1])
+        check(handed_who[:1] == ["兎田ぺこら"], "15 配信者の名前(チャンネル名から)もまとめて実行へ渡る: %s" % handed_who[:1])
+        check(job.get("after") == "auto" and job.get("streamer") == "兎田ぺこら", "15 ジョブに after と streamer が残る: %s %s" % (job.get("after"), job.get("streamer")))
+        check(wait_js(pg, "() => { const t = document.querySelector('#rvExpList').textContent; return t.includes('文字起こし → パック: 実行中') && t.includes('Resolve パック'); }", 10000),
+              "15 書き出しの行に、まとめて実行の進み具合(全自動: 文字起こし → パック)")
+        ok_exp = wait_for(lambda: (lambda m: m and m[0]["status"] == "exported" and os.path.normcase(m[0].get("path") or "") == os.path.normcase(job["path"]))(
+            ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks")), 15)
+        check(ok_exp, "4 スタジオのマークが「書き出し済み」(path は書き出した mp4)")
+        check(wait_js(pg, "() => !!document.querySelector('#rvList .rv-mark-row .rv-chip.exported')", 8000), "4 ③ のマークの行に「書き出し済み」")
+        # 5. マークの位置(書き出しの絶対時刻とマークした時点の hls.playingDate)
+        if edge and at_in and at_out:
+            d_in = LX.iso_epoch(job["start"]) - at_in / 1000
+            d_out = LX.iso_epoch(job["end"]) - at_out / 1000
+            check(abs(d_in) <= 0.3 and abs(d_out) <= 0.3, "5 書き出した区間の絶対時刻 = マークした時点の playingDate ± 0.3 秒(開始 %+.3f 秒・終了 %+.3f 秒)" % (d_in, d_out))
+        else:
+            skip("5 マークの位置(再生できないので playingDate が無い)")
+    if shots:
+        pg.evaluate("window.scrollTo(0, 0)")
+        pg.screenshot(path=os.path.join(shots, "live_01_recording_marked_exported.png"))
+        pg.click('#rvJump [data-jump="export"]')
+        pg.wait_for_timeout(400)
+        pg.screenshot(path=os.path.join(shots, "live_02_export_drawer.png"))
+        pg.click("#rvExpClose")
+        pg.wait_for_timeout(300)
+
+
+def _scene_seek_and_leave(cx):
+    """6. シーク / 7. ③ を離れると止まる / 8. 作り直されない"""
+    check, edge, keep_at, pg, skip = cx.check, cx.edge, cx.keep_at, cx.pg, cx.skip
+    # ---------------- 6. シーク ----------------
+    if edge:
+        before = pg.evaluate("() => %s.currentTime" % VIDEO)
+        box = pg.locator("#rvTl").bounding_box()
+        pg.mouse.click(box["x"] + 3, box["y"] + box["height"] / 2)
+        check(wait_js(pg, "() => %s.currentTime < 3" % VIDEO, 5000), "6 タイムラインの頭を押すと頭へ戻る: %.1f → %.1f" % (before, pg.evaluate("() => %s.currentTime" % VIDEO)))
+        pg.click("#rvEdge")
+        check(wait_js(pg, "() => %s.currentTime > %f" % (VIDEO, before - 4), 5000), "6 「ライブ端へ」で端へ戻る: %.1f" % pg.evaluate("() => %s.currentTime" % VIDEO))
+    else:
+        skip("6 シーク(再生できない)")
+
+    # ---------------- 7. ③ を離れると止まる ----------------
+    if edge:
+        wait_js(pg, "() => !%s.paused" % VIDEO, 5000)
+        pg.click('#steps [data-step="queue"]')
+        check(wait_js(pg, "() => %s.paused" % VIDEO, 3000), "7 ② へ移ると再生が止まる")
+        pos = pg.evaluate("() => %s.currentTime" % VIDEO)
+        pg.wait_for_timeout(1200)
+        pg.click('#steps [data-step="review"]')
+        check(wait_js(pg, "() => !!%s && Math.abs(%s.currentTime - %f) < 0.5" % (VIDEO, VIDEO, pos)) and not pg.is_hidden("#rvLiveRec"),
+              "7 戻ると同じ録画が開いていて、止めた位置から")
+        pg.evaluate("() => document.activeElement && document.activeElement.blur()")
+        pg.keyboard.press("Space")   # 再生・停止(共通の再生キー)
+        check(wait_js(pg, "() => !%s.paused" % VIDEO, 3000), "7 戻ってから再生を続けられる")
+    else:
+        skip("7 離れると止まる(再生できない)")
+
+    # ---------------- 8. 作り直されない ----------------
+    rest = 10 - (time.time() - keep_at)
+    if rest > 0:
+        pg.wait_for_timeout(int(rest * 1000))
+    pg.evaluate("() => { window.__keepRow = document.querySelector('#rvExpList .rv-ejob'); }")
+    pg.wait_for_timeout(4000)
+    gone = pg.evaluate("() => window.__keep.filter(([s, el]) => !el || !el.isConnected).map(([s]) => s).concat(window.__keepRow && window.__keepRow.isConnected ? [] : ['#rvExpList .rv-ejob'])")
+    check(not gone, "8 見回り(10 秒余り)で帯・札・書き出しの行が作り直されない: %s" % gone)
+    check(pg.input_value("#rvAfter") == "auto" and pg.text_content("#rvLiveWhoText") == "配信者: 兎田ぺこら",
+          "15 見回りのあとも「書き出したあと」と配信者の値が戻らない: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
+
+
+def _scene_gap(cx):
+    """欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置"""
+    LX, api, check, edge, live_src, normalize, pg, rid = cx.LX, cx.api, cx.check, cx.edge, cx.live_src, cx.normalize, cx.pg, cx.rid
+    skip = cx.skip
+    # ---------------- 欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置 ----------------
+    live_src.down = True
+    check(wait_js(pg, "() => /つなぎ直し中/.test(document.querySelector('#rvRecState').textContent)", 30000),
+          "欠け: 配信が切れると「つなぎ直し中」: %s" % pg.text_content("#rvRecState"))
+    pg.wait_for_timeout(3000)
+    live_src.down = False
+    check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent) && /つなぎ直し 1 回/.test(document.querySelector('#rvRecMsg').textContent)", 45000),
+          "欠け: 戻ると「録画中」と「つなぎ直し 1 回」: %s %s" % (pg.text_content("#rvRecState"), pg.text_content("#rvRecMsg")))
+    n_jobs = 1
+    if edge:
+        GAP_JS = """() => { const h = window.__hls; const lv = h && h.levels && h.levels[Math.max(0, h.currentLevel)]; const fr = lv && lv.details ? lv.details.fragments : [];
+                      if (fr.length < 2) return null; const base = fr[0].programDateTime;
+                      for (let i = 0; i + 1 < fr.length; i++){ const e = fr[i].programDateTime + fr[i].duration * 1000, n = fr[i + 1].programDateTime;
+                        if (n - e > 1500) return { from: (e - base) / 1000, to: (n - base) / 1000, media: fr[i + 1].start, last: (fr[fr.length - 1].programDateTime - base) / 1000 }; }
+                      return null; }"""
+        gap = None
+        end = time.time() + 30
+        while time.time() < end:
+            gap = pg.evaluate(GAP_JS)
+            if gap and gap["last"] > gap["to"] + 4:
+                break
+            time.sleep(0.5)
+        check(gap, "欠け: 再生リストの受信時刻に欠けがある: %s" % gap)
+        if gap:
+            mid = (gap["from"] + gap["to"]) / 2
+            pg.evaluate("() => %s.pause()" % VIDEO)   # 止めてから移す(再生を続けると位置が進んで比べられない)
+            pg.wait_for_timeout(300)
+            pg.fill("#rvNow", "%d:%04.1f" % (int(mid // 60), mid % 60))
+            pg.press("#rvNow", "Enter")
+            pg.wait_for_timeout(800)
+            ct = pg.evaluate("() => %s.currentTime" % VIDEO)
+            now = pg.input_value("#rvNow")
+            mm, ss = now.split(":")[-2:]
+            now_s = int(mm) * 60 + float(ss)
+            check(abs(ct - gap["media"]) < 0.6 and now_s >= gap["to"] - 0.3,
+                  "欠け: 欠けの中(%.1f 秒)へ移ると、欠けのあとの頭(%.1f 秒・メディア %.2f)から: currentTime %.2f・時刻の欄 %s"
+                  % (mid, gap["to"], gap["media"], ct, now))
+            dur_shown = pg.text_content("#rvDur") or ""
+            check(abs(float(dur_shown.split(":")[-1]) + 60 * int(dur_shown.replace("/", "").strip().split(":")[-2]) - gap["last"]) < 4,
+                  "欠け: 録画の長さは欠けの間も進む(受信時刻の幅): 表示 %s・最後のセグメント %.1f 秒" % (dur_shown, gap["last"]))
+            # 欠けのあとでマーク(ライブ端の近く)→ 書き出しの絶対時刻 = playingDate
+            pg.click("#rvEdge")
+            pg.wait_for_timeout(2500)
+            a_in = pg.evaluate("() => { const pd = window.__hls.playingDate; document.querySelector('#rvIn').click(); return pd ? pd.getTime() : null; }")
+            pg.wait_for_timeout(2500)
+            a_out = pg.evaluate("() => { const pd = window.__hls.playingDate; document.querySelector('#rvOut').click(); document.querySelector('#rvAdd').click(); return pd ? pd.getTime() : null; }")
+            n_jobs = 2
+            jobs = wait_for(lambda: (lambda js: len(js) == 2 and all(j["state"] in ("done", "error") for j in js) and js)(
+                (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []), 90, 0.5)
+            jg = jobs and max(jobs, key=lambda j: j["studio"]["start"])
+            check(jg and jg["state"] == "done", "欠け: 欠けのあとのマークも書き出せる: %s %s" % ((jg or {}).get("state"), (jg or {}).get("error")))
+            if jg and jg["state"] == "done" and a_in and a_out:
+                d_in, d_out = LX.iso_epoch(jg["start"]) - a_in / 1000, LX.iso_epoch(jg["end"]) - a_out / 1000
+                check(abs(d_in) <= 0.3 and abs(d_out) <= 0.3, "5 欠けのあとでも、書き出した区間の絶対時刻 = playingDate ± 0.3 秒(開始 %+.3f 秒・終了 %+.3f 秒)" % (d_in, d_out))
+                info = normalize.probe(jg["path"])
+                check(normalize.is_30fps(info) and abs(info.get("duration", 0) - (jg["studio"]["end"] - jg["studio"]["start"])) <= 0.15,
+                      "欠け: 欠けのあとの書き出しも 30fps・長さが区間と合う: %.2f 秒" % info.get("duration", 0))
+    else:
+        skip("欠けをまたぐ seek・欠けのあとのマークの位置(再生できない)")
+    cx.n_jobs = n_jobs
+
+
+def _scene_settings_and_sound(cx):
+    """11. 設定の引き出し / 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す"""
+    base, check, ctx, edge, pg, rfolder, shots, srv = cx.base, cx.check, cx.ctx, cx.edge, cx.pg, cx.rfolder, cx.shots, cx.srv
+    # ---------------- 11. 設定の引き出し ----------------
+    pg.click("#btnSettings")
+    check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "11 設定の引き出しに「ライブの録画」")
+    check(wait_js(pg, "() => /空き/.test(document.querySelector('#liveFree').textContent) && document.querySelector('#liveFolderNow').textContent.toLowerCase() === %s"
+                  % json.dumps(rfolder.lower()), 8000),
+          "11 置き場所と空き: %s / %s" % (pg.text_content("#liveFolderNow"), pg.text_content("#liveFree")))
+    check(wait_js(pg, "() => document.querySelector('#liveFolderSave').disabled", 5000), "11 録画中は置き場所を変えられない")
+    check(pg.input_value("#liveQuality") == "1080p", "11 画質の既定は 1080p")
+    pg.select_option("#liveQuality", "720p")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["quality"] == "720p", 5), "11 画質を変えると設定 live.quality に残る")
+    if shots:
+        pg.screenshot(path=os.path.join(shots, "live_03_settings.png"))
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(300)
+
+    # ---------------- 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す(UIKit.sound。2026-10-05) ----------------
+    other = ctx.new_page()
+    other.goto(base + "/")
+    other.evaluate("() => { window.__got = []; window.__ch = new BroadcastChannel('ytt-sound'); window.__ch.onmessage = e => window.__got.push(e.data); }")
+    say = "(on) => window.__ch.postMessage({ id: 'e2e-editor', tool: 'transcribe', playing: on })"
+    check(pg.evaluate("() => document.querySelector('#rvDuck').value") == "low" and pg.is_hidden("#rvDuckNote"), "8b 既定は「音を下げる」・鳴っていなければ案内なし")
+    if edge:
+        pg.evaluate("() => { const v = %s; v.muted = false; v.play().catch(() => {}); }" % VIDEO)
+        vol0 = pg.evaluate("() => %s.volume" % VIDEO)
+        check(wait_js(other, "() => window.__got.some(d => d.tool === 'studio' && d.playing === true)", 8000), "8b スタジオの配信が鳴っている間、ほかの窓へ知らせる")
+        other.evaluate(say, True)
+        check(wait_js(pg, "() => Math.abs(%s.volume - %s * 0.2) < 0.02 && !%s.muted && !document.querySelector('#rvDuckNote').hidden" % (VIDEO, vol0, VIDEO), 5000),
+              "8b 編集で再生中: 配信の音を 2 割に下げて、案内を出す: %s" % pg.evaluate("() => %s.volume" % VIDEO))
+        pg.select_option("#rvDuck", "mute")
+        check(wait_js(pg, "() => %s.muted" % VIDEO, 3000) and "消しています" in (pg.text_content("#rvDuckNote") or ""), "8b 「音を消す」に切り替えると消音")
+        check(pg.evaluate("() => document.querySelector('#rvMute').checked") is False, "8b 設定の消音そのものは変えない")
+        other.evaluate(say, False)
+        check(wait_js(pg, "() => !%s.muted && Math.abs(%s.volume - %s) < 0.02 && document.querySelector('#rvDuckNote').hidden" % (VIDEO, VIDEO, vol0), 5000), "8b 編集の再生が止まると元の音に戻る")
+        other.evaluate(say, True)
+        check(wait_js(pg, "() => %s.muted" % VIDEO, 3000), "8b もう一度鳴ると消音")
+        check(wait_js(pg, "() => !%s.muted" % VIDEO, 12000), "8b 知らせが 6 秒来なければ(窓を閉じた)元に戻る")
+        pg.select_option("#rvDuck", "low")
+    other.close()
+
+
+def _scene_badge_stop(cx):
+    """9. 札 → 一覧 → 停止(二度押し)"""
+    base, check, edge, pg, rid, shots, skip = cx.base, cx.check, cx.edge, cx.pg, cx.rid, cx.shots, cx.skip
+    # ---------------- 9. 札 → 一覧 → 停止(二度押し) ----------------
+    pg.click("[data-ui-live] .ui-live-btn")
+    check(wait_js(pg, "() => !document.querySelector('.ui-live-panel').hidden", 3000), "9 札を押すと録画の一覧")
+    row_title = pg.text_content(".ui-live-row .ui-live-title") or ""
+    check(row_title == TITLE, "9 一覧の題(文字のまま): %s" % row_title)
+    if shots:
+        pg.screenshot(path=os.path.join(shots, "live_04_badge_panel.png"))
+    stop = pg.locator(".ui-live-row .btn.danger")
+    stop.click()
+    pg.wait_for_timeout(300)
+    check(pg.evaluate("() => /録画中/.test(document.querySelector('#rvRecState').textContent)"), "9 停止は一度押しただけでは止まらない")
+    stop.click()
+    check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 45000), "9 二度押しで録画が止まる: %s" % pg.text_content("#rvRecState"))
+    check(wait_js(pg, "() => /録画は終わりました/.test(document.querySelector('#rvLiveGuide').textContent)", 10000),
+          "9 帯が「録画は終わりました…」に変わる: %s" % pg.text_content("#rvLiveGuide"))
+    check(pg.evaluate("() => document.querySelector('#rvLiveBar').classList.contains('is-ended') && document.querySelector('#rvLiveBadge').textContent === '録画'")
+          and pg.is_hidden("#rvRecStop") and pg.is_hidden("#rvEdge"), "9 帯は終わった見た目(LIVE → 録画・停止とライブ端へは消える)")
+    check(wait_js(pg, "() => /録画終了/.test(document.querySelector('[data-ui-live]').textContent)", 15000),
+          "9 札が「録画終了」になる: %s" % pg.text_content("[data-ui-live] .ui-live-btn"))
+    # 2026-10-05 の直し 4 点: 止めたら札の一覧は閉じる・「停止」の札に「停止しました」を重ねない・録画ではマークの「ライブ」の印と件数を出さない・標準のコントロールを出さない
+    check(pg.evaluate("() => document.querySelector('.ui-live-panel').hidden"), "9 止めたら札の一覧は閉じる")
+    check("停止しました" not in (pg.text_content("#rvRecMsg") or ""), "9 「停止」の札の横に「停止しました」を重ねない: %s" % pg.text_content("#rvRecMsg"))
+    check(pg.evaluate("() => !document.querySelector('#rvMarkList .rv-chip.live, .rv-mark-row .rv-chip.live') && document.querySelector('#rvLiveMarks').hidden"),
+          "9 録画ではマークの「ライブ」の印と件数を出さない")
+    check(pg.evaluate("() => { const v = document.querySelector('#rvHost video'); return !!v && v.controls === false; }"), "9 録画のプレイヤーは標準のコントロールを出さない")
+    code, pl = 0, b""
+    try:
+        with urllib.request.urlopen(base + "/live/r/local/%s/index.m3u8" % rid, timeout=10) as r:
+            pl = r.read()
+    except urllib.error.URLError:
+        pass
+    check(b"#EXT-X-ENDLIST" in pl, "9 再生リストに終わりの印")
+    if edge:
+        check(wait_js(pg, "() => isFinite(%s.duration) && %s.duration > 10" % (VIDEO, VIDEO), 20000),
+              "9 終わった録画の duration が有限: %s" % pg.evaluate("() => %s.duration" % VIDEO))
+        pg.evaluate("() => { const v = %s; v.currentTime = Math.max(0, v.duration - 2); v.play(); }" % VIDEO)
+        check(wait_js(pg, "() => %s.ended || %s.currentTime >= %s.duration - 0.3" % (VIDEO, VIDEO, VIDEO), 10000), "9 最後まで再生できる")
+    else:
+        skip("9 最後まで再生(再生できない)")
+    if shots:
+        pg.evaluate("window.scrollTo(0, 0)")
+        pg.screenshot(path=os.path.join(shots, "live_05_ended.png"))
+
+
+def _scene_after_end(cx):
+    """10. 終わった録画でマークして「書き出す」 / 12. 読み込み直す / 11 の続き: 次の begin はその画質で"""
+    api, check, edge, handed, handed_who, live, n_jobs, normalize = cx.api, cx.check, cx.edge, cx.handed, cx.handed_who, cx.live, cx.n_jobs, cx.normalize
+    pg, probes, rid, shots, srv, starts, studio_url = cx.pg, cx.probes, cx.rid, cx.shots, cx.srv, cx.starts, cx.studio_url
+    # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
+    pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
+    check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
+    # 15. 帯で配信者を直し、書き出したあとを「文字起こしまで」に → 次の(手動の)書き出しに渡る
+    pg.select_option("#rvAfter", "check")
+    pg.click("#rvLiveWho > summary")
+    check(wait_js(pg, "() => document.querySelector('#rvLiveWho').open && !!document.querySelector('#rvLiveWhoIn').offsetParent", 3000), "15 「配信者」を押すと名前の欄が開く")
+    if shots:
+        pg.evaluate("window.scrollTo(0, 0)")
+        pg.screenshot(path=os.path.join(shots, "live_00b_band_streamer.png"))
+    pg.fill("#rvLiveWhoIn", "宝鐘マリン")
+    pg.press("#rvLiveWhoIn", "Enter")
+    check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン' && !document.querySelector('#rvLiveWho').open", 5000),
+          "15 名前を直して Enter → 帯が「配信者: 宝鐘マリン」・欄は閉じる: %s" % pg.text_content("#rvLiveWhoText"))
+    st_mem = wait_for(lambda: (lambda m: m if m["videos"].get(rid) == "宝鐘マリン" and m["channels"].get(CHANNEL) == "宝鐘マリン" else None)(srv.prefs.get(["streamer"])["streamer"]), 8)
+    check(st_mem, "15 直した名前は、この録画とこのチャンネルに覚える(次からそれを使う): %s" % srv.prefs.get(["streamer"])["streamer"])
+    n_handed = len(handed)
+    if edge:
+        pg.evaluate("() => { const v = %s; v.pause(); v.currentTime = 5; }" % VIDEO)
+    else:
+        pg.fill("#rvNow", "0:05.0"); pg.keyboard.press("Enter")
+    pg.wait_for_timeout(500)
+    pg.evaluate("() => document.querySelector('#rvIn').click()")
+    if edge:
+        pg.evaluate("() => { %s.currentTime = 8; }" % VIDEO)
+    else:
+        pg.fill("#rvNow", "0:08.0"); pg.keyboard.press("Enter")
+    pg.wait_for_timeout(500)
+    pg.evaluate("() => { document.querySelector('#rvOut').click(); document.querySelector('#rvAdd').click(); }")
+    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n_jobs + 1), 5000), "10 終わった録画にマークを足せる")
+    check(wait_js(pg, "() => !!document.querySelector('#rvList .rv-mark-row.st-cand')", 3000), "10 スイッチを外すとマークは候補のまま(すぐ書き出さない)")
+    pg.click('#rvList .rv-mark-row.st-cand [data-act="st"][data-st="adopted"]')
+    pg.click('#rvJump [data-jump="export"]')
+    pg.wait_for_timeout(400)
+    check(wait_js(pg, "() => !document.querySelector('#rvExpRun').disabled && /1件を書き出す/.test(document.querySelector('#rvExpRun').textContent)", 5000),
+          "10 「1件を書き出す」が押せる: %s" % pg.text_content("#rvExpRun"))
+    pg.click("#rvExpRun")
+    done2 = wait_for(lambda: (lambda js: len(js) == n_jobs + 1 and all(j["state"] == "done" for j in js) and js)(
+        (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []), 90, 0.5)
+    check(done2, "10 終わった録画でも「書き出す」で書き出せる")
+    check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_who[-1] == "宝鐘マリン",
+          "15 直した配信者・「文字起こしまで」が次の書き出しに渡る: %s %s" % (handed[-1:], handed_who[-1:]))
+    check(wait_for(lambda: [m["status"] for m in ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks") or []] == ["exported"] * (n_jobs + 1), 15),
+          "10 2つ目のマークも「書き出し済み」")
+    if done2:
+        j2 = next(j for j in done2 if abs(j["studio"]["start"] - 5) < 1)
+        info = normalize.probe(j2["path"])
+        check(normalize.is_30fps(info) and abs(info.get("duration", 0) - (j2["studio"]["end"] - j2["studio"]["start"])) <= 0.15,
+              "10 2本目も 30fps・長さが区間と合う: %.2f 秒" % (info or {}).get("duration", 0))
+    pg.click("#rvExpClose")
+
+    # ---------------- 12. 読み込み直す ----------------
+    pg.goto(studio_url + "?video=" + rid)
+    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden && document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n_jobs + 1), 15000),
+          "12 ?video=<id> で開き直すと、その録画が開いてマークが残っている")
+    check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")
+    check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.exported').length") == n_jobs + 1, "12 マークは全部「書き出し済み」")
+    check(pg.input_value("#rvAfter") == "check" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
+          "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
+
+    # ---------------- 11 の続き: 次の begin はその画質で ----------------
+    # 画面の Studio.live.begin(① 探す の「録画する」と同じ呼び方)。yt-dlp がチャンネル名を返さないときは、呼んだ側の名前(① 探す の行)を入れる
+    live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": "", "message": ""}
+    b2 = pg.evaluate("async (u) => { const b = await Studio.live.begin(u, { channel: 'Marine Ch. 宝鐘マリン' }); return b && { id: b.video.id, channel: b.video.channel, rch: b.recording.channel }; }", YT2)
+    rid2 = cx.rid2 = (b2 or {}).get("id")
+    check(b2 and starts[-1]["quality"] == "720p" and starts[-1]["url"] == YT2,
+          "11 次の begin は設定の画質 720p で録画元へ頼む: %s" % (starts[-1] if starts else None))
+    check(b2 and b2["rch"] == "" and b2["channel"] == "Marine Ch. 宝鐘マリン",
+          "15 begin がチャンネル名を返さないときは、呼んだ側(① 探す の行)の名前がスタジオの配信に入る: %s" % b2)
+    if rid2:
+        code, d = api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid2})
+        check(code == 200 and d.get("ok"), "11 2本目を止める")
+
+
+def _scene_adopt_api(cx):
+    """M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt)・M3 の「調子」"""
+    LX, api, check, handed, handed_kw, live, n_jobs, normalize = cx.LX, cx.api, cx.check, cx.handed, cx.handed_kw, cx.live, cx.n_jobs, cx.normalize
+    pg, rid, schemas, studio_url = cx.pg, cx.rid, cx.schemas, cx.studio_url
+    # ---------------- M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt。画面を閉じていても) ----------------
+    pg.goto("about:blank")   # スタジオの画面を閉じる(③ でこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
+    n_handed = len(handed)
+
+    def marks_of(v):
+        return ((api("GET", "/studio/api/video?id=%s" % v)[1] or {}).get("video") or {}).get("marks") or []
+    code, ad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.04, "end": 13.0, "label": "自動の山", "origin": "auto"})
+    check(code == 200 and ad and ad["origin"] == "auto" and ad["existing"] is False and ad["job"]["after"] == "check",
+          "M1 adopt を受け付ける(after は設定 live.auto.after = 既定の文字起こしまで): %s" % ((ad or {}).get("job") or ad,))
+    jid = ((ad or {}).get("job") or {}).get("id")
+    done3 = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(
+        [j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j["id"] == jid]), 90, 0.5)
+    check(done3 and done3["state"] == "done", "M1 画面なしで書き出しまで通る: %s" % (((done3 or {}).get("state"), (done3 or {}).get("error")),))
+    mk3 = wait_for(lambda: (lambda m: m if m and m["status"] == "exported" else None)(next((m for m in marks_of(rid) if m["id"] == (ad or {}).get("mark")), None)), 15)
+    check(mk3 and mk3["start"] == 10.0 and mk3["end"] == 13.0 and done3 and os.path.normcase(mk3.get("path") or "") == os.path.normcase(done3["path"]),
+          "M1 スタジオの一覧にマークが出て「書き出し済み」(入口が付けた。区間はスタジオの丸め): %s" % (mk3,))
+    if done3 and done3["state"] == "done":
+        clip3, _w = schemas.load_clip_file(schemas.find_clip_path(done3["path"]))
+        check(clip3 and clip3["source"]["live"]["origin"] == "auto" and clip3["mark"]["src"] == "auto" and clip3["source"]["live"]["studio"]["mark"] == mk3["id"],
+              "M1 .clip.json に origin auto(mark.src も auto): %s" % ((clip3 or {}).get("mark"),))
+        info3 = normalize.probe(done3["path"])
+        check(normalize.is_30fps(info3) and abs(info3.get("duration", 0) - 3.0) <= 0.15, "M1 30fps・長さが区間と合う: %.2f 秒" % (info3 or {}).get("duration", 0))
+    check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_kw[-1] == {"engine": "whisper.cpp", "model": "large-v3"},
+          "M2 live.auto のエンジン・モデルがまとめて実行へ渡る: %s %s" % (handed[-1:], handed_kw[-1:]))
+    try:
+        with open(os.path.join(live.store_dir, LX.FEEDBACK), encoding="utf-8") as f:
+            fb3 = [json.loads(x) for x in f if x.strip()]
+    except OSError:
+        fb3 = []
+    check(fb3 and fb3[-1]["origin"] == "auto" and fb3[-1]["human"] is False and fb3[-1]["verdict"] is None and fb3[-1]["jobId"] == jid,
+          "M1 live_feedback.jsonl に origin(自動は「良い」に数えない): %s" % fb3[-1:])
+    code, ad2 = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.0, "end": 13.0, "origin": "auto"})
+    check(code == 200 and ad2["existing"] is True and ad2["job"]["id"] == jid and len(marks_of(rid)) == n_jobs + 2,
+          "M1 同じ区間をもう一度 → 新しく作らない(マークもジョブも増えない)")
+    code, bad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 1.0, "end": 3.0, "origin": "robot"})
+    check(code == 400, "M1 origin は manual・auto・archive だけ: %s" % (code,))
+    pg.goto(studio_url + "?video=" + rid)
+    check(wait_js(pg, "() => Studio.step === 'review' && document.querySelectorAll('#rvList .rv-chip.exported').length === %d" % (n_jobs + 2), 15000),
+          "M1 ③ で開くと、足したマークも「書き出し済み」")
+    # M3: 「調子」にリアルタイム切り抜きの失敗の行(この通しでは失敗が無い = 「なし」)
+    code, hh = api("GET", "/api/health")
+    check(code == 200 and isinstance(((hh or {}).get("live") or {}).get("failures"), list), "M3 「調子」の live に failures: %s" % (((hh or {}).get("live") or {}).get("failures"),))
+
+
+def _scene_narrow_and_errors(cx):
+    """14. 狭い画面・エラー"""
+    check, errors, not_found, pg, shots = cx.check, cx.errors, cx.not_found, cx.pg, cx.shots
+    # ---------------- 14. 狭い画面・エラー ----------------
+    pg.set_viewport_size({"width": 375, "height": 812})
+    pg.wait_for_timeout(400)
+    check(pg.evaluate(NO_HSCROLL_JS), "14 375px の ③(録画を開いている)で横にはみ出さない")
+    wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden; }", 15000)
+    if pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !!b && !b.hidden; }"):
+        pg.click("[data-ui-live] .ui-live-btn")
+        pg.wait_for_timeout(300)
+        check(pg.evaluate(NO_HSCROLL_JS) and pg.evaluate("() => { const r = document.querySelector('.ui-live-panel').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1; }"),
+              "14 375px で札の一覧が画面に収まる")
+        if shots:
+            pg.screenshot(path=os.path.join(shots, "live_06_narrow_badge.png"))
+        pg.keyboard.press("Escape")
+    if shots:
+        pg.evaluate("window.scrollTo(0, 0)")
+        pg.screenshot(path=os.path.join(shots, "live_07_narrow.png"), full_page=True)
+    # 想定内: ホームの画面は「編集」の /transcribe/api/transcripts を読むが、このテストはスタジオだけを取り込む(編集は無い)ので 404
+    # 想定内: Edge は /favicon.ico を自分で読みに行く(どのツールの画面にもアイコンは無い。画面のコードの要求ではない)
+    not_found[:] = [x for x in not_found if not (x.startswith("home: ") and "/transcribe/" in x) and not x.endswith("/favicon.ico")]
+    errors[:] = [x for x in errors if not ("404" in x and ((x.startswith("home: ") and "/transcribe/" in x) or "/favicon.ico" in x))]
+    csp = pg.evaluate("() => window.__csp")
+    check(not csp, "14 CSP の違反なし: %s" % csp)
+    check(not errors, "14 コンソールのエラーなし: %s" % errors[:6])
+    check(not not_found, "14 404 なし: %s" % not_found[:6])
 
 
 if __name__ == "__main__":

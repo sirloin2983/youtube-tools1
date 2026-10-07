@@ -611,6 +611,9 @@ class PortalHttpTest(Base):
                 self.stopped += 1
                 return self.ok
 
+            def restart_info(self):
+                return {"runs": 0, "redo": None}
+
             def close(self):
                 pass
         calls, stops = [], []
@@ -631,6 +634,46 @@ class PortalHttpTest(Base):
                 time.sleep(0.05)
         finally:
             R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun = saved
+
+    def test_restart_self_keeps_autorun_runs(self):
+        """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5。入口 0.41.0)。
+        実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)今までどおり断る"""
+        import restart as R
+
+        class Stub:
+            def __init__(self, redo):
+                self.redo = redo
+
+            def snapshot(self):
+                return {"runs": [{"state": "running", "mode": "adopted"}, {"state": "queued", "mode": "request"}]}
+
+            def restart_info(self):
+                return {"runs": 2, "redo": self.redo}
+
+            def close(self):
+                pass
+        calls, stops = [], []
+        saved = (R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun, self.srv.sup.status)
+        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
+        self.srv.request_shutdown = lambda: stops.append(1)
+        heavy = {"limit": 2, "active": [{"tool": "transcribe", "label": "配信の切り抜き", "seconds": 3}], "waiting": []}
+        self.srv.sup.status = lambda: {"heavy": heavy}
+        try:
+            self.srv._autorun = Stub({"tool": "transcribe", "labels": ["配信の切り抜き"], "others": ["人が入れた文字起こし"]})
+            r, body = self.post("/api/ytt/restart-self")
+            self.assertEqual((r.status, calls), (409, []), body)
+            self.assertIn("配信の切り抜き", json.loads(body)["message"])
+            self.srv._autorun = Stub({"tool": "transcribe", "labels": ["配信の切り抜き"], "others": []})
+            r, body = self.post("/api/ytt/restart-self")
+            self.assertEqual((r.status, len(calls)), (200, 1), body)
+            self.assertEqual(json.loads(body), {"ok": True, "notice": R.RESUME_NOTICE % 2})
+            for _ in range(30):
+                if stops:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(stops, [1])
+        finally:
+            R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun, self.srv.sup.status = saved
 
     def test_csrf_token(self):
         """書き込み系の API は、画面に埋め込んだ合言葉(CSRF トークン)が一致しないと受け付けない"""

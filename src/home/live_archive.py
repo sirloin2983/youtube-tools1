@@ -373,6 +373,31 @@ def pick_candidates(marks, n, t0, offset, first, last, taken=()):
     return sorted(out, key=lambda x: x[0])
 
 
+def after_progress(a, jobs):
+    """配信後の全自動(M7)で採用したジョブの進み具合(スタジオの LIVE の帯に出す数。入口 0.41.0)。
+    a = afterStream・jobs = その録画のジョブ(GET /live/api/exports の jobs の形 = tx・failure つき)。一覧から消えた古いジョブは total にだけ入る。
+    -> {"total": 採用した本数, "exported": 書き出し済み, "archived": 本番版にした, "handed": まとめて実行へ渡した,
+        "finished": まとめて実行(文字起こし → パック)まで済んだ, "failed": 失敗の文があるもの(live_failures.failure_of)}"""
+    ids = [x for x in a.get("jobs") or [] if isinstance(x, str)]
+    mine = [j for j in jobs or [] if isinstance(j, dict) and j.get("id") in ids]
+    return {"total": len(ids),
+            "exported": sum(1 for j in mine if j.get("state") == "done"),
+            "archived": sum(1 for j in mine if (j.get("archive") or {}).get("state") == "done"),
+            "handed": sum(1 for j in mine if j.get("runId")),
+            "finished": sum(1 for j in mine if (j.get("tx") or {}).get("state") == "done"),
+            "failed": sum(1 for j in mine if j.get("failure"))}
+
+
+def after_text(a, p):
+    """スタジオの LIVE の帯に出す 1 行(afterStream の label と、採用したあとは after_progress の数。無ければ message)"""
+    head = "配信後の自動の切り抜き: %s" % (a.get("label") or a.get("state") or "")
+    if a.get("state") in ("export", "done") and p["total"]:
+        return head + "(%d 本のうち 書き出し %d・本番版 %d・文字起こし → パックへ %d・パックまで済み %d%s)" % (
+            p["total"], p["exported"], p["archived"], p["handed"], p["finished"], "・失敗 %d" % p["failed"] if p["failed"] else "")
+    msg = str(a.get("message") or "")
+    return head + ("(%s)" % msg if msg else "")
+
+
 # ---------- 本体 ----------
 class Archiver:
     def __init__(self, exporter, studio, enabled=None, auto=None, recording_state=None, probe=None, audio=None, align=None,
@@ -437,8 +462,10 @@ class Archiver:
         except OSError as e:
             self.log("リアルタイム切り抜き: アーカイブの記録を書けませんでした: %s" % e)
 
-    def info_view(self, rc, rec):
-        """GET /live/api/exports の archiveInfo {ready: true|false|null, checkedAt, message}"""
+    def info_view(self, rc, rec, jobs=None):
+        """GET /live/api/exports の archiveInfo {ready: true|false|null, checkedAt, message}。
+        配信後の全自動(M7)があれば afterStream {state, label, message, at, n, jobs(採用した本数), progress(after_progress), text(after_text)}。
+        jobs = その録画のジョブ(応答の jobs。None なら書き出しの一覧から読む)。帯への表示はスタジオの側(src/studio/review.js)"""
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})
         out = {"ready": i.get("ready") if i.get("ready") in (True, False) else None, "checkedAt": i.get("checkedAt"),
@@ -447,6 +474,8 @@ class Archiver:
         if isinstance(a, dict):   # 配信後の全自動(M7)の進み具合
             out["afterStream"] = {k: a.get(k) for k in ("state", "label", "message", "at", "n")}
             out["afterStream"]["jobs"] = len(a.get("jobs") or [])
+            p = after_progress(a, self.ex.snapshot(rc, rec) if jobs is None else jobs)
+            out["afterStream"].update(progress=p, text=after_text(a, p))
         return out
 
     # --- ジョブ ---

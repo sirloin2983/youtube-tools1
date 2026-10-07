@@ -494,7 +494,7 @@ class Live:
                     rc, rec = (q.get("recorder") or [""])[0][:40], (q.get("recording") or [""])[0][:60]
                     out = {"jobs": self.exporter.snapshot(rc or None, rec or None)}
                     if rc and rec and live_export.ID_RE.match(rc) and live_export.REC_RE.match(rec):   # その録画のアーカイブの用意(P4)
-                        out["archiveInfo"] = self.archiver.info_view(rc, rec)
+                        out["archiveInfo"] = self.archiver.info_view(rc, rec, out["jobs"])   # afterStream の進み具合はこの jobs から(M7。0.41.0)
                     return h._json(200, out) or True
                 rc, rec = (q.get("recorder") or [""])[0], (q.get("recording") or [""])[0]
                 d = self.exporter.marks.load(rc, rec)
