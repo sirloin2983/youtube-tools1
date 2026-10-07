@@ -911,9 +911,14 @@ def _scene_side_tabs(cx):
     pg2.locator("#txList .txi").filter(has_text="メニュー文書").locator(".t").first.click()
     pg2.wait_for_selector("#segs .seg")
     row = pg2.locator("#segs .seg").first
-    check(row.locator(".ops [data-act=cut]").count() == 1 and row.locator(".ops .pf").count() == 1, "行の「残す/カット済」が「校正済み」の隣にある")
+    check(row.locator(".ops [data-act=keep]").count() == 1 and row.locator(".ops [data-act=cut]").count() == 1 and row.locator(".ops .pf").count() == 1,
+          "行の「残す / カット」の 2 択が「校正済み」の隣にある(UI の見直し M1)")
+    check(row.locator("[data-act=keep]").get_attribute("aria-pressed") == "true" and row.locator("[data-act=cut]").get_attribute("aria-pressed") == "false", "残している行は「残す」の側が押された形")
     row.locator("[data-act=cut]").click()
-    check("cut" in (row.get_attribute("class") or "") and row.locator("[data-act=cut]").inner_text() == "カット済", "「残す」を押すとカット済になる(取り消し線)")
+    check("cut" in (row.get_attribute("class") or "") and row.locator("[data-act=cut]").get_attribute("aria-pressed") == "true" and row.locator("[data-act=keep]").get_attribute("aria-pressed") == "false",
+          "「カット」を押すとカット済になる(取り消し線・「カット」の側が押された形)")
+    row.locator("[data-act=keep]").click()
+    check("cut" not in (row.get_attribute("class") or ""), "「残す」を押すと残す行に戻る")
     check(pg2.locator(".row-more").count() == 0, "GPT 版の「…」メニューは使わない(操作は選んだ行の下の段)")
     pg2.close()
 

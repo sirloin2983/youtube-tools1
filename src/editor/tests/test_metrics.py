@@ -520,7 +520,8 @@ class TestSplitAndRobust(unittest.TestCase):
             finally:
                 S._jobs.pop("jx", None)
             self.assertEqual(job["state"], "error")
-            self.assertIn("boom", job["error"])
+            self.assertEqual(job["error"], "処理が途中で止まりました")       # 想定外の失敗は決まった文(UI の見直し M9)
+            self.assertIn("boom", job["errorDetail"])                        # 原文は errorDetail(画面の「詳しく」)
             self.assertIsNone(S._run_state["job"])                          # 終わったら実行中の印は消える
         finally:
             S.RUN_MARK, S.run_job = old_mark, old_run

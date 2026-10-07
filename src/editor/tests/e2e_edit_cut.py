@@ -66,8 +66,8 @@ def main():
                             break
                         time.sleep(0.1)
 
-            check("文字起こしの行から作った下書き" in pg.inner_text("#cutStatus") and server_clips() is None,
-                  "開いたときは「行から」の下書き(5区間)。開いただけでは保存しない")
+            check("文字起こしの行から作ったたたき台" in pg.inner_text("#cutStatus") and server_clips() is None,
+                  "開いたときは「行から」のたたき台(5区間)。開いただけでは保存しない(用語は「たたき台」。UI の見直し S9)")
             check("残す 5区間" in pg.inner_text("#cutStatus") and "カット後" in pg.inner_text("#cutStatus"), "下の行に残す区間の数とカット後の長さ: " + pg.inner_text("#cutStatus"))
             # 波形(音の鳴っている 1.0 秒あたりに線がある)
             wait_js(pg, """(() => { const c = document.querySelector('#tlWave'), sc = document.querySelector('#tlScroll');
@@ -384,13 +384,13 @@ def _scene_io_rows_undo(cx):
     check(not any(9.8 <= a and b <= 10.3 for a, b in sc), "行の後ろの切れ端(「行から」で広げた分)も一緒に削る: %s" % sc)
     check(pg.locator("#cutSubs .tt-csub[data-i='2']").get_attribute("class").find("cut") >= 0 and pg.locator("#tlSubs .tt-s.cut").count() >= 1,
           "カットのタブの字幕の一覧・字幕の帯にも出る(薄く・取り消し線)")
-    csub_btn = "(i => { const b = document.querySelector('#cutSubs .tt-csub[data-i=\"' + i + '\"] [data-act=cutrow]'); return b && [b.textContent, b.getAttribute('aria-pressed')]; })"
-    check(pg.evaluate(csub_btn + "(2)") == ["カット済", "true"] and pg.evaluate(csub_btn + "(4)") == ["残す", "false"],
-          "段7 E-25: 字幕の一覧の行の札は 1 文字起こし の行と同じ「残す / カット済」(以前は「削る / 戻す」で逆向きに読めた): %s %s"
+    csub_btn = "(i => { const r = document.querySelector('#cutSubs .tt-csub[data-i=\"' + i + '\"]'), k = r && r.querySelector('[data-act=keeprow]'), c = r && r.querySelector('[data-act=cutrow]'); return k && c && [k.getAttribute('aria-pressed'), c.getAttribute('aria-pressed')]; })"
+    check(pg.evaluate(csub_btn + "(2)") == ["false", "true"] and pg.evaluate(csub_btn + "(4)") == ["true", "false"],
+          "M1: 字幕の一覧の行は 1 文字起こし の行と同じ 2 択「残す / カット」(今の状態の側が押された形): %s %s"
           % (pg.evaluate(csub_btn + "(2)"), pg.evaluate(csub_btn + "(4)")))
-    pg.locator("#cutSubs .tt-csub[data-i='4'] [data-act=cutrow]").click()   # 字幕の一覧の「残す」の札(行5)→ カット済
+    pg.locator("#cutSubs .tt-csub[data-i='4'] [data-act=cutrow]").click()   # 字幕の一覧の行5の「カット」
     wait_saved()
-    check(wait_js(pg, csub_btn + "(4)[0] === 'カット済'", 5000), "段7 E-25: 押すと札が「カット済」に変わる")
+    check(wait_js(pg, csub_btn + "(4)[1] === 'true'", 5000), "M1: 「カット」を押すと「カット」の側が押された形になる")
     pg.keyboard.press("Alt+1")
     wait_js(pg, "document.querySelectorAll('#segs .seg')[4].classList.contains('cut')")
     d = srv.get("/api/transcript?id=" + tid)
@@ -692,7 +692,7 @@ def _scene_rowedge_draft_length(cx):
     pg.fill("#srcPath", v2)
     pg.click("#btnOpenVideo")
     wait_js(pg, "document.querySelector('#docTitle').value === '文字起こしなし' && document.querySelectorAll('#tlVideo .tt-k').length === 1", 20000)
-    check("動画全体の下書き" in pg.inner_text("#cutStatus"), "文字起こしの無い動画は、動画全体を残す下書き")
+    check("動画全体のたたき台" in pg.inner_text("#cutStatus"), "文字起こしの無い動画は、動画全体を残すたたき台")
     check(wait_js(pg, "!!document.querySelector('#cutSubs .tt-csub-totx')", 5000) and "文字起こしする" in pg.inner_text("#cutSubs .tt-csub-totx"),
           "字幕の無い文書の字幕の段に次のボタン「1 文字起こし のタブで文字起こしする」(段7 E-14): " + pg.inner_text("#cutSubs"))
     pg.click("#cutDraftSilence summary")

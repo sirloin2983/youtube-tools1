@@ -619,7 +619,8 @@ $('#segs').addEventListener('click', e => {
     case 'proof': { const before = unproofedCount(); setProof(s, !s.proofed, row); markDirty(); updatePfStat(); proofNext(before); break; }   // 未校正が 0 になったら [2 カットへ](段7 S-17)
     case 'nosub': pushUndo(); setNoSub(s, !s.noSub, row); markDirty(); break;   // 字幕に出さない ⇄ 出す(どの話者の行でも)
     case 'tag': toggleTag(s, b.dataset.t, row); break;
-    case 'unflag': s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon(); break;
+    case 'unflag': pushUndo(); s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon();
+      toast('要確認の印を外しました(確認済み)', { kind: 'ok', ms: 5000, action: { label: '元に戻す', fn: () => doUndo('tx') } }); break;   // S15
     case 'sgok': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) acceptSug(s, x); break; }
     case 'sgno': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) rejectSug(x); break; }
     case 'split': doSplit(i, row); break;
@@ -637,7 +638,11 @@ $('#segs').addEventListener('click', e => {
         S.sel.delete(n.id); segs.splice(i + 1, 1);
         navRestore(navId, i); }
       renderDoc(); markDirty(); break;
-    case 'del': armDelete(b, () => { const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty(); }); break;
+    case 'del': {   // 元に戻せる操作なので確認しない。消したら知らせに [元に戻す](UI の見直し S14。Z のキーは押し間違いを防ぐため 2 回押しのまま)
+      const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty();
+      toast('行を削除しました', { kind: 'ok', ms: 6000, action: { label: '元に戻す', fn: () => doUndo('tx') } });
+      break;
+    }
     case 'retime': rtRow(); break;   // 時刻を言葉に合わせる(app-rows.js の rt*)
     case 'rtok': case 'rtno': rtAnswer(b.dataset.act === 'rtok'); break;
   }
@@ -828,7 +833,7 @@ window.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing || e.keyCode === 229 || e.defaultPrevented || modalOpen()) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い。監査01)
   const m = /^Digit([123])$/.exec(e.code); if (!m) return;
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
-  e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1]);
+  e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1], { into: true });   // タブの中の最初の操作へ(S18)
 });
 /* 共通の再生キー(ui-kit.js の UIKit.keys.playback。既定は Space・J/K/L・← →(Shift で5秒)・, .・I/O。割り当ては keymap())。
    1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
@@ -897,7 +902,7 @@ const TAG_ACT = { unclear: 'tagUnclear', overlap: 'tagOverlap', bgm: 'tagBgm' };
 const TAG_RULE = { bgm: '付けるのは BGM・ゲーム音のせいで聞き取りにくい行だけ(聞き直したくなった・声と同じくらいか大きい・歌声が流れている・効果音が言葉にかぶる)。鳴っているだけで楽に聞き取れる行・迷う行には付けません' };
 const titleTag = t => `この行の音の状態のメモ${keyParen(TAG_ACT[t])}。` + (TAG_RULE[t] || '「聞き取れない」の行は、精度の測定と学習の正解に使いません');
 const titleAddAfter = () => `この行の後に、空の行を足します${keyParen('insert')}`;
-const titleDel = () => { const k = keymap().del; return `この行を消します(2回押し${k ? '。' + keyText(k) + ' でも消せます' : ''})`; };
+const titleDel = () => { const k = keymap().del; return `この行を消します(元に戻せます${k ? '。' + keyText(k) + ' でも消せます(2回押し)' : ''})`; };
 window.addEventListener('keydown', e => {
   const d = $('#keys');
   if (e.key !== '?' || e.defaultPrevented || !d.open || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isTextEntry(e.target)) return;   // defaultPrevented = 同じ ? で今開いたところ

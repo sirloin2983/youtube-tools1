@@ -348,7 +348,7 @@ def main():
             mt = os.path.getmtime(os.path.join(packdir, TP_LUA))
             check(pg.inner_text("#pkBuild") == "パックを作り直す(上書き)", "ボタンは「パックを作り直す(上書き)」")
             pg.click("#pkBuild")
-            wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('#dlgOverwrite').open", 120000)
+            wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('dialog.ui-dialog[open]')", 120000)
             ip2 = read_pack_plan(os.path.join(packdir, TP_LUA))
             check(os.path.getmtime(os.path.join(packdir, TP_LUA)) > mt and len(ip2.get("cuts", [])) == 3, "同じ場所へは確認なしで、今のカット(3区間)で作り直す")
             # ほかのパックがある別の場所へ作るときだけ、上書きの確認(やめる → 何もしない / 上書き → 作る)

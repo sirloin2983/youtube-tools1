@@ -189,7 +189,17 @@ function setEditTab(t, opt = {}){
   if (opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
   applyView();
   if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(段7 E-7。文書を開いていなければ何もしない)
-  if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
+  if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
+  if (opt.into) focusTabStart(t);   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
+}
+
+/* キー(Alt+2/3)・「文字起こしせずに開く」でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように。UI の見直し S18)。
+   2 カット = 再生(読み込みが終わって押せるようになるまで少し待つ)・3 パック = パックを作る。1 文字起こし は行の操作のキーがどこからでも効くので動かさない */
+function focusTabStart(t, tries = 30){
+  const el = t === 'cut' ? $('#cutPlay') : t === 'pack' ? $('#pkBuild') : null;
+  if (!el || EDT.tab !== t) return;
+  if (!el.disabled && el.offsetParent){ el.focus(); return; }
+  if (tries > 0) setTimeout(() => focusTabStart(t, tries - 1), 100);
 }
 
 /* タブを移ったとき: 文字起こしのタブの映像は隠れるので止める(隠れたまま音だけ鳴らさない)。戻ったら行の高さと帯を描き直す */

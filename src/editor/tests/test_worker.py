@@ -475,6 +475,23 @@ class WorkerTest(unittest.TestCase):
         self.assertIn("文字起こしの部品が見つかりません", job["error"])   # 内部の名前は errorDetail だけ(UI の見直し S12)
         self.assertIn("tx_worker.py", job.get("errorDetail", ""))
 
+    def test_retry_failed(self):
+        """失敗した文字起こしを、同じ指定でもう一度待機列に入れる(画面の [やり直す]。UI の見直し M9)。失敗していないものはやり直せない"""
+        with mock.patch.object(S, "WORKER_SCRIPT", os.path.join(self.tmp, "nope.py")):
+            job = self.transcribe()
+        self.assertEqual(job["state"], "error")
+        self.assertTrue(S.public_job(job)["canRetry"])
+        again = S.retry_job(job["id"])
+        self.assertNotEqual(again["id"], job["id"])
+        self.assertEqual(again["spec"]["sourcePath"], job["spec"]["sourcePath"])
+        self.assertIsNot(again["spec"], job["spec"])   # 前の job と指定を共有しない
+        S.work_one(again["id"])
+        self.assertEqual(again["state"], "done")
+        with self.assertRaises(S.ed_state.ApiError):
+            S.retry_job(again["id"])
+        with self.assertRaises(S.ed_state.ApiError):
+            S.retry_job("nope")
+
     # ---- 終了・メモリ
     def test_idle_release_stops_worker(self):
         self.assertEqual(self.transcribe()["state"], "done")

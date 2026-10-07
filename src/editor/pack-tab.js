@@ -28,7 +28,7 @@ function create(h){
   const volOf = () => { const v = Math.round(Number(h.S.settings.packVolume)); return v >= 1 && v <= 200 ? v : 30; };   // LUFS でそろえないときの音量(%。元 = 100・既定 30)
   async function saveLoud(values){   // パックの出力(音量・fps・縦横・話者の色・予備)は「送ったキーだけ直す」API で(丸ごとの保存では変えない。まとめて実行の欄と同じ値)
     try { await h.api('/api/settings/patch', { body: { values } }); Object.assign(h.S.settings, values); }
-    catch (er){ h.toast('パックの設定を保存できませんでした: ' + er.message, 6000, 'err'); }
+    catch (er){ h.toast('パックの設定を保存できませんでした: ' + er.message, { kind: 'err', ms: 10000, action: { label: 'もう一度', fn: () => saveLoud(values) } }); }   // [もう一度](S27)
     render();
   }
   /* Text+ 字幕の1段の文字数(字幕の文字数の設定 subtitle.wrapChars。置き先が横なら横の値。規則(どこで改行するか)は cut2resolve の resolve_textplus.wrap_caption) */
@@ -249,7 +249,7 @@ function create(h){
       if (hex) $('#pkPhoneCap').style.setProperty('--tt-cap-color', hex); else $('#pkPhoneCap').style.removeProperty('--tt-cap-color'); }
     $('#pkPhone').classList.toggle('land', size === '1920x1080');
     renderSpk();
-    $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(映像の切り抜きは Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます。フォント「けいふぉんと」はパックに入れません(友人の PC に入れておく。無ければ Windows の日本語フォントになり、マーカーが黄色)`;
+    $('#pkLookNote').textContent = `左は${size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'} に置いたときのおおよその見え方(縦に切り取る作業(クロップ)は Resolve で)。字幕の位置・大きさは置き先の大きさに合わせます。フォント「けいふぉんと」はパックに入れません(友人の PC に入れておく。無ければ Windows の日本語フォントになり、マーカーが黄色)`;
     // 見積もりの状態(4-1): 計算中・保存待ち・失敗を見せる(黙って「…」のままにしない)
     const stEl = $('#pkPvState'), busy = P.pv === 'wait' || P.pv === 'run';
     let stMsg = '', stErr = false;
@@ -367,8 +367,10 @@ function create(h){
   function renderJob(){
     const box = $('#pkJob'), j = P.job;
     if (!j){ box.hidden = true; box.innerHTML = ''; return; }
-    if (!box.firstChild) box.innerHTML = '<div class="row"><span><span class="pill run">パックを作っています</span> <span class="tt-cp-jmsg"></span></span><span class="mono hint tt-cp-jpct"></span></div><div class="bar"><i></i></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn small" data-act="pkcancel">中止</button></div>';
+    const first = !box.firstChild;
+    if (first) box.innerHTML = '<div class="row"><span><span class="pill run">パックを作っています</span> <span class="tt-cp-jmsg"></span></span><span class="mono hint tt-cp-jpct"></span></div><div class="bar"><i></i></div><div class="row" style="justify-content:flex-end"><button type="button" class="btn small" data-act="pkcancel">中止</button></div>';
     box.hidden = false;
+    if (first && (document.activeElement === document.body || document.activeElement === $('#pkBuild'))) box.querySelector('[data-act=pkcancel]').focus();   // 押したボタンは作っている間は押せないので、フォーカスは「中止」へ(S18)
     const pct = j.progress != null ? Math.round(j.progress * 100) : null;
     box.querySelector('.tt-cp-jmsg').textContent = j.message || '';
     box.querySelector('.tt-cp-jpct').textContent = pct != null ? pct + '%' : (j.elapsed != null ? Number(j.elapsed).toFixed(0) + '秒' : '');
@@ -455,7 +457,7 @@ function create(h){
     const cur = h.S.settings.rowEdge && typeof h.S.settings.rowEdge === 'object' ? h.S.settings.rowEdge : { on: h.S.settings.rowEdge !== false, after: 0.5, before: 0.3 };
     h.S.settings.rowEdge = { ...cur, padAfter: v };
     try { await h.putSettings(); }
-    catch (e){ h.S.settings.rowEdge = cur; $('#pkPadAfter').value = String(before); h.toast('設定を保存できませんでした: ' + e.message, 5000, 'err'); return; }   // 保存できなければ欄も元へ(zip・まとめて実行は保存済みの設定を読む)
+    catch (e){ h.S.settings.rowEdge = cur; $('#pkPadAfter').value = String(before); h.toast('設定を保存できませんでした: ' + e.message, { kind: 'err', ms: 10000, action: { label: 'もう一度', fn: () => savePad(String(v)) } }); return; }   // [もう一度](S27)   // 保存できなければ欄も元へ(zip・まとめて実行は保存済みの設定を読む)
     const redo = h.CUT && h.CUT.redraftPristine ? h.CUT.redraftPristine() : false;
     $('#pkPadAfterNote').textContent = redo ? '「行から」のたたき台を作り直します(区間の終わりが変わります)' : '手で直したカットには効きません。2 カット の「行から」でたたき台を作り直すと効きます(zip・まとめて実行には効きます)';
     render();

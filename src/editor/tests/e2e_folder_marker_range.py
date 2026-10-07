@@ -161,7 +161,7 @@ def main():
             pg.wait_for_function("document.querySelectorAll('#fdList label').length === 3")
             check(pg.input_value("#fdPath") == fd and pg.is_checked("#fdRec"), "書き出し先を入れて、下のフォルダも探す")
             pg.wait_for_function("!document.querySelector('#goalPill').hidden")
-            check("校正 7秒" in pg.inner_text("#goalPill") and "5時間" in pg.inner_text("#goalPill"), "上の帯に進行度が出る: " + pg.inner_text("#goalPill"))
+            check("目標 7秒" in pg.inner_text("#goalPill") and "5時間" in pg.inner_text("#goalPill"), "上の帯に学習の目標の進行度が出る(UI の見直し S6): " + pg.inner_text("#goalPill"))
             check("7秒" in pg.inner_text("#goalText") and "・4行" in pg.inner_text("#goalText"), "進行度カード: " + pg.inner_text("#goalText"))
             check(pg.locator("#goalMs .ms").count() == 4, "節目が並ぶ(30分・1時間・3時間・目標)")
             pg.fill("#goalHours", "1"); pg.dispatch_event("#goalHours", "change")

@@ -92,7 +92,9 @@ def main():
             pg.click("#txList .txi .t")
             pg.wait_for_selector("#segs .seg")
             n = pg.locator("#segs .seg").count()
-            check(n >= 4 and pg.inner_text("#pfStat") == "校正済み 0/%d行" % n, "校正済み 0/%d行の表示" % n)
+            # 校正済みの数は題名の行の札(#pillProof)の 1 か所(映像の下の「校正済み n/m行」は二重だったのでやめた。UI の見直し S6)
+            pf = lambda: pg.evaluate("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(document.querySelector('#pillProof').textContent))))")   # noqa: E731
+            check(n >= 4 and pf() == "校正 0 / %d行" % n, "校正 0 / %d行の表示" % n)
             # 1行目を直して、Alt+Enter で校正済みにして次の行へ進む
             ta = pg.locator("#segs .seg textarea").nth(0)
             ta.fill("トワ様のテスト")
@@ -102,9 +104,9 @@ def main():
             pg.locator("#segs .seg textarea").nth(1).press("Alt+Enter")
             # ボタンでも切り替え(3行目)
             pg.locator("#segs .seg [data-act=proof]").nth(2).click()
-            check(pg.inner_text("#pfStat") == "校正済み 3/%d行" % n, "3行を校正済み(ボタンと Alt+Enter)")
+            check(pf() == "校正 3 / %d行" % n, "3行を校正済み(ボタンと Alt+Enter)")
             pg.locator("#segs .seg [data-act=proof]").nth(2).click()
-            check(pg.inner_text("#pfStat") == "校正済み 2/%d行" % n, "もう一度押すと解除")
+            check(pf() == "校正 2 / %d行" % n, "もう一度押すと解除")
             pg.locator("#segs .seg [data-act=proof]").nth(2).click()
             if SHOTS:
                 os.makedirs(SHOTS, exist_ok=True)
@@ -129,14 +131,14 @@ def main():
             pg.locator("#segs .seg .sel").nth(3).evaluate("e => e.click()")   # 固定表示の帯の下に隠れることがあるので、直接押す
             pg.click("#moreTools summary")
             pg.click("#btnProofSel")
-            check(pg.inner_text("#pfStat") == "校正済み 4/%d行" % n, "選択行を校正済みに")
+            check(pf() == "校正 4 / %d行" % n, "選択行を校正済みに")
             pg.click("#btnProofAll")   # 元に戻せる操作なので確認なし(気が利く画面へ 段1。以前は2度押し)
-            check(pg.inner_text("#pfStat") == "校正済み %d/%d行" % (n, n), "全行を校正済みに")
-            check(pg.locator(".ui-toast .ui-toast-act", has_text="元に戻す").count() >= 1, "知らせに「元に戻す」")
+            check(pf() == "校正 %d / %d行" % (n, n), "全行を校正済みに")
+            check(pg.locator(".ui-toast .ui-toast-act", has_text="2 カットへ").count() >= 1, "全部済んだら知らせに [2 カットへ](UI の見直し M7。元に戻すは Ctrl+Z)")
             check(pg.inner_text("#btnProofAll") == "校正済みを全解除", "ボタンが全解除に変わる")
             pg.keyboard.press("Control+z")   # 入力欄にフォーカスがなければ元に戻す
             pg.click("#btnUndo")
-            check(pg.inner_text("#pfStat").startswith("校正済み"), "元に戻せる")
+            check(pf().startswith("校正 ") and pf() != "校正 %d / %d行" % (n, n), "元に戻せる")
             # 一括置換で聞かずに書き換えた行は校正済みが外れる
             before = pg.locator("#segs .seg.proofed").count()
             if not pg.evaluate("document.querySelector('#fixDetails').open"):   # v0.15.0: 置換は「文字をまとめて直す」のカード

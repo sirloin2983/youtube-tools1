@@ -379,7 +379,7 @@ def _scene_backup_cancel_summary(cx):
     pg.click("#pkSettingsClose")
     wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
     pg.click("#pkBuild")
-    check(wait_js(pg, "document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('#dlgOverwrite').open", 120000),
+    check(wait_js(pg, "document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('dialog.ui-dialog[open]')", 120000),
           "前回と同じ場所への作り直しは、上書きの確認を出さずに作る(段7 E-15)")
     # cut2resolve の案内(warningLevels が info。同じ動画のコピーを飛ばした)は知らせに積まず「前回のパック」の欄に(知らせが「中止」を隠していた)
     check("コピーを飛ばしました" in pg.inner_text("#pkLastNotes") and "コピーを飛ばしました" not in pg.inner_text("#toast") and "案内 1 件" in pg.inner_text("#toast"),

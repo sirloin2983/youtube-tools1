@@ -859,6 +859,8 @@ html.vid-audio video{height:54px;max-height:none}
 #strip{width:100%;height:100%;display:block;border-radius:var(--r-xs);background:var(--panel-3)}
 #stripHead{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);left:0;pointer-events:none;border-radius:1px;box-shadow:0 0 0 1px var(--panel)}
 #docInfo{margin:8px 2px 0;font-size:12px;color:var(--ink-3)}
+.tt-strip-legend{display:flex;flex-wrap:wrap;gap:2px 12px;margin:4px 0 0;font-size:11.5px;color:var(--ink-3)}
+.tt-strip-legend span{display:inline-flex;align-items:center;gap:4px}.tt-strip-legend i{width:10px;height:6px;border-radius:2px;background:var(--line-2)}.tt-strip-legend i.ok{background:var(--ok)}.tt-strip-legend i.warn{background:var(--warn)}   /* 帯(#strip)と同じ色 */
 .tx-stage>.card{margin-top:10px}
 /* 映像の下の道具のカード(話者・文字をまとめて直す・書き出し・以前の版)。v0.15.0 で「話者・置換・書き出し」を役割ごとに分けた */
 .tt-tool>summary{font-size:14px}
@@ -1003,10 +1005,10 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
 @media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
 /* 要確認の印・提案・音の状態のメモ・選んだ行の操作 */
-.seg .fl{grid-column:5;justify-self:start;position:relative;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550;color:color-mix(in srgb,var(--warn-ink) 85%,var(--ink));border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r-pill);padding:0 10px;min-height:22px;background:var(--warn-soft);cursor:pointer;max-width:100%;text-align:left}   /* 0.59.3: 文字を --warn-ink より少し濃く(行の黄色の上で 4.47:1 だった。A-22) */
-.seg .fl::after{content:"";position:absolute;inset:-3px 0}   /* 見た目は 22px のまま、当たり判定を 28px に(.ui-next-btn と同じ形。::before は「!」の印が使う。A-21) */
-.seg .fl::before{content:"!";display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;background:var(--warn);color:var(--panel);font:800 10px/1 var(--font)}
-.seg .fl:hover{border-color:var(--warn)}
+/* 0.59.3: 要確認の印は押せるので .btn.small.ghost の形(押すと確認済み・知らせに [元に戻す]。UI の見直し S15)。文字は --warn-ink を少し濃く(A-22) */
+.seg .btn.fl{grid-column:5;justify-self:start;justify-content:flex-start;gap:5px;font-size:12px;font-weight:550;color:color-mix(in srgb,var(--warn-ink) 85%,var(--ink));padding:3px 8px 3px 4px;max-width:100%;white-space:normal;text-align:left;line-height:1.4}
+.seg .btn.fl::before{content:"!";display:inline-grid;place-items:center;flex:none;width:14px;height:14px;border-radius:50%;background:var(--warn);color:var(--panel);font:800 10px/1 var(--font)}
+.seg .btn.fl:hover:not(:disabled){color:var(--ink);background:var(--warn-soft)}
 .seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
 .sg{font-size:12px;border:1px solid var(--accent-line);border-radius:var(--r);padding:2px 3px 2px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--ink)}
 .sg .sgl{font-weight:650;color:var(--accent)}.sg.high{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
@@ -1152,6 +1154,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-cut-tools .tt-sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}
 .tt-cut-tools .tt-grow{flex:1}
 .tt-cut-tools kbd{margin-left:4px}
+.tt-split{display:inline-flex;align-items:center;flex:none}   /* 「行から」と設定の山形は 1 つの塊(折り返しで山形だけ次の行に落ちない。S19) */
+.tt-split>#cutDraftRows{border-top-right-radius:0;border-bottom-right-radius:0}.tt-split>details>summary{border-top-left-radius:0;border-bottom-left-radius:0}
 .tt-cut-tools .btn .ui-icon{width:14px;height:14px}   /* 分割・元に戻す・やり直すの線のアイコン(以前の ✂ ↶ ↷ の文字と同じくらいの大きさ) */
 .tt-cut-tools details.pop>summary.disabled{opacity:.5;cursor:not-allowed}
 .tt-cut-tools .vpop{min-width:260px}
@@ -1323,9 +1327,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <details class="card side-pane" data-side-pane="start" id="newBox" open>
     <summary>新しく文字起こしする</summary>
     <div class="seg-tabs" role="group" aria-label="入力の種類">
-      <button type="button" id="tabFile" aria-pressed="true">手元のファイル</button>
-      <button type="button" id="tabFolder" aria-pressed="false">フォルダ内すべて</button>
-      <button type="button" id="tabMarker" aria-pressed="false">スタジオ/マーカーのポイント</button>
+      <button type="button" id="tabFile" aria-pressed="true" title="手元の動画・音声ファイルを 1 本">ファイル</button>
+      <button type="button" id="tabFolder" aria-pressed="false" title="フォルダの中の動画・音声をまとめて">フォルダ</button>
+      <button type="button" id="tabMarker" aria-pressed="false" title="切り抜きスタジオで付けたマーク(の区間)を文字起こし">スタジオのマーク</button>
     </div>
 
     <div id="paneFile">
@@ -1353,9 +1357,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div id="paneMarker" hidden>
       <p class="hint" id="mStatus" style="margin:8px 0 4px"></p>
       <div id="mSources"></div>
-      <div class="row"><button type="button" class="btn small" id="btnMarkerFile">data.json を選ぶ</button><input type="file" id="markerFile" accept=".json,application/json" hidden></div>
+      <div class="row"><button type="button" class="btn small" id="btnMarkerFile" title="スタジオ(古い切り抜きマーカー)の記録のファイル data.json を選びます">スタジオの記録を選ぶ</button><input type="file" id="markerFile" accept=".json,application/json" hidden></div>
       <div class="fld"><label for="mVideo">動画</label><select id="mVideo"></select></div>
-      <div class="fld"><label for="mPath">元の動画・音声ファイルのパス</label><input id="mPath" type="text" autocomplete="off" spellcheck="false" placeholder="切り抜きマーカーで書き出し用に入力済みなら自動で入ります">
+      <div class="fld"><label for="mPath">元の動画・音声ファイルのパス</label><input id="mPath" type="text" autocomplete="off" spellcheck="false" placeholder="スタジオで動画のパスを入れてあれば自動で入ります">
         <span class="hint" id="mFileHint"></span></div>
       <div class="row" style="margin-top:10px"><label class="lag">対象 <select id="mFilter" style="width:auto"><option value="adopted">採用のみ</option><option value="all">すべて</option></select></label>
         <label class="lag" title="このツールで、すでに文字起こし済みのポイント(同じ動画・同じ範囲。書き出し済みの切り抜きは、その mp4 が一度でも文字起こしされていれば)は、最初から選びません"><input type="checkbox" id="mSkip" checked>文字起こし済みはスキップ</label>
@@ -1615,7 +1619,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
         </div>
         <div class="terms" id="terms" hidden></div>
-        <!-- 進み具合の帯のクリックはマウスの便利(キーでは S / W・↓ / ↑ で行を移動できる)。A-25 の例外 --><div class="stripbox" id="stripBox" data-ui-audit-allow="A-25" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
+        <!-- 進み具合の帯のクリックはマウスの便利(キーでは S / W・↓ / ↑ で行を移動できる)。A-25 の例外 --><div class="stripbox" id="stripBox" data-ui-audit-allow="A-25" title="全体の進み具合。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
+        <p class="tt-strip-legend" id="stripLegend"><span><i class="ok" aria-hidden="true"></i>校正済み</span><span><i class="warn" aria-hidden="true"></i>要確認</span><span><i class="off" aria-hidden="true"></i>未校正</span></p>   <!-- 色だけで伝えない(凡例を文字で。S25) -->
       </div>
     </div>
 
@@ -1742,15 +1747,15 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span class="ui-icon" data-icon="redo" aria-hidden="true"></span>やり直す</button>
        <span class="tt-sep" aria-hidden="true"></span>
        <span class="hint">たたき台:</span>
-       <button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip・まとめて実行のカットの無い文書と同じ規則)">行から</button>
-       <button type="button" class="btn small ghost" id="cutNone" title="カットせずに動画全体を残します(カット済の行の字幕も全部出ます)。「元に戻す」(Ctrl+Z)で戻せます">カットしない</button>
+       <span class="tt-split" role="group" aria-label="行からのたたき台"><button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip・まとめて実行のカットの無い文書と同じ規則)">行から</button>
        <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)"><span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
          <label class="lag"><input type="checkbox" id="cutEdgeOn" checked>行の端を声の止まる所まで広げる</label>
          <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は <b>3 パック</b> の「詳しい設定」で変えられます)。カット済の行は越えません</p>
          <div class="fld"><label for="cutEdgeAfter">終わりを広げる上限(秒)</label><input id="cutEdgeAfter" type="number" value="0.5" min="0" max="2" step="0.05"></div>
          <div class="fld"><label for="cutEdgeBefore">始まりを広げる上限(秒)</label><input id="cutEdgeBefore" type="number" value="0.3" min="0" max="2" step="0.05"></div>
          <p class="hint">この設定は、zip・まとめて実行(カットの無い文書)にも使います</p>
-         <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutEdgeGo">この設定で「行から」のたたき台にする</button></div></div></details>
+         <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutEdgeGo">この設定で「行から」のたたき台にする</button></div></div></details></span>
+       <button type="button" class="btn small ghost" id="cutNone" title="カットせずに動画全体を残します(カット済の行の字幕も全部出ます)。「元に戻す」(Ctrl+Z)で戻せます">カットしない</button>
        <details class="pop" id="cutDraftSilence"><summary class="btn small ghost" title="しゃべっていない所(無音)を自動で削ります(cut2resolve で計算)">無音 <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
          <div class="fld"><label for="cutNoise">無音とみなす音量(dB)</label><input id="cutNoise" type="number" value="-35" min="-90" max="0" step="1"><span class="hint">大きくする(-30 など)と、小さな音も無音として削ります</span></div>
          <div class="fld"><label for="cutSilMin">無音の長さ(秒)</label><input id="cutSilMin" type="number" value="0.6" min="0.05" max="60" step="0.05"></div>
@@ -1854,7 +1859,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="ui-seg" id="pkFps" role="group" aria-label="フレームレート"><button type="button" data-v="30">30 fps</button><button type="button" data-v="60">60 fps</button></div></div>
            <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
              <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
-           <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦にする作業(映像の切り抜き)は Resolve で行います。</p>
+           <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦に切り取る作業(クロップ)は Resolve で行います。</p>
            <p class="notice tt-pk-fpswarn" id="pkFpsWarn" hidden></p>
          </div>
          <div class="card tt-pk-card">

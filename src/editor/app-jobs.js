@@ -8,7 +8,7 @@
 function setTab(t){
   tab = t; $('#paneFile').hidden = t !== 'file'; $('#paneMarker').hidden = t !== 'marker'; $('#paneFolder').hidden = t !== 'folder';
   $('#tabFile').setAttribute('aria-pressed', t === 'file'); $('#tabMarker').setAttribute('aria-pressed', t === 'marker'); $('#tabFolder').setAttribute('aria-pressed', t === 'folder');
-  $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : t === 'folder' ? '選んだ動画を、それぞれ文字起こし' : '選んだポイントを文字起こし';
+  $('#btnStart').textContent = t === 'file' ? '文字起こしを開始' : t === 'folder' ? '選んだ動画を、それぞれ文字起こし' : '選んだマークを文字起こし';
   $('#btnOpenVideo').hidden = t !== 'file';
   if (t === 'folder') fdSyncStudio();
   if (t === 'marker') renderMarker();
@@ -81,7 +81,7 @@ async function openVideoNoTx(){
     await loadList();
     if (!(await openDoc(r.id))) return;
     $('#mediaChoice').hidden = true;
-    if (r.created) setEditTab('cut');
+    if (r.created) setEditTab('cut', { into: true });   // 2 カット の最初の操作(再生)へ(S18)
     toast(r.created ? '文字起こしせずに開きました。カットのタブで残す・削る所を決められます(文字起こしは 1 文字起こし のタブから、あとでもできます)' : 'この動画は前に開いています。その文書を開きました', 6000, 'ok');
     for (const w of r.warnings || []) toast(w, 6000);
   } catch (e){ toast(e.message, 6000, 'err'); }
@@ -91,9 +91,11 @@ async function openVideoNoTx(){
 async function onStart(){
   readOpts();
   const btn = $('#btnStart'); btn.disabled = true;
-  try { await (tab === 'file' ? startFile() : tab === 'folder' ? startFolder() : startMarker()); await kickJobs(); }
+  let ok = false;
+  try { await (tab === 'file' ? startFile() : tab === 'folder' ? startFolder() : startMarker()); await kickJobs(); ok = true; }
   catch (e){ toast(e.message); }
   finally { btn.disabled = false; }
+  if (ok){ const jb = $('#jobBadge'); if (!jb.hidden && jb.offsetParent) jb.focus(); }   // 始めたら処理中の札へ(押すと処理状況。S18)
 }
 
 /* ---------- フォルダ内すべて ---------- */
@@ -152,7 +154,7 @@ function parseMarker(d){
 
 function renderMarker(){
   const vs = S.marker.videos, sel = $('#mVideo');
-  $('#mStatus').textContent = S.marker.found ? `${(S.marker.sources || []).map(x => (x.kind === 'studio' ? '切り抜きスタジオ' : x.kind === 'file' ? '選んだ data.json' : '切り抜きマーカー') + x.videos + '本').join(' / ') || '切り抜きマーカー'}のデータを読み込みました(${vs.length}本の動画)` : '隣の clip-studio(または clip-marker)フォルダに data.json が見つかりません。下のボタンで data.json を選んでください。';
+  $('#mStatus').textContent = S.marker.found ? `${(S.marker.sources || []).map(x => (x.kind === 'studio' ? '切り抜きスタジオ' : x.kind === 'file' ? '選んだ記録' : '古い切り抜きマーカー') + x.videos + '本').join(' / ') || 'スタジオ'}のマークを読み込みました(${vs.length}本の動画)` : 'スタジオのマークの記録が見つかりません。下の「スタジオの記録を選ぶ」で記録のファイル(data.json)を選んでください。';   // 用語は「マーク」(S22)
   const cur = sel.value;
   const FROM = { studio: 'スタジオ', marker: '旧マーカー', file: '選んだ data.json' };
   sel.innerHTML = vs.map((v, i) => `<option value="${i}">[${FROM[v.from || (S.marker.sources || [])[0]?.kind] || '?'}] ${esc((v.title || v.videoId) + (v.local ? '(ローカル)' : ''))} — ${v.clips.length}件</option>`).join('');
@@ -570,7 +572,7 @@ async function loadVoices(){
   $('#voiceCount').textContent = n ? `${n}人` : 'まだありません';
   $('#voiceList').innerHTML = !n ? '<p class="hint" style="margin:6px 0 0">まだ覚えている声はありません</p>'
     : Object.entries(all).map(([k, xs]) => `<div class="hint" style="margin-top:6px">${esc(labels[k] || k)}${k === emb ? '(今の判別モデル)' : ''}</div>` + xs.map(x =>
-      `<div class="row" data-emb="${esc(k)}" data-name="${esc(x.name)}" style="margin-top:4px;justify-content:space-between;flex-wrap:nowrap"><span>${esc(x.name)} <span class="hint">${x.rows}行 ・ ${Math.round(x.sec / 6) / 10}分 ・ ${esc(ago(x.updatedAt))}</span>${x.generic ? ' <span class="pill warn" data-generic>一般的な名前です(忘れることをおすすめします)</span>' : ''}</span><button type="button" class="btn small" data-act="vdel">忘れる</button></div>`).join('')).join('');
+      `<div class="row" data-emb="${esc(k)}" data-name="${esc(x.name)}" style="margin-top:4px;justify-content:space-between;flex-wrap:nowrap"><span>${esc(x.name)} <span class="hint">${x.rows}行 ・ ${Math.round(x.sec / 6) / 10}分 ・ ${esc(ago(x.updatedAt))}</span>${x.generic ? ' <span class="pill warn" data-generic>一般的な名前です(忘れることをおすすめします)</span>' : ''}</span><button type="button" class="btn small danger" data-act="vdel">忘れる</button></div>`).join('')).join('');
 }
 
 /* ---------- 再認識 ---------- */
