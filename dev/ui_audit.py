@@ -129,10 +129,11 @@ def allowed(line, fid):
     return bool(m and m.group(1) == fid)
 
 
-def each_line(text, pattern, fid, path, out, msg, flags=0):
-    """pattern に当たる行を 1 件ずつ記録する(allow のある行は除く)。"""
+def each_line(text, pattern, fid, path, out, msg, flags=0, orig=None):
+    """pattern に当たる行を 1 件ずつ記録する(allow のある行は除く)。orig = コメントを消す前の文(allow の印はコメントに書くので、こちらで見る)。"""
+    olines = (orig or text).split("\n")
     for i, line in enumerate(text.split("\n"), 1):
-        if re.search(pattern, line, flags) and not allowed(line, fid):
+        if re.search(pattern, line, flags) and not allowed(olines[i - 1] if i - 1 < len(olines) else line, fid):
             out.add(fid, f"{rel(path)}:{i}", msg + ": " + line.strip()[:120])
 
 
@@ -317,18 +318,18 @@ def static_css(screen, path, text, out, offset=0):
 
 
 def static_js(screen, path, text, out):
-    code, strings = strip_js_comments(text)
-    each_line(code, r"(?<![\w.$])(confirm|alert|prompt)\s*\(", "A-03", path, out, "ブラウザのダイアログ")
-    lines = code.split("\n")
+    code, strings = strip_js_comments(text)   # code はコメントを空白にしたもの(行の位置は同じ)。allow の印はコメントにあるので元の text で見る
+    each_line(code, r"(?<![\w.$])(confirm|alert|prompt)\s*\(", "A-03", path, out, "ブラウザのダイアログ", orig=text)
+    lines, olines = code.split("\n"), text.split("\n")
     for i, line in enumerate(lines, 1):
-        if screen != "ui-kit" and "visibilitychange" in line and not allowed(line, "A-05") and not re.search(r"UIKit\.life|if \(life\)", "\n".join(lines[max(0, i - 3):i])):
+        if screen != "ui-kit" and "visibilitychange" in line and not allowed(olines[i - 1], "A-05") and not re.search(r"UIKit\.life|if \(life\)", "\n".join(lines[max(0, i - 3):i])):
             out.add("A-05", f"{rel(path)}:{i}", "visibilitychange を直接使っている: " + line.strip()[:100])
     if screen in MOUNTED:
-        each_line(code, r"""(?:fetch|open|EventSource|WebSocket|URL)\s*\(\s*["`']/(?!/)|(?:href|src|location(?:\.href)?)\s*=\s*["`']/(?!/)""", "A-01", path, out, "絶対パス")
+        each_line(code, r"""(?:fetch|open|EventSource|WebSocket|URL)\s*\(\s*["`']/(?!/)|(?:href|src|location(?:\.href)?)\s*=\s*["`']/(?!/)""", "A-01", path, out, "絶対パス", orig=text)
     if screen != "ui-kit":
-        each_line(code, r"""(?:style\.[a-zA-Z]+|color|background[a-zA-Z]*|fill|stroke)\s*=\s*["'](?:#[0-9a-fA-F]{3,8}|rgba?\(|white|black)""", "A-08", path, out, "JS の固定の色")
+        each_line(code, r"""(?:style\.[a-zA-Z]+|color|background[a-zA-Z]*|fill|stroke)\s*=\s*["'](?:#[0-9a-fA-F]{3,8}|rgba?\(|white|black)""", "A-08", path, out, "JS の固定の色", orig=text)
     texts = [(line_of(code, pos), s) for pos, s in strings if re.search(r"[ぁ-んァ-ン一-龥]", s) or any(ch in TEXT_ICONS for ch in s)]
-    check_terms(path, code, out, texts)
+    check_terms(path, text, out, texts)
 
 
 def static_checks(out):
