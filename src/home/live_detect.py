@@ -152,7 +152,16 @@ class Detector:
         return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.live.recorders()],
                 "detect": {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal",
                            "perHour": det.get("perHour") if isinstance(det.get("perHour"), int) else 6},
-                "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(), "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall}
+                "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(), "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall,
+                "lengthHint": self._length_hint()}
+
+    def _length_hint(self):
+        """M10: 人が選んだ区間の長さの目安(夜の自動測定 dev/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
+        try:
+            return EW.length_hint(self.live.root)
+        except Exception as e:
+            self.live.note("盛り上がりの検出: 長さの目安を読めませんでした: %r" % (e,))
+            return None
 
     def write_config(self):
         """config.json(変わったときだけ書く。ワーカーは更新の時刻を見て読み直す)"""
