@@ -25,6 +25,8 @@
 - 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
   文字起こしは「編集」(文字起こし)の設定(モデルなど)を使う。パックは、「編集」でカットを決めてあればそのとおり(cut2resolve の spec.keeps。
   作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
+  リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)の切り抜きは、カットを指定していなければ区間の全体
+  (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2 のまま)。
 - あとから解析(測るため。2026-10-05 ユーザー決定): 友人の依頼(URL)が区間だけ(解析の段を外した形)で終わったら、その配信を「あとから解析する一覧」
   (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
   スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
@@ -41,7 +43,7 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, fsio, txindex
+from ytt_core import colors, fsio, schemas, txindex
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
 
@@ -259,6 +261,23 @@ def pad_range(s, e, duration=None):
     if duration and duration > 0:
         b = min(b, float(duration))
     return [round(a, 1), round(max(b, a + 0.1), 1)]
+
+
+LIVE_AUTO_ORIGINS = ("auto", "archive")   # リアルタイム切り抜きの自動の採用(M11 の配信中・M7 の配信後)。src/home/live_export.py の ORIGINS のうち人でないもの
+LIVE_AUTO_CUT = "none"                    # M8: 自動の採用の切り抜きのカットの既定 = 区間の全体(区間は検出が静かな所に合わせて絞ってある)
+
+
+def live_auto_origin(media):
+    """M8: 切り抜きの .clip.json(src/home/live_export.py の _finish が書く)が、リアルタイム切り抜きの自動の採用(source.live.origin が auto・archive)か。
+    読めない・無い・人の採用(manual)・ライブでない → False"""
+    try:
+        p = schemas.find_clip_path(media)
+        clip = schemas.load_clip_file(p)[0] if p else None
+    except (OSError, ValueError, TypeError):
+        clip = None
+    src = (clip or {}).get("source") if isinstance((clip or {}).get("source"), dict) else {}
+    live = src.get("live") if src.get("kind") == "live" and isinstance(src.get("live"), dict) else {}
+    return live.get("origin") in LIVE_AUTO_ORIGINS
 
 
 def _top_arg(top):
@@ -1648,7 +1667,8 @@ class AutoRunner:
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
             tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-            method = run.cut or self._cut_method()   # 友人が選んだカット(① の依頼)。無ければホームの設定
+            # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)。無ければ、自動の採用の切り抜きは区間の全体(M8)、ほかはホームの設定
+            method = run.cut or (LIVE_AUTO_CUT if run.source_path and live_auto_origin(media) else self._cut_method())
             if method == "none":   # 動画全体(削る区間なし)。カット済の行の字幕も消さない
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
             elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)

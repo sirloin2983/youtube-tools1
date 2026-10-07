@@ -12,10 +12,13 @@ ChatFeed)の yt-dlp の場所にこのファイルを渡す(.py なら同じ Pyt
   403    … lines 行書いてから「HTTP Error 403: Forbidden」を出して終わる(終了コード 1)
   nochat … 「There are no subtitles for the requested languages」を出して終わる(ファイルを作らない。終了コード 0)
   exit   … lines 行書いて終わる(終了コード code)
+  どの mode も "child": true なら、本物の yt-dlp(PyInstaller の 1 ファイルの exe)と同じく子プロセスを 1 つ起動して書くのは子にまかせ、親は子を待つ
+  (子の pid は <log>.pids に 1 行ずつ。ワーカーが yt-dlp を止めたとき子も終わるかをテストが確かめる)
 メッセージの時刻は t0 + 起動の番号 × 1000 + 行の番号(起動し直すほど新しい = 本物と同じく前の起動より後のメッセージ)。
 """
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -31,7 +34,10 @@ def main():
     with open(os.environ["FAKE_YTDLP_CHAT"], encoding="utf-8") as f:
         spec = json.load(f)
     n = 0
-    if spec.get("log"):
+    child = os.environ.get("FAKE_YTDLP_CHILD")
+    if child is not None:   # 子: 親が数えた起動の番号のまま(記録は親が書いた)
+        n = int(child)
+    elif spec.get("log"):
         try:
             with open(spec["log"], encoding="utf-8") as f:
                 n = sum(1 for _ in f)
@@ -41,6 +47,12 @@ def main():
             f.write(json.dumps(args, ensure_ascii=False) + "\n")
     runs = spec.get("runs") or [{"mode": "write"}]
     run = runs[min(n, len(runs) - 1)]
+    if run.get("child") and child is None:   # PyInstaller の 1 ファイルの exe のまね: 子を起動して、書くのは子にまかせて待つ
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__)] + args, env=dict(os.environ, FAKE_YTDLP_CHILD=str(n)))
+        if spec.get("log"):
+            with open(spec["log"] + ".pids", "a", encoding="utf-8") as f:
+                f.write("%d\n" % p.pid)
+        return p.wait()
     mode = run.get("mode", "write")
     if mode == "nochat":
         print("[info] There are no subtitles for the requested languages", flush=True)

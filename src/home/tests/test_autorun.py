@@ -1235,6 +1235,35 @@ class TestRequests(Base):
         body = list(self.tools.tx_jobs.values())[-1]["body"]
         self.assertEqual(("engine" in body, body["model"]), (False, "small"))   # 編集の設定のモデル
 
+    def live_clip(self, name, origin):
+        """リアルタイム切り抜きの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
+        from ytt_core import schemas
+        media = os.path.join(self.tmp, name)
+        open(media, "wb").close()
+        clip = {"schema": schemas.CLIP_SCHEMA, "range": {"start": 1200.0, "end": 1245.0}, "mark": {"id": "m1", "status": "exported", "src": "auto"},
+                "source": {"kind": "live", "videoId": VID, "live": {"recorder": "local", "recording": "20261007-200000-" + VID, "origin": origin}}}
+        path = schemas.clip_path_for(media)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(clip, f)
+        return media
+
+    def test_live_auto_clip_pack_is_whole_range(self):
+        """線 D の M8: リアルタイム切り抜きの自動の採用(origin auto・archive)の切り抜きは、カットを指定していなければ区間の全体
+        (ホームの autorun.cut が rows でも)= パックの区間は候補の区間のまま。人の採用(manual)は今までどおりホームの設定。live.auto.cut(M2)を選べばそれ"""
+        self.prefs.patch("autorun", {"cut": "rows"})
+        for name, origin, cut, want in (("auto.mp4", "auto", None, "list"), ("archive.mp4", "archive", None, "list"), ("manual.mp4", "manual", None, "preset"),
+                                        ("auto-silence.mp4", "auto", "silence", "silence")):
+            media = self.live_clip(name, origin)
+            run = self.wait(self.r.start_file(media, title=name, flow="auto", cut=cut))
+            self.assertEqual((run["state"], run["mode"]), ("done", "file_auto"), run)
+            spec = self.tools.c2r["body"]["spec"]
+            got = "preset" if "preset" in spec else spec["mode"]
+            self.assertEqual(got, want, (name, spec))
+            if want == "list":   # 区間の全体(削る区間なし・カット済の行の字幕も消さない)
+                self.assertEqual((spec["listKind"], spec["listText"], spec["dropCutRows"], spec["minLen"]), ("drop", "", False, 0))
+        self.assertFalse(A.live_auto_origin(os.path.join(self.tmp, "nai.mp4")))
+
     def zips(self, out):
         import zipfile
         return {n: sorted(zipfile.ZipFile(os.path.join(out, n)).namelist()) for n in os.listdir(out)}
