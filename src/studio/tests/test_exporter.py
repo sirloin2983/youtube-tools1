@@ -455,7 +455,7 @@ class TestBuildSpecIds(unittest.TestCase):
         with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(exporter, "find_tool", return_value="/bin/true"):
             with self.assertRaises(common.ApiError) as cm:
                 exporter.build_spec(S(), {"id": "x", "markIds": ["m1"]})
-        self.assertIn("動画ID", cm.exception.message)
+        self.assertIn("配信の ID", cm.exception.message)   # 0.22.3: 配信の意味の「動画」は「配信」(見直し S5)
 
 
 class TestHeavyJobLimit(unittest.TestCase):

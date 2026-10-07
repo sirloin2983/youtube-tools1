@@ -290,7 +290,7 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
   assert.equal(renders, 1);
   const html = context.txHTML({ id: 'm1' });
   assert.ok(!html.includes('<img') && html.includes('&#60;img') && html.includes('rv-tx-spk">&#60;b&#62;</span>'));
-  assert.ok(html.includes(' open') && html.includes('rv-tx-line cut') && html.includes('data-t="3"') && html.includes('.clip.json'));
+  assert.ok(html.includes(' open') && html.includes('rv-tx-line cut') && html.includes('data-t="3"') && html.includes('切り抜きの記録が見つからない'));
   assert.equal(context.txHTML({ id: 'm9' }), '');
   S.cur = { id: 'C', marks: [{ id: 'm1', status: 'adopted' }] };   // 書き出したマークが無い動画は問い合わせない
   await context.loadTranscripts();
@@ -795,7 +795,7 @@ test('export done notice has [編集で開く] with the same URL as the row link
 });
 
 test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used (S-15・S-25)', () => {
-  const rv = between('async function pollAuto(', 'let warnShown');
+  const rv = between('async function pollAuto(', 'function showDataWarning(');
   assert.ok(rv.includes('href="../#cases" data-ui-portal') && !rv.includes('target="_blank"'), '案件で見る');
   const rk = sliceOf('rank.js', 'class="row rk-autogo"', '</div>');
   assert.ok(rk.includes('data-ui-portal') && !rk.includes('_blank'), '案件の一覧');
@@ -912,7 +912,7 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
   /* 0.22.3(見直し M9): 操作の設定は ③ の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
   assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');
   assert.ok(between('function mountSettings(', '/* 書き出しの引き出し').includes("$('#opsHost')"), 'mountSettings puts them into the settings drawer');
-  assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice"') && html.endsWith('    </section>\n  </div>\n</div>'));
+  assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice cs-notice-act"') && html.endsWith('    </section>\n  </div>\n</div>'));
   assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
 });
 

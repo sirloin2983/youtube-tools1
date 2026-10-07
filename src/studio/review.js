@@ -2738,12 +2738,11 @@ const handlePlayback = window.UIKit && UIKit.keys ? UIKit.keys.playback({
     if (act === 'stop' || act === 'play'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // 止める・再生は再生速度を変えるので、速度の選択も合わせる
   }
 }) : null;
-/* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える */
-/* 下のキーの帯(場面に合ったキー 7 個まで)。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
-   書き出しの欄を重ねて開いている間(③ のキーは効かない)は、その欄で使うキーだけにする */
+/* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
+   書き出しの欄を重ねて開いている間(③ のキーは効かない)は、その欄で使うキーだけにする(重ねているかは属性で見る。S.expModal は開いたあとで入るため) */
 function keybarScene(){
   if (!window.UIKit || !UIKit.keybar) return;
-  { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){   // S.expModal は開いたあとで入るので、属性で見る UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
+  { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
   UIKit.keybar.set([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
     row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), 'IN / OUT'), row(t('adopt'), '採用'), row(t('reject'), '不採用'), { k: '?', l: 'キー操作' }].filter(Boolean));
