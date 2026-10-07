@@ -118,3 +118,5 @@
 内訳(一意): A-07 2・A-08 21(Should)・A-09 5・A-10 44・A-20 1・A-21 13・A-22 15・A-24 9・A-25 7・A-29 4(Should)・A-31 3・A-32 2・A-34 7(Should)・A-35 1(Should)・A-36 10(Should)。
 (その前の測り方では閉じたメニューの中身まで数えて Must 3003 件だった。閉じた details の中身は `checkVisibility` で除くように直した)
 見直し役の Must / Should の数と、周ごとの推移は `docs/WORKLOG.md` と `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md` に書く。
+
+**結果(2026-10-07。3 周で合格)**: A は Must 704 → 9(2 周目)→ **0**(3 周目。Should 38・一意 13 = 見本ページ 5 とスタジオの固定の色 8 だけ)。B は見直し役の Must ホーム 10・スタジオ 9・編集 9 → 0。ゲート OK。以後、画面を変えたら `py -3.10 dev/ui_audit.py all --demo` を Must 0 件にする(`AGENTS.md` の表)。

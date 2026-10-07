@@ -1,20 +1,23 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 夜。段 7〜9 の途中で中止)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-07 深夜。UI の見直し(基準 → 合格までループ)が済んだところ)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`、規則は `AGENTS.md`。
 
 ## いまの状態
-- 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**(AI は push しない)
-- **2026-10-07 にフォルダを整理した**: `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)・`friend-apps/`(holo-colors・request-sender)・`plan/`(ユーザーが読む計画)・`docs/`(AI 向け)。start.bat は `src\home\launch.py` を呼ぶ。フォルダ名の正は `src/ytt_core/layout.py`(`src_root()` = ツールの親、`repo_root()` = リポジトリ直下)
-- 同じ日に、ユーザーの指示の 4 つの作業を終えた(`plan/data.js` の recent = `plan/index.html` の 1): ① 資料とフォルダの整理 / ② A2・録画の部品の終了・線 D M1〜M7(入口 0.40.0)・B1 0.57.1・A1 しきい値 0.6(編集 0.58.0)・B2 手元の 4 エンジンの比較 / ③ 全フォルダの見直し(動きは同じ。各ツールの版を 1 つ上げた)/ ④ `plan/improvements.md`(次に手を付けるなら)・`decisions.md`(仮決め (a)〜(r))。**残り**: L0(配信中に)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)・`decisions.md` の 3 の確認
-- 夜に、コードの見直し 2 周目(基準 `docs/spec/code-quality.md`・`dev/lint.py` 0 件)と「気が利く画面へ」の段 7〜8(`plan/ux-stage7-9.md`)・用語の統一(ui-kit v21)まで済んでコミット済み。**段 9(見た目の確認)の途中でユーザーが中止**: 段 9 の src の変更(ui-kit v22・編集 0.59.2・入口 0.42.2・スタジオ 0.22.2)はテスト前・未コミットで作業フォルダに残っている。WORKLOG の末尾の「再開の手順」のとおりに続ける
-- 版(コミット済みの最新): 入口 0.42.1・スタジオ 0.22.1・編集 0.59.1・cut2resolve 0.22.2・録画 0.3.2・ui-kit v21・送るアプリ 2.2.0・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表は 0.41.1 / 0.21.3 / 0.58.3 / v20 のままで古い)。ユーザーは入口を起動し直す必要がある
+- 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**
+- **2026-10-07 の UI の見直しは、クラウドの Claude Code がブランチ `claude/ui-review-2026-10-07` に積んで push 済み**(クラウドの決まりで push した。main はその間に進んでいないので、PC では `git fetch origin claude/ui-review-2026-10-07` → `git merge origin/claude/ui-review-2026-10-07` で早送りで取り込める。取り込んだら「すべて終了」→ start.bat で起動し直す)
+- 済んだこと(記録は `docs/WORKLOG.md` の末尾と `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`): 基準 `docs/spec/ui-review-criteria.md`(A = 機械で測る 31 項目・B = 人が見る 21 項目・合格の定義)・測る道具 `dev/ui_audit.py`(`py -3.10 dev/ui_audit.py all --demo` で見本サーバーごと測る。**画面を変えたら Must 0 件**)・3 周の直し(ui-kit v23・入口 0.42.3・スタジオ 0.22.3・編集 0.59.3)。A の Must 704 → 0、見直し役の Must 28 → 0 で合格
+- **ユーザーに確認してほしいこと**: `plan/decisions.md` の 3-4 の仮決め (am)〜(ba)(合格の定義・コントラストの範囲・文字記号を全部 SVG・行の札を 2 択に・2 カット の X → H・ホームの ⚙ の節 など)。合格は Linux(クラウド)の chromium で判定したので、Windows でも e2e(`dev/run_editor_suite.py` と home・studio の e2e)を流し直すと確実
+- 残り(直さなかった Should・Could)は `plan/improvements.md` の 11。段 9 以前の残りは同じ文書の 10 と `plan/ux-stage7-9.md`
+- 版(コミット済みの最新): 入口 0.42.3・スタジオ 0.22.3・編集 0.59.3・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ 2.2.0・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表も同じ)
+- Linux で前から落ちるテスト(Windows では通る): home の `test_live` 2 件(`E:\` のパス前提)と `test_cleanup.test_move_only_known_and_purge`(一覧の順が OS で違う)、editor の `test_roster` 2 件 + 1 件(Windows のパス前提)。e2e は Linux でも全部 OK
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → docs/WORKLOG.md の末尾 1 件(中止の記録と再開の手順)→ git status を見て、段 9 の未コミットの変更をテストして直し、DESIGN_REVIEW.md と ui-guidelines を書いてコミットして。そのあと plan/data.js の版と ⑤ を直して dev/plan_artifact.py で公開ページを更新し、lint 0 件と e2e 29 本で合格を確かめて。仮で決めたことは plan/decisions.md の 3 に足して、終わりにまとめて確認して。」
+「AGENTS.md → docs/WORKLOG.md の末尾 1 件(UI の見直しの記録)→ git status を見て。plan/decisions.md の 3-4 の (am)〜(ba) をユーザーと確認し、変えるものがあれば直して、画面を変えたら py -3.10 dev/ui_audit.py all --demo で Must 0 件と、その画面の e2e を確かめて。」
 
 ## 注意(引き継ぐこと)
 - 入口が起動中にフォルダを動かすと、録画の部品(`recorder.py`)のプロセスがフォルダを掴んで移動できない。入口の「すべて終了」では録画の部品が止まらないことがある(10-07)。ユーザーにタスク マネージャーで止めてもらう
 - Claude Code のアプリ(Code タブ)から動かす AI は MSIX の中なので、`%LOCALAPPDATA%` への書き込みは写しに入る(`AGENTS.md` の動作環境)。作業データは入口の API を通すか、パッケージの外のプロセスで書く
+- クラウドの Claude Code(claude.ai/code)は PC のフォルダを見ない。GitHub のブランチに push するので、PC 側で取り込む(上の手順)。`python` は `python3`・node は Playwright 同梱ではなく `/opt/node22/bin/node`・Segoe UI と Cascadia が無い(写真の字が少し違う)・YouTube の埋め込みは読めない
 - Claude Code のアプリがときどき落ちる(セッションが途中で切れる)。項目ごとにコミットする。再開は「続行」で止まった所から。WORKLOG の「未コミット」と `git status` を突き合わせる
 - 2026-09-23 に、Claude が配った zip で GPT の変更が上書きされて消えた。**古い控えからのファイル丸ごとの上書き・zip 配布はしない**
 - PC の不安定(i9-13900KF)は 10-04 に CPU を i9-12900KF に替えて解決したとみなす。異常終了は本物の失敗として調べる(入口の「調子」の「異常終了(7 日)」)
