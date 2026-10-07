@@ -133,14 +133,14 @@ def main():
                 check(ktext("seekBack") == "←", "取り消したら元のまま")
                 # 日本語の変換中のキーは受け取らない
                 pg.click(K % "rowNext")
-                pg.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', {key: 'h', isComposing: true, bubbles: true}))")
+                pg.evaluate("window.dispatchEvent(new KeyboardEvent('keydown', {key: 'm', isComposing: true, bubbles: true}))")
                 check(pg.evaluate("UIKit.keymap.capturing()") and ktext("rowNext") == "キーを押す…", "変換中のキー(isComposing)は割り当てない")
                 # GPT-03: ← + Shift(5秒戻る)は、ほかの操作に割り当てられない
                 pg.keyboard.press("Shift+ArrowLeft")
                 note = pg.inner_text("#keysList .ui-km-note")
                 check(pg.evaluate("UIKit.keymap.capturing()") and "5 秒" in note, "Shift+← は「1秒戻る」+ Shift(5秒)なので断り、待つのを続ける: " + note)
-                pg.keyboard.press("h")
-                check(ktext("rowNext") == "H" and not pg.evaluate("UIKit.keymap.capturing()"), "別のキー(H)を押すと割り当てる")
+                pg.keyboard.press("m")   # H は 2 カット の「I〜O を削る」に使う(ui-kit v23 で X → H)ので、どの画面でも空いている M で試す
+                check(ktext("rowNext") == "M" and not pg.evaluate("UIKit.keymap.capturing()"), "別のキー(M)を押すと割り当てる")
                 # 重なり → 「外しました」[戻す]
                 pg.click(K % "replay")
                 pg.keyboard.press("w")
@@ -154,9 +154,9 @@ def main():
                 check(ktext("rowNext") == "S", "行の「標準」で標準のキーに戻す")
                 # 共通の再生キーを変える → ホームの設定に保存
                 pg.click(K % "frameBack")
-                pg.keyboard.press("h")
-                pb = wait_prefs(lambda x: x.get("frameBack") == "h")
-                check(pb.get("frameBack") == "h", "共通の再生キー(1コマ戻る = H)はホームの設定に保存: %s" % pb.get("frameBack"))
+                pg.keyboard.press("m")
+                pb = wait_prefs(lambda x: x.get("frameBack") == "m")
+                check(pb.get("frameBack") == "m", "共通の再生キー(1コマ戻る = M)はホームの設定に保存: %s" % pb.get("frameBack"))
                 kb = pg.evaluate("[...document.querySelectorAll('.ui-keybar-item')].map(e => e.dataset.k)")
                 check("R" in kb, "キーの帯は今の割り当てから: %s" % kb)
                 pg.keyboard.press("?")
@@ -169,12 +169,12 @@ def main():
                 ps.on("pageerror", lambda e: errors.append(str(e)))
                 ps.goto(base + "/studio/")
                 wait_js(ps, "!!(window.Studio && Studio.review && Studio.review.keymap)", 15000)
-                wait_js(ps, "Studio.review.keymap.key('frameBack') === 'h'", 10000)
+                wait_js(ps, "Studio.review.keymap.key('frameBack') === 'm'", 10000)
                 ps.click("#btnKeys")
                 check(wait_js(ps, "document.querySelector('#keyHelp').open", 5000), "スタジオの「キー操作」で一覧が開く")
                 SK = "#keyHelpBody .ui-km-key[data-km=%s]"
                 st_text = lambda i: ps.inner_text(SK % i).replace("\n", "").replace(" ", "")   # noqa: E731
-                check(st_text("playPause") == "P" and st_text("frameBack") == "H", "スタジオでも共通の再生キーは編集と同じ(P・H)")
+                check(st_text("playPause") == "P" and st_text("frameBack") == "M", "スタジオでも共通の再生キーは編集と同じ(P・M)")
                 check(st_text("adopt") == "Y" and "今をマーク①" in ps.inner_text("#keyHelpBody"), "スタジオのキー(採用 = Y)も同じ形の一覧に")
                 ps.click("#keyHelpBody [data-km-def=playPause]")
                 check(st_text("playPause") == "Space", "スタジオで共通の再生キーを標準に戻せる(S-27)")
