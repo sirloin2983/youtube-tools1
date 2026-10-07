@@ -1,7 +1,7 @@
 # ROADMAP(AI 向け: 文書の索引と段の進め方)
 
-> 状態(2026-10-07): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
-> 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt_core/layout.py`。
+> 状態(2026-10-08): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
+> 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、自分用の Chrome 拡張は `chrome-ext/`(yt-studio-time。10-08)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt_core/layout.py`。
 > 09-30 の改名(app→home・clip-studio→studio・transcribe-tool→editor)の対応表は `docs/design/phase0-restructure.md`。WORKLOG・design の中の旧いパスは当時のまま。
 
 ## 1. 全体像
@@ -9,10 +9,10 @@
 切り抜きスタジオ ──書き出し──▶ 編集(1 文字起こし → 2 カット → 3 パック)──▶ DaVinci Resolve(Text+ パック)
       ▲                              │
       └──── セリフの表示(文字起こしを返す)┘        入口(ホーム・案件・まとめて実行)が全部を 1 つのプロセス(:8700)で動かす
-線 D: 配信 → 録画(recorder) → マーク → 書き出し → 文字起こし → パック(配信後の全自動 M7 をこれから作る)
-別件: 友人の依頼(Dropbox → 入口が自動で流す)・ホロカラー(メンバーカラーの常駐アプリ)
+線 D: 配信 → 録画(recorder) → 配信中の検出(候補の帯・自動採用) → マーク → 書き出し → 文字起こし → パック(M7・L1〜L3・M11 は 10-07 に実装済み。既定オフ)
+別件: 友人の依頼(Dropbox → 入口が自動で流す → パックを届ける → 友人の「要らない」の返事)・ホロカラー(メンバーカラーの常駐アプリ)・Chrome 拡張(Studio の一覧に投稿時刻。chrome-ext/yt-studio-time)
 ```
-済んだ柱: 3 ツールの統合(段階 0〜7)・「編集」ツール(E1〜E6)・画面の全面見直し・線 A の段 0〜7・9・10・Q0〜Q4・線 D の P1〜P4(既定オフ)・行の時刻の案 A(編集 0.57.0)。
+済んだ柱: 3 ツールの統合(段階 0〜7)・「編集」ツール(E1〜E6)・画面の全面見直し・線 A の段 0〜7・9・10・Q0〜Q4・線 D の P1〜P4(既定オフ)・行の時刻の案 A(編集 0.57.0)・「気が利く画面へ」段 7〜9 と UI の見直し(10-07)・線 D の M1〜M7・L1〜L3・M8〜M12(10-07。既定オフ)・I-5 字幕の分け方(編集 0.59.5)・送るアプリ 2.3〜2.6(すべて受け取る・まとめ動画・友人の返事)。
 これから: `plan/index.html` の 2(各線の進捗)と 3(フェーズ)(データは `plan/data.js`)。ユーザーがやること: `plan/user-tasks.html`。決めたこと: `plan/decisions.md`。
 
 ## 2. 文書の索引(どれを読むか)
@@ -23,6 +23,7 @@
 | `AGENTS.md`(= `CLAUDE.md`) | AI 全員の共通の前提・規則・担当表・フォルダと通すテスト・動作環境 |
 | `src/editor/AGENTS.md` | 「編集」の AI 向けの仕様(今の動き) |
 | `src/recorder/AGENTS.md` | 録画の部品の決まり |
+| `chrome-ext/yt-studio-time/AGENTS.md`・`README.txt` | Chrome 拡張「YouTube Studio 投稿時刻」の作り・テスト・本物の Studio で未確認の仮定・配布(AI 向け)/ 友人にそのまま渡せる入れ方・更新・外し方 |
 | 各ツールの `README.txt`・リポジトリ直下の `README.txt` | ユーザー向けの使い方と変更の記録 |
 | `docs/spec/pipeline.md` | ツール間の受け渡しの形式と API |
 | `docs/spec/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`)・バックアップ・写し戻し |
