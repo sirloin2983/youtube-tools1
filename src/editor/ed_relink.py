@@ -216,7 +216,7 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
 # - ジョブはすでに SLOTS(ytt_core.jobs)を持っている(ed_jobs.work_one)。この中で取り直さない(上限 1 だと自分を待って止まる)
 # - 付け替えは updatedAt を変えない(_relink_write の bump=False。開いている画面の次の保存を 409 にしない)
 NORM_SUFFIX = "_30fps"
-NORM_PHASE = "30fps にそろえています…"   # 画面は「30fps にそろえています… n%」(ジョブの progress)
+NORM_PHASE = "動画の 1 秒のコマ数を 30 にそろえています(30fps)…"   # 言葉の説明つき(2 周目 S10)   # 画面は「30fps にそろえています… n%」(ジョブの progress)
 NORM_MIN_FREE = 1024 ** 3                 # 作り直しの前に、元の動画の大きさ + これだけの空きを求める
 NORM_WHY = "normalize30"                  # 付け替えの記録 relinks[].why
 

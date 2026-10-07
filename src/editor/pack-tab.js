@@ -295,7 +295,7 @@ function create(h){
   }
   /* 前回の設定の要約(段3。詳しい設定は「設定を変える」の右の欄)。配信者の色の丸は、字幕があるときだけ(無いときは字幕そのものが無いので色も出ない) */
   function renderSummaryText(fps, size, hasRows){
-    const bits = [`${fps}fps`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
+    const bits = [`${fps}fps(1 秒のコマ数)`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
     if (hasRows && document.activeElement !== $('#pkBackup')) $('#pkBackup').checked = h.S.settings.packBackup === true;   // 予備は覚える(段4・E-4)。字幕の無いパックは EDL が本体なので入れたまま(render が決める)
     if (hasRows) bits.push($('#pkBackup').checked ? '予備あり' : '予備なし');
     if (document.activeElement !== $('#pkRender')) $('#pkRender').checked = h.S.settings.packRender === true;   // 粗編集の動画つきも覚える(段4 4-2。監査 09。設定は config.json なので別の窓・ブラウザでも同じ)
@@ -459,7 +459,7 @@ function create(h){
     try { await h.putSettings(); }
     catch (e){ h.S.settings.rowEdge = cur; $('#pkPadAfter').value = String(before); h.toast('設定を保存できませんでした: ' + e.message, { kind: 'err', ms: 10000, action: { label: 'もう一度', fn: () => savePad(String(v)) } }); return; }   // [もう一度](S27)   // 保存できなければ欄も元へ(zip・まとめて実行は保存済みの設定を読む)
     const redo = h.CUT && h.CUT.redraftPristine ? h.CUT.redraftPristine() : false;
-    $('#pkPadAfterNote').textContent = redo ? '「行から」のたたき台を作り直します(区間の終わりが変わります)' : '手で直したカットには効きません。2 カット の「行から」でたたき台を作り直すと効きます(zip・まとめて実行には効きます)';
+    $('#pkPadAfterNote').textContent = redo ? '「行から」のたたき台を作り直します(区間の終わりが変わります)' : '手で直したカットには効きません。2 カット の「行から」でたたき台を作り直すと効きます(zip と、まとめて実行で「行から」を選んだときには効きます)';
     render();
   }
   $('#pkBuild').addEventListener('click', build);

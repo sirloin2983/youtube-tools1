@@ -682,7 +682,7 @@ h2{margin:0;font-size:15px}
 .tt-sub>summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--ink-2)}
 /* 入力の種類(手元のファイル/フォルダ/スタジオ): ui-kit の .ui-seg と同じ見た目で、3つを等分 */
 .seg-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:3px;margin:10px 0 0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px}
-.seg-tabs button{border:0;background:transparent;color:var(--ink-2);min-height:30px;padding:4px 6px;border-radius:7px;cursor:pointer;font-weight:550;font-size:12.5px;line-height:1.3}
+.seg-tabs button{border:0;background:transparent;color:var(--ink-2);min-height:30px;padding:4px 6px;border-radius:7px;cursor:pointer;font-weight:550;font-size:12.5px;line-height:1.3;word-break:keep-all}   /* 語の途中で折らない(折るのは <wbr> の所だけ。2 周目 S21) */
 .seg-tabs button:hover{color:var(--ink)}
 .seg-tabs button[aria-pressed=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
 .clist{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:var(--r);margin-top:6px;background:var(--field)}
@@ -1329,7 +1329,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div class="seg-tabs" role="group" aria-label="入力の種類">
       <button type="button" id="tabFile" aria-pressed="true" title="手元の動画・音声ファイルを 1 本">ファイル</button>
       <button type="button" id="tabFolder" aria-pressed="false" title="フォルダの中の動画・音声をまとめて">フォルダ</button>
-      <button type="button" id="tabMarker" aria-pressed="false" title="切り抜きスタジオで付けたマーク(の区間)を文字起こし">スタジオのマーク</button>
+      <button type="button" id="tabMarker" aria-pressed="false" title="切り抜きスタジオで付けたマーク(の区間)を文字起こし">スタジオの<wbr>マーク</button>
     </div>
 
     <div id="paneFile">
@@ -1747,13 +1747,13 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span class="ui-icon" data-icon="redo" aria-hidden="true"></span>やり直す</button>
        <span class="tt-sep" aria-hidden="true"></span>
        <span class="hint">たたき台:</span>
-       <span class="tt-split" role="group" aria-label="行からのたたき台"><button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip・まとめて実行のカットの無い文書と同じ規則)">行から</button>
+       <span class="tt-split" role="group" aria-label="行からのたたき台"><button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip と、まとめて実行で「行から」を選んだときと同じ規則)">行から</button>
        <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)"><span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
          <label class="lag"><input type="checkbox" id="cutEdgeOn" checked>行の端を声の止まる所まで広げる</label>
          <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は <b>3 パック</b> の「詳しい設定」で変えられます)。カット済の行は越えません</p>
          <div class="fld"><label for="cutEdgeAfter">終わりを広げる上限(秒)</label><input id="cutEdgeAfter" type="number" value="0.5" min="0" max="2" step="0.05"></div>
          <div class="fld"><label for="cutEdgeBefore">始まりを広げる上限(秒)</label><input id="cutEdgeBefore" type="number" value="0.3" min="0" max="2" step="0.05"></div>
-         <p class="hint">この設定は、zip・まとめて実行(カットの無い文書)にも使います</p>
+         <p class="hint">この設定は、zip と、まとめて実行で「行から」を選んだときにも使います(まとめて実行のカットの決め方はホームの設定)</p>
          <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutEdgeGo">この設定で「行から」のたたき台にする</button></div></div></details></span>
        <button type="button" class="btn small ghost" id="cutNone" title="カットせずに動画全体を残します(カット済の行の字幕も全部出ます)。「元に戻す」(Ctrl+Z)で戻せます">カットしない</button>
        <details class="pop" id="cutDraftSilence"><summary class="btn small ghost" title="しゃべっていない所(無音)を自動で削ります(cut2resolve で計算)">無音 <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
@@ -1878,7 +1878,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"><span class="hint" id="pkRecTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
              <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
              <div class="fld"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
-               <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip・まとめて実行(カットの無い文書)に効きます。前の余白 0.1 秒は変わりません</span>
+               <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
                <span class="hint" id="pkPadAfterNote"></span></div>
              <div class="fld" id="pkFpsOtherFld" hidden><label for="pkFpsOther">その他のフレームレート(置き先。30fps でない古い素材のとき)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
              <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
