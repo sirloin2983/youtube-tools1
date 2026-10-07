@@ -2278,3 +2278,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 残した Could(`plan/improvements.md` に書く予定): `_level` の +inf・`allow_nan=False`・`fill()` の上限・知らない id の決定で decN を進めない・prefs の detect が壊れていると live の節ごと既定に戻る(auto と同じ前からの作り)・起動し直しの数は直近 1 時間で・403 の見方・config.json の合言葉(危険は低い = token.txt と prefs も写っている)・検出をオフにすると過去の録画の候補が出ない・オフのまま起動し直さないと生のチャットが残る
 - テスト: test_live_detect + test_backup + test_live 83 OK・lint 0。e2e(1 本ずつ): live_studio 164・live・live_archive 100・portal・keymap・studio e2e_ui 218 / --mounted 243 すべて OK。`ui_audit all --demo` は Windows の不具合を直して流し直し中
 - 未コミット: なし(このコミットで全部)
+
+## 2026-10-07 Claude Code(PC。まとめ役 Fable + サブエージェント Opus)— 線 D M9 + M12(自動でできた切り抜きの確認の一覧・届ける)を取り込み(入口 0.43.1)・ui_audit を Windows で Must 0
+- M9 + M12(ブランチ `worktree-agent-ab818999d2a124d0e` の b02ba2e を main に merge = 3f38b16): `src/home/cases.py`(ライブの録画の自動の切り抜きに `clip["auto"]`(出どころ・点数・控え)と `clip["review"]`(見た・届けた・失敗・未確認)。`autoClips`・一覧の `auto`。操作 `auto_review`(見た・採用・要らない)。案件ファイル `cases.json` の `auto[マーク id]`)・`deliver.py`(`start(on_done)`・`running`)・`launch.py`(`POST /api/cases/auto`。版 0.43.0 → **0.43.1**)・`portal.html/js/css`(「自動の切り抜き: 未確認 n 件」の絞り込み・行の「自動」の札と出どころ・点数・控え・未見/見た・届けた・失敗・[採用(友人へ届ける)][要らない] = 二度押し・押せない理由・フォーカスの移し先)・`README.txt`・`test_cases.py`(+7)・`e2e_portal.py`(場面 2j: 偽の配信 2 つを本物のスタジオの API で登録 → 札・絞り込み・28px・押せない理由・見た・採用で zip・要らないでごみ箱 + 不採用)。仮決めは `plan/decisions.md` 3-7 の (ck)〜(cr)
+- テスト(main で): test_cases・test_launch・test_deliver・test_cleanup・test_mount 102 OK・lint 0・`e2e_portal.py` すべて OK
+- ui_audit(Windows で初めて最後まで流した): Must 6 件 = すべて YouTube の埋め込み(iframe#widget2)。A-27 の「compute-pressure」の警告(YouTube 側)は `dev/ui_audit.py` の IGNORE_CONSOLE で除外、A-26(iframe のフォーカスの輪)は `review.css` に `.rv-host iframe:focus` の輪を足したうえで `#rvHost` を `data-ui-audit-allow="A-26"`(フォーカスはプレイヤーの中に入る)→ スタジオの 4 場面で **Must 0・Should 8**(前からの A-08)。全体は Must 0(Should 38 = Linux のときと同じ)
+- M9 の担当のやり残し: 点数を出すには採用の経路(`Live.adopt` → ジョブ → `.clip.json` の `source.live.score`)に点数を通す(この夜にまとめ役が直す)・`eval_marks.py --live` の口・自動の切り抜きの校正前の文字起こしが「校正待ち」に並ぶ(まとめ方は後で)・`cleanup._remember_root` の公開の口
+- 未コミット: なし
