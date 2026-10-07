@@ -15,7 +15,6 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import shutil
 import sys
 import tempfile
-import time
 import unittest
 from unittest import mock
 

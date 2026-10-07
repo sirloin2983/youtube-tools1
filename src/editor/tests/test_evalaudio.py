@@ -8,7 +8,6 @@ ffmpeg が必要(2 秒の小さな動画を lavfi で作る)。
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt_core.datadir)
-import re
 import shutil
 import subprocess
 import sys

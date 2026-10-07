@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import tempfile
+import types
 import urllib.parse
 import sys
 import time
@@ -39,628 +40,16 @@ def main():
             pg.goto(srv.base)
             wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
 
-            # ---- ヘッダー: ui-appnav(ホーム/スタジオ/編集)の「編集」・ブラウザのタブの題名・3つのタブ
-            check(pg.title() == "編集", "ブラウザのタブの題名は「編集」")
-            check(pg.inner_text('[data-ui-appnav-item="transcribe"]') == "編集" and pg.get_attribute('[data-ui-appnav-item="transcribe"]', "aria-current") == "page",
-                  "ヘッダー左の ui-appnav に「編集」(いま開いている画面)")
-            tabs = pg.locator("[data-edtab]")
-            check(tabs.count() == 3 and ["".join(t.split()) for t in pg.locator("[data-edtab]").all_inner_texts()] == ["1文字起こし", "2カット", "3パック"],
-                  "ヘッダーに 1 文字起こし / 2 カット / 3 パック のタブ: %s" % pg.locator("[data-edtab]").all_inner_texts())
-            check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("location.hash") == "", "最初は 1 文字起こし(URL に # は付けない)")
-
-            # ---- 文書を開く・題名の行
-            open_doc(pg, "一本目")
-            wait_js(pg, "!document.querySelector('#pillProof').hidden")
-            check(pg.is_visible("#docBar") and pg.input_value("#docTitle") == "一本目", "題名の行に題名(直せる入力欄)")
-            check(pg.inner_text("#pillProof") == "校正 0 / 3行", "札「校正 n / m行」: " + pg.inner_text("#pillProof"))
-            check("残す 1区間" in pg.inner_text("#pillCut") and "カット後 約0:12.00" in pg.inner_text("#pillCut"), "札「残す n区間 ・ カット後」(計算の前は約): " + pg.inner_text("#pillCut"))
-            check("0:12" in pg.inner_text("#docMeta"), "題名の行に長さ: " + pg.inner_text("#docMeta"))
-            check(pg.is_visible("#saveState") or pg.get_attribute("#saveState", "role") == "status", "保存の状態はヘッダーに")
-
-            # ---- B-7: 1440px で文書を開いているとき、メニュー(履歴)は本文の上に重ねて開く(列を取らない = 字幕の行が細くならない)
-            if "menu-closed" not in (pg.get_attribute(".app", "class") or ""):
-                pg.click("#btnMenu")
-            w_closed = pg.evaluate("document.querySelector('#segs').clientWidth")
-            pg.click("#btnMenu")
-            wait_js(pg, "!document.querySelector('.app').classList.contains('menu-closed')")
-            pos = pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position")
-            w_open = pg.evaluate("document.querySelector('#segs').clientWidth")
-            check(pos == "fixed" and w_open == w_closed, "1440px: メニューを開いても字幕の一覧の幅は変わらない(重ねて開く): %s %s→%s" % (pos, w_closed, w_open))
-            check(pg.is_visible("#menuScrim"), "重ねて開いている間は後ろに暗い幕")
-            pg.click("[data-side-tab=files]")
-            pg.locator("#txList .txi").filter(has_text="一本目").first.locator(".t").click()
-            wait_js(pg, "document.querySelector('.app').classList.contains('menu-closed')", 5000)
-            check(True, "履歴から文書を選ぶと、重ねたメニューは閉じる")
-
-            # ---- 段3 3-1(監査 04): 重ねて開いたメニューがある間・メニューの中にフォーカスがある間は、後ろの文書・カットのキーが効かない。G・Esc・Alt+数字は効く
-            navi = "[...document.querySelectorAll('#segs .seg')].findIndex(e => e.classList.contains('nav'))"
-            is_closed = "document.querySelector('.app').classList.contains('menu-closed')"
-            pg.click("#segs .seg >> nth=0")
-            pg.keyboard.press("Escape")
-            n0 = pg.evaluate(navi)
-            undo0 = pg.inner_text("#btnUndo")
-            pg.keyboard.press("g")
-            check(wait_js(pg, "!" + is_closed, 3000) and wait_js(pg, "document.querySelector('#menuPanel').contains(document.activeElement)", 3000),
-                  "3-1: G で重ねて開き、メニューの中へフォーカス")
-            pg.keyboard.press("ArrowDown")
-            pg.keyboard.press("s")
-            pg.keyboard.press("Space")
-            pg.keyboard.press("Control+z")
-            time.sleep(0.3)
-            check(pg.evaluate(navi) == n0 and pg.evaluate("document.querySelector('#player').paused") and pg.inner_text("#btnUndo") == undo0,
-                  "3-1: メニューの中の ↓・S・Space・Ctrl+Z で文書が動かない・再生しない: %s → %s" % (n0, pg.evaluate(navi)))
-            pg.evaluate("document.activeElement.blur()")   # 幕が出ている間(フォーカスがメニューの外)でも同じ
-            pg.keyboard.press("ArrowDown")
-            pg.keyboard.press("Space")
-            time.sleep(0.3)
-            check(pg.evaluate(navi) == n0 and pg.evaluate("document.querySelector('#player').paused"), "3-1: 重ねて開いている間は、フォーカスがメニューの外でも ↓・Space が効かない")
-            pg.keyboard.press("g")
-            check(wait_js(pg, is_closed, 3000), "3-1: 重ねて開いている間も G で閉じる")
-            pg.keyboard.press("g")
-            wait_js(pg, "!" + is_closed, 3000)
-            pg.keyboard.press("Escape")
-            check(wait_js(pg, is_closed, 3000), "3-1: Esc で閉じる")
-            pg.evaluate("document.activeElement && document.activeElement.blur()")
-            pg.keyboard.press("ArrowDown")
-            check(wait_js(pg, "%s !== %d" % (navi, n0), 3000), "3-1: 閉じたら ↓ で行が動く")
-            # 並べて出す幅(1700px)でも、メニューの中にフォーカスがある間は文書を動かさない・履歴から開いたらすぐ ↓ が効く
-            pg.set_viewport_size({"width": 1700, "height": 900})
-            if pg.evaluate(is_closed):
-                pg.click("#btnMenu")
-            wait_js(pg, "!" + is_closed, 3000)
-            check(pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position") != "fixed", "1700px: メニューは並べて出す")
-            pg.click("[data-side-tab=files]")
-            n1 = pg.evaluate(navi)
-            pg.keyboard.press("ArrowDown")
-            time.sleep(0.2)
-            check(pg.evaluate(navi) == n1, "3-1: 並べて出すメニューでも、中にフォーカスがあれば ↓ で文書が動かない")
-            pg.locator("#txList .txi").filter(has_text="一本目").first.locator(".t").click()
-            wait_js(pg, "!document.querySelector('#menuPanel').contains(document.activeElement)", 5000)
-            time.sleep(0.3)
-            n1 = pg.evaluate(navi)
-            pg.keyboard.press("ArrowDown")
-            check(wait_js(pg, "%s !== %d" % (navi, n1), 3000), "3-1: 並べて出すメニューの履歴から開いたら、フォーカスはメニューの外(すぐ ↓ が効く)")
-            if not pg.evaluate(is_closed):
-                pg.click("#btnMenu")
-            wait_js(pg, is_closed, 3000)
-            pg.set_viewport_size({"width": 1440, "height": 900})
-            # 2 カット のタブ: 重ねて開いている間、S で分割しない・Space で再生しない
-            pg.keyboard.press("Alt+2")
-            wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length > 0", 20000)
-            pg.evaluate("document.querySelector('#cutPlayer').currentTime = 3")
-            nk = pg.evaluate("document.querySelectorAll('#tlVideo .tt-k').length")
-            pg.evaluate("document.activeElement && document.activeElement.blur()")
-            pg.keyboard.press("g")
-            wait_js(pg, "!" + is_closed, 3000)
-            pg.keyboard.press("s")
-            pg.keyboard.press("Space")
-            time.sleep(0.3)
-            check(pg.evaluate("document.querySelectorAll('#tlVideo .tt-k').length") == nk and pg.evaluate("document.querySelector('#cutPlayer').paused"),
-                  "3-1: 2 カット で重ねて開いている間は S で分割しない・Space で再生しない")
-            pg.keyboard.press("Escape")
-            wait_js(pg, is_closed, 3000)
-            pg.evaluate("document.activeElement && document.activeElement.blur()")
-            pg.keyboard.press("s")
-            check(wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length === %d" % (nk + 1), 3000), "3-1: 閉じたら S で分割できる(確かめ方が正しいこと)")
-            pg.keyboard.press("Control+z")
-            wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length === %d" % nk, 3000)
-            pg.keyboard.press("Alt+1")
-            wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'", 3000)
-
-            # ---- A-1: 一覧の上の「…」の選択肢が画面の外に出ない(右端にあるので、左へ開き直す)
-            for w in (1440, 1280, 1024):
-                pg.set_viewport_size({"width": w, "height": 900})
-                pg.click("#btnSpk")
-                box = pg.locator("#jumpMenu .ui-pop-body").bounding_box()
-                check(bool(box) and box["x"] >= 0 and box["x"] + box["width"] <= w, "幅 %dpx:「…」の選択肢が画面の中に収まる: %s" % (w, box))
-                pg.keyboard.press("Escape")
-            pg.set_viewport_size({"width": 1440, "height": 900})
-
-            # ---- 行の右クリックのメニュー(段2): .seg は content-visibility:auto なので、メニュー(position:fixed)は
-            # document.body の直下に置く(.seg の中に置くと、画面の外にはみ出す前に切り取られる)。選ぶと閉じて、行に反映される
-            row0 = pg.locator("#segs .seg").nth(0)
-            row0.locator(".play").click(button="right")
-            menu = pg.locator(".tt-ctxmenu")
-            check(menu.count() == 1 and menu.get_attribute("role") == "menu", "行を右クリックするとメニューが出る")
-            mbox, vp = menu.bounding_box(), pg.viewport_size
-            check(bool(mbox) and mbox["x"] >= 0 and mbox["y"] >= 0 and mbox["x"] + mbox["width"] <= vp["width"] and mbox["y"] + mbox["height"] <= vp["height"],
-                  "メニューは画面の中に収まる(content-visibility の親に切り取られない): %s / %s" % (mbox, vp))
-            menu.locator('[data-act="proof"]').click()
-            check(menu.count() == 0, "メニューの項目を選ぶと閉じる")
-            check("proofed" in (row0.get_attribute("class") or ""), "選んだ操作(校正済みにする)が行に反映される")
-            # B-3: メニューを開いている間の ↓ ↑ はメニューの中の移動(裏の行は動かない)。Enter で選ぶ・Esc で閉じる
-            row0.locator(".play").click(button="right")
-            nav0 = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
-            pg.keyboard.press("ArrowDown"); pg.keyboard.press("s"); pg.keyboard.press("ArrowDown")
-            check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav0, "メニューを開いている間は ↓・S で裏の行が動かない(B-3)")
-            check(pg.evaluate("document.activeElement.dataset.act") == "split", "↓ でメニューの中の項目を移る(3つ目 = 分割): %s" % pg.evaluate("document.activeElement.dataset.act"))
-            pg.keyboard.press("ArrowUp"); pg.keyboard.press("ArrowUp")
-            check(pg.evaluate("document.activeElement.dataset.act") == "proof", "↑ で戻る")
-            pg.keyboard.press("Enter")
-            check(menu.count() == 0 and "proofed" not in (row0.get_attribute("class") or ""), "Enter で選ぶと、右クリックした行に効く(校正済みを外す)")
-            row0.locator(".play").click(button="right")
-            pg.keyboard.press("Escape")
-            check(menu.count() == 0, "Esc でメニューを閉じる")
-            menu_row = row0
-            menu_row.locator(".play").click(button="right"); menu.locator('[data-act="proof"]').click()   # 下の確かめのため、もう一度「校正済み」に戻す
-            # B-9(段1): 文字の欄の上は、普通の右クリックはブラウザ既定(コピー・貼り付け)、Shift+右クリックで行のメニュー
-            ta0 = row0.locator("textarea")
-            ta0.click(button="right")
-            check(menu.count() == 0, "文字の欄の上の普通の右クリックでは行のメニューを出さない(ブラウザ既定のまま)")
-            ta0.click(button="right", modifiers=["Shift"])
-            check(menu.count() == 1, "文字の欄の上で Shift+右クリックすると行のメニューが出る")
-            menu.locator('[data-act="proof"]').click()
-            check(menu.count() == 0 and "proofed" not in (row0.get_attribute("class") or ""), "Shift+右クリックのメニューの「校正済みを外す」が行に効く")
-            ta0.click(button="right", modifiers=["Shift"])
-            menu.locator('[data-act="proof"]').click()
-            check("proofed" in (row0.get_attribute("class") or ""), "もう一度で校正済みに戻る")
-            # キーボード(Shift+F10・アプリケーションキー)から開いたとき(位置が 0,0)は、欄の下に出す
-            pg.evaluate("""() => { const t = document.querySelector('#segs .seg textarea');
-                t.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, shiftKey: true, clientX: 0, clientY: 0 })); }""")
-            tbox, mbox = ta0.bounding_box(), menu.bounding_box()
-            check(menu.count() == 1 and bool(mbox) and abs(mbox["y"] - (tbox["y"] + tbox["height"] + 2)) < 3 and mbox["x"] > tbox["x"],
-                  "キーボードから開いたときは欄の下に出る(左上の隅に出ない): %s / %s" % (mbox, tbox))
-            pg.keyboard.press("Escape")
-            check(menu.count() == 0, "(Esc で閉じる)")
-            # 日本語の変換中は出さない(メニューへフォーカスが移ると変換中の文字が確定するため)
-            pg.evaluate("document.querySelector('#segs .seg textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))")
-            ta0.click(button="right", modifiers=["Shift"])
-            check(menu.count() == 0, "変換中の Shift+右クリックでは行のメニューを出さない")
-            pg.evaluate("document.querySelector('#segs .seg textarea').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))")
-            ta0.click(button="right", modifiers=["Shift"])
-            check(menu.count() == 1, "変換が終われば出る")
-            pg.keyboard.press("Escape")
-            check("proofed" in (row0.get_attribute("class") or ""), "(下の確かめのため、行0は校正済みのまま)")
-
-            # ---- ⚙ 設定の引き出しが開いている間は、文書を操作するキーが効かない(item 6。上の右クリックで行0が「今の行」になっている)
-            nav_before = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
-            pg.click("[data-ui-settings]")
-            wait_js(pg, "!document.querySelector('#uiSettingsDrawer').hidden")
-            pg.keyboard.press("ArrowDown")
-            pg.wait_for_timeout(150)
-            check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav_before, "⚙ 設定の引き出しが開いている間は ↓ で行が動かない")
-            pg.keyboard.press("Alt+2")   # 監査01(段1): ⚙ 設定を開いている間は Alt+数字 でタブを変えない
-            pg.wait_for_timeout(150)
-            check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("location.hash") != "#cut" and pg.is_visible("#uiSettingsDrawer"),
-                  "⚙ 設定の引き出しが開いている間は Alt+2 でタブが変わらない")
-            pg.keyboard.press("Escape")   # 開いている間は裏(ヘッダーの ⚙ も)が止まっているので、Esc で閉じる
-            wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden")
-            pg.keyboard.press("ArrowDown")
-            check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") != nav_before, "引き出しを閉じれば ↓ で行が動く(前提の確認)")
-
-            # ---- タブの切り替え(クリック・URL・キー)
-            pg.click("[data-edtab=cut]")
-            check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut") and pg.is_hidden("#tabTx") and pg.is_hidden("#tabPack"),
-                  "「2 カット」を押すとカットのタブだけが出る")
-            check(pg.evaluate("location.hash") == "#cut", "今のタブは URL の #cut に残る")
-            check(pg.is_visible("#docBar"), "題名の行はカットのタブにも出る")
-            cls = pg.get_attribute(".app", "class")
-            check("tab-wide" in cls and pg.is_visible("#menuStrip") and pg.is_hidden("#menuPanel"), "カットのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む")
-            nav0 = pg.evaluate("document.querySelectorAll('#segs .seg.nav').length")
-            pg.keyboard.press("ArrowDown")
-            pg.keyboard.press("Shift+ArrowDown")
-            check(pg.evaluate("document.querySelectorAll('#segs .seg.nav').length") == nav0, "カットのタブでは、校正のキー(↓・Shift+↓)で行が動かない")
-            pg.keyboard.press("Alt+3")
-            check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#tabPack") and pg.evaluate("location.hash") == "#pack",
-                  "Alt+3 で 3 パック")
-            check(pg.is_visible("#pkBuild") and pg.is_visible("#pkLen"), "パックのタブに「これから作るパック」と「パックを作る」がある")
-            wait_js(pg, "!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('入口(start.bat)から開いたとき')", 10000)
-            check(pg.is_disabled("#pkBuild"), "単体で開いたときはパック作りは使えず、理由(入口から開いたときだけ)が出る")
-            wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && document.querySelector('#pkCaps').textContent === '3'", 15000)
-            check(pg.inner_text("#pkLen") == "0:12.00", "これから作るパック(区間・長さ・字幕の数)は単体でも出る(サーバーの見積もり)")
-            pg.keyboard.press("Alt+1")
-            check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.is_visible("#tabTx") and "tab-wide" not in pg.get_attribute(".app", "class"),
-                  "Alt+1 で 1 文字起こし(メニューも元に戻る)")
-            pg.keyboard.press("Alt+2")
-            check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true", "Alt+2 で 2 カット")
-            pg.focus("[data-edtab=cut]")
-            pg.keyboard.press("ArrowRight")
-            check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.evaluate("document.activeElement.dataset.edtab") == "pack",
-                  "タブの並びの中は → で次のタブへ(フォーカスも移る)")
-            pg.keyboard.press("ArrowRight")
-            check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true", "最後のタブの次は最初へ")
-            # 行の文字の入力中の Alt+数字 は話者(タブは変えない)
-            pg.locator("#segs textarea").first.click()
-            pg.keyboard.press("Alt+2")
-            check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true", "行の文字の入力中は Alt+2 でタブを変えない(Alt+数字 = 話者)")
-            pg.keyboard.press("Escape")
-
-            # ---- 再読み込み・URL の # でタブを開く
-            pg.goto(srv.base + "#pack")
-            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
-            check(pg.is_hidden("#tabTx") and pg.evaluate("location.hash") == "#pack", "URL の #pack で開くと 3 パック のタブ(再読み込み・窓で開いても同じタブ)")
-            pg.evaluate("location.hash = '#cut'")
-            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
-            check(True, "URL の # を変えるとタブも変わる")
-
-            # ---- 細い帯からメニューを開く(本文の上に重ねる)・閉じる
-            pg.click("[data-strip=files]")
-            cls = pg.get_attribute(".app", "class")
-            check("menu-overlay" in cls and pg.is_visible("#menuPanel") and pg.get_attribute("[data-side-tab=files]", "aria-selected") == "true",
-                  "帯の「履歴」で、メニューの履歴を本文の上に重ねて開く")
-            box = pg.locator("#menuPanel").bounding_box()
-            check(box and pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position") == "fixed", "重ねて開く(タイムラインの幅を変えない)")
-            pg.keyboard.press("Escape")
-            check("menu-overlay" not in pg.get_attribute(".app", "class") and pg.is_hidden("#menuPanel"), "Esc で閉じる")
-            pg.click("[data-strip=start]")
-            check(pg.get_attribute("[data-side-tab=start]", "aria-selected") == "true" and pg.is_visible("#srcPath"), "帯の「新規」で新規を開く")
-            pg.click("#menuScrim", position={"x": 1200, "y": 400})
-            check(pg.is_hidden("#menuPanel"), "暗い幕を押すと閉じる")
-            pg.keyboard.press("g")
-            check("menu-overlay" in pg.get_attribute(".app", "class"), "G でも開く")
-            pg.keyboard.press("g")
-            check("menu-overlay" not in pg.get_attribute(".app", "class"), "G でもう一度押すと閉じる")
-            open_doc(pg, "二本目")
-            check("menu-overlay" not in pg.get_attribute(".app", "class") and pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true",
-                  "重ねたメニューで文書を選ぶと、メニューを閉じてカットのタブのまま")
-            check(pg.inner_text("#pillProof") == "校正 0 / 2行", "開いた文書の札に変わる: " + pg.inner_text("#pillProof"))
-
-            # ---- 文字起こしせずに開く(新規)
-            pg.click("[data-strip=start]")
-            pg.click("#tabFile")
-            pg.fill("#srcPath", v3)
-            pg.click("#btnOpenVideo")
-            wait_js(pg, "document.querySelector('#docTitle').value === '文字なし' && document.querySelector('#pillProof').hidden", 15000)   # 題名の行は次のフレームで描き直す
-            check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_hidden("#menuPanel"), "「文字起こしせずに開く」で文書ができ、カットのタブで開く")
-            wait_js(pg, "!document.querySelector('#pillCut').hidden", 10000)
-            check(pg.is_hidden("#pillProof") and "残す 1区間" in pg.inner_text("#pillCut") and "0:06" in pg.inner_text("#docMeta"),
-                  "行の無い文書の題名の行: 校正の札は出さない・カットは動画全体(残す 1区間)・長さは出る: %s / %s" % (pg.inner_text("#pillCut"), pg.inner_text("#docMeta")))
-            check(len(srv.get("/api/jobs")["jobs"]) == n_jobs, "文字起こしは始めない")
-            pg.keyboard.press("Alt+1")
-            check(pg.is_visible("#noRows") and "まだ文字起こししていません" in pg.inner_text("#noRows") and pg.is_enabled("#btnTxInto"),
-                  "1 文字起こし のタブに「この動画を文字起こしする」")
-            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
-                pg.click("#btnMenu")
-            pg.click("[data-side-tab=start]")
-            pg.fill("#srcPath", v3)
-            pg.click("#btnOpenVideo")
-            wait_js(pg, "document.querySelector('#toast').textContent.includes('前に開いています')", 10000)
-            items = [i for i in srv.get("/api/transcripts")["items"] if i["title"] == "文字なし"]
-            check(len(items) == 1, "同じ動画をもう一度「文字起こしせずに開く」と、同じ文書を開く(増やさない)")
-
-            # ---- 字幕の文字数(12 ②): 新規の設定・「今の文書を分け直す」(保存してある単語の時刻で長い行を分ける)
-            tid1 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
-            long1 = "きょうはいいてんきですねさんぽにいきましょうか"
-            d1 = srv.get("/api/transcript?id=" + tid1)
-            srv.call("PUT", "/api/transcript?id=" + tid1, {"title": d1["title"], "speakers": [], "baseUpdatedAt": d1["updatedAt"],
-                                                           "segments": [{"id": "a", "start": 0.0, "end": 4.6, "text": long1}, {"id": "b", "start": 5.0, "end": 6.0, "text": "みじかい"}]})
-            with open(os.path.join(srv.tmp, "transcripts", tid1 + ".words.json"), "w", encoding="utf-8") as f:
-                json.dump({"schema": "youtube-tools-words/v1", "words": [[round(i * 0.2, 2), round((i + 1) * 0.2, 2), ch] for i, ch in enumerate(long1)]}, f, ensure_ascii=False)
-            pg.keyboard.press("Alt+1")
-            open_doc(pg, "一本目")
-            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 2", 10000)
-            check(pg.input_value("#optMaxV") == "16" and pg.input_value("#optMaxH") == "28" and pg.input_value("#optWrapV") == "8" and pg.input_value("#optSubOrient") == "vertical",
-                  "新規の設定に 字幕の向き(縦)・最大文字数 縦 16 / 横 28・改行 縦 8 / 横 14")
-            check(not pg.evaluate("document.querySelector('#recogDetails').open") and "モデル:" in pg.evaluate("document.querySelector('#optSummary').textContent"),
-                  "認識の設定は既定で閉じ、「始める」の上に要約が1行出る: %s" % pg.evaluate("document.querySelector('#optSummary').textContent"))
-            opt = pg.evaluate("document.querySelector('#rsOrient').options[0].textContent")   # 閉じた欄の中なので textContent で見る
-            check("最大 16 文字" in opt, "「分け直す」の向きに最大文字数が出る: %s" % opt)
-            pg.evaluate("document.querySelector('#fixDetails').open = true")
-            pg.click("#rsGo")
-            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 3", 10000)
-            check("1 行を分けました" in pg.inner_text("#rsMsg"), "「今の文書を分け直す」で長い行が 2 つに(%s)" % pg.inner_text("#rsMsg"))
-            check(srv.get("/api/history?id=" + tid1)["items"], "分ける前の版が「以前の版に戻す」にある")
-
-            # ---- 疑わしい所だけ認識し直す(12 ③-2): 「長い区間に文字が少ない」の行を、良くなったときだけ置き換える
-            # (機械の出力のある文書では、機械の出力と違う行 = 人が直した行は対象にしない。ここは機械の出力の無い「文字なし」の文書で確かめる)
-            tid1 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "文字なし")
-            d1 = srv.get("/api/transcript?id=" + tid1)
-            F = "長い区間に文字が少ない(抜けの可能性)"
-            srv.call("PUT", "/api/transcript?id=" + tid1, {"title": d1["title"], "speakers": [], "baseUpdatedAt": d1["updatedAt"],
-                                                           "segments": [{"id": "x", "start": 0.5, "end": 5.5, "text": "黒", "flag": F}]})
-            pg.reload()
-            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-            open_doc(pg, "文字なし")
-            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 1", 10000)
-            check(pg.is_checked("#optAutoRedo") is False and pg.is_checked("#optRedoLarge"), "新規の設定: 疑わしい所を自動で認識し直す(既定オフ)・kotoba なら large-v3(既定オン)")
-            pg.evaluate("document.querySelector('#fixDetails').open = true")
-            pg.click("#redoGo")
-            try:
-                wait_js(pg, "[...document.querySelectorAll('#segs .seg textarea')].some(t => t.value.startsWith('認識し直した文'))", 20000)
-            except TimeoutError:
-                print("DIAG redoMsg=%r toast=%r jobs=%r doc=%r" % (pg.inner_text("#redoMsg"), pg.inner_text("#toast"),
-                      [(j["kind"], j["state"], j.get("error"), j.get("phase")) for j in srv.get("/api/jobs")["jobs"]][-3:],
-                      [(g["id"], g["text"], g.get("flag")) for g in srv.get("/api/transcript?id=" + tid1)["segments"]]))
-                raise
-            check(True, "「疑わしい所を認識し直す」で、文字が少なかった行が置き換わり、画面も読み直す")
-            check(srv.get("/api/transcript?id=" + tid1).get("redo", {}).get("rows") == 1, "置き換えた記録が文書に残る")
-
-            # ---- 動画全体の再認識(docs/design/whole-retranscribe-design.md の 3): 校正済みの行は残し、ほかを新しい行に(認識は疑似 = 3 秒ごとに「範囲再認識N」)
-            tidw = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
-            dw = srv.get("/api/transcript?id=" + tidw)
-            segs_w = [dict(g, text="人が直した一行目", proofed=True) if n == 0 else g for n, g in enumerate(dw["segments"])]
-            srv.call("PUT", "/api/transcript?id=" + tidw, {"title": dw["title"], "speakers": dw.get("speakers", []), "baseUpdatedAt": dw["updatedAt"], "segments": segs_w})
-            pg.reload()
-            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-            open_doc(pg, "一本目")
-            wait_js(pg, "document.querySelectorAll('#segs .seg').length === 3", 10000)
-            pg.evaluate("document.querySelector('#fixDetails').open = true; const s = document.querySelector('#rtTarget'); s.value = 'whole'; s.dispatchEvent(new Event('change'))")
-            hint = pg.inner_text("#rtHint")
-            check("動画全体 0:00" in hint and "校正済みの 1 行は残し" in hint and "残り 2 行" in hint and not pg.is_disabled("#rtGo"),
-                  "「対象」の「動画全体」: 範囲・残す行・差し替える行のヒント: %s" % hint)
-            pg.click("#rtGo")
-            check("校正済み以外の行が書き換わります" in pg.inner_text("#rtGo"), "1回目は押し直しの案内(何が起きるかを書く): %s" % pg.inner_text("#rtGo"))
-            pg.click("#rtGo")
-            wait_js(pg, "[...document.querySelectorAll('#segs .seg textarea')].some(t => t.value.startsWith('範囲再認識'))", 20000)
-            texts = pg.evaluate("[...document.querySelectorAll('#segs .seg textarea')].map(t => t.value)")
-            check(texts[0] == "人が直した一行目" and all(t.startswith("範囲再認識") for t in texts[1:]),
-                  "終わると読み直し、校正済みの行は残って、ほかは新しい行: %s" % texts)
-            check("校正済み 1 行は元のまま" in pg.inner_text("#toast") or "校正済み 1 行" in pg.inner_text("#toast"), "完了の知らせに残した行: %s" % pg.inner_text("#toast"))
-            check("全体を再認識" in pg.inner_text("#docInfo"), "認識の設定の欄に「全体を再認識」: %s" % pg.inner_text("#docInfo")[-60:])
-
-            # ---- キー操作の一覧・狭い画面
-            pg.click("#btnKeys")
-            check("タブ(文字起こし・カット・パック)を切り替える" in pg.inner_text("#keys"), "キー操作の一覧に Alt+1/2/3")
-            pg.keyboard.press("Escape")
-            pg.set_viewport_size({"width": 390, "height": 800})
-            pg.keyboard.press("Alt+2")
-            pg.wait_for_timeout(300)
-            check(pg.evaluate("document.documentElement.scrollWidth") <= 392, "幅 390px で横にはみ出さない: %s" % pg.evaluate("document.documentElement.scrollWidth"))
-            check(pg.is_visible("[data-edtab=pack]") and pg.is_visible("#menuStrip"), "幅 390px でもタブと帯が見える")
-
-            # ---- B-1: ホームからは文書 ID で開く(?doc=)。同じ動画から作った別の文書(新しい方)ではなく、選んだ文書が開く
-            pg.set_viewport_size({"width": 1440, "height": 900})
-            old_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目")
-            srv.transcribe(v2, "二本目のやり直し")   # 同じ動画からもう1つ(こちらが新しい)
-            pg.goto(srv.base + "?doc=" + old_id + "&media=" + urllib.parse.quote(v2) + "#tx")
-            wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目'", 15000)
-            check(pg.input_value("#docTitle") == "二本目", "?doc= で選んだ文書が開く(同じ動画の新しい文書ではない)")
-            check(("doc=" + old_id) in pg.url and "media=" not in pg.url, "開いたあとは URL に ?doc= を残し、?media= は外す(監査 06): %s" % pg.url)
-            pg.goto(srv.base + "?doc=0123456789ab&media=" + urllib.parse.quote(v2) + "#tx")
-            wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目のやり直し'", 15000)
-            new_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目のやり直し")
-            check(("doc=" + new_id) in pg.url and "0123456789ab" not in pg.url, "文書が見つからなければ、動画のパスで探して開く(予備)。URL は開いた文書: %s" % pg.url)
-
-            # ---- 段5 5-1(B-5): ホームの「編集の履歴で見る」= ?list=other で、左のメニューの履歴が「種類: それ以外」で開く。URL からは消す
-            pg.goto(srv.base + "?list=other#tx")
-            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-            check(wait_js(pg, "document.querySelector('#txFilter').value === 'other' && document.querySelector('[data-side-tab=files]').getAttribute('aria-selected') === 'true' && location.search.indexOf('list=') < 0", 10000),
-                  "?list=other で履歴が「それ以外」で開き、URL から list= が消える: %s / %s" % (pg.input_value("#txFilter"), pg.url))
-            pg.select_option("#txFilter", "all")
-            wait_js(pg, "document.querySelector('#txFilter').value === 'all'")
-
-            # ---- 監査 06: 再読み込み・窓の開き直しで、開いていた文書とタブに戻る
-            open_doc(pg, "一本目")
-            one_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
-            pg.keyboard.press("Alt+2")
-            wait_js(pg, "location.hash === '#cut'")
-            check(("doc=" + one_id) in pg.url, "文書を切り替えると URL の ?doc= も変わる: %s" % pg.url)
-            pg.reload()
-            wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '一本目'", 15000)
-            check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut"), "再読み込みで同じ文書・同じタブ(2 カット)に戻る")
-            pg.keyboard.press("Alt+1")
-            gone_tid = srv.transcribe(v3, "消す文書")
-            gone_url = srv.base + "?doc=" + gone_tid + "#tx"
-            srv.call("DELETE", "/api/transcript?id=" + gone_tid)
-            pg.goto(gone_url)
-            pg.reload()
-            wait_js(pg, "document.querySelector('#toast').textContent.includes('見つかりませんでした')", 15000)
-            check(pg.is_visible("#noDoc") and pg.is_hidden("#doc") and "doc=" not in pg.url,
-                  "消した文書の ?doc= は、知らせて何も開かず、URL から消える: %s" % pg.url)
-
-            # ---- 段2 B-4: 動画を選び直す。動画を別の名前で別のフォルダへ移す → 開く → 案内とボタン → ダイアログ → 付け替え → カットのタブが使える
-            rl_tid = srv.transcribe(make_video(os.path.join(srv.media, "付け替え前.webm"), sec=10), "付け替える文書")
-            rl_rows = srv.get("/api/transcript?id=" + rl_tid)["segments"]
-            srv.call("PUT", "/api/edit?id=" + rl_tid, {"baseRev": 0, "edit": {"sources": [{"fps": [30, 1], "duration": 10.0}],
-                                                                              "clips": [{"src": 0, "in": 1.0, "out": 4.0}, {"src": 0, "in": 6.0, "out": 9.0}], "origin": "manual"}})
-            outside = tempfile.mkdtemp(prefix="edit-e2e-moved-")   # サーバーの作業データ(写したフォルダ)の外
-            moved = os.path.join(outside, "移した後.webm")
-            shutil.move(os.path.join(srv.media, "付け替え前.webm"), moved)
-            short = make_video(os.path.join(outside, "別の短い動画.webm"), sec=4)
-            try:
-                pg.goto(srv.base + "#tx")
-                pg.reload()   # 同じ URL への goto は読み直さない(# だけの移動になる)
-                wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-                n_err = len(errors)
-                open_doc(pg, "付け替える文書")
-                wait_js(pg, "!document.querySelector('#playerMsg').hidden && !document.querySelector('#playerRelink').hidden", 15000)
-                check("元の動画が見つかりません" in pg.inner_text("#playerMsg") and "付け替え前.webm" in pg.inner_text("#playerMsg"),
-                      "1 文字起こし: 動画が見つからなければ元のパスと「動画を選び直す」: " + pg.inner_text("#playerMsg"))
-                row = pg.locator("#txList .txi").filter(has_text="付け替える文書").first
-                check(row.locator("[data-act=relink]").count() == 1, "履歴の一覧の「動画なし」の行のメニューにも「動画を選び直す」")
-                pg.keyboard.press("Alt+2")
-                wait_js(pg, "!document.querySelector('#cutOff').hidden && !document.querySelector('#cutRelink').hidden", 10000)
-                check(pg.is_hidden("#cutRetry"), "2 カット: 動画が無いときは「動画を選び直す」(もう一度読み込む は出さない)")
-                pg.click("#cutRelink")
-                wait_js(pg, "document.querySelector('#relinkDlg').open")
-                check(pg.input_value("#rlOld").endswith("付け替え前.webm") and pg.is_disabled("#rlGo"), "ダイアログに元のパス。確かめる前は「付け替える」を押せない")
-                pg.fill("#rlPath", '"%s"' % short)
-                pg.click("#rlCheck")
-                wait_js(pg, "!!document.querySelector('#rlResult dl')", 20000)
-                check("長さが元の動画と違います" in pg.inner_text("#rlResult") and pg.is_visible("#rlAcceptRow") and pg.is_disabled("#rlGo"),
-                      "長さが違う動画: 注意とチェック。チェックするまで押せない: " + pg.inner_text("#rlResult"))
-                pg.check("#rlAccept")
-                check(pg.is_enabled("#rlGo"), "「長さが違うのを分かったうえで」をチェックすると押せる")
-                pg.fill("#rlPath", moved)
-                check(pg.is_disabled("#rlGo") and pg.is_hidden("#rlAcceptRow"), "パスを変えたら確かめ直すまで押せない")
-                pg.press("#rlPath", "Enter")
-                wait_js(pg, "document.querySelector('#rlResult').textContent.includes('移した後.webm')", 20000)
-                check(pg.is_enabled("#rlGo") and "同じです" in pg.inner_text("#rlResult"), "同じ長さの動画: すぐ押せる: " + pg.inner_text("#rlResult"))
-                pg.click("#rlGo")
-                wait_js(pg, "!document.querySelector('#relinkDlg').open && document.querySelector('#toast').textContent.includes('付け替えました')", 20000)
-                wait_js(pg, "document.querySelector('#cutOff').hidden && document.querySelectorAll('#tlVideo .tt-k').length > 0", 20000)
-                check(True, "付け替えたら、カットのタブが新しい動画で使える")
-                d = srv.get("/api/transcript?id=" + rl_tid)
-                check(os.path.normcase(d["sourcePath"]) == os.path.normcase(os.path.realpath(moved)) and d["segments"] == rl_rows,
-                      "文書の動画のパスだけが変わり、行はそのまま")
-                ed = srv.get("/api/edit?id=" + rl_tid)["edit"]
-                check([(c["in"], c["out"]) for c in ed["clips"]] == [(1.0, 4.0), (6.0, 9.0)], "カットはそのまま: %s" % ed["clips"])
-                pg.keyboard.press("Alt+1")
-                wait_js(pg, "document.querySelector('#player').readyState >= 1", 15000)
-                check(pg.is_hidden("#playerMsg"), "1 文字起こし: 新しい動画を再生できる(案内が消える)")
-                del errors[n_err:]   # 見つからない動画の 404 はブラウザがエラーとして記録する(想定どおり)
-            finally:
-                shutil.rmtree(outside, ignore_errors=True)
-
-            # ---- v0.31.0: まとめて付け替える。2本をフォルダごと移す + 1本は名前も変える → 履歴の上の案内 → フォルダで探す(同じ名前の2本)・
-            # 残りは行の「参照…」(PC の窓はテストで開けないので /api/pick の応答を差し替える)→ まとめて付け替える
-            n_err = len(errors)   # 前の節で動画を消した文書の波形・動画の 404 が、この節の準備の間に届くことがある(想定どおり)
-            ra_dir = os.path.join(srv.media, "まとめて")
-            os.makedirs(ra_dir, exist_ok=True)
-            ra_ids = [srv.transcribe(make_video(os.path.join(ra_dir, n), sec=s), t)
-                      for n, s, t in (("一本目.webm", 6, "まとめて一本目"), ("二本目.webm", 7, "まとめて二本目"), ("三本目.webm", 5, "まとめて三本目"))]
-            outside = tempfile.mkdtemp(prefix="edit-e2e-moved-all-")
-            new_dir = os.path.join(outside, "移した先", "下のフォルダ")
-            os.makedirs(new_dir)
-            shutil.move(os.path.join(ra_dir, "一本目.webm"), os.path.join(new_dir, "一本目.webm"))
-            shutil.move(os.path.join(ra_dir, "二本目.webm"), os.path.join(new_dir, "二本目.webm"))
-            renamed = os.path.join(outside, "名前を変えた三本目.webm")
-            shutil.move(os.path.join(ra_dir, "三本目.webm"), renamed)
-            picked = {"n": 0}
-
-            def pick_route(route):
-                picked["n"] += 1
-                route.fulfill(status=200, content_type="application/json", body=json.dumps({"path": renamed}))
-            try:
-                pg.route("**/api/pick", pick_route)
-                pg.goto(srv.base + "#tx")   # ?doc= を付けずに開く(前の節で動画を消した文書を開き直さない)
-                wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-                wait_url_doc(pg)   # 開いていた文書を開き終わるまで待つ(途中でメニューが閉じるため)
-                cls = pg.get_attribute(".app", "class") or ""
-                if "tab-wide" in cls:
-                    if "menu-overlay" not in cls:
-                        pg.click("[data-strip=files]")
-                else:
-                    if "menu-closed" in cls:
-                        pg.click("#btnMenu")
-                    pg.click("[data-side-tab=files]")
-                n_missing = sum(1 for i in srv.get("/api/transcripts")["items"] if i.get("mediaOk") is False and i.get("sourceName"))
-                wait_js(pg, "!document.querySelector('#txMissing').hidden", 15000)
-                check(n_missing >= 3 and ("%d 件" % n_missing) in pg.inner_text("#txMissing"),
-                      "履歴の上に「元の動画が見つからない文書が N 件」: " + pg.inner_text("#txMissing"))
-                pg.click("#txMissingGo")
-                wait_js(pg, "document.querySelector('#relinkAllDlg').open && document.querySelectorAll('#raList .tt-ra-row').length >= 3", 15000)
-                check(pg.locator("#raList .tt-ra-row").filter(has_text="まとめて").count() == 3 and pg.is_disabled("#raGo"),
-                      "まとめて: 見つからない文書が並び、選ぶまで「付け替える」は押せない: %d 行" % pg.locator("#raList .tt-ra-row").count())
-                pg.fill("#raFolder", '"%s"' % outside)
-                pg.press("#raFolder", "Enter")
-                wait_js(pg, "[...document.querySelectorAll('#raList .tt-ra-st.ok')].length >= 2", 30000)
-                row3 = pg.locator("#raList .tt-ra-row").filter(has_text="まとめて三本目")
-                check(pg.inner_text("#raNote").startswith("2 / ") and "同じ名前の動画がありません" in row3.inner_text(),
-                      "フォルダの下から同じ名前の2本が見つかり、名前を変えた1本は見つからない: " + pg.inner_text("#raNote"))
-                check("(2 件)" in pg.inner_text("#raGo") and pg.is_enabled("#raGo"), "長さが同じものは最初から選ばれる: " + pg.inner_text("#raGo"))
-                row3.get_by_role("button", name="参照…").click()
-                wait_js(pg, "[...document.querySelectorAll('#raList .tt-ra-st.ok')].length >= 3", 30000)
-                check(picked["n"] == 1 and row3.locator("input[type=text]").input_value() == renamed and "(3 件)" in pg.inner_text("#raGo"),
-                      "行の「参照…」で選んだ動画を確かめて選ぶ")
-                pg.click("#raGo")
-                wait_js(pg, "document.querySelector('#toast').textContent.includes('3 件を付け替えました')", 30000)
-                left = n_missing - 3   # この節より前のテストで動画を消した文書は残る
-                wait_js(pg, "document.querySelector('#txMissing').hidden" if not left else
-                        "document.querySelector('#txMissingText').textContent.includes(%s)" % json.dumps("%d 件" % left), 15000)
-                check(True, "まとめて付け替えたら、履歴の上の案内の件数が減る(0 なら消える)")
-                got = [os.path.normcase(srv.get("/api/transcript?id=" + t)["sourcePath"]) for t in ra_ids]
-                want = [os.path.normcase(os.path.realpath(p)) for p in (os.path.join(new_dir, "一本目.webm"), os.path.join(new_dir, "二本目.webm"), renamed)]
-                check(got == want, "3つの文書の動画のパスが新しい場所に: %s" % got)
-                pg.click("#raCancel")
-                del errors[n_err:]
-            finally:
-                pg.unroute("**/api/pick")
-                shutil.rmtree(outside, ignore_errors=True)
-
-            # ---- 段2 監査 11: 設定の保存・読み込みの失敗を出す(⚙ の印と引き出しの先頭の [もう一度])・読めないまま空で上書きしない
-            n_err = len(errors)
-            put_fail = {"on": True, "puts": 0, "get_fail": False}
-
-            def settings_route(route):
-                if route.request.method == "PUT":
-                    put_fail["puts"] += 1
-                if (route.request.method == "PUT" and put_fail["on"]) or (route.request.method == "GET" and put_fail["get_fail"]):
-                    route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "テストで失敗させた"}))
-                else:
-                    route.continue_()
-            spat = re.compile(r".*/api/settings$")
-            pg.route(spat, settings_route)
-            set_diar = "(v => { const e = document.querySelector('#diarNum'); e.value = v; e.dispatchEvent(new Event('change', { bubbles: true })); })"
-            pg.evaluate(set_diar + "('3')")
-            wait_js(pg, "document.querySelector('[data-ui-settings]').getAttribute('data-ui-status') === 'err'", 10000)
-            check("テストで失敗させた" in (pg.get_attribute("[data-ui-settings]", "title") or ""), "保存の失敗: ⚙ に印と理由")
-            pg.click("[data-ui-settings]")
-            wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
-            check("設定を保存できていません" in pg.inner_text(".ui-settings-status") and pg.is_visible(".ui-settings-status button"),
-                  "設定の引き出しの先頭に理由と「もう一度」: " + pg.inner_text(".ui-settings-status"))
-            check(pg.inner_text("#saveState") != "設定を保存できていません", "文書の保存の表示とは別の場所")
-            put_fail["on"] = False
-            pg.click(".ui-settings-status button")
-            wait_js(pg, "document.querySelector('.ui-settings-status').hidden && !document.querySelector('[data-ui-settings]').hasAttribute('data-ui-status')", 10000)
-            check(str(srv.get("/api/settings").get("diarNum")) == "3", "「もう一度」で保存でき、印が消える")
-            pg.keyboard.press("Escape")
-            pg.unroute(spat)   # 同期版の route は Python が Playwright を呼んでいる間しか動かない(下の待ちで要求が止まらないように外す)
-            # 2つの窓で別々の設定を変えても消し合わない(差のキーだけ送る)
-            pg2 = ctx.new_page()
-            pg2.goto(srv.base + "#tx")
-            wait_js(pg2, "document.querySelector('#ver').textContent.startsWith('v')")
-            pg2.wait_for_timeout(2500)   # 設定を読み終わるまで(読む前に変えた値は、読んだ設定で置き換わる)
-            pg2.evaluate("document.querySelector('#mPad').value = document.querySelector('#mPad').options[document.querySelector('#mPad').options.length - 1].value; document.querySelector('#mPad').dispatchEvent(new Event('change', { bubbles: true }))")
-            mpad = pg2.evaluate("document.querySelector('#mPad').value")
-            pg.evaluate(set_diar + "('4')")   # 窓1は、窓2が変える前に読んだ設定のまま
-            for _ in range(60):
-                st = srv.get("/api/settings")
-                if str(st.get("diarNum")) == "4" and str(st.get("mPad")) == str(mpad):
-                    break
-                pg.wait_for_timeout(100)
-            check(str(st.get("diarNum")) == "4" and str(st.get("mPad")) == str(mpad), "2つの窓で別々の設定を変えても、両方残る: %s %s" % (st.get("diarNum"), st.get("mPad")))
-            pg2.close()
-            # 読み込みに失敗: 知らせて、読み直すまで保存しない
-            pg.route(spat, settings_route)
-            put_fail["get_fail"] = True
-            pg.reload()
-            wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
-            wait_js(pg, "document.querySelector('[data-ui-settings]').getAttribute('data-ui-status') === 'err'", 10000)
-            check("読み込めませんでした" in (pg.get_attribute("[data-ui-settings]", "title") or ""), "読み込みの失敗: ⚙ に印と理由")
-            puts = put_fail["puts"]
-            pg.evaluate(set_diar + "('5')")
-            pg.wait_for_timeout(1200)
-            check(put_fail["puts"] == puts and str(srv.get("/api/settings").get("diarNum")) == "4", "読めないまま変えても保存しない(空で上書きしない)")
-            put_fail["get_fail"] = False
-            pg.click("[data-ui-settings]")
-            wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
-            check("読み直す" in pg.inner_text(".ui-settings-status button"), "引き出しに「読み直す」")
-            pg.click(".ui-settings-status button")
-            wait_js(pg, "document.querySelector('.ui-settings-status').hidden && document.querySelector('#diarNum').value === '4'", 10000)
-            check(True, "「読み直す」で保存済みの設定が入り、印が消える")
-            pg.keyboard.press("Escape")
-            pg.unroute(spat)
-            del errors[n_err:]   # 500 はブラウザがエラーとして記録する(想定どおり)
-
-            # ---- Q1: 30fps にそろえる(作り直しを有効にした別のサーバー)。文字起こしのあと隣に <名前>_30fps.mp4・処理状況の札・
-            # 選び直しで 30fps でない動画 → 付け替えたあと裏で作り直し → 終わると開いている文書を読み直す
-            srv2 = Server(normalize=True)
-            outside2 = tempfile.mkdtemp(prefix="edit-e2e-norm-")
-            try:
-                v60 = make_video(os.path.join(srv2.media, "そろえる前.webm"), sec=6, fps=60)
-                ntid = srv2.transcribe(v60, "そろえる文書")
-                nd = srv2.get("/api/transcript?id=" + ntid)
-                nj = next(j for j in srv2.get("/api/jobs")["jobs"] if j.get("tid") == ntid)
-                check(nd["sourcePath"].endswith("そろえる前_30fps.mp4") and os.path.isfile(v60) and nj.get("normOk") is True,
-                      "文字起こしのあと、隣に 30fps の動画を作って付け替える(元は残る): %s" % nj.get("normNote"))
-                pg3 = b.new_page(viewport={"width": 1440, "height": 900})
-                err3 = []
-                pg3.on("pageerror", lambda e: err3.append(str(e)))
-                pg3.goto(srv2.base + "?doc=" + ntid + "#tx")
-                wait_js(pg3, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === 'そろえる文書'", 15000)
-                check("そろえる文書" in pg3.text_content("#jobs") and pg3.locator("#jobs .job").first.text_content().count("行") >= 1,
-                      "処理状況に文字起こしのジョブ(行数)")
-                other = make_video(os.path.join(outside2, "選び直す60.webm"), sec=6, fps=60)
-                pg3.evaluate("openRelink()")
-                wait_js(pg3, "document.querySelector('#relinkDlg').open")
-                pg3.fill("#rlPath", other)
-                pg3.click("#rlCheck")
-                wait_js(pg3, "document.querySelector('#rlResult').textContent.includes('選び直す60.webm') && !document.querySelector('#rlGo').disabled", 20000)
-                pg3.click("#rlGo")
-                wait_js(pg3, "document.querySelector('#toast').textContent.includes('30fps でないので')", 20000)
-                check(True, "選び直しで 30fps でない動画: 付け替えて、30fps の動画を作っていると知らせる")
-                wait_js(pg3, "S.doc && S.doc.sourcePath.endsWith('選び直す60_30fps.mp4')", 30000)
-                check(True, "作り直しが終わると、開いている文書を読み直す(動画は 30fps の写し)")
-                wait_js(pg3, "[...document.querySelectorAll('#jobs .job')].some(j => j.textContent.includes('30fps にそろえました'))", 10000)
-                check(True, "処理状況に「30fps にそろえました」")
-                d3 = srv2.get("/api/transcript?id=" + ntid)
-                check(d3["relinks"][-1].get("why") == "normalize30" and os.path.isfile(other), "付け替えの記録・元の動画は残る")
-                check(not err3, "画面のエラーが無い(30fps): %s" % err3[:3])
-                pg3.close()
-            finally:
-                srv2.stop()
-                shutil.rmtree(outside2, ignore_errors=True)
+            cx = types.SimpleNamespace(**locals())   # 場面の関数(下の _scene_*)へ渡す値。場面で作って、あとの場面で使う値は場面が cx に戻す
+            _scene_header_open(cx)
+            _scene_menu_keys(cx)
+            _scene_menus_settings(cx)
+            _scene_tab_switch(cx)
+            _scene_new_and_redo(cx)
+            _scene_keys_and_urls(cx)
+            _scene_relink(cx)
+            _scene_settings_errors(cx)
+            _scene_normalize30(cx)
 
             check(not errors, "画面のエラー・コンソールのエラーが無い: %s" % errors[:5])
             b.close()
@@ -668,6 +57,665 @@ def main():
         srv.stop()
     print("ALL PASSED" if check.ok else "SOME FAILED")
     return 0 if check.ok else 1
+
+
+def _scene_header_open(cx):
+    """ヘッダーと 3 つのタブ・文書を開く・題名の行・1440px ではメニューを本文の上に重ねて開く(B-7)"""
+    check, pg = cx.check, cx.pg
+    # ---- ヘッダー: ui-appnav(ホーム/スタジオ/編集)の「編集」・ブラウザのタブの題名・3つのタブ
+    check(pg.title() == "編集", "ブラウザのタブの題名は「編集」")
+    check(pg.inner_text('[data-ui-appnav-item="transcribe"]') == "編集" and pg.get_attribute('[data-ui-appnav-item="transcribe"]', "aria-current") == "page",
+          "ヘッダー左の ui-appnav に「編集」(いま開いている画面)")
+    tabs = pg.locator("[data-edtab]")
+    check(tabs.count() == 3 and ["".join(t.split()) for t in pg.locator("[data-edtab]").all_inner_texts()] == ["1文字起こし", "2カット", "3パック"],
+          "ヘッダーに 1 文字起こし / 2 カット / 3 パック のタブ: %s" % pg.locator("[data-edtab]").all_inner_texts())
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("location.hash") == "", "最初は 1 文字起こし(URL に # は付けない)")
+
+    # ---- 文書を開く・題名の行
+    open_doc(pg, "一本目")
+    wait_js(pg, "!document.querySelector('#pillProof').hidden")
+    check(pg.is_visible("#docBar") and pg.input_value("#docTitle") == "一本目", "題名の行に題名(直せる入力欄)")
+    check(pg.inner_text("#pillProof") == "校正 0 / 3行", "札「校正 n / m行」: " + pg.inner_text("#pillProof"))
+    check("残す 1区間" in pg.inner_text("#pillCut") and "カット後 約0:12.00" in pg.inner_text("#pillCut"), "札「残す n区間 ・ カット後」(計算の前は約): " + pg.inner_text("#pillCut"))
+    check("0:12" in pg.inner_text("#docMeta"), "題名の行に長さ: " + pg.inner_text("#docMeta"))
+    check(pg.is_visible("#saveState") or pg.get_attribute("#saveState", "role") == "status", "保存の状態はヘッダーに")
+
+    # ---- B-7: 1440px で文書を開いているとき、メニュー(履歴)は本文の上に重ねて開く(列を取らない = 字幕の行が細くならない)
+    if "menu-closed" not in (pg.get_attribute(".app", "class") or ""):
+        pg.click("#btnMenu")
+    w_closed = pg.evaluate("document.querySelector('#segs').clientWidth")
+    pg.click("#btnMenu")
+    wait_js(pg, "!document.querySelector('.app').classList.contains('menu-closed')")
+    pos = pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position")
+    w_open = pg.evaluate("document.querySelector('#segs').clientWidth")
+    check(pos == "fixed" and w_open == w_closed, "1440px: メニューを開いても字幕の一覧の幅は変わらない(重ねて開く): %s %s→%s" % (pos, w_closed, w_open))
+    check(pg.is_visible("#menuScrim"), "重ねて開いている間は後ろに暗い幕")
+    pg.click("[data-side-tab=files]")
+    pg.locator("#txList .txi").filter(has_text="一本目").first.locator(".t").click()
+    wait_js(pg, "document.querySelector('.app').classList.contains('menu-closed')", 5000)
+    check(True, "履歴から文書を選ぶと、重ねたメニューは閉じる")
+
+
+def _scene_menu_keys(cx):
+    """3-1: 重ねて開いたメニューがある間・メニューの中にフォーカスがある間は、文書・カットのキーが効かない"""
+    check, pg = cx.check, cx.pg
+    # ---- 段3 3-1(監査 04): 重ねて開いたメニューがある間・メニューの中にフォーカスがある間は、後ろの文書・カットのキーが効かない。G・Esc・Alt+数字は効く
+    navi = "[...document.querySelectorAll('#segs .seg')].findIndex(e => e.classList.contains('nav'))"
+    is_closed = "document.querySelector('.app').classList.contains('menu-closed')"
+    pg.click("#segs .seg >> nth=0")
+    pg.keyboard.press("Escape")
+    n0 = pg.evaluate(navi)
+    undo0 = pg.inner_text("#btnUndo")
+    pg.keyboard.press("g")
+    check(wait_js(pg, "!" + is_closed, 3000) and wait_js(pg, "document.querySelector('#menuPanel').contains(document.activeElement)", 3000),
+          "3-1: G で重ねて開き、メニューの中へフォーカス")
+    pg.keyboard.press("ArrowDown")
+    pg.keyboard.press("s")
+    pg.keyboard.press("Space")
+    pg.keyboard.press("Control+z")
+    time.sleep(0.3)
+    check(pg.evaluate(navi) == n0 and pg.evaluate("document.querySelector('#player').paused") and pg.inner_text("#btnUndo") == undo0,
+          "3-1: メニューの中の ↓・S・Space・Ctrl+Z で文書が動かない・再生しない: %s → %s" % (n0, pg.evaluate(navi)))
+    pg.evaluate("document.activeElement.blur()")   # 幕が出ている間(フォーカスがメニューの外)でも同じ
+    pg.keyboard.press("ArrowDown")
+    pg.keyboard.press("Space")
+    time.sleep(0.3)
+    check(pg.evaluate(navi) == n0 and pg.evaluate("document.querySelector('#player').paused"), "3-1: 重ねて開いている間は、フォーカスがメニューの外でも ↓・Space が効かない")
+    pg.keyboard.press("g")
+    check(wait_js(pg, is_closed, 3000), "3-1: 重ねて開いている間も G で閉じる")
+    pg.keyboard.press("g")
+    wait_js(pg, "!" + is_closed, 3000)
+    pg.keyboard.press("Escape")
+    check(wait_js(pg, is_closed, 3000), "3-1: Esc で閉じる")
+    pg.evaluate("document.activeElement && document.activeElement.blur()")
+    pg.keyboard.press("ArrowDown")
+    check(wait_js(pg, "%s !== %d" % (navi, n0), 3000), "3-1: 閉じたら ↓ で行が動く")
+    # 並べて出す幅(1700px)でも、メニューの中にフォーカスがある間は文書を動かさない・履歴から開いたらすぐ ↓ が効く
+    pg.set_viewport_size({"width": 1700, "height": 900})
+    if pg.evaluate(is_closed):
+        pg.click("#btnMenu")
+    wait_js(pg, "!" + is_closed, 3000)
+    check(pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position") != "fixed", "1700px: メニューは並べて出す")
+    pg.click("[data-side-tab=files]")
+    n1 = pg.evaluate(navi)
+    pg.keyboard.press("ArrowDown")
+    time.sleep(0.2)
+    check(pg.evaluate(navi) == n1, "3-1: 並べて出すメニューでも、中にフォーカスがあれば ↓ で文書が動かない")
+    pg.locator("#txList .txi").filter(has_text="一本目").first.locator(".t").click()
+    wait_js(pg, "!document.querySelector('#menuPanel').contains(document.activeElement)", 5000)
+    time.sleep(0.3)
+    n1 = pg.evaluate(navi)
+    pg.keyboard.press("ArrowDown")
+    check(wait_js(pg, "%s !== %d" % (navi, n1), 3000), "3-1: 並べて出すメニューの履歴から開いたら、フォーカスはメニューの外(すぐ ↓ が効く)")
+    if not pg.evaluate(is_closed):
+        pg.click("#btnMenu")
+    wait_js(pg, is_closed, 3000)
+    pg.set_viewport_size({"width": 1440, "height": 900})
+    # 2 カット のタブ: 重ねて開いている間、S で分割しない・Space で再生しない
+    pg.keyboard.press("Alt+2")
+    wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length > 0", 20000)
+    pg.evaluate("document.querySelector('#cutPlayer').currentTime = 3")
+    nk = pg.evaluate("document.querySelectorAll('#tlVideo .tt-k').length")
+    pg.evaluate("document.activeElement && document.activeElement.blur()")
+    pg.keyboard.press("g")
+    wait_js(pg, "!" + is_closed, 3000)
+    pg.keyboard.press("s")
+    pg.keyboard.press("Space")
+    time.sleep(0.3)
+    check(pg.evaluate("document.querySelectorAll('#tlVideo .tt-k').length") == nk and pg.evaluate("document.querySelector('#cutPlayer').paused"),
+          "3-1: 2 カット で重ねて開いている間は S で分割しない・Space で再生しない")
+    pg.keyboard.press("Escape")
+    wait_js(pg, is_closed, 3000)
+    pg.evaluate("document.activeElement && document.activeElement.blur()")
+    pg.keyboard.press("s")
+    check(wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length === %d" % (nk + 1), 3000), "3-1: 閉じたら S で分割できる(確かめ方が正しいこと)")
+    pg.keyboard.press("Control+z")
+    wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k').length === %d" % nk, 3000)
+    pg.keyboard.press("Alt+1")
+    wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'", 3000)
+
+
+def _scene_menus_settings(cx):
+    """A-1: 一覧の「…」の選択肢・行の右クリックのメニュー・⚙ 設定の引き出しが開いている間のキー"""
+    check, pg = cx.check, cx.pg
+    # ---- A-1: 一覧の上の「…」の選択肢が画面の外に出ない(右端にあるので、左へ開き直す)
+    for w in (1440, 1280, 1024):
+        pg.set_viewport_size({"width": w, "height": 900})
+        pg.click("#btnSpk")
+        box = pg.locator("#jumpMenu .ui-pop-body").bounding_box()
+        check(bool(box) and box["x"] >= 0 and box["x"] + box["width"] <= w, "幅 %dpx:「…」の選択肢が画面の中に収まる: %s" % (w, box))
+        pg.keyboard.press("Escape")
+    pg.set_viewport_size({"width": 1440, "height": 900})
+
+    # ---- 行の右クリックのメニュー(段2): .seg は content-visibility:auto なので、メニュー(position:fixed)は
+    # document.body の直下に置く(.seg の中に置くと、画面の外にはみ出す前に切り取られる)。選ぶと閉じて、行に反映される
+    row0 = pg.locator("#segs .seg").nth(0)
+    row0.locator(".play").click(button="right")
+    menu = pg.locator(".tt-ctxmenu")
+    check(menu.count() == 1 and menu.get_attribute("role") == "menu", "行を右クリックするとメニューが出る")
+    mbox, vp = menu.bounding_box(), pg.viewport_size
+    check(bool(mbox) and mbox["x"] >= 0 and mbox["y"] >= 0 and mbox["x"] + mbox["width"] <= vp["width"] and mbox["y"] + mbox["height"] <= vp["height"],
+          "メニューは画面の中に収まる(content-visibility の親に切り取られない): %s / %s" % (mbox, vp))
+    menu.locator('[data-act="proof"]').click()
+    check(menu.count() == 0, "メニューの項目を選ぶと閉じる")
+    check("proofed" in (row0.get_attribute("class") or ""), "選んだ操作(校正済みにする)が行に反映される")
+    # B-3: メニューを開いている間の ↓ ↑ はメニューの中の移動(裏の行は動かない)。Enter で選ぶ・Esc で閉じる
+    row0.locator(".play").click(button="right")
+    nav0 = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
+    pg.keyboard.press("ArrowDown"); pg.keyboard.press("s"); pg.keyboard.press("ArrowDown")
+    check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav0, "メニューを開いている間は ↓・S で裏の行が動かない(B-3)")
+    check(pg.evaluate("document.activeElement.dataset.act") == "split", "↓ でメニューの中の項目を移る(3つ目 = 分割): %s" % pg.evaluate("document.activeElement.dataset.act"))
+    pg.keyboard.press("ArrowUp"); pg.keyboard.press("ArrowUp")
+    check(pg.evaluate("document.activeElement.dataset.act") == "proof", "↑ で戻る")
+    pg.keyboard.press("Enter")
+    check(menu.count() == 0 and "proofed" not in (row0.get_attribute("class") or ""), "Enter で選ぶと、右クリックした行に効く(校正済みを外す)")
+    row0.locator(".play").click(button="right")
+    pg.keyboard.press("Escape")
+    check(menu.count() == 0, "Esc でメニューを閉じる")
+    menu_row = row0
+    menu_row.locator(".play").click(button="right"); menu.locator('[data-act="proof"]').click()   # 下の確かめのため、もう一度「校正済み」に戻す
+    # B-9(段1): 文字の欄の上は、普通の右クリックはブラウザ既定(コピー・貼り付け)、Shift+右クリックで行のメニュー
+    ta0 = row0.locator("textarea")
+    ta0.click(button="right")
+    check(menu.count() == 0, "文字の欄の上の普通の右クリックでは行のメニューを出さない(ブラウザ既定のまま)")
+    ta0.click(button="right", modifiers=["Shift"])
+    check(menu.count() == 1, "文字の欄の上で Shift+右クリックすると行のメニューが出る")
+    menu.locator('[data-act="proof"]').click()
+    check(menu.count() == 0 and "proofed" not in (row0.get_attribute("class") or ""), "Shift+右クリックのメニューの「校正済みを外す」が行に効く")
+    ta0.click(button="right", modifiers=["Shift"])
+    menu.locator('[data-act="proof"]').click()
+    check("proofed" in (row0.get_attribute("class") or ""), "もう一度で校正済みに戻る")
+    # キーボード(Shift+F10・アプリケーションキー)から開いたとき(位置が 0,0)は、欄の下に出す
+    pg.evaluate("""() => { const t = document.querySelector('#segs .seg textarea');
+                t.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, shiftKey: true, clientX: 0, clientY: 0 })); }""")
+    tbox, mbox = ta0.bounding_box(), menu.bounding_box()
+    check(menu.count() == 1 and bool(mbox) and abs(mbox["y"] - (tbox["y"] + tbox["height"] + 2)) < 3 and mbox["x"] > tbox["x"],
+          "キーボードから開いたときは欄の下に出る(左上の隅に出ない): %s / %s" % (mbox, tbox))
+    pg.keyboard.press("Escape")
+    check(menu.count() == 0, "(Esc で閉じる)")
+    # 日本語の変換中は出さない(メニューへフォーカスが移ると変換中の文字が確定するため)
+    pg.evaluate("document.querySelector('#segs .seg textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))")
+    ta0.click(button="right", modifiers=["Shift"])
+    check(menu.count() == 0, "変換中の Shift+右クリックでは行のメニューを出さない")
+    pg.evaluate("document.querySelector('#segs .seg textarea').dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))")
+    ta0.click(button="right", modifiers=["Shift"])
+    check(menu.count() == 1, "変換が終われば出る")
+    pg.keyboard.press("Escape")
+    check("proofed" in (row0.get_attribute("class") or ""), "(下の確かめのため、行0は校正済みのまま)")
+
+    # ---- ⚙ 設定の引き出しが開いている間は、文書を操作するキーが効かない(item 6。上の右クリックで行0が「今の行」になっている)
+    nav_before = pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i")
+    pg.click("[data-ui-settings]")
+    wait_js(pg, "!document.querySelector('#uiSettingsDrawer').hidden")
+    pg.keyboard.press("ArrowDown")
+    pg.wait_for_timeout(150)
+    check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") == nav_before, "⚙ 設定の引き出しが開いている間は ↓ で行が動かない")
+    pg.keyboard.press("Alt+2")   # 監査01(段1): ⚙ 設定を開いている間は Alt+数字 でタブを変えない
+    pg.wait_for_timeout(150)
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("location.hash") != "#cut" and pg.is_visible("#uiSettingsDrawer"),
+          "⚙ 設定の引き出しが開いている間は Alt+2 でタブが変わらない")
+    pg.keyboard.press("Escape")   # 開いている間は裏(ヘッダーの ⚙ も)が止まっているので、Esc で閉じる
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden")
+    pg.keyboard.press("ArrowDown")
+    check(pg.evaluate("document.querySelector('#segs .seg.nav').dataset.i") != nav_before, "引き出しを閉じれば ↓ で行が動く(前提の確認)")
+
+
+def _scene_tab_switch(cx):
+    """タブの切り替え(クリック・URL・キー)・再読み込み・細い帯からメニューを開く"""
+    check, pg, srv = cx.check, cx.pg, cx.srv
+    # ---- タブの切り替え(クリック・URL・キー)
+    pg.click("[data-edtab=cut]")
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut") and pg.is_hidden("#tabTx") and pg.is_hidden("#tabPack"),
+          "「2 カット」を押すとカットのタブだけが出る")
+    check(pg.evaluate("location.hash") == "#cut", "今のタブは URL の #cut に残る")
+    check(pg.is_visible("#docBar"), "題名の行はカットのタブにも出る")
+    cls = pg.get_attribute(".app", "class")
+    check("tab-wide" in cls and pg.is_visible("#menuStrip") and pg.is_hidden("#menuPanel"), "カットのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む")
+    nav0 = pg.evaluate("document.querySelectorAll('#segs .seg.nav').length")
+    pg.keyboard.press("ArrowDown")
+    pg.keyboard.press("Shift+ArrowDown")
+    check(pg.evaluate("document.querySelectorAll('#segs .seg.nav').length") == nav0, "カットのタブでは、校正のキー(↓・Shift+↓)で行が動かない")
+    pg.keyboard.press("Alt+3")
+    check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#tabPack") and pg.evaluate("location.hash") == "#pack",
+          "Alt+3 で 3 パック")
+    check(pg.is_visible("#pkBuild") and pg.is_visible("#pkLen"), "パックのタブに「これから作るパック」と「パックを作る」がある")
+    wait_js(pg, "!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('入口(start.bat)から開いたとき')", 10000)
+    check(pg.is_disabled("#pkBuild"), "単体で開いたときはパック作りは使えず、理由(入口から開いたときだけ)が出る")
+    wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && document.querySelector('#pkCaps').textContent === '3'", 15000)
+    check(pg.inner_text("#pkLen") == "0:12.00", "これから作るパック(区間・長さ・字幕の数)は単体でも出る(サーバーの見積もり)")
+    pg.keyboard.press("Alt+1")
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.is_visible("#tabTx") and "tab-wide" not in pg.get_attribute(".app", "class"),
+          "Alt+1 で 1 文字起こし(メニューも元に戻る)")
+    pg.keyboard.press("Alt+2")
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true", "Alt+2 で 2 カット")
+    pg.focus("[data-edtab=cut]")
+    pg.keyboard.press("ArrowRight")
+    check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.evaluate("document.activeElement.dataset.edtab") == "pack",
+          "タブの並びの中は → で次のタブへ(フォーカスも移る)")
+    pg.keyboard.press("ArrowRight")
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true", "最後のタブの次は最初へ")
+    # 行の文字の入力中の Alt+数字 は話者(タブは変えない)
+    pg.locator("#segs textarea").first.click()
+    pg.keyboard.press("Alt+2")
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true", "行の文字の入力中は Alt+2 でタブを変えない(Alt+数字 = 話者)")
+    pg.keyboard.press("Escape")
+
+    # ---- 再読み込み・URL の # でタブを開く
+    pg.goto(srv.base + "#pack")
+    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+    check(pg.is_hidden("#tabTx") and pg.evaluate("location.hash") == "#pack", "URL の #pack で開くと 3 パック のタブ(再読み込み・窓で開いても同じタブ)")
+    pg.evaluate("location.hash = '#cut'")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
+    check(True, "URL の # を変えるとタブも変わる")
+
+    # ---- 細い帯からメニューを開く(本文の上に重ねる)・閉じる
+    pg.click("[data-strip=files]")
+    cls = pg.get_attribute(".app", "class")
+    check("menu-overlay" in cls and pg.is_visible("#menuPanel") and pg.get_attribute("[data-side-tab=files]", "aria-selected") == "true",
+          "帯の「履歴」で、メニューの履歴を本文の上に重ねて開く")
+    box = pg.locator("#menuPanel").bounding_box()
+    check(box and pg.evaluate("getComputedStyle(document.querySelector('#menuPanel')).position") == "fixed", "重ねて開く(タイムラインの幅を変えない)")
+    pg.keyboard.press("Escape")
+    check("menu-overlay" not in pg.get_attribute(".app", "class") and pg.is_hidden("#menuPanel"), "Esc で閉じる")
+    pg.click("[data-strip=start]")
+    check(pg.get_attribute("[data-side-tab=start]", "aria-selected") == "true" and pg.is_visible("#srcPath"), "帯の「新規」で新規を開く")
+    pg.click("#menuScrim", position={"x": 1200, "y": 400})
+    check(pg.is_hidden("#menuPanel"), "暗い幕を押すと閉じる")
+    pg.keyboard.press("g")
+    check("menu-overlay" in pg.get_attribute(".app", "class"), "G でも開く")
+    pg.keyboard.press("g")
+    check("menu-overlay" not in pg.get_attribute(".app", "class"), "G でもう一度押すと閉じる")
+    open_doc(pg, "二本目")
+    check("menu-overlay" not in pg.get_attribute(".app", "class") and pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true",
+          "重ねたメニューで文書を選ぶと、メニューを閉じてカットのタブのまま")
+    check(pg.inner_text("#pillProof") == "校正 0 / 2行", "開いた文書の札に変わる: " + pg.inner_text("#pillProof"))
+
+
+def _scene_new_and_redo(cx):
+    """文字起こしせずに開く・字幕の文字数と分け直す・疑わしい所だけ認識し直す・動画全体の再認識"""
+    check, n_jobs, pg, srv, v3 = cx.check, cx.n_jobs, cx.pg, cx.srv, cx.v3
+    # ---- 文字起こしせずに開く(新規)
+    pg.click("[data-strip=start]")
+    pg.click("#tabFile")
+    pg.fill("#srcPath", v3)
+    pg.click("#btnOpenVideo")
+    wait_js(pg, "document.querySelector('#docTitle').value === '文字なし' && document.querySelector('#pillProof').hidden", 15000)   # 題名の行は次のフレームで描き直す
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_hidden("#menuPanel"), "「文字起こしせずに開く」で文書ができ、カットのタブで開く")
+    wait_js(pg, "!document.querySelector('#pillCut').hidden", 10000)
+    check(pg.is_hidden("#pillProof") and "残す 1区間" in pg.inner_text("#pillCut") and "0:06" in pg.inner_text("#docMeta"),
+          "行の無い文書の題名の行: 校正の札は出さない・カットは動画全体(残す 1区間)・長さは出る: %s / %s" % (pg.inner_text("#pillCut"), pg.inner_text("#docMeta")))
+    check(len(srv.get("/api/jobs")["jobs"]) == n_jobs, "文字起こしは始めない")
+    pg.keyboard.press("Alt+1")
+    check(pg.is_visible("#noRows") and "まだ文字起こししていません" in pg.inner_text("#noRows") and pg.is_enabled("#btnTxInto"),
+          "1 文字起こし のタブに「この動画を文字起こしする」")
+    if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+        pg.click("#btnMenu")
+    pg.click("[data-side-tab=start]")
+    pg.fill("#srcPath", v3)
+    pg.click("#btnOpenVideo")
+    wait_js(pg, "document.querySelector('#toast').textContent.includes('前に開いています')", 10000)
+    items = [i for i in srv.get("/api/transcripts")["items"] if i["title"] == "文字なし"]
+    check(len(items) == 1, "同じ動画をもう一度「文字起こしせずに開く」と、同じ文書を開く(増やさない)")
+
+    # ---- 字幕の文字数(12 ②): 新規の設定・「今の文書を分け直す」(保存してある単語の時刻で長い行を分ける)
+    tid1 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
+    long1 = "きょうはいいてんきですねさんぽにいきましょうか"
+    d1 = srv.get("/api/transcript?id=" + tid1)
+    srv.call("PUT", "/api/transcript?id=" + tid1, {"title": d1["title"], "speakers": [], "baseUpdatedAt": d1["updatedAt"],
+                                                   "segments": [{"id": "a", "start": 0.0, "end": 4.6, "text": long1}, {"id": "b", "start": 5.0, "end": 6.0, "text": "みじかい"}]})
+    with open(os.path.join(srv.tmp, "transcripts", tid1 + ".words.json"), "w", encoding="utf-8") as f:
+        json.dump({"schema": "youtube-tools-words/v1", "words": [[round(i * 0.2, 2), round((i + 1) * 0.2, 2), ch] for i, ch in enumerate(long1)]}, f, ensure_ascii=False)
+    pg.keyboard.press("Alt+1")
+    open_doc(pg, "一本目")
+    wait_js(pg, "document.querySelectorAll('#segs .seg').length === 2", 10000)
+    check(pg.input_value("#optMaxV") == "16" and pg.input_value("#optMaxH") == "28" and pg.input_value("#optWrapV") == "8" and pg.input_value("#optSubOrient") == "vertical",
+          "新規の設定に 字幕の向き(縦)・最大文字数 縦 16 / 横 28・改行 縦 8 / 横 14")
+    check(not pg.evaluate("document.querySelector('#recogDetails').open") and "モデル:" in pg.evaluate("document.querySelector('#optSummary').textContent"),
+          "認識の設定は既定で閉じ、「始める」の上に要約が1行出る: %s" % pg.evaluate("document.querySelector('#optSummary').textContent"))
+    opt = pg.evaluate("document.querySelector('#rsOrient').options[0].textContent")   # 閉じた欄の中なので textContent で見る
+    check("最大 16 文字" in opt, "「分け直す」の向きに最大文字数が出る: %s" % opt)
+    pg.evaluate("document.querySelector('#fixDetails').open = true")
+    pg.click("#rsGo")
+    wait_js(pg, "document.querySelectorAll('#segs .seg').length === 3", 10000)
+    check("1 行を分けました" in pg.inner_text("#rsMsg"), "「今の文書を分け直す」で長い行が 2 つに(%s)" % pg.inner_text("#rsMsg"))
+    check(srv.get("/api/history?id=" + tid1)["items"], "分ける前の版が「以前の版に戻す」にある")
+
+    # ---- 疑わしい所だけ認識し直す(12 ③-2): 「長い区間に文字が少ない」の行を、良くなったときだけ置き換える
+    # (機械の出力のある文書では、機械の出力と違う行 = 人が直した行は対象にしない。ここは機械の出力の無い「文字なし」の文書で確かめる)
+    tid1 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "文字なし")
+    d1 = srv.get("/api/transcript?id=" + tid1)
+    F = "長い区間に文字が少ない(抜けの可能性)"
+    srv.call("PUT", "/api/transcript?id=" + tid1, {"title": d1["title"], "speakers": [], "baseUpdatedAt": d1["updatedAt"],
+                                                   "segments": [{"id": "x", "start": 0.5, "end": 5.5, "text": "黒", "flag": F}]})
+    pg.reload()
+    wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+    open_doc(pg, "文字なし")
+    wait_js(pg, "document.querySelectorAll('#segs .seg').length === 1", 10000)
+    check(pg.is_checked("#optAutoRedo") is False and pg.is_checked("#optRedoLarge"), "新規の設定: 疑わしい所を自動で認識し直す(既定オフ)・kotoba なら large-v3(既定オン)")
+    pg.evaluate("document.querySelector('#fixDetails').open = true")
+    pg.click("#redoGo")
+    try:
+        wait_js(pg, "[...document.querySelectorAll('#segs .seg textarea')].some(t => t.value.startsWith('認識し直した文'))", 20000)
+    except TimeoutError:
+        print("DIAG redoMsg=%r toast=%r jobs=%r doc=%r" % (pg.inner_text("#redoMsg"), pg.inner_text("#toast"),
+              [(j["kind"], j["state"], j.get("error"), j.get("phase")) for j in srv.get("/api/jobs")["jobs"]][-3:],
+              [(g["id"], g["text"], g.get("flag")) for g in srv.get("/api/transcript?id=" + tid1)["segments"]]))
+        raise
+    check(True, "「疑わしい所を認識し直す」で、文字が少なかった行が置き換わり、画面も読み直す")
+    check(srv.get("/api/transcript?id=" + tid1).get("redo", {}).get("rows") == 1, "置き換えた記録が文書に残る")
+
+    # ---- 動画全体の再認識(docs/design/whole-retranscribe-design.md の 3): 校正済みの行は残し、ほかを新しい行に(認識は疑似 = 3 秒ごとに「範囲再認識N」)
+    tidw = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
+    dw = srv.get("/api/transcript?id=" + tidw)
+    segs_w = [dict(g, text="人が直した一行目", proofed=True) if n == 0 else g for n, g in enumerate(dw["segments"])]
+    srv.call("PUT", "/api/transcript?id=" + tidw, {"title": dw["title"], "speakers": dw.get("speakers", []), "baseUpdatedAt": dw["updatedAt"], "segments": segs_w})
+    pg.reload()
+    wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+    open_doc(pg, "一本目")
+    wait_js(pg, "document.querySelectorAll('#segs .seg').length === 3", 10000)
+    pg.evaluate("document.querySelector('#fixDetails').open = true; const s = document.querySelector('#rtTarget'); s.value = 'whole'; s.dispatchEvent(new Event('change'))")
+    hint = pg.inner_text("#rtHint")
+    check("動画全体 0:00" in hint and "校正済みの 1 行は残し" in hint and "残り 2 行" in hint and not pg.is_disabled("#rtGo"),
+          "「対象」の「動画全体」: 範囲・残す行・差し替える行のヒント: %s" % hint)
+    pg.click("#rtGo")
+    check("校正済み以外の行が書き換わります" in pg.inner_text("#rtGo"), "1回目は押し直しの案内(何が起きるかを書く): %s" % pg.inner_text("#rtGo"))
+    pg.click("#rtGo")
+    wait_js(pg, "[...document.querySelectorAll('#segs .seg textarea')].some(t => t.value.startsWith('範囲再認識'))", 20000)
+    texts = pg.evaluate("[...document.querySelectorAll('#segs .seg textarea')].map(t => t.value)")
+    check(texts[0] == "人が直した一行目" and all(t.startswith("範囲再認識") for t in texts[1:]),
+          "終わると読み直し、校正済みの行は残って、ほかは新しい行: %s" % texts)
+    check("校正済み 1 行は元のまま" in pg.inner_text("#toast") or "校正済み 1 行" in pg.inner_text("#toast"), "完了の知らせに残した行: %s" % pg.inner_text("#toast"))
+    check("全体を再認識" in pg.inner_text("#docInfo"), "認識の設定の欄に「全体を再認識」: %s" % pg.inner_text("#docInfo")[-60:])
+
+
+def _scene_keys_and_urls(cx):
+    """キー操作の一覧・狭い画面・?doc= で選んだ文書・?list=other・再読み込みで開いていた文書とタブに戻る"""
+    check, pg, srv, v2, v3 = cx.check, cx.pg, cx.srv, cx.v2, cx.v3
+    # ---- キー操作の一覧・狭い画面
+    pg.click("#btnKeys")
+    check("タブ(文字起こし・カット・パック)を切り替える" in pg.inner_text("#keys"), "キー操作の一覧に Alt+1/2/3")
+    pg.keyboard.press("Escape")
+    pg.set_viewport_size({"width": 390, "height": 800})
+    pg.keyboard.press("Alt+2")
+    pg.wait_for_timeout(300)
+    check(pg.evaluate("document.documentElement.scrollWidth") <= 392, "幅 390px で横にはみ出さない: %s" % pg.evaluate("document.documentElement.scrollWidth"))
+    check(pg.is_visible("[data-edtab=pack]") and pg.is_visible("#menuStrip"), "幅 390px でもタブと帯が見える")
+
+    # ---- B-1: ホームからは文書 ID で開く(?doc=)。同じ動画から作った別の文書(新しい方)ではなく、選んだ文書が開く
+    pg.set_viewport_size({"width": 1440, "height": 900})
+    old_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目")
+    srv.transcribe(v2, "二本目のやり直し")   # 同じ動画からもう1つ(こちらが新しい)
+    pg.goto(srv.base + "?doc=" + old_id + "&media=" + urllib.parse.quote(v2) + "#tx")
+    wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目'", 15000)
+    check(pg.input_value("#docTitle") == "二本目", "?doc= で選んだ文書が開く(同じ動画の新しい文書ではない)")
+    check(("doc=" + old_id) in pg.url and "media=" not in pg.url, "開いたあとは URL に ?doc= を残し、?media= は外す(監査 06): %s" % pg.url)
+    pg.goto(srv.base + "?doc=0123456789ab&media=" + urllib.parse.quote(v2) + "#tx")
+    wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '二本目のやり直し'", 15000)
+    new_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目のやり直し")
+    check(("doc=" + new_id) in pg.url and "0123456789ab" not in pg.url, "文書が見つからなければ、動画のパスで探して開く(予備)。URL は開いた文書: %s" % pg.url)
+
+    # ---- 段5 5-1(B-5): ホームの「編集の履歴で見る」= ?list=other で、左のメニューの履歴が「種類: それ以外」で開く。URL からは消す
+    pg.goto(srv.base + "?list=other#tx")
+    wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+    check(wait_js(pg, "document.querySelector('#txFilter').value === 'other' && document.querySelector('[data-side-tab=files]').getAttribute('aria-selected') === 'true' && location.search.indexOf('list=') < 0", 10000),
+          "?list=other で履歴が「それ以外」で開き、URL から list= が消える: %s / %s" % (pg.input_value("#txFilter"), pg.url))
+    pg.select_option("#txFilter", "all")
+    wait_js(pg, "document.querySelector('#txFilter').value === 'all'")
+
+    # ---- 監査 06: 再読み込み・窓の開き直しで、開いていた文書とタブに戻る
+    open_doc(pg, "一本目")
+    one_id = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "一本目")
+    pg.keyboard.press("Alt+2")
+    wait_js(pg, "location.hash === '#cut'")
+    check(("doc=" + one_id) in pg.url, "文書を切り替えると URL の ?doc= も変わる: %s" % pg.url)
+    pg.reload()
+    wait_js(pg, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === '一本目'", 15000)
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut"), "再読み込みで同じ文書・同じタブ(2 カット)に戻る")
+    pg.keyboard.press("Alt+1")
+    gone_tid = srv.transcribe(v3, "消す文書")
+    gone_url = srv.base + "?doc=" + gone_tid + "#tx"
+    srv.call("DELETE", "/api/transcript?id=" + gone_tid)
+    pg.goto(gone_url)
+    pg.reload()
+    wait_js(pg, "document.querySelector('#toast').textContent.includes('見つかりませんでした')", 15000)
+    check(pg.is_visible("#noDoc") and pg.is_hidden("#doc") and "doc=" not in pg.url,
+          "消した文書の ?doc= は、知らせて何も開かず、URL から消える: %s" % pg.url)
+
+
+def _scene_relink(cx):
+    """B-4: 動画を選び直す・v0.31.0: まとめて付け替える"""
+    check, errors, pg, srv = cx.check, cx.errors, cx.pg, cx.srv
+    # ---- 段2 B-4: 動画を選び直す。動画を別の名前で別のフォルダへ移す → 開く → 案内とボタン → ダイアログ → 付け替え → カットのタブが使える
+    rl_tid = srv.transcribe(make_video(os.path.join(srv.media, "付け替え前.webm"), sec=10), "付け替える文書")
+    rl_rows = srv.get("/api/transcript?id=" + rl_tid)["segments"]
+    srv.call("PUT", "/api/edit?id=" + rl_tid, {"baseRev": 0, "edit": {"sources": [{"fps": [30, 1], "duration": 10.0}],
+                                                                      "clips": [{"src": 0, "in": 1.0, "out": 4.0}, {"src": 0, "in": 6.0, "out": 9.0}], "origin": "manual"}})
+    outside = tempfile.mkdtemp(prefix="edit-e2e-moved-")   # サーバーの作業データ(写したフォルダ)の外
+    moved = os.path.join(outside, "移した後.webm")
+    shutil.move(os.path.join(srv.media, "付け替え前.webm"), moved)
+    short = make_video(os.path.join(outside, "別の短い動画.webm"), sec=4)
+    try:
+        pg.goto(srv.base + "#tx")
+        pg.reload()   # 同じ URL への goto は読み直さない(# だけの移動になる)
+        wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+        n_err = len(errors)
+        open_doc(pg, "付け替える文書")
+        wait_js(pg, "!document.querySelector('#playerMsg').hidden && !document.querySelector('#playerRelink').hidden", 15000)
+        check("元の動画が見つかりません" in pg.inner_text("#playerMsg") and "付け替え前.webm" in pg.inner_text("#playerMsg"),
+              "1 文字起こし: 動画が見つからなければ元のパスと「動画を選び直す」: " + pg.inner_text("#playerMsg"))
+        row = pg.locator("#txList .txi").filter(has_text="付け替える文書").first
+        check(row.locator("[data-act=relink]").count() == 1, "履歴の一覧の「動画なし」の行のメニューにも「動画を選び直す」")
+        pg.keyboard.press("Alt+2")
+        wait_js(pg, "!document.querySelector('#cutOff').hidden && !document.querySelector('#cutRelink').hidden", 10000)
+        check(pg.is_hidden("#cutRetry"), "2 カット: 動画が無いときは「動画を選び直す」(もう一度読み込む は出さない)")
+        pg.click("#cutRelink")
+        wait_js(pg, "document.querySelector('#relinkDlg').open")
+        check(pg.input_value("#rlOld").endswith("付け替え前.webm") and pg.is_disabled("#rlGo"), "ダイアログに元のパス。確かめる前は「付け替える」を押せない")
+        pg.fill("#rlPath", '"%s"' % short)
+        pg.click("#rlCheck")
+        wait_js(pg, "!!document.querySelector('#rlResult dl')", 20000)
+        check("長さが元の動画と違います" in pg.inner_text("#rlResult") and pg.is_visible("#rlAcceptRow") and pg.is_disabled("#rlGo"),
+              "長さが違う動画: 注意とチェック。チェックするまで押せない: " + pg.inner_text("#rlResult"))
+        pg.check("#rlAccept")
+        check(pg.is_enabled("#rlGo"), "「長さが違うのを分かったうえで」をチェックすると押せる")
+        pg.fill("#rlPath", moved)
+        check(pg.is_disabled("#rlGo") and pg.is_hidden("#rlAcceptRow"), "パスを変えたら確かめ直すまで押せない")
+        pg.press("#rlPath", "Enter")
+        wait_js(pg, "document.querySelector('#rlResult').textContent.includes('移した後.webm')", 20000)
+        check(pg.is_enabled("#rlGo") and "同じです" in pg.inner_text("#rlResult"), "同じ長さの動画: すぐ押せる: " + pg.inner_text("#rlResult"))
+        pg.click("#rlGo")
+        wait_js(pg, "!document.querySelector('#relinkDlg').open && document.querySelector('#toast').textContent.includes('付け替えました')", 20000)
+        wait_js(pg, "document.querySelector('#cutOff').hidden && document.querySelectorAll('#tlVideo .tt-k').length > 0", 20000)
+        check(True, "付け替えたら、カットのタブが新しい動画で使える")
+        d = srv.get("/api/transcript?id=" + rl_tid)
+        check(os.path.normcase(d["sourcePath"]) == os.path.normcase(os.path.realpath(moved)) and d["segments"] == rl_rows,
+              "文書の動画のパスだけが変わり、行はそのまま")
+        ed = srv.get("/api/edit?id=" + rl_tid)["edit"]
+        check([(c["in"], c["out"]) for c in ed["clips"]] == [(1.0, 4.0), (6.0, 9.0)], "カットはそのまま: %s" % ed["clips"])
+        pg.keyboard.press("Alt+1")
+        wait_js(pg, "document.querySelector('#player').readyState >= 1", 15000)
+        check(pg.is_hidden("#playerMsg"), "1 文字起こし: 新しい動画を再生できる(案内が消える)")
+        del errors[n_err:]   # 見つからない動画の 404 はブラウザがエラーとして記録する(想定どおり)
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+
+    # ---- v0.31.0: まとめて付け替える。2本をフォルダごと移す + 1本は名前も変える → 履歴の上の案内 → フォルダで探す(同じ名前の2本)・
+    # 残りは行の「参照…」(PC の窓はテストで開けないので /api/pick の応答を差し替える)→ まとめて付け替える
+    n_err = len(errors)   # 前の節で動画を消した文書の波形・動画の 404 が、この節の準備の間に届くことがある(想定どおり)
+    ra_dir = os.path.join(srv.media, "まとめて")
+    os.makedirs(ra_dir, exist_ok=True)
+    ra_ids = [srv.transcribe(make_video(os.path.join(ra_dir, n), sec=s), t)
+              for n, s, t in (("一本目.webm", 6, "まとめて一本目"), ("二本目.webm", 7, "まとめて二本目"), ("三本目.webm", 5, "まとめて三本目"))]
+    outside = tempfile.mkdtemp(prefix="edit-e2e-moved-all-")
+    new_dir = os.path.join(outside, "移した先", "下のフォルダ")
+    os.makedirs(new_dir)
+    shutil.move(os.path.join(ra_dir, "一本目.webm"), os.path.join(new_dir, "一本目.webm"))
+    shutil.move(os.path.join(ra_dir, "二本目.webm"), os.path.join(new_dir, "二本目.webm"))
+    renamed = os.path.join(outside, "名前を変えた三本目.webm")
+    shutil.move(os.path.join(ra_dir, "三本目.webm"), renamed)
+    picked = {"n": 0}
+
+    def pick_route(route):
+        picked["n"] += 1
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"path": renamed}))
+    try:
+        pg.route("**/api/pick", pick_route)
+        pg.goto(srv.base + "#tx")   # ?doc= を付けずに開く(前の節で動画を消した文書を開き直さない)
+        wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+        wait_url_doc(pg)   # 開いていた文書を開き終わるまで待つ(途中でメニューが閉じるため)
+        cls = pg.get_attribute(".app", "class") or ""
+        if "tab-wide" in cls:
+            if "menu-overlay" not in cls:
+                pg.click("[data-strip=files]")
+        else:
+            if "menu-closed" in cls:
+                pg.click("#btnMenu")
+            pg.click("[data-side-tab=files]")
+        n_missing = sum(1 for i in srv.get("/api/transcripts")["items"] if i.get("mediaOk") is False and i.get("sourceName"))
+        wait_js(pg, "!document.querySelector('#txMissing').hidden", 15000)
+        check(n_missing >= 3 and ("%d 件" % n_missing) in pg.inner_text("#txMissing"),
+              "履歴の上に「元の動画が見つからない文書が N 件」: " + pg.inner_text("#txMissing"))
+        pg.click("#txMissingGo")
+        wait_js(pg, "document.querySelector('#relinkAllDlg').open && document.querySelectorAll('#raList .tt-ra-row').length >= 3", 15000)
+        check(pg.locator("#raList .tt-ra-row").filter(has_text="まとめて").count() == 3 and pg.is_disabled("#raGo"),
+              "まとめて: 見つからない文書が並び、選ぶまで「付け替える」は押せない: %d 行" % pg.locator("#raList .tt-ra-row").count())
+        pg.fill("#raFolder", '"%s"' % outside)
+        pg.press("#raFolder", "Enter")
+        wait_js(pg, "[...document.querySelectorAll('#raList .tt-ra-st.ok')].length >= 2", 30000)
+        row3 = pg.locator("#raList .tt-ra-row").filter(has_text="まとめて三本目")
+        check(pg.inner_text("#raNote").startswith("2 / ") and "同じ名前の動画がありません" in row3.inner_text(),
+              "フォルダの下から同じ名前の2本が見つかり、名前を変えた1本は見つからない: " + pg.inner_text("#raNote"))
+        check("(2 件)" in pg.inner_text("#raGo") and pg.is_enabled("#raGo"), "長さが同じものは最初から選ばれる: " + pg.inner_text("#raGo"))
+        row3.get_by_role("button", name="参照…").click()
+        wait_js(pg, "[...document.querySelectorAll('#raList .tt-ra-st.ok')].length >= 3", 30000)
+        check(picked["n"] == 1 and row3.locator("input[type=text]").input_value() == renamed and "(3 件)" in pg.inner_text("#raGo"),
+              "行の「参照…」で選んだ動画を確かめて選ぶ")
+        pg.click("#raGo")
+        wait_js(pg, "document.querySelector('#toast').textContent.includes('3 件を付け替えました')", 30000)
+        left = n_missing - 3   # この節より前のテストで動画を消した文書は残る
+        wait_js(pg, "document.querySelector('#txMissing').hidden" if not left else
+                "document.querySelector('#txMissingText').textContent.includes(%s)" % json.dumps("%d 件" % left), 15000)
+        check(True, "まとめて付け替えたら、履歴の上の案内の件数が減る(0 なら消える)")
+        got = [os.path.normcase(srv.get("/api/transcript?id=" + t)["sourcePath"]) for t in ra_ids]
+        want = [os.path.normcase(os.path.realpath(p)) for p in (os.path.join(new_dir, "一本目.webm"), os.path.join(new_dir, "二本目.webm"), renamed)]
+        check(got == want, "3つの文書の動画のパスが新しい場所に: %s" % got)
+        pg.click("#raCancel")
+        del errors[n_err:]
+    finally:
+        pg.unroute("**/api/pick")
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+def _scene_settings_errors(cx):
+    """監査 11: 設定の保存・読み込みの失敗を出す(⚙ の印と [もう一度])・読めないまま空で上書きしない"""
+    check, ctx, errors, pg, srv = cx.check, cx.ctx, cx.errors, cx.pg, cx.srv
+    # ---- 段2 監査 11: 設定の保存・読み込みの失敗を出す(⚙ の印と引き出しの先頭の [もう一度])・読めないまま空で上書きしない
+    n_err = len(errors)
+    put_fail = {"on": True, "puts": 0, "get_fail": False}
+
+    def settings_route(route):
+        if route.request.method == "PUT":
+            put_fail["puts"] += 1
+        if (route.request.method == "PUT" and put_fail["on"]) or (route.request.method == "GET" and put_fail["get_fail"]):
+            route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "テストで失敗させた"}))
+        else:
+            route.continue_()
+    spat = re.compile(r".*/api/settings$")
+    pg.route(spat, settings_route)
+    set_diar = "(v => { const e = document.querySelector('#diarNum'); e.value = v; e.dispatchEvent(new Event('change', { bubbles: true })); })"
+    pg.evaluate(set_diar + "('3')")
+    wait_js(pg, "document.querySelector('[data-ui-settings]').getAttribute('data-ui-status') === 'err'", 10000)
+    check("テストで失敗させた" in (pg.get_attribute("[data-ui-settings]", "title") or ""), "保存の失敗: ⚙ に印と理由")
+    pg.click("[data-ui-settings]")
+    wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
+    check("設定を保存できていません" in pg.inner_text(".ui-settings-status") and pg.is_visible(".ui-settings-status button"),
+          "設定の引き出しの先頭に理由と「もう一度」: " + pg.inner_text(".ui-settings-status"))
+    check(pg.inner_text("#saveState") != "設定を保存できていません", "文書の保存の表示とは別の場所")
+    put_fail["on"] = False
+    pg.click(".ui-settings-status button")
+    wait_js(pg, "document.querySelector('.ui-settings-status').hidden && !document.querySelector('[data-ui-settings]').hasAttribute('data-ui-status')", 10000)
+    check(str(srv.get("/api/settings").get("diarNum")) == "3", "「もう一度」で保存でき、印が消える")
+    pg.keyboard.press("Escape")
+    pg.unroute(spat)   # 同期版の route は Python が Playwright を呼んでいる間しか動かない(下の待ちで要求が止まらないように外す)
+    # 2つの窓で別々の設定を変えても消し合わない(差のキーだけ送る)
+    pg2 = ctx.new_page()
+    pg2.goto(srv.base + "#tx")
+    wait_js(pg2, "document.querySelector('#ver').textContent.startsWith('v')")
+    pg2.wait_for_timeout(2500)   # 設定を読み終わるまで(読む前に変えた値は、読んだ設定で置き換わる)
+    pg2.evaluate("document.querySelector('#mPad').value = document.querySelector('#mPad').options[document.querySelector('#mPad').options.length - 1].value; document.querySelector('#mPad').dispatchEvent(new Event('change', { bubbles: true }))")
+    mpad = pg2.evaluate("document.querySelector('#mPad').value")
+    pg.evaluate(set_diar + "('4')")   # 窓1は、窓2が変える前に読んだ設定のまま
+    for _ in range(60):
+        st = srv.get("/api/settings")
+        if str(st.get("diarNum")) == "4" and str(st.get("mPad")) == str(mpad):
+            break
+        pg.wait_for_timeout(100)
+    check(str(st.get("diarNum")) == "4" and str(st.get("mPad")) == str(mpad), "2つの窓で別々の設定を変えても、両方残る: %s %s" % (st.get("diarNum"), st.get("mPad")))
+    pg2.close()
+    # 読み込みに失敗: 知らせて、読み直すまで保存しない
+    pg.route(spat, settings_route)
+    put_fail["get_fail"] = True
+    pg.reload()
+    wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
+    wait_js(pg, "document.querySelector('[data-ui-settings]').getAttribute('data-ui-status') === 'err'", 10000)
+    check("読み込めませんでした" in (pg.get_attribute("[data-ui-settings]", "title") or ""), "読み込みの失敗: ⚙ に印と理由")
+    puts = put_fail["puts"]
+    pg.evaluate(set_diar + "('5')")
+    pg.wait_for_timeout(1200)
+    check(put_fail["puts"] == puts and str(srv.get("/api/settings").get("diarNum")) == "4", "読めないまま変えても保存しない(空で上書きしない)")
+    put_fail["get_fail"] = False
+    pg.click("[data-ui-settings]")
+    wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
+    check("読み直す" in pg.inner_text(".ui-settings-status button"), "引き出しに「読み直す」")
+    pg.click(".ui-settings-status button")
+    wait_js(pg, "document.querySelector('.ui-settings-status').hidden && document.querySelector('#diarNum').value === '4'", 10000)
+    check(True, "「読み直す」で保存済みの設定が入り、印が消える")
+    pg.keyboard.press("Escape")
+    pg.unroute(spat)
+    del errors[n_err:]   # 500 はブラウザがエラーとして記録する(想定どおり)
+
+
+def _scene_normalize30(cx):
+    """Q1: 30fps にそろえる(作り直しを有効にした別のサーバー)・選び直しのあとの作り直し"""
+    b, check = cx.b, cx.check
+    # ---- Q1: 30fps にそろえる(作り直しを有効にした別のサーバー)。文字起こしのあと隣に <名前>_30fps.mp4・処理状況の札・
+    # 選び直しで 30fps でない動画 → 付け替えたあと裏で作り直し → 終わると開いている文書を読み直す
+    srv2 = Server(normalize=True)
+    outside2 = tempfile.mkdtemp(prefix="edit-e2e-norm-")
+    try:
+        v60 = make_video(os.path.join(srv2.media, "そろえる前.webm"), sec=6, fps=60)
+        ntid = srv2.transcribe(v60, "そろえる文書")
+        nd = srv2.get("/api/transcript?id=" + ntid)
+        nj = next(j for j in srv2.get("/api/jobs")["jobs"] if j.get("tid") == ntid)
+        check(nd["sourcePath"].endswith("そろえる前_30fps.mp4") and os.path.isfile(v60) and nj.get("normOk") is True,
+              "文字起こしのあと、隣に 30fps の動画を作って付け替える(元は残る): %s" % nj.get("normNote"))
+        pg3 = b.new_page(viewport={"width": 1440, "height": 900})
+        err3 = []
+        pg3.on("pageerror", lambda e: err3.append(str(e)))
+        pg3.goto(srv2.base + "?doc=" + ntid + "#tx")
+        wait_js(pg3, "document.querySelector('#docTitle') && document.querySelector('#docTitle').value === 'そろえる文書'", 15000)
+        check("そろえる文書" in pg3.text_content("#jobs") and pg3.locator("#jobs .job").first.text_content().count("行") >= 1,
+              "処理状況に文字起こしのジョブ(行数)")
+        other = make_video(os.path.join(outside2, "選び直す60.webm"), sec=6, fps=60)
+        pg3.evaluate("openRelink()")
+        wait_js(pg3, "document.querySelector('#relinkDlg').open")
+        pg3.fill("#rlPath", other)
+        pg3.click("#rlCheck")
+        wait_js(pg3, "document.querySelector('#rlResult').textContent.includes('選び直す60.webm') && !document.querySelector('#rlGo').disabled", 20000)
+        pg3.click("#rlGo")
+        wait_js(pg3, "document.querySelector('#toast').textContent.includes('30fps でないので')", 20000)
+        check(True, "選び直しで 30fps でない動画: 付け替えて、30fps の動画を作っていると知らせる")
+        wait_js(pg3, "S.doc && S.doc.sourcePath.endsWith('選び直す60_30fps.mp4')", 30000)
+        check(True, "作り直しが終わると、開いている文書を読み直す(動画は 30fps の写し)")
+        wait_js(pg3, "[...document.querySelectorAll('#jobs .job')].some(j => j.textContent.includes('30fps にそろえました'))", 10000)
+        check(True, "処理状況に「30fps にそろえました」")
+        d3 = srv2.get("/api/transcript?id=" + ntid)
+        check(d3["relinks"][-1].get("why") == "normalize30" and os.path.isfile(other), "付け替えの記録・元の動画は残る")
+        check(not err3, "画面のエラーが無い(30fps): %s" % err3[:3])
+        pg3.close()
+    finally:
+        srv2.stop()
+        shutil.rmtree(outside2, ignore_errors=True)
 
 
 if __name__ == "__main__":

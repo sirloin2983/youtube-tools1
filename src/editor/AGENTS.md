@@ -1,6 +1,6 @@
 # editor(「編集」= 文字起こし・カット・パック。2026-09-30 まで transcribe-tool)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.58.1**(2026-10-07、画面側(app*.js・cut.js・pack-tab.js・index.html の CSS)の内部の整理。見た目・操作・API の呼び方は同じ = 下の「構成」の「画面の共通の小道具」)。v0.58.0 は(2026-10-07、話者判別のしきい値の既定 0.5 → 0.6。ed_speakers の DIAR_CLUSTER_THRESHOLD)。
+現在 **v0.58.2**(2026-10-07、「認識の設定」の `#optAutoContext` だけ変えても保存されなかった不具合を直した = 設定のチェックの change の配線を `app-core.js` の表 `SET_CHECKS` から作る(`app.js`)。長い e2e 5 本を場面ごとの関数に分けた = 下の「テストの実行」)。v0.58.1 は(2026-10-07、画面側(app*.js・cut.js・pack-tab.js・index.html の CSS)の内部の整理。見た目・操作・API の呼び方は同じ = 下の「構成」の「画面の共通の小道具」)。v0.58.0 は(2026-10-07、話者判別のしきい値の既定 0.5 → 0.6。ed_speakers の DIAR_CLUSTER_THRESHOLD)。
 v0.57.2 は(2026-10-07、サーバー側(serve.py・ed_*.py・resolve_export.py など)の内部の整理。API・文書の形・設定・文字起こしの結果は同じ = 下の「構成」の「共通の小道具」)。v0.57.1 は(2026-10-07、行の時刻の原則 `../../docs/spec/row-timing-policy.md`(① 言葉が区間に収まる > ② 前後の言葉を入れない > ③ 無音を除く)に沿った後処理 = 下の「行の時刻の原則に沿った後処理」。
 END_TRIM の既定を 0・続いている行をつなぐ `join_rows`・配り直しの重なりで言葉を切らない・`recognition.runs[].post`。`../../plan/line-b-row-timing.md` の 7)。
 v0.57.0 は(2026-10-07、whisper.cpp の 1 秒単位に丸まった行の時刻を faster-whisper(CPU)の単語の時刻で配り直す = 下の「1 秒丸めの行の時刻の配り直し」。`../../plan/line-b-row-timing.md`)。v0.56.1 は(2026-10-06、行の BGM のメモのボタンの title に付ける基準 = app.js の `TAG_RULE`。基準の正本は `../../docs/spec/sound-tags.md`。
@@ -57,7 +57,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   用語のヒントは認識器を作るときに渡す(区切りごとの `set_option("hotwords")` は `<|endoftext|>` のあとに関係ない英文が続いた)。
   `LlamaQwen3`(engine `llama.cpp`・モデル `qwen3-asr-1.7b`): 公式の win-vulkan-x64 の zip(`LLAMA_CPP`。`_safe_unzip`)と ggml-org の GGUF(`LLAMA_MODELS`)。llama-server を 127.0.0.1 のあいているポートで1つ起動し、
   **毎回作る合言葉 `--api-key`**(llama.cpp は CORS をすべて許すので、付けないと同じ PC のブラウザのページから呼べる)・`-t 8`(24 だと当時の 13900KF で起動中によく落ちた。環境変数 `TRANSCRIBE_LLAMA_THREADS` で変えられる。10-04)・`-lv 4`(GPU に載ったかの行 `offloaded n/m layers to GPU` を `_check_gpu` が見る。黙って CPU にしない)・
-  ワーカーが落ちても server が残らないよう Windows のジョブオブジェクト(`_kill_on_close_job`。閉じたら中を終わらせる)・答えは `/v1/chat/completions` に音声(wav の base64)と assistant の先書き「language Japanese<asr_text>」→ `q3_parse`。
+  ワーカーが落ちても server が残らないよう Windows のジョブオブジェクト(`ytt_core.tools.KillJob`。llama-server ごとに作り、`close()` で閉じたら中を終わらせる)・答えは `/v1/chat/completions` に音声(wav の base64)と assistant の先書き「language Japanese<asr_text>」→ `q3_parse`。
   server が落ちていたら起動し直して区切りを1回だけやり直す(`_decode` → `_ask` の `server_down`)。テスト: `tests/test_qwen3.py`(偽の server `tests/fake_llama_server.py`)
   **この PC(当時の 13900KF。10-04 に 12900KF に替えた)ではネイティブの部品の読み込み・起動がまれに落ちた**(sherpa-onnx の読み込み・llama-server の起動・Python 自体)ので、読み込み・起動は1回だけやり直す(10-04 の見直しでも残した: 一時的な失敗への備え・本物の失敗は2回目でそのまま出る。`git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md`)。測った結果は計画の「4回目の結果」
 
@@ -444,7 +444,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 python -m unittest src/editor/tests/test_metrics.py src/editor/tests/test_resolve_export.py src/editor/tests/test_roster.py   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では飛ばす(段1。`home/tests/test_window.py` の窓の API の3件も同じ)。一覧の項目は test_backend の test_list_fields_for_history)
 node --test src/editor/tests/test_document_save.cjs   # 保存・切り替えの競合(9件)
 python src/editor/tests/e2e_proofread_accuracy.py    # 校正済み・精度・用語集・設定の比較・辞書(旧 e2e_ui_v07)
-python src/editor/tests/e2e_proofread_keys.py        # 左手のキー・表示の設定・保管・保存の競合・4000行(旧 e2e_ui_v08)
+python src/editor/tests/e2e_proofread_keys.py        # 認識の設定のチェックの保存・左手のキー・表示の設定・保管・保存の競合・4000行(旧 e2e_ui_v08)
 python src/editor/tests/e2e_folder_marker_range.py   # フォルダ一括・スタジオのマーク・範囲の再認識・進み具合(旧 e2e_ui_v09)
 python src/editor/tests/e2e_eval_set.py              # 評価用(旧 e2e_eval_v093)
 python src/editor/tests/e2e_row_editing.py           # メニュー・行の追加・重なり・Z・画面幅(旧 e2e_ui_v098)
@@ -476,6 +476,10 @@ python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に�
   他のツールのメニュー、2026-09-24 の見直しで直した画面の不具合、v0.15.0 の見直し(単体でのカットとパックの案内・選んだ行のカット・動画なし・キー操作の手がかり・? ・390px の引き出し)
 - e2e は全部通ること(以前あった「版 v0.9.4 の判定は想定内の失敗」は 2026-09-26 に app.js の版を読む形に直り、もう無い)
 - `e2e_proofread_keys.py` の「4000行での Alt+Enter → 次の行 0.5 秒」は、マシンの負荷で時々超える(タイミング依存)
+- 長い e2e(`e2e_proofread_keys`・`e2e_row_editing`・`e2e_edit_tabs`・`e2e_edit_cut`・`e2e_edit_pack`)は場面ごとの関数 `_scene_*(cx)` に分けてある(0.58.2。`docs/spec/code-quality.md` の基準 3 = テストの関数は 400 行以下)。
+  `main` はサーバーと画面の準備・場面を呼ぶ順・後片付けだけ。場面へは `cx = types.SimpleNamespace(**locals())` で main の値を渡し、場面で作ってあとの場面で使う値は場面の最後で `cx` に戻す。
+  確かめを足すときは合う場面に足すか、新しい場面を作って main から呼ぶ(場面の頭で使う値を `cx` から取り出す)
+- 設定のチェックは `app-core.js` の表に足すだけで、読み込み・保存・変えたら保存する配線(`app.js`)まで効く(「認識の設定」は `OPT_CHECKS` = 文字起こしの要求にも付く。保管・書き出しのチェックは `SET_CHECKS` の残り)。`e2e_proofread_keys` の `_scene_opt_checks` が、表のどのチェックも変えたらすぐ設定に入ることを確かめる
 - e2e の各スクリプトは、メニューのタブで隠れるカードも操作できるように、テスト用のスタイルで全部のタブを表示している(タブ自体の確認は e2e_row_editing.py の最後)
 - 見た目は共通の ui-kit(`../ui-kit/`)。`ui-kit.js` は studio と同じく `python dev/sync_ui_kit.py` で写したファイル(**手で直さない**)。
   CSS だけは画面が1ファイルの名残で index.html に埋め込み(`/* ui-kit:css:begin */…end */` の中。同じく sync_ui_kit.py で写す・手で直さない)。

@@ -1905,3 +1905,38 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次(担当外なのでまとめ役へ): スタジオの LIVE の帯に archiveInfo.afterStream.text を出す(studio)・「起動し直す」の帯に notice を出す(ui-kit)・`plan/improvements.md` の 9 の home の 2 行(M7 の帯・M5 の起動し直す)と `plan/data.js` の入口の版(0.40.1 → 0.41.0)・test_mount の未使用の `time`
 - 注意: e2e_live_studio の出力に、/api/health の応答を書く途中でブラウザが接続を切った ConnectionAbortedError の記録が 1 回出る(画面の要求の取り消し。テストは OK・今回の変更とは関係しない)。scratchpad は他の担当と共有なので、写しは scratchpad/home-r2/ に置いた
 - 未コミット: なし(このコミット。src/home の自分の 14 ファイルと docs/WORKLOG.md だけ。test_mount.py・ほかの担当の未コミットの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: editor 0.58.2(#optAutoContext の保存の直し・長い e2e 5 本を場面ごとに・lint の editor の分を 0 に)
+- 変更:
+  - 不具合の直し(動きの変更はこれだけ): 新規の「認識の設定」の「配信に出る人の名前と呼び名を…」(`#optAutoContext`)は、ほかの設定を変えるまで保存されなかった。
+    原因 = `src/editor/app.js` の change の配線がチェックの id を手で並べた一覧で、`app-core.js` の表 `OPT_CHECKS` に後から足した autoContext が漏れていた(autoYtcap は別の行・exSpk/exTs は書き出しの行で配線していた)。
+    → 配線を表 `SET_CHECKS`(+ 選択の欄の id)から作る形に(表に足せば漏れない)。autoYtcap の別の行と exSpk・exTs の分は消した(同じ readOpts を同じ欄に 2 回登録しても DOM は 1 回にまとめる = 動きは同じ)。`app-core.js` の表の説明に 1 語
+  - テスト: `src/editor/tests/e2e_proofread_keys.py` に場面 `_scene_opt_checks`(確かめ 4 件: 前提・#optAutoContext をクリックするとサーバーの設定 autoContext=true・表の 16 個のチェックはどれも変えたらその場で S.settings に入る・元に戻すとサーバーも戻る)。
+    HEAD の app.js で流すと 2 件 FAIL(保存されない・漏れ ['optAutoContext'])、直したあとは OK を確かめた
+  - lint の editor の分を 0 に: テストの未使用の import 3 つ(test_autodiar の time・test_evalaudio の re・test_resolve_export の sys)。
+    長い e2e の main 5 本を場面ごとの関数 `_scene_*(cx)` に分けた(行数は main / 場面の数 / いちばん長い場面): e2e_edit_cut 711 → 70 / 8 / 123・e2e_row_editing 821 → 187 / 10 / 107・
+    e2e_edit_tabs 650 → 38 / 9 / 122・e2e_edit_pack 451 → 49 / 9 / 87・e2e_proofread_keys 425 → 82 / 7 / 79(足した場面を含む)。
+    場面へは `cx = types.SimpleNamespace(**locals())` で main の値を渡し、場面で作ってあとの場面で使う値は場面の最後で cx に戻す(home の担当と同じ形。道具は scratchpad の split_scenes.py を写し、自分の名前の読みと内包表記の誤検出を直したもの)。テストの中身・順番・件数は同じ
+  - `src/editor/AGENTS.md`: 版の行・Qwen3-ASR の節の `_kill_on_close_job` → `ytt_core.tools.KillJob`・テストの節(場面ごとの e2e の書き方・設定のチェックの表に足せば配線まで効く)
+  - `serve.py` の SERVER_VERSION・`app.js` の APP_VERSION・`README.txt` の見出しと ■ v0.58.2(設定の保存の直し・そのほかは内部の整理)
+- 版: 編集 0.58.1 → 0.58.2
+- 決定・理由(仮で決めたこと):
+  - `updatePfStat` の差分化はしなかった: 校正済みの印は `setProof` の 1 か所ではなく 7 か所以上で直接書き換える(候補の採用 applySug・置換の一括・全行/選んだ行を校正済みに・行をつなぐ・元に戻す・読み直し)うえ、
+    出している数(未校正で文字のある行・その音声の秒・文字のある行)は文字の入力・時刻の直し・行の追加と削除で毎回変わる = 差分にすると入力・時刻・行の操作すべてに手を入れることになり、ずれの危険が大きい。
+    測ると 4000 行で updatePfStat 0.21 ms(印を数える所は 0.03 ms)・題名の行の札 0.11 ms・進み具合の帯 0.55 ms(どれも HEAD と同じ)で、Shift+Space 1 回(描き直しまで約 116 ms)の 1% 未満 = 得が無い
+  - 確かめの場面は e2e_proofread_keys の最初(文書を開く前)に置いた(状態が一番素直。チェックは元に戻してサーバーにも戻ったのを待ってから次の場面へ)
+  - 改善の候補の「古い e2e 7 本のサーバー起動を e2e_edit_common に寄せる」は頼まれた範囲の外なのでしていない
+- 基準 9 の確かめ方(scratchpad の ed2/):
+  - 画面: git HEAD の src を写した物と作業中の src で、同じ文書(400 行。校正済み・要確認・話者・メモ・字幕に出さない・カット済みを混ぜる)を開き、開く前・開いたあと・校正済みの付け外し(Shift+Space・ボタン)・2 カット・3 パック の body の DOM を取って比べた
+    = 版と乱数の id(ジョブ・2 本目の文書)を伏せると全部同じ。数の表示(校正済み n/t・未校正の行と秒・題名の行の札・設定の比較の対象・全行のボタン)も文字を消したあとも同じ。画面のエラーなし
+  - 設定の欄 34 個を 1 つずつ変えて、その場で設定に入るか: 違いは #optAutoContext(HEAD は入らない → 入る)だけ
+  - テストの中身: 分けた 5 本の行を HEAD と比べ(前後の空白と場面の頭・終わり・呼び出しの行を除いた多重集合)、違いは e2e_proofread_keys に足した場面だけ。確かめの並びも HEAD の写しで流した結果と同じ(違いは一時フォルダの名前・乱数の id だけ)
+- テスト(`py -3.10 dev/run_editor_suite.py`。e2e は 1 本ずつ): editor 単体 552 OK(skip 1)・home の test_mount 26・契約 35・eval_asr 54・eval_alt 21・ui-kit の写し 5・node 保存と切り替え 10 件、
+  e2e 14 本(proofread_accuracy 38・proofread_keys 129 = 前の 125 + 足した 4・folder_marker_range 54・eval_set 36・row_editing 237・ui_handoff 67・edit_tabs 136・edit_cut 110・edit_voices 34・edit_pack 113・ui_mounted 47・drill 70・alt 43・follow_scroll 7)と e2e_pipeline 24 すべて OK
+- lint(`py -3.10 dev/lint.py`): editor の分 9 件(unused-import 3・long-function 5・dup-block 1)→ 1(serve.py:334 の Host/Origin・合言葉の検査の dup-block。今回は触らない = ytt_core にまとめる担当へ)
+- 未完了・次(まとめ役へ): `plan/improvements.md` の 0 の 4 と 9 の editor の 3 行(#optAutoContext = 済み・updatePfStat = 測って不要・古い e2e 7 本の寄せ = 残り)の更新
+- 注意:
+  - e2e_edit_cut の「カット後の再生」(#cutPlayer の時刻を待つ所)は HEAD の写しでも 1 回 TimeoutError で落ちた(2 回目は通った = タイミング)
+  - 作業の途中で `src/editor/index.html`(埋め込みの ui-kit の CSS)と `src/editor/ui-kit.js` に ui-kit の担当の写しの差分が入った。このコミットには入れていない(ui-kit の担当のコミットで)
+  - 起動中の入口は古いコードのまま(編集 0.58.2 は「すべて終了」→ start.bat のあと)
+- 未コミット: なし(このコミット。src/editor の自分の分と docs/WORKLOG.md だけ。index.html・ui-kit.js とほかの担当の未コミットの変更は入れていない)

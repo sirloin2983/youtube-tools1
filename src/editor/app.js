@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.58.1';
+const APP_VERSION = '0.58.2';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -397,7 +397,6 @@ $('#ytcapGo').addEventListener('click', async () => {
     kickJobs();
   } catch (e){ toast(e.message, 7000, 'err'); }
 });
-$('#optAutoYtcap').addEventListener('change', readOpts);
 
 /* ---------- 校正済み(正解として使える行の印) ---------- */
 setInterval(() => {   // 操作している時間だけ数える(放置している間は進めない)。休憩のお知らせも、この時間で出す
@@ -1158,7 +1157,7 @@ document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', 
   const mime = { srt: 'application/x-subrip', vtt: 'text/vtt', txt: 'text/plain', json: 'application/json' }[kind];
   download(new Blob([text], { type: mime + ';charset=utf-8' }), safeName(S.doc.title) + '.' + kind);
 }));
-['exBase', 'exWrap', 'exSpk', 'exTs'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+['exBase', 'exWrap'].forEach(id => $('#' + id).addEventListener('change', readOpts));   // exSpk・exTs のチェックは下の SET_CHECKS の配線で
 
 /* ---------- 左パネルのイベント ---------- */
 $('#tabFile').addEventListener('click', () => setTab('file'));
@@ -1184,7 +1183,8 @@ $('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips 
 $('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', readOpts);
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optBoost', 'optAutoDict', 'optWordSplit', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'optStripPunct', 'optAutoGloss', 'optAutoLearned', 'optAutoRedo', 'optAutoAlt', 'optAutoDiar', 'optRedoLarge', 'arcAuto', 'arcFull', 'rtModel', 'rtTarget'].forEach(id => $('#' + id).addEventListener('change', readOpts));
+// 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べていたときは表に足したチェックが漏れた(0.58.1 まで #optAutoContext は、ほかの設定を変えるまで保存されなかった)
+SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => $('#' + id).addEventListener('change', readOpts));
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);

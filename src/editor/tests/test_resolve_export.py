@@ -5,7 +5,6 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 import urllib.error
