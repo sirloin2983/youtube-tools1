@@ -1553,8 +1553,8 @@
     'chevron-left': '<path d="m15 6-6 6 6 6"/>',
     folder: '<path d="M4 7a1 1 0 0 1 1-1h4.5l1.5 2H19a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/>',
     download: '<path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/>',
-    undo: '<path d="M9 8 4 12l5 4M4 12h9a6 6 0 1 1 0 12h-1"/>',
-    redo: '<path d="M15 8l5 4-5 4M20 12H11a6 6 0 1 0 0 12h1"/>',
+    undo: '<path d="M9 8 4 12l5 4M4 12h9a5 5 0 1 1 0 10h-2"/>',   /* v23: 弧の半径 6 → 5(24 の枠の下にはみ出していた) */
+    redo: '<path d="M15 8l5 4-5 4M20 12H11a5 5 0 1 0 0 10h2"/>',
     check: '<path d="m5 13 4 4 10-10"/>',
     alert: '<path d="M12 3 2 20h20zM12 10v4"/><circle cx="12" cy="17" r=".2"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 11h1v6h1"/>',
