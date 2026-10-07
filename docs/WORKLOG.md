@@ -2369,3 +2369,31 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: test_cleanup・test_autorun・test_live・test_launch OK・lint 0・e2e_portal OK(ui_audit は流し直していない: 変えたのは文の中の日数だけで、画面の構成は直前の実行(Must 0)と同じ)
 - 次(方針の続き。ユーザーに提案): D:\\backup の写しは「作業データで消したものを 7 日後に写しからも消す」(今は消したものも残る)/ 編集の `.hist` 30 世代 → 10 / 友人のアプリの %TEMP% のまとめ動画の写しを起動時に 7 日で消す
 - 未コミット: なし(このコミットで全部)
+
+## 2026-10-08 Claude Code(PC。まとめ役 Fable + サブエージェント Opus × 4・Sonnet × 1)— 10-07 夜の作業の整理: 資料を今の仕様に書き直し・継ぎ足したソースの内部の整理(入口 0.45.2・スタジオ 0.23.1・送るアプリ 2.5.1)
+- ユーザー指示(10-08 0 時): 「今日やった作業を各資料に整理してソースも最適化して。各工程で書き足してるだけだからまとめて整理する。変更した部分の周辺だけでよい」。対象 = 10-07 夕方〜0 時の作業(線 D の前倒し L1〜L3・M11・M8〜M10・M9 + M12 / 送るアプリ 2.3.0〜2.5.0 + ホーム 0.44.0〜0.45.1 / eval_cloud。I-5 は文書だけなので触っていない)。昼の分(③ 見直し・段 7〜9・UI の見直し)は当時の整理で済んでいるので対象外。担当: ファイルが重ならないよう 5 つに分け、まとめ役が資料と最後の確認
+- 資料(まとめ役): `docs/spec/friend-intake.md`(2-12 = 受け取る側(アプリ 2.5.0 の動きを 1 か所で)・2-13 = 届ける側(PC)に書き直し。2-3 の「1 本できるごと」を直し、2-12 にあった「PC 側は変えない」(2-13 と矛盾)を消した。冒頭の版)/
+  `plan/decisions.md`(3-7 を話題ごと(進め方・ワーカーと式・API と自動採用・帯・M9 + M12・M8)に並べ直し、実装で置き換わった (bn)(bq)(cj) に「→」。3-9 を「2.3〜2.5 + 0.44〜0.45.1」として話題ごとに、(cz) は (di)〜(dn) で置き換わったと明記。(co) の「14 日」→ 3 日。1-4 の表の 10-07 の行に注)/
+  `plan/line-d-detect.md`(状態・1 の表・3 の正の場所・4 は decisions へ一本化・5 を実績と残りに・7 を今の 3 つに)/ `plan/line-d-auto-pack.md`・`line-d-live-clipping.md` の状態の行 / **M11 の待ちの古い記述「確定から」を「入口が候補を最初に見てから」に**(line-d-detect・auto-pack・live-clipping・home の README・prefs.py の説明)/
+  `docs/spec/data-location.md`(「保存の方針と期限」の節と表を新設。ごみ箱の節から方針を移した)/ `plan/improvements.md` 12(M8/M10 で直した 4 件と prefs のバックスラッシュを外し、今回見つかった判断が要るもの 7 件を足した)/
+  `src/home/README.txt`(v0.43.1 と「v0.43.1 の続き」を 1 つの節に・使い方に n 本ごとの届け方・テストの一覧に 3 本・v0.45.2 の節・古い「14 日」に注)/ `docs/ROADMAP.md` / `plan/data.js`(⑦ done・⑨ 整理・phases 3/4・critical・M7/L0 done・U6 を next に・1D/M7 の note・決めてほしいことの 1 項を済みに・版・U8 の note)/ `docs/HANDOVER.md` を書き直し。公開ページ version 23
+- ソース(サブエージェント。動きは同じ。公開名・API・prefs の鍵・ファイルの形は不変。モデルは影響の広い部品 = Opus、新しい 1 ファイルの見直し = Sonnet):
+  - 検出(Opus): `src/ytt_core/excite.py`(包み関数 2 つを削除・`_int_keys`・本番と仮の候補で別々だった処理を `_smooth5`/`_climb`/`_region`/`_block_end` に)・`live_excite_worker.py`(`append_jsonl`・`clean_detect`・範囲の定数を `SPEC_RANGES` の 1 つに・`PEAK_ID_RE`・`epoch_iso`・`_remeasure` は `batches` を使う)・
+    `live_detect.py`(`_dump`・`_ids_ok`・JSON の読みは `EW.read_json`・`compare` の `rel`/`center`・未使用の `re`・`SERIES_MAX` を削除・M11 の説明を今の規則に)・`live_cleanup.py`・`backup.py`・`live_export.py`・テスト。
+    **直した不具合**: `write_json` の ValueError を `e.strerror` で読んで AttributeError になっていた 3 か所(候補・状態・順番待ちの文を書けなかったとき)→ `_why(e)`。式は乱数の配信 40 本(候補 1,666 件)で前後が完全一致・golden 不変
+  - 届ける・受付・片付け(Opus。入口 0.45.1 → **0.45.2**): `deliver.py`(`delivery_name`・`scratch_path`・`batch_preview`・`place_preview`・`_preview_args`/`_label_files`・`OUT_DIR` は intake から・`_running_locked`。まとめ動画の写しは `shutil.copyfile`)・
+    `autorun.py`(`DELIVER_BATCH` を削除して prefs の既定を読む・`live_auto_origin` は `cases.clip_live`・`_mark_delivered`/`_place_error`・`_step_pack` で outDir を normpath)・`cases.py`(`clip_live` を公開・`cleanup.free_path`/`append_manifest`/`remember_root` を使う = M9 の宿題「`_remember_root` の公開の口」済み)・
+    `cleanup.py`(3 つを公開)・`prefs.py`(`CLEANERS`・`LIVE_PARTS` の表・`_int_in`・`INTAKE_INTS`・説明文のバックスラッシュ)・`intake.py`・`launch.py`(起動時のごみ箱のログの日数を trashDays に)。テスト +2。小さな動きの差: `Deliveries.start` の「同じパックを届けている途中か」が大文字小文字を無視・`live_auto_origin` がネットワーク上の `.clip.json` を読まない・prefs の live の鍵の並び・`run.packs` を正規化
+  - 画面(Opus。スタジオ 0.23.0 → **0.23.1**): `review.js`(`PEAK_DEFAULT`・`PEAK_SENDING`・`peakCounted`/`peakUndecided`/`peakAuto`/`peakFresh`/`peakById`/`peakRowOf`/`peakCurrent`/`peakActable`/`peakPost`・`peakFill` の querySelector を 1 行 9 回 → 1 回・`typeof` の確認を削除)・
+    `settings.js`(`PEAK_PER_HOUR`・`AUTO_WAIT_MIN`・`liveSwitch` は `livePatch`)・`review.css`(効いていない規則を削除)・`portal.js`(`autoUnconfirmed`・`AUTO_NONE`・`detectHealthRow`・`INTAKE_NUMS`・`setIdle`・`wireLiveNum`・片付けは `trashDays` だけ)。
+    まとめ役が追加: settings.js の速報版の説明「7 日」→ 3 日・portal.js の `setup\install.bat`(JS で `\i` が消えて「setupinstall.bat」と出ていた)→ `setup/install.bat`
+  - 送るアプリ(Opus。2.5.0 → **2.5.1**。36fceee): `Receiving.ReceiveOne`(1 本も「すべて」も同じ道筋 = 受け取って確かめる → 展開 → 消す)・`FetchViaPart`・`Verify`・`PreviewDir`・`ReceiveAllResult.Clean/HasProblem`・`MainForm.Receive.cs` の `BeginFetch`/`ProgressGate`/`IsPack`/`HasPreview`/`CanDelete`/`DeleteLabel`/`ShowReceived`・`Core.cs` の `PackSuffix`/`CompareTime`・
+    README の「受け取る」を今の動きの順に(見出しの版 2.2.0 → 2.5.1 の直し忘れ)。build.bat のコンパイルとテスト 36 件 OK・警告 0・画面は版の文字以外同じ(画素で比較)。小さな動きの差: 「すべて受け取る」で消せなかった例外を 1 本のときと同じにすべて「消せなかった」として扱う
+  - eval_cloud(Sonnet): `collect_items`・`save_cache`・`estimate_usd`・`resolve_model`・定数化。**動きが変わる所**: `--max-usd` の負・nan を拒否・`--service` と `--model` の組み合わせを検査・エラーの文からキーを伏せる `scrub`・DELETE の失敗を例外にせず記録(課金済みの応答の控えを残す)・鍵のファイルが cp932 でも読む。テスト 67 → 74 件。送らない run の出力は前後で一致
+- テスト(整理後の main の作業ツリー。まとめ役): 各担当の結果: 検出 = 単体 288 件 OK(skip 3)・e2e_live_studio 164 件 OK・式は乱数の配信 40 本で完全一致 / 届ける・受付・片付け = 単体 317 件 OK・e2e_autorun・e2e_intake_ui 32 件・e2e_portal 231 件 OK / 画面 = node 51 件・e2e_ui 218・--mounted 243・e2e_live_studio 164・e2e_portal・e2e_intake_ui・e2e_keymap すべて OK・`ui_audit all --demo` Must 0・Should 38(前回と同じ)/ 送るアプリ = build.bat のテスト 36 件 OK・警告 0・画面は版の文字以外同じ / eval_cloud = 74 件 OK。まとめ役(全部そろったあと): node 51 件 OK・`ui_audit static` Must 0・lint 0。単体の全部と e2e(live_studio・portal・autorun・live・live_archive・studio --mounted)の流し直しの結果は次の記録
+- 事故と復旧: 送るアプリの担当が `build.bat` を流したとき、ユーザーが `dist\RequestSender\RequestSender.exe` を開いていたため [3/4] の rmdir が exe を消せずに止まり、その前に dist の README・members.json・鍵 config.json を消した → 既存の zip から書き戻した(4 ファイルそろっている)。**dist の zip は 2.5.0 のまま**。ユーザーがアプリを閉じてから `build.bat` を流す(HANDOVER の注意と improvements 12)
+- 並行セッション: 0 時台に「送るツール競合対応と一括受け取り機能」が起動し、送るアプリ 2.6.0(友人の「要らない」を PC に戻す `.feedback.json`・新規 `src/home/friend_feedback.py`・まとめ動画を等速・札をずっと・zip に まとめ.mp4 を入れない)を作ると知らせてきた。request-sender は 36fceee の上で進め、src/home と共有の文書はこちらのコミットの hash を知らせたあとに当てる約束。
+  → その変更が入ると spec 2-13・decisions (dk)(dl)・README v0.45.0 の「2 倍速・zip の中の まとめ.mp4」は向こうが直す
+- 仮決め: なし(動きは変えていない。eval_cloud の引数の検査などは直しとして上に)。判断が要るものは `plan/improvements.md` の 12 の末尾に 7 件
+- 未完了・次: ユーザーの起動し直し(0.45.2)・アプリを閉じて build.bat → zip を友人へ(U8)・配信 2 本目の M7 の結果の記録(次のセッション。HANDOVER の指示文)
+- 未コミット: なし(このコミットで全部。push はユーザー)

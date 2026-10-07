@@ -205,11 +205,9 @@ AI が出典から拾ったもの。急ぎではない。
 | editor | C1〜C6 | | 「→ すべての文字起こし → ホーム」の矢印 2 つ・行 0 の「認識の設定:」・長い hint・前回の設定の文・履歴の箱・390 の括弧 | 小さい直し | S |
 
 ## 12. 線 D の検出(L2・L3・M11)の見直し役(Opus。2026-10-07 夜)が残した Could(直していない。やるかはユーザーの判断)
+同じ夜の M8・M10 の取り込みで直したものはこの表から外した(`_level` の inf/NaN と上限・`write_json` の `allow_nan=False`・欠けの埋めの上限 48 時間・まだ出ていない候補の決定で decN を進めない)。
 | 所 | 内容 | 直し方の案 |
 | --- | --- | --- |
-| worker | `_level` は NaN と -90 未満だけ直し、+inf・巨大な値は通す。NaN が 1 秒入ると Online が約 43 秒 上限 6.0 を出す。state.json に NaN が入ると `fsio.read_json_file` が断って最初からやり直す | `math.isfinite` で -90 に・上限で丸める・`json.dumps(allow_nan=False)` |
-| worker | 欠けの埋め方 `fill()` に上限が無い(受信時刻が大きく飛ぶと飛んだ秒数だけ箱を作る) | 上限(例 10 分)を付け、超えたら飛ばした区間に |
-| worker | `_apply_decisions` が知らない id の決定も読み終わり扱い(decN を進める)。起動し直しで候補の id が変わると人の決定が消える | 知らない id は decN を進めない |
 | worker | 403 を見た時点ですぐ止めて 600 秒待つ(yt-dlp が自分でやり直せる 403 でも) | ログの文で区別する |
 | worker | 検出をオフにしたまま起動し直さないと、生のチャットのファイルが残る | オフにしたときも消す(入口側で) |
 | 入口 | prefs の `live.detect` の値が 1 つ壊れているだけで、live の節全体が既定に戻る(enabled False)。`auto` と同じ前からの作り。test_live_detect の「壊れた値は既定へ」は見落としている | 読むときは節ごとに strict=False |
@@ -219,6 +217,15 @@ AI が出典から拾ったもの。急ぎではない。
 | studio | 検出を後でオフにすると、過去の録画の候補がスタジオに出ない(`detect.enabled` だけで隠す) | 録画に候補があれば出す |
 | M8 | 自動の採用の切り抜きの「前後の余白 2 秒」は未実装(区間を広げるのは `Live.adopt` の側。prefs `live.auto.pad`(0〜5 秒)を足し、`Live.auto_cfg` で返し、origin auto/archive のとき `a, b = max(0, a - pad), b + pad`。test_live の既定の完全一致の期待値も直す) | 3 か所の直し(S) |
 | studio | 仮の候補(provisional)はいま「区間の終わり待ち」として出る。「仮」の札と、`expired` の見送りを [戻す] で出さない扱い | review.js の候補の行(S) |
-| home | `src/home/prefs.py` の説明文に `E:\Video\live-rec` のバックスラッシュがあり、テストのたびに DeprecationWarning | `/` に(S) |
 | 遅れ | 本番の候補が出るまで 96〜107 秒(Online の待ち約 50 秒 + チャットの遅れ約 21 秒 + 確定)。10-07 夜に「仮の候補」(音だけで先に。山から 45〜50 秒)を足した(decisions (cs))。本番の遅れそのものは L4' で見てから | fwd・step・確定の秒を縮めると本番の式が変わる(L5 がずれる)ので当面そのまま |
 
+10-08 0 時台の整理(内部の整理。動きは同じ)で見つかった、判断が要るもの(直していない):
+| 所 | 内容 | 直し方の案 |
+| --- | --- | --- |
+| 入口 | `live_detect.Detector._seen`(M11 の「最初に見た時刻」)は候補の数だけ増え続ける(小さい)。録画が終わったら消すと、繋ぎ直しで録画が戻ったとき待ちがやり直しになる | 録画が終わって 1 時間で消す など |
+| worker | `ID_RE`・`REC_RE`・`SEG_URI_RE`・`child_flags`・`iso_epoch`・`epoch_iso` が `live_export.py` と同じ値で二重(ワーカーに live_export を読ませると jobs・loudness・normalize までついてくる) | 小さな共通の部品に出す |
+| 送るアプリ | `build.bat` の [3/4] は dist の exe が使用中だと exe 以外(鍵 config.json も)を消してから止まる(10-08 に起きた) | rmdir の前に exe が掴まれていないか確かめる |
+| 送るアプリ | `settings.json` の `extractZip: false` のときも画面の文(案内・確認)は「フォルダとして展開」と言う | 文を切り替える |
+| studio | 「peak」がグラフの山(`findPeaks`・`.rv-gpeak`)と配信中の候補(`peak*`・`#rvPeak*`)で別の意味。名前を変えると test_review の切り出し・e2e の id・API 名 `peaks` を変えることになる | 触るときにまとめて |
+| dev | `eval_cloud.py`: 単価の表に無いモデルは見積もり $0 になり `--max-usd` の上限が効かない(新モデルを試す経路として残した) | `--send` のときだけ単価の無いモデルを拒否する |
+| home | `cleanup._intake` が `"受付済み"` を直に書いている(`intake.DONE_DIR` と二重。直すと cleanup が intake を読み込む) | 定数を ytt_core か小さな部品に |
