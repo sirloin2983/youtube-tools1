@@ -464,8 +464,8 @@ class Detector:
             for pk in peaks:
                 key = (rc, rec, pk.get("id"))
                 ca = pk.get("confirmedAt")
-                if pk.get("state") != "frame" or key in given or not isinstance(ca, (int, float)) or now_sec - ca < a["waitMin"] * 60:
-                    continue
+                if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(ca, (int, float)) or now_sec - ca < a["waitMin"] * 60:
+                    continue   # 終わり待ち(区間の終わりがまだ録れていない)は、合わせ直されてから
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")
                     self._tries.pop(key, None)

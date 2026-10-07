@@ -29,7 +29,7 @@
      「全自動」にしてマーク → 入口がまとめて実行へ flow auto と配信者の名前を渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
      見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
   L3(線 D。スタジオ 0.23.0)配信中の候補: LIVE の帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](本物の adopt)・[見送り]・控えも見る・[戻す]・p / z・
-     見回りで作り直さない・マウスが乗っている行は入れ替えで外れても消さない・375px(入口の候補の API はまだ無いので、GET は偽の応答。_scene_peaks)
+     見回りで作り直さない・マウスが乗っている行は入れ替えで外れても消さない・375px(本物の候補の API + 偽のワーカー tests/fake_excite_worker.py。_scene_peaks)
   M1(線 D。入口 0.39.0)サーバー側の「マーク + 書き出し」POST /live/api/adopt: スタジオの画面を閉じたまま → 書き出しまで通る・スタジオの一覧にマークが出て
      「書き出し済み」(入口が自分で付ける)・.clip.json と live_feedback.jsonl に origin・同じ区間は二重に作らない・
      ホームの設定 live.auto(M2: cut・engine・model)がまとめて実行へ渡る・ホームの「試験中の機能」に設定の欄・「調子」に失敗の行(M3)
@@ -859,154 +859,131 @@ def _pw_wait(pg, fn, timeout=15.0, step=250):
 
 
 def _scene_peaks(cx):
-    """L3(線 D)配信中の候補: 帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](本物の POST /live/api/adopt)・[見送り]・控えも見る・[戻す]・p / z・
-    見回りで作り直さない・マウスが乗っている行は入れ替えで外れても消さない・375px。
-    入口の候補の API(線 D の L2。線 1)はまだ無いので、GET ../live/api/peaks は Playwright の偽の応答(plan/line-d-detect.md の 3 の形)、
-    POST の adopt は本物の POST /live/api/adopt に読み替える。設定の live.detect・live.autoAdopt も入口がまだ知らないので、prefs の get の答えに足す
-    (合流後は本物の API・設定で確かめる = まとめ役)"""
-    api, check, edge, pg, rid, shots, studio_url = cx.api, cx.check, cx.edge, cx.pg, cx.rid, cx.shots, cx.studio_url
-    worker = {"running": True, "behindSec": 35, "chat": "ok", "restarts": 0, "memMB": 42, "message": ""}
-    peaks, fk = {}, {"seq": 10, "changed": {}, "gets": [], "posts": []}
+    """L2 + L3(線 D)配信中の候補: 本物の候補の API(入口の live_detect)と偽のワーカー(tests/fake_excite_worker.py = テストが置いた候補を本物と同じ形で
+    peaks.json・worker.json に書き、decisions.json を本物と同じに当てる)で、帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](POST /live/api/peaks → M1 の adopt)・
+    [見送り]・控えも見る・[戻す]・採用した候補の見送りは 409・p / z・見回りで作り直さない・⚙ の設定(live.detect / live.autoAdopt)・「調子」・375px。
+    音・チャット・ffmpeg は使わない(ワーカーの計算は src/home/tests/test_live_detect.py)"""
+    api, check, pg, rid, shots, studio_url, srv, live = cx.api, cx.check, cx.pg, cx.rid, cx.shots, cx.studio_url, cx.srv, cx.live
+    det = live.detector
+    det.worker, det.spawn_ok, det.python = os.path.join(TESTS, "fake_excite_worker.py"), True, sys.executable
+    excite_dir = det.dir
+    folder = os.path.join(excite_dir, "local", rid)
 
-    def bump(pid):
-        fk["seq"] += 1
-        fk["changed"][pid] = fk["seq"]
-
-    def reply(route, code, obj):
-        route.fulfill(status=code, content_type="application/json", body=json.dumps(obj, ensure_ascii=False))
-
-    def on_prefs(route):   # 設定の get に live.detect(オン)と live.autoAdopt(オフ)を足す。ほかの op(patch など)はそのまま入口へ
-        req = route.request
-        try:
-            body = req.post_data_json or {}
-        except Exception:
-            body = {}
-        if req.method != "POST" or body.get("op") != "get":
-            return route.continue_()
-        code, j = api("POST", urlparse(req.url).path, body)
-        live = ((j or {}).get("prefs") or {}).get("live")
-        if code == 200 and isinstance(live, dict):
-            live["detect"] = {"enabled": True, "sens": "normal", "perHour": 6}
-            live["autoAdopt"] = {"enabled": False, "waitMin": 5}
-        reply(route, code, j or {})
-
-    def on_peaks(route):
-        req = route.request
-        if req.method == "GET":
-            q = parse_qs(urlparse(req.url).query)
-            fk["gets"].append(q)
-            out = {"ok": True, "seq": fk["seq"], "enabled": True, "worker": worker,
-                   "hour": {"perHour": 6, "counts": {"0": sum(1 for p in peaks.values() if p["state"] == "frame")}}}
-            if "since" not in q:
-                out["peaks"] = [dict(p) for p in peaks.values()]
-                out["series"] = series
-            else:
-                since = int(q["since"][0])
-                out["changes"] = [{"seq": s, "id": i, "state": peaks[i]["state"]} for i, s in fk["changed"].items() if s > since]
-            return reply(route, 200, out)
-        b = req.post_data_json or {}
-        fk["posts"].append(b)
-        p = peaks.get(b.get("id"))
-        if not p or b.get("recorder") != "local" or b.get("recording") != rid:
-            return reply(route, 400, {"error": "bad", "message": "候補が見つかりません"})
-        if b.get("op") == "adopt":   # 本物の「マーク + 書き出し」(M1)へ
-            code, ad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": p["start"], "end": p["end"], "label": "",
-                                                         "origin": "manual", "after": b.get("after") or "check", "streamer": b.get("streamer") or ""})
-            if code != 200:
-                return reply(route, code, ad or {})
-            p.update(state="adopted", origin="manual", markId=ad.get("mark"), jobId=(ad.get("job") or {}).get("id"))
-            bump(p["id"])
-            return reply(route, 200, dict(ad, ok=True, peak=p))
-        p["state"] = "dismissed" if b.get("op") == "dismiss" else "frame"
-        bump(p["id"])
-        reply(route, 200, {"ok": True, "peak": p})
-
-    # 録画の長さ(候補の区間はこの中に置く。録画が短いときは縮める)
+    # 候補(録画の長さの中に置く。録画が短いときは縮める)と series.jsonl(1 分 1 行)
     st = api("GET", "/live/r/local/%s/status?since=999999999" % rid)[1] or {}
     dur = float(st.get("seconds") or 0)
     k = 1.0 if dur >= 42 else max(0.3, (dur - 2) / 42.0)
     T = lambda x: round(x * k, 1)   # noqa: E731
-    for pid, a, b, sc, why, state, pend in (("pk-1", 14, 18, 8.2, ["音量が急上昇"], "frame", False), ("pk-2", 20, 24, 6.5, ["チャットが急増"], "frame", False),
-                                            ("pk-3", 26, 29, 4.1, ["音量が急上昇"], "bench", False), ("pk-4", 30, 36, 5.0, [], "frame", True)):
-        peaks[pid] = {"id": pid, "start": T(a), "end": T(b), "peak": T(a + 2), "score": sc, "parts": {"audio": 2.5, "chat": 1.0}, "reasons": why,
-                      "confirmedAt": 1760000000000, "hour": 0, "state": state, "endPending": pend}
-    n = 600
-    step = max(dur, 10.0) / n
-    tot = [round(1 + sum(4 * math.exp(-(((i * step) - p["peak"]) / 2.0) ** 2) for p in peaks.values()), 2) for i in range(n)]
-    series = {"step": step, "total": tot, "audio": [round(x * 0.6, 2) for x in tot], "chat": [round(x * 0.4, 2) for x in tot]}
+    peaks = {}
+    for pid, a, b, sc, why, state, pend in (("p1-14", 14, 18, 8.2, ["音量が急上昇"], "frame", False), ("p2-20", 20, 24, 6.5, ["チャットが急増"], "frame", False),
+                                            ("p3-26", 26, 29, 4.1, ["音量が急上昇"], "bench", False), ("p4-30", 30, 36, 5.0, [], "frame", True)):
+        peaks[pid] = {"id": pid, "start": T(a), "end": T(b), "peak": int(T(a + 2)), "score": sc, "parts": {"audio": 2.5, "chat": 1.0}, "reasons": why,
+                      "confirmedAt": int(T(b)) + 12, "hour": 0, "state": state, "endPending": pend, "origin": None}
+    n = int(max(dur, 10.0))
+    tot = [round(1 + sum(4 * math.exp(-((i - p["peak"]) / 2.0) ** 2) for p in peaks.values()), 2) for i in range(n)]
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "series.jsonl"), "w", encoding="utf-8") as f:
+        for t0 in range(0, n, 60):
+            seg = tot[t0:t0 + 60]
+            f.write(json.dumps({"t0": t0, "total": seg, "audio": [round(x * 0.6, 2) for x in seg], "chat": [round(x * 0.4, 2) for x in seg]}) + "\n")
+    control = {"recorder": "local", "recording": rid, "seq": 10, "peaks": list(peaks.values()), "worker": {"behindSec": 35, "chat": "ok", "memMB": 42}}
+    ctl_path = os.path.join(excite_dir, "fake_control.json")
+    os.makedirs(excite_dir, exist_ok=True)
 
-    pg.route(re.compile(r".*/live/api/peaks(\?.*)?$"), on_peaks)
-    pg.route(re.compile(r".*/api/ytt/prefs$"), on_prefs)
+    def write_ctl():
+        with open(ctl_path, "w", encoding="utf-8") as f:
+            json.dump(control, f, ensure_ascii=False)
+
+    def dec_items():
+        try:
+            with open(os.path.join(folder, "decisions.json"), encoding="utf-8") as f:
+                return json.load(f).get("items") or []
+        except (OSError, ValueError):
+            return []
+
+    write_ctl()
+    srv.prefs.patch("live", {"detect": {"enabled": True, "sens": "normal", "perHour": 6}})
+    check(det.tick() == "spawned", "L2 検出をオンにすると、見回りがワーカーを起動する(config.json を書いて)")
+    check(wait_for(lambda: os.path.isfile(os.path.join(folder, "peaks.json")) and det.running(), 15), "L2 ワーカーが peaks.json と心拍(worker.json)を書く")
+    g = api("GET", "/live/api/peaks?recorder=local&recording=%s" % rid)[1] or {}
+    check(g.get("ok") is True and g.get("enabled") is True and len(g.get("peaks") or []) == 4 and (g.get("series") or {}).get("n") == n and g["worker"]["running"] is True,
+          "L2 GET /live/api/peaks: 候補 4 件・series(%s 秒)・ワーカーの状態: %s" % (n, {x: g.get(x) for x in ("seq", "enabled", "hour", "autoAdopt")}))
+    reqs = []
+    pg.on("request", lambda r: reqs.append(r.url) if "/live/api/peaks" in r.url else None)
     pg.goto(studio_url + "?video=" + rid)
     row = lambda pid: '#rvPeakList .rv-peak[data-pid="%s"]' % pid   # noqa: E731
     live_rows = "() => [...document.querySelectorAll('#rvPeakList .rv-peak:not(.is-gone)')].map(x => x.dataset.pid)"
     check(wait_js(pg, "() => !document.querySelector('#rvPeaks').hidden && document.querySelectorAll('#rvPeakList .rv-peak').length === 3", 15000),
           "L3 帯に候補の行が出る(枠 2 件 + 終わり待ち 1 件。控えは出さない): %s" % pg.evaluate(live_rows))
-    check(pg.evaluate(live_rows) == ["pk-1", "pk-2", "pk-4"], "L3 行は時刻の順: %s" % pg.evaluate(live_rows))
-    check(fk["gets"] and "since" not in fk["gets"][0], "L3 最初は since 無し(全部 + series)で聞く: %s" % fk["gets"][:1])
+    check(pg.evaluate(live_rows) == ["p1-14", "p2-20", "p4-30"], "L3 行は時刻の順: %s" % pg.evaluate(live_rows))
+    check(reqs and "since=" not in reqs[0], "L3 最初は since 無し(全部 + series)で聞く: %s" % reqs[:1])
     count, info = pg.text_content("#rvPeakCount"), pg.text_content("#rvPeakInfo") or ""
     check(count == "候補 3 件(この 1 時間 3/6)" and "遅れ 35 秒" in info and "チャットを読んでいます" in info and "自動採用 オフ" in info,
           "L3 見出し: %s / %s" % (count, info))
     r1 = pg.evaluate("""(s) => { const r = document.querySelector(s); return r && { t: r.querySelector('[data-pf="time"]').textContent, sc: r.querySelector('[data-pf="score"]').textContent,
-                      why: r.querySelector('[data-pf="why"]').textContent, pill: r.querySelector('[data-pf="pill"]').textContent }; }""", row("pk-1"))
+                      why: r.querySelector('[data-pf="why"]').textContent, pill: r.querySelector('[data-pf="pill"]').textContent }; }""", row("p1-14"))
     check(r1 and r1["sc"] == "8.2点" and "音量が急上昇" in r1["why"] and r1["pill"] == "枠", "L3 行: 時刻・点数・理由・札: %s" % r1)
-    check(pg.evaluate("(s) => { const r = document.querySelector(s); return !r.querySelector('[data-pf=\"pend\"]').hidden && r.querySelector('[data-pact=\"adopt\"]').disabled; }", row("pk-4")),
+    check(pg.evaluate("(s) => { const r = document.querySelector(s); return !r.querySelector('[data-pf=\"pend\"]').hidden && r.querySelector('[data-pact=\"adopt\"]').disabled; }", row("p4-30")),
           "L3 終わり待ちの候補は「終わり待ち」の札で、採用は押せない(理由つき)")
     check(pg.evaluate("() => document.querySelectorAll('#rvPeakSegs .rv-seg.cand').length") == 3, "L3 タイムラインに候補の印が 3 つ")
-    check(pg.evaluate("() => !document.querySelector('#rvGraph').hidden && !!document.querySelector('#rvGSvg .rv-g-area')"), "L3 解析していない録画でも、候補の series でグラフが出る")
+    check(pg.evaluate("() => !document.querySelector('#rvGraph').hidden && !!document.querySelector('#rvGSvg .rv-g-area')"), "L3 解析していない録画でも、候補の series(series.jsonl)でグラフが出る")
     if shots:
         pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_10_peaks_band.png"))
-    pg.evaluate("() => { window.__pkKeep = ['#rvPeaks', '#rvPeakList', '#rvPeakCount', '#rvPeakBench', '%s'].map(s => [s, document.querySelector(s)]); }" % row("pk-1"))
+    pg.evaluate("() => { window.__pkKeep = ['#rvPeaks', '#rvPeakList', '#rvPeakCount', '#rvPeakBench', '%s'].map(s => [s, document.querySelector(s)]); }" % row("p1-14"))
     n0 = pg.evaluate("() => document.querySelectorAll('#rvList .rv-mark-row').length")
 
     # [再生]: 5 秒前から(区間の終わりで止まる)・行が「再生中」
-    p1 = peaks["pk-1"]
-    pg.click(row("pk-1") + ' [data-pact="play"]')
+    p1 = peaks["p1-14"]
+    pg.click(row("p1-14") + ' [data-pact="play"]')
     pg.wait_for_timeout(400)
     now = _clock(pg.input_value("#rvNow"))
     check(abs(now - max(0, p1["start"] - 5)) < 2.5, "L3 [再生] で再生位置が候補の 5 秒前へ: %.1f(候補 %.1f)" % (now, p1["start"]))
-    check(wait_js(pg, "() => document.querySelector('%s').classList.contains('is-playing')" % row("pk-1"), 3000), "L3 再生中の候補の行に印")
+    check(wait_js(pg, "() => document.querySelector('%s').classList.contains('is-playing')" % row("p1-14"), 3000), "L3 再生中の候補の行に印")
 
-    # [採用](二度押しでも 1 回)→ マークの一覧に出る・書き出しが始まる。配信者は録画に覚えた名前(帯の「配信者」)が入ってから
+    # [採用](二度押しでも 1 回)→ 本物の POST /live/api/peaks → M1 の adopt → decisions.json・マークの一覧・書き出し。配信者は録画に覚えた名前が入ってから
     wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000)
-    pg.evaluate("(s) => { const b = document.querySelector(s); b.click(); b.click(); }", row("pk-1") + ' [data-pact="adopt"]')
+    pg.evaluate("(s) => { const b = document.querySelector(s); b.click(); b.click(); }", row("p1-14") + ' [data-pact="adopt"]')
     check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n0 + 1), 15000), "L3 [採用] でマークの一覧にマークが増える(%d → %d)" % (n0, n0 + 1))
-    check(len([b for b in fk["posts"] if b.get("op") == "adopt"]) == 1, "L3 二度押ししても採用の要求は 1 回: %s" % fk["posts"])
-    check(fk["posts"] and fk["posts"][0].get("after") == "check" and fk["posts"][0].get("streamer") == "宝鐘マリン",
-          "L3 採用に帯の「書き出したあと」と配信者を添える: %s" % fk["posts"][:1])
+    check(wait_for(lambda: [i for i in dec_items() if i.get("state") == "adopted" and i.get("id") == "p1-14" and i.get("markId") and i.get("jobId")], 10),
+          "L2 採用が decisions.json に残る(markId・jobId つき): %s" % [(i.get("id"), i.get("state"), i.get("origin")) for i in dec_items()])
+    check(len([i for i in dec_items() if i.get("state") == "adopted"]) == 1, "L3 二度押ししても採用は 1 回")
+    j1 = next((j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j.get("studio") and abs(j["studio"]["start"] - p1["start"]) < 0.06), None)
+    check(j1 and j1.get("after") == "check" and j1.get("streamer") == "宝鐘マリン" and j1.get("origin") == "manual",
+          "L2 採用の書き出しに帯の「書き出したあと」と配信者が入る(origin manual): %s" % {x: (j1 or {}).get(x) for x in ("after", "streamer", "origin")})
     check(wait_js(pg, "() => document.querySelector('%s [data-pf=\"pill\"]').textContent === '採用' && document.querySelector('%s [data-pact=\"adopt\"]').hidden"
-                  % (row("pk-1"), row("pk-1")), 5000), "L3 採用した候補は「採用」の札だけ(採用・見送りのボタンは出さない)")
+                  % (row("p1-14"), row("p1-14")), 8000), "L3 採用した候補は「採用」の札だけ(ワーカーが decisions を当てたあとも)")
     t1 = _fmt_clock(p1["start"])
     check(wait_js(pg, "() => document.querySelector('#rvExpList').textContent.includes('%s')" % t1, 15000), "L3 書き出しの欄に採用した候補の行(%s〜)" % t1)
     check(pg.evaluate("() => document.querySelectorAll('#rvPeakSegs .rv-seg.cand').length") == 2, "L3 採用した候補はタイムラインの候補の印から外れる(マークの印になる)")
+    code409, _b = api("POST", "/live/api/peaks", {"op": "dismiss", "recorder": "local", "recording": rid, "id": "p1-14"})
+    check(code409 == 409, "L2 採用した候補の見送りは 409: %s" % code409)
 
-    # マウスが乗っている行は、入れ替えで外れても消さない(離れてから薄くして消す)
-    pg.hover(row("pk-2") + " [data-pf=\"time\"]")
-    peaks["pk-2"]["state"] = "bench"
-    bump("pk-2")
-    g0 = len(fk["gets"])
-    _pw_wait(pg, lambda: any("since" in q for q in fk["gets"][g0:]), 15)
-    pg.wait_for_timeout(400)
-    held = pg.evaluate("(s) => { const r = document.querySelector(s); return !!r && !r.classList.contains('is-gone') && r.querySelector('[data-pf=\"pill\"]').textContent; }", row("pk-2"))
-    check(held == "控え", "L3 マウスが乗っている行は、控えに外れても一覧に残す(札は「控え」): %s" % held)
+    # マウスが乗っている行は、入れ替えで外れても消さない(離れてから薄くして消す)。入れ替えはワーカー(偽)が peaks.json の seq を進める
+    pg.hover(row("p2-20") + " [data-pf=\"time\"]")
+    control["set"] = {"p2-20": "bench"}
+    write_ctl()
+    check(wait_js(pg, "(s) => { const r = document.querySelector(s); return !!r && r.querySelector('[data-pf=\"pill\"]').textContent === '控え'; }", 15000, row("p2-20")) if False else
+          _pw_wait(pg, lambda: pg.evaluate("(s) => { const r = document.querySelector(s); return !!r && !r.classList.contains('is-gone') && r.querySelector('[data-pf=\"pill\"]').textContent === '控え'; }", row("p2-20")), 15),
+          "L3 マウスが乗っている行は、控えに外れても一覧に残す(札は「控え」)")
     pg.mouse.move(2, 2)
-    check(wait_js(pg, "() => !document.querySelector('%s')" % row("pk-2"), 7000), "L3 マウスが離れたら、外れた行は薄くしてから消える")
+    check(wait_js(pg, "() => !document.querySelector('%s')" % row("p2-20"), 7000), "L3 マウスが離れたら、外れた行は薄くしてから消える")
 
-    # [見送り] → 行が消える(知らせの「元に戻す」)→ 控えも見る で出る → [戻す]
-    pg.click(row("pk-4") + ' [data-pact="dismiss"]')
-    check(_pw_wait(pg, lambda: any(b.get("op") == "dismiss" for b in fk["posts"]), 5), "L3 [見送り] を送る")
+    # [見送り] → decisions.json → 行が消える(知らせの「元に戻す」)→ 控えも見る で出る → [戻す]
+    pg.click(row("p4-30") + ' [data-pact="dismiss"]')
+    check(wait_for(lambda: any(i.get("state") == "dismissed" and i.get("id") == "p4-30" for i in dec_items()), 5), "L2 [見送り] が decisions.json に残る")
     check(wait_js(pg, "() => /を見送りました/.test(document.querySelector('#toast').textContent)", 4000), "L3 見送りの知らせ(元に戻す つき)")
     pg.evaluate("() => document.activeElement && document.activeElement.blur()")
     pg.mouse.move(2, 2)
-    check(wait_js(pg, "() => !document.querySelector('%s')" % row("pk-4"), 7000), "L3 見送った行は一覧から消える")
+    check(wait_js(pg, "() => !document.querySelector('%s')" % row("p4-30"), 7000), "L3 見送った行は一覧から消える")
     pg.click("#rvPeakBench")
     check(wait_js(pg, "() => document.querySelectorAll('#rvPeakList .rv-peak:not(.is-gone)').length === 4", 5000),
           "L3 「控えも見る」で控えと見送りも出る: %s" % pg.evaluate(live_rows))
-    check(pg.evaluate("(s) => { const r = document.querySelector(s); return r.querySelector('[data-pf=\"pill\"]').textContent === '見送り' && !r.querySelector('[data-pact=\"restore\"]').hidden; }", row("pk-4")),
+    check(pg.evaluate("(s) => { const r = document.querySelector(s); return r.querySelector('[data-pf=\"pill\"]').textContent === '見送り' && !r.querySelector('[data-pact=\"restore\"]').hidden; }", row("p4-30")),
           "L3 見送った行は「見送り」の札と [戻す]")
-    pg.click(row("pk-4") + ' [data-pact="restore"]')
-    check(wait_js(pg, "() => { const r = document.querySelector('%s'); return r.querySelector('[data-pf=\"pill\"]').textContent === '枠' && r.querySelector('[data-pact=\"restore\"]').hidden; }" % row("pk-4"), 5000),
-          "L3 [戻す] で枠に戻る")
+    pg.click(row("p4-30") + ' [data-pact="restore"]')
+    check(wait_for(lambda: any(i.get("state") == "restore" and i.get("id") == "p4-30" for i in dec_items()), 5), "L2 [戻す] が decisions.json に残る")
+    check(wait_js(pg, "() => { const r = document.querySelector('%s'); return r.querySelector('[data-pf=\"pill\"]').textContent === '枠' && r.querySelector('[data-pact=\"restore\"]').hidden; }" % row("p4-30"), 8000),
+          "L3 [戻す] で枠に戻る(ワーカーが当てる)")
 
     # p = 次の候補を再生・z = いまの候補を採用
     pg.evaluate("() => document.activeElement && document.activeElement.blur()")
@@ -1014,33 +991,52 @@ def _scene_peaks(cx):
     pg.keyboard.press("p")
     pg.wait_for_timeout(400)
     now = _clock(pg.input_value("#rvNow"))
-    p2 = peaks["pk-2"]
-    check(abs(now - max(0, p2["start"] - 5)) < 2.5 and wait_js(pg, "() => document.querySelector('%s').classList.contains('is-playing')" % row("pk-2"), 3000),
+    p2 = peaks["p2-20"]
+    check(abs(now - max(0, p2["start"] - 5)) < 2.5 and wait_js(pg, "() => document.querySelector('%s').classList.contains('is-playing')" % row("p2-20"), 3000),
           "L3 p で次の候補(直前に再生した候補の次)を 5 秒前から再生: %.1f(候補 %.1f)" % (now, p2["start"]))
     pg.keyboard.press("z")
-    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n0 + 2), 15000) and len([b for b in fk["posts"] if b.get("op") == "adopt"]) == 2,
-          "L3 z でいま再生している候補を採用(マークが増える)")
-    check(wait_js(pg, "() => document.querySelector('%s [data-pf=\"pill\"]').textContent === '採用'" % row("pk-2"), 5000), "L3 z で採用した候補は「採用」の札")
+    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n0 + 2), 15000)
+          and wait_for(lambda: len([i for i in dec_items() if i.get("state") == "adopted"]) == 2, 5),
+          "L3 z でいま再生している候補を採用(マークが増える・decisions に 2 件目)")
+    check(wait_js(pg, "() => document.querySelector('%s [data-pf=\"pill\"]').textContent === '採用'" % row("p2-20"), 8000), "L3 z で採用した候補は「採用」の札")
     pg.keyboard.press("p")
     pg.wait_for_timeout(400)
     now = _clock(pg.input_value("#rvNow"))
-    check(abs(now - max(0, peaks["pk-3"]["start"] - 5)) < 2.5, "L3 もう一度 p で次の候補(控え): %.1f" % now)
+    check(abs(now - max(0, peaks["p3-26"]["start"] - 5)) < 2.5, "L3 もう一度 p で次の候補(控え): %.1f" % now)
     check(pg.evaluate("() => { const k = document.querySelector('.ui-keybar'); return !k || k.hidden || /次の候補/.test(k.textContent); }"),
           "L3 下のキーの帯に「次の候補」(帯を出しているとき)")
 
     # 3 秒の見回りで作り直さない(要素が同じ)・差分(since)で聞いている
     pg.evaluate("() => { window.__pkRows = [...document.querySelectorAll('#rvPeakList .rv-peak')]; }")
-    g1 = len(fk["gets"])
-    _pw_wait(pg, lambda: len([q for q in fk["gets"][g1:] if "since" in q]) >= 2, 15)
+    g1 = len(reqs)
+    _pw_wait(pg, lambda: len([u for u in reqs[g1:] if "since=" in u]) >= 2, 15)
     gone = pg.evaluate("() => window.__pkKeep.filter(([s, el]) => !el || !el.isConnected || document.querySelector(s) !== el).map(([s]) => s)"
                        " .concat(window.__pkRows.filter(el => !el.isConnected).map(el => el.dataset.pid))")
-    check(len([q for q in fk["gets"][g1:] if "since" in q]) >= 2 and not gone,
-          "L3 見回り(since の差分 %d 回)で帯・候補の行が作り直されない: %s" % (len([q for q in fk["gets"][g1:] if "since" in q]), gone))
+    check(len([u for u in reqs[g1:] if "since=" in u]) >= 2 and not gone,
+          "L3 見回り(since の差分 %d 回)で帯・候補の行が作り直されない: %s" % (len([u for u in reqs[g1:] if "since=" in u]), gone))
+
+    # ⚙ の設定: 配信中の候補(live.detect)と自動採用(live.autoAdopt)→ 入口の設定に入り、帯の見出しに出る
+    pg.click("#btnSettings")
+    check(wait_js(pg, "() => { const s = document.querySelector('#liveDetect'); return s && s.offsetParent && s.checked; }", 8000), "L3 ⚙ に「配信中の候補」の群(オンになっている)")
+    pg.fill("#liveDetectPerHour", "8")
+    pg.keyboard.press("Tab")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["detect"]["perHour"] == 8 and srv.prefs.get(["live"])["live"]["detect"]["enabled"] is True, 8),
+          "L2 1 時間の本数を変えると live.detect.perHour に入る(オンのまま): %s" % srv.prefs.get(["live"])["live"]["detect"])
+    pg.fill("#liveAutoAdoptWait", "60")
+    pg.keyboard.press("Tab")
+    pg.check("#liveAutoAdopt")
+    check(wait_for(lambda: (lambda a: a["enabled"] is True and a["waitMin"] == 60)(srv.prefs.get(["live"])["live"]["autoAdopt"]), 8),
+          "L2 自動採用をオンにすると live.autoAdopt に入る: %s" % srv.prefs.get(["live"])["live"]["autoAdopt"])
+    pg.keyboard.press("Escape")
+    check(wait_js(pg, "() => /自動採用 オン\\(60 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 12000), "L3 帯の見出しに「自動採用 オン(60 分待ち)」: %s" % pg.text_content("#rvPeakInfo"))
+    srv.prefs.patch("live", {"autoAdopt": {"enabled": False, "waitMin": 5}})
+    h = (api("GET", "/api/health")[1] or {}).get("live") or {}
+    check((h.get("detect") or {}).get("running") is True, "L2 「調子」に検出のワーカー(動いている): %s" % {x: (h.get("detect") or {}).get(x) for x in ("running", "behindSec", "restarts")})
 
     # 採用した 2 本の書き出しが済む(入口の adopt の書き出し)
     def jobs():
         js = (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or []
-        mine = [j for j in js if j.get("studio") and any(abs(j["studio"]["start"] - peaks[x]["start"]) < 0.06 for x in ("pk-1", "pk-2"))]
+        mine = [j for j in js if j.get("studio") and any(abs(j["studio"]["start"] - peaks[x]["start"]) < 0.06 for x in ("p1-14", "p2-20"))]
         return mine if len(mine) == 2 and all(j["state"] in ("done", "error") for j in mine) else None
     done = _pw_wait(pg, jobs, 90, 500)
     check(done and all(j["state"] == "done" for j in done), "L3 採用した候補の書き出しが済む: %s" % [(j.get("state"), j.get("error")) for j in done or []])
@@ -1054,6 +1050,11 @@ def _scene_peaks(cx):
         pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_11_peaks_narrow.png"))
     pg.set_viewport_size({"width": 1440, "height": 900})
     pg.wait_for_timeout(300)
+
+    # 後始末: 検出をオフ → 見回りがワーカーを止める → 帯の候補の部分は隠れる
+    srv.prefs.patch("live", {"detect": {"enabled": False, "sens": "normal", "perHour": 6}})
+    check(det.tick() == "off" and wait_for(lambda: det.proc is None or det.proc.poll() is not None, 10), "L2 検出をオフにすると、見回りがワーカーを止める")
+    check(wait_js(pg, "() => document.querySelector('#rvPeaks').hidden", 15000), "L3 オフにすると帯の候補の部分が隠れる")
 
 
 def _scene_narrow_and_errors(cx):
