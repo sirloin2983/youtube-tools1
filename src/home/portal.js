@@ -1747,7 +1747,7 @@
 
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
   var intakeData = null, intakeSig = '', intakeBusy = false, intakeDirty = false, intakeOpened = false;
-  var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10], ['dailyMax', '#intakeDaily', '1日の上限', 1, 50],
+  var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10],   // 1 日の上限(dailyMax)は 2026-10-07 に撤廃
     ['maxHours', '#intakeHours', '配信の長さの上限', 1, 24], ['maxGB', '#intakeGB', '動画の大きさの上限', 1, 200], ['interval', '#intakeInterval', '見る間隔', 10, 600]];
 
   function fillIntakeSettings(d) {
@@ -1763,7 +1763,7 @@
     $('#intakeMsg').textContent = d.message || '';
     $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
     $('#intakeScan').title = d.lastScan ? when(d.lastScan) : '';
-    $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' / ' + (d.dailyMax || 0) + ' 件' : '';
+    $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' 件' : '';
     $('#intakeScanBtn').disabled = intakeBusy || !d.enabled;
     $('#intakeScanBtn').title = d.enabled ? '' : '受付がオフです。下の「依頼を受け付ける」をオンにすると押せます';
   }
@@ -1860,7 +1860,7 @@
     $('#intakeScanBtn').addEventListener('click', intakeScanNow);
     $('#intakeSave').addEventListener('click', function () { intakeSave(); });
     $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
-    ['#intakeFolder', '#intakeTop', '#intakeDaily', '#intakeHours', '#intakeGB', '#intakeInterval'].forEach(function (s) {
+    ['#intakeFolder', '#intakeTop', '#intakeHours', '#intakeGB', '#intakeInterval'].forEach(function (s) {
       $(s).addEventListener('input', function () { intakeDirty = true; $('#intakeSaveMsg').textContent = ''; });
     });
   }

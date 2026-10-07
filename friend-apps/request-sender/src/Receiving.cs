@@ -1,9 +1,10 @@
-// 受け取る: PC が「/出力/」に置いたパック(.zip)と失敗の知らせ(.失敗.txt)を一覧にして、選んだものを取ってくる。
+// 受け取る: PC が「/出力/」に置いたパック(.zip)と失敗の知らせ(.失敗.txt)を一覧にして、選んだものを取ってくる(1 本ずつ・「すべて受け取る」でまとめて)。
 // 受け取り終えたパック(大きさと hash を確かめたあと)・読み終えた失敗の知らせだけ、Dropbox から消す(files/delete_v2。鍵に files.content.write)
 // 一覧には読みの権限が要る(files.metadata.read・files.content.read)
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using FriendApps;
 
 namespace RequestSender
@@ -14,14 +15,44 @@ namespace RequestSender
         public bool FolderMissing;   // 「/出力」がまだ無い(= まだ何も届いていない)
     }
 
+    // 「すべて受け取る」の結果(画面がまとめの文を出す材料。Summary は通信しないのでテストできる)
+    public class ReceiveAllResult
+    {
+        public int Total;                                           // 受け取ろうとしたパックの数
+        public List<OutputEntry> Done = new List<OutputEntry>();    // 受け取って Dropbox からも消したもの(一覧から外す)
+        public List<OutputEntry> Kept = new List<OutputEntry>();    // 受け取ったが Dropbox から消せなかったもの(一覧に残す。次の更新でまた出る)
+        public List<string> Failed = new List<string>();            // 受け取れなかった題(そのファイルだけの問題。飛ばして次へ進んだ)
+        public bool Canceled;
+        public Exception Error;                                     // 通信・鍵・保存先の問題で途中で止めた(言い方は画面が決める)
+        public string LastPath;
+
+        public int Received { get { return Done.Count + Kept.Count; } }
+
+        // まとめの文。errorText = Error を画面の言い方にしたもの(Error が無ければ null)
+        public string Summary(string errorText)
+        {
+            string n = Received + " / " + Total + " 本";
+            string s;
+            if (Canceled) s = "やめました(" + n + "は受け取り済み)。";
+            else if (Error != null) s = n + "を受け取ったところで止まりました: " + (errorText ?? Error.Message);
+            else if (Failed.Count == 0) s = Total + " 本すべて受け取りました ✓  「フォルダを開く」で見られます。";
+            else s = n + "を受け取りました。受け取れなかった " + Failed.Count + " 本: " + string.Join("・", Failed.Take(3)) + (Failed.Count > 3 ? " ほか" : "") +
+                     "(「更新」のあと、もう一度「すべて受け取る」を押してください)";
+            if (Kept.Count > 0) s += " Dropbox から消せなかった " + Kept.Count + " 本は、次に更新したときにまた出ます。";
+            return s;
+        }
+    }
+
     public class Receiving
     {
         const int MaxPages = 50;   // 1回 500 件 × 50。止まらない返事への備え
-        readonly DropboxClient client;
+        readonly DropboxClient client, deleter;
 
-        public Receiving(DropboxClient client)
+        // deleter = 消すときだけ使う別のつながり(「やめる」で止まらないもの)。無ければ client で消す
+        public Receiving(DropboxClient client, DropboxClient deleter = null)
         {
             this.client = client;
+            this.deleter = deleter ?? client;
         }
 
         public OutputListing List()
@@ -94,12 +125,54 @@ namespace RequestSender
         {
             try
             {
-                client.Rpc("files/delete_v2", DropboxArgs.Delete(e.ApiPath));
+                deleter.Rpc("files/delete_v2", DropboxArgs.Delete(e.ApiPath));
             }
             catch (DropboxException ex)
             {
                 if (!ErrorText.IsNotFound(ex.Status, ex.Body)) throw;
             }
+        }
+
+        // すべて受け取る: packs を順に Download → Delete。progress(何本目(1 から), そのパック, 全体で済んだバイト, 全体のバイト, 段の名前)
+        // そのファイルだけの問題(大きさが合わない・壊れていた・作り直された = Status が負)は飛ばして次へ。
+        // 通信・鍵・保存先(空き)の問題は止める(次も同じ理由で失敗し、やり直しの待ちが積み上がるだけ)。やめたらそこまで
+        public ReceiveAllResult DownloadAll(List<OutputEntry> packs, string dir, Action<int, OutputEntry, long, long, string> progress)
+        {
+            var r = new ReceiveAllResult { Total = packs.Count };
+            long all = OutputFolder.TotalSize(packs), before = 0;
+            for (int i = 0; i < packs.Count; i++)
+            {
+                var e = packs[i];
+                int no = i + 1;
+                long doneBefore = before;
+                long size = Math.Max(0, e.Size);
+                string path;
+                try
+                {
+                    path = Download(e, dir, (done, total, step) => progress(no, e, doneBefore + Math.Min(done, size), all, step));
+                }
+                catch (CanceledException) { r.Canceled = true; break; }
+                catch (DropboxException ex)
+                {
+                    if (ex.Status >= 0) { r.Error = ex; break; }
+                    r.Failed.Add(e.Title);
+                    client.Log("receive all: skip " + e.Name + ": " + ex.Message);
+                    before += size;
+                    continue;
+                }
+                catch (IOException ex) { r.Error = ex; break; }
+                catch (UnauthorizedAccessException ex) { r.Error = ex; break; }
+                r.LastPath = path;
+                before += size;
+                // 受け取り終えたものは、「やめる」が押されていても消し終える(消さないと次に更新したときにまた出る)
+                try { Delete(e); r.Done.Add(e); }
+                catch (DropboxException ex)
+                {
+                    r.Kept.Add(e);
+                    client.Log("receive all: delete failed " + e.Name + ": " + ex.Message);
+                }
+            }
+            return r;
         }
 
         static void CheckFreeSpace(string dir, long size)

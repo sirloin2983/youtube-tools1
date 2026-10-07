@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.2.0";
+        public const string Version = "2.3.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -516,6 +516,33 @@ namespace RequestSender
                 int c = b.Modified.CompareTo(a.Modified);
                 return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
             });
+        }
+
+        // 「すべて受け取る」の順: パックだけを古い順(1 つの依頼で何本もできたパックは、できた順に並ぶ。同じ時刻なら名前の順)。失敗の知らせは含めない
+        public static List<OutputEntry> PacksOldestFirst(IEnumerable<OutputEntry> entries)
+        {
+            var packs = entries.Where(e => e.Kind == OutputKind.Pack).ToList();
+            packs.Sort((a, b) =>
+            {
+                int c = a.Modified.CompareTo(b.Modified);
+                return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.Ordinal);
+            });
+            return packs;
+        }
+
+        // 合計の大きさ(分からないもの = 負の値は 0 として足す)
+        public static long TotalSize(IEnumerable<OutputEntry> entries)
+        {
+            long total = 0;
+            foreach (var e in entries) total += Math.Max(0, e.Size);
+            return total;
+        }
+
+        // 同じ依頼(id)のパックが、いま届いている中に何本あるか(自分を含む。id の無いものは 0)
+        public static int CountSameRequest(IEnumerable<OutputEntry> entries, OutputEntry e)
+        {
+            if (string.IsNullOrEmpty(e.RequestId)) return 0;
+            return entries.Count(x => x.Kind == OutputKind.Pack && x.RequestId == e.RequestId);
         }
 
         // "2026-10-01T03:00:00Z" -> 地方時。読めなければ MinValue

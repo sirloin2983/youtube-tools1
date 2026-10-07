@@ -42,7 +42,7 @@ def wait_js(pg, expr, timeout=15000):
 
 
 def intake_obj(enabled=False, requests=None, **kw):
-    d = {"enabled": enabled, "folder": "" if not enabled else "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "dailyMax": 10, "maxHours": 6, "maxGB": 10,
+    d = {"enabled": enabled, "folder": "" if not enabled else "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "maxHours": 6, "maxGB": 10,
          "state": "watching" if enabled else "off", "stateLabel": "見張り中" if enabled else "オフ",
          "message": "" if enabled else "オフです。フォルダを決めてスイッチを入れると、依頼を受け付けます",
          "lastScan": NOW - 90_000 if enabled else None, "today": 2, "requests": requests or []}
@@ -148,7 +148,7 @@ def main():
                 check(pg.is_disabled("#intakeScanBtn"), "オフのときは「今すぐ確認」を押せない")
                 check(not pg.is_visible("#intakeList") and pg.is_visible("#intakeEmpty"), "依頼が無いときは「まだ依頼は届いていません」")
                 check("Dropbox\\アプリ\\切り抜き依頼" in pg.text_content("#intakeBox"), "フォルダの入力の説明に例が出る")
-                check(pg.input_value("#intakeTop") == "3" and pg.input_value("#intakeDaily") == "10" and pg.input_value("#intakeHours") == "6" and pg.input_value("#intakeGB") == "10",
+                check(pg.input_value("#intakeTop") == "3" and pg.input_value("#intakeHours") == "6" and pg.input_value("#intakeGB") == "10",
                       "設定の欄にサーバーの値が入る")
 
                 # 2. スイッチ: フォルダが空だとサーバーが断る → エラーを出してスイッチを戻す
@@ -162,12 +162,12 @@ def main():
                 # 3. 設定の保存: 正しい patch の本文
                 state["patch_error"] = None
                 pg.fill("#intakeFolder", "  C:\\Dropbox\\アプリ\\切り抜き依頼  ")
-                pg.fill("#intakeTop", "4"); pg.fill("#intakeDaily", "20"); pg.fill("#intakeHours", "8"); pg.fill("#intakeGB", "30")
+                pg.fill("#intakeTop", "4"); pg.fill("#intakeHours", "8"); pg.fill("#intakeGB", "30")
                 pg.check("#intakeEnabled")
                 state["patches"].clear()
                 pg.click("#intakeSave")
                 check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent === '保存しました'"), "保存できた: %s" % pg.text_content("#intakeSaveMsg"))
-                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "dailyMax": 20, "maxHours": 8, "maxGB": 30, "interval": 30}   # 見る間隔(段9 9-4)
+                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "maxHours": 8, "maxGB": 30, "interval": 30}   # 見る間隔(段9 9-4)。1 日の上限(dailyMax)は 2026-10-07 に撤廃
                 check(state["patches"] and state["patches"][-1] == want, "patch の本文(節 intake の全キー): %s" % (state["patches"][-1:],))
                 check(wait_js(pg, "document.getElementById('intakeState').textContent === '見張り中'"), "保存後に状態が見張り中になる")
                 check(not pg.is_disabled("#intakeScanBtn"), "見張り中は「今すぐ確認」を押せる")
@@ -180,9 +180,9 @@ def main():
                 pg.fill("#intakeTop", "4")
 
                 # 3c. 保存のサーバーエラー(400 の message)
-                state["patch_error"] = "1日の上限は 1〜50 です"
+                state["patch_error"] = "配信の長さの上限(時間)は 1〜24 です"
                 pg.click("#intakeSave")
-                check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent.includes('1日の上限は 1〜50 です')"), "保存のエラーを表示: %s" % pg.text_content("#intakeSaveMsg"))
+                check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent.includes('配信の長さの上限(時間)は 1〜24 です')"), "保存のエラーを表示: %s" % pg.text_content("#intakeSaveMsg"))
                 state["patch_error"] = None
 
                 # 4. 今すぐ確認 → scan が呼ばれて一覧が出る
@@ -195,7 +195,7 @@ def main():
                 check("断った" in rows[1] and "動画が大きすぎます" in rows[1] and "clip_big.mp4" in rows[1] and "12.3GB" in rows[1] and "clip_ok.mp4" in rows[1] and "動画" in rows[1] and "フォルダに直接" in rows[1],
                       "断った依頼: 理由・項目ごとの結果: %s" % rows[1].replace("\n", " / "))
                 check(pg.eval_on_selector_all("#intakeList b", "e => e.length") == 0, "題名の <b> は要素にならない")
-                check("最後に確認" in pg.text_content("#intakeScan") and "今日 2 / 10" in pg.text_content("#intakeToday"),
+                check("最後に確認" in pg.text_content("#intakeScan") and pg.text_content("#intakeToday").strip() == "今日 2 件",
                       "最後の確認・今日の件数: %s / %s" % (pg.text_content("#intakeScan"), pg.text_content("#intakeToday")))
 
                 # 4b. エラーの状態

@@ -1,10 +1,12 @@
 // 画面のタブ「受け取る」: 「① 全自動」で送った依頼のパック(.zip)と、失敗の知らせ(.失敗.txt)。
-// 一覧は Dropbox の「/出力」。受け取り終えたパック(確かめたあと)と、読み終えて「消す」を押した失敗の知らせは Dropbox から消え、一覧にも出なくなる
+// 一覧は Dropbox の「/出力」。受け取り終えたパック(確かめたあと)と、読み終えて「消す」を押した失敗の知らせは Dropbox から消え、一覧にも出なくなる。
+// 「すべて受け取る」= 届いているパックを古い順に 1 本ずつ(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように。2026-10-07)。「やめる」で途中で止められる
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 using FriendApps;
@@ -20,9 +22,10 @@ namespace RequestSender
         readonly EntryHeader listHeader = new EntryHeader();
         readonly TextBox detail = new TextBox();
         Field detailField;
-        readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), deleteBtn = new Btn("消す", BtnKind.Normal),
+        readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), receiveAllBtn = new Btn("すべて受け取る", BtnKind.Normal),
+                     cancelRecvBtn = new Btn("やめる", BtnKind.Normal), deleteBtn = new Btn("消す", BtnKind.Normal),
                      openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
-        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます。できた順に1本ずつ届き、受け取ると一覧から消えます。", Tone.Muted);
+        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(1 つの依頼で何本もできることがあります)。「すべて受け取る」でまとめて受け取れます。受け取ったものは一覧から消えます。", Tone.Muted);
         readonly Lbl recvStatus = new Lbl("", Tone.Muted), lDir = new Lbl("保存先", Tone.Muted), dirLabel = new Lbl("", Tone.Text);
         readonly Bar recvBar = new Bar();
         readonly Dictionary<string, string> failureTexts = new Dictionary<string, string>();
@@ -34,6 +37,7 @@ namespace RequestSender
 
         // 裏の処理が終わった知らせを画面が受け取るまで true(スレッドが生きているかでは見ない。終わりの直前に並べた画面の処理と食い違うため)
         bool recvRunning;
+        bool recvAll;   // 「すべて受け取る」の途中
         bool RecvBusy { get { return recvRunning; } }
 
         void BuildReceiveLayout()
@@ -62,13 +66,17 @@ namespace RequestSender
             changeDirBtn.Click += (s, e) => ChangeDir();
             receiveBtn.Font = Theme.Big;
             receiveBtn.Click += (s, e) => StartDownload();
+            receiveAllBtn.AccessibleName = "すべて受け取る";
+            receiveAllBtn.Click += (s, e) => StartDownloadAll();
+            cancelRecvBtn.Visible = false;
+            cancelRecvBtn.Click += (s, e) => CancelReceive();
             openFolderBtn.Click += (s, e) => OpenFolder();
             deleteBtn.Click += (s, e) => StartDeleteFailure();
             recvStatus.AutoSize = false;
             recvStatus.AutoEllipsis = true;
 
             recvPane.Controls.AddRange(new Control[] { headRecv, refreshBtn, recvHint, listFrame, detailField, lDir, dirLabel, changeDirBtn,
-                                                       receiveBtn, openFolderBtn, deleteBtn, recvBar, recvStatus });
+                                                       receiveBtn, receiveAllBtn, cancelRecvBtn, openFolderBtn, deleteBtn, recvBar, recvStatus });
             recvPage.Controls.Add(recvPane);
 
             downloadDir = state.LoadDownloadDir();
@@ -97,7 +105,11 @@ namespace RequestSender
             dirLabel.SetBounds(lDir.Right + Ui.S(8), y, changeDirBtn.Left - lDir.Right - Ui.S(16), Ui.S(28));
             y += Ui.S(38);
             receiveBtn.SetBounds(m, y, Ui.S(150), Ui.S(40));
-            openFolderBtn.Location = new Point(receiveBtn.Right + Ui.S(8), y + Ui.S(6));
+            receiveAllBtn.SetBounds(receiveBtn.Right + Ui.S(8), y, receiveAllBtn.Width, Ui.S(40));
+            int x = receiveAllBtn.Right + Ui.S(8);
+            cancelRecvBtn.Location = new Point(x, y + Ui.S(6));
+            if (cancelRecvBtn.Visible) x = cancelRecvBtn.Right + Ui.S(8);
+            openFolderBtn.Location = new Point(x, y + Ui.S(6));
             deleteBtn.Location = new Point(openFolderBtn.Right + Ui.S(6), y + Ui.S(6));
             recvStatus.SetBounds(deleteBtn.Right + Ui.S(14), y + Ui.S(10), Math.Max(Ui.S(60), w - m - deleteBtn.Right - Ui.S(14)), Ui.S(20));
             y += Ui.S(48);
@@ -120,11 +132,18 @@ namespace RequestSender
         {
             var e = SelectedEntry;
             bool busy = RecvBusy;
+            int packs = entries.Count(x => x.Kind == OutputKind.Pack);
             refreshBtn.Enabled = !busy;
             changeDirBtn.Enabled = !busy;
             receiveBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Pack;
             deleteBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key);
-            receiveBtn.Text = busy && recvDownloading ? "受け取っています…" : "受け取る";
+            receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : "受け取る";
+            receiveAllBtn.Enabled = !busy && packs > 0;
+            receiveAllBtn.Text = busy && recvAll ? "すべて受け取っています…" : packs > 1 ? "すべて受け取る(" + packs + " 本)" : "すべて受け取る";
+            receiveAllBtn.FitWidth();
+            cancelRecvBtn.Visible = busy && recvDownloading;
+            cancelRecvBtn.Enabled = !recvCancel;
+            LayoutReceive();   // 「やめる」の出し入れ・「すべて受け取る(n 本)」の幅で、右のボタンの位置が変わる
         }
 
         bool recvDownloading;
@@ -162,10 +181,13 @@ namespace RequestSender
             listHeader.Invalidate();
             detail.Text = "";
             SetArrived(entries.Count, false);
+            int packs = entries.Count(x => x.Kind == OutputKind.Pack), fails = entries.Count - packs;
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
-                SetRecvStatus(entries.Count + " 件あります。選んで「受け取る」を押してください。", false);
+                string what = (packs > 0 ? "パック " + packs + " 本" : "") + (packs > 0 && fails > 0 ? "・" : "") + (fails > 0 ? "失敗の知らせ " + fails + " 件" : "");
+                string how = packs > 1 ? "「すべて受け取る」でまとめて受け取れます。" : packs == 1 ? "選んで「受け取る」を押してください。" : "選ぶと理由が出ます。";
+                SetRecvStatus(what + "があります。" + how, false);
                 outList.SelectedIndex = 0;
             }
             UpdateRecvButtons();
@@ -178,8 +200,9 @@ namespace RequestSender
             if (e == null) { detail.Text = ""; return; }
             if (e.Kind == OutputKind.Pack)
             {
+                int same = OutputFolder.CountSameRequest(entries, e);
                 detail.Text = "題: " + e.Title + "\r\n" +
-                              (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + "\r\n" : "") +
+                              (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
                               "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n\r\n" +
                               "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先に保存し、確かめたあと Dropbox と一覧から消えます。";
                 return;
@@ -222,11 +245,12 @@ namespace RequestSender
             SetRecvStatus("受け取る準備をしています…", false);
             Log.Write("receive: " + e.Name + " size=" + e.Size);
             var client = NewClient(config);
+            var receiving = new Receiving(client, NewDeleter(config));
             int lastPermille = -1;
             string lastStep = null;
             RunRecv(() =>
             {
-                string path = new Receiving(client).Download(e, dir, (done, total, step) =>
+                string path = receiving.Download(e, dir, (done, total, step) =>
                 {
                     int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
                     if (permille == lastPermille && step == lastStep) return;
@@ -237,7 +261,7 @@ namespace RequestSender
                 Log.Write("receive: ok " + path);
                 // 大きさと hash を確かめて名前を変えたあと(Download が例外なく返った)だけ、Dropbox から消す
                 bool deleted = true;
-                try { new Receiving(client).Delete(e); }
+                try { receiving.Delete(e); }
                 catch (Exception ex)
                 {
                     deleted = false;
@@ -259,6 +283,73 @@ namespace RequestSender
                     }
                 });
             });
+            UpdateRecvButtons();
+        }
+
+        // 届いているパックを古い順にまとめて受け取る(1 本ずつ受け取って確かめ、確かめ終えたものから Dropbox と一覧から消す)
+        void StartDownloadAll()
+        {
+            if (RecvBusy) return;
+            var packs = OutputFolder.PacksOldestFirst(entries);
+            if (packs.Count == 0) return;
+            long total = OutputFolder.TotalSize(packs);
+            if (MessageBox.Show(this, "届いているパック " + packs.Count + " 本(合計 " + Mb(total) + ")をすべて受け取ります。\n保存先: " + downloadDir +
+                    "\n\n古い順に 1 本ずつ受け取り、ちゃんと保存できたものから Dropbox と一覧から消えます。途中で「やめる」を押せます。",
+                    "すべて受け取る", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            Config config = RecvConfig();
+            if (config == null) return;
+            string dir = downloadDir;
+            recvCancel = false;
+            recvDownloading = recvAll = true;
+            recvBar.Value = 0;
+            SetRecvStatus("受け取る準備をしています…(" + packs.Count + " 本)", false);
+            Log.Write("receive all: " + packs.Count + " packs, " + total + " bytes");
+            var receiving = new Receiving(NewClient(config), NewDeleter(config));
+            int lastPermille = -1, lastNo = 0;
+            string lastStep = null;
+            RunRecv(() =>
+            {
+                var r = receiving.DownloadAll(packs, dir, (no, e, done, all, step) =>
+                {
+                    int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, all)));
+                    if (permille == lastPermille && no == lastNo && step == lastStep) return;
+                    lastPermille = permille;
+                    lastNo = no;
+                    lastStep = step;
+                    string text = step + "(" + no + " / " + packs.Count + " 本目: " + e.Title + ")… (全体 " + Mb(done) + " / " + Mb(all) + ")";
+                    OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(text, false); } });
+                });
+                Log.Write("receive all: " + r.Received + "/" + r.Total + (r.Canceled ? " canceled" : "") + (r.Error != null ? " stopped: " + r.Error.Message : "") +
+                          (r.Failed.Count > 0 ? " skipped " + r.Failed.Count : "") + (r.Kept.Count > 0 ? " not deleted " + r.Kept.Count : ""));
+                OnUi(() => FinishDownloadAll(r));
+            });
+        }
+
+        void FinishDownloadAll(ReceiveAllResult r)
+        {
+            if (r.LastPath != null) lastDownloaded = r.LastPath;
+            RemoveEntries(r.Done);
+            bool clean = r.Error == null && !r.Canceled && r.Failed.Count == 0 && r.Kept.Count == 0;
+            if (clean) recvBar.Value = 1000;
+            SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.Error != null || r.Failed.Count > 0, clean);
+        }
+
+        // 受け取りを途中でやめる(いま受け取っている途中のファイルは消す。受け取り終えたものはそのまま)
+        void CancelReceive()
+        {
+            if (!RecvBusy || recvCancel) return;
+            recvCancel = true;
+            cancelRecvBtn.Enabled = false;
+            SetRecvStatus("やめています…(途中のファイルは消します)", false);
+            Log.Write("receive: cancel requested");
+        }
+
+        // 画面の確認(--tab receive --state receiving): 「すべて受け取る」の途中の見た目(通信しない)
+        public void ShowReceivingSample()
+        {
+            recvRunning = recvDownloading = recvAll = true;
+            recvBar.Value = 335;
+            SetRecvStatus("受け取っています(2 / 5 本目: 見本の切り抜き_03)… (全体 2.51GB / 7.50GB)", false);
             UpdateRecvButtons();
         }
 
@@ -288,9 +379,19 @@ namespace RequestSender
         // 一覧から外す(Dropbox から消したあと)。先頭を選び直す
         void RemoveEntry(OutputEntry e)
         {
-            entries.Remove(e);
-            failureTexts.Remove(e.Key);
-            outList.Items.Remove(e);
+            RemoveEntries(new[] { e });
+        }
+
+        void RemoveEntries(IEnumerable<OutputEntry> gone)
+        {
+            outList.BeginUpdate();
+            foreach (var e in gone.ToList())
+            {
+                entries.Remove(e);
+                failureTexts.Remove(e.Key);
+                outList.Items.Remove(e);
+            }
+            outList.EndUpdate();
             SetArrived(entries.Count, false);
             detail.Text = "";
             if (outList.Items.Count > 0) outList.SelectedIndex = 0;
@@ -309,6 +410,7 @@ namespace RequestSender
                 {
                     recvRunning = false;
                     recvDownloading = false;
+                    recvAll = false;
                     if (error != null) { SetRecvStatus(error, true); if (detail.Text.EndsWith("…")) detail.Text = ""; }
                     UpdateRecvButtons();
                     // 一覧を出した直後に選ばれていた失敗の知らせは、ここで理由を読む
@@ -341,6 +443,12 @@ namespace RequestSender
         DropboxClient NewClient(Config config)
         {
             return new DropboxClient(config) { IsCanceled = () => recvCancel, Log = Log.Write };
+        }
+
+        // 受け取り終えたパックを Dropbox から消すためのつながり。「やめる」では止めない(消さないと次の更新でまた出て、二度受け取ることになる)。窓を閉じたら止める
+        DropboxClient NewDeleter(Config config)
+        {
+            return new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write };
         }
 
         void ChangeDir()

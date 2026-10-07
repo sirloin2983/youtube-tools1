@@ -42,6 +42,7 @@ static class CoreTests
         Run("エラー: Dropbox の返事を日本語に", Errors);
         Run("どこまで: 3つの値・既定は auto・知らない値は送らない", Flows);
         Run("受け取る: 一覧の返事からパックと失敗の知らせだけ・新しい順", OutputEntries);
+        Run("受け取る: すべて受け取る(パックだけを古い順・合計・同じ依頼の数・まとめの文)", ReceiveAll);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
         Run("画面: 時刻の欄にキーを送る(数字・← →・↑ ↓・BackSpace・Delete。「:」は入らない)", TimeBoxKeys);
@@ -638,6 +639,13 @@ static class CoreTests
                 var list = FindAll(f).OfType<FileList>().Single();
                 Eq(1, list.Items.Count, "入った動画");
                 True(FindAll(f).OfType<System.Windows.Forms.Label>().Any(l => l.Text.Contains("動画ではない")), "入れなかった理由が出る");
+                var all = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "すべて受け取る");
+                True(!all.Enabled && all.Text == "すべて受け取る", "届いたものが無ければ「すべて受け取る」は押せない: " + all.Text);
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "やめる" && !b.Visible), "「やめる」は受け取っている間だけ出す");
+                var sample = Program_SampleListing();
+                f.ShowEntries(sample);
+                Eq("すべて受け取る(2 本)", all.Text, "届いているパックの数を出す");
+                True(all.Enabled, "パックがあれば押せる");
             }
         }
         finally { Directory.Delete(dir, true); }
@@ -1032,6 +1040,55 @@ static class CoreTests
         again.Rev = "0999";
         True(pack.Key != again.Key, "置き直されたら(rev が変わったら)別のもの");
         Eq(DateTime.MinValue, OutputFolder.ParseTime("x"), "読めない時刻");
+    }
+
+    // 画面の確認(--tab receive --sample)と同じ見本: パック 2 本(同じ依頼)+ 失敗 1 件
+    static OutputListing Program_SampleListing()
+    {
+        var l = new OutputListing();
+        var a = OutputFolder.FromName("20261002-120000-0a1b2c__A.zip"); a.Size = 10; a.Modified = new DateTime(2026, 10, 2, 13, 0, 0); a.PathLower = "/出力/a.zip"; a.Rev = "1";
+        var f = OutputFolder.FromName("20261002-110000-0d4e5f__F.失敗.txt"); f.Size = 1; f.Modified = new DateTime(2026, 10, 2, 11, 0, 0); f.PathLower = "/出力/f.txt"; f.Rev = "2";
+        var b = OutputFolder.FromName("20261002-120000-0a1b2c__B.zip"); b.Size = 20; b.Modified = new DateTime(2026, 10, 2, 12, 0, 0); b.PathLower = "/出力/b.zip"; b.Rev = "3";
+        l.Entries.Add(a); l.Entries.Add(f); l.Entries.Add(b);
+        return l;
+    }
+
+    static void ReceiveAll()
+    {
+        var all = Program_SampleListing().Entries;
+        var a = all[0];
+        var c = OutputFolder.FromName("20261001-090000-ffffff__C.zip"); c.Size = -1; c.Modified = new DateTime(2026, 10, 2, 12, 0, 0);
+        all.Add(c);
+        OutputFolder.SortNewestFirst(all);
+        var packs = OutputFolder.PacksOldestFirst(all);
+        Eq(3, packs.Count, "失敗の知らせは含めない");
+        Eq("C", packs[0].Title, "古い順(同じ時刻は名前の順)");
+        Eq("B", packs[1].Title, "古い順 2");
+        Eq("A", packs[2].Title, "古い順 3(新しいものが最後)");
+        Eq(30L, OutputFolder.TotalSize(packs), "合計(大きさの分からないものは 0)");
+        Eq(2, OutputFolder.CountSameRequest(all, a), "同じ依頼のパックの数(自分を含む)");
+        Eq(1, OutputFolder.CountSameRequest(all, c), "1 本だけの依頼");
+        var h = OutputFolder.FromName("手で置いた.zip");
+        Eq(0, OutputFolder.CountSameRequest(new[] { h, h }, h), "id の無いものは数えない");
+
+        var r = new ReceiveAllResult { Total = 3 };
+        r.Done.Add(a); r.Done.Add(c); r.Done.Add(packs[1]);
+        True(r.Summary(null).StartsWith("3 本すべて受け取りました ✓"), "全部: " + r.Summary(null));
+        r = new ReceiveAllResult { Total = 3 };
+        r.Done.Add(a); r.Failed.Add("B"); r.Failed.Add("C");
+        string s = r.Summary(null);
+        True(s.StartsWith("1 / 3 本を受け取りました。受け取れなかった 2 本: B・C") && s.Contains("もう一度「すべて受け取る」"), "飛ばしたものの題: " + s);
+        r = new ReceiveAllResult { Total = 3 };
+        r.Done.Add(a); r.Kept.Add(c); r.Canceled = true;
+        s = r.Summary(null);
+        True(s.StartsWith("やめました(2 / 3 本は受け取り済み)") && s.Contains("消せなかった 1 本"), "やめた + 消せなかった: " + s);
+        r = new ReceiveAllResult { Total = 3, Error = new Exception("x") };
+        s = r.Summary("通信が切れました");
+        Eq("0 / 3 本を受け取ったところで止まりました: 通信が切れました", s, "止まった");
+        Eq(0, r.Received, "受け取った数");
+        r.Failed.AddRange(new[] { "1", "2", "3", "4" });
+        r.Error = null;
+        True(r.Summary(null).Contains("1・2・3 ほか"), "題は 3 つまで: " + r.Summary(null));
     }
 
     static IEnumerable<System.Windows.Forms.Control> FindAll(System.Windows.Forms.Control c)

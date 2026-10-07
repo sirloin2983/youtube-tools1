@@ -2307,3 +2307,19 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 道具: `diff_after.py`(控え split-before-*.json と今の行を文字で突き合わせ、境目ごとに そのまま / くっつけた / 分けた と 無音・句末・長さ を出す。今の状態で流すと 283 境目すべて「そのまま」= 正常)。音量で測った無音は今の境目の 67% にある(whisper の単語の時刻では 0 だった = 無音の検出は規則に使える見込み)
 - 置き場所: `D:/backup/youtube-tools-eval/`(控え・候補の一覧・判断の一覧・tools/ に道具の写し。MSIX の写しにならない場所)
 - 未完了・次: ユーザーが 22 本を直す(30〜45 分)→ HANDOVER の手順で 差分 → 一致率 → 規則 → 実装
+## 2026-10-07 Claude Code(PC。Fable)— 送るアプリ 2.3.0「すべて受け取る」「やめる」+ 依頼の受付の「1 日の上限」を撤廃(ホーム 0.44.0)
+- ユーザー指示(10-07 夜): 「他のセッションと競合しないように送るツールを修正 / 一括受け取り機能を追加 / 一日の上限を撤廃したい / 一つの依頼から作られたパックを確認するだけで結構時間がかかる」。
+  他のセッションは全部 idle(ListAgents)で作業フォルダも clean だったので担当の分け方は不要。途中で B2(クラウド比較)のセッションから担当の知らせ → data.js・decisions・WORKLOG の触る所と、公開ページは version 18 を公開し直し済み(そちらの行を入れたら最後にもう 1 回)と返事
+- **送るアプリ 2.3.0**(`friend-apps/request-sender/`。依頼の JSON・鍵・設定ファイルは変えていない): `Core.cs`(`OutputFolder.PacksOldestFirst`・`TotalSize`・`CountSameRequest`)・`Receiving.cs`(`ReceiveAllResult`(Summary は通信しない)・`DownloadAll` = 古い順に Download → Delete。
+  そのファイルだけの問題(Status が負 = 大きさ・hash・作り直し)は飛ばして次へ・通信/鍵/空きは止める。消すのは `deleter` = 別のつながり(「やめる」で止まらない))・`MainForm.Receive.cs`(「すべて受け取る(n 本)」= 本数と合計の確認 → 全体のバイトで進み具合・
+  「やめる」= 1 本の受け取りでも・一覧の下の文「パック n 本・失敗の知らせ n 件」・選んだパックに「この依頼のパックは n 本」・`RemoveEntries`・`ShowReceivingSample`)・`Program.cs`(`--state receiving`)・`CoreTests.cs`(+1 本 ReceiveAll・FormBuilds にボタンの検査)・`README.txt`(使い方と v2.3.0)
+- **ホーム 0.44.0**(`src/home/`): `intake.py`(`_room`・`held`・「今日の上限」の断りを削除。今日の件数 `_count` は画面の「今日 n 件」のために残す)・`prefs.py`(DEFAULTS と INTAKE_RANGES から `dailyMax`。古い prefs.json の値は `_clean_intake` が知っているキーだけ写すので読み飛ばす)・
+  `portal.html/js`(欄を外す・「今日 n 件」・wireIntake の `#intakeDaily` も)・`launch.py`(0.43.1 → **0.44.0**)・`README.txt`(v0.44.0 の節)・`test_intake.py`(`test_no_daily_limit`・TestPrefs)・`e2e_intake_ui.py`
+- 文書: `docs/spec/friend-intake.md`(冒頭の版・**2-12**・2-9/6/7/9 の上限の記述)・`plan/data.js`(versions・recent ⑧・別件の done/next・U8 = 2.3.0 の zip を友人へ)・`plan/decisions.md`(1 の表に 10-07 の 2 行・**3-9** (by)(bz)(ca)(cx)(cy)(cz) = 古い順・確認 1 回・失敗の扱い・やめるの意味・今日の件数は残す・1 つの zip にまとめる案は採らない)・公開ページ version 18
+- 画面の確認: `build\RequestSender.exe --screenshot ... --tab receive --sample [--state receiving]`(REQUEST_SENDER_SHOT_MANY=1 で 15 件)。ボタンの並び・busy の文・配色 D を目で確認
+- テスト: build.bat(コンパイル → テスト **35 件 OK** → dist\RequestSender.zip)・home test_intake + test_launch + test_mount 99 OK・lint 0・e2e_intake_ui すべて OK・e2e_portal すべて OK・`ui_audit all --demo`(Windows): **Must 0**・Should 38(一意 13。前回と同じ)
+- 解釈: 「一つの依頼から…時間がかかる」は、1 本ずつ選んで受け取って確かめる手間 = 「すべて受け取る」の動機として扱った(PC 側の 1 本ずつ届ける形は変えていない。(cz))。ユーザーが「1 つの zip にまとめてほしい」「開いて確かめるのが長い」の意味なら別の直し
+- ついでに `src/home/README.txt` の 2 か所の BEL(0x07。「\app\cases.json」「\app\live」の `\a` が制御文字になっていた)を `\app` に直した(git が binary 扱いにして、触るたびに全行の差分になっていた)。
+  注意(AI 向け): Claude Code の Bash ツールのヒアドキュメントでは `\\` が `\` に潰れる(Python の文字列に書いた `\\n`・`\\request-sender` が改行・CR になる)。バックスラッシュを含む書き換えは Write ツールで控えを書いてから当てる
+- 未完了・次: ユーザーが dist\RequestSender.zip を友人へ渡す(U8)・入口の起動し直し(0.44.0 で上限が無くなる)。3-9 の仮決めの確認
+- 未コミット: なし(このコミットで全部。push はユーザー)

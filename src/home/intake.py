@@ -16,7 +16,7 @@
   コピーが 30fps(H.264・AAC)でなければ、コピーを ytt_core.normalize で作り直して置き換える(SLOTS を通す。元は触らない。失敗してもコピーのまま続ける)
 - 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(送るアプリ 2.0.0。friend-intake.md の 2-6)
-- 1日の上限を超えた分は断らずにフォルダに残し、次の日に回す
+- 1 日の件数の上限は無い(2026-10-07 ユーザー決定で撤廃。今日の件数は画面に出すだけ)
 - URL は YouTube の配信・動画だけ。11 文字の ID を取り出し、それだけを yt-dlp に渡す(任意の URL を渡さない)
 - 動画は拡張子と ffprobe で形を確かめてから(他人が作ったファイルを ffmpeg で読むこと自体が攻撃の入口になり得るため)
 """
@@ -324,7 +324,6 @@ class Intake:
         self.state = "off"
         self.message = ""
         self.last_scan = None
-        self.held = 0                       # 1日の上限で次の日に回した数
         self.st = self._load_state()
 
     # ------------------------------------------------------------ 覚えておく中身
@@ -384,7 +383,7 @@ class Intake:
         try:
             return dict(cfg, state=self.state, stateLabel=STATE_LABELS[self.state], message=self.message,
                         lastScan=int(self.last_scan * 1000) if self.last_scan else None,
-                        today=int(self.st["daily"].get(self._today(), 0)), held=self.held,
+                        today=int(self.st["daily"].get(self._today(), 0)),
                         requests=[dict(r) for r in list(self.st["requests"])])
         finally:
             if got:
@@ -413,7 +412,6 @@ class Intake:
                 self.state, self.message = "error", "見張るフォルダが見つかりません: %s" % folder
                 return
             self.state, self.message = "watching", ""
-            self.held = 0
             try:
                 names = sorted(os.listdir(folder))
             except OSError as e:
@@ -449,8 +447,6 @@ class Intake:
                 else:
                     self._record(folder, "video", "manual", n, [n], "", "", [], [{"label": n, "state": "rejected",
                                  "reason": "受け付けない種類のファイルです(動画 %s か、URL を書いた .txt)" % " ".join(VIDEO_EXT)}])
-            if self.held:
-                self.message = "今日の上限(%d 件)に達したので、%d 件を明日に回します" % (cfg["dailyMax"], self.held)
 
     def _settled(self, p):
         try:
@@ -465,11 +461,8 @@ class Intake:
             return False
         return now - prev[2] >= self.settle and now - s.st_mtime >= self.settle
 
-    def _room(self, cfg):
-        """今日あと何件受け付けられるか"""
-        return max(0, int(cfg["dailyMax"]) - int(self.st["daily"].get(self._today(), 0)))
-
     def _count(self, n=1):
+        """今日の件数(画面の「今日 n 件」に出すだけ。1 日の上限は 2026-10-07 に撤廃)"""
         t = self._today()
         self.st["daily"][t] = int(self.st["daily"].get(t, 0)) + n
 
@@ -501,9 +494,6 @@ class Intake:
             lines = "\n".join("%s %s" % (str(it.get("url") or "")[:300], it.get("top", cfg["top"])) for it in raw)
             # 時刻で指定した区間(配信の ID ごと。③ = 解析までの依頼では使わない)
             ranges = {youtube_id(str(it.get("url") or "")[:300]): parse_ranges(it.get("ranges")) for it in raw} if flow != "manual" else {}
-            if self._room(cfg) <= 0:
-                self.held += 1
-                return {n}
             who, note = _streamer(d.get("streamer"))   # 2.1.0 のアプリは URL の依頼にも 1 人目の名前を付ける。無い・合わない = 今までどおりチャンネル名から
             self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers, tracks, ranges=ranges, cut=cut,
                                weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note)
@@ -519,9 +509,6 @@ class Intake:
                 self._record(folder, "video", "app", names[0], [n] + [x for x in names if x in files], d.get("streamer") or "", memo, [],
                              [{"label": x, "state": "rejected", "reason": "動画が届きませんでした(送り直してください)"} for x in missing], rid=rid)
             return {n} | set(names)
-        if self._room(cfg) <= 0:
-            self.held += 1
-            return {n} | set(names)
         who, note = _streamer(d.get("streamer"))
         results, runs = [], []
         for x in names:
@@ -535,9 +522,6 @@ class Intake:
         return {n} | set(names)
 
     def _handle_manual_video(self, folder, n, p, cfg):
-        if self._room(cfg) <= 0:
-            self.held += 1
-            return
         m = NAME_PREFIX_RE.match(os.path.splitext(n)[0])
         who, note = (None, "")
         if m:
@@ -554,9 +538,6 @@ class Intake:
             return
         if n.lower().endswith(".url"):
             text = parse_url_file(text)
-        if self._room(cfg) <= 0:
-            self.held += 1
-            return
         self._process_urls(folder, n, [n], text, cfg, "manual", "", None, "check")
 
     def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None,
@@ -566,7 +547,6 @@ class Intake:
         ok, bad = parse_lines(text, int(cfg["top"]))
         results = [{"label": b["line"], "state": "rejected", "reason": b["reason"]} for b in bad]
         todo, seen, known = [], set(), []
-        room = self._room(cfg)
         for it in ok[:MAX_URLS]:
             rs, rbad = (ranges or {}).get(it["id"]) or ([], [])
             it["top"] = min(TOP_MAX, max(it["top"], len(rs)))   # 切り抜く数は区間の数より小さくしない
@@ -575,9 +555,6 @@ class Intake:
             results += [{"label": label, "state": "rejected", "reason": r} for r in rbad]
             if it["id"] in seen:
                 results.append({"label": label, "state": "rejected", "reason": "同じ配信が2回書かれています(1回だけ受け付けました)"})
-                continue
-            if len(todo) >= room:
-                results.append({"label": label, "state": "rejected", "reason": "今日の上限(%d 件)を超えたので受け付けませんでした(明日送り直してください)" % cfg["dailyMax"]})
                 continue
             info = self.info(it["id"]) or {}
             if info.get("title"):   # 題名が分かれば、断った理由の行も URL ではなく題名で出す(一覧で読めるように。2026-10-04)

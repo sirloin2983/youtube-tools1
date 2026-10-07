@@ -123,9 +123,11 @@ class TestPrefs(unittest.TestCase):
             p = prefs_mod.Prefs(os.path.join(tmp, "prefs.json"), fsio.atomic_write)
             self.assertEqual(p.get(["intake"])["intake"], prefs_mod.DEFAULTS["intake"])
             v = p.patch("intake", {"enabled": True, "top": 5, "maxHours": 2.5})
-            self.assertEqual((v["enabled"], v["top"], v["maxHours"], v["dailyMax"], v["interval"]), (True, 5, 2.5, 5, 30))
+            self.assertEqual((v["enabled"], v["top"], v["maxHours"], v["interval"]), (True, 5, 2.5, 30))
+            self.assertNotIn("dailyMax", v)   # 1 日の上限は撤廃(2026-10-07)。古いアプリ・古い prefs.json の値は読み飛ばす
+            self.assertNotIn("dailyMax", p.patch("intake", {"dailyMax": 3}))
             self.assertEqual(p.patch("intake", {"interval": 120})["interval"], 120)   # 見る間隔(段9 9-4)
-            for bad in ({"top": 11}, {"top": 2.5}, {"dailyMax": 0}, {"maxGB": True}, {"folder": 3}, {"folder": "\\\\server\\share"},
+            for bad in ({"top": 11}, {"top": 2.5}, {"maxGB": True}, {"folder": 3}, {"folder": "\\\\server\\share"},
                         {"interval": 5}, {"interval": 601}, {"interval": 30.5},
                         {"folder": "//server/share"}, {"folder": "relative\\dir"}):
                 with self.assertRaises(prefs_mod.PrefsError, msg=str(bad)):
@@ -196,18 +198,17 @@ class TestText(Base):
         self.assertEqual(r["title"], "【雑談】配信中の題名")
         self.assertEqual(r["items"][0]["label"], "【雑談】配信中の題名(2 個)")
 
-    def test_daily_limit_holds(self):
-        self.prefs.patch("intake", {"dailyMax": 1})
-        self.put("a.txt", "https://youtu.be/aaaaaaaaaaa\n")
+    def test_no_daily_limit(self):
+        """1 日の件数の上限は無い(2026-10-07 ユーザー決定で撤廃): 同じ日に何件でも受け付け、フォルダに残さない。今日の件数は数えるだけ"""
+        for i in range(7):
+            self.put("%d.txt" % i, "https://youtu.be/%s\n" % (chr(ord("a") + i) * 11))
         self.scan2()
-        self.put("b.txt", "https://youtu.be/bbbbbbbbbbb\n")
-        self.scan2()
-        self.assertEqual(len(self.runner.requests), 1)
-        self.assertTrue(os.path.isfile(os.path.join(self.folder, "b.txt")), "上限を超えた分はフォルダに残す")
-        self.assertIn("明日に回します", self.it.snapshot()["message"])
-        self.now += 86400   # 次の日
-        self.it.scan()
-        self.assertEqual(len(self.runner.requests), 2)
+        self.assertEqual(len(self.runner.requests), 7)
+        self.assertEqual([n for n in os.listdir(self.folder) if n.endswith(".txt")], [], "フォルダに残さない(翌日に回さない)")
+        snap = self.it.snapshot()
+        self.assertEqual((snap["today"], snap["message"]), (7, ""))
+        self.assertNotIn("dailyMax", snap)
+        self.assertNotIn("held", snap)
 
     def test_unknown_type(self):
         self.put("写真.png", b"x")
@@ -464,7 +465,6 @@ class TestVideo(Base):
         for badw in (None, {}, {"audio": 1, "chat": 1}, {"audio": 4, "chat": 1, "comments": 1}, {"audio": "1", "chat": 1, "comments": 1}, {"audio": True, "chat": 1, "comments": 1}):
             self.assertIsNone(intake.parse_weights(badw), badw)
 
-        self.prefs.patch("intake", {"dailyMax": 50})
         self.infos["abcdefghijk"] = {"duration": 7200.0, "live": "not_live", "title": "長い配信", "channel": "ch"}
         self.infos["bbbbbbbbbbb"] = {"duration": 600.0, "live": "not_live", "title": "短い配信", "channel": "ch"}
         rid = "20261002-120000-abc201"
