@@ -127,7 +127,6 @@
      行には data-fkey(一覧の名前:id)を付けてあるので、描き直したあとで引く: その行がまだあれば行の中の「非表示にする」・
      隠れて無くなったら次の行(無ければ前の行)の最初の操作・それも無ければその一覧の「非表示 n件を表示」 */
   var HIDE_TOGGLE = { cases: '#casesHidden', transcripts: '#docHidden', todo: '#todoHidden', intake: '#intakeHidden', runs: '#historyHidden' };
-  function fkeyOf(btn) { var row = btn.closest('[data-fkey]'); return row ? row.getAttribute('data-fkey') : ''; }
   function rowByKey(k) { return k ? $all('[data-fkey]').filter(function (n) { return n.getAttribute('data-fkey') === k; })[0] || null : null; }
   function firstFocusable(root) {
     return root ? (root.querySelector('a[href], summary, button:not([disabled]), input:not([disabled]), select, textarea') || null) : null;

@@ -77,7 +77,9 @@
 ## 4. 直したもの(周ごと)
 ### 1 周目
 - ui-kit v23: 文字記号 → SVG / `.ui-caret`・リンクの青 `--accent-ink2`・summary の高さ 28px・`.ui-live-panel:focus-visible`・知らせの × を 28px の SVG・設定の全体の節の label・styleguide の label と ▾
-- ホーム 0.42.3 / スタジオ 0.22.3 / 編集 0.59.3: (直し役の報告から書く)
+- ホーム 0.42.3(直し役 Sonnet): A = 用語(始める条件・録画のデータ)・メモの summary を ui-disclosure・「非表示にする」の opacity をやめる・textarea の aria-label・押せない理由の title(`offBtn`)・次にやることの title / B = M1 並びの表 `TODO_ORDER` を cases.py に 1 つ(案件の next と `/api/cases` の todoOrder)・M2 やることが無いときの理由と [候補の確認へ] / [スタジオで解析する]・M5 空の表示 5 か所を 2 文 + ボタン・M6 非表示・すべて見るのあとのフォーカス(`data-fkey`)・M7 作業中 = accent / 校正の途中 = info・M8 [中止] の danger をやめる・M9 失敗の文を「何が + どうすれば」(原文は詳しく・title。保存の失敗に [もう一度])・M10 ⚙ に「ホーム」の節(窓で開く・まとめて実行の既定・試験中の機能。依頼の受付・バックアップは「開く」で移る)/ S1・S3・S5・S6・S7・S9〜S13(札の言葉・英語の状態名・件数の分母・押せない理由・confirmTwice・用語・押せる印と「少なく表示」・390 はアイコンだけ・接続の札は切れたときだけ・調子の札の言葉)。残り: `accuracy.py` の「内部エラー」の文(improvements へ)
+- スタジオ 0.22.3(直し役 Opus): A = `.rv-player:focus-visible`・区間のボタン 28px・`--ink-4` → `--ink-3`・「隠す」の opacity をやめる・保存中の点滅をやめる・IN/OUT の色(明るいテーマ `--cs-in:#0a6e78`・`--cs-out:#a8420e`)・▾ ▸ → `.ui-caret`・⚙ × → 文字と SVG・allow(タイムライン・区間の幅)・640px 以下のまとめて実行のメニューの位置・理由の札の文字の濃さ・書き出しの音量の欄の aria / B = (報告から書く)
+- 編集 0.59.3(直し役 Opus): A = 「クリップ」→「区間」・記号 → SVG と `.ui-caret`(`uiIcon()`)・`#rosterBox` を ui-disclosure・要確認の札の当たり判定 28px・コントラスト(`.fl`・時刻の「–」・今の行の時刻・`.tt-pk-n`・空の状態の印・目盛りの下地)・範囲の欄の aria-label・allow(進み具合の帯・ミニマップ)・処理中の札の点滅をやめる・押せない理由の title・固定の色の allow とトークン化 / B = (報告から書く)
 
 ## 5. 残したもの(Should・Could → `plan/improvements.md` の「UI の見直しの残り」)
 (1 周目の後に書く)
