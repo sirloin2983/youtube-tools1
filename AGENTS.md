@@ -16,6 +16,7 @@ youtube-tools/
 ├─ plan/         ユーザーが読む計画(README = 全体と進捗・user-tasks・decisions・improvements・line-*)
 ├─ src/          動くコード: home(入口)・studio・editor・cut2resolve・recorder・ytt_core(共通部品)・ui-kit(共通の見た目)
 ├─ friend-apps/  友人用の Windows アプリ(holo-colors・request-sender。C# 5・WinForms。build.bat で zip)
+├─ chrome-ext/   自分用の Chrome 拡張(yt-studio-time = YouTube Studio のコンテンツ一覧の日付に投稿時刻を足す。2026-10-08)
 ├─ dev/          開発用の道具(push の検査・ui-kit の同期・精度を測る道具 eval_*.py・通し確認)と dev/tests/
 └─ docs/         AI 向け: WORKLOG(記録)・HANDOVER(引き継ぎ)・ROADMAP(索引)・spec/(今の決まり)・design/(済んだ設計・briefs)
 ```
@@ -48,6 +49,7 @@ youtube-tools/
 | `setup/` | インストールと片付け(`install.bat`・`install-gpu.bat`・`install-diarize.bat`・`bootstrap.bat`・Mac の `.command`・`requirements*.txt`・`cleanup_legacy_data.bat`・`build-whisper-vulkan.bat`) | `.bat` と `requirements*.txt` は ASCII だけ。片付けのテストは `dev/tests/test_cleanup_legacy_data.py` |
 | `friend-apps/holo-colors/` | ホロカラー(C# 5・WinForms。`src/`・`members.json`・`tests/`) | `friend-apps\holo-colors\build.bat`(コンパイル → テスト 31 件 → `dist/HoloColors.zip`。PowerShell からは `.\build.bat`)。キー・窓の動きを変えたら `python friend-apps/holo-colors/tests/e2e_holo_colors.py`(**本物のキー入力を送る。流す間は触らない・他のテストと同時にしない**) |
 | `friend-apps/request-sender/` | 友人が依頼を送るアプリ(C# 5・WinForms。Dropbox の API)。鍵 `config.json` はコミットしない | `friend-apps\request-sender\build.bat`。鍵を作る `dev/dropbox_auth.py` を変えたら `dev/tests/test_dropbox_auth.py` |
+| `chrome-ext/yt-studio-time/` | 自分用の Chrome 拡張: YouTube Studio のコンテンツ一覧の「日付」に公開(投稿)の時刻を足す(manifest V3・`world: MAIN` で内部 API の応答を控える。権限なし・外部との通信なし。`README.txt`) | `node --test chrome-ext/yt-studio-time/tests/test_main.cjs`(純粋な部分)・`python chrome-ext/yt-studio-time/tests/e2e_fake_studio.py`(偽の Studio に拡張を入れて通し。Edge で流す)。本物の Studio の画面は手で(README の入れ方) |
 | `docs/`・`plan/` | 記録・仕様・計画 | — |
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要(入れ方は `setup/requirements-dev.txt` の先頭)。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)。CSP のある画面では `page.wait_for_function` が動かない(`evaluate` で待つ)

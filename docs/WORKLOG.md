@@ -2412,3 +2412,13 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: `dev/tests/test_eval_timing` 10 OK・`test_whispercpp` 32 OK・編集のサーバー側 555 OK(skip 1。最初の流しで `test_resplit_with_saved_words` が落ち、分け直しを字幕の最大文字数に戻した)・`dev/lint.py` 0 件・e2e `e2e_edit_tabs.py` ALL PASSED
 - 未完了・次: ユーザーが「すべて終了」→ start.bat で 0.59.5。`plan/data.js` の公開ページの更新は次に data.js を直す人がまとめて(こちらは公開し直していない)
 - 注意: 評価用の作り直し(ドリルの「この動画を作り直す」)をすると新しい分け方になる。既存の文書は変わらない。同じ作業フォルダで別のセッション(friend-apps・src/home・chrome-ext)が編集中 = このコミットには入れていない
+
+## 2026-10-08 Claude Code(PC。Fable)— Chrome 拡張「YouTube Studio 投稿時刻」v0.1.0(新規 chrome-ext/yt-studio-time/)
+- ユーザー「Chrome の拡張機能って簡単に作れる?」→ Studio のコンテンツ一覧(ショート)の画面を見せて「この日付の場所に投稿時間も出せるようにしたい」
+- 変更(新規): `chrome-ext/yt-studio-time/`(`manifest.json`(V3・`world: MAIN`・権限なし・外部との通信なし)・`main.js`・`README.txt`・`tests/test_main.cjs`(node 7 件)・`tests/e2e_fake_studio.py`(偽の Studio に拡張を入れて通し))。`AGENTS.md` のフォルダの木と表に 1 行ずつ
+- 作り: Studio の内部 API `youtubei/v1/creator/list_creator_videos` の応答(`timePublishedSeconds`・`timeCreatedSeconds`)を fetch/XHR の包みで控え、行 `ytcp-video-row` のリンク `/video/<id>/` の id と突き合わせて `.tablecell-date` の日付の直後に HH:MM を足す(マウスで秒までの日時)。欄が「アップロード日」の行はアップロードの時刻。
+  部品が shadow DOM でも拾えるよう attachShadow も包んで shadow root を見張る。行は Polymer が使い回すので videoId+秒を鍵にして足し直す。応答を通らずに出た行は行の持つデータ(`row.video`・`__data`)からも拾う
+- 決定・理由(仮決め。ユーザー確認待ち): YouTube Data API(鍵が要る・1 日の上限)や視聴ページを 1 行ずつ読む方法は使わない(鍵の管理が要らず通信が増えない。代わりに Studio の内部の作りが変わると壊れる → README の「動かないとき」のデバッグの記録)。置き場所は新しい `chrome-ext/`(`src/` はツール本体、`friend-apps/` は友人用なので)。plan/data.js には載せていない(計画の線ではない小物)
+- テスト: node 7 件 OK・e2e(Edge headless。fetch と XHR の両方・shadow DOM の行・行の使い回し)OK・lint 0。**本物の Studio ではまだ確かめていない**(AI は Studio にログインできない。内部 API の鍵の名前と行の class `.tablecell-date` は記憶に基づく仮定。無ければ日付の形の文字を持つ要素で探す)→ ユーザーが入れて確かめる。動かなければ README の「動かないとき」の記録を渡してもらうか、Claude in Chrome で本物の画面を調べる
+- 注意: この PC の AI のシェルからは Playwright の `chromium-1243/chrome-win64/chrome.exe` が spawn UNKNOWN で起動できない(`channel="chromium"`・窓あり共に。headless shell は動く)。拡張を入れる通しのテストは Edge を `executable_path` で使う。本物の Chrome は 137 以降 `--load-extension` を無視する(手で chrome://extensions から入れるのは可)。ms-playwright はパッケージの写しの中だけなので、パッケージの外のプロセスからは Playwright のブラウザが見えない
+- 未コミット: なし(このコミットで全部。push はユーザー)
