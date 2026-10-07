@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using FriendApps;
 
@@ -22,6 +23,7 @@ namespace RequestSender
         public List<OutputEntry> Done = new List<OutputEntry>();    // 受け取って Dropbox からも消したもの(一覧から外す)
         public List<OutputEntry> Kept = new List<OutputEntry>();    // 受け取ったが Dropbox から消せなかったもの(一覧に残す。次の更新でまた出る)
         public List<string> Failed = new List<string>();            // 受け取れなかった題(そのファイルだけの問題。飛ばして次へ進んだ)
+        public List<string> NotExtracted = new List<string>();      // 受け取れたが展開できなかった題(zip のまま保存先にある)
         public bool Canceled;
         public Exception Error;                                     // 通信・鍵・保存先の問題で途中で止めた(言い方は画面が決める)
         public string LastPath;
@@ -39,6 +41,7 @@ namespace RequestSender
             else s = n + "を受け取りました。受け取れなかった " + Failed.Count + " 本: " + string.Join("・", Failed.Take(3)) + (Failed.Count > 3 ? " ほか" : "") +
                      "(「更新」のあと、もう一度「すべて受け取る」を押してください)";
             if (Kept.Count > 0) s += " Dropbox から消せなかった " + Kept.Count + " 本は、次に更新したときにまた出ます。";
+            if (NotExtracted.Count > 0) s += " 展開できなかった " + NotExtracted.Count + " 本は zip のまま保存先にあります(右クリック →「すべて展開」)。";
             return s;
         }
     }
@@ -47,6 +50,7 @@ namespace RequestSender
     {
         const int MaxPages = 50;   // 1回 500 件 × 50。止まらない返事への備え
         readonly DropboxClient client, deleter;
+        public bool ExtractZip = true;   // 受け取った zip を保存先に展開して zip は消す(settings.json の extractZip。既定オン。2.4.0)
 
         // deleter = 消すときだけ使う別のつながり(「やめる」で止まらないもの)。無ければ client で消す
         public Receiving(DropboxClient client, DropboxClient deleter = null)
@@ -92,7 +96,7 @@ namespace RequestSender
         public string Download(OutputEntry e, string dir, Action<long, long, string> progress)
         {
             Directory.CreateDirectory(dir);
-            CheckFreeSpace(dir, e.Size);
+            CheckFreeSpace(dir, ExtractZip ? e.Size * 2 : e.Size);   // 展開するときは zip + 中身の分
             string final = LocalName.Unique(dir, LocalName.Safe(e.Name));
             string part = final + ".part";
             bool ok = false;
@@ -118,6 +122,119 @@ namespace RequestSender
             {
                 if (!ok) TryDelete(part);
             }
+        }
+
+        // 受け取った zip を展開する(ExtractZip のとき)。展開できなければ zip をそのまま残して error に理由。-> 置いたフォルダ(展開しない・できないときは zip)
+        public string ExtractOrKeep(string zipPath, string dir, Action<long, long, string> progress, out string error)
+        {
+            error = null;
+            if (!ExtractZip) return zipPath;
+            try
+            {
+                return Extract(zipPath, dir, (done, total) => progress(done, total, "展開しています"));
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException || ex is NotSupportedException)) throw;
+                error = ex.Message;
+                client.Log("extract failed " + zipPath + ": " + ex.GetType().Name + ": " + ex.Message);
+                return zipPath;
+            }
+        }
+
+        // zip を dir の中に展開して、展開できたら zip を消す。-> 置いたフォルダ。progress(済んだバイト, 全体のバイト)
+        // zip の中身が 1 つのフォルダ(PC が作るパックは <題>_pack の 1 つ)なら、そのフォルダを dir の直下に置く(同じ名前があれば「(2)」)。
+        // そうでなければ zip の名前のフォルダに入れる。「<名前>.extracting」に書いてから名前を変える(途中で止まったら消して zip を残す)。
+        // 中の名前が外へ出るもの(..・ドライブ名・使えない文字)は断る(zip は Dropbox 経由 = 鍵を知る人なら置けるため)
+        public static string Extract(string zipPath, string dir, Action<long, long> progress)
+        {
+            string target;
+            using (var zip = ZipFile.OpenRead(zipPath))
+            {
+                string top = CommonTopFolder(zip.Entries);
+                target = LocalName.Unique(dir, LocalName.Safe(top ?? Path.GetFileNameWithoutExtension(zipPath)));
+                string temp = target + ".extracting";
+                if (Directory.Exists(temp)) Directory.Delete(temp, true);
+                long total = 0, done = 0;
+                foreach (var e in zip.Entries) total += Math.Max(0, e.Length);
+                bool ok = false;
+                try
+                {
+                    Directory.CreateDirectory(temp);
+                    foreach (var e in zip.Entries)
+                    {
+                        string rel = Relative(e.FullName, top);
+                        if (rel.Length == 0) continue;   // 先頭のフォルダそのもの
+                        string path = SafeJoin(temp, rel);
+                        if (e.FullName.EndsWith("/") || e.FullName.EndsWith("\\")) { Directory.CreateDirectory(path); continue; }
+                        Directory.CreateDirectory(Path.GetDirectoryName(path));
+                        using (var src = e.Open())
+                        using (var dst = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1 << 20))
+                        {
+                            var buf = new byte[1 << 20];
+                            int n;
+                            while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                            {
+                                dst.Write(buf, 0, n);
+                                done += n;
+                                if (progress != null) progress(done, total);
+                            }
+                        }
+                    }
+                    Directory.Move(temp, target);
+                    ok = true;
+                }
+                finally
+                {
+                    if (!ok) TryDeleteDir(temp);
+                }
+                if (progress != null) progress(total, total);
+            }
+            TryDelete(zipPath);   // 消せなくても展開は済んでいる(フォルダの隣に zip が残るだけ)
+            return target;
+        }
+
+        // 全部の名前が同じ先頭のフォルダの中にあれば、その名前(直下にファイルがある・先頭が 2 つ以上なら null)
+        static string CommonTopFolder(IEnumerable<ZipArchiveEntry> entries)
+        {
+            string top = null;
+            foreach (var e in entries)
+            {
+                string n = e.FullName.Replace('\\', '/').TrimStart('/');
+                if (n.Length == 0) continue;
+                int i = n.IndexOf('/');
+                if (i <= 0) return null;
+                string first = n.Substring(0, i);
+                if (top == null) top = first;
+                else if (!string.Equals(top, first, StringComparison.Ordinal)) return null;
+            }
+            return top;
+        }
+
+        static string Relative(string fullName, string top)
+        {
+            string n = fullName.Replace('\\', '/').TrimStart('/');
+            if (top != null) n = n.Substring(Math.Min(n.Length, top.Length + 1));
+            return n.Trim('/');
+        }
+
+        // rel を root の中の場所にする。..・絶対パス・ドライブ名・使えない文字は断る
+        static string SafeJoin(string root, string rel)
+        {
+            foreach (string seg in rel.Split('/'))
+                if (seg == ".." || seg == "." || seg.Length == 0 || seg.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                    throw new InvalidDataException("zip の中に使えない名前があります: " + rel);
+            string full = Path.GetFullPath(Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar)));
+            string rootFull = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("zip の中に外へ出る名前があります: " + rel);
+            return full;
+        }
+
+        static void TryDeleteDir(string path)
+        {
+            try { if (Directory.Exists(path)) Directory.Delete(path, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
         // Dropbox の /出力 から消す。すでに無い(not_found)のは消えているのと同じなので成功とみなす(通信のやり直しの2回目に返る)
@@ -162,7 +279,9 @@ namespace RequestSender
                 }
                 catch (IOException ex) { r.Error = ex; break; }
                 catch (UnauthorizedAccessException ex) { r.Error = ex; break; }
-                r.LastPath = path;
+                string extractError;
+                r.LastPath = ExtractOrKeep(path, dir, (done, total, step) => progress(no, e, doneBefore + Math.Min(done, size), all, step), out extractError);
+                if (extractError != null) r.NotExtracted.Add(e.Title);
                 before += size;
                 // 受け取り終えたものは、「やめる」が押されていても消し終える(消さないと次に更新したときにまた出る)
                 try { Delete(e); r.Done.Add(e); }

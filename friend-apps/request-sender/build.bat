@@ -12,7 +12,7 @@ if not exist "%CSC%" (
 )
 if not exist build mkdir build
 
-set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll"
+set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll"
 echo [1/4] RequestSender.exe
 "%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\RequestSender.exe /win32manifest:src\app.manifest %REFS% src\*.cs ..\common\*.cs
 if errorlevel 1 goto fail

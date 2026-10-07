@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -43,6 +44,7 @@ static class CoreTests
         Run("どこまで: 3つの値・既定は auto・知らない値は送らない", Flows);
         Run("受け取る: 一覧の返事からパックと失敗の知らせだけ・新しい順", OutputEntries);
         Run("受け取る: すべて受け取る(パックだけを古い順・合計・同じ依頼の数・まとめの文)", ReceiveAll);
+        Run("受け取る: zip の展開(パックのフォルダを保存先の直下に・同じ名前は (2)・zip は消す・外へ出る名前は断る)", ExtractZips);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
         Run("画面: 作れる(開かない)・引数の動画だけ入る", FormBuilds);
         Run("画面: 時刻の欄にキーを送る(数字・← →・↑ ↓・BackSpace・Delete。「:」は入らない)", TimeBoxKeys);
@@ -1089,6 +1091,62 @@ static class CoreTests
         r.Failed.AddRange(new[] { "1", "2", "3", "4" });
         r.Error = null;
         True(r.Summary(null).Contains("1・2・3 ほか"), "題は 3 つまで: " + r.Summary(null));
+    }
+
+    // zip を作る。"名前" か "名前=中身"。名前の末尾が / ならフォルダ
+    static void MakeZip(string path, params string[] entries)
+    {
+        using (var fs = new FileStream(path, FileMode.Create))
+        using (var z = new ZipArchive(fs, ZipArchiveMode.Create))
+            foreach (string spec in entries)
+            {
+                int eq = spec.IndexOf('=');
+                string name = eq >= 0 ? spec.Substring(0, eq) : spec, body = eq >= 0 ? spec.Substring(eq + 1) : "";
+                var e = z.CreateEntry(name);
+                if (!name.EndsWith("/")) using (var w = new StreamWriter(e.Open(), new UTF8Encoding(false))) w.Write(body);
+            }
+    }
+
+    static void ExtractZips()
+    {
+        string dir = TempDir();
+        try
+        {
+            string zip = Path.Combine(dir, "20261002-120000-0a1b2c__みこの配信.zip");
+            MakeZip(zip, "みこの配信_pack/", "みこの配信_pack/みこの配信.mp4=VIDEO", "みこの配信_pack/sub/", "みこの配信_pack/sub/a.srt=1", "みこの配信_pack/友人へ.txt=読んで");
+            long last = -1, lastTotal = -1;
+            string got = Receiving.Extract(zip, dir, (d, t) => { last = d; lastTotal = t; });
+            Eq(Path.Combine(dir, "みこの配信_pack"), got, "パックのフォルダを保存先の直下に");
+            Eq("VIDEO", File.ReadAllText(Path.Combine(got, "みこの配信.mp4")), "中身");
+            Eq("1", File.ReadAllText(Path.Combine(got, "sub", "a.srt")), "下のフォルダ");
+            Eq("読んで", File.ReadAllText(Path.Combine(got, "友人へ.txt")), "日本語の名前");
+            True(!File.Exists(zip), "展開できたら zip は消す");
+            True(last == lastTotal && lastTotal > 0, "進み具合は最後に 済んだ = 全体: " + last + " / " + lastTotal);
+            True(!Directory.Exists(got + ".extracting"), "途中のフォルダは残さない");
+
+            MakeZip(zip, "みこの配信_pack/x.txt=2");
+            Eq(Path.Combine(dir, "みこの配信_pack (2)"), Receiving.Extract(zip, dir, null), "同じ名前があれば (2)");
+
+            string flat = Path.Combine(dir, "手で置いた.zip");
+            MakeZip(flat, "a.txt=a", "b/c.txt=c");
+            string gotFlat = Receiving.Extract(flat, dir, null);
+            Eq(Path.Combine(dir, "手で置いた"), gotFlat, "直下にファイルがあれば zip の名前のフォルダ");
+            Eq("c", File.ReadAllText(Path.Combine(gotFlat, "b", "c.txt")), "中のフォルダ");
+
+            string two = Path.Combine(dir, "two.zip");
+            MakeZip(two, "p/a.txt=a", "q/b.txt=b");
+            Eq(Path.Combine(dir, "two"), Receiving.Extract(two, dir, null), "先頭のフォルダが 2 つなら zip の名前");
+
+            string evil = Path.Combine(dir, "evil.zip");
+            MakeZip(evil, "p/ok.txt=1", "p/../../evil.txt=x");
+            bool refused = false;
+            try { Receiving.Extract(evil, dir, null); }
+            catch (InvalidDataException) { refused = true; }
+            True(refused, "外へ出る名前は断る");
+            True(File.Exists(evil) && !Directory.Exists(Path.Combine(dir, "p")) && !Directory.Exists(Path.Combine(dir, "p.extracting")) &&
+                 !File.Exists(Path.Combine(Path.GetDirectoryName(dir), "evil.txt")), "断ったら zip は残し、途中のフォルダは消し、外には何も書かない");
+        }
+        finally { Directory.Delete(dir, true); }
     }
 
     static IEnumerable<System.Windows.Forms.Control> FindAll(System.Windows.Forms.Control c)

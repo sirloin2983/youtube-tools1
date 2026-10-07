@@ -2332,3 +2332,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次: ユーザーが OpenAI と ElevenLabs のキーを作って `%USERPROFILE%\youtube-tools-keys.txt` に置く(か環境変数)→ AI が `py -3.10 dev/eval_cloud.py run --service … --model …` の見積もりを見せて「送って」をもらう → `--send` で 3 回 → `py -3.10 dev/eval_asr.py compare <手元> <クラウド>` → E1 の表に足す → 主のエンジンの決定を確定(B2 を done に)。公開ページは data.js の分で公開し直した(この節のコミットの直前)
 - 注意: AI の shell から流すと結果は `%LOCALAPPDATA%` の写し(MSIX)に入る(読むのは AI だけなので問題なし。入口の「調子」は `_auto` の名前だけ見る)。`eval_asr.py compare` は後処理の印の違いに注意を出す(想定どおり)。gpt-transcribe の languages の渡し方は未確認(400 が出たら request_fields を直す)。ElevenLabs の DELETE の口は公式の API リファレンスの検索結果で確かめた(ページ自体は 404 だった)
 - 未コミット: なし(このコミットで全部。push はユーザー)
+## 2026-10-07 Claude Code(PC。Fable)— 送るアプリ 2.4.0: 受け取った zip を保存先に `<題>_pack` のフォルダとして展開(案 C)。確認の時間を短くする案 A〜E はユーザーが選別
+- 経緯: ユーザー「一つ 90 秒程度の動画を 5 個くらい zip 展開して確認しているから、その時間を短縮させるアイデアが欲しい」→ 案 A(PC が 480p のプレビューを隣に置き、アプリで見て要らないものは消す)・B(依頼ごとにプレビューを 1 本につなぐ)・C(受け取ったら展開)・D(字幕の文と点数を一覧に)・E(候補を見てからパックにする 2 段階)を提示
+  → 「A B はいい感じだけどまだ検討の余地がある / C は解凍されたフォルダの状態で指定場所に入るならかなりいい / D E は却下」→ C を実装。A/B は保留(decisions (dh))
+- `friend-apps/request-sender/`(2.3.0 → **2.4.0**。依頼の JSON・鍵は不変): `Receiving.cs`(`ExtractZip`(既定オン)・`Extract` = zip の中の 1 つのフォルダを保存先の直下に(同じ名前は (2))・`.extracting` に書いてから名前を変え、途中で止まれば消して zip を残す・`..`/ドライブ名/使えない文字は `InvalidDataException`・展開できたら zip を消す / `ExtractOrKeep` = 展開できなければ zip を残して理由 / `DownloadAll` は 1 本ごとに展開・`NotExtracted` をまとめの文に / 空きは zip + 中身の 2 倍)・
+  `MainForm.Receive.cs`(`NewReceiving` が settings の extractZip を渡す・1 本の受け取りも展開・「受け取りました ✓ <フォルダ>(展開済み)」/「展開できませんでした」・「フォルダを開く」はフォルダを開く・案内と確認の文)・`Core.cs`(Version・`LocalState.LoadExtractZip` = settings.json の `extractZip`。画面のスイッチは無し)・
+  `build.bat`(`/r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll`。.NET Framework 4.5+ に同梱 = 友人の PC に追加は不要)・`CoreTests.cs`(+1 本 ExtractZips: 直下に置く・(2)・zip を消す・直下にファイル/先頭が 2 つなら zip の名前・`..` は断って途中のフォルダを消す)・`README.txt`(使い方と v2.4.0)
+- 確かめ: build.bat **36 件 OK**・dist\RequestSender.zip 作り直し。Python の zipfile(PC の `deliver.zip_pack` と同じ。日本語名 = UTF-8 の旗・動画は ZIP_STORED)で作った zip を `Receiving.Extract` に通す小さな確認(scratchpad)で、`見本の配信_pack\` に 3 ファイルが正しい名前・大きさで出て zip が消えることを確認
+- 文書: `docs/spec/friend-intake.md` の 2-12(2.4.0 の段落と A〜E の扱い)・`plan/decisions.md` 3-9 に (df)(dg)(dh)・`plan/data.js`(送るアプリ 2.4.0・recent ⑧・別件・U8)・公開ページ version 20(B2 のセッションの version 19 の上に)
+- 仮決め: 展開は既定オン・スイッチ無し・zip は消す (df) / 展開できなくても Dropbox からは消す (dg)。A/B を進めるなら: A は PC 側 1〜2 時間 + アプリ 3〜4 時間(まず既定のプレイヤーで開く形)、B は A の上に +1 時間
+- 未完了・次: ユーザーが dist\RequestSender.zip を友人へ渡す(U8)。A/B の検討(プレビューの画質・字幕の焼き込み・「要らない」で Dropbox から消すか)
+- 未コミット: なし(このコミットで全部)

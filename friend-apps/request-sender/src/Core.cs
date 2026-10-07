@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.3.0";
+        public const string Version = "2.4.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -653,6 +653,12 @@ namespace RequestSender
         public void SaveDownloadDir(string path)
         {
             UpdateSettings(d => d["downloadDir"] = path);
+        }
+
+        // 受け取った zip を保存先に展開するか(settings.json の "extractZip"。無ければ展開する)。画面のスイッチは無い(zip のままにしたい人だけ false を書く)
+        public bool LoadExtractZip()
+        {
+            return Json.Bool(LoadSettingsDict(), "extractZip", true);
         }
 
         void WriteAtomic(string path, string text)

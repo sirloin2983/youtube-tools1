@@ -1,6 +1,7 @@
 // 画面のタブ「受け取る」: 「① 全自動」で送った依頼のパック(.zip)と、失敗の知らせ(.失敗.txt)。
 // 一覧は Dropbox の「/出力」。受け取り終えたパック(確かめたあと)と、読み終えて「消す」を押した失敗の知らせは Dropbox から消え、一覧にも出なくなる。
-// 「すべて受け取る」= 届いているパックを古い順に 1 本ずつ(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように。2026-10-07)。「やめる」で途中で止められる
+// 「すべて受け取る」= 届いているパックを古い順に 1 本ずつ(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように。2026-10-07)。「やめる」で途中で止められる。
+// 受け取った zip は保存先に <題>_pack のフォルダとして展開し、zip は消す(2.4.0。settings.json の extractZip で止められる)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -25,7 +26,7 @@ namespace RequestSender
         readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), receiveAllBtn = new Btn("すべて受け取る", BtnKind.Normal),
                      cancelRecvBtn = new Btn("やめる", BtnKind.Normal), deleteBtn = new Btn("消す", BtnKind.Normal),
                      openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
-        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(1 つの依頼で何本もできることがあります)。「すべて受け取る」でまとめて受け取れます。受け取ったものは一覧から消えます。", Tone.Muted);
+        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(1 つの依頼で何本もできることがあります)。受け取ると保存先にフォルダとして展開され、一覧から消えます。「すべて受け取る」でまとめて。", Tone.Muted);
         readonly Lbl recvStatus = new Lbl("", Tone.Muted), lDir = new Lbl("保存先", Tone.Muted), dirLabel = new Lbl("", Tone.Text);
         readonly Bar recvBar = new Bar();
         readonly Dictionary<string, string> failureTexts = new Dictionary<string, string>();
@@ -204,7 +205,7 @@ namespace RequestSender
                 detail.Text = "題: " + e.Title + "\r\n" +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
                               "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n\r\n" +
-                              "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先に保存し、確かめたあと Dropbox と一覧から消えます。";
+                              "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先にフォルダとして展開し(zip は消します)、確かめたあと Dropbox と一覧から消えます。";
                 return;
             }
             string text;
@@ -244,21 +245,23 @@ namespace RequestSender
             recvBar.Value = 0;
             SetRecvStatus("受け取る準備をしています…", false);
             Log.Write("receive: " + e.Name + " size=" + e.Size);
-            var client = NewClient(config);
-            var receiving = new Receiving(client, NewDeleter(config));
+            var receiving = NewReceiving(config);
             int lastPermille = -1;
             string lastStep = null;
+            Action<long, long, string> show = (done, total, step) =>
+            {
+                int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
+                if (permille == lastPermille && step == lastStep) return;
+                lastPermille = permille;
+                lastStep = step;
+                OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
+            };
             RunRecv(() =>
             {
-                string path = receiving.Download(e, dir, (done, total, step) =>
-                {
-                    int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
-                    if (permille == lastPermille && step == lastStep) return;
-                    lastPermille = permille;
-                    lastStep = step;
-                    OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
-                });
-                Log.Write("receive: ok " + path);
+                string zip = receiving.Download(e, dir, show);
+                Log.Write("receive: ok " + zip);
+                string extractError;
+                string path = receiving.ExtractOrKeep(zip, dir, show, out extractError);   // 展開できたらフォルダ。できなければ zip のまま
                 // 大きさと hash を確かめて名前を変えたあと(Download が例外なく返った)だけ、Dropbox から消す
                 bool deleted = true;
                 try { receiving.Delete(e); }
@@ -274,7 +277,10 @@ namespace RequestSender
                     if (deleted)
                     {
                         RemoveEntry(e);
-                        SetRecvStatus("受け取りました ✓  " + Path.GetFileName(path) + "\n「フォルダを開く」で見られます。", false, true);
+                        if (extractError == null)
+                            SetRecvStatus("受け取りました ✓  " + Path.GetFileName(path) + (path != zip ? "(展開済み)" : "") + "\n「フォルダを開く」で見られます。", false, true);
+                        else
+                            SetRecvStatus("受け取りましたが、展開できませんでした(" + extractError + ")。zip はそのまま保存先にあります(右クリック →「すべて展開」)。", true);
                     }
                     else
                     {
@@ -294,7 +300,7 @@ namespace RequestSender
             if (packs.Count == 0) return;
             long total = OutputFolder.TotalSize(packs);
             if (MessageBox.Show(this, "届いているパック " + packs.Count + " 本(合計 " + Mb(total) + ")をすべて受け取ります。\n保存先: " + downloadDir +
-                    "\n\n古い順に 1 本ずつ受け取り、ちゃんと保存できたものから Dropbox と一覧から消えます。途中で「やめる」を押せます。",
+                    "\n\n古い順に 1 本ずつ受け取って保存先にフォルダとして展開し、ちゃんと保存できたものから Dropbox と一覧から消えます。途中で「やめる」を押せます。",
                     "すべて受け取る", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             Config config = RecvConfig();
             if (config == null) return;
@@ -304,7 +310,7 @@ namespace RequestSender
             recvBar.Value = 0;
             SetRecvStatus("受け取る準備をしています…(" + packs.Count + " 本)", false);
             Log.Write("receive all: " + packs.Count + " packs, " + total + " bytes");
-            var receiving = new Receiving(NewClient(config), NewDeleter(config));
+            var receiving = NewReceiving(config);
             int lastPermille = -1, lastNo = 0;
             string lastStep = null;
             RunRecv(() =>
@@ -329,9 +335,9 @@ namespace RequestSender
         {
             if (r.LastPath != null) lastDownloaded = r.LastPath;
             RemoveEntries(r.Done);
-            bool clean = r.Error == null && !r.Canceled && r.Failed.Count == 0 && r.Kept.Count == 0;
+            bool clean = r.Error == null && !r.Canceled && r.Failed.Count == 0 && r.Kept.Count == 0 && r.NotExtracted.Count == 0;
             if (clean) recvBar.Value = 1000;
-            SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.Error != null || r.Failed.Count > 0, clean);
+            SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.Error != null || r.Failed.Count > 0 || r.NotExtracted.Count > 0, clean);
         }
 
         // 受け取りを途中でやめる(いま受け取っている途中のファイルは消す。受け取り終えたものはそのまま)
@@ -451,6 +457,11 @@ namespace RequestSender
             return new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write };
         }
 
+        Receiving NewReceiving(Config config)
+        {
+            return new Receiving(NewClient(config), NewDeleter(config)) { ExtractZip = state.LoadExtractZip() };
+        }
+
         void ChangeDir()
         {
             if (RecvBusy) return;
@@ -471,6 +482,11 @@ namespace RequestSender
         {
             try
             {
+                if (lastDownloaded != null && Directory.Exists(lastDownloaded))   // 展開したパックのフォルダ(動画・字幕・Resolve 用のファイルが並ぶ)
+                {
+                    Process.Start("explorer.exe", "\"" + lastDownloaded + "\"");
+                    return;
+                }
                 if (lastDownloaded != null && File.Exists(lastDownloaded))
                 {
                     Process.Start("explorer.exe", "/select,\"" + lastDownloaded + "\"");
