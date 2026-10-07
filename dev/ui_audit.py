@@ -603,7 +603,10 @@ def run_scene(pg, scene, width, variant, out, shots):
     tag = f"{scene['name']}@{width}/{variant['name']}"
     only = variant.get("only")
     try:
+        same = pg.url() == scene["url"]
         pg.goto(scene["url"], wait_until="networkidle", timeout=30000)
+        if same:   # 同じ URL(#tx など)だと読み込み直さず前の場面のメニューが残るので、改めて読み込む
+            pg.reload(wait_until="networkidle", timeout=30000)
         pg.wait_for_timeout(600)
         do_actions(pg, scene.get("actions", []))
         pg.wait_for_timeout(300)
