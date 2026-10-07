@@ -12,8 +12,9 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.error
 import wave
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -37,8 +38,9 @@ def silence_wav(path, sec):
 
 
 def quiet(fn, *a):
+    """fn を呼ぶ -> (戻り値か SystemExit, 標準出力 + 標準エラーの文字)。argparse の検査の文は標準エラーに出る"""
     buf = io.StringIO()
-    with redirect_stdout(buf):
+    with redirect_stdout(buf), redirect_stderr(buf):
         try:
             return fn(*a), buf.getvalue()
         except SystemExit as e:
@@ -281,6 +283,94 @@ class RunTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 EC.send_audio(svc, "gpt-4o-transcribe", KEY, b"RIFF")
         self.assertIsNone(EC.delete_remote(svc, KEY, "x"))   # OpenAI には消す口が無い(保持なし)
+
+    def test_error_text_hides_key_fragments(self):
+        """先方が 401 の本文にキーを(そのまま・一部伏せて)返しても、エラーの文にもとのキーの断片を出さない"""
+        svc = dict(EC.SERVICES["openai"], id="openai")
+        echoed = {"error": {"message": "Incorrect API key provided: %s. masked: sk-proj-********************abcd" % KEY}}
+        with mock.patch.object(EC, "http_json", lambda *a, **k: (401, echoed)):
+            with self.assertRaises(RuntimeError) as cm:
+                EC.send_audio(svc, "gpt-4o-transcribe", KEY, b"RIFF")
+        msg = str(cm.exception)
+        self.assertIn("HTTP 401", msg)
+        for frag in (KEY, "0123456789", "abcd", "sk-proj"):
+            self.assertNotIn(frag, msg)
+        self.assertEqual(EC.scrub("no key here", KEY), "no key here")
+        self.assertEqual(EC.scrub("key=" + KEY, ""), "key=sk-***")   # key が空でも sk- の形は伏せる
+
+    def test_delete_remote_failure_is_recorded_not_raised(self):
+        svc = dict(EC.SERVICES["elevenlabs"], id="elevenlabs")
+        for err in (urllib.error.URLError("接続できない"), TimeoutError("timed out"), ValueError("json でない")):
+            with mock.patch.object(EC, "http_json", mock.Mock(side_effect=err)):
+                r = EC.delete_remote(svc, KEY, "tr_1")
+            self.assertEqual((r["id"], r["status"], r["ok"]), ("tr_1", 0, False))
+            self.assertTrue(r["error"])
+            self.assertNotIn(KEY, json.dumps(r))
+        with mock.patch.object(EC, "http_json", lambda *a, **k: (404, {})):   # もう無い = 消えている扱い(今までどおり)
+            self.assertTrue(EC.delete_remote(svc, KEY, "tr_1")["ok"])
+        self.assertIsNone(EC.delete_remote(svc, KEY, ""))   # id の無い応答
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_delete_failure_keeps_paid_response(self):
+        """送って課金したあとで DELETE が通信エラーになっても、応答は控えに残し・採点まで進み・知らせる"""
+        resp = {"transcription_id": "tr_9", "words": [{"text": "テスト文1テスト文2x", "start": 0.5, "end": 3.5, "type": "word", "speaker_id": "speaker_0"}]}
+
+        def http(method, url, headers, body=None, content_type=None, timeout=None):
+            if method == "DELETE":
+                raise urllib.error.URLError("接続できない")
+            return 200, resp
+        with mock.patch.object(EC, "http_json", http):
+            res, out = quiet(EC.main, ["run", "--service", "elevenlabs", "--model", "scribe_v2", "--data", self.data, "--send", "--no-save"])
+        self.assertIn("消せませんでした", out)
+        self.assertEqual(res["meta"]["cloud"]["remoteKept"], 1)
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "evals", "cloud", "elevenlabs", "scribe_v2", "ccccccccccc1.json")))
+
+    def test_arguments_are_checked(self):
+        base = ["run", "--data", self.data]
+        for bad in ("-1", "nan", "inf", "abc"):   # 負・nan・inf では「超えたら送らない」が効かなくなる
+            res, out = quiet(EC.main, base + ["--max-usd", bad])
+            self.assertIsInstance(res, SystemExit, bad)
+            self.assertEqual(res.code, 2, bad)
+            self.assertIn("--max-usd", out)
+        # 送り先と合わないモデルは、何も読まず・送らずに止める
+        with mock.patch.object(EC, "http_json", self.fake_http({})):
+            for svc, model, other in (("elevenlabs", "gpt-4o-transcribe", "openai"), ("openai", "scribe_v2", "elevenlabs")):
+                res, out = quiet(EC.main, base + ["--service", svc, "--model", model, "--send"])
+                self.assertIsInstance(res, SystemExit)
+                self.assertIn("--service " + other, str(res))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(EC.resolve_model("openai", None), "gpt-4o-transcribe")
+        self.assertEqual(EC.resolve_model("elevenlabs", None), "scribe_v2")
+        self.assertEqual(EC.resolve_model("openai", "gpt-future-transcribe"), "gpt-future-transcribe")   # どの表にも無い新しいモデルは通す
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
+    def test_unknown_model_warns_price_and_does_not_send_by_default(self):
+        with mock.patch.object(EC, "http_json", self.fake_http({"text": "x"})):
+            res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-future-transcribe", "--data", self.data])
+        self.assertIsNone(res)
+        self.assertEqual(self.calls, [])
+        self.assertIn("単価はこの道具に無い", out)
+        self.assertIn("見積もり $0.000", out)
+
+    def test_key_file_with_other_encoding_or_unreadable(self):
+        svc = dict(EC.SERVICES["openai"], id="openai")
+        kf = os.path.join(self.tmp, "keys_cp932.txt")
+        with open(kf, "wb") as f:   # 日本語のコメントが cp932 でも、キーの行は読める
+            f.write("# 鍵のファイル\r\nOPENAI_API_KEY=file-key\r\n".encode("cp932"))
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            self.assertEqual(EC.load_key(svc, kf), ("file-key", "鍵のファイル"))
+            with mock.patch("builtins.open", side_effect=PermissionError("denied")):
+                self.assertEqual(EC.load_key(svc, kf), ("", ""))   # 読めないファイルは「キーが無い」と同じ
+
+    def test_list_ignores_stray_files(self):
+        root = os.path.join(self.data, "evals", "cloud")
+        os.makedirs(os.path.join(root, "openai", "m1"))
+        with open(os.path.join(root, "openai", "m1", "a.json"), "w") as f:
+            f.write("{}")
+        with open(os.path.join(root, "stray.txt"), "w") as f:   # 送り先のフォルダでないファイル
+            f.write("x")
+        rows, _out = quiet(EC.main, ["list", "--data", self.data])
+        self.assertEqual(rows, [("openai", "m1", 1)])
 
     def test_prices_lists_every_model(self):
         table, out = quiet(EC.main, ["prices"])

@@ -12,12 +12,13 @@
 
   決まり(計画 E1「音声を外へ送る」: 送る前に毎回確認・秒数と見積もり・キーは環境変数・結果は保存して再送しない・終わったら先方の音声を消す):
   - キーは環境変数(OPENAI_API_KEY / ELEVENLABS_API_KEY)か、リポジトリの外の鍵のファイル(--key-file。既定 %USERPROFILE%/youtube-tools-keys.txt に NAME=value の行。
-    AI は中身を見ない)。画面・結果・ログに出さない。文字起こしの全文も画面には出さない(数だけ)
+    AI は中身を見ない)。画面・結果・ログに出さない(先方のエラー文にキーの断片が戻ってきても伏せる = scrub)。文字起こしの全文も画面には出さない(数だけ)
   - 応答は <作業データ>/evals/cloud/<送り先>/<モデル>/<文書 id>.json に残し、あれば再送しない(採点のやり直し・別の数え方は送らずにできる)。
     文書の範囲(start・end)か boost が変わっていたら古い応答は使わない(送り直しになるので --send が要る)
   - 送る音声は手元のエンジンと同じ 16kHz モノラルの wav(editor の extract_audio。boost も設定どおり)。ヒント(用語集・prompt・keyterms)は渡さない(評価用はヒントなしの条件)
   - 先方の保持: OpenAI の /v1/audio/transcriptions は「保持なし・学習に使わない」(2026-10-07 の developers.openai.com の your-data)。
-    ElevenLabs は既定で履歴に残る(Zero Retention は Enterprise だけ)ので、応答の transcription_id を DELETE で消す(--keep-remote で残す)
+    ElevenLabs は既定で履歴に残る(Zero Retention は Enterprise だけ)ので、応答の transcription_id を DELETE で消す(--keep-remote で残す)。
+    消せなかったときは応答を控えに残したうえで知らせる(結果の meta.cloud.remoteKept に数える)
   - 結果は eval_asr.py と同じ形(schema youtube-tools-asr-eval/v1)で <作業データ>/evals/asr/<日時>_<名前>.json に保存する
     → `python dev/eval_asr.py compare 手元の結果.json クラウドの結果.json` がそのまま使える。行の後処理の印(meta.post)は手元と違うので compare が注意を出す(想定どおり)
   - 行の時刻: diarized_json(OpenAI の *-diarize)・verbose_json(whisper-1)は区間の時刻、ElevenLabs は単語の時刻から行を組む(話者が変わる・0.6 秒以上の間・12 秒で区切る)。
@@ -27,12 +28,15 @@
 """
 import argparse
 import json
+import math
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -58,10 +62,13 @@ SERVICES = {
         "deleteUrl": "https://api.elevenlabs.io/v1/speech-to-text/transcripts/%s",
         "maxBytes": 2 * 1024 * 1024 * 1024},
 }
+LANGUAGE = "ja"      # 送り先に伝える言語(手元の測定と同じ日本語)
 WORD_GAP = 0.6       # ElevenLabs の単語の時刻から行を組むとき、この秒以上の間で区切る
 ROW_MAX_SEC = 12.0   # 同上。1 行がこの長さを超えたら区切る
 RETRY_WAIT = 5       # 429・5xx のときに待つ秒(1 回だけやり直す)
 TIMEOUT = 600        # 1 本の要求の上限(秒)
+YEN_PER_USD = 150    # 見積もりの円換算(目安。申し込みの前に為替を見直す)
+PRICES_SAMPLE_MIN = 16   # prices の「何分で いくら」の分(評価用の定点の量の目安 = 約 16 分)
 POST_NONE = {"clip": False, "mergeRepeats": False, "pullEnds": False, "joinGap": None}   # クラウドの行には editor の後処理をかけない(compare が注意を出す = 想定どおり)
 DEFAULT_KEY_FILE = os.path.join(os.path.expanduser("~"), "youtube-tools-keys.txt")      # 環境変数が無いときの鍵のファイル(リポジトリの外。.gitignore に頼らない)
 
@@ -71,7 +78,7 @@ DEFAULT_KEY_FILE = os.path.join(os.path.expanduser("~"), "youtube-tools-keys.txt
 def request_fields(service, model):
     """送り先ごとの multipart の項目(file 以外)。ヒント(prompt・keyterms)は渡さない"""
     if service == "openai":
-        f = {"model": model, "language": "ja"}
+        f = {"model": model, "language": LANGUAGE}
         if model.endswith("-diarize"):
             f.update({"response_format": "diarized_json", "chunking_strategy": "auto"})   # 30 秒より長い音声は chunking_strategy が要る
         elif model == "whisper-1":
@@ -79,7 +86,7 @@ def request_fields(service, model):
         else:
             f["response_format"] = "json"   # gpt-4o-transcribe・gpt-4o-mini-transcribe・gpt-transcribe は時刻を返さない
         return f
-    return {"model_id": model, "language_code": "ja", "diarize": "true", "timestamps_granularity": "word", "tag_audio_events": "false"}
+    return {"model_id": model, "language_code": LANGUAGE, "diarize": "true", "timestamps_granularity": "word", "tag_audio_events": "false"}
 
 
 def timing_kind(service, model):
@@ -124,24 +131,37 @@ def auth_headers(svc, key):
     return {svc["keyHeader"]: svc["keyPrefix"] + key, "Accept": "application/json"}
 
 
-def send_audio(svc, model, key, blob, filename="a.wav"):
-    """音声を 1 本送る -> (応答の JSON, かかった秒)。429・5xx は RETRY_WAIT 秒待って 1 回だけやり直す。失敗は RuntimeError(本文の先頭だけ。キーは含めない)"""
-    ctype, body = multipart(request_fields(svc["id"], model), filename, blob)
+def scrub(text, key):
+    """エラーの文からキーを伏せる。先方が 401 の本文に、受け取ったキーを一部だけ伏せて(sk-proj-****abcd のように)返すことがあるので、
+    そのままの値に加えて sk- / sk_ で始まる形も消す。画面・結果・ログにキーの断片も出さない約束のため"""
+    if key:
+        text = text.replace(key, "***")
+    return re.sub(r"\bsk[-_][\w*-]{4,}", "sk-***", text)
+
+
+def send_audio(svc, model, key, blob):
+    """音声を 1 本送る -> (応答の JSON, かかった秒)。429・5xx は RETRY_WAIT 秒待って 1 回だけやり直す。失敗は RuntimeError(本文の先頭だけ。キーは伏せる)"""
+    ctype, body = multipart(request_fields(svc["id"], model), "a.wav", blob)
     t0 = time.monotonic()
     status, resp = http_json("POST", svc["url"], auth_headers(svc, key), body, ctype)
     if status == 429 or status >= 500:
         time.sleep(RETRY_WAIT)
         status, resp = http_json("POST", svc["url"], auth_headers(svc, key), body, ctype)
     if status != 200:
-        raise RuntimeError("HTTP %s: %s" % (status, json.dumps(resp, ensure_ascii=False)[:300]))
+        raise RuntimeError("HTTP %s: %s" % (status, scrub(json.dumps(resp, ensure_ascii=False), key)[:300]))
     return resp, time.monotonic() - t0
 
 
 def delete_remote(svc, key, remote_id):
-    """先方に残った文字起こしを消す(ElevenLabs の transcription_id)-> {"id", "status", "ok"}。消す口の無い送り先・id の無い応答なら None"""
+    """先方に残った文字起こしを消す(ElevenLabs の transcription_id)-> {"id", "status", "ok"}。消す口の無い送り先・id の無い応答なら None。
+    通信が切れた・応答が読めないときも例外にせず status 0・ok False(+ error)で返す(送って課金したあとなので、応答の控えを失わない)"""
     if not svc.get("deleteUrl") or not remote_id:
         return None
-    status, _resp = http_json("DELETE", svc["deleteUrl"] % urllib.request.quote(str(remote_id), safe=""), auth_headers(svc, key))
+    url = svc["deleteUrl"] % urllib.parse.quote(str(remote_id), safe="")
+    try:
+        status, _resp = http_json("DELETE", url, auth_headers(svc, key))
+    except (OSError, ValueError) as e:   # URLError・タイムアウトは OSError / JSON でない本文は ValueError
+        return {"id": str(remote_id), "status": 0, "ok": False, "error": scrub(str(e), key)[:200]}
     return {"id": str(remote_id), "status": status, "ok": status in (200, 204, 404)}
 
 
@@ -231,6 +251,14 @@ def load_cache(path, spec):
     return c
 
 
+def save_cache(path, rec):
+    """応答の控えを書く(フォルダは必要になったときに作る。書きかけを残さない)"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(rec, f, ensure_ascii=False, indent=1)
+    os.replace(path + ".tmp", path)
+
+
 def doc_seconds(S, spec):
     """送る音声の長さの目安(秒)。文書に end があれば end − start、無ければ ffprobe で測った長さ − start(見積もりに使う。取り出さない)"""
     if spec["end"]:
@@ -250,33 +278,44 @@ def extract_wav(S, spec):
         with open(wav, "rb") as f:
             return f.read(), sec
     finally:
-        try:
-            if os.path.isfile(wav):
-                os.unlink(wav)
-            os.rmdir(tmp)
-        except OSError:
-            pass
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- run
+
+def resolve_model(service, model):
+    """--model(省略なら送り先の表の最初のモデル)-> モデル名。ほかの送り先の表にあるモデルを選んでいたら止める(組み合わせの間違い)。
+    どの表にも無いモデルは新しいモデルを試す場合があるので通す(単価が分からないことは cmd_run が知らせる)"""
+    if not model:
+        return next(iter(SERVICES[service]["models"]))
+    if model not in SERVICES[service]["models"]:
+        for other, svc in SERVICES.items():
+            if other != service and model in svc["models"]:
+                raise SystemExit("モデル %s は %s のモデルです(%s の表には無い)。--service %s を付けてください" % (model, other, service, other))
+    return model
+
+
+def estimate_usd(items, price):
+    """items の音声の長さ(秒)の合計の見積もり(USD)"""
+    return sum(i["sec"] for i in items) / 60 * price
+
 
 def plan_lines(svc, model, items, todo, price):
     """送る前に見せる一覧(文書・秒・控えの有無)と合計・見積もり。-> 表示する行の一覧"""
     lines = ["== 送り先 %s / モデル %s / 単価 $%.4f/分 ==" % (svc["id"], model, price), "先方の保持: " + svc["retention"]]
     for it in items:
         lines.append("  %s %5.1f 秒  %s  %s" % (it["doc"]["id"], it["sec"], "控えあり(送らない)" if it["cached"] else "送る", str(it["doc"].get("title") or "")[:30]))
-    sec_all, sec_todo = sum(i["sec"] for i in items), sum(i["sec"] for i in todo)
-    lines.append("文書 %d 本・%.1f 分(うち送るのは %d 本・%.1f 分)・見積もり $%.3f(約 %.0f 円 @150)"
-                 % (len(items), sec_all / 60, len(todo), sec_todo / 60, sec_todo / 60 * price, sec_todo / 60 * price * 150))
+    est = estimate_usd(todo, price)
+    lines.append("文書 %d 本・%.1f 分(うち送るのは %d 本・%.1f 分)・見積もり $%.3f(約 %.0f 円 @%d)"
+                 % (len(items), sum(i["sec"] for i in items) / 60, len(todo), sum(i["sec"] for i in todo) / 60, est, est * YEN_PER_USD, YEN_PER_USD))
     if todo:
         lines.append("注意: 評価用の音声(配信者など他人の声を含む)を外へ送ります。送るには --send(ユーザーの確認のあと)")
     return lines
 
 
-def send_all(S, svc, model, key, todo, cdir, keep_remote):
+def send_all(S, svc, model, key, todo, keep_remote):
     """送る本(todo)を順に送って控えに残す。失敗は本ごとに記録して続ける -> 失敗の一覧"""
     failed = []
-    os.makedirs(cdir, exist_ok=True)
     for n, it in enumerate(todo, 1):
         d = it["doc"]
         print("(%d/%d) %s 送信 …" % (n, len(todo), d["id"]), flush=True)
@@ -286,8 +325,9 @@ def send_all(S, svc, model, key, todo, cdir, keep_remote):
                 raise RuntimeError("音声が大きすぎます(%d MB。上限 %d MB)" % (len(blob) // 1048576, svc["maxBytes"] // 1048576))
             resp, wall = send_audio(svc, model, key, blob)
         except Exception as e:   # 1 本の失敗で全部を止めない(残りの本は送る。失敗は数に入れない)
-            print("   とばしました: %s" % str(e)[:200])
-            failed.append({"id": d["id"], "error": str(e)[:200]})
+            msg = scrub(str(e), key)[:200]
+            print("   とばしました: %s" % msg)
+            failed.append({"id": d["id"], "error": msg})
             continue
         rec = {"schema": "youtube-tools-cloud-asr/v1", "service": svc["id"], "model": model, "doc": d["id"], "at": int(time.time() * 1000),
                "span": span_key(it["spec"]), "audioSec": round(sec, 2), "wallSec": round(wall, 2), "bytes": len(blob),
@@ -295,10 +335,9 @@ def send_all(S, svc, model, key, todo, cdir, keep_remote):
         if not keep_remote:
             rec["remote"] = delete_remote(svc, key, resp.get("transcription_id"))
             if rec["remote"] and not rec["remote"]["ok"]:
-                print("   注意: 先方の文字起こしを消せませんでした(HTTP %s)。先方の画面で消してください" % rec["remote"]["status"])
-        with open(it["cache"] + ".tmp", "w", encoding="utf-8") as f:
-            json.dump(rec, f, ensure_ascii=False, indent=1)
-        os.replace(it["cache"] + ".tmp", it["cache"])
+                print("   注意: 先方の文字起こしを消せませんでした(%s)。先方の画面で消してください"
+                      % (("HTTP %s" % rec["remote"]["status"]) if rec["remote"]["status"] else rec["remote"].get("error") or "通信エラー"))
+        save_cache(it["cache"], rec)
         it["cached"] = rec
         print("   %.1f 秒の音声 / %.1f 秒(行 %d)" % (sec, wall, len(rows_from(svc["id"], model, resp, 0.0, sec))))
     return failed
@@ -322,15 +361,16 @@ def score_all(S, svc, model, items, docs, terms, args, data, sel, failed):
                         "sentAt": c.get("at"), "remote": c.get("remote")})
     per_doc += failed
     done = {p["id"] for p in per_doc if not p.get("error")}
-    meta = E.base_meta("run", args, docs, data, sel)
+    price = svc["models"].get(model)
     engine = {"engine": "cloud:" + svc["id"], "engineVersion": "", "model": model, "device": "cloud",
-              "settings": {"language": "ja", "boost": bool(items[0]["spec"].get("boost")) if items else False, "timing": kind, "fields": request_fields(svc["id"], model)},
+              "settings": {"language": LANGUAGE, "boost": bool(items[0]["spec"].get("boost")) if items else False, "timing": kind, "fields": request_fields(svc["id"], model)},
               "glossary": [], "context": "none", "hintFree": True}
+    cloud = {"service": svc["id"], "model": model, "pricePerMin": price, "estimateUsd": round(audio_sec / 60 * (price or 0), 4), "timing": kind,
+             "remoteDeleted": sum(1 for p in per_doc if (p.get("remote") or {}).get("ok")),
+             "remoteKept": sum(1 for p in per_doc if p.get("remote") and not p["remote"].get("ok"))}
+    meta = E.base_meta("run", args, docs, data, sel)
     meta.update({"engine": engine, "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": 0.0, "peakMemMB": None, "post": dict(POST_NONE),
-                 "perDoc": per_doc, "failed": len(failed), "cloud": {"service": svc["id"], "model": model, "pricePerMin": svc["models"].get(model),
-                                                                     "estimateUsd": round(audio_sec / 60 * (svc["models"].get(model) or 0), 4), "timing": kind,
-                                                                     "remoteDeleted": sum(1 for p in per_doc if (p.get("remote") or {}).get("ok")),
-                                                                     "remoteKept": sum(1 for p in per_doc if p.get("remote") and not p["remote"].get("ok"))}})
+                 "perDoc": per_doc, "failed": len(failed), "cloud": cloud})
     summary = E.summarize(groups, [d for d in docs if d["id"] in done], S, {"engine": engine["engine"], "model": model}, None, nosub)
     return {"meta": meta, "summary": summary, "groups": groups, "terms": terms}
 
@@ -341,27 +381,19 @@ def load_key(svc, key_file):
     if key.strip():
         return key.strip(), "環境変数 " + svc["keyEnv"]
     if key_file and os.path.isfile(key_file):
-        with open(key_file, encoding="utf-8-sig") as f:
-            for line in f:
-                k, _sep, v = line.strip().partition("=")
-                if k.strip() == svc["keyEnv"] and v.strip():
-                    return v.strip().strip('"').strip("'"), "鍵のファイル"
+        try:
+            with open(key_file, encoding="utf-8-sig", errors="replace") as f:   # 日本語のコメントが別の文字コードでも、キーの行(ASCII)は読む
+                for line in f:
+                    k, _sep, v = line.strip().partition("=")
+                    if k.strip() == svc["keyEnv"] and v.strip():
+                        return v.strip().strip('"').strip("'"), "鍵のファイル"
+        except OSError:   # 読めないファイルは「キーが無い」と同じに扱う(呼び出し側が置き方を案内する)
+            pass
     return "", ""
 
 
-def cmd_run(S, args, data):
-    svc = dict(SERVICES[args.service], id=args.service)
-    model = args.model or next(iter(svc["models"]))
-    price = svc["models"].get(model)
-    if price is None:
-        print("注意: モデル %s の単価はこの道具に無い(見積もりは $0)。公式の料金ページで確かめること" % model)
-        price = 0.0
-    settings = C.read_json(os.path.join(data, "settings.json"), {}) or {}
-    boost = (settings.get("boost") is True) if args.boost is None else args.boost == "on"
-    docs, sel = E.select_docs(data, args)
-    if not docs:
-        raise SystemExit("測れる文書がありません(校正済みの行がある評価用の文書)")
-    cdir = cache_dir(data, svc["id"], model)
+def collect_items(S, docs, cdir, data, boost):
+    """文書ごとの送る単位(音声の範囲・控え・秒数)を組む -> (items, 音声が見つからず測れない文書の失敗の一覧)"""
     items, failed = [], []
     for d in docs:
         try:
@@ -371,6 +403,22 @@ def cmd_run(S, args, data):
             continue
         path = os.path.join(cdir, d["id"] + ".json")
         items.append({"doc": d, "spec": spec, "offset": offset, "where": where, "cache": path, "cached": load_cache(path, spec), "sec": doc_seconds(S, spec)})
+    return items, failed
+
+
+def cmd_run(S, args, data):
+    svc = dict(SERVICES[args.service], id=args.service)
+    model = resolve_model(args.service, args.model)
+    price = svc["models"].get(model)
+    if price is None:
+        print("注意: モデル %s の単価はこの道具に無い(見積もりは $0 = --max-usd の上限も効かない)。公式の料金ページで確かめること" % model)
+        price = 0.0
+    settings = C.read_json(os.path.join(data, "settings.json"), {}) or {}
+    boost = (settings.get("boost") is True) if args.boost is None else args.boost == "on"
+    docs, sel = E.select_docs(data, args)
+    if not docs:
+        raise SystemExit("測れる文書がありません(校正済みの行がある評価用の文書)")
+    items, failed = collect_items(S, docs, cache_dir(data, svc["id"], model), data, boost)
     todo = [i for i in items if not i["cached"]]
     for line in plan_lines(svc, model, items, todo, price):
         print(line)
@@ -382,10 +430,10 @@ def cmd_run(S, args, data):
             raise SystemExit("キーがありません。環境変数 %s か、鍵のファイル %s に「%s=…」の行を置いてください(画面・結果には出しません)"
                              % (svc["keyEnv"], args.key_file, svc["keyEnv"]))
         print("キー: " + key_from)
-        est = sum(i["sec"] for i in todo) / 60 * price
+        est = estimate_usd(todo, price)
         if est > args.max_usd:
             raise SystemExit("見積もり $%.3f が上限 --max-usd %.2f を超えています。送りません" % (est, args.max_usd))
-        failed += send_all(S, svc, model, key, todo, cdir, args.keep_remote)
+        failed += send_all(S, svc, model, key, todo, args.keep_remote)
     if not any(i["cached"] for i in items):
         raise SystemExit("採点できる応答がありません")
     terms = E.name_terms(S, settings)
@@ -398,11 +446,13 @@ def cmd_run(S, args, data):
 
 
 def cmd_list(data):
+    """保存してある応答の送り先・モデルごとの本数 -> [(送り先, モデル, 本数)]"""
     root = os.path.join(data, "evals", "cloud")
     rows = []
     for svc in sorted(os.listdir(root)) if os.path.isdir(root) else []:
-        for model in sorted(os.listdir(os.path.join(root, svc))):
-            d = os.path.join(root, svc, model)
+        svc_dir = os.path.join(root, svc)
+        for model in sorted(os.listdir(svc_dir)) if os.path.isdir(svc_dir) else []:
+            d = os.path.join(svc_dir, model)
             if os.path.isdir(d):
                 n = len([f for f in os.listdir(d) if f.endswith(".json")])
                 rows.append((svc, model, n))
@@ -415,9 +465,20 @@ def cmd_list(data):
 def cmd_prices():
     for sid, svc in SERVICES.items():
         for m, p in svc["models"].items():
-            print("%-12s %-28s $%.4f/分  16 分で $%.2f" % (sid, m, p, p * 16))
+            print("%-12s %-28s $%.4f/分  %d 分で $%.2f" % (sid, m, p, PRICES_SAMPLE_MIN, p * PRICES_SAMPLE_MIN))
         print("    保持: " + svc["retention"])
     return SERVICES
+
+
+def usd_limit(text):
+    """--max-usd の値(argparse の type)。0 以上の有限の数だけ。負の数・nan・inf だと「超えたら送らない」の比較が壊れる(nan との比較はいつも偽)"""
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("数で指定してください: %r" % text)
+    if not math.isfinite(v) or v < 0:
+        raise argparse.ArgumentTypeError("0 以上の数で指定してください: %r" % text)
+    return v
 
 
 def main(argv=None):
@@ -426,29 +487,30 @@ def main(argv=None):
     p.add_argument("--service", choices=tuple(SERVICES), default="openai")
     p.add_argument("--model", help="送り先のモデル(openai: gpt-4o-transcribe / gpt-4o-transcribe-diarize / gpt-4o-mini-transcribe / gpt-transcribe / whisper-1。elevenlabs: scribe_v2)")
     p.add_argument("--send", action="store_true", help="実際に送る(付けなければ見積もりだけ。控えのある本は付けても送らない)")
-    p.add_argument("--max-usd", dest="max_usd", type=float, default=1.0, help="見積もりがこれ(USD)を超えたら送らない(既定 1.0)")
+    p.add_argument("--max-usd", dest="max_usd", type=usd_limit, default=1.0, help="見積もりがこれ(USD。0 以上)を超えたら送らない(既定 1.0)")
     p.add_argument("--keep-remote", dest="keep_remote", action="store_true", help="先方に残った文字起こしを消さない(ElevenLabs)")
     p.add_argument("--key-file", dest="key_file", default=DEFAULT_KEY_FILE,
                    help="環境変数が無いときに読む鍵のファイル(NAME=value の行。既定 %%USERPROFILE%%\\youtube-tools-keys.txt。リポジトリの外に置く)")
     p.add_argument("--data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
-    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval")
+    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="古い指定(--source が優先。eval_asr.py と同じ)")
     p.add_argument("--source", choices=("eval", "daily", "all", "friend"), help="測る文書の出どころ(既定 eval = 評価用。eval_asr.py と同じ)")
     p.add_argument("--reviewed", choices=("only", "prefer", "ignore"), help="確かめ済みの扱い(eval_asr.py と同じ。既定は評価用なら only)")
-    p.add_argument("--since")
-    p.add_argument("--until")
-    p.add_argument("--intake")
+    p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ(eval_asr.py と同じ)")
+    p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
+    p.add_argument("--intake", help="友人の zip の取り込み先(--source friend・all のとき。既定は eval_asr.py と同じ)")
     p.add_argument("--docs", help="文書の id をカンマ区切りで")
     p.add_argument("--boost", choices=("on", "off"), help="小さい声の持ち上げ(既定は設定どおり。手元の測定と同じにする)")
     p.add_argument("--label", help="結果に付ける名前(既定 cloud-<送り先>-<モデル>)")
-    p.add_argument("--no-save", dest="no_save", action="store_true")
+    p.add_argument("--no-save", dest="no_save", action="store_true", help="結果を保存しない(応答の控えは送ったときに残る)")
     args = p.parse_args(argv)
+    if args.mode == "prices":   # 作業データは要らない
+        return cmd_prices()
     args.docs = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None
     data = E.real_data_dir(args.data)
     if args.mode == "list":
         return cmd_list(data)
-    if args.mode == "prices":
-        return cmd_prices()
-    args.label = args.label or "cloud-%s-%s" % (args.service, args.model or next(iter(SERVICES[args.service]["models"])))
+    args.model = resolve_model(args.service, args.model)   # 送り先と合わないモデルは、作業データを読む前に止める
+    args.label = args.label or "cloud-%s-%s" % (args.service, args.model)
     S = C.load_serve()
     res = cmd_run(S, args, data)
     if res is None:
