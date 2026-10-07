@@ -68,8 +68,13 @@ const GB = 1024 * 1024 * 1024;
 const fmtBytes = b => (b == null || !Number.isFinite(Number(b)) ? '' : b >= GB ? (b / GB).toFixed(1) + ' GB' : Math.round(b / 1048576) + ' MB');
 const LIVE_QUALITY = [['best', 'いちばん良い画質'], ['1080p', '1080p(おすすめ)'], ['720p', '720p(容量を抑える)']];
 const LIVE_SENS = [['high', '高い(多めに出す)'], ['normal', 'ふつう'], ['low', '低い(少なめに出す)']];   // 配信中の候補の感度(live.detect.sens)
-/* 数の欄: 整数にして lo〜hi に収め、欄にも書き戻す(空・文字なら d) */
-function clampInt(el, lo, hi, d){ const n = Math.round(Number(el.value)); const v = el.value !== '' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; el.value = String(v); return v; }
+/* 数の設定の範囲と既定 [lo, hi, 既定](範囲は home/prefs.py の LIVE_PER_HOUR・LIVE_WAIT_MIN、既定は同じファイルの DEFAULTS と同じ) */
+const PEAK_PER_HOUR = [1, 30, 6];   // live.detect.perHour: 1 時間に出す候補の数
+const AUTO_WAIT_MIN = [1, 60, 5];   // live.autoAdopt.waitMin: 候補が決まってから待つ分
+/* 数の欄: 整数にして lo〜hi に収め、欄にも書き戻す(空・文字なら既定) */
+function clampInt(el, [lo, hi, d]){ const n = Math.round(Number(el.value)); const v = el.value !== '' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; el.value = String(v); return v; }
+/* 入口の値が範囲の整数ならそのまま、違えば既定 */
+const intIn = (x, [lo, hi, d]) => (Number.isInteger(x) && x >= lo && x <= hi ? x : d);
 let liveBuilt = false, liveActive = 0;
 function buildLive(){
   if (liveBuilt || !$('#setCollab')) return;
@@ -90,17 +95,17 @@ function buildLive(){
     <label class="rv-check" for="liveAutoArch"><input type="checkbox" class="ui-switch" id="liveAutoArch" checked>配信が終わったら、自動で本番版に作り直す</label>
     <p class="hint">アーカイブが用意できてから作り直します(翌日になることもあります)。書き出した切り抜きを、同じ名前のまま本番の画質に入れ替えます。③ の帯の「アーカイブで作り直す」でも始められます。</p>
     <label class="rv-check" for="liveAutoDel"><input type="checkbox" class="ui-switch" id="liveAutoDel">本番版に入れ替えたら録画を消す(マークが無い録画は 1 日で消す)</label>
-    <p class="hint">録画は 1 時間で 3〜4GB 使います。マークと本番版の切り抜きはそのまま使えます。入れ替えで作業用のフォルダへ移した速報版は、7 日たったら消します。</p>
+    <p class="hint">録画は 1 時間で 3〜4GB 使います。マークと本番版の切り抜きはそのまま使えます。入れ替えで作業用のフォルダへ移した速報版は、3 日たったら消します。</p>
     <div class="rv-setgroup" id="livePeaksBox" hidden><div class="rv-subh">配信中の候補(試験中)</div>
       <label class="rv-check" for="liveDetect"><input type="checkbox" class="ui-switch" id="liveDetect">録画しながら、盛り上がりの候補を出す</label>
       <p class="hint">音とチャットの勢いから山を見つけて、③ の LIVE の帯に候補として出します(30〜45 秒遅れ)。候補はマークにはしません(「採用」を押すとマークになります)。</p>
       <div class="fld"><label class="l" for="liveDetectSens">感度</label>
         <select id="liveDetectSens">${LIVE_SENS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
-      <div class="fld"><label class="l" for="liveDetectPerHour">1 時間に出す候補の数(1〜30)</label>
-        <input type="number" id="liveDetectPerHour" min="1" max="30" step="1" inputmode="numeric"></div>
+      <div class="fld"><label class="l" for="liveDetectPerHour">1 時間に出す候補の数(${PEAK_PER_HOUR[0]}〜${PEAK_PER_HOUR[1]})</label>
+        <input type="number" id="liveDetectPerHour" min="${PEAK_PER_HOUR[0]}" max="${PEAK_PER_HOUR[1]}" step="1" inputmode="numeric"></div>
       <label class="rv-check" for="liveAutoAdopt"><input type="checkbox" class="ui-switch" id="liveAutoAdopt">候補を自動で採用する(マークにして書き出す)</label>
-      <div class="fld"><label class="l" for="liveAutoAdoptWait">候補が決まってから待つ分(1〜60)</label>
-        <input type="number" id="liveAutoAdoptWait" min="1" max="60" step="1" inputmode="numeric"></div>
+      <div class="fld"><label class="l" for="liveAutoAdoptWait">候補が決まってから待つ分(${AUTO_WAIT_MIN[0]}〜${AUTO_WAIT_MIN[1]})</label>
+        <input type="number" id="liveAutoAdoptWait" min="${AUTO_WAIT_MIN[0]}" max="${AUTO_WAIT_MIN[1]}" step="1" inputmode="numeric"></div>
       <p class="hint">候補が決まってから待つ間に見送ったもの・もっと良い候補と入れ替わったものは採用しません。自動で採用した候補は、書き出し → 文字起こし → パックまで進みます(届けるのは人が確かめてから)。</p></div>
     <p class="msg hint" id="liveMsg" role="status"></p></div>`;
   $('#setCollab').insertAdjacentElement('beforebegin', sec);
@@ -120,33 +125,26 @@ function buildLive(){
     const q = LIVE_QUALITY.some(([v]) => v === e.target.value) ? e.target.value : '1080p';
     UIKit.prefs.patch('live', { quality: q }).then(() => { $('#liveMsg').textContent = '画質を ' + q + ' にしました(次に始める録画から)'; }, () => {});   // 失敗の知らせは UIKit.prefs が出す
   });
-  /* オン・オフの設定(ホームの設定の節 live。入口が読む)。保存できたら ③ の帯の案内にも伝える(studio:liveprefs)。失敗の知らせは UIKit.prefs が出す */
-  const liveSwitch = (id, key, onText, offText) => $(id).addEventListener('change', e => {
-    const on = e.target.checked;
-    UIKit.prefs.patch('live', { [key]: on }).then(() => {
-      $('#liveMsg').textContent = on ? onText : offText;
-      document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { [key]: on } }));
-    }, () => {});
-  });
-  /* 本番版への自動の作り直し(線 D の P4。live.autoArchive。既定オン)。帯の案内は「自動: オン/オフ」 */
-  liveSwitch('#liveAutoArch', 'autoArchive', '配信が終わったら、自動で本番版に作り直します', '自動の作り直しをやめました(③ の帯の「アーカイブで作り直す」で始められます)');
-  /* 録画を自動で消す(線 D の P4。live.autoDelete)。帯の案内は「入れ替えたら録画は消します」 */
-  liveSwitch('#liveAutoDel', 'autoDelete', '本番版に入れ替えたら、録画を消します(マークが無い録画は 1 日で消します)', '録画を自動では消しません(録画の置き場所の空きに気をつけてください)');
-  /* 配信中の候補(線 D の L3。live.detect)と自動採用(M11。live.autoAdopt)。入れ子の節は欄の今の値を全部そろえて送る(続けて変えても片方の鍵が抜けない)。
-     保存できたら ③ の帯にも伝える(studio:liveprefs)。失敗の知らせは UIKit.prefs が出す */
+  /* ホームの設定の節 live の 1 つの鍵を保存する(入口が読む)。保存できたら ③ の帯の案内にも伝える(studio:liveprefs)。失敗の知らせは UIKit.prefs が出す */
   const livePatch = (key, val, text) => UIKit.prefs.patch('live', { [key]: val }).then(() => {
     $('#liveMsg').textContent = text;
     document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { [key]: val } }));
   }, () => {});
+  const liveSwitch = (id, key, onText, offText) => $(id).addEventListener('change', e => { const on = e.target.checked; livePatch(key, on, on ? onText : offText); });
+  /* 本番版への自動の作り直し(live.autoArchive。既定オン)。帯の案内は「自動: オン/オフ」 */
+  liveSwitch('#liveAutoArch', 'autoArchive', '配信が終わったら、自動で本番版に作り直します', '自動の作り直しをやめました(③ の帯の「アーカイブで作り直す」で始められます)');
+  /* 録画を自動で消す(live.autoDelete)。帯の案内は「入れ替えたら録画は消します」 */
+  liveSwitch('#liveAutoDel', 'autoDelete', '本番版に入れ替えたら、録画を消します(マークが無い録画は 1 日で消します)', '録画を自動では消しません(録画の置き場所の空きに気をつけてください)');
+  /* 配信中の候補(live.detect)と自動採用(live.autoAdopt)。入れ子の節は欄の今の値を全部そろえて送る(続けて変えても片方の鍵が抜けない) */
   const onDetect = () => {
     const sens = LIVE_SENS.find(([v]) => v === $('#liveDetectSens').value) || LIVE_SENS[1];
-    const d = { enabled: $('#liveDetect').checked, sens: sens[0], perHour: clampInt($('#liveDetectPerHour'), 1, 30, 6) };
+    const d = { enabled: $('#liveDetect').checked, sens: sens[0], perHour: clampInt($('#liveDetectPerHour'), PEAK_PER_HOUR) };
     syncLivePeaks(d.enabled);
     livePatch('detect', d, d.enabled ? `配信中の候補を出します(感度 ${sens[1]}・1 時間に ${d.perHour} 本まで)` : '配信中の候補を出しません');
   };
   for (const id of ['#liveDetect', '#liveDetectSens', '#liveDetectPerHour']) $(id).addEventListener('change', onDetect);
   const onAdopt = () => {
-    const a = { enabled: $('#liveAutoAdopt').checked, waitMin: clampInt($('#liveAutoAdoptWait'), 1, 60, 5) };
+    const a = { enabled: $('#liveAutoAdopt').checked, waitMin: clampInt($('#liveAutoAdoptWait'), AUTO_WAIT_MIN) };
     livePatch('autoAdopt', a, a.enabled ? `候補が決まってから ${a.waitMin} 分たったら、自動で採用します` : '候補を自動では採用しません');
   };
   for (const id of ['#liveAutoAdopt', '#liveAutoAdoptWait']) $(id).addEventListener('change', onAdopt);
@@ -158,9 +156,9 @@ function fillLivePeaks(l){
   if (!d) return;
   $('#liveDetect').checked = d.enabled === true;
   $('#liveDetectSens').value = LIVE_SENS.some(([v]) => v === d.sens) ? d.sens : 'normal';
-  $('#liveDetectPerHour').value = String(Number.isInteger(d.perHour) && d.perHour >= 1 && d.perHour <= 30 ? d.perHour : 6);
+  $('#liveDetectPerHour').value = String(intIn(d.perHour, PEAK_PER_HOUR));
   $('#liveAutoAdopt').checked = a.enabled === true;
-  $('#liveAutoAdoptWait').value = String(Number.isInteger(a.waitMin) && a.waitMin >= 1 && a.waitMin <= 60 ? a.waitMin : 5);
+  $('#liveAutoAdoptWait').value = String(intIn(a.waitMin, AUTO_WAIT_MIN));
   syncLivePeaks(d.enabled === true);
 }
 /* 自動採用は、配信中の候補がオンのときだけ押せる(押せない理由を出す) */

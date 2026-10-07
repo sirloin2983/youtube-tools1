@@ -39,7 +39,7 @@ const ACTION_DEFS = [
   ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
   ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター表示'],
   ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用'], ['moment', '一瞬をマーク'],
-  ['nextPeak', '次の候補'], ['adoptPeak', '候補を採用']   // 配信中の候補(線 D の L3。ライブの録画で検出がオンのとき)
+  ['nextPeak', '次の候補'], ['adoptPeak', '候補を採用']   // 配信中の候補(ライブの録画で検出がオンのとき)
 ];
 const KEY_PRESETS = {
   standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u', moment: 'c', nextPeak: 'p', adoptPeak: 'z' },
@@ -1068,7 +1068,7 @@ function setNow(t){
   const inp = $('#rvNow'); if (inp && document.activeElement !== inp) inp.value = fmt(t);
   renderPlayhead();
   placeNote();
-  if (typeof peakTick === 'function') peakTick();   // 配信中の候補の「再生中」の印(区間を出たら外す)
+  peakTick();   // 配信中の候補の「再生中」の印(区間を出たら外す)
 }
 /* final = false はタイムラインをドラッグしている途中(YouTube の seekTo の allowSeekAhead) */
 function seek(t, final = true){
@@ -1508,7 +1508,7 @@ async function pollLiveStatus(){
   const after = () => liveAfterView(LV.archiveInfo).running && Date.now() - LV.jobsAt > 15000;   // 配信後の自動の切り抜き(M7)が進んでいる間は、帯の 1 行を 15 秒ごとに
   if (!LV.jobsKnown || busy() || arch() || (LV.jobs.some(liveArchBusy) && Date.now() - LV.jobsAt > 15000) || stale() || after()) await pollLiveJobs();
   if (seq !== LV.seq || S.cur !== v || !visible()) return;
-  pollPeaks(v);   // 配信中の候補(線 D の L3。検出がオンのときだけ。待たない = 録画の状態の見回りを遅らせない)
+  pollPeaks(v);   // 配信中の候補(検出がオンのときだけ。待たない = 録画の状態の見回りを遅らせない)
   LV.timer = setTimeout(pollLiveStatus, !err && st && !st.active && !busy() ? (arch() ? 5000 : 10000) : 3000);   // 終わった録画で書き出しも無ければゆっくり(本番版の作り直しの間は 5 秒)
 }
 function applyLiveStatus(v, st, err){
@@ -1795,18 +1795,25 @@ async function openLiveRecording(rec){
   Studio.review.open(id);
 }
 
-/* ---------- 配信中の候補(線 D の L3。plan/line-d-detect.md の 3「候補の API の約束」) ----------
+/* ---------- 配信中の候補(plan/line-d-detect.md の 3「候補の API の約束」) ----------
    入口のワーカーが録画しながら見つけた盛り上がりの候補を、LIVE の帯の一覧・タイムラインの印・グラフに出す。押すと少し前から再生、「採用」でマークにして書き出しへ。
    API(入口): GET ../live/api/peaks?recorder=&recording=&since=<seq>(since 無し = 全部 + series・ある = 変わった候補 changes だけ)/ POST ../live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}。
    見回りは録画の状態と同じ(pollLiveStatus。録画中は 3 秒・終わったらゆっくり)。検出がオフ(設定 live.detect)のときは API を呼ばない(入口に無い間の 404 を出さない = A-27)。
    一覧は作り直さない(行は id で引いて文字と属性だけ直す。liveSet と同じ流儀)。入れ替えで外れた行は薄くして数秒で消す。今再生している候補・マウスが乗っている候補・
-   キーボードでフォーカスがある候補の行は、外れても消さない(離れてから。0-10-3 の 6 = 押そうとしたものが入れ替わらない) */
-const PEAK_PRE = 5;            // [再生] は候補の頭の 5 秒前から(グラフの山の札と同じ)
+   キーボードでフォーカスがある候補の行は、外れても消さない(離れてから消す。0-10-3 の 6 = 押そうとしたものが入れ替わらない)。
+   候補の状態は 4 つ: frame(1 時間の枠)・bench(控え)・adopted(採用)・dismissed(見送り) */
+const PEAK_PRE = 5;            // [再生]・グラフの山の札は、頭の 5 秒前から
 const PEAK_FADE_MS = 3000;     // 外れた行を薄くしてから消すまで
-const PEAK_FULL_MS = 60000;    // 全部(+ グラフの series)を読み直す間。それ以外の見回りは since の差分だけ
+const PEAK_FULL_MS = 60000;    // 全部(+ グラフの series)を読み直す間(それ以外の見回りは since の差分だけ)。入口が「オフ」と答えたあと聞き直すまでの間も同じ
+const PEAK_DEFAULT = { perHour: 6, waitMin: 5 };   // 入口の答えに無いときの 1 時間の本数・自動採用の待つ分(home/prefs.py の既定と同じ)
+const PEAK_SENDING = '送っています…';   // 操作の答えを待つ間、その候補のボタンを押せない理由
 const PEAK_STATE = { frame: ['info', '枠', 'この 1 時間の枠に入っている候補です(点数の高い候補と入れ替わることがあります)'],
   bench: ['wait', '控え', '枠からあふれた候補です(採用はできます)'], adopted: ['ok', '採用', '採用してマークにしました'], dismissed: ['', '見送り', '見送った候補です(「戻す」で戻せます)'] };
 const PEAK_CHAT = { ok: 'チャットを読んでいます', none: 'チャットなし(音だけで見ています)', restarting: 'チャットをつなぎ直しています', off: 'チャットは読んでいません' };
+const peakCounted = p => p.state === 'frame' || p.state === 'adopted';   // 候補として数える・いつも一覧に出す
+const peakUndecided = p => p.state === 'frame' || p.state === 'bench';   // まだ決めていない(採用・見送りできる。タイムラインに印を出す)
+/* 自動採用の設定(入口の live.autoAdopt)→ {enabled, waitMin}。形が違えば null(手元の値を変えない) */
+const peakAuto = a => (a && typeof a === 'object' ? { enabled: a.enabled === true, waitMin: Number(a.waitMin) || PEAK_DEFAULT.waitMin } : null);
 /* 入口の候補 1 件 → 画面で使う形(形の違うものは null)。start・end・peak は録画の頭からの秒(スタジオのマークと同じ基準) */
 function peakNorm(p){
   if (!p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id) return null;
@@ -1838,7 +1845,7 @@ function peakMerge(list, changes){
   return { list: peakSort([...by.values()]), full };
 }
 /* 一覧に出す候補: いつもは枠と採用。「控えも見る」で控えと見送りも */
-function peakShown(list, bench){ return (list || []).filter(p => bench || p.state === 'frame' || p.state === 'adopted'); }
+function peakShown(list, bench){ return (list || []).filter(p => bench || peakCounted(p)); }
 /* 行の差分: prev(今ある行の id)・want(出したい id)・pinned(留める id の Set)→ {add, remove, hold}。
    remove = 薄くしてから消す行。hold = 出したくないが留める行(再生中・マウスが乗っている・フォーカスがある。離れたら remove になる) */
 function peakRows(prev, want, pinned){
@@ -1846,30 +1853,30 @@ function peakRows(prev, want, pinned){
   return { add: want.filter(id => !p.has(id)), remove: prev.filter(id => !w.has(id) && !pin(id)), hold: prev.filter(id => !w.has(id) && pin(id)) };
 }
 /* 見出しの 1 行 → {count, info}。o: {hour: 録画の今の 1 時間の番号(録画の頭から), active: 録画中か}。
-   この 1 時間の数は入口の hour.counts(枠と自動で採用した分。人が採用した分は数えない = 10-06 の決定)。無ければ手元の一覧から数える */
+   この 1 時間の数は入口の hour.counts(枠と自動で採用した分。人が採用した分は数えない)。無ければ手元の一覧から数える */
 function peakHead(list, hour, worker, auto, o){
   o = o || {};
-  const per = Number(hour && hour.perHour) > 0 ? Math.round(Number(hour.perHour)) : 6, h = Math.max(0, Math.floor(Number(o.hour) || 0));
+  const per = Number(hour && hour.perHour) > 0 ? Math.round(Number(hour.perHour)) : PEAK_DEFAULT.perHour, h = Math.max(0, Math.floor(Number(o.hour) || 0));
   const counts = hour && hour.counts && typeof hour.counts === 'object' ? hour.counts : null;
   const inHour = counts ? Math.max(0, Number(counts[h]) || 0)   // 入口の数(その 1 時間がまだ無ければ 0)
     : (list || []).filter(p => p.hour === h && (p.state === 'frame' || (p.state === 'adopted' && p.origin === 'auto'))).length;
-  const n = (list || []).filter(p => p.state === 'frame' || p.state === 'adopted').length;
+  const n = (list || []).filter(peakCounted).length;
   const w = worker && typeof worker === 'object' ? worker : {}, info = [];
   if (w.running){
     if (w.behindSec != null && Number.isFinite(Number(w.behindSec))) info.push(`遅れ ${Math.max(0, Math.round(Number(w.behindSec)))} 秒`);
     if (PEAK_CHAT[w.chat]) info.push(PEAK_CHAT[w.chat]);
   } else if (o.active) info.push(String(w.message || '') || '検出が止まっています(ホームが起動し直します)');
-  if (w.running || o.active) info.push(auto && auto.enabled ? `自動採用 オン(${Math.round(Number(auto.waitMin)) || 5} 分待ち)` : '自動採用 オフ');
+  if (w.running || o.active) info.push(auto && auto.enabled ? `自動採用 オン(${Math.round(Number(auto.waitMin)) || PEAK_DEFAULT.waitMin} 分待ち)` : '自動採用 オフ');
   return { count: `候補 ${n} 件(この 1 時間 ${inHour}/${per})`, info: info.join('・') };
 }
 /* 行の中身 → {time, title, score, pill: [色, 文字, 説明], pending(終わり待ち), adopt・dismiss・restore(出すか), why(採用を押せない理由)} */
 function peakView(p, busy){
-  const len = Math.round((p.end - p.start) * 10) / 10;
+  const len = Math.round((p.end - p.start) * 10) / 10, open = peakUndecided(p);
   return { time: tickLabel(p.start), title: `${tickLabel(p.start)} – ${tickLabel(p.end)}(${len} 秒)・山 ${tickLabel(p.peak)}`,
     score: p.score == null ? '' : p.score.toFixed(1) + '点',
     pill: p.state === 'adopted' && p.origin === 'auto' ? ['ok', '自動で採用', '「候補を自動で採用する」でマークにしました'] : PEAK_STATE[p.state] || PEAK_STATE.frame,
-    pending: p.endPending && p.state !== 'adopted', adopt: p.state === 'frame' || p.state === 'bench', dismiss: p.state === 'frame' || p.state === 'bench', restore: p.state === 'dismissed',
-    why: busy ? '送っています…' : p.endPending ? '区間の終わりがまだ録れていません(録れると採用できます)' : '' };
+    pending: p.endPending && p.state !== 'adopted', adopt: open, dismiss: open, restore: p.state === 'dismissed',
+    why: busy ? PEAK_SENDING : p.endPending ? '区間の終わりがまだ録れていません(録れると採用できます)' : '' };
 }
 /* p キー: 一覧の順で、いまの候補(cur)の次(見送りは飛ばす)。cur が一覧に無ければ最初。最後なら null */
 function peakNext(shown, cur){
@@ -1883,32 +1890,35 @@ function peakSeries(s){
   return { n: Number(s.n) > 0 ? Number(s.n) : Math.round(s.total.length * step), step, total: num(s.total), audio: num(s.audio), chat: num(s.chat) };
 }
 
-/* 配信中の候補の状態(開いている録画の分)。detect・auto は設定(live.detect・live.autoAdopt)なので、録画を開き直しても残す */
-const PKV = { vid: null, list: [], seq: 0, loaded: false, fullAt: 0, needFull: false, enabled: true, offAt: 0, missing: false, err: '', worker: null, hour: null, series: null,
-  bench: false, busy: new Set(), playId: null, playOn: false, lastId: null, hover: null, fading: new Map(), reqSeq: 0, inflight: false, detect: null, auto: null };
+/* 配信中の候補の状態。peakFresh は開いている録画の分(録画を開き直すと作り直す)。
+   bench(「控えも見る」)・detect・auto(設定 live.detect・live.autoAdopt)・reqSeq は、録画を開き直しても残す */
+const peakFresh = vid => ({ vid, list: [], seq: 0, loaded: false, fullAt: 0, needFull: false, enabled: true, offAt: 0, missing: false, err: '', worker: null, hour: null, series: null,
+  busy: new Set(), playId: null, playOn: false, lastId: null, hover: null, fading: new Map(), inflight: false });
+const PKV = Object.assign(peakFresh(null), { bench: false, reqSeq: 0, detect: null, auto: null });
 const peaksWanted = v => !!(v && v.kind === 'live' && v.live && Studio.token && PKV.vid === v.id && PKV.detect && PKV.detect.enabled && !PKV.missing && !LV.deletedShown);
 /* 帯に候補の行を出すか: 検出がオン・候補を読めた・入口がオンと答えた。終わった録画で候補が 1 つも無ければ出さない */
 function peaksShownNow(v){
   if (!peaksWanted(v) || !PKV.loaded || !PKV.enabled) return false;
   return !!(LV.status && LV.status.active) || PKV.list.length > 0 || !!(PKV.worker && PKV.worker.running);
 }
+const peakById = id => PKV.list.find(p => p.id === id) || null;
+const peakRowOf = id => document.querySelector(`#rvPeakList .rv-peak[data-pid="${CSS.escape(id)}"]`);
 /* 録画を開いた(か、ライブの録画でない配信を開いた = vid null)。前の録画の行は残さない(見回りでは作り直さないので、ここでだけ空にする) */
 function peaksOpened(vid){
   for (const t of PKV.fading.values()) clearTimeout(t);
-  Object.assign(PKV, { vid: vid || null, list: [], seq: 0, loaded: false, fullAt: 0, needFull: false, enabled: true, offAt: 0, missing: false, err: '', worker: null, hour: null, series: null,
-    busy: new Set(), playId: null, playOn: false, lastId: null, hover: null, fading: new Map(), inflight: false });
-  PKV.reqSeq++;
+  Object.assign(PKV, peakFresh(vid || null));
+  PKV.reqSeq++;   // 前の録画の答えが遅れて届いても使わない
   const ol = $('#rvPeakList'); if (ol) ol.textContent = '';
   renderPeaks();
 }
 /* 設定の live.detect・live.autoAdopt(入口がまだ知らない間は無い = オフ扱い)。changed: 設定の引き出しで変えた(studio:liveprefs)= 断られた・404 を忘れて聞き直す */
 function peakPrefs(l, changed){
   if (!l || typeof l !== 'object') return;
-  if (l.detect && typeof l.detect === 'object') PKV.detect = { enabled: l.detect.enabled === true, sens: String(l.detect.sens || 'normal'), perHour: Number(l.detect.perHour) || 6 };
-  if (l.autoAdopt && typeof l.autoAdopt === 'object') PKV.auto = { enabled: l.autoAdopt.enabled === true, waitMin: Number(l.autoAdopt.waitMin) || 5 };
+  if (l.detect && typeof l.detect === 'object') PKV.detect = { enabled: l.detect.enabled === true };   // 感度・本数は入口が使う(画面は見出しの答えの hour.perHour で出す)
+  PKV.auto = peakAuto(l.autoAdopt) || PKV.auto;
   if (changed){ PKV.missing = false; PKV.offAt = 0; PKV.needFull = true; }
   renderPeaks();
-  const v = S.cur; if (v && v.kind === 'live' && PKV.vid === v.id) pollPeaks(v);
+  pollPeaks(S.cur);   // 開いている録画で検出がオンなら読む(pollPeaks が確かめる)
 }
 /* 候補を読む(録画の状態の見回りから。待たない)。全部は初回・差分で分からない候補があったとき・60 秒ごと(グラフの series)。失敗は帯に小さく出すだけ */
 async function pollPeaks(v){
@@ -1939,7 +1949,7 @@ function peakApply(r, full){
   if (!PKV.enabled){ PKV.offAt = Date.now(); return false; }
   if (r.worker && typeof r.worker === 'object') PKV.worker = r.worker;
   if (r.hour && typeof r.hour === 'object') PKV.hour = r.hour;
-  if (r.autoAdopt && typeof r.autoAdopt === 'object') PKV.auto = { enabled: r.autoAdopt.enabled === true, waitMin: Number(r.autoAdopt.waitMin) || 5 };   // 入口が今使っている値
+  PKV.auto = peakAuto(r.autoAdopt) || PKV.auto;   // 入口が今使っている値
   const seq = Number(r.seq);
   if (Array.isArray(r.peaks)){
     PKV.list = peakList(r.peaks); PKV.loaded = true; PKV.fullAt = Date.now(); PKV.needFull = false;
@@ -1972,12 +1982,14 @@ function peakPinned(){
   if (kb) s.add(li.dataset.pid);
   return s;
 }
+/* 変わったときだけ書く(見回りのたびに同じ値を入れ直さない) */
 const setTxt = (el, t) => { if (el && el.textContent !== t) el.textContent = t; };
+const setHidden = (el, h) => { if (el && el.hidden !== h) el.hidden = h; };
 const setAttr = (el, k, val) => { if (!el) return; if (val == null || val === false){ if (el.hasAttribute(k)) el.removeAttribute(k); } else if (el.getAttribute(k) !== String(val)) el.setAttribute(k, String(val)); };
 /* 行を 1 つ作る(新しい候補が出たときだけ。中身は peakFill が入れる) */
 function peakRowEl(p){
   const li = document.createElement('li');
-  li.className = 'rv-peak'; li.dataset.pid = p.id;
+  li.className = 'rv-peak'; li.dataset.pid = p.id; li.dataset.t = String(p.start);
   li.innerHTML = `<button type="button" class="btn small rv-peakplay" data-pact="play">${SVG.play}<span>再生</span></button>`
     + '<span class="rv-peakt mono" data-pf="time"></span><span class="rv-chip score mono" data-pf="score"></span><span class="rv-peakwhy" data-pf="why"></span>'
     + '<span class="pill" data-pf="pill"></span><span class="pill wait" data-pf="pend" hidden title="区間の終わりがまだ録れていません(録れると、静かな所に合わせ直します)">終わり待ち</span>'
@@ -1985,29 +1997,36 @@ function peakRowEl(p){
     + '<button type="button" class="btn small ghost" data-pact="restore" hidden>戻す</button></span>';
   return li;
 }
+/* 行の部品を名前で引く: data-pf(time・score・why・pill・pend)と data-pact(play・adopt・dismiss・restore) */
+function peakParts(li){
+  const o = {};
+  for (const el of li.querySelectorAll('[data-pf],[data-pact]')) o[el.dataset.pf || el.dataset.pact] = el;
+  return o;
+}
+/* 行のボタン 1 つ: 出すか・押せない理由(あれば押せなくして、title と data-ui-why に出す)・名前・説明 */
+function peakBtn(b, show, why, label, title){
+  setHidden(b, !show);
+  if (b.disabled !== !!why) b.disabled = !!why;
+  setAttr(b, 'aria-label', label); setAttr(b, 'title', why || title); setAttr(b, 'data-ui-why', why || null);
+}
 /* 行の文字と属性だけを直す(変わったところだけ。押そうとしているボタンを作り直さない) */
 function peakFill(li, p){
-  const vw = peakView(p, PKV.busy.has(p.id)), q = s => li.querySelector(s), busy = PKV.busy.has(p.id);
+  const busy = PKV.busy.has(p.id), vw = peakView(p, busy), el = peakParts(li), at = vw.time + ' の候補', sending = busy ? PEAK_SENDING : '';
   const cls = 'rv-peak st-' + p.state + (PKV.playOn && PKV.playId === p.id ? ' is-playing' : '') + (li.classList.contains('is-gone') ? ' is-gone' : '');
   if (li.className !== cls) li.className = cls;
   setAttr(li, 'data-t', String(p.start));
-  setTxt(q('[data-pf="time"]'), vw.time); setAttr(q('[data-pf="time"]'), 'title', vw.title);
-  { const sc = q('[data-pf="score"]'); setTxt(sc, vw.score); if (sc.hidden !== !vw.score) sc.hidden = !vw.score; setAttr(sc, 'title', '盛り上がりの点数'); }
-  { const wy = q('[data-pf="why"]'), key = p.reasons.join('|'); if (wy.dataset.k !== key){ wy.dataset.k = key; wy.innerHTML = reasonTags(p); } }
-  { const pl = q('[data-pf="pill"]'), c = 'pill' + (vw.pill[0] ? ' ' + vw.pill[0] : ''); if (pl.className !== c) pl.className = c; setTxt(pl, vw.pill[1]); setAttr(pl, 'title', vw.pill[2]); }
-  { const pe = q('[data-pf="pend"]'); if (pe.hidden !== !vw.pending) pe.hidden = !vw.pending; }
-  const at = vw.time + ' の候補';
-  { const b = q('[data-pact="play"]'); setAttr(b, 'aria-label', `${at}を再生(${PEAK_PRE} 秒前から)`); setAttr(b, 'title', `${PEAK_PRE} 秒前から区間の終わりまで再生します`); }
-  { const b = q('[data-pact="adopt"]'), off = !!vw.why;
-    if (b.hidden !== !vw.adopt) b.hidden = !vw.adopt;
-    if (b.disabled !== off) b.disabled = off;
-    setAttr(b, 'aria-label', at + 'を採用'); setAttr(b, 'title', vw.why || 'マークにして、書き出しに回します(書き出したあとは帯の「書き出したあと」のとおり)'); setAttr(b, 'data-ui-why', vw.why || null); }
-  for (const [act, show, label, title] of [['dismiss', vw.dismiss, 'を見送る', '一覧から外します(「控えも見る」で見えます。戻せます)'], ['restore', vw.restore, 'を戻す', '見送りをやめて、候補に戻します']]){
-    const b = q(`[data-pact="${act}"]`);
-    if (b.hidden !== !show) b.hidden = !show;
-    if (b.disabled !== busy) b.disabled = busy;
-    setAttr(b, 'aria-label', at + label); setAttr(b, 'title', busy ? '送っています…' : title); setAttr(b, 'data-ui-why', busy ? '送っています…' : null);
-  }
+  setTxt(el.time, vw.time); setAttr(el.time, 'title', vw.title);
+  setTxt(el.score, vw.score); setHidden(el.score, !vw.score); setAttr(el.score, 'title', '盛り上がりの点数');
+  const reasons = p.reasons.join('|');
+  if (el.why.dataset.k !== reasons){ el.why.dataset.k = reasons; el.why.innerHTML = reasonTags(p); }
+  const pillCls = 'pill' + (vw.pill[0] ? ' ' + vw.pill[0] : '');
+  if (el.pill.className !== pillCls) el.pill.className = pillCls;
+  setTxt(el.pill, vw.pill[1]); setAttr(el.pill, 'title', vw.pill[2]);
+  setHidden(el.pend, !vw.pending);
+  setAttr(el.play, 'aria-label', `${at}を再生(${PEAK_PRE} 秒前から)`); setAttr(el.play, 'title', `${PEAK_PRE} 秒前から区間の終わりまで再生します`);
+  peakBtn(el.adopt, vw.adopt, vw.why, at + 'を採用', 'マークにして、書き出しに回します(書き出したあとは帯の「書き出したあと」のとおり)');
+  peakBtn(el.dismiss, vw.dismiss, sending, at + 'を見送る', '一覧から外します(「控えも見る」で見えます。戻せます)');
+  peakBtn(el.restore, vw.restore, sending, at + 'を戻す', '見送りをやめて、候補に戻します');
 }
 /* 外れた行: 薄くして(押せなくして)から消す。また出すことになったら戻す */
 function peakFade(li, id){
@@ -2024,39 +2043,36 @@ function peakUnfade(li, id){
 function peakApplyRows(shown){
   const ol = $('#rvPeakList'); if (!ol) return;
   const rows = new Map([...ol.children].map(li => [li.dataset.pid, li])), by = new Map(PKV.list.map(p => [p.id, p]));
-  const d = peakRows([...rows.keys()], shown.map(p => p.id), peakPinned());
-  for (const id of d.remove) peakFade(rows.get(id), id);
-  for (const id of d.hold) peakUnfade(rows.get(id), id);
-  for (const p of shown){
-    const li = rows.get(p.id);
-    if (li){ peakUnfade(li, p.id); continue; }
-    const el = peakRowEl(p), after = [...ol.children].find(x => Number(x.dataset.t) > p.start);
-    el.dataset.t = String(p.start);
-    ol.insertBefore(el, after || null);
-    rows.set(p.id, el);
+  const d = peakRows([...rows.keys()], shown.map(p => p.id), peakPinned()), gone = new Set(d.remove);
+  for (const [id, li] of rows){ if (gone.has(id)) peakFade(li, id); else peakUnfade(li, id); }   // 出す行・留める行は薄くしない(また出すことになった行も戻す)
+  for (const id of d.add){
+    const p = by.get(id), li = peakRowEl(p);
+    ol.insertBefore(li, [...ol.children].find(x => Number(x.dataset.t) > p.start) || null);
+    rows.set(id, li);
   }
   for (const [id, li] of rows){ const p = by.get(id); if (p) peakFill(li, p); }
 }
 /* 帯の候補の部分(見出し・案内・一覧)とタイムラインの印。見回り・操作のたびに呼ぶ(文字と属性だけを直す) */
 function renderPeaks(){
   const box = $('#rvPeaks'); if (!box) return;
-  const v = S.cur, on = peaksShownNow(v);
+  const on = peaksShownNow(S.cur);
   if (box.hidden !== !on){ box.hidden = !on; if (Studio.step === 'review') keybarScene(); }   // 下のキーの帯に p・z を出す / 戻す
   renderPeakSegs();
   if (!on) return;
   const h = peakHead(PKV.list, PKV.hour, PKV.worker, PKV.auto, { hour: Math.floor(Math.max(0, S.duration - 0.5) / 3600), active: !!(LV.status && LV.status.active) });
   liveSet('#rvPeakCount', h.count); liveSet('#rvPeakInfo', h.info);
-  liveSet('#rvPeakBenchN', String(PKV.list.filter(p => p.state === 'bench' || p.state === 'dismissed').length));
+  liveSet('#rvPeakBenchN', String(PKV.list.filter(p => !peakCounted(p)).length));   // 「控えも見る」で増える数(控えと見送り)
   const shown = peakShown(PKV.list, PKV.bench);
   const msg = PKV.err || (shown.length ? '' : PKV.list.length ? '枠の候補はありません。「控えも見る」で、控えと見送った候補が出ます'
     : 'まだ候補はありません。盛り上がりを見つけると、ここに出ます(30〜45 秒遅れ)');
-  { const m = $('#rvPeakMsg'); liveSet('#rvPeakMsg', msg); if (m.hidden !== !msg) m.hidden = !msg; m.classList.toggle('rv-warnline', !!PKV.err); }
+  const m = $('#rvPeakMsg');
+  setTxt(m, msg); setHidden(m, !msg); m.classList.toggle('rv-warnline', !!PKV.err);
   peakApplyRows(shown);
 }
 /* タイムラインの候補の印(枠と、「控えも見る」なら控え。採用したものはマークの印になる)。変わったときだけ描き直す */
 function renderPeakSegs(){
   const box = $('#rvPeakSegs'); if (!box) return;
-  const v = S.cur, list = v && peaksShownNow(v) ? peakShown(PKV.list, PKV.bench).filter(p => p.state === 'frame' || p.state === 'bench') : [];
+  const list = peaksShownNow(S.cur) ? peakShown(PKV.list, PKV.bench).filter(peakUndecided) : [];
   const key = list.length ? totalDur() + '|' + PKV.playId + '|' + list.map(p => [p.id, p.start, p.end, p.state].join(':')).join(',') : '';
   if (box.dataset.k === key) return;
   box.dataset.k = key;
@@ -2066,45 +2082,56 @@ function renderPeakSegs(){
   }).join('');
 }
 /* グラフ(renderGraph)に渡す series: 開いているライブの録画の候補の series(解析の series が無いとき) */
-function peakGraph(){ const v = S.cur; return v && v.kind === 'live' && PKV.vid === v.id && peaksShownNow(v) ? PKV.series : null; }
+function peakGraph(){ return peaksShownNow(S.cur) ? PKV.series : null; }
 /* 「再生中」の印(setNow から。区間を出たら外す = 留めていた行も離す) */
 function peakTick(){
   if (!PKV.playId) return;
-  const p = PKV.list.find(x => x.id === PKV.playId), on = !!p && S.now >= p.start - PEAK_PRE - 1 && S.now <= p.end + 1;
+  const p = peakById(PKV.playId), on = !!p && S.now >= p.start - PEAK_PRE - 1 && S.now <= p.end + 1;
   if (on === PKV.playOn) return;
   PKV.playOn = on;
   if (!on) PKV.playId = null;
   renderPeaks();
 }
+/* p・z の「いまの候補」: 再生中の候補か、直前に再生した候補 */
+const peakCurrent = () => (PKV.playOn && PKV.playId) || PKV.lastId;
 /* [再生]: 候補の頭の 5 秒前から区間の終わりまで(previewClip と同じ。再生できない画面では位置だけ動かす) */
 function playPeak(id){
-  const p = PKV.list.find(x => x.id === id); if (!p) return;
+  const p = peakById(id); if (!p) return;
   PKV.playId = id; PKV.lastId = id; PKV.playOn = false;
   previewClip({ start: Math.max(0, p.start - PEAK_PRE), end: p.end });
 }
 /* 操作のあと、押したボタンが消えた・押せなくなったら同じ行の次の操作へフォーカスを移す(body に落とさない) */
 function peakRefocus(id, which){
-  const li = document.querySelector(`#rvPeakList .rv-peak[data-pid="${CSS.escape(id)}"]`), a = document.activeElement; if (!li) return;
+  const li = peakRowOf(id), a = document.activeElement; if (!li) return;
   if (a && a !== document.body && !(li.contains(a) && (a.hidden || a.disabled))) return;
   const to = [li.querySelector(`[data-pact="${which}"]`), li.querySelector('[data-pact="play"]')].find(el => el && !el.hidden && !el.disabled);
   if (to) to.focus({ preventScroll: true });
 }
+/* 操作できる候補か: 開いているライブの録画の候補で、前の操作の答えを待っていない → 候補(でなければ null) */
+function peakActable(v, id){
+  const p = peakById(id);
+  return v && v.kind === 'live' && v.live && p && !PKV.busy.has(id) ? p : null;
+}
+/* POST ../live/api/peaks。答えが来るまでその候補のボタンを押せなくする(二重押しを防ぐ)。before: 送る前に待つこと */
+async function peakPost(v, id, body, before){
+  PKV.busy.add(id); renderPeaks();
+  try {
+    if (before) await before();
+    return await Studio.live.api('api/peaks', { body: Object.assign({ recorder: v.live.recorder, recording: v.live.recording, id }, body) });
+  } finally { PKV.busy.delete(id); }
+}
 /* [採用]: 入口がマークを足して書き出しを頼む(Live.adopt と同じ)。応答のあとスタジオのマークを読み直す(③ を開いたままだとサーバー側で足したマークは自動では出ない)。
-   応答まで同じ候補は押せない(二重押し)。書き出したあと・配信者は帯の値を渡す(手で付けたマークの書き出しと同じ) */
+   書き出したあと・配信者は帯の値を渡す(手で付けたマークの書き出しと同じ) */
 async function adoptPeak(id){
-  const v = S.cur, p = PKV.list.find(x => x.id === id);
-  if (!v || v.kind !== 'live' || !v.live || !p || PKV.busy.has(id)) return;
+  const v = S.cur, p = peakActable(v, id); if (!p) return;
   if (p.state === 'adopted') return toast('この候補はもう採用しています(マークの一覧にあります)', 4000);
   if (p.state === 'dismissed') return toast('見送った候補です。「戻す」を押してから採用してください', 5000);
   if (p.endPending) return toast('この候補は区間の終わりがまだ録れていません。録れると採用できます', 5000);
-  PKV.busy.add(id); renderPeaks();
   let r = null;
   try {
-    await flushSave();   // 手元のマークを先に保存する(入口がスタジオのマークに足すので、保存が重ならないように)
-    r = await Studio.live.api('api/peaks', { body: { op: 'adopt', recorder: v.live.recorder, recording: v.live.recording, id,
-      after: LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check', streamer: liveWhoName(v) } });
+    r = await peakPost(v, id, { op: 'adopt', after: LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'check', streamer: liveWhoName(v) },
+      flushSave);   // 手元のマークを先に保存する(入口がスタジオのマークに足すので、保存が重ならないように)
   } catch (e){ if (S.cur === v) toast('候補を採用できませんでした: ' + e.message, 0, 'err'); }
-  PKV.busy.delete(id);
   if (S.cur !== v) return;
   if (r){
     peakPut(r.peak, id, 'adopted');
@@ -2118,15 +2145,12 @@ async function adoptPeak(id){
 }
 /* [見送り] / [戻す]。見送りは取り消せる操作なので確認しない(知らせの [元に戻す]) */
 async function setPeakState(id, op){
-  const v = S.cur, p = PKV.list.find(x => x.id === id);
-  if (!v || v.kind !== 'live' || !v.live || !p || PKV.busy.has(id)) return;
-  PKV.busy.add(id); renderPeaks();
+  const v = S.cur, p = peakActable(v, id); if (!p) return;
   let ok = false;
   try {
-    const r = await Studio.live.api('api/peaks', { body: { op, recorder: v.live.recorder, recording: v.live.recording, id } });
+    const r = await peakPost(v, id, { op });
     if (S.cur === v){ peakPut(r && r.peak, id, op === 'dismiss' ? 'dismissed' : null); ok = true; }
   } catch (e){ if (S.cur === v) toast((op === 'dismiss' ? '候補を見送れませんでした: ' : '候補を戻せませんでした: ') + e.message, 0, 'err'); }
-  PKV.busy.delete(id);
   if (S.cur !== v) return;
   renderPeaks(); peakRefocus(id, op === 'dismiss' ? 'restore' : 'adopt');
   if (ok && op === 'dismiss') Studio.toast(`候補 ${tickLabel(p.start)} を見送りました`, { ms: 6000, action: { label: '元に戻す', fn: () => setPeakState(id, 'restore') } });
@@ -2139,22 +2163,25 @@ function peakOffWhy(v){
   if (PKV.missing) return 'ホームが古いため、配信中の候補を使えません(「すべて終了」→ start.bat で起動し直してください)';
   return 'この録画には、まだ配信中の候補がありません';
 }
-const peakKeyName = id => { const k = curKeymap()[id]; return k ? keyText(k) : ''; };
-/* p キー: 次の候補を再生(いま再生中か、直前に再生した候補の次) */
+/* p・z を押せるか(候補が出ていなければ理由を知らせて false) */
+function peakKeysReady(){
+  if (peaksShownNow(S.cur)) return true;
+  toast(peakOffWhy(S.cur), 5000);
+  return false;
+}
+/* p キー: 次の候補を再生(いまの候補の次) */
 function peakKeyNext(){
-  const v = S.cur;
-  if (!peaksShownNow(v)) return toast(peakOffWhy(v), 5000);
-  const nx = peakNext(peakShown(PKV.list, PKV.bench), PKV.playOn ? PKV.playId : PKV.lastId);
+  if (!peakKeysReady()) return;
+  const nx = peakNext(peakShown(PKV.list, PKV.bench), peakCurrent());
   if (!nx) return toast(PKV.list.length ? 'これより後の候補はありません' : 'まだ候補はありません', 4000);
   playPeak(nx.id);
-  const li = document.querySelector(`#rvPeakList .rv-peak[data-pid="${CSS.escape(nx.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
+  const li = peakRowOf(nx.id); if (li) li.scrollIntoView({ block: 'nearest' });
 }
-/* z キー: いま再生中(か、直前に再生した)候補を採用 */
+/* z キー: いまの候補を採用 */
 function peakKeyAdopt(){
-  const v = S.cur;
-  if (!peaksShownNow(v)) return toast(peakOffWhy(v), 5000);
-  const id = (PKV.playOn && PKV.playId) || PKV.lastId, k = peakKeyName('nextPeak');
-  if (!id || !PKV.list.some(p => p.id === id)) return toast(`先に${k ? ' ' + k + ' か' : ''}一覧の「再生」で候補を再生してください`, 5000);
+  if (!peakKeysReady()) return;
+  const id = peakCurrent(), k = curKeymap().nextPeak, key = k ? keyText(k) : '';
+  if (!id || !peakById(id)) return toast(`先に${key ? ' ' + key + ' か' : ''}一覧の「再生」で候補を再生してください`, 5000);
   adoptPeak(id);
 }
 function wirePeaks(){
@@ -2833,7 +2860,7 @@ function renderTimeline(){
     return `<button type="button" class="rv-seg ${isAutoLike(c) ? 'auto' : 'man'}${c.status ? ' st-' + esc(c.status) : ''}${S.sel === c.id ? ' sel' : ''}" style="left:${l}%;width:${w}%" data-id="${esc(c.id)}" aria-label="${esc(STATUS_LABEL[c.status || ''] || c.status)} ${esc(c.label || (c.src === 'auto' ? '自動' : '無題'))} ${fmt(c.start)}から${fmt(c.end)}"></button>`;
   }).join('');
   renderDuration(); renderPlayhead(); renderDraft(); renderGraph();
-  if (typeof renderPeakSegs === 'function') renderPeakSegs();   // 配信中の候補の印(長さが変わると位置も変わる)
+  renderPeakSegs();   // 配信中の候補の印(長さが変わると位置も変わる)
   placeNote();   // 選んだマークが変わった(選ぶ・足す・消すはどれもここを通る)
 }
 
@@ -2879,7 +2906,7 @@ function peakReason(s, idx, win){
 }
 function renderGraph(){
   /* 解析の series が無いライブの録画は、配信中の候補の series(入口の GET ../live/api/peaks。600 点)で描く */
-  const box = $('#rvGraph'), leg = $('#rvGLegend'), peaksEl = $('#rvGPeaks'), ticksEl = $('#rvGTicks'), v = S.cur, s = S.series || (typeof peakGraph === 'function' ? peakGraph() : null);
+  const box = $('#rvGraph'), leg = $('#rvGLegend'), peaksEl = $('#rvGPeaks'), ticksEl = $('#rvGTicks'), v = S.cur, s = S.series || peakGraph();
   const clear = () => { if (peaksEl) peaksEl.innerHTML = ''; if (ticksEl) ticksEl.innerHTML = ''; };
   if (!v){ box.hidden = true; leg.hidden = true; clear(); return; }
   if (!s || !Array.isArray(s.total) || !s.total.length){
@@ -2904,7 +2931,7 @@ function renderGraph(){
   const peaks = findPeaks(total).map((idx, i) => ({ idx, t: idx * step, rank: i + 1, reason: peakReason(s, idx, win), x: X(idx) / GW * W }));
   let lanesN = 1;
   if (peaksEl){
-    peaksEl.innerHTML = peaks.map(p => `<button type="button" class="rv-gpeak${p.rank === 1 ? ' r1' : ''}" data-t="${p.t}" title="${p.rank}位の山${p.reason ? ' ' + esc(p.reason) : ''}(${tickLabel(p.t)}付近。押すと5秒前へ)"><b class="rv-gpk-n">${p.rank}</b>${p.reason ? ' ' + esc(p.reason) : ''}</button>`).join('');
+    peaksEl.innerHTML = peaks.map(p => `<button type="button" class="rv-gpeak${p.rank === 1 ? ' r1' : ''}" data-t="${p.t}" title="${p.rank}位の山${p.reason ? ' ' + esc(p.reason) : ''}(${tickLabel(p.t)}付近。押すと${PEAK_PRE}秒前へ)"><b class="rv-gpk-n">${p.rank}</b>${p.reason ? ' ' + esc(p.reason) : ''}</button>`).join('');
     const btns = [...peaksEl.querySelectorAll('.rv-gpeak')], lanes = [];
     peaks.forEach((p, i) => { p.el = btns[i]; p.w = btns[i].offsetWidth || (p.reason.length * 12 + 26); });
     [...peaks].sort((a, b) => a.x - b.x).forEach(p => {
@@ -3149,7 +3176,7 @@ function keybarScene(){
   { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
   /* ライブの録画で配信中の候補が出ている間は、マークの採用・不採用の代わりに候補のキー(7 個までに収める) */
-  const pk = !!$('#rvPeaks') && !$('#rvPeaks').hidden;
+  const pb = $('#rvPeaks'), pk = !!pb && !pb.hidden;
   UIKit.keybar.set([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
     row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), 'IN / OUT'), pk ? row(t('nextPeak'), '次の候補') : row(t('adopt'), '採用'), pk ? row(t('adoptPeak'), '候補を採用') : row(t('reject'), '不採用'),
     { k: '?', l: 'キー操作' }].filter(Boolean));
@@ -3263,7 +3290,7 @@ function wire(){
   tl.addEventListener('pointerup', end); tl.addEventListener('pointercancel', end);
   $('#rvGraph').addEventListener('click', e => {
     const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。docs/design/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
-    if (p){ seek(Math.max(0, Number(p.dataset.t) - 5)); return; }
+    if (p){ seek(Math.max(0, Number(p.dataset.t) - PEAK_PRE)); return; }
     seek(timeAt(e, $('#rvGraph')));
   });
   /* マウスの位置の時刻(押すとそこへ移る、の手がかり)。山の札の上では出さない */
