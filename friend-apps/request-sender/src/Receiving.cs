@@ -80,8 +80,33 @@ namespace RequestSender
                 if (!(Json.Bool(d, "has_more") && !string.IsNullOrEmpty(cursor)) || page >= MaxPages) break;
                 d = client.Rpc("files/list_folder/continue", DropboxArgs.ListContinue(cursor));
             }
+            r.Entries = OutputFolder.AttachPreviews(r.Entries);   // まとめ動画は同じ名前のパックに結びつける(一覧には出さない)
             OutputFolder.SortNewestFirst(r.Entries);
             return r;
+        }
+
+        // まとめ動画(zip の隣の小さい mp4)を dir へ。前に取ってきた同じものがあればそのまま。-> 置いた場所
+        public string DownloadPreview(OutputEntry e, string dir, Action<long, long, string> progress)
+        {
+            var p = e.Preview;
+            if (p == null) throw new InvalidOperationException("まとめ動画がありません");
+            Directory.CreateDirectory(dir);
+            string final = Path.Combine(dir, LocalName.Safe(p.Name));
+            if (File.Exists(final) && p.Size > 0 && new FileInfo(final).Length == p.Size) return final;
+            string part = final + ".part";
+            bool ok = false;
+            try
+            {
+                client.DownloadFile(p.ApiPath, p.Rev, part, n => progress(n, p.Size, "まとめ動画を取ってきています"));
+                if (File.Exists(final)) File.Delete(final);
+                File.Move(part, final);
+                ok = true;
+                return final;
+            }
+            finally
+            {
+                if (!ok) TryDelete(part);
+            }
         }
 
         public string FailureText(OutputEntry e)
@@ -237,12 +262,18 @@ namespace RequestSender
             catch (UnauthorizedAccessException) { }
         }
 
-        // Dropbox の /出力 から消す。すでに無い(not_found)のは消えているのと同じなので成功とみなす(通信のやり直しの2回目に返る)
+        // Dropbox の /出力 から消す(パックなら隣のまとめ動画も)。すでに無い(not_found)のは消えているのと同じなので成功とみなす(通信のやり直しの2回目に返る)
         public void Delete(OutputEntry e)
+        {
+            DeletePath(e.ApiPath);
+            if (e.Preview != null) DeletePath(e.Preview.ApiPath);
+        }
+
+        void DeletePath(string apiPath)
         {
             try
             {
-                deleter.Rpc("files/delete_v2", DropboxArgs.Delete(e.ApiPath));
+                deleter.Rpc("files/delete_v2", DropboxArgs.Delete(apiPath));
             }
             catch (DropboxException ex)
             {

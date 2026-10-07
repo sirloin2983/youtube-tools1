@@ -64,6 +64,7 @@ REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
 REQUEST_URL_MODES = ("request", "request_auto")
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける)
+DELIVER_BATCH = 5        # ① 全自動: パックを n 本ごとにまとめて届ける既定(ホームの設定 intake.deliverBatch。1 = 1 本ずつ。2026-10-07 ユーザー決定)
 RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
 RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
@@ -1243,7 +1244,8 @@ class AutoRunner:
             for s in run.steps:
                 if s["state"] == "run":
                     s["state"] = "error" if run.state == "error" else "skip"
-            if run.deliver_dir and run.state == "error":   # ① 全自動: 友人の「受け取る」に失敗の理由を出す
+            if run.deliver_dir and run.state == "error":   # ① 全自動: できていたパックを届けてから、友人の「受け取る」に失敗の理由を出す
+                self._deliver_rest_quietly(run)
                 self._deliver_failure(run)
             self._defer_after(run)   # あとから解析の一覧(依頼が区間だけで終わった = 足す・あとから解析が終わった = 外す・回数を数える)
             self._log(run)   # 記録のファイルへ(self.cv の外。B-6)
@@ -1719,9 +1721,8 @@ class AutoRunner:
         r = j.get("result") or {}
         if r.get("outDir") and r["outDir"] not in run.packs:
             run.packs.append(r["outDir"])   # ① 全自動で Dropbox へ届けるもの
-            if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # できた順に1本ずつ届ける(全部を待たない。2026-10-01)
-                st["detail"] = prefix + "Dropbox へ届けています"
-                self._deliver_one(run, r["outDir"])
+            if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # n 本たまるごとに届ける(全部を待たない。n=1 なら 1 本ずつ。2026-10-07)
+                self._deliver_pending(run, st, prefix, final=False)
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
             self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
                                                                       "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
@@ -1932,13 +1933,74 @@ class AutoRunner:
         if not dirs:
             st["state"], st["detail"] = "skip", "届けるパックがありません"
             return None
-        todo = [d for d in dirs if d not in run.delivered]
-        for i, d in enumerate(todo, 1):
-            self._check(run)
-            st["detail"] = "%d / %d 本を zip にしています" % (i - 1, len(todo))
-            self._deliver_one(run, d)
+        for d in dirs:
+            if d not in run.packs:
+                run.packs.append(d)   # 前からあったパックも、この実行の並び(1 本目・2 本目…)に入れて同じ数え方で届ける
+        self._deliver_pending(run, st, "", final=True)
         st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(run.delivered)
         return None
+
+    def _batch_size(self):
+        """n 本ごとにまとめて届ける(ホームの設定 intake.deliverBatch。既定 DELIVER_BATCH。1 = 1 本ずつ = 2026-10-07 より前の形)"""
+        try:
+            v = (self.prefs.get(["intake"])["intake"] or {}).get("deliverBatch") if self.prefs else None
+            return max(1, min(10, int(v))) if v is not None else DELIVER_BATCH
+        except (OSError, ValueError, KeyError, TypeError):
+            return DELIVER_BATCH
+
+    def _deliver_pending(self, run, st, prefix, final):
+        """まだ届けていないパックを n 本ごとに届ける(final = 実行の終わり: n 本に満たない分もその本数で届ける)。
+        n=1 か、この実行のパックが 1 本だけなら今までどおり 1 本の zip(まとめ動画なし。2.4.0 までのアプリと同じ見え方)"""
+        n = self._batch_size()
+        while True:
+            pending = [p for p in run.packs if p not in run.delivered and os.path.isdir(p)]
+            if not pending or (len(pending) < n and not final):
+                return
+            batch = pending[:n]
+            if n <= 1 or len(run.packs) <= 1:
+                self._deliver_one(run, batch[0])
+            else:
+                self._deliver_batch(run, st, batch, prefix)
+
+    def _deliver_batch(self, run, st, batch, prefix):
+        """n 本のパックを 1 つの zip(<依頼 id>__<題名> 1-5.zip。中は <題>_pack/ が並び、まとめ動画 まとめ.mp4 も入る)にして 出力\\ へ。
+        まとめ動画は zip の隣にも <同じ名前>.preview.mp4 で置く(友人のアプリが先にこれだけ取ってきて見るため。zip より先に置く = zip が見えたらそろっている)。
+        まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip は届ける"""
+        first, last = run.packs.index(batch[0]) + 1, run.packs.index(batch[-1]) + 1
+        name = deliver_mod.safe_name("%s__%s %s" % (run.request_id or run.id, run.title or "pack", "%d-%d" % (first, last) if first != last else str(first)))
+        st["detail"] = prefix + "まとめ動画を作っています(%d 本)" % len(batch)
+        preview = os.path.join(os.path.dirname(batch[0]), ".deliver-preview-%s.mp4" % uuid.uuid4().hex[:8])
+        videos = [deliver_mod.pack_video(d) for d in batch]
+        made = all(videos) and deliver_mod.make_preview(videos, preview, [deliver_mod.pack_title(d) for d in batch], check=lambda: self._check(run), log=self.log)
+        placed = None
+        try:
+            os.makedirs(run.deliver_dir, exist_ok=True)
+            dest = deliver_mod.unique_zip(run.deliver_dir, name)
+            if made:
+                placed = deliver_mod.preview_path_for(dest)
+                with open(preview, "rb") as src, open(placed, "wb") as dst:
+                    dst.write(src.read())
+            st["detail"] = prefix + "%d 本を zip にして Dropbox へ届けています" % len(batch)
+            deliver_mod.zip_packs(batch, run.deliver_dir, name, extra=[(preview, deliver_mod.PREVIEW_NAME)] if made else None,
+                                  check=lambda: self._check(run), dest=dest)
+            run.delivered.extend(batch)
+            self._save_active()   # 届けたことをすぐ残す(段の途中で起動し直しても、同じパックを二度置かない)
+        except Exception as e:
+            deliver_mod.remove_quiet(placed)   # zip が置けなかったら、先に置いたまとめ動画も残さない
+            if isinstance(e, OSError):
+                raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            raise
+        finally:
+            deliver_mod.remove_quiet(preview)
+
+    def _deliver_rest_quietly(self, run):
+        """止まった実行に、まとめて届ける前のパック(n 本に満たず手元に残っていた分)があれば届ける。届けられなくても失敗の知らせは置く"""
+        if "deliver" not in MODE_STEPS.get(run.mode, ()):
+            return
+        try:
+            self._deliver_pending(run, {}, "", final=True)
+        except Exception as e:   # noqa: BLE001  (届け残しが置けなくても止まった知らせは出す)
+            self.log("まとめて実行: 止まった実行のパックを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
 
     def _deliver_one(self, run, d):
         """1本のパックのフォルダを zip にして 出力\\ へ置く(作り方は src/home/deliver.py。「編集」の「友人へ届ける」と同じ)"""

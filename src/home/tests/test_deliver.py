@@ -77,6 +77,93 @@ class ZipPackTest(unittest.TestCase):
         self.assertRegex(deliver.request_id(), r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 
 
+class ZipPacksTest(unittest.TestCase):
+    """n 本をまとめる zip(① 全自動の n 本ごとの届け方)とパックの中の動画の見つけ方"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.a = os.path.join(self.tmp, "配信 A_pack")
+        self.b = os.path.join(self.tmp, "配信 B_pack")
+        put(os.path.join(self.a, "配信 A.mp4"), b"a" * 500)
+        put(os.path.join(self.a, "配信 A_roughcut.mp4"), b"r" * 900)
+        put(os.path.join(self.a, "cut-plan.json"), b"{}")
+        put(os.path.join(self.b, "配信 B.mp4"), b"b" * 300)
+        put(os.path.join(self.b, "sub", "x.txt"), b"x")
+        self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
+
+    def test_layout_and_extra_and_dest(self):
+        preview = os.path.join(self.tmp, "p.mp4")
+        put(preview, b"PV")
+        dest = deliver.unique_zip(self.out, "rid__題 1-2")
+        self.assertEqual(deliver.preview_path_for(dest), os.path.join(self.out, "rid__題 1-2.preview.mp4"))
+        got = deliver.zip_packs([self.a, self.b], self.out, "rid__題 1-2", extra=[(preview, deliver.PREVIEW_NAME)], dest=dest)
+        self.assertEqual(got, dest)
+        with zipfile.ZipFile(got) as z:
+            names = sorted(n.replace("\\", "/") for n in z.namelist())
+        self.assertEqual(names, sorted([deliver.PREVIEW_NAME, "配信 A_pack/cut-plan.json", "配信 A_pack/配信 A.mp4", "配信 A_pack/配信 A_roughcut.mp4",
+                                        "配信 B_pack/sub/x.txt", "配信 B_pack/配信 B.mp4"]))
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
+
+    def test_pack_video_and_title(self):
+        self.assertEqual(deliver.pack_video(self.a), os.path.join(self.a, "配信 A.mp4"))   # いちばん大きくても _roughcut は選ばない
+        self.assertEqual(deliver.pack_video(self.b), os.path.join(self.b, "配信 B.mp4"))
+        self.assertIsNone(deliver.pack_video(os.path.join(self.tmp, "無い")))
+        self.assertEqual(deliver.pack_title(self.a), "配信 A")
+        self.assertEqual(deliver.pack_title(os.path.join(self.tmp, "そのまま")), "そのまま")
+        self.assertEqual(deliver._atempo(2.0), "atempo=2")
+        self.assertEqual(deliver._atempo(3.0), "atempo=2.0,atempo=1.5")
+
+
+class PreviewTest(unittest.TestCase):
+    """まとめ動画(ffmpeg が要る。無ければ skip)"""
+
+    def setUp(self):
+        from ytt_core import tools
+        self.ffmpeg, self.ffprobe = tools.find_tool("ffmpeg"), tools.find_tool("ffprobe")   # 本物(ほかのテストが環境変数で偽物に向けていても)
+        if not self.ffmpeg or not self.ffprobe:
+            self.skipTest("ffmpeg が無い")
+        self.tmp = tempfile.mkdtemp(prefix="ytt-preview-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.logs = []
+
+    def clip(self, rel, sec, audio=True):
+        import subprocess
+        p = os.path.join(self.tmp, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        args = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=%d" % sec]
+        if audio:
+            args += ["-f", "lavfi", "-i", "sine=f=440:d=%d" % sec, "-c:a", "aac"]
+        else:
+            args += ["-an"]
+        subprocess.run(args + ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-shortest", p], check=True, timeout=60)
+        return p
+
+    def test_two_clips_at_double_speed(self):
+        from ytt_core import normalize
+        a, b = self.clip("一本目_pack/一本目.mp4", 2), self.clip("二本目_pack/二本目.mp4", 2)
+        out = os.path.join(self.tmp, "preview.mp4")
+        self.assertTrue(deliver.make_preview([a, b], out, ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        info = normalize.probe(out, ffprobe=self.ffprobe)
+        self.assertEqual((info["height"], info["has_audio"]), (480, True))
+        self.assertAlmostEqual(info["duration"], 2.0, delta=0.5)   # 2 秒 × 2 本を 2 倍速 = 2 秒
+        self.assertEqual(self.logs, [])
+
+    def test_silent_clip_makes_a_silent_preview(self):
+        from ytt_core import normalize
+        a, b = self.clip("a_pack/a.mp4", 1), self.clip("b_pack/b.mp4", 1, audio=False)
+        out = os.path.join(self.tmp, "preview.mp4")
+        self.assertTrue(deliver.make_preview([a, b], out, ["A", "B"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
+        self.assertFalse(normalize.probe(out, ffprobe=self.ffprobe)["has_audio"])
+
+    def test_broken_input_fails_quietly(self):
+        bad = os.path.join(self.tmp, "x_pack", "x.mp4")
+        put(bad, os.urandom(3000))   # 文字だけのファイルは ffmpeg が「文字の動画」として読めてしまうので、でたらめなバイト列で
+        self.assertFalse(deliver.make_preview([bad], os.path.join(self.tmp, "p.mp4"), ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
+        self.assertTrue(self.logs and "まとめ動画を作れませんでした" in self.logs[-1], self.logs)
+        self.assertFalse(deliver.make_preview([], os.path.join(self.tmp, "p.mp4")))
+
+
 class DeliveriesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")

@@ -42,7 +42,7 @@ def wait_js(pg, expr, timeout=15000):
 
 
 def intake_obj(enabled=False, requests=None, **kw):
-    d = {"enabled": enabled, "folder": "" if not enabled else "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "maxHours": 6, "maxGB": 10,
+    d = {"enabled": enabled, "folder": "" if not enabled else "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 3, "deliverBatch": 5, "maxHours": 6, "maxGB": 10,
          "state": "watching" if enabled else "off", "stateLabel": "見張り中" if enabled else "オフ",
          "message": "" if enabled else "オフです。フォルダを決めてスイッチを入れると、依頼を受け付けます",
          "lastScan": NOW - 90_000 if enabled else None, "today": 2, "requests": requests or []}
@@ -167,7 +167,7 @@ def main():
                 state["patches"].clear()
                 pg.click("#intakeSave")
                 check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent === '保存しました'"), "保存できた: %s" % pg.text_content("#intakeSaveMsg"))
-                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "maxHours": 8, "maxGB": 30, "interval": 30}   # 見る間隔(段9 9-4)。1 日の上限(dailyMax)は 2026-10-07 に撤廃
+                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "deliverBatch": 5, "maxHours": 8, "maxGB": 30, "interval": 30}   # 見る間隔(段9 9-4)・まとめて届ける本数(0.45.0)。1 日の上限(dailyMax)は 2026-10-07 に撤廃
                 check(state["patches"] and state["patches"][-1] == want, "patch の本文(節 intake の全キー): %s" % (state["patches"][-1:],))
                 check(wait_js(pg, "document.getElementById('intakeState').textContent === '見張り中'"), "保存後に状態が見張り中になる")
                 check(not pg.is_disabled("#intakeScanBtn"), "見張り中は「今すぐ確認」を押せる")

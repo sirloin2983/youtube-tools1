@@ -125,8 +125,10 @@ namespace RequestSender
         static OutputListing SampleListing()
         {
             var l = new OutputListing();
-            var a = OutputFolder.FromName("20261002-120000-0a1b2c__【雑談】見本の配信_01.zip");
+            var a = OutputFolder.FromName("20261002-120000-0a1b2c__【雑談】見本の配信 1-5.zip");
             a.Size = 1536L * 1024 * 1024; a.Modified = new DateTime(2026, 10, 2, 13, 5, 0); a.PathLower = "/出力/a.zip"; a.Rev = "1";
+            a.Preview = OutputFolder.FromName("20261002-120000-0a1b2c__【雑談】見本の配信 1-5.preview.mp4");
+            a.Preview.Size = 18L * 1024 * 1024; a.Preview.PathLower = "/出力/a.preview.mp4"; a.Preview.Rev = "1p";
             var b = OutputFolder.FromName("20261002-110000-0d4e5f__もう1本の見本.失敗.txt");
             b.Size = 300; b.Modified = new DateTime(2026, 10, 2, 11, 40, 0); b.PathLower = "/出力/b.txt"; b.Rev = "2";
             l.Entries.Add(a);

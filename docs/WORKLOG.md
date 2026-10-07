@@ -2344,3 +2344,18 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 大前提(ユーザー、同じ夜): 友人の依頼では判断はすべて友人が行い、送る側(ユーザーの PC)では確認しない(無人のことが多い)。A/B を作るなら、見る・要らないと決める・Dropbox から消す はすべて友人のアプリ側(decisions の 1 の表・spec 2-12)
 - 未完了・次: ユーザーが dist\RequestSender.zip を友人へ渡す(U8)。A/B の検討(プレビューの画質・字幕の焼き込み。「要らない」は友人が決める前提で設計)
 - 未コミット: なし(このコミットで全部)
+## 2026-10-07 Claude Code(PC。Fable)— ① 全自動のパックを n 本ごとにまとめて届ける + 2 倍速のまとめ動画(ホーム 0.45.0)・送るアプリ 2.5.0「まとめ動画を見る」「要らない」。見本のまとめ動画を過去の依頼の動画で作ってユーザーへ
+- ユーザー決定(同じ夜): 「1 本できるごとに届ける → n 本ごとに届けるに変更して(n=5 くらい)。B 案のようにその n 本をまとめて動画を添えるのはあり。画質も多少落としていいし再生速度も速くしていい」→「字幕はいらない / n=5 / 速度は 2 倍」。大前提は判断はすべて友人・PC 側では確認しない
+- **ホーム 0.45.0**(`src/home/`): `deliver.py`(`zip_packs` = n 本を 1 つの zip に(`zip_pack` と中身を `_zip_many` に共通化)・`unique_zip`・`preview_path_for`・`pack_video`(パックの中でいちばん大きい動画。`_roughcut` は除く)・`pack_title`・
+  **`make_preview`** = ffmpeg で n 本を scale=-2:480・setpts/atempo で 2 倍速・drawtext(Meiryo・textfile で日本語の札「i/N 題」)・concat・crf 28・AAC 96k。音の無いクリップが混ざれば音なし。札で失敗したら札なしでもう一度。`_run_ffmpeg` は 0.5 秒ごとに check()(中止で kill)・上限 600 秒)・
+  `autorun.py`(`DELIVER_BATCH` 5・`_batch_size`(prefs `intake.deliverBatch`)・`_deliver_pending`(n 本たまるごと / 実行の終わりは残りも。n=1 かパック 1 本の実行は今までどおり `_deliver_one`)・`_deliver_batch`(名前 `<依頼 id>__<題名> 1-5`・まとめ動画を作る → 隣に `.preview.mp4` を先に置く → zip(中に `まとめ.mp4`)→ `delivered` に足して `_save_active`。zip が置けなければ隣の preview も消す)・
+  `_deliver_rest_quietly`(止まった実行の届け残しを失敗の知らせの前に届ける))・`prefs.py`(`deliverBatch` 1〜10・既定 5)・`portal.html/js`(欄「まとめて届ける本数」)・`launch.py`(0.44.0 → **0.45.0**)・`README.txt`(v0.45.0)
+- **送るアプリ 2.5.0**(`friend-apps/request-sender/`。依頼の JSON・鍵は不変): `Core.cs`(`OutputKind.Preview`・`OutputEntry.Preview`・`OutputFolder.AttachPreviews` = `<zip の名前>.preview.mp4` を同じ名前のパックに結びつけ一覧から外す。相手のいないものは出さず消さない)・
+  `Receiving.cs`(`DownloadPreview`(%TEMP%\RequestSender\previews。同じ大きさがあればそのまま)・`Delete` はパックの preview も消す)・`MainForm.Receive.cs`(「まとめ動画を見る」= 取ってきて既定のプレイヤーで開く・「要らない」= 受け取らずに Dropbox から消す(失敗の知らせの「消す」と同じボタンで、選んだものにより文字を変える)・説明に「まとめ動画: あり(18MB)」)・
+  `Program.cs`(見本の一覧にまとめ動画)・`CoreTests.cs`(OutputEntries に preview の結びつけ・相手なし / FormBuilds にボタン)・`README.txt`(使い方・v2.5.0)
+- テスト: build.bat **36 件 OK**・dist\RequestSender.zip 作り直し。home: test_deliver(+ZipPacksTest 2・PreviewTest 3 = 本物の ffmpeg で 2 本を 2 倍速に・音なし・でたらめなバイト列は失敗)・test_autorun(+2: n=1 で 1 本ずつ / n=2 で 3 本 →「1-2」と「3」。既定 5 で 2 本 →「1-2」。まとめ動画は Base.setUp で偽物に差し替え(モジュールの読み込み時に差し替えると test_deliver の本物のテストまで偽物になった))・test_intake・test_launch・test_mount OK・lint 0・e2e_intake_ui・e2e_portal OK・`ui_audit all --demo`: **Must 0**・Should 38(一意 13。前回と同じ)
+- はまった所: 「文字だけのファイル」は ffmpeg が tty として読めてしまい「壊れた入力」のテストが通らない → でたらめなバイト列に。pprint の差分は先頭が切れるので `sorted` の期待値はこちらも `sorted` で
+- **見本**(ユーザー「適当な過去の依頼から確認用の見本動画出して」): 受付済みフォルダの友人の動画 5 本(09-30〜10-02 の依頼。88〜171 秒・1080p)を `make_preview` に通して `まとめ 1-5.preview.mp4`(301 秒・854×480・音あり・23.5MB。30 秒で生成)を SendUserFile で渡した。作業データ・Dropbox は読んだだけ
+- 文書: `docs/spec/friend-intake.md` 2-13(届け方・まとめ動画・置き場所・アプリ・未実装の「要らない」の記録)・`plan/decisions.md` 1 の表に 10-07 の行 + 3-9 (di)〜(dn)・`plan/data.js`(0.45.0・2.5.0・recent ⑧・別件・U8)・公開ページ version 21
+- 未完了・次: ユーザーが dist\RequestSender.zip(2.5.0)を友人へ渡す(U8)・入口の起動し直し(0.45.0)。「要らない」を PC へ戻す記録(誤検出の学習データ)は次の機会
+- 未コミット: なし(このコミットで全部)

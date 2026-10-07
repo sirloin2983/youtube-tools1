@@ -18,6 +18,16 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
 import autorun as A  # noqa: E402
+import prefs as prefs_mod  # noqa: E402
+from ytt_core import fsio  # noqa: E402
+
+
+def _fake_preview(videos, out, labels=None, **kw):
+    """まとめ動画は ffmpeg を使うので偽物(中身は test_deliver の PreviewTest で確かめる)。差し替えは Base.setUp で(テストの間だけ。
+    モジュールの読み込み時に差し替えると、同じプロセスで流す test_deliver の本物のテストまで偽物になる)"""
+    with open(out, "wb") as f:
+        f.write(b"PREVIEW")
+    return True
 
 VID = "abcdefghijk"
 
@@ -212,6 +222,8 @@ class FakeTools:
             d = os.path.splitext(v)[0] + "_pack"
             os.makedirs(d, exist_ok=True)
             open(os.path.join(d, "cut-plan.json"), "w").close()
+            with open(os.path.join(d, os.path.basename(v)), "wb") as f:   # 切り抜きの動画の写し(まとめ動画の材料)
+                f.write(b"v")
             self.c2r["job"]["result"] = {"outDir": d, "files": [{"name": "cut-plan.json"}, {"name": "m1.edl"}]}
         return 200, self.c2r["job"]
 
@@ -222,6 +234,8 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.addCleanup(setattr, A.deliver_mod, "make_preview", A.deliver_mod.make_preview)
+        A.deliver_mod.make_preview = _fake_preview
         self.tools = FakeTools(self.tmp, json.loads(json.dumps(self.marks)), self.analysis)
         self.env = {"TRANSCRIBE_DATA_DIR": os.path.join(self.tmp, "txdata"), "YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         import cases
@@ -1266,10 +1280,20 @@ class TestRequests(Base):
 
     def zips(self, out):
         import zipfile
-        return {n: sorted(zipfile.ZipFile(os.path.join(out, n)).namelist()) for n in os.listdir(out)}
+        return {n: sorted(zipfile.ZipFile(os.path.join(out, n)).namelist()) for n in os.listdir(out) if n.endswith(".zip")}
+
+    def delivered(self, run):
+        """実行が届けたパックのフォルダ(一覧の dict には出ないので Run から)"""
+        return next(r for r in self.r.runs if r.id == run["id"]).delivered
+
+    def batch_prefs(self, n):
+        """まとめて届ける本数 n(ホームの設定 intake.deliverBatch)"""
+        self.r.prefs = prefs_mod.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.r.prefs.patch("intake", {"deliverBatch": n})
 
     def test_request_auto_delivers_packs(self):
-        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → zip を 出力\\ へ(友人のアプリの「受け取る」)"""
+        """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → n 本(既定 5)ごとに 1 つの zip + まとめ動画を 出力\\ へ(友人のアプリの「受け取る」)。
+        2 本なら実行の終わりに「1-2」の 1 つ"""
         self.tools.known = False
         out = os.path.join(self.tmp, "Dropbox", "出力")
         run = self.wait(self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id="20261001-120000-abc123",
@@ -1277,10 +1301,42 @@ class TestRequests(Base):
         self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
         self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe", "pack", "deliver"])
         self.assertEqual(self.states(run)["deliver"], "done")
+        pre = "20261001-120000-abc123__%s" % run["title"]   # 題名は実行が決める(偽の配信の題名)
+        self.assertEqual(sorted(os.listdir(out)), [pre + " 1-2.preview.mp4", pre + " 1-2.zip"])
+        inside = self.zips(out)[pre + " 1-2.zip"]
+        for n in ("a2_pack/cut-plan.json", "a2_pack/a2.mp4", "a3_pack/cut-plan.json", A.deliver_mod.PREVIEW_NAME):
+            self.assertIn(n, inside)
+        self.assertEqual(len(self.delivered(run)), 2)
+        self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip・まとめ動画が残る")
+
+    def test_delivers_one_by_one_when_batch_is_1(self):
+        """まとめて届ける本数 1 = 2026-10-07 より前の形(1 本ずつ・パックの名前・まとめ動画なし)"""
+        self.tools.known = False
+        self.batch_prefs(1)
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id="20261001-120000-abc123",
+                                             flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run["state"], "done", run)
         got = self.zips(out)
-        self.assertEqual(sorted(got), ["20261001-120000-abc123__a2.zip", "20261001-120000-abc123__a3.zip"])
+        self.assertEqual(sorted(os.listdir(out)), ["20261001-120000-abc123__a2.zip", "20261001-120000-abc123__a3.zip"])
         self.assertIn("a2_pack/cut-plan.json", got["20261001-120000-abc123__a2.zip"])
-        self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip が残る")
+        self.assertNotIn(A.deliver_mod.PREVIEW_NAME, got["20261001-120000-abc123__a2.zip"])
+
+    def test_delivers_in_batches_with_remainder(self):
+        """n=2 で 3 本: 2 本たまった時点で「1-2」、実行の終わりに残りの「3」(1 本でも、この実行が複数なら同じ形 = まとめ動画つき)"""
+        self.tools.known = False
+        self.batch_prefs(2)
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        run = self.wait(self.r.start_request([{"id": VID, "top": 3, "title": "配信", "channel": ""}], request_id="20261001-120000-abc123",
+                                             flow="auto", deliver_dir=out)["runs"][0])
+        self.assertEqual(run["state"], "done", run)
+        pre = "20261001-120000-abc123__%s" % run["title"]
+        names = sorted(os.listdir(out))
+        self.assertEqual(names, [pre + " 1-2.preview.mp4", pre + " 1-2.zip", pre + " 3.preview.mp4", pre + " 3.zip"], names)
+        got = self.zips(out)
+        self.assertEqual(len([n for n in got[pre + " 1-2.zip"] if n.endswith("cut-plan.json")]), 2)
+        self.assertEqual(len([n for n in got[pre + " 3.zip"] if n.endswith("cut-plan.json")]), 1)
+        self.assertEqual(len(self.delivered(run)), 3)
 
     def test_file_auto_delivers_and_failure_note(self):
         """① 全自動(動画): 文字起こし → パック → zip。止まったら 出力\\ に理由の .txt"""

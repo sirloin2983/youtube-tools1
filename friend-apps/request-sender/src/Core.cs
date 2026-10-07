@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.4.0";
+        public const string Version = "2.5.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -441,9 +441,10 @@ namespace RequestSender
     }
 
     // ---- 受け取る: PC が「/出力/」に置いたもの ----
-    //   <依頼の id>__<題>.zip       … DaVinci Resolve のパック(数 GB のことがある)
-    //   <依頼の id>__<題>.失敗.txt  … 自動の処理が失敗した理由(UTF-8・BOM つき・短い)
-    public enum OutputKind { Pack, Failure }
+    //   <依頼の id>__<題>.zip             … DaVinci Resolve のパック(数 GB のことがある。ホーム 0.45.0 からは n 本まとめて「<題> 1-5.zip」)
+    //   <依頼の id>__<題>.失敗.txt        … 自動の処理が失敗した理由(UTF-8・BOM つき・短い)
+    //   <zip の名前>.preview.mp4          … zip の隣のまとめ動画(n 本をつなげた 2 倍速の確認用。小さい。2.5.0 = 同じ名前の zip に結びつける)
+    public enum OutputKind { Pack, Failure, Preview }
 
     public class OutputEntry
     {
@@ -451,6 +452,7 @@ namespace RequestSender
         public string Name, PathLower, Rev, ContentHash, RequestId, Title;
         public long Size;
         public DateTime Modified;   // 地方時(Dropbox の server_modified)
+        public OutputEntry Preview;  // パックの隣のまとめ動画(無ければ null)
 
         // 受け取った記録の鍵。同じ名前で置き直されたら rev が変わるので「まだ」に戻る
         public string Key
@@ -469,6 +471,7 @@ namespace RequestSender
     {
         public const string Path = "/出力";
         public const string FailureSuffix = ".失敗.txt";
+        public const string PreviewSuffix = ".preview.mp4";
         public const int FailureTextCap = 64 * 1024;
         static readonly Regex NameRx = new Regex("^([0-9]{8}-[0-9]{6}-[0-9a-f]{6})__(.+)$");
 
@@ -499,6 +502,7 @@ namespace RequestSender
             OutputKind kind;
             string stem;
             if (name.EndsWith(FailureSuffix, StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Failure; stem = name.Substring(0, name.Length - FailureSuffix.Length); }
+            else if (name.EndsWith(PreviewSuffix, StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Preview; stem = name.Substring(0, name.Length - PreviewSuffix.Length); }
             else if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { kind = OutputKind.Pack; stem = name.Substring(0, name.Length - 4); }
             else return null;
             if (stem.Length == 0) return null;
@@ -506,6 +510,22 @@ namespace RequestSender
             var m = NameRx.Match(stem);
             if (m.Success) { e.RequestId = m.Groups[1].Value; e.Title = m.Groups[2].Value; }
             return e;
+        }
+
+        // まとめ動画(<zip の名前>.preview.mp4)を同じ名前のパックに結びつけ、一覧からは外す。
+        // 相手のいないまとめ動画は出さない(zip がまだ同期されていない = PC は zip より先に置く / zip を消したあと消し損ねた)。消しもしない
+        public static List<OutputEntry> AttachPreviews(List<OutputEntry> list)
+        {
+            var packs = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in list) if (e.Kind == OutputKind.Pack) packs[e.Name.Substring(0, e.Name.Length - 4)] = e;
+            var rest = new List<OutputEntry>();
+            foreach (var e in list)
+            {
+                if (e.Kind != OutputKind.Preview) { rest.Add(e); continue; }
+                OutputEntry p;
+                if (packs.TryGetValue(e.Name.Substring(0, e.Name.Length - PreviewSuffix.Length), out p)) p.Preview = e;
+            }
+            return rest;
         }
 
         // 新しいものが上。同じ時刻なら名前の順

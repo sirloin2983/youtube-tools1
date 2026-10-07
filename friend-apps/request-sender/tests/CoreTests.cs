@@ -644,6 +644,7 @@ static class CoreTests
                 var all = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "すべて受け取る");
                 True(!all.Enabled && all.Text == "すべて受け取る", "届いたものが無ければ「すべて受け取る」は押せない: " + all.Text);
                 True(FindAll(f).OfType<Btn>().Any(b => b.Text == "やめる" && !b.Visible), "「やめる」は受け取っている間だけ出す");
+                True(FindAll(f).OfType<Btn>().Any(b => b.AccessibleName == "まとめ動画を見る" && !b.Enabled), "「まとめ動画を見る」は届いたものが無ければ押せない");
                 var sample = Program_SampleListing();
                 f.ShowEntries(sample);
                 Eq("すべて受け取る(2 本)", all.Text, "届いているパックの数を出す");
@@ -1012,11 +1013,19 @@ static class CoreTests
             "{\".tag\":\"folder\",\"name\":\"sub\",\"path_lower\":\"/出力/sub\"}," +
             "{\".tag\":\"file\",\"name\":\"memo.txt\",\"size\":1,\"server_modified\":\"2026-10-03T00:00:00Z\"}," +
             "{\".tag\":\"file\",\"name\":\"x.zip.part\",\"size\":1,\"server_modified\":\"2026-10-03T00:00:00Z\"}," +
-            "{\".tag\":\"file\",\"name\":\"手で置いた.ZIP\",\"size\":10,\"server_modified\":\"2026-09-30T00:00:00Z\"}" +
+            "{\".tag\":\"file\",\"name\":\"手で置いた.ZIP\",\"size\":10,\"server_modified\":\"2026-09-30T00:00:00Z\"}," +
+            "{\".tag\":\"file\",\"name\":\"20261001-120000-abcdef__みこの配信.preview.mp4\",\"path_lower\":\"/出力/20261001-120000-abcdef__みこの配信.preview.mp4\",\"rev\":\"01p\",\"size\":20000000,\"server_modified\":\"2026-10-01T02:59:00Z\"}," +
+            "{\".tag\":\"file\",\"name\":\"20261001-000000-aaaaaa__相手なし.preview.mp4\",\"path_lower\":\"/出力/x.preview.mp4\",\"rev\":\"02p\",\"size\":1,\"server_modified\":\"2026-10-01T02:59:00Z\"}" +
             "],\"cursor\":\"c\",\"has_more\":false}";
         var d = Json.Parse(body);
-        var list = OutputFolder.ParseEntries(d);
-        Eq(3, list.Count, "パック2つと失敗1つ(フォルダ・他のファイル・.part は出さない)");
+        var raw = OutputFolder.ParseEntries(d);
+        Eq(5, raw.Count, "読み取りはパック 2・失敗 1・まとめ動画 2(フォルダ・他のファイル・.part は出さない)");
+        var list = OutputFolder.AttachPreviews(raw);
+        Eq(3, list.Count, "一覧はパック2つと失敗1つ(まとめ動画は同じ名前のパックに結びつけ、相手のいないものは出さない)");
+        var withPv = list.First(x => x.Name == "20261001-120000-abcdef__みこの配信.zip");
+        True(withPv.Preview != null && withPv.Preview.Size == 20000000 && withPv.Preview.ApiPath == "/出力/20261001-120000-abcdef__みこの配信.preview.mp4", "まとめ動画がパックに付く");
+        True(list.First(x => x.Name == "手で置いた.ZIP").Preview == null, "まとめ動画の無いパック");
+        Eq(OutputKind.Preview, OutputFolder.FromName("x.preview.mp4").Kind, "まとめ動画の種類");
         OutputFolder.SortNewestFirst(list);
         Eq(OutputKind.Failure, list[0].Kind, "新しい順: 失敗が先");
         Eq("ぺこら", list[0].Title, "失敗の題");

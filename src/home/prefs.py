@@ -52,7 +52,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
-            "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30},   # dailyMax(1 日の上限)は 2026-10-07 に撤廃(古い prefs.json の値は読み飛ばす)
+            "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30,   # dailyMax(1 日の上限)は 2026-10-07 に撤廃(古い prefs.json の値は読み飛ばす)
+                       "deliverBatch": 5},   # ① 全自動のパックを n 本ごとにまとめて届ける(1 = 1 本ずつ。2026-10-07 ユーザー決定 n=5)
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
@@ -60,7 +61,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
                      "detect": {"enabled": False, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": False, "waitMin": 5}},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
-                 "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
+                 "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)"), "deliverBatch": (1, 10, "まとめて届ける本数")}
 FOLDER_MAX = 260
 RECORDERS_MAX = 8
 RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
@@ -280,9 +281,9 @@ def _clean_intake(v, cur):
     for k, (lo, hi, label) in INTAKE_RANGES.items():
         if k in v:
             x = v[k]
-            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in ("top", "interval") and x != int(x)):
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in ("top", "interval", "deliverBatch") and x != int(x)):
                 raise PrefsError("%sは %d〜%d で指定してください" % (label, lo, hi))
-            out[k] = int(x) if k in ("top", "interval") else x
+            out[k] = int(x) if k in ("top", "interval", "deliverBatch") else x
     return out
 
 

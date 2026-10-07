@@ -1,7 +1,8 @@
 // 画面のタブ「受け取る」: 「① 全自動」で送った依頼のパック(.zip)と、失敗の知らせ(.失敗.txt)。
 // 一覧は Dropbox の「/出力」。受け取り終えたパック(確かめたあと)と、読み終えて「消す」を押した失敗の知らせは Dropbox から消え、一覧にも出なくなる。
 // 「すべて受け取る」= 届いているパックを古い順に 1 本ずつ(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように。2026-10-07)。「やめる」で途中で止められる。
-// 受け取った zip は保存先に <題>_pack のフォルダとして展開し、zip は消す(2.4.0。settings.json の extractZip で止められる)
+// 受け取った zip は保存先に <題>_pack のフォルダとして展開し、zip は消す(2.4.0。settings.json の extractZip で止められる)。
+// 2.5.0: PC が n 本まとめた zip の隣に置くまとめ動画(2 倍速の確認用)を「まとめ動画を見る」で先に見て、「受け取る」か「要らない」(受け取らずに消す)を決める
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -24,9 +25,9 @@ namespace RequestSender
         readonly TextBox detail = new TextBox();
         Field detailField;
         readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), receiveAllBtn = new Btn("すべて受け取る", BtnKind.Normal),
-                     cancelRecvBtn = new Btn("やめる", BtnKind.Normal), deleteBtn = new Btn("消す", BtnKind.Normal),
+                     cancelRecvBtn = new Btn("やめる", BtnKind.Normal), previewBtn = new Btn("まとめ動画を見る", BtnKind.Normal), deleteBtn = new Btn("消す", BtnKind.Normal),
                      openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
-        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(1 つの依頼で何本もできることがあります)。受け取ると保存先にフォルダとして展開され、一覧から消えます。「すべて受け取る」でまとめて。", Tone.Muted);
+        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(何本かまとめて 1 つに)。「まとめ動画を見る」で中身を先に見て、「受け取る」(保存先にフォルダとして展開)か「要らない」を決めます。", Tone.Muted);
         readonly Lbl recvStatus = new Lbl("", Tone.Muted), lDir = new Lbl("保存先", Tone.Muted), dirLabel = new Lbl("", Tone.Text);
         readonly Bar recvBar = new Bar();
         readonly Dictionary<string, string> failureTexts = new Dictionary<string, string>();
@@ -71,13 +72,15 @@ namespace RequestSender
             receiveAllBtn.Click += (s, e) => StartDownloadAll();
             cancelRecvBtn.Visible = false;
             cancelRecvBtn.Click += (s, e) => CancelReceive();
+            previewBtn.AccessibleName = "まとめ動画を見る";
+            previewBtn.Click += (s, e) => StartPreview();
             openFolderBtn.Click += (s, e) => OpenFolder();
-            deleteBtn.Click += (s, e) => StartDeleteFailure();
+            deleteBtn.Click += (s, e) => StartDelete();
             recvStatus.AutoSize = false;
             recvStatus.AutoEllipsis = true;
 
             recvPane.Controls.AddRange(new Control[] { headRecv, refreshBtn, recvHint, listFrame, detailField, lDir, dirLabel, changeDirBtn,
-                                                       receiveBtn, receiveAllBtn, cancelRecvBtn, openFolderBtn, deleteBtn, recvBar, recvStatus });
+                                                       receiveBtn, receiveAllBtn, cancelRecvBtn, previewBtn, openFolderBtn, deleteBtn, recvBar, recvStatus });
             recvPage.Controls.Add(recvPane);
 
             downloadDir = state.LoadDownloadDir();
@@ -110,7 +113,8 @@ namespace RequestSender
             int x = receiveAllBtn.Right + Ui.S(8);
             cancelRecvBtn.Location = new Point(x, y + Ui.S(6));
             if (cancelRecvBtn.Visible) x = cancelRecvBtn.Right + Ui.S(8);
-            openFolderBtn.Location = new Point(x, y + Ui.S(6));
+            previewBtn.Location = new Point(x, y + Ui.S(6));
+            openFolderBtn.Location = new Point(previewBtn.Right + Ui.S(6), y + Ui.S(6));
             deleteBtn.Location = new Point(openFolderBtn.Right + Ui.S(6), y + Ui.S(6));
             recvStatus.SetBounds(deleteBtn.Right + Ui.S(14), y + Ui.S(10), Math.Max(Ui.S(60), w - m - deleteBtn.Right - Ui.S(14)), Ui.S(20));
             y += Ui.S(48);
@@ -137,7 +141,10 @@ namespace RequestSender
             refreshBtn.Enabled = !busy;
             changeDirBtn.Enabled = !busy;
             receiveBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Pack;
-            deleteBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key);
+            previewBtn.Enabled = !busy && e != null && e.Kind == OutputKind.Pack && e.Preview != null;
+            deleteBtn.Text = e != null && e.Kind == OutputKind.Pack ? "要らない" : "消す";   // パック = 受け取らずに消す / 失敗の知らせ = 読み終えて消す
+            deleteBtn.FitWidth();
+            deleteBtn.Enabled = !busy && e != null && (e.Kind == OutputKind.Pack || (e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key)));
             receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : "受け取る";
             receiveAllBtn.Enabled = !busy && packs > 0;
             receiveAllBtn.Text = busy && recvAll ? "すべて受け取っています…" : packs > 1 ? "すべて受け取る(" + packs + " 本)" : "すべて受け取る";
@@ -204,8 +211,10 @@ namespace RequestSender
                 int same = OutputFolder.CountSameRequest(entries, e);
                 detail.Text = "題: " + e.Title + "\r\n" +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
-                              "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n\r\n" +
-                              "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先にフォルダとして展開し(zip は消します)、確かめたあと Dropbox と一覧から消えます。";
+                              "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n" +
+                              "まとめ動画: " + (e.Preview != null ? "あり(" + SizeText(e.Preview.Size) + "。「まとめ動画を見る」で中身を 2 倍速で確かめられます)" : "なし") + "\r\n\r\n" +
+                              "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先にフォルダとして展開し(zip は消します)、確かめたあと Dropbox と一覧から消えます。" +
+                              "要らなければ「要らない」で、受け取らずに Dropbox から消せます。";
                 return;
             }
             string text;
@@ -359,25 +368,70 @@ namespace RequestSender
             UpdateRecvButtons();
         }
 
-        // 読み終えた失敗の知らせを Dropbox から消す
-        void StartDeleteFailure()
+        // まとめ動画(zip の隣の小さい mp4)を取ってきて、既定のプレイヤーで開く(2 倍速の確認用。受け取る前に中身を見る)
+        void StartPreview()
         {
             var e = SelectedEntry;
-            if (RecvBusy || e == null || e.Kind != OutputKind.Failure || !failureTexts.ContainsKey(e.Key)) return;
-            if (MessageBox.Show(this, "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")", "消す",
+            if (RecvBusy || e == null || e.Kind != OutputKind.Pack || e.Preview == null) return;
+            Config config = RecvConfig();
+            if (config == null) return;
+            string dir = Path.Combine(Path.GetTempPath(), "RequestSender", "previews");
+            recvCancel = false;
+            recvDownloading = true;
+            recvBar.Value = 0;
+            SetRecvStatus("まとめ動画を取ってきています…", false);
+            Log.Write("preview: " + e.Preview.Name + " size=" + e.Preview.Size);
+            var receiving = NewReceiving(config);
+            int lastPermille = -1;
+            RunRecv(() =>
+            {
+                string path = receiving.DownloadPreview(e, dir, (done, total, step) =>
+                {
+                    int permille = (int)Math.Max(0, Math.Min(1000, done * 1000 / Math.Max(1, total)));
+                    if (permille == lastPermille) return;
+                    lastPermille = permille;
+                    OnUi(() => { if (RecvBusy) { recvBar.Value = permille; SetRecvStatus(step + "… (" + Mb(done) + " / " + Mb(total) + ")", false); } });
+                });
+                OnUi(() =>
+                {
+                    recvBar.Value = 1000;
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                        SetRecvStatus("まとめ動画を開きました(2 倍速)。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
+                    }
+                    catch (Exception ex)
+                    {
+                        SetRecvStatus("まとめ動画を開けませんでした: " + ex.Message + "(" + path + ")", true);
+                    }
+                });
+            });
+        }
+
+        // 失敗の知らせ(読み終えた)か、要らないパック(受け取らずに)を Dropbox から消す
+        void StartDelete()
+        {
+            var e = SelectedEntry;
+            if (RecvBusy || e == null) return;
+            bool pack = e.Kind == OutputKind.Pack;
+            if (!pack && (e.Kind != OutputKind.Failure || !failureTexts.ContainsKey(e.Key))) return;
+            string ask = pack ? "このパックを受け取らずに消します(送り先の Dropbox から消え、もう受け取れません)。よろしいですか?\n(" + e.Title + ")"
+                              : "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")";
+            if (MessageBox.Show(this, ask, pack ? "要らない" : "消す",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             Config config = RecvConfig();
             if (config == null) return;
             recvCancel = false;
             SetRecvStatus("消しています…", false);
-            var client = NewClient(config);
+            Log.Write((pack ? "discard: " : "delete note: ") + e.Name);
+            var receiving = NewReceiving(config);
             RunRecv(() =>
             {
-                new Receiving(client).Delete(e);
+                receiving.Delete(e);
                 OnUi(() =>
                 {
                     RemoveEntry(e);
-                    SetRecvStatus("消しました", false);
+                    SetRecvStatus(pack ? "消しました(受け取りませんでした)" : "消しました", false);
                 });
             });
         }
