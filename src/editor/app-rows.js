@@ -462,7 +462,7 @@ async function rtSelected(){
 
 /* 行のボタンの title と読む速さの基準(キーの割り当て・設定から作る)。描き直し 1 回につき 1 回だけ作り、全部の行で使う(4000 行でも作り直さない) */
 function rowTitles(){
-  return { play: esc(titlePlay()), proof: esc(titleProof()), addAfter: esc(titleAddAfter()), del: esc(titleDel()), lim: readLimits(),
+  return { play: esc(titlePlay()), playIc: uiIcon('play', { size: 12 }) || '再生', proof: esc(titleProof()), addAfter: esc(titleAddAfter()), del: esc(titleDel()), lim: readLimits(),
     tag: Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, esc(titleTag(t))])) };
 }
 
@@ -470,7 +470,7 @@ function segHTML(s, i, T = rowTitles()){
   const c = s.speaker ? rowSpColor(s.speaker) : '', cut = s.cutState === 'cut', ov = ovl(i), dr = isBlankDraft(s);
   return `<div class="seg${s.flag ? ' flag' : ''}${s.proofed ? ' proofed' : ''}${(s.tags || []).length ? ' tagged' : ''}${cut ? ' cut' : ''}${s.noSub ? ' nosub' : ''}${dr ? ' tt-draft' : ''}" data-i="${i}"${c ? ` style="--sp:${c}"` : ''}>
     <input type="checkbox" class="sel" ${S.sel.has(s.id) ? 'checked' : ''} aria-label="この行を選択">
-    <button type="button" class="play" data-act="play" title="${T.play}" aria-label="この行だけ再生">▶</button>
+    <button type="button" class="play" data-act="play" title="${T.play}" aria-label="この行だけ再生">${T.playIc}</button>
     <div class="times${ov ? ' ovl' : ''}"${ov ? ` title="${esc(OVL_TITLE)}"` : ''}><span class="t" data-f="start" data-ui-time="${Number(s.start) || 0}" data-ui-time-short aria-label="開始"></span><span>–</span><span class="t" data-f="end" data-ui-time="${Number(s.end) || 0}" data-ui-time-short aria-label="終了"></span></div>
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="${dr ? draftPh(s) : '(空の行)文字を入力。不要なら「削除」'}">${esc(s.text)}</textarea>
@@ -480,7 +480,7 @@ function segHTML(s, i, T = rowTitles()){
     ${readHTML(s, T.lim)}
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s, T.tag)}</div>
-    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の ⚙ 設定の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${T.addAfter}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${T.del}">削除</button></span></div>
+    <div class="adj" aria-label="この行の操作"><span class="g" title="幅は右上の「設定」の「時刻の微調整の幅」。数字を直接書き換えてもかまいません">開始<button type="button" data-act="adj" data-f="start" data-d="-1" title="開始を早める">−</button><button type="button" data-act="adj" data-f="start" data-d="1" title="開始を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="start" title="開始を、いまの再生位置にする">再生位置</button></span><span class="g">終了<button type="button" data-act="adj" data-f="end" data-d="-1" title="終了を早める">−</button><button type="button" data-act="adj" data-f="end" data-d="1" title="終了を遅らせる">＋</button><button type="button" class="now" data-act="setnow" data-f="end" title="終了を、いまの再生位置にする">再生位置</button></span><span class="sep" aria-hidden="true"></span><span class="g rowops" aria-label="行の操作"><button type="button" data-act="addb" title="この行の前に、空の行を足します(認識で抜けたセリフを書き足すとき)">＋前に行</button><button type="button" data-act="adda" title="${T.addAfter}">＋後に行</button><button type="button" data-act="split" title="カーソル位置(なければ再生位置)で2つに分けます">分割</button><button type="button" data-act="merge" title="次の行とつなげて1行にします">次と結合</button><button type="button" class="tt-nosub-btn" data-act="nosub" aria-pressed="${s.noSub ? 'true' : 'false'}" title="この行を字幕に出さない(ゲームのキャラ・NPC・動画の音声など)/もう一度押すと出す。行は消えず、カットでは残します。話者を「ゲーム音声など」にすると自動でオン">字幕に出さない</button><button type="button" data-act="del" class="del" title="${T.del}">削除</button></span></div>
     ${s.flag ? `<button type="button" class="fl" data-act="unflag" title="${esc(s.flag)}(押すと確認済みにします)">要確認: ${esc(s.flag)}</button>` : ''}
   </div>`;
 }
@@ -543,10 +543,10 @@ function renderSpeakers(){
   const cnt = new Map(); for (const x of S.doc.segments) cnt.set(x.speaker, (cnt.get(x.speaker) || 0) + 1);   // 話者ごとの行の数(1 回で数える)
   box.innerHTML = S.doc.speakers.map((s, i) => {
     const rows = cnt.get(s.id) || 0;
-    if (isOtherSp(s)) return `<div class="sp-row tt-sp-other" data-i="${i}"><i class="tt-sp-member" style="background:${esc(OTHER_SP.color)}" aria-hidden="true"></i><input type="text" class="tt-sp-name" value="${esc(OTHER_SP.name)}" readonly aria-label="話者名(組み込み。変えられません)" title="組み込みの話者(名前は変えられません・声は覚えません)" style="flex:1"><span class="n">${rows}行</span><button type="button" class="btn small" data-act="spplay" title="この話者の行を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel" title="一覧から外します(付いていた行は話者なし・字幕に出す に戻ります)">削除</button></div>`
+    if (isOtherSp(s)) return `<div class="sp-row tt-sp-other" data-i="${i}"><i class="tt-sp-member" style="background:${esc(OTHER_SP.color)}" aria-hidden="true"></i><input type="text" class="tt-sp-name" value="${esc(OTHER_SP.name)}" readonly aria-label="話者名(組み込み。変えられません)" title="組み込みの話者(名前は変えられません・声は覚えません)" style="flex:1"><span class="n">${rows}行</span><button type="button" class="btn small" data-act="spplay" title="この話者の行を順に再生">${uiIcon('play', { size: 12 })}聞く</button><button type="button" class="btn small danger" data-act="spdel" title="一覧から外します(付いていた行は話者なし・字幕に出す に戻ります)">削除</button></div>`
       + '<div class="hint tt-sp-why">ゲームのキャラ・NPC・動画の音声など。この話者の行は字幕に出しません(行ごとに「字幕に出さない」を外せます)</div>';
     const c = speakerColor(s.id), sub = subColorOf(s); num++;
-    return `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色(メンバーと合わないときの色)"${c.hex ? ' hidden' : ''}>${c.hex ? `<i class="tt-sp-member" style="background:${esc(c.hex)}" title="${esc(c.sub ? '字幕の色' : c.member + 'の色')}"></i>` : ''}<input type="text" class="tt-sp-name" value="${esc(s.name)}" maxlength="30" aria-label="話者名" list="spNames" style="flex:1"><span class="n">${rows}行 ・ ${num}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">▶ 聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`
+    return `<div class="sp-row" data-i="${i}"><input type="color" value="${esc(/^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : '#888888')}" aria-label="色(メンバーと合わないときの色)"${c.hex ? ' hidden' : ''}>${c.hex ? `<i class="tt-sp-member" style="background:${esc(c.hex)}" title="${esc(c.sub ? '字幕の色' : c.member + 'の色')}"></i>` : ''}<input type="text" class="tt-sp-name" value="${esc(s.name)}" maxlength="30" aria-label="話者名" list="spNames" style="flex:1"><span class="n">${rows}行 ・ ${num}</span><button type="button" class="btn small" data-act="spplay" title="この人の発言を順に再生">${uiIcon('play', { size: 12 })}聞く</button><button type="button" class="btn small danger" data-act="spdel">削除</button></div>`
       + `<div class="row tt-sp-subrow" data-i="${i}"><label class="lag tt-sp-sub" title="この人の字幕の文字の色(16 進 6 桁・# は要りません)。空にすると指定なし(名前がメンバーと合えばメンバーカラー・合わなければ配信者の色)">字幕の色 #<input type="text" data-f="sub" value="${esc(sub.slice(1))}" maxlength="7" placeholder="指定なし" spellcheck="false" autocomplete="off" aria-label="${esc(s.name)}の字幕の色(16 進 6 桁)"><i class="tt-sp-subsw"${sub ? ` style="background:${esc(sub)}"` : ' hidden'} aria-hidden="true"></i></label></div>`
       + (c.reason ? `<div class="hint tt-sp-why">${esc(c.reason)}</div>` : ''); }).join('');
   renderSpNames();
@@ -576,6 +576,7 @@ function restoreUndo(){
 function updateUndo(){
   const n = S.undo.length + (CUT && CUT.undoCount ? CUT.undoCount() : 0);   // ボタンの数 = 2つの合計
   $('#btnUndo').disabled = !n; $('#btnUndo').textContent = n ? `元に戻す(${n})` : '元に戻す';
+  $('#btnUndo').title = n ? '直前の変更を戻します(Ctrl+Z)' : '戻すものがありません';   // 押せないときは理由(UI の見直し A-34)
 }
 
 /* only = 'tx': 文字起こしの側だけ(全行を校正済みにした知らせの「元に戻す」) */
@@ -870,7 +871,7 @@ function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelecto
 
 /* 編集の設定の keymap は「送ったキーだけ直す」(api/settings/patch。丸ごとの保存ではサーバーの値が残る = 窓を並べても戻らない) */
 function saveKeymap(part){
-  if (S.settingsLoadErr) return toast('設定を読み込めていないため、キー配置を保存しません(⚙ 設定の「読み直す」を押してください)', 6000, 'err');   // 空の配置で上書きしない(監査 11)
+  if (S.settingsLoadErr) return toast('設定を読み込めていないため、キー配置を保存しません(設定の「読み直す」を押してください)', 6000, 'err');   // 空の配置で上書きしない(監査 11)
   const km = { ...((S.settings && S.settings.keymap) || {}), ...part };
   S.settings.keymap = km;
   api('/api/settings/patch', { body: { values: { keymap: km } } }).catch(e => toast('キー配置を保存できませんでした: ' + e.message, { ms: 0, kind: 'err' }));

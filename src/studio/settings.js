@@ -24,13 +24,13 @@ function build(){
       <input type="text" id="outIn" placeholder="例: D:\\clips  /  /Users/you/Movies/clips(フルパス)" spellcheck="false" autocomplete="off"></div>
       <div class="row set-actions"><button type="button" class="btn small primary" id="outSave">保存</button><button type="button" class="btn small" id="outReset">標準に戻す</button></div></div>
     <p class="msg hint" id="outMsg" role="status"></p></div></details>
-  <details class="card set-sec" id="setExport" open><summary><span class="set-title">書き出し</span><span class="set-sub">書き出したあとの自動化</span></summary><div class="body">
+  <details class="card set-sec" id="setExport" open><summary><span class="set-title">書き出し</span><span class="set-sub" title="書き出したあとの自動化">書き出したあとの自動化</span></summary><div class="body">
     ${S.token ? `<label class="rv-check" for="setAutoTx"><input type="checkbox" class="ui-switch" id="setAutoTx">書き出しのあと自動で文字起こしを始める</label>
-    <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとで「この後を ▸」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
+    <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとでマークの行の「この後を」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
     : '<p class="hint">ホーム(start.bat)から開いているときだけ使えます。</p>'}
   </div></details>
-  <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
-  <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
+  <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub" title="複数人のコラボ配信をグループにまとめ、採用したマークを転写">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
+  <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub" title="事務所ごとの所属チャンネル(① 探す の検索対象)">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
   $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));
   $('#keyDel').addEventListener('click', () => saveKey('', $('#keyDel')));
   $('#keyIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#keySave').click(); } });
@@ -63,7 +63,7 @@ function buildLive(){
   liveBuilt = true;
   const sec = document.createElement('details');
   sec.className = 'card set-sec'; sec.id = 'setLive'; sec.open = true;
-  sec.innerHTML = `<summary><span class="set-title">ライブの録画</span><span class="set-sub">配信を録画しながら切り抜くとき</span></summary><div class="body">
+  sec.innerHTML = `<summary><span class="set-title">ライブの録画</span><span class="set-sub" title="配信を録画しながら切り抜くとき">配信を録画しながら切り抜くとき</span></summary><div class="body">
     <p class="hint">② の URL 欄か ③ の「開く」に配信中・配信前の URL を入れると、録画を始めて ③ で開きます。</p>
     <div class="set-path"><span class="l">録画の置き場所</span><span class="path" id="liveFolderNow"></span></div>
     <p class="hint" id="liveFree"></p>

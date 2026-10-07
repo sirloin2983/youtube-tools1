@@ -1581,7 +1581,7 @@ class AutoRunner:
         notes = []
         row_edge = tx_settings.get("rowEdge")
         if row_edge is not None and not _row_edge_ok(row_edge):
-            notes.append("「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から ▾」で直せます)")
+            notes.append("「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から」で直せます)")
             row_edge = None
         size = tx_settings.get("packSize") if tx_settings.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
         fps = str(tx_settings.get("packFps") or "30")

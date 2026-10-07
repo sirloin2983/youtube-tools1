@@ -20,6 +20,9 @@ function parseT(str){
   return p.reduce((a, x) => a * 60 + Number(x), 0);
 }
 
+/* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり(UI の見直し A-10)。ui-kit が無いときは空(呼ぶ側が文字で補う) */
+function uiIcon(name, opts){ return (window.UIKit && UIKit.icon) ? UIKit.icon(name, opts) : ''; }
+
 /* kind: 'ok' | 'err' | 'info'(左の色の印。省略可)。ui-kit v6 の UIKit.toast を呼ぶだけ(重ねて最大3つ・入れ物は #toast) */
 function toast(msg, ms, kind = ''){   // ms にオブジェクト({ms, kind, action})を渡せば、そのまま UIKit.toast へ(ボタンつきの知らせ)
   if (ms && typeof ms === 'object' && window.UIKit && UIKit.toast) return UIKit.toast(msg, ms);
@@ -39,7 +42,7 @@ function showErr(msg, opt = {}){
   const acts = el('span', 'tt-err-acts'), reload = el('button', 'btn small', '読み込み直す');
   reload.type = 'button'; reload.addEventListener('click', () => location.reload()); acts.append(reload);
   if (document.querySelector('meta[name="ytt-token"]')){ const home = el('a', 'btn small', 'ホームへ'); home.href = '../'; home.setAttribute('data-ui-portal', ''); acts.append(home); }   // ホームから開いたときだけ(入口の / = この画面の 1 つ上)。TOKEN は app.js の読み込み前のエラーでも使えるように直接見る
-  const x = el('button', 'btn small ghost tt-err-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'エラーの帯を閉じる'); x.addEventListener('click', () => { b.hidden = true; }); acts.append(x);
+  const x = el('button', 'btn small ghost icon tt-err-x'); x.type = 'button'; x.innerHTML = uiIcon('close', { size: 14 }) || '閉じる'; x.setAttribute('aria-label', 'エラーの帯を閉じる'); x.title = 'エラーの帯を閉じる'; x.addEventListener('click', () => { b.hidden = true; }); acts.append(x);
   b.append(acts); b.hidden = false;
 }
 
@@ -426,7 +429,7 @@ function renderProgress(){
   for (const [s] of ms){ const b = document.createElement('b'); b.style.left = (s / goal * 100) + '%'; bar.appendChild(b); }
   const list = [...ms, [goal, '目標']];
   const next = list.find(m => cur < m[0]);
-  $('#goalMs').innerHTML = list.map(([s, txt]) => `<div class="ms${cur >= s ? ' done' : ''}"><span class="ck">${cur >= s ? '✓' : '・'}</span><span>${fmtDur(s)}: ${esc(txt)}${next && next[0] === s ? `(あと ${fmtDur(s - cur)})` : ''}</span></div>`).join('');
+  $('#goalMs').innerHTML = list.map(([s, txt]) => `<div class="ms${cur >= s ? ' done' : ''}"><span class="ck">${cur >= s ? uiIcon('check', { size: 12 }) || '済' : '・'}</span><span>${fmtDur(s)}: ${esc(txt)}${next && next[0] === s ? `(あと ${fmtDur(s - cur)})` : ''}</span></div>`).join('');
   let base = cur;
   try { const o = JSON.parse(localStorage.getItem('tx.goalday') || 'null'); if (o && o.day === todayKey() && Number.isFinite(o.base)) base = o.base; else localStorage.setItem('tx.goalday', JSON.stringify({ day: todayKey(), base: cur })); } catch {}
   const gain = Math.max(0, cur - base);
@@ -435,7 +438,7 @@ function renderProgress(){
   { const n = PG.evalDocs;
     $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済みの行 ${PG.evalProofedLines}行(${fmtDur(PG.evalProofedSec)})</p>`
       + `<p class="hint" style="margin:2px 0 0">精度の測定の正解(定点)に数えるのは、動画を全部聞いて「済み」にしたものだけです(下の評価ドリル)。</p>`
-      : `<p class="hint" style="margin:4px 0 0">まだありません。⚙ の「評価用のフォルダ」から仮置きの動画をまとめて文字起こしするか、文字起こしを開いて「評価用にする」にチェックしてください(校正を始める前に決めてください)。</p>`); }
+      : `<p class="hint" style="margin:4px 0 0">まだありません。設定の「評価用のフォルダ」から仮置きの動画をまとめて文字起こしするか、文字起こしを開いて「評価用にする」にチェックしてください(校正を始める前に決めてください)。</p>`); }
   const p = $('#goalPill'); p.hidden = false;
   $('#goalPillT').textContent = `校正 ${fmtDur(cur)} / ${fmtDur(goal)}`;
   $('#goalPillBar').style.width = pct + '%';

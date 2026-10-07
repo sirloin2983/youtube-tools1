@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.59.2';
+const APP_VERSION = '0.59.3';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1039,7 +1039,7 @@ let dbQ = 0;
 $('#q').addEventListener('input', applyFilter);
 $('#flagKind').addEventListener('change', applyFilter);
 $('#btnUndo').addEventListener('click', doUndo);
-const EVAL_LOCK_MSG = '評価用のフォルダの動画なので、評価用の印は外せません(⚙ の「評価用のフォルダ」)';
+const EVAL_LOCK_MSG = '評価用のフォルダの動画なので、評価用の印は外せません(設定の「評価用のフォルダ」)';
 const EVAL_TITLE = $('#evalSet').parentElement.title;
 $('#evalSet').addEventListener('change', e => {
   if (!S.doc) return;

@@ -8,7 +8,7 @@
 <script src="ui-kit.js"></script>
 <style>
 /* ui-kit:css:begin */
-/* ui-kit v6〜v22 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
+/* ui-kit v6〜v23 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
    v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
    飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
    新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
@@ -99,7 +99,7 @@ body{min-width:0}
 button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
 h1,h2,h3,h4{font-family:var(--font-display);line-height:1.3;text-wrap:balance}
 p,.hint,.notice{text-wrap:pretty}   /* v6(段3-2): 見出しは行の長さをそろえ、本文は最後の行が1文字だけにならないように。字間は変えない */
-a{color:var(--accent);text-underline-offset:2px}
+a{color:var(--accent-ink2);text-underline-offset:2px}   /* v23: 文字の青は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1 と足りない。A-22) */
 a:hover{color:var(--accent-hover)}
 ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
 code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
@@ -232,7 +232,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 .card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
 .card-title{margin:0;font:650 14.5px/1.35 var(--font-display);letter-spacing:.03em}
 .card-sub{color:var(--ink-3);font-size:11.5px;font-family:var(--mono)}
-.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;user-select:none}
+.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;min-height:28px;font-weight:600;user-select:none}   /* v23: 押せる部品は 28px 以上(A-21) */
 .card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
 .card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
 .card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
@@ -426,7 +426,8 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 /* v7: 知らせのボタン(1つ)と閉じる。暗い帯の上なので、文字色は帯の文字の色・枠は薄い白 */
 .ui-toast-act{flex:none;align-self:center;padding:3px 12px;border-radius:var(--r);border:1px solid rgba(255,255,255,.45);background:transparent;color:var(--toast-ink);font:inherit;font-weight:600;cursor:pointer}
 .ui-toast-act:hover{background:rgba(255,255,255,.12)}
-.ui-toast-x{flex:none;align-self:flex-start;width:22px;height:22px;margin:-2px -8px 0 0;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
+.ui-toast-x{flex:none;align-self:flex-start;display:inline-grid;place-items:center;width:28px;height:28px;margin:-5px -11px 0 -3px;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
+.ui-toast-x svg{width:14px;height:14px}   /* v23: × の文字をやめて SVG(A-10) */
 .ui-toast-x:hover{background:rgba(255,255,255,.12);color:var(--toast-ink)}
 .ui-toast-act:focus-visible,.ui-toast-x:focus-visible{outline:2px solid #5cc3ff;outline-offset:1px}
 /* v7: まとめて実行の部品(UIKit.autorun): 要約1行 +「設定を変える」(ポップオーバーの中は項目の並び) */
@@ -466,7 +467,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);color:var(--ink-3)}
 .ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-row:last-child{border-bottom:0}
-.ui-settings-row>span{color:var(--ink-2);font-size:13px}
+.ui-settings-row>span,.ui-settings-row>label:not(.lag){color:var(--ink-2);font-size:13px}   /* v23: 全体の節の名前は <label for> に(A-24) */
 /* ツールの節の .fld(名前 + select)も、全体の節と同じ1行の形に(同じ欄の中で形をそろえる。段3-3)。文字の欄(API キーなど)は今までどおり縦に */
 .ui-settings-sec .fld:has(>select){display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-sec .fld:has(>select)>label,.ui-settings-sec .fld:has(>select)>.l{margin:0;font-weight:400;color:var(--ink-2);font-size:13px}
@@ -547,6 +548,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-btn[aria-expanded=true]{background:var(--panel-2)}
 .ui-live-panel{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(400px,calc(100vw - 20px));max-height:70vh;overflow-y:auto;padding:4px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-2);animation:ui-pop .14s var(--ease)}
 .ui-live-panel:focus{outline:none}
+.ui-live-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* v23: キーボードで開いたときは輪を出す(A-07) */
 .ui-live-list{list-style:none;margin:0;padding:0}
 .ui-live-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;padding:8px 10px}
 .ui-live-row+.ui-live-row{border-top:1px solid var(--line)}
@@ -576,6 +578,15 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 /* ---------- v22(2026-10-07・気が利く画面へ 段9 見た目の確認) ----------
    --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくかった)。
    使う所: .errbar(赤い帯)・.badge・.btn.danger.solid・録画の停止の二度押し・編集の行の札「カット済」・スタジオの LIVE の札。新しく赤い面に文字を置くときもこれ */
+
+/* ---------- v23(2026-10-07・UI の見直しの基準 docs/spec/ui-review-criteria.md に合わせる) ----------
+   - 文字記号のアイコン(▾ ▸ × ☰ ⚙ ✂ ▶ ✓)をやめる(ブリーフの Anti-references・A-10)。メニューが開く印は .ui-caret(線で描く小さな山形。文字ではない)、ほかは UIKit.icon の SVG
+     使い方: <summary class="btn">まとめて <span class="ui-caret" aria-hidden="true"></span></summary>。右向き(「この後を ▸」のような)は .ui-caret.right
+   - --ink-4(薄い灰色)は、明るいテーマで面に対して 3.2〜3.6:1 しかない。placeholder・空の欄(--)・押せない物・飾りにだけ使い、情報の文字(時刻・件数・説明)には --ink-3 以上を使う(A-22。決定 P-4)
+   - 文字の青(a・.ui-next-btn)は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1)。押せる部品の高さは 28px 以上(.card>summary・.ui-disclosure>summary にも min-height) */
+.ui-caret{display:inline-block;width:7px;height:7px;margin:0 1px 3px 3px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);opacity:.8;flex:none;vertical-align:middle}
+.ui-caret.right{transform:rotate(-45deg);margin:0 3px 0 1px}
+.ui-caret.up{transform:rotate(225deg);margin:3px 1px 0 3px}
 /* ui-kit:css:end */
 .tt-docauto{margin-left:auto}.tt-docauto-pop{min-width:min(420px,calc(100vw - 32px));display:grid;gap:8px;padding:12px}
 .tt-docauto-pop .lag{flex-wrap:wrap}
@@ -605,7 +616,7 @@ h2{margin:0;font-size:15px}
 /* 処理中の件数・校正の進み具合(押すとメニューの該当する所を開く。押せるので .btn。進み具合は細い棒で) */
 .tt-hjob,.tt-hgoal{font-variant-numeric:tabular-nums;gap:7px}
 .tt-hjob{color:var(--accent-ink2)}
-.tt-hjob::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;animation:ui-pulse 1.2s ease-in-out infinite}
+.tt-hjob::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}   /* 0.59.3: 点滅をやめて .pill.run と同じ静かな回転の輪(docs/spec/ui-guidelines.md 2「実行中の札は点滅させない」。A-32) */
 .tt-hgoal{color:var(--ink-2)}
 .tt-hgoal-bar{display:inline-block;width:46px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
 .tt-hgoal-bar i{display:block;height:100%;background:var(--accent);border-radius:inherit;width:0}
@@ -621,6 +632,7 @@ h2{margin:0;font-size:15px}
 .errbar .tt-err-detail span{display:block;margin-top:2px;word-break:break-all}
 .errbar .tt-err-acts{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
 .errbar .tt-err-acts a.btn{color:var(--ink)}
+.errbar .tt-err-x svg{width:14px;height:14px}
 .errbar .tt-err-x{background:transparent;color:var(--danger-on);border-color:color-mix(in srgb,var(--danger-on) 65%,transparent)}   /* 0.59.2: 赤い帯の上の文字は --danger-on(暗いテーマで白は読みにくい。段9) */
 
 /* ---------- 全体の配置: 左のメニュー + 編集欄 ---------- */
@@ -637,7 +649,7 @@ h2{margin:0;font-size:15px}
   .app{padding:10px}
   .app:not(.menu-closed)>#menuPanel{position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
     background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
-  .app:not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}
+  .app:not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
   .app:not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
 }
 @keyframes tt-drawer{from{transform:translateX(-16px);opacity:.6}to{transform:none;opacity:1}}
@@ -648,7 +660,7 @@ h2{margin:0;font-size:15px}
   .app.has-doc:not(.tab-wide) .tx-grid{grid-template-columns:minmax(300px,min(760px,44%)) minmax(420px,1fr)}
   .app.has-doc:not(.tab-wide):not(.menu-closed)>#menuPanel{position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(400px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
     background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
-  .app.has-doc:not(.tab-wide):not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}
+  .app.has-doc:not(.tab-wide):not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
   .app.has-doc:not(.tab-wide):not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
 }
 @media (prefers-reduced-motion:reduce){.app:not(.menu-closed)>#menuPanel{animation:none}}
@@ -735,6 +747,7 @@ h2{margin:0;font-size:15px}
 .tt-clip .ic{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-top:1px}
 .tt-clip .ic svg{width:12px;height:12px}
 .tt-clip b{font-weight:600}
+.tt-clip a{padding:7px 0}   /* 文の中のリンク(元の配信)の当たり判定を上下に広げる(見た目と行の高さは変わらない。A-29) */
 .tt-clip .mono{color:var(--ink-2)}
 .tt-clip.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
 .tt-clip.warn .ic{background:transparent;color:var(--warn)}
@@ -752,15 +765,16 @@ h2{margin:0;font-size:15px}
 .goalbar i{display:block;height:100%;background:var(--accent);border-radius:inherit;min-width:0}
 .goalbar b{position:absolute;top:0;bottom:0;width:2px;background:var(--panel);opacity:.9}
 #goalText b{font-variant-numeric:tabular-nums}
-#goalMs{margin-top:8px;display:grid;gap:3px;font-size:12.5px}#goalMs .ms{display:flex;gap:6px;align-items:baseline}#goalMs .ms.done{color:var(--ink-3)}#goalMs .ms .ck{width:1.2em;flex:none;color:var(--ok);font-weight:700}
+#goalMs{margin-top:8px;display:grid;gap:3px;font-size:12.5px}#goalMs .ms{display:flex;gap:6px;align-items:baseline}#goalMs .ms.done{color:var(--ink-3)}#goalMs .ms .ck{width:1.2em;flex:none;color:var(--ok);font-weight:700}#goalMs .ms .ck svg{vertical-align:-1px}
 .sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:2px;flex:none}
 .sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .tt-sp-member{flex:none;width:34px;height:30px;border-radius:var(--r-sm);border:1px solid var(--line-2)}   /* 話者の名前がメンバーと合ったときの色(気が利く画面へ 段2) */
 .tt-sp-why{margin:2px 0 0 40px}
+.sp-row .btn svg{width:12px;height:12px}   /* 「聞く」の再生の印(以前の ▶ の文字と同じくらい) */
 
 /* ---------- 空の状態 ---------- */
 #noDoc{padding:48px 24px;margin-top:4px}
-.tt-empty-ic{width:44px;height:44px;margin:0 auto 12px;border-radius:12px;display:grid;place-items:center;color:#fff;background:var(--accent)}
+.tt-empty-ic{width:44px;height:44px;margin:0 auto 12px;border-radius:12px;display:grid;place-items:center;color:var(--accent-ink);background:var(--accent)}
 .tt-empty-ic svg{width:22px;height:22px}
 .tt-steps{display:inline-grid;gap:6px;margin:14px auto 0;text-align:left;font-size:13px;color:var(--ink-2)}
 .tt-steps li{display:flex;gap:8px;align-items:baseline}
@@ -789,7 +803,7 @@ h2{margin:0;font-size:15px}
   .tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr);row-gap:10px}
   .tx-stage,.tx-stage>.pbox{display:contents}
   .pbox>*{order:0}
-  .tx-stage>.pbox>.tt-player{position:sticky;top:var(--toph,52px);z-index:5;background:var(--bg);padding:6px 0 0;box-shadow:0 10px 12px -12px rgba(0,0,0,.45)}
+  .tx-stage>.pbox>.tt-player{position:sticky;top:var(--toph,52px);z-index:5;background:var(--bg);padding:6px 0 0;box-shadow:0 10px 12px -12px rgba(0,0,0,.45)}   /* ui-audit: allow A-08 下に落ちる影(両テーマで同じ黒) */
   .tt-player video{max-height:min(var(--vh),32vh)}
   .tt-player .tools-play{margin-top:4px;border-top:0}
   .tt-edit{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:0 12px 10px}
@@ -917,7 +931,7 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
    画面に固定し、列の中だけでスクロールする。再生に合わせた行の追いかけ(ensureVisible)は、この列の中だけを動かす(窓は動かさない)。
    一覧の端まで来たら窓へ続けてスクロールする(contain にしない。上の題名の行の分だけ窓を動かして、一覧の下の端を見られるように) */
 @container editor (min-width:781px){.tx-list{position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100dvh - var(--toph,52px) - 16px);overflow:auto;scrollbar-width:thin}
-  .tt-listhead{position:sticky;top:0;z-index:4;background:var(--bg);margin:0 0 8px;padding:0 0 6px;box-shadow:0 8px 10px -12px rgba(0,0,0,.45)}
+  .tt-listhead{position:sticky;top:0;z-index:4;background:var(--bg);margin:0 0 8px;padding:0 0 6px;box-shadow:0 8px 10px -12px rgba(0,0,0,.45)}   /* ui-audit: allow A-08 下に落ちる影(両テーマで同じ黒) */
   #segs .seg{scroll-margin-top:calc(var(--khh,0px) + 8px)}}
 @media (max-width:559.98px){.tt-keyhint{display:none!important}}   /* 指で使う狭い画面では、キーの手がかりは出さない */
 .tt-exbtns{display:flex;flex-wrap:wrap;gap:6px}
@@ -947,9 +961,9 @@ html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54
   transition:background-color .2s}
 .seg[hidden]{display:none}
 .seg>input.sel{margin-top:8px}
-.seg .play{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:50%;cursor:pointer;color:var(--ink-2);font-size:10px;padding:0 0 0 2px;transition:background var(--dur),color var(--dur),border-color var(--dur)}
+.seg .play{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:50%;cursor:pointer;color:var(--ink-2);font-size:10px;padding:0;transition:background var(--dur),color var(--dur),border-color var(--dur)}
 .seg .play:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.seg .times{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-4);padding-top:2px}
+.seg .times{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-3);padding-top:2px}   /* 時刻の間の「–」は情報の文字なので --ink-3(--ink-4 は 3.6:1。A-22) */
 .seg .t{width:66px;min-width:0;min-height:28px;padding:3px 4px;font-family:var(--mono);font-size:12px;text-align:center;background:var(--panel-2);border-color:transparent;color:var(--ink-2);font-variant-numeric:tabular-nums}   /* 時刻の欄(UIKit.timebox の .ui-time) */
 .seg .t:hover{border-color:var(--line-2)}
 .seg .t:focus{background:var(--field);color:var(--ink);border-color:var(--accent)}
@@ -981,7 +995,8 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 .seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
 @media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
 /* 要確認の印・提案・音の状態のメモ・選んだ行の操作 */
-.seg .fl{grid-column:5;justify-self:start;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550;color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r-pill);padding:0 10px;min-height:22px;background:var(--warn-soft);cursor:pointer;max-width:100%;text-align:left}
+.seg .fl{grid-column:5;justify-self:start;position:relative;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550;color:color-mix(in srgb,var(--warn-ink) 85%,var(--ink));border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r-pill);padding:0 10px;min-height:22px;background:var(--warn-soft);cursor:pointer;max-width:100%;text-align:left}   /* 0.59.3: 文字を --warn-ink より少し濃く(行の黄色の上で 4.47:1 だった。A-22) */
+.seg .fl::after{content:"";position:absolute;inset:-3px 0}   /* 見た目は 22px のまま、当たり判定を 28px に(.ui-next-btn と同じ形。::before は「!」の印が使う。A-21) */
 .seg .fl::before{content:"!";display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;background:var(--warn);color:var(--panel);font:800 10px/1 var(--font)}
 .seg .fl:hover{border-color:var(--warn)}
 .seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
@@ -1022,7 +1037,7 @@ html.fsz .seg textarea{field-sizing:content;height:auto}
 @container (max-width:700px){ #segs .seg .tt-read{grid-column:1/-1} }
 @container (max-width:520px){ #segs .seg .tt-read{order:2} }
 /* 映像の上の字幕で、重なる行を積んだとき(2026-10-05)。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
-.tt-cap-line{display:block;color:var(--tt-cap-color,#000)}
+.tt-cap-line{display:block;color:var(--tt-cap-color,#000)}   /* ui-audit: allow A-08 字幕の既定の黒(仕上がりと同じ色。両テーマで同じ) */
 .tt-cap-line+.tt-cap-line{margin-top:.15em}
 /* 話者の欄の「字幕の色」(16 進 6 桁・# なし) */
 .tt-sp-sub{gap:3px}
@@ -1090,7 +1105,7 @@ html[data-edtab-now=cut] #btnMenu,html[data-edtab-now=pack] #btnMenu{display:non
 .app.tab-wide>#menuPanel{display:none}
 .app.tab-wide.menu-overlay>#menuPanel{display:block;position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
   background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
-.app.tab-wide.menu-overlay+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}
+.app.tab-wide.menu-overlay+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
 @media (max-width:719.98px){.app.tab-wide{grid-template-columns:minmax(0,1fr)}.app.tab-wide>.tt-mstrip{flex-direction:row;position:static}}
 
 /* ---------- 2 カット(E3。cut.js) ---------- */
@@ -1104,8 +1119,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-cut-video video{width:100%;height:100%;object-fit:contain;display:block}
 .tt-cut-mode-pill{position:absolute;left:10px;top:10px}
 /* 字幕の見た目(パックの Text+ と同じ指定のおおよその見え方: けいふぉんと・黒い文字・白いふち(少し右下へずらす)・外側の黒いふち。cut2resolve の resolve_textplus.TEXT_STYLE) */
-.tt-cap-look{font-family:"けいふぉんと","Keifont","Yu Gothic","Meiryo",sans-serif;font-weight:400;color:var(--tt-cap-color,#000);
-  text-shadow:0.057em 0.016em 0 #fff,0.054em 0.033em 0 #fff,0.044em 0.048em 0 #fff,0.029em 0.058em 0 #fff,0.012em 0.061em 0 #fff,-0.005em 0.058em 0 #fff,-0.02em 0.048em 0 #fff,-0.03em 0.033em 0 #fff,-0.033em 0.016em 0 #fff,-0.03em -0.001em 0 #fff,-0.02em -0.016em 0 #fff,-0.005em -0.026em 0 #fff,0.012em -0.029em 0 #fff,0.029em -0.026em 0 #fff,0.044em -0.016em 0 #fff,0.054em -0.001em 0 #fff,0.07em 0em 0 #000,0.065em 0.027em 0 #000,0.049em 0.049em 0 #000,0.027em 0.065em 0 #000,0em 0.07em 0 #000,-0.027em 0.065em 0 #000,-0.049em 0.049em 0 #000,-0.065em 0.027em 0 #000,-0.07em 0em 0 #000,-0.065em -0.027em 0 #000,-0.049em -0.049em 0 #000,-0.027em -0.065em 0 #000,-0em -0.07em 0 #000,0.027em -0.065em 0 #000,0.049em -0.049em 0 #000,0.065em -0.027em 0 #000}
+.tt-cap-look{font-family:"けいふぉんと","Keifont","Yu Gothic","Meiryo",sans-serif;font-weight:400;color:var(--tt-cap-color,#000);   /* ui-audit: allow A-08 仕上がりの見本(Text+ と同じ黒い文字と白・黒のふち) */
+  text-shadow:0.057em 0.016em 0 #fff,0.054em 0.033em 0 #fff,0.044em 0.048em 0 #fff,0.029em 0.058em 0 #fff,0.012em 0.061em 0 #fff,-0.005em 0.058em 0 #fff,-0.02em 0.048em 0 #fff,-0.03em 0.033em 0 #fff,-0.033em 0.016em 0 #fff,-0.03em -0.001em 0 #fff,-0.02em -0.016em 0 #fff,-0.005em -0.026em 0 #fff,0.012em -0.029em 0 #fff,0.029em -0.026em 0 #fff,0.044em -0.016em 0 #fff,0.054em -0.001em 0 #fff,0.07em 0em 0 #000,0.065em 0.027em 0 #000,0.049em 0.049em 0 #000,0.027em 0.065em 0 #000,0em 0.07em 0 #000,-0.027em 0.065em 0 #000,-0.049em 0.049em 0 #000,-0.065em 0.027em 0 #000,-0.07em 0em 0 #000,-0.065em -0.027em 0 #000,-0.049em -0.049em 0 #000,-0.027em -0.065em 0 #000,-0em -0.07em 0 #000,0.027em -0.065em 0 #000,0.049em -0.049em 0 #000,0.065em -0.027em 0 #000}   /* ui-audit: allow A-08 仕上がりの見本のふち(両テーマで同じ) */
 .tt-cut-cap{position:absolute;left:6%;right:6%;bottom:7%;text-align:center;font-size:clamp(16px,2.6vw,30px);line-height:1.3;
   pointer-events:none;white-space:pre-wrap;word-break:break-word}
 .tt-cut-ctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -1119,6 +1134,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-csub.now{background:color-mix(in srgb,var(--accent) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent)}
 .tt-csub-go{flex:1;min-width:0;display:flex;gap:10px;align-items:baseline;text-align:left;background:none;border:0;padding:6px 4px;cursor:pointer;color:var(--ink);font:inherit}
 .tt-csub-go .mono{color:var(--ink-3);font-size:12px;flex:none}
+.tt-csub.now .tt-csub-go .mono{color:var(--ink-2)}   /* 今の行(薄い accent の上)は --ink-3 だと 4.3:1(A-22) */
 .tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
 .tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;color:var(--ink-4)}
@@ -1129,6 +1145,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-cut-tools .tt-sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}
 .tt-cut-tools .tt-grow{flex:1}
 .tt-cut-tools kbd{margin-left:4px}
+.tt-cut-tools .btn .ui-icon{width:14px;height:14px}   /* 分割・元に戻す・やり直すの線のアイコン(以前の ✂ ↶ ↷ の文字と同じくらいの大きさ) */
 .tt-cut-tools details.pop>summary.disabled{opacity:.5;cursor:not-allowed}
 .tt-cut-tools .vpop{min-width:260px}
 .tt-cut-tools .vpop .fld>label{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin:8px 0 4px}
@@ -1143,7 +1160,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-tl-scroll:focus{outline:none}
 .tt-tl-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .tt-tl-content{position:relative;height:124px;min-width:100%;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:pan-x}   /* 目盛りの最後のラベルなどが中身の幅を押し広げない */
-.tt-tl-ruler{position:absolute;left:0;right:0;top:0;height:26px;border-bottom:1px solid var(--line);cursor:pointer}
+.tt-tl-ruler{position:absolute;left:0;right:0;top:0;height:26px;border-bottom:1px solid var(--line);background:var(--panel);cursor:pointer}   /* 下地を明示(目盛りの文字の読みやすさを両テーマで決める。A-22) */
 .tt-tick{position:absolute;top:0;height:26px;padding-left:4px;border-left:1px solid var(--line-2);font:11px/26px var(--mono);color:var(--ink-3);white-space:nowrap}
 .tt-tl-track{position:absolute;left:0;right:0;overflow:hidden}   /* 中の canvas・区間が中身の幅を押し広げない(ズームを戻したとき横に余白が残らない) */
 /* 区間(中に波形)。canvas(#tlAudio)を区間(#tlVideo)の後ろに重ね、同じ帯の中で見せる(段3: 4段 → 3段) */
@@ -1151,8 +1168,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-tl-a{top:26px;height:64px;pointer-events:none}   /* 波形は区間(#tlVideo)の上に重ねるだけ。クリックは下の区間・削る区間に通す */
 .tt-tl-a canvas{position:absolute;top:0;display:block}
 .tt-tl-s{top:90px;height:34px;border-top:1px solid var(--line)}
-.tt-k{position:absolute;top:6px;height:52px;border-radius:6px;background:color-mix(in srgb,var(--accent) 62%,transparent);background-image:repeating-linear-gradient(90deg,transparent 0 22px,rgba(255,255,255,.18) 22px 34px);
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);cursor:pointer;box-sizing:border-box}
+.tt-k{position:absolute;top:6px;height:52px;border-radius:6px;background:color-mix(in srgb,var(--accent) 62%,transparent);background-image:repeating-linear-gradient(90deg,transparent 0 22px,rgba(255,255,255,.18) 22px 34px);   /* ui-audit: allow A-08 区間の縞(--accent の上の薄い白。両テーマで同じ) */
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);cursor:pointer;box-sizing:border-box}   /* ui-audit: allow A-08 区間の縁の影(両テーマで同じ) */
 .tt-k.sel{outline:2px solid var(--accent);outline-offset:2px;box-shadow:inset 0 0 0 2px var(--panel)}
 /* 区間の端のつまみ: 見た目より当たり判定を広く(左右に張り出す)。近づくと光る */
 .tt-h{position:absolute;top:-4px;width:12px;height:60px;background:var(--panel);border:2px solid var(--accent);border-radius:4px;cursor:ew-resize;z-index:3;box-sizing:border-box;transition:box-shadow .12s var(--ease),background .12s var(--ease)}
@@ -1195,7 +1212,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 .tt-pk-card{padding:14px 16px}
 .tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
-.tt-pk-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f0a70a;color:#fff;font:700 12px/1 var(--mono);flex:none}
+.tt-pk-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--panel-3);color:var(--ink-2);font:700 12px/1 var(--mono);flex:none}   /* 0.59.3: .ui-tab-n と同じ色(白 on 黄色は 2:1 で読めなかった。A-22) */
 .tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
 .tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
 .tt-pk-p{margin:8px 0 0;line-height:1.6}
@@ -1224,7 +1241,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-phone.land{width:180px;aspect-ratio:16/9}
 .tt-pk-phone-cap{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:12px;line-height:1.3;white-space:pre-line}
 .tt-pk-looktxt{min-width:0;flex:1}
-.tt-pk-cap{background:#6b7280;font-size:15px;line-height:1.5;padding:6px 14px;border-radius:6px;margin-bottom:6px;overflow:hidden;white-space:pre-line;text-align:center}
+.tt-pk-cap{background:var(--ink-3);font-size:15px;line-height:1.5;padding:6px 14px;border-radius:6px;margin-bottom:6px;overflow:hidden;white-space:pre-line;text-align:center}
 .tt-pk-warn{margin:12px 0 0;padding:8px 12px 8px 28px}
 .tt-pk-warn.old{opacity:.6}   /* 見積もりが古い間(設定を変えた直後)は前の設定での注意を薄く残す(4-1) */
 .tt-pk-pvstate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 0}
@@ -1311,7 +1328,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span>
         <div id="srcClip" class="tt-clip" hidden role="status"></div></div>
       <div class="fld"><span class="l">範囲(空欄なら全体)</span>
-        <div class="row"><input id="rStart" type="text" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
+        <div class="row"><input id="rStart" type="text" aria-label="開始" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" aria-label="終了" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
       <div class="fld"><label for="jTitle">タイトル(任意)</label><input id="jTitle" type="text" maxlength="120" placeholder="空欄ならファイル名"></div>
     </div>
 
@@ -1374,7 +1391,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
         <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>
         <span class="hint" id="glossFit"></span>
-        <details id="rosterBox" style="margin-top:6px"><summary class="hint">ホロライブの名簿から追加</summary>
+        <details id="rosterBox" class="ui-disclosure" style="margin-top:6px"><summary class="hint">ホロライブの名簿から追加</summary>
           <div id="rosterGroups" style="margin-top:4px"></div>
           <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rosterAdd">選んだ所属を用語集に追加</button><span class="hint" id="rosterNote"></span></div></details></div>
     </details>
@@ -1477,7 +1494,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <li><span class="n">3</span><span><b>1 文字起こし</b>: 聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
       <li><span class="n">4</span><span><b>2 カット</b> で残す・削る所を決めて、<b>3 パック</b> で Resolve へ渡すパックを作る</span></li>
     </ol>
-    <div style="margin-top:14px"><button type="button" class="btn primary" id="noDocMenu" hidden>☰ メニューを開く</button></div>
+    <div style="margin-top:14px"><button type="button" class="btn primary" id="noDocMenu" hidden><span class="ui-icon" data-icon="menu" aria-hidden="true"></span>メニューを開く</button></div>
   </div>
   <div id="doc" hidden>
    <!-- 題名の行(どのタブにも出す): 題名・配信者・長さ・元の配信の位置と、校正の進み具合・残す区間とカット後の長さ -->
@@ -1577,12 +1594,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <div class="tt-edit">
         <div class="tools" role="group" aria-label="編集">
           <button type="button" class="btn small" id="btnAddAt" title="いま再生している位置に、空の行を足します(認識で抜けたセリフを書き足すとき)。選んだ行の前後に足すときは、行の下の「＋前に行」「＋後に行」か N">＋再生位置に行</button>
-          <button type="button" class="btn small" id="btnUndo" disabled>元に戻す</button>
-          <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済み・カット済にします">まとめて ▾</summary><div class="vpop">
+          <button type="button" class="btn small" id="btnUndo" disabled title="戻すものがありません">元に戻す</button>
+          <details class="pop l" id="moreTools"><summary class="btn small" title="選んだ行・全行を、まとめて校正済み・カット済にします">まとめて <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
             <div class="row"><button type="button" class="btn small" id="btnProofSel" disabled title="左端のチェックで選んだ行を校正済みにします">選択行を校正済みに</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnProofAll" title="聞いて確認した文字起こしだけ押してください(確認していない行が混じると、精度の測定と学習が狂います)">全行を校正済みに</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="btnSugHigh" hidden title="確度が高い提案だけを、まとめて採用します(元に戻せます)"></button></div>
-            <div class="row tt-bulkcut"><button type="button" class="btn small" id="cutSelected" disabled>選んだ行をカット</button><button type="button" class="btn small" id="keepSelected" disabled>選んだ行を残す</button></div>
+            <div class="row tt-bulkcut"><button type="button" class="btn small" id="cutSelected" disabled title="行の左端のチェックで行を選ぶと押せます">選んだ行をカット</button><button type="button" class="btn small" id="keepSelected" disabled title="行の左端のチェックで行を選ぶと押せます">選んだ行を残す</button></div>
             <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="rtSelected" disabled title="選んだ行(校正済みは外す)の開始・終了を、認識のときの言葉(単語)の時刻に合わせます。候補のある行だけ・件数を確かめてから。元に戻す 1 回で戻せます">選んだ行の時刻を言葉に合わせる</button></div>
             <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span></div></details>
         </div>
@@ -1591,7 +1608,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
           <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
         </div>
         <div class="terms" id="terms" hidden></div>
-        <div class="stripbox" id="stripBox" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
+        <!-- 進み具合の帯のクリックはマウスの便利(キーでは S / W・↓ / ↑ で行を移動できる)。A-25 の例外 --><div class="stripbox" id="stripBox" data-ui-audit-allow="A-25" title="全体の進み具合(緑=校正済み、黄=要確認、灰=未校正)。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>
       </div>
     </div>
 
@@ -1620,7 +1637,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="spAdd">話者を追加</button>
           <label class="lag">選択した行の話者 <select id="spBulk" style="width:auto"></select></label><button type="button" class="btn small" id="spApply">適用</button>
           <label class="lag"><input type="checkbox" id="selAll">全行を選択</label><span class="hint" id="selCount"></span></div>
-        <span class="hint">「▶ 聞く」で、その人の発言を順に再生できます(誰かを確かめて、名前を付けてください)。間違った行は、行の話者欄か、行の左端のチェックで複数行を選んで直せます。「要確認: 声が混ざっている可能性」は、1つの行に複数人の声が入っている行です(分割して直せます)。</span></div>
+        <span class="hint">「聞く」で、その人の発言を順に再生できます(誰かを確かめて、名前を付けてください)。間違った行は、行の話者欄か、行の左端のチェックで複数行を選んで直せます。「要確認: 声が混ざっている可能性」は、1つの行に複数人の声が入っている行です(分割して直せます)。</span></div>
       <div class="fld"><span class="l">声を覚える(次から名前を自動で付ける)</span>
         <label class="lag"><input type="checkbox" class="ui-switch" id="diarRecog" checked>話者を判別したら、覚えている声と比べて名前を付ける</label>
         <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="voiceLearn">この文書の話者の声を覚える</button><span class="hint" id="voiceLearnHint"></span></div>
@@ -1710,29 +1727,29 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        </div>
      </div>
      <div class="tt-cut-tools" role="toolbar" aria-label="カットの道具">
-       <button type="button" class="btn small" id="cutSplit" title="再生位置(赤い線)で、残す区間を2つに分けます(S)"><span aria-hidden="true">✂</span> 分割 <kbd>S</kbd></button>
+       <button type="button" class="btn small" id="cutSplit" title="再生位置(赤い線)で、残す区間を2つに分けます(S)"><span class="ui-icon" data-icon="scissors" aria-hidden="true"></span>分割 <kbd>S</kbd></button>
        <button type="button" class="btn small" id="cutDel" title="選んだ残す区間を削る / 選んだ削る区間を戻す(Del)">削る / 戻す <kbd>Del</kbd></button>
        <button type="button" class="btn small" id="cutIO" title="始まりの印から終わりの印までを削ります(X)"><span id="cutIOLabel">I〜O を削る</span> <kbd>X</kbd></button>
        <span class="tt-sep" aria-hidden="true"></span>
-       <button type="button" class="btn small ghost" id="cutUndo" title="元に戻す(Ctrl+Z)"><span aria-hidden="true">↶</span> 元に戻す <kbd>Ctrl+Z</kbd></button>
-       <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span aria-hidden="true">↷</span> やり直す</button>
+       <button type="button" class="btn small ghost" id="cutUndo" title="元に戻す(Ctrl+Z)"><span class="ui-icon" data-icon="undo" aria-hidden="true"></span>元に戻す <kbd>Ctrl+Z</kbd></button>
+       <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span class="ui-icon" data-icon="redo" aria-hidden="true"></span>やり直す</button>
        <span class="tt-sep" aria-hidden="true"></span>
        <span class="hint">たたき台:</span>
        <button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip・まとめて実行のカットの無い文書と同じ規則)">行から</button>
        <button type="button" class="btn small ghost" id="cutNone" title="カットせずに動画全体を残します(カット済の行の字幕も全部出ます)。「元に戻す」(Ctrl+Z)で戻せます">カットしない</button>
-       <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)">▾</summary><div class="vpop">
+       <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)"><span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
          <label class="lag"><input type="checkbox" id="cutEdgeOn" checked>行の端を声の止まる所まで広げる</label>
          <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は <b>3 パック</b> の「詳しい設定」で変えられます)。カット済の行は越えません</p>
          <div class="fld"><label for="cutEdgeAfter">終わりを広げる上限(秒)</label><input id="cutEdgeAfter" type="number" value="0.5" min="0" max="2" step="0.05"></div>
          <div class="fld"><label for="cutEdgeBefore">始まりを広げる上限(秒)</label><input id="cutEdgeBefore" type="number" value="0.3" min="0" max="2" step="0.05"></div>
          <p class="hint">この設定は、zip・まとめて実行(カットの無い文書)にも使います</p>
          <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutEdgeGo">この設定で「行から」のたたき台にする</button></div></div></details>
-       <details class="pop" id="cutDraftSilence"><summary class="btn small ghost" title="しゃべっていない所(無音)を自動で削ります(cut2resolve で計算)">無音 ▾</summary><div class="vpop">
+       <details class="pop" id="cutDraftSilence"><summary class="btn small ghost" title="しゃべっていない所(無音)を自動で削ります(cut2resolve で計算)">無音 <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
          <div class="fld"><label for="cutNoise">無音とみなす音量(dB)</label><input id="cutNoise" type="number" value="-35" min="-90" max="0" step="1"><span class="hint">大きくする(-30 など)と、小さな音も無音として削ります</span></div>
          <div class="fld"><label for="cutSilMin">無音の長さ(秒)</label><input id="cutSilMin" type="number" value="0.6" min="0.05" max="60" step="0.05"></div>
          <div class="fld"><label for="cutSilPad">話の前後に残す秒数</label><input id="cutSilPad" type="number" value="0.15" min="0" max="10" step="0.05"></div>
          <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutDraftSilenceGo">無音を削ったたたき台にする</button></div></div></details>
-       <details class="pop" id="cutDraftList"><summary class="btn small ghost" title="残す区間を時刻で書いて貼り付けます(cut2resolve で計算)">時刻リスト ▾</summary><div class="vpop">
+       <details class="pop" id="cutDraftList"><summary class="btn small ghost" title="残す区間を時刻で書いて貼り付けます(cut2resolve で計算)">時刻リスト <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
          <div class="fld"><label for="cutListText">残す区間(1行に1つ。例: 0:05 0:20)</label><textarea id="cutListText" rows="5" placeholder="0:05 0:20&#10;0:31.5 0:48"></textarea></div>
          <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutDraftListGo">この区間を残すたたき台にする</button></div></div></details>
        <button type="button" class="btn small ghost" id="cutDraftPlan" hidden>スタジオ</button>
@@ -1742,7 +1759,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
        <button type="button" class="btn small icon" id="cutZoomIn" aria-label="広げる(+)" title="広げる(+・Ctrl+ホイール)">＋</button>
        <button type="button" class="btn small" id="cutZoomFit" title="全体を1画面に">全体</button>
      </div>
-     <div class="tt-tl-mini" id="tlMini" title="全体(ドラッグで見る範囲を移動・枠の端をドラッグで拡大縮小)"><canvas id="tlMiniWave"></canvas><div class="tt-tl-mini-view" id="tlMiniView"><span class="tt-tl-mini-h l" data-h="l"></span><span class="tt-tl-mini-h r" data-h="r"></span></div></div>
+     <!-- ミニマップのドラッグはマウスの便利(キーではタイムラインでホイール・, .・← → で動かせる)。A-25 の例外 --><div class="tt-tl-mini" id="tlMini" data-ui-audit-allow="A-25" title="全体(ドラッグで見る範囲を移動・枠の端をドラッグで拡大縮小)"><canvas id="tlMiniWave"></canvas><div class="tt-tl-mini-view" id="tlMiniView"><span class="tt-tl-mini-h l" data-h="l"></span><span class="tt-tl-mini-h r" data-h="r"></span></div></div>
      <div class="card tt-tl" id="cutTL">
        <div class="tt-tl-heads" aria-hidden="true"><span class="r"></span><span>区間</span><span>字幕</span></div>
        <div class="tt-tl-scroll" id="tlScroll" tabindex="0" aria-label="タイムライン(区間を押して選ぶ・端をドラッグ・目盛りを押すとその位置へ。ホイールで拡大縮小・Shift+ホイールで移動)">
@@ -1835,8 +1852,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          </div>
          <div class="card tt-pk-card">
            <h3 class="tt-pk-h"><span class="tt-pk-n">2</span>パックに入れるもの</h3>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve でクリップの端を延ばせます。Resolve での手順は、作ったあと「Resolve での手順を見る」で出ます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
+           <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve で区間の端を延ばせます。Resolve での手順は、作ったあと「Resolve での手順を見る」で出ます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
            <div class="tt-pk-row"><label class="tt-pk-l" for="pkLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
              <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14 LUFS(YouTube と同じくらい・おすすめ)</option><option value="-11">-11 LUFS(大きめ)</option><option value="-16">-16 LUFS(少し小さめ)</option><option value="-18">-18 LUFS(小さめ)</option><option value="0">音量を % で決める</option></select>
              <span id="pkVolBox" hidden><input id="pkVol" type="number" min="1" max="200" step="5" style="width:4.5em" aria-label="音量(%。元の音量 = 100)" title="元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下">%</span></div>
@@ -1887,7 +1904,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap)。キーを変える場所はここだけ(⚙ 設定には開くボタンだけ) -->
   <p class="hint" id="keysFpsNote" hidden style="margin:8px 0 0">動画の fps が分からないため、1 文字起こし の「1コマ」は約 1/30 秒です(2 カット のタブを使えない文書)。</p>   <!-- 段3 3-4。renderFpsNote() -->
   <p class="tt-flow" id="keysFlow"></p>   <!-- 基本の流れ(今の割り当てから renderKeyUI() が書く) -->
-  <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の ⚙ 設定の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて ▾」。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。字幕の段の行を押して選ぶと、端のつまみのドラッグ(または Q / W で端を選んで , . で1コマ)で行の時刻を直せ(前後の行は越えない。残す行を外へ広げると残す区間も広がる)、「再生位置でこの行を分ける」で行を分けられます。</p>
+  <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の「設定」の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて」のメニュー。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。字幕の段の行を押して選ぶと、端のつまみのドラッグ(または Q / W で端を選んで , . で1コマ)で行の時刻を直せ(前後の行は越えない。残す行を外へ広げると残す区間も広がる)、「再生位置でこの行を分ける」で行を分けられます。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
   </div>
 </dialog>

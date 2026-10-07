@@ -14,8 +14,9 @@
     スタジオに追加された時刻(createdAt)③ それも無ければ updatedAt、の順(デモ環境や解析前の動画では ①が無い)
   - tx: 切り抜き全体の文字起こし・校正の進み具合の合計 {clips, withTranscript, segments, proofed}
   - packs: 切り抜き全体のパックの有無の合計 {have, total, textplus}
-  - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。候補の確認 → 書き出し → 文字起こし → 校正 → パックの順で
-    最初に残っている作業
+  - next: 一覧に出す「次にやること」1つ {kind, label, count} か None(すべて済み)。TODO_ORDER(校正 → パック → 文字起こし → 書き出し → 候補の確認。
+    仕掛かりを先に終わらせる)の順で最初に残っている作業。ホームの「次にやること」の並びも同じ表(build の todoOrder)を使うので、同じ配信なら
+    上の一覧の先頭の作業と行のボタンが必ず同じになる(UI の見直し 1 周目 M1)。パックは「文字起こしが全部校正済みでパックがまだの切り抜き」の数
   - todo: 作業ごとの残りの数 {review, export, transcribe, proof, pack}(ホームの「次にやること」に種類ごとの行を出す。入口 0.42.0・S-6)
     review = 確認前の候補(採用・見送りを付けていないマーク)の数。まだ 1 本も採用・書き出ししていない配信だけ数える
     (選び始めたあとに残った候補は「選ばなかったもの」として扱い、次にやることに出し続けない)
@@ -35,6 +36,9 @@ STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中�
 MAX_MEMO = 2000
 MAX_JSON = 64 * 1024 * 1024
 _lock = threading.Lock()
+# 次にやることの順(仕掛かりを先に終わらせる)と、作業の名前。ホームの「次にやること」(portal.js)も build() の todoOrder でこの順を使う(正はここ 1 か所)
+TODO_ORDER = ("proof", "pack", "transcribe", "export", "review")
+TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "文字起こし", "export": "書き出し", "review": "候補の確認"}
 
 
 def _read_json(path, limit=MAX_JSON):
@@ -106,13 +110,20 @@ def _case_extras(c):
     missing_tx = sum(1 for cl in clips if not cl.get("transcript"))                                 # 書き出し済みで文字起こしがまだ
     proofing = sum(1 for t in with_tx if t.get("proofed", 0) < t.get("segments", 0))                # 文字起こしはあるが校正が残っている
     missing_pack = total - have_pack                                                                # 書き出し済みでパックがまだ
-    steps = ((review, "review", "候補の確認"), (to_export, "export", "書き出し"), (missing_tx, "transcribe", "文字起こし"),
-             (proofing, "proof", "校正"), (missing_pack, "pack", "パックを作る"))
-    nxt = next(({"kind": k, "label": lb, "count": n} for n, k, lb in steps if n > 0), None)
+    # パックを作れる = 文字起こしが全部校正済みでパックがまだ(校正の前にパックを勧めない。ホームの校正待ち・パック待ちと同じ条件)
+    ready_pack = sum(1 for cl in clips if cl.get("transcript") and cl["transcript"].get("segments", 0) > 0
+                     and cl["transcript"].get("proofed", 0) >= cl["transcript"]["segments"] and not cl.get("pack"))
+    todo = {"review": review, "export": to_export, "transcribe": missing_tx, "proof": proofing, "pack": missing_pack}
+    nxt = None
+    for k in TODO_ORDER:
+        n = ready_pack if k == "pack" else todo[k]
+        if n > 0:
+            nxt = {"kind": k, "label": TODO_LABEL[k], "count": n}
+            break
     return {"tx": {"clips": total, "withTranscript": len(with_tx), "segments": sum(t["segments"] for t in with_tx),
                    "proofed": sum(t["proofed"] for t in with_tx)},
             "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
-            "next": nxt, "todo": {k: n for n, k, _ in steps},
+            "next": nxt, "todo": todo,
             "remaining": (1 if review else 0) + to_export + missing_tx + proofing + missing_pack,
             "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
 
@@ -155,7 +166,7 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack):
     cases.sort(key=lambda c: -(c.get("updatedAt") or 0))
     unlinked = [dict(txindex.summary(t), sourcePath=t["sourcePath"]) for t in transcripts if t["id"] not in used]
     unlinked.sort(key=lambda t: -t["updatedAt"])
-    return {"cases": cases, "unlinked": unlinked}
+    return {"cases": cases, "unlinked": unlinked, "todoOrder": list(TODO_ORDER)}
 
 
 # ---------------------------------------------------------------- 案件ファイル

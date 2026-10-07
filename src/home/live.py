@@ -633,7 +633,7 @@ class Live:
             raise live_export.LiveError("録画元から思わぬ応答がありました(HTTP %s)" % code, 502)
         first = live_export.iso_epoch(d.get("firstPdt"))   # 秒の 0 = 最初のセグメントの受信時刻(live_export.Exporter._base と同じ基準)
         if first is None:
-            raise live_export.LiveError("録画がまだ始まっていません(最初のセグメントが届いてから書き出せます)", 409)
+            raise live_export.LiveError("録画がまだ始まっていません(録画のデータが最初に届いてから書き出せます)", 409)
         return d, first
 
     def export_studio(self, body):

@@ -899,10 +899,12 @@
     pill.textContent = r.state === 'running' ? '実行中' : '順番待ち';
   }
 
+  /* 押せないボタンには理由を title に(A-34)。押せるときは title を外す */
+  function offBtn(b, off, why) { b.disabled = !!off; if (off) b.title = why; else b.removeAttribute('title'); }
   var DOC_BATCH_MAX = 20;   // まとめて実行に一度に入れられる文書の数(src/home/autorun.py の MAX_WAITING)
   function syncDocRunButton() {
     var n = Object.keys(docPicked).length;
-    $('#docRunBtn').disabled = !n || n > DOC_BATCH_MAX;
+    offBtn($('#docRunBtn'), !n || n > DOC_BATCH_MAX, n ? '一度に ' + DOC_BATCH_MAX + ' 本までです。選びを減らすと押せます' : '文書を選ぶと押せます(一覧の左のチェック)');
     $('#docPickHint').textContent = n > DOC_BATCH_MAX ? n + '本を選んでいます(一度に ' + DOC_BATCH_MAX + ' 本までです)'
       : n ? (n + '本を選んでいます(' + DOC_BATCH_MAX + ' 本まで)') : '文書を選んでください(一覧の左のチェック。' + DOC_BATCH_MAX + ' 本まで)';
   }
@@ -943,7 +945,7 @@
     var body = { ids: ids, overwrite: $('#docOverwrite').checked };
     var who = $('#docWho').value.trim();
     if (who) body.streamer = who;
-    $('#docRunBtn').disabled = true;
+    offBtn($('#docRunBtn'), true, '始めています。少し待ってください');
     var ar = window.UIKit && UIKit.autorun;
     var go = ar ? ar.start('api/autorun/start-docs', body, { ids: ids, overwrite: body.overwrite }) : api('/api/autorun/start-docs', 'POST', body);
     go.then(function (r) {
@@ -978,7 +980,7 @@
     var ids = cleanPicked(), bytes = 0;
     (cleanData && cleanData.kinds || []).forEach(function (k) { k.items.forEach(function (i) { if (ids.indexOf(i.id) >= 0) bytes += i.bytes; }); });
     $('#cleanSel').textContent = ids.length ? ids.length + ' 件・' + fmtBytes(bytes) + ' を選んでいます' : '';
-    $('#btnCleanMove').disabled = !ids.length;
+    offBtn($('#btnCleanMove'), !ids.length, '先に「候補を探す」を押し、移す物にチェックを付けると押せます');
   }
   function renderCleanup(d) {
     cleanData = d;
@@ -1017,7 +1019,7 @@
       : Promise.resolve(window.confirm('選んだ物をごみ箱フォルダへ移しますか?'));
     ask.then(function (ok) {
       if (!ok) return;
-      $('#btnCleanMove').disabled = true;
+      offBtn($('#btnCleanMove'), true, '移しています。少し待ってください');
       return api('/api/cleanup', 'POST', { ids: ids }).then(function (r) {
         toast(r.moved.length + ' 件をごみ箱フォルダへ移しました' + (r.failed.length ? '(' + r.failed.length + ' 件は移せませんでした: ' + r.failed[0].error + ')' : ''), r.failed.length ? 'err' : undefined);
         loadCleanup();
@@ -1178,7 +1180,7 @@
       return g.label + ': ' + body + '(→ ' + g.opens + ')';
     });
     var text = '届いた ' + done + ' / ' + goals.length + (unknown ? '・未測定 ' + unknown + '(道具が無いか、まだ測っていない。「精度を今すぐ測る」で測れます)' : '');
-    var row = healthRow('info', '入口の条件(あと何本・何分)', text, subs);
+    var row = healthRow('info', '始める条件(あと何本・何分)', text, subs);
     row.id = 'accuracyGoals';
     return row;
   }
@@ -1294,8 +1296,11 @@
     var pill = $('.pt-todo-pill', li);
     pill.className = 'pill pt-todo-pill ' + (it.pillClass || '');
     pill.textContent = it.pillText || '';
-    $('.pt-todo-title', li).textContent = it.title || '';
-    $('.pt-todo-sub', li).textContent = it.sub || '';
+    var tt = $('.pt-todo-title', li), ts = $('.pt-todo-sub', li);
+    tt.textContent = it.title || '';
+    ts.textContent = it.sub || '';
+    tt.title = it.title || '';   // 狭い幅で切れても全文が分かる(A-36)
+    ts.title = it.sub || '';
     var prog = $('.pt-todo-prog', li);
     if (typeof it.progress === 'number') { prog.hidden = false; prog.style.setProperty('--p', it.progress + '%'); }
     if (it.key && hideApi()) {   // 実行中の行は隠せない(終われば消える)

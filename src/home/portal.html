@@ -87,7 +87,7 @@
             <label class="lag pt-auto-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
               <input id="docWho" type="text" size="12" placeholder="例: さくらみこ"></label>
             <label class="lag"><input type="checkbox" id="docOverwrite">パックがあれば作り直す(上書き)</label>
-            <button type="button" class="btn small primary" id="docRunBtn" disabled>選んだ文書をまとめて実行</button>
+            <button type="button" class="btn small primary" id="docRunBtn" disabled title="文書を選ぶと押せます(一覧の左のチェック)">選んだ文書をまとめて実行</button>
           </div>
           <div class="row"><span class="hint" id="docPickHint">文書を選んでください(一覧の左のチェック。20 本まで)</span>
             <button type="button" class="btn small ghost" id="docPickAll">表示中を全部選ぶ</button>
@@ -194,7 +194,7 @@
         <div class="row"><b class="grow">片付け</b><span class="hint" id="cleanWhen"></span><button type="button" class="btn small ghost" id="btnCleanFind">候補を探す</button></div>
         <p class="hint pt-clean-note">選んだ物を「ごみ箱フォルダ」へ移します(動画と同じドライブ。例: 書き出し先\ごみ箱\)。<span id="cleanDays">14</span> 日たつと、ホームの起動時に消えます。それまではエクスプローラーで元に戻せます。</p>
         <div class="pt-clean-kinds" id="cleanKinds" aria-live="polite"></div>
-        <div class="row pt-clean-foot"><span class="hint grow" id="cleanSel"></span><button type="button" class="btn small" id="btnCleanMove" disabled>選んだ物をごみ箱フォルダへ移す</button></div>
+        <div class="row pt-clean-foot"><span class="hint grow" id="cleanSel"></span><button type="button" class="btn small" id="btnCleanMove" disabled title="先に「候補を探す」を押し、移す物にチェックを付けると押せます">選んだ物をごみ箱フォルダへ移す</button></div>
       </section>
       <ol class="pt-flow" id="flow" aria-label="ツールの起動状態"></ol>
 
@@ -354,8 +354,8 @@
         <ol class="pt-auto-steps"></ol>
         <div class="hint pt-auto-msg"></div>
       </div>
-      <details class="pt-case-memo"><summary class="hint">メモ</summary>
-        <textarea rows="3" maxlength="2000" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
+      <details class="ui-disclosure pt-case-memo"><summary class="hint">メモ</summary>
+        <textarea rows="3" maxlength="2000" aria-label="メモ" placeholder="投稿日・タイトル案・気づいたことなど"></textarea>
         <div class="row"><button type="button" class="btn small pt-memo-save">メモを保存</button><span class="hint pt-memo-msg"></span></div>
       </details>
     </div>

@@ -111,14 +111,44 @@ class TestListExtras(Base):
         self.transcript("aaaaaaaaaaaa", self.clip2, proofed=1, total=4)
         self.touch(os.path.join(self.exports, "02_次_pack", "cut-plan.json"), "{}")
         c = cases.snapshot(self.root, self.env)["cases"][0]
-        # 採用済みでまだ書き出していないマークが1本あるので、いちばん優先度の高い「書き出し」が出る
-        self.assertEqual(c["next"], {"kind": "export", "label": "書き出し", "count": 1})
+        # 次にやることは仕掛かりを先に(TODO_ORDER = 校正 → パック → 文字起こし → 書き出し → 候補の確認。UI の見直し M1): 校正が残っている 1 本が先
+        self.assertEqual(c["next"], {"kind": "proof", "label": "校正", "count": 1})
         self.assertEqual(c["tx"], {"clips": 2, "withTranscript": 1, "segments": 4, "proofed": 1})
         self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
         # 残作業の合計 = 書き出し1 + 文字起こしなし1(m1) + 校正が残っている1(m2) + パックがまだ1(m1) = 4
         self.assertEqual(c["remaining"], 4)
         # 作業ごとの残りの数(ホームの「次にやること」の種類ごとの行。入口 0.42.0・S-6)。採用済みがあるので候補の確認は数えない
         self.assertEqual(c["todo"], {"review": 0, "export": 1, "transcribe": 1, "proof": 1, "pack": 1})
+
+    def test_next_follows_the_todo_order_table(self):
+        """M1: 案件の next は TODO_ORDER(ホームの「次にやること」の並びと同じ表)の順で最初に残っている作業。表は build() の todoOrder で画面にも渡す
+        (同じ配信なら、上の一覧の先頭の作業と行のボタンが必ず同じになる)"""
+        self.assertEqual(cases.TODO_ORDER, ("proof", "pack", "transcribe", "export", "review"))
+        self.assertEqual(set(cases.TODO_LABEL), set(cases.TODO_ORDER))
+        self.assertEqual(cases.build({}, [])["todoOrder"], list(cases.TODO_ORDER))
+        # 作業が全部そろっている配信(校正が残る・校正済みでパックまだ・文字起こしまだ・採用済みの書き出しまだ)から、先頭を片付けるたびに次の順で出る
+        clip3 = os.path.join(self.exports, "03_三.mp4")
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [
+            mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2), mark("m3", "exported", clip3), mark("m4", "adopted")]}})
+        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=2, total=2)   # 校正済み・パックまだ
+        self.transcript("bbbbbbbbbbbb", self.clip2, proofed=1, total=4)   # 校正が残っている
+        order = []
+        for step in range(4):
+            c = cases.snapshot(self.root, self.env)["cases"][0]
+            order.append(c["next"]["kind"])
+            if step == 0:
+                self.transcript("bbbbbbbbbbbb", self.clip2, proofed=4, total=4)               # 校正を済ませる → パック(m1 がまだ。m2 は作ってある)
+                self.touch(os.path.join(self.exports, "02_次_pack", "cut-plan.json"), "{}")
+            elif step == 1:
+                self.touch(os.path.join(self.exports, "01_見どころ_pack", "cut-plan.json"), "{}")   # パックを作る → 文字起こし(m3)
+            else:
+                self.transcript("cccccccccccc", clip3, proofed=1, total=1)                   # 文字起こし → 書き出し(m4)。校正済みなのでパックの次はまた pack
+                self.touch(os.path.join(self.exports, "03_三_pack", "cut-plan.json"), "{}")
+        self.assertEqual(order, ["proof", "pack", "transcribe", "export"])
+        # 「パックがまだ」でも校正が残っている切り抜きは、パックではなく校正(校正の前にパックを勧めない)
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
+        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=1, total=2)
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["next"]["kind"], "proof")
 
     def test_review_candidates_until_something_is_picked(self):
         # 解析したが 1 本も採用していない配信: 確認前の候補(採用・見送りを付けていないマーク)の数を返す(入口 0.42.0・S-6)

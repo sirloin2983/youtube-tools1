@@ -22,7 +22,7 @@ function paneHtml(){
     <div class="fld"><label class="l" for="qPath">手元の動画ファイルのパス <span class="muted">このパソコン上のフルパス。「音声」だけで判定します</span></label>
       <input type="text" id="qPath" placeholder="C:\\Users\\...\\stream.mp4" autocomplete="off" spellcheck="false">
       <span class="hint">URLとファイルの両方を入れると、両方を追加します</span></div>
-    <div class="fld"><label class="lag q-collab" title="まとめて追加した配信どうしを、コラボのグループにします(2本以上のときだけ)。あとで設定(⚙)の「コラボ」節で、時刻のズレ(アンカー)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
+    <div class="fld"><label class="lag q-collab" title="まとめて追加した配信どうしを、コラボのグループにします(2本以上のときだけ)。あとで設定の「コラボ」節で、時刻のズレ(アンカー)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
     <div class="row q-acts"><button type="button" class="btn primary" id="qAdd">解析に追加</button><button type="button" class="btn" id="qOpen">解析せずに確認画面を開く</button></div>
     <p class="msg hint" id="qMsg" role="status"></p>
   </section>
@@ -59,7 +59,7 @@ function paneHtml(){
       <p class="hint q-advnote">チャットの反応は少し遅れて来るので、その遅れだけ前へずらして盛り上がった瞬間に合わせます(遅れは配信ごとに音量の山との一致から自動で推定します)。同じ配信の再解析は、音量の解析結果のキャッシュで速くなります(配信中・配信直後は「キャッシュを使わない」をオンに)。チャット取得は長い配信だと時間がかかるため、待ち時間の上限を超えたらチャットなしで続行します。</p></details>
   </details>
   <section class="card q-listcard" id="qListCard">
-    <div class="card-head"><h2 class="card-title">解析キュー</h2><span class="card-sub" id="qCount"></span><span class="spacer"></span><button type="button" class="btn small ghost" id="qClear" disabled>終わったものを消す</button></div>
+    <div class="card-head"><h2 class="card-title">解析キュー</h2><span class="card-sub" id="qCount"></span><span class="spacer"></span><button type="button" class="btn small ghost" id="qClear" disabled title="終わった解析がまだありません(解析が完了・失敗・中止すると押せます)">終わったものを消す</button></div>
     <div class="ui-next q-next" id="qNext" hidden></div>
     <div id="qList" aria-live="polite"></div>
   </section>
@@ -177,7 +177,7 @@ S.enqueue = async items => {
 async function makeCollabGroup(videoIds){
   try {
     const r = await S.api('/api/collab/group', { body: { videoIds } });
-    S.toast(`コラボのグループにまとめました(${r.group.members.length}本)。「設定(⚙)の「コラボ」」でズレ(アンカー点)を指定してください`, 8000, 'ok');
+    S.toast(`コラボのグループにまとめました(${r.group.members.length}本)。設定の「コラボ」節でズレ(アンカー点)を指定してください`, 8000, 'ok');
     if (S.collab && S.collab.refresh) S.collab.refresh();
   } catch (er){ S.toast('コラボのグループ化に失敗しました: ' + er.message, 8000, 'err'); }
 }
@@ -287,7 +287,8 @@ function updateLive(){
 function updateMeta(){
   const its = Q.items, act = its.filter(i => i.status === 'waiting' || i.status === 'running').length;
   $('#qCount').textContent = its.length ? `待ち・実行中 ${act}/${Q.max}本 ・ 全${its.length}件` : '';
-  $('#qClear').disabled = !its.some(i => !['waiting', 'running'].includes(i.status));
+  const clr = $('#qClear'); clr.disabled = !its.some(i => !['waiting', 'running'].includes(i.status));
+  clr.title = clr.disabled ? '終わった解析がまだありません(解析が完了・失敗・中止すると押せます)' : '終わった解析(完了・失敗・中止)を、この一覧から消します';   /* 押せない理由(A-34) */
   S.setBadge('queue', act ? String(act) : '', act ? `解析中・順番待ちの配信 ${act}本` : '');
   /* 次にやること(1つだけ): 解析が終わった配信を ③ で確認する */
   const done = its.filter(i => i.status === 'done').length, nx = $('#qNext');

@@ -192,7 +192,7 @@ async function raFind(){
 /* ブラウザのタブの題名: 「● タイトル - 編集」(● は未保存・保存できていない) */
 function updateDocTitle(){
   const d = S.doc, st = $('#saveState').getAttribute('data-state');
-  document.title = d ? `${S.dirty || S.saving || st === 'err' ? '● ' : ''}${String(d.title || '無題').slice(0, 60)} - 編集` : '編集';
+  document.title = d ? `${S.dirty || S.saving || st === 'err' ? '● ' : ''}${String(d.title || '無題').slice(0, 60)} - 編集` : '編集';   // ui-audit: allow A-10 窓の題名の未保存の印(画面のアイコンではない)
 }
 
 /* 題名の行(どのタブにも): 配信者・長さ・元の配信の位置と、札「校正 n / m行」「残す n区間 ・ カット後 m:ss.ff」。描き直しはフレームごとに1回 */
@@ -661,6 +661,7 @@ function renderCutPackNow(){
   if (!S.doc) return;
   const n = S.sel.size, locked = !!lockJob();
   $('#cutSelected').disabled = $('#keepSelected').disabled = !n || locked;
+  $('#cutSelected').title = $('#keepSelected').title = locked ? '処理中は変えられません(終わると押せます)' : (n ? '' : '行の左端のチェックで行を選ぶと押せます');   // 押せない理由(A-34)
   $('#cpSelHint').textContent = n ? `チェックした${n}行を、まとめて変えます` : '行の左端のチェックで選んだ行を、まとめて変えます';
   renderDocBar();   // 題名の行の札(カットが使えない文書では、行の印からの目安)
   if (PACK) PACK.refresh();

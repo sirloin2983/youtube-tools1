@@ -35,8 +35,8 @@ function renderLearned(){
 
 async function putSettingsNow(){   // すぐ保存する(辞書への登録・カットの設定など)。保存できなければ投げる(呼んだ側が知らせる)
   clearTimeout(setT); setT = null;
-  if (S.settingsLoadErr) throw new Error('設定を読み込めていないため保存しません(⚙ 設定の「読み直す」を押してください)');
-  if (!(await sendSettings())) throw new Error('設定を保存できませんでした(⚙ 設定に理由と「もう一度」があります)');
+  if (S.settingsLoadErr) throw new Error('設定を読み込めていないため保存しません(設定の「読み直す」を押してください)');
+  if (!(await sendSettings())) throw new Error('設定を保存できませんでした(設定に理由と「もう一度」があります)');
 }
 
 /* ---------- 修正の提案(文脈つきの統計) ---------- */
@@ -272,7 +272,7 @@ async function loadDrillStat(){
 }
 
 const drillLeftText = st => st.leftSec > 0 ? `定点まであと ${Math.ceil(st.leftSec / 60)} 分` : '定点の 15 分に届きました';
-const drillCondsText = st => (st.conds || []).map(c => `${c.ok ? '✓' : '・'}${c.label} ${c.have}/${c.need}${c.unit}`).join('  ');
+const drillCondsText = st => (st.conds || []).map(c => `・${c.label} ${c.have}/${c.need}${c.unit}${c.ok ? '(済)' : ''}`).join('  ');
 
 function renderDrillStat(st){
   if (!st || !$('#drillLeft') || st.reviewedSec === undefined) return;
@@ -543,7 +543,7 @@ function renderAb(){
   if (!abVariants){ const m = $('#optModel').value; abVariants = [{ model: m, glossary: true }, { model: m, glossary: false }]; }
   $('#abRows').innerHTML = abVariants.map((v, i) => `<div class="row" data-i="${i}" style="margin-top:4px;flex-wrap:nowrap">
     <select class="abm" style="min-width:0;flex:1" aria-label="モデル">${S.tools.models.map(([val, l]) => `<option value="${esc(val)}"${val === v.model ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small" data-act="abdel" aria-label="この設定を外す">×</button>' : ''}</div>
+    <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small icon" data-act="abdel" aria-label="この設定を外す" title="この設定を外す">' + (uiIcon('close', { size: 14 }) || '外す') + '</button>' : ''}</div>
     ${v.glossary ? `<textarea class="abt" rows="2" style="width:100%;margin:2px 0 0" placeholder="空欄=上の共通の用語集を使う。書くと、この設定だけその語を使います(改行かカンマ区切り)" aria-label="この設定だけの用語集">${esc(v.terms || '')}</textarea>
     <div class="row" style="margin:2px 0 0"><select class="abr" aria-label="名簿から足す" style="min-width:0"><option value="">名簿から足す…</option>${((S.roster && S.roster.groups) || []).map(g => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('')}</select><span class="hint">${glossFitText(glossTerms(v.terms))}</span></div>` : ''}`).join('');
   $('#abAdd').disabled = abVariants.length >= 4;

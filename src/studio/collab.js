@@ -108,7 +108,7 @@ function renderPicked(){
   const el = $('#clPicked'); if (!el) return;
   const ids = [...C.checked];
   el.innerHTML = ids.length ? `<span class="l">選んだ配信 <b class="num">${ids.length}</b>本</span>` + ids.map(id => { const v = vById(id);
-    return `<span class="cl-chip"><span class="cl-chip-t">${esc(v ? vlabel(v) : id)}</span><span class="muted">${esc(v ? who(v) : '')}</span><button type="button" class="btn small ghost icon" data-unpick="${esc(id)}" aria-label="${esc(v ? vlabel(v) : id)} を選択から外す" title="選択から外す">×</button></span>`; }).join('')
+    return `<span class="cl-chip"><span class="cl-chip-t">${esc(v ? vlabel(v) : id)}</span><span class="muted">${esc(v ? who(v) : '')}</span><button type="button" class="btn small ghost icon" data-unpick="${esc(id)}" aria-label="${esc(v ? vlabel(v) : id)} を選択から外す" title="選択から外す">${UIKit.icon('close', { size: 12 })}</button></span>`; }).join('')
     : `<span class="hint">${C.addTo ? '追加する配信を上の一覧で選んでください' : 'まとめる配信を上の一覧で2本以上選んでください(同じコラボの、それぞれの人の配信)'}</span>`;
 }
 function renderBaseSelect(){

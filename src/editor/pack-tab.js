@@ -134,7 +134,7 @@ function create(h){
     $('#pkSpk').checked = on;
     const sps = d ? (d.speakers || []).filter(s => String(s.name || '').trim() && !h.isOtherSp(s)) : [];   // 組み込みの「ゲーム音声など」は字幕に出さないので並べない
     const own = sps.filter(s => h.subColorOf(s));   // 字幕の色を指定した話者(スイッチによらず効く)
-    $('#pkSpk').disabled = !h.TOKEN;
+    $('#pkSpk').disabled = !h.TOKEN; $('#pkSpk').title = h.TOKEN ? '' : 'ホームから開くと使えます';   // 押せない理由(A-34)
     const item = (hex, text) => `<span class="tt-pk-spk-i"><i class="tt-pk-spk-sw" style="background:${esc(hex)}"></i>${esc(text)}</span>`;   // 色の丸つきの 1 人
     const ownHTML = own.slice(0, 12).map(sp => { const hex = h.subColorOf(sp); return item(hex, `${String(sp.name).trim()} → 指定の色(${hex})`); }).join(' ・ ');
     if (!h.TOKEN){ if (own.length) box.innerHTML = ownHTML; else box.textContent = 'ホームから開くと使えます'; return; }
@@ -268,8 +268,10 @@ function create(h){
     const why = staleWhy(), stale = why.length > 0, diffs = P.pack ? outputDiff(P.pack.output, o) : null, differ = !!(diffs && diffs.length);
     const btn = $('#pkBuild');
     btn.disabled = !!b || P.building;
+    btn.title = P.building ? 'パックを作っています' : b ? blockMsg(b) : '';   // 押せない理由(A-34。同じ文は上の帯にも出る)
     btn.textContent = P.building ? 'パックを作っています…' : P.pack && !$('#pkDir').value.trim() ? 'パックを作り直す(上書き)' : 'パックを作る';
     const bk = $('#pkBackup'); bk.disabled = !hasRows; if (!hasRows) bk.checked = true;
+    bk.title = hasRows ? '' : '字幕が無いパックでは、いつも入ります';
     $('#pkBackupHint').textContent = hasRows ? 'スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません'
       : '字幕が無いパックは EDL が本体なので、いつも入ります(Text+ のスクリプトは作りません)';
     $('#pkBuildHint').textContent = P.building ? '' : b ? '' : !hasRows ? '字幕が無いので Text+ は作りません(EDL と元の動画のコピー)' : stale ? `前回のパックのあとに、${why.join('・')}。作り直すと今の内容になります(同じ場所に上書きします)` : differ ? '前回のパックと設定が違います。作り直すと今の設定になります(できているファイルはそのまま)' : '作成中は進み具合と「中止」が出ます';
@@ -282,7 +284,7 @@ function create(h){
     const skipped = hasRows ? zipSkipped(o) : [], zw = $('#pkZipWarn');
     zw.hidden = !skipped.length && hasRows;
     zw.textContent = !hasRows ? '字幕の無い文書は zip にできません(「パックを作る」で EDL と動画のコピーのパックになります)' : skipped.length ? `今の設定のうち ${skipped.join('・')} は zip に入りません` : '';
-    $('#pkZip').disabled = !hasRows;
+    $('#pkZip').disabled = !hasRows; $('#pkZip').title = hasRows ? '' : '字幕の無い文書は zip にできません';
     renderSummaryText(fps, size, hasRows);
   }
   /* 前回の設定の要約(段3。詳しい設定は「設定を変える」の右の欄)。配信者の色の丸は、字幕があるときだけ(無いときは字幕そのものが無いので色も出ない) */

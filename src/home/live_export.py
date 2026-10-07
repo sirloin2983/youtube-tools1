@@ -868,7 +868,7 @@ class Exporter:
     def _process(self, job):
         a, b = iso_epoch(job["start"]), iso_epoch(job["end"])
         wdir = os.path.join(self.work, job["id"])
-        self._set(job, state="fetch", message="録画元からセグメントを取っています", error="", progress=0, attempts=(job.get("attempts") or 0) + 1)
+        self._set(job, state="fetch", message="録画元から録画のデータを取っています", error="", progress=0, attempts=(job.get("attempts") or 0) + 1)
         tmp = None
         try:
             got, why = None, []
@@ -883,7 +883,7 @@ class Exporter:
                     continue
                 segs = d.get("segments") or []
                 if not segs or not all(SEG_URI_RE.match(str(s.get("uri") or "")) for s in segs):
-                    why.append("「%s」に区間のセグメントがありません" % name)
+                    why.append("「%s」に区間の録画のデータがありません" % name)
                     continue
                 try:
                     files = self._fetch(job, rc, rec, segs, wdir)

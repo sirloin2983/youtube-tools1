@@ -182,14 +182,16 @@ function jumpHTML(){
     <div class="cs-emptyacts"><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button><button type="button" class="btn ghost" id="rvEmptyRank" data-go-step="rank">① 探すで選ぶ</button><button type="button" class="btn ghost" id="rvEmptyQueue" data-go-step="queue">② 解析へ</button></div>
   </div>`;
 }
-/* プレーヤー・タイムライン・盛り上がりグラフ・再生の操作 */
+/* プレーヤー・タイムライン・盛り上がりグラフ・再生の操作。
+   タイムライン(#rvTl)のクリックで移動はマウスだけの便利(A-25 の例外): キーでは ← →(1秒・Shift で5秒)・, .(1コマ)・現在位置の欄に時刻を入れて Enter で動かせる。
+   区間のボタン(#rvSegs の .rv-seg)の幅は時間で決まるので 28px より細いことがある(A-21 の例外): 同じマークは一覧の行(と前後移動キー)から選べる */
 function playerHTML(){
   return `      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
       <div class="rv-notice notice" id="rvNotice" hidden></div>
 
       <div class="rv-deck">
-        <div class="rv-tl" id="rvTl" role="group" aria-label="タイムライン。クリックでその位置へ移動">
-          <div id="rvSegs"></div><div class="rv-draft" id="rvDraft" hidden></div><div class="rv-ph" id="rvPh"></div>
+        <div class="rv-tl" id="rvTl" role="group" aria-label="タイムライン。クリックでその位置へ移動" data-ui-audit-allow="A-25">
+          <div id="rvSegs" data-ui-audit-allow="A-21"></div><div class="rv-draft" id="rvDraft" hidden></div><div class="rv-ph" id="rvPh"></div>
         </div>
         <div class="rv-graph" id="rvGraph" hidden><div class="rv-gsvg" id="rvGSvg"></div><div class="rv-gticks" id="rvGTicks" aria-hidden="true"></div><div class="rv-gcur" id="rvGCur"></div><div class="rv-ghover" id="rvGHover" hidden aria-hidden="true"><span></span></div><div class="rv-gpeaks" id="rvGPeaks"></div></div>
         <div class="rv-scale" aria-hidden="true"><span>0:00.0</span><div class="rv-glegend" id="rvGLegend" hidden></div><span id="rvTlEnd">--</span></div>
@@ -346,7 +348,7 @@ function exportDrawerHTML(){
                 <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
               <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
                 <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">-14(YouTube の目安・おすすめ)</option><option value="-11">-11(大きめ)</option><option value="-16">-16(控えめ)</option><option value="-18">-18(小さめ)</option><option value="0">そろえない(音量 % で指定)</option></select></div>
-              <div class="rv-fld" id="rvExpVolBox"><label class="rv-fl" for="rvExpVol">書き出しの音量(そろえないとき)</label>
+              <div class="rv-fld" id="rvExpVolBox" role="group" aria-labelledby="rvExpVolL"><label class="rv-fl" id="rvExpVolL" for="rvExpVol">書き出しの音量(そろえないとき)</label>
                 <div class="rv-setrow"><input type="range" id="rvExpVol" min="1" max="200" step="1" value="75" aria-label="書き出しの音量" title="出力ファイルの音量です(100で元の音量のまま)。元の音量だと大きすぎるとのことで、既定は75%にしています"><output id="rvExpVolOut" class="mono" for="rvExpVol">75</output><span class="muted">%</span></div>
               </div>
             </div>
@@ -739,7 +741,7 @@ function showNotice(t, opts){
   const n = $('#rvNotice'), v = S.cur;
   const yt0 = v && v.kind === 'youtube' ? `https://www.youtube.com/watch?v=${enc(v.id)}` : liveYtHref(v);
   const retry = opts && opts.retry ? '<button type="button" class="btn small" data-act="ytretry">もう一度試す</button> ' : '';   // 押したときの動きは #rvNotice のクリックで受ける(CSP: インラインの onclick は動かない)
-  n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${retry || yt0 ? ' ' : ''}${retry}${yt0 ? `<a href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
+  n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${retry || yt0 ? ' ' : ''}${retry}${yt0 ? `<a class="btn small" href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
   n.hidden = false; phMsg('');
 }
 const canPlay = () => !!(yt && S.playerAlive && !S.playerErr);
@@ -1106,7 +1108,9 @@ function syncSettingsUI(){
   renderKeyUI(); $('#rvLag').value = String(s.lag); $('#rvLiveMode').value = s.liveMode;
   $('#rvHeight').value = String(s.maxHeight); $('#rvPrecision').value = s.precision;
   $('#rvExpVol').value = s.exportVolume; $('#rvExpVolOut').textContent = s.exportVolume;
-  $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness; $('#rvExpVolBox').classList.toggle('rv-off', !!s.exportLoudness);
+  $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness;
+  /* 音量をそろえるときは使わない欄: 薄く見せ、押せない欄であることと理由を属性で伝える(押せない物は薄くてよい。A-22・A-34) */
+  { const vb = $('#rvExpVolBox'), off = !!s.exportLoudness; vb.classList.toggle('rv-off', off); vb.setAttribute('aria-disabled', String(off)); vb.title = off ? '音量のそろえ方が「そろえない」のときだけ使います' : ''; }
   expSetSummary();
   { const ae = $('#rvAutoExp'); if (ae) ae.checked = s.liveAutoExport; }
   { const dk = $('#rvDuck'); if (dk) dk.value = s.liveDuck; }
@@ -1501,7 +1505,7 @@ function liveDeletedShown(v){
   if (yt) unmountPlayer();   // 開いている間に消えた: 読めなくなった再生リストを読み続けない
   S.playerErr = true;
   const n = $('#rvNotice'), href = liveYtHref(v);
-  n.innerHTML = `<b>${esc(LIVE_DELETED)}</b><br><span class="hint">録画が無いので、この画面では再生できません。本番版の切り抜きは書き出し先にあります(文字起こし・カット・パックもそのまま使えます)。</span>${href ? ` <a href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
+  n.innerHTML = `<b>${esc(LIVE_DELETED)}</b><br><span class="hint">録画が無いので、この画面では再生できません。本番版の切り抜きは書き出し先にあります(文字起こし・カット・パックもそのまま使えます)。</span>${href ? ` <a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
   n.hidden = false; phMsg('');
 }
 /* 録画が終わった(録画中 → 終わり)ときの知らせ(1回)。ヘッダーの札(UIKit.liveBadge)が動いているなら、札が同じ知らせを出すので重ねない */
@@ -1793,7 +1797,7 @@ function quickMark(slot = 0){
   toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`);
 }
 /* ---------- 一瞬を切り取る(2026-09-28 ユーザー要望): 今の位置の前 2 秒・後 3 秒から始め、始まり・終わりを 0.1 秒刻みで合わせて、
-   マーク「一瞬」(採用)を作り、そのマークだけを書き出す。マークとして残すのは、書き出しのあとの自動の文字起こし・「この後を ▸」・
+   マーク「一瞬」(採用)を作り、そのマークだけを書き出す。マークとして残すのは、書き出しのあとの自動の文字起こし・「この後を」・
    入口の案件がマークを手がかりに動くため(ユーザー決定)。書き出しの設定(方式・画質・音量)は「書き出しの設定」のとおり ---------- */
 const MOMENT_LABEL = '一瞬';
 function momentMark(){
@@ -1903,7 +1907,7 @@ function goMark(dir, onlyCand, from){
 }
 function decideSel(st){
   const c = marks().find(m => m.id === S.sel);
-  if (!c) return toast('先にマークを選んでください(▶ 再生・行のクリック・前後移動キー)');
+  if (!c) return toast('先にマークを選んでください(行の再生ボタン・行のクリック・前後移動キー)');
   if (!setStatus(c, st, true)) return;
 }
 /* 候補をすべて採用: 戻せる操作なので確認はしない(気が利く画面へ 段1)。知らせの [元に戻す] で、まだ採用のままのマークだけ候補に戻す */
@@ -2524,7 +2528,7 @@ function markHTML(c){
   return `<li class="rv-mark-row st-${esc(st || 'cand')}${sel ? ' sel' : ''}${auto ? ' auto' : ''}${fold ? ' folded' : ''}" data-id="${esc(c.id)}">
     <div class="rv-mh">
       <input type="checkbox" class="rv-join" data-act="join"${S.join.has(c.id) ? ' checked' : ''} aria-label="つなげて1本にする" title="つなげて1本にする(書き出しの欄の「つなげて1本に」)">
-      <button type="button" class="rv-fold" data-act="fold" aria-expanded="${!fold}" aria-label="${fold ? '開く' : '折りたたむ'}" title="${fold ? '開く' : '折りたたむ'}">${fold ? '▸' : '▾'}</button>
+      <button type="button" class="rv-fold" data-act="fold" aria-expanded="${!fold}" aria-label="${fold ? '開く' : '折りたたむ'}" title="${fold ? '開く' : '折りたたむ'}"><span class="ui-caret${fold ? ' right' : ''}" aria-hidden="true"></span></button>
       <button type="button" class="btn small rv-play" data-act="play" aria-label="この範囲を再生(開始から終了まで)" title="この範囲を再生">${SVG.play}</button>
       <span class="rv-tc mono">${fmt(c.start)} – ${fmt(c.end)}</span><span class="rv-dur mono">${(c.end - c.start).toFixed(1)}s</span>
       ${c.src === 'auto' ? '<span class="rv-chip auto">自動</span>' : ''}${c.score != null ? `<span class="rv-chip score mono" title="自動判定の点数">${Number(c.score).toFixed(1)}点</span>` : ''}
@@ -2532,7 +2536,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}${exp && c.archived ? `<span class="rv-chip arch" title="${ARCH_TITLE}">本番版</span>` : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      ${Studio.token && (st === 'adopted' || exp) && !(S.cur && S.cur.kind === 'live') ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1">この後を ▸ ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
+      ${Studio.token && (st === 'adopted' || exp) && !(S.cur && S.cur.kind === 'live') ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1"><span>この後を <span class="ui-caret right" aria-hidden="true"></span> ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</span></button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -2551,7 +2555,7 @@ function txHTML(c){
   const n = Number(t.segments) || 0, pf = Number(t.proofed) || 0;
   const note = t.offsetFrom === 'mark' ? '<div class="hint rv-tx-note">.clip.json が見つからないため、マークの開始に合わせています(高速書き出しの切り抜きは数秒ずれることがあります)</div>' : '';
   const lines = (t.lines || []).map(l => `<li><button type="button" class="rv-tx-line${l.cut ? ' cut' : ''}" data-act="txseek" data-t="${Number(l.start)}" data-e="${Number(l.end)}" title="${l.cut ? '文字起こしで「カット」にした行 ・ ' : ''}この行を再生"><span class="mono rv-tx-tc">${fmt(l.start)}</span>${l.speaker ? `<span class="rv-tx-spk">${esc(l.speaker)}</span>` : ''}<span class="rv-tx-text">${esc(l.text) || '(空の行)'}</span></button></li>`).join('');
-  return `<details class="rv-tx" data-tx="${esc(c.id)}"${S.txOpen.has(c.id) ? ' open' : ''}>
+  return `<details class="rv-tx ui-disclosure" data-tx="${esc(c.id)}"${S.txOpen.has(c.id) ? ' open' : ''}>
     <summary><b>セリフ</b> <span class="hint">${n}行 ・ 校正 ${pf}/${n}${t.others > 0 ? ' ・ 他に ' + Number(t.others) + ' 件の文字起こし(いちばん新しいものを表示)' : ''}</span></summary>
     ${note}<ol class="rv-tx-lines">${lines}</ol>${t.truncated ? '<div class="hint">長いため、最初の部分だけ表示しています</div>' : ''}
   </details>`;
@@ -3072,13 +3076,13 @@ async function maybeAutoTranscribe(videoId, markIds){
   } catch (e){
     // 「この配信はすでに実行中・順番待ちです」(同じ配信のまとめて実行が別に動いている)だけを見分ける。
     // 「順番待ちが多すぎます」(容量の上限)は別の理由の失敗なので、ここに含めて info 扱いにしない(以前は同じ正規表現が両方に一致して誤報していた)
-    if (/実行中・順番待ちです/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を ▸」でやり直せます', 7000, 'info');
+    if (/実行中・順番待ちです/.test(e.message || '')) toast('この配信はすでに別のまとめて実行が動いています。終わってから「この後を」でやり直せます', 7000, 'info');
     else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
-/* まとめて実行(③ のメニュー・マークの行の「この後を ▸」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
+/* まとめて実行(③ のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
    採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
-/* マークの行の「この後を ▸」: 実行する前に字幕の色(③ のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
+/* マークの行の「この後を」: 実行する前に字幕の色(③ のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
 function autoWhoText(){ const el = document.getElementById('rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
 function fillAutoWho(){
   if (window.UIKit && UIKit.streamer && UIKit.streamer.autoFill && Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });

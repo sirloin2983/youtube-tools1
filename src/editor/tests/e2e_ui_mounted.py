@@ -262,7 +262,7 @@ def main():
             pg.select_option("#txGroup", "stream")
             head = pg.inner_text("#txList details.ui-group summary")
             check("【雑談】テストの配信" in head and "テスト配信者" in head, "配信ごとのまとまりの見出しに、配信の題名と配信者が出る: %s" % head)
-            check(pg.evaluate("document.querySelector('#txList .txi.cur .txi-menu summary').textContent.trim()") == "⋮", "操作のメニューは「⋮」(題名の省略の「…」と紛らわしくない)")
+            check(pg.evaluate("(() => { const s = document.querySelector('#txList .txi.cur .txi-menu summary'); return !!s.querySelector('svg') && !s.textContent.trim(); })()"), "操作のメニューは線の「…」のアイコン(UIKit.icon('more')。文字の ⋮ はやめた: UI の見直し A-10)")
             pg.select_option("#txState", "done")
             check("条件に合う文字起こしはありません" in pg.inner_text("#txList") and "0 / 1件" in pg.inner_text("#txCount"), "状態「校正済み」で絞り込める(まだ無い): " + pg.inner_text("#txCount"))
             pg.select_option("#txState", "all")
