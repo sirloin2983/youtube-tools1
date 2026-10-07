@@ -393,7 +393,7 @@ class Online:
             total = self.w_audio * a + self.w_chat * c
             if self.head > 0:
                 total = total * min(1.0, t / self.head) ** 2
-            out.append((t, total, {"audio": a, "chat": c}))
+            out.append((t, total, {"audio": a, "chat": c, "chatRaw": self.chat.get(t, 0.0) if self.ch_chat is not None else 0.0}))   # chatRaw = ずらす前の t の値(遅れの推定 estimate_lag 用)
             self.next_out = t + 1
             del self.full[t], self.band[t]
             if self.ch_chat is not None:
