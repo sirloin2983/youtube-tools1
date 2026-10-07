@@ -58,7 +58,7 @@
         <option value="channel">配信者ごとにまとめる</option>
         <option value="status">状態ごとにまとめる</option>
       </select>
-      <!-- 自動でできた切り抜き(線 D の M9。入口 0.43.1): 未確認(見ても届けてもいない)がある配信だけに絞る。自動の切り抜きが無ければ出さない(portal.js の paintAutoFilter) -->
+      <!-- 自動でできた切り抜き: 未確認(見ても届けてもいない)がある配信だけに絞る。自動の切り抜きが無ければ出さない(portal.js の paintAutoFilter) -->
       <button type="button" class="btn small" id="autoFilter" aria-pressed="false" hidden></button>
       <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
       <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
@@ -279,7 +279,7 @@
       </div>
       <p class="hint">録画が終わってアーカイブを使えるようになったら、アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、書き出し → 本番版 → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
     </details>
-    <!-- 配信中の盛り上がりの候補(ホームの設定 live.detect・live.autoAdopt。線 D の L2・M11。src/home/live_detect.py)。既定はどちらもオフ。リアルタイム切り抜きがオンのときだけ出す -->
+    <!-- 配信中の盛り上がりの候補(ホームの設定 live.detect・live.autoAdopt。src/home/live_detect.py)。既定はどちらもオフ。リアルタイム切り抜きがオンのときだけ出す -->
     <details class="ui-disclosure pt-live-auto" id="liveDetectBox" hidden>
       <summary>配信中の候補(盛り上がりの検出)</summary>
       <div class="row">

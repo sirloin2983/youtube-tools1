@@ -352,6 +352,19 @@ class TestAutoClips(Base):
         c = cases.snapshot(self.root, self.env)["cases"][0]
         self.assertEqual((c["clips"][0]["auto"], c["autoClips"]), (None, {"total": 0, "unconfirmed": 0}))
 
+    def test_clip_live_reads_only_live_clips(self):
+        """.clip.json の読み方(まとめて実行の M8 = autorun.live_auto_origin も同じ): ライブの書き出しだけ。無い・ライブでないものは (None, None)"""
+        live, cmark = cases.clip_live(self.auto1)
+        self.assertEqual((live["origin"], cmark["src"]), ("auto", "auto"))
+        self.assertEqual(cases.clip_live(None), (None, None))
+        self.assertEqual(cases.clip_live(os.path.join(self.tmp, "無い.mp4")), (None, None))
+        p = schemas.clip_path_for(self.auto1)
+        with open(p, encoding="utf-8") as f:
+            clip = json.load(f)
+        clip["source"]["kind"] = "youtube"
+        self.touch(p, json.dumps(clip, ensure_ascii=False))
+        self.assertEqual(cases.clip_live(self.auto1), (None, None))
+
     def test_seen_lowers_unconfirmed_and_is_kept_in_cases_file(self):
         code, r = self.review("seen", "m1")
         self.assertEqual(code, 200)

@@ -114,6 +114,22 @@ class ZipPacksTest(unittest.TestCase):
         self.assertEqual(deliver._atempo(2.0), "atempo=2")
         self.assertEqual(deliver._atempo(3.0), "atempo=2.0,atempo=1.5")
 
+    def test_names_and_place_preview(self):
+        """名前 <依頼 id>__<題>(使えない文字は _)・まとめ動画を zip の隣に写す(元は zip に入れるので残す)・動画の無いパックがあれば作らない"""
+        self.assertEqual(deliver.delivery_name("rid", "題/1:2"), "rid__題_1_2")
+        preview = os.path.join(self.tmp, "p.mp4")
+        put(preview, b"PV")
+        os.makedirs(self.out)
+        placed = deliver.place_preview(preview, deliver.unique_zip(self.out, "rid__題 1-2"))
+        self.assertEqual(placed, os.path.join(self.out, "rid__題 1-2.preview.mp4"))
+        with open(placed, "rb") as f:
+            self.assertEqual(f.read(), b"PV")
+        self.assertTrue(os.path.isfile(preview))
+        empty = os.path.join(self.tmp, "空_pack")
+        os.makedirs(empty)
+        self.assertIsNone(deliver.batch_preview([self.a, empty]))   # ffmpeg を呼ばない
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
+
 
 class PreviewTest(unittest.TestCase):
     """まとめ動画(ffmpeg が要る。無ければ skip)"""

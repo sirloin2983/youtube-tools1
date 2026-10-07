@@ -430,7 +430,7 @@
       head.appendChild(fn);
     }
     if (!c.exists) head.appendChild(el('span', 'pill warn', '動画が見つからない'));
-    var auto = !!(c.auto && kase);   // 自動でできた切り抜き(線 D の M9)
+    var auto = !!(c.auto && kase);   // 自動でできた切り抜き(札・失敗の文・採用 / 要らない は下の auto* が足す)
     if (auto) { li.classList.add('pt-ac'); li.setAttribute('data-fkey', 'auto:' + autoKey(kase, c)); autoPills(head, c); }
     li.appendChild(head);
     if (auto) autoFail(li, c);
@@ -468,13 +468,15 @@
     c.clips.forEach(function (cl) { ol.appendChild(clipRow(cl, c)); });
   }
 
-  /* ---- 自動でできた切り抜きの確認(線 D の M9・M12。入口 0.43.1)----
+  /* ---- 自動でできた切り抜きの確認 ----
      .clip.json の出どころが自動(配信中の候補・配信後の解析)の切り抜きに「自動」の札・出どころ・点数・控え・未見/見た・届けた・失敗の文と、
-     [採用](= 友人へ届ける。パックがあって、依頼の受付の Dropbox のフォルダが決まっているときだけ押せる。全自動では届けない = 10-06 ユーザー決定)・
+     [採用](= 友人へ届ける。パックがあって、依頼の受付の Dropbox のフォルダが決まっているときだけ押せる。全自動の流れでは届けない = 人が確かめてから)・
      [要らない](ごみ箱フォルダへ移す + スタジオのマークを不採用に + 誤検出として記録)を出す。どちらも二度押し(UIKit.confirmTwice)。
      中身はサーバー(/api/cases/auto = src/home/cases.py の auto_review)。届けている途中の進み具合は api/ytt/deliver の status で聞き直す */
   var ORIGIN_TITLE = { auto: '配信中に盛り上がりを見つけて、自動で採用した候補から作った切り抜きです',
     archive: '配信のあとでアーカイブを解析して、自動で採用した候補から作った切り抜きです' };
+  var AUTO_NONE = { total: 0, unconfirmed: 0 };   // 自動の切り抜きの数(一覧全体の casesData.auto・配信ごとの autoClips)が無いとき
+  function autoUnconfirmed(c) { return !!(c.autoClips && c.autoClips.unconfirmed); }   // まだ見ても届けてもいない自動の切り抜きがある配信か
   var autoOnly = false;          // 「自動の切り抜き: 未確認 n 件」の絞り込み(この画面の間だけ。覚えない)
   var deliverJobs = {};          // 案件の id/マークの id → {msg}(届けている途中。一覧を描き直しても出し続ける)
   var deliverFolder = null;      // 依頼の受付の Dropbox のフォルダが決まっているか(null = まだ分からない = 押せる。決まっていなければサーバーが理由を返す)
@@ -503,7 +505,7 @@
     else { s = el('span', 'pill info pt-ac-unseen', '未見'); s.title = 'まだ開いていません(「編集で開く」・採用・要らない のどれかで「見た」になります)'; }
     head.appendChild(s);
   }
-  /* 失敗の文(線 D の M3。「調子」・スタジオの LIVE の帯と同じ文 = src/home/live_failures.py の failure_of) */
+  /* 失敗の文(「調子」・スタジオの LIVE の帯と同じ文 = src/home/live_failures.py の failure_of) */
   function autoFail(li, cl) {
     var f = (cl.review || {}).failure;
     if (!f) return;
@@ -595,7 +597,7 @@
     btn.disabled = true;
     api('/api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
       if (window.UIKit && UIKit.toast) UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(3 日で消えます)', { kind: 'ok', detail: r.trash || '' });
-      if (window.UIKit && UIKit.hide && UIKit.hide.available()) UIKit.hide.load(true);   // その文字起こしを非表示にしたので、覚えている非表示を読み直す
+      var h = hideApi(); if (h) h.load(true);   // その文字起こしを非表示にしたので、覚えている非表示を読み直す
       afterAutoAction(kase.id);
     }, function (e) {
       btn.disabled = false;
@@ -605,21 +607,21 @@
   /* 採用・要らないのあと: 一覧を読み直して、同じ配信の次の自動の切り抜き → 配信の行 → 絞り込みのボタン の順にフォーカスを移す(押したボタンが消えるため) */
   function afterAutoAction(caseId) {
     return refreshCases().then(function () {
-      var node = document.getElementById('case-' + caseId);
-      var t = (node && node.open && node.querySelector('.pt-ac button:not([disabled])')) || (node && $('.pt-case-row', node)) || (!$('#autoFilter').hidden && $('#autoFilter')) || $('#fText');
+      var node = document.getElementById('case-' + caseId), filter = $('#autoFilter');
+      var t = (node && node.open && node.querySelector('.pt-ac button:not([disabled])')) || (node && $('.pt-case-row', node)) || (!filter.hidden && filter) || $('#fText');
       if (t) t.focus({ preventScroll: true });
     });
   }
   /* 一覧の上の「自動の切り抜き: 未確認 n 件」(押すと、未確認の自動の切り抜きがある配信だけに絞る。もう一度押すと戻す) */
   function paintAutoFilter() {
-    var b = $('#autoFilter'), a = (casesData && casesData.auto) || { total: 0, unconfirmed: 0 };
+    var b = $('#autoFilter'), a = (casesData && casesData.auto) || AUTO_NONE;
     b.hidden = !a.total && !autoOnly;
     b.setAttribute('aria-pressed', String(autoOnly));
     b.textContent = '自動の切り抜き: 未確認 ' + (a.unconfirmed || 0) + ' 件';
     b.title = autoOnly ? 'もう一度押すと、全部の配信に戻します' : '自動でできた切り抜きのうち、まだ見ていない・届けていないものがある配信だけを出します(行も開きます)';
   }
   function paintCaseAuto(node, c) {
-    var p = $('.pt-case-autopill', node), a = c.autoClips || { total: 0, unconfirmed: 0 };
+    var p = $('.pt-case-autopill', node), a = c.autoClips || AUTO_NONE;
     p.hidden = !a.total;
     if (!a.total) return;
     p.className = 'pill pt-case-autopill ' + (a.unconfirmed ? 'accent' : 'wait');
@@ -825,8 +827,8 @@
     if (c.gone) node.dataset.gone = '1';
     markHid(node, 'cases', c.id, $('.pt-case-main', node));
 
-    // 「自動の切り抜き: 未確認」で絞ったときは、その配信の行を開いて切り抜きを見せる(自分で閉じた行は閉じたまま)
-    node.open = openCases[c.id] != null ? !!openCases[c.id] || active(runsByVideo[c.id]) : active(runsByVideo[c.id]) || (autoOnly && !!(c.autoClips && c.autoClips.unconfirmed));
+    // 実行中の配信はいつも開く。ほかは自分で開閉した通り。まだ触っていない行は「自動の切り抜き: 未確認」で絞ったときだけ開いて切り抜きを見せる
+    node.open = !!active(runsByVideo[c.id]) || (openCases[c.id] != null ? !!openCases[c.id] : autoOnly && autoUnconfirmed(c));
     $('.pt-case-row', node).addEventListener('click', function (e) {
       if (e.target.closest && e.target.closest('a[href], button')) return;   // 行の中のボタン(次にやること)は行を開閉しない・移るのを止めない
       if (node.open && active(runsByVideo[c.id])) { e.preventDefault(); return; }
@@ -933,7 +935,7 @@
   function visible(c, noHide) {
     if (!noHide && isHid('cases', c.id) && !showHid('cases') && !active(runsByVideo[c.id])) return false;
     var fs = $('#fStatus').value, q = $('#fText').value.trim().toLowerCase();
-    if (autoOnly && !(c.autoClips && c.autoClips.unconfirmed)) return false;   // 「自動の切り抜き: 未確認」の絞り込み
+    if (autoOnly && !autoUnconfirmed(c)) return false;   // 「自動の切り抜き: 未確認」の絞り込み
     if (fs === 'none' && c.status) return false;
     if (fs && fs !== 'none' && c.status !== fs) return false;
     if (q && ((c.title || '') + ' ' + (c.channel || '')).toLowerCase().indexOf(q) < 0) return false;
@@ -1285,7 +1287,7 @@
   function renderCleanup(d) {
     cleanData = d;
     $('#cleanWhen').textContent = '候補 ' + fmtBytes(d.bytes);
-    $('#cleanDays').textContent = d.trashDays != null ? d.trashDays : d.keepDays;   // ごみ箱フォルダが消えるまでの日数(0.45.1 から trashDays。古い入口は keepDays)
+    $('#cleanDays').textContent = d.trashDays;   // ごみ箱フォルダが消えるまでの日数(keepDays は候補に出すまでの日数で別の値)
     var box = $('#cleanKinds'); box.textContent = '';
     d.kinds.forEach(function (k) {
       var det = el('details'), sum = el('summary');
@@ -1315,7 +1317,7 @@
     var ids = cleanPicked();
     if (!ids.length) return;
     var ask = window.UIKit && UIKit.dialog ? UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
-      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + (cleanData.trashDays != null ? cleanData.trashDays : cleanData.keepDays) + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' })
+      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.trashDays + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' })
       : Promise.resolve(window.confirm('選んだ物をごみ箱フォルダへ移しますか?'));
     ask.then(function (ok) {
       if (!ok) return;
@@ -1357,6 +1359,19 @@
     if (tip) li.title = tip;
     li.appendChild(pill); li.appendChild(body);
     return li;
+  }
+  /* 配信中の盛り上がりの検出の 1 行(検出がオンのときだけ h.live.detect がある): 動いているか・遅れ・チャット・起動し直しの数。
+     失敗は「リアルタイム切り抜きの失敗」の一覧に kind detect で出る */
+  var DETECT_CHAT = { ok: 'あり', restarting: '起動し直し中', none: 'なし(音だけ)', off: '使わない' };
+  function detectHealthRow(dd) {
+    var recs = dd.recordings || [], chat = function (c) { return DETECT_CHAT[c] || c; };
+    var text = (dd.running ? (recs.length ? '録画 ' + recs.length + ' 本を見ています・遅れ ' + Math.round(dd.behindSec || 0) + ' 秒・チャット ' + chat(dd.chat)
+      : '動いています(録画中の配信はありません)') : '止まっています' + (dd.message ? '(' + dd.message + ')' : ''))
+      + '・ワーカーの起動し直し ' + (dd.restarts || 0) + ' 回' + (dd.autoAdopt && dd.autoAdopt.enabled ? '・自動の採用 オン(' + dd.autoAdopt.waitMin + ' 分待ち)' : '');
+    var row = healthRow(!dd.running || dd.error || (dd.restarts || 0) > 3 ? 'warn' : 'ok', '盛り上がりの検出', text,
+      recs.map(function (x) { return x.id + ': 候補 ' + x.peaks + ' 本・遅れ ' + Math.round(x.behindSec || 0) + ' 秒・チャットの遅れ ' + (x.lag == null ? '—' : x.lag + ' 秒') + '・チャット ' + chat(x.chat); }));
+    row.id = 'liveDetectHealth';
+    return row;
   }
   function renderHealth(h) {
     var ul = $('#healthList'); ul.textContent = '';
@@ -1415,7 +1430,7 @@
       var st = !r.folderOk || r.streamlink === false || (r.expected && r.version !== r.expected) ? 'bad' : lst;
       var text = (r.active ? '録画中 ' + r.active + ' 本' : '録画していません') + '・空き ' + (r.freeBytes != null ? fmtBytes(r.freeBytes) + ' / ' + fmtBytes(r.totalBytes) : '不明')
         + (r.expected && r.version !== r.expected ? '。版が違います(動いているのは ' + r.version + '、ファイルは ' + r.expected + '。録画中でなければ、ホームが 30 秒以内に起動し直します)' : '')
-        + (r.streamlink === false ? '。streamlink が入っていません(setup\install.bat)' : '') + (r.folderMessage ? '。' + r.folderMessage : '');
+        + (r.streamlink === false ? '。streamlink が入っていません(setup/install.bat)' : '') + (r.folderMessage ? '。' + r.folderMessage : '');
       ul.appendChild(healthRow(st, '録画元 ' + r.name, text, [r.folder || '', r.url].concat((r.recordings || []).map(function (x) { return (x.title || x.id) + ' ' + x.state + (x.message ? '(' + x.message + ')' : ''); }))));
     });
     // リアルタイム切り抜きの空き容量(M4。書き出し先・パック・live\work。5 GB 未満で新しい書き出し・文字起こしを「空き待ち」・20 GB 未満で注意)
@@ -1436,18 +1451,7 @@
       row.id = 'liveFailures';
       ul.appendChild(row);
     }
-    // 配信中の盛り上がりの検出(L2。検出がオンのときだけ h.live.detect): 動いているか・遅れ・チャット・起動し直しの数(失敗は上の一覧に kind detect で出る)
-    if (h.live && h.live.detect) {
-      var dd = h.live.detect, recs = dd.recordings || [];
-      var chatText = { ok: 'あり', restarting: '起動し直し中', none: 'なし(音だけ)', off: '使わない' };
-      var dText = (dd.running ? (recs.length ? '録画 ' + recs.length + ' 本を見ています・遅れ ' + Math.round(dd.behindSec || 0) + ' 秒・チャット ' + (chatText[dd.chat] || dd.chat)
-        : '動いています(録画中の配信はありません)') : '止まっています' + (dd.message ? '(' + dd.message + ')' : ''))
-        + '・ワーカーの起動し直し ' + (dd.restarts || 0) + ' 回' + (dd.autoAdopt && dd.autoAdopt.enabled ? '・自動の採用 オン(' + dd.autoAdopt.waitMin + ' 分待ち)' : '');
-      var dRow = healthRow(!dd.running || dd.error || (dd.restarts || 0) > 3 ? 'warn' : 'ok', '盛り上がりの検出', dText,
-        recs.map(function (x) { return x.id + ': 候補 ' + x.peaks + ' 本・遅れ ' + Math.round(x.behindSec || 0) + ' 秒・チャットの遅れ ' + (x.lag == null ? '—' : x.lag + ' 秒') + '・チャット ' + (chatText[x.chat] || x.chat); }));
-      dRow.id = 'liveDetectHealth';
-      ul.appendChild(dRow);
-    }
+    if (h.live && h.live.detect) ul.appendChild(detectHealthRow(h.live.detect));
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
@@ -1747,7 +1751,8 @@
 
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
   var intakeData = null, intakeSig = '', intakeBusy = false, intakeDirty = false, intakeOpened = false;
-  var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10], ['deliverBatch', '#intakeBatch', 'まとめて届ける本数', 1, 10],   // 1 日の上限(dailyMax)は 2026-10-07 に撤廃
+  /* 受付の数の欄: [ホームの設定の節 intake の鍵, 欄, 名前, 下限, 上限](範囲は home/prefs.py の INTAKE_RANGES と同じ。欄の min/max も portal.html で同じ値) */
+  var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10], ['deliverBatch', '#intakeBatch', 'まとめて届ける本数', 1, 10],
     ['maxHours', '#intakeHours', '配信の長さの上限', 1, 24], ['maxGB', '#intakeGB', '動画の大きさの上限', 1, 200], ['interval', '#intakeInterval', '見る間隔', 10, 600]];
 
   function fillIntakeSettings(d) {
@@ -1860,7 +1865,7 @@
     $('#intakeScanBtn').addEventListener('click', intakeScanNow);
     $('#intakeSave').addEventListener('click', function () { intakeSave(); });
     $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
-    ['#intakeFolder', '#intakeTop', '#intakeBatch', '#intakeHours', '#intakeGB', '#intakeInterval'].forEach(function (s) {
+    ['#intakeFolder'].concat(INTAKE_NUMS.map(function (n) { return n[1]; })).forEach(function (s) {
       $(s).addEventListener('input', function () { intakeDirty = true; $('#intakeSaveMsg').textContent = ''; });
     });
   }
@@ -2013,30 +2018,33 @@
 
   /* ================================================================ 試験中の機能: リアルタイム切り抜き(線 D。src/home/live.py)================================================================
      ホームの設定の節 live の enabled だけをここで切り替える(既定はオフ)。録画と再生・マークはスタジオの中(P3。別の録画の画面は 2026-10-05 にやめた) */
+  /* 入力中の欄は書き換えない(打っている途中の値を、保存の答えで戻さない) */
+  function setIdle(sel, value) { if (document.activeElement !== $(sel)) $(sel).value = value; }
   function renderLive(v) {
     $('#liveEnabled').checked = !!(v && v.enabled);
-    var box = $('#liveAutoBox'), a = (v && v.auto) || {};   // 書き出したあとの自動の流れ(live.auto。M2)。オンのときだけ
+    var box = $('#liveAutoBox'), a = (v && v.auto) || {};   // 書き出したあとの自動の流れ(live.auto)。オンのときだけ
     if (!box) return;
     box.hidden = !(v && v.enabled);
     $('#liveAutoAfter').value = a.after || 'check';
     $('#liveAutoCut').value = a.cut || '';
     $('#liveAutoEngine').value = a.engine || '';
-    if (document.activeElement !== $('#liveAutoModel')) $('#liveAutoModel').value = a.model || '';
-    if ($('#liveAfterStream')) {   // 配信後の全自動(M7)
+    setIdle('#liveAutoModel', a.model || '');
+    if ($('#liveAfterStream')) {   // 配信後の全自動(live.autoAfterStream・afterStreamPerHour)
       $('#liveAfterStream').checked = !!(v && v.autoAfterStream);
-      if (document.activeElement !== $('#liveAfterPerHour')) $('#liveAfterPerHour').value = (v && v.afterStreamPerHour) || 6;
+      setIdle('#liveAfterPerHour', (v && v.afterStreamPerHour) || 6);
     }
-    var db = $('#liveDetectBox'), dt = (v && v.detect) || {}, aa = (v && v.autoAdopt) || {};   // 配信中の候補(L2)・自動の採用(M11)
+    var db = $('#liveDetectBox'), dt = (v && v.detect) || {}, aa = (v && v.autoAdopt) || {};   // 配信中の候補(live.detect)・自動の採用(live.autoAdopt)
     if (db) {
       db.hidden = !(v && v.enabled);
       $('#liveDetect').checked = !!dt.enabled;
       $('#liveDetectSens').value = dt.sens || 'normal';
-      if (document.activeElement !== $('#liveDetectPerHour')) $('#liveDetectPerHour').value = dt.perHour || 6;
+      setIdle('#liveDetectPerHour', dt.perHour || 6);
       $('#liveAutoAdopt').checked = !!aa.enabled;
-      if (document.activeElement !== $('#liveAutoAdoptWait')) $('#liveAutoAdoptWait').value = aa.waitMin || 5;
+      setIdle('#liveAutoAdoptWait', aa.waitMin || 5);
     }
   }
-  function saveLiveTop(value, okText) {   // live の節の 1 つの鍵(auto の外。M7)
+  /* live の節を一部だけ保存する(value は節の中の鍵。入れ子の detect・autoAdopt・auto は送った鍵だけ変わる)。断られたら今の値を読み直す */
+  function saveLiveTop(value, okText) {
     api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: value }).then(function (j) {
       renderLive(j.value);
       toast(okText, 'ok');
@@ -2047,12 +2055,14 @@
   }
   function saveLiveAuto(key, value) {
     var body = {}; body[key] = value;
-    api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: { auto: body } }).then(function (j) {
-      renderLive(j.value);
-      toast('書き出したあとの設定を保存しました', 'ok');
-    }, function (e) {
-      failToast('設定を保存できませんでした', 'もう一度お試しください', e);
-      loadLive();
+    saveLiveTop({ auto: body }, '書き出したあとの設定を保存しました');
+  }
+  /* 数の欄: lo〜hi の整数なら save(n)、違えば知らせて今の値に戻す */
+  function wireLiveNum(sel, lo, hi, badText, save) {
+    $(sel).addEventListener('change', function () {
+      var n = parseInt($(sel).value, 10);
+      if (!(n >= lo && n <= hi)) { toast(badText, 'err'); loadLive(); return; }
+      save(n);
     });
   }
   function loadLive() {
@@ -2083,32 +2093,20 @@
         var on = $('#liveAfterStream').checked;
         saveLiveTop({ autoAfterStream: on }, on ? '配信が終わったら、アーカイブの解析で自動で切り抜きます' : '配信後の自動の切り抜きをやめました');
       });
-      $('#liveAfterPerHour').addEventListener('change', function () {
-        var n = parseInt($('#liveAfterPerHour').value, 10);
-        if (!(n >= 1 && n <= 30)) { toast('1 時間あたりの数は 1〜30 にしてください', 'err'); loadLive(); return; }
-        saveLiveTop({ afterStreamPerHour: n }, '1 時間あたり ' + n + ' 本にしました');
-      });
+      wireLiveNum('#liveAfterPerHour', 1, 30, '1 時間あたりの数は 1〜30 にしてください', function (n) { saveLiveTop({ afterStreamPerHour: n }, '1 時間あたり ' + n + ' 本にしました'); });
     }
-    if ($('#liveDetectBox')) {   // 配信中の候補(live.detect。L2)・候補の自動の採用(live.autoAdopt。M11)。節の中の鍵ごとに送る
+    if ($('#liveDetectBox')) {   // 配信中の候補(live.detect)・候補の自動の採用(live.autoAdopt)。節の中の鍵ごとに送る
       $('#liveDetect').addEventListener('change', function () {
         var on = $('#liveDetect').checked;
         saveLiveTop({ detect: { enabled: on } }, on ? '配信中の候補を出します(録画中の配信を見ます)' : '配信中の候補をやめました');
       });
       $('#liveDetectSens').addEventListener('change', function () { saveLiveTop({ detect: { sens: $('#liveDetectSens').value } }, '候補の感度を変えました'); });
-      $('#liveDetectPerHour').addEventListener('change', function () {
-        var n = parseInt($('#liveDetectPerHour').value, 10);
-        if (!(n >= 1 && n <= 30)) { toast('1 時間の本数は 1〜30 にしてください', 'err'); loadLive(); return; }
-        saveLiveTop({ detect: { perHour: n } }, '候補は 1 時間に ' + n + ' 本までにしました');
-      });
+      wireLiveNum('#liveDetectPerHour', 1, 30, '1 時間の本数は 1〜30 にしてください', function (n) { saveLiveTop({ detect: { perHour: n } }, '候補は 1 時間に ' + n + ' 本までにしました'); });
       $('#liveAutoAdopt').addEventListener('change', function () {
         var on = $('#liveAutoAdopt').checked;
         saveLiveTop({ autoAdopt: { enabled: on } }, on ? '候補を自動で採用します(確定から ' + ($('#liveAutoAdoptWait').value || 5) + ' 分待ちます)' : '候補の自動の採用をやめました');
       });
-      $('#liveAutoAdoptWait').addEventListener('change', function () {
-        var n = parseInt($('#liveAutoAdoptWait').value, 10);
-        if (!(n >= 1 && n <= 60)) { toast('待つ分は 1〜60 にしてください', 'err'); loadLive(); return; }
-        saveLiveTop({ autoAdopt: { waitMin: n } }, '候補が確定してから ' + n + ' 分待って採用します');
-      });
+      wireLiveNum('#liveAutoAdoptWait', 1, 60, '待つ分は 1〜60 にしてください', function (n) { saveLiveTop({ autoAdopt: { waitMin: n } }, '候補が確定してから ' + n + ' 分待って採用します'); });
     }
     loadLive();
   }

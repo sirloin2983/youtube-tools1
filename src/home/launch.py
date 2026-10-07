@@ -10,7 +10,7 @@
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
   GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(src/home/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
-  POST /api/cases/auto                   {op: seen|deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12。0.43.1)を 見た・採用 = 友人へ届ける・
+  POST /api/cases/auto                   {op: seen|deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 見た・採用 = 友人へ届ける・
                                           要らない = ごみ箱フォルダへ(src/home/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
   GET  /api/autorun                       まとめて実行の状態(src/home/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
   GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
@@ -27,7 +27,7 @@
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/home/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
-  GET  /api/cleanup                       片付けの候補(段9 9-2。src/home/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(14 日で起動時に消える)
+  GET  /api/cleanup                       片付けの候補(段9 9-2。src/home/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
@@ -93,7 +93,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.45.1"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.45.2"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -774,7 +774,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         return self._json(200, {"window": self.server.window.status()})
 
     def _post_cleanup(self, path, body):
-        """候補に出した物を ごみ箱フォルダ へ移す(すぐには消さない。14 日で起動時に消える)"""
+        """候補に出した物を ごみ箱フォルダ へ移す(すぐには消さない。cleanup.TRASH_DAYS で起動時に消える)"""
         ids = body.get("ids")
         if not isinstance(ids, list) or not ids or len(ids) > cleanup_mod.MAX_ITEMS * 5:
             return self._fail(400, "bad_request", "移す物を選んでください")
@@ -931,11 +931,11 @@ class PortalServer(ThreadingHTTPServer):
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
 
     def purge_trash(self):
-        """起動時: 14 日を過ぎたごみ箱フォルダの日付を消す(裏で)"""
+        """起動時: 日数(cleanup.TRASH_DAYS)を過ぎたごみ箱フォルダの日付を消す(裏で)"""
         try:
             n = self.cleanup.purge()
             if n:
-                self.sup.log("ごみ箱フォルダから %d 日ぶんを消しました(%d 日を過ぎた)" % (n, cleanup_mod.KEEP_DAYS))
+                self.sup.log("ごみ箱フォルダから %d 日ぶんを消しました(%d 日を過ぎた)" % (n, self.cleanup.trash_days))
         except Exception as e:
             self.sup.log("ごみ箱フォルダを片付けられませんでした: %r" % (e,))
 
@@ -1299,7 +1299,7 @@ def main(argv=None):
         srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
         srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、dev/eval_*.py を子プロセスで)
         srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
-        threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 14 日を過ぎたごみ箱フォルダ(段9 9-2)
+        threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
         if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"
         if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)

@@ -62,7 +62,7 @@
 .pt-clip-range{font-variant-numeric:tabular-nums;color:var(--ink-2)}
 .pt-clip-file{overflow-wrap:anywhere}
 .pt-clip-steps{margin-top:6px}
-/* 自動でできた切り抜き(線 D の M9。入口 0.43.1): 左の線で人の切り抜きと見分ける・失敗の文・採用 / 要らない の行 */
+/* 自動でできた切り抜き: 左の線で人の切り抜きと見分ける・失敗の文・採用 / 要らない の行 */
 .pt-clip.pt-ac{border-left:3px solid var(--accent)}
 .pt-ac-origin{white-space:nowrap}
 .pt-ac-fail{margin-top:6px;align-items:flex-start}

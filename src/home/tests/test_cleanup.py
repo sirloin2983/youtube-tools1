@@ -49,7 +49,7 @@ class CleanupTest(unittest.TestCase):
         self.assertIn("終わった配信", exp["items"][0]["note"])
         self.assertEqual(exp["bytes"], 100)
         self.assertEqual(r["bytes"], 100)
-        self.assertEqual((r["keepDays"], r["trashDays"], r["packAgeDays"]), (14, 3, 3))   # 受付済みの候補 14 日・ごみ箱 3 日・パックから 3 日(10-07)
+        self.assertEqual((r["keepDays"], r["trashDays"], r["packAgeDays"]), (14, 3, 3))   # 受付済みの候補(このテストは 14 を渡す)・ごみ箱 TRASH_DAYS・パックから PACK_AGE_DAYS
 
     def test_work_orphans(self):
         v = os.path.join(self.tmp, "vid")
@@ -103,7 +103,7 @@ class CleanupTest(unittest.TestCase):
         ids = {i["name"]: i["id"] for i in next(k for k in r["kinds"] if k["kind"] == "cache")["items"]}
         self.cl.move([ids["x.peaks"]])
         self.assertTrue(os.path.isfile(os.path.join(self.app, "ごみ箱", day, "cache", "x (1).peaks")))
-        # purge: 3 日を過ぎた日付のフォルダだけ消す(2026-10-07 に 14 → 3)
+        # purge: TRASH_DAYS(3 日)を過ぎた日付のフォルダだけ消す(keep_days とは別)
         self.assertEqual(self.cl.purge(), 0)
         self.now[0] += 2 * 86400
         self.assertEqual(self.cl.purge(), 0)

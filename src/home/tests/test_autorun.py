@@ -1310,7 +1310,7 @@ class TestRequests(Base):
         self.assertFalse([n for n in os.listdir(os.path.dirname(self.tools.clip_path("a2"))) if n.startswith(".deliver")], "書きかけの zip・まとめ動画が残る")
 
     def test_delivers_one_by_one_when_batch_is_1(self):
-        """まとめて届ける本数 1 = 2026-10-07 より前の形(1 本ずつ・パックの名前・まとめ動画なし)"""
+        """まとめて届ける本数 1 = 1 本ずつ(<依頼 id>__<パックの題>.zip・まとめ動画なし)"""
         self.tools.known = False
         self.batch_prefs(1)
         out = os.path.join(self.tmp, "Dropbox", "出力")

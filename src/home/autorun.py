@@ -17,7 +17,7 @@
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、起動したときに読んで同じ id のまま「待ち」に戻す。
   済んだ段は飛ばし、途中だった段は頭からやり直す(どの段も「まだ無いものだけ」作るので、続きから進む)。入口の終了(「すべて終了」・黒い画面を閉じる・
   強制終了)で止まった実行は記録(autorun-runs.jsonl)に「中止」と書かない。起動し直してすぐはツールの準備を待つ(RESUME_WAIT 秒まで)。
-  RESTORE_MAX_AGE(7 日)より前に入れた実行は戻さず、記録に「中止」と書く。あとから解析(post_analyze)は今までどおり一覧(autorun-deferred.json)で続く
+  RESTORE_MAX_AGE(3 日)より前に入れた実行は戻さず、記録に「中止」と書く。あとから解析(post_analyze)は今までどおり一覧(autorun-deferred.json)で続く
 - 終わった実行は、入口の作業データの logs/autorun-runs.jsonl に1行ずつ残す(段2 B-6。入口を起動し直しても、ホームで前回の結果と止まった理由を見られる)。
   書くのは終わったとき(完了・失敗・中止)だけ(入口の終了で止まった実行は、次の起動で続けるので書かない = M5)。
   1MB を超えたら .1 に回す(1世代。画面のエラーの記録 clientlog.py と同じ形)。書けなくても実行は止めない
@@ -26,7 +26,9 @@
   文字起こしは「編集」(文字起こし)の設定(モデルなど)を使う。パックは、「編集」でカットを決めてあればそのとおり(cut2resolve の spec.keeps。
   作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
   リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)の切り抜きは、カットを指定していなければ区間の全体
-  (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2 のまま)。
+  (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2)。
+- ① 全自動の Dropbox へ届ける段: パックを n 本(ホームの設定 intake.deliverBatch)たまるごとに 1 つの zip + まとめ動画で Dropbox の 出力 へ置く
+  (実行の終わりには n 本に満たない残りも)。n=1 か、パックが 1 本だけの実行は 1 本ずつの zip。作り方・名前は src/home/deliver.py
 - あとから解析(測るため。2026-10-05 ユーザー決定): 友人の依頼(URL)が区間だけ(解析の段を外した形)で終わったら、その配信を「あとから解析する一覧」
   (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
   スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
@@ -43,9 +45,10 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, fsio, schemas, txindex
+from ytt_core import colors, fsio, txindex
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
+import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
 STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
@@ -64,7 +67,6 @@ REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
 REQUEST_URL_MODES = ("request", "request_auto")
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける)
-DELIVER_BATCH = 5        # ① 全自動: パックを n 本ごとにまとめて届ける既定(ホームの設定 intake.deliverBatch。1 = 1 本ずつ。2026-10-07 ユーザー決定)
 RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
 RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
@@ -104,7 +106,7 @@ OTHER_MODES = {POST_MODE: "あとから解析(測るため)"}
 DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 RUNS_LOG の隣)
 DEFER_VERSION = 1
 DEFER_ENV = "YTT_DEFER_ANALYZE"        # off = 一覧に足さない・始めない(テスト・困ったとき用)
-DEFER_KEEP_SEC = 3 * 24 * 3600         # 足してからこれだけたったら捨てる(2026-10-07 ユーザー決定: 14 → 3 日)
+DEFER_KEEP_SEC = 3 * 24 * 3600         # 足してからこれだけたったら捨てる
 DEFER_MAX_TRIES = 3                    # これだけ失敗したら捨てる
 DEFER_RETRY_SEC = 30 * 60              # 失敗したあと、次に試すまで(すぐ3回失敗して捨てないため)
 DEFER_IDLE_SEC = 60.0                  # 待ち・実行中が無くなってから始めるまで(画面で続けて押している途中に始めて、すぐ止めることを減らす)
@@ -127,7 +129,7 @@ CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が�
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。RUNS_LOG の隣)
 ACTIVE_VERSION = 1
 ACTIVE_READ_MAX = 4 * 1024 * 1024
-RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く。2026-10-07 ユーザー決定: 7 → 3 日)
+RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
 RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが動くまでこれだけ待つ(入口の起動の直後はまだ準備中のことがある)
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
@@ -264,21 +266,16 @@ def pad_range(s, e, duration=None):
     return [round(a, 1), round(max(b, a + 0.1), 1)]
 
 
-LIVE_AUTO_ORIGINS = ("auto", "archive")   # リアルタイム切り抜きの自動の採用(M11 の配信中・M7 の配信後)。src/home/live_export.py の ORIGINS のうち人でないもの
-LIVE_AUTO_CUT = "none"                    # M8: 自動の採用の切り抜きのカットの既定 = 区間の全体(区間は検出が静かな所に合わせて絞ってある)
+LIVE_AUTO_CUT = "none"   # M8: 自動の採用の切り抜きのカットの既定 = 区間の全体(区間は検出が静かな所に合わせて絞ってある)
 
 
 def live_auto_origin(media):
-    """M8: 切り抜きの .clip.json(src/home/live_export.py の _finish が書く)が、リアルタイム切り抜きの自動の採用(source.live.origin が auto・archive)か。
+    """M8: 切り抜きが、リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)か。
+    .clip.json の読み方と自動の出どころの一覧は src/home/cases.py の clip_live・AUTO_ORIGINS(案件の画面の札と同じ)。
     読めない・無い・人の採用(manual)・ライブでない → False"""
-    try:
-        p = schemas.find_clip_path(media)
-        clip = schemas.load_clip_file(p)[0] if p else None
-    except (OSError, ValueError, TypeError):
-        clip = None
-    src = (clip or {}).get("source") if isinstance((clip or {}).get("source"), dict) else {}
-    live = src.get("live") if src.get("kind") == "live" and isinstance(src.get("live"), dict) else {}
-    return live.get("origin") in LIVE_AUTO_ORIGINS
+    import cases
+    live, _mark = cases.clip_live(media)
+    return bool(live) and live.get("origin") in cases.AUTO_ORIGINS
 
 
 def _top_arg(top):
@@ -609,7 +606,6 @@ class AutoRunner:
         """指定の無い実行の配信者を決める(1回だけ。段5): 覚えた名前(文書 → 配信 → チャンネル)→ チャンネル名から。決めた名前は進み具合に出す"""
         if run.streamer is not None:
             return
-        import prefs as prefs_mod
         clip = (doc or {}).get("clip") or {}
         vid = run.video_id or ((clip.get("source") or {}).get("videoId") if isinstance(clip.get("source"), dict) else None)
         ch = (v or {}).get("channel") or (run.fresh or {}).get("channel")
@@ -1719,9 +1715,10 @@ class AutoRunner:
             err = j.get("error")
             raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or _job_why(j)))
         r = j.get("result") or {}
-        if r.get("outDir") and r["outDir"] not in run.packs:
-            run.packs.append(r["outDir"])   # ① 全自動で Dropbox へ届けるもの
-            if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # n 本たまるごとに届ける(全部を待たない。n=1 なら 1 本ずつ。2026-10-07)
+        out = os.path.normpath(r["outDir"]) if r.get("outDir") else ""   # 届けた印(run.delivered)と同じ書き方にそろえる
+        if out and out not in run.packs:
+            run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
+            if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # n 本たまるごとに届ける(全部を待たない)
                 self._deliver_pending(run, st, prefix, final=False)
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
             self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
@@ -1918,14 +1915,14 @@ class AutoRunner:
                 dirs.append(found["dir"])
         return self._deliver(run, st, dirs)
 
-    def _deliver_name(self, run, d):
-        base = os.path.basename(os.path.normpath(d))
-        base = base[:-5] if base.endswith("_pack") else base
-        return deliver_mod.safe_name("%s__%s" % (run.request_id or run.id, base or run.title or "pack"))
+    @staticmethod
+    def _deliver_name(run, title):
+        """出力 に置くものの名前(拡張子なし): <依頼 id>__<題>(依頼でない実行は実行の id)"""
+        return deliver_mod.delivery_name(run.request_id or run.id, title)
 
     def _deliver(self, run, st, dirs):
-        """① 全自動: パックのフォルダを zip にして Dropbox の 出力\\ へ置く(友人のアプリの「受け取る」に出る)。
-        zip は Dropbox の外(パックの隣)で作ってから移す(書きかけを同期させない・友人の一覧に出さない)"""
+        """① 全自動の届ける段: この実行のパック(前からあったものも)のうち、まだ届けていない分を全部 Dropbox の 出力 へ置く
+        (友人のアプリの「受け取る」に出る。n 本ごとのまとめ方は _deliver_pending)"""
         dirs = [d for d in dict.fromkeys(os.path.normpath(x) for x in dirs if x) if os.path.isdir(d)]
         if not run.deliver_dir:
             st["state"], st["detail"] = "skip", "届け先がありません"
@@ -1941,16 +1938,18 @@ class AutoRunner:
         return None
 
     def _batch_size(self):
-        """n 本ごとにまとめて届ける(ホームの設定 intake.deliverBatch。既定 DELIVER_BATCH。1 = 1 本ずつ = 2026-10-07 より前の形)"""
+        """n 本ごとにまとめて届ける(ホームの設定 intake.deliverBatch。既定と範囲は prefs.py。1 = 1 本ずつ)"""
+        default = prefs_mod.DEFAULTS["intake"]["deliverBatch"]
+        lo, hi, _label = prefs_mod.INTAKE_RANGES["deliverBatch"]
         try:
             v = (self.prefs.get(["intake"])["intake"] or {}).get("deliverBatch") if self.prefs else None
-            return max(1, min(10, int(v))) if v is not None else DELIVER_BATCH
+            return max(lo, min(hi, int(v))) if v is not None else default
         except (OSError, ValueError, KeyError, TypeError):
-            return DELIVER_BATCH
+            return default
 
     def _deliver_pending(self, run, st, prefix, final):
         """まだ届けていないパックを n 本ごとに届ける(final = 実行の終わり: n 本に満たない分もその本数で届ける)。
-        n=1 か、この実行のパックが 1 本だけなら今までどおり 1 本の zip(まとめ動画なし。2.4.0 までのアプリと同じ見え方)"""
+        n=1 か、この実行のパックが 1 本だけなら 1 本の zip(<依頼 id>__<パックの題>.zip。まとめ動画なし)"""
         n = self._batch_size()
         while True:
             pending = [p for p in run.packs if p not in run.delivered and os.path.isdir(p)]
@@ -1963,35 +1962,41 @@ class AutoRunner:
                 self._deliver_batch(run, st, batch, prefix)
 
     def _deliver_batch(self, run, st, batch, prefix):
-        """n 本のパックを 1 つの zip(<依頼 id>__<題名> 1-5.zip。中は <題>_pack/ が並び、まとめ動画 まとめ.mp4 も入る)にして 出力\\ へ。
-        まとめ動画は zip の隣にも <同じ名前>.preview.mp4 で置く(友人のアプリが先にこれだけ取ってきて見るため。zip より先に置く = zip が見えたらそろっている)。
+        """n 本のパックを 1 つの zip(<依頼 id>__<題名> 1-5.zip。1-5 はこの実行の何本目か。中は <題>_pack/ が並び、まとめ動画 まとめ.mp4 も入る)
+        にして 出力 へ。まとめ動画は zip の隣にも <同じ名前>.preview.mp4 で先に置く(deliver.place_preview)。
         まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip は届ける"""
         first, last = run.packs.index(batch[0]) + 1, run.packs.index(batch[-1]) + 1
-        name = deliver_mod.safe_name("%s__%s %s" % (run.request_id or run.id, run.title or "pack", "%d-%d" % (first, last) if first != last else str(first)))
+        name = self._deliver_name(run, "%s %s" % (run.title or "pack", "%d-%d" % (first, last) if first != last else first))
         st["detail"] = prefix + "まとめ動画を作っています(%d 本)" % len(batch)
-        preview = os.path.join(os.path.dirname(batch[0]), ".deliver-preview-%s.mp4" % uuid.uuid4().hex[:8])
-        videos = [deliver_mod.pack_video(d) for d in batch]
-        made = all(videos) and deliver_mod.make_preview(videos, preview, [deliver_mod.pack_title(d) for d in batch], check=lambda: self._check(run), log=self.log)
+
+        def check():
+            self._check(run)
+        preview = deliver_mod.batch_preview(batch, check=check, log=self.log)   # 作れなければ None
         placed = None
         try:
             os.makedirs(run.deliver_dir, exist_ok=True)
             dest = deliver_mod.unique_zip(run.deliver_dir, name)
-            if made:
-                placed = deliver_mod.preview_path_for(dest)
-                with open(preview, "rb") as src, open(placed, "wb") as dst:
-                    dst.write(src.read())
+            if preview:
+                placed = deliver_mod.place_preview(preview, dest)
             st["detail"] = prefix + "%d 本を zip にして Dropbox へ届けています" % len(batch)
-            deliver_mod.zip_packs(batch, run.deliver_dir, name, extra=[(preview, deliver_mod.PREVIEW_NAME)] if made else None,
-                                  check=lambda: self._check(run), dest=dest)
-            run.delivered.extend(batch)
-            self._save_active()   # 届けたことをすぐ残す(段の途中で起動し直しても、同じパックを二度置かない)
+            deliver_mod.zip_packs(batch, run.deliver_dir, name, extra=[(preview, deliver_mod.PREVIEW_NAME)] if preview else None, check=check, dest=dest)
+            self._mark_delivered(run, batch)
         except Exception as e:
             deliver_mod.remove_quiet(placed)   # zip が置けなかったら、先に置いたまとめ動画も残さない
             if isinstance(e, OSError):
-                raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
+                raise self._place_error(e)
             raise
         finally:
             deliver_mod.remove_quiet(preview)
+
+    def _mark_delivered(self, run, dirs):
+        """届けたパックを run.delivered に足して、すぐ残す(段の途中で起動し直しても、同じパックを二度置かない。M5)"""
+        run.delivered.extend(dirs)
+        self._save_active()
+
+    @staticmethod
+    def _place_error(e):
+        return StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
 
     def _deliver_rest_quietly(self, run):
         """止まった実行に、まとめて届ける前のパック(n 本に満たず手元に残っていた分)があれば届ける。届けられなくても失敗の知らせは置く"""
@@ -2003,22 +2008,22 @@ class AutoRunner:
             self.log("まとめて実行: 止まった実行のパックを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
 
     def _deliver_one(self, run, d):
-        """1本のパックのフォルダを zip にして 出力\\ へ置く(作り方は src/home/deliver.py。「編集」の「友人へ届ける」と同じ)"""
-        d = os.path.normpath(d)
+        """1本のパックのフォルダを zip(<依頼 id>__<パックの題>.zip)にして 出力 へ置く(作り方は src/home/deliver.py。「編集」の「友人へ届ける」と同じ)。
+        d は run.packs の書き方のまま(届けた印 run.delivered と同じ文字列で比べる。run.packs に入れるときにそろえてある)"""
         if d in run.delivered or not os.path.isdir(d):
             return
         try:
-            deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, d), check=lambda: self._check(run))
-            run.delivered.append(d)
-            self._save_active()   # 届けたことをすぐ残す(段の途中で起動し直しても、同じパックを二度置かない。M5・入口 0.41.0)
+            deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack"),
+                                 check=lambda: self._check(run))
+            self._mark_delivered(run, [d])
         except OSError as e:
-            raise StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            raise self._place_error(e)
 
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""
         try:
             os.makedirs(run.deliver_dir, exist_ok=True)
-            name = deliver_mod.safe_name("%s__%s" % (run.request_id or run.id, run.title or "依頼")) + ".失敗.txt"
+            name = self._deliver_name(run, run.title or "依頼") + ".失敗.txt"
             text = "自動の処理が止まりました。\r\n理由: %s\r\n送り先の人が確かめます。" % (run.error or run.message)
             with open(os.path.join(run.deliver_dir, name), "w", encoding="utf-8-sig", newline="") as f:
                 f.write(text + "\r\n")

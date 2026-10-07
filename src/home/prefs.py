@@ -4,10 +4,11 @@
   autorun  … まとめて実行の形・採用数・カットの方法・上書き・失敗したとき
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
-  intake   … 友人からの依頼の受付(src/home/intake.py。docs/spec/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・上限
+  intake   … 友人からの依頼の受付(src/home/intake.py。docs/spec/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
+             配信の長さと動画の大きさの上限・見る間隔・① 全自動のパックをまとめて届ける本数 deliverBatch(src/home/autorun.py。1 = 1 本ずつ)
   backup   … 作業データのバックアップ(src/home/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
   accuracy … 精度の自動測定(src/home/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
-  live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:\Video\live-rec)・
+  live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
              配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/home/live_archive.py。P4)・
@@ -18,13 +19,14 @@
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/home/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
              配信中の盛り上がりの検出 detect {enabled(**既定オフ**), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
-             (線 D の L2。src/home/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オフ**), waitMin: 1〜60(確定から待つ分。既定 5)}
+             (線 D の L2。src/home/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オフ**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
 値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す。
 """
+import copy
 import json
 import os
 import re
@@ -52,8 +54,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
                          "overwrite": False, "onFail": "next"},
             "streamer": {k: {} for k in STREAMER_KINDS},
             "keymap": {"playback": {}},
-            "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30,   # dailyMax(1 日の上限)は 2026-10-07 に撤廃(古い prefs.json の値は読み飛ばす)
-                       "deliverBatch": 5},   # ① 全自動のパックを n 本ごとにまとめて届ける(1 = 1 本ずつ。2026-10-07 ユーザー決定 n=5)
+            "intake": {"enabled": False, "folder": "", "top": 3, "maxHours": 8, "maxGB": 20, "interval": 30,   # 知らないキー(古い dailyMax など)は _clean_intake が捨てる
+                       "deliverBatch": 5},   # ① 全自動のパックを n 本ごとにまとめて届ける(1 = 1 本ずつ)
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
@@ -62,6 +64,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)"), "deliverBatch": (1, 10, "まとめて届ける本数")}
+INTAKE_INTS = ("top", "interval", "deliverBatch")   # INTAKE_RANGES のうち整数だけのもの(ほかは小数も可)
 FOLDER_MAX = 260
 RECORDERS_MAX = 8
 RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
@@ -74,7 +77,7 @@ LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")  
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
 LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/ytt_core/excite.py の SENS の名前)
-LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、確定から待つ分
+LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、入口が候補を最初に見てから待つ分(終わり待ちの候補は採用しない)
 
 
 class PrefsError(ValueError):
@@ -160,20 +163,14 @@ def _clean_live(v, cur):
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
            "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
-           "auto": _clean_live_auto(cur.get("auto") if isinstance(cur.get("auto"), dict) else {}, DEFAULTS["live"]["auto"], strict=False),
            "autoAfterStream": cur.get("autoAfterStream") is True,   # 自動で採用するのは明示的に true のときだけ(既定オフ)
-           "afterStreamPerHour": cur.get("afterStreamPerHour") if _per_hour_ok(cur.get("afterStreamPerHour")) else DEFAULTS["live"]["afterStreamPerHour"],
-           "detect": _clean_live_detect(cur.get("detect") if isinstance(cur.get("detect"), dict) else {}, DEFAULTS["live"]["detect"], strict=False),
-           "autoAdopt": _clean_live_adopt(cur.get("autoAdopt") if isinstance(cur.get("autoAdopt"), dict) else {}, DEFAULTS["live"]["autoAdopt"], strict=False)}
-    for k, fn, label in (("detect", _clean_live_detect, "配信中の候補の設定(detect)"), ("autoAdopt", _clean_live_adopt, "自動の採用の設定(autoAdopt)")):
-        if k in v:   # 線 D の L2・M11。節の中の鍵ごとに直す
+           "afterStreamPerHour": cur.get("afterStreamPerHour") if _int_in(cur.get("afterStreamPerHour"), *LIVE_PER_HOUR) else DEFAULTS["live"]["afterStreamPerHour"]}
+    for k, (fn, label) in LIVE_PARTS.items():   # 小さな節は鍵ごとに直す(送らなかった鍵は今のまま。保存してある値の壊れた鍵は既定に戻す)
+        out[k] = fn(cur.get(k) if isinstance(cur.get(k), dict) else {}, DEFAULTS["live"][k], strict=False)
+        if k in v:
             if not isinstance(v[k], dict):
                 raise PrefsError("%sの形が正しくありません" % label)
             out[k] = fn(v[k], out[k])
-    if "auto" in v:   # 書き出したあとの自動の流れ(M2)。節の中の鍵ごとに直す(送らなかった鍵は今のまま)
-        if not isinstance(v["auto"], dict):
-            raise PrefsError("書き出したあとの設定(auto)の形が正しくありません")
-        out["auto"] = _clean_live_auto(v["auto"], out["auto"])
     if "enabled" in v:
         out["enabled"] = v["enabled"] is True
     if "folder" in v:
@@ -191,7 +188,7 @@ def _clean_live(v, cur):
             raise PrefsError("「配信後に自動で切り抜く」は true か false で指定してください")
         out["autoAfterStream"] = v["autoAfterStream"]
     if "afterStreamPerHour" in v:
-        if not _per_hour_ok(v["afterStreamPerHour"]):
+        if not _int_in(v["afterStreamPerHour"], *LIVE_PER_HOUR):
             raise PrefsError("1 時間あたりの数は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)
         out["afterStreamPerHour"] = v["afterStreamPerHour"]
     if "autoDelete" in v:   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/home/live_cleanup.py)
@@ -222,8 +219,9 @@ def _clean_live(v, cur):
     return out
 
 
-def _per_hour_ok(x):
-    return isinstance(x, int) and not isinstance(x, bool) and LIVE_PER_HOUR[0] <= x <= LIVE_PER_HOUR[1]
+def _int_in(x, lo, hi):
+    """bool でない整数で lo〜hi か"""
+    return isinstance(x, int) and not isinstance(x, bool) and lo <= x <= hi
 
 
 def _clean_keys(v, cur, defaults, checks, strict):
@@ -240,10 +238,6 @@ def _clean_keys(v, cur, defaults, checks, strict):
         if not ok(out[k]):
             out[k] = defaults[k]
     return out
-
-
-def _int_in(x, lo, hi):
-    return isinstance(x, int) and not isinstance(x, bool) and lo <= x <= hi
 
 
 def _clean_live_detect(v, cur, strict=True):
@@ -270,6 +264,12 @@ def _clean_live_auto(v, cur, strict=True):
     return _clean_keys(v, cur, DEFAULTS["live"]["auto"], checks, strict)
 
 
+# live の中の小さな節(_clean_live が鍵ごとに直す): 鍵 → (直す関数, 断る文の名前)。auto = 書き出したあと(M2)・detect = 配信中の検出(L2)・
+# autoAdopt = 候補の自動の採用(M11)
+LIVE_PARTS = {"auto": (_clean_live_auto, "書き出したあとの設定(auto)"), "detect": (_clean_live_detect, "配信中の候補の設定(detect)"),
+              "autoAdopt": (_clean_live_adopt, "自動の採用の設定(autoAdopt)")}
+
+
 def _clean_intake(v, cur):
     """依頼の受付の設定。フォルダは PC の中の絶対パスだけ(ネットワークのパスは断る = 見張るたびにサーバーへ資格情報を送らない)。
     フォルダがあるかは見張りの処理が毎回確かめて画面に出す(ここでは形だけ)"""
@@ -281,9 +281,9 @@ def _clean_intake(v, cur):
     for k, (lo, hi, label) in INTAKE_RANGES.items():
         if k in v:
             x = v[k]
-            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in ("top", "interval", "deliverBatch") and x != int(x)):
+            if isinstance(x, bool) or not isinstance(x, (int, float)) or not lo <= x <= hi or (k in INTAKE_INTS and x != int(x)):
                 raise PrefsError("%sは %d〜%d で指定してください" % (label, lo, hi))
-            out[k] = int(x) if k in ("top", "interval", "deliverBatch") else x
+            out[k] = int(x) if k in INTAKE_INTS else x
     return out
 
 
@@ -300,6 +300,11 @@ def _clean_keymap(v, cur):
             clean[k] = c
         out["playback"] = clean   # 再生キーは一覧ごと送る(画面の一覧 = 全部の割り当て)
     return out
+
+
+# 直せる節(PATCHABLE)→ 検査して直す関数(v = 送られた値, cur = 今の値)。読むときも同じ関数で保存してある値を確かめる
+CLEANERS = {"autorun": _clean_autorun, "keymap": _clean_keymap, "intake": _clean_intake, "backup": _clean_backup,
+            "live": _clean_live, "accuracy": _clean_accuracy}
 
 
 def _clean_name(name):
@@ -363,41 +368,16 @@ class Prefs:
         return (d, False) if isinstance(d, dict) else ({}, True)
 
     def _section(self, d, name):
+        """保存してある節を読む(直せる節は同じ検査を通す。通らなければ節ごと既定)"""
         v = d.get(name)
-        if name == "autorun":
-            try:
-                return _clean_autorun(v if isinstance(v, dict) else {}, DEFAULTS["autorun"])
-            except PrefsError:
-                return dict(DEFAULTS["autorun"])
-        if name == "intake":
-            try:
-                return _clean_intake(v if isinstance(v, dict) else {}, DEFAULTS["intake"])
-            except PrefsError:
-                return dict(DEFAULTS["intake"])
-        if name == "backup":
-            try:
-                return _clean_backup(v if isinstance(v, dict) else {}, DEFAULTS["backup"])
-            except PrefsError:
-                return dict(DEFAULTS["backup"])
-        if name == "accuracy":
-            try:
-                return _clean_accuracy(v if isinstance(v, dict) else {}, DEFAULTS["accuracy"])
-            except PrefsError:
-                return dict(DEFAULTS["accuracy"])
-        if name == "keymap":
-            try:
-                return _clean_keymap(v if isinstance(v, dict) else {}, DEFAULTS["keymap"])
-            except PrefsError:
-                return {"playback": {}}
         if name == "hidden":
             return _read_hidden(v)
-        if name == "live":
-            try:
-                return _clean_live(v if isinstance(v, dict) else {}, DEFAULTS["live"])
-            except PrefsError:
-                return dict(DEFAULTS["live"], recorders=[], auto=dict(DEFAULTS["live"]["auto"]), detect=dict(DEFAULTS["live"]["detect"]),
-                            autoAdopt=dict(DEFAULTS["live"]["autoAdopt"]))
-        return _read_streamer(v)
+        if name == "streamer":
+            return _read_streamer(v)
+        try:
+            return CLEANERS[name](v if isinstance(v, dict) else {}, DEFAULTS[name])
+        except PrefsError:
+            return copy.deepcopy(DEFAULTS[name])   # 中の dict・list も写す(既定の値を書き換えさせない)
 
     def get(self, sections=None):
         names = [s for s in (sections or SECTIONS) if s in SECTIONS]
@@ -426,8 +406,7 @@ class Prefs:
         with self.lock:
             d, broken = self._load()
             cur = self._section(d, section)
-            new = {"autorun": _clean_autorun, "keymap": _clean_keymap, "intake": _clean_intake, "backup": _clean_backup,
-                   "live": _clean_live, "accuracy": _clean_accuracy}[section](value, cur)
+            new = CLEANERS[section](value, cur)
             d[section] = new
             self._save(d, broken)
             return new

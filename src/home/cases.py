@@ -23,7 +23,7 @@
   - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う。候補の確認は候補の数ではなく配信 1 本で 1 件)
 スタジオから消えた配信(gone)は、候補の確認・書き出しをスタジオでできないので数えない(文字起こし・校正・パックは残った切り抜きで数える)。
 
-自動でできた切り抜きの確認(線 D の M9・M12・M13。入口 0.43.1。計画 plan/line-d-auto-pack.md の段階 4・6):
+自動でできた切り抜きの確認(線 D の M9・M12・M13。計画 plan/line-d-auto-pack.md の段階 4・6):
   - 配信(kind live)の切り抜きのうち、.clip.json の source.live.origin が auto(配信中の候補 = M11)か archive(配信後の解析 = M7)のものに
     clip["auto"] = {origin, originLabel, score, bench} を付ける(人の切り抜き manual は None = 今までどおり)。点数は .clip.json の source.live.score →
     mark.score → スタジオのマークの score の順(今は書き手が無いことが多い。無ければ None = 画面に出さない)。
@@ -33,12 +33,11 @@
     unconfirmed = 見ても・届けてもいない(「自動の切り抜き: 未確認 n 件」の数)。案件の autoClips {total, unconfirmed}・一覧全体の auto も同じ数
   - 操作は auto_review(POST /api/cases/auto): seen = 見た / deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/home/deliver.py。
     全自動では届けない = 10-06 ユーザー決定)/ discard = 要らない = パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。
-    14 日で起動時に消える)+ スタジオのマークを不採用に + live_feedback.jsonl に誤検出の記録 + その文字起こしを一覧で非表示に(データは消さない)
+    片付けの TRASH_DAYS で起動時に消える)+ スタジオのマークを不採用に + live_feedback.jsonl に誤検出の記録 + その文字起こしを一覧で非表示に(データは消さない)
   - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {seenAt, deliveredAt, delivered, discardedAt, tx} を持つ(要らないにした文字起こし tx は
     「単体の文字起こし」に出さない)
 """
 import datetime
-import json
 import os
 import re
 import shutil
@@ -47,7 +46,7 @@ import time
 import urllib.parse
 
 from ytt_core import datadir, fsio, schemas, txindex
-import cleanup  # noqa: E402  (ごみ箱フォルダの名前・一緒に片付ける途中のファイルの決まりは片付けと同じ)
+import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。線 D の M3)
 
 SCHEMA = "youtube-tools-cases/v1"
@@ -163,14 +162,15 @@ def _case_extras(c):
 
 # ---------------------------------------------------------------- 自動でできた切り抜き(線 D の M9)
 
-def _clip_live(media_path):
-    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/home/live_export.py が書く)。無い・読めない・ネットワーク上のパスなら (None, None)"""
-    if not media_path or fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない。txindex と同じ)
+def clip_live(media_path):
+    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/home/live_export.py の _finish が書く。source.kind は live)。
+    無い・読めない・ライブでない・ネットワーク上のパスなら (None, None)。まとめて実行の M8(src/home/autorun.py の live_auto_origin)も同じ読み方"""
+    if not isinstance(media_path, str) or not media_path or fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない。txindex と同じ)
         return None, None
     cp = schemas.find_clip_path(media_path)
     clip = schemas.load_clip_file(cp)[0] if cp else None
     src = clip.get("source") if isinstance(clip, dict) else None
-    live = src.get("live") if isinstance(src, dict) else None
+    live = src.get("live") if isinstance(src, dict) and src.get("kind") == "live" else None
     if not isinstance(live, dict):
         return None, None
     return live, clip.get("mark") if isinstance(clip.get("mark"), dict) else {}
@@ -179,7 +179,7 @@ def _clip_live(media_path):
 def auto_info(mark, media_path):
     """自動でできた切り抜きなら {origin, originLabel, score, bench}、人の切り抜き・.clip.json が無い・読めないなら None。
     mark: スタジオのマーク(点数 score を持つことがある)"""
-    live, cmark = _clip_live(media_path)
+    live, cmark = clip_live(media_path)
     origin = live.get("origin") if live else None
     if origin not in AUTO_ORIGINS:
         return None
@@ -427,7 +427,7 @@ def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=N
 def _feedback_row(c, cl, **kw):
     """live_feedback.jsonl の 1 行(src/home/live.py の採用の行と同じ形: 出どころ・人か・判定・録画元・録画・マークの正本の id・スタジオの配信とマーク・区間・ラベル)。
     .clip.json を読むので、ファイルを動かす前に作る"""
-    live, _m = _clip_live(cl.get("path"))
+    live, _m = clip_live(cl.get("path"))
     live = live or {}
     return dict({"origin": (cl.get("auto") or {}).get("origin"), "recorder": live.get("recorder"), "recording": live.get("recording"),
                  "markId": live.get("markId"), "studio": {"video": c["id"], "mark": cl.get("markId")}, "start": cl.get("start"), "end": cl.get("end"),
@@ -462,7 +462,7 @@ def _deliver(repo_root, c, cl, deliveries, feedback, env):
 
 def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
     """要らない(M9): ① パック・切り抜きの mp4・.clip.json などの途中のファイルを ごみ箱フォルダ へ移す(片付け src/home/cleanup.py と同じ場所。
-    14 日で起動時に消える。すぐには消さない)② スタジオのマークを不採用(rejected)に(画面と同じ PUT /api/video)③ live_feedback.jsonl に
+    片付けの TRASH_DAYS で起動時に消える。すぐには消さない)② スタジオのマークを不採用(rejected)に(画面と同じ PUT /api/video)③ live_feedback.jsonl に
     誤検出の記録(人の「悪い」= event reject)④ その文字起こしを一覧で非表示に(データは消さない)⑤ 案件に「要らない」を残す。
     ② ができなければ ① を元に戻す(パックだけ消えてマークが残る、を作らない)。-> {ok, moved, trash, studio}"""
     if trash is None or studio is None:
@@ -500,15 +500,6 @@ def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
             _busy.discard(key)
 
 
-def _free_path(p):
-    """同じ名前があれば (1) (2) … を付ける(片付けと同じ付け方)"""
-    k, (base, ext) = 1, os.path.splitext(p)
-    while os.path.lexists(p):
-        p = "%s (%d)%s" % (base, k, ext)
-        k += 1
-    return p
-
-
 def _to_trash(trash, media, pack):
     """切り抜き 1 本ぶんのファイルを ごみ箱/<日付>/discard/<名前>/ へ移す(作業用 の物は その中の 作業用/)。-> ([(元, 先)], 移した先のフォルダ)。
     1 つでも移せなければ、移した分を戻して ReviewError(Resolve・エクスプローラーで開いていると移せない)"""
@@ -518,26 +509,24 @@ def _to_trash(trash, media, pack):
         return [], ""
     day = time.strftime("%Y-%m-%d")
     root = trash.trash_for(files[0])
-    dest = _free_path(os.path.join(root, day, DISCARD_KIND, os.path.splitext(os.path.basename(media or pack))[0] or "clip"))
+    dest = cleanup.free_path(os.path.join(root, day, DISCARD_KIND, os.path.splitext(os.path.basename(media or pack))[0] or "clip"))
     moved = []
     try:
         for p in files:
             sub = schemas.WORK_DIR if os.path.basename(os.path.dirname(p)) == schemas.WORK_DIR else ""
             d = os.path.join(dest, sub) if sub else dest
             os.makedirs(d, exist_ok=True)
-            to = _free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
+            to = cleanup.free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
             shutil.move(p, to)   # 同じドライブなら改名、別のドライブなら写して消す
             moved.append((p, to))
     except (OSError, shutil.Error) as e:
         _put_back(moved)
         raise ReviewError("ファイルを ごみ箱フォルダ へ移せなかったので、片付けませんでした(Resolve やエクスプローラーで開いていれば閉じて、もう一度): %s"
                           % (getattr(e, "strerror", None) or str(e)[:120]))
-    remember = getattr(trash, "_remember_root", None)   # 作業データ・書き出し先の外のごみ箱フォルダも、起動時に 14 日で消す一覧へ(片付けの move と同じ)
-    if remember:
-        try:
-            remember(root)
-        except OSError:
-            pass
+    try:   # 作業データ・書き出し先の外のごみ箱フォルダも、起動時に消す一覧へ(片付けの move と同じ)
+        trash.remember_root(root)
+    except OSError:
+        pass
     return moved, dest
 
 
@@ -551,13 +540,12 @@ def _put_back(moved):
 
 
 def _write_manifest(where, moved):
-    """ごみ箱/<日付>/manifest.jsonl に元の場所を残す(片付けと同じ形。戻したいときに見る)"""
+    """ごみ箱/<日付>/manifest.jsonl に元の場所を残す(where = ごみ箱/<日付>/discard/<名前>。書き方は片付けと同じ cleanup.append_manifest。戻したいときに見る)"""
     if not moved:
         return
+    now = int(time.time() * 1000)
     try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(where)), cleanup.MANIFEST), "a", encoding="utf-8") as f:
-            for src, to in moved:
-                f.write(json.dumps({"from": src, "to": to, "at": int(time.time() * 1000), "kind": DISCARD_KIND}, ensure_ascii=False) + "\n")
+        cleanup.append_manifest(os.path.dirname(os.path.dirname(where)), [{"from": src, "to": to, "at": now, "kind": DISCARD_KIND} for src, to in moved])
     except OSError:   # 書けなくても、移した物は ごみ箱フォルダ の中にある
         pass
 

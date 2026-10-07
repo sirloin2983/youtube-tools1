@@ -124,7 +124,7 @@ class TestPrefs(unittest.TestCase):
             self.assertEqual(p.get(["intake"])["intake"], prefs_mod.DEFAULTS["intake"])
             v = p.patch("intake", {"enabled": True, "top": 5, "maxHours": 2.5})
             self.assertEqual((v["enabled"], v["top"], v["maxHours"], v["interval"]), (True, 5, 2.5, 30))
-            self.assertNotIn("dailyMax", v)   # 1 日の上限は撤廃(2026-10-07)。古いアプリ・古い prefs.json の値は読み飛ばす
+            self.assertNotIn("dailyMax", v)   # 1 日の上限は無い。古いアプリ・古い prefs.json の dailyMax は読み飛ばす
             self.assertNotIn("dailyMax", p.patch("intake", {"dailyMax": 3}))
             self.assertEqual(p.patch("intake", {"interval": 120})["interval"], 120)   # 見る間隔(段9 9-4)
             for bad in ({"top": 11}, {"top": 2.5}, {"maxGB": True}, {"folder": 3}, {"folder": "\\\\server\\share"},
@@ -199,7 +199,7 @@ class TestText(Base):
         self.assertEqual(r["items"][0]["label"], "【雑談】配信中の題名(2 個)")
 
     def test_no_daily_limit(self):
-        """1 日の件数の上限は無い(2026-10-07 ユーザー決定で撤廃): 同じ日に何件でも受け付け、フォルダに残さない。今日の件数は数えるだけ"""
+        """1 日の件数の上限は無い: 同じ日に何件でも受け付け、フォルダに残さない。今日の件数は数えるだけ"""
         for i in range(7):
             self.put("%d.txt" % i, "https://youtu.be/%s\n" % (chr(ord("a") + i) * 11))
         self.scan2()
