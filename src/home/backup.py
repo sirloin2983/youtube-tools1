@@ -82,7 +82,7 @@ def plan(source):
                     elif low == "bin" and rel.lower() == "transcribe":
                         stack.append((r, "bin"))
                     elif _excite_chat(r):
-                        continue   # 配信中の検出の生のチャット(他の視聴者の発言。64MB まで)は写さない(ワーカーが消しても写しに残るため。見直し役 S2)
+                        continue   # 配信中の検出の生のチャット(他の視聴者の発言。64MB まで)は写さない(写すと、配信のあとワーカーが消しても写しに残る)
                     elif not skip(e.name, True):
                         stack.append((r, None))
                 elif mode != "bin" and e.is_file(follow_symlinks=False) and not skip(e.name, False):

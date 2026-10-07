@@ -14,10 +14,10 @@
     「調子」の detect の行と失敗(kind detect)/ ワーカーの起動・心拍が止まったら起動し直す・止める / 設定 detect・autoAdopt の検査
   - M11: 確定から waitMin 後に 1 回だけ採用(origin auto・after auto・live_feedback の human false)・見送り・控えは採用しない・スタジオ不通は 5 回で諦めて失敗の文
   - 入口のプロセスで numpy を import しない
-  - ワーカーの残り(2026-10-07): 仮の候補が山から 60 秒以内に出て本番(同じ id・本番の候補は仮の候補なしと同じ)に置き換わる・同時に 2 本まで(3 本目は順番待ち →
+  - 仮の候補が山から 60 秒以内に出て本番(同じ id・本番の候補は仮の候補なしと同じ)に置き換わる・同時に 2 本まで(3 本目は順番待ち →
     1 本目が終わったら次へ・順番待ちのうちに終わった録画は音だけで締める)・雰囲気の変わり目のあと 60 秒はしきい値 1.3 倍・M10 の長さの目安(length_hint・
-    clean_hint・新しく受け持つ録画だけ)・見直しの直し(yt-dlp を子ごと止める・改行の無い末尾で止まらない・途中から受け持つと測り直さない・測り直しを
-    60 秒分ずつ・心拍・上限・1 本の例外で止めない・まだ無い候補の決定は待つ・壊れた値)
+    clean_hint・新しく受け持つ録画だけ)・止まらない・溜めない(yt-dlp を子ごと止める・改行の無い末尾で止まらない・途中から受け持つと測り直さない・
+    測り直しを 60 秒分ずつ・心拍・上限・1 本の例外で止めない・まだ無い候補の決定は待つ・壊れた値)
 本物の YouTube にはつながない。作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import http.client
@@ -59,7 +59,7 @@ FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 
 
 def iso(t):
-    return W.iso_now(t)
+    return W.epoch_iso(t)
 
 
 def level(sec):
@@ -806,7 +806,7 @@ class DetectApiTest(unittest.TestCase):
             return json.load(f)
 
     def worker_alive(self):
-        """M11 用: ワーカーが動いているふり(心拍 worker.json)と、偽の時計(waitMin は入口が候補を最初に見た時刻から数える = 見直し役 S1)-> 時計の箱"""
+        """M11 用: ワーカーが動いているふり(心拍 worker.json)と、偽の時計(waitMin は入口が候補を最初に見た時刻から数える)-> 時計の箱"""
         t = [time.time()]
         self.det.clock = lambda: t[0]
         self.det.stale_sec = 10 ** 9   # 時計を進めても心拍が古くならないように
@@ -1146,7 +1146,7 @@ def first_seen(w, clock, sim, chat, t_end, step=6.0, key=("fake", REC)):
 
 
 class WorkerRestTest(unittest.TestCase):
-    """線 D のワーカーの残り(2026-10-07): 仮の候補(遅れの短縮)・同時に 2 本まで・雰囲気の変わり目・M10 の長さ・見直しの直し(測り直しを分ける・
+    """ワーカーの 仮の候補(遅れの短縮)・同時に 2 本まで・雰囲気の変わり目・M10 の長さ・止まらない作り(測り直しを分ける・
     途中から受け持つ・1 本の例外で止めない・まだ無い候補の決定・壊れた値)"""
 
     def setUp(self):
@@ -1288,7 +1288,7 @@ class WorkerRestTest(unittest.TestCase):
         self.assertTrue(3 * 3600 - 120 <= st.late_from <= 3 * 3600, st.late_from)
         self.assertIn("途中", st.message)
         with open(os.path.join(self.dir, "worker.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["at"], W.iso_now(clock.t))
+            self.assertEqual(json.load(f)["at"], W.epoch_iso(clock.t))
         run_until(w, clock, sim, T0 + 3 * 3600 + 900)
         d = peaks_of(self.dir)
         self.assertTrue(d["ended"])
@@ -1402,6 +1402,7 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual([W._level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, W.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):
             W.write_json(os.path.join(self.tmp, "x.json"), {"a": float("nan")})
+        self.assertEqual((W._why(ValueError("nan")), W._why(OSError(28, "空きがありません"))), ("ValueError", "空きがありません"))   # 書けなかった理由(ValueError には strerror が無い)
         st = W.RecState(self.tmp, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {}, False)
         st.place(T0 + 10 ** 7, 4.0, [-30.0] * 4, [-40.0] * 4)   # 受信時刻が何年も先: 埋めずに続けて置く
         self.assertEqual(st.next_box, 4)

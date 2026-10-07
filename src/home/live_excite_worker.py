@@ -100,13 +100,14 @@ QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"        # off = 使わない(スタジオの解析の設定の長さのまま)
 LENGTH_HINT_MAX_AGE = 30 * 86400           # 結果のファイルの古さ(ファイル名の日時。src/home/autorun.py の FRIEND_LENGTH_MAX_AGE と同じ)
 LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(dev/eval_marks.py の CL_ENOUGH_SAMPLES・CL_ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
-LENGTH_RANGE, PRE_RANGE = (10.0, 120.0), (0.3, 0.9)      # スタジオの解析の設定 length・preRatio の範囲(src/home/live_detect.py の SPEC_RANGES と同じ)
+# スタジオの解析の設定(spec)の範囲(src/studio/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
+SPEC_RANGES = {"length": (10.0, 120.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 EVAL_MARKS_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/autorun.py の EVAL_MARKS_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")                       # 録画元の id(src/home/live_export.py の ID_RE と同じ)
 REC_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z")      # 録画の id(同じく REC_RE)
 SEG_URI_RE = re.compile(r"^session_\d{3,6}/seg_\d{6,9}\.ts\Z")
-PEAK_NUM_RE = re.compile(r"^p(\d{1,7})-\d{1,8}\Z")   # 候補の id(excite.PeakBook の "p<通し番号>-<山の秒>")
+PEAK_ID_RE = re.compile(r"^p(\d{1,7})-\d{1,8}\Z")    # 候補の id(excite.PeakBook の "p<通し番号>-<山の秒>"。入口の live_detect も同じ形で検査する)
 PEAK_AHEAD = 20            # まだ帳簿に無い候補の決定を待つのは、通し番号が今の番号からこれ未満先のときだけ(起動し直して最後の保存より後の候補がまだ出ていない)
 YT_ID_RE = re.compile(r"(?:[?&]v=|youtu\.be/|/live/)([A-Za-z0-9_-]{11})(?=[?&#/]|\Z)")
 VID_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
@@ -142,7 +143,7 @@ def iso_epoch(s):
         return None
 
 
-def iso_now(t):
+def epoch_iso(t):
     return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
@@ -247,6 +248,35 @@ def write_json(path, obj):
     fsio.atomic_write(path, json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
 
 
+def append_jsonl(path, rows):
+    """1 行 1 JSON のファイル(series.jsonl・skipped.jsonl)に足す"""
+    with open(path, "a", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, separators=(",", ":")) + "\n")
+
+
+def _why(e):
+    """書けなかった・起動できなかった理由の短い文(OSError は strerror。strerror の無い ValueError などは例外の名前)"""
+    return getattr(e, "strerror", None) or e.__class__.__name__
+
+
+def _num(x):
+    """有限の数か(bool は数えない)"""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf")
+
+
+def _int(x):
+    """int か(bool は数えない)"""
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def clean_detect(det):
+    """感度と 1 時間の本数(入口の設定 live.detect → config.json の detect)-> {"sens", "perHour"}(読めなければ normal・6)。
+    入口(live_detect.Detector.config)が書くときとワーカーが読むときの両方で通す"""
+    det = det if isinstance(det, dict) else {}
+    return {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal", "perHour": det["perHour"] if _int(det.get("perHour")) else 6}
+
+
 def _level(v):
     """ffmpeg の RMS の値(dB)-> -90〜LEVEL_MAX(読めない・NaN・無限大は -90。大きすぎる値は切る)"""
     try:
@@ -281,7 +311,7 @@ def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
     try:
         proc = subprocess.Popen(cmd, cwd=wdir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=child_flags())
     except OSError as e:
-        raise NoTool("ffmpeg を起動できませんでした: %s" % (e.strerror or e.__class__.__name__))
+        raise NoTool("ffmpeg を起動できませんでした: %s" % _why(e))
     if job is not None:
         job.add(proc)
     try:
@@ -331,10 +361,6 @@ def parse_chat_line(line):
 _HINT_CACHE = {}
 
 
-def _num(x):
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf")
-
-
 def length_hint(root=None, env=None, now=None):
     """**入口の側**(src/home/live_detect.py の Detector.config が呼んで config.json の lengthHint に入れる): 人が選んだ区間の長さの目安
     -> {"length", "preRatio"(無ければ None), "samples", "videos", "enough", "file"} か None(止めてある・結果が無い・古い・壊れている)。
@@ -368,7 +394,7 @@ def length_hint(root=None, env=None, now=None):
     out = None
     try:
         s = fsio.read_json_file(path, EVAL_READ_MAX)["clipLength"]["suggest"]
-        if isinstance(s, dict) and _num(s.get("length")) and isinstance(s.get("samples"), int) and isinstance(s.get("videos"), int):
+        if isinstance(s, dict) and _num(s.get("length")) and _int(s.get("samples")) and _int(s.get("videos")):
             out = {"length": float(s["length"]), "preRatio": float(s["preRatio"]) if _num(s.get("preRatio")) else None,
                    "samples": s["samples"], "videos": s["videos"], "enough": s.get("enough") is True, "file": name}
     except (OSError, ValueError, KeyError, TypeError):
@@ -383,13 +409,12 @@ def clean_hint(h):
     if not isinstance(h, dict) or h.get("enough") is not True or not _num(h.get("length")):
         return None
     n, v = h.get("samples"), h.get("videos")
-    if not (isinstance(n, int) and not isinstance(n, bool) and n >= LENGTH_HINT_MIN_SAMPLES and isinstance(v, int) and not isinstance(v, bool)
-            and v >= LENGTH_HINT_MIN_VIDEOS):
+    if not (_int(n) and n >= LENGTH_HINT_MIN_SAMPLES and _int(v) and v >= LENGTH_HINT_MIN_VIDEOS):
         return None
-    out = {"length": float(round(min(LENGTH_RANGE[1], max(LENGTH_RANGE[0], float(h["length"]))))), "samples": n, "videos": v,
-           "file": str(h.get("file") or "")[:40]}
+    (llo, lhi), (plo, phi) = SPEC_RANGES["length"], SPEC_RANGES["preRatio"]
+    out = {"length": float(round(min(lhi, max(llo, float(h["length"]))))), "samples": n, "videos": v, "file": str(h.get("file") or "")[:40]}
     if _num(h.get("preRatio")):
-        out["preRatio"] = round(min(PRE_RANGE[1], max(PRE_RANGE[0], float(h["preRatio"]))), 2)
+        out["preRatio"] = round(min(phi, max(plo, float(h["preRatio"]))), 2)
     return out
 
 
@@ -567,6 +592,7 @@ class ChatFeed:
         return any(self._size(g) > pos for g, pos in self.files)
 
     def _live_gen(self, gen):
+        """今動いている yt-dlp が書いているファイルか"""
         return gen == self.gen and self.proc is not None
 
     def _size(self, gen):
@@ -589,7 +615,7 @@ class ChatFeed:
         except OSError as e:
             self._close_log()
             self.proc = None
-            self._failed(now, "", "yt-dlp を起動できませんでした: %s" % (e.strerror or e.__class__.__name__))
+            self._failed(now, "", "yt-dlp を起動できませんでした: %s" % _why(e))
             return
         if self.job is not None:
             self.job.add(self.proc)
@@ -692,7 +718,7 @@ class ChatFeed:
                         if ts > self.dedupe_ts:
                             out.append((ts, w))
                         self.max_ts = max(self.max_ts, ts)
-                if gen == self.gen and self.proc is not None:
+                if self._live_gen(gen):
                     self.grew_at, self.ever_grew, self.fails = now, True, 0
                     if self.state in ("starting", "restarting"):
                         self.state = "ok"
@@ -727,7 +753,8 @@ class RecState:
         self.use_chat = bool(use_chat)
         self.chat_state = "ok" if use_chat else "off"
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
-        self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], detect.get("sens") or "normal", detect.get("perHour") or 6)
+        det = clean_detect(detect)
+        self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"])
         # 候補が出るまでの遅れを縮める(仮の候補): チャットを待たずに音だけで先に計算する Online(同じ窓・同じ重み。チャットなしの録画は本番がもう待たないので作らない)
         self.fast = excite.Online(use_chat=False, **self.args) if self.use_chat and provisional else None
         self.mood = excite.MoodShift()   # 雰囲気の変わり目(0-10-5)
@@ -780,7 +807,7 @@ class RecState:
         st.args = dict(d.get("args") or st.args)
         st.online = excite.Online(use_chat=st.use_chat, **st.args).load(d["online"])
         st.book = excite.PeakBook.from_json(d["book"])
-        # 先回りの計算・変わり目は、それを持たない前の版の state.json からは作らない(秒の数え始めがずれるため。その録画は今までどおり)
+        # 先回りの計算(仮の候補)は state.json に無ければ作らない(本番と秒の数え始めがずれるため。その録画は本番の候補だけ)。変わり目は無ければここから数え始める
         st.fast = excite.Online(use_chat=False, **st.args).load(d["fast"]) if st.use_chat and isinstance(d.get("fast"), dict) else None
         st.mood = excite.MoodShift().load(d["mood"]) if isinstance(d.get("mood"), dict) else excite.MoodShift()
         st.mood_shifts = int(d.get("moodShifts") or 0)
@@ -808,10 +835,8 @@ class RecState:
 
     def set_detect(self, detect):
         """感度・1 時間の本数は配信の途中でも変えられる(これから確定する候補から)"""
-        sens = detect.get("sens") if detect.get("sens") in excite.SENS else "normal"
-        self.book.thr = excite.SENS[sens]
-        if isinstance(detect.get("perHour"), int):
-            self.book.per_hour = detect["perHour"]
+        det = clean_detect(detect)
+        self.book.thr, self.book.per_hour = excite.SENS[det["sens"]], det["perHour"]
 
     def disable_chat(self, why):
         """チャットを諦めた: Online を音だけにして続ける(過去の秒はそのまま)"""
@@ -1007,7 +1032,7 @@ class RecState:
         ch = [{"seq": s, "id": i, "state": st} for s, i, st in self.book.changes]
         return {"v": 1, "recorder": self.rc, "recording": self.rec, "seq": self.book.seq, "decN": self.dec_n, "perHour": self.book.per_hour,
                 "counts": {str(h): n for h, n in self.book.counts().items()}, "lag": self.online.lag, "chat": self.chat_state,
-                "behindSec": round(max(0.0, self.behind), 1), "at": iso_now(now), "first": iso_now(self.first), "measuredSec": self.next_box,
+                "behindSec": round(max(0.0, self.behind), 1), "at": epoch_iso(now), "first": epoch_iso(self.first), "measuredSec": self.next_box,
                 "scoredSec": self.online.next_out, "gaps": self.gap_count,
                 "skipped": [{"from": s["from"], "to": s["to"], "done": s["done"], "capped": bool(s.get("capped"))} for s in self.skipped],
                 "lateChat": self.late, "ended": self.finished, "message": self.message,
@@ -1019,9 +1044,7 @@ class RecState:
     def save(self, now, peaks=True):
         os.makedirs(self.folder, exist_ok=True)
         if self.series_out:
-            with open(os.path.join(self.folder, "series.jsonl"), "a", encoding="utf-8") as f:
-                for row in self.series_out:
-                    f.write(json.dumps(row, separators=(",", ":")) + "\n")
+            append_jsonl(os.path.join(self.folder, "series.jsonl"), self.series_out)
             self.series_out = []
         write_json(os.path.join(self.folder, "state.json"), self.to_json())
         if peaks:
@@ -1059,10 +1082,7 @@ class Worker:
                  chat_grace=CHAT_GRACE, chat_max_per_hour=CHAT_MAX_PER_HOUR, tick_budget=TICK_BUDGET, parent=None, sleep=time.sleep, max_active=MAX_ACTIVE):
         """テストは clock・client_factory(rc) -> 録画元(get_json・get_bytes)・measure_batch(録画元, 録画, セグメント…) -> (full, band)・
         launcher(cmd, logf) -> yt-dlp のプロセス を偽物に替える(12 時間を早送りで回す)。max_active = 同時に測る録画の数"""
-        self.max_active = max(1, int(max_active))
-        self.queued, self.queued_msgs = [], {}
-        self._errs = {}           # 録画のない所(受け持つ前・チャット)の、最後にログに書いた内部エラー
-        self._log_full = False
+        # 差し替えられる口と間隔
         self.config_path = os.path.abspath(config_path)
         self.clock, self.sleep = clock, sleep
         self.client_factory = client_factory or (lambda rc: RecorderClient(rc))
@@ -1072,14 +1092,20 @@ class Worker:
         self.save_sec, self.heart_sec, self.poll_sec, self.mem_limit_mb = save_sec, heart_sec, poll_sec, mem_limit_mb
         self.chat_backoff, self.chat_grace, self.chat_max_per_hour = tuple(chat_backoff), chat_grace, chat_max_per_hour
         self.tick_budget, self.parent = tick_budget, parent
+        self.max_active = max(1, int(max_active))
+        # 受け持っている録画・チャット
         self.cfg, self.cfg_key, self.cfg_checked = {}, None, -1e18
-        self.recs, self.feeds, self.done = {}, {}, set()
-        self.dec_keys = {}
+        self.recs, self.feeds, self.done = {}, {}, set()   # (録画元, 録画) -> RecState・動画の id -> ChatFeed・締めた録画
+        self.queued, self.queued_msgs = [], {}             # 順番待ちの録画(心拍に出す)・最後に peaks.json に書いた順番待ちの文と時刻
+        self.dec_keys = {}                                 # (録画元, 録画) -> 最後に当てた decisions.json の (更新の時刻, 大きさ, 候補の通し番号)
         self.job = tools.KillJob()
+        # 心拍・ログ
         self.started = clock()
         self.saved_at = self.heart_at = self.mem_at = -1e18
         self.mem = 0.0
         self.error = ""
+        self._errs = {}           # 録画のない所(受け持つ前・チャット)の、最後にログに書いた内部エラー
+        self._log_full = False
         self.stop_flag = False
         self.load_config(force=True)
 
@@ -1120,22 +1146,19 @@ class Worker:
         d = read_json(self.config_path, 1024 * 1024) or {}
         self.cfg_key = key
         rcs = [r for r in d.get("recorders") or [] if isinstance(r, dict) and ID_RE.match(str(r.get("id") or "")) and isinstance(r.get("url"), str)]
-        det = d.get("detect") if isinstance(d.get("detect"), dict) else {}
         spec, src = dict(SPEC_DEFAULT), d.get("spec") if isinstance(d.get("spec"), dict) else {}
         for k, dv in SPEC_DEFAULT.items():
             v = src.get(k)
             if isinstance(dv, bool):
                 if isinstance(v, bool):
                     spec[k] = v
-            elif isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
+            elif _num(v):
                 spec[k] = float(v)
         self.cfg = {"dir": d.get("dir") if isinstance(d.get("dir"), str) and d.get("dir") else os.path.dirname(self.config_path), "recorders": rcs,
-                    "detect": {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal",
-                               "perHour": det.get("perHour") if isinstance(det.get("perHour"), int) and not isinstance(det.get("perHour"), bool) else 6},
-                    "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,
+                    "detect": clean_detect(d.get("detect")), "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,
                     "chatLimitBytes": int(d.get("chatLimitBytes") or CHAT_LIMIT), "chatStallSec": float(d.get("chatStallSec") or CHAT_STALL),
                     "lengthHint": clean_hint(d.get("lengthHint")),         # M10(入口が書く。無ければスタジオの設定の長さ)
-                    "provisional": d.get("provisional") is not False}      # 仮の候補(既定オン。false で今までどおり本番の候補だけ)
+                    "provisional": d.get("provisional") is not False}      # 仮の候補(既定オン。false = 本番の候補だけ)
         for st in self.recs.values():
             st.set_detect(self.cfg["detect"])
         return True
@@ -1203,7 +1226,7 @@ class Worker:
                 try:
                     st.write_peaks(now)
                 except (OSError, ValueError) as e:
-                    self.error = "候補を書けませんでした: %s" % (e.strerror or e.__class__.__name__)
+                    self.error = "候補を書けませんでした: %s" % _why(e)
         if now - self.mem_at >= MEM_CHECK_SEC:
             self.mem_at = now
             self.mem = memory_mb()
@@ -1215,7 +1238,7 @@ class Worker:
         try:
             st.save(now)
         except (OSError, ValueError) as e:
-            self.error = "状態を保存できませんでした: %s" % (e.strerror or e.__class__.__name__)
+            self.error = "状態を保存できませんでした: %s" % _why(e)
 
     def _release(self, key):
         st = self.recs.pop(key, None)
@@ -1358,21 +1381,21 @@ class Worker:
                 first, last = iso_epoch(r.get("firstPdt")), iso_epoch(r.get("lastPdt"))
                 doc = {"v": 1, "recorder": rc["id"], "recording": r["id"], "seq": 0, "decN": 0, "perHour": self.cfg["detect"]["perHour"], "counts": {},
                        "lag": None, "chat": "off", "behindSec": round(max(0.0, last - first), 1) if first is not None and last is not None else 0.0,
-                       "first": iso_now(first) if first is not None else None, "measuredSec": 0, "scoredSec": 0, "gaps": 0, "skipped": [],
+                       "first": epoch_iso(first) if first is not None else None, "measuredSec": 0, "scoredSec": 0, "gaps": 0, "skipped": [],
                        "lateChat": 0, "ended": False, "peaks": [], "changes": []}
-            doc.update(message=msg, queued=True, queuePos=i + 1, at=iso_now(now))
+            doc.update(message=msg, queued=True, queuePos=i + 1, at=epoch_iso(now))
             try:
                 os.makedirs(folder, exist_ok=True)
                 write_json(os.path.join(folder, "peaks.json"), doc)
                 keep[key] = (msg, now)
             except (OSError, ValueError) as e:
-                self.error = "順番待ちの文を書けませんでした: %s" % (e.strerror or e.__class__.__name__)
+                self.error = "順番待ちの文を書けませんでした: %s" % _why(e)
         self.queued_msgs = keep
 
     def _open(self, rc, r):
         """録画を受け持つ: state.json があれば続きから。録画中で firstPdt があれば新しく。終わった録画は state.json があって済んでいないとき・
         順番待ちのうちに終わったとき(音だけ。チャットのリプレイは読まない)だけ"""
-        folder = os.path.join(self.dir, rc["id"], r["id"])
+        folder = self._folder(rc, r)
         key = (rc["id"], r["id"])
         d = read_json(os.path.join(folder, "state.json"))
         if d is not None:
@@ -1497,9 +1520,9 @@ class Worker:
         self.log("盛り上がりの検出: %s が終わりました(候補 %d・欠け %d)" % (st.rec, len(st.book.order), st.gap_count))
 
     def _remeasure(self, st, client, sk, deadline):
-        """飛ばした区間の音を、まとまり(BIG_BATCH_SEC 分)ごとに測り直して skipped.jsonl へ(0-10-6。候補は作り直さない)。
-        まとまりごとに 1 行足し、進み(sk の pos = 測り終えたセグメントの数・sec = 測った秒)を残して心拍を書く。時間切れなら戻る(次の周期で pos から)。
-        1 つの区間で測るのは REMEASURE_MAX_SEC まで(超えたら capped)。-> 済んだか"""
+        """飛ばした区間の音を、遅れたときと同じまとまり(RecState.batches の big = 同じセッションでつながった BIG_BATCH_SEC 分)ごとに測り直して
+        skipped.jsonl へ(0-10-6。候補は作り直さない)。まとまりごとに 1 行足し、進み(sk の pos = 測り終えたセグメントの数・sec = 測った秒)を残して
+        心拍を書く。時間切れなら戻る(次の周期で pos から)。1 つの区間で測るのは REMEASURE_MAX_SEC まで(超えたら capped)。-> 済んだか"""
         total = max(0, sk["until"] - sk["since"])
         pos = int(sk.get("pos") or 0)
         code, s = client.get_json("/live/%s/status?since=%d" % (st.rec, sk["since"] + pos))
@@ -1507,24 +1530,17 @@ class Worker:
             return False   # 録画元につながらない: 次の周期で
         segs = parse_segments((s or {}).get("segmentList") if code == 200 and isinstance(s, dict) else [])[:max(0, total - pos)]
         os.makedirs(st.folder, exist_ok=True)
-        i = 0
-        while i < len(segs):
+        for cur in st.batches(segs, True, True):
             if float(sk.get("sec") or 0.0) >= REMEASURE_MAX_SEC:
                 sk["capped"] = True
                 break
-            cur = [segs[i]]
-            i += 1
-            while i < len(segs) and sum(y["dur"] for y in cur) < BIG_BATCH_SEC and segs[i]["uri"].split("/")[0] == cur[0]["uri"].split("/")[0]:
-                cur.append(segs[i])
-                i += 1
             t0 = int(round(cur[0]["t"] - st.first))
             try:
                 full, band = self.measure_batch(client, st.rec, cur)
                 row = {"t0": t0, "full": [round(v, 1) for v in full], "band": [round(v, 1) for v in band]}
             except (MeasureError, NoTool, RecorderDown) as e:
                 row = {"t0": t0, "error": str(e)[:160] or e.__class__.__name__}
-            with open(os.path.join(st.folder, "skipped.jsonl"), "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, separators=(",", ":")) + "\n")
+            append_jsonl(os.path.join(st.folder, "skipped.jsonl"), [row])
             pos += len(cur)
             sk["pos"], sk["sec"] = pos, round(float(sk.get("sec") or 0.0) + sum(y["dur"] for y in cur), 1)
             self.heartbeat(self.clock(), force=True)   # 長い測り直しの間も心拍を止めない(入口が 120 秒で起動し直す)
@@ -1559,7 +1575,7 @@ class Worker:
         for x in items:
             pid = str(x.get("id") or "")
             if pid not in st.book.peaks:
-                mm = PEAK_NUM_RE.match(pid)
+                mm = PEAK_ID_RE.match(pid)
                 if mm and st.book.n_ids <= int(mm.group(1)) < st.book.n_ids + PEAK_AHEAD:
                     break   # まだ出ていない候補(すぐ先の番号): 出てから当てる
             else:
@@ -1578,7 +1594,7 @@ class Worker:
             message = "%d 本の録画を見ています" % len(active) if active else "録画中の配信はありません"
             if self.queued:
                 message += "(%d 本は順番待ち。同時に測るのは %d 本まで)" % (len(self.queued), self.max_active)
-        doc = {"v": 1, "version": WORKER_VERSION, "pid": os.getpid(), "at": iso_now(now), "started": iso_now(self.started),
+        doc = {"v": 1, "version": WORKER_VERSION, "pid": os.getpid(), "at": epoch_iso(now), "started": epoch_iso(self.started),
                "behindSec": round(max([st.behind for st in active] or [0.0]), 1), "memMB": round(self.mem, 1),
                "chatRestarts": sum(f.total_restarts for f in self.feeds.values()),
                "recordings": [{"recorder": st.rc, "id": st.rec, "behindSec": round(max(0.0, st.behind), 1), "chat": st.chat_state} for st in active],

@@ -602,7 +602,7 @@ class Exporter:
     def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
-        after・streamer・origin・auto・hold: add と同じ"""
+        after・streamer・origin・auto・hold・score: add と同じ"""
         if self.live.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         mid = studio_mark_id(studio["mark"])
@@ -619,7 +619,8 @@ class Exporter:
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
         after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
-        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(HOLDS。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)"""
+        hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(HOLDS。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
+        score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)"""
         after = after if after in AFTERS else ("check" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
         if self.live.find(rc) is None:

@@ -25,13 +25,12 @@ API(src/home/live.py の handle_get / _api_post から。書き込みは入口�
        adopt → Live.adopt(origin manual。after・streamer は画面の帯の値をそのまま渡す = 検査は Live.adopt。無ければ設定 live.auto.after)の {job, video, mark, existing, origin} + {ok, peak}。markId は スタジオのマークの id
        dismiss / restore → {ok, peak}(採用した候補は 409 = スタジオでマークを消す)
 
-自動の採用(M11。Detector.tick の最後): 録画中の録画の候補のうち、枠の中(frame)で、確定(confirmedAt。録画の頭からの秒)から waitMin 分たった
-(録画の lastPdt − firstPdt で比べる)ものを Live.adopt(origin auto・after auto)。採用した候補は帳簿が枠に数えたまま固定する(excite の仮決め (bl))。
-スタジオにつながらない(502)は次の見回りでやり直し、1 候補 AUTO_TRIES 回で諦めて「調子」の失敗(kind detect)に出す。
+自動の採用(M11。Detector.tick の最後。ワーカーが動いている間だけ): 録画中の録画の候補のうち、枠の中(frame)で終わり待ち(endPending)でなく、
+入口が最初に見てから waitMin 分たったものを Live.adopt(origin auto・after auto)。採用した候補は帳簿が枠に数えたまま固定する(excite の仮決め (bl))。
+スタジオにつながらない(502)・書き出しの途中など(409)は次の見回りでやり直し、1 候補 AUTO_TRIES 回で諦めて「調子」の失敗(kind detect。auto_failures.json)に出す。
 """
 import json
 import os
-import re
 import shutil
 import signal
 import subprocess
@@ -40,7 +39,7 @@ import threading
 import time
 
 from ytt_core import excite, fsio, tools
-import live_excite_worker as EW  # noqa: E402  (定数と時刻の読み方。numpy などは読まない)
+import live_excite_worker as EW  # noqa: E402  (ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない)
 import live_export as LX  # noqa: E402
 import live_failures  # noqa: E402
 
@@ -50,23 +49,30 @@ STALE_SEC = 120.0          # 心拍(worker.json)がこれだけ止まったら�
 SETTINGS_EVERY = 300.0     # スタジオの解析の設定を読み直す間隔
 RESTART_WARN = 3           # 起動し直しがこれを超えたら「調子」に失敗として出す
 AUTO_TRIES = 5             # 自動の採用を 1 候補で試す回数
-LOG_MAX = 2 * 1024 * 1024
-PEAK_ID_RE = re.compile(r"^p\d{1,7}-\d{1,8}\Z")
+LOG_MAX = 2 * 1024 * 1024  # logs/excite.log がこれを超えていたら、ワーカーを起動するときに .old.log へ回す
 OPS = ("adopt", "dismiss", "restore")
 DECISIONS_MAX = 5000
 PEAKS_MAX = 16 * 1024 * 1024
-SERIES_MAX = 64 * 1024 * 1024
 DETECT_DEFAULT = {"enabled": False, "sens": "normal", "perHour": 6}
 ADOPT_DEFAULT = {"enabled": False, "waitMin": 5}
-SPEC_RANGES = {"length": (10.0, 120.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}   # スタジオの analyze.validate_settings と同じ範囲
 CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャットの状態(悪い順)
+
+
+def _dump(obj):
+    """入口が書く JSON(config.json・decisions.json・auto_failures.json)のバイト列"""
+    return json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8")
+
+
+def _ids_ok(rc, rec):
+    """録画元・録画の id の形(API の引数・worker.json の値をパスに使う前に見る)"""
+    return isinstance(rc, str) and isinstance(rec, str) and bool(LX.ID_RE.match(rc)) and bool(LX.REC_RE.match(rec))
 
 
 def clean_spec(an):
     """スタジオの解析の設定(settings-ui.json の analyze)→ ワーカーの spec(範囲外は丸め、読めなければ既定。仮決め (bn))"""
     an = an if isinstance(an, dict) else {}
     out = dict(EW.SPEC_DEFAULT)
-    for k, (lo, hi) in SPEC_RANGES.items():
+    for k, (lo, hi) in EW.SPEC_RANGES.items():
         v = an.get(k)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v:
             out[k] = float(min(hi, max(lo, v)))
@@ -148,12 +154,9 @@ class Detector:
         return self._spec
 
     def config(self):
-        det = self.detect_cfg()
         return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.live.recorders()],
-                "detect": {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal",
-                           "perHour": det.get("perHour") if isinstance(det.get("perHour"), int) else 6},
-                "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(), "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall,
-                "lengthHint": self._length_hint()}
+                "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
+                "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint()}
 
     def _length_hint(self):
         """M10: 人が選んだ区間の長さの目安(夜の自動測定 dev/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
@@ -165,7 +168,7 @@ class Detector:
 
     def write_config(self):
         """config.json(変わったときだけ書く。ワーカーは更新の時刻を見て読み直す)"""
-        data = json.dumps(self.config(), ensure_ascii=False, indent=1).encode("utf-8")
+        data = _dump(self.config())
         path = os.path.join(self.dir, "config.json")
         if data == self._written and os.path.isfile(path):
             return False
@@ -189,24 +192,25 @@ class Detector:
 
     def heartbeat(self):
         """worker.json(ワーカーの心拍)。無い・読めなければ None"""
-        try:
-            d = fsio.read_json_file(os.path.join(self.dir, "worker.json"), 1024 * 1024)
-        except (OSError, ValueError):
-            return None
-        return d if isinstance(d, dict) else None
+        return EW.read_json(os.path.join(self.dir, "worker.json"), 1024 * 1024)
 
     def _hb_age(self, hb):
-        at = EW.iso_epoch((hb or {}).get("at"))
+        at = LX.iso_epoch((hb or {}).get("at"))
         return None if at is None else self.clock() - at
 
     def running(self, hb=None):
+        """ワーカーが動いているか。この入口が起動したワーカー: 終わっていない かつ 心拍(その pid の。まだ無ければ起動の時刻)が stale_sec 以内。
+        前の入口が残したワーカー: 心拍が stale_sec 以内で「止まりました」でない"""
         hb = self.heartbeat() if hb is None else hb
-        if self.proc is not None and self.proc.poll() is not None:
-            return False
         age = self._hb_age(hb)
-        if self.proc is not None:
-            return age is None or age <= self.stale_sec if hb and hb.get("pid") == self.proc.pid else self.clock() - (self.started_at or 0) <= self.stale_sec
-        return age is not None and age <= self.stale_sec and (hb or {}).get("message") != "止まりました"
+        p = self.proc
+        if p is None:
+            return age is not None and age <= self.stale_sec and (hb or {}).get("message") != "止まりました"
+        if p.poll() is not None:
+            return False
+        if hb and hb.get("pid") == p.pid:
+            return age is None or age <= self.stale_sec
+        return self.clock() - (self.started_at or 0) <= self.stale_sec
 
     def _ensure(self):
         p = self.proc
@@ -285,26 +289,19 @@ class Detector:
 
     def forget(self, rc, rec):
         """録画を消したとき(src/home/live_cleanup.py): その録画の検出の記録(state.json・series.jsonl・peaks.json・decisions.json)も消す"""
-        if isinstance(rc, str) and isinstance(rec, str) and LX.ID_RE.match(rc) and LX.REC_RE.match(rec):
+        if _ids_ok(rc, rec):
             shutil.rmtree(self.folder(rc, rec), ignore_errors=True)
 
     def _decisions(self, folder):
-        try:
-            d = fsio.read_json_file(os.path.join(folder, "decisions.json"), 8 * 1024 * 1024)
-        except (OSError, ValueError):
-            d = None
-        if not isinstance(d, dict) or not isinstance(d.get("items"), list):
+        d = EW.read_json(os.path.join(folder, "decisions.json"), 8 * 1024 * 1024)
+        if d is None or not isinstance(d.get("items"), list):
             return {"v": 1, "n": 0, "items": []}
         return {"v": 1, "n": int(d.get("n") or 0), "items": [x for x in d["items"] if isinstance(x, dict) and isinstance(x.get("n"), int)]}
 
     def view(self, rc, rec):
         """peaks.json(ワーカー)+ まだ当たっていない決定(decisions.json)-> (peaks.json の中身か None, 候補の一覧, {id: 重ねた決定})"""
         folder = self.folder(rc, rec)
-        try:
-            doc = fsio.read_json_file(os.path.join(folder, "peaks.json"), PEAKS_MAX)
-        except (OSError, ValueError):
-            doc = None
-        doc = doc if isinstance(doc, dict) else None
+        doc = EW.read_json(os.path.join(folder, "peaks.json"), PEAKS_MAX)
         dec_n = int((doc or {}).get("decN") or 0)
         pending = {}
         for it in sorted(self._decisions(folder)["items"], key=lambda x: x["n"]):
@@ -355,7 +352,7 @@ class Detector:
                 "error": hb.get("error") or ""}
 
     def _check_ids(self, rc, rec):
-        if not isinstance(rc, str) or not LX.ID_RE.match(rc) or not isinstance(rec, str) or not LX.REC_RE.match(rec):
+        if not _ids_ok(rc, rec):
             raise LX.LiveError("録画元か録画の指定が正しくありません")
         if self.live.find(rc) is None:
             raise LX.LiveError("その録画元はありません", 404)
@@ -407,7 +404,7 @@ class Detector:
             d["n"] = n
             d["items"] = (d["items"] + [item])[-DECISIONS_MAX:]
             os.makedirs(folder, exist_ok=True)
-            fsio.atomic_write(os.path.join(folder, "decisions.json"), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
+            fsio.atomic_write(os.path.join(folder, "decisions.json"), _dump(d))
         return item
 
     def api_post(self, body):
@@ -417,7 +414,7 @@ class Detector:
             raise LX.LiveError("op は adopt・dismiss・restore のどれかです")
         rc, rec, pid = body.get("recorder"), body.get("recording"), body.get("id")
         self._check_ids(rc, rec)
-        if not isinstance(pid, str) or not PEAK_ID_RE.match(pid):
+        if not isinstance(pid, str) or not EW.PEAK_ID_RE.match(pid):
             raise LX.LiveError("候補の id が正しくありません")
         _doc, peaks, _pending = self.view(rc, rec)
         pk = next((p for p in peaks if p.get("id") == pid), None)
@@ -451,12 +448,10 @@ class Detector:
 
     # ---- 自動の採用(M11)
     def _load_fails(self):
+        """自動の採用を諦めた候補(auto_failures.json。最初の 1 回だけ読み、あとは覚えた一覧に足して書く)"""
         if self._fails is None:
-            try:
-                d = fsio.read_json_file(os.path.join(self.dir, "auto_failures.json"), 1024 * 1024)
-            except (OSError, ValueError):
-                d = None
-            self._fails = [x for x in (d or {}).get("items") or [] if isinstance(x, dict)] if isinstance(d, dict) else []
+            d = EW.read_json(os.path.join(self.dir, "auto_failures.json"), 1024 * 1024) or {}
+            self._fails = [x for x in d.get("items") or [] if isinstance(x, dict)]
         return self._fails
 
     def _give_up(self, rc, rec, pk, why):
@@ -466,13 +461,13 @@ class Detector:
                           "message": str(why)[:300], "at": LX.now_iso()})
             del fails[:-200]
             try:
-                fsio.atomic_write(os.path.join(self.dir, "auto_failures.json"), json.dumps({"v": 1, "items": fails}, ensure_ascii=False, indent=1).encode("utf-8"))
+                fsio.atomic_write(os.path.join(self.dir, "auto_failures.json"), _dump({"v": 1, "items": fails}))
             except OSError:
                 pass
         self.live.log("盛り上がりの検出: 候補 %s(%s)を自動で採用できなかったので諦めました: %s" % (pk.get("id"), rec, why))
 
     def auto_tick(self):
-        """M11: 録画中の録画の候補のうち、枠の中で確定から waitMin 分たったものを自動で採用する -> 採用した数"""
+        """M11: 録画中の録画の候補のうち、枠の中で入口が最初に見てから waitMin 分たったものを自動で採用する -> 採用した数"""
         a = self.adopt_cfg()
         if not a["enabled"] or not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
             return 0
@@ -488,8 +483,10 @@ class Detector:
                 key = (rc, rec, pk.get("id"))
                 if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(pk.get("confirmedAt"), (int, float)):
                     continue   # 終わり待ち(区間の終わりがまだ録れていない)は、合わせ直されてから
-                first = self._seen.setdefault(key, now)   # 入口が候補を最初に見た時刻から数える(候補が画面に出てから、人が見られる時間を waitMin 分とるため。
-                if now - first < a["waitMin"] * 60:       # 録画の秒で比べると、ワーカーの遅れの分だけ人が見られる時間が短くなる = 見直し役 S1)
+                # 待ちは入口が候補を最初に見た時刻から数える(画面に出てから人が見られる時間を waitMin 分とる。
+                # 録画の秒(confirmedAt)で比べると、ワーカーの遅れの分だけ人が見られる時間が短くなる)
+                first = self._seen.setdefault(key, now)
+                if now - first < a["waitMin"] * 60:
                     continue
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")
@@ -512,25 +509,31 @@ class Detector:
         doc, peaks, _p = self.view(rc, rec)
         if doc is None or not all(isinstance(a.get(k), (int, float)) for k in ("t0", "offset", "first", "last")):
             return None
+        def num(x):
+            return isinstance(x, (int, float))
+
+        def rel(s):   # アーカイブの秒 → 録画の頭からの秒
+            return a["t0"] + s - a["offset"] - a["first"]
+
+        def center(p):   # 配信中の候補の山の秒(無ければ区間のまん中)
+            return p["peak"] if num(p.get("peak")) else (p["start"] + p["end"]) / 2.0
+
         span = a["last"] - a["first"]
-        live = [p for p in peaks if p.get("state") != "dismissed" and isinstance(p.get("start"), (int, float)) and isinstance(p.get("end"), (int, float))]
-        arch = []
+        live = [p for p in peaks if p.get("state") != "dismissed" and num(p.get("start")) and num(p.get("end"))]
+        arch = []   # [(開始, 終わり, 山)](録画の頭からの秒)
         for m in marks or []:
-            if not isinstance(m, dict) or m.get("src") != "auto" or not isinstance(m.get("start"), (int, float)) or not isinstance(m.get("end"), (int, float)):
+            if not isinstance(m, dict) or m.get("src") != "auto" or not num(m.get("start")) or not num(m.get("end")):
                 continue
-            s0 = a["t0"] + m["start"] - a["offset"] - a["first"]
-            s1 = a["t0"] + m["end"] - a["offset"] - a["first"]
+            s0, s1 = rel(m["start"]), rel(m["end"])
             if s1 > 0 and s0 < span:
-                pk = m.get("peak") if isinstance(m.get("peak"), (int, float)) else None
-                arch.append((s0, s1, a["t0"] + pk - a["offset"] - a["first"] if pk is not None else (s0 + s1) / 2.0, m.get("score")))
+                arch.append((s0, s1, rel(m["peak"]) if num(m.get("peak")) else (s0 + s1) / 2.0))
         hits, diffs = 0, []
-        for s0, s1, at, _sc in arch:
+        for s0, s1, at in arch:
             near = [p for p in live if p["start"] < s1 and s0 < p["end"]]
             if near:
                 hits += 1
-                best = min(near, key=lambda p: abs((p.get("peak") if isinstance(p.get("peak"), (int, float)) else (p["start"] + p["end"]) / 2.0) - at))
-                diffs.append(round((best.get("peak") if isinstance(best.get("peak"), (int, float)) else (best["start"] + best["end"]) / 2.0) - at, 1))
-        unmatched = sum(1 for p in live if p.get("state") in ("frame", "adopted") and not any(p["start"] < s1 and s0 < p["end"] for s0, s1, _a, _s in arch))
+                diffs.append(round(center(min(near, key=lambda p: abs(center(p) - at))) - at, 1))
+        unmatched = sum(1 for p in live if p.get("state") in ("frame", "adopted") and not any(p["start"] < s1 and s0 < p["end"] for s0, s1, _at in arch))
         ds = sorted(abs(x) for x in diffs)
         row = {"event": "detect_compare", "recorder": rc, "recording": rec, "archive": len(arch), "hit": hits,
                "ratio": round(hits / len(arch), 3) if arch else None, "medianAbsDiff": ds[len(ds) // 2] if ds else None, "diffs": diffs[:200],
@@ -547,8 +550,7 @@ class Detector:
         hb = self.heartbeat() or {}
         recs, chats = [], []
         for x in hb.get("recordings") or []:
-            if not isinstance(x, dict) or not isinstance(x.get("recorder"), str) or not isinstance(x.get("id"), str) \
-                    or not LX.ID_RE.match(x["recorder"]) or not LX.REC_RE.match(x["id"]):   # worker.json の id はパスに使う前に形を見る
+            if not isinstance(x, dict) or not _ids_ok(x.get("recorder"), x.get("id")):   # worker.json の id はパスに使う前に形を見る
                 continue
             doc, peaks, _p = self.view(x["recorder"], x["id"])
             ch = (doc or {}).get("chat") or "off"

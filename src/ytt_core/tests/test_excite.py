@@ -3,7 +3,7 @@
 - golden: 式を src/studio/analyze.py から移す前に、同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す = WORKLOG に書く)
 - Online(1 秒ずつ)= windowed_scores(一括。同じ窓)
 - PeakBook(候補の帳簿)の規則: 確定・1 時間の枠・入れ替え・採用は数えない・見送りは外す・JSON の往復
-- 線 D のワーカーの残り(2026-10-07): しきい値を上げる区間(thr_scale)・仮の候補(fast_push。同じ id で本番に置き換わる・外れる・人の決定)・
+- 配信中だけの足し: しきい値を上げる区間(thr_scale)・仮の候補(fast_push。同じ id で本番に置き換わる・外れる・人の決定)・
   雰囲気の変わり目(MoodShift)
 """
 import os
@@ -44,7 +44,8 @@ def synth(seed, n=2400, lag=11):
 
 
 class TestGolden(unittest.TestCase):
-    """移す前の analyze.py と完全に同じ値(golden は dev の gen_golden で作った。式を直したら作り直す)"""
+    """移す前の analyze.py と完全に同じ値(golden は移す前の analyze.py で synth(7) から計算した。式を直したら、このクラスが読む鍵を
+    新しい式で計算して data/excite_golden.json を書き直す)"""
 
     @classmethod
     def setUpClass(cls):

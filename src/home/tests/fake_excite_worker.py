@@ -92,12 +92,14 @@ def main():
                 dec = fsio.read_json_file(os.path.join(folder, "decisions.json"), 8 * 1024 * 1024)
             except (OSError, ValueError):
                 dec = None
-            for it in sorted((dec or {}).get("items") or [], key=lambda x: x.get("n", 0)):   # 本物の PeakBook.decide と同じ当て方
-                if not isinstance(it.get("n"), int) or it["n"] <= applied or it.get("id") not in peaks:
-                    if isinstance(it.get("n"), int) and it["n"] > applied and it.get("id") not in peaks:
-                        applied = it["n"]
+            # 本物の PeakBook.decide を簡単にした当て方(戻すは枠へ。テストが置いた候補だけなので、知らない id は飛ばす)
+            for it in sorted((dec or {}).get("items") or [], key=lambda x: x.get("n", 0)):
+                if not isinstance(it.get("n"), int) or it["n"] <= applied:
                     continue
-                p = peaks[it["id"]]
+                applied = it["n"]
+                p = peaks.get(it.get("id"))
+                if p is None:
+                    continue
                 st = it.get("state")
                 if st == "adopted":
                     p.update(state="adopted", origin=it.get("origin") or "manual", markId=it.get("markId"), jobId=it.get("jobId"))
@@ -108,7 +110,6 @@ def main():
                 seq += 1
                 p["seq"] = seq
                 changes.append({"seq": seq, "id": p["id"], "state": p["state"]})
-                applied = it["n"]
             counted = sum(1 for p in peaks.values() if p["state"] == "frame" or (p["state"] == "adopted" and p.get("origin") == "auto"))
             doc = {"v": 1, "recorder": rc, "recording": rec, "seq": seq, "decN": applied, "perHour": 6, "counts": {"0": counted} if peaks else {},
                    "lag": 8, "chat": worker.get("chat", "ok"), "behindSec": worker.get("behindSec", 35), "at": iso(now), "first": iso(started),

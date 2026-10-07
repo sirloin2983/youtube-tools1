@@ -6,13 +6,13 @@
 - 配信中は「未来を見る量」だけが違う(plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
   跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。この 2 つを持つのが windowed_scores(一括)と Online(1 秒ずつ足す)。2 つは同じ値を返す(テストで確かめる)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。
-  配信中だけの足し(2026-10-07。どれも呼ばなければ今までと同じ): しきい値を上げる区間 thr_scale(雰囲気の変わり目 MoodShift のあと 60 秒は 1.3 倍。0-10-5)・
+  配信中だけの足し(どれも呼ばなければ候補は同じ): しきい値を上げる区間 thr_scale(雰囲気の変わり目 MoodShift のあと 60 秒は 1.3 倍。0-10-5)・
   仮の候補 fast_push(チャットを待たない音だけの先回り。候補が出るまでの遅れを縮める。本番の候補は変わらない)
 - 標準ライブラリだけ(numpy は使わない。入口の子プロセスでも足さずに済む)
 
 使い方:
     from ytt_core import excite
-    audio = excite.audio_score(full_db, band_db)                        # アーカイブ(今までどおり)
+    audio = excite.audio_score(full_db, band_db)                        # アーカイブ
     on = excite.Online(back=270, fwd=30, window=1800, lag=8)             # 配信中
     for t, total, parts in on.push(full, band, act): book.push(t, total, parts, level)
 """
@@ -35,7 +35,7 @@ ONLINE_BACK, ONLINE_FWD, ONLINE_WINDOW = 270, 30, 1800   # 配信中の既定(0-
 STEP = 10   # ふだんの中央値を取る間隔(秒)。local_baseline の step と同じ
 
 
-# ---------------------------------------------------------------- 一括の式(analyze.py から移しただけ。変えない)
+# ---------------------------------------------------------------- 一括の式(アーカイブの解析。golden で固定 = 式・加算の順・丸めを変えない)
 def smooth(x, w):
     """幅 w 秒の移動平均(w は奇数に丸める)。"""
     n, h = len(x), max(0, int(w) // 2)
@@ -55,7 +55,7 @@ def median(v):
 
 def local_baseline(x, half=150, step=STEP, back=None, fwd=None):
     """各秒の前後 half 秒の中央値(=その場面の「ふだんの音量」)。step 秒ごとに求めて補間する。
-    back・fwd を渡すと前後の幅を別にできる(配信中は back 270・fwd 30。既定は今までどおり前後 half)。"""
+    back・fwd を渡すと前後の幅を別にできる(配信中は back 270・fwd 30。既定は前後とも half)。"""
     n = len(x)
     if n == 0:
         return []
@@ -242,12 +242,9 @@ def message_text(renderer):
 
 
 # ---------------------------------------------------------------- 配信中の式(窓つき)。一括の windowed_scores と 1 秒ずつの Online は同じ値
-def _mad_scale(vals, floor):
-    return robust_scale(vals, floor)
-
-
-def _points_upto(n, step):
-    return range(0, n, step)
+def _int_keys(d):
+    """JSON で文字列になった秒・点の鍵を int に戻す(to_json / load の往復)"""
+    return {int(k): v for k, v in (d or {}).items()}
 
 
 def windowed_scores(x, floor, w, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, log=False):
@@ -262,7 +259,7 @@ def windowed_scores(x, floor, w, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE
         sm = [math.log1p(v) for v in sm]
     final_sm = n - h   # smooth は未来 h 秒が要る(末尾 h 個は一括では窓が縮むので、配信中と同じ「未確定」として捨てる)
     med = {}
-    for p in _points_upto(final_sm, step):
+    for p in range(0, final_sm, step):
         if p + fwd < final_sm:
             med[p] = median(sm[max(0, p - back):p + fwd + 1])
     out, dev, scale = [], [], {}
@@ -276,7 +273,7 @@ def windowed_scores(x, floor, w, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE
         if p not in scale:
             if i != p:
                 break   # 点 p の偏差が無い(来ない)
-            scale[p] = _mad_scale(dev[max(0, p - window + 1):p + 1], floor)
+            scale[p] = robust_scale(dev[max(0, p - window + 1):p + 1], floor)
         out.append(max(0.0, min(CAP, dev[i] / scale[p])))
     return out
 
@@ -319,7 +316,7 @@ class _Channel:
             base = self.med[p] + (self.med[q] - self.med[p]) * (t - p) / (q - p)
             self.dev[t] = self.sm[t] - base
             if p not in self.scale:
-                self.scale[p] = _mad_scale([self.dev[k] for k in range(max(0, p - self.window + 1), p + 1)], self.floor)
+                self.scale[p] = robust_scale([self.dev[k] for k in range(max(0, p - self.window + 1), p + 1)], self.floor)
             out.append((t, max(0.0, min(CAP, self.dev[t] / self.scale[p]))))
             self.next_out = t + 1
         self._trim()
@@ -348,17 +345,15 @@ class _Channel:
 
     def load(self, d):
         self.raw, self.raw_base, self.n, self.next_out = list(d["raw"]), int(d["raw_base"]), int(d["n"]), int(d["next_out"])
-        self.sm = {int(k): v for k, v in d["sm"].items()}
-        self.med = {int(k): v for k, v in d["med"].items()}
-        self.dev = {int(k): v for k, v in d["dev"].items()}
-        self.scale = {int(k): v for k, v in d["scale"].items()}
+        self.sm, self.med, self.dev, self.scale = _int_keys(d["sm"]), _int_keys(d["med"]), _int_keys(d["dev"]), _int_keys(d["scale"])
 
 
 class Online:
     """配信中の合計の点数を 1 秒ずつ足す。audio_score(全体 0.6 + 高音域 0.4。floor 1.5)と chat_z(9 秒平均・log1p・floor 0.25)の窓つき版を合わせ、
     チャットは lag 秒だけ前へずらし(t の値 = chat[t+lag])、重み(w_audio・w_chat)で足して head_ramp をかける。
-    push(full, band, act) -> [(秒, 合計, {"audio": 音の点数, "chat": チャットの点数})](新しく確定した秒。遅れは fwd + step + 4 + lag 秒ほど)。
-    lag は set_lag で途中から変えられる(過去の秒は出し直さない)。to_json / from_json で途中から続けられる。"""
+    push(full, band, act) -> [(秒, 合計, {"audio": 音の点数, "chat": チャットの点数, "chatRaw": ずらす前のその秒のチャットの点数})]
+    (新しく確定した秒。遅れは fwd + step + 4 + lag 秒ほど。chatRaw は遅れの推定 estimate_lag 用)。
+    lag は set_lag で途中から変えられる(過去の秒は出し直さない)。to_json / load で途中から続けられる。"""
 
     def __init__(self, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, lag=8, w_audio=1.0, w_chat=1.0, head=180, use_chat=True):
         self.ch_full = _Channel(1.5, 3, back, fwd, window, step)
@@ -395,7 +390,7 @@ class Online:
             total = self.w_audio * a + self.w_chat * c
             if self.head > 0:
                 total = total * min(1.0, t / self.head) ** 2
-            out.append((t, total, {"audio": a, "chat": c, "chatRaw": self.chat.get(t, 0.0) if self.ch_chat is not None else 0.0}))   # chatRaw = ずらす前の t の値(遅れの推定 estimate_lag 用)
+            out.append((t, total, {"audio": a, "chat": c, "chatRaw": self.chat.get(t, 0.0) if self.ch_chat is not None else 0.0}))
             self.next_out = t + 1
             del self.full[t], self.band[t]
             if self.ch_chat is not None:
@@ -409,9 +404,7 @@ class Online:
 
     def load(self, d):
         self.lag, self.next_out = int(d["lag"]), int(d["next_out"])
-        self.full = {int(k): v for k, v in d["full"].items()}
-        self.band = {int(k): v for k, v in d["band"].items()}
-        self.chat = {int(k): v for k, v in d["chat"].items()}
+        self.full, self.band, self.chat = _int_keys(d["full"]), _int_keys(d["band"]), _int_keys(d["chat"])
         self.ch_full.load(d["ch_full"])
         self.ch_band.load(d["ch_band"])
         if self.ch_chat is not None and d.get("ch_chat"):
@@ -482,7 +475,7 @@ class PeakBook:
     - 人が採用した候補(origin manual)は枠に数えない。見送りも数えない。自動で採用した候補(origin auto)は枠に数えたまま固定(入れ替えで外れない。仮決め (bl))
     - 変更の番号 seq: 新しい・枠と控えの移動・採用・見送り・区間の確定のたびに増える。changes_since(seq) で差分だけ返せる(画面の 3 秒の見回り用)
     - しきい値を上げる区間 thr_scale(t, 倍, 秒): 雰囲気の変わり目(MoodShift)のあと。上り始めの判定だけに効く(下りの判定・式は変えない)
-    - 仮の候補(provisional。候補が出るまでの遅れを縮める。線 D のワーカーの残り): fast_push(t, 合計, 音の点数) に「音だけの先回りの計算」
+    - 仮の候補(provisional。候補が出るまでの遅れを縮める): fast_push(t, 合計, 音の点数) に「音だけの先回りの計算」
       (チャットを待たない Online)の確定した秒を渡すと、上り始めた所で仮の候補(provisional: true・endPending: true = 採用できない・枠に数えない)を出し、
       音だけの山が確定したら区間を合わせ直す。本番の計算(push)が近く(確定した区間の前後 = 次の山にしない所)で確定したら、同じ id のまま本番の候補に
       置き換える(provisional: false)。PROV_EXPIRE 秒たっても置き換わらなければ見送り(expired: true)にする。仮の候補は一度に 1 つだけ。
@@ -513,16 +506,39 @@ class PeakBook:
         t = int(t)
         self.total[t], self.parts[t], self.level[t] = float(total), dict(parts or {}), float(level)
         self.last_t = max(self.last_t, t)
-        changed = []
-        w = t - 2   # smooth(total, 5) が確定する秒
-        if w >= 0 and all(k in self.total for k in range(max(0, w - 2), w + 3)):
-            seg = [self.total[k] for k in range(max(0, w - 2), w + 3)]
-            work = sum(seg) / len(seg)
-            changed += self._step(w, work)
+        sm = self._smooth5(self.total, t)
+        changed = self._step(*sm) if sm else []
         changed += self._finish_pending()
         changed += self._expire()
         self._trim()
         return changed
+
+    @staticmethod
+    def _smooth5(d, t):
+        """秒 t まで足した値 d(秒 -> 値)から、smooth(・, 5) が確定する秒 w = t - 2 とその値 -> (w, 値) か None(前後の値がそろっていない)"""
+        w = t - 2
+        ks = range(max(0, w - 2), w + 3)
+        if w < 0 or not all(k in d for k in ks):
+            return None
+        return w, sum(d[k] for k in ks) / len(ks)
+
+    def _region(self, peak):
+        """山の秒 -> 区間 (開始, 終わり)(長さ length の pre 割を山の前に置く。頭は 0 で止める)"""
+        s = max(0.0, peak - self.length * self.pre)
+        return s, s + self.length
+
+    @staticmethod
+    def _block_end(e):
+        """区間の終わり e -> この秒までは次の山にしない(pick_clips の [s-5, e+6) と同じ: int(e)+6 から次の山にできる)"""
+        return int(e) + EXCLUDE_AFTER - 1
+
+    def _climb(self, r, w, work):
+        """上り中の山 r(本番・仮の候補で同じ形)に秒 w の smooth(5) の値を足す -> 確定したか
+        (しきい値の CONFIRM_DROP 割を confirm_low 秒続けて下回った・上り始めて CONFIRM_MAX_SEC 秒たった)"""
+        if work > r["value"]:
+            r["peak"], r["value"] = w, work
+        r["low"] = r["low"] + 1 if work < self.thr * CONFIRM_DROP else 0
+        return r["low"] >= self.confirm_low or w - r["since"] >= CONFIRM_MAX_SEC
 
     def thr_scale(self, t, factor=MOOD_FACTOR, sec=MOOD_HOLD):
         """秒 t から sec 秒の間、山の上り始めのしきい値を factor 倍にする(雰囲気の変わり目のあと。0-10-5)。重なれば大きい方"""
@@ -532,56 +548,44 @@ class PeakBook:
         return self.thr * max([b[2] for b in self.boost if b[0] <= w < b[1]] or [1.0])
 
     def _step(self, w, work):
-        if self.rising is None:
+        r = self.rising
+        if r is None:
             if work >= self._thr_at(w) and w > self.block_until:
                 self.rising = {"since": w, "peak": w, "value": work, "low": 0}
             return []
-        r = self.rising
-        if work > r["value"]:
-            r["peak"], r["value"] = w, work
-        if work < self.thr * CONFIRM_DROP:
-            r["low"] += 1
-        else:
-            r["low"] = 0
-        if r["low"] >= self.confirm_low or w - r["since"] >= CONFIRM_MAX_SEC:
-            self.rising = None
-            return self._confirm(r["peak"], r["value"], w)
-        return []
+        if not self._climb(r, w, work):
+            return []
+        self.rising = None
+        return self._confirm(r["peak"], r["value"], w)
 
     def _confirm(self, peak, value, now):
-        s = max(0.0, peak - self.length * self.pre)
-        e = s + self.length
+        """本番の山を候補にする(区間・枠。近くに仮の候補があれば同じ id のまま本番に置き換える)-> 変更があった候補の id の一覧"""
+        s, e = self._region(peak)
+        self.block_until = self._block_end(e)
         prov = self._absorbable(s, e)
-        if prov is not None and prov["state"] != "frame":   # 仮の候補のうちに人が決めた(採用・見送り): 区間と状態はそのまま、点数だけ本番の値に
-            pid, pk = prov["id"], prov
-            pk.update(score=round(value, 2), parts=self._parts_at(peak), confirmedAt=now, provisional=False, endPending=False)
-            pk["reasons"] = reasons_of(pk["parts"])
+        if prov is not None:
             self.fast["open"] = None
-            self.block_until = int(e) + EXCLUDE_AFTER - 1
-            self._mark(pid)
-            return [pid]
-        if prov is not None:   # 仮の候補を本番の候補に置き換える(同じ id。画面の行が入れ替わらない)
-            pid, pk = prov["id"], prov
-            self.fast["open"] = None
+            if prov["state"] != "frame":   # 仮の候補のうちに人が決めた(採用・見送り): 区間と状態はそのまま、点数だけ本番の値に
+                prov.update(score=round(value, 2), parts=self._parts_at(peak), confirmedAt=now, provisional=False, endPending=False)
+                prov["reasons"] = reasons_of(prov["parts"])
+                self._mark(prov["id"])
+                return [prov["id"]]
+            pk = prov   # 仮の候補を本番の候補に置き換える(同じ id。画面の行が入れ替わらない)
+            pk["provisional"] = False
         else:
-            pid = "p%d-%d" % (self.n_ids, peak)
+            pk = {"id": "p%d-%d" % (self.n_ids, peak)}
             self.n_ids += 1
-            pk = {"id": pid}
-            self.peaks[pid] = pk
-            self.order.append(pid)
+            self.peaks[pk["id"]] = pk
+            self.order.append(pk["id"])
         pk.update({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(value, 2), "parts": self._parts_at(peak),
                    "confirmedAt": now, "hour": peak // 3600, "state": "frame", "endPending": True, "origin": None, "seq": pk.get("seq", 0)})
-        if prov is not None:
-            pk["provisional"] = False
         pk["reasons"] = reasons_of(pk["parts"])
-        self.block_until = int(e) + EXCLUDE_AFTER - 1   # pick_clips の [s-5, e+6) と同じ: int(e)+6 から次の山にできる
-        changed = [pid]
         self._snap(pk)
         self._place(pk)
         if pk["endPending"]:
-            self.pending.append(pid)
-        self._mark(pid)
-        return changed
+            self.pending.append(pk["id"])
+        self._mark(pk["id"])
+        return [pk["id"]]
 
     # ---- 仮の候補(音だけの先回りの計算。チャットを待たない)
     @staticmethod
@@ -594,11 +598,8 @@ class PeakBook:
         t = int(t)
         f = self.fast
         f["total"][t], f["audio"][t] = float(total), float(audio)
-        changed = []
-        w = t - 2
-        if w >= 0 and all(k in f["total"] for k in range(max(0, w - 2), w + 3)):
-            seg = [f["total"][k] for k in range(max(0, w - 2), w + 3)]
-            changed = self._fast_step(w, sum(seg) / len(seg), t)
+        sm = self._smooth5(f["total"], t)
+        changed = self._fast_step(sm[0], sm[1], t) if sm else []
         for d in (f["total"], f["audio"]):
             for k in [k for k in d if k < t - 12]:
                 del d[k]
@@ -612,14 +613,11 @@ class PeakBook:
                 f["rising"] = {"since": w, "peak": w, "value": work, "low": 0, "audio": self._fast_audio(w - 6, t)}
                 return [self._provisional(w, work, f["rising"]["audio"])]
             return []
-        if work > r["value"]:
-            r["peak"], r["value"] = w, work
         r["audio"] = max(r["audio"], self._fast_audio(w - 6, t))
-        r["low"] = r["low"] + 1 if work < self.thr * CONFIRM_DROP else 0
-        if r["low"] < self.confirm_low and w - r["since"] < CONFIRM_MAX_SEC:
+        if not self._climb(r, w, work):
             return []
         f["rising"] = None
-        f["block"] = int(max(0.0, r["peak"] - self.length * self.pre) + self.length) + EXCLUDE_AFTER - 1
+        f["block"] = self._block_end(self._region(r["peak"])[1])
         pk = self.peaks.get(f["open"]) if f["open"] else None
         if pk is None or not pk.get("provisional") or pk["state"] != "frame" or pk["peak"] == r["peak"]:
             return []
@@ -631,8 +629,8 @@ class PeakBook:
         return max([v for k, v in self.fast["audio"].items() if a <= k <= b] or [0.0])
 
     def _prov_fill(self, pk, peak, value, audio):
-        s = max(0.0, peak - self.length * self.pre)
-        pk.update({"start": round(s, 1), "end": round(s + self.length, 1), "peak": peak, "score": round(value, 2),
+        s, e = self._region(peak)
+        pk.update({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(value, 2),
                    "parts": {"audio": round(audio, 2), "chat": 0.0}, "confirmedAt": peak, "hour": peak // 3600})
         pk["reasons"] = reasons_of(pk["parts"])
 
@@ -692,7 +690,7 @@ class PeakBook:
         if self.length * 0.7 <= e2 - s2 <= self.length * 1.3 and s2 < pk["peak"] < e2:
             pk["start"], pk["end"] = round(s2, 1), round(e2, 1)
         pk["endPending"] = False
-        self.block_until = max(self.block_until, int(pk["end"]) + EXCLUDE_AFTER - 1)
+        self.block_until = max(self.block_until, self._block_end(pk["end"]))
         return True
 
     def finish(self):
@@ -824,14 +822,12 @@ class PeakBook:
         b.thr = float(d["thr"])
         b.boost = [[int(x[0]), int(x[1]), float(x[2])] for x in d.get("boost") or []]
         f = d.get("fast") if isinstance(d.get("fast"), dict) else {}
-        b.fast = {"total": {int(k): v for k, v in (f.get("total") or {}).items()}, "audio": {int(k): v for k, v in (f.get("audio") or {}).items()},
+        b.fast = {"total": _int_keys(f.get("total")), "audio": _int_keys(f.get("audio")),
                   "rising": dict(f["rising"]) if f.get("rising") else None, "open": f.get("open") or None, "block": int(f.get("block", -1))}
         b.peaks = {k: dict(v) for k, v in d["peaks"].items()}
         b.order, b.seq, b.n_ids, b.last_t = list(d["order"]), int(d["seq"]), int(d["n_ids"]), int(d["last_t"])
         b.changes = [tuple(c) for c in d["changes"]]
         b.rising = dict(d["rising"]) if d.get("rising") else None
         b.block_until, b.pending = int(d["block_until"]), list(d["pending"])
-        b.total = {int(k): v for k, v in d["total"].items()}
-        b.parts = {int(k): v for k, v in d["parts"].items()}
-        b.level = {int(k): v for k, v in d["level"].items()}
+        b.total, b.parts, b.level = _int_keys(d["total"]), _int_keys(d["parts"]), _int_keys(d["level"])
         return b
