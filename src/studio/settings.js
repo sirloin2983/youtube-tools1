@@ -26,7 +26,7 @@ function build(){
     <p class="msg hint" id="outMsg" role="status"></p></div></details>
   <details class="card set-sec" id="setExport" open><summary><span class="set-title">書き出し</span><span class="set-sub">書き出したあとの自動化</span></summary><div class="body">
     ${S.token ? `<label class="rv-check" for="setAutoTx"><input type="checkbox" class="ui-switch" id="setAutoTx">書き出しのあと自動で文字起こしを始める</label>
-    <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとで「この後を ▸」からやり直せます)。</p>`
+    <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとで「この後を ▸」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
     : '<p class="hint">ホーム(start.bat)から開いているときだけ使えます。</p>'}
   </div></details>
   <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
@@ -41,11 +41,12 @@ function build(){
   $('#outIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#outSave').click(); } });
   $('#outSave').addEventListener('click', () => saveOut($('#outIn').value.trim(), $('#outSave')));
   $('#outReset').addEventListener('click', () => saveOut('', $('#outReset')));
+  /* 書き出しのあと自動で文字起こし: 値は ③ の設定(サーバーの /api/settings の review.autoTx。0.22.0 でこのブラウザの localStorage から移した)。
+     読み込みと保存は review.js(読み込めたら、このスイッチも合わせる)。ここは押したときに渡すだけ */
   if (S.token){
     const cb = $('#setAutoTx');
-    let on = true; try { on = localStorage.getItem('ytt:studio.autoTx') !== '0'; } catch {}
-    cb.checked = on;
-    cb.addEventListener('change', () => { try { localStorage.setItem('ytt:studio.autoTx', cb.checked ? '1' : '0'); } catch {} });
+    cb.checked = !(S.review && S.review.autoTx) || S.review.autoTx();
+    cb.addEventListener('change', () => { if (S.review && S.review.setAutoTx) S.review.setAutoTx(cb.checked); });
   }
   $('#setCollab').addEventListener('toggle', mountCollab);
   $('#setReg').addEventListener('toggle', mountReg);

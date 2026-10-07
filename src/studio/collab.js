@@ -45,7 +45,13 @@ function paneHtml(){
   </section>
   </div>`;
 }
-const EMPTY_GROUPS = '<div class="empty"><b>まだグループはありません</b>左で2本以上の配信を選んで「まとめる」か、② 解析で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。</div>';
+/* 空の状態は 2 文 + 次に押すボタン 1 つ(S-13): まとめられる配信(グループに入っていない配信)が 2 本以上あれば「配信を選ぶ」(上の一覧へ)、無ければ「② 解析へ」 */
+function emptyGroupsHtml(){
+  const free = C.videos.filter(v => !v.groupId).length;
+  const btn = free >= 2 ? '<button type="button" class="btn small" data-cl-go="pick">まとめる配信を選ぶ</button>' : '<button type="button" class="btn small" data-cl-go="queue">② 解析で配信を入れる</button>';
+  return `<div class="empty"><b>まだグループはありません</b>「配信をコラボにまとめる」で2本以上の配信を選んで「まとめる」か、② 解析で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。<div class="cs-emptyacts">${btn}</div></div>`;
+}
+const EMPTY_VIDEOS = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、③ で配信を開くと、ここに出ます。<div class="cs-emptyacts"><button type="button" class="btn small" data-cl-go="queue">② 解析へ</button></div></div>';
 
 /* ---------- 配信の選択(左のカード) ---------- */
 function vlabel(v){ return v.title || v.fileName || v.id; }
@@ -91,7 +97,7 @@ function renderVideoList(){
   const box = $('#clVideoList'); if (!box) return;
   const list = C.videos.filter(matchV), gs = groupsOf(list), many = list.length > 15;
   $('#clCount').textContent = `${list.length} / ${C.videos.length} 本`;
-  if (!C.videos.length) box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、③ で配信を開くと、ここに出ます。</div>';
+  if (!C.videos.length) box.innerHTML = EMPTY_VIDEOS;
   else if (!list.length) box.innerHTML = `<div class="empty"><b>条件に合う配信はありません</b>${C.q.trim() ? '探す文字を消すか、' : ''}上の「${esc((FILTERS.find(f => f[0] === C.f) || [])[1] || '')}」を「すべての配信」に変えてください。</div>`;
   else box.innerHTML = gs.map(([k, items]) => { const open = isOpenG(k, items, many), n = items.filter(v => C.checked.has(v.id)).length;
     return `<details class="ui-group cl-vg" data-g="${esc(k)}"${open ? ' open' : ''}><summary>${esc(k)} <span class="ui-group-n">${items.length}本</span>${n ? `<span class="ui-group-side"><span class="pill accent">${n}本 選択中</span></span>` : ''}</summary>
@@ -189,7 +195,7 @@ function groupHtml(g){
 }
 function renderGroups(){
   const box = $('#clGroupList'); if (!box) return;
-  box.innerHTML = C.groups.length ? C.groups.map(groupHtml).join('') : EMPTY_GROUPS;
+  box.innerHTML = C.groups.length ? C.groups.map(groupHtml).join('') : emptyGroupsHtml();
   UIKit.timebox.attachAll(box);   // 合わせる時刻の欄(時:分:秒.0.1秒。ui-kit v11)
 }
 
@@ -297,6 +303,19 @@ async function onGroupClick(e){
     saveAnchor(gid, vid);
   }
 }
+/* 空の状態のボタン(S-13): ② 解析へ(設定の引き出しを閉じて ② の URL の欄へ)/ まとめる配信を選ぶ(上の一覧の最初のチェックへ) */
+function clGo(where){
+  if (where === 'queue'){
+    if (S.drawer) S.drawer.close();
+    S.go('queue');
+    const f = $('#qUrls'); if (f) f.focus();
+    return;
+  }
+  if (C.f !== 'free'){ C.f = 'free'; $('#clF').value = 'free'; renderVideoList(); }
+  const cb = document.querySelector('#clVideoList input[type=checkbox][data-vid]:not(:disabled)');
+  $('#clMake').scrollIntoView({ block: 'start' });
+  if (cb) cb.focus(); else $('#clQ').focus();
+}
 function onGroupChange(e){
   if (e.target.id === 'clA2on'){
     const row = e.target.closest('.cl-anchor').querySelector('#clA2row');
@@ -330,6 +349,7 @@ function wire(){
   $('#clPicked').addEventListener('click', e => { const b = e.target.closest('[data-unpick]'); if (!b) return; C.checked.delete(b.dataset.unpick); renderVideoList(); });
   $('#clGroupList').addEventListener('click', onGroupClick);
   $('#clGroupList').addEventListener('change', onGroupChange);
+  $('#clMake').closest('.cl-grid').addEventListener('click', e => { const b = e.target.closest('[data-cl-go]'); if (b) clGo(b.dataset.clGo); });
   $('#clGroupList').addEventListener('keydown', e => {   // 時刻の欄で Enter を押したら保存(欄は Enter を自分で受けるので、捕捉の段階で見る)
     if (e.key !== 'Enter' || !e.target.closest('.cl-anchor') || !e.target.classList.contains('ui-time')) return;
     e.preventDefault(); const li = e.target.closest('[data-gid][data-vid]'); if (li) saveAnchor(li.dataset.gid, li.dataset.vid);

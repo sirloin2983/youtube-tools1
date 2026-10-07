@@ -63,6 +63,7 @@ const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
+  const autoTx = typeof x.autoTx === 'boolean' ? x.autoTx : autoTxLegacy() !== false;
   return {
     volume: n(x.volume, 0, 100, 100), muted: !!x.muted,
     quickSpans: DEFAULT_QUICK_SPANS.map((d, i) => { const v = Array.isArray(x.quickSpans) ? Number(x.quickSpans[i]) : NaN; return Number.isFinite(v) ? Math.min(600, Math.max(5, Math.round(v))) : d; }),
@@ -78,8 +79,11 @@ function sanitizeSettings(x){
     momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3),   // 一瞬をマーク(C)の前・後の秒数
     liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン。線 D の P3)
     liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low',   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
-    /* ライブの録画: 書き出したあと。まだ選んでいなければ、今までの「書き出しのあと自動で文字起こし」(autoTx)がオンなら文字起こしまで・オフなら何もしない */
-    liveAfter: LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTxEnabled() ? 'check' : 'none')
+    /* 書き出しのあと自動で文字起こし(設定の「書き出し」節。入口から開いたときだけ効く。既定オン)。0.22.0 でこのブラウザ(localStorage の ytt:studio.autoTx)から
+       この節(サーバー)へ移した(窓とブラウザで値が変わらないように)。サーバーにまだ無いときは、前のこのブラウザの値を引き継ぐ(loadSettings が1回だけ送る) */
+    autoTx,
+    /* ライブの録画: 書き出したあと。まだ選んでいなければ、「書き出しのあと自動で文字起こし」(autoTx)がオンなら文字起こしまで・オフなら何もしない */
+    liveAfter: LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTx ? 'check' : 'none')
   };
 }
 
@@ -175,7 +179,7 @@ function jumpHTML(){
   <div class="rv-emptybox empty" id="rvEmpty" hidden>
     <b>まだ配信が開かれていません</b>
     <span>② 解析で配信を入れると、終わったものから、ここで自動のマークを確かめられます。解析せずに手でマークを付けるときは、上の「配信」から URL か動画ファイルを開きます。</span>
-    <div><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button></div>
+    <div class="cs-emptyacts"><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button><button type="button" class="btn ghost" id="rvEmptyRank" data-go-step="rank">① 探すで選ぶ</button><button type="button" class="btn ghost" id="rvEmptyQueue" data-go-step="queue">② 解析へ</button></div>
   </div>`;
 }
 /* プレーヤー・タイムライン・盛り上がりグラフ・再生の操作 */
@@ -567,6 +571,49 @@ function openPicker(focusOpen){
   d.open = true;
   setTimeout(() => { const f = focusOpen ? $('#rvOpenIn') : $('#rvPickQ'); if (f) f.focus(); }, 0);
 }
+/* ---------- 前回の場所(S-8): 配信ごとに、再生位置と選んでいたマークを覚えて、開いたときに戻す ----------
+   置き場所はこのブラウザ(localStorage の ytt:studio.place)。ホームの設定(UIKit.prefs)は節が決まっていて(home/prefs.py の PATCHABLE)スタジオの節が無いこと、
+   再生位置は再生中に数秒ごとに変わる値で、配信のデータ(マークの保存。rev で重なりを見ている)に書くとマークの保存と競合することから。
+   形: { 配信の id: [秒, マークの id, 覚えた時刻(ms)] }。新しい順に PLACE_MAX 本まで(古いものから捨てる)。書くのは変わったときだけ・2 秒に1回まで */
+const PLACE_KEY = 'ytt:studio.place', PLACE_MAX = 200;
+const PLACE = { pend: null, timer: 0, last: '' };
+function placeAll(){
+  try { const o = JSON.parse(localStorage.getItem(PLACE_KEY) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch { return {}; }
+}
+/* この配信の前回の場所 → {t, sel} | null。マークが消えていれば選ばない・配信の長さを超える位置は長さまで */
+function placeOf(v){
+  const p = v && placeAll()[v.id];
+  if (!Array.isArray(p)) return null;
+  let t = Math.max(0, Number(p[0]) || 0);
+  if (v.duration > 0) t = Math.min(t, v.duration);
+  const sel = typeof p[1] === 'string' && (v.marks || []).some(m => m.id === p[1]) ? p[1] : null;
+  return t > 0 || sel ? { t, sel } : null;
+}
+function placeFlush(){
+  clearTimeout(PLACE.timer); PLACE.timer = 0;
+  const p = PLACE.pend; PLACE.pend = null;
+  if (!p) return;
+  const key = p.id + '|' + p.t + '|' + p.sel;
+  if (key === PLACE.last) return;
+  const all = placeAll();
+  all[p.id] = [p.t, p.sel, Date.now()];
+  const ids = Object.keys(all);
+  if (ids.length > PLACE_MAX) ids.sort((a, b) => (Number(all[a] && all[a][2]) || 0) - (Number(all[b] && all[b][2]) || 0)).slice(0, ids.length - PLACE_MAX).forEach(id => { delete all[id]; });
+  try { localStorage.setItem(PLACE_KEY, JSON.stringify(all)); PLACE.last = key; } catch { /* 保存できない(容量・プライベート): 覚えないだけ */ }
+}
+/* 今の場所を覚える(再生位置が動いた・マークを選んだ)。別の配信の分が残っていれば先に書く */
+function placeNote(){
+  const v = S.cur; if (!v) return;
+  if (PLACE.pend && PLACE.pend.id !== v.id) placeFlush();
+  PLACE.pend = { id: v.id, t: Math.round((Number(S.now) || 0) * 10) / 10, sel: S.sel || '' };
+  if (!PLACE.timer) PLACE.timer = setTimeout(placeFlush, 2000);
+}
+/* 戻した選択の行を、マークの一覧の中で見える位置へ(一覧が自分でスクロールする広い画面だけ。狭い画面でページごと動かさない) */
+function placeScroll(){
+  const ol = $('#rvList'), li = S.sel && ol && ol.querySelector(`.rv-mark-row[data-id="${CSS.escape(S.sel)}"]`);
+  if (!li || getComputedStyle(ol).overflowY !== 'auto' || ol.scrollHeight <= ol.clientHeight) return;
+  ol.scrollTop += li.getBoundingClientRect().top - ol.getBoundingClientRect().top - Math.round(ol.clientHeight / 3);
+}
 async function loadVideo(id){
   const seq = ++S.loadSeq;
   if (S.join) S.join.clear();   // つなぐのは同じ配信の中だけ(テストの状態には join が無いことがある)
@@ -587,11 +634,16 @@ async function loadVideo(id){
   for (const m of marks()) S.seen.add(m.id);
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
+  /* 前回の場所(S-8): 選んでいたマークと再生位置へ戻す。位置はプレーヤーの準備ができたら合わせる(S.resumeAt。YouTube は playerVars の start) */
+  const back = typeof placeOf === 'function' ? placeOf(S.cur) : null;
+  if (back && back.sel){ S.sel = back.sel; S.fold.set(back.sel, false); }
+  S.resumeAt = back && back.t > 0 ? back.t : null;
   $('#rvLiveBar').hidden = true;
   if (typeof liveOpened === 'function') liveOpened(S.cur);   // ライブの録画(kind live)なら録画の状態の見回りを始める。プレーヤーを作る前に(録画の状態で作り方が変わる)
-  setNow(0);
+  setNow(S.resumeAt || 0);
   mountPlayer();
   renderAll();
+  if (S.sel && typeof placeScroll === 'function') placeScroll();
   if (typeof fillAutoWho === 'function') fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から(段5)
   if (typeof syncExportDock === 'function') syncExportDock();   // (テストは loadVideo だけを切り出して動かすので、無いときは飛ばす) // 配信を開いたとき(の1回だけ)欄の開閉を合わせる
   refreshList();
@@ -886,6 +938,11 @@ async function mountPlayer(){
     if (timedOut){ timedOut = false; S.playerErr = false; hideNotice(); }   // 遅れて準備ができた: 案内を消して使えるようにする
     S.playerAlive = true; phMsg('');
     const d = e.target.getDuration(); if (d > 0) setDuration(d);
+    /* 前回の場所(S-8)へ。録画中のライブの録画はライブ端から(戻さない)。YouTube は作るときの start で合わせてある(seekTo は止めている動画を再生してしまう) */
+    if (S.resumeAt != null){
+      if (e.target.recording) S.resumeAt = null;
+      else if (v.kind !== 'youtube'){ try { e.target.seekTo(S.resumeAt); } catch {} }
+    }
     e.target.setPlaybackRate(S.rate);
     applyToPlayer(); startPoll(); setTimeout(updateLive, 400); setTimeout(autoTitleFromPlayer, 1500);
   };
@@ -910,7 +967,7 @@ async function mountPlayer(){
   try {
     yt = new YT.Player(mount, {
       width: '100%', height: '100%', videoId: v.id,
-      playerVars: { playsinline: 1, rel: 0, origin: location.origin, hl: 'ja', cc_load_policy: 0 },
+      playerVars: { playsinline: 1, rel: 0, origin: location.origin, hl: 'ja', cc_load_policy: 0, ...(S.resumeAt >= 1 ? { start: Math.floor(S.resumeAt) } : {}) },
       events: { onReady, onStateChange: onState, onError: e => { if (token !== playerToken) return; clearYtReadyTimer(); showNotice(ytErrorMessage(e.data)); } }
     });
   } catch {
@@ -967,7 +1024,10 @@ function startPoll(){
     if (Date.now() - lastSeekAt < 400) return; // seek直後は古い値が返るので無視
     S.playerState = yt.getPlayerState();
     if (++pollTick % 5 === 0) syncVolumeFromPlayer();
-    setNow(yt.getCurrentTime());
+    const cur = yt.getCurrentTime();
+    /* 前回の場所へ戻した直後: プレーヤーがその位置に来る(か再生を始める)までは、表示と覚える位置を 0 に戻さない(YouTube は再生を押すまで 0 を返す) */
+    if (S.resumeAt != null && S.playerState !== 1 && Math.abs(cur - S.resumeAt) >= 1.5){ /* 待つ */ }
+    else { S.resumeAt = null; setNow(cur); }
     if (pollTick % 10 === 0) updateLive();
     if (S.previewEnd != null && S.now >= S.previewEnd - 0.05){ yt.pauseVideo(); setNow(S.previewEnd); S.previewEnd = null; }
   }, 100);
@@ -982,9 +1042,11 @@ function setNow(t){
   S.now = t;
   const inp = $('#rvNow'); if (inp && document.activeElement !== inp) inp.value = fmt(t);
   renderPlayhead();
+  placeNote();
 }
 /* final = false はタイムラインをドラッグしている途中(YouTube の seekTo の allowSeekAhead) */
 function seek(t, final = true){
+  S.resumeAt = null;   // 自分で動かした: 前回の場所への合わせはやめる
   t = Math.max(0, S.duration ? Math.min(t, S.duration) : t);
   if (yt){ try { yt.seekTo(t, final); } catch {} lastSeekAt = Date.now(); }
   setNow(t);
@@ -1026,9 +1088,10 @@ async function saveSettings(){
 }
 async function loadSettings(){
   try {
-    const j = await Studio.api('/api/settings');
-    S.settings = sanitizeSettings(j && j.settings && j.settings.review);
+    const j = await Studio.api('/api/settings'), raw = j && j.settings && j.settings.review;
+    S.settings = sanitizeSettings(raw);
     if (setLoadErr){ setLoadErr = ''; settingsStatus(''); }
+    if (!(raw && typeof raw.autoTx === 'boolean') && autoTxLegacy() !== null) touchSettings();   // 前のこのブラウザの「書き出しのあと自動で文字起こし」を1回だけサーバーへ(0.22.0)
   } catch (e){
     S.settings = sanitizeSettings({});
     setLoadErr = (e && e.message) || 'エラー';
@@ -1048,6 +1111,7 @@ function syncSettingsUI(){
   { const ae = $('#rvAutoExp'); if (ae) ae.checked = s.liveAutoExport; }
   { const dk = $('#rvDuck'); if (dk) dk.value = s.liveDuck; }
   { const af = $('#rvAfter'); if (af) af.value = s.liveAfter; }
+  { const at = $('#setAutoTx'); if (at) at.checked = s.autoTx !== false; }   // 設定の「書き出し」節(settings.js が作る。入口から開いたときだけ)
   $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
@@ -1578,7 +1642,7 @@ function liveJobNotices(own){
   for (const x of own){
     const p = LV.prevJobs.get(x.id); if (!p || !LIVE_ACTIVE.includes(p) || p === x.state) continue;
     const name = x.label ? `「${x.label}」` : `${fmt(Number(x.studio.start) || 0)} – ${fmt(Number(x.studio.end) || 0)}`;
-    if (x.state === 'done') toast(`切り抜きを書き出しました(${name})`, 3500, 'ok');
+    if (x.state === 'done') doneToast(`切り抜きを書き出しました(${name})`, 'ok', [typeof x.path === 'string' ? x.path : '']);   // [編集で開く](S-7)
     else if (x.state === 'error') toast(`書き出せませんでした(${name}): ${x.error || x.message || ''}`, 0, 'err');
   }
 }
@@ -1913,8 +1977,26 @@ function handoffHTML(j, it){
   if (!path) return '';
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
   if (window.UIKit && UIKit.appnav) UIKit.appnav.setLink('transcribe', '?media=' + enc(path));   // 「編集」に今の切り抜きを引き継ぐ(ヘッダーの appnav)
-  const tt = Studio.toolUrl('transcribe', '/?media=' + enc(path));
-  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
+  const tt = editorHref(path);
+  return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" data-edit-open title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">.clip.json あり</span>` : ''}</div>`;
+}
+/* 書き出した切り抜きを「編集」で開く URL(書き出しの行のリンクと、書き出し完了の知らせの [編集で開く] で同じ) */
+function editorHref(path){ return path ? Studio.toolUrl('transcribe', '/?media=' + enc(path)) : ''; }
+/* 「編集」を開く(行のリンク・知らせのボタンで同じ開き方。窓の決まり S-15): 窓(Edge のアプリの窓)で開いているときはホームに頼んで窓で(UIKit.win)、
+   ブラウザのタブならいつもの新しいタブで。スタジオの画面はそのまま残す(配信を見ながら隣の窓で字幕を直す流れ。v0.20.2 の音を下げる仕組みもこの形が前提)。
+   ホームへのリンク(案件で見る・案件の一覧)は data-ui-portal(ホームが開いていれば前に出す) */
+function openEditor(href){
+  if (!href) return;
+  const w = window.UIKit && window.UIKit.win;
+  if (w && Studio.token && w.isApp()){ w.open(href).catch(() => { window.open(href, '_blank', 'noopener'); }); return; }
+  window.open(href, '_blank', 'noopener');
+}
+/* 書き出しが済んだ知らせ(S-7)。paths: 書き出した mp4 の絶対パス(書き出しの順)。最初の1本を [編集で開く](行のリンクと同じ URL・同じ開き方)。
+   ボタンのある知らせは 8 秒(読んで押す間)。開けるものが無ければ今までどおりの知らせ */
+function doneToast(msg, kind, paths){
+  const ok = (paths || []).filter(Boolean), href = ok.length ? editorHref(ok[0]) : '';
+  if (!href) return toast(msg, 0, kind);
+  return Studio.toast(msg, { kind, ms: 8000, action: { label: ok.length > 1 ? '1本目を編集で開く' : '編集で開く', fn: () => openEditor(href) } });
 }
 async function copyText(text){
   try { await navigator.clipboard.writeText(text); return true; } catch {}
@@ -1956,15 +2038,22 @@ function renderExpRun(live, t, running, noTool){
     r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '録画中でも書き出せます(録画が届くのを待ってから作ります)';
   } else {
     r.disabled = running || !t.length || noTool || !!S.live;
-    r.title = noTool ? 'ffmpeg が見つからないため書き出せません' : S.live ? '配信中は書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '';
+    r.title = running ? '書き出しの実行中です(終わるか「中止」を押すと、次を書き出せます)' : noTool ? 'ffmpeg が見つからないため書き出せません' : S.live ? '配信中は書き出せません' : !t.length ? '書き出す対象のマークがありません(「採用」にしたマークが書き出されます)' : '';
   }
 }
 /* その他の書き出し: 全部の配信の採用・失敗した分だけやり直す・中止・つなげて1本に(どれもライブの録画では使わない) */
 function renderExpMore(live, running, noTool){
   { const ok = x => x.kind !== 'live', n = S.videos.filter(ok).reduce((a, x) => a + (Number(x.adopted) || 0), 0), nv = S.videos.filter(x => ok(x) && x.adopted > 0).length, b = $('#rvExpAll');
     b.textContent = `全部の配信の採用を書き出す(${nv}本・${n}件)`; b.disabled = running || !n || !!S.live || noTool || live;
-    b.title = live ? 'ライブの録画を開いている間は使えません(録画の配信は、開いて「書き出す」で書き出します)' : '採用にしたマークがある全部の配信を、順番に書き出します(ライブの録画は除きます)'; }
-  { const n = live ? 0 : failedIds().size, b = $('#rvExpRetry'); b.hidden = !n; b.textContent = `失敗した分だけやり直す(${n}件)`; b.disabled = running; }
+    /* 押せないときは、いつも理由を title に(S-25。以前は押せる理由の説明のまま) */
+    b.title = live ? 'ライブの録画を開いている間は使えません(録画の配信は、開いて「書き出す」で書き出します)'
+      : running ? '書き出しの実行中は使えません(終わるか「中止」を押してから)'
+      : S.live ? '配信中は書き出せません(配信が終わってから)'
+      : noTool ? 'ffmpeg が見つからないため書き出せません'
+      : !n ? '採用にしたマークがある配信がありません(マークを「採用」にすると使えます。ライブの録画は除きます)'
+      : '採用にしたマークがある全部の配信を、順番に書き出します(ライブの録画は除きます)'; }
+  { const n = live ? 0 : failedIds().size, b = $('#rvExpRetry'); b.hidden = !n; b.textContent = `失敗した分だけやり直す(${n}件)`; b.disabled = running;
+    b.title = running ? '書き出しの実行中は使えません(終わるか「中止」を押してから)' : '失敗・中止したマークだけを、もう一度書き出します'; }
   $('#rvExpCancel').hidden = live || !running;   // ライブの録画は行ごとに取り消す
   { const n = joinIds().length, b = $('#rvJoinRun');   // チェックしたマークをつなげて1本に(2 件から)
     b.hidden = !n; b.textContent = `チェックした ${n} 件をつなげて1本に`;
@@ -2112,8 +2201,11 @@ function pollJob(){
       else if (fin) refreshList();
       if (fin){
         rememberJob(null);
-        if (j.combined) toast(j.state === 'cancelled' ? 'つなぐ書き出しを中止しました' : j.combined.status === 'done' ? `つなげて1本にしました(${j.combined.count}件)。書き出しの欄の「編集で開く」で文字起こしできます` : 'つなげられませんでした: ' + (j.combined.error || ''), 0, j.state === 'cancelled' ? '' : j.combined.status === 'done' ? 'ok' : 'err');
-        else toast(j.state === 'cancelled' ? '書き出しを中止しました' : `書き出し完了: ${done}/${j.items.length}件` + (done < j.items.length ? '(失敗あり)' : ''), 0, j.state === 'cancelled' ? '' : done < j.items.length ? 'err' : 'ok');
+        /* 済んだ知らせに [編集で開く](S-7。つないだ1本・書き出した最初の1本。行のリンクと同じ URL) */
+        const cdone = j.combined && j.combined.status === 'done', paths = j.state === 'cancelled' ? []
+          : j.combined ? (cdone ? [clipPathOf(j, { path: j.combined.path, file: j.combined.file })] : []) : j.items.filter(i => i.status === 'done').map(i => clipPathOf(j, i));
+        if (j.combined) doneToast(j.state === 'cancelled' ? 'つなぐ書き出しを中止しました' : cdone ? `つなげて1本にしました(${j.combined.count}件)。「編集で開く」で文字起こしできます` : 'つなげられませんでした: ' + (j.combined.error || ''), j.state === 'cancelled' ? '' : cdone ? 'ok' : 'err', paths);
+        else doneToast(j.state === 'cancelled' ? '書き出しを中止しました' : `書き出し完了: ${done}/${j.items.length}件` + (done < j.items.length ? '(失敗あり)' : ''), j.state === 'cancelled' ? '' : done < j.items.length ? 'err' : 'ok', paths);
         if (!j.combined && j.state !== 'cancelled' && typeof maybeAutoTranscribe === 'function'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
       }
     } catch (e){
@@ -2237,7 +2329,14 @@ function renderMeta(){
   const v = S.cur;
   $('#rvMain').hidden = !v; $('#rvEmpty').hidden = !!v;
   for (const id of ['#rvJump', '#rvTheater', '#rvVMenu', '#rvSave']) $(id).hidden = !v;
-  if (!v){ $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; closeExportDrawer(); return; }
+  renderAutoMenu(v);
+  if (!v){
+    $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; closeExportDrawer();
+    /* 空の状態の次の一手(S-13): 配信があれば「選ぶ・開く」、まだ無ければ「② 解析へ」を主なボタンに */
+    const has = !!S.videos.length;
+    $('#rvEmptyOpen').className = 'btn' + (has ? ' primary' : ' ghost'); $('#rvEmptyQueue').className = 'btn' + (has ? ' ghost' : ' primary');
+    return;
+  }
   const has = !!v.title, el = $('#rvCurLabel');
   el.classList.toggle('is-empty', !has);   // 'empty' は ui-kit の「空の状態」の枠と名前がぶつかるので使わない
   el.textContent = has ? v.title : '(名前なし)';
@@ -2253,7 +2352,21 @@ function renderMeta(){
   const ytHref = v.kind === 'youtube' ? 'https://www.youtube.com/watch?v=' + enc(v.id) : liveYtHref(v);
   const yl = $('#rvYtLink'); yl.hidden = !ytHref; if (ytHref) yl.href = ytHref;
   yl.title = v.kind === 'live' ? 'YouTube で配信を開きます(録画の時刻とは合わないので、頭から開きます)' : 'YouTube で、いまの位置から開きます';
-  $('#rvAuto').hidden = !Studio.token || v.kind === 'live';   // まとめて実行はスタジオの書き出しを使うので、ライブの録画では出さない
+}
+/* まとめて実行の入口(上の行)。使えないときも隠さず、押せない理由を出す(S-25): ホームから開いていない・ライブの録画(まとめて実行はスタジオの書き出しを使う)。
+   配信を開いていないときは、ほかの配信ごとの操作と同じく出さない */
+function autoOffReason(v){
+  if (!Studio.token) return 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます';
+  if (v && v.kind === 'live') return 'ライブの録画では使えません(書き出したあとの文字起こし・パックは、LIVE の帯の「書き出したあと」で選べます)';
+  return '';
+}
+function renderAutoMenu(v){
+  const d = $('#rvAuto'), sm = d && d.querySelector('summary'); if (!sm) return;
+  d.hidden = !v;
+  const why = autoOffReason(v);
+  d.classList.toggle('is-off', !!why);
+  if (why){ d.open = false; sm.setAttribute('aria-disabled', 'true'); sm.title = why; }
+  else { sm.removeAttribute('aria-disabled'); sm.title = '案件の画面と同じ「まとめて実行」を、この配信で始めます'; }
 }
 function renderDuration(){
   $('#rvDur').textContent = '/ ' + (S.duration ? fmt(S.duration) : '--');
@@ -2282,6 +2395,7 @@ function renderTimeline(){
     return `<button type="button" class="rv-seg ${isAutoLike(c) ? 'auto' : 'man'}${c.status ? ' st-' + esc(c.status) : ''}${S.sel === c.id ? ' sel' : ''}" style="left:${l}%;width:${w}%" data-id="${esc(c.id)}" aria-label="${esc(STATUS_LABEL[c.status || ''] || c.status)} ${esc(c.label || (c.src === 'auto' ? '自動' : '無題'))} ${fmt(c.start)}から${fmt(c.end)}"></button>`;
   }).join('');
   renderDuration(); renderPlayhead(); renderDraft(); renderGraph();
+  placeNote();   // 選んだマークが変わった(選ぶ・足す・消すはどれもここを通る)
 }
 
 /* 盛り上がりグラフ: series.total の面グラフ + マークの帯。プレイヘッドの動きでは再描画しない(カーソル線だけ動かす)。
@@ -2745,6 +2859,12 @@ function wire(){
     if (e.key === 'ArrowUp' && i === 0) $('#rvPickQ').focus(); else rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
   });
   $('#rvEmptyOpen').addEventListener('click', () => openPicker(!S.videos.length));
+  /* 空の状態から ① 探す・② 解析へ(S-13)。② は URL の欄へフォーカス */
+  $('#rvEmpty').addEventListener('click', e => {
+    const b = e.target.closest('[data-go-step]'); if (!b) return;
+    Studio.go(b.dataset.goStep);
+    const f = b.dataset.goStep === 'queue' ? $('#qUrls') : null; if (f) f.focus();
+  });
   $('#rvJump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (b) jumpTo(b.dataset.jump); });
   /* YouTube で開くリンクは、押したときの再生位置から */
   const ytNow = a => { if (S.cur && S.cur.kind === 'youtube') a.href = `https://www.youtube.com/watch?v=${enc(S.cur.id)}${S.now >= 1 ? '&t=' + Math.floor(S.now) + 's' : ''}`; };
@@ -2843,6 +2963,10 @@ function wire(){
     Studio.toast(ok ? 'パスをコピーしました: ' + b.dataset.path : 'コピーできませんでした。パス: ' + b.dataset.path, 0, ok ? 'ok' : 'err');
   };
   $('#rvExpList').addEventListener('click', onCopy);
+  $('#rvExpList').addEventListener('click', e => {   // 「編集で開く」: 知らせの [編集で開く] と同じ開き方(openEditor)。Ctrl・Shift・中クリックはブラウザ(と ui-kit)に任せる
+    const a = e.target.closest('a[data-edit-open]'); if (!a || e.button !== 0 || e.ctrlKey || e.shiftKey || e.metaKey || e.altKey) return;
+    e.preventDefault(); openEditor(a.href);
+  });
   $('#rvExpList').addEventListener('click', async e => {   // ライブの録画の書き出し(入口のジョブ)を取り消す
     const b = e.target.closest('[data-act="lxcancel"]'); if (!b || b.disabled || !b.dataset.job) return;
     b.disabled = true;
@@ -2907,6 +3031,7 @@ async function activate(){
 }
 function deactivate(){
   pausePlayback(); stopPoll(); liveStopPoll();   // ③ を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
+  placeFlush();   // 前回の場所(S-8)をすぐ書く
   if (window.UIKit && UIKit.keybar) UIKit.keybar.clear();
   if (setTimer) saveSettings();
   if (S.dirty || saveTimer) save();
@@ -2921,7 +3046,10 @@ Studio.review = {
     return p;
   },
   refresh: refreshList,
-  keymap: KM   // キーの一覧(? の一覧も同じ部品を出す。core.js)
+  keymap: KM,   // キーの一覧(? の一覧も同じ部品を出す。core.js)
+  /* 書き出しのあと自動で文字起こし(設定の「書き出し」節のスイッチ。settings.js)。値は review の節(サーバー)の autoTx */
+  autoTx: () => S.settings.autoTx !== false,
+  setAutoTx(on){ S.settings.autoTx = !!on; touchSettings(); }
 };
 /* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
@@ -2931,7 +3059,9 @@ const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ば
 const portalApi = (path, body) => Studio.portalApi(path, body);
 /* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
    入口の /api/autorun/start を mode:'transcribe' + marks(書き出したものだけ)で呼ぶ。もう書き出し済みのマークは、その段だけ飛ばして続く(home/autorun.py _step_export で確認済み) */
-function autoTxEnabled(){ try { return localStorage.getItem('ytt:studio.autoTx') !== '0'; } catch { return true; } }
+function autoTxEnabled(){ return S.settings.autoTx !== false; }
+/* 0.21 までの保存(このブラウザの localStorage の ytt:studio.autoTx)→ true / false / null(無い)。サーバーの設定に autoTx が無いときだけ読む(消さない) */
+function autoTxLegacy(){ try { const x = localStorage.getItem('ytt:studio.autoTx'); return x === '0' ? false : x === '1' ? true : null; } catch { return null; } }
 async function maybeAutoTranscribe(videoId, markIds){
   if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
   try {
@@ -2985,7 +3115,7 @@ async function pollAuto(){
   const steps = r.steps.map(s => `${esc(s.label)}: ${esc(stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
     (active ? '<button type="button" class="btn small" data-act="autocancel">中止</button>' : '') +
-    `<a class="btn small ghost" href="../#cases" target="_blank" rel="noopener">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
+    `<a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
   bar.dataset.run = r.id;
   bar.hidden = false;
   // 終わった: 書き出し済みなどのマークの状態を読み直す。loadVideo だとプレーヤーが再読み込みされ、再生位置が 0:00 に戻ってしまうため、
@@ -3006,7 +3136,11 @@ Studio.onReady(() => {
   if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   if (HIDE){ HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {}); }
-  $('#rvAuto').hidden = !Studio.token;   // まとめて実行は入口から開いたときだけ(12 ⑦(a))
+  /* まとめて実行は入口から開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu。S-25)。押したら理由を知らせる(title は触れないと見えないため) */
+  $('#rvAuto > summary').addEventListener('click', e => {
+    const why = autoOffReason(S.cur); if (!why) return;
+    e.preventDefault(); toast(why, 5000, 'info');
+  });
   if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
   if (window.UIKit && UIKit.autorun && Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
     UIKit.autorun.panel($('#paneReview .rv-autopanel'), { kind: 'video' });
@@ -3037,6 +3171,7 @@ Studio.onReady(() => {
   const onLeft = reason => {
     if (setTimer) saveSettings();
     if (S.dirty) save();
+    placeFlush();   // 前回の場所(S-8)
     if (reason !== 'blur'){ pausePlayback(); stopPoll(); liveStopPoll(); }
   };
   const onBack = () => {

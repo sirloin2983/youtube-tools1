@@ -2030,3 +2030,24 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: 単体(グループごと): ytt_core 81 件 OK(skip 1)・home の test_mount/test_launch/test_restart/test_live_archive 106 件 OK・studio の test_api/test_studio 168 件 OK(skip 1)・editor の test_metrics/test_resolve_export/test_roster 552 件 OK(skip 1)・`dev/tests/test_ui_kit_sync.py` OK・node `test_review.cjs` 39 件 OK(38 + 1)/ e2e(1 本ずつ・PYTHONIOENCODING=utf-8): `e2e_styleguide` 176 件 OK・`src/home/tests/e2e_portal.py` すべて OK・`e2e_window` すべて OK・`e2e_live_studio` 119 件 OK・`e2e_live_archive` 100 件 OK(段 9 の帯の確認を含む。M7 が 21 秒で済んだので帯に出たのは済みの 1 行)・`src/studio/tests/e2e_ui.py --mounted` 214 件 OK・`src/editor/tests/e2e_ui_mounted.py` ALL PASSED・`dev/tests/e2e_pipeline.py` ALL PASSED / `py -3.10 dev/lint.py` 全体 0 件
 - 注意: 依頼の単体テストの一覧を 1 回の `unittest` にまとめて流すと、studio と editor の部品(serve など)の名前が重なって 440 件ほどエラーになる(HEAD の写しでも同じ 900 件中 failures 7・errors 440。この変更とは関係ない)。ツールごとに分けて流す
 - 未コミット: なし(このコミット。cut2resolve の担当の未コミットの変更は含めていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 段 7〜8 studio 0.22.0 前回の場所・書き出し完了の [編集で開く]・空の状態の次の一手・押せない理由・リンクの開き方・自動の文字起こしの設定をサーバーへ(`plan/ux-stage7-9.md` の studio の行)
+- 変更(`src/studio/` だけ。`ui-kit.css`・`ui-kit.js` の写しと `src/ui-kit/` は触っていない):
+  - S-8 前回の場所(`review.js`): 配信ごとに再生位置と選んでいたマークを localStorage の `ytt:studio.place`(`{配信 id: [秒, マーク id, 時刻]}`・新しい 200 本まで)に覚え、`loadVideo` で戻す。書くのは変わったときだけ・2 秒に 1 回まで(`placeNote` は `setNow` と `renderTimeline` から = 位置が動いた・マークを選んだ/足した/消した)・③ を離れる/画面を離れるときはすぐ(`placeFlush`)。位置はプレーヤーの準備ができたら合わせる(`S.resumeAt`: 動画ファイル・終わった録画は onReady で seekTo、YouTube は playerVars の start(seekTo は止めている動画を再生してしまう)、録画中の録画は今までどおりライブ端)。合わせ終わるまで見回りが位置を 0 に戻さない・自分で動かしたら(`seek`)やめる。選んだ行は一覧が自分でスクロールする広い画面だけ見える位置へ
+  - S-7(`review.js`): 書き出しが済んだ知らせに [編集で開く](`doneToast`。行のリンクと同じ URL = `editorHref`・同じ開き方 = `openEditor`。何本かなら「1本目を編集で開く」・つないだ 1 本・ライブの録画の書き出しも。ボタン付きは 8 秒)
+  - S-13 空の状態の次のボタン: ② の解析キュー(`queue.js`「① 探すで配信を選ぶ」)・③ の配信を開いていないとき(`review.js` の `#rvEmpty` に「① 探すで選ぶ」「② 解析へ」。配信がまだ無ければ ② が主なボタン)・設定の「コラボ」(`collab.js`。配信が無い →「② 解析へ」、グループが無い → まとめられる配信が 2 本以上なら「まとめる配信を選ぶ」(一覧の最初のチェックへ)・無ければ「② 解析で配信を入れる」(設定を閉じて ② の URL の欄へ))。見た目は `app.css` の `.cs-emptyacts`
+  - S-25(`review.js`・`rank.js`): ③ の「まとめて実行」(`#rvAuto`)は隠さず `aria-disabled` + 理由の title(ホームから開いていない・ライブの録画)。押すと開かずに理由を知らせる。配信を開いていないときは今までどおり出さない。① の `#rkAuto` も同じ形(依頼の範囲は review.js だけだが、監査 25 が同じ所を挙げていたので合わせた)。`#rvExpAll`(と `#rvExpRun`・`#rvExpRetry`)は押せないときいつも理由を title に(実行中・配信中・ffmpeg なし・採用が無い・ライブの録画)
+  - S-15(`review.js`・`rank.js`): 「案件で見る」(まとめて実行の帯)・「案件の一覧」(① のまとめて実行)を `target="_blank"` から `data-ui-portal` に(ホームが別の窓で開いていれば前に出す)。「編集で開く」は別の窓/タブのまま(下の決定)、行のリンクも知らせのボタンも `openEditor` 1 か所で開く(窓 = `UIKit.win.open`、タブ = `window.open(_blank)`)。YouTube へのリンク(外のサイト)は今までどおり `_blank`(窓では ui-kit がいつものブラウザで開く)
+  - 依頼書 §1 の積み残し: 「書き出しのあと自動で文字起こし」を localStorage(`ytt:studio.autoTx`)から ③ の設定の節(`/api/settings` の `review.autoTx`。既存の節ごとの保存 `PUT {section, value}` のまま。serve.py の API は形を変えていない)へ。`settings.js` のスイッチは `Studio.review.setAutoTx` を呼ぶだけ・読み込めたら `syncSettingsUI` が合わせる。サーバーにまだ無いときは前のこのブラウザの値を 1 回だけ送る(`loadSettings`。古い localStorage は消さない)。ライブの「書き出したあと」の既定(liveAfter)もこの値から
+- 版: スタジオ 0.21.3 → 0.22.0(`core.js`・`serve.py`・`README.txt` の見出しと履歴に項目ごと 1 行)
+- 決定・理由(仮で決めたこと。まとめて確認):
+  - S-8 の置き場所は localStorage(UIKit.prefs ではない): ホームの設定は節が許可リスト(`src/home/prefs.py` の `PATCHABLE`)でスタジオの節が無く、home は今回触れない。再生位置は再生中に数秒ごとに変わる値で、配信のデータ(rev で重なりを見ている)に書くとマークの保存と競合する。窓とブラウザで別々になるが「その画面での続き」なので許容。ホームの設定に `studio` の節を足すなら home の担当で
+  - 録画中のライブの録画は位置を戻さない(ライブ端が自然)。選んだマークは戻す
+  - 「編集で開く」は同じ窓へ移さず別の窓/タブのまま: 0.20.2 から「配信を見ながら隣の窓で字幕を直す」流れ(UIKit.sound で音を下げる)が前提のため。監査 15 の「同じ窓に統一」は、ホームへのリンク(data-ui-portal)だけに当てた。毎回新しい窓になる点(監査 15)は、開いている編集の窓に動画を渡す仕組みが ui-kit / editor に要るので残した
+  - 何本か書き出した知らせの [編集で開く] は 1 本目(編集は 1 本ずつ開くため。ほかは書き出しの欄の行から)。全部の配信の書き出しの最後の知らせにはボタンを付けていない(配信が複数のため)
+  - ③ の空の状態は 3 つのボタン(配信を選ぶ・開く / ① / ②)。主なボタンは配信があれば「選ぶ・開く」、無ければ「② 解析へ」(文の「② 解析で配信を入れると」に合わせた)
+  - AUDIT 8 の「最初の未判定の候補へ」の導線は今回入れていない(S-8 の表は位置と選択だけ)
+- ui-kit に要るもの(今回は作っていない): 開いている「編集」の窓に動画を渡して前に出す仕組み(`UIKit.portal` の BroadcastChannel と同じ形。毎回新しい窓になる問題 = 監査 15 の残り)・`details.ui-menu` の summary を押せない形にする共通の書き方(今は `.btn[aria-disabled=true]` の見た目 + 画面ごとに click を止めている)
+- テスト: `test_review.cjs` 45 件 OK(39 → 45。live after の試験を autoTx に合わせて直し、autoTx の置き場所と引き継ぎ・前回の場所(覚える・戻す・200 本・壊れた値)・loadVideo での戻し・知らせの [編集で開く] と開き方・ホームへのリンクと押せない理由・全部の配信の書き出しの理由 を足した)/ 単体 studio 8 本 309 件 OK(skip 1)・`dev/tests/test_ui_kit_sync.py` OK / e2e(1 本ずつ・PYTHONIOENCODING=utf-8): `src/studio/tests/e2e_ui.py` 214 件 OK・`--mounted` 239 件 OK(場面を 3 つ足した: 前回の場所・空の状態(別のページで一覧を空に差し替え)・autoTx の引き継ぎ。既存の場面に [編集で開く]・案件で見る/案件の一覧のリンク・押せない理由・autoTx の保存先 の確かめを足した)・`src/home/tests/e2e_live_studio.py` 119 件 OK / `py -3.10 dev/lint.py` 全体 0 件
+- 注意: `plan/data.js` の版の表(切り抜きスタジオ 0.21.3)と `plan/ux-stage7-9.md` の判定は直していない(触ってよい範囲の外。まとめ役が直す)
+- 未コミット: なし(このコミット。editor・home の担当の未コミットの変更は含めていない)

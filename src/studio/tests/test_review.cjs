@@ -681,15 +681,147 @@ test('archived marks: 本番版 chip on the mark row, cleared with the exported 
 });
 
 // ---- 書き出したあと(after)と配信者(字幕の色)。ライブの録画の帯 ----
-test('live after: the saved choice wins; before choosing, it follows the old "transcribe after export" switch', () => {
-  let autoTx = true;
-  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxEnabled: () => autoTx, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
+test('live after: the saved choice wins; before choosing, it follows the "transcribe after export" switch (autoTx)', () => {
+  let legacy = null;
+  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
   assert.equal(ctx.sanitizeSettings({}).liveAfter, 'check');
-  autoTx = false;
+  assert.equal(ctx.sanitizeSettings({ autoTx: false }).liveAfter, 'none');
+  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto' }).liveAfter, 'auto');
+  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'check' }).liveAfter, 'check', 'a saved choice is kept even when autoTx is off');
+  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'full' }).liveAfter, 'none', 'unknown values fall back');
+});
+
+// ---- 0.22.0 段 7〜8: 書き出しのあと自動で文字起こしはサーバーの設定へ / 前回の場所 / 書き出し完了の [編集で開く] / 押せない理由 ----
+test('autoTx lives in the review settings (server); before it is saved there, the old browser value is taken over once', () => {
+  let legacy = null;
+  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
+  assert.equal(ctx.sanitizeSettings({}).autoTx, true, 'default on');
+  legacy = false;
+  assert.equal(ctx.sanitizeSettings({}).autoTx, false, 'nothing on the server yet: the old localStorage value');
   assert.equal(ctx.sanitizeSettings({}).liveAfter, 'none');
-  assert.equal(ctx.sanitizeSettings({ liveAfter: 'auto' }).liveAfter, 'auto');
-  assert.equal(ctx.sanitizeSettings({ liveAfter: 'check' }).liveAfter, 'check', 'a saved choice is kept even when autoTx is off');
-  assert.equal(ctx.sanitizeSettings({ liveAfter: 'full' }).liveAfter, 'none', 'unknown values fall back');
+  assert.equal(ctx.sanitizeSettings({ autoTx: true }).autoTx, true, 'once on the server, the server wins');
+  assert.equal(ctx.sanitizeSettings({ autoTx: 'no' }).autoTx, false, 'a broken value falls back to the old value / default');
+  const load2 = between('async function loadSettings(', 'function syncSettingsUI(');
+  assert.ok(load2.includes("typeof raw.autoTx === 'boolean'") && load2.includes('autoTxLegacy() !== null') && load2.includes('touchSettings()'), 'loadSettings sends the old value to the server once');
+  assert.ok(between('function autoTxEnabled(', 'async function maybeAutoTranscribe(').includes('S.settings.autoTx'), 'maybeAutoTranscribe reads the server setting');
+  const st = sliceOf('settings.js', 'if (S.token){\n    const cb', '$(\'#setCollab\')');
+  assert.ok(st.includes('S.review.setAutoTx(cb.checked)') && !st.includes('localStorage'), 'the switch in ⚙ saves through review.js (no localStorage)');
+});
+
+function placeHarness(store) {
+  const timers = [];
+  const S = { cur: null, now: 0, sel: null };
+  const ctx = load([['const PLACE_KEY', '/* 戻した選択の行を']], {
+    S, JSON, Math, Number, Object, Array, Date,
+    localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
+    setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout: () => {} });
+  return { ctx, S, timers, read: () => JSON.parse(store['ytt:studio.place'] || '{}') };
+}
+
+test('the place in each stream (S-8): position and the selected mark are remembered per stream and given back', () => {
+  const store = {};
+  const h = placeHarness(store);
+  const A = { id: 'A', duration: 100, marks: [{ id: 'm1' }, { id: 'm2' }] }, B = { id: 'B', duration: 0, marks: [] };
+  assert.equal(h.ctx.placeOf(A), null, 'nothing remembered yet');
+  h.S.cur = A; h.S.now = 12.34; h.S.sel = 'm2';
+  h.ctx.placeNote();
+  assert.equal(h.timers.length, 1, 'written a little later (not on every 0.1 s tick)');
+  h.S.now = 15.06; h.ctx.placeNote();
+  assert.equal(h.timers.length, 1, 'one pending write at a time');
+  h.ctx.placeFlush();
+  assert.deepEqual(h.read().A.slice(0, 2), [15.1, 'm2']);
+  h.S.cur = B; h.S.now = 3; h.S.sel = null;
+  h.ctx.placeNote();   // another stream: the pending one is written first, then this one waits
+  h.ctx.placeFlush();
+  assert.deepEqual(h.read().B.slice(0, 2), [3, '']);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.ctx.placeOf(A))), { t: 15.1, sel: 'm2' });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.ctx.placeOf({ ...A, duration: 10, marks: [{ id: 'm1' }] }))), { t: 10, sel: null }, 'a deleted mark is not selected; the position stays inside the stream');
+  store['ytt:studio.place'] = 'not json';
+  assert.equal(h.ctx.placeOf(A), null, 'a broken value is ignored');
+  const many = {};
+  for (let i = 0; i < 205; i++) many['v' + i] = [1, '', i];
+  store['ytt:studio.place'] = JSON.stringify(many);
+  h.S.cur = { id: 'new' }; h.S.now = 5; h.ctx.placeNote(); h.ctx.placeFlush();
+  const kept = h.read();
+  assert.equal(Object.keys(kept).length, 200, 'at most 200 streams');
+  assert.ok(kept.new && !kept.v0 && kept.v204, 'the oldest are dropped first');
+});
+
+test('opening a stream gives back the place (selected mark and the position the player is moved to)', async () => {
+  const h = harness(async () => ({ video: video('B', 3) }));
+  h.S.dirty = false;
+  const at = [];
+  h.context.setNow = t => at.push(t);
+  h.context.placeOf = v => (v.id === 'B' ? { t: 42.5, sel: 'm2' } : null);
+  assert.equal(await h.context.loadVideo('B'), true);
+  assert.equal(h.S.sel, 'm2');
+  assert.equal(h.S.fold.get('m2'), false, 'the selected mark is unfolded');
+  assert.equal(h.S.resumeAt, 42.5);
+  assert.deepEqual(at, [42.5], 'the shown position is the remembered one before the player is ready');
+  h.context.placeOf = () => null;
+  assert.equal(await h.context.loadVideo('B'), true);
+  assert.equal(h.S.sel, null); assert.equal(h.S.resumeAt, null);
+  const poll = between('function startPoll(', 'function stopPoll(');
+  assert.ok(poll.includes('S.resumeAt != null && S.playerState !== 1'), 'the poll does not put the position back to 0 while the player has not reached it');
+  assert.ok(between('async function mountPlayer(', '/* ライブの録画のプレーヤー').includes('start: Math.floor(S.resumeAt)'), 'YouTube starts at the place (seekTo would start playing)');
+  assert.ok(between('function seek(', 'function togglePlay(').includes('S.resumeAt = null'), 'moving by hand ends the wait');
+});
+
+test('export done notice has [編集で開く] with the same URL as the row link (S-7), opened the same way (S-15)', () => {
+  const shown = [], opened = [];
+  let app = false;
+  const ctx = load([['function editorHref(', 'async function copyText(']], {
+    enc: encodeURIComponent, toast: (m, ms, k) => shown.push({ m, ms, k }),
+    Studio: { token: 't', toolUrl: (id, p) => '/transcribe' + p, toast: (m, o) => shown.push({ m, o }) },
+    window: { UIKit: { win: { isApp: () => app, open: u => { opened.push(['win', u]); return Promise.resolve(); } } }, open: (u, t, f) => opened.push(['tab', u, t, f]) } });
+  assert.equal(ctx.editorHref('C:\\clips\\a b.mp4'), '/transcribe/?media=C%3A%5Cclips%5Ca%20b.mp4');
+  ctx.doneToast('書き出し完了: 1/1件', 'ok', ['C:\\clips\\a.mp4']);
+  const t1 = shown.at(-1);
+  assert.equal(t1.o.action.label, '編集で開く'); assert.equal(t1.o.ms, 8000); assert.equal(t1.o.kind, 'ok');
+  t1.o.action.fn();
+  assert.deepEqual(opened.at(-1), ['tab', '/transcribe/?media=C%3A%5Cclips%5Ca.mp4', '_blank', 'noopener'], 'a browser tab: a new tab, like the row link');
+  app = true;
+  t1.o.action.fn();
+  assert.deepEqual(opened.at(-1), ['win', '/transcribe/?media=C%3A%5Cclips%5Ca.mp4'], 'an app window: asks the home to open a window (UIKit.win)');
+  ctx.doneToast('書き出し完了: 2/3件(失敗あり)', 'err', ['', 'C:\\b.mp4', 'C:\\c.mp4']);
+  assert.equal(shown.at(-1).o.action.label, '1本目を編集で開く', 'several: the first one');
+  ctx.doneToast('書き出しを中止しました', '', []);
+  assert.deepEqual(shown.at(-1), { m: '書き出しを中止しました', ms: 0, k: '' }, 'nothing to open: the plain notice as before');
+  const row = between('function handoffHTML(', '/* 書き出した切り抜きを「編集」で開く URL');
+  assert.ok(row.includes('editorHref(path)') && row.includes('data-edit-open'), 'the row link uses the same URL and is opened by openEditor');
+  const fin = between('function pollJob(', 'async function startExport(');
+  assert.ok(fin.includes('doneToast(') && fin.includes('clipPathOf(j, i)'), 'the export job notice passes the written files');
+  assert.ok(between('function liveJobNotices(', 'function renderLiveJobs(').includes('doneToast('), 'the live export notice too');
+});
+
+test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used (S-15・S-25)', () => {
+  const rv = between('async function pollAuto(', 'let warnShown');
+  assert.ok(rv.includes('href="../#cases" data-ui-portal') && !rv.includes('target="_blank"'), '案件で見る');
+  const rk = sliceOf('rank.js', 'class="row rk-autogo"', '</div>');
+  assert.ok(rk.includes('data-ui-portal') && !rk.includes('_blank'), '案件の一覧');
+  const ctx = load([['function autoOffReason(', 'function renderAutoMenu(']], { Studio: { token: '' } });
+  assert.ok(ctx.autoOffReason({ kind: 'youtube' }).includes('ホーム(start.bat)から開いたときだけ'));
+  ctx.Studio.token = 't';
+  assert.equal(ctx.autoOffReason({ kind: 'youtube' }), '');
+  assert.ok(ctx.autoOffReason({ kind: 'live' }).includes('ライブの録画では使えません'));
+  assert.ok(!/\$\('#rvAuto'\)\.hidden = !Studio\.token/.test(source), 'no longer hidden only because the home is not used');
+  assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("setAttribute('aria-disabled', 'true')"), '① まとめて実行 too');
+});
+
+test('"export all" always tells why it cannot be pressed (S-25)', () => {
+  const nodes = {};
+  const S = { videos: [{ kind: 'youtube', adopted: 2 }, { kind: 'live', adopted: 5 }], live: false };
+  const ctx = load([['function renderExpMore(', 'function renderExportUI(']], {
+    S, $: sel => (nodes[sel] ||= {}), failedIds: () => new Set(), joinIds: () => [] });
+  const why = (...a) => { ctx.renderExpMore(...a); return [nodes['#rvExpAll'].disabled, nodes['#rvExpAll'].title]; };
+  assert.deepEqual(why(false, false, false), [false, '採用にしたマークがある全部の配信を、順番に書き出します(ライブの録画は除きます)']);
+  assert.ok(why(false, true, false)[1].includes('実行中'));
+  assert.ok(why(false, false, true)[1].includes('ffmpeg'));
+  assert.ok(why(true, false, false)[1].includes('ライブの録画を開いている間'));
+  S.live = true; assert.ok(why(false, false, false)[1].includes('配信中'));
+  S.live = false; S.videos = [{ kind: 'youtube', adopted: 0 }];
+  const [dis, t] = why(false, false, false);
+  assert.ok(dis && t.includes('採用にしたマークがある配信がありません'), t);
 });
 
 test('live export body: after / streamer follow the band (settings and the streamer field)', () => {

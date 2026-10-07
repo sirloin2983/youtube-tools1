@@ -15,6 +15,8 @@ v0.8.0(画面の全面見直し): ① 事務所を登録すると、触ってい
 どの表示でも「書き出し」への入口・狭い画面の移動・微調整のボタンが 28px 以上 / コラボ(設定の中): 配信の検索・絞り込み・枠の中でスクロール・メンバーの配信者名 / 入口へ戻るリンク
 v0.9.0(画面の全面見直し 段階4): ③ 書き出しの引き出し(1680px 以上は docked・それ未満は overlay) / 盛り上がりの山の順位と理由・押すと5秒前へ /
 書き出し後の自動で文字起こし(入口の中だけ) / 下のキーの帯(キーの帯) / ④ コラボはタブから設定(⚙)の節へ
+v0.22.0(気が利く画面へ 段 7〜8): ③ 前回の場所(配信ごとの再生位置と選んだマーク)/ 書き出し完了の知らせの [編集で開く] / 空の状態の次のボタン(② ③ コラボ)/
+「まとめて実行」を隠さず押せない理由(③ ①)・「全部の配信の採用を書き出す」の理由 / ホームへのリンクは data-ui-portal / 「書き出しのあと自動で文字起こし」はサーバーの設定(前のブラウザの値を 1 回引き継ぐ)
 """
 import json
 import os
@@ -404,6 +406,8 @@ def check_review_autorun(t):
         pg.click('#rvAuto [data-auto="transcribe"]')
         ok = wait_js(pg, "() => !document.querySelector('#rvAutoBar').hidden && /文字起こしまで/.test(document.querySelector('#rvAutoBar').textContent)", 10000)
         c.ok(ok, "③ 「まとめて実行」を始めると、同じ画面に進み具合の帯が出る: " + (pg.text_content("#rvAutoBar") or "")[:80])
+        c.ok(pg.get_attribute("#rvAutoBar a", "data-ui-portal") is not None and pg.get_attribute("#rvAutoBar a", "target") is None and pg.get_attribute("#rvAutoBar a", "href") == "../#cases",
+             "帯の「案件で見る」は、ホームが開いていれば前に出すリンク(data-ui-portal。新しいタブにしない。S-15)")
         req = urllib.request.Request("http://127.0.0.1:%d/api/autorun" % port, headers={"Host": "127.0.0.1:%d" % port})
         with urllib.request.urlopen(req, timeout=10) as r:
             runs = json.loads(r.read())["runs"]
@@ -428,7 +432,13 @@ def check_review_autorun(t):
             pg.click("#rvAutoBar [data-act=autocancel]")
         wait_js(pg, "() => /中止|失敗|済み|やることがありませんでした/.test(document.querySelector('#rvAutoBar .pill').textContent)", 20000)
     else:
-        c.ok(pg.is_hidden("#rvAuto"), "③ 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
+        sm = "#rvAuto > summary"
+        c.ok(pg.is_visible("#rvAuto") and pg.get_attribute(sm, "aria-disabled") == "true" and "ホーム(start.bat)から" in (pg.get_attribute(sm, "title") or ""),
+             "③ 単体で開いたときも「まとめて実行」は隠さず、押せない形にして理由を出す(S-25): %s" % pg.get_attribute(sm, "title"))
+        pg.click(sm)
+        c.ok(not pg.evaluate("document.querySelector('#rvAuto').open")
+             and wait_js(pg, "() => [...document.querySelectorAll('.ui-toast')].some(x => x.textContent.includes('ホーム(start.bat)から開いたときだけ'))", 3000),
+             "押しても開かず、押せない理由を知らせる")
         c.ok(pg.locator("#rvList [data-act=auto1]").count() == 0, "③ 単体で開いたときは「この後を ▸」も出さない")
 
 
@@ -514,6 +524,8 @@ def check_review_judge(t):
     for m in pg.eval_on_selector_all("#rvList .rv-mark-row.st-adopted", "els => els.map(e => e.dataset.id)"):
         pg.click('#rvList .rv-mark-row[data-id="%s"] [data-act="st"][data-st=""]' % m)
     c.ok(not pg.is_enabled("#rvExpRun"), "採用が無い(対象0件)とき「書き出す」は押せない")
+    c.ok(wait_js(pg, "() => { const b = document.querySelector('#rvExpAll'); return b.disabled && b.title.includes('採用にしたマークがある配信がありません'); }", 5000),
+         "「全部の配信の採用を書き出す」も押せず、押せない理由を title に出す(S-25): %s" % pg.get_attribute("#rvExpAll", "title"))
     c.ok("候補を「採用」にすると" in (pg.text_content("#rvExpCount") or ""), "書き出せないときは、どうすれば書き出せるかを出す")
     pg.click("#rvExpSet summary")   # 書き出しの設定は閉じてある(見出しの横に今の設定が出る)
     c.ok("採用のみ" in (pg.text_content("#rvExpSetSum") or ""), "閉じた「書き出しの設定」の横に今の設定を出す")
@@ -553,6 +565,17 @@ def check_review_keys(t):
     c.ok(pg.is_visible("#uiSettingsDrawer") and pg.is_visible("#setKey"), "設定の引き出しが開く")
     if MOUNT["token"]:
         c.ok(pg.is_checked("#setAutoTx"), "設定の「書き出し」節: 「書き出しのあと自動で文字起こし」は既定オン")
+        # 依頼書 §1: このスイッチはスタジオの設定(サーバーの review.autoTx)に保存する(以前はこのブラウザの localStorage)
+        def ui_auto_tx(want):
+            end = time.time() + 5
+            while time.time() < end and (serve.STORE.get_ui().get("review") or {}).get("autoTx") is not want:
+                pg.wait_for_timeout(100)
+            return (serve.STORE.get_ui().get("review") or {}).get("autoTx") is want
+        pg.uncheck("#setAutoTx")
+        c.ok(ui_auto_tx(False) and pg.evaluate("localStorage.getItem('ytt:studio.autoTx')") is None,
+             "「書き出しのあと自動で文字起こし」を切ると、スタジオの設定(サーバー)に保存する(このブラウザには書かない)")
+        pg.check("#setAutoTx")
+        c.ok(ui_auto_tx(True), "入れ直すとサーバーの値も戻る")
     else:
         c.ok(pg.locator("#setAutoTx").count() == 0, "単体で開いたときは、自動で文字起こしの設定を出さない(入口の仕組みが無いため)")
     pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")   # y キーの「次の候補へ」で再生中のことがある
@@ -595,6 +618,18 @@ def check_review_export(t):
     pg.click("#rvExpRun")
     pg.wait_for_selector("#rvExpList .rv-ejob.st-ok", timeout=60000)
     wait_js(pg, "() => !document.querySelector('#rvExpCancel') || document.querySelector('#rvExpCancel').hidden", 60000)
+    # S-7: 書き出しが済んだ知らせに [編集で開く]。押すと行のリンクと同じ URL を、同じ開き方(openEditor。ブラウザのタブなら新しいタブ)で開く
+    done_toast = "[...document.querySelectorAll('.ui-toast')].find(x => /書き出し完了/.test(x.textContent))"
+    c.ok(wait_js(pg, "() => { const x = %s; const b = x && x.querySelector('.ui-toast-act'); return !!b && b.textContent === '編集で開く'; }" % done_toast, 8000),
+         "書き出しが済んだ知らせに [編集で開く] がある(S-7)")
+    pg.evaluate("() => { window.__opened = []; window.__wopen = window.open; window.open = (u, t) => { window.__opened.push([new URL(String(u), location.href).href, t || '']); return null; }; }")
+    pg.evaluate("() => { const x = %s; if (x) x.querySelector('.ui-toast-act').click(); }" % done_toast)
+    pg.click("#rvExpList .rv-ejob.st-ok a[data-edit-open]")
+    opened = pg.evaluate("window.__opened")
+    row_href = pg.evaluate("new URL(document.querySelector('#rvExpList .rv-ejob.st-ok a[data-edit-open]').getAttribute('href'), location.href).href")
+    c.ok(len(opened) == 2 and opened[0] == [row_href, "_blank"] and opened[1] == opened[0],
+         "知らせの [編集で開く] と行の「編集で開く」は、同じ URL を同じ開き方(新しいタブ)で開く: %s" % opened)
+    pg.evaluate("() => { window.open = window.__wopen; }")
     if MOUNT["token"]:
         end = time.time() + 8
         while not sent_tx and time.time() < end:
@@ -678,6 +713,28 @@ def check_review_moment_join(t):
     c.ok(pg.evaluate("() => document.querySelector('#rvList .rv-mark-row[data-id=\"m1\"] .rv-tx').open"), "読み込み直してもセリフは開いたまま")
     if shots:
         pg.screenshot(path=os.path.join(shots, "cs_review_exported_dark.png"))
+
+
+def check_review_place(t):
+    """③ 前回の場所(S-8): 配信ごとに再生位置と選んだマークを覚え、開き直すと戻る(自動では再生しない)"""
+    c, pg, fx = t.c, t.pg, t.fx
+    print("[③ 前回の場所(S-8)]")
+    pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")
+    pg.click('#rvList .rv-mark-row[data-id="m1"] .rv-tc')
+    pg.fill("#rvNow", "0:21.5")
+    pg.press("#rvNow", "Enter")
+    c.ok(wait_js(pg, "() => { const p = JSON.parse(localStorage.getItem('ytt:studio.place') || '{}')['%s']; return !!p && Math.abs(p[0] - 21.5) < 0.3 && p[1] === 'm1'; }" % fx["a"], 6000),
+         "再生位置と選んだマークを、配信ごとにこのブラウザに覚える: %s" % pg.evaluate("localStorage.getItem('ytt:studio.place')"))
+    open_video(pg, fx["b"])
+    pg.wait_for_selector('#rvList .rv-mark-row[data-id="x1"]')
+    c.ok(pg.locator("#rvList .rv-mark-row.sel").count() == 0, "覚えていない配信は、今までどおり何も選ばずに開く")
+    open_video(pg, fx["a"])
+    pg.wait_for_selector('#rvList .rv-mark-row[data-id="m1"]')
+    c.ok(pg.evaluate("document.querySelector('#rvList .rv-mark-row.sel') && document.querySelector('#rvList .rv-mark-row.sel').dataset.id") == "m1",
+         "開き直すと、前に選んでいたマークが選ばれている")
+    c.ok(wait_js(pg, "() => { const v = document.querySelector('#rvHost video'); return !!v && v.readyState > 0 && Math.abs(v.currentTime - 21.5) < 0.6; }", 8000)
+         and pg.input_value("#rvNow").startswith("0:21"), "開き直すと、前の再生位置から(動画の位置と表示の両方): %s" % pg.input_value("#rvNow"))
+    c.ok(pg.evaluate("() => document.querySelector('#rvHost video').paused"), "位置を戻すだけで、自動では再生しない")
 
 
 def check_player_unavailable(t):
@@ -896,8 +953,14 @@ def check_rank_search(t):
         except urllib.error.HTTPError as e:
             st, msg = e.code, json.loads(e.read()).get("message", "")
         c.ok(st == 400 and "配信は" in msg, "入口の /api/autorun/start-new: 配信を選んでいなければ断る(%s %s)" % (st, msg))
+        c.ok(pg.get_attribute("#rkAuto .rk-autogo a", "data-ui-portal") is not None and pg.get_attribute("#rkAuto .rk-autogo a", "target") is None,
+             "① まとめて実行の「案件の一覧」は、ホームが開いていれば前に出すリンク(data-ui-portal。新しいタブにしない。S-15)")
     else:
-        c.ok(pg.is_hidden("#rkAuto"), "① 単体で開いたときは「まとめて実行」を出さない(入口の中だけ)")
+        sm = "#rkAuto > summary"
+        c.ok(pg.is_visible("#rkAuto") and pg.get_attribute(sm, "aria-disabled") == "true" and "ホーム(start.bat)から" in (pg.get_attribute(sm, "title") or ""),
+             "① 単体で開いたときも「まとめて実行」は隠さず、押せない形にして理由を出す(S-25)")
+        pg.click(sm)
+        c.ok(not pg.evaluate("document.querySelector('#rkAuto').open"), "① 押しても開かない(理由を知らせる)")
 
 
 def check_video_param(t):
@@ -918,11 +981,15 @@ def check_video_param(t):
 
 
 def check_queue(t):
-    """② 解析と ?url=・失敗の説明"""
+    """② 解析と ?url=・失敗の説明・空のキューの次の一手"""
     c, pg, port, base = t.c, t.pg, t.port, t.base
     print("[② 解析 と ?url=]")
     pg.goto(base + "?url=" + urllib.parse.quote("https://youtu.be/abcdefghijk"))
     pg.wait_for_selector("#qEntry")
+    c.ok(pg.locator('#qList .empty [data-act="gorank"]').count() == 1, "② 解析キューが空のときは、次に押すボタン「① 探すで配信を選ぶ」がある(S-13)")
+    pg.click('#qList [data-act="gorank"]')
+    c.ok(pg.is_visible("#paneRank"), "押すと ① 探す へ移る")
+    pg.evaluate("Studio.go('queue')")
     c.ok(pg.is_visible("#paneQueue") and pg.input_value("#qUrls") == "https://youtu.be/abcdefghijk" and pg.is_visible("#qParam"), "?url= は ② の URL 欄に入る")
     c.ok(len(api(port, "GET", "/api/queue")["items"]) == 0, "?url= だけでは解析を始めない")
     c.ok("?url=" not in pg.url, "受け取ったあと、アドレスから ?url= を消す(再読み込みで二重に入れない)")
@@ -1053,11 +1120,86 @@ def check_settings_failure(t):
     pg.unroute(spat)
 
 
+def check_empty_states(t):
+    """空の状態の次の一手(S-13): ③ 配信を開いていないとき・設定の「コラボ」(② の解析キューは check_queue)。別のページで、配信・グループの一覧を空に差し替えて確かめる"""
+    c, ctx, base = t.c, t.ctx, t.base
+    print("[空の状態の次の一手(S-13)]")
+    def fulfill(route, body):
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+    pg2 = ctx.new_page()
+    pg2.route(re.compile(r".*/api/videos$"), lambda route: fulfill(route, {"videos": []}))
+    pg2.route(re.compile(r".*/api/collab/groups$"), lambda route: fulfill(route, {"groups": []}))
+    pg2.goto(base)
+    wait_js(pg2, "() => window.Studio && Studio.ready")
+    pg2.evaluate("Studio.go('review')")
+    c.ok(wait_js(pg2, "() => !document.querySelector('#rvEmpty').hidden", 5000) and pg2.locator("#rvEmpty .cs-emptyacts .btn").count() == 3,
+         "③ 配信を開いていないとき: 「配信を選ぶ・開く」「① 探すで選ぶ」「② 解析へ」")
+    c.ok("primary" in (pg2.get_attribute("#rvEmptyQueue", "class") or "") and "primary" not in (pg2.get_attribute("#rvEmptyOpen", "class") or ""),
+         "配信がまだ無いときは「② 解析へ」が主なボタン")
+    pg2.click("#rvEmptyQueue")
+    c.ok(pg2.is_visible("#paneQueue") and pg2.evaluate("document.activeElement && document.activeElement.id") == "qUrls", "「② 解析へ」で ② へ移り、URL の欄にフォーカス")
+    pg2.evaluate("Studio.go('review')")
+    pg2.click("#rvEmptyRank")
+    c.ok(pg2.is_visible("#paneRank"), "「① 探すで選ぶ」で ① へ移る")
+    pg2.click("#btnSettings")
+    pg2.click("#setCollab summary")
+    c.ok(wait_js(pg2, "() => document.querySelectorAll('#clVideoList [data-cl-go=\"queue\"], #clGroupList [data-cl-go=\"queue\"]').length === 2", 5000),
+         "設定の「コラボ」: 配信もグループも無いときは、どちらの空の状態にも「② 解析へ」")
+    pg2.click('#clGroupList [data-cl-go="queue"]')
+    c.ok(not pg2.is_visible("#uiSettingsDrawer") and pg2.is_visible("#paneQueue") and pg2.evaluate("document.activeElement.id") == "qUrls",
+         "押すと設定を閉じて、② の URL の欄へ")
+    pg2.close()
+    pg3 = ctx.new_page()   # グループだけ無い(配信はある。グループに入っていない形に差し替える)
+
+    def free_videos(route):
+        r = route.fetch()
+        data = r.json()
+        for v in data.get("videos") or []:
+            v.pop("groupId", None)
+        fulfill(route, data)
+    pg3.route(re.compile(r".*/api/videos$"), free_videos)
+    pg3.route(re.compile(r".*/api/collab/groups$"), lambda route: fulfill(route, {"groups": []}))
+    pg3.goto(base)
+    wait_js(pg3, "() => window.Studio && Studio.ready")
+    pg3.click("#btnSettings")
+    pg3.click("#setCollab summary")
+    c.ok(wait_js(pg3, "() => !!document.querySelector('#clGroupList [data-cl-go=\"pick\"]')", 5000), "グループが無く、まとめられる配信が 2 本以上あれば「まとめる配信を選ぶ」")
+    pg3.click('#clGroupList [data-cl-go="pick"]')
+    c.ok(pg3.evaluate("() => { const a = document.activeElement; return !!a && a.matches('#clVideoList input[type=checkbox][data-vid]'); }"), "押すと配信の一覧の最初のチェックへ")
+    pg3.close()
+
+
+def check_autotx_migration(t):
+    """依頼書 §1: 「書き出しのあと自動で文字起こし」の前のこのブラウザの値(localStorage)は、サーバーに無いときだけ 1 回引き継ぐ"""
+    c, pg = t.c, t.pg
+    print("[書き出しのあと自動で文字起こし: このブラウザの値をサーバーへ]")
+    rv = dict(serve.STORE.get_ui().get("review") or {})
+    rv.pop("autoTx", None)
+    serve.STORE.set_ui_section("review", rv)
+    pg.evaluate("localStorage.setItem('ytt:studio.autoTx', '0')")
+    pg.reload()
+    pg.wait_for_selector("#btnSettings")
+    end = time.time() + 6
+    while time.time() < end and (serve.STORE.get_ui().get("review") or {}).get("autoTx") is not False:
+        pg.wait_for_timeout(100)
+    c.ok((serve.STORE.get_ui().get("review") or {}).get("autoTx") is False, "サーバーにまだ無いときは、このブラウザの「切」を 1 回だけサーバーへ送る")
+    if MOUNT["token"]:
+        pg.click("#btnSettings")
+        c.ok(not pg.is_checked("#setAutoTx"), "引き継いだ値がスイッチに出る")
+        pg.keyboard.press("Escape")
+    pg.evaluate("localStorage.setItem('ytt:studio.autoTx', '1')")
+    pg.reload()
+    pg.wait_for_selector("#btnSettings")
+    pg.wait_for_timeout(1200)
+    c.ok((serve.STORE.get_ui().get("review") or {}).get("autoTx") is False, "サーバーに入ったあとは、このブラウザの古い値で上書きしない")
+    pg.evaluate("localStorage.removeItem('ytt:studio.autoTx')")
+
+
 SCENES = [check_header, check_theme, check_review_pick, check_review_timebox, check_review_drawer, check_review_autorun,
-          check_review_graph, check_review_judge, check_review_keys, check_review_export, check_review_moment_join,
+          check_review_graph, check_review_judge, check_review_keys, check_review_export, check_review_moment_join, check_review_place,
           check_player_unavailable, check_yt_not_ready, check_untrusted_text, check_collab, check_rank_agencies,
           check_rank_period, check_rank_search, check_video_param, check_queue, check_narrow_contrast,
-          check_settings_failure]
+          check_settings_failure, check_empty_states, check_autotx_migration]
 
 
 def counts_as_error(m):

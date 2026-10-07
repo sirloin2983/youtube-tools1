@@ -243,6 +243,8 @@ main{display:block}
 .cl-vlist{display:flex;flex-direction:column;gap:0;max-height:min(460px,calc(100dvh - 300px));min-height:120px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);overscroll-behavior:contain}
 .cl-vlist>*{flex:none}   /* 枠の高さが足りないときに、まとまりが縮んで中身が重ならないように */
 .cl-vlist>.empty{border:0;background:none;padding:18px 10px}
+/* 空の状態の次の一手のボタン(S-13。② の解析キュー・コラボ・③ の配信が開かれていないとき) */
+.cs-emptyacts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
 .cl-vg{margin:0 0 6px}
 .cl-vg:last-child{margin-bottom:0}
 .cl-vg-body{display:flex;flex-direction:column;gap:4px;padding:6px}

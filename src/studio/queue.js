@@ -65,7 +65,9 @@ function paneHtml(){
   </section>
   </div>`;
 }
-const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありません</b>URL かファイルのパスを入れて「解析に追加」を押すか、① 探す で選ぶと、ここに並んで順番に解析します。</div>';
+/* 空の状態は 2 文 + 次に押すボタン 1 つ(S-13)。URL の欄はすぐ左にあるので、ボタンは ① 探す へ */
+const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありません</b>URL かファイルのパスを入れて「解析に追加」を押すか、① 探す で選ぶと、ここに並んで順番に解析します。' +
+  '<div class="cs-emptyacts"><button type="button" class="btn small" data-act="gorank">① 探すで配信を選ぶ</button></div></div>';
 
 /* ---------- 設定 ---------- */
 function settings(){
@@ -336,6 +338,7 @@ async function tick(){
 }
 async function listClick(e){
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  if (b.dataset.act === 'gorank'){ S.go('rank'); return; }   // 空の状態の次の一手(S-13)
   const act = b.dataset.act, qid = b.closest('.q-item').dataset.qid;
   if (act === 'review'){ if (S.review && S.review.open) S.review.open(b.dataset.vid); else S.toast('確認画面がまだ読み込まれていません', 0, 'err'); return; }
   b.disabled = true;

@@ -173,7 +173,7 @@ function paneHtml(){
             <input id="rkAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
           <div class="rk-autopanel"></div>
           <p class="hint rk-automix" id="rkAutoMix" hidden>選んだ配信の配信者が違います。名前を入れると、全部の配信でその人の色になります。</p>
-          <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../#cases" target="_blank" rel="noopener">案件の一覧</a></div>
+          <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件の一覧</a></div>
         </div></details></span></div></div>
   <div id="results"><div class="empty"><b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます</div></div>`;
 }
@@ -646,7 +646,13 @@ S.onReady(async () => {
   $('#rkOpenReg').addEventListener('click', () => S.openSettings('setReg'));
   $('#pickClear').addEventListener('click', () => { R.picked.clear(); paintPick(); });
   $('#pickGo').addEventListener('click', () => enqueue([...R.picked.values()]));
-  $('#rkAuto').hidden = !S.token;   // まとめて実行は入口から開いたときだけ(ほかの入口と同じ)
+  /* まとめて実行は入口から開いたときだけ(ほかの入口と同じ)。開いていないときも隠さず、押せない理由を出す(S-25。③ の「まとめて実行」と同じ形) */
+  $('#rkAuto').hidden = false;
+  if (!S.token){
+    const sm = $('#rkAuto > summary'), why = 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます';
+    sm.setAttribute('aria-disabled', 'true'); sm.title = why;
+    sm.addEventListener('click', e => { e.preventDefault(); S.toast(why, 5000, 'info'); });
+  }
   $('#rkAutoGo').addEventListener('click', startAuto);
   if (S.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   if (S.token && window.UIKit && UIKit.autorun){   // まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4。以前は毎回 3 に戻っていた)
