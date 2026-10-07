@@ -688,6 +688,8 @@ def _scene_rowedge_draft_length(cx):
     pg.click("#btnOpenVideo")
     wait_js(pg, "document.querySelector('#docTitle').value === '文字起こしなし' && document.querySelectorAll('#tlVideo .tt-k').length === 1", 20000)
     check("動画全体の下書き" in pg.inner_text("#cutStatus"), "文字起こしの無い動画は、動画全体を残す下書き")
+    check(wait_js(pg, "!!document.querySelector('#cutSubs .tt-csub-totx')", 5000) and "文字起こしする" in pg.inner_text("#cutSubs .tt-csub-totx"),
+          "字幕の無い文書の字幕の段に次のボタン「1 文字起こし のタブで文字起こしする」(段7 E-14): " + pg.inner_text("#cutSubs"))
     pg.click("#cutDraftSilence summary")
     pg.fill("#cutSilMin", "0.5")
     pg.click("#cutDraftSilenceGo")
@@ -696,6 +698,8 @@ def _scene_rowedge_draft_length(cx):
     nums = [[int(m[0]) * 60 + float(m[1]) for m in re.findall(r"(\d+):(\d+\.\d+)", t)[:2]] for t in titles]
     check(len(nums) == 2 and 0.6 < nums[0][0] < 1.0 and 3.0 < nums[0][1] < 3.4 and 4.6 < nums[1][0] < 5.0 and 8.0 < nums[1][1] < 8.4,
           "無音のたたき台(cut2resolve の api/plan): 音の鳴っている所(1〜3秒・5〜8秒)だけ残る: %s" % nums)
+    check(srv.get("/api/settings").get("cutSilence") == {"noise": -35, "min": 0.5, "pad": 0.15},
+          "段7 E-5: 無音の値を設定 cutSilence に覚える(まとめて実行の「無音で削る」も同じ値): %s" % srv.get("/api/settings").get("cutSilence"))
 
     # ---- 動画の長さが変わった(同じパスの動画を書き出し直した): 後ろの区間は切って知らせる
     v4 = make_video(os.path.join(srv.media, "縮む動画.webm"), sec=6, fps=FPS)
@@ -716,6 +720,16 @@ def _scene_rowedge_draft_length(cx):
         time.sleep(0.2)
     c4 = [(c["in"], c["out"]) for c in e4["edit"]["clips"]]
     check(e4["rev"] >= 2 and c4[0] == (0.5, 2.0) and c4[-1][1] <= 4.01, "動画が短くなったら、後ろの区間を切って知らせ、保存し直す: %s" % c4)
+    # ---- 段7 E-5: 読み込み直しても、覚えた無音の値が「無音 ▾」に入る。範囲の外は知らせて覚えた値に戻す(保存しない)
+    pg.click("#cutDraftSilence summary")
+    check(wait_js(pg, "document.querySelector('#cutSilMin').value === '0.5' && document.querySelector('#cutNoise').value === '-35'", 3000),
+          "読み込み直しても、覚えた無音の値が入る: %s" % pg.input_value("#cutSilMin"))
+    pg.fill("#cutNoise", "5")
+    pg.press("#cutNoise", "Tab")
+    check(wait_js(pg, "document.querySelector('#cutNoise').value === '-35' && document.querySelector('#toast').textContent.includes('-90〜0')", 5000),
+          "範囲の外(5 dB)は知らせて、覚えた値に戻す")
+    check(srv.get("/api/settings").get("cutSilence", {}).get("noise") == -35, "範囲の外は保存しない")
+    pg.click("#cutDraftSilence summary")
 
 
 def _scene_load_fail_missing(cx):

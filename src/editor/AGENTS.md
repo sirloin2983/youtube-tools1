@@ -1,6 +1,6 @@
 # editor(「編集」= 文字起こし・カット・パック。2026-09-30 まで transcribe-tool)— AI 向けメモ(Claude・GPT 共通)
 
-現在 **v0.58.2**(2026-10-07、「認識の設定」の `#optAutoContext` だけ変えても保存されなかった不具合を直した = 設定のチェックの change の配線を `app-core.js` の表 `SET_CHECKS` から作る(`app.js`)。長い e2e 5 本を場面ごとの関数に分けた = 下の「テストの実行」)。v0.58.1 は(2026-10-07、画面側(app*.js・cut.js・pack-tab.js・index.html の CSS)の内部の整理。見た目・操作・API の呼び方は同じ = 下の「構成」の「画面の共通の小道具」)。v0.58.0 は(2026-10-07、話者判別のしきい値の既定 0.5 → 0.6。ed_speakers の DIAR_CLUSTER_THRESHOLD)。
+現在 **v0.59.0**(2026-10-07、気が利く画面へ 段7〜8 の「編集」の分 = 下の「覚える値・次の一手(v0.59.0)」)。v0.58.3 は(2026-10-07、応答の見出しを書く処理を `ytt_core.httpsec.send` に 1 つ・版の帯の「起動し直す」に入口の notice)。v0.58.2 は(2026-10-07、「認識の設定」の `#optAutoContext` だけ変えても保存されなかった不具合を直した = 設定のチェックの change の配線を `app-core.js` の表 `SET_CHECKS` から作る(`app.js`)。長い e2e 5 本を場面ごとの関数に分けた = 下の「テストの実行」)。v0.58.1 は(2026-10-07、画面側(app*.js・cut.js・pack-tab.js・index.html の CSS)の内部の整理。見た目・操作・API の呼び方は同じ = 下の「構成」の「画面の共通の小道具」)。v0.58.0 は(2026-10-07、話者判別のしきい値の既定 0.5 → 0.6。ed_speakers の DIAR_CLUSTER_THRESHOLD)。
 v0.57.2 は(2026-10-07、サーバー側(serve.py・ed_*.py・resolve_export.py など)の内部の整理。API・文書の形・設定・文字起こしの結果は同じ = 下の「構成」の「共通の小道具」)。v0.57.1 は(2026-10-07、行の時刻の原則 `../../docs/spec/row-timing-policy.md`(① 言葉が区間に収まる > ② 前後の言葉を入れない > ③ 無音を除く)に沿った後処理 = 下の「行の時刻の原則に沿った後処理」。
 END_TRIM の既定を 0・続いている行をつなぐ `join_rows`・配り直しの重なりで言葉を切らない・`recognition.runs[].post`。`../../plan/line-b-row-timing.md` の 7)。
 v0.57.0 は(2026-10-07、whisper.cpp の 1 秒単位に丸まった行の時刻を faster-whisper(CPU)の単語の時刻で配り直す = 下の「1 秒丸めの行の時刻の配り直し」。`../../plan/line-b-row-timing.md`)。v0.56.1 は(2026-10-06、行の BGM のメモのボタンの title に付ける基準 = app.js の `TAG_RULE`。基準の正本は `../../docs/spec/sound-tags.md`。
@@ -338,6 +338,29 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 - **時刻を言葉に合わせる**(`ed_retime.retime_candidates`・`POST /api/retime {id, rows}` = 読むだけ・words.json が無ければ `reasonCode: "no_words"`): 行の今の時刻 ±`RETIME_PAD` 1.5 秒の単語を `ed_alt.alt_fold` で寄せ、行の文字を当てる。
   出す条件 = 当たった割合 `MIN_MATCH` 0.6 以上・端の字が単語に当たった端だけ・差 0.1 秒以上・長さ 0.3 秒以上・同じ話者の行と重ならない所まで詰める。**END_TRIM はかけない**(かけると人の時刻から離れた)。エンジンで端を外す `RETIME_END_SKIP`(今は空。faster-whisper は未測定)。
   画面: 選んだ行の「時刻を言葉に合わせる」(`rt*`。候補を見せて 1 押し・元に戻す 1 回)・「まとめて ▾」の `#rtSelected`(校正済みは外す)。**自動では動かさない**。テスト `tests/test_retime.py`・`e2e_row_editing.py` の 17-3
+
+## 覚える値・次の一手(v0.59.0。2026-10-07。気が利く画面へ 段7〜8。`../../plan/ux-stage7-9.md`・`../../docs/design/briefs/ux-consistency/`)
+- **設定の鍵(編集の設定 config.json)**: `cutSilence` = `{noise, min, pad}`(2 カット の「無音 ▾」。`SETTINGS_PATCH_KEYS` = `/api/settings/patch` だけで直す・3 つそろい、範囲は cut2resolve と同じ `ed_learn.CUT_SILENCE_RANGE`。
+  画面は `cut.js` の `SIL_FIELDS`・`silSetting`・`fillSil`(「無音 ▾」を開いたとき)・`saveSil`(欄を変えたとき・たたき台を作るとき。範囲の外は知らせて戻す)。入口の `home/autorun.py` の `_pack_settings` が「無音で削る」に同じ鍵を読む)。
+  `diarNum`(全体)= 話者のいない文書を開いたときの話者判別の人数の初めの値(最後に選んだ人数)。書くのは `diarNumChanged` だけ(`readOpts` は書かない = 開いている文書の人数を全体に写さない)
+- **文書の鍵** `diarNum`(0〜8。0 = 自動)= 文書ごとの話者判別の人数。`POST /api/doc-diarnum`(`ed_store.set_diar_num`。**updatedAt を変えない** = 人数を選んだだけで保存の競合 409・パックの「作り直しが要る」を起こさない。画面の保存 PUT は送らない = 前の値が残る)。
+  画面は `app-jobs.js` の `diarNumFor(d)`(文書の値 → その文書の話者の数(組み込みの「ゲーム音声など」を除く)→ 全体の既定)・`fillDiarNum`(openDoc・applySettings。理由は `#diarNumWhy`)
+- **このブラウザの鍵** `tx.last.v1` = `{id, tab}`(前回の文書とタブ。`app-list.js` の `rememberLast` = 文書を開いた・タブを移った、`renderResume` = 空の状態 `#noDocResume` の「前回の続き: ○○ の 2 カット」(loadList・closeDoc)。自動では開かない。
+  サーバーの設定にしないのは、窓ごとの道すじの便利(表示の好み V と同じ)で、タブを移るたびに config.json を書かないため。再読み込みは今までどおり URL の ?doc= と #タブ)
+- **次の一手**: 文字起こし完了(別の文書を開いている間)の知らせに [開く](1 本)/[履歴を見る](`pollJobs`)・校正で未校正が 0 になったら [2 カットへ](`app-rows.js` の `proofNext(before)` = 行の「校正済み」・`proofOk`・「選んだ行を校正済みに」)・
+  最後の行で未校正が残れば「まだ未校正の行が N 行あります」[最初の未校正へ](`unproofedCount`・`gotoFirstUnproofed`)・パック完了の知らせに [フォルダを開く] と `#pkOpen` へのフォーカス(`pack-tab.js` の `P.focusOpen`・`openFolder`)。
+  パック完了の知らせには cut2resolve の `warningLevels` が `info` の案内を積まず、`P.notes` →「前回のパック」の `#pkLastNotes`(warn は今までどおり知らせに 2 件まで)
+- **押せる次の一手**: 履歴の行の「パックを作る」「作り直す」は `button.tt-txi-next[data-act=gotab][data-tab=pack]`(`#txList` のクリックで開いてそのタブへ)。行 0 の文書は `#btnTxAgain`(`data-act=txagain`)・
+  2 カット の字幕の無い文書は `#cutSubs .tt-csub-totx`(`h.toTx` = `app-tools.js` の `goTxInto`: 1 文字起こし の `#btnTxInto` / `#btnTxAgain` へフォーカス)。文書へ入れる文字起こしは `app-jobs.js` の `transcribeInto(btn)` の 1 か所
+- **二度目の文字起こし**(`app-jobs.js` の `askTxAgain`): 動画全体(範囲なし)で `/api/doc-for` が行のある文書を返したら `UIKit.dialog.confirm` [開く](主・Enter)[作り直す]。
+  confirm は Esc もキャンセルと同じ false を返すので、開いた `dialog.ui-dialog` の `cancel` イベント(Esc)を見て「やめる」にする(ui-kit に 3 択の確認ができたら置き換える)
+- **パックの作り直し**(`pack-tab.js`): 409 exists の `dir` が前回のパック `P.pack.dir` と同じ(`sameDir`。大文字小文字・区切りをそろえる)なら確認なしで force。ボタンは前回のパックがあり出力先が空欄なら「パックを作り直す(上書き)」。
+  作り直しの理由は `staleWhy()`(カットが変わった = rev・保存前の変更 / 字幕が変わった = docUpdatedAt)+ 設定の違い(`outputDiff`)→ `#pkLastWhen`
+- **ホームから開いていないとき**(TOKEN なし): `#txBatchBox`・`#docAuto` は隠さず `applyNeedHome`(`#txPick` を disabled・`#txBatchOff` の理由・`#docAuto > summary` に aria-disabled と title・押すと理由を知らせて開かない)
+- **画面の赤い帯** `showErr(msg, {plain})`(`app-core.js`): 決まった文 + 原文は「詳しく」・[読み込み直す]・[ホームへ](合言葉のあるときだけ。`../` の data-ui-portal)・×。版の違いの帯(`UIKit.restart` の `.ui-restart-msg`)が出ている間は上書きしない。
+  まだ文書の無い動画の「文字起こしをする / 文字起こしせずに開く」は `#mcTx` にフォーカス(`showMediaChoice`)
+- テスト: `e2e_edit_tabs` の `_scene_next_steps`・`_scene_remember`、`e2e_edit_cut`(無音の値)、`e2e_edit_pack`(フォーカス・[フォルダを開く]・info の案内・確認なしの作り直し)、`e2e_ui_mounted`(前回の続き・確認なしの作り直しと別の場所の確認・理由・履歴のボタン・二度目の文字起こし・`#mcTx`)、
+  `test_edit.py` の `test_settings_patch_cut_silence`・`test_doc_diar_num`
 
 ## 構成
 - **段10(2026-10-01)で serve.py を役割ごとの部品に分けた**(`git の履歴の docs/plan/phase10-code-split.md`。動きは同じ): `ed_state.py`(置き場所・設定の値・共通の小道具・記録・作業データの切り替え)・

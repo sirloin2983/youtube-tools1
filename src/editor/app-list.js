@@ -10,8 +10,29 @@
 
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); renderMissing(); scheduleProgress(); if (S.doc){ renderCutPack(); renderDocBar(); }
+  renderList(); renderMissing(); scheduleProgress(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
 }
+
+/* ---------- 前回の続き(段7 E-7) ----------
+   前に開いていた文書とタブをこのブラウザに覚え(localStorage tx.last.v1 = {id, tab})、文書を開いていない空の状態に「前回の続き: ○○」を出す(自動では開かない)。
+   サーバーの設定にしないのは、窓ごとの道すじの便利(表示の好み V と同じ扱い)で、タブを移るたびに設定のファイルを書き換えないため。
+   再読み込み・窓で開き直したときは、今までどおり URL の ?doc= と #タブ で同じ所に戻る */
+const LAST_KEY = 'tx.last.v1';
+const TAB_NAME = { tx: '1 文字起こし', cut: '2 カット', pack: '3 パック' };
+function lastOpened(){
+  try { const o = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); return o && typeof o.id === 'string' && /^[\w-]{1,64}$/.test(o.id) ? { id: o.id, tab: ED_TABS.includes(o.tab) ? o.tab : 'tx' } : null; }
+  catch { return null; }
+}
+function rememberLast(){ if (S.docId){ try { localStorage.setItem(LAST_KEY, JSON.stringify({ id: S.docId, tab: EDT.tab })); } catch {} } }
+function renderResume(){
+  const box = $('#noDocResume'); if (!box) return;
+  const last = S.doc ? null : lastOpened(), it = last && S.list.find(x => x.id === last.id);   // 消した文書は出さない
+  box.hidden = !it; if (!it) return;
+  $('#noDocResumeT').textContent = `「${it.title || '無題'}」の ${TAB_NAME[last.tab]}`;
+  $('#noDocResumeBtn').title = String(it.title || '無題');
+  $('#noDocResumeSub').textContent = [it.channel, '最終更新 ' + ago(Number(it.updatedAt) || 0)].filter(Boolean).join(' ・ ');
+}
+async function resumeLast(){ const last = lastOpened(); if (last && (await openDoc(last.id))) setEditTab(last.tab, { focus: true }); }
 
 function txGroupKey(i){
   if (L.group === 'channel') return 'c:' + (i.channel || '');
@@ -78,10 +99,12 @@ function txRowHTML(i){
   if (i.mediaOk === false) side.push(`<span class="pill warn" title="元の動画が見つかりません(移動・削除した可能性があります)。文字の直しと書き出しはできます">動画なし</span>`);
   if (st === 'todo') side.push(`<span class="pill wait" title="まだ1行も校正していません(${r}行)">未校正</span>`);
   else if (st === 'doing') side.push(`<span class="tt-prog" title="校正済み ${p}行 / ${r}行"><i><b style="width:${Math.round(p / Math.max(1, r) * 100)}%"></b></i>${p}/${r}</span>`);
+  /* 次の一手は押せるボタン(札は押せない表示だけ。段7 E-13): 開いて 3 パック のタブへ */
+  const next = (label, why) => `<button type="button" class="btn small tt-txi-next" data-act="gotab" data-tab="pack" title="${why}。押すと開いて 3 パック のタブへ移ります">${label}</button>`;
   if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
-    ? '<span class="ui-next" title="パックを作ったあとに、行を直しています">作り直す</span>'
+    ? next('作り直す', 'パックを作ったあとに、行を直しています')
     : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);
-  else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? '<span class="ui-next" title="校正が終わりました。開いて 3 パック のタブで作ります">パックを作る</span>' : '<span class="pill ok">校正済み</span>');
+  else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? next('パックを作る', '校正が終わりました') : '<span class="pill ok">校正済み</span>');
   const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
   const hid = txIsHidden(i);
   if (hid) side.push('<span class="ui-hidden-tag">非表示</span>');
@@ -103,6 +126,14 @@ async function portalApi(path, body){
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw httpError(r, j);
   return j;
+}
+
+/* ホームから開いていない(合言葉なし)ときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由を出す(以前は丸ごと隠していて、機能があること自体が分からなかった) */
+const NEED_HOME = 'ホーム(start.bat)から開くと使えます(まとめて実行はホームの順番待ちで進みます)';
+function applyNeedHome(){
+  if (TOKEN) return;
+  const pick = $('#txPick'); pick.disabled = true; pick.closest('label').title = NEED_HOME; $('#txBatchOff').hidden = false;
+  const sum = $('#docAuto > summary'); sum.setAttribute('aria-disabled', 'true'); sum.title = NEED_HOME; $('#docAuto').classList.add('tt-off');
 }
 
 function renderPickBar(){

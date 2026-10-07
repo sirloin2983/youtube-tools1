@@ -2085,3 +2085,31 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - ui-kit に要るもの(触っていない): なし(必須ではない)。あると良いもの: スタジオの `?step=rank`(空の表示の「スタジオで配信を探す」で ① を確実に開く。今は前回開いていた段)
 - 注意: e2e_portal の (A) の中ほどに、読み込み直しの途中の要求で `ConnectionAbortedError` のトレースバックが出ることがある(サーバーの記録だけ。前から。テストは OK)
 - 未コミット: なし(このコミット。編集・スタジオの担当の未コミットの変更は含めていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 段 7〜8 editor 0.59.0 覚える値・次の一手・小さな直し(`plan/ux-stage7-9.md` の 1・2 の editor の行)
+- 変更(`src/editor/` だけ。ui-kit の写しは触っていない):
+  - E-5 無音の値: 設定 `cutSilence` = `{noise, min, pad}` を `ed_learn.SETTINGS_PATCH_KEYS` に(3 つそろい・範囲は cut2resolve と同じ `CUT_SILENCE_RANGE`)。`cut.js` の `SIL_FIELDS`・`silSetting`・`fillSil`・`saveSil`(「無音 ▾」を開いたら入れる・変えたら / たたき台を作るとき覚える・範囲の外は知らせて戻す)。`home/autorun.py` は前から同じ鍵を読む
+  - E-6 話者の人数を文書ごと: 文書の `diarNum`(0〜8)を新しい `POST /api/doc-diarnum`(`ed_store.set_diar_num`。文書の updatedAt を変えない)で覚える。画面は `app-jobs.js` の `diarNumFor`(文書 → 話者の数 → 全体の既定)・`fillDiarNum`・`diarNumChanged`・理由 `#diarNumWhy`。全体の設定 `diarNum` は「最後に選んだ人数」= 話者のいない文書の既定(`readOpts` は書かない)
+  - E-7 前回の文書とタブ: localStorage `tx.last.v1`(`app-list.js` の `rememberLast`・`renderResume`・`resumeLast`)。空の状態 `#noDocResume` に「前回の続き: 「題」の 2 カット」
+  - 次の一手: 文字起こし完了(別の文書を開いている間)の知らせに [開く] / [履歴を見る](`pollJobs`)・未校正が 0 になったら [2 カットへ](`app-rows.js` の `proofNext`・`unproofedCount`。行の「校正済み」・proofOk・選んだ行)・最後の行で残りがあれば「まだ未校正の行が N 行あります」[最初の未校正へ](`gotoFirstUnproofed`)・パック完了の知らせに [フォルダを開く] と `#pkOpen` へのフォーカス(`pack-tab.js` の `openFolder`・`P.focusOpen`)。同時に、cut2resolve の `warningLevels` が info の案内は知らせに積まず「前回のパック」の `#pkLastNotes` に(`P.notes`。知らせの文は「案内 N 件は「前回のパック」の欄に」)
+  - E-13 履歴の「パックを作る」「作り直す」を `button.tt-txi-next[data-act=gotab]`(開いて 3 パック のタブへ。見た目は札とほぼ同じ高さ・押せる範囲は ::before で 28px)
+  - E-9・E-14 空の状態: `.tt-steps b{display:inline}`・文字が認識されなかった文書に `#btnTxAgain`「もう一度文字起こしする」(`#btnTxInto` と同じ流れを `transcribeInto(btn)` の 1 か所に)・2 カット の字幕なしに `.tt-csub-totx`(`h.toTx` = `goTxInto`: 1 文字起こし の「文字起こしする」へフォーカス)
+  - E-3 二度目の文字起こし: `startFile` の前に `askTxAgain`(`/api/doc-for` → 行のある文書なら `UIKit.dialog.confirm` [開く](主・Enter)[作り直す]・Esc はやめる)
+  - E-15・E-20 パックの作り直し: 409 exists の dir が前回のパック `P.pack.dir` と同じなら確認なしで force(`sameDir`)・ボタン「パックを作り直す(上書き)」・`staleWhy()` = カットが変わった / 字幕が変わった + 設定が変わった を `#pkLastWhen` に
+  - E-17 TOKEN なし: `#txBatchBox`・`#docAuto` を隠さず `applyNeedHome`(disabled・aria-disabled・title と `#txBatchOff` に理由・押すと知らせて開かない)
+  - 段8 E-26 `showErr(msg, {plain})`: 決まった文 + 原文は「詳しく」・[読み込み直す]・[ホームへ](合言葉ありのとき)・×。版の違いの帯(UIKit.restart)は上書きしない。E-27 `showMediaChoice` で `#mcTx` にフォーカス
+  - テスト: `test_edit.py` に `test_settings_patch_cut_silence`・`test_doc_diar_num`、`test_document_save.cjs` の stub に 2 つ、`e2e_edit_tabs` に場面 `_scene_next_steps`・`_scene_remember`(と字幕なしのボタン)、`e2e_edit_cut` に無音の値と字幕なしのボタン、`e2e_edit_pack` に [フォルダを開く]・フォーカス・info の案内・確認なしの作り直し(上書きの確認の待ちを外した・409 の除き方を作り終えたあとに・「中止」の前に作り始めを待つ)、`e2e_ui_mounted` に `#mcTx`・前回の続き・同じ場所の作り直しと別の場所の上書きの確認・作り直しの理由・履歴のボタン・二度目の文字起こし
+  - `README.txt`(見出しと v0.59.0 の項目ごとの 1 行・パックの作り直しの説明)・`AGENTS.md`(現在の版・新しい節「覚える値・次の一手(v0.59.0)」= 足した鍵 cutSilence・文書の diarNum・tx.last.v1)
+- 版: 編集 0.58.3 → 0.59.0(serve.py・app.js・README の見出し)
+- 決定・理由(仮で決めたこと):
+  - 文書の diarNum は文書の保存(PUT)ではなく別の API で、updatedAt を変えない(人数を選んだだけで保存の競合 409・パックの「作り直しが要る(字幕が変わった)」を起こさないため。校正の手間 /api/effort と同じ形)。全体の diarNum は選んだときだけ「最後に選んだ人数」に
+  - 前回の文書とタブはサーバーの設定ではなく localStorage(窓ごとの道すじの便利 = 表示の好みと同じ扱い・タブを移るたびに config.json を書かない)。ボタンだけで自動では開かない
+  - 二度目の文字起こしは、範囲を指定しないとき・行のある文書があるときだけ聞く(範囲は別の文書・行 0 の文書は「この動画を文字起こしする」が別にある)。主ボタンは「開く」(Enter も)。UIKit.dialog.confirm は Esc もキャンセルと同じ false なので、開いた dialog の cancel イベントを見て Esc は「やめる」にした
+  - パックの作り直しの確認は、クライアントで出力先を推し量らず、409 の応答の dir(cut2resolve が決めた本当の場所)と前回のパックの dir を比べて省く
+  - カットの字幕なしのボタンは文字起こしをその場で始めず 1 文字起こし のタブへ移す(認識の設定がそちらのメニューにあるため)
+  - 「全行を校正済みに」の知らせは今までどおり [元に戻す](知らせのボタンは 1 つ)。[2 カットへ] は 1 行ずつの校正・選んだ行の校正で 0 になったとき
+  - info の案内は保存しない(作ったその場の「前回のパック」の欄だけ。開き直すと消える)
+- ui-kit に要るもの(今回は作っていない): ① 3 択の確認(例 `UIKit.dialog.choose` か、confirm が Esc を別の値で返す)— 今は editor の `askTxAgain` が dialog の cancel を直接見ている ② 一覧の行の中の「次の一手」のボタンの形(`.ui-next` のボタン版。今は editor の `.tt-txi-next`。ホームの S-18 と合わせる)③ 知らせ(右下)が重なると下の操作(パックの「中止」など)を隠す。重なる数か位置の見直し
+- テスト(1 本ずつ・PYTHONIOENCODING=utf-8): `dev/run_editor_suite.py` 全部 exit 0 — editor 単体 554 件 OK(skip 1)・home test_mount 26・契約テスト 35・eval_asr 54・eval_alt 21・ui-kit の写し 5・node 保存と切り替え 10/10・e2e_proofread_accuracy 38・e2e_proofread_keys 129・e2e_folder_marker_range 54・e2e_eval_set 36・e2e_row_editing 237・e2e_ui_handoff 67・e2e_edit_tabs 156・e2e_edit_cut 115・e2e_edit_voices 34・**e2e_edit_pack 118(通るようになった)**・e2e_ui_mounted 55・e2e_drill 70・e2e_alt 43・e2e_follow_scroll 7・e2e_pipeline 24 / `py -3.10 dev/lint.py` 全体 0 件 / 明・暗の 1440px で空の状態・赤い帯・行 0 の文書・カットの字幕なし・履歴のボタンを撮って確かめた(scratchpad)
+- 注意: `plan/data.js`・`plan/ux-stage7-9.md` の判定は直していない(触ってよい範囲の外。まとめ役が直す)。起動中の入口は古いコードのまま(「すべて終了」→ start.bat)
+- 未コミット: なし(このコミット。home の担当の未コミットの変更は含めていない)

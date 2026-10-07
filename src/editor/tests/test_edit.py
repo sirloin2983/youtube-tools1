@@ -85,6 +85,22 @@ class TestEditStore(StoreDir):
                     S.sanitize_edit(b)
                 self.assertEqual(cm.exception.code, "bad_edit")
 
+    def test_doc_diar_num(self):
+        """文書ごとの話者判別の人数 diarNum(段7 E-6。POST /api/doc-diarnum): 0〜8 の整数だけ・文書の updatedAt は変えない・画面の保存(PUT)では残る"""
+        at = self.doc()["updatedAt"]
+        self.assertEqual(S.set_diar_num({"id": TID, "diarNum": 3}), {"diarNum": 3})
+        d = self.doc()
+        self.assertEqual((d["diarNum"], d["updatedAt"]), (3, at))                                   # 人数を選んだだけで保存の競合・作り直しを起こさない
+        self.assertEqual(S.set_diar_num({"id": TID, "diarNum": 0})["diarNum"], 0)                   # 0 = 自動
+        S.save_transcript(TID, {"title": "t", "speakers": [], "segments": d["segments"], "baseUpdatedAt": at})
+        self.assertEqual(self.doc()["diarNum"], 0)                                                   # 画面の保存(diarNum を送らない)では消えない
+        for bad in (9, -1, 2.5, "3", True, None):
+            with self.subTest(bad=bad):
+                with self.assertRaises(S.ApiError):
+                    S.set_diar_num({"id": TID, "diarNum": bad})
+        with self.assertRaises(S.ApiError):
+            S.set_diar_num({"id": "../x", "diarNum": 2})
+
     def test_save_rev_conflict_and_cut_rows(self):
         self.assertEqual(S.get_edit(TID), {"edit": None, "rev": 0, "broken": False, "packStale": False})
         r = S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
@@ -361,6 +377,24 @@ class TestEditHttp(unittest.TestCase):
         finally:
             self.call("PUT", "/api/settings", orig)
             self.call("POST", "/api/settings/patch", {"values": {"keymap": orig.get("keymap") or {}}})
+
+    def test_settings_patch_cut_silence(self):
+        """2 カット の「無音 ▾」の値(cutSilence。段7 E-5)は「送ったキーだけ直す」。3 つの値がそろい、cut2resolve と同じ範囲のときだけ受ける。
+        まとめて実行(home/autorun.py の _pack_settings)は同じ鍵の noise・min・pad を読む"""
+        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
+        try:
+            v = {"noise": -30, "min": 0.8, "pad": 0.2}
+            self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"cutSilence": v}})["_status"], 200)
+            self.call("PUT", "/api/settings", dict(orig, cutSilence={"noise": -35, "min": 0.6, "pad": 0.15}))   # 開いたままの古い画面の丸ごとの保存では戻らない
+            self.assertEqual(self.call("GET", "/api/settings")["cutSilence"], v)
+            for bad in ({"noise": -91, "min": 0.6, "pad": 0.1}, {"noise": 1, "min": 0.6, "pad": 0.1}, {"noise": -35, "min": 0.01, "pad": 0.1},
+                        {"noise": -35, "min": 61, "pad": 0.1}, {"noise": -35, "min": 0.6, "pad": 11}, {"noise": -35, "min": 0.6},
+                        {"noise": -35, "min": 0.6, "pad": 0.1, "x": 1}, {"noise": "-35", "min": 0.6, "pad": 0.1}, {"noise": True, "min": 0.6, "pad": 0.1}, [-35, 0.6, 0.1]):
+                self.assertEqual(self.call("POST", "/api/settings/patch", {"values": {"cutSilence": bad}})["_status"], 400, bad)
+        finally:
+            self.call("PUT", "/api/settings", orig)
+            if "cutSilence" in orig:
+                self.call("POST", "/api/settings/patch", {"values": {"cutSilence": orig["cutSilence"]}})
 
     def open_video(self, path, **kw):
         return self.call("POST", "/api/open-video", dict({"path": path}, **kw))

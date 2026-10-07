@@ -48,9 +48,19 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        # 2つ目のエンジン(食い違いの候補。D1-b。ed_alt.ALT_ENGINES の名前)
                        "altEngine": lambda v: isinstance(v, str) and v in ed_alt.ALT_ENGINES,
                        # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。ed_speakers の smooth_)
-                       "diarSmooth": lambda v: isinstance(v, bool)}
+                       "diarSmooth": lambda v: isinstance(v, bool),
+                       # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(home/autorun.py の _pack_settings)も同じ鍵を読む
+                       "cutSilence": lambda v: _cut_silence_ok(v)}
+# 無音で削るときの値の範囲(cut2resolve の serve.py の spec_to_request と同じ。範囲の外は cut2resolve が 400 にする)
+CUT_SILENCE_RANGE = {"noise": (-90, 0), "min": (0.05, 60), "pad": (0, 10)}
 _KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
+
+
+def _cut_silence_ok(v):
+    """{"noise", "min", "pad"} の 3 つがそろい、どれも範囲の中の数(bool・NaN・無限は断る)"""
+    return (isinstance(v, dict) and set(v) == set(CUT_SILENCE_RANGE)
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and CUT_SILENCE_RANGE[k][0] <= x <= CUT_SILENCE_RANGE[k][1] for k, x in v.items()))
 
 
 def _keymap_ok(v):

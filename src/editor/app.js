@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.58.3';
+const APP_VERSION = '0.59.0';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -55,6 +55,7 @@ const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-wi
   $('#btnMenu').addEventListener('click', () => toggleMenu());
   $('#btnMenuClose').addEventListener('click', () => toggleMenu(false));
   $('#noDocMenu').addEventListener('click', () => toggleMenu(true));
+  $('#noDocResumeBtn').addEventListener('click', resumeLast);   // 前回の続き(段7 E-7)
   $('#menuScrim').addEventListener('click', () => toggleMenu(false));   // 引き出しの外(暗い幕)を押したら閉じる
   document.querySelectorAll('[data-strip]').forEach(b => b.addEventListener('click', () => { if (b.dataset.strip === 'menu') toggleMenu(true); else setSideTab(b.dataset.strip, true); }));
   document.querySelectorAll('[data-edtab]').forEach(b => b.addEventListener('click', () => setEditTab(b.dataset.edtab)));
@@ -428,9 +429,10 @@ $('#btnProofAll').addEventListener('click', () => {
 });
 $('#btnProofSel').addEventListener('click', () => {
   if (!S.doc || !S.sel.size) return;
-  pushUndo(); let n = 0;
+  pushUndo(); let n = 0; const before = unproofedCount();
   for (const s of S.doc.segments) if (S.sel.has(s.id) && s.text.trim()){ s.proofed = true; n++; }
-  renderDoc(); markDirty(); toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);
+  renderDoc(); markDirty();
+  if (!proofNext(before)) toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);   // 未校正が 0 になったら [2 カットへ](段7 S-17)
 });
 
 /* ---------- 認識精度の測定・設定の比較(A/B) ---------- */
@@ -581,6 +583,7 @@ $('#btnAddAt').addEventListener('click', () => { if (S.doc) insertAtTime(player(
 $('#segs').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'addfirst'){ if (!lockJob()) insertAtTime(player().currentTime || 0); return; }
+  if (b.dataset.act === 'txagain'){ transcribeInto(b); return; }   // 文字が認識されなかった文書: この文書にもう一度文字起こし(段7 E-14)
   const row = b.closest('.seg'), i = Number(row.dataset.i), segs = S.doc.segments, s = segs[i]; if (!s) return;
   if (S.navIdx !== i){ setNav(i); savePos(); }   // 押したボタンの行を「今の行」にする(mousedown ではフォーカスを移さないため、ここで)
   switch (b.dataset.act){
@@ -594,7 +597,7 @@ $('#segs').addEventListener('click', e => {
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
     case 'setnow': setTimeNow(s, b.dataset.f); break;
-    case 'proof': setProof(s, !s.proofed, row); markDirty(); updatePfStat(); break;
+    case 'proof': { const before = unproofedCount(); setProof(s, !s.proofed, row); markDirty(); updatePfStat(); proofNext(before); break; }   // 未校正が 0 になったら [2 カットへ](段7 S-17)
     case 'nosub': pushUndo(); setNoSub(s, !s.noSub, row); markDirty(); break;   // 字幕に出さない ⇄ 出す(どの話者の行でも)
     case 'tag': toggleTag(s, b.dataset.t, row); break;
     case 'unflag': s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon(); break;
@@ -1181,7 +1184,7 @@ $('#mSkip').addEventListener('change', renderMarkerClips);
 $('#mPad').addEventListener('change', readOpts);
 $('#mAll').addEventListener('change', e => { document.querySelectorAll('#mClips input').forEach(c => { c.checked = e.target.checked; }); updateMCount(); });
 $('#mClips').addEventListener('change', updateMCount);
-$('#diarNum').addEventListener('change', readOpts);
+$('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える(段7 E-6)
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
 // 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べていたときは表に足したチェックが漏れた(0.58.1 まで #optAutoContext は、ほかの設定を変えるまで保存されなかった)
 SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => $('#' + id).addEventListener('change', readOpts));
@@ -1200,6 +1203,7 @@ if (window.UIKit && UIKit.packLoud){   // パックの音量(編集の設定 pac
   UIKit.packLoud.mount($('#docAutoLoud'));
   document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });
 }
+$('#docAuto > summary').addEventListener('click', e => { if (!TOKEN){ e.preventDefault(); toast(NEED_HOME, 5000); } });   // 開かずに理由を知らせる(段7 E-17。Enter・Space も click になる)
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている。段5)
   if ($('#docAuto').open && window.UIKit && UIKit.streamer && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });
@@ -1225,6 +1229,10 @@ $('#txList').addEventListener('click', e => {
   const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
+  else if (b.dataset.act === 'gotab'){   // 履歴の行の「パックを作る」「作り直す」: 開いてそのタブへ(段7 E-13)
+    const t = ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';
+    (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) setEditTab(t, { focus: true }); });
+  }
   else if (b.dataset.act === 'hide' || b.dataset.act === 'unhide'){
     const it = S.list.find(x => x.id === id), menu = b.closest('details'); if (menu) menu.open = false;
     UIKit.hide.set('transcripts', [id], b.dataset.act === 'hide', { label: it && it.title ? it.title : '無題' });
@@ -1265,16 +1273,7 @@ document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('clic
 $('#btnOpenVideo').addEventListener('click', openVideoNoTx);
 $('#mcOpen').addEventListener('click', openVideoNoTx);
 $('#mcTx').addEventListener('click', () => { $('#mediaChoice').hidden = true; onStart(); });
-$('#btnTxInto').addEventListener('click', async () => {
-  if (!S.doc || !S.doc.sourcePath) return;
-  readOpts();
-  const id = S.docId, b = $('#btnTxInto'); b.disabled = true;
-  try {
-    await api('/api/transcribe', { body: { sourcePath: S.doc.sourcePath, intoDoc: id, ...jobOpts() } });
-    toast('文字起こしを始めました(終わると、この画面に行が出ます)', 5000); await kickJobs();
-  } catch (e){ toast(e.message, 6000, 'err'); }
-  finally { renderIntoState(); }
-});
+$('#btnTxInto').addEventListener('click', () => transcribeInto($('#btnTxInto')));
 [$('#handoffOut'), $('#cpPlanOut')].forEach(el => el.addEventListener('click', async e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
   const v = S.handoff[b.dataset.k]; if (v) copyPath(v);
@@ -1300,7 +1299,7 @@ if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.s
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
 const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps }) : null;
+  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, confirm: confirmDlg, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
 const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
@@ -1310,14 +1309,13 @@ const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, 
 async function boot(){
   $('#ver').textContent = 'v' + APP_VERSION;
   loadView(); setEditTab(tabFromHash() || 'tx', { hash: !!tabFromHash() });
+  applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(段7 E-17。サーバーに届かないときも)
   try {
     const ping = await api('/api/ping');
     if (ping.version !== APP_VERSION && !(window.UIKit && UIKit.restart && UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)))   // 帯に「起動し直す」(段9 9-3)
-      showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`);
-  } catch (e){ return showErr(e.message + '。入口(youtube-tools フォルダの start.bat)から起動してください'); }
+      showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`, { plain: true });
+  } catch (e){ return showErr(e.message + '。入口(youtube-tools フォルダの start.bat)から起動してください', { plain: true }); }
   try { S.tools = await api('/api/tools'); } catch {}
-  $('#txBatchBox').hidden = !TOKEN;   // まとめて実行は入口から開いたときだけ(12 ⑦(b))
-  $('#docAuto').hidden = !TOKEN;      // 今の文書のまとめて実行(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3)も同じ
   if (TOKEN) pollRuns();
   await loadRoster();
   if (S.tools){

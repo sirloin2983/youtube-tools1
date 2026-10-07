@@ -26,8 +26,24 @@ async function startFile(){
   const body = { sourcePath: path, title: $('#jTitle').value.trim(), ...jobOpts() };
   if (a){ const v = parseT(a); if (!Number.isFinite(v)) return toast('開始の時刻が正しくありません(例: 1:23:45)'); body.start = v; }
   if (b){ const v = parseT(b); if (!Number.isFinite(v)) return toast('終了の時刻が正しくありません(例: 1:30:00)'); body.end = v; }
+  if (!a && !b && !(await askTxAgain(path))) return;   // 動画全体の二度目は「前に作った文書があります」(範囲の指定は別の文書になるので聞かない)
   await api('/api/transcribe', { body });
   toast('待機列に追加しました');
+}
+
+/* 同じ動画の二度目の文字起こし(段7 E-3。重い認識を 2 本走らせない): 行のある文書が前にあれば [開く](主・Enter)[作り直す]・Esc でやめる。
+   -> 新しく文字起こしするか。UIKit.dialog.confirm は Esc も「キャンセル」と同じ false なので、Esc(dialog の cancel)だけは別に見て「やめる」にする */
+async function askTxAgain(path){
+  let r; try { r = await api('/api/doc-for?path=' + encodeURIComponent(path)); } catch { return true; }   // 調べられなければ今までどおり始める
+  const hit = r && r.doc; if (!hit || !(hit.rows > 0) || !window.UIKit || !UIKit.dialog) return true;   // 文字起こしせずに開いた文書(行 0)は聞かない
+  const it = S.list.find(x => x.id === hit.id), when = it ? ago(Number(it.updatedAt) || 0) : '';
+  const p = UIKit.dialog.confirm({ title: '前に作った文書があります', ok: '開く', cancel: '作り直す',
+    body: `この動画は前に文字起こししています(「${(it && it.title) || '無題'}」・${hit.rows} 行${when ? '・' + when : ''})。「開く」でその文書の続きから直せます。` +
+      '「作り直す」と、今の認識の設定で新しい文書をもう 1 つ作ります(前の文書は消えません)。Esc でやめます。' });
+  const open = document.querySelectorAll('dialog.ui-dialog[open]'), dlg = open[open.length - 1];
+  let escaped = false; if (dlg) dlg.addEventListener('cancel', () => { escaped = true; });
+  if (await p){ await loadList(); if (await openDoc(hit.id)) toast('前に作った文書を開きました', 3000, 'ok'); return false; }
+  return !escaped;
 }
 
 async function startMarker(){
@@ -214,7 +230,11 @@ async function pollJobs(){
     } else if (S.doc && txDone.some(x => x.tid === S.docId) && !S.doc.segments.length){   // 開いている文字起こしの無い文書に、文字起こしが入った
       if (await openDoc(S.docId, true)) toast(`文字起こしが終わりました(${S.doc.segments.length}行)`, 5000, 'ok');
     } else if (!S.doc){ const last = S.jobs.find(x => x.state === 'done' && x.tid); if (last) openDoc(last.tid); }
-    else if (txDone.length) toast(txDone.length > 1 ? `${txDone.length}本の文字起こしが終わりました(メニューの「履歴」から開けます)` : `「${txDone[0].title || '無題'}」の文字起こしが終わりました(メニューの「処理状況」の「開く」で開けます)`, 6000, 'ok');
+    else if (txDone.length){   // 別の文書を開いている間に終わった: [開く](1 本)・[履歴を見る](2 本以上)。次の一手(段7)
+      const one = txDone.length === 1 ? txDone[0] : null;
+      toast(one ? `「${one.title || '無題'}」の文字起こしが終わりました` : `${txDone.length}本の文字起こしが終わりました`,
+        { ms: 8000, kind: 'ok', action: one ? { label: '開く', fn: () => openDoc(one.tid) } : { label: '履歴を見る', fn: () => setSideTab('files') } });
+    }
   }
   if (!S.jobs.some(x => ACTIVE.has(x.state))){ clearInterval(S.pollT); S.pollT = null; }
 }
@@ -227,11 +247,25 @@ function renderJobBadge(){
   b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}`; }
 }
 
+/* 文字起こしの無い文書の「この動画を文字起こしする」(#btnTxInto)と、文字が認識されなかった文書の「もう一度文字起こしする」(#btnTxAgain。段7 E-14):
+   この文書に入れる文字起こし(intoDoc)を始める。認識の設定はメニューの「新規」のもの */
+async function transcribeInto(btn){
+  if (!S.doc || !S.doc.sourcePath) return;
+  readOpts();
+  const id = S.docId; btn.disabled = true;
+  try {
+    await api('/api/transcribe', { body: { sourcePath: S.doc.sourcePath, intoDoc: id, ...jobOpts() } });
+    toast('文字起こしを始めました(終わると、この画面に行が出ます)', 5000); await kickJobs();
+  } catch (e){ toast(e.message, 6000, 'err'); }
+  finally { renderIntoState(); }
+}
+
 /* 文字起こしの無い文書の「この動画を文字起こしする」: この文書に入れる文字起こし(intoDoc)が動いている間は押せない */
 function renderIntoState(){
   if (!S.doc) return;
   const j = S.jobs.find(x => x.kind === 'transcribe' && x.into === S.docId && ACTIVE.has(x.state));
   $('#btnTxInto').disabled = !!j || !S.doc.sourcePath;
+  const again = $('#btnTxAgain'); if (again) again.disabled = !!j || !S.doc.sourcePath;
   $('#txIntoHint').textContent = j ? `文字起こし中 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}(終わると、ここに行が出ます)`
     : S.doc.sourcePath ? '認識の設定は、メニューの「新規」のものを使います' : 'この文書には動画のパスが無いため、文字起こしできません';
 }
@@ -285,6 +319,34 @@ function applyLock(){
   renderRedoOne(); renderOvd();
   const b = $('#diarBanner'); b.hidden = !on;
   if (on) b.textContent = `${j.redoOne ? 'この動画を今の設定で作り直' : LOCK_LABEL[j.kind] || '処理'}しています(${j.phase}${j.state === 'running' ? ' ' + Math.round(j.progress * 100) + '%' : ''})。終わると自動で読み込み直します。それまで編集はできません(中止は左の「処理状況」から)。`;
+}
+
+/* 話者判別の人数(段7 E-6): 文書ごと(文書の diarNum = 選んだとき POST api/doc-diarnum。文書の updatedAt は変えない)。
+   選んでいない文書は、その文書の話者の数(組み込みの「ゲーム音声など」を除く。1〜8)、話者もいなければ全体の既定(設定 diarNum = 最後に選んだ人数)。
+   -> {n, why: 'doc' | 'speakers' | 'default'} */
+function diarNumFor(d){
+  if (d && Number.isInteger(d.diarNum) && d.diarNum >= 0 && d.diarNum <= 8) return { n: d.diarNum, why: 'doc' };
+  const k = d ? (d.speakers || []).filter(s => !isOtherSp(s)).length : 0;
+  if (k > 0) return { n: Math.min(8, k), why: 'speakers' };
+  const g = Number(S.settings.diarNum);
+  return { n: Number.isInteger(g) && g >= 0 && g <= 8 ? g : 0, why: 'default' };
+}
+
+/* 文書を開いた・設定を読み直したとき: 人数の欄にこの文書の人数と、その理由(結果と理由を見せる) */
+function fillDiarNum(){
+  const r = diarNumFor(S.doc), w = $('#diarNumWhy');
+  $('#diarNum').value = String(r.n);
+  if (w) w.textContent = !S.doc ? '' : r.why === 'doc' ? 'この文書で選んだ人数' : r.why === 'speakers' ? `この文書の話者の数(${r.n}人)` : '';
+}
+
+/* 人数を選んだ: 開いている文書に覚え、全体の既定(話者のいない文書の初めの値)も最後に選んだ人数にする */
+async function diarNumChanged(){
+  const v = $('#diarNum').value, n = Number(v) || 0, d = S.doc, id = S.docId;
+  S.settings.diarNum = v; saveSettings();
+  if (!d){ fillDiarNum(); return; }
+  const old = d.diarNum; d.diarNum = n; fillDiarNum();
+  try { await api('/api/doc-diarnum', { body: { id, diarNum: n } }); }
+  catch (e){ if (S.doc === d){ if (old === undefined) delete d.diarNum; else d.diarNum = old; fillDiarNum(); } toast('話者の人数を覚えられませんでした: ' + e.message, 6000, 'err'); }
 }
 
 async function startDiarize(){

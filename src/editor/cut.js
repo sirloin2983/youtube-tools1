@@ -270,8 +270,8 @@ function create(h){
     const src = String(h.S.doc.sourcePath || '');
     let spec;
     if (kind === 'silence'){
-      const num = (id, dv) => { const v = Number($(id).value); return Number.isFinite(v) ? v : dv; };
-      spec = { video: src, mode: 'silence', silence: { noise: num('#cutNoise', -35), min: num('#cutSilMin', 0.6), pad: num('#cutSilPad', 0.15) }, dropCutRows: false };   // 最短の長さは cut2resolve の既定(ごく短い切れ端を残さない)
+      const silence = await saveSil(); if (!silence) return;   // 値は覚える(設定 cutSilence。範囲の外なら知らせて作らない)
+      spec = { video: src, mode: 'silence', silence, dropCutRows: false };   // 最短の長さは cut2resolve の既定(ごく短い切れ端を残さない)
     } else if (kind === 'list'){
       const text = $('#cutListText').value.trim();
       if (!text) return h.toast('残す区間を1行に1つ書いてください(例: 0:05 0:20)', 5000);
@@ -294,6 +294,28 @@ function create(h){
       document.querySelectorAll('#tabCut details.pop[open]').forEach(d => { d.open = false; });
     } catch (e){ h.toast(label + 'のたたき台を作れませんでした: ' + (e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message), 7000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
+  }
+  /* 「無音 ▾」の値(サーバーの設定 cutSilence = まとめて実行の「無音で削る」も同じ値。気が利く画面へ 段7 E-5)。
+     範囲は cut2resolve の spec の検査と同じ(サーバーの ed_learn.CUT_SILENCE_RANGE も同じ)。[鍵, 欄, 既定, 下限, 上限, 欄の名前] */
+  const SIL_FIELDS = [['noise', '#cutNoise', -35, -90, 0, '無音とみなす音量(dB)'], ['min', '#cutSilMin', 0.6, 0.05, 60, '無音の長さ(秒)'], ['pad', '#cutSilPad', 0.15, 0, 10, '話の前後に残す秒数']];
+  function silSetting(){
+    const v = (h.S.settings || {}).cutSilence, o = v && typeof v === 'object' ? v : {};
+    return Object.fromEntries(SIL_FIELDS.map(([k, , dv, lo, hi]) => { const n = Number(o[k]); return [k, o[k] !== null && o[k] !== '' && Number.isFinite(n) && n >= lo && n <= hi ? n : dv]; }));
+  }
+  function fillSil(){ const s = silSetting(); for (const [k, id] of SIL_FIELDS) if (document.activeElement !== $(id)) $(id).value = String(s[k]); }
+  /* 欄の値を確かめて覚える -> 値 {noise, min, pad}。範囲の外・数でなければ知らせて覚えている値に戻し null。覚えている値と同じなら送らない */
+  async function saveSil(){
+    const v = {};
+    for (const [k, id, , lo, hi, label] of SIL_FIELDS){
+      const raw = $(id).value.trim(), n = Number(raw);
+      if (!raw || !Number.isFinite(n) || n < lo || n > hi){ h.toast(`${label}は ${lo}〜${hi} の数で入れてください`, 5000, 'err'); fillSil(); return null; }
+      v[k] = Math.round(n * 100) / 100;
+    }
+    const cur = silSetting();
+    if (SIL_FIELDS.every(([k]) => cur[k] === v[k])) return v;
+    try { await h.api('/api/settings/patch', { body: { values: { cutSilence: v } } }); h.S.settings.cutSilence = v; }   // 送ったキーだけ直す(ほかの窓の設定を消さない)
+    catch (e){ h.toast('無音の値を保存できませんでした(今回のたたき台には使います): ' + e.message, 6000, 'err'); }
+    return v;
   }
   /* 「行から」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ。規則は pack.py) */
   function edgeSetting(){
@@ -687,7 +709,12 @@ function create(h){
     const box = $('#cutSubs'), d = h.S.doc;
     if (!d || !M.shown){ return; }
     const rows = d.segments.map((g, i) => [g, i]).filter(([g]) => String(g.text || '').trim());
-    if (!rows.length){ box.innerHTML = `<p class="hint tt-csub-empty">${d.model ? '文字のある行がありません' : 'まだ文字起こししていません(1 文字起こし のタブから文字起こしできます)。カットは文字起こしをしなくても決められます'}</p>`; capIdx = -2; return; }
+    if (!rows.length){   // 空の状態に次のボタン(段7 E-14): 1 文字起こし のタブの「この動画を文字起こしする」へ
+      box.innerHTML = `<p class="hint tt-csub-empty">${d.model ? 'まだ字幕(文字のある行)がありません。1 文字起こし のタブで行を足すか、文字起こしし直すと、ここに出ます'
+        : 'まだ文字起こししていません。文字起こしすると、ここに字幕が出ます(カットは文字起こしをしなくても決められます)'}</p>`
+        + `<button type="button" class="btn small primary tt-csub-totx" data-act="totx">${d.model ? '1 文字起こし のタブへ' : '1 文字起こし のタブで文字起こしする'}</button>`;
+      capIdx = -2; return;
+    }
     const ok = editable();
     box.innerHTML = rows.map(([g, i]) => { const c = !!M.rowFlags[i];
       return `<div class="tt-csub${c ? ' cut' : ''}" data-i="${i}" role="listitem"><button type="button" class="tt-csub-go" data-act="go" title="この行の頭へ"><span class="mono">${h.fmtCs(g.start)}</span><span class="tx">${esc(g.text)}</span></button>` +
@@ -996,6 +1023,7 @@ function create(h){
     $('#cutDocConflictGo').addEventListener('click', () => { location.hash = '#tx'; });
     $('#cutSubs').addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
+      if (b.dataset.act === 'totx'){ if (h.toTx) h.toTx(); return; }   // 字幕の無い文書: 1 文字起こし のタブの「文字起こしする」へ(段7 E-14)
       const i = Number(b.closest('.tt-csub').dataset.i), g = h.S.doc && h.S.doc.segments[i]; if (!g) return;
       if (b.dataset.act === 'go') seekTo(g.start + 0.0005);
       else if (b.dataset.act === 'cutrow') rowsCut([i], !M.rowFlags[i]);
@@ -1018,6 +1046,8 @@ function create(h){
     for (const id of ['#cutEdgeOn', '#cutEdgeAfter', '#cutEdgeBefore']) $(id).addEventListener('change', saveEdge);
     $('#cutEdgeGo').addEventListener('click', async () => { if (!(await saveEdge())) return; $('#cutRowEdge').open = false; draftRows(); });
     $('#cutDraftSilenceGo').addEventListener('click', () => draftC2R('silence'));
+    $('#cutDraftSilence').addEventListener('toggle', () => { if ($('#cutDraftSilence').open) fillSil(); });   // 覚えた値を入れる(段7 E-5)
+    for (const [, id] of SIL_FIELDS) $(id).addEventListener('change', saveSil);
     $('#cutDraftListGo').addEventListener('click', () => draftC2R('list'));
     $('#cutDraftPlan').addEventListener('click', () => draftC2R('plan'));
     document.querySelectorAll('#tabCut details.pop > summary').forEach(s => { s.dataset.title = s.title; s.addEventListener('click', e => { if (s.classList.contains('disabled')){ e.preventDefault(); h.toast(s.title || '今は使えません', 3000); } }); });

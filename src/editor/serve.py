@@ -43,6 +43,7 @@
                              draft = 始めたたき台。初めての保存のときだけ edit.json に一度書く = マスタープラン Q2)
   POST /api/effort           {"id", "activeSec", "cutSec"?, "newSession"?} 校正の手間(操作していた秒)を文書の effort に足す(updatedAt は変えない。
                              校正済みにした行の数は保存のときにサーバーが数える。Q2)
+  POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
@@ -104,7 +105,7 @@ import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.58.3"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.59.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -296,6 +297,7 @@ POST_API = {
     "/api/edit/pack": lambda o: ed_store.record_pack(o),
     "/api/edit/preview": lambda o: ed_store.edit_preview(o),
     "/api/effort": lambda o: ed_store.add_effort(o),
+    "/api/doc-diarnum": lambda o: ed_store.set_diar_num(o),   # 文書ごとの話者判別の人数(updatedAt は変えない。段7 E-6)
     "/api/drill/reviewed": lambda o: ed_drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
     "/api/drill/unreviewed": lambda o: ed_drill.drill_unreviewed(o),   # 確かめ済みの印を外す
     "/api/transcribe/cancel": _cancel,

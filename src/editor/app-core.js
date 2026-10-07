@@ -27,7 +27,21 @@ function toast(msg, ms, kind = ''){   // ms にオブジェクト({ms, kind, act
   else { const t = $('#toast'); if (t){ t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms || 3800); } }
 }
 
-function showErr(msg){ const b = $('#errBar'); b.textContent = '画面エラー: ' + msg; b.hidden = false; }
+/* 画面の赤い帯(段8 E-26): 何が起きたか + 次の一手([読み込み直す]・ホームから開いたときは [ホームへ])+ 閉じる(×)。
+   opt.plain: msg をそのまま本文に(起動の失敗など、文が決まっているもの)。そうでなければ決まった文 + 原文は「詳しく」の中。
+   版の違いの帯(UIKit.restart の「起動し直す」)が出ている間は上書きしない(起動し直すと直ることが多い) */
+function showErr(msg, opt = {}){
+  const b = $('#errBar'); if (!b || b.querySelector('.ui-restart-msg')) return;
+  const el = (tag, cls, text) => { const x = document.createElement(tag); if (cls) x.className = cls; if (text !== undefined) x.textContent = text; return x; };
+  b.textContent = '';
+  b.append(el('span', 'tt-err-msg', opt.plain ? String(msg) : '画面でエラーが起きました。編集した内容は自動で保存しています(保存の状態は右上)。画面の動きがおかしいときは「読み込み直す」を押してください。'));
+  if (!opt.plain){ const d = el('details', 'tt-err-detail'); d.append(el('summary', '', '詳しく'), el('span', '', String(msg).slice(0, 500))); b.append(d); }
+  const acts = el('span', 'tt-err-acts'), reload = el('button', 'btn small', '読み込み直す');
+  reload.type = 'button'; reload.addEventListener('click', () => location.reload()); acts.append(reload);
+  if (document.querySelector('meta[name="ytt-token"]')){ const home = el('a', 'btn small', 'ホームへ'); home.href = '../'; home.setAttribute('data-ui-portal', ''); acts.append(home); }   // ホームから開いたときだけ(入口の / = この画面の 1 つ上)。TOKEN は app.js の読み込み前のエラーでも使えるように直接見る
+  const x = el('button', 'btn small ghost tt-err-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'エラーの帯を閉じる'); x.addEventListener('click', () => { b.hidden = true; }); acts.append(x);
+  b.append(acts); b.hidden = false;
+}
 
 /* ---------- 区間の終わりで止める見張り(「この行だけ再生」・▶・評価ドリルの帯の「聞く」・端を動かしたあとの聞き直し) ----------
    以前は timeupdate(Chromium で約 250ms ごと)で止めていて、止まるまでに 9〜236ms(平均 約 116ms)行の終わりを過ぎた。機械の行の終わりは次の声の出だしの
@@ -171,7 +185,7 @@ function setEditTab(t, opt = {}){
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
   if (opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
   applyView();
-  if (was !== t) onEditTab(was, t);
+  if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(段7 E-7。文書を開いていなければ何もしない)
   if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
 }
 
@@ -339,7 +353,7 @@ function readOpts(){
   Object.assign(s, checksOf(SET_CHECKS));
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
-  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarNum = $('#diarNum').value; s.diarEmb = $('#diarEmb').value;
+  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.mPad = $('#mPad').value; s.mFilter = $('#mFilter').value; s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
   saveSettings(); if (S.doc) renderTerms(); renderOptSummary();
   if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵(段4 4-1。監査 07)
 }
@@ -367,7 +381,7 @@ function applySettings(){
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;
-  if (s.diarNum && [...$('#diarNum').options].some(o => o.value === s.diarNum)) $('#diarNum').value = s.diarNum;
+  fillDiarNum();   // 話者の人数: 開いている文書の人数(無ければ話者の数 → 全体の既定 s.diarNum。段7 E-6)
 }
 
 /* ---------- 準備状況 ---------- */

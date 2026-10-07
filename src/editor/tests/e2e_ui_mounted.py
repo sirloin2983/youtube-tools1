@@ -216,6 +216,7 @@ def main():
             check(pg.evaluate("!!document.querySelector('meta[name=\"ytt-token\"]')"), "入口が合言葉を画面に入れている(<meta name=ytt-token>)")
             check(pg.evaluate("location.pathname") == "/transcribe/", "画面の場所は /transcribe/")
             check(pg.input_value("#srcPath") == media, "?media= の値が新規文字起こしのファイル欄に入る")
+            check(wait_js(pg, "document.activeElement === document.querySelector('#mcTx')", 5000), "まだ文書の無い動画: 主ボタン「文字起こしをする」にフォーカス(段8 E-27)")
 
             # ==================== 2) 1本目の文字起こし(ワーカー経由)→ 終わると自動で開く ====================
             pg.click("#btnStart")
@@ -272,6 +273,8 @@ def main():
             check(pg.evaluate("document.querySelector('#txHiddenToggle').hidden") is True, "今開いている文書は、隠しても一覧に残る(切り替えの帯は出ない)")
             pg.evaluate("closeDoc()")
             wait_js(pg, "!document.querySelector('#txList .txi') && !document.querySelector('#txHiddenToggle').hidden", 10000)
+            check(pg.is_visible("#noDocResumeBtn") and "1 文字起こし" in pg.inner_text("#noDocResumeBtn"),
+                  "文書を閉じると、空の状態に「前回の続き: ○○ の 1 文字起こし」(段7 E-7): " + pg.inner_text("#noDocResume"))
             check("非表示 1件" in pg.inner_text("#txHiddenToggle"), "非表示にした文書は一覧から消え、「非表示 1件を表示」が出る: " + pg.inner_text("#txHiddenToggle"))
             pg.click("#txHiddenToggle")
             wait_js(pg, "document.querySelector('#txList .txi.ui-hidden-item .ui-hidden-tag')", 10000)
@@ -282,8 +285,9 @@ def main():
             pg.click("#txHiddenToggle")   # 出している状態を戻す(出している間は、帯は隠すための切り替えとして残る)
             wait_js(pg, "document.querySelector('#txHiddenToggle').hidden", 10000)
             check(pg.locator("#txList .txi").count() == 1, "表示に戻した文書は、切り替えなしで一覧に出る")
-            pg.locator("#txList .txi .t").first.click()   # このあとの手順のために、文書を開き直す
-            wait_js(pg, "S.docId", 20000)
+            pg.click("#noDocResumeBtn")   # このあとの手順のために、文書を開き直す(前回の続き。段7 E-7)
+            wait_js(pg, "S.docId === %s && document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'" % json.dumps(tid1), 20000)
+            check(True, "「前回の続き」で前の文書とタブが開く")
 
             # ==================== 3c) パック(「編集」E4: 3 パック のタブ。区間は 2 カット のタブのとおり = cut2resolve の spec.keeps) ====================
             pg.click("[data-edtab=pack]")
@@ -318,7 +322,7 @@ def main():
             pg.click("#pkSettingsClose")
             wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
             pg.click("#pkBuild")
-            wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkBuild').textContent === 'パックを作り直す' && document.querySelector('#pkJob').hidden", 120000)
+            wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkBuild').textContent === 'パックを作り直す(上書き)' && document.querySelector('#pkJob').hidden", 120000)
             packdir = os.path.splitext(media)[0] + "_pack"
             ip = read_pack_plan(os.path.join(packdir, TP_LUA))
             caps = json.dumps(ip.get("captions"), ensure_ascii=False)
@@ -338,26 +342,53 @@ def main():
             pg.locator("#segs .seg").nth(3).locator("[data-act=cut]").click()   # 4行目(12〜16秒)も削る
             pg.click("[data-edtab=pack]")
             wait_js(pg, pk_is(3, "0:12.00", 3) + " && document.querySelector('#pkLastPill').textContent === '作り直しが要る'", 30000)
-            check("作り直し" in pg.inner_text("#pkLastWhen"), "カットが変わったら「作り直しが要る」と知らせる: " + pg.inner_text("#pkLastWhen"))
-            # 作り直す → 上書きの確認(やめる → 何もしない / 上書き → 作り直す)
+            check("作り直し" in pg.inner_text("#pkLastWhen") and "カットが変わった" in pg.inner_text("#pkLastWhen") and "字幕が変わった" not in pg.inner_text("#pkLastWhen"),
+                  "カットが変わったら「作り直しが要る」と理由(カットが変わった)を知らせる(段7 E-20): " + pg.inner_text("#pkLastWhen"))
+            # 前回と同じ場所への作り直しは、上書きの確認を出さない(段7 E-15)
+            mt = os.path.getmtime(os.path.join(packdir, TP_LUA))
+            check(pg.inner_text("#pkBuild") == "パックを作り直す(上書き)", "ボタンは「パックを作り直す(上書き)」")
+            pg.click("#pkBuild")
+            wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('#dlgOverwrite').open", 120000)
+            ip2 = read_pack_plan(os.path.join(packdir, TP_LUA))
+            check(os.path.getmtime(os.path.join(packdir, TP_LUA)) > mt and len(ip2.get("cuts", [])) == 3, "同じ場所へは確認なしで、今のカット(3区間)で作り直す")
+            # ほかのパックがある別の場所へ作るときだけ、上書きの確認(やめる → 何もしない / 上書き → 作る)
+            packdir2 = packdir + "_別の場所"
+            shutil.copytree(packdir, packdir2)
+            pg.click("#pkSettingsBtn")
+            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            pg.fill("#pkDir", packdir2)
+            pg.click("#pkSettingsClose")
+            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true && document.querySelector('#pkBuild').textContent === 'パックを作る'")
             pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
-            check(TP_LUA in pg.inner_text("#owFiles") and packdir in pg.inner_text("#owDir"), "前に作ったパックがあると、上書きの確認に出力先とファイルが出る")
+            check(TP_LUA in pg.inner_text("#owFiles") and packdir2 in pg.inner_text("#owDir"), "別の場所に前のパックがあると、上書きの確認に出力先とファイルが出る")
             pg.click("#owCancel")
             wait_js(pg, "!document.querySelector('#dlgOverwrite').open && !document.querySelector('#pkBuild').disabled", 10000)
-            check(pg.is_hidden("#pkJob") and pg.inner_text("#pkLastPill") == "作り直しが要る", "「やめる」なら作らない")
-            mt = os.path.getmtime(os.path.join(packdir, TP_LUA))
+            check(pg.is_hidden("#pkJob") and packdir2 not in pg.inner_text("#pkLastDir"), "「やめる」なら作らない")
             pg.click("#pkBuild")
             wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
             pg.click("#owOk")
-            wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastPill').textContent === '前回のパック'", 120000)
-            ip2 = read_pack_plan(os.path.join(packdir, TP_LUA))
-            check(os.path.getmtime(os.path.join(packdir, TP_LUA)) > mt and len(ip2.get("cuts", [])) == 3, "「上書きして作り直す」で今のカット(3区間)で作り直す")
+            wait_js(pg, "!document.querySelector('#pkBuild').disabled && document.querySelector('#pkJob').hidden && document.querySelector('#pkLastDir').textContent.indexOf(%s) >= 0" % json.dumps(packdir2), 120000)
+            check(True, "「上書きして作り直す」で別の場所に作る")
+            errors[:] = [e for e in errors if "409" not in e]   # 前のパックがあるときの 409 はブラウザがエラーとして記録する(想定どおり)
             menu_open = "menu-closed" not in (pg.get_attribute(".app", "class") or "")
             pg.click("[data-strip=files]")
             wait_js(pg, "/パック済み/.test(document.querySelector('#txList .txi.cur').textContent)", 10000)
             check(True, "履歴の一覧の行に「パック済み」が出る")
             pg.keyboard.press("Escape")
+            # 段7 E-13: パックのあとに行を直すと、履歴の行に押せる「作り直す」(以前は押せない札)→ 押すと開いて 3 パック のタブへ
+            pg.click("[data-edtab=tx]")
+            time.sleep(2.2)   # 一覧の判定は「パックの時刻より 2 秒以上あとに文書を直した」
+            pg.locator("#segs textarea").nth(0).fill("直した文1(パックのあと)")
+            wait_js(pg, "document.querySelector('#saveState').getAttribute('data-state') === 'ok'", 10000)
+            if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+                pg.click("#btnMenu")
+            pg.click("[data-side-tab=files]")
+            wait_js(pg, "!!document.querySelector('#txList .txi.cur button.tt-txi-next[data-act=gotab]')", 10000)
+            check(pg.inner_text("#txList .txi.cur button.tt-txi-next") == "作り直す", "履歴の行の「作り直す」はボタン(段7 E-13)")
+            pg.click("#txList .txi.cur button.tt-txi-next")
+            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 10000)
+            check("字幕が変わった" in pg.inner_text("#pkLastWhen"), "押すと 3 パック のタブへ・作り直しの理由は「字幕が変わった」(段7 E-20): " + pg.inner_text("#pkLastWhen"))
 
             # ==================== 3d) zip でダウンロード(詳しい設定。中身は同じ cut2resolve の Text+ パック・同じ区間) ====================
             pg.click("#pkSettingsBtn")   # 段3: zip は「設定を変える」の右の欄の中
@@ -401,6 +432,11 @@ def main():
             pg.fill("#srcPath", media)
             pg.fill("#jTitle", "ワーカー再起動後")
             pg.click("#btnStart")
+            # 段7 E-3: 同じ動画の二度目は「前に作った文書があります」[開く][作り直す]。ここは「作り直す」(新しい文書をもう 1 つ)
+            wait_js(pg, "!!document.querySelector('dialog.ui-dialog[open]')", 10000)
+            check("前に作った文書があります" in pg.inner_text("dialog.ui-dialog[open]") and pg.evaluate("document.activeElement.textContent") == "開く",
+                  "同じ動画の二度目の文字起こしは「前に作った文書があります」・主ボタン(フォーカス)は「開く」(段7 E-3)")
+            pg.locator("dialog.ui-dialog[open] button", has_text="作り直す").click()
             open_doc(pg, "ワーカー再起動後")
             texts2 = pg.evaluate("[...document.querySelectorAll('#segs textarea')].map(e => e.value)")
             check(texts2[:2] == ["テスト文1", "テスト文2"], "ワーカーを強制終了したあとの文字起こしも成功する(次の要求で起動し直す): %s" % texts2)

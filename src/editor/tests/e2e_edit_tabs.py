@@ -46,6 +46,8 @@ def main():
             _scene_menus_settings(cx)
             _scene_tab_switch(cx)
             _scene_new_and_redo(cx)
+            _scene_next_steps(cx)
+            _scene_remember(cx)
             _scene_keys_and_urls(cx)
             _scene_relink(cx)
             _scene_settings_errors(cx)
@@ -345,7 +347,11 @@ def _scene_new_and_redo(cx):
     check(pg.is_hidden("#pillProof") and "残す 1区間" in pg.inner_text("#pillCut") and "0:06" in pg.inner_text("#docMeta"),
           "行の無い文書の題名の行: 校正の札は出さない・カットは動画全体(残す 1区間)・長さは出る: %s / %s" % (pg.inner_text("#pillCut"), pg.inner_text("#docMeta")))
     check(len(srv.get("/api/jobs")["jobs"]) == n_jobs, "文字起こしは始めない")
-    pg.keyboard.press("Alt+1")
+    # 段7 E-14: カットの字幕の段の次のボタン → 1 文字起こし のタブの「この動画を文字起こしする」にフォーカス
+    wait_js(pg, "!!document.querySelector('#cutSubs .tt-csub-totx')", 10000)
+    pg.click("#cutSubs .tt-csub-totx")
+    check(wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true' && document.activeElement === document.querySelector('#btnTxInto')", 5000),
+          "カットの字幕の段の「1 文字起こし のタブで文字起こしする」→ 1 文字起こし のタブの「この動画を文字起こしする」にフォーカス(段7 E-14)")
     check(pg.is_visible("#noRows") and "まだ文字起こししていません" in pg.inner_text("#noRows") and pg.is_enabled("#btnTxInto"),
           "1 文字起こし のタブに「この動画を文字起こしする」")
     if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
@@ -427,6 +433,118 @@ def _scene_new_and_redo(cx):
     check("校正済み 1 行は元のまま" in pg.inner_text("#toast") or "校正済み 1 行" in pg.inner_text("#toast"), "完了の知らせに残した行: %s" % pg.inner_text("#toast"))
     check("全体を再認識" in pg.inner_text("#docInfo"), "認識の設定の欄に「全体を再認識」: %s" % pg.inner_text("#docInfo")[-60:])
 
+
+def _scene_next_steps(cx):
+    """段7〜8 の次の一手: 行が 0 の文書の「もう一度文字起こしする」(E-14)・二度目の文字起こし(E-3)・校正が済んだら [2 カットへ](S-17)・
+    文字起こしが終わった知らせの [開く]・画面の赤い帯(E-26)"""
+    check, errors, pg, srv, v1 = cx.check, cx.errors, cx.pg, cx.srv, cx.v1
+    # ---- E-14: 文字起こししたのに行が 0 の文書に「もう一度文字起こしする」(この文書に入れる = intoDoc。行が入ると読み直す)
+    tid2 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目")
+    d2 = srv.get("/api/transcript?id=" + tid2)
+    srv.call("PUT", "/api/transcript?id=" + tid2, {"title": d2["title"], "speakers": [], "baseUpdatedAt": d2["updatedAt"], "segments": []})
+    open_doc(pg, "二本目")
+    wait_js(pg, "!!document.querySelector('#segs #btnTxAgain')", 10000)
+    check("文字が認識されませんでした" in pg.inner_text("#segs") and pg.is_enabled("#btnTxAgain") and pg.is_hidden("#noRows"),
+          "文字起こししたのに行が 0 の文書に「もう一度文字起こしする」(段7 E-14)")
+    pg.click("#btnTxAgain")
+    wait_js(pg, "document.querySelectorAll('#segs .seg').length > 0", 30000)
+    check(len(srv.get("/api/transcript?id=" + tid2)["segments"]) > 0 and pg.evaluate("S.docId") == tid2, "同じ文書に行が入り、画面も読み直す")
+
+    # ---- E-3: 同じ動画の二度目の文字起こしは「前に作った文書があります」。Esc = やめる・[開く](主ボタン・Enter)= その文書を開く(文字起こしは始めない)
+    n_jobs = len(srv.get("/api/jobs")["jobs"])
+    if "menu-closed" in (pg.get_attribute(".app", "class") or ""):
+        pg.click("#btnMenu")
+    pg.click("[data-side-tab=start]")
+    pg.click("#tabFile")
+    pg.fill("#srcPath", v1)
+    pg.click("#btnStart")
+    wait_js(pg, "!!document.querySelector('dialog.ui-dialog[open]')", 10000)
+    body = pg.inner_text("dialog.ui-dialog[open]")
+    check("前に作った文書があります" in body and "一本目" in body and pg.evaluate("document.activeElement.textContent") == "開く",
+          "同じ動画の二度目は「前に作った文書があります」(題名・行数)・主ボタン「開く」にフォーカス(段7 E-3): %s" % body[:80])
+    pg.keyboard.press("Escape")
+    wait_js(pg, "!document.querySelector('dialog.ui-dialog[open]')", 5000)
+    pg.wait_for_timeout(500)
+    check(len(srv.get("/api/jobs")["jobs"]) == n_jobs and pg.evaluate("S.docId") == tid2, "Esc ならやめる(文字起こしは始めない・文書も変えない)")
+    pg.click("#btnStart")
+    wait_js(pg, "!!document.querySelector('dialog.ui-dialog[open]')", 10000)
+    pg.keyboard.press("Enter")
+    wait_js(pg, "document.querySelector('#docTitle').value === '一本目'", 10000)
+    pg.wait_for_timeout(300)
+    check(len(srv.get("/api/jobs")["jobs"]) == n_jobs, "「開く」で前に作った文書を開き、文字起こしは始めない")
+
+    # ---- S-17: 最後の行で未校正が残っていれば、数と [最初の未校正へ]。未校正が 0 になったら [2 カットへ]
+    pg.evaluate("S.doc.segments.forEach((g, i) => { if (i > 0) g.proofed = true; else delete g.proofed; }); renderDoc(); markDirty(); setNav(S.doc.segments.length - 1); proofOk()")
+    t = pg.locator("#toast .ui-toast", has_text="最後の行です")
+    check(t.count() == 1 and "まだ未校正の行が 1 行あります" in t.inner_text() and "すべて確認しました" not in pg.inner_text("#toast"),
+          "最後の行で未校正が残っていれば、数を出す(以前は「すべて確認しました」。S-17): %s" % (t.inner_text() if t.count() else pg.inner_text("#toast")))
+    t.locator(".ui-toast-act").click()
+    check(pg.evaluate("S.navIdx") == 0, "[最初の未校正へ] で未校正の行へ")
+    pg.evaluate("proofOk()")
+    t2 = pg.locator("#toast .ui-toast", has_text="すべての行を校正済みにしました")
+    check(t2.count() == 1 and t2.locator(".ui-toast-act").inner_text() == "2 カットへ", "未校正が 0 になったら「すべての行を校正済みにしました」[2 カットへ]")
+    t2.locator(".ui-toast-act").click()
+    check(wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000), "[2 カットへ] でカットのタブへ")
+    pg.keyboard.press("Alt+1")
+    wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
+
+    # ---- 次の一手: 別の文書を開いている間に文字起こしが終わったら、知らせに [開く]
+    v4 = make_video(os.path.join(srv.media, "知らせの確認.webm"), sec=4)
+    srv.call("POST", "/api/transcribe", {"sourcePath": v4, "model": "small", "language": "ja", "title": "知らせの確認", "autoGloss": False})
+    pg.evaluate("kickJobs()")
+    wait_js(pg, "[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('「知らせの確認」の文字起こしが終わりました'))", 30000)
+    pg.locator("#toast .ui-toast", has_text="知らせの確認").locator(".ui-toast-act").click()
+    check(wait_js(pg, "document.querySelector('#docTitle').value === '知らせの確認'", 10000), "文字起こしが終わった知らせの [開く] で、その文書を開く(段7)")
+
+    # ---- 段8 E-26: 画面の赤い帯に、何が起きたか・次の一手(読み込み直す)・閉じる。原文は「詳しく」の中。ホームへ は入口から開いたときだけ
+    n_err = len(errors)
+    pg.evaluate("setTimeout(() => { throw new Error('テストで起こしたエラー'); }, 0)")
+    wait_js(pg, "!document.querySelector('#errBar').hidden", 5000)
+    check("画面でエラーが起きました" in pg.inner_text("#errBar") and pg.locator("#errBar button", has_text="読み込み直す").count() == 1
+          and "テストで起こしたエラー" in pg.text_content("#errBar .tt-err-detail") and pg.locator("#errBar a[data-ui-portal]").count() == 0,
+          "赤い帯: 何が起きたか + [読み込み直す] + 原文は「詳しく」(段8 E-26): %s" % pg.inner_text("#errBar"))
+    pg.click("#errBar .tt-err-x")
+    check(pg.is_hidden("#errBar"), "赤い帯は × で閉じられる")
+    del errors[n_err:]   # わざと起こしたエラーはブラウザがエラーとして記録する(想定どおり)
+
+
+def _scene_remember(cx):
+    """段7 E-6(話者の人数は文書ごと)・E-17(ホームから開いていないときのまとめて実行)・E-9(空の状態の手順の太字)"""
+    check, pg, srv = cx.check, cx.pg, cx.srv
+    # ---- E-6: 選んでいない文書は、その文書の話者の数。選んだら文書に覚える(updatedAt は変えない)。話者のいない文書は全体の既定(最後に選んだ人数)
+    tid2 = next(i["id"] for i in srv.get("/api/transcripts")["items"] if i["title"] == "二本目")
+    d2 = srv.get("/api/transcript?id=" + tid2)
+    srv.call("PUT", "/api/transcript?id=" + tid2, {"title": d2["title"], "baseUpdatedAt": d2["updatedAt"], "segments": d2["segments"],
+                                                   "speakers": [{"id": "S1", "name": "Aさん", "color": "#2f62d6"}, {"id": "S2", "name": "Bさん", "color": "#d9534f"}]})
+    open_doc(pg, "二本目")
+    why = "document.querySelector('#diarNumWhy').textContent"
+    check(pg.input_value("#diarNum") == "2" and "話者の数(2人)" in pg.evaluate(why), "話者の人数の初めの値は、その文書の話者の数(段7 E-6): %s %s" % (pg.input_value("#diarNum"), pg.evaluate(why)))
+    at = srv.get("/api/transcript?id=" + tid2)["updatedAt"]
+    pg.evaluate("(() => { const e = document.querySelector('#diarNum'); e.value = '5'; e.dispatchEvent(new Event('change', { bubbles: true })); })()")   # 3 と 4 はあとの _scene_settings_errors が使う(同じ値では保存しない)
+    for _ in range(50):
+        d = srv.get("/api/transcript?id=" + tid2)
+        if d.get("diarNum") == 5:
+            break
+        time.sleep(0.1)
+    check(d.get("diarNum") == 5 and d["updatedAt"] == at and "選んだ人数" in pg.evaluate(why), "選んだ人数は文書に覚える(文書の updatedAt は変えない = 保存の競合・作り直しを起こさない)")
+    open_doc(pg, "知らせの確認")
+    check(pg.input_value("#diarNum") == "5" and pg.evaluate(why) == "", "話者のいない文書は全体の既定(最後に選んだ人数): %s" % pg.input_value("#diarNum"))
+    open_doc(pg, "二本目")
+    check(pg.input_value("#diarNum") == "5" and "選んだ人数" in pg.evaluate(why), "開き直すと、その文書で選んだ人数")
+
+    # ---- E-17: ホームから開いていない(合言葉なし)ときの「まとめて実行」は、隠さず押せない理由を出す
+    st = pg.evaluate("""(() => { const p = document.querySelector('#txPick'), s = document.querySelector('#docAuto > summary');
+      return [!document.querySelector('#txBatchBox').hidden, p.disabled, p.closest('label').title, !document.querySelector('#txBatchOff').hidden,
+              getComputedStyle(document.querySelector('#docAuto')).display !== 'none', s.getAttribute('aria-disabled'), s.title]; })()""")
+    check(st[0] and st[1] and "ホーム" in st[2] and st[3] and st[4] and st[5] == "true" and "ホーム" in st[6],
+          "ホームから開いていないとき: 履歴の「選んで、まとめて実行」と題名の行の「まとめて実行」は、押せない見た目と理由(段7 E-17): %s" % st)
+    pg.click("#docAuto > summary")
+    check(not pg.evaluate("document.querySelector('#docAuto').open") and "ホーム(start.bat)から開くと使えます" in pg.inner_text("#toast"),
+          "押しても開かず、理由を知らせる")
+
+    # ---- E-9: 空の状態の手順の太字(「1 文字起こし」など)は文の中のまま(1 行に割らない)
+    check(pg.evaluate("[...document.querySelectorAll('#noDoc .tt-steps b')].every(b => getComputedStyle(b).display === 'inline')"),
+          "空の状態の手順の太字は文の中のまま(.empty b の 1 行にしない。段7 E-9)")
 
 def _scene_keys_and_urls(cx):
     """キー操作の一覧・狭い画面・?doc= で選んだ文書・?list=other・再読み込みで開いていた文書とタブに戻る"""
@@ -668,7 +786,7 @@ def _scene_settings_errors(cx):
     wait_js(pg, "!document.querySelector('.ui-settings-status').hidden", 5000)
     check("読み直す" in pg.inner_text(".ui-settings-status button"), "引き出しに「読み直す」")
     pg.click(".ui-settings-status button")
-    wait_js(pg, "document.querySelector('.ui-settings-status').hidden && document.querySelector('#diarNum').value === '4'", 10000)
+    wait_js(pg, "document.querySelector('.ui-settings-status').hidden && S.settings.diarNum === '4'", 10000)   # 欄は開いている文書の人数(段7 E-6)。全体の既定はサーバーの値
     check(True, "「読み直す」で保存済みの設定が入り、印が消える")
     pg.keyboard.press("Escape")
     pg.unroute(spat)

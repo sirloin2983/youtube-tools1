@@ -58,7 +58,7 @@ function harness(respond) {
   // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・学習と精度の読み直し・題名・一覧の進み具合・パックの見積もり・
   // 校正の手間(effortStart。マスタープラン Q2)・重なりの所の空の行の候補(ovdAfterSave・loadOvd。2026-10-05)
   for (const name of ['toast', 'scheduleLearn', 'scheduleAcc', 'scheduleProgress', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
-    'effortStart', 'ovdAfterSave', 'loadOvd']) context[name] = () => {};
+    'effortStart', 'ovdAfterSave', 'loadOvd', 'fillDiarNum', 'rememberLast']) context[name] = () => {};   // 話者の人数の欄・前回の文書(段7 E-6・E-7)
   context.apiUrl = p => p;
   vm.createContext(context);
   vm.runInContext(saveSource + '\n' + openSource, context);

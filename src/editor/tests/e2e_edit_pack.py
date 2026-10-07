@@ -232,6 +232,11 @@ def _scene_streamer_build(cx):
     wait_js(pg, "(!document.querySelector('#pkLast').hidden || !document.querySelector('#pkErr').hidden) && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
     check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
     check("音量:" in pg.inner_text("#toast"), "作ったあとの知らせに音量の結果(LUFS と %): " + pg.inner_text("#toast"))
+    # 段7 E-11・E-15: 次の一手 = 知らせに [フォルダを開く]・フォーカスは「前回のパック」の「フォルダを開く」・ボタンは「作り直す(上書き)」
+    check(pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => /パックを作りました/.test(t.textContent) && [...t.querySelectorAll('.ui-toast-act')].some(b => b.textContent === 'フォルダを開く'))"),
+          "作り終えた知らせに [フォルダを開く](段7 E-11)")
+    check(wait_js(pg, "document.activeElement === document.querySelector('#pkOpen')", 5000), "作り終えたらフォーカスは「フォルダを開く」へ(段7 E-11)")
+    check(pg.inner_text("#pkBuild") == "パックを作り直す(上書き)", "前回のパックがあると、ボタンは「パックを作り直す(上書き)」(段7 E-15): " + pg.inner_text("#pkBuild"))
     packdir = os.path.splitext(v1)[0] + "_pack"
     ip = read_pack_plan(os.path.join(packdir, "create_resolve_textplus_project.lua"))
     got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]
@@ -366,16 +371,18 @@ def _scene_sub_nosub_read(cx):
 def _scene_backup_cancel_summary(cx):
     """「予備も入れる」・作っている途中の「中止」・「前回の設定」の要約(再読み込みの前後)"""
     check, errors, packdir, pg, srv, tid, v1 = cx.check, cx.errors, cx.packdir, cx.pg, cx.srv, cx.tid, cx.v1
-    # 「予備も入れる」→ EDL・予備の手順書・SRT も(上書きの確認のあと)
+    # 「予備も入れる」→ EDL・予備の手順書・SRT も(前回と同じ場所への作り直しは、上書きの確認を出さない。段7 E-15)
     pg.click("#pkSettingsBtn")
     pg.wait_for_selector("#pkBackup", state="visible")
     pg.check("#pkBackup")
     pg.click("#pkSettingsClose")
     wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
     pg.click("#pkBuild")
-    wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
-    pg.click("#owOk")
-    wait_js(pg, "document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled && document.querySelector('#pkLastPill').textContent === '前回のパック'", 120000)
+    check(wait_js(pg, "document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('#dlgOverwrite').open", 120000),
+          "前回と同じ場所への作り直しは、上書きの確認を出さずに作る(段7 E-15)")
+    # cut2resolve の案内(warningLevels が info。同じ動画のコピーを飛ばした)は知らせに積まず「前回のパック」の欄に(知らせが「中止」を隠していた)
+    check("コピーを飛ばしました" in pg.inner_text("#pkLastNotes") and "コピーを飛ばしました" not in pg.inner_text("#toast") and "案内 1 件" in pg.inner_text("#toast"),
+          "info の案内は知らせに積まず「前回のパック」の欄に: %s / %s" % (pg.inner_text("#pkLastNotes"), pg.inner_text("#toast")))
     names2 = set(os.listdir(packdir))
     stem = os.path.splitext(os.path.basename(v1))[0]
     check({stem + ".edl", stem + "_cut.srt", "予備_EDLで開く手順.txt"} <= names2 and "cut-plan.json" not in names2,
@@ -392,9 +399,7 @@ def _scene_backup_cancel_summary(cx):
     pg.click("#pkSettingsClose")
     wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
     pg.click("#pkBuild")
-    wait_js(pg, "document.querySelector('#dlgOverwrite').open", 20000)
-    pg.click("#owOk")
-    errors[:] = [e for e in errors if "409" not in e]   # 前のパックがあるときの 409(上書きの確認)はブラウザがエラーとして記録する(想定どおり)
+    wait_js(pg, "document.querySelector('#pkBuild').disabled", 5000)   # 作り始めた(確認のダイアログが無くなったので、押した直後はまだ前の状態のことがある)
     wait_js(pg, "!document.querySelector('#pkJob').hidden || !document.querySelector('#pkBuild').disabled", 20000)
     if pg.is_visible("#pkJob [data-act=pkcancel]"):
         pg.click("#pkJob [data-act=pkcancel]")
@@ -403,6 +408,7 @@ def _scene_backup_cancel_summary(cx):
         check("中止" in t or "パックを作りました" in t, "作っている途中の「中止」: %s" % t)
     else:
         check(True, "(中止を押す前に作り終わった)")
+    errors[:] = [e for e in errors if "409" not in e]   # 前のパックがあるときの 409(同じ場所なら確認なしで force で作り直す)はブラウザがエラーとして記録する(想定どおり)
     pg.click("#pkSettingsBtn")
     pg.wait_for_selector("#pkRender", state="visible")
     pg.uncheck("#pkRender")

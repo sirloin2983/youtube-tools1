@@ -8,7 +8,8 @@ const PREVIEW_DELAY = 600;
 
 function create(h){
   const $ = h.$, esc = h.esc;
-  const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null };
+  const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null,
+    notes: [], focusOpen: false };   // notes = 作ったときの案内(info。知らせに積まず「前回のパック」に出す)・focusOpen = 作り終えたら「フォルダを開く」へフォーカス(段7 E-11)
   /* 素材の fps(2 カット のタブが読んだ値。分からなければ 0)。素材は 30fps にそろえる(2026-10-04 ユーザー決定。マスタープラン Q1)ので、
      素材がちょうど 30fps か分からないときは、プロジェクトの fps は 30 固定で選ばせない(保存してある packFps = 60 は使わない・消さない)。
      30fps でない古い文書のときだけ、今までの選択(30/60・その他)と 60↔30 の注意を出す */
@@ -152,7 +153,7 @@ function create(h){
 
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
   async function load(docId){
-    Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', err: '', readme: '', lastRes: null });
+    Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', err: '', readme: '', lastRes: null, notes: [], focusOpen: false });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
     if (window.UIKit && UIKit.streamer){
       const old = docId ? whoFor(docId) : '';
@@ -263,18 +264,19 @@ function create(h){
     if (hasRows && pv && pv.vanished) warns.push(`削る区間に入って消える字幕が ${pv.vanished} 件あります(削った行の字幕は入りません)`);
     const w = $('#pkWarn'); w.hidden = !warns.length; w.classList.toggle('old', !fresh);
     w.innerHTML = warns.slice(0, 6).map((x, i) => `<li>${!fresh && i === 0 ? '<span class="hint">(前の設定での見積もり)</span> ' : ''}${esc(x)}</li>`).join('');
-    // 作る
-    const stale = isStale(), diffs = P.pack ? outputDiff(P.pack.output, o) : null, differ = !!(diffs && diffs.length);
+    // 作る(前回のパックと同じ場所なら「作り直す(上書き)」= 上書きの確認を出さない。出力先を変えたら新しく作る。段7 E-15)
+    const why = staleWhy(), stale = why.length > 0, diffs = P.pack ? outputDiff(P.pack.output, o) : null, differ = !!(diffs && diffs.length);
     const btn = $('#pkBuild');
     btn.disabled = !!b || P.building;
-    btn.textContent = P.building ? 'パックを作っています…' : P.pack ? 'パックを作り直す' : 'パックを作る';
+    btn.textContent = P.building ? 'パックを作っています…' : P.pack && !$('#pkDir').value.trim() ? 'パックを作り直す(上書き)' : 'パックを作る';
     const bk = $('#pkBackup'); bk.disabled = !hasRows; if (!hasRows) bk.checked = true;
     $('#pkBackupHint').textContent = hasRows ? 'スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません'
       : '字幕が無いパックは EDL が本体なので、いつも入ります(Text+ のスクリプトは作りません)';
-    $('#pkBuildHint').textContent = P.building ? '' : b ? '' : !hasRows ? '字幕が無いので Text+ は作りません(EDL と元の動画のコピー)' : stale ? '前回のパックのあとにカットか字幕を直しています。作り直すと今の内容になります' : differ ? '前回のパックと設定が違います。作り直すと今の設定になります(できているファイルはそのまま)' : '作成中は進み具合と「中止」が出ます';
+    $('#pkBuildHint').textContent = P.building ? '' : b ? '' : !hasRows ? '字幕が無いので Text+ は作りません(EDL と元の動画のコピー)' : stale ? `前回のパックのあとに、${why.join('・')}。作り直すと今の内容になります(同じ場所に上書きします)` : differ ? '前回のパックと設定が違います。作り直すと今の設定になります(できているファイルはそのまま)' : '作成中は進み具合と「中止」が出ます';
     const er = $('#pkErr'); er.hidden = !P.err; er.textContent = P.err ? 'パックを作れませんでした: ' + P.err : '';
     $('#pkDir').placeholder = '空欄なら 動画の隣の「' + defaultDirName() + '」';
-    renderJob(); renderLast(stale, diffs);
+    renderJob(); renderLast(why, diffs);
+    if (P.focusOpen && !P.building){ P.focusOpen = false; const ob = $('#pkOpen'); if (!ob.hidden && ob.offsetParent) ob.focus(); }   // 作り終えたら次に押す所へ(段7 E-11。押したボタンは作っている間は押せず、フォーカスが落ちていた)
     // zip(4-4): 渡らない設定を書く。字幕の無い文書は zip にできない(zip はいつも Text+ あり。契約テストの ZipSkipsContract)
     $('#pkZipNote').textContent = '残す区間(2 カット のタブ)・字幕・予備・fps・大きさ・字幕の文字数・配信者と話者の色は、上の「パックを作る」と同じです。粗編集の動画・音量の調整・開始タイムコード・リール名は zip には入りません(使うのは入口から「パックを作る」)。';
     const skipped = hasRows ? zipSkipped(o) : [], zw = $('#pkZipWarn');
@@ -311,19 +313,26 @@ function create(h){
     const merged = []; for (const [a, b] of keeps){ const l = merged[merged.length - 1]; if (l && a <= l[1] + 1e-6) l[1] = b; else merged.push([a, b]); }
     box.innerHTML = merged.slice(0, 400).map(([a, b]) => `<i style="left:${a / sm.durSec * 100}%;width:${Math.max(0.3, (b - a) / sm.durSec * 100)}%"></i>`).join('');
   }
-  function isStale(){
-    const pk = P.pack; if (!pk || !h.CUT) return false;
-    const cs = h.CUT.state();
-    return pk.rev !== cs.rev || (Number(h.S.baseUpdatedAt) || 0) > (Number(pk.docUpdatedAt) || 0) || cs.dirty;
+  /* 前回のパックのあとに変わったこと = 作り直しが要る理由(段7 E-20)。カット(rev が違う・まだ保存していない変更)と字幕(文字起こしの保存 = docUpdatedAt より新しい)。
+     出力の設定の違いは outputDiff(札は「設定が違う」・理由は「設定が変わった」)。-> 理由の文の並び(空 = 作り直しは要らない) */
+  function staleWhy(){
+    const pk = P.pack; if (!pk || !h.CUT) return [];
+    const cs = h.CUT.state(), why = [];
+    if (pk.rev !== cs.rev || cs.dirty) why.push('カットが変わった');
+    if ((Number(h.S.baseUpdatedAt) || 0) > (Number(pk.docUpdatedAt) || 0)) why.push('字幕が変わった');
+    return why;
   }
+  const isStale = () => staleWhy().length > 0;
+  const sameDir = (a, b) => { const n = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); return !!a && n(a) === n(b); };   // Windows のパス(大文字小文字・区切り)をそろえて比べる
   const KIND = n => /\.(lua|bat|ps1|drb)$|^textplus-import\.json$/i.test(n) ? 'Text+ のスクリプト' : /_roughcut\.mp4$/i.test(n) ? '粗編集の動画' : /\.(edl|srt)$/i.test(n) ? '予備のカット・字幕'
     : /(友人へ|手順)|^cut-plan\.json$/.test(n) ? '手順書・カットの記録' : /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(n) ? '元の動画のコピー' : 'その他';
-  function renderLast(stale, diffs){
+  function renderLast(why, diffs){
     const pk = P.pack, box = $('#pkLast');
     box.hidden = !pk; if (!pk) return;
-    const differ = !!(diffs && diffs.length);
+    const differ = !!(diffs && diffs.length), stale = why.length > 0, reasons = why.concat(differ ? ['設定が変わった'] : []);
     const pill = $('#pkLastPill'); pill.className = 'pill ' + (stale || differ ? 'warn' : 'ok'); pill.textContent = stale ? '作り直しが要る' : differ ? '設定が違う' : '前回のパック';
-    $('#pkLastWhen').textContent = `${h.ago(pk.at)}${stale ? ' ・ カットか字幕が変わっています → 作ると作り直し(上書きの確認あり)' : ''}`;
+    $('#pkLastWhen').textContent = `${h.ago(pk.at)}${reasons.length ? ` ・ 作り直しが要る理由: ${reasons.join('・')}(「パックを作り直す(上書き)」で同じ場所に作り直します)` : ''}`;   // 段7 E-15・E-20
+    const nt = $('#pkLastNotes'); nt.hidden = !P.notes.length; nt.innerHTML = P.notes.map(x => `<li>${esc(x)}</li>`).join('');   // 作ったときの案内(info)
     // 作ったときの出力の設定との違い(4-3。監査 08)。カット・字幕の変更(stale)とは別の文で出す(直す場所が違う)
     const dv = $('#pkLastDiff'); dv.hidden = !(differ || !diffs);
     dv.innerHTML = !diffs ? '<span class="hint">作ったときの設定の記録がありません(この版より前か、まとめて実行で作ったパック)。今の設定との違いは出せません</span>'
@@ -371,7 +380,8 @@ function create(h){
           P.job = null; renderJob();
           if (e.code === 'exists' && !force){
             const dd = e.data || {};
-            if (!(await h.confirmOverwrite(dd.files || [], dd.dir || ''))) return;
+            /* 前回この文書のパックを作った場所(P.pack.dir)への作り直しは確認を省く(段7 E-15)。ほかの物がある場所だけ、何を上書きするかを見せて聞く */
+            if (!(P.pack && sameDir(dd.dir, P.pack.dir)) && !(await h.confirmOverwrite(dd.files || [], dd.dir || ''))) return;
             force = true; continue;
           }
           throw e;
@@ -383,11 +393,18 @@ function create(h){
       P.pack = { rev, at: r.at, docUpdatedAt: Number(docAt) || 0, dir: res.outDir, files: files.map(n => n.split(/[\\/]/).pop()), output: o };
       P.readme = res.readme || ''; P.lastRes = res;
       h.onPacked(id, { rev, at: r.at });
-      for (const w of (res.warnings || []).slice(0, 2)) h.toast(w, 6000);
+      /* 注意(warn)は今までどおり知らせに(2 件まで)。ただの案内(info。cut2resolve の warningLevels = 「コピーを飛ばしました」など)は知らせに積まず
+         「前回のパック」の欄に出す(知らせが重なると、次に作るときの「中止」まで隠していた) */
+      const lv = Array.isArray(res.warningLevels) ? res.warningLevels : [], ws = res.warnings || [];
+      P.notes = ws.filter((w, i) => lv[i] === 'info').slice(0, 6);
+      for (const w of ws.filter((w, i) => lv[i] !== 'info').slice(0, 2)) h.toast(w, 6000);
       const lo = res.loudness, pct = g => Math.round(100 * Math.pow(10, Number(g) / 20)), sg = g => (g >= 0 ? '+' : '') + Number(g).toFixed(1);
       const loudMsg = lo && lo.measured != null ? `音量: ${Number(lo.measured).toFixed(1)} → ${(Number(lo.measured) + Number(lo.gainDb)).toFixed(1)} LUFS(元の約 ${pct(lo.gainDb)}%・${sg(lo.gainDb)} dB${Number(lo.measured) + Number(lo.gainDb) < lo.target - 0.2 ? '。音が割れる・雑音が大きくなるのを避けるため、目標の手前で止めました' : ''})。`
         : lo && lo.volume && lo.gainDb != null ? `音量: 元の ${lo.volume}%(${sg(lo.gainDb)} dB)。` : '';
-      h.toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所)。${loudMsg}「Resolve での手順を見る」の手順で取り込みます`, 8000, 'ok');
+      const nNote = P.notes.length ? `・案内 ${P.notes.length} 件は「前回のパック」の欄に` : '';
+      h.toast(`パックを作りました(残す区間 ${Number(res.summary && res.summary.count) || 0}か所${nNote})。${loudMsg}「Resolve での手順を見る」の手順で取り込みます`,
+        { ms: 8000, kind: 'ok', action: h.c2rBase() ? { label: 'フォルダを開く', fn: openFolder } : null });   // 次の一手(段7 E-11)
+      P.focusOpen = true;
     } catch (e){
       if (e.code === 'cancelled') h.toast('パック作りを中止しました', 3000);
       else if (e.code !== 'switched') P.err = e.code === 'busy' ? 'cut2resolve で別の処理が動いています。終わってから、もう一度押してください' : e.message;
@@ -435,10 +452,11 @@ function create(h){
     if (!e.target.closest('[data-act=pkcancel]') || !P.job) return;
     try { await h.c2rApi('api/job/cancel', { body: { id: P.job.id } }); } catch (er){ h.toast(er.message, 4000, 'err'); }
   });
-  $('#pkOpen').addEventListener('click', async () => {
+  async function openFolder(){   // 前回のパックのフォルダ(「フォルダを開く」と、作り終えた知らせのボタン)
     if (!P.pack) return;
     try { await h.c2rApi('api/open-folder', { body: { path: P.pack.dir } }); } catch (er){ h.toast('フォルダを開けませんでした: ' + er.message, 5000, 'err'); }
-  });
+  }
+  $('#pkOpen').addEventListener('click', openFolder);
   /* 友人へ届ける: パックのフォルダを zip にして Dropbox の 出力 に置く(入口の api/ytt/deliver → home/deliver.py。① 全自動と同じ作り方)。
      友人のアプリの「受け取る」に出る = 外へ出す操作なので確認してから。数 GB の zip は時間がかかるので、仕事の状態を聞き直す */
   const sleep = ms => new Promise(r => setTimeout(r, ms));

@@ -59,6 +59,7 @@ def _sub_color(v):
 
 
 SUB_STYLE_KEYS = {"color": _sub_color}   # 鍵 → 検査(値を返す・だめなら None)。足すときはここに 1 行
+DIAR_NUM_MAX = 8   # 文書の diarNum(話者判別の人数)の上限。画面の #diarNum の選択肢(自動・1〜8 人)と同じ
 
 
 def sanitize_sub_style(v):
@@ -499,6 +500,21 @@ def add_effort(obj):
         doc["effort"] = ef
         write_doc(tid, doc)
         return {"effort": ef}
+
+
+def set_diar_num(obj):
+    """POST /api/doc-diarnum {"id", "diarNum"} -> {"diarNum"}。文書ごとの話者判別の人数(0 = 自動・1〜8 人。気が利く画面へ 段7 E-6)。
+    画面が選んだときだけ送る(開いたときの既定 = その文書の話者の数は画面が決める)。**文書の updatedAt は変えない**
+    (人数を選んだだけで保存の競合 409・パックの「作り直しが要る」を起こさない。校正の手間 add_effort と同じ)。画面の保存(PUT)は前の値を残す"""
+    n = obj.get("diarNum")
+    if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n <= DIAR_NUM_MAX:
+        raise ed_state.ApiError("bad_request", "diarNum は 0〜%d の整数にしてください" % DIAR_NUM_MAX, 400)
+    tid = str(obj.get("id") or "")
+    with _save_lock:
+        doc = read_transcript(tid)   # id の形もここで確かめる(TID_RE)
+        doc["diarNum"] = n
+        write_doc(tid, doc)
+        return {"diarNum": n}
 
 
 # ---------- 編集の内容(残す区間。「編集」ツールのカットの正。docs/design/edit-tool-design.md の 4・5) ----------

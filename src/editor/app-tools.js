@@ -229,7 +229,7 @@ function closeDoc(){
   $('#doc').hidden = true; $('#noDoc').hidden = false; $('#conflictBar').hidden = true; $('.app').classList.remove('has-doc');
   setUrlDoc(null);
   S.mediaSeq = (S.mediaSeq || 0) + 1; player().removeAttribute('src'); player().load();
-  renderList(); updateDocTitle();
+  renderList(); updateDocTitle(); renderResume();
 }
 
 /* ---------- 検索・話者・置換 ---------- */
@@ -480,7 +480,8 @@ async function lookupClip(path){
 /* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
    ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。docs/spec/pipeline.md 3)。
    読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
-function showMediaChoice(){ $('#mediaChoice').hidden = false; }
+/* まだ文書の無い動画の「文字起こしをする / 文字起こしせずに開く」。主ボタンにフォーカスを置く(次に押す所。段8 E-27) */
+function showMediaChoice(){ $('#mediaChoice').hidden = false; requestAnimationFrame(() => { const b = $('#mcTx'); if (b && b.offsetParent) b.focus({ preventScroll: true }); }); }
 
 function takeUrlParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return false; }
@@ -713,6 +714,15 @@ function onCutMarks(changed){
   if (changed.length){ renderCutPack(); syncListItem(); if ($('#flagKind').value === 'cut') applyFilter(); }
   if (changed.length) scheduleRead();   // カット済の行は読む速さの印の対象外(札と件数を合わせる。2026-10-05)
   renderDocBar();
+}
+
+/* 2 カット の字幕の無い案内のボタン(段7 E-14): 1 文字起こし のタブへ移り、「この動画を文字起こしする」(行 0 の文書は「もう一度文字起こしする」)にフォーカス */
+function goTxInto(){
+  setEditTab('tx');
+  requestAnimationFrame(() => {
+    const b = [$('#btnTxInto'), $('#btnTxAgain')].find(x => x && x.offsetParent && !x.disabled) || document.querySelector('[data-edtab="tx"]');
+    if (b) b.focus();
+  });
 }
 
 /* 保存できたら、サーバーが付けた行の印(cutRows)で合わせ直す(規則は同じなので、ふつうは変わらない) */

@@ -142,6 +142,7 @@ async function openDoc(id, keep){
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
+  fillDiarNum(); rememberLast();   // 話者の人数はこの文書の値(段7 E-6)・前回の文書とタブを覚える(E-7)
   if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep){ window.scrollTo(0, scrollY); if ($('.tx-list')) $('.tx-list').scrollTop = listY; }
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) ensureVisible(row, 0.5); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
@@ -486,9 +487,14 @@ function segHTML(s, i, T = rowTitles()){
 
 function renderDoc(){
   const segs = S.doc.segments, untranscribed = !segs.length && !S.doc.model;   // 文字起こしせずに開いた文書(model が空)
-  $('#noRows').hidden = !untranscribed; renderIntoState();
+  $('#noRows').hidden = !untranscribed;
   const T = rowTitles();
-  $('#segs').innerHTML = segs.length ? segs.map((s, i) => segHTML(s, i, T)).join('') : untranscribed ? '' : '<div class="empty">文字が認識されませんでした(音声がない、または小さすぎる可能性があります)<div style="margin-top:10px"><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div></div>';
+  /* 文字起こししたのに行が 0 の文書(段7 E-14): もう一度この文書に文字起こし(#btnTxInto と同じ intoDoc)か、手で行を足す */
+  $('#segs').innerHTML = segs.length ? segs.map((s, i) => segHTML(s, i, T)).join('') : untranscribed ? '' : '<div class="empty tt-norec"><b>文字が認識されませんでした</b>'
+    + '音声がない、または小さすぎる可能性があります。設定を変えてもう一度文字起こしするか、行を足すと、ここに出ます'
+    + '<div class="row tt-norec-btns"><button type="button" class="btn small primary" id="btnTxAgain" data-act="txagain">もう一度文字起こしする</button><button type="button" class="btn small" data-act="addfirst">＋行を追加(再生位置に)</button></div>'
+    + '<span class="hint">認識の設定は、メニューの「新規」のものを使います(「声の検出」を「なし」にすると拾えることがあります)</span></div>';
+  renderIntoState();   // 「この動画を文字起こしする」・「もう一度文字起こしする」の押せる/押せない
   UIKit.timebox.attachAll($('#segs'));   // 行の時刻の欄(分:秒.0.1秒。数字だけで入れる・← → で場所・↑ ↓ で動かす。ui-kit v11)
   autoSizeAll(true);
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
@@ -815,8 +821,33 @@ function tagCur(t){ const c = rowAndSeg(); if (c) toggleTag(c.g, t, c.row); }   
 
 function proofOk(){   // 校正済みにして、次の行へ(すでに校正済みなら、次へ進むだけ)
   const c = rowAndSeg(); if (!c) return toast('先に、行を選んでください(↓ で最初の行へ)');
+  const before = unproofedCount();
   if (!c.g.proofed){ setProof(c.g, true, c.row); markDirty(); updatePfStat(); }
-  const ni = findRow(c.i, 1); if (ni >= 0) gotoRow(ni, { play: V.autoNext }); else toast('最後の行です(表示している行は、すべて確認しました)');
+  const ni = findRow(c.i, 1); if (ni >= 0) gotoRow(ni, { play: V.autoNext });
+  if (proofNext(before) || ni >= 0) return;
+  /* 最後の行(S-17): 未校正が残っていれば数と [最初の未校正へ]。以前は残っていても「すべて確認しました」と出ていた */
+  const n = unproofedCount();
+  if (n) toast(`最後の行です。まだ未校正の行が ${n} 行あります`, { ms: 8000, action: { label: '最初の未校正へ', fn: gotoFirstUnproofed } });
+  else toast('最後の行です。すべての行を校正済みにしました', { ms: 8000, kind: 'ok', action: { label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) } });
+}
+
+/* 未校正の行(文字のある行で、校正済みでない)の数 */
+function unproofedCount(){ return S.doc ? S.doc.segments.filter(g => !g.proofed && String(g.text || '').trim()).length : 0; }
+
+/* 校正済みにした操作で、未校正が 0 になった(before > 0 → 0)ら知らせて [2 カットへ](次の一手。段7 S-17)-> 知らせたか */
+function proofNext(before){
+  if (!(before > 0) || unproofedCount() > 0) return false;
+  toast('すべての行を校正済みにしました。次はカットを決めます', { ms: 8000, kind: 'ok', action: { label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) } });
+  return true;
+}
+
+/* 最初の未校正の行へ(絞り込みで隠れていれば絞り込みを外す) */
+function gotoFirstUnproofed(){
+  if (!S.doc) return;
+  const i = S.doc.segments.findIndex(g => !g.proofed && String(g.text || '').trim()); if (i < 0) return;
+  const row = rowsEl()[i];
+  if (row && row.hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); }
+  gotoRow(i, { center: true, play: V.autoNext });
 }
 
 function deleteCur(){
