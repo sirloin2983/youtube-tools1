@@ -2447,3 +2447,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: build.bat OK(node 7 件・zip は 3 ファイル: yt-studio-time/main.js・manifest.json・README.txt)。zip の中の区切りは Compress-Archive の癖でバックスラッシュ(friend-apps の zip と同じ。Windows の展開では問題ない)。main.js は変えていない(e2e は前の記録のまま)
 - 未完了・次: ユーザーが自分の Chrome で本物の Studio に入れて時刻が出るか確かめる → 出たら `dist\YtStudioTime.zip` を友人へ。出なければ README の「出ないとき」の記録を見る
 - 未コミット: なし(このコミットで全部。push はユーザー)
+
+## 2026-10-08 Claude Code(PC。Fable。並行セッション「送るツール競合対応と一括受け取り機能」)— ホーム 0.46.1: 友人の「要らない」でスタジオのマークを変えない(記録だけ残す)
+- ユーザー指示: 「スタジオのマークは不採用にしなくてもいい。理由はこちらが友人に送るための基準と友人が実際に採用する基準が異なるから。ただ不採用の記録としては持っておきたい」
+- 変更(`src/home/`): `friend_feedback.apply` から studio を外し、`cases.discard_clip` を mark_id 空で呼ぶ(切り抜きの動画・パックは ごみ箱 へ。マークはそのまま)。記録 `logs/friend_feedback.jsonl` の packs に `markId` を残す(配信 id と合わせて、あとで精度の道具が読める形)。
+  一覧の文「スタジオのマークを不採用 n 本」→「スタジオのマークはそのまま。記録は friend_feedback.jsonl」。`launch.py` の配線から `studio=` を外す。`cases.discard_clip`・`intake._handle_feedback` の説明文
+- 版: ホーム 0.46.0 → 0.46.1(`launch.py`・README)
+- テスト: `test_friend_feedback`(FakeStudio と「スタジオが落ちていたら戻す」のテストを外し、markId の記録を確かめる 4 件)・`test_intake`・`test_launch`・`test_cases` OK。lint 0。画面は変えていない(e2e・ui_audit は 0.46.0 のまま)
+- 文書: `docs/spec/friend-intake.md` 2-14・`plan/decisions.md` (dq) に → と **(dt)**・`plan/data.js`(版・⑩・別件・U8・U6)→ 公開ページ version 26・`docs/HANDOVER.md`・`src/home/README.txt` v0.46.1
+- 決定・理由: マークの採用の記録(線 C の「採用の記録 配信 10 本」)はこちらの送る基準の記録なので、友人の採否で上書きしない。友人の不採用は別の記録として持つ。マークに印を付けて画面で見せるのは要望が出てから((dt))
+- 未完了・次: ユーザーが入口を 0.46.1 で起動し直す → 2.6.0 の zip を友人へ(U8)
+- 注意: 友人の「要らない」で移した切り抜きは、案件の一覧に「動画が見つからない」の札で出る(3 日の片付けで元動画を移したときと同じ見え方)。気になれば印を付ける直し((dt)の保留)を

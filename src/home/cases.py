@@ -498,7 +498,8 @@ def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
     """切り抜き 1 本ぶん(動画・パック・途中のファイル)を ごみ箱フォルダ へ移し、スタジオのマークを不採用に(画面と同じ PUT /api/video)。
     マークを不採用にできなければ移したものを元に戻す(パックだけ消えてマークが残る、を作らない)。mark_id が空(スタジオのマークが無い
     = 友人の動画の依頼のパック)なら移すだけ。-> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
-    M9 の「要らない」(_discard)と友人の「要らない」(src/home/friend_feedback.py)が同じ道を使う"""
+    M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/home/friend_feedback.py)は mark_id を空で呼んでマークを変えない
+    (友人の採用の基準はこちらの送る基準と別。2026-10-08 ユーザー決定)"""
     pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
     moved, where = _to_trash(trash, media, pack)
     st = None

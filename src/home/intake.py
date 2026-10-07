@@ -538,7 +538,7 @@ class Intake:
 
     def _handle_feedback(self, folder, n, p):
         """友人のアプリの「要らない」(<zip の名前>.feedback.json。アプリ 2.6.0)。中身を friend_feedback.parse で確かめ、self.feedback(入口の
-        friend_feedback.apply = 届けた記録から切り抜きとパックを ごみ箱 へ・スタジオのマークを不採用に)に渡す。結果は一覧に kind "feedback" で残し、
+        friend_feedback.apply = 届けた記録から切り抜きとパックを ごみ箱 へ・記録を残す。スタジオのマークは変えない)に渡す。結果は一覧に kind "feedback" で残し、
         ファイルは 受付済み へ(片付けられなかったときは 失敗 へ。友人には知らせない = もう消したあとなので)"""
         try:
             fb = friend_feedback.parse(friend_feedback.read_text(p))
