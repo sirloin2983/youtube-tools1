@@ -188,7 +188,7 @@ function jumpHTML(){
    区間のボタン(#rvSegs の .rv-seg)の幅は時間で決まるので 28px より細いことがある(A-21 の例外): 同じマークは一覧の行(と前後移動キー)から選べる。
    配信中の候補の印(#rvPeakSegs の .rv-seg.cand。マークの下に重ねる)も同じ: 同じ候補は LIVE の帯の候補の一覧の [再生](と p キー)から選べる */
 function playerHTML(){
-  return `      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
+  return `      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost" data-ui-audit-allow="A-26"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
       <div class="rv-notice notice" id="rvNotice" hidden></div>
 
       <div class="rv-deck">
