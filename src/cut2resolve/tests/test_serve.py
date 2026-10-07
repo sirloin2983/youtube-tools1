@@ -561,6 +561,12 @@ class TestJobs(ServerBase):
         self.assertIn("clip.edl", names)
         self.assertIn("予備_EDLで開く手順.txt", names)
         self.assertIn("clip_cut.srt", names)
+        self.assertIn("clip.mp4", names)
+        # E-15: 前に写した同じ動画(大きさ・更新日時)はコピーを飛ばし、注意に 1 行(ただの案内 = info)
+        r = j["result"]
+        skip = serve.C.COPY_SKIPPED.format("clip.mp4")
+        self.assertIn(skip, r["warnings"])
+        self.assertEqual(r["warningLevels"][r["warnings"].index(skip)], "info")
         self.assertFalse((out / "textplus-import.json").exists())
         self.assertFalse((out / "cut-plan.json").exists())
         # 配信者の名前 → 文字の色(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。照らし合わせは ytt_core/colors.py。見つからなければ 400

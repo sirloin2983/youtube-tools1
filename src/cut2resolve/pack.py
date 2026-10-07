@@ -691,10 +691,13 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             if gain:
                 _say(log, task, "音量をそろえて(%+.1f dB)元動画を写しています…" % gain)
                 C.copy_video_gain(mvideo, tmp, gain, task, mmeta.get("duration"), meta=mmeta)
-            else:
+            else:   # 前に写した同じ動画(大きさ・更新日時が同じ)が置き場所にあれば写さない(E-15。音量をかけるときは作り直すので対象外)
                 _say(log, task, "元動画をコピーしています…")
-                C.copy_video(mvideo, out_dir, task, dst=tmp)
-            staged.append((tmp, paths["video"], "video"))
+                tmp = C.copy_video(mvideo, out_dir, task, dst=tmp, final=paths["video"])
+            if tmp:
+                staged.append((tmp, paths["video"], "video"))
+            else:
+                warnings.append(C.COPY_SKIPPED.format(paths["video"].name))
         if task:
             task.check()
         extras = []

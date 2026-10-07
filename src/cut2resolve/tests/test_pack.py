@@ -993,6 +993,72 @@ class TestPackWithFfmpeg(unittest.TestCase):
         self.assertFalse((r["out_dir"] / "media").exists())
         self.assertNotIn("media", guide)
 
+    # ---- E-15: 前に写した同じ動画(大きさ・更新日時が秒単位で同じ)はコピーを飛ばす。中身は読まない
+    T0 = 1_700_000_000_250_000_000   # 元の動画の更新日時(ns。秒の途中 = .25 秒)
+
+    def _copied_pack(self, name):
+        """元の動画の更新日時を T0 にして、動画を写したパックを作る -> (計画, フォルダ, パックの動画)"""
+        os.utime(self.video, ns=(self.T0, self.T0))
+        plan = pack.plan_cut(pack.Request(video=self.video))
+        out = self.dir / name
+        res = pack.build_pack(plan, out, copy_video=True)
+        self.assertNotIn(C.COPY_SKIPPED.format("clip.mp4"), res["warnings"])
+        return plan, out, out / "clip.mp4"
+
+    def _fake(self, dst, size, mtime_ns):
+        """パックの動画を、中身の違う(0 で埋めた)ファイルにする。写し直したかを中身で見分ける"""
+        dst.write_bytes(b"\0" * size)
+        os.utime(dst, ns=(mtime_ns, mtime_ns))
+        return dst.read_bytes()
+
+    def test_copy_skips_same_video(self):
+        plan, out, dst = self._copied_pack("again")
+        st = dst.stat()
+        self.assertEqual((st.st_size, st.st_mtime_ns), (self.video.stat().st_size, self.T0))   # 写したら更新日時も元に合わせる
+        fake = self._fake(dst, st.st_size, self.T0 + 600_000_000)        # 同じ秒の中(.85 秒)・同じ大きさ・中身は違う
+        res = pack.build_pack(plan, out, copy_video=True, force=True)
+        self.assertEqual(dst.read_bytes(), fake)                          # 写していない(中身は読まない = 比べ方の限界)
+        self.assertEqual(res["warnings"][-1], C.COPY_SKIPPED.format("clip.mp4"))   # 注意に 1 行(ほかの注意の後ろ)
+        self.assertEqual(dict(res["files"])["video"], dst)                # 結果のファイルの一覧には入る
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["clip.edl", "clip.mp4", "cut-plan.json", "友人へ.txt"])   # 一時ファイルを残さない
+
+    def test_copy_again_when_size_or_mtime_differs(self):
+        plan, out, dst = self._copied_pack("diff")
+        src = self.video.read_bytes()
+        for size, mtime in ((len(src) + 1, self.T0), (len(src), self.T0 + 1_000_000_000), (len(src), self.T0 - 300_000_000)):
+            self._fake(dst, size, mtime)                                  # 大きさが違う / 次の秒 / 前の秒(.95 秒)
+            res = pack.build_pack(plan, out, copy_video=True, force=True)
+            self.assertEqual(dst.read_bytes(), src, (size, mtime))        # 写し直した
+            self.assertEqual(dst.stat().st_mtime_ns, self.T0)
+            self.assertNotIn(C.COPY_SKIPPED.format("clip.mp4"), res["warnings"])
+
+    def test_copy_with_volume_is_not_skipped(self):
+        """音量をかけるとき(音声を作り直す copy_video_gain)は、同じ動画が置いてあっても飛ばさない"""
+        plan, out, dst = self._copied_pack("vol")
+        self.assertTrue(C.same_copy(self.video, dst))
+        res = pack.build_pack(plan, out, copy_video=True, force=True, volume=50)
+        self.assertEqual(res["loudness"]["volume"], 50)
+        self.assertNotEqual(dst.read_bytes(), self.video.read_bytes())    # 音量をかけて作り直した
+        self.assertNotIn(C.COPY_SKIPPED.format("clip.mp4"), res["warnings"])
+
+    def test_copy_video_direct_and_same_copy(self):
+        """copy_video を直接呼ぶ道(auto_cut.py --copy-video)も同じ決まり。same_copy は無い・フォルダなら False"""
+        d = self.dir / "direct"
+        d.mkdir()
+        self.assertEqual(C.copy_video(self.video, d), d / "clip.mp4")    # 無ければ写す
+        self.assertIsNone(C.copy_video(self.video, d))                    # 2 回目は写さない
+        self.assertEqual(C.copy_video(self.video, d, dst=self.video), self.video)   # 元と同じ場所は今までどおり(写さずにそのパス)
+        self.assertFalse(C.same_copy(self.video, d / "none.mp4"))
+        self.assertFalse(C.same_copy(self.video, d))
+        self.assertFalse(C.same_copy(d / "none.mp4", d / "clip.mp4"))
+        meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
+        plan = AC.build_plan([{"id": "m1", "label": "", "start_seconds": 1, "end_seconds": 2}], meta, 0.5)
+        out = self.dir / "ac"
+        AC.write_package(self.video, out, meta, plan, None, "00:00:00:00", copy_video=True)
+        with mock.patch("builtins.print") as p:
+            AC.write_package(self.video, out, meta, plan, None, "00:00:00:00", copy_video=True, force=True)
+        p.assert_called_once_with("注意: " + C.COPY_SKIPPED.format("clip.mp4"))
+
     def test_cancel_during_copy_leaves_nothing(self):
         plan = pack.plan_cut(pack.Request(video=self.video))
         task = C.Task()

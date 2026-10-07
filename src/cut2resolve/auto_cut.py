@@ -215,7 +215,9 @@ def write_package(video, out_dir, meta, plan, cues_out, src_start, copy_video=Fa
     C.validate_output_paths(paths, force, protected=(video,) + tuple(protected))
     t0 = C.tc_to_frames(src_start, C.nominal_rate(meta["fps"]))   # 書き始める前に確かめる
     out_dir.mkdir(parents=True, exist_ok=True)
-    xml_video = C.copy_video(video, out_dir) if copy_video else video
+    xml_video = video_out if copy_video else video
+    if copy_video and C.copy_video(video, out_dir) is None:   # 前に写した同じ動画(大きさ・更新日時)があれば写さない(E-15)
+        print("注意: " + C.COPY_SKIPPED.format(video_out.name))
     S.write_text_atomic(edl, C.build_edl(video.stem, video.name, keeps, meta["fps"], bool(meta["audio"]),
                                          src_start=src_start), encoding="utf-8", newline="")
     S.write_text_atomic(fcpxml, build_cut_fcpxml(xml_video, meta, keeps, cues_out, t0), encoding="utf-8", newline="\n")

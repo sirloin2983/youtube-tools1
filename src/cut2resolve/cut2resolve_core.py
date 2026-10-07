@@ -17,6 +17,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -30,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.22.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.22.1"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -760,12 +761,32 @@ def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
     return dst
 
 
-def copy_video(video, out_dir, task=None, dst=None):
-    """元動画を出力フォルダへコピーする(一時ファイル経由。途中で止めても書きかけを残さない)。task で進み具合と取り消し"""
+COPY_SKIPPED = "動画 {} は前に写したものと同じ(大きさ・更新日時が元の動画と同じ)なので、コピーを飛ばしました。"
+
+
+def same_copy(src, dst):
+    """dst を src の写しとみなせるか: 普通のファイルで、大きさと更新日時(秒単位)が同じ(rsync の既定の比べ方と同じ)。
+    中身は読まない(数 GB の動画を読み比べると、写し直すのと同じくらい時間がかかるため)。copy_video は写したあと更新日時を
+    元に合わせるので、前に写した動画はこれで分かる。どちらかが無い・読めないときは False(写す側に倒す)"""
+    try:
+        a, b = os.stat(src), os.stat(dst)
+    except OSError:
+        return False
+    sec = 1_000_000_000
+    return stat.S_ISREG(b.st_mode) and a.st_size == b.st_size and a.st_mtime_ns // sec == b.st_mtime_ns // sec
+
+
+def copy_video(video, out_dir, task=None, dst=None, final=None):
+    """元動画を出力フォルダへコピーする(一時ファイル経由。途中で止めても書きかけを残さない)。task で進み具合と取り消し。
+    更新日時などは元に合わせる(copystat)。final: 最後に置く場所(dst が一時の名前で、呼ぶ側があとで付け替えるとき。pack.build_pack)。
+    final(無ければ dst)が元と same_copy なら写さない(同じ動画でパックを作り直すとき、数 GB を毎回写さない。E-15)。
+    -> 写した先(dst)。写さなかったときは None(呼ぶ側が COPY_SKIPPED を注意に出す)"""
     video = Path(video)
     dst = Path(dst) if dst else Path(out_dir) / video.name
     if S.same_path(dst, video):
         return dst
+    if same_copy(video, final or dst):
+        return None
     size = video.stat().st_size
     fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=".part")
     try:

@@ -1978,3 +1978,19 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   - `plan/improvements.md` の 9 の studio の 3 行(review.js の since・renderExportUI/buildDOM の分割・ui-kit.css の v12 の重なり)は済み(plan はまとめ役が直す)
 - 注意: scratchpad は他の担当と共有(base/・head/ を他の担当も使う)。この担当の写しと比べる道具は scratchpad/su/ に置いた(cmp_analyze.py・cmp_builddom.cjs・cmp_render_export.cjs・http_snap.py・css_flips.py・css_merge.py・css_compare.py)
 - 未コミット: なし(このコミット)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 段 7 E-15: cut2resolve 0.22.1 同じ動画はコピーを飛ばす
+- 変更: `src/cut2resolve/cut2resolve_core.py`(`same_copy`・`COPY_SKIPPED`・`copy_video` に `final`。写さなかったら None を返す)・`pack.py`(`build_pack` の動画の写しで、置き場所の動画が同じなら一時ファイルを作らず注意に 1 行)・`auto_cut.py`(`--copy-video` も同じ決まり。注意を print)・`serve.py`(注意の重さ: 「コピーを飛ばしました」は info)・`README.txt`・テスト `tests/test_pack.py`(4 件: 飛ばす / 大きさ・次の秒・前の秒で写し直す / 音量 % は飛ばさない / copy_video を直接呼ぶ道と auto_cut)・`tests/test_serve.py`(Text+ パックの作り直しで飛ばす・warningLevels が info)
+- 版: cut2resolve 0.22.0 → 0.22.1
+- 決定・理由(仮で決めたこと。ユーザー指示「確認だけのものも仮で決めて実装」):
+  - 比べ方 = 普通のファイルで、大きさが同じ・更新日時が秒単位で同じ(`st_mtime_ns // 10**9`。rsync の既定と同じ)。中身は読まない(数 GB を読み比べると写し直すのと同じくらいかかる)。写すときは前から copystat で更新日時を元に合わせているので、前に写した動画はこれで分かる。スタジオで書き出し直せば更新日時が変わり、写し直す
+  - 判定は `same_copy` の 1 か所。`build_pack` は一時の名前に写してから最後に付け替えるので、`copy_video(..., dst=一時, final=置き場所)` で置き場所の方と比べる(写さないときは付け替えもしない = 前のパックの動画はそのまま)
+  - 注意の文は結果の warnings の最後に 1 行(「動画 ○○ は前に写したものと同じ(大きさ・更新日時が元の動画と同じ)なので、コピーを飛ばしました。」)。API の warningLevels は info(対処は不要)。「編集」は warnings の先頭 2 つを知らせに出すので、ほかの注意があればそちらが先
+  - 音量をそろえる・音量 % のとき(`copy_video_gain`。音声を作り直す)は対象外で毎回作り直す
+- 測った: 契約テストの中身は変わらない(パックは毎回新しいフォルダに作るので飛ばす場面が無い。期待の変更なし)
+- テスト: cut2resolve の単体 3 本 358 件 OK(skip 24。Lua が無い分)・`dev/tests/test_resolve_pack_contract.py`(単独)35 件 OK・editor の `test_metrics`・`test_resolve_export`・`test_roster` 552 件 OK(skip 1)/ e2e `src/editor/tests/e2e_edit_pack.py` ALL PASSED / `py -3.10 dev/lint.py` 0 件
+- 未完了・次(まとめ役へ):
+  - **「編集」の既定は音量 30%(packLoudness 0・packVolume 30。2026-10-01 ユーザー決定)なので、画面・まとめて実行の既定の設定では音量をかける道を通り、今回の「飛ばす」はほとんど効かない**(効くのは音量 100%・そろえない、または LUFS の差が 0.1 dB 未満のとき)。既定の設定でも速くするには、音量をかけた写しも「元の大きさ・更新日時 + かけた量」をパックの記録(packs/<ハッシュ>.json)か横のファイルに残して比べる必要がある(設計の変更なのでしていない)
+  - e2e への 2 回目のパックで飛ばす確認は足していない(`src/editor/tests/` は担当外。上の理由で既定の設定の画面では飛ばす場面にならない)。API で `test_serve` が確かめる
+- 注意: 比べ方は中身を読まないので、同じ大きさ・同じ秒の更新日時のまま中身だけ変わった動画(更新日時を戻す道具で書き換えたなど)は写し直さない。そのときは出力先の動画を消してから作り直す
+- 未コミット: なし(このコミット。ほかの担当の未コミットの変更(editor・home・studio・ui-kit・ytt_core)は含めていない)
