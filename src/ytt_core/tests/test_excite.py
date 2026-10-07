@@ -3,6 +3,8 @@
 - golden: 式を src/studio/analyze.py から移す前に、同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す = WORKLOG に書く)
 - Online(1 秒ずつ)= windowed_scores(一括。同じ窓)
 - PeakBook(候補の帳簿)の規則: 確定・1 時間の枠・入れ替え・採用は数えない・見送りは外す・JSON の往復
+- 線 D のワーカーの残り(2026-10-07): しきい値を上げる区間(thr_scale)・仮の候補(fast_push。同じ id で本番に置き換わる・外れる・人の決定)・
+  雰囲気の変わり目(MoodShift)
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
@@ -292,6 +294,152 @@ class TestPeakBook(unittest.TestCase):
         feed(b2, total, level, start=205)
         self.assertEqual(len(b2.list()), 1)
         self.assertEqual(b2.list()[0]["peak"], 200)
+
+    def test_thr_scale_only_for_the_window(self):
+        """雰囲気の変わり目のあと(thr_scale)は上り始めのしきい値が 1.3 倍: しきい値の 1.1 倍ほどの山は、その間だけ候補にならない。JSON の往復でも残る"""
+        n = 600
+        total = series_with_peaks([(200, 2.4)], n)   # smooth(5) の山 ≈ 2.27(normal のしきい値 2.0 より上・2.6 より下)
+        level = [-30.0] * n
+        plain = excite.PeakBook()
+        feed(plain, total, level)
+        self.assertEqual([p["peak"] for p in plain.list()], [200])
+        boosted = excite.PeakBook()
+        boosted.thr_scale(150, excite.MOOD_FACTOR, excite.MOOD_HOLD)   # 150〜210 秒は 2.6
+        feed(boosted, total[:160], level[:160])
+        boosted = excite.PeakBook.from_json(json.loads(json.dumps(boosted.to_json())))
+        self.assertEqual(boosted.boost, [[150, 210, 1.3]])
+        feed(boosted, total, level, start=160)
+        self.assertEqual(boosted.list(), [])
+        later = excite.PeakBook()
+        later.thr_scale(300, 1.3, 60)   # 山より後の区間は効かない
+        feed(later, total, level)
+        self.assertEqual([p["peak"] for p in later.list()], [200])
+        self.assertEqual(later.boost, [], "過ぎた区間は捨てる")
+
+
+def feed_two(book, audio, chat, level, lead, upto=None, start=0, stop_at=None):
+    """先回り(音だけ)を lead 秒先に、本番(音 + チャット)を後から足す(ワーカーと同じ順)。stop_at(t) が真になったら止めて t を返す"""
+    n = len(audio)
+    end = n + lead if upto is None else upto
+    for t in range(start, end):
+        if t < n:
+            book.fast_push(t, audio[t], audio[t])
+        m = t - lead
+        if 0 <= m < n:
+            book.push(m, audio[m] + chat[m], {"audio": audio[m], "chat": chat[m]}, level[m])
+        if stop_at is not None and stop_at(book):
+            return t + 1
+    return end
+
+
+class TestProvisional(unittest.TestCase):
+    """仮の候補(音だけの先回り。候補が出るまでの遅れを縮める): 上り始めで出る → 音だけの山で合わせ直す → 本番が同じ id で置き換える / 置き換わらなければ外れる"""
+    LEAD = 40
+
+    def setUp(self):
+        self.n = 800
+        self.audio = series_with_peaks([(200, 5.0)], self.n)
+        self.chat = series_with_peaks([(206, 2.0)], self.n)
+        self.level = [-30.0] * self.n
+
+    def test_appears_early_then_replaced_with_same_id(self):
+        book = excite.PeakBook()
+        t = feed_two(book, self.audio, self.chat, self.level, self.LEAD, stop_at=lambda b: b.peaks)
+        self.assertLess(t, 200 + 5, "上り始めで出る")
+        p = book.list()[0]
+        self.assertEqual((p["provisional"], p["endPending"], p["state"]), (True, True, "frame"))
+        self.assertEqual(book.counts(), {}, "仮の候補は枠に数えない")
+        self.assertLessEqual(abs(p["peak"] - 200), 15)
+        # 途中で JSON にしても続く(先回りの上り・開いている仮の候補)
+        book = excite.PeakBook.from_json(json.loads(json.dumps(book.to_json())))
+        t = feed_two(book, self.audio, self.chat, self.level, self.LEAD, start=t, stop_at=lambda b: b.fast["rising"] is None)
+        p = book.list()[0]
+        self.assertTrue(p["provisional"])
+        self.assertEqual(p["peak"], 200, "音だけの山が確定したら合わせ直す")
+        feed_two(book, self.audio, self.chat, self.level, self.LEAD, start=t)
+        ps = book.list()
+        self.assertEqual(len(ps), 1, ps)
+        p = ps[0]
+        self.assertEqual((p["provisional"], p["endPending"], p["state"]), (False, False, "frame"))
+        self.assertEqual(book.counts(), {0: 1})
+        # 本番だけ(先回りなし)と同じ区間・点数
+        ref = excite.PeakBook()
+        for m in range(self.n):
+            ref.push(m, self.audio[m] + self.chat[m], {"audio": self.audio[m], "chat": self.chat[m]}, self.level[m])
+        r = ref.list()[0]
+        self.assertEqual([p[k] for k in ("start", "end", "peak", "score", "parts", "confirmedAt", "hour")],
+                         [r[k] for k in ("start", "end", "peak", "score", "parts", "confirmedAt", "hour")])
+
+    def test_expires_when_final_never_comes(self):
+        """本番では山にならなかった(ここでは本番に 0 を渡す)→ PROV_EXPIRE 秒たったら見送り(expired)・戻せない"""
+        book = excite.PeakBook()
+        for t in range(self.n):
+            book.fast_push(t, self.audio[t], self.audio[t])
+            if t >= self.LEAD:
+                book.push(t - self.LEAD, 0.0, {"audio": 0.0, "chat": 0.0}, -30.0)
+        p = book.list()[0]
+        self.assertEqual((p["state"], p["expired"], p["endPending"], p["provisional"]), ("dismissed", True, False, True))
+        self.assertIsNone(book.fast["open"])
+        self.assertIsNone(book.decide(p["id"], "restore"))
+        self.assertEqual(book.counts(), {})
+
+    def test_human_decision_on_provisional_keeps_region(self):
+        """仮の候補を人が採用した(画面では押せないが API では来うる)→ 本番が確定しても区間と状態はそのまま、点数だけ本番の値に"""
+        book = excite.PeakBook()
+        t = feed_two(book, self.audio, self.chat, self.level, self.LEAD, stop_at=lambda b: b.peaks)
+        pid = book.list()[0]["id"]
+        book.decide(pid, "adopted", origin="manual", mark_id="m1")
+        region = (book.peaks[pid]["start"], book.peaks[pid]["end"])
+        feed_two(book, self.audio, self.chat, self.level, self.LEAD, start=t)
+        p = book.peaks[pid]
+        self.assertEqual((p["state"], p["origin"], p["markId"], p["provisional"], (p["start"], p["end"])), ("adopted", "manual", "m1", False, region))
+        self.assertGreater(p["score"], 4.0)
+        self.assertEqual(len(book.list()), 1)
+
+    def test_finish_expires_open_provisional(self):
+        book = excite.PeakBook()
+        feed_two(book, self.audio, self.chat, self.level, self.LEAD, upto=215)   # 本番はまだ 175 秒まで
+        self.assertTrue(book.list()[0]["provisional"])
+        book.finish()
+        p = book.list()[0]
+        self.assertEqual((p["state"], p.get("expired")), ("dismissed", True))
+
+
+class TestMoodShift(unittest.TestCase):
+    """雰囲気の変わり目: 全帯域の直近 5 分の中央値が前の 5 分より 6dB 以上動いたら 1 回(差が戻るまで次は出さない)"""
+
+    @staticmethod
+    def series():
+        rnd = random.Random(4)
+        out = []
+        for i in range(2700):
+            base = -20.0 if 900 <= i < 1800 else -30.0   # 900 秒で +10dB・1800 秒で -10dB
+            out.append(base + rnd.uniform(-0.3, 0.3))
+        return out
+
+    def test_shift_up_and_down(self):
+        ms = excite.MoodShift()
+        hits = [i for i, v in enumerate(self.series()) if ms.push(v)]
+        self.assertEqual(len(hits), 2, hits)
+        self.assertTrue(1045 <= hits[0] <= 1065, hits)   # 新しい値が直近 5 分の半分を超えた所(10 秒ごとに見る)
+        self.assertTrue(1945 <= hits[1] <= 1965, hits)
+
+    def test_small_change_and_resume(self):
+        ms = excite.MoodShift()
+        self.assertFalse(any(ms.push(-30.0 + (4.0 if i >= 900 else 0.0)) for i in range(1800)), "4dB は変わり目にしない")
+        a = excite.MoodShift()
+        s = self.series()
+        hits = []
+        for i, v in enumerate(s[:1000]):
+            if a.push(v):
+                hits.append(i)
+        b = excite.MoodShift().load(json.loads(json.dumps(a.to_json())))
+        for i, v in enumerate(s[1000:], 1000):
+            if b.push(v):
+                hits.append(i)
+        ref = excite.MoodShift()
+        self.assertEqual(hits, [i for i, v in enumerate(s) if ref.push(v)])
+        self.assertLessEqual(len(b.vals), 2 * excite.MOOD_SEC)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,10 @@
     「調子」の detect の行と失敗(kind detect)/ ワーカーの起動・心拍が止まったら起動し直す・止める / 設定 detect・autoAdopt の検査
   - M11: 確定から waitMin 後に 1 回だけ採用(origin auto・after auto・live_feedback の human false)・見送り・控えは採用しない・スタジオ不通は 5 回で諦めて失敗の文
   - 入口のプロセスで numpy を import しない
+  - ワーカーの残り(2026-10-07): 仮の候補が山から 60 秒以内に出て本番(同じ id・本番の候補は仮の候補なしと同じ)に置き換わる・同時に 2 本まで(3 本目は順番待ち →
+    1 本目が終わったら次へ・順番待ちのうちに終わった録画は音だけで締める)・雰囲気の変わり目のあと 60 秒はしきい値 1.3 倍・M10 の長さの目安(length_hint・
+    clean_hint・新しく受け持つ録画だけ)・見直しの直し(yt-dlp を子ごと止める・改行の無い末尾で止まらない・途中から受け持つと測り直さない・測り直しを
+    60 秒分ずつ・心拍・上限・1 本の例外で止めない・まだ無い候補の決定は待つ・壊れた値)
 本物の YouTube にはつながない。作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import http.client
@@ -503,6 +507,50 @@ class ChatFeedTest(unittest.TestCase):
         left = [x for x in os.listdir(self.folder) if ".live_chat" in x]
         self.assertLessEqual(len(left), 2, left)   # 今のファイル(と、読み切る前の 1 つ)だけ
         self.assertNotIn(VID + ".1.live_chat.json.part", left)
+
+    def child_pids(self):
+        try:
+            with open(self.log + ".pids", encoding="utf-8") as fh:
+                return [int(x) for x in fh if x.strip()]
+        except OSError:
+            return []
+
+    def wait_dead(self, pid, timeout=10.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            if not W.pid_alive(pid):
+                return True
+            time.sleep(0.1)
+        return False
+
+    def test_stop_kills_child_of_ytdlp(self):
+        """本物の yt-dlp(PyInstaller の 1 ファイルの exe)は起動すると子を作る: 止めたら子も終わる(前の番号の .part に書き続けない)"""
+        f = self.feed([{"mode": "stall", "lines": 3, "interval": 0.02, "child": True}, {"mode": "write", "interval": 0.05, "child": True}])
+        msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 6 and len(self.child_pids()) >= 2)
+        pids = self.child_pids()
+        self.assertTrue(self.wait_dead(pids[0]), "止まった yt-dlp の子が残っている")
+        self.assertEqual(len(msgs), len({t for t, _w in msgs}))
+        f.close()
+        self.assertTrue(self.wait_dead(pids[1]), "閉じたあと yt-dlp の子が残っている")
+
+    def test_partial_tail_does_not_block_restart(self):
+        """止めた yt-dlp のファイルの末尾に改行の無い行があっても、TAIL_IDLE 秒増えなければ読み終えたことにして起動し直す(数えた行は重ねない)"""
+        os.makedirs(self.folder)
+        with open(os.path.join(self.folder, VID + ".1.live_chat.json.part"), "w", encoding="utf-8") as fh:
+            fh.write(chat_line(T0) + chat_line(T0 + 1) + chat_line(T0 + 2)[:40])
+        launched = []
+        f = W.ChatFeed(VID, URL, self.folder, "fake-yt-dlp", launcher=lambda cmd, logf: launched.append(cmd) or FakeProc(None, ""), log=lambda m: None,
+                       backoff=(0.1,))
+        self.feeds.append(f)
+        f.gen, f.files, f.state, f.next_at, f.ever_grew = 1, [[1, 0]], "restarting", 0.0, True
+        now = time.time()
+        self.assertEqual(len(f.step(now)), 2)
+        self.assertEqual(launched, [], "読みかけの行があるうちは起動しない")
+        self.assertEqual(f.step(now + 5), [])
+        self.assertEqual(launched, [])
+        f.step(now + 5 + W.TAIL_IDLE)
+        self.assertEqual(len(launched), 1, "末尾が増えなければ読み終えたことにして起動し直す")
+        self.assertFalse(os.path.exists(os.path.join(self.folder, VID + ".1.live_chat.json.part")), "前のファイルは読み終えたので消す")
 
     def test_worker_falls_back_to_audio_only(self):
         """ワーカーの中で: チャットが無い配信 → 録画を音だけ(Online を作り直す)にして続ける・peaks.json の chat は none"""
@@ -1044,6 +1092,321 @@ class PrefsDetectTest(unittest.TestCase):
             json.dump(d, f)
         v = self.p.get(["live"])["live"]
         self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": False, "sens": "normal", "perHour": 6}, {"enabled": False, "waitMin": 5}))
+
+
+REC_B = "20261007-200100-bbbbbbbbbbb"
+REC_C = "20261007-200200-ccccccccccc"
+
+
+class MultiSim:
+    """録画元の代わり(録画 3 本。中身は録画ごとの SimRecorder)"""
+
+    def __init__(self, sims):
+        self.sims = {s.rec: s for s in sims}
+
+    def get_json(self, path):
+        if path == "/live/list":
+            recs = []
+            for s in self.sims.values():
+                recs += s.get_json(path)[1]["recordings"]
+            return 200, {"recordings": recs}
+        return self.sims[path.split("/")[2]].get_json(path)
+
+    def get_bytes(self, path):
+        return 404, b""
+
+    def measure(self, client, rec, batch):
+        return self.sims[rec].measure(client, rec, batch)
+
+
+class ShiftRecorder(SimRecorder):
+    """音が 1500 秒から +10dB(雰囲気の変わり目)"""
+
+    def measure(self, client, rec, batch):
+        full, band = SimRecorder.measure(self, client, rec, batch)
+        b0 = int(round(batch[0]["t"] - self.first))
+        return [v + (10.0 if b0 + i >= 1500 else 0.0) for i, v in enumerate(full)], [v + (10.0 if b0 + i >= 1500 else 0.0) for i, v in enumerate(band)]
+
+
+def first_seen(w, clock, sim, chat, t_end, step=6.0, key=("fake", REC)):
+    """周期 step 秒で回し、候補ごとに最初に出た時刻・本番になった時刻(録画の頭からの秒)を覚える -> ({id: (時刻, 仮か)}, {id: 時刻}, RecState)"""
+    seen, final, st = {}, {}, None
+    while clock.t < t_end:
+        clock.t += step
+        if chat is not None:
+            chat.pump()
+        w.tick()
+        st = w.recs.get(key) or st
+        for pid, p in (st.book.peaks.items() if st else []):
+            now = clock.t - T0
+            seen.setdefault(pid, (now, bool(p.get("provisional"))))
+            if not p.get("provisional") and not p.get("expired"):
+                final.setdefault(pid, now)
+    return seen, final, st
+
+
+class WorkerRestTest(unittest.TestCase):
+    """線 D のワーカーの残り(2026-10-07): 仮の候補(遅れの短縮)・同時に 2 本まで・雰囲気の変わり目・M10 の長さ・見直しの直し(測り直しを分ける・
+    途中から受け持つ・1 本の例外で止めない・まだ無い候補の決定・壊れた値)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-detect-rest-")
+        self.dir = os.path.join(self.tmp, "excite")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_provisional_comes_first_and_final_is_unchanged(self):
+        """仮の候補は山から 60 秒以内に出て、本番(チャット込み・90 秒ほど)に同じ id で置き換わる。本番の候補は仮の候補なしのときと同じ"""
+        out = {}
+        for prov in (True, False):
+            clock = Clock(T0)
+            sim, chat = SimRecorder(clock), SimChat(clock, delay=21.0)   # yt-dlp の書き出しの遅れ約 21 秒(L0 の実測)
+            w = make_worker(write_config(os.path.join(self.dir, str(prov)), ytdlp="fake-yt-dlp", provisional=prov), clock, sim, chat)
+            seen, final, st = first_seen(w, clock, sim, chat, T0 + 1700)
+            w.close()
+            out[prov] = (seen, final, st.book.list())
+        seen, final, peaks = out[True]
+        self.assertGreaterEqual(len(peaks), 3)
+        for p in peaks:
+            self.assertFalse(p.get("expired"), p)
+            self.assertTrue(seen[p["id"]][1], "まず仮の候補で出る")
+            self.assertLessEqual(seen[p["id"]][0] - p["peak"], 60, (p["id"], seen[p["id"]], p["peak"]))
+            self.assertGreaterEqual(final[p["id"]] - p["peak"], 80, (p["id"], final[p["id"]], p["peak"]))
+        keys = ("start", "end", "peak", "score", "state", "hour", "confirmedAt", "parts")
+        self.assertEqual([[p[k] for k in keys] for p in peaks], [[p[k] for k in keys] for p in out[False][2]])
+        self.assertTrue(all(not seen_[1] for seen_ in out[False][0].values()))
+
+    def test_two_at_a_time_then_next(self):
+        """録画中が 3 本: 古い 2 本だけ測り、3 本目は順番待ち(peaks.json の queued・message と worker.json)。1 本目が終わったら次へ。
+        順番待ちのうちに配信が終わった録画も、あとで音だけ測って締める"""
+        clock = Clock(T0)
+        a = SimRecorder(clock, end=1800)
+        b = SimRecorder(clock, first=T0 + 60, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
+        c = SimRecorder(clock, first=T0 + 120, end=1380, rec=REC_C, url="https://www.youtube.com/watch?v=ccccccccccc")
+        sim = MultiSim([a, b, c])
+        w = make_worker(write_config(self.dir), clock, sim, heart_sec=0.0)
+        most = 0
+        while clock.t < T0 + 1200:
+            clock.t += 30
+            w.tick()
+            most = max(most, len(w.recs))
+        self.assertEqual(sorted(k[1] for k in w.recs), sorted([REC, REC_B]))
+        with open(os.path.join(self.dir, "fake", REC_C, "peaks.json"), encoding="utf-8") as f:
+            q = json.load(f)
+        self.assertEqual((q["queued"], q["queuePos"], q["peaks"]), (True, 1, []))
+        self.assertIn("順番待ち", q["message"])
+        with open(os.path.join(self.dir, "worker.json"), encoding="utf-8") as f:
+            hb = json.load(f)
+        self.assertEqual([x["id"] for x in hb["queued"]], [REC_C])
+        self.assertIn("順番待ち", hb["message"])
+        while clock.t < T0 + 2600:
+            clock.t += 30
+            w.tick()
+            most = max(most, len(w.recs))
+        self.assertLessEqual(most, 2)
+        self.assertIn(("fake", REC_C), w.done, "1 本目が終わったら次へ(順番待ちのうちに終わった録画は音だけで測って締める)")
+        with open(os.path.join(self.dir, "fake", REC_C, "peaks.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertTrue(d["ended"])
+        self.assertNotIn("queued", d)
+        self.assertEqual(d["chat"], "off")
+        self.assertGreaterEqual(len([p for p in d["peaks"] if p["state"] == "frame"]), 2, [p["peak"] for p in d["peaks"]])
+        with open(os.path.join(self.dir, "worker.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["queued"], [])
+        w.close()
+
+    def test_mood_shift_raises_threshold_for_a_minute(self):
+        """音の 5 分の中央値が前の 5 分より 10dB 上がった → 1 回だけ変わり目(新しい値が半分を超えた所)・その後 60 秒はしきい値 1.3 倍"""
+        clock = Clock(T0)
+        sim = ShiftRecorder(clock)
+        w = make_worker(write_config(self.dir), clock, sim)
+        run_until(w, clock, sim, T0 + 1700, step=6.0)
+        st = w.recs[("fake", REC)]
+        self.assertEqual(st.mood_shifts, 1)
+        self.assertEqual(len(st.book.boost), 1, st.book.boost)
+        b = st.book.boost[0]
+        self.assertTrue(1645 <= b[0] <= 1670 and b[1] - b[0] == 60 and b[2] == 1.3, b)
+        run_until(w, clock, sim, T0 + 2400)
+        d = peaks_of(self.dir)
+        self.assertEqual(d["moodShifts"], 1)
+        self.assertEqual(st.book.boost, [], "過ぎた区間は捨てる")
+        w.close()
+
+    def test_length_hint_from_human_records(self):
+        """M10: 入口が dev/eval_marks.py --json の結果(スタジオの作業データ evals/marks/)から目安を作る(length_hint)→ config.json の lengthHint →
+        見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに(lengthFrom human)、足りなければスタジオの設定(45 秒)"""
+        env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
+        marks = os.path.join(self.tmp, "data", "studio", "evals", "marks")
+        os.makedirs(marks)
+
+        def result(name, **suggest):
+            s = dict({"length": 123, "preRatio": 0.55, "samples": 24, "videos": 6, "enough": True}, **suggest)
+            with open(os.path.join(marks, name), "w", encoding="utf-8") as f:
+                json.dump({"clipLength": {"suggest": s}}, f)
+        now = time.time()
+        self.assertIsNone(W.length_hint(env=env))   # 結果がまだ無い
+        result(time.strftime("%Y%m%d-%H%M%S", time.localtime(now - 40 * 86400)) + ".json")
+        self.assertIsNone(W.length_hint(env=env, now=now))   # 30 日より古い
+        result(time.strftime("%Y%m%d-%H%M%S", time.localtime(now - 3600)) + "_auto.json")
+        h = W.length_hint(env=env, now=now)
+        self.assertEqual((h["length"], h["preRatio"], h["samples"], h["videos"], h["enough"]), (123.0, 0.55, 24, 6, True))
+        self.assertIsNone(W.length_hint(env=dict(env, YTT_LIVE_LENGTH="off"), now=now))
+        self.assertEqual(W.clean_hint(h), {"length": 120.0, "preRatio": 0.55, "samples": 24, "videos": 6, "file": h["file"]})   # 120 秒に丸める
+        for bad in (dict(h, enough=False), dict(h, samples=19), dict(h, videos=4), dict(h, length="x"), dict(h, samples=True), None, [1]):
+            self.assertIsNone(W.clean_hint(bad), bad)
+        self.assertEqual(W.clean_hint(dict(h, length=3, preRatio=None)), {"length": 10.0, "samples": 24, "videos": 6, "file": h["file"]})
+        for hint, want_len, want_pre, src in ((dict(h, length=96.4), 96.0, 0.55, "human"), (dict(h, samples=6, enough=False), 45.0, excite.PRE_RATIO_DEFAULT, "studio")):
+            folder = os.path.join(self.tmp, "w-" + src)
+            clock = Clock(T0)
+            sim = SimRecorder(clock)
+            w = make_worker(write_config(folder, lengthHint=hint), clock, sim)
+            run_until(w, clock, sim, T0 + 1300)
+            st = w.recs[("fake", REC)]
+            self.assertEqual((st.book.length, st.book.pre, st.spec["lengthFrom"]), (want_len, want_pre, src))
+            d = peaks_of(folder)
+            self.assertEqual((d["length"], d["lengthFrom"]), (want_len, src))
+            p = [x for x in d["peaks"] if not x["endPending"]][0]
+            self.assertLess(abs((p["end"] - p["start"]) - want_len), want_len * 0.31, p)   # 候補の区間 ≈ その長さ(静かな所に合わせる分だけずれる)
+            write_config(folder, lengthHint=dict(h, length=30))   # 受け持っている録画の長さは途中で変えない
+            w.cfg_checked = -1e18
+            clock.t += 6
+            w.tick()
+            self.assertEqual(w.recs[("fake", REC)].book.length, want_len)
+            w.close()
+
+    def test_late_start_has_no_huge_remeasure(self):
+        """録画の途中(3 時間目)で受け持つ: 頭から今までを「飛ばした区間」にしない(測り直さない)・1 周期は短く、心拍が出る"""
+        clock = Clock(T0 + 3 * 3600)
+        sim = SimRecorder(clock, end=3 * 3600 + 600)
+        w = make_worker(write_config(self.dir), clock, sim, heart_sec=0.0)
+        t0 = time.time()
+        w.tick()
+        self.assertLess(time.time() - t0, 10.0)
+        st = w.recs[("fake", REC)]
+        self.assertEqual(st.skipped, [])
+        self.assertTrue(3 * 3600 - 120 <= st.late_from <= 3 * 3600, st.late_from)
+        self.assertIn("途中", st.message)
+        with open(os.path.join(self.dir, "worker.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["at"], W.iso_now(clock.t))
+        run_until(w, clock, sim, T0 + 3 * 3600 + 900)
+        d = peaks_of(self.dir)
+        self.assertTrue(d["ended"])
+        self.assertEqual((d["skipped"], d["lateFrom"]), ([], st.late_from))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "fake", REC, "skipped.jsonl")))
+        self.assertTrue(all(p["peak"] > st.late_from for p in d["peaks"]), [p["peak"] for p in d["peaks"]])
+        w.close()
+
+    def test_remeasure_in_chunks_with_heartbeat(self):
+        """飛ばした区間の測り直しは 60 秒分ずつ: 時間切れ(1 周期 20 秒)で戻って次の周期で続き(pos)・まとまりごとに心拍・行は重ならない"""
+        clock = Clock(T0)
+        sim = SimRecorder(clock, end=3000)
+        slow = {"on": False}
+        w = make_worker(write_config(self.dir), clock, sim)
+        real, beat = sim.measure, w.heartbeat
+        beats = []
+
+        def measure(client, rec, batch):   # 配信が終わってからの測り直しは 1 回 6 秒かかる(時計を進める)
+            if slow["on"]:
+                clock.t += 6.0
+            return real(client, rec, batch)
+
+        def heartbeat(now, force=False, message=None):
+            if force:
+                beats.append(now)
+            return beat(now, force, message)
+        w._measure, w.heartbeat = measure, heartbeat
+        run_until(w, clock, sim, T0 + 600)
+        sim.down = True
+        run_until(w, clock, sim, T0 + 1500)
+        sim.down = False
+        run_until(w, clock, sim, T0 + 2950)
+        st = w.recs[("fake", REC)]
+        self.assertEqual(len(st.skipped), 1)
+        slow["on"] = True
+        ticks, partial = 0, 0
+        while ("fake", REC) in w.recs and ticks < 40:
+            clock.t += 30
+            start = clock.t
+            w.tick()
+            ticks += 1
+            self.assertLessEqual(clock.t - start, W.TICK_BUDGET + 12, "1 周期は時間切れで戻る")
+            if not st.skipped[0]["done"] and st.skipped[0].get("pos"):
+                partial += 1
+        self.assertGreaterEqual(partial, 2, "何周期かに分けて測り直した(進み pos を残して)")
+        self.assertGreaterEqual(len(beats), 12, "まとまりごとに心拍")
+        self.assertLessEqual(max([b - a for a, b in zip(beats, beats[1:]) if b - a < 25] or [99.0]), 6.5)
+        self.assertIn(("fake", REC), w.done)
+        with open(os.path.join(self.dir, "fake", REC, "skipped.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f]
+        t0s = [r["t0"] for r in rows]
+        self.assertEqual(len(t0s), len(set(t0s)), "同じまとまりを 2 回書かない")
+        self.assertEqual(t0s, sorted(t0s))
+        sk = st.skipped[0]
+        self.assertGreater(sum(len(r["full"]) for r in rows), sk["to"] - sk["from"] - 10)
+        w.close()
+
+    def test_remeasure_is_capped(self):
+        """1 つの飛ばした区間で測り直すのは REMEASURE_MAX_SEC(30 分)まで(capped)"""
+        sk = {"from": 0, "to": 4000, "since": 0, "until": 1000, "done": False}
+        clock = Clock(T0 + 4200)
+        sim = SimRecorder(clock)
+        w = make_worker(write_config(self.dir), clock, sim)
+        st = W.RecState(os.path.join(self.dir, "fake", REC), "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {"sens": "normal", "perHour": 6}, False)
+        self.assertTrue(w._remeasure(st, sim, sk, clock.t + 3600))
+        self.assertTrue(sk["done"] and sk["capped"], sk)
+        self.assertTrue(W.REMEASURE_MAX_SEC <= sk["sec"] <= W.REMEASURE_MAX_SEC + W.BIG_BATCH_SEC + 8, sk)
+        w.close()
+
+    def test_one_broken_recording_does_not_stop_others(self):
+        """1 本の録画で思わぬ例外 → その録画の message と心拍の error に出し、ほかの録画は進める。同じエラーのログは 1 回だけ"""
+        clock = Clock(T0)
+        a, b = SimRecorder(clock), SimRecorder(clock, first=T0 + 30, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
+        sim = MultiSim([a, b])
+        logs = []
+
+        def measure(client, rec, batch):
+            if rec == REC_B:
+                raise RuntimeError("こわれた")
+            return a.measure(client, rec, batch)
+        w = make_worker(write_config(self.dir), clock, sim, measure_batch=measure, log=logs.append, heart_sec=0.0)
+        run_until(w, clock, sim, T0 + 1300)
+        self.assertGreaterEqual(len(peaks_of(self.dir)["peaks"]), 2)   # 1 本目は進む
+        st = w.recs[("fake", REC_B)]
+        self.assertIn("こわれた", st.message)
+        self.assertGreater(st.errors, 5)
+        self.assertEqual(len([m for m in logs if "こわれた" in m]), 1, "同じエラーは 1 回だけログ")
+        with open(os.path.join(self.dir, "worker.json"), encoding="utf-8") as f:
+            self.assertIn("こわれた", json.load(f)["error"])
+        w.close()
+
+    def test_decision_for_peak_not_yet_seen_waits(self):
+        """まだ帳簿に無い候補(すぐ先の番号)の決定では decN を進めない(起動し直して候補が出ていないうちに人が決めた分を消さない)。
+        候補がその番号を越えて出てきたら(= 形の違う決定)飛ばして先へ"""
+        clock = Clock(T0)
+        sim = SimRecorder(clock)
+        w = make_worker(write_config(self.dir), clock, sim)
+        run_until(w, clock, sim, T0 + 1300)
+        st = w.recs[("fake", REC)]
+        known = st.book.order[0]
+        dec = {"v": 1, "n": 2, "items": [{"n": 1, "id": "p%d-99999" % st.book.n_ids, "state": "dismissed"}, {"n": 2, "id": known, "state": "dismissed"}]}
+        fsio.atomic_write(os.path.join(self.dir, "fake", REC, "decisions.json"), json.dumps(dec).encode("utf-8"))
+        clock.t += 6
+        w.tick()
+        self.assertEqual((st.dec_n, st.book.peaks[known]["state"] == "dismissed"), (0, False))
+        run_until(w, clock, sim, T0 + 2600)   # 候補が増えて番号を越えた
+        self.assertEqual((st.dec_n, st.book.peaks[known]["state"]), (2, "dismissed"))
+        w.close()
+
+    def test_bad_numbers(self):
+        self.assertEqual([W._level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, W.LEVEL_MAX, -12.5, -90.0, -90.0])
+        with self.assertRaises(ValueError):
+            W.write_json(os.path.join(self.tmp, "x.json"), {"a": float("nan")})
+        st = W.RecState(self.tmp, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {}, False)
+        st.place(T0 + 10 ** 7, 4.0, [-30.0] * 4, [-40.0] * 4)   # 受信時刻が何年も先: 埋めずに続けて置く
+        self.assertEqual(st.next_box, 4)
+        st.fill(10 ** 9)
+        self.assertEqual(st.next_box, 4 + W.FILL_MAX)
 
 
 class NoNumpyTest(unittest.TestCase):
