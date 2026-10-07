@@ -1,8 +1,8 @@
-// 起動・右クリックの「送る」のショートカット・記録。
+// 起動・右クリックの「送る」のショートカット(手元の記録は ../common/Log.cs)。
 //   RequestSender.exe                 … 画面を開く
 //   RequestSender.exe <動画> [<動画>…] … その動画を入れた状態で開く(右クリックの「送る」から)
 //   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|receive] [--sample] [--size 900x620]
-//                                      [--state manual|weights|speakers|strict|busy|done|focus]
+//                                      [--state manual|weights|many|speakers|strict|busy|done|focus]
 //                                      … 窓を画像に保存して終わる(見た目の確認用。通信しない・設定を書かない・「送る」のショートカットを触らない)
 using System;
 using System.IO;
@@ -10,34 +10,10 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
+using FriendApps;
 
 namespace RequestSender
 {
-    public static class Log
-    {
-        static string path;
-
-        public static void Init(string dir)
-        {
-            path = Path.Combine(dir, "request-sender.log");
-        }
-
-        // 鍵は書かない(呼ぶ側で渡さない)
-        public static void Write(string msg)
-        {
-            if (path == null) return;
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
-                var fi = new FileInfo(path);
-                if (fi.Exists && fi.Length > 256 * 1024) { File.Copy(path, path + ".old", true); File.Delete(path); }
-                File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + msg + "\r\n", new UTF8Encoding(false));
-            }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-    }
-
     public static class SendToShortcut
     {
         public const string Name = "切り抜き依頼.lnk";
@@ -86,7 +62,7 @@ namespace RequestSender
             ExePath = Assembly.GetExecutingAssembly().Location;
             ExeDir = Path.GetDirectoryName(ExePath);
             DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RequestSender");
-            Log.Init(DataDir);
+            Log.Init(DataDir, "request-sender.log");
             DropboxClient.UseTls12();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

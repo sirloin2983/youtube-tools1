@@ -74,6 +74,9 @@ namespace RequestSender
             set { tone = value; Invalidate(); }
         }
 
+        // 文字がこの印で始まるとき、印だけアクセントの色で描く(例: 配信の題名の「✓ 」。左寄せの文字だけ)
+        public string AccentLead;
+
         public void ApplyTheme()
         {
             Invalidate();
@@ -102,7 +105,35 @@ namespace RequestSender
             if (a == ContentAlignment.MiddleCenter || a == ContentAlignment.TopCenter) flags |= TextFormatFlags.HorizontalCenter;
             if (a == ContentAlignment.MiddleRight || a == ContentAlignment.TopRight) flags |= TextFormatFlags.Right;
             if (AutoEllipsis) flags = (flags & ~TextFormatFlags.WordBreak) | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
+            int lead = LeadWidth(e.Graphics, flags);
+            if (lead <= 0)
+            {
+                TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ToneColor(), flags);
+                return;
+            }
+            // 同じ位置に 2 回描いて、印の所と残りで色を分ける(残りの文字の位置は 1 回で描いたときと同じ)
+            flags |= TextFormatFlags.PreserveGraphicsClipping;
+            var mark = new Rectangle(0, 0, lead, Height);
+            var saved = e.Graphics.Save();
+            e.Graphics.SetClip(mark, System.Drawing.Drawing2D.CombineMode.Exclude);
             TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ToneColor(), flags);
+            e.Graphics.Restore(saved);
+            saved = e.Graphics.Save();
+            e.Graphics.SetClip(mark, System.Drawing.Drawing2D.CombineMode.Intersect);
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Theme.P.Accent, flags);
+            e.Graphics.Restore(saved);
+        }
+
+        // 印の幅(印が無い・使えない・左寄せでないときは 0)。印のあとの空白の半分まで含める
+        int LeadWidth(Graphics g, TextFormatFlags flags)
+        {
+            if (string.IsNullOrEmpty(AccentLead) || !Enabled || !Text.StartsWith(AccentLead, StringComparison.Ordinal)) return 0;
+            if ((flags & (TextFormatFlags.HorizontalCenter | TextFormatFlags.Right)) != 0) return 0;
+            var one = flags & ~(TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
+            string mark = AccentLead.TrimEnd();
+            int w = TextRenderer.MeasureText(g, mark, Font, Size.Empty, one).Width;
+            int all = TextRenderer.MeasureText(g, AccentLead, Font, Size.Empty, one).Width;
+            return (w + Math.Max(w, all)) / 2;
         }
     }
 
@@ -311,10 +342,85 @@ namespace RequestSender
         protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
     }
 
-    // ---- 数の − / +(切り抜く数・映像トラックの数・話す人の数・重み) ----
+    // ---- 押しっぱなしで続けて動くボタン(数の − / +) ----
+    //   マウス: 押したときに 1 回、FirstDelayMs 押し続けたら RepeatMs ごとに Step。ボタンの外へずらしている間は止まる(戻せば続く)
+    //   キー(Space・Enter)・読み上げの操作: 1 回ずつ(Click)
+    public class RepeatBtn : Btn
+    {
+        public const int FirstDelayMs = 400, RepeatMs = 70;
+        readonly Timer timer = new Timer();
+        bool fromMouse;   // マウスで押した分は押したときに数えた(離したときの Click では数えない)
+
+        public event Action Step;
+
+        public RepeatBtn(string text) : base(text, BtnKind.Normal)
+        {
+            timer.Tick += (s, e) => Repeat();
+        }
+
+        // 左のボタンが押されたままか・マウスがボタンの上か(テストでは差し替える)
+        protected virtual bool Held { get { return (MouseButtons & MouseButtons.Left) != 0; } }
+        protected virtual bool PointerOver { get { return ClientRectangle.Contains(PointToClient(MousePosition)); } }
+
+        void Fire()
+        {
+            if (Step != null) Step();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left || !Enabled) return;
+            fromMouse = true;
+            Fire();
+            timer.Interval = FirstDelayMs;
+            if (Enabled) timer.Start();   // 端まで来て使えなくなったら続けない
+        }
+
+        void Repeat()
+        {
+            timer.Interval = RepeatMs;
+            if (!Enabled || !Held) { timer.Stop(); return; }
+            if (PointerOver) Fire();
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            timer.Stop();
+            base.OnMouseUp(e);   // ここで Click が来る
+            fromMouse = false;
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            if (!fromMouse) Fire();
+            base.OnClick(e);
+        }
+
+        protected override void OnEnabledChanged(EventArgs e)
+        {
+            timer.Stop();
+            if (!Enabled) fromMouse = false;
+            base.OnEnabledChanged(e);
+        }
+
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            timer.Stop();
+            base.OnMouseCaptureChanged(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) timer.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
+    // ---- 数の − / +(切り抜く数・映像トラックの数・話す人の数・重み)。押しっぱなしで続けて動く ----
     public class Stepper : Pane
     {
-        readonly Btn minus = new Btn("−", BtnKind.Normal), plus = new Btn("+", BtnKind.Normal);
+        readonly RepeatBtn minus = new RepeatBtn("−"), plus = new RepeatBtn("+");
         readonly Lbl label = new Lbl();
         int value;
 
@@ -341,8 +447,8 @@ namespace RequestSender
             plus.Location = new Point(h + valueWidth, 0);
             Size = new Size(h * 2 + valueWidth, h);
             Controls.AddRange(new Control[] { minus, label, plus });
-            minus.Click += (s, e) => Value = value - 1;
-            plus.Click += (s, e) => Value = value + 1;
+            minus.Step += () => Value = value - 1;
+            plus.Step += () => Value = value + 1;
             Show_();
         }
 
@@ -793,6 +899,11 @@ namespace RequestSender
         public int Pad = Ui.S(12);
         public Control Fill;            // 残りの高さを取る部品(1つだけ)
         public int FillMin = Ui.S(44);
+        // 入りきらないときに縮める部品(1つだけ。Fill より上)。縮めないときの高さは中身の AutoScrollMinSize.Height。
+        // Fill が FillMin を割るとき、ShrinkMin 以上に縮めれば入りきるなら縮めて、中でスクロールさせる(右の列の配信者の行が多いとき、メモを下に隠さない)。
+        // 縮めても入りきらないとき・はみ出しが ShrinkSlack より小さいときは縮めない(今までどおり列ごとスクロール。二重のスクロール・数 px のスクロールにしない)
+        public ScrollableControl Shrink;
+        public int ShrinkMin, ShrinkSlack;
 
         public VStack()
         {
@@ -835,11 +946,32 @@ namespace RequestSender
         {
             if (arranging) return;
             arranging = true;
+            try
+            {
+                // 並べたあとでスクロールバーを決め直し、それで中の大きさが変わったら(前の幅での横のスクロールバーが消えたなど)もう一度だけ並べる
+                for (int round = 0; round < 2; round++)
+                {
+                    Size used = ArrangePasses();
+                    PerformLayout();
+                    if (ClientSize == used) break;
+                }
+            }
+            finally
+            {
+                arranging = false;
+            }
+        }
+
+        // 並べる(スクロールバーが出て幅が変わったら、もう一度)。-> 最後に使った中の大きさ
+        Size ArrangePasses()
+        {
+            Size used = ClientSize;
             SuspendLayout();
             try
             {
                 for (int pass = 0; pass < 2; pass++)   // スクロールバーが出て幅が変わったら、もう一度
                 {
+                    used = ClientSize;
                     int w = Math.Max(Ui.S(120), ClientSize.Width - Pad * 2), total = Pad;
                     foreach (var it in items)
                     {
@@ -855,9 +987,19 @@ namespace RequestSender
                         else if (it.Stretch) it.C.Width = w;
                         var row = it.C as HRow;
                         if (row != null) row.Arrange();
-                        if (it.C != Fill) total += it.Gap + it.C.Height;
+                        if (it.C != Fill) total += it.Gap + (it.C == Shrink ? Shrink.AutoScrollMinSize.Height : it.C.Height);
                     }
-                    if (Fill != null) { var f = items.Find(i => i.C == Fill); Fill.Height = Math.Max(FillMin, ClientSize.Height - total - (f != null ? f.Gap : 0) - Pad); }
+                    int fillGap = 0;
+                    if (Fill != null) { var f = items.Find(i => i.C == Fill); fillGap = f != null ? f.Gap : 0; }
+                    if (Shrink != null && items.Exists(i => i.C == Shrink && i.Shown))
+                    {
+                        int natural = Shrink.AutoScrollMinSize.Height, h = natural;
+                        int over = Fill != null ? total + fillGap + FillMin + Pad - ClientSize.Height : 0;
+                        if (over > 0 && over >= ShrinkSlack && natural - over >= ShrinkMin) h = natural - over;
+                        Shrink.Height = h;
+                        total -= natural - h;
+                    }
+                    if (Fill != null) Fill.Height = Math.Max(FillMin, ClientSize.Height - total - fillGap - Pad);
                     int y = Pad, tab = 0;
                     Point o = AutoScrollPosition;
                     foreach (var it in items)
@@ -876,8 +1018,8 @@ namespace RequestSender
             finally
             {
                 ResumeLayout();
-                arranging = false;
             }
+            return used;
         }
 
         protected override void OnClientSizeChanged(EventArgs e)

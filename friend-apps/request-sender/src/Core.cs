@@ -2,7 +2,6 @@
 // 大きな動画の分け方・設定(config.json)・メンバーの一覧。テスト(tests\CoreTests.cs)はここを確かめる。
 // 設計: docs/spec/friend-intake.md の 4・5・7
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -11,13 +10,14 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
+using FriendApps;
 
 namespace RequestSender
 {
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.1.1";
+        public const string Version = "2.2.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -101,37 +101,10 @@ namespace RequestSender
         }
     }
 
-    public class UrlParseResult
-    {
-        public List<string> Urls = new List<string>();   // 正規化したもの(重ねない)
-        public List<string> Errors = new List<string>(); // 「3 行目: 〜」
-    }
-
     public static class Validation
     {
         public const int MinTop = 1, MaxTop = 10, DefaultTop = 3;
         public static readonly string[] VideoExts = { ".mp4", ".mov", ".mkv", ".webm", ".m4v" };
-
-        // 1行に1本。空の行は飛ばす。同じ配信は1つにまとめる
-        public static UrlParseResult ParseUrlLines(string text)
-        {
-            var r = new UrlParseResult();
-            var seen = new HashSet<string>();
-            string[] lines = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string line = lines[i].Trim();
-                if (line.Length == 0) continue;
-                string id = YouTubeUrl.ExtractId(line);
-                if (id == null)
-                {
-                    r.Errors.Add((i + 1) + " 行目: YouTube の配信・動画の URL ではありません(" + Shorten(line, 40) + ")");
-                    continue;
-                }
-                if (seen.Add(id)) r.Urls.Add(YouTubeUrl.Normalize(id));
-            }
-            return r;
-        }
 
         public static bool IsVideoFile(string path)
         {
@@ -724,74 +697,6 @@ namespace RequestSender
             for (long off = 0; off < size; off += chunkSize)
                 list.Add(new Chunk(off, (int)Math.Min(chunkSize, size - off)));
             return list;
-        }
-    }
-
-    // ---- JSON を読む(設定・メンバー・Dropbox の返事) ----
-    public static class Json
-    {
-        public static IDictionary<string, object> Parse(string text)
-        {
-            var s = new JavaScriptSerializer();
-            s.MaxJsonLength = 16 * 1024 * 1024;
-            var o = s.DeserializeObject(text) as IDictionary<string, object>;
-            if (o == null) throw new FormatException("JSON の一番外側が { } ではありません");
-            return o;
-        }
-
-        // ファイルの JSON。無い・開けない・壊れているときは null(呼ぶ側は空として扱う)
-        public static IDictionary<string, object> ReadFileOrNull(string path)
-        {
-            try
-            {
-                return File.Exists(path) ? Parse(File.ReadAllText(path, Encoding.UTF8)) : null;
-            }
-            catch (Exception ex)
-            {
-                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
-                return null;
-            }
-        }
-
-        public static string Str(IDictionary<string, object> d, string key)
-        {
-            object v;
-            return d != null && d.TryGetValue(key, out v) && v is string ? (string)v : null;
-        }
-
-        public static IDictionary<string, object> Dict(IDictionary<string, object> d, string key)
-        {
-            object v;
-            return d != null && d.TryGetValue(key, out v) ? v as IDictionary<string, object> : null;
-        }
-
-        public static long Long(IDictionary<string, object> d, string key, long dflt)
-        {
-            object v;
-            if (d == null || !d.TryGetValue(key, out v) || v == null) return dflt;
-            if (v is int) return (int)v;
-            if (v is long) return (long)v;
-            if (v is decimal) return (long)(decimal)v;
-            return dflt;
-        }
-
-        public static bool Bool(IDictionary<string, object> d, string key)
-        {
-            object v;
-            return d != null && d.TryGetValue(key, out v) && v is bool && (bool)v;
-        }
-
-        public static IEnumerable<IDictionary<string, object>> List(IDictionary<string, object> d, string key)
-        {
-            object v;
-            if (d == null || !d.TryGetValue(key, out v)) yield break;
-            var list = v as IEnumerable;
-            if (list == null || v is string) yield break;
-            foreach (object o in list)
-            {
-                var item = o as IDictionary<string, object>;
-                if (item != null) yield return item;
-            }
         }
     }
 

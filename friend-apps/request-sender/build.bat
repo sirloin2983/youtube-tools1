@@ -14,7 +14,7 @@ if not exist build mkdir build
 
 set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll"
 echo [1/4] RequestSender.exe
-"%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\RequestSender.exe /win32manifest:src\app.manifest %REFS% src\*.cs
+"%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\RequestSender.exe /win32manifest:src\app.manifest %REFS% src\*.cs ..\common\*.cs
 if errorlevel 1 goto fail
 copy /y ..\holo-colors\members.json build\members.json >nul || goto fail
 

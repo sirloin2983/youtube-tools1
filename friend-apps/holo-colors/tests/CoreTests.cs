@@ -9,6 +9,7 @@ using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
 using HoloColors;
+using FriendApps;
 
 static class CoreTests
 {

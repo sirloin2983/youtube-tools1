@@ -11,35 +11,12 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using FriendApps;
 
 namespace HoloColors
 {
-    public static class Log
-    {
-        static string path;
-
-        public static void Init(string dir)
-        {
-            path = Path.Combine(dir, "holo-colors.log");
-        }
-
-        public static void Write(string msg)
-        {
-            if (path == null) return;
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
-                var fi = new FileInfo(path);
-                if (fi.Exists && fi.Length > 256 * 1024) { File.Copy(path, path + ".old", true); File.Delete(path); }
-                File.AppendAllText(path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + msg + "\r\n", new UTF8Encoding(false));
-            }
-            catch (Exception ex) { if (!Files.IsIo(ex)) throw; }
-        }
-    }
-
     public class Options
     {
         public bool Hidden, Quit;
@@ -71,7 +48,7 @@ namespace HoloColors
             string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             string dataDir = opt.DataDir != null ? Path.GetFullPath(opt.DataDir)
                 : Files.DataDir(exeDir, Environment.GetEnvironmentVariable("YTT_DATA_DIR"), Environment.GetEnvironmentVariable("LOCALAPPDATA"));
-            Log.Init(dataDir);
+            Log.Init(dataDir, "holo-colors.log");
             string key = Instance.Key(dataDir);
 
             if (opt.Quit)

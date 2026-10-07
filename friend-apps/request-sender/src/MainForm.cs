@@ -11,6 +11,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
+using FriendApps;
 
 namespace RequestSender
 {
@@ -310,6 +311,10 @@ namespace RequestSender
                 namesPane.Controls.Add(chips[i]);
             }
             right.Add(namesPane, 6, true);
+            namesPane.AutoScroll = true;
+            right.Shrink = namesPane;
+            right.ShrinkMin = SpeakerRowsHeight(2) + Ui.S(18);   // 2 行と 3 行目の半分(続きがあると分かる)
+            right.ShrinkSlack = Ui.S(15);                         // 行の半分より小さいはみ出しでは縮めない
             namesPane.Resize += (s, e) => { if (built) UpdateSpeakerView(); };
             speakerProblem.Font = Theme.Small;
             right.Add(speakerProblem, 4, true);
@@ -336,6 +341,7 @@ namespace RequestSender
             status.Font = Theme.Small;
             sendBtn.Font = Theme.Big;
             sendBtn.Click += (s, e) => StartSend();
+            tips.SetToolTip(sendBtn, "Ctrl+Enter でも送れます");
             cancelBtn.Click += (s, e) => { cancel = true; SetStatus("やめています…", Tone.Muted); };
             cancelBtn.Visible = false;
             sendToLink.AutoSize = true;
@@ -425,32 +431,45 @@ namespace RequestSender
             fileNote.SetBounds(m, y, w, Ui.S(18));
         }
 
-        // 配信者の行: 選んだ人数の分だけ、1 行ずつ縦に並べる(番号 | 名前 | 色 | 見本と注)。名前は残りの幅いっぱい
+        // 配信者の行: 選んだ人数の分だけ、1 行ずつ縦に並べる(番号 | 名前 | 色 | 見本と注)。名前は残りの幅いっぱい。
+        // 行の入れ物の高さは右の列が決める(入りきらないとき、2 行半までに縮めれば入るなら縮めて、入れ物の中でスクロール。VStack.Shrink)
         const string NoteMember = "メンバーカラー", NoteNone = "色なし";
+        const int SpeakerRowPx = 30, SpeakerFieldPx = 26;   // 1 行の高さ・欄の高さ(行の間は 4)
+
+        // n 行ぶんの高さ(最後の行の下の隙間は含めない)
+        static int SpeakerRowsHeight(int n)
+        {
+            return n > 0 ? n * Ui.S(SpeakerRowPx) - (Ui.S(SpeakerRowPx) - Ui.S(SpeakerFieldPx)) : 0;
+        }
 
         void UpdateSpeakerView()
         {
-            int n = speakerCount.Value, rowH = Ui.S(30), fieldH = Ui.S(26), gap = Ui.S(4);
-            // 幅は行の入れ物の幅(縦のスクロールバーが出て幅が変わったら、入れ物の Resize で並べ直す)
-            int cw = Math.Max(Ui.S(240), (namesPane.Width > 0 ? namesPane.Width : right.ClientSize.Width - right.Pad * 2));
+            int n = speakerCount.Value, rowH = Ui.S(SpeakerRowPx), fieldH = Ui.S(SpeakerFieldPx), gap = Ui.S(4);
+            int natural = SpeakerRowsHeight(n);
+            namesPane.AutoScrollMinSize = new Size(0, natural);
+            // 幅は行の入れ物の幅。右の列が入れ物を縮めたとき(中でスクロールする)は、縦のスクロールバーの分を除く(横のスクロールバーを出さない)
+            bool scrolls = n > 0 && namesPane.Height > 0 && namesPane.Height < natural;
+            int cw = Math.Max(Ui.S(240), (namesPane.Width > 0 ? namesPane.Width - (scrolls ? SystemInformation.VerticalScrollBarWidth : 0) : right.ClientSize.Width - right.Pad * 2));
             int noW = Ui.S(22);
             int colorW = TextRenderer.MeasureText("FFFFFF", Theme.Mono, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + Ui.S(18);
             int noteW = Math.Max(TextRenderer.MeasureText(NoteMember, Theme.Small, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width,
                                  TextRenderer.MeasureText(NoteNone, Theme.Small, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width);
             int chipW = ColorChip.BoxSize + Ui.S(6) + noteW + Ui.S(2);
             int nameW = Math.Max(Ui.S(90), cw - noW - colorW - chipW - gap * 2);
+            chipW = Math.Min(chipW, Math.Max(ColorChip.BoxSize, cw - noW - nameW - colorW - gap * 2));   // 狭いときは注を「…」で切る(横にはみ出さない)
+            int top = namesPane.AutoScrollPosition.Y;   // 中でスクロールしているときの位置
             for (int i = 0; i < speakerNames.Length; i++)
             {
                 bool on = i < n;
                 speakerNos[i].Visible = speakerFields[i].Visible = colorFields[i].Visible = chips[i].Visible = on;
                 if (!on) continue;
-                int y = i * rowH;
+                int y = top + i * rowH;
                 speakerNos[i].Location = new Point(0, y + Ui.S(6));
                 speakerFields[i].SetBounds(noW, y, nameW, fieldH);
                 colorFields[i].SetBounds(noW + nameW + gap, y, colorW, fieldH);
                 chips[i].SetBounds(noW + nameW + gap + colorW + gap, y, chipW, fieldH);
             }
-            namesPane.Height = Math.Max(0, n * rowH - (n > 0 ? rowH - fieldH : 0));
+            namesPane.PerformLayout();   // 行を並べ直したあとでスクロールバーを決め直す(大きさが変わった直後の、前の幅での横のスクロールバーを残さない)
             right.SetShown(namesPane, n > 0);
         }
 
@@ -809,6 +828,17 @@ namespace RequestSender
         bool fakeBusy;   // 画面の確認(--state busy)
         bool Busy { get { return fakeBusy || (worker != null && worker.IsAlive); } }
 
+        // Ctrl+Enter = 「送る」(送るの画面で、送っている途中でないとき。どの欄からでも。メモの欄でも改行にしない)
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.Enter) && tabSend.On)
+            {
+                if (sendBtn.Enabled) StartSend();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
         void StartSend()
         {
             if (Busy) return;
@@ -846,6 +876,7 @@ namespace RequestSender
                 }
                 else
                 {
+                    namesPane.ScrollControlIntoView(badSpeaker);   // 行が多いときは行の入れ物の中も
                     right.ScrollControlIntoView(badSpeaker);
                     badSpeaker.Select();
                 }
@@ -1110,10 +1141,15 @@ namespace RequestSender
         }
 
         // 窓の中身を画像に保存する
-        // 見本の状態(--state): ③ を選んだ・重みを指定して配信者 10 人・配信者の欄の誤り・送ろうとして誤りが出た・送っている途中・送り終えた
+        // 見本の状態(--state): ③ を選んだ・重みを指定して配信者 10 人・配信者 8 人・配信者の欄の誤り・送ろうとして誤りが出た・送っている途中・送り終えた
         public void ApplyState(string name)
         {
             if (name == "manual") flowRadios[2].Checked = true;
+            else if (name == "many")
+            {
+                speakerCount.Value = 8;
+                for (int i = 0; i < 8; i++) speakerNames[i].Text = i < memberNames.Count ? memberNames[i] : "配信者 " + (i + 1);
+            }
             else if (name == "weights")
             {
                 weightsOn.Checked = true;

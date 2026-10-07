@@ -1836,3 +1836,48 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   eval_marks の num(1e9 以上を None)・eval_cut の num(1e12 以上を None)は別の規則なので残した。`%TEMP%` に以前の load_serve が消さなかった空の一時フォルダ `eval_asr_*` が約 6,000 個ある(消してよい。今からは終わるときに消す)
 - 注意: dev の道具とテストで editor の部品の値を差し替えるときは `S.名前 = …`(または mock.patch.object(S, …))で部品に届く。load_serve を 1 回でも呼ぶと、そのプロセスの ed_jobs.IN_WORKER は True になる(ワーカーの経路を確かめるテストは、test_eval_speakers の TestDiarizeTune のように一時的に False にして戻す)
 - 未コミット: なし(このコミット。dev/ の 8 ファイルと docs/WORKLOG.md の自分の記録だけ。ほかの担当の未コミットの変更は入れていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 見直し 2 周目: friend-apps(ホロカラー 1.4.2 → 1.4.3・送るアプリ 2.1.1 → 2.2.0。前の周で「判断が要る」とした 3 つを仮決めで実装)
+- ユーザーの指示(10-07): 「確認だけのものも仮で決めて実装する。友人用も変更してよい」。`plan/improvements.md` の 4(送るアプリの「余裕があれば」)と 9(friend-apps の 3 行のうち 2 行)
+- 変更(共通の部品・新しいフォルダ `friend-apps/common/`):
+  - `Json.cs`(名前空間 `FriendApps`): 2 つのアプリの `Json` を 1 つに(Parse・ReadFileOrNull・Str・Bool(既定の値は省略できる)・Int(小数は四捨五入)・Long(小数は切り捨て)・Dict・List・Pretty)。中身は前の 2 つの和で、同じ名前のものは同じ動き
+  - `Log.cs`: 2 つのアプリの `Log` を 1 つに(`Init(フォルダ, 名前)`。holo-colors.log・request-sender.log の名前と 256KB で .old に回す動きは同じ)
+  - 両方の `build.bat` の csc の入力に `..\common\*.cs` を足した(テストは exe を参照するので入力は変えない)。zip の中身(exe・members.json・README。送るアプリは config.json も)は同じ
+- 変更(`friend-apps/holo-colors/`): `src/Core.cs` の `Json`・`src/Program.cs` の `Log` を消して `using FriendApps;`(Dialogs.cs・テスト 2 本も)。使わなくなった using(Core の Web.Script.Serialization・Program の Text)を削除。README(開発の節・変更の記録)
+- 変更(`friend-apps/request-sender/`):
+  - `src/Core.cs`: `Json` を共通の部品へ・使っていない `Validation.ParseUrlLines`・`UrlParseResult`(製品では呼ばれていない。カードの `SetUrlLines` が自分で分けている)と、そのテスト `UrlLines` を削除・使わなくなった `using System.Collections`
+  - `src/Controls.cs`: ① `RepeatBtn`(押しっぱなしで続けて動くボタン)を足して `Stepper` の − / + に使う ② `Lbl.AccentLead`(文字の先頭の印だけアクセントの色で描く)③ `VStack.Shrink / ShrinkMin / ShrinkSlack`(入りきらないとき 1 つの部品を縮めて中でスクロール)・
+    `VStack.Arrange` は並べたあと `PerformLayout` でスクロールバーを決め直し、中の大きさが変わったらもう一度だけ並べる(本体は `ArrangePasses` に分けた)
+  - `src/MainForm.cs`: Ctrl+Enter(`ProcessCmdKey`)・送るボタンのヒント「Ctrl+Enter でも送れます」・配信者の行の入れ物を `right.Shrink` に(行の幅はスクロールバーの分を除く・狭いときは注を「…」で切る・並べたあと `PerformLayout`)・誤りの欄へ移るとき行の入れ物の中もスクロール・見本の状態 `--state many`(配信者 8 人)
+  - `src/StreamCard.cs`: 題名の Lbl に `AccentLead = "✓ "`。`src/Program.cs`: `Log` を消した・`--state` の一覧に many。ほかの src は `using FriendApps;` だけ
+  - `tests/CoreTests.cs`: `UrlLines` を消し(対象が無くなった)、4 件足した(− / + の押しっぱなし・題名の ✓ の色・Ctrl+Enter・配信者が多いとき)。30 + 4 = 34 件
+  - README(使い方の 3 か所・開発の節・変更の記録 2.2.0)
+- 入れた操作の動き(送るアプリ 2.2.0):
+  - 1 − / + の押しっぱなし: マウスで押したときに 1 回、0.4 秒押し続けると 0.07 秒ごとに動く(重み 1.0 → 2.0 は約 1 秒)。ボタンの外へずらしている間は止まり、戻すと続く。端まで来てボタンが使えなくなったら止まる。
+    キー(Space・Enter)と読み上げの操作は今までどおり 1 回ずつ。マウスで押した分を離したときの Click でもう一度数えない(テストで固定)
+  - 4 題名の ✓: 確かめられた配信の題名の「✓」だけアクセントの色(同じ位置に 2 回描いて、印の所と残りを切り分ける = 残りの文字の画素は今までと同じ。テストで固定)。
+    Ctrl+Enter: 送るの画面ならどの欄からでも「送る」と同じ(検査で止まるのも同じ)。メモの欄でも改行にしない。受け取るの画面・Enter だけでは何もしない
+  - 6 配信者が多いとき: 右の列に入りきらず、行の入れ物を「2 行と 3 行目の半分」以上に縮めれば入るときだけ、縮めて入れ物の中でスクロールする(メモの欄は下に見えたまま)。
+    はじめの窓の大きさ(1000×700)・重みを閉じた状態では、4 人以上でこの形になる(3 人は前から右の列が 1px はみ出す = 今までどおり)。縮めても入りきらない(重みも出した・窓が小さい)とき・はみ出しが行の半分(15px)より小さいときは縮めず、今までどおり列ごとスクロール(二重のスクロール・数 px のスクロールにしない)
+- 入れなかったもの(仮決め。好みが分かれる・見た目が大きく変わる): 2 開始を打ち終えたら自動で終了の欄へ・3 カードを畳む・5 標準の部品の配色
+- 基準 1〜6(C# は lint の対象外なので手で): 使っていない using は 1 つずつ外してコンパイルする道具で 0(src と common)。12 行以上の同じ並びは 2 つのアプリと common をまたいで 0。
+  いちばん長いメソッドはホロカラー `SettingsForm` 90 行・送るアプリ `VStack.ArrangePasses` 58 行(150 行以下)。一度しか出ない名前は WinForms の上書き・P/Invoke の構造体・共通の部品(もう片方のアプリが使う)・テストが使う `UrlItem.AutoCount` だけ。
+  `/warn:4` の警告は両方の exe とテストで 0
+- 基準 9(画面): 変更前(`git archive HEAD` を scratchpad に展開して build.bat で作った exe)と今の exe で `--screenshot` を撮り、画素で比べた(TMP を scratchpad の別のフォルダにして、両方とも「zip の中から起動」と判定されないようにした。変更前どうしを 2 回撮ると全部同じ)。
+  - ホロカラー 11 枚: 10 枚は同じ・設定の画面は「版 1.4.3」の文字だけ
+  - 送るアプリ 19 枚(配色 4・状態 manual/weights/speakers/strict/busy/done/focus・動画・受け取る・空・900×620・重み + 900×620・重み + 配色 D・新しい many と many + 900×620): 違いは版の文字(v2.2.0)と、題名の ✓ 2 つ(7×7px ずつ)だけ。
+    例外 2 つ: 900×620 の見本で 1 人目の名前の欄の文字が選ばれた表示(青)でなくなった(欄の大きさを変えたときに Windows が中の文字を選ぶ副作用。並べ直しの順番が変わったため。欄の位置・大きさは同じ)/ many の 2 枚は変更前にこの状態が無い(変更後は 1000×700 で行の入れ物が縮んでメモが見える・900×620 は縮めても入らないので列ごとスクロール)
+- 消した名前(基準 12): `ParseUrlLines`・`UrlParseResult`・2 つのアプリの `Json`・`Log`(`HoloColors.Json` など)は src・dev・setup・friend-apps とテストを grep して使う所なし(Json・Log は共通の部品の同じ名前を使う)
+- テスト: 両方の `build.bat`(コンパイル → C# のテスト → zip)OK(ホロカラー 31 件・送るアプリ 34 件)。`e2e_holo_colors.py` は流していない(本物のキー入力を送るため)。`dev/push_helper.py check` で `friend-apps/common/` は止まらない
+- 行数(src。`wc -l`): ホロカラー 4,216 → 4,095・送るアプリ 5,614 → 5,679・共通 0 → 168。合計 9,830 → 9,942(+112。共通化と削除で −73、操作 3 つ(RepeatBtn・AccentLead・Shrink・Ctrl+Enter・見本)で +185)。テストは 2,118 → 2,269 行
+- 決定・理由(仮で決めたこと):
+  - 共通の部品の置き場所は `friend-apps/common/`・名前空間は `FriendApps`(どちらのアプリの名前空間にも属さない。global の名前空間に置けば using は要らないが、名前がぶつかる危険を避けた)。2 つのアプリで違っていた所は、呼び方を合わせた(`Json.Bool` の既定の値は省略できる・`Log.Init` に記録の名前を渡す)だけで、動きはそれぞれ前と同じ
+  - 押しっぱなしの間隔(0.4 秒・0.07 秒)は Windows の標準の数の欄(NumericUpDown)とほぼ同じ。押したときに 1 回動く(前は離したときに動いた)のも標準の数の欄と同じ
+  - 6 は「縮めれば入りきるときだけ縮める」にした。はじめの窓の大きさで重みを出すと、配信者の数によらず右の列が少しはみ出す(前からのこと。配信者 1 人でも約 30px)ので、そのときは縮めても入らない = 二重のスクロールになるだけなので縮めない。
+    重みを出してもメモを必ず見せるには、メモを右の列の下に固定する作りが要る(列の作りの変更。見た目が変わる)ので今回はしない
+  - Ctrl+Enter は画面に文字では出さず、送るボタンのヒントと README だけ(画面の見た目を変えない)
+- 注意:
+  - このシェル(Bash ツール)では、ヒアドキュメントや引用の中の `\\` が `\` 1 つになる。C# の `'\\'` などバックスラッシュを含む中身は、Edit ツールで書くか、python で chr(92) を使う(最初に Json.cs の `'\\'` が壊れてコンパイルが止まった)
+  - WinForms の AutoScroll のパネルは、大きさが変わった直後に前の幅の子でスクロールバーを決め、あとで子を狭めても横のスクロールバーが残ることがある。子を並べ直したあとに `PerformLayout()` を呼ぶと消える(VStack と行の入れ物でそうした)
+  - `docs/HANDOVER.md`・`plan/`・`AGENTS.md` の friend-apps の記述(版・「テスト 31 件」・common の行)は担当外なので直していない。`plan/improvements.md` の 4(1・4・6 は済み)と 9 の 1・2 行目(済み)の更新はまとめ役へ
+- 未コミット: なし(このコミット。`friend-apps/` と `docs/WORKLOG.md` の自分の記録だけ。ほかの担当の `src/` などの未コミットの変更は入れていない)

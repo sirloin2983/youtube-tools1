@@ -1,5 +1,5 @@
 ==========================================================
-  ホロカラー(HoloColors) v1.4.2
+  ホロカラー(HoloColors) v1.4.3
 ==========================================================
 ホロライブのメンバーカラーを一覧から選んで、カラーコードをコピーする Windows のアプリです。
 どのアプリを使っているときでも、キー(はじめは Ctrl + Alt + H)で一覧が開きます。
@@ -84,12 +84,14 @@
       build\HoloColorsTests.exe  テスト 31 件(build.bat が流す。失敗したら dist は作らない)
       dist\HoloColors.zip     友人に送るもの(HoloColors.exe・members.json・この README.txt)
   - 通しの確認: python friend-apps\holo-colors\tests\e2e_holo_colors.py(本物のキー入力とクリックを送る。流す間はマウスとキーボードに触らない)
-  - ソース: src\(C# 5 で書く。$"" ・ ?. ・ => のメンバーは使えない)。設計と決めたこと: docs\design\holo-colors.md
+  - ソース: src\(C# 5 で書く。$"" ・ ?. ・ => のメンバーは使えない)と、切り抜き依頼と共通の部品 ..\common\(JSON の読み書き Json.cs・記録 Log.cs。build.bat が一緒にコンパイルする)。
+    設計と決めたこと: docs\design\holo-colors.md
   - メンバーの色を直す: members.json を直して build.bat → dist の zip を送り直す(形と調べ方: docs\design\holo-colors.md・holo-colors-research.md)。
     友人の側は members.json を差し替えて、アプリを終了 → 起動し直すだけでも反映されます(exe の作り直しは要らない)
   - アイコンの絵を変える: python friend-apps\holo-colors\make_icon.py(src\app.ico を作り直す)
 
 【変更の記録】
+  v1.4.3 (2026-10-07) 内部の整理。動きは同じ(JSON の読み書きと記録を、切り抜き依頼と共通の部品 friend-apps\common\ にまとめた)
   v1.4.2 (2026-10-07) 内部の整理。動きは同じ(ファイルの読み書きのやり直し・設定の画面の作り・コピーのあとの処理など、重なっていたコードを1か所にまとめ、使っていないコードを削った)。
     ひとつだけ、zip の中から直接起動して members.json が読めないとき、決めてあった案内(「すべて展開してから…」)が出るように直した(今までは一般の案内が出ていた)
   v1.4.1 (2026-10-01) 検索で絞り込んだまま、マイカラー・マイワードをドラッグで並べ替えると、隠れている札の分だけ違う位置に入ることがあった(落とした先の札の位置に入るように)。

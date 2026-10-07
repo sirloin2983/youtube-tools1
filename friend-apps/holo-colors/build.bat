@@ -30,7 +30,7 @@ goto wait_quit
 
 set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll"
 echo [1/4] HoloColors.exe
-"%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\HoloColors.exe /win32icon:src\app.ico /win32manifest:src\app.manifest /resource:src\app.ico,HoloColors.app.ico %REFS% src\*.cs
+"%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\HoloColors.exe /win32icon:src\app.ico /win32manifest:src\app.manifest /resource:src\app.ico,HoloColors.app.ico %REFS% src\*.cs ..\common\*.cs
 if errorlevel 1 goto fail
 copy /y members.json build\members.json >nul
 

@@ -9,6 +9,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using FriendApps;
 
 namespace RequestSender
 {
@@ -177,6 +178,7 @@ namespace RequestSender
             Ui.Tip(remove, "この配信を外す");
             title.AutoSize = false;
             title.AutoEllipsis = true;
+            title.AccentLead = "✓ ";   // 確かめられた題名の ✓ だけアクセントの色
             title.Font = Theme.Small;
             title.Height = Ui.S(18);
             top = new Stepper(Validation.MinTop, Validation.MaxTop, defaultTop, Ui.S(34), "切り抜く数");

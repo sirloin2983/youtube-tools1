@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using RequestSender;
+using FriendApps;
 
 static class CoreTests
 {
@@ -19,7 +20,6 @@ static class CoreTests
         MainForm.Offline = true;   // テストは通信しない(配信の題名の問い合わせ・届いたものの確認)・設定を書かない
         Run("URL: watch?v= / youtu.be / live / shorts から id を取り出して正規化する", UrlForms);
         Run("URL: YouTube ではない・形が違うものは断る", UrlRejects);
-        Run("URL: 複数行・空の行・重なり・おかしな行の行番号", UrlLines);
         Run("検査: 拡張子・切り抜く数の範囲・空の依頼・空のファイル", Checks);
         Run("id: 形(yyyyMMdd-HHmmss-6 桁の16進)と置き場所", Ids);
         Run("JSON: 動画の依頼(エスケープ・実際の名前・日本語はそのまま)", VideoJson);
@@ -48,6 +48,10 @@ static class CoreTests
         Run("画面: 配信のカード(t= つきの URL・+1分・③ では区間を送らない・誤りの欄・何行も貼る)", StreamCards);
         Run("画面: 見本を入れると、下の帯の要約に 指定 + 自動 が出る", FormSummary);
         Run("画面: 配信者の行(色の整え方・見本と注・色だけで名前が空は送る前に止める)", FormSpeakers);
+        Run("画面: − / + は押しっぱなしで続けて動く(押したときに 1 回・キーは 1 回ずつ・端で止まる)", RepeatButtons);
+        Run("画面: 確かめた題名の ✓ だけアクセントの色(残りの文字は同じ描き方)", TitleMark);
+        Run("画面: Ctrl+Enter で送る(送るの画面だけ)", CtrlEnter);
+        Run("画面: 配信者が多いときは行の欄の中でスクロールして、メモを下に隠さない", ManySpeakers);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -123,18 +127,6 @@ static class CoreTests
         })
             Eq(null, YouTubeUrl.ExtractId(u), "断る: " + u);
         Eq(null, YouTubeUrl.ExtractId(null), "null");
-    }
-
-    static void UrlLines()
-    {
-        var r = Validation.ParseUrlLines("https://youtu.be/dQw4w9WgXcQ\r\n\r\n  \nhttps://www.youtube.com/watch?v=dQw4w9WgXcQ\nhttps://example.com/x\nhttps://www.youtube.com/live/AAAAAAAAAAA\r\n");
-        Eq(2, r.Urls.Count, "URL の数(重なりは1つ)");
-        Eq(Norm, r.Urls[0], "1本目");
-        Eq("https://www.youtube.com/watch?v=AAAAAAAAAAA", r.Urls[1], "2本目");
-        Eq(1, r.Errors.Count, "おかしな行");
-        True(r.Errors[0].StartsWith("5 行目"), "行番号: " + r.Errors[0]);
-        Eq(0, Validation.ParseUrlLines("").Urls.Count, "空");
-        Eq(0, Validation.ParseUrlLines(null).Errors.Count, "null");
     }
 
     static void Checks()
@@ -790,6 +782,163 @@ static class CoreTests
                 colors[3].Text = "123456";
                 Eq(0, FindAll(f).OfType<Field>().Count(x => x.Error), "直したら枠は戻る");
                 True(!FindAll(f).OfType<Lbl>().Any(l => l.Visible && l.Text.Contains("配信者 3: 名前も入れて")), "理由も消える");
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    // 押しっぱなしの代わり(左のボタンが押されたまま・マウスがボタンの上かを差し替える)
+    class HeldBtn : RepeatBtn
+    {
+        public bool HeldNow = true, Over = true;
+        public HeldBtn() : base("+") { }
+        protected override bool Held { get { return HeldNow; } }
+        protected override bool PointerOver { get { return Over; } }
+    }
+
+    static object Call(object target, Type type, string method, params object[] args)
+    {
+        return type.GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(target, args);
+    }
+
+    static System.Windows.Forms.MouseEventArgs LeftButton()
+    {
+        return new System.Windows.Forms.MouseEventArgs(System.Windows.Forms.MouseButtons.Left, 1, 5, 5, 0);
+    }
+
+    static void RepeatButtons()
+    {
+        using (var b = new HeldBtn())
+        {
+            int n = 0;
+            b.Step += () => n++;
+            Call(b, typeof(System.Windows.Forms.Control), "OnMouseDown", LeftButton());
+            Eq(1, n, "押したときに 1 回");
+            Call(b, typeof(RepeatBtn), "Repeat");
+            Call(b, typeof(RepeatBtn), "Repeat");
+            Eq(3, n, "押し続けると続けて動く");
+            b.Over = false;
+            Call(b, typeof(RepeatBtn), "Repeat");
+            Eq(3, n, "ボタンの外へずらしている間は止まる");
+            b.Over = true;
+            Call(b, typeof(RepeatBtn), "Repeat");
+            Eq(4, n, "戻せば続く");
+            Call(b, typeof(System.Windows.Forms.Control), "OnClick", EventArgs.Empty);
+            Eq(4, n, "マウスで押した分は、離したときの Click では数えない");
+            Call(b, typeof(System.Windows.Forms.Control), "OnMouseUp", LeftButton());
+            b.HeldNow = false;
+            Call(b, typeof(RepeatBtn), "Repeat");
+            Eq(4, n, "離したら止まる");
+            Call(b, typeof(System.Windows.Forms.Control), "OnClick", EventArgs.Empty);
+            Eq(5, n, "キー(Space・Enter)は 1 回ずつ");
+            True(RepeatBtn.FirstDelayMs >= 300 && RepeatBtn.RepeatMs > 0 && RepeatBtn.RepeatMs < RepeatBtn.FirstDelayMs, "続けて動くまで少し待つ");
+        }
+        using (var st = new Stepper(0, 3, 2, 30, "テスト"))
+        {
+            var buttons = st.Controls.OfType<RepeatBtn>().ToList();
+            Eq(2, buttons.Count, "− と + は押しっぱなしで動くボタン");
+            var plus = buttons[1];
+            Call(plus, typeof(System.Windows.Forms.Control), "OnMouseDown", LeftButton());
+            Eq(3, st.Value, "+ を押したとき");
+            True(!plus.Enabled, "上限で + は使えなくなる(続けて動かない)");
+            Call(buttons[0], typeof(System.Windows.Forms.Control), "OnClick", EventArgs.Empty);
+            Eq(2, st.Value, "− をキーで");
+        }
+    }
+
+    static void TitleMark()
+    {
+        using (var panel = new System.Windows.Forms.Panel { BackColor = Theme.P.Panel, Size = new System.Drawing.Size(Ui.S(300), Ui.S(24)) })
+        {
+            var title = new Lbl("✓ 【雑談】見本の配信の題名", Tone.Text) { AutoSize = false, AutoEllipsis = true, Font = Theme.Small, Bounds = new System.Drawing.Rectangle(0, 0, Ui.S(300), Ui.S(18)) };
+            panel.Controls.Add(title);
+            Func<System.Drawing.Bitmap> shot = () =>
+            {
+                var bmp = new System.Drawing.Bitmap(panel.Width, panel.Height);
+                panel.DrawToBitmap(bmp, new System.Drawing.Rectangle(0, 0, panel.Width, panel.Height));
+                return bmp;
+            };
+            using (var plain = shot())
+            {
+                title.AccentLead = "✓ ";
+                using (var marked = shot())
+                {
+                    int lead = System.Windows.Forms.TextRenderer.MeasureText("✓ ", Theme.Small).Width;
+                    int diff = 0, outside = 0;
+                    for (int y = 0; y < plain.Height; y++)
+                        for (int x = 0; x < plain.Width; x++)
+                            if (plain.GetPixel(x, y) != marked.GetPixel(x, y)) { diff++; if (x >= lead) outside++; }
+                    True(diff > 0, "✓ の色が変わる");
+                    Eq(0, outside, "✓ のほかの文字は 1 回で描いたときと同じ");
+                }
+            }
+        }
+        using (var card = new StreamCard(3))
+        {
+            card.Sample(Norm, "見本の題名", 3);
+            True(FindAll(card).OfType<Lbl>().Any(l => l.AccentLead == "✓ " && l.Text == "✓ 見本の題名"), "配信のカードの題名に ✓");
+        }
+    }
+
+    static void CtrlEnter()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                Func<System.Windows.Forms.Keys, bool> press = k => (bool)Call(f, typeof(System.Windows.Forms.Form), "ProcessCmdKey", new System.Windows.Forms.Message(), k);
+                var ctrlEnter = System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.Enter;
+                var count = FindAll(f).OfType<Stepper>().Single(s => s.Minimum == 0 && s.Maximum == Speakers.MaxCount);
+                count.Value = 1;
+                FindAll(f).OfType<System.Windows.Forms.TextBox>().First(t => t.AccessibleName != null && t.AccessibleName.Contains("字幕の色")).Text = "ff00aa";   // 名前が空で色だけ = 誤り
+                Func<bool> stopped = () => FindAll(f).OfType<Lbl>().Any(l => l.Text.Contains("直す所があります"));
+                f.ShowPage(false);
+                True(!press(ctrlEnter) && !stopped(), "受け取るの画面では何もしない");
+                f.ShowPage(true);
+                True(!press(System.Windows.Forms.Keys.Enter) && !stopped(), "Enter だけでは送らない");
+                True(press(ctrlEnter), "送るの画面では Ctrl+Enter を使う(メモの欄でも改行にしない)");
+                True(stopped(), "「送る」と同じ検査が動く");
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void ManySpeakers()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0], Path.Combine(dir, "state")))
+            {
+                f.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+                f.Location = new System.Drawing.Point(-32000, -32000);
+                f.ShowInTaskbar = false;
+                f.ClientSize = new System.Drawing.Size(Ui.S(1000), Ui.S(700));
+                f.Show();
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var names = (System.Windows.Forms.Panel)typeof(MainForm).GetField("namesPane", flags).GetValue(f);
+                var right = (VStack)typeof(MainForm).GetField("right", flags).GetValue(f);
+                var memo = (Field)typeof(MainForm).GetField("memoField", flags).GetValue(f);
+                var count = FindAll(f).OfType<Stepper>().Single(s => s.Minimum == 0 && s.Maximum == Speakers.MaxCount);
+                count.Value = 2;
+                System.Windows.Forms.Application.DoEvents();
+                Eq(names.AutoScrollMinSize.Height, names.Height, "2 人: 行はそのまま");
+                count.Value = Speakers.MaxCount;
+                System.Windows.Forms.Application.DoEvents();
+                True(names.Height < names.AutoScrollMinSize.Height && names.Height >= right.ShrinkMin, "10 人: 行の欄を縮めて中でスクロール(" + names.Height + " / " + names.AutoScrollMinSize.Height + ")");
+                True(memo.Bottom <= right.ClientSize.Height && memo.Height >= right.FillMin && !right.VerticalScroll.Visible, "メモは右の列の中に見えている(列はスクロールしない)");
+                True(!names.HorizontalScroll.Visible && names.Controls.Cast<System.Windows.Forms.Control>().Where(c => c.Visible).All(c => c.Right <= names.ClientSize.Width), "横にははみ出さない");
+                FindAll(f).OfType<Check>().Single(c => c.Text.StartsWith("見どころの重み")).Checked = true;
+                System.Windows.Forms.Application.DoEvents();
+                True(names.Height == names.AutoScrollMinSize.Height && right.VerticalScroll.Visible, "縮めても入りきらない(重みも出した)ときは縮めず、今までどおり列ごとスクロール(二重のスクロールにしない)");
+                FindAll(f).OfType<Check>().Single(c => c.Text.StartsWith("見どころの重み")).Checked = false;
+                System.Windows.Forms.Application.DoEvents();
+                True(names.Height < names.AutoScrollMinSize.Height, "重みを閉じれば、また縮める");
+                f.ClientSize = new System.Drawing.Size(Ui.S(1000), Ui.S(1000));
+                System.Windows.Forms.Application.DoEvents();
+                Eq(names.AutoScrollMinSize.Height, names.Height, "窓を大きくすれば全部の行が出る");
+                f.Hide();
             }
         }
         finally { Directory.Delete(dir, true); }
