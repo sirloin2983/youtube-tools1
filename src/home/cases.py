@@ -22,14 +22,33 @@
     (選び始めたあとに残った候補は「選ばなかったもの」として扱い、次にやることに出し続けない)
   - remaining: next も含めた残作業の合計件数(並び替え「次にやることが多い順」に使う。候補の確認は候補の数ではなく配信 1 本で 1 件)
 スタジオから消えた配信(gone)は、候補の確認・書き出しをスタジオでできないので数えない(文字起こし・校正・パックは残った切り抜きで数える)。
+
+自動でできた切り抜きの確認(線 D の M9・M12・M13。入口 0.43.1。計画 plan/line-d-auto-pack.md の段階 4・6):
+  - 配信(kind live)の切り抜きのうち、.clip.json の source.live.origin が auto(配信中の候補 = M11)か archive(配信後の解析 = M7)のものに
+    clip["auto"] = {origin, originLabel, score, bench} を付ける(人の切り抜き manual は None = 今までどおり)。点数は .clip.json の source.live.score →
+    mark.score → スタジオのマークの score の順(今は書き手が無いことが多い。無ければ None = 画面に出さない)。
+    bench = 1 時間の枠から外れた候補(「控え」。M13: 書き出し済みなら取り消さない。ワーカーが付けたら出すだけ)
+  - clip["review"] = {seenAt, deliveredAt, delivered, failure, unconfirmed}: 人が見たか・届けたか(案件ファイルの auto)・失敗の文
+    (M3。src/home/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の書き出しのジョブをスタジオのマークで引く。読むだけ)。
+    unconfirmed = 見ても・届けてもいない(「自動の切り抜き: 未確認 n 件」の数)。案件の autoClips {total, unconfirmed}・一覧全体の auto も同じ数
+  - 操作は auto_review(POST /api/cases/auto): seen = 見た / deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/home/deliver.py。
+    全自動では届けない = 10-06 ユーザー決定)/ discard = 要らない = パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。
+    14 日で起動時に消える)+ スタジオのマークを不採用に + live_feedback.jsonl に誤検出の記録 + その文字起こしを一覧で非表示に(データは消さない)
+  - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {seenAt, deliveredAt, delivered, discardedAt, tx} を持つ(要らないにした文字起こし tx は
+    「単体の文字起こし」に出さない)
 """
 import datetime
 import json
 import os
+import re
+import shutil
 import threading
 import time
+import urllib.parse
 
-from ytt_core import datadir, fsio, txindex
+from ytt_core import datadir, fsio, schemas, txindex
+import cleanup  # noqa: E402  (ごみ箱フォルダの名前・一緒に片付ける途中のファイルの決まりは片付けと同じ)
+import live_failures  # noqa: E402  (失敗の文は 1 か所。線 D の M3)
 
 SCHEMA = "youtube-tools-cases/v1"
 STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中・投稿済み・見送り
@@ -39,6 +58,15 @@ _lock = threading.Lock()
 # 次にやることの順(仕掛かりを先に終わらせる)と、作業の名前。ホームの「次にやること」(portal.js)も build() の todoOrder でこの順を使う(正はここ 1 か所)
 TODO_ORDER = ("proof", "pack", "transcribe", "export", "review")
 TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "文字起こし", "export": "書き出し", "review": "候補の確認"}
+# 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/home/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
+AUTO_ORIGINS = {"auto": "配信中の候補", "archive": "配信後の解析"}
+AUTO_OPS = ("seen", "deliver", "discard")
+AUTO_KEEP = 2000                   # 案件 1 件で覚えておく確認の数(古いものから捨てる)
+DISCARD_KIND = "discard"           # ごみ箱/<日付>/ の下の種類の名前(片付けの export・work などと並ぶ)
+MARK_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # スタジオのマークの id(src/studio/store.py の ID_RE と同じ形)
+STUDIO_TRIES = 3                   # スタジオの保存とぶつかったときに読み直す回数(src/home/live.py の採用と同じ)
+_busy, _busy_lock = set(), threading.Lock()   # 「要らない」の途中の (配信, マーク)(二度押し・窓を 2 つ並べたときに同じものを二重に動かさない)
+_readers = {}                      # まとめて実行の記録のパス → live_failures.Reader(変わったときだけ読み直す)
 
 
 def _read_json(path, limit=MAX_JSON):
@@ -49,10 +77,13 @@ def _read_json(path, limit=MAX_JSON):
 
 
 def locations(repo_root, env=None):
-    """{"studio": data.json, "transcripts": フォルダ, "cases": cases.json}。置き場所の規則は ytt_core.datadir.resolve の1か所
+    """{"studio": data.json, "transcripts": フォルダ, "cases": cases.json, "liveJobs": 線 D の書き出しのジョブ, "runs": まとめて実行の記録}。
+    置き場所の規則は ytt_core.datadir.resolve の1か所
     (起動したツールが登録した場所 → STUDIO_HOME などの環境変数 → YTT_DATA_DIR・既定の場所。env を渡したときは登録を見ない)"""
+    app = datadir.resolve("app", repo_root, env)
     return {"studio": os.path.join(datadir.resolve("studio", repo_root, env), "data.json"), "transcripts": txindex.folder(repo_root, env),
-            "cases": os.path.join(datadir.resolve("app", repo_root, env), "cases.json")}
+            "cases": os.path.join(app, "cases.json"), "liveJobs": os.path.join(app, "live", "exports.json"),
+            "runs": os.path.join(app, "logs", "autorun-runs.jsonl")}
 
 
 # ---------------------------------------------------------------- 各ツールのデータを読む(読むだけ)
@@ -114,6 +145,7 @@ def _case_extras(c):
     ready_pack = sum(1 for cl in clips if cl.get("transcript") and cl["transcript"].get("segments", 0) > 0
                      and cl["transcript"].get("proofed", 0) >= cl["transcript"]["segments"] and not cl.get("pack"))
     todo = {"review": review, "export": to_export, "transcribe": missing_tx, "proof": proofing, "pack": missing_pack}
+    autos = [cl for cl in clips if cl.get("auto")]
     nxt = None
     for k in TODO_ORDER:
         n = ready_pack if k == "pack" else todo[k]
@@ -125,13 +157,88 @@ def _case_extras(c):
             "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
             "next": nxt, "todo": todo,
             "remaining": (1 if review else 0) + to_export + missing_tx + proofing + missing_pack,
+            "autoClips": {"total": len(autos), "unconfirmed": sum(1 for cl in autos if (cl.get("review") or {}).get("unconfirmed"))},
             "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
+
+
+# ---------------------------------------------------------------- 自動でできた切り抜き(線 D の M9)
+
+def _clip_live(media_path):
+    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/home/live_export.py が書く)。無い・読めない・ネットワーク上のパスなら (None, None)"""
+    if not media_path or fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない。txindex と同じ)
+        return None, None
+    cp = schemas.find_clip_path(media_path)
+    clip = schemas.load_clip_file(cp)[0] if cp else None
+    src = clip.get("source") if isinstance(clip, dict) else None
+    live = src.get("live") if isinstance(src, dict) else None
+    if not isinstance(live, dict):
+        return None, None
+    return live, clip.get("mark") if isinstance(clip.get("mark"), dict) else {}
+
+
+def auto_info(mark, media_path):
+    """自動でできた切り抜きなら {origin, originLabel, score, bench}、人の切り抜き・.clip.json が無い・読めないなら None。
+    mark: スタジオのマーク(点数 score を持つことがある)"""
+    live, cmark = _clip_live(media_path)
+    origin = live.get("origin") if live else None
+    if origin not in AUTO_ORIGINS:
+        return None
+    score = next((x for x in (schemas.num(live.get("score")), schemas.num(cmark.get("score")), schemas.num(mark.get("score"))) if x is not None), None)
+    return {"origin": origin, "originLabel": AUTO_ORIGINS[origin], "score": None if score is None else round(score, 2), "bench": live.get("bench") is True}
+
+
+def live_failures_by_mark(loc):
+    """線 D の書き出しのジョブ(<作業データ>/app/live/exports.json)の失敗 -> {(スタジオの配信, マーク): {kind, kindLabel, text}}。
+    同じマークのジョブが複数あれば新しいものだけ。文は live_failures.failure_of だけが作る(「調子」・LIVE の帯と同じ文)。読むだけ"""
+    import live_export   # 入口のプロセスでは読み込み済み(ここで読むのは、ライブの配信が無ければ要らないため)
+    d = _read_json(loc["liveJobs"], 8 * 1024 * 1024)
+    jobs_ = d.get("jobs") if isinstance(d, dict) and d.get("schema") == live_export.JOBS_SCHEMA else None
+    latest = {}
+    for j in jobs_ if isinstance(jobs_, list) else []:
+        st = j.get("studio") if isinstance(j, dict) else None
+        if isinstance(st, dict) and st.get("video") and st.get("mark"):
+            k = (str(st["video"]), str(st["mark"]))
+            if k not in latest or str(j.get("updated") or "") >= str(latest[k].get("updated") or ""):
+                latest[k] = j
+    if not latest:
+        return {}
+    reader = _readers.get(loc["runs"]) or _readers.setdefault(loc["runs"], live_failures.Reader(loc["runs"]))
+    try:
+        runs = reader.runs()
+    except Exception:   # 記録を読めなくても、書き出しの失敗は出す
+        runs = {}
+    out = {}
+    for k, j in latest.items():
+        f = live_failures.failure_of(j, runs.get(j.get("runId")) if j.get("runId") else None)
+        if f:
+            out[k] = {"kind": f["kind"], "kindLabel": f["kindLabel"], "text": f["text"]}
+    return out
+
+
+def _auto_records(s):
+    """案件ファイルの 1 件の auto(スタジオのマーク → 確認の記録)の写し。壊れた項目は除く"""
+    a = s.get("auto") if isinstance(s, dict) else None
+    return {k: v for k, v in a.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(a, dict) else {}
+
+
+def _apply_review(cases, saved, failures):
+    """自動でできた切り抜きに、人の確認(案件ファイルの auto)と失敗の文を重ねる(clip["review"])"""
+    for c in cases:
+        rec = _auto_records(saved.get(c["id"]))
+        for cl in c.get("clips") or []:
+            if not cl.get("auto"):
+                continue
+            r = rec.get(cl.get("markId")) if isinstance(rec.get(cl.get("markId")), dict) else {}
+            seen, done = _int_ms(r.get("seenAt")), _int_ms(r.get("deliveredAt"))
+            cl["review"] = {"seenAt": seen, "deliveredAt": done, "delivered": str(r.get("delivered") or "")[:200],
+                            "failure": failures.get((c["id"], cl.get("markId"))), "unconfirmed": not (seen or done)}
 
 
 # ---------------------------------------------------------------- 組み立て
 
-def build(videos, transcripts, saved=None, pack_finder=find_pack):
-    """-> {"cases": [...], "unlinked": [文字起こし]}。saved: cases.json の中身(状態・メモ・最後に見えた紐づけ)"""
+def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None):
+    """-> {"cases": [...], "unlinked": [文字起こし], "todoOrder", "auto": {total, unconfirmed}}。saved: cases.json の中身(状態・メモ・最後に見えた紐づけ・
+    自動でできた切り抜きの確認)。failures: live_failures_by_mark の結果(線 D の書き出し・文字起こし・パックの失敗の文)"""
     saved = saved or {}
     used = set()
     cases = []
@@ -146,7 +253,8 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack):
             used.update(ids)
             clips.append({"markId": str(m.get("id") or ""), "label": str(m.get("label") or "")[:80], "start": m.get("start"), "end": m.get("end"),
                           "file": str(m.get("file") or ""), "path": path, "exists": bool(path) and os.path.isfile(path),
-                          "transcript": txindex.summary(tx) if tx else None, "transcripts": n, "pack": pack_finder(path) if path else None})
+                          "transcript": txindex.summary(tx) if tx else None, "transcripts": n, "pack": pack_finder(path) if path else None,
+                          "auto": auto_info(m, path) if v.get("kind") == "live" else None})   # 自動でできた切り抜き(線 D の M9。ライブの録画だけ)
         s = saved.get(vid) if isinstance(saved.get(vid), dict) else {}
         cases.append({"id": vid, "kind": v.get("kind") or "", "title": str(v.get("title") or v.get("fileName") or vid)[:120],
                       "channel": str(v.get("channel") or "")[:100], "duration": v.get("duration") or 0,
@@ -161,12 +269,16 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack):
             last = dict(s["last"], id=cid, status=s.get("status") if s.get("status") in STATUSES else "",
                         memo=str(s.get("memo") or "")[:MAX_MEMO], gone=True)
             cases.append(last)
+    _apply_review(cases, saved, failures or {})
     for c in cases:
         c.update(_case_extras(c))
     cases.sort(key=lambda c: -(c.get("updatedAt") or 0))
-    unlinked = [dict(txindex.summary(t), sourcePath=t["sourcePath"]) for t in transcripts if t["id"] not in used]
+    # 「要らない」にした自動の切り抜きの文字起こしは、マークが不採用になって紐づかなくなっても「単体の文字起こし」に出さない
+    dropped = {r.get("tx") for s in saved.values() for r in _auto_records(s).values() if isinstance(r, dict) and r.get("discardedAt") and r.get("tx")}
+    unlinked = [dict(txindex.summary(t), sourcePath=t["sourcePath"]) for t in transcripts if t["id"] not in used and t["id"] not in dropped]
     unlinked.sort(key=lambda t: -t["updatedAt"])
-    return {"cases": cases, "unlinked": unlinked, "todoOrder": list(TODO_ORDER)}
+    return {"cases": cases, "unlinked": unlinked, "todoOrder": list(TODO_ORDER),
+            "auto": {k: sum(c["autoClips"][k] for c in cases) for k in ("total", "unconfirmed")}}
 
 
 # ---------------------------------------------------------------- 案件ファイル
@@ -188,12 +300,15 @@ def snapshot(repo_root, env=None):
     loc = locations(repo_root, env)
     with _lock:
         saved = load_saved(loc["cases"])
-        res = build(read_studio(loc["studio"]), read_transcripts(loc["transcripts"]), saved)
+        videos = read_studio(loc["studio"])
+        fails = live_failures_by_mark(loc) if any(isinstance(v, dict) and v.get("kind") == "live" for v in videos.values()) else {}
+        res = build(videos, read_transcripts(loc["transcripts"]), saved, failures=fails)
         changed = False
         for c in res["cases"]:
             s = saved.get(c["id"])
             if s is not None and not c["gone"]:
-                last = {k: c[k] for k in ("kind", "title", "channel", "duration", "marks", "clips", "updatedAt", "streamedAt")}
+                last = {k: c[k] for k in ("kind", "title", "channel", "duration", "marks", "updatedAt", "streamedAt")}
+                last["clips"] = [{k: x for k, x in cl.items() if k != "review"} for cl in c["clips"]]   # 人の確認・失敗の文は毎回重ね直す(残さない)
                 if s.get("last") != last:
                     s["last"] = last
                     changed = True
@@ -206,10 +321,15 @@ def snapshot(repo_root, env=None):
     return res
 
 
-def update(repo_root, case_id, status=None, memo=None, env=None):
-    """状態・メモを付ける。-> 更新後の {status, memo, statusUpdatedAt}"""
+def _check_case_id(case_id):
     if not isinstance(case_id, str) or not (1 <= len(case_id) <= 64) or not all(ch.isalnum() or ch in "-_" for ch in case_id):
         raise ValueError("案件の指定が正しくありません")
+    return case_id
+
+
+def update(repo_root, case_id, status=None, memo=None, env=None):
+    """状態・メモを付ける。-> 更新後の {status, memo, statusUpdatedAt}"""
+    _check_case_id(case_id)
     if status is not None and status not in STATUSES:
         raise ValueError("状態が正しくありません")
     if memo is not None and (not isinstance(memo, str) or len(memo) > MAX_MEMO):
@@ -223,7 +343,250 @@ def update(repo_root, case_id, status=None, memo=None, env=None):
             s["statusUpdatedAt"] = int(time.time() * 1000)
         if memo is not None:
             s["memo"] = memo
-        if not s.get("status") and not s.get("memo"):
-            saved.pop(case_id, None)   # 何も付けていない案件は持たない(ファイルを小さく)
+        if not s.get("status") and not s.get("memo") and not _auto_records(s):
+            saved.pop(case_id, None)   # 何も付けていない案件は持たない(ファイルを小さく。自動でできた切り抜きの確認があれば残す)
         _write(loc["cases"], saved)
         return {"status": s.get("status", ""), "memo": s.get("memo", ""), "statusUpdatedAt": s.get("statusUpdatedAt", 0)}
+
+
+# ---------------------------------------------------------------- 自動でできた切り抜きの確認の操作(線 D の M9・M12)
+
+class ReviewError(ValueError):
+    """画面に出す理由(code は HTTP の番号・error は短い名前)"""
+
+    def __init__(self, message, code=409, error="conflict"):
+        super().__init__(message)
+        self.code, self.error = code, error
+
+
+def auto_review(repo_root, body, deliveries=None, studio=None, feedback=None, trash=None, hide=None, env=None):
+    """POST /api/cases/auto {op, id(案件 = スタジオの配信), markId(スタジオのマーク)}-> (HTTP の番号, JSON)。
+    op: seen = 見た / deliver = 採用 = 友人へ届ける(パックがあるときだけ)/ discard = 要らない。自動でできた切り抜き(clip["auto"])だけを受け付ける
+    (人の切り抜きは、この口では届けない・動かさない)。部品は入口が渡す: deliveries = deliver.Deliveries・studio(method, path, body) -> (番号, JSON)
+    (取り込んだスタジオの API = src/home/live.py の Live.studio_call)・feedback(行) = live_feedback.jsonl に 1 行・trash = cleanup.Cleanup
+    (ごみ箱フォルダの場所)・hide(文書の id) = その文字起こしを一覧で非表示に(ホームの設定の hidden)"""
+    body = body if isinstance(body, dict) else {}
+    op = body.get("op")
+    try:
+        if op not in AUTO_OPS:
+            raise ReviewError("op は seen・deliver・discard のどれかです", 400, "bad_request")
+        case_id, mark_id = _check_case_id(body.get("id")), body.get("markId")
+        if not isinstance(mark_id, str) or not MARK_RE.match(mark_id):
+            raise ReviewError("切り抜きの指定(markId)が正しくありません", 400, "bad_request")
+        c, cl = _find_auto(repo_root, case_id, mark_id, env)
+        if op == "seen":
+            return 200, {"ok": True, "review": _remember(repo_root, case_id, mark_id, env)}
+        if op == "deliver":
+            return 200, _deliver(repo_root, c, cl, deliveries, feedback, env)
+        return 200, _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env)
+    except ReviewError as e:
+        return e.code, {"error": e.error, "message": str(e)}
+    except ValueError as e:
+        return 400, {"error": "bad_request", "message": str(e)}
+    except OSError as e:
+        return 500, {"error": "write", "message": "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__)}
+
+
+def _find_auto(repo_root, case_id, mark_id, env):
+    """今の一覧(画面と同じ組み立て)から、案件と自動でできた切り抜きを引く"""
+    res = snapshot(repo_root, env)
+    c = next((x for x in res["cases"] if x["id"] == case_id), None)
+    cl = next((x for x in (c or {}).get("clips") or [] if x.get("markId") == mark_id), None)
+    if cl is None:
+        raise ReviewError("その切り抜きは一覧にありません(もう片付けたかもしれません。一覧を読み込み直してください)", 404, "not_found")
+    if not cl.get("auto"):
+        raise ReviewError("自動でできた切り抜きではありません(人が書き出した切り抜きは「編集」の 3 パック から届けます)")
+    return c, cl
+
+
+def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=None):
+    """案件ファイルに確認を残す(見た = seenAt。届けた・要らないも「見た」に数える)。delivered: 置いた zip の名前・discarded: 文字起こしの id("" = 無い)。
+    -> その記録 {seenAt, deliveredAt?, delivered?, discardedAt?, tx?}"""
+    now = int(time.time() * 1000)
+    loc = locations(repo_root, env)
+    with _lock:
+        saved = load_saved(loc["cases"])
+        s = saved.setdefault(case_id, {})
+        recs = _auto_records(s)
+        r = dict(recs.get(mark_id)) if isinstance(recs.get(mark_id), dict) else {}
+        if not _int_ms(r.get("seenAt")):
+            r["seenAt"] = now
+        if delivered is not None:
+            r.update(deliveredAt=now, delivered=str(delivered)[:200])
+        if discarded is not None:
+            r.update(discardedAt=now, tx=str(discarded)[:64])
+        recs[mark_id] = r
+        if len(recs) > AUTO_KEEP:   # 古いもの(最後に触った時刻)から捨てる
+            keep = sorted(recs, key=lambda k: -max(_int_ms(recs[k].get(x)) for x in ("seenAt", "deliveredAt", "discardedAt")))[:AUTO_KEEP]
+            recs = {k: recs[k] for k in keep}
+        s["auto"] = recs
+        _write(loc["cases"], saved)
+        return r
+
+
+def _feedback_row(c, cl, **kw):
+    """live_feedback.jsonl の 1 行(src/home/live.py の採用の行と同じ形: 出どころ・人か・判定・録画元・録画・マークの正本の id・スタジオの配信とマーク・区間・ラベル)。
+    .clip.json を読むので、ファイルを動かす前に作る"""
+    live, _m = _clip_live(cl.get("path"))
+    live = live or {}
+    return dict({"origin": (cl.get("auto") or {}).get("origin"), "recorder": live.get("recorder"), "recording": live.get("recording"),
+                 "markId": live.get("markId"), "studio": {"video": c["id"], "mark": cl.get("markId")}, "start": cl.get("start"), "end": cl.get("end"),
+                 "label": cl.get("label") or "", "file": cl.get("file") or ""}, **kw)
+
+
+def _deliver(repo_root, c, cl, deliveries, feedback, env):
+    """採用 = 友人へ届ける(M12)。パックを zip にして Dropbox の 出力 へ(deliver.Deliveries。数 GB は時間がかかるので裏で。画面は
+    api/ytt/deliver の status で聞き直す)。置き終えたら案件に「届けた」を残し、live_feedback.jsonl に人の「良い」(event deliver)を 1 行"""
+    rv = cl.get("review") or {}
+    if rv.get("deliveredAt"):
+        raise ReviewError("この切り抜きはもう届けました(%s)" % (rv.get("delivered") or "Dropbox の 出力"))
+    pack = cl.get("pack") or {}
+    if not pack.get("dir"):
+        raise ReviewError("パックがまだありません(文字起こし → パックが済むと届けられます)")
+    if deliveries is None:
+        raise ReviewError("届ける仕組みが使えません", 503, "unavailable")
+    row = _feedback_row(c, cl, event="deliver", human=True, verdict="good")
+    case_id, mark_id = c["id"], cl["markId"]
+
+    def done(job):
+        _remember(repo_root, case_id, mark_id, env, delivered=job.get("name") or "")
+        if feedback:
+            feedback(dict(row, delivered=job.get("name") or ""))
+    try:
+        job = deliveries.start(pack["dir"], "", on_done=done)   # 題は空 = パックのフォルダの名前(友人のアプリの「受け取る」に出る)
+    except ValueError as e:   # Dropbox のフォルダが決まっていない・見つからない・届けている途中 など(文はそのまま画面へ)
+        raise ReviewError(str(e))
+    _remember(repo_root, case_id, mark_id, env)
+    return {"ok": True, "job": job}
+
+
+def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
+    """要らない(M9): ① パック・切り抜きの mp4・.clip.json などの途中のファイルを ごみ箱フォルダ へ移す(片付け src/home/cleanup.py と同じ場所。
+    14 日で起動時に消える。すぐには消さない)② スタジオのマークを不採用(rejected)に(画面と同じ PUT /api/video)③ live_feedback.jsonl に
+    誤検出の記録(人の「悪い」= event reject)④ その文字起こしを一覧で非表示に(データは消さない)⑤ 案件に「要らない」を残す。
+    ② ができなければ ① を元に戻す(パックだけ消えてマークが残る、を作らない)。-> {ok, moved, trash, studio}"""
+    if trash is None or studio is None:
+        raise ReviewError("ごみ箱フォルダか切り抜きスタジオが使えません", 503, "unavailable")
+    key = (c["id"], cl["markId"])
+    with _busy_lock:
+        if key in _busy:
+            raise ReviewError("この切り抜きは今、片付けている途中です")
+        _busy.add(key)
+    try:
+        path = cl.get("path") or ""
+        pack = txindex.pack_dir(path) if path else ""
+        if pack and deliveries is not None and deliveries.running(pack):
+            raise ReviewError("このパックは今、友人へ届けている途中です(終わってから押してください)")
+        row = _feedback_row(c, cl, event="reject", human=True, verdict="bad")
+        moved, where = _to_trash(trash, path, pack)
+        try:
+            st = _studio_reject(studio, c["id"], cl["markId"])
+        except ReviewError:
+            _put_back(moved)
+            raise
+        _write_manifest(where, moved)
+        tid = (cl.get("transcript") or {}).get("id") or ""
+        if tid and hide:
+            try:
+                hide(tid)
+            except (OSError, ValueError):   # 非表示にできなくても片付けは済んでいる(一覧の「単体の文字起こし」には出さない)
+                pass
+        _remember(repo_root, c["id"], cl["markId"], env, discarded=tid)
+        if feedback:
+            feedback(dict(row, trash=where))
+        return {"ok": True, "moved": len(moved), "trash": where, "studio": st}
+    finally:
+        with _busy_lock:
+            _busy.discard(key)
+
+
+def _free_path(p):
+    """同じ名前があれば (1) (2) … を付ける(片付けと同じ付け方)"""
+    k, (base, ext) = 1, os.path.splitext(p)
+    while os.path.lexists(p):
+        p = "%s (%d)%s" % (base, k, ext)
+        k += 1
+    return p
+
+
+def _to_trash(trash, media, pack):
+    """切り抜き 1 本ぶんのファイルを ごみ箱/<日付>/discard/<名前>/ へ移す(作業用 の物は その中の 作業用/)。-> ([(元, 先)], 移した先のフォルダ)。
+    1 つでも移せなければ、移した分を戻して ReviewError(Resolve・エクスプローラーで開いていると移せない)"""
+    extra = [p for suf in cleanup.SIDECARS for p in schemas.sidecar_candidates(media, suf)] if media else []
+    files = [p for p in [media, pack] + extra if p and os.path.exists(p)]
+    if not files:
+        return [], ""
+    day = time.strftime("%Y-%m-%d")
+    root = trash.trash_for(files[0])
+    dest = _free_path(os.path.join(root, day, DISCARD_KIND, os.path.splitext(os.path.basename(media or pack))[0] or "clip"))
+    moved = []
+    try:
+        for p in files:
+            sub = schemas.WORK_DIR if os.path.basename(os.path.dirname(p)) == schemas.WORK_DIR else ""
+            d = os.path.join(dest, sub) if sub else dest
+            os.makedirs(d, exist_ok=True)
+            to = _free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
+            shutil.move(p, to)   # 同じドライブなら改名、別のドライブなら写して消す
+            moved.append((p, to))
+    except (OSError, shutil.Error) as e:
+        _put_back(moved)
+        raise ReviewError("ファイルを ごみ箱フォルダ へ移せなかったので、片付けませんでした(Resolve やエクスプローラーで開いていれば閉じて、もう一度): %s"
+                          % (getattr(e, "strerror", None) or str(e)[:120]))
+    remember = getattr(trash, "_remember_root", None)   # 作業データ・書き出し先の外のごみ箱フォルダも、起動時に 14 日で消す一覧へ(片付けの move と同じ)
+    if remember:
+        try:
+            remember(root)
+        except OSError:
+            pass
+    return moved, dest
+
+
+def _put_back(moved):
+    """移した物を元の場所へ戻す(新しい順に。戻せなかった物はごみ箱フォルダに残る = 消えはしない)"""
+    for src, to in reversed(moved):
+        try:
+            shutil.move(to, src)
+        except (OSError, shutil.Error):
+            pass
+
+
+def _write_manifest(where, moved):
+    """ごみ箱/<日付>/manifest.jsonl に元の場所を残す(片付けと同じ形。戻したいときに見る)"""
+    if not moved:
+        return
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(where)), cleanup.MANIFEST), "a", encoding="utf-8") as f:
+            for src, to in moved:
+                f.write(json.dumps({"from": src, "to": to, "at": int(time.time() * 1000), "kind": DISCARD_KIND}, ensure_ascii=False) + "\n")
+    except OSError:   # 書けなくても、移した物は ごみ箱フォルダ の中にある
+        pass
+
+
+def _studio_ok(code, d):
+    if code is None:
+        raise ReviewError("切り抜きスタジオにつながらないので、片付けませんでした: %s" % ((d or {}).get("message") or ""), 502, "studio_down")
+    if code != 200 or not isinstance(d, dict):
+        raise ReviewError("切り抜きスタジオが断ったので、片付けませんでした: %s" % ((d or {}).get("message") or "HTTP %s" % code), 502, "studio_bad")
+    return d
+
+
+def _studio_reject(studio, vid, mark_id):
+    """スタジオのマークを不採用(rejected)に(画面の保存と同じ PUT /api/video。baseRev つき・ぶつかったら読み直して 3 回まで)。
+    -> "rejected" / "gone"(配信・マークがもう無い)。つながらない・断られたら ReviewError"""
+    for _try in range(STUDIO_TRIES):
+        code, d = studio("GET", "/api/video?id=" + urllib.parse.quote(vid))
+        if code == 404:
+            return "gone"
+        v = _studio_ok(code, d).get("video") or {}
+        marks = [m for m in v.get("marks") or [] if isinstance(m, dict)]
+        hit = next((m for m in marks if m.get("id") == mark_id), None)
+        if hit is None:
+            return "gone"
+        if hit.get("status") == "rejected":
+            return "rejected"
+        code, d = studio("PUT", "/api/video", {"id": vid, "marks": [dict(m, status="rejected") if m is hit else m for m in marks], "baseRev": v.get("rev")})
+        if code == 409:   # 画面の保存・書き出しとぶつかった: 読み直してもう一度
+            continue
+        _studio_ok(code, d)
+        return "rejected"
+    raise ReviewError("切り抜きスタジオの配信が続けて書き換えられているので、マークを不採用にできませんでした(少し待ってもう一度)")

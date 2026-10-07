@@ -80,8 +80,9 @@ class Deliveries:
         self.jobs = {}
         self.busy = threading.Lock()   # 同時に作るのは1本
 
-    def start(self, d, title=""):
-        """-> 仕事の状態。断るときは ValueError(画面にそのまま出す文)"""
+    def start(self, d, title="", on_done=None):
+        """-> 仕事の状態。断るときは ValueError(画面にそのまま出す文)。
+        on_done(仕事の状態): 置き終えたときに 1 回だけ呼ぶ(自動でできた切り抜きの「採用」が案件に「届けた」を残す。src/home/cases.py。線 D の M12)"""
         if not isinstance(d, str) or not d.strip() or len(d) > 1024:
             raise ValueError("パックのフォルダがありません")
         d = os.path.normpath(d.strip())
@@ -104,10 +105,16 @@ class Deliveries:
             self.jobs[job["id"]] = job
             for k in [k for k, j in self.jobs.items() if j["state"] != "running"][:-KEEP_JOBS]:
                 del self.jobs[k]
-        threading.Thread(target=self._run, args=(job, os.path.join(folder, OUT_DIR)), daemon=True, name="deliver").start()
+        threading.Thread(target=self._run, args=(job, os.path.join(folder, OUT_DIR), on_done), daemon=True, name="deliver").start()
         return dict(job)
 
-    def _run(self, job, out_dir):
+    def running(self, d):
+        """そのパックのフォルダを今 zip にしているか(届けている途中のパックを「要らない」で動かさない。src/home/cases.py)"""
+        d = os.path.normcase(os.path.normpath(str(d or "")))
+        with self.lock:
+            return any(j["state"] == "running" and os.path.normcase(j["dir"]) == d for j in self.jobs.values())
+
+    def _run(self, job, out_dir, on_done=None):
         def prog(done, total):
             job["progress"] = round(done / total, 3)
         if not self.busy.acquire(blocking=False):
@@ -119,6 +126,11 @@ class Deliveries:
             job.update(state="done", progress=1.0, name=os.path.basename(dest),
                        message="Dropbox の 出力 に置きました。同期が終わると友人のアプリの「受け取る」に出ます")
             self.log("友人へ届ける: %s を 出力 に置きました" % os.path.basename(dest))
+            if on_done:
+                try:
+                    on_done(dict(job))
+                except Exception as e:   # 記録できなくても、届けたことは変わらない(ログにだけ残す)
+                    self.log("友人へ届ける: 届けたことを記録できませんでした: %r" % (e,))
         except OSError as e:
             job.update(state="error", error=e.strerror or e.__class__.__name__,
                        message="届けられませんでした: %s" % (e.strerror or e.__class__.__name__))
