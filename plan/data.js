@@ -6,15 +6,16 @@ window.PLAN = {
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "土台はすべて済んでいる。残りは「データ待ち」「人の確認待ち」「線 D の実装」。G1(校正済みの定点 15 分)に 10-07 に届き、線 B のフェーズ 2 が開いた。律速はユーザーの校正の時間(動画 1 分に約 12.6 分)。",
   versions: [
-    ["入口(ホーム)", "0.41.1"], ["切り抜きスタジオ", "0.21.3"], ["編集", "0.58.3"], ["cut2resolve", "0.22.2"],
-    ["録画の部品", "0.3.2"], ["ui-kit", "v20"], ["送るアプリ", "2.2.0"], ["ホロカラー", "1.4.3"]
+    ["入口(ホーム)", "0.42.3"], ["切り抜きスタジオ", "0.22.3"], ["編集", "0.59.3"], ["cut2resolve", "0.22.2"],
+    ["録画の部品", "0.3.2"], ["ui-kit", "v23"], ["送るアプリ", "2.2.0"], ["ホロカラー", "1.4.3"]
   ],
   /* 直近の作業(2026-10-07 のユーザー指示 ①〜④) */
   recent: [
     { id: "①", name: "資料とフォルダの整理", state: "done", detail: "動くコードを src\\、友人用を friend-apps\\、計画を plan\\ に。docs/plan と docs/archive を廃止、進行中の計画だけ plan\\ へ。WORKLOG を圧縮。単体・画面テスト全部 OK(10-07)" },
     { id: "②", name: "ユーザーの作業が要らない実装", state: "done", detail: "済み(10-07): B1 行の時刻 0.57.1 / A2 あと何本(入口 0.38.0)/ 「すべて終了」で録画の部品も止める(0.38.1)/ 線 D M1〜M3(0.39.0)/ A1 話者のしきい値 0.6(編集 0.58.0)/ B2 手元の 4 エンジンの比較(主 whisper.cpp・2 つ目 Qwen3-ASR を仮決め)/ 線 D M4〜M7(入口 0.40.0。配信後の全自動は既定オフ)。残り: L0(配信中の配信が要る)・クラウドの比較(送り先待ち)・M7 の本物の確認(ユーザー)" },
     { id: "③", name: "コードの見直し(2 周目まで)", state: "done", detail: "2 周目(基準 docs/spec/code-quality.md・dev/lint.py 28 件 → 0 件): _send を ytt_core に・KillJob を 1 つに・eval_asr の設定の差し替えの不具合・cut2resolve の未使用 API 削除と動画のコピーの省略・friend-apps の共通化と操作 3 つ・e2e の分割・optAutoContext の保存。1 周目: dev・studio+ui-kit(0.21.1・v18)・friend-apps(1.4.2・2.1.1)・cut2resolve(0.21.1)・recorder(0.3.1)・editor サーバー側(0.57.2。約 390 行減)。ytt_core(紐づけ 0.74 秒 → 0.02 秒・色決め 22ms → 1.3ms)・editor 画面側(0.58.1。4,000 行で 2.8 万回の計算を 1 回に)・home(0.40.1。POST の振り分けを表に)。動きは変えず、API・形式・画面は同じ。単体・e2e の最終の通しは下の WORKLOG" },
-    { id: "⑤", name: "段 7〜9(気が利く画面へ)の残りの実装", state: "doing", detail: "調査で済み 7・一部 6・未着手 22(plan/ux-stage7-9.md)。やめてよい 5 項目を外して editor・studio・home で実装中。段 9 = 直した画面の見た目の確認" },
+    { id: "⑤", name: "段 7〜9(気が利く画面へ)の残りの実装", state: "done", detail: "段 7〜8 は済み(スタジオ 0.22.0〜・入口 0.42.0〜・編集 0.59.0〜・ui-kit v21〜v22)。段 9(見た目の確認)は ⑥ の UI の見直しにまとめた(docs/design/briefs/ux-consistency/DESIGN_REVIEW.md)" },
+    { id: "⑥", name: "全ての UI の見直し(基準を作って合格までループ)", state: "doing", detail: "基準 docs/spec/ui-review-criteria.md(A = 機械で測る 31 項目 / B = 人が見る 21 項目)と測る道具 dev/ui_audit.py。1 周目の前は A の Must 704 件(一意 144)、見直し役 3 人の Must はホーム 10・スタジオ 9・編集 9。ui-kit v23 と各ツール(0.42.3 / 0.22.3 / 0.59.3)で直して測り直す(上限 3 周)" },
     { id: "④", name: "plan の文書", state: "done", detail: "plan/improvements.md(次に手を付けるなら の優先順・各線の候補・③ で見つかった問題)・plan/decisions.md(仮で決めたこと (a)〜(r))・このページ(user-tasks)。10-07" }
   ],
   /* 各線の進捗 */
