@@ -909,6 +909,13 @@ class DetectApiTest(unittest.TestCase):
         t[0] += 60
         self.assertEqual(det2.auto_tick(), 0)   # 待ちが過ぎても試さない
 
+    def test_adopt_passes_score(self):
+        """採用(人・自動)で候補の点数が書き出しのジョブに残る(.clip.json の source.live.score → M9 の一覧)"""
+        r = self.post("adopt", "p0-302")
+        self.assertEqual(r["ok"], True)
+        job = self.live.exporter.snapshot("fake", REC)[0]
+        self.assertEqual((job["origin"], job.get("score")), ("manual", 12.0))
+
     def test_health_row_and_failures(self):
         hb = {"v": 1, "pid": 99999, "at": iso(time.time()), "behindSec": 12.5, "memMB": 80.0, "chatRestarts": 2,
               "recordings": [{"recorder": "fake", "id": REC, "behindSec": 12.5, "chat": "ok"}], "message": "1 本の録画を見ています", "error": ""}

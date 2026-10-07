@@ -426,6 +426,8 @@ class Detector:
     def adopt(self, rc, rec, pk, origin, after=None, streamer=None):
         """候補を M1 の採用(Live.adopt)に通して、決定を残す -> API の応答の形"""
         body = {"recorder": rc, "recording": rec, "start": pk["start"], "end": pk["end"], "label": "", "origin": origin}
+        if isinstance(pk.get("score"), (int, float)) and not isinstance(pk.get("score"), bool):
+            body["score"] = pk["score"]   # 候補の点数を切り抜きの記録(.clip.json の source.live.score)に残す(M9 の一覧が出す)
         if after is not None:
             body["after"] = after
         if streamer is not None:

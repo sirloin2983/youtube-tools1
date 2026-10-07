@@ -740,6 +740,7 @@ class Live:
         auto = self.auto_cfg()
         after, streamer = live_export.check_after(body, auto["after"]), live_export.check_streamer(body.get("streamer"))
         label = live_export._text(body.get("label"), live_export.LABEL_MAX)
+        score = body.get("score") if isinstance(body.get("score"), (int, float)) and not isinstance(body.get("score"), bool) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
         rc_id, rec = body.get("recorder"), body.get("recording")
         rc = self._ids(rc_id, rec)
         st, first = self._rec_status(rc, rc_id, rec)
@@ -756,7 +757,7 @@ class Live:
                       "start": float(mark.get("start", a)), "end": float(mark.get("end", b))}   # スタジオが丸めた区間(画面の書き出しと同じ値で突き合わせる)
             job = ex.add_studio(rc_id, rec, studio, first, after != "none", url=st.get("url") if isinstance(st.get("url"), str) else None,
                                 title=st.get("title") if isinstance(st.get("title"), str) else None, after=after, streamer=streamer, origin=origin, auto=auto,
-                                hold=hold if hold in live_export.HOLDS else None)
+                                hold=hold if hold in live_export.HOLDS else None, score=score)
         ex.feedback({"event": "adopt", "origin": origin, "human": origin == "manual", "verdict": "good" if origin == "manual" else None,
                      "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
                      "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"]})

@@ -599,7 +599,7 @@ class Exporter:
             arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
         return LiveError("このマークは本番版に作り直しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
-    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None):
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
         after・streamer・origin・auto・hold: add と同じ"""
@@ -613,9 +613,9 @@ class Exporter:
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
                             studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer, origin=origin, auto=auto,
-                            hold=hold)
+                            hold=hold, score=score)
 
-    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None):
+    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
         after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
@@ -642,6 +642,8 @@ class Exporter:
                 job["studio"] = dict(studio)
             if hold in HOLDS:
                 job["holdFor"] = hold
+            if isinstance(score, (int, float)) and not isinstance(score, bool):
+                job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             self.jobs.append(job)
             self._trim()
         self._save()
@@ -1149,6 +1151,8 @@ class Exporter:
         clip["source"] = {"kind": "live", "videoId": vid, "url": None, "title": out["title"], "path": None,
                           "live": {"url": d.get("url") or "", "recorder": rc["id"], "recording": rec, "base": epoch_iso(base),
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"], "origin": origin}}
+        if isinstance(job.get("score"), (int, float)):
+            clip["source"]["live"]["score"] = job["score"]   # 候補の点数(M9 の確認の一覧が出す)
         if isinstance(job.get("studio"), dict):   # スタジオのマークから(P3): スタジオの配信(= 録画の id)とマークの id も残す
             clip["source"]["live"]["studio"] = {"video": job["studio"].get("video"), "mark": job["studio"].get("mark")}
         if archive:
