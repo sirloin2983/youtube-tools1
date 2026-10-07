@@ -1070,7 +1070,7 @@ class TestRestore(Base):
         self.assertEqual([x["id"] for x in reversed(got) if x["state"] in ("queued", "running")], [a["id"], c["id"]])   # 先に入れた順
         logged = {x["id"]: x for x in self.until(lambda: [x for x in self.lines() if x["id"] == "0123456789"] and self.lines())}
         self.assertEqual(logged["0123456789"]["state"], "cancelled")
-        self.assertIn("7 日より前", logged["0123456789"]["message"])
+        self.assertIn("3 日より前", logged["0123456789"]["message"])
         self.assertNotIn(b["id"], [x["id"] for x in self.active()])
         with self.assertRaisesRegex(ValueError, "すでに"):   # 戻した実行も、同じ配信の二重の登録を断る
             self.r.start(VID, "adopted")
@@ -1796,7 +1796,7 @@ class TestDeferred(Base):
         self.until(lambda: self.r.deferred()["items"] == [] or None, "一覧から外れる")
 
     def test_three_failures_and_expiry(self):
-        """3 回失敗したら捨てる(理由を残す)・失敗は記録に mode post_analyze の失敗として1行ずつ。14 日たったものも捨てる"""
+        """3 回失敗したら捨てる(理由を残す)・失敗は記録に mode post_analyze の失敗として1行ずつ。3 日たったものも捨てる"""
         self.tools.h_studio_POST_api_queue_add = lambda path, body: (200, {"added": [], "rejected": [{"reason": "yt-dlp が見つかりません"}]})
         r = self.ranges_request()
         self.logged(r["id"])
@@ -1812,7 +1812,7 @@ class TestDeferred(Base):
         self.write_defer([self.item(added=old)])
         self.r = self.runner()
         d = self.until(lambda: (lambda d: d if d["dropped"] else None)(self.r.deferred()), "捨てる")
-        self.assertIn("14 日たったので", d["dropped"][0]["reason"])
+        self.assertIn("3 日たったので", d["dropped"][0]["reason"])
         time.sleep(0.1)
         self.assertEqual((len([x for x in self.lines() if x["mode"] == A.POST_MODE]), self.posts()), (3, []), "捨てたものは解析しない")
 

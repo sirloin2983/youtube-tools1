@@ -49,7 +49,7 @@ class CleanupTest(unittest.TestCase):
         self.assertIn("終わった配信", exp["items"][0]["note"])
         self.assertEqual(exp["bytes"], 100)
         self.assertEqual(r["bytes"], 100)
-        self.assertEqual(r["keepDays"], 14)
+        self.assertEqual((r["keepDays"], r["trashDays"], r["packAgeDays"]), (14, 3, 3))   # 受付済みの候補 14 日・ごみ箱 3 日・パックから 3 日(10-07)
 
     def test_work_orphans(self):
         v = os.path.join(self.tmp, "vid")
@@ -103,14 +103,16 @@ class CleanupTest(unittest.TestCase):
         ids = {i["name"]: i["id"] for i in next(k for k in r["kinds"] if k["kind"] == "cache")["items"]}
         self.cl.move([ids["x.peaks"]])
         self.assertTrue(os.path.isfile(os.path.join(self.app, "ごみ箱", day, "cache", "x (1).peaks")))
-        # purge: 14 日を過ぎた日付のフォルダだけ消す
+        # purge: 3 日を過ぎた日付のフォルダだけ消す(2026-10-07 に 14 → 3)
         self.assertEqual(self.cl.purge(), 0)
-        self.now[0] += 15 * 86400
+        self.now[0] += 2 * 86400
+        self.assertEqual(self.cl.purge(), 0)
+        self.now[0] += 2 * 86400
         self.assertEqual(self.cl.purge(), 1)
         self.assertFalse(os.path.isdir(os.path.join(self.app, "ごみ箱", day)))
 
     def test_export_aged_textplus_pack_with_sidecars(self):
-        """パック(Text+)から 14 日たった元動画は、案件の状態が無くても候補。_edit.mp4・作業用の途中のファイルも一緒に移す"""
+        """パック(Text+)から 3 日(PACK_AGE_DAYS)たった元動画は、案件の状態が無くても候補。_edit.mp4・作業用の途中のファイルも一緒に移す"""
         v = os.path.join(self.tmp, "vid")
         a = touch(os.path.join(v, "a.mp4"), 100)
         ed = touch(os.path.join(v, "作業用", "a_edit.mp4"), 40)

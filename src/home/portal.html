@@ -194,10 +194,10 @@
         <div class="row"><b class="grow">調子</b><span class="hint" id="healthWhen"></span><button type="button" class="btn small ghost" id="btnAccuracyNow" hidden title="人が直した記録に対する精度(文字起こし・盛り上がり・話者)を、手が空くのを待って測ります。夜に自動でも測ります">精度を今すぐ測る</button><button type="button" class="btn small ghost" id="btnHealthRefresh">数え直す</button></div>
         <ul class="pt-health-list" id="healthList" aria-live="polite"><li class="hint">読み込んでいます…</li></ul>
       </section>
-      <!-- 片付け(段9 9-2。/api/cleanup): 候補を種類ごとに → 選んで ごみ箱フォルダ へ移す(14 日で起動時に消える。自動では移さない) -->
+      <!-- 片付け(段9 9-2。/api/cleanup): 候補を種類ごとに → 選んで ごみ箱フォルダ へ移す(3 日で起動時に消える。自動では移さない) -->
       <section class="card flat pt-foot pt-health" id="cleanBox">
         <div class="row"><b class="grow">片付け</b><span class="hint" id="cleanWhen"></span><button type="button" class="btn small ghost" id="btnCleanFind">候補を探す</button></div>
-        <p class="hint pt-clean-note">選んだ物を「ごみ箱フォルダ」へ移します(動画と同じドライブ。例: 書き出し先\ごみ箱\)。<span id="cleanDays">14</span> 日たつと、ホームの起動時に消えます。それまではエクスプローラーで元に戻せます。</p>
+        <p class="hint pt-clean-note">選んだ物を「ごみ箱フォルダ」へ移します(動画と同じドライブ。例: 書き出し先\ごみ箱\)。<span id="cleanDays">3</span> 日たつと、ホームの起動時に消えます。それまではエクスプローラーで元に戻せます。</p>
         <div class="pt-clean-kinds" id="cleanKinds" aria-live="polite"></div>
         <div class="row pt-clean-foot"><span class="hint grow" id="cleanSel"></span><button type="button" class="btn small" id="btnCleanMove" disabled title="先に「候補を探す」を押し、移す物にチェックを付けると押せます">選んだ物をごみ箱フォルダへ移す</button></div>
       </section>

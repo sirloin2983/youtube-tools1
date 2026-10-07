@@ -15,7 +15,7 @@
      - スタジオにマークが1つも無い(GET /studio/api/video?id=<録画>。スタジオに登録が無い録画も「マークなし」。つながらない・答えが読めなければ消さない)
      → スタジオの一覧の行を先に消す(POST /studio/api/video/delete {ifNoMarks: true} = 調べてから消すまでの間にマークが付いたら 409 で消さない)
      → 録画を消す(使用中で消せなければ、次の見回りでまた消す。スタジオの行はもう無いので 2 の条件のまま)
-  3. 退避した速報版(<配信のフォルダ>\\作業用\\速報版\\…。ジョブの archive.keep): 入れ替え(archive.at)から keep_sec(7 日)たったら消す。
+  3. 退避した速報版(<配信のフォルダ>\\作業用\\速報版\\…。ジョブの archive.keep): 入れ替え(archive.at)から keep_sec(3 日。2026-10-07 に 7 → 3)たったら消す。
      消すのはジョブが自分で退避したパスだけ(書き出し先の中・作業用\\速報版\\ の直下・.mp4・リンクでない普通のファイル)→ archive.keepDeleted
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
 配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/home/live_archive.py の after_stream_hold)。
@@ -31,7 +31,7 @@ import live_archive as LA
 import live_export as LX
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
-KEEP_SEC = 7 * 86400.0         # 退避した速報版を消すまで(入れ替えてから)
+KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。2026-10-07 ユーザー決定: 7 → 3 日)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/home/live.py の tick から)で調べる間隔
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
 REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/recorder/rec_core.py の ACTIVE と同じ

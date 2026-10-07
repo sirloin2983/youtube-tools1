@@ -2359,3 +2359,13 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 文書: `docs/spec/friend-intake.md` 2-13(届け方・まとめ動画・置き場所・アプリ・未実装の「要らない」の記録)・`plan/decisions.md` 1 の表に 10-07 の行 + 3-9 (di)〜(dn)・`plan/data.js`(0.45.0・2.5.0・recent ⑧・別件・U8)・公開ページ version 21
 - 未完了・次: ユーザーが dist\RequestSender.zip(2.5.0)を友人へ渡す(U8)・入口の起動し直し(0.45.0)。「要らない」を PC へ戻す記録(誤検出の学習データ)は次の機会
 - 未コミット: なし(このコミットで全部)
+## 2026-10-08 Claude Code(PC。Fable)— ファイルの保存期間を短く(ホーム 0.45.1)。保存の方針「精度のデータは残す・ただの控えは早めに消す」を記録
+- ユーザー「ファイル保存期間を全体的に短くしたい。今はどれくらい」→ コードから一覧にして答え(自動で消えるもの / 候補に出るだけのもの / 消えないもの)→ ユーザー決定: ごみ箱フォルダ 3 日・退避した速報版 3 日・あとから解析の一覧と起動し直しで戻す実行 3 日・書き出しの元動画はパックから 3 日(または案件が投稿済み/見送り)。
+  続けて方針「精度の改善になるデータは積極的に残す。ただのバックアップは基本的にあとから必要にならないから早めに消していい」→ この方針で受け付けた依頼の動画(受付済み・作業データの写し)の候補も 14 → 3 日にそろえた
+- 変更: `src/home/cleanup.py`(`TRASH_DAYS` 3 = ごみ箱の purge(`keep_days` と分けた。API の `trashDays`)・`KEEP_DAYS` 14 → 3(受付済みの候補)・`PACK_AGE_DAYS` 14 → 3)・`live_cleanup.py`(`KEEP_SEC` 7 → 3 日)・`autorun.py`(`DEFER_KEEP_SEC` 14 → 3 日・`RESTORE_MAX_AGE` 7 → 3 日)・
+  `portal.js/html`(「3 日で消えます」・片付けの日数は `trashDays`)・`launch.py`(0.45.0 → **0.45.1**)・`README.txt`(v0.45.1)・テスト(test_cleanup: purge の境目 2 日では消えず 4 日で消える・trashDays/packAgeDays / test_autorun: 3 日の文言)
+- 変えていない: マークの無い録画 24 時間・文字起こし・案件・パック・Dropbox の 出力\\・バックアップ(D:\\backup。消したものも残る)・編集の履歴(30 世代)と字幕のキャッシュ(30 日)・片付けは「候補に出すだけ」(自動では移さない)
+- 文書: `docs/spec/data-location.md`(保存の方針と今の期限)・`docs/spec/friend-intake.md`(2-9 の 3 日・9 の受付済み 3 日)・`plan/line-d-live-clipping.md`(速報版 3 日)・`plan/decisions.md` 1 の表に 10-07/10-08 の 2 行・`plan/data.js`(0.45.1)・公開ページ version 22
+- テスト: test_cleanup・test_autorun・test_live・test_launch OK・lint 0・e2e_portal OK(ui_audit は流し直していない: 変えたのは文の中の日数だけで、画面の構成は直前の実行(Must 0)と同じ)
+- 次(方針の続き。ユーザーに提案): D:\\backup の写しは「作業データで消したものを 7 日後に写しからも消す」(今は消したものも残る)/ 編集の `.hist` 30 世代 → 10 / 友人のアプリの %TEMP% のまとめ動画の写しを起動時に 7 日で消す
+- 未コミット: なし(このコミットで全部)

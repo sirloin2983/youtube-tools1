@@ -1,7 +1,7 @@
 """作業データの片付け(全体の計画 段9 9-2。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md。ユーザー決定 2026-10-01: 元動画も候補に・ごみ箱フォルダ経由・14 日で消す)。
 
 候補を種類ごとに出し(候補の一覧はここが持つ)、画面で確かめた物だけを **ごみ箱フォルダ**(<入口の作業データ>\\ごみ箱\\<日付>\\)へ**移す**。
-すぐには消さない。KEEP_DAYS を過ぎた日付のフォルダは入口の起動時に purge で消す(戻したいときは、それまでにエクスプローラーで戻す。manifest.jsonl に元の場所)。
+すぐには消さない。TRASH_DAYS を過ぎた日付のフォルダは入口の起動時に purge で消す(戻したいときは、それまでにエクスプローラーで戻す。manifest.jsonl に元の場所)。
 候補として出していないパスは move で受け付けない(API に好きなパスを渡しても消せない)。
 
 候補の種類:
@@ -20,8 +20,9 @@ import time
 from ytt_core import datadir, schemas
 
 TRASH_DIR = "ごみ箱"
-KEEP_DAYS = 14
-PACK_AGE_DAYS = 14        # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(2026-10-01 ユーザー決定。案件の状態を変えなくても出る)
+KEEP_DAYS = 3             # 受け付けた依頼の動画(受付済み・作業データの写し)を候補に出すまでの日数(2026-10-07 ユーザー決定: 14 → 3。PC に写しがある = ただの控え)
+TRASH_DAYS = 3            # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数(2026-10-07 ユーザー決定: 14 → 3)
+PACK_AGE_DAYS = 3         # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(2026-10-01 ユーザー決定。案件の状態を変えなくても出る。10-07: 14 → 3)
 MANIFEST = "manifest.jsonl"
 ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
 DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
@@ -88,13 +89,14 @@ def _drive(p):
 
 
 class Cleanup:
-    def __init__(self, app_dir, repo_root=None, env=None, log=None, clock=time.time, keep_days=KEEP_DAYS, pack_finder=None, out_dirs=None):
+    def __init__(self, app_dir, repo_root=None, env=None, log=None, clock=time.time, keep_days=KEEP_DAYS, pack_finder=None, out_dirs=None,
+                 trash_days=TRASH_DAYS):
         """out_dirs = スタジオの書き出し先など(呼ぶたびに読む関数でもよい)。作業データと別のドライブの物は、そのドライブのここ\\ごみ箱\\ へ移す"""
         self.app_dir = os.path.abspath(app_dir)
         self.out_dirs = out_dirs
         self.repo_root, self.env = repo_root, env
         self.log = log or (lambda m: None)
-        self.clock, self.keep_days = clock, keep_days
+        self.clock, self.keep_days, self.trash_days = clock, keep_days, trash_days
         self.pack_finder = pack_finder
         self._known = {}          # id → item(直前に出した候補だけ move できる)
 
@@ -168,7 +170,7 @@ class Cleanup:
             total += b
             kinds.append({"kind": k, "label": label, "count": len(items), "bytes": b, "items": items})
         return {"kinds": kinds, "bytes": total, "trash": self.trash_dir, "trashRoots": self.trash_roots(), "keepDays": self.keep_days,
-                "packAgeDays": PACK_AGE_DAYS, "at": int(self.clock() * 1000)}
+                "trashDays": self.trash_days, "packAgeDays": PACK_AGE_DAYS, "at": int(self.clock() * 1000)}
 
     def _exports(self, cases):
         """パックがある元動画のうち、案件が投稿済み/見送り か、Text+ のパック(動画のコピー入り。元動画が無くても Resolve で開ける)を作って
@@ -334,7 +336,7 @@ class Cleanup:
         return dest
 
     def purge(self):
-        """KEEP_DAYS を過ぎた日付のフォルダを消す(起動時。どのドライブのごみ箱フォルダも)。-> 消した日付のフォルダの数"""
+        """TRASH_DAYS を過ぎた日付のフォルダを消す(起動時。どのドライブのごみ箱フォルダも)。-> 消した日付のフォルダの数"""
         return sum(self._purge_root(r) for r in self.trash_roots())
 
     def _purge_root(self, root):
@@ -351,11 +353,11 @@ class Cleanup:
                 day = time.mktime(time.strptime(name[:10], "%Y-%m-%d"))
             except ValueError:
                 continue
-            if now - day > self.keep_days * 86400:
+            if now - day > self.trash_days * 86400:
                 shutil.rmtree(p, ignore_errors=True)
                 if not os.path.isdir(p):
                     n += 1
-                    self.log("ごみ箱フォルダの %s を消しました(%d 日を過ぎた)" % (name, self.keep_days))
+                    self.log("ごみ箱フォルダの %s を消しました(%d 日を過ぎた)" % (name, self.trash_days))
         return n
 
 

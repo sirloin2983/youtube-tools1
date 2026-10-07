@@ -31,7 +31,7 @@
   (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
   スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
   友人には何も届けない・依頼の受付の記録も変えない。新しい実行が入ったら、すぐ止めて(スタジオの解析も取り消す)一覧に戻し、新しい実行を先にする。
-  14 日たったもの・3 回失敗したものは捨てる(理由は一覧のファイルの dropped に残す)。環境変数 YTT_DEFER_ANALYZE=off で止める(足さない・始めない)
+  3 日たったもの・3 回失敗したものは捨てる(理由は一覧のファイルの dropped に残す)。環境変数 YTT_DEFER_ANALYZE=off で止める(足さない・始めない)
 """
 import collections
 import http.client
@@ -104,7 +104,7 @@ OTHER_MODES = {POST_MODE: "あとから解析(測るため)"}
 DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 RUNS_LOG の隣)
 DEFER_VERSION = 1
 DEFER_ENV = "YTT_DEFER_ANALYZE"        # off = 一覧に足さない・始めない(テスト・困ったとき用)
-DEFER_KEEP_SEC = 14 * 24 * 3600        # 足してからこれだけたったら捨てる
+DEFER_KEEP_SEC = 3 * 24 * 3600         # 足してからこれだけたったら捨てる(2026-10-07 ユーザー決定: 14 → 3 日)
 DEFER_MAX_TRIES = 3                    # これだけ失敗したら捨てる
 DEFER_RETRY_SEC = 30 * 60              # 失敗したあと、次に試すまで(すぐ3回失敗して捨てないため)
 DEFER_IDLE_SEC = 60.0                  # 待ち・実行中が無くなってから始めるまで(画面で続けて押している途中に始めて、すぐ止めることを減らす)
@@ -127,7 +127,7 @@ CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が�
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。RUNS_LOG の隣)
 ACTIVE_VERSION = 1
 ACTIVE_READ_MAX = 4 * 1024 * 1024
-RESTORE_MAX_AGE = 7 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
+RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く。2026-10-07 ユーザー決定: 7 → 3 日)
 RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが動くまでこれだけ待つ(入口の起動の直後はまだ準備中のことがある)
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
@@ -1084,7 +1084,7 @@ class AutoRunner:
         self._defer["dropped"] = (self._defer["dropped"] + [dict(it, dropped=self._now_ms(), reason=str(reason)[:300])])[-DEFER_DROPPED_KEEP:]
 
     def _defer_prune(self):
-        """14 日たったもの・3 回失敗したものを捨てる(呼ぶのは self._defer_lock を持っている間)。-> 変えたか"""
+        """DEFER_KEEP_SEC(3 日)たったもの・3 回失敗したものを捨てる(呼ぶのは self._defer_lock を持っている間)。-> 変えたか"""
         now, changed = self._now_ms(), False
         for it in list(self._defer["items"]):
             if it["videoId"] == self._defer_running:

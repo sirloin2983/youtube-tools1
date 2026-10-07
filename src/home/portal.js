@@ -534,7 +534,7 @@
     }
     var no = iconBtn('trash', '要らない', 'danger pt-ac-discard');
     no.disabled = !!dj;
-    no.title = dj ? '届けている途中です(終わってから押せます)' : 'パック・切り抜きの動画を ごみ箱フォルダ へ移し(14 日で消えます)、スタジオのマークを不採用にして、誤検出として記録します';
+    no.title = dj ? '届けている途中です(終わってから押せます)' : 'パック・切り抜きの動画を ごみ箱フォルダ へ移し(3 日で消えます)、スタジオのマークを不採用にして、誤検出として記録します';
     no.addEventListener('click', function () { twice(no, function () { autoDiscard(kase, cl, no); }, 'もう一度押すとごみ箱へ'); });
     row.appendChild(no);
     row.appendChild(msg);
@@ -594,7 +594,7 @@
   function autoDiscard(kase, cl, btn) {
     btn.disabled = true;
     api('/api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
-      if (window.UIKit && UIKit.toast) UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(14 日で消えます)', { kind: 'ok', detail: r.trash || '' });
+      if (window.UIKit && UIKit.toast) UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(3 日で消えます)', { kind: 'ok', detail: r.trash || '' });
       if (window.UIKit && UIKit.hide && UIKit.hide.available()) UIKit.hide.load(true);   // その文字起こしを非表示にしたので、覚えている非表示を読み直す
       afterAutoAction(kase.id);
     }, function (e) {
@@ -1285,7 +1285,7 @@
   function renderCleanup(d) {
     cleanData = d;
     $('#cleanWhen').textContent = '候補 ' + fmtBytes(d.bytes);
-    $('#cleanDays').textContent = d.keepDays;
+    $('#cleanDays').textContent = d.trashDays != null ? d.trashDays : d.keepDays;   // ごみ箱フォルダが消えるまでの日数(0.45.1 から trashDays。古い入口は keepDays)
     var box = $('#cleanKinds'); box.textContent = '';
     d.kinds.forEach(function (k) {
       var det = el('details'), sum = el('summary');
@@ -1315,7 +1315,7 @@
     var ids = cleanPicked();
     if (!ids.length) return;
     var ask = window.UIKit && UIKit.dialog ? UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
-      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.keepDays + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' })
+      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + (cleanData.trashDays != null ? cleanData.trashDays : cleanData.keepDays) + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' })
       : Promise.resolve(window.confirm('選んだ物をごみ箱フォルダへ移しますか?'));
     ask.then(function (ok) {
       if (!ok) return;
