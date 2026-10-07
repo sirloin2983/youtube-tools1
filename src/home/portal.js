@@ -1259,6 +1259,18 @@
       row.id = 'liveFailures';
       ul.appendChild(row);
     }
+    // 配信中の盛り上がりの検出(L2。検出がオンのときだけ h.live.detect): 動いているか・遅れ・チャット・起動し直しの数(失敗は上の一覧に kind detect で出る)
+    if (h.live && h.live.detect) {
+      var dd = h.live.detect, recs = dd.recordings || [];
+      var chatText = { ok: 'あり', restarting: '起動し直し中', none: 'なし(音だけ)', off: '使わない' };
+      var dText = (dd.running ? (recs.length ? '録画 ' + recs.length + ' 本を見ています・遅れ ' + Math.round(dd.behindSec || 0) + ' 秒・チャット ' + (chatText[dd.chat] || dd.chat)
+        : '動いています(録画中の配信はありません)') : '止まっています' + (dd.message ? '(' + dd.message + ')' : ''))
+        + '・ワーカーの起動し直し ' + (dd.restarts || 0) + ' 回' + (dd.autoAdopt && dd.autoAdopt.enabled ? '・自動の採用 オン(' + dd.autoAdopt.waitMin + ' 分待ち)' : '');
+      var dRow = healthRow(!dd.running || dd.error || (dd.restarts || 0) > 3 ? 'warn' : 'ok', '盛り上がりの検出', dText,
+        recs.map(function (x) { return x.id + ': 候補 ' + x.peaks + ' 本・遅れ ' + Math.round(x.behindSec || 0) + ' 秒・チャットの遅れ ' + (x.lag == null ? '—' : x.lag + ' 秒') + '・チャット ' + (chatText[x.chat] || x.chat); }));
+      dRow.id = 'liveDetectHealth';
+      ul.appendChild(dRow);
+    }
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
@@ -1834,6 +1846,15 @@
       $('#liveAfterStream').checked = !!(v && v.autoAfterStream);
       if (document.activeElement !== $('#liveAfterPerHour')) $('#liveAfterPerHour').value = (v && v.afterStreamPerHour) || 6;
     }
+    var db = $('#liveDetectBox'), dt = (v && v.detect) || {}, aa = (v && v.autoAdopt) || {};   // 配信中の候補(L2)・自動の採用(M11)
+    if (db) {
+      db.hidden = !(v && v.enabled);
+      $('#liveDetect').checked = !!dt.enabled;
+      $('#liveDetectSens').value = dt.sens || 'normal';
+      if (document.activeElement !== $('#liveDetectPerHour')) $('#liveDetectPerHour').value = dt.perHour || 6;
+      $('#liveAutoAdopt').checked = !!aa.enabled;
+      if (document.activeElement !== $('#liveAutoAdoptWait')) $('#liveAutoAdoptWait').value = aa.waitMin || 5;
+    }
   }
   function saveLiveTop(value, okText) {   // live の節の 1 つの鍵(auto の外。M7)
     api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: value }).then(function (j) {
@@ -1886,6 +1907,27 @@
         var n = parseInt($('#liveAfterPerHour').value, 10);
         if (!(n >= 1 && n <= 30)) { toast('1 時間あたりの数は 1〜30 にしてください', 'err'); loadLive(); return; }
         saveLiveTop({ afterStreamPerHour: n }, '1 時間あたり ' + n + ' 本にしました');
+      });
+    }
+    if ($('#liveDetectBox')) {   // 配信中の候補(live.detect。L2)・候補の自動の採用(live.autoAdopt。M11)。節の中の鍵ごとに送る
+      $('#liveDetect').addEventListener('change', function () {
+        var on = $('#liveDetect').checked;
+        saveLiveTop({ detect: { enabled: on } }, on ? '配信中の候補を出します(録画中の配信を見ます)' : '配信中の候補をやめました');
+      });
+      $('#liveDetectSens').addEventListener('change', function () { saveLiveTop({ detect: { sens: $('#liveDetectSens').value } }, '候補の感度を変えました'); });
+      $('#liveDetectPerHour').addEventListener('change', function () {
+        var n = parseInt($('#liveDetectPerHour').value, 10);
+        if (!(n >= 1 && n <= 30)) { toast('1 時間の本数は 1〜30 にしてください', 'err'); loadLive(); return; }
+        saveLiveTop({ detect: { perHour: n } }, '候補は 1 時間に ' + n + ' 本までにしました');
+      });
+      $('#liveAutoAdopt').addEventListener('change', function () {
+        var on = $('#liveAutoAdopt').checked;
+        saveLiveTop({ autoAdopt: { enabled: on } }, on ? '候補を自動で採用します(確定から ' + ($('#liveAutoAdoptWait').value || 5) + ' 分待ちます)' : '候補の自動の採用をやめました');
+      });
+      $('#liveAutoAdoptWait').addEventListener('change', function () {
+        var n = parseInt($('#liveAutoAdoptWait').value, 10);
+        if (!(n >= 1 && n <= 60)) { toast('待つ分は 1〜60 にしてください', 'err'); loadLive(); return; }
+        saveLiveTop({ autoAdopt: { waitMin: n } }, '候補が確定してから ' + n + ' 分待って採用します');
       });
     }
     loadLive();

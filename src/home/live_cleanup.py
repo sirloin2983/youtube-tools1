@@ -176,6 +176,7 @@ class Cleaner:
         code, d = self.live.call(rc, "POST", "/live/%s/delete" % rec, {}, timeout=DELETE_TIMEOUT)
         if code == 200 and isinstance(d, dict) and d.get("ok"):
             self._said.pop(rec, None)
+            getattr(self.live, "detector", None) and self.live.detector.forget(rc.get("id"), rec)   # 配信中の検出の記録(live/excite/<録画元>/<録画>。線 D の L2)も消す
             self.log("リアルタイム切り抜き: 録画を消しました %s(%s。録画元「%s」)" % (rec, why, rc.get("name") or rc.get("id")))
             return True
         if code is None:

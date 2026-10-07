@@ -277,6 +277,24 @@
       </div>
       <p class="hint">録画が終わってアーカイブを使えるようになったら、アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、書き出し → 本番版 → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
     </details>
+    <!-- 配信中の盛り上がりの候補(ホームの設定 live.detect・live.autoAdopt。線 D の L2・M11。src/home/live_detect.py)。既定はどちらもオフ。リアルタイム切り抜きがオンのときだけ出す -->
+    <details class="ui-disclosure pt-live-auto" id="liveDetectBox" hidden>
+      <summary>配信中の候補(盛り上がりの検出)</summary>
+      <div class="row">
+        <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveDetect">配信中の候補を出す</label>
+        <label class="lag">感度
+          <select id="liveDetectSens"><option value="high">高い(多めに出す)</option><option value="normal">ふつう</option><option value="low">低い(少なめに出す)</option></select></label>
+        <label class="lag">1 時間の本数
+          <input type="number" id="liveDetectPerHour" min="1" max="30" step="1" inputmode="numeric"></label>
+      </div>
+      <p class="hint">録画中の配信の音とチャットから盛り上がりを見つけて、スタジオの LIVE の帯に「候補」として出します(1〜2 分ほど遅れて出ます)。1 時間に出す数を超えたら、点数の低い候補を「控え」にします。</p>
+      <div class="row">
+        <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveAutoAdopt">候補を自動で採用する</label>
+        <label class="lag">確定から待つ分
+          <input type="number" id="liveAutoAdoptWait" min="1" max="60" step="1" inputmode="numeric"></label>
+      </div>
+      <p class="hint">「配信中の候補を出す」がオンのときだけ効きます。候補が確定してから決めた分だけ待って、まだ枠に残っている候補を採用し、書き出し → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
+    </details>
   </div>
   <div class="pt-set-block">
     <div class="pt-set-head">ほかの設定</div>

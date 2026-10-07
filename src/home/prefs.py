@@ -16,7 +16,10 @@
              engine: ""(編集の設定)|faster-whisper|whisper.cpp|qwen3-asr|llama.cpp・model: ""(編集の設定)|モデルの名前}(線 D の M2。入口 0.39.0)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/home/live_archive.py)と
-             その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)
+             その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
+             配信中の盛り上がりの検出 detect {enabled(**既定オフ**), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
+             (線 D の L2。src/home/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オフ**), waitMin: 1〜60(確定から待つ分。既定 5)}
+             (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
@@ -53,7 +56,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
-                     "auto": {"after": "check", "cut": "", "engine": "", "model": ""}, "autoAfterStream": False, "afterStreamPerHour": 6},
+                     "auto": {"after": "check", "cut": "", "engine": "", "model": ""}, "autoAfterStream": False, "afterStreamPerHour": 6,
+                     "detect": {"enabled": False, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": False, "waitMin": 5}},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "dailyMax": (1, 50, "1日の上限"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
@@ -68,6 +72,8 @@ LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(sr
 LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/editor/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
+LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/ytt_core/excite.py の SENS の名前)
+LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、確定から待つ分
 
 
 class PrefsError(ValueError):
@@ -155,7 +161,14 @@ def _clean_live(v, cur):
            "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
            "auto": _clean_live_auto(cur.get("auto") if isinstance(cur.get("auto"), dict) else {}, DEFAULTS["live"]["auto"], strict=False),
            "autoAfterStream": cur.get("autoAfterStream") is True,   # 自動で採用するのは明示的に true のときだけ(既定オフ)
-           "afterStreamPerHour": cur.get("afterStreamPerHour") if _per_hour_ok(cur.get("afterStreamPerHour")) else DEFAULTS["live"]["afterStreamPerHour"]}
+           "afterStreamPerHour": cur.get("afterStreamPerHour") if _per_hour_ok(cur.get("afterStreamPerHour")) else DEFAULTS["live"]["afterStreamPerHour"],
+           "detect": _clean_live_detect(cur.get("detect") if isinstance(cur.get("detect"), dict) else {}, DEFAULTS["live"]["detect"], strict=False),
+           "autoAdopt": _clean_live_adopt(cur.get("autoAdopt") if isinstance(cur.get("autoAdopt"), dict) else {}, DEFAULTS["live"]["autoAdopt"], strict=False)}
+    for k, fn, label in (("detect", _clean_live_detect, "配信中の候補の設定(detect)"), ("autoAdopt", _clean_live_adopt, "自動の採用の設定(autoAdopt)")):
+        if k in v:   # 線 D の L2・M11。節の中の鍵ごとに直す
+            if not isinstance(v[k], dict):
+                raise PrefsError("%sの形が正しくありません" % label)
+            out[k] = fn(v[k], out[k])
     if "auto" in v:   # 書き出したあとの自動の流れ(M2)。節の中の鍵ごとに直す(送らなかった鍵は今のまま)
         if not isinstance(v["auto"], dict):
             raise PrefsError("書き出したあとの設定(auto)の形が正しくありません")
@@ -212,23 +225,48 @@ def _per_hour_ok(x):
     return isinstance(x, int) and not isinstance(x, bool) and LIVE_PER_HOUR[0] <= x <= LIVE_PER_HOUR[1]
 
 
-def _clean_live_auto(v, cur, strict=True):
-    """live.auto(M2)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
-    out = {k: cur.get(k, DEFAULTS["live"]["auto"][k]) for k in DEFAULTS["live"]["auto"]}
-    checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
-              "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
-              "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
-              "model": (lambda x: isinstance(x, str) and (x == "" or bool(LIVE_MODEL_RE.match(x))), "モデル(model)は英数字と . _ - の 60 字までにしてください(空 = 編集の設定)")}
+def _clean_keys(v, cur, defaults, checks, strict):
+    """live の中の小さな節(auto・detect・autoAdopt)を鍵ごとに直す。checks: {鍵: (よいか, 断る文)}。
+    strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)。今の値が壊れていたら既定に戻す"""
+    out = {k: cur.get(k, defaults[k]) for k in defaults}
     for k, (ok, msg) in checks.items():
         if k in v:
             if ok(v[k]):
                 out[k] = v[k]
             elif strict:
                 raise PrefsError(msg)
-    for k, (ok, _msg) in checks.items():   # 今の値が壊れていたら既定に戻す
+    for k, (ok, _msg) in checks.items():
         if not ok(out[k]):
-            out[k] = DEFAULTS["live"]["auto"][k]
+            out[k] = defaults[k]
     return out
+
+
+def _int_in(x, lo, hi):
+    return isinstance(x, int) and not isinstance(x, bool) and lo <= x <= hi
+
+
+def _clean_live_detect(v, cur, strict=True):
+    """live.detect(線 D の L2。配信中の盛り上がりの検出)"""
+    return _clean_keys(v, cur, DEFAULTS["live"]["detect"], {
+        "enabled": (lambda x: isinstance(x, bool), "「配信中の候補」は true か false で指定してください"),
+        "sens": (lambda x: x in LIVE_SENS, "感度(sens)は high・normal・low のどれかにしてください"),
+        "perHour": (lambda x: _int_in(x, *LIVE_PER_HOUR), "1 時間の候補の数(perHour)は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)}, strict)
+
+
+def _clean_live_adopt(v, cur, strict=True):
+    """live.autoAdopt(線 D の M11。候補の自動の採用)"""
+    return _clean_keys(v, cur, DEFAULTS["live"]["autoAdopt"], {
+        "enabled": (lambda x: isinstance(x, bool), "「候補を自動で採用する」は true か false で指定してください"),
+        "waitMin": (lambda x: _int_in(x, *LIVE_WAIT_MIN), "待つ分(waitMin)は %d〜%d の整数で指定してください" % LIVE_WAIT_MIN)}, strict)
+
+
+def _clean_live_auto(v, cur, strict=True):
+    """live.auto(M2)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
+    checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
+              "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
+              "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
+              "model": (lambda x: isinstance(x, str) and (x == "" or bool(LIVE_MODEL_RE.match(x))), "モデル(model)は英数字と . _ - の 60 字までにしてください(空 = 編集の設定)")}
+    return _clean_keys(v, cur, DEFAULTS["live"]["auto"], checks, strict)
 
 
 def _clean_intake(v, cur):
@@ -356,7 +394,8 @@ class Prefs:
             try:
                 return _clean_live(v if isinstance(v, dict) else {}, DEFAULTS["live"])
             except PrefsError:
-                return dict(DEFAULTS["live"], recorders=[], auto=dict(DEFAULTS["live"]["auto"]))
+                return dict(DEFAULTS["live"], recorders=[], auto=dict(DEFAULTS["live"]["auto"]), detect=dict(DEFAULTS["live"]["detect"]),
+                            autoAdopt=dict(DEFAULTS["live"]["autoAdopt"]))
         return _read_streamer(v)
 
     def get(self, sections=None):

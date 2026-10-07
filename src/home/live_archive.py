@@ -403,7 +403,7 @@ class Archiver:
     def __init__(self, exporter, studio, enabled=None, auto=None, recording_state=None, probe=None, audio=None, align=None,
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
-                 after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE):
+                 after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None):
         """exporter: src/home/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -420,6 +420,7 @@ class Archiver:
         self.recordings = recordings or (lambda: [])
         self.adopt = adopt
         self.after_max_age = after_max_age
+        self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/home/live_detect.py)
         self.enabled = enabled or (lambda: True)
         self.auto = auto or (lambda: True)
         self.recording_state = recording_state or (lambda rc, rec: None)
@@ -971,6 +972,11 @@ class Archiver:
         if code != 200 or not isinstance(d, dict) or not isinstance(d.get("video"), dict):
             raise Later("スタジオからアーカイブの解析の結果を読めませんでした(HTTP %s)" % code, self.retry_sec)
         marks = d["video"].get("marks") or []
+        if self.compare is not None:   # 配信中の候補(L2)とアーカイブの候補を比べて live_feedback.jsonl へ(0-10-6。失敗しても採用は続ける)
+            try:
+                self.compare(rc, rec, a, marks)
+            except Exception as e:
+                self.log("リアルタイム切り抜き: 配信中の候補とアーカイブの候補を比べられませんでした: %r" % (e,))
         code, lv = self.studio("GET", "/api/video?id=" + urllib.parse.quote(rec), None)
         taken = []
         if code == 200 and isinstance(lv, dict) and isinstance(lv.get("video"), dict):   # 録画の配信の、もう採用・書き出し済みのマーク(人が付けたもの)と重ねない

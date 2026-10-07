@@ -526,6 +526,20 @@ class PeakBook:
         self.block_until = max(self.block_until, int(pk["end"]) + EXCLUDE_AFTER - 1)
         return True
 
+    def finish(self):
+        """配信が終わった(これ以上 push が来ない): 上り中の山を確定し、終わり待ちの候補を今の区間のまま確定する -> 変更があった候補の id の一覧。
+        配信中の検出のワーカー(src/home/live_excite_worker.py)が録画の終わりに 1 回だけ呼ぶ"""
+        changed = []
+        if self.rising is not None:
+            r, self.rising = self.rising, None
+            changed += self._confirm(r["peak"], r["value"], max(self.last_t, r["peak"]))
+        for pid in list(self.pending):
+            self.pending.remove(pid)
+            self.peaks[pid]["endPending"] = False
+            self._mark(pid)
+            changed.append(pid)
+        return changed
+
     def _finish_pending(self):
         done = []
         for pid in list(self.pending):

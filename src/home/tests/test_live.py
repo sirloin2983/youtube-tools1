@@ -144,7 +144,9 @@ class PrefsLiveTest(unittest.TestCase):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True,
                                                         "autoDelete": P.DEFAULTS["live"]["autoDelete"],
                                                         "auto": {"after": "check", "cut": "", "engine": "", "model": ""},
-                                                        "autoAfterStream": False, "afterStreamPerHour": 6})   # 配信後の全自動(M7)は既定オフ
+                                                        "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
+                                                        "detect": {"enabled": False, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)・自動の採用(M11)も既定オフ
+                                                        "autoAdopt": {"enabled": False, "waitMin": 5}})
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         v = self.p.patch("live", {"enabled": True, "folder": "E:\\Video\\live-rec"})
         self.assertEqual((v["enabled"], v["folder"]), (True, "E:\\Video\\live-rec"))

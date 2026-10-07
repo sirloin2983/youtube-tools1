@@ -13,12 +13,14 @@
   transcribe 渡したまとめて実行が、文字起こし(話者分離を含む)で失敗した(記録の steps の error の段)
   pack       同じく、パック・届ける段で失敗した
   afterStream 配信後の全自動(M7。src/home/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
+  detect     配信中の盛り上がりの検出(線 D の L2・M11。src/home/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
 import threading
 
-KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動"}
+KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動",
+               "detect": "盛り上がりの検出"}
 PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
 WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(まとめて実行の失敗の数と同じ 7 日)
 MAX_LIST = 20                                # 「調子」に出す数(新しい順)
@@ -76,6 +78,27 @@ def after_stream_failure(info):
     name = "「%s」" % title[:80] if title else "録画 %s" % (info.get("recording") or "?")
     return {"kind": "afterStream", "kindLabel": KIND_LABELS["afterStream"],
             "text": "%s: 配信後の自動の切り抜きに失敗しました: %s" % (name, _reason(a.get("message")) or "理由が分かりません")}
+
+
+def _hms(t):
+    t = int(max(0, t))
+    return "%d:%02d:%02d" % (t // 3600, t % 3600 // 60, t % 60) if t >= 3600 else "%d:%02d" % (t // 60, t % 60)
+
+
+def detect_failure(what, reason, recorder="", recording="", at="", span=None):
+    """配信中の盛り上がりの検出(src/home/live_detect.py)の失敗 -> collect と同じ形の 1 件。文はここだけで作る。
+    what: worker(ワーカーの不具合。reason = worker.json の error)・restarts(起動し直しが多い。reason = 「n 回」)・adopt(自動の採用を諦めた。span = (開始, 終了) 秒)"""
+    why = _reason(reason) or "理由が分かりません"
+    if what == "restarts":
+        text = "盛り上がりの検出のワーカーを %s起動し直しました(落ちる・止まるが続いています。ログ logs\\excite.log を見てください)" % why
+    elif what == "adopt":
+        a, b = span or (None, None)
+        where = "%s〜%s の" % (_hms(a), _hms(b)) if isinstance(a, (int, float)) and isinstance(b, (int, float)) else ""
+        text = "録画 %s の%s候補を自動で採用できませんでした: %s" % (recording or "?", where, why)
+    else:
+        text = "盛り上がりの検出が止まっています: %s" % why
+    return {"kind": "detect", "kindLabel": KIND_LABELS["detect"], "text": text, "jobId": "", "recorder": recorder, "recording": recording,
+            "markId": "", "runId": "", "at": at}
 
 
 class Reader:

@@ -43,6 +43,8 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
   配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/home/live_archive.py):
        録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ 書き出し → 本番版 → 文字起こし → パック。
        進み具合は GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream {state, label, message, at, n, jobs}・失敗は「調子」の live.failures
+  GET  /live/api/peaks?recorder=&recording=&since=  ・ POST /live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}
+                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オフ。中身と形は src/home/live_detect.py)
   POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
                      全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
                      {op: "stop", recorder, recording} → {ok: true, recording}(launch.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
@@ -75,6 +77,7 @@ import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
 import live_failures  # noqa: E402  (失敗の集約。M3・M7)
+import live_detect  # noqa: E402  (配信中の盛り上がりの検出と自動の採用。線 D の L2・M11)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -309,6 +312,7 @@ class Live:
         self._adopt_lock = threading.Lock()
         self._stop_lock = threading.Lock()
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
+        self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
 
     # --- 設定 ---
     def cfg(self):
@@ -361,7 +365,8 @@ class Live:
                            "after": lambda rc, rec: self.cleaner.check(rc, rec),   # 1本終えたら: 全部入れ替わった録画を消す
                            "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
                            "per_hour": lambda: self.cfg().get("afterStreamPerHour") or 6,
-                           "recordings": self.list_recordings, "adopt": self.adopt}, **self.archive_opts)
+                           "recordings": self.list_recordings, "adopt": self.adopt,
+                           "compare": self.detector.compare}, **self.archive_opts)   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
                 self._archiver = live_archive.Archiver(ex, **kw)
             return self._archiver
 
@@ -486,6 +491,13 @@ class Live:
                 return True
             h._send(200, body, TYPES[os.path.splitext(name)[1]])
             return True
+        if u.path == "/live/api/peaks":   # 配信中の候補(L2。src/home/live_detect.py)
+            self._server = h.server
+            try:
+                h._json(200, self.detector.api_get(urllib.parse.parse_qs(u.query)))
+            except live_export.LiveError as e:
+                h._fail(e.code, "bad_request" if e.code == 400 else "not_found", str(e))
+            return True
         if u.path in ("/live/api/marks", "/live/api/exports"):
             self._server = h.server
             q = urllib.parse.parse_qs(u.query)
@@ -552,6 +564,8 @@ class Live:
                                                    after=after, streamer=streamer, origin=live_export.check_origin(body.get("origin")), auto=auto)})
             if path == "/live/api/adopt":   # サーバー側の「マーク + 書き出し」(M1)
                 return h._json(200, self.adopt(body))
+            if path == "/live/api/peaks":   # 配信中の候補の採用・見送り・戻す(L2。src/home/live_detect.py)
+                return h._json(200, self.detector.api_post(body))
             if path == "/live/api/export/cancel":
                 return h._json(200, {"job": ex.cancel(body.get("id"))})
             if path in ("/live/api/archive", "/live/api/archive/cancel"):   # P4: アーカイブで本番版に作り直す・取り消す
@@ -854,6 +868,7 @@ class Live:
         """入口の終了: 見回りを止め、録画中でなければ録画の部品も止める(stop_recorder。録画中なら残す = 録画は続く。計画の 0-3 と 2026-10-07 ユーザー指示)"""
         self._halt.set()
         self.wake.set()
+        self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
         if self._archiver is not None:   # 本番版への作り直しの途中なら止める(順番待ちに戻り、次の起動で続ける)
             self._archiver.close()
         if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
@@ -936,6 +951,10 @@ class Live:
     def tick(self):
         """オンなら: 手元の録画元が動いていなければ起動する・古い版なら(録画中でなければ)起動し直す・置き場所の設定が違えば伝える。
         -> "off"|"running"|"spawned"|"waiting"|"failed\""""
+        try:   # 盛り上がりの検出(L2・M11): オンならワーカーを見張り・自動の採用、オフなら止める
+            self.detector.tick()
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 盛り上がりの検出の見回りでエラー: %r" % (e,))
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
@@ -1048,10 +1067,14 @@ class Live:
                 failures = sorted(failures + self._archiver.after_failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
             except Exception as e:
                 self.note("リアルタイム切り抜き: 配信後の自動の失敗を読めませんでした: %r" % (e,))
+        try:   # 盛り上がりの検出(L2・M11)の失敗
+            failures = sorted(failures + self.detector.failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 盛り上がりの検出の失敗を読めませんでした: %r" % (e,))
         try:   # 書き出し先・パック・live\work の空き(M4)
             disk = self.exporter.disk()
         except Exception as e:
             self.note("リアルタイム切り抜き: 空き容量を調べられませんでした: %r" % (e,))
             disk = None
-        return {"recorders": out, "failures": failures, "disk": disk}
+        return {"recorders": out, "failures": failures, "disk": disk, "detect": self.detector.health()}
 
