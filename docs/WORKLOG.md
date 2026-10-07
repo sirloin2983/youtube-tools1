@@ -2341,5 +2341,6 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 確かめ: build.bat **36 件 OK**・dist\RequestSender.zip 作り直し。Python の zipfile(PC の `deliver.zip_pack` と同じ。日本語名 = UTF-8 の旗・動画は ZIP_STORED)で作った zip を `Receiving.Extract` に通す小さな確認(scratchpad)で、`見本の配信_pack\` に 3 ファイルが正しい名前・大きさで出て zip が消えることを確認
 - 文書: `docs/spec/friend-intake.md` の 2-12(2.4.0 の段落と A〜E の扱い)・`plan/decisions.md` 3-9 に (df)(dg)(dh)・`plan/data.js`(送るアプリ 2.4.0・recent ⑧・別件・U8)・公開ページ version 20(B2 のセッションの version 19 の上に)
 - 仮決め: 展開は既定オン・スイッチ無し・zip は消す (df) / 展開できなくても Dropbox からは消す (dg)。A/B を進めるなら: A は PC 側 1〜2 時間 + アプリ 3〜4 時間(まず既定のプレイヤーで開く形)、B は A の上に +1 時間
-- 未完了・次: ユーザーが dist\RequestSender.zip を友人へ渡す(U8)。A/B の検討(プレビューの画質・字幕の焼き込み・「要らない」で Dropbox から消すか)
+- 大前提(ユーザー、同じ夜): 友人の依頼では判断はすべて友人が行い、送る側(ユーザーの PC)では確認しない(無人のことが多い)。A/B を作るなら、見る・要らないと決める・Dropbox から消す はすべて友人のアプリ側(decisions の 1 の表・spec 2-12)
+- 未完了・次: ユーザーが dist\RequestSender.zip を友人へ渡す(U8)。A/B の検討(プレビューの画質・字幕の焼き込み。「要らない」は友人が決める前提で設計)
 - 未コミット: なし(このコミットで全部)
