@@ -117,7 +117,28 @@
 - **仮の決定(10-07。決め方「分からないなら速さと間違え方」)**: 主のエンジン = **whisper.cpp large-v3(GPU)**(点の推定が最良・抜けが最少・出力が固定・faster-whisper より速い)。2 つ目(D1-b の候補・E2 の聞き直し)= **Qwen3-ASR 1.7B(GPU)**(16 分を 25 秒・精度は区別できない・誤り方が違う = 置換型。弱点は時刻が目安なこと・名前が外れること)。faster-whisper large-v3 は行の時刻の聞き直し(0.57.0 の配り直し)のために残す。small は外す
 - 行の時刻: whisper.cpp は 1 秒丸め(配り直しの聞き直しが +126 秒/16 分。CER には出ない)。faster-whisper は単語の時刻あり。Qwen3-ASR は時刻なし(区切りを字数で割る)
 - **注意**: 正解 22 本の下書きはすべて whisper.cpp 由来(保存してある下書きの CER 13.1%・再認識 13.4% = ほぼ同じ)で、whisper.cpp に有利に出ている可能性がある。次の評価用を作るときは別のエンジンの下書きから始める案。faster-whisper の抜けは実際の取りこぼし(短い声・小さい声)。重なる声の所は whisper.cpp 46%・faster-whisper 26%・Qwen3 19% だが、まとまりの数が違うので順位には使えない
-- クラウドとの比較は送り先の決定待ち(`plan/user-tasks.html` の 3-2)。決まったら同じ 22 本で測って、この表に足す
+- クラウドとの比較は、10-07 夜に候補を公式ページで確かめて送る道具を作った(下)。キーがそろったら同じ 22 本で測って、この表に足す
+
+#### E1 のクラウドの候補と送り方(2026-10-07 夜。公式ページで確認。道具 `dev/eval_cloud.py`)
+費用は選ぶ基準にならない(どれも 22 本・15.9 分で 10 円台)。見るのは**行の時刻・話者の有無・先方の保持**。精度は自分の 22 本で測るしかない(公開の数字は朗読中心・WER・自社ページ)
+| 送り先・モデル | 単価(1 分) | 22 本の見積もり | 行の時刻 | 話者 | 先方の保持 | 備考 |
+| --- | --- | --- | --- | --- | --- | --- |
+| OpenAI `gpt-4o-transcribe` | $0.006(音声トークン $2.50/M の目安) | $0.10 | **なし**(文字だけ) | なし | **保持なし**(abuse monitoring の記録も無し)・学習に使わない | 資料の「$0.06 と $0.006 の食い違い」は $0.006 で確定。時刻が無いので「時刻によらない CER」で比べる |
+| OpenAI `gpt-4o-transcribe-diarize` | $0.006 | $0.10 | 区間 | あり | 同上 | 同じ値段で区間の時刻と話者が付く(行の時刻・話者の材料にも) |
+| OpenAI `gpt-transcribe`(新) | $0.0045 | $0.07 | 未確認 | 未確認 | 同上 | 公式が「標準の文字起こしに推奨」。パラメータの細部(languages の渡し方)が未確認なので 2 番手 |
+| OpenAI `whisper-1` | $0.006 | $0.10 | 区間・単語 | なし | 同上 | 手元の large-v3 とほぼ同じもの(比べる意味が薄い) |
+| ElevenLabs Scribe v2(`scribe_v2`) | $0.22/時 = $0.0037 | $0.06 | **単語** | あり(32 人まで) | **既定で履歴に残る**(Zero Retention は Enterprise だけ)→ 道具が応答の transcription_id を DELETE で消す | 日本語は自社の表で「Excellent(WER 5% 以下)」。無料プランで API も使える(月 10,000 クレジット ≈ 文字起こし 2.5 時間 = 第三者のまとめ。要確認)。規約ページ(scribe-v2-terms)は 404 で読めず、学習に使うかは未確認 |
+| Deepgram・AssemblyAI・Google・AWS | $0.0025〜0.024 | — | — | — | — | 今回は見送り(上の結果が拮抗したら足す) |
+
+- 出典(10-07 に読んだ): OpenAI の料金 `developers.openai.com/api/docs/pricing`・仕様 `…/guides/speech-to-text`・保持 `…/guides/your-data`(表の `/v1/audio/transcriptions` = 保持なし・ZDR 対象)/ ElevenLabs の料金 `elevenlabs.io/pricing/api`・仕様 `…/docs/capabilities/speech-to-text`・API `…/docs/api-reference/speech-to-text/convert`・Zero Retention `…/docs/developer-guides/zero-retention-mode`
+- **仮の決定(10-07 夜。`plan/decisions.md` 3-10 の (da)〜(de))**: 送る先は **OpenAI の 2 つ(`gpt-4o-transcribe-diarize`・`gpt-4o-transcribe`)と ElevenLabs(`scribe_v2`)の 3 回**(合計 約 $0.26 = 40 円)。同じ 22 本・手元と同じ 16kHz モノラルの wav・ヒントなし。採点は `dev/eval_asr.py` と同じ物差しで、結果は同じ形で `evals/asr/` に残す → `eval_asr.py compare` で手元(whisper.cpp = `20261007-040506_b2-whispercpp.json`)と対で比べる。時刻の無いモデルは「時刻によらない CER」の列だけ(まとまりの CER は —)
+- 手順(ユーザー 30 分 + AI 15 分):
+  1. ユーザー: キーを 2 つ作る。OpenAI = platform.openai.com → API keys(支払い方法の登録と数ドルの前払いが要る)/ ElevenLabs = elevenlabs.io → Developers → API keys(無料プランで可。Speech to Text の権限を付ける)。
+     置き場所は環境変数(`OPENAI_API_KEY`・`ELEVENLABS_API_KEY`。`setx` のあとは Claude のアプリの起動し直しが要る)か、**リポジトリの外の鍵のファイル** `%USERPROFILE%\youtube-tools-keys.txt`(`OPENAI_API_KEY=sk-…` の行。AI には貼らない・AI は中身を見ない)
+  2. AI: `py -3.10 dev/eval_cloud.py run --service openai --model gpt-4o-transcribe-diarize`(送らない。対象・秒数・見積もりを出す)→ ユーザーの「送って」→ `--send` を付けて 3 回(モデルごと)。応答は `evals/cloud/` に控えて再送しない
+  3. AI: `py -3.10 dev/eval_asr.py compare <手元の結果> <クラウドの結果>` → 上の表に行を足す(CER・時刻によらない CER・置換/抜け/余分・名前の再現率・実時間比 = 送受信込み)
+  4. 終わったら: ElevenLabs の履歴が消えているかユーザーが画面で確かめる(道具の結果 `meta.cloud.remoteDeleted`)。キーは使い終えたら無効にする(ユーザー)
+- 送る前の確認(計画の決まり): 評価用 22 本は配信者など他人の声を含む。外へ送ってよい範囲はユーザーが決める。送る前に毎回、秒数と見積もりを見せる(道具の既定は「送らない」。`--send` を付けたときだけ送る・見積もりが `--max-usd`(既定 $1)を超えたら送らない)
 ### E2 抜けを減らす(G2。第1版の段3 = I-1b の前半)
 - 「声があるのに行が無い」区間に印 → 2 つ目のエンジンで聞き直す(確かめ済みの定点は、すき間の抜けと幻覚をそのまま数えられるようになった = 10-04 夜の作り直し)
 - ③-2「疑わしい所だけ認識し直す」が本物の音声で効くかも、ここで測る
