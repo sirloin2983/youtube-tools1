@@ -42,10 +42,8 @@
 .pt-case-title{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56ch}
 .pt-case-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pt-case-tx,.pt-case-pack{white-space:nowrap}
-/* 「次にやること」(S-18。入口 0.42.0): 押すとその作業の画面へ(同じ窓)。行き先が無いときは href の無い札(以前の .ui-next と同じ見た目) */
-.pt-case-next{flex:none}
-.pt-case-next::after{content:"→";margin-left:2px}
-.pt-case-next:not([href]){border-color:transparent;background:none;padding:0;cursor:default;color:var(--accent-ink2);font-weight:600}
+/* 「次にやること」(S-18。入口 0.42.0): 押すとその作業の画面へ(同じ窓)。見た目は ui-kit の .ui-next-btn(v21。編集の履歴の次の一手と同じ)。
+   行き先が無いときは .btn を外して、押せない案内の文字だけ */
 .pt-case-tx.num,.pt-case-pack.num,.pt-doc-tx.num{font-family:var(--font)}   /* 数字の幅だけそろえる(ui-kit の .num は等幅。かなの字間が空くので書体は本文のまま) */
 .pt-case-body{padding:0 14px 14px}
 .pt-case-body .row{gap:10px;align-items:flex-start}

@@ -352,7 +352,7 @@ class Accuracy:
                 if self.closed or time.monotonic() > deadline:
                     p.kill()
                     p.communicate()
-                    raise ToolError("入口を終了します" if self.closed else "時間切れ(%d 分)で止めました" % max(1, int(self.timeout // 60)))
+                    raise ToolError("ホームを終了します" if self.closed else "時間切れ(%d 分)で止めました" % max(1, int(self.timeout // 60)))
         if p.returncode != 0:
             lines = [x.strip() for x in err.decode("utf-8", "replace").splitlines() if x.strip()]
             raise ToolError("道具が失敗しました(終了コード %d)%s" % (p.returncode, ": " + lines[-1][:ERR_TAIL] if lines else ""))

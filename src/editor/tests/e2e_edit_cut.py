@@ -6,7 +6,7 @@
 - S で分割・Del で削る/戻す(隣とつながる)・I/O/X・元に戻す/やり直す
 - 保存して読み直すと同じ・2つのタブで同時に直すと 409 と「読み直す」
 - カット後の再生で削る区間を飛ばす(webm)
-- 1 文字起こし で行を「削る」→ カットの帯に出る・その逆(字幕の一覧の「削る」→ 1 文字起こし の行がカット済)
+- 1 文字起こし で行を「削る」→ カットの帯に出る・その逆(字幕の一覧の札「残す」→ 1 文字起こし の行がカット済)
 - 文字起こしの無い動画(無音のたたき台)・動画が見つからない文書は理由を出す
 
     python e2e_edit_cut.py
@@ -384,13 +384,18 @@ def _scene_io_rows_undo(cx):
     check(not any(9.8 <= a and b <= 10.3 for a, b in sc), "行の後ろの切れ端(「行から」で広げた分)も一緒に削る: %s" % sc)
     check(pg.locator("#cutSubs .tt-csub[data-i='2']").get_attribute("class").find("cut") >= 0 and pg.locator("#tlSubs .tt-s.cut").count() >= 1,
           "カットのタブの字幕の一覧・字幕の帯にも出る(薄く・取り消し線)")
-    pg.locator("#cutSubs .tt-csub[data-i='4'] [data-act=cutrow]").click()   # 字幕の一覧の「削る」(行5)
+    csub_btn = "(i => { const b = document.querySelector('#cutSubs .tt-csub[data-i=\"' + i + '\"] [data-act=cutrow]'); return b && [b.textContent, b.getAttribute('aria-pressed')]; })"
+    check(pg.evaluate(csub_btn + "(2)") == ["カット済", "true"] and pg.evaluate(csub_btn + "(4)") == ["残す", "false"],
+          "段7 E-25: 字幕の一覧の行の札は 1 文字起こし の行と同じ「残す / カット済」(以前は「削る / 戻す」で逆向きに読めた): %s %s"
+          % (pg.evaluate(csub_btn + "(2)"), pg.evaluate(csub_btn + "(4)")))
+    pg.locator("#cutSubs .tt-csub[data-i='4'] [data-act=cutrow]").click()   # 字幕の一覧の「残す」の札(行5)→ カット済
     wait_saved()
+    check(wait_js(pg, csub_btn + "(4)[0] === 'カット済'", 5000), "段7 E-25: 押すと札が「カット済」に変わる")
     pg.keyboard.press("Alt+1")
     wait_js(pg, "document.querySelectorAll('#segs .seg')[4].classList.contains('cut')")
     d = srv.get("/api/transcript?id=" + tid)
     check([g.get("cutState") for g in d["segments"]] == [None, None, "cut", None, "cut"],
-          "字幕の一覧の「削る」→ 1 文字起こし の行もカット済。文書の行の印もサーバーで合わせてある: %s" % [g.get("cutState") for g in d["segments"]])
+          "字幕の一覧の札(残す → カット済)→ 1 文字起こし の行もカット済。文書の行の印もサーバーで合わせてある: %s" % [g.get("cutState") for g in d["segments"]])
 
     # ---- 段3 3-5(監査 05): 1 文字起こし の「元に戻す」(Ctrl+Z・ボタン)は、文字起こしの編集とカットのうち新しい方を1つ戻す
     def undo_n():

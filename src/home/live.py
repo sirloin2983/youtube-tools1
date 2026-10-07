@@ -385,7 +385,7 @@ class Live:
         -> (HTTP の番号, JSON)。スタジオが動いていない・つながらないときは (None, {"message"})"""
         srv = self._server
         if srv is None or not hasattr(srv, "tool_endpoint"):
-            return None, {"message": "入口のサーバーがまだ準備できていません"}
+            return None, {"message": "ホームのサーバーがまだ準備できていません"}
         import autorun   # 入口のプロセスの中だけ(ここで読むのは、テストで live だけを読むときに要らないため)
         try:
             return autorun.ToolClient(srv.tool_endpoint, srv.token, timeout=30).call("studio", method, path, body)
@@ -905,19 +905,19 @@ class Live:
             end = time.time() + QUIT_WAIT
             while time.time() < end:   # この入口が起動したものはプロセスの終わり、それ以外は待ち受けの終わりを待つ
                 if (own.poll() is not None) if own is not None else not self.ping(rc, 0.5):
-                    self.log("録画の部品を終わらせました(入口の終了)")
+                    self.log("録画の部品を終わらせました(ホームの終了)")
                     return "quit"
                 time.sleep(0.2)
             if own is not None:
                 kill_tree(own)
-                self.log("録画の部品が %d 秒で終わらないので、止めました(入口の終了)" % int(QUIT_WAIT))
+                self.log("録画の部品が %d 秒で終わらないので、止めました(ホームの終了)" % int(QUIT_WAIT))
                 return "killed"
             self.log("録画の部品に終わるよう伝えました(終わるのを待ちきれませんでした)")
             return "quit"
         if code is None:   # 応答が無い: この入口が起動したものなら孫ごと止める。それ以外は動いていない
             if own is not None:
                 kill_tree(own)
-                self.log("録画の部品が応答しないので、止めました(入口の終了)")
+                self.log("録画の部品が応答しないので、止めました(ホームの終了)")
                 return "killed"
             return "none"
         msg = (d or {}).get("message") if isinstance(d, dict) else ""
@@ -1000,7 +1000,7 @@ class Live:
         os.makedirs(self.logs_dir, exist_ok=True)
         try:
             with open(os.path.join(self.logs_dir, "recorder.log"), "ab") as logf:
-                logf.write(("\n==== %s 入口から起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
+                logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
                 logf.flush()
                 kw = dict(cwd=os.path.dirname(script), env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT)
                 try:   # 入口がジョブ(閉じると子も消える)の中で動いていても、録画の部品は外へ出す。出られないジョブならそのまま

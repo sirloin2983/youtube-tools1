@@ -404,7 +404,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
 .ui-sheet>*+*{border-top:1px solid var(--line)}
 
-/* 通知(重ねて最大3つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
+/* 通知(重ねて最大2つ(v21。以前は3つ)。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
 .ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
 .ui-toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
@@ -550,3 +550,15 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-acts .btn{text-decoration:none}
 .ui-live-acts .btn.armed{background:var(--danger);border-color:var(--danger);color:#fff}
 @media (max-width:560px){.ui-live-btn{padding:0 7px}}
+
+/* ---------- v21(2026-10-07・気が利く画面へ 段7) ---------- */
+/* 一覧の行の中の「次の一手」のボタン(.ui-next のボタン版。編集の履歴の「パックを作る →」・ホームの案件の「書き出し 2本 →」)。
+   ボタンは札(.pill)とほぼ同じ高さ(行の高さをそろえる)・アクセントの文字・押せる範囲は ::before で上下に広げて 28px(guidelines 6)。
+   .btn を付けない(<a> で行き先が無いなど)ときは、押せない案内の文字だけ */
+.ui-next-btn{flex:none;font-weight:600;color:var(--accent-ink2)}
+.ui-next-btn::after{content:"→";margin-left:2px}
+.btn.ui-next-btn{position:relative;min-height:22px;padding:0 8px;font-size:11.5px;color:var(--accent-ink2)}
+.btn.ui-next-btn::before{content:"";position:absolute;inset:-3px 0}
+/* 押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true]。押すと開かずに理由を知らせる = UIKit.menuOff)。.btn の summary は .btn[aria-disabled=true] の見た目 */
+.ui-menu>summary[aria-disabled=true],.ui-pop>summary[aria-disabled=true]{cursor:not-allowed}
+.ui-menu>summary[aria-disabled=true]:not(.btn),.ui-pop>summary[aria-disabled=true]:not(.btn){opacity:.55}

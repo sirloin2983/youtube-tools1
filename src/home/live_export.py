@@ -502,11 +502,11 @@ class Exporter:
             if not isinstance(j, dict) or not JOB_RE.match(str(j.get("id") or "")):
                 continue
             if j.get("state") in ("fetch", "encode"):   # 入口が途中で終わった: 録画待ちからやり直す
-                j.update(state="wait", progress=0, message="入口を起動し直したので、やり直します")
+                j.update(state="wait", progress=0, message="ホームを起動し直したので、やり直します")
             j.pop("diskWait", None)
             arc = j.get("archive")
             if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # 本番版への作り直し(P4。src/home/live_archive.py)の途中: 順番待ちに戻す
-                j["archive"] = dict(arc, state="wait", label="待ち", progress=0, message="入口を起動し直したので、続きから作り直します")
+                j["archive"] = dict(arc, state="wait", label="待ち", progress=0, message="ホームを起動し直したので、続きから作り直します")
             j.pop("cancel", None)
             self.jobs.append(j)
         shutil.rmtree(self.work, ignore_errors=True)   # 前回の取りかけ
@@ -914,7 +914,7 @@ class Exporter:
         except Cancelled:
             self._set(job, state="cancelled", message="取り消しました", progress=0)
         except Halted:
-            self._set(job, state="wait", message="入口を終えたので、次の起動でやり直します", progress=0)
+            self._set(job, state="wait", message="ホームを終えたので、次の起動でやり直します", progress=0)
         except LiveError as e:
             self._set(job, state="error", error=str(e), message="")
         except normalize.NormalizeError as e:

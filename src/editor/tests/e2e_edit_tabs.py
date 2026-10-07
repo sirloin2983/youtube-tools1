@@ -281,8 +281,8 @@ def _scene_tab_switch(cx):
     check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#tabPack") and pg.evaluate("location.hash") == "#pack",
           "Alt+3 で 3 パック")
     check(pg.is_visible("#pkBuild") and pg.is_visible("#pkLen"), "パックのタブに「これから作るパック」と「パックを作る」がある")
-    wait_js(pg, "!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('入口(start.bat)から開いたとき')", 10000)
-    check(pg.is_disabled("#pkBuild"), "単体で開いたときはパック作りは使えず、理由(入口から開いたときだけ)が出る")
+    wait_js(pg, "!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('ホーム(start.bat)から開いたとき')", 10000)
+    check(pg.is_disabled("#pkBuild"), "単体で開いたときはパック作りは使えず、理由(ホームから開いたときだけ)が出る")
     wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && document.querySelector('#pkCaps').textContent === '3'", 15000)
     check(pg.inner_text("#pkLen") == "0:12.00", "これから作るパック(区間・長さ・字幕の数)は単体でも出る(サーバーの見積もり)")
     pg.keyboard.press("Alt+1")

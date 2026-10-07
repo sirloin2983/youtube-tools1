@@ -212,7 +212,7 @@ def run(tmp, shots, force_chromium):
                 if flow != "auto":
                     return [{"key": "transcribe", "label": "文字起こし", "state": "wait", "stateLabel": "待ち"}]
                 return [{"key": "transcribe", "label": "文字起こし", "state": "done", "stateLabel": "済み"},
-                        {"key": "pack", "label": "Resolve パック", "state": "run", "stateLabel": "実行中"},
+                        {"key": "pack", "label": "パック", "state": "run", "stateLabel": "実行中"},
                         {"key": "deliver", "label": "Dropbox へ届ける", "state": "wait", "stateLabel": "待ち"}]
             return {"runs": [{"id": "run-%d" % (i + 1), "state": "running" if h[1] == "auto" else "queued", "stateLabel": "実行中" if h[1] == "auto" else "待ち",
                               "steps": steps(h[1])} for i, h in enumerate(handed)]}
@@ -479,7 +479,7 @@ def _scene_mark_and_export(cx):
         check(handed and handed[0] == (job["path"], "auto"), "15 帯で「全自動」→ 入口がまとめて実行へ flow auto で渡す: %s" % handed[:1])
         check(handed_who[:1] == ["兎田ぺこら"], "15 配信者の名前(チャンネル名から)もまとめて実行へ渡る: %s" % handed_who[:1])
         check(job.get("after") == "auto" and job.get("streamer") == "兎田ぺこら", "15 ジョブに after と streamer が残る: %s %s" % (job.get("after"), job.get("streamer")))
-        check(wait_js(pg, "() => { const t = document.querySelector('#rvExpList').textContent; return t.includes('文字起こし → パック: 実行中') && t.includes('Resolve パック'); }", 10000),
+        check(wait_js(pg, "() => { const t = document.querySelector('#rvExpList').textContent; return t.includes('文字起こし → パック: 実行中(パック)'); }", 10000),
               "15 書き出しの行に、まとめて実行の進み具合(全自動: 文字起こし → パック)")
         ok_exp = wait_for(lambda: (lambda m: m and m[0]["status"] == "exported" and os.path.normcase(m[0].get("path") or "") == os.path.normcase(job["path"]))(
             ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks")), 15)

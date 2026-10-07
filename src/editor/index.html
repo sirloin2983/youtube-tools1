@@ -413,7 +413,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
 .ui-sheet>*+*{border-top:1px solid var(--line)}
 
-/* 通知(重ねて最大3つ。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
+/* 通知(重ねて最大2つ(v21。以前は3つ)。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
 .ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
 .ui-toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
@@ -559,6 +559,18 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-acts .btn{text-decoration:none}
 .ui-live-acts .btn.armed{background:var(--danger);border-color:var(--danger);color:#fff}
 @media (max-width:560px){.ui-live-btn{padding:0 7px}}
+
+/* ---------- v21(2026-10-07・気が利く画面へ 段7) ---------- */
+/* 一覧の行の中の「次の一手」のボタン(.ui-next のボタン版。編集の履歴の「パックを作る →」・ホームの案件の「書き出し 2本 →」)。
+   ボタンは札(.pill)とほぼ同じ高さ(行の高さをそろえる)・アクセントの文字・押せる範囲は ::before で上下に広げて 28px(guidelines 6)。
+   .btn を付けない(<a> で行き先が無いなど)ときは、押せない案内の文字だけ */
+.ui-next-btn{flex:none;font-weight:600;color:var(--accent-ink2)}
+.ui-next-btn::after{content:"→";margin-left:2px}
+.btn.ui-next-btn{position:relative;min-height:22px;padding:0 8px;font-size:11.5px;color:var(--accent-ink2)}
+.btn.ui-next-btn::before{content:"";position:absolute;inset:-3px 0}
+/* 押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true]。押すと開かずに理由を知らせる = UIKit.menuOff)。.btn の summary は .btn[aria-disabled=true] の見た目 */
+.ui-menu>summary[aria-disabled=true],.ui-pop>summary[aria-disabled=true]{cursor:not-allowed}
+.ui-menu>summary[aria-disabled=true]:not(.btn),.ui-pop>summary[aria-disabled=true]:not(.btn){opacity:.55}
 /* ui-kit:css:end */
 .tt-docauto{margin-left:auto}.tt-docauto-pop{min-width:min(420px,calc(100vw - 32px));display:grid;gap:8px;padding:12px}
 .tt-docauto-pop .lag{flex-wrap:wrap}
@@ -691,9 +703,6 @@ h2{margin:0;font-size:15px}
 .tt-prog{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:11.5px}
 .tt-prog i{display:block;width:38px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
 .tt-prog i b{display:block;height:100%;background:var(--ok);border-radius:inherit}
-.txi-side .tt-txi-next{position:relative;min-height:22px;padding:0 8px;font-size:11.5px;font-weight:600;color:var(--accent-ink2)}   /* 次の一手のボタン(段7 E-13)。見た目は札とほぼ同じ高さ(行の高さをそろえる) */
-.txi-side .tt-txi-next::before{content:"";position:absolute;inset:-3px 0}   /* 押せる範囲は上下に広げて 28px(guidelines 6) */
-.txi-side .tt-txi-next::after{content:" →"}
 .tt-batch{margin:8px 0 4px;padding:8px 10px;border:1px dashed var(--line-2);border-radius:8px}
 .tt-batch .row{gap:10px;flex-wrap:wrap;align-items:center}
 .tt-batch-go{margin-top:6px}
@@ -1065,7 +1074,6 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 /* ホームから開いていないときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由 */
 .tt-need-home{display:block;margin:2px 0 0}
 .tt-batch label:has(> input:disabled){opacity:.6;cursor:not-allowed}
-.tt-docauto.tt-off>summary{opacity:.55;cursor:not-allowed}
 .tt-bulkcut{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .tt-mchoice{margin:0 0 10px}
 /* カット・パックのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む。帯から開くと本文の上に重ねる(タイムラインの幅を変えない) */
@@ -1109,6 +1117,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
 .tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;color:var(--ink-4)}
+.tt-csub .btn.tt-csub-cut{flex:none;font-weight:600}   /* 行の札「残す / カット済」(段7 E-25)。枠つき = 押して切り替えられる(1 文字起こし の行の札と同じ) */
+.tt-csub .btn.tt-csub-cut[aria-pressed=true]{background:var(--danger);border-color:var(--danger);color:#fff}   /* 「カット済」は 1 文字起こし の行の札と同じ赤(:hover の .btn より強く) */
 .tt-csub-empty{margin:8px 4px}
 .tt-cut-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
 .tt-cut-tools .tt-sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}
@@ -1410,7 +1420,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <label class="lag tt-batch-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
           <input id="txBatchWho" type="text" size="12" placeholder="例: さくらみこ" data-ui-streamer></label>
         <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットを決めてある文書はカットのとおり、無ければ文字起こしの行からパックを作ります。
-          入口の「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
+          ホームの「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
       <div id="txRuns" aria-live="polite"></div>
     </div>
     <p class="notice tt-rl-missing" id="txMissing" hidden role="status"><span id="txMissingText"></span><button type="button" class="btn small" id="txMissingGo">まとめて付け替える</button></p>
@@ -1472,7 +1482,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
      <span class="tt-docbar-pills" id="docPills"><span class="pill ok" id="pillProof" hidden></span><span class="pill warn" id="pillCut" hidden></span><span class="pill" id="pillAuto" hidden></span></span>
      <!-- まとめて実行(今の文書。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3。入口の /api/autorun/start-docs。入口から開いたときだけ使える。開いていないときは押せない理由 = 段7 E-17) -->
      <details class="ui-menu tt-docauto" id="docAuto">
-       <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、入口の「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
+       <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、ホームの「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
        <div class="ui-menu-pop tt-docauto-pop">
          <p class="hint">この文書の残りを自動で進めます: 行が無ければ文字起こし(「新規」の設定で)→ パック(カットを決めてあればカットのとおり、無ければ文字起こしの行から)。
            進み具合はここと、履歴の「選んで、まとめて実行」の下に出ます。</p>
@@ -1840,7 +1850,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
              <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
                <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
                <span class="notice tt-pk-zipwarn" id="pkZipWarn" hidden></span>
-               <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。入口から開いていなくても使えます。</span></div>
+               <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。ホームから開いていなくても使えます。</span></div>
              <div class="fld"><span class="l">残す区間だけを作業用フォルダに保存</span>
                <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画のフォルダの「作業用」に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
                <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
@@ -1938,7 +1948,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
   <h3 style="margin-top:18px">評価用のフォルダ</h3>
   <p class="hint" style="margin:0 0 6px">この中(下のフォルダも)の動画は、評価用(精度を測るためだけ。学習・辞書に使わない)として文字起こしし、評価用の印は外せません。
-    「整理」は動画の名前を「フォルダ名_番号_済 / 未 / 未文字起こし」にそろえ、文書を新しい名前に付け替えます(入口の起動時にも自動で行います)。済 = 文字のある行がすべて校正済み。
+    「整理」は動画の名前を「フォルダ名_番号_済 / 未 / 未文字起こし」にそろえ、文書を新しい名前に付け替えます(ホームの起動時にも自動で行います)。済 = 文字のある行がすべて校正済み。
     直下の「評価用_仮置き」の動画は名前を変えず、全行に話者が付いて全行が校正済みになったら、話した時間が最も長いメンバーのフォルダへ移します(整理のときと、ほかの文書へ移ったとき)。</p>
   <div class="fld"><label for="evDirs">フォルダ(1行に1つ・10個まで)</label><textarea id="evDirs" rows="2" class="mono" spellcheck="false" autocomplete="off" placeholder="例: E:\動画\評価用データ"></textarea></div>
   <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="evSave">保存</button><button type="button" class="btn small" id="evRun" title="名前をそろえて、文書を付け替えます(処理中の動画・開いている動画は飛ばします)">今すぐ整理</button></div>

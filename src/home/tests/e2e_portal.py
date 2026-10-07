@@ -678,12 +678,12 @@ def _next_case_buttons(cx):
     nx_js = ("id => { const a = document.querySelector('#case-' + id + ' .pt-case-next');"
              " return a && [a.tagName, a.className, a.getAttribute('href'), a.textContent, a.hidden, a.getAttribute('target')]; }")
     got = {vid: pg.evaluate(nx_js, vid) for vid in ("e2eNext0001", "e2eNext0002", "e2eList0000", "e2eCase0001")}
-    check(got["e2eNext0001"] == ["A", "btn small pt-case-next", "/studio/?video=e2eNext0001", "候補の確認 3個", False, None],
+    check(got["e2eNext0001"] == ["A", "btn small ui-next-btn pt-case-next", "/studio/?video=e2eNext0001", "候補の確認 3個", False, None],
           "[A] S-18: 候補の確認のボタン: %s" % got["e2eNext0001"])
     check(got["e2eNext0002"] and got["e2eNext0002"][2:4] == ["/studio/?video=e2eNext0002", "文字起こし 1本"], "[A] S-18: 文字起こしのボタン: %s" % got["e2eNext0002"])
     check(got["e2eList0000"] and got["e2eList0000"][2:4] == ["/studio/?video=e2eList0000", "書き出し 1本"], "[A] S-18: 書き出しのボタン: %s" % got["e2eList0000"])
     c0 = got["e2eCase0001"]
-    check(bool(c0) and c0[1] == "btn small pt-case-next" and (c0[2] or "").startswith("/transcribe/?doc=deadbeef0001") and (c0[2] or "").endswith("#tx")
+    check(bool(c0) and c0[1] == "btn small ui-next-btn pt-case-next" and (c0[2] or "").startswith("/transcribe/?doc=deadbeef0001") and (c0[2] or "").endswith("#tx")
           and c0[3] == "校正 1本", "[A] S-18: 校正のボタンは編集の校正のタブへ(文書 ID で): %s" % c0)
     tg = pg.evaluate("""() => ({ content: [...document.querySelectorAll('.pt-clip a, .pt-case-studio a, .pt-case-next[href], #unlinkedOpen, .pt-doc-open, .pt-todo-link')]
                                       .filter(a => a.hasAttribute('target')).map(a => a.textContent),
@@ -713,8 +713,8 @@ def _next_empty_state(cx):
     check(wait_js(p3, "!!document.getElementById('emptyStudio')", 15000), "[A] S-13: 配信が無いときの空の表示")
     et = p3.text_content("#list .empty")
     check("まだ配信はありません" in et and "ここに出ます" in et, "[A] S-13: 空の表示は 2 文(何が無い + どうすると出る): %s" % et)
-    check(p3.get_attribute("#emptyStudio", "href") == "/studio/" and p3.get_attribute("#emptyStudio", "target") is None,
-          "[A] S-13: 「スタジオで配信を探す」はスタジオへ(同じ窓)")
+    check(p3.get_attribute("#emptyStudio", "href") == "/studio/?step=rank" and p3.get_attribute("#emptyStudio", "target") is None,
+          "[A] S-13: 「スタジオで配信を探す」はスタジオの ① 探す へ(?step=rank。同じ窓)")
     check(wait_js(p3, "!document.getElementById('intakeBox').hidden && !!document.getElementById('emptyIntake')", 10000), "[A] S-13: 「依頼の受付を設定する」が出る")
     p3.click("#emptyIntake")
     check(wait_js(p3, "document.getElementById('intakeBox').open && document.activeElement && document.activeElement.id === 'intakeFolder'", 5000),

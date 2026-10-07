@@ -503,7 +503,7 @@ def _scene_autorun(cx):
     pg.click("#txBatchGo")
     wait_js(pg, "[...document.querySelectorAll('#txRuns .tt-run .pill')].some(p => p.textContent === '済み')", 120000)   # 実行の札(段の「済み」ではなく)。状態の言葉は共通(段4: 完了 → 済み)
     run_txt = pg.inner_text("#txRuns")
-    check("文字起こし: 済" in run_txt and "Resolve パック: 済" in run_txt, "行の無い文書を、文字起こし → パックまで進める: %s" % run_txt[:160])
+    check("文字起こし: 済" in run_txt and "パック: 済" in run_txt, "行の無い文書を、文字起こし → パックまで進める: %s" % run_txt[:160])
     d3 = srv.get("/api/transcript?id=" + tid3)
     check(len(d3["segments"]) > 0 and os.path.isfile(os.path.join(os.path.splitext(v3)[0] + "_pack", "create_resolve_textplus_project.lua")),
           "同じ文書に文字起こしが入り(intoDoc)、動画の隣にパックができる")

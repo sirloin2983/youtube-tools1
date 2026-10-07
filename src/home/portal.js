@@ -546,8 +546,8 @@
     if (a.hidden) return;
     var href = caseNextHref(c, n.kind);
     a.textContent = n.label + ' ' + n.count + (n.kind === 'review' ? '個' : '本');
-    if (href) { a.href = href; a.title = NEXT_TITLE[n.kind] || ''; a.className = 'btn small pt-case-next'; }
-    else { a.removeAttribute('href'); a.title = ''; a.className = 'pt-case-next'; }
+    if (href) { a.href = href; a.title = NEXT_TITLE[n.kind] || ''; a.className = 'btn small ui-next-btn pt-case-next'; }   // 見た目は ui-kit の次の一手のボタン(v21。編集の履歴と同じ)
+    else { a.removeAttribute('href'); a.title = ''; a.className = 'ui-next-btn pt-case-next'; }   // 行き先が無い = 押せない案内の文字だけ
   }
 
   function caseSubText(c) {
@@ -787,7 +787,7 @@
     box.appendChild(document.createTextNode('切り抜きスタジオで配信を探して解析するか、友人からの依頼を受け付けると、ここに出ます。'));
     var row = el('div', 'row pt-empty-acts');
     var a = el('a', 'btn small primary', 'スタジオで配信を探す');
-    a.id = 'emptyStudio'; a.href = '/studio/'; a.title = 'スタジオを開きます(① 探す・② 解析で配信を入れます)';
+    a.id = 'emptyStudio'; a.href = '/studio/?step=rank'; a.title = 'スタジオの ① 探す を開きます(① 探す・② 解析で配信を入れます)';
     row.appendChild(a);
     if (!$('#intakeBox').hidden) {   // 受付の無い古い入口では出さない
       var b = el('button', 'btn small', '依頼の受付を設定する');
@@ -1013,7 +1013,7 @@
     var ids = cleanPicked();
     if (!ids.length) return;
     var ask = window.UIKit && UIKit.dialog ? UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
-      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.keepDays + ' 日たつと入口の起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所はごみ箱フォルダの manifest.jsonl)。' })
+      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.keepDays + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所はごみ箱フォルダの manifest.jsonl)。' })
       : Promise.resolve(window.confirm('選んだ物をごみ箱フォルダへ移しますか?'));
     ask.then(function (ok) {
       if (!ok) return;

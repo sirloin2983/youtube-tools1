@@ -100,9 +100,9 @@ function create(h){
     return {
       off: (cs.off || 'この動画はカット・パックに使えません') + '。',
       cut: 'カットの準備をしています…',
-      standalone: 'パック作りは、入口(start.bat)から開いたときだけ使えます。今は「詳しい設定」の「zip でダウンロード」が使えます。',
+      standalone: 'パック作りは、ホーム(start.bat)から開いたときだけ使えます。今は「詳しい設定」の「zip でダウンロード」が使えます。',
       checking: 'cut2resolve を確かめています…',
-      'no-c2r': 'cut2resolve が起動していないため、パックは作れません。入口の画面で cut2resolve を起動してから、この画面を開き直してください。',
+      'no-c2r': 'cut2resolve が起動していないため、パックは作れません。start.bat でホームを起動し直してから、この画面を開き直してください。',
       lock: '話者の判別・再認識の途中です。終わってから作ってください。',
       empty: '残す区間がありません(2 カット のタブで決めてください)。'
     }[b] || '';
@@ -278,7 +278,7 @@ function create(h){
     renderJob(); renderLast(why, diffs);
     if (P.focusOpen && !P.building){ P.focusOpen = false; const ob = $('#pkOpen'); if (!ob.hidden && ob.offsetParent) ob.focus(); }   // 作り終えたら次に押す所へ(段7 E-11。押したボタンは作っている間は押せず、フォーカスが落ちていた)
     // zip(4-4): 渡らない設定を書く。字幕の無い文書は zip にできない(zip はいつも Text+ あり。契約テストの ZipSkipsContract)
-    $('#pkZipNote').textContent = '残す区間(2 カット のタブ)・字幕・予備・fps・大きさ・字幕の文字数・配信者と話者の色は、上の「パックを作る」と同じです。粗編集の動画・音量の調整・開始タイムコード・リール名は zip には入りません(使うのは入口から「パックを作る」)。';
+    $('#pkZipNote').textContent = '残す区間(2 カット のタブ)・字幕・予備・fps・大きさ・字幕の文字数・配信者と話者の色は、上の「パックを作る」と同じです。粗編集の動画・音量の調整・開始タイムコード・リール名は zip には入りません(使うのはホームから開いて「パックを作る」)。';
     const skipped = hasRows ? zipSkipped(o) : [], zw = $('#pkZipWarn');
     zw.hidden = !skipped.length && hasRows;
     zw.textContent = !hasRows ? '字幕の無い文書は zip にできません(「パックを作る」で EDL と動画のコピーのパックになります)' : skipped.length ? `今の設定のうち ${skipped.join('・')} は zip に入りません` : '';

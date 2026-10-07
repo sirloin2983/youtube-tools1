@@ -46,7 +46,7 @@ import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形�
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
-STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "Resolve パック",
+STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
                "deliver": "Dropbox へ届ける", "diarize": "話者分離"}
 MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
@@ -366,7 +366,7 @@ class Run:
             if o.get("state") in DONE_STEPS:   # 済んだ段はそのまま(続きから)。途中だった段(run)・待ちは頭から
                 st["state"], st["detail"] = o["state"], str(o.get("detail") or "")[:500]
         run.resumed = True
-        run.message = "入口を起動し直したので、続きから進めます"
+        run.message = "ホームを起動し直したので、続きから進めます"
         return run
 
     def key(self):
@@ -536,12 +536,12 @@ class AutoRunner:
                 continue
             seen.add(run.id)
             if time.time() - run.created > RESTORE_MAX_AGE:
-                run.state, run.message, run.finished = "cancelled", "入口を起動し直したとき、%d 日より前に入れた実行だったので続けませんでした" % (RESTORE_MAX_AGE // 86400), time.time()
+                run.state, run.message, run.finished = "cancelled", "ホームを起動し直したとき、%d 日より前に入れた実行だったので続けませんでした" % (RESTORE_MAX_AGE // 86400), time.time()
                 self._log(run)
                 continue
             out.append(run)
         if out:
-            self.log("まとめて実行: 入口を起動し直したので、待ち・実行中だった %d 件を続けます(%s)" % (len(out), "・".join(r.title or r.id for r in out[:5])))
+            self.log("まとめて実行: ホームを起動し直したので、待ち・実行中だった %d 件を続けます(%s)" % (len(out), "・".join(r.title or r.id for r in out[:5])))
         return out
 
     def _await_tools(self, run):
@@ -562,7 +562,7 @@ class AutoRunner:
                 missing = []
             if not missing or time.time() >= end:
                 return
-            run.message = "入口を起動し直したので、ツールの準備を待っています(%s)" % "・".join(missing)
+            run.message = "ホームを起動し直したので、ツールの準備を待っています(%s)" % "・".join(missing)
             self._wait(run, 1.0)
 
     # ------------------------------------------------------------ 受付
@@ -946,7 +946,7 @@ class AutoRunner:
                 self.closed = True
                 for r in self.runs:
                     if r.state == "queued" and r.mode != POST_MODE:
-                        r.message = "入口を終了したので、次の起動で続けます"
+                        r.message = "ホームを終了したので、次の起動で続けます"
                 self.cv.notify_all()
 
     def _trim(self):
@@ -1153,7 +1153,7 @@ class AutoRunner:
             self._defer_running = None
             it = self._defer_find(vid)
             if run.state == "cancelled" and (run.preempted or self.closed):   # 新しい実行を先に・起動し直す・入口の終了: 一覧に残したまま(回数は増やさない)
-                run.message = "%s止めました(あとで続けます)" % run.preempted if run.preempted else "入口を終了しました(次に起動したときに続けます)"
+                run.message = "%s止めました(あとで続けます)" % run.preempted if run.preempted else "ホームを終了しました(次に起動したときに続けます)"
                 return None
             if it is None:
                 return None
@@ -1203,7 +1203,7 @@ class AutoRunner:
                 run.state, run.error, run.message = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "止まりました"
             if self.closed and not run.cancel and run.mode != POST_MODE and run.state != "done":
                 # 入口の終了で止まった(M5): 記録には「中止」と書かず、待ちの記録(最後に書いた段の形)のまま次の起動で続ける
-                run.state, run.error, run.message = "queued", "", "入口を終了したので、次の起動で続けます"
+                run.state, run.error, run.message = "queued", "", "ホームを終了したので、次の起動で続けます"
                 for s in run.steps:
                     if s["state"] == "run":
                         s["state"] = "wait"

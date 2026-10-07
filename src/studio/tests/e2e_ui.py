@@ -978,6 +978,14 @@ def check_video_param(t):
     pg.wait_for_selector("#qEntry")
     c.ok(pg.is_visible("#paneQueue") and pg.input_value("#qUrls") == "https://youtu.be/abcdefghijk", "保存されていない配信なら、これまでどおり ?url= を解析の欄に入れる")
     pg.fill("#qUrls", "")
+    # 段7: ?step=rank(ホームの「スタジオで配信を探す」)は、前回のタブ(いまは ② 解析)より先に ① 探す を開く
+    pg.goto(base + "?step=rank")
+    wait_js(pg, "() => Studio.ready && !document.querySelector('#paneRank').hidden", 15000)
+    c.ok(pg.is_visible("#paneRank") and not pg.is_visible("#paneQueue") and "step=" not in pg.url,
+         "?step=rank で ① 探す を開き、アドレスから ?step= を消す: %s" % pg.url)
+    pg.goto(base + "?step=nosuch")
+    wait_js(pg, "() => Studio.ready", 15000)
+    c.ok(pg.is_visible("#paneRank"), "知らない ?step= は無視する(前回のタブのまま)")
 
 
 def check_queue(t):

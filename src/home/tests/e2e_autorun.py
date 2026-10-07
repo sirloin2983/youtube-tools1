@@ -143,7 +143,7 @@ def main():
                            % card.replace("'", "\\'"))
                 check(wait_js(pg, done_js, 240000), "まとめて実行が終わった: %s" % pg.text_content(card + " .pt-auto-msg"))
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "Resolve パック 済み"], "書き出し → 文字起こし → パック: %s" % pills)
+                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "書き出し → 文字起こし → パック: %s" % pills)
                 check(wait_js(pg, "document.querySelectorAll('%s .pt-clip').length === 1" % card.replace("'", "\\'"), 20000), "切り抜きが案件に出た")
                 clip_pills = pg.eval_on_selector_all(card + " .pt-clip .pill", "els => els.map(e => e.textContent)")
                 check(any(x.startswith("文字起こし 校正") for x in clip_pills) and any("パック" in x and "まだ" not in x for x in clip_pills),
@@ -157,7 +157,7 @@ def main():
                       "2回目は見積もりで「やることがありません」と出す")
                 time.sleep(1.0)
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "Resolve パック 済み"], "2回目は始めない(前の実行の表示のまま): %s" % pills)
+                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "2回目は始めない(前の実行の表示のまま): %s" % pills)
                 real = [e for e in errors if "Failed to load resource" not in e]
                 check(not real, "画面のエラーなし(CSP 違反を含む): %s" % real[:3])
                 browser.close()
@@ -242,7 +242,7 @@ def main():
                 check(wait_js(pg, "/^前回 /.test(document.querySelector('%s .pt-auto-msg').textContent)" % q, 20000),
                       "案件の行に前回の結果: %s" % pg.text_content(card + " .pt-auto-msg"))
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
-                check(pills == ["書き出し 済み", "文字起こし 済み", "Resolve パック 済み"], "前回の段の札も出る: %s" % pills)
+                check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "前回の段の札も出る: %s" % pills)
                 check(pg.is_enabled(card + " .pt-auto-run") and pg.is_hidden(card + " .pt-auto-cancel"), "前回の結果では実行を押せる・中止は出さない")
                 pg.click("#historyBox > summary")
                 check(wait_js(pg, "document.querySelectorAll('#historyList .pt-history-item').length === 3", 15000), "「まとめて実行の記録」に3件")

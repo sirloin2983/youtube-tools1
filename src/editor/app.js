@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.59.0';
+const APP_VERSION = '0.59.1';
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1203,7 +1203,6 @@ if (window.UIKit && UIKit.packLoud){   // パックの音量(編集の設定 pac
   UIKit.packLoud.mount($('#docAutoLoud'));
   document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });
 }
-$('#docAuto > summary').addEventListener('click', e => { if (!TOKEN){ e.preventDefault(); toast(NEED_HOME, 5000); } });   // 開かずに理由を知らせる(段7 E-17。Enter・Space も click になる)
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている。段5)
   if ($('#docAuto').open && window.UIKit && UIKit.streamer && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });
@@ -1314,7 +1313,7 @@ async function boot(){
     const ping = await api('/api/ping');
     if (ping.version !== APP_VERSION && !(window.UIKit && UIKit.restart && UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)))   // 帯に「起動し直す」(段9 9-3)
       showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`, { plain: true });
-  } catch (e){ return showErr(e.message + '。入口(youtube-tools フォルダの start.bat)から起動してください', { plain: true }); }
+  } catch (e){ return showErr(e.message + '。youtube-tools フォルダの start.bat で起動して、ホームから開いてください', { plain: true }); }
   try { S.tools = await api('/api/tools'); } catch {}
   if (TOKEN) pollRuns();
   await loadRoster();

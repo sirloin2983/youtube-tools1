@@ -201,12 +201,12 @@ def main():
                 # (Edge を新しく起動しない)、Ctrl を押しながらだと入口に頼んで窓で開く(UIKit.win)
                 check(wait_js(win, "!!document.getElementById('emptyStudio') && !!document.getElementById('emptyIntake')", 15000),
                       "[S-13] 配信が無いときの空の表示に、次に押すボタン(スタジオで配信を探す・依頼の受付を設定する)")
-                check(win.get_attribute("#emptyStudio", "target") is None and win.get_attribute("#emptyStudio", "href") == "/studio/",
+                check(win.get_attribute("#emptyStudio", "target") is None and win.get_attribute("#emptyStudio", "href") == "/studio/?step=rank",
                       "[S-15] 中身のリンクは target なし(同じ窓で移る)")
                 n2 = len(read_lines(edge_log))
                 win.click("#emptyStudio", modifiers=["Control"])
                 got = wait_until(lambda: read_lines(edge_log)[n2:])
-                check(got and got[-1][0] == "--app=http://localhost:%d/studio/" % port, "[S-15] 窓の中で Ctrl を押しながらだと、窓で開く: %s" % got[-1:])
+                check(got and got[-1][0] == "--app=http://localhost:%d/studio/?step=rank" % port, "[S-15] 窓の中で Ctrl を押しながらだと、窓で開く: %s" % got[-1:])
                 check("/studio/" not in win.url, "[S-15] Ctrl のときは今の窓は移らない: %s" % win.url)
                 n3 = len(read_lines(edge_log))
                 win.click("#emptyStudio")

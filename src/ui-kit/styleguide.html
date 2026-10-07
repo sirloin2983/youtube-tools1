@@ -45,7 +45,7 @@
 <div class="errbar" hidden>エラーの帯</div>
 <main>
   <h1 style="font-size:22px;margin:0 0 4px">ui-kit 見本(v6)</h1>
-  <p class="hint">右上のボタンでダーク/ライトを切り替えて、両方で読みやすいか確認するための見本です。ヘッダー左の3つは新しい ui-appnav(単体で開いているので入口の項目は出ません)。</p>
+  <p class="hint">右上のボタンでダーク/ライトを切り替えて、両方で読みやすいか確認するための見本です。ヘッダー左の3つは新しい ui-appnav(単体で開いているのでホームの項目は出ません)。</p>
 
   <div class="grid">
     <section class="card">
@@ -124,7 +124,25 @@
         <button class="btn danger" id="btnToastErr">失敗のトースト(詳しく付き)</button>
         <button class="btn ghost" id="btnToastInfo">情報のトースト</button>
       </div>
-      <p class="hint">最大3つまで重ねて表示。失敗は8秒(クリックで閉じる)、それ以外は2.5秒。</p>
+      <p class="hint">最大2つまで重ねて表示(v21。あふれたら古いものから閉じる。消えない知らせ・ボタンのある知らせは後回し)。失敗は8秒(クリックで閉じる)、それ以外は2.5秒。</p>
+    </section>
+
+    <section class="card" id="v21Demo">
+      <div class="card-head"><h2 class="card-title">v21: 次の一手のボタン・押せないメニュー</h2><span class="card-sub">.ui-next-btn・UIKit.menuOff</span></div>
+      <div class="row">
+        <span class="pill wait">未校正</span>
+        <button type="button" class="btn small ui-next-btn" id="nextBtnDemo">パックを作る</button>
+        <a class="btn small ui-next-btn" href="#v21Demo">書き出し 2本</a>
+        <a class="ui-next-btn" id="nextTextDemo">候補の確認 3個</a>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <details class="ui-menu" id="menuOffDemo"><summary class="btn small" aria-disabled="true" data-ui-why="ホームから開くと使えます(見本)">まとめて実行 ▾</summary>
+          <div class="ui-menu-pop"><button type="button">開かない中身</button></div></details>
+        <details class="ui-menu" id="menuOnDemo"><summary class="btn small">使えるメニュー ▾</summary>
+          <div class="ui-menu-pop"><button type="button">中身</button></div></details>
+      </div>
+      <p class="hint">「次の一手」は札と同じ高さのボタン(右に →。押せる範囲は上下に広げて 28px)。行き先の無い &lt;a&gt; は案内の文字だけ。
+        押せないメニュー(summary に aria-disabled="true"。付け外しは UIKit.menuOff)は、押しても開かずに理由(data-ui-why か title)を知らせる。</p>
     </section>
 
     <section class="card">
@@ -133,7 +151,7 @@
       <div class="row">
         <button class="btn" id="btnRestartBand">版が違う帯を出す(画面 v0.2.0・サーバー v0.1.0)</button>
       </div>
-      <p class="hint">ホームから開いた画面(合言葉あり)だけ「起動し直す」が出る。単体で開いた見本では案内の文だけ。押すと入口の api/ytt/restart-self → api/ping が戻ったら読み込み直す。</p>
+      <p class="hint">ホームから開いた画面(合言葉あり)だけ「起動し直す」が出る。単体で開いた見本では案内の文だけ。押すとホームの api/ytt/restart-self → api/ping が戻ったら読み込み直す。</p>
     </section>
 
     <section class="card">
@@ -171,7 +189,7 @@
             <span class="ui-live-acts"><a class="btn small" href="#liveBadgeDemo">開く</a></span></li>
         </ul>
       </div>
-      <p class="hint">札は入口の <code>api/ytt/live</code> を 10 秒ごと(オフなら 60 秒ごと)に問い合わせて出す。単体で開いたこの見本(合言葉なし)では出ない。上は見た目だけの見本。</p>
+      <p class="hint">札はホームの <code>api/ytt/live</code> を 10 秒ごと(オフなら 60 秒ごと)に問い合わせて出す。単体で開いたこの見本(合言葉なし)では出ない。上は見た目だけの見本。</p>
     </section>
 
     <section class="card">

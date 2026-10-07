@@ -204,7 +204,7 @@ class Mount:
 
     def start(self, port, allowed_hosts, token):
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
-        self._access_log("==== 入口に取り込んで起動(%s) ====" % self.path)
+        self._access_log("==== ホームに取り込んで起動(%s) ====" % self.path)
         self.mod = load_serve(self.root, self.id)
         csp = self.spec["csp"] or getattr(self.mod, "CSP", None)
         if not isinstance(csp, str) or "script-src" not in csp or "'unsafe-inline'" in csp.split("script-src", 1)[1].split(";", 1)[0]:

@@ -144,7 +144,7 @@ function topBarHTML(){
       <summary class="btn small ghost" title="案件の画面と同じ「まとめて実行」を、この配信で始めます"><span>まとめて実行</span></summary>
       <div class="rv-vmenupop rv-autopop">
         <p class="hint">この配信を、ホームの案件の画面と同じ順番待ちで自動で進めます。進み具合は上の帯と、ホームの案件の画面に出ます。</p>
-        <button type="button" class="btn small primary" data-auto="adopted" title="採用したマークを書き出し → 文字起こし → Resolve パック">採用後を全部(書き出し → 文字起こし → パック)</button>
+        <button type="button" class="btn small primary" data-auto="adopted" title="採用したマークを書き出し → 文字起こし → パック">採用後を全部(書き出し → 文字起こし → パック)</button>
         <button type="button" class="btn small" data-auto="transcribe" title="採用したマークを書き出し → 文字起こし">文字起こしまで(書き出し → 文字起こし)</button>
         <div class="rv-autofull"><button type="button" class="btn small" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
           <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
@@ -230,7 +230,7 @@ function liveBarHTML(){
           <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
           <span class="rv-topsp"></span>
           <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
-          <label class="rv-duck rv-after" for="rvAfter" title="書き出した切り抜きを、ホームの「まとめて実行」でどこまで進めるか(手動の「書き出す」にも効きます)。文字起こしまで = 字幕は「編集」で直す / 全自動 = 文字起こしのあと Resolve のパックまで作る(字幕は校正前)">書き出したあと <select id="rvAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">全自動(パックまで)</option></select></label>
+          <label class="rv-duck rv-after" for="rvAfter" title="書き出した切り抜きを、ホームの「まとめて実行」でどこまで進めるか(手動の「書き出す」にも効きます)。文字起こしまで = 字幕は「編集」で直す / 全自動 = 文字起こしのあとパックまで作る(字幕は校正前)">書き出したあと <select id="rvAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">全自動(パックまで)</option></select></label>
           <details class="ui-pop rv-livewho" id="rvLiveWho" hidden><summary class="btn small ghost" title="字幕の色を決める配信者です(覚えた名前か、チャンネル名から自動)。押すと直せます(直した名前は、この録画とこのチャンネルで次からも使います)"><span id="rvLiveWhoText">配信者: 未設定(字幕は既定の色)</span></summary>
             <div class="ui-pop-body rv-livewhobody" data-align="left"><label class="rv-fl" for="rvLiveWhoIn">配信者(字幕の色)</label><input type="text" id="rvLiveWhoIn" placeholder="例: 兎田ぺこら" aria-describedby="rvLiveWhoNote">
               <p class="hint" id="rvLiveWhoNote">次の書き出しから、この名前のメンバーカラーで字幕を作ります(空 = 既定の色)</p></div></details>
@@ -1368,8 +1368,8 @@ function liveArchSummary(jobs, info, o){
   if (o.msg){ parts.push(o.msg); r.warn = true; }
   else if (pending && info && info.ready === false) parts.push('アーカイブがまだ用意できていません' + (o.autoOn ? '(自動で確かめ直します)' : '(用意できたら、もう一度押してください)'));
   if (done){
-    const packs = t.filter(j => j.archive && j.archive.state === 'done' && j.archive.packOld).length;   // 前に作った Resolve のパックは速報版のまま(入口の archive.packOld)
-    parts.push(`本番版に入れ替えました ${done}/${total} 本` + (packs ? `(${packs} 本は前に作った Resolve のパックが速報版のままです。「編集」の ③ で作り直してください)` : ''));
+    const packs = t.filter(j => j.archive && j.archive.state === 'done' && j.archive.packOld).length;   // 前に作ったパックは速報版のまま(ホームの archive.packOld)
+    parts.push(`本番版に入れ替えました ${done}/${total} 本` + (packs ? `(${packs} 本は前に作ったパックが速報版のままです。「編集」の 3 パック のタブで作り直してください)` : ''));
   }
   if (errs.length){ parts.push(`${errs.length} 本は作り直せませんでした: ${errs[0]}`); r.warn = true; }
   r.text = parts.join('。');
@@ -2154,7 +2154,7 @@ function liveTxText(tx){
 }
 /* 書き出しの行の、本番版への作り直しの1行(済み = 札だけなので無し)。外から来る文字は esc */
 function archLineHTML(a){
-  if (a && a.packOld) return '<div class="rv-ejob-s rv-warnline">前に作った Resolve のパックは速報版のままです。「編集」の ③ パックで作り直してください</div>';   // 入口の archive.packOld(動画の写しを入れるパック)
+  if (a && a.packOld) return '<div class="rv-ejob-s rv-warnline">前に作ったパックは速報版のままです。「編集」の 3 パック のタブで作り直してください</div>';   // 入口の archive.packOld(動画の写しを入れるパック)
   if (!a || a.state === 'done') return '';
   if (a.active) return `<div class="rv-ejob-s hint">本番版: ${esc(a.label)}${a.progress > 0 ? ' ' + Math.round(a.progress * 100) + '%' : ''}${a.message ? '(' + esc(a.message) + ')' : ''}</div>`;
   if (a.state === 'error') return `<div class="rv-ejob-s rv-warnline">本番版に作り直せませんでした${a.message ? ': ' + esc(a.message) : ''}(速報版のままです)</div>`;
@@ -2365,8 +2365,8 @@ function renderAutoMenu(v){
   d.hidden = !v;
   const why = autoOffReason(v);
   d.classList.toggle('is-off', !!why);
-  if (why){ d.open = false; sm.setAttribute('aria-disabled', 'true'); sm.title = why; }
-  else { sm.removeAttribute('aria-disabled'); sm.title = '案件の画面と同じ「まとめて実行」を、この配信で始めます'; }
+  /* 押せないときは押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
+  if (window.UIKit && UIKit.menuOff) UIKit.menuOff(d, why, '案件の画面と同じ「まとめて実行」を、この配信で始めます');
 }
 function renderDuration(){
   $('#rvDur').textContent = '/ ' + (S.duration ? fmt(S.duration) : '--');
@@ -3136,11 +3136,7 @@ Studio.onReady(() => {
   if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
   $('#rvWarnClose').addEventListener('click', () => { warnDismissed = true; $('#rvWarn').hidden = true; });
   if (HIDE){ HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {}); }
-  /* まとめて実行は入口から開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu。S-25)。押したら理由を知らせる(title は触れないと見えないため) */
-  $('#rvAuto > summary').addEventListener('click', e => {
-    const why = autoOffReason(S.cur); if (!why) return;
-    e.preventDefault(); toast(why, 5000, 'info');
-  });
+  /* まとめて実行はホームから開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる。S-25) */
   if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
   if (window.UIKit && UIKit.autorun && Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
     UIKit.autorun.panel($('#paneReview .rv-autopanel'), { kind: 'video' });

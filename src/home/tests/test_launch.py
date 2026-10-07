@@ -206,7 +206,7 @@ class SupervisorTest(Base):
         # 子の出力はログファイルへ
         with open(self.sup.by_id["studio"].log_path, encoding="utf-8") as f:
             text = f.read()
-        self.assertIn("入口から起動", text)
+        self.assertIn("ホームから起動", text)
         self.assertIn("listening", text)
         self.assertIn("bye", text)   # SIGTERM(Windows は Ctrl+Break)で正常に後始末して終わった
 

@@ -641,6 +641,16 @@ def check_toast(pg, check):
     pg.evaluate("UIKit.toast('閉じる知らせ', { ms: 0 })")
     pg.click("#toast .ui-toast:last-child .ui-toast-x")
     check(not pg.evaluate("[...document.querySelectorAll('#toast .ui-toast')].some(t => t.textContent.includes('閉じる知らせ'))"), "× で閉じる")
+    # v21: 重ねるのは 2 つまで。あふれたら古いものから閉じる(消えない知らせ・ボタンのある知らせは後回し)
+    msgs = "[...document.querySelectorAll('#toast .ui-toast .ui-toast-msg')].map(t => t.textContent)"
+    pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
+    pg.evaluate("UIKit.toast('残す知らせ', { ms: 0 }); UIKit.toast('一つ目', { ms: 8000 }); UIKit.toast('二つ目', { ms: 8000, kind: 'ok' })")
+    got = pg.evaluate(msgs)
+    check(got == ["残す知らせ", "二つ目"], "v21: 知らせは 2 つまで。あふれたら時間で消える知らせから閉じる(消えない知らせは残す): %s" % got)
+    pg.evaluate("UIKit.toast('三つ目', { ms: 0, action: { label: 'やる', fn: () => {} } }); UIKit.toast('四つ目', { ms: 0 })")
+    got = pg.evaluate(msgs)
+    check(got == ["三つ目", "四つ目"], "v21: どれも残す知らせなら古いものから閉じる: %s" % got)
+    pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
     # 二度押しの確認(UIKit.confirmTwice)
     pg.evaluate("window.__runs = 0; const b = document.createElement('button'); b.id = 'twice'; b.className = 'btn'; b.textContent = '消す'; "
                 "b.onclick = () => UIKit.confirmTwice(b, () => { window.__runs++; }, 'もう一度押すと消します'); document.body.appendChild(b)")
@@ -648,6 +658,42 @@ def check_toast(pg, check):
     check(pg.inner_text("#twice") == "もう一度押すと消します" and pg.evaluate("window.__runs") == 0, "1回目は文字が変わるだけ")
     pg.click("#twice")
     check(pg.evaluate("window.__runs") == 1 and pg.inner_text("#twice") == "消す", "2回目で実行して元に戻る")
+
+
+def check_v21(pg, check):
+    """v21: 一覧の行の中の「次の一手」のボタン(.ui-next-btn)・押せないメニュー(summary[aria-disabled=true]・UIKit.menuOff)"""
+    nb = pg.evaluate("""(() => { const b = document.querySelector('#nextBtnDemo'), t = document.querySelector('#nextTextDemo'), p = document.querySelector('#v21Demo .pill');
+      const r = b.getBoundingClientRect(), hit = getComputedStyle(b, '::before');
+      return { h: r.height, pill: p.getBoundingClientRect().height, after: getComputedStyle(b, '::after').content, tafter: getComputedStyle(t, '::after').content,
+               hit: parseFloat(hit.top) + parseFloat(hit.bottom), color: getComputedStyle(b).color === getComputedStyle(t).color,
+               border: getComputedStyle(t).borderTopStyle }; })()""")
+    check(nb["h"] <= 24 and abs(nb["h"] - nb["pill"]) <= 6 and nb["after"] == '"→"' and nb["tafter"] == '"→"' and nb["hit"] == -6 and nb["color"] and nb["border"] in ("none", ""),
+          "v21: 次の一手のボタンは札とほぼ同じ高さ・右に →・押せる範囲は上下に 3px ずつ広い・行き先の無い <a> は文字だけ(同じ色): %s" % nb)
+    summ = "#menuOffDemo > summary"
+    toasts = "[...document.querySelectorAll('#toast .ui-toast-msg')].filter(t => t.textContent === 'ホームから開くと使えます(見本)').length"
+    pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
+    pg.click("#menuOnDemo > summary")
+    check(pg.evaluate("document.querySelector('#menuOnDemo').open"), "v21: (準備)使えるメニューは開く")
+    pg.click(summ)
+    check(not pg.evaluate("document.querySelector('#menuOffDemo').open") and pg.evaluate(toasts) == 1,
+          "v21: 押せないメニューは押しても開かず、理由(data-ui-why)を知らせる")
+    check(not pg.evaluate("document.querySelector('#menuOnDemo').open"), "v21: 押せないメニューを押すと、開いていたほかのメニューは閉じる(外側を押したのと同じ)")
+    pg.click(summ)
+    check(pg.evaluate(toasts) == 1, "v21: 続けて押しても同じ知らせを積まない")
+    pg.focus(summ)
+    pg.keyboard.press("Enter")
+    pg.keyboard.press("Space")
+    check(not pg.evaluate("document.querySelector('#menuOffDemo').open"), "v21: Enter・Space でも開かない")
+    pg.evaluate("UIKit.menuOff(document.querySelector('#menuOffDemo'), '', '使えるようになった')")
+    st = pg.evaluate("[document.querySelector('%s').getAttribute('aria-disabled'), document.querySelector('%s').title]" % (summ, summ))
+    pg.click(summ)
+    check(st == [None, "使えるようになった"] and pg.evaluate("document.querySelector('#menuOffDemo').open"), "v21: UIKit.menuOff(el, '') で押せるように戻る(title も): %s" % st)
+    pg.evaluate("UIKit.menuOff(document.querySelector('#menuOffDemo > summary'), '別の理由')")
+    st = pg.evaluate("[document.querySelector('%s').getAttribute('aria-disabled'), document.querySelector('%s').title, document.querySelector('#menuOffDemo').open]" % (summ, summ))
+    check(st == ["true", "別の理由", False], "v21: UIKit.menuOff(summary, 理由) で押せなくなり、開いていれば閉じる: %s" % st)
+    pg.click(summ)
+    check(wait_js(pg, "[...document.querySelectorAll('#toast .ui-toast-msg')].some(t => t.textContent === '別の理由')"), "v21: 理由は title(menuOff が付けた文)")
+    pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
 
 
 def check_keybar_keys(pg, check):
@@ -736,6 +782,7 @@ def check_page(browser, base, check):
     check_theme(pg, check)
     check_drawer_dialog(pg, check)
     check_toast(pg, check)
+    check_v21(pg, check)
     check_keybar_keys(pg, check)
     check_icons_settings(pg, check)
     # ---- v11: 時刻の欄(UIKit.timebox) ----

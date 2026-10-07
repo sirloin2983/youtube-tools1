@@ -165,7 +165,7 @@ function paneHtml(){
   </section>
   <div class="card rk-sticky" id="pickBar" hidden><div class="row"><span class="rk-pickn"><b id="pickN" class="num">0</b> 本選択中 <span class="hint">(最大${MAX_PICK}本まで)</span></span>
     <span class="row rk-pickact"><button type="button" class="btn small ghost" id="pickClear">選択を外す</button><button type="button" class="btn primary" id="pickGo" disabled>選んだ配信 0 本を解析に追加</button>
-      <details class="ui-menu rk-auto" id="rkAuto" hidden><summary class="btn" title="選んだ配信を、解析から Resolve パックまで自動で進めます"><span>まとめて実行</span></summary>
+      <details class="ui-menu rk-auto" id="rkAuto" hidden><summary class="btn" title="選んだ配信を、解析からパックまで自動で進めます"><span>まとめて実行</span></summary>
         <div class="rk-autopop">
           <p class="hint">選んだ配信を、ホームの案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合はホームの案件の一覧と、各配信の ③ の上の帯に出ます。</p>
           <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
@@ -649,9 +649,8 @@ S.onReady(async () => {
   /* まとめて実行は入口から開いたときだけ(ほかの入口と同じ)。開いていないときも隠さず、押せない理由を出す(S-25。③ の「まとめて実行」と同じ形) */
   $('#rkAuto').hidden = false;
   if (!S.token){
-    const sm = $('#rkAuto > summary'), why = 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます';
-    sm.setAttribute('aria-disabled', 'true'); sm.title = why;
-    sm.addEventListener('click', e => { e.preventDefault(); S.toast(why, 5000, 'info'); });
+    /* 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
+    if (window.UIKit && UIKit.menuOff) UIKit.menuOff($('#rkAuto'), 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます');
   }
   $('#rkAutoGo').addEventListener('click', startAuto);
   if (S.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本

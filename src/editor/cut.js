@@ -266,7 +266,7 @@ function create(h){
   }
   async function draftC2R(kind){
     if (!editable() || M.draftBusy) return;
-    if (!h.c2rBase()) return h.toast('このたたき台は cut2resolve を使います。入口(start.bat)から開いてください', 6000, 'err');
+    if (!h.c2rBase()) return h.toast('このたたき台は cut2resolve を使います。ホーム(start.bat)から開いてください', 6000, 'err');
     const src = String(h.S.doc.sourcePath || '');
     let spec;
     if (kind === 'silence'){
@@ -693,7 +693,7 @@ function create(h){
     $('#cutUndo').disabled = !ok || !M.undo.length; $('#cutRedo').disabled = !ok || !M.redo.length;
     ['#cutSplit', '#cutDel', '#cutIO', '#cutZoomIn', '#cutZoomOut', '#cutZoomFit', '#cutPlay'].forEach(s => { $(s).disabled = !ok; });
     $('#cutDraftRows').disabled = !ok || busy; $('#cutEdgeGo').disabled = !ok || busy; $('#cutNone').disabled = !ok || busy;
-    const why = c2r ? '' : '(cut2resolve を使います。入口から開いたときだけ)';
+    const why = c2r ? '' : '(cut2resolve を使います。ホームから開いたときだけ)';
     for (const s of ['#cutDraftSilence', '#cutDraftList']){ const d = $(s), sm = d.querySelector('summary'); sm.classList.toggle('disabled', !ok || !c2r || busy); sm.title = why || sm.dataset.title; if (!ok || !c2r) d.open = false; }
     const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('作業用フォルダの ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
     $('#cutIO').disabled = !ok || M.io.i === null || M.io.o === null || M.io.i === M.io.o;
@@ -702,7 +702,9 @@ function create(h){
     $('#cutModePill').textContent = M.mode === 'cut' ? 'カット後の見え方' : '元の動画';
     const dc = $('#cutDocConflict'); if (dc) dc.hidden = !(ok && h.S.conflict);   // 文字起こしの保存の競合は、このタブにも出す(段6 6-6。行の時刻はここからも変えるため)
   }
-  /* 右の字幕の一覧(押すとその位置へ・行ごとの「削る/戻す」。文字は直さない) */
+  /* 右の字幕の一覧(押すとその位置へ・行ごとの「残す / カット済」の札。文字は直さない)。
+     段7 E-25: 以前は「削る / 戻す」(押したらどうなるか)で、1 文字起こし の行の札「残す / カット済」(今の状態)と逆向きに読めた。
+     同じ札・同じ言葉(用語集)・同じ見た目(カット済は赤)にそろえた。押したらどうなるかは title に */
   let sq = 0;
   function renderSubsSoon(){ if (!sq) sq = requestAnimationFrame(() => { sq = 0; renderSubs(); }); }
   function renderSubs(){
@@ -718,7 +720,7 @@ function create(h){
     const ok = editable();
     box.innerHTML = rows.map(([g, i]) => { const c = !!M.rowFlags[i];
       return `<div class="tt-csub${c ? ' cut' : ''}" data-i="${i}" role="listitem"><button type="button" class="tt-csub-go" data-act="go" title="この行の頭へ"><span class="mono">${h.fmtCs(g.start)}</span><span class="tx">${esc(g.text)}</span></button>` +
-        `<button type="button" class="btn ghost small" data-act="cutrow"${ok ? '' : ' disabled'} title="${c ? 'この行の時間を残す区間に戻します' : 'この行の時間を削る区間にします'}">${c ? '戻す' : '削る'}</button></div>`; }).join('');
+        `<button type="button" class="btn small tt-csub-cut" data-act="cutrow" aria-pressed="${c ? 'true' : 'false'}"${ok ? '' : ' disabled'} title="${c ? 'この行の時間はカット済(削る区間)です。押すと残します' : 'この行の時間を残しています。押すとカットします(削る区間にする)'}">${c ? 'カット済' : '残す'}</button></div>`; }).join('');
     capIdx = -2; if (ready()) showCaption(V().currentTime || 0);
   }
 
@@ -772,7 +774,7 @@ function create(h){
   }
   function delOrRestore(){
     if (!M.sel) return h.toast('区間を押して選んでから(削る区間を選ぶと、戻せます)', 3000);
-    if (M.sel.kind === 'row') return h.toast('行の削除は 1 文字起こし のタブで。この行の時間をカットするなら右の一覧の「削る」', 3500);
+    if (M.sel.kind === 'row') return h.toast('行の削除は 1 文字起こし のタブで。この行の時間をカットするなら、右の一覧のその行の「残す」を押して「カット済」に', 4000);
     if (M.sel.kind === 'clip'){ const i = M.sel.i; change(cs => { cs.splice(i, 1); return cs; }); M.sel = null; render(); }
     else { const { a, b } = M.sel; change(cs => addRange(cs, a, b)); M.sel = null; render(); }
   }

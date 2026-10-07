@@ -1142,7 +1142,7 @@ class Archiver:
                     pack = None
                 self._aset(job, state="done", progress=1.0, at=meta["at"], built=None, keep=kept, packOld=bool(pack),
                            message="本番版にしました(速報版は 作業用\\%s へ)" % SPEED_DIR +
-                           ("。前に作った Resolve のパックは速報版のままなので、「編集」の ③ パックで作り直してください" if pack else ""))
+                           ("。前に作ったパックは速報版のままなので、「編集」の 3 パック のタブで作り直してください" if pack else ""))
                 self.ex.release_hold(job)   # 本番版を待っていた受け渡し(M7): 本番版で文字起こし → パックへ
             else:
                 final = os.path.join(folder, LX.unique_base(base, folder) + ".mp4")
@@ -1160,7 +1160,7 @@ class Archiver:
             keep_build = False
             self._aset(job, state="cancelled", message="取り消しました(速報版のままです)", progress=0, built=None)
         except LX.Halted:
-            self._aset(job, state="wait", message="入口を終えたので、次の起動で続けます", progress=0)
+            self._aset(job, state="wait", message="ホームを終えたので、次の起動で続けます", progress=0)
         except Later as e:
             after = e.after if e.after is not None else self.retry_sec
             self._aset(job, state="wait", message=str(e), progress=0, retryAt=time.time() + after)

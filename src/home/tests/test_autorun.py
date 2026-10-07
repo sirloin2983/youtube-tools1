@@ -626,7 +626,7 @@ class TestControl(Base):
         while time.time() < end and any(x["state"] == "running" for x in self.r.snapshot()["runs"]):
             time.sleep(0.01)
         got = {x["id"]: x for x in self.r.snapshot()["runs"]}
-        self.assertEqual((got[second["id"]]["state"], got[second["id"]]["message"]), ("queued", "入口を終了したので、次の起動で続けます"))
+        self.assertEqual((got[second["id"]]["state"], got[second["id"]]["message"]), ("queued", "ホームを終了したので、次の起動で続けます"))
         self.assertEqual((got[first["id"]]["state"], got[first["id"]]["steps"][0]["state"]), ("queued", "wait"))   # 途中の段は次の起動で頭から
         self.assertIn(("studio", "POST", "/api/export/cancel", {"id": "e1"}), self.tools.calls)   # ツールの側の書き出しは止める
 

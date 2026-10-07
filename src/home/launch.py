@@ -91,7 +91,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.42.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.42.1"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -340,14 +340,14 @@ class Supervisor:
         try:
             handler = m.start(self.server.server_address[1], self.server.allowed_hosts, self.server.token)
         except Exception as e:   # 取り込めなくても使えるように、子プロセスに切り替える
-            self.log("※ %s を入口に取り込めませんでした(%s: %s)。別のプログラムとして起動します" % (t.spec["name"], e.__class__.__name__, e))
+            self.log("※ %s をホームに取り込めませんでした(%s: %s)。別のプログラムとして起動します" % (t.spec["name"], e.__class__.__name__, e))
             return False
         self.server.mounts[m.prefix] = handler
         t.proc, t.managed, t.mounted, t.mount, t.fail_pings = None, True, True, m, 0
         t.port, t.path, t.version = self.server.server_address[1], m.path, m.version()
         t.starts += 1
         t.set_state("running")
-        self.log("○ %s: http://localhost:%d%s (v%s・入口に取り込み)" % (t.spec["name"], t.port, t.path, t.version))
+        self.log("○ %s: http://localhost:%d%s (v%s・ホームに取り込み)" % (t.spec["name"], t.port, t.path, t.version))
         return True
 
     def unmount_all(self):
@@ -374,7 +374,7 @@ class Supervisor:
         kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {}
         try:
             with open(t.log_path, "ab") as logf:
-                logf.write(("\n==== %s 入口から起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
+                logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
                 logf.flush()
                 proc = subprocess.Popen(cmd, cwd=t.dir, env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, **kw)
         except OSError as e:
@@ -916,7 +916,7 @@ class PortalServer(ThreadingHTTPServer):
             restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts),
                                            log=self.sup.log)
         except OSError as e:
-            return 500, {"ok": False, "error": "spawn", "message": "新しい入口を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
+            return 500, {"ok": False, "error": "spawn", "message": "ホームを起動し直せませんでした(新しいホームを起動できません): %s" % (e.strerror or e.__class__.__name__)}
         self.sup.log("画面から「起動し直す」が押されました" + ("(%s)" % notice if notice else ""))
         threading.Timer(0.3, self.request_shutdown).start()   # 応答を返してから後始末(新しい入口はポートが空くのを待っている)
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
@@ -978,7 +978,7 @@ class PortalServer(ThreadingHTTPServer):
             if sub == "deliver":   # 「編集」の ③ パックの「友人へ届ける」。{op: "start", dir, title} → 裏で zip / {op: "status", job}
                 if body.get("op") == "status":
                     j = self.deliveries.status(body.get("job"))
-                    return (200, {"ok": True, "job": j}) if j else (404, {"error": "not_found", "message": "その仕事はありません(入口を起動し直しましたか)"})
+                    return (200, {"ok": True, "job": j}) if j else (404, {"error": "not_found", "message": "その仕事はありません(ホームを起動し直しましたか)"})
                 return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"))}
             if sub == "live":   # リアルタイム切り抜き(線 D の P3): 全ツールのヘッダーの録画の札 {op: "status"} / 札の「停止」{op: "stop", recorder, recording}(src/home/live.py)
                 return self.live.ytt(body)
@@ -1253,11 +1253,11 @@ def main(argv=None):
     log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
     if opts.wait_port and not restart_mod.wait_port_free(opts.port):   # 「起動し直す」で起こされた: 古い入口がポートを離すまで待つ(段9 9-3)
-        log("前の入口がポート %d を離しませんでした。次の番号で起動します" % opts.port)
+        log("前のホームがポート %d を離しませんでした。次の番号で起動します" % opts.port)
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d%s" % (port, opts.open_path)
     if srv is None:
-        print("入口はすでに起動しています。画面を開きます:", url)
+        print("ホームはすでに起動しています。画面を開きます:", url)
         if not opts.no_open:
             op = appwindow_mod.Opener(app_data_dir(ROOT), fsio.atomic_write, log=log)
             if opts.app_window:
@@ -1268,7 +1268,7 @@ def main(argv=None):
     try:
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
-        log("入口 v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)" % (VERSION, url))
+        log("ホーム v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)" % (VERSION, url))
         log("各ツールの出力: %s" % sup.logs_dir)
         sup.attach(srv)
         served = threading.Event()
@@ -1299,7 +1299,7 @@ def main(argv=None):
             pass
     except KeyboardInterrupt:
         ignore_stop_signals()
-        log("終了の合図を受け取りました。この入口から起動したツールを止めています…")
+        log("終了の合図を受け取りました。このホームから起動したツールを止めています…")
     finally:
         ignore_stop_signals()
         srv.closing.set()
@@ -1311,7 +1311,7 @@ def main(argv=None):
             srv.shutdown()
         runtime.remove_runtime(sup.rdir, TOOL_ID, port)   # 自分が書いた記録のときだけ消す(別の入口が書き直したものは残す)
         srv.server_close()
-        log("入口を終了しました")
+        log("ホームを終了しました")
         log.flush()
     return 0
 

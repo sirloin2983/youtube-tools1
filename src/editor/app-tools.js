@@ -595,11 +595,11 @@ function c2rBase(){
 }
 
 async function c2rApi(path, opt = {}){
-  if (!c2rBase()){ const e = new Error('cut2resolve を使えません(入口から開いてください)'); e.code = 'unavailable'; throw e; }
+  if (!c2rBase()){ const e = new Error('cut2resolve を使えません(ホーム(start.bat)から開いてください)'); e.code = 'unavailable'; throw e; }
   const init = { cache: 'no-store', method: opt.body !== undefined ? 'POST' : 'GET', headers: {} };
   if (opt.body !== undefined){ init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opt.body); init.headers['X-YTT-Token'] = TOKEN; }
   let r;
-  try { r = await fetch(c2rUrl(path), init); } catch { const e = new Error('cut2resolve に接続できません(入口の黒い画面が閉じていないか確認してください)'); e.code = 'network'; throw e; }
+  try { r = await fetch(c2rUrl(path), init); } catch { const e = new Error('cut2resolve に接続できません(start.bat の黒い画面が閉じていないか確認してください)'); e.code = 'network'; throw e; }
   const j = await r.json().catch(() => null);
   if (!r.ok){ const e = new Error((j && j.message) || `cut2resolve のエラー(${r.status})`); e.code = (j && j.error) || 'http'; e.status = r.status; e.data = j || {}; throw e; }
   return j;

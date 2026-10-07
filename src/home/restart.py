@@ -82,7 +82,7 @@ def spawn_new_launcher(root, python=None, args=(), log=None, env=None, visible=F
     # 作業フォルダは start.bat と同じリポジトリ直下(root = src の1つ上)
     proc = popen(cmd, cwd=layout.repo_root(root), env=launcher_env(env), close_fds=True, **kw)
     if log:
-        log("新しい入口を起動しました(pid %s)。この入口は後始末をして終わります" % getattr(proc, "pid", "?"))
+        log("新しいホームを起動しました(pid %s)。前のホームは後始末をして終わります" % getattr(proc, "pid", "?"))
     return proc
 
 

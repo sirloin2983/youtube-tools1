@@ -100,7 +100,7 @@ function txRowHTML(i){
   if (st === 'todo') side.push(`<span class="pill wait" title="まだ1行も校正していません(${r}行)">未校正</span>`);
   else if (st === 'doing') side.push(`<span class="tt-prog" title="校正済み ${p}行 / ${r}行"><i><b style="width:${Math.round(p / Math.max(1, r) * 100)}%"></b></i>${p}/${r}</span>`);
   /* 次の一手は押せるボタン(札は押せない表示だけ。段7 E-13): 開いて 3 パック のタブへ */
-  const next = (label, why) => `<button type="button" class="btn small tt-txi-next" data-act="gotab" data-tab="pack" title="${why}。押すと開いて 3 パック のタブへ移ります">${label}</button>`;
+  const next = (label, why) => `<button type="button" class="btn small ui-next-btn tt-txi-next" data-act="gotab" data-tab="pack" title="${why}。押すと開いて 3 パック のタブへ移ります">${label}</button>`;
   if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
     ? next('作り直す', 'パックを作ったあとに、行を直しています')
     : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);
@@ -133,7 +133,7 @@ const NEED_HOME = 'ホーム(start.bat)から開くと使えます(まとめて�
 function applyNeedHome(){
   if (TOKEN) return;
   const pick = $('#txPick'); pick.disabled = true; pick.closest('label').title = NEED_HOME; $('#txBatchOff').hidden = false;
-  const sum = $('#docAuto > summary'); sum.setAttribute('aria-disabled', 'true'); sum.title = NEED_HOME; $('#docAuto').classList.add('tt-off');
+  if (window.UIKit && UIKit.menuOff) UIKit.menuOff($('#docAuto'), NEED_HOME);   // 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方。Enter・Space も)
 }
 
 function renderPickBar(){

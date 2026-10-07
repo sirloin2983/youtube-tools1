@@ -1,4 +1,4 @@
-/* ui-kit v20 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v21 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -18,7 +18,7 @@
        (一覧には残す = 編集が UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない)
    v6(2026-09-27・画面の全面見直し 段階1): 既定のテーマを明るいに、新しい部品(すべて README.md の「v6」に使い方):
        UIKit.appnav(ホーム/スタジオ/編集の切り替え)・UIKit.drawer(右から出る引き出し)・UIKit.dialog(確認・警告)・
-       details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大3つ)・UIKit.keybar(下の細い帯)・
+       details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大3つ → v21 で2つ)・UIKit.keybar(下の細い帯)・
        UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン)
    v7(2026-09-29・気が利く画面へ 段1。docs/design/briefs/ux-consistency/): UIKit.toast の ms: 0 = 消えない(以前は 0 が既定の秒数に戻っていた)・
        action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
@@ -40,7 +40,10 @@
        録画が終わった・切れたときの知らせ付き。線 D・plan/line-d-live-clipping.md の 0-8。README.md の「v16」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)
    v18(2026-10-07): 内部の整理(確認・お知らせのダイアログ・編集の設定の保存・エラーの記録を共通に)。使っている画面の無い data-ui-home / data-ui-cases と .ui-home を消した。UIKit の形・動きは同じ
-   v20(2026-10-07): UIKit.restart の「起動し直す」で、入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む。入口 0.41.0)があれば、待つ間の帯の文に足す */
+   v20(2026-10-07): UIKit.restart の「起動し直す」で、入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む。入口 0.41.0)があれば、待つ間の帯の文に足す
+   v21(2026-10-07・気が利く画面へ 段7): 画面の文言の「入口」を「ホーム」に(用語集)。UIKit.toast は重ねて 2 つまで(消えない・ボタンのある知らせは後回しにして閉じる)・
+       押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
+       一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -125,6 +128,34 @@
       if (s && s.focus) s.focus({ preventScroll: true });   /* v6: Esc では summary へフォーカスを戻す */
     }
   });
+  /* v21: 押せないメニュー(段7。以前は編集の題名の行・スタジオ ① と ③ の「まとめて実行」が、それぞれ summary の click を止めて理由を知らせていた)。
+     <details class="ui-menu|ui-pop"> の <summary aria-disabled="true"> は開かずに、理由(data-ui-why、無ければ title)を知らせる。Enter・Space も click になる。
+     捕まえる段階(capture)で止めるので、画面の側の summary の click は呼ばれない(押せないボタンと同じ)。付け外しは UIKit.menuOff(details か summary, 理由, 使えるときの title) */
+  var MENU_OFF_SEL = 'details.ui-menu > summary[aria-disabled=true], details.ui-pop > summary[aria-disabled=true]';
+  document.addEventListener('click', function (e) {
+    var s = e.target && e.target.closest ? e.target.closest(MENU_OFF_SEL) : null;
+    if (!s) return;
+    e.preventDefault(); e.stopPropagation();
+    var d = s.parentNode, open = document.querySelectorAll(POP_SEL);
+    for (var i = 0; i < open.length; i++) if (!open[i].contains(d)) open[i].removeAttribute('open');   // ほかのメニューは、外側を押したときと同じく閉じる
+    d.removeAttribute('open');
+    var why = s.getAttribute('data-ui-why') || s.getAttribute('title') || 'いまは使えません';
+    var shown = toastBox && toastBox.isConnected ? toastBox.querySelectorAll('.ui-toast-msg') : [];
+    for (var k = 0; k < shown.length; k++) if (shown[k].textContent === why) return;   // 続けて押しても同じ知らせを積まない
+    toastFn(why, { kind: 'info', ms: 5000 });
+  }, true);
+  function menuOff(el, why, title) {
+    var s = !el ? null : el.tagName === 'SUMMARY' ? el : el.querySelector ? el.querySelector(':scope > summary') : null;
+    if (!s) return;
+    if (why) {
+      s.setAttribute('aria-disabled', 'true'); s.setAttribute('data-ui-why', String(why)); s.title = String(why);
+      s.parentNode.removeAttribute('open');
+      return;
+    }
+    var was = s.getAttribute('data-ui-why');
+    s.removeAttribute('aria-disabled'); s.removeAttribute('data-ui-why');
+    if (title != null) s.title = title; else if (was && s.title === was) s.removeAttribute('title');
+  }
 
   /* ポップオーバーを開いたら、画面の外にはみ出さないよう置き場所を直す(A-1: 右端の「…」の選択肢が画面の外に出ていた)。
      data-align の指定のまま置いてみて、はみ出す側だけ反対にそろえる。下にはみ出して上に余裕があれば上に開く */
@@ -188,7 +219,7 @@
       opt = opt || {};
       var html = '';
       if (tools.mounted()) {   // 入口・案件へ戻る(ツールを開いたタブから、迷わず戻れるように)
-        html += '<a href="/" data-ui-portal><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>入口</b><small>ツールの状態・起動と終了</small></span></a>' +
+        html += '<a href="/" data-ui-portal><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>ホーム</b><small>ツールの状態・起動と終了</small></span></a>' +
           '<a href="/cases.html"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
           '<div class="ui-menu-sep" role="separator"></div>';
       }
@@ -235,7 +266,7 @@
   function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
   function yttPost(name, obj, keepalive) {
     var tk = token();
-    if (!tk || !window.fetch) return Promise.reject(new Error('入口の外では使えません'));
+    if (!tk || !window.fetch) return Promise.reject(new Error('ホーム(start.bat)から開いたときだけ使えます'));
     return fetch('api/ytt/' + name, { method: 'POST', cache: 'no-store', credentials: 'same-origin', keepalive: !!keepalive,
       headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify(obj) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
@@ -374,7 +405,7 @@
         if (!open || !token()) { location.href = href || '/'; return 'moved'; }
         return yttPost('focus-portal', {}).then(function (r) { return r && r.focused ? 'focused' : 'elsewhere'; }, function () { return 'elsewhere'; })
           .then(function (how) {
-            if (how === 'elsewhere') note('入口はほかの窓(タブ)で開いています。タスクバーから切り替えてください');
+            if (how === 'elsewhere') note('ホームはほかの窓(タブ)で開いています。タスクバーから切り替えてください');
             return how;
           });
       });
@@ -427,7 +458,7 @@
       var my = ++seq;
       input.removeAttribute('data-color'); sw.hidden = true; sw.style.background = '';
       if (!q) { hint.textContent = '空なら黒い文字'; tell(null); return; }
-      if (!token()) { hint.textContent = '入口から開くと使えます'; tell(null); return; }
+      if (!token()) { hint.textContent = 'ホームから開くと使えます'; tell(null); return; }
       yttPost('streamer-colors', { q: q }).then(function (j) {
         if (my !== seq) return;
         if (j.match) {
@@ -689,8 +720,18 @@
   }
   var dialogApi = { confirm: dialogConfirm, alert: dialogAlert };
 
-  /* ---- toast(通知。重ねて最大3つ) ---- <div class="ui-toasts" id="toast" aria-live="polite">。既存の単発の #toast(class=toast)があれば入れ物として作り直す */
+  /* ---- toast(通知。v21 から重ねて最大2つ) ---- <div class="ui-toasts" id="toast" aria-live="polite">。既存の単発の #toast(class=toast)があれば入れ物として作り直す */
   var toastBox = null;
+  /* v21: 重ねるのは 2 つまで(以前は 3 つ。積み上がると画面の下の操作(編集のパックの「中止」など)を隠していた)。あふれたら古いものから閉じる。
+     消えない知らせ(ms: 0)・ボタンのある知らせ(data-ui-keep)は後回しにして、時間で消える知らせから閉じる(失敗の [もう一度] を、ただの案内で押し流さない) */
+  var TOAST_MAX = 2;
+  function toastMakeRoom(box) {
+    while (box.children.length >= TOAST_MAX) {
+      var drop = null;
+      for (var i = 0; i < box.children.length && !drop; i++) if (!box.children[i].hasAttribute('data-ui-keep')) drop = box.children[i];
+      box.removeChild(drop || box.firstChild);   // 時間で消える知らせのタイマーは、外したあとに呼ばれても何もしない(remove は parentNode を見る)
+    }
+  }
   function ensureToastBox() {
     if (toastBox && toastBox.isConnected) return toastBox;
     var el = document.getElementById('toast');
@@ -707,7 +748,7 @@
     var kind = opt.kind || '', isErr = kind === 'err';
     var ms = opt.ms === 0 ? 0 : (+opt.ms > 0 ? +opt.ms : (isErr ? 8000 : 2500));
     var box = ensureToastBox();
-    while (box.children.length >= 3) box.removeChild(box.firstChild);   // 最大3つ(古いものから消す)
+    toastMakeRoom(box);
     var item = document.createElement('div');
     item.className = 'ui-toast' + (kind ? ' ' + kind : '');
     item.setAttribute('role', isErr ? 'alert' : 'status');
@@ -732,6 +773,7 @@
     item.appendChild(xb);
     function remove() { clearTimeout(timer); if (item.parentNode) item.parentNode.removeChild(item); }
     var timer = ms > 0 ? setTimeout(remove, ms) : 0;
+    if (act || ms === 0) item.setAttribute('data-ui-keep', '');
     item.addEventListener('click', function (e) {
       if (e.target && e.target.closest && e.target.closest('details')) return;   // 「詳しく」の開閉では閉じない
       if (act || ms === 0) return;   // ボタンのある知らせ・消えない知らせは、本文を押しても閉じない(× か ボタンで)
@@ -2310,7 +2352,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 20, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 21, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff };
 })();

@@ -627,10 +627,10 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
   assert.equal(ctx.liveRecDeleted(e404, [], []), false, 'no marks, no record: 見つかりません');
   const msg = between('const LIVE_DELETED', ';');
   assert.ok(msg.includes('録画は消しました(本番版に入れ替え済み)') && msg.includes('マークと本番版はそのまま使えます'));
-  // 前に作った Resolve のパックが速報版のまま(入口の archive.packOld): 帯の1行と書き出しの行に出す
+  // 前に作ったパックが速報版のまま(ホームの archive.packOld): 帯の1行と書き出しの行に出す(用語: 「Resolve のパック」ではなく「パック」・編集のタブは「3 パック」。段7 S-22)
   const J = (id, mark, a) => job(id, 'done', { video: 'V', mark, start: 0, end: 1 }, { path: 'C:\\c\\' + mark + '.mp4', archive: a });
   const s = ctx.liveArchSummary([J('lx-1', 'a', arch('done', { packOld: true })), J('lx-2', 'b', arch('done'))], null, { videoId: 'abcdefghijk', known: true });
-  assert.ok(s.text.startsWith('本番版に入れ替えました 2/2 本') && s.text.includes('1 本は前に作った Resolve のパックが速報版のまま'), s.text);
+  assert.ok(s.text.startsWith('本番版に入れ替えました 2/2 本') && s.text.includes('1 本は前に作ったパックが速報版のままです。「編集」の 3 パック のタブで'), s.text);
   assert.equal(ctx.liveArchView(arch('done', { packOld: true })).packOld, true);
   assert.equal(ctx.liveArchView(arch('error', { packOld: true })).packOld, false);
   const esc = x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
@@ -638,8 +638,8 @@ test('a recording deleted by the portal (P4 auto delete) is told apart from a mi
     fmt: t => 't' + t, esc, handoffHTML: () => '', loudHTML: () => '', ARCH_TITLE: 't' });
   const it = { id: 'a', start: 0, end: 1, title: '', status: 'done', stateLabel: '済み', progress: 1, path: 'C:\\c\\a.mp4', file: 'a.mp4', archive: ctx.liveArchView(arch('done', { packOld: true })) };
   const row = html.jobItemHTML({ live: true }, it, 0);
-  assert.ok(row.includes('>本番版<') && row.includes('Resolve のパックは速報版のまま'), row);
-  assert.ok(!html.jobItemHTML({ live: true }, { ...it, archive: ctx.liveArchView(arch('done')) }, 0).includes('Resolve'));
+  assert.ok(row.includes('>本番版<') && row.includes('前に作ったパックは速報版のまま'), row);
+  assert.ok(!html.jobItemHTML({ live: true }, { ...it, archive: ctx.liveArchView(arch('done')) }, 0).includes('速報版のまま'));
   // 画面のつなぎ: 404 のときは先にジョブを読んでから決める・消した録画はプレーヤーの所にも案内(もう一度試すは出さない)・帯の案内に「録画は消します」
   const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
   assert.ok(poll.indexOf('await pollLiveJobs()') < poll.indexOf('applyLiveStatus(v, st, err)'));
@@ -805,7 +805,10 @@ test('links to the home use data-ui-portal (no new tab); the autorun entry is no
   assert.equal(ctx.autoOffReason({ kind: 'youtube' }), '');
   assert.ok(ctx.autoOffReason({ kind: 'live' }).includes('ライブの録画では使えません'));
   assert.ok(!/\$\('#rvAuto'\)\.hidden = !Studio\.token/.test(source), 'no longer hidden only because the home is not used');
-  assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("setAttribute('aria-disabled', 'true')"), '① まとめて実行 too');
+  assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("UIKit.menuOff($('#rkAuto'), "), '① まとめて実行 too (ui-kit v21 menuOff)');
+  const ram = between('function renderAutoMenu(', 'function renderDuration(');
+  assert.ok(ram.includes('UIKit.menuOff(d, why, '), '③ uses the shared disabled-menu helper (ui-kit v21)');
+  assert.ok(!source.includes("$('#rvAuto > summary').addEventListener('click'"), 'no own click handler on the summary (ui-kit stops the click and tells why)');
 });
 
 test('"export all" always tells why it cannot be pressed (S-25)', () => {
@@ -851,11 +854,11 @@ test('portal export rows: progress of the handed-off autorun (transcribe only / 
   assert.equal(ctx.liveTxText(null), '');
   assert.equal(ctx.liveTxText({ state: 'done', label: '済み' }), '文字起こし: 済み', 'old shape (no steps)');
   assert.equal(ctx.liveTxText({ state: 'running', label: '実行中', steps: [st('transcribe', '文字起こし', 'run')] }), '文字起こし: 実行中(文字起こし)');
-  const auto = [st('transcribe', '文字起こし', 'done'), st('pack', 'Resolve パック', 'run'), st('deliver', 'Dropbox へ届ける', 'wait')];
-  assert.equal(ctx.liveTxText({ state: 'running', label: '実行中', steps: auto }), '文字起こし → パック: 実行中(Resolve パック)');
-  const done = [st('transcribe', '文字起こし', 'done'), st('pack', 'Resolve パック', 'done'), st('deliver', 'Dropbox へ届ける', 'skip')];
+  const auto = [st('transcribe', '文字起こし', 'done'), st('pack', 'パック', 'run'), st('deliver', 'Dropbox へ届ける', 'wait')];
+  assert.equal(ctx.liveTxText({ state: 'running', label: '実行中', steps: auto }), '文字起こし → パック: 実行中(パック)');
+  const done = [st('transcribe', '文字起こし', 'done'), st('pack', 'パック', 'done'), st('deliver', 'Dropbox へ届ける', 'skip')];
   assert.equal(ctx.liveTxText({ state: 'done', label: '済み', steps: done }), '文字起こし → パック: パック済み');
-  const noPack = [st('transcribe', '文字起こし', 'done'), st('pack', 'Resolve パック', 'skip'), st('deliver', 'Dropbox へ届ける', 'skip')];
+  const noPack = [st('transcribe', '文字起こし', 'done'), st('pack', 'パック', 'skip'), st('deliver', 'Dropbox へ届ける', 'skip')];
   assert.equal(ctx.liveTxText({ state: 'done', label: '済み', steps: noPack }), '文字起こし → パック: 文字起こし済み(パックは作れませんでした)');
   assert.equal(ctx.liveTxText({ state: 'error', label: '失敗', message: '文字起こしに失敗しました', steps: auto }), '文字起こし → パック: 失敗(文字起こしに失敗しました)');
 });

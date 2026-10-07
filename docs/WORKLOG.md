@@ -2113,3 +2113,38 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト(1 本ずつ・PYTHONIOENCODING=utf-8): `dev/run_editor_suite.py` 全部 exit 0 — editor 単体 554 件 OK(skip 1)・home test_mount 26・契約テスト 35・eval_asr 54・eval_alt 21・ui-kit の写し 5・node 保存と切り替え 10/10・e2e_proofread_accuracy 38・e2e_proofread_keys 129・e2e_folder_marker_range 54・e2e_eval_set 36・e2e_row_editing 237・e2e_ui_handoff 67・e2e_edit_tabs 156・e2e_edit_cut 115・e2e_edit_voices 34・**e2e_edit_pack 118(通るようになった)**・e2e_ui_mounted 55・e2e_drill 70・e2e_alt 43・e2e_follow_scroll 7・e2e_pipeline 24 / `py -3.10 dev/lint.py` 全体 0 件 / 明・暗の 1440px で空の状態・赤い帯・行 0 の文書・カットの字幕なし・履歴のボタンを撮って確かめた(scratchpad)
 - 注意: `plan/data.js`・`plan/ux-stage7-9.md` の判定は直していない(触ってよい範囲の外。まとめ役が直す)。起動中の入口は古いコードのまま(「すべて終了」→ start.bat)
 - 未コミット: なし(このコミット。home の担当の未コミットの変更は含めていない)
+
+## 2026-10-07 Claude Code(サブエージェント Opus。まとめ役が依頼)— 段 7 用語の統一(S-22・E-25)+ ui-kit v21(知らせは 2 つまで・次の一手のボタン・押せないメニュー・スタジオの ?step=rank)
+- 変更(画面の文字・title・知らせ・README の使い方。コードの識別子・API・設定の鍵・ファイル名・docstring・コメントの経緯は変えていない):
+  - 「入口」→「ホーム」: `src/ui-kit/ui-kit.js`(「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・配信者の欄の「ホームから開くと使えます」・`api/ytt/…` を合言葉なしで呼んだときの失敗の文)・`styleguide.html` の案内 3 か所 /
+    editor `app-tools.js`(cut2resolve の失敗 2)・`app.js`(起動の失敗)・`cut.js`(たたき台 2)・`pack-tab.js`(パックが作れない理由 2・zip の説明)・`index.html`(まとめて実行の説明 2・zip・整理)/
+    home `autorun.py`(起動し直した・終えたときの文 7)・`launch.py`(画面に出る 2 = 起動し直せない・届ける仕事が無い、ツールのログの印「==== ホームから起動 ====」、黒い画面の表示 7)・`live.py`(準備中の文・終了のログ 3・録画の部品のログの印)・
+    `live_archive.py`・`live_export.py`(待ちの文 4)・`accuracy.py`(終了の文)・`restart.py`・`mount.py`(ログの印)・`portal.html`(バックアップ・片付けの説明 2)・`portal.js`(片付けの確認)
+  - 「Resolve パック」「Resolve のパック」→「パック」: home `autorun.py` の `STEP_LABELS["pack"]`(段の名前。ホーム・編集・スタジオの帯に出る)・`live_archive.py`(本番版の注意)/ studio `rank.js`(① まとめて実行の title)・
+    `review.js`(③ まとめて実行の title・書き出したあとの説明・本番版の注意 2。編集のタブの呼び方も「③ パック」→「3 パック のタブ」)
+  - E-25: 編集 2 カット の右の字幕の一覧の行のボタン「削る / 戻す」→ 1 文字起こし の行と同じ札「残す / カット済」(`cut.js` の `.btn.small.tt-csub-cut[aria-pressed]`。ghost をやめて枠つき = 押せる札・カット済は赤 = `index.html` に 2 行。押したらどうなるかは title。明・暗で撮って確かめた)。行を選んで Del のときの知らせも
+  - README の使い方: editor(起動のしかた・3 つのタブ・Resolve 連携)・studio(準備の 4・始め方・困ったとき 2)。home の使い方は前から「ホーム」
+- ui-kit v21(`src/ui-kit/`。`dev/sync_ui_kit.py` で写した):
+  - (a) `UIKit.toast` は重ねて 2 つまで(以前 3)。あふれたら古いものから閉じるが、消えない(`ms: 0`)・ボタンのある知らせ(`data-ui-keep`)は後回し(時間で消える知らせから閉じる)。積む位置は変えていない
+  - (b) `.ui-next-btn`(ui-kit.css の末尾の v21 の節): `.btn.small.ui-next-btn` = 札とほぼ同じ高さ 22px・アクセントの文字・右に →・`::before` で押せる範囲を上下 3px ずつ。`.btn` なし = 押せない案内の文字だけ。
+    editor 履歴の「パックを作る」「作り直す」(`.tt-txi-next` の CSS 3 行を消して `ui-next-btn` を足した)と home の案件の行の次にやること(`.pt-case-next` の CSS 3 行を消した)が同じ見た目に
+  - (c) 押せないメニュー: `details.ui-menu|ui-pop > summary[aria-disabled=true]` を document の capture で止め、理由(`data-ui-why` か `title`)を info の知らせに(同じ文が出ている間は積まない・開いているほかのメニューは閉じる)。
+    付け外しは `UIKit.menuOff(details|summary, 理由, 使えるときの title)`。編集 `applyNeedHome`(`#docAuto`)・スタジオ ① `#rkAuto`・③ `renderAutoMenu`(`#rvAuto`)をこれに替え、それぞれの summary の click の処理と editor の `.tt-docauto.tt-off` を消した
+  - (d) スタジオ `core.js` の `readParams` が `?step=rank|queue|review` を読み、前回のタブより先にそのタブを開く(`?url=` があれば今までどおり ②)。ホームの「スタジオで配信を探す」は `/studio/?step=rank`
+- 版: ui-kit v20 → v21・編集 0.59.0 → 0.59.1・ホーム 0.42.0 → 0.42.1・スタジオ 0.22.0 → 0.22.1(serve.py・画面の版・README の見出しと履歴 1 項目ずつ。editor `AGENTS.md` の現在の版も)
+- 決定・理由(仮で決めたこと):
+  - E-25 の行のボタンは、依頼の字面「カットする / 残す」(押したらどうなるか)ではなく、1 文字起こし と同じ札「残す / カット済」(今の状態・aria-pressed)にした。字面どおりだと 2 カット で「残す」がカット済の行に出て、
+    1 文字起こし の「残す」(残している行)と同じ語が逆の意味になる = E-25 が直したかった「逆向きに読める」がそのまま残るため。用語集(`docs/spec/ui-guidelines.md` の 1)の行の語も「残す / カット済」。「カットする」は title(押すとカットします)に入れた
+  - タイムラインの区間の「削る区間」「削る / 戻す(Del)」「I〜O を削る」「無音で削る」は変えていない(用語集の「残す区間 / 削る区間」。依頼の範囲は行のボタン)
+  - 知らせは「重なる数を 2 まで」を選んだ(積む位置を上へずらすと、画面の中の別の操作を隠すだけで場所が変わらないため)。ただ 2 つでも下の中央の操作に重なりうるので、編集の 3 パック の案内の知らせは 0.59.0 で欄へ移したまま
+  - 黒い画面(launch.py のコンソール)と、ホームの「ログ」で見えるツールのログの印も「ホーム」にした。ツールの serve.py の単独起動のときの「入口の中ですでに起動しています」(studio・editor・cut2resolve の 3 つと test_mount が見ている。単独起動は廃止済み)・
+    argparse の説明・`backup.py` の写し戻しのコマンドの問い(開発・上級者向けの CLI)は変えていない
+  - ホームの「調子」の「入口の条件(あと何本・何分)」は「各工程を始めてよい量」の意味の別の言葉(plan の言葉)なので変えていない(紛らわしければ「始める条件」などへ。要相談)
+  - 編集の「cut2resolve が起動していない」理由の文は、ホームに cut2resolve のカードが無い(0.10.0 から)ので「start.bat でホームを起動し直してから」にした
+- テスト(e2e は 1 本ずつ・PYTHONIOENCODING=utf-8): 単体 `test_ui_kit_sync`・`test_autorun`・`test_launch`・`test_studio`・`test_api` 308 件 OK(skip 1)・`test_metrics`・`test_resolve_export`・`test_roster` 554 件 OK(skip 1)・
+  home の `test_mount`・`test_live`・`test_live_archive`・`test_accuracy`・`test_restart`・`test_cases` 151 件 OK / node `test_review.cjs` 45/45・`test_document_save.cjs` 10/10 /
+  e2e `e2e_styleguide`(v21 の 13 項目を足した)すべて OK・`e2e_portal` 181・`e2e_window` 44・`e2e_autorun` 42・studio `e2e_ui` 216/216・`--mounted` 241/241・`dev/run_editor_suite.py` は eval_asr の 1 件(`test_repeat_one_is_same_as_before`。2 回の出力の「最大 35 MB / 36 MB」= メモリの数字の揺れ。単独で流すと通る・落ちるが交互。dev/ は触っていない)以外すべて OK(editor 単体 554・e2e_edit_tabs 156・e2e_edit_cut 117・e2e_edit_pack 118・e2e_ui_mounted 55 ほか全部。札の見た目を直したあと e2e_edit_cut をもう一度流して ALL PASSED)・home `e2e_live_studio` 119/119 / `py -3.10 dev/lint.py` 0 件
+- 未完了・次: `docs/spec/ui-guidelines.md` の用語集に「行の札 = 残す / カット済(2 カット の字幕の一覧も)」・知らせは 2 つまで・`.ui-next-btn`・`UIKit.menuOff` を書く(段 9 の反映。触ってよい範囲の外)/ `plan/ux-stage7-9.md` の用語の行の判定(まとめ役)/
+  `dev/tests/test_eval_asr.py` の `test_repeat_one_is_same_as_before` はメモリの数字で揺れる(比べる出力からメモリの行を除くなど。dev/ の担当で)
+- 注意: 起動中のホームは古いコードのまま(「すべて終了」→ start.bat)。`plan/decisions.md`・`plan/ux-stage7-9.md` の未コミットの変更はまとめ役のもので、このコミットに含めていない
+- 未コミット: なし(このコミット)

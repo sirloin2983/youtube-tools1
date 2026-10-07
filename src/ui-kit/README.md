@@ -1,6 +1,6 @@
-# ui-kit(共通の見た目)v20
+# ui-kit(共通の見た目)v21
 
-ツール(入口・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
+ツール(ホーム・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
 
 - `ui-kit.css` … 色の変数(トークン)と部品(ボタン・入力・カード・タブ・表・通知など)
@@ -76,7 +76,7 @@
 - **`UIKit.dialog`**: `confirm({title, body, ok, cancel, danger}) → Promise<boolean>`・`alert({title, body}) → Promise<void>`。`<dialog class="ui-dialog">` + `showModal()`(フォーカスの閉じ込め・Esc はブラウザに任せる)。
   本文は `textContent` で入れる(呼び出し側の文字列を innerHTML に入れない)。Esc は `confirm` では `false` になる
 - **`details.ui-pop`**(ポップオーバー): `<details class="ui-pop"><summary>…</summary><div class="ui-pop-body">…</div></details>`。既存の `details.ui-menu` と同じ仕組みで外側のクリック・Esc で閉じる(Esc は `summary` へフォーカスを戻す)。`data-align="left"` で左寄せ
-- **`UIKit.toast(message, {kind, ms, detail})`**: 通知を重ねて最大3つ(`kind`: `'ok'|'err'|'info'|''`)。入れ物は `<div class="ui-toasts" id="toast" aria-live="polite">`(ページに既存の `#toast` があれば作り直して使う。無ければ body の末尾に作る)。
+- **`UIKit.toast(message, {kind, ms, detail})`**: 通知を重ねて最大3つ(v21 から 2 つ。下の「v21」)(`kind`: `'ok'|'err'|'info'|''`)。入れ物は `<div class="ui-toasts" id="toast" aria-live="polite">`(ページに既存の `#toast` があれば作り直して使う。無ければ body の末尾に作る)。
   既定の表示時間は 2.5 秒、`err` は 8 秒 + `role="alert"`(クリックでいつでも閉じられる)。`detail`(原文)は畳んだ `<details>` に入る
 - **`UIKit.keybar`**: 画面下の細い帯(いま使えるキーを 5〜7 個)。`set([{k, l}, …])`(場面が変わったら置き換える)・`flash(k)`(押されたキーを一瞬光らせる)・`clear()`。
   設定「キーの帯を出す」(既定オン。`localStorage['ytt:keybar'] === '0'` で消える)。表示中は `html[data-keybar]`(画面側で下の余白に使える)
@@ -137,6 +137,24 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`plan/ux-stage7-9.md` の 1)
+- 画面に出る文言の「入口」を「ホーム」に(用語集 `docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
+  配信者の欄の「ホームから開くと使えます」・`api/ytt/…` を合言葉なしで呼んだときの失敗の文(「ホーム(start.bat)から開いたときだけ使えます」)。見本の案内の文も
+- **`UIKit.toast` は重ねて 2 つまで**(以前は 3 つ。積み上がると画面の下の操作 = 編集の 3 パック の「中止」などを隠していた)。あふれたら古いものから閉じる。
+  ただし消えない知らせ(`ms: 0`)・ボタン(`action`)のある知らせ(`data-ui-keep` を付ける)は後回しにして、時間で消える知らせから閉じる
+  (失敗の [もう一度] を、ただの案内で押し流さない。全部が残す知らせなら古いものから)。積む位置(画面の下の中央)は変えていない
+- **一覧の行の中の「次の一手」のボタン `.ui-next-btn`**(`.ui-next` のボタン版): `<button class="btn small ui-next-btn">パックを作る</button>` /
+  `<a class="btn small ui-next-btn" href="…">書き出し 2本</a>`。札(`.pill`)とほぼ同じ高さ(22px。行の高さをそろえる)・アクセントの文字・右に「→」・
+  押せる範囲は `::before` で上下に 3px ずつ広げて 28px(guidelines 6)。`.btn` を付けない(行き先の無い `<a>` など)ときは、押せない案内の文字だけ(色と → は同じ)。
+  使っている所: 編集の履歴の「パックを作る」「作り直す」(`.tt-txi-next`)・ホームの案件の行の次にやること(`.pt-case-next`)
+- **押せないメニュー**: `<details class="ui-menu">`(と `ui-pop`)の `<summary aria-disabled="true">` は、押しても(Enter・Space も)開かずに、
+  理由(`data-ui-why`、無ければ `title`)を知らせる(`UIKit.toast` の info・5 秒。同じ文が出ている間は積まない)。開いていたほかのメニューは閉じる。
+  捕まえる段階(document の capture)で止めるので、画面の側の summary の click は呼ばれない(押せないボタンと同じ)。
+  付け外しは **`UIKit.menuOff(details か summary, 理由, 使えるときの title)`**(理由あり = aria-disabled・`data-ui-why`・title を付けて閉じる /
+  理由が空 = 外して、title を 3 つ目の値に(省くと、理由と同じ title だけ消す))。見た目は `.btn` の summary なら `.btn[aria-disabled=true]`、それ以外は薄く・`cursor:not-allowed`。
+  使っている所: 編集の題名の行の「まとめて実行」・スタジオ ① と ③ の「まとめて実行」(以前はそれぞれが summary の click を止めていた)
+- 見本とテスト: `styleguide.html` の「v21: 次の一手のボタン・押せないメニュー」・`python src/ui-kit/tests/e2e_styleguide.py`(`check_v21` と `check_toast` の 2 つまで)。`UIKit.version` は 21
 
 ## v20(2026-10-07・「起動し直す」の帯に入口からの知らせ)
 - `UIKit.restart`: 「起動し直す」を押して入口が受けたとき、応答の本文に `notice` があれば、待つ間の帯の文(`data-ui-restart="waiting"`)に足す

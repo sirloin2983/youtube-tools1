@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.22.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.22.1';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
@@ -242,10 +242,11 @@ function wireKeyHelp(){
 /* ---------- 起動時の URL 引数(?url= は ② 解析の URL 欄へ入れるだけ。自動では始めない: docs/spec/pipeline.md 3.) ---------- */
 function readParams(){
   let q; try { q = new URLSearchParams(location.search); } catch { return; }
-  const url = (q.get('url') || '').trim(), video = (q.get('video') || '').trim();
+  const url = (q.get('url') || '').trim(), video = (q.get('video') || '').trim(), step = (q.get('step') || '').trim();
   if (url) Studio.params.url = url.slice(0, 2000);
   if (/^[\w-]{1,64}$/.test(video)) Studio.params.video = video;   // B-6: 「編集」から戻るとき。保存済みの配信なら ③ の確認画面で開く
-  if ((url || video) && history.replaceState){ try { history.replaceState(null, '', location.pathname + location.hash); } catch {} }   // 再読み込みで二重に入れない
+  if (STEPS.includes(step)) Studio.params.step = step;   // 段7: ?step=rank = ① 探す を開く(ホームの「スタジオで配信を探す」。前回のタブより先)
+  if ((url || video || step) && history.replaceState){ try { history.replaceState(null, '', location.pathname + location.hash); } catch {} }   // 再読み込みで二重に入れない
 }
 
 function paneError(msg){
@@ -286,6 +287,7 @@ const start = async () => {
   let st = 'rank'; try { st = localStorage.getItem('clipstudio:step') || 'rank'; } catch {}
   if (openVid && Studio.review){ Studio.review.open(openVid); return; }
   if (Studio.params.url) st = 'queue';
+  else if (Studio.params.step) st = Studio.params.step;
   Studio.go(STEPS.includes(st) ? st : 'rank');
 };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
