@@ -1,5 +1,5 @@
 /* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */
-/* ui-kit v6〜v22 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
+/* ui-kit v6〜v23 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
    v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
    飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
    新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
@@ -90,7 +90,7 @@ body{min-width:0}
 button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
 h1,h2,h3,h4{font-family:var(--font-display);line-height:1.3;text-wrap:balance}
 p,.hint,.notice{text-wrap:pretty}   /* v6(段3-2): 見出しは行の長さをそろえ、本文は最後の行が1文字だけにならないように。字間は変えない */
-a{color:var(--accent);text-underline-offset:2px}
+a{color:var(--accent-ink2);text-underline-offset:2px}   /* v23: 文字の青は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1 と足りない。A-22) */
 a:hover{color:var(--accent-hover)}
 ::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
 code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
@@ -223,7 +223,7 @@ input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);backgro
 .card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
 .card-title{margin:0;font:650 14.5px/1.35 var(--font-display);letter-spacing:.03em}
 .card-sub{color:var(--ink-3);font-size:11.5px;font-family:var(--mono)}
-.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;user-select:none}
+.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;min-height:28px;font-weight:600;user-select:none}   /* v23: 押せる部品は 28px 以上(A-21) */
 .card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
 .card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
 .card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
@@ -417,7 +417,8 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 /* v7: 知らせのボタン(1つ)と閉じる。暗い帯の上なので、文字色は帯の文字の色・枠は薄い白 */
 .ui-toast-act{flex:none;align-self:center;padding:3px 12px;border-radius:var(--r);border:1px solid rgba(255,255,255,.45);background:transparent;color:var(--toast-ink);font:inherit;font-weight:600;cursor:pointer}
 .ui-toast-act:hover{background:rgba(255,255,255,.12)}
-.ui-toast-x{flex:none;align-self:flex-start;width:22px;height:22px;margin:-2px -8px 0 0;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
+.ui-toast-x{flex:none;align-self:flex-start;display:inline-grid;place-items:center;width:28px;height:28px;margin:-5px -11px 0 -3px;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
+.ui-toast-x svg{width:14px;height:14px}   /* v23: × の文字をやめて SVG(A-10) */
 .ui-toast-x:hover{background:rgba(255,255,255,.12);color:var(--toast-ink)}
 .ui-toast-act:focus-visible,.ui-toast-x:focus-visible{outline:2px solid #5cc3ff;outline-offset:1px}
 /* v7: まとめて実行の部品(UIKit.autorun): 要約1行 +「設定を変える」(ポップオーバーの中は項目の並び) */
@@ -457,7 +458,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);color:var(--ink-3)}
 .ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-row:last-child{border-bottom:0}
-.ui-settings-row>span{color:var(--ink-2);font-size:13px}
+.ui-settings-row>span,.ui-settings-row>label:not(.lag){color:var(--ink-2);font-size:13px}   /* v23: 全体の節の名前は <label for> に(A-24) */
 /* ツールの節の .fld(名前 + select)も、全体の節と同じ1行の形に(同じ欄の中で形をそろえる。段3-3)。文字の欄(API キーなど)は今までどおり縦に */
 .ui-settings-sec .fld:has(>select){display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;padding:8px 0;border-bottom:1px solid var(--line)}
 .ui-settings-sec .fld:has(>select)>label,.ui-settings-sec .fld:has(>select)>.l{margin:0;font-weight:400;color:var(--ink-2);font-size:13px}
@@ -538,6 +539,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 .ui-live-btn[aria-expanded=true]{background:var(--panel-2)}
 .ui-live-panel{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(400px,calc(100vw - 20px));max-height:70vh;overflow-y:auto;padding:4px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-2);animation:ui-pop .14s var(--ease)}
 .ui-live-panel:focus{outline:none}
+.ui-live-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* v23: キーボードで開いたときは輪を出す(A-07) */
 .ui-live-list{list-style:none;margin:0;padding:0}
 .ui-live-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;padding:8px 10px}
 .ui-live-row+.ui-live-row{border-top:1px solid var(--line)}
@@ -567,3 +569,12 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
 /* ---------- v22(2026-10-07・気が利く画面へ 段9 見た目の確認) ----------
    --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくかった)。
    使う所: .errbar(赤い帯)・.badge・.btn.danger.solid・録画の停止の二度押し・編集の行の札「カット済」・スタジオの LIVE の札。新しく赤い面に文字を置くときもこれ */
+
+/* ---------- v23(2026-10-07・UI の見直しの基準 docs/spec/ui-review-criteria.md に合わせる) ----------
+   - 文字記号のアイコン(▾ ▸ × ☰ ⚙ ✂ ▶ ✓)をやめる(ブリーフの Anti-references・A-10)。メニューが開く印は .ui-caret(線で描く小さな山形。文字ではない)、ほかは UIKit.icon の SVG
+     使い方: <summary class="btn">まとめて <span class="ui-caret" aria-hidden="true"></span></summary>。右向き(「この後を ▸」のような)は .ui-caret.right
+   - --ink-4(薄い灰色)は、明るいテーマで面に対して 3.2〜3.6:1 しかない。placeholder・空の欄(--)・押せない物・飾りにだけ使い、情報の文字(時刻・件数・説明)には --ink-3 以上を使う(A-22。決定 P-4)
+   - 文字の青(a・.ui-next-btn)は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1)。押せる部品の高さは 28px 以上(.card>summary・.ui-disclosure>summary にも min-height) */
+.ui-caret{display:inline-block;width:7px;height:7px;margin:0 1px 3px 3px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);opacity:.8;flex:none;vertical-align:middle}
+.ui-caret.right{transform:rotate(-45deg);margin:0 3px 0 1px}
+.ui-caret.up{transform:rotate(225deg);margin:3px 1px 0 3px}

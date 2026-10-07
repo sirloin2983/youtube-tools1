@@ -68,8 +68,8 @@
 
     <section class="card">
       <div class="card-head"><h2 class="card-title">入力</h2></div>
-      <div class="fld"><label class="l">動画ファイルのパス</label><input type="text" placeholder="例: C:\Videos\stream.mp4"></div>
-      <div class="row" style="margin-top:10px"><select><option>large-v3</option><option>small</option></select><input type="number" value="10" style="width:90px"><input type="search" placeholder="検索"></div>
+      <div class="fld"><label class="l" for="sgPath">動画ファイルのパス</label><input type="text" id="sgPath" placeholder="例: C:\Videos\stream.mp4"></div>
+      <div class="row" style="margin-top:10px"><select aria-label="モデル"><option>large-v3</option><option>small</option></select><input type="number" value="10" style="width:90px" aria-label="数"><input type="search" placeholder="検索" aria-label="検索"></div>
       <div class="row" style="margin-top:10px"><label class="lag"><input type="checkbox" checked>チェック</label><label class="lag"><input type="checkbox" class="ui-switch" checked>スイッチ</label><input type="range"></div>
     </section>
 
@@ -136,9 +136,9 @@
         <a class="ui-next-btn" id="nextTextDemo">候補の確認 3個</a>
       </div>
       <div class="row" style="margin-top:10px">
-        <details class="ui-menu" id="menuOffDemo"><summary class="btn small" aria-disabled="true" data-ui-why="ホームから開くと使えます(見本)">まとめて実行 ▾</summary>
+        <details class="ui-menu" id="menuOffDemo"><summary class="btn small" aria-disabled="true" data-ui-why="ホームから開くと使えます(見本)">まとめて実行 <span class="ui-caret" aria-hidden="true"></span></summary>
           <div class="ui-menu-pop"><button type="button">開かない中身</button></div></details>
-        <details class="ui-menu" id="menuOnDemo"><summary class="btn small">使えるメニュー ▾</summary>
+        <details class="ui-menu" id="menuOnDemo"><summary class="btn small">使えるメニュー <span class="ui-caret" aria-hidden="true"></span></summary>
           <div class="ui-menu-pop"><button type="button">中身</button></div></details>
       </div>
       <p class="hint">「次の一手」は札と同じ高さのボタン(右に →。押せる範囲は上下に広げて 28px)。行き先の無い &lt;a&gt; は案内の文字だけ。
@@ -149,7 +149,7 @@
       <div class="card-head"><h2 class="card-title">v10: 版の帯(UIKit.restart)</h2></div>
       <div class="errbar" id="restartBandDemo" hidden role="alert"></div>
       <div class="row">
-        <button class="btn" id="btnRestartBand">版が違う帯を出す(画面 v0.2.0・サーバー v0.1.0)</button>
+        <button class="btn" id="btnRestartBand" title="画面 v0.2.0・サーバー v0.1.0 の食い違いの見本">版が違う帯を出す</button>
       </div>
       <p class="hint">ホームから開いた画面(合言葉あり)だけ「起動し直す」が出る。単体で開いた見本では案内の文だけ。押すとホームの api/ytt/restart-self → api/ping が戻ったら読み込み直す。</p>
     </section>
@@ -199,7 +199,7 @@
         <button class="btn ghost" id="btnKeybarFlash">Space を光らせる</button>
         <button class="btn ghost" id="btnKeybarClear">帯を消す</button>
       </div>
-      <p class="hint">設定(⚙)の「キーの帯を出す」をオフにすると、帯そのものが出なくなります。</p>
+      <p class="hint">設定の「キーの帯を出す」をオフにすると、帯そのものが出なくなります。</p>
     </section>
 
     <section class="card">
@@ -207,7 +207,7 @@
       <div id="keysHelpBox"></div>
       <p class="hint">動画が無いのでダミーの media(currentTime だけ動く)に対して Space/J/K/L/矢印/,/./I/O を試せます。</p>
       <div class="row" style="margin-top:8px"><span class="hint">currentTime: <b id="fakeTime" class="num">0.00</b>秒 / rate <b id="fakeRate" class="num">1.0</b></span></div>
-      <input type="text" id="keysDemoFocus" placeholder="ここにフォーカス中はキーを無視" style="margin-top:8px">
+      <input type="text" id="keysDemoFocus" aria-label="キーの見本の入力欄" placeholder="ここにフォーカス中はキーを無視" style="margin-top:8px">
     </section>
   </div>
 

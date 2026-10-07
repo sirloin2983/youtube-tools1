@@ -1,4 +1,4 @@
-/* ui-kit v22 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v23 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -44,6 +44,7 @@
    v21(2026-10-07・気が利く画面へ 段7): 画面の文言の「入口」を「ホーム」に(用語集)。UIKit.toast は重ねて 2 つまで(消えない・ボタンのある知らせは後回しにして閉じる)・
        押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
        一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」
+   v23(2026-10-07・UI の見直しの基準): 知らせの × を SVG に(A-10)・設定の「全体」の節の名前を label for に(A-24)。README.md の「v23」
    v22(2026-10-07・気が利く画面へ 段9 見た目の確認): 知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → 古いもの の順に閉じる
        (失敗の知らせは最後まで残す)・ポップオーバーの置き場所の直し(fitPop)を、まとめて実行の「設定を変える」の中身が読み込めたあとにもう一度・
        編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」 */
@@ -780,7 +781,7 @@
       item.appendChild(ab);
     }
     var xb = document.createElement('button');
-    xb.type = 'button'; xb.className = 'ui-toast-x'; xb.setAttribute('aria-label', '知らせを閉じる'); xb.textContent = '×';
+    xb.type = 'button'; xb.className = 'ui-toast-x'; xb.setAttribute('aria-label', '知らせを閉じる'); xb.innerHTML = icon('close', { size: 14 });   /* v23: SVG(A-10) */
     xb.addEventListener('click', function (e) { e.stopPropagation(); remove(); });
     item.appendChild(xb);
     function remove() { clearTimeout(timer); if (item.parentNode) item.parentNode.removeChild(item); }
@@ -977,8 +978,8 @@
     var h3 = document.createElement('h3'); h3.textContent = '全体'; sec.appendChild(h3);
 
     var themeRow = document.createElement('div'); themeRow.className = 'ui-settings-row';
-    var themeLabel = document.createElement('span'); themeLabel.textContent = 'テーマ';
-    var themeSel = document.createElement('select');
+    var themeLabel = document.createElement('label'); themeLabel.textContent = 'テーマ'; themeLabel.htmlFor = 'uiSetTheme';   /* v23: label for(A-24) */
+    var themeSel = document.createElement('select'); themeSel.id = 'uiSetTheme';
     /* v12: 配色を選ぶ。明るい = アイスライト / 暗い = 3つ / OSに合わせる(暗いときは、最後に選んだ暗い配色) */
     /* 値: light = アイスライト / dark = ネオンシアン(以前の「暗い」と同じ値。画面のテスト・以前の保存とそろえる)/ steel・green = 暗い + その配色 */
     addOpt(themeSel, 'light', 'アイスライト(明るい)'); addOpt(themeSel, 'dark', 'ネオンシアン(暗い)'); addOpt(themeSel, 'steel', '鋼の白(暗い)');
@@ -995,8 +996,8 @@
     themeRow.appendChild(themeLabel); themeRow.appendChild(themeSel);
 
     var fsRow = document.createElement('div'); fsRow.className = 'ui-settings-row';
-    var fsLabel = document.createElement('span'); fsLabel.textContent = '文字の大きさ';
-    var fsSel = document.createElement('select');
+    var fsLabel = document.createElement('label'); fsLabel.textContent = '文字の大きさ'; fsLabel.htmlFor = 'uiSetFs';
+    var fsSel = document.createElement('select'); fsSel.id = 'uiSetFs';
     addOpt(fsSel, 'md', '標準'); addOpt(fsSel, 'lg', '大きい');
     fsSel.value = fsPref();
     fsSel.addEventListener('change', function () {

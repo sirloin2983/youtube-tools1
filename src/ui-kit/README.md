@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v21
+# ui-kit(共通の見た目)v23
 
 ツール(ホーム・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,13 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v23(2026-10-07・UI の見直しの基準 `docs/spec/ui-review-criteria.md` に合わせる)
+- 文字記号のアイコンをやめる(A-10): 知らせの × は `UIKit.icon('close')`。メニューが開く印は `.ui-caret`(線で描く小さな山形。`<span class="ui-caret" aria-hidden="true">`。右向きは `.right`・上向きは `.up`)。各ツールの「まとめて ▾」「無音 ▾」「この後を ▸」はこれに替える
+- 文字の青(`a`・`.ui-next-btn`)は `--accent-ink2`(明るいテーマの `--accent` は薄い面の上で 4.3:1 と足りない。A-22)。`--ink-4` は placeholder・空の欄・押せない物・飾りにだけ(決定 P-4)
+- `.card>summary`・`.ui-disclosure>summary` に `min-height:28px`(押せる部品は 28px 以上。A-21)。`.ui-live-panel:focus-visible` の輪(A-07)
+- 設定の「全体」の節のテーマ・文字の大きさの名前を `<label for>` に(`#uiSetTheme`・`#uiSetFs`。A-24)
+- 測る道具: `py -3.10 dev/ui_audit.py all --demo`(基準の A)。見本 `styleguide.html` もその対象(入力欄に label・ボタンの長い名前は title に)
 
 ## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`plan/ux-stage7-9.md` の 1)
 - 画面に出る文言の「入口」を「ホーム」に(用語集 `docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
