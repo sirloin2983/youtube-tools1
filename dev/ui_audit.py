@@ -705,7 +705,7 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
 def start_demo(port):
     """見本サーバーを起動して READY まで待つ(戻り値: プロセス)。"""
     env = dict(os.environ, YTT_DATA_DIR="inplace", PYTHONIOENCODING="utf-8")
-    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "demo_env.py"), "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    proc = subprocess.Popen([sys.executable, os.path.join(REPO, "dev", "demo_env.py"), "--port", str(port)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)   # 見本の出力は UTF-8(Windows の cp932 で読むと落ちる)
     deadline = time.time() + 180
     while time.time() < deadline:
         line = proc.stdout.readline()
