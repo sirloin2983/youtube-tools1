@@ -44,10 +44,13 @@
    v21(2026-10-07・気が利く画面へ 段7): 画面の文言の「入口」を「ホーム」に(用語集)。UIKit.toast は重ねて 2 つまで(消えない・ボタンのある知らせは後回しにして閉じる)・
        押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
        一覧の行の中の「次の一手」のボタン .ui-next-btn(ui-kit.css)。README.md の「v21」
-   v23(2026-10-07・UI の見直しの基準): 知らせの × を SVG に(A-10)・設定の「全体」の節の名前を label for に(A-24)。README.md の「v23」
    v22(2026-10-07・気が利く画面へ 段9 見た目の確認): 知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → 古いもの の順に閉じる
        (失敗の知らせは最後まで残す)・ポップオーバーの置き場所の直し(fitPop)を、まとめて実行の「設定を変える」の中身が読み込めたあとにもう一度・
-       編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」 */
+       編集の古い形のポップオーバー(details.pop > .vpop)にもかける・ui-kit.css の --danger-on(赤い面の上の文字)。README.md の「v22」
+   v23(2026-10-07・段9 の直し): v22 の fitPop の var POP_SEL が上の POP_SEL を書き直していて、外側のクリック・Esc が開いていないメニューにも効き、
+       Esc でフォーカスが最後のメニューの summary へ飛んでいた → FIT_SEL に分けた。まとめて実行の fps の欄の名前を「フレームレート」に。
+       置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。知らせがあふれたとき、ボタンの無い失敗も失敗でない知らせより後に閉じる。README.md の「v23」 */
+   v23(2026-10-07・UI の見直しの基準。クラウド側。PC 側の段9 の直しと同じ番号で合流): 知らせの × を SVG に(A-10)・設定の「全体」の節の名前を label for に(A-24)。README.md の「v23」
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -169,7 +172,9 @@
      フォーカスが移り(ページの最後の「…」へ飛ぶ)、続く Space がメニューを開いた(スタジオの見直し M1)。別の名前にする */
   var FIT_SEL = 'details.ui-pop, details.ui-menu, details.pop';
   function fitPop(d) {
-    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop'); if (!body) return;
+    /* v23: 画面が自分で作った中身(class が違う)も、data-ui-fit を付ければ同じく置き直す(スタジオ ① の選択の帯の「まとめて実行」.rk-autopop。
+       帯が画面の下の方にあると、中身と「まとめて実行」のボタンが画面の下の外に出ていた。段9) */
+    var body = d.querySelector(':scope > .ui-pop-body, :scope > .ui-menu-pop, :scope > .vpop, :scope > [data-ui-fit]'); if (!body) return;
     body.style.left = body.style.right = body.style.top = body.style.bottom = body.style.maxHeight = body.style.overflowY = '';
     var r = body.getBoundingClientRect(), vw = document.documentElement.clientWidth || window.innerWidth, vh = window.innerHeight, m = 8;
     if (r.right > vw - m) { body.style.left = 'auto'; body.style.right = '0'; r = body.getBoundingClientRect(); }
@@ -751,7 +756,9 @@
   /* v21: 重ねるのは 2 つまで(以前は 3 つ。積み上がると画面の下の操作(編集のパックの「中止」など)を隠していた)。あふれたら古いものから閉じる。
      消えない知らせ(ms: 0)・ボタンのある知らせ(data-ui-keep)は後回しにして、時間で消える知らせから閉じる(失敗の [もう一度] を、ただの案内で押し流さない)。
      v22: 残す知らせばかりのときも、失敗(.err)は最後まで残す(v21 は古いものから閉じたので、[もう一度] つきの失敗のあとに [フォルダを開く] つきの完了と
-     ただの案内が続くと、失敗が先に消えていた。段9 の確認で見つけた) */
+     ただの案内が続くと、失敗が先に消えていた。段9 の確認で見つけた)。
+     v23: ボタンの無い失敗(時間で消える err)も、失敗でない知らせより先には閉じない(v22 は「時間で消える」を先に選んだので、
+     ボタンの無い失敗のあとに案内が 2 つ続くと失敗が消えた)。閉じる順 = 失敗でない時間で消える知らせ → 失敗でない残す知らせ → 古いもの */
   var TOAST_MAX = 2;
   function toastPick(box, ok) {
     for (var i = 0; i < box.children.length; i++) if (ok(box.children[i])) return box.children[i];
@@ -759,7 +766,7 @@
   }
   function toastMakeRoom(box) {
     while (box.children.length >= TOAST_MAX) {
-      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-keep'); }) ||
+      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-keep') && !t.classList.contains('err'); }) ||
                  toastPick(box, function (t) { return !t.classList.contains('err'); }) || box.firstChild;
       box.removeChild(drop);   // 時間で消える知らせのタイマーは、外したあとに呼ばれても何もしない(remove は parentNode を見る)
     }
@@ -1778,8 +1785,8 @@
       fps.addEventListener('change', function () { arSave('tx', { packFps: fps.value }); });
       var size = arSelect([['1080x1920', '縦 1080×1920'], ['1920x1080', '横 1920×1080']], st.size);
       size.addEventListener('change', function () { arSave('tx', { packSize: size.value }); });
-      box.appendChild(arField('1 秒のコマ数(fps)', fps));   /* v23: 以前は「パックの置き先」と書き違えていた(ホームの見直し M4) */
-      box.appendChild(arField('動画の向きと大きさ', size));
+      box.appendChild(arField('フレームレート', fps));   // v23: 「パックの置き先」になっていた(fps の欄。3 パック のタブと同じ言葉に。段9・ホームの見直し M4)
+      box.appendChild(arField('画面の大きさ', size));
       var loud = arEl('select');
       var lf = arField('パックの音量', loud); box.appendChild(lf);
       packLoud.mount(loud);
@@ -2391,7 +2398,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 22, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 23, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff };
 })();

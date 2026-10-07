@@ -1,6 +1,6 @@
 # 「気が利く画面へ」(ux-consistency)の段 7〜9 の残り(2026-10-07 調査)
 
-> 状態(2026-10-07): **実装中**(ユーザー指示「確認だけのものも仮で決めて実装」により、やめてよい 5 項目を外して段 7・8 の残りと段 9 を行う)。元の依頼書は `docs/design/briefs/ux-consistency/REQUEST.md`・設計書は同 `DESIGN_BRIEF.md`(付録 C)。段 1〜6 は 09-29〜30 に済み。
+> 状態(2026-10-07 夜): **完了**(段 7〜8 = スタジオ 0.22.0〜・入口 0.42.0〜・編集 0.59.0〜・ui-kit v21〜。段 9 = `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`。残した要望は `plan/improvements.md` の 10。仮決め (ac)〜(al) はユーザー確認済み)。元の指示: ユーザー「確認だけのものも仮で決めて実装」により、やめてよい 5 項目を外して段 7・8 の残りと段 9 を行った。元の依頼書は `docs/design/briefs/ux-consistency/REQUEST.md`・設計書は同 `DESIGN_BRIEF.md`(付録 C)。段 1〜6 は 09-29〜30 に済み。
 > 調査(読むだけ・Sonnet)で 1 項目ずつコードを確かめた。済み 7・一部 6・未着手 約 22。段 9 は記録なし。
 
 ## 1. 段 7(未着手・一部のもの。済みは書かない)
@@ -35,9 +35,9 @@
 | フォーカス(E-27・S-24) | **済み**(編集 0.59.0・入口 0.42.0) | editor: `ask()` の主ボタンにフォーカス / home: 実行 → 中止へ・配信者欄の Enter(S) |
 | 「書き出し後の自動文字起こし」の設定が localStorage のまま(依頼書 §1。段 4 の積み残し) | **済み**(スタジオ 0.22.0。`/api/settings` の `review.autoTx`) | studio: `settings.js`・`review.js` → サーバーの設定へ(S) |
 
-## 3. 段 9(見た目の確認)
-- 直した画面を 960・1440・1920 × 明・暗で撮り、Must-fix を直す(Should-fix・Could-improve は `plan/improvements.md` へ)。結果は `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`
-- `docs/spec/ui-guidelines.md` に、まとめて実行の部品(`UIKit.autorun`)・知らせのボタン(`action`)・確認の方式(`confirmTwice`)・キーの一覧(設定)を反映
+## 3. 段 9(見た目の確認)— **済み(2026-10-07 夜)**
+- 16 場面 × 960・1440・1920 × 明・暗(600 枚)を撮り、Must-fix 5 件を直した(ui-kit v22〜v23・編集 0.59.2〜0.59.3・スタジオ 0.22.2〜0.22.3・入口 0.42.2): Esc でフォーカスが最後のメニューへ飛ぶ(v22 の `var POP_SEL` の二重宣言。全画面)・「設定を変える」の fps の欄の名前・スタジオ ① の選択の帯の「まとめて実行」が画面の外(`data-ui-fit`)・2 カット のカット済の行の文字の濃さ(3.5:1 → 4.5:1 以上)・あふれた知らせでボタンの無い失敗が先に閉じる。Should-fix 3・Could-improve 6 は `plan/improvements.md` の 10 へ。結果は `docs/design/briefs/ux-consistency/DESIGN_REVIEW.md`
+- `docs/spec/ui-guidelines.md` に、まとめて実行の部品(`UIKit.autorun`)・知らせのボタン(`action`)と「重ねて 2 つまで・失敗は残す」・確認の方式(`confirmTwice`)・キーの一覧(設定)・`.ui-next-btn`・`UIKit.menuOff`・`--danger-on`・`data-ui-fit` を反映した
 
 ## 4. やめてよい(仮決め。理由)
 1. 出力先を覚える(E-4 の一部): ユーザー決定「別の案件へ間違って出さないため覚えない」(09-29)

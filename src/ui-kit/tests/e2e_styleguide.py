@@ -651,6 +651,20 @@ def check_toast(pg, check):
     got = pg.evaluate(msgs)
     check(got == ["三つ目", "四つ目"], "v21: どれも残す知らせなら古いものから閉じる: %s" % got)
     pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
+    # v22: 残す知らせ(ボタン・消えない)ばかりのときも、失敗の知らせ(err)は最後まで残す(v21 は古いものから閉じたので、[もう一度] つきの失敗が先に消えた)
+    pg.evaluate("UIKit.toast('失敗した', { kind: 'err', action: { label: 'もう一度', fn: () => {} } }); "
+                "UIKit.toast('できた', { kind: 'ok', ms: 8000, action: { label: '開く', fn: () => {} } }); UIKit.toast('案内')")
+    got = pg.evaluate(msgs)
+    check(got == ["失敗した", "案内"], "v22: 失敗 → ボタンつきの完了 → 案内 の順でも、失敗の知らせは残る(ボタンつきの完了を閉じる): %s" % got)
+    pg.evaluate("UIKit.toast('消えない案内', { ms: 0 }); UIKit.toast('もう一つの完了', { kind: 'ok', ms: 0, action: { label: '開く', fn: () => {} } })")
+    got = pg.evaluate(msgs)
+    check(got == ["失敗した", "もう一つの完了"], "v22: 続けて残す知らせが来ても、失敗の知らせは押し流さない: %s" % got)
+    pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
+    # v23: ボタンの無い失敗(時間で消える)も、あとから来た案内より先には閉じない
+    pg.evaluate("UIKit.toast('ボタンの無い失敗', { kind: 'err' }); UIKit.toast('案内1'); UIKit.toast('案内2')")
+    got = pg.evaluate(msgs)
+    check(got == ["ボタンの無い失敗", "案内2"], "v23: ボタンの無い失敗のあとに案内が 2 つ続いても、失敗の知らせは残る: %s" % got)
+    pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
     # 二度押しの確認(UIKit.confirmTwice)
     pg.evaluate("window.__runs = 0; const b = document.createElement('button'); b.id = 'twice'; b.className = 'btn'; b.textContent = '消す'; "
                 "b.onclick = () => UIKit.confirmTwice(b, () => { window.__runs++; }, 'もう一度押すと消します'); document.body.appendChild(b)")
@@ -694,6 +708,28 @@ def check_v21(pg, check):
     pg.click(summ)
     check(wait_js(pg, "[...document.querySelectorAll('#toast .ui-toast-msg')].some(t => t.textContent === '別の理由')"), "v21: 理由は title(menuOff が付けた文)")
     pg.evaluate("document.querySelectorAll('#toast .ui-toast').forEach(t => t.remove())")
+
+
+def check_v23(pg, check):
+    """v23: 外側のクリック・Esc は開いているメニューだけに効く(v22 は fitPop のための var POP_SEL を同じ名前で書き直していて、
+    Esc で最後のメニュー(開いていない)の summary へフォーカスが飛んでいた。録画中の札の一覧の Esc で見つけた)。fitPop は編集の古い形(details.pop > .vpop)にも"""
+    pg.evaluate("document.querySelectorAll('details.ui-menu[open], details.ui-pop[open], details.pop[open]').forEach(d => d.removeAttribute('open'))")
+    pg.evaluate("const b = document.createElement('button'); b.id = 'escKeep'; b.className = 'btn'; b.textContent = 'Esc の確かめ'; document.body.appendChild(b); b.focus()")
+    check(pg.evaluate("document.querySelectorAll('details.ui-menu, details.ui-pop').length") >= 2, "v23: (準備)見本にメニューが 2 つ以上ある")
+    pg.keyboard.press("Escape")
+    check(pg.evaluate("document.activeElement && document.activeElement.id") == "escKeep", "v23: メニューが開いていないときの Esc はフォーカスを動かさない")
+    pg.click("#menuOnDemo > summary")
+    pg.click("#escKeep")
+    check(not pg.evaluate("document.querySelector('#menuOnDemo').open") and pg.evaluate("document.activeElement && document.activeElement.id") == "escKeep",
+          "v23: 外側を押すと開いていたメニューだけ閉じる(フォーカスは押した所)")
+    # 編集の古い形のポップオーバー(details.pop > .vpop)も、画面の右の外にはみ出さない位置に置き直す(v22)
+    pg.evaluate("""(() => { const d = document.createElement('details'); d.className = 'pop'; d.id = 'oldPop'; d.style.cssText = 'position:fixed;left:4px;top:200px';
+      d.innerHTML = '<summary class="btn small">無音 ▾</summary><div class="vpop" style="position:absolute;right:0;top:100%;width:300px;background:var(--panel)">中身</div>';
+      document.body.appendChild(d); })()""")
+    pg.click("#oldPop > summary")
+    r = pg.evaluate("(() => { const r = document.querySelector('#oldPop > .vpop').getBoundingClientRect(); return [r.left, r.right, document.documentElement.clientWidth]; })()")
+    check(r[0] >= 0 and r[1] <= r[2], "v22: details.pop > .vpop も画面の中に置き直す(右にそろえて左の外に出ていた): %s" % r)
+    pg.evaluate("document.querySelector('#oldPop').remove(); document.querySelector('#escKeep').remove()")
 
 
 def check_keybar_keys(pg, check):
@@ -783,6 +819,7 @@ def check_page(browser, base, check):
     check_drawer_dialog(pg, check)
     check_toast(pg, check)
     check_v21(pg, check)
+    check_v23(pg, check)
     check_keybar_keys(pg, check)
     check_icons_settings(pg, check)
     # ---- v11: 時刻の欄(UIKit.timebox) ----

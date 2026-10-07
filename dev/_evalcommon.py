@@ -189,4 +189,47 @@ def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
     mod.IN_WORKER = True                         # -> ed_jobs.IN_WORKER
     mod.STUDIO_DATA = mod.studio_data_path()     # -> ed_state.STUDIO_DATA(読むだけ)
     mod.setup_cuda_paths()                       # 認識ワーカーの起動と同じ(pip の CUDA の部品の場所。無ければ何もしない)
+    in_process_models(mod)                       # モデルへ渡す音声を、認識ワーカーの受け口と同じ形に(InProcessModel)
     return mod
+
+
+class InProcessModel:
+    """このプロセスの中で読んだモデル(IN_WORKER)の包み。transcribe に来た音声を、認識ワーカーの受け口(tx_worker の _audio)と同じ形に直して渡す。
+    editor のサーバー側の書き方は、モデルの代理(RemoteModel)に WavSlice・WavRef(wav のパスとサンプルの範囲だけ。ワーカーが読む)を渡す。
+    道具ではそれが faster-whisper に直接届き、読めずに落ちる("File object has no read() method")。
+    2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(ed_jobs.quant_words_provider)がこれで落ち、
+    eval_asr run は丸まった窓のある文書を「とばしました」で数えていなかった。ほかの属性(params・hooks など)は中のモデルのものを読み書きする"""
+
+    def __init__(self, model, audio_of):
+        object.__setattr__(self, "_model", model)
+        object.__setattr__(self, "_audio_of", audio_of)
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._model, name, value)
+
+    def transcribe(self, audio, **kw):
+        return self._model.transcribe(self._audio_of(audio), **kw)
+
+
+def in_process_models(S):
+    """ed_jobs._load_model_local(このプロセスの中でモデルを読む本体)が返すモデルを InProcessModel で包む。
+    部品(ed_jobs)は load_serve を何回呼んでも同じもの(普通の import)なので、包むのは 1 回だけ"""
+    J = S.ed_jobs
+    if getattr(J._load_model_local, "in_process", False):
+        return
+    import tx_worker  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない)
+    SP, local = S.ed_speakers, J._load_model_local
+
+    def audio_of(a):
+        if isinstance(a, SP.WavSlice):
+            return tx_worker._audio({"wav": a.path, "from": a.a, "to": a.b})
+        return a.path if isinstance(a, SP.WavRef) else a
+
+    def load_local(*a, **k):
+        model, dev = local(*a, **k)
+        return InProcessModel(model, audio_of), dev
+    load_local.in_process = True
+    J._load_model_local = load_local

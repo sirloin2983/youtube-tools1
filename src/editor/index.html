@@ -1147,7 +1147,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-csub.now .tt-csub-go .mono{color:var(--ink-2)}   /* 今の行(薄い accent の上)は --ink-3 だと 4.3:1(A-22) */
 .tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
-.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;color:var(--ink-4)}
+.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}   /* 0.59.3(段9): 1 文字起こし のカット済の行(.seg.cut)と同じ色。--ink-4 は 3.5:1 で基準(4.5:1)に届かなかった */
 .tt-csub-empty{margin:8px 4px}
 .tt-csub .tt-kc{margin-left:2px}
 .tt-cut-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
