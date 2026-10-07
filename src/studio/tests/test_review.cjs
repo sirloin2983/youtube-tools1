@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
-const source = fs.readFileSync(path.join(__dirname, '..', 'review.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
 function between(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'application function boundaries must exist');
@@ -300,7 +300,7 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
 
 /* ---- 2026-09-26 v0.8.0 画面の全面見直しで足したテスト ---- */
 function sliceOf(file, start, end) {
-  const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
   const a = src.indexOf(start), b = src.indexOf(end, a);
   assert.ok(a >= 0 && b > a, `${file}: application function boundaries must exist (${start})`);
   return src.slice(a, b);
@@ -942,4 +942,183 @@ test('the LIVE band asks for the recording status without the segment list (sinc
   const poll = between('async function pollLiveStatus(){', 'function applyLiveStatus(');
   assert.ok(poll.includes("liveRest(v, 'status?since=999999999')"), 'status?since=999999999');
   assert.ok(!/liveRest\(v, 'status'\)/.test(poll));
+});
+// ---- 2026-10-07 線 D の L3: 配信中の候補(LIVE の帯の一覧・タイムラインの印・p / z・入口の GET/POST ../live/api/peaks) ----
+const PEAK_FNS = ['const PEAK_PRE = 5;', '/* 配信中の候補の状態'];
+const mmss = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+const pk = (id, start, end, extra) => ({ id, start, end, peak: start + 2, score: 5, reasons: ['音量が急上昇'], hour: 0, state: 'frame', ...extra });
+
+test('live peaks: normalize, the full list and the since-changes (unknown ids and end-pending peaks ask for the full list)', () => {
+  const ctx = load([PEAK_FNS], { tickLabel: mmss });
+  assert.equal(ctx.peakNorm({ id: 'a', start: 5, end: 5 }), null, 'end must be after start');
+  assert.equal(ctx.peakNorm({ start: 1, end: 5 }), null, 'an id is needed');
+  const n = plain(ctx.peakNorm({ id: 'a', start: -1, end: 8, peak: 3700, state: 'odd', reasons: ['x', 3], score: '7.25', endPending: 1 }));
+  assert.deepEqual(n, { id: 'a', start: 0, end: 8, peak: 3700, score: 7.25, parts: {}, reasons: ['x'], hour: 1, state: 'frame', endPending: false, origin: '' },
+    'unknown state → frame, the hour comes from the peak second, endPending only when true');
+  assert.deepEqual(plain(ctx.peakList([pk('b', 30, 34), null, pk('a', 10, 14), { id: 'x' }]).map(p => p.id)), ['a', 'b'], 'time order, broken ones dropped');
+  const list = ctx.peakList([pk('a', 10, 14), pk('b', 30, 34), pk('c', 50, 58, { endPending: true })]);
+  let m = ctx.peakMerge(list, [{ seq: 6, id: 'b', state: 'bench' }]);
+  assert.equal(m.full, false);
+  assert.deepEqual(plain(m.list.map(p => p.id + ':' + p.state)), ['a:frame', 'b:bench', 'c:frame'], 'only the changed state; the rest stays as it was');
+  assert.equal(ctx.peakMerge(list, [{ seq: 7, id: 'z', state: 'frame' }]).full, true, 'a new peak (unknown id) needs the full list');
+  m = ctx.peakMerge(list, [{ seq: 7, id: 'z', state: 'frame', start: 70, end: 74 }]);
+  assert.equal(m.full, false, 'a change that carries the range is enough');
+  assert.equal(m.list.at(-1).id, 'z');
+  assert.equal(ctx.peakMerge(list, [{ seq: 8, id: 'c', state: 'frame' }]).full, true, 'the end of an end-pending peak may have moved');
+  m = ctx.peakMerge(list, [{ seq: 8, id: 'c', state: 'frame', end: 57.5, endPending: false }]);
+  assert.equal(m.full, false); assert.equal(m.list[2].end, 57.5); assert.equal(m.list[2].endPending, false);
+  assert.equal(ctx.peakMerge(list, null).full, false, 'no changes: nothing to do');
+  // 入口(線 1)の changes は {seq, id, state, peak: 今の形}: 新しい候補も・終わりが決まった候補も、読み直さずに当てられる
+  m = ctx.peakMerge(list, [{ seq: 9, id: 'c', state: 'frame', peak: { ...pk('c', 50, 56.5), endPending: false, seq: 9 } }, { seq: 9, id: 'y', state: 'bench', peak: pk('y', 80, 84, { state: 'bench' }) }]);
+  assert.equal(m.full, false);
+  assert.deepEqual(plain(m.list.map(p => [p.id, p.state, p.end, p.endPending, p.peak])), [['a', 'frame', 14, false, 12], ['b', 'frame', 34, false, 32], ['c', 'frame', 56.5, false, 52], ['y', 'bench', 84, false, 82]]);
+  assert.equal(plain(ctx.peakSeries({ n: 3600, step: 6, total: [1] })).n, 3600, 'n from the portal when given');
+});
+
+test('live peaks: rows are diffed (add / fade out / hold while playing, hovered or focused) and only frame + adopted are shown by default', () => {
+  const ctx = load([PEAK_FNS], { tickLabel: mmss });
+  const list = ctx.peakList([pk('a', 10, 14, { state: 'adopted' }), pk('b', 30, 34, { state: 'bench' }), pk('c', 50, 58), pk('d', 70, 74, { state: 'dismissed' })]);
+  assert.deepEqual(plain(ctx.peakShown(list, false).map(p => p.id)), ['a', 'c']);
+  assert.deepEqual(plain(ctx.peakShown(list, true).map(p => p.id)), ['a', 'b', 'c', 'd'], '「控えも見る」: bench and dismissed too');
+  assert.deepEqual(plain(ctx.peakRows(['a', 'b', 'c'], ['a', 'c', 'd'], new Set())), { add: ['d'], remove: ['b'], hold: [] });
+  assert.deepEqual(plain(ctx.peakRows(['a', 'b', 'c'], ['a', 'c', 'd'], new Set(['b']))), { add: ['d'], remove: [], hold: ['b'] },
+    'the row being played / under the mouse is not taken away (0-10-3 の 6)');
+  assert.deepEqual(plain(ctx.peakRows([], ['a'], null)), { add: ['a'], remove: [], hold: [] });
+  assert.equal(ctx.peakNext(ctx.peakShown(list, true), null).id, 'a', 'nothing played yet: the first');
+  assert.equal(ctx.peakNext(ctx.peakShown(list, true), 'a').id, 'b');
+  assert.equal(ctx.peakNext(ctx.peakShown(list, true), 'c'), null, 'dismissed ones are skipped; after the last there is no next');
+  assert.equal(ctx.peakNext(ctx.peakShown(list, false), 'gone').id, 'a', 'the current one left the list: start from the first');
+});
+
+test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto adopt) and what each row shows', () => {
+  const ctx = load([PEAK_FNS], { tickLabel: mmss });
+  const list = ctx.peakList([pk('a', 10, 14, { state: 'adopted', origin: 'manual' }), pk('b', 30, 34, { state: 'bench' }), pk('c', 50, 58),
+    pk('d', 3700, 3710, { hour: 1 }), pk('e', 3800, 3810, { hour: 1, state: 'adopted', origin: 'auto' })]);
+  let h = ctx.peakHead(list, { perHour: 6, counts: { 0: 1, 1: 2 } }, { running: true, behindSec: 34.6, chat: 'ok' }, { enabled: true, waitMin: 5 }, { hour: 1, active: true });
+  assert.equal(h.count, '候補 4 件(この 1 時間 2/6)', 'frame + adopted; this hour from the portal counts');
+  assert.equal(h.info, '遅れ 35 秒・チャットを読んでいます・自動採用 オン(5 分待ち)');
+  h = ctx.peakHead(list, null, { running: true, chat: 'restarting' }, null, { hour: 1, active: true });
+  assert.equal(h.count, '候補 4 件(この 1 時間 2/6)', 'without counts: frame + auto-adopted in the hour (a hand-adopted one is not counted)');
+  assert.equal(h.info, 'チャットをつなぎ直しています・自動採用 オフ');
+  assert.equal(ctx.peakHead([], null, { running: false, message: '' }, null, { hour: 0, active: true }).info, '検出が止まっています(ホームが起動し直します)・自動採用 オフ');
+  assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, { running: false }, { enabled: true }, { hour: 0, active: false }).info, '', 'an ended recording: nothing about the worker');
+  assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, null, null, { hour: 0 }).count, '候補 4 件(この 1 時間 0/8)');
+  const v = p => plain(ctx.peakView(ctx.peakNorm(p), false));
+  let r = v(pk('c', 50, 58.5, { score: 6.25 }));
+  assert.equal(r.time, '0:50'); assert.equal(r.title, '0:50 – 0:58(8.5 秒)・山 0:52'); assert.equal(r.score, '6.3点');
+  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore, r.why], ['枠', true, true, false, '']);
+  r = v(pk('b', 30, 34, { state: 'bench' }));
+  assert.deepEqual([r.pill[0], r.pill[1], r.adopt, r.dismiss, r.restore], ['wait', '控え', true, true, false], 'a bench peak can be adopted');
+  r = v(pk('a', 10, 14, { state: 'adopted', origin: 'auto' }));
+  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore], ['自動で採用', false, false, false], 'adopted: the chip only');
+  r = v(pk('d', 70, 74, { state: 'dismissed' }));
+  assert.deepEqual([r.pill[1], r.adopt, r.dismiss, r.restore], ['見送り', false, false, true]);
+  r = v(pk('e', 90, 99, { endPending: true }));
+  assert.ok(r.pending && r.why.includes('終わりがまだ録れていません'), 'end pending: cannot be adopted yet (with the reason)');
+  assert.equal(plain(ctx.peakView(ctx.peakNorm(pk('c', 50, 58)), true)).why, '送っています…', 'while the request is on the way');
+  assert.equal(v(pk('f', 1, 2, { score: null })).score, '');
+  assert.deepEqual(plain(ctx.peakSeries({ step: 0.5, total: [1, '2', null], audio: [3], chat: 'x' })), { n: 2, step: 0.5, total: [1, 2, 0], audio: [3], chat: [] },
+    'the portal series in the analysis series shape (n = seconds)');
+  assert.equal(ctx.peakSeries({ step: 1, total: [] }), null);
+});
+
+function peakHarness(respond) {
+  const calls = [], notes = [], after = [];
+  const S = { cur: { id: 'R', kind: 'live', live: { recorder: 'local', recording: 'R' }, marks: [] }, settings: { liveAfter: 'auto' }, now: 0, duration: 120 };
+  const ctx = load([['const PEAK_PRE = 5;', '/* ---------- マーク操作 ---------- */']], {
+    S, LV: { status: { active: true }, deletedShown: false },
+    Studio: { token: 't', step: 'review', toast: m => notes.push(m), live: { api: async (url, o) => { const c = { url, body: o && o.body }; calls.push(c); return respond(c); } } },
+    $: () => null, document: { querySelector: () => null, activeElement: null, body: {} }, CSS: { escape: s => s },
+    toast: m => notes.push(m), flushSave: async () => { after.push('save'); }, syncFromServer: async () => { after.push('sync'); }, pollLiveJobs: async () => { after.push('jobs'); }, liveResume: () => {},
+    renderGraph: () => {}, previewClip: c => notes.push('preview ' + c.start + '-' + c.end), keybarScene: () => {}, liveSet: () => {},
+    tickLabel: mmss, reasonTags: () => '', SVG: { play: '' }, esc: s => s, enc: encodeURIComponent, totalDur: () => 120, pct: t => t,
+    LIVE_AFTERS: ['none', 'check', 'auto'], liveWhoName: () => '兎田ぺこら', curKeymap: () => ({ nextPeak: 'p' }), keyText: k => k, Date, setTimeout, clearTimeout });
+  const PKV = vm.runInContext('PKV', ctx);
+  return { ctx, S, PKV, calls, notes, after };
+}
+const settle = async () => { for (let i = 0; i < 6; i++) await tick(); };
+
+test('live peaks: asked only when detection is on; full list first, then since-changes; 404 is given up after the first time', async () => {
+  let reply = null;
+  const h = peakHarness(async c => (typeof reply === 'function' ? reply(c) : reply));
+  h.ctx.peaksOpened('R');
+  h.ctx.peakPrefs({ detect: { enabled: false } });
+  await h.ctx.pollPeaks(h.S.cur);
+  assert.equal(h.calls.length, 0, 'detection off: the API is not asked (no 404 from an old portal)');
+  reply = { ok: true, seq: 5, enabled: true, worker: { running: true, behindSec: 30, chat: 'ok' }, hour: { perHour: 6, counts: { 0: 2 } },
+    peaks: [pk('b', 30, 34), pk('a', 10, 14)], series: { step: 1, total: [1, 2, 3], audio: [1], chat: [2] } };
+  h.ctx.peakPrefs({ detect: { enabled: true }, autoAdopt: { enabled: true, waitMin: 5 } });
+  await settle();
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].url, 'api/peaks?recorder=local&recording=R', 'the first ask has no since (all + series)');
+  assert.deepEqual(plain(h.PKV.list.map(p => p.id)), ['a', 'b']);
+  assert.equal(h.PKV.seq, 5); assert.equal(h.PKV.series.n, 3);
+  reply = { ok: true, seq: 6, enabled: true, changes: [{ seq: 6, id: 'b', state: 'bench' }] };
+  await h.ctx.pollPeaks(h.S.cur);
+  assert.equal(h.calls[1].url, 'api/peaks?recorder=local&recording=R&since=5');
+  assert.equal(h.PKV.list[1].state, 'bench'); assert.equal(h.PKV.seq, 6);
+  const urls = [];
+  reply = c => { urls.push(c.url); return c.url.includes('since=') ? { ok: true, seq: 7, changes: [{ seq: 7, id: 'n', state: 'frame' }] }
+    : { ok: true, seq: 7, peaks: [pk('a', 10, 14), pk('b', 30, 34, { state: 'bench' }), pk('n', 60, 64)] }; };
+  await h.ctx.pollPeaks(h.S.cur); await settle();
+  assert.deepEqual(urls, ['api/peaks?recorder=local&recording=R&since=6', 'api/peaks?recorder=local&recording=R'], 'an unknown id: the full list right away');
+  assert.deepEqual(plain(h.PKV.list.map(p => p.id)), ['a', 'b', 'n']);
+  reply = () => { const e = new Error('見つかりません'); e.status = 404; throw e; };
+  h.PKV.needFull = true;
+  await h.ctx.pollPeaks(h.S.cur);
+  const n = h.calls.length;
+  await h.ctx.pollPeaks(h.S.cur);
+  assert.equal(h.calls.length, n, 'after a 404 the band stops asking');
+  assert.equal(h.PKV.missing, true);
+});
+
+test('live peaks: adopt sends one request (no double press) with the band settings, then reads the marks and the export jobs again', async () => {
+  const gate = deferred();
+  const h = peakHarness(async c => {
+    if (!c.body) return { ok: true, seq: 1, enabled: true, worker: { running: true }, peaks: [pk('a', 10, 14), pk('b', 30, 34, { endPending: true })] };
+    if (c.body.op === 'adopt'){ await gate.promise; return { ok: true, peak: pk('a', 10, 14, { state: 'adopted', origin: 'manual', markId: 'm1' }), job: { id: 'lx-1' }, mark: 'm1', existing: false }; }
+    return { ok: true, peak: pk(c.body.id, 30, 34, { state: c.body.op === 'dismiss' ? 'dismissed' : 'frame', endPending: true }) };
+  });
+  h.ctx.peaksOpened('R'); h.ctx.peakPrefs({ detect: { enabled: true } }); await settle();
+  const first = h.ctx.adoptPeak('a'), second = h.ctx.adoptPeak('a');
+  await settle(); gate.resolve(); await first; await second;
+  const posts = h.calls.filter(c => c.body);
+  assert.equal(posts.length, 1, 'pressed twice before the answer: one request');
+  assert.deepEqual(plain(posts[0].body), { op: 'adopt', recorder: 'local', recording: 'R', id: 'a', after: 'auto', streamer: '兎田ぺこら' });
+  assert.deepEqual(h.after, ['save', 'sync', 'jobs'], 'saved first; then the new mark and the export row are read (③ does not see server-side marks by itself)');
+  assert.equal(h.PKV.list[0].state, 'adopted');
+  assert.ok(h.notes.some(m => String(m).includes('候補 0:10 を採用しました')));
+  await h.ctx.adoptPeak('b');
+  assert.equal(h.calls.filter(c => c.body).length, 1, 'an end-pending peak is not adopted');
+  assert.ok(h.notes.at(-1).includes('終わりがまだ録れていません'));
+  await h.ctx.setPeakState('b', 'dismiss');
+  assert.equal(h.PKV.list[1].state, 'dismissed');
+  assert.ok(h.notes.some(m => String(m).includes('を見送りました')), 'dismissing is undone from the notice (no confirmation)');
+  await h.ctx.setPeakState('b', 'restore');
+  assert.equal(h.PKV.list[1].state, 'frame');
+  // p / z
+  h.ctx.peakKeyNext();
+  assert.equal(h.notes.at(-1), 'preview 5-14', 'p: nothing played yet → the first candidate from 5 s before');
+  h.ctx.peakKeyNext();
+  assert.equal(h.notes.at(-1), 'preview 25-34', 'p again: the next one');
+  h.ctx.peakKeyAdopt();
+  assert.ok(h.notes.at(-1).includes('終わりがまだ録れていません'), 'z: the one just played (end pending here)');
+});
+
+test('live peaks are wired into the band, the timeline, the graph and the keys (built once, updated by id, asked from the 3-second check)', () => {
+  const band = between('function liveBarHTML(){', '/* 今をマーク');
+  assert.ok(band.indexOf('id="rvArch"') < band.indexOf('id="rvPeaks"') && band.indexOf('id="rvPeaks"') < band.indexOf('id="rvAfterStream"'), 'between 「アーカイブで作り直す」 and the after-stream line');
+  assert.ok(band.includes('<ol class="rv-peaklist" id="rvPeakList"') && band.includes('id="rvPeakBench"'));
+  assert.ok(between('function playerHTML(){', '/* LIVE の帯').includes('<div id="rvPeakSegs" data-ui-audit-allow="A-21"></div><div id="rvSegs"'), 'candidate marks are under the marks');
+  const rows = between('function peakApplyRows(', '/* タイムラインの候補の印');
+  assert.ok(!rows.includes('innerHTML'), 'the list is not rebuilt (rows are found by id; only text and attributes change)');
+  assert.ok(between('function peakFade(', '/* 一覧の差分を当てる').includes('PEAK_FADE_MS'), 'rows that leave fade out first');
+  assert.ok(between('async function pollLiveStatus(){', 'function applyLiveStatus(').includes('pollPeaks(v);'), 'asked from the recording status check');
+  assert.ok(between('const peaksWanted', '/* 帯に候補の行を出すか').includes('PKV.detect.enabled') && between('async function pollPeaks(', '/* 入口の答えを').includes('PKV.missing = true'));
+  assert.ok(between('async function adoptPeak(', '/* [見送り]').includes('await syncFromServer()'));
+  assert.ok(between('function renderGraph(){', '/* 山の札').includes('peakGraph()'), 'the graph uses the candidate series when there is no analysis');
+  assert.ok(between('  function selectSeg(seg){', 'tl.addEventListener(').includes('playPeak(seg.dataset.pid)'), 'clicking a candidate mark plays it');
+  for (const preset of ['standard', 'left']) assert.ok(new RegExp(preset + ": \\{[^}]*nextPeak: 'p', adoptPeak: 'z' \\}").test(source), preset + ': p / z');
+  assert.ok(source.includes('nextPeak: () => peakKeyNext(), adoptPeak: () => peakKeyAdopt()') && source.includes("['nextPeak', 'adoptPeak']]]"));
+  assert.ok(between('function keybarScene(', '/* ---------- イベント').includes("row(t('nextPeak'), '次の候補')"));
 });

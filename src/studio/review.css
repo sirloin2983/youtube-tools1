@@ -247,6 +247,34 @@
 .rv-arch{padding-top:2px}
 .rv-archmsg{font-size:12.5px;overflow-wrap:anywhere;min-width:0;flex:1 1 220px}
 .rv-archmsg.rv-warnline{color:var(--warn-ink)}
+/* 配信中の候補(線 D の L3): 見出し(件数・この 1 時間・遅れ・チャット・自動採用)と一覧。一覧は 1 枚の紙(行の間は細い線)。
+   再生中の行はアクセントの左の線、外れた行は薄くして数秒で消す(JS が inert・aria-hidden も付ける) */
+.rv-peaks{flex:1 1 100%;display:flex;flex-direction:column;gap:4px;min-width:0;padding-top:6px;border-top:1px solid color-mix(in srgb,var(--danger) 25%,transparent)}
+.rv-livebar.is-ended .rv-peaks{border-top-color:var(--line)}
+.rv-peakhead{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;min-width:0}
+.rv-peakcount{font-size:13px;font-weight:650}
+.rv-peakinfo{font-size:12px;overflow-wrap:anywhere;min-width:0}
+.rv-peakhead .ui-count{margin-left:4px}
+.rv-peakmsg{margin:0;font-size:12px}
+.rv-peaklist{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);max-height:216px;overflow-y:auto;overscroll-behavior:contain}
+.rv-peaklist:empty{display:none}
+.rv-peak{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:3px 8px;min-width:0;transition:opacity var(--dur) var(--ease)}
+.rv-peak+.rv-peak{border-top:1px solid var(--line)}
+.rv-peak.is-playing{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.rv-peak.is-gone{opacity:.35}
+.rv-peak.st-dismissed .rv-peakt{color:var(--ink-3)}
+.rv-peakplay svg{width:11px;height:11px;margin-right:4px}
+.rv-peakt{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.rv-peakwhy{display:inline-flex;min-width:0}
+.rv-peakacts{display:inline-flex;gap:4px;margin-left:auto}
+.rv-peakacts .btn,.rv-peakplay{min-height:28px}
+/* タイムラインの候補の印: マークの下に重ねる点線の枠(マークと見分ける)。控えは薄く */
+.rv-seg.cand{background:color-mix(in srgb,var(--accent) 14%,transparent);border:1.5px dashed var(--accent);opacity:1}
+.rv-seg.cand.bench{border-color:var(--ink-4);background:color-mix(in srgb,var(--ink-4) 10%,transparent)}
+.rv-seg.cand.sel{border-style:solid;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+/* 設定の「ライブの録画」の中の「配信中の候補」の群(settings.js の #livePeaksBox) */
+.rv-setgroup{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.rv-setgroup input[type=number]{width:8ch}
 .rv-openmsg{margin:6px 0 0}
 
 /* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
