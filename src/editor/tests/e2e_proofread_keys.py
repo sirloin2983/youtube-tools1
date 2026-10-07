@@ -227,17 +227,18 @@ def _scene_keymap(cx):
         pg.wait_for_function("!document.querySelector('#keys').open", timeout=3000)
         km_set.note = note
         return txt
-    check(km_set("rowNext", "h") == "H", "キー配置: 「次の行」を H に変えられる")
-    pg.keyboard.press("h"); check(navi() == 4, "H で次の行へ(変えた割り当てが効く)")
+    check(km_set("rowNext", "y") == "Y", "キー配置: 「次の行」を Y に変えられる")
+    pg.keyboard.press("y"); check(navi() == 4, "Y で次の行へ(変えた割り当てが効く)")
     pg.keyboard.press("s"); check(navi() == 4, "もとの S はもう効かない")
     pg.keyboard.press("ArrowUp"); check(navi() == 3, "↑ ↓ は固定なのでそのまま使える")
     check(km_set("playPause", "s") == "Space", "再生のキーに S(2 カット の分割)は割り当てられない(元のまま)")
     check("分割" in km_set.note, "断った理由が一覧の中に出る: " + km_set.note)
-    check(km_set("replay", "h") == "H", "すでに使っているキーを選ぶと、こちらに割り当てられる")
+    check(km_set("replay", "h") != "H" and "2 カット" in km_set.note, "1 文字起こし のキーに H(2 カット の「始まり〜終わりを削る」)は割り当てられない(UI の見直し 2 周目): " + km_set.note)
+    check(km_set("replay", "y") == "Y", "すでに使っているキーを選ぶと、こちらに割り当てられる")
     check("外しました" in km_set.note, "前の操作から外したことが一覧の中に出る: " + km_set.note)
     import time as _t; _t.sleep(1.0)
     saved = call(port, "GET", "/api/settings").get("keymap") or {}
-    check(saved.get("replay") == "h" and saved.get("rowNext") == "", "キー配置はサーバーの設定に保存される: %s" % {k: saved.get(k) for k in ("replay", "rowNext")})
+    check(saved.get("replay") == "y" and saved.get("rowNext") == "", "キー配置はサーバーの設定に保存される: %s" % {k: saved.get(k) for k in ("replay", "rowNext")})
     check(km_set("playPause", "p") == "P", "共通の再生キー(再生・停止)も変えられる")
     pg.evaluate("document.querySelector('#player').pause()")
     pg.keyboard.press("p"); pg.wait_for_timeout(300)
@@ -252,21 +253,21 @@ def _scene_keymap(cx):
     pg.keyboard.press("w")
     # 段3 3-2(監査 03): 派生キー(1秒戻る/進むのキー + Shift = 5秒)と、2 カット の Shift+, / Shift+.(< >)は、ほかの操作に登録できない
     check(km_set("rowNext", "Shift+ArrowLeft") == "S" and "5 秒" in km_set.note, "3-2: 「次の行」に Shift+← は断られて元のまま: " + km_set.note)
-    check(km_set("rowNext", "Shift+KeyH") == "Shift+H", "3-2: 「次の行」を Shift+H にできる")
-    check(km_set("seekBack", "KeyH") == "H" and km_text("rowNext") == "未設定" and "外しました" in km_set.note,
-          "3-2: 「1秒戻る」を H にすると、Shift+H を持つ「次の行」から外れる(未設定): " + km_set.note)
+    check(km_set("rowNext", "Shift+KeyY") == "Shift+Y", "3-2: 「次の行」を Shift+Y にできる")
+    check(km_set("seekBack", "KeyY") == "Y" and km_text("rowNext") == "未設定" and "外しました" in km_set.note,
+          "3-2: 「1秒戻る」を Y にすると、Shift+Y を持つ「次の行」から外れる(未設定): " + km_set.note)
     pg.evaluate("document.querySelector('#player').pause(); document.querySelector('#player').currentTime = 8")
     pg.wait_for_function("document.querySelector('#player').currentTime >= 7.9")
-    pg.keyboard.press("Shift+KeyH")
+    pg.keyboard.press("Shift+KeyY")
     pg.wait_for_function("document.querySelector('#player').currentTime <= 3.5", timeout=4000)
-    check(navi() == 3, "3-2: Shift+H で5秒戻る(「1秒戻る」+ Shift。行は動かない)")
+    check(navi() == 3, "3-2: Shift+Y で5秒戻る(「1秒戻る」+ Shift。行は動かない)")
     check(km_set("playPause", "Shift+Comma") == "Space" and "10コマ" in km_set.note, "3-2: 再生のキーに < (Shift+,)は断られる: " + km_set.note)
     # 段3 3-3(監査 16): ツールチップ・知らせ・キー帯・説明はキー配置から。未設定のキーはどこにも出ない
     row_title = lambda sel: pg.evaluate("document.querySelectorAll('#segs %s')[3].title" % sel)   # noqa: E731
     check("(X)" in row_title("button[data-act=tag][data-t=unclear]") and "(N)" in row_title("button[data-act=adda]") and "Z でも" in row_title("button[data-act=del]"),
           "3-3: 標準の配置では行の title に (X)・(N)・Z でも")
-    check(km_set("tagUnclear", "KeyH") == "H", "3-3: 「聞き取れない」を H に")
-    check("(H)" in row_title("button[data-act=tag][data-t=unclear]"), "3-3: 行の「聞き取れない」の title が (H): " + row_title("button[data-act=tag][data-t=unclear]"))
+    check(km_set("tagUnclear", "KeyY") == "Y", "3-3: 「聞き取れない」を Y に")
+    check("(Y)" in row_title("button[data-act=tag][data-t=unclear]"), "3-3: 行の「聞き取れない」の title が (Y): " + row_title("button[data-act=tag][data-t=unclear]"))
     check(km_set("tagUnclear", "Delete") == "未設定" and "(" not in row_title("button[data-act=tag][data-t=unclear]"), "3-3: 未設定にすると「(キー)」ごと出さない: " + row_title("button[data-act=tag][data-t=unclear]"))
     check(km_set("del", "Delete") == "未設定" and "でも消せます" not in row_title("button[data-act=del]") and km_set("insert", "Delete") == "未設定" and "(" not in row_title("button[data-act=adda]"),
           "3-3: 削除・行の追加を未設定にすると、行の title にキーが出ない: %s / %s" % (row_title("button[data-act=del]"), row_title("button[data-act=adda]")))

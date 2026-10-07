@@ -182,7 +182,7 @@ function paneHtml(){
           <p class="hint rk-automix" id="rkAutoMix" hidden>選んだ配信の配信者が違います。名前を入れると、全部の配信でその人の色になります。</p>
           <div class="row rk-autogo"><button type="button" class="btn primary" id="rkAutoGo" disabled>選んだ配信 0 本をまとめて実行</button><a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件の一覧</a></div>
         </div></details></span></div></div>
-  <div id="results"><div class="empty"><b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます</div></div>`;
+  <div id="results"><div class="empty rk-idle"><b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます</div></div>`;
 }
 const okCount = a => a.channels.filter(c => c.status === 'ok').length;
 /* 事務所にチェックが入るか: ユーザーが変えたならその値、触っていないなら「解決済みのチャンネルがあるか」 */
@@ -227,22 +227,31 @@ function advSummary(){
 function setBusy(b){ $('#btnCancel').hidden = !b; $('#barWrap').hidden = !b; if (!b){ $('#phase').textContent = ''; $('#bar').style.width = '0'; } syncGo(); }
 const noKey = () => !(S.state && S.state.hasKey);
 function keyNotice(){ $('#rkKeyNotice').hidden = !noKey(); syncGo(); }
-/* 「検索する」が押せない理由(見直し M5。以前は押せるままで、押すと 2 回続けて失敗した)。押せるなら '' */
-function goWhy(){
-  if (!$('#btnCancel').hidden) return '検索しています…(終わるか「中止」を押すと、もう一度押せます)';
-  if (noKey()) return '先に設定で YouTube Data API キーを入れると押せます';
+/* 「検索する」が押せない理由(見直し M5。以前は押せるままで、押すと 2 回続けて失敗した)。[種類, 理由]。押せるなら ['', ''] */
+function goState(){
+  if (!$('#btnCancel').hidden) return ['busy', '検索しています…(終わるか「中止」を押すと、もう一度押せます)'];
+  if (noKey()) return ['key', '先に設定で YouTube Data API キーを入れると押せます'];
   const ags = R.reg.agencies;
-  if (!ags.some(a => okCount(a) > 0)) return '先に事務所のチャンネルを登録すると押せます(上の「事務所の登録を開く」)';
+  if (!ags.some(a => okCount(a) > 0)) return ['reg', '先に事務所のチャンネルを登録すると押せます(上の「事務所の登録を開く」)'];
   const picked = ags.filter(a => document.querySelector(`.agc[value="${CSS.escape(a.id)}"]:checked`));
-  if (!picked.length) return '対象の事務所を 1 つ以上選ぶと押せます';
-  if (!picked.some(a => okCount(a) > 0)) return '選んだ事務所に、登録済みのチャンネルがありません(チャンネルのある事務所を選ぶと押せます)';
-  return '';
+  if (!picked.length) return ['ag', '対象の事務所を 1 つ以上選ぶと押せます'];
+  if (!picked.some(a => okCount(a) > 0)) return ['ag', '選んだ事務所に、登録済みのチャンネルがありません(チャンネルのある事務所を選ぶと押せます)'];
+  return ['', ''];
 }
+/* まだ検索していないときの空の表示も、押せない理由と次の一手に合わせる(押せないのに「検索する」を押すよう案内していた。2 周目 N3) */
+const IDLE = {
+  '': '<b>まだ検索していません</b>条件を決めて「検索する」を押すと、人気の配信がここに並びます',
+  key: '<b>まだ検索できません</b>設定で YouTube Data API キーを入れると検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkopen="setKey">設定で API キーを入れる</button></div>',
+  reg: '<b>まだ検索できません</b>先に事務所のチャンネルを登録すると検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkopen="setReg">事務所の登録を開く</button></div>',
+  ag: '<b>まだ検索できません</b>対象の事務所を選ぶと検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkfocus=".agc">対象の事務所を選ぶ</button></div>'
+};
 function syncGo(){
   const b = $('#btnGo'); if (!b) return;
-  const why = goWhy();
+  const [code, why] = goState();
   b.disabled = !!why; b.title = why;
   if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
+  const idle = $('#results > .rk-idle');
+  if (idle && code !== 'busy' && idle.dataset.code !== code){ idle.dataset.code = code; idle.innerHTML = IDLE[code]; }
 }
 
 async function startSearch(){
@@ -252,7 +261,7 @@ async function startSearch(){
   if (body.start > body.end) return S.toast('開始日は終了日より前にしてください');
   if (!body.agencies.length) return S.toast('対象の事務所を1つ以上選んでください(チャンネルを登録した事務所は、最初から選ばれています)');
   setBusy(true); $('#results').innerHTML = skeleton(); R.result = null; R.picked.clear(); R.q = ''; paintPick();
-  try { R.job = await S.api('/api/rank/search', { body }); } catch (e){ setBusy(false); $('#results').innerHTML = searchErrHTML(e.code, e.message, e.body && e.body.detail); return; }
+  try { R.job = await S.api('/api/rank/search', { body }); } catch (e){ setBusy(false); $('#results').innerHTML = searchErrHTML(e.code, e.message, (e.body && e.body.detail) || e.detail); return; }
   clearInterval(R.poll); R.poll = setInterval(pollJob, 700); pollJob();
 }
 const skeleton = () => `<div class="card" aria-busy="true"><div class="ui-skel" style="height:16px;width:28%"></div>${'<div class="rk-skrow"><div class="ui-skel" style="width:96px;height:54px"></div><div style="flex:1"><div class="ui-skel" style="height:13px;width:70%"></div><div class="ui-skel" style="height:11px;width:30%;margin-top:8px"></div></div></div>'.repeat(4)}</div>`;
@@ -262,7 +271,7 @@ async function pollJob(){
   R.polling = true;
   let j;
   try { j = await S.api('/api/rank/search?id=' + encodeURIComponent(R.job.id)); }
-  catch (e){ clearInterval(R.poll); setBusy(false); $('#results').innerHTML = searchErrHTML(e.code, e.message, e.body && e.body.detail); return; }
+  catch (e){ clearInterval(R.poll); setBusy(false); $('#results').innerHTML = searchErrHTML(e.code, e.message, (e.body && e.body.detail) || e.detail); return; }
   finally { R.polling = false; }
   $('#phase').textContent = j.phase || ''; $('#bar').style.width = Math.round((j.progress || 0) * 100) + '%';
   if (j.state === 'running') return;
@@ -281,7 +290,7 @@ function searchErrHTML(code, msg, detail){
     : code === 'bad_range' ? '<button type="button" class="btn small" data-rkfocus="#dStart">期間を直す</button>'
     : code === 'quota' || code === 'busy' ? '' : '<button type="button" class="btn small" data-rkretry>もう一度検索する</button>';
   return `<div class="empty rk-err" role="alert"><b>検索できませんでした</b>${esc(msg)}${act ? `<div class="cs-emptyacts">${act}</div>` : ''}` +
-    (detail ? `<details class="q-raw"><summary>元のメッセージ</summary><code>${esc(detail)}</code></details>` : '') + '</div>';
+    (detail ? `<details class="q-raw ui-disclosure"><summary>元のメッセージ</summary><code>${esc(detail)}</code></details>` : '') + '</div>';
 }
 /* ================= 結果 =================
    既定は「全部まとめて」(全事務所の結果を再生数の多い順に並べて上位 N 本。事務所をまたいで比べられる)。「事務所ごと」は以前の別々の表。

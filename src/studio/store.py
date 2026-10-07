@@ -284,21 +284,21 @@ def _load_pieces(raw):
 def offset_from_anchors(points):
     """[[この動画の時刻, 基準動画の時刻], …](1〜2点)から {a,b} を求める。1点なら定数オフセット(a=1)。不正なら BadMark。"""
     if not isinstance(points, list) or not (1 <= len(points) <= 2):
-        raise BadMark("アンカー点は1〜2点で指定してください")
+        raise BadMark("アンカーは1〜2点で指定してください")
     pts = []
     for p in points:
         if not (isinstance(p, (list, tuple)) and len(p) == 2):
-            raise BadMark("アンカー点の形式が正しくありません")
+            raise BadMark("アンカーの形式が正しくありません")
         t_this, t_ref = _num_strict(p[0]), _num_strict(p[1])
         if t_this is None or t_ref is None or t_this < 0 or t_ref < 0:
-            raise BadMark("アンカー点の時刻が正しくありません")
+            raise BadMark("アンカーの時刻が正しくありません")
         pts.append((t_this, t_ref))
     if len(pts) == 1:
         a, b = 1.0, pts[0][1] - pts[0][0]
     else:
         (t1, r1), (t2, r2) = pts
         if abs(t2 - t1) < MIN_ANCHOR_GAP:
-            raise BadMark("2つのアンカー点は、この配信の時刻で%d秒以上離してください" % int(MIN_ANCHOR_GAP))
+            raise BadMark("2つのアンカーは、この配信の時刻で%d秒以上離してください" % int(MIN_ANCHOR_GAP))   # 用語は「アンカー」(2 周目 S20)
         a = (r2 - r1) / (t2 - t1)
         b = r1 - a * t1
     if not (math.isfinite(a) and math.isfinite(b)):

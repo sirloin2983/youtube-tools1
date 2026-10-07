@@ -195,7 +195,10 @@ S.enqueue = async (items, opts) => {
   if (stay && r.added.length) S.toast(msg, { ms, kind, action: { label: '② 解析を見る', fn: () => S.go('queue') } });
   else S.toast(msg, ms, kind);
   setMsg(msg);
+  const from = S.step;
   await tick(); if (!stay) S.go('queue');
+  /* ほかのタブ(① の選んだ配信・③ の「この配信を解析する」)から来たときは、入れた配信の行へフォーカス(2 周目 N4。以前は body に落ちた) */
+  if (!stay && from !== 'queue' && r.added.length) focusItem(r.added[0].qid);
   return r;
 };
 /* コラボとしてまとめる: まとめて追加した動画(videoId)からグループを作る(経路1)。時刻のズレの指定は「④ コラボ」で別途行う */
@@ -272,7 +275,7 @@ function itemHtml(it){
   const who = it.kind === 'file' ? '動画ファイル' : (it.channel || '');
   const when = it.finishedAt ? `<span title="${esc(S.date(it.finishedAt))}">${esc(S.ago(it.finishedAt))}</span>` : '';
   const meta = [who ? `<span>${esc(who)}</span>` : '', it.status === 'done' ? `<span>マーク <b class="num">${Number(it.marks) || 0}</b>件</span>` : '', when].filter(Boolean).join('<span class="q-dot">・</span>');
-  let h = `<div class="q-item st-${esc(cls)}" data-qid="${id}" data-status="${esc(it.status)}"><span class="q-ic" aria-hidden="true"></span><div class="q-main"><div class="q-title" title="${esc(it.videoId)}">${esc(it.title || it.videoId)}</div>
+  let h = `<div class="q-item st-${esc(cls)}" data-qid="${id}" data-status="${esc(it.status)}" tabindex="-1"><span class="q-ic" aria-hidden="true"></span><div class="q-main"><div class="q-title" title="${esc(it.videoId)}">${esc(it.title || it.videoId)}</div>
     <div class="q-meta"><span class="pill ${esc(cls)}">${esc(label)}</span>${meta}</div></div>
     <div class="q-act">`;
   if (it.status === 'done') h += `<button type="button" class="btn small" data-act="review" data-vid="${esc(it.videoId)}">確認する</button>`;
@@ -286,7 +289,7 @@ function itemHtml(it){
   } else if (it.status === 'waiting') h += `<div class="q-sub">${esc(it.phase)}</div>`;
   else if (it.status === 'error'){
     const e = errHelp(it.error || it.phase);
-    h += `<div class="q-sub q-err"><b>${esc(e.what)}</b><span class="q-how">${esc(e.how)}</span>${it.error ? `<details class="q-raw"><summary>元のメッセージ</summary><code>${esc(it.error)}</code></details>` : ''}</div>`;
+    h += `<div class="q-sub q-err"><b>${esc(e.what)}</b><span class="q-how">${esc(e.how)}</span>${it.error ? `<details class="q-raw ui-disclosure"><summary>元のメッセージ</summary><code>${esc(it.error)}</code></details>` : ''}</div>`;
   }
   else if (it.phase && it.status !== 'done') h += `<div class="q-sub">${esc(it.phase)}</div>`;
   return h + '</div>';
@@ -294,9 +297,17 @@ function itemHtml(it){
 /* 構造(項目・状態・ボタン)が変わったときだけ作り直す。実行中の進捗・フェーズ・チャット経過は、その場で書き換える */
 const chatShown = it => it.status === 'running' && !!it.chat && it.chat.state === 'running';
 const sig = it => [it.qid, it.status, it.error, it.title, it.channel, it.marks, it.kind, it.status === 'running' ? '' : it.phase, chatShown(it)].join('\u001f');
+/* 一覧は状態が変わるたびに作り直すので、行(か行のボタン)にあったフォーカスは同じ行へ戻す(body に落とさない) */
 function renderList(){
-  const its = Q.items;
+  const its = Q.items, a = document.activeElement, row = a && a.closest ? a.closest('#qList .q-item') : null;
+  const keep = row ? { qid: row.dataset.qid, act: a !== row && a.dataset ? a.dataset.act : '' } : null;
   $('#qList').innerHTML = its.length ? its.map(itemHtml).join('') : EMPTY_LIST;
+  if (keep) focusItem(keep.qid, keep.act);
+}
+function focusItem(qid, act){
+  const el = qid && document.querySelector(`#qList .q-item[data-qid="${CSS.escape(qid)}"]`); if (!el) return false;
+  (act && el.querySelector(`[data-act="${CSS.escape(act)}"]`) || el).focus();
+  return true;
 }
 function updateLive(){
   for (const it of Q.items){
@@ -316,8 +327,11 @@ function updateMeta(){
   clr.title = clr.disabled ? '終わった解析がまだありません(解析が完了・失敗・中止すると押せます)' : '終わった解析(完了・失敗・中止)を、この一覧から消します';   /* 押せない理由(A-34) */
   S.setBadge('queue', act ? String(act) : '', act ? `解析中・順番待ちの配信 ${act}本` : '');
   /* 次にやること(1つだけ): 解析が終わった配信を ③ で確認する */
-  const done = its.filter(i => i.status === 'done').length, nx = $('#qNext');
-  nx.hidden = !done; nx.textContent = done ? `解析が終わった配信 ${done}本を「確認する」から ③ で確かめます` : '';
+  /* マークが 0 件の配信は「確かめる」ではなく、手でマークする道を言う(2 周目 S16) */
+  const fin = its.filter(i => i.status === 'done'), withM = fin.filter(i => Number(i.marks) > 0).length, zero = fin.length - withM, nx = $('#qNext');
+  nx.hidden = !fin.length;
+  nx.textContent = withM ? `解析が終わった配信 ${withM}本を「確認する」から ③ で確かめます` + (zero ? `(ほかの ${zero}本は盛り上がりが見つからなかったので、③ で手でマークします)` : '')
+    : zero ? `解析が終わった ${zero}本は、盛り上がりが見つかりませんでした。「確認する」から ③ で手で「今をマーク」できます` : '';
 }
 function refreshView(){
   const sg = Q.items.map(sig).join('\n');

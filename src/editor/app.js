@@ -789,15 +789,15 @@ const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: '
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
   Tab: '入力欄に入る/抜ける', 'Shift+Tab': 'ふつうのフォーカスの移動', Escape: '入力欄から抜ける・取り消し', Enter: 'ボタンを押す', '?': 'キー操作の一覧' };
 /* 2 カット のタブのキー(cut.js の onKey。変えられない)。一覧はこの表から作る(以前は index.html と cut.js に二重に書いていた。S-30) */
-const CUT_KEY_ROWS = [['[ / ]', '前/次の区間を選ぶ'], ['Q / W', '選んだ区間の始まり/終わりの端を選ぶ'], ['S', '分割'], ['Del', '削る/戻す'], ['H', '始まりの印〜終わりの印を削る(外す)'],
-  ['Shift+, / Shift+.', '選んだ端を10コマ(1コマは共通の再生キー)'], ['+ / −', '拡大・縮小'], ['Home / End', '先頭・末尾へ'], ['Esc', '選択を外す'], ['Ctrl+Z / Ctrl+Shift+Z', '元に戻す・やり直す']];
+const CUT_KEY_ROWS = window.EditCut ? EditCut.KEY_ROWS : [];   // 表の正は cut.js(キーを変えたら一覧・知らせ・title が一緒に変わるように。2 周目 R1)
+const CUT_FIXED = (window.EditCut && EditCut.FIXED_KEYS) || {};   // 2 カット の固定のキー: 1 文字起こし のキー・共通の再生キーに割り当てさせない(2 周目 N3)
 const keyText = k => window.UIKit && UIKit.keys && UIKit.keys.keyText ? UIKit.keys.keyText(k) : (k || '未設定');
 /* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と ⚙ 設定の「キー配置」は同じ部品。重なりの検査(固定・共通の再生キー・
    派生キー = ← → に当たるキー + Shift)も部品の 1 か所。共通の再生キーはホームの設定(スタジオと同じ)。校正のキーは編集の設定 keymap(送ったキーだけ直す) */
 const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
   groups: KEY_GROUPS,
   actions: TX_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: a[3], alt: KEY_ALT[a[0]] })),
-  refuse: combo => KEY_FIXED[combo] || (/^[0-9]$/.test(combo) ? '話者の番号(1〜9・0)' : ''),
+  refuse: combo => KEY_FIXED[combo] || CUT_FIXED[combo] || (/^[0-9]$/.test(combo) ? '話者の番号(1〜9・0)' : ''),
   intro: 'キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。文字を入力している間は効きません(Esc で入力欄から抜ける)。',
   playbackNote: '(スタジオ・編集で同じ。1 文字起こし・2 カット のタブで効きます)',
   fixed: [

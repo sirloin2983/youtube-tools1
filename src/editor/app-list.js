@@ -27,10 +27,17 @@ function rememberLast(){ if (S.docId){ try { localStorage.setItem(LAST_KEY, JSON
 function renderResume(){
   const box = $('#noDocResume'); if (!box) return;
   const last = S.doc ? null : lastOpened(), it = last && S.list.find(x => x.id === last.id);   // 消した文書は出さない
-  box.hidden = !it; if (!it) return;
+  box.hidden = !it; emptyPrimary();
+  if (!it) return;
   $('#noDocResumeT').textContent = `「${it.title || '無題'}」の ${TAB_NAME[last.tab]}`;
   $('#noDocResumeBtn').title = String(it.title || '無題');
   $('#noDocResumeSub').textContent = [it.channel, '最終更新 ' + ago(Number(it.updatedAt) || 0)].filter(Boolean).join(' ・ ');
+}
+/* 何も開いていない画面の primary は 1 つ(2 周目 N1): 前回の続きがあればそれだけ。無ければ「メニューを開く」(メニューが開いていれば「文字起こしを開始」) */
+function emptyPrimary(){
+  const resume = !S.doc && !$('#noDocResume').hidden;
+  $('#noDocMenu').classList.toggle('primary', !resume);
+  $('#btnStart').classList.toggle('primary', !resume);
 }
 async function resumeLast(){ const last = lastOpened(); if (last && (await openDoc(last.id))) setEditTab(last.tab, { focus: true }); }
 

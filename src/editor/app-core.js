@@ -251,7 +251,7 @@ function applyView(){
   app.classList.toggle('tab-wide', wide); app.classList.toggle('menu-overlay', wide && EDT.overlay);
   app.classList.toggle('menu-closed', !menuOpen());
   $('#btnMenu').setAttribute('aria-expanded', menuOpen() ? 'true' : 'false'); $('#btnMenuT').textContent = menuOpen() ? 'メニューを閉じる' : 'メニューを開く';
-  $('#noDocMenu').hidden = !!V.menu;
+  $('#noDocMenu').hidden = !!V.menu; if (typeof emptyPrimary === 'function') emptyPrimary();
   $('#vFs').value = V.fs; $('#vVid').value = V.vid; $('#vDense').checked = V.dense; $('#vBrk').value = V.brk;
   if (!['0.05', '0.1', '0.25', '0.5', '1'].includes(V.adjStep)) V.adjStep = '0.1';
   $('#follow').checked = V.follow; $('#frameFollow').checked = !!V.frameFollow; $('#adjStep').value = V.adjStep; $('#autoNext').checked = V.autoNext; $('#rate').value = V.rate;

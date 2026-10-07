@@ -1260,8 +1260,13 @@ function renderKeyUI(){
 /* マークの「ライブ」の印 = YouTube の配信中に付けた(あとでアーカイブの時刻へずらす対象)。ライブの録画の時刻は録画の秒で、ずらす物ではないので付けない・出さない */
 const markLive = () => !!S.live && !(S.cur && S.cur.kind === 'live');
 function renderLiveCount(){
-  const n = marks().filter(c => c.live).length;
+  const n = S.cur ? marks().filter(c => c.live).length : 0;
   $('#rvLiveMarks').textContent = n + '件'; $('#rvShiftCount').textContent = n ? `対象 ${n}件` : '対象なし';
+  /* ⚙ の節にあるので ① ② からも押せてしまう。③ で配信を開いていて対象があるときだけ押せる(理由は title と data-ui-why。2 周目 N1) */
+  const b = $('#rvShift'); if (!b) return;
+  const why = !S.cur || Studio.step !== 'review' ? '③ で配信を開くと押せます' : !n ? 'ずらすマークがありません(配信中に打った「ライブ」の印のマークが対象です)' : '';
+  b.disabled = !!why; b.title = why || `「ライブ」の印のマーク ${n}件の時刻をずらします`;
+  if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
 }
 function updateLive(){
   if (!S.cur) return;
@@ -1959,6 +1964,8 @@ function autoTitleFromPlayer(){
 /* ---------- 書き出し(サーバーが store から組み立てる。クライアントは id とマークIDだけ送る)---------- */
 let expTimer = null;
 const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ(見直し S7)
+/* 書き出したファイルの名前の見せ方: 名前の中の開始時刻 00h29m21s は 0:29:21 の形で見せる(ファイル名そのものは変えない。title に本当の名前。見直し S6) */
+const fileLabel = f => String(f || '').replace(/(\d{2})h(\d{2})m(\d{2})s/g, (_, h, m, sec) => `${Number(h)}:${m}:${sec}`);
 function errHint(msg){
   if (/空か短すぎ|取得|ストリーム|方法1/.test(msg || '')) return 'ライブ終了直後はアーカイブが未完成で失敗しやすくなります。数時間〜半日ほど置いてから「失敗した分だけやり直す」を試してください。';
   return '';
@@ -2166,7 +2173,7 @@ function jobItemHTML(j, it, i){
       ${archLineHTML(ar)}
       ${it.status === 'running' && (!lv || pct > 0) ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
       ${act && it.message ? `<div class="rv-ejob-s hint">${esc(it.message)}</div>` : ''}
-      ${it.file && it.status === 'done' ? `<div class="rv-ejob-s mono">${esc(it.file)}</div>` : ''}
+      ${it.file && it.status === 'done' ? `<div class="rv-ejob-s mono" title="${esc(it.file)}">${esc(fileLabel(it.file))}</div>` : ''}
       ${handoffHTML(j, it)}
       ${loudHTML(it.loudness)}
       ${lv && it.status === 'done' && it.tx ? `<div class="rv-ejob-s hint">${esc(liveTxText(it.tx))}</div>` : ''}
@@ -2575,7 +2582,7 @@ function markHTML(c){
       ${auto ? reasonTags(c) : ''}
       <div class="rv-times">${tfieldHTML(c, 'start', '開始')}${tfieldHTML(c, 'end', '終了')}</div>
       <div class="rv-labelrow"><input id="rvl-${esc(c.id)}" data-f="label" maxlength="120" value="${esc(c.label)}" aria-label="ラベル(書き出しのファイル名に使われます)" placeholder="ラベル(ファイル名に使われます) 例: 初見ボスで絶叫"></div>
-      ${exp && c.file ? `<div class="rv-file hint">書き出し先: <span class="mono">${esc(c.file)}</span></div>` : ''}
+      ${exp && c.file ? `<div class="rv-file hint">書き出し先: <span class="mono" title="${esc(c.file)}">${esc(fileLabel(c.file))}</span></div>` : ''}
       ${exp && c.file && typeof c.path === 'string' && isAbsPath(c.path) ? handoffHTML(null, { status: 'done', path: c.path }) + txHTML(c) : ''}
     </div>
   </li>`;
@@ -2636,7 +2643,7 @@ function renderStats(){
 function renderAll(){
   renderVideoSelect(); renderMeta(); renderDraft();
   if (S.cur){ renderTimeline(); renderStats(); renderList(); renderLiveCount(); }
-  else renderExportUI();
+  else { renderExportUI(); renderLiveCount(); }
   setSaveState('idle');
 }
 const WIDE = '(min-width:961px)';
@@ -3208,7 +3215,7 @@ Studio.onReady(() => {
   if (Studio.live) Studio.live.available().then(i => { const el = $('#rvOpenForm .rv-openlive'); if (el) el.hidden = !i; }, () => {});   // ライブの機能が使えるときだけ「録画を始めて開きます」と添える
   wireSettings(); wire(); renderKeyUI();
   renderAll();
-  Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); });
+  Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ③ にいるか次第
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
   /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2)。別の窓へ移った('blur')ときは保存だけ: 再生を止めない・状態の確認も続ける
      (窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */

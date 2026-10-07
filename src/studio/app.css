@@ -208,6 +208,7 @@ main{display:block}
 .q-advnote{margin:12px 0 0;font-size:12px;color:var(--ink-3)}
 /* キューの1件 */
 .q-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start}
+.q-item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--r)}   /* ほかのタブから入れた配信の行へフォーカスを移す(tabindex=-1。2 周目 N4) */
 .q-item:last-child{border-bottom:0}
 .q-ic{width:10px;height:10px;border-radius:50%;margin-top:6px;background:var(--ink-4);box-sizing:border-box}
 /* v6: 無限の点滅(ui-pulse)はやめ、ui-kit の .pill.run と同じ静かな回転の輪にした(prefers-reduced-motion で止まるのも同じ) */
@@ -230,7 +231,7 @@ main{display:block}
 .q-err b{font-weight:650}
 .q-how{color:var(--ink-2)}
 .q-raw{font-size:11.5px;color:var(--ink-3)}
-.q-raw>summary{cursor:pointer;width:max-content;max-width:100%;min-height:28px;line-height:28px}   /* 押せる部品は 28px 以上(A-21) */
+.q-raw>summary{cursor:pointer;width:max-content;max-width:100%;min-height:28px;line-height:28px;font-weight:400}   /* 開閉の印は ui-disclosure の線の山形(ブラウザの三角をやめた。2 周目 N5) */   /* 押せる部品は 28px 以上(A-21) */
 .q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
 .q-item.st-err{background:var(--danger-soft);margin:0 -16px;padding-left:16px;padding-right:16px}
 

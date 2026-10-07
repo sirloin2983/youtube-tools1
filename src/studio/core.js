@@ -34,11 +34,11 @@ Studio.api = async (path, opts = {}) => {
   try { r = await fetch(Studio.url(path), init); } catch (e){ const er = new Error('サーバーに接続できません(黒い画面が閉じていないか確認してください)'); er.code = 'network'; throw er; }
   let j = null;
   try { j = await r.json(); } catch {}
-  if (!r.ok){ const er = new Error((j && j.message) || httpMsg(r.status)); er.code = (j && j.error) || 'http'; er.status = r.status; er.body = j; throw er; }
+  if (!r.ok){ const er = new Error((j && j.message) || httpMsg(r.status)); er.code = (j && j.error) || 'http'; er.status = r.status; er.body = j; er.detail = 'HTTP ' + r.status; throw er; }
   return j;
 };
-/* サーバーが文を返さなかった失敗の文(HTTP の番号は本文に出さず、括弧の中に小さく。見直し S4) */
-const httpMsg = st => (st >= 500 ? 'サーバーで問題が起きました。少し待ってから、もう一度試してください' : '要求を受け付けてもらえませんでした。画面を読み込み直してから、もう一度試してください') + '(HTTP ' + st + ')';
+/* サーバーが文を返さなかった失敗の文。HTTP の番号は本文に出さず e.detail に(見直し S4・2 周目) */
+const httpMsg = st => (st >= 500 ? 'サーバーで問題が起きました。少し待ってから、もう一度試してください' : '要求を受け付けてもらえませんでした。画面を読み込み直してから、もう一度試してください');
 
 /* 入口の API(/api/autorun など。まとめて実行)。取り込まれた画面は入口の /studio/ の下にあるので、画面の場所から1つ上(絶対パスを書かない)。
    入口から開いたとき(Studio.token があるとき)だけ使う。失敗は Error(message)(e.code・e.status) */
@@ -49,7 +49,7 @@ Studio.portalApi = async (path, body) => {
   try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)'); }
   let j = {};
   try { j = await r.json(); } catch {}
-  if (!r.ok){ const er = new Error(j.message || httpMsg(r.status)); er.code = j.error; er.status = r.status; throw er; }
+  if (!r.ok){ const er = new Error(j.message || httpMsg(r.status)); er.code = j.error; er.status = r.status; er.detail = 'HTTP ' + r.status; throw er; }
   return j;
 };
 
@@ -79,7 +79,7 @@ Studio.live = {
     clearTimeout(t);
     let j = {};
     try { j = await r.json(); } catch {}
-    if (!r.ok){ const er = new Error((j && j.message) || httpMsg(r.status)); er.code = j && j.error; er.status = r.status; er.body = j; throw er; }
+    if (!r.ok){ const er = new Error((j && j.message) || httpMsg(r.status)); er.code = j && j.error; er.status = r.status; er.body = j; er.detail = 'HTTP ' + r.status; throw er; }
     return j;
   },
   /* ライブの機能が使えるか(入口の ../live/api/info)。使えるなら info、使えない(単独起動・オフ・失敗)なら null。
@@ -159,7 +159,7 @@ Studio.dataWarning = box => {
   if (!DW.w || DW.dismissed){ box.hidden = true; return; }
   if (!box.hidden && box.childElementCount) return;
   const det = [DW.backup && '退避したファイル: ' + DW.backup, '1 つ前の控え: data.json.bak(ある場合)', DW.dir && '作業データのフォルダ: ' + DW.dir].filter(Boolean);
-  box.innerHTML = `<div><b>作業データの読み込みで問題がありました</b><br>${Studio.esc(DW.w)}<details class="q-raw"><summary>詳しく</summary><code>${det.map(Studio.esc).join('\n')}</code></details></div><button type="button" class="btn small" data-dw-close>閉じる</button>`;
+  box.innerHTML = `<div><b>作業データの読み込みで問題がありました</b><br>${Studio.esc(DW.w)}<details class="q-raw ui-disclosure"><summary>詳しく</summary><code>${det.map(Studio.esc).join('\n')}</code></details></div><button type="button" class="btn small" data-dw-close>閉じる</button>`;
   box.hidden = false;
   if (!DW.toasted){ DW.toasted = true; Studio.toast('作業データの読み込みで問題がありました(上の帯に戻し方があります)', 9000, 'err'); }
 };

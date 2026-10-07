@@ -95,6 +95,7 @@ def job_errors(job, wav=None, cancelled="中止しました", log=None):
         job["state"], job["phase"] = "cancelled", cancelled
     except ed_state.ApiError as e:
         job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
+        job["errorCode"] = e.code
         if e.extra.get("detail"):
             job["errorDetail"] = str(e.extra["detail"])[:300]   # 内部の名前・原文は「詳しく」の中だけ(UI の見直し S12)
     except Exception as e:
@@ -617,6 +618,11 @@ EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo", "voice-learn"), "voi
 
 
 RETRY_KINDS = ("transcribe",)   # [やり直す] で同じ指定のまま入れ直せる処理(文書を書き換える処理は、文書の画面のボタンから始め直す)
+NO_RETRY = ("extract_failed", "bad_range", "too_long", "bad_model", "bad_engine", "bad_ext", "not_found", "no_speech")   # 同じ指定ではまた失敗する理由(2 周目 N2)
+
+
+def can_retry(j):
+    return j["state"] == "error" and j["kind"] in RETRY_KINDS and j.get("errorCode") not in NO_RETRY
 
 
 def retry_job(jid):
@@ -625,8 +631,8 @@ def retry_job(jid):
         j = _jobs.get(str(jid or ""))
         if not j:
             raise ed_state.ApiError("not_found", "その処理は見つかりません。画面を読み込み直してください", 404)
-        if j["state"] != "error" or j["kind"] not in RETRY_KINDS:
-            raise ed_state.ApiError("bad_state", "やり直せるのは、失敗した文字起こしだけです", 409)
+        if not can_retry(j):
+            raise ed_state.ApiError("bad_state", "この処理は、同じ指定ではやり直せません(失敗した文字起こしのうち、指定を変えなくてよいものだけ)", 409)
         kind, spec = j["kind"], j["spec"]
         try:
             spec = json.loads(json.dumps(spec, ensure_ascii=False))   # 前の job と指定を共有しない
@@ -664,7 +670,7 @@ def public_job(j):
     out = {k: j[k] for k in ("id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt")}
     out["errorDetail"] = j.get("errorDetail") or ""   # 失敗の原文・内部の名前(画面は「詳しく」の中だけ。M9・S12)
     out["internal"] = bool(j.get("internal"))   # 想定外の失敗(画面は「途中で止まりました」の決まった文)
-    out["canRetry"] = j["state"] == "error" and j["kind"] in RETRY_KINDS   # 画面の [やり直す](同じ指定でもう一度)
+    out["canRetry"] = can_retry(j)   # 画面の [やり直す](同じ指定でもう一度)
     sp = j.get("spec") or {}
     out["warnings"] = list(sp.get("warnings") or [])   # 例: 隣の .clip.json が壊れている・別の版(文字起こしは続ける)
     out["hasClip"] = bool(sp.get("clip"))
@@ -715,7 +721,8 @@ def extract_audio(job, spec, wav):
         raise Cancelled()
     if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
         tail = " / ".join([l.strip() for l in (err or "").splitlines() if l.strip()][-2:])
-        raise ed_state.ApiError("extract_failed", "音声を取り出せませんでした(音声トラックがないか、壊れたファイルの可能性): " + tail[:200], 400)
+        raise ed_state.ApiError("extract_failed", "音声を取り出せませんでした。音声の無い動画か、壊れたファイルの可能性があります。別の動画を選んでください", 400,
+                                {"detail": tail[:300]})   # ffmpeg の原文(パスを含む)は「詳しく」だけ(2 周目 N2)
 
 
 LATIN_MIN_LETTERS = 4   # 英字がこの数以上で、文字全体の LATIN_RATIO 以上を占め、
@@ -921,11 +928,12 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
                 if dev == "cuda" and pref == "auto":
                     continue  # 自動のときは、GPU が使えなければ CPU にする
                 if dev == "cuda":
-                    raise ed_state.ApiError("gpu_failed", "GPU で読み込めませんでした: %s(GPU 用ライブラリが未導入の可能性があります。install-gpu.bat を実行するか、処理方式を「自動」か「CPU」にしてください)" % str(e)[:160], 500)
-                raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした: %s(ネットワーク接続とモデル名を確認してください)" % str(e)[:200], 500)
+                    raise ed_state.ApiError("gpu_failed", "GPU で読み込めませんでした。GPU 用ライブラリが未導入の可能性があります。install-gpu.bat を実行するか、処理方式を「自動」か「CPU」にしてください", 500,
+                                            {"detail": str(e)[:300]})
+                raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした。ネットワーク接続とモデル名を確かめて、もう一度始めてください", 500, {"detail": str(e)[:300]})
             _models[key] = m
             return m, dev
-        raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした: %s" % str(last)[:200], 500)
+        raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした。もう一度始めてください", 500, {"detail": str(last)[:300]})
 
 
 CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")

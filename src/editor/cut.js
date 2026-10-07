@@ -12,6 +12,14 @@ const SNAP_PX = 8;                   // 吸い付く距離(画面の点)
 const MIN_TICK_PX = 70;
 const UNDO_MAX = 200;
 const SILENCE_LEVEL = 40, SILENCE_MIN = 0.3;   // 波形(平方根の 0〜255)から無音の境目を出す(吸い付く先)
+/* 2 カット の固定のキー(onKey。キー配置では変えられない)。? の一覧(app.js の CUT_KEY_ROWS)・知らせ・title・1 文字起こし のキー配置の検査は、ここから作る
+   (2 周目の見直し R1: キーを X → H に変えたあと、知らせの文だけ「(X)」のまま残っていた) */
+const IO_CUT_KEY = 'H';   // 始まりの印〜終わりの印を削る(外す)。X は 1 文字起こし の「聞き取れない」と重なっていた(M2・仮決め (ay))
+const KEY_ROWS = [['[ / ]', '前/次の区間を選ぶ'], ['Q / W', '選んだ区間の始まり/終わりの端を選ぶ'], ['S', '分割'], ['Del', '削る/戻す'], [IO_CUT_KEY, '始まりの印〜終わりの印を削る(外す)'],
+  ['Shift+, / Shift+.', '選んだ端を10コマ(1コマは共通の再生キー)'], ['+ / −', '拡大・縮小'], ['Home / End', '先頭・末尾へ'], ['Esc', '選択を外す'], ['Ctrl+Z / Ctrl+Shift+Z', '元に戻す・やり直す']];
+/* 1 文字起こし のキー・共通の再生キーにも割り当てさせないキー(UIKit.keys.comboOf の表記 → 使い道)。S・Q・W は 1 では別の意味と決めてある(ガイドラインの例外)ので入れない */
+const FIXED_KEYS = { [IO_CUT_KEY.toLowerCase()]: '2 カット: 始まり〜終わりを削る', Delete: '2 カット: 削る/戻す', Backspace: '2 カット: 削る/戻す', '[': '2 カット: 前の区間', ']': '2 カット: 次の区間',
+  '+': '2 カット: 拡大', '=': '2 カット: 拡大', '-': '2 カット: 縮小', Home: '2 カット: 先頭へ', End: '2 カット: 末尾へ' };
 
 function create(h){
   const $ = h.$, esc = h.esc;
@@ -482,6 +490,7 @@ function create(h){
   function renderKeysText(){
     const io = $('#cutIOLabel');   // 「I〜O を削る」のボタンの文字も、始まり/終わりの印のキーから(段3 3-3。外していれば「印の間を削る」)
     if (io) io.textContent = pk('markIn') && pk('markOut') ? pk('markIn') + '〜' + pk('markOut') + ' を削る' : '印の間を削る';
+    const kb = document.querySelector('#cutIO kbd'); if (kb) kb.textContent = IO_CUT_KEY;
     /* タイムラインの下の長いキーの説明の行はやめた(帯・? の一覧と同じ中身を三度出していた。UI の見直し S17)。下の行は「すべてのキー: ?」だけ(index.html) */
   }
   window.addEventListener('ytt-keys-changed', () => { renderKeysText(); cutKeybarScene(); });
@@ -700,7 +709,7 @@ function create(h){
     for (const s of ['#cutDraftSilence', '#cutDraftList']){ const d = $(s), sm = d.querySelector('summary'); sm.classList.toggle('disabled', !ok || !c2r || busy); sm.title = why || sm.dataset.title; if (!ok || !c2r) d.open = false; }
     const pb = $('#cutDraftPlan'); pb.hidden = !M.planBeside; pb.disabled = !ok || !c2r || busy; pb.title = why || ('作業用フォルダの ' + String(M.planBeside).split(/[\\/]/).pop() + '(スタジオなどの残す区間の指定)から');
     $('#cutIO').disabled = !ok || M.io.i === null || M.io.o === null || M.io.i === M.io.o;
-    $('#cutIO').title = !$('#cutIO').disabled ? '始まりの印から終わりの印までを削ります(H)' : !ok ? '今はカットを変えられません' : `${pk('markIn') || 'I'}(始まり)と ${pk('markOut') || 'O'}(終わり)の印を付けると押せます`;   // 押せない理由(S16)
+    $('#cutIO').title = !$('#cutIO').disabled ? `始まりの印から終わりの印までを削ります(${IO_CUT_KEY})` : !ok ? '今はカットを変えられません' : `${pk('markIn') || 'I'}(始まり)と ${pk('markOut') || 'O'}(終わり)の印を付けると押せます`;   // 押せない理由(S16)
     $('#cutSnap').checked = M.snap;
     $('#cutModeSrc').setAttribute('aria-pressed', M.mode === 'src' ? 'true' : 'false'); $('#cutModeCut').setAttribute('aria-pressed', M.mode === 'cut' ? 'true' : 'false');
     $('#cutModePill').textContent = M.mode === 'cut' ? 'カット後の見え方' : '元の動画';
@@ -783,7 +792,7 @@ function create(h){
     else { const { a, b } = M.sel; change(cs => addRange(cs, a, b)); M.sel = null; render(); }
   }
   function cutIO(){
-    const { i, o } = M.io; if (i === null || o === null || i === o) return h.toast(`${pk('markIn') || '始まりの印のキー'} で始まり、${pk('markOut') || '終わりの印のキー'} で終わりを決めてから(X)`, 3000);
+    const { i, o } = M.io; if (i === null || o === null || i === o) return h.toast(`${pk('markIn') || '始まりの印のキー'} で始まり、${pk('markOut') || '終わりの印のキー'} で終わりを決めてから(${IO_CUT_KEY})`, 3000);
     const a = Math.min(i, o), b = Math.max(i, o);
     if (change(cs => subtract(cs, a, b))){ M.io = { i: null, o: null }; render(); }
   }
@@ -1130,7 +1139,7 @@ function create(h){
       case 'q': case 'Q': return run(() => pickEdge('in'));
       case 'w': case 'W': return run(() => pickEdge('out'));
       case 'Delete': case 'Backspace': return run(delOrRestore);
-      case 'h': case 'H': return run(cutIO);   // 始まりの印〜終わりの印を削る(外す)。以前の X は 1 文字起こし の「聞き取れない」と重なっていた(M2。仮決め (ay))
+      case IO_CUT_KEY.toLowerCase(): case IO_CUT_KEY: return run(cutIO);   // 始まりの印〜終わりの印を削る(外す)。以前の X は 1 文字起こし の「聞き取れない」と重なっていた(M2。仮決め (ay))
       case '+': case '=': return run(() => zoom(1.5));
       case '-': return run(() => zoom(1 / 1.5));
       case 'Escape': if (M.sel || M.io.i !== null || M.io.o !== null){ run(() => { M.sel = null; M.io = { i: null, o: null }; render(); }); } return;
@@ -1190,5 +1199,5 @@ function create(h){
     _debug: M
   };
 }
-window.EditCut = { create };
+window.EditCut = { create, KEY_ROWS, FIXED_KEYS };
 })();

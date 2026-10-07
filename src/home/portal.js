@@ -95,7 +95,6 @@
     if (window.UIKit && UIKit.toast) UIKit.toast(text, opt);
     return text;
   }
-  function err(msg, detail) { var b = $('#errbar'); b.textContent = msg; b.title = detail || ''; b.hidden = !msg; }
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -301,6 +300,7 @@
     p.className = 'pill ' + (ok ? 'ok' : 'err');
     p.textContent = ok ? '接続済み' : '切断';
     p.hidden = ok;   // いつも出ている緑の札は要らない(状態の知らせは切れたときの帯だけ。S12)
+    // 赤い帯は接続の文だけ(一覧の読み込みの失敗などは、その欄の中に出す。接続を確かめるたびに別の文を消さない)
     bar.hidden = ok;
     bar.textContent = ok ? '' : 'サーバーに接続できません。黒い画面が閉じられた可能性があります。start.bat をダブルクリックして起動し直してください。';
   }
@@ -483,7 +483,6 @@
     var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { goneAuto(box, c); return; }
     if (window.UIKit && UIKit.streamer) UIKit.streamer.attach(who);
-    if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('.pt-auto-loudsel', box));   // パックの音量(編集の設定の1か所。2026-09-29)
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
     else if (window.UIKit && UIKit.streamer && UIKit.streamer.autoFill) UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
@@ -916,16 +915,29 @@
       (hid ? ' ・ 非表示 ' + hid + ' 本' : '');
   }
 
+  var casesLoadFailed = false;
   function loadCases() {
-    err('');
-    return api('/api/cases').then(function (j) { casesData = j; resetPaging(); }).catch(function (e) {
-      err(failText('案件の一覧を読めませんでした', '「読み込み直す」を押してください。続くときは「すべて終了」→ start.bat で起動し直してください', e), detailOf(e));
+    return api('/api/cases').then(function (j) { casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+      casesLoadFailed = true;
+      if (casesData) { failToast('案件の一覧を読み直せませんでした', '「読み込み直す」を押してください', e); return; }   // 前の一覧は残す
+      // 初めての読み込みの失敗(M9): 欄の中に「何が」+「どうすれば」の 2 文 + [読み込み直す](赤い帯は接続の文だけ)
+      var list = $('#list'), box = emptyBox('案件の一覧を読めませんでした', failText('', 'もう一度「読み込み直す」を押してください。続くときは「すべて終了」→ start.bat で起動し直してください', e).replace(/^。/, ''),
+        { label: '読み込み直す', fn: reloadAll });
+      box.title = detailOf(e);
+      list.textContent = '';
+      list.appendChild(box);
+      $('#moreBox').hidden = true; $('#count').textContent = ''; $('#summary').textContent = '';
+      buildTodo();
     });
+  }
+  /* 案件の一覧・文字起こしの一覧を読み直す(ヘッダーの「読み込み直す」と、読めなかったときのボタン) */
+  function reloadAll() {
+    return Promise.all([loadCases(), loadTxList()]).then(function () { renderDocs(); buildTodo(); if (!casesLoadFailed) toast('読み込み直しました'); });
   }
   function refreshCases() {
     // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
     // (E2 finding 1: 前は render() だけで、alt-tab で戻ったときにこの2つが古いままだった)
-    return api('/api/cases').then(function (j) { casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
+    return api('/api/cases').then(function (j) { casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {
@@ -1446,7 +1458,7 @@
       // casesData が無い(案件の一覧をまだ読めていない)ときは「作業は無い」ではなく、読めていないと分かる文言にする(E2 finding 4)
       var go = $('#todoEmptyBtn');
       $('b', empty).textContent = casesData ? 'いま手が要る作業はありません' : '案件の一覧を読み込めていません';
-      $('#todoEmptyText').textContent = casesData ? 'スタジオで配信を解析すると、ここに出ます。' : '上の赤い帯に、直し方が出ています(「読み込み直す」を押してください)。';
+      $('#todoEmptyText').textContent = casesData ? 'スタジオで配信を解析すると、ここに出ます。' : '案件の一覧の欄に、直し方が出ています(「読み込み直す」を押してください)。';
       go.hidden = !casesData;   // 次の一手(スタジオで配信を探す)は、案件の一覧を読めているときだけ
       more.hidden = true;
       return;
@@ -1955,9 +1967,7 @@
     $('#btnMore').addEventListener('click', function () {
       var from = $all('#list .pt-case').length; visibleCount += PAGE_SIZE; render(); focusNewRow('#list .pt-case', from);
     });
-    $('#btnReload').addEventListener('click', function () {
-      Promise.all([loadCases(), loadTxList()]).then(function () { renderDocs(); buildTodo(); toast('読み込み直しました'); });
-    });
+    $('#btnReload').addEventListener('click', reloadAll);
 
     $('#docSearch').addEventListener('input', function () { resetDocPaging(); });
     $('#docMore').addEventListener('click', function () {

@@ -13,7 +13,7 @@ function build(){
   toolEl.innerHTML = `
   <details class="card set-sec" id="setKey" open><summary><span class="set-title">YouTube Data API キー</span><span class="pill" id="keyState"></span></summary><div class="body">
     <p class="hint">Google Cloud で「YouTube Data API v3」を有効にして作ったAPIキーを入れます(① 探す に必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの中にだけ保存し、画面には表示しません。</p>
-    <details class="q-raw"><summary>保存する場所</summary><code>作業データの config.json。環境変数 YOUTUBE_API_KEY があれば、そちらが優先されます</code></details>
+    <details class="q-raw ui-disclosure"><summary>保存する場所</summary><code>作業データの config.json。環境変数 YOUTUBE_API_KEY があれば、そちらが優先されます</code></details>
     <div class="fld"><label class="l" for="keyIn">APIキー</label>
     <input type="password" id="keyIn" placeholder="AIza..." autocomplete="off" spellcheck="false"></div>
     <div class="row set-actions"><button type="button" class="btn small primary" id="keySave">保存</button><button type="button" class="btn small danger" id="keyDel">キーを削除</button></div>
@@ -30,7 +30,7 @@ function build(){
     <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとでマークの行の「この後を」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
     : '<p class="hint">ホーム(start.bat)から開いているときだけ使えます。</p>'}
   </div></details>
-  <details class="card set-sec" id="setOps" open><summary><span class="set-title">③ の操作</span><span class="set-sub" title="音量・確認の進め方・マークの付け方・キー配置・ライブ配信">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary><div class="body" id="opsHost"><p class="hint">読み込み中…</p></div></details>
+  <details class="card set-sec" id="setOps"><summary><span class="set-title">③ の操作</span><span class="set-sub" title="音量・確認の進め方・マークの付け方・キー配置・ライブ配信">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary><div class="body" id="opsHost"><p class="hint">読み込み中…</p></div></details>
   <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub" title="複数人のコラボ配信をグループにまとめ、採用したマークを転写">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
   <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub" title="事務所ごとの所属チャンネル(① 探す の検索対象)">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
   $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));

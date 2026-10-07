@@ -879,6 +879,24 @@ def _ui_review_checks(cx):
     check(p7.evaluate("!!document.querySelector('.ui-toast.err .ui-toast-act') && document.querySelector('.ui-toast.err .ui-toast-detail').textContent.indexOf('HTTP 500') >= 0"),
           "[A] M9: 知らせに [もう一度]・原文(HTTP 500)は「詳しく」の中")
     p7.close()
+    # M9: 案件の一覧を読めなかったとき: 欄の中に 2 文 + [読み込み直す](赤い帯は接続の文だけ。接続の確認で消えない)・次にやることも帯を指さない
+    fail = {"on": True}
+    p8 = ctx.new_page()
+    p8.on("pageerror", lambda e: cx.errors.append(str(e)))
+    p8.route("**/api/cases", lambda route: route.fulfill(status=500, json={}) if fail["on"] else route.continue_())
+    p8.goto(cx.base)
+    check(wait_js(p8, "!!document.querySelector('#list .empty button')", 15000), "[A] M9: 一覧を読めないとき、欄の中に 2 文とボタンが出る")
+    time.sleep(3.5)   # 接続の確認(/api/status)が何度か回っても、一覧の文は消えない
+    et = p8.text_content("#list .empty")
+    check("案件の一覧を読めませんでした" in et and "読み込み直す" in et and "HTTP" not in et and p8.is_hidden("#errbar"),
+          "[A] M9: 一覧の失敗の文は欄に残り(何が + どうすれば)、本文に HTTP の番号を出さず、赤い帯は出さない: %s" % et)
+    check("案件の一覧の欄" in p8.text_content("#todoEmpty") and "上の赤い帯" not in p8.text_content("#todoEmpty"), "[A] M9: 次にやることは存在しない帯を指さない: %s" % p8.text_content("#todoEmpty"))
+    fail["on"] = False
+    p8.click("#list .empty button")
+    check(wait_js(p8, "document.querySelectorAll('#list .pt-case').length > 0", 15000), "[A] M9: [読み込み直す] で一覧が戻る")
+    # N1: 案件の行の「パックの音量」は出さない(「設定を変える」の中だけ。1 行に 2 か所にしない)
+    check(p8.evaluate("document.querySelectorAll('.pt-auto-loud, .pt-auto-loudsel').length") == 0, "[A] N1: 案件の行にパックの音量の欄を二重に出さない")
+    p8.close()
 
 
 def _mounted_redirect_theme_narrow(cx):

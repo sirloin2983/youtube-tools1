@@ -97,7 +97,7 @@ def compute_peaks(path, task=None):
         p.stderr.close()
     if p.returncode != 0 and not out:
         tail = (err[0] if err else b"").decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
-        raise ed_state.ApiError("peaks_failed", "音の波形を作れませんでした: " + tail[0][:200], 500)
+        raise ed_state.ApiError("peaks_failed", "音の波形を作れませんでした(音声の無い動画か、壊れたファイルの可能性があります)", 500, {"detail": tail[0][:300]})   # 原文は detail(2 周目 N2)
     return bytes(out), rate, dur or len(out) / rate
 
 
