@@ -2437,3 +2437,13 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: node 7 件 OK・e2e(Edge headless。fetch と XHR の両方・shadow DOM の行・行の使い回し)OK・lint 0。**本物の Studio ではまだ確かめていない**(AI は Studio にログインできない。内部 API の鍵の名前と行の class `.tablecell-date` は記憶に基づく仮定。無ければ日付の形の文字を持つ要素で探す)→ ユーザーが入れて確かめる。動かなければ README の「動かないとき」の記録を渡してもらうか、Claude in Chrome で本物の画面を調べる
 - 注意: この PC の AI のシェルからは Playwright の `chromium-1243/chrome-win64/chrome.exe` が spawn UNKNOWN で起動できない(`channel="chromium"`・窓あり共に。headless shell は動く)。拡張を入れる通しのテストは Edge を `executable_path` で使う。本物の Chrome は 137 以降 `--load-extension` を無視する(手で chrome://extensions から入れるのは可)。ms-playwright はパッケージの写しの中だけなので、パッケージの外のプロセスからは Playwright のブラウザが見えない
 - 未コミット: なし(このコミットで全部。push はユーザー)
+
+## 2026-10-08 Claude Code(PC。Fable)— Chrome 拡張「YouTube Studio 投稿時刻」を友人に渡せる形に(build.bat → dist/YtStudioTime.zip)
+- ユーザー「友人に配布したい」
+- 変更: `chrome-ext/yt-studio-time/build.bat`(新規。ASCII・CRLF。node のテスト(PATH に無ければ Playwright 同梱の node.exe)→ `dist/yt-studio-time/`(manifest.json・main.js・README.txt)→ `dist/YtStudioTime.zip`。friend-apps の build.bat と同じ形: Compress-Archive + zip の中の件数の検査・`--no-pause`)・
+  `README.txt`(友人にそのまま渡せる使い方に書き直し: できること・安心のための説明(権限なし・通信なし)・入れ方(デベロッパー モード → パッケージ化されていない拡張機能を読み込む。フォルダを消すと外れる・Chrome の更新のあとにオフになることがある)・更新・外す・出ないとき・作る側へ)・
+  `AGENTS.md`(新規。元の README にあった仕組み・テスト・デバッグ・未確認の仮定・配布の方法を AI 向けに移した)・リポジトリ直下の `AGENTS.md` の表の行(build.bat・AGENTS.md)・`.gitignore`(`chrome-ext/*/dist/`。zip は `*.zip` で元から無視)
+- 決定・理由(仮決め): 配布は zip + デベロッパー モード(費用なし・審査なし。自動更新は無いので直したら zip を作り直して渡す)。Chrome ウェブストアの限定公開(リンクを知る人だけ・自動更新あり)は開発者登録が有料(1 回)+ 審査なのでユーザー決定待ち。`.crx` の直接配布は Chrome がストア外の crx を拒むので使わない
+- テスト: build.bat OK(node 7 件・zip は 3 ファイル: yt-studio-time/main.js・manifest.json・README.txt)。zip の中の区切りは Compress-Archive の癖でバックスラッシュ(friend-apps の zip と同じ。Windows の展開では問題ない)。main.js は変えていない(e2e は前の記録のまま)
+- 未完了・次: ユーザーが自分の Chrome で本物の Studio に入れて時刻が出るか確かめる → 出たら `dist\YtStudioTime.zip` を友人へ。出なければ README の「出ないとき」の記録を見る
+- 未コミット: なし(このコミットで全部。push はユーザー)
