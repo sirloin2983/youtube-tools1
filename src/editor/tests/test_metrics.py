@@ -113,24 +113,24 @@ class TestPure(unittest.TestCase):
         self.assertFalse(any(p["text"].endswith(("マ", "マイ", "マイン", "マインク", "マインクラ", "マインクラフ")) for p in parts),
                          [p["text"] for p in parts])                                     # カタカナの語の途中で切らない
         self.assertTrue(all(len(p["text"]) <= 18 for p in parts))
-        self.assertEqual(len(S.split_segment(seg("あ" * 30))), 1)                          # 既定(以前の 40 文字)
+        self.assertEqual(len(S.split_segment(seg("あ" * 26))), 1)                          # 既定 24 + 2 文字までは分けない(0.59.6)
 
     def test_subtitle_settings(self):
         self.assertEqual(S.subtitle_settings({}), S.SUBTITLE_DEFAULT)
         st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
         v = S.subtitle_settings(st)
-        self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 40})
-        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40。plan/line-b-row-split.md の 8)
-        self.assertEqual(S.split_chars_for({}, st), 40)                                  # 設定の向き(横)でも 28 ではなく 40
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 40)  # 要求の向きでも変わらない
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 40)          # 既定 40
+        self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 24})
+        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40 → 0.59.6 で 24。plan/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
+        self.assertEqual(S.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
+        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24(0.59.6)
         self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 「長い行を分け直す」の明示の値
-        self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 40)                  # 範囲の外は使わない
+        self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 24)                  # 範囲の外は使わない
         self.assertEqual(S.subtitle_max_chars({}, st), 28)                                # 「長い行を分け直す」は字幕の最大文字数(設定の向き = 横)
         self.assertEqual(S.subtitle_max_chars({"subtitleOrientation": "vertical"}, st), 12)
         self.assertEqual(S.subtitle_max_chars({"splitChars": 20}, st), 20)
-        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 24}}), 24)       # 設定の値
-        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 40)        # 範囲(8〜80)の外は既定
+        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 32}}), 32)       # 設定の値
+        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 24)        # 範囲(8〜80)の外は既定
         with patch.dict(os.environ, {"TRANSCRIBE_SPLIT_CHARS": "16"}):
             self.assertEqual(S.split_chars_for({}, st), 16)                              # 測り直し用の環境変数
 

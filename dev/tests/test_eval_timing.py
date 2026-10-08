@@ -226,7 +226,7 @@ class ApplyTest(unittest.TestCase):
         ap = res["apply"]
         self.assertEqual((ap["docs"], ap["skipped"]), (1, {"noAsr": 1, "badAsr": 0}))
         by = {v["key"]: v for v in ap["variants"]}
-        self.assertEqual([v["key"] for v in ap["variants"]], ["v0570", "trim0", "v0571", "split40"])
+        self.assertEqual([v["key"] for v in ap["variants"]], ["v0570", "trim0", "v0571", "split40", "split24"])
         self.assertEqual(by["split40"]["overall"]["counts"]["tail"], 0)                        # 0.57.1 と同じ後処理 + 分ける文字数 40(短い行は変わらない)
         self.assertEqual(by["split40"]["boundary"], {"machine": 1, "human": 1, "hit": 1, "rec": 1, "precision": 1.0, "recall": 1.0})   # 境目 1 つが人と同じ
         self.assertEqual(by["v0570"]["overall"]["counts"]["tail"], 1)                          # 10.9 < 11.2 − 0.1 = 末が切れる

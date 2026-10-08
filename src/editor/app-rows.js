@@ -82,7 +82,7 @@ function fillSubtitle(v){
 }
 
 /* 文字起こし・範囲の再認識の要求に付ける(設定の保存は少し遅れて送られるので、今の欄の値を直接渡す)。
-   0.59.5: 行を分ける文字数(splitChars)は付けない = サーバーの設定 subtitle.splitChars(既定 40)で分ける。字幕の最大文字数(縦 16)で分けると人が 73% 戻していた。
+   0.59.5: 行を分ける文字数(splitChars)は付けない = サーバーの設定 subtitle.splitChars(既定 40 → 0.59.6 で 24)で分ける。字幕の最大文字数(縦 16)で分けると人が 73% 戻していた。
    「長い行を分け直す」(resplitDoc)だけは字幕の最大文字数を明示して渡す */
 function subtitleReq(){ const v = readSubtitle(); return { subtitleOrientation: v.orientation }; }
 
