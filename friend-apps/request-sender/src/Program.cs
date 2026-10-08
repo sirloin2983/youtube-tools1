@@ -2,6 +2,7 @@
 //   RequestSender.exe                 … 画面を開く
 //   RequestSender.exe <動画> [<動画>…] … その動画を入れた状態で開く(右クリックの「送る」から)
 //   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|receive] [--sample] [--size 900x620]
+//   RequestSender.exe --probe-preview <mp4> <out.txt>   … まとめ動画の小窓で再生が進むかを確かめて out に書く(画面の外。2.7.0)
 //                                      [--state manual|weights|many|speakers|strict|busy|done|focus|receiving(受け取るのタブ: すべて受け取るの途中)]
 //                                      … 窓を画像に保存して終わる(見た目の確認用。通信しない・設定を書かない・「送る」のショートカットを触らない)
 //                                        環境変数 REQUEST_SENDER_SHOT_MANY=1 で「受け取る」の見本を 15 件に
@@ -71,6 +72,8 @@ namespace RequestSender
             AppDomain.CurrentDomain.UnhandledException += (s, e) => Fatal(e.ExceptionObject as Exception);
             int shot = Array.IndexOf(args, "--screenshot");
             if (shot >= 0 && shot + 1 < args.Length) return Screenshot(args, args[shot + 1]);
+            int probe = Array.IndexOf(args, "--probe-preview");
+            if (probe >= 0 && probe + 2 < args.Length) return ProbePreview(args[probe + 1], args[probe + 2]);
             var form = new MainForm(ExeDir, args.Where(a => !a.StartsWith("--")).ToArray());
             Application.Run(form);
             return 0;
@@ -123,6 +126,39 @@ namespace RequestSender
                 Log.Write("screenshot: " + ex);
                 return 1;
             }
+        }
+
+        // 確かめ用: まとめ動画の小窓を画面の外で開き、再生が進むかを out に書いて終わる(--probe-preview <mp4> <out.txt>)
+        static int ProbePreview(string mp4, string outTxt)
+        {
+            string result;
+            try
+            {
+                using (var f = new PreviewForm(Path.GetFullPath(mp4), "確かめ"))
+                {
+                    f.StartPosition = FormStartPosition.Manual;
+                    string png = Environment.GetEnvironmentVariable("REQUEST_SENDER_PROBE_PNG");   // 見た目も撮る(画面に 2 秒出る)
+                    f.Location = string.IsNullOrEmpty(png) ? new System.Drawing.Point(-32000, -32000) : new System.Drawing.Point(40, 40);
+                    f.TopMost = !string.IsNullOrEmpty(png);
+                    f.Show();
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < 10000 && !f.Opened && f.Error == null) { Application.DoEvents(); System.Threading.Thread.Sleep(20); }
+                    double p0 = f.PositionSec;
+                    sw.Restart();
+                    while (sw.ElapsedMilliseconds < 2000) { Application.DoEvents(); System.Threading.Thread.Sleep(20); }
+                    if (!string.IsNullOrEmpty(png))
+                        using (var bmp = new System.Drawing.Bitmap(f.Width, f.Height))
+                        {
+                            using (var g = System.Drawing.Graphics.FromImage(bmp)) g.CopyFromScreen(f.Location, System.Drawing.Point.Empty, f.Size);
+                            bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+                        }
+                    result = "opened=" + f.Opened + " duration=" + f.Duration.ToString("0.0") + " pos0=" + p0.ToString("0.00") + " pos1=" + f.PositionSec.ToString("0.00") + " error=" + (f.Error ?? "");
+                    f.Close();
+                }
+            }
+            catch (Exception ex) { result = "exception=" + ex.GetType().Name + ": " + ex.Message; }
+            File.WriteAllText(outTxt, result, new UTF8Encoding(false));
+            return result.StartsWith("opened=True") ? 0 : 1;
         }
 
         // 「受け取る」の見本: n 本まとめたパック(まとめ動画つき)と失敗の知らせ。

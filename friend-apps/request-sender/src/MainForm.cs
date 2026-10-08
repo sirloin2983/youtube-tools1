@@ -1060,9 +1060,10 @@ namespace RequestSender
             var t = new Thread(() =>
             {
                 int count = -1;
-                try { count = new Receiving(client).List().Entries.Count; }
+                List<OutputEntry> listed = null;
+                try { listed = new Receiving(client).List().Entries; count = listed.Count; }
                 catch (Exception ex) { Log.Write("poll: " + ex.GetType().Name + ": " + ex.Message); }
-                OnUi(() => { polling = false; if (count >= 0) SetArrived(count, true); });
+                OnUi(() => { polling = false; if (count >= 0) { SetArrived(count, true); QueuePreviews(listed); } });   // 届いたまとめ動画は裏で先に取る(2.7.0)
             });
             t.IsBackground = true;
             t.Start();

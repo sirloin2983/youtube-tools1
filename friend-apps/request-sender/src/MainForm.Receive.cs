@@ -2,7 +2,8 @@
 //   受け取る         … 選んだパック 1 本(ダブルクリックでも)。大きさと hash を確かめ、保存先に展開して(settings.json の extractZip が false なら zip のまま)、Dropbox と一覧から消す
 //   すべて受け取る   … 届いているパックを古い順に 1 本ずつ同じように(1 つの依頼で何本もできたときに、1 本ずつ押さなくて済むように)
 //   やめる           … 取ってきている途中だけ出る。途中のファイルは消し、受け取り終えたものは Dropbox から消し終える
-//   まとめ動画を見る … パックの隣のまとめ動画(等速・各クリップに札の確認用)を %TEMP%\RequestSender\previews に取ってきて、既定のプレイヤーで開く。受け取った・要らないにしたら写しは消す
+//   まとめ動画を見る … パックの隣のまとめ動画(等速・各クリップに札の確認用)をアプリの小窓で再生する(2.7.0)。一覧を調べたとき(更新・3 分ごと)に
+//                     %TEMP%\RequestSender\previews へ裏で先に取ってあるので、すぐ見られる。小窓の [受け取る] [要らない] でそのまま続けられる。受け取った・要らないにしたら写しは消す
 //   要らない / 消す  … 1 つのボタン。パックなら記録(<zip>.feedback.json)を受付のフォルダに置いてから受け取らずに Dropbox から消す(まとめ動画も。記録が置けなくても消す。2.6.0)、
 //                     失敗の知らせなら読み終えたあとに消す
 using System;
@@ -38,6 +39,10 @@ namespace RequestSender
         bool listedOnce;
         Thread recvWorker;
         volatile bool recvCancel;
+        readonly PreviewQueue previewQueue = new PreviewQueue();                         // まとめ動画を裏で取る順番(2.7.0)
+        readonly Dictionary<string, string> previewReady = new Dictionary<string, string>();   // 取り終えたまとめ動画(パックの Key → 写しの場所)
+        OutputEntry previewWanted;   // 「まとめ動画を見る」を押して、取れるのを待っているもの
+        bool prefetchRunning;
 
         // 裏の処理が終わった知らせを画面が受け取るまで true(スレッドが生きているかでは見ない。終わりの直前に並べた画面の処理と食い違うため)
         bool recvRunning;
@@ -175,7 +180,7 @@ namespace RequestSender
             receiveAllBtn.Enabled = !busy && packs > 0;
             receiveAllBtn.Text = busy && recvAll ? "すべて受け取っています…" : packs > 1 ? "すべて受け取る(" + packs + " 本)" : "すべて受け取る";
             receiveAllBtn.FitWidth();
-            previewBtn.Enabled = !busy && HasPreview(e);
+            previewBtn.Enabled = HasPreview(e);   // 受け取りの途中でも見られる(まとめ動画は別に取る)
             deleteBtn.Text = DeleteLabel(e);
             deleteBtn.FitWidth();
             deleteBtn.Enabled = !busy && CanDelete(e);
@@ -227,6 +232,7 @@ namespace RequestSender
                 outList.SelectedIndex = 0;
             }
             UpdateRecvButtons();
+            QueuePreviews(entries);
         }
 
         void ShowSelected()
@@ -240,7 +246,7 @@ namespace RequestSender
                 detail.Text = "題: " + e.Title + "\r\n" +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
                               "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n" +
-                              "まとめ動画: " + (e.Preview != null ? "あり(" + SizeText(e.Preview.Size) + "。「まとめ動画を見る」で中身を確かめられます)" : "なし") + "\r\n\r\n" +
+                              "まとめ動画: " + PreviewText(e) + "\r\n\r\n" +
                               "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先にフォルダとして展開し(zip は消します)、確かめたあと Dropbox と一覧から消えます。" +
                               "要らなければ「要らない」で、受け取らずに Dropbox から消せます(要らなかったことは送り先の人に伝わります)。";
                 return;
@@ -408,32 +414,144 @@ namespace RequestSender
             UpdateRecvButtons();
         }
 
-        // まとめ動画(zip の隣の小さい mp4)を取ってきて、既定のプレイヤーで開く(等速の確認用。受け取る前に中身を見る)
+        // ---- まとめ動画(2.7.0): 届いたら裏で先に取ってきておき、押したらアプリの小窓ですぐ再生する(src/Preview.cs) ----
+        // 一覧を調べたとき(更新・3 分ごとの確認)に並べ直して、裏で 1 本ずつ取る
+        void QueuePreviews(IEnumerable<OutputEntry> listed)
+        {
+            previewQueue.Reset(listed);
+            EnsurePrefetch(false);
+        }
+
+        // 裏で取る処理が止まっていて、取るものがあれば動かす。loud = 鍵が読めないときに下の段に出す(押したとき)
+        void EnsurePrefetch(bool loud)
+        {
+            if (prefetchRunning || Offline || IsDisposed || !previewQueue.HasPending()) return;
+            Config config = LoadConfig(text => { if (loud) SetRecvStatus(text, true); });
+            if (config == null) return;
+            var receiving = new Receiving(new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write });
+            prefetchRunning = true;
+            var t = new Thread(() => PrefetchLoop(receiving)) { IsBackground = true };
+            t.Start();
+        }
+
+        void PrefetchLoop(Receiving receiving)
+        {
+            string dir = Receiving.PreviewDir();
+            while (!IsDisposed)
+            {
+                var e = previewQueue.Next();
+                if (e == null) break;
+                var gate = new ProgressGate();
+                try
+                {
+                    Log.Write("preview prefetch: " + e.Preview.Name + " size=" + e.Preview.Size);
+                    string path = receiving.DownloadPreview(e, dir, (done, total, step) =>
+                    {
+                        int permille;
+                        if (gate.Changed(done, total, step, out permille)) OnUi(() => ShowPreviewProgress(e, permille, done, total));
+                    });
+                    previewQueue.MarkDone(e);
+                    OnUi(() => PreviewReady(e, path));
+                }
+                catch (Exception ex)
+                {
+                    Log.Write("preview prefetch failed: " + e.Preview.Name + ": " + ex.GetType().Name + ": " + ex.Message);
+                    previewQueue.MarkFailed(e);
+                    OnUi(() => PreviewFailed(e, ex));
+                }
+            }
+            OnUi(() => { prefetchRunning = false; EnsurePrefetch(false); });   // 終わる間際に押されたものがあれば、もう一度
+        }
+
+        // 押して待っているまとめ動画の進み具合だけ下の段に出す(受け取りの途中はそちらを優先)
+        void ShowPreviewProgress(OutputEntry e, int permille, long done, long total)
+        {
+            if (previewWanted == null || previewWanted.Key != e.Key || RecvBusy) return;
+            recvBar.Value = permille;
+            SetRecvStatus("まとめ動画を取ってきています… (" + Mb(done) + " / " + Mb(total) + ")", false);
+        }
+
+        void PreviewReady(OutputEntry e, string path)
+        {
+            if (previewQueue.IsGone(e)) { Receiving.ForgetPreview(e); return; }   // 取っている間に受け取った・要らないにした
+            previewReady[e.Key] = path;
+            var s = SelectedEntry;
+            if (s != null && s.Key == e.Key && !RecvBusy) ShowSelected();
+            if (previewWanted == null || previewWanted.Key != e.Key) return;
+            previewWanted = null;
+            if (!RecvBusy) recvBar.Value = 1000;
+            var shown = entries.FirstOrDefault(x => x.Key == e.Key) ?? e;
+            OpenPreview(shown, path);
+        }
+
+        void PreviewFailed(OutputEntry e, Exception ex)
+        {
+            if (previewWanted == null || previewWanted.Key != e.Key) return;   // 自動で取っていたものは黙る(押したときにもう一度取る)
+            previewWanted = null;
+            SetRecvStatus("まとめ動画を取ってこられませんでした: " + RecvError(ex), true);
+        }
+
+        // 一覧の状態に合わせた「まとめ動画: 」の説明
+        string PreviewText(OutputEntry e)
+        {
+            if (e.Preview == null) return "なし";
+            string size = SizeText(e.Preview.Size);
+            if (previewReady.ContainsKey(e.Key)) return "あり(" + size + "。取ってあります。「まとめ動画を見る」ですぐ再生できます)";
+            if (e.Preview.Size > PreviewQueue.AutoMaxBytes) return "あり(" + size + "。大きいので「まとめ動画を見る」を押したときに取ってきます)";
+            return "あり(" + size + "。裏で取ってきています。「まとめ動画を見る」で再生できます)";
+        }
+
+        // 「まとめ動画を見る」: 取ってあればすぐ小窓で。まだなら先頭に回して、取れたら開く
         void StartPreview()
         {
             var e = SelectedEntry;
-            if (RecvBusy || !HasPreview(e)) return;
-            var receiving = BeginFetch("まとめ動画を取ってきています…", false);
-            if (receiving == null) return;
-            Log.Write("preview: " + e.Preview.Name + " size=" + e.Preview.Size);
-            var show = FileProgress();
-            RunRecv(() =>
+            if (!HasPreview(e)) return;
+            string path;
+            if (previewReady.TryGetValue(e.Key, out path) && File.Exists(path)) { OpenPreview(e, path); return; }
+            previewReady.Remove(e.Key);
+            previewWanted = e;
+            previewQueue.Prioritize(e);
+            if (!RecvBusy) { recvBar.Value = 0; SetRecvStatus("まとめ動画を取ってきています…", false); }
+            EnsurePrefetch(true);
+        }
+
+        // 小窓で再生し、閉じたあと [受け取る] [要らない] を続ける。小窓が作れない PC では既定のプレイヤーで開く
+        void OpenPreview(OutputEntry e, string path)
+        {
+            PreviewChoice choice;
+            try { choice = ShowPlayer(path, e.Title); }
+            catch (Exception ex)
             {
-                string path = receiving.DownloadPreview(e, Receiving.PreviewDir(), show);
-                OnUi(() =>
+                Log.Write("preview window: " + ex);
+                try
                 {
-                    recvBar.Value = 1000;
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-                        SetRecvStatus("まとめ動画を開きました。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
-                    }
-                    catch (Exception ex)
-                    {
-                        SetRecvStatus("まとめ動画を開けませんでした: " + ex.Message + "(" + path + ")", true);
-                    }
-                });
-            });
+                    Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                    SetRecvStatus("まとめ動画を既定のプレイヤーで開きました。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
+                }
+                catch (Exception ex2) { SetRecvStatus("まとめ動画を開けませんでした: " + ex2.Message + "(" + path + ")", true); }
+                return;
+            }
+            bool listed = entries.Contains(e);
+            if (choice == PreviewChoice.None || !listed)
+            {
+                if (listed) SetRecvStatus("要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
+                return;
+            }
+            if (RecvBusy) { SetRecvStatus("いまの処理が終わってから、もう一度押してください。", true); return; }
+            outList.SelectedItem = e;
+            if (choice == PreviewChoice.Receive) StartDownload();
+            else StartDelete();   // 確かめの窓が出る(受け取らずに消すのは戻せないため)
+        }
+
+        // WPF の部品を使うのはここだけ(読み込めないときは呼んだ側の catch で既定のプレイヤーへ)
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        PreviewChoice ShowPlayer(string path, string title)
+        {
+            using (var f = new PreviewForm(path, title))
+            {
+                f.ShowDialog(this);
+                return f.Choice;
+            }
         }
 
         // 失敗の知らせ(読み終えた)か、要らないパック(受け取らずに)を Dropbox から消す
@@ -479,6 +597,8 @@ namespace RequestSender
             {
                 entries.Remove(e);
                 failureTexts.Remove(e.Key);
+                previewQueue.MarkGone(e);
+                previewReady.Remove(e.Key);
                 outList.Items.Remove(e);
             }
             outList.EndUpdate();

@@ -12,7 +12,10 @@ if not exist "%CSC%" (
 )
 if not exist build mkdir build
 
-set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll"
+for %%I in ("%CSC%") do set "FW=%%~dpI"
+rem In-app player of the preview video (2.7.0): WPF MediaElement in an ElementHost. These ship with .NET Framework 4 (no install).
+set "WPF=/lib:%FW%WPF /r:PresentationCore.dll /r:PresentationFramework.dll /r:WindowsBase.dll /r:WindowsFormsIntegration.dll /r:System.Xaml.dll"
+set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll %WPF%"
 echo [1/4] RequestSender.exe
 "%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\RequestSender.exe /win32manifest:src\app.manifest %REFS% src\*.cs ..\common\*.cs
 if errorlevel 1 goto fail

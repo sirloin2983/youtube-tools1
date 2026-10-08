@@ -2561,3 +2561,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 注意: 利用者の prefs.json の live の節には detect・autoAdopt の鍵が無いので、起動し直すと既定(オン)が効く。動くのはリアルタイム切り抜き(live.enabled)がオンで録画しているときだけ。届けるのは人の確認のあとだけのまま
 - 未完了・次: 送るアプリまわりのユーザーの相談を聞く → D-11 案 b の実装(L4' の配信 10-18/19 より前)
 - 未コミット: なし
+
+## 2026-10-08 Claude Code(PC。Opus 5.5)— 送るアプリ 2.7.0: まとめ動画を届いたら裏で取り、アプリの小窓で再生
+- 依頼: ユーザー「送るアプリで参考動画ってダウンロードなしで見れるの?」→ 今は先に取ってきて既定のプレイヤーで開く作りと答えた →「届いたら自動でダウンロードしてアプリ上で再生できるようにできる?」→ 質問の答え「ダウンロード時間が短いなら調べた時でいい」(等速 5 本で約 50MB)・「別の小窓で」
+- 変更: 新 `friend-apps/request-sender/src/Preview.cs`(`PreviewQueue` = 裏で取る順番: 一覧の順・押したものを先頭・300MB 超は押したときだけ・失敗は押したらもう一度・一覧から消えたものは取らない / `PreviewForm` = WPF の MediaElement を ElementHost で埋め込んだ小窓: 再生・一時停止・つまみ・Space/←→/Esc・[受け取る][要らない]・外部のプレイヤーで開く・再生できなければ知らせる)。`MainForm.Receive.cs`(一覧を出したら QueuePreviews・裏のスレッドで 1 本ずつ取る・押したときは取ってあればすぐ小窓・途中なら先頭に回して取れしだい開く・小窓の答えで StartDownload/StartDelete・一覧から外すとき順番からも外す・詳細の「まとめ動画:」に状態・受け取りの途中でも押せる)。`MainForm.cs`(3 分ごとの確認の一覧も QueuePreviews へ)。`Program.cs`(確かめ用 `--probe-preview <mp4> <out.txt>`・環境変数 REQUEST_SENDER_PROBE_PNG で小窓を撮る)。`Core.cs` 版 2.7.0。`build.bat`(WPF の参照 = .NET Framework 4 に同梱・ASCII)。`tests/CoreTests.cs` に順番のテスト 1 件。README(使い方・開発・変更の記録)・`docs/spec/friend-intake.md` の 2-12・`plan/decisions.md`(1-1 に 2 行)・`plan/data.js`(版・別件・U8)。公開ページを更新
+- 版: 送るアプリ 2.6.0 → 2.7.0(依頼の JSON・鍵・設定ファイルは変えていない。PC 側は変更なし)
+- テスト: build.bat のテスト 38 件 OK → dist/RequestSender.zip を作り直した。--probe-preview で 10 秒の H.264 の見本が開き、2 秒で位置が 2 秒進むことを確認(opened=True duration=10.0 pos 0.03→2.06)。小窓と受け取るのタブを画像で確認(つまみの自動の高さがボタンに重なっていた → AutoSize を切って直した)
+- 決定・理由: 自動で取るのは「調べたとき」(起動・更新・3 分ごとの確認)。3 分ごとの確認も含めたのは、開いたまま放っておいても動画がそろうため(仮・decisions に記載)。小窓の部品は WPF(.NET Framework 4 に同梱)にした: WMP の ActiveX は相互運用の dll の生成が要り、WebView2 は追加のインストールが要るため
+- 注意: 本物の Dropbox と友人の PC ではまだ試していない(U8)。Windows の N エディションは Media Feature Pack が無いと小窓で再生できない(そのときは「外部のプレイヤーで開く」)。友人に渡すには dist/RequestSender.zip を渡し直す
+- 未コミット: なし

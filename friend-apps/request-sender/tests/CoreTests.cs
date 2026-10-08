@@ -44,6 +44,7 @@ static class CoreTests
         Run("どこまで: 3つの値・既定は auto・知らない値は送らない", Flows);
         Run("受け取る: 一覧の返事からパックと失敗の知らせだけ(まとめ動画はパックに結びつける)・新しい順", OutputEntries);
         Run("受け取る: すべて受け取る(パックだけを古い順・合計・同じ依頼の数・まとめの文)", ReceiveAll);
+        Run("まとめ動画: 裏で取る順番(一覧の順・押したものを先頭・大きいものは押したときだけ・失敗は押したらもう一度・消えたものは取らない)・時刻の表示", PreviewOrder);
         Run("受け取る: zip の展開(パックのフォルダを保存先の直下に・同じ名前は (2)・zip は消す・外へ出る名前は断る)", ExtractZips);
         Run("消す: delete_v2 の引数(日本語の path も ASCII)", DeleteArgs);
         Run("要らない: 記録の JSON と置き場所(<zip の名前>.feedback.json)", FeedbackJsonTest);
@@ -1068,6 +1069,46 @@ static class CoreTests
         var b = OutputFolder.FromName("20261002-120000-0a1b2c__B.zip"); b.Size = 20; b.Modified = new DateTime(2026, 10, 2, 12, 0, 0); b.PathLower = "/出力/b.zip"; b.Rev = "3";
         l.Entries.Add(a); l.Entries.Add(f); l.Entries.Add(b);
         return l;
+    }
+
+    static OutputEntry PackWithPreview(string name, long previewSize)
+    {
+        var a = OutputFolder.FromName("20261008-120000-0a1b2c__" + name + ".zip");
+        a.PathLower = "/出力/" + name + ".zip"; a.Rev = name;
+        a.Preview = OutputFolder.FromName("20261008-120000-0a1b2c__" + name + ".preview.mp4");
+        a.Preview.Size = previewSize; a.Preview.PathLower = "/出力/" + name + ".preview.mp4"; a.Preview.Rev = name + "p";
+        return a;
+    }
+
+    static void PreviewOrder()
+    {
+        long mb = 1024L * 1024;
+        OutputEntry a = PackWithPreview("A", 50 * mb), b = PackWithPreview("B", 40 * mb), big = PackWithPreview("BIG", PreviewQueue.AutoMaxBytes + 1), c = PackWithPreview("C", 30 * mb);
+        var noPreview = OutputFolder.FromName("20261008-120000-0a1b2c__D.zip"); noPreview.PathLower = "/出力/d.zip"; noPreview.Rev = "d";
+        var q = new PreviewQueue();
+        q.Reset(new[] { a, noPreview, big, b });
+        True(q.HasPending(), "取るものがある");
+        Eq("A", q.Next().Rev, "一覧の順に 1 本目");
+        q.MarkDone(a);
+        Eq("B", q.Next().Rev, "まとめ動画の無いパックと大きいものは飛ばす");
+        q.MarkFailed(b);
+        True(q.Next() == null && !q.HasPending(), "大きいものは自動では取らない");
+        q.Prioritize(big);
+        True(q.HasPending(), "押したら大きくても取る");
+        Eq("BIG", q.Next().Rev, "押したものが先頭");
+        q.MarkDone(big);
+        q.Reset(new[] { a, big, b, c });
+        Eq("C", q.Next().Rev, "調べ直しても、済み・失敗は取り直さない");
+        q.Prioritize(b);
+        Eq("B", q.Next().Rev, "失敗したものも押したらもう一度");
+        q.Reset(new[] { c });
+        True(q.IsGone(a) && !q.IsGone(c), "一覧から消えたものは消えた扱い");
+        q.Prioritize(c); q.MarkGone(c);
+        True(q.Next() == null && q.IsGone(c), "受け取った・要らないにしたものは並びから外す");
+        True(q.IsDone(a), "済みの印は残る");
+        Eq("0:00", PreviewForm.Clock(0), "時刻 0");
+        Eq("4:05", PreviewForm.Clock(245.9), "時刻は秒を切り捨て");
+        Eq("1:02:03", PreviewForm.Clock(3723), "1 時間を超えたら時:分:秒");
     }
 
     static void ReceiveAll()
