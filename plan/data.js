@@ -328,7 +328,7 @@ window.PLAN = {
     /* 5 フォルダ整理のあとにやること */
     afterReorg: [
       ["F-1", "済み(10-07): 入口を「すべて終了」→ start.bat で起動し直す(start.bat は src\\home\\launch.py を呼ぶ形に変わった。デスクトップの start.bat のショートカットはそのままでよい)"],
-      ["F-2", "スタートアップのショートカットを置いているなら確かめる。start-background.bat を指しているなら変更不要。home\\start_hidden.vbs を直接指しているなら src\\home\\start_hidden.vbs に向け直す"],
+      ["F-2", "10-08 確認: スタートアップの「youtube-tools (裏で起動)」の引数が旧パス home\\start_hidden.vbs のままで、ログイン時に「スクリプト ファイルが見つかりません」が出る(リポジトリ側は正常)。直し方(ユーザー。AI はスタートアップの項目を書き換えない): Win+R → shell:startup → ショートカットのプロパティ → リンク先を C:\\Windows\\System32\\wscript.exe \"C:\\dev\\youtube-tools\\src\\home\\start_hidden.vbs\" に。または消して start-background.bat へのショートカットを置く。Claude アプリのターミナルから直すと写しに入るので、エクスプローラーかアプリの外の PowerShell で"],
       ["F-3", "空の recorder\\ フォルダが残っていたら消してよい(10-07 に消した。録画の部品の本体は src\\recorder\\)"]
     ]
   }
