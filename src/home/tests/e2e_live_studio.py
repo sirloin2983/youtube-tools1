@@ -800,14 +800,14 @@ def _scene_adopt_api(cx):
         [j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j["id"] == jid]), 90, 0.5)
     check(done3 and done3["state"] == "done", "M1 画面なしで書き出しまで通る: %s" % (((done3 or {}).get("state"), (done3 or {}).get("error")),))
     mk3 = wait_for(lambda: (lambda m: m if m and m["status"] == "exported" else None)(next((m for m in marks_of(rid) if m["id"] == (ad or {}).get("mark")), None)), 15)
-    check(mk3 and mk3["start"] == 10.0 and mk3["end"] == 13.0 and done3 and os.path.normcase(mk3.get("path") or "") == os.path.normcase(done3["path"]),
-          "M1 スタジオの一覧にマークが出て「書き出し済み」(入口が付けた。区間はスタジオの丸め): %s" % (mk3,))
+    check(mk3 and mk3["start"] == 8.0 and mk3["end"] == 15.0 and done3 and os.path.normcase(mk3.get("path") or "") == os.path.normcase(done3["path"]),   # 自動の採用は前後に余白 2 秒(M8。ホーム 0.46.2)
+          "M1 スタジオの一覧にマークが出て「書き出し済み」(入口が付けた。区間は前後 2 秒の余白つき・スタジオの丸め): %s" % (mk3,))
     if done3 and done3["state"] == "done":
         clip3, _w = schemas.load_clip_file(schemas.find_clip_path(done3["path"]))
         check(clip3 and clip3["source"]["live"]["origin"] == "auto" and clip3["mark"]["src"] == "auto" and clip3["source"]["live"]["studio"]["mark"] == mk3["id"],
               "M1 .clip.json に origin auto(mark.src も auto): %s" % ((clip3 or {}).get("mark"),))
         info3 = normalize.probe(done3["path"])
-        check(normalize.is_30fps(info3) and abs(info3.get("duration", 0) - 3.0) <= 0.15, "M1 30fps・長さが区間と合う: %.2f 秒" % (info3 or {}).get("duration", 0))
+        check(normalize.is_30fps(info3) and abs(info3.get("duration", 0) - 7.0) <= 0.15, "M1 30fps・長さが区間(3 秒 + 余白 2 秒 × 2)と合う: %.2f 秒" % (info3 or {}).get("duration", 0))
     check(len(handed) == n_handed + 1 and handed[-1][1] == "check" and handed_kw[-1] == {"engine": "whisper.cpp", "model": "large-v3"},
           "M2 live.auto のエンジン・モデルがまとめて実行へ渡る: %s %s" % (handed[-1:], handed_kw[-1:]))
     try:

@@ -620,10 +620,10 @@ $('#segs').addEventListener('click', e => {
     case 'proof': { const before = unproofedCount(); setProof(s, !s.proofed, row); markDirty(); updatePfStat(); proofNext(before); break; }   // 未校正が 0 になったら [2 カットへ](段7 S-17)
     case 'nosub': pushUndo(); setNoSub(s, !s.noSub, row); markDirty(); break;   // 字幕に出さない ⇄ 出す(どの話者の行でも)
     case 'tag': toggleTag(s, b.dataset.t, row); break;
-    case 'unfill': {   // 別の読みで埋めた行を whisper の文字に戻す(ed_fill。元に戻せる)
-      pushUndo(); const from = (s.fill && s.fill.from) || ''; delete s.fill; s.text = from;
-      const ta = row.querySelector('textarea[data-f=text]'); if (ta){ ta.value = from; autoSize(ta); }
-      b.remove(); markDirty(); toast('whisper の文字に戻しました', { kind: 'ok', ms: 5000, action: { label: '元に戻す', fn: () => doUndo('tx') } }); break; }
+    case 'unfill': {   // 別の読みで埋めた行を whisper の文字に戻す(ed_fill)。後処理の印も外し、行を描き直す(元に戻せる)
+      pushUndo(); s.text = (s.fill && s.fill.from) || ''; delete s.fill;
+      s.flag = (s.flag || '').split('、').filter(f => f && !/^(別の読みで埋めた|名簿の呼び名に直した)/.test(f)).join('、');
+      rowChanged(); toast('whisper の文字に戻しました', { kind: 'ok', ms: 5000, action: { label: '元に戻す', fn: () => doUndo('tx') } }); break; }
     case 'unflag': pushUndo(); s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon();
       toast('要確認の印を外しました(確認済み)', { kind: 'ok', ms: 5000, action: { label: '元に戻す', fn: () => doUndo('tx') } }); break;   // S15
     case 'sgok': { const x = S.sug.find(y => y.n === Number(b.dataset.n)); if (x) acceptSug(s, x); break; }
