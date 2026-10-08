@@ -2776,3 +2776,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 変更: `plan/analytics-daily-report.md` の 1 節のお金の行(確定は指標ごと・単位は実装の最初に Studio と見比べる)・9 節の確認事項を消した
 - 未完了・次: 実装はユーザーの合図待ち(最初は Apps Script に受け取り口と送り返し口を足す)
 - 未コミット: なし
+
+## 2026-10-09 Claude Code(PC。Fable。別セッション)— 担当の分け方の控え(並行セッションの競合を避けるため。コードは変えていない)
+- 依頼: ユーザー「今触ってない部分は書いておいて」(= どのセッションが何を触っているか・空いている所を記録)
+- 触っている(別セッション「分析と日報」の実装。01:08〜 作業中・未コミット・WORKLOG の記録はまだ): `src/analytics/`(新規。service・calc・render・data・bridge・timeutil・gas/・web/・tests/)/ `src/home/launch.py`(/analytics/ の取り込み +14 行)/ `src/home/portal.html`(ヘッダーのリンク +1 行)/ `.gitignore`(`src/analytics/data/`)/ `plan/analytics-daily-report.md`(10-09 決定の追記)。**他のセッションはこれらを触らない・stage しない**(`git add -A` 禁止)
+- 触っていない(空いている): `src/studio/`・`src/editor/`・`src/cut2resolve/`・`src/recorder/`・`src/ytt_core/`・`src/ui-kit/`・`src/home/` の launch.py と portal.html **以外**・`dev/`・`setup/`・`friend-apps/`・`chrome-ext/`・`plan/data.js`・`plan/decisions.md`・`docs/`
+- 注意: `src/home/launch.py` と `portal.html` を直したくなったら、分析のセッションが先にコミットするのを待つか、差分だけを index に入れる(メモリの手順)。WORKLOG は末尾に追記のみ。分析のセッションが終わったら、この項の「触っている」は解消
+- 未コミット: この項の追記だけ(docs/WORKLOG.md)
