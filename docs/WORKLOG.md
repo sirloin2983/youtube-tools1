@@ -2755,3 +2755,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テストの結果: `py -3.10 dev/lint.py` 0 件 / test_live_detect 48 OK・test_live 58 OK・test_launch + test_mount + test_live_tx + test_live_archive + test_health + test_cases + test_intake 199 OK・dev/tests/test_eval_marks 39 OK / `e2e_live.py` ALL OK(画面は変えていない)。test_mount を test_live_archive のあとに混ぜると TestTranscribeMounted の setUpClass が KeyError(単独・AGENTS の順では通る。前からの並び順の問題でこの変更とは別)
 - 未完了・次: 起動中の入口は古いまま → ユーザーに「すべて終了」→ start.bat。次の配信(U4)のあと `py -3.10 dev/eval_marks.py --live` と「調子」で読む → D-15 で数を決め直す。仮決め 3-15 の確認(とくに (fc) 自動で消す期限)。公開ページの公開し直しは「Plan資料の見直し」に頼んだ
 - 注意: `Live.unconfirmed` は入口(launch.py)だけが渡す(テストの Live では None = 0 = 休まない)。`Detector.auto_tick` は終わった録画も見るので、ListRecorder の偽物は endedAt が無ければ lastPdt を終わりの時刻に使う
+
+## 2026-10-09 Claude Code — 分析と日報: 既存の「Youtube日次」の監査・ブックマークと LINE を引き継ぐ流れの決定・作り直しの方針(実装はまだ)
+- 依頼: ユーザー「ルーティンを止めたのは自分。分析に疑問があったから作り直したい(週 25 本以上なのに 16 本とされた等)。仕組みはツールに移したいが分析はちゃんと」「ブックマークを引き継ぎ、このまま LINE にも」「PC で分析・遅れてよい・スマホで操作した時点のデータ・複数なら最新・手動実行も・週報と月報も同様」「送ったあとに新しいデータが来たら作り直して送り直す」
+- 調べ方: Drive のコネクタで forecast.json を読み「16 本」の原因(9/26 のまま更新されない見込み)を確認。監査はサブエージェント 1 体(Opus: 原因の分からない不具合と設計の判断のため。読むだけ)。結果はスクラッチの audit.md(チャンネルの数字はリポジトリに書かない)
+- 分かったこと: 日次(Drive・build_daily.py・LLM なし)と週次・月次(Dropbox の Youtube分析/_system・LLM が文章)がつながっておらず、日次は 9/28 の見込みと照合を貼り続けた。ほかに公開 0 日目のずれ(日本時間の公開日 × 太平洋時間の日付)・確定日の決め方・「週」の定義が 3 通り・見込みの答え合わせなし・提案の根拠の弱さ・LLM の数字のぶれ
+- 変更: `plan/analytics-daily-report.md` の先頭に決定 3 つ(ツールに移して作り直す・流れ = ブックマーク → Apps Script → ツールが合言葉付きで受け取り分析 → Apps Script → LINE・各条件)と 12 節(既存の形・誤り E1〜E7・引き継ぐ良い点・作り直しの方針 9 つ)。6 節(OAuth)・10 節(API の規約)はブックマーク方式で要らなくなる見込み(書き直しは次)
+- 注意: サブエージェントが誤って `C:\Users\hakam\Dropbox\st.txt`(state.json の要約)を書き、すぐスクラッチへ移した。今は無いことを確認済み。Dropbox の履歴に残っている可能性
+- 未完了・次: 6・8・10 節をブックマーク方式に合わせて書き直す・期限の前提の確認・実装はユーザーの合図待ち
+- 未コミット: なし
