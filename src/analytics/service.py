@@ -298,8 +298,10 @@ class Service:
         self._save_report(kind, period, r, text, html, meta)
         out = {"kind": kind, "period": period, "seconds": round(self.clock() - t0, 1)}
         if send:
-            res = b.report(kind, period, text, html, {"rawId": meta.get("id"), "rawUpdated": meta.get("updated"), "fetched": r["fetched"],
-                                                      "tool": VERSION})
+            # 連携(gas/Code.gs)は日付を YYYY-MM-DD でしか受け取らない。月報の期間「2026-09」はその月の 1 日にして渡す(10-09 に月報だけ断られた)
+            date = period if len(period) == 10 else period + "-01"
+            res = b.report(kind, date, text, html, {"rawId": meta.get("id"), "rawUpdated": meta.get("updated"), "fetched": r["fetched"],
+                                                    "period": period, "tool": VERSION})
             sent[period] = {"rawId": meta.get("id"), "rawUpdated": meta.get("updated"), "at": int(self.clock() * 1000), "url": res.get("url") or ""}
             out["url"] = res.get("url") or ""
             self.log("分析: %s(%s)を LINE に送りました" % (KIND_NAMES[kind], period))

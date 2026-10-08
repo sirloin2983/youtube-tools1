@@ -7,6 +7,7 @@ import datetime
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -338,6 +339,8 @@ class FakeBridge:
         return {"id": fid, "name": n, "updated": u, "content": json.dumps(raw)}
 
     def report(self, kind, date, text, html, source, notify=True):
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):   # 本物の連携(gas/Code.gs)と同じ検査。月報の「2026-09」で断られた(10-09)
+            raise bridge.BridgeError("bad_request", "date は YYYY-MM-DD の形にしてください")
         self.reports.append((kind, date, source["rawId"]))
         return {"ok": True, "url": "https://script.google.com/macros/s/x/exec?v=key", "sent": True}
 
@@ -370,6 +373,7 @@ class ServiceTest(unittest.TestCase):
         out = self.svc.tick()
         kinds = [r["kind"] for r in out["sent"]]
         self.assertEqual(sorted(kinds), ["daily", "monthly", "weekly"])   # 初回は 3 つとも
+        self.assertIn(("monthly", "2026-09-01", "id_first_aaaa"), self.fb.reports)   # 月報はその月の 1 日の日付で渡す
         self.assertEqual(self.svc.tick()["sent"], [])                     # 同じデータでは送らない
         # 同じ日にもう一度タップ → 日報だけ作り直して送り直す
         self.fb.files["id_second_bbb"] = ("2026-10-08.json", "2026-10-08T02:00:00Z", make_raw(fetched="2026-10-08T01:59:00Z"))
