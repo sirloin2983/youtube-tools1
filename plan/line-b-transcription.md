@@ -154,7 +154,7 @@
 - 復号の設定: beam 8(14.6%)・entropy 2.0・無音しきい値 0.6・非音声トークンの抑制・logprob しきい値 −0.5(13.0〜13.1% = 変化なし)・前の文を文脈にする(-mc 64 = 18.3%・-mc 既定 = 18.6%。余分 220 超 = 繰り返しの暴走 → 今の -mc 0 が正しい)。温度 0・やり直しなし(`-tp 0 -nf`)は CER 12.6%(−0.4 pt・n.s.)で 25% 速く出力が固定だが、行が 336 → 492 に細切れになり境目の的中 73% → 45%(校正でくっつける手間)→ 採らない。温度 0 では beam 3 = 15.2%・beam 8 = 22.7% と崩れる(beam 5 のまま)。フラッシュアテンション(-fa)は 12.2%(n.s.)で速いが、行の端が整数秒に丸まる割合 17 → 43%・行が 329 → 498 に細切れ = 10-04 と同じ → -nfa のまま
 - Silero で区切って認識(19%)・話者の区間ごとに認識(20%)・重なり区間だけ読み直し(17.5%)・文字の少ない窓を whisper.cpp(GPU)で読み直し(±0.5 秒 15.7%・±2 秒 23.4%・±5 秒 25.0% = 短い窓で幻覚。窓を読ませるなら SenseVoice か faster-whisper(CPU・±5 秒 11.1%))
 - ヒント: **whisper.cpp は -mc 0 だと --prompt が完全に無視される**(ソースで確認。今の編集の用語集・文脈は whisper.cpp に届いていない)。`--carry-initial-prompt -mc (ヒントのトークン数+1)` で効かせると、相づち語「えー、あー、うんうん…」で 13.7%(抜け 201 → 111・重なり 22%・余分 +64)、名前の列挙 15.9%、文の形 21.9%、「ー」を抜いた相づち語 18.9% = 文面で 5 pt 以上ぶれる。既定にしない
-- 別のモデル: SenseVoice-small 16.5%(CPU 17 秒・余分 38・重なり 29%)・Qwen3-ASR 1.7B 16.0%(重なり 19%)・faster-whisper large-v3 19.1%・large-v3-turbo 20.3%・Parakeet-ja 25.5%・Cohere Transcribe 30.9%・ReazonSpeech 41%・kotoba-whisper 46.9%(whisper.cpp 版。時刻が崩れる)・anime-whisper 84%(繰り返しの暴走)
+- 別のモデル: whisper large-v2(ggml)20.4%・SenseVoice-small 16.5%(CPU 17 秒・余分 38・重なり 29%)・Qwen3-ASR 1.7B 16.0%(重なり 19%)・faster-whisper large-v3 19.1%・large-v3-turbo 20.3%・Parakeet-ja 25.5%・Cohere Transcribe 30.9%・ReazonSpeech 41%・kotoba-whisper 46.9%(whisper.cpp 版。時刻が崩れる)・anime-whisper 84%(繰り返しの暴走)
 - 音声フィルタ: boost 15.3%・圧縮 16.2%・loudnorm 13.5%(重なりと名前には効くが全体は悪化)
 - 多数決(3 者・4 者)12.8%・自信の低い行の置き換え(変化なし)・呼び名の 1 字違いの自動直し(11.3〜13.7% = 誤爆)
 
