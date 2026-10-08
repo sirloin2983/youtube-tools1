@@ -1,0 +1,19 @@
+/* 分析と日報の画面(共通の見た目は ui-kit.css。ここはこの画面だけの並び) */
+.an-main{max-width:960px;margin:0 auto;padding:16px}
+.an-h{font-size:15px;font-weight:650;margin:0 0 8px}
+details.card>summary.an-h{cursor:pointer;margin:0}
+.an-state{margin:0 0 4px;font-weight:600}
+.an-state.error{color:var(--danger)}
+.an-sub{margin:6px 0 0;color:var(--ink-3);font-size:12.5px}
+.an-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.an-label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
+.an-row .an-label{flex-direction:row;align-items:center}
+.an-label input{min-height:var(--ctl-h);padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);font-size:13.5px;width:100%}
+.an-check{display:flex;align-items:center;gap:8px;font-size:13px}
+.an-form{display:flex;flex-direction:column;gap:10px;margin-top:10px;max-width:640px}
+.an-frame{display:block;width:100%;height:78vh;min-height:480px;border:1px solid var(--line);border-radius:var(--r);margin-top:10px;background:var(--panel)}
+.an-runs{list-style:none;margin:0;padding:0;font-size:12.5px}
+.an-runs li{padding:4px 0;border-bottom:1px solid var(--line)}
+.an-runs .err{color:var(--danger)}
+select{min-height:var(--ctl-h-sm);border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);padding:0 6px}
+@media (max-width:600px){.an-main{padding:12px}.an-frame{height:70vh}}

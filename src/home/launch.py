@@ -92,9 +92,13 @@ import cleanup as cleanup_mod  # noqa: E402  (src/home/cleanup.py: 片付け。�
 import restart as restart_mod  # noqa: E402  (src/home/restart.py: 入口ごと起動し直す。段9 9-3)
 import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
+try:   # src/analytics: 分析と日報(/analytics/ を受け持つ。plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
+    from analytics import service as analytics_mod  # noqa: E402
+except ImportError:
+    analytics_mod = None
 
 APP_ID = "ytt-launcher"
-VERSION = "0.49.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.50.0"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -624,6 +628,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._send(403, b"forbidden")
         if (u.path == "/live" or u.path.startswith("/live/")) and self.server.live.handle_get(self, u):   # リアルタイム切り抜き(オフなら下の 404 のまま)
             return
+        if (u.path == "/analytics" or u.path.startswith("/analytics/")) and self.server.analytics and self.server.analytics.handle_get(self, u):
+            return
         if u.path == "/cases.html":   # 案件の一覧はホーム(/)にまとめた(段階5)。以前のリンク・ブックマークはホームの案件の一覧へ
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/#cases"})
         if u.path in STATIC:
@@ -697,6 +703,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         body = self._read_json()
         if body is None:
             return
+        if u.path.startswith("/analytics/") and self.server.analytics:   # 分析と日報(src/analytics/service.py)
+            return self.server.analytics.handle_post(self, u, body)
         m = ACTION_RE.fullmatch(u.path)
         if m:
             tid, action = m.groups()
@@ -856,6 +864,8 @@ class PortalServer(ThreadingHTTPServer):
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
+        # 分析と日報(見張りは main で start。テストで作る入口では動かさない。連携の設定が無ければ何もしない)
+        self.analytics = analytics_mod.Service(log=sup.log, token=self.token) if analytics_mod else None
 
     def _accuracy_busy(self):
         """精度の自動測定の「手が空いているか」。空いていなければ理由の文、空いていれば None。
@@ -1124,6 +1134,8 @@ class PortalServer(ThreadingHTTPServer):
         self.backup.close()
         self.accuracy.close()   # 測っている子プロセスも止める
         self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く。0.38.1)
+        if self.analytics:
+            self.analytics.close()
 
     def request_shutdown(self):
         """画面の「すべて終了」。この入口から起動したツールを止めてから、待ち受けを終える(serve_forever が戻る)。"""
@@ -1303,6 +1315,8 @@ def main(argv=None):
         srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
         srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、dev/eval_*.py を子プロセスで)
         srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
+        if srv.analytics:
+            srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
         if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"

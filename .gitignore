@@ -97,4 +97,6 @@ docs/design/briefs/*/screenshots/
 src/home/prefs.json
 # 同じく、リアルタイム切り抜き(線 D)をオンにしたときのマーク・書き出しの記録(2026-10-04)
 src/home/live/
+# 分析と日報の作業データ(YTT_DATA_DIR=inplace のとき。受け取った raw・合言葉・報告。2026-10-09)
+src/analytics/data/
 .artifact-build/
