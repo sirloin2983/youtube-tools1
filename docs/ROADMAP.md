@@ -52,6 +52,7 @@
 | `plan/user-tasks.html`(データは同じ `data.js`) | ユーザーがやること(U1〜U10。U6 は欠番。U8 = 送るアプリ 2.8.0 を本物の Dropbox で・U9 = Chrome 拡張を本物の Studio で・U10 = 仮決めの確認。ほかに実機で確かめること・決めてほしいこと) |
 | `plan/decisions.md` | 決めたこと・やらないこと・AI が仮で決めたこと |
 | `plan/improvements.md` | 改善点・追加するとよい機能 |
+| `plan/analytics-daily-report.md` | 分析と日報(新しいツール `src/analytics/` の設計。2026-10-08 に決定・実装はまだ。Analytics API で毎日取り、YPP の 90 日 qualified の守り・初速・配信者別などを出す。提案の P24 から) |
 | `plan/proposals-2026-10.md` | 今後の機能追加・改善の提案(議論用。2026-10-08。投稿の後の閉ループ・守り・価値を足す仕上げ・検出・校正・運用・友人の 29 件 + 前提の事実と聞きたいこと。計画に入れるかはユーザーと議論して決める) |
 | `plan/line-a-remaining.md`・`plan/line-a-phase8-multi-clip.md` | 線 A の残り(段 8・12・15)と段 8 の細かい計画 |
 | `plan/line-b-transcription.md` | 線 B の第 2 版(関門 G0〜G3/FT・D0〜E4・FT)。付録に第 1 版の測定 |
