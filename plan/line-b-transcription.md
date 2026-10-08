@@ -151,7 +151,7 @@
 | A + B + C(+ D 別のエンジンが名簿の呼び名をそのまま出した所だけ 1 字違いを直す) | **SenseVoice の窓 11.1%・名前 42/54 / faster-whisper の窓 ±5 秒 10.4%(7.6〜14.2)・名前 44/54 / faster-whisper の全体の行 10.4%** | 対の比較 −2.1 pt(95% −5.0〜+0.1)。編集前 15.2 → 12.5・ショート 12.3 → 10.4・重なり 47 → 27%。良くなった 6 本・悪くなった 1 本。G1 の量では「有望」止まり(G2 で確かめる) |
 
 #### 効かなかったもの(10-08 に測って閉じる)
-- 復号の設定: beam 8(14.6%)・entropy 2.0・無音しきい値 0.6・非音声トークンの抑制・logprob しきい値 −0.5(13.0〜13.1% = 変化なし)・前の文を文脈にする(-mc 64 = 18.3%・-mc 既定 = 18.6%。余分 220 超 = 繰り返しの暴走 → 今の -mc 0 が正しい)
+- 復号の設定: beam 8(14.6%)・entropy 2.0・無音しきい値 0.6・非音声トークンの抑制・logprob しきい値 −0.5(13.0〜13.1% = 変化なし)・前の文を文脈にする(-mc 64 = 18.3%・-mc 既定 = 18.6%。余分 220 超 = 繰り返しの暴走 → 今の -mc 0 が正しい)。温度 0・やり直しなし(`-tp 0 -nf`)は CER 12.6%(−0.4 pt・n.s.)で 25% 速く出力が固定だが、行が 336 → 492 に細切れになり境目の的中 73% → 45%(校正でくっつける手間)→ 採らない。温度 0 では beam 3 = 15.2%・beam 8 = 22.7% と崩れる(beam 5 のまま)。フラッシュアテンション(-fa)は 12.2%(n.s.)で速いが、行の端が整数秒に丸まる割合 17 → 43%・行が 329 → 498 に細切れ = 10-04 と同じ → -nfa のまま
 - Silero で区切って認識(19%)・話者の区間ごとに認識(20%)・重なり区間だけ読み直し(17.5%)・文字の少ない窓を whisper.cpp(GPU)で読み直し(±0.5 秒 15.7%・±2 秒 23.4%・±5 秒 25.0% = 短い窓で幻覚。窓を読ませるなら SenseVoice か faster-whisper(CPU・±5 秒 11.1%))
 - ヒント: **whisper.cpp は -mc 0 だと --prompt が完全に無視される**(ソースで確認。今の編集の用語集・文脈は whisper.cpp に届いていない)。`--carry-initial-prompt -mc (ヒントのトークン数+1)` で効かせると、相づち語「えー、あー、うんうん…」で 13.7%(抜け 201 → 111・重なり 22%・余分 +64)、名前の列挙 15.9%、文の形 21.9%、「ー」を抜いた相づち語 18.9% = 文面で 5 pt 以上ぶれる。既定にしない
 - 別のモデル: SenseVoice-small 16.5%(CPU 17 秒・余分 38・重なり 29%)・Qwen3-ASR 1.7B 16.0%(重なり 19%)・faster-whisper large-v3 19.1%・large-v3-turbo 20.3%・Parakeet-ja 25.5%・Cohere Transcribe 30.9%・ReazonSpeech 41%・kotoba-whisper 46.9%(whisper.cpp 版。時刻が崩れる)・anime-whisper 84%(繰り返しの暴走)
@@ -183,7 +183,7 @@
 3. **済み(0.59.7)**: roster.py の `variant_pairs`(長音のゆれ・`KANJI_VARIANTS`)を `ed_jobs.dict_pairs` で置換辞書と同じ所に当てる。対象は名簿の全員(普段の文書 1045 行で変わる行 0。ユーザー 12:40)。評価用には当てない(autoDict が外れる)。別のエンジンの読みが名簿の呼び名そのままの所だけ 1 字違いも直す案(名前 +4)は未
 4. 掃除は expand_segments(定型の幻覚は声の区間と照合・末尾の重複)
 5. whisper.cpp のヒントを使うなら carry + -mc の直し(tx_engines.WhisperCpp.args)。ただし効かせるかどうかは G2 で測ってから。用語集の画面に「GPU では使われない」の注意書きを足す(ユーザー「任せる」)
-6. 今日試したモデルの入手先(消したので、測り直すときに取り直す。URL・大きさ・SHA-256 を固定してから): SenseVoice int8 = `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`(165MB。2025-09-09 の版は sherpa-onnx 1.13.8 では壊れた出力)。
+6. 今日試したモデルの入手先(消したので、測り直すときに取り直す。URL・大きさ・SHA-256 を固定してから): SenseVoice int8 = `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`(163,002,883 バイト・SHA-256 `7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e`。中は model.int8.onnx・tokens.txt。2025-09-09 の版は sherpa-onnx 1.13.8 では壊れた出力。ライセンス FunASR MODEL_LICENSE = 商用可・出典とモデル名の表示)。
    ほか(落第だが記録): Cohere Transcribe `sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2`・Parakeet-ja `sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8.tar.bz2`・ReazonSpeech `sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2`(同じ release)・kotoba-whisper `kotoba-tech/kotoba-whisper-v2.0-ggml`・anime-whisper `Aratako/anime-whisper-ggml`・UVR `source-separation-models/UVR-MDX-NET-Voc_FT.onnx`・GTCRN/DPDFNet `speech-enhancement-models/`
 7. ボーカル分離・雑音除去を認識の前に入れる(10-08 午後に測った): UVR 16.3%・GTCRN 25.1%・DPDFNet 31.6% = 全部悪化。閉じる
 
