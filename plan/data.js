@@ -2,7 +2,7 @@
    状態の値: "done" 済み / "doing" 進行中 / "next" 次(今できる) / "todo" あと(前の工程が済んでから) / "wait" ユーザー待ち / "cont" 継続
    更新したら updated を直す。チェックの付け外し(user-tasks.html)はブラウザに残るだけで、ここには書かない(ユーザーが AI に伝える)。 */
 window.PLAN = {
-  updated: "2026-10-08",
+  updated: "2026-10-09",
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "10-08 の見直し: 作る段階はほぼ終わった。線 D は配信 → 検出 → 自動採用 → 書き出し → 文字起こし → パックまで本物の配信で動いた(10-08。既定オン)。ここからは「本物で確かめて、数字で決め直す」段階。律速は AI ではなく ① ユーザーの校正の時間(線 B。動画 1 分に約 12.6 分)② 配信の本数(線 C・D の数字)③ 友人の確認(U8)④ 仮決めの確認(約 35 件)。AI の作業は計画の 5〜10 倍の速さで進んだので、AI の見積もりを実績に合わせて縮めた(人の作業の見積もりは今のまま)。今週は次の配信(10-18/19)の前に、線 D の守りと記録(D-12〜D-14)・物差し(K1・K2)・確認と校正の手間を減らす画面(A5・A6)・段 8(A3)を入れる(10-08 にユーザー決定)。",
   versions: [
@@ -57,7 +57,7 @@ window.PLAN = {
     { id: "0", name: "済み(10-04〜10-08)", gate: "—", items: "線 D の P1〜P4・M1〜M13・L0〜L4'・D-11 / 線 B の B1・B3・後処理(0.60.0)/ A1 話者・A2 あと何本 / U2 Resolve・U3 友人" },
     { id: "1", name: "今週: 固める(〜10-13)", gate: "条件なし", items: "AI: R1 資料の整理・D-12〜D-14 線 D の守りと記録・K1・K2 物差し・A5 確認の手間・A6 校正の手間・A3 段 8。ユーザー: U10 仮決めの確認・U5 写し戻し・U9 Chrome 拡張・U7 普段の使用・B2 キー(任意)" },
     { id: "2", name: "次の配信で確かめる(10-18/19)", gate: "配信", items: "U4 長い配信で全部オン(録画・検出・自動採用・配信中の文字起こし・配信後の全自動)+ U8 友人のライブ依頼を同じ配信に" },
-    { id: "3", name: "使いながら決め直す(10-20〜)", gate: "配信の記録・採用の記録", items: "D-15 数の決め直し(U4 の翌日)/ L5 当たり具合(配信数本)/ C1・C3・C2(記録がたまったら)" },
+    { id: "3", name: "使いながら決め直す(10-20〜)", gate: "配信の記録・採用の記録", items: "D-15 数の決め直し(U4 の翌日)/ L5 当たり具合(配信数本)/ C1・C3・C2(記録がたまったら)/ 提案から決めた P5 サムネの案・P18 LLM の後処理(条件なし。今週の分のあと)" },
     { id: "4", name: "G2 のあと", gate: "G2(校正 約 10 時間)", items: "B4 後処理を残すかの判定 → I-3b カット「行から」" },
     { id: "5", name: "最後", gate: "学習用 3 時間ほか", items: "B5 FT → B6 E4 + 段 12 コラボ / O1 Python の移行の下調べ" }
   ],
@@ -93,6 +93,7 @@ window.PLAN = {
     { id: "D-13", name: "自動の安全弁(10-08 決定。live.autoDeliver で確認なしに友人へ届く分にも効く。仮の数: 1 配信の自動採用 10 本まで・未確認 20 本で休む・友人のライブ依頼は同時 1 本・1 依頼 6 時間まで)", line: "D", who: "AI", phase: "1", pre: [], rec: [], ai: "1〜2 時間", user: "数は使いながら直す", state: "next" },
     { id: "D-14", name: "配信の終わりと GPU の取り合い(10-08 決定。終わったとき待ち中の候補も採る・配信中の文字起こしを重い処理の枠 SLOTS に通す・置き換わらない録画に期限の知らせ)", line: "D", who: "AI", phase: "1", pre: ["D-11"], rec: [], ai: "1〜2 時間", user: "—", state: "next" },
     { id: "K1", name: "後処理の様子見の物差し(提案。0.60.0 で置き換えた行を人が残したか・直したか・戻したかを数える dev/eval_fill.py。追加の校正は要らない)", line: "B", who: "AI", phase: "1", pre: [], rec: [], ai: "1〜2 時間", user: "—", state: "next" },
+    { id: "P28", name: "Qwen3-ASR の context の残りを 1 回測って閉じる(提案 P28。10-08 ユーザー「任せる」。名簿の列挙は測り済みで悪化 → 題名・直前の行・かな表記だけ。plan/llm-postfix.md の 7)", line: "B", who: "AI", phase: "1", pre: [], rec: [], ai: "1 時間", user: "—", state: "next" },
     { id: "K2", name: "採用の記録の数え方(10-08 決定。C1 の入口に線 D の [採用][要らない]・友人の返事も数える・止まっている精度の自動測定を回す)", line: "C", who: "AI", phase: "1", pre: [], rec: [], ai: "1 時間", user: "—", state: "next" },
     { id: "A5", name: "確認の手間を減らす(10-08 決定。ホームで自動の切り抜きを続けて再生しながら [採用][要らない]。編集を開かずに決める)", line: "A", who: "AI", phase: "1", pre: [], rec: ["D-13"], ai: "2〜4 時間", user: "確認 10 分", state: "next" },
     { id: "A6", name: "校正の手間を減らす(10-08 決定 = 字幕の直しが重い。22 本の校正の記録から時間のかかる直しを測り、効く助けを 1〜2 個)", line: "A・B", who: "AI", phase: "1", pre: [], rec: ["K1"], ai: "2〜4 時間", user: "確認 10 分", state: "next" },
@@ -111,12 +112,14 @@ window.PLAN = {
     { id: "C1", name: "盛り上がりの重み・辞書・笑い/叫び(I-4a)", line: "C", who: "AI", phase: "3", pre: ["L1", "U7"], rec: ["K2", "M11"], ai: "2〜4 時間", user: "記録は U7", state: "todo" },
     { id: "C3", name: "カットのしきい値(I-3a。無音・余白の道具は済み = 数字の調整だけ)", line: "C", who: "AI", phase: "3", pre: ["U7"], rec: ["M8"], ai: "1〜2 時間", user: "—", state: "todo" },
     { id: "C2", name: "盛り上がりの言葉の材料(I-4b。D-11 の候補の文字を使う)", line: "C", who: "AI", phase: "3", pre: ["L1", "D-11"], rec: ["C1"], ai: "1〜2 時間", user: "—", wait: "候補の文字がたまってから(配信数本)", state: "todo" },
+    { id: "P5", name: "サムネの案を数パターン出す(提案 P5。10-09 決定。完成品ではなく参照の 1 枚 = 候補のフレーム + キャッチ + 他チャンネルの参照の行。先に LLM なしの S → LLM のキャッチは P18 の部品に相乗り。plan/thumb-ideas.md)", line: "A", who: "AI → ユーザー", phase: "3", pre: [], rec: ["A3"], ai: "S 1〜3 時間 + M 4〜10 時間", user: "感想 10 分(サムネ 1 本 5〜15 分が減るか)", state: "next" },
+    { id: "P18", name: "LLM の後処理(提案 P18。10-09 決定。疑わしい箇所だけ・差分だけ・上限つき・ワーカーの中・既定オフで 22 本を測ってから。Qwen3-8B 約 5GB を取得。plan/llm-postfix.md)", line: "B", who: "AI", phase: "3", pre: [], rec: ["P28", "K1"], ai: "1 晩(4〜10 時間)", user: "—", state: "next" },
     /* 4 G2 のあと */
     { id: "B4", name: "後処理を残すかの判定(E2 抜け・E3 呼び名。0.60.0 で実装済み = G2 と K1 で測る)→ I-3b カット「行から」", line: "B・C", who: "AI", phase: "4", pre: ["U7"], rec: ["K1", "B2"], ai: "3〜5 時間", user: "G2 までの校正 約 10 時間", state: "todo" },
     /* 5 最後 */
     { id: "B5", name: "FT 追加学習", line: "B", who: "AI + ユーザー", phase: "5", pre: ["B4"], rec: ["B2"], ai: "半日 + 学習の計算(借りる GPU)", user: "学習用の校正 約 25〜40 時間 + 借りる GPU の相談", state: "todo" },
     { id: "B6", name: "重なり声(E4)+ 段 12 コラボ・別視点", line: "B・A", who: "AI", phase: "5", pre: ["B4"], rec: ["B5"], ai: "半日〜1 日", user: "URL を集める 30 分", state: "todo" },
-    { id: "O1", name: "Python の移行の下調べ(3.10 は 2026-10 でサポート終了。3.12 で faster-whisper・sherpa-onnx・Playwright が動くか。急がない)", line: "運用", who: "AI", phase: "5", pre: [], rec: [], ai: "2〜3 時間", user: "—", state: "todo" }
+    { id: "O1", name: "Python 3.10 → 3.12 の移行(下調べ済み 10-09 = plan/python-migration.md。yt-dlp は winget の exe で 3.10 終了の影響なし・固定の版を変えずに移れる・3.12 は入っている。静かな日に 1 晩。急がない)", line: "運用", who: "AI + ユーザー", phase: "5", pre: [], rec: [], ai: "1 晩", user: "pip の導入 10〜15 分(自分の cmd で)", state: "todo" }
   ],
   /* 合計(目安。10-08 に AI の分を実績に合わせて縮めた。人の分は今のまま) */
   totals: [

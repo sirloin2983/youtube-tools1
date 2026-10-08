@@ -286,6 +286,11 @@
 - **形を決めた**: P5 サムネ = 完成品ではなく「イメージを数パターン」+ LLM のキャッチ案 → 設計 `plan/thumb-ideas.md`。ショートにも 1 本ずつ作っている。作る道具・時間のかかる所・テンプレは未回答(「知らない」)
 - 調査で見つかった別の直し: 学習(`src/editor/ed_learn.py` の `_prep`)が後処理 A・D で置き換えた行(`fill` 付き)を除いていない = 機械の直しを「人が直した」として学習する自己強化の恐れ。P18 と一緒に直す(または先に小さく)
 
+### 3-5 10-09 の答え(3 回目)
+- 「サムネはほかのチャンネルも参考にして作って」→ `plan/thumb-ideas.md` の 6(他チャンネル 3 つの型を見本に・同じ元配信の他チャンネルのサムネを参照の行に並べる)
+- 「他はおすすめでいい」→ P18 は `plan/llm-postfix.md` の 6(Qwen3-8B・既定オフ・「別」はあれば使う)、P5 は `plan/thumb-ideas.md` の 5(6 案・縦 + 3:2 の枠・矩形を 1 回指定・LLM 案と規則案を並べる・パックのフォルダ・S から)
+- 決まった 4 件を `plan/data.js` の工程に入れた(P5・P18・P28・O1 の下調べ済み)。議論はここまで。残りの提案(P2・P7・P11・P13・P15〜P17・P19・P22・P25・P27・P29)は「保留(要望が出たら)」のまま
+
 ## 4. 出典(主なもの。確度は各節に)
 - YouTube 10-01 の Shorts の更新: https://www.socialmediatoday.com/news/youtube-updates-shorts-algorithm-to-put-more-focus-on-original-content/ ・ https://www.dexerto.com/youtube/youtube-cracks-down-on-clipping-channels-in-shorts-update-prioritizing-original-content-3415700/
 - YPP の変更(2027-02-01): https://blog.youtube/news-and-events/new-opportunities-to-earn-and-changes-to-the-youtube-partner-program/
