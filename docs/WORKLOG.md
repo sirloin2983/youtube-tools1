@@ -2482,3 +2482,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 締めの確認(GPU): 前の文を文脈にする -mc 64 / 既定 = 18.3 / 18.6%(繰り返しの暴走 = 今の -mc 0 が正しい)・logprob −0.5 = 13.0%(変化なし)・whisper.cpp で窓を読み直す ±0.5/±2/±5 秒 = 15.7 / 23.4 / 25.0%(閉じる)
 - 未コミット: なし(このコミットで全部。push はユーザー)。17:30 まで実験を続け、追加の結果があれば次の記録に足す
 - 注意: AI のシェルから書いた `evals/asr/` の結果はパッケージの写し(MSIX)に入るので、正は D:/backup の方。ユーザーの入口(0.46.1。08:25 起動)は触っていない。実験中に AI が自分で起動した `python -`(標準入力待ち)を 1 つ止めた(ユーザーのプロセスは止めていない)
+
+## 2026-10-08 Claude Code(PC。Fable)— 編集 0.59.7: 名簿の呼び名の表記ゆれを直す(10-08 の実験ループの B を実装)
+- ユーザーの答え(12:40)「精度が上がるなら自動で書き換えてよい。人の校正作業の短縮が大切」「表記ゆれ直しは普通の言葉を壊す度合い次第」→ 普段の文書 1045 行で変わる行 0 だったので、安全で安い B だけ今日のうちに実装した
+- 変更: `src/editor/roster.py` に `alias_variants`(母音の長音 ↔ ー。ひらがな・カタカナの両方。3 字未満は除く)・`variant_pairs`(名簿の全員の名前と呼び名 + `KANJI_VARIANTS`(吹雪・昴・子寄り)。`common` の語は除く。長い綴りから先)。
+  `src/editor/ed_jobs.py` に `dict_pairs(spec)`(autoDict のとき 設定の置換辞書 + 名簿の表。評価用の文書は autoDict が外れるので当たらない)= run_job・`_apply_retranscribe`・`_apply_range` の 3 か所と `dict_version`(replacements のハッシュに名簿の表も入る)。
+  版 0.59.6 → 0.59.7(`serve.py`・`app.js`・README ■ v0.59.7・AGENTS.md)。本物の名簿で 47 組(はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ など)
+- テスト: `tests/test_roster.py` に `test_alias_variants_and_pairs`(apply_replacements と組み合わせて当たることも)。test_metrics + test_resolve_export + test_roster 557 件 OK・lint 0。画面は変えていない
+- 決定: `plan/decisions.md` (du)(B は実装済み・A/C/D は G2 のあと)・`plan/line-b-transcription.md` の「結論」「実装するなら」3・`plan/data.js`(版・線 B)→ 公開ページ
+- 未コミット: なし(このコミットで全部。push はユーザー)。入口は起動し直すと 0.59.7 になる

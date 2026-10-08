@@ -142,7 +142,7 @@
 ### 10-08 の実験ループ(誤字誤認識・多人数の対策。ユーザー不在で 08:30〜17:00。基準 whisper.cpp large-v3 GPU 13.0%・確かめ済み 22 本)
 記録: `docs/WORKLOG.md` の 10-08、数字と道具 `D:/backup/youtube-tools-eval/asr-20261008/`(results.txt・各 JSON・tools/)。試したモデル `D:/backup/youtube-tools-eval/models-20261008/`(約 12GB。消してよい)
 
-#### 結論(仮決め。実装は未)
+#### 結論(12:40 のユーザーの答え: 精度が上がるなら自動で書き換えてよい(校正の短縮が大切)・表記ゆれ直しは全員で・モデルは消した。**B は編集 0.59.7 で実装済み**(10-08 午後。`roster.variant_pairs` + `ed_jobs.dict_pairs`。autoDict のときだけ = 評価用には当たらない)。A・C・D は G2 で測り直してから。行を分ける文字数 24 は 0.59.6)
 | 施策 | CER | 要点 |
 |---|---|---|
 | **A. 文字の少ない行を別の読みで埋める** | 13.0 → 11.6〜11.8%(SenseVoice。本番の形 = 窓だけ読んで 11.8%・1 文書 0.2 秒)/ 11.1%(faster-whisper で窓 ±5 秒を読む。CPU 1081 秒)/ 10.4〜10.6%(faster-whisper を全体に流した行) | whisper の行で「2 秒以上・正規化 1.5 字/秒 未満」または「同じ字の繰り返しで縮む」行(22 本で 329 行中 6 行)を、その時間の別の読みの行で置き換える(別の読みの字数が 3 倍以上のときだけ)。重なり区間の抜け 109 → 51 字。Qwen3 で埋めると無音の所で文を作って悪化 |
@@ -179,10 +179,13 @@
 
 #### 実装するなら(設計の下書き。`docs/WORKLOG.md` 10-08 と scratchpad の notes.md)
 1. 2 つ目の読み: 校正の画面(人が待つ)は SenseVoice-small int8(165MB。sherpa-onnx はすでに依存。URL・大きさ・SHA-256 を固定。窓 1 つ 0.1 秒)、夜の自動(線 D。人が待たない)は faster-whisper large-v3(CPU。すでにある)で窓 ±5 秒(短い窓だと幻覚する: ±0.5 秒 13.6%・±2 秒 12.1%・±5 秒 11.1%)。whisper.cpp(GPU)で窓を読む案は batch8 の spredo50-fix の結果で決める
-2. ed_jobs.run_job の expand_segments の前後で「文字の少ない行」を集めて窓を読ませ、置き換えた行に印(校正で分かるように)
-3. roster.py に長音・当て字の変種の表(名簿から作る)。置換辞書と同じ所で当てる。対象は出る人 + 本文に名前が出た人。評価用には当てない
+2. ed_jobs.run_job の expand_segments の前後で「文字の少ない行」を集めて窓を読ませ、置き換えた行に印(校正で分かるように)。校正の画面でも自動で書き換える(ユーザー 12:40)。元の whisper の文字は「別」の候補として残す。認識の部品は認識ワーカーの中だけ(IN_WORKER)
+3. **済み(0.59.7)**: roster.py の `variant_pairs`(長音のゆれ・`KANJI_VARIANTS`)を `ed_jobs.dict_pairs` で置換辞書と同じ所に当てる。対象は名簿の全員(普段の文書 1045 行で変わる行 0。ユーザー 12:40)。評価用には当てない(autoDict が外れる)。別のエンジンの読みが名簿の呼び名そのままの所だけ 1 字違いも直す案(名前 +4)は未
 4. 掃除は expand_segments(定型の幻覚は声の区間と照合・末尾の重複)
-5. whisper.cpp のヒントを使うなら carry + -mc の直し(tx_engines.WhisperCpp.args)。ただし効かせるかどうかは G2 で測ってから
+5. whisper.cpp のヒントを使うなら carry + -mc の直し(tx_engines.WhisperCpp.args)。ただし効かせるかどうかは G2 で測ってから。用語集の画面に「GPU では使われない」の注意書きを足す(ユーザー「任せる」)
+6. 今日試したモデルの入手先(消したので、測り直すときに取り直す。URL・大きさ・SHA-256 を固定してから): SenseVoice int8 = `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2`(165MB。2025-09-09 の版は sherpa-onnx 1.13.8 では壊れた出力)。
+   ほか(落第だが記録): Cohere Transcribe `sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2`・Parakeet-ja `sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8.tar.bz2`・ReazonSpeech `sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2`(同じ release)・kotoba-whisper `kotoba-tech/kotoba-whisper-v2.0-ggml`・anime-whisper `Aratako/anime-whisper-ggml`・UVR `source-separation-models/UVR-MDX-NET-Voc_FT.onnx`・GTCRN/DPDFNet `speech-enhancement-models/`
+7. ボーカル分離・雑音除去を認識の前に入れる(10-08 午後に測った): UVR 16.3%・GTCRN 25.1%・DPDFNet 31.6% = 全部悪化。閉じる
 
 ### E2 抜けを減らす(G2。第1版の段3 = I-1b の前半)
 - 「声があるのに行が無い」区間に印 → 2 つ目のエンジンで聞き直す(確かめ済みの定点は、すき間の抜けと幻覚をそのまま数えられるようになった = 10-04 夜の作り直し)

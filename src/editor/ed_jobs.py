@@ -1725,6 +1725,20 @@ def roster_hash():
         return ""
 
 
+def dict_pairs(spec):
+    """置換辞書の組 [(誤, 正)](autoDict のときだけ。評価用の文書は autoDict が外れるので当たらない)= 設定の replacements + 名簿の呼び名の表記ゆれ(roster.variant_pairs。0.59.7。
+    はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = plan/line-b-transcription.md の「10-08 の実験ループ」B)。
+    設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ"""
+    if not spec.get("autoDict"):
+        return []
+    pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))
+    try:
+        pairs += _roster.variant_pairs(_roster.load(ed_state.ROSTER))
+    except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
+        ed_state.log.warning("名簿の表記ゆれの表を作れませんでした: %s", e)
+    return pairs
+
+
 def dict_version(spec):
     """この認識に使った辞書の版(マスタープラン Q2。recognition.runs の settings.dict と文書の params.dict)。
     glossary = 用語集(自動で足した語を含む。ヒントに入った語)・replacements = 置換辞書(autoDict のとき)・
@@ -1736,7 +1750,7 @@ def dict_version(spec):
         if gl:
             out["glossary"] = short_hash("\n".join(gl))
         if spec.get("autoDict"):
-            out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))))
+            out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in dict_pairs(spec)))   # 0.59.7 から名簿の表記ゆれの表も入る(表が変わると版が変わる)
         if spec.get("autoLearned"):
             rules = ed_learn.learn_rules()
             out["learned"] = short_hash(json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k not in ("alt", "yt")}},
@@ -2031,7 +2045,7 @@ def run_job(job):
             gen = transcribe_real(job, spec, wav, total)
         raw_asr = []   # 生出力(<id>.asr.json)
         gen = capture_raw(gen, raw_asr, spec["start"])
-        pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements")) if spec.get("autoDict") else []
+        pairs = dict_pairs(spec)
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
         rows = list(expand_segments(gen, spec, total, row_levels(spec, wav)))
         # 1 秒単位に丸まった窓(whisper.cpp)だけ、faster-whisper の単語の時刻で行の時刻を配り直す(2026-10-07。plan/line-b-row-timing.md の案 A)
@@ -2315,7 +2329,7 @@ def apply_retranscribe(spec, results):
 
 def _apply_retranscribe(spec, results):
     doc = ed_store.read_transcript(spec["tid"])
-    pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements")) if spec.get("autoDict") else []
+    pairs = dict_pairs(spec)
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
     spans = [(sg["start"], sg["end"]) for sg in doc.get("segments") or [] if results.get(sg["id"])]
@@ -2438,7 +2452,7 @@ def apply_range(spec, lines, loose=()):
 def _apply_range(spec, lines, loose=()):
     a, b = spec["range"]
     doc = ed_store.read_transcript(spec["tid"])
-    pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements")) if spec.get("autoDict") else []
+    pairs = dict_pairs(spec)
     loose = [dict(x, flag="、".join(f for f in (LOOSE_FLAG, x.get("flag", "")) if f)) for x in loose]
     plan = plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
     empty_ids = {g["id"] for g in plan["empty"]}

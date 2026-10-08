@@ -107,6 +107,26 @@ class TestRosterRules(unittest.TestCase):
         self.assertEqual(R.fit(["あいう", "えお"], 6, 2), ["あいう"])                   # 区切りが 2 字(", ")なら 7 字で入らない
         self.assertEqual(R.fit(["a", "a", " ", "b"]), ["a", "b"])
 
+    def test_alias_variants_and_pairs(self):
+        """呼び名の表記ゆれ(2026-10-08): 母音の長音 ↔ ー・ひらがな/カタカナの両方・短すぎる綴りと common の語は入れない・漢字の当て字"""
+        self.assertEqual(R.alias_variants("はあちゃま"), ["はーちゃま", "ハーチャマ"])
+        self.assertIn("ラミー", R.alias_variants("ラミィ"))
+        self.assertIn("らみー", R.alias_variants("ラミィ"))
+        self.assertEqual(R.alias_variants("みこち"), [])                       # 長音が無ければ変種なし
+        self.assertIn("ルウナ", R.alias_variants("ルーナ"))                      # ー → 母音
+        r = {"members": {"赤井はあと": {"aliases": ["はあと", "はあちゃま"], "common": []}, "白上フブキ": {"aliases": ["フブキ"], "common": []},
+                         "さくらみこ": {"aliases": ["みこ"], "common": ["みこ"]}}, "people": []}
+        pairs = R.variant_pairs(r)
+        self.assertIn(("はーちゃま", "はあちゃま"), pairs)
+        self.assertIn(("吹雪", "フブキ"), pairs)
+        self.assertFalse(any(dst == "みこ" for _s, dst in pairs))                  # common の語は直さない
+        kanji = {src for v in R.KANJI_VARIANTS.values() for src, _d in v}
+        self.assertTrue(all(len(src) >= R.VARIANT_MIN for src, _d in pairs if src not in kanji))   # 長音の変種は 3 字以上(漢字の当て字は表のまま)
+        self.assertEqual(pairs, sorted(pairs, key=lambda p: (-len(p[0]), p[0])))    # 長い綴りから先
+        from ed_learn import apply_replacements
+        text, n = apply_replacements("はーちゃまと吹雪が来た", pairs)
+        self.assertEqual((text, n), ("はあちゃまとフブキが来た", 2))
+
     def test_leak_only(self):
         terms = ["大空スバル", "スバル", "みこち"]
         self.assertTrue(R.leak_only("スバル、みこち", terms))

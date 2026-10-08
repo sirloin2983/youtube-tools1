@@ -175,3 +175,69 @@ def leak_only(text, terms):
     for i in range(1, len(t) + 1):
         ok[i] = any(L <= i and ok[i - L] and t[i - L:i] in keys for L in lens)
     return ok[len(t)]
+
+
+
+# ---------------------------------------------------------------- 呼び名の表記ゆれ(2026-10-08。plan/line-b-transcription.md の「10-08 の実験ループ」B)
+# whisper は呼び名の長音を「ー」で書く(はあちゃま → はーちゃま・ラミィ → ラミー)ことと、音の同じ漢字を当てる(フブキ → 吹雪・こより → 子寄り)ことがある。
+# 名簿の呼び名から「whisper が書きそうな別の綴り → 名簿の綴り」の表を作り、置換辞書と同じ所で当てる(評価用の文書には当てない = autoDict が外れる)。
+# 確かめ済み 22 本で名前の再現率 28 → 40/53・余分は増えず、普段の文書 1045 行で変わる行は 0(普通の言葉は壊さない)。無条件の 1 字違いの直しは誤爆するので入れない
+KANJI_VARIANTS = {   # 名簿の名前 → [(whisper が当てた漢字, 名簿の綴り)]。測定で見つかったものだけ(増やすときは普段の文書で壊す例が無いか数える)
+    "白上フブキ": [("吹雪", "フブキ")], "大空スバル": [("昴", "スバル")], "博衣こより": [("子寄り", "こより"), ("小寄り", "こより")],
+}
+_VOWEL_ROWS = {"あ": "あかさたなはまやらわがざだばぱゃ", "い": "いきしちにひみりぎじぢびぴ", "う": "うくすつぬふむゆるぐずづぶぷゅ",
+               "え": "えけせてねへめれげぜでべぺ", "お": "おこそとのほもよろごぞどぼぽょ"}
+_SMALL_VOWELS = {"ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お"}
+VARIANT_MIN = 3   # これより短い綴りは普通の言葉に紛れるので表に入れない
+
+
+def _hira(c):
+    return chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c
+
+
+def _kata(c):
+    return chr(ord(c) + 0x60) if "ぁ" <= c <= "ゖ" else c
+
+
+def alias_variants(alias):
+    """呼び名 → whisper が書きそうな別の綴り(母音の長音 ↔ ー。ひらがな・カタカナの両方の形)。元の綴りは入れない"""
+    outs = set()
+    for form in {alias, "".join(_kata(c) for c in alias), "".join(_hira(c) for c in alias)}:
+        chars = list(form)
+        for i in range(1, len(chars)):
+            c, prev = chars[i], chars[i - 1]
+            hc, hp = _hira(c), _hira(prev)
+            vowel = _SMALL_VOWELS.get(hc, hc)
+            if vowel in _VOWEL_ROWS and hp in _VOWEL_ROWS[vowel]:   # 母音の長音 → ー
+                v = chars[:]
+                v[i] = "ー"
+                outs.add("".join(v))
+            if c == "ー":                                              # ー → 母音
+                for vow, row in _VOWEL_ROWS.items():
+                    if hp in row:
+                        v = chars[:]
+                        v[i] = vow if "ぁ" <= prev <= "ゖ" else _kata(vow)
+                        outs.add("".join(v))
+    outs.discard(alias)
+    return sorted(v for v in outs if len(v) >= VARIANT_MIN)
+
+
+def variant_pairs(r):
+    """名簿 r(load の結果)→ 置換の組 [(別の綴り, 名簿の綴り)](長い綴りから先。置換辞書 parse_replacements と同じ形)。
+    名簿の全員の名前と呼び名(common = 普通の言葉と重なる語は入れない)+ KANJI_VARIANTS"""
+    pairs, seen = [], set()
+    members = r.get("members") or {}
+    for name, m in members.items():
+        for src, dst in KANJI_VARIANTS.get(name, []):
+            if src not in seen:
+                seen.add(src)
+                pairs.append((src, dst))
+        common = set(m.get("common") or [])
+        for alias in [name] + list(m.get("aliases") or []):
+            if alias in common:
+                continue
+            for v in alias_variants(alias):
+                if v not in seen and v not in members and not any(v == a for mm in members.values() for a in mm.get("aliases") or []):
+                    seen.add(v)
+                    pairs.append((v, alias))
+    return sorted(pairs, key=lambda p: (-len(p[0]), p[0]))
