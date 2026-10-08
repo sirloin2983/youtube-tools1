@@ -2816,3 +2816,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: test_analytics OK・lint 0
 - 次: ユーザーが入口を起動し直して月報を送り直す。既存の「Youtube日次」の pollAndSend のトリガーを消す
 - 未コミット: なし
+
+## 2026-10-09 Claude Code(PC。Fable)— 計画(plan/data.js)を今日の内容に直して公開ページを更新
+- 依頼: ユーザー「今後の流れを説明して」→「計画を今日の内容に直して公開ページも更新して」
+- 変更(plan/data.js だけ): 版をホーム 0.50.0・送るアプリ 2.8.1 に、分析と日報 0.1.1 を足した / summary に 10-09 の 1 文 / recent に ⑨ 分析と日報・⑩ 送るアプリ 2.8.1 と友人のライブ依頼の不具合 / 線 D の next から済んだ D-12〜D-14 を外した / 別件の線に分析と日報(名前・ねらい・済み・次・資料 analytics-daily-report.md。新しい線は作らない = 線の色の検査をやり直さないため)/ tasks に AN1 分析と日報(phase 0・済み)と U13 月報の受け取りと推定収益の単位を Studio と見比べる(ユーザー・phase 1)/ U8 を 2.8.1 と「配信前のライブ依頼で録画が始まるか」に / フェーズ 0・1・合計・日程・userTasks(notes・ordered に U13)を合わせた。history には足していない(決まりどおり)
+- 計画に入れなかったもの(操作だけ): 入口の起動し直し・月報の送り直しの操作・古い「Youtube日次」のトリガーの削除・友人へ 2.8.1 の zip を渡す
+- 公開ページ: dev/plan_artifact.py で作り直し、https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt に version 49 で公開(公開中の版との差は data の直しだけで、手の編集は無いことを diff で確かめた)
+- 確認: node で data.js を読み込み、tasks の pre・rec の参照に漏れが無いことを確かめた。CRLF のまま
+- 注意: src/ytt_core/・src/ui-kit/・各ツールの ui-kit.js・dev/lint.py などに、WORKLOG に記録の無い未コミットの変更がある(別のセッションの作業途中と見て触っていない・stage していない)
+- 未コミット: なし(このセッションの分 plan/data.js と WORKLOG はコミット)
