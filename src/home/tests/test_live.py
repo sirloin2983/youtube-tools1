@@ -150,7 +150,7 @@ class PrefsLiveTest(unittest.TestCase):
         v = P.Prefs(path, fsio.atomic_write).get(["live"])["live"]
         self.assertEqual((v["enabled"], v["folder"], v["quality"], v["autoAfterStream"], v["afterStreamPerHour"], [r["id"] for r in v["recorders"]]),
                          (True, "E:\\Video\\live-rec", "1080p", True, 6, ["local"]))
-        self.assertEqual((v["auto"]["after"], v["auto"]["pad"], v["autoAdopt"], v["detect"]["enabled"]), ("auto", 2, {"enabled": True, "waitMin": 5}, False))
+        self.assertEqual((v["auto"]["after"], v["auto"]["pad"], v["autoAdopt"], v["detect"]["enabled"]), ("auto", 2, {"enabled": True, "waitMin": 5}, True))
         with open(path, "w", encoding="utf-8") as f:   # 節そのものが dict でなければ既定
             json.dump({"live": [1, 2]}, f)
         self.assertEqual(P.Prefs(path, fsio.atomic_write).get(["live"])["live"], P.DEFAULTS["live"])
@@ -160,8 +160,8 @@ class PrefsLiveTest(unittest.TestCase):
                                                         "autoDelete": P.DEFAULTS["live"]["autoDelete"],
                                                         "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
-                                                        "detect": {"enabled": False, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)・自動の採用(M11)も既定オフ
-                                                        "autoAdopt": {"enabled": False, "waitMin": 5}})
+                                                        "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)・自動の採用(M11)は既定オン(0.46.3。リアルタイム切り抜きがオンのときだけ動く)
+                                                        "autoAdopt": {"enabled": True, "waitMin": 5}})
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "check", "cut": "", "engine": "", "model": "", "pad": 3.5})

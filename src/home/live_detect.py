@@ -3,8 +3,8 @@
 計算はワーカー(src/home/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
 src/home/live.py の Live が持ち(live.detector)、見回り(Live.tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
-設定(ホームの設定の節 live。src/home/prefs.py): detect {enabled(既定オフ), sens: high|normal|low, perHour: 1〜30(既定 6)}・
-autoAdopt {enabled(既定オフ), waitMin: 1〜60(既定 5)}。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
+設定(ホームの設定の節 live。src/home/prefs.py): detect {enabled(既定オン。10-08 ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
+autoAdopt {enabled(既定オン), waitMin: 1〜60(既定 5)}。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
 
 ファイル(入口の作業データ live/excite/。書き手は 1 ファイルに 1 つ = 仮決め (bj)):
   config.json       ここが書く(変わったときだけ)。ワーカーが 30 秒ごとに読み直す: 録画元(合言葉つき)・感度・1 時間の本数・スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)・
@@ -53,8 +53,8 @@ LOG_MAX = 2 * 1024 * 1024  # logs/excite.log がこれを超えていたら、�
 OPS = ("adopt", "dismiss", "restore")
 DECISIONS_MAX = 5000
 PEAKS_MAX = 16 * 1024 * 1024
-DETECT_DEFAULT = {"enabled": False, "sens": "normal", "perHour": 6}
-ADOPT_DEFAULT = {"enabled": False, "waitMin": 5}
+DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": 6}
+ADOPT_DEFAULT = {"enabled": True, "waitMin": 5}
 CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャットの状態(悪い順)
 
 

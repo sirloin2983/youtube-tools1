@@ -823,7 +823,7 @@ class DetectApiTest(unittest.TestCase):
         d = self.get()
         self.assertEqual((d["ok"], d["enabled"], d["seq"], [p["id"] for p in d["peaks"]], d["changes"]), (True, True, 5, ["p0-302", "p1-903", "p2-1002"], []))
         self.assertEqual(d["hour"], {"perHour": 6, "counts": {"0": 2}})
-        self.assertEqual(d["autoAdopt"], {"enabled": False, "waitMin": 5})
+        self.assertEqual(d["autoAdopt"], {"enabled": True, "waitMin": 5})
         self.assertEqual((d["worker"]["running"], d["worker"]["chat"], d["worker"]["behindSec"], d["worker"]["lag"]), (False, "ok", 4.0, 9))
         self.assertEqual((d["series"]["n"], d["series"]["step"], d["series"]["total"][61], d["series"]["total"][150]), (180, 1.0, 7.0, 2.0))
         c = self.get(since=3)
@@ -1079,7 +1079,7 @@ class PrefsDetectTest(unittest.TestCase):
 
     def test_detect_and_auto_adopt(self):
         v = self.p.get(["live"])["live"]
-        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": False, "sens": "normal", "perHour": 6}, {"enabled": False, "waitMin": 5}))   # 既定はどちらもオフ
+        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"enabled": True, "waitMin": 5}))   # 既定はどちらもオン(0.46.3)
         v = self.p.patch("live", {"detect": {"enabled": True, "sens": "low"}})
         self.assertEqual(v["detect"], {"enabled": True, "sens": "low", "perHour": 6})
         self.assertEqual(self.p.patch("live", {"detect": {"perHour": 30}})["detect"], {"enabled": True, "sens": "low", "perHour": 30})   # 鍵ごと
@@ -1097,7 +1097,7 @@ class PrefsDetectTest(unittest.TestCase):
         with open(os.path.join(self.tmp, "prefs.json"), "w", encoding="utf-8") as f:
             json.dump(d, f)
         v = self.p.get(["live"])["live"]
-        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": False, "sens": "normal", "perHour": 6}, {"enabled": False, "waitMin": 5}))
+        self.assertEqual((v["detect"], v["autoAdopt"]), ({"enabled": True, "sens": "normal", "perHour": 6}, {"enabled": True, "waitMin": 5}))
 
 
 REC_B = "20261007-200100-bbbbbbbbbbb"

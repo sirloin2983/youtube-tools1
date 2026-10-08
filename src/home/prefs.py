@@ -18,8 +18,8 @@
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/home/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
-             配信中の盛り上がりの検出 detect {enabled(**既定オフ**), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
-             (線 D の L2。src/home/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オフ**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
+             配信中の盛り上がりの検出 detect {enabled(**既定オン**。10-08 ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
+             (線 D の L2。src/home/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
@@ -60,7 +60,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2}, "autoAfterStream": False, "afterStreamPerHour": 6,
-                     "detect": {"enabled": False, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": False, "waitMin": 5}},
+                     "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": True, "waitMin": 5}},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)"), "deliverBatch": (1, 10, "まとめて届ける本数")}

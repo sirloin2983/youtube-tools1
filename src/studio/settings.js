@@ -149,7 +149,7 @@ function buildLive(){
   };
   for (const id of ['#liveAutoAdopt', '#liveAutoAdoptWait']) $(id).addEventListener('change', onAdopt);
 }
-/* 「配信中の候補」の群: 入口が live.detect を知っているときだけ出す(古い入口では保存しても捨てられるため)。値は既定オフ */
+/* 「配信中の候補」の群: 入口が live.detect を知っているときだけ出す(古い入口では保存しても捨てられるため)。既定値は入口が持つ(0.46.3 からオン) */
 function fillLivePeaks(l){
   const d = l && l.detect && typeof l.detect === 'object' ? l.detect : null, a = l && l.autoAdopt && typeof l.autoAdopt === 'object' ? l.autoAdopt : {};
   $('#livePeaksBox').hidden = !d;

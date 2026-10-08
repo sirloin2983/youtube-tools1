@@ -900,7 +900,8 @@ def _scene_peaks(cx):
             return []
 
     write_ctl()
-    srv.prefs.patch("live", {"detect": {"enabled": True, "sens": "normal", "perHour": 6}})
+    srv.prefs.patch("live", {"detect": {"enabled": True, "sens": "normal", "perHour": 6},
+                             "autoAdopt": {"enabled": False, "waitMin": 5}})   # 0.46.3 から自動採用は既定オン。この場面は人の採用を見るので明示的にオフ
     check(det.tick() == "spawned", "L2 検出をオンにすると、見回りがワーカーを起動する(config.json を書いて)")
     check(wait_for(lambda: os.path.isfile(os.path.join(folder, "peaks.json")) and det.running(), 15), "L2 ワーカーが peaks.json と心拍(worker.json)を書く")
     g = api("GET", "/live/api/peaks?recorder=local&recording=%s" % rid)[1] or {}
