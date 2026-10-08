@@ -102,7 +102,7 @@ window.PLAN = {
     { id: "A5", name: "確認の手間を減らす(10-08 決定。ホームで自動の切り抜きを続けて再生しながら [採用][要らない]。編集を開かずに決める)", line: "A", who: "AI", phase: "1", pre: [], rec: ["D-13"], ai: "2〜4 時間", user: "確認 10 分", state: "next" },
     { id: "A6", name: "校正の手間を減らす(10-08 決定 = 字幕の直しが重い。22 本の校正の記録から時間のかかる直しを測り、効く助けを 1〜2 個)", line: "A・B", who: "AI", phase: "1", pre: [], rec: ["K1"], ai: "2〜4 時間", user: "確認 10 分", state: "next" },
     { id: "A3", name: "段 8 複数の切り抜きをつなげる(10-08 決定 = 全部。編集の時間軸に複数の素材・EDL と Text+ を複数の素材に。plan/line-a-phase8-multi-clip.md)", line: "A", who: "AI", phase: "1", pre: ["U2"], rec: [], ai: "3〜6 時間", user: "Resolve の実機の確認 1 時間", state: "next" },
-    { id: "U10", name: "仮決めの確認(約 35 件。decisions 3-6・3-13・3-14 ほか。AI が一覧にしてチャットで聞く)", line: "運用", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "一覧づくり 30 分", user: "20〜30 分", state: "next" },
+    { id: "U10", name: "仮決めの確認(53 件。10-09 に確認のページを作った = https://claude.ai/artifact/TQYLfFnHTu831oYqQwo7ei。decisions 3-6・3-8・3-13〜3-15・送るアプリの小窓と 2.8.1・分析と日報。ページで答えて「AI に渡す文」をチャットへ)", line: "運用", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "一覧づくり 30 分(済み)", user: "20〜30 分", state: "next" },
     { id: "U5", name: "バックアップの写し戻しを試す", line: "運用", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "15〜30 分", state: "next" },
     { id: "U9", name: "Chrome 拡張を本物の Studio で(YouTube Studio のコンテンツ一覧に投稿時刻が出るか 1 回)", line: "別件", who: "ユーザー", phase: "1", pre: [], rec: [], ai: "—", user: "10 分", state: "next" },
     { id: "U13", name: "分析と日報の月報を受け取り、推定収益の単位を Studio と見比べる(0.1.1 で月報の日付の形を直した。単位は ÷1000 の仮)", line: "別件", who: "ユーザー", phase: "1", pre: ["AN1"], rec: [], ai: "ずれたら直す 30 分", user: "10 分", state: "next" },
@@ -191,7 +191,7 @@ window.PLAN = {
     ],
     /* 1-1 今できる */
     ordered: [
-      { id: "U10", name: "仮決めの確認(約 35 件。AI が一覧にしてチャットで聞く)", why: "AI が仮で決めて入れたもの。違っていれば戻す(decisions 3-6・3-13・3-14 と送るアプリの小窓の 4 項目)", time: "20〜30 分", state: "next", note: "10-08 夜の見直しで、10-08 の確認から漏れていた分が見つかった" },
+      { id: "U10", name: "仮決めの確認(53 件。確認のページ https://claude.ai/artifact/TQYLfFnHTu831oYqQwo7ei で答える)", why: "AI が仮で決めて入れたもの。違っていれば戻す(decisions 3-6・3-8・3-13〜3-15・送るアプリの小窓と 2.8.1・分析と日報)", time: "20〜30 分", state: "next", note: "【要注意】の 11 件(黄色の帯)から見るのがおすすめ。終わったら「AI に渡す文をコピー」でチャットに貼る。約 35 件の見込みが、数え直すと 53 件だった" },
       { id: "U4", name: "10-18/19 の長い配信で全部オン(3 時間以上。下の 2-1)", why: "線 D の長い配信での安定(録画・検出・自動採用・配信中の文字起こし・配信後の全自動)。D-15 の数を決める材料", time: "準備と記録 30 分 + 配信 3 時間", state: "next", note: "配信の前に Windows Update の再起動を止める(アクティブ時間)。友人のライブ依頼(U8)を同じ配信に当てると 1 回で済む" },
       { id: "U8", name: "送るアプリ 2.8.1 を本物の Dropbox で 1 回", why: "ライブ配信の依頼・組で 1 本ずつ選ぶ・小窓の再生と音量・要らないの返事(2.7.0〜2.8.1 の動き)は、まだ本物で通していない。配信前に送ったライブ依頼で、受付の一覧が「録画を始めました」になるかも見る(10-09 の直し)", time: "友人が 1 回試す", state: "next", note: "友人に渡したのは 2.6.0 まで(記録上)。2.8.1 の zip は 10-09 に作り直し済み。渡す前に friend-apps/request-sender/build.bat で dist を作り直す。小窓の再生は Windows の N エディションだと Media Feature Pack が要る" },
       { id: "U5", name: "バックアップの写し戻しを 1 回試す(下の 2-2)", why: "運用の安全。10-03 の入れ直しで作業データを失ったため", time: "15〜30 分", state: "next" },
