@@ -79,6 +79,7 @@ import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
 import live_failures  # noqa: E402  (失敗の集約。M3・M7)
 import live_detect  # noqa: E402  (配信中の盛り上がりの検出と自動の採用。線 D の L2・M11)
 import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
+import live_tx  # noqa: E402  (配信中の候補の文字起こし。線 D の D-11 案 b)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -315,6 +316,7 @@ class Live:
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
         self.requests = live_requests.Store(os.path.join(self.store_dir, "requests.json"), log=self.log)   # 友人のライブ配信の依頼と録画の結びつき(2-15)
+        self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
 
     # --- 設定 ---
     def cfg(self):
@@ -779,6 +781,7 @@ class Live:
         auto = self.auto_cfg()
         after, streamer = live_export.check_after(body, auto["after"]), live_export.check_streamer(body.get("streamer"))
         label = live_export._text(body.get("label"), live_export.LABEL_MAX)
+        text = live_export._text(body.get("text"), live_tx.TEXT_MAX)   # 配信中の文字起こし(D-11 案 b)の文字(採用の記録に残す = C2 の材料。任意)
         score = body.get("score") if isinstance(body.get("score"), (int, float)) and not isinstance(body.get("score"), bool) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
         rc_id, rec = body.get("recorder"), body.get("recording")
         rc = self._ids(rc_id, rec)
@@ -803,7 +806,7 @@ class Live:
                                 hold=hold if hold in live_export.HOLDS else None, score=score, request=req)
         ex.feedback({"event": "adopt", "origin": origin, "human": origin == "manual", "verdict": "good" if origin == "manual" else None,
                      "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
-                     "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"]})
+                     "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"], **({"text": text} if text else {})})
         self.log("リアルタイム切り抜き: %s のマークを採用して書き出しを頼みました(%s %.1f〜%.1f 秒)" % ({"manual": "人", "auto": "自動", "archive": "アーカイブ"}[origin], rec,
                                                                                          studio["start"], studio["end"]))
         return {"job": job, "video": vid, "mark": mark["id"], "origin": origin, "existing": False}
@@ -913,6 +916,7 @@ class Live:
         self._halt.set()
         self.wake.set()
         self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
+        self.livetx.close()    # 配信中の文字起こしの子プロセス(途中の候補は次の見回りでやり直す)
         if self._archiver is not None:   # 本番版への作り直しの途中なら止める(順番待ちに戻り、次の起動で続ける)
             self._archiver.close()
         if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
@@ -999,6 +1003,10 @@ class Live:
             self.detector.tick()
         except Exception as e:
             self.note("リアルタイム切り抜き: 盛り上がりの検出の見回りでエラー: %r" % (e,))
+        try:
+            self.livetx.tick()   # 配信中の候補の文字起こし(D-11 案 b): 確定した候補を列に入れる(準備が無ければ何もしない)
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 配信中の文字起こしの見回りでエラー: %r" % (e,))
         try:
             self.requests.prune()   # 友人の依頼の古い結びつきを消す(2-15。消すものがあるときだけ書く)
         except Exception as e:

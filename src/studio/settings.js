@@ -106,7 +106,9 @@ function buildLive(){
       <label class="rv-check" for="liveAutoAdopt"><input type="checkbox" class="ui-switch" id="liveAutoAdopt">候補を自動で採用する(マークにして書き出す)</label>
       <div class="fld"><label class="l" for="liveAutoAdoptWait">候補が決まってから待つ分(${AUTO_WAIT_MIN[0]}〜${AUTO_WAIT_MIN[1]})</label>
         <input type="number" id="liveAutoAdoptWait" min="${AUTO_WAIT_MIN[0]}" max="${AUTO_WAIT_MIN[1]}" step="1" inputmode="numeric"></div>
-      <p class="hint">候補が決まってから待つ間に見送ったもの・もっと良い候補と入れ替わったものは採用しません。自動で採用した候補は、書き出し → 文字起こし → パックまで進みます(届けるのは人が確かめてから)。</p></div>
+      <p class="hint">候補が決まってから待つ間に見送ったもの・もっと良い候補と入れ替わったものは採用しません。自動で採用した候補は、書き出し → 文字起こし → パックまで進みます(届けるのは人が確かめてから)。</p>
+      <label class="rv-check" for="liveTx"><input type="checkbox" class="ui-switch" id="liveTx">候補を文字起こしする(GPU の whisper.cpp。試験中)</label>
+      <p class="hint">候補が決まるたびに、その区間だけを編集の whisper.cpp(GPU)で文字起こしして行に出します(採用の判断用。字幕の正本は書き出したあとの文字起こし)。whisper.cpp とモデルが無ければ何もしません。</p></div>
     <p class="msg hint" id="liveMsg" role="status"></p></div>`;
   $('#setCollab').insertAdjacentElement('beforebegin', sec);
   $('#liveFolderIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#liveFolderSave').click(); } });
@@ -148,6 +150,7 @@ function buildLive(){
     livePatch('autoAdopt', a, a.enabled ? `候補が決まってから ${a.waitMin} 分たったら、自動で採用します` : '候補を自動では採用しません');
   };
   for (const id of ['#liveAutoAdopt', '#liveAutoAdoptWait']) $(id).addEventListener('change', onAdopt);
+  $('#liveTx').addEventListener('change', e => livePatch('liveTx', { enabled: e.target.checked }, e.target.checked ? '候補を文字起こしします(GPU の whisper.cpp)' : '候補の文字起こしをやめました'));
 }
 /* 「配信中の候補」の群: 入口が live.detect を知っているときだけ出す(古い入口では保存しても捨てられるため)。既定値は入口が持つ(0.46.3 からオン) */
 function fillLivePeaks(l){
@@ -159,6 +162,10 @@ function fillLivePeaks(l){
   $('#liveDetectPerHour').value = String(intIn(d.perHour, PEAK_PER_HOUR));
   $('#liveAutoAdopt').checked = a.enabled === true;
   $('#liveAutoAdoptWait').value = String(intIn(a.waitMin, AUTO_WAIT_MIN));
+  const tx = l && l.liveTx && typeof l.liveTx === 'object' ? l.liveTx : null;
+  $('#liveTx').checked = !!tx && tx.enabled === true;
+  const txLabel = $('#liveTx').closest('label');
+  txLabel.hidden = !tx; if (txLabel.nextElementSibling) txLabel.nextElementSibling.hidden = !tx;   // 古い入口(liveTx を知らない)では説明ごと出さない
   syncLivePeaks(d.enabled === true);
 }
 /* 自動採用は、配信中の候補がオンのときだけ押せる(押せない理由を出す) */

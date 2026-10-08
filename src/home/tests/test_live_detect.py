@@ -21,6 +21,8 @@
   - 友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く(config.json の detectAll・requests・
     画面の答えは録画ごと)・依頼の waitMin・pad で自動の採用(結びついていない録画は採用しない)・ワーカーは detectAll false なら依頼の録画だけ・
     感度・枠・長さは依頼の値(lengthFrom friend・起動し直しても)・clean_requests の検査
+  - 配信中の候補の文字起こし(D-11 案 b。src/home/live_tx.py。本体のテストは test_live_tx.py): 候補の text・textAt・最近付いた候補は since の差分に・
+    応答の tx・採用(人・自動)の記録 live_feedback.jsonl の text
 本物の YouTube にはつながない。作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import http.client
@@ -965,6 +967,56 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(det2.auto_tick(), 0)   # 最初に見た
         t[0] += 60
         self.assertEqual(det2.auto_tick(), 0)   # 待ちが過ぎても試さない
+
+    def test_live_tx_text_on_peaks_and_feedback(self):
+        """D-11 案 b(src/home/live_tx.py): 文字の付いた候補は GET の候補に text・textAt。付けてから RECENT_SEC の間は since の差分(changes)にも入る
+        (画面の行に文字が出る)。応答に tx(LiveTx.status)。採用(人・自動)の記録 live_feedback.jsonl に text。失敗の記録は出さない"""
+        import live_tx as TX
+        tx = self.live.livetx
+        t = [time.time()]
+        tx.clock = lambda: t[0]
+        d = self.get()
+        self.assertTrue({"enabled", "ready", "message", "model", "busy", "queued", "done", "failed", "pausedUntil"} <= set(d["tx"]), d["tx"])
+        self.assertEqual((d["tx"]["enabled"], d["tx"]["model"]), (True, "large-v3"))
+        self.assertFalse(any("text" in p for p in d["peaks"]))
+        self.assertEqual(self.get(since=5)["changes"], [])
+        tx.record("fake", REC, "p1-903", "\tここで大きな声\n")
+        tx._record_error("fake", REC, "p2-1002", "GPU(Vulkan)を使えませんでした")   # 失敗の記録は候補に出さない
+        d = self.get()
+        by = {p["id"]: p for p in d["peaks"]}
+        self.assertEqual(by["p1-903"]["text"], "\tここで大きな声\n")
+        self.assertEqual(by["p1-903"]["textAt"], tx.view("fake", REC)["p1-903"]["at"])
+        self.assertFalse("text" in by["p0-302"] or "text" in by["p2-1002"] or "textAt" in by["p2-1002"])
+        c = self.get(since=5)   # ワーカーの seq は進んでいないが、文字が付いた候補は差分に入る(今の形 = text つき)
+        self.assertEqual([(x["seq"], x["id"], x["state"], x["peak"].get("text")) for x in c["changes"]], [(5, "p1-903", "frame", "\tここで大きな声\n")])
+        self.assertEqual([x["id"] for x in self.get(since=3)["changes"]], ["p2-1002", "p1-903"], "ワーカーの変更と重なっても 1 回")
+        t[0] += TX.RECENT_SEC + 1
+        self.assertEqual(self.get(since=5)["changes"], [], "古くなったら差分には入れない")
+        self.assertEqual({p["id"]: p.get("text") for p in self.get()["peaks"]}["p1-903"], "\tここで大きな声\n", "全部の答えには残る")
+        a = self.post("adopt", "p1-903")   # 人の採用
+        self.assertEqual((a["ok"], a["origin"]), (True, "manual"))
+        self.post("adopt", "p0-302")   # 文字の無い候補
+        with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
+            fb = [json.loads(x) for x in f]
+        self.assertEqual([(x["event"], x["origin"], x.get("text")) for x in fb], [("adopt", "manual", "ここで大きな声"), ("adopt", "manual", None)],
+                         "採用の記録に文字(制御文字は空白・前後の空白は除く)。文字の無い候補は text なし")
+        self.assertEqual(fb[0]["studio"]["mark"], a["mark"])
+        self.assertNotIn("text", fb[1])
+        self.assertEqual(tx.text_for("fake", REC, "p2-1002"), None)
+
+    def test_auto_adopt_keeps_live_tx_text(self):
+        """M11 の自動の採用も、配信中の文字起こしの文字を live_feedback.jsonl に残す(human false)"""
+        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        self.live.livetx.record("fake", REC, "p0-302", "自動で採用した候補の文字")
+        self.rec.rel = 5000
+        t = self.worker_alive()
+        self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 2)   # 枠の p0・p1
+        with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
+            fb = {x["start"]: x for x in (json.loads(y) for y in f)}
+        self.assertEqual([(x["origin"], x["human"], x.get("text")) for _s, x in sorted(fb.items())],
+                         [("auto", False, "自動で採用した候補の文字"), ("auto", False, None)])
 
     def test_adopt_passes_score(self):
         """採用(人・自動)で候補の点数が書き出しのジョブに残る(.clip.json の source.live.score → M9 の一覧)"""

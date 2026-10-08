@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/home/tests/test_live.py
 
 確かめること:
-  - 設定 live: 既定はオフ・形の検査・合言葉は空で送っても今の値を残す・画面へ返す設定に合言葉を出さない
+  - 設定 live: 既定はオフ・形の検査・合言葉は空で送っても今の値を残す・画面へ返す設定に合言葉を出さない・配信中の候補の文字起こし liveTx(D-11 案 b)の検査
   - オフ: /live/… は今までと同じ 404(GET・POST とも)・「調子」に live が出ない・見回りは何もしない
   - オン: 以前の録画の画面 /live/ はスタジオへ 302(P3)・hls.js の同梱・録画元の一覧(合言葉を出さない)・中継(合言葉 Bearer と Host を付ける・
     Sec-Fetch-Site と入口の合言葉の検査・知らない録画元・パスの検査・思わぬ種類の応答・録画元が止まっている)・「調子」の行
@@ -162,7 +162,8 @@ class PrefsLiveTest(unittest.TestCase):
                                                         "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
                                                         "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)・自動の採用(M11)は既定オン(0.46.3。リアルタイム切り抜きがオンのときだけ動く)
-                                                        "autoAdopt": {"enabled": True, "waitMin": 5}})
+                                                        "autoAdopt": {"enabled": True, "waitMin": 5},
+                                                        "liveTx": {"enabled": True, "model": "large-v3"}})   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "check", "cut": "", "engine": "", "model": "", "pad": 3.5})
@@ -226,6 +227,26 @@ class PrefsLiveTest(unittest.TestCase):
                 self.p.patch("live", bad)
         self.assertEqual(self.p.patch("live", {"enabled": True})["auto"]["model"], "large-v3")   # ほかの鍵を直しても残る
         self.assertEqual(self.p.patch("live", {"auto": {"engine": "", "model": ""}})["auto"], {"after": "auto", "cut": "silence", "engine": "", "model": "", "pad": 2})
+
+    def test_live_tx_settings(self):
+        """配信中の候補の文字起こし live.liveTx(D-11 案 b): 鍵ごとに直す・enabled は真偽・model は large-v3 / large-v3-turbo・壊れた保存値は既定に戻す"""
+        self.assertEqual(self.p.patch("live", {"liveTx": {"enabled": False}})["liveTx"], {"enabled": False, "model": "large-v3"})
+        self.assertEqual(self.p.patch("live", {"liveTx": {"model": "large-v3-turbo"}})["liveTx"], {"enabled": False, "model": "large-v3-turbo"})   # 鍵ごと
+        self.assertEqual(self.p.patch("live", {"quality": "720p"})["liveTx"], {"enabled": False, "model": "large-v3-turbo"})   # ほかの鍵を直しても残る
+        for bad in ({"liveTx": "on"}, {"liveTx": []}, {"liveTx": {"enabled": "yes"}}, {"liveTx": {"enabled": 1}}, {"liveTx": {"enabled": None}},
+                    {"liveTx": {"model": "small"}}, {"liveTx": {"model": "../x"}}, {"liveTx": {"model": None}}):
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", bad)
+        self.assertEqual(self.p.get(["live"])["live"]["liveTx"], {"enabled": False, "model": "large-v3-turbo"})   # 断ったときは変えない
+        self.assertEqual(P.LIVE_TX_MODELS, ("large-v3", "large-v3-turbo"))
+        path = os.path.join(self.tmp, "prefs.json")
+        for stored, want in (({"enabled": "yes", "model": "small"}, {"enabled": True, "model": "large-v3"}),   # 壊れた値は読むときに既定へ(断らない)
+                             ({"enabled": False, "model": 3}, {"enabled": False, "model": "large-v3"}),          # 壊れた鍵だけ
+                             ("x", {"enabled": True, "model": "large-v3"})):                                      # 節が dict でない
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"live": {"enabled": True, "folder": "E:\\Video\\live-rec", "liveTx": stored}}, f)
+            v = P.Prefs(path, fsio.atomic_write).get(["live"])["live"]
+            self.assertEqual((v["liveTx"], v["enabled"], v["folder"]), (want, True, "E:\\Video\\live-rec"), stored)
 
     def test_token_is_kept_when_blank(self):
         self.p.patch("live", {"recorders": [{"id": "laptop", "name": "ノート PC", "url": "http://192.168.1.20:8730", "token": TOKEN}]})

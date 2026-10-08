@@ -953,8 +953,15 @@ test('live peaks: normalize, the full list and the since-changes (unknown ids an
   assert.equal(ctx.peakNorm({ id: 'a', start: 5, end: 5 }), null, 'end must be after start');
   assert.equal(ctx.peakNorm({ start: 1, end: 5 }), null, 'an id is needed');
   const n = plain(ctx.peakNorm({ id: 'a', start: -1, end: 8, peak: 3700, state: 'odd', reasons: ['x', 3], score: '7.25', endPending: 1 }));
-  assert.deepEqual(n, { id: 'a', start: 0, end: 8, peak: 3700, score: 7.25, parts: {}, reasons: ['x'], hour: 1, state: 'frame', endPending: false, origin: '' },
+  assert.deepEqual(n, { id: 'a', start: 0, end: 8, peak: 3700, score: 7.25, parts: {}, reasons: ['x'], hour: 1, state: 'frame', endPending: false, origin: '', text: '' },
     'unknown state → frame, the hour comes from the peak second, endPending only when true');
+  // 配信中の文字起こし(入口の D-11 案 b): text は文字列だけ残す(2000 字まで)。changes の peak に text が付けば手元の候補にも入り、state だけの change では消えない
+  assert.equal(ctx.peakNorm(pk('t', 1, 5, { text: 'あいう' })).text, 'あいう');
+  assert.equal(ctx.peakNorm(pk('t', 1, 5, { text: 3 })).text, '', 'not a string: empty');
+  assert.equal(ctx.peakNorm(pk('t', 1, 5, { text: 'x'.repeat(2500) })).text.length, 2000);
+  const tl = ctx.peakMerge(ctx.peakList([pk('t', 1, 5)]), [{ seq: 2, id: 't', state: 'frame', peak: pk('t', 1, 5, { text: '文字が付いた' }) }]).list;
+  assert.equal(tl[0].text, '文字が付いた', 'a change with the peak carries the text');
+  assert.equal(ctx.peakMerge(tl, [{ seq: 3, id: 't', state: 'adopted' }]).list[0].text, '文字が付いた', 'a state-only change keeps the text');
   assert.deepEqual(plain(ctx.peakList([pk('b', 30, 34), null, pk('a', 10, 14), { id: 'x' }]).map(p => p.id)), ['a', 'b'], 'time order, broken ones dropped');
   const list = ctx.peakList([pk('a', 10, 14), pk('b', 30, 34), pk('c', 50, 58, { endPending: true })]);
   let m = ctx.peakMerge(list, [{ seq: 6, id: 'b', state: 'bench' }]);
@@ -1003,6 +1010,18 @@ test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto
   assert.equal(ctx.peakHead([], null, { running: false, message: '' }, null, { hour: 0, active: true }).info, '検出が止まっています(ホームが起動し直します)・自動採用 オフ');
   assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, { running: false }, { enabled: true }, { hour: 0, active: false }).info, '', 'an ended recording: nothing about the worker');
   assert.equal(ctx.peakHead(list, { perHour: 8, counts: {} }, null, null, { hour: 0 }).count, '候補 4 件(この 1 時間 0/8)');
+  // 配信中の文字起こし(D-11 案 b)の状態 o.tx: オンで準備が無いときだけ「文字起こしなし(理由)」(理由の括弧の中の案内は省く)。準備がある・オフ・録画が終わった・o.tx が無い(古い入口)は何も出さない
+  const run = { running: true, chat: 'ok' }, auto = { enabled: false };
+  const txOf = tx => ctx.peakHead(list, null, run, auto, { hour: 0, active: true, tx }).info;
+  assert.equal(txOf({ enabled: true, ready: false, message: 'whisper.cpp がありません(setup の build-whisper-vulkan.bat で作ります)' }),
+    'チャットを読んでいます・自動採用 オフ・文字起こしなし(whisper.cpp がありません)');
+  assert.equal(txOf({ enabled: true, ready: false, message: '' }), 'チャットを読んでいます・自動採用 オフ・文字起こしなし(準備がありません)');
+  assert.equal(txOf({ enabled: true, ready: true, message: '' }), 'チャットを読んでいます・自動採用 オフ', 'ready: nothing');
+  assert.equal(txOf({ enabled: false, ready: false, message: 'オフ(設定 live.liveTx)' }), 'チャットを読んでいます・自動採用 オフ', 'turned off: nothing');
+  assert.equal(txOf(undefined), 'チャットを読んでいます・自動採用 オフ', 'an older portal (no tx): nothing');
+  assert.equal(txOf('x'), 'チャットを読んでいます・自動採用 オフ', 'not an object: nothing');
+  assert.equal(ctx.peakHead(list, null, { running: false }, auto, { hour: 0, active: false, tx: { enabled: true, ready: false, message: 'ffmpeg がありません' } }).info, '',
+    'an ended recording: nothing about the transcription either');
   const v = p => plain(ctx.peakView(ctx.peakNorm(p), false));
   let r = v(pk('c', 50, 58.5, { score: 6.25 }));
   assert.equal(r.time, '0:50'); assert.equal(r.title, '0:50 – 0:58(8.5 秒)・山 0:52'); assert.equal(r.score, '6.3点');
@@ -1075,7 +1094,7 @@ test('live peaks: asked only when detection is on; full list first, then since-c
 test('live peaks: adopt sends one request (no double press) with the band settings, then reads the marks and the export jobs again', async () => {
   const gate = deferred();
   const h = peakHarness(async c => {
-    if (!c.body) return { ok: true, seq: 1, enabled: true, worker: { running: true }, peaks: [pk('a', 10, 14), pk('b', 30, 34, { endPending: true })] };
+    if (!c.body) return { ok: true, seq: 1, enabled: true, worker: { running: true }, peaks: [pk('a', 10, 14, { text: '候補の文字' }), pk('b', 30, 34, { endPending: true })] };
     if (c.body.op === 'adopt'){ await gate.promise; return { ok: true, peak: pk('a', 10, 14, { state: 'adopted', origin: 'manual', markId: 'm1' }), job: { id: 'lx-1' }, mark: 'm1', existing: false }; }
     return { ok: true, peak: pk(c.body.id, 30, 34, { state: c.body.op === 'dismiss' ? 'dismissed' : 'frame', endPending: true }) };
   });
@@ -1087,6 +1106,7 @@ test('live peaks: adopt sends one request (no double press) with the band settin
   assert.deepEqual(plain(posts[0].body), { op: 'adopt', recorder: 'local', recording: 'R', id: 'a', after: 'auto', streamer: '兎田ぺこら' });
   assert.deepEqual(h.after, ['save', 'sync', 'jobs'], 'saved first; then the new mark and the export row are read (③ does not see server-side marks by itself)');
   assert.equal(h.PKV.list[0].state, 'adopted');
+  assert.equal(h.PKV.list[0].text, '候補の文字', 'the POST answer has no text (the GET adds it): the text on the row stays');
   assert.ok(h.notes.some(m => String(m).includes('候補 0:10 を採用しました')));
   await h.ctx.adoptPeak('b');
   assert.equal(h.calls.filter(c => c.body).length, 1, 'an end-pending peak is not adopted');

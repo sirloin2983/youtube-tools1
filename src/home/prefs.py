@@ -60,7 +60,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2}, "autoAfterStream": False, "afterStreamPerHour": 6,
-                     "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": True, "waitMin": 5}},
+                     "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": True, "waitMin": 5},
+                     "liveTx": {"enabled": True, "model": "large-v3"}},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)"), "deliverBatch": (1, 10, "まとめて届ける本数")}
@@ -77,6 +78,7 @@ LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")  
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
 LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/ytt_core/excite.py の SENS の名前)
+LIVE_TX_MODELS = ("large-v3", "large-v3-turbo")   # 配信中の候補の文字起こしのモデル(編集の whisper.cpp の WCPP_MODELS と同じ名前)
 LIVE_PAD_SEC = (0, 5)                        # 自動・アーカイブの採用の区間の前後の余白(秒。M8。人の採用には足さない)
 LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、入口が候補を最初に見てから待つ分(終わり待ちの候補は採用しない)
 
@@ -249,6 +251,13 @@ def _clean_live_detect(v, cur, strict=True):
         "perHour": (lambda x: _int_in(x, *LIVE_PER_HOUR), "1 時間の候補の数(perHour)は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)}, strict)
 
 
+def _clean_live_tx(v, cur, strict=True):
+    """live.liveTx(線 D の D-11 案 b。配信中の候補の文字起こし)"""
+    return _clean_keys(v, cur, DEFAULTS["live"]["liveTx"], {
+        "enabled": (lambda x: isinstance(x, bool), "「候補を文字起こしする」は true か false で指定してください"),
+        "model": (lambda x: x in LIVE_TX_MODELS, "モデル(model)は %s のどれかにしてください" % "・".join(LIVE_TX_MODELS))}, strict)
+
+
 def _clean_live_adopt(v, cur, strict=True):
     """live.autoAdopt(線 D の M11。候補の自動の採用)"""
     return _clean_keys(v, cur, DEFAULTS["live"]["autoAdopt"], {
@@ -270,7 +279,7 @@ def _clean_live_auto(v, cur, strict=True):
 # live の中の小さな節(_clean_live が鍵ごとに直す): 鍵 → (直す関数, 断る文の名前)。auto = 書き出したあと(M2)・detect = 配信中の検出(L2)・
 # autoAdopt = 候補の自動の採用(M11)
 LIVE_PARTS = {"auto": (_clean_live_auto, "書き出したあとの設定(auto)"), "detect": (_clean_live_detect, "配信中の候補の設定(detect)"),
-              "autoAdopt": (_clean_live_adopt, "自動の採用の設定(autoAdopt)")}
+              "autoAdopt": (_clean_live_adopt, "自動の採用の設定(autoAdopt)"), "liveTx": (_clean_live_tx, "配信中の文字起こしの設定(liveTx)")}
 
 
 def _read_live(v):

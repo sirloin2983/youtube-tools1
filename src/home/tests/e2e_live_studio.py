@@ -30,6 +30,8 @@
      見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
   L3(線 D。スタジオ 0.23.0)配信中の候補: LIVE の帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](本物の adopt)・[見送り]・控えも見る・[戻す]・p / z・
      見回りで作り直さない・マウスが乗っている行は入れ替えで外れても消さない・375px(本物の候補の API + 偽のワーカー tests/fake_excite_worker.py。_scene_peaks)
+  D-11 案 b(入口 0.48.0・スタジオ 0.23.2)配信中の候補の文字起こし: 入口が候補に付けた文字が見回りで行に出る(80 字で切る・title に全文)・whisper.cpp の無い入口では
+     見出しに「文字起こしなし(理由)」・⚙ の #liveTx で live.liveTx.enabled が変わる(_scene_peak_text・_scene_live_tx_switch)
   M1(線 D。入口 0.39.0)サーバー側の「マーク + 書き出し」POST /live/api/adopt: スタジオの画面を閉じたまま → 書き出しまで通る・スタジオの一覧にマークが出て
      「書き出し済み」(入口が自分で付ける)・.clip.json と live_feedback.jsonl に origin・同じ区間は二重に作らない・
      ホームの設定 live.auto(M2: cut・engine・model)がまとめて実行へ渡る・ホームの「試験中の機能」に設定の欄・「調子」に失敗の行(M3)
@@ -1013,6 +1015,7 @@ def _scene_peaks(cx):
                        " .concat(window.__pkRows.filter(el => !el.isConnected).map(el => el.dataset.pid))")
     check(len([u for u in reqs[g1:] if "since=" in u]) >= 2 and not gone,
           "L3 見回り(since の差分 %d 回。録画が終わっていれば 10 秒ごと)で帯・候補の行が作り直されない: %s" % (len([u for u in reqs[g1:] if "since=" in u]), gone))
+    _scene_peak_text(cx, row)
 
     # ⚙ の設定: 配信中の候補(live.detect)と自動採用(live.autoAdopt)→ 入口の設定に入り、帯の見出しに出る
     pg.click("#btnSettings")
@@ -1026,6 +1029,7 @@ def _scene_peaks(cx):
     pg.check("#liveAutoAdopt")
     check(wait_for(lambda: (lambda a: a["enabled"] is True and a["waitMin"] == 60)(srv.prefs.get(["live"])["live"]["autoAdopt"]), 8),
           "L2 自動採用をオンにすると live.autoAdopt に入る: %s" % srv.prefs.get(["live"])["live"]["autoAdopt"])
+    _scene_live_tx_switch(cx)
     pg.keyboard.press("Escape")
     check(wait_js(pg, "() => /自動採用 オン\\(60 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 12000), "L3 帯の見出しに「自動採用 オン(60 分待ち)」: %s" % pg.text_content("#rvPeakInfo"))
     srv.prefs.patch("live", {"autoAdopt": {"enabled": False, "waitMin": 5}})
@@ -1054,6 +1058,46 @@ def _scene_peaks(cx):
     srv.prefs.patch("live", {"detect": {"enabled": False, "sens": "normal", "perHour": 6}})
     check(det.tick() == "off" and wait_for(lambda: det.proc is None or det.proc.poll() is not None, 10), "L2 検出をオフにすると、見回りがワーカーを止める")
     check(wait_js(pg, "() => document.querySelector('#rvPeaks').hidden", 15000), "L3 オフにすると帯の候補の部分が隠れる")
+
+
+def _scene_peak_text(cx, row):
+    """D-11 案 b(src/home/live_tx.py): 入口が候補に文字を付けると、見回り(since の差分 = 最近文字が付いた候補)で行の [data-pf="tx"] に出る
+    (80 字で切る・title に全文)。whisper.cpp の無いテストの入口では準備が無いので、見出しに「文字起こしなし(理由)」"""
+    check, pg, live, rid = cx.check, cx.pg, cx.live, cx.rid
+    info = pg.text_content("#rvPeakInfo") or ""
+    check("文字起こしなし(whisper.cpp がありません)" in info, "D-11 whisper.cpp が無いので、見出しに「文字起こしなし(whisper.cpp がありません)」: %s" % info)
+    st = live.livetx.status()
+    check(st["enabled"] is True and st["ready"] is False, "D-11 入口の状態: オン・準備なし: %s" % {k: st.get(k) for k in ("enabled", "ready", "message")})
+    long_tx = "配信中の文字起こしのテストです。" * 7   # 112 字
+    live.livetx.record("local", rid, "p4-30", long_tx)
+    live.livetx.record("local", rid, "p1-14", "短い文字")
+    tx = lambda pid: row(pid) + ' [data-pf="tx"]'   # noqa: E731
+    want = "「" + long_tx[:80] + "…」"
+    check(wait_js(pg, "() => { const e = document.querySelector('%s'); return !!e && !e.hidden && e.textContent === %s; }" % (tx("p4-30"), json.dumps(want)), 30000),
+          "D-11 文字が付いた候補の行に文字が出る(80 字で切って「…」): %s" % pg.evaluate("(s) => { const e = document.querySelector(s); return e && [e.hidden, e.textContent]; }", tx("p4-30")))
+    check(pg.evaluate("(s) => document.querySelector(s).getAttribute('title')", tx("p4-30")) == long_tx, "D-11 行の文字の title に全文")
+    check(pg.evaluate("(s) => { const e = document.querySelector(s); return !e.hidden && e.textContent; }", tx("p1-14")) == "「短い文字」", "D-11 短い文字はそのまま(採用した候補にも出る)")
+    check(pg.evaluate("(s) => { const e = document.querySelector(s); return e.hidden && !e.textContent && !e.hasAttribute('title'); }", tx("p2-20")),
+          "D-11 文字の無い候補の行には出さない")
+    g = cx.api("GET", "/live/api/peaks?recorder=local&recording=%s" % rid)[1] or {}
+    by = {p["id"]: p for p in g.get("peaks") or []}
+    check((by.get("p4-30") or {}).get("text") == long_tx and (g.get("tx") or {}).get("ready") is False, "D-11 GET /live/api/peaks の候補に text・応答に tx")
+
+
+def _scene_live_tx_switch(cx):
+    """D-11 案 b: ⚙ の「候補を文字起こしする」#liveTx(live.liveTx.enabled)。外すと見出しの「文字起こしなし」が消え、戻すと出る(設定の引き出しを開いたまま)"""
+    check, pg, srv = cx.check, cx.pg, cx.srv
+    has_note = "() => /文字起こしなし\\(/.test(document.querySelector('#rvPeakInfo').textContent)"
+    check(wait_js(pg, "() => { const s = document.querySelector('#liveTx'); return !!s && !!s.offsetParent && s.checked && !s.closest('label').hidden; }", 8000),
+          "D-11 ⚙ に「候補を文字起こしする」(既定オン)")
+    pg.uncheck("#liveTx")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": False, "model": "large-v3"}, 8),
+          "D-11 #liveTx を外すと live.liveTx.enabled が False: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
+    check(wait_js(pg, "() => !(%s)()" % has_note, 25000), "D-11 オフにすると見出しの「文字起こしなし」が消える: %s" % pg.text_content("#rvPeakInfo"))
+    pg.check("#liveTx")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": True, "model": "large-v3"}, 8),
+          "D-11 #liveTx を戻すと live.liveTx.enabled が True: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
+    check(wait_js(pg, has_note, 25000), "D-11 戻すと見出しに「文字起こしなし(…)」がまた出る: %s" % pg.text_content("#rvPeakInfo"))
 
 
 def _scene_narrow_and_errors(cx):

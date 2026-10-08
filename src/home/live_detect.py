@@ -398,13 +398,18 @@ class Detector:
             except ValueError:
                 raise LX.LiveError("since は数で指定してください")
         doc, peaks, pending = self.view(rc, rec)
+        tx = self.live.livetx.view(rc, rec)   # 配信中の文字起こし(D-11 案 b): 文字の付いた候補
+        for p in peaks:
+            t = tx.get(p.get("id"))
+            if t:
+                p["text"], p["textAt"] = t.get("text"), t.get("at")
         det = self.detect_cfg()
         req = self.live.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出・自動採用がオフでも依頼の設定で動く(2-15)
         seq = int((doc or {}).get("seq") or 0)
         out = {"ok": True, "enabled": self.enabled() and (det.get("enabled") is True or req is not None), "recorder": rc, "recording": rec, "seq": seq,
                "worker": self.worker_view(doc),
                "hour": {"perHour": (doc or {}).get("perHour") or det.get("perHour") or 6, "counts": (doc or {}).get("counts") or {}},
-               "autoAdopt": self.adopt_for(req), "changes": []}
+               "autoAdopt": self.adopt_for(req), "changes": [], "tx": self.live.livetx.status()}
         chs = [c for c in (doc or {}).get("changes") or [] if isinstance(c, dict) and isinstance(c.get("seq"), int)]
         if since is None or since > seq or (chs and since < chs[0]["seq"] - 1):
             out["peaks"] = peaks
@@ -421,6 +426,8 @@ class Detector:
             if c["seq"] > since:
                 last[c.get("id")] = c["seq"]
         for pid in pending:   # まだワーカーが当てていない決定も「変わった」として返す(ほかの窓にもすぐ出す)
+            last.setdefault(pid, seq)
+        for pid in self.live.livetx.recent_ids(rc, rec):   # 最近文字が付いた候補も(行に文字を出す)
             last.setdefault(pid, seq)
         out["changes"] = [{"seq": s, "id": pid, "state": by_id[pid].get("state"), "peak": by_id[pid]}
                           for pid, s in sorted(last.items(), key=lambda x: x[1]) if pid in by_id]
@@ -471,6 +478,9 @@ class Detector:
             body["after"] = after
         if streamer is not None:
             body["streamer"] = streamer
+        text = self.live.livetx.text_for(rc, rec, pk.get("id"))   # 配信中の文字起こしの文字があれば採用の記録に(D-11 案 b)
+        if text:
+            body["text"] = text
         res = self.live.adopt(body)
         job = res.get("job") or {}
         item = {"state": "adopted", "origin": pk.get("origin") or origin, "markId": pk.get("markId"), "jobId": pk.get("jobId")}

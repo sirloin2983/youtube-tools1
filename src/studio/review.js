@@ -1823,7 +1823,8 @@ function peakNorm(p){
   return { id: p.id, start: Math.max(0, start), end, peak: Number.isFinite(pk) ? pk : start, score: p.score != null && Number.isFinite(sc) ? sc : null,
     parts: p.parts && typeof p.parts === 'object' ? p.parts : {}, reasons: Array.isArray(p.reasons) ? p.reasons.filter(r => typeof r === 'string').slice(0, 6) : [],
     hour: Number.isFinite(h) ? Math.max(0, Math.floor(h)) : Math.floor((Number.isFinite(pk) ? pk : start) / 3600),   // 1 時間の区切りは山の秒で決まる(0-10-3 の 6)
-    state: PEAK_STATE[p.state] ? p.state : 'frame', endPending: p.endPending === true, origin: p.origin === 'auto' || p.origin === 'manual' ? p.origin : '' };
+    state: PEAK_STATE[p.state] ? p.state : 'frame', endPending: p.endPending === true, origin: p.origin === 'auto' || p.origin === 'manual' ? p.origin : '',
+    text: typeof p.text === 'string' ? p.text.slice(0, 2000) : '' };   // 配信中の文字起こし(入口の D-11 案 b。行の [data-pf="tx"])
 }
 const peakSort = list => list.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
 /* 全部(since 無し)の peaks → 手元の一覧(時刻の順) */
@@ -1867,6 +1868,8 @@ function peakHead(list, hour, worker, auto, o){
     if (PEAK_CHAT[w.chat]) info.push(PEAK_CHAT[w.chat]);
   } else if (o.active) info.push(String(w.message || '') || '検出が止まっています(ホームが起動し直します)');
   if (w.running || o.active) info.push(auto && auto.enabled ? `自動採用 オン(${Math.round(Number(auto.waitMin)) || PEAK_DEFAULT.waitMin} 分待ち)` : '自動採用 オフ');
+  const tx = o.tx && typeof o.tx === 'object' ? o.tx : null;   // 配信中の文字起こし(D-11 案 b): 準備が無いときだけ理由を出す
+  if (tx && tx.enabled && !tx.ready && (w.running || o.active)) info.push('文字起こしなし(' + String(tx.message || '準備がありません').replace(/\(.*$/, '') + ')');
   return { count: `候補 ${n} 件(この 1 時間 ${inHour}/${per})`, info: info.join('・') };
 }
 /* 行の中身 → {time, title, score, pill: [色, 文字, 説明], pending(終わり待ち), adopt・dismiss・restore(出すか), why(採用を押せない理由)} */
@@ -1894,7 +1897,7 @@ function peakSeries(s){
    bench(「控えも見る」)・detect・auto(設定 live.detect・live.autoAdopt)・reqSeq は、録画を開き直しても残す */
 const peakFresh = vid => ({ vid, list: [], seq: 0, loaded: false, fullAt: 0, needFull: false, enabled: true, offAt: 0, missing: false, err: '', worker: null, hour: null, series: null,
   busy: new Set(), playId: null, playOn: false, lastId: null, hover: null, fading: new Map(), inflight: false });
-const PKV = Object.assign(peakFresh(null), { bench: false, reqSeq: 0, detect: null, auto: null });
+const PKV = Object.assign(peakFresh(null), { bench: false, reqSeq: 0, detect: null, auto: null, tx: null });   // tx = 配信中の文字起こしの状態(入口の答え。D-11 案 b)
 const peaksWanted = v => !!(v && v.kind === 'live' && v.live && Studio.token && PKV.vid === v.id && PKV.detect && PKV.detect.enabled && !PKV.missing && !LV.deletedShown);
 /* 帯に候補の行を出すか: 検出がオン・候補を読めた・入口がオンと答えた。終わった録画で候補が 1 つも無ければ出さない */
 function peaksShownNow(v){
@@ -1950,6 +1953,7 @@ function peakApply(r, full){
   if (r.worker && typeof r.worker === 'object') PKV.worker = r.worker;
   if (r.hour && typeof r.hour === 'object') PKV.hour = r.hour;
   PKV.auto = peakAuto(r.autoAdopt) || PKV.auto;   // 入口が今使っている値
+  PKV.tx = r.tx && typeof r.tx === 'object' ? r.tx : PKV.tx;   // 配信中の文字起こしの状態(見出しの「文字起こしなし(理由)」)
   const seq = Number(r.seq);
   if (Array.isArray(r.peaks)){
     PKV.list = peakList(r.peaks); PKV.loaded = true; PKV.fullAt = Date.now(); PKV.needFull = false;
@@ -1968,6 +1972,7 @@ function peakApply(r, full){
 /* POST の答えの peak を一覧に入れる。無ければ fallback の状態にする(それも無ければ次の見回りで全部を読み直す) */
 function peakPut(peak, id, fallback){
   const n = peakNorm(peak), i = PKV.list.findIndex(p => p.id === id);
+  if (n && n.id === id && !n.text && i >= 0) n.text = PKV.list[i].text || '';   // POST の答えの候補には文字が無い(配信中の文字起こしは GET が足す): 手元の文字を残す
   if (n && n.id === id){ if (i >= 0) PKV.list[i] = n; else PKV.list = peakSort(PKV.list.concat([n])); return; }
   if (i >= 0 && fallback) PKV.list[i] = Object.assign({}, PKV.list[i], { state: fallback });
   else PKV.needFull = true;
@@ -1993,6 +1998,7 @@ function peakRowEl(p){
   li.innerHTML = `<button type="button" class="btn small rv-peakplay" data-pact="play">${SVG.play}<span>再生</span></button>`
     + '<span class="rv-peakt mono" data-pf="time"></span><span class="rv-chip score mono" data-pf="score"></span><span class="rv-peakwhy" data-pf="why"></span>'
     + '<span class="pill" data-pf="pill"></span><span class="pill wait" data-pf="pend" hidden title="区間の終わりがまだ録れていません(録れると、静かな所に合わせ直します)">終わり待ち</span>'
+    + '<span class="rv-peaktx hint" data-pf="tx" hidden></span>'
     + '<span class="rv-peakacts"><button type="button" class="btn small" data-pact="adopt">採用</button><button type="button" class="btn small ghost" data-pact="dismiss">見送り</button>'
     + '<button type="button" class="btn small ghost" data-pact="restore" hidden>戻す</button></span>';
   return li;
@@ -2023,6 +2029,8 @@ function peakFill(li, p){
   if (el.pill.className !== pillCls) el.pill.className = pillCls;
   setTxt(el.pill, vw.pill[1]); setAttr(el.pill, 'title', vw.pill[2]);
   setHidden(el.pend, !vw.pending);
+  const tx = typeof p.text === 'string' ? p.text.trim() : '';   // 配信中の文字起こし(入口の D-11 案 b)。付いたときだけ出す
+  setTxt(el.tx, tx ? '「' + (tx.length > 80 ? tx.slice(0, 80) + '…' : tx) + '」' : ''); setAttr(el.tx, 'title', tx || null); setHidden(el.tx, !tx);
   setAttr(el.play, 'aria-label', `${at}を再生(${PEAK_PRE} 秒前から)`); setAttr(el.play, 'title', `${PEAK_PRE} 秒前から区間の終わりまで再生します`);
   peakBtn(el.adopt, vw.adopt, vw.why, at + 'を採用', 'マークにして、書き出しに回します(書き出したあとは帯の「書き出したあと」のとおり)');
   peakBtn(el.dismiss, vw.dismiss, sending, at + 'を見送る', '一覧から外します(「控えも見る」で見えます。戻せます)');
@@ -2059,7 +2067,7 @@ function renderPeaks(){
   if (box.hidden !== !on){ box.hidden = !on; if (Studio.step === 'review') keybarScene(); }   // 下のキーの帯に p・z を出す / 戻す
   renderPeakSegs();
   if (!on) return;
-  const h = peakHead(PKV.list, PKV.hour, PKV.worker, PKV.auto, { hour: Math.floor(Math.max(0, S.duration - 0.5) / 3600), active: !!(LV.status && LV.status.active) });
+  const h = peakHead(PKV.list, PKV.hour, PKV.worker, PKV.auto, { hour: Math.floor(Math.max(0, S.duration - 0.5) / 3600), active: !!(LV.status && LV.status.active), tx: PKV.tx });
   liveSet('#rvPeakCount', h.count); liveSet('#rvPeakInfo', h.info);
   liveSet('#rvPeakBenchN', String(PKV.list.filter(p => !peakCounted(p)).length));   // 「控えも見る」で増える数(控えと見送り)
   const shown = peakShown(PKV.list, PKV.bench);
