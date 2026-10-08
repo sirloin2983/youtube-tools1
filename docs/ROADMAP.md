@@ -1,7 +1,7 @@
 # ROADMAP(AI 向け: 文書の索引と段の進め方)
 
-> 状態(2026-10-07): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
-> 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt_core/layout.py`。
+> 状態(2026-10-08): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
+> 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、自分用の Chrome 拡張は `chrome-ext/`(yt-studio-time。10-08)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt_core/layout.py`。
 > 09-30 の改名(app→home・clip-studio→studio・transcribe-tool→editor)の対応表は `docs/design/phase0-restructure.md`。WORKLOG・design の中の旧いパスは当時のまま。
 
 ## 1. 全体像
@@ -9,11 +9,12 @@
 切り抜きスタジオ ──書き出し──▶ 編集(1 文字起こし → 2 カット → 3 パック)──▶ DaVinci Resolve(Text+ パック)
       ▲                              │
       └──── セリフの表示(文字起こしを返す)┘        入口(ホーム・案件・まとめて実行)が全部を 1 つのプロセス(:8700)で動かす
-線 D: 配信 → 録画(recorder) → マーク → 書き出し → 文字起こし → パック(配信後の全自動 M7 をこれから作る)
-別件: 友人の依頼(Dropbox → 入口が自動で流す)・ホロカラー(メンバーカラーの常駐アプリ)
+線 D: 配信 → 録画(recorder) → マーク → 書き出し → 文字起こし → パック(配信後の全自動 M7 は 10-07 に完了。配信中の検出 → 自動採用 → パックは 10-08 の本物の配信で動いた)
+別件: 友人の依頼(Dropbox → 入口が自動で流す。ライブ配信の依頼もできる)・ホロカラー(メンバーカラーの常駐アプリ)・Chrome 拡張(YouTube Studio の一覧に投稿時刻を足す)
 ```
-済んだ柱: 3 ツールの統合(段階 0〜7)・「編集」ツール(E1〜E6)・画面の全面見直し・線 A の段 0〜7・9・10・Q0〜Q4・線 D の P1〜P4(既定オフ)・行の時刻の案 A(編集 0.57.0)。
-これから: `plan/index.html` の 2(各線の進捗)と 3(フェーズ)(データは `plan/data.js`)。ユーザーがやること: `plan/user-tasks.html`。決めたこと: `plan/decisions.md`。
+済んだ柱: 3 ツールの統合(段階 0〜7)・「編集」ツール(E1〜E6)・画面の全面見直し・線 A の段 0〜7・9・10・Q0〜Q4・線 D の P1〜P4・M1〜M13・L0〜L4'・D-11(配信中の文字起こし)・行の時刻の案 A(編集 0.57.0)・字幕(行)の分け方(0.59.5 で 16 文字をやめ、0.59.6 で分ける文字数 24 が既定)。
+線 D の今: 録画の部品(`live.enabled`)は既定オフ。配信中の検出(`live.detect`)と自動採用(`live.autoAdopt`)は 10-08 から既定オン。10-08 18:31 の配信で検出 → 自動採用 3 → パック 3 まで本物で動いた(L4' 済み)。残りは L5(当たり具合の数字)と U4(長時間の配信)。
+これから: `plan/index.html` の「今の状態」「各線の進捗」「これからの順番(フェーズ)」(データは `plan/data.js`)。ユーザーがやること: `plan/user-tasks.html`。決めたこと: `plan/decisions.md`。
 
 ## 2. 文書の索引(どれを読むか)
 
@@ -23,11 +24,12 @@
 | `AGENTS.md`(= `CLAUDE.md`) | AI 全員の共通の前提・規則・担当表・フォルダと通すテスト・動作環境 |
 | `src/editor/AGENTS.md` | 「編集」の AI 向けの仕様(今の動き) |
 | `src/recorder/AGENTS.md` | 録画の部品の決まり |
+| `chrome-ext/yt-studio-time/README.txt`・`AGENTS.md` | Chrome 拡張(YouTube Studio のコンテンツ一覧の日付に投稿時刻を足す)。README = 入れ方・更新・外し方、AGENTS = 作りとテスト |
 | 各ツールの `README.txt`・リポジトリ直下の `README.txt` | ユーザー向けの使い方と変更の記録 |
 | `docs/spec/pipeline.md` | ツール間の受け渡しの形式と API |
 | `docs/spec/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`)・バックアップ・写し戻し |
 | `docs/spec/eval-folder.md` | 評価用のフォルダの規則(仮置き・取り込み・名前) |
-| `docs/spec/friend-intake.md` | 友人からの依頼の受付の仕様(Dropbox・送るアプリ・配信者と色) |
+| `docs/spec/friend-intake.md` | 友人からの依頼の受付の仕様(Dropbox・送るアプリ・配信者と色・ライブ配信の依頼・組で届けて 1 本ずつ選ぶ) |
 | `docs/spec/row-timing-policy.md` | 行(字幕の区間)の時刻の原則(10-07 ユーザー決定)と測る 5 つの数字 |
 | `docs/spec/subtitle-notation.md` | 字幕の書き方の規則と、採点で同じとみなす違い |
 | `docs/spec/sound-tags.md` | 行の音の状態のメモ(BGM・重なり・聞き取れない)の付け方 |
@@ -46,21 +48,21 @@
 ### 計画(`plan/`。ユーザーが読む。順番の正は `plan/index.html`(データ `plan/data.js`))
 | 文書 | 中身 |
 |---|---|
-| `plan/index.html` + `plan/data.js` | 全体の計画・各線の進捗・フェーズ・全工程の表(前提・後続・時間)・依存の図・日程・入口の条件・前提の数字 |
-| `plan/user-tasks.html`(データは同じ `data.js`) | ユーザーがやること(U1〜U7・実機で確かめること・決めてほしいこと) |
+| `plan/index.html` + `plan/data.js` | 全体の計画(今の状態と残り)・各線の進捗・フェーズ・全工程の表(前提・後続・時間)・依存の図・日程・入口の条件・前提の数字。表示の部品は `plan/plan.js`・`plan/plan.css` |
+| `plan/user-tasks.html`(データは同じ `data.js`) | ユーザーがやること(U1〜U10。U6 は欠番。U8 = 送るアプリ 2.8.0 を本物の Dropbox で・U9 = Chrome 拡張を本物の Studio で・U10 = 仮決めの確認。ほかに実機で確かめること・決めてほしいこと) |
 | `plan/decisions.md` | 決めたこと・やらないこと・AI が仮で決めたこと |
 | `plan/improvements.md` | 改善点・追加するとよい機能 |
 | `plan/line-a-remaining.md`・`plan/line-a-phase8-multi-clip.md` | 線 A の残り(段 8・12・15)と段 8 の細かい計画 |
 | `plan/line-b-transcription.md` | 線 B の第 2 版(関門 G0〜G3/FT・D0〜E4・FT)。付録に第 1 版の測定 |
 | `plan/line-b-row-timing.md` | 行の時刻: 案 A の作りと数字・0.57.1 の計画(7)・測り直し(10-07 夜)・配り直しの既定オフと残るずれ(8) |
-| `plan/line-b-row-split.md` | I-5 字幕(行)の分け方: 見比べ・正解づくり(ユーザーが 22 本を直した)・規則の評価・決定「16 文字で分けるのをやめる」(編集 0.59.5。10-08 済み) |
+| `plan/line-b-row-split.md` | I-5 字幕(行)の分け方: 見比べ・正解づくり(ユーザーが 22 本を直した)・規則の評価・決定「16 文字で分けるのをやめる」(編集 0.59.5。10-08 済み)。0.59.6 で分ける文字数の既定は 24(ユーザー「3 段(24 字)以上はやめてほしい」。精度は 40 と同じ) |
 | `plan/ux-stage7-9.md` | 「気が利く画面へ」段 7〜9 の残りの調査と判定(10-07 夜に完了) |
 | `plan/line-b-overlap.md` | 「ゲーム音声など」・重なる字幕・同時発話 |
 | `plan/line-b-extra-ideas.md` | 精度改善の追加案(条件待ちの 6〜11・やらないもの) |
 | `plan/line-bc-master-plan.md` | 線 B・C の I-1〜I-5 の中身・原則・リスク |
-| `plan/line-d-auto-pack.md` | 線 D の最終目標と M1〜M13・決定 |
-| `plan/line-d-live-clipping.md` | 線 D の録画の部品(P1〜P5)と配信中の検出 L0〜L5 |
-| `plan/line-d-detect.md` | 線 D の前倒し(10-07 夜に L1〜L3・M11・M8〜M10・M12 まで実装済み): 順番・2 本の線・候補の API の約束・実績と残り(L4'・L5) |
+| `plan/line-d-auto-pack.md` | 線 D の最終目標と M1〜M13(実装済み。M13 は札だけ)・決定 |
+| `plan/line-d-live-clipping.md` | 線 D の録画の部品(P1〜P4 実装済み・P5 = 2 台目は未)、配信中の検出 L0〜L5(L0〜L4' 済み・L5 は配信 数本のあと)、配信中の文字起こし D-11(案 b。10-08 夜に実装) |
+| `plan/line-d-detect.md` | 線 D の前倒し(10-07 夜に L1〜L3・M11・M8〜M10・M12 まで実装済み・L4' は 10-08 に済み): 順番・2 本の線・候補の API の約束・実績と残り(L5) |
 
 ### 完了した設計(経緯。「なぜそうなっているか」を調べるときに読む)
 | 文書 | 中身 |
