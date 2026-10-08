@@ -527,20 +527,25 @@ static class CoreTests
             var st = new LocalState(dir);
             var s = st.LoadSettings();
             True(s.Cut == Cut.None && s.VideoTracks == 1 && s.Top == 3 && !s.Weights.Enabled && s.Theme == "A" && s.WindowWidth == 0, "無いときは既定");
+            Eq(0.3, s.PreviewVolume, "まとめ動画の音量は はじめ 30%(2.8.1)");
             st.SaveDownloadDir(@"D:\受け取る");
-            s.Cut = Cut.Silence; s.VideoTracks = 4; s.Top = 7; s.Theme = "C"; s.WindowWidth = 1200; s.WindowHeight = 800;
+            s.Cut = Cut.Silence; s.VideoTracks = 4; s.Top = 7; s.Theme = "C"; s.WindowWidth = 1200; s.WindowHeight = 800; s.PreviewVolume = 0.55;
             s.Weights.Enabled = true; s.Weights.Audio = 1.5; s.Weights.Chat = 0.5; s.Weights.Comments = 2.0;
             st.SaveSettings(s);
             Eq(@"D:\受け取る", st.LoadDownloadDir(), "設定を書いても保存先は残る");
             var r = new LocalState(dir).LoadSettings();
             True(r.Cut == Cut.Silence && r.VideoTracks == 4 && r.Top == 7 && r.Theme == "C" && r.WindowWidth == 1200 && r.WindowHeight == 800, "読み直せる");
+            Eq(0.55, r.PreviewVolume, "音量も");
             True(r.Weights.Enabled && r.Weights.Audio == 1.5 && r.Weights.Chat == 0.5 && r.Weights.Comments == 2.0, "重みも");
             st.SaveDownloadDir(@"E:\x");
             Eq(Cut.Silence, st.LoadSettings().Cut, "保存先を書いても設定は残る");
 
-            File.WriteAllText(Path.Combine(dir, "settings.json"), "{\"cut\":\"x\",\"videoTracks\":9,\"top\":0,\"theme\":\"Z\",\"weights\":{\"audio\":99,\"chat\":\"a\"},\"windowWidth\":5}", new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(dir, "settings.json"), "{\"cut\":\"x\",\"videoTracks\":9,\"top\":0,\"theme\":\"Z\",\"weights\":{\"audio\":99,\"chat\":\"a\"},\"windowWidth\":5,\"previewVolume\":7}", new UTF8Encoding(false));
             var b = st.LoadSettings();
             True(b.Cut == Cut.None && b.VideoTracks == 1 && b.Top == 3 && b.Theme == "A" && b.WindowWidth == 0, "形が違う値は既定");
+            Eq(0.3, b.PreviewVolume, "音量は 0〜1 の外なら既定");
+            Eq(0.3, PreviewVolume.Clamp(double.NaN), "NaN も既定");
+            Eq(30, PreviewVolume.Percent(0.3), "表示は %");
             True(b.Weights.Audio == 3.0 && b.Weights.Chat == 1.0 && !b.Weights.Enabled, "重みは範囲に収める");
             File.WriteAllText(Path.Combine(dir, "settings.json"), "こわれた", new UTF8Encoding(false));
             Eq(Cut.None, st.LoadSettings().Cut, "壊れていても動く");

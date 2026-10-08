@@ -211,6 +211,9 @@ namespace RequestSender
         readonly Btn playBtn = new Btn("一時停止", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), discardBtn = new Btn("要らない", BtnKind.Normal),
                      externalBtn = new Btn("外部のプレイヤーで開く", BtnKind.Ghost);
         readonly TrackBar seek = new TrackBar();
+        // 音量のつまみ(2.8.1。10-09 ユーザー決定: はじめ 30%)。値は PreviewVolume.Current(本体が settings.json の previewVolume に覚える = 次も同じ)
+        readonly TrackBar vol = new TrackBar();
+        readonly Lbl volLbl = new Lbl("音量", Tone.Muted), volPct = new Lbl("", Tone.Muted);
         readonly Lbl title = new Lbl("", Tone.Text), timeLbl = new Lbl("0:00 / 0:00", Tone.Muted), note = new Lbl("", Tone.Muted);
         readonly Timer tick = new Timer { Interval = 250 };
         readonly string path;
@@ -255,7 +258,7 @@ namespace RequestSender
             note.Font = Theme.Small;
             note.AutoSize = false;
             note.AutoEllipsis = true;
-            note.Text = "等速・各クリップの左上に「何本目 / 題」。Space で再生 / 一時停止、← → で 5 秒戻る / 進む、Esc で閉じる";
+            note.Text = "等速・各クリップの左上に「何本目 / 題」。Space で再生 / 一時停止、← → で 5 秒戻る / 進む、↑ ↓ で音量、Esc で閉じる";
             timeLbl.Font = Theme.MonoSmall;
             timeLbl.AutoSize = false;
             timeLbl.TextAlign = ContentAlignment.MiddleRight;
@@ -263,7 +266,7 @@ namespace RequestSender
             media.LoadedBehavior = System.Windows.Controls.MediaState.Manual;
             media.UnloadedBehavior = System.Windows.Controls.MediaState.Close;
             media.Stretch = System.Windows.Media.Stretch.Uniform;
-            media.Volume = 0.8;
+            SetVolume(PreviewVolume.Current);   // 2.8.1: はじめ 30%(それまでは 0.8 固定)。つまみを動かした値は閉じるまで保ち、本体が settings.json に覚える
             media.MediaOpened += (s, e) => OnOpened();
             media.MediaFailed += (s, e) => OnFailed(e.ErrorException);
             media.MediaEnded += (s, e) => { SetPlaying(false); };
@@ -283,6 +286,23 @@ namespace RequestSender
             seek.Scroll += (s, e) => { if (!seeking) SeekToBar(); else ShowTime(seek.Value / 1000.0 * durationSec); };
             seek.AccessibleName = "再生する位置";
 
+            vol.Minimum = 0;
+            vol.Maximum = 100;
+            vol.TickStyle = TickStyle.None;
+            vol.AutoSize = false;
+            vol.TabStop = false;
+            vol.SmallChange = 5;
+            vol.LargeChange = 10;
+            vol.Value = (int)Math.Round(PreviewVolume.Clamp(PreviewVolume.Current) * 100);
+            vol.ValueChanged += (s, e) => SetVolume(vol.Value / 100.0);   // マウス・ホイール・キーのどれでも(Scroll はキーで来ないことがある)
+            vol.AccessibleName = "音量";
+            volLbl.Font = Theme.Small;
+            volLbl.AutoSize = false;
+            volLbl.TextAlign = ContentAlignment.MiddleRight;
+            volPct.Font = Theme.MonoSmall;
+            volPct.AutoSize = false;
+            volPct.TextAlign = ContentAlignment.MiddleLeft;
+
             receiveBtn.Font = Theme.Big;   // 本体の「受け取る」と同じ(大きさも 150 × 40)
             playBtn.Enabled = false;
             playBtn.Click += (s, e) => TogglePlay();
@@ -291,7 +311,7 @@ namespace RequestSender
             externalBtn.Click += (s, e) => OpenExternal();
             tick.Tick += (s, e) => UpdatePosition();
 
-            Controls.AddRange(new Control[] { title, host, seek, timeLbl, playBtn, receiveBtn, discardBtn, externalBtn, note });
+            Controls.AddRange(new Control[] { title, host, seek, volLbl, vol, volPct, timeLbl, playBtn, receiveBtn, discardBtn, externalBtn, note });
             foreach (var b in new[] { playBtn, discardBtn, externalBtn }) b.FitWidth();
             if (IsGroup) BuildList();
             Resize += (s, e) => LayoutParts();
@@ -304,6 +324,7 @@ namespace RequestSender
         {
             BackColor = Theme.P.Bg;
             seek.BackColor = Theme.P.Bg;
+            vol.BackColor = Theme.P.Bg;
         }
 
         // 組の小窓: 右の一覧(行は n の順)と、下の決めるボタン。1 本だけの小窓の [受け取る] [要らない] は出さない
@@ -328,7 +349,7 @@ namespace RequestSender
             decideBtn.Click += (s, e) => { Choice = PreviewChoice.Decide; Close(); };
             closeBtn.Click += (s, e) => Close();
             Controls.AddRange(new Control[] { listPane, decideBtn, closeBtn });
-            note.Text = "等速・各クリップの左上に「何本目 / 題」。右の一覧の題を押すとその本へ。Space で再生 / 一時停止(一覧ではチェック)、← → で 5 秒、Esc で閉じる";
+            note.Text = "等速・各クリップの左上に「何本目 / 題」。右の一覧の題を押すとその本へ。Space で再生 / 一時停止(一覧ではチェック)、← → で 5 秒、↑ ↓ で音量、Esc で閉じる";
             UpdateDecide();
         }
 
@@ -358,8 +379,14 @@ namespace RequestSender
             int foot = Ui.S(126);
             host.SetBounds(m, m + Ui.S(28), videoW, Math.Max(Ui.S(120), h - m - Ui.S(28) - foot));
             int y = host.Bottom + Ui.S(6);
+            // つまみの行: [位置のつまみ ……][音量 ▭▭▭ 30%][0:00 / 0:00]。音量は時刻の左に固定の幅(狭い窓では位置のつまみが縮む)
+            int gap = Ui.S(8), volLblW = Ui.S(34), volW = Ui.S(96), volPctW = Ui.S(40);
             timeLbl.SetBounds(m + videoW - Ui.S(120), y, Ui.S(120), Ui.S(28));
-            seek.SetBounds(m, y, videoW - Ui.S(128), Ui.S(28));
+            int vx = timeLbl.Left - gap - volPctW - volW - volLblW;
+            volLbl.SetBounds(vx, y, volLblW, Ui.S(28));
+            vol.SetBounds(vx + volLblW, y, volW, Ui.S(28));
+            volPct.SetBounds(vx + volLblW + volW, y, volPctW, Ui.S(28));
+            seek.SetBounds(m, y, Math.Max(Ui.S(80), vx - gap - m), Ui.S(28));
             y += Ui.S(40);
             playBtn.SetBounds(m, y + Ui.S(2), Math.Max(playBtn.Width, Ui.S(110)), Ui.S(36));
             externalBtn.Location = new Point(playBtn.Right + Ui.S(8), y + Ui.S(6));
@@ -473,6 +500,18 @@ namespace RequestSender
             UpdatePosition();
         }
 
+        // 音量(0〜1)を再生の部品・つまみの右の「30%」・アプリ全体の今の値(PreviewVolume.Current。本体が閉じたあとに覚える)にそろえる
+        void SetVolume(double v)
+        {
+            v = PreviewVolume.Clamp(v);
+            PreviewVolume.Current = v;
+            try { media.Volume = v; }
+            catch (Exception ex) { Log.Write("preview volume: " + ex.Message); }
+            volPct.Text = PreviewVolume.Percent(v) + "%";
+        }
+
+        public int VolumePercent { get { return PreviewVolume.Percent(PreviewVolume.Current); } }   // 確かめ用(--probe-preview)
+
         void Jump(double sec)
         {
             if (!opened || durationSec <= 0) return;
@@ -521,6 +560,11 @@ namespace RequestSender
             if (keyData == Keys.Space && !(ActiveControl is ButtonBase) && !(ActiveControl is ClipRow)) { TogglePlay(); return true; }   // ボタン・一覧の行では押す・チェック
             if (keyData == Keys.Left) { Jump(-5); return true; }
             if (keyData == Keys.Right) { Jump(5); return true; }
+            if ((keyData == Keys.Up || keyData == Keys.Down) && !(ActiveControl is ClipRow))   // 一覧の行では上下の移動(ClipRow.OnKeyDown)
+            {
+                vol.Value = Math.Max(vol.Minimum, Math.Min(vol.Maximum, vol.Value + (keyData == Keys.Up ? 5 : -5)));   // ValueChanged → SetVolume
+                return true;
+            }
             return base.ProcessCmdKey(ref msg, keyData);
         }
 

@@ -2793,3 +2793,18 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - LINE で送る件: Drive の out/ に置いて既存の pollAndSend に送らせようとしたが、自動の権限判定(外部のシステムへの書き込み)で止められたので送っていない。ユーザーに相談
 - 未完了・次: ユーザーが gas/README.txt の手順で連携を作る → 画面で URL と合言葉 → 送って確かめる。収益の単位(÷1000)を Studio と見比べる。plan/data.js は並行セッションが並べ直し中なので触っていない
 - 未コミット: なし(このセッションの分。src/home/intake.py の変更は別のセッションのもの)
+
+## 2026-10-09 Claude Code(PC。Fable)— 友人のアプリ 2.8.1(まとめ動画の音量 30% + 音量のつまみ)・友人のライブ依頼が配信前だと「アーカイブから ①」に落ちる不具合
+- 依頼: ユーザー「友人の依頼ツールのまとめ動画の音量を 30% にして、音量バーもつけて」「友人の依頼でリアルタイムでパック化されずアーカイブ化してからパック化されてしまう問題を何とかしたい」
+- 調べたこと(3 点目): 10-08 の記録(launcher.log・intake-state.json・autorun-runs.jsonl・live/exports.json・deliveries.jsonl)を追った。友人のライブ依頼 2 件(21:58 BqUfGBP3jMM・22:56 kWkREam1us0)はどちらも配信前に送られ、受付の問い合わせ `intake.youtube_info`(yt-dlp)が「This live event will begin in …」のエラーで None → 「状態を確かめられない → アーカイブから ① 全自動」に落ち、解析が同じエラーで失敗(友人には失敗の知らせ)。22:23 の録画は入口の自分の見回りが始めたもので依頼には結びつかず、採用した 5 本は live.autoDeliver で届いていた(1 本目は書き出しから 18 秒でパック・友人は 22:45 に「要らない」)。本物の予約配信で確かめた: フラグなしは rc=1、`--ignore-no-formats-error` を付けると `NA\tis_upcoming\t…` を rc=0 で返す(入口の `live.probe_live` はもう付けていた。受付だけ漏れ)
+- 変更:
+  - `src/home/intake.py`: `youtube_info` に `--ignore-no-formats-error`(+ 古い yt-dlp の「will begin」「Premieres in」のエラー文は is_upcoming)/ `_handle_live_request`: 状態を確かめられなかった(info が空)ときは **先に録画を試し**(`Live.begin` が自分でもう一度調べる)、録画も始められなければ今までどおりアーカイブから ① 全自動(知らせの行に理由)。終わっていると分かったときは今までどおり ①
+  - `src/home/tests/test_intake.py`: `test_unknown_status_tries_recording_before_archive`・`test_unknown_status_falls_back_to_archive_when_recording_fails`・新 `TestYoutubeInfo`(subprocess.run を差し替えて引数とエラー文の扱い 3 件)。`test_ended_stream_goes_as_auto_url_request` の末尾(状態が分からない = ①)を新しい動きに
+  - `docs/spec/friend-intake.md` 2-15 に「状態を確かめられなかったとき」の 1 行・`src/home/README.txt` の v0.50.0 に 1 行(版は上げない。分析と日報の 0.50.0 と同じ日で、まだ起動し直していない)
+  - 友人のアプリ `friend-apps/request-sender/` 2.8.0 → 2.8.1: `Preview.cs` まとめ動画の小窓に音量のつまみ(位置のつまみの右「音量 ▭ 30%」・↑ ↓ で ±5%・一覧の行にフォーカスがあるときは行の移動のまま)・はじめ 30%(それまで 0.8 固定)/ `TimeCore.cs` 新 `PreviewVolume`(値の置き場。WPF を使う小窓の型に本体から触らないため)+ `AppSettings.PreviewVolume`(settings.json の `previewVolume`。0〜1 の外・NaN は既定)/ `MainForm.cs`・`MainForm.Receive.cs` 起動時に読む・小窓を閉じたら保存 / `Program.cs` `--probe-preview` の出力に volume= / `tests/CoreTests.cs` 設定の往復に音量 / `README.txt` 見出しと窓の説明
+- 版: 友人のアプリ 2.8.0 → 2.8.1(`dist/RequestSender.zip` を作り直した。友人に渡すのはユーザー)。ホームは 0.50.0 のまま
+- 決定・理由: 「音量 30%」は小窓の再生の音量(まとめ動画のファイルの音は変えない = 受け取るパックの音と同じ基準で聞ける)。つまみの値は settings.json に覚える(友人が毎回直さなくてよい)。状態が分からないときに録画を先に試すのは、友人がライブとして送った意思を尊重するため(録画は配信前を 6 時間まで待つ = `rec_core.WAIT_START`)
+- テストの結果: `py -3.10 -m unittest src/home/tests/test_intake.py` 54 OK / `py -3.10 dev/lint.py` 0 件 / `friend-apps\request-sender\build.bat` コンパイル → テスト 47 OK → zip / `--probe-preview`(組の小窓・PNG)で開けた・volume=30・つまみが位置のつまみの右に出るのを目で確認
+- 未完了・次: 起動中の入口は古いまま(分析と日報の 0.50.0 と合わせて「すべて終了」→ start.bat)。友人に 2.8.1 の zip を渡す。次の友人のライブ依頼(配信前)で「録画を始めました」になるかを受付の一覧で確かめる
+- 注意: `intake.youtube_info` と `live.probe_live` は別々の yt-dlp の呼び出し(受付は duration も要る)。yt-dlp の引数を変えるときは両方。担当の控え(1b91d3e)の「触っている」は分析セッションが a5076c1 でコミットしたので解消
+- 未コミット: なし(このセッションの分はこの記録と一緒にコミット)

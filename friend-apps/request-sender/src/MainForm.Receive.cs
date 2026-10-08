@@ -687,6 +687,7 @@ namespace RequestSender
             using (var f = new PreviewForm(path, title, items, start))
             {
                 f.ShowDialog(this);
+                SaveSettings();   // 音量のつまみを動かした値を覚える(2.8.1。settings.json の previewVolume)
                 return f.Choice;
             }
         }

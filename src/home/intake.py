@@ -147,19 +147,25 @@ def probe_video(path):
 
 
 def youtube_info(vid):
-    """yt-dlp で配信の長さ・状態・題名・チャンネルを調べる(ダウンロードしない)。-> dict か None(調べられない)"""
+    """yt-dlp で配信の長さ・状態・題名・チャンネルを調べる(ダウンロードしない)。-> dict か None(調べられない)。
+    配信の前(予約)は形式が無いので yt-dlp がエラーで終わる(「This live event will begin in …」)→ --ignore-no-formats-error で live_status is_upcoming を
+    出させる(src/home/live.py の probe_live と同じ)。古い yt-dlp はそれでもエラーで返すので、その文があれば is_upcoming とみなす。
+    2026-10-08 の友人のライブ依頼 2 件がここで None になり「状態を確かめられない → アーカイブから ①」に落ちて、配信前で解析が失敗していた(10-09)"""
     if os.environ.get("STUDIO_FAKE") == "1":
         return {"duration": 600.0, "live": "not_live", "title": "疑似タイトル(%s)" % vid, "channel": ""}
     yd = tools.find_tool("yt-dlp")
     if not yd or not re.fullmatch(_ID, vid or ""):
         return None
     try:
-        r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--print",   # --encoding: 付けないと Windows の文字コード(cp932)で出して題名が化ける
+        r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error", "--print",   # --encoding: 付けないと Windows の文字コード(cp932)で出して題名が化ける
                             "%(duration)s\t%(live_status)s\t%(channel)s\t%(title)s", "--", "https://www.youtube.com/watch?v=" + vid],
                            capture_output=True, timeout=90, creationflags=tools.no_window_flags())
     except (OSError, subprocess.TimeoutExpired):
         return None
     if r.returncode != 0:
+        err = r.stderr.decode("utf-8", "replace")
+        if "will begin" in err or "Premieres in" in err:   # 古い yt-dlp は配信の前をエラーで返す(題・チャンネルは分からない)
+            return {"duration": None, "live": "is_upcoming", "channel": "", "title": ""}
         return None
     parts = (r.stdout.decode("utf-8", "replace").strip().splitlines() or [""])[-1].split("\t")
     if len(parts) < 4:
@@ -565,9 +571,13 @@ class Intake:
                          [{"label": label, "state": "rejected", "reason": "配信は終わったところで、アーカイブがまだ見られません(見られるようになってから、もう一度送ってください)"}],
                          "auto", speakers, rid=rid, tracks=tracks, cut=cut)
             return
-        if info.get("live") not in ("is_live", "is_upcoming"):   # 終わっている(か分からない): 普通の ① 全自動の依頼として流す
+        ended = bool(info) and info.get("live") not in ("is_live", "is_upcoming")   # 状態が分かって、終わっている
+        # 状態を確かめられなかった(info が空 = yt-dlp が無い・失敗・時間切れ)ときは、ここで諦めずに録画を試す(Live.begin が自分でもう一度調べる。
+        # 配信前・配信中なら録画が始まる)。録画も始められなければ、今までどおりアーカイブから ① 全自動(終わった配信ならそれで切り抜ける)。
+        # 10-08 に友人の配信前の依頼 2 件が「確かめられない → アーカイブ」に落ちて、解析が「This live event will begin」で失敗していた(10-09)
+        if ended or (not info and self.live_begin is None):
             notes = [{"label": "ライブ配信", "state": "accepted",
-                      "reason": "配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)" if info else
+                      "reason": "配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)" if ended else
                       "配信の状態を確かめられなかったので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)"}]
             self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", memo, rid, "auto", speakers, tracks,
                                ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=1, notes=notes)
@@ -583,6 +593,12 @@ class Intake:
                        "reason": "録画を%s(切り抜きはできしだい 1 本ずつ届けます)" % ("始めました" if not out.get("existing") else "しています(前から録画中)")}
             except Exception as e:   # noqa: BLE001  (録画元が動いていない・オフ・URL の形など。理由を友人に返す)
                 msg = str(e)[:160]   # Live.begin の LiveError はもう「録画を始められませんでした: …」で始まる(二重にしない)
+                if not info:   # 状態を確かめられず、録画も始められない(配信が終わっていた・録画元が動いていないなど)→ アーカイブから ① 全自動(今までの流れ)
+                    notes = [{"label": "ライブ配信", "state": "accepted",
+                              "reason": "配信の状態を確かめられず、録画も始められなかったので(%s)、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)" % msg}]
+                    self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", memo, rid, "auto", speakers,
+                                       tracks, ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=1, notes=notes)
+                    return
                 res = {"label": label, "state": "rejected", "reason": msg if msg.startswith("録画を始められませんでした") else "録画を始められませんでした: " + msg}
         items = [res, {"label": "ライブ配信", "state": "accepted", "reason": live_requests.settings_label(settings)}]
         if note:

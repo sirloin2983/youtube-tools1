@@ -109,6 +109,7 @@ namespace RequestSender
             this.exeDir = exeDir;
             state = new LocalState(dataDir);
             settings = state.LoadSettings();
+            PreviewVolume.Current = settings.PreviewVolume;   // まとめ動画の音量(2.8.1。小窓が変えた値は ShowPlayer のあと SaveSettings で覚える)
             titles.Offline = Offline;
             Theme.Set(settings.Theme);
             cut = settings.Cut;
@@ -802,6 +803,7 @@ namespace RequestSender
                 settings.Weights = CurrentWeights();
                 settings.DeliverBatch = deliver.Value;
                 settings.Live = liveCard.Settings;
+                settings.PreviewVolume = PreviewVolume.Current;
                 settings.Theme = Theme.P.Name;
                 if (WindowState == FormWindowState.Normal) { settings.WindowWidth = ClientSize.Width; settings.WindowHeight = ClientSize.Height; }
                 state.SaveSettings(settings);

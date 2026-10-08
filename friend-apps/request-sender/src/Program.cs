@@ -159,7 +159,7 @@ namespace RequestSender
                             using (var g = System.Drawing.Graphics.FromImage(bmp)) g.CopyFromScreen(f.Location, System.Drawing.Point.Empty, f.Size);
                             bmp.Save(png, System.Drawing.Imaging.ImageFormat.Png);
                         }
-                    result = "opened=" + f.Opened + " duration=" + f.Duration.ToString("0.0") + " pos0=" + p0.ToString("0.00") + " pos1=" + f.PositionSec.ToString("0.00") + " error=" + (f.Error ?? "");
+                    result = "opened=" + f.Opened + " duration=" + f.Duration.ToString("0.0") + " pos0=" + p0.ToString("0.00") + " pos1=" + f.PositionSec.ToString("0.00") + " volume=" + f.VolumePercent + " error=" + (f.Error ?? "");
                     f.Close();
                 }
             }

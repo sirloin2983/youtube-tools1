@@ -803,11 +803,11 @@ class TestLiveRequest(Base):
             self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
         self.assertEqual(len(self.runner.requests), 2)
         self.assertFalse(os.path.exists(os.path.join(self.folder, intake.OUT_DIR)))
-        # 配信の状態が分からない(yt-dlp が答えない)も ① 全自動へ(知らせの文が違う)
+        # 配信の状態が分からない(yt-dlp が答えない)は、まず録画を試す(10-09。① 全自動へ落とすのは録画も始められなかったときだけ = test_unknown_status_*)
         self.it.info = lambda vid: None
         rec = self.send("20261008-200000-abc312")
-        self.assertEqual((len(self.runner.requests), self.runner.last["batch"], rec["state"], self.begun), (3, 1, "accepted", []))
-        self.assertTrue(any(x["label"] == "ライブ配信" and "確かめられなかった" in x["reason"] for x in rec["items"]))
+        self.assertEqual((len(self.runner.requests), rec["kind"], rec["state"], len(self.begun)), (2, "live", "accepted", 1))
+        self.assertIn("録画を始めました", rec["items"][0]["reason"])
 
     def test_post_live_is_rejected_with_reason(self):
         """終わった直後(post_live = YouTube がアーカイブを用意している)は録画もアーカイブの切り抜きもまだできない: 断る(kind url と同じ)。理由はライブ配信の言い方で"""
@@ -867,6 +867,76 @@ class TestLiveRequest(Base):
             self.assertTrue(os.path.isfile(self.failed(rid + ".request.json")), url)
             self.assertEqual(len(self.out_notes(rid)[0]), 1, url)
         self.assertEqual((self.begun, self.info_calls, self.runner.requests), ([], [], []), "yt-dlp も録画元も呼ばない")
+
+    def test_unknown_status_tries_recording_before_archive(self):
+        """状態を確かめられなかった(yt-dlp が失敗・無い = info が None)→ 録画を試す(Live.begin が自分でもう一度調べる)。始まれば配信中・配信前と同じ受け付け。
+        10-08 に配信前の依頼 2 件が「確かめられない → アーカイブから ①」に落ちて解析が失敗した(10-09)"""
+        self.infos[self.VID] = None
+        rid = "20261008-200000-abc360"
+        rec = self.send(rid)
+        (url, ctx), = self.begun
+        self.assertEqual((url, ctx["rid"], ctx["title"]), ("https://www.youtube.com/watch?v=abcdefghijk", rid, url), "題が分からなければ URL")
+        self.assertEqual((rec["kind"], rec["state"]), ("live", "accepted"))
+        self.assertIn("録画を始めました", rec["items"][0]["reason"])
+        self.assertEqual(self.runner.requests, [], "アーカイブの ① には流さない")
+        self.assertIn(self.VID, self.it.st["videos"])
+
+    def test_unknown_status_falls_back_to_archive_when_recording_fails(self):
+        """状態を確かめられず、録画も始められない(終わっていた・録画元が動いていないなど)→ 今までどおりアーカイブから ① 全自動(理由を知らせの行に)。
+        live_begin が無い PC も同じ(録画は試さない)"""
+        self.infos[self.VID] = None
+        self.begin_out = ValueError("配信中・配信前の配信ではありません(unknown)")
+        rid = "20261008-200000-abc361"
+        rec = self.send(rid)
+        self.assertEqual(len(self.begun), 1, "先に録画を試す")
+        items, got = self.runner.requests[-1]
+        self.assertEqual(([(x["id"], x["top"]) for x in items], got), ([(self.VID, 4)], rid))
+        self.assertEqual((rec["kind"], rec["state"], rec["flowLabel"]), ("url", "accepted", "① 全自動"))
+        note = next(i for i in rec["items"] if i["label"] == "ライブ配信")
+        self.assertIn("録画も始められなかったので(配信中・配信前の配信ではありません(unknown))、アーカイブから ① 全自動", note["reason"])
+        self.assertEqual(len(self.out_notes(rid)[0]), 0, "断っていない = .失敗.txt は置かない")
+        self.it.live_begin = None
+        rec = self.send("20261008-200000-abc362")
+        self.assertEqual(len(self.begun), 1, "live_begin が無ければ試さない")
+        self.assertEqual((rec["kind"], rec["state"]), ("url", "accepted"))
+        self.assertIn("配信の状態を確かめられなかったので、アーカイブから ① 全自動", next(i for i in rec["items"] if i["label"] == "ライブ配信")["reason"])
+
+
+class TestYoutubeInfo(unittest.TestCase):
+    """youtube_info(yt-dlp の問い合わせ): 配信の前は --ignore-no-formats-error で is_upcoming を出させる。古い yt-dlp のエラー文(will begin)も is_upcoming。
+    ほかの失敗は None(10-09。10-08 に配信前の依頼で None になっていた)"""
+
+    def run_info(self, returncode, stdout, stderr=""):
+        from unittest import mock
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, returncode, stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+        with mock.patch.dict(os.environ, {"STUDIO_FAKE": "0"}), mock.patch.object(intake.tools, "find_tool", lambda name: "C:/x/yt-dlp.exe"), \
+                mock.patch.object(intake.subprocess, "run", fake_run):
+            out = intake.youtube_info("abcdefghijk")
+        return out, calls
+
+    def test_upcoming_is_reported_not_none(self):
+        out, calls = self.run_info(0, "NA\tis_upcoming\tMiko Ch.\t🌸FreeChat\n")
+        self.assertEqual(out, {"duration": None, "live": "is_upcoming", "channel": "Miko Ch.", "title": "🌸FreeChat"})
+        self.assertEqual(len(calls), 1)
+        self.assertIn("--ignore-no-formats-error", calls[0])
+        self.assertEqual(calls[0][-1], "https://www.youtube.com/watch?v=abcdefghijk")
+
+    def test_old_ytdlp_error_text_means_upcoming(self):
+        out, _calls = self.run_info(1, "", "ERROR: [youtube] abcdefghijk: This live event will begin in 3 minutes.\n")
+        self.assertEqual(out, {"duration": None, "live": "is_upcoming", "channel": "", "title": ""})
+        out, _calls = self.run_info(1, "", "ERROR: [youtube] abcdefghijk: Premieres in 2 hours\n")
+        self.assertEqual(out["live"], "is_upcoming")
+
+    def test_other_failures_are_none(self):
+        self.assertIsNone(self.run_info(1, "", "ERROR: [youtube] abcdefghijk: Video unavailable\n")[0])
+        self.assertIsNone(self.run_info(0, "garbage\n")[0])
+        out, _calls = self.run_info(0, "3600\twas_live\tch\t題\n")
+        self.assertEqual(out, {"duration": 3600.0, "live": "was_live", "channel": "ch", "title": "題"})
 
 
 if __name__ == "__main__":

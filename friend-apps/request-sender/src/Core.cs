@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.8.0";
+        public const string Version = "2.8.1";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----

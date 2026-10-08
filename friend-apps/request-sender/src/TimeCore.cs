@@ -427,9 +427,21 @@ namespace RequestSender
     }
 
     // ---- 覚える設定(settings.json)。仕上げ方・URL・区間・話す人・メモは覚えない ----
+    // まとめ動画の音量(2.8.1。10-09 ユーザー決定: はじめ 30%)。小窓(Preview.cs)がつまみで変え、本体が settings.json の previewVolume に覚える。
+    // WPF を使う小窓の型に本体から触らない(読み込めない PC で本体まで落とさない)ために、値はここに置く
+    public static class PreviewVolume
+    {
+        public const double Default = 0.3;
+        public static double Current = Default;
+
+        public static double Clamp(double v) { return double.IsNaN(v) || v < 0 || v > 1 ? Default : v; }   // 範囲の外・壊れた値は既定
+        public static int Percent(double v) { return (int)Math.Round(Clamp(v) * 100); }
+    }
+
     public class AppSettings
     {
         public static readonly string[] Themes = { "A", "B", "C", "D" };
+        public double PreviewVolume = RequestSender.PreviewVolume.Default;   // まとめ動画の音量 0〜1(2.8.1)
 
         public string Cut = RequestSender.Cut.None;
         public int VideoTracks = RequestSender.VideoTracks.Default;
@@ -466,6 +478,7 @@ namespace RequestSender
             long batch = Json.Long(d, "deliverBatch", s.DeliverBatch);
             if (batch >= RequestSender.DeliverBatch.Min && batch <= RequestSender.DeliverBatch.Max) s.DeliverBatch = (int)batch;
             s.Live = LiveSettings.From(Json.Dict(d, "live"));
+            s.PreviewVolume = RequestSender.PreviewVolume.Clamp(Number(d, "previewVolume", RequestSender.PreviewVolume.Default));
             return s;
         }
 
@@ -484,6 +497,7 @@ namespace RequestSender
             d["windowHeight"] = WindowHeight;
             d["deliverBatch"] = RequestSender.DeliverBatch.InRange(DeliverBatch) ? DeliverBatch : RequestSender.DeliverBatch.Default;
             d["live"] = (Live ?? new LiveSettings()).ToDict();
+            d["previewVolume"] = RequestSender.PreviewVolume.Clamp(PreviewVolume);
         }
 
         static double Number(IDictionary<string, object> d, string key, double dflt)
