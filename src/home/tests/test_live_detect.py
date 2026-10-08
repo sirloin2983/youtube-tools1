@@ -1032,7 +1032,7 @@ class DetectApiTest(unittest.TestCase):
         fsio.atomic_write(os.path.join(self.det.dir, "worker.json"), json.dumps(hb).encode("utf-8"))
         h = self.live.health()["detect"]
         self.assertEqual((h["running"], h["behindSec"], h["memMB"], h["restarts"], h["chat"], h["chatRestarts"]), (True, 12.5, 80.0, 0, "ok", 2))
-        self.assertEqual(h["recordings"], [{"recorder": "fake", "id": REC, "peaks": 2, "lag": 9, "chat": "ok", "behindSec": 4.0}])
+        self.assertEqual(h["recordings"], [{"recorder": "fake", "id": REC, "peaks": 2, "lag": 9, "chat": "ok", "behindSec": 4.0, "auto": 0, "autoCapped": False}])
         self.assertEqual(self.det.failures(), [])
         hb.update(error="ffmpeg が見つかりません(setup の install.bat で入れてください)", at=iso(time.time() - 600))
         fsio.atomic_write(os.path.join(self.det.dir, "worker.json"), json.dumps(hb).encode("utf-8"))
@@ -1045,6 +1045,144 @@ class DetectApiTest(unittest.TestCase):
         self.prefs.patch("live", {"detect": {"enabled": False}})
         self.assertIsNone(self.live.health()["detect"])
         self.assertEqual(self.det.failures(), [])
+
+    def peaks3(self):
+        return [peak("p0-302", 272, 302, 12.0, "frame", 336), peak("p1-903", 870, 903, 9.0, "frame", 930), peak("p2-1002", 973, 1002, 6.0, "bench", 1021)]
+
+    def test_d13_auto_cap_per_recording(self):
+        """D-13: 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(残りの候補は帯に残る = 人が採用できる)。「調子」の行に auto・autoCapped"""
+        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        pks = [peak("p%d-%d" % (i, 100 + i * 200), 70 + i * 200, 100 + i * 200, 10.0 - i * 0.1, "frame", 130 + i * 200) for i in range(D.AUTO_MAX_PER_REC + 2)]
+        self.put_peaks(pks, seq=1, changes=[])
+        self.rec.rel = 9000
+        t = self.worker_alive()
+        self.assertEqual(self.det.auto_tick(), 0)
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), D.AUTO_MAX_PER_REC)
+        self.assertEqual(self.det.auto_count("fake", REC), D.AUTO_MAX_PER_REC)
+        self.assertEqual(self.det.auto_tick(), 0)   # 上限: 残りの 2 本は採用しない
+        self.assertEqual(sum(1 for m in self.logs if "上限の %d 本" % D.AUTO_MAX_PER_REC in m), 1)
+        self.det.auto_tick()
+        self.assertEqual(sum(1 for m in self.logs if "上限の %d 本" % D.AUTO_MAX_PER_REC in m), 1)   # 記録は 1 回
+        h = self.live.health()["detect"]
+        self.assertEqual((h["recordings"][0]["auto"], h["recordings"][0]["autoCapped"], h["autoAdopt"]["maxPerRecording"], h["autoAdopt"]["pauseUnconfirmed"]),
+                         (D.AUTO_MAX_PER_REC, True, D.AUTO_MAX_PER_REC, D.UNCONFIRMED_PAUSE))
+        a = self.post("adopt", pks[-1]["id"])   # 人の採用は上限に関係なく通る
+        self.assertEqual((a["ok"], self.decisions()["items"][-1]["origin"]), (True, "manual"))
+        self.assertEqual(self.det.auto_count("fake", REC), D.AUTO_MAX_PER_REC)   # 人の採用は数えない
+
+    def test_d13_pause_when_unconfirmed(self):
+        """D-13: ホームの未確認の自動の切り抜きが UNCONFIRMED_PAUSE 本以上なら、依頼の無い録画の自動の採用を休む(「調子」に理由・記録は 1 回)。
+        数は UNCONFIRMED_EVERY 秒ごとに聞き直す。友人の依頼の録画は休まない。数えられなければ休まない(記録に 1 回)"""
+        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        n = [D.UNCONFIRMED_PAUSE]
+        self.live.unconfirmed = lambda: n[0]
+        self.rec.rel = 5000
+        t = self.worker_alive()
+        self.assertEqual(self.det.auto_tick(), 0)
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 0)   # 休む
+        self.assertIn("自動の採用を休んでいます", self.live.health()["detect"]["autoAdopt"]["paused"])
+        self.det.auto_tick()
+        self.assertEqual(sum(1 for m in self.logs if "休んでいます" in m), 1)
+        n[0] = D.UNCONFIRMED_PAUSE - 1
+        self.assertEqual(self.det.auto_tick(), 0)   # UNCONFIRMED_EVERY 秒は前の数のまま
+        t[0] += D.UNCONFIRMED_EVERY + 1
+        self.assertEqual(self.det.auto_tick(), 0)   # 休みが明けた: ここから待ちを数える(休んでいる間は「最初に見た」にしない)
+        self.assertEqual(self.live.health()["detect"]["autoAdopt"]["paused"], "")
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 2)   # p0・p1
+        # 友人の依頼の録画は、休んでいても採用する
+        n[0] = D.UNCONFIRMED_PAUSE + 5
+        t[0] += D.UNCONFIRMED_EVERY + 1
+        self.put_peaks(self.peaks3() + [peak("p3-4000", 3970, 4000, 9.0, "frame", 4010, hour=1)], seq=7, changes=[])   # p0・p1 は決定(adopted)を重ねて見える
+        self.assertEqual(self.det.auto_tick(), 0)
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 0)   # 休んでいる
+        self.live.requests.put("fake", REC, {"rid": "20261008-200000-abc123", "deliverDir": self.tmp, "settings": {"waitMin": 1}})
+        self.assertEqual(self.det.auto_tick(), 0)   # 依頼の録画になった: ここから待ちを数える
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 1)   # p3(依頼の録画)
+        self.live.requests.remove("fake", REC)
+
+        def boom():
+            raise RuntimeError("x")
+        self.live.unconfirmed = boom   # 数えられない → 休まない
+        t[0] += D.UNCONFIRMED_EVERY + 1
+        self.assertEqual(self.det.paused_why(), "")
+        self.assertEqual(sum(1 for m in self.logs if "安全弁は効きません" in m), 1)
+        t[0] += D.UNCONFIRMED_EVERY + 1
+        self.assertEqual(self.det.paused_why(), "")
+        self.assertEqual(sum(1 for m in self.logs if "安全弁は効きません" in m), 1)
+
+    def test_d14_adopt_after_end(self):
+        """D-14: 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補を同じ待ちで採用する。
+        締める前・終わって END_GRACE_SEC より古い録画は採用しない"""
+        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 1}})
+        t = self.worker_alive()
+        self.rec.rel = t[0] - T0 - 100   # ライブ端 = 100 秒前に終わった
+        self.rec.active = False
+        self.assertEqual(self.det.auto_tick(), 0)   # 締める前
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 0)
+        self.put_peaks(self.peaks3(), seq=6, changes=[], ended=True)
+        self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た(締めてから待ちを数える)
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 2)   # p0・p1(控え p2 は採用しない)
+        self.assertEqual([x["origin"] for x in self.decisions()["items"]], ["auto", "auto"])
+        self.rec.rel = t[0] - T0 - D.END_GRACE_SEC - 10   # 古い録画は採用しない
+        self.put_peaks([peak("p5-7000", 6970, 7000, 9.0, "frame", 7010)], seq=7, changes=[], ended=True, dec_n=2)
+        for _ in range(2):
+            t[0] += 61
+            self.assertEqual(self.det.auto_tick(), 0)
+
+    def test_report_d12(self):
+        """D-12: 配信ごとの結果の記録(src/home/live_report.py)。録画中は EVERY 秒ごとに書き直し(最大値を残す)、終わって締めたら最後に 1 回(state done)"""
+        import live_report as R
+        rp = self.live.reporter
+        t = self.worker_alive()
+        rp.clock = lambda: t[0]
+        self.rec.rel = t[0] - T0 - 100
+        self.live.livetx.record("fake", REC, "p0-302", "文字", sec=3.0)
+        self.live.livetx._record_error("fake", REC, "p1-903", "だめ")
+        self.post("adopt", "p0-302")
+        self.assertEqual(rp.tick(), 1)
+        d = rp.load("fake", REC)
+        self.assertEqual((d["state"], d["recorder"], d["recording"], d["info"]["title"], d["info"]["hours"] > 1, d["finishedAt"]), ("recording", "fake", REC, "テスト配信", True, None))
+        s = d["samples"]
+        self.assertEqual((s["ticks"], s["behindMax"], s["memMaxMB"], s["lagMax"], s["chat"], s["restarts"]), (1, 4.0, 50.0, 9, "ok", 0))
+        self.assertEqual({k: d["detect"][k] for k in ("frame", "bench", "adopted", "adoptedAuto", "adoptedManual", "givenUp", "ended")},
+                         {"frame": 1, "bench": 1, "adopted": 1, "adoptedAuto": 0, "adoptedManual": 1, "givenUp": 0, "ended": False})
+        self.assertEqual({k: d["tx"][k] for k in ("ok", "error", "empty", "pending", "secMedian")}, {"ok": 1, "error": 1, "empty": 0, "pending": 1, "secMedian": 3.0})
+        self.assertEqual((d["exports"]["total"], d["exports"]["byState"], d["exports"]["origins"], d["exports"]["failures"]), (1, {"wait": 1}, {"manual": 1}, 0))
+        self.assertEqual((d["disk"]["state"], d["request"]), ("ok", None))
+        self.assertEqual(rp.tick(), 0)   # EVERY 秒は書き直さない
+        fsio.atomic_write(os.path.join(self.det.dir, "worker.json"), json.dumps({"v": 1, "pid": 99999, "at": iso(t[0]), "behindSec": 1.0, "memMB": 120.0, "chatRestarts": 1,
+                                                                                   "recordings": [{"recorder": "fake", "id": REC, "behindSec": 1.0, "chat": "restarting"}],
+                                                                                   "message": "", "error": ""}).encode("utf-8"))
+        t[0] += R.EVERY + 1
+        self.assertEqual(rp.tick(), 1)
+        s = rp.load("fake", REC)["samples"]   # 最大値は残る(遅れが減っても)
+        self.assertEqual((s["ticks"], s["behindMax"], s["behindLast"], s["memMaxMB"], s["memLastMB"], s["chatRestarts"], s["chat"]), (2, 4.0, 1.0, 120.0, 120.0, 1, "restarting"))
+        self.rec.active = False   # 終わった: 締める前は recording のまま書き直す。締めたら done
+        t[0] += R.EVERY + 1
+        self.assertEqual(rp.tick(), 1)
+        self.assertEqual(rp.load("fake", REC)["state"], "recording")
+        self.put_peaks(self.peaks3(), seq=6, changes=[], ended=True, dec_n=1)
+        t[0] += R.EVERY + 1
+        self.assertEqual(rp.tick(), 1)
+        d = rp.load("fake", REC)
+        self.assertEqual((d["state"], d["detect"]["ended"], d["finishedAt"] is not None, d["samples"]["ticks"]), ("done", True, True, 4))
+        self.assertEqual(sum(1 for m in self.logs if "配信の記録を残しました" in m), 1)
+        t[0] += R.EVERY + 1
+        self.assertEqual(rp.tick(), 0)   # 済んだ録画は書き直さない
+        self.assertEqual([x["recording"] for x in rp.all()], [REC])
+        self.assertIn("候補 2(控え 1・見送り 0)・採用 1(自動 0)", R.Reporter.summary(d))
+        self.rec.rel = t[0] - T0 - R.END_WINDOW - 10   # 古い録画は見ない
+        rp._done.clear()
+        os.remove(rp.path("fake", REC))
+        t[0] += R.EVERY + 1
+        self.assertEqual(rp.tick(), 0)
 
     def test_compare_after_stream_and_forget(self):
         """0-10-6: 配信後のアーカイブの候補と配信中の候補を比べて live_feedback.jsonl に 1 行 / 録画を消したら検出の記録も消す"""

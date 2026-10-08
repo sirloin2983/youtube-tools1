@@ -2,6 +2,7 @@
 """盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。plan/line-bc-master-plan.md の Q3・I-4a)。
 
     python dev/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
+    python dev/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
 
 - 作業データは**読むだけ**(スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
   cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
@@ -33,8 +34,14 @@
 - --since / --until(原則 4: 時期で分ける)は、マークの作られた日時(data.json は createdAt・archive は解析の日時・feedback だけのものは最初の行の日時)と
   手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
+- --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/home/live_report.py が録画中に書き、
+  終わったら締める)と採用の記録(live/live_feedback.jsonl)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
+  要らない = 悪い。自動の採用だけ)・配信中の候補とアーカイブの候補の重なり(detect_compare の行 = 配信後の全自動 M7 が書く)・ワーカーの遅れとメモリの最大・
+  配信中の文字起こしの成否・書き出しの待ち・空き を並べる。時期は記録の startedAt(行は at)で絞る。録画が 5 本未満なら「まだ少ない(参考)」。
+  --json は スタジオの作業データの evals\\marks\\<日時>-live.json
 """
 import argparse
+import calendar
 import gzip
 import json
 import os
@@ -815,6 +822,175 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     return {"meta": meta, "overall": overall, "byType": {k: group_metrics(v) for k, v in sorted(types.items())}, "byVideo": by_video, "friendRanges": friend, "clipLength": clip}
 
 
+# ---------------------------------------------------------------- 配信ごと(線 D の D-12。--live)
+
+LIVE_SCHEMA = "youtube-tools-marks-eval-live/v1"
+LIVE_FEW = 5             # 録画がこれより少ないときは「まだ少ない(参考)」
+LIVE_DIR = "live"
+REPORTS_DIR = "reports"
+LIVE_FEEDBACK = "live_feedback.jsonl"
+
+
+def _live_period_ok(iso_at, since_ms, until_ms):
+    """入口の記録の時刻(UTC の ISO。末尾 Z。src/home/live_export.py の now_iso)が時期の中か(分からなければ入れる)"""
+    t = None
+    s = str(iso_at or "")
+    if s.endswith("Z"):
+        try:
+            t = calendar.timegm(time.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")) * 1000
+        except (ValueError, OverflowError):
+            t = None
+    elif s:
+        t = ts_ms(s)
+    return C.in_period(t, since_ms, until_ms)
+
+
+def _live_row(d):
+    """配信ごとの記録 1 件(src/home/live_report.py の形)-> 表の 1 行の土台"""
+    s, dt, tx, ex, info = d.get("samples") or {}, d.get("detect") or {}, d.get("tx") or {}, d.get("exports") or {}, d.get("info") or {}
+    return {"recorder": d.get("recorder"), "recording": d.get("recording"), "title": info.get("title") or "", "hours": info.get("hours"),
+            "state": d.get("state"), "startedAt": d.get("startedAt"), "request": bool(d.get("request")),
+            "peaks": {"frame": dt.get("frame", 0), "bench": dt.get("bench", 0), "dismissed": dt.get("dismissed", 0), "adopted": dt.get("adopted", 0),
+                      "givenUp": dt.get("givenUp", 0), "gaps": dt.get("gaps"), "ended": dt.get("ended")},
+            "adopt": {"auto": dt.get("adoptedAuto", 0), "manual": dt.get("adoptedManual", 0), "archive": 0, "good": 0, "bad": 0, "unjudged": None},
+            "worker": {"behindMax": s.get("behindMax"), "lagMax": s.get("lagMax"), "memMaxMB": s.get("memMaxMB"), "restarts": s.get("restarts"),
+                       "chatRestarts": s.get("chatRestarts"), "chat": s.get("chat")},
+            "tx": {"ok": tx.get("ok", 0), "empty": tx.get("empty", 0), "error": tx.get("error", 0), "secMedian": tx.get("secMedian")},
+            "exports": {"total": ex.get("total", 0), "failures": ex.get("failures", 0), "waitSecMedian": ex.get("waitSecMedian"), "waitSecMax": ex.get("waitSecMax"),
+                        "byState": ex.get("byState") or {}},
+            "disk": d.get("disk"), "compare": None}
+
+
+def _live_empty(rc, rec):
+    return _live_row({"recorder": rc, "recording": rec, "state": "feedback", "startedAt": None})
+
+
+def evaluate_live(data_dir=None, since=None, until=None):
+    """--live -> {"meta", "recordings": [...], "totals"}。作業データは読むだけ"""
+    _env, studio, app = locate(data_dir)
+    live_dir = os.path.join(app, LIVE_DIR)
+    since_ms, until_ms = C.period(since, until)
+    by, order = {}, []
+    rdir = os.path.join(live_dir, REPORTS_DIR)
+    names = sorted(n for n in os.listdir(rdir) if n.endswith(".json")) if os.path.isdir(rdir) else []
+    for n in names:
+        d = read_json(os.path.join(rdir, n))
+        if not isinstance(d, dict) or d.get("v") != 1 or not d.get("recorder") or not d.get("recording"):
+            continue
+        if not _live_period_ok(d.get("startedAt"), since_ms, until_ms):
+            continue
+        key = "%s/%s" % (d["recorder"], d["recording"])
+        by[key] = _live_row(d)
+        order.append(key)
+    auto_marks = {}   # key -> {スタジオのマーク or markId: origin}(自動の採用の行)
+    for _raw, r in read_jsonl(os.path.join(live_dir, LIVE_FEEDBACK)):
+        rc, rec = r.get("recorder"), r.get("recording")
+        if not isinstance(rc, str) or not isinstance(rec, str):
+            continue
+        key = "%s/%s" % (rc, rec)
+        if key not in by:
+            if not _live_period_ok(r.get("at"), since_ms, until_ms):
+                continue
+            by[key] = _live_empty(rc, rec)
+            order.append(key)
+        row = by[key]
+        ev, origin = r.get("event"), r.get("origin")
+        mid = (r.get("studio") or {}).get("mark") if isinstance(r.get("studio"), dict) else None
+        mid = mid or r.get("markId")
+        marks = auto_marks.setdefault(key, {})
+        if ev == "adopt":
+            if origin == "archive":
+                row["adopt"]["archive"] += 1
+            if origin in ("auto", "archive") and mid:
+                marks[mid] = origin
+            if row["state"] == "feedback" and origin in ("auto", "manual"):   # 記録の無い録画は行から数える
+                row["adopt"][origin] += 1
+        elif ev in ("deliver", "reject") and r.get("human") is True and mid in marks:
+            row["adopt"]["good" if ev == "deliver" else "bad"] += 1
+        elif ev == "detect_compare":
+            row["compare"] = {k: r.get(k) for k in ("archive", "hit", "ratio", "medianAbsDiff", "liveFrame", "liveBench", "liveUnmatched")}
+    for row in by.values():
+        a = row["adopt"]
+        a["unjudged"] = max(0, a["auto"] + a["archive"] - a["good"] - a["bad"])
+    recs = [by[k] for k in order]
+    recs.sort(key=lambda x: x.get("startedAt") or "", reverse=True)
+    totals = _live_totals(recs)
+    few = len(recs) < LIVE_FEW
+    meta = {"schema": LIVE_SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "git": C.git_rev(), "appDir": app, "liveDir": live_dir,
+            "recordings": len(recs), "few": few, "fewNote": "まだ少ない(参考): 録画が %d 本(%d 本未満)。これで数を決めない" % (len(recs), LIVE_FEW) if few else ""}
+    return {"meta": meta, "recordings": recs, "totals": totals}
+
+
+def _live_totals(recs):
+    def s(path):
+        out = 0
+        for r in recs:
+            v = r
+            for k in path:
+                v = v.get(k) if isinstance(v, dict) else None
+            if num(v):
+                out += v
+        return out
+
+    def mx(path):
+        vals = []
+        for r in recs:
+            v = r
+            for k in path:
+                v = v.get(k) if isinstance(v, dict) else None
+            if num(v):
+                vals.append(v)
+        return max(vals) if vals else None
+    good, bad = s(("adopt", "good")), s(("adopt", "bad"))
+    comp = [r["compare"] for r in recs if isinstance(r.get("compare"), dict)]
+    arch, hit = sum(c.get("archive") or 0 for c in comp), sum(c.get("hit") or 0 for c in comp)
+    waits = [r["exports"]["waitSecMedian"] for r in recs if num(r["exports"].get("waitSecMedian"))]
+    return {"recordings": len(recs), "hours": round(s(("hours",)), 1), "peaks": s(("peaks", "frame")) + s(("peaks", "adopted")), "bench": s(("peaks", "bench")),
+            "dismissed": s(("peaks", "dismissed")), "adoptAuto": s(("adopt", "auto")), "adoptManual": s(("adopt", "manual")), "adoptArchive": s(("adopt", "archive")),
+            "good": good, "bad": bad, "unjudged": s(("adopt", "unjudged")), "adoptRate": rate(good, good + bad), "givenUp": s(("peaks", "givenUp")),
+            "compare": {"recordings": len(comp), "archive": arch, "hit": hit, "ratio": rate(hit, arch),
+                        "medianAbsDiff": dist([c["medianAbsDiff"] for c in comp if num(c.get("medianAbsDiff"))])["median"] if comp else None},
+            "behindMax": mx(("worker", "behindMax")), "lagMax": mx(("worker", "lagMax")), "memMaxMB": mx(("worker", "memMaxMB")),
+            "restarts": s(("worker", "restarts")), "chatRestarts": s(("worker", "chatRestarts")),
+            "tx": {"ok": s(("tx", "ok")), "empty": s(("tx", "empty")), "error": s(("tx", "error"))},
+            "exports": {"total": s(("exports", "total")), "failures": s(("exports", "failures")), "waitSecMedian": _mid(waits), "waitSecMax": mx(("exports", "waitSecMax"))}}
+
+
+def _mid(xs):
+    xs = sorted(x for x in xs if num(x))
+    return xs[len(xs) // 2] if xs else None
+
+
+def _v(x, fmt="%s"):
+    return (fmt % x) if num(x) else "-"
+
+
+def print_live(res):
+    m, t = res["meta"], res["totals"]
+    print("配信ごとの記録(%s)  録画 %d 本・%s 時間  入口: %s" % (C.period_label(m["since"], m["until"]), m["recordings"], _v(t["hours"]), m["liveDir"]))
+    if m["fewNote"]:
+        print("★ " + m["fewNote"])
+    if not m["recordings"]:
+        print("(記録がありません。リアルタイム切り抜きで配信を録画すると live/reports/ に貯まります)")
+        return
+    print("  候補 %d(控え %d・見送り %d)  採用 自動 %d・人 %d・アーカイブ %d  自動の判定 良い %d / 悪い %d(採用率 %s。未判定 %d)  諦め %d" % (
+        t["peaks"], t["bench"], t["dismissed"], t["adoptAuto"], t["adoptManual"], t["adoptArchive"], t["good"], t["bad"], pct(t["adoptRate"]), t["unjudged"], t["givenUp"]))
+    c = t["compare"]
+    print("  配信中 vs アーカイブ(detect_compare %d 本): アーカイブの候補 %d のうち配信中にも出た %d(%s)。時刻の差の中央値 %s 秒" % (
+        c["recordings"], c["archive"], c["hit"], pct(c["ratio"]), _v(c["medianAbsDiff"])))
+    print("  ワーカー: 遅れ最大 %s 秒・lag 最大 %s・メモリ最大 %s MB・起動し直し %d・チャットの起動し直し %d" % (
+        _v(t["behindMax"]), _v(t["lagMax"]), _v(t["memMaxMB"]), t["restarts"], t["chatRestarts"]))
+    print("  配信中の文字起こし: 付いた %d・空 %d・失敗 %d    書き出し: %d 本(失敗 %d)。作ってから済むまで 中央値 %s 秒・最大 %s 秒" % (
+        t["tx"]["ok"], t["tx"]["empty"], t["tx"]["error"], t["exports"]["total"], t["exports"]["failures"], _v(t["exports"]["waitSecMedian"]), _v(t["exports"]["waitSecMax"])))
+    print("  [録画ごと]")
+    for r in res["recordings"]:
+        a, p, w, cp = r["adopt"], r["peaks"], r["worker"], r.get("compare")
+        print("    %s %s時間 候補 %d(控 %d 送 %d)採用 自 %d 人 %d ア %d 判定 %d/%d 遅れ %s メモリ %s 文字 %d/%d 書出 %d(失 %d)%s%s %s" % (
+            r["recording"], _v(r["hours"], "%.1f "), p["frame"] + p["adopted"], p["bench"], p["dismissed"], a["auto"], a["manual"], a["archive"], a["good"], a["bad"],
+            _v(w["behindMax"]), _v(w["memMaxMB"]), r["tx"]["ok"], r["tx"]["ok"] + r["tx"]["empty"] + r["tx"]["error"], r["exports"]["total"], r["exports"]["failures"],
+            " 重なり %s" % pct(cp.get("ratio")) if cp else "", "(依頼)" if r.get("request") else "", r["title"][:24]))
+
+
 # ---------------------------------------------------------------- 表示・保存
 
 def print_group(title, g):
@@ -938,7 +1114,14 @@ def main(argv=None):
     p.add_argument("--json", action="store_true", help="同じ形の JSON を スタジオの作業データの evals/marks/<日時>.json に残す")
     p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
     p.add_argument("--status-fallback", action="store_true", help="行も実行記録も無い採用・書き出しの状態を、人の判定として数える")
+    p.add_argument("--live", action="store_true", help="配信ごとの記録(入口の live/reports/ と live_feedback.jsonl。線 D の D-12)を並べる")
     args = p.parse_args(argv)
+    if args.live:
+        res = evaluate_live(args.data_dir, args.since, args.until)
+        print_live(res)
+        if args.json:
+            print("\n保存: " + C.save(res, locate(args.data_dir)[1], "marks", "-live"))
+        return res
     res = evaluate(args.data_dir, args.since, args.until, args.status_fallback)
     print_report(res)
     if args.json:

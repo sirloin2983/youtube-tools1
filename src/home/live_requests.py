@@ -20,6 +20,7 @@ SENS = ("high", "normal", "low")
 SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}
 RANGES = {"perHour": (1, 30), "length": (10, 120), "waitMin": (1, 60), "pad": (0.0, 5.0)}
 KEEP_DAYS = 14          # 結びつきを残す日数(録画 12 時間 + 配信後のアーカイブの作り直しに数日)
+MAX_SEC = 6 * 3600.0    # D-13(仮の数): 1 依頼の録画の上限(依頼から。超えたら入口が録画を止める = src/home/live.py の stop_long_requests)
 MAX_ITEMS = 50
 TEXT_MAX = 300
 

@@ -9,6 +9,8 @@ live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の 
 設定(ホームの設定の節 live): liveTx {enabled(既定オン), model(既定 large-v3)}。動くのは リアルタイム切り抜きがオン・whisper.cpp(setup/build-whisper-vulkan.bat)と
 モデル(編集の作業データの models/whispercpp/)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
+認識(GPU)は重い処理の順番(ytt_core.jobs.SLOTS。tool "live-tx")を通す(D-14。10-08 決定): 書き出し・文字起こし・パックと同じ枠で順番を待つ
+(配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
 入口の見回り(Live.tick。30 秒ごと)が tick() で候補を見つけて列に入れ、裏のスレッドが 1 本ずつ処理する。
 """
 import json
@@ -17,7 +19,7 @@ import subprocess
 import threading
 import time
 
-from ytt_core import datadir, fsio, tools
+from ytt_core import datadir, fsio, jobs, tools
 import live_export as LX
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_tx_worker.py")
@@ -43,15 +45,18 @@ def wav_args(ffmpeg, src, dst, ss, dur):
 
 
 class LiveTx:
-    def __init__(self, live, log=None, clock=time.time, python=None, run=None, ffmpeg=None):
+    def __init__(self, live, log=None, clock=time.time, python=None, run=None, ffmpeg=None, slots=None):
         """live: src/home/live.py の Live(設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
-        run(data_dir, model, wav) -> 子プロセスの結果の dict(テストは偽物に差し替える。既定 = live_tx_worker.py を子プロセスで)。ffmpeg: パス(既定は探す)"""
+        run(data_dir, model, wav) -> 子プロセスの結果の dict(テストは偽物に差し替える。既定 = live_tx_worker.py を子プロセスで)。ffmpeg: パス(既定は探す)。
+        slots: 重い処理の順番(既定 ytt_core.jobs.SLOTS。テストは小さな HeavySlots を渡す)"""
         self.live = live
         self.log = log or (lambda m: None)
         self.clock = clock
         self.python = python
         self.run = run or self._run_worker
         self.ffmpeg = ffmpeg
+        self.slots = slots or jobs.SLOTS
+        self.slot_wait = False     # 重い処理の枠を待っている(status の slotWait)
         self.lock = threading.Lock()
         self.queue = []            # [(rc, rec, 候補の dict, first(録画の頭の epoch))]
         self.queued = set()        # (rc, rec, id)
@@ -107,7 +112,7 @@ class LiveTx:
         ok, why = self.ready()
         with self.lock:
             return {"enabled": self.cfg()["enabled"], "ready": ok, "message": why, "model": self.cfg()["model"], "busy": bool(self.busy),
-                    "queued": len(self.queue), "done": self.done, "failed": self.failed,
+                    "queued": len(self.queue), "done": self.done, "failed": self.failed, "slotWait": self.slot_wait,
                     "pausedUntil": LX.epoch_iso(self.pause_until) if self.pause_until > self.clock() else None}
 
     # ---- 記録(tx.json)
@@ -138,6 +143,11 @@ class LiveTx:
         """候補の id -> {"text", "at", ...}(文字の付いたものだけ。API が候補に足す)"""
         with self.lock:
             return {k: dict(v) for k, v in self._load(rc, rec).items() if v.get("text")}
+
+    def items(self, rc, rec):
+        """候補の id -> 記録の全部(済み・文字が空・失敗 {"error", "tries"} も。配信ごとの記録 src/home/live_report.py が成否を数える)"""
+        with self.lock:
+            return {k: dict(v) for k, v in self._load(rc, rec).items()}
 
     def text_for(self, rc, rec, pid):
         with self.lock:
@@ -299,8 +309,8 @@ class LiveTx:
                 return self._after(rc, rec, pid, False, "wav を作れませんでした(%s)" % e.__class__.__name__)
             if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
                 return self._after(rc, rec, pid, False, "wav を作れませんでした: %s" % p.stderr.decode("utf-8", "replace")[-200:].strip())
-            res = self.run(self.paths()["dataDir"], self.cfg()["model"], wav)
-            if self._halt.is_set():   # 入口の終了で子プロセスを止めた: 失敗に数えない(次の起動の見回りでやり直す)
+            res = self._run_in_slot(rec, wav)
+            if self._halt.is_set():   # 入口の終了で子プロセスを止めた・待ちをやめた: 失敗に数えない(次の起動の見回りでやり直す)
                 return None
             if not isinstance(res, dict) or not res.get("ok"):
                 return self._after(rc, rec, pid, False, (res.get("reason") or "認識に失敗しました") if isinstance(res, dict) else "答えがありません")
@@ -315,6 +325,20 @@ class LiveTx:
                 shutil.rmtree(wdir, ignore_errors=True)
             except Exception:   # noqa: BLE001
                 pass
+
+    def _run_in_slot(self, rec, wav):
+        """重い処理の順番(SLOTS)を取ってから認識する(D-14)。待っている間に入口が終わったら None"""
+        def on_wait():
+            self.slot_wait = True
+            self.log("配信中の文字起こし: %s の認識は、他の重い処理が終わるのを待っています" % rec)
+        try:
+            with self.slots.slot("live-tx", "配信中の文字起こし %s" % rec, cancelled=self._halt.is_set, on_wait=on_wait) as ok:
+                self.slot_wait = False
+                if not ok:
+                    return None
+                return self.run(self.paths()["dataDir"], self.cfg()["model"], wav)
+        finally:
+            self.slot_wait = False
 
     def _run_worker(self, data_dir, model, wav):
         """子プロセス(live_tx_worker.py)を動かして結果の json を読む"""

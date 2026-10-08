@@ -373,6 +373,97 @@ def eight(vid=V1):
     return video(vid, [mark("c%d" % k, 100.0 + 200 * (k - 1), 140.0 + 200 * (k - 1), float(9 - k)) for k in range(1, 9)])
 
 
+class LiveReports(unittest.TestCase):
+    """--live(線 D の D-12): 入口の配信ごとの記録(live/reports/)と live_feedback.jsonl を録画ごとに並べる(読むだけ)"""
+    RC, R1, R2, R3 = "local", "20261008-200000-abcdefghijk", "20261009-200000-bbbbbbbbbbb", "20261001-100000-ccccccccccc"
+
+    def report(self, env, rec, started, **kw):
+        d = os.path.join(env.root, "app", "live", "reports")
+        os.makedirs(d, exist_ok=True)
+        rep = dict({"v": 1, "recorder": self.RC, "recording": rec, "state": "done", "startedAt": started, "updatedAt": started, "finishedAt": started,
+                    "info": {"title": "配信 " + rec[-3:], "hours": 2.5}, "samples": {"behindMax": 12.0, "memMaxMB": 300.0, "lagMax": 9, "restarts": 1, "chatRestarts": 2, "chat": "ok"},
+                    "detect": {"frame": 5, "bench": 2, "dismissed": 1, "adopted": 3, "adoptedAuto": 2, "adoptedManual": 1, "givenUp": 1, "gaps": 0, "ended": True},
+                    "tx": {"ok": 4, "empty": 1, "error": 1, "secMedian": 6.0}, "exports": {"total": 3, "failures": 1, "waitSecMedian": 90.0, "waitSecMax": 200.0, "byState": {"done": 2, "error": 1}},
+                    "disk": {"state": "ok", "rows": []}, "request": None}, **kw)
+        with open(os.path.join(d, "%s__%s.json" % (self.RC, rec)), "w", encoding="utf-8") as f:
+            json.dump(rep, f, ensure_ascii=False)
+
+    def feedback(self, env, rows):
+        d = os.path.join(env.root, "app", "live")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "live_feedback.jsonl"), "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def rows(self):
+        R1, R2, R3, RC = self.R1, self.R2, self.R3, self.RC
+        def row(at, rec, event, origin=None, mark=None, **kw):
+            return dict({"v": 1, "at": at, "event": event, "origin": origin, "recorder": RC, "recording": rec, "markId": "lm-" + (mark or "x"),
+                         "studio": {"video": rec, "mark": mark}}, **kw)
+        return [row("2026-10-08T20:10:00Z", R1, "adopt", "auto", "m1", human=False, verdict=None),
+                row("2026-10-08T20:30:00Z", R1, "adopt", "auto", "m2", human=False, verdict=None),
+                row("2026-10-08T20:40:00Z", R1, "adopt", "manual", "m3", human=True, verdict="good"),
+                row("2026-10-09T01:00:00Z", R1, "adopt", "archive", "m4", human=False, verdict=None),
+                row("2026-10-09T02:00:00Z", R1, "deliver", "auto", "m1", human=True, verdict="good"),
+                row("2026-10-09T02:01:00Z", R1, "reject", "archive", "m4", human=True, verdict="bad"),
+                row("2026-10-09T02:02:00Z", R1, "deliver", "manual", "m3", human=True, verdict="good"),   # 人の採用の判定は数えない
+                {"v": 1, "at": "2026-10-09T01:30:00Z", "event": "detect_compare", "recorder": RC, "recording": R1, "archive": 4, "hit": 3, "ratio": 0.75,
+                 "medianAbsDiff": 2.5, "liveFrame": 5, "liveBench": 2, "liveUnmatched": 2},
+                row("2026-10-01T10:10:00Z", R3, "adopt", "auto", "m9", human=False, verdict=None),   # 記録の無い録画(行だけ)
+                {"v": 1, "at": "2026-10-01T10:11:00Z", "event": "adopt"}]   # 壊れた行は飛ばす
+
+    def test_live_rows_and_totals(self):
+        env = Env(self)
+        self.report(env, self.R1, "2026-10-08T20:00:00Z")
+        self.report(env, self.R2, "2026-10-10T12:00:00Z", request={"rid": "r", "streamer": "x"}, detect={"frame": 1, "bench": 0, "dismissed": 0, "adopted": 0, "adoptedAuto": 0, "adoptedManual": 0, "givenUp": 0, "gaps": 1, "ended": False})
+        self.feedback(env, self.rows())
+        res = M.evaluate_live(env.root)
+        m, t = res["meta"], res["totals"]
+        self.assertEqual((m["schema"], m["recordings"], m["few"], m["liveDir"]), (M.LIVE_SCHEMA, 3, True, os.path.join(env.root, "app", "live")))
+        self.assertEqual([r["recording"] for r in res["recordings"]], [self.R2, self.R1, self.R3])   # 新しい順(行だけの録画は最後)
+        r1 = res["recordings"][1]
+        self.assertEqual(r1["adopt"], {"auto": 2, "manual": 1, "archive": 1, "good": 1, "bad": 1, "unjudged": 1})
+        self.assertEqual((r1["peaks"]["frame"], r1["peaks"]["bench"], r1["compare"]["ratio"], r1["compare"]["hit"], r1["worker"]["memMaxMB"], r1["title"]), (5, 2, 0.75, 3, 300.0, "配信 ijk"))
+        r3 = res["recordings"][2]
+        self.assertEqual((r3["state"], r3["adopt"]["auto"], r3["hours"], r3["compare"]), ("feedback", 1, None, None))
+        self.assertTrue(res["recordings"][0]["request"])
+        self.assertEqual((t["recordings"], t["hours"], t["peaks"], t["adoptAuto"], t["adoptManual"], t["adoptArchive"], t["good"], t["bad"], t["adoptRate"], t["unjudged"]),
+                         (3, 5.0, 9, 3, 1, 1, 1, 1, 0.5, 2))   # 候補 = 枠 + 採用(控えは別)。記録のある録画は行から数えない
+        self.assertEqual((t["compare"]["archive"], t["compare"]["hit"], t["compare"]["ratio"], t["compare"]["medianAbsDiff"]), (4, 3, 0.75, 2.5))
+        self.assertEqual((t["behindMax"], t["memMaxMB"], t["restarts"], t["tx"], t["exports"]["total"], t["exports"]["waitSecMedian"], t["exports"]["waitSecMax"]),
+                         (12.0, 300.0, 2, {"ok": 8, "empty": 2, "error": 2}, 6, 90.0, 200.0))
+        # 時期で絞る(記録は startedAt・行だけの録画は at)
+        res = M.evaluate_live(env.root, since="2026-10-10")   # 記録の時刻は UTC → 手元の日付で絞る(どの時間帯でも R1 = 10-08 20:00Z は外れる)
+        self.assertEqual([r["recording"] for r in res["recordings"]], [self.R2])
+        res = M.evaluate_live(env.root, until="2026-10-05")
+        self.assertEqual([r["recording"] for r in res["recordings"]], [self.R3])
+
+    def test_live_empty_and_cli(self):
+        env = Env(self)
+        res = M.evaluate_live(env.root)
+        self.assertEqual((res["meta"]["recordings"], res["recordings"], res["totals"]["recordings"], res["totals"]["adoptRate"]), (0, [], 0, None))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            M.main(["--live", "--data-dir", env.root])
+        self.assertIn("記録がありません", out.getvalue())
+        self.report(env, self.R1, "2026-10-08T20:00:00Z")
+        self.feedback(env, self.rows())
+        before = sorted(os.listdir(env.root))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            M.main(["--live", "--data-dir", env.root, "--json"])
+        text = out.getvalue()
+        self.assertIn("録画 2 本", text)
+        self.assertIn("配信中 vs アーカイブ", text)
+        self.assertIn(self.R1, text)
+        self.assertIn("保存: ", text)
+        saved = [n for n in os.listdir(os.path.join(env.studio, "evals", "marks")) if n.endswith("-live.json")]
+        self.assertEqual(len(saved), 1)
+        with open(os.path.join(env.studio, "evals", "marks", saved[0]), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["meta"]["schema"], M.LIVE_SCHEMA)
+        self.assertEqual(sorted(os.listdir(env.root)), before)   # 作業データの親には何も足さない(evals は studio の中)
+
+
 class FriendRanges(unittest.TestCase):
     """友人が時刻で指定した区間(friendRanges)を、自動の候補と比べる指標"""
 

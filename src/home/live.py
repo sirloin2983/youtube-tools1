@@ -80,6 +80,7 @@ import live_failures  # noqa: E402  (失敗の集約。M3・M7)
 import live_detect  # noqa: E402  (配信中の盛り上がりの検出と自動の採用。線 D の L2・M11)
 import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
 import live_tx  # noqa: E402  (配信中の候補の文字起こし。線 D の D-11 案 b)
+import live_report  # noqa: E402  (配信ごとの結果の記録。線 D の D-12)
 import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
 from intake import OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
 
@@ -319,6 +320,9 @@ class Live:
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
         self.requests = live_requests.Store(os.path.join(self.store_dir, "requests.json"), log=self.log)   # 友人のライブ配信の依頼と録画の結びつき(2-15)
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
+        self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
+        self.unconfirmed = None            # () -> ホームの「自動の切り抜き: 未確認」の数(入口 launch.py が cases の数を渡す。D-13 の休む判断)
+        self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
 
     # --- 設定 ---
     def cfg(self):
@@ -647,6 +651,10 @@ class Live:
         ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings}。-> {"recorder", "recording", "existing"}。だめなら LiveError"""
         if not self.enabled():
             raise live_export.LiveError("リアルタイム切り抜きがオフです", 409)
+        busy = self.active_request(url)   # D-13: 友人のライブ配信の依頼は同時に 1 本まで(同じ配信なら今の録画に結びつける = existing)
+        if busy is not None:
+            raise live_export.LiveError("友人のライブ配信の依頼は同時に 1 本までです(「%s」を録画中。終わってからもう一度送ってください)"
+                                        % (busy.get("title") or busy.get("url") or busy["id"])[:80], 409)
         out = self.begin(url)
         if not out.get("live"):
             raise live_export.LiveError("配信中・配信前の配信ではありません(%s)" % (out.get("status") or "unknown"), 409)
@@ -655,6 +663,43 @@ class Live:
         self.log("リアルタイム切り抜き: 友人の依頼 %s を録画 %s に結びつけました(%s)" % (item["rid"], rec, live_requests.settings_label(item["settings"])))
         self.detector.wake()   # 検出がオフでも、この録画はすぐ測り始める
         return {"recorder": rc, "recording": rec, "existing": bool(out.get("existing"))}
+
+    def active_request(self, url):
+        """D-13: 友人のライブ配信の依頼に結びついた録画で、まだ録画中のもの(url と同じ配信は除く)-> 録画元の一覧の 1 行か None"""
+        items = self.requests.all()
+        if not items:
+            return None
+        for r in self.list_recordings():
+            if r.get("active") and live_requests.key_of(r["recorder"], r["id"]) in items and not _same_stream(url, r.get("url") or "", r["id"]):
+                return r
+        return None
+
+    def stop_long_requests(self):
+        """D-13: 友人のライブ配信の依頼に結びついた録画が、依頼から live_requests.MAX_SEC(6 時間)を超えて録画中なら止める(録画元の stop。
+        録画の部品が録画を閉じる = 配信後の処理は今までどおり)。-> 止めた録画の id の一覧"""
+        items = self.requests.all()
+        if not items or not self.enabled():
+            return []
+        now, out = time.time(), []
+        active = {(r["recorder"], r["id"]) for r in self.list_recordings() if r.get("active")}
+        for key, item in items.items():
+            rc_id, _sep, rec = key.partition("/")
+            if (rc_id, rec) not in active or now - float(item.get("createdAt") or now) < live_requests.MAX_SEC:
+                continue
+            rc = self.find(rc_id)
+            if rc is None:
+                continue
+            code, d = self.call(rc, "POST", "/live/%s/stop" % rec, {}, timeout=STOP_TIMEOUT)
+            if code == 200:
+                self._recent = None
+                self._stop_said.discard(rec)
+                self.log("リアルタイム切り抜き: 友人の依頼 %s の録画 %s は %d 時間を超えたので止めました(1 依頼の上限)" % (item.get("rid"), rec, int(live_requests.MAX_SEC // 3600)))
+                out.append(rec)
+            elif rec not in self._stop_said:
+                self._stop_said.add(rec)
+                self.note("リアルタイム切り抜き: 友人の依頼の録画 %s を %d 時間で止められませんでした(HTTP %s: %s)" % (
+                    rec, int(live_requests.MAX_SEC // 3600), code, ((d or {}).get("message") if isinstance(d, dict) else "") or ""))
+        return out
 
     def _request_for(self, rc_id, rec, origin, after, streamer):
         """録画が友人のライブ配信の依頼に結びついていれば (依頼, after=auto, 配信者) を返す(2-15: 採用した切り抜きは全部 文字起こし → パック → 届ける)。
@@ -1034,6 +1079,14 @@ class Live:
             self.requests.prune()   # 友人の依頼の古い結びつきを消す(2-15。消すものがあるときだけ書く)
         except Exception as e:
             self.note("リアルタイム切り抜き: 友人の依頼の結びつきの片付けでエラー: %r" % (e,))
+        try:
+            self.stop_long_requests()   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 友人の依頼の録画の上限の見回りでエラー: %r" % (e,))
+        try:
+            self.reporter.tick()   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 配信の記録の見回りでエラー: %r" % (e,))
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
@@ -1150,6 +1203,11 @@ class Live:
             failures = sorted(failures + self.detector.failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
         except Exception as e:
             self.note("リアルタイム切り抜き: 盛り上がりの検出の失敗を読めませんでした: %r" % (e,))
+        if self._cleaner is not None:   # D-14: 本番版に置き換わらないまま残っている録画の知らせ(文は live_failures.keep_failure)
+            try:
+                failures = sorted(failures + self._cleaner.kept_failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
+            except Exception as e:
+                self.note("リアルタイム切り抜き: 残っている録画の一覧を作れませんでした: %r" % (e,))
         try:   # 書き出し先・パック・live\work の空き(M4)
             disk = self.exporter.disk()
         except Exception as e:

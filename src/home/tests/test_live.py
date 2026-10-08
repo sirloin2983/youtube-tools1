@@ -690,6 +690,14 @@ class PortalLiveTest(unittest.TestCase):
             out = live.begin_request(rec["url"], dict(ctx, rid="20261008-210000-def456"))
             self.assertEqual((out["existing"], len(started)), (True, 1))
             self.assertEqual(live.requests.get("fake", rec["id"])["rid"], "20261008-210000-def456")
+            # D-13: 依頼の録画が録画中のうちは、別の配信の依頼は 409(同時に 1 本まで。yt-dlp は呼ばない)
+            n = len(calls)
+            with self.assertRaises(LX.LiveError) as cm:
+                live.begin_request("https://www.youtube.com/watch?v=bbbbbbbbbbb", dict(ctx, rid="20261008-220000-aaa111"))
+            self.assertEqual((cm.exception.code, len(calls)), (409, n))
+            self.assertIn("同時に 1 本まで", str(cm.exception))
+            self.assertIn("配信の題", str(cm.exception))
+            self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": [dict(rec, state="ended", active=False)]})   # 終わった → 次の依頼を通す
             # 配信中でない・調べられない → 409(結びつけない。受付が理由を友人へ返す)
             for st in ("was_live", "post_live", "NA"):
                 self.probe_as(st)
@@ -775,6 +783,33 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual((d["job"]["after"], "request" in d["job"]), ("none", False))   # 結びついていない録画は今までどおり(transcribe false = 何もしない)
         for jj in self.jreq("GET", "/live/api/exports")[1]["jobs"]:
             self.jreq("POST", "/live/api/export/cancel", {"id": jj["id"]})
+
+    def test_stop_long_requests(self):
+        """D-13: 友人の依頼に結びついた録画は 1 依頼 live_requests.MAX_SEC(6 時間)まで。超えて録画中なら入口が録画元の stop を呼ぶ。
+        止められなければ記録に 1 回(見回りのたびに書かない)"""
+        live = self.srv.live
+        logs = []
+        live.log = logs.append
+        rec = {"id": "20261008-200000-abcdefghijk", "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信の題", "state": "recording", "active": True}
+        stops = []
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": [rec]})
+        self.fake.routes[("POST", "/live/%s/stop" % rec["id"])] = lambda b: (stops.append(1), (200, {"recording": dict(rec, state="stopped", active=False)}))[1]
+        self.assertEqual(live.stop_long_requests(), [])   # 依頼が無い(録画元に聞かない)
+        self.enable()
+        live.requests.put("fake", rec["id"], self.friend_ctx())
+        self.assertEqual((live.stop_long_requests(), stops), ([], []))   # まだ 6 時間たっていない
+        live.requests.clock = lambda: time.time() - LR.MAX_SEC - 10
+        live.requests.put("fake", rec["id"], self.friend_ctx(rid="20261008-010000-old111"))
+        self.assertEqual((live.stop_long_requests(), stops), ([rec["id"]], [1]))
+        self.assertTrue(any("6 時間を超えたので止めました" in m for m in logs), logs)
+        rec.update(active=False, state="stopped")   # 止まった → もう呼ばない
+        self.assertEqual((live.stop_long_requests(), stops), ([], [1]))
+        rec.update(active=True, state="recording")   # 止められない(409)→ 記録に 1 回
+        self.fake.routes[("POST", "/live/%s/stop" % rec["id"])] = lambda b: (409, {"message": "止められません"})
+        self.assertEqual(live.stop_long_requests(), [])
+        self.assertEqual(live.stop_long_requests(), [])
+        self.assertEqual(sum(1 for m in logs if "止められませんでした" in m), 1)
+        self.assertIn("HTTP 409: 止められません", [m for m in logs if "止められませんでした" in m][0])
 
     def test_ytt_live_status_and_stop(self):
         self.enable()

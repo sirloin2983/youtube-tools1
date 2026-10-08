@@ -2741,3 +2741,17 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 訂正: `plan/proposals-2026-10.md` の 0-2 の YPP の行「今のペースなら超えている」は誤り → 今は届いていない(6 割ほど。数字はチャット)。`plan/analytics-daily-report.md` の先頭に既存の仕組みのことと「関係を決めてから見直す」
 - 未完了・次: 既存の仕組みを生かすか・ツールに移すかをユーザーと決める
 - 未コミット: なし
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「ユーザーによらない作業」)— 線 D の守りと記録 D-12〜D-14(ホーム 0.48.1 → 0.49.0)
+- 依頼: ユーザー「ユーザーによらない作業を進める」→ 計画(plan/data.js)の「次」でユーザー待ちでない D-12〜D-14(10-08 決定「全部入れる」)を実装。並行セッション(提案の議論・Plan資料の見直し)と担当を分けた(src/home・src/studio はこちら。data.js は相手のコミット eaf2799 のあとに D-12〜D-14 の行だけ)
+- 変更:
+  - D-14 `src/home/live_detect.py`: 録画が終わってワーカーが締めた(peaks.json の ended)あと END_GRACE_SEC(6 時間)は、待ち中だった候補を同じ waitMin で採用(`_target_recordings`)/ `src/home/live_tx.py`: 認識を `ytt_core.jobs.SLOTS`(tool "live-tx")に通す(`_run_in_slot`。status の slotWait・入口の終了で待ちをやめる)・記録の全部を返す `items()` / `src/home/live_cleanup.py`: 終わっているのに消せない録画と理由を覚え(`_keep`・`_kept`)、STALE_SEC(3 日)より古ければ `kept_failures()` / `src/home/live_failures.py`: kind keep(「録画の片付け」)と `keep_failure` / `src/home/live.py` の health に足す
+  - D-13 `live_detect.py`: AUTO_MAX_PER_REC = 10(decisions.json の adopted/auto を数える `auto_count`。上限で break・記録 1 回・health の recordings に auto / autoCapped)・UNCONFIRMED_PAUSE = 20(`Live.unconfirmed` = launch.py が `cases.snapshot(...)["auto"]["unconfirmed"]` を渡す。2 分ごと `unconfirmed()`・`paused_why()`。依頼の無い録画だけ休む・health の autoAdopt に maxPerRecording / pauseUnconfirmed / paused)/ `live.py`: `active_request()`(友人のライブ依頼は同時 1 本。`begin_request` が 409)・`stop_long_requests()`(依頼から `live_requests.MAX_SEC` = 6 時間で録画元の stop。tick から)
+  - D-12 新 `src/home/live_report.py`(Reporter。`live/reports/<録画元>__<録画>.json`。録画中 EVERY = 60 秒ごと・終わって締めたら最後に 1 回・END_WINDOW 2 日・200 件まで。samples の最大値は前の記録から続ける)。`Live.reporter` を tick から / `dev/eval_marks.py --live`(`evaluate_live`・`print_live`。記録 + live_feedback.jsonl。--json は evals\marks\<日時>-live.json)
+  - テスト: `test_live_detect.py`(d13 の上限・休み・d14 の終わったあと・report の 4 件 + health の行の形)・`test_live.py`(begin_request の同時 1 本・`test_stop_long_requests`)・`test_live_tx.py`(`test_one_waits_for_heavy_slot`)・`test_live_archive.py`(`test_kept_recordings_are_reported`)・`dev/tests/test_eval_marks.py`(LiveReports 2 件)
+  - 文書: `src/home/README.txt` v0.49.0・`AGENTS.md`(home の行に live_report.py・dev の行に eval_marks --live)・`plan/decisions.md` 3-15(仮決め (ew)〜(fe)。(eu) の SLOTS の記述を訂正)・`plan/data.js`(D-12〜D-14 を done・入口 0.49.0・recent ⑧)
+- 版: ホーム 0.48.1 → 0.49.0(スタジオ・編集は変えていない)
+- 決定・理由: 数はすべて仮で定数(設定にしなかったのは、既存のテストが live.autoAdopt の形を固定しているのと、U4 の記録で決め直す前に画面を作らないため)。「未確認 20 本で休む」は友人の依頼の録画には効かせない(届けるので未確認にならない)。消えない録画は**知らせだけ**(自動で消す期限はユーザー確認)。休みが明けたら waitMin を数え直す(まとめて採用しない)
+- テストの結果: `py -3.10 dev/lint.py` 0 件 / test_live_detect 48 OK・test_live 58 OK・test_launch + test_mount + test_live_tx + test_live_archive + test_health + test_cases + test_intake 199 OK・dev/tests/test_eval_marks 39 OK / `e2e_live.py` ALL OK(画面は変えていない)。test_mount を test_live_archive のあとに混ぜると TestTranscribeMounted の setUpClass が KeyError(単独・AGENTS の順では通る。前からの並び順の問題でこの変更とは別)
+- 未完了・次: 起動中の入口は古いまま → ユーザーに「すべて終了」→ start.bat。次の配信(U4)のあと `py -3.10 dev/eval_marks.py --live` と「調子」で読む → D-15 で数を決め直す。仮決め 3-15 の確認(とくに (fc) 自動で消す期限)。公開ページの公開し直しは「Plan資料の見直し」に頼んだ
+- 注意: `Live.unconfirmed` は入口(launch.py)だけが渡す(テストの Live では None = 0 = 休まない)。`Detector.auto_tick` は終わった録画も見るので、ListRecorder の偽物は endedAt が無ければ lastPdt を終わりの時刻に使う

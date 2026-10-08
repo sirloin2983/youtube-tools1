@@ -637,6 +637,29 @@ class CleanupTest(unittest.TestCase):
     def smark(self, n, status="exported", start=None):
         return {"id": "m%d" % n, "status": status, "start": n * 10.0 if start is None else start, "end": n * 10.0 + 5}
 
+    def test_kept_recordings_are_reported(self):
+        """D-14: 終わっているのに消せない録画は理由を覚え、STALE_SEC より古ければ「調子」の失敗(kind keep。文は live_failures.keep_failure)に出す。
+        消えたら・録画中なら出さない"""
+        C = __import__("live_cleanup")
+        self.live.add(self.R1, ended_ago=C.STALE_SEC + 100)
+        self.job(self.R1, 1, state="done", arc="error")     # 本番版になっていない
+        self.live.add(self.R2, ended_ago=100)
+        self.job(self.R2, 1, state="done", arc="error")     # まだ 3 日たっていない
+        self.live.add(self.R3, state="recording")
+        self.cl.tick(force=True)
+        f = self.cl.kept_failures()
+        self.assertEqual([x["recording"] for x in f], [self.R1])
+        self.assertEqual((f[0]["kind"], f[0]["kindLabel"], f[0]["at"] is not None), ("keep", "録画の片付け", True))
+        for s in ("本番版になっていないマークがある", "3 日", self.R1, "自動では消えません"):
+            self.assertIn(s, f[0]["text"])
+        self.assertEqual(self.cl._kept[self.R2]["why"], "本番版になっていないマークがある")
+        self.assertNotIn(self.R3, self.cl._kept)
+        self.live.exporter.jobs[0]["archive"]["state"] = "done"   # 本番版になったら消えて、知らせも消える
+        self.studio_videos[self.R1] = [self.smark(1)]
+        self.cl.tick(force=True)
+        self.assertEqual((self.live.deleted(), self.cl.kept_failures()), ([self.R1], []))
+        self.assertNotIn(self.R1, self.cl._kept)
+
     def test_replaced_recording_is_deleted(self):
         self.live.add(self.R1)
         j1, j2 = self.job(self.R1, 1), self.job(self.R1, 2)

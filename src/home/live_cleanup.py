@@ -29,10 +29,12 @@ import urllib.parse
 from ytt_core import schemas
 import live_archive as LA
 import live_export as LX
+import live_failures  # noqa: E402  (残っている録画の知らせの文。D-14)
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = docs/spec/data-location.md の保存の方針)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/home/live.py の tick から)で調べる間隔
+STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない(本番版に置き換わらない)録画を「調子」に知らせる
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
 REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/recorder/rec_core.py の ACTIVE と同じ
 
@@ -53,6 +55,7 @@ class Cleaner:
         self.lock = threading.Lock()
         self._last = 0.0
         self._said = {}   # 録画 -> 前に記録した「消せなかった」理由(見回りのたびに同じ行を書かない)
+        self._kept = {}   # 録画 -> {"why", "endedAt", "title"}: 終わっているのに消せない録画と理由(D-14 の知らせ。見回りで更新)
 
     # --- 入口から ---
     def tick(self, force=False):
@@ -93,6 +96,7 @@ class Cleaner:
         """録画1本を消すか決めて、消す。-> 消したら True"""
         rec = r["id"]
         if r.get("active") or r.get("state") in REC_ACTIVE:   # 録画中・配信待ち・つなぎ直し中
+            self._kept.pop(rec, None)
             return False
         try:
             why = self.hold(rc["id"], r)
@@ -100,13 +104,14 @@ class Cleaner:
             why = "配信後の自動の切り抜きの状態を確かめられない"
         if why:
             self._say(rec, "録画はまだ消しません(%s)" % why)
-            return False
+            return self._keep(r, why)
         js = self._jobs(rc["id"], rec)
         if js:
             why = self._replaced_why(js, rec)
             if why:
-                return False
+                return self._keep(r, why)
             if self._delete(rc, rec, "本番版に入れ替え済み"):
+                self._kept.pop(rec, None)
                 stamp = LX.now_iso()
                 ex = self.live.exporter
                 with ex.lock:
@@ -125,15 +130,38 @@ class Cleaner:
         except LX.LiveError:
             return False
         marks, registered = self._studio_marks(rec)
-        if marks is None or marks:
-            return False
+        if marks is None:
+            return self._keep(r, "スタジオに確かめられない")
+        if marks:
+            return self._keep(r, "スタジオにマークがあるが書き出していない")
         if registered:
             code, d = self.studio("POST", "/api/video/delete", {"id": rec, "ifNoMarks": True})
             if code != 200 and not (code == 404 and isinstance(d, dict) and d.get("error") == "not_found"):
                 self._say(rec, "スタジオの行を消せなかったので、録画も消しません(%s)" % ((d or {}).get("message") if isinstance(d, dict) else code))
                 return False
             self.log("リアルタイム切り抜き: マークの無い録画のスタジオの行を消しました %s" % rec)
-        return self._delete(rc, rec, "マークが無いまま %d 時間たった" % int(self.no_mark_sec // 3600))
+        if self._delete(rc, rec, "マークが無いまま %d 時間たった" % int(self.no_mark_sec // 3600)):
+            self._kept.pop(rec, None)
+            return True
+        return False
+
+    def _keep(self, r, why):
+        """終わっているのに消せない録画を覚える(D-14 の知らせ)。-> False(消していない)"""
+        ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
+        self._kept[r["id"]] = {"why": why, "endedAt": ended, "title": str(r.get("title") or "")[:80]}
+        return False
+
+    def kept_failures(self, now=None):
+        """D-14: 終わって STALE_SEC より長く消せないままの録画 -> 「調子」の失敗の一覧の形(kind keep。文は live_failures.keep_failure)"""
+        now = self.clock() if now is None else now
+        out = []
+        for rec, k in sorted(self._kept.items()):
+            ended = k.get("endedAt")
+            if not isinstance(ended, (int, float)) or now - ended < STALE_SEC:
+                continue
+            out.append(live_failures.keep_failure(rec, int((now - ended) // 86400), k.get("why") or "", title=k.get("title") or "",
+                                                 at=LX.epoch_iso(ended)))
+        return out
 
     def _replaced_why(self, js, rec):
         """入れ替えが全部済んだ録画か。済んでいれば ""、まだなら理由(消さない)"""

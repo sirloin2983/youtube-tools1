@@ -423,6 +423,39 @@ class OneTest(LiveTxBase):
         self.assertEqual(len(self.tx.record("fake", REC, "p1-22", "あ" * 2500)["text"]), TX.TEXT_MAX)
         self.assertEqual(self.tx.view("fake", REC_ENDED), {})
 
+    def test_one_waits_for_heavy_slot(self):
+        """D-14: 認識は重い処理の順番(SLOTS。tool live-tx)を通す。枠が埋まっていれば待ち(status の slotWait・記録)、空けば認識。
+        待っている間に入口が終わったら認識しない・失敗に数えない"""
+        from ytt_core import jobs
+        self.tx.slots = jobs.HeavySlots(limit=1, reserved={})
+        tok = self.tx.slots.acquire("transcribe", "ほか")
+        th = threading.Thread(target=self.tx._one, args=("fake", REC, peak("p0-12", 10), T0), daemon=True)
+        th.start()
+        for _ in range(200):
+            if self.tx.slot_wait:
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.tx.slot_wait)
+        self.assertEqual((self.calls, self.tx.status()["slotWait"]), ([], True))
+        self.assertEqual([w["tool"] for w in self.tx.slots.snapshot()["waiting"]], ["live-tx"])
+        self.tx.slots.release(tok)
+        th.join(10)
+        self.assertEqual((len(self.calls), self.tx.done, self.tx.slot_wait, self.tx.slots.snapshot()["active"]), (1, 1, False, []))
+        self.assertEqual(self.tx.text_for("fake", REC, "p0-12"), "ここで大きな声")
+        self.assertTrue(any("他の重い処理が終わるのを待っています" in m for m in self.logs))
+        tok = self.tx.slots.acquire("transcribe", "ほか")
+        th = threading.Thread(target=self.tx._one, args=("fake", REC, peak("p1-22", 20), T0), daemon=True)
+        th.start()
+        for _ in range(200):
+            if self.tx.slot_wait:
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.tx.slot_wait)
+        self.tx.close()   # 入口の終了
+        th.join(10)
+        self.tx.slots.release(tok)
+        self.assertEqual((len(self.calls), self.tx.failed, "p1-22" in self.items(), self.tx.slot_wait), (1, 0, False, False))
+
     def test_one_uses_only_the_first_session(self):
         self.rec.split = 4   # 16 秒から先はつなぎ直し(session_002)
         self.tx._one("fake", REC, peak("p0-12", 10), T0)

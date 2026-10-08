@@ -14,13 +14,14 @@
   pack       同じく、パック・届ける段で失敗した
   afterStream 配信後の全自動(M7。src/home/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
   detect     配信中の盛り上がりの検出(線 D の L2・M11。src/home/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
+  keep       終わって 3 日たっても本番版に置き換わらず、自動では消えない録画(D-14。src/home/live_cleanup.py の kept_failures。keep_failure)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
 import threading
 
 KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動",
-               "detect": "盛り上がりの検出"}
+               "detect": "盛り上がりの検出", "keep": "録画の片付け"}
 PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
 WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(まとめて実行の失敗の数と同じ 7 日)
 MAX_LIST = 20                                # 「調子」に出す数(新しい順)
@@ -98,6 +99,16 @@ def detect_failure(what, reason, recorder="", recording="", at="", span=None):
     else:
         text = "盛り上がりの検出が止まっています: %s" % why
     return {"kind": "detect", "kindLabel": KIND_LABELS["detect"], "text": text, "jobId": "", "recorder": recorder, "recording": recording,
+            "markId": "", "runId": "", "at": at}
+
+
+def keep_failure(recording, days, why, title="", at=""):
+    """終わっても消せない録画(D-14。src/home/live_cleanup.py)-> collect と同じ形の 1 件。文はここだけで作る。
+    days: 終わってからの日数。why: 消せない理由(live_cleanup の _replaced_why などの文)"""
+    name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
+    text = ("%s: 終わって %d 日たちましたが、%sので録画は自動では消えません(本番版に作り直せない録画は置き場所に残り続けます。"
+            "要らなければ「すべて終了」のあと、録画の置き場所の %s のフォルダを手で消してください)") % (name, int(days), _reason(why) or "理由が分かりません", recording or "?")
+    return {"kind": "keep", "kindLabel": KIND_LABELS["keep"], "text": text, "jobId": "", "recorder": "", "recording": recording or "",
             "markId": "", "runId": "", "at": at}
 
 
