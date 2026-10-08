@@ -2850,3 +2850,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 確認のページ: https://claude.ai/artifact/TQYLfFnHTu831oYqQwo7ei(非公開・ユーザー本人だけ)。項目ごとに「これでいい / 変える」+ 一言、【要注意】11 件は黄色の帯と理由、「AI に渡す文をコピー」でチャットに貼る形。答えはそのブラウザにだけ残る(AI は読めない = チャットに貼ってもらう)。答えが届いたら decisions.md の 3 節の各見出しに「確認済み」を書き、変える項目を直す
 - data.js: U10 の 2 か所を 53 件とページの URL に
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Opus 5.5。セッション「Remote control」)— ユーザーの確認の結果を計画と資料に入れた(U9 済み・月報が届いた)
+- 依頼: ユーザー「他のセッションと協力して計画や資料の更新をして欲しい。Chrome の拡張機能は動いた・3 時間くらいの配信で確かめた・起動し直した・月報は届いた」
+- 協力: 始める前に動いている 2 セッション(「今後の流れ」= 作業１・「ツール全体のコード修正」)に触るファイルを伝え、どちらも今は触っていないと返事をもらった。このセッションは src/ と chrome-ext/yt-studio-time/main.js(コード修正セッションの未コミット)には触っていない
+- 解釈(仮): 「3 時間くらいの配信で確かめた」は Chrome 拡張の確認(Studio の一覧の約 3 時間の配信の行で時刻が出た)と読んだ。今日の録画の記録(作業データの app/live/reports/。パッケージの外のプロセスで dir した)は 10-08 の 2 本だけで、U4(長い配信で全部オン)の記録は無いため。違えば U4 を直す
+- plan/data.js: U9 を済みに(tasks・userTasks)・U13 を「月報は届いた。残りは推定収益の単位 ÷1000 の見比べ」に・AN1 と recent ⑨・⑥・別件の線・フェーズ 1・合計・クリティカルパスの「確かめていない動き」・日程・決めてほしいことの「別件の扱い」を合わせた。summary の仮決めの数を 53 件に
+- 資料: chrome-ext/yt-studio-time/AGENTS.md の「未確認の仮定」を「確かめた仮定」に(どの代用の道で拾えたかまでは見ていない、と注記)・plan/analytics-daily-report.md の状態の行(3 種類とも LINE に届いた・残りは U13)・docs/ROADMAP.md の user-tasks と analytics の行
+- 公開ページ: dev/plan_artifact.py で作り直し、公開中の版との差が data の部分だけであることを diff で確かめてから https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt に version 50 で公開(今後の流れのセッションが入れた K1・P28・U10 の分もこれで公開ページに出た)
+- 計画に入れなかったもの(操作だけ): 入口の起動し直し(済み)・古い「Youtube日次」のトリガーの削除(済んだかは聞いていない)
+- 確認: node で data.js を読み込み pre・rec の参照に漏れなし。4 ファイルとも CRLF のまま
+- 未コミット: なし(このセッションの分 plan/data.js・plan/analytics-daily-report.md・docs/ROADMAP.md・chrome-ext/yt-studio-time/AGENTS.md・この記録をコミット)

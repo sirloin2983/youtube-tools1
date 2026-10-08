@@ -15,7 +15,8 @@
 - 行は Polymer が使い回す(ページ送りで同じ要素の中身だけ変わる)ので、`data-key` = `videoId:秒` で足し直しの要否を見る。Studio の部品が shadow DOM でも拾えるよう `Element.prototype.attachShadow` を包んで shadow root を `roots` に覚え、MutationObserver で見張る。応答を通らずに出た行は `row.video`・`row.__data` からも拾う
 - 使わなかった案: YouTube Data API(鍵と 1 日の上限)・動画ごとの視聴ページを読む(30 行で 30 回の通信)。鍵の管理が要らず通信が増えない代わりに、Studio の内部の作り(API の鍵の名前・行の class)が変わると壊れる。壊れたときの調べ方は README の「出ないとき」(`localStorage.yttStudioTimeDebug = '1'` で `[ytt-pub-time]` の記録・`__yttStudioTime.times`)
 
-## 本物の Studio で未確認の仮定(2026-10-08 時点。ユーザーの確認待ち)
+## 本物の Studio で確かめた仮定(2026-10-09 にユーザーが本物の Studio で「動いた」と確認 = 計画の U9。約 3 時間の配信で確かめた)
+下の 3 つは本物の画面で成り立っていた(どの代用の道で拾えたかまでは見ていない)。Studio が作りを変えて出なくなったら、まずここを疑う
 - 応答の鍵が `timePublishedSeconds`・`timeCreatedSeconds`(別名の候補は `PUBLISHED_KEYS`・`CREATED_KEYS`)
 - 日付の欄が `.tablecell-date`(無ければ `DATE_RE` の文字を持つ要素の親で代用)
 - Studio の CSP(Trusted Types を含む)に引っかからない: `innerHTML` は使わず `textContent`・`createElement`・`style.cssText` だけ
