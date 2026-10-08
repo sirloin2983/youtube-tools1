@@ -33,9 +33,9 @@
   </section>
 
   <section class="card" id="graph"><h2><span class="n">2</span>依存の図</h2>
-    <p class="lead">横の帯 = 線(色は線の区別だけに使う)・縦の列 = フェーズ。矢印は「先にやる → あと」。工程を押すと、その工程の前後のつながりだけを強く出す。狭い画面では横にスクロール。</p>
+    <p class="lead">横の帯 = 線(色は線の区別だけに使う)・縦の列 = フェーズ。矢印は「先にやる → あと」。工程を押すと、その工程の前後のつながりだけを強く出す。ふだんは残りの工程だけ。「全体の流れ」に切り替えると、済んだ工程もつながりの順に左から並べて、過去からこの先までの流れを出す(横に長いので横にスクロール)。</p>
     <div class="gtools">
-      <div class="seg" id="gmode" role="group" aria-label="出す工程"><button type="button" data-mode="rest">残りの工程だけ</button><button type="button" data-mode="all">済みも出す</button></div>
+      <div class="seg" id="gmode" role="group" aria-label="出す工程"><button type="button" data-mode="rest">残りの工程だけ</button><button type="button" data-mode="all">全体の流れ(済みも)</button></div>
       <div class="glegend">
         <span class="lg-t">状態(枠の形)</span><span class="gs n-next">▸ 次</span><span class="gs n-wait">待ち</span><span class="gs n-cont">↻ 継続</span><span class="gs n-todo">あと</span><span class="gs n-done">✓ 済み</span>
         <span class="lg-t">矢印</span>
@@ -53,7 +53,7 @@
   </section>
 
   <section class="card" id="tasks"><h2><span class="n">4</span>全工程の表(依存と時間の見積もり)</h2>
-    <p class="lead">AI の時間 = 実装 → テスト → WORKLOG → コミットまでの目安(S = 1〜3 時間・M = 4〜10 時間・L = 2〜3 日)。ユーザーの時間 = 手を動かす時間(校正は動画 1 分に 12.6 分)。前提・推奨の前の ✓ は済んだもの。</p>
+    <p class="lead">AI の時間 = 実装 → テスト → WORKLOG → コミットまでの目安(10-08 に実績に合わせて縮めた)。ユーザーの時間 = 手を動かす時間(校正は動画 1 分に 12.6 分。こちらは縮めていない)。前提・推奨の前の ✓ は済んだもの。</p>
     <div class="filters" id="filters"></div>
     <div class="wrap"><table id="taskTable"><thead><tr><th class="id">ID</th><th>工程</th><th>状態</th><th>線</th><th>誰</th><th>フェーズ</th><th>前提</th><th>推奨の前</th><th>AI の時間</th><th>ユーザーの時間</th></tr></thead><tbody></tbody></table></div>
     <h3>合計(目安)</h3>
@@ -66,7 +66,7 @@
   </section>
 
   <section class="card" id="schedule"><h2><span class="n">6</span>日程の見通し(目安)</h2>
-    <p class="lead">前提: ユーザーは校正・確認に 1 日 1 時間ほど。AI のセッションは 1 日 4〜6 時間分ほど進む。配信は週に数回。数字が変われば日付は前後する。太枠が今週。</p>
+    <p class="lead">前提: ユーザーの校正・確認は今のままの速さ。AI の作業は 10-08 に実績に合わせて短く見積もり直した(入口の条件が開けばその日のうちに進む)。配信は週に数回。数字が変われば日付は前後する。太枠が今週。</p>
     <div class="timeline" id="weeks"></div>
   </section>
 
@@ -162,15 +162,35 @@
       [].forEach.call(document.querySelectorAll("#gmode button"), function (b) { var on = b.getAttribute("data-mode") === mode; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
       var vis = P.tasks.filter(function (t) { return mode === "all" || t.state !== "done"; });
       if (!vis.length) { $("#gwrap").innerHTML = '<p class="hint" style="padding:12px">残りの工程はない。</p>'; sel = null; applyFocus(); return; }
-      var cols = phaseIds.filter(function (c) { return vis.some(function (t) { return t.phase === c; }); });
+      // 列 = フェーズ。「全体の流れ」では、済んだ工程だけのフェーズ(過去)を 1 列に潰さず、
+      // そのフェーズの中のつながりの深さ(前提・推奨の前を何段たどるか)で左から何列かに広げる
+      var cols = [], colOf = {};
+      phaseIds.forEach(function (c) {
+        var ts = vis.filter(function (t) { return t.phase === c; });
+        if (!ts.length) return;
+        var past = mode === "all" && ts.length > 1 && ts.every(function (t) { return t.state === "done"; }), depth = {}, inPh = {};
+        ts.forEach(function (t) { inPh[t.id] = true; });
+        function dep(id, seen) {
+          if (depth[id] != null) return depth[id];
+          if (seen[id]) return 0;
+          seen[id] = true;
+          var d = 0;
+          (ins[id] || []).forEach(function (e) { if (inPh[e.id]) d = Math.max(d, dep(e.id, seen) + 1); });
+          return (depth[id] = d);
+        }
+        ts.forEach(function (t) { depth[t.id] = past ? dep(t.id, {}) : 0; });
+        var n = Math.max.apply(null, ts.map(function (t) { return depth[t.id]; })) + 1, base = cols.length;
+        for (var k = 0; k < n; k++) cols.push({ c: c, k: k, n: n });
+        ts.forEach(function (t) { colOf[t.id] = base + depth[t.id]; });
+      });
       var lanes = LANES.filter(function (l) { return vis.some(function (t) { return U.laneOf(t.line) === l; }); });
       var cell = {};
-      vis.forEach(function (t) { var k = U.laneOf(t.line) + "|" + t.phase; (cell[k] = cell[k] || []).push(t); });
+      vis.forEach(function (t) { var k = U.laneOf(t.line) + "|" + colOf[t.id]; (cell[k] = cell[k] || []).push(t); });
       // 左の線の見出しは別の svg にして、横にスクロールしても残す(狭い画面では「線 A」だけ)
       var wrapW = $("#gwrap").clientWidth - 2, narrow = wrapW < 640, lw = narrow ? 58 : LW;
       var laneY = {}, laneH = {}, y = TOP;
       lanes.forEach(function (l) {
-        var rows = Math.max.apply(null, cols.map(function (c) { return (cell[l + "|" + c] || []).length; }));
+        var rows = Math.max.apply(null, cols.map(function (c, ci) { return (cell[l + "|" + ci] || []).length; }));
         var nameH = narrow ? 34 : 34 + wrap(laneName[l] || "", 7.4, 4).length * 15;
         laneY[l] = y; laneH[l] = Math.max(nameH, LP * 2 + rows * H + (rows - 1) * GY); y += laneH[l] + LGAP;
       });
@@ -182,7 +202,7 @@
       var pos = {};
       cols.forEach(function (c, ci) {
         lanes.forEach(function (l) {
-          var list = (cell[l + "|" + c] || []).slice(), bc = {};
+          var list = (cell[l + "|" + ci] || []).slice(), bc = {};
           list.forEach(function (t) {
             var ys = (ins[t.id] || []).filter(function (e) { return pos[e.id]; }).map(function (e) { return pos[e.id].y; });
             bc[t.id] = ys.length ? ys.reduce(function (a, b) { return a + b; }, 0) / ys.length : Infinity;
@@ -202,9 +222,14 @@
         o.push('<rect class="lane-bg l' + l + '" x="0" y="' + ly + '" width="' + width + '" height="' + lh + '"/>');
       });
       lab.push("</svg>");
-      cols.forEach(function (c, ci) {
-        var cx = colX(ci) + W / 2;
-        o.push('<text class="col-t" x="' + cx + '" y="17" text-anchor="middle">フェーズ ' + esc(c) + '</text><text class="col-n" x="' + cx + '" y="33" text-anchor="middle">' + esc(wrap(phaseName[c] || "", 14, 1)[0] || "") + "</text>");
+      // 見出しはフェーズごとに 1 つ(広げたフェーズは、広げた列の上にまたがって出し、下に線を引く)。区切りの線もフェーズの境目だけ
+      cols.forEach(function (col, ci) {
+        if (col.k !== 0) return;
+        var x0 = colX(ci), x1 = colX(ci + col.n - 1) + W, cx = (x0 + x1) / 2;
+        var sub = col.n > 1 ? "(左からつながりの順)" : "";
+        o.push('<text class="col-t" x="' + cx + '" y="17" text-anchor="middle">フェーズ ' + esc(col.c) + '</text><text class="col-n" x="' + cx + '" y="33" text-anchor="middle">' +
+          esc(wrap((phaseName[col.c] || "") + sub, 14 * col.n, 1)[0] || "") + "</text>");
+        if (col.n > 1) o.push('<line class="col-span" x1="' + x0 + '" y1="39" x2="' + x1 + '" y2="39"/>');
         if (ci > 0) o.push('<line class="col-sep" x1="' + (colX(ci) - gx / 2) + '" y1="' + (TOP - 4) + '" x2="' + (colX(ci) - gx / 2) + '" y2="' + height + '"/>');
       });
       // 矢印: 推奨(点線)を下に、前提(実線)を上に。下地の太い線で、交わる所が見分けやすいようにする
@@ -371,7 +396,7 @@
 
   // ---- 9 詳しい計画
   var DOCS = [
-    ["線 A", [["line-a-remaining.md", "線 A の残り(段 8・12・15)"], ["line-a-phase8-multi-clip.md", "段 8 の細かい計画"]]],
+    ["線 A", [["line-a-remaining.md", "線 A の残り(段 8・12)とやらないこと"], ["line-a-phase8-multi-clip.md", "段 8 の細かい計画"]]],
     ["線 B", [["line-b-transcription.md", "線 B 第 2 版"], ["line-b-row-timing.md", "行の時刻"], ["line-b-row-split.md", "行の分け方"], ["line-b-overlap.md", "重なり声"], ["line-b-extra-ideas.md", "追加案"]]],
     ["線 B・C", [["line-bc-master-plan.md", "I-1〜I-5"]]],
     ["線 D", [["line-d-detect.md", "前倒し(L1〜L3・M11)"], ["line-d-auto-pack.md", "自動パック M1〜M13"], ["line-d-live-clipping.md", "録画と配信中の検出 L0〜L5"]]]

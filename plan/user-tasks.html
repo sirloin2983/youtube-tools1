@@ -49,11 +49,13 @@
     <div id="inputs"></div>
     <h3>3-2 決めてほしいこと</h3>
     <div class="wrap"><table id="decisions"><thead><tr><th>決めること</th><th>材料・おすすめ</th><th>いつ</th><th style="width:180px">あなたの答え</th></tr></thead><tbody></tbody></table></div>
+    <div class="small muted" id="decLegacy" hidden></div>
     <details class="more" id="decidedBox"><summary></summary><ul class="small" id="decided"></ul></details>
-    <h3 id="prefsTitle"></h3>
-    <p class="small muted" id="prefsIntro"></p>
-    <div class="wrap"><table id="prefs"><thead><tr><th class="id">#</th><th>項目</th><th style="width:200px">やる / やらない</th></tr></thead><tbody></tbody></table></div>
-    <details class="more" id="uxBox"><summary id="uxTitle"></summary>
+    <details class="more sub" id="prefsBox"><summary id="prefsTitle"></summary>
+      <p class="small muted" id="prefsIntro"></p>
+      <div class="wrap"><table id="prefs"><thead><tr><th class="id">#</th><th>項目</th><th style="width:200px">やる / やらない</th></tr></thead><tbody></tbody></table></div>
+    </details>
+    <details class="more sub" id="uxBox"><summary id="uxTitle"></summary>
       <ul id="uxLines"></ul>
       <div class="toolbar" id="uxChoice"><label><input type="radio" name="ux" value="a"> (a) AI に調べさせて残りだけやる(おすすめ)</label><label><input type="radio" name="ux" value="b"> (b) やらないと決めて閉じる</label></div>
     </details>
@@ -152,20 +154,34 @@
       '<div class="small muted">書き方: ' + esc(i.format) + '</div><textarea class="inp" id="' + esc(i.id) + '" placeholder="' + esc(i.template) + '"></textarea></details>';
   }).join("");
   U.inputs.forEach(function (i) { var ta = document.getElementById(i.id); ta.value = store["t:" + i.id] || ""; ta.addEventListener("input", function () { store["t:" + i.id] = ta.value; save(); }); });
-  // ---- 3-2 決める(「済み:」で始まるものは下に畳む。答えの鍵は元の並びの番号のまま)
+  // ---- 3-2 決める(「済み:」で始まるものは下に畳む)
+  // 答えの鍵は「決めること」の文(頭の「済み…:」は除く)。data.js で行を並べ替えても、答えが別の行に付かない
   var isDecided = function (d) { return /^済み/.test(d[0]); };
+  function decKey(d) { return "dk:" + String(d[0]).replace(/^済み(\([^)]*\))?:\s*/, ""); }
   $("#decisions tbody").innerHTML = U.decisions.map(function (d, i) {
     return isDecided(d) ? "" : '<tr><td class="head nm">' + UI.md(d[0]) + "</td><td>" + UI.md(d[1]) + "</td><td>" + esc(d[2]) + '</td><td><input class="inp" data-dec="' + i + '" placeholder="答え・メモ" aria-label="答え: ' + esc(d[0]) + '"></td></tr>';
   }).join("") || '<tr><td colspan="4" class="muted">今はなし</td></tr>';
   UI.resp($("#decisions"));
-  document.querySelectorAll("[data-dec]").forEach(function (inp) { var k = "d:" + inp.getAttribute("data-dec"); inp.value = store[k] || ""; inp.addEventListener("input", function () { store[k] = inp.value; save(); }); });
+  document.querySelectorAll("[data-dec]").forEach(function (inp) { var k = decKey(U.decisions[+inp.getAttribute("data-dec")]); inp.value = store[k] || ""; inp.addEventListener("input", function () { store[k] = inp.value; save(); }); });
+  // 10-08 より前は並びの番号(d:<番号>)を鍵にしていた。並びが変わってどの行か分からないので、消さずに見せて「AI に渡す文」にも入れる
+  var legacyDec = Object.keys(store).filter(function (k) { return /^d:\d+$/.test(k) && String(store[k]).trim(); });
+  if (legacyDec.length) {
+    $("#decLegacy").hidden = false;
+    $("#decLegacy").innerHTML = "以前この表に書いた答えが " + legacyDec.length + " 件ある(表の並びが変わったため、どの行の答えか分からない。必要なら上の欄に書き直す): <ul>" +
+      legacyDec.map(function (k) { return "<li>" + esc(store[k]) + "</li>"; }).join("") + "</ul>";
+  }
   var decided = U.decisions.filter(isDecided);
   $("#decidedBox summary").textContent = "決まったこと " + decided.length + " 件";
   $("#decidedBox").hidden = !decided.length;
   $("#decided").innerHTML = decided.map(function (d) { return "<li><b>" + UI.md(d[0].replace(/^済み(\([^)]*\))?:\s*/, "")) + "</b> — " + UI.md(d[1]) + "</li>"; }).join("");
-  // ---- 3-3 好み
+  // ---- 3-3 好み(済みなら畳んで、選ぶ欄の代わりに前に選んだ答えだけ出す)
   $("#prefsTitle").textContent = "3-3 " + U.prefs.title; $("#prefsIntro").textContent = U.prefs.intro;
-  $("#prefs tbody").innerHTML = U.prefs.items.map(function (p) { return '<tr><td class="id">' + esc(p[0]) + '</td><td class="head">' + esc(p[1]) + '</td><td><select class="btn" data-pref="' + esc(p[0]) + '" aria-label="' + esc(p[0]) + ' やる / やらない"><option value="">未定</option><option value="やる">やる</option><option value="やらない">やらない</option><option value="保留">保留</option></select></td></tr>'; }).join("");
+  var prefsDone = !!U.prefs.done;
+  if (prefsDone) $("#prefs thead th:last-child").textContent = "前に選んだ答え"; else $("#prefsBox").open = true;
+  $("#prefs tbody").innerHTML = U.prefs.items.map(function (p) {
+    var cell = prefsDone ? esc(store["p:" + p[0]] || "—") : '<select class="btn" data-pref="' + esc(p[0]) + '" aria-label="' + esc(p[0]) + ' やる / やらない"><option value="">未定</option><option value="やる">やる</option><option value="やらない">やらない</option><option value="保留">保留</option></select>';
+    return '<tr><td class="id">' + esc(p[0]) + '</td><td class="head">' + esc(p[1]) + "</td><td>" + cell + "</td></tr>";
+  }).join("");
   UI.resp($("#prefs"));
   document.querySelectorAll("[data-pref]").forEach(function (s) { var k = "p:" + s.getAttribute("data-pref"); s.value = store[k] || ""; s.addEventListener("change", function () { store[k] = s.value; save(); }); });
   // ---- 3-4 ux(済みなら畳んで、選ぶ欄を隠す)
@@ -184,7 +200,8 @@
     out.push("■ 済みにした項目: " + (on.length ? "" : "なし"));
     on.forEach(function (c) { out.push("- " + c[0] + " " + c[1]); });
     U.inputs.forEach(function (i) { var v = (store["t:" + i.id] || "").trim(); if (v) out.push("■ " + i.title + "\n" + v); });
-    U.decisions.forEach(function (d, i) { var v = (store["d:" + i] || "").trim(); if (v) out.push("■ 決めたこと: " + d[0] + " → " + v); });
+    U.decisions.forEach(function (d) { var v = (store[decKey(d)] || "").trim(); if (v) out.push("■ 決めたこと: " + d[0] + " → " + v); });
+    legacyDec.forEach(function (k) { out.push("■ 決めたこと(以前の答え。どの行か分からない): " + String(store[k]).trim()); });
     U.prefs.items.forEach(function (p) { var v = store["p:" + p[0]]; if (v) out.push("■ 送るアプリ " + p[0] + " " + p[1] + " → " + v); });
     if (store["ux"]) out.push("■ ux-consistency の段 7〜9 → (" + store["ux"] + ")");
     copyText(out.join("\n"), "コピーしました。チャットに貼ってください");
