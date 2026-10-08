@@ -26,6 +26,7 @@ import wave
 from ytt_core import jobs as _heavy  # noqa: E402
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
+import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
 import ed_learn  # noqa: E402,F401
@@ -604,6 +605,8 @@ def validate_job(req):
             "autoAlt": (req["autoAlt"] if isinstance(req.get("autoAlt"), bool) else ed_learn.load_settings().get("autoAlt") is True) and not ev,
             # 終わったら元の配信の YouTube の字幕と比べる(案 A1)。要求に無ければ保存した設定 autoYtcap。元の配信が分からない文書は ytcap_after_transcribe が黙って飛ばす
             "autoYtcap": (req["autoYtcap"] if isinstance(req.get("autoYtcap"), bool) else ed_learn.load_settings().get("autoYtcap") is True) and not ev,
+            # 認識のあとの後処理(ed_fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
+            "autoFill": (req["autoFill"] if isinstance(req.get("autoFill"), bool) else ed_learn.load_settings().get("autoFill") is not False) and not ev,
             # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(ed_speakers.autodiar_after_transcribe)
             "autoDiarize": req["autoDiarize"] if isinstance(req.get("autoDiarize"), bool) else ed_learn.load_settings().get("autoDiarize") is True,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
@@ -908,9 +911,11 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
             _model_used[0] = time.time()
             if key in _models:
                 return _models[key], dev
-            if _models:   # 別のモデルは手放す(large-v3 と turbo を交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
-                ed_state.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in _models), ed_state._mem())
-                _models.clear()
+            heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(SenseVoice = light)は主のモデルと一緒に持つ(0.60.0)
+            if heavy and not eng.light:   # 別の(重い)モデルは手放す(large-v3 と turbo を交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
+                ed_state.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in heavy), ed_state._mem())
+                for k in heavy:
+                    _models.pop(k, None)
                 gc.collect()
             job["phase"] = "モデルを読み込み中(初回はダウンロードのため数分かかります)"
             try:
@@ -2052,10 +2057,18 @@ def run_job(job):
         rows, job["quant"] = quant_retime(rows, spec, quant_words_provider(job, spec, wav), total)
         if job.get("quant") and job["quant"].get("rows"):
             job["warnings"] = list(job.get("warnings") or []) + [QUANT_NOTE % (job["quant"]["windows"], job["quant"]["rows"])]
+        # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
+        rows, fill_rec, fill_read = ed_fill.fill_after_rows(job, spec, rows, wav, total)
+        if job["cancel"]:
+            raise Cancelled()
         out = _rows_to_doc(job, spec, rows, pairs, lrules, lfb)
+        if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
+            fill_rec["agree"] = ed_fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
         if job["cancel"]:
             raise Cancelled()
         fields = _doc_fields(job, spec, out, total, t_rec)
+        if fill_rec:
+            fields["recognition"]["runs"][-1]["fill"] = fill_rec   # 後処理の記録(読んだ窓・置き換えた行・捨てた行・直した呼び名)
         if spec.get("evalRedo"):
             # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認 2026-10-04)。
             # 認識の間に手が入っていたら書かない(新しい文書も作らない)
@@ -2107,6 +2120,9 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
         seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
                "text": s["text"][:ed_state.MAX_TEXT], "speaker": "", "flag": ""}
         seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
+        if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(ed_fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
+            seg["fill"] = {"from": str(s["fill"].get("from") or "")[:ed_state.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
+            seg["flag"] = "、".join(x for x in (ed_fill.FILL_FLAG, seg["flag"]) if x)[:100]
         prev.append(seg["text"])
         if SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
             sparse_lp[seg["id"]] = float(s["avg_logprob"])
@@ -2130,7 +2146,7 @@ def _doc_fields(job, spec, out, total, t_rec):
               "autoDict": bool(spec.get("autoDict")), "dictApplied": out["dictApplied"], "wordSplit": bool(spec.get("wordSplit")),
               "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
               "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
-              "context": context_record(spec)}
+              "context": context_record(spec), "autoFill": bool(spec.get("autoFill"))}
     fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
               "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,
               "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec)]}}

@@ -102,10 +102,11 @@ import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文
 import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
 import ed_ytcap  # noqa: E402,F401  (元の配信の YouTube の字幕との食い違いの候補。案 A1)
 import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補。2026-10-05)
+import ed_fill  # noqa: E402,F401  (認識のあとの後処理 A・C・D = 文字の少ない行を別の読みで埋める・定型の幻覚と重複の掃除・名簿の呼び名の 1 字違い。10-08 の実験ループ。0.60.0)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.59.8"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.60.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -114,6 +115,7 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
 _ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
+_ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)

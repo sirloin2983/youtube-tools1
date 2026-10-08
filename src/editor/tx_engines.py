@@ -58,6 +58,7 @@ class Engine:
     """エンジンの元。id = 記録(recognition.runs の engine)とワーカーへの要求に使う名前、package = 版を読むパッケージ(dist-info)"""
     id = ""
     package = ""
+    light = False   # True = 小さいモデル(SenseVoice)。ed_jobs._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
 
     def __init__(self, name, device, model):
         self.name, self.device, self.model = name, device, model
@@ -780,6 +781,150 @@ LLAMA_MODELS = {   # 2026-10-02 に Hugging Face の API で大きさと SHA-256
                                   "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"}},
 }
 LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
+# ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(ed_fill。10-08 の実験ループの A・D。編集 0.60.0) ----------
+# モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2026-10-08 に確かめた。2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力)。
+# ライセンス: FunASR MODEL_LICENSE(商用可・出典とモデル名の表示)。トークンごとの時刻が出るので、SV_GAP 秒以上の間・文末・SV_MAX_CHARS で行にする(終わりは目安)
+SENSE_VOICE_MODELS = {
+    "sense-voice-small": {"dir": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17", "file": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+                          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+                          "size": 163002883, "sha256": "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e", "parts": ("model.int8.onnx", "tokens.txt")},
+}
+SV_GAP, SV_MAX_CHARS = 1.0, 40     # トークンの時刻で行に分ける: この秒以上の間・1 行の最大文字数
+SV_LANGS = ("ja", "en", "zh", "ko", "yue", "auto")
+
+
+def sv_model_dir(data_dir):
+    return os.path.join(data_dir, "models", "sensevoice")
+
+
+def sv_rows(tokens, stamps, a, b, gap=SV_GAP, max_chars=SV_MAX_CHARS):
+    """SenseVoice のトークンと時刻(区切りの頭からの秒)→ [(始め, 終わり, 文字)](区切り [a, b] の中の絶対の秒)。
+    特別なトークン(<|ja|> など)は捨て、gap 秒以上の間・max_chars・文末(。？！)で行を分ける。終わりはトークンの時刻 + 0.2 秒(+0.3 の余白。b を超えない)"""
+    rows, cur, cs, ce = [], "", None, None
+    for tk, t in zip(tokens, stamps):
+        tk = str(tk).replace("▁", " ")
+        if tk.startswith("<|"):
+            continue
+        if cur and (t - ce > gap or len(cur) >= max_chars or cur[-1] in "。？！?!"):
+            rows.append((cs, ce, cur))
+            cur, cs = "", None
+        if cs is None:
+            cs = t
+        cur += tk
+        ce = t + 0.2
+    if cur:
+        rows.append((cs, ce, cur))
+    out = []
+    for s0, e0, line in rows:
+        line = q3_squash(line.strip())
+        if line:
+            out.append((a + s0, min(b, a + e0 + 0.3), line))
+    return out
+
+
+class SenseVoice(Engine):
+    """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(ed_fill)。小さいので主のモデルと一緒に持つ(light)。
+    FAKE_TEXT(テスト用)が文字列なら、音声を読まずにその文字を 1 行にして返す(空なら行なし。tx_worker.install_fakes が環境変数 TRANSCRIBE_FAKE_FILL から入れる)"""
+    id = "sense-voice"
+    package = "sherpa-onnx"
+    light = True
+    PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # language 以外は受け取るだけ
+    DEFAULT_MODEL = "sense-voice-small"
+    FAKE_TEXT = None
+
+    @classmethod
+    def device_order(cls, pref, cuda_ok):
+        return ["cpu"]   # onnxruntime の CPU(AMD の GPU は対象外)
+
+    @classmethod
+    def valid_model(cls, name):
+        return name in SENSE_VOICE_MODELS
+
+    @classmethod
+    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+        spec = SENSE_VOICE_MODELS.get(name)
+        if spec is None:
+            raise EngineError("bad_model", "SenseVoice で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(SENSE_VOICE_MODELS)), 400)
+        if cls.FAKE_TEXT is not None:
+            return cls(name, "cpu", {"fake": cls.FAKE_TEXT})
+        try:
+            import sherpa_onnx  # noqa: F401
+        except ImportError:
+            raise EngineError("engine_missing", "sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
+        hooks = hooks or {}
+        folder = sv_model_dir(data_dir)
+        mdir = os.path.join(folder, spec["dir"])
+        if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
+            tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
+            _safe_extract(tar, folder, spec["dir"])
+            _fsio.unlink_quiet(tar)
+            if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
+                raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
+        e = cls(name, "cpu", {"dir": mdir, "rec": {}})
+        e._recognizer("ja")   # 読み込めるかをここで確かめる
+        return e
+
+    def params(self):
+        return list(self.PARAMS)
+
+    def _recognizer(self, lang):
+        """言語ごとの認識器(1 つだけ持つ)"""
+        rec = self.model["rec"]
+        if lang not in rec:
+            import sherpa_onnx
+            rec.clear()
+            d = self.model["dir"]
+            rec[lang] = sherpa_onnx.OfflineRecognizer.from_sense_voice(model=os.path.join(d, "model.int8.onnx"), tokens=os.path.join(d, "tokens.txt"),
+                                                                       num_threads=max(1, min(8, (os.cpu_count() or 4) // 2)), language=lang, use_itn=False)
+        return rec[lang]
+
+    def transcribe(self, audio, **kw):
+        lang = str(kw.get("language") or "ja")
+        lang = lang if lang in SV_LANGS else "auto"
+        if "fake" in self.model:
+            return self._fake(audio, lang)
+        import numpy as np
+        x = _read_16k(audio, "SenseVoice")
+        f = int(16000 * Q3_FRAME)
+        nf = len(x) // f + (1 if len(x) % f else 0)
+        rms = [float(np.sqrt(np.mean(np.square(x[i * f:(i + 1) * f])))) if len(x[i * f:(i + 1) * f]) else 0.0 for i in range(nf)]
+        chunks = q3_chunks(rms)
+        info = types.SimpleNamespace(language=lang, duration=len(x) / 16000.0, duration_after_vad=None)
+        rec = self._recognizer(lang)
+
+        def gen():
+            for n, (c0, c1) in enumerate(chunks):
+                if self._cancelled():
+                    raise EngineError("cancelled", "中止しました")
+                self._progress(min(0.99, n / max(1, len(chunks))))
+                if max(rms[c0:c1] or [0.0]) < Q3_SILENT:
+                    continue
+                st = rec.create_stream()
+                st.accept_waveform(16000, x[c0 * f:c1 * f])
+                rec.decode_stream(st)
+                r = st.result
+                a0, b0 = c0 * Q3_FRAME, c1 * Q3_FRAME
+                toks, ts = list(getattr(r, "tokens", None) or []), list(getattr(r, "timestamps", None) or [])
+                if toks and len(ts) == len(toks):
+                    rows = sv_rows(toks, ts, a0, b0)
+                else:   # 時刻が無ければ Qwen3 と同じ割り振り(声のあるコマに字数を比例)
+                    floor = q3_floor(rms[c0:c1])
+                    rows = q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
+                for t0, t1, line in rows:
+                    raw = line.encode("utf-8")
+                    yield types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
+                                                compression_ratio=len(raw) / len(zlib.compress(raw)))
+        return gen(), info
+
+    def _fake(self, audio, lang):
+        """テスト用(FAKE_TEXT): 音声の長さ全体に 1 行(空なら行なし)"""
+        dur = _wav_seconds(audio) if isinstance(audio, str) else len(audio) / 16000.0
+        info = types.SimpleNamespace(language=lang, duration=dur, duration_after_vad=None)
+        text = self.model["fake"]
+        segs = [types.SimpleNamespace(start=0.0, end=dur, text=text, words=[], avg_logprob=None, no_speech_prob=None, compression_ratio=1.0)] if text else []
+        return iter(segs), info
+
+
 def _env_int(name, default, lo=1, hi=64):
     try:
         return min(hi, max(lo, int(str(os.environ.get(name) or default).strip())))
@@ -1018,7 +1163,7 @@ class LlamaQwen3(_Qwen3Chunked):
         return q3_parse(content)[1]
 
 
-ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, Qwen3Asr.id: Qwen3Asr, LlamaQwen3.id: LlamaQwen3}
+ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, Qwen3Asr.id: Qwen3Asr, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice}
 
 
 def get(engine_id):

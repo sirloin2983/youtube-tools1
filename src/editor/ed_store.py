@@ -133,6 +133,8 @@ def sanitize_transcript(obj, base=None):
             one["cutState"] = "cut"
         if sg.get("noSub") is True:   # 字幕に出さない(ゲームの声など。真のときだけ持つ)。機械の出力 original は変えない
             one["noSub"] = True
+        if isinstance(sg.get("fill"), dict) and isinstance(sg["fill"].get("from"), str):   # 別の読みで埋めた行の元の文字(ed_fill。画面の「別の読み」の札で戻す)
+            one["fill"] = {"from": sg["fill"]["from"][:ed_state.MAX_TEXT], "by": str(sg["fill"].get("by") or "")[:20]}
         if sg.get("draft") in ed_state.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す。2026-10-05)
             one["draft"] = sg["draft"]
         segs.append(one)

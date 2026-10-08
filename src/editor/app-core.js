@@ -357,7 +357,8 @@ async function reloadSettings(){
    OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける。autoYtcap = 終わったら元の配信の YouTube の字幕と比べる 案 A1) */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
-  ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false], ['redoLarge', 'optRedoLarge', true]];
+  ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false], ['redoLarge', 'optRedoLarge', true],
+  ['autoFill', 'optAutoFill', true]];   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
 const SET_CHECKS = OPT_CHECKS.concat([['archiveAuto', 'arcAuto', true], ['archiveFull', 'arcFull', true], ['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
 const checksOf = list => Object.fromEntries(list.map(([k, id]) => [k, $('#' + id).checked]));
 

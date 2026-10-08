@@ -2514,3 +2514,19 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
   lint 0・`ui_audit.py all --demo` Must 0・`e2e_live.py` ALL OK・`e2e_ui_mounted.py` ALL PASSED
 - 未コミット: なし(このコミットで全部。push はユーザー)。入口は起動し直すと 0.46.2 / 0.59.8(U6)
 - 注意: 自動の採用(M11・M7)の切り抜きは前後 2 秒ずつ広がる(今までより 4 秒長い)。人の採用(スタジオの画面・manual)は変わらない。嫌なら「書き出したあとの自動の流れ」の余白を 0 に。アーカイブの自動の切り抜きは区間がアーカイブの中にあるので、余白は録れている範囲(lastPdt)までで止まる
+
+## 2026-10-08 Claude Code(PC。Fable)— 編集 0.60.0: 認識のあとの後処理 A・C・D(10-08 の実験ループの残り)を全部入れて様子見
+- ユーザー(18:30 ごろ)「全部入れて様子見はどう？」→ 守り 3 つ(印と元の文字・スイッチ 1 つ・C は判別のあとだけ)を付けて賛成 →「始めていい。実装が終わったら今日全体の作業を見直して修正点あれば修正して」。決定は `plan/decisions.md` (eb)
+- 変更(編集 0.59.8 → 0.60.0):
+  - 新 `src/editor/ed_fill.py`(名前 `fill_`・`FILL_`): A `fill_sparse_row`(2 秒以上・同じ字の繰り返しを縮めた字数が 1.5 字/秒未満・繰り返しで縮む行)の窓 ±0.5 秒を SenseVoice で読み `fill_apply`(字数 3 倍以上なら置き換え。行に `fill = {from, by}`)。
+    C `fill_clean_tail`(前の行の末尾の重複。run_job)・`fill_clean_turns`(定型の幻覚で声の区間と 3 割も重ならない行。`ed_speakers._apply_diarization` の先頭 = 判別のあとだけ。autoFill の文書・機械の出力のままの行だけ)。
+    D `fill_agree`(SenseVoice の全体の読みに名簿の呼び名(3 字以上・common は除く)がそのまま出ていれば、同じ時間の行の同じ長さ 1 字違いを直す)。入口は `fill_after_rows`・`fill_agree_doc`(読めなければ警告だけ)
+  - `tx_engines.py` に `SenseVoice`(sherpa-onnx・CPU。`SENSE_VOICE_MODELS` = 2024-07-17 int8 の tar.bz2 を URL・163,002,883 バイト・SHA-256 固定で `models/sensevoice/` に初回だけ取る。トークンの時刻で行 `sv_rows`。`light = True`)。`Engine.light` を足し、`ed_jobs._load_model_local` は light でない(重い)モデルだけ手放す = SenseVoice を読んでも主のモデルは残る
+  - `ed_jobs.py`: `validate_job` の `autoFill`(要求 > 設定 > 既定オン。評価用はオフ)・`run_job` で `expand_segments` のあと `fill_after_rows` → `_rows_to_doc`(`fill` と印 `FILL_FLAG`)→ `fill_agree_doc` → `recognition.runs[].fill = {engine, windows, rows, added, dup, agree}`・`params.autoFill`。
+    `ed_speakers.py`(判別の記録に `fillDropped`)・`ed_store.sanitize_transcript`(`fill` を残す)・`serve.py`(`_ED_MODULES += (ed_fill,)`)・`tx_worker.install_fakes`(`SenseVoice.FAKE_TEXT` = 環境変数 `TRANSCRIBE_FAKE_FILL`)
+  - 画面: 「認識の設定」に `#optAutoFill`(`OPT_CHECKS` の `autoFill`。既定オン)・行の「別の読み」の札(`app-rows.js`。`data-act="unfill"` で whisper の文字に戻す = `app.js`)。README ■ v0.60.0・AGENTS.md(「認識のあとの後処理」の節)
+- 本物の確認: SenseVoice の取得(SHA-256 一致)と読み込み 23 秒・評価用の音声 18.7 秒の全体の読み 0.36 秒・窓(4 秒)0.00 秒。モデルの写しは `D:/backup/youtube-tools-eval/models-20261008/models/sensevoice/`(入口は自分の作業データに初回の文字起こしで取る)
+- テスト: 新 `src/editor/tests/test_fill.py`(純粋な関数 6・ジョブ 3(疑似 + `TRANSCRIBE_FAKE_FILL`)・エンジン 4)。editor の test_metrics + test_resolve_export + test_roster = 570 件 OK(skipped 1)・home の test_mount OK・lint 0・`ui_audit.py` static/all --demo Must 0・`e2e_proofread_keys.py` ALL PASSED(認識の設定のチェックの保存)・`e2e_ui_mounted.py` ALL PASSED(認識ワーカーの経路 = worker-fake の SenseVoice)
+- 文書: `plan/line-b-transcription.md`(状態・結論・実装するなら 1/2/4 済み)・`plan/decisions.md` (eb)・`plan/data.js`(版・線 B の done/next・B4・U6)→ 公開ページ version 32・`docs/HANDOVER.md`
+- 未コミット: なし(このコミットで全部。push はユーザー)。入口は起動し直すと 0.60.0(U6)。初回の文字起こしで 163MB のモデルを取る(数分)
+- 注意: 置き換えは whisper の行の時刻も SenseVoice の行の時刻に変わる(窓の中の目安 = トークンの時刻 + 0.2〜0.5 秒)。評価用の文書には当たらないので、精度の数字(dev/eval_asr.py)は今までと比べられる。普段の文書で後処理あり/なしを測る道具はまだ無い(asr.json に whisper の生の結果が残るので作れる)

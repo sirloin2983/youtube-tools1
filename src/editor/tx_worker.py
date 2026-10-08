@@ -205,6 +205,7 @@ def install_fakes(S):
     E = S.tx_engines
     E.WhisperCpp.COMMAND = [sys.executable, os.path.join(HERE, "tests", "fake_whisper_cli.py")]
     E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
+    E.SenseVoice.FAKE_TEXT = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 2 つ目の読み(ed_fill)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
 
 
 # ---------------------------------------------------------------- 本体

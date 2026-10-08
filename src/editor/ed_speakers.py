@@ -20,6 +20,7 @@ import urllib.request
 import wave
 
 import ed_drill  # noqa: E402,F401   (評価用の文書の名前の候補 drill_candidates。呼ぶときに読む)
+import ed_fill  # noqa: E402,F401   (判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns。0.60.0)
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -473,6 +474,7 @@ def _diar_kept_speakers(doc, segs, keep, taken):
 
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = ed_store.read_transcript(tid)
+    dropped = ed_fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ。0.60.0)
     segs = doc.get("segments") or []
     ids = _spk_ids(doc)
     keep = [diar_keep_row(g, ids) for g in segs]   # 手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
@@ -504,7 +506,8 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
     ed_store.backup_doc(tid, "diarize")   # 直前の状態を1世代だけ残す・履歴にも残す(画面の「履歴」から戻せる)
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
-                                    **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}))})
+                                    **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
+                                    **({"fillDropped": dropped} if dropped else {}))})
     ed_store.write_doc(tid, doc)
     _record_diar(tid, build_diar_run(segs, raw, turns, offset, requested, emb, idmap, auto, smoothed))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
