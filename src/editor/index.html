@@ -1403,6 +1403,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
         <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>
         <span class="hint" id="glossFit"></span>
+        <span class="hint" id="glossDev" hidden>処理の機器が GPU(whisper.cpp)のときは、用語集は認識のヒントに渡りません(whisper.cpp は「前の文を文脈にしない」設定だとヒントも使わないため。10-08 の測定ではヒントで精度は上がりませんでした)。名前は下の「置換辞書」と名簿の表記ゆれ直しで直ります。</span>
         <details id="rosterBox" class="ui-disclosure" style="margin-top:6px"><summary class="hint">ホロライブの名簿から追加</summary>
           <div id="rosterGroups" style="margin-top:4px"></div>
           <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rosterAdd">選んだ所属を用語集に追加</button><span class="hint" id="rosterNote"></span></div></details></div>

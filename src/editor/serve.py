@@ -105,7 +105,7 @@ import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.59.7"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.59.8"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 

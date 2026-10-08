@@ -411,7 +411,9 @@ def cmd_run(S, args, data):
     model = resolve_model(args.service, args.model)
     price = svc["models"].get(model)
     if price is None:
-        print("注意: モデル %s の単価はこの道具に無い(見積もりは $0 = --max-usd の上限も効かない)。公式の料金ページで確かめること" % model)
+        if args.send:   # 単価が無いと --max-usd の上限が効かない = 送らない(見積もりの表だけ出す)
+            raise SystemExit("モデル %s の単価はこの道具に無いので --send できません(SERVICES の models に単価を足してから。公式の料金ページで確かめること)" % model)
+        print("注意: モデル %s の単価はこの道具に無い(見積もりは $0 = --max-usd の上限も効かない。--send は断る)。公式の料金ページで確かめること" % model)
         price = 0.0
     settings = C.read_json(os.path.join(data, "settings.json"), {}) or {}
     boost = (settings.get("boost") is True) if args.boost is None else args.boost == "on"

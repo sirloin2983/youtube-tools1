@@ -2499,3 +2499,18 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 文書: `plan/line-b-transcription.md`(結論の見出し・実装するなら 2/3/5〜7 = 12:46 の差し替えが当たっていなかったのを当て直し。SenseVoice int8 の配布物 163,002,883 バイト・SHA-256 7d1efa21…dfd347e・ライセンス)・`plan/decisions.md` (du)(B は実装済み)
 - 画面の通し `e2e_proofread_accuracy.py`(辞書の流れ)ALL PASSED(0.59.7 の確認)。パックの通し `e2e_edit_pack.py` は取り下げた 0.22.3 の時点で ALL PASSED(今の 0.22.2 は変えていない)
 - 未コミット: なし(このコミットで全部。push はユーザー)
+
+## 2026-10-08 Claude Code(PC。Fable)— ユーザー待ちでない小物をまとめて実装(ホーム 0.46.2・編集 0.59.8)
+- ユーザー「他の作業でユーザを待たずに実装できる部分があれば行う」(17:50 ごろ)→ 計画と `plan/improvements.md` から、人の確認・実機・友人が要らないものを実装した
+- 変更(ホーム 0.46.1 → 0.46.2): `src/home/prefs.py` に `live.auto.pad`(0〜5 秒・既定 2。`LIVE_PAD_SEC`)と `_read_live`(保存してある live の節は壊れた鍵だけ既定に戻す。前は節ごと既定 = 録画元の一覧・置き場所・オンまで消えた)。
+  `src/home/live.py` の `auto_cfg` が pad を返し、`adopt` は origin が manual 以外(auto = M11・archive = M7)のとき `_pad_secs` で前後に広げる(0 より前・録れている範囲 lastPdt の外・`MAX_MARK_SEC` の外へは広げない)= improvements の M8(済み)。
+  `src/home/live_detect.py` の `_seen`(M11 の最初に見た時刻)は `_seen_at` を持ち、見回りの先頭で `SEEN_KEEP_SEC`(1 時間)見かけない鍵を消す(録画のたびに増え続けない)。画面 `portal.html`・`portal.js` に「自動の採用の前後の余白(秒)」の欄。`launch.py`・README ■ v0.46.2
+- 変更(編集 0.59.7 → 0.59.8): `index.html` の用語集に `#glossDev`(処理の機器が GPU = whisper.cpp のときだけ「用語集はヒントに渡らない」)・`app-core.js` の `renderOptSummary` で出し分け・`tx_engines.py` の `-mc 0` に注意のコメント
+  (whisper.cpp は -mc 0 だと --prompt を使わない = 10-08 の実験ループ。ヒントで精度は上がらなかったので渡し方は変えない)。`serve.py`・`app.js`・README・AGENTS.md
+- 変更(その他): `dev/eval_cloud.py` は単価の無いモデルで `--send` を断る(上限 --max-usd が効かないため。見積もりだけは出す)。`friend-apps/request-sender/build.bat`・`friend-apps/holo-colors/build.bat` は exe を先に消し、消せない(動いている)なら何も消さずに止まる(前は exe 以外だけ消えて中途半端になった)
+- 記録: 配信 2 本目(宙科そぴあ)の M7 = 10-07 22:07 に 8 本を採用 → 8 本ともパックまで通った(作業データの live/archive.json)。`plan/data.js`(版・M8・M7・U6)→ 公開ページ version 31。`plan/improvements.md` の M8 は済み
+- テスト: home の test_live(`test_pad_secs`・`test_stored_live_keeps_good_keys_when_one_is_broken`・採用の期待値を余白つき 0.0〜6.0 に)・test_live_detect(M11 のマーク 270〜319・`_seen` の掃除)・test_live_archive・test_launch = 148 件 OK、test_mount 26 件 OK
+  (注意: editor の test_backend と同じ unittest の実行に混ぜると `ytt_tool_transcribe` の alias が無くて setUpClass が落ちる = 混ぜない)、editor の test_backend + test_whispercpp OK、dev の test_eval_cloud(`test_unknown_model_refuses_send`)OK。
+  lint 0・`ui_audit.py all --demo` Must 0・`e2e_live.py` ALL OK・`e2e_ui_mounted.py` ALL PASSED
+- 未コミット: なし(このコミットで全部。push はユーザー)。入口は起動し直すと 0.46.2 / 0.59.8(U6)
+- 注意: 自動の採用(M11・M7)の切り抜きは前後 2 秒ずつ広がる(今までより 4 秒長い)。人の採用(スタジオの画面・manual)は変わらない。嫌なら「書き出したあとの自動の流れ」の余白を 0 に。アーカイブの自動の切り抜きは区間がアーカイブの中にあるので、余白は録れている範囲(lastPdt)までで止まる

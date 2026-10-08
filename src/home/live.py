@@ -339,11 +339,13 @@ class Live:
         return next((r for r in self.recorders() if r.get("id") == rid), None)
 
     def auto_cfg(self):
-        """書き出したあとの自動の流れ(ホームの設定 live.auto。M2)-> {after, cut, engine, model}(prefs が検査済み。読めなければ既定)"""
+        """書き出したあとの自動の流れ(ホームの設定 live.auto。M2)-> {after, cut, engine, model, pad}(prefs が検査済み。読めなければ既定)。pad = 自動・アーカイブの採用の前後の余白(秒。M8)"""
         a = self.cfg().get("auto")
         a = a if isinstance(a, dict) else {}
+        pad = a.get("pad")
         return {"after": a.get("after") if a.get("after") in live_export.AFTERS else "check",
-                "cut": a.get("cut") or "", "engine": a.get("engine") or "", "model": a.get("model") or ""}
+                "cut": a.get("cut") or "", "engine": a.get("engine") or "", "model": a.get("model") or "",
+                "pad": float(pad) if isinstance(pad, (int, float)) and not isinstance(pad, bool) and 0 <= pad <= 5 else 2.0}
 
     @property
     def exporter(self):
@@ -685,6 +687,18 @@ class Live:
             raise live_export.LiveError("1つのマークは %d 分までです" % (live_export.MAX_MARK_SEC // 60))
         return a, b
 
+    @staticmethod
+    def _pad_secs(a, b, pad, st, first):
+        """自動・アーカイブの採用の区間 (a, b) を前後 pad 秒だけ広げる(M8。plan/improvements.md の M8)。
+        0 より前と、録れている範囲(録画元の状態の lastPdt)の外へは広げない(終わりが録れていなければ後ろは足さない)。1 つのマークの上限も守る"""
+        pad = float(pad)
+        a2, b2 = max(0.0, a - pad), b + pad
+        last = live_export.iso_epoch(st.get("lastPdt")) if isinstance(st, dict) else None
+        if last is not None and first is not None:
+            b2 = min(b2, max(b, last - first))
+        b2 = min(b2, a2 + live_export.MAX_MARK_SEC)
+        return round(a2, 3), round(b2, 3)
+
     def _studio_ok(self, method, path, body=None):
         """取り込んだスタジオの API -> JSON。だめなら LiveError(スタジオが動いていない = 502)"""
         code, d = self.studio_call(method, path, body)
@@ -745,6 +759,8 @@ class Live:
         rc = self._ids(rc_id, rec)
         st, first = self._rec_status(rc, rc_id, rec)
         a, b = self._adopt_secs(body, first)
+        if origin != "manual" and auto["pad"] > 0:   # M8: 自動・アーカイブの採用は前後に余白を足す(人が決めた区間はそのまま)
+            a, b = self._pad_secs(a, b, auto["pad"], st, first)
         ex = self.exporter
         with self._adopt_lock:   # 同じ区間を続けて頼まれても、スタジオのマーク・ジョブを二重に作らない
             vid, mark, n = self._studio_adopt_mark(rc_id, rec, st, a, b, label)

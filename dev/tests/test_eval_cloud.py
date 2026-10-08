@@ -352,6 +352,14 @@ class RunTest(unittest.TestCase):
         self.assertIn("単価はこの道具に無い", out)
         self.assertIn("見積もり $0.000", out)
 
+    def test_unknown_model_refuses_send(self):
+        """単価の無いモデルは --max-usd の上限が効かないので、--send は断る(見積もりだけは出せる)"""
+        with mock.patch.object(EC, "http_json", self.fake_http({"text": "x"})):
+            res, _out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-future-transcribe", "--data", self.data, "--send"])
+        self.assertIsInstance(res, SystemExit)
+        self.assertIn("--send できません", str(res))
+        self.assertEqual(self.calls, [])
+
     def test_key_file_with_other_encoding_or_unreadable(self):
         svc = dict(EC.SERVICES["openai"], id="openai")
         kf = os.path.join(self.tmp, "keys_cp932.txt")

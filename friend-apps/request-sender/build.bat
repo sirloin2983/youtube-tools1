@@ -25,6 +25,12 @@ build\RequestSenderTests.exe
 if errorlevel 1 goto fail
 
 echo [3/4] dist\RequestSender
+rem Delete the exe first: if it is still running, del fails and we stop before rmdir removes the other files (README, members.json, config.json).
+if exist dist\RequestSender\RequestSender.exe del /q dist\RequestSender\RequestSender.exe
+if exist dist\RequestSender\RequestSender.exe (
+  echo dist\RequestSender\RequestSender.exe is in use. Quit RequestSender started from that folder, then run this again. Nothing was removed.
+  goto fail
+)
 if exist dist\RequestSender rmdir /s /q dist\RequestSender
 if exist dist\RequestSender (
   echo dist\RequestSender could not be removed. Quit RequestSender started from that folder, then run this again.

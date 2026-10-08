@@ -912,7 +912,7 @@ class DetectApiTest(unittest.TestCase):
         t[0] += 1
         self.assertEqual(self.det.auto_tick(), 1)
         v = self.studio.videos[REC]
-        self.assertEqual([(m["status"], m["start"]) for m in v["marks"]], [("adopted", 272.0)])
+        self.assertEqual([(m["status"], m["start"], m["end"]) for m in v["marks"]], [("adopted", 270.0, 319.0)])   # 自動の採用は前後に余白 2 秒(M8。ホームの設定 live.auto.pad)
         dec = self.decisions()["items"][-1]
         self.assertEqual((dec["id"], dec["state"], dec["origin"]), ("p0-302", "adopted", "auto"))
         job = self.live.exporter.snapshot("fake", REC)[0]
@@ -926,6 +926,12 @@ class DetectApiTest(unittest.TestCase):
         self.prefs.patch("live", {"autoAdopt": {"enabled": False}})
         self.put_peaks([peak("p3-4000", 3970, 4000, 9.0, "frame", 4010, hour=1)], seq=7, changes=[[7, "p3-4000", "frame"]])
         self.assertEqual(self.det.auto_tick(), 0)   # オフなら採用しない
+        key = ("fake", REC, "p0-302")
+        self.assertIn(key, self.det._seen)   # 「最初に見た時刻」は、見かけなくなって(採用した・録画が終わった)1 時間で消す = 増え続けない
+        t[0] += D.SEEN_KEEP_SEC + 1
+        self.det.auto_tick()
+        self.assertNotIn(key, self.det._seen)
+        self.assertNotIn(key, self.det._seen_at)
 
     def test_auto_adopt_retries_then_fails(self):
         """スタジオにつながらない(502)→ 見回りごとにやり直し、5 回で諦めて「調子」の失敗(kind detect)に出す"""

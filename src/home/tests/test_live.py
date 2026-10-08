@@ -140,14 +140,35 @@ class PrefsLiveTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def test_stored_live_keeps_good_keys_when_one_is_broken(self):
+        """保存してある live の節に壊れた値が 1 つあっても、その鍵だけ既定に戻す(録画元の一覧・置き場所・オンは残す。10-08。前は節ごと既定に戻った)"""
+        path = os.path.join(self.tmp, "prefs.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"live": {"enabled": True, "folder": "E:\\Video\\live-rec", "quality": "4k", "autoAfterStream": True, "afterStreamPerHour": "6",
+                                "recorders": [{"id": "local", "url": "http://127.0.0.1:8720", "token": ""}],
+                                "auto": {"after": "auto", "pad": 99}, "autoAdopt": {"enabled": True, "waitMin": 0}, "detect": "x"}}, f)
+        v = P.Prefs(path, fsio.atomic_write).get(["live"])["live"]
+        self.assertEqual((v["enabled"], v["folder"], v["quality"], v["autoAfterStream"], v["afterStreamPerHour"], [r["id"] for r in v["recorders"]]),
+                         (True, "E:\\Video\\live-rec", "1080p", True, 6, ["local"]))
+        self.assertEqual((v["auto"]["after"], v["auto"]["pad"], v["autoAdopt"], v["detect"]["enabled"]), ("auto", 2, {"enabled": True, "waitMin": 5}, False))
+        with open(path, "w", encoding="utf-8") as f:   # 節そのものが dict でなければ既定
+            json.dump({"live": [1, 2]}, f)
+        self.assertEqual(P.Prefs(path, fsio.atomic_write).get(["live"])["live"], P.DEFAULTS["live"])
+
     def test_default_off_and_validation(self):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True,
                                                         "autoDelete": P.DEFAULTS["live"]["autoDelete"],
-                                                        "auto": {"after": "check", "cut": "", "engine": "", "model": ""},
+                                                        "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
                                                         "detect": {"enabled": False, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)・自動の採用(M11)も既定オフ
                                                         "autoAdopt": {"enabled": False, "waitMin": 5}})
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
+        self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
+        self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "check", "cut": "", "engine": "", "model": "", "pad": 3.5})
+        for bad in (-1, 6, True, "2", None):
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", {"auto": {"pad": bad}})
+        self.p.patch("live", {"auto": {"pad": 2}})
         v = self.p.patch("live", {"enabled": True, "folder": "E:\\Video\\live-rec"})
         self.assertEqual((v["enabled"], v["folder"]), (True, "E:\\Video\\live-rec"))
         for bad in ({"folder": "\\\\nas\\rec"}, {"folder": "rec"}, {"recorders": "x"}, {"recorders": [{"id": "Bad", "url": "http://a:8730"}]},
@@ -195,15 +216,15 @@ class PrefsLiveTest(unittest.TestCase):
     def test_live_auto_settings(self):
         """書き出したあとの自動の流れ live.auto(M2): 鍵ごとに直す・形の違う値は断る・ほかの鍵を直しても残る"""
         v = self.p.patch("live", {"auto": {"after": "auto", "engine": "whisper.cpp"}})
-        self.assertEqual(v["auto"], {"after": "auto", "cut": "", "engine": "whisper.cpp", "model": ""})
+        self.assertEqual(v["auto"], {"after": "auto", "cut": "", "engine": "whisper.cpp", "model": "", "pad": 2})
         v = self.p.patch("live", {"auto": {"cut": "silence", "model": "large-v3"}})
-        self.assertEqual(v["auto"], {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3"})
+        self.assertEqual(v["auto"], {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 2})
         for bad in ({"auto": "x"}, {"auto": {"after": "all"}}, {"auto": {"cut": "rows"}}, {"auto": {"engine": "openai"}},
                     {"auto": {"model": "../x"}}, {"auto": {"model": "a" * 61}}, {"auto": {"engine": None}}):
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
         self.assertEqual(self.p.patch("live", {"enabled": True})["auto"]["model"], "large-v3")   # ほかの鍵を直しても残る
-        self.assertEqual(self.p.patch("live", {"auto": {"engine": "", "model": ""}})["auto"], {"after": "auto", "cut": "silence", "engine": "", "model": ""})
+        self.assertEqual(self.p.patch("live", {"auto": {"engine": "", "model": ""}})["auto"], {"after": "auto", "cut": "silence", "engine": "", "model": "", "pad": 2})
 
     def test_token_is_kept_when_blank(self):
         self.p.patch("live", {"recorders": [{"id": "laptop", "name": "ノート PC", "url": "http://192.168.1.20:8730", "token": TOKEN}]})
@@ -1124,6 +1145,16 @@ class ExportTest(unittest.TestCase):
         again = LX.Exporter(self.live, os.path.join(self.tmp, "live"), lambda: self.out)
         self.assertEqual({x["id"]: x["state"] for x in again.jobs}, {j["id"]: "done", j2["id"]: "done", j3["id"]: "cancelled", j4["id"]: "done", j5["id"]: "done"})
 
+    def test_pad_secs(self):
+        """M8: 自動・アーカイブの採用の区間を前後 pad 秒だけ広げる。0 より前・録れている範囲(lastPdt)の外・1 つのマークの上限の外へは広げない"""
+        first = 1_700_000_000.0
+        st = lambda rel: {"lastPdt": LX.epoch_iso(first + rel)}
+        self.assertEqual(LV.Live._pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))
+        self.assertEqual(LV.Live._pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
+        self.assertEqual(LV.Live._pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
+        self.assertEqual(LV.Live._pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
+        self.assertEqual(LV.Live._pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
+
     def test_adopt_server_side(self):
         """M1: POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。
         origin を .clip.json と live_feedback.jsonl に残す・同じ区間は二重に作らない・live.auto(M2)をまとめて実行へ渡す"""
@@ -1137,9 +1168,9 @@ class ExportTest(unittest.TestCase):
         self.assertEqual((res["video"], res["origin"], res["existing"]), (rid, "auto", False))
         j = res["job"]
         self.assertEqual((j["origin"], j["after"], j["auto"], j["studio"]["mark"], j["studio"]["start"]),
-                         ("auto", "auto", {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}, res["mark"], 1.0))   # 区間はスタジオが丸めた値
+                         ("auto", "auto", {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}, res["mark"], 0.0))   # 自動の採用は前後に余白 2 秒(M8。0 より前には広げない)。区間はスタジオが丸めた値
         v = studio.videos[rid]
-        self.assertEqual([(m["status"], m["label"], m["start"], m["end"]) for m in v["marks"]], [("adopted", "自動の山", 1.0, 4.0)])
+        self.assertEqual([(m["status"], m["label"], m["start"], m["end"]) for m in v["marks"]], [("adopted", "自動の山", 0.0, 6.0)])   # 1.04 − 2 → 0・4 + 2 = 6(録画は 8 秒以上ある)
         d = self.wait_state(j["id"], ("done", "error"), 90)
         self.assertEqual(d["state"], "done", d)
         self.assertEqual(self.runner.files[-1][2], "auto")
@@ -1148,11 +1179,11 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(os.path.normcase(v["marks"][0]["path"]), os.path.normcase(d["path"]))
         clip, _w = schemas.load_clip_file(schemas.find_clip_path(d["path"]))
         self.assertEqual((clip["source"]["live"]["origin"], clip["mark"]["src"]), ("auto", "auto"))
-        self.assertAlmostEqual(LX.iso_epoch(clip["source"]["live"]["start"]) - first, 1.0, delta=0.01)   # 秒は録画の頭(firstPdt)から
+        self.assertAlmostEqual(LX.iso_epoch(clip["source"]["live"]["start"]) - first, 0.0, delta=0.01)   # 秒は録画の頭(firstPdt)から
         with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:
             fb = [json.loads(x) for x in f if x.strip()]
         self.assertEqual([(x["event"], x["origin"], x["human"], x["verdict"], x["jobId"]) for x in fb], [("adopt", "auto", False, None, j["id"])])   # 自動は「良い」に数えない
-        # 同じ区間をもう一度 → 済んでいるので新しく作らない(スタジオのマークも増やさない)
+        # 同じ区間をもう一度(余白を足しても同じマーク)→ 済んでいるので新しく作らない(スタジオのマークも増やさない)
         again = self.live.adopt({"recorder": "local", "recording": rid, "start": 1.0, "end": 4.02, "origin": "auto"})
         self.assertEqual((again["existing"], again["job"]["id"], len(v["marks"])), (True, j["id"], 1))
         # 絶対時刻(UTC の文字列)でも頼める・人の採用(manual)は「良い」・after を指定すれば設定より優先

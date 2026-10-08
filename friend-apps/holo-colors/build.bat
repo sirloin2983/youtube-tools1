@@ -41,6 +41,12 @@ build\HoloColorsTests.exe
 if errorlevel 1 goto fail
 
 echo [3/4] dist\HoloColors
+rem Delete the exe first: if it is still running, del fails and we stop before rmdir removes the other files (README, members.json, config.json).
+if exist dist\HoloColors\HoloColors.exe del /q dist\HoloColors\HoloColors.exe
+if exist dist\HoloColors\HoloColors.exe (
+  echo dist\HoloColors\HoloColors.exe is in use. Quit HoloColors started from that folder, then run this again. Nothing was removed.
+  goto fail
+)
 if exist dist\HoloColors rmdir /s /q dist\HoloColors
 if exist dist\HoloColors (
   echo dist\HoloColors could not be removed. Quit HoloColors started from that folder, then run this again.

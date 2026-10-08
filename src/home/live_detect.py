@@ -95,6 +95,7 @@ def overlay(pk, item):
         p.update(state="bench", origin=None)   # 枠か控えかはワーカーが決める
     p["pending"] = True
     return p
+SEEN_KEEP_SEC = 3600       # M11 の「最初に見た時刻」(_seen)を、見回りで見かけなくなってから残す秒(繋ぎ直しで同じ候補が戻る分は残す)
 
 
 class Detector:
@@ -115,7 +116,8 @@ class Detector:
         self._spec, self._spec_at = None, -1e18
         self._written = None
         self._tries = {}                   # (録画元, 録画, 候補) -> 自動の採用を試した数
-        self._seen = {}                    # (録画元, 録画, 候補) -> 入口が最初に見た時刻(M11 の waitMin の起点)
+        self._seen = {}                    # (録画元, 録画, 候補) -> 入口が最初に見た時刻(M11 の waitMin の起点)。見かけなくなって SEEN_KEEP_SEC たったら消す
+        self._seen_at = {}                 # (録画元, 録画, 候補) -> 見回りで最後に見た時刻(_seen を消す判断)
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = {}                  # series.jsonl の読み取りの覚え (key, 結果)
 
@@ -469,10 +471,13 @@ class Detector:
     def auto_tick(self):
         """M11: 録画中の録画の候補のうち、枠の中で入口が最初に見てから waitMin 分たったものを自動で採用する -> 採用した数"""
         a = self.adopt_cfg()
+        now = self.clock()
+        for key in [k for k, t in self._seen_at.items() if now - t > SEEN_KEEP_SEC]:   # 採用した・録画が終わった候補の分は残さない(録画のたびに増え続けない)
+            self._seen.pop(key, None)
+            self._seen_at.pop(key, None)
         if not a["enabled"] or not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
             return 0
         done = 0
-        now = self.clock()
         given = {(x.get("recorder"), x.get("recording"), x.get("id")) for x in self._load_fails()}
         for r in self.live.list_recordings():
             if not r.get("active") or not isinstance(r.get("firstPdt"), (int, float)) or not isinstance(r.get("lastPdt"), (int, float)):
@@ -486,6 +491,7 @@ class Detector:
                 # 待ちは入口が候補を最初に見た時刻から数える(画面に出てから人が見られる時間を waitMin 分とる。
                 # 録画の秒(confirmedAt)で比べると、ワーカーの遅れの分だけ人が見られる時間が短くなる)
                 first = self._seen.setdefault(key, now)
+                self._seen_at[key] = now
                 if now - first < a["waitMin"] * 60:
                     continue
                 try:

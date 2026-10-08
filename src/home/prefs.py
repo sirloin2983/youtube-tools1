@@ -59,7 +59,7 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
-                     "auto": {"after": "check", "cut": "", "engine": "", "model": ""}, "autoAfterStream": False, "afterStreamPerHour": 6,
+                     "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2}, "autoAfterStream": False, "afterStreamPerHour": 6,
                      "detect": {"enabled": False, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": False, "waitMin": 5}},
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
@@ -77,6 +77,7 @@ LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")  
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
 LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/ytt_core/excite.py の SENS の名前)
+LIVE_PAD_SEC = (0, 5)                        # 自動・アーカイブの採用の区間の前後の余白(秒。M8。人の採用には足さない)
 LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、入口が候補を最初に見てから待つ分(終わり待ちの候補は採用しない)
 
 
@@ -256,11 +257,13 @@ def _clean_live_adopt(v, cur, strict=True):
 
 
 def _clean_live_auto(v, cur, strict=True):
-    """live.auto(M2)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
+    """live.auto(M2)+ 自動・アーカイブの採用の前後の余白 pad(M8。10-08)。strict=False は保存してある値を読むとき(形の違う鍵は既定に戻す。断らない)"""
     checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
               "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
               "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
-              "model": (lambda x: isinstance(x, str) and (x == "" or bool(LIVE_MODEL_RE.match(x))), "モデル(model)は英数字と . _ - の 60 字までにしてください(空 = 編集の設定)")}
+              "model": (lambda x: isinstance(x, str) and (x == "" or bool(LIVE_MODEL_RE.match(x))), "モデル(model)は英数字と . _ - の 60 字までにしてください(空 = 編集の設定)"),
+              "pad": (lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and LIVE_PAD_SEC[0] <= x <= LIVE_PAD_SEC[1],
+                      "前後の余白(pad)は %d〜%d 秒で指定してください" % LIVE_PAD_SEC)}
     return _clean_keys(v, cur, DEFAULTS["live"]["auto"], checks, strict)
 
 
@@ -268,6 +271,26 @@ def _clean_live_auto(v, cur, strict=True):
 # autoAdopt = 候補の自動の採用(M11)
 LIVE_PARTS = {"auto": (_clean_live_auto, "書き出したあとの設定(auto)"), "detect": (_clean_live_detect, "配信中の候補の設定(detect)"),
               "autoAdopt": (_clean_live_adopt, "自動の採用の設定(autoAdopt)")}
+
+
+def _read_live(v):
+    """保存してある live の節を読む(_section)。壊れた鍵はその鍵だけ既定に戻し、節全体(録画元の一覧・置き場所・オン)は戻さない(10-08)。
+    まず全部を patch と同じ検査に通し、断られたら鍵ごとに通す(小さな節 auto・detect・autoAdopt は鍵ごとに直す = strict=False)"""
+    v = v if isinstance(v, dict) else {}
+    try:
+        return _clean_live(v, DEFAULTS["live"])
+    except PrefsError:
+        pass
+    out = _clean_live({}, DEFAULTS["live"])
+    for k, x in v.items():
+        if k in LIVE_PARTS:
+            out[k] = LIVE_PARTS[k][0](x if isinstance(x, dict) else {}, out[k], strict=False)
+            continue
+        try:
+            out = _clean_live({k: x}, out)
+        except PrefsError:
+            pass
+    return out
 
 
 def _clean_intake(v, cur):
@@ -368,12 +391,14 @@ class Prefs:
         return (d, False) if isinstance(d, dict) else ({}, True)
 
     def _section(self, d, name):
-        """保存してある節を読む(直せる節は同じ検査を通す。通らなければ節ごと既定)"""
+        """保存してある節を読む(直せる節は同じ検査を通す。通らなければ節ごと既定。live だけは壊れた鍵だけ既定 = _read_live)"""
         v = d.get(name)
         if name == "hidden":
             return _read_hidden(v)
         if name == "streamer":
             return _read_streamer(v)
+        if name == "live":
+            return _read_live(v)
         try:
             return CLEANERS[name](v if isinstance(v, dict) else {}, DEFAULTS[name])
         except PrefsError:

@@ -380,6 +380,7 @@ function renderOptSummary(){
   const badText = bad ? `GPU(whisper.cpp)で使えるモデルは ${(w.models || []).join('・')} です。モデルを選び直してください。` : '';
   const dh = $('#optDevHint');
   if (dh){ dh.hidden = !bad; dh.textContent = badText; }
+  const gd = $('#glossDev'); if (gd) gd.hidden = !vk;   // GPU(whisper.cpp)では用語集がヒントに渡らない(tx_engines の -mc 0。0.59.8)
   const el = $('#optSummary'); if (!el) return;
   const model = $('#optModel').selectedOptions[0], lang = $('#optLang').selectedOptions[0];
   const q = $('#optQuality').value === 'fast' ? '速度優先' : '精度優先';

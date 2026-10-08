@@ -269,8 +269,10 @@
           <select id="liveAutoEngine"><option value="">「編集」の設定のまま</option><option value="faster-whisper">faster-whisper(CPU)</option><option value="whisper.cpp">whisper.cpp(GPU)</option><option value="qwen3-asr">Qwen3-ASR(CPU)</option><option value="llama.cpp">Qwen3-ASR 1.7B(GPU)</option></select></label>
         <label class="lag">モデル
           <input type="text" id="liveAutoModel" maxlength="60" placeholder="空 = 「編集」の設定" spellcheck="false" autocomplete="off"></label>
+        <label class="lag">自動の採用の前後の余白(秒)
+          <input type="number" id="liveAutoPad" min="0" max="5" step="0.5" inputmode="decimal"></label>
       </div>
-      <p class="hint">新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。</p>
+      <p class="hint">新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。余白は、配信中の候補の自動の採用とアーカイブの自動の切り抜きの区間の前後に足します(人が採用した区間には足しません。録れている範囲の外へは広げません)。</p>
       <!-- 配信後の全自動(ホームの設定 live.autoAfterStream・live.afterStreamPerHour。線 D の M7) -->
       <div class="row">
         <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveAfterStream">配信が終わったら、アーカイブの解析で自動で切り抜く(パックまで)</label>

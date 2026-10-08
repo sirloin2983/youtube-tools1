@@ -335,7 +335,7 @@ class WhisperCpp(Engine):
         a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
              "-t", str(max(1, min(8, (os.cpu_count() or 4) // 2))), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
-            a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)
+            a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(10-08 の測定。ヒントで精度は上がらなかったので -mc 0 のまま。画面の #glossDev で案内)
         if not self.flash_attn():
             a += ["-nfa"]
         if self.device == "cpu":

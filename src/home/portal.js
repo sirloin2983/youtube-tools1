@@ -2029,6 +2029,7 @@
     $('#liveAutoCut').value = a.cut || '';
     $('#liveAutoEngine').value = a.engine || '';
     setIdle('#liveAutoModel', a.model || '');
+    if ($('#liveAutoPad')) setIdle('#liveAutoPad', a.pad == null ? 2 : a.pad);   // 自動の採用の前後の余白(live.auto.pad。M8。0.46.2)
     if ($('#liveAfterStream')) {   // 配信後の全自動(live.autoAfterStream・afterStreamPerHour)
       $('#liveAfterStream').checked = !!(v && v.autoAfterStream);
       setIdle('#liveAfterPerHour', (v && v.afterStreamPerHour) || 6);
@@ -2087,6 +2088,11 @@
         $(p[0]).addEventListener('change', function () { saveLiveAuto(p[1], $(p[0]).value); });
       });
       $('#liveAutoModel').addEventListener('change', function () { saveLiveAuto('model', $('#liveAutoModel').value.trim()); });
+      if ($('#liveAutoPad')) $('#liveAutoPad').addEventListener('change', function () {   // 0〜5 秒(小数も可)
+        var n = parseFloat($('#liveAutoPad').value);
+        if (!(n >= 0 && n <= 5)) { toast('前後の余白は 0〜5 秒にしてください', 'err'); loadLive(); return; }
+        saveLiveAuto('pad', n);
+      });
     }
     if ($('#liveAfterStream')) {
       $('#liveAfterStream').addEventListener('change', function () {
