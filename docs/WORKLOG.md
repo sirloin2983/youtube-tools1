@@ -2825,3 +2825,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 確認: node で data.js を読み込み、tasks の pre・rec の参照に漏れが無いことを確かめた。CRLF のまま
 - 注意: src/ytt_core/・src/ui-kit/・各ツールの ui-kit.js・dev/lint.py などに、WORKLOG に記録の無い未コミットの変更がある(別のセッションの作業途中と見て触っていない・stage していない)
 - 未コミット: なし(このセッションの分 plan/data.js と WORKLOG はコミット)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「今後の流れ」)— K1 後処理の様子見の物差し dev/eval_fill.py
+- 依頼: ユーザー「ほかのセッションとの競合に気を付けてどんどん作業を進めて」
+- 競合の控え: 並行セッション「ツール全体のコード修正」が docs/design/code-review-simplify-2026-10-08.md の A・B(ytt_core の小道具・ui-kit・各ツールの写しの消し込み)を進めていて、src/ の既存コードはどれも当たりうる(未コミット 20 ファイル超)。**このセッションは src/ の既存ファイルを触らない**。新しいファイル(dev/)・計画と文書・読むだけの調べものを受け持つ
+- 作り: `dev/eval_fill.py`(新規。読むだけ)= 0.60.0 の後処理(ed_fill)の A 別の読みで埋めた行を、人が 残した・直した・戻した・消した・未確認 で数える。A の行は「機械の出力 original で確信度 avg_logprob を持たない行」で見つける(札で戻して行の fill が消えたあとでも分かる。戻したかは fill.from か生の結果 asr.json の同じ時間の文字と比べる)。直した行は人の最終が 別の読み / whisper のどちらに近いか(寄せた文字の編集距離)。D 名簿の呼び名は印が残っている行だけ(戻した D は数えられない = 注意に出す)。C は記録(runs[].fill.dup・diarization.fillDropped)。再認識した文書は数えない。--since/--until は行の proofedAt。判定 30 行未満は「まだ少ない」。--json は evals/fill/。editor の部品は読まない(並行セッションの editor の直しに左右されない)
+- 本物のデータ(10-09。読むだけ): 後処理を当てた文書 18 本・置き換えた 9 行(4 本)はまだ全部未確認・末尾の重複 2 行・D 0 行
+- テスト: `dev/tests/test_eval_fill.py` 9 件 OK。lint: 自分のファイルは 0 件(全体の 31 件は並行セッションの作業途中 = dup-helper 30・dup-block 1)
+- そのほか: AGENTS.md の dev の一覧に eval_fill.py・plan/data.js の K1 を済みに・線 B の次
+- 未コミット: なし(このセッションの分。並行セッションの未コミットは触っていない)
