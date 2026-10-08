@@ -2683,3 +2683,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 不具合の疑い(要確認。資料の 4 節): 入口の api/ytt/… を断るとき本文を読み捨てない・「すべて終了」の後始末が 2 回で Ctrl+C では autorun を閉じない・deliver の組の一覧と cleanup の trash-roots.json が原子的でない・exporter._num_sec の OverflowError で 500・visibilitychange の直接利用が予備の道に 3 か所・cut2resolve の api/plan が SLOTS を通らない、など
 - 未完了・次: 資料の「直す順番」A〜C から着手するかはユーザーの判断(F の削除は確認が要る)。並行セッションがスタジオ 0.23.3(settings.js の autoDeliver)を編集中だったので、G4 の行番号はその差分を含む
 - 未コミット: なし(このセッションの分。コミットは資料・ROADMAP・WORKLOG だけ)
+
+## 2026-10-08 Claude Code — YPP の「90 日で 1,000 万回」の中身を確かめて提案の文書に注(コードは変えていない)
+- 依頼: ユーザー「この 1,000 万が何を指しているのか」→「足すのと、毎日定期的に状況を正確に分析したい」→「まだ実装はしなくていい」
+- 分かったこと(公式ブログで確認): 数えるのは直近 90 日の **qualified Shorts views** = 公開中の Shorts の engaged view(冒頭の数秒より先まで見た・ループなし)。非公開・限定公開・削除・広告として見られた分・長尺・画像投稿は数えない。新しく YPP に入る条件は別で 2,000 万回。下回っても YPP は外れず長尺の収益は続き、超え直せば自動で戻る。Analytics API は `engagedViews` + `creatorContentType==SHORTS` が近いが、API の説明の定義(最初のフレームより先)は YPP の定義と同じとは書かれていない → 初回に Studio の数字と見比べる
+- 変更: `plan/proposals-2026-10.md` の 0-2 の YPP の行を正確に(「既存メンバーが」を外し、qualified の定義・2,000 万・視聴回数で見ると多めに見積もる注)・P24 に数える値の注とユーザーの希望(Analytics API・入口で 1 日 1 回 + ホームに手動のボタン・分析の中身の案・作りの見本 backup.py / dropbox_auth.py)
+- 未完了・次: P24 の実装はユーザーの合図待ち(ユーザーが Cloud Console で OAuth を作る 約 20 分が先に要る)
+- 未コミット: なし
