@@ -2606,3 +2606,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次: data.js の古い文言(summary が L4' の前のまま・U8 の「2.7.0」・phases の 3 の gate)は「全体計画の整理と見直し」が直す
 - 注意: 表示は data.js の欄の名前と形に依存する(tasks の id/name/line/who/phase/pre/rec/ai/user/state/wait、phases、gates、schedule、recent、userTasks)。欄を変えるなら index.html・user-tasks.html も直す。`lines[].color` は使っていない(色は plan.css)
 - 未コミット: なし(このセッションの分。ほかのセッションの未コミットの差分はそのまま)
+
+## 2026-10-08 Claude Code — 段 15(画面と周辺の残り = A4)をやめる(ユーザー決定)
+- 決定: ユーザー「段 15 消していい」(A4 の中身を聞いたあと)。キーボードだけの操作・読み上げの最低限・ホロカラーの続き(Resolve の形式でコピー・書き出しと読み込み・字幕の見本・他のグループの JSON)をやめる。消すのではなく「やらないと決めたもの」に材料だけ残す(段 13・14 と同じ扱い)
+- 変更: `plan/line-a-remaining.md`(2 の表と順番から外し、4 へ移して材料を書いた・6 に 10-08 の決定を追記・状態の行)・`plan/line-bc-master-plan.md`(段15 の 2 か所)・`plan/decisions.md`(1-1 の表に 1 行・(br) の「A4(段 15)で見直す」に「やめた」)
+- 未完了・次: `plan/data.js`(tasks と userTasks.later の A4・lines A の next/gate・phases 5・schedule 5〜6 週目・conflicts・totals のフェーズ 5)は「全体計画の整理と見直し」のセッションに頼んだ(data.js を並べ直している最中なので)。`plan/improvements.md` の 2-2 と 28〜29 行も、棚卸し中のセッションに頼んだ
+- 注意: スタジオの配信中の候補のキー(p・z)は段 15 で見直す予定だった。やめたので、困ったら個別に直す。ホロカラーの続きは友人の要望が来たら別件で考える(`docs/design/holo-colors.md`)
+- 未コミット: なし(このセッションの分。`plan/decisions.md` は線D の未コミットの 3-14 を残して自分の 2 行だけコミット)
