@@ -2,7 +2,7 @@
 
 このリポジトリを編集した AI は、作業の終わりに**末尾へ**1件追記する。作業を始める AI は、最後の数件を読んでから始める(ルールは `AGENTS.md`)。
 
-**2026-09-30 にフォルダ名を変えた**(app→home・clip-studio→studio・transcribe-tool→editor・tools→dev/setup・docs を spec/plan/design/archive に)。この記録の中の旧いパスは当時のまま。対応表は `docs/plan/phase0-restructure.md`。
+**2026-09-30 にフォルダ名を変えた**(app→home・clip-studio→studio・transcribe-tool→editor・tools→dev/setup・docs を spec/plan/design/archive に)。この記録の中の旧いパスは当時のまま。対応表は `docs/design/phase0-restructure.md`。
 
 書式:
 ```
@@ -2613,3 +2613,16 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次: `plan/data.js`(tasks と userTasks.later の A4・lines A の next/gate・phases 5・schedule 5〜6 週目・conflicts・totals のフェーズ 5)は「全体計画の整理と見直し」のセッションに頼んだ(data.js を並べ直している最中なので)。`plan/improvements.md` の 2-2 と 28〜29 行も、棚卸し中のセッションに頼んだ
 - 注意: スタジオの配信中の候補のキー(p・z)は段 15 で見直す予定だった。やめたので、困ったら個別に直す。ホロカラーの続きは友人の要望が来たら別件で考える(`docs/design/holo-colors.md`)
 - 未コミット: なし(このセッションの分。`plan/decisions.md` は線D の未コミットの 3-14 を残して自分の 2 行だけコミット)
+
+## 2026-10-08 Claude Code(PC。まとめ役 Opus 5.5 + サブエージェント Sonnet × 8・Haiku × 3)— 全体計画の見直し(data.js の並べ直し・見積もりを実績に・提案)と setup/requirements.txt の日本語
+- 変更: `plan/data.js`(並べ直し。欄の名前と形は同じ)・`plan/decisions.md`(1-1 に 10-08 の決定 5 行)・`plan/line-a-phase8-multi-clip.md`(状態の行)・`setup/requirements.txt`(1 行目の日本語を英語に)・新 `dev/tests/test_setup_ascii.py`(.bat と requirements*.txt が ASCII だけ・.bat が CRLF・requirements が cp932 で読める)・`AGENTS.md`(plan/ の説明・setup/ と src/home/ のテストの欄)・`docs/ROADMAP.md`(状態 10-08・線 D の今・Chrome 拡張・U8〜U10)・`docs/spec/friend-intake.md`(状態の版・壊れた参照 2 つ)・`docs/spec/subtitle-notation.md`・`docs/spec/row-timing-policy.md`(今の既定 24 を 1 行)・`docs/design/holo-colors.md`(状態の行)・`plan/improvements.md`(済み・閉じた項目を末尾の 1 行ずつの節へ)・WORKLOG の 5 行目の案内のパス
+- 調べ方: 線 A・B・C・D・改善一覧と決定・WORKLOG と索引・コードの実態は Sonnet、別件・data.js の機械的な検査・リンクと「状態」の行の検査は Haiku 5.5(ユーザーの指示「Haiku 5.5 をテストで使って」。3 体とも誤検出を自分で選り分けて行番号つきで返し、機械的な検査には十分だった)。要の主張(eval_marks が kind live を数えない・live_tx が SLOTS を通らない・配信の終わりに待ち中の候補を採らない・P-1/P-4 は 2.2.0 で済み・requirements の cp932)はまとめ役が確かめた
+- data.js: フェーズを「0 済み → 1 今週: 固める(〜10-13)→ 2 次の配信で確かめる(10-18/19)→ 3 使いながら決め直す → 4 G2 のあと → 5 最後」に並べ直し、済んだ 23 工程を 0 に。古い文言(summary・phases の「残りは L4'」・U8 の 2.7.0・A3/A4 が開いているのに todo・critical・schedule の済んだ予定・gates の古い数)を直した。recent は 7 件に縮めた(細かい経緯は WORKLOG)。userTasks は済んだ行を外し、id の重なり(B1・B4・B5 が工程とユーザーの作業で別の意味)を U11・G2・FT に分けた。好みの判断 P-1〜P-6 は閉じた(decisions (v))
+- 見積もり: ユーザー指示「かなり早く進んでいるから全体的に計画の期間は短く見積もっていい。ただ文字起こし等の速度は今のままでいい」→ AI の見積もりを実績(計画の 5〜10 倍の速さ)に合わせて縮め、校正など人の作業の見積もり(1 分に 12.6 分)はそのまま。10-08 に校正が終わった 22 本で測ると約 15.6 分(numbers に事実として 1 行)
+- 提案(data.js の tasks。名前に「提案」): D-12 配信ごとの結果の記録 + eval_marks --live・D-13 自動の安全弁(1 配信の自動採用の上限・未確認がたまったら休む・友人のライブ依頼の上限)・D-14 配信の終わりの待ち中の候補・配信中の文字起こしを SLOTS に・置き換わらない録画の期限・D-15 数の決め直し(U4 のあと)・K1 後処理の様子見の物差し(eval_fill)・K2 採用の記録の数え方(線 D の [採用][要らない]・友人の返事)・A5 確認の手間を減らす画面・R1 資料の整理の残り・O1 Python 3.10 のサポート終了への下調べ。段 15(A4)は 10-08 のユーザー決定(Plan資料の見直し のセッション経由)でやめたので tasks・lines・phases・schedule・conflicts から外し、improvements の 2-2 も閉じた。ユーザーの作業: U9 Chrome 拡張を本物の Studio で・U10 仮決めの確認(約 35 件)・U11 0.60.0 の字幕の印象
+- 決定・理由: setup/requirements.txt は 10-07 の 054c3ec で 1 行目に日本語が入り、日本語の Windows の pip が cp932 で読んで UnicodeDecodeError になる形だった(install.bat が落ちる)。英語に直し、検査のテストを足した。末尾 2 行の LF の混在は前からなので触っていない
+- ユーザーの答え(10-08 チャット): 線 D の守り(D-12〜D-14)は全部入れる(安全弁の数は仮の案のまま)・採用の記録に線 D の [採用][要らない] と友人の返事も数える(K2)・重い手は「採用・要らないの判断」と「字幕の直し」→ A5 と新しい A6(校正の手間を測って助けを足す)・段 8 は全部(A3 を今週へ)。decisions の 1-1 に 5 行
+- 未完了・次: 今週の AI の作業 = R1 の残り・D-12〜D-14・K1・K2・A5・A6・A3(どれも data.js の phase 1)。まだ決めていない: R1 のやり方(WORKLOG を日ごとに・decisions を未確認だけに・line-*.md を残りだけに)・別件は確かめるまで新機能を足さないか(data.js の 3-2)。R1 の残りは並行セッションが静かなときに git mv を 1 コミットで
+- 注意: 調査で見つかった未確認の仮決め = decisions 3-6 (ar)〜(bf)(10-08 の確認から漏れた)・3-13 (ec)〜(en)・3-14 (eo)〜(eu)・1-1 の送るアプリの小窓の 4 項目。(eu) の末尾に (el) の文が混ざっている・(by) が 2 つある。入口の精度の自動測定は 10-07 01:39 から動いておらず、入口の条件の now はほとんど null(gates の数は調べた値を手で入れた)。friend-apps/request-sender/dist/ に zip が無いことがある(U8 の前に build.bat)
+- 分担: 並行の「線Dの進行状況」(D-11 = ホーム 0.48.0・スタジオ 0.23.2。src/home・src/studio・plan/decisions.md の 3-14・plan/line-d-live-clipping.md・docs/HANDOVER.md が未コミット)・「Plan資料の見直し」(表示 = fb11498・段 15 をやめる = 458c9db)。data.js は D-11 のコミットを待てなかったので、作業フォルダの中身(D-11 の版と文言を含む)に並べ直しを当ててこちらでコミットした = D-11 のコードのコミットより先に data.js が「D-11 済み」を書いている。decisions.md はこちらの 5 行だけを index に入れ、3-14 は作業フォルダに残した
+- 未コミット: なし(このセッションの分。ほかのセッションの未コミットの差分はそのまま)
