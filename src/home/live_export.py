@@ -599,7 +599,8 @@ class Exporter:
             arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
         return LiveError("このマークは本番版に作り直しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
-    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None):
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None,
+                   request=None):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
         after・streamer・origin・auto・hold・score: add と同じ"""
@@ -613,14 +614,15 @@ class Exporter:
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
                             studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer, origin=origin, auto=auto,
-                            hold=hold, score=score)
+                            hold=hold, score=score, request=request)
 
-    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None):
+    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None, request=None):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
         after: 書き出したあと(AFTERS。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
         hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(HOLDS。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
-        score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)"""
+        score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)。
+        request: 友人のライブ配信の依頼(live_requests.Store の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
         after = after if after in AFTERS else ("check" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
         if self.live.find(rc) is None:
@@ -645,6 +647,8 @@ class Exporter:
                 job["holdFor"] = hold
             if isinstance(score, (int, float)) and not isinstance(score, bool):
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
+            if isinstance(request, dict) and request.get("rid"):
+                job["request"] = {k: request.get(k) for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}   # 友人の依頼(2-15)
             self.jobs.append(job)
             self._trim()
         self._save()
@@ -1213,6 +1217,12 @@ class Exporter:
             r = self.runner() if self.runner else None
             if r is None:
                 raise ValueError("まとめて実行が使えません")
+            req = job.get("request") if isinstance(job.get("request"), dict) and job["request"].get("rid") else None
+            if req:   # 友人のライブ配信の依頼の録画(2-15): 依頼 id・届け先・配信者の設定を渡す = パックを 1 本ずつ友人へ届ける
+                kw.update(request_id=req["rid"], deliver_dir=req.get("deliverDir") or None, speakers=req.get("speakers"), video_tracks=req.get("videoTracks"),
+                          deliver_batch=1)
+                if req.get("cut"):
+                    kw["cut"] = req["cut"]
             run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after, **kw) or {}).get("id") or ""
         except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
             handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]

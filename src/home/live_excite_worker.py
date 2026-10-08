@@ -270,6 +270,19 @@ def _int(x):
     return isinstance(x, int) and not isinstance(x, bool)
 
 
+def clean_requests(v):
+    """config.json の requests(友人のライブ配信の依頼の録画ごとの設定。2-15)-> {"<録画元>/<録画>": {"sens", "perHour", "length"}}(読めない鍵は飛ばす)"""
+    out = {}
+    for k, s in (v or {}).items() if isinstance(v, dict) else []:
+        if not isinstance(k, str) or "/" not in k or not isinstance(s, dict):
+            continue
+        det = clean_detect(s)
+        llo, lhi = SPEC_RANGES["length"]
+        length = float(s.get("length")) if _num(s.get("length")) and llo <= s["length"] <= lhi else None
+        out[k] = {"sens": det["sens"], "perHour": det["perHour"], "length": length}
+    return out
+
+
 def clean_detect(det):
     """感度と 1 時間の本数(入口の設定 live.detect → config.json の detect)-> {"sens", "perHour"}(読めなければ normal・6)。
     入口(live_detect.Detector.config)が書くときとワーカーが読むときの両方で通す"""
@@ -1158,9 +1171,11 @@ class Worker:
                     "detect": clean_detect(d.get("detect")), "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,
                     "chatLimitBytes": int(d.get("chatLimitBytes") or CHAT_LIMIT), "chatStallSec": float(d.get("chatStallSec") or CHAT_STALL),
                     "lengthHint": clean_hint(d.get("lengthHint")),         # M10(入口が書く。無ければスタジオの設定の長さ)
-                    "provisional": d.get("provisional") is not False}      # 仮の候補(既定オン。false = 本番の候補だけ)
+                    "provisional": d.get("provisional") is not False,      # 仮の候補(既定オン。false = 本番の候補だけ)
+                    "detectAll": d.get("detectAll") is not False,         # false = 友人の依頼の録画(requests)だけ測る(ホームの検出がオフのとき。2-15)
+                    "requests": clean_requests(d.get("requests"))}        # 友人の依頼の録画ごとの設定(感度・枠・長さ)
         for st in self.recs.values():
-            st.set_detect(self.cfg["detect"])
+            st.set_detect(self._detect_for(st.rc, st.rec))
         return True
 
     # ---- 動かす
@@ -1300,7 +1315,10 @@ class Worker:
                 seen.add(key)
                 if key not in self.done:
                     items.append((rc, client, r, key))
-        held = [x for x in items if x[3] in self.recs]
+        for x in items:   # ホームの検出をオフにした(detectAll false): 友人の依頼の録画のほかは、保存して手放す(tick。state.json は残す = オンに戻せば続きから)
+            if x[3] in self.recs and not self._allowed(x[3][0], x[3][1]):
+                seen.discard(x[3])
+        held = [x for x in items if x[3] in self.recs and x[3] in seen]
         new = sorted((x for x in items if x[3] not in self.recs and self._wanted(x[0], x[2])), key=self._new_order)
         wait = []
         for rc, client, r, key in held + new:
@@ -1351,8 +1369,24 @@ class Worker:
         p = os.path.join(folder, "peaks.json")
         return os.path.isfile(p) and (read_json(p, 1024 * 1024) or {}).get("queued") is True
 
+    def _request_for(self, rc_id, rec):
+        """友人のライブ配信の依頼の録画なら、その設定(2-15)。無ければ None"""
+        return self.cfg.get("requests", {}).get("%s/%s" % (rc_id, rec))
+
+    def _detect_for(self, rc_id, rec):
+        """録画ごとの感度と枠: 友人の依頼の録画はその設定、ほかはホームの設定"""
+        req = self._request_for(rc_id, rec)
+        return {"sens": req["sens"], "perHour": req["perHour"]} if req else self.cfg["detect"]
+
+    def _allowed(self, rc_id, rec):
+        """測ってよい録画か: ホームの検出がオン(detectAll)か、友人の依頼の録画(requests。2-15)"""
+        return self.cfg.get("detectAll", True) or self._request_for(rc_id, rec) is not None
+
     def _wanted(self, rc, r):
-        """受け持つ録画か: 録画中で firstPdt がある・続きの state.json がある・順番待ちにしていた"""
+        """受け持つ録画か: 録画中で firstPdt がある・続きの state.json がある・順番待ちにしていた。
+        ホームの検出がオフ(detectAll false)のときは、友人の依頼の録画(requests)だけ"""
+        if not self._allowed(rc["id"], r["id"]):
+            return False
         folder = self._folder(rc, r)
         return (r.get("active") is True and iso_epoch(r.get("firstPdt")) is not None) or os.path.isfile(os.path.join(folder, "state.json")) \
             or self._was_queued(folder)
@@ -1379,7 +1413,7 @@ class Worker:
             doc = read_json(os.path.join(folder, "peaks.json")) if os.path.isfile(os.path.join(folder, "state.json")) else None
             if not doc:
                 first, last = iso_epoch(r.get("firstPdt")), iso_epoch(r.get("lastPdt"))
-                doc = {"v": 1, "recorder": rc["id"], "recording": r["id"], "seq": 0, "decN": 0, "perHour": self.cfg["detect"]["perHour"], "counts": {},
+                doc = {"v": 1, "recorder": rc["id"], "recording": r["id"], "seq": 0, "decN": 0, "perHour": self._detect_for(rc["id"], r["id"])["perHour"], "counts": {},
                        "lag": None, "chat": "off", "behindSec": round(max(0.0, last - first), 1) if first is not None and last is not None else 0.0,
                        "first": epoch_iso(first) if first is not None else None, "measuredSec": 0, "scoredSec": 0, "gaps": 0, "skipped": [],
                        "lateChat": 0, "ended": False, "peaks": [], "changes": []}
@@ -1400,7 +1434,7 @@ class Worker:
         d = read_json(os.path.join(folder, "state.json"))
         if d is not None:
             try:
-                st = RecState.from_json(folder, d, self.cfg["detect"], self.chat_grace)
+                st = RecState.from_json(folder, d, self._detect_for(rc["id"], r["id"]), self.chat_grace)
             except Exception as e:   # 形の違う・壊れた state.json(版の違いを含む): 初めから
                 self.log("盛り上がりの検出: %s の状態を読めないので、初めからやり直します(%r)" % (r["id"], e))
                 st = None
@@ -1418,7 +1452,10 @@ class Worker:
             ytdlp = self.cfg["ytdlp"]
             url = str(r.get("url") or "")
             spec = spec_with_hint(self.cfg["spec"], self.cfg.get("lengthHint"))   # M10: 人が選んだ長さの目安(足りなければスタジオの設定)
-            st = RecState(folder, rc["id"], r["id"], url, first, spec, self.cfg["detect"], bool(ytdlp and video_id(url, r["id"])) and live,
+            req = self._request_for(rc["id"], r["id"])
+            if req and req.get("length"):   # 友人の依頼の録画: 長さは依頼の設定(2-15)
+                spec = dict(spec, length=req["length"], lengthFrom="friend", lengthNote="友人の依頼の設定")
+            st = RecState(folder, rc["id"], r["id"], url, first, spec, self._detect_for(rc["id"], r["id"]), bool(ytdlp and video_id(url, r["id"])) and live,
                           self.chat_grace, provisional=self.cfg.get("provisional", True))
             self.log("盛り上がりの検出: %s を受け持ちます(チャット %s・候補の長さ %g 秒 = %s%s)" % (
                 r["id"], "あり" if st.use_chat else "なし", st.book.length, spec.get("lengthNote") or "スタジオの解析の設定",
@@ -1429,7 +1466,7 @@ class Worker:
                 pass
         elif not self.cfg.get("provisional", True):
             st.fast = None   # 仮の候補を止めた(config の provisional: false)。出ている仮の候補は本番が置き換えるか外す
-        st.set_detect(self.cfg["detect"])
+        st.set_detect(self._detect_for(rc["id"], r["id"]))   # 友人の依頼の録画は依頼の感度・枠(2-15。ホームの設定で上書きしない)
         self.recs[key] = st
         if st.use_chat:   # 受け持った周期のうちにチャットを読む(続きから: 止まっていた間の秒を、チャットを読む前に grace で進めない)
             self._feed_step(self._feed(st), self.clock())

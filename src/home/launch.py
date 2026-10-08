@@ -94,7 +94,7 @@ import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定�
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 
 APP_ID = "ytt-launcher"
-VERSION = "0.46.3"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.47.0"         # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -839,7 +839,8 @@ class PortalServer(ThreadingHTTPServer):
         self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log,
-                                        feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log))
+                                        feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log),
+                                        live_begin=lambda url, ctx: self.live.begin_request(url, ctx))   # ライブ配信の依頼(2-15。live は下で作る)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit

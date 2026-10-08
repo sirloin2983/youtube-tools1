@@ -78,6 +78,7 @@ import live_archive  # noqa: E402  (アーカイブで本番版に作り直す�
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
 import live_failures  # noqa: E402  (失敗の集約。M3・M7)
 import live_detect  # noqa: E402  (配信中の盛り上がりの検出と自動の採用。線 D の L2・M11)
+import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -313,6 +314,7 @@ class Live:
         self._stop_lock = threading.Lock()
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
+        self.requests = live_requests.Store(os.path.join(self.store_dir, "requests.json"), log=self.log)   # 友人のライブ配信の依頼と録画の結びつき(2-15)
 
     # --- 設定 ---
     def cfg(self):
@@ -367,7 +369,7 @@ class Live:
                            "after": lambda rc, rec: self.cleaner.check(rc, rec),   # 1本終えたら: 全部入れ替わった録画を消す
                            "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
                            "per_hour": lambda: self.cfg().get("afterStreamPerHour") or 6,
-                           "recordings": self.list_recordings, "adopt": self.adopt,
+                           "recordings": self.list_recordings, "adopt": self.adopt, "request": self.requests.get,   # 友人の依頼の録画は afterStream の設定で(2-15)
                            "compare": self.detector.compare}, **self.archive_opts)   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
                 self._archiver = live_archive.Archiver(ex, **kw)
             return self._archiver
@@ -636,6 +638,28 @@ class Live:
         msg = (d or {}).get("message") if isinstance(d, dict) else ""
         raise live_export.LiveError("録画を始められませんでした: %s" % (msg or "HTTP %s" % code), code if code in (400, 409) else 502)
 
+    def begin_request(self, url, ctx):
+        """友人のライブ配信の依頼(src/home/intake.py の _handle_live_request。docs/spec/friend-intake.md の 2-15): 録画を始めて(begin)、その録画を依頼に結びつける。
+        ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings}。-> {"recorder", "recording", "existing"}。だめなら LiveError"""
+        if not self.enabled():
+            raise live_export.LiveError("リアルタイム切り抜きがオフです", 409)
+        out = self.begin(url)
+        if not out.get("live"):
+            raise live_export.LiveError("配信中・配信前の配信ではありません(%s)" % (out.get("status") or "unknown"), 409)
+        rc, rec = out["recorder"], out["recording"]["id"]
+        item = self.requests.put(rc, rec, ctx)
+        self.log("リアルタイム切り抜き: 友人の依頼 %s を録画 %s に結びつけました(%s)" % (item["rid"], rec, live_requests.settings_label(item["settings"])))
+        self.detector.wake()   # 検出がオフでも、この録画はすぐ測り始める
+        return {"recorder": rc, "recording": rec, "existing": bool(out.get("existing"))}
+
+    def _request_for(self, rc_id, rec, origin, after, streamer):
+        """録画が友人のライブ配信の依頼に結びついていれば (依頼, after=auto, 配信者) を返す(2-15: 採用した切り抜きは全部 文字起こし → パック → 届ける)。
+        配信後のアーカイブからの追加(origin archive)は依頼の afterStream が真のときだけ。結びついていなければ (None, after, streamer) のまま"""
+        req = self.requests.get(rc_id, rec)
+        if req is None or (origin == "archive" and req["settings"].get("afterStream") is not True):
+            return None, after, streamer
+        return req, "auto", streamer or req.get("streamer") or ""
+
     def _rec_status(self, rc, rc_id, rec):
         """録画元の録画の状態(書き出しの基準 firstPdt・URL・題)。-> (状態の JSON, 最初のセグメントの受信時刻 epoch)。だめなら LiveError"""
         code, d = self.call(rc, "GET", "/live/%s/status?since=999999999" % rec, timeout=5.0)   # since: セグメントの一覧は要らない
@@ -660,11 +684,12 @@ class Live:
         origin = live_export.check_origin(body.get("origin"))
         rc_id, rec = body.get("recorder"), body.get("recording")
         rc = self._ids(rc_id, rec)
+        req, after, streamer = self._request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画なら、人のマークも届ける(2-15)
         _d, first = self._rec_status(rc, rc_id, rec)
         return self.exporter.add_studio(rc_id, rec, studio, first, body.get("transcribe") is not False,
                                         url=body.get("url") if isinstance(body.get("url"), str) else None,
                                         title=body.get("title") if isinstance(body.get("title"), str) else None,
-                                        after=after, streamer=streamer, origin=origin, auto=auto)
+                                        after=after, streamer=streamer, origin=origin, auto=auto, request=req)
 
     # --- M1: サーバー側の「マーク + 書き出し」(画面を閉じていても。自動の採用 M7・M11 もここを通る) ---
     def _adopt_secs(self, body, first):
@@ -757,10 +782,12 @@ class Live:
         score = body.get("score") if isinstance(body.get("score"), (int, float)) and not isinstance(body.get("score"), bool) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
         rc_id, rec = body.get("recorder"), body.get("recording")
         rc = self._ids(rc_id, rec)
+        req, after, streamer = self._request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
+        pad = req["settings"]["pad"] if req else auto["pad"]
         st, first = self._rec_status(rc, rc_id, rec)
         a, b = self._adopt_secs(body, first)
-        if origin != "manual" and auto["pad"] > 0:   # M8: 自動・アーカイブの採用は前後に余白を足す(人が決めた区間はそのまま)
-            a, b = self._pad_secs(a, b, auto["pad"], st, first)
+        if origin != "manual" and pad > 0:   # M8: 自動・アーカイブの採用は前後に余白を足す(人が決めた区間はそのまま)
+            a, b = self._pad_secs(a, b, pad, st, first)
         ex = self.exporter
         with self._adopt_lock:   # 同じ区間を続けて頼まれても、スタジオのマーク・ジョブを二重に作らない
             vid, mark, n = self._studio_adopt_mark(rc_id, rec, st, a, b, label)
@@ -773,7 +800,7 @@ class Live:
                       "start": float(mark.get("start", a)), "end": float(mark.get("end", b))}   # スタジオが丸めた区間(画面の書き出しと同じ値で突き合わせる)
             job = ex.add_studio(rc_id, rec, studio, first, after != "none", url=st.get("url") if isinstance(st.get("url"), str) else None,
                                 title=st.get("title") if isinstance(st.get("title"), str) else None, after=after, streamer=streamer, origin=origin, auto=auto,
-                                hold=hold if hold in live_export.HOLDS else None, score=score)
+                                hold=hold if hold in live_export.HOLDS else None, score=score, request=req)
         ex.feedback({"event": "adopt", "origin": origin, "human": origin == "manual", "verdict": "good" if origin == "manual" else None,
                      "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
                      "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"]})
@@ -972,10 +999,14 @@ class Live:
             self.detector.tick()
         except Exception as e:
             self.note("リアルタイム切り抜き: 盛り上がりの検出の見回りでエラー: %r" % (e,))
+        try:
+            self.requests.prune()   # 友人の依頼の古い結びつきを消す(2-15。消すものがあるときだけ書く)
+        except Exception as e:
+            self.note("リアルタイム切り抜き: 友人の依頼の結びつきの片付けでエラー: %r" % (e,))
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
-        if os.path.isfile(os.path.join(self.store_dir, "exports.json")) or cfg.get("autoAfterStream") is True:
+        if os.path.isfile(os.path.join(self.store_dir, "exports.json")) or cfg.get("autoAfterStream") is True or self.requests.all():   # 友人の依頼の録画(2-15)は M7 がオフでも
             if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける(空き待ちの受け渡しも。M4)
                 self.exporter.start()
             self.archiver.start()   # 本番版への作り直し(P4): 途中のものを続ける・自動の見回り(設定 live.autoArchive)・配信後の全自動(M7)

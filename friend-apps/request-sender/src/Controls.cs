@@ -1056,8 +1056,9 @@ namespace RequestSender
             string[] t = Texts(entry);
             var cols = Columns(ClientSize.Width, e.Bounds.Y, e.Bounds.Height);
             var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(e.Graphics, t[0], Font, cols[0], entry.Kind == OutputKind.Failure ? p.Error : p.Text, flags);
-            TextRenderer.DrawText(e.Graphics, t[1], Font, cols[1], p.Text, flags);
+            bool group = entry.Kind == OutputKind.Group;   // 組の行(2.8.0)は種類をアクセントの色・題を太字に
+            TextRenderer.DrawText(e.Graphics, t[0], Font, cols[0], entry.Kind == OutputKind.Failure ? p.Error : group ? p.Accent : p.Text, flags);
+            TextRenderer.DrawText(e.Graphics, t[1], group ? Theme.Bold : Font, cols[1], p.Text, flags);
             TextRenderer.DrawText(e.Graphics, t[2], Font, cols[2], p.Muted, flags | TextFormatFlags.Right);
             TextRenderer.DrawText(e.Graphics, t[3], Font, cols[3], p.Muted, flags);
         }

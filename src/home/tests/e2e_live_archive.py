@@ -223,7 +223,8 @@ def run(tmp, shots, force_chromium):
     with open(tok, encoding="ascii") as f:
         rtoken = f.read().strip()
     rc_local = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % rport, "token": rtoken}
-    srv.prefs.patch("live", {"enabled": True, "recorders": [rc_local]})
+    srv.prefs.patch("live", {"enabled": True, "recorders": [rc_local],
+                             "detect": {"enabled": False, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": False, "waitMin": 5}})   # 0.46.3 から既定オン。この通しはアーカイブの流れだけを見る(配信中の候補が自動で採用されると 9 の記録の数が合わない)
     live = srv.live
     live_logs = []
     live.log = lambda m: live_logs.append("%.1f %s" % (time.time(), m))   # 入口の記録(消したことの 1 行など。失敗したときに出す)

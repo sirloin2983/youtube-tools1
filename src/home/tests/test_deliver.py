@@ -2,6 +2,8 @@
 
 実行(リポジトリ直下から): python -m unittest src/home/tests/test_deliver.py -v
 """
+import datetime
+import json
 import os
 import re
 import shutil
@@ -10,6 +12,7 @@ import tempfile
 import time
 import unittest
 import zipfile
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -131,6 +134,116 @@ class ZipPacksTest(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith(".deliver-")], [])
 
 
+class GroupFilesTest(unittest.TestCase):
+    """組で届ける(docs/spec/friend-intake.md の 2-16)の部品: 組の名前・一覧の packs・一覧のファイル・クリップの長さ"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.out = os.path.join(self.tmp, "Dropbox", deliver.OUT_DIR)
+
+    def test_suffix_constants(self):
+        self.assertEqual((deliver.GROUP_SUFFIX, deliver.PREVIEW_SUFFIX), (".group.json", ".preview.mp4"))
+
+    def test_group_paths_plain_and_unique(self):
+        """組の名前 -> (まとめ動画, 一覧, 使う名前)。まとめ動画か一覧が同じ名前で残っていれば、末尾に 4 文字足す(2 つを同じ名前でそろえる)。zip の有無は見ない"""
+        name = "20261001-120000-abc123__題 1-5"
+        pv, js, used = deliver.group_paths(self.out, name)   # 出力\ がまだ無くても動く
+        self.assertEqual((pv, js, used), (os.path.join(self.out, name + ".preview.mp4"), os.path.join(self.out, name + ".group.json"), name))
+        os.makedirs(self.out)
+        put(os.path.join(self.out, name + ".zip"))   # 同じ名前の zip だけなら変えない(zip は 1 本ずつ unique_zip で決める)
+        self.assertEqual(deliver.group_paths(self.out, name)[2], name)
+        for existing in (".preview.mp4", ".group.json"):
+            put(os.path.join(self.out, name + existing))
+            pv, js, used = deliver.group_paths(self.out, name)
+            self.assertRegex(used, r"^%s-[0-9a-f]{4}$" % re.escape(name), existing)
+            self.assertEqual((pv, js), (os.path.join(self.out, used + ".preview.mp4"), os.path.join(self.out, used + ".group.json")), existing)
+            self.assertFalse(os.path.exists(pv) or os.path.exists(js))
+            os.remove(os.path.join(self.out, name + existing))
+
+    def test_group_members_accumulate_preview_start(self):
+        """previewStart = まとめ動画の中でそのクリップが始まる秒(前のクリップの長さの合計)・duration = そのクリップの秒。小数 2 桁に丸める"""
+        zips = [(1, os.path.join(self.out, "rid__a.zip")), (2, os.path.join(self.out, "rid__b.zip")), (3, os.path.join(self.out, "rid__c.zip"))]
+        got = deliver.group_members(zips, ["a", "b", "c"], [10.5, 20.25, 5.0])
+        self.assertEqual(got, [{"n": 1, "zip": "rid__a.zip", "title": "a", "previewStart": 0.0, "duration": 10.5},
+                               {"n": 2, "zip": "rid__b.zip", "title": "b", "previewStart": 10.5, "duration": 20.25},
+                               {"n": 3, "zip": "rid__c.zip", "title": "c", "previewStart": 30.75, "duration": 5.0}])
+        self.assertEqual(sorted(got[0]), ["duration", "n", "previewStart", "title", "zip"])
+        rounded = deliver.group_members(zips[:2], ["a", "b"], [12.3456, 7.0])
+        self.assertEqual([(m["previewStart"], m["duration"]) for m in rounded], [(0.0, 12.35), (12.35, 7.0)])
+
+    def test_group_members_unknown_length_makes_following_starts_unknown(self):
+        """長さの分からないクリップ以降の previewStart は None(ずれた秒を教えない)。そのクリップ自身の頭は分かる"""
+        zips = [(n, "rid__%d.zip" % n) for n in (1, 2, 3, 4)]
+        got = deliver.group_members(zips, list("abcd"), [10.0, None, 5.0, 2.0])
+        self.assertEqual([(m["n"], m["previewStart"], m["duration"]) for m in got], [(1, 0.0, 10.0), (2, 10.0, None), (3, None, 5.0), (4, None, 2.0)])
+        got = deliver.group_members(zips[:2], ["a", "b"], [None, 3.0])
+        self.assertEqual([(m["previewStart"], m["duration"]) for m in got], [(0.0, None), (None, 3.0)])
+
+    def test_group_members_uses_placed_zips_only(self):
+        """置けた zip だけ(n は実行の通し番号のまま)。zip の名前は名前だけ(フォルダは入れない)。何も置けなければ空"""
+        got = deliver.group_members([(3, os.path.join(self.out, "rid__c.zip")), (4, os.path.join(self.out, "rid__d.zip"))], ["c", "d", "e"], [1.0, 2.0, 3.0])
+        self.assertEqual([(m["n"], m["zip"], m["title"]) for m in got], [(3, "rid__c.zip", "c"), (4, "rid__d.zip", "d")])
+        self.assertEqual(deliver.group_members([], ["a"], [1.0]), [])
+
+    def test_write_group_json(self):
+        """組の一覧: UTF-8・BOM なし・日本語はそのまま。鍵は v・title・range・preview(名前だけ)・packs・sentAt(ISO 8601 + タイムゾーン)"""
+        os.makedirs(self.out)
+        path = os.path.join(self.out, "rid__雑談 うた 1-2.group.json")
+        members = deliver.group_members([(1, "rid__a.zip"), (2, "rid__b.zip")], ["あ", "い"], [4.5, 6.0])
+        now = 1791000000   # 夏でも冬でも、その時点のずれ(夏時間)で書く
+        doc = deliver.write_group_json(path, "雑談 / うた", "1-2", os.path.join(self.out, "rid__雑談 うた 1-2.preview.mp4"), members, now=now)
+        with open(path, "rb") as f:
+            raw = f.read()
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
+        self.assertIn("雑談".encode("utf-8"), raw, "\\uXXXX にしない")
+        self.assertEqual(json.loads(raw.decode("utf-8")), doc)
+        self.assertEqual(sorted(doc), ["packs", "preview", "range", "sentAt", "title", "v"])
+        self.assertEqual((doc["v"], doc["title"], doc["range"], doc["preview"], doc["packs"]), (1, "雑談 / うた", "1-2", "rid__雑談 うた 1-2.preview.mp4", members))
+        self.assertEqual(doc["sentAt"], datetime.datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds"))
+        for t in (1783000000, 1799000000):   # 冬・夏のどちらの時刻でも、その時刻のずれ
+            self.assertEqual(deliver.write_group_json(path, "t", "1", None, [], now=t)["sentAt"],
+                             datetime.datetime.fromtimestamp(t).astimezone().isoformat(timespec="seconds"), t)
+        self.assertRegex(deliver.write_group_json(path, "t", "1", None, [])["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")   # now を省けば今
+
+    def test_write_group_json_without_preview_is_null(self):
+        """まとめ動画を作れなかった組: preview は null(zip と一覧は届ける)"""
+        path = os.path.join(self.tmp, "g.group.json")
+        deliver.write_group_json(path, "t", "1-2", None, [])
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertIsNone(doc["preview"])
+        self.assertEqual(doc["packs"], [])
+
+    def test_clip_seconds(self):
+        """各パックの切り抜きの長さ(秒)。パックの切り抜きの動画(いちばん大きい動画。_roughcut は除く)を ffprobe に渡す。動画の無いパック・
+        長さの読めない・0 以下の動画は None"""
+        a, b, c, d = (os.path.join(self.tmp, n + "_pack") for n in "abcd")
+        put(os.path.join(a, "a.mp4"), b"a" * 500)
+        put(os.path.join(a, "a_roughcut.mp4"), b"r" * 900)
+        put(os.path.join(b, "b.mp4"), b"b")
+        put(os.path.join(c, "c.mp4"), b"c")
+        os.makedirs(d)   # 動画の無いパック
+        put(os.path.join(d, "cut-plan.json"), b"{}")
+        asked = []
+        infos = {os.path.join(a, "a.mp4"): {"duration": 48.25}, os.path.join(b, "b.mp4"): {"duration": 0}, os.path.join(c, "c.mp4"): {"duration": None}}
+
+        def probe(path, ffprobe=None, **_k):
+            asked.append((path, ffprobe))
+            return infos.get(path)
+        with mock.patch.object(deliver.normalize, "probe", probe):
+            self.assertEqual(deliver.clip_seconds([a, b, c, d], ffprobe="FFPROBE"), [48.25, None, None, None])
+            self.assertEqual(deliver.clip_seconds([]), [])
+            infos[os.path.join(c, "c.mp4")] = {"duration": 7}
+            infos[os.path.join(b, "b.mp4")] = {"duration": -3.0}
+            self.assertEqual(deliver.clip_seconds([b, c]), [None, 7.0])
+            self.assertIsInstance(deliver.clip_seconds([c])[0], float)
+            self.assertEqual(deliver.clip_seconds([os.path.join(self.tmp, "無い_pack")]), [None])   # フォルダが無い
+        self.assertEqual(asked[0], (os.path.join(a, "a.mp4"), "FFPROBE"), "いちばん大きい動画(_roughcut でない)を調べる")
+        self.assertNotIn(os.path.join(d, "cut-plan.json"), [p for p, _f in asked])
+        self.assertEqual(len([1 for p, _f in asked if p.startswith(d)]), 0, "動画の無いパックは ffprobe を呼ばない")
+
+
 class PreviewArgsTest(unittest.TestCase):
     """まとめ動画の ffmpeg の引数(ffmpeg は要らない): 等速なら setpts/atempo を入れない・札はずっと(2026-10-08 ユーザー決定)"""
 
@@ -203,6 +316,17 @@ class PreviewTest(unittest.TestCase):
         self.assertFalse(deliver.make_preview([bad], os.path.join(self.tmp, "p.mp4"), ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
         self.assertTrue(self.logs and "まとめ動画を作れませんでした" in self.logs[-1], self.logs)
         self.assertFalse(deliver.make_preview([], os.path.join(self.tmp, "p.mp4")))
+
+    def test_clip_seconds_with_real_ffprobe(self):
+        """組の一覧の長さ: 本物の動画は秒が読める・壊れた動画・動画の無いパックは None"""
+        a = self.clip("一本目_pack/一本目.mp4", 2)
+        bad = os.path.join(self.tmp, "x_pack", "x.mp4")
+        put(bad, os.urandom(3000))
+        empty = os.path.join(self.tmp, "空_pack")
+        os.makedirs(empty)
+        got = deliver.clip_seconds([os.path.dirname(a), os.path.dirname(bad), empty], ffprobe=self.ffprobe)
+        self.assertAlmostEqual(got[0], 2.0, delta=0.5)
+        self.assertEqual(got[1:], [None, None])
 
 
 class DeliveriesTest(unittest.TestCase):

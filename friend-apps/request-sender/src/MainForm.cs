@@ -1,6 +1,6 @@
 // 画面(2.1.0。設計: docs/spec/friend-intake.md の 2-10・docs/spec/friend-intake.md)
 //   上の帯: 「送る」「受け取る ●n」・右上に配色の札(A〜D)
-//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル)、右 = 02 仕上げ方・03 配信者とメモ(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
+//   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル / ライブ配信(2.8.0))、右 = 02 仕上げ方(届け方も)・03 配信者とメモ(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
 //   受け取る: MainForm.Receive.cs
 using System;
 using System.Collections.Generic;
@@ -38,7 +38,8 @@ namespace RequestSender
         // 左: 送るもの
         readonly Pane leftPane = new Pane { OnPanel = true, Border = true };
         readonly SectionHead headWhat = new SectionHead("01", "送るもの");
-        readonly Btn modeUrl = new Btn("配信の URL", BtnKind.Toggle), modeVideo = new Btn("動画ファイル", BtnKind.Toggle);
+        readonly Btn modeUrl = new Btn("配信の URL", BtnKind.Toggle), modeVideo = new Btn("動画ファイル", BtnKind.Toggle), modeLive = new Btn("ライブ配信", BtnKind.Toggle);
+        readonly LiveCard liveCard = new LiveCard();   // ライブ配信を切り抜いてもらう(2.8.0)
         readonly VStack cardList = new VStack { OnPanel = true };
         readonly List<StreamCard> cards = new List<StreamCard>();
         readonly Btn addCard = new Btn("+ 配信を足す", BtnKind.Normal);
@@ -59,8 +60,11 @@ namespace RequestSender
         readonly Radio[] flowRadios = Flow.All.Select(f => new Radio(Flow.Label(f)) { Tag = f }).ToArray();
         readonly Lbl flowExplain = new Lbl("", Tone.Muted);
         readonly Lbl lCut = new Lbl("カット", Tone.Text), lTracks = new Lbl("映像トラックの数", Tone.Text), tracksHint = new Lbl("", Tone.Muted);
+        readonly Lbl lDeliver = new Lbl("届け方", Tone.Muted);   // 2.8.0。「02 仕上げ方」の見出しの行の右(右の列の高さを増やさない)
+        readonly Pane head02 = new Pane { Inherit = true };
+        readonly SectionHead headFlow = new SectionHead("02", "仕上げ方");
         readonly Btn cutNone = new Btn("しない", BtnKind.Toggle), cutSilence = new Btn("無音を削る", BtnKind.Toggle);
-        Stepper tracks, speakerCount;
+        Stepper tracks, speakerCount, deliver;
         readonly HRow cutRow = new HRow(), tracksRow = new HRow(), speakerRow = new HRow();
         readonly Check weightsOn = new Check("見どころの重みを指定する(外すと PC の設定のまま)");
         readonly Pane weightsPane = new Pane { Inherit = true };
@@ -89,7 +93,11 @@ namespace RequestSender
         readonly LinkLabel sendToLink = new LinkLabel();
 
         string cut = Cut.None;
-        bool showVideo, built, justSent;
+        bool built, justSent;
+        enum LeftMode { Url, Video, Live }
+        LeftMode leftMode;
+        bool liveLocked;              // ライブ配信の URL が入っている間は ① に固定(外したら前の仕上げ方に戻す)
+        string flowBeforeLive = Flow.Auto;
         Thread worker;
         volatile bool cancel;
         int arrived;
@@ -192,6 +200,10 @@ namespace RequestSender
         {
             modeUrl.Click += (s, e) => ShowLeft(false);
             modeVideo.Click += (s, e) => ShowLeft(true);
+            modeLive.Click += (s, e) => { ShowLeft(LeftMode.Live); liveCard.FocusUrl(); };
+            liveCard.Settings = settings.Live;
+            liveCard.Changed += () => { if (!built) return; UpdateFlow(); UpdateAll(); };
+            liveCard.IdChanged += id => titles.Request(id, (i, t) => OnUi(() => liveCard.SetTitle(i, t)));
             cardList.Add(addCard, 10, false);
             helpTime.Font = helpMore.Font = Theme.Small;
             addCard.Click += (s, e) => { var c = AddCard(null); ArrangeCards(); c.FocusUrl(); cardList.ScrollControlIntoView(c); };
@@ -222,13 +234,30 @@ namespace RequestSender
             fileNote.AutoSize = false;
             fileNote.AutoEllipsis = true;
             videoPanel.Controls.AddRange(new Control[] { fileField, addBtn, removeBtn, fileNote });
-            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, cardList, videoPanel, helpTime, helpMore });
+            leftPane.Controls.AddRange(new Control[] { headWhat, modeUrl, modeVideo, modeLive, cardList, videoPanel, liveCard, helpTime, helpMore });
         }
 
         // 右: 02 仕上げ方(どこまでやるか・カット・映像トラックの数・見どころの重み)
         void BuildFlowSection()
         {
-            right.Add(new SectionHead("02", "仕上げ方"), 0, true);
+            // 見出しの行: 左に「02 仕上げ方」・右に届け方(2.8.0。1 本ずつ / n 本ごと。① の url・video の依頼に deliverBatch で送る。ライブ配信はいつも 1 本ずつ)
+            deliver = new Stepper(DeliverBatch.Min, DeliverBatch.Max, settings.DeliverBatch, Ui.S(76), "届け方(何本ごとに届けるか)");
+            deliver.Format = DeliverBatch.Label;
+            deliver.Show_();
+            deliver.ValueChanged += () => { UpdateFlow(); UpdateAll(); };
+            lDeliver.Font = Theme.Small;
+            string deliverTip = "届け方: 1 本ずつ = 切り抜きができた順に 1 本ずつ届く / n 本ごと = n 本の組(まとめ動画 1 本 + 1 本ずつ)で届き、まとめ動画を見てから 1 本ずつ選べる。ライブ配信はいつも 1 本ずつ";
+            tips.SetToolTip(lDeliver, deliverTip);
+            foreach (Control c in deliver.Controls) tips.SetToolTip(c, deliverTip);
+            head02.Controls.AddRange(new Control[] { headFlow, lDeliver, deliver });
+            head02.Height = deliver.Height;
+            head02.Resize += (s, e) =>
+            {
+                deliver.Location = new Point(head02.Width - deliver.Width, 0);
+                lDeliver.Location = new Point(deliver.Left - Ui.S(6) - lDeliver.Width, (head02.Height - lDeliver.Height) / 2);
+                headFlow.SetBounds(0, (head02.Height - headFlow.Height) / 2, Math.Max(Ui.S(60), lDeliver.Left - Ui.S(8)), headFlow.Height);
+            };
+            right.Add(head02, 0, true);
             for (int i = 0; i < flowRadios.Length; i++)
             {
                 var r = flowRadios[i];
@@ -388,8 +417,11 @@ namespace RequestSender
             headWhat.SetBounds(m, m, leftPane.Width - m * 2, Ui.S(20));
             modeUrl.Location = new Point(m, Ui.S(40));
             modeVideo.Location = new Point(modeUrl.Right + Ui.S(4), Ui.S(40));
+            modeLive.Location = new Point(modeVideo.Right + Ui.S(4), Ui.S(40));
             var body = new Rectangle(1, Ui.S(76), leftPane.Width - 2, leftPane.Height - Ui.S(76) - 1);
             videoPanel.Bounds = body;
+            liveCard.Bounds = body;
+            liveCard.Arrange();
             // 配信の URL の側は、下に時刻の入れ方を固定で出す(カードが増えても隠れない)
             helpMore.Wrap(leftPane.Width - m * 2);
             helpMore.Location = new Point(m, leftPane.Height - helpMore.Height - Ui.S(8));
@@ -571,17 +603,25 @@ namespace RequestSender
             recvPage.Visible = !send;
             tabSend.On = send;
             tabRecv.On = !send;
-            if (!send && !Offline && (!listedOnce || arrived != entries.Count)) RefreshList();
+            if (!send && !Offline && (!listedOnce || arrived != OutputFolder.CountItems(entries))) RefreshList();
         }
 
         void ShowLeft(bool video)
         {
-            showVideo = video;
-            cardList.Visible = helpTime.Visible = helpMore.Visible = !video;
-            videoPanel.Visible = video;
-            modeUrl.On = !video;
-            modeVideo.On = video;
-            if (!video) ArrangeCards();
+            ShowLeft(video ? LeftMode.Video : LeftMode.Url);
+        }
+
+        void ShowLeft(LeftMode mode)
+        {
+            leftMode = mode;
+            cardList.Visible = helpTime.Visible = helpMore.Visible = mode == LeftMode.Url;
+            videoPanel.Visible = mode == LeftMode.Video;
+            liveCard.Visible = mode == LeftMode.Live;
+            modeUrl.On = mode == LeftMode.Url;
+            modeVideo.On = mode == LeftMode.Video;
+            modeLive.On = mode == LeftMode.Live;
+            if (mode == LeftMode.Url) ArrangeCards();
+            if (mode == LeftMode.Live) liveCard.Arrange();
         }
 
         void UpdateModeButtons()
@@ -589,10 +629,16 @@ namespace RequestSender
             int n = cards.Count(c => !c.IsBlank);
             modeUrl.Text = n > 0 ? "配信の URL(" + n + ")" : "配信の URL";
             modeVideo.Text = files.Items.Count > 0 ? "動画ファイル(" + files.Items.Count + ")" : "動画ファイル";
+            modeLive.Text = liveCard.HasUrlText ? "ライブ配信(1)" : "ライブ配信";
             modeUrl.FitWidth();
             modeVideo.FitWidth();
+            modeLive.FitWidth();
             modeVideo.Location = new Point(modeUrl.Right + Ui.S(4), modeVideo.Top);
+            modeLive.Location = new Point(modeVideo.Right + Ui.S(4), modeLive.Top);
         }
+
+        // ライブ配信の依頼を送るか(URL の欄に何か入っている)。入っている間は ① 全自動・1 本ずつに固定し、重みは使わない
+        bool LiveOn { get { return liveCard.HasUrlText; } }
 
         // ---------------------------------------------------------------- 配信のカード
         StreamCard AddCard(string url)
@@ -640,12 +686,31 @@ namespace RequestSender
 
         void UpdateFlow()
         {
+            if (!built) return;   // 組み立ての途中(① を選んだとき)は、組み立て終わりにまとめて
+            LockFlowForLive();
             string f = SelectedFlow;
-            flowExplain.Text = Flow.Explain(f);
-            bool auto = f == Flow.Auto;   // ②③ はパックを PC で作らないので、カットとトラックは使わない
+            bool live = LiveOn;
+            bool auto = f == Flow.Auto;   // ②③ はパックを PC で作らないので、カットとトラック・届け方は使わない
+            flowExplain.Text = live ? "ライブ配信の依頼は ① 全自動だけです。切り抜けしだい、1 本ずつ「受け取る」に届きます。" : auto ? DeliverBatch.Hint(deliver.Value) : Flow.Explain(f);
             cutRow.Enabled = tracksRow.Enabled = tracksHint.Enabled = auto;
+            lDeliver.Enabled = deliver.Enabled = auto && !live && !Busy;   // ライブ配信はいつも 1 本ずつ
+            for (int i = 1; i < flowRadios.Length; i++) flowRadios[i].Enabled = !live && !Busy;
+            weightsOn.Enabled = !live && !Busy;   // ライブ配信は見どころの重みを使わない(配信中の検出)
+            UpdateWeights();
             foreach (var c in cards) c.SetManual(f == Flow.Manual);
             right.Arrange();
+        }
+
+        // ライブ配信の URL を入れたら ① に切り替え、消したら前の仕上げ方に戻す
+        void LockFlowForLive()
+        {
+            bool live = LiveOn;
+            if (live == liveLocked) return;
+            liveLocked = live;
+            string to = live ? Flow.Auto : flowBeforeLive;
+            if (live) flowBeforeLive = SelectedFlow;
+            var r = flowRadios.FirstOrDefault(x => (string)x.Tag == to);
+            if (r != null && !r.Checked) r.Checked = true;
         }
 
         void SetCut(string value)
@@ -676,28 +741,43 @@ namespace RequestSender
             if (!built) return;
             UpdateModeButtons();
             string f = SelectedFlow;
-            var live = cards.Where(c => !c.IsBlank).ToList();
+            var filled = cards.Where(c => !c.IsBlank).ToList();
             var parts = new List<string>();
-            if (live.Count > 0)
+            if (LiveOn)
             {
-                int ranges = live.Sum(c => c.ValidRanges().Count), auto = live.Sum(c => Math.Max(0, c.TopCount - c.ValidRanges().Count));
-                parts.Add("配信 " + live.Count + " 本" + (f == Flow.Manual ? "" : "(指定 " + ranges + " + 自動 " + auto + ")"));
+                // ライブ配信の依頼は 1 件だけで送る(ほかに入っていれば、送る前に止める)
+                bool alone = filled.Count == 0 && files.Items.Count == 0;
+                justSent = false;
+                summary.Font = Theme.Body;
+                summary.Tone = alone ? Tone.Text : Tone.Error;
+                summary.Text = alone ? string.Join(" ・ ", new[] { "ライブ配信(配信中に自動で切り抜き → 1 本ずつ届く)", liveCard.Settings.Summary(), Cut.Label(cut), "トラック " + tracks.Value }
+                                           .Concat(speakerCount.Value > 0 ? new[] { "配信者 " + speakerCount.Value + " 人" } : new string[0]))
+                                     : "⚠ " + Sending.LiveAloneMessage;
+                tips.SetToolTip(summary, summary.Text);
+                return;
+            }
+            if (filled.Count > 0)
+            {
+                int ranges = filled.Sum(c => c.ValidRanges().Count), auto = filled.Sum(c => Math.Max(0, c.TopCount - c.ValidRanges().Count));
+                parts.Add("配信 " + filled.Count + " 本" + (f == Flow.Manual ? "" : "(指定 " + ranges + " + 自動 " + auto + ")"));
             }
             if (files.Items.Count > 0) parts.Add("動画 " + files.Items.Count + " 本");
             if (parts.Count == 0)
             {
                 summary.Font = justSent ? Theme.Bold : Theme.Body;
                 summary.Tone = justSent ? Tone.Accent : Tone.Muted;
-                summary.Text = justSent ? "送りました ✓" : "送るものを入れてください(配信の URL か、動画のファイル)";
+                summary.Text = justSent ? "送りました ✓" : "送るものを入れてください(配信の URL・動画のファイル・ライブ配信の URL)";
+                tips.SetToolTip(summary, "");
                 return;
             }
             justSent = false;
             summary.Font = Theme.Body;
             parts.Add(Flow.Label(f).Split('(')[0]);
-            if (f == Flow.Auto) { parts.Add(Cut.Label(cut)); parts.Add("トラック " + tracks.Value); }
+            if (f == Flow.Auto) { parts.Add(Cut.Label(cut)); parts.Add("トラック " + tracks.Value); parts.Add(DeliverBatch.Label(deliver.Value)); }
             if (speakerCount.Value > 0) parts.Add("配信者 " + speakerCount.Value + " 人");
             summary.Tone = Tone.Text;
             summary.Text = string.Join(" ・ ", parts);
+            tips.SetToolTip(summary, summary.Text);
         }
 
         // ---------------------------------------------------------------- 設定(覚える)
@@ -720,6 +800,8 @@ namespace RequestSender
                 settings.VideoTracks = tracks.Value;
                 if (cards.Count > 0) settings.Top = cards[0].TopCount;
                 settings.Weights = CurrentWeights();
+                settings.DeliverBatch = deliver.Value;
+                settings.Live = liveCard.Settings;
                 settings.Theme = Theme.P.Name;
                 if (WindowState == FormWindowState.Normal) { settings.WindowWidth = ClientSize.Width; settings.WindowHeight = ClientSize.Height; }
                 state.SaveSettings(settings);
@@ -852,6 +934,7 @@ namespace RequestSender
         // 画面の入力を送る内容にまとめる。誤りがあれば欄に理由を出して null
         SendInput CollectInput()
         {
+            if (LiveOn) return CollectLive();
             string flow = SelectedFlow;
             var seen = new HashSet<string>();
             var items = new List<UrlItem>();
@@ -893,12 +976,48 @@ namespace RequestSender
                 VideoTracks = tracks.Value,
                 Cut = cut,
                 Weights = CurrentWeights(),
+                DeliverBatch = deliver.Value,
             };
             var errs = Sending.Check(input);
             if (errs.Count > 0)
             {
                 SetStatus(string.Join(" / ", errs.Take(3)) + (errs.Count > 3 ? " ほか " + (errs.Count - 3) + " 件" : ""), Tone.Error);
                 if (input.Videos.Count == 0 && input.Items.Count == 0) { ShowLeft(false); cards[0].FocusUrl(); }
+                return null;
+            }
+            return input;
+        }
+
+        // ライブ配信の依頼(2.8.0): URL 1 本 + 設定。配信の URL・動画ファイルと一緒には送らない(1 件 1 本)。仕上げ方は ① 固定・届け方は 1 本ずつ
+        SendInput CollectLive()
+        {
+            Control bad = liveCard.Validate_();
+            Control badSpeaker = ValidateSpeakers();
+            if (bad != null || badSpeaker != null)
+            {
+                if (bad != null) { ShowLeft(LeftMode.Live); bad.Select(); }
+                else { namesPane.ScrollControlIntoView(badSpeaker); right.ScrollControlIntoView(badSpeaker); badSpeaker.Select(); }
+                SetStatus("⚠ 直す所があります(枠の色が変わった欄の下に理由があります)。直してから、もう一度「送る」を押してください。", Tone.Error);
+                return null;
+            }
+            if (cards.Any(c => !c.IsBlank) || files.Items.Count > 0)
+            {
+                SetStatus("⚠ " + Sending.LiveAloneMessage, Tone.Error);
+                return null;
+            }
+            var input = new SendInput
+            {
+                Live = new LiveRequest { Url = YouTubeUrl.Normalize(liveCard.VideoId), Settings = liveCard.Settings },
+                Memo = memo.Text.Trim(),
+                People = CurrentSpeakers(),
+                Flow = Flow.Auto,
+                VideoTracks = tracks.Value,
+                Cut = cut,
+            };
+            var errs = Sending.Check(input);
+            if (errs.Count > 0)
+            {
+                SetStatus("⚠ " + string.Join(" / ", errs.Take(2)), Tone.Error);
                 return null;
             }
             return input;
@@ -911,7 +1030,8 @@ namespace RequestSender
             SetBusy(true);
             bar.Value = 0;
             SetStatus("送る準備をしています…", Tone.Muted);
-            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Items.Count + " ranges=" + input.Items.Sum(i => i.Ranges.Count) + " flow=" + input.Flow);
+            Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Items.Count + " ranges=" + input.Items.Sum(i => i.Ranges.Count) + " flow=" + input.Flow +
+                      (input.Live != null ? " live" : " deliverBatch=" + input.DeliverBatch));
             var client = new DropboxClient(config) { IsCanceled = () => cancel, Log = Log.Write };
             var sending = new Sending(client);
             int lastPermille = -1;
@@ -957,7 +1077,7 @@ namespace RequestSender
                 Log.Write("send: ok");
                 bar.Value = 1000;
                 SaveSettings();
-                ShowSent(input.Flow == Flow.Auto);
+                ShowSent(input.Flow == Flow.Auto, input.Live != null);
                 return;
             }
             Log.Write("send: failed: " + error);
@@ -972,11 +1092,12 @@ namespace RequestSender
         }
 
         // 送り終えた: 入れたものを空にして、下の帯に「送りました ✓」を大きく出す(次に何か入れるまで)
-        void ShowSent(bool auto)
+        void ShowSent(bool auto, bool live)
         {
             ClearInputs(true, true);
             justSent = true;
-            SetStatus(auto ? "できあがると「受け取る」に届きます(時間がかかります)。続けて送ることもできます" : "続けて送ることもできます", Tone.Muted);
+            SetStatus(live ? "配信中に切り抜けしだい、1 本ずつ「受け取る」に届きます(もう終わった配信なら、できあがると届きます)。続けて送ることもできます"
+                      : auto ? "できあがると「受け取る」に届きます(時間がかかります)。続けて送ることもできます" : "続けて送ることもできます", Tone.Muted);
             UpdateAll();
         }
 
@@ -989,6 +1110,7 @@ namespace RequestSender
                 foreach (var c in cards.ToList()) { cardList.Remove(c); c.Dispose(); }
                 cards.Clear();
                 AddCard(null);
+                liveCard.Clear();   // 仕上げ方の固定も外れる(Changed → UpdateFlow)
             }
             if (rest)
             {
@@ -1017,10 +1139,11 @@ namespace RequestSender
             removeBtn.Enabled = !busy && files.SelectedItems.Count > 0;
             addCard.Enabled = !busy && cards.Count < MaxCards;
             foreach (var c in cards) c.SetBusy(busy);
+            liveCard.SetBusy(busy);
             memo.ReadOnly = busy;
             foreach (var c in speakerNames) c.Enabled = !busy;   // プルダウンには ReadOnly が無い
             foreach (var c in speakerColors) c.ReadOnly = busy;
-            speakerCount.Enabled = tracks.Enabled = !busy;
+            speakerCount.Enabled = tracks.Enabled = deliver.Enabled = !busy;
             cutNone.Enabled = cutSilence.Enabled = weightsOn.Enabled = !busy;
             foreach (var r in flowRadios) r.Enabled = !busy;
             if (!busy) { UpdateFlow(); UpdateWeights(); }
@@ -1061,7 +1184,7 @@ namespace RequestSender
             {
                 int count = -1;
                 List<OutputEntry> listed = null;
-                try { listed = new Receiving(client).List().Entries; count = listed.Count; }
+                try { listed = new Receiving(client).List().Entries; count = OutputFolder.CountItems(listed); }
                 catch (Exception ex) { Log.Write("poll: " + ex.GetType().Name + ": " + ex.Message); }
                 OnUi(() => { polling = false; if (count >= 0) { SetArrived(count, true); QueuePreviews(listed); } });   // 届いたまとめ動画は裏で先に取る(2.7.0)
             });
@@ -1180,7 +1303,7 @@ namespace RequestSender
             else if (name == "done")
             {
                 bar.Value = 1000;
-                ShowSent(true);
+                ShowSent(true, false);
             }
             LayoutAll();
             UpdateAll();
@@ -1195,6 +1318,18 @@ namespace RequestSender
             fileNote.Text = "動画ではないので入れませんでした(.mp4 / .mov / .mkv / .webm / .m4v だけ): メモ.txt";
             UpdateFileView();
             ShowLeft(true);
+            UpdateAll();
+        }
+
+        // 見本: ライブ配信の側(--tab live)。題名つきの URL と、既定から変えた設定
+        public void ShowLiveSample()
+        {
+            liveCard.Sample("https://www.youtube.com/live/dQw4w9WgXcQ", "【歌枠】見本のライブ配信(ここに YouTube の題名が出ます)");
+            liveCard.Settings = new LiveSettings { Sens = LiveSettings.High, PerHour = 8, Length = 60, WaitMin = 10, Pad = 2, AfterStream = true };
+            speakerCount.Value = 1;
+            speakerNames[0].Text = memberNames.Count > 0 ? memberNames[0] : "配信者 A";
+            ShowLeft(LeftMode.Live);
+            UpdateFlow();
             UpdateAll();
         }
 

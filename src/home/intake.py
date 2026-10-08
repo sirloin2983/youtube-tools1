@@ -32,12 +32,16 @@ import uuid
 
 from ytt_core import colors, fsio, jobs, normalize, tools
 import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
+import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
 REQ_SUFFIX = ".request.json"
 DONE_DIR, FAIL_DIR, OUT_DIR = "受付済み", "失敗", "出力"   # 出力\ = ① 全自動のパック(友人のアプリの「受け取る」が読む)
 FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認", "manual": "③ 全部人が行う"}   # 友人が送るときに選ぶ(2026-10-01)。無ければ ②
+REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信。2-15。2.8.0 のアプリ)
+NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
+DELIVER_BATCH_RANGE = (1, 10)          # 依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。無ければホームの設定。2-16)
 REQ_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 APP_FILE_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")   # 友人のプログラムが送った動画の名前
 NAME_PREFIX_RE = re.compile(r"^((?:【[^】]{1,60}】)+)\s*(.*)$")        # 手で送った動画の【名前】
@@ -285,6 +289,12 @@ def parse_video_tracks(v):
     return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= VIDEO_TRACKS_MAX else VIDEO_TRACKS_DEFAULT
 
 
+def parse_deliver_batch(v):
+    """依頼の JSON の deliverBatch(2.8.0 のアプリ。1〜10)-> int か None(無い・範囲の外 = ホームの設定 intake.deliverBatch のまま)"""
+    lo, hi = DELIVER_BATCH_RANGE
+    return v if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi else None
+
+
 def _safe_name(name):
     """JSON に書かれたファイル名がフォルダの直下の名前か(区切り・..・ドライブを含まない)"""
     return (isinstance(name, str) and 0 < len(name) <= 240 and name not in (".", "..") and not any(c in name for c in '/\\:*?"<>|')
@@ -305,12 +315,15 @@ def _streamer(name):
 
 class Intake:
     def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
-                 norm_probe=None, norm_run=None, feedback=None):
+                 norm_probe=None, norm_run=None, feedback=None, live_begin=None):
         """prefs: src/home/prefs.py の Prefs(節 intake)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
         probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt_core.normalize)。
-        feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)"""
+        feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)。
+        live_begin(url, ctx): ライブ配信の依頼で録画を始めて結びつける関数 -> {"recorder", "recording", "existing"}(入口が Live.begin_request を渡す。
+        だめなら ValueError か live_export.LiveError。None = ライブ配信の依頼を断る)"""
         self.prefs, self.runner, self.data_dir = prefs, runner, data_dir
         self.feedback = feedback
+        self.live_begin = live_begin
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.probe = probe or probe_video
@@ -487,7 +500,7 @@ class Intake:
         except (ValueError, OSError) as e:
             self._record(folder, "url", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が読めません(%s)" % str(e)[:80]}])
             return {n}
-        if not isinstance(d, dict) or d.get("v") != 1 or d.get("kind") not in ("video", "url") or not REQ_ID_RE.match(rid):
+        if not isinstance(d, dict) or d.get("v") != 1 or d.get("kind") not in REQ_KINDS or not REQ_ID_RE.match(rid):
             self._record(folder, "url", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が正しくありません"}], rid=rid)
             return {n}
         memo = str(d.get("memo") or "")[:MEMO_MAX]
@@ -495,6 +508,10 @@ class Intake:
         speakers = parse_speakers(d.get("speakers"))   # 話す人(1.3.0 のアプリ。無ければ話者分離しない)
         tracks = parse_video_tracks(d.get("videoTracks")) if flow == "auto" else None   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
         cut = parse_cut(d.get("cut")) if flow == "auto" else None   # カットの方法(パックを作る ① だけ。無ければホームの設定)
+        batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.8.0。無ければホームの設定)
+        if d["kind"] == "live":   # ライブ配信(2-15): 配信中・配信前なら録画を始めて結びつける。終わっていれば ① 全自動
+            self._handle_live_request(folder, n, d, rid, cfg, memo, speakers, parse_video_tracks(d.get("videoTracks")), parse_cut(d.get("cut")))
+            return {n}
         if d["kind"] == "url":
             raw = [it for it in (d.get("items") if isinstance(d.get("items"), list) else [])[:MAX_URLS] if isinstance(it, dict)]
             lines = "\n".join("%s %s" % (str(it.get("url") or "")[:300], it.get("top", cfg["top"])) for it in raw)
@@ -502,7 +519,7 @@ class Intake:
             ranges = {youtube_id(str(it.get("url") or "")[:300]): parse_ranges(it.get("ranges")) for it in raw} if flow != "manual" else {}
             who, note = _streamer(d.get("streamer"))   # 2.1.0 のアプリは URL の依頼にも 1 人目の名前を付ける。無い・合わない = 今までどおりチャンネル名から
             self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers, tracks, ranges=ranges, cut=cut,
-                               weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note)
+                               weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note, deliver_batch=batch)
             return {n}
         names = d.get("files") if isinstance(d.get("files"), list) else []
         names = [x for x in names if _safe_name(x)][:20]
@@ -519,13 +536,61 @@ class Intake:
         results, runs = [], []
         for x in names:
             label = APP_FILE_RE.match(x).group(2) if APP_FILE_RE.match(x) else x
-            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder, speakers, tracks, cut)
+            res = self._accept_video(files[x], label, who, cfg, rid, flow, folder, speakers, tracks, cut, deliver_batch=batch)
             results.append(dict(res, label=label))
             runs += [res["runId"]] if res.get("runId") else []
         if note:
             results.append({"label": "配信者", "state": "accepted", "reason": note})
         self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut)
         return {n} | set(names)
+
+    def _handle_live_request(self, folder, n, d, rid, cfg, memo, speakers, tracks, cut):
+        """ライブ配信の依頼(docs/spec/friend-intake.md の 2-15。2.8.0 のアプリ。kind live・url 1 本・live = 友人の設定)。
+        配信中・配信前: 録画を始めて依頼に結びつける(live_begin = Live.begin_request)。以後はその録画の候補の検出・自動の採用・書き出し → パック → 届ける が
+        友人の設定で動く。もう終わっていれば kind url の ① 全自動と同じ(切り抜く数はホームの既定。1 本ずつ届ける)"""
+        url = str(d.get("url") or "")[:300]
+        vid = youtube_id(url)
+        settings = live_requests.clean_settings(d.get("live"))
+        who, note = _streamer(d.get("streamer"))
+        moved = [n]
+        if not vid:
+            self._record(folder, "live", "app", n, moved, who or "", memo, [], [{"label": url or n, "state": "rejected", "reason": "YouTube の配信の URL ではありません"}], "auto",
+                         speakers, rid=rid, tracks=tracks, cut=cut)
+            return
+        info = self.info(vid) or {}
+        title = info.get("title") or "https://www.youtube.com/watch?v=" + vid
+        label = "%s(ライブ配信)" % title
+        if info.get("live") == "post_live":   # 終わった直後(YouTube がアーカイブを用意している): 録画もアーカイブの切り抜きもまだできない(kind url と同じく断る。理由はライブ配信の言い方で)
+            self._record(folder, "live", "app", title, moved, who or "", memo, [],
+                         [{"label": label, "state": "rejected", "reason": "配信は終わったところで、アーカイブがまだ見られません(見られるようになってから、もう一度送ってください)"}],
+                         "auto", speakers, rid=rid, tracks=tracks, cut=cut)
+            return
+        if info.get("live") not in ("is_live", "is_upcoming"):   # 終わっている(か分からない): 普通の ① 全自動の依頼として流す
+            notes = [{"label": "ライブ配信", "state": "accepted",
+                      "reason": "配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)" if info else
+                      "配信の状態を確かめられなかったので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)"}]
+            self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", memo, rid, "auto", speakers, tracks,
+                               ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=1, notes=notes)
+            return
+        ctx = {"rid": rid, "deliverDir": os.path.join(folder, OUT_DIR), "url": "https://www.youtube.com/watch?v=" + vid, "title": title, "streamer": who or "",
+               "speakers": speakers, "videoTracks": tracks, "cut": cut, "memo": memo, "settings": settings}
+        if self.live_begin is None:
+            res = {"label": label, "state": "rejected", "reason": "この PC ではライブ配信の依頼を受け付けられません(リアルタイム切り抜きが使えません)"}
+        else:
+            try:
+                out = self.live_begin(ctx["url"], ctx) or {}
+                res = {"label": label, "state": "accepted",
+                       "reason": "録画を%s(切り抜きはできしだい 1 本ずつ届けます)" % ("始めました" if not out.get("existing") else "しています(前から録画中)")}
+            except Exception as e:   # noqa: BLE001  (録画元が動いていない・オフ・URL の形など。理由を友人に返す)
+                msg = str(e)[:160]   # Live.begin の LiveError はもう「録画を始められませんでした: …」で始まる(二重にしない)
+                res = {"label": label, "state": "rejected", "reason": msg if msg.startswith("録画を始められませんでした") else "録画を始められませんでした: " + msg}
+        items = [res, {"label": "ライブ配信", "state": "accepted", "reason": live_requests.settings_label(settings)}]
+        if note:
+            items.append({"label": "配信者", "state": "accepted", "reason": note})
+        if res["state"] == "accepted":
+            self.st["videos"][vid] = int(self.clock())
+            self._count()
+        self._record(folder, "live", "app", title, moved, who or "", memo, [], items, "auto", speakers, rid=rid, tracks=tracks, cut=cut)
 
     def _handle_manual_video(self, folder, n, p, cfg):
         m = NAME_PREFIX_RE.match(os.path.splitext(n)[0])
@@ -566,9 +631,10 @@ class Intake:
         self._process_urls(folder, n, [n], text, cfg, "manual", "", None, "check")
 
     def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None,
-                      streamer=None, streamer_note=""):
+                      streamer=None, streamer_note="", deliver_batch=None, notes=None):
         """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)。
-        streamer = 照らし合わせ済みの配信者の名前か None(None = まとめて実行がチャンネル名などから決める)・streamer_note = 合わなかったときの知らせ"""
+        streamer = 照らし合わせ済みの配信者の名前か None(None = まとめて実行がチャンネル名などから決める)・streamer_note = 合わなかったときの知らせ。
+        deliver_batch = 依頼ごとの届け方(2-16。None = ホームの設定)・notes = 一覧に添える知らせの行(NOTE_LABELS の label。数には入れない)"""
         ok, bad = parse_lines(text, int(cfg["top"]))
         results = [{"label": b["line"], "state": "rejected", "reason": b["reason"]} for b in bad]
         todo, seen, known = [], set(), []
@@ -608,7 +674,7 @@ class Intake:
             try:
                 out = self.runner().start_request([{k: it[k] for k in ("id", "top", "title", "channel", "ranges", "duration")} for it in todo], request_id=rid,
                                                   flow=flow, deliver_dir=os.path.join(folder, OUT_DIR), speakers=speakers,
-                                                  video_tracks=tracks, cut=cut, weights=weights, streamer=streamer)
+                                                  video_tracks=tracks, cut=cut, weights=weights, streamer=streamer, deliver_batch=deliver_batch)
             except ValueError as e:
                 out = {"runs": [], "skipped": [{"id": it["id"], "reason": str(e)} for it in todo]}
             by_vid = {r["videoId"]: r for r in out.get("runs") or []}
@@ -629,11 +695,13 @@ class Intake:
         n_ranges = sum(len(it["ranges"]) for it in todo)
         if streamer_note:   # 動画の依頼と同じ形の知らせ(受け付けた・断ったの数には入れない)
             results.append({"label": "配信者", "state": "accepted", "reason": streamer_note})
+        if notes and any(r["state"] == "accepted" and r.get("label") not in NOTE_LABELS for r in results):   # 受け付けたときだけ(断ったのに「切り抜きます」と出さない)
+            results.extend(notes)
         self._record(folder, "url", source, first, moved, streamer or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
                      ranges_label="区間: %s" % "・".join(["%s〜%s" % (hms(s), hms(e)) for it in todo for s, e in it["ranges"]][:3]) +
                      (" ほか %d" % (n_ranges - 3) if n_ranges > 3 else "") if n_ranges else "")
 
-    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None, cut=None):
+    def _accept_video(self, p, label, who, cfg, rid, flow="check", folder=None, speakers=None, tracks=None, cut=None, deliver_batch=None):
         """1本の動画を確かめて、作業データへコピーし、文字起こしに入れる。-> {"state", "reason", "runId"?}。
         前に受け付けた動画と同じでも断らない(映像トラックの数などを変えて送り直せるように。2026-10-02 ユーザー)"""
         ext = os.path.splitext(p)[1].lower()
@@ -669,7 +737,7 @@ class Intake:
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
                                            deliver_dir=os.path.join(folder, OUT_DIR) if folder else None, speakers=speakers,
-                                           video_tracks=tracks, cut=cut)
+                                           video_tracks=tracks, cut=cut, deliver_batch=deliver_batch)
         except ValueError as e:
             try:
                 os.remove(dest)
@@ -725,7 +793,7 @@ class Intake:
     # ------------------------------------------------------------ 後始末と記録
     def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None, tracks=None, cut=None,
                 weights=None, ranges_label=""):
-        accepted = any(i["state"] == "accepted" and i.get("label") != "配信者" for i in items)
+        accepted = any(i["state"] == "accepted" and i.get("label") not in NOTE_LABELS for i in items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
         rec = {"id": uuid.uuid4().hex[:10], "kind": kind, "source": source, "title": str(title)[:200], "streamer": streamer or "",
@@ -749,7 +817,7 @@ class Intake:
         bad = [i for i in items if i["state"] == "rejected"]
         if not bad or not rid or not REQ_ID_RE.match(str(rid)):
             return
-        whole = not any(i["state"] == "accepted" and i.get("label") != "配信者" for i in items)
+        whole = not any(i["state"] == "accepted" and i.get("label") not in NOTE_LABELS for i in items)
         name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", "%s__%s" % (rid, title or "依頼"))[:180] + ".失敗.txt"
         text = ("依頼を受け付けられませんでした。" if whole else "依頼の一部を受け付けられませんでした(ほかは処理します)。") + "\r\n" + \
             "\r\n".join("%s: %s" % (i["label"], i.get("reason") or "受け付けられませんでした") for i in bad)

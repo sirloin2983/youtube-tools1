@@ -1,4 +1,5 @@
-// 1回の「送る」: 動画と URL が両方あれば依頼を2つに分ける(id も2つ)。動画 → 最後に依頼の JSON の順(JSON が届いた = そろった、の合図)
+// 1回の「送る」: 動画と URL が両方あれば依頼を2つに分ける(id も2つ)。動画 → 最後に依頼の JSON の順(JSON が届いた = そろった、の合図)。
+// ライブ配信の依頼(2.8.0)は 1 件 1 本だけで送る(動画・ほかの配信の URL と一緒には送らない)
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -17,6 +18,15 @@ namespace RequestSender
         public int VideoTracks = RequestSender.VideoTracks.Default;   // Resolve の映像トラックの数(① 全自動のときだけ送る)
         public string Cut = RequestSender.Cut.None;                   // カット(① 全自動のときだけ送る)
         public Weights Weights = new Weights();                       // 解析の重み(指定したときだけ・URL の依頼だけ)
+        public int DeliverBatch = RequestSender.DeliverBatch.Default; // 届け方(① 全自動の url・video の依頼だけ送る。2.8.0)
+        public LiveRequest Live;                                      // ライブ配信の依頼(2.8.0。null = なし)
+    }
+
+    // ライブ配信の依頼: 配信の URL 1 本(正規化済み)と友人のベータの設定
+    public class LiveRequest
+    {
+        public string Url = "";
+        public LiveSettings Settings = new LiveSettings();
     }
 
     public class SendProgress
@@ -40,7 +50,12 @@ namespace RequestSender
         public static List<string> Check(SendInput input)
         {
             var errs = new List<string>();
-            if (input.Videos.Count == 0 && input.Items.Count == 0) errs.Add("動画か配信の URL を入れてください。");
+            if (input.Live != null)
+            {
+                if (YouTubeUrl.ExtractId(input.Live.Url) == null) errs.Add("ライブ配信の URL が YouTube の形ではありません(watch?v=… / youtu.be/… / live/… の形)。");
+                if (input.Videos.Count > 0 || input.Items.Count > 0) errs.Add(LiveAloneMessage);
+            }
+            else if (input.Videos.Count == 0 && input.Items.Count == 0) errs.Add("動画か配信の URL を入れてください。");
             foreach (var it in input.Items)
             {
                 if (!Validation.TopInRange(it.Top)) errs.Add("切り抜く数は " + Validation.MinTop + "〜" + Validation.MaxTop + " にしてください。");
@@ -64,11 +79,25 @@ namespace RequestSender
             return errs;
         }
 
+        public const string LiveAloneMessage = "ライブ配信の依頼は 1 件だけで送ります。配信の URL・動画ファイルの欄を空にしてから送ってください(それらを送るなら、ライブ配信の URL を消してください)。";
+
         public void Run(SendInput input)
         {
             long total = input.Videos.Sum(v => new FileInfo(v).Length);
             var prog = new SendProgress { Total = Math.Max(1, total) };
             DateTimeOffset now = DateTimeOffset.Now;
+
+            if (input.Live != null)
+            {
+                string id = RequestId.New(now.LocalDateTime);
+                prog.Step = "ライブ配信の依頼を送っています";
+                Progress(prog);
+                string json = RequestJson.Live(id, input.Live.Url, input.Memo, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.Live.Settings);
+                client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
+                Sent.Add("ライブ配信");
+                Progress(new SendProgress { Done = prog.Total, Total = prog.Total, Step = "送りました" });
+                return;
+            }
 
             string urlId = null;
             if (input.Items.Count > 0)
@@ -76,7 +105,7 @@ namespace RequestSender
                 string id = urlId = RequestId.New(now.LocalDateTime);
                 prog.Step = "配信の URL を送っています";
                 Progress(prog);
-                string json = RequestJson.Url(id, input.Items, input.Memo, input.Flow, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.Weights);
+                string json = RequestJson.Url(id, input.Items, input.Memo, input.Flow, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.Weights, input.DeliverBatch);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
                 Sent.Add("配信の URL(" + input.Items.Count + " 本)");
             }
@@ -101,7 +130,7 @@ namespace RequestSender
                 }
                 prog.Step = "依頼を送っています";
                 Progress(new SendProgress { Done = total, Total = prog.Total, Step = prog.Step });
-                string json = RequestJson.Video(id, names, input.Memo, input.Flow, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut);
+                string json = RequestJson.Video(id, names, input.Memo, input.Flow, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.DeliverBatch);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
                 Sent.Add("動画(" + input.Videos.Count + " 本)");
             }

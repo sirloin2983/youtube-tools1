@@ -2,7 +2,8 @@
 docs/spec/friend-intake.md の 2-7。
 
 - zip_pack: 1本のパックのフォルダを zip にして置く。「編集」の ③ パックの「友人へ届ける」と、① 全自動(src/home/autorun.py)の 1 本ずつの届け方が使う
-- zip_packs: n 本のパックを 1 つの zip に(① 全自動の「n 本ごとにまとめて届ける」。n はホームの設定 intake.deliverBatch)。中は <題>_pack/ が並び、まとめ動画も入る
+- zip_packs: パックを zip に(① 全自動は 1 本ずつ呼ぶ。n 本を 1 つにも、まとめ動画 extra を中に入れることもできる = 前の形)。中は <題>_pack/ が並ぶ
+- group_paths / clip_seconds / group_members / write_group_json: 組(n 本 = まとめ動画 1 本 + 1 本ずつの zip + 組の一覧 <名前>.group.json。2-16。ホーム 0.47.0)の名前・長さ・一覧
 - make_preview / batch_preview: n 本の切り抜きをつなげた確認用の動画(480p・2 倍速・各クリップの頭に「i/N 題」の札。字幕なし)。友人が受け取る前に見るためのもの。
   place_preview が zip の隣に <zip の名前>.preview.mp4 で置く
 - 名前: zip は <依頼 id>__<題>(delivery_name)。同じ名前があれば末尾に 4 文字足す(unique_zip)
@@ -12,6 +13,7 @@ zip は動画を圧縮しない(ZIP_STORED)ので CPU はほとんど使わな�
 同時に作るのは1本だけ(ディスクの取り合いを避ける)。
 """
 import os
+import json
 import re
 import shutil
 import subprocess
@@ -280,6 +282,57 @@ def batch_preview(dirs, check=None, log=None):
         return out
     remove_quiet(out)
     return None
+
+
+# ---- 組で届ける(docs/spec/friend-intake.md の 2-16。ホーム 0.47.0): まとめ動画 1 本 + 1 本ずつの zip + 組の一覧 <名前>.group.json
+GROUP_SUFFIX = ".group.json"
+
+
+def group_paths(out_dir, name):
+    """組の名前 <依頼 id>__<題> 1-5 -> (まとめ動画のパス, 組の一覧のパス, 使う名前)。同じ名前の組があれば末尾に 4 文字足す(zip の unique_zip と同じ)"""
+    if os.path.exists(os.path.join(out_dir, name + PREVIEW_SUFFIX)) or os.path.exists(os.path.join(out_dir, name + GROUP_SUFFIX)):
+        name = "%s-%s" % (name, uuid.uuid4().hex[:4])
+    return os.path.join(out_dir, name + PREVIEW_SUFFIX), os.path.join(out_dir, name + GROUP_SUFFIX), name
+
+
+def clip_seconds(dirs, ffprobe=None):
+    """各パックの切り抜きの長さ(秒。分からなければ None)。組の一覧の previewStart・duration に使う(まとめ動画は等速なので頭からの秒がそのまま)"""
+    out = []
+    for d in dirs:
+        v = pack_video(d)
+        info = normalize.probe(v, ffprobe=ffprobe) if v else None
+        dur = (info or {}).get("duration")
+        out.append(float(dur) if isinstance(dur, (int, float)) and dur > 0 else None)
+    return out
+
+
+def group_members(zips, titles, seconds):
+    """組の一覧の packs: [{"n", "zip", "title", "previewStart", "duration"}]。zips = [(何本目, zip のパス)]。長さの分からないクリップがあれば previewStart はそこから None"""
+    out, at = [], 0.0
+    for (n, zp), title, sec in zip(zips, titles, seconds):
+        item = {"n": n, "zip": os.path.basename(zp), "title": title, "previewStart": round(at, 2) if at is not None else None,
+                "duration": round(sec, 2) if sec is not None else None}
+        out.append(item)
+        at = at + sec if at is not None and sec is not None else None
+    return out
+
+
+def write_group_json(path, title, rng, preview_path, members, now=None):
+    """組の一覧を書く(最後に置く = 友人のアプリは一覧が見えたら組がそろっているとみなす)。UTF-8・BOM なし"""
+    when = now if now is not None else time.time()
+    doc = {"v": 1, "title": title, "range": rng, "preview": os.path.basename(preview_path) if preview_path else None, "packs": list(members),
+           "sentAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(when)) + _tz_text(when)}
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        json.dump(doc, f, ensure_ascii=False)
+    return doc
+
+
+def _tz_text(t):
+    """その時刻の UTC とのずれ(+09:00 の形。夏時間もその時刻のもの)"""
+    off = time.localtime(t).tm_gmtoff
+    sign = "+" if off >= 0 else "-"
+    off = abs(int(off))
+    return "%s%02d:%02d" % (sign, off // 3600, off % 3600 // 60)
 
 
 class Deliveries:

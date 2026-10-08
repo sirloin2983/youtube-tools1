@@ -113,6 +113,7 @@ class Detector:
         self.restarts = 0
         self.last_exit = None
         self.lock = threading.RLock()     # decisions.json・auto_failures.json の書き込み(API の要求と見回りが同時に来る)
+        self._tick_lock = threading.Lock()   # tick(見回りと友人の依頼の wake)を 1 つずつ
         self._spec, self._spec_at = None, -1e18
         self._written = None
         self._tries = {}                   # (録画元, 録画, 候補) -> 自動の採用を試した数
@@ -138,7 +139,32 @@ class Detector:
         return {"enabled": a.get("enabled") is True, "waitMin": a.get("waitMin") if isinstance(a.get("waitMin"), int) else 5}
 
     def enabled(self):
-        return self.live.enabled() and self.detect_cfg().get("enabled") is True
+        """検出を動かすか: リアルタイム切り抜きがオンで、検出のスイッチがオンか、友人のライブ配信の依頼の録画がある(2-15: 友人の録画は常に動かす)"""
+        return self.live.enabled() and (self.detect_cfg().get("enabled") is True or bool(self.requests_cfg()))
+
+    def requests_cfg(self):
+        """友人のライブ配信の依頼の録画ごとの設定(config.json の requests。ワーカーはこの録画を、ホームの検出がオフでも測り、感度・枠・長さをこの値で)"""
+        out = {}
+        for k, v in self.live.requests.all().items():
+            s = v.get("settings") if isinstance(v.get("settings"), dict) else {}
+            out[k] = {"sens": s.get("sens", "normal"), "perHour": s.get("perHour", 6), "length": s.get("length", 45)}
+        return out
+
+    def adopt_for(self, req):
+        """録画ごとの自動の採用 {"enabled", "waitMin"}: 友人の依頼の録画(req = live.requests.get の項目)は常にオンで待ちは依頼の waitMin(2-15)、
+        ほかはホームの設定(adopt_cfg)"""
+        a = self.adopt_cfg()
+        if req is None:
+            return a
+        w = (req.get("settings") if isinstance(req.get("settings"), dict) else {}).get("waitMin")
+        return {"enabled": True, "waitMin": w if isinstance(w, int) and not isinstance(w, bool) and w > 0 else a["waitMin"]}
+
+    def wake(self):
+        """友人の依頼で録画を始めた直後: 次の見回りを待たずに config.json を書いてワーカーを起こす"""
+        try:
+            self.tick()
+        except Exception as e:   # noqa: BLE001  (起こせなくても見回りが拾う)
+            self.live.note("盛り上がりの検出: 友人の依頼で起こせませんでした: %r" % (e,))
 
     def spec(self):
         """スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)。SETTINGS_EVERY ごとにスタジオに聞く。つながらなければ前の値か既定"""
@@ -158,7 +184,8 @@ class Detector:
     def config(self):
         return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.live.recorders()],
                 "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
-                "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint()}
+                "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint(),
+                "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg()}   # 友人の依頼の録画(2-15)
 
     def _length_hint(self):
         """M10: 人が選んだ区間の長さの目安(夜の自動測定 dev/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
@@ -180,17 +207,19 @@ class Detector:
 
     # ---- 見回り(Live.tick から 30 秒ごと)
     def tick(self):
-        """オン: config.json → ワーカーを起動・見張る → 自動の採用。オフ: ワーカーを止める。-> "off"|"running"|"spawned"|"failed"|"nospawn\""""
-        if not self.enabled():
-            self.stop()
-            return "off"
-        self.write_config()
-        state = self._ensure() if self.spawn_ok else "nospawn"
-        try:
-            self.auto_tick()
-        except Exception as e:   # 自動の採用の不具合でも、見張りは続ける
-            self.live.note("リアルタイム切り抜き: 自動の採用でエラー: %r" % (e,))
-        return state
+        """オン: config.json → ワーカーを起動・見張る → 自動の採用。オフ: ワーカーを止める。-> "off"|"running"|"spawned"|"failed"|"nospawn"。
+        入口の見回り(Live.tick)と友人の依頼の受付(wake)の 2 つのスレッドから来るので 1 つずつ(同時にワーカーを 2 つ起動して、片方の手綱を失わないため)"""
+        with self._tick_lock:
+            if not self.enabled():
+                self.stop()
+                return "off"
+            self.write_config()
+            state = self._ensure() if self.spawn_ok else "nospawn"
+            try:
+                self.auto_tick()
+            except Exception as e:   # 自動の採用の不具合でも、見張りは続ける
+                self.live.note("リアルタイム切り抜き: 自動の採用でエラー: %r" % (e,))
+            return state
 
     def heartbeat(self):
         """worker.json(ワーカーの心拍)。無い・読めなければ None"""
@@ -370,10 +399,12 @@ class Detector:
                 raise LX.LiveError("since は数で指定してください")
         doc, peaks, pending = self.view(rc, rec)
         det = self.detect_cfg()
+        req = self.live.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出・自動採用がオフでも依頼の設定で動く(2-15)
         seq = int((doc or {}).get("seq") or 0)
-        out = {"ok": True, "enabled": self.enabled(), "recorder": rc, "recording": rec, "seq": seq, "worker": self.worker_view(doc),
+        out = {"ok": True, "enabled": self.enabled() and (det.get("enabled") is True or req is not None), "recorder": rc, "recording": rec, "seq": seq,
+               "worker": self.worker_view(doc),
                "hour": {"perHour": (doc or {}).get("perHour") or det.get("perHour") or 6, "counts": (doc or {}).get("counts") or {}},
-               "autoAdopt": self.adopt_cfg(), "changes": []}
+               "autoAdopt": self.adopt_for(req), "changes": []}
         chs = [c for c in (doc or {}).get("changes") or [] if isinstance(c, dict) and isinstance(c.get("seq"), int)]
         if since is None or since > seq or (chs and since < chs[0]["seq"] - 1):
             out["peaks"] = peaks
@@ -475,7 +506,11 @@ class Detector:
         for key in [k for k, t in self._seen_at.items() if now - t > SEEN_KEEP_SEC]:   # 採用した・録画が終わった候補の分は残さない(録画のたびに増え続けない)
             self._seen.pop(key, None)
             self._seen_at.pop(key, None)
-        if not a["enabled"] or not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
+        if not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
+            return 0
+        # 依頼の無い録画は、ホームの検出と自動採用の両方がオンのときだけ(友人の依頼だけで検出が動いている間に、止めた録画の古い候補を採用しない)
+        home = a["enabled"] and self.detect_cfg().get("enabled") is True
+        if not home and not self.requests_cfg():   # 採用する録画が無い(録画元に聞かない)
             return 0
         done = 0
         given = {(x.get("recorder"), x.get("recording"), x.get("id")) for x in self._load_fails()}
@@ -483,6 +518,10 @@ class Detector:
             if not r.get("active") or not isinstance(r.get("firstPdt"), (int, float)) or not isinstance(r.get("lastPdt"), (int, float)):
                 continue
             rc, rec = r["recorder"], r["id"]
+            req = self.live.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、自動採用のスイッチがオフでも採用する(待ちは依頼の設定。2-15)
+            if req is None and not home:
+                continue
+            wait_min = self.adopt_for(req)["waitMin"]
             _doc, peaks, _pending = self.view(rc, rec)
             for pk in peaks:
                 key = (rc, rec, pk.get("id"))
@@ -492,7 +531,7 @@ class Detector:
                 # 録画の秒(confirmedAt)で比べると、ワーカーの遅れの分だけ人が見られる時間が短くなる)
                 first = self._seen.setdefault(key, now)
                 self._seen_at[key] = now
-                if now - first < a["waitMin"] * 60:
+                if now - first < wait_min * 60:
                     continue
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")

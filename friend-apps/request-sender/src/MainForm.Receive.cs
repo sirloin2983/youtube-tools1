@@ -6,6 +6,9 @@
 //                     %TEMP%\RequestSender\previews へ裏で先に取ってあるので、すぐ見られる。小窓の [受け取る] [要らない] でそのまま続けられる。受け取った・要らないにしたら写しは消す
 //   要らない / 消す  … 1 つのボタン。パックなら記録(<zip>.feedback.json)を受付のフォルダに置いてから受け取らずに Dropbox から消す(まとめ動画も。記録が置けなくても消す。2.6.0)、
 //                     失敗の知らせなら読み終えたあとに消す
+//   組(2.8.0。2-16)… 「<題> 1-5(5 本)」の行の下に 1 本ずつの行。組の行では [受け取る] = 組の残りを全部・[要らない] = 組の残りを全部・[まとめ動画を見る] = 組のまとめ動画
+//                     (小窓の右の一覧でチェックした分だけ受け取り、外した分は要らない)。1 本の行は今までどおり(まとめ動画は組のものを、その本の頭から)。
+//                     組の最後の 1 本を片付けたら .group.json と組のまとめ動画も Dropbox から消す
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -30,7 +33,7 @@ namespace RequestSender
         readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), receiveAllBtn = new Btn("すべて受け取る", BtnKind.Normal),
                      cancelRecvBtn = new Btn("やめる", BtnKind.Normal), previewBtn = new Btn("まとめ動画を見る", BtnKind.Normal), deleteBtn = new Btn("消す", BtnKind.Normal),
                      openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
-        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(何本かまとめて 1 つに)。「まとめ動画を見る」で中身を先に見て、「受け取る」(保存先にフォルダとして展開)か「要らない」を決めます。", Tone.Muted);
+        readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(1 本ずつ・何本かの組で)。「まとめ動画を見る」で中身を先に見て、1 本ずつ「受け取る」(保存先にフォルダとして展開)か「要らない」を決めます。", Tone.Muted);
         readonly Lbl recvStatus = new Lbl("", Tone.Muted), lDir = new Lbl("保存先", Tone.Muted), dirLabel = new Lbl("", Tone.Text);
         readonly Bar recvBar = new Bar();
         readonly Dictionary<string, string> failureTexts = new Dictionary<string, string>();
@@ -41,7 +44,8 @@ namespace RequestSender
         volatile bool recvCancel;
         readonly PreviewQueue previewQueue = new PreviewQueue();                         // まとめ動画を裏で取る順番(2.7.0)
         readonly Dictionary<string, string> previewReady = new Dictionary<string, string>();   // 取り終えたまとめ動画(パックの Key → 写しの場所)
-        OutputEntry previewWanted;   // 「まとめ動画を見る」を押して、取れるのを待っているもの
+        OutputEntry previewWanted;   // 「まとめ動画を見る」を押して、取れるのを待っているもの(パックか組)
+        OutputEntry previewFrom;     // そのとき選んでいた行(組の 1 本の行なら、その本の頭から再生する)
         bool prefetchRunning;
 
         // 裏の処理が終わった知らせを画面が受け取るまで true(スレッドが生きているかでは見ない。終わりの直前に並べた画面の処理と食い違うため)
@@ -57,9 +61,9 @@ namespace RequestSender
             recvHint.AutoSize = false;
 
             outList.AccessibleName = "届いたものの一覧";
-            outList.Texts = e => new[] { e.Kind == OutputKind.Pack ? "パック" : "失敗", e.Title, e.Kind == OutputKind.Pack ? SizeText(e.Size) : "", When(e.Modified) };
+            outList.Texts = e => new[] { KindText(e), RowTitle(e), e.Kind == OutputKind.Failure ? "" : SizeText(RowSize(e)), When(e.Modified) };
             outList.SelectedIndexChanged += (s, e) => ShowSelected();
-            outList.DoubleClick += (s, e) => { if (IsPack(SelectedEntry)) StartDownload(); };
+            outList.DoubleClick += (s, e) => { if (IsPack(SelectedEntry) || IsGroup(SelectedEntry)) StartDownload(); };
             listHeader.List = outList;
             listFrame.Controls.Add(listHeader);
             listFrame.Controls.Add(outList);
@@ -116,7 +120,7 @@ namespace RequestSender
             changeDirBtn.Location = new Point(w - m - changeDirBtn.Width, y);
             dirLabel.SetBounds(lDir.Right + Ui.S(8), y, changeDirBtn.Left - lDir.Right - Ui.S(16), Ui.S(28));
             y += Ui.S(38);
-            receiveBtn.SetBounds(m, y, Ui.S(150), Ui.S(40));
+            receiveBtn.SetBounds(m, y, Math.Max(Ui.S(150), TextRenderer.MeasureText(receiveBtn.Text, receiveBtn.Font).Width + Ui.S(24)), Ui.S(40));   // 組の「受け取る(5 本)」は広げる
             receiveAllBtn.SetBounds(receiveBtn.Right + Ui.S(8), y, receiveAllBtn.Width, Ui.S(40));
             int x = receiveAllBtn.Right + Ui.S(8);
             cancelRecvBtn.Location = new Point(x, y + Ui.S(6));
@@ -151,20 +155,61 @@ namespace RequestSender
             return e != null && e.Kind == OutputKind.Pack;
         }
 
-        static bool HasPreview(OutputEntry e)
+        static bool IsGroup(OutputEntry e)
         {
-            return IsPack(e) && e.Preview != null;
+            return e != null && e.Kind == OutputKind.Group;
         }
 
-        // 「要らない / 消す」を押せるもの: パック(受け取らずに消す)か、理由を読み終えた失敗の知らせ
+        // その行で見るまとめ動画の持ち主: 組の行 = 組 / 組の 1 本の行 = 組(組にまとめ動画が無ければ、その本の隣のもの)/ 1 本のパック = そのパック。無ければ null
+        static OutputEntry PreviewOwner(OutputEntry e)
+        {
+            if (e == null) return null;
+            if (IsGroup(e)) return e.Preview != null ? e : null;
+            if (!IsPack(e)) return null;
+            if (e.Parent != null && e.Parent.Preview != null) return e.Parent;
+            return e.Preview != null ? e : null;
+        }
+
+        static bool HasPreview(OutputEntry e)
+        {
+            return PreviewOwner(e) != null;
+        }
+
+        // 組の残り(n の順)
+        static List<OutputEntry> GroupPacks(OutputEntry g)
+        {
+            return g.Members.ToList();
+        }
+
+        static string KindText(OutputEntry e)
+        {
+            return e.Kind == OutputKind.Group ? "組" : e.Kind == OutputKind.Pack ? "パック" : "失敗";
+        }
+
+        // 一覧の題: 組 =「<題> 1-5(5 本)」/ 組の 1 本 =「  ├ 1. 題」(最後の本は └)/ ほか = 題
+        static string RowTitle(OutputEntry e)
+        {
+            if (IsGroup(e)) return OutputFolder.GroupLabel(e);
+            if (e.Parent == null || e.Slot == null) return e.Title;
+            bool last = e.Parent.Members.Count > 0 && e.Parent.Members[e.Parent.Members.Count - 1] == e;
+            return "  " + (last ? "└ " : "├ ") + e.Slot.N + ". " + e.Title;
+        }
+
+        static long RowSize(OutputEntry e)
+        {
+            return IsGroup(e) ? OutputFolder.TotalSize(e.Members) : e.Size;
+        }
+
+        // 「要らない / 消す」を押せるもの: パック・組(受け取らずに消す)か、理由を読み終えた失敗の知らせ
         bool CanDelete(OutputEntry e)
         {
-            return IsPack(e) || (e != null && e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key));
+            return IsPack(e) || IsGroup(e) || (e != null && e.Kind == OutputKind.Failure && failureTexts.ContainsKey(e.Key));
         }
 
         // 「要らない / 消す」のボタンの文字(確認の窓の題にも使う)
         static string DeleteLabel(OutputEntry e)
         {
+            if (IsGroup(e)) return "要らない(" + e.Members.Count + " 本)";
             return IsPack(e) ? "要らない" : "消す";
         }
 
@@ -175,8 +220,9 @@ namespace RequestSender
             int packs = PackCount;
             refreshBtn.Enabled = !busy;
             changeDirBtn.Enabled = !busy;
-            receiveBtn.Enabled = !busy && IsPack(e);
-            receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : "受け取る";
+            receiveBtn.Enabled = !busy && (IsPack(e) || IsGroup(e));
+            receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : IsGroup(e) ? "受け取る(" + e.Members.Count + " 本)" : "受け取る";
+            receiveBtn.AccessibleName = IsGroup(e) ? "この組の残り " + e.Members.Count + " 本を受け取る" : "受け取る";
             receiveAllBtn.Enabled = !busy && packs > 0;
             receiveAllBtn.Text = busy && recvAll ? "すべて受け取っています…" : packs > 1 ? "すべて受け取る(" + packs + " 本)" : "すべて受け取る";
             receiveAllBtn.FitWidth();
@@ -221,12 +267,12 @@ namespace RequestSender
             outList.EndUpdate();
             listHeader.Invalidate();
             detail.Text = "";
-            SetArrived(entries.Count, false);
-            int packs = PackCount, fails = entries.Count - packs;
+            SetArrived(OutputFolder.CountItems(entries), false);
+            int packs = PackCount, groups = entries.Count(IsGroup), fails = OutputFolder.CountItems(entries) - packs;
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
-                string what = (packs > 0 ? "パック " + packs + " 本" : "") + (packs > 0 && fails > 0 ? "・" : "") + (fails > 0 ? "失敗の知らせ " + fails + " 件" : "");
+                string what = (packs > 0 ? "パック " + packs + " 本" + (groups > 0 ? "(組 " + groups + ")" : "") : "") + (packs > 0 && fails > 0 ? "・" : "") + (fails > 0 ? "失敗の知らせ " + fails + " 件" : "");
                 string how = packs > 1 ? "「すべて受け取る」でまとめて受け取れます。" : packs == 1 ? "選んで「受け取る」を押してください。" : "選ぶと理由が出ます。";
                 SetRecvStatus(what + "があります。" + how, false);
                 outList.SelectedIndex = 0;
@@ -240,13 +286,18 @@ namespace RequestSender
             UpdateRecvButtons();
             var e = SelectedEntry;
             if (e == null) { detail.Text = ""; return; }
+            if (IsGroup(e)) { detail.Text = GroupDetail(e); return; }
             if (e.Kind == OutputKind.Pack)
             {
                 int same = OutputFolder.CountSameRequest(entries, e);
-                detail.Text = "題: " + e.Title + "\r\n" +
+                var owner = PreviewOwner(e);
+                string inGroup = e.Parent != null && e.Slot != null
+                    ? "組: " + OutputFolder.GroupLabel(e.Parent) + " の " + e.Slot.N + " 本目" + (owner == e.Parent && e.Slot.HasStart ? "(まとめ動画の " + PreviewForm.Clock(e.Slot.PreviewStart) + " から)" : "") + "\r\n" : "";
+                detail.Text = "題: " + e.Title + "\r\n" + inGroup +
                               (e.RequestId.Length > 0 ? "依頼: " + e.RequestId + (same > 1 ? "(この依頼のパックは、届いている中に " + same + " 本)" : "") + "\r\n" : "") +
-                              "大きさ: " + SizeText(e.Size) + "\r\n届いた日時: " + When(e.Modified) + "\r\n" +
-                              "まとめ動画: " + PreviewText(e) + "\r\n\r\n" +
+                              "大きさ: " + SizeText(e.Size) + (e.Slot != null && e.Slot.Duration > 0 ? "(切り抜きの長さ " + PreviewForm.Clock(e.Slot.Duration) + ")" : "") +
+                              "\r\n届いた日時: " + When(e.Modified) + "\r\n" +
+                              "まとめ動画: " + (owner != null ? PreviewText(owner) : "なし") + "\r\n\r\n" +
                               "DaVinci Resolve のパック(字幕は校正の前)です。「受け取る」を押すと保存先にフォルダとして展開し(zip は消します)、確かめたあと Dropbox と一覧から消えます。" +
                               "要らなければ「要らない」で、受け取らずに Dropbox から消せます(要らなかったことは送り先の人に伝わります)。";
                 return;
@@ -270,6 +321,18 @@ namespace RequestSender
             });
         }
 
+        // 組の行の説明: 題・依頼・残りの本数と大きさ・まとめ動画・1 本ずつの一覧・ボタンの意味
+        string GroupDetail(OutputEntry g)
+        {
+            var lines = g.Members.Select(m => "  " + m.Slot.N + ". " + m.Title + "(" + (m.Slot.Duration > 0 ? PreviewForm.Clock(m.Slot.Duration) + "・" : "") + SizeText(m.Size) + ")");
+            return "組: " + OutputFolder.GroupLabel(g) + "\r\n" +
+                   (g.RequestId.Length > 0 ? "依頼: " + g.RequestId + "\r\n" : "") +
+                   "大きさ: 合計 " + SizeText(OutputFolder.TotalSize(g.Members)) + "\r\n届いた日時: " + When(g.Modified) + "\r\n" +
+                   "まとめ動画: " + PreviewText(g) + "\r\n\r\n" + string.Join("\r\n", lines) + "\r\n\r\n" +
+                   "この組は 1 本ずつ選べます。「まとめ動画を見る」で全部を続けて見て、窓の右の一覧でチェックした本だけ受け取れます(外した本は「要らない」)。\r\n" +
+                   "この行の「受け取る」= この組の残りを全部受け取る / 「要らない」= この組の残りを全部要らない。1 本ずつ決めるなら、下の行を選んでください。";
+        }
+
         void ShowFailure(OutputEntry e, string reason)
         {
             detail.Text = "自動の処理が失敗しました(" + e.Title + ")。\r\n送り先の人に伝えるか、「② 軽く確認」か「③ 全部人が行う」で送り直してください。\r\n読み終えたら「消す」を押すと、一覧から消えます。\r\n\r\n理由:\r\n" + reason;
@@ -280,7 +343,9 @@ namespace RequestSender
         void StartDownload()
         {
             var e = SelectedEntry;
-            if (RecvBusy || !IsPack(e)) return;
+            if (RecvBusy) return;
+            if (IsGroup(e)) { StartDownloadMany(GroupPacks(e), "この組の残り(" + OutputFolder.GroupLabel(e) + ")", "組を受け取る", false); return; }   // 組の行 = 組の残りを全部
+            if (!IsPack(e)) return;
             string dir = downloadDir;
             var receiving = BeginFetch("受け取る準備をしています…", false);
             if (receiving == null) return;
@@ -289,6 +354,7 @@ namespace RequestSender
             RunRecv(() =>
             {
                 var got = receiving.ReceiveOne(e, dir, show);
+                if (got.Deleted) receiving.FinishGroups(new[] { e });   // 組の最後の 1 本なら .group.json と組のまとめ動画も消す
                 OnUi(() => ShowReceived(e, got));
             });
         }
@@ -314,39 +380,61 @@ namespace RequestSender
         // 届いているパックを古い順にまとめて受け取る(Receiving.DownloadAll。1 本ずつ ReceiveOne と同じように)
         void StartDownloadAll()
         {
-            if (RecvBusy) return;
-            var packs = OutputFolder.PacksOldestFirst(entries);
-            if (packs.Count == 0) return;
+            StartDownloadMany(OutputFolder.PacksOldestFirst(entries), "届いているパック", "すべて受け取る", true);
+        }
+
+        // 何本かを順に受け取る(すべて受け取る・組の行の「受け取る」)。押すと本数と合計の大きさの確認を 1 回出す。all = 「すべて受け取る」のボタンから
+        void StartDownloadMany(List<OutputEntry> packs, string what, string caption, bool all)
+        {
+            if (RecvBusy || packs.Count == 0) return;
             long total = OutputFolder.TotalSize(packs);
-            if (MessageBox.Show(this, "届いているパック " + packs.Count + " 本(合計 " + Mb(total) + ")をすべて受け取ります。\n保存先: " + downloadDir +
+            if (MessageBox.Show(this, what + " " + packs.Count + " 本(合計 " + Mb(total) + ")をすべて受け取ります。\n保存先: " + downloadDir +
                     "\n\n古い順に 1 本ずつ受け取って保存先にフォルダとして展開し、ちゃんと保存できたものから Dropbox と一覧から消えます。途中で「やめる」を押せます。",
-                    "すべて受け取る", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+                    caption, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            RunDecision(packs, new List<OutputEntry>(), all);
+        }
+
+        // 受け取るものと要らないものを一度に片付ける(すべて受け取る・組の「受け取る」・組の小窓の「チェックした n 本を受け取る(残りは要らない)」)。
+        // 要らない分を先に(記録を置いてから消す。すぐ終わる)、それから受け取る分を古い順に。組の最後の 1 本まで片付けたら .group.json と組のまとめ動画も消す
+        void RunDecision(List<OutputEntry> receive, List<OutputEntry> discard, bool all)
+        {
             string dir = downloadDir;
-            var receiving = BeginFetch("受け取る準備をしています…(" + packs.Count + " 本)", true);
+            var receiving = BeginFetch(receive.Count > 0 ? "受け取る準備をしています…(" + receive.Count + " 本)" : "消しています…", all);
             if (receiving == null) return;
-            Log.Write("receive all: " + packs.Count + " packs, " + total + " bytes");
+            if (receive.Count == 0) recvDownloading = false;   // 要らないだけ(取ってくるものは無い)
+            Log.Write("decide: receive " + receive.Count + " (" + OutputFolder.TotalSize(receive) + " bytes), discard " + discard.Count);
             var gate = new ProgressGate();
             RunRecv(() =>
             {
-                var r = receiving.DownloadAll(packs, dir, (no, e, done, all, step) =>
-                {
-                    int permille;
-                    if (gate.Changed(done, all, no + "|" + step, out permille))
-                        ShowRecvProgress(permille, step + "(" + no + " / " + packs.Count + " 本目: " + e.Title + ")… (全体 " + Mb(done) + " / " + Mb(all) + ")");
-                });
-                Log.Write("receive all: " + r.Received + "/" + r.Total + (r.Canceled ? " canceled" : "") + (r.Error != null ? " stopped: " + r.Error.Message : "") +
+                var d = receiving.DiscardAll(discard, DateTimeOffset.Now);
+                var r = new ReceiveAllResult { Total = receive.Count };
+                if (d.Error == null && receive.Count > 0)
+                    r = receiving.DownloadAll(receive, dir, (no, e, done, whole, step) =>
+                    {
+                        int permille;
+                        if (gate.Changed(done, whole, no + "|" + step, out permille))
+                            ShowRecvProgress(permille, step + "(" + no + " / " + receive.Count + " 本目: " + e.Title + ")… (全体 " + Mb(done) + " / " + Mb(whole) + ")");
+                    });
+                Log.Write("decide: discarded " + d.Done.Count + (d.Error != null ? " stopped: " + d.Error.Message : "") + ", received " + r.Received + "/" + r.Total +
+                          (r.Canceled ? " canceled" : "") + (r.Error != null ? " stopped: " + r.Error.Message : "") +
                           (r.Failed.Count > 0 ? " skipped " + r.Failed.Count : "") + (r.Kept.Count > 0 ? " not deleted " + r.Kept.Count : ""));
-                OnUi(() => FinishDownloadAll(r));
+                receiving.FinishGroups(d.Done.Concat(r.Done));
+                OnUi(() => FinishDecision(r, d, discard.Count));
             });
         }
 
-        void FinishDownloadAll(ReceiveAllResult r)
+        void FinishDecision(ReceiveAllResult r, DiscardAllResult d, int discardWanted)
         {
             if (r.LastPath != null) lastDownloaded = r.LastPath;
             foreach (var x in r.Done) Receiving.ForgetPreview(x);
-            RemoveEntries(r.Done);
-            if (r.Clean) recvBar.Value = 1000;
-            SetRecvStatus(r.Summary(r.Error != null ? RecvError(r.Error) : null), r.HasProblem, r.Clean);
+            RemoveEntries(d.Done.Concat(r.Done));
+            string gone = discardWanted == 0 ? "" : d.Done.Count == discardWanted ? "要らない " + d.Done.Count + " 本を消しました" + (d.NotRecorded > 0 ? "(" + d.NotRecorded + " 本は送り先の人への記録が送れず、伝わりません)" : "") + "。"
+                        : "要らない " + discardWanted + " 本のうち " + d.Done.Count + " 本を消したところで止まりました: " + RecvError(d.Error) + " ";
+            bool clean = d.Error == null && d.NotRecorded == 0 && (r.Total == 0 || r.Clean);
+            if (clean) recvBar.Value = 1000;
+            if (r.Total == 0) { SetRecvStatus(gone.Length > 0 ? gone : "", d.Error != null || d.NotRecorded > 0, clean); return; }
+            if (d.Error != null) { SetRecvStatus(gone + "受け取りはしていません。", true); return; }
+            SetRecvStatus(gone + r.Summary(r.Error != null ? RecvError(r.Error) : null), r.HasProblem || d.NotRecorded > 0, clean);
         }
 
         // 取ってくる処理(受け取る・すべて受け取る・まとめ動画)の始め: 鍵を読み、「やめる」を出す印を立て、下の文を出す。鍵が読めなければ null
@@ -403,6 +491,12 @@ namespace RequestSender
             cancelRecvBtn.Enabled = false;
             SetRecvStatus("やめています…(途中のファイルは消します)", false);
             Log.Write("receive: cancel requested");
+        }
+
+        // 画面の確認(--tab receive --select <行>)・テスト: 一覧の行を選ぶ
+        public void SelectEntry(int index)
+        {
+            if (index >= 0 && index < outList.Items.Count) outList.SelectedIndex = index;
         }
 
         // 画面の確認(--tab receive --state receiving): 「すべて受け取る」の途中の見た目(通信しない)
@@ -480,8 +574,9 @@ namespace RequestSender
             if (previewWanted == null || previewWanted.Key != e.Key) return;
             previewWanted = null;
             if (!RecvBusy) recvBar.Value = 1000;
-            var shown = entries.FirstOrDefault(x => x.Key == e.Key) ?? e;
-            OpenPreview(shown, path);
+            var from = previewFrom != null && entries.Contains(previewFrom) ? previewFrom : entries.FirstOrDefault(x => x.Key == e.Key) ?? e;
+            previewFrom = null;
+            OpenPreview(from, path);
         }
 
         void PreviewFailed(OutputEntry e, Exception ex)
@@ -501,36 +596,31 @@ namespace RequestSender
             return "あり(" + size + "。裏で取ってきています。「まとめ動画を見る」で再生できます)";
         }
 
-        // 「まとめ動画を見る」: 取ってあればすぐ小窓で。まだなら先頭に回して、取れたら開く
+        // 「まとめ動画を見る」: 取ってあればすぐ小窓で。まだなら先頭に回して、取れたら開く。組の行・組の 1 本の行は組のまとめ動画
         void StartPreview()
         {
-            var e = SelectedEntry;
-            if (!HasPreview(e)) return;
+            var sel = SelectedEntry;
+            var e = PreviewOwner(sel);
+            if (e == null) return;
             string path;
-            if (previewReady.TryGetValue(e.Key, out path) && File.Exists(path)) { OpenPreview(e, path); return; }
+            if (previewReady.TryGetValue(e.Key, out path) && File.Exists(path)) { OpenPreview(sel, path); return; }
             previewReady.Remove(e.Key);
             previewWanted = e;
+            previewFrom = sel;
             previewQueue.Prioritize(e);
             if (!RecvBusy) { recvBar.Value = 0; SetRecvStatus("まとめ動画を取ってきています…", false); }
             EnsurePrefetch(true);
         }
 
-        // 小窓で再生し、閉じたあと [受け取る] [要らない] を続ける。小窓が作れない PC では既定のプレイヤーで開く
+        // 小窓で再生し、閉じたあと [受け取る] [要らない] を続ける。小窓が作れない PC では既定のプレイヤーで開く。
+        // e = 選んでいた行。組(の行・1 本の行)なら組の小窓(1 本ずつの一覧つき。1 本の行からなら、その本の頭から)
         void OpenPreview(OutputEntry e, string path)
         {
+            var owner = PreviewOwner(e) ?? e;
+            if (IsGroup(owner)) { OpenGroupPreview(owner, e, path); return; }
             PreviewChoice choice;
-            try { choice = ShowPlayer(path, e.Title); }
-            catch (Exception ex)
-            {
-                Log.Write("preview window: " + ex);
-                try
-                {
-                    Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-                    SetRecvStatus("まとめ動画を既定のプレイヤーで開きました。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
-                }
-                catch (Exception ex2) { SetRecvStatus("まとめ動画を開けませんでした: " + ex2.Message + "(" + path + ")", true); }
-                return;
-            }
+            try { choice = ShowPlayer(path, e.Title, null, 0); }
+            catch (Exception ex) { OpenExternally(path, ex); return; }
             bool listed = entries.Contains(e);
             if (choice == PreviewChoice.None || !listed)
             {
@@ -543,11 +633,58 @@ namespace RequestSender
             else StartDelete();   // 確かめの窓が出る(受け取らずに消すのは戻せないため)
         }
 
-        // WPF の部品を使うのはここだけ(読み込めないときは呼んだ側の catch で既定のプレイヤーへ)
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        PreviewChoice ShowPlayer(string path, string title)
+        // 組の小窓(2.8.0): 右の一覧でチェックした本を受け取り、外した本を要らないにする(確かめの窓に本数と題を出してから)
+        void OpenGroupPreview(OutputEntry g, OutputEntry from, string path)
         {
-            using (var f = new PreviewForm(path, title))
+            var items = GroupPacks(g).Select(m => new PreviewItem { No = m.Slot.N, Title = m.Title, Start = m.Slot.PreviewStart, Duration = m.Slot.Duration, Tag = m }).ToList();
+            double start = from != null && from.Parent == g && from.Slot != null && from.Slot.HasStart ? from.Slot.PreviewStart : 0;
+            PreviewChoice choice;
+            try { choice = ShowPlayer(path, OutputFolder.GroupLabel(g), items, start); }
+            catch (Exception ex) { OpenExternally(path, ex); return; }
+            bool listed = entries.Contains(g);
+            if (choice != PreviewChoice.Decide || !listed)
+            {
+                if (listed) SetRecvStatus("組の行の「受け取る」で全部、1 本ずつの行で 1 本ずつ「受け取る」「要らない」を選べます。", false);
+                return;
+            }
+            if (RecvBusy) { SetRecvStatus("いまの処理が終わってから、もう一度押してください。", true); return; }
+            var receive = items.Where(i => i.Checked).Select(i => (OutputEntry)i.Tag).Where(entries.Contains).ToList();
+            var discard = items.Where(i => !i.Checked).Select(i => (OutputEntry)i.Tag).Where(entries.Contains).ToList();
+            if (receive.Count + discard.Count == 0) return;
+            if (MessageBox.Show(this, DecisionText(receive, discard), "組を片付ける", MessageBoxButtons.OKCancel, MessageBoxIcon.Question,
+                    discard.Count > 0 ? MessageBoxDefaultButton.Button2 : MessageBoxDefaultButton.Button1) != DialogResult.OK) return;
+            RunDecision(receive, discard, false);
+        }
+
+        // 確かめの窓の文: 受け取る n 本・要らない m 本(題の一覧)
+        string DecisionText(List<OutputEntry> receive, List<OutputEntry> discard)
+        {
+            Func<List<OutputEntry>, string> lines = list => string.Join("\n", list.Take(10).Select(m => "  " + (m.Slot != null ? m.Slot.N + ". " : "") + m.Title)) +
+                                                           (list.Count > 10 ? "\n  ほか " + (list.Count - 10) + " 本" : "");
+            string text = "";
+            if (receive.Count > 0) text += "受け取る " + receive.Count + " 本(合計 " + Mb(OutputFolder.TotalSize(receive)) + "):\n" + lines(receive) + "\n\n";
+            if (discard.Count > 0) text += "要らない " + discard.Count + " 本(送り先の Dropbox から消え、もう受け取れません。要らなかったことは送り先の人に伝わります):\n" + lines(discard) + "\n\n";
+            if (receive.Count > 0) text += "受け取る分は古い順に、保存先(" + downloadDir + ")へフォルダとして展開します。";
+            return text + (receive.Count > 0 ? "\n" : "") + "よろしいですか?";
+        }
+
+        // 小窓が作れない PC: 既定のプレイヤーで開く
+        void OpenExternally(string path, Exception why)
+        {
+            Log.Write("preview window: " + why);
+            try
+            {
+                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                SetRecvStatus("まとめ動画を既定のプレイヤーで開きました。要るなら「受け取る」、要らなければ「要らない」を押してください。", false);
+            }
+            catch (Exception ex2) { SetRecvStatus("まとめ動画を開けませんでした: " + ex2.Message + "(" + path + ")", true); }
+        }
+
+        // WPF の部品を使うのはここだけ(読み込めないときは呼んだ側の catch で既定のプレイヤーへ)。items があれば組の小窓(閉じたあと Checked を見る)
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        PreviewChoice ShowPlayer(string path, string title, List<PreviewItem> items, double start)
+        {
+            using (var f = new PreviewForm(path, title, items, start))
             {
                 f.ShowDialog(this);
                 return f.Choice;
@@ -559,6 +696,14 @@ namespace RequestSender
         {
             var e = SelectedEntry;
             if (RecvBusy || !CanDelete(e)) return;
+            if (IsGroup(e))   // 組の行 = 組の残りを全部要らない(1 本ずつ記録を置いてから消し、最後に .group.json と組のまとめ動画も消す)
+            {
+                var all = GroupPacks(e);
+                if (MessageBox.Show(this, "この組(" + OutputFolder.GroupLabel(e) + ")の残りを全部、受け取らずに消します。\n\n" + DecisionText(new List<OutputEntry>(), all),
+                        "要らない", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                RunDecision(new List<OutputEntry>(), all, false);
+                return;
+            }
             bool pack = IsPack(e);
             string ask = pack ? "このパックを受け取らずに消します(送り先の Dropbox から消え、もう受け取れません。要らなかったことは送り先の人に伝わります)。よろしいですか?\n(" + e.Title + ")"
                               : "この失敗の知らせを消します。よろしいですか?\n(" + e.Title + ")";
@@ -573,7 +718,12 @@ namespace RequestSender
             RunRecv(() =>
             {
                 bool recorded = true;
-                if (pack) { recorded = receiving.Discard(e, DateTimeOffset.Now); Receiving.ForgetPreview(e); }   // 記録を置いてから消す(置けなくても消す。2.6.0)
+                if (pack)   // 記録を置いてから消す(置けなくても消す。2.6.0)。組の最後の 1 本なら .group.json と組のまとめ動画も消す(2.8.0)
+                {
+                    recorded = receiving.Discard(e, DateTimeOffset.Now);
+                    Receiving.ForgetPreview(e);
+                    receiving.FinishGroups(new[] { e });
+                }
                 else receiving.Delete(e);
                 OnUi(() =>
                 {
@@ -592,8 +742,16 @@ namespace RequestSender
 
         void RemoveEntries(IEnumerable<OutputEntry> gone)
         {
+            var list = gone.ToList();
+            // 組の残りから外す。1 本も残らなくなった組の行も外す(Dropbox の .group.json と組のまとめ動画は、裏の処理が FinishGroups で消した)
+            foreach (var e in list.ToList())
+            {
+                var g = e.Parent;
+                if (g == null || !g.Members.Remove(e) || g.Members.Count > 0 || list.Contains(g)) continue;
+                list.Add(g);
+            }
             outList.BeginUpdate();
-            foreach (var e in gone.ToList())
+            foreach (var e in list)
             {
                 entries.Remove(e);
                 failureTexts.Remove(e.Key);
@@ -602,7 +760,8 @@ namespace RequestSender
                 outList.Items.Remove(e);
             }
             outList.EndUpdate();
-            SetArrived(entries.Count, false);
+            outList.Invalidate();   // 組の行の「残り n 本」・最後の本の └ を描き直す
+            SetArrived(OutputFolder.CountItems(entries), false);
             detail.Text = "";
             if (outList.Items.Count > 0) outList.SelectedIndex = 0;
             UpdateRecvButtons();

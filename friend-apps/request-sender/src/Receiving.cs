@@ -1,7 +1,8 @@
 // 受け取る: PC が「/出力/」に置いたパック(.zip)と失敗の知らせ(.失敗.txt)を一覧にして(まとめ動画 .preview.mp4 はパックに結びつける)、
 // 選んだものを取ってくる(1 本ずつ・「すべて受け取る」でまとめて)。受け取った zip は保存先に展開して zip は消す(ExtractZip)。
 // Dropbox から消すのは、受け取り終えたパック(大きさと hash を確かめたあと)・「要らない」としたパック・読み終えた失敗の知らせだけ
-// (files/delete_v2。鍵に files.content.write。パックの隣のまとめ動画も一緒に消す)。一覧には読みの権限が要る(files.metadata.read・files.content.read)
+// (files/delete_v2。鍵に files.content.write。パックの隣のまとめ動画も一緒に消す)。一覧には読みの権限が要る(files.metadata.read・files.content.read)。
+// 2.8.0: 組(.group.json = まとめ動画 1 本 + 1 本ずつの zip)を読んで一覧に組の行を出す。組の最後の 1 本を片付けたら .group.json と組のまとめ動画も消す
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -60,6 +61,14 @@ namespace RequestSender
         }
     }
 
+    // 何本かをまとめて「要らない」にした結果
+    public class DiscardAllResult
+    {
+        public List<OutputEntry> Done = new List<OutputEntry>();   // 記録を置いて(置けなくても)Dropbox から消したもの
+        public int NotRecorded;                                    // そのうち記録を置けなかった数(送り先の人に伝わらない)
+        public Exception Error;                                    // 途中で止まった理由(無ければ null)
+    }
+
     // パック 1 本を受け取った結果(受け取り = 大きさと hash の確認までは済んでいる)
     public class ReceiveOneResult
     {
@@ -111,9 +120,34 @@ namespace RequestSender
                 if (!(Json.Bool(d, "has_more") && !string.IsNullOrEmpty(cursor)) || page >= MaxPages) break;
                 d = client.Rpc("files/list_folder/continue", DropboxArgs.ListContinue(cursor));
             }
-            r.Entries = OutputFolder.AttachPreviews(r.Entries);   // まとめ動画は同じ名前のパックに結びつける(一覧には出さない)
-            OutputFolder.SortNewestFirst(r.Entries);
+            foreach (var g in r.Entries.Where(e => e.Kind == OutputKind.Group)) g.Info = ReadGroup(g);
+            r.Entries = OutputFolder.Arrange(r.Entries);   // 組(2.8.0)に zip とまとめ動画を結びつけ、まとめ動画は同じ名前のパックに結びつける(一覧には出さない)。新しい順
             return r;
+        }
+
+        // 読んだ組の一覧(鍵 = 名前と rev。置き直されたら読み直す)。3 分ごとの確認で同じものを取り直さない
+        static readonly Dictionary<string, GroupInfo> groupCache = new Dictionary<string, GroupInfo>();
+
+        // .group.json の中身(64KB まで)。大きすぎる・壊れている・もう無いときは null(その組は出さず、中の zip は 1 本ずつの行になる)。
+        // 通信の失敗も null(次の確認で読み直す)。「やめる」・窓を閉じたときは止める
+        GroupInfo ReadGroup(OutputEntry g)
+        {
+            lock (groupCache) { GroupInfo cached; if (groupCache.TryGetValue(g.Key, out cached)) return cached; }
+            GroupInfo info = null;
+            try
+            {
+                bool truncated;
+                byte[] data = client.DownloadHead(g.ApiPath, OutputFolder.GroupTextCap, out truncated);
+                info = truncated ? null : GroupInfo.Parse(data, data.Length);
+                if (info == null) client.Log("group: ignored " + g.Name + (truncated ? " (too large)" : " (broken)"));
+            }
+            catch (DropboxException ex)
+            {
+                client.Log("group: not read " + g.Name + ": " + ex.Status + " " + ex.Message);
+                return null;
+            }
+            lock (groupCache) groupCache[g.Key] = info;
+            return info;
         }
 
         // まとめ動画(zip の隣の小さい mp4)を dir へ。前に取ってきた同じものがあればそのまま。-> 置いた場所
@@ -360,7 +394,52 @@ namespace RequestSender
             return recorded;
         }
 
-        // 取ってきたまとめ動画の写し(PreviewDir の中)を消す。受け取った・要らないにしたあとは要らない(2026-10-08 ユーザー決定)
+        // 何本かをまとめて「要らない」にする(組の行の「要らない」・まとめ動画の小窓の「残りは要らない」。2.8.0)。1 本ずつ Discard と同じ(記録を置いてから消す)。
+        // 通信・鍵の問題・やめたときはそこで止める(Error)。Done = 消したもの(一覧から外す)
+        public DiscardAllResult DiscardAll(IEnumerable<OutputEntry> packs, DateTimeOffset now)
+        {
+            var r = new DiscardAllResult();
+            foreach (var e in packs)
+            {
+                try
+                {
+                    if (!Discard(e, now)) r.NotRecorded++;
+                }
+                catch (Exception ex)
+                {
+                    if (!(ex is DropboxException || ex is CanceledException)) throw;
+                    r.Error = ex;
+                    break;
+                }
+                ForgetPreview(e);
+                r.Done.Add(e);
+            }
+            return r;
+        }
+
+        // 組の最後の 1 本まで片付けたら(handled = 受け取って Dropbox から消した・要らないにしたもの)、.group.json と組のまとめ動画を Dropbox から消し、写しも消す。
+        // 組の途中なら消さない。消せなくても止めない(組に 1 本も残らない .group.json は一覧に出ない)。-> 消した組
+        public List<OutputEntry> FinishGroups(IEnumerable<OutputEntry> handled)
+        {
+            var done = OutputFolder.GroupsDone(handled);
+            foreach (var g in done)
+            {
+                try
+                {
+                    DeletePath(g.ApiPath);
+                    if (g.Preview != null) DeletePath(g.Preview.ApiPath);
+                    client.Log("group: finished " + g.Name);
+                }
+                catch (Exception ex)
+                {
+                    client.Log("group: not deleted " + g.Name + ": " + ex.GetType().Name + ": " + ex.Message);
+                }
+                ForgetPreview(g);
+            }
+            return done;
+        }
+
+        // 取ってきたまとめ動画の写し(PreviewDir の中)を消す。受け取った・要らないにしたあとは要らない(2026-10-08 ユーザー決定)。組なら組のまとめ動画
         public static void ForgetPreview(OutputEntry e)
         {
             if (e != null && e.Preview != null) TryDelete(Path.Combine(PreviewDir(), LocalName.Safe(e.Preview.Name)));

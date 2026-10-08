@@ -18,6 +18,9 @@
     1 本目が終わったら次へ・順番待ちのうちに終わった録画は音だけで締める)・雰囲気の変わり目のあと 60 秒はしきい値 1.3 倍・M10 の長さの目安(length_hint・
     clean_hint・新しく受け持つ録画だけ)・止まらない・溜めない(yt-dlp を子ごと止める・改行の無い末尾で止まらない・途中から受け持つと測り直さない・
     測り直しを 60 秒分ずつ・心拍・上限・1 本の例外で止めない・まだ無い候補の決定は待つ・壊れた値)
+  - 友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く(config.json の detectAll・requests・
+    画面の答えは録画ごと)・依頼の waitMin・pad で自動の採用(結びついていない録画は採用しない)・ワーカーは detectAll false なら依頼の録画だけ・
+    感度・枠・長さは依頼の値(lengthFrom friend・起動し直しても)・clean_requests の検査
 本物の YouTube にはつながない。作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import http.client
@@ -1034,6 +1037,70 @@ class DetectApiTest(unittest.TestCase):
         self.prefs.patch("live", {"detect": {"perHour": 4}})
         self.assertTrue(self.det.write_config())
 
+    def request(self, rec=REC, **settings):
+        """友人のライブ配信の依頼を録画に結びつける(src/home/live.py の begin_request が使う Store。2-15)"""
+        return self.live.requests.put("fake", rec, {"rid": "20261008-120000-abcd", "deliverDir": os.path.join(self.tmp, "deliver"), "streamer": "友人の推し",
+                                                    "settings": settings})
+
+    def test_friend_request_with_detect_off(self):
+        """2-15: ホームの検出・自動採用がオフでも、友人のライブ配信の依頼に結びついた録画があれば検出を動かす(config.json の detectAll false と
+        録画ごとの requests)。画面の答え(enabled・autoAdopt)も録画ごと。リアルタイム切り抜きがオフなら動かさない"""
+        self.prefs.patch("live", {"detect": {"enabled": False, "sens": "low", "perHour": 4}, "autoAdopt": {"enabled": False}})
+        self.assertFalse(self.det.enabled())
+        self.assertEqual(self.det.tick(), "off")
+        self.assertIsNone(self.det.health())
+        self.request(sens="high", perHour=3, length=30, waitMin=2, pad=1, afterStream=False)
+        self.assertTrue(self.det.enabled())
+        self.assertEqual(self.det.tick(), "nospawn")
+        with open(os.path.join(self.det.dir, "config.json"), encoding="utf-8") as f:
+            c = json.load(f)
+        self.assertEqual((c["detectAll"], c["detect"]), (False, {"sens": "low", "perHour": 4}))   # ホームの設定はそのまま(ほかの録画は測らない)
+        self.assertEqual(c["requests"], {"fake/" + REC: {"sens": "high", "perHour": 3, "length": 30}})
+        self.assertEqual(W.clean_requests(c["requests"]), {"fake/" + REC: {"sens": "high", "perHour": 3, "length": 30.0}})   # ワーカーが読む形
+        d = self.get()
+        self.assertEqual((d["enabled"], d["autoAdopt"]), (True, {"enabled": True, "waitMin": 2}))   # 結びついた録画は依頼の設定
+        e = self.det.api_get({"recorder": ["fake"], "recording": ["20261007-210000-x"]})
+        self.assertEqual((e["enabled"], e["autoAdopt"]), (False, {"enabled": False, "waitMin": 5}))   # 結びついていない録画はホームの設定のまま
+        self.assertIsNotNone(self.det.health())
+        self.prefs.patch("live", {"detect": {"enabled": True}})
+        self.assertTrue(self.det.write_config())
+        with open(os.path.join(self.det.dir, "config.json"), encoding="utf-8") as f:
+            c = json.load(f)
+        self.assertEqual((c["detectAll"], list(c["requests"])), (True, ["fake/" + REC]))
+        self.prefs.patch("live", {"enabled": False})
+        self.assertFalse(self.det.enabled())
+        self.prefs.patch("live", {"enabled": True, "detect": {"enabled": False}})
+        self.assertTrue(self.live.requests.remove("fake", REC))   # 結びつきが消えた(14 日)= 今までどおりオフ
+        self.assertFalse(self.det.enabled())
+        self.assertEqual(self.det.tick(), "off")
+
+    def test_auto_adopt_friend_request(self):
+        """2-15: 自動採用のスイッチがオフでも、友人の依頼に結びついた録画の枠の候補は依頼の waitMin で採用する(余白は依頼の pad・ジョブに依頼 id)。
+        結びついていない録画は、ホームの検出がオフなら(ほかの録画の依頼で検出が動いていても)採用しない"""
+        self.prefs.patch("live", {"detect": {"enabled": False}, "autoAdopt": {"enabled": True, "waitMin": 1}})
+        self.request(rec="20261007-210000-x")   # ほかの録画の依頼(これで検出は動く)
+        self.rec.rel = 5000
+        t = self.worker_alive()
+        self.assertTrue(self.det.enabled())
+        self.assertEqual(self.det.auto_tick(), 0)
+        t[0] += 61
+        self.assertEqual(self.det.auto_tick(), 0)   # この録画は結びついていない・ホームの検出はオフ = 自動採用がオンでも採用しない
+        self.assertNotIn(REC, self.studio.videos)
+        self.prefs.patch("live", {"autoAdopt": {"enabled": False}})
+        self.request(waitMin=2, pad=1)
+        self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た(ここから依頼の waitMin を数える)
+        t[0] += 119
+        self.assertEqual(self.det.auto_tick(), 0)   # 依頼の 2 分がまだ(ホームの 1 分ではない)
+        t[0] += 1
+        self.assertEqual(self.det.auto_tick(), 2)   # 枠の p0・p1(控えの p2 は採用しない)
+        v = self.studio.videos[REC]
+        self.assertEqual(sorted((m["status"], m["start"], m["end"]) for m in v["marks"]), [("adopted", 271.0, 318.0), ("adopted", 869.0, 916.0)])   # 余白は依頼の 1 秒
+        jobs = self.live.exporter.snapshot("fake", REC)
+        self.assertEqual({(j["origin"], j["after"], j["request"]["rid"], j["request"]["deliverDir"]) for j in jobs},
+                         {("auto", "auto", "20261008-120000-abcd", os.path.join(self.tmp, "deliver"))})
+        self.assertEqual([x["origin"] for x in self.decisions()["items"]], ["auto", "auto"])
+        self.assertEqual(self.det.auto_tick(), 0)   # 1 回だけ
+
     def test_spawn_heartbeat_restart_and_stop(self):
         """本物のワーカーを起動 → 心拍(worker.json)→ 止める。心拍を出さないワーカーは stale_sec で止めて起動し直す(数える)"""
         det = D.Detector(self.live, spawn=True)
@@ -1414,6 +1481,81 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual(st.next_box, 4)
         st.fill(10 ** 9)
         self.assertEqual(st.next_box, 4 + W.FILL_MAX)
+
+    def test_friend_request_only_with_its_settings(self):
+        """2-15: detectAll false = 友人の依頼の録画(requests)だけ受け持つ。感度・枠・長さはその依頼の値(peaks.json の perHour・length・lengthFrom friend)。
+        detectAll true にすれば、ほかの録画はホームの設定で・依頼の録画は依頼の設定のまま(読み直しでも)。false に戻せば、ほかの録画は保存して手放す"""
+        clock = Clock(T0)
+        a = SimRecorder(clock)
+        b = SimRecorder(clock, first=T0 + 60, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
+        sim = MultiSim([a, b])
+        home = {"sens": "low", "perHour": 5}
+        reqs = {"fake/" + REC_B: {"sens": "high", "perHour": 2, "length": 30}}
+        cfg = write_config(self.dir, detect=home, detectAll=False, requests=reqs)
+        w = make_worker(cfg, clock, sim)
+        run_until(w, clock, sim, T0 + 1300)
+        self.assertEqual(sorted(w.recs), [("fake", REC_B)])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "fake", REC)))   # ほかの録画は測らない(peaks.json も置かない)
+        self.assertEqual(a.measured, 0)
+        st = w.recs[("fake", REC_B)]
+        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length, st.spec["lengthFrom"]), (excite.SENS["high"], 2, 30.0, "friend"))
+        with open(os.path.join(self.dir, "fake", REC_B, "peaks.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual((d["perHour"], d["length"], d["lengthFrom"]), (2, 30.0, "friend"))
+        self.assertGreaterEqual(len([p for p in d["peaks"] if p["state"] == "frame"]), 1, d["counts"])
+        self.assertTrue(all(n <= 2 for n in d["counts"].values()), d["counts"])
+        p = [x for x in d["peaks"] if not x["endPending"]][0]
+        self.assertLess(abs((p["end"] - p["start"]) - 30.0), 30.0 * 0.31, p)   # 候補の区間 ≈ 依頼の長さ
+        w.close()
+        w = make_worker(cfg, clock, sim)   # 起動し直しても(state.json から)依頼の感度・枠のまま
+        run_until(w, clock, sim, T0 + 1330)
+        st = w.recs[("fake", REC_B)]
+        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length), (excite.SENS["high"], 2, 30.0))
+        # ホームの検出もオンにした: ほかの録画はホームの設定(低・5 本・スタジオの長さ)で受け持ち、依頼の録画は依頼の設定のまま
+        write_config(self.dir, detect=home, detectAll=True, requests=reqs)
+        w.cfg_checked = -1e18
+        run_until(w, clock, sim, T0 + 1400)
+        sa = w.recs[("fake", REC)]
+        self.assertEqual((sa.book.thr, sa.book.per_hour, sa.book.length, sa.spec["lengthFrom"]), (excite.SENS["low"], 5, 45.0, "studio"))
+        self.assertEqual((st.book.thr, st.book.per_hour), (excite.SENS["high"], 2))
+        # 依頼の設定が変わった(読み直し): 感度・枠は途中から、長さは受け持っている録画では変えない
+        write_config(self.dir, detect=home, detectAll=True, requests={"fake/" + REC_B: {"sens": "normal", "perHour": 4, "length": 60}})
+        w.cfg_checked = -1e18
+        clock.t += 6
+        w.tick()
+        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length), (excite.SENS["normal"], 4, 30.0))
+        self.assertEqual((sa.book.thr, sa.book.per_hour), (excite.SENS["low"], 5))
+        # ホームの検出をオフに戻した(detectAll false): ほかの録画は保存して手放す。依頼の録画は続ける
+        write_config(self.dir, detect=home, detectAll=False, requests=reqs)
+        w.cfg_checked = -1e18
+        n = a.measured
+        clock.t += 6
+        w.tick()
+        self.assertEqual(sorted(w.recs), [("fake", REC_B)])
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, "fake", REC, "state.json")))   # オンに戻せば続きから
+        run_until(w, clock, sim, T0 + 1500)
+        self.assertEqual(a.measured, n)
+        self.assertEqual(sorted(w.recs), [("fake", REC_B)])
+        w.close()
+
+    def test_clean_requests(self):
+        """config.json の requests の検査: 鍵は「録画元/録画」の文字列・中身は辞書だけ。感度・枠は clean_detect と同じ、長さは 10〜120 秒(外は None = スタジオの長さ)"""
+        k = "fake/" + REC
+        self.assertEqual(W.clean_requests({k: {"sens": "high", "perHour": 3, "length": 30}}), {k: {"sens": "high", "perHour": 3, "length": 30.0}})
+        for bad in (None, [], "x", 5, {"noslash": {"sens": "high"}}, {5: {"sens": "high"}}, {k: "x"}, {k: None}, {k: [1]}):
+            self.assertEqual(W.clean_requests(bad), {}, bad)
+        got = W.clean_requests({"fake/a": {"sens": "max", "perHour": True, "length": 9.9}, "fake/b": {"perHour": 2.5, "length": 121},
+                                "fake/c": {"length": 10}, "fake/d": {"length": 120.0}, "fake/e": {"length": float("nan")}, "fake/f": {"length": "45"},
+                                "fake/g": {"length": True}, "fake/h": {}})
+        self.assertEqual(got, {"fake/a": {"sens": "normal", "perHour": 6, "length": None}, "fake/b": {"sens": "normal", "perHour": 6, "length": None},
+                               "fake/c": {"sens": "normal", "perHour": 6, "length": 10.0}, "fake/d": {"sens": "normal", "perHour": 6, "length": 120.0},
+                               "fake/e": {"sens": "normal", "perHour": 6, "length": None}, "fake/f": {"sens": "normal", "perHour": 6, "length": None},
+                               "fake/g": {"sens": "normal", "perHour": 6, "length": None}, "fake/h": {"sens": "normal", "perHour": 6, "length": None}})
+        cfg = write_config(self.dir, requests={k: {"sens": "low", "perHour": 1, "length": 200}, "broken": {"sens": "high"}})   # 読み込みでも通す
+        w = make_worker(cfg, Clock(T0), SimRecorder(Clock(T0)))
+        self.assertEqual((w.cfg["requests"], w.cfg["detectAll"]), ({k: {"sens": "low", "perHour": 1, "length": None}}, True))   # detectAll が無い = 全部(今までどおり)
+        self.assertEqual((w._detect_for("fake", REC), w._detect_for("fake", REC_B)), ({"sens": "low", "perHour": 1}, {"sens": "normal", "perHour": 6}))
+        w.close()
 
 
 class NoNumpyTest(unittest.TestCase):

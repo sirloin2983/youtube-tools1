@@ -403,7 +403,7 @@ class Archiver:
     def __init__(self, exporter, studio, enabled=None, auto=None, recording_state=None, probe=None, audio=None, align=None,
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
-                 after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None):
+                 after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None):
         """exporter: src/home/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -417,6 +417,8 @@ class Archiver:
         self.after = after
         self.after_stream = after_stream or (lambda: False)
         self.per_hour = per_hour or (lambda: 6)
+        self.friend_request = request or (lambda rc, rec: None)   # 引数 request(録画元, 録画) = 友人のライブ配信の依頼(live_requests.Store.get。2-15)。無ければ None。
+        # 名前は friend_request(self.request は「作り直しを頼む」メソッド = POST /live/api/archive。上書きしない)
         self.recordings = recordings or (lambda: [])
         self.adopt = adopt
         self.after_max_age = after_max_age
@@ -775,8 +777,9 @@ class Archiver:
 
     def after_tick(self):
         """配信後の全自動(M7。設定 live.autoAfterStream): 終わった録画を 1 段ずつ進める(見回りのたび。重い所 = 照合だけはこの中で待つ)。-> 進めた録画の数"""
-        if not self.enabled() or not self.after_stream():
+        if not self.enabled():
             return 0
+        every = self.after_stream()   # ホームのスイッチ(友人の依頼の録画は依頼の afterStream で決める = _after_on。2-15)
         now = time.time()
         moved = 0
         try:
@@ -789,6 +792,8 @@ class Archiver:
             if not isinstance(rc, str) or not isinstance(rec, str) or not LX.ID_RE.match(rc) or not LX.REC_RE.match(rec) or r.get("active"):
                 continue
             seen.add((rc, rec))
+            if not self._after_on(rc, rec, every):
+                continue
             a = self._after_get(rc, rec)
             if a.get("state") in AFTER_END:
                 continue
@@ -828,6 +833,24 @@ class Archiver:
             self._after_set(rc, rec, state="error", message="内部エラー: %s" % e.__class__.__name__)
         return False
 
+    def _request_after(self, rc, rec):
+        """友人の依頼の録画で、配信後のアーカイブからの追加(afterStream)を頼まれているか"""
+        req = self.friend_request(rc, rec)
+        return bool(req) and (req.get("settings") or {}).get("afterStream") is True
+
+    def _after_on(self, rc, rec, every=None):
+        """この録画で配信後の全自動(M7)を動かすか: 友人の依頼の録画は依頼の afterStream だけで決める(偽ならホームの M7 がオンでも動かさない。2-15)、
+        ほかの録画はホームのスイッチ every(None = 今の設定)"""
+        if self.friend_request(rc, rec):
+            return self._request_after(rc, rec)
+        return self.after_stream() if every is None else bool(every)
+
+    def _per_hour_for(self, rc, rec):
+        """配信後の 1 時間あたりの本数: 友人の依頼の録画は依頼の設定、ほかはホームの設定"""
+        req = self.friend_request(rc, rec)
+        v = (req.get("settings") or {}).get("perHour") if req else None
+        return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else self.per_hour()
+
     def _after_begin(self, rc, rec, r, a, now):
         """用意の確認 → 時刻を合わせる → 解析を頼む(スタジオで解析済みなら、すぐ採用へ)"""
         if (a.get("retryAt") or 0) > now:
@@ -862,7 +885,7 @@ class Archiver:
         if not isinstance(first, (int, float)) or not isinstance(last, (int, float)) or last - first < 5.0:
             raise ArchiveError("録画が短すぎるか、録画の時刻が分からないので、自動で切り抜けません")
         offset, how = self._after_offset(rc, rec, vid, t0, first, last)
-        n = after_count(last - first, self.per_hour())
+        n = after_count(last - first, self._per_hour_for(rc, rec))
         base = dict(vid=vid, t0=t0, offset=round(offset, 3), offsetFrom=how, first=first, last=last, n=n, title=str(r.get("title") or "")[:LX.TITLE_MAX],
                     retryAt=None)
         code, d = self.studio("GET", "/api/video?id=" + urllib.parse.quote(vid), None)
@@ -1051,10 +1074,12 @@ class Archiver:
 
     def after_stream_hold(self, rc, r):
         """録画を自動で消すのを待つ理由(src/home/live_cleanup.py から。r = 録画元の一覧の 1 行)。待たなくてよければ ""。
-        配信後の全自動がオンで、その録画がまだ済んでいない(終わって AFTER_MAX_AGE 以内・YouTube の動画が分かる)間は消さない"""
-        if not self.enabled() or not self.after_stream() or not isinstance(r, dict):
+        配信後の全自動がオン(友人の依頼の録画は依頼の afterStream。2-15)で、その録画がまだ済んでいない(終わって AFTER_MAX_AGE 以内・YouTube の動画が分かる)間は消さない"""
+        if not self.enabled() or not isinstance(r, dict):
             return ""
         rec = str(r.get("id") or "")
+        if not self._after_on(rc, rec):
+            return ""
         if self._after_get(rc, rec).get("state") in AFTER_END:
             return ""
         ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))

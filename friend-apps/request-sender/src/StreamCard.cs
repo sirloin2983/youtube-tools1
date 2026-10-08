@@ -463,6 +463,206 @@ namespace RequestSender
         }
     }
 
+    // ---- ライブ配信の依頼(2.8.0。docs/spec/friend-intake.md の 2-15): 配信中か配信前の URL 1 本 + 友人のベータの設定。----
+    //   URL と題名の出し方は配信のカードと同じ(oEmbed)。設定は 1 行ずつ短い説明つき。値は呼んだ側が settings.json に覚える
+    public class LiveCard : VStack
+    {
+        public readonly TextBox Url = new TextBox();
+        readonly Field urlField;
+        readonly Lbl lUrl = new Lbl("ライブ配信の URL(1 本)", Tone.Text), title = new Lbl("", Tone.Muted),
+                     explain = new Lbl("配信中か配信前の YouTube の URL を貼ります。送り先の PC が配信を録画しながら見どころを見つけ、切り抜けしだい 1 本ずつ" +
+                                       "「受け取る」に届けます(① 全自動のパック)。もう終わった配信なら、ふつうの ① 全自動の依頼になります。", Tone.Muted),
+                     head = new Lbl("ライブ配信の設定(ベータ。試しながら変えてください)", Tone.Text);
+        readonly Btn sensHigh = new Btn("高", BtnKind.Toggle), sensNormal = new Btn("普通", BtnKind.Toggle), sensLow = new Btn("低", BtnKind.Toggle);
+        readonly Stepper perHour, length, waitMin, pad;
+        readonly Check afterStream = new Check("配信が終わったあと、アーカイブからも追加する");
+        string sens = LiveSettings.Normal;
+        bool leftUrl, strict, titleFailed;
+        string titleId, titleText;
+
+        public event Action Changed;              // URL・設定が変わった(要約・仕上げ方の見直し)
+        public event Action<string> IdChanged;    // 配信の ID が決まった(題名を問い合わせる)
+
+        public LiveCard()
+        {
+            OnPanel = true;
+            Url.MaxLength = 2048;
+            Url.AccessibleName = "ライブ配信の URL";
+            Url.HandleCreated += (s, e) => Ui.Cue(Url, "ここに配信中か配信前の YouTube の URL を貼る(Ctrl+V)");
+            urlField = new Field(Url);
+            title.AccentLead = "✓ ";
+            title.Font = explain.Font = Theme.Small;
+            head.Font = Theme.Bold;
+            lUrl.Font = Theme.Bold;
+            Add(lUrl, 0, false);
+            Add(urlField, 6, true);
+            Add(title, 4, true);
+            Add(explain, 6, true);
+            Add(head, 12, false);
+
+            foreach (var b in new[] { sensHigh, sensNormal, sensLow }) b.Width = Math.Max(b.Width, Ui.S(52));
+            sensHigh.Click += (s, e) => SetSens(LiveSettings.High);
+            sensNormal.Click += (s, e) => SetSens(LiveSettings.Normal);
+            sensLow.Click += (s, e) => SetSens(LiveSettings.Low);
+            sensHigh.AccessibleName = "感度 高"; sensNormal.AccessibleName = "感度 普通"; sensLow.AccessibleName = "感度 低";
+            AddSetting("感度", new HRow().Add(sensHigh, 0).Add(sensNormal, 4).Add(sensLow, 4), "盛り上がりをどれだけ拾うか。高いほど候補が増えます(外れも増えます)");
+            perHour = NewStepper(LiveSettings.MinPerHour, LiveSettings.MaxPerHour, LiveSettings.DefaultPerHour, "1 時間の本数", v => v + " 本");
+            AddSetting("1 時間の本数", perHour, "1 時間の配信から切り抜く候補の上限です");
+            length = NewStepper(LiveSettings.MinLength, LiveSettings.MaxLength, LiveSettings.DefaultLength, "切り抜きの長さ", v => v + " 秒");
+            AddSetting("切り抜きの長さ", length, "1 本の長さ(秒)。盛り上がった所を中心に切ります");
+            waitMin = NewStepper(LiveSettings.MinWait, LiveSettings.MaxWait, LiveSettings.DefaultWait, "自動で採用するまでの待ち", v => v + " 分");
+            AddSetting("自動で採用するまでの待ち", waitMin, "候補が出てから、送り先の PC が自動で切り抜くまでの時間。長いほど送り先の人が見て外せます");
+            pad = NewStepper(LiveSettings.MinPad, LiveSettings.MaxPad, LiveSettings.DefaultPad, "前後の余白", v => v + " 秒");
+            AddSetting("前後の余白", pad, "切り抜きの前後に足す秒数(頭の一言が欠けないように)");
+            afterStream.Checked = true;
+            afterStream.CheckedChanged += (s, e) => Fire();
+            Add(afterStream, 8, false);
+            Add(new Lbl("配信が終わったら、アーカイブを見直して、配信中に見逃した所も切り抜いて届けます", Tone.Muted) { Font = Theme.Small }, 0, true);
+
+            Url.TextChanged += (s, e) => UrlEdited();
+            Url.Leave += (s, e) => { leftUrl = true; ShowTitle(); };
+            Url.KeyDown += (s, e) =>
+            {
+                if (!(e.Control && e.KeyCode == Keys.V) || Url.ReadOnly) return;   // 何行も貼ったときは 1 行目だけ(ライブ配信の依頼は 1 本)
+                string text;
+                try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; }
+                catch (Exception) { return; }
+                if (text.IndexOf('\n') < 0 && text.IndexOf('\r') < 0) return;
+                e.Handled = e.SuppressKeyPress = true;
+                SetUrl(text);
+            };
+            SetSens(sens);
+            ShowTitle();
+        }
+
+        Stepper NewStepper(int min, int max, int start, string name, Func<int, string> format)
+        {
+            var st = new Stepper(min, max, start, Ui.S(64), name) { Format = format };
+            st.Show_();
+            st.ValueChanged += Fire;
+            return st;
+        }
+
+        // 1 行(名前 | 部品)と、その下の短い説明
+        void AddSetting(string name, Control part, string hint)
+        {
+            var l = new Lbl(name, Tone.Text) { AutoSize = false, Size = new Size(Ui.S(176), Ui.S(20)), TextAlign = ContentAlignment.MiddleLeft };
+            Add(new HRow().Add(l, 0).Add(part, 0), 8, false);
+            Add(new Lbl(hint, Tone.Muted) { Font = Theme.Small }, 2, true);
+        }
+
+        public string VideoId { get { return YouTubeUrl.ExtractId(Url.Text); } }
+        public bool HasUrlText { get { return Url.Text.Trim().Length > 0; } }
+
+        public LiveSettings Settings
+        {
+            get { return new LiveSettings { Sens = sens, PerHour = perHour.Value, Length = length.Value, WaitMin = waitMin.Value, Pad = pad.Value, AfterStream = afterStream.Checked }.Clean(); }
+            set
+            {
+                var c = (value ?? new LiveSettings()).Clean();
+                SetSens(c.Sens);
+                perHour.Value = c.PerHour;
+                length.Value = c.Length;
+                waitMin.Value = c.WaitMin;
+                pad.Value = c.Pad;
+                afterStream.Checked = c.AfterStream;
+            }
+        }
+
+        void SetSens(string value)
+        {
+            sens = LiveSettings.SensAll.Contains(value) ? value : LiveSettings.Normal;
+            sensHigh.On = sens == LiveSettings.High;
+            sensNormal.On = sens == LiveSettings.Normal;
+            sensLow.On = sens == LiveSettings.Low;
+            Fire();
+        }
+
+        void Fire()
+        {
+            if (Changed != null) Changed();
+        }
+
+        public void SetTitle(string id, string text)
+        {
+            if (id != VideoId) return;
+            titleId = id;
+            titleText = text;
+            titleFailed = text == null;
+            ShowTitle();
+        }
+
+        // 送る前の検査: URL が YouTube の形でなければ URL の欄を返す(無ければ null)
+        public Control Validate_()
+        {
+            strict = true;
+            leftUrl = true;
+            ShowTitle();
+            return VideoId == null ? Url : null;
+        }
+
+        public void SetUrl(string text)
+        {
+            var first = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
+            if (first == null) return;
+            Url.Text = first;
+            Url.SelectionStart = Url.Text.Length;
+            leftUrl = true;
+            ShowTitle();
+        }
+
+        public void Clear()
+        {
+            strict = leftUrl = false;
+            Url.Text = "";
+            ShowTitle();
+        }
+
+        public void FocusUrl()
+        {
+            Url.Focus();
+        }
+
+        public void SetBusy(bool busy)
+        {
+            Url.ReadOnly = busy;
+            foreach (Control c in new Control[] { sensHigh, sensNormal, sensLow, perHour, length, waitMin, pad, afterStream }) c.Enabled = !busy;
+        }
+
+        void UrlEdited()
+        {
+            string id = VideoId;
+            if (id != titleId) { titleId = null; titleText = null; titleFailed = false; }
+            ShowTitle();
+            if (id != null && titleId == null && IdChanged != null) IdChanged(id);
+            Fire();
+        }
+
+        void ShowTitle()
+        {
+            string id = VideoId;
+            urlField.Error = false;
+            if (!HasUrlText) { title.Tone = Tone.Muted; title.Text = "貼ると、ここに配信の題名が出ます"; }
+            else if (id == null)
+            {
+                title.Tone = leftUrl || strict ? Tone.Error : Tone.Muted;
+                title.Text = leftUrl || strict ? "YouTube の配信の URL ではありません(watch?v=… / youtu.be/… / live/… の形)" : "";
+                urlField.Error = leftUrl || strict;
+            }
+            else if (titleId == id && titleText != null) { title.Tone = Tone.Text; title.Text = "✓ " + titleText; }
+            else if (titleId == id && titleFailed) { title.Tone = Tone.Muted; title.Text = "題名を確かめられませんでした(このまま送れます)"; }
+            else { title.Tone = Tone.Muted; title.Text = "配信を確かめています…"; }
+            Arrange();
+        }
+
+        // 見本(--screenshot --tab live)
+        public void Sample(string url, string titleShown)
+        {
+            Url.Text = url;
+            SetTitle(VideoId, titleShown);
+        }
+    }
+
     // ---- 配信の題名を裏で確かめる(YouTube の oEmbed)。同じ ID は1回だけ。失敗しても送れる ----
     public class TitleLookup
     {

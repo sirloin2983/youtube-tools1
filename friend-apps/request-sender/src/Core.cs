@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.7.0";
+        public const string Version = "2.8.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -337,11 +337,42 @@ namespace RequestSender
         }
     }
 
-    // 依頼の JSON(キーの順番も受け取る側の約束)。配信者は SpeakerSet(名前 + 字幕の色)。flow の知らない値は ① に寄せる
+    // 届け方(2.8.0。docs/spec/friend-intake.md の 2-16): 1 = 1 本ずつ / n = n 本の組(まとめ動画 1 本 + 1 本ずつの zip)。
+    // ① 全自動の url・video の依頼だけ JSON に書く(②③ はパックを届けない)。1〜10 の外は書かない(= PC の設定 intake.deliverBatch)。ライブ配信の依頼は常に 1 本ずつなので書かない
+    public static class DeliverBatch
+    {
+        public const int Min = 1, Max = 10, Default = 1;
+
+        public static bool InRange(int n)
+        {
+            return n >= Min && n <= Max;
+        }
+
+        public static string JsonPart(string flow, int n)
+        {
+            if (flow != Flow.Auto || !InRange(n)) return "";
+            return ",\"deliverBatch\":" + n.ToString(CultureInfo.InvariantCulture);
+        }
+
+        public static string Label(int n)
+        {
+            return n <= 1 ? "1 本ずつ" : n + " 本ごと";
+        }
+
+        // ① 全自動の説明(届け方で変わる。「02 仕上げ方」の下の文)
+        public static string Hint(int n)
+        {
+            if (n <= 1) return "PC がパックまで作ります。字幕の校正前のパックが、できた順に 1 本ずつ「受け取る」に届きます。";
+            return "PC がパックまで作ります。" + n + " 本の組で「受け取る」に届き、まとめ動画を見て 1 本ずつ選べます。";
+        }
+    }
+
+    // 依頼の JSON(キーの順番も受け取る側の約束)。配信者は SpeakerSet(名前 + 字幕の色)。flow の知らない値は ① に寄せる。
+    // deliverBatch(2.8.0・届け方)は ① のときだけ・1〜10 のときだけ、sentAt の直前に書く(0 = 書かない = PC の設定)
     public static class RequestJson
     {
         // 動画の依頼。"streamer" は 1 人目の名前(無ければ空文字)。speakers には names と people(名前と style.color)が入る。cut は ① のときだけ書く
-        public static string Video(string id, IList<string> uploadedNames, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut)
+        public static string Video(string id, IList<string> uploadedNames, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, int deliverBatch = 0)
         {
             string f = FlowOrDefault(flow);
             var sb = new StringBuilder();
@@ -353,12 +384,13 @@ namespace RequestSender
             sb.Append(Speakers.JsonPart(speakers));
             sb.Append(VideoTracks.JsonPart(f, videoTracks));
             sb.Append(Cut.JsonPart(f, cut));
+            sb.Append(DeliverBatch.JsonPart(f, deliverBatch));
             return Finish(sb, sentAt);
         }
 
         // URL の依頼。配信ごとの切り抜く数と区間・カット(① のときだけ)・解析の重み(指定したときだけ)。
         // 1 人目の名前があれば "streamer" も書く(items の後・memo の前。無ければ書かない)
-        public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, Weights weights)
+        public static string Url(string id, IList<UrlItem> items, string memo, string flow, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, Weights weights, int deliverBatch = 0)
         {
             string f = FlowOrDefault(flow);
             string streamer = Speakers.StreamerName(speakers);
@@ -373,6 +405,24 @@ namespace RequestSender
             sb.Append(VideoTracks.JsonPart(f, videoTracks));
             sb.Append(Cut.JsonPart(f, cut));
             if (weights != null) sb.Append(weights.JsonPart());
+            sb.Append(DeliverBatch.JsonPart(f, deliverBatch));
+            return Finish(sb, sentAt);
+        }
+
+        // ライブ配信の依頼(2.8.0。docs/spec/friend-intake.md の 2-15): 配信の URL 1 本(正規化済み)・flow は auto 固定・友人のベータの設定 live。
+        // 鍵の順: v kind id flow url streamer memo [speakers] videoTracks cut live sentAt。streamer は 1 人目の名前(無ければ空文字)。届け方は常に 1 本ずつ(deliverBatch は書かない)
+        public static string Live(string id, string url, string memo, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, LiveSettings live)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{\"v\":1,\"kind\":\"live\",\"id\":").Append(JsonText.Quote(id, false));
+            sb.Append(",\"flow\":").Append(JsonText.Quote(Flow.Auto, false));
+            sb.Append(",\"url\":").Append(JsonText.Quote(url, false));
+            sb.Append(",\"streamer\":").Append(JsonText.Quote(Speakers.StreamerName(speakers), false));
+            sb.Append(",\"memo\":").Append(JsonText.Quote(memo ?? "", false));
+            sb.Append(Speakers.JsonPart(speakers));
+            sb.Append(VideoTracks.JsonPart(Flow.Auto, videoTracks));
+            sb.Append(Cut.JsonPart(Flow.Auto, cut));
+            sb.Append((live ?? new LiveSettings()).JsonPart());
             return Finish(sb, sentAt);
         }
 
@@ -462,8 +512,9 @@ namespace RequestSender
     // ---- 受け取る: PC が「/出力/」に置いたもの ----
     //   <依頼の id>__<題>.zip             … DaVinci Resolve のパック(数 GB のことがある。PC が n 本をまとめると「<題> 1-5.zip」で、中に <題>_pack が並ぶ)
     //   <依頼の id>__<題>.失敗.txt        … 自動の処理が失敗した理由(UTF-8・BOM つき・短い)
-    //   <zip の名前>.preview.mp4          … zip の隣のまとめ動画(n 本をつなげた 2 倍速の確認用。小さい。同じ名前の zip に結びつけ、一覧には出さない)
-    public enum OutputKind { Pack, Failure, Preview }
+    //   <zip の名前>.preview.mp4          … zip の隣のまとめ動画(n 本をつなげた等速の確認用。小さい。同じ名前の zip に結びつけ、一覧には出さない)
+    //   <依頼の id>__<題> 1-5.group.json  … 組(2.8.0。2-16): まとめ動画 1 本 + 1 本ずつの zip の一覧。中身を読んで zip とまとめ動画を組に結びつける
+    public enum OutputKind { Pack, Failure, Preview, Group }
 
     public class OutputEntry
     {
@@ -471,7 +522,11 @@ namespace RequestSender
         public string Name, PathLower, Rev, ContentHash, RequestId, Title;
         public long Size;
         public DateTime Modified;   // 地方時(Dropbox の server_modified)
-        public OutputEntry Preview;  // パックの隣のまとめ動画(無ければ null)
+        public OutputEntry Preview;  // パックの隣のまとめ動画(無ければ null)。組なら組のまとめ動画
+        public GroupInfo Info;       // (組)読んだ .group.json の中身(読めない・壊れていれば null = 一覧に出さない)
+        public List<OutputEntry> Members = new List<OutputEntry>();   // (組)いま届いている 1 本ずつの zip(n の順。受け取った・要らないにしたものは外す)
+        public OutputEntry Parent;   // (パック)属する組(無ければ null)
+        public GroupPack Slot;       // (パック)組の中での n・まとめ動画の中で始まる秒・長さ
 
         // 受け取った記録の鍵。同じ名前で置き直されたら rev が変わるので「まだ」に戻る
         public string Key
@@ -492,14 +547,22 @@ namespace RequestSender
         public const string PackSuffix = ".zip";
         public const string FailureSuffix = ".失敗.txt";
         public const string PreviewSuffix = ".preview.mp4";
+        public const string GroupSuffix = ".group.json";
         public const int FailureTextCap = 64 * 1024;
+        public const int GroupTextCap = 64 * 1024;   // .group.json はこれより大きければ読まない(組を出さない)
         static readonly Regex NameRx = new Regex("^([0-9]{8}-[0-9]{6}-[0-9a-f]{6})__(.+)$");
-        static readonly OutputKind[] Kinds = { OutputKind.Failure, OutputKind.Preview, OutputKind.Pack };
+        static readonly OutputKind[] Kinds = { OutputKind.Failure, OutputKind.Preview, OutputKind.Group, OutputKind.Pack };
 
         // 種類ごとの名前の終わり
         static string SuffixOf(OutputKind kind)
         {
-            return kind == OutputKind.Failure ? FailureSuffix : kind == OutputKind.Preview ? PreviewSuffix : PackSuffix;
+            switch (kind)
+            {
+                case OutputKind.Failure: return FailureSuffix;
+                case OutputKind.Preview: return PreviewSuffix;
+                case OutputKind.Group: return GroupSuffix;
+                default: return PackSuffix;
+            }
         }
 
         // 名前から種類の終わりを除いたもの(まとめ動画とパックはこれが同じなら組)
@@ -508,7 +571,7 @@ namespace RequestSender
             return e.Name.Substring(0, e.Name.Length - SuffixOf(e.Kind).Length);
         }
 
-        // list_folder の返事の entries から、パック・失敗の知らせ・まとめ動画だけ(フォルダ・他のファイル・途中の .part は出さない)
+        // list_folder の返事の entries から、パック・失敗の知らせ・まとめ動画・組の一覧だけ(フォルダ・他のファイル・途中の .part は出さない)
         public static List<OutputEntry> ParseEntries(IDictionary<string, object> response)
         {
             var list = new List<OutputEntry>();
@@ -560,6 +623,79 @@ namespace RequestSender
                 if (packs.TryGetValue(StemOf(e), out p)) p.Preview = e;
             }
             return rest;
+        }
+
+        // 一覧の並び(2.8.0): 組(.group.json。Info を読んであるもの)に、名前の一致する zip とまとめ動画を結びつけ、
+        // 組の行のすぐ下にその組の 1 本ずつの行(n の順)を並べる。ほかの行(組に入らない zip・失敗の知らせ)と組の行は新しい順。
+        //   - 組の中の zip が 1 本も届いていない組は出さない(.group.json は消さない = 同期の途中かもしれない)。Info の無い組(読めない・壊れている)も出さない
+        //   - 組のまとめ動画は組に付ける(一覧には出さない)。組に入らない zip には今までどおり同じ名前のまとめ動画(AttachPreviews)
+        //   - 結びつけるのは一覧にある名前どうしだけ(.group.json に書かれた名前で Dropbox の場所を作らない)
+        public static List<OutputEntry> Arrange(List<OutputEntry> raw)
+        {
+            var packs = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
+            var previews = new Dictionary<string, OutputEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in raw)
+            {
+                e.Parent = null;
+                e.Slot = null;
+                if (e.Kind == OutputKind.Pack) packs[e.Name] = e;
+                else if (e.Kind == OutputKind.Preview) previews[e.Name] = e;
+            }
+            var groups = new List<OutputEntry>();
+            var usedPreviews = new HashSet<OutputEntry>();
+            foreach (var g in raw.Where(x => x.Kind == OutputKind.Group))
+            {
+                g.Members = new List<OutputEntry>();
+                g.Preview = null;
+                if (g.Info == null) continue;
+                foreach (var slot in g.Info.Packs)
+                {
+                    OutputEntry p;
+                    if (!packs.TryGetValue(slot.Zip, out p) || p.Parent != null) continue;   // 2 つの組に同じ zip が書かれていたら先の組
+                    p.Parent = g;
+                    p.Slot = slot;
+                    g.Members.Add(p);
+                }
+                if (g.Members.Count == 0) continue;
+                OutputEntry pv;
+                if (g.Info.Preview.Length > 0 && previews.TryGetValue(g.Info.Preview, out pv) && usedPreviews.Add(pv)) g.Preview = pv;
+                groups.Add(g);
+            }
+            var rest = AttachPreviews(raw.Where(x => x.Kind != OutputKind.Group && !usedPreviews.Contains(x)).ToList());
+            var top = groups.Concat(rest.Where(x => x.Parent == null)).ToList();
+            SortNewestFirst(top);
+            var list = new List<OutputEntry>();
+            foreach (var t in top)
+            {
+                list.Add(t);
+                if (t.Kind == OutputKind.Group) list.AddRange(t.Members);
+            }
+            return list;
+        }
+
+        // 届いているものの数(タブの ●n・窓の題名): パックと失敗の知らせ(組の行は数えない。その中の 1 本ずつを数える)
+        public static int CountItems(IEnumerable<OutputEntry> entries)
+        {
+            return entries.Count(e => e != null && e.Kind != OutputKind.Group);
+        }
+
+        // 組の行の題: 「<題> 1-5(5 本)」。受け取った・要らないにしたものがあれば「(残り 3 / 5 本)」
+        public static string GroupLabel(OutputEntry g)
+        {
+            if (g == null) return "";
+            string title = g.Info != null && g.Info.Title.Length > 0 ? g.Info.Title : g.Title;
+            string range = g.Info != null && g.Info.Range.Length > 0 ? " " + g.Info.Range : "";
+            int all = g.Info != null ? g.Info.Packs.Count : g.Members.Count, left = g.Members.Count;
+            return title + range + "(" + (left < all ? "残り " + left + " / " + all : left.ToString(CultureInfo.InvariantCulture)) + " 本)";
+        }
+
+        // 片付けた(受け取って Dropbox から消した・要らないにした)パックのうち、組の残りが全部そろったもの = 組の最後の 1 本まで片付けた組。
+        // 呼んだ側は .group.json と組のまとめ動画を Dropbox から消す(組の途中なら消さない)
+        public static List<OutputEntry> GroupsDone(IEnumerable<OutputEntry> handled)
+        {
+            var set = new HashSet<OutputEntry>(handled.Where(e => e != null));
+            return set.Where(e => e.Parent != null).Select(e => e.Parent).Distinct()
+                      .Where(g => g.Members.All(set.Contains)).ToList();
         }
 
         // 新しいものが上(一覧の順)
@@ -616,6 +752,93 @@ namespace RequestSender
             s = s.Replace("\r\n", "\n").Replace('\r', '\n').Trim('\n', ' ', '﻿').Replace("\n", "\r\n");
             if (truncated) s += "\r\n…(長いので途中まで)";
             return s;
+        }
+    }
+
+    // ---- 組の一覧(.group.json。2.8.0。docs/spec/friend-intake.md の 2-16)----
+    //   {"v":1,"title":"<題>","range":"1-5","preview":"<組のまとめ動画の名前>","packs":[{"n":1,"zip":"<zip の名前>","title":"<パックの題>","previewStart":0.0,"duration":48.2}, …],"sentAt":"…"}
+    //   鍵を知る人なら置けるので、形と名前を確かめる(zip・preview は区切り文字の無い名前だけ・数は範囲に収める・題は制御文字を除いて短く)。
+    //   名前は一覧にあるものと照らすだけに使い、Dropbox の場所は一覧の値を使う
+    public class GroupPack
+    {
+        public int N;
+        public string Zip = "", Title = "";
+        public double PreviewStart, Duration;   // 秒(まとめ動画の中でこの本が始まる位置・この本の長さ)。PreviewStart < 0 = 分からない(PC が null を書いた)・Duration 0 = 分からない
+
+        public bool HasStart { get { return PreviewStart >= 0; } }
+    }
+
+    public class GroupInfo
+    {
+        public const int MaxPacks = 100, MaxTitle = 200;
+        public const double MaxSeconds = 48 * 3600;
+        public string Title = "", Range = "", Preview = "";
+        public List<GroupPack> Packs = new List<GroupPack>();   // n の順
+
+        // UTF-8(BOM があれば除く)の中身から。形が違う・壊れている・使える本が 1 つも無いときは null(組を出さない)
+        public static GroupInfo Parse(byte[] data, int length)
+        {
+            if (data == null || length <= 0 || length > data.Length) return null;
+            int start = length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+            IDictionary<string, object> d;
+            try
+            {
+                d = Json.Parse(new UTF8Encoding(false, true).GetString(data, start, length - start));
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is DecoderFallbackException)) throw;
+                return null;
+            }
+            if (Json.Long(d, "v", 0) != 1) return null;
+            var g = new GroupInfo { Title = CleanText(Json.Str(d, "title")), Range = CleanText(Json.Str(d, "range")), Preview = PlainName(Json.Str(d, "preview"), OutputFolder.PreviewSuffix) };
+            if (g.Range.Length > 20) g.Range = "";
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in Json.List(d, "packs"))
+            {
+                string zip = PlainName(Json.Str(p, "zip"), OutputFolder.PackSuffix);
+                if (zip.Length == 0 || !seen.Add(zip)) continue;
+                long n = Json.Long(p, "n", 0);
+                g.Packs.Add(new GroupPack
+                {
+                    N = n >= 1 && n <= 1000 ? (int)n : g.Packs.Count + 1,
+                    Zip = zip,
+                    Title = CleanText(Json.Str(p, "title")),
+                    PreviewStart = Seconds(p, "previewStart", -1),
+                    Duration = Seconds(p, "duration", 0),
+                });
+                if (g.Packs.Count >= MaxPacks) break;
+            }
+            if (g.Packs.Count == 0) return null;
+            g.Packs.Sort((a, b) => a.N != b.N ? a.N.CompareTo(b.N) : string.Compare(a.Zip, b.Zip, StringComparison.Ordinal));
+            return g;
+        }
+
+        // 区切り文字・制御文字の無い、suffix で終わる名前(違えば "")
+        static string PlainName(string s, string suffix)
+        {
+            s = s ?? "";
+            if (s.Length <= suffix.Length || s.Length > 255 || !s.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return "";
+            if (s.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || s.Any(c => c < 0x20 || c == 0x7F) || s.Trim() != s || s.StartsWith(".")) return "";
+            return s;
+        }
+
+        static string CleanText(string s)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in s ?? "") if (c >= 0x20 && c != 0x7F && c != (char)0x2028 && c != (char)0x2029) sb.Append(c);
+            string t = sb.ToString().Trim();
+            return t.Length > MaxTitle ? t.Substring(0, MaxTitle) + "…" : t;
+        }
+
+        // 秒(小数あり)。無い・null(PC が長さを測れなかった)・数でない・負・大きすぎる値は unknown
+        static double Seconds(IDictionary<string, object> d, string key, double unknown)
+        {
+            object v;
+            if (d == null || !d.TryGetValue(key, out v) || v == null) return unknown;
+            if (!(v is int || v is long || v is decimal || v is double)) return unknown;
+            double x = v is int ? (int)v : v is long ? (long)v : v is decimal ? (double)(decimal)v : (double)v;
+            return double.IsNaN(x) || x < 0 || x > MaxSeconds ? unknown : x;
         }
     }
 

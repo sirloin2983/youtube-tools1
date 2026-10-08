@@ -1,40 +1,36 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-08 0 時台。10-07 夜の作業(線 D の前倒し・送るアプリ 2.3〜2.5・ホーム 0.44〜0.45.1)の資料とソースの整理まで済み)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-08 夜。友人のライブ配信の依頼・組で届ける(ホーム 0.47.0・送るアプリ 2.8.0)まで)
 
-セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`、規則は `AGENTS.md`。
+セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`
 
 ## いまの状態
 - 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**
-- **版(コミット済みの最新)**: 入口 **0.45.2**・スタジオ **0.23.1**・編集 0.59.5・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ **2.5.1**・ホロカラー 1.4.3(正は各ファイル。`plan/data.js` の版の表も同じ)。
-  **起動中の入口は 0.45.0**(10-07 23:41 に起動し直し済み。0.45.1 の保存期間 3 日と 0.45.2 の整理はまだ)→ ユーザーが「すべて終了」→ start.bat で 0.45.2 に(10-07 夜の配信 2 本目の M7 が終わってから)
-- **10-07 夜に入ったもの(全部 main)**: 線 D の前倒し = L1〜L3・M11・M9 + M12・M8・M10(検出 `live.detect`・自動採用 `live.autoAdopt` は試験中の機能のスイッチで既定オフ。順番と実績 `plan/line-d-detect.md`、仮決め `plan/decisions.md` の 3-7)/
-  送るアプリ 2.3.0〜2.5.0 + ホーム 0.44.0〜0.45.1(すべて受け取る・やめる・保存先に展開・n 本ごとに 1 つの zip + 2 倍速のまとめ動画・「まとめ動画を見る」「要らない」・1 日の上限の撤廃・保存期間 3 日。仕様 `docs/spec/friend-intake.md` の 2-12・2-13、保存の方針 `docs/spec/data-location.md`、仮決め 3-9)/
-  クラウドの文字起こしの比較の道具 `dev/eval_cloud.py`(3-10。ユーザーのキー待ち)/ I-5 字幕の分け方は済み(編集 0.59.5 = 16 文字で分けるのをやめた。下の節)/ 1 秒丸めの配り直しを既定オフ(編集 0.59.4)
-- **10-08 0 時台: 上の継ぎ足しの整理**(ユーザー「今日やった作業を各資料に整理してソースも最適化して。変更した部分の周辺だけでよい」)。資料: 2-12/2-13 を今の仕様に・decisions 3-7/3-9 を話題ごとに(置き換わった仮決めに →)・line-d-detect を実績に・data-location に保存の期限の表・README の v0.43.1 を 1 つに。
-  ソース(動きは同じ): 入口 0.45.2(deliver/autorun/cases/cleanup/prefs の重複を 1 か所に・excite/ワーカー/live_detect の継ぎ足しを共通の関数に。式は乱数の配信 40 本で完全一致)・スタジオ 0.23.1(review.js の候補の帯・settings・portal)・送るアプリ 2.5.1(`Receiving.ReceiveOne` に一本化)・eval_cloud(引数の検査・鍵を文に出さない)。詳細は WORKLOG の 10-08 の記録
-- **並行セッション(10-08 0 時台に起動。「送るツール競合対応と一括受け取り機能」)の成果は main に入った(10-08 深夜のコミット)**: 送るアプリ 2.6.0(「要らない」で `<zip の名前>.feedback.json` を受付フォルダに置いてから消す。置けなくても消す・受け取った/要らないにしたまとめ動画の写しを消す)+ ホーム 0.46.1(新規 `src/home/friend_feedback.py`: 届けた記録 `logs/deliveries.jsonl` と、返事を読んで切り抜きとパックを ごみ箱 へ・記録を `logs/friend_feedback.jsonl` に。**マークは変えない**(ユーザー決定 10-08: 送る基準と友人の採用の基準は別)。`cases.discard_clip`・`intake._handle_feedback`・受付の一覧の札「友人の返事」。まとめ動画は等速で札をずっと・zip に まとめ.mp4 を入れない)。
-  仕様 `docs/spec/friend-intake.md` の 2-13・2-14、仮決め 3-11 (do)〜(ds)。`dist/RequestSender.zip` は 2.6.0 で作り直し済み(10-08 01:06)。**ユーザーが試すこと**: 入口を 0.46.1 で起動し直す → 友人に 2.6.0 の zip を渡す → 「要らない」の返事が受付の一覧に「友人の返事」で出て、切り抜きが ごみ箱 へ移るのを見る(マークは採用のまま)
-- **10-08 夕: 後処理 A・C・D を編集 0.60.0 で実装(様子見)**: `src/editor/ed_fill.py` + `tx_engines.SenseVoice`(sherpa-onnx・CPU・163MB を SHA-256 固定で初回に取得・`light` = 主のモデルを手放さない)。設定 `autoFill` 既定オン(評価用には当てない)。置き換えた行は印 + `fill = {from, by}`(画面の「別の読み」の札で戻す)。記録 `recognition.runs[].fill`。決定 decisions (eb)。次: 校正した文書が 10 本ほど貯まったら asr.json から後処理あり/なしを同じ文書で測る(測る道具はまだ無い = `dev/eval_timing.py --apply` と同じ形で作る)。入口は起動し直しで 0.60.0(U6)
-- **10-08 日中: 線 B の精度の実験ループ(ユーザー不在。実装なし)**: 確かめ済み 22 本で約 90 の設定・モデル・後処理を測った。効いたのは後処理 3 つ(文字の少ない行を SenseVoice で埋める・名簿の呼び名の表記ゆれ直し・定型の幻覚と重複の掃除 = 13.0 → 10.9%)。結果と設計は `plan/line-b-transcription.md` の「10-08 の実験ループ」、仮決め `plan/decisions.md` 3-12 (du)〜(dz)、記録は WORKLOG の 10-08。道具と結果の写し `D:\backup\youtube-tools-eval\asr-20261008\`(tools/exp.py・combine.py・rfix.py・notes.md・results.txt)、試したモデル `D:\backup\youtube-tools-eval\models-20261008\`(約 12GB。消してよい)。
-  **次の AI**: G2(定点 30 分)が届いたら `tools/exp.py --svfill <SenseVoice のフォルダ>` と `combine.py --clean --roster-fix` で測り直し → 良ければ実装(設計は plan の節の「実装するなら」。ユーザー 12:40「精度が上がるなら自動で書き換えてよい」)。用語集の画面に「GPU(whisper.cpp)ではヒントは使われません」の注意書きを足す(dy)。
-  **友人「字幕が長すぎる」**: 長い行だけ分けたときの精度は plan の「長い行だけ分けると」(24 字なら悪化ほぼゼロ = 設定 `subtitle.splitChars` を 24 に。20 で −3 pt・16 で −8 pt)。ユーザーが判断する。パックで分ける実装(cut2resolve 0.22.3)の差分は `D:\backup\youtube-tools-eval\asr-20261008\tools\cut2resolve-0.22.3-split-long-captions.diff`(頼まれていないので取り下げた。要るなら `git apply`)
-- **ユーザーにしてもらうこと**: ① 「すべて終了」→ start.bat(0.45.2)② `dist\RequestSender\RequestSender.exe` を閉じて `friend-apps\request-sender\build.bat` → zip を友人へ(U8。2.6.0 ができていればそちら)③ 10-18/19 に試験中の機能で「配信中の候補」をオンにして配信 1 本(L4'。自動採用もオンで試してよい = 10-07 夜の決定)④ `plan/decisions.md` の 3-4〜3-10 の仮決めの確認 ⑤ E1 のクラウドのキー 2 つ(`%USERPROFILE%\youtube-tools-keys.txt`)
-- **次の AI の作業の候補**: 10-07 夜の配信 2 本目の M7 の結果(`GET /live/api/exports?recorder=local&recording=20261007-193336-kLsldZDUa70` の archiveInfo.afterStream)を WORKLOG と data.js に / `plan/improvements.md` の 12(M8 の余白 2 秒・仮の候補の札・`Detector._seen` が増え続ける件)/ B2 のクラウド比較(キーが来たら `py -3.10 dev/eval_cloud.py run --service … --model …` → 見積もりを見せて確認 → `--send`)
-- Linux で前から落ちるテスト(Windows では通る): home の `test_live` 2 件(`E:\` のパス前提)と `test_cleanup.test_move_only_known_and_purge`(一覧の順が OS で違う)、editor の `test_roster` 2 件 + `test_evalaudio` 1 件(Windows のパス前提)
-
-## I-5 字幕の分け方(2026-10-08 に済み。編集 0.59.5 = 16 文字で分けるのをやめた(行を分ける文字数 40・字幕の最大文字数とは別)。残りは `plan/improvements.md`)
-- 計画と基準: `plan/line-b-row-split.md`(1 答え・2 見比べ・3 机上評価・6 正解の限界・7 手順と基準 P1〜P6・例)。ユーザーは確かめ済み 22 本を、候補の一覧(`D:/backup/youtube-tools-eval/split-draft2-20261007-2157.html`)を横に置いて、分ける・くっつけるだけ直す(文字と時刻は直さない)
-- 控え(直す前): `D:/backup/youtube-tools-eval/split-before-20261007-2111.json`。道具の写し: `D:/backup/youtube-tools-eval/tools/`(diff_after.py = 控えとの差分から判断の一覧 / cmpdata.py・compare.py・rules3.py = 人の境目との一致率。元は AI の scratchpad。作業データは読むだけ)
-- 済み(10-08): ユーザーが 22 本を直した(境目の 89% そのまま・くっつけ 28・分け 4)→ `diff_after.py`・`rules4.py`・`eval_timing --apply` で測り(`plan/line-b-row-split.md` の 8)→ 行を分ける文字数 40 を実装(`split_chars_for`・`subtitleReq`)・`eval_timing` に境目の一致率。ユーザーは起動し直すと 0.59.5。以下は当時の手順(済み): `py -3.10 D:/backup/youtube-tools-eval/tools/diff_after.py`(判断の一覧 = そのまま・くっつけた・分けた と、境目の無音・句末・長さ)→ `compare.py`・`rules3.py`(sys.path の scratchpad のパスを tools/ に直して)で新しい正解での的中・再現 → 規則を決める(今の候補は「24 文字まで切らない」+ 無音で切る。数字で決める)→ `src/editor/ed_jobs.py` に実装(編集 0.59.5)+ `dev/eval_timing.py` に境目の一致率 + `eval_timing` で ①〜③ を測り直して新しい基準に。文書: `plan/line-b-row-split.md` の 8 と data.js の B3
+- **版(コミット済みの最新)**: 入口 **0.47.0**・スタジオ 0.23.1・編集 0.60.0・cut2resolve 0.22.2・録画 0.3.2・ui-kit v23・送るアプリ **2.8.0**・ホロカラー 1.4.3
+  起動中の入口は 0.46.2(10-08 17:50 起動)→ 0.47.0 にするには「すべて終了」→ start.bat(チャットで伝える。計画には書かない = 10-08 ユーザー決定)
+- **10-08 に入ったもの(全部 main)**:
+  - 線 D: 検出 `live.detect`・自動採用 `live.autoAdopt` を**既定オン**に(0.46.3。ユーザー決定)。18:31 の白銀ノエルの配信で初めて本物で 候補 7 → 自動採用 3 → パック 3 まで通った(L4' 済み。印象「いい感じ。細かい調整はユーザーが行う」)
+  - 編集 0.60.0: 認識のあとの後処理 A・C・D(SenseVoice で文字の少ない行を埋める・幻覚と重複の掃除・1 字違い直し)。様子見
+  - 送るアプリ 2.7.0: まとめ動画を届いたら裏で取り、アプリの小窓で再生
+  - **友人のライブ配信の依頼 + 組で届ける(ホーム 0.47.0・送るアプリ 2.8.0。仕様 `docs/spec/friend-intake.md` の 2-15・2-16、仮決め `plan/decisions.md` の 3-13 = まだ確認していない)**:
+    kind live の依頼 → 配信中・配信前なら録画を始めて結びつけ(`live/requests.json`。`src/home/live_requests.py`)→ 検出・自動採用(友人の設定。ホームのスイッチがオフでも)→ 書き出し → パック → 1 本ずつ友人へ届ける(人の確認なし = この依頼だけの例外)。
+    届け方: n 本の組 = まとめ動画 1 本 + 1 本ずつの zip + `.group.json`(友人はまとめ動画を見てから 1 本ずつ選ぶ)。1 本にもまとめ動画。依頼ごとの `deliverBatch`
+  - 10-08 のそのほか: 仮決め 66 件をチャットで確認(decisions 3-4〜3-11)・配信中の文字起こしは案 b をやると決定(D-11。**未実装**)・計画から「操作だけのタスク」を外す決まり(AGENTS.md)
+- **未確認・次**:
+  1. **U8**: 友人に 2.8.0 の zip(`friend-apps\request-sender\dist\RequestSender.zip`)を渡し、本物の Dropbox で ライブ配信の依頼 1 回 + 組で 1 本ずつ選ぶ を確かめる(PC 側は 0.47.0 を起動し直してから)
+  2. decisions 3-13 の仮決め((ec)〜(en))をユーザーに確認
+  3. D-11 案 b(配信中の文字起こし = 候補とマークの前後だけ GPU の whisper.cpp で)の実装。10-18/19 の配信より前
+  4. 10-18/19: 長い配信 1 本(U4)で安定を見る・検出の設定の微調整
+- 知っている制限(ベータ): ホームの検出がオフのとき、友人の録画の候補はスタジオの画面に出ない(`review.js` が prefs の `live.detect.enabled` で聞きに行かない。検出は動いて採用もされる)/ 友人の録画はワーカーの同時 2 本の枠で優先されない / 結びつきは 14 日残るので、その間はホームの検出がオフでもワーカーが常駐する / 終わった配信の依頼は yt-dlp を 2 回呼ぶ
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -10 を見て。10-07 夜の線 D の前倒し(L1〜L3・M11・M8〜M10・M12)と送るアプリ 2.3〜2.5 + ホーム 0.44〜0.45.1 は全部 main に入り、10-08 0 時台に資料とソースを整理した(入口 0.45.2・スタジオ 0.23.1・送るアプリ 2.5.1)。並行セッションの送るアプリ 2.6.0(友人の「要らない」を PC に戻す・まとめ動画を等速)が入っているか git log で確かめる。まず 10-07 夜の配信 2 本目の M7 の結果と、ユーザーが起動し直したかを確かめて WORKLOG と plan/data.js に記録。次に plan/improvements.md の 12 を小さく直し、単体と e2e_live_studio・e2e_portal・ui_audit all --demo で確かめてコミット。ユーザーが検出オンで配信を 1 本試したら、調子・LIVE の帯・live/excite/<rc>/<rec>/peaks.json・excite.log を読んで結果(候補の数・遅れ・チャットの起動し直し・CPU)を WORKLOG に書き、0-10-5 の数を決め直す。迷う点は仮決めして decisions の 3-7 か 3-9 に (do) 以降の記号で。」
+「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -10 を見て。10-08 夜に友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15・2-16。ホーム 0.47.0・送るアプリ 2.8.0)を入れた。次は (1) U8 の結果を聞く (2) plan/decisions.md の 3-13 の仮決めを確認してもらう (3) D-11 案 b(配信中の文字起こし)の実装。入口は起動し直すと 0.47.0。」
 
 ## 注意(引き継ぐこと)
-- **`friend-apps\request-sender\build.bat` は dist の exe が動いていると [3/4] で止まり、その前に dist の README・members.json・鍵 config.json を消す**(10-08 0 時台に起きた。既存の zip から戻した)。流す前に RequestSender.exe が動いていないか確かめる(AI はユーザーのプロセスを止めない)
-- 入口が起動中にフォルダを動かすと、録画の部品(`recorder.py`)のプロセスがフォルダを掴んで移動できない。入口の「すべて終了」では録画の部品が止まらないことがある(10-07)。ユーザーにタスク マネージャーで止めてもらう
-- Claude Code のアプリ(Code タブ)から動かす AI は MSIX の中なので、`%LOCALAPPDATA%` への書き込みは写しに入る(`AGENTS.md` の動作環境)。作業データは入口の API を通すか、パッケージの外のプロセスで書く
-- 同じ作業フォルダで複数のセッションが動くことがある(10-08 0 時台も)。始めに `ListAgents` で busy なセッションを見て、触るファイルを知らせて担当を分ける。共有の文書は自分の差分だけ index に入れる。`git add -A` は使わない
-- クラウドの Claude Code(claude.ai/code)は PC のフォルダを見ない。GitHub のブランチに push するので、PC 側で取り込む。**PC 側でコミットしたら早めに push する**(push していないと、クラウドと同じ版番号・同じ仮決めの記号を付けてしまい、合流で衝突する = 10-07 の合流)。`python` は `python3`・node は `/opt/node22/bin/node`・Segoe UI と Cascadia が無い・YouTube の埋め込みは読めない
-- Claude Code のアプリがときどき落ちる(セッションが途中で切れる)。項目ごとにコミットする。再開は「続行」で止まった所から。WORKLOG の「未コミット」と `git status` を突き合わせる
+- **`friend-apps\request-sender\build.bat` は PowerShell から `cmd /c "echo.| .\build.bat"`**(最後に Press any key を待つ。Bash からは動かない)。dist の exe が動いていると [3/4] で止まる(0.46.2 で exe 以外を消さないようにした)
+- 友人のアプリ 2.8.0 は本物の Dropbox ではまだ試していない(テストと画面の確認だけ)。`.group.json` は PC が最後に置く(まとめ動画 → zip → 一覧)。同期の途中で友人が組を全部片付けると、あとから届いた zip が組なしになる(害は小さい)
+- 入口が起動中にフォルダを動かすと、録画の部品(`recorder.py`)のプロセスがフォルダを掴んで移動できない。AI はユーザーのプロセスを止めない
+- Claude Code のアプリ(Code タブ)から動かす AI は MSIX の中なので、`%LOCALAPPDATA%` への書き込みは写しに入る(`AGENTS.md` の動作環境)。作業データは入口の API を通すか、パッケージの外のプロセスで
+- 同じ作業フォルダで複数のセッションが動くことがある(10-08 も。並行セッションのコミットに自分の差分が巻き込まれた)。始めに `ListAgents` で busy なセッションを見て、触るファイルを知らせて担当を分ける
+- サブエージェントで分けるときは担当ファイルを重ねない。同時に流した単体テストは、ほかのエージェントがファイルを書き換えている瞬間に落ちることがある(流し直す)
+- 計画(`plan/data.js`)に「起動し直し」「zip を渡す」のような操作だけのタスクを入れない(10-08 ユーザー決定。チャットで一言)
 - 2026-09-23 に、Claude が配った zip で GPT の変更が上書きされて消えた。**古い控えからのファイル丸ごとの上書き・zip 配布はしない**
-- PC の不安定(i9-13900KF)は 10-04 に CPU を i9-12900KF に替えて解決したとみなす。異常終了は本物の失敗として調べる(入口の「調子」の「異常終了(7 日)」)
+- Claude Code のアプリがときどき落ちる(セッションが途中で切れる)。項目ごとにコミットする。再開は「続行」で止まった所から。WORKLOG の「未コミット」と `git status` で続きを知る

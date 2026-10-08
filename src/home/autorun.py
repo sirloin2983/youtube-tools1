@@ -27,8 +27,9 @@
   作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
   リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)の切り抜きは、カットを指定していなければ区間の全体
   (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2)。
-- ① 全自動の Dropbox へ届ける段: パックを n 本(ホームの設定 intake.deliverBatch)たまるごとに 1 つの zip + まとめ動画で Dropbox の 出力 へ置く
-  (実行の終わりには n 本に満たない残りも)。n=1 か、パックが 1 本だけの実行は 1 本ずつの zip。作り方・名前は src/home/deliver.py
+- ① 全自動の Dropbox へ届ける段: パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、組 = まとめ動画 1 本 +
+  1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。n=1 か 1 本だけのときは
+  1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(docs/spec/friend-intake.md の 2-16)。作り方・名前は src/home/deliver.py
 - あとから解析(測るため。2026-10-05 ユーザー決定): 友人の依頼(URL)が区間だけ(解析の段を外した形)で終わったら、その配信を「あとから解析する一覧」
   (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
   スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
@@ -40,6 +41,7 @@ import http.client
 import json
 import os
 import re
+import shutil
 import urllib.parse
 import threading
 import time
@@ -300,10 +302,11 @@ def _busy_reason(active, same, what=""):
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
                  source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
-                 engine=None, model=None):
+                 engine=None, model=None, deliver_batch=None):
         self.id = uuid.uuid4().hex[:10]
         self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
         self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
+        self.deliver_batch = deliver_batch if isinstance(deliver_batch, int) and not isinstance(deliver_batch, bool) and 1 <= deliver_batch <= 10 else None   # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
         self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
         self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
         self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
@@ -351,7 +354,7 @@ class Run:
                 "overwrite": self.overwrite, "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None,
                 "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
-                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length,
+                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
                 "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks),
                 "created": self.created, "state": self.state, "message": self.message,
@@ -380,7 +383,7 @@ class Run:
                       speakers=d.get("speakers") if isinstance(d.get("speakers"), dict) else None,
                       video_tracks=vt if isinstance(vt, int) and not isinstance(vt, bool) else None, ranges=clean_ranges(d.get("ranges")),
                       cut=d.get("cut"), weights=clean_weights(d.get("weights")), duration=d.get("duration") if _num(d.get("duration")) else None,
-                      engine=d.get("engine"), model=d.get("model"))
+                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"))
         except (TypeError, ValueError, KeyError):
             return None
         run.id = d["id"]
@@ -722,7 +725,8 @@ class AutoRunner:
             return Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who, on_fail=self._pref("onFail", "next"))
         return self._enqueue(dict.fromkeys(i for i in ids if isinstance(i, str)), make)
 
-    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
+    def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None,
+                      deliver_batch=None):
         """友人からの依頼(配信の URL。src/home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
         配信ごとに1つの実行(mode request)。ranges = 時刻で指定した区間 [(開始, 終了)](③ では使わない)。top に足りない分は自動で埋める。
         cut = カットの方法(① のパック)・weights = 解析の重み。すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)。
@@ -749,11 +753,11 @@ class AutoRunner:
             return Run(vid, title or vid, mode, top, fresh={"title": title, "channel": channel},
                        on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
                        video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto", streamer=streamer or None,
-                       duration=it.get("duration") if _num(it.get("duration")) else None)
+                       duration=it.get("duration") if _num(it.get("duration")) else None, deliver_batch=deliver_batch)
         return self._enqueue(items, make)
 
     def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
-                   engine=None, model=None):
+                   engine=None, model=None, deliver_batch=None):
         """友人が切り抜いた動画の依頼(src/home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)。
         engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)"""
@@ -765,7 +769,7 @@ class AutoRunner:
                 raise ValueError(why)
             out = self._push(Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
                                  on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                                 video_tracks=video_tracks, cut=cut, engine=engine, model=model))
+                                 video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch))
         self._save_active()
         return out
 
@@ -1946,8 +1950,10 @@ class AutoRunner:
         st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(run.delivered)
         return None
 
-    def _batch_size(self):
-        """n 本ごとにまとめて届ける(ホームの設定 intake.deliverBatch。既定と範囲は prefs.py。1 = 1 本ずつ)"""
+    def _batch_size(self, run):
+        """n 本ごとに組にして届ける。友人の依頼が指定していればそれ(run.deliver_batch。2-16)、無ければホームの設定 intake.deliverBatch(既定と範囲は prefs.py。1 = 1 本ずつ)"""
+        if run.deliver_batch:
+            return run.deliver_batch
         default = prefs_mod.DEFAULTS["intake"]["deliverBatch"]
         lo, hi, _label = prefs_mod.INTAKE_RANGES["deliverBatch"]
         try:
@@ -1958,41 +1964,49 @@ class AutoRunner:
 
     def _deliver_pending(self, run, st, prefix, final):
         """まだ届けていないパックを n 本ごとに届ける(final = 実行の終わり: n 本に満たない分もその本数で届ける)。
-        n=1 か、この実行のパックが 1 本だけなら 1 本の zip(<依頼 id>__<パックの題>.zip。まとめ動画なし)"""
-        n = self._batch_size()
+        2 本以上なら組(_deliver_group = まとめ動画 1 本 + 1 本ずつの zip + .group.json)、1 本なら 1 本の zip + そのまとめ動画(_deliver_one)。2-16"""
+        n = self._batch_size(run)
         while True:
             pending = [p for p in run.packs if p not in run.delivered and os.path.isdir(p)]
             if not pending or (len(pending) < n and not final):
                 return
             batch = pending[:n]
-            if n <= 1 or len(run.packs) <= 1:
+            if n <= 1 or len(batch) <= 1:
                 self._deliver_one(run, batch[0])
             else:
-                self._deliver_batch(run, st, batch, prefix)
+                self._deliver_group(run, st, batch, prefix)
 
-    def _deliver_batch(self, run, st, batch, prefix):
-        """n 本のパックを 1 つの zip(<依頼 id>__<題名> 1-5.zip。1-5 はこの実行の何本目か。中は <題>_pack/ が並ぶ)にして 出力 へ。
-        まとめ動画は zip の隣に <同じ名前>.preview.mp4 で先に置く(deliver.place_preview。zip の中には入れない = 受け取ったあとは要らない。2026-10-08)。
-        まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip は届ける。届けた zip の中身(パックとマーク)は deliveries.jsonl に残す"""
+    def _deliver_group(self, run, st, batch, prefix):
+        """n 本のパックを組にして 出力 へ(docs/spec/friend-intake.md の 2-16): ① 組のまとめ動画 <依頼 id>__<題> 1-5.preview.mp4(2-13 の中身のまま)→
+        ② 1 本ずつの zip(_deliver_one と同じ <依頼 id>__<パックの題>.zip。まとめ動画は組のものを使うので付けない)→ ③ 最後に <同じ名前>.group.json(zip の名前・何本目・
+        まとめ動画の中の開始秒)。友人のアプリ(2.8.0)はまとめ動画を見てから 1 本ずつ受け取る・要らないを選べる。古いアプリは 1 本ずつの zip として受け取れる。
+        まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と一覧は届ける。届けた記録(deliveries.jsonl)は zip ごと"""
         first, last = run.packs.index(batch[0]) + 1, run.packs.index(batch[-1]) + 1
-        name = self._deliver_name(run, "%s %s" % (run.title or "pack", "%d-%d" % (first, last) if first != last else first))
+        rng = "%d-%d" % (first, last)
+        name = self._deliver_name(run, "%s %s" % (run.title or "pack", rng))
         st["detail"] = prefix + "まとめ動画を作っています(%d 本)" % len(batch)
 
         def check():
             self._check(run)
         preview = deliver_mod.batch_preview(batch, check=check, log=self.log)   # 作れなければ None
-        placed = None
+        seconds = deliver_mod.clip_seconds(batch)
+        placed, zips, titles, secs = None, [], [], []
         try:
             os.makedirs(run.deliver_dir, exist_ok=True)
-            dest = deliver_mod.unique_zip(run.deliver_dir, name)
+            pv_path, json_path, name = deliver_mod.group_paths(run.deliver_dir, name)
             if preview:
-                placed = deliver_mod.place_preview(preview, dest)
-            st["detail"] = prefix + "%d 本を zip にして Dropbox へ届けています" % len(batch)
-            deliver_mod.zip_packs(batch, run.deliver_dir, name, check=check, dest=dest)
-            self._mark_delivered(run, batch)
-            self._record_delivery(run, dest, batch)
+                placed = pv_path   # 写している途中で止まっても(ディスクがいっぱい)、書きかけを残さないように先に控える
+                shutil.copyfile(preview, pv_path)
+            for i, d in enumerate(batch):
+                st["detail"] = prefix + "%d 本を 1 本ずつ zip にして Dropbox へ届けています(%d / %d)" % (len(batch), i + 1, len(batch))
+                zp = self._deliver_one(run, d, with_preview=False)
+                if zp:
+                    zips.append((run.packs.index(d) + 1, zp))
+                    titles.append(deliver_mod.pack_title(d))
+                    secs.append(seconds[i])
+            deliver_mod.write_group_json(json_path, run.title or "pack", rng, placed, deliver_mod.group_members(zips, titles, secs))
         except Exception as e:
-            deliver_mod.remove_quiet(placed)   # zip が置けなかったら、先に置いたまとめ動画も残さない
+            deliver_mod.remove_quiet(placed)   # 一覧(.group.json)を書けなかったら、先に置いた組のまとめ動画は消す(相手のいない動画は誰にも見えないごみになる。置けた zip は 1 本ずつの形で残る)
             if isinstance(e, OSError):
                 raise self._place_error(e)
             raise
@@ -2022,18 +2036,32 @@ class AutoRunner:
         except Exception as e:   # noqa: BLE001  (届け残しが置けなくても止まった知らせは出す)
             self.log("まとめて実行: 止まった実行のパックを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
 
-    def _deliver_one(self, run, d):
+    def _deliver_one(self, run, d, with_preview=True):
         """1本のパックのフォルダを zip(<依頼 id>__<パックの題>.zip)にして 出力 へ置く(作り方は src/home/deliver.py。「編集」の「友人へ届ける」と同じ)。
-        d は run.packs の書き方のまま(届けた印 run.delivered と同じ文字列で比べる。run.packs に入れるときにそろえてある)"""
+        with_preview: その切り抜きだけのまとめ動画 <同じ名前>.preview.mp4 を zip より先に隣へ置く(2-16。友人は 1 本でも見てから選べる。組の中では組のものを使うので付けない)。
+        d は run.packs の書き方のまま(届けた印 run.delivered と同じ文字列で比べる。run.packs に入れるときにそろえてある)。-> 置いた zip のパス(届け済みなら None)"""
         if d in run.delivered or not os.path.isdir(d):
-            return
+            return None
+        name = self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack")
+        preview = deliver_mod.batch_preview([d], check=lambda: self._check(run), log=self.log) if with_preview else None
+        placed = None
         try:
-            dest = deliver_mod.zip_pack(d, run.deliver_dir, self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack"),
-                                       check=lambda: self._check(run))
+            os.makedirs(run.deliver_dir, exist_ok=True)
+            dest = deliver_mod.unique_zip(run.deliver_dir, name)
+            if preview:
+                placed = deliver_mod.preview_path_for(dest)   # place_preview の途中で止まっても書きかけを残さないように先に控える
+                deliver_mod.place_preview(preview, dest)
+            deliver_mod.zip_packs([d], run.deliver_dir, name, check=lambda: self._check(run), dest=dest)
             self._mark_delivered(run, [d])
             self._record_delivery(run, dest, [d])
-        except OSError as e:
-            raise self._place_error(e)
+            return dest
+        except Exception as e:
+            deliver_mod.remove_quiet(placed)   # zip が置けなかったら、先に置いたまとめ動画も残さない
+            if isinstance(e, OSError):
+                raise self._place_error(e)
+            raise
+        finally:
+            deliver_mod.remove_quiet(preview)
 
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""

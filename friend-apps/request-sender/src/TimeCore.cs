@@ -311,6 +311,87 @@ namespace RequestSender
         }
     }
 
+    // ---- ライブ配信の依頼の、友人のベータの設定(2.8.0。docs/spec/friend-intake.md の 2-15。依頼の JSON の "live")----
+    //   sens = 感度 high|normal|low・perHour = 1 時間の候補の枠 1〜30・length = 切り抜きの長さ 10〜120 秒・waitMin = 自動で採用するまでの分 1〜60・
+    //   pad = 前後の余白 0〜5 秒・afterStream = 配信後にアーカイブからも追加する。範囲の外・無い値は既定(PC の受付も同じ規則)
+    public class LiveSettings
+    {
+        public const string High = "high", Normal = "normal", Low = "low";
+        public static readonly string[] SensAll = { High, Normal, Low };
+        public const int MinPerHour = 1, MaxPerHour = 30, DefaultPerHour = 6;
+        public const int MinLength = 10, MaxLength = 120, DefaultLength = 45;
+        public const int MinWait = 1, MaxWait = 60, DefaultWait = 5;
+        public const int MinPad = 0, MaxPad = 5, DefaultPad = 2;
+
+        public string Sens = Normal;
+        public int PerHour = DefaultPerHour, Length = DefaultLength, WaitMin = DefaultWait, Pad = DefaultPad;
+        public bool AfterStream = true;
+
+        public static string SensLabel(string sens)
+        {
+            return sens == High ? "高" : sens == Low ? "低" : "普通";
+        }
+
+        // 範囲の外は既定にした写し
+        public LiveSettings Clean()
+        {
+            return new LiveSettings
+            {
+                Sens = SensAll.Contains(Sens) ? Sens : Normal,
+                PerHour = Pick(PerHour, MinPerHour, MaxPerHour, DefaultPerHour),
+                Length = Pick(Length, MinLength, MaxLength, DefaultLength),
+                WaitMin = Pick(WaitMin, MinWait, MaxWait, DefaultWait),
+                Pad = Pick(Pad, MinPad, MaxPad, DefaultPad),
+                AfterStream = AfterStream,
+            };
+        }
+
+        static int Pick(long v, int min, int max, int dflt)
+        {
+            return v >= min && v <= max ? (int)v : dflt;
+        }
+
+        // ,"live":{"sens":"normal","perHour":6,"length":45,"waitMin":5,"pad":2,"afterStream":true}(鍵の順も約束)
+        public string JsonPart()
+        {
+            var c = Clean();
+            var inv = CultureInfo.InvariantCulture;
+            return ",\"live\":{\"sens\":" + JsonText.Quote(c.Sens, false) + ",\"perHour\":" + c.PerHour.ToString(inv) + ",\"length\":" + c.Length.ToString(inv) +
+                   ",\"waitMin\":" + c.WaitMin.ToString(inv) + ",\"pad\":" + c.Pad.ToString(inv) + ",\"afterStream\":" + (c.AfterStream ? "true" : "false") + "}";
+        }
+
+        // 下の帯の要約: 感度 普通・1 時間 6 本・45 秒・待ち 5 分・余白 2 秒・配信後も追加
+        public string Summary()
+        {
+            var c = Clean();
+            return "感度 " + SensLabel(c.Sens) + " ・ 1 時間 " + c.PerHour + " 本 ・ " + c.Length + " 秒 ・ 待ち " + c.WaitMin + " 分 ・ 余白 " + c.Pad + " 秒 ・ 配信後の追加 " + (c.AfterStream ? "あり" : "なし");
+        }
+
+        // settings.json の "live" から(無い・形が違う値は既定)
+        public static LiveSettings From(IDictionary<string, object> d)
+        {
+            var s = new LiveSettings();
+            if (d == null) return s;
+            string sens = Json.Str(d, "sens");
+            if (SensAll.Contains(sens)) s.Sens = sens;
+            s.PerHour = Pick(Json.Long(d, "perHour", DefaultPerHour), MinPerHour, MaxPerHour, DefaultPerHour);
+            s.Length = Pick(Json.Long(d, "length", DefaultLength), MinLength, MaxLength, DefaultLength);
+            s.WaitMin = Pick(Json.Long(d, "waitMin", DefaultWait), MinWait, MaxWait, DefaultWait);
+            s.Pad = Pick(Json.Long(d, "pad", DefaultPad), MinPad, MaxPad, DefaultPad);
+            s.AfterStream = Json.Bool(d, "afterStream", true);
+            return s;
+        }
+
+        public Dictionary<string, object> ToDict()
+        {
+            var c = Clean();
+            return new Dictionary<string, object>
+            {
+                { "sens", c.Sens }, { "perHour", c.PerHour }, { "length", c.Length }, { "waitMin", c.WaitMin }, { "pad", c.Pad }, { "afterStream", c.AfterStream },
+            };
+        }
+    }
+
     // ---- 配信の題名(YouTube の oEmbed。貼り間違いに気づくため。ID だけを渡し、友人が入れた文字はそのまま使わない) ----
     public static class OEmbed
     {
@@ -356,6 +437,8 @@ namespace RequestSender
         public Weights Weights = new Weights();
         public string Theme = "A";
         public int WindowWidth, WindowHeight;                // 0 = はじめの大きさ
+        public int DeliverBatch = RequestSender.DeliverBatch.Default;   // 届け方(2.8.0。1 = 1 本ずつ / n = n 本ごと)
+        public LiveSettings Live = new LiveSettings();                  // ライブ配信の依頼の設定(2.8.0。最後に使った値)
 
         // 読んだ辞書から(無い・形が違う値は既定)
         public static AppSettings From(IDictionary<string, object> d)
@@ -380,6 +463,9 @@ namespace RequestSender
             if (Themes.Contains(theme)) s.Theme = theme;
             long ww = Json.Long(d, "windowWidth", 0), wh = Json.Long(d, "windowHeight", 0);
             if (ww >= 400 && ww <= 10000 && wh >= 300 && wh <= 10000) { s.WindowWidth = (int)ww; s.WindowHeight = (int)wh; }
+            long batch = Json.Long(d, "deliverBatch", s.DeliverBatch);
+            if (batch >= RequestSender.DeliverBatch.Min && batch <= RequestSender.DeliverBatch.Max) s.DeliverBatch = (int)batch;
+            s.Live = LiveSettings.From(Json.Dict(d, "live"));
             return s;
         }
 
@@ -396,6 +482,8 @@ namespace RequestSender
             d["theme"] = Themes.Contains(Theme) ? Theme : "A";
             d["windowWidth"] = WindowWidth;
             d["windowHeight"] = WindowHeight;
+            d["deliverBatch"] = RequestSender.DeliverBatch.InRange(DeliverBatch) ? DeliverBatch : RequestSender.DeliverBatch.Default;
+            d["live"] = (Live ?? new LiveSettings()).ToDict();
         }
 
         static double Number(IDictionary<string, object> d, string key, double dflt)

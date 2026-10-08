@@ -42,6 +42,7 @@ import launch as L  # noqa: E402
 import live as LV  # noqa: E402
 import live_export as LX  # noqa: E402
 import live_failures as LF  # noqa: E402
+import live_requests as LR  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt_core import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
 sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
@@ -612,6 +613,129 @@ class PortalLiveTest(unittest.TestCase):
         self.assertIn("まだ始まっていません", d["message"])
         self.assertFalse(self.jreq("GET", "/live/api/marks?recorder=fake&recording=" + rec2)[1]["marks"])
         self.assertEqual(self.req("POST", "/live/api/export", body, token=False)[0], 403)
+
+    # ---------- 友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15) ----------
+    def friend_ctx(self, **extra):
+        """src/home/intake.py の _handle_live_request が live_begin へ渡す ctx の形"""
+        return dict({"rid": "20261008-200000-abc123", "deliverDir": os.path.join(self.tmp, "Dropbox", "切り抜き依頼", "出力"),
+                     "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信の題", "streamer": "兎田ぺこら",
+                     "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "",
+                     "settings": {"sens": "high", "pad": 0.5, "afterStream": False}}, **extra)
+
+    def test_begin_request(self):
+        """Live.begin_request: オフなら 409(yt-dlp も録画元も呼ばない)・配信中なら録画を始めて依頼に結びつけ、検出を起こす・
+        同じ配信を録画中ならそれに結びつける(新しい依頼で置き換える)・配信中でなければ 409 で結びつけない・録画元が止まっていれば 502"""
+        live = self.srv.live
+        rec = {"id": "20261008-200000-abcdefghijk", "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信の題", "state": "waiting", "active": True}
+        started = []
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": []})
+        self.fake.routes[("POST", "/live/start")] = lambda b: (started.append(b), (200, {"recording": rec}))[1]
+        calls = self.probe_as("is_live")
+        ctx = self.friend_ctx()
+        with mock.patch.object(live.detector, "wake") as wake:   # 本物はワーカーを起こす(テストでは子プロセスを作らない)
+            with self.assertRaises(LX.LiveError) as cm:
+                live.begin_request(rec["url"], ctx)
+            self.assertEqual(cm.exception.code, 409)
+            self.assertIn("オフ", str(cm.exception))
+            self.assertEqual((calls, started, live.requests.all()), ([], [], {}))
+            self.enable()
+            self.assertEqual(live.begin_request(rec["url"], ctx), {"recorder": "fake", "recording": rec["id"], "existing": False})
+            self.assertEqual([s["url"] for s in started], [rec["url"]])
+            item = live.requests.get("fake", rec["id"])
+            self.assertEqual({k: item[k] for k in ("rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut")},
+                             {k: ctx[k] for k in ("rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut")})
+            self.assertEqual(item["settings"], dict(LR.SETTINGS_DEFAULT, sens="high", pad=0.5, afterStream=False))   # 無い鍵は既定
+            wake.assert_called_once_with()
+            # 同じ配信を録画中 → それに結びつける(録画は始めない)。新しい依頼で置き換える
+            self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": [dict(rec, state="recording")]})
+            out = live.begin_request(rec["url"], dict(ctx, rid="20261008-210000-def456"))
+            self.assertEqual((out["existing"], len(started)), (True, 1))
+            self.assertEqual(live.requests.get("fake", rec["id"])["rid"], "20261008-210000-def456")
+            # 配信中でない・調べられない → 409(結びつけない。受付が理由を友人へ返す)
+            for st in ("was_live", "post_live", "NA"):
+                self.probe_as(st)
+                with self.assertRaises(LX.LiveError) as cm:
+                    live.begin_request("https://www.youtube.com/watch?v=bbbbbbbbbbb", dict(ctx, rid="20261008-220000-aaa111"))
+                self.assertEqual(cm.exception.code, 409, st)
+                self.assertIn("配信中・配信前の配信ではありません", str(cm.exception))
+            self.assertEqual(list(live.requests.all()), ["fake/" + rec["id"]])
+            self.assertEqual(wake.call_count, 2)
+        # 録画元が止まっている → 502
+        self.probe_as("is_live")
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": []})
+        self.fake.close()
+        with self.assertRaises(LX.LiveError) as cm:
+            live.begin_request("https://www.youtube.com/watch?v=ccccccccccc", ctx)
+        self.assertEqual(cm.exception.code, 502)
+        self.assertEqual(len(live.requests.all()), 1)
+        self.fake = FakeRecorder()
+
+    def _fake_recording(self, rec):
+        """録画元の録画の状態(firstPdt・lastPdt = 1 時間録れている)と、まだ届いていないセグメント(書き出しは録画待ちのまま)"""
+        url = "https://www.youtube.com/watch?v=abcdefghijk"
+        self.fake.routes[("GET", "/live/%s/status" % rec)] = lambda b: (200, {"id": rec, "url": url, "title": "配信の題",
+                                                                           "firstPdt": "2026-10-08T11:00:00.000Z", "lastPdt": "2026-10-08T12:00:00.000Z"})
+        self.fake.routes[("GET", "/live/%s/segments" % rec)] = lambda b: (200, {"url": url, "active": True, "state": "recording", "firstPdt": "2026-10-08T11:00:00.000Z",
+                                                                             "lastPdt": "2026-10-08T11:00:05.000Z", "segments": [], "gaps": []})
+
+    def test_adopt_and_export_with_friend_request(self):
+        """結びついた録画の採用(Live.adopt)と人のマーク(export_studio): after は auto に固定・余白は依頼の pad・配信者は依頼のもの(本文の指定が先)・
+        ジョブに request {rid, deliverDir, speakers, videoTracks, cut}。配信後のアーカイブからの追加(origin archive)は依頼の afterStream が真のときだけ結びつく。
+        結びついていない録画はホームの設定のまま(after = live.auto.after・余白 = live.auto.pad)"""
+        self.enable()
+        live = self.srv.live
+        studio = FakeStudio()
+        live.studio_call = studio
+        rec_a, rec_b, rec_c = "20261008-200000-abcdefghijk", "20261008-200000-bbbbbbbbbbb", "20261008-200000-ccccccccccc"
+        for r in (rec_a, rec_b, rec_c):
+            self._fake_recording(r)
+        ctx_a = self.friend_ctx()                                                            # afterStream なし・余白 0.5 秒
+        ctx_b = self.friend_ctx(rid="20261008-200000-abc456", streamer="", cut=None, settings={"pad": 0, "afterStream": True})
+        live.requests.put("fake", rec_a, ctx_a)
+        live.requests.put("fake", rec_b, ctx_b)
+        want_a = {k: ctx_a[k] for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}
+
+        def adopt(rec, start, end, **body):
+            res = live.adopt(dict({"recorder": "fake", "recording": rec, "start": start, "end": end, "label": "山"}, **body))
+            self.assertFalse(res["existing"])
+            return res["job"]
+        # 配信中の検出の自動の採用(auto): 依頼の余白 0.5 秒・after auto・配信者は依頼のもの
+        j = adopt(rec_a, 100.0, 140.0, origin="auto")
+        self.assertEqual((j["origin"], j["after"], j["transcribe"], j["streamer"], j["request"]), ("auto", "auto", True, "兎田ぺこら", want_a))
+        self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (99.5, 140.5))
+        # 人の採用(manual): 余白なし・本文の after none より依頼(届ける)が先・本文の配信者は使う
+        j = adopt(rec_a, 200.0, 210.0, after="none", streamer="さくらみこ")
+        self.assertEqual((j["origin"], j["after"], j["streamer"], j["request"]["rid"]), ("manual", "auto", "さくらみこ", ctx_a["rid"]))
+        self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (200.0, 210.0))
+        # 配信後のアーカイブ(archive): afterStream なしの依頼には結びつかない = ホームの設定(after check・余白 2 秒)
+        j = adopt(rec_a, 300.0, 330.0, origin="archive")
+        self.assertEqual((j["origin"], j["after"], j["streamer"], "request" in j), ("archive", "check", "", False))
+        self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (298.0, 332.0))
+        # afterStream ありの依頼には結びつく(余白 0・配信者が空なら ""・カットの指定なし)
+        j = adopt(rec_b, 100.0, 130.0, origin="archive")
+        self.assertEqual((j["after"], j["streamer"], j["request"]), ("auto", "", {"rid": ctx_b["rid"], "deliverDir": ctx_b["deliverDir"],
+                                                                                  "speakers": ctx_b["speakers"], "videoTracks": 2, "cut": None}))
+        self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (100.0, 130.0))
+        # 結びついていない録画: 今までどおり
+        j = adopt(rec_c, 100.0, 140.0, origin="auto")
+        self.assertEqual((j["after"], j["streamer"], "request" in j), ("check", "", False))
+        self.assertEqual((j["studio"]["start"], j["studio"]["end"]), (98.0, 142.0))
+        # 書き出しの記録(exports.json)にも request が残る(起動し直しても届け先が分かる)
+        saved = fsio.read_json_file(os.path.join(live.store_dir, "exports.json"), 8 * 1024 * 1024)["jobs"]
+        self.assertEqual(sorted(x["request"]["rid"] for x in saved if x.get("request")), sorted([ctx_a["rid"], ctx_a["rid"], ctx_b["rid"]]))
+
+        # スタジオの画面の人のマーク(POST /live/api/export の studio): 結びついた録画は transcribe false でも届ける
+        st = {"video": rec_a, "mark": "m1a2b3", "n": 1, "label": "人のマーク", "start": 10, "end": 22.5}
+        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec_a, "transcribe": False, "studio": st})
+        self.assertEqual(code, 200, d)
+        self.assertEqual((d["job"]["origin"], d["job"]["after"], d["job"]["transcribe"], d["job"]["streamer"], d["job"]["request"]),
+                         ("manual", "auto", True, "兎田ぺこら", want_a))
+        self.assertEqual((d["job"]["studio"]["start"], d["job"]["studio"]["end"]), (10.0, 22.5))   # 人の区間に余白は足さない
+        code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec_c, "transcribe": False, "studio": dict(st, video=rec_c)})
+        self.assertEqual(code, 200, d)
+        self.assertEqual((d["job"]["after"], "request" in d["job"]), ("none", False))   # 結びついていない録画は今までどおり(transcribe false = 何もしない)
+        for jj in self.jreq("GET", "/live/api/exports")[1]["jobs"]:
+            self.jreq("POST", "/live/api/export/cancel", {"id": jj["id"]})
 
     def test_ytt_live_status_and_stop(self):
         self.enable()
@@ -1518,6 +1642,49 @@ class ExportPiecesTest(unittest.TestCase):
         ex._finish(j2, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, a, b, archive={"videoId": "abcdefghijk"})
         self.assertEqual((j2["handoffWait"], j2["runId"]), ("", "run-2"))
 
+    def test_handoff_with_friend_request(self):
+        """友人のライブ配信の依頼の録画(2-15): 書き出したら まとめて実行の start_file に 依頼 id・届け先・話者・トラック・カット(依頼のものが live.auto より先)と
+        deliver_batch=1(1 本ずつ届ける)を渡す。ジョブの request は記録に残る(起動し直しても届け先が分かる)。依頼の無いジョブには渡さない"""
+        free = {"v": 50 * LX.GB}
+        runner = FakeRunner()
+        ex, _logs = self._pieces_exporter(free, runner)
+        rec = "20261004-000000-a"
+        deliver = os.path.join(self.tmp, "Dropbox", "切り抜き依頼", "出力")
+        req = {"rid": "20261008-200000-abc123", "deliverDir": deliver, "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信", "streamer": "兎田ぺこら",
+               "speakers": {"count": 2, "names": ["兎田ぺこら", "宝鐘マリン"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "",
+               "settings": dict(LR.SETTINGS_DEFAULT), "createdAt": 1.0}
+        auto = {"cut": "none", "engine": "whisper.cpp", "model": "large-v3"}
+        media = os.path.join(self.tmp, "out", "03_z.mp4")
+        os.makedirs(os.path.dirname(media))
+        with open(media, "wb") as f:
+            f.write(b"x")
+        ans = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": "2026-10-04T05:00:00.000Z"}
+
+        def run(start, request):
+            m, _ = ex.marks.apply("local", rec, {"op": "add", "start": start, "end": start[:-3] + "05Z"})
+            job = ex.add("local", rec, m["id"], after="auto", streamer="兎田ぺこら", auto=auto, request=request)
+            j = next(x for x in ex.jobs if x["id"] == job["id"])
+            ex._finish(j, {"id": "local"}, rec, ans, {"path": media, "duration": 5.0, "title": "配信"}, LX.iso_epoch(j["start"]), LX.iso_epoch(j["end"]))
+            return j
+        j = run("2026-10-04T06:00:00Z", req)
+        self.assertEqual(j["request"], {"rid": req["rid"], "deliverDir": deliver, "speakers": req["speakers"], "videoTracks": 2, "cut": "silence"})   # 要るものだけ
+        self.assertEqual((j["state"], j["runId"], j["handoffError"]), ("done", "run-1", ""))
+        self.assertEqual((runner.files[-1][0], runner.files[-1][2], runner.streamers[-1]), (media, "auto", "兎田ぺこら"))
+        self.assertEqual(runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": deliver,
+                                          "speakers": req["speakers"], "video_tracks": 2, "deliver_batch": 1})
+        # 依頼にカットの指定が無ければ live.auto のカット・届け先が空なら None(まとめて実行が断る = 失敗として見える)
+        j = run("2026-10-04T06:01:00Z", dict(req, cut=None, deliverDir="", speakers=None, videoTracks=None))
+        self.assertEqual(runner.kws[-1], {"cut": "none", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": None,
+                                          "speakers": None, "video_tracks": None, "deliver_batch": 1})
+        # 依頼 id の無い request・依頼なし: 今までどおり(依頼の引数を渡さない)
+        for k, bad in enumerate((dict(req, rid=""), None, "x")):
+            j = run("2026-10-04T06:0%d:00Z" % (2 + k), bad)
+            self.assertNotIn("request", j)
+            self.assertEqual(runner.kws[-1], auto)
+        self.assertEqual(len(runner.files), 5)
+        again = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: os.path.join(self.tmp, "out"))   # 記録に残る
+        self.assertEqual([x.get("request", {}).get("rid") for x in again.jobs][:2], [req["rid"], req["rid"]])
+
     def test_reserved_slot_while_recording(self):
         """M6: 録画中のライブの書き出しは用途つきの枠も使う = 文字起こし 2 本で上限が埋まっていても待たない。録画が終わったあとは普通の枠で待つ"""
         slots = jobs.HeavySlots(2)
@@ -1625,6 +1792,104 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertIn("06:00:02", j["error"])
         live.request.assert_not_called()   # 欠けのある録画は取りに行かない
         self.assertEqual(job["id"], j["id"])
+
+
+class LiveRequestsStoreTest(unittest.TestCase):
+    """友人のライブ配信の依頼と録画の結びつき(src/home/live_requests.py の Store。入口の作業データの live/requests.json。2-15)"""
+    REC = "20261008-200000-abcdefghijk"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-req-")
+        self.path = os.path.join(self.tmp, "live", "requests.json")
+        self.now = 1_800_000_000.0
+        self.logs = []
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def store(self):
+        return LR.Store(self.path, clock=lambda: self.now, log=self.logs.append)
+
+    def test_put_get_all_remove(self):
+        s = self.store()
+        self.assertEqual((s.get("local", self.REC), s.all()), (None, {}))
+        self.assertFalse(os.path.exists(self.path), "読むだけでは書かない")
+        ctx = {"rid": "20261008-200000-abc123", "deliverDir": "D:/Dropbox/切り抜き依頼/出力", "url": "https://www.youtube.com/watch?v=abcdefghijk",
+               "title": "配信" + "x" * 400, "streamer": "兎田ぺこら", "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2,
+               "cut": "silence", "memo": "m", "settings": {"sens": "low", "perHour": 99, "pad": 0.5}, "extra": "捨てる"}
+        item = s.put("local", self.REC, ctx)
+        self.assertEqual(item["settings"], dict(LR.SETTINGS_DEFAULT, sens="low", pad=0.5))   # 範囲の外(99)は既定
+        self.assertEqual((len(item["title"]), item["createdAt"], "extra" in item), (LR.TEXT_MAX, self.now, False))
+        self.assertEqual(sorted(item), ["createdAt", "cut", "deliverDir", "memo", "rid", "settings", "speakers", "streamer", "title", "url", "videoTracks"])
+        got = s.get("local", self.REC)
+        self.assertEqual(got, item)
+        got["settings"]["pad"] = 9   # 写しを返す(中の記録は変わらない)
+        self.assertEqual(s.get("local", self.REC)["settings"]["pad"], 0.5)
+        self.assertEqual(list(s.all()), ["local/" + self.REC])
+        again = self.store()   # 書いた記録を読み直せる(入口を起動し直しても結びつきが残る)
+        self.assertEqual(again.get("local", self.REC), item)
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["v"], 1)
+        # 形の違う値は入れない
+        bad = s.put("local", "20261008-200000-bbbbbbbbbbb", {"rid": 5, "speakers": "A", "videoTracks": True, "cut": "", "settings": None, "title": None})
+        self.assertEqual((bad["rid"], bad["speakers"], bad["videoTracks"], bad["cut"], bad["settings"], bad["title"]),
+                         ("5", None, None, None, LR.SETTINGS_DEFAULT, ""))
+        # 同じ録画に 2 つ目の依頼 → 新しいほうで置き換える
+        s.put("local", self.REC, dict(ctx, rid="20261008-210000-def456"))
+        self.assertEqual((s.get("local", self.REC)["rid"], len(s.all())), ("20261008-210000-def456", 2))
+        # 消す(無いものは False)
+        self.assertTrue(s.remove("local", self.REC))
+        self.assertFalse(s.remove("local", self.REC))
+        self.assertIsNone(s.get("local", self.REC))
+        self.assertEqual(list(self.store().all()), ["local/20261008-200000-bbbbbbbbbbb"])
+
+    def test_prune_old_only(self):
+        s = self.store()
+        for i in range(3):
+            self.now = 1_800_000_000.0 + i * 86400   # 1 日ずつ後
+            s.put("local", "20261008-20000%d-abcdefghijk" % i, {"rid": "r%d" % i})
+        self.now = 1_800_000_000.0 + LR.KEEP_DAYS * 86400 + 1   # 1 本目だけ 14 日を過ぎた
+        self.assertEqual(s.prune(), 1)
+        self.assertEqual(sorted(v["rid"] for v in s.all().values()), ["r1", "r2"])
+        self.assertEqual(sorted(v["rid"] for v in self.store().all().values()), ["r1", "r2"], "消したら書く")
+        with mock.patch.object(LR.fsio, "atomic_write") as w:
+            self.assertEqual(s.prune(), 0)
+            w.assert_not_called()   # 消すものが無ければ書かない(見回りのたびに呼ぶ)
+        self.assertEqual(s.prune(keep_days=0), 2)
+        self.assertEqual(self.store().all(), {})
+
+    def test_max_items_drops_oldest(self):
+        s = self.store()
+        for i in range(LR.MAX_ITEMS + 2):
+            self.now = 1_800_000_000.0 + i
+            s.put("local", "rec-%03d" % i, {"rid": "r%03d" % i})
+        keys = s.all()
+        self.assertEqual(len(keys), LR.MAX_ITEMS)
+        self.assertEqual(("local/rec-000" in keys, "local/rec-001" in keys, "local/rec-002" in keys, "local/rec-%03d" % (LR.MAX_ITEMS + 1) in keys),
+                         (False, False, True, True))
+        self.assertEqual(len(self.store().all()), LR.MAX_ITEMS)
+
+    def test_broken_file(self):
+        """壊れた・形の違う記録は読み飛ばす。読み直した項目も settings は検査済みの形・createdAt は数(live.py が settings["pad"] を、prune が引き算を使う)"""
+        os.makedirs(os.path.dirname(self.path))
+        for raw in (b"{broken", b"[]", b'{"v":1,"items":[1,2]}', b'{"v":1,"items":{"a/b":"x","c/d":{"rid":3}}}'):
+            with open(self.path, "wb") as f:
+                f.write(raw)
+            self.assertEqual(self.store().all(), {}, raw)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "items": {"local/rec": {"rid": "r1", "settings": {"pad": 9, "sens": "low"}, "createdAt": "きのう"}}}, f)
+        s = self.store()
+        got = s.get("local", "rec")
+        self.assertEqual((got["settings"], got["createdAt"]), (dict(LR.SETTINGS_DEFAULT, sens="low"), 0))
+        self.assertEqual(s.prune(), 1)   # 時刻の分からない項目は片付けで消える
+        # 書けない(置き場所がファイル)→ 記録に残して続ける(メモリの結びつきは使える)
+        blocked = os.path.join(self.tmp, "file")
+        with open(blocked, "wb") as f:
+            f.write(b"x")
+        s2 = LR.Store(os.path.join(blocked, "requests.json"), clock=lambda: self.now, log=self.logs.append)
+        s2.put("local", self.REC, {"rid": "r9"})
+        self.assertEqual(s2.get("local", self.REC)["rid"], "r9")
+        self.assertTrue(any("書けませんでした" in m for m in self.logs), self.logs)
 
 
 if __name__ == "__main__":

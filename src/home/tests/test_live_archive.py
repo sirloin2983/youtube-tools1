@@ -17,6 +17,8 @@
   - 自動の見回り(時間を縮めて): 録画が終わって少したってから・用意ができたら・重い処理があれば待つ・7 日(縮めた)でやめる
   - 起動し直しで続く(途中の段 → 待ち)・スタジオが 409 busy なら待ってやり直す
   - worker 単体(ずれの正しさ・無音)・入口のプロセスで numpy を import しない・API(オフなら 404・409 の文・archiveInfo・取り消し)
+  - 配信後の全自動(M7)と友人のライブ配信の依頼(2-15): 依頼の afterStream が真ならホームの M7 がオフでも進める(本数は依頼の perHour)・
+    偽ならホームの M7 がオンでも動かさない・録画を消すのを待つか(after_stream_hold)も同じ決め方
 """
 import os
 import shutil
@@ -822,6 +824,7 @@ class AfterStreamTest(unittest.TestCase):
         self.marks += [{"id": "x1", "src": "auto", "status": "rejected", "score": 99.0, "start": 500.0, "end": 560.0},   # 人が不採用にした
                        {"id": "x2", "src": "manual", "status": "", "score": 50.0, "start": 600.0, "end": 660.0}]          # 人のマーク
         self.live_marks = [{"id": "h1", "status": "exported", "start": 100.0, "end": 160.0}]   # 録画の配信の人のマーク(録画の秒)
+        self.reqs = {}   # (録画元, 録画) -> 友人のライブ配信の依頼(live_requests.Store.get の代わり。2-15)
         self.arcs = []
 
     def tearDown(self):
@@ -857,7 +860,8 @@ class AfterStreamTest(unittest.TestCase):
 
     def archiver(self):
         a = A.Archiver(self.ex, self.studio, probe=lambda vid: {"status": self.status, "release": RELEASE, "duration": self.HOURS * 3600, "availability": "public"},
-                       after_stream=lambda: self.on, per_hour=lambda: 2, recordings=lambda: [self.rec], adopt=self.adopt, first_delay=60, interval=0, poll=0.1)
+                       after_stream=lambda: self.on, per_hour=lambda: 2, recordings=lambda: [self.rec], adopt=self.adopt, first_delay=60, interval=0, poll=0.1,
+                       request=lambda rc, rec: self.reqs.get((rc, rec)))
         a._after_offset = lambda rc, rec, vid, t0, first, last: (-SKEW, "テスト")
         a._queue = lambda js, auto: [j.update(archive={"state": "wait", "auto": auto}) for j in js]   # 本番版への作り直しは動かさない(順番に入れたことだけ)
         self.arcs.append(a)
@@ -985,6 +989,57 @@ class AfterStreamTest(unittest.TestCase):
         i["afterStream"]["retryAt"] = 0
         a.after_tick()
         self.assertEqual(a.info_view("local", REC)["afterStream"]["state"], "analyze")
+
+    def test_friend_request_runs_with_switch_off(self):
+        """2-15: 友人のライブ配信の依頼の録画は、ホームの M7 がオフでも依頼の afterStream が真なら進める(本数は依頼の perHour)・済むまで録画を消さない"""
+        self.on, self.status = False, "was_live"
+        self.reqs[("local", REC)] = {"rid": "20261008-120000-abcd", "settings": {"afterStream": True, "perHour": 3}}
+        a = self.archiver()
+        rec = dict(self.rec, endedAt=LX.epoch_iso(self.rec["endedAt"]))
+        self.assertTrue(a.after_stream_hold("local", rec))                     # ホームの M7 はオフでも、この録画は済むまで消さない
+        self.assertEqual(a.after_tick(), 1)                                    # 用意できた → 解析を頼む
+        add = next(c for c in self.calls if c[1] == "/api/queue/add")[2]
+        self.assertEqual(add["settings"]["count"], 18)                         # N = 3 時間 × 依頼の 3 本 = 9(ホームの 2 本なら 6)→ 候補は 2 倍
+        self.queue[0]["status"], self.analysis = "done", {"at": 1}
+        a.after_tick()                                                          # 解析が済んだ → 上位 N を採用
+        st = a.info_view("local", REC)["afterStream"]
+        self.assertEqual((st["state"], st["n"], st["jobs"]), ("export", 9, 9), st)
+        self.assertEqual({(b["origin"], b["after"], h) for b, h in self.adopted}, {("archive", "auto", "archive")})
+        self.reqs.clear()                                                       # 結びつきが消えた(14 日)= ホームのスイッチのまま
+        self.assertEqual(a.after_stream_hold("local", rec), "")
+
+    def test_friend_request_without_after_stream(self):
+        """2-15: 依頼の afterStream が偽の録画では M7 を動かさない(ホームの M7 がオフでもオンでも。録画を消すのも待たない)。依頼の無い録画は今までどおり"""
+        self.status = "was_live"
+        self.reqs[("local", REC)] = {"rid": "20261008-120000-abcd", "settings": {"afterStream": False, "perHour": 3}}
+        a = self.archiver()
+        rec = dict(self.rec, endedAt=LX.epoch_iso(self.rec["endedAt"]))
+        for on in (False, True):
+            self.on = on
+            self.assertEqual(a.after_tick(), 0, on)
+            self.assertEqual((self.calls, self.adopted), ([], []), on)
+            self.assertEqual(a.after_stream_hold("local", rec), "", on)
+        self.assertNotIn("afterStream", a.info_view("local", REC))
+        self.reqs[("local", REC)] = {"rid": "20261008-120000-abcd"}            # settings の無い(壊れた)記録も「頼まれていない」
+        self.assertFalse(a._request_after("local", REC))
+        self.assertEqual(a.after_tick(), 0)
+        self.reqs.clear()                                                       # 依頼の無い録画はホームのスイッチ(オン)で
+        self.assertEqual(a.after_tick(), 1)
+        self.assertEqual(a.info_view("local", REC)["afterStream"]["state"], "analyze")
+
+    def test_per_hour_for_request(self):
+        """配信後の 1 時間あたりの本数: 友人の依頼の録画は依頼の perHour、無い・壊れた値ならホームの設定(per_hour)"""
+        a = self.archiver()
+        self.assertIs(a.request.__func__, A.Archiver.request)   # 引数 request(依頼の結びつき)が「作り直しを頼む」メソッド(POST /live/api/archive)を上書きしない
+        self.assertEqual(a._per_hour_for("local", REC), 2)
+        self.reqs[("local", REC)] = {"rid": "r", "settings": {"perHour": 5}}
+        self.assertEqual(a._per_hour_for("local", REC), 5)
+        self.assertEqual(a._per_hour_for("local", "20261005-130000-other"), 2)   # ほかの録画はホームの設定
+        for bad in (0, -1, True, "5", 2.5, None):
+            self.reqs[("local", REC)] = {"rid": "r", "settings": {"perHour": bad}}
+            self.assertEqual(a._per_hour_for("local", REC), 2, bad)
+        self.reqs[("local", REC)] = {"rid": "r", "settings": None}
+        self.assertEqual(a._per_hour_for("local", REC), 2)
 
 
 class YtdlpRetryTest(unittest.TestCase):

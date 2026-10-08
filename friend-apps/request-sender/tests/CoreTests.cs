@@ -57,6 +57,15 @@ static class CoreTests
         Run("画面: 確かめた題名の ✓ だけアクセントの色(残りの文字は同じ描き方)", TitleMark);
         Run("画面: Ctrl+Enter で送る(送るの画面だけ)", CtrlEnter);
         Run("画面: 配信者が多いときは行の欄の中でスクロールして、メモを下に隠さない", ManySpeakers);
+        Run("JSON: ライブ配信の依頼(鍵の順・flow は auto 固定・範囲の外は既定・届け方は書かない)", LiveJson);
+        Run("JSON: 届け方 deliverBatch(① の url・video だけ・1〜10 だけ・sentAt の直前)", DeliverBatchJson);
+        Run("設定: ライブ配信の設定と届け方を覚える・壊れた値は既定", LiveSettingsRoundTrip);
+        Run("送る前の検査: ライブ配信は 1 件だけ・URL は YouTube の形", LiveChecks);
+        Run("組: .group.json の読み取り(形・名前の検査・壊れた JSON・数の範囲)", GroupParse);
+        Run("組: 一覧に組の行と 1 本ずつの行(zip が欠けている・1 本も無い・壊れた組・1 本の zip のまとめ動画)", GroupArrange);
+        Run("組: 最後の 1 本まで片付けた組だけ消す・まとめ動画は組ごとに 1 本先に取る・小窓の決めるボタンの文字", GroupsDoneAndQueue);
+        Run("画面: ライブ配信の欄(① に固定・重みと届け方は使わない・ほかと一緒には送らない・要約)", FormLive);
+        Run("画面: 受け取るの組の行(受け取る(n 本)・要らない(n 本)・まとめ動画は組のもの)・1 本の行・片付けたら組の行も消える", FormGroups);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -1224,6 +1233,316 @@ static class CoreTests
         Eq("みこの配信 1-5", Json.Str(d, "title"), "題");
         Eq("2026-10-08T01:02:03+09:00", Json.Str(d, "sentAt"), "時差つき");
         Eq("/手で置いた.feedback.json", FeedbackJson.PathFor(OutputFolder.FromName("手で置いた.ZIP")), "大文字の .ZIP も");
+    }
+
+    // ---- 2.8.0: ライブ配信の依頼・届け方・組 ----
+    static void LiveJson()
+    {
+        string id = "20261008-120000-abcdef";
+        var live = new LiveSettings { Sens = LiveSettings.High, PerHour = 8, Length = 60, WaitMin = 10, Pad = 3, AfterStream = false };
+        string json = RequestJson.Live(id, Norm, "メモ", T, One("さくらみこ"), 2, Cut.Silence, live);
+        Eq("{\"v\":1,\"kind\":\"live\",\"id\":\"20261008-120000-abcdef\",\"flow\":\"auto\",\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"streamer\":\"さくらみこ\",\"memo\":\"メモ\"," +
+           "\"speakers\":{\"count\":1,\"names\":[\"さくらみこ\"],\"people\":[{\"name\":\"さくらみこ\"}]},\"videoTracks\":2,\"cut\":\"silence\"," +
+           "\"live\":{\"sens\":\"high\",\"perHour\":8,\"length\":60,\"waitMin\":10,\"pad\":3,\"afterStream\":false},\"sentAt\":\"2026-10-01T12:00:00+09:00\"}", json, "形(鍵の順も)");
+        var d = Json.Parse(json);
+        Eq("live", Json.Str(d, "kind"), "kind");
+        Eq(false, Json.Bool(Json.Dict(d, "live"), "afterStream", true), "読み直せる");
+
+        string plain = RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, null);
+        True(plain.Contains("\"flow\":\"auto\",\"url\":\"" + Norm + "\",\"streamer\":\"\",\"memo\":\"\",\"videoTracks\":1,\"cut\":\"none\"," +
+                            "\"live\":{\"sens\":\"normal\",\"perHour\":6,\"length\":45,\"waitMin\":5,\"pad\":2,\"afterStream\":true},\"sentAt\""), "既定・配信者なし(streamer は空文字・speakers は無い): " + plain);
+        True(!plain.Contains("deliverBatch") && !plain.Contains("weights") && !plain.Contains("items"), "届け方・重み・items は書かない(いつも 1 本ずつ)");
+        foreach (var bad in new[] {
+            new LiveSettings { Sens = "x", PerHour = 0, Length = 9, WaitMin = 0, Pad = -1 },
+            new LiveSettings { Sens = "HIGH", PerHour = 31, Length = 121, WaitMin = 61, Pad = 6 } })
+            True(RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, bad).Contains("\"live\":{\"sens\":\"normal\",\"perHour\":6,\"length\":45,\"waitMin\":5,\"pad\":2,"), "範囲の外は既定");
+        var edge = new LiveSettings { Sens = LiveSettings.Low, PerHour = 30, Length = 10, WaitMin = 60, Pad = 0 };
+        True(edge.JsonPart().StartsWith(",\"live\":{\"sens\":\"low\",\"perHour\":30,\"length\":10,\"waitMin\":60,\"pad\":0,"), "端の値はそのまま: " + edge.JsonPart());
+        True(RequestJson.Live(id, Norm, "", T, null, 9, "bogus", null).Contains("\"videoTracks\":1,\"cut\":\"none\""), "トラック・カットの知らない値は既定");
+        Eq("感度 普通 ・ 1 時間 6 本 ・ 45 秒 ・ 待ち 5 分 ・ 余白 2 秒 ・ 配信後の追加 あり", new LiveSettings().Summary(), "要約");
+    }
+
+    static void DeliverBatchJson()
+    {
+        string id = "20261008-120000-abcdef";
+        string u = RequestJson.Url(id, Items(3, Norm), "", Flow.Auto, T, null, 1, Cut.None, null, 5);
+        True(u.EndsWith("\"cut\":\"none\",\"deliverBatch\":5,\"sentAt\":\"2026-10-01T12:00:00+09:00\"}"), "URL: cut の後・sentAt の直前: " + u);
+        string uw = RequestJson.Url(id, Items(3, Norm), "", Flow.Auto, T, null, 1, Cut.None, new Weights { Enabled = true }, 10);
+        True(uw.Contains("\"comments\":0.7},\"deliverBatch\":10,\"sentAt\""), "重みの後: " + uw);
+        string v = RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, null, 1, Cut.None, 1);
+        True(v.EndsWith("\"cut\":\"none\",\"deliverBatch\":1,\"sentAt\":\"2026-10-01T12:00:00+09:00\"}"), "動画: 1 本ずつ = 1: " + v);
+        Eq(5L, Json.Long(Json.Parse(u), "deliverBatch", -1), "読み直せる");
+        foreach (int n in new[] { 0, -1, 11, 100 })
+            True(!RequestJson.Url(id, Items(3, Norm), "", Flow.Auto, T, null, 1, Cut.None, null, n).Contains("deliverBatch") &&
+                 !RequestJson.Video(id, new[] { "a.mp4" }, "", Flow.Auto, T, null, 1, Cut.None, n).Contains("deliverBatch"), "1〜10 の外は書かない(PC の設定): " + n);
+        foreach (string f in new[] { Flow.Check, Flow.Manual })
+            True(!RequestJson.Url(id, Items(3, Norm), "", f, T, null, 1, Cut.None, null, 5).Contains("deliverBatch") &&
+                 !RequestJson.Video(id, new[] { "a.mp4" }, "", f, T, null, 1, Cut.None, 5).Contains("deliverBatch"), "②③ は書かない(パックを届けない): " + f);
+        True(!RequestJson.Url(id, Items(3, Norm), "", Flow.Auto, T, null, 1, Cut.None, null).Contains("deliverBatch"), "指定しない呼び方(今までの形)は書かない");
+        Eq("1 本ずつ", DeliverBatch.Label(1), "表示 1");
+        Eq("5 本ごと", DeliverBatch.Label(5), "表示 5");
+        True(DeliverBatch.Hint(1).Contains("1 本ずつ") && DeliverBatch.Hint(5).Contains("5 本の組"), "① の説明");
+        Eq(1, new SendInput().DeliverBatch, "送る内容の既定は 1 本ずつ");
+    }
+
+    static void LiveSettingsRoundTrip()
+    {
+        string dir = TempDir();
+        try
+        {
+            var st = new LocalState(dir);
+            var s = st.LoadSettings();
+            True(s.DeliverBatch == 1 && s.Live.Sens == LiveSettings.Normal && s.Live.PerHour == 6 && s.Live.Length == 45 && s.Live.WaitMin == 5 && s.Live.Pad == 2 && s.Live.AfterStream, "無いときは既定");
+            st.SaveDownloadDir(@"D:\受け取る");
+            s.DeliverBatch = 7;
+            s.Live = new LiveSettings { Sens = LiveSettings.Low, PerHour = 30, Length = 120, WaitMin = 60, Pad = 0, AfterStream = false };
+            st.SaveSettings(s);
+            var r = new LocalState(dir).LoadSettings();
+            True(r.DeliverBatch == 7 && r.Live.Sens == LiveSettings.Low && r.Live.PerHour == 30 && r.Live.Length == 120 && r.Live.WaitMin == 60 && r.Live.Pad == 0 && !r.Live.AfterStream, "読み直せる");
+            Eq(@"D:\受け取る", st.LoadDownloadDir(), "保存先は残る");
+            File.WriteAllText(Path.Combine(dir, "settings.json"), "{\"deliverBatch\":11,\"live\":{\"sens\":\"x\",\"perHour\":0,\"length\":200,\"waitMin\":\"a\",\"pad\":9,\"afterStream\":\"yes\"}}", new UTF8Encoding(false));
+            var b = st.LoadSettings();
+            True(b.DeliverBatch == 1 && b.Live.Sens == LiveSettings.Normal && b.Live.PerHour == 6 && b.Live.Length == 45 && b.Live.WaitMin == 5 && b.Live.Pad == 2 && b.Live.AfterStream, "形が違う値は既定");
+            File.WriteAllText(Path.Combine(dir, "settings.json"), "{\"deliverBatch\":\"5\",\"live\":\"high\"}", new UTF8Encoding(false));
+            True(st.LoadSettings().DeliverBatch == 1 && st.LoadSettings().Live.Sens == LiveSettings.Normal, "型が違う値も既定");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void LiveChecks()
+    {
+        Eq(0, Sending.Check(new SendInput { Live = new LiveRequest { Url = Norm } }).Count, "ライブ配信だけで送れる");
+        var withUrl = new SendInput { Live = new LiveRequest { Url = Norm }, Items = new List<UrlItem> { new UrlItem { Url = Norm } } };
+        True(Sending.Check(withUrl).Any(x => x.Contains("1 件だけ")), "配信の URL と一緒には送らない");
+        var withVideo = new SendInput { Live = new LiveRequest { Url = Norm }, Videos = new List<string> { @"C:\x\a.mp4" } };
+        True(Sending.Check(withVideo).Any(x => x.Contains("1 件だけ")), "動画と一緒には送らない");
+        True(Sending.Check(new SendInput { Live = new LiveRequest { Url = "https://example.com/watch?v=dQw4w9WgXcQ" } }).Any(x => x.Contains("YouTube")), "YouTube の形でない URL は断る");
+        True(!Sending.Check(new SendInput { Live = new LiveRequest { Url = Norm } }).Any(x => x.Contains("動画か配信の URL")), "ライブ配信があれば「入れてください」は出さない");
+    }
+
+    const string G = "20261008-200000-0a1b2c__";
+
+    static string GroupJson(string packs)
+    {
+        return "{\"v\":1,\"title\":\"みこの配信\",\"range\":\"1-3\",\"preview\":\"" + G + "みこの配信 1-3.preview.mp4\",\"packs\":[" + packs + "],\"sentAt\":\"2026-10-08T20:00:00+09:00\"}";
+    }
+
+    const string ThreePacks = "{\"n\":1,\"zip\":\"" + G + "A.zip\",\"title\":\"A\",\"previewStart\":0.0,\"duration\":48.2}," +
+                              "{\"n\":3,\"zip\":\"" + G + "C.zip\",\"title\":\"C\",\"previewStart\":120.5,\"duration\":30}," +
+                              "{\"n\":2,\"zip\":\"" + G + "B.zip\",\"title\":\"B\",\"previewStart\":48.2,\"duration\":72.3}";
+
+    static GroupInfo ParseGroup(string json)
+    {
+        byte[] b = new UTF8Encoding(false).GetBytes(json);
+        return GroupInfo.Parse(b, b.Length);
+    }
+
+    static void GroupParse()
+    {
+        var g = ParseGroup(GroupJson(ThreePacks));
+        True(g != null, "読める");
+        Eq("みこの配信", g.Title, "題");
+        Eq("1-3", g.Range, "範囲");
+        Eq(G + "みこの配信 1-3.preview.mp4", g.Preview, "まとめ動画の名前");
+        Eq("1,2,3", string.Join(",", g.Packs.Select(p => p.N)), "n の順に並べ直す");
+        Eq(G + "B.zip", g.Packs[1].Zip, "zip の名前");
+        True(Math.Abs(g.Packs[1].PreviewStart - 48.2) < 1e-9 && Math.Abs(g.Packs[1].Duration - 72.3) < 1e-9 && g.Packs[2].Duration == 30, "previewStart・duration(小数・整数)");
+        byte[] bom = new UTF8Encoding(true).GetPreamble().Concat(new UTF8Encoding(false).GetBytes(GroupJson(ThreePacks))).ToArray();
+        True(GroupInfo.Parse(bom, bom.Length) != null, "BOM つきでも読む");
+
+        foreach (string bad in new[] { "", "{", "[]", "null", "{\"v\":2,\"packs\":[{\"n\":1,\"zip\":\"a.zip\"}]}", GroupJson(""), "{\"v\":1}", "{\"v\":1,\"packs\":\"a.zip\"}" })
+            Eq(null, ParseGroup(bad), "壊れている・形が違う・本が無い: " + bad);
+        byte[] notUtf8 = { 0x7B, 0xFF, 0xFE, 0x7D };
+        Eq(null, GroupInfo.Parse(notUtf8, notUtf8.Length), "UTF-8 でない");
+        Eq(null, GroupInfo.Parse(null, 0), "null");
+
+        // 名前の検査: 区切り文字・.. ・.zip でない・空白で始まる・重複は捨てる。数は範囲に収める
+        var odd = ParseGroup("{\"v\":1,\"title\":\"a\\u0001b\\nc\",\"preview\":\"../x.preview.mp4\",\"packs\":[" +
+                             "{\"n\":1,\"zip\":\"sub/x.zip\"},{\"n\":2,\"zip\":\"..\\\\x.zip\"},{\"n\":3,\"zip\":\"x.txt\"},{\"n\":4,\"zip\":\" x.zip\"},{\"n\":5,\"zip\":\"C:x.zip\"}," +
+                             "{\"n\":6,\"zip\":\"ok.zip\",\"previewStart\":-5,\"duration\":\"7\"},{\"n\":7,\"zip\":\"OK.ZIP\"},{\"n\":99999,\"zip\":\"big.zip\",\"previewStart\":1e9}]}");
+        True(odd != null, "使える本があれば読む");
+        Eq("big.zip|ok.zip", string.Join("|", odd.Packs.Select(p => p.Zip)), "使える名前だけ(大文字小文字が違うだけの重複も捨てる)・n の順");
+        True(odd.Packs[1].N == 6 && !odd.Packs[1].HasStart && odd.Packs[1].Duration == 0, "負の秒は位置が分からない扱い・数でない長さは 0");
+        True(odd.Packs[0].N == 2 && !odd.Packs[0].HasStart, "n が範囲の外なら並びの番号・大きすぎる秒は分からない扱い");
+        var nulls = ParseGroup("{\"v\":1,\"packs\":[{\"n\":1,\"zip\":\"a.zip\",\"previewStart\":0,\"duration\":40.5},{\"n\":2,\"zip\":\"b.zip\",\"previewStart\":null,\"duration\":null}]}");
+        True(nulls.Packs[0].HasStart && nulls.Packs[0].PreviewStart == 0, "0 秒は分かっている(1 本目)");
+        True(!nulls.Packs[1].HasStart && nulls.Packs[1].Duration == 0, "PC が長さを測れなかった(null)= 分からない(飛べない)");
+        Eq("", odd.Preview, "区切り文字のあるまとめ動画の名前は使わない");
+        Eq("abc", odd.Title, "題の制御文字は除く");
+        var many = ParseGroup("{\"v\":1,\"packs\":[" + string.Join(",", Enumerable.Range(1, 150).Select(i => "{\"n\":" + i + ",\"zip\":\"p" + i + ".zip\"}")) + "]}");
+        Eq(GroupInfo.MaxPacks, many.Packs.Count, "本の数は 100 まで");
+    }
+
+    // 組の見本の一覧(Receiving.List が読む前の形): 組 A・B・C のうち B が届いていない / 1 本の zip S とまとめ動画 / 失敗 F /
+    // zip が 1 本も届いていない組 Z / 壊れた組 X(中の zip XX は 1 本の行になる)
+    static List<OutputEntry> GroupRaw(out OutputEntry group)
+    {
+        var raw = new List<OutputEntry>();
+        Func<string, long, int, OutputEntry> add = (name, size, minute) =>
+        {
+            var e = OutputFolder.FromName(name);
+            e.Size = size; e.Modified = new DateTime(2026, 10, 8, 20, minute, 0); e.PathLower = "/出力/" + name.ToLowerInvariant(); e.Rev = "r" + raw.Count;
+            raw.Add(e);
+            return e;
+        };
+        group = add(G + "みこの配信 1-3.group.json", 500, 30);
+        group.Info = ParseGroup(GroupJson(ThreePacks));
+        add(G + "みこの配信 1-3.preview.mp4", 30 * 1024 * 1024, 25);
+        add(G + "A.zip", 100, 26);
+        add(G + "C.zip", 300, 28);
+        add("20261008-190000-1a2b3c__S.zip", 50, 20);
+        add("20261008-190000-1a2b3c__S.preview.mp4", 5, 19);
+        add("20261008-100000-0d4e5f__F.失敗.txt", 10, 10);
+        var z = add("20261008-150000-aaaaaa__Z 1-2.group.json", 100, 40);
+        z.Info = ParseGroup("{\"v\":1,\"title\":\"Z\",\"preview\":\"20261008-150000-aaaaaa__Z 1-2.preview.mp4\",\"packs\":[{\"n\":1,\"zip\":\"20261008-150000-aaaaaa__Z1.zip\"}]}");
+        add("20261008-150000-aaaaaa__Z 1-2.preview.mp4", 7, 39);
+        add("20261008-160000-bbbbbb__X 1-1.group.json", 100, 45);   // Info なし(読めなかった)
+        add("20261008-160000-bbbbbb__XX.zip", 70, 15);
+        return raw;
+    }
+
+    static void GroupArrange()
+    {
+        OutputEntry group;
+        var list = OutputFolder.Arrange(GroupRaw(out group));
+        Eq("組:みこの配信 1-3|パック:A|パック:C|パック:S|パック:XX|失敗:F", string.Join("|", list.Select(e => e.Kind.ToString().Replace("Group", "組").Replace("Pack", "パック").Replace("Failure", "失敗") + ":" + e.Title)),
+           "組の行のすぐ下に 1 本ずつ(n の順)・ほかは新しい順・1 本も無い組と壊れた組は出さない・まとめ動画は出さない");
+        True(group.Preview != null && group.Preview.Name == G + "みこの配信 1-3.preview.mp4", "組のまとめ動画は組に付ける");
+        Eq(2, group.Members.Count, "届いている 2 本だけ");
+        True(list[1].Parent == group && list[1].Slot.N == 1 && list[2].Slot.N == 3 && Math.Abs(list[2].Slot.PreviewStart - 120.5) < 1e-9, "1 本ずつに組と n・previewStart");
+        True(list[1].Preview == null, "組の 1 本には自分のまとめ動画を付けない(消すときに組のまとめ動画を消さない)");
+        var s = list.First(e => e.Title == "S");
+        True(s.Parent == null && s.Preview != null && s.Preview.Name.EndsWith("S.preview.mp4"), "1 本の zip には隣のまとめ動画(今までどおり)");
+        True(list.First(e => e.Title == "XX").Parent == null, "壊れた組の zip は 1 本の行");
+        Eq("みこの配信 1-3(残り 2 / 3 本)", OutputFolder.GroupLabel(group), "組の行の題(届いていない本があれば残り)");
+        Eq(5, OutputFolder.CountItems(list), "届いた数はパックと失敗(組の行は数えない)");
+        Eq(4, OutputFolder.PacksOldestFirst(list).Count, "すべて受け取るには組の中の本も入る");
+        group.Members.RemoveAt(0);
+        Eq("みこの配信 1-3(残り 1 / 3 本)", OutputFolder.GroupLabel(group), "片付けると残りが減る");
+        var full = OutputFolder.FromName(G + "y.group.json");
+        full.Info = ParseGroup("{\"v\":1,\"title\":\"Y\",\"packs\":[{\"n\":1,\"zip\":\"" + G + "y1.zip\"},{\"n\":2,\"zip\":\"" + G + "y2.zip\"}]}");
+        var y1 = OutputFolder.FromName(G + "y1.zip");
+        var y2 = OutputFolder.FromName(G + "y2.zip");
+        OutputFolder.Arrange(new List<OutputEntry> { full, y1, y2 });
+        Eq("Y(2 本)", OutputFolder.GroupLabel(full), "全部届いていれば本数だけ(範囲が無ければ題のあとに付けない)");
+        True(full.Preview == null, "まとめ動画の無い組");
+    }
+
+    static void GroupsDoneAndQueue()
+    {
+        OutputEntry group;
+        var list = OutputFolder.Arrange(GroupRaw(out group));
+        OutputEntry a = list[1], c = list[2], s = list.First(e => e.Title == "S");
+        Eq(0, OutputFolder.GroupsDone(new[] { a }).Count, "組の途中なら消さない");
+        Eq(group, OutputFolder.GroupsDone(new[] { a, c, s }).Single(), "組の最後の 1 本まで片付けたら組を消す");
+        Eq(0, OutputFolder.GroupsDone(new[] { s }).Count, "組に入らない本");
+        group.Members.Remove(a);   // 前に受け取った(一覧から外した)あと
+        Eq(group, OutputFolder.GroupsDone(new[] { c }).Single(), "残りの最後の 1 本");
+
+        var q = new PreviewQueue();
+        q.Reset(list);
+        var first = q.Next();
+        True(first == group && first.Kind == OutputKind.Group, "組のまとめ動画を 1 本(一覧の順)");
+        q.MarkDone(first);
+        Eq(s, q.Next(), "次に 1 本の zip のまとめ動画");
+        True(q.Next() == null, "組の 1 本ずつの行では取らない(組で 1 本)");
+
+        Eq("チェックした 3 本を受け取る(残り 2 本は要らない)", PreviewForm.DecideLabel(3, 2), "決めるボタン");
+        Eq("チェックした 5 本を受け取る", PreviewForm.DecideLabel(5, 0), "全部チェック");
+        Eq("5 本とも要らない", PreviewForm.DecideLabel(0, 5), "全部外した");
+        var it = new PreviewItem { No = 2, Title = "B", Duration = 72.3 };
+        Eq("2. B", it.Text, "一覧の行の題");
+        Eq("1:12", it.LengthText, "一覧の行の長さ");
+    }
+
+    static void FormLive()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var live = FindAll(f).OfType<LiveCard>().Single();
+                var radios = FindAll(f).OfType<Radio>().ToList();
+                var deliver = (Stepper)typeof(MainForm).GetField("deliver", flags).GetValue(f);
+                var weights = FindAll(f).OfType<Check>().Single(c => c.Text.StartsWith("見どころの重み"));
+                Func<string> summary = () => ((Lbl)typeof(MainForm).GetField("summary", flags).GetValue(f)).Text;
+                Func<string> status = () => ((Lbl)typeof(MainForm).GetField("status", flags).GetValue(f)).Text;
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "ライブ配信"), "送るものに「ライブ配信」");
+                True(deliver.Enabled && deliver.Value == 1, "届け方は ① なら選べる(既定は 1 本ずつ)");
+                radios[1].Checked = true;
+                True(!deliver.Enabled, "② では届け方は使わない");
+                live.Url.Text = "https://www.youtube.com/live/dQw4w9WgXcQ";
+                True(radios[0].Checked && !radios[1].Enabled && !radios[2].Enabled, "ライブ配信の URL を入れると ① に固定");
+                True(!weights.Enabled && !deliver.Enabled, "重みと届け方は使わない");
+                True(summary().StartsWith("ライブ配信(配信中に自動で切り抜き → 1 本ずつ届く)") && summary().Contains("感度 普通") && summary().Contains("カットしない"), "要約: " + summary());
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "ライブ配信(1)"), "入れたら数が出る");
+
+                var card = FindAll(f).OfType<StreamCard>().First();
+                card.Url.Text = Norm;
+                True(summary().Contains("1 件だけ"), "配信の URL も入っていれば要約に注意: " + summary());
+                f.ApplyState("strict");   // 「送る」を押す(画面の確認では送らない)
+                True(status().Contains("1 件だけ"), "送る前に止める: " + status());
+                card.Url.Text = "";
+                live.Url.Text = "https://example.com/x";
+                f.ApplyState("strict");
+                True(status().Contains("直す所") && FindAll(f).OfType<Field>().Any(x => x.Error), "YouTube の形でない URL は欄を赤く: " + status());
+                live.Url.Text = "";
+                True(radios[1].Checked && radios[1].Enabled && radios[2].Enabled, "消したら前の仕上げ方(②)に戻る");
+                radios[0].Checked = true;
+                deliver.Value = 5;
+                True(!summary().StartsWith("ライブ配信("), "ライブ配信の要約は消える: " + summary());
+                card.Url.Text = Norm;
+                True(summary().Contains("5 本ごと"), "要約に届け方: " + summary());
+            }
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void FormGroups()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                OutputEntry group;
+                var list = OutputFolder.Arrange(GroupRaw(out group));
+                OutputEntry a = list[1], c = list[2];   // 画面は同じ List を持つ(外すと並びが詰まる)ので先に控える
+                f.ShowEntries(new OutputListing { Entries = list });
+                var outList = FindAll(f).OfType<EntryList>().Single();
+                Func<int, string[]> row = i => outList.Texts((OutputEntry)outList.Items[i]);
+                Eq("組|みこの配信 1-3(残り 2 / 3 本)|1KB", string.Join("|", row(0).Take(3)), "組の行: 種類・題・残りの大きさ");
+                Eq("  ├ 1. A", row(1)[1], "1 本ずつの行");
+                Eq("  └ 3. C", row(2)[1], "組の最後の本は └");
+                Eq("S", row(3)[1], "組に入らない本はそのまま");
+                True(f.Text.Contains("5 件届いています"), "届いた数(組の行は数えない): " + f.Text);
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var receive = (Btn)typeof(MainForm).GetField("receiveBtn", flags).GetValue(f);
+                var preview = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "まとめ動画を見る");
+                f.SelectEntry(0);
+                True(receive.Text == "受け取る(2 本)" && receive.Enabled, "組の行: 受け取る(残りの本数): " + receive.Text);
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "要らない(2 本)" && b.Enabled), "組の行: 要らない(残りの本数)");
+                True(preview.Enabled, "組の行: 組のまとめ動画を見られる");
+                var detail = FindAll(f).OfType<System.Windows.Forms.TextBox>().Single(t => t.AccessibleName == "選んだものの説明");
+                True(detail.Text.Contains("組: みこの配信 1-3") && detail.Text.Contains("1. A") && detail.Text.Contains("3. C"), "組の説明に 1 本ずつ: " + detail.Text);
+                f.SelectEntry(2);
+                True(receive.Text == "受け取る" && preview.Enabled && FindAll(f).OfType<Btn>().Any(b => b.Text == "要らない"), "1 本の行: 今までどおり・まとめ動画は組のもの");
+                True(detail.Text.Contains("の 3 本目(まとめ動画の 2:00 から)"), "1 本の行の説明に組と位置: " + detail.Text);
+                f.SelectEntry(4);
+                True(!preview.Enabled, "まとめ動画の無い 1 本の zip");
+
+                // 片付け(受け取った・要らないにした)たら一覧から外す。組の最後の 1 本を外したら組の行も消える
+                Call(f, typeof(MainForm), "RemoveEntries", (IEnumerable<OutputEntry>)new[] { a });
+                Eq("みこの配信 1-3(残り 1 / 3 本)", outList.Texts((OutputEntry)outList.Items[0])[1], "残りが減る");
+                Eq("  └ 3. C", outList.Texts((OutputEntry)outList.Items[1])[1], "残った本が最後");
+                Call(f, typeof(MainForm), "RemoveEntries", (IEnumerable<OutputEntry>)new[] { c });
+                True(!outList.Items.Contains(group) && outList.Items.Count == 3, "組の行も消える: " + string.Join(" | ", outList.Items.Cast<OutputEntry>().Select(x => x.Title)));
+                True(f.Text.Contains("3 件届いています"), "届いた数: " + f.Text);
+            }
+        }
+        finally { Directory.Delete(dir, true); }
     }
 
     static IEnumerable<System.Windows.Forms.Control> FindAll(System.Windows.Forms.Control c)

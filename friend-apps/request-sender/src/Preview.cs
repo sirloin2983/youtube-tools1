@@ -1,9 +1,11 @@
 // まとめ動画(2.7.0): 届いたら裏で先に取ってきておき(PreviewQueue)、アプリの小窓で再生する(PreviewForm)。
-//   取る順番 … 一覧を調べたときに、まとめ動画のあるパックを一覧の順に並べる。「まとめ動画を見る」を押したものは先頭へ。
+//   取る順番 … 一覧を調べたときに、まとめ動画のあるパックと組(2.8.0。組ごとに 1 本)を一覧の順に並べる。「まとめ動画を見る」を押したものは先頭へ。
 //              大きすぎるもの(AutoMaxBytes 超)は押したときだけ。失敗したものは押したときにもう一度。一覧から消えたものは取らない
 //   小窓     … Windows にはじめから入っている WPF の MediaElement を ElementHost で埋め込む(.NET Framework 4 に同梱。追加のインストールは要らない)。
 //              再生・一時停止・つまみで移動・Space / ← → / Esc。[受け取る] [要らない] [外部のプレイヤーで開く]。
 //              再生できない PC(Windows の N エディションで Media Feature Pack が無いなど)は MediaFailed で知らせ、外部のプレイヤーで開ける
+//   組の小窓 … (2.8.0。2-16)右に 1 本ずつの一覧(チェック = 受け取る・題を押すとその本へ飛ぶ・再生中の本を明るく)。
+//              下の [チェックした n 本を受け取る(残り m 本は要らない)] で一度に決める(確かめの窓は呼んだ側が出す)。[閉じる] は何もしない
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -26,12 +28,12 @@ namespace RequestSender
 
         static string KeyOf(OutputEntry e) { return e.Key; }
 
-        // 一覧を調べ直したとき: まとめ動画のあるパックを一覧の順に並べ直す(済み・失敗の印は残す。一覧に無いものは消えた扱い)
+        // 一覧を調べ直したとき: まとめ動画のあるパックと組を一覧の順に並べ直す(済み・失敗の印は残す。一覧に無いものは消えた扱い)
         public void Reset(IEnumerable<OutputEntry> entries)
         {
             lock (gate)
             {
-                var keep = entries.Where(e => e != null && e.Kind == OutputKind.Pack && e.Preview != null).ToList();
+                var keep = entries.Where(e => e != null && (e.Kind == OutputKind.Pack || e.Kind == OutputKind.Group) && e.Preview != null).ToList();
                 var keys = new HashSet<string>(keep.Select(KeyOf));
                 foreach (var k in known) if (!keys.Contains(k)) gone.Add(k);
                 foreach (var k in keys) { gone.Remove(k); known.Add(k); }
@@ -89,7 +91,117 @@ namespace RequestSender
         public bool IsDone(OutputEntry e) { lock (gate) { return done.Contains(KeyOf(e)); } }
     }
 
-    public enum PreviewChoice { None, Receive, Discard }
+    // Decide = 組の小窓で [チェックした n 本を受け取る(残り m 本は要らない)] を押した(Items の Checked を見る)
+    public enum PreviewChoice { None, Receive, Discard, Decide }
+
+    // 組の小窓の 1 本(n・題・まとめ動画の中で始まる秒(負 = 分からない。飛べない)・長さ・受け取るか)。Tag = 呼んだ側のもの(パックの行)
+    public sealed class PreviewItem
+    {
+        public int No;
+        public string Title = "";
+        public double Start, Duration;
+        public bool Checked = true;
+        public object Tag;
+
+        public string Text { get { return No + ". " + Title; } }
+        public string LengthText { get { return Duration > 0 ? PreviewForm.Clock(Duration) : ""; } }
+    }
+
+    // 組の小窓の 1 行: 左の四角 = チェック(受け取る)・残り = その本へ飛ぶ。再生中の本は地を明るく・左にアクセントの線。
+    // キー: Space = チェック・Enter = 飛ぶ・↑ ↓ = 前後の行へ
+    public sealed class ClipRow : PaintedControl
+    {
+        public readonly PreviewItem Item;
+        bool playing, hover;
+
+        public event Action Toggled, JumpTo;
+
+        public ClipRow(PreviewItem item)
+        {
+            Item = item;
+            SetStyle(ControlStyles.Selectable, true);
+            TabStop = true;
+            Font = Theme.Body;
+            Height = Ui.S(30);
+            Cursor = Cursors.Hand;
+            AccessibleRole = AccessibleRole.CheckButton;
+            Name_();
+        }
+
+        public bool Playing
+        {
+            get { return playing; }
+            set { if (playing != value) { playing = value; Invalidate(); } }
+        }
+
+        int BoxRight { get { return Ui.S(32); } }
+
+        void Name_()
+        {
+            AccessibleName = Item.Text + (Item.LengthText.Length > 0 ? "(" + Item.LengthText + ")" : "") + (Item.Checked ? " 受け取る" : " 要らない");
+        }
+
+        public void Toggle()
+        {
+            Item.Checked = !Item.Checked;
+            Name_();
+            Invalidate();
+            if (Toggled != null) Toggled();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left) return;
+            Focus();
+            if (e.X < BoxRight) Toggle();
+            else if (JumpTo != null) JumpTo();
+        }
+
+        protected override bool IsInputKey(Keys keyData)
+        {
+            return keyData == Keys.Up || keyData == Keys.Down || keyData == Keys.Enter || keyData == Keys.Space || base.IsInputKey(keyData);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode == Keys.Space) { Toggle(); e.Handled = true; }
+            else if (e.KeyCode == Keys.Enter) { if (JumpTo != null) JumpTo(); e.Handled = true; }
+            else if ((e.KeyCode == Keys.Up || e.KeyCode == Keys.Down) && Parent != null) { Parent.SelectNextControl(this, e.KeyCode == Keys.Down, true, false, false); e.Handled = true; }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+        protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var p = Theme.P;
+            var g = e.Graphics;
+            Color surface = Parent != null ? Parent.BackColor : p.Panel;
+            Color bg = playing ? Theme.Mix(surface, p.Accent, 0.22) : hover ? Theme.Mix(surface, p.Accent, 0.08) : surface;
+            using (var b = new SolidBrush(bg)) g.FillRectangle(b, ClientRectangle);
+            if (playing) using (var b = new SolidBrush(p.Accent)) g.FillRectangle(b, 0, 0, Ui.S(3), Height);
+            int box = Ui.S(14), bx = Ui.S(10), by = (Height - box) / 2;
+            var r = new Rectangle(bx, by, box, box);
+            using (var b = new SolidBrush(p.Bg)) g.FillRectangle(b, r);
+            using (var pen = new Pen(Item.Checked ? p.Accent : p.Muted)) g.DrawRectangle(pen, r);
+            if (Item.Checked)
+            {
+                int q = Ui.S(3);
+                using (var b = new SolidBrush(p.Accent)) g.FillRectangle(b, r.X + q, r.Y + q, box - 2 * q + 1, box - 2 * q + 1);
+            }
+            var flags = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
+            string len = Item.LengthText;
+            int lenW = len.Length > 0 ? TextRenderer.MeasureText(g, len, Theme.MonoSmall, Size.Empty, flags).Width + Ui.S(10) : 0;
+            var tr = new Rectangle(BoxRight, 0, Math.Max(0, Width - BoxRight - lenW - Ui.S(4)), Height);
+            TextRenderer.DrawText(g, Item.Text, Font, tr, Item.Checked ? p.Text : p.Muted, flags);
+            if (lenW > 0) TextRenderer.DrawText(g, len, Theme.MonoSmall, new Rectangle(Width - lenW, 0, lenW - Ui.S(6), Height), p.Muted, flags | TextFormatFlags.Right);
+            if (Focused && ShowFocusCues) using (var pen = new Pen(Theme.Mix(surface, p.Accent, 0.6))) g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+        }
+    }
 
     // まとめ動画を再生する小窓。閉じたあと Choice を見て、受け取る・要らないを続ける
     public sealed class PreviewForm : Form, IThemed
@@ -103,7 +215,13 @@ namespace RequestSender
         readonly Timer tick = new Timer { Interval = 250 };
         readonly string path;
         bool playing, seeking, opened;
-        double durationSec;
+        double durationSec, startSec;
+        // 組の小窓(2.8.0): 右の 1 本ずつの一覧と、下の [チェックした n 本を受け取る(残り m 本は要らない)] [閉じる]
+        readonly List<PreviewItem> items;
+        readonly List<ClipRow> rows = new List<ClipRow>();
+        readonly Pane listPane = new Pane { OnPanel = true, Border = true }, rowsPane = new Pane { OnPanel = true };
+        readonly Lbl listHead = new Lbl("1 本ずつ(チェック = 受け取る)", Tone.Text), listHint = new Lbl("題を押すと、その本の頭へ飛びます。外した本は「要らない」になります。", Tone.Muted);
+        readonly Btn decideBtn = new Btn("", BtnKind.Primary), closeBtn = new Btn("閉じる", BtnKind.Normal);
 
         public PreviewChoice Choice { get; private set; }
         // 確かめ用(--probe-preview): 開けたか・長さ・いまの位置・失敗の理由
@@ -111,16 +229,23 @@ namespace RequestSender
         public double Duration { get { return durationSec; } }
         public double PositionSec { get { return opened ? media.Position.TotalSeconds : 0; } }
         public string Error { get; private set; }
+        public bool IsGroup { get { return items != null; } }
+        public List<PreviewItem> Items { get { return items; } }   // 組の 1 本ずつ(閉じたあと Checked を見る)
 
-        public PreviewForm(string path, string titleText)
+        public PreviewForm(string path, string titleText) : this(path, titleText, null, 0) { }
+
+        // items があれば組の小窓(1 本ずつの一覧つき)。start = はじめに再生する位置(秒。その本の previewStart)
+        public PreviewForm(string path, string titleText, IList<PreviewItem> groupItems, double start)
         {
             this.path = path;
+            items = groupItems != null && groupItems.Count > 0 ? groupItems.ToList() : null;
+            startSec = Math.Max(0, start);
             Text = "まとめ動画 - " + titleText;
             Font = Theme.Body;
             KeyPreview = true;
             StartPosition = FormStartPosition.CenterParent;
-            MinimumSize = new Size(Ui.S(560), Ui.S(420));
-            ClientSize = new Size(Ui.S(900), Ui.S(600));
+            MinimumSize = new Size(Ui.S(IsGroup ? 820 : 560), Ui.S(420));
+            ClientSize = new Size(Ui.S(IsGroup ? 1120 : 900), Ui.S(IsGroup ? 640 : 600));
             ShowInTaskbar = false;
 
             title.Text = titleText;
@@ -168,6 +293,7 @@ namespace RequestSender
 
             Controls.AddRange(new Control[] { title, host, seek, timeLbl, playBtn, receiveBtn, discardBtn, externalBtn, note });
             foreach (var b in new[] { playBtn, discardBtn, externalBtn }) b.FitWidth();
+            if (IsGroup) BuildList();
             Resize += (s, e) => LayoutParts();
             HandleCreated += (s, e) => Theme.TitleBar(this);
             Load += (s, e) => { ApplyTheme(); Theme.Apply(this); LayoutParts(); Start(); };
@@ -180,23 +306,105 @@ namespace RequestSender
             seek.BackColor = Theme.P.Bg;
         }
 
+        // 組の小窓: 右の一覧(行は n の順)と、下の決めるボタン。1 本だけの小窓の [受け取る] [要らない] は出さない
+        void BuildList()
+        {
+            listHead.Font = Theme.Bold;
+            listHint.Font = Theme.Small;
+            listHint.AutoSize = false;
+            rowsPane.AutoScroll = true;
+            foreach (var it in items)
+            {
+                var row = new ClipRow(it);
+                var item = it;
+                row.Toggled += UpdateDecide;
+                row.JumpTo += () => JumpToItem(item);
+                rows.Add(row);
+                rowsPane.Controls.Add(row);
+            }
+            listPane.Controls.AddRange(new Control[] { listHead, rowsPane, listHint });
+            receiveBtn.Visible = discardBtn.Visible = false;
+            decideBtn.Font = Theme.Bold;
+            decideBtn.Click += (s, e) => { Choice = PreviewChoice.Decide; Close(); };
+            closeBtn.Click += (s, e) => Close();
+            Controls.AddRange(new Control[] { listPane, decideBtn, closeBtn });
+            note.Text = "等速・各クリップの左上に「何本目 / 題」。右の一覧の題を押すとその本へ。Space で再生 / 一時停止(一覧ではチェック)、← → で 5 秒、Esc で閉じる";
+            UpdateDecide();
+        }
+
+        // 決めるボタンの文字(テストからも使う): チェックした n 本を受け取る(残り m 本は要らない)。全部チェック・全部外したときは短く
+        public static string DecideLabel(int receive, int discard)
+        {
+            if (receive == 0) return discard + " 本とも要らない";
+            if (discard == 0) return "チェックした " + receive + " 本を受け取る";
+            return "チェックした " + receive + " 本を受け取る(残り " + discard + " 本は要らない)";
+        }
+
+        void UpdateDecide()
+        {
+            int n = items.Count(i => i.Checked);
+            decideBtn.Text = DecideLabel(n, items.Count - n);
+            decideBtn.FitWidth();
+            decideBtn.AccessibleName = decideBtn.Text;
+            LayoutParts();
+        }
+
         void LayoutParts()
         {
             int m = Ui.S(12), w = ClientSize.Width - m * 2, h = ClientSize.Height;
             if (w <= 0) return;
+            int listW = IsGroup ? Math.Min(Ui.S(320), w / 3) : 0, videoW = IsGroup ? w - listW - m : w;
             title.SetBounds(m, m, w, Ui.S(22));
             int foot = Ui.S(126);
-            host.SetBounds(m, m + Ui.S(28), w, Math.Max(Ui.S(120), h - m - Ui.S(28) - foot));
+            host.SetBounds(m, m + Ui.S(28), videoW, Math.Max(Ui.S(120), h - m - Ui.S(28) - foot));
             int y = host.Bottom + Ui.S(6);
-            timeLbl.SetBounds(m + w - Ui.S(120), y, Ui.S(120), Ui.S(28));
-            seek.SetBounds(m, y, w - Ui.S(128), Ui.S(28));
+            timeLbl.SetBounds(m + videoW - Ui.S(120), y, Ui.S(120), Ui.S(28));
+            seek.SetBounds(m, y, videoW - Ui.S(128), Ui.S(28));
             y += Ui.S(40);
             playBtn.SetBounds(m, y + Ui.S(2), Math.Max(playBtn.Width, Ui.S(110)), Ui.S(36));
             externalBtn.Location = new Point(playBtn.Right + Ui.S(8), y + Ui.S(6));
             discardBtn.Location = new Point(m + w - discardBtn.Width, y + Ui.S(6));
             receiveBtn.SetBounds(discardBtn.Left - Ui.S(8) - Ui.S(150), y, Ui.S(150), Ui.S(40));
+            if (IsGroup)
+            {
+                closeBtn.Location = new Point(m + w - closeBtn.Width, y + Ui.S(6));
+                decideBtn.SetBounds(closeBtn.Left - Ui.S(8) - decideBtn.Width, y, decideBtn.Width, Ui.S(40));
+                LayoutList(m + videoW + m, m + Ui.S(28), listW, host.Bottom - m - Ui.S(28) + seek.Height + Ui.S(6));
+            }
             y += Ui.S(48);
             note.SetBounds(m, y, w, Ui.S(20));
+        }
+
+        void LayoutList(int x, int y, int w, int h)
+        {
+            listPane.SetBounds(x, y, w, h);
+            int p = Ui.S(10), iw = w - p * 2;
+            listHead.Location = new Point(p, p);
+            listHint.SetBounds(p, 0, iw, 0);
+            listHint.Wrap(iw);
+            listHint.Top = h - p - listHint.Height;
+            int top = listHead.Bottom + Ui.S(8);
+            rowsPane.SetBounds(1, top, w - 2, Math.Max(Ui.S(60), listHint.Top - Ui.S(6) - top));
+            int rowW = rowsPane.ClientSize.Width - (rows.Count * Ui.S(30) > rowsPane.ClientSize.Height ? SystemInformation.VerticalScrollBarWidth : 0);
+            for (int i = 0; i < rows.Count; i++) rows[i].SetBounds(0, rowsPane.AutoScrollPosition.Y + i * Ui.S(30), rowW, Ui.S(30));
+        }
+
+        void JumpToItem(PreviewItem it)
+        {
+            if (it.Start < 0) return;                        // 位置が分からない本(PC が長さを測れなかった)
+            if (!opened) { startSec = it.Start; return; }   // 開く前なら、開いたらそこから
+            media.Position = TimeSpan.FromSeconds(Math.Min(it.Start, Math.Max(0, durationSec - 0.1)));
+            if (!playing) TogglePlay();
+            UpdatePosition();
+        }
+
+        // 再生中の本(始まりがいまの位置より前の、いちばん後の本)を明るくする
+        void MarkPlaying(double t)
+        {
+            if (!IsGroup) return;
+            int now = -1;
+            for (int i = 0; i < items.Count; i++) if (items[i].Start >= 0 && items[i].Start <= t + 0.05) now = i;
+            for (int i = 0; i < rows.Count; i++) rows[i].Playing = i == now;
         }
 
         void Start()
@@ -224,6 +432,7 @@ namespace RequestSender
             durationSec = media.NaturalDuration.HasTimeSpan ? media.NaturalDuration.TimeSpan.TotalSeconds : 0;
             seek.Enabled = durationSec > 0;
             playBtn.Enabled = true;
+            if (startSec > 0 && durationSec > 0) media.Position = TimeSpan.FromSeconds(Math.Min(startSec, Math.Max(0, durationSec - 0.1)));   // 組の 1 本の行から開いた: その本の頭から
             UpdatePosition();
         }
 
@@ -278,6 +487,7 @@ namespace RequestSender
             double t = media.Position.TotalSeconds;
             if (!seeking && durationSec > 0) seek.Value = (int)Math.Max(0, Math.Min(1000, t / durationSec * 1000));
             ShowTime(t);
+            MarkPlaying(t);
         }
 
         void ShowTime(double t)
@@ -308,7 +518,7 @@ namespace RequestSender
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (keyData == Keys.Escape) { Close(); return true; }
-            if (keyData == Keys.Space && !(ActiveControl is Button)) { TogglePlay(); return true; }
+            if (keyData == Keys.Space && !(ActiveControl is ButtonBase) && !(ActiveControl is ClipRow)) { TogglePlay(); return true; }   // ボタン・一覧の行では押す・チェック
             if (keyData == Keys.Left) { Jump(-5); return true; }
             if (keyData == Keys.Right) { Jump(5); return true; }
             return base.ProcessCmdKey(ref msg, keyData);
