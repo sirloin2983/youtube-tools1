@@ -2537,3 +2537,4 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 変更: `plan/data.js` の F-2 を「10-08 確認済み・直し方」に書き換え、公開ページを更新。コードは変えていない
 - 決定・理由: ショートカットの書き換え(パッケージの外のプロセスで .lnk の引数を書き換える)は、自動モードの安全判定(スタートアップの項目の変更 = 永続化)で止められた。AI が回避せず、ユーザーに頼む。直し方: Win+R → `shell:startup` → 「youtube-tools (裏で起動)」のプロパティ → リンク先を `C:\Windows\System32\wscript.exe "C:\dev\youtube-tools\src\home\start_hidden.vbs"` に。または消して `start-background.bat` へのショートカットを置く
 - 注意: AI のシェル(アプリの中)や Claude アプリのターミナル(アプリの子プロセス)から .lnk を書くと Roaming の写し(`LocalCache\Roaming`)に入り、Windows のスタートアップからは見えない(10-04 の写しの件と同じ)。ユーザーがエクスプローラーか、アプリの外の PowerShell で直すこと
+- 18:00 ユーザーが直した(「確認」)。AI が読み取って確認: 引数 `"C:\dev\youtube-tools\src\home\start_hidden.vbs"`・作業フォルダ `C:\dev\youtube-tools`・Roaming の写しは無し(= 本物のファイル)・入口は 0.46.2 で起動中。F-2 を済みに。次のログインで裏の起動が動く
