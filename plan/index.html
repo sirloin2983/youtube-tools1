@@ -3,155 +3,382 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>youtube-tools 全体の計画と進捗</title>
+<title>全体の計画と進捗</title>
 <link rel="stylesheet" href="plan.css">
 <script src="data.js"></script>
+<script src="plan.js"></script>
 </head>
 <body>
 <header class="top">
   <h1>全体の計画と各線の進捗</h1>
-  <div class="sub">更新: <b id="updated"></b> ・ データは <code>plan/data.js</code>(AI が更新する)。ユーザーがやることは <a href="user-tasks.html">user-tasks.html</a></div>
-  <div class="sub" id="artifactLink"></div>
+  <div class="sub">更新 <b id="updated"></b> ・ データは <code>plan/data.js</code>(AI が更新する)<span id="artifactLink"></span></div>
   <nav class="pages"><a class="cur" href="index.html">全体の計画と進捗</a><a href="user-tasks.html">ユーザーがやること</a><a href="decisions.md">決めたこと(md)</a><a href="improvements.md">改善案(md)</a></nav>
+  <nav class="toc" aria-label="このページの中"><a href="#now">今の状態</a><a href="#lines">各線</a><a href="#graph">依存の図</a><a href="#phases">順番</a><a href="#tasks">全工程</a><a href="#gates">入口の条件</a><a href="#schedule">日程</a><a href="#numbers">前提の数字</a><a href="#log">これまでの作業</a><a href="#docs">詳しい計画</a></nav>
 </header>
 <main>
-  <section class="card"><h2><span class="n">0</span>今の状態を一言で</h2>
-    <p id="summary"></p>
-    <div id="versions"></div>
+  <section class="card" id="now"><h2><span class="n">0</span>今の状態</h2>
+    <p class="summary" id="summary"></p>
+    <div class="overall"><span class="strong" id="ovText"></span><div class="bar"><i id="ovBar"></i></div></div>
+    <div class="cols2">
+      <div class="box"><h3>あなた(ユーザー)の番</h3><ul class="todo" id="nowUser"></ul></div>
+      <div class="box"><h3>AI の番</h3><ul class="todo" id="nowAi"></ul></div>
+    </div>
+    <p class="small muted" id="laterNote"></p>
+    <div class="small"><span class="muted">今の版</span> <span id="versions"></span></div>
   </section>
-  <section class="card"><h2><span class="n">1</span>直近の作業(2026-10-07 の指示 ①〜④)</h2>
-    <div class="cards" id="recent"></div>
+
+  <section class="card" id="lines"><h2><span class="n">1</span>各線の進捗</h2>
+    <p class="lead">線ごとの色は、このページの図・表の色と同じ。「済みの内容」は押すと開く。</p>
+    <div class="lines" id="lineCards"></div>
   </section>
-  <section class="card"><h2><span class="n">2</span>各線の進捗</h2>
-    <div id="lines"></div>
+
+  <section class="card" id="graph"><h2><span class="n">2</span>依存の図</h2>
+    <p class="lead">横の帯 = 線(色は線の区別だけに使う)・縦の列 = フェーズ。矢印は「先にやる → あと」。工程を押すと、その工程の前後のつながりだけを強く出す。狭い画面では横にスクロール。</p>
+    <div class="gtools">
+      <div class="seg" id="gmode" role="group" aria-label="出す工程"><button type="button" data-mode="rest">残りの工程だけ</button><button type="button" data-mode="all">済みも出す</button></div>
+      <div class="glegend">
+        <span class="lg-t">状態(枠の形)</span><span class="gs n-next">▸ 次</span><span class="gs n-wait">待ち</span><span class="gs n-cont">↻ 継続</span><span class="gs n-todo">あと</span><span class="gs n-done">✓ 済み</span>
+        <span class="lg-t">矢印</span>
+        <span><svg width="34" height="10" aria-hidden="true"><line class="lg-e" x1="1" y1="5" x2="26" y2="5"/><path class="lg-ea" d="M25,1 L33,5 L25,9 z"/></svg> 前提(済まないと始められない)</span>
+        <span><svg width="34" height="10" aria-hidden="true"><line class="lg-r" x1="1" y1="5" x2="26" y2="5"/><path class="lg-ra" d="M25,1 L33,5 L25,9 z"/></svg> 推奨(先にやると楽)</span>
+      </div>
+    </div>
+    <div class="graph-wrap" id="gwrap"></div>
+    <div class="gdetail" id="gdetail" aria-live="polite"></div>
   </section>
-  <section class="card"><h2><span class="n">3</span>これからの順番(フェーズ)</h2>
-    <div class="wrap"><table id="phases"><thead><tr><th>フェーズ</th><th>入口</th><th>工程</th></tr></thead><tbody></tbody></table></div>
+
+  <section class="card" id="phases"><h2><span class="n">3</span>これからの順番(フェーズ)</h2>
+    <p class="lead">入口の条件で分けた順番。進みは工程の数(済み / 全部)。</p>
+    <div class="wrap"><table id="phaseTable"><thead><tr><th>フェーズ</th><th>進み</th><th>入口</th><th>工程</th></tr></thead><tbody></tbody></table></div>
   </section>
-  <section class="card"><h2><span class="n">4</span>依存の図(→ 前提: 済まないと始められない / ⇢ 推奨: 先にやると楽)</h2>
-    <div class="legend"><span><i style="background:#2b7de9"></i>線 A</span><span><i style="background:#e0632b"></i>線 B</span><span><i style="background:#2a9d5c"></i>線 C</span><span><i style="background:#8e44ad"></i>線 D</span><span><i style="background:#6b7280"></i>ユーザー・別件</span>
-      <span>枠の色: <span class="badge done">済み</span> <span class="badge doing">進行中</span> <span class="badge next">次</span> <span class="badge wait">ユーザー待ち</span> <span class="badge todo">あと</span></span></div>
-    <div class="graph-wrap" id="graph"></div><p class="hint">スマホでは横にスクロール。工程に触れると詳細が出る。</p>
-  </section>
-  <section class="card"><h2><span class="n">5</span>全工程の表(依存と時間の見積もり)</h2>
-    <p class="small muted">AI の時間 = 実装 → テスト → WORKLOG → コミットまでの目安(S = 1〜3 時間・M = 4〜10 時間・L = 2〜3 日)。ユーザーの時間 = 手を動かす時間(校正は動画 1 分に 12.6 分)。</p>
+
+  <section class="card" id="tasks"><h2><span class="n">4</span>全工程の表(依存と時間の見積もり)</h2>
+    <p class="lead">AI の時間 = 実装 → テスト → WORKLOG → コミットまでの目安(S = 1〜3 時間・M = 4〜10 時間・L = 2〜3 日)。ユーザーの時間 = 手を動かす時間(校正は動画 1 分に 12.6 分)。前提・推奨の前の ✓ は済んだもの。</p>
     <div class="filters" id="filters"></div>
-    <div class="wrap"><table id="tasks"><thead><tr><th class="id">ID</th><th>工程</th><th>線</th><th>誰</th><th>フェーズ</th><th>前提</th><th>推奨の前</th><th>AI の時間</th><th>ユーザーの時間</th><th>状態</th></tr></thead><tbody></tbody></table></div>
+    <div class="wrap"><table id="taskTable"><thead><tr><th class="id">ID</th><th>工程</th><th>状態</th><th>線</th><th>誰</th><th>フェーズ</th><th>前提</th><th>推奨の前</th><th>AI の時間</th><th>ユーザーの時間</th></tr></thead><tbody></tbody></table></div>
     <h3>合計(目安)</h3>
     <div class="wrap"><table id="totals"><thead><tr><th>範囲</th><th>AI の時間</th><th>ユーザーの時間</th></tr></thead><tbody></tbody></table></div>
     <h3>クリティカルパス(いちばん長い鎖)</h3><ol id="critical"></ol>
   </section>
-  <section class="card"><h2><span class="n">6</span>入口の条件と今</h2>
-    <div class="wrap"><table id="gates"><thead><tr><th>入口</th><th>開く工程</th><th style="width:34%">今 / 目標</th><th>あと</th><th>ユーザーの時間の目安</th></tr></thead><tbody></tbody></table></div>
+
+  <section class="card" id="gates"><h2><span class="n">5</span>入口の条件と今</h2>
+    <div class="wrap"><table id="gateTable"><thead><tr><th>入口</th><th>開く工程</th><th style="width:34%">今 / 目標</th><th>あと</th><th>ユーザーの時間の目安</th></tr></thead><tbody></tbody></table></div>
   </section>
-  <section class="card"><h2><span class="n">7</span>日程の見通し(目安)</h2>
-    <p class="small muted">前提: ユーザーは校正・確認に 1 日 1 時間ほど。AI のセッションは 1 日 4〜6 時間分ほど進む。線 D は 10-07 に始めた。配信は週に数回。数字が変われば日付は前後する。</p>
-    <div class="timeline" id="schedule"></div>
+
+  <section class="card" id="schedule"><h2><span class="n">6</span>日程の見通し(目安)</h2>
+    <p class="lead">前提: ユーザーは校正・確認に 1 日 1 時間ほど。AI のセッションは 1 日 4〜6 時間分ほど進む。配信は週に数回。数字が変われば日付は前後する。太枠が今週。</p>
+    <div class="timeline" id="weeks"></div>
   </section>
-  <section class="card"><h2><span class="n">8</span>前提の数字・触る所の重なり</h2>
-    <details open><summary>前提の数字</summary><div class="wrap"><table id="numbers"><tbody></tbody></table></div></details>
+
+  <section class="card" id="numbers"><h2><span class="n">7</span>前提の数字・触る所の重なり</h2>
+    <details><summary>前提の数字 <span class="count" id="numCount"></span></summary><div class="wrap"><table id="numTable"><thead><tr><th>項目</th><th>数字</th></tr></thead><tbody></tbody></table></div></details>
     <details><summary>触る所と、並べて進められるか(同時に 2 つの工程で同じ所を触らない)</summary><div class="wrap"><table id="conflicts"><thead><tr><th>所</th><th>触る工程</th><th>同時にしない組</th></tr></thead><tbody></tbody></table></div></details>
   </section>
-  <section class="card"><h2><span class="n">9</span>線ごとの詳しい計画(md)</h2>
-    <p><a href="line-a-remaining.md">line-a-remaining.md</a> 線 A の残り(段 8・12・15)・<a href="line-a-phase8-multi-clip.md">line-a-phase8-multi-clip.md</a> 段 8 の細かい計画<br>
-       <a href="line-b-transcription.md">line-b-transcription.md</a> 線 B 第 2 版・<a href="line-b-row-timing.md">line-b-row-timing.md</a> 行の時刻・<a href="line-b-overlap.md">line-b-overlap.md</a> 重なり声・<a href="line-b-extra-ideas.md">line-b-extra-ideas.md</a> 追加案・<a href="line-bc-master-plan.md">line-bc-master-plan.md</a> I-1〜I-5<br>
-       <a href="line-d-detect.md">line-d-detect.md</a> 線 D の前倒し(L1〜L3・M11。10-07 夜)・<a href="line-d-auto-pack.md">line-d-auto-pack.md</a> 線 D 自動パック M1〜M13・<a href="line-d-live-clipping.md">line-d-live-clipping.md</a> 録画と配信中の検出 L0〜L5</p>
+
+  <section class="card" id="log"><h2><span class="n">8</span>これまでの作業(記録)</h2>
+    <p class="lead">済んだ大きな作業のまとめ。押すと中身が開く。細かい記録は docs/WORKLOG.md。</p>
+    <div class="log" id="recent"></div>
+  </section>
+
+  <section class="card" id="docs"><h2><span class="n">9</span>線ごとの詳しい計画(md)</h2>
+    <dl class="kv docs" id="docList"></dl>
     <p class="small muted">AI 向けの記録(作業の履歴 WORKLOG・引き継ぎ HANDOVER・文書の索引 ROADMAP・今の決まり spec・済んだ設計 design)は <code>docs/</code>。</p>
   </section>
 </main>
 <script>
 (function () {
-  var P = window.PLAN, $ = function (s) { return document.querySelector(s); };
-  var ST = { done: "済み", doing: "進行中", next: "次", todo: "あと", wait: "ユーザー待ち", cont: "継続" };
-  var LINE_COLOR = { A: "#2b7de9", B: "#e0632b", C: "#2a9d5c", D: "#8e44ad" };
-  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-  function badge(st) { return '<span class="badge ' + st + '">' + (ST[st] || st) + "</span>"; }
-  function lineColor(line) { var m = String(line).match(/[ABCD]/); return m ? LINE_COLOR[m[0]] : "#6b7280"; }
+  var P = window.PLAN, U = window.PlanUI, esc = U.esc, $ = function (s) { return document.querySelector(s); };
+  var byId = {}; P.tasks.forEach(function (t) { byId[t.id] = t; });
+  var phaseIds = P.phases.map(function (p) { return p.id; });
+  P.tasks.forEach(function (t) { if (phaseIds.indexOf(t.phase) < 0) phaseIds.push(t.phase); });
+  var isUser = function (t) { return String(t.who).indexOf("ユーザー") >= 0; };
 
   $("#updated").textContent = P.updated;
-  if (P.artifactUrl) { $("#artifactLink").innerHTML = "スマホで見る: <a href=\"" + P.artifactUrl + "\">" + P.artifactUrl + "</a>(claude.ai の公開ページ。共有の設定はそのページの Share から)"; }
-  $("#summary").textContent = P.summary;
+  if (P.artifactUrl) $("#artifactLink").innerHTML = ' ・ <a href="' + esc(P.artifactUrl) + '">スマホ用の公開ページ</a>';
+
+  // ---- 0 今の状態
+  $("#summary").innerHTML = U.md(P.summary);
+  var done = P.tasks.filter(function (t) { return t.state === "done"; }).length, all = P.tasks.length;
+  $("#ovText").textContent = "工程 " + all + " のうち済み " + done;
+  $("#ovBar").style.width = Math.round(done / all * 100) + "%";
+  var active = P.tasks.filter(function (t) { return ["next", "doing", "wait", "cont"].indexOf(t.state) >= 0; });
+  var order = { doing: 0, next: 1, wait: 2, cont: 3 };
+  active.sort(function (a, b) { return order[a.state] - order[b.state]; });
+  function nowItem(t, forUser) {
+    var hint = forUser ? (t.user && t.user !== "—" ? "目安: " + t.user : "") : (t.state === "wait" ? "待っているもの: " + t.user : (t.ai && t.ai !== "—" ? "目安: " + t.ai : ""));
+    return "<li>" + U.badge(t.state) + "<span>" + U.lineDot(t.line) + "<b>" + esc(t.id) + "</b> " + U.md(U.splitName(t.name)[0]) + "</span>" + (hint ? '<span class="who">' + esc(hint) + "</span>" : "") + "</li>";
+  }
+  var none = '<li><span></span><span class="muted">今はなし</span></li>';
+  $("#nowUser").innerHTML = active.filter(isUser).map(function (t) { return nowItem(t, true); }).join("") || none;
+  $("#nowAi").innerHTML = active.filter(function (t) { return !isUser(t); }).map(function (t) { return nowItem(t, false); }).join("") || none;
+  var later = P.tasks.filter(function (t) { return t.state === "todo"; });
+  $("#laterNote").textContent = later.length ? "あと(前の工程・入口が済んでから): " + later.length + " 工程 — " + later.map(function (t) { return t.id; }).join("・") : "";
   $("#versions").innerHTML = P.versions.map(function (v) { return '<span class="chip"><b>' + esc(v[0]) + "</b> " + esc(v[1]) + "</span>"; }).join("");
 
-  $("#recent").innerHTML = P.recent.map(function (r) {
-    return '<div class="c"><h4><span>' + esc(r.id) + " " + esc(r.name) + "</span>" + badge(r.state) + '</h4><div class="small">' + esc(r.detail) + "</div></div>";
+  // ---- 1 各線
+  $("#lineCards").innerHTML = P.lines.map(function (l) {
+    var lane = U.laneOf(/^[ABCD]$/.test(l.id) ? l.id : "X");
+    return '<article class="lcard l' + lane + '"><h3><span class="lid">' + esc(/^[ABCD]$/.test(l.id) ? "線 " + l.id : l.id) + "</span>" + esc(l.name) +
+      '<span class="pct">進み具合の目安 ' + esc(l.pct) + '%</span></h3><div class="bar"><i style="width:' + Number(l.pct) + '%"></i></div>' +
+      '<dl class="kv"><dt>ねらい</dt><dd>' + U.md(l.aim) + '</dd><dt>次</dt><dd class="next">' + U.md(l.next) + "</dd><dt>入口(今)</dt><dd>" + U.md(l.gate) + "</dd>" +
+      "<dt>計画</dt><dd>" + (l.docs || []).map(function (d) { return U.docLink(d); }).join("・") + "</dd></dl>" +
+      '<details class="more"><summary>済みの内容</summary><div>' + U.md(l.done) + "</div></details></article>";
   }).join("");
 
-  $("#lines").innerHTML = P.lines.map(function (l) {
-    return '<div class="line-row"><div><div class="name"><span class="dot" style="background:' + l.color + '"></span>' + esc(l.id) + " " + esc(l.name) + "</div>" +
-      '<div class="bar" style="margin-top:8px"><i style="width:' + l.pct + '%"></i></div><div class="small muted">進み具合の目安 ' + l.pct + "%</div></div>" +
-      '<div class="kv"><b>ねらい</b><span>' + esc(l.aim) + "</span><b>済み</b><span>" + esc(l.done) + "</span><b>進行中・次</b><span>" + esc(l.next) + "</span><b>入口(今)</b><span>" + esc(l.gate) +
-      "</span><b>計画</b><span>" + l.docs.map(function (d) { return '<a href="' + d + '">' + esc(d.replace(/^\.\.\//, "")) + "</a>"; }).join("・") + "</span></div></div>";
-  }).join("");
-
-  $("#phases tbody").innerHTML = P.phases.map(function (p) { return "<tr><td class=\"id\">" + esc(p.id) + " " + esc(p.name) + "</td><td>" + esc(p.gate) + "</td><td>" + esc(p.items) + "</td></tr>"; }).join("");
-
-  // ---- 依存の図(フェーズごとの列・線ごとに並べる)
+  // ---- 2 依存の図: 横の帯 = 線(色相はここだけ)・列 = フェーズ。状態は記号と枠の形で
   (function graph() {
-    var cols = ["1", "1D", "2", "3", "4", "5"], W = 168, H = 40, GX = 64, GY = 12, PAD = 20, TOP = 34;
-    var byCol = {}; cols.forEach(function (c) { byCol[c] = []; });
-    P.tasks.forEach(function (t) { (byCol[t.phase] || (byCol[t.phase] = [])).push(t); });
-    var pos = {}, maxRows = 0;
-    cols.forEach(function (c, ci) {
-      var list = byCol[c].slice().sort(function (a, b) { return (String(a.line) + a.id) < (String(b.line) + b.id) ? -1 : 1; });
-      list.forEach(function (t, ri) { pos[t.id] = { x: PAD + ci * (W + GX), y: TOP + ri * (H + GY), t: t }; });
-      maxRows = Math.max(maxRows, list.length);
+    var LANES = ["A", "B", "C", "D", "X"], laneTitle = { A: "線 A", B: "線 B", C: "線 C", D: "線 D", X: "その他" }, laneName = { X: "別件・運用" };
+    P.lines.forEach(function (l) { if (/^[ABCD]$/.test(l.id)) laneName[l.id] = l.name; });
+    var phaseName = {}; P.phases.forEach(function (p) { phaseName[p.id] = U.splitName(p.name)[0]; });
+    var ins = {}, outs = {};
+    P.tasks.forEach(function (t) {
+      [[t.pre, false], [t.rec, true]].forEach(function (pr) {
+        (pr[0] || []).forEach(function (s) {
+          if (!byId[s]) return;
+          (ins[t.id] = ins[t.id] || []).push({ id: s, rec: pr[1] });
+          (outs[s] = outs[s] || []).push({ id: t.id, rec: pr[1] });
+        });
+      });
     });
-    var width = PAD * 2 + cols.length * W + (cols.length - 1) * GX, height = TOP + maxRows * (H + GY) + PAD;
-    var out = ['<svg class="graph" viewBox="0 0 ' + width + " " + height + '" xmlns="http://www.w3.org/2000/svg">',
-      '<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#8a94a6"/></marker></defs>'];
-    cols.forEach(function (c, ci) { out.push('<text x="' + (PAD + ci * (W + GX) + W / 2) + '" y="20" text-anchor="middle" font-size="13" font-weight="700" class="col">フェーズ ' + esc(c) + "</text>"); });
-    function edge(a, b, dashed) {
-      var s = pos[a], d = pos[b]; if (!s || !d) return;
-      var x1 = s.x + W, y1 = s.y + H / 2, x2 = d.x, y2 = d.y + H / 2;
-      if (d.x <= s.x) { x1 = s.x + W / 2; y1 = s.y + H; x2 = d.x + W / 2; y2 = d.y; }
-      var cx = (x1 + x2) / 2;
-      out.push('<path d="M' + x1 + "," + y1 + " C" + cx + "," + y1 + " " + cx + "," + y2 + " " + x2 + "," + y2 + '" fill="none" stroke="#8a94a6" stroke-width="1.4"' + (dashed ? ' stroke-dasharray="5 4"' : "") + ' marker-end="url(#ar)"/>');
+    var W = 150, H = 56, GX = 46, GY = 10, LW = 112, TOP = 46, LP = 12, LGAP = 6;
+    var mode = U.pref.get("ytt-plan-graph", "rest") === "all" ? "all" : "rest", sel = null;
+    function units(ch) { return /[\x20-\x7e]/.test(ch) ? 0.56 : 1; }
+    /* 文字数(全角 1・半角 0.56)で折り返す。入りきらなければ最後の行を … で切る */
+    function wrap(text, max, lines) {
+      var chars = Array.from(String(text).replace(/\s+/g, " ").trim()), out = [], cur = [], w = 0;
+      for (var i = 0; i < chars.length; i++) {
+        var u = units(chars[i]);
+        if (w + u > max) {
+          if (out.length === lines - 1) { cur.pop(); return out.concat([cur.join("").replace(/\s+$/, "") + "…"]); }
+          out.push(cur.join("").replace(/\s+$/, "")); cur = []; w = 0;
+          if (chars[i] === " ") continue;
+        }
+        cur.push(chars[i]); w += u;
+      }
+      if (cur.length) out.push(cur.join(""));
+      return out;
     }
-    P.tasks.forEach(function (t) { (t.pre || []).forEach(function (p) { edge(p, t.id, false); }); (t.rec || []).forEach(function (p) { edge(p, t.id, true); }); });
-    var stroke = { done: "#2a9d5c", doing: "#e0632b", next: "#2b7de9", wait: "#b8860b", todo: "#c3c9d1", cont: "#6d5bd0" };
-    Object.keys(pos).forEach(function (id) {
-      var p = pos[id], t = p.t, name = t.name.length > 13 ? t.name.slice(0, 12) + "…" : t.name;
-      out.push('<g><title>' + esc(t.id + " " + t.name + "\n線 " + t.line + " / " + t.who + " / " + ST[t.state] + "\nAI " + t.ai + " / ユーザー " + t.user) + "</title>" +
-        '<rect class="node" x="' + p.x + '" y="' + p.y + '" width="' + W + '" height="' + H + '" rx="8" stroke="' + (stroke[t.state] || "#c3c9d1") + '" stroke-width="' + (t.state === "todo" ? 1.2 : 2.2) + '"/>' +
-        '<rect x="' + p.x + '" y="' + p.y + '" width="6" height="' + H + '" rx="3" fill="' + lineColor(t.line) + '"/>' +
-        '<text x="' + (p.x + 14) + '" y="' + (p.y + 16) + '" font-size="12" font-weight="700" class="t1">' + esc(t.id) + "</text>" +
-        '<text x="' + (p.x + 14) + '" y="' + (p.y + 31) + '" font-size="11" class="t2">' + esc(name) + "</text></g>");
+    function render() {
+      [].forEach.call(document.querySelectorAll("#gmode button"), function (b) { var on = b.getAttribute("data-mode") === mode; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+      var vis = P.tasks.filter(function (t) { return mode === "all" || t.state !== "done"; });
+      if (!vis.length) { $("#gwrap").innerHTML = '<p class="hint" style="padding:12px">残りの工程はない。</p>'; sel = null; applyFocus(); return; }
+      var cols = phaseIds.filter(function (c) { return vis.some(function (t) { return t.phase === c; }); });
+      var lanes = LANES.filter(function (l) { return vis.some(function (t) { return U.laneOf(t.line) === l; }); });
+      var cell = {};
+      vis.forEach(function (t) { var k = U.laneOf(t.line) + "|" + t.phase; (cell[k] = cell[k] || []).push(t); });
+      // 左の線の見出しは別の svg にして、横にスクロールしても残す(狭い画面では「線 A」だけ)
+      var wrapW = $("#gwrap").clientWidth - 2, narrow = wrapW < 640, lw = narrow ? 58 : LW;
+      var laneY = {}, laneH = {}, y = TOP;
+      lanes.forEach(function (l) {
+        var rows = Math.max.apply(null, cols.map(function (c) { return (cell[l + "|" + c] || []).length; }));
+        var nameH = narrow ? 34 : 34 + wrap(laneName[l] || "", 7.4, 4).length * 15;
+        laneY[l] = y; laneH[l] = Math.max(nameH, LP * 2 + rows * H + (rows - 1) * GY); y += laneH[l] + LGAP;
+      });
+      // 列の間は枠の幅に合わせる(広ければ広げて帯を枠いっぱいに、狭ければ少し詰める。それでも入らなければ横にスクロール)
+      var avail = wrapW - lw, gx = Math.max(30, Math.min(170, Math.floor(avail / cols.length - W)));
+      var width = Math.max(cols.length * (W + gx), avail), height = y;
+      function colX(ci) { return gx / 2 + ci * (W + gx); }
+      // 同じ帯・同じ列の中は、前の工程の高さの平均で並べる(線の交差を減らす)
+      var pos = {};
+      cols.forEach(function (c, ci) {
+        lanes.forEach(function (l) {
+          var list = (cell[l + "|" + c] || []).slice(), bc = {};
+          list.forEach(function (t) {
+            var ys = (ins[t.id] || []).filter(function (e) { return pos[e.id]; }).map(function (e) { return pos[e.id].y; });
+            bc[t.id] = ys.length ? ys.reduce(function (a, b) { return a + b; }, 0) / ys.length : Infinity;
+          });
+          list.sort(function (a, b) { return (bc[a.id] - bc[b.id]) || (a.id < b.id ? -1 : 1); });
+          list.forEach(function (t, ri) { pos[t.id] = { x: colX(ci), y: laneY[l] + LP + ri * (H + GY), ci: ci }; });
+        });
+      });
+      var o = ['<svg class="graph" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="工程の依存の図">',
+        "<defs>" + ["e", "s", "h"].map(function (k) { return '<marker id="ar-' + k + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-' + k + '" d="M0,0 L10,5 L0,10 z"/></marker>'; }).join("") + "</defs>"];
+      var lab = ['<svg class="glabels" width="' + lw + '" height="' + height + '" viewBox="0 0 ' + lw + " " + height + '" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'];
+      lanes.forEach(function (l) {
+        var ly = laneY[l], lh = laneH[l];
+        lab.push('<g class="l' + l + '"><rect class="lane-bg" x="0" y="' + ly + '" width="' + lw + '" height="' + lh + '"/><rect class="lane-bar" x="0" y="' + ly + '" width="5" height="' + lh + '" rx="2"/>' +
+          '<text class="lane-t" x="13" y="' + (ly + 22) + '">' + esc(laneTitle[l]) + "</text>" +
+          (narrow ? "" : wrap(laneName[l] || "", 7.4, 4).map(function (s, i) { return '<text class="lane-n" x="13" y="' + (ly + 40 + i * 15) + '">' + esc(s) + "</text>"; }).join("")) + "</g>");
+        o.push('<rect class="lane-bg l' + l + '" x="0" y="' + ly + '" width="' + width + '" height="' + lh + '"/>');
+      });
+      lab.push("</svg>");
+      cols.forEach(function (c, ci) {
+        var cx = colX(ci) + W / 2;
+        o.push('<text class="col-t" x="' + cx + '" y="17" text-anchor="middle">フェーズ ' + esc(c) + '</text><text class="col-n" x="' + cx + '" y="33" text-anchor="middle">' + esc(wrap(phaseName[c] || "", 14, 1)[0] || "") + "</text>");
+        if (ci > 0) o.push('<line class="col-sep" x1="' + (colX(ci) - gx / 2) + '" y1="' + (TOP - 4) + '" x2="' + (colX(ci) - gx / 2) + '" y2="' + height + '"/>');
+      });
+      // 矢印: 推奨(点線)を下に、前提(実線)を上に。下地の太い線で、交わる所が見分けやすいようにする
+      var edges = [];
+      vis.forEach(function (t) { (ins[t.id] || []).forEach(function (e) { if (pos[e.id]) edges.push({ s: e.id, d: t.id, rec: e.rec }); }); });
+      edges.sort(function (a, b) { return (b.rec ? 1 : 0) - (a.rec ? 1 : 0); });
+      edges.forEach(function (e) {
+        var a = pos[e.s], b = pos[e.d], y1 = a.y + H / 2, y2 = b.y + H / 2, d;
+        if (b.ci > a.ci) {
+          var x1 = a.x + W, x2 = b.x - 1, dx = Math.max(22, Math.min(80, (x2 - x1) / 2));
+          d = "M" + x1 + "," + y1 + " C" + (x1 + dx) + "," + y1 + " " + (x2 - dx) + "," + y2 + " " + x2 + "," + y2;
+        } else {   // 同じ列: 左の隙間を回って入る
+          var xa = a.x, xb = b.x - 1, k = 26 + Math.min(14, Math.abs(y2 - y1) / 12);
+          d = "M" + xa + "," + y1 + " C" + (xa - k) + "," + y1 + " " + (xb - k) + "," + y2 + " " + xb + "," + y2;
+        }
+        o.push('<g class="eg' + (e.rec ? " rec" : "") + (byId[e.s].state === "done" ? " sat" : "") + '" data-s="' + esc(e.s) + '" data-d="' + esc(e.d) + '"><path class="halo" d="' + d + '"/><path class="e" d="' + d + '"/></g>');
+      });
+      vis.forEach(function (t) {
+        var p = pos[t.id], nm = U.splitName(t.name)[0], lane = U.laneOf(t.line);
+        o.push('<g class="node n-' + esc(t.state) + " l" + lane + '" data-id="' + esc(t.id) + '" tabindex="0" role="button" aria-pressed="false" aria-label="' + esc(t.id + " " + nm + "(" + laneTitle[lane] + "・" + U.stLabel(t.state) + ")") + '">' +
+          "<title>" + esc(t.id + " " + t.name + "\n" + laneTitle[lane] + " ・ " + t.who + " ・ " + U.stLabel(t.state)) + "</title>" +
+          '<rect class="box" x="' + p.x + '" y="' + p.y + '" width="' + W + '" height="' + H + '" rx="8"/>' +
+          '<rect class="stripe" x="' + (p.x + 4) + '" y="' + (p.y + 7) + '" width="4" height="' + (H - 14) + '" rx="2"/>' +
+          '<text class="t-id" x="' + (p.x + 15) + '" y="' + (p.y + 19) + '">' + esc(t.id) + "</text>" +
+          '<text class="t-st" x="' + (p.x + W - 9) + '" y="' + (p.y + 19) + '" text-anchor="end">' + esc(U.stLabel(t.state)) + "</text>" +
+          wrap(nm, 11, 2).map(function (s, i) { return '<text class="t-nm" x="' + (p.x + 15) + '" y="' + (p.y + 36 + i * 14) + '">' + esc(s) + "</text>"; }).join("") + "</g>");
+      });
+      o.push("</svg>");
+      $("#gwrap").innerHTML = '<div class="ginner">' + lab.join("") + o.join("") + "</div>";
+      if (sel && !pos[sel]) sel = null;
+      applyFocus();
+    }
+    function related(id) {
+      var up = {}, down = {};
+      (function walk(n) { (ins[n] || []).forEach(function (e) { if (!up[e.id]) { up[e.id] = 1; walk(e.id); } }); })(id);
+      (function walk(n) { (outs[n] || []).forEach(function (e) { if (!down[e.id]) { down[e.id] = 1; walk(e.id); } }); })(id);
+      up[id] = down[id] = 1;
+      return { up: up, down: down };
+    }
+    function applyFocus() {
+      var g = $("#gwrap svg.graph"), r = sel ? related(sel) : null;
+      if (g) {
+        g.classList.toggle("focus", !!sel);
+        [].forEach.call(g.querySelectorAll(".node"), function (n) {
+          var id = n.getAttribute("data-id");
+          n.classList.toggle("hl", !!r && !!(r.up[id] || r.down[id])); n.classList.toggle("sel", id === sel); n.setAttribute("aria-pressed", id === sel ? "true" : "false");
+        });
+        [].forEach.call(g.querySelectorAll(".eg"), function (e) {
+          var s = e.getAttribute("data-s"), d = e.getAttribute("data-d");
+          e.classList.toggle("hl", !!r && !!((r.up[s] && r.up[d]) || (r.down[s] && r.down[d])));
+        });
+      }
+      detail();
+    }
+    function refs(list, none) {
+      if (!list || !list.length) return '<span class="muted">' + (none || "—") + "</span>";
+      return list.map(function (e) {
+        var t = byId[e.id], inner = U.lineDot(t.line) + "<b>" + esc(t.id) + "</b> " + esc(wrap(U.splitName(t.name)[0], 16, 1)[0]) + " " + U.badge(t.state) + (e.rec ? '<span class="muted">(推奨)</span>' : "");
+        return (mode === "all" || t.state !== "done") ? '<button type="button" class="gref" data-go="' + esc(t.id) + '">' + inner + "</button>" : '<span class="gref">' + inner + "</span>";
+      }).join("");
+    }
+    function detail() {
+      var el = $("#gdetail");
+      if (!sel || !byId[sel]) { el.innerHTML = '<span class="hint">工程を押すと、その工程の前後のつながり(先にやるもの・あとで開くもの)だけを強く出し、ここに詳しく出す。もう一度押すか Esc で元に戻る。</span>'; return; }
+      var t = byId[sel], p = U.splitName(t.name), lane = U.laneOf(t.line), pre = [], rec = [];
+      (ins[sel] || []).forEach(function (e) { (e.rec ? rec : pre).push(e); });
+      el.innerHTML = '<div class="gd-head">' + U.badge(t.state) + "<b>" + esc(t.id) + "</b><span>" + U.md(p[0]) + '</span><span class="muted small">' + U.lineDot(t.line) +
+        esc(laneTitle[lane] + "(" + t.line + ")・フェーズ " + t.phase + "・" + t.who) + "</span></div>" + (p[1] ? '<div class="small muted" style="margin-top:4px">' + U.md(p[1]) + "</div>" : "") +
+        '<dl class="kv"><dt>前提</dt><dd>' + refs(pre) + "</dd><dt>推奨の前</dt><dd>" + refs(rec) + "</dd><dt>このあとに開く</dt><dd>" + refs(outs[sel], "なし") + "</dd>" +
+        "<dt>AI の時間</dt><dd>" + esc(t.ai) + "</dd><dt>ユーザーの時間</dt><dd>" + esc(t.user) + (t.wait ? " ・ 待ち: " + esc(t.wait) : "") + "</dd></dl>";
+    }
+    $("#gwrap").addEventListener("click", function (e) {
+      var n = e.target.closest(".node"), id = n ? n.getAttribute("data-id") : null;
+      sel = id && id !== sel ? id : null; applyFocus();
     });
-    out.push("</svg>");
-    $("#graph").innerHTML = out.join("");
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && sel) { sel = null; applyFocus(); return; }
+      var n = e.target.closest && e.target.closest("#gwrap .node");
+      if (n && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); var id = n.getAttribute("data-id"); sel = id !== sel ? id : null; applyFocus(); }
+    });
+    $("#gdetail").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-go]"); if (!b) return;
+      sel = b.getAttribute("data-go"); applyFocus();
+      var n = $('#gwrap .node[data-id="' + sel.replace(/["\\]/g, "") + '"]'); if (n && n.focus) n.focus();
+    });
+    $("#gmode").addEventListener("click", function (e) {
+      var b = e.target.closest("button[data-mode]"); if (!b) return;
+      mode = b.getAttribute("data-mode"); U.pref.set("ytt-plan-graph", mode); render();
+    });
+    var lastW = 0, rt = 0;
+    window.addEventListener("resize", function () {
+      clearTimeout(rt); rt = setTimeout(function () { var w = $("#gwrap").clientWidth; if (w !== lastW) { lastW = w; render(); } }, 150);
+    });
+    render(); lastW = $("#gwrap").clientWidth;
   })();
 
-  // ---- 全工程の表(絞り込み)
+  // ---- 3 フェーズ
+  $("#phaseTable tbody").innerHTML = P.phases.map(function (p) {
+    var ts = P.tasks.filter(function (t) { return t.phase === p.id; }), d = ts.filter(function (t) { return t.state === "done"; }).length;
+    return '<tr><td class="head"><b>' + esc(p.id) + "</b> " + esc(p.name) + '</td><td class="nowrap">' + (ts.length ? '<div class="bar" style="width:110px"><i style="width:' + Math.round(d / ts.length * 100) + '%"></i></div><span class="small muted">済み ' + d + " / " + ts.length + "</span>" : '<span class="muted">—</span>') +
+      "</td><td>" + U.md(p.gate) + "</td><td>" + U.md(p.items) + "</td></tr>";
+  }).join("");
+  U.resp($("#phaseTable"));
+
+  // ---- 4 全工程の表(絞り込み。既定は残りだけ)
   (function tasks() {
-    var fs = [["all", "すべて"], ["phase:1", "フェーズ 1"], ["phase:1D", "1D"], ["phase:2", "2"], ["phase:3", "3"], ["phase:4", "4"], ["phase:5", "5"], ["who:AI", "AI"], ["who:ユーザー", "ユーザー"], ["st:doing", "進行中"], ["st:next", "次"], ["st:wait", "ユーザー待ち"]];
-    var cur = "all";
-    function render() {
-      $("#tasks tbody").innerHTML = P.tasks.filter(function (t) {
-        if (cur === "all") return true; var k = cur.split(":");
-        if (k[0] === "phase") return t.phase === k[1]; if (k[0] === "who") return t.who.indexOf(k[1]) >= 0; return t.state === k[1];
-      }).map(function (t) {
-        return '<tr><td class="id">' + esc(t.id) + "</td><td>" + esc(t.name) + '</td><td><span class="dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + lineColor(t.line) + ';margin-right:4px"></span>' + esc(t.line) + "</td><td>" + esc(t.who) + "</td><td>" + esc(t.phase) + "</td><td>" + esc((t.pre || []).join("・") || "—") + "</td><td>" + esc((t.rec || []).join("・") || "—") + "</td><td>" + esc(t.ai) + "</td><td>" + esc(t.user) + (t.wait ? '<div class="small muted">待ち: ' + esc(t.wait) + "</div>" : "") + "</td><td>" + badge(t.state) + "</td></tr>";
-      }).join("");
-      $("#filters").innerHTML = fs.map(function (f) { return '<button class="' + (f[0] === cur ? "on" : "") + '" data-f="' + f[0] + '">' + f[1] + "</button>"; }).join("");
+    var FS = [["rest", "残り"], ["all", "すべて"]].concat(phaseIds.map(function (p) { return ["phase:" + p, "フェーズ " + p]; }))
+      .concat([["who:AI", "AI"], ["who:ユーザー", "ユーザー"], ["st:next", "次"], ["st:wait", "待ち"], ["st:cont", "継続"], ["st:todo", "あと"], ["st:done", "済み"]]);
+    function match(f, t) {
+      if (f === "all") return true; if (f === "rest") return t.state !== "done";
+      var k = f.split(":"); if (k[0] === "phase") return t.phase === k[1]; if (k[0] === "who") return String(t.who).indexOf(k[1]) >= 0; return t.state === k[1];
     }
-    $("#filters").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) { cur = b.getAttribute("data-f"); render(); } });
+    var cur = U.pref.get("ytt-plan-tasks", "rest");
+    if (!FS.some(function (f) { return f[0] === cur; })) cur = "rest";
+    function refList(ids) {
+      if (!ids || !ids.length) return '<span class="muted">—</span>';
+      return ids.map(function (id) { var t = byId[id]; return t && t.state === "done" ? '<span class="muted">✓' + esc(id) + "</span>" : "<b>" + esc(id) + "</b>"; }).join(" ");
+    }
+    function render() {
+      $("#filters").innerHTML = FS.map(function (f) {
+        var n = P.tasks.filter(function (t) { return match(f[0], t); }).length;
+        return n || f[0] === cur ? '<button type="button" class="' + (f[0] === cur ? "on" : "") + '" data-f="' + esc(f[0]) + '" aria-pressed="' + (f[0] === cur) + '">' + esc(f[1]) + '<span class="c">' + n + "</span></button>" : "";
+      }).join("");
+      var rows = P.tasks.filter(function (t) { return match(cur, t); });
+      $("#taskTable tbody").innerHTML = rows.map(function (t) {
+        return '<tr><td class="id hide-sp">' + esc(t.id) + '</td><td class="head"><b class="sp-only">' + esc(t.id) + " </b>" + U.nameHtml(t.name) + "</td><td>" + U.badge(t.state) +
+          '</td><td class="nowrap">' + U.lineDot(t.line) + esc(t.line) + "</td><td>" + esc(t.who) + "</td><td>" + esc(t.phase) + "</td><td>" + refList(t.pre) + "</td><td>" + refList(t.rec) +
+          "</td><td>" + esc(t.ai) + "</td><td>" + esc(t.user) + (t.wait ? '<div class="small muted">待ち: ' + esc(t.wait) + "</div>" : "") + "</td></tr>";
+      }).join("") || '<tr><td colspan="10" class="muted">該当なし</td></tr>';
+      U.resp($("#taskTable"));
+    }
+    $("#filters").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) { cur = b.getAttribute("data-f"); U.pref.set("ytt-plan-tasks", cur); render(); } });
     render();
   })();
-  $("#totals tbody").innerHTML = P.totals.map(function (r) { return "<tr><td>" + esc(r[0]) + "</td><td>" + esc(r[1]) + "</td><td>" + esc(r[2]) + "</td></tr>"; }).join("");
-  $("#critical").innerHTML = P.critical.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("");
+  $("#totals tbody").innerHTML = P.totals.map(function (r) { return '<tr><td class="head">' + esc(r[0]) + "</td><td>" + esc(r[1]) + "</td><td>" + esc(r[2]) + "</td></tr>"; }).join("");
+  U.resp($("#totals"));
+  $("#critical").innerHTML = P.critical.map(function (c) { return "<li>" + U.md(c) + "</li>"; }).join("");
 
-  $("#gates tbody").innerHTML = P.gates.map(function (g) {
+  // ---- 5 入口
+  $("#gateTable tbody").innerHTML = P.gates.map(function (g) {
     var pct = Math.min(100, Math.round(g.now / g.target * 100)), ok = g.now >= g.target;
-    var remain = ok ? "届いた" : (Math.round((g.target - g.now) * 10) / 10) + " " + g.unit;
-    return "<tr><td>" + esc(g.name) + "</td><td>" + esc(g.opens) + '</td><td><div class="bar' + (ok ? " ok" : "") + '"><i style="width:' + pct + '%"></i></div><div class="small">' + esc(g.now + " / " + g.target + " " + g.unit) + (g.note ? " ・ " + esc(g.note) : "") + "</div></td><td>" + (ok ? '<span class="badge done">届いた</span>' : esc(remain)) + "</td><td>" + esc(g.userTime) + "</td></tr>";
+    return '<tr><td class="head">' + esc(g.name) + "</td><td>" + esc(g.opens) + '</td><td><div class="bar"><i style="width:' + pct + '%"></i></div><div class="small">' + esc(g.now + " / " + g.target + " " + g.unit) + (g.note ? " ・ " + esc(g.note) : "") +
+      "</td><td>" + (ok ? U.badge("done", "届いた") : esc((Math.round((g.target - g.now) * 10) / 10) + " " + g.unit)) + "</td><td>" + esc(g.userTime) + "</td></tr>";
+  }).join("");
+  U.resp($("#gateTable"));
+
+  // ---- 6 日程(今週を太枠に)
+  $("#weeks").innerHTML = P.schedule.map(function (s) {
+    var now = U.weekHasToday(s.dates, P.updated);
+    return '<div class="w' + (now ? " now" : "") + '"><h4>' + esc(s.week) + (now ? U.badge("next", "今週") : "") + '</h4><div class="d">' + esc(s.dates) + "</div><p><b>ユーザー</b>" + U.md(s.user) + "</p><p><b>AI</b>" + U.md(s.ai) + '</p><div class="g">開く入口: ' + U.md(s.gate) + "</div></div>";
   }).join("");
 
-  $("#schedule").innerHTML = P.schedule.map(function (s) {
-    return '<div class="w"><h4>' + esc(s.week) + '</h4><div class="d">' + esc(s.dates) + "</div><p><b>ユーザー</b><br>" + esc(s.user) + "</p><p><b>AI</b><br>" + esc(s.ai) + '</p><div class="g">開く入口: ' + esc(s.gate) + "</div></div>";
+  // ---- 7 数字・重なり
+  $("#numCount").textContent = P.numbers.length + " 項目";
+  $("#numTable tbody").innerHTML = P.numbers.map(function (n) { return '<tr><td class="head nm">' + esc(n[0]) + "</td><td>" + U.md(n[1]) + "</td></tr>"; }).join("");
+  U.resp($("#numTable"));
+  $("#conflicts tbody").innerHTML = P.conflicts.map(function (c) { return '<tr><td class="head">' + esc(c[0]) + "</td><td>" + esc(c[1]) + "</td><td>" + esc(c[2]) + "</td></tr>"; }).join("");
+  U.resp($("#conflicts"));
+
+  // ---- 8 これまでの作業
+  $("#recent").innerHTML = P.recent.map(function (r) {
+    return "<details><summary>" + U.badge(r.state) + '<span class="nm">' + esc(r.id) + " " + U.md(r.name) + "</span></summary><div>" + U.md(r.detail) + "</div></details>";
   }).join("");
-  $("#numbers tbody").innerHTML = P.numbers.map(function (n) { return "<tr><th>" + esc(n[0]) + "</th><td>" + esc(n[1]) + "</td></tr>"; }).join("");
-  $("#conflicts tbody").innerHTML = P.conflicts.map(function (c) { return "<tr><td>" + esc(c[0]) + "</td><td>" + esc(c[1]) + "</td><td>" + esc(c[2]) + "</td></tr>"; }).join("");
+
+  // ---- 9 詳しい計画
+  var DOCS = [
+    ["線 A", [["line-a-remaining.md", "線 A の残り(段 8・12・15)"], ["line-a-phase8-multi-clip.md", "段 8 の細かい計画"]]],
+    ["線 B", [["line-b-transcription.md", "線 B 第 2 版"], ["line-b-row-timing.md", "行の時刻"], ["line-b-row-split.md", "行の分け方"], ["line-b-overlap.md", "重なり声"], ["line-b-extra-ideas.md", "追加案"]]],
+    ["線 B・C", [["line-bc-master-plan.md", "I-1〜I-5"]]],
+    ["線 D", [["line-d-detect.md", "前倒し(L1〜L3・M11)"], ["line-d-auto-pack.md", "自動パック M1〜M13"], ["line-d-live-clipping.md", "録画と配信中の検出 L0〜L5"]]]
+  ];
+  $("#docList").innerHTML = DOCS.map(function (g) {
+    return "<dt>" + esc(g[0]) + "</dt><dd>" + g[1].map(function (d) { return U.docLink(d[0]) + ' <span class="muted">' + esc(d[1]) + "</span>"; }).join("<br>") + "</dd>";
+  }).join("");
 })();
 </script>
 </body>

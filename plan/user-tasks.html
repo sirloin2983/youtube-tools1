@@ -3,35 +3,36 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>youtube-tools ユーザーがやること</title>
+<title>ユーザーがやること</title>
 <link rel="stylesheet" href="plan.css">
 <script src="data.js"></script>
+<script src="plan.js"></script>
 </head>
 <body>
 <header class="top">
   <h1>ユーザーがやること</h1>
-  <div class="sub">更新: <b id="updated"></b> ・ 「あなたの手が要ること」だけの一覧。チェックと記入はこのブラウザに残る(AI には届かない)。終わったら下の「AI に渡す文をコピー」でチャットに貼る</div>
-  <div class="sub" id="artifactLink"></div>
+  <div class="sub">更新 <b id="updated"></b> ・ 「あなたの手が要ること」だけの一覧。チェックと記入はこのブラウザに残る(AI には届かない)。終わったら「AI に渡す文をコピー」でチャットに貼る<span id="artifactLink"></span></div>
   <nav class="pages"><a href="index.html">全体の計画と進捗</a><a class="cur" href="user-tasks.html">ユーザーがやること</a><a href="decisions.md">決めたこと(md)</a><a href="improvements.md">改善案(md)</a></nav>
+  <nav class="toc" aria-label="このページの中"><a href="#top0">進み具合</a><a href="#work">あなたの作業</a><a href="#gates">入口</a><a href="#check">実機で確かめる</a><a href="#decide">決める・記入</a><a href="#tidy">片付け</a></nav>
 </header>
 <main>
-  <section class="card"><h2><span class="n">0</span>前提と進み具合</h2>
-    <ul id="notes"></ul>
+  <section class="card" id="top0"><h2><span class="n">0</span>前提と進み具合</h2>
+    <ul class="small" id="notes"></ul>
     <div class="cards" id="progress"></div>
-    <div class="toolbar"><button class="btn primary" id="copyAll">AI に渡す文をコピー(チェックと記入のまとめ)</button><button class="btn" id="clearAll">チェックと記入をすべて消す</button></div>
+    <div class="toolbar"><button type="button" class="btn primary" id="copyAll">AI に渡す文をコピー(チェックと記入のまとめ)</button><button type="button" class="btn" id="clearAll">チェックと記入をすべて消す</button></div>
   </section>
-  <section class="card"><h2><span class="n">1</span>順番つきの作業</h2>
-    <h3>1-1 今できる(U1〜U7)</h3>
-    <div class="wrap"><table id="ordered"><thead><tr><th class="id">ID</th><th>やること</th><th>何のため(どの工程が開く)</th><th>目安の時間</th><th>状態</th></tr></thead><tbody></tbody></table></div>
-    <h3>1-2 入口が開いたらの作業と決定(上から順)</h3>
-    <div class="wrap"><table id="later"><thead><tr><th class="id">ID</th><th>やること</th><th>何のため</th><th>目安の時間</th><th>状態</th></tr></thead><tbody></tbody></table></div>
-    <h3>1-3 いまの入口(あと何をすれば次に進むか)</h3>
+
+  <section class="card" id="work"><h2><span class="n">1</span>あなたの作業</h2>
+    <p class="lead">状態ごとに並べた(上から順)。「済み」は畳んである。</p>
+    <div id="workGroups"></div>
+    <h3 id="gates">いまの入口(あと何をすれば次に進むか)</h3>
     <p class="small muted">数字は編集の画面の「あと何分」と入口の精度の自動測定でも見られる。</p>
-    <div class="wrap"><table id="gates"><thead><tr><th>入口</th><th>開く工程</th><th style="width:34%">今 / 目標</th><th>あと</th><th>あなたの時間の目安</th></tr></thead><tbody></tbody></table></div>
+    <div class="wrap"><table id="gateTable"><thead><tr><th>入口</th><th>開く工程</th><th style="width:34%">今 / 目標</th><th>あと</th><th>あなたの時間の目安</th></tr></thead><tbody></tbody></table></div>
   </section>
-  <section class="card"><h2><span class="n">2</span>実機で確かめること</h2>
-    <p class="small muted">クラウドでは確かめられない。あなたの PC で。2026-10-06 に約 60 項目から棚卸しした(閉じた項目は入れていない)。結果は AI に伝える(ずれの大きさ・感想でよい)。10-03 の入れ直しで作業データが消えたので、解析済みの配信・以前の文書が前提の項目は、解析・文字起こしをし直してから。</p>
-    <h3>2-1 必ず(3 つ。次の段の前提で、画面のテスト(e2e)では確かめられない)</h3>
+
+  <section class="card" id="check"><h2><span class="n">2</span>実機で確かめること</h2>
+    <p class="lead">クラウドでは確かめられない。あなたの PC で。2026-10-06 に約 60 項目から棚卸しした(閉じた項目は入れていない)。結果は AI に伝える(ずれの大きさ・感想でよい)。10-03 の入れ直しで作業データが消えたので、解析済みの配信・以前の文書が前提の項目は、解析・文字起こしをし直してから。</p>
+    <h3>2-1 必ず(次の段の前提で、画面のテスト(e2e)では確かめられない。済んだものは畳んである)</h3>
     <div id="must"></div>
     <h3 id="restoreTitle"></h3>
     <p class="small muted" id="restoreIntro"></p>
@@ -41,36 +42,35 @@
     <h3>2-4 様子を見るもの(保留のまま)</h3>
     <ul id="watch"></ul>
   </section>
-  <section class="card"><h2><span class="n">3</span>決める・記入すること</h2>
+
+  <section class="card" id="decide"><h2><span class="n">3</span>決める・記入すること</h2>
     <h3>3-1 記入してほしい(★ が多いほど効果が大きい見込み)</h3>
     <p class="small muted">わかる所だけ・箇条書きでよい。書いたらこのブラウザに残る。「AI に渡す文をコピー」でチャットに貼れば、AI が名簿(src/editor/hololive-roster.json)などに反映する。<span id="inputsNote"></span></p>
     <div id="inputs"></div>
     <h3>3-2 決めてほしいこと</h3>
-    <div class="wrap"><table id="decisions"><thead><tr><th>決めること</th><th>材料・おすすめ</th><th>いつ</th><th style="width:160px">あなたの答え</th></tr></thead><tbody></tbody></table></div>
+    <div class="wrap"><table id="decisions"><thead><tr><th>決めること</th><th>材料・おすすめ</th><th>いつ</th><th style="width:180px">あなたの答え</th></tr></thead><tbody></tbody></table></div>
+    <details class="more" id="decidedBox"><summary></summary><ul class="small" id="decided"></ul></details>
     <h3 id="prefsTitle"></h3>
     <p class="small muted" id="prefsIntro"></p>
     <div class="wrap"><table id="prefs"><thead><tr><th class="id">#</th><th>項目</th><th style="width:200px">やる / やらない</th></tr></thead><tbody></tbody></table></div>
-    <h3 id="uxTitle"></h3>
-    <ul id="uxLines"></ul>
-    <div class="toolbar"><label><input type="radio" name="ux" value="a"> (a) AI に調べさせて残りだけやる(おすすめ)</label><label><input type="radio" name="ux" value="b"> (b) やらないと決めて閉じる</label></div>
+    <details class="more" id="uxBox"><summary id="uxTitle"></summary>
+      <ul id="uxLines"></ul>
+      <div class="toolbar" id="uxChoice"><label><input type="radio" name="ux" value="a"> (a) AI に調べさせて残りだけやる(おすすめ)</label><label><input type="radio" name="ux" value="b"> (b) やらないと決めて閉じる</label></div>
+    </details>
   </section>
-  <section class="card"><h2><span class="n">4</span>入れ直し(10-03)のあとで置き直すもの <span class="count" id="reCount"></span></h2>
-    <ul class="check" id="reinstall"></ul>
-  </section>
-  <section class="card"><h2><span class="n">5</span>2026-10-07 のフォルダ整理のあとにやること <span class="count" id="afCount"></span></h2>
-    <ul class="check" id="afterReorg"></ul>
+
+  <section class="card" id="tidy"><h2><span class="n">4</span>片付け(入れ直し・フォルダ整理のあと)</h2>
+    <details><summary>入れ直し(10-03)のあとで置き直すもの <span class="count" id="reCount"></span></summary><ul class="check" id="reinstall"></ul></details>
+    <details><summary>2026-10-07 のフォルダ整理のあとにやること <span class="count" id="afCount"></span></summary><ul class="check" id="afterReorg"></ul></details>
   </section>
 </main>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status"></div>
 <script>
 (function () {
-  var P = window.PLAN, U = P.userTasks, $ = function (s) { return document.querySelector(s); };
-  var ST = { done: "済み", doing: "進行中", next: "今", todo: "あと", wait: "待ち", cont: "継続" };
+  var P = window.PLAN, U = P.userTasks, UI = window.PlanUI, esc = UI.esc, $ = function (s) { return document.querySelector(s); };
   var KEY = "ytt-plan-user-tasks.v1";
   var store = (function () { try { return JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { return {}; } })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
-  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-  function badge(st) { return '<span class="badge ' + st + '">' + (ST[st] || st) + "</span>"; }
   function toast(msg) { var t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(function () { t.classList.remove("show"); }, 1800); }
   function copyText(text, okMsg) {   // クリップボードが使えない所(一部のアプリの表示)では、選択した状態の欄を出す
     function fallback() { var ta = $("#copyFallback"); if (!ta) { ta = document.createElement("textarea"); ta.id = "copyFallback"; ta.className = "inp"; ta.readOnly = true; $("#copyAll").parentNode.appendChild(ta); } ta.value = text; ta.hidden = false; ta.focus(); ta.select(); toast("コピーできなかったので、下の欄を選択してコピーしてください"); }
@@ -81,41 +81,58 @@
     el.innerHTML = items.map(function (it) {
       ALL_CHECKS.push([it[0], it[1], group]);
       var on = !!store["c:" + it[0]];
-      return '<li class="' + (on ? "on" : "") + '"><input type="checkbox" id="' + it[0] + '"' + (on ? " checked" : "") + '><label for="' + it[0] + '">' + esc(it[1]) + "</label></li>";
+      return '<li class="' + (on ? "on" : "") + '"><input type="checkbox" id="' + esc(it[0]) + '"' + (on ? " checked" : "") + '><label for="' + esc(it[0]) + '">' + UI.md(it[1]) + "</label></li>";
     }).join("");
     el.addEventListener("change", function (e) { var c = e.target; if (c.type !== "checkbox") return; store["c:" + c.id] = c.checked; c.closest("li").classList.toggle("on", c.checked); save(); counts(); });
   }
+  var WORK = U.ordered.concat(U.later);
+  var taskDone = {}; WORK.forEach(function (o) { if (o.state === "done") taskDone[o.id] = true; });
   function counts() {
     var g = {}; ALL_CHECKS.forEach(function (c) { var k = c[2]; g[k] = g[k] || [0, 0]; g[k][1]++; if (store["c:" + c[0]]) g[k][0]++; });
     function txt(k) { return g[k] ? g[k][0] + " / " + g[k][1] + " 済み" : ""; }
     document.querySelectorAll("[data-count]").forEach(function (el) { el.textContent = txt(el.getAttribute("data-count")); });
     $("#optCount").textContent = txt("optional"); $("#reCount").textContent = txt("reinstall"); $("#afCount").textContent = txt("afterReorg");
-    var must = ["U2", "U3", "U4"].map(function (k) { return g[k] || [0, 0]; }).reduce(function (a, b) { return [a[0] + b[0], a[1] + b[1]]; }, [0, 0]);
-    var opt = g.optional || [0, 0], done = U.ordered.filter(function (o) { return o.state === "done"; }).length;
-    $("#progress").innerHTML = [["順番つきの作業(U1〜U7)", done + " / " + U.ordered.length + " 済み", Math.round(done / U.ordered.length * 100)],
-      ["必ず確かめること(U2・U3・U4)", must[0] + " / " + must[1] + " 済み", must[1] ? Math.round(must[0] / must[1] * 100) : 0],
-      ["できれば", opt[0] + " / " + opt[1] + " 済み", opt[1] ? Math.round(opt[0] / opt[1] * 100) : 0]
-    ].map(function (c) { return '<div class="c"><h4>' + esc(c[0]) + "</h4><div class=\"bar\"><i style=\"width:" + c[2] + "%\"></i></div><div class=\"small muted\">" + esc(c[1]) + "</div></div>"; }).join("");
+    var must = U.must.map(function (m) { return g[m.id] || [0, 0]; }).reduce(function (a, b) { return [a[0] + b[0], a[1] + b[1]]; }, [0, 0]);
+    var opt = g.optional || [0, 0], done = WORK.filter(function (o) { return o.state === "done"; }).length;
+    $("#progress").innerHTML = [["あなたの作業", done + " / " + WORK.length + " 済み", Math.round(done / WORK.length * 100)],
+      ["必ず確かめること(" + U.must.map(function (m) { return m.id; }).join("・") + ")", must[0] + " / " + must[1] + " にチェック", must[1] ? Math.round(must[0] / must[1] * 100) : 0],
+      ["できれば", opt[0] + " / " + opt[1] + " にチェック", opt[1] ? Math.round(opt[0] / opt[1] * 100) : 0]
+    ].map(function (c) { return '<div class="c"><h4>' + esc(c[0]) + '</h4><div class="bar"><i style="width:' + c[2] + '%"></i></div><div class="small muted">' + esc(c[1]) + "</div></div>"; }).join("");
   }
 
   $("#updated").textContent = P.updated;
-  if (P.artifactUrl) { $("#artifactLink").innerHTML = "スマホで見る: <a href=\"" + P.artifactUrl + "/user-tasks.html\">" + P.artifactUrl + "/user-tasks.html</a>"; }
-  $("#notes").innerHTML = U.notes.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("");
-  function taskRows(list) { return list.map(function (o) { return '<tr><td class="id">' + esc(o.id) + "</td><td>" + esc(o.name) + "</td><td>" + esc(o.why) + "</td><td>" + esc(o.time) + "</td><td>" + badge(o.state) + (o.note ? '<div class="small muted">' + esc(o.note) + "</div>" : "") + "</td></tr>"; }).join(""); }
-  $("#ordered tbody").innerHTML = taskRows(U.ordered);
-  $("#later tbody").innerHTML = taskRows(U.later);
-  $("#gates tbody").innerHTML = P.gates.map(function (g) {
-    var pct = Math.min(100, Math.round(g.now / g.target * 100)), ok = g.now >= g.target;
-    return "<tr><td>" + esc(g.name) + "</td><td>" + esc(g.opens) + '</td><td><div class="bar' + (ok ? " ok" : "") + '"><i style="width:' + pct + '%"></i></div><div class="small">' + esc(g.now + " / " + g.target + " " + g.unit) + (g.note ? " ・ " + esc(g.note) : "") + "</div></td><td>" + (ok ? '<span class="badge done">届いた</span>' : esc((Math.round((g.target - g.now) * 10) / 10) + " " + g.unit)) + "</td><td>" + esc(g.userTime) + "</td></tr>";
-  }).join("");
+  if (P.artifactUrl) $("#artifactLink").innerHTML = ' ・ <a href="' + esc(P.artifactUrl) + '/user-tasks.html">スマホ用の公開ページ</a>';
+  $("#notes").innerHTML = U.notes.map(function (n) { return "<li>" + UI.md(n) + "</li>"; }).join("");
 
-  // 2-1 必ず
+  // ---- 1 あなたの作業(状態ごと)
+  function item(o) {
+    return '<div class="titem"><div class="tid"><span>' + esc(o.id) + "</span>" + UI.badge(o.state) + '</div><div><div class="tname">' + UI.md(o.name) + "</div>" +
+      (o.why ? '<div class="twhy"><b>何のため</b> ' + UI.md(o.why) + "</div>" : "") + (o.note ? '<div class="tnote">' + UI.md(o.note) + "</div>" : "") +
+      '</div><div class="ttime"><b>目安の時間</b>' + esc(o.time) + "</div></div>";
+  }
+  var GROUPS = [["今できる", ["doing", "next"]], ["待ち・続けること", ["wait", "cont"]], ["あとで(前の工程・入口が開いてから)", ["todo"]]];
+  var html = GROUPS.map(function (g) {
+    var list = WORK.filter(function (o) { return g[1].indexOf(o.state) >= 0; });
+    return list.length ? '<h3 class="group-h">' + esc(g[0]) + ' <span class="count">' + list.length + '</span></h3><div class="tlist">' + list.map(item).join("") + "</div>" : "";
+  }).join("");
+  var doneList = WORK.filter(function (o) { return o.state === "done"; });
+  if (doneList.length) html += '<details class="more"><summary>済み ' + doneList.length + " 件</summary>" + '<div class="tlist">' + doneList.map(item).join("") + "</div></details>";
+  $("#workGroups").innerHTML = html;
+
+  $("#gateTable tbody").innerHTML = P.gates.map(function (g) {
+    var pct = Math.min(100, Math.round(g.now / g.target * 100)), ok = g.now >= g.target;
+    return '<tr><td class="head">' + esc(g.name) + "</td><td>" + esc(g.opens) + '</td><td><div class="bar"><i style="width:' + pct + '%"></i></div><div class="small">' + esc(g.now + " / " + g.target + " " + g.unit) + (g.note ? " ・ " + esc(g.note) : "") +
+      "</td><td>" + (ok ? UI.badge("done", "届いた") : esc((Math.round((g.target - g.now) * 10) / 10) + " " + g.unit)) + "</td><td>" + esc(g.userTime) + "</td></tr>";
+  }).join("");
+  UI.resp($("#gateTable"));
+
+  // ---- 2-1 必ず(済んだ作業のものは畳む)
   $("#must").innerHTML = U.must.map(function (m) {
-    var h = '<details open class="must"><summary>' + esc(m.title) + ' <span class="count" data-count="' + m.id + '"></span></summary><p class="small muted">' + esc(m.intro) + "</p>";
-    if (m.items) h += '<ul class="check" data-list="' + m.id + '"></ul>';
-    (m.groups || []).forEach(function (g, i) { h += "<h4 style=\"margin:10px 0 2px;font-size:13.5px\">" + esc(g.name) + '</h4><ul class="check" data-list="' + m.id + "-g" + i + '"></ul>'; });
-    if (m.procedure) h += "<h4 style=\"margin:10px 0 4px;font-size:13.5px\">" + esc(m.procedure.title) + '</h4><ol class="steps">' + m.procedure.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ol>" +
-      (m.procedure.command ? '<div class="toolbar"><span class="small muted">手順 1 のコマンド</span><button class="btn" data-copy="' + m.id + '">コピー</button></div><pre class="cmd" id="cmd-' + m.id + '">' + esc(m.procedure.command) + "</pre>" : "");
+    var h = "<details" + (taskDone[m.id] ? "" : " open") + ' class="must"><summary>' + esc(m.title) + ' <span class="count" data-count="' + esc(m.id) + '"></span></summary><p class="small muted">' + UI.md(m.intro) + "</p>";
+    if (m.items) h += '<ul class="check" data-list="' + esc(m.id) + '"></ul>';
+    (m.groups || []).forEach(function (g, i) { h += '<h4 style="margin:10px 0 2px;font-size:13.5px">' + esc(g.name) + '</h4><ul class="check" data-list="' + esc(m.id) + "-g" + i + '"></ul>'; });
+    if (m.procedure) h += '<h4 style="margin:10px 0 4px;font-size:13.5px">' + esc(m.procedure.title) + '</h4><ol class="steps">' + m.procedure.steps.map(function (s) { return "<li>" + UI.md(s) + "</li>"; }).join("") + "</ol>" +
+      (m.procedure.command ? '<div class="toolbar"><span class="small muted">手順 1 のコマンド</span><button type="button" class="btn" data-copy="' + esc(m.id) + '">コピー</button></div><pre class="cmd" id="cmd-' + esc(m.id) + '">' + esc(m.procedure.command) + "</pre>" : "");
     return h + "</details>";
   }).join("");
   U.must.forEach(function (m) {
@@ -124,29 +141,38 @@
   });
   $("#must").addEventListener("click", function (e) { var b = e.target.closest("[data-copy]"); if (!b) return; var t = $("#cmd-" + b.getAttribute("data-copy")).textContent; copyText(t, "コマンドをコピーしました"); });
   $("#restoreTitle").textContent = "2-2 運用: " + U.restore.title; $("#restoreIntro").textContent = U.restore.intro;
-  $("#restore").innerHTML = U.restore.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
+  $("#restore").innerHTML = U.restore.steps.map(function (s) { return "<li>" + UI.md(s) + "</li>"; }).join("");
   checklist($("#optional"), U.optional, "optional");
-  $("#watch").innerHTML = U.watch.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("");
+  $("#watch").innerHTML = U.watch.map(function (w) { return "<li>" + UI.md(w) + "</li>"; }).join("");
 
-  // 3-1 記入
+  // ---- 3-1 記入
   $("#inputsNote").textContent = U.inputsNote;
   $("#inputs").innerHTML = U.inputs.map(function (i) {
-    return '<details open><summary>' + esc(i.title) + ' <span class="stars">' + "★★★".slice(0, i.stars) + "</span></summary><ul>" + i.why.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ul>" +
-      '<div class="small muted">書き方: ' + esc(i.format) + '</div><textarea class="inp" id="' + i.id + '" placeholder="' + esc(i.template) + '"></textarea></details>';
+    return '<details open><summary>' + esc(i.title) + ' <span class="stars" aria-label="効果 ' + i.stars + '">' + "★★★".slice(0, i.stars) + "</span></summary><ul>" + i.why.map(function (w) { return "<li>" + UI.md(w) + "</li>"; }).join("") + "</ul>" +
+      '<div class="small muted">書き方: ' + esc(i.format) + '</div><textarea class="inp" id="' + esc(i.id) + '" placeholder="' + esc(i.template) + '"></textarea></details>';
   }).join("");
-  U.inputs.forEach(function (i) { var ta = $("#" + i.id); ta.value = store["t:" + i.id] || ""; ta.addEventListener("input", function () { store["t:" + i.id] = ta.value; save(); }); });
-  // 3-2 決める
-  $("#decisions tbody").innerHTML = U.decisions.map(function (d, i) { return "<tr><td>" + esc(d[0]) + "</td><td>" + esc(d[1]) + "</td><td>" + esc(d[2]) + '</td><td><input class="inp" style="min-height:0;height:32px" data-dec="' + i + '" placeholder="答え・メモ"></td></tr>'; }).join("");
+  U.inputs.forEach(function (i) { var ta = document.getElementById(i.id); ta.value = store["t:" + i.id] || ""; ta.addEventListener("input", function () { store["t:" + i.id] = ta.value; save(); }); });
+  // ---- 3-2 決める(「済み:」で始まるものは下に畳む。答えの鍵は元の並びの番号のまま)
+  var isDecided = function (d) { return /^済み/.test(d[0]); };
+  $("#decisions tbody").innerHTML = U.decisions.map(function (d, i) {
+    return isDecided(d) ? "" : '<tr><td class="head nm">' + UI.md(d[0]) + "</td><td>" + UI.md(d[1]) + "</td><td>" + esc(d[2]) + '</td><td><input class="inp" data-dec="' + i + '" placeholder="答え・メモ" aria-label="答え: ' + esc(d[0]) + '"></td></tr>';
+  }).join("") || '<tr><td colspan="4" class="muted">今はなし</td></tr>';
+  UI.resp($("#decisions"));
   document.querySelectorAll("[data-dec]").forEach(function (inp) { var k = "d:" + inp.getAttribute("data-dec"); inp.value = store[k] || ""; inp.addEventListener("input", function () { store[k] = inp.value; save(); }); });
-  // 3-3 好み
+  var decided = U.decisions.filter(isDecided);
+  $("#decidedBox summary").textContent = "決まったこと " + decided.length + " 件";
+  $("#decidedBox").hidden = !decided.length;
+  $("#decided").innerHTML = decided.map(function (d) { return "<li><b>" + UI.md(d[0].replace(/^済み(\([^)]*\))?:\s*/, "")) + "</b> — " + UI.md(d[1]) + "</li>"; }).join("");
+  // ---- 3-3 好み
   $("#prefsTitle").textContent = "3-3 " + U.prefs.title; $("#prefsIntro").textContent = U.prefs.intro;
-  $("#prefs tbody").innerHTML = U.prefs.items.map(function (p) { return '<tr><td class="id">' + esc(p[0]) + "</td><td>" + esc(p[1]) + '</td><td><select class="btn" data-pref="' + p[0] + '"><option value="">未定</option><option value="やる">やる</option><option value="やらない">やらない</option><option value="保留">保留</option></select></td></tr>'; }).join("");
+  $("#prefs tbody").innerHTML = U.prefs.items.map(function (p) { return '<tr><td class="id">' + esc(p[0]) + '</td><td class="head">' + esc(p[1]) + '</td><td><select class="btn" data-pref="' + esc(p[0]) + '" aria-label="' + esc(p[0]) + ' やる / やらない"><option value="">未定</option><option value="やる">やる</option><option value="やらない">やらない</option><option value="保留">保留</option></select></td></tr>'; }).join("");
+  UI.resp($("#prefs"));
   document.querySelectorAll("[data-pref]").forEach(function (s) { var k = "p:" + s.getAttribute("data-pref"); s.value = store[k] || ""; s.addEventListener("change", function () { store[k] = s.value; save(); }); });
-  // 3-4 ux
-  $("#uxTitle").textContent = "3-4 " + U.ux.title; $("#uxLines").innerHTML = U.ux.lines.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("");
-  if (U.ux.done) { var uxBar = document.querySelector('input[name="ux"]'); if (uxBar) uxBar.closest(".toolbar").hidden = true; }
+  // ---- 3-4 ux(済みなら畳んで、選ぶ欄を隠す)
+  $("#uxTitle").textContent = "3-4 " + U.ux.title; $("#uxLines").innerHTML = U.ux.lines.map(function (l) { return "<li>" + UI.md(l) + "</li>"; }).join("");
+  if (U.ux.done) $("#uxChoice").hidden = true; else $("#uxBox").open = true;
   document.querySelectorAll('input[name="ux"]').forEach(function (r) { r.checked = store["ux"] === r.value; r.addEventListener("change", function () { store["ux"] = r.value; save(); }); });
-  // 4・5
+  // ---- 4 片付け
   checklist($("#reinstall"), U.reinstall, "reinstall");
   checklist($("#afterReorg"), U.afterReorg, "afterReorg");
   counts();
