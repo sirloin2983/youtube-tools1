@@ -163,7 +163,8 @@ class PrefsLiveTest(unittest.TestCase):
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
                                                         "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)・自動の採用(M11)は既定オン(0.46.3。リアルタイム切り抜きがオンのときだけ動く)
                                                         "autoAdopt": {"enabled": True, "waitMin": 5},
-                                                        "liveTx": {"enabled": True, "model": "large-v3"}})   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
+                                                        "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
+                                                        "autoDeliver": True})   # 自動の切り抜きを確認なしで友人へ届ける(0.48.1。10-08 ユーザー決定)
         self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "check", "cut": "", "engine": "", "model": "", "pad": 3.5})
@@ -227,6 +228,23 @@ class PrefsLiveTest(unittest.TestCase):
                 self.p.patch("live", bad)
         self.assertEqual(self.p.patch("live", {"enabled": True})["auto"]["model"], "large-v3")   # ほかの鍵を直しても残る
         self.assertEqual(self.p.patch("live", {"auto": {"engine": "", "model": ""}})["auto"], {"after": "auto", "cut": "silence", "engine": "", "model": "", "pad": 2})
+
+    def test_auto_deliver_setting(self):
+        """live.autoDeliver(0.48.1): 真偽だけ・壊れた保存値は既定(オン)に戻る"""
+        self.assertIs(self.p.patch("live", {"autoDeliver": False})["autoDeliver"], False)
+        self.assertIs(self.p.get(["live"])["live"]["autoDeliver"], False)
+        for bad in (1, "true", None, [True]):
+            with self.assertRaises(P.PrefsError, msg=repr(bad)):
+                self.p.patch("live", {"autoDeliver": bad})
+        self.assertIs(self.p.get(["live"])["live"]["autoDeliver"], False)   # 断ったときは変えない
+        self.assertIs(self.p.patch("live", {"autoDeliver": True})["autoDeliver"], True)
+        path = os.path.join(self.tmp, "prefs.json")
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        d["live"]["autoDeliver"] = "yes"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        self.assertIs(P.Prefs(path, fsio.atomic_write).get(["live"])["live"]["autoDeliver"], True)
 
     def test_live_tx_settings(self):
         """配信中の候補の文字起こし live.liveTx(D-11 案 b): 鍵ごとに直す・enabled は真偽・model は large-v3 / large-v3-turbo・壊れた保存値は既定に戻す"""
@@ -1073,6 +1091,51 @@ class SpawnTest(unittest.TestCase):
         self.prefs.patch("live", {"enabled": False})
         self.assertEqual(self.live.tick(), "off")
         self.assertTrue(self.live.ping(rc))
+
+
+class AutoDeliverTest(unittest.TestCase):
+    """自分の配信の自動の切り抜きを確認なしで友人へ届ける(live.autoDeliver。0.48.1): Live._request_for が届ける依頼の形を返す"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-autodeliver-")
+        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.folder = os.path.join(self.tmp, "Dropbox", "切り抜き依頼")
+        os.makedirs(self.folder)
+        self.live = LV.Live(self.prefs, self.tmp, os.path.join(self.tmp, "logs"), store_dir=os.path.join(self.tmp, "live"), spawn=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_auto_and_archive_deliver_when_folder_is_set(self):
+        self.prefs.patch("intake", {"folder": self.folder})
+        for origin in ("auto", "archive"):
+            req, after, who = self.live._request_for("local", "20261008-183154-dMVBWMfHdVQ", origin, "check", "")
+            self.assertEqual((after, who), ("auto", ""), origin)
+            self.assertEqual((req["deliverDir"], req["autoDeliver"]), (os.path.join(self.folder, "出力"), True), origin)
+            self.assertRegex(req["rid"], r"^\d{8}-\d{6}-[0-9a-f]{6}$")   # 友人のアプリの依頼と同じ形(zip の名前の頭)
+            self.assertNotIn("settings", req)   # 余白は live.auto.pad のまま(adopt は settings が無ければホームの設定)
+        a, _b, _c = self.live._request_for("local", "r1", "auto", "check", "")
+        b, _b2, _c2 = self.live._request_for("local", "r1", "auto", "check", "")
+        self.assertNotEqual(a["rid"], b["rid"])   # 切り抜きごとに別の依頼 id = 1 本ずつ別の zip
+
+    def test_manual_off_or_no_folder_does_not_deliver(self):
+        self.prefs.patch("intake", {"folder": self.folder})
+        self.assertEqual(self.live._request_for("local", "r1", "manual", "check", "x"), (None, "check", "x"))   # 人のマークは案件の [採用] で
+        self.prefs.patch("live", {"autoDeliver": False})
+        self.assertEqual(self.live._request_for("local", "r1", "auto", "check", ""), (None, "check", ""))
+        self.prefs.patch("live", {"autoDeliver": True})
+        self.prefs.patch("intake", {"folder": ""})
+        self.assertEqual(self.live._request_for("local", "r1", "auto", "check", ""), (None, "check", ""))   # 届ける先が無い
+        self.assertIsNone(self.live.deliver_dir())
+
+    def test_friend_request_wins(self):
+        """友人のライブ配信の依頼に結びついた録画は、その依頼の形(届け先は依頼の 出力)が先"""
+        self.prefs.patch("intake", {"folder": self.folder})
+        self.live.requests.put("local", "r2", {"rid": "20261008-120000-abcdef", "deliverDir": os.path.join(self.folder, "出力"), "settings": {"afterStream": False}})
+        req, after, _w = self.live._request_for("local", "r2", "auto", "check", "")
+        self.assertEqual((req["rid"], after), ("20261008-120000-abcdef", "auto"))
+        req2, after2, _w2 = self.live._request_for("local", "r2", "archive", "check", "")   # 依頼が配信後の追加を要らないと言えば、自分の設定でも届けない
+        self.assertEqual((req2, after2), (None, "check"))
 
 
 class FakeRunner:

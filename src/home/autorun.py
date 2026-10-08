@@ -2022,6 +2022,14 @@ class AutoRunner:
         """届けた zip の中身(パックのフォルダ・切り抜きの動画・スタジオのマーク)を logs/deliveries.jsonl に残す(友人の「要らない」が来たときに引く)"""
         if self.log_path:
             friend_feedback.record_delivery(os.path.dirname(self.log_path), zip_path, run, dirs, run.pack_marks)
+        import cases   # ライブの自動の切り抜きなら、案件の一覧に「届けた」を残す(二重に届けない。live.autoDeliver・友人の依頼)
+        for d in dirs:
+            path = (run.pack_marks.get(d) or {}).get("path") or ""
+            try:
+                if path:
+                    cases.remember_delivered(self.root, path, os.path.basename(zip_path), self.env)
+            except Exception as e:   # noqa: BLE001  (記録が残せなくても届けたことは変わらない)
+                self.log("まとめて実行: 届けた印を案件に残せませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
 
     @staticmethod
     def _place_error(e):

@@ -80,6 +80,8 @@ import live_failures  # noqa: E402  (失敗の集約。M3・M7)
 import live_detect  # noqa: E402  (配信中の盛り上がりの検出と自動の採用。線 D の L2・M11)
 import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
 import live_tx  # noqa: E402  (配信中の候補の文字起こし。線 D の D-11 案 b)
+import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
+from intake import OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -658,9 +660,30 @@ class Live:
         """録画が友人のライブ配信の依頼に結びついていれば (依頼, after=auto, 配信者) を返す(2-15: 採用した切り抜きは全部 文字起こし → パック → 届ける)。
         配信後のアーカイブからの追加(origin archive)は依頼の afterStream が真のときだけ。結びついていなければ (None, after, streamer) のまま"""
         req = self.requests.get(rc_id, rec)
-        if req is None or (origin == "archive" and req["settings"].get("afterStream") is not True):
+        if req is None:
+            return self._auto_deliver_for(origin, after, streamer)
+        if origin == "archive" and req["settings"].get("afterStream") is not True:
             return None, after, streamer
         return req, "auto", streamer or req.get("streamer") or ""
+
+    def deliver_dir(self):
+        """友人へ届ける所(依頼の受付の Dropbox のフォルダの 出力\)。決まっていなければ None"""
+        try:
+            folder = (self.prefs.get(["intake"])["intake"] or {}).get("folder") or ""
+        except Exception:   # noqa: BLE001
+            folder = ""
+        return os.path.join(folder, OUT_DIR) if folder else None
+
+    def _auto_deliver_for(self, origin, after, streamer):
+        """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(設定 live.autoDeliver。10-08 ユーザー決定 = 10-06 の
+        「全自動で届けるスイッチは作らない」を変えた)。人のマーク(manual)は今までどおり案件の [採用(友人へ届ける)] で。届ける先(依頼の受付のフォルダ)が無ければ届けない。
+        -> (届ける依頼の形 {rid, deliverDir, autoDeliver: True} か None, after, streamer)"""
+        if origin == "manual" or self.cfg().get("autoDeliver") is not True:
+            return None, after, streamer
+        out = self.deliver_dir()
+        if not out:
+            return None, after, streamer
+        return {"rid": deliver_mod.request_id(), "deliverDir": out, "autoDeliver": True}, "auto", streamer
 
     def _rec_status(self, rc, rc_id, rec):
         """録画元の録画の状態(書き出しの基準 firstPdt・URL・題)。-> (状態の JSON, 最初のセグメントの受信時刻 epoch)。だめなら LiveError"""
@@ -786,7 +809,7 @@ class Live:
         rc_id, rec = body.get("recorder"), body.get("recording")
         rc = self._ids(rc_id, rec)
         req, after, streamer = self._request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
-        pad = req["settings"]["pad"] if req else auto["pad"]
+        pad = req["settings"]["pad"] if req and isinstance(req.get("settings"), dict) else auto["pad"]
         st, first = self._rec_status(rc, rc_id, rec)
         a, b = self._adopt_secs(body, first)
         if origin != "manual" and pad > 0:   # M8: 自動・アーカイブの採用は前後に余白を足す(人が決めた区間はそのまま)

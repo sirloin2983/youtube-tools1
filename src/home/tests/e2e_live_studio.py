@@ -1098,6 +1098,13 @@ def _scene_live_tx_switch(cx):
     check(wait_for(lambda: srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": True, "model": "large-v3"}, 8),
           "D-11 #liveTx を戻すと live.liveTx.enabled が True: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
     check(wait_js(pg, has_note, 25000), "D-11 戻すと見出しに「文字起こしなし(…)」がまた出る: %s" % pg.text_content("#rvPeakInfo"))
+    # 0.48.1: 自動の切り抜きを確認なしで友人へ届ける(live.autoDeliver。既定オン)
+    check(wait_js(pg, "() => { const s = document.querySelector('#liveAutoDeliver'); return !!s && !!s.offsetParent && s.checked && !s.closest('label').hidden; }", 8000),
+          "0.48.1 ⚙ に「自動の切り抜きを確認なしで友人へ届ける」(既定オン)")
+    pg.uncheck("#liveAutoDeliver")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoDeliver"] is False, 8), "0.48.1 外すと live.autoDeliver が False")
+    pg.check("#liveAutoDeliver")
+    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoDeliver"] is True, 8), "0.48.1 戻すと live.autoDeliver が True")
 
 
 def _scene_narrow_and_errors(cx):

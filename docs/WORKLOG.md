@@ -2655,3 +2655,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 確認: Playwright で閉じた・開いた・工程を押した・暗い画面・スマホを撮った(画面のエラー 0。開いた図は横 3,712px)・lint 0
 - 未コミット: なし(このセッションの分)
 - 注意: これからは済んだ作業は tasks の state を done にするだけでよい(history に足さない)。history を足すときは id を tasks と重ねない(重なると図の検査に掛からないので、足したら index.html を開いて確かめる)
+
+## 2026-10-08 Claude Code(PC。Fable)— ホーム 0.48.1・スタジオ 0.23.3: 自分の配信の自動の切り抜きを確認なしで友人へ届けるスイッチ(10-06 の決定を変更)
+- 依頼: ユーザー「いまってリアルタイムの自動切り抜きのパックって友人に届く?」→ 届かない(人の確認のあとだけ。友人のライブ配信の依頼だけ例外)と答えた →「10-06 の決定は変えていいからスイッチ作って」
+- 変更: `src/home/prefs.py` に `live.autoDeliver`(真偽。**既定オン**)。`src/home/live.py` の `_request_for` が、友人の依頼に結びついていない録画で origin が auto・archive なら `_auto_deliver_for` = {rid: deliver.request_id(), deliverDir: <依頼の受付のフォルダ>\出力, autoDeliver: True} と after auto を返す(人のマーク manual は対象外・届ける先が決まっていなければ届けない)。以後は友人の依頼と同じ道(live_export._handoff → start_file に request_id/deliver_dir/deliver_batch=1 → file_auto の deliver 段 = 1 本ずつ zip + まとめ動画)。`src/home/cases.py` に `remember_delivered`(.clip.json の studio の配信とマークに「届けた」を残す)・`src/home/autorun.py` の `_record_delivery` から呼ぶ(案件の一覧で二重に届けない)。スタジオ 0.23.3: ⚙「配信中の候補」に「自動の切り抜きを確認なしで友人へ届ける(1 本ずつ)」(古い入口では出さない)。README(ホーム・スタジオ)・`plan/decisions.md`(1-1 に決定の行・3-14 (ev))
+- 版: ホーム 0.48.0 → 0.48.1・スタジオ 0.23.2 → 0.23.3
+- テスト: test_live に AutoDeliverTest 3 件(auto/archive は届ける依頼の形・manual/オフ/フォルダ無しは届けない・友人の依頼が先)+ autoDeliver の検査 1 件・既定の dict に autoDeliver。test_live/test_cases/test_autorun 191 件 OK・e2e_live_studio 179/179 OK(⚙ のスイッチを足した)・lint 0・ui_audit static Must 0・push_helper check OK
+- 注意: 既定オンなので、起動し直した次の配信から、自動で採用した切り抜きのパックは確認なしで 出力 に置かれる(依頼の受付のフォルダが決まっているとき)。18:31 の配信でできた 3 本は届け済みの印が無いので、案件の [採用] を押せば届く(自動では届かない = 届けるのは手渡しの時点の新しい切り抜きだけ)。誤検出は友人の「要らない」(2-14)で戻る
+- 未完了・次: 入口の起動し直しで 0.48.1(スタジオ 0.23.3)。plan/data.js は「全体計画の整理と見直し」セッションが並べ直し中なので触っていない(0.48.1 の版は先方に伝える)
+- 未コミット: なし

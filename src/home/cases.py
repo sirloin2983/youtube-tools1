@@ -399,6 +399,17 @@ def _find_auto(repo_root, case_id, mark_id, env):
     return c, cl
 
 
+def remember_delivered(repo_root, media_path, zip_name, env=None):
+    """まとめて実行が自動で届けた(live.autoDeliver・友人のライブ配信の依頼)切り抜きに「届けた」を残す(src/home/autorun.py の _record_delivery から)。
+    ライブの切り抜きでなければ何もしない。-> 残したか"""
+    live, _m = clip_live(media_path)
+    st = (live or {}).get("studio") if isinstance(live, dict) else None
+    if not isinstance(st, dict) or not st.get("video") or not st.get("mark"):
+        return False
+    _remember(repo_root, str(st["video"]), str(st["mark"]), env, delivered=str(zip_name or ""))
+    return True
+
+
 def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=None):
     """案件ファイルに確認を残す(見た = seenAt。届けた・要らないも「見た」に数える)。delivered: 置いた zip の名前・discarded: 文字起こしの id("" = 無い)。
     -> その記録 {seenAt, deliveredAt?, delivered?, discardedAt?, tx?}"""

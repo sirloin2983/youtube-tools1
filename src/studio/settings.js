@@ -108,7 +108,9 @@ function buildLive(){
         <input type="number" id="liveAutoAdoptWait" min="${AUTO_WAIT_MIN[0]}" max="${AUTO_WAIT_MIN[1]}" step="1" inputmode="numeric"></div>
       <p class="hint">候補が決まってから待つ間に見送ったもの・もっと良い候補と入れ替わったものは採用しません。自動で採用した候補は、書き出し → 文字起こし → パックまで進みます(届けるのは人が確かめてから)。</p>
       <label class="rv-check" for="liveTx"><input type="checkbox" class="ui-switch" id="liveTx">候補を文字起こしする(GPU の whisper.cpp。試験中)</label>
-      <p class="hint">候補が決まるたびに、その区間だけを編集の whisper.cpp(GPU)で文字起こしして行に出します(採用の判断用。字幕の正本は書き出したあとの文字起こし)。whisper.cpp とモデルが無ければ何もしません。</p></div>
+      <p class="hint">候補が決まるたびに、その区間だけを編集の whisper.cpp(GPU)で文字起こしして行に出します(採用の判断用。字幕の正本は書き出したあとの文字起こし)。whisper.cpp とモデルが無ければ何もしません。</p>
+      <label class="rv-check" for="liveAutoDeliver"><input type="checkbox" class="ui-switch" id="liveAutoDeliver">自動の切り抜きを確認なしで友人へ届ける(1 本ずつ)</label>
+      <p class="hint">自動で採用した切り抜き(配信中・配信後)のパックを、できしだい Dropbox の 出力 へ置きます(ホームの「依頼の受付」のフォルダが決まっているときだけ)。人が採用した切り抜きは今までどおりホームの案件の [採用(友人へ届ける)] で。</p></div>
     <p class="msg hint" id="liveMsg" role="status"></p></div>`;
   $('#setCollab').insertAdjacentElement('beforebegin', sec);
   $('#liveFolderIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#liveFolderSave').click(); } });
@@ -151,6 +153,7 @@ function buildLive(){
   };
   for (const id of ['#liveAutoAdopt', '#liveAutoAdoptWait']) $(id).addEventListener('change', onAdopt);
   $('#liveTx').addEventListener('change', e => livePatch('liveTx', { enabled: e.target.checked }, e.target.checked ? '候補を文字起こしします(GPU の whisper.cpp)' : '候補の文字起こしをやめました'));
+  liveSwitch('#liveAutoDeliver', 'autoDeliver', '自動の切り抜きのパックを、できしだい友人へ届けます(1 本ずつ)', '自動の切り抜きは届けません(案件の [採用(友人へ届ける)] で)');
 }
 /* 「配信中の候補」の群: 入口が live.detect を知っているときだけ出す(古い入口では保存しても捨てられるため)。既定値は入口が持つ(0.46.3 からオン) */
 function fillLivePeaks(l){
@@ -166,6 +169,9 @@ function fillLivePeaks(l){
   $('#liveTx').checked = !!tx && tx.enabled === true;
   const txLabel = $('#liveTx').closest('label');
   txLabel.hidden = !tx; if (txLabel.nextElementSibling) txLabel.nextElementSibling.hidden = !tx;   // 古い入口(liveTx を知らない)では説明ごと出さない
+  const dv = $('#liveAutoDeliver'), dvLabel = dv.closest('label'), knowsDv = !!(l && typeof l.autoDeliver === 'boolean');   // 古い入口(autoDeliver を知らない)では出さない
+  dv.checked = knowsDv && l.autoDeliver === true;
+  dvLabel.hidden = !knowsDv; if (dvLabel.nextElementSibling) dvLabel.nextElementSibling.hidden = !knowsDv;
   syncLivePeaks(d.enabled === true);
 }
 /* 自動採用は、配信中の候補がオンのときだけ押せる(押せない理由を出す) */

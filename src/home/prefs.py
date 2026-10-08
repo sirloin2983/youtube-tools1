@@ -61,7 +61,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
                      "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2}, "autoAfterStream": False, "afterStreamPerHour": 6,
                      "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": True, "waitMin": 5},
-                     "liveTx": {"enabled": True, "model": "large-v3"}},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
+                     "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
+                     "autoDeliver": True},   # 自分の配信の自動の切り抜き(配信中の自動採用・配信後の追加)を確認なしで友人へ 1 本ずつ届ける(10-08 ユーザー決定。10-06 の「スイッチを作らない」を変えた)
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)"), "deliverBatch": (1, 10, "まとめて届ける本数")}
@@ -167,6 +168,7 @@ def _clean_live(v, cur):
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
            "autoArchive": cur.get("autoArchive") is not False, "autoDelete": cur.get("autoDelete", DEFAULTS["live"]["autoDelete"]) is True,   # 消すのは明示的に true のときだけ
            "autoAfterStream": cur.get("autoAfterStream") is True,   # 自動で採用するのは明示的に true のときだけ(既定オフ)
+           "autoDeliver": cur.get("autoDeliver") is not False,   # 自動の切り抜きを確認なしで友人へ届ける(既定オン。依頼の受付の Dropbox のフォルダが決まっているときだけ効く)
            "afterStreamPerHour": cur.get("afterStreamPerHour") if _int_in(cur.get("afterStreamPerHour"), *LIVE_PER_HOUR) else DEFAULTS["live"]["afterStreamPerHour"]}
     for k, (fn, label) in LIVE_PARTS.items():   # 小さな節は鍵ごとに直す(送らなかった鍵は今のまま。保存してある値の壊れた鍵は既定に戻す)
         out[k] = fn(cur.get(k) if isinstance(cur.get(k), dict) else {}, DEFAULTS["live"][k], strict=False)
@@ -186,6 +188,10 @@ def _clean_live(v, cur):
         if not isinstance(v["autoArchive"], bool):
             raise PrefsError("「自動で本番版に作り直す」は true か false で指定してください")
         out["autoArchive"] = v["autoArchive"]
+    if "autoDeliver" in v:   # 自動の切り抜きを確認なしで友人へ届ける
+        if not isinstance(v["autoDeliver"], bool):
+            raise PrefsError("「自動の切り抜きを友人へ届ける」は true か false で指定してください")
+        out["autoDeliver"] = v["autoDeliver"]
     if "autoAfterStream" in v:   # 配信が終わったらアーカイブの解析で自動で切り抜く(M7)
         if not isinstance(v["autoAfterStream"], bool):
             raise PrefsError("「配信後に自動で切り抜く」は true か false で指定してください")
