@@ -639,27 +639,38 @@ class CleanupTest(unittest.TestCase):
         return {"id": "m%d" % n, "status": status, "start": n * 10.0 if start is None else start, "end": n * 10.0 + 5}
 
     def test_kept_recordings_are_reported(self):
-        """D-14: 終わっているのに消せない録画は理由を覚え、STALE_SEC より古ければ「調子」の失敗(kind keep。文は live_failures.keep_failure)に出す。
-        消えたら・録画中なら出さない"""
+        """D-14 と 10-09 のユーザー決定: 終わっているのに消せない録画は理由を覚える。理由が「本番版になっていないマークがある」だけなら
+        終わって STALE_SEC で消し(スタジオに採用のまま書き出していないマークがあれば消さない)、WARN_SEC から「調子」に予告(delete_notice)。
+        ほかの理由(書き出しの途中など)は STALE_SEC より古ければ「調子」の失敗(kind keep。keep_failure)に出し、消さない。録画中は出さない"""
         C = __import__("live_cleanup")
+        R4, R5 = "20261005-150000-abcdefghijk", "20261005-160000-abcdefghijk"
         self.live.add(self.R1, ended_ago=C.STALE_SEC + 100)
-        self.job(self.R1, 1, state="done", arc="error")     # 本番版になっていない
-        self.live.add(self.R2, ended_ago=100)
-        self.job(self.R2, 1, state="done", arc="error")     # まだ 3 日たっていない
+        self.job(self.R1, 1, state="done", arc="error")     # 本番版になっていない・3 日たった → 消す
+        self.live.add(self.R2, ended_ago=C.WARN_SEC + 100)
+        self.job(self.R2, 1, state="done", arc="error")     # 本番版になっていない・2 日 → 予告
         self.live.add(self.R3, state="recording")
+        self.live.add(R4, ended_ago=C.STALE_SEC + 100)
+        self.job(R4, 1, state="encode", arc="wait")         # 書き出しの途中 → 消さずに知らせる
+        self.live.add(R5, ended_ago=C.STALE_SEC + 100)
+        self.job(R5, 1, state="done", arc="error")
+        self.studio_videos[R5] = [self.smark(1), self.smark(2, status="adopted")]   # 採用のまま書き出していないマーク → 消さない
         self.cl.tick(force=True)
-        f = self.cl.kept_failures()
-        self.assertEqual([x["recording"] for x in f], [self.R1])
-        self.assertEqual((f[0]["kind"], f[0]["kindLabel"], f[0]["at"] is not None), ("keep", "録画の片付け", True))
-        for s in ("本番版になっていないマークがある", "3 日", self.R1, "自動では消えません"):
-            self.assertIn(s, f[0]["text"])
-        self.assertEqual(self.cl._kept[self.R2]["why"], "本番版になっていないマークがある")
+        self.assertEqual(self.live.deleted(), [self.R1])
+        self.assertTrue(all(j.get("recordingDeleted") for j in self.live.exporter.jobs if j["recording"] == self.R1))
+        f = {x["recording"]: x for x in self.cl.kept_failures()}
+        self.assertEqual(sorted(f), sorted([self.R2, R4, R5]))
+        self.assertEqual((f[self.R2]["kind"], f[self.R2]["kindLabel"], f[self.R2]["at"] is not None), ("keep", "録画の片付け", True))
+        for s in ("あと約 23 時間で録画を自動で消します", "録画を自動で消す"):
+            self.assertIn(s, f[self.R2]["text"])
+        for s in ("書き出しの途中", "3 日", R4, "自動では消えません"):
+            self.assertIn(s, f[R4]["text"])
+        self.assertIn("採用のまま書き出していないマークがある", f[R5]["text"])
         self.assertNotIn(self.R3, self.cl._kept)
-        self.live.exporter.jobs[0]["archive"]["state"] = "done"   # 本番版になったら消えて、知らせも消える
-        self.studio_videos[self.R1] = [self.smark(1)]
+        self.live.exporter.jobs[1]["archive"]["state"] = "done"   # R2 が本番版になったら消えて、予告も消える
+        self.studio_videos[self.R2] = [self.smark(1)]
         self.cl.tick(force=True)
-        self.assertEqual((self.live.deleted(), self.cl.kept_failures()), ([self.R1], []))
-        self.assertNotIn(self.R1, self.cl._kept)
+        self.assertEqual(self.live.deleted(), [self.R1, self.R2])
+        self.assertEqual(sorted(x["recording"] for x in self.cl.kept_failures()), sorted([R4, R5]))
 
     def test_replaced_recording_is_deleted(self):
         self.live.add(self.R1)

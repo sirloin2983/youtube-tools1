@@ -453,6 +453,36 @@ class TestAutoClips(Base):
         self.assertEqual((c["autoClips"], res["unlinked"]), ({"total": 1, "unconfirmed": 1}, []))
         self.assertEqual(self.review("discard", "m1")[0], 404)   # もう一覧に無い
 
+    def test_expire_unseen_after_three_days(self):
+        """10-09 ユーザー決定: 見ても届けてもいない自動の切り抜きは、作ってから EXPIRE_SEC で「要らない」と同じくごみ箱へ(人の判定なしの expire の行)。
+        新しい・見た・人の切り抜き・友人の依頼(live.deliver か結びつき)・届けている途中は片付けない"""
+        old = time.time() - cases.EXPIRE_SEC - 60
+        for p in (self.auto1, self.auto2, self.manual):
+            os.utime(p, (old, old))
+        kw = {"studio": self.fs, "feedback": self.rows.append, "trash": self.trash, "hide": self.hidden.append, "deliveries": self.dl, "env": self.env}
+        self.review("seen", "m2")   # 見た → 片付けない
+        self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [(REC, "m1")])
+        self.assertFalse(os.path.exists(self.auto1))
+        self.assertTrue(os.path.isfile(self.auto2) and os.path.isfile(self.manual))
+        self.assertEqual([{k: x.get(k) for k in ("event", "human", "verdict", "markId")} for x in self.rows],
+                         [{"event": "expire", "human": False, "verdict": None, "markId": "lm-aaaaaaaaaaaa"}])   # 人の「悪い」ではない
+        rec = cases.load_saved(os.path.join(self.data, "app", "cases.json"))[REC]["auto"]["m1"]
+        self.assertTrue(rec.get("expiredAt") and rec.get("discardedAt") and not rec.get("seenAt"))
+        self.assertEqual([cl["markId"] for cl in self.case()["clips"]], ["m2", "m3"])
+        # 新しいもの・友人の依頼の分は片付けない
+        new_auto = self.live_clip("13_自動.mp4", "auto")
+        friend = self.live_clip("14_依頼.mp4", "auto", deliver={"rid": "20261009-120000-abcdef", "auto": False})
+        os.utime(friend, (old, old))
+        with open(self.fs.path, encoding="utf-8") as f:
+            st = json.load(f)
+        st["videos"][REC]["marks"] += [mark("m5", "exported", new_auto, 140, 170), mark("m6", "exported", friend, 180, 210)]
+        with open(self.fs.path, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False)
+        self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [])
+        os.utime(new_auto, (old, old))
+        self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: True, **kw), [])   # 録画が友人の依頼に結びついている
+        self.assertEqual(cases.expire_unseen(self.root, is_request=lambda rc, rec: False, **kw), [(REC, "m5")])
+
     def test_discard_puts_files_back_when_studio_fails(self):
         pk = self.pack(self.auto2)
         for setup, code in ((lambda: setattr(self.fs, "down", True), 502), (lambda: setattr(self.fs, "refuse", True), 502)):

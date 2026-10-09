@@ -112,6 +112,15 @@ def keep_failure(recording, days, why, title="", at=""):
             "markId": "", "runId": "", "at": at}
 
 
+def delete_notice(recording, hours_left, title="", at=""):
+    """本番版に置き換わらない録画を消す予告(10-09 ユーザー決定。src/home/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
+    name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
+    text = ("%s: 終わってから本番版に作り直せていないマークがあるので、あと約 %d 時間で録画を自動で消します(書き出した切り抜きは残ります。"
+            "録画を残したいときは、それまでに設定の「録画を自動で消す」をオフにしてください)") % (name, int(hours_left))
+    return {"kind": "keep", "kindLabel": KIND_LABELS["keep"], "text": text, "jobId": "", "recorder": "", "recording": recording or "",
+            "markId": "", "runId": "", "at": at}
+
+
 class Reader:
     """まとめて実行の記録(autorun-runs.jsonl)を、変わったときだけ読み直す(帯は数秒ごとに問い合わせるため)。-> {run の id: 記録}"""
 

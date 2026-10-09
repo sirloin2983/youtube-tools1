@@ -104,6 +104,7 @@ QUALITIES = ("best", "1080p", "720p")     # src/recorder/rec_core.py の QUALITI
 DEFAULT_QUALITY = "1080p"
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/recorder/rec_core.py の YT_HOSTS と同じ
 URL_MAX = 500
+EXPIRE_EVERY = 600.0   # 見ていない自動の切り抜きの片付け(cases.expire_unseen)を見る間隔(案件の一覧を組み立て直すので、見回りのたびには見ない)
 LIVE_STATUSES = ("is_live", "is_upcoming", "was_live", "not_live", "post_live")   # yt-dlp の live_status
 PROBE_TIMEOUT = 25.0     # yt-dlp で配信の状態を調べる時間切れ(秒)
 CHANNEL_MAX = 100        # チャンネル名の長さ(スタジオの配信の channel と同じ)
@@ -293,6 +294,7 @@ class Live:
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
         self.unconfirmed = None            # () -> ホームの「自動の切り抜き: 未確認」の数(入口 launch.py が cases の数を渡す。D-13 の休む判断)
         self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
+        self._expire_at = 0.0              # 見ていない自動の切り抜きの片付けを最後に見た時刻(EXPIRE_EVERY ごと)
         self._scope = threading.local()    # cfg_scope の中で読んだ設定(スレッドごと)
         self._tokens = fsio.StampCache()   # 手元の録画元の合言葉(token.txt。変わったときだけ読み直す)
 
@@ -649,10 +651,10 @@ class Live:
         ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings}。-> {"recorder", "recording", "existing"}。だめなら LiveError"""
         if not self.enabled():
             raise live_export.LiveError("リアルタイム切り抜きがオフです", 409)
-        busy = self.active_request(url)   # D-13: 友人のライブ配信の依頼は同時に 1 本まで(同じ配信なら今の録画に結びつける = existing)
-        if busy is not None:
-            raise live_export.LiveError("友人のライブ配信の依頼は同時に 1 本までです(「%s」を録画中。終わってからもう一度送ってください)"
-                                        % (busy.get("title") or busy.get("url") or busy["id"])[:80], 409)
+        busy = self.active_requests(url)   # 友人のライブ配信の依頼は同時に live_requests.MAX_ACTIVE 本まで(同じ配信なら今の録画に結びつける = existing)
+        if len(busy) >= live_requests.MAX_ACTIVE:
+            raise live_export.LiveError("友人のライブ配信の依頼は同時に %d 本までです(「%s」を録画中。終わってからもう一度送ってください)"
+                                        % (live_requests.MAX_ACTIVE, "」「".join((r.get("title") or r.get("url") or r["id"])[:60] for r in busy)), 409)
         out = self.begin(url)
         if not out.get("live"):
             raise live_export.LiveError("配信中・配信前の配信ではありません(%s)" % (out.get("status") or "unknown"), 409)
@@ -662,15 +664,30 @@ class Live:
         self.detector.wake()   # 検出がオフでも、この録画はすぐ測り始める
         return {"recorder": rc, "recording": rec, "existing": bool(out.get("existing"))}
 
-    def active_request(self, url):
-        """D-13: 友人のライブ配信の依頼に結びついた録画で、まだ録画中のもの(url と同じ配信は除く)-> 録画元の一覧の 1 行か None"""
+    def active_requests(self, url):
+        """友人のライブ配信の依頼に結びついた録画で、まだ録画中のもの(url と同じ配信は除く)-> 録画元の一覧の行のリスト(同時の上限 live_requests.MAX_ACTIVE の分子)"""
         items = self.requests.all()
         if not items:
-            return None
-        for r in self.list_recordings():
-            if r.get("active") and live_requests.key_of(r["recorder"], r["id"]) in items and not _same_stream(url, r.get("url") or "", r["id"]):
-                return r
-        return None
+            return []
+        return [r for r in self.list_recordings()
+                if r.get("active") and live_requests.key_of(r["recorder"], r["id"]) in items and not _same_stream(url, r.get("url") or "", r["id"])]
+
+    def expire_unseen(self, force=False):
+        """見ても届けてもいない自動の切り抜きを、作ってから cases.EXPIRE_SEC(3 日)で片付ける(src/home/cases.py の expire_unseen。EXPIRE_EVERY ごと)。
+        部品(ごみ箱フォルダ・届ける仕組み・非表示)は入口のサーバーから。入口から作られていないとき(テスト)は何もしない。-> 片付けた [(案件, マーク)]"""
+        srv, now = self._server, time.time()
+        if srv is None or (not force and now - self._expire_at < EXPIRE_EVERY):
+            return []
+        self._expire_at = now
+        import cases as cases_mod   # 呼ぶときに読む(cases は入口の部品。live を読み込むテストを重くしない)
+        prefs = getattr(srv, "prefs", None)
+        done = cases_mod.expire_unseen(self.root, self.studio_call, self.exporter.feedback, getattr(srv, "cleanup", None),
+                                       (lambda tid: prefs.hide("transcripts", [tid], True)) if prefs is not None else None, getattr(srv, "deliveries", None),
+                                       is_request=lambda rc_id, rec: self.requests.get(rc_id, rec) is not None)
+        if done:
+            self.log("リアルタイム切り抜き: 見ないまま %d 日たった自動の切り抜き %d 本をごみ箱フォルダへ移しました(%s)" % (
+                int(cases_mod.EXPIRE_SEC // 86400), len(done), "・".join("%s/%s" % k for k in done[:5])))
+        return done
 
     def stop_long_requests(self):
         """D-13: 友人のライブ配信の依頼に結びついた録画が、依頼から live_requests.MAX_SEC(6 時間)を超えて録画中なら止める(録画元の stop。
@@ -710,7 +727,7 @@ class Live:
         return req, "auto", streamer or req.get("streamer") or ""
 
     def deliver_dir(self):
-        """友人へ届ける所(依頼の受付の Dropbox のフォルダの 出力\)。決まっていなければ None"""
+        """友人へ届ける所(依頼の受付の Dropbox のフォルダの 出力 の中)。決まっていなければ None"""
         try:
             folder = (self.prefs.get(["intake"])["intake"] or {}).get("folder") or ""
         except Exception:   # noqa: BLE001
@@ -1086,6 +1103,7 @@ class Live:
         self._guard("友人の依頼の結びつきの片付けでエラー", self.requests.prune)   # 2-15: 古い結びつきを消す(消すものがあるときだけ書く)
         self._guard("友人の依頼の録画の上限の見回りでエラー", self.stop_long_requests)   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
         self._guard("配信の記録の見回りでエラー", self.reporter.tick)   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
+        self._guard("見ていない自動の切り抜きの片付けでエラー", self.expire_unseen)   # 3 日見ない自動の切り抜きはごみ箱へ(10-09 ユーザー決定。オフでも前の分は片付ける)
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"

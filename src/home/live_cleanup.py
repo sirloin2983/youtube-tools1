@@ -17,6 +17,9 @@
      → 録画を消す(使用中で消せなければ、次の見回りでまた消す。スタジオの行はもう無いので 2 の条件のまま)
   3. 退避した速報版(<配信のフォルダ>/作業用/速報版/…。ジョブの archive.keep): 入れ替え(archive.at)から keep_sec(3 日)たったら消す。
      消すのはジョブが自分で退避したパスだけ(書き出し先の中・作業用/速報版/ の直下・.mp4・リンクでない普通のファイル)→ archive.keepDeleted
+  4. 本番版に置き換わらない録画(10-09 ユーザー決定「終わって 3 日で消す」= decisions 3-15 (fc) の変更): 消せない理由が「本番版になっていないマークがある」だけの録画は、
+     終わって STALE_SEC(3 日)たったら消す。スタジオに「採用のまま書き出していないマーク」がある・スタジオに確かめられないときは消さない。
+     消す 1 日前(WARN_SEC)から「調子」に予告(live_failures.delete_notice)。ほかの理由(書き出しの途中・作り直しの途中など)は今までどおり消さずに知らせる(keep_failure)
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
 配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/home/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
@@ -35,7 +38,9 @@ import live_failures  # noqa: E402  (残っている録画の知らせの文。D
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = docs/spec/data-location.md の保存の方針)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/home/live.py の tick から)で調べる間隔
-STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない(本番版に置き換わらない)録画を「調子」に知らせる
+STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が NOT_REPLACED だけなら、このとき消す(10-09 ユーザー決定)
+WARN_SEC = 2 * 86400.0         # NOT_REPLACED の録画を消す 1 日前から「調子」に予告する
+NOT_REPLACED = "本番版になっていないマークがある"   # 消せない理由のうち、3 日で消す理由(_replaced_why が返す文)
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
 REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/recorder/rec_core.py の ACTIVE と同じ
 
@@ -114,19 +119,34 @@ class Cleaner:
         js = self._jobs(rc["id"], rec)
         if js:
             why = self._replaced_why(js, rec)
+            if why == NOT_REPLACED and self._stale(r, now):   # 終わって 3 日たっても本番版にならない: 採用のまま書き出していないマークが無ければ消す
+                why = self._studio_why(LX.latest_per_mark(js), rec) or ""
+                if not why:
+                    return self._delete_with_jobs(rc, rec, js, "終わって %d 日たっても本番版にならない" % int(STALE_SEC // 86400))
             if why:
                 return self._keep(r, why)
-            if self._delete(rc, rec, "本番版に入れ替え済み"):
-                self._kept.pop(rec, None)
-                stamp = LX.now_iso()
-                ex = self.live.exporter
-                with ex.lock:
-                    for j in js:
-                        j["recordingDeleted"] = stamp
-                ex._save()
-                return True
+            return self._delete_with_jobs(rc, rec, js, "本番版に入れ替え済み")
+        return self._consider_no_jobs(rc, r, rec, now)
+
+    def _stale(self, r, now):
+        ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
+        return isinstance(ended, (int, float)) and now - ended >= STALE_SEC
+
+    def _delete_with_jobs(self, rc, rec, js, why):
+        """書き出しのジョブのある録画を消し、ジョブに recordingDeleted を残す -> 消したら True"""
+        if not self._delete(rc, rec, why):
             return False
-        # マークが1つも無い録画
+        self._kept.pop(rec, None)
+        stamp = LX.now_iso()
+        ex = self.live.exporter
+        with ex.lock:
+            for j in js:
+                j["recordingDeleted"] = stamp
+        ex._save()
+        return True
+
+    def _consider_no_jobs(self, rc, r, rec, now):
+        """マークが1つも無い録画(書き出しのジョブが無い)を消すか決めて、消す -> 消したら True"""
         ended = LX.iso_epoch(r.get("endedAt"))
         if ended is None or now - ended < self.no_mark_sec:
             return False
@@ -163,6 +183,9 @@ class Cleaner:
         out = []
         for rec, k in sorted(self._kept.items()):
             ended = k.get("endedAt")
+            if isinstance(ended, (int, float)) and k.get("why") == NOT_REPLACED and WARN_SEC <= now - ended:   # 消す予告(消すのは STALE_SEC。消せなければ次の見回り)
+                out.append(live_failures.delete_notice(rec, max(0, int((ended + STALE_SEC - now) // 3600)), title=k.get("title") or "", at=LX.epoch_iso(ended)))
+                continue
             if not isinstance(ended, (int, float)) or now - ended < STALE_SEC:
                 continue
             out.append(live_failures.keep_failure(rec, int((now - ended) // 86400), k.get("why") or "", title=k.get("title") or "",
@@ -180,7 +203,11 @@ class Cleaner:
                 return "本番版への作り直しの途中"
         last = LX.latest_per_mark(js)
         if not last or not all(j.get("state") == "done" and (j.get("archive") or {}).get("state") == "done" for j in last):
-            return "本番版になっていないマークがある"
+            return NOT_REPLACED
+        return self._studio_why(last, rec)
+
+    def _studio_why(self, last, rec):
+        """スタジオの側で消せない理由(採用のまま書き出していないマーク・確かめられない)。無ければ """""
         marks, _registered = self._studio_marks(rec)
         if marks is None:
             return "スタジオに確かめられない"

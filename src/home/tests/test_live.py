@@ -690,13 +690,24 @@ class PortalLiveTest(unittest.TestCase):
             out = live.begin_request(rec["url"], dict(ctx, rid="20261008-210000-def456"))
             self.assertEqual((out["existing"], len(started)), (True, 1))
             self.assertEqual(live.requests.get("fake", rec["id"])["rid"], "20261008-210000-def456")
-            # D-13: 依頼の録画が録画中のうちは、別の配信の依頼は 409(同時に 1 本まで。yt-dlp は呼ばない)
+            # 依頼の録画が上限(live_requests.MAX_ACTIVE)まで録画中なら、別の配信の依頼は 409(yt-dlp は呼ばない)。上限 1 のときの形で確かめる
             n = len(calls)
-            with self.assertRaises(LX.LiveError) as cm:
+            with mock.patch.object(LR, "MAX_ACTIVE", 1), self.assertRaises(LX.LiveError) as cm:
                 live.begin_request("https://www.youtube.com/watch?v=bbbbbbbbbbb", dict(ctx, rid="20261008-220000-aaa111"))
             self.assertEqual((cm.exception.code, len(calls)), (409, n))
             self.assertIn("同時に 1 本まで", str(cm.exception))
             self.assertIn("配信の題", str(cm.exception))
+            # 既定は同時に 2 本(10-09 ユーザー決定): 録画中の依頼が 1 本なら別の配信も通る・2 本なら 409
+            self.assertEqual(LR.MAX_ACTIVE, 2)
+            self.assertEqual([r["id"] for r in live.active_requests("https://www.youtube.com/watch?v=bbbbbbbbbbb")], [rec["id"]])
+            rec2 = dict(rec, id="20261008-201000-bbbbbbbbbbb", url="https://www.youtube.com/watch?v=bbbbbbbbbbb", title="二つ目", state="recording")
+            live.requests.put("fake", rec2["id"], dict(ctx, rid="20261008-223000-bbb222"))
+            self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": [dict(rec, state="recording"), rec2]})
+            with self.assertRaises(LX.LiveError) as cm:
+                live.begin_request("https://www.youtube.com/watch?v=ccccccccccc", dict(ctx, rid="20261008-224000-ccc333"))
+            self.assertEqual((cm.exception.code, len(calls)), (409, n))
+            self.assertIn("同時に 2 本まで", str(cm.exception))
+            live.requests.remove("fake", rec2["id"])
             self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": [dict(rec, state="ended", active=False)]})   # 終わった → 次の依頼を通す
             # 配信中でない・調べられない → 409(結びつけない。受付が理由を友人へ返す)
             for st in ("was_live", "post_live", "NA"):

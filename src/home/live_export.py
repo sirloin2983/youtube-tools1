@@ -19,7 +19,7 @@
   3b. 音量    … スタジオの書き出しと同じ扱い(audio()。既定はスタジオの「書き出しの設定」= 音量 75% か、ラウドネスをそろえる -14 LUFS など)。
                  ラウドネスは作り直した動画で測って(loudnorm)から、音声だけ作り直して(映像は無劣化)ゲインをかける(ytt_core.loudness)
   4. 検証     … ffprobe で 30/1・長さ(区間 ±0.5 秒)を確かめてから本当の名前へ
-  5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先\<配信の名前>\)・名前の規則・作業用\<名前>.clip.json。
+  5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先/<配信の名前>/)・名前の規則・作業用/<名前>.clip.json。
                  書き出したあと(ジョブの after。スタジオの LIVE の帯の「書き出したあと」)は入口の「まとめて実行」の動画ファイルの形(autorun.start_file。
                  check = 文字起こしまで(mode file)・auto = 文字起こし → パック(mode file_auto)・none = 渡さない)。streamer(配信者の名前)があれば
                  照らし合わせて渡す(字幕の色。合わなければ色なしで進めて、ジョブの warning に出す)
@@ -34,7 +34,7 @@
 書き出したあとの自動の流れの設定(ホームの設定 live.auto の cut・engine・model。M2)はジョブを作るときに auto に覚え、まとめて実行へ渡す。
 失敗の文は src/home/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。
 
-ディスクの見張り(線 D の M4。入口 0.40.0): 書き出し先(パックも切り抜きの隣 <名前>_pack に作る)と live\\work(取ったセグメント・アーカイブの丸ごとの音)の
+ディスクの見張り(線 D の M4。入口 0.40.0): 書き出し先(パックも切り抜きの隣 <名前>_pack に作る)と live/work(取ったセグメント・アーカイブの丸ごとの音)の
 空きを DISK_POLL(1 分)ごとに調べる(disk)。DISK_WARN(20 GB)未満で注意(「調子」)、DISK_LOW(5 GB)未満で**新しい書き出しと文字起こしを「空き待ち」**にする
 (録画待ちのジョブは録画元に問い合わせずに待ち、書き出しが済んだジョブはまとめて実行へ渡すのを待つ = handoffWait "disk")。空けば続ける。
 止めずに待つのは、書き込みの途中で失敗して書きかけが壊れるより戻しやすいため(計画の 5 の 3)。録画の部品は録画先を 1 GB で止め・20 GB で注意する(別)。
@@ -547,6 +547,8 @@ class Exporter:
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             if isinstance(request, dict) and request.get("rid"):
                 job["request"] = {k: request.get(k) for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}   # 友人の依頼(2-15)
+                if request.get("autoDeliver") is True:   # 自分の配信の自動の切り抜きを確認なしで届ける(live.autoDeliver)= 友人の依頼と分ける印
+                    job["request"]["autoDeliver"] = True
             self.jobs.append(job)
             self._trim()
         self._save()
@@ -575,7 +577,7 @@ class Exporter:
 
     # --- ディスクの見張り(M4) ---
     def disk_paths(self):
-        """見張る場所 [(名前, パス)]: 書き出し先(パックも切り抜きの隣に作る)・live\\work(取ったセグメント・アーカイブの丸ごとの音)"""
+        """見張る場所 [(名前, パス)]: 書き出し先(パックも切り抜きの隣に作る)・live/work(取ったセグメント・アーカイブの丸ごとの音)"""
         out = []
         try:
             root = self.out_dir()
@@ -1026,6 +1028,9 @@ class Exporter:
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"], "origin": origin}}
         if isinstance(job.get("score"), (int, float)):
             clip["source"]["live"]["score"] = job["score"]   # 候補の点数(M9 の確認の一覧が出す)
+        req = job.get("request") if isinstance(job.get("request"), dict) else {}
+        if req.get("rid"):   # 友人の依頼・自動で届ける切り抜き(届けるのは まとめて実行)。見ていない切り抜きの片付け(cases.expire_unseen)はこれがあれば片付けない
+            clip["source"]["live"]["deliver"] = {"rid": str(req["rid"])[:40], "auto": req.get("autoDeliver") is True}
         if isinstance(job.get("studio"), dict):   # スタジオのマークから(P3): スタジオの配信(= 録画の id)とマークの id も残す
             clip["source"]["live"]["studio"] = {"video": job["studio"].get("video"), "mark": job["studio"].get("mark")}
         if archive:

@@ -3071,3 +3071,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 版: 編集 0.65.0 → 0.65.1(serve.py・app.js・README)
 - テスト: 編集 591 OK・e2e_edit_tabs OK・lint 0
 - 未コミット: なし
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— 線 D の届け方・片付け(ユーザー決定 3-20 のうち 4 件)。担当: 作業１
+- 依頼: セッション「議論」経由のユーザー決定(decisions 3-20)。担当: 作業１(src/home の live*・cases・autorun・intake・deliver と friend-apps/request-sender。live_export.py は「ツール全体のコード修正」の周から外してもらった)
+- 作り(この回): ① 友人のライブ依頼の同時の上限 1 → 2(`live_requests.MAX_ACTIVE`・`Live.active_requests`)② 依頼と録画の結びつきの保存 14 → 3 日(`live_requests.KEEP_DAYS`)③ 本番版に置き換わらない録画を終わって 3 日で消す
+  (`live_cleanup.py` の NOT_REPLACED・WARN_SEC・_stale・_studio_why・_delete_with_jobs。予告は `live_failures.delete_notice`)④ 見ても届けてもいない自動の切り抜きを 3 日で片付ける(`cases.expire_unseen`・`Live.expire_unseen` を見回りで 10 分ごと・
+  .clip.json の live.deliver = 友人の依頼・自動で届ける印を `live_export` が書く・job.request.autoDeliver を残す)。live.py・live_export.py の説明文の逆斜線を / に(警告が出ていた)
+- テスト: test_live・test_live_archive(録画の片付けの場面を書き直した)・test_cases(expire の場面)・test_launch・test_live_detect OK(test_live_archive の 1 件は負荷の高いときだけ時間切れ = 単独で OK)・lint 0
+- 版: まだ上げていない(ホームの 0.52.0 は「スタジオ設定の整理」が S5 で使用中 = launch.py・README が作業途中)。残りの (ec) 友人側で届け方を選ぶ(送るアプリと入口の組)と一緒に 0.53.0 にする
+- 未コミット: なし(このセッションの分。src/home の launch.py・README.txt・prefs.py・live_archive.py・test_launch.py は他のセッションの途中)

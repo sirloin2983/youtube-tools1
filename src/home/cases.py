@@ -410,7 +410,66 @@ def remember_delivered(repo_root, media_path, zip_name, env=None):
     return True
 
 
-def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=None):
+EXPIRE_SEC = 3 * 86400   # 見ても届けてもいない自動の切り抜きを片付けるまで(切り抜きの動画を作ってから。10-09 ユーザー「3 日経ってもみなければ多分みない」)
+
+
+def expire_unseen(repo_root, studio, feedback, trash, hide, deliveries, env=None, now=None, max_age=EXPIRE_SEC, is_request=None):
+    """見ても届けてもいない自動の切り抜き(clip.review.unconfirmed)で、動画を作ってから max_age たったものを片付ける(10-09 ユーザー決定)。
+    片付け方は「要らない」(_discard)と同じ = ごみ箱フォルダへ移す(cleanup の TRASH_DAYS でさらに消える)・スタジオのマークを不採用に・文字起こしを一覧で非表示に。
+    違うのは live_feedback.jsonl の行が event expire・人の判定なし(eval_marks の「悪い」に数えない)と、案件の記録の expiredAt。
+    片付けない: 見た・届けた・採用した切り抜き・人の切り抜き・友人の依頼の録画の切り抜き(.clip.json の live.deliver か、is_request(録画元, 録画) が真)・
+    届けている途中のパック・ネットワーク上のパス。-> 片付けた [(案件, マーク)]"""
+    if trash is None or studio is None:
+        return []
+    now = time.time() if now is None else now
+    out = []
+    for c in snapshot(repo_root, env)["cases"]:
+        for cl in c.get("clips") or []:
+            if _expire_one(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env, now, max_age, is_request):
+                out.append((c["id"], cl["markId"]))
+    return out
+
+
+def _expire_one(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env, now, max_age, is_request):
+    rv = cl.get("review") or {}
+    path = cl.get("path") or ""
+    if not cl.get("auto") or not rv.get("unconfirmed") or not path or fsio.is_network_path(path) or not os.path.isfile(path):
+        return False
+    age = now - os.path.getmtime(path)
+    if age < max_age:
+        return False
+    live, _m = clip_live(path)
+    if not live or live.get("deliver") or (is_request is not None and is_request(live.get("recorder"), live.get("recording"))):
+        return False   # 友人の依頼・自動で届ける切り抜きは片付けない(届けるのは まとめて実行。届けば「届けた」になる)
+    pack = txindex.pack_dir(path)
+    if pack and deliveries is not None and deliveries.running(pack):
+        return False
+    key = (c["id"], cl["markId"])
+    with _busy_lock:
+        if key in _busy:
+            return False
+        _busy.add(key)
+    try:
+        row = _feedback_row(c, cl, event="expire", human=False, ageDays=round(age / 86400.0, 1))
+        _moved, where, _st = discard_clip(trash, studio, c["id"], cl["markId"], path, pack)
+        tid = (cl.get("transcript") or {}).get("id") or ""
+        if tid and hide:
+            try:
+                hide(tid)
+            except (OSError, ValueError):
+                pass
+        _remember(repo_root, c["id"], cl["markId"], env, discarded=tid, expired=True)
+        if feedback:
+            feedback(dict(row, trash=where))
+        return True
+    except (ReviewError, OSError):   # 動かせない・マークを不採用にできない(元に戻してある): 次の見回りでまた試す
+        return False
+    finally:
+        with _busy_lock:
+            _busy.discard(key)
+
+
+def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=None, expired=False):
     """案件ファイルに確認を残す(見た = seenAt。届けた・要らないも「見た」に数える)。delivered: 置いた zip の名前・discarded: 文字起こしの id("" = 無い)。
     -> その記録 {seenAt, deliveredAt?, delivered?, discardedAt?, tx?}"""
     now = int(time.time() * 1000)
@@ -426,6 +485,10 @@ def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=N
             r.update(deliveredAt=now, delivered=str(delivered)[:200])
         if discarded is not None:
             r.update(discardedAt=now, tx=str(discarded)[:64])
+        if expired:   # 見ないまま日数がたって片付けた(人の「要らない」ではない。seenAt は付けない)
+            r["expiredAt"] = now
+            if not r.get("seenAt") or r["seenAt"] == now:
+                r.pop("seenAt", None)
         recs[mark_id] = r
         if len(recs) > AUTO_KEEP:   # 古いもの(最後に触った時刻)から捨てる
             keep = sorted(recs, key=lambda k: -max(_int_ms(recs[k].get(x)) for x in ("seenAt", "deliveredAt", "discardedAt")))[:AUTO_KEEP]
