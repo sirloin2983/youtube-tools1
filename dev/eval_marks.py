@@ -73,7 +73,7 @@ RETRACT_EVENTS = ("unadopt", "delete_judged")
 FRIEND_FEW_RANGES = 20   # friendRanges: 解析済みの区間がこれより少ない・
 FRIEND_FEW_VIDEOS = 5    # 配信がこれより少ないときは「まだ少ない(参考)」
 HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区間の中、または重なりが候補の長さのこの割合以上
-FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/home/autorun.py の RANGE_PAD と同じ値。出どころ 2 で引く)
+FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/pipeline/spec.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
 PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/ytt_core/excite.py)
 DEFAULT_PRE = excite.PRE_RATIO_DEFAULT   # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき)

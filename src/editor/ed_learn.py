@@ -57,7 +57,7 @@ SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v i
                        "altEngine": lambda v: isinstance(v, str) and v in ed_alt.ALT_ENGINES,
                        # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。ed_speakers の smooth_)
                        "diarSmooth": lambda v: isinstance(v, bool),
-                       # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(home/autorun.py の _pack_settings)も同じ鍵を読む
+                       # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(pipeline/run.py の _pack_settings)も同じ鍵を読む
                        "cutSilence": lambda v: _cut_silence_ok(v),
                        # サムネの案の切り取り(パックの所の「サムネの案」。alt = 中央と右下を交互。P5。ed_thumb.THUMB_CROPS)
                        "thumbCrop": lambda v: v in ("alt", "center", "right")}

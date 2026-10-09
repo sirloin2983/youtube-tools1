@@ -192,7 +192,7 @@ def check_streamer(v):
 
 
 def deliver_pool(job, req):
-    """ライブの切り抜きを n 本の組で届けるときの溜めの指定(src/home/autorun.py の Run.pool)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
+    """ライブの切り抜きを n 本の組で届けるときの溜めの指定(src/pipeline/run.py の Run.pool)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
     (配信中の live = 自動の採用・人のマーク / 配信後の追加 archive)ごと。10-09 ユーザー決定 = decisions 3-20"""
     phase = "archive" if job.get("origin") == "archive" else "live"
     who = "auto" if req.get("autoDeliver") is True else str(req.get("rid") or "")

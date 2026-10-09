@@ -1,6 +1,6 @@
 # 役割で組み直す(ツール全体のコードの役割分担。2026-10-09)
 
-> 状態(2026-10-09 夜): **RS0 済み(ユーザー「もう始めていい」)。次は RS1**。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
+> 状態(2026-10-10): **RS0・RS1 済み(RS1 は入口を起動し直して本物の 1 本の確認待ち)。次は RS2(別のセッションで慎重に)・RS3・RS4(並列にできる)**。RS1 の結果は 8 節の下。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
 
 ## 1. なぜ組み直すか(ユーザーの言葉)
 - 「もともと 1 個ずつ開発して合体したからいびつになっている。今の形を完全に変えてもいいから最適な形を考えて」
@@ -201,6 +201,8 @@ dev/           リポジトリの道具だけ残す(lint・ui_audit・push_helpe
 | RS6 | ① の新機能: アーカイブと動画ファイルの**自動採用**(今はライブだけ)・切り抜き単位の使い回し(鍵)・校正の上書きを切り抜きの鍵に付ける・① 単体の起動(URL か動画 → パック) | 新しいテスト + 本物のアーカイブ 1 本と動画ファイル 1 本 | 1 日 |
 
 RS0 の結果(10-09 夜): 向きの違反は **69 件**。内訳 = pipeline→human 15・pipeline→manage 15・pipeline→app 11・human→app 7・human→manage 7・eval→app 5・manage→app 5・pipeline→eval 3・human→eval 1。多くは「設定と状態の束」(編集 `ed_state`・スタジオ `common`・入口 `prefs`。今は app に置いた)への依存と、認識の本筋 `ed_jobs` から文書・紐づけ・評価への呼び出し。RS1 で設定を `ytt/settings` に寄せ、RS2 で `ed_jobs` を分けると大きく減る見込み。
+
+RS1 の結果(10-09 夜〜10-10。セッション「RS1」。手順はユーザー確認・判断は Fable と相談・RS1-2〜7 はサブエージェントが別の作業フォルダで並列に作りまとめ役が取り込んだ): ytt_core → `ytt`(excite → `pipeline/analyze`・evaldata → `eval/tools`・txindex → `manage/cases`。旧い名前は `src/ytt_core/__init__.py` の転送 = 実体と同じモジュールを sys.modules に登録)/ cut2resolve のパックの部品(pack・resolve_textplus・cut2resolve_core・CLI・**srt2resolve と auto_cut も** = pack の土台と計画の中心だった)→ `pipeline/pack` / 録画 → `pipeline/ingest` / exporter → `pipeline/export`。これら 3 つは旧い場所に**転送のモジュールを置かない**(入口の取り込みの名前の検査が止めるため = ユーザー確認)。読む側を `from pipeline.pack import pack` の形に直し、パスで起動する `cut2resolve.py`(.bat 用)と `recorder.py`(起動中の古い入口用)だけ転送のスクリプト。鍵の JSON の形 `ytt/schemas.make_key` など(形と純粋な関数だけ・書くのは RS6)。`pipeline/spec.py`(束の形・既定値・検査。autorun の検査を移した)。`pipeline/run.py`(`Runner` = ① の段の中身・`run(client, input, spec, from_, hooks)`。`AutoRunner` は Runner を継いでキュー・記録・友人・あとから解析と 12 の口の中身を持つ。ツールは HTTP の client のまま = 段を関数で直接呼ぶのは各段を移したあと)。向きの違反 69 → **68**(pack → auto_cut)。層のテストは入れ子のパッケージ・転送の付け替え・裸の名前の禁止・違反の上限 KNOWN_MAX を持つ。途中で見つけた前からの不具合: 入口の届ける仕事が「届けた」を記録する前に done にしていた(直した)・e2e_window と e2e_ui_handoff は RS1 より前から落ちている(画面の変更の取り残し。別の作業に)。
 
 RS0〜RS1 は操作が変わらない。RS2 以降も画面の操作は変えない(画面の作りは後で)。合計の目安は AI の作業で 5〜7 日分(並列にできる段は RS3 と RS4)。
 

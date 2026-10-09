@@ -378,7 +378,7 @@ class TestEditHttp(unittest.TestCase):
 
     def test_settings_patch_cut_silence(self):
         """2 カット の「無音 ▾」の値(cutSilence。段7 E-5)は「送ったキーだけ直す」。3 つの値がそろい、cut2resolve と同じ範囲のときだけ受ける。
-        まとめて実行(home/autorun.py の _pack_settings)は同じ鍵の noise・min・pad を読む"""
+        まとめて実行(pipeline/run.py の _pack_settings)は同じ鍵の noise・min・pad を読む"""
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
         try:
             v = {"noise": -30, "min": 0.8, "pad": 0.2}

@@ -2,11 +2,11 @@
    状態の値: "done" 済み / "doing" 進行中 / "next" 次(今できる) / "todo" あと(前の工程が済んでから) / "wait" ユーザー待ち / "cont" 継続
    更新したら updated を直す。チェックの付け外し(user-tasks.html)はブラウザに残るだけで、ここには書かない(ユーザーが AI に伝える)。 */
 window.PLAN = {
-  updated: "2026-10-09",
+  updated: "2026-10-10",
   artifactUrl: "https://claude.ai/artifact/Ezx4CdKgXzeDoBPpFGuLWt",   // スマホ用の公開ページ(claude.ai の Artifact。data.js を直したら dev/plan_artifact.py → 公開し直す)
   summary: "10-08 の見直し: 作る段階はほぼ終わった。線 D は配信 → 検出 → 自動採用 → 書き出し → 文字起こし → パックまで本物の配信で動いた(10-08。既定オン)。ここからは「本物で確かめて、数字で決め直す」段階。律速は AI ではなく ① ユーザーの校正の時間(線 B。動画 1 分に約 12.6 分)② 配信の本数(線 C・D の数字)③ 友人の確認(U8)④ 仮決めの確認(53 件)。AI の作業は計画の 5〜10 倍の速さで進んだので、AI の見積もりを実績に合わせて縮めた(人の作業の見積もりは今のまま)。今週は次の配信(10-18/19)の前に、線 D の守りと記録(D-12〜D-14)・物差し(K1・K2)・確認と校正の手間を減らす画面(A5・A6)・段 8(A3)を入れる(10-08 にユーザー決定)。10-09: 線 D の守りと記録(D-12〜D-14)は済み。別件で分析と日報(src/analytics)を作り、日報・週報・月報を LINE で受け取れた。友人のライブ依頼が配信前だとアーカイブ扱いに落ちる不具合を直した(送るアプリ 2.8.1 と一緒に U8 で確かめる)。Chrome 拡張は本物の YouTube Studio で動いた(U9 済み)。長い配信(U4)は約 3 時間の配信で済んだ(友人の依頼の見張りと兼ねた。配信ごとの記録(D-12 の live/reports/)は残っていない = D-15 は記録のある次の長い配信から)。月報の推定収益の単位は確かめない(ユーザー決定)。10-09 午後: 設定を 1 つにまとめる(S1〜S5)を始めた。段 0 の棚卸しと決まり(docs/spec/settings.md)は済み。段 1 はスタジオ「2 解析」と編集「3 パック」のタブを無くして ⚙ へ(ユーザー決定)。スタジオの分(S2)は 0.24.0・編集の分(S3)は 0.62.0 で済み(段 1 完了)。S4(設定ファイルの読み書きの共通部品 ytt_core/settings.py。1.6.0)・S5(入口の /settings = 1 つの設定の画面。ホーム 0.52.0・ui-kit v25)も済み = 設定を 1 つに(S1〜S5)は完了。夕: ユーザー「各ツールの ⚙ を見直して」→ S6(設定の画面と重なる欄を ⚙ から外す)= スタジオ 0.25.0・ホーム 0.54.0・編集 0.66.0 で済み(機能を消す候補 (gq) 2 つはユーザー確認済み → スタジオ 0.26.0 で済み)。",
   versions: [
-    ["入口(ホーム)", "0.54.0"], ["切り抜きスタジオ", "0.26.0"], ["編集", "0.67.0"], ["cut2resolve", "0.23.0"],
+    ["入口(ホーム)", "0.54.1"], ["切り抜きスタジオ", "0.26.0"], ["編集", "0.67.0"], ["cut2resolve", "0.23.0"],
     ["録画の部品", "0.3.3"], ["ui-kit", "v25"], ["分析と日報", "0.1.1"], ["送るアプリ", "2.9.0"], ["ホロカラー", "1.4.3"]
   ],
   /* 直近の作業(古い順。細かい経緯は docs/WORKLOG.md) */
@@ -135,8 +135,8 @@ window.PLAN = {
     { id: "O1", name: "Python 3.10 → 3.12 の移行(下調べ済み 10-09 = plan/python-migration.md。yt-dlp は winget の exe で 3.10 終了の影響なし・固定の版を変えずに移れる・3.12 は入っている。静かな日に 1 晩。急がない)", line: "運用", who: "AI + ユーザー", phase: "5", pre: [], rec: [], ai: "1 晩", user: "pip の導入 10〜15 分(自分の cmd で)", state: "todo" },
     /* RS 役割で組み直す(plan/role-restructure.md。10-09 ユーザー決定。始める時期は未定 = フェーズは仮に 5。段ごとに全テスト + 入口を起動し直して本物の 1 本) */
     { id: "RS0", name: "RS0 行き先の表と骨組み(済み 10-09 夜 = ユーザー「もう始めていい」。層のフォルダ src/{ytt,pipeline,human,manage,eval,app}(空・docstring)・ファイルの行き先 dev/layer_map.py・向きの検査 dev/tests/test_layering.py(今ある違反 69 件を KNOWN に = 減らすだけ)・関数ごとの行き先 docs/design/role-restructure-map-2026-10-09.md(33 ファイル・約 31,000 行。横断する要相談 13 件に仮決め RS0-a〜m = decisions 3-22)。版 1 つは RS5 で)", line: "運用", who: "AI", phase: "5", pre: [], rec: [], ai: "半日(実績 約 1 時間)", user: "仮決め RS0-a〜m の確認 10 分", state: "done" },
-    { id: "RS1", name: "RS1 ① の骨組み: ytt_core → ytt(excite は pipeline/analyze へ)・cut2resolve → pipeline/pack・recorder → pipeline/ingest・exporter → pipeline/export・spec.py と run.py(まとめて実行の ① の経路を 1 本に。束の形は計画 5-4)・鍵の JSON の形(元の媒体の識別を含む = 5-5 F-1)。10-09 夜ユーザー「進めて」= 別のセッションで。段ごとに相談", line: "運用", who: "AI", phase: "5", pre: ["RS0"], rec: [], ai: "1 日", user: "段ごとの相談 各 5 分", state: "next" },
-    { id: "RS2", name: "RS2 ① の文字起こし: ed_jobs を認識(pipeline/transcribe)と文書(human/proof)に分割・認識と後処理の段を分ける・エンジンの登録の口・疑似モードを eval/fake から(いちばん重い = 別のセッションで慎重に)", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: [], ai: "1〜2 日", user: "校正の画面が壊れていないか 10 分", state: "todo" },
+    { id: "RS1", name: "RS1 ① の骨組み: ytt_core → ytt(excite は pipeline/analyze へ)・cut2resolve → pipeline/pack・recorder → pipeline/ingest・exporter → pipeline/export・spec.py と run.py(まとめて実行の ① の経路を 1 本に。束の形は計画 5-4)・鍵の JSON の形(元の媒体の識別を含む = 5-5 F-1)。10-09 夜ユーザー「進めて」= 別のセッションで。段ごとに相談。**済み 10-10**(RS1-0〜8。サブエージェントで並列に。違反 69 → 68。結果は計画 8 節の下)", line: "運用", who: "AI", phase: "5", pre: ["RS0"], rec: [], ai: "1 日(実績 約 6 時間)", user: "入口を起動し直して、まとめて実行で本物の 1 本(パックまで)が今までどおり作れるか 10 分", state: "done" },
+    { id: "RS2", name: "RS2 ① の文字起こし: ed_jobs を認識(pipeline/transcribe)と文書(human/proof)に分割・認識と後処理の段を分ける・エンジンの登録の口・疑似モードを eval/fake から(いちばん重い = 別のセッションで慎重に)", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: [], ai: "1〜2 日", user: "校正の画面が壊れていないか 10 分", state: "next" },
     { id: "RS3", name: "RS3 ② と ③: home の友人・案件・片付け・調子・ライブを行き先へ・スタジオの検索と手動マークを human へ・編集の校正の補助と学習を human/proof へ・上書きの置き場", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: ["RS2"], ai: "1 日", user: "—", state: "todo" },
     { id: "RS4", name: "RS4 ④: ドリル・評価用フォルダ・A/B・精度の自動測定を eval/drill・dev/eval_* を eval/tools・① の記録と ② の記録を分ける", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: ["RS2", "RS3"], ai: "半日", user: "—", state: "todo" },
     { id: "RS5", name: "RS5 app を薄く(配線だけ)・旧い URL の転送・版 1 つ・設定 1 ファイル・向きの違反 0・転送の別名を消す・文書を新しい形に・消す物(友人の「確認してから届ける」・4 ツールの版・あとから解析・疑似の if)", line: "運用", who: "AI", phase: "5", pre: ["RS2", "RS3", "RS4"], rec: [], ai: "半日〜1 日", user: "start.bat で起動して本物の 1 本 20 分", state: "todo" },

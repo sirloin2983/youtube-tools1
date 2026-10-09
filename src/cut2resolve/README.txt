@@ -24,7 +24,8 @@ cut2resolve v0.23.0(「編集」の部品・コマンド)
     書き出し(Text+ パック・粗編集の動画)   3 パック のタブ(置き先の fps・大きさ・粗編集の動画・タイムコード・リール名・出力先・上書きの確認・中止)
   たたき台は区間を決める出発点で、そのあとタイムラインで手で直せます。文字起こしをしていない動画も「文字起こしせずに開く」で開けます。
   補助の FCPXML(Resolve では未確認)は画面から外しました。要るときはコマンド(--fcpxml)で作れます。
-  このフォルダは、パックを作る部品(pack.py。パックを作るのはここだけ)・API(serve.py。「編集」とまとめて実行が使う)・コマンドとして残ります。
+  パックを作る部品とコマンド(pack.py・cut2resolve.py・auto_cut.py・srt2resolve.py。パックを作るのは pack.py だけ)は src/pipeline/pack/ に移しました(2026-10-09。中身は同じ)。
+  このフォルダには API(serve.py。「編集」とまとめて実行が使う)と cut2resolve.bat(と .bat 用の転送 cut2resolve.py)が残ります。
 
 
 ■ API(serve.py。入口の中の /cut2resolve/api/...)
@@ -67,7 +68,8 @@ cut2resolve v0.23.0(「編集」の部品・コマンド)
   Text+ 用パックを選んだ場合は、出力内の「Text+の使い方.txt」に沿って登録し、fps・解像度が合うテストプロジェクトで実行してください。
 
 
-■ 単独のコマンド(手で使う道具。ytt_core を読まないので、このフォルダだけでも動く)
+■ 単独のコマンド(手で使う道具。src/pipeline/pack/ にある。python src/pipeline/pack/cut2resolve.py … のようにパスで動かす。
+  このフォルダの cut2resolve.py と cut2resolve.bat は転送で同じ物を動かす。auto_cut.py・srt2resolve.py は src/pipeline/pack/ のパスで)
   - cut2resolve.py(パックを作る。中身は API と同じ pack.py): python cut2resolve.py 動画.mp4 カットリスト.txt [字幕.srt]
     (出力は <動画名>_pack/。以前のシンプル版 cut2resolve_simple.bat は 2026-09-26 に廃止)。cut2resolve.bat に動画・字幕などをドロップ(フル版。無音カット+粗編集つき)
   - auto_cut.py(採用区間 JSON = youtube-tools-cut-plan/v1 から、前後の余白つきの EDL・FCPXML・SRT・cut-plan.json・友人へ.txt): python auto_cut.py 動画.mp4 採用区間.json [字幕.srt]

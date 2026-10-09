@@ -416,10 +416,10 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   前回のパックの「フォルダを開く」は cut2resolve の `api/open-folder`(パックを作った記録か、以前の cut2resolve の cut-plan.json があるフォルダなら、入口を起動し直したあとでも開ける。
   `txindex.is_pack_dir`)。パックは最小限(④): 「予備も入れる」(`output.backup`)で EDL・予備の手順書・SRT。Text+ の .json は出さない(区間・字幕は Lua に埋め込み。テストは `resolve_textplus.read_script_plan` で読む)。
   zip(`/api/resolve-package`)と「残す区間(.cut-plan.json)を保存」も、カットがあればそのとおり
-- `resolve_export.py` … 「Resolveパッケージ(zip)」(`/api/resolve-package`)。中身は隣の `../cut2resolve/pack.py` で作る
+- `resolve_export.py` … 「Resolveパッケージ(zip)」(`/api/resolve-package`)。中身は `../pipeline/pack/pack.py` で作る(2026-10-09 の RS1-2 で cut2resolve から移した)
   (文書 → transcript/v1 → `pack.plan_cut(**pack.TRANSCRIPT_ROWS)` → `pack.build_pack(textplus=True)` → zip)。**Resolve 用の計算をここに書き足さない**
-  (二重実装に戻さない。`../../docs/design/resolve-pack-unification.md`)。cut2resolve の部品は呼ばれたときに読み込み、見つける場所は
-  環境変数 `YTT_CUT2RESOLVE_DIR` → `../cut2resolve`。ここに残っているのは「残す行」の規則(`is_kept`・`kept_spans`)と SRT の書式(pipeline_io が使う)
+  (二重実装に戻さない。`../../docs/design/resolve-pack-unification.md`)。パックの部品は呼ばれたときに `from pipeline.pack import pack, resolve_textplus` で読み込む
+  (src は serve の _load_core が足す。単独で読んだときは YTT_CORE_DIR → 1 つ上。`YTT_CUT2RESOLVE_DIR` は編集ではもう使わない)。ここに残っているのは「残す行」の規則(`is_kept`・`kept_spans`)と SRT の書式(pipeline_io が使う)
 - 「編集」(文字起こし + cut2resolve の統合。`../../docs/design/edit-tool-design.md`。2026-09-26 に E1〜E6 を実装)のサーバー側(serve.py の「編集の内容」「音の波形」の節):
   編集の内容 `transcripts/<id>.edit.json`(残す区間 = カットの正。`GET/PUT /api/edit`・rev と 409)、`POST /api/edit/pack`(パックを作った記録・`packStale`)、
   `POST /api/open-video`(文字起こしせずに開く)、`GET /api/peaks`(音の波形。作っている間は 202)、`POST /api/transcribe` の `intoDoc`。
@@ -485,7 +485,7 @@ python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に�
 - Playwright 同梱の chromium は H.264 を再生できない。画面で動画の再生まで確かめるテストでは、テスト用の動画を webm(VP9 + Opus)で作る
 - e2e は一時フォルダに `serve.py`・`index.html`・`app.js`・**`cut.js`・`pack-tab.js`**・`ui-kit.js`・`hololive-roster.json`・**`pipeline_io.py`・`resolve_export.py`** を写して動かす
   (`pipeline_io.py`・`resolve_export.py` を写さないと、受け渡しの API・Resolve 書き出しが 500 になる。`app.js`・`ui-kit.js` を写さないと画面が真っ白になる)。
-  共通部品 `../ytt_core/` は写さず、環境変数 `YTT_CORE_DIR`(ツールの親のフォルダ = `src/`。`ytt_core/layout.py` の src_root)で見つける(Resolve パッケージを作るテストでは cut2resolve も `YTT_CUT2RESOLVE_DIR` で)
+  共通部品 `../ytt/`(旧 ytt_core)と役割の層(パックの部品 `../pipeline/pack/` も)は写さず、環境変数 `YTT_CORE_DIR`(ツールの親のフォルダ = `src/`。`ytt/layout.py` の src_root)で見つける
   (各スクリプトの先頭で設定している。新しいテストで serve.py を写すときも同じ1行を入れる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く
   (他のテストが同時に動いていても、「他のツール」の問い合わせ(/api/siblings)が混ざらないように)
 - `e2e_ui_handoff.py` … 受け渡し(?media= / ?clip=・元の配信・動画の隣に保存・409)、テーマの保存の1本化、
