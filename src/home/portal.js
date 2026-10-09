@@ -570,19 +570,24 @@
     else failToast('届けられませんでした', 'もう一度「採用」を押してください', { reason: (j && j.message) || '' });
     afterAutoAction(kase.id);
   }
+  /* btn は無くてもよい(続けて確認から = 押したボタンはもう次の切り抜きのもの)。片付けられたかを返す */
   function autoDiscard(kase, cl, btn) {
-    btn.disabled = true;
-    api('api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
+    if (btn) btn.disabled = true;
+    return api('api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
       UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(3 日で消えます)', { kind: 'ok', detail: r.trash || '' });
       var h = hideApi(); if (h) h.load(true);   // その文字起こしを非表示にしたので、覚えている非表示を読み直す
       afterAutoAction(kase.id);
+      return true;
     }, function (e) {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
       failToast('片付けられませんでした', 'ファイルを開いているアプリを閉じてから、もう一度「要らない」を押してください', e);
+      return false;
     });
   }
-  /* 採用・要らないのあと: 一覧を読み直して、同じ配信の次の自動の切り抜き → 配信の行 → 絞り込みのボタン の順にフォーカスを移す(押したボタンが消えるため) */
+  /* 採用・要らないのあと: 一覧を読み直して、同じ配信の次の自動の切り抜き → 配信の行 → 絞り込みのボタン の順にフォーカスを移す(押したボタンが消えるため)。
+     続けて確認の引き出しが開いていれば、フォーカスは引き出しの中のまま(裏の一覧は inert)で、引き出しの並びの状態だけ描き直す */
   function afterAutoAction(caseId) {
+    if (rvOpen()) return refreshCases().then(rvPaint);
     return refreshCases().then(function () {
       var node = document.getElementById('case-' + caseId), filter = $('#autoFilter');
       var t = (node && node.open && node.querySelector('.pt-ac button:not([disabled])')) || (node && $('.pt-case-row', node)) || (!filter.hidden && filter) || $('#fText');
@@ -604,6 +609,212 @@
     p.className = 'pill pt-case-autopill ' + (a.unconfirmed ? 'accent' : 'wait');
     p.textContent = a.unconfirmed ? '自動 未確認 ' + a.unconfirmed + '本' : '自動 ' + a.total + '本';
     p.title = '自動でできた切り抜き ' + a.total + '本(未確認 ' + a.unconfirmed + '本)。行を開くと、採用(友人へ届ける)・要らない を選べます';
+  }
+
+  /* ---- 続けて確認(A5。10-08 ユーザー決定 = 重いのは採用・要らないを決めること)----
+     まだ届けていない自動の切り抜きを、引き出しで続けて再生しながら [採用(友人へ届ける)][要らない][あとで] を決める(編集を開かずに)。
+     並び = 案件の一覧の順(新しい配信から)・配信の中は時刻の順。非表示の配信は入れない。始めは最初の未見から。
+     再生は編集の /transcribe/media(文書の元の動画 = 切り抜き。Range つき)・字幕は文書の行(校正前のたたき台)を動画の下に 1 行。
+     決める操作は一覧の行と同じ(autoDeliver・autoDiscard = 同じ API・二度押し)。届けるのは裏で続け、すぐ次へ進む。
+     要らないの前に動画を外す(再生中の読み出しがファイルを開いたままだと、Windows ではごみ箱へ移せない) */
+  var rv = { q: [], i: 0, done: {}, segs: {}, tid: '', seen: {} };
+  var RV_RELEASE_MS = 400;   // 動画を外してから片付けを頼むまで(読み出しのスレッドが切断に気づいてファイルを閉じる間)
+  var RV_DONE = { discard: '要らない', discarding: '片付け中' };   // 要らないにした切り抜き(この引き出しの間だけ覚える。届けたかは一覧の deliveredAt と deliverJobs で分かる)
+  function rvEl() { return $('#rvDrawer'); }
+  function rvOpen() { return UIKit.drawer.isOpen(rvEl()); }
+  function rvVideo() { return $('#rvVideo'); }
+  function rvItems() {   // [{id, markId, k}] まだ届けていない自動の切り抜き
+    var out = [];
+    ((casesData && casesData.cases) || []).forEach(function (c) {
+      if (isHid('cases', c.id)) return;
+      (c.clips || []).filter(function (cl) { return cl.auto && !(cl.review || {}).deliveredAt; })
+        .sort(function (a, b) { return (a.start || 0) - (b.start || 0); })
+        .forEach(function (cl) { out.push({ id: c.id, markId: cl.markId, k: autoKey(c, cl), unseen: !!(cl.review || {}).unconfirmed }); });
+    });
+    return out;
+  }
+  function rvFind(it) {   // 今の案件の一覧から引き直す(届けた・片付けたあとで一覧が作り直されるため)
+    var c = it && caseById(it.id), list = (c && c.clips) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].auto && list[i].markId === it.markId) return { kase: c, cl: list[i] };
+    return null;
+  }
+  function rvState(it) {   // 並びの札。「見た」「未見」= まだ決めていない(届けるのに失敗したらここへ戻る)
+    var f = rvFind(it), rvw = f ? f.cl.review || {} : {};
+    if (deliverJobs[it.k]) return '届けている途中';
+    if (rvw.deliveredAt) return '届けた';
+    if (rv.done[it.k]) return RV_DONE[rv.done[it.k]];
+    if (!f) return '一覧から消えました';
+    return rvw.seenAt ? '見た' : '未見';
+  }
+  function rvUndecided(it) { var s = rvState(it); return s === '見た' || s === '未見'; }
+  function paintAutoReview() {
+    var b = $('#autoReview'), n = rvItems().length;
+    b.hidden = !n;
+    b.textContent = '続けて確認 ' + n + ' 本';
+    b.title = 'まだ届けていない自動の切り抜きを、続けて再生しながら 採用(友人へ届ける)・要らない・あとで を決めます(編集を開かずに)';
+  }
+  function openReview() {
+    rv.q = rvItems(); rv.done = {};
+    if (!rv.q.length) return;
+    var first = 0;
+    for (var i = 0; i < rv.q.length; i++) if (rv.q[i].unseen) { first = i; break; }
+    UIKit.drawer.open(rvEl(), { opener: $('#autoReview'), focus: false });
+    rvShow(first, true);
+  }
+  /* 動画を外す(読み出しを止める)。閉じたとき・要らないの前 */
+  function rvRelease() {
+    var v = rvVideo();
+    try { v.pause(); } catch (e) { /* 無視 */ }
+    v.removeAttribute('src'); v.load();
+    rv.tid = '';
+  }
+  function rvShow(i, play) {
+    rv.i = Math.max(0, Math.min(i, rv.q.length - 1));
+    var it = rv.q[rv.i], f = rvFind(it);
+    $('#rvCur').hidden = false; $('#rvEmpty').hidden = true;
+    $('#rvCount').textContent = (rv.i + 1) + ' / ' + rv.q.length + ' 本';
+    $('#rvCase').textContent = f ? (f.kase.title || f.kase.id) : '';
+    $('#rvRange').textContent = f ? tc(f.cl.start) + '–' + tc(f.cl.end) + (f.cl.label ? ' ・ ' + f.cl.label : '') : '';
+    rvPills(f);
+    rvMedia(f, play);
+    rvPaint();
+    var v = rvVideo(); if (v.getAttribute('src')) v.focus({ preventScroll: true }); else $('#rvSkip').focus({ preventScroll: true });
+  }
+  function rvPills(f) {
+    var box = $('#rvPills');
+    box.textContent = '';
+    if (!f) return;
+    autoPills(box, f.cl);   // 一覧の行と同じ札(自動・出どころ・点数・控え・未見 / 見た)
+    var fl = (f.cl.review || {}).failure;
+    if (fl) { var p = el('span', 'pill err', '失敗'); p.title = fl.kindLabel || ''; box.appendChild(p); box.appendChild(el('span', 'hint', fl.text || '')); }
+  }
+  function rvMedia(f, play) {
+    var v = rvVideo(), tid = f && f.cl.transcript ? f.cl.transcript.id : '', note = $('#rvNote');
+    note.textContent = '';
+    $('#rvCap').hidden = true; $('#rvCap').textContent = '';
+    if (!tid) {
+      rvRelease();
+      note.textContent = f ? 'まだ文字起こしができていないので、ここでは再生できません(文字起こしが済むと再生できます)' : 'この切り抜きは一覧から消えました(ほかの画面で片付けたか、書き出し直しました)';
+      return;
+    }
+    if (rv.tid !== tid) {
+      rv.tid = tid;
+      v.src = '/transcribe/media?id=' + encodeURIComponent(tid);
+      v.volume = Math.max(0, Math.min(1, +lsGet('rvVol', '0.8') || 0.8));
+      rvLoadCaps(tid);
+    }
+    if (play) { var p = v.play(); if (p && p.catch) p.catch(function () { /* 押すまで再生しない設定のブラウザ */ }); }
+  }
+  function rvLoadCaps(tid) {
+    if (rv.segs[tid]) return;
+    api('transcribe/api/transcript?id=' + encodeURIComponent(tid)).then(function (d) {
+      rv.segs[tid] = (d.segments || []).filter(function (s) { return s && s.text; }).map(function (s) { return [+s.start || 0, +s.end || 0, String(s.text)]; });
+      rvCaption();
+    }, function () { rv.segs[tid] = []; });   // 字幕が読めなくても再生と判断はできる
+  }
+  function rvCaption() {
+    var segs = rv.segs[rv.tid] || [], t = rvVideo().currentTime || 0, txt = '', cap = $('#rvCap');
+    for (var i = 0; i < segs.length; i++) if (segs[i][0] <= t && t < segs[i][1]) { txt = segs[i][2]; break; }
+    cap.hidden = !segs.length;
+    if (cap.textContent !== txt) cap.textContent = txt;
+  }
+  /* ボタンの押せる・押せない・理由と、並びの一覧を今の状態で描き直す(届けた・片付けたあとの一覧の読み直しからも呼ぶ) */
+  function rvPaint() {
+    if (!rvOpen() || !rv.q.length) return;
+    var it = rv.q[rv.i], f = rvFind(it), und = rvUndecided(it), why = f ? deliverWhy(f.cl) : '';
+    var ok = $('#rvDeliver'), no = $('#rvDiscard'), open = $('#rvOpen'), tid = f && f.cl.transcript ? f.cl.transcript.id : '';
+    ok.disabled = !und || !!why; no.disabled = !und;
+    $('#rvWhy').textContent = !und ? 'この切り抜きは「' + rvState(it) + '」です。N で次へ進めます' : why;
+    open.hidden = !f || (!tid && !(f.cl.exists && f.cl.path));
+    if (!open.hidden) open.href = tid ? docHref(tid, f.cl.exists ? f.cl.path : '', 'tx') : '/transcribe/?media=' + encodeURIComponent(f.cl.path) + '#tx';
+    rvPaintList();
+  }
+  function rvPaintList() {
+    var ol = $('#rvList');
+    ol.textContent = '';
+    rv.q.forEach(function (it, i) {
+      var f = rvFind(it), li = el('li'), b = el('button', 'btn small');
+      b.type = 'button';
+      b.setAttribute('data-rv', String(i));
+      if (i === rv.i) b.setAttribute('aria-current', 'true');
+      b.appendChild(el('span', 'pt-rv-n', (i + 1) + '.'));
+      b.appendChild(el('span', 'pt-rv-t', f ? (f.kase.title || f.kase.id) + ' ' + tc(f.cl.start) + '–' + tc(f.cl.end) : it.id));
+      b.appendChild(el('span', 'hint pt-rv-st', rvState(it)));
+      li.appendChild(b); ol.appendChild(li);
+    });
+  }
+  /* 次のまだ決めていない切り抜きへ(後ろ → 前の順に探す)。無ければ「残っていません」 */
+  function rvNext(dir) {
+    var n = rv.q.length;
+    if (dir < 0) { if (rv.i > 0) rvShow(rv.i - 1, true); return; }
+    for (var s = 1; s <= n; s++) { var j = (rv.i + s) % n; if (rvUndecided(rv.q[j])) { rvShow(j, true); return; } }
+    rvFinish();
+  }
+  function rvFinish() {
+    rvRelease();
+    $('#rvCur').hidden = true; $('#rvEmpty').hidden = false;
+    $('#rvCount').textContent = '';
+    rvPaintList();
+    $('#rvDone').focus({ preventScroll: true });
+  }
+  function rvDeliver() {
+    var it = rv.q[rv.i], f = rvFind(it);
+    if (!f || !rvUndecided(it)) return;
+    autoDeliver(f.kase, f.cl);   // 進み具合と結果は知らせと並びの札に出る(裏で続く。deliverJobs が「届けている途中」)
+    rvNext(1);
+  }
+  function rvDiscard() {
+    var it = rv.q[rv.i], f = rvFind(it);
+    if (!f || !rvUndecided(it)) return;
+    rv.done[it.k] = 'discarding';
+    rvRelease();   // 先に動画を外してから(ファイルを開いたままだと移せない)
+    rvNext(1);
+    setTimeout(function () {
+      autoDiscard(f.kase, f.cl, null).then(function (ok) {
+        if (ok) rv.done[it.k] = 'discard'; else delete rv.done[it.k];   // 失敗したら、まだ決めていないに戻す(並びから戻って押し直せる)
+        rvPaint();
+      });
+    }, RV_RELEASE_MS);
+  }
+  /* 引き出しの中のキー: A 採用・X 要らない(ボタンと同じ二度押し)・N 次へ・Shift+N 前へ。ほかは共通の再生キー(Space・← → など) */
+  var rvPlayKeys = UIKit.keys.playback({ media: rvVideo, enabled: rvOpen });
+  function rvKey(e) {
+    if (!rvOpen() || document.querySelector('dialog[open]') || e.isComposing || e.keyCode === 229) return;
+    if (UIKit.keys.isTyping(e.target) || e.ctrlKey || e.altKey || e.metaKey) return;
+    var combo = UIKit.keys.comboOf(e), act = { a: '#rvDeliver', x: '#rvDiscard' }[combo];
+    if (act) { e.preventDefault(); if (!e.repeat && !$(act).disabled && !$('#rvCur').hidden) $(act).click(); return; }
+    if (combo === 'n' || combo === 'Shift+n') { e.preventDefault(); if (!e.repeat && !$('#rvCur').hidden) rvNext(combo === 'n' ? 1 : -1); return; }
+    rvPlayKeys(e);
+  }
+  function wireReview() {
+    $('#autoReview').addEventListener('click', openReview);
+    $('#rvClose').addEventListener('click', function () { UIKit.drawer.close(rvEl()); });
+    $('#rvDone').addEventListener('click', function () { UIKit.drawer.close(rvEl()); });
+    $('#rvDeliver').addEventListener('click', function () { UIKit.confirmTwice($('#rvDeliver'), rvDeliver, 'もう一度押すと届けます(A)'); });
+    $('#rvDiscard').addEventListener('click', function () { UIKit.confirmTwice($('#rvDiscard'), rvDiscard, 'もう一度押すとごみ箱へ(X)'); });
+    $('#rvSkip').addEventListener('click', function () { rvNext(1); });
+    $('#rvOpen').addEventListener('click', function () { var f = rvFind(rv.q[rv.i]); if (f) markSeen(f.kase, f.cl); });
+    $('#rvList').addEventListener('click', function (e) { var b = e.target.closest('[data-rv]'); if (b) rvShow(+b.getAttribute('data-rv'), true); });
+    var v = rvVideo();
+    v.addEventListener('timeupdate', rvCaption);
+    v.addEventListener('seeked', rvCaption);
+    v.addEventListener('volumechange', function () { lsSet('rvVol', String(v.volume)); });
+    v.addEventListener('playing', function () {   // 再生したら「見た」(一覧の行の「編集で開く」と同じ)
+      var it = rv.q[rv.i], f = it && rvFind(it);
+      if (f && !rv.seen[it.k]) { rv.seen[it.k] = 1; markSeen(f.kase, f.cl); }
+    });
+    v.addEventListener('error', function () {
+      if (v.getAttribute('src')) $('#rvNote').textContent = '動画を読めませんでした(切り抜きのファイルを移した・消した可能性があります)。N で次へ進めます';
+    });
+    document.addEventListener('keydown', rvKey);
+    document.addEventListener('ui-drawer', function (e) {   // 閉じたら動画を外して、裏の一覧を読み直す
+      if (!e.detail || e.detail.el !== rvEl() || e.detail.open) return;
+      rvRelease();
+      refreshCases().then(function () {   // 全部決めて「続けて確認」が消えたら、フォーカスは絞り込みの欄へ(開いたボタンへ戻せないため)
+        var a = document.activeElement;
+        if (!a || a === document.body || a.hidden) $('#fText').focus({ preventScroll: true });
+      });
+    });
   }
 
   function active(r) { return r && (r.state === 'queued' || r.state === 'running'); }
@@ -996,6 +1207,7 @@
     paintCount('#count', '#moreBox', '#btnMore', narrowed, totalCount, casesData.cases.length, shown.length);
     hideToggle('#casesHidden', 'cases', casesData.cases.filter(function (c) { return visible(c, true) && isHid('cases', c.id) && !active(runsByVideo[c.id]); }).length);
     paintAutoFilter();
+    paintAutoReview();
     restoreFocus(focusInfo);
     updateSummaryLine();
   }
@@ -2167,6 +2379,7 @@
     wireIntake();
     wireBackup();
     wireLive();
+    wireReview();
     UIKit.hide.onChange(function (list) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
       if (!list || list === 'cases') render();
       if (!list || list === 'transcripts') renderDocs();

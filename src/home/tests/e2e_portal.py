@@ -25,6 +25,7 @@ import urllib.parse
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -957,12 +958,16 @@ YTT_PREFS = """async (value) => {
 }"""
 
 
-def _live_clip(out_dir, name, origin, **live):
-    """ライブの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない)"""
+def _live_clip(out_dir, name, origin, video=None, **live):
+    """ライブの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない。
+    video = 写す本物の動画(続けて確認で再生するとき))"""
     media = os.path.join(out_dir, "e2e ライブ", name)
     os.makedirs(os.path.dirname(media), exist_ok=True)
-    with open(media, "wb") as f:
-        f.write(b"x")
+    if video:
+        shutil.copyfile(video, media)
+    else:
+        with open(media, "wb") as f:
+            f.write(b"x")
     clip = schemas.build_clip(media, 30.0, {"kind": "youtube", "videoId": "", "title": "e2e ライブ"}, (10.0, 40.0),
                               {"id": "lm-x", "label": "", "status": "exported", "src": "manual" if origin == "manual" else "auto"},
                               {"mode": "precise", "fps": "30/1"}, {"name": "ytt-live", "version": "0.1.0"})
@@ -1032,6 +1037,7 @@ def _mounted_auto_clips(cx):
           "[A] M9: 開いたら「見た」になり、未確認が 1 件に: %s" % pg.text_content("#autoFilter"))
     _auto_deliver(cx, row)
     _auto_discard(cx, row, clips)
+    _auto_review(cx)
     pg.evaluate("document.getElementById('advancedBox').open = true")   # あとの「すべて終了」のため(読み込み直すと閉じる)
 
 
@@ -1083,6 +1089,89 @@ def _auto_discard(cx, row, clips):
     check(wait_js(pg, "document.getElementById('autoFilter').getAttribute('aria-pressed') === 'false' && !!document.getElementById('case-%s')"
                       " && document.querySelector('#case-%s .pt-case-autopill').textContent === '自動 1本'" % (AUTO_REC_A, AUTO_REC_A), 10000),
           "[A] M9: 「全部の配信に戻す」で戻る(届けた 1 本は 自動 1本)")
+
+
+AUTO_REC_C = "20261007-120000"   # 続けて確認(A5)の見本の録画
+REVIEW_CAP = "続けて確認の字幕"
+
+
+def seed_review_clips(cx):
+    """続けて確認(A5)の見本: 録画 C に本物の webm の自動の切り抜き 2 本(1 本目はパックと字幕の文書つき・2 本目は文書だけ)。-> [動画 2 本]"""
+    check, pg = cx.check, cx.pg
+    src = os.path.join(cx.tmp, "review-src.mp4")   # スタジオは .mp4 だけ受け付ける。chromium は H.264 を再生できないので VP9 + Opus の mp4
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=6",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=6", "-shortest", "-pix_fmt", "yuv420p", "-c:v", "libvpx-vp9",
+                    "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k", "-c:a", "libopus", src], check=True, timeout=120)
+    out_dir = pg.evaluate("fetch('/studio/api/state', {cache: 'no-store'}).then(r => r.json()).then(j => j.outDir)")
+    vids = [_live_clip(out_dir, "1%d_続け.mp4" % i, "auto", video=src, recording=AUTO_REC_C) for i in (1, 2)]
+    pack = os.path.join(os.path.dirname(vids[0]), "11_続け_pack")
+    os.makedirs(pack, exist_ok=True)
+    with open(os.path.join(pack, "cut-plan.json"), "w", encoding="utf-8") as f:
+        json.dump({"schema": schemas.CUT_PLAN_SCHEMA, "tool": {"name": "cut2resolve"}}, f)
+    tx = os.path.join(cx.tmp, layout.TOOL_DIRS["transcribe"], "transcripts")
+    os.makedirs(tx, exist_ok=True)
+    for i, v in enumerate(vids):
+        tid = "beefcafe%04d" % (i + 1)
+        segs = [{"id": "s1", "start": 0.0, "end": 5.5, "text": REVIEW_CAP}] if i == 0 else []
+        with open(os.path.join(tx, tid + ".json"), "w", encoding="utf-8") as f:
+            json.dump({"id": tid, "title": "続け %d" % (i + 1), "sourcePath": v, "updatedAt": 1, "segments": segs}, f, ensure_ascii=False)
+    st, _v = pg.evaluate(STUDIO_CALL, ["POST", "/api/videos/open", {"kind": "live", "recorder": "local", "recording": AUTO_REC_C,
+                                                                     "url": "https://www.youtube.com/watch?v=e2eLiveCCCC", "title": "e2e 続けて確認"}])
+    _st2, v = pg.evaluate(STUDIO_CALL, ["GET", "/api/video?id=" + AUTO_REC_C, None])
+    marks = [{"start": 10.0 + 60 * i, "end": 16.0 + 60 * i, "label": "", "status": "adopted"} for i in range(2)]
+    _st3, v = pg.evaluate(STUDIO_CALL, ["PUT", "/api/video", {"id": AUTO_REC_C, "marks": marks, "baseRev": v["video"]["rev"]}])
+    got = sorted(v.get("video", {}).get("marks") or [], key=lambda m: m["start"])
+    ok = [pg.evaluate(STUDIO_CALL, ["POST", "/api/live/exported", {"id": AUTO_REC_C, "markId": m["id"], "path": p}])[0] for m, p in zip(got, vids)]
+    check(st == 200 and ok == [200, 200], "[A] A5: 見本の録画 C を登録して書き出し済みに: %s %s" % (st, ok))
+    return vids
+
+
+def _auto_review(cx):
+    """[A] 2k. 続けて確認(A5。ホーム 0.51.0): 一覧の上のボタン → 引き出しで再生・字幕 → A を 2 回で届ける → 次へ進む → X を 2 回で要らない
+    (再生していた動画を外してからごみ箱へ = Windows でもファイルを移せる)→ 残っていない表示 → Esc で閉じてフォーカスは一覧の欄へ"""
+    check, pg = cx.check, cx.pg
+    vids = seed_review_clips(cx)
+    pg.reload()
+    check(wait_js(pg, "!document.getElementById('autoReview').hidden && document.getElementById('autoReview').textContent === '続けて確認 2 本'", 15000),
+          "[A] A5: まだ届けていない自動の切り抜きの数(届けた・要らないは数えない): %s" % pg.text_content("#autoReview"))
+    pg.click("#autoReview")
+    check(wait_js(pg, "!document.getElementById('rvDrawer').hidden && document.getElementById('rvCount').textContent === '1 / 2 本'"
+                      " && document.getElementById('rvVideo').getAttribute('src').indexOf('/transcribe/media?id=beefcafe0001') === 0", 10000),
+          "[A] A5: 引き出しが開き、1 本目の動画(編集の /transcribe/media): %s" % pg.evaluate("document.getElementById('rvVideo').getAttribute('src')"))
+    check(wait_js(pg, "(() => { const v = document.getElementById('rvVideo'); return !v.paused && v.currentTime > 0.3; })()", 15000),
+          "[A] A5: 開いたらすぐ再生: %s" % pg.evaluate("(() => { const v = document.getElementById('rvVideo'); return [v.paused, v.currentTime, v.readyState, v.error && v.error.code]; })()"))
+    check(wait_js(pg, "document.getElementById('rvCap').textContent === '%s'" % REVIEW_CAP, 10000), "[A] A5: 文書の行を字幕に出す: %s" % pg.text_content("#rvCap"))
+    check(pg.evaluate("document.getElementById('rvDrawer').contains(document.activeElement)"), "[A] A5: フォーカスは引き出しの中")
+    if cx.shots:
+        pg.screenshot(path=os.path.join(cx.shots, "portal-auto-review.png"))
+    pg.keyboard.press("a")
+    check(pg.text_content("#rvDeliver") == "もう一度押すと届けます(A)", "[A] A5: A の 1 回目は確認だけ: %s" % pg.text_content("#rvDeliver"))
+    pg.keyboard.press("a")
+    check(wait_js(pg, "document.getElementById('rvCount').textContent === '2 / 2 本'"
+                      " && document.getElementById('rvVideo').getAttribute('src').indexOf('beefcafe0002') >= 0", 10000),
+          "[A] A5: 届けると、すぐ次の切り抜きへ: %s" % pg.text_content("#rvCount"))
+    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('友人へ届けました') >= 0)", 20000), "[A] A5: 裏で届けて知らせる")
+    check(wait_js(pg, "(() => { const v = document.getElementById('rvVideo'); return !v.paused && v.currentTime > 0.3; })()", 15000), "[A] A5: 次の切り抜きも続けて再生")
+    pg.keyboard.press("x")
+    pg.keyboard.press("x")
+    check(wait_js(pg, "!document.getElementById('rvEmpty').hidden && document.getElementById('rvCur').hidden && document.activeElement === document.getElementById('rvDone')", 10000),
+          "[A] A5: 全部決めると「残っていません」(フォーカスは閉じるボタン)")
+    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('ごみ箱フォルダへ移して') >= 0)", 15000),
+          "[A] A5: 要らない を片付けたと知らせる")
+    check(not os.path.exists(vids[1]) and os.path.isfile(vids[0]),
+          "[A] A5: 再生していた動画を外してからごみ箱へ移せた(Windows でも)・届けた動画は残る: %s" % [os.path.exists(v) for v in vids])
+    states = pg.eval_on_selector_all("#rvList .pt-rv-st", "els => els.map(e => e.textContent)")
+    check(wait_js(pg, "[...document.querySelectorAll('#rvList .pt-rv-st')].map(e => e.textContent).join() === '届けた,要らない'", 10000),
+          "[A] A5: 並びの札(届けた・要らない): %s" % states)
+    out = os.path.join(cx.tmp, "Dropbox", "出力")
+    check(any(z.endswith("__11_続け.zip") for z in os.listdir(out)), "[A] A5: 1 本目の zip を届けた: %s" % os.listdir(out))
+    _st, v = pg.evaluate(STUDIO_CALL, ["GET", "/api/video?id=" + AUTO_REC_C, None])
+    check(sorted(m["status"] for m in v["video"]["marks"]) == ["exported", "rejected"], "[A] A5: 2 本目のマークは不採用: %s" % [m["status"] for m in v["video"]["marks"]])
+    pg.keyboard.press("Escape")
+    check(wait_js(pg, "document.getElementById('rvDrawer').hidden && document.getElementById('autoReview').hidden && document.activeElement === document.getElementById('fText')"
+                      " && !document.getElementById('rvVideo').getAttribute('src')", 10000),
+          "[A] A5: Esc で閉じる・続けて確認のボタンは消え、フォーカスは一覧の欄へ・動画は外す: %s"
+          % pg.evaluate("document.activeElement && (document.activeElement.id || document.activeElement.tagName)"))
 
 
 def _live_feedback(cx):

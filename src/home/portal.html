@@ -61,6 +61,8 @@
       </select>
       <!-- 自動でできた切り抜き: 未確認(見ても届けてもいない)がある配信だけに絞る。自動の切り抜きが無ければ出さない(portal.js の paintAutoFilter) -->
       <button type="button" class="btn small" id="autoFilter" aria-pressed="false" hidden></button>
+      <!-- 続けて確認(A5): まだ届けていない自動の切り抜きを、引き出しで続けて再生しながら決める。無ければ出さない(portal.js の paintAutoReview) -->
+      <button type="button" class="btn small primary" id="autoReview" aria-haspopup="dialog" aria-controls="rvDrawer" hidden></button>
       <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
       <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
       <span class="ui-count" id="count"></span>
@@ -234,6 +236,36 @@
 </section>
 
 <div class="toast" id="toast" role="status" hidden></div>
+
+<!-- 続けて確認(A5): 自動でできた切り抜きを続けて再生しながら 採用(友人へ届ける)・要らない・あとで を決める。中身は portal.js の「続けて確認」 -->
+<aside class="ui-drawer pt-rv" id="rvDrawer" hidden aria-labelledby="rvTitle">
+  <div class="ui-drawer-head"><h2 class="ui-drawer-title" id="rvTitle">自動の切り抜きを続けて確認</h2>
+    <span class="ui-count" id="rvCount"></span>
+    <button type="button" class="btn ghost icon small" id="rvClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button></div>
+  <div class="ui-drawer-body">
+    <div class="pt-rv-cur" id="rvCur">
+      <p class="pt-rv-where"><b id="rvCase"></b> <span class="hint mono" id="rvRange"></span></p>
+      <div class="row pt-rv-pills" id="rvPills"></div>
+      <div class="pt-rv-stage">
+        <video id="rvVideo" controls playsinline preload="auto" aria-label="自動でできた切り抜きの動画"></video>
+        <p class="pt-rv-cap" id="rvCap" hidden></p>
+      </div>
+      <p class="hint pt-rv-note" id="rvNote" role="status"></p>
+      <div class="row pt-rv-acts">
+        <button type="button" class="btn primary" id="rvDeliver"><span class="ui-icon" data-icon="check" aria-hidden="true"></span>採用(友人へ届ける)<kbd class="ui-kbd">A</kbd></button>
+        <button type="button" class="btn danger" id="rvDiscard"><span class="ui-icon" data-icon="trash" aria-hidden="true"></span>要らない<kbd class="ui-kbd">X</kbd></button>
+        <button type="button" class="btn" id="rvSkip">あとで(次へ)<kbd class="ui-kbd">N</kbd></button>
+        <a class="btn ghost small" id="rvOpen" href="#">編集で開く</a>
+      </div>
+      <p class="hint" id="rvWhy"></p>
+      <p class="hint">キー: Space 再生・停止 ・ ← → 1 秒(Shift で 5 秒)・ A 採用 ・ X 要らない(どちらも 2 回押して決める)・ N 次へ ・ Shift+N 前へ ・ Esc 閉じる。字幕は校正前のたたき台です。</p>
+    </div>
+    <div class="empty pt-empty" id="rvEmpty" hidden><b>確認する切り抜きは残っていません</b>まだ届けていない自動の切り抜きは、全部 決めました。新しい自動の切り抜きができると、一覧の上の「続けて確認」に数が出ます。
+      <div class="row pt-empty-acts"><button type="button" class="btn small" id="rvDone">閉じる</button></div></div>
+    <h3 class="pt-rv-h">この順に見ます</h3>
+    <ol class="pt-rv-list" id="rvList"></ol>
+  </div>
+</aside>
 
 <!-- ⚙ 設定の「ホーム」の節(M10。UIKit.settings.mount の tool に渡して、設定の引き出しの中へ移す)。以前は「詳しく」の中に散らばっていた
      窓で開く・試験中の機能と、まとめて実行の既定。依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは開くボタンだけ -->

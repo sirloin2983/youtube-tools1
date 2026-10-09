@@ -70,6 +70,22 @@
 .pt-ac-acts{margin-top:6px}
 .pt-ac-msg{overflow-wrap:anywhere}
 .pt-case-autopill{white-space:nowrap}
+/* 続けて確認(A5): 動画が見える幅の引き出し。字幕は動画の下に 1 行(校正前のたたき台)。並びの一覧は押すとその切り抜きへ */
+.pt-rv{--drawer-w:min(760px,100%)}
+.pt-rv-where{margin:0 0 6px;overflow-wrap:anywhere}
+.pt-rv-pills{gap:6px 8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.pt-rv-stage{background:var(--stage-bg);color:var(--stage-ink);border-radius:var(--r);overflow:hidden}
+.pt-rv-stage video{display:block;width:100%;max-height:58vh;background:var(--stage-bg)}
+.pt-rv-cap{margin:0;padding:6px 10px;min-height:2.6em;font-size:15px;line-height:1.35;text-align:center;overflow-wrap:anywhere}
+.pt-rv-note{margin:6px 0;overflow-wrap:anywhere}
+.pt-rv-acts{gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 4px}
+.pt-rv-h{margin:18px 0 6px;font-size:14px}
+.pt-rv-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.pt-rv-list button{width:100%;display:flex;gap:8px;align-items:baseline;text-align:left;justify-content:flex-start;white-space:normal}
+.pt-rv-list button[aria-current=true]{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.pt-rv-list .pt-rv-n{font-variant-numeric:tabular-nums;color:var(--ink-2);flex:none}
+.pt-rv-list .pt-rv-t{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.pt-rv-list .pt-rv-st{flex:none}
 .pt-case-memo textarea{width:100%;margin:6px 0}
 /* まとめ方(.ui-group。ui-kit)の中の見出し */
 .pt-group-label{font-weight:inherit}
