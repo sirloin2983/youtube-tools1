@@ -193,6 +193,17 @@ class BackupTest(unittest.TestCase):
         b.tick()
         self.assertEqual(b.state, "off")
 
+    def test_cfg_falls_back_to_given_defaults(self):
+        """設定が読めないときの既定は入口が渡す(backup は prefs を読み込まない。RS3-0B)"""
+        class Broken:
+            def get(self, sections):
+                raise OSError("読めない")
+        d = prefs_mod.DEFAULTS["backup"]
+        b = backup.Backup(Broken(), self.src, os.path.join(self.tmp, "app"), defaults=d)
+        self.assertEqual(b._cfg(), d)
+        self.assertIsNot(b._cfg(), d)    # 呼ぶ側が書き換えても既定は変わらない
+        self.assertEqual(backup.Backup(Broken(), self.src, os.path.join(self.tmp, "app"))._cfg(), {})   # 渡さなければ空 = オフ扱い
+
     def quiet_setup(self, t0):
         """作業データの更新時刻をテストの時計(t0)のずっと前にそろえて、Backup を作る"""
         self.prefs = prefs_mod.Prefs(os.path.join(self.tmp, "app", "prefs.json"), fsio.atomic_write)

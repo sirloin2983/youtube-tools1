@@ -18,6 +18,7 @@ for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import cases  # noqa: E402
 import cleanup  # noqa: E402
 import friend_feedback as F  # noqa: E402
 
@@ -81,7 +82,7 @@ class TestApply(Base):
         row = F.find_delivery(self.logs, "20261002-120000-0a1b2c__配信A 1-2.zip")
         self.assertEqual((row["requestId"], row["videoId"], [p["markId"] for p in row["packs"]]), ("20261002-120000-0a1b2c", "VID", ["m1", "m2"]))
         self.assertIsNone(F.find_delivery(self.logs, "無い.zip"))
-        res = F.apply(self.logs, self.fb(), trash=self.trash, log=self.lines.append)
+        res = F.apply(self.logs, self.fb(), trash=self.trash, log=self.lines.append, discard=cases.discard_clip)
         self.assertTrue(res["ok"], res)
         self.assertIn("2 本をごみ箱フォルダへ(スタジオのマークはそのまま", res["summary"])
         self.assertEqual(sorted(p["markId"] for p in res["packs"]), ["m1", "m2"], "不採用の記録にマークの id を残す")
@@ -97,18 +98,36 @@ class TestApply(Base):
         self.assertTrue(any("要らない" in x for x in self.lines))
 
     def test_no_record_or_no_parts(self):
-        res = F.apply(self.logs, self.fb(), trash=self.trash)
+        res = F.apply(self.logs, self.fb(), trash=self.trash, discard=cases.discard_clip)
         self.assertFalse(res["ok"])
         self.assertIn("届けた記録に", res["reason"])
         F.record_delivery(self.logs, "x/20261002-120000-0a1b2c__配信A 1-2.zip", self.run, [self.pack1], {self.pack1: {"path": self.clip1, "markId": "m1"}})
-        res = F.apply(self.logs, self.fb(), trash=None)
+        res = F.apply(self.logs, self.fb(), trash=None, discard=cases.discard_clip)
         self.assertFalse(res["ok"])
         self.assertTrue(os.path.exists(self.clip1), "部品が無ければ何も動かさない")
+        res = F.apply(self.logs, self.fb(), trash=self.trash)   # 片付ける部品(discard=)を渡されなければ動かさない
+        self.assertFalse(res["ok"])
+        self.assertIn("部品が使えません", res["reason"])
+        self.assertTrue(os.path.exists(self.clip1), "部品が無ければ何も動かさない")
+
+    def test_discard_failure_is_recorded_not_raised(self):
+        """渡された片付けが ReviewError(ValueError の子)・OSError で失敗しても、その 1 本の失敗として記録して続ける"""
+        F.record_delivery(self.logs, "x/20261002-120000-0a1b2c__配信A 1-2.zip", self.run, [self.pack1, self.pack2],
+                          {self.pack1: {"path": self.clip1, "markId": "m1"}, self.pack2: {"path": self.clip2, "markId": "m2"}})
+        errs = iter([cases.ReviewError("ごみ箱へ移せません"), OSError("使用中")])
+
+        def discard(*a):
+            raise next(errs)
+        res = F.apply(self.logs, self.fb(), trash=self.trash, discard=discard)
+        self.assertFalse(res["ok"])
+        self.assertEqual([("error" in r) for r in res["packs"]], [True, True])
+        self.assertIn("片付けられなかった 2 本", res["summary"])
+        self.assertTrue(os.path.exists(self.clip1))
 
     def test_pack_without_mark_is_only_trashed(self):
         """友人の動画の依頼(スタジオのマークが無い)は ごみ箱 へ移すだけ"""
         F.record_delivery(self.logs, "x/20261002-120000-0a1b2c__配信A 1-2.zip", self.run, [self.pack1], {})
-        res = F.apply(self.logs, self.fb(), trash=self.trash)
+        res = F.apply(self.logs, self.fb(), trash=self.trash, discard=cases.discard_clip)
         self.assertTrue(res["ok"], res)
         self.assertEqual([p["markId"] for p in res["packs"]], [""])
         self.assertFalse(os.path.isdir(self.pack1))

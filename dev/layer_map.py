@@ -119,18 +119,16 @@ def allowed(src_layer, dst_layer):
 
 # 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
 # ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
-KNOWN_MAX = 34   # RS3-0B で層の表の 3 行を直した = live.py・autorun.py を app に・live_failures を pipeline に(仮決め #4・#5)。live → cases・deliver・intake・live_cleanup・live_failures・live_report・live_requests・autorun → cases・clientlog・deliver・friend_feedback・prefs・txindex・live_archive・live_detect・live_export → live_failures の 16 組が消え、live_failures → autorun が 1 組増えた(49 → 34)・RS2-9d で認識ワーカーを pipeline/transcribe/worker.py へ移して serve を読まない形にした = (tx_worker → serve)が消えた(50 → 49。旧い editor/tx_worker.py は runpy の転送だけ)・RS2-9c で ed_retime の計算を pipeline/transcribe/retime.py へ切り出し、包みだけ human にして (ed_retime, ed_state)・(ed_retime, ed_alt)・(ed_retime, ed_store) が消えた(53 → 50)・ed_fill・ed_llm を pipeline/transcribe/fill.py・llm.py へ移し ed_state の読みを txenv・txbase・backend・ytt に = (ed_fill, ed_state)・(ed_llm, ed_state) が消えた(55 → 53)・RS2-9b で ed_speakers を pipeline/transcribe/diarize と human/proof/speakers に分けた = (ed_speakers → ed_learn・ed_store)が human どうしになり、ed_drill は serve が登録する口(set_context_namer)にして消えた(58 → 55)・RS2-9a で ed_speakers → ed_state が消えた(59 → 58。文書の形の小道具は ytt/schemas・置き場所と外の道具は txenv の口から読む)・RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)・RS2-8d で doc_jobs → ed_evalbatch・ed_relink を serve が登録する口(set_hooks)にして消した(61 → 59)
+KNOWN_MAX = 30   # RS3-0B: accuracy・backup・intake が設定の既定を引数(defaults=)で受け prefs を読まない・friend_feedback が片付ける関数(discard=)を受け cases を読まない = 4 組が消えた(34 → 30)・RS3-0B で層の表の 3 行を直した = live.py・autorun.py を app に・live_failures を pipeline に(仮決め #4・#5)。live → cases・deliver・intake・live_cleanup・live_failures・live_report・live_requests・autorun → cases・clientlog・deliver・friend_feedback・prefs・txindex・live_archive・live_detect・live_export → live_failures の 16 組が消え、live_failures → autorun が 1 組増えた(49 → 34)・RS2-9d で認識ワーカーを pipeline/transcribe/worker.py へ移して serve を読まない形にした = (tx_worker → serve)が消えた(50 → 49。旧い editor/tx_worker.py は runpy の転送だけ)・RS2-9c で ed_retime の計算を pipeline/transcribe/retime.py へ切り出し、包みだけ human にして (ed_retime, ed_state)・(ed_retime, ed_alt)・(ed_retime, ed_store) が消えた(53 → 50)・ed_fill・ed_llm を pipeline/transcribe/fill.py・llm.py へ移し ed_state の読みを txenv・txbase・backend・ytt に = (ed_fill, ed_state)・(ed_llm, ed_state) が消えた(55 → 53)・RS2-9b で ed_speakers を pipeline/transcribe/diarize と human/proof/speakers に分けた = (ed_speakers → ed_learn・ed_store)が human どうしになり、ed_drill は serve が登録する口(set_context_namer)にして消えた(58 → 55)・RS2-9a で ed_speakers → ed_state が消えた(59 → 58。文書の形の小道具は ytt/schemas・置き場所と外の道具は txenv の口から読む)・RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)・RS2-8d で doc_jobs → ed_evalbatch・ed_relink を serve が登録する口(set_hooks)にして消した(61 → 59)
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/serve.py"),
     ("src/editor/ed_evalbatch.py", "src/editor/ed_state.py"),
-    ("src/home/accuracy.py", "src/home/prefs.py"),
     ("src/editor/ed_alt.py", "src/editor/ed_state.py"),
     ("src/editor/ed_learn.py", "src/editor/ed_state.py"),
     ("src/editor/ed_store.py", "src/editor/ed_state.py"),
     ("src/editor/ed_ytcap.py", "src/editor/ed_state.py"),
-    ("src/home/intake.py", "src/home/prefs.py"),
     ("src/studio/rank.py", "src/studio/common.py"),
     ("src/studio/store.py", "src/studio/common.py"),
     ("src/editor/ed_store.py", "src/editor/ed_drill.py"),
@@ -140,10 +138,8 @@ KNOWN = {
     ("src/editor/ed_store.py", "src/editor/ed_relink.py"),
     ("src/editor/ed_store.py", "src/manage/cases/txindex.py"),
     ("src/editor/ed_ytcap.py", "src/editor/ed_relink.py"),
-    ("src/home/friend_feedback.py", "src/home/cases.py"),
     ("src/editor/ed_misc.py", "src/editor/ed_state.py"),
     ("src/editor/ed_relink.py", "src/editor/ed_state.py"),
-    ("src/home/backup.py", "src/home/prefs.py"),
     ("src/studio/handoff.py", "src/studio/common.py"),
     ("src/studio/txlink.py", "src/studio/common.py"),
     ("src/studio/analyze.py", "src/studio/common.py"),

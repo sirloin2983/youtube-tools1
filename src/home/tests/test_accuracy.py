@@ -151,6 +151,17 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(self.prefs.patch("accuracy", {"enabled": False})["enabled"], False)
         self.assertEqual(self.prefs.patch("accuracy", {"enabled": "yes"})["enabled"], False)   # true 以外はオフ
 
+    def test_cfg_falls_back_to_given_defaults(self):
+        """設定が読めないときの既定は入口が渡す(accuracy は prefs を読み込まない。RS3-0B)"""
+        class Broken:
+            def get(self, sections):
+                raise OSError("読めない")
+        d = prefs_mod.DEFAULTS["accuracy"]
+        acc = accuracy.Accuracy(Broken(), self.app, ROOT, defaults=d)
+        self.assertEqual(acc._cfg(), d)
+        self.assertIsNot(acc._cfg(), d)    # 呼ぶ側が書き換えても既定は変わらない
+        self.assertEqual(accuracy.Accuracy(Broken(), self.app, ROOT)._cfg(), {})   # 渡さなければ空 = オフ扱い
+
     # ---- 結果の要約
     def test_summaries_from_tool_shapes(self):
         asr = accuracy.summarize_asr({"summary": {"overall": {"cer": 0.12, "refChars": 500}, "ci95": [0.1, 0.14], "byDoc": [{}, {}], "proofedSec": 800, "lowData": True}})

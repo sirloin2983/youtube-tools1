@@ -858,13 +858,15 @@ class PortalServer(httpsec.ExclusiveServer):
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
-                                        feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log),
-                                        live_begin=lambda url, ctx: self.live.begin_request(url, ctx))   # ライブ配信の依頼(2-15。live は下で作る)
+                                        feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log,
+                                                                                      discard=cases_mod.discard_clip),   # 片付ける部品は入口が渡す(friend_feedback は cases を読まない)
+                                        live_begin=lambda url, ctx: self.live.begin_request(url, ctx),   # ライブ配信の依頼(2-15。live は下で作る)
+                                        defaults=prefs_mod.DEFAULTS["intake"])   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
-        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log)
+        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"])
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
-                                              last_edit=self._accuracy_last_edit, log=sup.log)
+                                              last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])
         self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
                                                  txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
         # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)

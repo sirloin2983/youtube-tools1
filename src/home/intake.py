@@ -324,13 +324,15 @@ def _streamer(name):
 
 class Intake:
     def __init__(self, prefs, runner, data_dir, log=None, clock=None, probe=None, info=None, interval=INTERVAL, settle=SETTLE,
-                 norm_probe=None, norm_run=None, feedback=None, live_begin=None):
-        """prefs: src/home/prefs.py の Prefs(節 intake)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
+                 norm_probe=None, norm_run=None, feedback=None, live_begin=None, defaults=None):
+        """prefs: src/home/prefs.py の Prefs(節 intake)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["intake"] を渡す。
+        prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
         probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt_core.normalize)。
         feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)。
         live_begin(url, ctx): ライブ配信の依頼で録画を始めて結びつける関数 -> {"recorder", "recording", "existing"}(入口が Live.begin_request を渡す。
         だめなら ValueError か live_export.LiveError。None = ライブ配信の依頼を断る)"""
         self.prefs, self.runner, self.data_dir = prefs, runner, data_dir
+        self.defaults = defaults
         self.feedback = feedback
         self.live_begin = live_begin
         self.log = log or (lambda msg: None)
@@ -418,8 +420,7 @@ class Intake:
         try:
             return dict(self.prefs.get(["intake"])["intake"])
         except (OSError, ValueError, KeyError):
-            import prefs as prefs_mod
-            return dict(prefs_mod.DEFAULTS["intake"])
+            return dict(self.defaults or {})
 
     # ------------------------------------------------------------ 見る
     def scan(self):

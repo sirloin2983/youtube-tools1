@@ -121,6 +121,19 @@ class TestParse(unittest.TestCase):
 
 
 class TestPrefs(unittest.TestCase):
+    def test_cfg_falls_back_to_given_defaults(self):
+        """設定が読めないときの既定は入口が渡す(intake は prefs を読み込まない。RS3-0B)"""
+        class Broken:
+            def get(self, sections):
+                raise OSError("読めない")
+        tmp = tempfile.mkdtemp(prefix="intake-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        d = prefs_mod.DEFAULTS["intake"]
+        it = intake.Intake(Broken(), lambda: None, tmp, defaults=d)
+        self.assertEqual(it._cfg(), d)
+        self.assertIsNot(it._cfg(), d)    # 呼ぶ側が書き換えても既定は変わらない
+        self.assertEqual(intake.Intake(Broken(), lambda: None, tmp)._cfg(), {})   # 渡さなければ空 = オフ扱い
+
     def test_intake_prefs(self):
         tmp = tempfile.mkdtemp()
         try:

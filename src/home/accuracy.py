@@ -244,13 +244,16 @@ def day_of(now):
 
 class Accuracy:
     def __init__(self, prefs, data_dir, repo_root, busy=None, last_edit=None, log=None, clock=None, commands=None, evals_dir=None,
-                 timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES, transcripts_dir=None):
-        """prefs: src/home/prefs.py の Prefs(節 accuracy)。data_dir: ホームの作業データ(app。記録を置く)。repo_root: ツールの親のフォルダ(src。作業データの場所の既定。dev/ の道具はその1つ上)。
+                 timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES, transcripts_dir=None,
+                 defaults=None):
+        """prefs: src/home/prefs.py の Prefs(節 accuracy)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["accuracy"] を渡す。
+        prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。data_dir: ホームの作業データ(app。記録を置く)。repo_root: ツールの親のフォルダ(src。作業データの場所の既定。dev/ の道具はその1つ上)。
         busy() -> 手が空いていない理由の文(空・None = 空いている)。last_edit() -> 文字起こしの文書の最後の更新(エポック秒・None = 不明)。
         commands(area) -> 子プロセスの引数の一覧(None = その道具が無い)・evals_dir(area) -> 結果の置き場所: テストで偽の道具に差し替える。
         transcripts_dir() -> 文字起こしの文書のフォルダ(入口の条件の「普段」を数える。None = 数えない)"""
         self.transcripts_dir = transcripts_dir or self._default_transcripts_dir
         self.prefs, self.data_dir, self.repo_root = prefs, data_dir, repo_root
+        self.defaults = defaults
         self.busy = busy or (lambda: None)
         self.last_edit = last_edit or (lambda: None)
         self.log = log or (lambda msg: None)
@@ -285,11 +288,10 @@ class Accuracy:
             self.log("精度の測定: 記録を書けませんでした(%s)" % tools.why(e))
 
     def _cfg(self):
-        import prefs as prefs_mod
         try:
             return dict(self.prefs.get(["accuracy"])["accuracy"])
         except (OSError, ValueError, KeyError):
-            return dict(prefs_mod.DEFAULTS["accuracy"])
+            return dict(self.defaults or {})
 
     # ---- 道具の呼び方
     def _default_commands(self, area):

@@ -14,7 +14,6 @@ import os
 import re
 import time
 
-import cases
 from ytt import tools
 
 DELIVERIES_LOG = "deliveries.jsonl"       # 届けた記録(入口の作業データの logs の中)
@@ -85,10 +84,12 @@ def parse(text):
     return {"zip": z, "verdict": d["verdict"], "requestId": str(d.get("requestId") or "")[:64], "title": str(d.get("title") or "")[:200]}
 
 
-def apply(log_dir, fb, trash=None, log=None):
+def apply(log_dir, fb, trash=None, log=None, discard=None):
     """友人の「要らない」を当てる: 届けた記録にあるパックと切り抜きの動画を ごみ箱フォルダ へ(3 日で消える)、記録を friend_feedback.jsonl に。
     スタジオのマークは変えない(2026-10-08 ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は
     見どころ検出の精度に使うので混ぜない)。不採用の記録は markId つきでこのファイルに残す。
+    discard: 切り抜き 1 本ぶんを ごみ箱 へ移す関数(入口が cases.discard_clip を渡す。形は discard(trash, studio, video_id, mark_id, media, pack)
+    -> (移したもの, ごみ箱の場所, スタジオの返事)。失敗は ValueError の子 cases.ReviewError か OSError)。案件の部品 cases を読み込まないための口
     -> {"ok", "summary", "packs": [...]}。届けた記録が無い・部品が無いときは ok False と理由"""
     log = log or (lambda msg: None)
     row = find_delivery(log_dir, fb["zip"])
@@ -96,14 +97,16 @@ def apply(log_dir, fb, trash=None, log=None):
         return {"ok": False, "reason": "届けた記録に %s がありません(この入口が届けたものではないか、記録が消えています)" % fb["zip"]}
     if trash is None:
         return {"ok": False, "reason": "ごみ箱フォルダが使えません"}
+    if discard is None:
+        return {"ok": False, "reason": "切り抜きを片付ける部品が使えません"}
     results, errors = [], []
     for p in row.get("packs") or []:
         d, path, mid = str(p.get("dir") or ""), str(p.get("path") or ""), str(p.get("markId") or "")
         if not d and not path:
             continue
         try:
-            moved, where, _st = cases.discard_clip(trash, None, row.get("videoId") or "", "", path, d or None)   # mark_id を空 = マークは触らない
-        except (cases.ReviewError, OSError) as e:
+            moved, where, _st = discard(trash, None, row.get("videoId") or "", "", path, d or None)   # mark_id を空 = マークは触らない
+        except (ValueError, OSError) as e:   # cases.ReviewError は ValueError の子
             errors.append(str(e))
             results.append({"dir": d, "markId": mid, "error": str(e)})
             continue

@@ -204,10 +204,12 @@ def run_once(source, folder, day=None, stop=None, on_file=None):
 
 
 class Backup:
-    def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY):
-        """prefs: src/home/prefs.py の Prefs(節 backup)。source: 作業データの親フォルダ(datadir.data_root()。None = inplace なので写さない)。
+    def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None):
+        """prefs: src/home/prefs.py の Prefs(節 backup)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["backup"] を渡す。
+        prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。source: 作業データの親フォルダ(datadir.data_root()。None = inplace なので写さない)。
         data_dir: ホームの作業データ(app。最後に写した時刻の記録を置く)"""
         self.prefs, self.source, self.data_dir = prefs, source, data_dir
+        self.defaults = defaults
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.first_wait, self.check_every = first_wait, check_every
@@ -231,11 +233,10 @@ class Backup:
             self.log("バックアップ: 記録を書けませんでした(%s)" % (tools.why(e)))
 
     def _cfg(self):
-        import prefs as prefs_mod
         try:
             return dict(self.prefs.get(["backup"])["backup"])
         except (OSError, ValueError, KeyError):
-            return dict(prefs_mod.DEFAULTS["backup"])
+            return dict(self.defaults or {})
 
     def start(self):
         if self.thread is None:
