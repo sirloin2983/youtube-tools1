@@ -173,7 +173,7 @@ SERVE_NAME = "tx_serve_for_eval"   # sys.modules に登録する名前(普通の
 
 def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
     """src/editor/serve.py を読み込む(サーバーは起動しない)-> serve。名前は serve の名前の受付で、分けた部品(ed_jobs・ed_state など)の名前も読める。
-    - **sys.modules に登録してから読む**: serve の「S.名前 = …」は、登録して読んだときだけ持ち主の部品へ転送される(serve.py の _ServeModule)。
+    - **sys.modules に登録してから読む**: serve の「S.名前 = …」は、登録して読んだときだけ持ち主の部品へ転送される(serve.py の名前の受付 = ytt/modfwd.py)。
       2026-10-07 まで eval_asr.py は登録せずに読んでいたので、下の IN_WORKER・STUDIO_DATA と、道具やテストが「S.END_TRIM = …」のように
       差し替えた値が部品に届いていなかった(serve の上に同じ名前ができるだけ。eval_asr.py の先頭の説明)
     - 認識・判別はこのプロセスの中で動かす(IN_WORKER。認識ワーカーを起動しない。GPU の部品の場所はワーカーと同じに整える)

@@ -21,7 +21,7 @@ import time
 import unicodedata
 import uuid
 
-from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import fsio as _fsio, jobs as _heavy, modfwd as _modfwd, schemas as _yschemas, tools as _tools  # noqa: E402
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
@@ -2798,3 +2798,10 @@ def _retranscribe_each(job, spec, targets, wav, start):
             results[t["id"]] = (strip_punct(text) if spec.get("stripPunct", True) else text, flag)
         job["progress"] = min(0.99, (n + 1) / len(targets))
     return results
+
+
+# ---------- 移した名前の転送(役割で組み直す RS2。2026-10-10。RS5 で消す) ----------
+# 中身を pipeline/transcribe・human/proof・ytt/jobs へ移す間、ed_jobs.名前 の読み・書き・削除を移した先へ回す(ytt/modfwd.py)。
+# ここに残っている名前が先。移した名前を from … import で読み直さない(serve の名前の受付と同じく、差し替えが別名に当たって本体に効かなくなる)。
+_MOVED = ()   # 移した先のモジュール(移すたびに足す。serve.py の _ED_MODULES にも ed_jobs より前に足す)
+_moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")

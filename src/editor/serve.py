@@ -97,7 +97,7 @@ def _load_core():
 
 
 _load_core()
-from ytt import datadir as _datadir, httpsec, layout as _layout, runtime as _runtime  # noqa: E402
+from ytt import datadir as _datadir, httpsec, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
@@ -124,47 +124,8 @@ _ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 
 
-_ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
-for _m in reversed(_ED_MODULES):
-    _ED_OWNER.update({_k: _m for _k in _m.__dict__ if not _k.startswith("__")})
-
-
-def _ed_owner(name):
-    m = _ED_OWNER.get(name)
-    if m is not None:
-        return m
-    for m in _ED_MODULES:
-        if name in m.__dict__:
-            return m
-    return None
-
-
-def __getattr__(name):   # serve.名前 で、serve.py に無い名前を分けた部品から読む(PEP 562。sys.modules に登録せずに読み込んだときも働く)
-    m = _ed_owner(name)
-    if m is None:
-        raise AttributeError("serve に %s はありません" % name)
-    return getattr(m, name)
-
-
-class _ServeModule(type(sys)):
-    def __setattr__(self, name, value):   # serve.名前 = … を、その名前を持つ部品へ(テストの差し替え・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)
-        m = None if name in self.__dict__ else _ed_owner(name)
-        if m is None:
-            super().__setattr__(name, value)
-        else:
-            setattr(m, name, value)
-
-    def __delattr__(self, name):   # unittest.mock の patch.object は戻すときに「消す → 無ければ元の値を入れ直す」ので、消すのも部品へ
-        m = None if name in self.__dict__ else _ed_owner(name)
-        if m is None:
-            super().__delattr__(name)
-        else:
-            delattr(m, name)
-
-
-_me = sys.modules.get(__name__)
-if _me is not None and _me.__dict__ is globals():   # 登録されて読み込まれたとき(普通の import・入口の取り込み)だけ。契約テストのように登録しない読み込みは読むだけ
-    _me.__class__ = _ServeModule
+_ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
+# serve.名前 = …・del(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)はその名前を持つ部品へ。仕組みは ytt/modfwd.py(ed_jobs の転送と共通)
 
 
 # ---------- HTTP ----------

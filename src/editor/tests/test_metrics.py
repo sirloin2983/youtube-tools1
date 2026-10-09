@@ -919,6 +919,7 @@ from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない
 from test_ovdraft import *  # noqa: E402,F401,F403   重なりの所の空の行の下書き(ed_speakers の ovdraft_・GET /api/overlap-drafts・行の印 draft)
 from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)
 from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
+from test_names import *  # noqa: E402,F401,F403   serve の名前の受付と ed_jobs の転送(役割で組み直す RS2。ytt/modfwd.py)
 
 
 class TestThreadDefaults(unittest.TestCase):
