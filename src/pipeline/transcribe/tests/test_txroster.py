@@ -5,7 +5,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v
 
 名簿のファイルとスタジオの配信の情報は txenv の口(ROSTER・studio_stream)から読む。本物のスタジオの data.json を読む形
-(serve の登録 = ed_store.studio_stream)は編集のテスト(src/editor/tests/test_roster.py の TestStreamContext。serve の名前で読む)が確かめる。
+(serve の登録 = ytt/studiodata.studio_stream。RS3-0A まで ed_store)は編集のテスト(src/editor/tests/test_roster.py の TestStreamContext。serve の名前で読む)が確かめる。
 """
 import json
 import os

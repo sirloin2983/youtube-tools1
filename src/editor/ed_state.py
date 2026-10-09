@@ -14,7 +14,7 @@ import threading
 import time
 
 from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
-from pipeline.transcribe import txbase as _txbase  # noqa: E402
+from pipeline.transcribe import roster as _txroster, txbase as _txbase  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 
 
@@ -28,7 +28,7 @@ INDEX = os.path.join(_workdata.ROOT, "index.html")
 APP_JS = os.path.join(_workdata.ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
 UI_KIT_JS = os.path.join(_workdata.ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(dev/sync_ui_kit.py。同上)
 PAGE_JS = ("cut.js", "pack-tab.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
-ROSTER = os.path.join(_workdata.ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)
+_txroster.ROSTER = os.path.join(_workdata.ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)の場所の既定。持ち主は pipeline/transcribe/roster の ROSTER(RS3-0A。JSON は編集のフォルダのまま)
 PORT = 8775
 ALLOWED_HOSTS = set()
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(home/mount.py が prepare() で入れる)

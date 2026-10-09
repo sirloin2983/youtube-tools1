@@ -107,7 +107,7 @@ def _with_calls(s):
         return s
     out = {k: v for k, v in s.items() if k != "callTexts"}
     texts = s.get("callTexts") or []
-    r = _roster.load(ed_state.ROSTER) if texts else None
+    r = _roster.load(_roster.ROSTER) if texts else None
     out["callRows"] = sum(1 for t in texts if _roster.find_in_text(t, r)) if texts else 0
     return out
 
@@ -115,7 +115,7 @@ def _with_calls(s):
 def drill_docs():
     """[(tid, 要約)](評価用でない文書は {"eval": False})。文書は ed_store の要約のキャッシュから(読み直さない)。
     呼び名の行の数は、文書の鍵と名簿の版が同じなら前の結果(_drill_cache)"""
-    out, seen, rs = [], set(), ed_state.file_stamp(ed_state.ROSTER)
+    out, seen, rs = [], set(), ed_state.file_stamp(_roster.ROSTER)
     for tid in sorted(ed_store._tids()):
         seen.add(tid)
         sm = ed_store.transcript_summary(tid)

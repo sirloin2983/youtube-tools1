@@ -22,6 +22,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from pipeline.transcribe import roster as _roster  # noqa: E402   (名簿のファイルの場所 ROSTER の持ち主。RS3-0A に ed_state から)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, settings as _settings  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
@@ -627,7 +628,7 @@ def auto_learned_replace(text, rules, fb):
 def load_roster():
     """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。
     README で「直せます」と案内しているので、BOM 付きでも読む"""
-    d = _fsio.read_json_or(ed_state.ROSTER, None, kind=dict)
+    d = _fsio.read_json_or(_roster.ROSTER, None, kind=dict)
     if d is None:
         return {"asOf": "", "note": "", "groups": []}
     groups = []

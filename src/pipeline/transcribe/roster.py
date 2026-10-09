@@ -14,6 +14,8 @@ import unicodedata
 
 from . import txbase as _txbase, txenv as _txenv
 
+ROSTER = None   # 名簿のファイル(編集のフォルダの hololive-roster.json)。app(編集の ed_state)が読み込みのときに入れる。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける。RS3-0A に ed_state から移した)
+
 PROMPT_LIMIT = 150      # initial_prompt に入れる語の長さ(「用語: 」を除く。以前からの上限。画面の GLOSS_PROMPT と同じ)
 HOT_LIMIT = 300         # hotwords の長さ
 MAX_MEMBERS = 6         # 文脈に入れる人数の上限(1人 = 名前 + 呼び名 3 つ で 15〜20 字)

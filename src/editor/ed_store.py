@@ -20,7 +20,7 @@ import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402   (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 # ---------- 文字起こしの保存 ----------
 def tx_path(tid):
     return os.path.join(_workdata.TX_DIR, tid + ".json")
@@ -273,55 +273,8 @@ def summaries():
     prune_cache(_summary_cache, seen)
 
 
-_studio_cache = _fsio.StampCache()   # スタジオの data.json のパス → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(更新日時と大きさでキャッシュ)
-
-
-def _studio_parse(path):
-    """スタジオの data.json → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(読めなければ空)"""
-    d = ed_misc._read_json_file(path)
-    out, groups = {}, []
-    vids = d.get("videos") if isinstance(d, dict) else None
-    if isinstance(vids, dict):
-        for vid, v in list(vids.items())[:5000]:
-            if isinstance(v, dict):
-                out[str(vid)[:40]] = {"channel": str(v.get("channel") or "")[:100], "title": str(v.get("title") or "")[:200]}
-    gs = d.get("groups") if isinstance(d, dict) else None
-    for g in (list(gs.values())[:2000] if isinstance(gs, dict) else []):
-        ms = g.get("members") if isinstance(g, dict) else None
-        if isinstance(ms, list):
-            groups.append([str(m)[:40] for m in ms[:50] if isinstance(m, str)])
-    return out, groups
-
-
-def _studio_load():
-    """切り抜きスタジオの data.json(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
-    -> ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])。一覧のたびに大きな data.json を読み直さないよう、
-    ファイルの更新日時と大きさが同じなら前の結果を使う。"""
-    path = _workdata.STUDIO_DATA
-    r = _studio_cache.get(path, _studio_parse)
-    _studio_cache.prune([path])   # 覚えるのは今の場所の 1 つだけ
-    return r if r is not None else ({}, [])
-
-
-def studio_videos():
-    """-> {videoId: {"channel", "title"}}(履歴の一覧の配信者・配信の題名)"""
-    return _studio_load()[0]
-
-
-def studio_stream(video_id):
-    """配信 -> {"channel", "title", "collab": [{"videoId", "channel", "title"}]}(コラボ = スタジオで同じまとまりにした他の配信)。無ければ None"""
-    vids, groups = _studio_load()
-    vid = str(video_id or "")[:40]
-    if vid not in vids:
-        return None
-    collab, seen = [], {vid}
-    for g in groups:
-        if vid in g:
-            for m in g:
-                if m not in seen and len(collab) < 12:
-                    seen.add(m)
-                    collab.append(dict(vids.get(m) or {"channel": "", "title": ""}, videoId=m))
-    return dict(vids[vid], collab=collab)
+# スタジオの data.json の読み口(_studio_parse・_studio_load・studio_videos・studio_stream)は ytt/studiodata へ移した
+# (RS3-0A。文字起こしの配信ごとの文脈 pipeline/transcribe/roster.stream_context も同じ物を読むため)
 
 
 PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
@@ -382,7 +335,7 @@ def list_transcripts():
             items.append(it)
     prune_cache(_summary_cache, seen)   # 消した文書の分は捨てる
     prune_cache(_edit_cache, seen)
-    studio = studio_videos()
+    studio = _studiodata.studio_videos()
     for it in items:
         sv = studio.get(it["videoId"]) if it["videoId"] else None
         it["channel"] = sv["channel"] if sv else ""

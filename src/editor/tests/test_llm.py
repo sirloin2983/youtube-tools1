@@ -131,7 +131,7 @@ class TestLlmJob(StoreDir):
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
                                                 "TRANSCRIBE_FAKE_FILL": "", "TRANSCRIBE_FAKE_LLM": self.REPLY})
         self.env.start()
-        self.roster = mock.patch.object(ed_state, "ROSTER", roster)
+        self.roster = mock.patch.object(S, "ROSTER", roster)
         self.roster.start()
         self.mine = set()
 
@@ -174,7 +174,7 @@ class TestLlmJob(StoreDir):
         other = os.path.join(self.tmp, "roster2.json")
         write_json(other, {"groups": [{"id": "t", "label": "試し", "names": ["別の人"]}], "members": [{"name": "別の人", "aliases": ["べつのひと"]}]})
         called = []
-        with mock.patch.object(ed_state, "ROSTER", other), mock.patch.object(llm, "llm_ask_fn", side_effect=lambda job, spec: called.append(1)):
+        with mock.patch.object(S, "ROSTER", other), mock.patch.object(llm, "llm_ask_fn", side_effect=lambda job, spec: called.append(1)):
             job = self.transcribe()
         doc = ed_store.read_transcript(job["tid"])
         self.assertEqual((doc["recognition"]["runs"][0]["llm"]["picked"], called), (0, []))   # 名簿の人が出ない文書 = 選んだ所なし = LLM を読み込まない
