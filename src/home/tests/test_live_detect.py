@@ -667,7 +667,7 @@ class FfmpegTest(unittest.TestCase):
 
     def test_hls_segments_through_recorder_api(self):
         """hls_fixture の 1 秒セグメント 24 本を、偽の録画元(HTTP)から合言葉つきで取り、3 本ずつ ffmpeg で測って 1 秒の箱へ → 終わった録画を締める"""
-        sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
+        sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
         import hls_fixture
         src = os.path.join(self.tmp, "src")
         segs = hls_fixture.make_source(src, 24, seg=1)

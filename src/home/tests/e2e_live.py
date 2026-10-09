@@ -3,7 +3,7 @@
 
     py -3.10 src/home/tests/e2e_live.py
 
-入口(launch.py)は e2e_backup_ui.py と同じ形で動かす(ツールは起動しない)。録画の部品は本物(src/recorder/recorder.py)を
+入口(launch.py)は e2e_backup_ui.py と同じ形で動かす(ツールは起動しない)。録画の部品は本物(src/pipeline/ingest/recorder.py)を
 --source direct で別のプロセスとして動かし、ffmpeg の lavfi で作った HLS を手元の HTTP サーバーで配信中のように出して録る。
 
 P3(2026-10-05)で別ページ /live/(録画の画面)をやめてスタジオの中に入れたので、この確認は**入口の API で**行う
@@ -43,7 +43,7 @@ HERE = os.path.dirname(TESTS)
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
+sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
 import launch as L  # noqa: E402
 import hls_fixture as F  # noqa: E402
 import live_export as LX  # noqa: E402
@@ -123,7 +123,7 @@ def main():
     live_src.end = False
     rport = free_ports(1)[0]
     rdata, rfolder = os.path.join(tmp, "recdata"), os.path.join(tmp, "live-rec")
-    rproc = subprocess.Popen([sys.executable, os.path.join(REPO, "recorder", "recorder.py"), "--port", str(rport), "--data-dir", rdata,
+    rproc = subprocess.Popen([sys.executable, os.path.join(REPO, "pipeline", "ingest", "recorder.py"), "--port", str(rport), "--data-dir", rdata,
                               "--folder", rfolder, "--source", "direct", "--hls-time", "1", "--quiet"],
                              env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))

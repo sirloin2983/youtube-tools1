@@ -2,7 +2,7 @@
 """録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
 配信中のように少しずつ出し(tests/hls_fixture.py)、--source direct(HLS の URL を直接 ffmpeg に渡す)で録る。
 
-    py -3.10 -m unittest src/recorder/tests/test_recorder.py
+    py -3.10 -m unittest src/pipeline/ingest/tests/test_recorder.py
 
 確かめること: 再生リストの読み書き・URL の検査・置き場所(無いドライブ・空き容量)・書きかけの片付け /
 録画 → 切断 → 繋ぎ直し(新しいセッション・#EXT-X-DISCONTINUITY)→ 停止(#EXT-X-ENDLIST)/ 配信の終わり /
@@ -27,11 +27,12 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
-sys.path.insert(0, HERE)
+HERE = os.path.dirname(TESTS)   # src/pipeline/ingest(recorder.py のある所)
+SRC = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, SRC)
 sys.path.insert(0, TESTS)
 import hls_fixture as F  # noqa: E402
-import rec_core as R  # noqa: E402
+from pipeline.ingest import rec_core as R  # noqa: E402
 
 FAST = dict(source="direct", hls_time=1, backoff=(1, 2), idle_end=8, stall_sec=4, first_seg_sec=15, poll=0.3)
 

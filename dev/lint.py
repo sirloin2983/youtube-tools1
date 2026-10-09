@@ -49,7 +49,7 @@ VERSIONS = {
     "editor": [("src/editor/serve.py", r'^SERVER_VERSION\s*=\s*"([^"]+)"'), ("src/editor/app.js", r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]"), ("src/editor/README.txt", r"v(\d+\.\d+\.\d+)")],
     "cut2resolve": [("src/cut2resolve/cut2resolve_core.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/cut2resolve/README.txt", r"v(\d+\.\d+\.\d+)")],
     "home": [("src/home/launch.py", r'^(?:LAUNCHER_VERSION|VERSION|SERVER_VERSION)\s*=\s*"([^"]+)"'), ("src/home/README.txt", r"v(\d+\.\d+\.\d+)")],
-    "recorder": [("src/recorder/recorder.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/recorder/README.txt", r"v(\d+\.\d+\.\d+)")],
+    "recorder": [("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/recorder/README.txt", r"v(\d+\.\d+\.\d+)")],
 }
 
 

@@ -36,8 +36,8 @@ import unicodedata
 import urllib.parse
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:   # 共通部品 ytt_core(ツールと同じ src/ の中)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # src/(この ingest の2つ上)
+if ROOT not in sys.path:   # 共通部品 ytt(src/ の中)
     sys.path.append(ROOT)
 from ytt import fsio, recproto, tools as ytools  # noqa: E402
 

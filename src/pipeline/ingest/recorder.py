@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """録画の部品(線 D: リアルタイム切り抜きの P1。plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
 
-    py -3.10 src/recorder/recorder.py [--port 8730] [--folder E:\\Video\\live-rec] [--host 127.0.0.1 --allow-host <ホスト:ポート>]
+    py -3.10 src/pipeline/ingest/recorder.py [--port 8730] [--folder E:\\Video\\live-rec] [--host 127.0.0.1 --allow-host <ホスト:ポート>]
                                   [--data-dir <フォルダ>] [--source streamlink|direct]
 
 1台のときはデスクトップで 127.0.0.1 だけで待ち受ける。2台(P5)のときはノート PC で同じプログラムを LAN で待ち受ける
@@ -38,13 +38,11 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(HERE))   # src/(パスで起動する別プロセス。HERE = src/pipeline/ingest)
 if ROOT not in sys.path:
-    sys.path.append(ROOT)
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-from ytt import datadir, fsio, httpsec, runtime  # noqa: E402
-import rec_core  # noqa: E402
+    sys.path.insert(0, ROOT)
+from ytt import datadir, fsio, httpsec, layout, runtime  # noqa: E402
+from pipeline.ingest import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
 VERSION = "0.3.3"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
@@ -60,7 +58,7 @@ def data_dir(arg=None):
     """作業データの置き場所(token・設定・記録)。ytt_core.datadir の規則(YTT_DATA_DIR=inplace なら recorder\\data)"""
     if arg:
         return os.path.abspath(arg)
-    return datadir.locate("recorder", legacy_dir=os.path.join(HERE, "data"))
+    return datadir.locate("recorder", legacy_dir=os.path.join(ROOT, layout.RECORDER_DIR, "data"))
 
 
 def load_token(ddir):

@@ -77,7 +77,7 @@ RECORDERS_MAX = 8
 RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
 RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
-LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/recorder/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
+LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
 LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/home/live_export.py の AFTERS と同じ名前)
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
 LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/editor/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)

@@ -39,7 +39,7 @@
   POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/home/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
                                           まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか。0.41.0)
   GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
-                                          録画を始める /live/api/begin・録画元(src/recorder/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
+                                          録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
                                           サーバー側の「マーク + 書き出し」/live/api/adopt(線 D の M1。0.39.0)。
                                           画面はスタジオの中(P3。/live/ はスタジオへ 302)。0.40.0 から(線 D の M4〜M7): 「調子」の live.disk(空き容量)・
                                           archiveInfo.afterStream(配信後の全自動 = 設定 live.autoAfterStream)。まとめて実行の待ち・実行中は起動し直しで戻る

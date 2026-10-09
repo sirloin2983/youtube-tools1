@@ -8,7 +8,7 @@
   - オフ: /live/… は今までと同じ 404(GET・POST とも)・「調子」に live が出ない・見回りは何もしない
   - オン: 以前の録画の画面 /live/ はスタジオへ 302(P3)・hls.js の同梱・録画元の一覧(合言葉を出さない)・中継(合言葉 Bearer と Host を付ける・
     Sec-Fetch-Site と入口の合言葉の検査・知らない録画元・パスの検査・思わぬ種類の応答・録画元が止まっている)・「調子」の行
-  - 見回り: 手元の録画の部品(src/recorder/recorder.py)を切り離して起動する → 動いている → 古い版なら終わってもらって起動し直す
+  - 見回り: 手元の録画の部品(src/pipeline/ingest/recorder.py)を切り離して起動する → 動いている → 古い版なら終わってもらって起動し直す
   - P2 マークと書き出し(src/home/live_export.py): マークの API(オフなら 404・検査・fsync した正本)・本物の録画の部品(--source direct)で
     録画中にマーク → 録画待ち → 届いたら取得 → 30fps(30/1・長さ)→ スタジオと同じ置き場所・名前・.clip.json(source.kind live)→
     文字起こしへ(偽のまとめて実行)・取り消し・録画が先に終わった(録れた所まで)・録画元が落ちた(失敗と理由)・欠け(要差し替え)・起動し直したらやり直す
@@ -45,7 +45,7 @@ import live_failures as LF  # noqa: E402
 import live_requests as LR  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt_core import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
-sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
+sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
 import hls_fixture as F  # noqa: E402
 
 TOKEN = "t" * 40
@@ -1084,7 +1084,7 @@ class FailuresTest(unittest.TestCase):
 
 
 class SpawnTest(unittest.TestCase):
-    """見回りが本物の録画の部品(src/recorder/recorder.py)を切り離して起動する"""
+    """見回りが本物の録画の部品(src/pipeline/ingest/recorder.py)を切り離して起動する"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-live-spawn-")
@@ -1280,7 +1280,7 @@ class ExportTest(unittest.TestCase):
         self.src.end = False
         self.port = free_port()
         self.rdata = os.path.join(self.tmp, "recdata")
-        self.proc = subprocess.Popen([sys.executable, os.path.join(REPO, "recorder", "recorder.py"), "--port", str(self.port), "--data-dir", self.rdata,
+        self.proc = subprocess.Popen([sys.executable, os.path.join(REPO, "pipeline", "ingest", "recorder.py"), "--port", str(self.port), "--data-dir", self.rdata,
                                       "--folder", os.path.join(self.tmp, "live-rec"), "--source", "direct", "--hls-time", "1", "--quiet"],
                                      env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                      creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))

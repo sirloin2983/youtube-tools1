@@ -13,7 +13,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
   POST /live/api/begin  {url}             配信の状態を yt-dlp で調べ(live_status)、配信中・配信前なら既定の録画元(一覧の先頭)で録画を始める
                                           → {live: true, recorder, recording: {id, url, title, state}, existing}(同じ配信を録画中ならそれ = existing: true)
                                           / 配信中でない・調べられない → {live: false, status: was_live|not_live|post_live|unknown, message?}(画面は今までどおりの解析へ)
-  GET|POST /live/r/<録画元>/<残り>        録画元(src/recorder/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
+  GET|POST /live/r/<録画元>/<残り>        録画元(src/pipeline/ingest/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
                                           例: /live/r/local/<録画>/index.m3u8・…/status・…/stop・…/session_001/seg_000000.ts
                                           POST は <録画>/stop だけ(録画を消す …/delete・終わる quit などは中継しない = 入口の中の処理だけが呼ぶ。P4)
   GET  /live/api/marks?recorder=&recording=   録画1本のマークの正本と書き出し(P2。中身は src/home/live_export.py)
@@ -86,8 +86,8 @@ from intake import OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = �
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
-DEFAULT_FOLDER = r"E:\Video\live-rec"     # src/recorder/rec_core.py の DEFAULT_FOLDER と同じ(2026-10-04 ユーザー決定)
-RECORDER_PORT = 8730                      # src/recorder/recorder.py の DEFAULT_PORT と同じ
+DEFAULT_FOLDER = r"E:\Video\live-rec"     # src/pipeline/ingest/rec_core.py の DEFAULT_FOLDER と同じ(2026-10-04 ユーザー決定)
+RECORDER_PORT = 8730                      # src/pipeline/ingest/recorder.py の DEFAULT_PORT と同じ
 LOCAL = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % RECORDER_PORT, "token": ""}
 PAGES = {"/live/hls.min.js": ("hls.min.js", VENDOR_DIR)}   # 部品だけ(画面はスタジオ。P3)
 TYPES = {".js": "application/javascript; charset=utf-8"}
@@ -100,9 +100,9 @@ RELAY_TIMEOUT = 15.0
 WATCH_SEC = 30.0
 SPAWN_GAP = 30.0
 VERSION_RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
-QUALITIES = ("best", "1080p", "720p")     # src/recorder/rec_core.py の QUALITIES と同じ名前(src/home/prefs.py の LIVE_QUALITIES)
+QUALITIES = ("best", "1080p", "720p")     # src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前(src/home/prefs.py の LIVE_QUALITIES)
 DEFAULT_QUALITY = "1080p"
-YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/recorder/rec_core.py の YT_HOSTS と同じ
+YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/pipeline/ingest/rec_core.py の YT_HOSTS と同じ
 URL_MAX = 500
 POOL_EVERY = 60.0      # ライブの切り抜きの組の溜め(まとめて実行の flush_pools)を見る間隔
 EXPIRE_EVERY = 600.0   # 見ていない自動の切り抜きの片付け(cases.expire_unseen)を見る間隔(案件の一覧を組み立て直すので、見回りのたびには見ない)
@@ -120,7 +120,7 @@ KEPT_NOTE = "録画中なので録画の部品は残しました(録画は続き
 
 
 def validate_url(url, allow_local=False):
-    """スタジオの URL の欄から録画を始める URL(src/recorder/rec_core.py の validate_url と同じ規則)。YouTube の https だけ。
+    """スタジオの URL の欄から録画を始める URL(src/pipeline/ingest/rec_core.py の validate_url と同じ規則)。YouTube の https だけ。
     allow_local=True(テストの録画元 --source direct)は http(s)://127.0.0.1|localhost も。-> 整えた URL。だめなら LiveError"""
     if not isinstance(url, str):
         raise live_export.LiveError("配信の URL を入れてください")
@@ -193,7 +193,7 @@ def _same_stream(a_url, b_url, b_id=""):
 
 
 def recorder_data_dir(root):
-    """録画の部品の作業データ(token.txt)。src/recorder/recorder.py の data_dir() と同じ規則"""
+    """録画の部品の作業データ(token.txt)。src/pipeline/ingest/recorder.py の data_dir() と同じ規則"""
     return datadir.locate("recorder", legacy_dir=os.path.join(root, layout.RECORDER_DIR, "data"))
 
 
@@ -430,7 +430,7 @@ class Live:
 
     def expected_version(self):
         try:
-            with open(os.path.join(self.root, layout.RECORDER_DIR, "recorder.py"), "r", encoding="utf-8") as f:
+            with open(os.path.join(self.root, layout.RECORDER_SCRIPT), "r", encoding="utf-8") as f:
                 m = VERSION_RE.search(f.read())
             return m.group(1) if m else ""
         except (OSError, UnicodeError):
@@ -1171,7 +1171,7 @@ class Live:
         if self._halt.is_set():   # 入口の終了の途中(止めたあとに見回りが起こし直さない)
             return False
         self._last_spawn = time.time()
-        script = os.path.join(self.root, layout.RECORDER_DIR, "recorder.py")
+        script = os.path.join(self.root, layout.RECORDER_SCRIPT)
         if not os.path.isfile(script):
             self.log("録画の部品が見つかりません: %s" % script)
             return False

@@ -42,7 +42,7 @@ STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたって�
 WARN_SEC = 2 * 86400.0         # NOT_REPLACED の録画を消す 1 日前から「調子」に予告する
 NOT_REPLACED = "本番版になっていないマークがある"   # 消せない理由のうち、3 日で消す理由(_replaced_why が返す文)
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
-REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/recorder/rec_core.py の ACTIVE と同じ
+REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/pipeline/ingest/rec_core.py の ACTIVE と同じ
 
 
 def _near(a, b):

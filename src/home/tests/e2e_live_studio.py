@@ -9,7 +9,7 @@
 作り(e2e_live.py と同じ部品):
   - 入口(launch.py)に studio を取り込む(src/studio/tests/e2e_ui.py の --mounted と同じ形。STUDIO_FAKE=1)。作業データ・書き出し先・録画の置き場所は全部一時フォルダ
     (YTT_DATA_DIR はこのテストの間だけ一時フォルダにする。先頭の setdefault は ytt_core のテストの決まり)
-  - 録画の部品(src/recorder/recorder.py)は本物を --source direct で。ffmpeg の lavfi で作った H.264 の HLS を手元の HTTP サーバーで配信中のように出して録る
+  - 録画の部品(src/pipeline/ingest/recorder.py)は本物を --source direct で。ffmpeg の lavfi で作った H.264 の HLS を手元の HTTP サーバーで配信中のように出して録る
   - 配信の状態は偽の yt-dlp(Live.probe)。URL はスタジオの登録の検査(YouTube の https だけ)を通すため、画面には YouTube の形の URL を入れ、
     入口から録画元への要求(Live.call)だけをテストの中で手元の HLS の URL に読み替える(本番の検査は緩めない。画面・API からは変えられない)
   - ブラウザは Edge(channel="msedge"。H.264 を再生できる)を先に試す。無ければ Playwright の chromium(再生は読み込みまで。再生が要る確認は飛ばす)
@@ -59,7 +59,7 @@ STUDIO = os.path.join(REPO, "studio")
 sys.path.insert(0, STUDIO)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
+sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
 os.environ["STUDIO_FAKE"] = "1"
 
 YT1 = "https://www.youtube.com/watch?v=TESTlive001"   # 画面に入れる配信の URL(録画元へは手元の HLS に読み替える)
@@ -186,7 +186,7 @@ def run(tmp, shots, force_chromium):
     live_src2.end = False
     rport = free_ports(1)[0]
     rdata, rfolder = os.path.join(tmp, "recdata"), os.path.join(tmp, "live-rec")
-    rproc = subprocess.Popen([sys.executable, os.path.join(REPO, "recorder", "recorder.py"), "--port", str(rport), "--data-dir", rdata,
+    rproc = subprocess.Popen([sys.executable, os.path.join(REPO, "pipeline", "ingest", "recorder.py"), "--port", str(rport), "--data-dir", rdata,
                               "--folder", rfolder, "--source", "direct", "--hls-time", "1", "--backoff", "1,2", "--stall-sec", "4", "--quiet"],
                              env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))

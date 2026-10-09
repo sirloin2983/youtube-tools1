@@ -15,9 +15,8 @@ RANK = {name: i for i, name in enumerate(LAYERS)}
 FILES = {
     # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
     "src/ytt_core/__init__.py": ("ytt", "ytt", "転送(RS5 で消す)"),
-    # ---- recorder → pipeline/ingest
-    "src/recorder/rec_core.py": ("pipeline", "pipeline/ingest", "録画(別プロセスのまま)"),
-    "src/recorder/recorder.py": ("pipeline", "pipeline/ingest", "録画の部品の API。配線は app でもよい(要相談)"),
+    # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
+    "src/recorder/recorder.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)"),
     # ---- cut2resolve → pipeline/pack
     "src/cut2resolve/pack.py": ("pipeline", "pipeline/pack", ""),
     "src/cut2resolve/resolve_textplus.py": ("pipeline", "pipeline/pack", ""),

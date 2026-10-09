@@ -9,7 +9,7 @@
 作り(e2e_live_studio.py と同じ形。全部一時フォルダ):
   - 「アーカイブ」= ffmpeg の lavfi で作った mp4(testsrc2 の 30fps + 時間で変わる音。照合できる音)。それを -c copy で 1 秒ごとの HLS にして、
     手元の HTTP サーバーで配信中のように出す(hls_fixture.LiveServer。最初から 30 本見えている = 録画はアーカイブの途中から始まる = ずれは 0 でない)
-  - 録画の部品(src/recorder/recorder.py)は本物を --source direct で。入口 → 録画元の要求だけ、YouTube の形の URL を手元の HLS の URL に読み替える
+  - 録画の部品(src/pipeline/ingest/recorder.py)は本物を --source direct で。入口 → 録画元の要求だけ、YouTube の形の URL を手元の HLS の URL に読み替える
   - yt-dlp の所だけ偽物(Live.archive_opts): 用意の確認 = was_live(手で post_live にもする)・開始時刻 = 録画の頭(firstPdt)・
     窓の音 = アーカイブの mp4 から ffmpeg で切る。照合は本物(src/home/live_align_worker.py)
   - スタジオの section(POST /studio/api/live/section)は本物: 疑似モード(STUDIO_FAKE=1)で STUDIO_FAKE_MEDIA = アーカイブの mp4 を切る
@@ -55,7 +55,7 @@ STUDIO = os.path.join(REPO, "studio")
 sys.path.insert(0, STUDIO)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "recorder", "tests"))
+sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
 os.environ["STUDIO_FAKE"] = "1"
 
 YT1 = "https://www.youtube.com/watch?v=TESTarch001"   # 手で作り直す録画
@@ -211,7 +211,7 @@ def run(tmp, shots, force_chromium):
         srcs[u] = s
     rport = free_ports(1)[0]
     rdata, rfolder = os.path.join(tmp, "recdata"), os.path.join(tmp, "live-rec")
-    rproc = subprocess.Popen([sys.executable, os.path.join(REPO, "recorder", "recorder.py"), "--port", str(rport), "--data-dir", rdata,
+    rproc = subprocess.Popen([sys.executable, os.path.join(REPO, "pipeline", "ingest", "recorder.py"), "--port", str(rport), "--data-dir", rdata,
                               "--folder", rfolder, "--source", "direct", "--hls-time", "1", "--backoff", "1,2", "--stall-sec", "4", "--quiet"],
                              env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
