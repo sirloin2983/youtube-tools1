@@ -16,6 +16,8 @@
     消した … その時間に重なる今の行が無い(人が行を消した = 別の読みは幻覚だった)
     未確認 … 別の読みのまま校正済みでない(人がまだ見ていない)。**率は 未確認 を除いて出す**
   比べるときの文字の寄せ方: NFKC・小文字・カタカナ → ひらがな・文字と数字だけ(記号・句読点・空白・伸ばし ー を無視)
+- E(LLM が名簿の呼び名に直した行。編集 0.61.0 の ed_llm): <id>.llm.json の当てた案(行の時刻つき)と同じ時間の今の行で、残した・直した・戻した・消した・未確認に分ける
+  (戻した = 人の最終が直す前の行のまま。札で戻して印が消えても分かる)。<id>.llm.json に時刻が無い(0.61.0 より前の試し)案は数えない
 - D(名簿の呼び名に直した行): 印 FILL_NAME_FLAG が残っている行の数・そのうち校正済み・人が whisper の文字に打ち直した数。
   札で戻すと印も元の文字の記録も消え、機械の出力 original は直す前の文字なので、**戻した D は数えられない**(注意に出す)
 - C(余分の掃除)は文書の記録だけ: 最初の認識の記録 recognition.runs[].fill の dup(末尾の重複を捨てた)・diarization.fillDropped(定型の幻覚で捨てた)
@@ -36,6 +38,7 @@ import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所�
 from _evalcommon import rate, read_json  # noqa: E402
 
 SCHEMA = "youtube-tools-fill-eval/v1"
+LLM_SCHEMA = "youtube-tools-llm/v1"   # 編集の <id>.llm.json(src/editor/ed_llm.py の LLM_SCHEMA)
 FEW_ROWS = 30                      # 判定できた A の行がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = 64 * 1024 * 1024
 MAX_EDIT_CHARS = 400               # 編集距離を測る文字の上限(長い行は測らない)
@@ -172,8 +175,28 @@ def finish(agg):
     return agg
 
 
-def judge_doc(doc, raw, since_ms=None, until_ms=None):
-    """1 本の文書 -> {"a": A の集計, "d": D の数, "c": C の数, "rerun": 再認識あり}(A は時期の中の行だけ)"""
+def judge_llm_item(it, seg):
+    """E(LLM が直した行)の 1 件を分ける: 消した(同じ時間の行が無い)・戻した(人の最終が直す前の行のまま)・残した / 未確認(直した文字が残っている。校正済みかで分ける)・直した(それ以外)"""
+    if seg is None:
+        return "deleted"
+    final, to = fold(seg.get("text")), fold(it.get("to"))
+    if final == fold(it.get("text")):
+        return "reverted"
+    if to and to in final:
+        return "kept" if seg.get("proofed") else "unchecked"
+    return "edited"
+
+
+def llm_applied(llm_doc):
+    """<id>.llm.json(schema youtube-tools-llm/v1)の当てた案(rejected が None・時刻がある)-> [案]"""
+    if not isinstance(llm_doc, dict) or llm_doc.get("schema") != LLM_SCHEMA:
+        return []
+    return [it for it in rows_of(llm_doc.get("items")) if it.get("rejected") is None and isinstance(it.get("to"), str)]
+
+
+def judge_doc(doc, raw, since_ms=None, until_ms=None, llm_items=None):
+    """1 本の文書 -> {"a": A の集計, "e": E(LLM)の集計, "d": D の数, "c": C の数, "rerun": 再認識あり}(A・E は時期の中の行だけ)。
+    llm_items = <id>.llm.json の当てた案(llm_applied)"""
     segs = rows_of(doc.get("segments"))
     first, rerun = first_run(doc)
     fill_rec = first.get("fill") if first and isinstance(first.get("fill"), dict) else {}
@@ -182,11 +205,16 @@ def judge_doc(doc, raw, since_ms=None, until_ms=None):
            "c": {"dup": int(fill_rec.get("dup") or 0), "dropped": int(diar.get("fillDropped") or 0)},
            "d": {"rows": 0, "proofed": 0, "retyped": 0}}
     for s in segs:
-        if NAME_FLAG in str(s.get("flag") or ""):
+        f = s.get("fill") if isinstance(s.get("fill"), dict) else {}
+        if NAME_FLAG in str(s.get("flag") or "") and f.get("by") != "llm":   # LLM の印も同じ頭(画面の「戻す」の規則)なので by で分ける = E で数える
             out["d"]["rows"] += 1
             out["d"]["proofed"] += 1 if s.get("proofed") else 0
-            f = s.get("fill") if isinstance(s.get("fill"), dict) else {}
             out["d"]["retyped"] += 1 if f and fold(s.get("text")) == fold(f.get("from")) else 0
+    out["e"] = empty_agg()
+    for it in llm_items or []:
+        seg = match_seg(segs, it)
+        if C.in_period(row_time(seg, doc), since_ms, until_ms):
+            add_kind(out["e"], judge_llm_item(it, seg), None)
     if rerun:
         return out
     for o in rows_of(doc.get("original")):
@@ -210,7 +238,8 @@ def iter_docs(tdir):
         if not DOC_RE.match(name):
             continue
         doc = read_json(os.path.join(tdir, name), None, MAX_DOC_BYTES)
-        if not isinstance(doc, dict) or doc.get("evalSet") or not (doc.get("params") or {}).get("autoFill"):
+        params = doc.get("params") if isinstance(doc, dict) and isinstance(doc.get("params"), dict) else {}
+        if not isinstance(doc, dict) or doc.get("evalSet") or not (params.get("autoFill") or params.get("autoLlm")):
             continue
         yield name[:-5], doc
 
@@ -220,15 +249,20 @@ def evaluate(data_dir=None, since=None, until=None):
     root = C.locate("transcribe", data_dir)
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
-    total, per_doc = empty_agg(), []
+    total, per_doc, e_tot = empty_agg(), [], empty_agg()
     d_tot, c_tot = {"rows": 0, "proofed": 0, "retyped": 0}, {"dup": 0, "dropped": 0}
     docs = rerun_docs = 0
     for tid, doc in iter_docs(tdir):
         docs += 1
         asr = read_json(os.path.join(tdir, tid + ".asr.json"), None, MAX_DOC_BYTES)
         raw = rows_of(asr.get("segments")) if isinstance(asr, dict) else []
-        r = judge_doc(doc, raw, since_ms, until_ms)
+        items = llm_applied(read_json(os.path.join(tdir, tid + ".llm.json"), None, MAX_DOC_BYTES))
+        r = judge_doc(doc, raw, since_ms, until_ms, items)
         rerun_docs += 1 if r["rerun"] else 0
+        if r["e"]["rows"]:
+            e_tot["docs"] += 1
+            for k in KINDS + ("rows",):
+                e_tot[k] += r["e"][k]
         for k in d_tot:
             d_tot[k] += r["d"][k]
         for k in c_tot:
@@ -244,7 +278,7 @@ def evaluate(data_dir=None, since=None, until=None):
             per_doc.append({"id": tid, "title": str(doc.get("title") or "")[:60], **finish(a)})
     per_doc.sort(key=lambda x: (x["keptRate"] if x["keptRate"] is not None else 2, -x["rows"]))
     return {"schema": SCHEMA, "rev": C.git_rev(), "period": C.period_label(since, until), "root": root,
-            "docs": docs, "rerunDocs": rerun_docs, "a": finish(total), "d": d_tot, "c": c_tot, "perDoc": per_doc[:10], "notes": NOTES}
+            "docs": docs, "rerunDocs": rerun_docs, "a": finish(total), "e": finish(e_tot), "d": d_tot, "c": c_tot, "perDoc": per_doc[:10], "notes": NOTES}
 
 
 def print_report(res):
@@ -257,6 +291,9 @@ def print_report(res):
     cl = a["closer"]
     if a["edited"]:
         print("  直した行で人の最終が近かった方: 別の読み %d・whisper %d・同じ %d" % (cl["fill"], cl["whisper"], cl["same"]))
+    e = res["e"]
+    print("E LLM が名簿の呼び名に直した行: %d 行(%d 本)・判定できた %d 行%s  残した %d・直した %d・戻した %d・消した %d・未確認 %d" % (
+        e["rows"], e["docs"], e["judged"], "  ※まだ少ない(参考)" if e["few"] else "", e["kept"], e["edited"], e["reverted"], e["deleted"], e["unchecked"]))
     d = res["d"]
     print("D 名簿の呼び名に直した行(印が残っているもの): %d 行・校正済み %d・whisper の文字に打ち直した %d" % (d["rows"], d["proofed"], d["retyped"]))
     print("C 余分の掃除(記録): 末尾の重複 %d 行・定型の幻覚 %d 行" % (res["c"]["dup"], res["c"]["dropped"]))

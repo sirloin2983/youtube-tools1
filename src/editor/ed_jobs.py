@@ -28,6 +28,7 @@ from ytt_core import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools 
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
+import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
 import ed_learn  # noqa: E402,F401
@@ -629,6 +630,8 @@ def validate_job(req):
             "autoYtcap": pref("autoYtcap") and not ev,
             # 認識のあとの後処理(ed_fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
             "autoFill": pref("autoFill", default_on=True) and not ev,
+            # LLM の後処理(ed_llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
+            "autoLlm": pref("autoLlm", default_on=True) and not ev,
             # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(ed_speakers.autodiar_after_transcribe)
             "autoDiarize": pref("autoDiarize"),
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
@@ -2103,9 +2106,14 @@ def run_job(job):
         if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
             fill_rec["agree"] = ed_fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
         check_cancel(job)
+        # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
+        llm_rec, llm_items = ed_llm.llm_after_doc(job, spec, out["segs"])
+        check_cancel(job)
         fields = _doc_fields(job, spec, out, total, t_rec, pairs)
         if fill_rec:
             fields["recognition"]["runs"][-1]["fill"] = fill_rec   # 後処理の記録(読んだ窓・置き換えた行・捨てた行・直した呼び名)
+        if llm_rec:
+            fields["recognition"]["runs"][-1]["llm"] = llm_rec   # LLM の後処理の記録(選んだ所・案・当てた数・断った理由)
         if spec.get("evalRedo"):
             # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認 2026-10-04)。
             # 認識の間に手が入っていたら書かない(新しい文書も作らない)
@@ -2131,6 +2139,8 @@ def run_job(job):
             write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
         except (OSError, TypeError, ValueError) as e:
             ed_state.log.warning("生出力を保存できませんでした: %s %s", tid, e)
+        if llm_items:
+            ed_llm.llm_write(tid, llm_rec, llm_items)   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
         ed_relink.norm_after_transcribe(job, spec, tid)
@@ -2183,7 +2193,7 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
               "autoDict": bool(spec.get("autoDict")), "dictApplied": out["dictApplied"], "wordSplit": bool(spec.get("wordSplit")),
               "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
               "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
-              "context": context_record(spec), "autoFill": bool(spec.get("autoFill"))}
+              "context": context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm"))}
     fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
               "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,
               "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec, pairs)]}}

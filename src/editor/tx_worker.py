@@ -15,6 +15,7 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
         engine = 認識エンジン(tx_engines.py の名前。無ければ faster-whisper。計画 段2-1)
         {"rid": 3, "op": "diarize", "wav": パス, "num": 0, "emb": "voxceleb"}   (任意で "threshold"・"minOn"・"minOff" = 判別の設定を変えて測るとき)
         {"rid": 4, "op": "embed", "wav": パス, "emb": "voxceleb", "groups": [[[開始, 終了], ...], ...]}   声の特徴(A-3。音声の先頭からの秒)
+        {"rid": 5, "op": "complete", "name": "qwen3-8b", "device": "vulkan", "engine": "llama-text", "messages": [...], "max_tokens": 400}   文字の LLM(P18。結果 {"content"})
         {"op": "cancel", "rid": 2}   /   {"op": "quit"}
   応答  {"rid", "ev": "set", "k": "phase"|"state"|"device"|"progress", "v"}   途中経過(サーバーのジョブに写す)
         {"rid", "ev": "item", "v": 行}                                          認識した1行(transcribe)
@@ -198,6 +199,7 @@ def install_fakes(S):
     E.WhisperCpp.COMMAND = [sys.executable, os.path.join(HERE, "tests", "fake_whisper_cli.py")]
     E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
     E.SenseVoice.FAKE_TEXT = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 2 つ目の読み(ed_fill)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
+    E.LlamaText.FAKE_REPLY = os.environ.get("TRANSCRIBE_FAKE_LLM", "")   # 文字の LLM(ed_llm)は環境変数の文字をそのまま答える(server を起動しない)
 
 
 # ---------------------------------------------------------------- 本体
@@ -252,7 +254,27 @@ def _op_embed(S, m, rid, job, out, cancels):
     return S._embed_local(job, str(m.get("wav")), str(m.get("emb") or S.DIAR_EMB_DEFAULT), groups)
 
 
-OPS = {"load": _op_load, "transcribe": _op_transcribe, "diarize": _op_diarize, "embed": _op_embed}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
+def _op_complete(S, m, rid, job, out, cancels):
+    """文字の LLM に聞く(LLM の後処理 = ed_llm)。messages = [{"role", "content": 文字}](40 件・1 件 8000 字まで)-> {"content": 答え}"""
+    name, dev, eng = str(m.get("name")), str(m.get("device") or "vulkan"), _engine(S, m)
+    if eng != S.tx_engines.LlamaText.id:
+        raise S.ApiError("bad_engine", "文字の問い合わせは文字の LLM だけです", 400)
+    msgs = m.get("messages")
+    if not isinstance(msgs, list) or not 0 < len(msgs) <= 40 or not all(
+            isinstance(x, dict) and x.get("role") in ("system", "user", "assistant") and isinstance(x.get("content"), str) and len(x["content"]) <= 8000 for x in msgs):
+        raise S.ApiError("bad_request", "問い合わせの形が違います", 400)
+    with S._model_lock:
+        model = S._models.get((name, dev, eng))
+    if model is None:   # 読み込んだあとに手放された → 同じ機器で読み直す
+        model, dev = S._load_model_local(name, job, dev, False, eng)
+    model.hooks = {"cancelled": lambda: rid in cancels}
+    content = model.complete([{"role": x["role"], "content": x["content"]} for x in msgs], max(1, min(2000, int(m.get("max_tokens") or 400))))
+    S._model_used[0] = time.time()
+    return {"content": content}
+
+
+OPS = {"load": _op_load, "transcribe": _op_transcribe, "diarize": _op_diarize, "embed": _op_embed,
+       "complete": _op_complete}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
 
 
 def handle(S, m, out, cancels):

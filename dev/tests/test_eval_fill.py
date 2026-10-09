@@ -139,6 +139,27 @@ class EvalFillTest(unittest.TestCase):
         self.assertEqual(res["c"], {"dup": 2, "dropped": 3})
         self.assertEqual(res["a"]["rows"], 0)   # 確信度のある行は A に数えない
 
+    def test_llm_rows(self):
+        """E: <id>.llm.json の当てた案を今の行と突き合わせる。LLM の印は D に数えない"""
+        e = self.env
+        llm_flag = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"
+        segs = [seg(1, 0, 2, "みこちゃん来た", proofed=True, fill_from="メコちゃん来た", flag=llm_flag),   # 残した
+                seg(2, 2, 4, "メコちゃん来た", proofed=True),                                            # 戻した(札で戻した = 印なし)
+                seg(3, 4, 6, "みこちゃん来た", fill_from="メコちゃん来た", flag=llm_flag),                # 未確認
+                seg(4, 8, 10, "みこち来た", proofed=True)]                                               # 直した(6〜8 の行は消した)
+        for s in segs[:1] + segs[2:3]:
+            s["fill"]["by"] = "llm"
+        orig = [machine(i * 2, i * 2 + 2, "メコちゃん来た") for i in range(5)]
+        e.doc("abcdefabcde1", segs, orig, auto_fill=False, params={"autoLlm": True})
+        items = [{"row": i, "start": i * 2.0, "end": i * 2.0 + 2, "text": "メコちゃん来た", "from": "メコちゃん", "to": "みこちゃん", "confidence": 0.8, "rejected": None}
+                 for i in range(5)] + [{"row": 0, "start": 0, "end": 2, "text": "x", "from": "a", "to": "b", "rejected": "length"}]
+        with open(os.path.join(e.tdir, "abcdefabcde1.llm.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": "youtube-tools-llm/v1", "items": items}, f, ensure_ascii=False)
+        res = self.run_eval()
+        x = res["e"]
+        self.assertEqual((x["kept"], x["reverted"], x["unchecked"], x["deleted"], x["edited"]), (1, 1, 1, 1, 1))
+        self.assertEqual(res["d"]["rows"], 0)   # LLM の印は D に混ぜない
+
     def test_period_uses_proofed_at(self):
         e = self.env
         orig = [machine(0, 2, "あいうえ", filled=True), machine(2, 4, "かきくけ", filled=True)]

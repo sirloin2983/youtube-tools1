@@ -103,10 +103,11 @@ import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの�
 import ed_ytcap  # noqa: E402,F401  (元の配信の YouTube の字幕との食い違いの候補。案 A1)
 import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補。2026-10-05)
 import ed_fill  # noqa: E402,F401  (認識のあとの後処理 A・C・D = 文字の少ない行を別の読みで埋める・定型の幻覚と重複の掃除・名簿の呼び名の 1 字違い。10-08 の実験ループ。0.60.0)
+import ed_llm  # noqa: E402,F401  (LLM の後処理 E = 名簿の呼び名の聞き違いらしい所だけを文字の LLM で直す。提案 P18。0.61.0)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.60.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.61.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -116,6 +117,7 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 _ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
 _ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
+_ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -587,7 +589,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.unlink(ed_store.tx_path(tid))
                 for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid),
                               ed_jobs.asr_path(tid), ed_speakers.diar_path(tid),
-                              ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕の結果も一緒に
+                              ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), ed_llm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

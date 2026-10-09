@@ -1,6 +1,6 @@
 # LLM の後処理(提案 P18 の設計)+ P28 の訂正
 
-状態: **先に測った = 採用の条件は満たした・編集への組み込みはまだ**(2026-10-09。測る道具 `dev/eval_llm.py`・結果は 8。組み込みは並行セッションの src/editor の見直しがコミットされてから。設計の案は 2026-10-08)
+状態: **組み込んだ(2026-10-09。編集 0.61.0 = `src/editor/ed_llm.py`・9)**。測る道具 `dev/eval_llm.py`・測った結果は 8。残り: ⚙ のチェック(S3 のあと)・普段の校正での様子見(`dev/eval_fill.py` の E)。設計の案は 2026-10-08
 
 - 経緯: `plan/proposals-2026-10.md` の P18(「LLM での書き直し」の再提案)。10-08 に効いた後処理 D(名簿の表記ゆれ直し)の一般化として、**疑わしい箇所だけ**をローカル LLM に直させる
 - 関連: 後処理 A・C・D の作り(`src/editor/ed_fill.py`・`ed_jobs.py`)、2 つ目のエンジン(`tx_engines.py` の `LlamaQwen3`)、守り 4 つ(`plan/decisions.md` 10-08)、サムネの案(`plan/thumb-ideas.md`。LLM の実行部品を共有)
@@ -74,3 +74,9 @@
   1. 組み込むときの選び方は**名前の手がかりだけ**(名簿の呼び名に 1 字違い・誤りやすい形)。確信度の低い語は外れが多いので入れない
   2. 組み込むときの既定は**オン**(10-08 の「守りを付けて先に入れて様子見」: 印 `fill.by = "llm"`・札で戻せる・スイッチ `autoLlm` 1 つ・評価用には当てない・生の提案 `<id>.llm.json` を残す)。普段の校正で K1(`dev/eval_fill.py`)に LLM の分も数えて様子を見る
   3. 組み込み(5 の ed_llm.py ほか)は、並行セッション「ツール全体のコード修正」の src/editor の見直しがコミットされてから(同じファイルを触るため)
+
+## 9. 組み込み(2026-10-09。編集 0.61.0)
+- 作り: `src/editor/ed_llm.py`(規則 `llm_pick`〜`llm_run` は編集のほかの部品を読まない = `dev/eval_llm.py` も同じ規則を使う)・`tx_engines.LlamaText`(`LlamaQwen3` の子。`LLAMA_TEXT_MODELS`・`models/llm-gguf/`・mmproj なし・light)・ワーカーの op `complete`・`ed_jobs.run_job` の後処理 D のあと・記録 `recognition.runs[].llm` と `<id>.llm.json`・`ed_learn.learn_events` は後処理の行(fill)を含むまとまりを材料にしない
+- 5 の案から変えた所: 選び方は名前の手がかりだけ(8 の測定)。出る人は題名・動画のパスに加えて `stream_context`(チャンネル名・コラボ相手・動画のフォルダ)から(文字起こしの時点では話者がまだいない。話者の名前だけで決まる評価用の文書(雪花ラミィ)は本番では選ばれない)。印 `LLM_FLAG` の頭を `FILL_NAME_FLAG` と同じ「名簿の呼び名に直した」にした(画面の「戻す」= app.js を変えずに外れる。app.js は並行セッションの S3 が触るため)。⚙ のチェックは S3 のあと(それまでは設定ファイルの autoLlm)
+- 確かめたこと: 編集のサーバー側のテスト 597 件・新しい `tests/test_llm.py` 13 件・`e2e_fill`・`e2e_ui_mounted`(認識ワーカーを通る)・lint 0。本物の LLM で、本番と同じ読み込みの道(load_model → LlamaText → complete)を評価用の 1 本(783157af3200)の行の写しに当てて「メコちゃん」→「みこちゃん」(8 秒・モデルの読み込み込み)
+- 様子見: `dev/eval_fill.py` の E(LLM が直した行を、人が残した・直した・戻した・消した・未確認で数える。`<id>.llm.json` の案に行の時刻を残す)

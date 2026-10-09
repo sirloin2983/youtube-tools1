@@ -821,6 +821,12 @@ LLAMA_MODELS = {   # 2026-10-02 に Hugging Face の API で大きさと SHA-256
                                   "sha256": "46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d"}},
 }
 LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
+# 文字の LLM(提案 P18 の LLM の後処理 = ed_llm。2026-10-09 に Hugging Face の API で大きさと SHA-256 を確かめた・Apache-2.0)。
+# 同じ llama-server を mmproj なしで起動する(tx_engines.LlamaText)。置き場所は作業データの models/llm-gguf/(Qwen3-ASR の qwen3asr-gguf にそろえた)
+LLAMA_TEXT_MODELS = {
+    "qwen3-8b": {"model": {"file": "Qwen3-8B-Q4_K_M.gguf", "size": 5027783488, "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+                           "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf"}},
+}
 # ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(ed_fill。10-08 の実験ループの A・D。編集 0.60.0) ----------
 # モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2026-10-08 に確かめた。2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力)。
 # ライセンス: FunASR MODEL_LICENSE(商用可・出典とモデル名の表示)。トークンごとの時刻が出るので、SV_GAP 秒以上の間・文末・SV_MAX_CHARS で行にする(終わりは目安)
@@ -953,10 +959,6 @@ def llama_bin_dir(data_dir):
     return os.path.join(data_dir, "bin", "llama.cpp-%s-vulkan" % LLAMA_CPP["version"])
 
 
-def llama_model_dir(data_dir):
-    return os.path.join(data_dir, "models", "qwen3asr-gguf")
-
-
 def _safe_unzip(zip_path, folder):
     """zip を folder に展開する(絶対パス・.. を含む名前があれば展開しない)"""
     import zipfile
@@ -995,6 +997,8 @@ class LlamaQwen3(_Qwen3Chunked):
     DEFAULT_MODEL = "qwen3-asr-1.7b"
     WHAT = "llama.cpp"
     COMMAND = None   # テスト用: 偽の server に差し替える
+    MODELS = LLAMA_MODELS          # モデルの表(子クラス LlamaText は文字の LLM の表)
+    MODEL_SUBDIR = "qwen3asr-gguf"  # 作業データの models/ の下の置き場所
 
     @classmethod
     def device_order(cls, pref, cuda_ok):
@@ -1002,7 +1006,7 @@ class LlamaQwen3(_Qwen3Chunked):
 
     @classmethod
     def valid_model(cls, name):
-        return name in LLAMA_MODELS
+        return name in cls.MODELS
 
     @classmethod
     def version(cls, data_dir=None):
@@ -1010,9 +1014,9 @@ class LlamaQwen3(_Qwen3Chunked):
 
     @classmethod
     def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
-        spec = LLAMA_MODELS.get(name)
+        spec = cls.MODELS.get(name)
         if spec is None:
-            raise EngineError("bad_model", "llama.cpp で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(LLAMA_MODELS)), 400)
+            raise EngineError("bad_model", "llama.cpp で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(cls.MODELS)), 400)
         hooks = hooks or {}
         bdir = llama_bin_dir(data_dir)
         if not cls.COMMAND and not os.path.isfile(os.path.join(bdir, LLAMA_EXE)):
@@ -1020,9 +1024,9 @@ class LlamaQwen3(_Qwen3Chunked):
             os.makedirs(bdir, exist_ok=True)
             _safe_unzip(z, bdir)
             _fsio.unlink_quiet(z)
-        mdir = llama_model_dir(data_dir)
+        mdir = os.path.join(data_dir, "models", cls.MODEL_SUBDIR)
         model = fetch_file(spec["model"], mdir, log, hooks.get("cancelled"), hooks.get("download"))
-        mmproj = fetch_file(spec["mmproj"], mdir, log, hooks.get("cancelled"))
+        mmproj = fetch_file(spec["mmproj"], mdir, log, hooks.get("cancelled")) if "mmproj" in spec else None   # 文字の LLM は音声の部品(mmproj)なし
         e = cls(name, device, {"cmd": list(cls.COMMAND) if cls.COMMAND else [os.path.join(bdir, LLAMA_EXE)], "model": model, "mmproj": mmproj})
         e.proc = e.job = e.errlog = None
         e.gpu_name = ""
@@ -1046,7 +1050,8 @@ class LlamaQwen3(_Qwen3Chunked):
         self.port = s.getsockname()[1]
         s.close()
         self.key = secrets.token_hex(16)
-        args = ["-m", self.model["model"], "--mmproj", self.model["mmproj"], "--host", "127.0.0.1", "--port", str(self.port),
+        args = ["-m", self.model["model"]] + (["--mmproj", self.model["mmproj"]] if self.model.get("mmproj") else []) + [
+                "--host", "127.0.0.1", "--port", str(self.port),
                 "--api-key", self.key, "--no-webui", "-c", "4096", "-np", "1", "-t", str(LLAMA_THREADS), "-tb", str(LLAMA_THREADS),
                 "-ngl", "0" if self.device == "cpu" else "99", "-lv", "4"]   # -lv 4: GPU に載ったかの行(offloaded n/m layers to GPU)を記録に出す
         self.errlog = tempfile.NamedTemporaryFile(prefix="llama-server-", suffix=".log", delete=False)
@@ -1131,35 +1136,32 @@ class LlamaQwen3(_Qwen3Chunked):
         except Exception:
             pass
 
-    def _decode(self, samples, lang, hot, max_tokens):
-        """区切り1つを認識する。server が落ちていたら(この PC では長い測定の途中で落ちた。2026-10-02)起動し直して1回だけやり直す"""
+    def _retry(self, fn):
+        """fn() を呼ぶ。server が落ちていたら(この PC では長い測定の途中で落ちた。2026-10-02)起動し直して1回だけやり直す"""
         try:
-            return self._ask(samples, lang, hot, max_tokens)
+            return fn()
         except EngineError as e:
             if e.code != "server_down":
                 raise
             self._start(self.hooks.get("cancelled"))
             try:
-                return self._ask(samples, lang, hot, max_tokens)
+                return fn()
             except EngineError as e2:
                 if e2.code == "server_down":
                     raise EngineError("engine_failed", e2.message)
                 raise
 
-    def _ask(self, samples, lang, hot, max_tokens):
-        import base64
+    def _decode(self, samples, lang, hot, max_tokens):
+        """区切り1つを認識する(server が落ちていたら 1 回だけ起動し直す)"""
+        return self._retry(lambda: self._ask(samples, lang, hot, max_tokens))
+
+    def _chat(self, payload):
+        """/v1/chat/completions に payload を送る -> 答えの文字(content)。毎回の合言葉を付ける"""
         import urllib.error
         import urllib.request
         if self.proc is None or self.proc.poll() is not None:
             raise EngineError("server_down", "llama-server が止まっています: %s" % self._log_tail())
-        msgs = []
-        if hot:
-            msgs.append({"role": "system", "content": hot.replace(",", "、")})
-        msgs.append({"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": base64.b64encode(_wav_bytes(samples)).decode("ascii"), "format": "wav"}}]})
-        if lang:
-            msgs.append({"role": "assistant", "content": "language %s%s" % (lang, _ASR_TEXT)})   # 言語を先に書いておく(自動の判定で中国語にならないように)
-        body = json.dumps({"messages": msgs, "temperature": 0, "max_tokens": int(max_tokens), "cache_prompt": False}).encode("utf-8")
-        req = urllib.request.Request("http://127.0.0.1:%d/v1/chat/completions" % self.port, body,
+        req = urllib.request.Request("http://127.0.0.1:%d/v1/chat/completions" % self.port, json.dumps(payload).encode("utf-8"),
                                      {"Content-Type": "application/json", "Authorization": "Bearer " + self.key})
         try:
             with urllib.request.urlopen(req, timeout=300) as r:
@@ -1169,11 +1171,56 @@ class LlamaQwen3(_Qwen3Chunked):
         except OSError as e:
             code = "server_down" if self.proc is None or self.proc.poll() is not None or isinstance(e, ConnectionError) else "engine_failed"
             raise EngineError(code, "llama-server に届きませんでした: %s / %s" % (str(e)[:120], self._log_tail()))
-        content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-        return q3_parse(content)[1]
+        return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+
+    def _ask(self, samples, lang, hot, max_tokens):
+        import base64
+        msgs = []
+        if hot:
+            msgs.append({"role": "system", "content": hot.replace(",", "、")})
+        msgs.append({"role": "user", "content": [{"type": "input_audio", "input_audio": {"data": base64.b64encode(_wav_bytes(samples)).decode("ascii"), "format": "wav"}}]})
+        if lang:
+            msgs.append({"role": "assistant", "content": "language %s%s" % (lang, _ASR_TEXT)})   # 言語を先に書いておく(自動の判定で中国語にならないように)
+        return q3_parse(self._chat({"messages": msgs, "temperature": 0, "max_tokens": int(max_tokens), "cache_prompt": False}))[1]
 
 
-ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, Qwen3Asr.id: Qwen3Asr, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice}
+class LlamaText(LlamaQwen3):
+    """文字の LLM(Qwen3-8B Q4_K_M)を同じ llama-server(Vulkan)で。LLM の後処理(提案 P18 = ed_llm)が complete() で聞く。音声は認識しない。
+    主の認識のモデルと一緒に持つ(light)= 認識のたびに読み直さない(VRAM 16GB に large-v3 と合わせて約 8GB)。使わなければ認識ワーカーのアイドル終了で手放す。
+    FAKE_REPLY(テスト用)が文字列なら、server を起動せずにその文字を答える(tx_worker.install_fakes が環境変数 TRANSCRIBE_FAKE_LLM から入れる)"""
+    id = "llama-text"
+    DEFAULT_MODEL = "qwen3-8b"
+    WHAT = "llama.cpp(文字の LLM)"
+    MODELS = LLAMA_TEXT_MODELS
+    MODEL_SUBDIR = "llm-gguf"
+    PARAMS = []
+    light = True
+    FAKE_REPLY = None
+
+    @classmethod
+    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+        if cls.FAKE_REPLY is not None:
+            if name not in cls.MODELS:
+                raise EngineError("bad_model", "文字の LLM で使えないモデルです: %s" % str(name)[:40], 400)
+            e = cls(name, device, {"fake": cls.FAKE_REPLY})
+            e.proc = e.job = e.errlog = None
+            return e
+        return super().create(name, device, compute_type, log, data_dir, hooks)
+
+    def transcribe(self, audio, **kw):
+        raise EngineError("bad_engine", "文字の LLM は音声を認識しません", 400)
+
+    def complete(self, messages, max_tokens=400):
+        """chat の messages -> 答えの文字(温度 0・思考オフ。server が落ちていたら 1 回だけ起動し直す)"""
+        if "fake" in self.model:
+            return self.model["fake"]
+        payload = {"messages": messages, "temperature": 0, "max_tokens": int(max_tokens), "cache_prompt": False,
+                   "chat_template_kwargs": {"enable_thinking": False}}
+        return self._retry(lambda: self._chat(payload))
+
+
+ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, Qwen3Asr.id: Qwen3Asr, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
+           LlamaText.id: LlamaText}
 
 
 def get(engine_id):

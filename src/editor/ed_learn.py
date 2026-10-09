@@ -308,6 +308,8 @@ def learn_events(doc):
     for go, ge in _groups(orig, segs):
         if not go or not ge:
             continue   # 片方にしかない(行の追加・削除)は、置換ではないので対象外
+        if any(isinstance(segs[j].get("fill"), dict) for j in ge):
+            continue   # 後処理(ed_fill の A・D・ed_llm)が直した行は機械の直し。「人の直し」として覚えると自己強化になる(plan/llm-postfix.md の 3)
         a, b = _norm(orig, go), _norm(segs, ge)
         if a == b or len(a) > 600 or len(b) > 600:
             continue

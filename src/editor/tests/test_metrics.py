@@ -911,6 +911,7 @@ from test_records import *  # noqa: E402,F401,F403   記録の土台(マスタ�
 from test_drill import *  # noqa: E402,F401,F403   評価ドリルと定点の「あと何分」(マスタープラン Q4(c)。ed_drill.py)
 from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。ed_alt.py)
 from test_fill import *  # noqa: E402,F401,F403   認識のあとの後処理 A・C・D(10-08 の実験ループ。ed_fill.py。0.60.0)
+from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18。ed_llm.py・tx_engines.LlamaText・ワーカーの op complete。0.61.0)
 from test_ytcap import *  # noqa: E402,F401,F403   元の配信の YouTube の字幕との食い違いの候補(案 A1。ed_ytcap.py)
 from test_autodiar import *  # noqa: E402,F401,F403   文字起こしのあとの話者の自動判別(評価用は常に・設定 autoDiarize。v0.50.0)
 from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習・保管(ed_learn.py)

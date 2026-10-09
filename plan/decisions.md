@@ -377,3 +377,6 @@
 - (fn) 各担当が「動きが変わる・見送り」と報告した指摘(資料 6 節の一部)はコードを変えていない。次の周の候補: 入口の autorun が同じ動画を 2 回 ffprobe(deliver に 1 回で求める関数が要る)・`normalize` の公開の run_with_legacy / verify・`existing_parent`・`runtime.safe_stdio` / `install_stop_signals`・ツールの表の残りの写し(studio/serve.py・handoff.py・editor/ed_state.py・serve.py・pipeline_io.py の APP_ID / TOOL の name → `runtime.TOOL_APPS`)・`prefs.py` と `live.py` の録画元の id の形の写し → `recproto.RECORDER_ID_RE`
 - (fo) ui-kit v24 の `UIKit.http` は、時間切れを code `'timeout'`、つながらないときを `'network'`、取り消しを `'abort'` で返す(以前は時間切れも `'network'`。`'network'` を見ている所は cut2resolve の待ちだけで、動きは同じ)。JSON でない成功の応答は `{}`(以前は null。サーバーはいつも JSON を返すので起きない)
 
+- (fp) P18 の出る人(名簿のどの人の呼び名を探すか)は、題名・動画のパスに加えて配信ごとの文脈(`ed_jobs.stream_context` = チャンネル名・コラボ相手・動画のフォルダ)からも決める(文字起こしの時点では話者がいないため。測る道具は文書の話者の名前も使っていた)
+- (fq) P18 の ⚙ のチェック(autoLlm)は、並行セッションの S3(編集の画面の設定)のコミットのあとに足す。それまでは設定ファイルの autoLlm(既定オン)で切り替える。LLM の印の頭を後処理 D と同じ「名簿の呼び名に直した」にして、画面の「戻す」の処理(app.js)を変えずに済ませた
+- (fr) 学習(置換の候補)は、後処理 A・D・LLM が直した行(fill)を含むまとまりを材料にしない(計画の llm-postfix の 3。A の行も外すので、別の読みで埋めた行を人が直した分は学習に入らなくなる)
