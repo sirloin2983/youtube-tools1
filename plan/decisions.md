@@ -483,3 +483,18 @@
 - RS2-9-e 仮: ed_retime は計算(`pipeline/transcribe/retime.py`)と文書を読む包み(editor の `ed_retime.py`。層 human。RS3 で human/proof へ)に分けた。fill・llm は殻なしで移した。`alt_fold`・`env_off` は txbase、文書の形の小道具は `ytt/schemas`(ed_state・ed_alt に別名)
 - RS2-9-f 仮: 認識ワーカーはスクリプトのパスで起動のまま `pipeline/transcribe/worker.py` へ。旧い場所 `src/editor/tx_worker.py` に起動用の転送(起動中の古い入口用。RS5 で消す)。絶対 import は層の決まりの例外(スクリプトとして起動するため)。GPU の調べ(`setup_cuda_paths`・`cuda_count`・`cuda_libs_ok`・`_gpu_ready_local`)は `worker_client` へ
 - RS2-9-g 仮: 気づいたが直していない = `ed_state._probe_gpu` の判定が空白つきの文字で探していて常に偽(ワーカーの出力は空白なし)。画面の GPU 表示(`/api/tools` の cuda)が CUDA の GPU があっても偽になるだけ。この PC は AMD なので実害なし。直すなら 1 行
+
+### 3-25 役割で組み直す RS3・RS4 で決めてほしいこと(2026-10-10 朝。下調べ Sonnet 3 体 → Fable が突き合わせ。表と理由は `docs/design/rs3-rs4-survey-2026-10-10/plan_order.md`。**まだ確認していない**。「仮」= 仮で進めてよい(0A・0B は仮のまま実施して済み = 違反 49 → 25)/「確」= 確かめてから)
+- RS3-a 仮: 段の順 = 下ごしらえ(0A 編集の txenv を新しい ytt/workdata.py の変数に置き換えて消す・0B ホームの層の表と小さな継ぎ目)→ 設定の口と評価用の判定 → 波 1・波 2(RS3 が ed_learn・ed_relink・ed_misc を eval/ まで運ぶ)→ RS4 は ed_drill・ed_evalbatch の移動と ed_evalaudio の削除 → まとめ。違反 49 → 0。壁時計 2.5〜3 日
+- RS3-b 仮: txenv の置き換え先は新しい `ytt/workdata.py`(RS0-a の文言は ytt/settings だが、settings はホーム・スタジオも読む共有の部品なので書き換わる値を混ぜない)。評価用の判定は ytt/settings(RS0-f のとおり)
+- RS3-c 仮: 計画 7 節の表を直す = live.py・autorun.py は app に残す(友人の届けだけ human/friend へ)・live_failures と live_report は pipeline(計画は manage/ops・eval/tools)・demo_env は dev に残す(計画は eval/tools)。理由 = 本物の配信が動く玄関を割らない・失敗の文と配信の記録を書くのは ① の側・demo_env は入口を読む
+- RS3-d 仮: cases.py は丸ごと manage/cases・スタジオの store.py は丸ごと human/review(RS0-d)・handoff.py は割る・common.py は 7 つに分けて殻を残す。殻は ed_* と common に(RS5 で消す)、ed_drill・ed_evalbatch は殻なし。旧いパスの転送(runpy)= live_*_worker 3 つと dev/eval_* 13 本(起動中の古い入口用。RS5 で消す)
+- RS3-e 仮: 小さな動きの変化 = 編集の「pipeline_io.py が見つかりません」の警告が出なくなる(パッケージになるため)。GPU 表示の判定(_probe_gpu)は別の札で直す。死んだフック STUDIO_FAKE_CHAT_DELAY・YTT_RECORDER_SOURCE を消す(計画 9 節で決定済み)
+- RS3-f **確**: ed_evalaudio を消す(決定済みの念押し)= 起動 5 分後からの評価用の音声 flac 作りと /api/eval-audio が無くなる。実データ eval-audio/ とバックアップの指定は残す。動画が外付けに無いときの測定の保険は「保管」の dataset/docs/<id>/full.flac だけになる
+- RS3-g **確**: 設定の比較 A/B・修正データの書き出し・データの保管(dataset/。保存のたびに /api/archive)を使っているか → RS3・RS4 では移すだけ(消すなら別の段で画面と e2e も)
+- RS3-h **確**: 「確認してから届ける」= L1 友人アプリの ②③・L2 ライブの after(既定 check)・L3 手で届ける(編集の「友人へ届ける」・案件の「採用して届ける」)。推奨は RS3 では消さない → L1・L2 は RS5(アプリ更新と一緒に ① へ読み替え)・L3 は RS6(直したらその段からやり直す)のあと。アプリが ②③ を送ってきたときの扱い(① に読み替え / 断る)も
+- RS3-i **確**: 「あとから解析(測るため)」を消す時機 → RS4 で eval_marks に「未解析の友人の配信を解析する」口を足してから(今消すと友人の区間の材料が貯まらない)
+- RS3-j **確**: 「進行度を消す」(RS0-m)は RS3・RS4 の外の別の段(画面・API・e2e 3 本の変更を伴う)
+- RS3-k **確**: 道具のパスが `py -3.10 src/eval/tools/eval_asr.py …` に変わる(旧 dev/eval_*.py は RS5 まで転送で動く)。README の手打ちの 2 か所を直す
+- RS3-l **確**: 見積もりの直し = RS3 は 1 日 → 2〜2.5 日(編集 1.5〜2・ホームとスタジオ 1。並列込み)・RS4 は半日 → 1 日
+- RS3-m **確**: 入口を起動し直す時機(RS1・RS2 の本物の 1 本もまだ)。ライブの部品を移したあと(RS3-1)は、配信中に入口を落とさない
