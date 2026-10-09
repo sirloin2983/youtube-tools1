@@ -25,7 +25,7 @@ import os
 import re
 import unicodedata
 
-import ed_speakers  # noqa: E402,F401
+from pipeline.transcribe import diarize  # noqa: E402   話者判別の部品(sherpa-onnx)の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)
 from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
 from ytt import jobs as _heavy  # noqa: E402   取り消し Cancelled(RS2-8a。持ち主から直に読む)
 import ed_state  # noqa: E402,F401
@@ -297,7 +297,7 @@ def fill_reader(job, spec, wav):
     if ed_state.backend_name() == "fake":
         text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")
         return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
-    if not ed_speakers.has_sherpa():
+    if not diarize.has_sherpa():
         raise ed_state.ApiError("no_sherpa", "別の読み(SenseVoice)の部品 sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
     phase = job.get("phase")
     model, _dev = worker_client.load_model(FILL_MODEL, job, "cpu", engine=FILL_ENGINE)

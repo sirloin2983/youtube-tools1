@@ -15,7 +15,7 @@
                              numSpeakers 1 = 判別せず全部の行をその1人に / names = 出てくる人の名前(照らし合わせをこの名前だけに・1人だけ残れば消去法で付ける。友人からの依頼)
   GET  /api/voices           覚えている声の一覧(A-3。判別モデルごと。特徴そのものは返さない。generic = 一般的な名前)
   GET  /api/overlap-drafts?id=&kinds=overlap,missing  声があるのに行の無い所(重なり・抜け)の空の行の候補 {items, more, counts, reason, reasonCode, diarAt}(読むだけ。
-                             判別の記録 <id>.diar.json の latest から。行を足すのは画面。ed_speakers の ovdraft_)
+                             判別の記録 <id>.diar.json の latest から。行を足すのは画面。human/proof/speakers の ovdraft_)
   GET  /api/voices/preview   ?tid=&embedding= 覚える前の確認(読むだけ。覚える人・行・秒・既にある名前・断った名前・使わなかった行の数。段1)
   POST /api/voices/learn     {tid, embedding, names, confirmSame} 名前を付けた話者の声を覚えるジョブを追加(A-3。作業データの voices/ に保存。
                              校正済みの行だけ・評価用は断る・一般的な名前は覚えない・既にある名前は confirmSame に入れたときだけ足す。段1)
@@ -116,6 +116,8 @@ from pipeline.transcribe import worker_client as _txworker  # noqa: E402  (認�
 from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを ed_jobs から移した。RS2-7)
 from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・文書づくり・受付。RS2-8b に ed_jobs から移した。ed_jobs は転送だけの殻)
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
+from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
+from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目。RS2-9)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -126,7 +128,7 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
 _ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
 _ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
@@ -143,8 +145,8 @@ _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 # retry = [やり直す] で同じ指定のまま入れ直せる(文書を書き換える処理は、文書の画面のボタンから始め直す)
 _DOC_LOCK = ("diarize", "retranscribe", "redo", "voice-learn")
 _heavy_jobs.register("transcribe", lambda job: _docjobs.run_job(job), retry=True)
-_heavy_jobs.register("diarize", lambda job: ed_speakers.run_diarize(job), priority=0, exclusive=_DOC_LOCK, has_tid=True)
-_heavy_jobs.register("voice-learn", lambda job: ed_speakers.run_voice_learn(job), exclusive=_DOC_LOCK, has_tid=True)
+_heavy_jobs.register("diarize", lambda job: _speakers.run_diarize(job), priority=0, exclusive=_DOC_LOCK, has_tid=True)
+_heavy_jobs.register("voice-learn", lambda job: _speakers.run_voice_learn(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("retranscribe", lambda job: _rerun.run_retranscribe(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("redo", lambda job: _rerun.run_redo(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("abtest", lambda job: ed_misc.run_abtest(job), exclusive=("abtest",))
@@ -185,6 +187,10 @@ _docjobs.set_hooks(eval_guard=lambda path, is_eval: ed_relink.eval_name_guard(pa
                    redo_skip=lambda job: ed_evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: ed_evalbatch.eb_redo_fill(job, spec, fields),
                    norm_after=lambda job, spec, tid: ed_relink.norm_after_transcribe(job, spec, tid))
 _docjobs.check_hooks()
+# 話者の文書の側(human/proof/speakers)が使う評価用の文書の名前の候補(eval の ed_drill)。② から ④ を読まないための口(呼ぶたびに持ち主の属性を読む。RS2-9)
+_speakers.set_context_namer(lambda tid: ed_drill.drill_candidates(tid).get("suggest"))
+_speakers.check_context_namer()
+ed_speakers._add_moved(fake_asr)   # 旧い名前 ed_speakers.diarize_fake・embed_fake は ④ の疑似へ(殻は eval を読まない。RS2-9)
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
@@ -212,7 +218,7 @@ def _ping():
 
 def _tools_info():
     return {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
-            "backend": ed_state.backend_name(), "diarize": ed_speakers.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
+            "backend": ed_state.backend_name(), "diarize": _txdiarize.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
             "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **_txworker.engines_info()}
 
 
@@ -245,9 +251,9 @@ GET_API = {
     "/api/roster": lambda a: ed_learn.load_roster(),
     "/api/tools": lambda a: _tools_info(),
     "/api/marker": lambda a: ed_misc.read_marker(),
-    "/api/voices": lambda a: {"voices": ed_speakers.voices_summary(), "match": ed_speakers.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
-    "/api/overlap-drafts": lambda a: ed_speakers.ovdraft_for_doc(a("id"), a("kinds", None)),   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から)
-    "/api/voices/preview": lambda a: ed_speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
+    "/api/voices": lambda a: {"voices": _speakers.voices_summary(), "match": _txdiarize.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
+    "/api/overlap-drafts": lambda a: _speakers.ovdraft_for_doc(a("id"), a("kinds", None)),   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から)
+    "/api/voices/preview": lambda a: _speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
     "/api/transcribed-ranges": lambda a: {"items": ed_misc.transcribed_ranges()},
     "/api/jobs": lambda a: _jobs_list(),
     "/api/transcripts": lambda a: {"items": ed_store.list_transcripts()},
@@ -284,8 +290,8 @@ def _id_of(o):
 
 
 def _delete_voice(o):
-    ed_speakers.delete_voice(str(o.get("embedding") or ed_speakers.DIAR_EMB_DEFAULT), str(o.get("name") or "")[:60])
-    return {"ok": True, "voices": ed_speakers.voices_summary()}
+    _speakers.delete_voice(str(o.get("embedding") or _txdiarize.DIAR_EMB_DEFAULT), str(o.get("name") or "")[:60])
+    return {"ok": True, "voices": _speakers.voices_summary()}
 
 
 def _cancel(o):
@@ -296,9 +302,9 @@ def _cancel(o):
 # POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON(zip を返す 2 つは Handler の _export_corrections・_resolve_package)
 POST_API = {
     "/api/transcribe": lambda o: _job(_docjobs.validate_job(o)),
-    "/api/diarize": lambda o: _job(ed_speakers.validate_diarize(o), "diarize"),
-    "/api/voices/learn": lambda o: _job(ed_speakers.validate_voice_learn(o), "voice-learn"),   # A-3: 名前を付けた話者の声を覚える(ジョブ)
-    "/api/speakers/sub": lambda o: ed_speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
+    "/api/diarize": lambda o: _job(_speakers.validate_diarize(o), "diarize"),
+    "/api/voices/learn": lambda o: _job(_speakers.validate_voice_learn(o), "voice-learn"),   # A-3: 名前を付けた話者の声を覚える(ジョブ)
+    "/api/speakers/sub": lambda o: _speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
     "/api/voices/delete": _delete_voice,
     "/api/retranscribe": lambda o: _job(_docjobs.validate_retranscribe(o), "retranscribe"),
     "/api/redo": lambda o: _job(_docjobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
@@ -615,7 +621,7 @@ class Handler(BaseHTTPRequestHandler):
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
                 for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
-                              _txrecords.asr_path(tid), ed_speakers.diar_path(tid),
+                              _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
                               ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), ed_llm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
                     try:
                         os.unlink(extra)

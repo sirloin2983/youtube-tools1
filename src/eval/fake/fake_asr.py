@@ -5,14 +5,14 @@
 (`backend.set_selector`。ed_state.backend_name() が "fake" のとき FAKE)。
 `transcribe_fake`・`_fake_spans` は今までどおり ed_jobs.名前 / S.名前 でも読める(serve が ed_jobs の転送にこのモジュールを足す)。編集の ed_state.fake_sleep は fake_wait の別名。
 本体は呼ぶたびにこのモジュールの名前を読む(`mock.patch.object(ed_jobs, "transcribe_fake", …)` が効く)。
-RS2-9 に、話者判別と声の特徴の疑似 diarize_fake・embed_fake を編集の ed_speakers から移した(S.diarize_fake・S.embed_fake は serve の受付で読める。
+RS2-9 に、話者判別と声の特徴の疑似 diarize_fake・embed_fake を編集の ed_speakers から移した(S.diarize_fake・S.embed_fake は serve の受付、ed_speakers.名前 は殻の転送で読める。
 認識ワーカーの worker-fake もこの 2 つを使う = 偽物どうしが食い違わない)。
 """
-import math
 import os
 import time
 
 from pipeline.transcribe import backend as _fa_backend
+from pipeline.transcribe import diarize as _fa_diarize   # 長さ 1 にする _unit(embed_fake。RS2-9)
 from ytt import jobs as _fa_jobs
 
 
@@ -96,8 +96,7 @@ def embed_fake(groups):
             continue
         v = [0.1] * 8
         v[max(votes, key=votes.get)] = 1.0
-        s = math.sqrt(sum(x * x for x in v))   # 長さ 1 に(話者の部品の _unit と同じ計算)
-        out.append([x / s for x in v])
+        out.append(_fa_diarize._unit(v))   # 長さ 1 に(本物の声の特徴と同じ形)
     return out
 
 

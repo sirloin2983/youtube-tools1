@@ -11,7 +11,6 @@ import os
 from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
-import ed_speakers  # noqa: E402,F401
 from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401

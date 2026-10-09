@@ -11,7 +11,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
-editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap と pipeline の ed_fill・ed_llm・ed_speakers は層の向きが許す)。
+editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap と pipeline の ed_fill・ed_llm は層の向きが許す)。話者の部品は隣の speakers(RS2-9)。
 """
 import bisect
 import json
@@ -32,8 +32,8 @@ import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_learn  # noqa: E402,F401
-import ed_speakers  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
+from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
 # ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の ed_evalbatch をここから読まない = ② から ③・④ を読まない) ----------
 _HOOK_KEYS = ("eval_guard", "in_eval_dir", "redo_skip", "redo_fill", "norm_after")
@@ -150,7 +150,7 @@ def validate_job(req):
             "autoLlm": pref("autoLlm", default_on=True) and not ev,
             # 行の頭の話者名(「名前:」)を外す(ed_fill の B。既定オン。0.67.0)。評価用には当てない
             "stripNames": pref("stripNames", default_on=True) and not ev,
-            # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(ed_speakers.autodiar_after_transcribe)
+            # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(speakers.autodiar_after_transcribe)
             "autoDiarize": pref("autoDiarize"),
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "clip": clip, "warnings": warnings,
@@ -393,7 +393,7 @@ def run_job(job):
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
         _hook("norm_after")(job, spec, tid)
         # 話者の自動判別(評価用は常に・それ以外は設定 autoDiarize。v0.50.0)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
-        ed_speakers.autodiar_after_transcribe(job, spec, tid)
+        speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)
         if spec.get("autoRedo") and any(postproc.SPARSE_FLAG in g["flag"] for g in out["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:
