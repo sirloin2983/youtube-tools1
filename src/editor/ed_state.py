@@ -114,23 +114,6 @@ LOG_FILE = os.path.join(_workdata.DATA_DIR, "serve.log")
 CRASH_FILE = os.path.join(_workdata.DATA_DIR, "serve.crash.log")
 RUN_MARK = os.path.join(_workdata.DATA_DIR, ".running.json")
 TOOL_ID = "transcribe"   # docs/spec/pipeline.md の 4 のツールID(.runtime/transcribe.json)
-_pio_mod = []
-
-
-def pio(required=True):
-    """受け渡しの部品 pipeline_io(docs/spec/pipeline.md。clip/v1・transcript/v1・cut-plan/v1・動画の隣への保存・.runtime)。
-    必要になったときに読み込む: serve.py だけを差し替えた(隣の .py を更新し忘れた)場合でも、サーバー自体は起動して従来の機能は使えるように。
-    required=False なら、読めないとき None(文字起こしの開始時の .clip.json 探しなど、無くても続けられる所で使う)。"""
-    if not _pio_mod:
-        try:
-            import pipeline_io
-            _pio_mod.append(pipeline_io)
-        except ImportError as e:
-            if not required:
-                return None
-            raise ApiError("missing_module", "受け渡しの部品が見つかりません。ツールのフォルダの中身をまとめて入れ直してください(新しい zip を展開し直す)", 500,
-                           {"detail": "pipeline_io.py / resolve_export.py: %s" % e})   # 内部の名前は detail(UI の見直し S12)
-    return _pio_mod[0]
 log = _txbase.log   # 別名(RS2-1a)= logging.getLogger("tx")
 _run_state = {"pid": os.getpid(), "started": 0, "job": None}
 _crash_fp = None

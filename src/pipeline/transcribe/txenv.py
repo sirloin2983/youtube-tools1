@@ -11,12 +11,12 @@
     txenv.check()                               # KEYS のうち登録されていない鍵があれば RuntimeError
 
 RS2-8a で足した鍵: studio_stream(スタジオの配信の情報 = 編集の ed_store。roster.stream_context が読む)・
-valid_model(モデル名の検査)・pio(受け渡しの部品 pipeline_io。required=False で無ければ None)= ed_jobs が ed_state を読まずに済むように。
+valid_model(モデル名の検査)= ed_jobs が ed_state を読まずに済むように(鍵 pio は RS3-0A で廃止 = .clip.json は ytt/schemas.find_clip)。
 RS2-9 で足した鍵: worker_has(認識ワーカーの Python にモジュールがあるか = 話者判別の部品 sherpa-onnx の有無。話者の部品が ed_state を読まずに済むように)。
 """
 KEYS = ("DATA_DIR", "TX_DIR", "TMP_DIR", "ROOT", "ROSTER", "SERVER_VERSION",
         "find_ffmpeg", "worker_python", "worker_fake", "gpu_ready", "has_faster_whisper", "media_duration", "check_source",
-        "studio_stream", "valid_model", "pio", "worker_has")
+        "studio_stream", "valid_model", "worker_has")
 _providers = {}
 
 

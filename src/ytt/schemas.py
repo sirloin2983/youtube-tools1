@@ -232,6 +232,25 @@ def load_clip_file(path, max_bytes=MAX_CLIP_BYTES):
         return None, ".clip.json を読めません(%s)" % (e.__class__.__name__ if isinstance(e, OSError) else str(e)[:80])
     return validate_clip(obj)
 
+CLIP_DURATION_TOLERANCE = 3.0   # 動画の長さと .clip.json の durationSec の差がこれを超えたら警告(高速書き出しのずれは数秒)
+
+
+def find_clip(media_path, media_duration=None):
+    """動画の .clip.json を探して読む(作業用/ → 以前の置き方 = 動画の隣。find_clip_path)。
+    戻り値 (clip または None, 警告または None, .clip.json のパスまたは None)。
+    media_duration(秒)を渡すと、.clip.json の durationSec と大きく違うときに警告を付ける(clip は使う)。
+    編集の受け渡し(pipeline_io.find_clip)・文字起こしの受付(human/proof/doc_jobs)・文字起こしせずに開く(ed_store)が読む
+    (RS3-0A に編集の pipeline_io から移した = 下の層の部品が pipeline_io(manage)を読まずに済むように。中身は同じ)"""
+    p = find_clip_path(media_path)
+    if not p:
+        return None, None, None
+    clip, warn = load_clip_file(p)
+    if clip and media_duration:
+        d = num((clip.get("media") or {}).get("durationSec"))
+        if d is not None and abs(d - float(media_duration)) > CLIP_DURATION_TOLERANCE:
+            warn = "動画の長さ(%.1f秒)が .clip.json の記録(%.1f秒)と違います。書き出し直した動画かもしれません(元の配信の位置がずれる可能性があります)" % (float(media_duration), d)
+    return clip, warn, p
+
 
 # ---------- youtube-tools-key/v1(成果物の鍵。plan/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
 # 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う。

@@ -547,7 +547,7 @@ class TestTranscribeMounted(unittest.TestCase):
         self.assertIsNotNone(p.poll())
         self.assertIsNone(L.read_runtime(self.rdir, "transcribe"))
         self.mod.WORKER.closed = False
-        self.mod.pio().write_runtime(self.mod.runtime_path_dir(), "transcribe", self.port, self.mod.SERVER_VERSION, "/transcribe/")
+        self.mod.pipeline_io.write_runtime(self.mod.runtime_path_dir(), "transcribe", self.port, self.mod.SERVER_VERSION, "/transcribe/")
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(REPO, STUDIO_DIR, "serve.py")), "スタジオのフォルダが無い")

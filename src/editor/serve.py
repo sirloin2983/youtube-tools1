@@ -100,6 +100,7 @@ _load_core()
 from ytt import datadir as _datadir, httpsec, jobs as _heavy_jobs, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
+import pipeline_io  # noqa: E402  (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
 import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
@@ -169,7 +170,7 @@ _txenv.register(DATA_DIR=lambda: _workdata.DATA_DIR, TX_DIR=lambda: _workdata.TX
                 gpu_ready=lambda: _txworker.gpu_ready, has_faster_whisper=lambda: _txworker.has_faster_whisper,
                 media_duration=lambda: _tools.media_duration, check_source=lambda: _tools.check_source,
                 # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(文書の側の doc_jobs が ed_state を読まずに済むように)
-                studio_stream=lambda: _studiodata.studio_stream, valid_model=lambda: _txworker.valid_model, pio=lambda: ed_state.pio,
+                studio_stream=lambda: _studiodata.studio_stream, valid_model=lambda: _txworker.valid_model,
                 # RS2-9: 認識ワーカーの Python にモジュールがあるか(話者判別の部品 sherpa-onnx の有無。話者の部品が ed_state を読まずに済むように)
                 worker_has=lambda: _txworker.worker_has)
 _txenv.check()
@@ -248,7 +249,7 @@ def _transcript(tid):
 # GET の API: パス → 関数(a(名前, 既定) = URL の引数)→ 応答の JSON。部品の関数は lambda の中で ed_xxx.名前 と呼ぶたびに読む(テストの差し替えが効く)
 GET_API = {
     "/api/ping": lambda a: _ping(),
-    "/api/siblings": lambda a: ed_state.pio().siblings(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
+    "/api/siblings": lambda a: pipeline_io.siblings(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
     "/api/clip-info": lambda a: ed_misc.clip_info(a("path")),
     "/api/transcript-v1": lambda a: ed_misc.transcript_v1(a("id")),
     "/api/roster": lambda a: ed_learn.load_roster(),
@@ -700,8 +701,6 @@ def startup_checks():
         out.append("app.js が見つかりません。フォルダの中身をまとめて置き直してください")
     except UnicodeError:
         out.append("app.js の文字コードが壊れています。フォルダの中身をまとめて置き直してください")
-    if ed_state.pio(required=False) is None:
-        out.append("pipeline_io.py / resolve_export.py が見つかりません。「動画の隣に保存」などの受け渡しの機能が使えません。フォルダの中身をまとめて更新してください")
     return out
 
 
@@ -766,8 +765,7 @@ def prepare(port, base_path="/", hooks=False):
         ed_state.log.warning("前回の異常終了を検出: %s", msg)
     ed_state._run_state["started"] = int(time.time())
     ed_state.write_mark(None)
-    pm = ed_state.pio(required=False)
-    rt = pm.write_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path) if pm else None   # 他のツールの「他のツール」メニューがこのポートを知るため
+    rt = pipeline_io.write_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニューがこのポートを知るため
     if rt is None:
         ed_state.log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", ed_misc.runtime_path_dir())
     ed_state.log.info("起動 v%s ポート%d%s メモリ %s python %s", _workdata.SERVER_VERSION, port, "" if base_path == "/" else " 場所" + base_path, ed_state._mem(), sys.version.split()[0])
@@ -807,9 +805,7 @@ def finish():
             pass
     _txworker.WORKER.close()
     ed_state.log.info("終了(正常)")
-    pm = ed_state.pio(required=False)
-    if pm:
-        pm.remove_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT)
+    pipeline_io.remove_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT)
     ed_state.clear_mark()
 
 

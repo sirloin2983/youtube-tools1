@@ -1,4 +1,4 @@
-# RS3-0A(2026-10-10)の前に ed_state が持っていた名前(標準のモジュールと ytt・pipeline の部品のモジュールを除く)。置き場所を ytt/workdata、動きのある関数を持ち主(ytt/tools・worker_client・ytt/studiodata・roster)へ移しても serve の名前で読めることを test_names.py が確かめる
+# RS3-0A(2026-10-10)の前に ed_state が持っていた名前(標準のモジュールと ytt・pipeline の部品のモジュールを除く)。置き場所を ytt/workdata、動きのある関数を持ち主(ytt/tools・worker_client・ytt/studiodata・roster)へ移しても serve の名前で読めることを test_names.py が確かめる。受け渡しの部品の遅延ロード pio・_pio_mod は RS3-0A(E2d)で廃止(pipeline_io を直に読む)
 ALLOWED_HOSTS
 APP_ID
 APP_JS
@@ -58,7 +58,6 @@ _gpu_cache
 _has_cache
 _mem
 _nv_cache
-_pio_mod
 _probe_gpu
 _run_state
 add_warning
@@ -85,7 +84,6 @@ now_ms
 num
 nvidia_gpu
 other_speaker
-pio
 plain_int
 read_schema_json
 replace_retry

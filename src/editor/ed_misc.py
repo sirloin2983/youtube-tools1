@@ -11,6 +11,7 @@ import os
 from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
+import pipeline_io  # noqa: E402   (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード)
 from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
@@ -391,7 +392,7 @@ def clip_info(path):
     """GET /api/clip-info?path=。path は動画のパスか、.clip.json のパス(画面の ?clip= 用)。
     戻り値 {"clip": clip/v1 または null, "clipPath", "mediaPath", "warning"}。clip が使えないときは clip=null と理由(warning)。
     path が空・動画でも .clip.json でもないときだけ 400(画面が ?media= で開いたときに、例外にせず表示だけ省けるように)。"""
-    pm = ed_state.pio()
+    pm = pipeline_io
     p = str(path or "").strip().strip('"')
     if not p or "\x00" in p:
         raise ed_state.ApiError("bad_request", "path(動画のパス)を指定してください", 400)
@@ -424,14 +425,14 @@ def clip_info(path):
 
 
 def transcript_v1(tid):
-    return ed_state.pio().build_transcript_v1(ed_store.read_transcript(tid), _workdata.SERVER_VERSION)
+    return pipeline_io.build_transcript_v1(ed_store.read_transcript(tid), _workdata.SERVER_VERSION)
 
 
 def export_file(req):
     """POST /api/export-file {"id", "format": transcript-v1|srt|cut-plan-v1, "baseUpdatedAt"?, "wrap"?, "speakerNames"?}
     → 動画の隣に保存して {"path", "name", "overwritten", "format", "count"}。保存済みの内容を書き出す(画面は先に保存してから呼ぶ)。
     baseUpdatedAt を付けると、保存済みの版と違うとき 409(画面の表示と違う内容を書き出さないため)。"""
-    pm = ed_state.pio()
+    pm = pipeline_io
     tid = str(req.get("id") or "")
     fmt = req.get("format")
     if fmt not in pm.EXPORT_FORMATS:

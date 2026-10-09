@@ -98,8 +98,7 @@ def validate_job(req):
     # 切り抜きスタジオが書き出した mp4 なら、隣の .clip.json(youtube-tools-clip/v1)を読んで文書に残す(元の配信のどこかが分かる)。
     # 不正・別の版なら使わずに警告だけ(文字起こし自体は続ける)。範囲指定でも clip はそのまま残す:
     # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
-    pm = _txenv.pio(required=False)
-    clip, clip_warn, _clip_path = pm.find_clip(src, dur) if pm else (None, None, None)
+    clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)   # (RS3-0A まで受け渡しの部品 pipeline_io を txenv の口から読んでいた)
     warnings = [clip_warn] if clip_warn else []
     model = str(req.get("model") or "small").strip()
     if not _txenv.valid_model(model):

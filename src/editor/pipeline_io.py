@@ -37,7 +37,6 @@ CUT_PLAN_SCHEMA = schemas.CUT_PLAN_SCHEMA
 CLIP_SUFFIX = schemas.CLIP_SUFFIX
 MAX_SIDECAR_BYTES = schemas.MAX_CLIP_BYTES   # .clip.json の上限(中身は数百バイト。巨大なファイルを読まない)
 MAX_OWN_FILE_BYTES = 64 * 1024 * 1024   # 「前にこのツールが書いたか」を確かめるときに読む上限
-CLIP_DURATION_TOLERANCE = 3.0           # 動画の長さと .clip.json の durationSec の差がこれを超えたら警告(高速書き出しのずれは数秒)
 EXPORT_FORMATS = {                      # 動画の隣に保存するときの名前の後ろ(拡張子を置き換える)
     "transcript-v1": ".transcript.json",
     "srt": ".srt",
@@ -78,19 +77,7 @@ def load_clip_file(path):
     return schemas.load_clip_file(path, MAX_SIDECAR_BYTES)
 
 
-def find_clip(media_path, media_duration=None):
-    """動画の .clip.json を探す(作業用/ → 以前の置き方 = 動画の隣。ytt_core.schemas.find_clip_path)。
-    戻り値 (clip または None, 警告または None, .clip.json のパスまたは None)。
-    media_duration(秒)を渡すと、.clip.json の durationSec と大きく違うときに警告を付ける(clip は使う)。"""
-    p = schemas.find_clip_path(media_path)
-    if not p:
-        return None, None, None
-    clip, warn = load_clip_file(p)
-    if clip and media_duration:
-        d = _num((clip.get("media") or {}).get("durationSec"))
-        if d is not None and abs(d - float(media_duration)) > CLIP_DURATION_TOLERANCE:
-            warn = "動画の長さ(%.1f秒)が .clip.json の記録(%.1f秒)と違います。書き出し直した動画かもしれません(元の配信の位置がずれる可能性があります)" % (float(media_duration), d)
-    return clip, warn, p
+find_clip = schemas.find_clip       # (動画のパス, 長さ=None) → (clip, 警告, .clip.json のパス)。動画の長さと大きく違えば警告(RS3-0A から本体は ytt/schemas = 文字起こしの受付も同じ物を読む)
 
 
 def resolve_clip_media(clip_json_path, clip, media_exts):

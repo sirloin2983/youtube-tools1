@@ -1013,8 +1013,7 @@ def open_video(req):
         dur, has_v, has_a = _tools.probe_media(src)
         if not (has_v or has_a):
             raise ed_state.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
-        pm = ed_state.pio(required=False)
-        clip, warn, _cp = pm.find_clip(src, dur) if pm else (None, None, None)
+        clip, warn, _cp = _yschemas.find_clip(src, dur)
         tid = uuid.uuid4().hex[:12]
         now = ed_state.now_ms()
         doc = {"schema": "transcribe/v1", "id": tid, "title": str(req.get("title") or "").strip()[:120] or os.path.splitext(os.path.basename(src))[0][:120],

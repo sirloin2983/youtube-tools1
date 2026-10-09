@@ -101,25 +101,22 @@ class TestBackendSelect(unittest.TestCase):
 
 
 class TestTxenvRegistered(unittest.TestCase):
-    """serve が txenv に登録した RS2-8a の鍵(studio_stream・valid_model・pio)は、呼ぶたびに持ち主(ed_store・ed_state)を読む = S.名前 の差し替えが効く"""
+    """serve が txenv に登録した RS2-8a の鍵(studio_stream・valid_model)は、呼ぶたびに持ち主(ytt/studiodata・worker_client)を読む = S.名前 の差し替えが効く"""
 
     def test_keys_follow_serve_patches(self):
         from pipeline.transcribe import txenv
         txenv.check()
-        for name in ("studio_stream", "valid_model", "pio"):
+        for name in ("studio_stream", "valid_model"):
             fake = lambda *a, **k: ("fake", a, k)  # noqa: E731
             with mock.patch.object(S, name, fake):
                 self.assertIs(txenv.get(name), fake, name)
             self.assertIsNot(txenv.get(name), fake, name)
         src = os.path.abspath(__file__)
-        pio_calls = []
         with mock.patch.object(S, "check_source", lambda p: src), mock.patch.object(S, "media_duration", lambda p: 10.0), \
-                mock.patch.object(S, "pio", lambda required=True: pio_calls.append(required)), \
                 mock.patch.object(S, "valid_model", lambda m: False):
             with self.assertRaises(S.ApiError) as cm:
                 ed_jobs.validate_job({"sourcePath": src, "model": "small"})   # ed_jobs は ed_state を読まずに txenv の口から読む
         self.assertEqual(cm.exception.code, "bad_model")
-        self.assertEqual(pio_calls, [False])   # .clip.json 探しは無くても続けられる(required=False。None なら clip なし)
 
 
 class TestDocJobsHooks(unittest.TestCase):
