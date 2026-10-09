@@ -3275,3 +3275,8 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: 編集の単体 602・層・lint 0・postproc・txenv・eval_*・test_mount・契約・autorun・run・live_tx OK。e2e: 編集 15 本 OK(e2e_ui_handoff は前から)・pipeline・autorun・datadir OK。e2e_eval_set が一式の中で 2 回目の失敗(23 件目のあと「文字起こしを 20 秒待つ」所)→ 単独 4 回・前のテストと続けて 2 回は OK。**落ちた 2 回はどちらもサブエージェントが別の作業フォルダで重いテストを流していた間** = 負荷で待ちを超えたと見る。次のセッションでサブエージェントが動いていない時に一式を流し直して確かめる(落ちるならテストの待ちを延ばすか原因を調べる)。e2e_live_studio 2 件は続けて流したときの揺れ(単独 189/189)
 - 下調べ: RS2-8 の切り方(空の ed_jobs の層は human・doc_jobs へ丸ごと git mv → rerun を割る → 評価用・30fps・ed_state を口に = 違反 66 → 59 の見込み)。要点は次のセッションの HANDOVER に
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Sonnet)— 計画に RS7「整理と最適化」を追加
+- ユーザー: 「構造が変わったから最適化させると変わりそう」→「RS7 を入れて。速度に寄せたいが、効果次第であまり効果ないならコード量」。`plan/role-restructure.md` の表に RS7 と 10 節(手順: 先に測る → 速度かコード量かを判断 → 動きを変えない直しを 1 つずつ・効かなければ戻す)、`plan/data.js` に RS7(pre RS5・rec RS6・todo)を足した。図 2 枚(層の構成・データの流れ)はチャットで示した
+- 実装はしていない。RS5(転送の別名を消す)・RS6(鍵)のあとに測る
+- 未コミット: 他のセッションの作業途中(AGENTS.md・src/editor/AGENTS.md・dev/_evalcommon.py・docs/HANDOVER.md、plan/data.js と role-restructure.md の他の差分)は触っていない。このコミットは RS7 の差分と WORKLOG の追記だけを入れた
