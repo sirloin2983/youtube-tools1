@@ -53,6 +53,9 @@ import uuid
 
 from manage.cases import txindex
 from ytt import colors, fsio, tools
+from pipeline import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
+from pipeline.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
+                           WEIGHT_KEYS, clean_ranges, clean_weights)
 import cases  # noqa: E402  (src/home/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
@@ -76,12 +79,7 @@ REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
 REQUEST_URL_MODES = ("request", "request_auto")
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける)
-RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
-RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
-CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
-TX_ENGINES = ("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 文字起こしのエンジンを実行ごとに選ぶとき(リアルタイム切り抜きの live.auto。M2)。editor の tx_engines の id
-TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # 同じくモデルの名前(src/home/prefs.py の LIVE_MODEL_RE と同じ形)
-WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
+# RANGE_MAX・RANGE_MAX_SEC・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/pipeline/spec.py へ移した(上で読み直している)
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
               "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
 # 文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
@@ -91,9 +89,7 @@ STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "sk
 RUN_STATE_LABELS = {"queued": "待ち", "running": "実行中", "done": "済み", "error": "失敗", "cancelled": "中止", "nothing": "やることがありませんでした"}
 NOTHING_MESSAGE = "やることがありませんでした"
 DOC_MODE = "doc"
-MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書き出しの1回の上限と同じ)
 DOC_LABEL = "文字起こし → パック"
-DEFAULT_TOP = 3
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は下の RUNS_LOG)
 RUNS_LOG = "autorun-runs.jsonl"   # 終わった実行の記録(入口の作業データの logs の中。段2 B-6)
@@ -246,34 +242,12 @@ def _doc_id_ok(v):
     return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
 
 
-def _num(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e7
+_num = _spec.num_ok   # 扱ってよい大きさの数か(src/pipeline/spec.py。ここの検査もこれを使う)
 
 
 def _ms_ok(v):
     """エポックのミリ秒の時刻(_num は 1e7 までなので使えない)"""
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 < v < 1e14
-
-
-def clean_ranges(v):
-    """区間の一覧 [(開始, 終了), …](秒)を確かめる。-> 整えた一覧(None・空 = 区間なし)。形が違えば ValueError"""
-    if v in (None, [], ()):
-        return []
-    if not isinstance(v, (list, tuple)) or len(v) > RANGE_MAX:
-        raise ValueError("区間は %d 個までです" % RANGE_MAX)
-    out = []
-    for r in v:
-        if not isinstance(r, (list, tuple)) or len(r) != 2 or not _num(r[0]) or not _num(r[1]) or not 0 <= r[0] < r[1] or r[1] - r[0] > RANGE_MAX_SEC:
-            raise ValueError("区間の指定が正しくありません")
-        out.append((round(float(r[0]), 1), round(float(r[1]), 1)))
-    return out
-
-
-def clean_weights(v):
-    """解析の重み {"wAudio", "wChat", "wComments"}(0〜3)-> 小数1桁に整えたもの か None(指定なし・形が違う)"""
-    if not isinstance(v, dict) or not all(_num(v.get(k)) and 0 <= v[k] <= 3 for k in WEIGHT_KEYS):
-        return None
-    return {k: round(float(v[k]), 1) for k in WEIGHT_KEYS}
 
 
 def pad_range(s, e, duration=None):
@@ -285,9 +259,6 @@ def pad_range(s, e, duration=None):
     return [round(a, 1), round(max(b, a + 0.1), 1)]
 
 
-LIVE_AUTO_CUT = "none"   # M8: 自動の採用の切り抜きのカットの既定 = 区間の全体(区間は検出が静かな所に合わせて絞ってある)
-
-
 def live_auto_origin(media):
     """M8: 切り抜きが、リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)か。
     .clip.json の読み方と自動の出どころの一覧は src/home/cases.py の clip_live・AUTO_ORIGINS(案件の画面の札と同じ)。
@@ -296,13 +267,7 @@ def live_auto_origin(media):
     return bool(live) and live.get("origin") in cases.AUTO_ORIGINS
 
 
-def _top_arg(top):
-    """採用する数(未指定は DEFAULT_TOP)。1〜30 でなければ ValueError"""
-    if top in (None, ""):
-        return DEFAULT_TOP
-    if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
-        raise ValueError("採用する数は1〜30です")
-    return top
+_top_arg = _spec.top_arg   # 採用する数(src/pipeline/spec.py)
 
 
 def _busy_reason(active, same, what=""):
@@ -676,13 +641,8 @@ class AutoRunner:
 
     @staticmethod
     def _marks_arg(marks):
-        """スタジオのマークの行から: このマークだけ進める(-> 重ならない id の組 / None = 配信の全部)"""
-        if marks in (None, []):
-            return None
-        if not isinstance(marks, list) or len(marks) > MAX_MARKS or not all(
-                isinstance(m, str) and 1 <= len(m) <= 40 and all(c.isascii() and (c.isalnum() or c in "-_") for c in m) for m in marks):
-            raise ValueError("マークの指定が正しくありません")
-        return tuple(dict.fromkeys(marks))
+        """スタジオのマークの行から: このマークだけ進める(-> 重ならない id の組 / None = 配信の全部。検査は src/pipeline/spec.py の marks_arg)"""
+        return _spec.marks_arg(marks)
 
     def _pref(self, key, default=None):
         """ホームの設定 autorun の値(src/home/prefs.py。読めなければ default)"""
@@ -2262,15 +2222,4 @@ class AutoRunner:
         return None
 
 
-def _row_edge_ok(v):
-    """「行から」の設定の形(cut2resolve の pack.row_edge_from と同じ決まり: 真偽か {on?, after?, before?}(0〜2 秒))"""
-    if isinstance(v, bool):
-        return True
-    if not isinstance(v, dict) or ("on" in v and not isinstance(v["on"], bool)):
-        return False
-    for k in ("after", "before"):
-        x = v.get(k)
-        if x not in (None, "") and (isinstance(x, bool) or not isinstance(x, (int, float)) or not 0 <= x <= 2.0):
-            return False
-    return True
-
+_row_edge_ok = _spec.row_edge_ok   # 「行から」の設定の形の検査(src/pipeline/spec.py)
