@@ -3017,3 +3017,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: 新 `src/editor/tests/test_thumb_job.py` 4 件(test_metrics から)・test_metrics 全体 OK・test_thumb_ideas 9 件・e2e_edit_pack に _scene_thumb(カード → 切り取りを覚える → 作る → 画像・作業用 に png と json)ALL PASSED・home の test_mount OK・lint 0・ui_audit all --demo Must 0
 - data.js: P5 の残りを直した・編集の版 0.64.0。plan/thumb-ideas.md の 8。仮で決めたこと: decisions 3-17 の (fy)(fz)
 - 未コミット: なし(このセッションの分。作業コピーには他のセッションの cut2resolve・ytt_core・studio・docs/spec の途中がある = 触っていない)
+
+## 2026-10-09 Claude Code(PC。Opus 5.5。セッション「Remote control」)— 仮決め (ff)(fg) の答えを入れた・D-16 を足した
+- ユーザーの答え(昼): (ff)「特に問題なし。切り抜く場面の精度もまぁ問題はない。これから少しずつ改善していけばよい」/ (fg)「自動で配信を録画して確かめ直してもよい」「友人の依頼をどのように処理しているかを人が確認したので記録に残っていない」(= ツールで録画していない。D-12 の不具合ではない)/ (fh)「よい」(90fe2f9)/ 古い Youtube日次 のトリガーは帰宅後にユーザーが消す
+- plan/decisions.md: (ff) を確認済みに・(fg) に答えを書いた・(fx) 仮 = D-16 の進め方(録画の間は live.autoDeliver を外す。まだ実行していない)
+- plan/data.js: U4 の記述(人が見て確かめた・特に問題なし・精度もまぁ問題ない)・D-16 を新しい工程に(フェーズ 1・AI・次)・D-15 の推奨の前に D-16・フェーズ 1 の項目
+- D-16 をこのセッションで実行しなかった理由: 録画の間に live.autoDeliver を外す設定の変更が要る(外さないと自動の切り抜きが確認なしで友人へ届く)・ほかのセッションが GPU で LLM を測っている。始めるセッションは WORKLOG に書いてから
+- 公開ページ: 出し直した
+- 未コミット: なし(このセッションの分)
