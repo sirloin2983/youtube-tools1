@@ -2870,3 +2870,15 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 計画に入れなかったもの(操作だけ): 古い「Youtube日次」のトリガーを消す(ユーザーが帰ってから)
 - 公開ページ: version 51
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— P18 LLM の後処理を先に測った(dev/eval_llm.py)
+- 依頼: 同上(「どんどん作業を進めて」)。途中でユーザーから「今から質問には答えられない。仮で判断して続行し、あとで確認の形に」(セッション「Remote control」経由で共有)
+- 作り: `dev/eval_llm.py`(新規・読むだけ)= 確かめ済みの評価用 22 本の機械の出力に、疑わしい所だけを選ぶ(名簿の呼び名に 1 字違い・誤りやすい形・whisper の確信度の低い語)→ Qwen3-8B Q4_K_M に差分だけを JSON で聞く(llama-server b11326 Vulkan・思考オフ・温度 0・毎回の合言葉)→ 検査(行にある・字数・音の近さ・自信・新しい名前を持ち込まない・1 文書 15% まで)→ 当てる前と後を `dev/eval_asr.py` の採点と compare で比べる。`--dry`(選ぶだけ)・`--only name,mis`。テスト `dev/tests/test_eval_llm.py` 15 件(LLM は偽の関数)
+- モデル: Hugging Face の公式 GGUF(5,027,783,488 バイト・SHA-256 d98cdcbd…5785・Apache-2.0)を作業データの `transcribe/models/llm-gguf/` へ、パッケージの外のプロセス(Invoke-CimMethod で curl)で取得して SHA-256 を確かめた
+- 測り方の注意: 並行セッション「ツール全体のコード修正」が src/editor を書き換えている途中で serve が読み込めなかった(ed_jobs が tx_engines.env_num を使うがまだ無い)ので、HEAD の src と dev を scratchpad に `git archive` で取り出して流した(作業フォルダ・git の状態には触れていない)
+- 結果(22 本・基準 CER 13.5%・名前 28/53): 全部の手がかり 13.5%(−0.03 pt・95% −0.15〜+0.07)・名前 34/53 / 名前の手がかりだけ 13.4%(−0.06 pt・95% −0.16〜+0.00)・名前 34/53。余分 90 → 90。当てた直しは 6〜9 個(名前だけなら 当たり 4・外れ 1)。「正解に無い名前」+2 は人の正解の側の「ラミー」表記の揺れ。採用の条件(llm-postfix の 4)は満たした
+- 仮で決めたこと(decisions 3-17 の (fi)〜(fm)): P28 は閉じる / P18 の組み込みは名前の手がかりだけ・既定オン(守り 4 つ)/ 組み込みは src/editor の見直しのコミットのあと / モデルの置き場所 llm-gguf
+- 記録: `plan/llm-postfix.md` の状態行と 8 節・`plan/decisions.md` 3-17・`plan/data.js` の P18(進行中・待ち = src/editor の見直しのコミット)
+- 結果のファイル: 作業データの `evals/asr/20261009-08*_llm-*.json`・`evals/llm/`(AI のシェルが書いたのでアプリの写しの中)
+- 次: 並行セッションが src/editor をコミットしたら、`plan/llm-postfix.md` の 5 のとおり ed_llm.py・tx_engines の LlamaText・tx_worker の op complete・ed_jobs の autoLlm を入れる(選び方は eval_llm の pick_doc・guard を移す)
+- 未コミット: なし(このセッションの分。AGENTS.md・docs/ROADMAP.md・docs/spec/settings.md・src/ などの他のセッションの差分は stage していない)
