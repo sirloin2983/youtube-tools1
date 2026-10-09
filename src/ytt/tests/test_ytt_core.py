@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt_core のテスト。  python -m unittest ytt_core/tests/test_ytt_core.py -v
+"""ytt_core のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v
 ネットワークは 127.0.0.1 の空きポートだけを使う。"""
 import ast
 import http.server
@@ -15,7 +15,7 @@ import time
 import unittest
 from unittest import mock
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ytt_core/tests の2つ上 = src(ツールの親)
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ytt/tests の2つ上 = src(ツールの親)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from ytt_core import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, tools, txindex  # noqa: E402
@@ -1257,7 +1257,7 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(layout.repo_root(), TOP)
         self.assertEqual(layout.repo_root("/x/src"), os.path.dirname(os.path.abspath("/x/src")))
         self.assertEqual(os.path.basename(REPO), layout.SRC_DIR)
-        self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "ytt_core", "layout.py")))
+        self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "ytt", "layout.py")))
         self.assertTrue(os.path.isfile(os.path.join(TOP, "start.bat")))
         want = {"app": "home", "studio": "studio", "transcribe": "editor", "cut2resolve": "cut2resolve"}
         for tool, name in want.items():

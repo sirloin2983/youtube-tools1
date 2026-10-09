@@ -7,7 +7,7 @@
   文字起こし・マークの時刻(秒)は作り直したあともそのまま使える。
 - 60fps → 30fps は1コマおきに落とす。29.97fps → 30fps はコマを落とさず、約 33 秒に1コマを複製して揃う(目立たない)。
 - VFR(コマの間隔が一定でない録画)も、fps フィルタ + -fps_mode cfr で一定の間隔になる。
-- 重い処理の同時実行の上限(ytt_core.jobs.SLOTS)は**呼ぶ側が持つ**(このモジュールは SLOTS を取らない。呼ぶ側の処理の単位で順番を待つため)。
+- 重い処理の同時実行の上限(ytt.jobs.SLOTS)は**呼ぶ側が持つ**(このモジュールは SLOTS を取らない。呼ぶ側の処理の単位で順番を待つため)。
 
 使い方:
     info = normalize.probe(src)                 # ffprobe が無ければ None
@@ -198,7 +198,7 @@ def _report(on_progress, v):
 
 
 def run_ffmpeg(cmd, flags=None, popen=None, cancelled=None, idle_sec=None, on_progress=None, dur=0.0):
-    """ffmpeg を1回動かす(cmd は -progress pipe:1 つき)。cancelled() が真・idle_sec 秒なにも出力しなければ止める(ytt_core.tools.run_progress)。
+    """ffmpeg を1回動かす(cmd は -progress pipe:1 つき)。cancelled() が真・idle_sec 秒なにも出力しなければ止める(ytt.tools.run_progress)。
     on_progress(0〜0.99) は out_time / dur(dur が 0 以下なら知らせない。知らせる側の失敗では止めない)。
     -> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")。起動できなければ NormalizeError"""
     on_time = (lambda sec: _report(on_progress, min(0.99, sec / dur))) if on_progress and dur > 0 else None
@@ -242,7 +242,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     - priority_low: Windows では「通常より下」の優先度で動かす(画面の操作・ほかのツールが先に CPU を取れる)
     - popen: 子プロセスの起動を差し替える(呼ぶ側が終了の流れで止めるために覚えたいとき。既定 subprocess.Popen)
     - ffmpeg が 5.1 より古く -fps_mode を知らなければ、-vsync cfr に替えて1回だけやり直す(legacy_args)
-    SLOTS(ytt_core.jobs)は呼ぶ側が持つ。"""
+    SLOTS(ytt.jobs)は呼ぶ側が持つ。"""
     cancelled = cancelled or (lambda: False)
     ff = ffmpeg or tools.find_tool("ffmpeg", "YTT_FFMPEG")
     if not ff:

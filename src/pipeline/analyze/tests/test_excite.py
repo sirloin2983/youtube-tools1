@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt_core.excite(盛り上がりの式。線 D の L1)のテスト。  py -3.10 -m unittest src/ytt_core/tests/test_excite.py -v
+"""pipeline/analyze/excite.py(盛り上がりの式。線 D の L1)のテスト。  py -3.10 -m unittest src/pipeline/analyze/tests/test_excite.py -v
 - golden: 式を src/studio/analyze.py から移す前に、同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す = WORKLOG に書く)
 - Online(1 秒ずつ)= windowed_scores(一括。同じ窓)
 - PeakBook(候補の帳簿)の規則: 確定・1 時間の枠・入れ替え・採用は数えない・見送りは外す・JSON の往復
@@ -14,7 +14,7 @@ import random
 import sys
 import unittest
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
 from ytt_core import excite  # noqa: E402
 

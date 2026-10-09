@@ -2,7 +2,7 @@
 
 決まり:
 - **一括の関数(smooth・local_baseline・robust_scale・audio_score・chat_z・estimate_lag・pick_clips …)は analyze.py から移しただけ**で、式・加算の順・丸めを変えていない。
-  アーカイブの結果(候補・series)が移す前と完全に一致することを ytt_core/tests/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(dev/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
+  アーカイブの結果(候補・series)が移す前と完全に一致することを pipeline/analyze/tests/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(dev/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
 - 配信中は「未来を見る量」だけが違う(plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
   跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。この 2 つを持つのが windowed_scores(一括)と Online(1 秒ずつ足す)。2 つは同じ値を返す(テストで確かめる)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。
@@ -11,7 +11,7 @@
 - 標準ライブラリだけ(numpy は使わない。入口の子プロセスでも足さずに済む)
 
 使い方:
-    from ytt_core import excite
+    from pipeline.analyze import excite
     audio = excite.audio_score(full_db, band_db)                        # アーカイブ
     on = excite.Online(back=270, fwd=30, window=1800, lag=8)             # 配信中
     for t, total, parts in on.push(full, band, act): book.push(t, total, parts, level)

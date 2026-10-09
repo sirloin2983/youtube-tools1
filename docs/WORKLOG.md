@@ -3212,3 +3212,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: test_layering 7・test_ytt_core 119・test_mount/test_launch 69 OK・e2e_datadir OK・lint 0
 - **告知: 次のコミット(RS1-1)で `src/ytt_core/*` を `git mv` で `src/ytt/` ほかへ移す**。他の AI は src/ytt_core を触らないこと。移したあとも `from ytt_core import …` は転送で動く
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Opus。セッション「RS1」)— 役割で組み直す RS1-1: ytt_core → ytt を git mv(**移動の告知: src/ytt_core の中身は src/ytt・src/pipeline/analyze・src/eval/tools・src/manage/cases に移った**)
+- 移動(git mv・このコミット 1 つ): `src/ytt_core/{colors,datadir,fsio,httpsec,jobs,layout,loudness,names,normalize,pick,recproto,runtime,schemas,settings,tools}.py` → `src/ytt/`・`excite.py` → `src/pipeline/analyze/`・`evaldata.py` → `src/eval/tools/`・`txindex.py` → `src/manage/cases/`。テストも一緒に: `src/ytt_core/tests/{test_ytt_core,test_normalize,test_settings}.py` → `src/ytt/tests/`・`test_excite.py` と `data/excite_golden.json` → `src/pipeline/analyze/tests/`・`test_evaldata.py` → `src/eval/tools/tests/`
+- 転送: `src/ytt_core/__init__.py` は実体と同じモジュールを `sys.modules["ytt_core.<名前>"]` に登録するだけ(`from ytt_core import fsio`・`from ytt_core.excite import CAP` がそのまま動く・SLOTS などは二重にならない)。`dev/layer_map.py` の FORWARDERS に載せ、test_layering は転送を通した import を実体で検査する。RS5 で消す
+- 中身の変更は最小: `src/ytt/__init__.py`(説明と VERSION 1.8.0。import しない)・txindex の `from . import` → `from ytt import`・移したファイルの説明文のパス・移したテストの REPO の深さと説明・test_ytt_core の layout.py の場所・`dev/layer_map.py`(ytt_core の FILES を消して転送 1 行・KNOWN の txindex の 3 件はパスだけ付け替え = 件数 69 のまま)・`dev/lint.py`(写しの検査から除くのを `/ytt/` に)・`dev/tests/test_lint.py`・AGENTS.md(フォルダの並び・表の ytt の行と層の行・テストのコマンド・txindex と excite の場所)
+- テスト(全部 OK): home 582・studio 313・editor 598・cut2resolve 383・recorder 28・analytics 27・層(ytt・pipeline・eval)179・dev 353・契約 35・lint 0
+- 注意: 起動中の入口は古いコードのまま(メモリの中の ytt_core を使う)。この段では入口が後から ytt_core のファイルを読みに行く所は無いが、念のため段の終わりに「すべて終了 → start.bat」
+- 次: RS1-1b(src と dev の実コードの import を新しい名前に・4 か所の _load_core が ytt/ を探す)
+- 未コミット: なし(この記録と一緒にコミット)

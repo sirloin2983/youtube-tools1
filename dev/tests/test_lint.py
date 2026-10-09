@@ -49,7 +49,7 @@ class TestDupHelpers(unittest.TestCase):
         src = "def _unlink(p):\n    pass\n\n\ndef ok():\n    pass\n\n\nNO_WINDOW = 1\n# lint: keep 理由\n_no_window = 2\n"
         got = lint.dup_helpers("src/x/m.py", nodes_of(src), src)
         self.assertEqual(sorted(n for _l, n, _h in got), ["NO_WINDOW", "_unlink"])
-        self.assertEqual(lint.dup_helpers("src/ytt_core/m.py", nodes_of(src), src), [])
+        self.assertEqual(lint.dup_helpers("src/ytt/m.py", nodes_of(src), src), [])
 
 
 class TestDupBlocks(unittest.TestCase):

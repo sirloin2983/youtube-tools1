@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""ytt_core/evaldata.py(友人用 文字起こし簡易版の評価データの形式と規則)のテスト。
-    python -m unittest ytt_core/tests/test_evaldata.py -v"""
+"""eval/tools/evaldata.py(友人用 文字起こし簡易版の評価データの形式と規則)のテスト。
+    python -m unittest src/eval/tools/tests/test_evaldata.py -v"""
 import json
 import os
 import shutil
@@ -10,7 +10,7 @@ import tempfile
 import unittest
 import zipfile
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
 from ytt_core import evaldata as E  # noqa: E402
 

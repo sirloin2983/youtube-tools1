@@ -8,13 +8,13 @@
 3. `git status` と `git log -5 --oneline` を見る(下の「複数の AI で作業するときのルール」)
 4. 触るツールの `AGENTS.md`(`src/editor/AGENTS.md`・`src/recorder/AGENTS.md`)と `README.txt` を読む。文書の索引は `docs/ROADMAP.md`
 
-## フォルダの並び(2026-10-07 に整理。正は `src/ytt_core/layout.py`)
+## フォルダの並び(2026-10-07 に整理。正は `src/ytt/layout.py`)
 ```
 youtube-tools/
 ├─ start.bat  push.bat  README.txt  AGENTS.md  CLAUDE.md   ユーザーが触る(AGENTS/CLAUDE は AI の入口)
 ├─ setup/        インストールと片付け(install.bat・install-gpu.bat・bootstrap.bat・requirements*.txt)
 ├─ plan/         ユーザーが読む計画(index.html(データ data.js)= 全体と進捗・user-tasks.html・decisions・improvements・line-*)
-├─ src/          動くコード: home(入口)・studio・editor・cut2resolve・recorder・ytt_core(共通部品)・ui-kit(共通の見た目)
+├─ src/          動くコード: home(入口)・studio・editor・cut2resolve・recorder・ytt(共通部品。旧 ytt_core)・ui-kit(共通の見た目)
 │                **役割で組み直し中(2026-10-09〜。`plan/role-restructure.md`)**: 新しい層のフォルダ ytt(基盤)・pipeline(① 自動の流れ)・human(② 人の操作)・
 │                manage(③ データ)・eval(④ 検証)・app(入口と画面)を置いた(RS0。まだ空)。今のファイルの行き先と import の向きの決まりは `dev/layer_map.py`、
 │                向きの検査は `dev/tests/test_layering.py`(**ファイルを移す・足す・import を変えたら通す**。違反は減らすだけ・新しい違反は落ちる)
@@ -23,7 +23,7 @@ youtube-tools/
 ├─ dev/          開発用の道具(push の検査・ui-kit の同期・精度を測る道具 eval_*.py・通し確認)と dev/tests/
 └─ docs/         AI 向け: WORKLOG(記録)・HANDOVER(引き継ぎ)・ROADMAP(索引)・spec/(今の決まり)・design/(済んだ設計・briefs)
 ```
-- **「root」の意味**: 各ツールの「1 つ上」= `src/`(`layout.src_root()`。テストが一時フォルダにツールと ytt_core を平らに写したときはその一時フォルダ)。入口の `ROOT`・`datadir`・`txindex`・テストの `REPO` はこの意味。リポジトリ直下(dev/・setup/・friend-apps/)が要るときだけ `layout.repo_root()`・`layout.holo_colors_dir()`
+- **「root」の意味**: 各ツールの「1 つ上」= `src/`(`layout.src_root()`。テストが一時フォルダにツールと共通のコード(`layout.SHARED_CODE_DIRS`)を平らに写したときはその一時フォルダ)。入口の `ROOT`・`datadir`・`txindex`・テストの `REPO` はこの意味。リポジトリ直下(dev/・setup/・friend-apps/)が要るときだけ `layout.repo_root()`・`layout.holo_colors_dir()`
 - **フォルダ名と識別子は別**: `/api/ping` の `"clip-studio"`・`"transcribe-tool"`、JSON の tool.name・schema、作業データの ID(`app`・`studio`・`transcribe`)、URL の `/studio/` `/transcribe/` `/cut2resolve/` は互換のため変えない(grep で当たっても直さない)。09-30 の改名(app→home・clip-studio→studio・transcribe-tool→editor・tools→dev)の対応表は `docs/design/phase0-restructure.md`
 - 作業データ(文字起こし・設定・案件など)はリポジトリの外 `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(`docs/spec/data-location.md`)。`.runtime/`(起動中のポート)は `src/.runtime/`
 
@@ -33,7 +33,7 @@ youtube-tools/
 - **「編集」**(`docs/design/edit-tool-design.md`): 文字起こしと cut2resolve の画面を 1 つにした 3 つのタブ(1 文字起こし / 2 カット / 3 パック)。カット(残す区間)は `transcripts/<id>.edit.json`。cut2resolve は画面を消して、パックを作る部品(pack.py)・API(serve.py)・CLI として残る
 - 流れ: スタジオで配信から区間を選んで書き出す → 編集で字幕を作って直し(1)・カットを決め(2)・DaVinci Resolve 用のパック(カット + Text+ 字幕)を作る(3)。受け渡しの形式は `docs/spec/pipeline.md`
 - 線 D(リアルタイム切り抜き → 配信後の全自動): 録画の部品が HLS で録画し、スタジオの画面(配信の kind `"live"`)でマーク → 書き出し → 文字起こし → パック。計画は `plan/line-d-*.md`
-- 別件: 友人からの依頼の受付(`docs/spec/friend-intake.md`。友人は `friend-apps/request-sender/` のアプリで Dropbox へ送る・入口 `src/home/intake.py` が受け取って自動で流す)・ホロカラー(`friend-apps/holo-colors/`。メンバーカラーをコピーする常駐アプリ。`members.json` は `src/ytt_core/colors.py` が読んで字幕の色に使う。設計 `docs/design/holo-colors.md`)
+- 別件: 友人からの依頼の受付(`docs/spec/friend-intake.md`。友人は `friend-apps/request-sender/` のアプリで Dropbox へ送る・入口 `src/home/intake.py` が受け取って自動で流す)・ホロカラー(`friend-apps/holo-colors/`。メンバーカラーをコピーする常駐アプリ。`members.json` は `src/ytt/colors.py` が読んで字幕の色に使う。設計 `docs/design/holo-colors.md`)
 - ユーザー向けの使い方の全体はリポジトリ直下の `README.txt`。各ツールの `README.txt` は細かい使い方と変更の記録
 - 統合計画(`docs/design/integration-plan.md`。段階 0〜7 完了)の正本は claude.ai の Claude Docs「動画編集ツール 統合計画」
 
@@ -47,7 +47,8 @@ youtube-tools/
 | `src/cut2resolve/` | Resolve への受け渡し(EDL・Text+ パック)の部品と CLI・API | `python -m unittest src/cut2resolve/tests/test_cut2resolve.py src/cut2resolve/tests/test_pack.py src/cut2resolve/tests/test_serve.py`(API を変えたら `python src/editor/tests/e2e_edit_pack.py` も) |
 | `src/analytics/` | 分析と日報(入口が `/analytics/` を受け持つ。取り込むツールではない。Apps Script の連携 `gas/Code.gs` から raw を受け取り、日報・週報・月報を作って LINE へ。設計 `plan/analytics-daily-report.md`・使い方 `README.txt`。チャンネルの数字・合言葉はリポジトリに入れない) | `py -3.10 -m unittest src/analytics/tests/test_analytics.py`。入口の側を変えたら `test_launch.py` |
 | `src/recorder/` | 録画の部品(streamlink + ffmpeg の HLS・API と合言葉。入口と別のプロセス。`src/recorder/AGENTS.md`) | `python -m unittest src/recorder/tests/test_recorder.py`。入口の側を変えたら home の `test_live*`・`e2e_live*` |
-| `src/ytt_core/` | 共通部品(書き込み `fsio`・`.runtime`・受け渡しの形式 `schemas`・Host/Origin 検査 `httpsec`・作業データの置き場所 `datadir`・同時実行の上限 `jobs`・文字起こしの読み取りと紐づけ `txindex`・名前 → メンバーカラー `colors`・ffmpeg などの場所 `tools`・フォルダ名 `layout`・評価データの形式 `evaldata`・30fps にそろえる `normalize`・盛り上がりの式 `excite`・設定ファイルの読み書き `settings`(ホーム・スタジオ・編集の設定ファイルの決まり。`docs/spec/settings.md`)) | `python -m unittest src/ytt_core/tests/test_ytt_core.py src/ytt_core/tests/test_evaldata.py src/ytt_core/tests/test_normalize.py src/ytt_core/tests/test_excite.py src/ytt_core/tests/test_settings.py` と、使っている各ツールのテスト(`excite` を変えたら `src/studio/tests/test_analyze.py`・`e2e_analyze.py`・`dev/tests/test_eval_marks.py` も) |
+| `src/ytt/`(旧 `src/ytt_core/`。2026-10-09 の RS1-1 で移した。旧い名前 `ytt_core` は転送で動く = RS5 で消す) | 共通部品 = 役割の層の基盤(src/ の中では `from ytt import fsio`。書き込み `fsio`・`.runtime`・受け渡しの形式 `schemas`・Host/Origin 検査 `httpsec`・作業データの置き場所 `datadir`・同時実行の上限 `jobs`・名前 → メンバーカラー `colors`・ffmpeg などの場所 `tools`・フォルダ名 `layout`・30fps にそろえる `normalize`・設定ファイルの読み書き `settings`(ホーム・スタジオ・編集の設定ファイルの決まり。`docs/spec/settings.md`)) | `python -m unittest src/ytt/tests/test_ytt_core.py src/ytt/tests/test_normalize.py src/ytt/tests/test_settings.py` と、使っている各ツールのテスト |
+| `src/pipeline/`・`src/manage/`・`src/eval/`(役割の層。`plan/role-restructure.md`。RS1 で移した物から入る) | 盛り上がりの式 `pipeline/analyze/excite.py`・文字起こしの読み取りと紐づけ `manage/cases/txindex.py`・評価データの形式 `eval/tools/evaldata.py` | `python -m unittest src/pipeline/analyze/tests/test_excite.py src/eval/tools/tests/test_evaldata.py`(txindex は `src/ytt/tests/test_ytt_core.py` の中)。`excite` を変えたら `src/studio/tests/test_analyze.py`・`e2e_analyze.py`・`dev/tests/test_eval_marks.py` も |
 | `src/ui-kit/` | 共通の見た目と画面の共通の動き(`src/ui-kit/README.md`)の正本。**画面を直すときは `docs/spec/ui-guidelines.md` と `docs/spec/usability-heuristics.md` に合わせ、`docs/spec/ui-review-criteria.md` の基準(A は `py -3.10 dev/ui_audit.py all --demo` で Must 0 件)を満たす**。`python dev/sync_ui_kit.py` で各ツールへ写す(写しは手で直さない) | `python -m unittest dev/tests/test_ui_kit_sync.py`・`python src/ui-kit/tests/e2e_styleguide.py`・`node --test src/ui-kit/tests/test_uikit_stub.cjs`(node のテストが使う UIKit の代わり `uikit_stub.cjs` が本物の名前をすべて持つか)と各ツールの画面のテスト。画面を変えたら `py -3.10 dev/ui_audit.py all --demo` の Must 0 件 |
 | `dev/` | 開発用の道具(`push_helper.py`・`removals.txt`・`sync_ui_kit.py`・`run_editor_suite.py`・`demo_env.py`・`plan_artifact.py`(計画の公開ページ)・`lint.py`(コードの基準 `docs/spec/code-quality.md` を測る。**コードを変えたら `py -3.10 dev/lint.py` が 0 件**)・`ui_audit.py`(画面の基準 `docs/spec/ui-review-criteria.md` の A を測る。**画面を変えたら `py -3.10 dev/ui_audit.py all --demo` の Must 0 件**。`static` はサーバー不要)・測る道具の共通部品 `_evalcommon.py`・精度を測る `eval_asr.py`・`eval_marks.py`(`--live` = 配信ごとの記録と採用の記録を並べる。線 D の D-12)・`eval_speakers.py`・`eval_cut.py`・`eval_alt.py`・`eval_effort.py`・`eval_fill.py`(認識のあとの後処理を人が残したか・直したか・戻したかで数える。計画の K1。追加の校正は要らない)・`eval_timing.py`(行の時刻を原則 ①頭・①末・②前・②次・③ の数字で。`--apply` で後処理を当て直す)・`eval_cloud.py`(クラウドの文字起こしに評価用を送って同じ物差しで測る。送る前に見積もり・`--send` で送る・キーは環境変数か鍵のファイル)・`eval_split.py`・`eval_fetch.py`・`eval_import.py`・`dropbox_auth.py`・役割の層の表 `layer_map.py`(役割で組み直す計画 RS0。ファイルの行き先と、今ある向きの違反 KNOWN)) | 道具を変えたら対応する `dev/tests/test_<名前>.py`。`python -m unittest dev/tests/test_layering.py`(import の向き。src の .py を足す・移す・import を変えたら必ず。`python dev/tests/test_layering.py --list` で違反の一覧)。`python dev/tests/e2e_pipeline.py`(3 ツールの通し)・`python dev/tests/e2e_datadir.py`。`python -m unittest dev/tests/test_resolve_pack_contract.py` は**単独で**(cut2resolve と編集の部品を読むので他と混ぜると名前が重なる)。`src/cut2resolve/` か編集の `resolve_export.py`・`pipeline_io.py` を変えたら必ず |
 | `setup/` | インストールと片付け(`install.bat`・`install-gpu.bat`・`install-diarize.bat`・`bootstrap.bat`・Mac の `.command`・`requirements*.txt`・`cleanup_legacy_data.bat`・`build-whisper-vulkan.bat`) | `.bat` と `requirements*.txt` は ASCII だけ。片付けのテストは `dev/tests/test_cleanup_legacy_data.py`・ASCII と CRLF の検査は `dev/tests/test_setup_ascii.py` |
@@ -58,7 +59,7 @@ youtube-tools/
 
 - 画面のテストは Playwright(chromium)+ ffmpeg が必要(入れ方は `setup/requirements-dev.txt` の先頭)。Playwright 同梱の chromium は H.264 を再生できない(動画の再生まで確かめるテストは webm で作る)。CSP のある画面では `page.wait_for_function` が動かない(`evaluate` で待つ)
 - ツールを一時フォルダに写して動かすテストが多い。新しいファイルを足したら、写すファイルの一覧(各 e2e の先頭)にも足す
-- **サーバーを動かすテストは先頭で `os.environ.setdefault("YTT_DATA_DIR", "inplace")`**(忘れると本物の作業データを読み書きする。`src/ytt_core/tests/test_ytt_core.py` が検査)。配信者の色の一覧を使うときは `YTT_HOLO_MEMBERS` を `friend-apps/holo-colors/members.json` に
+- **サーバーを動かすテストは先頭で `os.environ.setdefault("YTT_DATA_DIR", "inplace")`**(忘れると本物の作業データを読み書きする。`src/ytt/tests/test_ytt_core.py` が検査)。配信者の色の一覧を使うときは `YTT_HOLO_MEMBERS` を `friend-apps/holo-colors/members.json` に
 - node は PATH に無い。Playwright 同梱の node を使う(`dev/run_editor_suite.py` の `find_node` と同じ場所: `<playwright>/driver/node.exe`)
 - 説明文(docstring)にバックスラッシュを書かない(パスの例は `/`)。`.bat` は CRLF・ASCII だけ。多くのファイルは CRLF・UTF-8(差分で直す。丸ごと書き直さない)
 
@@ -75,7 +76,7 @@ youtube-tools/
 - 版を上げるときは、**serve.py の SERVER_VERSION・画面の APP_VERSION・README.txt の見出し**を同時に上げる(食い違うと画面に赤い帯が出る)。APP_VERSION の場所: スタジオ `core.js`、編集 `app.js`、cut2resolve は `cut2resolve_core.py` の VERSION、入口は `src/home/launch.py`
 - 各ツールの起動の約束(`serve.py [ポート] --no-open`・`.runtime/<ID>.json`・`/api/ping`・SIGTERM/SIGBREAK で後始末)は入口が使う。変えるときは `src/home/launch.py` と `test_launch.py` も
 - コミット: ユーザーの push.bat は `git add -A` でまとめてコミットし、メッセージは「update 日付 時刻」。**何をなぜ変えたかは WORKLOG に書く**。AI が自分でコミットするときは日本語で要約(`"[Claude] 要約"` / `"[GPT] 要約"`)
-- 重い処理は `src/ytt_core/jobs.py` の `SLOTS` を通す(新しく重い処理を足すときも)。データ移行はコピーのみ・元は残す・削除はユーザー確認後(`datadir.py`)
+- 重い処理は `src/ytt/jobs.py` の `SLOTS` を通す(新しく重い処理を足すときも)。データ移行はコピーのみ・元は残す・削除はユーザー確認後(`datadir.py`)
 
 ## 複数の AI で作業するときのルール(Claude・GPT/Codex 共通)
 このリポジトリは Claude(Cowork / Claude Code)と GPT(Codex)の両方が編集する。**正は PC の作業フォルダ(C:\dev\youtube-tools)とその git**。ユーザーは git の手作業を面倒に感じているので、情報の共有は AI 側でこのルールに沿って自動で行う。
@@ -107,7 +108,7 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 起動中の入口は古いコードのまま動いている。コードを直したら、ユーザーに「すべて終了」→ start.bat で起動し直してもらう
 
 ## 担当表(担当中は、他の AI はそのツール・ファイルを触らない。変わったら WORKLOG に書く)
-- 統合(`src/home/`・`src/ytt_core/`)・`src/cut2resolve/`・編集(`src/editor/`)・3 ツールと入口の画面(`src/studio/`・`src/ui-kit/`)・ホロカラー・依頼の受付・録画の部品: **Claude**(ユーザー決定 2026-09-25〜30。**GPT は調査と文書まで**)
+- 統合(`src/home/`・`src/ytt/` と役割の層)・`src/cut2resolve/`・編集(`src/editor/`)・3 ツールと入口の画面(`src/studio/`・`src/ui-kit/`)・ホロカラー・依頼の受付・録画の部品: **Claude**(ユーザー決定 2026-09-25〜30。**GPT は調査と文書まで**)
 - 上に無いものを触るときは、始める前に WORKLOG に「担当: 〇〇」と書く
 
 ## 取り込みの決まりとリスク(統合計画の段階 3 以降。必ず守る)
@@ -118,10 +119,10 @@ Claude(Cowork。クラウドから PC のフォルダに読み書きする)の�
 - 画面を離れた・戻ったで処理するときは ui-kit の `UIKit.life.onLeave / onReturn` を使う(visibilitychange を直接使わない)。`'blur'`(隣の窓へ)のときは保存だけにして、再生の停止・重い処理はしない
 - 画面の不具合を調べるときは、まず画面のエラーの記録 `%LOCALAPPDATA%\youtube-tools\app\logs\client-errors.jsonl` を見る
 - 文字起こしのサーバー側のプロセスで numpy・faster_whisper・ctranslate2・sherpa_onnx を import しない(認識はワーカーの中だけ。`src/editor/tests/test_worker.py` が検査)。`src/home/live_align_worker.py`(numpy)も子プロセスだけ
-- 【高】同一オリジン化による XSS の影響拡大: 1 つのポートにまとめたので、1 つの画面の XSS で全ツールの API が使える。CSP `script-src 'self'` を維持する、書き込み系の POST に合言葉、Host / Origin 検査は ytt_core の 1 か所で全 API にかける、パスは許可したフォルダの中だけ
-- 文字起こしと切り抜きの紐づけの規則と、パックの有無の判定(`pack_info`)は `src/ytt_core/txindex.py` だけ。他のツールのデータは読むだけで書き換えない
+- 【高】同一オリジン化による XSS の影響拡大: 1 つのポートにまとめたので、1 つの画面の XSS で全ツールの API が使える。CSP `script-src 'self'` を維持する、書き込み系の POST に合言葉、Host / Origin 検査は ytt(`httpsec`)の 1 か所で全 API にかける、パスは許可したフォルダの中だけ
+- 文字起こしと切り抜きの紐づけの規則と、パックの有無の判定(`pack_info`)は `src/manage/cases/txindex.py` だけ。他のツールのデータは読むだけで書き換えない
 - Resolve パックは `src/cut2resolve/pack.py` だけが作る(編集の `resolve_export.create_package` は pack を呼んで zip にするだけ)。パックの作り方を変えたら `dev/tests/test_resolve_pack_contract.py` を通す。編集側に Resolve 用の計算を書き足さない(`docs/design/resolve-pack-unification.md`)
-- 盛り上がりの式は `src/ytt_core/excite.py` の 1 か所(線 D の L1。2026-10-07)。スタジオの `analyze.py` は excite を読んで同じ名前を再公開するだけ。式を直すときは `src/ytt_core/tests/data/excite_golden.json`(移す前の値)が食い違うので、意図した変更なら golden を作り直して WORKLOG に書く。配信中の検出(`Online`・`PeakBook`)も同じ式を使う
+- 盛り上がりの式は `src/pipeline/analyze/excite.py` の 1 か所(線 D の L1。2026-10-07)。スタジオの `analyze.py` は excite を読んで同じ名前を再公開するだけ。式を直すときは `src/pipeline/analyze/tests/data/excite_golden.json`(移す前の値)が食い違うので、意図した変更なら golden を作り直して WORKLOG に書く。配信中の検出(`Online`・`PeakBook`)も同じ式を使う
 
 ## ユーザーについて(応答の仕方)
 - **応答は日本語**で。Web/バックエンド開発のエンジニア。動画編集は初心者。基礎的な文法・ライブラリの説明は不要、**実装判断の理由**が知りたい

@@ -1,17 +1,17 @@
 """リポジトリの中のフォルダの並び(2026-10-07 に整理。段0 2026-09-30 の改名は `docs/design/phase0-restructure.md`)。
 
     <リポジトリ直下>/            start.bat・push.bat・README.txt・AGENTS.md・setup/・plan/・docs/・dev/(ユーザーと AI が触る)
-      src/                       動くコード = ツール(home・studio・editor・cut2resolve・recorder)と共通部品(ytt_core・ui-kit)
+      src/                       動くコード = ツール(home・studio・editor・cut2resolve・recorder)・共通部品(ytt・ui-kit)・役割の層(pipeline・human・manage・eval・app)
       friend-apps/               友人用の Windows アプリ(holo-colors・request-sender。C#)
 
 フォルダ名と識別子を分ける: キーはツールの ID(作業データのフォルダ名・.runtime の ID・URL の /studio/ など。互換のため変えない)、
 値はフォルダ名(2026-09-30 に app → home・clip-studio → studio・transcribe-tool → editor に変えた)。
 フォルダ名を知っている場所はここを読む(次にフォルダを変えるとき、直す場所を1つにするため)。
 
-「root」の意味: ツールの親のフォルダ(= `src/`。テストが一時フォルダにツールと ytt_core を平らに写したときはその一時フォルダ)。
+「root」の意味: ツールの親のフォルダ(= `src/`。テストが一時フォルダにツールと共通のコードを平らに写したときはその一時フォルダ)。
 入口の launch.py の ROOT・datadir・txindex・各テストの REPO はこの意味で使う(src_root)。
 dev/・setup/・friend-apps/ のようにリポジトリ直下にあるものを探すときだけ repo_root を使う。
-各ツールが ytt_core を探す `_load_core()`(「ツールのフォルダの1つ上」)は ytt_core を読む前なので、ここを使わない。
+各ツールが共通部品を探す `_load_core()`(「ツールのフォルダの1つ上」)は ytt を読む前なので、ここを使わない。
 """
 import os
 
@@ -28,7 +28,7 @@ SHARED_CODE_DIRS = ("ytt_core", "ytt", "pipeline", "human", "manage", "eval", "a
 
 
 def src_root():
-    """ツールと ytt_core の親のフォルダ(この ytt_core の1つ上 = <リポジトリ直下>/src)"""
+    """ツールと共通のコードの親のフォルダ(この ytt の1つ上 = <リポジトリ直下>/src)"""
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 

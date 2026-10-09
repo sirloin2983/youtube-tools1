@@ -159,7 +159,7 @@ def long_functions(path, nodes, src, limit):
 
 
 def dup_helpers(path, nodes, src):
-    if "/ytt_core/" in rel(path):
+    if "/ytt/" in rel(path):
         return []
     out, lines = [], src.splitlines()
     for node in nodes:

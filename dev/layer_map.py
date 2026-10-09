@@ -13,26 +13,8 @@ RANK = {name: i for i, name in enumerate(LAYERS)}
 
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)
 FILES = {
-    # ---- ytt_core → ytt(基盤)。excite・evaldata・txindex だけ別
-    "src/ytt_core/__init__.py": ("ytt", "ytt", ""),
-    "src/ytt_core/colors.py": ("ytt", "ytt", ""),
-    "src/ytt_core/datadir.py": ("ytt", "ytt", "置き場所の規則。管理の操作(片付け)は manage/keep"),
-    "src/ytt_core/fsio.py": ("ytt", "ytt", ""),
-    "src/ytt_core/httpsec.py": ("ytt", "ytt", ""),
-    "src/ytt_core/jobs.py": ("ytt", "ytt", ""),
-    "src/ytt_core/layout.py": ("ytt", "ytt", ""),
-    "src/ytt_core/loudness.py": ("ytt", "ytt", ""),
-    "src/ytt_core/names.py": ("ytt", "ytt", ""),
-    "src/ytt_core/normalize.py": ("ytt", "ytt", "30fps にそろえる(書き出しが使う)"),
-    "src/ytt_core/pick.py": ("ytt", "ytt", ""),
-    "src/ytt_core/recproto.py": ("ytt", "ytt", ""),
-    "src/ytt_core/runtime.py": ("ytt", "ytt", ""),
-    "src/ytt_core/schemas.py": ("ytt", "ytt", "受け渡しの形式(clip の JSON)"),
-    "src/ytt_core/settings.py": ("ytt", "ytt", ""),
-    "src/ytt_core/tools.py": ("ytt", "ytt", ""),
-    "src/ytt_core/excite.py": ("pipeline", "pipeline/analyze", "盛り上がりの式 = ① の中心"),
-    "src/ytt_core/evaldata.py": ("eval", "eval/tools", "評価用 zip の形式。src からの使い手 0"),
-    "src/ytt_core/txindex.py": ("manage", "manage/cases", "紐づけの規則"),
+    # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
+    "src/ytt_core/__init__.py": ("ytt", "ytt", "転送(RS5 で消す)"),
     # ---- recorder → pipeline/ingest
     "src/recorder/rec_core.py": ("pipeline", "pipeline/ingest", "録画(別プロセスのまま)"),
     "src/recorder/recorder.py": ("pipeline", "pipeline/ingest", "録画の部品の API。配線は app でもよい(要相談)"),
@@ -123,7 +105,10 @@ DIRS = {"src/ytt": "ytt", "src/pipeline": "pipeline", "src/human": "human", "src
 # 旧い名前の転送(移したあとも旧い名前の import を動かすためだけのファイル。RS5 で消す = これが空になったら転送の片付けは済み)。
 # 転送のファイル → {旧い名前の中の名前: 実体のパス, "*": 表に無い名前の実体のパスの型}。test_layering は転送を import する側としては
 # 検査せず、転送に落ちた import を実体へ付け替えて向きを見る(転送のせいで違反が「直った」と見えないように)
-FORWARDERS = {}
+FORWARDERS = {
+    "src/ytt_core/__init__.py": {"excite": "src/pipeline/analyze/excite.py", "evaldata": "src/eval/tools/evaldata.py",
+                                 "txindex": "src/manage/cases/txindex.py", "*": "src/ytt/{name}.py"},   # RS1-1
+}
 
 
 def layer_of(relpath):
@@ -164,7 +149,7 @@ KNOWN = {
     ("src/editor/ed_learn.py", "src/editor/ed_relink.py"),
     ("src/editor/ed_store.py", "src/editor/ed_misc.py"),
     ("src/editor/ed_store.py", "src/editor/ed_relink.py"),
-    ("src/editor/ed_store.py", "src/ytt_core/txindex.py"),
+    ("src/editor/ed_store.py", "src/manage/cases/txindex.py"),
     ("src/editor/ed_ytcap.py", "src/editor/ed_relink.py"),
     ("src/home/friend_feedback.py", "src/home/cases.py"),
     ("src/editor/ed_misc.py", "src/editor/ed_state.py"),
@@ -206,12 +191,12 @@ KNOWN = {
     ("src/editor/resolve_export.py", "src/editor/pipeline_io.py"),
     ("src/home/autorun.py", "src/home/cases.py"),
     ("src/home/autorun.py", "src/home/clientlog.py"),
-    ("src/home/autorun.py", "src/ytt_core/txindex.py"),
+    ("src/home/autorun.py", "src/manage/cases/txindex.py"),
     ("src/home/live.py", "src/home/cases.py"),
     ("src/home/live.py", "src/home/live_cleanup.py"),
     ("src/home/live.py", "src/home/live_failures.py"),
     ("src/home/live_archive.py", "src/home/live_failures.py"),
-    ("src/home/live_archive.py", "src/ytt_core/txindex.py"),
+    ("src/home/live_archive.py", "src/manage/cases/txindex.py"),
     ("src/home/live_detect.py", "src/home/live_failures.py"),
     ("src/home/live_export.py", "src/home/clientlog.py"),
     ("src/home/live_export.py", "src/home/live_failures.py"),

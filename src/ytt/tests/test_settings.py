@@ -1,5 +1,5 @@
 """ytt_core.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:
-    python -m unittest src/ytt_core/tests/test_settings.py
+    python -m unittest src/ytt/tests/test_settings.py
 """
 import json
 import os

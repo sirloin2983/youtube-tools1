@@ -185,7 +185,7 @@ def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_pa
 # ---------- 起動の約束の小道具(serve.py・録画の部品の main。2026-10-09) ----------
 def safe_stdio():
     """画面(Windows の cp932 など)に出せない文字があっても、エラーで落ちずに「?」にする(main の最初で呼ぶ)。
-    cut2resolve の単独のコマンドは ytt_core を読まないので srt2resolve.safe_stdio(同じ規則の写し)を使う"""
+    cut2resolve の単独のコマンドは ytt を読まないので srt2resolve.safe_stdio(同じ規則の写し)を使う"""
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(errors="replace")
