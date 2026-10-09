@@ -15,15 +15,14 @@ import time
 def _paths():
     here = os.path.dirname(os.path.abspath(__file__))
     src = os.path.dirname(here)
-    for p in (os.path.join(src, "editor"), src):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    if src not in sys.path:   # pipeline.transcribe と ytt の置き場所
+        sys.path.insert(0, src)
 
 
 def recognize(data_dir, model, wav):
     """-> 出力 json の中身(dict)"""
     _paths()
-    import tx_engines   # 編集の認識エンジンの口(numpy などはこの子プロセスの中だけ)
+    from pipeline.transcribe import tx_engines   # 認識エンジンの口(numpy などはこの子プロセスの中だけ)
     spec = tx_engines.WCPP_MODELS.get(model)
     if spec is None:
         return {"ok": False, "reason": "whisper.cpp で使えないモデルです: %s" % str(model)[:40]}

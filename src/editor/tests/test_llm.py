@@ -30,7 +30,7 @@ import ed_learn  # noqa: E402
 import ed_llm  # noqa: E402
 import ed_state  # noqa: E402
 import ed_store  # noqa: E402
-import tx_engines as E  # noqa: E402
+from pipeline.transcribe import tx_engines as E  # noqa: E402
 import tx_worker  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))

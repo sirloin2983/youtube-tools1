@@ -31,7 +31,7 @@
   editor の ytcap_diffs(alt_diffs + 切り抜きの境目を出さない)で候補を出し直す。**道具は通信しない**(字幕が保存されていない文書は数えない = noYt)。
   エンジンごとの表は「youtube / auto(自動字幕)・manual(配信者の字幕)」。採否の記録は学習の記録の yt。
   both = alt と yt を別々に出し、両方がある文書で 2 つが同じ候補(同じ行・同じ位置・同じ直し)を出した所の当たり率(一致)も出す(一致は当たりやすいかを見るため)
-- 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(src/editor/roster.py の find_in_text)がある所の、
+- 名簿の呼び名(名前に強いかを見る): まとまりの人の最終(無ければ機械)の文字に名簿の名前・呼び名(src/pipeline/transcribe/roster.py の find_in_text)がある所の、
   候補の当たり / 外れ / 別の直しと、人の直しの拾えた率を、全体とは別に出す(names)
 - --include-eval: 評価用の文書も測る(読むだけ。候補は画面に出さない決まりのまま・測るだけなら定点の正解は寄らない。評価用でしか確かめ済みの文書が無いときに)
 """
@@ -89,8 +89,8 @@ def read_ytcache(S, root, vid):
 
 
 def name_checker(S):
-    """名簿の呼び名が文字にあるか(src/editor/roster.py の find_in_text。正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名)"""
-    import roster
+    """名簿の呼び名が文字にあるか(src/pipeline/transcribe/roster.py の find_in_text。正式な名前か、普通の言葉と重ならない 3 文字以上の呼び名)"""
+    from pipeline.transcribe import roster
     r = roster.load(S.ROSTER)
     return lambda text: bool(roster.find_in_text(text, r))
 

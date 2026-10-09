@@ -40,7 +40,7 @@ import zlib
 try:
     from ytt import fsio as _fsio, tools as _tools   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
 except ImportError:   # このファイルだけを読み込んだとき(tests/test_worker.py の子プロセスなど): ツールの 1 つ上(src/)の共通部品
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from ytt import fsio as _fsio, tools as _tools
 
 DEFAULT = "faster-whisper"

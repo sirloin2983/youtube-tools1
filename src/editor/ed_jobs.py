@@ -22,7 +22,7 @@ import unicodedata
 import uuid
 
 from ytt import fsio as _fsio, jobs as _heavy, modfwd as _modfwd, schemas as _yschemas, tools as _tools  # noqa: E402
-import roster as _roster  # noqa: E402,F401
+from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
@@ -35,7 +35,7 @@ import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
-import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
+from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 # ---------- ジョブ ----------
 _jobs = {}
 _order = []

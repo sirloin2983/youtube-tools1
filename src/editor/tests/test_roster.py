@@ -15,8 +15,8 @@ import unittest
 import urllib.error
 import urllib.request
 
-import roster as R
 from test_backend import HERE, S, free_port, start_server, write_json
+from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
 
 ROSTER = os.path.join(HERE, "hololive-roster.json")
 

@@ -575,9 +575,9 @@ class TestHttp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
-        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "roster.py", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
             shutil.copy(os.path.join(HERE, n), cls.tmp)
-        for n in ("tx_worker.py", "tx_engines.py"):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+        for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
             p = os.path.join(HERE, n)
             if os.path.exists(p):
                 shutil.copy(p, cls.tmp)
@@ -926,7 +926,7 @@ class TestThreadDefaults(unittest.TestCase):
     """2026-10-04 S2: CPU のスレッド数の既定(faster-whisper 8・話者判別 8)と環境変数(git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md)"""
 
     def test_faster_whisper_threads(self):
-        import tx_engines
+        from pipeline.transcribe import tx_engines
         with mock.patch.dict(os.environ, {"TRANSCRIBE_CPU_THREADS": ""}), mock.patch("os.cpu_count", return_value=24):
             self.assertEqual(tx_engines.FasterWhisper.thread_kw("cpu"), {"cpu_threads": 8})
         with mock.patch.dict(os.environ, {"TRANSCRIBE_CPU_THREADS": "16"}):

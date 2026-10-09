@@ -25,7 +25,7 @@ import ed_fill  # noqa: E402
 import ed_jobs  # noqa: E402
 import ed_state  # noqa: E402
 import ed_store  # noqa: E402
-import tx_engines as E  # noqa: E402
+from pipeline.transcribe import tx_engines as E  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 LONG = "これは別の読みで埋めた長い文です"   # 16 字(テスト文n の 5 字の 3 倍以上)

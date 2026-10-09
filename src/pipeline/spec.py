@@ -136,7 +136,7 @@ DEFAULTS = {
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
     },
-    "transcribe": {           # 認識(重い。src/editor/ed_jobs.py の文字起こしの要求 584・613-621 行・tx_engines.py の DEFAULT)
+    "transcribe": {           # 認識(重い。src/editor/ed_jobs.py の文字起こしの要求 584・613-621 行・pipeline/transcribe/tx_engines.py の DEFAULT)
         "engine": "faster-whisper", "model": "small", "language": "ja",
         "quality": "best",    # best か fast(fast は beam 1)
         "device": "auto", "vadMode": "weak", "boost": False,

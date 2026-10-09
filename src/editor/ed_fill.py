@@ -28,8 +28,8 @@ import unicodedata
 import ed_jobs  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-import roster as _roster  # noqa: E402,F401
-import tx_engines  # noqa: E402,F401   名前だけ(ネイティブの部品は読み込まない)
+from pipeline.transcribe import roster as _roster  # noqa: E402,F401
+from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前だけ(ネイティブの部品は読み込まない)
 
 FILL_ENGINE, FILL_MODEL = "sense-voice", "sense-voice-small"   # 2 つ目の読み(tx_engines.SenseVoice)
 FILL_LANGS = ("ja", "en", "zh", "ko")   # SenseVoice に言語として渡せるもの(それ以外は auto)

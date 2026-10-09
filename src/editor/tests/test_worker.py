@@ -589,7 +589,7 @@ class EngineTest(unittest.TestCase):
 
     def test_faster_whisper_passes_through(self):
         import types
-        import tx_engines
+        from pipeline.transcribe import tx_engines
         sentinel, seen = (iter(()), object()), {}
 
         class FakeModel:
@@ -613,7 +613,7 @@ class EngineTest(unittest.TestCase):
                          "fake" if S.backend_name() == "fake" else "faster-whisper")
 
     def test_unknown_engine(self):
-        import tx_engines
+        from pipeline.transcribe import tx_engines
         for bad in ("nope", "../x", "Engine", "__init__"):
             self.assertFalse(tx_engines.valid(bad))
             with self.assertRaises(ValueError):
@@ -643,7 +643,7 @@ class EngineTest(unittest.TestCase):
             import numpy as np
         except ImportError:
             self.skipTest("numpy が無い")
-        import tx_engines as E
+        from pipeline.transcribe import tx_engines as E
         t = np.arange(16000 * 47) / 16000.0
         x = (0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
         x[16000 * 20:16000 * 47] = 0.0   # 後ろは無音(読まない区切り)
@@ -684,8 +684,8 @@ class EngineTest(unittest.TestCase):
 
     def test_engine_module_has_no_native_imports(self):
         """tx_engines はサーバー側でも読む(名前と版)。ファイルの先頭でネイティブの部品を読み込まない"""
-        code = "import sys; sys.path.insert(0, sys.argv[1]); import tx_engines; print([m for m in ('numpy', 'faster_whisper', 'ctranslate2') if m in sys.modules])"
-        p = subprocess.run([sys.executable, "-c", code, HERE], capture_output=True, text=True, timeout=60)
+        code = "import sys; sys.path.insert(0, sys.argv[1]); from pipeline.transcribe import tx_engines; print([m for m in ('numpy', 'faster_whisper', 'ctranslate2') if m in sys.modules])"
+        p = subprocess.run([sys.executable, "-c", code, os.path.dirname(HERE)], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.stdout.strip(), "[]", p.stderr)
 
 
@@ -763,7 +763,7 @@ class JobHelperTest(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_numbers(self):
-        import tx_engines
+        from pipeline.transcribe import tx_engines
         c = S.ed_jobs._chars_in
         self.assertEqual([c(v, 4, 80) for v in (16, 16.9, 4, 80, 3, 81, True, float("nan"), float("inf"), 10 ** 400, "16", None)],
                          [16, 16, 4, 80, None, None, None, None, None, None, None, None])

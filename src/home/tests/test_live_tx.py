@@ -58,14 +58,7 @@ FAKE_WCPP = os.path.join(EDITOR, "tests", "fake_whisper_cli.py")
 
 def tx_engines():
     """編集の認識エンジンの口(値を比べるため・偽の whisper-cli で子プロセスの道を通すため。テストのプロセスだけで読む)"""
-    added = EDITOR not in sys.path
-    if added:
-        sys.path.append(EDITOR)
-    try:
-        import tx_engines as te
-    finally:
-        if added:
-            sys.path.remove(EDITOR)
+    from pipeline.transcribe import tx_engines as te   # SRC は上で sys.path に足してある
     return te
 
 
@@ -693,7 +686,7 @@ class ConstantsTest(unittest.TestCase):
     def test_portal_does_not_import_editor_engines(self):
         """入口のプロセスで tx_engines・numpy を import しない(認識は子プロセス live_tx_worker.py の中だけ)"""
         code = ("import sys; sys.path[:0] = [%r, %r]; import live, live_tx, live_detect; "
-                "print(sorted(m for m in ('tx_engines', 'numpy', 'faster_whisper') if m in sys.modules))") % (HERE, SRC)
+                "print(sorted(m for m in ('tx_engines', 'pipeline.transcribe.tx_engines', 'numpy', 'faster_whisper') if m in sys.modules))") % (HERE, SRC)
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual((p.returncode, p.stdout.decode().strip()), (0, "[]"), p.stderr.decode("utf-8", "replace")[-500:])
 

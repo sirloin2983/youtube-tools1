@@ -3,7 +3,7 @@
 """whisper.cpp を AMD などの GPU(Vulkan)用に、この PC で作る(精度改善の計画 段2-2。build-whisper-vulkan.bat から呼ぶ)。
 
 公式の配布には Windows の Vulkan 版が無いので、公式のソース(github.com/ggml-org/whisper.cpp)を決まった版で取り、
-そのコミットが決まったもの(src/editor/tx_engines.py の WHISPER_CPP)と一致するときだけ作る(2026-10-02 ユーザー決定)。
+そのコミットが決まったもの(src/pipeline/transcribe/tx_engines.py の WHISPER_CPP)と一致するときだけ作る(2026-10-02 ユーザー決定)。
 
 要るもの: Git・Visual Studio 2022(C++ によるデスクトップ開発。CMake はその中のものを使う)・Vulkan SDK(LunarG。winget install KhronosGroup.VulkanSDK)。
 作った物: 作業データ(%LOCALAPPDATA%\\youtube-tools\\transcribe)の bin\\whisper.cpp-<版>-vulkan\\(whisper-cli.exe と DLL・build.json)。
@@ -26,7 +26,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")   # ツールと ytt_core の置き場所
 sys.path.insert(0, SRC)
 sys.path.insert(0, os.path.join(SRC, "editor"))
-import tx_engines as E  # noqa: E402   版・コミット・置き場所の正(ネイティブの部品は読まない)
+from pipeline.transcribe import tx_engines as E  # noqa: E402   版・コミット・置き場所の正(ネイティブの部品は読まない)
 from ytt import datadir  # noqa: E402
 
 

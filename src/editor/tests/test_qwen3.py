@@ -23,7 +23,7 @@ HERE = os.path.dirname(TESTS)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
-import tx_engines as E  # noqa: E402
+from pipeline.transcribe import tx_engines as E  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_llama_server.py")]
 
@@ -144,7 +144,7 @@ class Qwen3EngineTest(unittest.TestCase):
         self.assertEqual(c.exception.code, "bad_model")
 
     def test_engine_module_has_no_native_imports(self):
-        with open(os.path.join(HERE, "tx_engines.py"), encoding="utf-8") as f:
+        with open(E.__file__, encoding="utf-8") as f:
             src = f.read()
         top = [l for l in src.splitlines() if l.startswith(("import ", "from "))]
         self.assertFalse([l for l in top if any(m in l for m in ("numpy", "sherpa_onnx", "faster_whisper"))], top)

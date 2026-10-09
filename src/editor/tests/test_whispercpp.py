@@ -24,7 +24,7 @@ HERE = os.path.dirname(TESTS)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
-import tx_engines as E  # noqa: E402
+from pipeline.transcribe import tx_engines as E  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_whisper_cli.py")]
 

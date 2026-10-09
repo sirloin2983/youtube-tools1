@@ -23,7 +23,7 @@ import os
 import random
 import threading
 
-import roster as _roster  # noqa: E402  (名簿の呼び名。隣の部品)
+from pipeline.transcribe import roster as _roster  # noqa: E402  (名簿の呼び名。隣の部品)
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401

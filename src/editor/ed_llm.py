@@ -264,7 +264,7 @@ def llm_after_doc(job, spec, segs):
     -> 記録(recognition.runs[].llm に入れる。設定オフなら None)と、<id>.llm.json に書く中身(記録の items)の組"""
     import ed_jobs
     import ed_state
-    import roster
+    from pipeline.transcribe import roster
     if not spec.get("autoLlm"):
         return None, None
     rec = {"engine": LLM_ENGINE, "model": LLM_MODEL, "picked": 0, "proposed": 0, "applied": 0, "rejected": {}}

@@ -31,12 +31,10 @@ FILES = {
     "src/studio/txlink.py": ("manage", "manage/cases", "文字起こしとの紐づけ(読むだけ)"),
     # ---- editor
     "src/editor/ed_jobs.py": ("pipeline", "pipeline/transcribe", "split: 認識と後処理の本筋は pipeline/transcribe、文書のジョブと進み具合は human/proof、疑似は eval/fake"),
-    "src/editor/tx_engines.py": ("pipeline", "pipeline/transcribe", "偽エンジンは eval/fake"),
     "src/editor/tx_worker.py": ("pipeline", "pipeline/transcribe", "install_fakes は eval/fake"),
     "src/editor/ed_fill.py": ("pipeline", "pipeline/transcribe", "後処理"),
     "src/editor/ed_llm.py": ("pipeline", "pipeline/transcribe", "後処理(LLM)"),
     "src/editor/ed_retime.py": ("pipeline", "pipeline/transcribe", "行の時刻"),
-    "src/editor/roster.py": ("pipeline", "pipeline/transcribe", "名簿を読む(名簿を直すのは human/proof)"),
     "src/editor/ed_speakers.py": ("pipeline", "pipeline/transcribe", "split: 判別は pipeline/transcribe、声の登録は human/proof"),
     "src/editor/ed_store.py": ("human", "human/proof", "文書 = 上書きの置き場"),
     "src/editor/ed_alt.py": ("human", "human/proof", "2 つ目のエンジンとの食い違い = 校正の補助"),

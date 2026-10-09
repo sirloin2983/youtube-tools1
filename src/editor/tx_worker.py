@@ -121,7 +121,7 @@ def _audio(a):
     if "from" not in a:
         return path
     import numpy as np
-    import tx_engines
+    from pipeline.transcribe import tx_engines   # serve を読んだあと(src は serve が足してある)
     lo, hi = int(a["from"]), int(a["to"])
     with wave.open(path, "rb") as w:
         if not tx_engines.is_16k_mono(w):

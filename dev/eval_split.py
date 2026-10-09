@@ -45,7 +45,7 @@ _NOISE = re.compile(r"教師データ|ショート|\d+")
 
 
 def fold(s):
-    """照らし合わせ用(src/editor/roster.py の fold と同じ): NFKC・小文字・カタカナ → ひらがな・空白と区切りを除く"""
+    """照らし合わせ用(src/pipeline/transcribe/roster.py の fold と同じ): NFKC・小文字・カタカナ → ひらがな・空白と区切りを除く"""
     t = unicodedata.normalize("NFKC", str(s or "")).lower()
     t = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in t)
     return _SEP.sub("", t)

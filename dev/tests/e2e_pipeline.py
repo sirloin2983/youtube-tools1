@@ -89,9 +89,9 @@ def main():
         # ---- ② 文字起こし(一時フォルダに写して動かす: transcripts/ などを本物と混ぜない)
         tt = os.path.join(tmp, "editor")
         os.makedirs(tt)
-        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "roster.py", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
             shutil.copy(os.path.join(ROOT, "editor", n), tt)
-        for n in ("tx_worker.py", "tx_engines.py"):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
+        for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
             p = os.path.join(ROOT, "editor", n)
             if os.path.exists(p):
                 shutil.copy(p, tt)

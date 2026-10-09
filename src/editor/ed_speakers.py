@@ -26,7 +26,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
-import tx_engines  # noqa: E402,F401   環境変数の数 env_num だけ(ネイティブの部品は読み込まない)
+from pipeline.transcribe import tx_engines  # noqa: E402,F401   環境変数の数 env_num だけ(ネイティブの部品は読み込まない)
 from ytt import fsio as _fsio  # noqa: E402
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
