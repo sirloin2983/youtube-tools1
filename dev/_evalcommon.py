@@ -203,7 +203,7 @@ def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
                 os.environ.pop("TRANSCRIBE_DATA_DIR", None)
             else:
                 os.environ["TRANSCRIBE_DATA_DIR"] = old
-    mod.IN_WORKER = True                         # -> ed_jobs.IN_WORKER
+    mod.IN_WORKER = True                         # -> worker_client.IN_WORKER(serve の名前の受付が持ち主へ回す。RS2-6)
     mod.STUDIO_DATA = mod.studio_data_path()     # -> ed_state.STUDIO_DATA(読むだけ)
     mod.setup_cuda_paths()                       # 認識ワーカーの起動と同じ(pip の CUDA の部品の場所。無ければ何もしない)
     in_process_models(mod)                       # モデルへ渡す音声を、認識ワーカーの受け口と同じ形に(InProcessModel)
