@@ -566,6 +566,7 @@
       return;
     }
     delete deliverJobs[k];
+    if (j && j.state === 'done' && rvOpen()) rv.done[k] = 'delivered';   // 一覧を読み直すまでの間も「届けた」に(届けている途中の印を消した直後に、まだ決めていない扱いに戻らないように。0.54.1)
     if (j && j.state === 'done') toast('友人へ届けました(Dropbox の 出力 に ' + (j.name || 'zip') + ' を置きました)', 'ok');
     else failToast('届けられませんでした', 'もう一度「採用」を押してください', { reason: (j && j.message) || '' });
     afterAutoAction(kase.id);
@@ -619,7 +620,7 @@
      要らないの前に動画を外す(再生中の読み出しがファイルを開いたままだと、Windows ではごみ箱へ移せない) */
   var rv = { q: [], i: 0, done: {}, segs: {}, tid: '', seen: {} };
   var RV_RELEASE_MS = 400;   // 動画を外してから片付けを頼むまで(読み出しのスレッドが切断に気づいてファイルを閉じる間)
-  var RV_DONE = { discard: '要らない', discarding: '片付け中' };   // 要らないにした切り抜き(この引き出しの間だけ覚える。届けたかは一覧の deliveredAt と deliverJobs で分かる)
+  var RV_DONE = { discard: '要らない', discarding: '片付け中', delivered: '届けた' };   // 要らないにした・届け終えた切り抜き(この引き出しの間だけ覚える。届けたかは一覧の deliveredAt と deliverJobs で分かる)
   function rvEl() { return $('#rvDrawer'); }
   function rvOpen() { return UIKit.drawer.isOpen(rvEl()); }
   function rvVideo() { return $('#rvVideo'); }
