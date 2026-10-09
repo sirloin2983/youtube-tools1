@@ -56,8 +56,8 @@ FILES = {
     "src/home/appwindow.py": ("app", "app", ""),
     "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
     "src/home/restart.py": ("manage", "manage/ops", ""),
-    "src/home/autorun.py": ("pipeline", "pipeline/run", "split: ① の経路は RS1-7 で pipeline/run.py へ。残りは友人・あとから解析・キューと記録(RS3)"),
-    "src/home/live.py": ("pipeline", "pipeline/run", "ライブの流れ"),
+    "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は Runner の hook を案件・設定・友人の届けで埋める合成の役。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行だけ human/friend の mixin へ出す = RS3-3)"),
+    "src/home/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
     "src/home/live_detect.py": ("pipeline", "pipeline/analyze", "配信中の検出"),
     "src/home/live_excite_worker.py": ("pipeline", "pipeline/analyze", ""),
     "src/home/live_align_worker.py": ("pipeline", "pipeline/analyze", "時刻合わせ"),
@@ -74,7 +74,7 @@ FILES = {
     "src/home/cleanup.py": ("manage", "manage/keep", ""),
     "src/home/live_cleanup.py": ("manage", "manage/keep", ""),
     "src/home/health.py": ("manage", "manage/ops", ""),
-    "src/home/live_failures.py": ("manage", "manage/ops", ""),
+    "src/home/live_failures.py": ("pipeline", "pipeline", "計画 7 節は manage/ops だったが pipeline に置く(RS3-0B・仮決め #5。失敗の文を作るのは ① の live_export・live_detect・live_archive・live_cleanup で、ops は読むだけ)"),
     "src/home/clientlog.py": ("manage", "manage/ops", ""),
     "src/home/live_report.py": ("eval", "eval/tools", "配信ごとの記録(読むのは eval_marks だけ)"),
     "src/home/accuracy.py": ("eval", "eval/drill", "精度の自動測定"),
@@ -119,7 +119,7 @@ def allowed(src_layer, dst_layer):
 
 # 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
 # ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
-KNOWN_MAX = 49   # RS2-9d で認識ワーカーを pipeline/transcribe/worker.py へ移して serve を読まない形にした = (tx_worker → serve)が消えた(50 → 49。旧い editor/tx_worker.py は runpy の転送だけ)・RS2-9c で ed_retime の計算を pipeline/transcribe/retime.py へ切り出し、包みだけ human にして (ed_retime, ed_state)・(ed_retime, ed_alt)・(ed_retime, ed_store) が消えた(53 → 50)・ed_fill・ed_llm を pipeline/transcribe/fill.py・llm.py へ移し ed_state の読みを txenv・txbase・backend・ytt に = (ed_fill, ed_state)・(ed_llm, ed_state) が消えた(55 → 53)・RS2-9b で ed_speakers を pipeline/transcribe/diarize と human/proof/speakers に分けた = (ed_speakers → ed_learn・ed_store)が human どうしになり、ed_drill は serve が登録する口(set_context_namer)にして消えた(58 → 55)・RS2-9a で ed_speakers → ed_state が消えた(59 → 58。文書の形の小道具は ytt/schemas・置き場所と外の道具は txenv の口から読む)・RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)・RS2-8d で doc_jobs → ed_evalbatch・ed_relink を serve が登録する口(set_hooks)にして消した(61 → 59)
+KNOWN_MAX = 34   # RS3-0B で層の表の 3 行を直した = live.py・autorun.py を app に・live_failures を pipeline に(仮決め #4・#5)。live → cases・deliver・intake・live_cleanup・live_failures・live_report・live_requests・autorun → cases・clientlog・deliver・friend_feedback・prefs・txindex・live_archive・live_detect・live_export → live_failures の 16 組が消え、live_failures → autorun が 1 組増えた(49 → 34)・RS2-9d で認識ワーカーを pipeline/transcribe/worker.py へ移して serve を読まない形にした = (tx_worker → serve)が消えた(50 → 49。旧い editor/tx_worker.py は runpy の転送だけ)・RS2-9c で ed_retime の計算を pipeline/transcribe/retime.py へ切り出し、包みだけ human にして (ed_retime, ed_state)・(ed_retime, ed_alt)・(ed_retime, ed_store) が消えた(53 → 50)・ed_fill・ed_llm を pipeline/transcribe/fill.py・llm.py へ移し ed_state の読みを txenv・txbase・backend・ytt に = (ed_fill, ed_state)・(ed_llm, ed_state) が消えた(55 → 53)・RS2-9b で ed_speakers を pipeline/transcribe/diarize と human/proof/speakers に分けた = (ed_speakers → ed_learn・ed_store)が human どうしになり、ed_drill は serve が登録する口(set_context_namer)にして消えた(58 → 55)・RS2-9a で ed_speakers → ed_state が消えた(59 → 58。文書の形の小道具は ytt/schemas・置き場所と外の道具は txenv の口から読む)・RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)・RS2-8d で doc_jobs → ed_evalbatch・ed_relink を serve が登録する口(set_hooks)にして消した(61 → 59)
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),
@@ -146,28 +146,13 @@ KNOWN = {
     ("src/home/backup.py", "src/home/prefs.py"),
     ("src/studio/handoff.py", "src/studio/common.py"),
     ("src/studio/txlink.py", "src/studio/common.py"),
-    ("src/home/autorun.py", "src/home/prefs.py"),
     ("src/studio/analyze.py", "src/studio/common.py"),
     ("src/studio/batch.py", "src/studio/common.py"),
     ("src/pipeline/export/exporter.py", "src/studio/common.py"),
-    ("src/home/live.py", "src/home/live_report.py"),
-    ("src/home/autorun.py", "src/home/deliver.py"),
-    ("src/home/autorun.py", "src/home/friend_feedback.py"),
-    ("src/home/live.py", "src/home/deliver.py"),
-    ("src/home/live.py", "src/home/intake.py"),
-    ("src/home/live.py", "src/home/live_requests.py"),
     ("src/studio/batch.py", "src/studio/store.py"),
     ("src/editor/resolve_export.py", "src/editor/pipeline_io.py"),
-    ("src/home/autorun.py", "src/home/cases.py"),
-    ("src/home/autorun.py", "src/home/clientlog.py"),
-    ("src/home/autorun.py", "src/manage/cases/txindex.py"),
-    ("src/home/live.py", "src/home/cases.py"),
-    ("src/home/live.py", "src/home/live_cleanup.py"),
-    ("src/home/live.py", "src/home/live_failures.py"),
-    ("src/home/live_archive.py", "src/home/live_failures.py"),
     ("src/home/live_archive.py", "src/manage/cases/txindex.py"),
-    ("src/home/live_detect.py", "src/home/live_failures.py"),
     ("src/home/live_export.py", "src/home/clientlog.py"),
-    ("src/home/live_export.py", "src/home/live_failures.py"),
     ("src/pipeline/export/exporter.py", "src/studio/handoff.py"),
+    ("src/home/live_failures.py", "src/home/autorun.py"),
 }
