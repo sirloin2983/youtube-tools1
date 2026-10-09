@@ -1,7 +1,7 @@
 """書き出しの音量調整(exporter.apply_volume / build_spec の volume 検証)のテスト。
 実際に ffmpeg を1回動かして確認する(合成した2秒の無音動画を使う。数秒で終わる)。
 
-    python3 test_exporter.py
+    py -3.10 -m unittest src/pipeline/export/tests/test_exporter.py
 """
 import hashlib
 import json
@@ -17,12 +17,14 @@ import unittest
 from unittest.mock import Mock, patch
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # ツールのフォルダ(studio/)
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests → export → pipeline → src
+HERE = os.path.join(SRC, "studio")   # exporter が裸の名前で読む common・handoff のあるフォルダ(studio/)
 sys.path.insert(0, HERE)
+sys.path.insert(0, SRC)
 import common
-import exporter
 import handoff
-from ytt_core import normalize, schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
+from pipeline.export import exporter
+from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
 
 def _make_clip(path, sec=2.0):

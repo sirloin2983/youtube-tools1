@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import common
-import exporter
+from pipeline.export import exporter
 
 
 def locked():

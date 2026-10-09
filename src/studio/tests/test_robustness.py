@@ -17,7 +17,7 @@ os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import analyze
 import common
-import exporter
+from pipeline.export import exporter
 import rank
 import serve
 from common import ApiError
@@ -268,7 +268,7 @@ class TestYtdlpTemplate(unittest.TestCase):
 
     def test_all_ytdlp_calls_use_the_escaped_template(self):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for fn in ("analyze.py", "exporter.py"):
+        for fn in ("analyze.py", os.path.join("..", "pipeline", "export", "exporter.py")):   # exporter は RS1-4 で pipeline/export へ
             with open(os.path.join(here, fn), encoding="utf-8") as f:
                 src = f.read()
             self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず common.ytdlp_out を通す

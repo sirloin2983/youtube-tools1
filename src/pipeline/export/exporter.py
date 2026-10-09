@@ -19,7 +19,7 @@ import uuid
 import common
 import handoff
 from common import ApiError, VID_RE, find_tool, redact, fmt_ts
-from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools  # common が ytt_core を読めるようにしてある
+from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools  # 裸の common・handoff は studio/ が sys.path にある前提(RS1 では分けない)。common が src も足す
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600

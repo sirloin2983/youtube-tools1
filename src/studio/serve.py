@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyze  # noqa: E402
 import batch as batch_mod  # noqa: E402
 import common  # noqa: E402
-import exporter  # noqa: E402
+from pipeline.export import exporter  # noqa: E402  (common が src を sys.path に足してある)
 import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402

@@ -29,7 +29,6 @@ FILES = {
     # ---- studio
     "src/studio/analyze.py": ("pipeline", "pipeline/analyze", "split: feedback.jsonl の書き手は human/review"),
     "src/studio/batch.py": ("pipeline", "pipeline/run", "解析の順番待ち"),
-    "src/studio/exporter.py": ("pipeline", "pipeline/export", ""),
     "src/studio/store.py": ("human", "human/review", "split: 候補のデータ(①)は pipeline/analyze、手動マーク・採用・コラボ(②)は human/review"),
     "src/studio/rank.py": ("human", "human/find", "YouTube Data API の検索と事務所の登録"),
     "src/studio/common.py": ("app", "app", "split: 外部プログラムの確認は ytt、疑似の判定の 1 行は eval/fake"),
@@ -167,7 +166,7 @@ KNOWN = {
     ("src/home/autorun.py", "src/home/prefs.py"),
     ("src/studio/analyze.py", "src/studio/common.py"),
     ("src/studio/batch.py", "src/studio/common.py"),
-    ("src/studio/exporter.py", "src/studio/common.py"),
+    ("src/pipeline/export/exporter.py", "src/studio/common.py"),
     ("src/editor/ed_jobs.py", "src/editor/ed_evalbatch.py"),
     ("src/editor/ed_speakers.py", "src/editor/ed_drill.py"),
     ("src/home/live.py", "src/home/live_report.py"),
@@ -200,5 +199,5 @@ KNOWN = {
     ("src/home/live_detect.py", "src/home/live_failures.py"),
     ("src/home/live_export.py", "src/home/clientlog.py"),
     ("src/home/live_export.py", "src/home/live_failures.py"),
-    ("src/studio/exporter.py", "src/studio/handoff.py"),
+    ("src/pipeline/export/exporter.py", "src/studio/handoff.py"),
 }
