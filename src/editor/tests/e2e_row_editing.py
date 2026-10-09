@@ -97,6 +97,9 @@ def main():
         tid_rel = make(); set_segs(tid_rel, "確実クリック文書", [{"id": "r%d" % i, "start": i * 3.0, "end": i * 3.0 + 2.5, "text": "行%d" % i} for i in range(8)])
         tid_sel = make(); set_segs(tid_sel, "選択文書", [{"id": "s%d" % i, "start": i * 3.0, "end": i * 3.0 + 2.5, "text": "行%d" % i} for i in range(4)])
         tid_z = make(); set_segs(tid_z, "Z文書", [{"id": "z%d" % i, "start": i * 3.0, "end": i * 3.0 + 2.5, "text": "行%d" % i} for i in range(3)])
+        tid_join = make(); set_segs(tid_join, "つなぐ分ける文書", [   # 0.63.0: キー M・Shift+M・Y(A6)
+            {"id": "j0", "start": 0, "end": 2, "text": "ちょっとびっく"}, {"id": "j1", "start": 2, "end": 4, "text": "りした"},
+            {"id": "j2", "start": 4, "end": 6, "text": "けど大丈夫"}, {"id": "j3", "start": 6, "end": 9, "text": "次の話"}])
         tid_ties = make(); set_segs(tid_ties, "重なり挿入文書", [
             {"id": "ta", "start": 0, "end": 2, "text": "一"}, {"id": "tb", "start": 2, "end": 4, "text": "二"},
             {"id": "tc", "start": 4, "end": 4.8, "text": "三"}, {"id": "td", "start": 4, "end": 6, "text": "四"}])
@@ -207,6 +210,7 @@ def main():
             _scene_row_tools(cx)
             _scene_play_keys(cx)
             _scene_z_select_click(cx)
+            _scene_join_split_keys(cx)
             _scene_overlap(cx)
             _scene_speaker_overlap(cx)
             _scene_drafts(cx)
@@ -426,6 +430,45 @@ def _scene_play_keys(cx):
     check(pg.inner_text("#btnAddAt").strip() == "＋再生位置に行", "#btnAddAt の文字は「＋再生位置に行」(v0.15.0 で短く): %s" % pg.inner_text("#btnAddAt"))
     ph = pg.locator("#segs .seg").nth(0).locator("textarea").get_attribute("placeholder") or ""
     check("空の行" in ph, "空の行の textarea には placeholder に「空の行」が含まれる: %s" % ph)
+
+
+def _scene_join_split_keys(cx):
+    """12-2) つなぐ・分けるキー(0.63.0。A6): Shift+M 前とつなぐ・M 次とつなぐ(頭から聞き直す)・Ctrl+Z・Y 再生位置で分ける・行の外では分けない・保存"""
+    check, open_doc, pg, port, rows_times, select_row, wait_saved = cx.check, cx.open_doc, cx.pg, cx.port, cx.rows_times, cx.select_row, cx.wait_saved
+    texts = lambda: pg.evaluate("[...document.querySelectorAll('#segs .seg textarea')].map(t => t.value)")
+    navi = lambda: pg.evaluate("[...document.querySelectorAll('#segs .seg')].findIndex(r => r.classList.contains('nav'))")
+    open_doc("つなぐ分ける文書")
+    check(texts() == ["ちょっとびっく", "りした", "けど大丈夫", "次の話"], "前提: 4 行: %s" % texts())
+    select_row(1)
+    pg.keyboard.press("Shift+M")
+    check(texts() == ["ちょっとびっくりした", "けど大丈夫", "次の話"] and rows_times()[0] == ("0:00.0", "0:04.0") and navi() == 0,
+          "Shift+M で今の行を前の行とつなぐ(今の行はつないだ行): %s %s" % (texts(), rows_times()[:1]))
+    check("前の行とつなぎました" in pg.inner_text("#toast"), "つないだと知らせる: " + pg.inner_text("#toast"))
+    check(cx.wait_js(pg, "!document.querySelector('#player').paused", 5000), "つないだ行を頭から聞き直す(再生が始まる)")
+    pg.evaluate("document.querySelector('#player').pause()")
+    pg.keyboard.press("m")
+    check(texts() == ["ちょっとびっくりしたけど大丈夫", "次の話"] and rows_times()[0] == ("0:00.0", "0:06.0"), "M で今の行を次の行とつなぐ: %s" % texts())
+    pg.evaluate("document.querySelector('#player').pause()")
+    pg.keyboard.press("Control+z")
+    check(texts() == ["ちょっとびっくりした", "けど大丈夫", "次の話"], "Ctrl+Z で 1 つ前に戻る: %s" % texts())
+    # Y: 再生位置(1.0 秒 = 0〜4 秒の行の 1/4)で分ける。文字は割合の所(10 字 × 1/4 → 3 字目)
+    pg.evaluate("(() => { const p = document.querySelector('#player'); p.pause(); p.currentTime = 1.0; })()")
+    cx.wait_js(pg, "Math.abs(document.querySelector('#player').currentTime - 1.0) < 0.05", 5000)
+    check(navi() == 0, "前提: 今の行は 0 行目")
+    pg.keyboard.press("y")
+    check(texts() == ["ちょっ", "とびっくりした", "けど大丈夫", "次の話"] and rows_times()[:2] == [("0:00.0", "0:01.0"), ("0:01.0", "0:04.0")],
+          "Y で再生位置で分ける(時刻は再生位置・文字は割合の所): %s %s" % (texts(), rows_times()[:2]))
+    # 再生位置が今の行の外なら分けない
+    pg.evaluate("document.querySelector('#player').currentTime = 8.5")
+    cx.wait_js(pg, "document.querySelector('#player').currentTime > 8.4", 5000)
+    pg.keyboard.press("y")
+    check(len(texts()) == 4 and "行の中にありません" in pg.inner_text("#toast"), "再生位置が行の外なら分けず、理由を知らせる: " + pg.inner_text("#toast"))
+    wait_saved()
+    tid = pg.evaluate("new URLSearchParams(location.search).get('doc')") or ""
+    d = call(port, "GET", "/api/transcript?id=" + tid) if tid else {"segments": []}
+    check([g["text"] for g in d["segments"]] == ["ちょっ", "とびっくりした", "けど大丈夫", "次の話"], "サーバーにも保存される: %s" % [g["text"] for g in d["segments"]])
+    km = pg.evaluate("[...document.querySelectorAll('#keysList *')].map(e => e.textContent).join(' ')")
+    check("次の行とつなぐ" in km and "再生位置で行を分ける" in km, "キーの一覧(?)に、つなぐ・分ける が載る")
 
 
 def _scene_z_select_click(cx):

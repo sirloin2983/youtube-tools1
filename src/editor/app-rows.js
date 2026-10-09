@@ -989,6 +989,49 @@ function splitRowAt(i, pos, cut){
   return true;
 }
 
+/* 行 i と次の行を 1 行に(行の下の「次と結合」・右クリック・キー M / Shift+M が共用。A6 = 校正でいちばん時間を食うのが行をつなぐ・分ける)-> つないだか。
+   終了は遅い方(次の行が重なって先に終わる場合に、この行の後ろを失わない)。音の状態のメモはまとめ、カット済は両方ともカット済のときだけ残す */
+function mergeRows(i){
+  const segs = S.doc.segments, s = segs[i], n = segs[i + 1];
+  if (!s) return false;
+  if (!n){ toast('最後の行です'); return false; }
+  const navId = navSnapshot(); pushUndo();
+  const sep = /[A-Za-z0-9]$/.test(s.text) && /^[A-Za-z0-9]/.test(n.text) ? ' ' : '';
+  s.text = (s.text + sep + n.text).slice(0, 2000); s.end = Math.max(s.end, n.end); s.flag = [...new Set([s.flag, n.flag].join('、').split('、').filter(Boolean))].join('、');
+  if (!(s.proofed && n.proofed)) delete s.proofed;
+  if (!(s.cutState === 'cut' && n.cutState === 'cut')) delete s.cutState;
+  if (!(s.noSub && n.noSub)) delete s.noSub;   // 字幕に出さないのは、両方とも出さないときだけ(片方のセリフが字幕から消えないように)
+  { const tg = Object.keys(TAG_LABEL).filter(k => (s.tags || []).includes(k) || (n.tags || []).includes(k)); if (tg.length) s.tags = tg; else delete s.tags; }
+  S.sel.delete(n.id); segs.splice(i + 1, 1);
+  navRestore(navId, i);
+  renderDoc(); markDirty();
+  return true;
+}
+/* キー M(dir 1)= 今の行を次の行と / Shift+M(dir -1)= 前の行と つなぎ、つないだ行を頭から聞き直す(つないだ直後に文字と時刻を確かめるため。A6) */
+function mergeKey(dir){
+  const c = rowAndSeg(); if (!c) return;
+  if (lockJob()) return toast('処理中のため、今は行をつなげません');
+  const i = dir < 0 ? c.i - 1 : c.i;
+  if (i < 0) return toast('最初の行です');
+  if (!mergeRows(i)) return;
+  const g = S.doc.segments[i];
+  gotoRow(i, { center: true });
+  if (g) playSeg(g, true);
+  toast(dir < 0 ? '前の行とつなぎました(Ctrl+Z で取り消し)' : '次の行とつなぎました(Ctrl+Z で取り消し)', 1800);
+}
+/* キー Y: 再生位置で今の行を 2 つに分ける。文字は再生位置の割合の所で分ける(入力欄でカーソルを置いていればその位置 = 行の下の「分割」と同じ)。
+   再生位置が行の外(端から 0.3 秒以内を含む)なら分けない。再生は止めない(聞きながら続けて分けられるように。A6) */
+function splitKey(){
+  const c = rowAndSeg(); if (!c) return;
+  if (lockJob()) return toast('処理中のため、今は行を分けられません');
+  const s = c.g, t = player().currentTime || 0;
+  if (s.text.length < 2) return toast('短すぎて分割できません');
+  if (!(t > s.start + 0.3 && t < s.end - 0.3)) return toast('再生位置がこの行の中にありません(行の端から 0.3 秒より内側で押してください)', 2500);
+  const ta = c.row.querySelector('textarea'), cur = ta && document.activeElement === ta ? ta.selectionStart : -1;
+  const pos = cur > 0 && cur < s.text.length ? cur : Math.max(1, Math.min(s.text.length - 1, Math.round(s.text.length * (t - s.start) / (s.end - s.start))));
+  if (splitRowAt(c.i, pos, t)) toast('再生位置で分けました(文字の分け目は時刻の割合の所。Ctrl+Z で取り消し)', 2200);
+}
+
 /* 2 カット の字幕の段で行の時刻を直した(段6 6-3): 1 文字起こし のタブを描き直し、文書を保存する(markDirty → 0.7 秒後。CUT.docChanged も呼ばれる) */
 function rowChanged(){ if (!S.doc) return; renderDoc(); markDirty(); }
 

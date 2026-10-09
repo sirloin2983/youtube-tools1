@@ -2987,3 +2987,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 仮で決めたこと(ユーザー不在): タブを移ると ⚙ の引き出しも閉じる(以前のパックの引き出しと同じ。開いたままだと新しいタブが inert で触れず、ui_audit の editor-keys の場面が 3 件落ちた → setEditTab で閉じる)・「パック」の見出しの下に字幕の見本と前回のパックを右の列で残した → decisions 3-19 に (fv)〜(fw) として追記
 - 次: 「作業１」が ⚙ に autoLlm のチェックと P5 のボタンを足す(S3 のコミットのあと)。S4(設定の形をそろえる)・S5(単体の設定ページ)は計画の phase 3。ユーザーに確かめてほしいこと: 2 カット の末尾のパックの置き方(カットの下にスクロールする形でよいか)
 - 未コミット: なし(このセッションの分はこの記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— 編集 0.63.0: つなぐ・分けるのキー(A6)と autoLlm のチェック(P18)
+- 依頼: 同上。S3(編集 0.62.0・1fdb69a)のコミットを待ってから src/editor を直した(セッション「スタジオ設定の整理」と連絡済み)
+- 作り: `src/editor/app-rows.js` に `mergeRows`(行の下の「次と結合」の中身を app.js から移して共用)・`mergeKey`(M = 次と・Shift+M = 前と。つないだ行を頭から聞き直す)・`splitKey`(Y = 再生位置で分ける。文字は時刻の割合の所・入力欄のカーソルがあればそこ・端から 0.3 秒以内と行の外は分けない・再生は止めない)。
+  `app.js` の `TX_ACTIONS`(まとまり memo)と `KEY_FN` に 3 つ(キー配置の一覧で変えられる)。`index.html` の「認識の設定」に `#optAutoLlm`・`app-core.js` の `OPT_CHECKS` に autoLlm(既定オン)。版 0.63.0(serve.py・app.js・README・AGENTS)
+- テスト: `src/editor/tests/e2e_row_editing.py` に 12-2(Shift+M・M・Ctrl+Z・Y・行の外・保存・キーの一覧)= ALL PASSED。e2e_proofread_keys(設定のチェック 18 個)・home の e2e_keymap OK。test_metrics 565 件 OK・lint 0・ui_audit all --demo Must 0
+- data.js: A6 を済みに・編集の版 0.63.0・P18 の残りから ⚙ のチェックを外した。llm-postfix・line-a-proofread-effort の状態の行。仮で決めたこと: decisions 3-17 の (fx)
+- 未コミット: なし(このセッションの分)

@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.62.0';
+const APP_VERSION = '0.63.0';
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -629,18 +629,7 @@ $('#segs').addEventListener('click', e => {
     case 'split': doSplit(i, row); break;
     case 'adda': insertAfter(i); break;
     case 'addb': insertBefore(i); break;
-    case 'merge':
-      if (i >= segs.length - 1) return toast('最後の行です');
-      { const navId = navSnapshot(); pushUndo(); const n = segs[i + 1], sep = /[A-Za-z0-9]$/.test(s.text) && /^[A-Za-z0-9]/.test(n.text) ? ' ' : '';
-        /* 終了は遅い方(次の行が重なって先に終わる場合に、この行の後ろを失わない)。音の状態のメモはまとめ、カット済は両方ともカット済のときだけ残す */
-        s.text = (s.text + sep + n.text).slice(0, 2000); s.end = Math.max(s.end, n.end); s.flag = [...new Set([s.flag, n.flag].join('、').split('、').filter(Boolean))].join('、');
-        if (!(s.proofed && n.proofed)) delete s.proofed;
-        if (!(s.cutState === 'cut' && n.cutState === 'cut')) delete s.cutState;
-        if (!(s.noSub && n.noSub)) delete s.noSub;   // 字幕に出さないのは、両方とも出さないときだけ(片方のセリフが字幕から消えないように)
-        { const tg = Object.keys(TAG_LABEL).filter(k => (s.tags || []).includes(k) || (n.tags || []).includes(k)); if (tg.length) s.tags = tg; else delete s.tags; }
-        S.sel.delete(n.id); segs.splice(i + 1, 1);
-        navRestore(navId, i); }
-      renderDoc(); markDirty(); break;
+    case 'merge': mergeRows(i); break;   // 中身は app-rows.js(キー M・Shift+M と共用。A6)
     case 'del': {   // 元に戻せる操作なので確認しない。消したら知らせに [元に戻す](UI の見直し S14。Z のキーは押し間違いを防ぐため 2 回押しのまま)
       const navId = navSnapshot(); pushUndo(); S.sel.delete(s.id); segs.splice(i, 1); navRestore(navId, i); renderDoc(); markDirty();
       undoToast('行を削除しました', 6000);
@@ -781,6 +770,8 @@ const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), �
   ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
   ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
   ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
+  /* つなぐ・分ける(0.63.0。A6 = 校正でいちばん時間を食うのが行をつなぐ・分ける。それまでは行の下のボタンと右クリックだけ) */
+  ['mergeNext', 'm', '次の行とつなぐ', 'memo'], ['mergePrev', 'Shift+m', '前の行とつなぐ', 'memo'], ['splitPlay', 'y', '再生位置で行を分ける', 'memo'],
   ['menu', 'g', '左のメニューを開く/閉じる', 'screen'],
   /* 評価ドリル(?drill=1 の帯が出ているときだけ働く)。単体キーにしない(押し間違いで「全部聞いた」にならないように Shift つき) */
   ['drillDone', 'Shift+d', '評価ドリル: 済みにして次へ', 'drill'], ['drillSkip', 'Shift+n', '評価ドリル: 飛ばして次へ', 'drill']
@@ -823,6 +814,7 @@ const KEY_FN = {
   tagUnclear: () => tagCur('unclear'), tagOverlap: () => tagCur('overlap'), tagBgm: () => tagCur('bgm'),
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
   del: () => deleteCur(), menu: () => toggleMenu(),
+  mergeNext: () => mergeKey(1), mergePrev: () => mergeKey(-1), splitPlay: () => splitKey(),   // app-rows.js
   drillDone: () => drillKey('drillDone'), drillSkip: () => drillKey('drillSkip')
 };
 /* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない(GPT-04・段3 3-1 監査 04):

@@ -1,6 +1,6 @@
 # LLM の後処理(提案 P18 の設計)+ P28 の訂正
 
-状態: **組み込んだ(2026-10-09。編集 0.61.0 = `src/editor/ed_llm.py`・9)**。測る道具 `dev/eval_llm.py`・測った結果は 8。残り: ⚙ のチェック(S3 のあと)・普段の校正での様子見(`dev/eval_fill.py` の E)。設計の案は 2026-10-08
+状態: **組み込んだ(2026-10-09。編集 0.61.0 = `src/editor/ed_llm.py`・9)**。測る道具 `dev/eval_llm.py`・測った結果は 8。⚙ のチェックは編集 0.63.0 で足した(`#optAutoLlm`)。旧メモ: ⚙ のチェック(S3 のあと)・普段の校正での様子見(`dev/eval_fill.py` の E)。設計の案は 2026-10-08
 
 - 経緯: `plan/proposals-2026-10.md` の P18(「LLM での書き直し」の再提案)。10-08 に効いた後処理 D(名簿の表記ゆれ直し)の一般化として、**疑わしい箇所だけ**をローカル LLM に直させる
 - 関連: 後処理 A・C・D の作り(`src/editor/ed_fill.py`・`ed_jobs.py`)、2 つ目のエンジン(`tx_engines.py` の `LlamaQwen3`)、守り 4 つ(`plan/decisions.md` 10-08)、サムネの案(`plan/thumb-ideas.md`。LLM の実行部品を共有)
