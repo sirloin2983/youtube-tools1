@@ -409,16 +409,16 @@ def _scene_settings(cx):
     check(open_settings(pg), "S 設定の引き出しに「ライブの録画」")
     import prefs as P  # noqa: E402  (home。既定の値)
     defs = P.DEFAULTS["live"]
-    check(pg.is_checked("#liveAutoArch") == defs["autoArchive"] and pg.is_checked("#liveAutoDel") == defs["autoDelete"],
-          "S チェック 2 つは入口の既定のとおり(自動で作り直す %s・録画を消す %s)" % (defs["autoArchive"], defs["autoDelete"]))
-    check("1 日" in (pg.text_content("label[for=liveAutoDel]") or ""), "S チェックの文: %s" % pg.text_content("label[for=liveAutoDel]"))
-    for sel, key in (("#liveAutoArch", "autoArchive"), ("#liveAutoDel", "autoDelete")):   # 付ける・外すの両方を本物の入口に保存(最後は外す)
-        for want in ([False] if pg.is_checked(sel) else [True, False]):
-            pg.click(sel)
-            check(wait_for(lambda: srv.prefs.get(["live"])["live"][key] is want, 5), "S %s を%s と live.%s = %s" % (sel, "付ける" if want else "外す", key, want))
-    check(wait_js(pg, "() => /自動では消しません/.test(document.querySelector('#liveMsg').textContent)", 3000), "S 外したことの知らせ: %s" % pg.text_content("#liveMsg"))
+    # 0.25.0: 「自動で本番版に作り直す」「録画を消す」の欄は ⚙ に無い(設定の画面 = prefs)。ここでは入口の設定を直接変えて、⚙ を開き直すと ② の帯へ伝わることを見る
+    check(pg.locator("#liveAutoArch, #liveAutoDel").count() == 0 and (pg.get_attribute("#liveSetLink", "href") or "").endswith("/settings#sec-live"),
+          "S ⚙ のライブの録画は表示と「設定の画面で変える」だけ")
+    lv = srv.prefs.get(["live"])["live"]
+    check(lv["autoArchive"] == defs["autoArchive"] and lv["autoDelete"] == defs["autoDelete"],
+          "S 2 つの値は入口の既定のとおり(自動で作り直す %s・録画を消す %s)" % (defs["autoArchive"], defs["autoDelete"]))
+    srv.prefs.patch("live", {"autoArchive": False, "autoDelete": False})   # 最後は外す(この e2e の録画で自動の作り直し・削除を動かさない所から始める)
     close_settings(pg)
-    check(open_settings(pg) and not pg.is_checked("#liveAutoArch") and not pg.is_checked("#liveAutoDel"), "S 開き直しても外れたまま(入口から読み直す)")
+    check(open_settings(pg) and srv.prefs.get(["live"])["live"]["autoArchive"] is False and srv.prefs.get(["live"])["live"]["autoDelete"] is False,
+          "S 開き直しても外れたまま(入口の設定)")
     close_settings(pg)
 
 
@@ -630,9 +630,8 @@ def _scene_chips_and_delete(cx):
     # ---------------- 5. 消す設定オフ → 残る / オン → 消える ----------------
     time.sleep(3)   # 入口の見回り(1 秒ごと)が何回か回る
     check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、入れ替えが済んでも録画は残る")
-    check(open_settings(pg), "5 設定を開く")
-    pg.click("#liveAutoDel")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoDelete"] is True, 5), "5 「録画を消す」を付けると live.autoDelete = true")
+    srv.prefs.patch("live", {"autoDelete": True})   # 0.25.0: 設定の画面(prefs)で付ける。⚙ を開くと ② の帯へ伝わる
+    check(open_settings(pg) and srv.prefs.get(["live"])["live"]["autoDelete"] is True, "5 「録画を消す」を付けると live.autoDelete = true")
     close_settings(pg)
     gone = wait_for(lambda: gone_from_list(rid1), 30, 0.5)
     if gone:
@@ -664,9 +663,8 @@ def _scene_auto_rebuild(cx):
     jobs_of, mark, open_settings, pg, probes, rec_ids, rec_len, rec_status = cx.jobs_of, cx.mark, cx.open_settings, cx.pg, cx.probes, cx.rec_ids, cx.rec_len, cx.rec_status
     rfolder, rid1, smarks, srv = cx.rfolder, cx.rid1, cx.smarks, cx.srv
     # ---------------- 6. 自動: 録画が終わる → 作り直す → 消す ----------------
-    check(open_settings(pg), "6 設定を開く")
-    pg.click("#liveAutoArch")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoArchive"] is True, 5), "6 「自動で本番版に作り直す」を付けると live.autoArchive = true")
+    srv.prefs.patch("live", {"autoArchive": True})   # 0.25.0: 設定の画面(prefs)で付ける。⚙ を開くと ② の帯へ伝わる
+    check(open_settings(pg) and srv.prefs.get(["live"])["live"]["autoArchive"] is True, "6 「自動で本番版に作り直す」を付けると live.autoArchive = true")
     close_settings(pg)
     pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
     pg.fill("#qUrls", YT2)

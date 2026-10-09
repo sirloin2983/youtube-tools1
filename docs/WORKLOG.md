@@ -3121,3 +3121,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 版: ホーム 0.53.0(0.52.1 は「ツール全体のコード修正」= 820ecc2)・送るアプリ 2.9.0。data.js の版と U8(2.9.0 を友人に渡して確かめる)
 - まだ: e2e(画面)は変えていない = 画面の変更なし。本物の配信での組の届き方は U8・D-16 のときに確かめる
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「スタジオ設定の整理」)— S6 ⚙ の見直し 1: スタジオ 0.25.0(設定の画面と重なる欄を ⚙ から外した)
+- 依頼: ユーザー(「議論」セッション経由・10-09 夕)「各ツールをそれぞれ見直して。本当にその項目が必要なのか、他とまとめられないかなどは確認して」。(gb)〜(ge)・(gf)・(gh)〜(gk) は「他は任せる」= 確認済み
+- 見直しの表: `docs/spec/settings.md` の 6(画面・項目・行き先・理由)。方針と各ツールの仮決め = `plan/decisions.md` 3-19 (gl)〜(gq)。機能そのものを消す候補 (gq) = ① 解析の「配信タイプ別の重み(試験的)」② ⚙ の音量のつまみとミュートの欄(最後に確認)
+- スタジオ(`src/studio/` 0.25.0): `settings.js` = 「解析」「書き出し」の節を外し、先頭に「設定の画面を開く」(`#setPageLink` → `../settings#sec-studio`)・「出力先」は今の値 + `#outSetLink`(変更の欄・saveOut を消した)・「ライブの録画」は置き場所と空きの表示 + `#liveSetLink`(`../settings#sec-live`。欄と handlers・fillLivePeaks・LIVE_QUALITY などを消した)・`refreshLive` は入口の live を読み直して `studio:liveprefs` に全体を流す(設定の画面で変えた値を ② の帯へ)・`UIKit.life.onReturn` でも読み直す / `queue.js` = `optsHtml`・`FIELDS`・保存の処理を消し、`settings()` はサーバーに保存した analyze をそのまま返す(`O.value`。`loadOpts` と onReturn)・`#qOpenOpts` は設定の画面へのリンク・「前回の音量の解析を使わない」(noCache)は URL のカードの「動画ファイル・コラボ・やり直し」に残した / `review.js` = `settingsHTML` は キー配置 と マークをまとめてずらす だけ(音量・ミュート・確認の進め方・遅れ補正・ライブ判定の欄を消した)・`SET_UI` からその 6 つを外し `wireSettings` は無い欄を飛ばす・`#setAutoTx` の同期を消した / `core.js`・`serve.py` 0.25.0・README の ■ v0.25.0
+- テスト: `e2e_ui.py`(⚙ に欄が無い・リンク・保存の失敗の場面は書き出しの引き出しの「書き出す対象」で)・`test_review.cjs`(autoTx のスイッチは設定の画面へ)・`e2e_live_studio.py`(⚙ の live の欄 → `srv.prefs.patch`。⚙ を開くと帯へ伝わる)・`e2e_live_archive.py`(同)・`dev/ui_audit.py` の studio-settings-analyze の場面を消した
+- 結果: e2e_ui 単体 214・取り込み 237・test_review.cjs 53・e2e_live_studio 182 すべて OK。lint 0・ui_audit static Must 0。e2e_live_archive 95 も OK
+- 次: ホーム(⚙ の「まとめて実行の既定」「試験中の機能」と、受付・バックアップのパネルの欄 → 設定の画面。(gn)(go))→ 編集(並行セッション「ツール全体のコード修正」が src/editor を終えてから。(gp))→ (gq) の確認
+- 未コミット: なし(この記録と一緒にコミット)

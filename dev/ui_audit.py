@@ -532,7 +532,6 @@ def default_scenes(base):
         {"name": "studio-review-pick", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#rvPick > summary"), ("wait", 400)]},
         {"name": "studio-keys", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#btnKeys"), ("wait", 400)], "modal": {"root": "#keyHelp", "opener": "#btnKeys"}},
         {"name": "studio-settings", "url": base + "/studio/?step=rank", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
-        {"name": "studio-settings-analyze", "url": base + "/studio/?step=rank", "actions": [("click", "[data-ui-settings]"), ("wait", 400), ("click", "#setAnalyze > summary"), ("wait", 300)], "modal": settings},   # 0.24.0: 解析の設定は ⚙ の節
         {"name": "editor-empty", "url": base + "/transcribe/", "header": True},
         {"name": "editor-tx", "url": ed + "#tx", "wide": True},
         {"name": "editor-tx-more", "url": ed + "#tx", "actions": [("click", "#moreTools > summary"), ("wait", 300)]},

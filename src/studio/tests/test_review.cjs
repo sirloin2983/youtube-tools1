@@ -709,8 +709,8 @@ test('autoTx lives in the review settings (server); before it is saved there, th
   const load2 = between('async function loadSettings(', 'function syncSettingsUI(');
   assert.ok(load2.includes("typeof raw.autoTx === 'boolean'") && load2.includes('autoTxLegacy() !== null') && load2.includes('touchSettings()'), 'loadSettings sends the old value to the server once');
   assert.ok(between('function autoTxEnabled(', 'async function maybeAutoTranscribe(').includes('S.settings.autoTx'), 'maybeAutoTranscribe reads the server setting');
-  const st = sliceOf('settings.js', 'if (S.token){\n    const cb', '$(\'#setCollab\')');
-  assert.ok(st.includes('S.review.setAutoTx(cb.checked)') && !st.includes('localStorage'), 'the switch in ⚙ saves through review.js (no localStorage)');
+  const stAll = sliceOf('settings.js', '/* 切り抜きスタジオ', 'S.onReady(');   // 0.25.0: the ⚙ switch moved to the settings page (home /settings → review.autoTx)
+  assert.ok(!stAll.includes('setAutoTx') && stAll.includes('settings#sec-studio') && !stAll.includes('localStorage'), 'the ⚙ no longer has the switch; it links to the settings page');
 });
 
 function placeHarness(store) {

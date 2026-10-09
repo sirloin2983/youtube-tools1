@@ -563,21 +563,13 @@ def check_review_keys(t):
     pg.click("#keyHelpClose")
     pg.click("#btnSettings")
     c.ok(pg.is_visible("#uiSettingsDrawer") and pg.is_visible("#setKey"), "設定の引き出しが開く")
+    # 0.25.0: 「書き出しのあと自動で文字起こし」(review.autoTx)・解析・② の操作の欄は ⚙ に無い(設定の画面へ。docs/spec/settings.md の 6)
+    c.ok(pg.locator("#setAutoTx, #setAnalyze, #setExport, #rvVol, #rvMute, #rvAutoPlay, #rvLag, #rvLiveMode, #outIn").count() == 0
+         and pg.locator("#setPageLink").count() == 1 and pg.locator("#outSetLink").count() == 1,
+         "⚙ には設定の画面と重なる欄が無く、「設定の画面を開く」「設定の画面で変える」のリンクがある")
+    c.ok((pg.get_attribute("#setPageLink", "href") or "").endswith("/settings#sec-studio"), "リンクは入口の /settings のスタジオの節: %s" % pg.get_attribute("#setPageLink", "href"))
     if MOUNT["token"]:
-        c.ok(pg.is_checked("#setAutoTx"), "設定の「書き出し」節: 「書き出しのあと自動で文字起こし」は既定オン")
-        # 依頼書 §1: このスイッチはスタジオの設定(サーバーの review.autoTx)に保存する(以前はこのブラウザの localStorage)
-        def ui_auto_tx(want):
-            end = time.time() + 5
-            while time.time() < end and (serve.STORE.get_ui().get("review") or {}).get("autoTx") is not want:
-                pg.wait_for_timeout(100)
-            return (serve.STORE.get_ui().get("review") or {}).get("autoTx") is want
-        pg.uncheck("#setAutoTx")
-        c.ok(ui_auto_tx(False) and pg.evaluate("localStorage.getItem('ytt:studio.autoTx')") is None,
-             "「書き出しのあと自動で文字起こし」を切ると、スタジオの設定(サーバー)に保存する(このブラウザには書かない)")
-        pg.check("#setAutoTx")
-        c.ok(ui_auto_tx(True), "入れ直すとサーバーの値も戻る")
-    else:
-        c.ok(pg.locator("#setAutoTx").count() == 0, "単体で開いたときは、自動で文字起こしの設定を出さない(入口の仕組みが無いため)")
+        c.ok((serve.STORE.get_ui().get("review") or {}).get("autoTx") is not False, "review.autoTx の既定はオン(値は設定の画面で変える)")
     pg.evaluate("() => { const v = document.querySelector('#rvHost video'); if (v) v.pause(); }")   # y キーの「次の候補へ」で再生中のことがある
     pg.wait_for_timeout(300)
     now0 = pg.input_value("#rvNow")
@@ -1103,8 +1095,9 @@ def check_settings_failure(t):
         return False
     spat = re.compile(r".*/api/settings$")
     pg.route(spat, st_route)
-    was = bool((serve.STORE.get_ui().get("review") or {}).get("muted"))
-    toggle = "(v => { const e = document.querySelector('#rvMute'); e.checked = v; e.dispatchEvent(new Event('change', { bubbles: true })); })(%s)"
+    # 0.25.0: ⚙ に設定の欄が無いので、書き出しの引き出しの「書き出す対象」(review.exportTarget)で保存の失敗を起こす
+    was = (serve.STORE.get_ui().get("review") or {}).get("exportTarget") == "pending"
+    toggle = "(v => { const e = document.querySelector('#rvExpTarget'); e.value = v ? 'pending' : 'adopted'; e.dispatchEvent(new Event('change', { bubbles: true })); })(%s)"
     pg.evaluate(toggle % ("false" if was else "true"))
     c.ok(wait_page("() => document.querySelector('#btnSettings').getAttribute('data-ui-status') === 'err'")
          and "テストで失敗させた" in (pg.get_attribute("#btnSettings", "title") or ""), "保存の失敗: ⚙ に印と理由")
@@ -1114,7 +1107,7 @@ def check_settings_failure(t):
     sfail["put"] = False
     pg.click(".ui-settings-status button")
     c.ok(wait_page("() => document.querySelector('.ui-settings-status').hidden && !document.querySelector('#btnSettings').hasAttribute('data-ui-status')")
-         and bool((serve.STORE.get_ui().get("review") or {}).get("muted")) == (not was), "「もう一度」で保存でき、印が消える")
+         and ((serve.STORE.get_ui().get("review") or {}).get("exportTarget") == "pending") == (not was), "「もう一度」で保存でき、印が消える")
     pg.keyboard.press("Escape")
     sfail["get"] = True
     pg.reload(); pg.wait_for_selector("#btnSettings")   # ① の条件の欄(#rkCond)も設定から作るので、読めないときは待たない
@@ -1123,14 +1116,15 @@ def check_settings_failure(t):
     puts = sfail["puts"]
     pg.evaluate(toggle % ("true" if was else "false"))
     pg.wait_for_timeout(1200)
-    c.ok(sfail["puts"] == puts and bool((serve.STORE.get_ui().get("review") or {}).get("muted")) == (not was), "読めないまま変えても保存しない(既定値で上書きしない)")
+    c.ok(sfail["puts"] == puts and ((serve.STORE.get_ui().get("review") or {}).get("exportTarget") == "pending") == (not was), "読めないまま変えても保存しない(既定値で上書きしない)")
     sfail["get"] = False
     pg.click("#btnSettings")
     wait_page("() => !document.querySelector('.ui-settings-status').hidden", 5000)
     c.ok("読み直す" in pg.inner_text(".ui-settings-status button"), "引き出しに「読み直す」")
     pg.click(".ui-settings-status button")
-    c.ok(wait_page("() => document.querySelector('.ui-settings-status').hidden && document.querySelector('#rvMute').checked === %s" % ("false" if was else "true")),
+    c.ok(wait_page("() => document.querySelector('.ui-settings-status').hidden && document.querySelector('#rvExpTarget').value === %s" % ("'adopted'" if was else "'pending'")),
          "「読み直す」で保存済みの設定が入り、印が消える")
+    pg.evaluate(toggle % ("true" if was else "false")); pg.wait_for_timeout(800)   # 元の値に戻す(後の場面が「採用のみ」を前提にする)
     pg.keyboard.press("Escape")
     pg.unroute(spat)
 
@@ -1198,10 +1192,6 @@ def check_autotx_migration(t):
     while time.time() < end and (serve.STORE.get_ui().get("review") or {}).get("autoTx") is not False:
         pg.wait_for_timeout(100)
     c.ok((serve.STORE.get_ui().get("review") or {}).get("autoTx") is False, "サーバーにまだ無いときは、このブラウザの「切」を 1 回だけサーバーへ送る")
-    if MOUNT["token"]:
-        pg.click("#btnSettings")
-        c.ok(not pg.is_checked("#setAutoTx"), "引き継いだ値がスイッチに出る")
-        pg.keyboard.press("Escape")
     pg.evaluate("localStorage.setItem('ytt:studio.autoTx', '1')")
     pg.reload()
     pg.wait_for_selector("#btnSettings")

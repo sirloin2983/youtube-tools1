@@ -283,25 +283,14 @@ function markToolsHTML(){
         </div>
       </details>`;
 }
-/* 操作の設定(音量・確認の進め方・マークの付け方・キー配置・ライブ配信)。置き場所は ⚙ 設定の「このツール」の節「② の操作」(settings.js の #opsHost)。
-   0.22.3(見直し M9・仮決め (aw)): 以前は ② の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた */
+/* ② の操作(キー配置を変える・ライブのマークをまとめてずらす)。置き場所は ⚙ 設定の「このツール」の節「② の操作」(settings.js の #opsHost)。
+   0.22.3(見直し M9・仮決め (aw)): 以前は ② の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた。
+   0.25.0(docs/spec/settings.md の 6): 音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の欄は外した(値は設定の画面 = 入口の /settings のスタジオの節。
+   音量・ミュートは再生の欄とキーで)。設定の値 S.settings は今までどおり読み書きする(SET_UI は無い欄を飛ばす) */
 function settingsHTML(){
   return `      <div class="rv-settings" id="rvSettings">
         <div class="rv-setpanel">
-          <section class="rv-sec">
-            <h3>音量</h3>
-            <div class="rv-setrow"><input type="range" id="rvVol" min="0" max="100" step="1" value="100" aria-label="音量"><output id="rvVolOut" class="mono" for="rvVol">100</output><label class="rv-check" for="rvMute"><input type="checkbox" id="rvMute">ミュート</label></div>
-          </section>
-          <section class="rv-sec">
-            <h3>確認の進め方</h3>
-            <div class="rv-setrow"><label class="rv-check" for="rvAutoPlay"><input type="checkbox" class="ui-switch" id="rvAutoPlay">前後のマークへ移動したら、その区間を自動で再生する</label></div>
-            <div class="rv-setrow"><label class="rv-check" for="rvAutoNext"><input type="checkbox" class="ui-switch" id="rvAutoNext">「採用」「不採用」を押したら、次の候補へ進む</label></div>
-          </section>
-          <section class="rv-sec">
-            <h3>マークの付け方</h3>
-            <div class="rv-setrow"><label class="rv-check" for="rvLag">反応の遅れ補正</label><select id="rvLag"><option value="0">なし</option><option value="2">−2秒</option><option value="3">−3秒</option><option value="5">−5秒</option></select></div>
-            <p class="rv-sechint">面白い場面を見てから IN・「今をマーク」を押すまでの遅れの分だけ、開始を前にずらします。</p>
-          </section>
+          <p class="rv-sechint">確認の進め方・反応の遅れ補正・ライブ判定・書き出しの既定は、設定の画面(スタジオの節)で変えます。音量は再生の欄とキーで。</p>
           <section class="rv-sec">
             <h3>キー配置</h3>
             <p class="rv-sechint">キーの割り当ては、ヘッダーの「キー操作」(? キー)の一覧の1か所で変えます。「標準」「左手だけ」の組み合わせも一覧の上で選べます。</p>
@@ -312,11 +301,6 @@ function settingsHTML(){
             <div class="rv-subh">打ったマークの時刻をまとめてずらす</div>
             <p class="rv-sechint">配信後にアーカイブで見て、記録がずれていたときに使います。「ライブ」印のマークだけが対象です。</p>
             <div class="rv-setrow"><label class="rv-check" for="rvShiftSec">ずらす秒数<input id="rvShiftSec" type="number" step="1" min="-3600" max="3600" value="0"></label><button class="btn small" id="rvShift" type="button">適用</button><span class="hint" id="rvShiftCount"></span></div>
-            <details class="rv-adv ui-disclosure"><summary>詳細設定(通常は変更不要)</summary>
-              <div class="rv-subh" style="margin-top:8px"><label for="rvLiveMode">ライブ判定</label></div>
-              <select id="rvLiveMode"><option value="auto">自動(おすすめ)</option><option value="on">常にライブとして扱う</option><option value="off">常に通常の配信(アーカイブ)として扱う</option></select>
-              <p class="rv-sechint" style="margin-top:6px">いま見ている配信が「配信中のライブ」かどうかの判定です。ライブなのにライブ用バーが出ないときだけ「常にライブ」を選んでください。</p>
-            </details>
           </section>
         </div>
       </div>`;
@@ -1122,11 +1106,8 @@ async function loadSettings(){
 /* ② の設定と欄の対応の表(G4 の 2。0.23.4): [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
    欄へ書くのは syncSettingsUI、欄から読むのは wireSettings。値の検め方は sanitizeSettings の 1 か所(設定を足すときは sanitizeSettings とこの表の 2 か所)。
    音量の数字(output)・押せない欄・「書き出しのあと自動で文字起こし」(settings.js の欄)は syncSettingsUI に別に書く */
+/* 0.25.0: volume・muted・lag・liveMode・autoPlay・autoNext の欄は設定の画面へ(ここには無い。値は S.settings のまま読み書き) */
 const SET_UI = [
-  ['#rvVol', 'volume', 'value', () => { $('#rvVolOut').textContent = S.settings.volume; applyToPlayer(); }, 'input'],
-  ['#rvMute', 'muted', 'checked', () => applyToPlayer()],
-  ['#rvLag', 'lag', 'value'],
-  ['#rvLiveMode', 'liveMode', 'value', () => updateLive()],
   ['#rvHeight', 'maxHeight', 'value', () => expSetSummary()],
   ['#rvPrecision', 'precision', 'value', () => expSetSummary()],
   ['#rvExpVol', 'exportVolume', 'value', () => { $('#rvExpVolOut').textContent = S.settings.exportVolume; expSetSummary(); }, 'input'],
@@ -1134,21 +1115,19 @@ const SET_UI = [
   ['#rvAutoExp', 'liveAutoExport', 'checked', () => renderLiveRec()],   // LIVE の帯(ライブの録画)
   ['#rvDuck', 'liveDuck', 'value', () => applyToPlayer()],
   ['#rvAfter', 'liveAfter', 'value'],
-  ['#rvAutoPlay', 'autoPlay', 'checked'],
-  ['#rvAutoNext', 'autoNext', 'checked'],
   ['#rvSort', 'sortBy', 'value', () => renderList()],
   ['#rvExpTarget', 'exportTarget', 'value', () => { renderExportUI(); expSetSummary(); }]
 ];
 function syncSettingsUI(){
   const s = S.settings;
   for (const [sel, k, prop] of SET_UI){ const el = $(sel); if (el) el[prop] = prop === 'checked' ? !!s[k] : String(s[k]); }
-  $('#rvVolOut').textContent = s.volume; $('#rvExpVolOut').textContent = s.exportVolume;
+  { const vo = $('#rvVolOut'); if (vo) vo.textContent = s.volume; }   // 0.25.0: 音量の欄は ⚙ に無い
+  $('#rvExpVolOut').textContent = s.exportVolume;
   renderKeyUI();
   $('#rvExpVol').disabled = !!s.exportLoudness;
   /* 音量をそろえるときは使わない欄: 薄く見せ、押せない欄であることと理由を属性で伝える(押せない物は薄くてよい。A-22・A-34) */
   { const vb = $('#rvExpVolBox'), off = !!s.exportLoudness; vb.classList.toggle('rv-off', off); vb.setAttribute('aria-disabled', String(off)); vb.title = off ? '音量のそろえ方が「そろえない」のときだけ使います' : ''; }
   expSetSummary();
-  { const at = $('#setAutoTx'); if (at) at.checked = s.autoTx !== false; }   // 設定の「書き出し」節(settings.js が作る。入口から開いたときだけ)
 }
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
 function expSetSummary(){
@@ -1186,7 +1165,8 @@ function toggleMute(){ S.settings.muted = !S.settings.muted; syncSettingsUI(); a
 /* 欄を変えた: 欄の値を sanitizeSettings で検めて設定へ入れ、保存を頼んでから、表の「変えたあと」を呼ぶ */
 function wireSettings(){
   for (const [sel, k, prop, after, ev] of SET_UI){
-    $(sel).addEventListener(ev || 'change', e => {
+    const el = $(sel); if (!el) continue;   // 0.25.0: 音量・確認の進め方・遅れ補正・ライブ判定の欄は ⚙ に無い(値は設定の画面)
+    el.addEventListener(ev || 'change', e => {
       S.settings[k] = sanitizeSettings({ ...S.settings, [k]: e.target[prop] })[k];
       touchSettings();
       if (after) after();

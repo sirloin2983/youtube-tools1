@@ -625,10 +625,13 @@ def _scene_settings_and_sound(cx):
     check(wait_js(pg, "() => /空き/.test(document.querySelector('#liveFree').textContent) && document.querySelector('#liveFolderNow').textContent.toLowerCase() === %s"
                   % json.dumps(rfolder.lower()), 8000),
           "11 置き場所と空き: %s / %s" % (pg.text_content("#liveFolderNow"), pg.text_content("#liveFree")))
-    check(wait_js(pg, "() => document.querySelector('#liveFolderSave').disabled", 5000), "11 録画中は置き場所を変えられない")
-    check(pg.input_value("#liveQuality") == "1080p", "11 画質の既定は 1080p")
-    pg.select_option("#liveQuality", "720p")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["quality"] == "720p", 5), "11 画質を変えると設定 live.quality に残る")
+    check(wait_js(pg, "() => /録画中\\(1本\\)/.test(document.querySelector('#liveFolderNote').textContent)", 5000), "11 録画中は置き場所を変えられない(案内): %s" % pg.text_content("#liveFolderNote"))
+    # 0.25.0: 画質などの欄は ⚙ に無い(設定の画面へ)。リンクだけ
+    check(pg.locator("#liveQuality, #liveFolderIn, #liveAutoArch, #liveDetect").count() == 0 and (pg.get_attribute("#liveSetLink", "href") or "").endswith("/settings#sec-live"),
+          "11 ⚙ のライブの録画は表示と「設定の画面で変える」だけ: %s" % pg.get_attribute("#liveSetLink", "href"))
+    check(srv.prefs.get(["live"])["live"]["quality"] == "1080p", "11 画質の既定は 1080p(入口の設定)")
+    srv.prefs.patch("live", {"quality": "720p"})
+    check(srv.prefs.get(["live"])["live"]["quality"] == "720p", "11 画質は設定の画面(prefs の live.quality)で変える")
     if shots:
         pg.screenshot(path=os.path.join(shots, "live_03_settings.png"))
     pg.keyboard.press("Escape")
@@ -649,7 +652,7 @@ def _scene_settings_and_sound(cx):
               "8b 編集で再生中: 配信の音を 2 割に下げて、案内を出す: %s" % pg.evaluate("() => %s.volume" % VIDEO))
         pg.select_option("#rvDuck", "mute")
         check(wait_js(pg, "() => %s.muted" % VIDEO, 3000) and "消しています" in (pg.text_content("#rvDuckNote") or ""), "8b 「音を消す」に切り替えると消音")
-        check(pg.evaluate("() => document.querySelector('#rvMute').checked") is False, "8b 設定の消音そのものは変えない")
+        check(pg.evaluate("() => Studio.api('/api/settings').then(j => !!(j.settings && j.settings.review && j.settings.review.muted))") is False, "8b 設定の消音そのものは変えない")
         other.evaluate(say, False)
         check(wait_js(pg, "() => !%s.muted && Math.abs(%s.volume - %s) < 0.02 && document.querySelector('#rvDuckNote').hidden" % (VIDEO, VIDEO, vol0), 5000), "8b 編集の再生が止まると元の音に戻る")
         other.evaluate(say, True)
@@ -1017,18 +1020,16 @@ def _scene_peaks(cx):
           "L3 見回り(since の差分 %d 回。録画が終わっていれば 10 秒ごと)で帯・候補の行が作り直されない: %s" % (len([u for u in reqs[g1:] if "since=" in u]), gone))
     _scene_peak_text(cx, row)
 
-    # ⚙ の設定: 配信中の候補(live.detect)と自動採用(live.autoAdopt)→ 入口の設定に入り、帯の見出しに出る
-    pg.click("#btnSettings")
-    check(wait_js(pg, "() => { const s = document.querySelector('#liveDetect'); return s && s.offsetParent && s.checked; }", 8000), "L3 ⚙ に「配信中の候補」の群(オンになっている)")
-    pg.fill("#liveDetectPerHour", "8")
-    pg.keyboard.press("Tab")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["detect"]["perHour"] == 8 and srv.prefs.get(["live"])["live"]["detect"]["enabled"] is True, 8),
+    # 配信中の候補(live.detect)と自動採用(live.autoAdopt)は設定の画面(prefs)で変える(0.25.0 で ⚙ の欄を外した)。⚙ を開くと入口の設定を読み直して帯の見出しに出る
+    check(srv.prefs.get(["live"])["live"]["detect"]["enabled"] is True, "L3 配信中の候補は既定オン(入口の設定)")
+    srv.prefs.patch("live", {"detect": {"perHour": 8}})
+    check(srv.prefs.get(["live"])["live"]["detect"]["perHour"] == 8 and srv.prefs.get(["live"])["live"]["detect"]["enabled"] is True,
           "L2 1 時間の本数を変えると live.detect.perHour に入る(オンのまま): %s" % srv.prefs.get(["live"])["live"]["detect"])
-    pg.fill("#liveAutoAdoptWait", "60")
-    pg.keyboard.press("Tab")
-    pg.check("#liveAutoAdopt")
-    check(wait_for(lambda: (lambda a: a["enabled"] is True and a["waitMin"] == 60)(srv.prefs.get(["live"])["live"]["autoAdopt"]), 8),
+    srv.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 60}})
+    check((lambda a: a["enabled"] is True and a["waitMin"] == 60)(srv.prefs.get(["live"])["live"]["autoAdopt"]),
           "L2 自動採用をオンにすると live.autoAdopt に入る: %s" % srv.prefs.get(["live"])["live"]["autoAdopt"])
+    pg.click("#btnSettings")   # 開くと refreshLive が入口の live を読み直して ② の帯へ伝える(studio:liveprefs)
+    check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "L3 ⚙ に「ライブの録画」(表示だけ)")
     _scene_live_tx_switch(cx)
     pg.keyboard.press("Escape")
     check(wait_js(pg, "() => /自動採用 オン\\(60 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 12000), "L3 帯の見出しに「自動採用 オン(60 分待ち)」: %s" % pg.text_content("#rvPeakInfo"))
@@ -1085,26 +1086,23 @@ def _scene_peak_text(cx, row):
 
 
 def _scene_live_tx_switch(cx):
-    """D-11 案 b: ⚙ の「候補を文字起こしする」#liveTx(live.liveTx.enabled)。外すと見出しの「文字起こしなし」が消え、戻すと出る(設定の引き出しを開いたまま)"""
+    """D-11 案 b: 候補を文字起こしする(live.liveTx.enabled)。0.25.0 で ⚙ の欄は外した(設定の画面 = prefs)。外すと見出しの「文字起こしなし」が消え、戻すと出る"""
     check, pg, srv = cx.check, cx.pg, cx.srv
     has_note = "() => /文字起こしなし\\(/.test(document.querySelector('#rvPeakInfo').textContent)"
-    check(wait_js(pg, "() => { const s = document.querySelector('#liveTx'); return !!s && !!s.offsetParent && s.checked && !s.closest('label').hidden; }", 8000),
-          "D-11 ⚙ に「候補を文字起こしする」(既定オン)")
-    pg.uncheck("#liveTx")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": False, "model": "large-v3"}, 8),
-          "D-11 #liveTx を外すと live.liveTx.enabled が False: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
+    check(pg.locator("#liveTx, #liveAutoDeliver").count() == 0, "D-11 ⚙ に候補の文字起こし・届けるの欄は無い(設定の画面へ)")
+    check(srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": True, "model": "large-v3"}, "D-11 候補の文字起こしは既定オン: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
+    srv.prefs.patch("live", {"liveTx": {"enabled": False}})
+    check(srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": False, "model": "large-v3"}, "D-11 外すと live.liveTx.enabled が False")
     check(wait_js(pg, "() => !(%s)()" % has_note, 25000), "D-11 オフにすると見出しの「文字起こしなし」が消える: %s" % pg.text_content("#rvPeakInfo"))
-    pg.check("#liveTx")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": True, "model": "large-v3"}, 8),
-          "D-11 #liveTx を戻すと live.liveTx.enabled が True: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
+    srv.prefs.patch("live", {"liveTx": {"enabled": True}})
+    check(srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": True, "model": "large-v3"}, "D-11 戻すと live.liveTx.enabled が True")
     check(wait_js(pg, has_note, 25000), "D-11 戻すと見出しに「文字起こしなし(…)」がまた出る: %s" % pg.text_content("#rvPeakInfo"))
     # 0.48.1: 自動の切り抜きを確認なしで友人へ届ける(live.autoDeliver。既定オン)
-    check(wait_js(pg, "() => { const s = document.querySelector('#liveAutoDeliver'); return !!s && !!s.offsetParent && s.checked && !s.closest('label').hidden; }", 8000),
-          "0.48.1 ⚙ に「自動の切り抜きを確認なしで友人へ届ける」(既定オン)")
-    pg.uncheck("#liveAutoDeliver")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoDeliver"] is False, 8), "0.48.1 外すと live.autoDeliver が False")
-    pg.check("#liveAutoDeliver")
-    check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoDeliver"] is True, 8), "0.48.1 戻すと live.autoDeliver が True")
+    check(srv.prefs.get(["live"])["live"]["autoDeliver"] is True, "0.48.1 自動の切り抜きを友人へ届けるは既定オン")
+    srv.prefs.patch("live", {"autoDeliver": False})
+    check(srv.prefs.get(["live"])["live"]["autoDeliver"] is False, "0.48.1 外すと live.autoDeliver が False")
+    srv.prefs.patch("live", {"autoDeliver": True})
+    check(srv.prefs.get(["live"])["live"]["autoDeliver"] is True, "0.48.1 戻すと live.autoDeliver が True")
 
 
 def _scene_narrow_and_errors(cx):

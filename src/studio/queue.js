@@ -1,27 +1,16 @@
-/* 切り抜きスタジオ: 解析(① の先頭の「URL から入れる」と順番待ち・⚙ の「解析」の節の設定)。Studio.enqueue(items) もここで定義する。
-   0.24.0 で「2 解析」のタブを無くした(docs/spec/settings.md の 3)。欄の id は以前のまま */
+/* 切り抜きスタジオ: 解析(① の先頭の「URL から入れる」と順番待ち)。Studio.enqueue(items) もここで定義する。
+   0.24.0 で「2 解析」のタブを無くした(docs/spec/settings.md の 3)。0.25.0 で解析の設定の欄も ⚙ から外した = 設定の画面(入口の /settings)だけ(同 6)。
+   ここは保存してある設定(/api/settings の analyze)を読んで、解析に追加するときにそのまま送る */
 (() => {
 'use strict';
 const S = window.Studio, esc = S.esc;
 const $ = s => document.querySelector(s);
-const LS = 'clipstudio:queue:';
-const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
 /* 状態の言葉は 3 画面で同じ(待ち・実行中・済み・飛ばした・失敗・中止。見直し S7) */
 const STATUS = { waiting: ['待ち', 'wait'], running: ['実行中', 'run'], done: ['済み', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['飛ばした', 'wait'] };
-/* 解析の設定の欄と送る名前の表(0.23.4。以前は欄の id・送る名前・既定値の 3 つの並び): [欄の id, settings() の名前, 種類, 既定, 保存しないなら false]。
-   種類: bool = チェック・str = 選択・num = 数(空・数でなければ既定)・pct = 欄は %、送るのは 0〜1。並びは送る JSON の鍵の順 */
-const FIELDS = [
-  ['useAudio', 'useAudio', 'bool'], ['useChat', 'useChat', 'bool'], ['useComments', 'useComments', 'bool'],
-  ['count', 'count', 'num', 8], ['length', 'length', 'num', 45], ['sens', 'sensitivity', 'str'], ['pre', 'preRatio', 'pct', 65],
-  ['lag', 'lag', 'num', 8], ['lagAuto', 'lagAuto', 'bool'], ['headSec', 'headSec', 'num', 180], ['typePreset', 'typePreset', 'bool'],
-  ['typeOver', 'typeOverride', 'str'], ['chatTo', 'chatTimeout', 'num', 20], ['noCache', 'noCache', 'bool', null, false],   // noCache はその場だけの指定(保存しない)
-  ['wA', 'wAudio', 'num', 1], ['wC', 'wChat', 'num', 1], ['wM', 'wComments', 'num', 0.7]   // 0.24.0: 「画質の上限」(maxHeight)は解析で読まれていなかったので欄を消した(保存値は読み捨てる)
-];
-const OPT_IDS = FIELDS.filter(f => f[4] !== false).map(f => f[0]);   // 保存する欄
 const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, busy: false };
 const mmss = t => UIKit.fmt.dur(t, { floor: true, noHours: true });   // チャット取得の経過(83:45。ui-kit の 1 か所)
 
-/* ① 探す の先頭に置く「URL から入れる」のカードと解析の順番待ち。設定は ⚙ の「解析」の節(settings.js が器 #analyzeHost を作り、ここが中身 optsHtml を入れる) */
+/* ① 探す の先頭に置く「URL から入れる」のカードと解析の順番待ち。解析の設定は設定の画面(0.25.0。ここには「前回の音量の解析を使わない」だけ を入れる) */
 function entryHtml(){
   return `
   <div id="qWarn" class="notice cs-notice-act" role="alert" hidden></div>
@@ -32,11 +21,12 @@ function entryHtml(){
     <div class="fld" style="margin-top:0"><label class="l" for="qUrls">配信の URL <span class="muted">YouTube。1行に1つ。まとめて最大10本</span></label>
       <textarea id="qUrls" rows="2" placeholder="https://www.youtube.com/watch?v=…&#10;https://youtu.be/…" autocomplete="off" spellcheck="false"></textarea></div>
     <div class="row q-acts"><button type="button" class="btn primary" id="qAdd">解析に追加</button><button type="button" class="btn" id="qOpen">解析せずに確認画面を開く</button>
-      <button type="button" class="btn ghost small" id="qOpenOpts" title="本数・長さ・感度・材料などは、右上の設定の「解析」の節で変えます(次に追加する分から使います)">解析の設定</button></div>
-    <details class="ui-disclosure q-more"><summary>動画ファイル・コラボ</summary>
+      <a class="btn ghost small" id="qOpenOpts" href="../settings#sec-studio" title="本数・長さ・感度・材料などは、設定の画面(スタジオの節)で変えます(次に追加する分から使います)">解析の設定を変える</a></div>
+    <details class="ui-disclosure q-more"><summary>動画ファイル・コラボ・やり直し</summary>
       <div class="fld"><label class="l" for="qPath">手元の動画ファイルのパス <span class="muted">このパソコン上のフルパス。「音声」だけで判定します</span></label>
         <input type="text" id="qPath" placeholder="C:\\Users\\...\\stream.mp4" autocomplete="off" spellcheck="false">
         <span class="hint">URLとファイルの両方を入れると、両方を追加します</span></div>
+      <label class="lag" style="margin-top:8px" title="配信中・配信の直後に解析し直すとき(前回の音量の解析を使い回しません)"><input type="checkbox" id="noCache">前回の音量の解析を使わない(やり直す)</label>
       <div class="fld"><label class="lag q-collab" title="まとめて追加した配信どうしを、コラボのグループにします(2本以上のときだけ)。あとで設定の「コラボ」節で、時刻のズレ(アンカー)を指定してください"><input type="checkbox" class="ui-switch" id="qCollab"><span>コラボとしてまとめる <span class="muted">採用したマークを、他の人の配信にも候補として転写できるようにします</span></span></label></div>
     </details>
     <p class="msg hint" id="qMsg" role="status"></p>
@@ -48,90 +38,22 @@ function entryHtml(){
   </section>
   </div>`;
 }
-/* ⚙ の「解析」の節の中身(以前は ② のカード「解析の設定」。欄の id は変えていない) */
-function optsHtml(){
-  return `<div id="qOpts">
-    <p class="hint q-optnote">既定のままで使えます。変えると次に追加する分から使います(ホームの「まとめて実行」も同じ設定で解析します)。</p>
-    <div class="fld" style="margin-top:0"><span class="l">盛り上がりの判定に使う材料</span><div class="q-mats">
-      <label class="lag q-mat"><input type="checkbox" id="useAudio" checked><span class="q-sw a"></span>音声 <span class="muted">音量・笑い声や叫びの高音域</span></label>
-      <label class="lag q-mat" data-yt><input type="checkbox" id="useChat" checked><span class="q-sw c"></span>チャットのリプレイ <span class="muted">量・「草」など</span></label>
-      <label class="lag q-mat" data-yt><input type="checkbox" id="useComments" checked><span class="q-sw m"></span>コメント欄の時刻 <span class="muted">「12:34 ここ最高」</span></label></div></div>
-    <div class="cs-opts">
-      <label class="cs-opt"><span class="l">本数(最大)</span><input type="number" id="count" min="1" max="30" value="8"></label>
-      <label class="cs-opt"><span class="l">1本の長さ(秒)</span><input type="number" id="length" min="10" max="120" value="45"></label>
-      <label class="cs-opt"><span class="l">感度</span><select id="sens"><option value="high">高(多めに拾う)</option><option value="normal" selected>標準</option><option value="low">低(強い場面だけ)</option></select></label>
-    </div>
-    <details class="ui-disclosure q-adv"><summary>詳しい設定</summary>
-      <div class="cs-opts q-advgrid">
-        <label class="cs-opt"><span class="l">ピークより前(%)</span><input type="number" id="pre" min="30" max="90" value="65"><span class="hint">区間のどこに山を置くか</span></label>
-        <label class="cs-opt"><span class="l">冒頭の減点(秒)</span><input type="number" id="headSec" min="0" max="600" value="180"><span class="hint">0で無効。冒頭は挨拶やBGMで誤検出しやすいため、この秒数かけて少しずつ通常の点数に戻す</span></label>
-        <label class="cs-opt" data-yt><span class="l">チャットの遅れ補正(秒)</span><input type="number" id="lag" min="0" max="30" value="8"><span class="hint">自動推定できないときの値</span></label>
-        <label class="cs-opt" data-yt><span class="l">チャット取得の待ち時間(上限・分)</span><input type="number" id="chatTo" min="1" max="120" value="20"></label>
-        <label class="cs-opt" data-yt><span class="l">配信タイプ</span><select id="typeOver"><option value="auto" selected>自動(タイトル・タグから推定)</option><option value="ゲーム">ゲーム</option><option value="雑談">雑談</option><option value="歌枠">歌枠</option><option value="その他">その他</option></select><span class="hint">「配信タイプ別の重み」がオンのときだけ使用。倍率の初期値は仮で、歌枠は音声×0.6、雑談は音声×0.8・チャット×1.1</span></label>
-      </div>
-      <div class="q-switches">
-        <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="lagAuto" checked>チャットの遅れを自動で推定する</label>
-        <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="typePreset">配信タイプ別の重み(試験的)</label>
-        <label class="lag" data-yt><input type="checkbox" class="ui-switch" id="noCache">前回の音量の解析を使わない(やり直す)</label>
-      </div>
-      <div class="fld"><span class="l">重み</span><div class="cs-opts q-weights">
-        <label class="cs-opt"><span class="l"><span class="q-sw a"></span>音声</span><input type="number" id="wA" min="0" max="3" step="0.1" value="1"></label>
-        <label class="cs-opt"><span class="l"><span class="q-sw c"></span>チャット</span><input type="number" id="wC" min="0" max="3" step="0.1" value="1"></label>
-        <label class="cs-opt"><span class="l"><span class="q-sw m"></span>コメント</span><input type="number" id="wM" min="0" max="3" step="0.1" value="0.7"></label></div></div>
-      <p class="hint q-advnote">チャットの反応は少し遅れて来るので、その遅れだけ前へずらして盛り上がった瞬間に合わせます(遅れは配信ごとに音量の山との一致から自動で推定します)。同じ配信の再解析は、前回の音量の解析結果を使うので速くなります(配信中・配信直後は「前回の音量の解析を使わない」をオンに)。チャット取得は長い配信だと時間がかかるため、待ち時間の上限を超えたらチャットなしで続行します。</p></details>
-  </div>`;
-}
 /* 空の状態は 2 文 + 次に押すボタン 1 つ(S-13)。URL の欄はすぐ左、配信を探す欄はすぐ下にある */
 const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありません</b>URL を入れて「解析に追加」を押すか、下の「配信を探す」で選ぶと、ここに並んで順番に解析します。' +
   '<div class="cs-emptyacts"><button type="button" class="btn small" data-act="gorank">配信を探す</button></div></div>';
 
 /* ---------- 設定 ---------- */
+/* 解析の設定(材料・本数・長さ・感度・詳しい設定・重み)の置き場所はスタジオのサーバー(/api/settings の settings.analyze。段階7-1)。
+   0.25.0: 欄は設定の画面(入口の /settings のスタジオの節)だけ(docs/spec/settings.md の 6)。ここは保存してある値を読んで、解析に追加するときにそのまま送る
+   (範囲の外はサーバーの analyze.validate_settings が丸める。まとめて実行(入口)も同じ設定で解析する)。
+   「前回の音量の解析を使わない」(noCache)だけは、その場だけの指定なので URL のカードに残す */
+const O = { value: {} };   // value = 読み込んだ設定(サーバーに保存したもの。無ければ {} = サーバーの既定)
 function settings(){
-  const o = {};
-  for (const [id, key, kind, d] of FIELDS){
-    const e = $('#' + id);
-    if (!e){ if (key in O.value) o[key] = O.value[key]; continue; }   // ⚙ の節が無いとき(読み込み中・失敗)は保存してある値
-    if (kind === 'bool') o[key] = e.checked;
-    else if (kind === 'str') o[key] = e.value;
-    else { const v = Number(e.value), n = Number.isFinite(v) && e.value !== '' ? v : d; o[key] = kind === 'pct' ? n / 100 : n; }
-  }
-  return o;
+  const nc = $('#noCache');
+  return Object.assign({}, O.value, { noCache: !!(nc && nc.checked) });
 }
-/* 解析の設定の保存先はスタジオのサーバー(/api/settings の settings.analyze。段階7-1)。
-   まとめて実行(入口)も同じ設定で解析し、窓(専用のプロファイル)やほかのブラウザで開いても設定が変わらない。
-   保存するのは settings() の形(noCache はその場だけの指定なので除く)。以前のブラウザの保存(localStorage の opts)は、サーバーに無いときに1回だけ引き継ぐ */
-const O = { timer: null, touched: false, value: {} };   // value = 読み込んだ・送った設定(settings() の形)
-function applyForm(o){   // o: 画面の欄の id → 値
-  for (const id of OPT_IDS){
-    const e = $('#' + id); if (!e || !(id in o)) continue;
-    if (e.type === 'checkbox') e.checked = !!o[id];
-    else if (e.tagName === 'SELECT'){ if ([...e.options].some(op => op.value === String(o[id]))) e.value = String(o[id]); }   // 知らない値で空欄にしない
-    else if (o[id] !== null && o[id] !== undefined && (typeof o[id] === 'number' || typeof o[id] === 'string')) e.value = o[id];
-  }
-}
-function applySettings(v){   // v: settings() の形(サーバーに保存したもの)
-  const o = {};
-  for (const [id, key, kind, , save] of FIELDS){
-    if (save === false) continue;
-    if (kind === 'pct'){ if (typeof v[key] === 'number') o[id] = Math.round(v[key] * 100); }
-    else if (key in v) o[id] = v[key];
-  }
-  applyForm(o);
-}
-async function pushOpts(){
-  clearTimeout(O.timer); O.timer = null;
-  const v = settings(); delete v.noCache; O.value = v;
-  try { await S.api('/api/settings', { method: 'PUT', body: { section: 'analyze', value: v } }); }
-  catch (e){ S.toast('解析の設定を保存できませんでした: ' + e.message, 6000, 'err'); }
-}
-function saveOpts(){ O.touched = true; clearTimeout(O.timer); O.timer = setTimeout(pushOpts, 400); }
 async function loadOpts(){
-  let saved = null, ok = false;
-  try { const j = await S.api('/api/settings'); saved = j && j.settings ? j.settings.analyze : null; ok = true; } catch {}
-  if (O.touched) return;   // 読み込みを待つ間に欄を変えた: その値を優先する(上書きしない)
-  if (saved && typeof saved === 'object'){ O.value = saved; applySettings(saved); paintKinds(); optSummary(); return; }
-  const old = lsGet('opts');
-  if (ok && old && typeof old === 'object'){ applyForm(old); paintKinds(); optSummary(); pushOpts(); }   // 以前のブラウザの保存を1回だけ引き継ぐ
+  try { const j = await S.api('/api/settings'); const v = j && j.settings ? j.settings.analyze : null; O.value = v && typeof v === 'object' ? v : {}; } catch {}
 }
 
 /* ---------- 入口の読み取り ---------- */
@@ -149,7 +71,6 @@ function entries(){
 }
 function paintKinds(){
   const e = entries(), allFile = e.length > 0 && e.every(x => x.kind === 'file');
-  document.querySelectorAll('#qOpts [data-yt]').forEach(l => { l.classList.toggle('off', allFile); const i = l.querySelector('input'); if (i) i.disabled = allFile && (i.id === 'useChat' || i.id === 'useComments' || i.id === 'chatTo' || i.id === 'noCache'); });
   syncAdd(e);
 }
 /* 「解析に追加」「解析せずに確認画面を開く」は、欄が空のときと送っている間は押せない。理由は title に(見直し S17。以前は押せるままで、押すと知らせが出た) */
@@ -171,13 +92,6 @@ function refocusForm(from){
   if (f) f.focus();
 }
 function setMsg(t){ const m = $('#qMsg'); if (m) m.textContent = t || ''; }
-/* ⚙ の「解析」の節を閉じていても、いまの設定が分かるように節の見出しの横に短く出す(#qOptSum は settings.js の節の summary) */
-function optSummary(){
-  const el = $('#qOptSum'); if (!el) return;
-  const o = settings(), mats = [o.useAudio && '音声', o.useChat && 'チャット', o.useComments && 'コメント'].filter(Boolean);
-  el.textContent = `${mats.join('・') || '材料なし'} ・ 最大${o.count}本 ・ ${o.length}秒 ・ 感度 ${({ high: '高', normal: '標準', low: '低' })[o.sensitivity] || o.sensitivity}`;
-}
-
 /* ---------- 失敗の説明(何が起きたか + どうすればいいか。元のメッセージは小さく残す) ---------- */
 const ERR_HELP = [
   [/STUDIO_FAKE_MEDIA/, '疑似モード(テスト用)の見本の動画が指定されていません', '環境変数 STUDIO_FAKE_MEDIA に見本の動画ファイルを指定して起動し直してください(ふだんの使い方では起きません)'],
@@ -409,13 +323,9 @@ async function listClick(e){
 S.queue = { refresh: tick, errHelp };
 S.onReady(() => {
   $('#qHost').innerHTML = entryHtml();   // ① 探す の先頭(器は rank.js が作る)
-  const oh = $('#analyzeHost'); if (oh) oh.innerHTML = optsHtml();   // ⚙ の「解析」の節(器は settings.js が作る)
   $('#qList').innerHTML = EMPTY_LIST;
   paintKinds(); loadOpts();
-  OPT_IDS.forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', () => { saveOpts(); optSummary(); }); });
-  $('#qOpenOpts').addEventListener('click', () => S.openSettings('setAnalyze'));
-  optSummary();
-  UIKit.life.onLeave(() => { if (O.timer) pushOpts(); });   // 変えた直後に離れた・閉じたときも送る
+  UIKit.life.onReturn(loadOpts);   // 設定の画面で解析の設定を変えて戻ってきたら読み直す(0.25.0)
   $('#qUrls').addEventListener('input', paintKinds); $('#qPath').addEventListener('input', paintKinds);
   $('#qUrls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addFromForm(); } });   // Ctrl+Enter で追加
   $('#qPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); addFromForm(); } });
