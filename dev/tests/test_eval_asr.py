@@ -160,21 +160,21 @@ class EvalAsrTest(unittest.TestCase):
 
     def test_load_serve_forwards_settings_to_the_parts(self):
         """load_serve は serve を sys.modules に登録して読む = 「S.名前 = …」が持ち主の部品(ed_jobs・ed_state)に届く。
-        2026-10-07 まで届いていなかった(認識は認識ワーカーで動き・--context auto はスタジオの data.json を読めず・差し替えた QUANT_ON などは後処理に効かない)"""
+        2026-10-07 まで届いていなかった(認識は認識ワーカーで動き・--context auto はスタジオの data.json を読めず・差し替えた END_TRIM などは後処理に効かない)"""
         S = E.load_serve("fake")
         J = S.ed_jobs
         self.assertIs(sys.modules[E.C.SERVE_NAME], S)
         self.assertTrue(J.IN_WORKER)                                         # 認識はこのプロセスの中で(認識ワーカーを起動しない)
         self.assertEqual(S.ed_state.STUDIO_DATA, S.studio_data_path())      # スタジオの data.json は起動したツールと同じ決め方
-        before = (J.QUANT_ON, J.JOIN_GAP)
-        with mock.patch.object(S, "QUANT_ON", not before[0]), mock.patch.object(S, "JOIN_GAP", 0.0):
-            self.assertEqual((J.QUANT_ON, J.JOIN_GAP), (not before[0], 0.0))   # 差し替えは部品に届く
-        self.assertEqual((J.QUANT_ON, J.JOIN_GAP), before)                       # 戻すのも部品へ
+        before = (J.END_TRIM, J.JOIN_GAP)
+        with mock.patch.object(S, "END_TRIM", before[0] + 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):
+            self.assertEqual((J.END_TRIM, J.JOIN_GAP), (before[0] + 0.1, 0.0))   # 差し替えは部品に届く
+        self.assertEqual((J.END_TRIM, J.JOIN_GAP), before)                       # 戻すのも部品へ
 
-    def test_retime_words_reach_the_model_in_this_process(self):
-        """1 秒丸めの聞き直し(quant_words_provider)は WavSlice(認識ワーカーへ渡す形)をモデルに渡す。道具はモデルをこのプロセスの中で読む(IN_WORKER)ので、
-        load_serve がワーカーの受け口と同じく範囲のサンプルに直して渡す(InProcessModel)。2026-10-07 夜まで faster-whisper が読めずに落ち、
-        eval_asr run は丸まった窓のある文書を「とばしました」で数えていなかった。モデルは偽物(本物は読まない)"""
+    def test_wav_slice_reaches_the_model_in_this_process(self):
+        """editor のサーバー側の書き方は WavSlice・WavRef(認識ワーカーへ渡す形)をモデルに渡す。道具はモデルをこのプロセスの中で読む(IN_WORKER)ので、
+        load_serve がワーカーの受け口と同じく範囲のサンプルに直して渡す(InProcessModel)。2026-10-07 夜に、1 秒丸めの聞き直し(quant_words_provider。
+        編集 0.65.0 で消した)で faster-whisper が読めずに落ちて分かった。モデルは偽物(本物は読まない)"""
         try:
             import numpy as np
         except ImportError:
@@ -207,20 +207,19 @@ class EvalAsrTest(unittest.TestCase):
         self.assertIs(J, S2.ed_jobs)
         fw = J.tx_engines.FasterWhisper.id
         job = {"cancel": False, "phase": ""}
-        with mock.patch.dict(J._models, {(J.QUANT_MODEL, "cpu", fw): Model()}, clear=True), mock.patch.object(S.ed_state, "gpu_ready", lambda: False), \
+        with mock.patch.dict(J._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(S.ed_state, "gpu_ready", lambda: False), \
                 mock.patch.object(S.ed_state, "backend_name", lambda: "faster-whisper"):
-            words = S.quant_words_provider(job, {"language": "ja"}, wav)(0.5, 1.5)
+            m, _dev = J.load_model("small", job, "cpu", engine=fw)
+            segs, _info = m.transcribe(SP.WavSlice(wav, 8000, 24000), language="ja")
+            self.assertEqual([x.text for x in segs], ["テスト"])
             self.assertEqual(len(got), 1)
             self.assertIsInstance(got[0], np.ndarray)                                    # 範囲のサンプル(wav の 0.5〜1.5 秒)
             self.assertEqual(len(got[0]), 16000)
             self.assertAlmostEqual(float(got[0][0]) * 32768, 8000, places=3)
-            self.assertEqual([w[2] for w in words], ["テスト"])
-            self.assertAlmostEqual(words[0][0], 0.6, places=6)                           # 単語の時刻は行の秒(範囲の先頭を足す)
-            m, _dev = J.load_model(J.QUANT_MODEL, job, "cpu", engine=fw)
             self.assertEqual(m.transcribe(SP.WavRef(wav))[0].__next__().text, "テスト")
             self.assertEqual(got[-1], wav)                                                # WavRef = wav のパスのまま
             m.hooks = {"x": 1}
-            self.assertEqual(J._models[(J.QUANT_MODEL, "cpu", fw)].hooks, {"x": 1})       # 属性は中のモデルへ
+            self.assertEqual(J._models[("small", "cpu", fw)].hooks, {"x": 1})             # 属性は中のモデルへ
             self.assertIn("word_timestamps", m.params())
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
@@ -277,7 +276,7 @@ class EvalAsrTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
     def test_recognize_doc_applies_row_post_processing(self):
-        """本番(run_job)と同じ行の後処理を通す(0.52.1): 長さより後ろの行を捨てる・dur と levels(whisper.cpp のときだけ)を expand_segments へ渡す"""
+        """本番(run_job)と同じ行の後処理を通す(0.52.1): 長さより後ろの行を捨てる・dur を expand_segments へ渡す(音の谷へ寄せる levels は編集 0.65.0 で消した)"""
         os.environ["TRANSCRIBE_BACKEND"] = "fake"
         try:
             S = E.load_serve("fake")
@@ -288,9 +287,9 @@ class EvalAsrTest(unittest.TestCase):
             real = ed_jobs.expand_segments
             calls = []
 
-            def spy(gen, spec, dur=None, levels=None):
-                calls.append((dur, levels))
-                return real(gen, spec, dur, levels)
+            def spy(gen, spec, dur=None, join=True):
+                calls.append((dur, join))
+                return real(gen, spec, dur, join=join)
 
             def fake(job, spec, wav, total):   # 8 秒の音声に、長さの外(100 秒)の行
                 yield {"start": 0.0, "end": 4.0, "text": "中の行"}
@@ -303,21 +302,16 @@ class EvalAsrTest(unittest.TestCase):
                 rows, audio_sec, _w, _where, _dev = E.recognize_doc(S, doc, spec_of("faster-whisper"), self.data)
                 self.assertEqual([r["text"] for r in rows], ["中の行"])
                 self.assertAlmostEqual(calls[-1][0], audio_sec)
-                self.assertIsNone(calls[-1][1])                                    # faster-whisper は音の谷へ寄せない
+                self.assertTrue(calls[-1][1])                                      # 本番と同じく続いている行をつなぐ
                 E.recognize_doc(S, doc, spec_of("whisper.cpp"), self.data)
-                self.assertIsNotNone(calls[-1][1])                                 # whisper.cpp は音の大きさ(WavLevels)を渡す
+                self.assertEqual(len(calls), 2)                                    # whisper.cpp も同じ整え方(0.64.0 までは音の大きさ WavLevels を渡した)
             # 行の後処理の印(meta.post)。joinGap = 続いている行をつなぐすき間(0.57.1。全エンジン)= editor の post_record と同じ値
-            self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "pullEnds": False, "joinGap": 0.5})
-            # whisper.cpp は 1 秒丸めの配り直し(編集 0.57.0。quant_retime。0.59.4 から既定オフ = False)と endTrim(0.57.1 から 0)も印に残す。音の谷へ寄せる pullEnds は 10-05 から既定でやめた
-            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")),
-                             {"clip": True, "mergeRepeats": True, "pullEnds": False, "quantRetime": False, "endTrim": 0.0, "joinGap": 0.5})
-            with mock.patch.object(S, "QUANT_ON", True):   # TRANSCRIBE_RETIME=1 でオンにしたときはモデル名
-                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp"))["quantRetime"], S.QUANT_MODEL)
-            with mock.patch.object(S, "QUANT_ON", False), mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0), \
-                    mock.patch.object(S, "PULL_ENDS_ON", True):   # TRANSCRIBE_RETIME=0・END_TRIM=0.1・JOIN_GAP=0・PULL_ENDS=1(0.57.0 より前の形)
-                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")),
-                                 {"clip": True, "mergeRepeats": True, "pullEnds": True, "quantRetime": False, "endTrim": 0.1, "joinGap": 0.0})
-                self.assertEqual(E.post_meta(S, spec_of("faster-whisper"))["pullEnds"], False)   # 音の大きさを使うのは whisper.cpp だけ
+            self.assertEqual(E.post_meta(S, spec_of("faster-whisper")), {"clip": True, "mergeRepeats": True, "joinGap": 0.5})
+            # whisper.cpp は endTrim(0.57.1 から 0)も印に残す。0.64.0 までの pullEnds・quantRetime の鍵は 0.65.0 から付けない(部品ごと消した)
+            self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "endTrim": 0.0, "joinGap": 0.5})
+            with mock.patch.object(S, "END_TRIM", 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):   # END_TRIM=0.1・JOIN_GAP=0(0.57.0 より前の形)
+                self.assertEqual(E.post_meta(S, spec_of("whisper.cpp")), {"clip": True, "mergeRepeats": True, "endTrim": 0.1, "joinGap": 0.0})
+                self.assertNotIn("endTrim", E.post_meta(S, spec_of("faster-whisper")))   # 終わりを早めるのは whisper.cpp だけ
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
@@ -330,15 +324,16 @@ class EvalAsrTest(unittest.TestCase):
             self.write("ffffffffff06", evalSet=True, sourcePath=src, start=0, end=8,
                        segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2")], original=[])
             res = quiet(E.main, ["run", "--data", self.data, "--docs", "ffffffffff06", "--no-save"])
-            self.assertEqual(res["meta"]["post"], {"clip": True, "mergeRepeats": True, "pullEnds": False, "joinGap": 0.5})
+            self.assertEqual(res["meta"]["post"], {"clip": True, "mergeRepeats": True, "joinGap": 0.5})
         finally:
             os.environ.pop("TRANSCRIBE_BACKEND", None)
 
     def test_compare_notes_different_row_post_processing(self):
-        """片方に post が無い(0.51.0 より前の測定)・中身が違う(0.57.1 の前後の joinGap など)結果どうしは、注意を出す。同じ・両方無いなら出さない"""
+        """片方に post が無い(0.51.0 より前の測定)・中身が違う(0.57.1 の前後の joinGap・0.65.0 の前の pullEnds など)結果どうしは、注意を出す(落ちない)。
+        同じ・両方無いなら出さない"""
         a = quiet(E.main, ["stored", "--data", self.data, "--label", "a"])
         pa = os.path.join(self.data, "evals", "asr", sorted(os.listdir(os.path.join(self.data, "evals", "asr")))[0])
-        post = {"clip": True, "mergeRepeats": True, "pullEnds": False}
+        post = {"clip": True, "mergeRepeats": True}
 
         def variant(name, p):
             r = json.loads(json.dumps(a))
@@ -349,6 +344,9 @@ class EvalAsrTest(unittest.TestCase):
                 json.dump(r, f, ensure_ascii=False)
             return path
         p_none, p_new, p_new2, p_pull = variant("n.json", None), variant("a.json", post), variant("b.json", post), variant("c.json", dict(post, pullEnds=True))
+        p_old = variant("o.json", dict(post, pullEnds=False, quantRetime=False, endTrim=0.0))   # 編集 0.64.0 までの印(消した部品の鍵つき)
+        res = quiet(E.cmd_compare, p_old, p_new)
+        self.assertIn(E.POST_NOTE, res["warnings"])                                            # 鍵が違う = 注意だけ(落ちない)
         res = quiet(E.cmd_compare, p_none, p_new)
         self.assertIn(E.POST_NOTE, res["warnings"])
         self.assertEqual(res["postNote"], E.POST_NOTE)

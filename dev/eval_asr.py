@@ -54,9 +54,10 @@
      meta.peakMemMB はこのプロセスだけ(モデルの分が入っていない)だった
   ② STUDIO_DATA が ed_state に届かず、--context auto はスタジオの data.json(今の置き場所)を読めなかった = 配信のチャンネル名・コラボ相手を使わず、
      題名・話者の名前からの文脈だけだった
-  ③ 道具の外から「S.QUANT_ON = False」のように差し替えても後処理は変わらず、meta.post の印だけが変わっていた(10-07 の「配り直し なし / あり」の比べは両方あり)
-- meta.post(行の後処理の印)は 2 周目から endTrim・joinGap(editor の post_record と同じ値。0.57.1 で変わった)も持ち、pullEnds は本当にかけたか
-  (whisper.cpp で TRANSCRIBE_PULL_ENDS=1 のときだけ)。印が違う結果どうしを compare すると注意を出す
+  ③ 道具の外から「S.QUANT_ON = False」のように差し替えても後処理は変わらず、meta.post の印だけが変わっていた(10-07 の「配り直し なし / あり」の比べは両方あり。
+     配り直し QUANT_ON は編集 0.65.0 で消した)
+- meta.post(行の後処理の印)は 2 周目から endTrim・joinGap(editor の post_record と同じ値。0.57.1 で変わった)も持つ。
+  編集 0.64.0 までの結果にある pullEnds・quantRetime の鍵は 0.65.0 から付けない(部品ごと消した)。印が違う結果どうしを compare すると注意を出す
 """
 import argparse
 import datetime
@@ -691,11 +692,9 @@ def recognize_doc(S, doc, spec, data):
         t0 = time.monotonic()
         gen = S.transcribe_fake(job, spec, wav, audio_sec) if S.backend_name() == "fake" else S.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
-        # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・whisper.cpp は行の終わりを音の谷へ)。wav の 0 秒 = 行の 0 秒なので base は 0
-        # 1 秒単位に丸まった窓(whisper.cpp)は faster-whisper の単語の時刻で配り直す(編集 0.57.0。quant_retime。0.59.4 から既定オフ = TRANSCRIBE_RETIME=1 のときだけ)
-        tidy = list(S.expand_segments(gen, spec, audio_sec, S.row_levels(spec, wav)))
-        tidy, _q = S.quant_retime(tidy, spec, S.quant_words_provider(job, spec, wav), audio_sec)
-        for s in tidy:
+        # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・続いている行をつなぐ)。
+        # 編集 0.65.0 で、行の終わりを音の谷へ寄せる(TRANSCRIBE_PULL_ENDS)と 1 秒丸めの配り直し(TRANSCRIBE_RETIME)を消した(どちらも既定オフだった)
+        for s in S.expand_segments(gen, spec, audio_sec):
             if not s["text"]:
                 continue
             row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:S.MAX_TEXT], **S.machine_conf(s)}
@@ -817,15 +816,16 @@ def base_meta(mode, args, docs, data, sel=None):
 
 
 def post_meta(S, spec):
-    """行の後処理の印(meta.post。compare が、違う結果どうしに注意を出す)。0.51.0 から clip_rows・merge_repeats・pull_ends、
+    """行の後処理の印(meta.post。compare が、違う結果どうしに注意を出す)。0.51.0 から clip_rows・merge_repeats、
     2 周目から editor の post_record()(recognition.runs[].post と同じ値)の endTrim・joinGap も。
-    pullEnds = 音の谷へ寄せたか(whisper.cpp で TRANSCRIBE_PULL_ENDS=1 のときだけ。10-05 から既定でやめた)・endTrim と quantRetime(1 秒丸めの配り直しのモデル)は
-    whisper.cpp のときだけ・joinGap は全エンジン。編集の版(version)は入れない(後処理が同じなら、版が違っても注意を出さない。版は meta.git で分かる)"""
+    endTrim は whisper.cpp のときだけ・joinGap は全エンジン。編集の版(version)は入れない(後処理が同じなら、版が違っても注意を出さない。版は meta.git で分かる)。
+    編集 0.64.0 までの結果は pullEnds(音の谷へ寄せたか)・quantRetime(1 秒丸めの配り直しのモデル | False)の鍵も持つ = 0.65.0 で部品ごと消したので、
+    それより前の結果と compare すると印が違うので注意が出る(どちらも既定オフだったので、注意が出ても後処理は同じことが多い)"""
     rec = S.post_record()
     wcpp = S.engine_of(spec) == S.tx_engines.WhisperCpp.id
-    post = {"clip": True, "mergeRepeats": True, "pullEnds": wcpp and bool(rec["pullEnds"])}
+    post = {"clip": True, "mergeRepeats": True}
     if wcpp:
-        post.update(quantRetime=rec["retime"], endTrim=rec["endTrim"])
+        post["endTrim"] = rec["endTrim"]
     post["joinGap"] = rec["joinGap"]
     return post
 

@@ -110,7 +110,7 @@ import ed_llm  # noqa: E402,F401  (LLM の後処理 E = 名簿の呼び名の聞
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.64.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.65.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 

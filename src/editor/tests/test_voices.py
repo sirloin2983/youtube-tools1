@@ -614,6 +614,27 @@ class TestExclusive(StoreDir):
                 self.assertIn(other, S.EXCLUSIVE, (kind, other))
         self.assertEqual(set(S.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "redo", "voice-learn"})
 
+    def test_table_is_symmetric(self):
+        """0.65.0(decisions (fp)): a が b を断るなら b も a を断る(表の全組)。再認識・疑わしい所も声を覚えるの最中は断る
+        (声を覚える途中で行の時刻が変わると、覚える区間がずれる)。サムネの案 thumb は文書を読むだけなので同じ種類どうしだけ(ほかと同時でよい)"""
+        for a, others in S.EXCLUSIVE.items():
+            for b in others:
+                self.assertIn(b, S.EXCLUSIVE, (a, b))
+                self.assertIn(a, S.EXCLUSIVE[b], "%s は %s を断るが、%s は %s を断らない" % (a, b, b, a))
+        self.assertEqual(S.EXCLUSIVE["thumb"], ("thumb",))
+        for kind in ("retranscribe", "redo"):
+            self.assertIn("voice-learn", S.EXCLUSIVE[kind])
+            with self.active("voice-learn"):   # 登録(add_job)も声を覚えるの最中は断る
+                self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, kind))
+
+    def test_retranscribe_refused_while_learning_voices(self):
+        self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")], proofed=True))
+        with mock.patch.object(S, "check_source", lambda p: p), self.active("voice-learn"):
+            with self.assertRaises(S.ApiError) as cm:
+                S.validate_retranscribe({"tid": TID, "ids": ["s1"]})
+        self.assertEqual((cm.exception.status, cm.exception.code), (409, "busy"))
+        self.assertIn("声を覚える", cm.exception.message)
+
 
 class TestDiarDelete(unittest.TestCase):
     """文書を消すと <id>.diar.json も消える(serve.py の _delete)"""

@@ -175,6 +175,8 @@ WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の
 }
 WCPP_VAD = {"file": "ggml-silero-v6.2.0.bin", "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", "size": 885098,
             "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"}   # 声の検出(Silero v6.2。計画の 3)
+# ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は 0.65.0(2026-10-09)で消した = 編集はもう取得しない。
+#   定数は入口の home/live_tx_worker.py が名前を参照しているので残す(fetch_file の固定の形の例としても test_whispercpp が確かめる)
 WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
 _GPU_LINE = re.compile(r"whisper_backend_init_gpu: (?:using (.+?) backend|no GPU found)")
 _PROGRESS = re.compile(r"progress\s*=\s*(\d+)%")
@@ -280,7 +282,7 @@ class WhisperCpp(Engine):
     id = "whisper.cpp"
     package = ""
     PARAMS = ["beam_size", "condition_on_previous_text", "initial_prompt", "language", "no_speech_threshold", "temperature",
-              "vad_filter", "vad_parameters", "word_timestamps"]   # hotwords・chunk_length は無い(渡されても使わない)
+              "vad_filter", "vad_parameters", "word_timestamps"]   # hotwords・chunk_length は無い(渡されても使わない)。vad_* は受け取るだけ(0.65.0 から使わない)
     COMMAND = None   # テスト用: [python, 偽の whisper-cli] に差し替える
 
     @classmethod
@@ -322,20 +324,13 @@ class WhisperCpp(Engine):
         hooks = hooks or {}
         mdir = wcpp_model_dir(data_dir)
         model = fetch_file(spec, mdir, log, hooks.get("cancelled"), hooks.get("download"))
-        vad = fetch_file(WCPP_VAD, mdir, log, hooks.get("cancelled"))
         cmd = list(cls.COMMAND) if cls.COMMAND else [os.path.join(wcpp_bin_dir(data_dir), WCPP_EXE)]
-        e = cls(name, device, {"cmd": cmd, "model": model, "vad": vad})
+        e = cls(name, device, {"cmd": cmd, "model": model})
         e.gpu_name = ""
         return e
 
     def params(self):
         return list(self.PARAMS)
-
-    @staticmethod
-    def native_vad():
-        """whisper.cpp 自身の声の検出(--vad)を使うか。既定は使わない: 声の所をつないで認識するので、評価用の音声で行の文字が大きく抜けた
-        (CER 36% → 80%。2026-10-02)。測るときだけ環境変数 TRANSCRIBE_WCPP_VAD=1。使わないときの vad_filter は、下の「声の無い所の行を捨てる」になる"""
-        return os.environ.get("TRANSCRIBE_WCPP_VAD") == "1"
 
     @staticmethod
     def flash_attn():
@@ -346,7 +341,9 @@ class WhisperCpp(Engine):
         return os.environ.get("TRANSCRIBE_WCPP_FA") == "1"
 
     def args(self, wav, out_base, kw):
-        """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)"""
+        """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)。
+        vad_filter・vad_parameters は使わない(whisper.cpp 自身の声の検出 --vad は、声の所をつないで認識するので評価用の音声で文字が大きく抜けた
+        = CER 36% → 80%。2026-10-02。測るときだけの TRANSCRIBE_WCPP_VAD=1 は 0.65.0 で消した)。音声の全体を認識する"""
         a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
              "-t", str(half_cpu()), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
@@ -362,15 +359,6 @@ class WhisperCpp(Engine):
         prompt = re.sub(r"[\r\n]+", " ", str(kw.get("initial_prompt") or "")).strip()
         if prompt:
             a += ["--prompt", prompt]
-        if kw.get("vad_filter") and self.native_vad():
-            vp = kw.get("vad_parameters") or {}
-            a += ["--vad", "-vm", _ascii_path(self.model["vad"])]
-            if vp.get("threshold") is not None:
-                a += ["-vt", "%g" % float(vp["threshold"])]
-            if vp.get("min_silence_duration_ms") is not None:
-                a += ["-vsd", str(int(vp["min_silence_duration_ms"]))]
-            if vp.get("speech_pad_ms") is not None:
-                a += ["-vp", str(int(vp["speech_pad_ms"]))]
         return a
 
     def transcribe(self, audio, **kw):
@@ -394,14 +382,10 @@ class WhisperCpp(Engine):
             except (OSError, ValueError) as e:
                 raise EngineError("engine_failed", "whisper.cpp の結果を読めませんでした: %s" % str(e)[:160])
             segs = parse_json(data)
-            after = None   # 声の検出のあとの長さ(サーバーの「捨てすぎたら緩める」が使う)。検出しなければ分からない
-            if kw.get("vad_filter") and not self.native_vad() and os.environ.get("TRANSCRIBE_WCPP_SPEECH_FILTER") == "1":
-                spans = speech_spans(audio if not isinstance(audio, str) else wav, kw.get("vad_parameters") or {})
-                if spans is not None:
-                    segs = drop_outside_speech(segs, spans)
-                    after = sum(b - a for a, b in spans)
+            # duration_after_vad = None(声の検出をしない = 分からない。サーバーの「捨てすぎたら緩める」は見ない)。
+            # Silero の声の区間の外の行を捨てる TRANSCRIBE_WCPP_SPEECH_FILTER=1 は 0.65.0 で消した(評価用 18 本で 27.0% → 33.8% に悪化)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
-                                         duration=duration, duration_after_vad=after)
+                                         duration=duration, duration_after_vad=None)
             return iter(segs), info
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -438,7 +422,8 @@ class WhisperCpp(Engine):
 
     def _check_gpu(self, log):
         """GPU(Vulkan)を頼んだのに使っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)。
-        声の検出(--vad)のモデルは CPU で動き、そのときも「no GPU found」の行が出るので、認識のモデルの「using … backend」を探す"""
+        声の検出(--vad)のモデルは CPU で動き、そのときも「no GPU found」の行が出るので、認識のモデルの「using … backend」を探す
+        (編集は 0.65.0 から --vad を渡さないが、ほかの版の whisper-cli や入口の live_tx_worker の出力でも同じ見方でよいので残す)"""
         used = None
         for s in log:
             m = _GPU_LINE.search(s)
@@ -481,41 +466,6 @@ def parse_json(data):
         out.append(types.SimpleNamespace(start=a, end=max(a, b), text=text, words=words,
                                          avg_logprob=(sum(lps) / len(lps)) if lps else None, no_speech_prob=None,
                                          compression_ratio=(len(raw) / len(zlib.compress(raw))) if raw else None))
-    return out
-
-
-# ---- 声の無い所の行を捨てる(whisper.cpp の声の検出の代わり。2026-10-02 ユーザー決定「1」で試した)
-# whisper.cpp は音声の全体を認識し(抜けが少ない)、faster-whisper と同じ Silero の声の検出で「声のある所」を出して、
-# その外にある行(声の無い所の幻覚)だけを捨てる。時刻をつながないので、行の文字・時刻は変わらない。
-# **測ったら悪くなった**(評価用 18 本: 27.0% → 33.8%。抜け 243 → 588。BGM・ゲームの音で Silero が声を取りこぼす)ので、既定では使わない。
-# 余分な文字の多くは声の無い所の幻覚ではなく、同じ文字の繰り返し(「うううう…」)だった。測るときだけ環境変数 TRANSCRIBE_WCPP_SPEECH_FILTER=1
-SPEECH_KEEP = 0.5   # 行の長さのうち、声のある所に入っている割合がこれ未満なら捨てる(評価用では調整しない。決めてから測る)
-
-
-def speech_spans(audio, vp):
-    """声のある所 [(開始秒, 終了秒)]。audio は wav のパスか float32 のサンプル(16kHz)。faster-whisper(の Silero)が無ければ None(捨てない)。
-    vp = faster-whisper の vad_parameters(threshold・min_silence_duration_ms・speech_pad_ms)。認識ワーカーの中だけで呼ぶ(numpy を読む)"""
-    try:
-        from faster_whisper.vad import VadOptions, get_speech_timestamps
-        samples = _read_16k(audio, "声の検出")
-    except (ImportError, EngineError):   # 部品が無い・音声の形が違う
-        return None
-    opts = VadOptions(**{k: vp[k] for k in ("threshold", "min_silence_duration_ms", "speech_pad_ms") if vp.get(k) is not None})
-    return [(t["start"] / 16000.0, t["end"] / 16000.0) for t in get_speech_timestamps(samples, opts)]
-
-
-def drop_outside_speech(segs, spans, keep=SPEECH_KEEP):
-    """声のある所 spans にほとんど入っていない行を捨てる(行の長さのうち spans と重なる割合 < keep)。長さ 0 の行は始まりが spans の中なら残す"""
-    out = []
-    for s in segs:
-        a, b = float(s.start), float(s.end)
-        if b <= a:
-            if any(x <= a <= y for x, y in spans):
-                out.append(s)
-            continue
-        ov = sum(max(0.0, min(b, y) - max(a, x)) for x, y in spans)
-        if ov / (b - a) >= keep:
-            out.append(s)
     return out
 
 

@@ -3052,3 +3052,16 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 次: S5 単体の「設定」のページ(ホームの /settings/。スキーマから ui-kit が描く。ライブの設定を 1 か所に・受付とバックアップを自動保存に)。入口は起動し直すまで古いコードのまま(すべて終了 → start.bat)
 - 未コミット: なし(このセッションの分はこの記録と一緒にコミット)
 
+## 2026-10-09 Claude Code(PC。まとめ役 Fable + サブエージェント Opus × 2・Sonnet × 1)— コードの見直しの F(古い経路の削除。ユーザー「よい」): cut2resolve 0.23.0・ytt_core 1.5.0・編集 0.65.0。EXCLUSIVE の対称化
+- 依頼: ユーザー 12 時すぎ「1(F の削除)よい」「2(安全側の変更)よい」「3(EXCLUSIVE の対称)優先度は任せる。重要度やかかる時間で判断して」(decisions 3-18 の確認)
+- 変更(2 コミット: 93e05fc = その 1、このコミット = その 2):
+  - **cut2resolve 0.22.3 → 0.23.0**(G9-1・G9-6): `auto_cut.write_package` を消し、`run` は pack の薄い包み(友人へ.txt は手順書・cut-plan.json の tool.name は "cut2resolve"・出力フォルダ名は `_resolve_pack` のまま)。API の `spec.silenceExtra`・`spec.handles`・`spec.joinGap`・`output.fcpxml`・`output.crf` を受けない(送っても無視。CLI には残る)。**`listKind "drop"` は残した**(`src/home/autorun.py` の「カットしない」が `listText ""` と一緒に送っていた = 資料 G9-6 の「autorun は送っていない」は誤り)。テスト 381 → 383
+  - **ytt_core 1.4.0 → 1.5.0**(G10-1・G10-13): evaldata の書き出し側(RULES・_ABS・scrub_paths・zip_name・safe_url・overlap・raw_links。`RULES_VERSION` は eval_import が使うので残す)・`colors.rgb01`・`loudness.db_to_pct`・`normalize.TARGET`・`excite.PEAK_STATES`。`docs/spec/subtitle-notation.md` の RULES の参照を「この文書が正」に。スタジオ `handoff.read_runtime_port`・`ping_app`(テスト用の包み。ytt_core.runtime に同じテスト)。`dev/count_sparse_rows.py` は `git rm`(別セッションのコミット fa57463 に入った)。スタジオの `maxHeight` は並行セッション「スタジオ設定の整理」が 2b07ef9 で消した
+  - **編集 0.64.0 → 0.65.0**(G6-4): 既定オフの実験の経路 約 380 行 = 行の終わりを音の谷へ寄せる(`PULL_ENDS_ON`・`WavLevels`・`row_levels`・`pull_end(s)`)・1 秒丸めの配り直し(`QUANT_*`・`quant_*`・`_frange`・`TRANSCRIBE_FAKE_RETIME`)・whisper.cpp の声の検出と Silero の区間の外を捨てる(`native_vad`・`speech_spans`・`drop_outside_speech`)。環境変数 TRANSCRIBE_RETIME(_MODEL)・PULL_ENDS・WCPP_VAD・WCPP_SPEECH_FILTER は効かない。`expand_segments(gen, spec, dur, join)`(levels を外した)・`finish_range_lines`・`range_lines_real` の署名が変わった(呼ぶ側 ed_alt・eval_asr・テストも)。`post_record` は {version, endTrim, joinGap} だけ・`runs[].retimed` は書かない(古い文書は読むだけ)。`trim_ends` が使う定数は `TRIM_GAP`・`TRIM_MIN` に改名(値は同じ)。残したもの: END_TRIM・trim_ends・JOIN_GAP・join_rows・`WCPP_VAD` の定数(home の live_tx_worker が使う)・ed_retime.py。dev の eval_asr(`post_meta` から pullEnds・quantRetime)・eval_timing(古い記録は読むだけ)・テスト。`docs/spec/row-timing-policy.md`・`plan/line-b-row-timing.md` に消したと書いた
+  - **EXCLUSIVE の対称化**(decisions (fp)。AI の判断): `retranscribe`・`redo` が "voice-learn" の最中も断る(声を覚えるは短い処理で、その途中で行の時刻が変わると覚える区間がずれる恐れ)。断る文「(話者判別・再認識・声を覚える)の最中です」。`"thumb": ("thumb",)` は残す(並行セッションの依頼 = 文書を読むだけ)。テスト `test_table_is_symmetric`・`test_retranscribe_refused_while_learning_voices`
+- 版: 上の見出し(README に消した内容と動きの違い)
+- テスト(全部 OK): 編集 601 → 591(消した機能のテスト 12 件を消し、2 件足した)・dev 84・cut2resolve 383・契約 35・ytt_core 165・スタジオ test_studio + handoff + api 185・test_live_tx 19・e2e_alt/e2e_fill/e2e_edit_tabs/e2e_pipeline/e2e_edit_pack OK・lint 0
+- 決定・理由: decisions 3-18 の (fi)〜(fp)。`listKind "drop"` を消すなら autorun に `mode "all"` のような指定を足してから(次の周)
+- 未完了・次: 起動中の入口は古いまま(「すべて終了」→ start.bat)。次の周の候補は decisions (fn)。並行セッションが src/editor/serve.py・ed_learn.py(設定 S4)を未コミットで作業中 = このコミットの serve.py は版の 1 行だけを入れた(`git apply --cached` で分けた)
+- 注意: 資料 `docs/design/code-review-simplify-2026-10-08.md` の G9-6「autorun は送っていない」は誤り(listKind "drop" を使う)。`src/editor/tests/test_alt.py` が LF になっていたので CRLF に戻した
+- 未コミット: なし(このセッションの分)

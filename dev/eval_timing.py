@@ -19,13 +19,13 @@
     ③ extra  = 喋っていない時間: 人の区間の外へはみ出した秒(前のはみ出し + 後ろのはみ出し)の中央値・平均
   2026-10-07 の試算(plan/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
 - 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
-  行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap, pullEnds, retime}。無い記録は「後処理の記録なし(0.57.0 まで)」・
-  1 秒丸めの配り直しの記録 retimed があればそう書く)
+  行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap}。0.64.0 までは pullEnds・retime も(0.65.0 で部品ごと消した。古い記録の鍵は読んで見出しに出す)。
+  無い記録は「後処理の記録なし(0.57.0 まで)」・1 秒丸めの配り直しの記録 retimed(0.64.0 まで)があればそう書く)
 - 行の境目の一致率(I-5 字幕の分け方。2026-10-08。plan/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
   再現(人の境目のうち機械にもあった割合)。人の境目は両側が校正済みで話者が同じ所だけ(boundary_agreement)。全体・組ごと・文書ごと・--apply の当て直しにも出す
 - --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す(VARIANTS: 0.57.0 の後処理 /
   7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40 / 0.59.6 = 24(splitChars は spec に入れる))。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
-  音声を聞き直す 1 秒丸めの配り直し(quant_retime)はかけない(音声を聞き直さない = 認識し直さない)。
+  音声を聞き直す 1 秒丸めの配り直し(quant_retime。編集 0.65.0 で消した)はかけない(音声を聞き直さない = 認識し直さない)。
   「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
   (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
 - --since / --until は機械の出力を作った時刻(最初の認識の at。無ければ updatedAt)で絞る(until はその日を含む)。文字が合う行が FEW_ROWS 未満なら「まだ少ない(参考)」
@@ -189,7 +189,8 @@ def summarize(rows):
 
 
 def post_label(run):
-    """最初の認識の記録の行の後処理(post)の見出し。記録の無い認識は POST_NONE(配り直しの記録 retimed があればそう足す)"""
+    """最初の認識の記録の行の後処理(post)の見出し。記録の無い認識は POST_NONE(配り直しの記録 retimed があればそう足す)。
+    pullEnds・retime・retimed は編集 0.64.0 までの記録だけにある(0.65.0 で部品ごと消した = 読むだけ)"""
     if not isinstance(run, dict):
         return POST_NONE
     p = run.get("post")
@@ -202,7 +203,8 @@ def post_label(run):
     parts.append("join=%s" % p.get("joinGap"))
     if p.get("pullEnds"):
         parts.append("pullEnds")
-    parts.append("配り直し=%s" % (p.get("retime") or "なし"))
+    if "retime" in p:   # 0.57.1〜0.64.0 の記録だけ(0.65.0 から書かない)
+        parts.append("配り直し=%s" % (p.get("retime") or "なし"))
     return " ".join(parts)
 
 
@@ -254,9 +256,9 @@ def asr_raw(doc, asr):
 
 
 def reapply(S, raw, spec, dur, start):
-    """後処理(S.expand_segments。音の谷へ寄せる levels は使わない = 0.53.1 から既定オフ)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
+    """後処理(S.expand_segments)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
     return [{"start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2), "text": s["text"]}
-            for s in S.expand_segments([dict(r) for r in raw], spec, dur, None) if s.get("text")]
+            for s in S.expand_segments([dict(r) for r in raw], spec, dur) if s.get("text")]
 
 
 def reproduced(rows, original):

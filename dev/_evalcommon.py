@@ -174,7 +174,7 @@ SERVE_NAME = "tx_serve_for_eval"   # sys.modules に登録する名前(普通の
 def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
     """src/editor/serve.py を読み込む(サーバーは起動しない)-> serve。名前は serve の名前の受付で、分けた部品(ed_jobs・ed_state など)の名前も読める。
     - **sys.modules に登録してから読む**: serve の「S.名前 = …」は、登録して読んだときだけ持ち主の部品へ転送される(serve.py の _ServeModule)。
-      2026-10-07 まで eval_asr.py は登録せずに読んでいたので、下の IN_WORKER・STUDIO_DATA と、道具やテストが「S.QUANT_ON = …」のように
+      2026-10-07 まで eval_asr.py は登録せずに読んでいたので、下の IN_WORKER・STUDIO_DATA と、道具やテストが「S.END_TRIM = …」のように
       差し替えた値が部品に届いていなかった(serve の上に同じ名前ができるだけ。eval_asr.py の先頭の説明)
     - 認識・判別はこのプロセスの中で動かす(IN_WORKER。認識ワーカーを起動しない。GPU の部品の場所はワーカーと同じに整える)
     - スタジオの data.json は、起動したツールと同じ決め方(studio_data_path。--context auto がスタジオの配信のチャンネル名・コラボ相手を読む)
@@ -234,7 +234,7 @@ class InProcessModel:
     """このプロセスの中で読んだモデル(IN_WORKER)の包み。transcribe に来た音声を、認識ワーカーの受け口(tx_worker の _audio)と同じ形に直して渡す。
     editor のサーバー側の書き方は、モデルの代理(RemoteModel)に WavSlice・WavRef(wav のパスとサンプルの範囲だけ。ワーカーが読む)を渡す。
     道具ではそれが faster-whisper に直接届き、読めずに落ちる("File object has no read() method")。
-    2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(ed_jobs.quant_words_provider)がこれで落ち、
+    2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(ed_jobs.quant_words_provider。編集 0.65.0 で消した)がこれで落ち、
     eval_asr run は丸まった窓のある文書を「とばしました」で数えていなかった。ほかの属性(params・hooks など)は中のモデルのものを読み書きする"""
 
     def __init__(self, model, audio_of):
