@@ -86,6 +86,24 @@ GPT が `src/cut2resolve/auto_cut.py` で決めた形。スタジオの採用マ
   画面・API(「編集」・まとめて実行)のパックでは出力フォルダに置かず、cut2resolve の作業データ `packs/` の「パックを作った記録」の `cutPlan` に入れる
   (2026-09-26 ④。読むのは `src/ytt_core/txindex`。`docs/design/edit-tool-design.md` の 12 ④)
 
+### 2.4 `youtube-tools-key/v1` — 成果物の鍵(役割で組み直す計画の RS1-5。**RS1 では形と純粋な関数だけ。書くのは RS6**)
+成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う(`plan/role-restructure.md` 4 の 4・5-2)。
+今はどこにも書いていない。形と関数は `src/ytt/schemas.py`(`make_key`・`validate_key`・`same_key`・`key_path`・`media_identity`・`file_digest`・`canon`・`sec_ms`)。
+```json
+{
+  "schema": "youtube-tools-key/v1", "v": 1, "stage": "export",
+  "inputs": {"media": {"kind": "archive", "videoId": "…"}, "range": [12.345, 40], "fps": 30},
+  "hash": "<sha256 の 16 進 64 桁>",
+  "madeBy": {"name": "studio", "version": "…"}, "at": "2026-10-09T12:00:00+09:00"
+}
+```
+- `stage` は `ingest`・`analyze`・`export`・`transcribe`・`diar`(話者判別。認識とは別の成果物 = F-6)・`post`(後処理)・`pack` のどれか
+- **`hash` = sha256(`canon({"stage","v","inputs"})`)**。`canon` はキーを並べ替え・空白なし・日本語はそのままの JSON。`madeBy` と `at` はハッシュに入れない(いつ・誰が作ったかで鍵が変わらないように)
+- **ミリ秒に丸める**: `inputs` の中の小数は(深さによらず)小数 3 桁に丸め、整数と同じ値なら整数にする(`12.0` と `12` は同じ)。秒の値は計算の経路で `12.3456789` と `12.3460001` のように揺れ、丸めないと同じ区間なのに鍵が食い違って使い回しの当たり率が下がるため。`inputs` に入れてよい型は int・float・str・bool・None・list・dict(キーは文字列)だけ(NaN・無限大は ValueError、ほかの型は TypeError)
+- **元の媒体の識別(F-1)**: `media_identity` が `{"kind":"recording","recorder","recording"}`・`{"kind":"archive","videoId"}`・`{"kind":"file","sha256"}`(中身のハッシュ。`file_digest` が 1MB ずつ読んで出す。名前や更新日時は入れない)を作る。配信中の録画からの速報版とアーカイブからの本番版が同じ鍵にならない
+- `validate_key` は schema・段・`hash` の形を調べ、`inputs` からハッシュを計算し直して一致を確かめる(書き換えられた鍵は使わない)。`same_key` は両方が正しく、段と `hash` が同じときだけ True
+- 置き場所は `key_path(path, stage)` = 作業用/ の中の `<名前>.<段>.key.json`(パスの計算だけ)
+
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
 

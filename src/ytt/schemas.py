@@ -1,6 +1,7 @@
 """受け渡しの形式(docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
 transcript/v1・cut-plan/v1 の組み立ては文字起こしツールの行の規則に依存するので、文字起こしの pipeline_io.py に残している。"""
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -165,3 +166,153 @@ def load_clip_file(path, max_bytes=MAX_CLIP_BYTES):
     except (OSError, UnicodeError, ValueError) as e:
         return None, ".clip.json を読めません(%s)" % (e.__class__.__name__ if isinstance(e, OSError) else str(e)[:80])
     return validate_clip(obj)
+
+
+# ---------- youtube-tools-key/v1(成果物の鍵。plan/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
+# 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う。
+# RS1 では形と純粋な関数だけを置く(どこにも書かない)。書く側は RS6。
+KEY_SCHEMA = "youtube-tools-key/v1"
+KEY_VERSION = 1
+# diar(話者判別)は認識とは別の成果物(F-6: 出る人を直しても重い認識をやり直さない)。post = 後処理(軽い。辞書が育つたびに当て直してよい)
+KEY_STAGES = ("ingest", "analyze", "export", "transcribe", "diar", "post", "pack")
+KEY_SUFFIX = ".key.json"
+MEDIA_KINDS = ("recording", "archive", "file")
+
+
+def sec_ms(x):
+    """秒 → ミリ秒の整数(鍵の入力に区間の時刻を入れるときの形)。NaN・無限大・bool・数でないものは ValueError"""
+    v = num(x)
+    if v is None:
+        raise ValueError("秒として使えない値です: %r" % (x,))
+    return int(round(v * 1000))
+
+
+def _nonempty_str(v, name):
+    if not isinstance(v, str) or not v.strip():
+        raise ValueError("%s は空でない文字列にしてください" % name)
+    return v
+
+
+def _is_hex(s, n):
+    return isinstance(s, str) and len(s) == n and all(c in "0123456789abcdef" for c in s)
+
+
+def media_identity(kind, **kw):
+    """元の媒体の識別(F-1)。切り抜きの鍵に入れて、配信中の録画からの速報版と、アーカイブからの本番版が同じ鍵にならないようにする。
+    recording: recorder=録画の部品の名前/id, recording=録画 id。archive: videoId=YouTube の動画 ID。
+    file: sha256=中身のハッシュ(file_digest で出す。ファイル名や更新日時は入れない = 動かしても同じ)。
+    決まった項目以外・足りない項目・空の値は ValueError"""
+    fields = {"recording": ("recorder", "recording"), "archive": ("videoId",), "file": ("sha256",)}
+    if kind not in fields:
+        raise ValueError("媒体の種類が正しくありません: %r(%s のどれか)" % (kind, "・".join(MEDIA_KINDS)))
+    if set(kw) != set(fields[kind]):
+        raise ValueError("%s に必要な項目は %s です" % (kind, "・".join(fields[kind])))
+    out = {"kind": kind}
+    for name in fields[kind]:
+        out[name] = _nonempty_str(kw[name], name)
+    if kind == "file":
+        out["sha256"] = out["sha256"].lower()
+        if not _is_hex(out["sha256"], 64):
+            raise ValueError("sha256 は 64 桁の 16 進数にしてください")
+    return out
+
+
+def file_digest(path, chunk=1 << 20):
+    """ファイルの内容の sha256(16 進 64 桁)。1MB ずつ読む(巨大な動画でもメモリを食わない)。読めなければ OSError"""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            b = f.read(chunk)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()
+
+
+def _norm(v):
+    """鍵の入力を正規化する。float は小数 3 桁(ミリ秒)に丸め、整数と同じ値なら int にする(12.0 と 12 を同じにする)。
+    理由: 秒の値は計算の経路で 12.3456789 と 12.3460001 のように揺れる。丸めずにハッシュすると同じ区間なのに鍵が食い違い、
+    使い回しの当たり率が下がる(ミリ秒より細かい違いは映像の上で意味がない)。
+    int・str・bool・None は変えない。list(tuple も)・dict(キーは str だけ)は中まで。NaN・無限大は ValueError、ほかの型は TypeError"""
+    if v is None or isinstance(v, (bool, str)):
+        return v
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        if not math.isfinite(v):
+            raise ValueError("NaN・無限大は鍵に入れられません")
+        r = round(v, 3)
+        return int(r) if r == int(r) else r
+    if isinstance(v, (list, tuple)):
+        return [_norm(x) for x in v]
+    if isinstance(v, dict):
+        if not all(isinstance(k, str) for k in v):
+            raise TypeError("鍵の入力の dict のキーは文字列だけです")
+        return {k: _norm(x) for k, x in v.items()}
+    raise TypeError("鍵の入力に使えない型です: %s" % type(v).__name__)
+
+
+def canon(obj):
+    """ハッシュする前の正規の JSON 文字列(キーを並べ替え・空白なし・日本語はそのまま)。同じ中身なら同じ文字列になる"""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _key_hash(stage, v, inputs):
+    # at・madeBy は入れない(いつ・誰が作ったかで鍵が変わると、使い回しの判定にならない)
+    return hashlib.sha256(canon({"stage": stage, "v": v, "inputs": inputs}).encode("utf-8")).hexdigest()
+
+
+def make_key(stage, inputs, made_by=None):
+    """成果物の鍵(youtube-tools-key/v1)を作る。inputs は dict(float は _norm で丸める)。
+    hash = sha256(canon({stage, v, inputs}))。madeBy({name, version})と at(書いた日時)は付けるがハッシュには入らない"""
+    if stage not in KEY_STAGES:
+        raise ValueError("段が正しくありません: %r(%s のどれか)" % (stage, "・".join(KEY_STAGES)))
+    if not isinstance(inputs, dict):
+        raise TypeError("inputs は dict にしてください")
+    norm = _norm(inputs)
+    key = {"schema": KEY_SCHEMA, "v": KEY_VERSION, "stage": stage, "inputs": norm, "hash": _key_hash(stage, KEY_VERSION, norm)}
+    if made_by is not None:
+        key["madeBy"] = {"name": str(made_by.get("name", "")), "version": str(made_by.get("version", ""))}
+    key["at"] = iso_now()
+    return key
+
+
+def validate_key(obj):
+    """(key, 警告)。使えるときは (中身の複製, None)、使えないときは (None, 理由)。
+    schema・段・hash の形を調べ、inputs からハッシュを計算し直して一致を確かめる(書き換えられた鍵・壊れた鍵を使わない)"""
+    if not isinstance(obj, dict):
+        return None, "鍵の形式が正しくありません(JSON のオブジェクトではありません)"
+    schema = obj.get("schema")
+    if schema != KEY_SCHEMA:
+        if isinstance(schema, str) and schema.startswith("youtube-tools-key/"):
+            return None, "鍵は未対応の版です(%s。このツールが読めるのは %s)" % (schema[:40], KEY_SCHEMA)
+        return None, "鍵の schema が %s ではありません" % KEY_SCHEMA
+    stage, ver, inputs, h = obj.get("stage"), obj.get("v"), obj.get("inputs"), obj.get("hash")
+    if stage not in KEY_STAGES:
+        return None, "鍵の stage が正しくありません"
+    if not is_int(ver) or ver != KEY_VERSION:
+        return None, "鍵の v が正しくありません"
+    if not isinstance(inputs, dict):
+        return None, "鍵の inputs の形式が正しくありません"
+    if not _is_hex(h, 64):
+        return None, "鍵の hash が 64 桁の 16 進数ではありません"
+    try:
+        calc = _key_hash(stage, ver, _norm(inputs))
+    except (TypeError, ValueError):
+        return None, "鍵の inputs に使えない値があります"
+    if calc != h:
+        return None, "鍵の hash が inputs と合いません(書き換えられたか壊れています)"
+    return json.loads(json.dumps(obj, ensure_ascii=False)), None
+
+
+def same_key(a, b):
+    """2 つの鍵が同じ成果物を指すか(どちらも正しく、段と hash が同じ)。作った日時・作った人は見ない"""
+    ka, kb = validate_key(a)[0], validate_key(b)[0]
+    return ka is not None and kb is not None and ka["stage"] == kb["stage"] and ka["hash"] == kb["hash"]
+
+
+def key_path(path, stage):
+    """鍵を書く場所(作業用/ の中。動画_0012.mp4 + export → 作業用/動画_0012.export.key.json)。パスの計算だけで IO はしない"""
+    if stage not in KEY_STAGES:
+        raise ValueError("段が正しくありません: %r" % (stage,))
+    return sidecar_path(path, "." + stage + KEY_SUFFIX)

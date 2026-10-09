@@ -605,6 +605,116 @@ class TestSchemas(unittest.TestCase):
             self.assertIn(s, schemas.SIDECAR_SUFFIXES)
 
 
+class TestArtifactKey(unittest.TestCase):
+    """成果物の鍵 youtube-tools-key/v1(RS1-5。形と純粋な関数だけ。書く側は RS6)"""
+    SHA = "ab" * 32
+
+    def inputs(self, start=12.345, end=40.0):
+        return {"media": schemas.media_identity("archive", videoId="abc123"), "range": [start, end], "fps": 30, "opts": {"b": 1, "a": [True, None, "x"]}}
+
+    def test_same_inputs_any_order_same_hash(self):
+        a = schemas.make_key("export", {"x": 1, "y": {"p": 1, "q": 2}})
+        b = schemas.make_key("export", {"y": {"q": 2, "p": 1}, "x": 1})
+        self.assertEqual(a["hash"], b["hash"])
+        self.assertTrue(schemas.same_key(a, b))
+        self.assertEqual(len(a["hash"]), 64)
+        self.assertEqual((a["schema"], a["v"], a["stage"]), (schemas.KEY_SCHEMA, schemas.KEY_VERSION, "export"))
+        self.assertNotEqual(a["hash"], schemas.make_key("analyze", {"x": 1, "y": {"p": 1, "q": 2}})["hash"])   # 段が違えば別の鍵
+        self.assertEqual(schemas.canon({"b": "日本", "a": [1, 2]}), '{"a":[1,2],"b":"日本"}')
+
+    def test_ms_rounding(self):
+        k = lambda s: schemas.make_key("export", self.inputs(s))["hash"]   # noqa: E731
+        self.assertEqual(k(12.3456789), k(12.3460001))   # ミリ秒より細かい揺れは同じ鍵
+        self.assertNotEqual(k(12.345), k(12.347))
+        self.assertEqual(schemas.make_key("export", {"t": 12.0})["hash"], schemas.make_key("export", {"t": 12})["hash"])
+        self.assertEqual(schemas.make_key("export", {"t": 3.4999})["inputs"], {"t": 3.5})
+        self.assertEqual([schemas.sec_ms(v) for v in (1, 12.3456, 0.0006, -0.4)], [1000, 12346, 1, -400])
+        for bad in (float("nan"), float("inf"), True, "1", None):
+            with self.assertRaises(ValueError):
+                schemas.sec_ms(bad)
+        with self.assertRaises(ValueError):
+            schemas.make_key("export", {"t": float("nan")})
+        for bad in ({"t": object()}, {"t": {1: 2}}, {"t": b"x"}, {"t": {"s"}}):
+            with self.assertRaises(TypeError):
+                schemas.make_key("export", bad)
+        with self.assertRaises(TypeError):
+            schemas.make_key("export", [1])
+
+    def test_at_and_made_by_do_not_affect_hash(self):
+        a = schemas.make_key("export", self.inputs(), made_by={"name": "studio", "version": "1.0"})
+        with mock.patch.object(schemas, "iso_now", return_value="2030-01-01T00:00:00+09:00"):
+            b = schemas.make_key("export", self.inputs(), made_by={"name": "other", "version": "9"})
+        c = schemas.make_key("export", self.inputs())
+        self.assertEqual(b["at"], "2030-01-01T00:00:00+09:00")
+        self.assertEqual(a["madeBy"], {"name": "studio", "version": "1.0"})
+        self.assertNotIn("madeBy", c)
+        self.assertTrue(a["hash"] == b["hash"] == c["hash"])
+        self.assertTrue(schemas.same_key(a, b))
+        self.assertTrue(schemas.same_key(a, json.loads(json.dumps(c))))   # ファイルに書いて読み戻しても同じ
+
+    def test_media_identity(self):
+        self.assertEqual(schemas.media_identity("recording", recorder="rec1", recording="r-0012"), {"kind": "recording", "recorder": "rec1", "recording": "r-0012"})
+        self.assertEqual(schemas.media_identity("archive", videoId="abc123"), {"kind": "archive", "videoId": "abc123"})
+        self.assertEqual(schemas.media_identity("file", sha256=self.SHA.upper()), {"kind": "file", "sha256": self.SHA})
+        # 録画からの速報版とアーカイブからの本番版は同じ区間でも別の鍵(F-1)
+        rec = schemas.make_key("export", dict(self.inputs(), media=schemas.media_identity("recording", recorder="rec1", recording="r-1")))
+        self.assertFalse(schemas.same_key(rec, schemas.make_key("export", self.inputs())))
+        bad = (("movie",), ("archive",), ("archive", {"videoId": ""}), ("archive", {"videoId": 5}), ("archive", {"videoId": "a", "x": "y"}),
+               ("recording", {"recorder": "r"}), ("file", {"sha256": "zz"}), ("file", {"sha256": "ab" * 31}), ("file", {"path": "x.mp4"}))
+        for args in bad:
+            with self.assertRaises(ValueError, msg=args):
+                schemas.media_identity(args[0], **(args[1] if len(args) > 1 else {}))
+
+    def test_validate_key(self):
+        k = schemas.make_key("transcribe", self.inputs())
+        v, why = schemas.validate_key(json.loads(json.dumps(k)))
+        self.assertIsNone(why)
+        self.assertEqual(v, k)
+        self.assertIsNot(v["inputs"], k["inputs"])   # 複製
+        tampered = json.loads(json.dumps(k))
+        tampered["inputs"]["fps"] = 60
+        self.assertIn("合いません", schemas.validate_key(tampered)[1])
+        self.assertFalse(schemas.same_key(k, tampered))
+        for patch in ({"stage": "nope"}, {"stage": None}, {"hash": "xyz"}, {"hash": "A" * 64}, {"v": 2}, {"v": True}, {"inputs": [1]}, {"inputs": {"t": float("nan")}}):
+            self.assertIsNone(schemas.validate_key(dict(k, **patch))[0], patch)
+        self.assertIn("未対応の版", schemas.validate_key(dict(k, schema="youtube-tools-key/v2"))[1])
+        self.assertIsNone(schemas.validate_key(dict(k, schema="youtube-tools-clip/v1"))[0])
+        for obj in (None, [], "x", 1):
+            self.assertIsNone(schemas.validate_key(obj)[0])
+        self.assertFalse(schemas.same_key(k, None))
+        self.assertFalse(schemas.same_key(k, dict(k, stage="pack")))   # 段が違う(hash も合わない)
+        with self.assertRaises(ValueError):
+            schemas.make_key("bogus", {})
+        self.assertIn("diar", schemas.KEY_STAGES)
+        self.assertIn("post", schemas.KEY_STAGES)
+
+    def test_file_digest(self):
+        import hashlib
+        data = b"0123456789" * 1000
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "a.bin")
+            with open(p, "wb") as f:
+                f.write(data)
+            self.assertEqual(schemas.file_digest(p), hashlib.sha256(data).hexdigest())
+            self.assertEqual(schemas.file_digest(p, chunk=7), hashlib.sha256(data).hexdigest())
+            q = os.path.join(tmp, "b.bin")
+            with open(q, "wb") as f:
+                f.write(data)
+            os.utime(q, (1, 1))   # 更新日時が違っても中身が同じなら同じ
+            self.assertEqual(schemas.file_digest(p), schemas.file_digest(q))
+            self.assertEqual(schemas.media_identity("file", sha256=schemas.file_digest(p))["sha256"], schemas.file_digest(q))
+            with self.assertRaises(OSError):
+                schemas.file_digest(os.path.join(tmp, "none.bin"))
+
+    def test_key_path(self):
+        W = schemas.WORK_DIR
+        self.assertEqual(schemas.key_path(os.path.join("x", "動画_0012.mp4"), "export"), os.path.abspath(os.path.join("x", W, "動画_0012.export.key.json")))
+        self.assertEqual(schemas.key_path(os.path.join("x", W, "a.transcript.json"), "diar"), os.path.abspath(os.path.join("x", W, "a.transcript.diar.key.json")))
+        with self.assertRaises(ValueError):
+            schemas.key_path(os.path.join("x", "a.mp4"), "bogus")
+        self.assertFalse(os.path.exists(os.path.join("x", W)))   # IO はしない
+
+
 class TestHttpsec(unittest.TestCase):
     def test_checks(self):
         allowed = httpsec.allowed_hosts(8800)
