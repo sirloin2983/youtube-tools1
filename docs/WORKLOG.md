@@ -3150,3 +3150,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 版: 編集 0.67.0(serve.py・app.js・README ■ v0.67.0・AGENTS の現在の行)・data.js の版。仮の決め方 decisions 3-21 (gr)〜(gv)(今ある文書 73cc02b8e9d3 は書き換えない = 4 行は画面で)
 - テスト: test_fill に `test_strip_names`(純粋)・`test_job_strips_speaker_names`(疑似の文字起こし・オフ・評価用)。editor の unittest 603 件 OK(test_metrics・resolve_export・roster・settings_schema 2 本)・e2e_fill・e2e_settings・e2e_proofread_keys OK・lint 0・ui_audit static Must 0
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「スタジオ設定の整理」)— (gq) の確認済み: スタジオ 0.26.0 = 配信タイプ別の重みを機能ごと消す・LIVE の帯に音量と消音
+- ユーザーの答え(議論のセッション経由): ① 「消していい」② 「ライブ配信中に音量をいじれない問題を直すなら消していい」。decisions 3-19 (gq) に書いた。S6 はこれで全部済み
+- ② の原因: ライブの録画のプレーヤー(`LivePlayer`)は標準のコントロールを出さない(つないだ映像の秒とスタジオの時間が食い違うため)。⚙ の音量のつまみを 0.25.0 で外したあと、配信中に音量を変える口は ↑↓・M のキーだけ(見つけにくい)。YouTube・動画ファイルはプレーヤー自身の欄がある → 直し方: `src/studio/review.js` の `liveBarHTML` = 「ライブ端へ」の横に `#rvLiveVol`(range 0〜100・5 刻み)・`#rvLiveVolOut`・`#rvLiveMute`(aria-pressed。消音中は「音を戻す」)。`SET_UI` に `#rvLiveVol`(input → volume → applyToPlayer)・`syncSettingsUI` が数字と消音のボタンを合わせる(キーで変えても合う)・`wire()` で `#rvLiveMute` → `toggleMute()`。ほかの窓(編集)で再生中の下げる / 消す(duck)はそのまま優先(帯の案内あり)。`review.css` `.rv-live-r`・`.rv-livevol`
+- ①: `src/studio/analyze.py` = `STREAM_TYPES`・`TYPE_PRESETS`・`TYPE_WORDS`・`classify_stream`・`apply_type_preset` を消し、`validate_settings` の `typePreset`・`typeOverride` を外した(保存してある値は読み捨て)。`_weights` は (wts, meta)・`_save_record` と結果・archive の `type` を無くした(古い記録の `type` はそのまま。`dev/eval_marks.py` は無ければ「不明」で動く)。`FB_SETTING_KEYS`・`SPEC_KEYS` から typePreset。設定の画面のスキーマ `src/home/settings/schema.json` の analyze.typePreset・typeOverride の 2 行を消した(**同じファイルにほかのセッションの未コミットの差分(editor の stripNames)があるので、index には自分の 2 行だけを入れた**)
+- 版: スタジオ 0.26.0(core.js・serve.py・README ■ v0.26.0)
+- テスト: `test_analyze`(classify・preset・type の 3 件を消す)・`test_robustness`(load_meta の title で)・`e2e_analyze`(type が出ない・古い鍵は読み捨て)・`test_review.cjs`(帯に音量と消音)・`e2e_live_studio.py` 11a(つまみ 40 → 映像の volume 0.4・↑ で 45・「消音」→ M で戻る・review.volume に残る)
+- 結果: スタジオ unittest 313 件 OK・test_review.cjs 53 件 OK・e2e_analyze OK・e2e_live_studio 189/189(1 回目は 11a の数字の更新を直す前で 1 件落ち・M2 の live.auto の保存が 1 回落ちた = 揺れ。2 回目は全部 OK)・e2e_ui 214/214・e2e_ui --mounted 237/237・e2e_live_archive 1 回目 94/95(9 段の analyze の段を 1 秒の見回りが見逃した = 時間の揺れ)→ 2 回目 95/95・lint 0・ui_audit all --demo Must 0・test_launch/test_mount/test_ui_kit_sync/ホームと編集の test_settings_schema OK
+- 未コミット: なし(この記録と一緒にコミット)

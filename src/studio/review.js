@@ -229,7 +229,10 @@ function liveBarHTML(){
           <span class="rv-live-k" id="rvLiveElapsedK">配信経過</span><span class="mono" id="rvLiveElapsed">--</span>
           <span class="rv-live-k rv-live-edgeinfo">ライブ端との差</span><span class="mono rv-live-edgeinfo" id="rvLiveGap">--</span>
           <span class="rv-live-k">ライブ印のマーク</span><span class="mono" id="rvLiveMarks">0件</span></div>
-        <div><button class="btn small" id="rvEdge" type="button">ライブ端へ</button></div>
+        <div class="rv-live-r"><button class="btn small" id="rvEdge" type="button">ライブ端へ</button>
+          <!-- 音量と消音(0.26.0): 録画のプレーヤーは標準のコントロールを出さない(時間が食い違う)ので、音量を変える口はここと ↑↓・M のキー。値は ② の設定 volume・muted -->
+          <span class="rv-livevol"><label for="rvLiveVol">音量</label><input type="range" id="rvLiveVol" min="0" max="100" step="5" value="100" title="配信の音量(↑ ↓ キーでも 5 ずつ変わります)"><output class="mono" id="rvLiveVolOut" for="rvLiveVol">100</output>
+            <button class="btn small ghost" id="rvLiveMute" type="button" aria-pressed="false" title="配信の音を消す・戻す(M キー)">消音</button></span></div>
         <div class="rv-liverec" id="rvLiveRec" hidden>
           <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
           <span class="rv-topsp"></span>
@@ -1106,7 +1109,7 @@ async function loadSettings(){
 /* ② の設定と欄の対応の表(G4 の 2。0.23.4): [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
    欄へ書くのは syncSettingsUI、欄から読むのは wireSettings。値の検め方は sanitizeSettings の 1 か所(設定を足すときは sanitizeSettings とこの表の 2 か所)。
    音量の数字(output)・押せない欄・「書き出しのあと自動で文字起こし」(settings.js の欄)は syncSettingsUI に別に書く */
-/* 0.25.0: volume・muted・lag・liveMode・autoPlay・autoNext の欄は設定の画面へ(ここには無い。値は S.settings のまま読み書き) */
+/* 0.25.0: volume・muted・lag・liveMode・autoPlay・autoNext の欄は設定の画面へ(ここには無い。値は S.settings のまま読み書き)。0.26.0: 音量と消音は LIVE の帯に(#rvLiveVol・#rvLiveMute。ライブの録画だけ) */
 const SET_UI = [
   ['#rvHeight', 'maxHeight', 'value', () => expSetSummary()],
   ['#rvPrecision', 'precision', 'value', () => expSetSummary()],
@@ -1114,6 +1117,7 @@ const SET_UI = [
   ['#rvExpLoud', 'exportLoudness', 'value', () => syncSettingsUI()],   // 書き出しの音量の欄を押せなくする・戻す
   ['#rvAutoExp', 'liveAutoExport', 'checked', () => renderLiveRec()],   // LIVE の帯(ライブの録画)
   ['#rvDuck', 'liveDuck', 'value', () => applyToPlayer()],
+  ['#rvLiveVol', 'volume', 'value', () => { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = S.settings.volume; applyToPlayer(); }, 'input'],   // LIVE の帯の音量(0.26.0。数字も合わせる)
   ['#rvAfter', 'liveAfter', 'value'],
   ['#rvSort', 'sortBy', 'value', () => renderList()],
   ['#rvExpTarget', 'exportTarget', 'value', () => { renderExportUI(); expSetSummary(); }]
@@ -1121,7 +1125,8 @@ const SET_UI = [
 function syncSettingsUI(){
   const s = S.settings;
   for (const [sel, k, prop] of SET_UI){ const el = $(sel); if (el) el[prop] = prop === 'checked' ? !!s[k] : String(s[k]); }
-  { const vo = $('#rvVolOut'); if (vo) vo.textContent = s.volume; }   // 0.25.0: 音量の欄は ⚙ に無い
+  { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = s.volume; }   // LIVE の帯の音量の数字(0.26.0。⚙ の欄は 0.25.0 で無くした)
+  { const mb = $('#rvLiveMute'); if (mb){ mb.setAttribute('aria-pressed', String(!!s.muted)); mb.textContent = s.muted ? '音を戻す' : '消音'; } }
   $('#rvExpVolOut').textContent = s.exportVolume;
   renderKeyUI();
   $('#rvExpVol').disabled = !!s.exportLoudness;
@@ -3386,6 +3391,7 @@ function wire(){
     KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
   });
   $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
+  $('#rvLiveMute').addEventListener('click', () => toggleMute());   // LIVE の帯の消音(0.26.0。M キーと同じ)
   $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
   $('#rvArchRun').addEventListener('click', startLiveArchive);
   $('#rvArchCancel').addEventListener('click', cancelLiveArchive);

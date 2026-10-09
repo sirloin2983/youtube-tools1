@@ -130,7 +130,7 @@ class TestCaches(Home):
         good = {"title": "【歌枠】", "tags": ["x"], "categories": ["Music"], "heatmap": [], "chapters": [], "fetchedAt": time.time()}
         with open(os.path.join(analyze.meta_dir(), "abcdefghijk.json"), "w", encoding="utf-8") as f:
             json.dump(good, f)
-        self.assertEqual(analyze.classify_stream(analyze.load_meta("abcdefghijk")), "歌枠")
+        self.assertEqual(analyze.load_meta("abcdefghijk")["title"], "【歌枠】")
 
     def test_archive_with_broken_runs_is_still_saved(self):
         p = analyze.archive_path("abcdefghijk")

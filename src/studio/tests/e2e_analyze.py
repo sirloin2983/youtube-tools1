@@ -60,25 +60,23 @@ json.dump({"title": "【歌枠】朝まで歌う", "channel": "Ch", "categories"
 com = os.path.join(tmp, "comments.json")
 json.dump([{"text": "3:40 ここ最高", "likes": 5}, {"text": "0:10 a\n5:00 b\n10:00 c", "likes": 1}], open(com, "w", encoding="utf-8"), ensure_ascii=False)
 os.environ["STUDIO_FAKE_META"], os.environ["STUDIO_FAKE_COMMENTS"] = meta, com
-r3 = run(useComments=True, typePreset=True)
+r3 = run(useComments=True)
 print("警告:", r3["warnings"])
-print("配信タイプ:", r3["type"], " counts:", r3["counts"])
-ok &= r3["type"] == "歌枠" and any("歌枠" in w and "音声×0.6" in w for w in r3["warnings"])
+print("counts:", r3["counts"])
+ok &= "type" not in r3 and not any("配信タイプ" in w for w in r3["warnings"])   # 配信タイプ別の重みは 0.26.0 で廃止(結果にも警告にも出ない)
 ok &= r3["counts"]["meta"] is True and r3["counts"]["heatmap"] == 1
 ar = analyze.load_archive("abcdefghijk")
-ok &= ar is not None and ar["meta"]["chapters"] == [[0.0, 60.0, "開始"]] and ar["type"] == "歌枠"
+ok &= ar is not None and ar["meta"]["chapters"] == [[0.0, 60.0, "開始"]] and "type" not in ar
 ok &= len(ar["full"]) == len(ar["band"]) == ar["n"] and ar["chat"] is not None and len(ar["chat"]["uniq"]) == ar["n"]
 ok &= ar["stamps"] is not None and len(ar["stamps"]) == 4 and ar["stamps"][0][3].startswith("3:40")
-ok &= len(ar["runs"]) == 3 and ar["runs"][-1]["spec"]["typePreset"] is True and len(ar["runs"][-1]["candidates"]) >= 5   # 解析3回分の履歴
+ok &= len(ar["runs"]) == 3 and ar["runs"][-1]["spec"]["count"] == 6 and "typePreset" not in ar["runs"][-1]["spec"] and len(ar["runs"][-1]["candidates"]) >= 5   # 解析3回分の履歴
 print("archive: n=%d runs=%d stamps=%d" % (ar["n"], len(ar["runs"]), len(ar["stamps"])))
-r4 = run(useComments=True, typePreset=True, typeOverride="ゲーム")   # 手動でタイプを指定
-ok &= r4["type"] == "ゲーム" and not any("配信タイプ" in w for w in r4["warnings"])   # ゲームは倍率なし → 注意書きなし
-r5 = run(typePreset=False)
-ok &= not any("配信タイプ" in w for w in r5["warnings"]) and r5["type"] == "歌枠"     # オフでも、タイプは記録する
+r4 = run(useComments=True, typePreset=True, typeOverride="ゲーム")   # 古い設定の鍵は読み捨てる(0.26.0)
+ok &= "typePreset" not in r4["spec"] and "typeOverride" not in r4["spec"] and "type" not in r4
 # 付加情報が取れなくても解析は成功し、注意書きが出る
 os.environ["STUDIO_FAKE_META"] = os.path.join(tmp, "none.json")
 r6 = run()
-ok &= any("付加情報" in w for w in r6["warnings"]) and r6["type"] is None
+ok &= any("付加情報" in w for w in r6["warnings"])
 print("結果:", "OK" if ok else "NG")
 shutil.rmtree(tmp, ignore_errors=True)
 sys.exit(0 if ok else 1)

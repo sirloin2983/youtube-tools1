@@ -71,8 +71,6 @@
         { "key": "analyze.lagAuto", "type": "bool", "label": "チャットの遅れを自動で推定する", "default": true },
         { "key": "analyze.lag", "type": "number", "label": "チャットの遅れ補正(自動で推定できないとき)", "default": 8, "min": 0, "max": 30, "step": 1, "unit": "秒" },
         { "key": "analyze.chatTimeout", "type": "int", "label": "チャット取得の待ち時間(上限)", "default": 20, "min": 1, "max": 120, "unit": "分" },
-        { "key": "analyze.typePreset", "type": "bool", "label": "配信タイプ別の重み(試験的)", "default": false, "hint": "倍率の初期値は仮で、歌枠は音声 0.6 倍、雑談は音声 0.8 倍・チャット 1.1 倍。" },
-        { "key": "analyze.typeOverride", "type": "enum", "label": "配信タイプ", "default": "auto", "options": [["auto", "自動(タイトル・タグから推定)"], ["ゲーム", "ゲーム"], ["雑談", "雑談"], ["歌枠", "歌枠"], ["その他", "その他"]], "when": { "key": "analyze.typePreset", "eq": true } },
         { "key": "analyze.wAudio", "type": "number", "label": "重み: 音声", "default": 1, "min": 0, "max": 3, "step": 0.1 },
         { "key": "analyze.wChat", "type": "number", "label": "重み: チャット", "default": 1, "min": 0, "max": 3, "step": 0.1 },
         { "key": "analyze.wComments", "type": "number", "label": "重み: コメント", "default": 0.7, "min": 0, "max": 3, "step": 0.1 }

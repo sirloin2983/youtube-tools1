@@ -177,33 +177,6 @@ class TestMeta(unittest.TestCase):
         m = analyze.slim_meta({"view_count": "x", "tags": "notalist", "heatmap": "no", "chapters": [1, None], "title": 5})
         self.assertEqual((m["views"], m["tags"], m["heatmap"], m["chapters"]), (None, [], [], []))
 
-    def test_classify(self):
-        c = lambda **k: analyze.classify_stream(analyze.slim_meta(dict({"title": "", "categories": [], "tags": []}, **k)))
-        self.assertEqual(c(title="【歌枠】朝まで歌う"), "歌枠")
-        self.assertEqual(c(title="【雑談】マシュマロ読む", categories=["Gaming"]), "雑談")
-        self.assertEqual(c(title="【R.E.P.O.】ゲーム", categories=["Gaming"]), "ゲーム")
-        self.assertEqual(c(title="【輪ゴム】検証", categories=["Entertainment"]), "その他")
-        self.assertEqual(c(title="x", tags=["karaoke"]), "歌枠")
-        self.assertIsNone(analyze.classify_stream(None))
-        self.assertEqual(c(title="【歌枠】雑談も少し", categories=["Gaming"]), "歌枠")   # 歌枠 > 雑談 > ゲーム の優先順位
-
-    def test_preset_multiplies_only_known_types_and_is_pure(self):
-        base = {"audio": 1.0, "chat": 1.0, "comments": 0.7}
-        w, ch = analyze.apply_type_preset(base, "歌枠")
-        self.assertAlmostEqual(w["audio"], 0.6)
-        self.assertEqual((w["chat"], w["comments"], ch), (1.0, 0.7, {"wAudio": 0.6}))
-        self.assertEqual(base["audio"], 1.0)
-        self.assertEqual(analyze.apply_type_preset(base, "ゲーム")[1], {})
-        self.assertEqual(analyze.apply_type_preset(base, "未知")[0], base)
-
-    def test_settings_type_fields(self):
-        s = analyze.validate_settings({})
-        self.assertEqual((s["typePreset"], s["typeOverride"]), (False, "auto"))
-        s = analyze.validate_settings({"typePreset": True, "typeOverride": "歌枠"})
-        self.assertEqual((s["typePreset"], s["typeOverride"]), (True, "歌枠"))
-        s = analyze.validate_settings({"typePreset": "yes", "typeOverride": "<script>"})
-        self.assertEqual((s["typePreset"], s["typeOverride"]), (False, "auto"))
-
 
 class TestArchive(unittest.TestCase):
     def setUp(self):

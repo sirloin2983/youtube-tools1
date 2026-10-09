@@ -34,15 +34,12 @@ AUDIO_DL_IDLE = 600      # 音声のダウンロードで、この秒数まっ�
 AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で同様
 MAX_CHAT_BYTES = 400 * 1024 * 1024
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
-STREAM_TYPES = ("auto", "ゲーム", "雑談", "歌枠", "その他")
-# 配信タイプ別の重みの倍率(試験的・初期値は仮。archive のデータがたまったら見直す)。設定「配信タイプ別の重み」をオンにしたときだけ使う
-TYPE_PRESETS = {"歌枠": {"wAudio": 0.6}, "雑談": {"wAudio": 0.8, "wChat": 1.1}, "ゲーム": {}, "その他": {}}
 ARCHIVE_KEEP = 2000
 META_TTL = 24 * 3600     # 動画の付加情報の再取得までの秒数(再解析のたびに取り直さない)
 META_KEEP = 300
 META_TIMEOUT = 90
-FB_SETTING_KEYS = ("sensitivity", "length", "preRatio", "lag", "lagAuto", "headSec", "typePreset", "wAudio", "wChat", "wComments")
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "typePreset", "wAudio", "wChat", "wComments")   # 結果・archive に残す設定
+FB_SETTING_KEYS = ("sensitivity", "length", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")   # 結果・archive に残す設定
 
 
 def work_dir():
@@ -87,14 +84,15 @@ def validate_source(item):
 
 
 def validate_settings(req):
-    """解析の設定(範囲外は丸める)。autoExport は廃止。maxHeight(画質の上限)も 0.24.0 で廃止(解析は音声しか取らず読んでいなかった。保存してある値は読み捨てる)。"""
+    """解析の設定(範囲外は丸める)。autoExport は廃止。maxHeight(画質の上限)も 0.24.0 で廃止(解析は音声しか取らず読んでいなかった。保存してある値は読み捨てる)。
+    typePreset・typeOverride(配信タイプ別の重み。試験的)は 0.26.0 で機能ごと廃止(倍率が仮のまま効き目を測っていなかった。ユーザー決定 10-09。保存してある値は読み捨てる)。"""
     req = req if isinstance(req, dict) else {}
     sens = req.get("sensitivity") if req.get("sensitivity") in ("high", "normal", "low") else "normal"
     return {"useAudio": req.get("useAudio") is not False, "useChat": req.get("useChat") is not False,
             "useComments": req.get("useComments") is not False,
             "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 120, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
-            "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT), "typePreset": req.get("typePreset") is True,
-            "typeOverride": req.get("typeOverride") if req.get("typeOverride") in STREAM_TYPES else "auto", "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
+            "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT),
+            "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
             "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7)}
 
 
@@ -675,7 +673,7 @@ def slim_meta(d):
 
 
 def _meta_ok(d):
-    """キャッシュの形の確認(classify_stream などが型の違いで落ちて、記録用の情報のせいで解析全体が失敗するのを防ぐ)。"""
+    """キャッシュの形の確認(記録用の情報の型の違いで解析全体が失敗するのを防ぐ)。"""
     return (isinstance(d, dict) and isinstance(d.get("title", ""), str)
             and all(isinstance(d.get(k) or [], list) and all(isinstance(x, str) for x in (d.get(k) or [])) for k in ("tags", "categories"))
             and all(isinstance(d.get(k) or [], list) for k in ("heatmap", "chapters")))
@@ -741,28 +739,6 @@ def start_meta(job, vid):
     th = threading.Thread(target=work, daemon=True)
     r["thread"] = th
     th.start()
-
-
-TYPE_WORDS = (("歌枠", re.compile(r"歌枠|カラオケ|karaoke|singing|歌ってみ|弾き語り|歌配信|歌謡", re.I)),
-              ("雑談", re.compile(r"雑談|朝活|凸待ち|マシュマロ|お便り|フリートーク|お絵描き|作業|告知|報告|ASMR|free ?talk", re.I)))
-
-
-def classify_stream(meta):
-    """配信のタイプの推定(タイトル・タグ・カテゴリから)。歌枠 > 雑談 > ゲーム(カテゴリ Gaming)> その他。付加情報が無ければ None。"""
-    if not meta:
-        return None
-    text = " ".join([meta.get("title", "")] + list(meta.get("tags") or []))
-    for name, rx in TYPE_WORDS:
-        if rx.search(text):
-            return name
-    return "ゲーム" if "Gaming" in (meta.get("categories") or []) else "その他"
-
-
-def apply_type_preset(wts, stream_type):
-    """配信タイプ別の倍率を重みにかける(試験的)。(新しい重み, 適用した倍率の辞書)。"""
-    mult = TYPE_PRESETS.get(stream_type) or {}
-    key = {"audio": "wAudio", "chat": "wChat", "comments": "wComments"}
-    return {k: v * mult.get(key[k], 1.0) for k, v in wts.items()}, {k: x for k, x in mult.items() if x != 1.0}
 
 
 # ---------- 解析データの保存(archive: 後から重みや判定ロジックを実データで見直すための記録) ----------
@@ -954,7 +930,7 @@ def _comment_signal(job, src, dur, n, comps, info, warnings, ctexts):
 
 
 def _weights(job, spec, warnings):
-    """材料の重みと配信タイプ。付加情報(start_meta で始めたもの)を待ち、タイプの初期値を使う設定なら重みを掛ける。-> (wts, meta, stream_type)"""
+    """材料の重みと、記録用の付加情報(start_meta で始めたもの)を待つ。-> (wts, meta)。配信タイプ別の倍率は 0.26.0 で廃止"""
     wts = {"audio": spec["wAudio"], "chat": spec["wChat"], "comments": spec["wComments"]}
     meta = None
     mj = job.get("meta")
@@ -963,24 +939,19 @@ def _weights(job, spec, warnings):
         meta = mj["data"]
         if meta is None and mj["why"]:
             warnings.append("動画の付加情報(記録用)を取得できませんでした: %s(解析には影響しません)" % mj["why"])
-    stream_type = spec["typeOverride"] if spec["typeOverride"] != "auto" else classify_stream(meta)
-    if spec["typePreset"] and stream_type:
-        wts, changed = apply_type_preset(wts, stream_type)
-        if changed:
-            warnings.append("配信タイプ「%s」の重みを使いました(%s。試験的な初期値)" % (stream_type, "・".join("%s×%s" % ({"wAudio": "音声", "wChat": "チャット", "wComments": "コメント"}[k], x) for k, x in changed.items())))
-    return wts, meta, stream_type
+    return wts, meta
 
 
-def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, stream_type, info, cands):
+def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, cands):
     """後から実データで見直すための記録(save_archive)。levels = (full, band)・chat = _chat_signal の結果(使わなかったときは None)。失敗しても解析は続ける"""
     try:
         full, band = levels
-        payload = {"kind": src["kind"], "duration": round(dur, 1), "n": n, "at": int(time.time() * 1000), "type": stream_type, "meta": meta,
+        payload = {"kind": src["kind"], "duration": round(dur, 1), "n": n, "at": int(time.time() * 1000), "meta": meta,
                    "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band],
                    "chat": ({"act": [round(x, 1) for x in chat["act"]], "count": chat["count"], "warmCount": chat["warm"], **(chat["extra"] or {})} if chat else None),
                    "stamps": ([[t, lk, round(w, 3), (ctexts[i] if i < len(ctexts) else "")] for i, (t, lk, w) in enumerate(stamps)] if stamps else None)}
         run = {"at": payload["at"], "spec": {k: spec[k] for k in SPEC_KEYS},
-               "lagUsed": spec.get("lagUsed"), "signals": info, "type": stream_type,
+               "lagUsed": spec.get("lagUsed"), "signals": info,
                "candidates": [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]} for c in cands]}
         save_archive(src["videoId"], payload, run)
     except Exception:
@@ -1033,18 +1004,18 @@ def run_analyze(job):
         if not comps:
             raise ApiError("no_signal", "使える材料がありません(音声の解析をオンにするか、チャット・コメントが取れる動画を指定してください)")
         job["phase"], job["progress"] = "盛り上がりの区間を決定中", 0.6
-        wts, meta, stream_type = _weights(job, spec, warnings)
+        wts, meta = _weights(job, spec, warnings)
         total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点
         # 材料が重なるほど合計が大きくなる(音声・チャット・コメントが同じ場面を指すと強い)
         cands = excite.candidates(pick_clips(total, full, spec, n), comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
-        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, stream_type, info, cands)
+        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         if job["cancel"]:
             raise Cancelled()
         job["result"] = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
                          "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
-                         "type": stream_type, "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
+                         "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
         job["state"], job["phase"], job["progress"] = "done", "解析が完了しました", 1.0
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"

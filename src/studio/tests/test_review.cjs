@@ -675,6 +675,10 @@ test('the band line for the after-stream auto clipping (M7): the portal text as 
   assert.ok(poll.includes('liveAfterView(LV.archiveInfo).running'), 'the job list is read again while it moves');
   assert.ok(between('async function pollLiveJobs(){', 'function liveJobNotices(').includes('renderLiveAfter()'));
   assert.ok(between('function liveBarHTML(){', '/* 今をマーク').includes('id="rvAfterStream" role="status" hidden'));
+  { const band = between('function liveBarHTML(){', '/* 今をマーク');   // 0.26.0: 音量と消音は帯に(録画のプレーヤーは標準のコントロールを出さない)
+    assert.ok(band.includes('type="range" id="rvLiveVol"') && band.includes('id="rvLiveMute"') && band.includes('aria-pressed="false"'));
+    assert.ok(source.includes("['#rvLiveVol', 'volume', 'value', () => { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = S.settings.volume; applyToPlayer(); }, 'input']"), 'the slider writes review.volume and applies it');
+    assert.ok(source.includes("$('#rvLiveMute').addEventListener('click', () => toggleMute())")); }
 });
 
 test('archived marks: 本番版 chip on the mark row, cleared with the exported state when the times change', () => {

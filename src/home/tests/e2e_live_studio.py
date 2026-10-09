@@ -614,8 +614,28 @@ def _scene_gap(cx):
 
 
 def _scene_settings_and_sound(cx):
-    """11. 設定の引き出し / 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す"""
-    base, check, ctx, edge, pg, rfolder, shots, srv = cx.base, cx.check, cx.ctx, cx.edge, cx.pg, cx.rfolder, cx.shots, cx.srv
+    """11a. LIVE の帯の音量と消音 / 11. 設定の引き出し / 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す"""
+    api, base, check, ctx, edge, pg, rfolder, shots, srv = cx.api, cx.base, cx.check, cx.ctx, cx.edge, cx.pg, cx.rfolder, cx.shots, cx.srv
+    # ---------------- 11a. LIVE の帯の音量と消音(0.26.0。(gq) ②: 録画のプレーヤーは標準のコントロールを出さないので、帯のつまみとキーで変える) ----------------
+    set_vol = "(v) => { const el = document.querySelector('#rvLiveVol'); el.value = String(v); el.dispatchEvent(new Event('input', { bubbles: true })); }"
+    check(pg.is_visible("#rvLiveVol") and pg.input_value("#rvLiveVol") == "100" and pg.get_attribute("#rvLiveMute", "aria-pressed") == "false"
+          and pg.text_content("#rvLiveVolOut") == "100", "11a 帯に音量のつまみ(100)と「消音」")
+    pg.evaluate(set_vol, 40)
+    check(wait_js(pg, "() => Math.abs(%s.volume - 0.4) < 0.01 && document.querySelector('#rvLiveVolOut').textContent === '40'" % VIDEO, 3000),
+          "11a つまみで配信の音量が変わる(映像の volume 0.4・数字 40): %s" % pg.evaluate("() => %s.volume" % VIDEO))
+    pg.evaluate("() => { if (document.activeElement) document.activeElement.blur(); }")
+    pg.keyboard.press("ArrowUp")
+    check(wait_js(pg, "() => Math.abs(%s.volume - 0.45) < 0.01 && document.querySelector('#rvLiveVol').value === '45'" % VIDEO, 3000),
+          "11a ↑ キーで 5 上がり、つまみも合う: %s" % pg.input_value("#rvLiveVol"))
+    pg.click("#rvLiveMute")
+    check(wait_js(pg, "() => %s.muted && document.querySelector('#rvLiveMute').getAttribute('aria-pressed') === 'true'" % VIDEO, 3000)
+          and pg.text_content("#rvLiveMute") == "音を戻す", "11a 「消音」で消音(押した状態・文字は「音を戻す」)")
+    pg.keyboard.press("m")
+    check(wait_js(pg, "() => !%s.muted && document.querySelector('#rvLiveMute').getAttribute('aria-pressed') === 'false'" % VIDEO, 3000), "11a M キーで戻る")
+    check(wait_for(lambda: (((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review") or {}).get("volume") == 45, 8),
+          "11a 音量はスタジオの設定 review.volume に残る(消音は false のまま): %s" % ((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review", {}).get("muted"))
+    pg.evaluate(set_vol, 100)
+    check(wait_js(pg, "() => Math.abs(%s.volume - 1) < 0.01" % VIDEO, 3000), "11a 100 に戻す")
     # ---------------- 11. 設定の引き出し ----------------
     pg.click("#btnSettings")
     check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "11 設定の引き出しに「ライブの録画」")
