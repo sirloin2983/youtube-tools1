@@ -16,7 +16,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import recognize, txenv  # noqa: E402
+from pipeline.transcribe import backend, recognize, txenv  # noqa: E402
 from ytt import errors  # noqa: E402
 
 SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
@@ -33,6 +33,60 @@ class _Env(unittest.TestCase):
         txenv._providers.update(self.saved[0])
         recognize._head_stripper[:] = self.saved[1]
         shutil.rmtree(self.tmp, True)
+
+
+class TestTranscribeRows(_Env):
+    """transcribe_rows(RS2-8e): 取り出し → 長さ(txenv.media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""
+
+    def setUp(self):
+        super().setUp()
+        self.saved_selector = backend._selector[0]
+        self.calls = []
+        calls = self.calls
+
+        class Fake(backend.Backend):
+            name = "fake"
+
+            def transcribe(self, job, spec, wav, total, real):
+                calls.append(("transcribe", job["state"], wav, total, real is recognize._transcribe_checked))
+
+                def gen():   # 生成器は遅延 = 認識が動くのは行を読む所
+                    calls.append(("recognize", job["state"]))
+                    yield {"start": 0.0, "end": 2.0, "text": "こんにちは。", "avg_logprob": -0.2}
+                    yield {"start": 2.1, "end": 9.5, "text": "長さの外まで", "avg_logprob": -0.4}
+                    yield {"start": 8.5, "end": 9.0, "text": "捨てる行"}
+                return gen()
+        backend.set_selector(lambda: Fake())
+
+    def tearDown(self):
+        backend.set_selector(self.saved_selector)
+        super().tearDown()
+
+    def extract(self, job, spec, wav):
+        self.calls.append(("extract", job["state"], job["phase"], wav, spec["start"]))
+
+    def test_rows_raw_total(self):
+        txenv.register(media_duration=lambda: (lambda p: 8.0))
+        job = {"state": "queued"}
+        spec = {"start": 10.0, "end": 20.0, "language": "ja", "wordSplit": False, "stripPunct": True}
+        with mock.patch.object(recognize, "extract_audio", self.extract):   # 呼ぶたびに recognize.extract_audio を読む(S.extract_audio の差し替えが届く)
+            res = recognize.transcribe_rows(job, spec, "w.wav")
+        self.assertEqual(self.calls[0], ("extract", "extracting", "音声を取り出し中", "w.wav", 10.0))
+        self.assertEqual(self.calls[1], ("transcribe", "extracting", "w.wav", 8.0, True))
+        self.assertEqual(self.calls[2][0], "recognize")
+        self.assertEqual(res["total"], 8.0)
+        self.assertIsInstance(res["t_rec"], float)
+        self.assertEqual([(r["start"], r["end"], r["text"]) for r in res["raw"]],
+                         [(10.0, 12.0, "こんにちは。"), (12.1, 19.5, "長さの外まで"), (18.5, 19.0, "捨てる行")])   # 生出力は整える前・元の動画の秒
+        self.assertEqual([(r["start"], r["end"], r["text"]) for r in res["rows"]],
+                         [(0.0, 2.1, "こんにちは"), (2.1, 8.0, "長さの外まで")])   # 長さの外を捨てて切る・続く行をつなぐ・句読点を除く(postproc.expand_segments)
+
+    def test_total_falls_back_to_range(self):
+        txenv.register(media_duration=lambda: (lambda p: None))
+        with mock.patch.object(recognize, "extract_audio", self.extract):
+            res = recognize.transcribe_rows({"state": "queued"}, {"start": 10.0, "end": 20.0, "language": "ja"}, "w.wav")
+        self.assertEqual(res["total"], 10.0)   # 長さが分からなければ範囲の長さ(end が無ければ 0)
+        self.assertEqual(len(res["rows"]), 3)
 
 
 class TestFinishRangeLines(_Env):

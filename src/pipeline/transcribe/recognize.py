@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
+文字起こしのジョブの「取り出し → 認識 → 整えた行」(transcribe_rows。RS2-8e)・
 選んだ行の 1 行ずつの認識(recognize_chunk・ChunkModel)・範囲の認識と行の整え方(range_lines_real・finish_range_lines・RangeRecognizer)・
 全体の再認識の区間分けと続きから(whole_parts・whole_key・read_resume・write_resume・drop_resume・whole_lines)。
 
 役割で組み直す RS2-7(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
-txbase・txenv・worker_client)だけを読む。ffmpeg・置き場所(TX_DIR)は呼ぶたびに txenv の口から。
+txbase・txenv・worker_client・records)だけを読む。ffmpeg・置き場所(TX_DIR)は呼ぶたびに txenv の口から。
 行の頭の「名前:」を外す決まり(編集の ed_fill の B)は ① から ed_fill を読まず、app(編集の serve.py)が set_head_stripper で登録した関数を呼ぶたびに使う
 (ed_jobs.head_stripper。spec -> None(外さない)か 文字 -> (本文, 足す印) の関数)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
 mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と ed_jobs の転送(ytt/modfwd)でここに届く。
-ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・plan_range・fit_lines・_ov など)は文書の側(ed_jobs。のちに human/proof)に残した。
+ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・plan_range・fit_lines・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
+run_job は transcribe_rows が返す行を受け取って、別の読み(ed_fill)・LLM(ed_llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
 """
 import hashlib
 import json
@@ -18,7 +20,7 @@ import subprocess
 import time
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools
-from . import backend as _backend, postproc, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv, worker_client
+from . import backend as _backend, postproc, records, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv, worker_client
 
 _head_stripper = []
 
@@ -160,6 +162,29 @@ def transcribe_real(job, spec, wav, total):
     job["vad"] = vad
     for x in raw:
         yield x
+
+
+def _transcribe_checked(job, spec, wav, total):
+    """run_job の本物の認識: エンジンを確かめてから transcribe_real(行の生成器)。RS2-8e に doc_jobs から移した"""
+    worker_client.check_engine(spec)
+    job["state"] = "loading"
+    return transcribe_real(job, spec, wav, total)
+
+
+def transcribe_rows(job, spec, wav):
+    """文字起こしのジョブ(run_job)の ① の部分: 音声を取り出し(状態 extracting)→ 長さ → 本物か疑似の認識(backend.select。loading → running)→
+    生出力を控えながら行を整える(postproc.expand_segments = 分け直し・長さの外を捨てる・繰り返し・行をつなぐ・句読点)。
+    -> {"rows": 整えた行, "raw": 生出力(<id>.asr.json の segments), "total": 取り出した音声の長さ(秒。分からなければ範囲の長さか 0), "t_rec": 認識を始めた time.monotonic()}。
+    名前は全部モジュール名つきで呼ぶたびに読む(S.extract_audio・backend の選び方・S.transcribe_fake・S.expand_segments の差し替えが届く)。RS2-8e に doc_jobs の run_job から移した(中身は同じ)"""
+    job["state"], job["phase"] = "extracting", "音声を取り出し中"
+    extract_audio(job, spec, wav)
+    total = _txenv.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
+    t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
+    gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
+    raw = []   # 生出力(<id>.asr.json)
+    gen = records.capture_raw(gen, raw, spec["start"])
+    rows = list(postproc.expand_segments(gen, spec, total))
+    return {"rows": rows, "raw": raw, "total": total, "t_rec": t_rec}
 
 
 AUDIO_MARGIN = 3.0   # 取り出す範囲の前後の余裕(秒)。音量補正(dynaudnorm)の窓が数秒あるので、端で音が変わらないよう広めに

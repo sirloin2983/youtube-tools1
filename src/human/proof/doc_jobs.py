@@ -22,7 +22,7 @@ import uuid
 from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
-from pipeline.transcribe import backend as _backend, txenv as _txenv  # noqa: E402   本物と疑似の差し込み口・置き場所と外の道具の口(RS2-2)
+from pipeline.transcribe import txenv as _txenv  # noqa: E402   置き場所と外の道具の口(RS2-2。本物と疑似の差し込み口 backend は RS2-8e から recognize.transcribe_rows が読む)
 from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要確認の印(RS2-4b。呼ぶたびに postproc.名前 で読む)
 from pipeline.transcribe import records  # noqa: E402   認識の記録・生出力・単語の時刻(RS2-5。呼ぶたびに records.名前 で読む)
 from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカーとのやり取り・モデル・wav を読まずに渡す形(RS2-6。呼ぶたびに worker_client.名前 で読む)
@@ -328,13 +328,6 @@ def resplit_doc(obj):
         return {"changed": changed, "added": added, "skipped": skipped, "rows": len(doc["segments"]), "updatedAt": doc["updatedAt"]}
 
 
-def _transcribe_checked(job, spec, wav, total):
-    """run_job の本物の認識: エンジンを確かめてから transcribe_real(行の生成器)"""
-    worker_client.check_engine(spec)
-    job["state"] = "loading"
-    return recognize.transcribe_real(job, spec, wav, total)
-
-
 def run_job(job):
     """文字起こし(kind transcribe)のジョブの本体。ほかの種類は登録した本体へ回す(ytt/jobs の JOB_RUNNERS。テストが ed_jobs.run_job で直に動かす)"""
     kind = job.get("kind")
@@ -345,16 +338,12 @@ def run_job(job):
     if spec.get("evalRedo") and _hook("redo_skip")(job):
         return
     with _heavy.job_temp_wav(job) as wav:
-        job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        recognize.extract_audio(job, spec, wav)
-        total = _txenv.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
-        t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
-        gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
-        raw_asr = []   # 生出力(<id>.asr.json)
-        gen = records.capture_raw(gen, raw_asr, spec["start"])
+        # 置換辞書の組と学習した置換は認識の前に 1 回だけ読む(F-8。RS2-8e までは音声の取り出しのあと・認識の行を読み始める前に読んでいた)
         pairs = dict_pairs(spec)
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
-        rows = list(postproc.expand_segments(gen, spec, total))
+        # ① 音声を取り出して認識し、整えた行を受け取る(recognize.transcribe_rows。RS2-8e)。ここから下は文書への書き込み(② の文書づくり)
+        res = recognize.transcribe_rows(job, spec, wav)
+        rows, raw_asr, total, t_rec = res["rows"], res["raw"], res["total"], res["t_rec"]   # raw = 生出力(<id>.asr.json)・t_rec = 認識を始めた時刻(recognition.runs の wallSec)
         rows, names_n = ed_fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
         # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
         rows, fill_rec, fill_read = ed_fill.fill_after_rows(job, spec, rows, wav, total)
