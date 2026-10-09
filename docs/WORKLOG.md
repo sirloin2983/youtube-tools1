@@ -2892,3 +2892,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 公開ページ: dev/plan_artifact.py で作り直し、version 52 で公開(差分は data の行だけ = diff で確かめた)。並行セッションの巻き込み: ROADMAP の 1 行は 368267c(Remote control)に、data.js の S1〜S5 は 043fec0(作業1)に先に入った(中身は同じ)
 - 未完了・次: 段 1 のコード(S2 → S3)。**別セッションが src/studio・src/editor・src/home・src/ytt_core・src/ui-kit の 109 ファイルを未コミットで変更中(ui-kit v24「直す順番 B」)なので、そのコミットを待ってから始める**(同じファイルを同時に直すと相手の作業を巻き込む)。段 1 の担当: Claude(このセッション)= `src/studio/`(queue.js・rank.js・core.js・settings.js・index.html・serve.py・README)と `src/editor/`(index.html・pack-tab.js・cut.js・app.js・app-core.js・README)
 - 未コミット: なし(このセッションの分 docs/spec/settings.md・plan/data.js・WORKLOG はこの記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— P5 サムネの案の S をコマンドの試作で(dev/thumb_ideas.py)
+- 依頼: 同上(「どんどん作業を進めて」・質問には答えられないので仮で判断して続行)
+- 作り: `dev/thumb_ideas.py`(新規)= 切り抜きの動画 + 文字起こし(動画のパスが同じ文書を自動で・作業データは読むだけ)から、時刻 6 つ(音の大きい瞬間・場面の切り替わり・感情の強い行。3 秒以上離す)× 型 A〜D と今の型 2 つの縦 9:16 の案を ffmpeg(drawtext は UTF-8 の textfile・xstack)で描き、2 列 × 3 行の PNG と .json に。切り取りは中央と右下の寄せを交互・`--crop center`・`--rect x,y,幅,高さ`。帯・縁の色はメンバーカラー(ytt_core.colors。読めなければ黒)。フォントは けいふぉんと → 游ゴシック Bold → BIZ UD ゴシック Bold。テスト `dev/tests/test_thumb_ideas.py` 9 件(最後の 1 件は ffmpeg で 4 秒の試しの動画から 1 枚を描いて PNG の大きさを確かめる)
+- 本物の切り抜き 2 本で見た(出力は scratchpad。ユーザーの動画のフォルダには書いていない): さくらみこのマリオ(右下の寄せで顔が大きく入る)・鈴鳴つづりの雑談(アバターが中央 → 右下の寄せは背景だけ = `--crop center` で直る)。配信者ごとにアバターの位置を覚える仕組みが要ると確かめた
+- 仮で決めたこと: decisions 3-17 の (fn) コマンドの試作を先に・出力の既定は動画の隣 / (fo) 切り取りは中央と右下を交互・位置を覚えるのは画面に組み込むとき
+- 記録: `plan/thumb-ideas.md` の状態行と 7 節・`plan/data.js` の P5(進行中)
+- 次: 編集の 3 パックに「サムネの案」ボタン + アバターの位置を覚える(並行セッションの src/editor の見直しのあと)・M(LLM のキャッチ。P18 の部品に相乗り)
+- 未コミット: なし(このセッションの分)
