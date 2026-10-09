@@ -2882,3 +2882,13 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 結果のファイル: 作業データの `evals/asr/20261009-08*_llm-*.json`・`evals/llm/`(AI のシェルが書いたのでアプリの写しの中)
 - 次: 並行セッションが src/editor をコミットしたら、`plan/llm-postfix.md` の 5 のとおり ed_llm.py・tx_engines の LlamaText・tx_worker の op complete・ed_jobs の autoLlm を入れる(選び方は eval_llm の pick_doc・guard を移す)
 - 未コミット: なし(このセッションの分。AGENTS.md・docs/ROADMAP.md・docs/spec/settings.md・src/ などの他のセッションの差分は stage していない)
+
+## 2026-10-09 Claude Code(PC。Fable)— 設定を 1 つにまとめる: 段 0(棚卸しと決まり)。コードは変えていない
+- 依頼: ユーザー「スタジオの解析や編集のパックなど、ただの設定だけのものを設定にまわしたい。そのあと設定は単体で 1 つのものにして使いやすくしたい。最初は何も変更しないで」→ 棚卸しの報告のあと「解析と編集のパックはタブごと消して設定にまとめて」。行き先の確認: URL を入れる口は「1 探す」の小さなカード(ユーザー決定)・配信者(字幕の色)は欄を作らず文書の値か友人の指定をそのまま使う(ユーザー決定)・他はおすすめ(「パックを作る」は「2 カット」の末尾・順番待ちはカードの下)
+- やり方: 読むだけのサブエージェント 5 体(Haiku。棚卸し = 機械的な読み取りのため)を並列(スタジオ / 編集 / ホーム / cut2resolve・ytt_core・録画・分析 / 文書と計画)。2 体の 1 回目の報告(保存先の名前・API の形)が食い違ったので、prefs.py・ed_state.py・store.py・settings.js・portal.html を grep で確かめて正しい方を採った
+- 分かったこと: 保存先は 4 系統 + α(ホーム prefs.json の 8 節・スタジオ settings-ui.json の analyze/review 節 + settings.json/config.json/registry.json・編集 settings.json の平らな 1 段・cut2resolve は設定ファイル無しで既定値が 5 か所に重複・録画 folder は prefs と二重・localStorage)。操作の隣に残る「ただの設定」: スタジオ ② の「解析の設定」18 項目(押した瞬間に DOM から読む。「画質の上限」は解析で読まれていない死んだ設定)・③ の書き出しの設定・編集 タブ 1 の「認識の設定」・タブ 2 の数値・タブ 3 の「パックの設定」の引き出し・ホームの受付とバックアップ(「設定を保存」ボタン)・ライブの設定がホームとスタジオの 2 か所
+- 変更: 新 `docs/spec/settings.md`(分ける基準 = 毎回変える値だけ操作の隣・今の置き場所の表・段 1 の具体的な直し方(スタジオ 0.24.0・編集 0.61.0 の予定)・段 2・3 の案・新しい設定を足すときの決まり 5 つ)/ `plan/data.js`(tasks S1 済み・S2 スタジオ「2 解析」を無くす・S3 編集「3 パック」を無くす = phase 1 next・S4 形をそろえる・S5 単体の設定ページ = phase 3 todo。summary・線 A の next と docs・phases 1・totals)/ `docs/ROADMAP.md` の索引の 1 行(別セッションのコミット 368267c に巻き込まれて入った。中身はこちらのもの)
+- 決定・理由: 段 2 で「1 ファイルにまとめる」案は採らない(data-location.md とバックアップの形・ツール単独のテストを変えないため。形をそろえれば設定ページから 1 つに見える)。段 1 で「認識の設定」と「書き出しの設定」は動かさない(始める直前に見る値が多い。使ってから決める)
+- 公開ページ: dev/plan_artifact.py で作り直し、version 52 で公開(差分は data の行だけ = diff で確かめた)。並行セッションの巻き込み: ROADMAP の 1 行は 368267c(Remote control)に、data.js の S1〜S5 は 043fec0(作業1)に先に入った(中身は同じ)
+- 未完了・次: 段 1 のコード(S2 → S3)。**別セッションが src/studio・src/editor・src/home・src/ytt_core・src/ui-kit の 109 ファイルを未コミットで変更中(ui-kit v24「直す順番 B」)なので、そのコミットを待ってから始める**(同じファイルを同時に直すと相手の作業を巻き込む)。段 1 の担当: Claude(このセッション)= `src/studio/`(queue.js・rank.js・core.js・settings.js・index.html・serve.py・README)と `src/editor/`(index.html・pack-tab.js・cut.js・app.js・app-core.js・README)
+- 未コミット: なし(このセッションの分 docs/spec/settings.md・plan/data.js・WORKLOG はこの記録と一緒にコミット)

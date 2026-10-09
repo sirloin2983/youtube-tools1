@@ -92,7 +92,7 @@ window.PLAN = {
     { id: "D-11", name: "配信中の文字起こし 案 b(済み 10-08 夜 = ホーム 0.48.0・スタジオ 0.23.2。候補の区間を GPU の whisper.cpp で。48 秒を 6.2 秒)", line: "D・B", who: "AI", phase: "0", pre: ["L3"], rec: [], ai: "4〜10 時間", user: "—", state: "done" },
     { id: "AN1", name: "分析と日報(済み 10-09 = ホーム 0.50.0・分析と日報 0.1.1。Apps Script の連携から数字を受け取り、日報・週報・月報を作って LINE へ。3 種類とも届いた。plan/analytics-daily-report.md)", line: "別件", who: "AI", phase: "0", pre: [], rec: [], ai: "1 晩", user: "連携の設定 15 分(済み)", state: "done" },
     { id: "S1", name: "設定の棚卸しと決まり(済み 10-09。5 体の調査で 4 系統の置き場所と操作の隣の「ただの設定」を洗い出し、docs/spec/settings.md に分ける基準・段 1〜3 の案・新しい設定を足すときの決まり)", line: "A", who: "AI", phase: "0", pre: [], rec: [], ai: "1 時間", user: "行き先の決定 5 分(済み)", state: "done" },
-    /* 1 今週 */
+    /* 1 今週: 固める(〜10-13) */
     { id: "R1", name: "計画と資料の整理(10-08 夜に data.js を並べ直した。残り: decisions を未確認だけに・WORKLOG を日ごとに・line-*.md を残りだけに = やり方を確認してから)", line: "運用", who: "AI", phase: "1", pre: [], rec: [], ai: "2〜3 時間", user: "やり方の確認 5 分", state: "doing" },
     { id: "D-12", name: "配信ごとの結果の記録(済み 10-09 = ホーム 0.49.0。録画ごとに live/reports/ の JSON: 遅れ・メモリの最大・候補と採用の数・文字起こしの成否・書き出しの待ち・空き。dev/eval_marks.py --live で配信中とアーカイブの候補の重なりと採用率を並べる = L5 の土台)", line: "D", who: "AI", phase: "1", pre: [], rec: ["D-11"], ai: "2〜3 時間", user: "—", state: "done" },
     { id: "D-13", name: "自動の安全弁(済み 10-09 = ホーム 0.49.0。1 録画の自動採用 10 本まで・ホームの未確認 20 本で依頼の無い録画は休む・友人のライブ依頼は同時 1 本・1 依頼 6 時間で録画を止める。live.autoDeliver の分にも効く。数は仮 = src/home/live_detect.py の定数)", line: "D", who: "AI", phase: "1", pre: [], rec: [], ai: "1〜2 時間", user: "数は使いながら直す", state: "done" },
