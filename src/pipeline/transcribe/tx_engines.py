@@ -44,6 +44,22 @@ except ImportError:   # このファイルだけを読み込んだとき(tests/t
     from ytt import fsio as _fsio, tools as _tools
 
 DEFAULT = "faster-whisper"
+ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。RS2-4a(2026-10-10)に編集の ed_jobs から移した
+
+
+def engine_home():
+    """エンジンの実行ファイル・モデルの置き場所: ENGINE_DIR → 環境変数 TRANSCRIBE_ENGINE_DIR → 作業データ(txenv の DATA_DIR。呼ぶたびに読む)。
+    精度を測る道具は serve の DATA_DIR を一時フォルダにするので、本物の作業データを環境変数で渡す(認識ワーカーにも届く)"""
+    d = ENGINE_DIR or os.environ.get("TRANSCRIBE_ENGINE_DIR")
+    if d:
+        return d
+    from . import txenv   # このファイルだけを読み込んだとき(パッケージの外)も、先頭の読み込みは止めない
+    return txenv.DATA_DIR
+
+
+def engine_of(spec):
+    """指定(spec)の認識エンジンの名前(無ければ既定 = faster-whisper)"""
+    return str(spec.get("engine") or DEFAULT)
 
 
 def env_num(name, default, lo=1, hi=64, cast=int):

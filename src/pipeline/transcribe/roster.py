@@ -160,6 +160,13 @@ def fit(terms, limit=PROMPT_LIMIT, sep=1):
     return out
 
 
+def prompt_terms(spec):
+    """認識のヒント(initial_prompt)に渡す語: 用語集(自動で足した語を含む)→ 配信ごとの文脈(出る人の名前と呼び名。段1-2)。
+    先頭 150 字に収まるだけ(語の途中で切らない)。プロンプトの漏れ出しの印(S-3)も、この語で調べる。
+    RS2-4a(2026-10-10)に編集の ed_jobs から移した。読む側は呼ぶたびに roster.prompt_terms で読む(テストの差し替えが届くように)"""
+    return fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
+
+
 def leak_only(text, terms):
     """行の文字が、ヒントに渡した語(と「用語」)だけでできているか(プロンプトの漏れ出しの疑い。S-3)"""
     t = "".join(ch for ch in fold(text) if unicodedata.category(ch)[0] in "LN")
@@ -183,7 +190,7 @@ KANJI_VARIANTS = {   # 名簿の名前 → [(whisper が当てた漢字, 名簿�
 }
 _VOWEL_ROWS = {"あ": "あかさたなはまやらわがざだばぱゃ", "い": "いきしちにひみりぎじぢびぴ", "う": "うくすつぬふむゆるぐずづぶぷゅ",
                "え": "えけせてねへめれげぜでべぺ", "お": "おこそとのほもよろごぞどぼぽょ"}
-_SMALL_VOWELS = {"ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お"}
+_SMALL_VOWEL_MAP = {"ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お"}   # ed_learn の _SMALL_VOWELS(translate の表)と名前を分ける(serve の名前の受付で重ならないように。RS2-4a)
 VARIANT_MIN = 3   # これより短い綴りは普通の言葉に紛れるので表に入れない
 
 
@@ -203,7 +210,7 @@ def alias_variants(alias):
         for i in range(1, len(chars)):
             c, prev = chars[i], chars[i - 1]
             hc, hp = _hira(c), _hira(prev)
-            vowel = _SMALL_VOWELS.get(hc, hc)
+            vowel = _SMALL_VOWEL_MAP.get(hc, hc)
             if vowel in _VOWEL_ROWS and hp in _VOWEL_ROWS[vowel]:   # 母音の長音 → ー
                 v = chars[:]
                 v[i] = "ー"

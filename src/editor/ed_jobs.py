@@ -736,18 +736,6 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     return "、".join(why)
 
 
-ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)
-
-
-def engine_home():
-    """精度を測る道具は serve の DATA_DIR を一時フォルダにするので、本物の作業データを環境変数 TRANSCRIBE_ENGINE_DIR で渡す(認識ワーカーにも届く)"""
-    return ENGINE_DIR or os.environ.get("TRANSCRIBE_ENGINE_DIR") or _txenv.DATA_DIR
-
-
-def engine_of(spec):
-    return str(spec.get("engine") or tx_engines.DEFAULT)
-
-
 def req_engine(req, model):
     """要求の認識エンジン(無ければ faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る。
     画面の「処理方式」の GPU(AMD など・whisper.cpp)は device = "vulkan" で来る → whisper.cpp(機器は auto = Vulkan。黙って CPU にしない)"""
@@ -763,18 +751,18 @@ def req_engine(req, model):
 
 def engines_info():
     """画面に出すエンジンの準備(/api/tools)。whisper.cpp は作ってあるときだけ「処理方式」に出す"""
-    ok, why = tx_engines.WhisperCpp.ready(engine_home())
+    ok, why = tx_engines.WhisperCpp.ready(tx_engines.engine_home())
     return {"wcpp": {"ready": bool(ok), "why": why, "models": list(tx_engines.WCPP_MODELS), "version": tx_engines.WHISPER_CPP["version"]}}
 
 
 def check_engine(spec):
     """認識を始める前に、そのエンジンが使えるか(サーバー側。ネイティブの部品は読まない)"""
-    e = engine_of(spec)
+    e = tx_engines.engine_of(spec)
     if e == tx_engines.DEFAULT or _txenv.worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
         if not _txenv.has_faster_whisper():
             raise _errors.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
         return
-    ok, why = tx_engines.get(e).ready(engine_home())
+    ok, why = tx_engines.get(e).ready(tx_engines.engine_home())
     if not ok:
         raise _errors.ApiError("engine_missing", why, 400)
 
@@ -824,7 +812,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
             job["phase"] = "モデルを読み込み中(初回はダウンロードのため数分かかります)"
             try:
                 _txbase.log.info("モデルを読み込み: %s/%s/%s(メモリ %s)", eng.id, name, dev, _tools.memory_label())
-                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", _txbase.log, engine_home(), hooks)
+                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", _txbase.log, tx_engines.engine_home(), hooks)
                 _txbase.log.info("モデルを読み込み終わり: %s/%s(メモリ %s)", name, dev, _tools.memory_label())
             except tx_engines.EngineError as e:   # エンジンが理由を書いた失敗(実行ファイルが無い・取得の失敗・GPU を使えない)はそのまま出す
                 if e.code == "cancelled":
@@ -872,17 +860,11 @@ def whisper_kwargs(spec):
         kw["chunk_length"] = 15   # kotoba-whisper が推奨する設定
     if spec.get("temp0"):
         kw["temperature"] = 0.0   # 温度のやり直し(乱数を使う)をしない。精度を比べる道具(dev/eval_asr.py --temp0)だけが使う
-    terms = prompt_terms(spec)
+    terms = _roster.prompt_terms(spec)
     if terms:
         kw["initial_prompt"] = "用語: " + "、".join(terms)
         kw["hotwords"] = ", ".join(_roster.fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []), _roster.HOT_LIMIT, 2))
     return kw
-
-
-def prompt_terms(spec):
-    """認識のヒント(initial_prompt)に渡す語: 用語集(自動で足した語を含む)→ 配信ごとの文脈(出る人の名前と呼び名。段1-2)。
-    先頭 150 字に収まるだけ(語の途中で切らない)。プロンプトの漏れ出しの印(S-3)も、この語で調べる"""
-    return _roster.fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
 
 
 def stream_context(doc, enabled=True):
@@ -972,7 +954,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
     よくある誤認識の文(HALLUC)しか出なかったときも「文字が 0」とみなす(2026-09-28 白上フブキ03: 標準で 22 秒捨て、残りから「ご視聴ありがとうございました」だけ)"""
     mode0 = spec.get("vadMode", "weak")
     ladder = VAD_LADDER.get(mode0, (mode0,))
-    retries, terms = [], prompt_terms(spec)
+    retries, terms = [], _roster.prompt_terms(spec)
     for i, mode in enumerate(ladder):
         last = i == len(ladder) - 1
         kw = filter_kwargs(model, whisper_kwargs(dict(spec, vadMode=mode)))
@@ -1027,7 +1009,7 @@ def cpu_fallback(job, device, pref, run, reload, msg=GPU_FAILED_MSG, retry=True,
 
 
 def transcribe_real(job, spec, wav, total):
-    model, device = load_model(spec["model"], job, spec.get("device", "auto"), engine=engine_of(spec))
+    model, device = load_model(spec["model"], job, spec.get("device", "auto"), engine=tx_engines.engine_of(spec))
     job["device"] = device
     _heavy.check_cancel(job)
     job["phase"], job["state"] = "文字起こし中", "running"
@@ -1325,16 +1307,16 @@ def pkg_version(name):
 
 def engine_version(eng):
     """エンジン(tx_engines のクラス)の版: パッケージなら dist-info の版、実行ファイル(whisper.cpp・llama.cpp)なら決めた版"""
-    return pkg_version(eng.package) if eng.package else eng.version(engine_home())
+    return pkg_version(eng.package) if eng.package else eng.version(tx_engines.engine_home())
 
 
 def _engine_ids(spec):
     """記録のエンジンと版(本物の認識。_run_base が backend の差し込み口から呼ぶ)-> (id, 版)。分からなくても記録は作る"""
     try:
-        eng = tx_engines.get(engine_of(spec))
+        eng = tx_engines.get(tx_engines.engine_of(spec))
         return eng.id, engine_version(eng)
     except Exception:   # 記録のための値なので、エンジンの版が分からなくても認識・差し替えは止めない
-        return engine_of(spec), ""
+        return tx_engines.engine_of(spec), ""
 
 
 def _run_base(spec, pairs=None):
@@ -1352,7 +1334,7 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
     """文書の recognition.runs に残す、この認識の出どころ(エンジン・版・モデル・機器・かかった時間)。精度と速さを後から比べるため(計画 段0-1)"""
     run = _run_base(spec, pairs)
     run["device"] = job.get("device", "")
-    run["settings"].update({"glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(prompt_terms(spec))),
+    run["settings"].update({"glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(_roster.prompt_terms(spec))),
                             "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []]})
     run.update({"audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2),
                 **vad_record(job.get("vad"))})
@@ -1736,7 +1718,7 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
     """整えた行 → 文書の行(要確認の印・学習した置換・置換辞書)・機械の出力 original・単語の時刻。
     -> {"segs", "original", "words", "dictApplied", "learnApplied", "sparseLp"(「長い区間に文字が少ない」行の avg_logprob。認識し直したときに良くなったかを比べる。③-2)}"""
     segs, prev, original, words, sparse_lp, dict_n, learn_n = [], [], [], [], {}, 0, 0
-    terms = prompt_terms(spec)
+    terms = _roster.prompt_terms(spec)
     for s in rows:
         if not s["text"]:
             continue
@@ -2095,7 +2077,7 @@ def finish_range_lines(raw, spec, shift, join=True):
     """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。
     join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
     a, b = spec["range"]
-    out, prev, terms = [], [], prompt_terms(spec)
+    out, prev, terms = [], [], _roster.prompt_terms(spec)
     names = ed_fill.fill_spk_names(spec) if spec.get("stripNames", True) is not False and not spec.get("evalSet") else None   # 行の頭の「名前:」(0.67.0)
     for s in expand_segments(raw, spec, join=join):
         head = None
@@ -2247,7 +2229,7 @@ def _redo_real(job, spec, wav, start):
     """run_redo の本物の認識の準備(エンジンを確かめてモデルと音声を読む)→ 行ごとに呼ぶ関数 f(sub, a, b) -> 行"""
     check_engine(spec)
     job["state"] = "loading"
-    model, device = load_model(spec["model"], job, spec["device"], engine=engine_of(spec))
+    model, device = load_model(spec["model"], job, spec["device"], engine=tx_engines.engine_of(spec))
     job["device"] = device
     audio = ed_speakers.read_wav_f32(wav)
     kw = filter_kwargs(model, redo_kwargs(spec))
@@ -2311,7 +2293,7 @@ class RangeRecognizer:
             return
         check_engine(self.spec)
         self.job["state"] = "loading"
-        self.model, device = load_model(self.spec["model"], self.job, self.spec["device"], engine=engine_of(self.spec))
+        self.model, device = load_model(self.spec["model"], self.job, self.spec["device"], engine=tx_engines.engine_of(self.spec))
         self.job["device"] = device
         self.audio = ed_speakers.read_wav_f32(self.wav)
         self.job["state"] = "running"
@@ -2418,7 +2400,7 @@ def whole_key(spec, doc):
     k = {"v": RESUME_VERSION, "tid": spec["tid"], "range": spec["range"], "engine": spec.get("engine") or tx_engines.DEFAULT, "model": spec["model"],
          "backend": _backend.select().name, "language": spec["language"], "beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")),
          "wordSplit": bool(spec.get("wordSplit")), "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
-         "terms": prompt_terms(spec), "source": src, "part": WHOLE_PART_SEC}
+         "terms": _roster.prompt_terms(spec), "source": src, "part": WHOLE_PART_SEC}
     return hashlib.sha256(json.dumps(k, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
@@ -2544,11 +2526,11 @@ def _each_real(job, spec, targets, wav, start):
     results = {}
     check_engine(spec)
     job["state"] = "loading"
-    cm = ChunkModel(job, spec["model"], spec["device"], spec, engine_of(spec))
+    cm = ChunkModel(job, spec["model"], spec["device"], spec, tx_engines.engine_of(spec))
     audio = ed_speakers.read_wav_f32(wav)
     job["state"], job["phase"] = "running", "再認識中"
     sep = "" if spec["language"] in ("ja", "zh", "ko") else " "
-    terms = prompt_terms(spec)
+    terms = _roster.prompt_terms(spec)
     for n, t in enumerate(targets):
         _heavy.check_cancel(job)
         a, b = max(0.0, t["start"] - start - 0.3), t["end"] - start + 0.3   # 前後に少し余裕を持たせる(語頭・語尾が欠けにくい)
@@ -2564,6 +2546,7 @@ def _each_real(job, spec, targets, wav, start):
 # 中身を pipeline/transcribe・human/proof・ytt/jobs へ移す間、ed_jobs.名前 の読み・書き・削除を移した先へ回す(ytt/modfwd.py)。
 # ここに残っている名前が先。移した名前を from … import で読み直さない(serve の名前の受付と同じく、差し替えが別名に当たって本体に効かなくなる)。
 _MOVED = (_heavy,)   # 移した先のモジュール(移すたびに足す。serve.py の _ED_MODULES にも ed_jobs より前に足す)。ytt/jobs = ジョブの表・待機列・ワーカー・取り消し(RS2-1b)
+_MOVED += (_roster, tx_engines)   # 名簿の prompt_terms・エンジンの engine_of・engine_home・ENGINE_DIR(RS2-4a)
 _moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")
 
 
