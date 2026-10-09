@@ -6,6 +6,9 @@
   transcribe  文字起こしまで … 採用したマークの書き出し → 文字起こし(パックは校正してから人が作る)
 
 作り:
+- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/pipeline/run.py へ移した(役割で組み直す計画 plan/role-restructure.md の 5-1)。
+  ここに残すのは、順番待ちと糸・受付・中止・記録・起動し直しで戻す・見積もり・あとから解析・届けることと組の溜め・ToolClient と、
+  Runner の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt_core.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
@@ -54,42 +57,22 @@ import uuid
 from manage.cases import txindex
 from ytt import colors, fsio, tools
 from pipeline import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
-from pipeline.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
-                           WEIGHT_KEYS, clean_ranges, clean_weights)
+from pipeline.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
+                           WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
+from pipeline import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
+from pipeline.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
+                          OTHER_MODES, POST_MODE, REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
+                          TX_KEYS, Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, _row_edge_ok, clean_pool)
 import cases  # noqa: E402  (src/home/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
 import friend_feedback  # noqa: E402  (届けた zip の中身の記録 deliveries.jsonl。友人の「要らない」が来たときに引く。2026-10-08)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
-MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
-STEP_LABELS = {"analyze": "解析", "adopt": "採用(自動)", "export": "書き出し", "transcribe": "文字起こし", "pack": "パック",
-               "deliver": "Dropbox へ届ける", "diarize": "話者分離"}
-MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "adopted": ("export", "transcribe", "pack"),
-              "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
-              "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
-              "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"), "request_manual": ("analyze",),
-              "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",), "post_analyze": ("analyze",)}
-# 友人からの依頼(src/home/intake.py。docs/spec/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
-# 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
-# ③ 全部人が行う manual = 解析まで。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
-REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし", "request_manual": "依頼 ③: 解析まで",
-                 "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし", "file_manual": "依頼 ③: スタジオで解析まで"}
-# 友人が時刻で指定した区間(送るアプリ 2.0.0。docs/spec/friend-intake.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
-# 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
-REQUEST_URL_MODES = ("request", "request_auto")
-RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける)
-# RANGE_MAX・RANGE_MAX_SEC・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/pipeline/spec.py へ移した(上で読み直している)
+# RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/pipeline/spec.py へ、
+# MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/pipeline/run.py へ移した(上で読み直している)
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
               "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
-# 文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
-# カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
-# 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
-STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "skip": "飛ばした", "warn": "一部失敗", "error": "失敗"}
-RUN_STATE_LABELS = {"queued": "待ち", "running": "実行中", "done": "済み", "error": "失敗", "cancelled": "中止", "nothing": "やることがありませんでした"}
-NOTHING_MESSAGE = "やることがありませんでした"
-DOC_MODE = "doc"
-DOC_LABEL = "文字起こし → パック"
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は下の RUNS_LOG)
 RUNS_LOG = "autorun-runs.jsonl"   # 終わった実行の記録(入口の作業データの logs の中。段2 B-6)
@@ -106,12 +89,6 @@ POOL_FILE = "deliver-pool.json"   # ライブの切り抜きの組の溜め(実�
 POOL_SCHEMA = "ytt-deliver-pool/v1"
 POOL_IDLE_SEC = 600.0              # 録画が終わって書き出しも実行も無くなってから、最後に預けてこれだけたったら残りを届ける
 POOL_MAX_AGE = 12 * 3600.0         # 溜めを作ってからこれだけたったら、終わりを待たずに残りを届ける(録画が長すぎる・見張りが止まった)
-BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
-TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
-           "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
-# あとから解析(測るため。2026-10-05)。画面の選択肢・依頼の形とは別(MODES・REQUEST_MODES に入れない = API からは始められない)
-POST_MODE = "post_analyze"
-OTHER_MODES = {POST_MODE: "あとから解析(測るため)"}
 DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 RUNS_LOG の隣)
 DEFER_VERSION = 1
 DEFER_ENV = "YTT_DEFER_ANALYZE"        # off = 一覧に足さない・始めない(テスト・困ったとき用)
@@ -133,14 +110,12 @@ FRIEND_LENGTH_MAX_AGE = 30 * 86400     # 結果のファイルの古さ(ファ�
 FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(src/studio/analyze.py の validate_settings)
 EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/accuracy.py の RESULT_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
-CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
 # 入口の起動し直しで戻す(線 D の M5。2026-10-07)
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。RUNS_LOG の隣)
 ACTIVE_VERSION = 1
 ACTIVE_READ_MAX = 4 * 1024 * 1024
 RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
 RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが動くまでこれだけ待つ(入口の起動の直後はまだ準備中のことがある)
-DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
               "pack": ("transcribe", "cut2resolve"), "deliver": ()}
 # 画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)で、ツールの仕事を止めてよい段(起動し直したあとに頭からやり直す = M5)。
@@ -148,35 +123,9 @@ STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",
 REDO_STEPS = ("analyze", "transcribe", "diarize", "pack")
 TX_ACTIVE = ("queued", "loading", "extracting", "running")   # 「編集」のジョブの動いている状態(src/editor/ed_jobs.py の ACTIVE_STATES)
 QUEUE_ACTIVE = ("waiting", "running")                       # スタジオの解析のキューの動いている状態(src/studio/batch.py)
-RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
-
-
-
-def _media_is_30fps(path):
-    """素材がちょうど 30fps か(ytt_core.normalize の probe。ffprobe が無い・読めないときは False = 設定の値を使う)。2026-10-04 Q1"""
-    try:
-        from ytt import normalize
-        info = normalize.probe(path)
-    except Exception:
-        return False
-    fps = (info or {}).get("fps")
-    return isinstance(fps, (int, float)) and abs(fps - 30) <= 0.01
-
-
-def _has_captions(doc):
-    """文書に残す字幕の行(文字があってカットしていない行)があるか"""
-    return any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
 
 
 TOOL_NAMES = {"studio": "切り抜きスタジオ", "transcribe": "編集", "cut2resolve": "cut2resolve(パックを作る部品)"}   # 知らせの文のツール名
-
-
-class Cancelled(Exception):
-    pass
-
-
-class StepError(Exception):
-    pass
 
 
 class ToolClient:
@@ -225,14 +174,6 @@ class ToolClient:
         return obj
 
 
-JOB_STATE_JA = {"error": "失敗しました", "cancelled": "取り消されました", "skipped": "飛ばされました"}   # ツールの状態名(英語)を画面の言葉に
-
-
-def _job_why(j):
-    """ツールの仕事(文字起こし・パック)が終わらなかった理由の文。ツールの文があればそれ、無ければ状態名を日本語に(cancelled などを出さない)"""
-    return str(j.get("error") or JOB_STATE_JA.get(j.get("state"), "理由は不明です"))
-
-
 def _yt_id_ok(v):
     """YouTube の配信 ID(11文字。スタジオの common.VID_RE と同じ)"""
     return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
@@ -248,15 +189,6 @@ _num = _spec.num_ok   # 扱ってよい大きさの数か(src/pipeline/spec.py�
 def _ms_ok(v):
     """エポックのミリ秒の時刻(_num は 1e7 までなので使えない)"""
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 < v < 1e14
-
-
-def pad_range(s, e, duration=None):
-    """友人が入れた区間の前後に余白を足す(0 より前・動画の長さより後には出さない。長さの上限を超えるときは余白を減らす)"""
-    pad = min(RANGE_PAD, max(0.0, (RANGE_MAX_SEC - (e - s)) / 2))
-    a, b = max(0.0, s - pad), e + pad
-    if duration and duration > 0:
-        b = min(b, float(duration))
-    return [round(a, 1), round(max(b, a + 0.1), 1)]
 
 
 def live_auto_origin(media):
@@ -279,15 +211,6 @@ def _busy_reason(active, same, what=""):
     return None
 
 
-def clean_pool(p):
-    """組の溜めの指定 {key, rid, title, meta: {recorder, recording, phase}} を検査した形か None(live_export._handoff が作る)"""
-    if not isinstance(p, dict) or not isinstance(p.get("key"), str) or not 0 < len(p["key"]) <= 200:
-        return None
-    meta = p.get("meta") if isinstance(p.get("meta"), dict) else {}
-    return {"key": p["key"], "rid": str(p.get("rid") or "")[:120], "title": str(p.get("title") or "")[:120],
-            "meta": {k: str(meta[k])[:120] for k in ("recorder", "recording", "phase") if isinstance(meta.get(k), str)}}
-
-
 class _PoolRun:
     """組の溜めを届けるときに Autorun の届ける部品(_deliver_pending・_deliver_group・_deliver_one・_record_delivery)へ渡す、実行の代わり"""
 
@@ -300,136 +223,6 @@ class _PoolRun:
         self.packs, self.delivered = list(p.get("packs") or []), list(p.get("delivered") or [])
         self.pack_marks = dict(p.get("marks") or {})
         self.cancel, self.pool = False, None
-
-
-class Run:
-    def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
-                 source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
-                 engine=None, model=None, deliver_batch=None, pool=None):
-        self.id = uuid.uuid4().hex[:10]
-        self.pool = clean_pool(pool)   # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta": {recorder, recording, phase}}(None = この実行の中で届ける)
-        self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
-        self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
-        self.deliver_batch = deliver_batch if isinstance(deliver_batch, int) and not isinstance(deliver_batch, bool) and 1 <= deliver_batch <= 10 else None   # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
-        self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
-        self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
-        self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
-        self.friend_length = None          # 解析に使った「友人の区間の実績からの長さ」{"length", "preRatio"?, "file", "samples", "videos"}(使ったときだけ)
-        self.duration = duration           # 受付のときに調べた配信の長さ(秒。スタジオにまだ無い配信の区間を端で切るのに使う)
-        self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
-        self.speakers = speakers         # 友人が入れた「配信者」{"count", "names", "styles"?: {名前: {"color": "#RRGGBB"}}}。あれば文字起こしのあとに話者分離(2026-10-01)。styles = 字幕の色(文書に覚え、パックにも渡す)
-        self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
-        self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
-        self.packs = []                  # この実行で作ったパックのフォルダ
-        self.delivered = []              # 届けたパックのフォルダ(同じものを2回置かない)
-        self.pack_marks = {}             # パックのフォルダ -> {"path": 切り抜きの動画, "markId": スタジオのマーク}。友人の「要らない」で片付ける相手(2026-10-08)
-        self.pack_hint = None            # _step_pack が _pack_one の直前に置く {"path", "markId"}(_pack_one が pack_marks へ移す)
-        self.source_path = source_path   # 依頼の動画(mode file。作業データへコピーしたもの)
-        self.request_id = request_id     # 友人からの依頼の id(src/home/intake.py)
-        self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
-        self.doc_id, self.overwrite = doc_id, bool(overwrite)   # overwrite = パックがあれば作り直す(文書単位も配信単位も。段4 S-12)
-        self.on_fail = on_fail if on_fail in ("next", "stop") else "next"   # 切り抜きの1本が失敗したとき: next = 残りを続ける / stop = そこで止める
-        self.nothing = False       # どの段もやることが無かった(「完了」と言わない。段4 S-4)
-        self.docs = []             # この実行で文字起こし・パックした文書の id(終わったら「校正を始める」で開く。段4)
-        self.streamer_from = None  # 配信者を自動で決めたときの出どころ(doc / video / channel = 覚えた名前・auto = チャンネル名から。段5)
-        self.streamer = streamer   # 字幕の文字の色にする配信者(照らし合わせ済みの名前。手で入れたときだけ。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
-        self.marks = marks         # このマークだけ(スタジオのマークの行の「この後を」。None = 配信の全部。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 3)
-        self.fresh = fresh         # ① 探す から: {"title", "channel"}(まだスタジオに無いかもしれない配信。解析のキューに入れるときに渡す)
-        self.state = "queued"
-        self.message = "順番待ち"
-        self.error = ""
-        self.created = time.time()
-        self.finished = None
-        self.cancel = False
-        self.preempted = False     # あとから解析を、新しい実行を先にするために止めた(人の中止・失敗と分ける = 試した回数を増やさない)
-        self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
-        self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
-        self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
-        keys = list(MODE_STEPS[mode])
-        if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
-            keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
-        if speakers and "transcribe" in keys:
-            keys.insert(keys.index("transcribe") + 1, "diarize")
-        self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
-
-    def saved(self):
-        """待ちの記録(autorun-active.json)に残す形(M5)。restore で同じ実行に戻せるだけの値"""
-        return {"id": self.id, "videoId": self.video_id, "title": self.title, "mode": self.mode, "top": self.top, "docId": self.doc_id,
-                "overwrite": self.overwrite, "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None,
-                "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
-                "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
-                "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
-                "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
-                "packMarks": dict(self.pack_marks),
-                "created": self.created, "state": self.state, "message": self.message,
-                "steps": [{"key": s["key"], "state": s["state"], "detail": s["detail"]} for s in self.steps]}
-
-    @classmethod
-    def restore(cls, d):
-        """saved() の形 -> 「待ち」の Run(同じ id。済んだ段はそのまま・途中の段は待ちに)。形が違えば None(手で直した・壊れた記録は読み飛ばす)"""
-        if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")) or d.get("mode") not in MODE_STEPS or d.get("mode") == POST_MODE:
-            return None
-
-        def s(k, n=1000):
-            v = d.get(k)
-            return v if isinstance(v, str) and 0 < len(v) <= n else None
-
-        def strs(k, n=200):
-            v = d.get(k)
-            return [x for x in v if isinstance(x, str) and 0 < len(x) <= 1000][:n] if isinstance(v, list) else []
-        top = d.get("top")
-        vt = d.get("videoTracks")
-        try:
-            run = cls(s("videoId", 64), str(d.get("title") or "")[:120], d["mode"], top if isinstance(top, int) and not isinstance(top, bool) else None,
-                      doc_id=s("docId", 40), overwrite=d.get("overwrite") is True, streamer=s("streamer", 120) if d.get("streamer") != "" else "",
-                      marks=tuple(strs("marks", MAX_MARKS)) or None, fresh=d.get("fresh") if isinstance(d.get("fresh"), dict) else None,
-                      on_fail=d.get("onFail"), source_path=s("sourcePath"), request_id=s("requestId", 120), deliver_dir=s("deliverDir"),
-                      speakers=d.get("speakers") if isinstance(d.get("speakers"), dict) else None,
-                      video_tracks=vt if isinstance(vt, int) and not isinstance(vt, bool) else None, ranges=clean_ranges(d.get("ranges")),
-                      cut=d.get("cut"), weights=clean_weights(d.get("weights")), duration=d.get("duration") if _num(d.get("duration")) else None,
-                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"))
-        except (TypeError, ValueError, KeyError):
-            return None
-        run.id = d["id"]
-        if _num(d.get("created")) or (isinstance(d.get("created"), (int, float)) and not isinstance(d.get("created"), bool)):
-            run.created = float(d["created"])
-        run.streamer_from = s("streamerFrom", 20)
-        run.friend_length = d.get("friendLength") if isinstance(d.get("friendLength"), dict) else None
-        run.docs, run.new_docs = strs("docs"), strs("newDocs")
-        run.packs, run.delivered = strs("packs"), strs("delivered")
-        pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
-        run.pack_marks = {str(k): {"path": str(v.get("path") or ""), "markId": str(v.get("markId") or "")} for k, v in pm.items() if isinstance(v, dict)}
-        old = {x.get("key"): x for x in d.get("steps") or [] if isinstance(x, dict)}
-        for st in run.steps:
-            o = old.get(st["key"]) or {}
-            if o.get("state") in DONE_STEPS:   # 済んだ段はそのまま(続きから)。途中だった段(run)・待ちは頭から
-                st["state"], st["detail"] = o["state"], str(o.get("detail") or "")[:500]
-        run.resumed = True
-        run.message = "ホームを起動し直したので、続きから進めます"
-        return run
-
-    def key(self):
-        """配信・文書ごとの前回の結果を引くキー"""
-        if self.source_path:
-            return ("file", self.source_path)
-        return ("doc", self.doc_id) if self.doc_id else ("video", self.video_id)
-
-    def step(self, key):
-        return next(s for s in self.steps if s["key"] == key)
-
-    def public(self):
-        return {"id": self.id, "kind": "file" if self.source_path else "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
-                "sourcePath": self.source_path, "requestId": self.request_id, "ranges": [list(r) for r in self.ranges] or None, "cut": self.cut,
-                "engine": self.engine, "model": self.model,
-                "friendLength": dict(self.friend_length) if self.friend_length else None,
-                "videoId": self.video_id, "title": self.title, "mode": self.mode,
-                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or OTHER_MODES.get(self.mode, DOC_LABEL)) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
-                "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
-                "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
-                "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
-                "message": self.message, "error": self.error, "created": int(self.created * 1000),
-                "finished": int(self.finished * 1000) if self.finished else None,
-                "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
 
 
 def _defer_eligible(rec):
@@ -496,13 +289,18 @@ def read_runs_log(path, max_bytes=None):
     return out
 
 
-class AutoRunner:
+class AutoRunner(run_mod.Runner):
+    """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す・あとから解析・届けること。段の中身は src/pipeline/run.py の Runner
+    (ここでは hook を案件・ホームの設定・届けることで埋める)"""
+
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
                  defer_idle=DEFER_IDLE_SEC, defer_retry=DEFER_RETRY_SEC, clock=None, log=None):
         """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)。
         あとから解析の一覧・待ちと実行中の記録(M5)も log_dir に置く(None = 残せないので、あとから解析はしない・起動し直しで戻さない)。
         defer_idle・defer_retry・clock はテスト用"""
-        self.client, self.root, self.env, self.poll = client, repo_root, env, poll
+        # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner が持つ
+        super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack)
+        self.root = repo_root
         self.log_path = os.path.join(log_dir, RUNS_LOG) if log_dir else None
         self.active_path = os.path.join(log_dir, ACTIVE_FILE) if log_dir else None   # 待ち・実行中の記録(M5)
         self.active_error = ""     # 最後に待ちの記録を書けなかった理由(書けたら空に戻す)
@@ -512,8 +310,6 @@ class AutoRunner:
         self._pool_lock = threading.RLock()   # 溜めの読み書きと組で届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
         self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, batch, meta, packs, delivered, marks, created, updated}}(初めて使うときに読む)
         self.defer_idle, self.defer_retry = defer_idle, defer_retry
-        self.clock = clock or time.time
-        self.log = log or (lambda msg: None)   # 入口のログ(launcher.log)に1行
         self.defer_error = ""      # 最後に一覧を書けなかった理由(書けたら空に戻す)
         self._defer_lock = threading.Lock()   # 一覧(self.cv の中から取ってよい。逆に、これを持ったまま self.cv を取らない)
         self._defer = self._defer_read()      # {"items": [...], "dropped": [...]}
@@ -528,15 +324,10 @@ class AutoRunner:
             for rec in read_runs_log(self.log_path, LOG_READ_BYTES):
                 self._remember(rec)
         self.prefs = prefs   # ホームの設定(src/home/prefs.py)。カットの無い文書のカットの方法 autorun.cut
-        self.sleep = sleep or time.sleep
-        if find_pack is None:   # パックの有無の見方は案件の画面とそろえる
-            find_pack = cases.find_pack
-        self.find_pack = find_pack
         self.lock = threading.Lock()
         self.cv = threading.Condition(self.lock)
         self.runs = []
         self.thread = None
-        self.closed = False
         self._defer_import()   # この機能が入る前の依頼(1回だけ)
         restored = self._restore_active()   # 前の起動で待ち・実行中だった実行(M5)
         if restored:
@@ -1273,124 +1064,36 @@ class AutoRunner:
         """スタジオの一覧の 1 本(cases.read_studio。無ければ {})"""
         return cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}
 
-    def _check(self, run):
-        if run.cancel or self.closed:
-            raise Cancelled()
-
-    def _wait(self, run, seconds=None):
-        self._check(run)
-        self.sleep(self.poll if seconds is None else seconds)
-        self._check(run)
-
-    def _call_when_free(self, run, st, tool, path, body, waiting):
-        """POST して、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)"""
-        while True:
-            status, res = self.client.call(tool, "POST", path, body)
-            if not (status == 409 and res.get("error") == "busy"):
-                return status, res
-            st["detail"] = waiting
-            self._wait(run, BUSY_WAIT)
-
-    def _poll(self, run, owned, read, cancel=None, start=None):
-        """ツールの仕事が終わるまで待つ骨組み(解析・書き出し・文字起こし・パック・「編集」のジョブで共通)。-> read() の結果
-        owned: 起動し直すときに止めてよいツールの仕事(run.owned。None = 書き出しのように自分の仕事にしない)。終わったら外す。
-        start(): 待つ前の投入(中止されたら、投入済みの分も cancel で取り消す)。read(): 終わったら None 以外、まだなら None(進み具合は read の中で st へ)。
-        中止(Cancelled)なら cancel()(ツールの仕事を取り消す)を呼んでから上げ直す"""
-        run.owned = owned
-        try:
-            if start is not None:
-                start()
-            while True:
-                self._wait(run)
-                r = read()
-                if r is not None:
-                    return r
-        except Cancelled:
-            if cancel is not None:
-                cancel()
-            raise
-        finally:
-            run.owned = None
-
-    def _video(self, run):
-        st, obj = self.client.call("studio", "GET", "/api/video?id=" + run.video_id)
-        if st == 404 and run.fresh:   # ① 探す から: 解析のキューに入れるまではスタジオに無い(受け取った題名で進める)
-            return {"kind": "youtube", "title": run.title}
-        if st != 200:
-            raise StepError(obj.get("message") or "スタジオがうまく応答しませんでした。少し待って、もう一度実行してください(済んだ段は飛ばします)")
-        v = obj.get("video") or {}
-        run.title = str(v.get("title") or v.get("fileName") or run.video_id)[:120]
-        return v
-
     def _execute(self, run):
-        if run.resumed:   # 入口を起動し直して戻した実行(M5): ツールの準備を待つ
-            self._await_tools(run)
-        if run.source_path:   # 依頼の動画(mode file): _file_<段>
-            return self._run_steps(run, lambda key, st: getattr(self, "_file_" + key)(run, st))
-        if run.doc_id:   # 文書単位(⑦(b)): _doc_<段>
-            return self._run_steps(run, lambda key, st: getattr(self, "_doc_" + key)(run, st))
-        cur = [self._video(run)]   # 配信: _step_<段>。段が済むたびにスタジオの配信を読み直す
+        """1 回の実行(_loop の糸から)。段の中身は src/pipeline/run.py(hook = この AutoRunner)"""
+        return run_mod.run(self.client, run, hooks=self)
 
-        def refresh():
-            cur[0] = self._video(run)
-        self._run_steps(run, lambda key, st: getattr(self, "_step_" + key)(run, st, cur[0]), refresh)
+    # hook(src/pipeline/run.py の Runner の既定を、案件・ホームの設定・届けることで埋める) ----------
+    def _checkpoint(self, run):
+        """段の始まりと済んだとき: 待ちの記録に残す(M5。起動し直したらこの段から)"""
+        self._save_active()
 
-    def _run_steps(self, run, call, after=None):
-        """段を順に進める。call(段の鍵, 段) -> "stop" ならそこで止めて残りを飛ばす。after() = 段が済むたび(記録のあと)"""
-        for key in [s["key"] for s in run.steps]:
-            self._check(run)
-            st = run.step(key)
-            if st["state"] in DONE_STEPS:   # 戻した実行(M5)の済んだ段は飛ばす(続きから)
-                continue
-            st["state"] = "run"
-            run.message = st["label"]
-            self._save_active()   # どの段の途中か(M5。起動し直したらこの段から)
-            result = call(key, st)
-            if st["state"] == "run":
-                st["state"] = "done"
-            self._save_active()   # 段が済んだ(M5)
-            if after:
-                after()
-            if result == "stop":   # 続けても意味がない(採用するマークが無いなど)
-                for s in run.steps:
-                    if s["state"] == "wait":
-                        s["state"], s["detail"] = "skip", s["detail"] or "前の段で止めました"
-                break
-        self._finish_message(run)
+    def _pick_doc(self, docs, video_id, mark_id, path):
+        """切り抜きの文書(txindex.pick。案件の画面・スタジオのセリフと同じ規則)か None"""
+        return txindex.pick(docs, video_id, mark_id, path)[0]
 
-    def _finish_message(self, run):
-        """どの段も飛ばした = やることが無かった(「完了」と言わない。段4 S-4)"""
-        if all(s["state"] == "skip" for s in run.steps):
-            run.nothing = True
-            run.message = NOTHING_MESSAGE + (": " + run.message if run.message and run.message != "完了" else "")
-        elif not run.message or run.message in [s["label"] for s in run.steps]:
-            run.message = "完了"
+    def _live_auto_origin(self, media):
+        return live_auto_origin(media)
 
-    # 解析 -------------------------------------------------------
-    def _weights_differ(self, run, v):
-        """友人が指定した解析の重みが、今の解析の結果の重みと違うか(違えば解析し直す。音量・チャットの取り込み済みのデータは使い回される)"""
-        if not run.weights:
+    def _after_pack(self, run, st, prefix):
+        """① 全自動: パックが n 本たまるごとに届ける(全部を待たない)"""
+        if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:
+            self._deliver_pending(run, st, prefix, final=False)
+
+    def _remember_doc_streamer(self, tid, name):
+        """依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)。-> 覚えたか"""
+        if not self.prefs:
             return False
-        spec = (v.get("analysis") or {}).get("spec") if isinstance(v.get("analysis"), dict) else None
-        spec = spec if isinstance(spec, dict) else {}
-        return any(not _num(spec.get(k)) or round(float(spec[k]), 1) != run.weights[k] for k in WEIGHT_KEYS)
-
-    def _step_analyze(self, run, st, v):
-        if v.get("analysis") and not self._weights_differ(run, v):
-            st["state"], st["detail"] = "skip", "解析済み(前の結果を使います)" if run.request_id else "解析済み"
-            return None
-        item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
-        if run.fresh and item["kind"] == "youtube":   # ① 探す から: 題名・配信者はスタジオの一覧にそのまま出る(解析の前に分かっている分)
-            item.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
-        if item["kind"] == "file":
-            path = self._studio_video(run.video_id).get("path")
-            if not path:
-                raise StepError("元の動画ファイルの場所が分かりません")
-            item = {"kind": "file", "path": path}
-        self._analyze_item(run, st, item, run.video_id)
-        if run.mode == POST_MODE:
-            st["detail"] += "。依頼の区間と比べるためだけの解析です(友人には何も届けません)"
-        return None
+        try:
+            self.prefs.remember("docs", tid, name)
+            return True
+        except (OSError, ValueError):
+            return False
 
     def _friend_length(self):
         """友人の区間の長さの実績(dev/eval_marks.py --json の結果のうち、いちばん新しいもの)-> 解析の設定に重ねる {"length", "preRatio"?} と出どころ。
@@ -1437,462 +1140,6 @@ class AutoRunner:
             out["preRatio"] = round(min(hi, max(lo, float(pm))), 2)
         return out
 
-    def _analyze_item(self, run, st, item, video_id):
-        """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
-        # 解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze。段階7-1)。無ければスタジオの既定値
-        saved = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("analyze")
-        saved = saved if isinstance(saved, dict) else {}
-        if run.weights:   # 友人が指定した重み(ほかの解析の設定はスタジオのまま)
-            saved = dict(saved, **run.weights)
-        fl = self._friend_length() if run.mode in REQUEST_URL_MODES else None
-        if fl:   # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)
-            saved = dict(saved, **{k: fl[k] for k in ("length", "preRatio") if k in fl})
-            run.friend_length = fl
-        res = self.client.ok("studio", "POST", "/api/queue/add", {"items": [item], "settings": saved})
-        added = res.get("added") or []
-        qid = added[0]["qid"] if added else None
-        if not qid:
-            rej = (res.get("rejected") or [{}])[0].get("reason") or ""
-            if "すでにキュー" not in rej:
-                raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
-        st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % tuple(run.weights[k] for k in WEIGHT_KEYS) if run.weights
-                                    else "スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
-        fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
-        st["detail"] += fl_note
-        def read():
-            items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
-            it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
-            if it is None:
-                raise StepError("解析の順番から外れました(スタジオで取り消したかもしれません)。もう一度実行してください")
-            st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
-            if it.get("status") == "done":
-                st["detail"] = "解析しました(候補 %s 件)" % it.get("marks", "?") + fl_note
-                return True
-            if it.get("status") in ("error", "cancelled", "skipped"):
-                raise StepError("解析が終わりませんでした: %s" % (it.get("error") or JOB_STATE_JA.get(it.get("status"), "理由は不明です")))
-            return None
-        # 人が入れた解析(qid なし)を待つときは自分の仕事にしない・中止しても止めない(この実行が入れた解析だけ取り消す)
-        self._poll(run, ("studio", [qid]) if qid else None, read, (lambda: self._cancel_analysis(qid)) if qid else None)
-        return None
-
-    def _cancel_analysis(self, qid):
-        """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
-        次の実行が同じ配信の解析をキューに入れられるように・重い処理の枠を空けてから進むため。失敗しても上げない(中止の途中)"""
-        try:
-            self.client.call("studio", "POST", "/api/queue/cancel", {"qid": qid})
-            for _ in range(int(CANCEL_WAIT / self.poll) if self.poll > 0 else 30):
-                st, obj = self.client.call("studio", "GET", "/api/queue")
-                it = next((i for i in (obj.get("items") or []) if i.get("qid") == qid), None) if st == 200 else None
-                if it is None or it.get("status") not in ("waiting", "running"):
-                    return
-                self.sleep(self.poll)
-        except Exception:
-            return
-
-    # 採用 -------------------------------------------------------
-    def _step_adopt_request(self, run, st, v):
-        """友人からの依頼(URL): 時刻で指定した区間(前後に余白)を採用済みのマークにし、切り抜く数に足りない分を自動の上位で埋める。
-        この実行で扱うのは、その区間と自動の分だけ(run.marks)。同じ配信の送り直しでは、前に作った切り抜き・文字起こしを使い回す"""
-        dur = v.get("duration") or run.duration
-        padded = [pad_range(s, e, dur) for s, e in run.ranges]
-        auto = max(0, run.top - len(padded))
-        body = {"id": run.video_id, "ranges": padded, "auto": auto}
-        if run.fresh:
-            body.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
-        res = self.client.ok("studio", "POST", "/api/video/request-marks", body)
-        rids, aids = res.get("rangeIds") or [], res.get("autoIds") or []
-        run.marks = tuple(dict.fromkeys(rids + aids))
-        if not run.marks:
-            st["state"], st["detail"] = "skip", "採用できる候補がありません"
-            run.message = "採用できる候補がありませんでした"
-            return "stop"
-        parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), RANGE_PAD)] if rids else []) + \
-            (["自動で %d 個(点数の高い順)" % len(aids) + ("。候補が足りず %d 個は選べませんでした" % (auto - len(aids)) if len(aids) < auto else "")] if auto else [])
-        st["detail"] = "・".join(parts)
-        return None
-
-    def _step_adopt(self, run, st, v):
-        if run.mode in REQUEST_URL_MODES:
-            return self._step_adopt_request(run, st, v)
-        res = self.client.ok("studio", "POST", "/api/video/adopt-top", {"id": run.video_id, "top": run.top})
-        ids = res.get("adopted") or []
-        marks = (res.get("video") or {}).get("marks") or []
-        if ids:
-            st["detail"] = "点数の高い %d 件を採用しました" % len(ids)
-            return None
-        if any(m.get("status") in ("adopted", "exported") for m in marks):
-            st["state"], st["detail"] = "skip", "採用・書き出し済みのマークがあるので、それを使います"
-            return None
-        st["state"], st["detail"] = "skip", "採用できる候補がありません"
-        run.message = "採用できる候補がありませんでした"
-        return "stop"
-
-    # 書き出し ---------------------------------------------------
-    def _export_body(self, run, ids):
-        rv = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("review") or {}
-        n = lambda x, lo, hi, d: x if isinstance(x, (int, float)) and not isinstance(x, bool) and lo <= x <= hi else d
-        loud = rv.get("exportLoudness", -14)
-        return {"id": run.video_id, "markIds": ids, "precision": "fast" if rv.get("precision") == "fast" else "accurate",
-                "maxHeight": rv.get("maxHeight") if rv.get("maxHeight") in (0, 720, 1080, 1440, 2160) else 1080,
-                "volume": int(n(rv.get("exportVolume"), 1, 200, 75)), "loudness": loud if loud in (-11, -14, -16, -18) else None}
-
-    def _mine(self, run, v):
-        """この実行で扱うマーク(マークを選んだ実行ならそれだけ)"""
-        return [m for m in v.get("marks") or [] if not run.marks or m.get("id") in run.marks]
-
-    def _step_export(self, run, st, v):
-        ids = [m["id"] for m in self._mine(run, v) if m.get("status") == "adopted"]
-        if not ids:
-            done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
-            st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
-            return None if done else "stop"
-        status, res = self._call_when_free(run, st, "studio", "/api/export", self._export_body(run, ids[:50]), "別の書き出しが終わるのを待っています")
-        if status != 200:
-            raise StepError("書き出しを始められませんでした: %s" % (res.get("message") or "HTTP %d" % status))
-        jid = res.get("id")
-
-        def read():
-            j = self.client.ok("studio", "GET", "/api/export?id=" + jid)
-            items = j.get("items") or []
-            st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting")
-                            else "%d / %d 本" % (sum(1 for i in items if i.get("status") == "done"), len(items)))
-            return j if j.get("state") != "running" else None
-        # 書き出しは自分の仕事にしない(owned なし = 書き出しの最中は起動し直しを断る。REDO_STEPS)
-        items = self._poll(run, None, read, lambda: self.client.call("studio", "POST", "/api/export/cancel", {"id": jid})).get("items") or []
-        done = sum(1 for i in items if i.get("status") == "done")
-        bad = [i for i in items if i.get("status") == "error"]
-        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")
-        if bad and (not done or run.on_fail == "stop"):
-            raise StepError("書き出しに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or ""))
-        if bad:
-            st["state"] = "warn"
-        return None
-
-    # 文字起こし -------------------------------------------------
-    def _clips(self, v, run=None):
-        return [m for m in (self._mine(run, v) if run else v.get("marks") or []) if m.get("status") == "exported" and isinstance(m.get("path"), str) and m["path"]
-                and os.path.isfile(m["path"])]
-
-    def _step_transcribe(self, run, st, v):
-        clips = self._clips(v, run)
-        if not clips:
-            st["state"], st["detail"] = "skip", "書き出した切り抜きがありません"
-            return "stop"
-        docs = self._docs()
-        todo = [m for m in clips if not txindex.pick(docs, run.video_id, m.get("id"), m["path"])[0]]
-        if not todo:
-            st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips)
-            return None
-        opts = self._tx_opts()
-        jobs = []   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
-
-        def submit():
-            for m in todo:
-                self._check(run)
-                res = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=m["path"]))
-                jobs.append(res.get("id"))
-
-        def read():
-            all_jobs = {j.get("id"): j for j in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or []}
-            mine = [all_jobs.get(j) or {"state": "error", "error": "文字起こしのジョブが見つかりません"} for j in jobs]
-            fin = [j for j in mine if j.get("state") in ("done", "error", "cancelled")]
-            cur = next((j for j in mine if j.get("state") not in ("done", "error", "cancelled", "queued")), None)
-            st["detail"] = "%d / %d 本" % (len(fin), len(jobs)) + (" ・ %s %d%%" % (cur.get("phase") or "", round((cur.get("progress") or 0) * 100)) if cur else "")
-            return mine if len(fin) == len(jobs) else None
-
-        def cancel():
-            for j in jobs:
-                self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": j})
-        mine = self._poll(run, ("transcribe", jobs), read, cancel, start=submit)
-        ok = [j for j in mine if j.get("state") == "done"]
-        bad = [j for j in mine if j.get("state") != "done"]
-        run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
-        run.new_docs += [j["tid"] for j in ok if j.get("tid")]
-        st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は「編集」の 1 文字起こしで"
-        if bad and (not ok or run.on_fail == "stop"):
-            raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), _job_why(bad[0])))
-        if bad:
-            st["state"] = "warn"
-        return None
-
-    # パック -----------------------------------------------------
-    def _edit_keeps(self, doc):
-        """「編集」のカット(残す区間の秒。接している区間 = 分割しただけの所は1つに)と rev。無い・読めなければ (None, 0)"""
-        status, res = self.client.call("transcribe", "GET", "/api/edit?id=" + urllib.parse.quote(str(doc["id"])))
-        e = res.get("edit") if status == 200 and isinstance(res, dict) else None
-        clips = e.get("clips") if isinstance(e, dict) else None
-        if not clips:
-            return None, 0
-        out = []
-        for c in clips:
-            a, b = float(c["in"]), float(c["out"])
-            if out and a <= out[-1][1] + 1e-9:
-                out[-1][1] = max(out[-1][1], b)
-            else:
-                out.append([a, b])
-        return out, int(res.get("rev") or 0)
-
-    def _pack_settings(self):
-        """パックの作り方(編集の設定 = 3 パック のタブと同じ値。気が利く画面へ 段4 = 以前は fps・縦横・予備・話者の色を無視していた):
-        行から作るときの端の広げ方(rowEdge。形が変なら既定で作って知らせる)・Text+ の置き先(packFps・packSize)・1段の文字数(縦横に合わせる)・
-        話者の色・音量・予備(packBackup)・無音で削るときの値(cutSilence)。-> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
-        tx_settings = self.client.ok("transcribe", "GET", "/api/settings")
-        notes = []
-        row_edge = tx_settings.get("rowEdge")
-        if row_edge is not None and not _row_edge_ok(row_edge):
-            notes.append("「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から」で直せます)")
-            row_edge = None
-        size = tx_settings.get("packSize") if tx_settings.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
-        fps = str(tx_settings.get("packFps") or "30")
-        # 素材は 30fps にそろえる(2026-10-04 Q1)。素材がちょうど 30fps のときは、設定の packFps(60 など)に関係なく 30 にする
-        # (「編集」の 3 パック と同じ。30fps でない古い素材だけ設定の値を使う)。素材の fps は _source_fps が分かるときだけ
-        sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
-        wrap = (sub.get("wrapChars") or {}).get("horizontal" if size == "1920x1080" else "vertical") if isinstance(sub.get("wrapChars"), dict) else None
-        wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
-        wrap_out["textplusSize"] = size
-        if re.fullmatch(r"\d{1,3}(\.\d{1,3})?", fps):
-            wrap_out["textplusFps"] = fps
-        if tx_settings.get("packBackup") is True:
-            wrap_out["backup"] = True
-        wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
-        cs = tx_settings.get("cutSilence") if isinstance(tx_settings.get("cutSilence"), dict) else {}
-        cut_silence = {k: cs[k] for k in ("noise", "min", "pad") if isinstance(cs.get(k), (int, float)) and not isinstance(cs.get(k), bool)}
-        loud = tx_settings.get("packLoudness", 0)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。0 = そろえない。既定は 0 = 音量 30%。2026-10-01)
-        if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
-            wrap_out["loudness"] = loud
-        else:   # LUFS でそろえないときは音量(%)。元 = 100
-            vol = tx_settings.get("packVolume", 30)
-            if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
-                wrap_out["volume"] = vol
-        return row_edge, wrap_out, cut_silence, notes
-
-    def _cut_method(self):
-        """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut。読めなければ none)"""
-        m = self._pref("cut")
-        return m if m in ("rows", "none", "silence") else "none"   # 既定はカットしない(2026-10-01)
-
-    @staticmethod
-    def _speaker_styles(run):
-        """友人が指定した人ごとの字幕の見た目 -> {名前: {"color": "#RRGGBB"}}(無ければ {})。
-        色は画面・Lua に入るので、ここでも 16 進 6 桁だけにそろえ直す(intake の検査を通ってきたはずだが、実行の作り手がほかにも増えたときのため)"""
-        out = {}
-        raw = (run.speakers or {}).get("styles")
-        for name, sty in (raw.items() if isinstance(raw, dict) else []):
-            hx = colors.norm_hex(sty.get("color")) if isinstance(name, str) and name and isinstance(sty, dict) and isinstance(sty.get("color"), str) else None
-            if hx:
-                out[name] = {"color": hx}
-        return out
-
-    def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
-        """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
-        無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
-        row_edge, wrap_out, cut_silence = pack_opts[:3]
-        if wrap_out.get("textplusFps", "30") != "30" and _media_is_30fps(media):
-            wrap_out = dict(wrap_out, textplusFps="30")   # 素材がちょうど 30fps なら設定の packFps に関係なく 30(Q1。_pack_settings の説明)
-        keeps, rev = self._edit_keeps(doc)
-        if keeps:
-            captions = _has_captions(doc)
-            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
-            spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
-            body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
-        else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
-            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
-            # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)。無ければ、自動の採用の切り抜きは区間の全体(M8)、ほかはホームの設定
-            method = run.cut or (LIVE_AUTO_CUT if run.source_path and live_auto_origin(media) else self._cut_method())
-            if method == "none":   # 動画全体(削る区間なし)。カット済の行の字幕も消さない
-                spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
-            elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
-                spec = {"video": media, "transcript": tr.get("path"), "mode": "silence", "silence": cut_silence}
-            else:
-                spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}
-                if isinstance(row_edge, (bool, dict)):
-                    spec["rowEdge"] = row_edge
-            body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
-        if force:
-            body["output"]["force"] = True
-        if run.video_tracks:   # 友人が選んだ映像トラックの数(字幕はその上のトラック)
-            body["output"]["videoTracks"] = run.video_tracks
-        self._auto_streamer(run, doc)
-        if run.streamer:   # 字幕の文字を配信者のメンバーカラーに(cut2resolve が同じ規則で照らし合わせる)
-            body["output"]["streamer"] = run.streamer
-        styles = self._speaker_styles(run)
-        if styles:   # 友人が指定した話者ごとの字幕の色(古い cut2resolve は知らない鍵を読み飛ばす。空なら鍵ごと付けない = 今までと同じ要求)
-            body["output"]["speakerStyles"] = styles
-        status, res = self._call_when_free(run, st, "cut2resolve", "/api/build", body, prefix + "cut2resolve の別の処理が終わるのを待っています")
-        if status == 409 and res.get("error") == "exists":
-            return "exists", False
-        if status != 200:
-            raise StepError("パックを作れませんでした: %s" % (res.get("message") or "HTTP %d" % status))
-        jid = (res.get("job") or {}).get("id")
-
-        def read():
-            j = self.client.ok("cut2resolve", "GET", "/api/job?id=" + jid)
-            if j.get("state") != "running":
-                return j
-            if j.get("message"):
-                st["detail"] = prefix + j["message"]
-            return None
-        j = self._poll(run, ("cut2resolve", [jid]), read, lambda: self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid}))
-        if j.get("state") != "done":
-            err = j.get("error")
-            raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or _job_why(j)))
-        r = j.get("result") or {}
-        out = os.path.normpath(r["outDir"]) if r.get("outDir") else ""   # 届けた印(run.delivered)と同じ書き方にそろえる
-        if out and out not in run.packs:
-            run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
-            run.pack_marks[out] = dict(run.pack_hint or {})   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
-            run.pack_hint = None
-            if run.deliver_dir and "deliver" in MODE_STEPS[run.mode]:   # n 本たまるごとに届ける(全部を待たない)
-                self._deliver_pending(run, st, prefix, final=False)
-        if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
-            self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
-                                                                      "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
-        return "made", bool(keeps)
-
-    def _step_pack(self, run, st, v):
-        clips = self._clips(v, run)
-        docs = self._docs()
-        todo, no_tx, made = [], 0, 0
-        for m in clips:
-            doc = txindex.pick(docs, run.video_id, m.get("id"), m["path"])[0]
-            if not doc:
-                no_tx += 1
-            elif run.overwrite or not self.find_pack(m["path"]):
-                todo.append((m, doc))
-        if not todo:
-            st["state"], st["detail"] = "skip", ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips and not no_tx else "文字起こしのある切り抜きがありません")
-            return None
-        skipped, failed, by_edit = [], [], 0
-        opts = self._pack_settings()
-        self._auto_streamer(run, todo[0][1] if todo else None, v)
-        for i, (m, doc) in enumerate(todo, 1):
-            self._check(run)
-            prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
-            st["detail"] = prefix.rstrip(" ・ ")
-            try:
-                run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or "")}
-                res, cut = self._pack_one(run, st, doc, m["path"], opts, force=run.overwrite, prefix=prefix)
-            except StepError as e:
-                if run.on_fail == "stop":
-                    raise
-                failed.append("%s(%s)" % (os.path.basename(m["path"]), str(e)[:120]))   # 次へ進む設定: 残りを続ける
-                continue
-            if res == "exists":
-                skipped.append(os.path.basename(m["path"]))   # 同じ名前のパックがある: 上書きしない(人が作り直したものかもしれない)
-                continue
-            made += 1
-            by_edit += 1 if cut else 0
-            if doc["id"] not in run.docs:
-                run.docs.append(doc["id"])
-        if failed and not made:
-            raise StepError("パックを作れませんでした: %s" % failed[0])
-        st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \
-            ("。前のパックを上書きしました" if run.overwrite and not run.request_id else "") + "。字幕を校正したら「編集」のパックのタブで作り直してください"
-        if skipped:
-            st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
-        if failed:
-            st["state"] = "warn"
-            st["detail"] += "。失敗した %d 本: %s" % (len(failed), "・".join(failed[:3]))
-        for n in opts[3]:
-            st["detail"] += "。" + n
-        if run.streamer_from:   # 自動で入れた配信者は進み具合に出す(コラボで相手の色になることがあるため。段5)
-            st["detail"] += "。字幕の色: %s(%s)" % (run.streamer, "自動: チャンネル名から" if run.streamer_from == "auto" else "前回の名前")
-        return None
-
-    # 文書単位の実行(⑦(b)) -------------------------------------
-    def _doc(self, run):
-        d = next((x for x in self._docs() if x["id"] == run.doc_id), None)
-        if not d:
-            raise StepError("文書が見つかりません(消した可能性があります)")
-        run.title = d["title"] or run.title
-        src = d.get("sourcePath") or ""
-        if not src or not os.path.isfile(src):
-            raise StepError("元の動画が見つかりません(移動・削除した可能性があります)")
-        return d
-
-    def _tx_opts(self):
-        """文字起こしの設定(「編集」の設定のうち TX_KEYS。画面から文字起こしするときと同じ値)"""
-        opts = self.client.ok("transcribe", "GET", "/api/settings")
-        return {k: opts[k] for k in TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))}
-
-    def _wait_job(self, run, jid, st=None, what="文字起こし"):
-        """「編集」のジョブ 1 つが終わるまで待つ(st があれば進み具合を出す)。中止されたらジョブを取り消して上げる。-> 終わったジョブ"""
-        def read():
-            j = next((x for x in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or [] if x.get("id") == jid),
-                     {"state": "error", "error": "%sのジョブが見つかりません" % what})
-            if j.get("state") in ("done", "error", "cancelled"):
-                return j
-            if st is not None:
-                st["detail"] = "%s %d%%" % (j.get("phase") or "", round((j.get("progress") or 0) * 100))
-            return None
-        return self._poll(run, ("transcribe", [jid]), read, lambda: self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid}))
-
-    def _doc_transcribe(self, run, st):
-        doc = self._doc(run)
-        if doc["count"]:
-            st["state"], st["detail"] = "skip", "文字起こし済み"
-            return None
-        jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(self._tx_opts(), sourcePath=doc["sourcePath"], intoDoc=doc["id"])).get("id")
-        j = self._wait_job(run, jid, st)
-        if j.get("state") != "done":
-            raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
-        st["detail"] = "文字起こししました。字幕の校正は「編集」の 1 文字起こしで"
-        return None
-
-    def _doc_pack(self, run, st):
-        doc = self._doc(run)
-        if self.find_pack(doc["sourcePath"]) and not run.overwrite:
-            st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
-            return None
-        if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
-            st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
-            return None
-        opts = self._pack_settings()
-        res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=run.overwrite)
-        if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
-            st["state"], st["detail"] = "skip", "同じ名前のパックがあるので上書きしませんでした(「作り直す」を選ぶと上書きします)"
-            return None
-        st["detail"] = "パックを作りました" + ("(「編集」のカットのとおり)" if cut else "(文字起こしの行から)") + \
-            ("。前のパックを上書きしました" if run.overwrite else "") + "".join("。" + n for n in opts[3])
-        return None
-
-
-    # 話者分離(友人の「話す人」) --------------------------------
-    def _step_diarize(self, run, st, v=None):
-        """この実行で文字起こしした文書を、友人が入れた人数で話者分離し、名前は覚えている声と照らし合わせる(1人なら判別せずその人)。
-        失敗しても次の段へ進む(字幕は話者なしのまま。一部失敗)"""
-        tids = list(dict.fromkeys(run.new_docs))
-        if not tids:
-            st["state"], st["detail"] = "skip", "新しく文字起こしした文書がありません"
-            return None
-        sp = run.speakers or {}
-        body = {"numSpeakers": sp.get("count"), "names": list(sp.get("names") or []), "recognize": True}
-        styles = self._speaker_styles(run)   # 友人が指定した字幕の色(あれば話者分離のあと、文書に覚える)
-        bad, no_color = [], []
-        for i, tid in enumerate(tids, 1):
-            self._check(run)
-            st["detail"] = "%d / %d 本" % (i - 1, len(tids))
-            status, res = self.client.call("transcribe", "POST", "/api/diarize", dict(body, tid=tid))
-            if status != 200:
-                bad.append(res.get("message") or "HTTP %d" % status)
-                continue
-            j = self._wait_job(run, res.get("id"), what="話者分離")
-            if j.get("state") != "done":
-                bad.append(j.get("error") or j.get("state"))
-            elif styles and not self._remember_styles(tid, styles):
-                no_color.append(tid)
-        n = sp.get("count")
-        st["detail"] = "%d 本を %d 人に分けました" % (len(tids) - len(bad), n) + ("(名前: %s)" % "・".join(sp["names"]) if sp.get("names") else "") + \
-            "。名前の分からない人は「話者1」などのまま"
-        if styles and len(no_color) < len(tids) - len(bad):
-            st["detail"] += "。字幕の色を覚えました(%s)" % "・".join(styles)
-        if no_color:   # 古い「編集」など。依頼は止めない(一部失敗にもしない。パックには色を渡すので、その分の字幕には効く)
-            st["detail"] += "。字幕の色を覚えられませんでした(%d 本)" % len(no_color)
-        if bad:
-            st["state"] = "warn"
-            st["detail"] += "。失敗した %d 本: %s" % (len(bad), str(bad[0])[:120])
-        return None
-
     def _remember_styles(self, tid, styles):
         """指定された字幕の色を、文書の話者(名前が合う人)に「字幕の見た目」として覚える(編集の POST /api/speakers/sub)。-> 成功したか。
         失敗(古い編集の 404・その他)しても依頼は止めない。名前の合う人がいなくても 200(その場合も成功)"""
@@ -1904,9 +1151,6 @@ class AutoRunner:
             return False
         return status == 200 and isinstance(res, dict) and res.get("ok") is True
 
-    def _file_diarize(self, run, st):
-        return self._step_diarize(run, st)
-
     # 依頼の動画(mode file) -------------------------------------
     def _file_analyze(self, run, st):
         """依頼 ③: 友人の動画をスタジオに入れて盛り上がりの解析まで(切り抜く所は人が決める)"""
@@ -1915,12 +1159,6 @@ class AutoRunner:
         self._analyze_item(run, st, {"kind": "file", "path": run.source_path, "title": run.title}, None)
         st["detail"] += "。切り抜く所はスタジオで決めてください"
         return None
-
-    def _file_pack(self, run, st):
-        if not run.doc_id:
-            st["state"], st["detail"] = "skip", "文字起こしの文書がありません"
-            return "stop"
-        return self._doc_pack(run, st)
 
     def _file_deliver(self, run, st):
         found = self.find_pack(run.source_path)
@@ -2188,38 +1426,3 @@ class AutoRunner:
                 f.write(text + "\r\n")
         except OSError:
             pass
-
-    def _file_transcribe(self, run, st):
-        if not os.path.isfile(run.source_path):
-            raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
-        doc = txindex.pick(self._docs(), None, None, run.source_path)[0]
-        if doc and doc.get("count"):
-            st["state"], st["detail"] = "skip", "文字起こし済み"
-            tid = doc["id"]
-        else:
-            opts = self._tx_opts()
-            if run.engine:   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)。無ければ編集の設定のまま
-                opts["engine"] = run.engine
-            if run.model:
-                opts["model"] = run.model
-            jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=run.source_path)).get("id")
-            j = self._wait_job(run, jid, st)
-            if j.get("state") != "done":
-                raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
-            tid = j.get("tid")
-            if tid:
-                run.new_docs.append(tid)
-            st["state"], st["detail"] = "done", "文字起こししました。字幕の校正は「編集」で"
-        if tid and tid not in run.docs:
-            run.docs.append(tid)
-        run.doc_id = tid or None   # ① 全自動: この文書でパックを作る
-        if tid and run.streamer and self.prefs:   # 依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)
-            try:
-                self.prefs.remember("docs", tid, run.streamer)
-                st["detail"] += "。配信者: %s" % run.streamer
-            except (OSError, ValueError):
-                pass
-        return None
-
-
-_row_edge_ok = _spec.row_edge_ok   # 「行から」の設定の形の検査(src/pipeline/spec.py)

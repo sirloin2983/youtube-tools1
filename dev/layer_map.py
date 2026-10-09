@@ -60,7 +60,7 @@ FILES = {
     "src/home/appwindow.py": ("app", "app", ""),
     "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
     "src/home/restart.py": ("manage", "manage/ops", ""),
-    "src/home/autorun.py": ("pipeline", "pipeline/run", "split: ① の経路は pipeline/run、友人の依頼の経路は human/friend、あとから解析(測るため)は消す"),
+    "src/home/autorun.py": ("pipeline", "pipeline/run", "split: ① の経路は RS1-7 で pipeline/run.py へ。残りは友人・あとから解析・キューと記録(RS3)"),
     "src/home/live.py": ("pipeline", "pipeline/run", "ライブの流れ"),
     "src/home/live_detect.py": ("pipeline", "pipeline/analyze", "配信中の検出"),
     "src/home/live_excite_worker.py": ("pipeline", "pipeline/analyze", ""),

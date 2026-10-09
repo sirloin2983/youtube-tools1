@@ -17,8 +17,9 @@ from ytt import schemas
 # ---------- 区間・マーク・採用数・重みの検査(autorun.py から移した) ----------
 RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
 RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
+RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
-PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。autorun.py の _cut_method と同じ)
+PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)
 TX_ENGINES = ("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 文字起こしのエンジンを実行ごとに選ぶとき(リアルタイム切り抜きの live.auto。M2)。editor の tx_engines の id
 TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # 同じくモデルの名前(src/home/prefs.py の LIVE_MODEL_RE と同じ形)
 WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
@@ -44,6 +45,15 @@ def clean_ranges(v):
             raise ValueError("区間の指定が正しくありません")
         out.append((round(float(r[0]), 1), round(float(r[1]), 1)))
     return out
+
+
+def pad_range(s, e, duration=None):
+    """友人が入れた区間の前後に余白を足す(0 より前・動画の長さより後には出さない。長さの上限を超えるときは余白を減らす)"""
+    pad = min(RANGE_PAD, max(0.0, (RANGE_MAX_SEC - (e - s)) / 2))
+    a, b = max(0.0, s - pad), e + pad
+    if duration and duration > 0:
+        b = min(b, float(duration))
+    return [round(a, 1), round(max(b, a + 0.1), 1)]
 
 
 def clean_weights(v):
@@ -87,15 +97,15 @@ def row_edge_ok(v):
 
 # ---------- 束の形 ----------
 SECTIONS = ("hints", "analyze", "adopt", "export", "transcribe", "post", "pack", "run")
-RUN_FROM = ("analyze", "adopt", "export", "transcribe", "pack")   # run.from に書ける段(autorun.py の MODE_STEPS の段の名前)
+RUN_FROM = ("analyze", "adopt", "export", "transcribe", "pack")   # run.from に書ける段(run.py の MODE_STEPS の段の名前)
 
 # 束の鍵にしない固定の項目(5-4。ユーザー決定 2026-10-09 夜)。今の設定の画面から消す物。呼ぶ側は変えられない
 FIXED = {
-    "fps": 30,                # 素材とパックは 30fps にそろえる(autorun.py の _pack_one。2026-10-04 Q1)
-    "precise": True,          # 切り出しは精密(autorun.py の _export_body の precision "accurate")
+    "fps": 30,                # 素材とパックは 30fps にそろえる(run.py の _pack_one。2026-10-04 Q1)
+    "precise": True,          # 切り出しは精密(run.py の _export_body の precision "accurate")
     "maxHeight": 0,           # 画質は最大 = 上限なし(書き出しの maxHeight 0 = 上限なし。スタジオの exporter._max_height)。録画の live.quality も最大
     "upto": "pack",           # 常にパックまで作る(段を途中で止める upto は無い)
-    "on_fail": "next",        # 1 本が失敗しても続ける(失敗は結果に理由つきで残す。autorun.py の Run.on_fail の既定 next)
+    "on_fail": "next",        # 1 本が失敗しても続ける(失敗は結果に理由つきで残す。run.py の Run.on_fail の既定 next)
 }
 
 # 既定値(今のコードにある値を写した物。出どころは行の横)。API キーは束に入れない(環境変数か鍵のファイル)
@@ -118,11 +128,11 @@ DEFAULTS = {
     },
     "adopt": {                # 自動採用
         "top": DEFAULT_TOP,   # 採用する上限の本数(autorun.py の DEFAULT_TOP)
-        "pad": 2.0,           # 区間の前後に足す秒(autorun.py の RANGE_PAD)
+        "pad": 2.0,           # 区間の前後に足す秒(上の RANGE_PAD)
         "perHour": 6,         # ライブの 1 時間の候補の枠(src/home/prefs.py の DEFAULTS live.detect.perHour)
         "waitMin": 5,         # ライブの候補を最初に見てから採用まで待つ分(同 live.autoAdopt.waitMin)
     },
-    "export": {               # 書き出し(autorun.py の _export_body 1573・1576 行。exporter.py の DEFAULT_EXPORT_VOLUME)
+    "export": {               # 書き出し(run.py の _export_body。exporter.py の DEFAULT_EXPORT_VOLUME)
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
     },
@@ -143,14 +153,14 @@ DEFAULTS = {
         "diarSmooth": False,  # 試験中・既定オフ(src/editor/ed_learn.py の SETTINGS_PATCH_KEYS の説明)
         "learning": {"dir": None, "version": None},   # 学習データの場所と版(中身は入れない)。新しい項目で、今のコードに対応する設定は無い
     },
-    "pack": {                 # パック(autorun.py の _pack_settings・_cut_method・src/cut2resolve/cut2resolve_core.py の DEFAULT_*)
+    "pack": {                 # パック(run.py の _pack_settings・_cut_method・src/cut2resolve/cut2resolve_core.py の DEFAULT_*)
         "size": "1080x1920",
         "loudness": 0,        # パックの音量をそろえる目標(LUFS)。0 = そろえない(volume で決める)
         "volume": 30,         # loudness が 0 のときの音量(%)
         "backup": False, "render": False, "speakerColors": True,
         "wrapChars": {"vertical": 8, "horizontal": 14},   # 字幕 1 段の文字数(ed_jobs.py の SUBTITLE_DEFAULT)
         "rowEdge": True,      # 行から作るときの端の広げ方。True = 既定・False = 広げない・{on?, after?, before?}
-        "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(autorun.py の _cut_method の既定 none)
+        "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(run.py の _cut_method の既定 none)
         "cutSilence": {"noise": -35.0, "min": 0.6, "pad": 0.15},   # 無音で削る値(cut2resolve_core.py の DEFAULT_NOISE_DB・SILENCE_MIN・SILENCE_PAD)
         "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。src/home/intake.py の VIDEO_TRACKS_DEFAULT・MAX)
     },
