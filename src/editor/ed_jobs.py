@@ -6,7 +6,6 @@
 """
 import bisect
 import contextlib
-import functools
 import gc
 import hashlib
 import itertools
@@ -24,6 +23,7 @@ from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
 from pipeline.transcribe import backend as _backend, txenv as _txenv  # noqa: E402   本物と疑似の差し込み口・置き場所と外の道具の口(RS2-2)
 from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要確認の印(RS2-4b。呼ぶたびに postproc.名前 で読む)
+from pipeline.transcribe import records  # noqa: E402   認識の記録・生出力・単語の時刻(RS2-5。呼ぶたびに records.名前 で読む)
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
@@ -966,73 +966,6 @@ def split_chars_for(req=None, st=None):
     return subtitle_settings(st)["splitChars"]
 
 
-@functools.lru_cache(maxsize=None)
-def pkg_version(name):
-    """入っているパッケージの版(読み込まずに dist-info から読む = サーバー側で faster_whisper などのネイティブの部品を import しない)。無ければ ''"""
-    try:
-        import importlib.metadata as _md
-        return str(_md.version(name))
-    except Exception:
-        return ""
-
-
-def engine_version(eng):
-    """エンジン(tx_engines のクラス)の版: パッケージなら dist-info の版、実行ファイル(whisper.cpp・llama.cpp)なら決めた版"""
-    return pkg_version(eng.package) if eng.package else eng.version(tx_engines.engine_home())
-
-
-def _engine_ids(spec):
-    """記録のエンジンと版(本物の認識。_run_base が backend の差し込み口から呼ぶ)-> (id, 版)。分からなくても記録は作る"""
-    try:
-        eng = tx_engines.get(tx_engines.engine_of(spec))
-        return eng.id, engine_version(eng)
-    except Exception:   # 記録のための値なので、エンジンの版が分からなくても認識・差し替えは止めない
-        return tx_engines.engine_of(spec), ""
-
-
-def _run_base(spec, pairs=None):
-    """recognition.runs の 1 件の共通の項目(最初の認識 recognition_run と再認識の記録 record_rerun で同じ。dev/eval_* が読む):
-    エンジンと版・モデル・言語・settings(beam・vadMode・boost・wordSplit・dict = 辞書の版)・at・post(行の後処理)。
-    pairs = 作ってある置換辞書の組(dict_pairs。同じ設定を読み直さない)。エンジンの版が分からなくても記録は作る"""
-    eid, ever = _backend.select().engine_ids(spec, _engine_ids)
-    return {"engine": eid, "engineVersion": ever, "model": str(spec.get("model") or ""), "language": str(spec.get("language") or ""),
-            "settings": {"beam": spec.get("beam"), "vadMode": spec.get("vadMode"), "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
-                         "dict": dict_version(spec) if pairs is None else dict_version(spec, pairs)},
-            "at": int(time.time() * 1000), "post": postproc.post_record()}
-
-
-def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
-    """文書の recognition.runs に残す、この認識の出どころ(エンジン・版・モデル・機器・かかった時間)。精度と速さを後から比べるため(計画 段0-1)"""
-    run = _run_base(spec, pairs)
-    run["device"] = job.get("device", "")
-    run["settings"].update({"glossaryChars": len("、".join(spec.get("glossary") or [])), "promptChars": len("、".join(_roster.prompt_terms(spec))),
-                            "context": [m["name"] for m in (spec.get("context") or {}).get("members") or []]})
-    run.update({"audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2),
-                **vad_record(job.get("vad"))})
-    return run
-
-
-def short_hash(text):
-    """辞書などの中身の版(SHA-256 の先頭 10 文字)。中身そのものは残さず、同じ版かどうかだけ分かるようにする"""
-    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:10]
-
-
-_roster_hashes = _fsio.StampCache()
-
-
-def _file_hash(path):
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()[:10]
-
-
-def roster_hash():
-    """名簿のファイル(配信ごとの文脈・用語の自動追加の材料)の版。ファイルの更新日時と大きさが同じなら前の結果。読めなければ ''"""
-    try:
-        return _roster_hashes.get(_txenv.ROSTER, _file_hash) or ""
-    except OSError:
-        return ""
-
-
 def dict_pairs(spec):
     """置換辞書の組 [(誤, 正)](autoDict のときだけ。評価用の文書は autoDict が外れるので当たらない)= 設定の replacements + 名簿の呼び名の表記ゆれ(roster.variant_pairs。0.59.7。
     はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = plan/line-b-transcription.md の「10-08 の実験ループ」B)。
@@ -1047,29 +980,12 @@ def dict_pairs(spec):
     return pairs
 
 
-def dict_version(spec, pairs=None):
-    """この認識に使った辞書の版(マスタープラン Q2。recognition.runs の settings.dict と文書の params.dict)。
-    glossary = 用語集(自動で足した語を含む。ヒントに入った語)・replacements = 置換辞書(autoDict のとき)・
-    learned = 学習済みの置換と採用・却下の記録(autoLearned のとき)・roster = 名簿のファイル。
-    辞書を変えた前後で成績を分ける・同じ版どうしで比べるために、中身ではなく短いハッシュだけを残す。使っていない・読めないものは入れない。
-    pairs = 呼ぶ側で作ってある dict_pairs(spec)(設定と名簿を読み直さない)"""
-    out = {}
-    try:
-        gl = [str(t) for t in spec.get("glossary") or []]
-        if gl:
-            out["glossary"] = short_hash("\n".join(gl))
-        if spec.get("autoDict"):
-            out["replacements"] = short_hash("\n".join("%s=>%s" % p for p in (dict_pairs(spec) if pairs is None else pairs)))   # 0.59.7 から名簿の表記ゆれの表も入る(表が変わると版が変わる)
-        if spec.get("autoLearned"):
-            rules = ed_learn.learn_rules()
-            out["learned"] = short_hash(json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k not in ("alt", "yt")}},
-                                                   ensure_ascii=False, sort_keys=True))
-    except (OSError, ValueError, TypeError, KeyError) as e:   # 記録のための値なので、作れなくても認識は止めない
-        _txbase.log.warning("辞書の版を作れませんでした: %s", e)
-    rh = roster_hash()
-    if rh:
-        out["roster"] = rh
-    return out
+def dict_learned():
+    """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
+    学習(ed_learn)を読むのは文書の側のここだけ(① の records は ed_learn を読まない。serve が records.set_dict_inputs で登録する。RS2-5)"""
+    rules = ed_learn.learn_rules()
+    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k not in ("alt", "yt")}},
+                      ensure_ascii=False, sort_keys=True)
 
 
 # ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2。original を差し替える前の分を recognition.runs に残す) ----------
@@ -1105,7 +1021,7 @@ def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     # 再認識(each・range・whole)と疑わしい所の認識し直し(redo)は、どれも差し替える前にここを通る
     doc.pop("evalReviewed", None)
     rep = replaced[:MAX_REPLACED_ROWS]
-    run = dict(_run_base(spec, pairs), kind=kind, device=str(spec.get("device") or ""),
+    run = dict(records._run_base(spec, pairs), kind=kind, device=str(spec.get("device") or ""),
                range=[min(a for a, _ in spans), max(b for _, b in spans)], replaced=rep)
     run["settings"]["autoDict"] = bool(spec.get("autoDict"))
     if len(spans) > 1:
@@ -1125,91 +1041,12 @@ def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     doc["recognition"] = dict(rec, runs=[r for r in runs if id(r) not in drop])
 
 
-def context_record(spec):
-    """文書の params に残す配信ごとの文脈(出る人と材料・ヒントに入った語の数)。使っていなければ None"""
-    ctx = spec.get("context") or {}
-    if not ctx.get("members"):
-        return None
-    return {"members": [{"name": m["name"], "from": list(m.get("from") or [])} for m in ctx["members"]][:10], "terms": len(ctx.get("terms") or [])}
-
-
-def vad_record(vad):
-    """recognition.runs に残す声の検出の記録(使った設定・捨てた秒・やり直し)。分からなければ {}"""
-    if not vad:
-        return {}
-    return {"vadUsed": vad.get("used"), "vadRemovedSec": vad.get("removedSec", 0.0), "vadRetries": list(vad.get("retries") or [])}
-
-
-# ---------- 生出力(transcripts/<id>.asr.json。分ける前・置換の前の認識の結果。単語ごとの時刻と確信度。記録の土台 = 機械の最初の結果を書き換えずに残す) ----------
-ASR_SCHEMA = "youtube-tools-asr-raw/v1"
-MAX_ASR_BYTES = 64 * 1024 * 1024
-
-
-def asr_path(tid):
-    return os.path.join(_txenv.TX_DIR, tid + ".asr.json")
-
-
-def capture_raw(gen, raw, shift=0.0):
-    """認識の行の流れ gen をそのまま流しながら、生出力を raw に足す(文字・時刻・自信の度合い・単語 [[開始, 終了, 文字, 確信度]])"""
-    for s in gen:
-        try:
-            ws, ps = s.get("words") or [], s.get("wordProbs") or []
-            raw.append({"start": round(float(s["start"]) + shift, 3), "end": round(float(s["end"]) + shift, 3), "text": str(s.get("text") or ""),
-                        **postproc.machine_conf(s), "words": [[round(a + shift, 3), round(b + shift, 3), t, ps[i] if i < len(ps) else None]
-                                                     for i, (a, b, t) in enumerate(ws)]})
-        except (KeyError, TypeError, ValueError):
-            pass   # 生出力が残せなくても文字起こしは止めない
-        yield s
-
-
-def write_asr(tid, segments, run):
-    """生出力を保存する(run = recognition.runs の1件 = モデル・設定・版)。書けなくても文字起こしは失敗にしない(呼び出し側)"""
-    body = {"schema": ASR_SCHEMA, "run": run, "segments": segments, "updatedAt": int(time.time() * 1000)}
-    _fsio.atomic_write(asr_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
-
-
-def read_asr(tid):
-    """生出力 {"schema", "run", "segments"}。無い・壊れていれば None"""
-    return _fsio.read_schema_json(asr_path(tid), MAX_ASR_BYTES, ASR_SCHEMA, "segments")
-
-
-# ---------- 単語の時刻(12 ②。transcripts/<id>.words.json。行のデータには入れない = 画面の保存で落ちたり古くなったりしないように) ----------
-WORDS_SCHEMA = "youtube-tools-words/v1"
-MAX_WORDS_BYTES = 32 * 1024 * 1024
-
-
-def words_path(tid):
-    return os.path.join(_txenv.TX_DIR, tid + ".words.json")
-
-
-def read_words(tid):
-    """文書の単語の時刻 [[開始, 終了, 文字], ...](時刻の順)。無い・壊れていれば None"""
-    d = _fsio.read_schema_json(words_path(tid), MAX_WORDS_BYTES, WORDS_SCHEMA, "words")
-    if d is None:
-        return None
-    out = []
-    for w in d["words"]:
-        if isinstance(w, list) and len(w) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in w[:2]) and isinstance(w[2], str):
-            out.append([float(w[0]), float(w[1]), w[2]])
-    return sorted(out, key=lambda w: (w[0], w[1]))
-
-
-def write_words(tid, words, model=""):
-    """単語の時刻を保存する(空なら消す)。書けなくても文字起こしは失敗にしない(呼び出し側で記録だけ)"""
-    if not words:
-        _fsio.unlink_quiet(words_path(tid))
-        return
-    body = {"schema": WORDS_SCHEMA, "model": str(model or ""), "updatedAt": int(time.time() * 1000),
-            "words": sorted(words, key=lambda w: (w[0], w[1]))}
-    _fsio.atomic_write(words_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
-
-
 def replace_words(tid, a, b, new_words, model="", keep_spans=()):
     """範囲 [a, b] の単語を、認識し直した単語に差し替える(真ん中が範囲に入る単語を消す。keep_spans の区間の単語は残す)。
     以前の単語が無い文書は、新しい単語だけにしない(範囲の外の単語が無いまま一部だけあると、分け直すときに紛らわしいため、範囲の単語だけで作る)"""
-    old = read_words(tid) or []
+    old = records.read_words(tid) or []
     keep = [w for w in old if not (a - 1e-6 <= (w[0] + w[1]) / 2 <= b + 1e-6) or _in_spans((w[0] + w[1]) / 2, keep_spans)]
-    write_words(tid, keep + [list(w) for w in new_words], model)
+    records.write_words(tid, keep + [list(w) for w in new_words], model)
 
 
 def _fresh_id(used, make, n=0):
@@ -1234,7 +1071,7 @@ def resplit_doc(obj):
         base = obj.get("baseUpdatedAt")
         if isinstance(base, int) and not isinstance(base, bool) and base != int(doc.get("updatedAt") or 0):
             raise _errors.ApiError("conflict", "別の画面で先に保存されています。読み直してから、もう一度押してください", 409)
-        words = read_words(tid)
+        words = records.read_words(tid)
         if not words:
             raise _errors.ApiError("no_words", "この文字起こしには単語の時刻がありません(v0.17.0 より前の文字起こし・単語の時刻を使わない設定)。"
                                        "行を選んで「範囲を再認識」すると、その範囲の単語の時刻を取り直せます", 400)
@@ -1304,7 +1141,7 @@ def run_job(job):
         t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
         gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
         raw_asr = []   # 生出力(<id>.asr.json)
-        gen = capture_raw(gen, raw_asr, spec["start"])
+        gen = records.capture_raw(gen, raw_asr, spec["start"])
         pairs = dict_pairs(spec)
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
         rows = list(postproc.expand_segments(gen, spec, total))
@@ -1344,11 +1181,11 @@ def run_job(job):
                 doc["evalSet"] = True
             ed_store.write_doc(tid, doc)
         try:
-            write_words(tid, out["words"], spec["model"])
+            records.write_words(tid, out["words"], spec["model"])
         except OSError as e:
             _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
         try:
-            write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
+            records.write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
         except (OSError, TypeError, ValueError) as e:
             _txbase.log.warning("生出力を保存できませんでした: %s %s", tid, e)
         if llm_items:
@@ -1406,11 +1243,11 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
               "autoDict": bool(spec.get("autoDict")), "dictApplied": out["dictApplied"], "wordSplit": bool(spec.get("wordSplit")),
               "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
               "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
-              "context": context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm")),
+              "context": records.context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm")),
               "stripNames": bool(spec.get("stripNames"))}
     fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
               "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,
-              "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec, pairs)]}}
+              "recognition": {"runs": [records.recognition_run(spec, job, total, time.monotonic() - t_rec, pairs)]}}
     params["dict"] = fields["recognition"]["runs"][0]["settings"]["dict"]
     if job.get("vad"):
         params["vadUsed"] = job["vad"].get("used")
@@ -2202,6 +2039,7 @@ def _each_real(job, spec, targets, wav, start):
 _MOVED = (_heavy,)   # 移した先のモジュール(移すたびに足す。serve.py の _ED_MODULES にも ed_jobs より前に足す)。ytt/jobs = ジョブの表・待機列・ワーカー・取り消し(RS2-1b)
 _MOVED += (_roster, tx_engines)   # 名簿の prompt_terms・エンジンの engine_of・engine_home・ENGINE_DIR(RS2-4a)
 _MOVED += (postproc,)   # 行の後処理と要確認の印(RS2-4b。END_TRIM・JOIN_GAP・expand_segments の差し替えもここへ届く)
+_MOVED += (records,)   # 認識の記録・辞書の版・生出力・単語の時刻(RS2-5。dict_version の差し替えもここへ届く)
 _moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")
 
 
