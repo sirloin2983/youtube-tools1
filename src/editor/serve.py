@@ -564,12 +564,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ed_state.ApiError("too_big", "設定が大きすぎます", 413)
                 if "patch" in obj:   # 画面が最後に保存した内容との差のキーだけ(監査 11)。窓を2つ開いても別々の設定なら消し合わない
                     return self._json(200, ed_learn.merge_settings(obj))
-                with ed_learn._settings_lock:   # ほかの画面から api/settings/patch で直す項目は、丸ごとの保存ではサーバーの値を残す(古い画面が戻さないように)
-                    cur = ed_learn.load_settings()
-                    obj = {k: v for k, v in obj.items() if k not in ed_learn.SETTINGS_PATCH_KEYS}
-                    obj.update({k: cur[k] for k in ed_learn.SETTINGS_PATCH_KEYS if k in cur})
-                    ed_state.atomic_write(ed_state.SETTINGS, json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8"))
-                return self._json(200, {"ok": True})
+                return self._json(200, ed_learn.replace_settings(obj))   # 丸ごと(ほかの画面から直す項目はサーバーの値を残す)
             if u.path == "/api/transcript":
                 doc = ed_store.save_transcript(_qid(u), obj)
                 return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True,

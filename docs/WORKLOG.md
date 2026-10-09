@@ -3040,3 +3040,15 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 作業１ セッションから共有: ユーザー「めんどくさかったら別につけなくていい。友人にこちらから連絡しておく」→ 作業１ は上限の定数を作りかけて戻した(コードの変更なし)
 - decisions 3-16 (ga) に答えを書いた(上限の設定は作らない・D-16 で 5 本を見張るのはできればでよい)。data.js の D-16 も合わせた
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「スタジオ設定の整理」)— S4 設定の形をそろえる: 設定ファイルの読み書きを ytt_core/settings.py に(ytt_core 1.6.0)
+- 依頼: 「設定はそれ単体で一つのものにして使いやすくしたい」の段 2(`docs/spec/settings.md` の 4)。ユーザー「特に影響がなければ計画をどんどん前倒ししても別に良い。確認が必要なことは仮で決定して最後にまとめて」
+- 新: `src/ytt_core/settings.py`(`SettingsFile`: `load/read`・`save(d, broken)`・`update(fn)`・`set_section`・`patch_section(name, value, cleaner, current)`・`update_keys(values, allow)`・`merge_top(patch, skip)`。`SettingsError`・`SettingsTooLarge`・`section_name_ok`・`retire_broken`)と `src/ytt_core/tests/test_settings.py`(10 件)。`__init__.py` 1.5.0 → 1.6.0(部品の一覧と テストの行に足した)。AGENTS.md の ytt_core の行
+- 変更: `src/home/prefs.py` `Prefs` が `SettingsFile` を持つ(`_load/_save` は薄い包み・`patch` は `patch_section`。`Prefs(path, writer)`・`PrefsError`・`get/patch/remember/hide` はそのまま。ytt_core を読むために先頭で src を sys.path に足す = backup.py と同じ)/ `src/studio/store.py` `get_ui/set_ui_section/set_ui(d, broken=False)` が `self.ui_file`(32KB・1 行・`self.lock` を共有)を使う。`UI_MAX_BYTES`。too_large 413・save_failed 500 はそのまま / `src/editor/ed_learn.py` `_settings_file()`(呼ぶたびに作る = テストが `ed_state.SETTINGS` を差し替えるため)・`load_settings/patch_settings/merge_settings` と新 `replace_settings`(丸ごとの PUT)。`_settings_lock` は RLock に・`SETTINGS_MAX = 400000`・`_settings_error`(大きすぎ = too_big 413) / `src/editor/serve.py` 丸ごとの PUT は `ed_learn.replace_settings(obj)` を呼ぶだけ
+- 結果: ytt_core 125 件・home 371 件(test_window/launch/autorun/intake/backup/accuracy/live/cases)・studio 220 件(test_api/studio/file_recovery/robustness)・編集 644 件(test_backend/alt/metrics/autodiar)+ test_worker 43・test_mount 26 すべて OK・`dev/lint.py` 0 件。画面は変えていないので e2e・ui_audit は流していない
+- 仮で決めたこと(ユーザー不在): `plan/decisions.md` 3-19 (gb) ファイルと API の形は変えない・ツールの版は上げない / (gc) 退避と上限をスタジオ・編集にも / (gd) 丸ごとの PUT を ed_learn へ / (ge) cut2resolve の既定値はもう 1 本だった
+- 計画: `plan/data.js` S4 を done(1 時間)・まとめの文。`docs/spec/settings.md` の状態の行と 4
+- 並行セッション: 「ツール全体のコード修正」が src/editor(0.65.0)を編集中(serve.py の SERVER_VERSION の行はそのセッションの分 → このコミットには入れない)。「作業１」は P5 済み
+- 次: S5 単体の「設定」のページ(ホームの /settings/。スキーマから ui-kit が描く。ライブの設定を 1 か所に・受付とバックアップを自動保存に)。入口は起動し直すまで古いコードのまま(すべて終了 → start.bat)
+- 未コミット: なし(このセッションの分はこの記録と一緒にコミット)
+

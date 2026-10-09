@@ -24,14 +24,19 @@
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
-値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す。
+値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す
+(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。スタジオ・編集の設定ファイルと同じ決まり。S4 2026-10-09)。
 """
 import copy
-import json
 import os
 import re
-import threading
+import sys
 import time
+
+_SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SRC not in sys.path:   # 入口から読むときは入っている。テストが単独で読むときのため
+    sys.path.insert(0, _SRC)
+from ytt_core import settings as _settings  # noqa: E402  (設定ファイルの読み書きの決まり。S4)
 
 MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分)
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
@@ -390,25 +395,15 @@ def guess_streamer(prefs, doc_id=None, video_id=None, channel=None, from_channel
 
 class Prefs:
     def __init__(self, path, writer):
-        """writer(path, bytes): 原子的な書き込み(ytt_core.fsio.atomic_write)"""
+        """writer(path, bytes): 原子的な書き込み(ytt_core.fsio.atomic_write)。読み書きは ytt_core.settings.SettingsFile(S4)"""
         self.path = path
         self.write = writer
-        self.lock = threading.Lock()
+        self.file = _settings.SettingsFile(path, max_bytes=MAX_BYTES, writer=writer)
+        self.lock = self.file.lock
 
     def _load(self):
         """-> (中身, 壊れていたか)"""
-        try:
-            with open(self.path, "rb") as f:
-                raw = f.read(MAX_BYTES + 1)
-        except FileNotFoundError:
-            return {}, False
-        except OSError:
-            return {}, True
-        try:
-            d = json.loads(raw.decode("utf-8-sig")) if len(raw) <= MAX_BYTES else None
-        except ValueError:
-            d = None
-        return (d, False) if isinstance(d, dict) else ({}, True)
+        return self.file.load()
 
     def _section(self, d, name):
         """保存してある節を読む(直せる節は同じ検査を通す。通らなければ節ごと既定。live だけは壊れた鍵だけ既定 = _read_live)"""
@@ -431,16 +426,11 @@ class Prefs:
             return {n: self._section(d, n) for n in names}
 
     def _save(self, d, broken):
-        if broken and os.path.exists(self.path):   # 壊れたファイルは消さずに退避(中身を調べられるように)
-            try:
-                os.replace(self.path, "%s.broken-%s" % (self.path, time.strftime("%Y%m%d-%H%M%S")))
-            except OSError:
-                pass
-        data = json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8")
-        if len(data) > MAX_BYTES:
-            raise PrefsError("設定が大きすぎて保存できません")
-        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
-        self.write(self.path, data)
+        """書く(broken = 壊れたファイルを `.broken-<日時>` に退避してから)。大きすぎれば PrefsError"""
+        try:
+            self.file.save(d, broken)
+        except _settings.SettingsError as e:
+            raise PrefsError(str(e))
 
     def patch(self, section, value):
         """節を直す(送ったキーだけ)。-> その節の新しい値"""
@@ -448,13 +438,10 @@ class Prefs:
             raise PrefsError("その設定は直せません: %s" % str(section)[:40])
         if not isinstance(value, dict):
             raise PrefsError("値の形が正しくありません")
-        with self.lock:
-            d, broken = self._load()
-            cur = self._section(d, section)
-            new = CLEANERS[section](value, cur)
-            d[section] = new
-            self._save(d, broken)
-            return new
+        try:   # 今の節は保存してある値を検査し直したもの(_section)。CLEANERS の PrefsError はそのまま上がる
+            return self.file.patch_section(section, value, CLEANERS[section], current=lambda d: self._section(d, section))
+        except _settings.SettingsError as e:
+            raise PrefsError(str(e))
 
     def remember(self, kind, key, name):
         """配信者の記憶を1件(文書 id / 配信 / チャンネル → 名前)。name が "" = 「色なし」を覚える(自動で入れ直さない)。

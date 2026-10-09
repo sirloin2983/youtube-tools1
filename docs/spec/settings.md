@@ -1,6 +1,6 @@
 # 設定の決まり(置き場所・画面・1 つにまとめる手順)
 
-状態: 段 0(棚卸しと決まり)済み 2026-10-09。段 1(スタジオ「2 解析」・編集「3 パック」のタブを無くして ⚙ へ)はユーザー決定済み・実装待ち。段 2・3 は案(計画 `plan/data.js` の S2〜S5)。
+状態: 段 0(棚卸しと決まり)済み 2026-10-09。段 1(スタジオ「2 解析」・編集「3 パック」のタブを無くして ⚙ へ)済み 2026-10-09(スタジオ 0.24.0・編集 0.62.0。ユーザー確認済み)。段 2(S4。読み書きの共通部品 `src/ytt_core/settings.py`。ytt_core 1.6.0)済み 2026-10-09 午後(仮決め `plan/decisions.md` 3-19 (gb)〜(ge))。段 3(S5)は案(計画 `plan/data.js`)。
 
 2026-10-09 のユーザーの依頼: 「スタジオの解析・編集のパックのように、ただの設定だけの所を設定にまわしたい。そのあと設定はそれ単体で 1 つのものにして使いやすくしたい」→「解析と編集のパックはタブごと消して設定にまとめる」。
 
@@ -60,7 +60,7 @@
 
 ## 4. 段 2・3: 形をそろえる → 単体の「設定」(案)
 
-- 段 2(S4): `src/ytt_core/settings.py` に「節・既定値・検査・差分の適用・壊れたときの退避・atomic write」の共通部品を 1 つ作り、ホーム prefs・スタジオ `settings-ui.json`・編集 `settings.json` がそれで自分のファイルを扱う。API も `{op, section, value}` の同じ形に。cut2resolve の既定値の重複(無音の 3 値・crf・rowEdge)はここに寄せる。**ファイルは分けたまま**(`data-location.md` とバックアップの形・ツール単独のテストを変えないため。1 ファイルに寄せる案は採らない)。
+- 段 2(S4。**済み 2026-10-09**): `src/ytt_core/settings.py` の `SettingsFile`(読む `load/read`・書く `save`・ロックの中で読み→直す→書く `update`・節を置き換える `set_section`・節の鍵を直す `patch_section(cleaner)`・最上位の鍵を検査つきで直す `update_keys(allow)`・最上位の鍵を合わせる `merge_top(skip)`)を、ホーム `prefs.py` の `Prefs`・スタジオ `store.py` の `get_ui/set_ui_section/set_ui`・編集 `ed_learn.py` の `load_settings/patch_settings/merge_settings/replace_settings` が使う。共通の決まり: 無い・読めない・辞書でない・上限より大きい = 既定 `{}` で動き、次に書くときに `.broken-<日時>` へ退避してから書く(消さない)・原子的な書き込み・大きさの上限(ホーム 1MB・スタジオ 32KB・編集 400KB。超えたら `SettingsTooLarge` → 413)・節の名前は `[A-Za-z][A-Za-z0-9_-]{0,31}`。**ファイルは分けたまま**(`data-location.md` とバックアップの形・ツール単独のテストを変えないため)。**API の形はそのまま**(各ツールの画面を書き換えずに済ませた。`{op, section, value}` に揃えるのは段 3 で設定ページが同じ API を使うときに)。既定値・検査の関数は各ツールに残した(ホーム `CLEANERS/DEFAULTS`・編集 `SETTINGS_PATCH_KEYS`。段 3 のスキーマで 1 か所にする)。cut2resolve の既定値は既に 1 本(`serve.py DEFAULTS` ← `pack.Request` ← `cut2resolve_core DEFAULT_*`)で、重複は編集 `ed_learn.CUT_SILENCE_RANGE`(範囲)だけ = 段 3 で。テスト `src/ytt_core/tests/test_settings.py`(10 件)。
 - 段 3(S5): ホームに `/settings/` の 1 ページ。左に「全体 / ホーム / スタジオ / 編集 / パック(cut2resolve) / 録画 / 分析」。各節は**宣言的なスキーマ(キー・型・範囲・既定値・ラベル・1 行説明)から ui-kit が描く**(`UIKit.settingsForm`)ので、ラベル・既定値の表示・範囲の検査・「標準に戻す」・保存の印が自動で付く。各ツールの ⚙ は同じ描き手で自分の節だけを出す。検索・JSON の書き出し / 読み込みもここ。
 - 段 2・3 で一緒に直すもの: ライブの設定を 1 か所(ホーム)に・録画フォルダの二重保存・ホームの受付とバックアップを自動保存に・編集の「config.json」の古い表記(`AGENTS.md`・コメント)・Text+ の字幕の見た目を設定にするか(友人の PC のフォントに依存するので要相談)。
 

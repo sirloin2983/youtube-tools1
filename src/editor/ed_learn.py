@@ -22,12 +22,22 @@ import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
-from ytt_core import fsio as _fsio  # noqa: E402
-# ---------- 置換辞書・修正からの学習 ----------
+from ytt_core import fsio as _fsio, settings as _settings  # noqa: E402
+# ---------- 設定(settings.json)----------
+SETTINGS_MAX = 400000   # settings.json の大きさの上限(バイト)。読むときも書くときも同じ
+_settings_lock = threading.RLock()   # 設定の読み→書きを 1 つにする(SettingsFile に渡す)
+
+
+def _settings_file():
+    """編集の設定ファイル(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。ホーム・スタジオと同じ決まり。S4 2026-10-09)。
+    ed_state.SETTINGS はテストが差し替えるので、呼ぶたびに作る(軽い)"""
+    return _settings.SettingsFile(ed_state.SETTINGS, max_bytes=SETTINGS_MAX, writer=ed_state.atomic_write, indent=1, lock=_settings_lock)
+
+
 def load_settings():
-    """編集の設定(config.json)。無い・壊れている・dict でなければ {}(毎回新しい dict = 呼ぶ側が書き換えてよい)。
+    """編集の設定(settings.json)。無い・壊れている・dict でなければ {}(毎回新しい dict = 呼ぶ側が書き換えてよい)。
     BOM 付きも読む(メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように)。1 回の要求で何度も使うときは、頭で 1 回読んで渡す"""
-    return _fsio.read_json_or(ed_state.SETTINGS, {}, kind=dict)
+    return _settings_file().read()
 
 
 # ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)
@@ -68,22 +78,20 @@ def _keymap_ok(v):
             and all(isinstance(k, str) and _KM_ID_RE.fullmatch(k) and isinstance(c, str) and (c == "" or _KM_COMBO_RE.fullmatch(c)) for k, c in v.items()))
 
 
-_settings_lock = threading.Lock()
+def _settings_error(e):
+    """SettingsFile のエラーを API のエラーに(大きすぎる = 413。ほかは 400)"""
+    if isinstance(e, _settings.SettingsTooLarge):
+        return ed_state.ApiError("too_big", "設定が大きすぎます", 413)
+    return ed_state.ApiError("bad_request", str(e), 400)
 
 
 def patch_settings(obj):
-    vals = obj.get("values")
-    if not isinstance(vals, dict) or not vals:
-        raise ed_state.ApiError("bad_request", "直す値がありません", 400)
-    for k, v in vals.items():
-        chk = SETTINGS_PATCH_KEYS.get(k)
-        if not chk or not chk(v):
-            raise ed_state.ApiError("bad_request", "その設定は直せません: %s" % str(k)[:40], 400)
-    with _settings_lock:
-        st = load_settings()
-        st.update(vals)
-        ed_state.atomic_write(ed_state.SETTINGS, json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8"))
-    return {"ok": True, "values": {k: st[k] for k in vals}}
+    """POST /api/settings/patch {"values": {鍵: 値}}: SETTINGS_PATCH_KEYS の項目だけを、値を検査して直す(送った鍵だけ)"""
+    try:
+        out = _settings_file().update_keys(obj.get("values"), SETTINGS_PATCH_KEYS)
+    except _settings.SettingsError as e:
+        raise _settings_error(e)
+    return {"ok": True, "values": out}
 
 
 def merge_settings(obj):
@@ -92,21 +100,30 @@ def merge_settings(obj):
     案の比較: 版(rev)で 409 にする案は競合を確実に見つけるが、設定の画面に「読み直す/上書き」の選択を作ることになる
     → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 6)"""
     p = obj.get("patch")
-    if set(obj) != {"patch"} or not isinstance(p, dict) or len(p) > 200             or any(not isinstance(k, str) or not k or len(k) > 60 for k in p):
+    if set(obj) != {"patch"} or not isinstance(p, dict):
         raise ed_state.ApiError("bad_request", "設定の直し方(patch)の形が正しくありません", 400)
-    with _settings_lock:
-        st = load_settings()
-        for k, v in p.items():
-            if k in SETTINGS_PATCH_KEYS:
-                continue
-            if v is None:
-                st.pop(k, None)
-            else:
-                st[k] = v
-        body = json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8")
-        if len(body) > 400000:
-            raise ed_state.ApiError("too_big", "設定が大きすぎます", 413)
-        ed_state.atomic_write(ed_state.SETTINGS, body)
+    try:
+        _settings_file().merge_top(p, skip=SETTINGS_PATCH_KEYS)
+    except _settings.SettingsError as e:
+        raise _settings_error(e)
+    return {"ok": True}
+
+
+def replace_settings(obj):
+    """PUT /api/settings(patch 無し = 丸ごと): 画面の設定で置き換える。ほかの画面から api/settings/patch で直す項目(SETTINGS_PATCH_KEYS)は
+    サーバーの値を残す(古い画面が戻さないように)"""
+    if not isinstance(obj, dict):
+        raise ed_state.ApiError("bad_request", "設定は辞書で指定してください", 400)
+
+    def put(d):
+        keep = {k: d[k] for k in SETTINGS_PATCH_KEYS if k in d}
+        d.clear()
+        d.update({k: v for k, v in obj.items() if k not in SETTINGS_PATCH_KEYS})
+        d.update(keep)
+    try:
+        _settings_file().update(put)
+    except _settings.SettingsError as e:
+        raise _settings_error(e)
     return {"ok": True}
 
 

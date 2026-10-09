@@ -22,13 +22,16 @@ Python 標準ライブラリだけで動く。各ツールは、自分のフォ�
               孫ごと止める kill_tree・親が落ちても子を残さない KillJob・python_exe・メモリ・例外の短い理由 why)
 - names     … 書き出しの名前の規則(置き場所のフォルダ・持ち主の印 .studio-id・1 本の名前・書きかけ .partial。スタジオの書き出しと入口のライブの書き出しが読む)
 - recproto  … 録画元との約束(録画元・録画・セグメントの id の形・UTC の時刻の書き方・YouTube の動画の id。録画の部品・入口・配信中の検出のワーカーが読む)
+- settings  … 設定ファイル(JSON の辞書)の読み書きの決まり SettingsFile(壊れていれば既定で動き、書く前に .broken-<日時> へ退避・原子的に書く・大きさの上限・
+              節を置き換える / 節の鍵を直す / 最上位の鍵を直す)。ホームの prefs.json・スタジオの settings-ui.json・編集の settings.json が読む(設定を 1 つに S4)
 - evaldata  … 友人用 文字起こし簡易版の評価データ(送る用 zip)の形式・記号の規則・届いた zip の検証(git の履歴(679ff01 以前)の docs/plan/friend-lite-plan.md。
               簡易版は 2026-10-04 に消した。形式と取り込み dev/eval_import.py は残す)
 
 cut2resolve の単独のコマンドは ytt_core が無くても動く(WORK_DIR を自分でも持つ。音量の計算だけ読みに来る)。serve.py は読む。
-ここを変えるときは `python -m unittest src/ytt_core/tests/test_ytt_core.py src/ytt_core/tests/test_evaldata.py src/ytt_core/tests/test_normalize.py src/ytt_core/tests/test_excite.py` と、
+ここを変えるときは `python -m unittest src/ytt_core/tests/test_ytt_core.py src/ytt_core/tests/test_evaldata.py src/ytt_core/tests/test_normalize.py src/ytt_core/tests/test_excite.py src/ytt_core/tests/test_settings.py` と、
 使っている各ツールのテスト(AGENTS.md の表)を通すこと。
 """
-VERSION = "1.5.0"   # 1.5.0(2026-10-09): 使われていない公開の関数・定数を消した(コードの見直しの F。evaldata の書き出し側 RULES・scrub_paths・zip_name・safe_url・overlap・raw_links、colors.rgb01、loudness.db_to_pct、normalize.TARGET、excite.PEAK_STATES)
+VERSION = "1.6.0"   # 1.6.0(2026-10-09): 設定ファイルの読み書きの共通部品 settings(SettingsFile・SettingsError・SettingsTooLarge)を足した(設定を 1 つに S4。home/prefs.py・studio/store.py・editor/ed_learn.py が使う)
+# 1.5.0(2026-10-09): 使われていない公開の関数・定数を消した(コードの見直しの F。evaldata の書き出し側 RULES・scrub_paths・zip_name・safe_url・overlap・raw_links、colors.rgb01、loudness.db_to_pct、normalize.TARGET、excite.PEAK_STATES)
 # 1.4.0(2026-10-09): ツールをまたいだ規則 names・recproto を足した(T8)。fsio の StampCache.peek/set・read_json_or(allow_nan)・write_json(mode)、httpsec.send_head(cache)、tools.OUT_TIME を公開
 # 1.3.0(2026-10-09): 各ツールの写しを吸い上げる小道具を足した(fsio・tools・httpsec・schemas・datadir.studio_out_dir・excite の定数)

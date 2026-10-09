@@ -21,7 +21,7 @@ import time
 import analyze
 import common
 from common import ApiError, atomic_write
-from ytt_core import fsio as _fsio, schemas  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt_core import fsio as _fsio, schemas, settings as _settings  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 SCHEMA = "clip-studio/v1"
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
@@ -37,6 +37,7 @@ SERIES_KEEP = 60
 DUP_TOL = 0.5           # 自動マークが既存マークとこれ以内のずれなら「同じ区間」
 EDIT_TOL = 0.05         # 書き出し済みマークの時刻がこれより動いたら「書き出し済み」を外す
 SAVE_ERR = "保存に失敗しました(ディスクの空きなど)"
+UI_MAX_BYTES = 32 * 1024   # 画面の設定 settings-ui.json の大きさの上限
 
 # ---- コラボ動画のマーク転写(グループ+オフセット) ----
 MAX_GROUPS = 50
@@ -447,6 +448,8 @@ class Store:
         self.path = path
         self.ui_path = os.path.join(os.path.dirname(path), "settings-ui.json")
         self.lock = threading.RLock()
+        # 画面の設定(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり。S4 2026-10-09)
+        self.ui_file = _settings.SettingsFile(self.ui_path, max_bytes=UI_MAX_BYTES, writer=lambda p, b: atomic_write(p, b), indent=None, lock=self.lock)
         self.videos = {}
         self.groups = {}   # コラボグループ: グループID → {id, name, base, members, offsets, createdAt, updatedAt}
         self.series = SeriesCache(os.path.join(os.path.dirname(path), "cache", "series"))   # 動画ID → 盛り上がりグラフ(ファイルにも保存)
@@ -1108,30 +1111,32 @@ class Store:
             nv["marks"] = sorted(nv["marks"] + [m], key=_BY_TIME)[:MAX_MARKS]
             self._bump(nv)
 
-    # ---- 画面の設定(不透明な辞書) ----
+    # ---- 画面の設定(不透明な辞書。self.ui_file = ytt_core.settings.SettingsFile) ----
     def get_ui(self):
-        return _fsio.read_json_or(self.ui_path, {}, kind=dict)   # 読めなければ空(呼ぶ側が書き換えるので {} は毎回作る)
+        return self.ui_file.read()   # 読めなければ空(呼ぶ側が書き換えるので {} は毎回作る)
 
     def set_ui_section(self, name, value):
         """画面の設定のうち1つの節(例: review)だけを置き換える。読み込み→書き込みをロックの中で行うので、
         別のタブ・別の画面が同時に別の節を保存しても消し合わない(以前は画面が全体を読んで全体を書いていた)"""
-        if not (isinstance(name, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", name)):
+        if not _settings.section_name_ok(name):
             raise ApiError("bad_request", "section の名前が正しくありません", 400)
         if not isinstance(value, dict):
             raise ApiError("bad_request", "value は辞書で指定してください", 400)
         with self.lock:
-            d = self.get_ui()
+            d, broken = self.ui_file.load()
             d[name] = value
-            self.set_ui(d)
+            self.set_ui(d, broken)
 
-    def set_ui(self, d):
+    def set_ui(self, d, broken=False):
+        """全体を書く(broken = 読めなかったファイルを `.broken-<日時>` に退避してから)"""
         if not isinstance(d, dict):
             raise ApiError("bad_request", "settings は辞書で指定してください", 400)
-        raw = json.dumps(d, ensure_ascii=False).encode("utf-8")
-        if len(raw) > 32 * 1024:
-            raise ApiError("too_large", "設定が大きすぎます(32KBまで)", 413)
-        with self.lock:
-            try:
-                atomic_write(self.ui_path, raw)
-            except OSError:
-                raise ApiError("save_failed", SAVE_ERR, 500)
+        try:
+            with self.lock:
+                self.ui_file.save(d, broken)
+        except _settings.SettingsTooLarge as e:
+            raise ApiError("too_large", str(e), 413)
+        except _settings.SettingsError as e:
+            raise ApiError("bad_request", str(e), 400)
+        except OSError:
+            raise ApiError("save_failed", SAVE_ERR, 500)
