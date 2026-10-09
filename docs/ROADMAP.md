@@ -81,6 +81,7 @@
 | `docs/design/resolve-pack-unification.md` | Resolve パックの一本化と Resolve の注意 |
 | `docs/design/code-review-simplify-2026-10-08.md` | 10-08 のコードの見直し(「もっと簡潔な処理ができないか」。13 グループ・指摘 193 件・横断の傾向 T1〜T12・直す順番 A〜F・不具合の疑い 14 件。**A〜E は 10-09 に実装済み**(F の削除はユーザー確認待ち = plan/decisions.md 3-18)) |
 | `docs/design/code-separation-inventory-2026-10-09.md` | ツール本体に混ざっている AI のテスト・測定のための物の棚卸し(2026-10-09。ツールごとの行番号つきの表。T/M/D と分け方の案。計画は plan/code-separation.md) |
+| `docs/design/role-restructure-map-2026-10-09.md` | 役割で組み直す計画の RS0: 分割が要る 33 ファイル(約 31,000 行)の関数・クラス・定数ごとの行き先と理由(読むだけの 3 体の報告)+ 横断する要相談 13 件の仮決め RS0-a〜m(2026-10-09 夜。ファイル単位は dev/layer_map.py) |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |

@@ -431,3 +431,19 @@
 - (gt) 仮: 範囲・全体の再認識と疑わしい所の認識し直しでも外す(印だけ。元の文字は残さない = 再認識はもともと元の文字を残さない道)
 - (gu) 仮: 外した名前を**話者の手がかりには使わない**(whisper が付ける名前は字幕の学習データのまね = その人とは限らない。話者判別・覚えた声の方が確か)
 - (gv) 仮: **今ある文書(73cc02b8e9d3 の 4 行)は AI が書き換えない**(入口が開いている間に作業データを外から書くと、開いている画面の保存とぶつかる。4 行だけなので画面で消すか、文字起こしし直す)
+
+### 3-22 役割で組み直す RS0 の仮決め(2026-10-09 夜。セッション「ツール全体のコードの役割分担」。ユーザー「もう始めていい」のあと、関数ごとの行き先を調べた 3 体の「要相談」を横断で 13 件に。表と理由は `docs/design/role-restructure-map-2026-10-09.md` の 1 節。**まだ確認していない**)
+- RS0-a 仮: 設定と状態の束(編集 ed_state・スタジオ common・入口 prefs)は ytt/settings へ(設定 1 ファイル・層ごとの節。検査は鍵の持ち主の層が登録)。文書の形の定数は ytt/schemas。log・起動の印・ジョブの共通の約束・_move・共通の例外は ytt
+- RS0-b 仮: ① はツールを HTTP で呼ばず段を関数で呼ぶ。ToolClient・studio_call は移す間だけ app に置き、RS1 で消す
+- RS0-c 仮: ① が学習データ(声・規則・長さの目安・配信者の記憶)を読む口は「ファイルが境目」= 書く側は human、読む側の小さな関数は pipeline が自分で持つ(形式は ytt/schemas)
+- RS0-d 仮: 候補(①)と人の判定(②)が同居する記録(data.json の status/adoptedBy・live_feedback.jsonl・_decisions・MarkStore)は RS1〜RS3 ではデータの形を変えずコードだけ移す(入れ物 = human/review・配信の登録 = manage/cases・候補を書く = pipeline/analyze・合成 = manage/cases)。分けるのは RS6。adopt は人用と自動用の 2 つの口
+- RS0-e 仮: 汎用の待機列と SLOTS は ytt/jobs、① の段を回す runner は pipeline/run、ジョブの種別は各層が登録の口で足す
+- RS0-f 仮: 評価用の判定 is_eval() だけ ytt/settings、整理は eval/drill
+- RS0-g 仮: 30fps にそろえる = 写しは pipeline/ingest、付け替えは manage/cases
+- RS0-h 仮: ① は結果を返すだけで ② の上書き・記憶(話者の色・配信者の記憶)に書かない。覚えるのは manage/cases か human/proof
+- RS0-i 仮: run_job・validate_job・apply_diarization・autodiar_* は「計算 = pipeline の純関数 / 文書への書き込みと後続の投入 = human/proof の薄い包み / 指定の既定値と検査 = pipeline/spec」で分ける(RS2)
+- RS0-j 仮: cut2resolve の AppState は pipeline/run・pipeline/pack・app に 3 分割。serve._resolve_package の中身は resolve_export の 1 関数
+- RS0-k 仮: 入口の二重(youtube_id・parse_ranges・_normalize_copy)は ytt/recproto・pipeline/spec・pipeline/ingest に寄せる(RS3)
+- RS0-l 仮: 片付けの実行は持ち主の層、起動時の呼び出しと見張りだけ manage/keep・manage/ops
+- RS0-m 仮: 文書の要約・削除は human/proof が基本を持ち、進行度(manage)・ドリル(eval)・付き物は登録の口で各層が足す
+- 共通の作法(仮): 下の層が上の層を呼んでいる所は (1) 読むだけならファイルを境目に下の層が読み手を持つ (2) 上の処理を挟むなら登録の口 (3) どちらでもなければ処理ごと上へ

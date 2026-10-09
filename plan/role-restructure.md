@@ -1,6 +1,6 @@
 # 役割で組み直す(ツール全体のコードの役割分担。2026-10-09)
 
-> 状態(2026-10-09): **計画(ユーザー決定済み。実装はまだ)**。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた。いつ始めるかは未定(段 0 から。`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
+> 状態(2026-10-09 夜): **RS0 済み(ユーザー「もう始めていい」)。次は RS1**。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
 
 ## 1. なぜ組み直すか(ユーザーの言葉)
 - 「もともと 1 個ずつ開発して合体したからいびつになっている。今の形を完全に変えてもいいから最適な形を考えて」
@@ -163,6 +163,8 @@ dev/           リポジトリの道具だけ残す(lint・ui_audit・push_helpe
 | RS4 | ④: ドリル・評価用フォルダ・A/B・精度の自動測定を `eval/drill`・`dev/eval_*` を `eval/tools`。① の記録と ② の記録を分ける | `eval/` のテスト・`dev/tests/test_eval_*` | 半日 |
 | RS5 | `app/` を薄く(配線だけ)・旧い URL の転送・版 1 つ・設定 1 ファイル(旧ファイルを読み込む)・向きの違反 0・転送の別名を消す・文書(AGENTS・README・spec)を新しい形に | 全テスト・lint 0・ui_audit Must 0・`start.bat` で起動して本物の 1 本 | 半日〜1 日 |
 | RS6 | ① の新機能: アーカイブと動画ファイルの**自動採用**(今はライブだけ)・切り抜き単位の使い回し(鍵)・校正の上書きを切り抜きの鍵に付ける・① 単体の起動(URL か動画 → パック) | 新しいテスト + 本物のアーカイブ 1 本と動画ファイル 1 本 | 1 日 |
+
+RS0 の結果(10-09 夜): 向きの違反は **69 件**。内訳 = pipeline→human 15・pipeline→manage 15・pipeline→app 11・human→app 7・human→manage 7・eval→app 5・manage→app 5・pipeline→eval 3・human→eval 1。多くは「設定と状態の束」(編集 `ed_state`・スタジオ `common`・入口 `prefs`。今は app に置いた)への依存と、認識の本筋 `ed_jobs` から文書・紐づけ・評価への呼び出し。RS1 で設定を `ytt/settings` に寄せ、RS2 で `ed_jobs` を分けると大きく減る見込み。
 
 RS0〜RS1 は操作が変わらない。RS2 以降も画面の操作は変えない(画面の作りは後で)。合計の目安は AI の作業で 5〜7 日分(並列にできる段は RS3 と RS4)。
 

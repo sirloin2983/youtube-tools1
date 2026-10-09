@@ -3176,3 +3176,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 決定・理由: 上の議論のとおり(文書の 2 節)。始める時期は未定(ユーザーが決める)。RS2(ed_jobs の分割)は別のセッションで慎重に
 - 未完了・次: 公開ページ(Artifact)の出し直し。実装は RS0 から(始めるときにこの文書と inventory の表を読む)
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Fable + 読むだけ Sonnet × 3。セッション「ツール全体のコードの役割分担」)— 役割で組み直す RS0(骨組み・行き先の表・向きの検査)。ユーザー「もう始めていい」→ 途中で「今は毎回きりのいいところで相談して」
+- 変更: 新しい層のフォルダ `src/{ytt,pipeline(ingest/analyze/export/transcribe/pack),human(review/proof/cut/find/friend),manage(cases/keep/ops),eval(fake/drill/tools),app(ui)}`(`__init__.py` の docstring だけ。中身はまだ)。新 `dev/layer_map.py`(層の順 ytt←pipeline←human←manage←eval、app は全部可 / 今の src の .py 97 本の行き先(層・サブパッケージ・備考)/ 今ある違反 KNOWN 69 件)。新 `dev/tests/test_layering.py`(src の .py の import を解いて向きを検査。表に無いファイル・新しい違反・直ったのに KNOWN に残る物で落ちる。`--list` で一覧)。新 `docs/design/role-restructure-map-2026-10-09.md`(分割が要る 33 ファイル・約 31,000 行の関数・クラス・定数ごとの行き先と理由 = 3 体の報告 + 横断する要相談 13 件の仮決め RS0-a〜m)。`AGENTS.md`(フォルダの並びに層の説明・dev の行に layer_map と test_layering)・`plan/role-restructure.md`(状態 = RS0 済み・RS0 の結果の段落)・`plan/data.js`(RS0 done)・`docs/ROADMAP.md`(設計の文書 1 行)・`plan/decisions.md` 3-22
+- 向きの違反 69 件の内訳: pipeline→human 15・pipeline→manage 15・pipeline→app 11・human→app 7・human→manage 7・eval→app 5・manage→app 5・pipeline→eval 3・human→eval 1。大半は ed_state・common・prefs(設定と状態の束)への依存と ed_jobs からの呼び出し
+- 決定・理由: 仮決め RS0-a〜m(decisions 3-22)。特に (a) 設定と状態の束は ytt/settings へ (c) 学習データはファイルが境目 (d) 候補と人の判定の記録の分離は RS6 まで触らない (e) 待機列は ytt/jobs・runner は pipeline/run・種別は登録の口。版 1 つは RS5 で
+- テスト: test_layering 3 件 OK・lint 0・test_mount/test_launch 69 件 OK(unittest に PYTHONIOENCODING を付けると test_mount の子プロセスの読みで落ちる = 付けない)
+- 未完了・次: ユーザーに RS0-a〜m を確認 → RS1(ytt_core → ytt・cut2resolve → pipeline/pack・recorder → pipeline/ingest・exporter → pipeline/export・spec.py と run.py)。以後は段ごとに相談(ユーザー指示)
+- 未コミット: なし(この記録と一緒にコミット)
