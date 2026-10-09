@@ -30,6 +30,7 @@ import time
 from ytt import fsio as _fsio, jobs as _heavy, tools as _tools  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 
 SCHEMA = "ytt-eval-audio/v1"
 DIR_NAME = "eval-audio"
@@ -51,7 +52,7 @@ _bg = []
 
 def audio_dir():
     """作業データの eval-audio/(テストは設定の置き場所の隣)"""
-    return os.path.join(os.path.dirname(ed_state.SETTINGS), DIR_NAME)
+    return os.path.join(os.path.dirname(_workdata.SETTINGS), DIR_NAME)
 
 
 def index_path():

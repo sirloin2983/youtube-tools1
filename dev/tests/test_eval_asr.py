@@ -165,7 +165,7 @@ class EvalAsrTest(unittest.TestCase):
         J = S.ed_jobs
         self.assertIs(sys.modules[E.C.SERVE_NAME], S)
         self.assertTrue(J.IN_WORKER)                                         # 認識はこのプロセスの中で(認識ワーカーを起動しない)
-        self.assertEqual(S.ed_state.STUDIO_DATA, S.studio_data_path())      # スタジオの data.json は起動したツールと同じ決め方
+        self.assertEqual(S.STUDIO_DATA, S.studio_data_path())      # スタジオの data.json は起動したツールと同じ決め方
         before = (J.END_TRIM, J.JOIN_GAP)
         with mock.patch.object(S, "END_TRIM", before[0] + 0.1), mock.patch.object(S, "JOIN_GAP", 0.0):
             self.assertEqual((J.END_TRIM, J.JOIN_GAP), (before[0] + 0.1, 0.0))   # 差し替えは部品に届く

@@ -16,6 +16,7 @@ from ytt import fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 # ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 1) ----------
 # 動画を移した・改名した文書の sourcePath を、行・校正・話者・カットを残したまま新しいパスに直す。
@@ -64,7 +65,7 @@ def relink_path(raw):
             raise ed_state.ApiError("bad_path", "パスに「:」が入っています(ファイルそのもののパスを入れてください)", 400)
         if os.path.splitext(p)[1].lower() not in ed_state.MEDIA_TYPES:
             raise ed_state.ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(ed_state.MEDIA_TYPES)), 400)
-        if _fsio.is_inside(p, ed_state.DATA_DIR):   # このツールの作業データ(文書・設定・保管)。スタジオの既定の書き出し先(作業データの studio\exports)は選べる
+        if _fsio.is_inside(p, _workdata.DATA_DIR):   # このツールの作業データ(文書・設定・保管)。スタジオの既定の書き出し先(作業データの studio\exports)は選べる
             raise ed_state.ApiError("bad_path", "このツールの作業データの中のファイルは選べません", 400)
     if not os.path.isfile(p):
         raise ed_state.ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
@@ -97,7 +98,7 @@ def relink_check(obj):
     fps, warnings = None, []
     if has_v:
         try:
-            dr = resolve_export.edit_draft(dict(doc, sourcePath=p), ed_state.SERVER_VERSION, rows=False)
+            dr = resolve_export.edit_draft(dict(doc, sourcePath=p), _workdata.SERVER_VERSION, rows=False)
             fps, dur = dr["fps"], dr["durationSec"]
         except resolve_export.ResolveExportError as e:
             warnings.append("fps を調べられませんでした(%s)。カットのタブで使えない可能性があります" % str(e)[:200])
@@ -182,7 +183,7 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     保存 save_transcript は sourcePath を画面から受け取らないので、画面の古い版で上書きされても付け替えは消えない)"""
     ed_store.backup_doc(tid, "relink")   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)・「以前の版に戻す」で元のパスへ戻せる
     if os.path.isfile(ed_store.edit_path(tid)):
-        shutil.copy2(ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, ".bak", tid + ".edit.pre-relink.json"))
+        shutil.copy2(ed_store.edit_path(tid), os.path.join(_workdata.TX_DIR, ".bak", tid + ".edit.pre-relink.json"))
     now = max(ed_state.now_ms(), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
     prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
     rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, ed_state.now_ms()), "diffSec": diff}
@@ -445,7 +446,7 @@ def relink_folder(raw):
         raise ed_state.ApiError("bad_path", "パスに「:」が入っています", 400)
     if not os.path.isdir(p):
         raise ed_state.ApiError("no_dir", "フォルダが見つかりません(パスを確認してください)", 400)
-    if _fsio.is_inside(p, ed_state.DATA_DIR):
+    if _fsio.is_inside(p, _workdata.DATA_DIR):
         raise ed_state.ApiError("bad_path", "このツールの作業データの中は探せません", 400)
     return p
 
@@ -480,7 +481,7 @@ def relink_find(obj):
             dnames[:] = []
         else:
             dnames[:] = sorted(d for d in dnames if not d.startswith(".") and d.lower() not in _FIND_SKIP
-                               and not _fsio.is_inside(os.path.join(cur, d), ed_state.DATA_DIR))
+                               and not _fsio.is_inside(os.path.join(cur, d), _workdata.DATA_DIR))
     cands = {tid: found[k] for k, tids in want.items() for tid in tids if found[k]}
     return {"folder": root, "candidates": cands, "scanned": seen, "truncated": truncated}
 
@@ -531,7 +532,7 @@ def eval_dirs():
     for p in v:
         p = os.path.abspath(p)
         try:
-            if not _remote_drive(p) and os.path.isdir(p) and not _fsio.is_inside(p, ed_state.DATA_DIR) and not _fsio.is_inside(ed_state.DATA_DIR, p):
+            if not _remote_drive(p) and os.path.isdir(p) and not _fsio.is_inside(p, _workdata.DATA_DIR) and not _fsio.is_inside(_workdata.DATA_DIR, p):
                 out.append(p)
         except (OSError, ValueError):
             pass
@@ -813,7 +814,7 @@ def _eval_outside_docs(dirs, only=None):
     同じ動画を使う文書は印の無いものも入れる(断るかを決めるため)。only: この文書の動画だけ"""
     by_path, marked = {}, set()
     for _tid, sm, sp in ed_store.summaries():
-        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _fsio.is_inside(sp, ed_state.DATA_DIR):
+        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _fsio.is_inside(sp, _workdata.DATA_DIR):
             continue
         key = ed_state.norm_path(sp)
         by_path.setdefault(key, (sp, []))[1].append(sm)

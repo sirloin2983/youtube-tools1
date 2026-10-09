@@ -26,7 +26,6 @@ from test_backend import S, TID, StoreDir, write_json  # noqa: F401,E402  (S = s
 import ed_alt  # noqa: E402
 import ed_jobs  # noqa: E402
 import ed_learn  # noqa: E402
-import ed_state  # noqa: E402
 import ed_store  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
@@ -106,7 +105,7 @@ class TestAltDiffs(unittest.TestCase):
 class _AltStore(StoreDir):
     def setUp(self):
         super().setUp()
-        self.fb = mock.patch.object(ed_state, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
+        self.fb = mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
         self.fb.start()
         ed_alt._alt_cache.clear()
 
@@ -173,10 +172,10 @@ class TestAltSuggest(_AltStore):
         self.assertIsNone(S.suggest_for_doc(TID)["alt"])
 
     def test_load_feedback_alt_and_dict_version(self):
-        write_json(ed_state.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": "x", "rej": 3}})
+        write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": "x", "rej": 3}})
         self.assertEqual(S.load_feedback()["alt"], {"acc": 0, "rej": 3})
         v1 = S.dict_version({"autoLearned": True})
-        write_json(ed_state.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": 9, "rej": 3}})
+        write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": 9, "rej": 3}})
         self.assertEqual(S.dict_version({"autoLearned": True}), v1)   # 別のエンジンの数は辞書の版を変えない
 
     def test_settings_alt_engine(self):
@@ -343,7 +342,7 @@ class TestAltJob(_AltStore):
         """設定 autoAlt(既定オフ): 文字起こしが終わったら alt のジョブを足す。要求の autoAlt が優先・評価用は足さない"""
         tid = self.transcribe()
         self.assertEqual(self.queued("alt", tid), [])   # 既定はオフ
-        write_json(ed_state.SETTINGS, {"autoAlt": True})
+        write_json(S.SETTINGS, {"autoAlt": True})
         tid2 = self.transcribe()
         q = self.queued("alt", tid2)
         self.assertEqual(len(q), 1)
@@ -357,7 +356,7 @@ class TestAltJob(_AltStore):
         self.assertEqual(len(d4), 1)
         self.mine.update(j["id"] for j in d4)
         self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
-        write_json(ed_state.SETTINGS, {"altEngine": "llama.cpp"})
+        write_json(S.SETTINGS, {"altEngine": "llama.cpp"})
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])
         # 始められなくても(同じエンジン)文字起こしは成功のまま・注意を出す
         job = {"warnings": []}

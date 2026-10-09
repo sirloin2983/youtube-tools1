@@ -28,6 +28,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)
@@ -118,7 +119,7 @@ def alt_spec(tid, req=None):
 
 # ---------- ジョブ ----------
 def alt_path(tid):
-    return os.path.join(ed_state.TX_DIR, tid + ".alt.json")
+    return os.path.join(_workdata.TX_DIR, tid + ".alt.json")
 
 
 def read_alt(tid):
@@ -156,9 +157,9 @@ def run_alt(job):
     """文書の範囲の音声を 2つ目のエンジンで認識し、<id>.alt.json に書く。文書は書き換えない(updatedAt も動かさない)"""
     spec = job["spec"]
     tid = spec["tid"]
-    wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
+    wav = os.path.join(_workdata.TMP_DIR, job["id"] + ".wav")
     with ed_jobs.job_errors(job, wav, log="別のエンジンでの認識で例外"):
-        os.makedirs(ed_state.TMP_DIR, exist_ok=True)
+        os.makedirs(_workdata.TMP_DIR, exist_ok=True)
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         ed_jobs.extract_audio(job, {"sourcePath": spec["sourcePath"], "start": spec["start"], "end": spec["end"], "boost": False}, wav)
         total = ed_state.media_duration(wav) or ((spec["end"] or 0) - spec["start"])

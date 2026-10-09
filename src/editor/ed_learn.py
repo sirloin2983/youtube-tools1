@@ -21,6 +21,7 @@ import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(suggest_for_doc 
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, settings as _settings  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
@@ -31,8 +32,8 @@ _settings_lock = threading.RLock()   # 設定の読み→書きを 1 つにす�
 
 def _settings_file():
     """編集の設定ファイル(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。ホーム・スタジオと同じ決まり。S4 2026-10-09)。
-    ed_state.SETTINGS はテストが差し替えるので、呼ぶたびに作る(軽い)"""
-    return _settings.SettingsFile(ed_state.SETTINGS, max_bytes=SETTINGS_MAX, writer=ed_state.atomic_write, indent=1, lock=_settings_lock)
+    _workdata.SETTINGS はテストが差し替えるので、呼ぶたびに作る(軽い)"""
+    return _settings.SettingsFile(_workdata.SETTINGS, max_bytes=SETTINGS_MAX, writer=ed_state.atomic_write, indent=1, lock=_settings_lock)
 
 
 def load_settings():
@@ -450,7 +451,7 @@ _fb_lock = threading.Lock()
 
 
 def load_feedback():
-    d = _fsio.read_json_or(ed_state.FEEDBACK, None, kind=dict)
+    d = _fsio.read_json_or(_workdata.FEEDBACK, None, kind=dict)
     if d is None:
         return {"stat": {}, "dismissed": {}}
     out = {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
@@ -487,7 +488,7 @@ def record_feedback(obj):
                 del lst[:-2000]
         if len(fb["stat"]) > 5000:
             fb["stat"] = dict(list(fb["stat"].items())[-5000:])
-        ed_state.atomic_write(ed_state.FEEDBACK, json.dumps(fb, ensure_ascii=False).encode("utf-8"))
+        ed_state.atomic_write(_workdata.FEEDBACK, json.dumps(fb, ensure_ascii=False).encode("utf-8"))
     return len(items)
 
 
@@ -866,12 +867,12 @@ def all_metrics(tid=None, legacy=False, scope="all"):
 
 
 # ---------- 評価用の基準の記録 ----------
-EVAL_BASE = os.path.join(ed_state.DATA_DIR, "eval-baselines.json")
+# 置き場所は ytt/workdata の EVAL_BASE(作業データの eval-baselines.json。RS3-0A に ed_learn から移した = serve.set_data_dir が作り直す)
 _base_lock = threading.Lock()
 
 
 def read_baselines():
-    return _fsio.read_json_or(EVAL_BASE, [], kind=list)
+    return _fsio.read_json_or(_workdata.EVAL_BASE, [], kind=list)
 
 
 def record_baseline(label):
@@ -889,7 +890,7 @@ def record_baseline(label):
     with _base_lock:
         items = read_baselines()
         items.append(rec)
-        ed_state.atomic_write(EVAL_BASE, json.dumps(items[-100:], ensure_ascii=False, indent=1).encode("utf-8"))
+        ed_state.atomic_write(_workdata.EVAL_BASE, json.dumps(items[-100:], ensure_ascii=False, indent=1).encode("utf-8"))
     return rec
 
 
@@ -918,8 +919,8 @@ def export_corrections(tid=None, audio=True, scope="changed"):
             docs = [tid] if tid else sorted(ed_store._tids())
         else:
             docs = [tid] if tid else [t for t, _ in _all_infos()]
-        os.makedirs(ed_state.TMP_DIR, exist_ok=True)
-        path = os.path.join(ed_state.TMP_DIR, "export-%s.zip" % uuid.uuid4().hex[:8])
+        os.makedirs(_workdata.TMP_DIR, exist_ok=True)
+        path = os.path.join(_workdata.TMP_DIR, "export-%s.zip" % uuid.uuid4().hex[:8])
         try:
             return _export_corrections_zip(path, docs, tid, ff, scope)
         except BaseException:   # 途中で失敗したら(評価用の指定・ディスク不足など)、作りかけの zip を残さない
@@ -962,7 +963,7 @@ def _export_corrections_zip(path, docs, tid, ff, scope):
                 name = None
                 if ff and src:
                     name = "audio/%s_%07d.wav" % (t, int(g["start"] * 100))
-                    tmp = os.path.join(ed_state.TMP_DIR, "clip-%s.wav" % uuid.uuid4().hex[:8])
+                    tmp = os.path.join(_workdata.TMP_DIR, "clip-%s.wav" % uuid.uuid4().hex[:8])
                     try:
                         r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, g["start"] - 0.2), "-i", src,
                                             "-t", "%.3f" % min(MAX_CLIP_SEC, g["end"] - g["start"] + 0.4), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", tmp],
@@ -1110,7 +1111,7 @@ def archive_doc(tid, full=True):
     """文字起こし1件を dataset/docs/<tid>/ に保管する(音声は、新しい行・時刻が変わった行だけ切り出す)。"""
     doc = ed_store.read_transcript(tid)
     doc["id"] = tid
-    root = os.path.join(ed_state.DATASET_DIR, "docs", tid)
+    root = os.path.join(_workdata.DATASET_DIR, "docs", tid)
     adir = os.path.join(root, "audio")
     os.makedirs(adir, exist_ok=True)
     old = _fsio.read_json_or(os.path.join(root, "manifest.json"), {}, kind=dict)
@@ -1133,8 +1134,8 @@ def archive_doc(tid, full=True):
     wav = None
     base = fpath if os.path.isfile(fpath) else None
     if src and ((full and not base) or (todo and not base)):
-        os.makedirs(ed_state.TMP_DIR, exist_ok=True)
-        wav = os.path.join(ed_state.TMP_DIR, "arch-%s.wav" % uuid.uuid4().hex[:8])
+        os.makedirs(_workdata.TMP_DIR, exist_ok=True)
+        wav = os.path.join(_workdata.TMP_DIR, "arch-%s.wav" % uuid.uuid4().hex[:8])
         try:
             ed_jobs.extract_audio({"cancel": False, "proc": None}, {"sourcePath": src, "start": start, "end": end, "boost": False}, wav)
             if full and _flac_cut(ff, wav, fpath, 0, 1e7):
@@ -1196,7 +1197,7 @@ def archive_doc(tid, full=True):
 def archive_rebuild_index():
     """docs/*/lines.jsonl から、全体の一覧 index.jsonl(校正した行・負例・聞き取れない行だけ)と、README・設定の写しを作り直す。"""
     rows = []
-    dd = os.path.join(ed_state.DATASET_DIR, "docs")
+    dd = os.path.join(_workdata.DATASET_DIR, "docs")
     for t in sorted(os.listdir(dd)) if os.path.isdir(dd) else []:
         try:
             with open(os.path.join(dd, t, "lines.jsonl"), "r", encoding="utf-8") as f:
@@ -1205,12 +1206,12 @@ def archive_rebuild_index():
                         rows.append(ln.strip())
         except (OSError, ValueError):
             continue
-    ed_state.atomic_write(os.path.join(ed_state.DATASET_DIR, "index.jsonl"), ("\n".join(rows) + ("\n" if rows else "")).encode("utf-8"))
-    ed_state.atomic_write(os.path.join(ed_state.DATASET_DIR, "README.txt"), ARCH_README.encode("utf-8"))
+    ed_state.atomic_write(os.path.join(_workdata.DATASET_DIR, "index.jsonl"), ("\n".join(rows) + ("\n" if rows else "")).encode("utf-8"))
+    ed_state.atomic_write(os.path.join(_workdata.DATASET_DIR, "README.txt"), ARCH_README.encode("utf-8"))
     st = load_settings()
     snap = {k: st.get(k) for k in ("glossary", "replacements", "learnIgnore", "model", "language", "vadMode") if k in st}
     snap["savedAt"] = int(time.time() * 1000)
-    ed_state.atomic_write(os.path.join(ed_state.DATASET_DIR, "settings-snapshot.json"), json.dumps(snap, ensure_ascii=False, indent=1).encode("utf-8"))
+    ed_state.atomic_write(os.path.join(_workdata.DATASET_DIR, "settings-snapshot.json"), json.dumps(snap, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
 def _arch_run(tids, full):
@@ -1248,8 +1249,8 @@ def start_archive(tid=None, full=True, wait=False):
                 pass
     if not tids:
         raise ed_state.ApiError("empty", "保管できる文字起こしがありません(校正済みの行がある文字起こしが対象です)", 400)
-    os.makedirs(ed_state.DATASET_DIR, exist_ok=True)
-    if shutil.disk_usage(ed_state.DATASET_DIR).free < ARCH_MIN_FREE:
+    os.makedirs(_workdata.DATASET_DIR, exist_ok=True)
+    if shutil.disk_usage(_workdata.DATASET_DIR).free < ARCH_MIN_FREE:
         raise ed_state.ApiError("disk", "ディスクの空きが少ないため、保管できません(1GB以上の空きが必要です)", 507)
     with _arch_lock:
         if _arch["running"]:
@@ -1265,7 +1266,7 @@ def start_archive(tid=None, full=True, wait=False):
 def dataset_stats():
     docs, tot = [], {"docs": 0, "positive": 0, "negative": 0, "unclear": 0, "positiveSec": 0.0, "negativeSec": 0.0, "audioBytes": 0, "stale": 0}
     spk = {}
-    dd = os.path.join(ed_state.DATASET_DIR, "docs")
+    dd = os.path.join(_workdata.DATASET_DIR, "docs")
     for t in sorted(os.listdir(dd)) if os.path.isdir(dd) else []:
         m = _fsio.read_json_or(os.path.join(dd, t, "manifest.json"), None, kind=dict)
         if m is None:

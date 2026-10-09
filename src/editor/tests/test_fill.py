@@ -23,7 +23,6 @@ from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
 from pipeline.transcribe import fill  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/fill.py を直に読む。旧 ed_fill)
 import ed_jobs  # noqa: E402
-import ed_state  # noqa: E402
 import ed_store  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 
@@ -193,7 +192,7 @@ class TestFillJob(StoreDir):
         self.assertEqual(([g["text"] for g in doc["segments"]][0], doc["params"]["autoFill"]), ("テスト文1", False))
         self.assertNotIn("fill", doc["recognition"]["runs"][0])
         self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
-        write_json(ed_state.SETTINGS, {"autoFill": False})
+        write_json(S.SETTINGS, {"autoFill": False})
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
         self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True})["autoFill"])
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True, "evalSet": True})["autoFill"])

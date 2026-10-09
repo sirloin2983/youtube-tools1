@@ -37,6 +37,7 @@ import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 
 EB_SCHEMA = "ytt-eval-batch/v1"
@@ -73,11 +74,11 @@ _eb_threads = []
 
 def eb_path():
     """作業データの eval-batch.json(テストは設定の置き場所の隣)"""
-    return os.path.join(os.path.dirname(ed_state.SETTINGS), EB_FILE)
+    return os.path.join(os.path.dirname(_workdata.SETTINGS), EB_FILE)
 
 
 def eb_lock_path():
-    return os.path.join(os.path.dirname(ed_state.SETTINGS), EB_LOCK)
+    return os.path.join(os.path.dirname(_workdata.SETTINGS), EB_LOCK)
 
 
 def eb_key(path):

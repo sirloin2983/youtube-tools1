@@ -13,6 +13,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 # ---------- 設定の比較(A/B): 校正済みの行の音声を複数の設定で認識し直し、正解との差を比べる(文字起こしは書き換えない) ----------
 MAX_AB_LINES = 300
@@ -67,9 +68,9 @@ def _fake_hyp(text, glossary, n):
 
 def run_abtest(job):
     spec = job["spec"]
-    wav = os.path.join(ed_state.TMP_DIR, job["id"] + ".wav")
+    wav = os.path.join(_workdata.TMP_DIR, job["id"] + ".wav")
     with ed_jobs.job_errors(job, wav):
-        os.makedirs(ed_state.TMP_DIR, exist_ok=True)
+        os.makedirs(_workdata.TMP_DIR, exist_ok=True)
         doc = ed_store.read_transcript(spec["tid"])
         src = ed_state.check_source(doc.get("sourcePath"))
         start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
@@ -121,18 +122,18 @@ def run_abtest(job):
             raise ed_jobs.Cancelled()
         result = {"id": job["id"], "tid": spec["tid"], "title": str(doc.get("title") or "")[:100], "at": ed_state.now_ms(), "lines": len(targets),
                   "language": spec["language"], "device": job.get("device", ""), "variants": out}
-        os.makedirs(ed_state.EVAL_DIR, exist_ok=True)
-        ed_state.atomic_write(os.path.join(ed_state.EVAL_DIR, job["id"] + ".json"), json.dumps(result, ensure_ascii=False, indent=1).encode("utf-8"))
-        old = sorted((os.path.join(ed_state.EVAL_DIR, n) for n in os.listdir(ed_state.EVAL_DIR) if n.endswith(".json")), key=os.path.getmtime)
+        os.makedirs(_workdata.EVAL_DIR, exist_ok=True)
+        ed_state.atomic_write(os.path.join(_workdata.EVAL_DIR, job["id"] + ".json"), json.dumps(result, ensure_ascii=False, indent=1).encode("utf-8"))
+        old = sorted((os.path.join(_workdata.EVAL_DIR, n) for n in os.listdir(_workdata.EVAL_DIR) if n.endswith(".json")), key=os.path.getmtime)
         for p in old[:-KEEP_EVALS]:
             ed_state.unlink_quiet(p)
         job["segments"], job["progress"], job["state"], job["phase"] = len(targets), 1.0, "done", "完了"
 
 
 def read_eval(eid):
-    if not ed_state.TID_RE.match(eid or "") or not os.path.isfile(os.path.join(ed_state.EVAL_DIR, eid + ".json")):
+    if not ed_state.TID_RE.match(eid or "") or not os.path.isfile(os.path.join(_workdata.EVAL_DIR, eid + ".json")):
         raise ed_state.ApiError("not_found", "比較の結果が見つかりません", 404)
-    d = _fsio.read_json_or(os.path.join(ed_state.EVAL_DIR, eid + ".json"), _BROKEN)
+    d = _fsio.read_json_or(os.path.join(_workdata.EVAL_DIR, eid + ".json"), _BROKEN)
     if d is _BROKEN:
         raise ed_state.ApiError("broken", "比較の結果を読み込めません", 500)
     return d
@@ -143,8 +144,8 @@ _BROKEN = object()   # read_eval: 読めなかった
 
 def list_evals(tid=None, limit=20):
     out = []
-    if os.path.isdir(ed_state.EVAL_DIR):
-        for n in os.listdir(ed_state.EVAL_DIR):
+    if os.path.isdir(_workdata.EVAL_DIR):
+        for n in os.listdir(_workdata.EVAL_DIR):
             if not n.endswith(".json") or not ed_state.TID_RE.match(n[:-5]):
                 continue
             try:
@@ -209,7 +210,7 @@ def read_marker():
     """切り抜きスタジオ(優先)と、旧クリップマーカーのマークを読む。どちらも読むだけで、書き換えない。"""
     videos, srcs, seen = [], [], set()
     out_dir = ""
-    for kind, path in (("studio", ed_state.STUDIO_DATA), ("marker", ed_state.MARKER_DATA)):
+    for kind, path in (("studio", _workdata.STUDIO_DATA), ("marker", _workdata.MARKER_DATA)):
         if not os.path.isfile(path):
             continue
         d = _read_json_file(path)
@@ -423,7 +424,7 @@ def clip_info(path):
 
 
 def transcript_v1(tid):
-    return ed_state.pio().build_transcript_v1(ed_store.read_transcript(tid), ed_state.SERVER_VERSION)
+    return ed_state.pio().build_transcript_v1(ed_store.read_transcript(tid), _workdata.SERVER_VERSION)
 
 
 def export_file(req):
@@ -446,13 +447,13 @@ def export_file(req):
         raise ed_state.ApiError("no_media", "元の動画が見つかりません(移動・削除した可能性があります): %s" % src, 400)
     suffix = pm.EXPORT_FORMATS[fmt]
     if fmt == "transcript-v1":
-        obj = pm.build_transcript_v1(doc, ed_state.SERVER_VERSION)
+        obj = pm.build_transcript_v1(doc, _workdata.SERVER_VERSION)
         count, schema = len(obj["segments"]), pm.TRANSCRIPT_SCHEMA
         if not count:
             raise ed_state.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
         data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     elif fmt == "cut-plan-v1":
-        obj = pm.build_cut_plan_v1(doc, ed_state.SERVER_VERSION)
+        obj = pm.build_cut_plan_v1(doc, _workdata.SERVER_VERSION)
         ed, _broken = ed_store.read_edit(tid)
         if ed:   # 「編集」のカットがあれば、残す区間はそのとおり(行の区間ではなく)
             obj["segments"] = [{"id": "segment-%03d" % i, "start": a, "end": b, "status": "adopted", "label": ""}
@@ -481,4 +482,4 @@ def export_file(req):
 
 def runtime_path_dir():
     """<editor の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則。"""
-    return _runtime.runtime_dir(ed_state.ROOT)
+    return _runtime.runtime_dir(_workdata.ROOT)

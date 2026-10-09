@@ -157,7 +157,7 @@ class TestYtcapPure(unittest.TestCase):
 class _YtStore(StoreDir):
     def setUp(self):
         super().setUp()
-        self.fb = mock.patch.object(ed_state, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
+        self.fb = mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
         self.fb.start()
         self.capdir = mock.patch.object(Y, "YTCAP_DIR", os.path.join(self.tmp, "ytcaps"))
         self.capdir.start()
@@ -233,10 +233,10 @@ class TestYtcapSuggest(_YtStore):
         self.assertIsNone(S.suggest_for_doc(TID)["yt"])
 
     def test_dict_version_ignores_yt(self):
-        write_json(ed_state.FEEDBACK, {"stat": {}, "dismissed": {}, "yt": {"acc": 1, "rej": "x"}})
+        write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "yt": {"acc": 1, "rej": "x"}})
         self.assertEqual(S.load_feedback()["yt"], {"acc": 1, "rej": 0})
         v1 = S.dict_version({"autoLearned": True})
-        write_json(ed_state.FEEDBACK, {"stat": {}, "dismissed": {}, "yt": {"acc": 9, "rej": 3}})
+        write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "yt": {"acc": 9, "rej": 3}})
         self.assertEqual(S.dict_version({"autoLearned": True}), v1)
 
 
@@ -422,7 +422,7 @@ class TestYtcapJob(_YtStore):
             w.setframerate(16000)
             w.writeframes(b"\0\0" * 16000 * 2)
         self.assertFalse(ed_jobs.validate_job({"sourcePath": src, "model": "small"})["autoYtcap"])
-        write_json(ed_state.SETTINGS, {"autoYtcap": True})
+        write_json(S.SETTINGS, {"autoYtcap": True})
         self.assertTrue(ed_jobs.validate_job({"sourcePath": src, "model": "small"})["autoYtcap"])
         self.assertFalse(ed_jobs.validate_job({"sourcePath": src, "model": "small", "autoYtcap": False})["autoYtcap"])
         self.assertFalse(ed_jobs.validate_job({"sourcePath": src, "model": "small", "evalSet": True})["autoYtcap"])

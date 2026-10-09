@@ -17,6 +17,7 @@ import time
 from ytt import jobs as _heavy  # noqa: E402
 import ed_misc  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 # ---------- 音の波形(カットのタイムライン用。docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
@@ -37,7 +38,7 @@ def peaks_rate(duration):
 
 def _peaks_files(path):
     h = hashlib.sha1(os.path.normcase(path).encode("utf-8", "surrogatepass")).hexdigest()[:24]
-    d = os.path.join(ed_state.DATA_DIR, "cache", "peaks")
+    d = os.path.join(_workdata.DATA_DIR, "cache", "peaks")
     return d, os.path.join(d, h + ".bin"), os.path.join(d, h + ".json")
 
 

@@ -104,14 +104,14 @@ def read_alt(S, tdir, tid):
 
 
 def read_feedback(S, root, key="alt"):
-    """学習の記録(learn-feedback.json)の alt(yt)= {acc, rej} か None。読み方は editor の load_feedback(置き場所を一時的に差し替えて呼ぶ)"""
-    import ed_state
-    old = ed_state.FEEDBACK
-    ed_state.FEEDBACK = os.path.join(root, "learn-feedback.json")
+    """学習の記録(learn-feedback.json)の alt(yt)= {acc, rej} か None。読み方は editor の load_feedback(置き場所 S.FEEDBACK を一時的に差し替えて呼ぶ。
+    持ち主は ytt/workdata = serve の名前の受付が届ける。RS3-0A まで ed_state に直に代入していた)"""
+    old = S.FEEDBACK
+    S.FEEDBACK = os.path.join(root, "learn-feedback.json")
     try:
         return S.load_feedback().get(key)
     finally:
-        ed_state.FEEDBACK = old
+        S.FEEDBACK = old
 
 
 # ---------------------------------------------------------------- 数の小道具

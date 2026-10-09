@@ -16,31 +16,23 @@ import sys
 import threading
 import time
 
-from ytt import errors as _errors, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 from pipeline.transcribe import worker_client as _txworker  # noqa: E402   (IN_WORKER・ワーカーの本体のパスと環境。RS2-6 に ed_jobs から移した)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
-SERVER_VERSION = None   # serve.py が読み込みのときに入れる(版の正は serve.py の SERVER_VERSION。入口がその行を読むため)
-ROOT = os.path.dirname(os.path.abspath(__file__))
-INDEX = os.path.join(ROOT, "index.html")
-APP_JS = os.path.join(ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
-UI_KIT_JS = os.path.join(ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(dev/sync_ui_kit.py。同上)
+# 版(SERVER_VERSION)・このフォルダ(ROOT)・作業データの置き場所(段階4。DATA_DIR・TX_DIR・TMP_DIR・DATASET_DIR・EVAL_DIR・EVAL_BASE・SETTINGS・FEEDBACK)・
+# スタジオと clip-marker の data.json(STUDIO_DATA・MARKER_DATA)の今の値の持ち主は ytt/workdata(RS3-0A。下の層の部品も同じ名前を直に読むため。
+# ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt_core.datadir で決めて
+# serve.set_data_dir() で切り替え、認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す。import した直後はこのフォルダ(テスト用)= 下の set_root
+_workdata.set_root(os.path.dirname(os.path.abspath(__file__)))
+INDEX = os.path.join(_workdata.ROOT, "index.html")
+APP_JS = os.path.join(_workdata.ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
+UI_KIT_JS = os.path.join(_workdata.ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(dev/sync_ui_kit.py。同上)
 PAGE_JS = ("cut.js", "pack-tab.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
-# 作業データの置き場所(段階4)。起動時に prepare() が ytt_core.datadir で決めて set_data_dir() で切り替え、
-# 認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す(ワーカーは import した時点でそれを使う)。import した直後はこのフォルダ(テスト用)
-DATA_DIR = os.environ.get("TRANSCRIBE_DATA_DIR") or ROOT
-TX_DIR = os.path.join(DATA_DIR, "transcripts")
-ROSTER = os.path.join(ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)
-DATASET_DIR = os.path.join(DATA_DIR, "dataset")   # 校正の成果と音声の保管(将来の学習・声紋登録用)
-EVAL_DIR = os.path.join(DATA_DIR, "evals")   # 設定の比較(A/B)の結果
-TMP_DIR = os.path.join(TX_DIR, ".tmp")
-SETTINGS = os.path.join(DATA_DIR, "settings.json")
-FEEDBACK = os.path.join(DATA_DIR, "learn-feedback.json")   # 提案の採用・却下の記録(設定ファイルとは別にして、画面側の保存と競合させない)
-MARKER_DATA = os.environ.get("TRANSCRIBE_MARKER_DATA") or os.path.join(os.path.dirname(ROOT), "clip-marker", "data.json")
-STUDIO_DATA = os.environ.get("TRANSCRIBE_STUDIO_DATA") or os.path.join(_layout.tool_dir("studio", os.path.dirname(ROOT)), "data.json")   # 切り抜きスタジオのマーク(読むだけ)
+ROSTER = os.path.join(_workdata.ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)
 PORT = 8775
 ALLOWED_HOSTS = set()
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(home/mount.py が prepare() で入れる)
@@ -70,7 +62,7 @@ def valid_model(name):
     if not isinstance(name, str) or len(name) > 100 or not MODEL_RE.match(name):
         return False
     try:
-        return not (os.path.exists(name) or os.path.exists(os.path.join(ROOT, name)))
+        return not (os.path.exists(name) or os.path.exists(os.path.join(_workdata.ROOT, name)))
     except (OSError, ValueError):
         return False
 MEDIA_TYPES = {
@@ -140,9 +132,9 @@ fake_sleep = _fake_asr.fake_wait   # lint: keep 別名(RS2-2)= 疑似のバッ�
 # ---------- 記録(落ちたときの手がかり) ----------
 # serve.log: 起動・終了・ジョブの開始と終了(使っているメモリつき)・例外。serve.crash.log: Python が捕まえられない異常終了(ネイティブの落ち)のときの手がかり。
 # .running.json: 起動中の印(実行中のジョブつき)。正常に終了すれば消える。次の起動で残っていれば「前回は異常終了」と表示する。
-LOG_FILE = os.path.join(DATA_DIR, "serve.log")
-CRASH_FILE = os.path.join(DATA_DIR, "serve.crash.log")
-RUN_MARK = os.path.join(DATA_DIR, ".running.json")
+LOG_FILE = os.path.join(_workdata.DATA_DIR, "serve.log")
+CRASH_FILE = os.path.join(_workdata.DATA_DIR, "serve.crash.log")
+RUN_MARK = os.path.join(_workdata.DATA_DIR, ".running.json")
 TOOL_ID = "transcribe"   # docs/spec/pipeline.md の 4 のツールID(.runtime/transcribe.json)
 _pio_mod = []
 
@@ -296,7 +288,7 @@ def worker_python():
     """認識ワーカーを動かす Python。Mac/Linux で このフォルダに .venv があればそちら(install.command が faster-whisper を入れる先。
     入口(home/launch.py)が単独起動のときに使うのと同じ規則)。Windows は今と同じ Python。"""
     if os.name != "nt":
-        v = os.path.join(ROOT, ".venv", "bin", "python")
+        v = os.path.join(_workdata.ROOT, ".venv", "bin", "python")
         if os.path.isfile(v):
             return v
     return sys.executable
@@ -348,7 +340,7 @@ def _probe_gpu():
     ok = False
     try:
         p = subprocess.run([worker_python(), _txworker.worker_script(), "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=120, env=_txworker.worker_env(), cwd=ROOT, creationflags=_tools.no_window_flags(new_group=True))
+                           timeout=120, env=_txworker.worker_env(), cwd=_workdata.ROOT, creationflags=_tools.no_window_flags(new_group=True))
         ok = p.returncode == 0 and b'"cuda": true' in (p.stdout or b"")
     except (OSError, subprocess.SubprocessError):
         ok = False

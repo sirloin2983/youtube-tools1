@@ -20,9 +20,10 @@ import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 # ---------- 文字起こしの保存 ----------
 def tx_path(tid):
-    return os.path.join(ed_state.TX_DIR, tid + ".json")
+    return os.path.join(_workdata.TX_DIR, tid + ".json")
 
 
 def write_doc(tid, doc):
@@ -40,7 +41,7 @@ def snapshot(tid, force=True):
 
 def backup_doc(tid, kind):
     """機械が行を書き換える前の控え: .bak/<id>.pre-<kind>.json(直前の 1 世代)と履歴(「以前の版に戻す」で戻せる)"""
-    bak = os.path.join(ed_state.TX_DIR, ".bak")
+    bak = os.path.join(_workdata.TX_DIR, ".bak")
     os.makedirs(bak, exist_ok=True)
     shutil.copy2(tx_path(tid), os.path.join(bak, "%s.pre-%s.json" % (tid, kind)))
     snapshot(tid)
@@ -250,7 +251,7 @@ def transcript_summary(tid):
 
 
 def _tids():
-    return [n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5])]
+    return [n[:-5] for n in (os.listdir(_workdata.TX_DIR) if os.path.isdir(_workdata.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5])]
 
 
 def prune_cache(cache, keep, lock=None):
@@ -296,7 +297,7 @@ def _studio_load():
     """切り抜きスタジオの data.json(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
     -> ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])。一覧のたびに大きな data.json を読み直さないよう、
     ファイルの更新日時と大きさが同じなら前の結果を使う。"""
-    path = ed_state.STUDIO_DATA
+    path = _workdata.STUDIO_DATA
     r = _studio_cache.get(path, _studio_parse)
     _studio_cache.prune([path])   # 覚えるのは今の場所の 1 つだけ
     return r if r is not None else ({}, [])
@@ -408,7 +409,7 @@ _save_lock = threading.Lock()
 
 
 def _hist_dir(tid):
-    return os.path.join(ed_state.TX_DIR, ".hist", tid)
+    return os.path.join(_workdata.TX_DIR, ".hist", tid)
 
 
 def hist_stamps(tid):
@@ -573,7 +574,7 @@ _edit_cache = {}   # tid -> ((更新日時ns, 大きさ), 一覧用の要約)
 
 
 def edit_path(tid):
-    return os.path.join(ed_state.TX_DIR, tid + ".edit.json")
+    return os.path.join(_workdata.TX_DIR, tid + ".edit.json")
 
 
 _real = _yschemas.num   # JSON の数(真偽値・文字列・NaN・float にできない巨大な整数は数として扱わない)。-> float か None
@@ -755,7 +756,7 @@ def edit_draft(tid, rows=False):
         return unavailable("source_missing", "元の動画が見つかりません(移動・削除した可能性があります)")
     try:
         need = bool(rows) or not read_edit(tid)[0]
-        out = resolve_export.edit_draft(doc, ed_state.SERVER_VERSION, rows=need, row_edge=ed_learn.load_settings().get("rowEdge"), heavy=_draft_slot)
+        out = resolve_export.edit_draft(doc, _workdata.SERVER_VERSION, rows=need, row_edge=ed_learn.load_settings().get("rowEdge"), heavy=_draft_slot)
     except resolve_export.ResolveExportError as e:
         msg = str(e)
         if "動画ストリーム" in msg:
@@ -794,7 +795,7 @@ def edit_preview(obj):
     if not src or _fsio.is_network_path(src) or not os.path.isfile(src):
         raise ed_state.ApiError("no_media", "元の動画が見つかりません", 400)
     try:
-        return resolve_export.edit_preview(doc, keeps, ed_state.SERVER_VERSION, wrap_arg(obj.get("wrap")))
+        return resolve_export.edit_preview(doc, keeps, _workdata.SERVER_VERSION, wrap_arg(obj.get("wrap")))
     except resolve_export.ResolveExportError as e:
         raise ed_state.ApiError("preview_failed", str(e), 400)
 
@@ -861,7 +862,7 @@ def save_edit(tid, obj):
             raise ed_state.ApiError("conflict", "別のタブか窓で、先にカットが保存されています。読み直すか、こちらの内容で上書きするか選んでください", 409, {"rev": rev})
         if broken:   # 壊れたファイルは上書きする前に1つだけ残す(調べられるように)
             try:
-                shutil.copy2(edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"))
+                shutil.copy2(edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"))
             except OSError:
                 pass
         now = ed_state.now_ms()

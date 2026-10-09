@@ -98,6 +98,7 @@ def _load_core():
 
 _load_core()
 from ytt import datadir as _datadir, httpsec, jobs as _heavy_jobs, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402  (置き場所と版の今の値。RS3-0A に ed_state から移した = S.TX_DIR = … はここへ届く)
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
@@ -121,14 +122,15 @@ from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
-SERVER_VERSION = "0.67.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
-ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
+SERVER_VERSION = "0.67.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ytt/workdata の SERVER_VERSION で読む)
+ed_state.APP_ID = APP_ID
+_workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から持ち主は ytt/workdata)
 
 
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)
+_ED_MODULES = (_workdata, ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)
 _ED_MODULES += (_txretime, ed_retime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は ed_retime より前)・文書を読む包みが ed_retime
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
@@ -154,15 +156,15 @@ _heavy_jobs.register("normalize", lambda job: ed_relink.run_normalize(job), has_
 _heavy_jobs.register("alt", lambda job: ed_alt.run_alt(job), priority=2, exclusive=("alt",), has_tid=True)   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
 _heavy_jobs.register("ytcap", lambda job: ed_ytcap.run_ytcap(job), priority=2, exclusive=("ytcap",), has_tid=True)   # 元の配信の YouTube の字幕(案 A1)
 _heavy_jobs.register("thumb", lambda job: ed_thumb.run_thumb(job), exclusive=("thumb",), has_tid=True)   # サムネの案を 1 枚に(文書は読むだけ。P5)
-_heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: ed_state.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
+_heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
                       mark=lambda info: ed_state.write_mark(info), after=lambda: _txworker.models_touched(),
                       idle=lambda: _txworker.release_idle_models(), no_retry=lambda: _docjobs.NO_RETRY)
 
 
 # ---------- 認識の部品の口(役割で組み直す RS2-2)----------
-# 置き場所と外の道具: 呼ぶたびに ed_state の今の値を返す(set_data_dir・テストの S.TX_DIR = …・patch.object(S, "check_source") が効く。RS3 で ytt/settings に置き換える)
-_txenv.register(DATA_DIR=lambda: ed_state.DATA_DIR, TX_DIR=lambda: ed_state.TX_DIR, TMP_DIR=lambda: ed_state.TMP_DIR, ROOT=lambda: ed_state.ROOT,
-                ROSTER=lambda: ed_state.ROSTER, SERVER_VERSION=lambda: ed_state.SERVER_VERSION,
+# 置き場所と外の道具: 呼ぶたびに持ち主(置き場所は ytt/workdata)の今の値を返す(set_data_dir・テストの S.TX_DIR = …・patch.object(S, "check_source") が効く。RS3-0A の E3 で消す)
+_txenv.register(DATA_DIR=lambda: _workdata.DATA_DIR, TX_DIR=lambda: _workdata.TX_DIR, TMP_DIR=lambda: _workdata.TMP_DIR, ROOT=lambda: _workdata.ROOT,
+                ROSTER=lambda: ed_state.ROSTER, SERVER_VERSION=lambda: _workdata.SERVER_VERSION,
                 find_ffmpeg=lambda: ed_state.find_ffmpeg, worker_python=lambda: ed_state.worker_python, worker_fake=lambda: ed_state.worker_fake,
                 gpu_ready=lambda: ed_state.gpu_ready, has_faster_whisper=lambda: ed_state.has_faster_whisper,
                 media_duration=lambda: ed_state.media_duration, check_source=lambda: ed_state.check_source,
@@ -178,7 +180,7 @@ ed_jobs._add_moved(fake_asr)
 _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
 # 本体は worker_client と同じフォルダの pipeline/transcribe/worker.py(RS2-9。serve を読まない)。worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前
-_txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")
+_txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")
 _txworker.FAKES_MODULE = fake_worker.__name__
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
 _txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
@@ -212,14 +214,14 @@ def _tid_arg(tid, required=True):
 
 def _ping():
     w = _txworker.WORKER   # 認識ワーカーの状態(入口の「調子」が読む。段9 9-1)
-    return {"app": ed_state.APP_ID, "version": ed_state.SERVER_VERSION,
+    return {"app": ed_state.APP_ID, "version": _workdata.SERVER_VERSION,
             "worker": {"alive": w.alive(), "pid": (w.proc.pid if w.proc is not None else None), "starts": w.starts,
                        "lastUsedAgo": (int(time.time() - w.last_used) if w.last_used else None), "silenceTimeoutSec": _txworker.WORKER_SILENCE_TIMEOUT}}
 
 
 def _tools_info():
     return {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
-            "backend": ed_state.backend_name(), "diarize": _txdiarize.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
+            "backend": ed_state.backend_name(), "diarize": _txdiarize.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": _workdata.TX_DIR,
             "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **_txworker.engines_info()}
 
 
@@ -479,14 +481,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_path(ed_state.INDEX, "text/html; charset=utf-8", PAGE_HEADERS)
             if u.path in ("/app.js", "/ui-kit.js"):
                 return self._send_path(ed_state.APP_JS if u.path == "/app.js" else ed_state.UI_KIT_JS, "text/javascript; charset=utf-8")
-            if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(ed_state.ROOT, name)):
-                return self._send_path(os.path.join(ed_state.ROOT, name), "text/javascript; charset=utf-8")
+            if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(_workdata.ROOT, name)):
+                return self._send_path(os.path.join(_workdata.ROOT, name), "text/javascript; charset=utf-8")
             fn = GET_API.get(u.path)
             if fn is not None:
                 return self._json(200, fn(arg))
             if u.path == "/api/settings":
                 try:
-                    with open(ed_state.SETTINGS, "rb") as f:
+                    with open(_workdata.SETTINGS, "rb") as f:
                         raw = f.read()
                     return self._send(200, raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw, "application/json")
                 except OSError:
@@ -566,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
             spk_map = _colors.speaker_colors(s.get("name") for s in tdoc.get("speakers") or [] if isinstance(s, dict))[0] \
                 if obj.get("speakerColors") is not False else {}   # A-2: 話者の名前ごとの字幕の色(既定はオン)
             ed, _broken = ed_store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
-            zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, ed_state.SERVER_VERSION,
+            zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, _workdata.SERVER_VERSION,
                                                               keeps=ed_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
                                                               row_edge=ed_learn.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
                                                               wrap=ed_store.wrap_arg(obj.get("wrap"), obj.get("size")),
@@ -621,7 +623,7 @@ class Handler(BaseHTTPRequestHandler):
             with ed_store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
-                for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
+                for extra in (ed_store.edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
                               _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
                               ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), _txllm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
                     try:
@@ -647,7 +649,7 @@ def probe(port):
 def make_server(start_port):
     for p in range(start_port, start_port + 20):
         ver = probe(p)
-        if ver == ed_state.SERVER_VERSION:
+        if ver == _workdata.SERVER_VERSION:
             return None, p
         if ver is not None:
             print("※ ポート%d では古い版のサーバーが動いています。その黒い画面を閉じておくと迷いません。" % p)
@@ -675,14 +677,14 @@ def startup_checks():
     if not ed_state.find_ffmpeg():
         out.append("ffmpeg が見つかりません。文字起こし・話者判別ができません(README の ① の 2)。入れたあとは黒い画面を閉じて起動し直してください")
     try:
-        os.makedirs(ed_state.TX_DIR, exist_ok=True)
-        probe_path = os.path.join(ed_state.TX_DIR, ".write-test")
+        os.makedirs(_workdata.TX_DIR, exist_ok=True)
+        probe_path = os.path.join(_workdata.TX_DIR, ".write-test")
         ed_state.atomic_write(probe_path, b"ok")
         os.unlink(probe_path)
     except OSError as e:
-        out.append("保存先に書き込めません: %s(%s)。フォルダを書き込みできる場所(デスクトップなど)へ移してください" % (ed_state.TX_DIR, e.strerror or e.__class__.__name__))
+        out.append("保存先に書き込めません: %s(%s)。フォルダを書き込みできる場所(デスクトップなど)へ移してください" % (_workdata.TX_DIR, e.strerror or e.__class__.__name__))
     try:
-        free = shutil.disk_usage(ed_state.ROOT).free
+        free = shutil.disk_usage(_workdata.ROOT).free
         if free < MIN_FREE_BYTES:
             out.append("ディスクの空きが少なくなっています(残り %.1fGB)。長い動画の文字起こし・保管が途中で失敗することがあります" % (free / 1024 ** 3))
     except OSError:
@@ -692,8 +694,8 @@ def startup_checks():
     try:
         with open(ed_state.APP_JS, "r", encoding="utf-8") as f:   # 版番号は app.js 側にある(index.html はインラインの <script> を外したため)
             m = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", f.read())
-        if m and m.group(1) != ed_state.SERVER_VERSION:
-            out.append("画面(app.js v%s)とサーバー(serve.py v%s)の版が違います。フォルダの中身をまとめて更新してください" % (m.group(1), ed_state.SERVER_VERSION))
+        if m and m.group(1) != _workdata.SERVER_VERSION:
+            out.append("画面(app.js v%s)とサーバー(serve.py v%s)の版が違います。フォルダの中身をまとめて更新してください" % (m.group(1), _workdata.SERVER_VERSION))
     except OSError:
         out.append("app.js が見つかりません。フォルダの中身をまとめて置き直してください")
     except UnicodeError:
@@ -713,20 +715,13 @@ DATA_ITEMS = ("transcripts", "dataset", "evals", "models", "settings.json", "lea
 
 def set_data_dir(d):
     """作業データの置き場所を切り替える(起動時に1回。ジョブが動く前)。ワーカーにも環境変数で伝える"""
-    ed_state.DATA_DIR = os.path.abspath(d)
-    ed_state.TX_DIR = os.path.join(ed_state.DATA_DIR, "transcripts")
-    ed_state.TMP_DIR = os.path.join(ed_state.TX_DIR, ".tmp")
-    ed_state.DATASET_DIR = os.path.join(ed_state.DATA_DIR, "dataset")
-    ed_state.EVAL_DIR = os.path.join(ed_state.DATA_DIR, "evals")
-    ed_state.SETTINGS = os.path.join(ed_state.DATA_DIR, "settings.json")
-    ed_state.FEEDBACK = os.path.join(ed_state.DATA_DIR, "learn-feedback.json")
-    ed_state.LOG_FILE = os.path.join(ed_state.DATA_DIR, "serve.log")
-    ed_state.CRASH_FILE = os.path.join(ed_state.DATA_DIR, "serve.crash.log")
-    ed_state.RUN_MARK = os.path.join(ed_state.DATA_DIR, ".running.json")
-    _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")   # (判別のモデル models/diar と覚えた声 voices の置き場所は、話者の部品が呼ぶたびに txenv の DATA_DIR から作る。RS2-9)
-    ed_learn.EVAL_BASE = os.path.join(ed_state.DATA_DIR, "eval-baselines.json")
-    os.environ["TRANSCRIBE_DATA_DIR"] = ed_state.DATA_DIR
-    _datadir.register(ed_state.TOOL_ID, ed_state.DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt_core.datadir の1か所。2026-10-01)
+    _workdata.set_data_dir(os.path.abspath(d))   # 文書・一時・保管・比較・基準・設定・提案の記録のパス(持ち主は ytt/workdata。RS3-0A)
+    ed_state.LOG_FILE = os.path.join(_workdata.DATA_DIR, "serve.log")
+    ed_state.CRASH_FILE = os.path.join(_workdata.DATA_DIR, "serve.crash.log")
+    ed_state.RUN_MARK = os.path.join(_workdata.DATA_DIR, ".running.json")
+    _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")   # (判別のモデル models/diar と覚えた声 voices の置き場所は、話者の部品が呼ぶたびに txenv の DATA_DIR から作る。RS2-9)
+    os.environ["TRANSCRIBE_DATA_DIR"] = _workdata.DATA_DIR
+    _datadir.register(ed_state.TOOL_ID, _workdata.DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt_core.datadir の1か所。2026-10-01)
 
 
 def studio_data_path():
@@ -734,18 +729,18 @@ def studio_data_path():
     決めた場所に無く、登録も STUDIO_HOME も無ければ以前の場所(スタジオのフォルダ。移す前のデータ)"""
     if os.environ.get("TRANSCRIBE_STUDIO_DATA"):
         return os.environ["TRANSCRIBE_STUDIO_DATA"]
-    legacy = _layout.tool_dir("studio", os.path.dirname(ed_state.ROOT))
-    new = os.path.join(_datadir.resolve("studio", os.path.dirname(ed_state.ROOT), legacy_dir=legacy), "data.json")
+    legacy = _layout.tool_dir("studio", os.path.dirname(_workdata.ROOT))
+    new = os.path.join(_datadir.resolve("studio", os.path.dirname(_workdata.ROOT), legacy_dir=legacy), "data.json")
     return new if os.path.isfile(new) or _datadir.registered("studio") or _datadir.override("studio") else os.path.join(legacy, "data.json")
 
 
 def choose_data_dir():
     """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt_core.datadir(以前のデータがあれば新しい置き場へコピー)"""
-    ed_state.STUDIO_DATA = studio_data_path()
+    _workdata.STUDIO_DATA = studio_data_path()
     if os.environ.get("TRANSCRIBE_DATA_DIR"):
         set_data_dir(os.environ["TRANSCRIBE_DATA_DIR"])
         return
-    r = _datadir.prepare(ed_state.TOOL_ID, ed_state.ROOT, DATA_ITEMS, log=lambda m: print(m, flush=True))
+    r = _datadir.prepare(ed_state.TOOL_ID, _workdata.ROOT, DATA_ITEMS, log=lambda m: print(m, flush=True))
     for w in r["warnings"]:
         print("※ " + w, flush=True)
     set_data_dir(r["dir"])
@@ -767,20 +762,20 @@ def prepare(port, base_path="/", hooks=False):
         msg = "前回は正常に終了しませんでした(落ちた・黒い画面を×で閉じた・強制終了のいずれか)。" + (
             "そのとき実行中だったジョブ: %s %s モデル=%s「%s」" % (job.get("kind", ""), job.get("id", ""), job.get("model", ""), job.get("title", "")) if job else "実行中のジョブはありませんでした")
         print("※", msg)
-        print("  詳しくは %s の serve.log・serve.crash.log・worker.log を見てください" % ed_state.DATA_DIR)
+        print("  詳しくは %s の serve.log・serve.crash.log・worker.log を見てください" % _workdata.DATA_DIR)
         ed_state.log.warning("前回の異常終了を検出: %s", msg)
     ed_state._run_state["started"] = int(time.time())
     ed_state.write_mark(None)
     pm = ed_state.pio(required=False)
-    rt = pm.write_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, port, ed_state.SERVER_VERSION, base_path) if pm else None   # 他のツールの「他のツール」メニューがこのポートを知るため
+    rt = pm.write_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path) if pm else None   # 他のツールの「他のツール」メニューがこのポートを知るため
     if rt is None:
         ed_state.log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", ed_misc.runtime_path_dir())
-    ed_state.log.info("起動 v%s ポート%d%s メモリ %s python %s", ed_state.SERVER_VERSION, port, "" if base_path == "/" else " 場所" + base_path, ed_state._mem(), sys.version.split()[0])
+    ed_state.log.info("起動 v%s ポート%d%s メモリ %s python %s", _workdata.SERVER_VERSION, port, "" if base_path == "/" else " 場所" + base_path, ed_state._mem(), sys.version.split()[0])
     _env_warnings[:] = startup_checks()
     for w in _env_warnings:
         print("※", w)
         ed_state.log.warning("環境: %s", w)
-    if "onedrive" in ed_state.DATA_DIR.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
+    if "onedrive" in _workdata.DATA_DIR.lower():   # 同期中のファイルは一瞬開けないことがある(保存は数回やり直すが、念のため知らせる)
         print("※ OneDrive の同期フォルダの中で動いています。保存に失敗することがあれば、同期を一時停止するか、同期しないフォルダへ移してください")
     if not _started:
         _started.append(True)
@@ -839,7 +834,7 @@ def main():
     install_stop_signals()
     prepare(port, "/", hooks=True)
     print("文字起こしツール:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
-    print("保存先:", ed_state.TX_DIR)
+    print("保存先:", _workdata.TX_DIR)
     if "--no-open" not in sys.argv:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

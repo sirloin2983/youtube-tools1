@@ -32,6 +32,7 @@ import ed_alt  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
 
@@ -214,7 +215,7 @@ def ytcap_fetch(job, vid):
     if not YTCAP_VID_RE.match(str(vid or "")):   # 引数に入るので、形を確かめてから(呼ぶ側でも確かめている)
         raise ed_state.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
     cmd0 = ytcap_command()
-    work = os.path.join(ed_state.TMP_DIR, job["id"] + "-ytcap")
+    work = os.path.join(_workdata.TMP_DIR, job["id"] + "-ytcap")
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work, exist_ok=True)
     try:
@@ -302,7 +303,7 @@ def ytcap_parse_json3(obj):
 
 # ---------- 配信ごとの字幕の置き場所(使い回す) ----------
 def ytcap_dir():
-    return YTCAP_DIR or os.path.join(ed_state.DATA_DIR, "ytcaps")
+    return YTCAP_DIR or os.path.join(_workdata.DATA_DIR, "ytcaps")
 
 
 def ytcap_video_path(vid):
@@ -453,7 +454,7 @@ def ytcap_diffs(rows, yt_rows):
 
 # ---------- ジョブ ----------
 def ytcap_path(tid):
-    return os.path.join(ed_state.TX_DIR, tid + ".ytcap.json")
+    return os.path.join(_workdata.TX_DIR, tid + ".ytcap.json")
 
 
 def read_ytcap(tid):

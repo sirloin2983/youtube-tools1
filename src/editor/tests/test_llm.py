@@ -196,7 +196,7 @@ class TestLlmJob(StoreDir):
         self.assertEqual((doc["segments"][0]["text"], doc["params"]["autoLlm"]), ("テスト文1", False))
         self.assertNotIn("llm", doc["recognition"]["runs"][0])
         self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoLlm"])
-        write_json(ed_state.SETTINGS, {"autoLlm": False})
+        write_json(S.SETTINGS, {"autoLlm": False})
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoLlm"])
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoLlm": True, "evalSet": True})["autoLlm"])
 
