@@ -47,10 +47,6 @@ ANCHOR_A_MIN, ANCHOR_A_MAX = 0.5, 1.5   # アンカー点から求めた傾き(�
 MIN_ANCHOR_GAP = 20.0   # 2点指定のとき、この動画の時刻でこれ以上離れていることを要求する(近すぎると傾きが不安定)
 
 
-def now_ms():
-    return int(time.time() * 1000)
-
-
 def _pos_int(x):
     return schemas.is_int(x) and x > 0
 
@@ -61,7 +57,7 @@ _BY_TIME = operator.itemgetter("start", "end")      # 時刻の順
 
 def _ms_or_now(x):
     """保存された時刻(ミリ秒の正の整数)。壊れていれば今の時刻"""
-    return x if _pos_int(x) else now_ms()
+    return x if _pos_int(x) else schemas.now_ms()
 
 
 def _warn(msg):
@@ -207,7 +203,7 @@ def _build_mark(m, old, trusted=False):
 
 def _new_mark(prefix, s, e, status=""):
     """サーバーが作る新しいマーク(手動・ラベルなしで整形する。src などは呼び出し側が上書きする)。id は prefix + 乱数"""
-    return _build_mark({"id": prefix + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": status, "createdAt": now_ms()}, None)
+    return _build_mark({"id": prefix + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": status, "createdAt": schemas.now_ms()}, None)
 
 
 def load_marks(raw):
@@ -582,7 +578,7 @@ class Store:
     def _bump(self, nv):
         """動画の新しい状態(nv)の版を上げて保存する。"""
         nv["rev"] += 1
-        nv["updatedAt"] = now_ms()
+        nv["updatedAt"] = schemas.now_ms()
         self._commit(nv["id"], nv)
 
     def _need(self, vid):
@@ -657,7 +653,7 @@ class Store:
                 raise ApiError("conflict", "同じ ID の別の配信があります", 409)
             if v is None:
                 nv = {"id": vid, "kind": src["kind"], "title": "", "channel": "", "duration": dur, "fileName": "", "path": "", "marks": [], "analysis": None, "rev": 1,
-                      "createdAt": now_ms(), "updatedAt": now_ms()}
+                      "createdAt": schemas.now_ms(), "updatedAt": schemas.now_ms()}
                 if src["kind"] == "file":
                     nv["fileName"] = os.path.basename(src["path"])[:200]
                     nv["path"] = src["path"]
@@ -980,7 +976,7 @@ class Store:
                 raise ApiError("too_many", "グループは%d件までです" % MAX_GROUPS, 400)
             self._check_free(ids)
             gid = _new_group_id(self.groups)
-            now = now_ms()
+            now = schemas.now_ms()
             g = {"id": gid, "name": str(name or "").strip()[:120], "base": base, "members": ids,
                  "offsets": {vid: [] for vid in ids if vid != base}, "createdAt": now, "updatedAt": now}
             self._commit_group(gid, g)
@@ -1016,7 +1012,7 @@ class Store:
 
     def _save_group(self, g, **changes):
         """グループ g を changes で変えて保存し(updatedAt を付ける)、要約を返す"""
-        ng = dict(g, updatedAt=now_ms(), **changes)
+        ng = dict(g, updatedAt=schemas.now_ms(), **changes)
         self._commit_group(g["id"], ng)
         return self._group_summary(ng)
 

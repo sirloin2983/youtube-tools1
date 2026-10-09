@@ -9,8 +9,7 @@ import uuid
 import analyze
 import common
 from common import ApiError
-from store import now_ms as _now_ms
-from ytt import jobs  # common が ytt_core を読めるようにしてある
+from ytt import jobs, schemas  # common が ytt_core を読めるようにしてある
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
@@ -53,7 +52,7 @@ class Batch:
 
     def _finish(self, it, status, error="", phase=None):
         self._fseq += 1
-        it["status"], it["error"], it["fseq"], it["finishedAt"] = status, error, self._fseq, _now_ms()
+        it["status"], it["error"], it["fseq"], it["finishedAt"] = status, error, self._fseq, schemas.now_ms()
         if status in ("skipped", "cancelled"):
             analyze.cancel_prefetch(it["videoId"])   # 先読み中なら止める
         it["phase"] = phase or {"done": "完了", "error": "失敗", "cancelled": "中止しました", "skipped": "取り除きました"}[status]
@@ -278,6 +277,6 @@ class Batch:
 
     def _apply(self, it, job):
         res = job["result"]
-        a = {"at": _now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type")}
+        a = {"at": schemas.now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type")}
         cands = [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"], "reasons": c["reasons"]} for c in res["candidates"]]
         return self.store.replace_auto(it["videoId"], cands, a, res["source"].get("duration"), res["series"])

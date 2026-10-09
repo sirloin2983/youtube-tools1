@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import time
 
 from . import fsio
 
@@ -20,6 +21,11 @@ CLIP_MARK_SRCS = ("auto", "manual", "collab")
 def iso_now():
     """書いた日時(ISO 8601・時差付き・秒まで。例: 2026-09-24T12:00:00+09:00)。"""
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def now_ms():
+    """今の時刻(エポックのミリ秒の整数。文書・記録の at・updatedAt・createdAt と同じ単位。スタジオの store.now_ms の正。RS3-0B)"""
+    return int(time.time() * 1000)
 
 
 def num(v):

@@ -547,6 +547,15 @@ class TestRuntime(unittest.TestCase):
 
 
 class TestSchemas(unittest.TestCase):
+    def test_now_ms(self):
+        """今の時刻のミリ秒(整数。文書・記録の at・updatedAt と同じ単位。RS3-0B でスタジオの store.now_ms から出した)"""
+        import time
+        before = int(time.time() * 1000)
+        v = schemas.now_ms()
+        after = int(time.time() * 1000)
+        self.assertIs(type(v), int)
+        self.assertTrue(before <= v <= after, (before, v, after))
+
     def test_build_and_validate_clip(self):
         d = schemas.build_clip(os.path.join("x", "動画_0012.mp4"), 45.2345,
                                {"kind": "youtube", "videoId": "abcdefghijk", "title": "配信", "path": "/secret"},
