@@ -82,6 +82,56 @@ class TestRules(unittest.TestCase):
             with self.assertRaises(normalize.NormalizeError):
                 normalize.normalize("x.mp4", "y.mp4", ffmpeg="ffmpeg")
 
+    def test_run_with_legacy(self):
+        """古い ffmpeg のやり直し(公開の形): -fps_mode を知らないときだけ、書きかけを消して -vsync で1回だけ"""
+        old = (1, ["Unrecognized option 'fps_mode'.", "Error splitting the argument list: Option not found"], None)
+        calls = []
+
+        def run(answers):
+            def f(args):
+                calls.append(list(args))
+                return answers[len(calls) - 1]
+            return f
+        tmp = os.path.join(tempfile.mkdtemp(), "part.mp4")
+        self.addCleanup(shutil.rmtree, os.path.dirname(tmp), True)
+        with open(tmp, "wb") as f:
+            f.write(b"x")
+        self.assertEqual(normalize.run_with_legacy(run([old, (0, [], None)]), normalize.ENC_ARGS, tmp), (0, [], None))
+        self.assertEqual(len(calls), 2)
+        self.assertIn("-vsync", calls[1])
+        self.assertNotIn("-fps_mode", calls[1])
+        self.assertFalse(os.path.exists(tmp))                      # やり直しの前に書きかけを消す
+        for first, kw in ((old, {"cancelled": lambda: True}),       # 取り消した・止めた・ほかのエラー・成功はやり直さない
+                          ((1, ["fps_mode"], "cancel"), {}), ((1, ["Invalid data"], None), {}), ((0, [], None), {})):
+            calls.clear()
+            self.assertEqual(normalize.run_with_legacy(run([first]), normalize.ENC_ARGS, **kw), first)
+            self.assertEqual(len(calls), 1)
+
+    def test_verify(self):
+        """作り直した動画の確かめ: 30/1 と長さ(文は呼ぶ側が what・ref・got で選ぶ。dur=None は長さを見ない)"""
+        good = {"r_frame_rate": "30/1", "avg_fps": 30.0, "duration": 10.0}
+        with mock.patch.object(normalize, "probe", return_value=good):
+            self.assertEqual(normalize.verify("x.mp4", 10.3), good)
+            self.assertEqual(normalize.verify("x.mp4", None), good)
+            with self.assertRaises(normalize.NormalizeError) as cm:
+                normalize.verify("x.mp4", 11.0)
+            self.assertEqual(str(cm.exception), "作り直した動画の長さが元と違います(元 11.00 秒 / 作り直し 10.00 秒)")
+
+            class Other(ValueError):
+                pass
+            with self.assertRaises(Other) as cm:
+                normalize.verify("x.mp4", 10.3, 0.2, what="作り直した本番版", ref="区間", got="動画", error=Other)
+            self.assertEqual(str(cm.exception), "作り直した本番版の長さが区間と違います(区間 10.30 秒 / 動画 10.00 秒)")
+        with mock.patch.object(normalize, "probe", return_value=dict(good, duration=None)):
+            with self.assertRaises(normalize.NormalizeError) as cm:
+                normalize.verify("x.mp4", 10.0)
+            self.assertIn("作り直し 不明 秒", str(cm.exception))
+        for info, shown in ((None, "読めません"), (dict(good, r_frame_rate="60/1", avg_fps=60.0), "60/1")):
+            with mock.patch.object(normalize, "probe", return_value=info):
+                with self.assertRaises(normalize.NormalizeError) as cm:
+                    normalize.verify("x.mp4", None)
+                self.assertEqual(str(cm.exception), "作り直した動画が 30fps になっていません(%s)" % shown)
+
 
 @unittest.skipUnless(FF and FP, "ffmpeg・ffprobe が無い環境ではスキップ")
 class TestNormalize(unittest.TestCase):

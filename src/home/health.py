@@ -70,12 +70,7 @@ def disk_free(paths):
     for p in paths:
         if not p:
             continue
-        probe = p
-        while probe and not os.path.exists(probe):   # まだ無いフォルダは、ある所まで上へ
-            parent = os.path.dirname(probe)
-            if parent == probe:
-                break
-            probe = parent
+        probe = fsio.existing_parent(p)   # まだ無いフォルダは、ある所まで上へ
         try:
             u = shutil.disk_usage(probe)
         except OSError:

@@ -325,10 +325,7 @@ function renderDiarSetup(){
 
 /* 短い 1 行だけ別の人になるのをならす(設定 diarSmooth。試験中・既定オフ。送ったキーだけ直す api/settings/patch。判別の要求でも smooth として送る) */
 async function diarSmoothSave(on){
-  const old = S.settings.diarSmooth;
-  S.settings.diarSmooth = on;
-  try { await api('/api/settings/patch', { body: { values: { diarSmooth: on } } }); }
-  catch (e){ S.settings.diarSmooth = old; $('#diarSmooth').checked = old === true; toast('設定を保存できませんでした: ' + e.message, 6000, 'err'); }
+  if (!(await patchSettings({ diarSmooth: on }, '設定を保存できませんでした'))) $('#diarSmooth').checked = S.settings.diarSmooth === true;   // 失敗は元に戻したあとの値に合わせる
 }
 
 /* 編集を止めるジョブ: 話者判別・再認識・疑わしい所の認識し直しと、この動画の作り直し(1 本ずつ。文字起こしのジョブで tid は終わるまで空 = into で見る) */

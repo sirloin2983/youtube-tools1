@@ -109,8 +109,8 @@ import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0
 import ed_llm  # noqa: E402,F401  (LLM の後処理 E = 名簿の呼び名の聞き違いらしい所だけを文字の LLM で直す。提案 P18。0.61.0)
 
 
-APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.65.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
+SERVER_VERSION = "0.65.2"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 

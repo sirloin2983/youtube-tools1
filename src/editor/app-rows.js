@@ -896,8 +896,7 @@ function editCur(){ const c = rowAndSeg(); if (c){ const ta = c.row.querySelecto
 function saveKeymap(part){
   if (S.settingsLoadErr) return toast('設定を読み込めていないため、キー配置を保存しません(設定の「読み直す」を押してください)', 6000, 'err');   // 空の配置で上書きしない(監査 11)
   const km = { ...((S.settings && S.settings.keymap) || {}), ...part };
-  S.settings.keymap = km;
-  api('/api/settings/patch', { body: { values: { keymap: km } } }).catch(e => toast('キー配置を保存できませんでした: ' + e.message, { ms: 0, kind: 'err' }));
+  patchSettings({ keymap: km }, 'キー配置を保存できませんでした', { keep: true, ms: 0 });   // 失敗しても画面の配置は戻さない(今の窓では使える)。知らせは閉じるまで出す
 }
 
 function keymap(){ return KM.map(); }

@@ -106,6 +106,7 @@ cut2resolve v0.23.0(「編集」の部品・コマンド)
     送っても黙って無視する(知らない鍵と同じ)。「編集」(cut.js・pack-tab.js)と入口のまとめて実行(autorun.py)は送っていない(src・dev・friend-apps を探して確かめた)。
     補助の FCPXML・粗編集の画質・余白・つなぐ隙間はコマンドの cut2resolve.py に残る。spec.listKind "drop" は、まとめて実行の「カットしない」が使うので残した
   - 「編集」・まとめて実行が作るパックの中身(EDL・SRT・Lua・Text+)は変えていない(契約テスト dev/tests/test_resolve_pack_contract.py)
+  - 内部の整理(動きは同じ): serve.py の終了の合図(SIGTERM・SIGHUP・SIGBREAK)の登録は共通部品 ytt_core.runtime.install_stop_signals に(G9-15)
 
 ■ v0.22.3 の変更点(2026-10-09・内部の整理。動きは同じ。直した不具合 2 つ)
   - 直した不具合 1: API の試算(api/plan)が、無音の検出(動画の音声を全部読む重い処理)が要るときも、他のツールの重い処理の順番(ytt_core.jobs の SLOTS)を

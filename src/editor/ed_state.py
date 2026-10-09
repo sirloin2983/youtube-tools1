@@ -17,10 +17,10 @@ import sys
 import threading
 import time
 
-from ytt_core import fsio as _fsio, layout as _layout, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt_core import fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 
 
-APP_ID = "transcribe-tool"
+APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
 SERVER_VERSION = None   # serve.py が読み込みのときに入れる(版の正は serve.py の SERVER_VERSION。入口がその行を読むため)
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(ROOT, "index.html")

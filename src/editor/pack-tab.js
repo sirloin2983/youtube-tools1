@@ -29,8 +29,7 @@ function create(h){
   };
   const volOf = () => { const v = Math.round(Number(h.S.settings.packVolume)); return v >= 1 && v <= 200 ? v : 30; };   // LUFS でそろえないときの音量(%。元 = 100・既定 30)
   async function saveLoud(values){   // パックの出力(音量・fps・縦横・話者の色・予備)は「送ったキーだけ直す」API で(丸ごとの保存では変えない。まとめて実行の欄と同じ値)
-    try { await h.api('/api/settings/patch', { body: { values } }); Object.assign(h.S.settings, values); }
-    catch (er){ h.toast('パックの設定を保存できませんでした: ' + er.message, { kind: 'err', ms: 10000, action: { label: 'もう一度', fn: () => saveLoud(values) } }); }   // [もう一度](S27)
+    await h.patchSettings(values, 'パックの設定を保存できませんでした', { ms: 10000, retry: () => saveLoud(values) });   // 失敗は [もう一度](S27)
     render();
   }
   /* Text+ 字幕の1段の文字数(字幕の文字数の設定 subtitle.wrapChars。置き先が横なら横の値。規則(どこで改行するか)は cut2resolve の resolve_textplus.wrap_caption) */
@@ -235,8 +234,7 @@ function create(h){
   $('#thGo').addEventListener('click', thGo);
   $('#thCrop').addEventListener('change', async () => {
     const v = $('#thCrop').value;
-    try { await h.api('/api/settings/patch', { body: { values: { thumbCrop: v } } }); h.S.settings.thumbCrop = v; }
-    catch (e){ h.toast('切り取りの指定を保存できませんでした: ' + e.message, { kind: 'err' }); $('#thCrop').value = thCropOf(); }
+    if (!(await h.patchSettings({ thumbCrop: v }, '切り取りの指定を保存できませんでした', { ms: 8000 }))) $('#thCrop').value = thCropOf();
   });
 
   /* ---------- これから作るパック(見積もり) ---------- */

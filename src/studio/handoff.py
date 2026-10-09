@@ -10,7 +10,7 @@ import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnectio
 import common
 from ytt_core import fsio, runtime, schemas
 
-TOOL = {"name": "clip-studio", "version": ""}   # 版は serve.py が SERVER_VERSION を入れる(版の正は serve.py のまま)
+TOOL = {"name": runtime.TOOL_APPS["studio"], "version": ""}   # 版は serve.py が SERVER_VERSION を入れる(版の正は serve.py のまま)
 TOOL_APPS = runtime.TOOL_APPS
 PING_TIMEOUT = runtime.PING_TIMEOUT
 

@@ -197,14 +197,39 @@ def _report(on_progress, v):
             pass
 
 
-def _run_ffmpeg(cmd, flags, popen, cancelled, idle_sec, on_progress, dur):
+def run_ffmpeg(cmd, flags=None, popen=None, cancelled=None, idle_sec=None, on_progress=None, dur=0.0):
     """ffmpeg を1回動かす(cmd は -progress pipe:1 つき)。cancelled() が真・idle_sec 秒なにも出力しなければ止める(ytt_core.tools.run_progress)。
-    -> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")"""
+    on_progress(0〜0.99) は out_time / dur(dur が 0 以下なら知らせない。知らせる側の失敗では止めない)。
+    -> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")。起動できなければ NormalizeError"""
     on_time = (lambda sec: _report(on_progress, min(0.99, sec / dur))) if on_progress and dur > 0 else None
     try:
         return tools.run_progress(cmd, flags, cancelled, idle_sec, on_time, popen, tail=20)
     except OSError as e:
         raise NormalizeError("ffmpeg を起動できませんでした: %s" % e)
+
+
+def run_with_legacy(run, enc, tmp=None, cancelled=None):
+    """run(出力側の引数) -> (終了コード, エラーの行, 止めた理由) を動かす。ffmpeg が 5.1 より古くて -fps_mode を知らなければ、
+    書きかけ tmp を消して -vsync に替えて(legacy_args)1回だけやり直す。止めた・cancelled() が真ならやり直さない。
+    -> 最後の (終了コード, エラーの行, 止めた理由)"""
+    code, tail, why = run(enc)
+    if code != 0 and why is None and not (cancelled and cancelled()) and is_fps_mode_error("\n".join(tail)):
+        if tmp:
+            fsio.unlink_quiet(tmp)
+        code, tail, why = run(legacy_args(enc))
+    return code, tail, why
+
+
+def verify(path, dur, tol=DURATION_TOL, ffprobe=None, what="作り直した動画", ref="元", got="作り直し", error=NormalizeError):
+    """作り直した path が 30/1 の固定で、長さが dur と ±tol 秒か確かめる。-> probe の結果。違えば error(文)を上げる。
+    dur が None なら長さは見ない。文は「<what>が 30fps になっていません(…)」「<what>の長さが<ref>と違います(<ref> … 秒 / <got> … 秒)」"""
+    info = probe(path, ffprobe)
+    if not is_30fps(info):
+        raise error("%sが 30fps になっていません(%s)" % (what, (info or {}).get("r_frame_rate") or "読めません"))
+    if dur is not None and (info.get("duration") is None or abs(info["duration"] - dur) > tol):
+        raise error("%sの長さが%sと違います(%s %.2f 秒 / %s %s 秒)"
+                    % (what, ref, ref, dur, got, "不明" if info.get("duration") is None else "%.2f" % info["duration"]))
+    return info
 
 
 def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, preset=PRESET, ffmpeg=None, ffprobe=None,
@@ -234,26 +259,17 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     flags = tools.no_window_flags(new_group=True, priority="low" if priority_low else None)
 
     def run(args):
-        return _run_ffmpeg(base + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)
+        return run_ffmpeg(base + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)
 
     try:
-        code, tail, why = run(enc)
-        if code != 0 and why is None and not cancelled() and is_fps_mode_error("\n".join(tail)):
-            # ffmpeg 5.1 より古い: -fps_mode を知らない → -vsync cfr で1回だけやり直す(書きかけは消してから)
-            fsio.unlink_quiet(tmp)
-            code, tail, why = run(legacy_args(enc))
+        code, tail, why = run_with_legacy(run, enc, tmp, cancelled)   # ffmpeg 5.1 より古ければ -vsync cfr で1回だけやり直す
         if why == "cancel" or cancelled():
             raise Cancelled("取り消しました")
         if why == "idle":
             raise NormalizeError("ffmpeg が %d 秒間なにも出力しなかったので止めました" % idle_sec)
         if code != 0:
             raise NormalizeError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
-        out = probe(tmp, ffprobe)
-        if not is_30fps(out):
-            raise NormalizeError("作り直した動画が 30fps になっていません(%s)" % ((out or {}).get("r_frame_rate") or "読めません"))
-        if dur and (out.get("duration") is None or abs(out["duration"] - dur) > DURATION_TOL):
-            raise NormalizeError("作り直した動画の長さが元と違います(元 %.2f 秒 / 作り直し %s 秒)"
-                                 % (dur, "不明" if out.get("duration") is None else "%.2f" % out["duration"]))
+        out = verify(tmp, dur or None, DURATION_TOL, ffprobe)   # 元の長さが分からなければ長さは見ない
         fsio.replace_retry(tmp, dst)
     except BaseException:
         fsio.unlink_quiet(tmp)

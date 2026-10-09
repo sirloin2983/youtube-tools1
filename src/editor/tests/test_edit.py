@@ -1507,5 +1507,18 @@ class TestEvalFolder(StoreDir):
         self.assertTrue(self.doc()["sourcePath"].endswith("_01_済.mp4"))
 
 
+class TestToolIdentity(unittest.TestCase):
+    """ツールの識別子(/api/ping の app・受け渡しの tool.name)は ytt_core.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
+
+    def test_same_as_runtime_table(self):
+        from ytt_core import runtime
+        import ed_state
+        import pipeline_io
+        self.assertEqual(runtime.TOOL_APPS["transcribe"], "transcribe-tool")
+        self.assertEqual(S.APP_ID, runtime.TOOL_APPS["transcribe"])
+        self.assertEqual(ed_state.APP_ID, runtime.TOOL_APPS["transcribe"])
+        self.assertEqual(pipeline_io.TOOL_NAME, runtime.TOOL_APPS["transcribe"])
+
+
 if __name__ == "__main__":
     unittest.main()

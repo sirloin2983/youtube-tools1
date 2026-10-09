@@ -1334,13 +1334,8 @@ class Archiver:
         return vol, loud
 
     def _check_media(self, path, dur):
-        info = normalize.probe(path, self.ffprobe)
-        if not normalize.is_30fps(info):
-            raise ArchiveError("作り直した本番版が 30fps になっていません(%s)" % ((info or {}).get("r_frame_rate") or "読めません"))
-        if info.get("duration") is None or abs(info["duration"] - dur) > LX.LEN_TOL:
-            raise ArchiveError("作り直した本番版の長さが区間と違います(区間 %.2f 秒 / 動画 %s 秒)"
-                               % (dur, "不明" if info.get("duration") is None else "%.2f" % info["duration"]))
-        return info
+        """作り直した本番版が 30fps で、長さが区間と LEN_TOL 以内か(ytt_core.normalize.verify)。-> probe の結果"""
+        return normalize.verify(path, dur, LX.LEN_TOL, self.ffprobe, what="作り直した本番版", ref="区間", got="動画", error=ArchiveError)
 
     def _build(self, job, vid, ast, dur, speed, tmp, wdir):
         """スタジオで作り直して確かめる(速報版との音のずれが 1 コマを超えたら、1回だけずれを足して作り直す)。-> (アーカイブの秒, ずれ, probe の結果)"""

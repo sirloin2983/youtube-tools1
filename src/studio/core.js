@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.24.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.24.1';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'review'];   // 0.24.0: 「2 解析」のタブを無くした(URL の欄と順番待ちは ① の先頭・解析の設定は ⚙ の「解析」。docs/spec/settings.md の 3)

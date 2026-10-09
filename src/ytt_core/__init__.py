@@ -31,7 +31,8 @@ cut2resolve の単独のコマンドは ytt_core が無くても動く(WORK_DIR 
 ここを変えるときは `python -m unittest src/ytt_core/tests/test_ytt_core.py src/ytt_core/tests/test_evaldata.py src/ytt_core/tests/test_normalize.py src/ytt_core/tests/test_excite.py src/ytt_core/tests/test_settings.py` と、
 使っている各ツールのテスト(AGENTS.md の表)を通すこと。
 """
-VERSION = "1.6.0"   # 1.6.0(2026-10-09): 設定ファイルの読み書きの共通部品 settings(SettingsFile・SettingsError・SettingsTooLarge)を足した(設定を 1 つに S4。home/prefs.py・studio/store.py・editor/ed_learn.py が使う)
+VERSION = "1.7.0"   # 1.7.0(2026-10-09): normalize の公開の run_ffmpeg・run_with_legacy・verify(入口の作り直しが使う)・fsio.existing_parent・runtime.safe_stdio・install_stop_signals を足した(見直しの次の周)
+# 1.6.0(2026-10-09): 設定ファイルの読み書きの共通部品 settings(SettingsFile・SettingsError・SettingsTooLarge)を足した(設定を 1 つに S4。home/prefs.py・studio/store.py・editor/ed_learn.py が使う)
 # 1.5.0(2026-10-09): 使われていない公開の関数・定数を消した(コードの見直しの F。evaldata の書き出し側 RULES・scrub_paths・zip_name・safe_url・overlap・raw_links、colors.rgb01、loudness.db_to_pct、normalize.TARGET、excite.PEAK_STATES)
 # 1.4.0(2026-10-09): ツールをまたいだ規則 names・recproto を足した(T8)。fsio の StampCache.peek/set・read_json_or(allow_nan)・write_json(mode)、httpsec.send_head(cache)、tools.OUT_TIME を公開
 # 1.3.0(2026-10-09): 各ツールの写しを吸い上げる小道具を足した(fsio・tools・httpsec・schemas・datadir.studio_out_dir・excite の定数)

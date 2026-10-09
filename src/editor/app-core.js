@@ -343,6 +343,22 @@ function sendSettings(keepalive){
 
 function saveSettings(){ clearTimeout(setT); setT = setTimeout(() => { setT = null; sendSettings(); }, 600); }
 
+/* 設定の「送ったキーだけ直す」保存(POST api/settings/patch。ほかの窓の設定を消さない。上の sendSettings の差分の PUT とは別 = 1 か所の操作で 1〜数個のキーを今すぐ直すとき)。
+   先に S.settings へ入れ(保存を待つ間の描き直しで選択が戻らないように)、失敗したら元に戻す。-> 保存できたか(失敗の知らせはここで出す。画面の巻き戻しは false を見て呼ぶ側で)
+   label: 失敗の知らせの頭(「…を保存できませんでした」。あとに「: サーバーの文」が付く)
+   opt: apply = false で S.settings に入れない(サーバーだけが持つ設定。evalDirs)・keep = true で失敗しても戻さない(キー配置: 画面は今の配置のまま、知らせだけ)
+        ms = 知らせの秒(省略は 6000。0 = 閉じるまで)・retry = 知らせの [もう一度] で呼ぶ関数 */
+async function patchSettings(values, label, opt = {}){
+  const apply = opt.apply !== false, st = S.settings, old = {};
+  if (apply) for (const k of Object.keys(values)){ old[k] = k in st ? { v: st[k] } : null; st[k] = values[k]; }
+  try { await api('/api/settings/patch', { body: { values } }); return true; }
+  catch (e){
+    if (apply && !opt.keep) for (const k of Object.keys(old)){ if (old[k]) S.settings[k] = old[k].v; else delete S.settings[k]; }
+    toast(label + ': ' + e.message, { kind: 'err', ms: 'ms' in opt ? opt.ms : 6000, ...(opt.retry ? { action: { label: 'もう一度', fn: opt.retry } } : {}) });
+    return false;
+  }
+}
+
 /* 設定を読む。失敗したら保存を止めて知らせる(-> 読めたか) */
 async function loadSettings(){
   try {

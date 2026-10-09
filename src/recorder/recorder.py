@@ -31,7 +31,6 @@ import os
 import re
 import secrets
 import shutil
-import signal
 import sys
 import threading
 import time
@@ -44,7 +43,7 @@ if ROOT not in sys.path:
     sys.path.append(ROOT)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-from ytt_core import datadir, fsio, httpsec  # noqa: E402
+from ytt_core import datadir, fsio, httpsec, runtime  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
@@ -315,11 +314,7 @@ def parse_args(argv):
 
 
 def main(argv=None):
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(errors="replace")
-        except Exception:
-            pass
+    runtime.safe_stdio()
     a = parse_args(sys.argv[1:] if argv is None else argv)
     ddir = data_dir(a.data_dir)
     os.makedirs(ddir, exist_ok=True)
@@ -358,13 +353,7 @@ def main(argv=None):
 
     def stop(_sig, _frame):
         threading.Thread(target=srv.shutdown, daemon=True).start()
-    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
-        sig = getattr(signal, name, None)
-        if sig is not None:
-            try:
-                signal.signal(sig, stop)
-            except (OSError, ValueError):
-                pass
+    runtime.install_stop_signals(stop, ("SIGINT", "SIGTERM", "SIGBREAK"))
     th = threading.Thread(target=srv.serve_forever, daemon=True, name="recorder-http")
     th.start()
     try:

@@ -8,7 +8,9 @@ import http.client   # ping は http.client.HTTPConnection を属性として引
 import json
 import os
 import re
+import signal
 import socket
+import sys
 import threading
 import time
 
@@ -178,3 +180,30 @@ def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_pa
         if paths:
             out["paths"] = {k: paths[k] for k in TOOL_APPS if k in paths}
         return out
+
+
+# ---------- 起動の約束の小道具(serve.py・録画の部品の main。2026-10-09) ----------
+def safe_stdio():
+    """画面(Windows の cp932 など)に出せない文字があっても、エラーで落ちずに「?」にする(main の最初で呼ぶ)。
+    cut2resolve の単独のコマンドは ytt_core を読まないので srt2resolve.safe_stdio(同じ規則の写し)を使う"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
+
+
+def install_stop_signals(handler, names=("SIGTERM", "SIGBREAK")):
+    """終了の合図(Linux/Mac の SIGTERM、Windows で黒い画面を×で閉じた・Ctrl+Break の SIGBREAK など)に handler(signum, frame) を登録する。
+    names のうちこの OS に無い合図は飛ばし、登録できない(main のスレッドでない など)ときも上げない。-> 登録できた合図の名前のリスト"""
+    done = []
+    for name in names:
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, handler)
+            done.append(name)
+        except (OSError, ValueError, RuntimeError):
+            pass
+    return done

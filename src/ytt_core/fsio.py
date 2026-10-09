@@ -268,3 +268,15 @@ def dir_size(path):
             except OSError:
                 pass
     return total, count
+
+
+def existing_parent(path):
+    """path が今あればそのまま、無ければ上へたどって最初にあるパス(まだ無いフォルダの空き容量を調べる前に)。
+    根までたどっても無ければ根(ドライブなど)を返す。空・None はそのまま返す(上げない)"""
+    probe = path
+    while probe and not os.path.exists(probe):
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    return probe

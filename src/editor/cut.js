@@ -325,8 +325,7 @@ function create(h){
     }
     const cur = silSetting();
     if (SIL_FIELDS.every(([k]) => cur[k] === v[k])) return v;
-    try { await h.api('/api/settings/patch', { body: { values: { cutSilence: v } } }); h.S.settings.cutSilence = v; }   // 送ったキーだけ直す(ほかの窓の設定を消さない)
-    catch (e){ h.toast('無音の値を保存できませんでした(今回のたたき台には使います): ' + e.message, 6000, 'err'); }
+    await h.patchSettings({ cutSilence: v }, '無音の値を保存できませんでした(今回のたたき台には使います)');   // 送ったキーだけ直す(ほかの窓の設定を消さない)。失敗しても v は今回に使う
     return v;
   }
   /* 「行から」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ。規則は pack.py) */

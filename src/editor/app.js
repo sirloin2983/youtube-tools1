@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.65.1';
+const APP_VERSION = '0.65.2';
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -383,10 +383,7 @@ $('#altGo').addEventListener('click', async () => {
   } catch (e){ toast(e.message, 7000, 'err'); }
 });
 $('#altEngine').addEventListener('change', async e => {   // 設定 altEngine(送ったキーだけ直す api/settings/patch。ほかの窓の設定を消さない)
-  const v = e.target.value, old = S.settings.altEngine;
-  S.settings.altEngine = v;   // 先に入れる(保存を待つ間の描き直し renderAlt で選択が戻らないように)
-  try { await api('/api/settings/patch', { body: { values: { altEngine: v } } }); }
-  catch (err){ S.settings.altEngine = old; renderAlt(); toast('2つ目のエンジンを保存できませんでした: ' + err.message, 6000, 'err'); }
+  if (!(await patchSettings({ altEngine: e.target.value }, '2つ目のエンジンを保存できませんでした'))) renderAlt();   // 先に S.settings へ入れる(保存を待つ間の描き直し renderAlt で選択が戻らないように)。失敗は元に戻して描き直す
 });
 /* 元の配信の YouTube の字幕の候補(案 A1): S.yt = 結果の情報(GET /api/suggest の yt に、どの文書のものかの tid を足す)。文書は書き換えないので、取っている間も編集できる */
 S.yt = null;
@@ -1071,10 +1068,8 @@ $('#evalSet').addEventListener('change', e => {
 });
 $('#evSave').addEventListener('click', async () => {
   const dirs = $('#evDirs').value.split(/\r?\n/).map(x => x.trim().replace(/^"|"$/g, '').trim()).filter(Boolean);
-  try {
-    await api('/api/settings/patch', { body: { values: { evalDirs: dirs } } });
-    toast(dirs.length ? '評価用のフォルダを保存しました' : '評価用のフォルダを空にしました', 3000); loadEvalFolders();
-  } catch (e){ toast('保存できませんでした(ドライブから始まるパスを1行に1つ入れてください): ' + e.message, 6000, 'err'); }
+  if (!(await patchSettings({ evalDirs: dirs }, '保存できませんでした(ドライブから始まるパスを1行に1つ入れてください)', { apply: false }))) return;   // evalDirs はサーバーだけが持つ(S.settings に入れない)
+  toast(dirs.length ? '評価用のフォルダを保存しました' : '評価用のフォルダを空にしました', 3000); loadEvalFolders();
 });
 $('#evRun').addEventListener('click', () => busy($('#evRun'), async () => {
   try {
@@ -1323,11 +1318,11 @@ applyKeyHint();
 if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
-const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
+const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
   c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, imeKey, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto, keepCutHTML, toPack: () => setEditTab('pack', { focus: true }), onCutSave: (text, kind) => { S.cutSaveSt = { text, kind }; paintSaveState(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
-const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, apiBlob, apiUrl, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
+const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiBlob, apiUrl, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
   c2rApi, c2rWait, c2rBase, cpExport, copyPath, savedAll, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
 
 /* ---------- 起動 ---------- */

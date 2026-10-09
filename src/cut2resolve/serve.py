@@ -960,16 +960,9 @@ def main(argv=None):
     if not (tools.find_tool("ffmpeg") and tools.find_tool("ffprobe")):
         print("※ ffmpeg / ffprobe が見つかりません(README の準備を確認してください)")
 
-    import signal
-
     def on_signal(signum, frame):
         raise SystemExit(0)
-    for n in ("SIGTERM", "SIGHUP", "SIGBREAK"):   # 黒い画面の×(Windows は SIGBREAK)・kill でも .runtime を消してから終わる
-        if hasattr(signal, n):
-            try:
-                signal.signal(getattr(signal, n), on_signal)
-            except (ValueError, OSError):
-                pass
+    _runtime.install_stop_signals(on_signal, ("SIGTERM", "SIGHUP", "SIGBREAK"))   # 黒い画面の×(Windows は SIGBREAK)・kill でも .runtime を消してから終わる
     if "--no-open" not in argv:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:

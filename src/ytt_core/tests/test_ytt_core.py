@@ -340,6 +340,15 @@ class TestFsio(unittest.TestCase):
         self.assertEqual(fsio.dir_size(os.path.join(d, "a.bin")), (5, 1))
         self.assertEqual(fsio.dir_size(os.path.join(self.tmp, "無い")), (0, 0))
 
+    def test_existing_parent(self):
+        """まだ無いフォルダは、ある所まで上へ(空き容量を調べる前。health.disk_free・live_export.Exporter.disk)"""
+        self.assertEqual(fsio.existing_parent(self.tmp), self.tmp)
+        self.assertEqual(fsio.existing_parent(os.path.join(self.tmp, "無い", "もっと")), self.tmp)
+        self.assertEqual(fsio.existing_parent(""), "")
+        self.assertIsNone(fsio.existing_parent(None))
+        root = os.path.splitdrive(os.path.abspath(self.tmp))[0] + os.sep
+        self.assertTrue(os.path.exists(fsio.existing_parent(os.path.join(root, "ytt-無いはず-" + os.urandom(4).hex(), "x"))))
+
 
 class TestRuntime(unittest.TestCase):
     def setUp(self):
@@ -359,6 +368,31 @@ class TestRuntime(unittest.TestCase):
     def put(self, tool, obj, raw=None):
         with open(os.path.join(self.dir, tool + ".json"), "wb") as f:
             f.write(raw if raw is not None else json.dumps(obj).encode())
+
+    def test_safe_stdio(self):
+        """出せない文字は「?」に(reconfigure の無い入れ物でも上げない)"""
+        import io
+        raw = io.BytesIO()
+        out = io.TextIOWrapper(raw, encoding="cp932", newline="\n")
+        with mock.patch.object(sys, "stdout", out), mock.patch.object(sys, "stderr", object()):
+            runtime.safe_stdio()
+            print("あ\U0001F600", file=sys.stdout)
+            sys.stdout.flush()
+        self.assertEqual(raw.getvalue().decode("cp932"), "あ?\n")
+
+    def test_install_stop_signals(self):
+        """終了の合図の登録: この OS に無い合図は飛ばす・登録できなくても上げない・登録できた名前を返す"""
+        import signal
+        seen = []
+        with mock.patch.object(signal, "signal", lambda sig, h: seen.append((sig, h))):
+            got = runtime.install_stop_signals(print, ("SIGTERM", "SIG_NO_SUCH"))
+        self.assertEqual(got, ["SIGTERM"])
+        self.assertEqual(seen, [(signal.SIGTERM, print)])
+
+        def refuse(sig, h):
+            raise ValueError("signal only works in main thread")
+        with mock.patch.object(signal, "signal", refuse):
+            self.assertEqual(runtime.install_stop_signals(print), [])
 
     def test_runtime_dir(self):
         with mock.patch.dict(os.environ, {}, clear=False):

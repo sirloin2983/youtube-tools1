@@ -30,7 +30,7 @@ _load_core()
 import resolve_export  # noqa: E402
 from ytt_core import fsio, runtime, schemas  # noqa: E402
 
-TOOL_NAME = "transcribe-tool"
+TOOL_NAME = runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない)
 CLIP_SCHEMA = schemas.CLIP_SCHEMA
 TRANSCRIPT_SCHEMA = schemas.TRANSCRIPT_SCHEMA
 CUT_PLAN_SCHEMA = schemas.CUT_PLAN_SCHEMA

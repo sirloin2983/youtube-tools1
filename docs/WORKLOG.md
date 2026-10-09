@@ -3095,3 +3095,20 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 並行セッション: 「ツール全体のコード修正」が src/editor・src/home/live*・ytt_core の小道具などを編集中(未コミット)。こちらのコミットは自分のファイルだけ(`src/editor/index.html` は ui-kit の CSS の写しの hunk だけ)
 - 次: ユーザーに使ってもらう(ホームの ⚙ → 設定の画面を開く)。入口は起動し直すまで古いコード(すべて終了 → start.bat)。残り: 各ツールの ⚙ を同じ描き手にするか(gg)・Text+ の字幕の見た目を設定にするか(要相談)・`src/editor/AGENTS.md` の「config.json」の表記
 - 未コミット: なし(このセッションの分はこの記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。まとめ役 Fable + サブエージェント Opus × 1・Sonnet × 2)— コードの見直しの「次の周」(decisions 3-18 (fn)。ユーザー「やることないならやって」): ytt_core 1.7.0・編集 0.65.2・スタジオ 0.24.1・ホーム 0.52.1
+- 依頼: ユーザー(「議論」経由)「(fn) やることないならやって」「(fo) ui-kit 任せる」。別セッション 2 つ(作業１ = 線 D と友人への届け方 = src/home の live*・cases・autorun・intake・deliver・friend_feedback・live_export、スタジオ設定の整理 = S5 の prefs・設定ページ・ui-kit)が作業中なので、それらのファイルは外した
+- 変更(段 2 の担当が「足りない」と報告した小道具と、見送った指摘のうち動きが変わらないもの):
+  - **ytt_core 1.6.0 → 1.7.0**: `normalize.run_ffmpeg`(非公開の `_run_ffmpeg` を公開に)・`run_with_legacy(run, enc, tmp, cancelled)`(古い ffmpeg の -vsync へのやり直し)・`verify(path, dur, tol, ffprobe, what, ref, got, error)`(30fps と長さの確かめ。文は呼ぶ側の what/ref/got で今と同じ)・`fsio.existing_parent(path)`・`runtime.safe_stdio()`・`runtime.install_stop_signals(handler, names)`。normalize 自身もこれを使う(golden・test_normalize は同じ)
+  - **入口 0.52.0 → 0.52.1**(スタジオ設定のセッションが S5 の 0.52.0 をコミットしたあとに上げた): `live_archive.Archiver._check_media` の 8 行 → `normalize.verify(..., error=ArchiveError)`・`health.disk_free` の「ある所まで上へ」→ `fsio.existing_parent`
+  - **録画の部品 0.3.3**(版は同じ。README に 1 行): `recorder.main` の標準出力の 5 行ループ → `runtime.safe_stdio()`・合図の登録 → `install_stop_signals(stop, ("SIGINT","SIGTERM","SIGBREAK"))`
+  - **cut2resolve 0.23.0**(版は同じ。README に 1 行): `serve.main` の合図の登録 → `install_stop_signals`
+  - **ツールの表の写し(G1-5 の残り)→ `runtime.TOOL_APPS`**: スタジオ `serve.APP_ID`・`Handler.server_version`・`handoff.TOOL["name"]`(値 "clip-studio" は同じ)、編集 `ed_state.APP_ID`・`serve.APP_ID`・`pipeline_io.TOOL_NAME`(値 "transcribe-tool" は同じ)。一致を確かめるテスト `ToolIdentityTests`(test_handoff)・`TestToolIdentity`(test_edit)
+  - **編集の画面(G8-4)**: 設定の「送ったキーだけ直す」保存 7 か所(altEngine・evalDirs・diarSmooth・keymap・cutSilence・saveLoud・thumbCrop)→ `app-core.js` の `patchSettings(values, label, opt)`(先に S.settings に入れて失敗したら戻す。opt: `apply:false` = 入れない(evalDirs)・`keep:true` = 戻さない(keymap = 画面の配置と食い違うため今までどおり)・`ms`・`retry` = [もう一度])。cut.js・pack-tab.js へは host で渡す。文言・秒数・[もう一度] は同じ。変わるのは cutSilence・saveLoud・thumbCrop が「保存を待つ間も新しい値が S.settings に入っている」こと(失敗したあとは元の値)
+- 版: ytt_core 1.6.0 → 1.7.0・編集 0.65.1 → 0.65.2・スタジオ 0.24.0 → 0.24.1・ホーム 0.52.0 → 0.52.1(README に「内部の整理。動きは同じ」)
+- 動きの違い: 合図の登録で握る例外に RuntimeError も含む(登録できなくても上げない = 安全側)。ほかは同じ
+- テスト(全部 OK): ytt_core 165 → 170・スタジオ 313(+1 の識別子の一致)・編集 592(+1)・cut2resolve 383・録画 28・入口 test_health + test_live_archive + test_launch + test_mount 118(1 回目は test_mount の単独起動の 3 件が別セッションの e2e と同時だったためか落ち、流し直しで OK)・契約 35・node test_document_save 10・test_review 53・e2e_edit_pack・e2e_edit_tabs・e2e_ui・e2e_live_archive(担当 A が 100 件)OK・lint 0
+- 決定・理由: live_export.py は作業１が触っていたので外した(残る写しは下)。home の版は S5(0.52.0)のコミットを待ってから 0.52.1 に上げた(次に src/home を触る作業１は 0.53.0 から)
+- 未完了・次(次の周の候補。担当外で残っている写し): `src/home/live_export.py` の `Exporter._encode`(古い ffmpeg のやり直し → `normalize.run_with_legacy(run, enc, tmp)`(取り消しは渡さない = 今の動き)・30fps と長さの確かめ → `normalize.verify(tmp, dur, LEN_TOL, ffprobe, ref="区間", got="動画", error=LiveError)`)・`Exporter._run` → `normalize.run_ffmpeg`・`Exporter.disk` → `fsio.existing_parent` / 終了の合図と標準出力の写し: `src/home/launch.py`(main の stdio・`_set_stop_handlers`)・`live_excite_worker.main`・`src/editor/serve.py:install_stop_signals`(KeyboardInterrupt に変える形)・`src/studio/serve.py` 498-510・`dev/eval_import.py:379` / `prefs.py:72` と `live.py` の RELAY_RE → `recproto.RECORDER_ID_RE`・`live.py:947-953` の中継の見出し → `httpsec.send_head(cache=)` / cut2resolve の `listKind "drop"` を消すなら autorun に `mode "all"` / 入口の autorun が同じ動画を 2 回 ffprobe(deliver に 1 回で求める関数)/ `health` の accuracy の try を `_try` にすると失敗時に `"accuracy": None` が付く(やっていない)
+- 注意: 別セッションの未コミット(src/home の多数・ui-kit・settings の新規)が作業フォルダにあったので、`git add` は自分のファイルを名指し(scratchpad の mine.txt)で add と commit を同時に行った
+- 未コミット: なし(このセッションの分)
