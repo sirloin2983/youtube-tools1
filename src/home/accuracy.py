@@ -107,7 +107,9 @@ def summarize_marks(res):
         raise ValueError("結果の形が想定と違います(overall が無い)")
     top10 = (o.get("top") or {}).get("top10") or {}
     miss = (o.get("misses") or {}).get("missRate")
-    return _summary("上位10の採用率", top10.get("adoptRate"), o.get("judgedVideos"), "配信", "higher", (res.get("meta") or {}).get("few"),
+    # 配信の数 = C1 の入口「採用の記録 配信 10 本」: スタジオの判定に線 D の録画・友人の返事も足した judgedAll(K2。無い以前の結果は judgedVideos)
+    docs = o.get("judgedAll") if isinstance(o.get("judgedAll"), int) and not isinstance(o.get("judgedAll"), bool) else o.get("judgedVideos")
+    return _summary("上位10の採用率", top10.get("adoptRate"), docs, "配信", "higher", (res.get("meta") or {}).get("few"),
                     extra=[{"label": "見逃し率", "value": _num(miss), "better": "lower"}])
 
 

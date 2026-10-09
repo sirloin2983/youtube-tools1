@@ -164,6 +164,39 @@ class EvalMarks(unittest.TestCase):
         after = env.evaluate()["overall"]
         self.assertEqual((after["videos"], after["misses"], after["top"]), (before["videos"], before["misses"], before["top"]))
 
+    def test_judged_elsewhere_counts_live_and_friend(self):
+        """K2(10-08 決定): C1 の入口の数に線 D の人の判定(届けた・要らない)と友人の返事も足す。採用率は変えない(友人の基準は別)"""
+        env = build(self)
+        before = env.evaluate()["overall"]
+        live = os.path.join(env.root, "app", "live")
+        os.makedirs(live)
+        rows = [{"v": 1, "at": "2026-10-08T10:00:00.000Z", "event": "adopt", "human": False, "recorder": "local", "recording": "rec1"},   # 自動の採用は数えない
+                {"v": 1, "at": "2026-10-08T10:05:00.000Z", "event": "deliver", "human": True, "verdict": "good", "recorder": "local", "recording": "rec1"},
+                {"v": 1, "at": "2026-10-08T10:06:00.000Z", "event": "reject", "human": True, "verdict": "bad", "recorder": "local", "recording": "rec1"},
+                {"v": 1, "at": "2026-10-08T11:00:00.000Z", "event": "reject", "human": True, "verdict": "bad", "recorder": "local", "recording": "rec2"},
+                {"v": 1, "at": "2026-10-08T12:00:00.000Z", "event": "detect_compare", "recorder": "local", "recording": "rec3"}]
+        with open(os.path.join(live, "live_feedback.jsonl"), "w", encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(r) for r in rows) + "\n")
+        with open(os.path.join(env.logs, "friend_feedback.jsonl"), "w", encoding="utf-8") as f:
+            for vid in (V1, V2, V2):   # V1 はスタジオで判定あり = 二重に数えない
+                f.write(json.dumps({"at": ms("2026-10-08"), "zip": "z.zip", "verdict": "reject", "videoId": vid, "packs": []}) + "\n")
+            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "y.zip", "verdict": "reject", "videoId": "", "runId": "r1", "packs": []}) + "\n")   # 実行記録 r1 = V1
+            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "x.zip", "verdict": "reject", "videoId": "", "runId": "nothing", "packs": []}) + "\n")   # たどれない
+            clip_dir = os.path.join(env.root, "clips")   # V1 の書き出し先と同じフォルダ = V1(二重に数えない)
+            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "w.zip", "verdict": "reject", "videoId": "", "runId": "file1", "packs": [{"dir": os.path.join(clip_dir, "b_pack")}]}) + "\n")
+            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "v.zip", "verdict": "reject", "videoId": "", "runId": "file2",
+                                "packs": [{"dir": os.path.join(env.root, "other", "c_pack")}]}) + "\n")   # 突き合わないフォルダ = 1 つの配信
+        r = env.evaluate()
+        o = r["overall"]
+        self.assertEqual(o["judgedElsewhere"], {"live": {"recordings": 2, "good": 1, "bad": 2}, "friend": {"videos": 3, "rows": 7, "unknown": 1, "notInStudio": 2}, "all": 5})
+        self.assertEqual((o["judgedAll"], r["meta"]["judgedAll"], o["judgedVideos"]), (5, 5, 1))
+        self.assertEqual((o["top"], o["misses"]), (before["top"], before["misses"]))   # 採用率・見逃しは今までどおり
+        self.assertEqual(env.evaluate(since="2026-10-09")["overall"]["judgedElsewhere"]["live"]["recordings"], 0)   # 時期で絞る
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            M.print_report(r)
+        self.assertIn("C1 の入口に数える判定のある配信 5 本", out.getvalue())
+
     def test_misses_edits_retracts(self):
         o = build(self).evaluate()["overall"]
         m = o["misses"]

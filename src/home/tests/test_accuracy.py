@@ -161,6 +161,9 @@ class AccuracyTest(unittest.TestCase):
         self.assertTrue(one["few"])                      # 文書 2 本未満は「まだ少ない」
         marks = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
         self.assertEqual((marks["value"], marks["docs"], marks["unit"], marks["lowData"], marks["extra"][0]["value"]), (0.7, 3, "配信", True, 0.1))
+        # K2: 線 D の録画・友人の返事も足した judgedAll があれば、配信の数(C1 の入口)はそれ。無い以前の結果は judgedVideos
+        marks2 = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "judgedAll": 7, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
+        self.assertEqual((marks2["value"], marks2["docs"]), (0.7, 7))
         spk = accuracy.summarize_speakers({"meta": {"docs": 9, "fewNote": ""}, "subsets": {"all": {"rate": 0.8, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.5}})
         self.assertEqual((spk["value"], spk["docs"], [e["value"] for e in spk["extra"]]), (0.8, 9, [0.9, 0.5]))
         gen = accuracy.summarize_generic({"accuracy": {"label": "x", "value": 0.4, "docs": 3, "better": "lower", "extra": [{"label": "y", "value": 1}]}})

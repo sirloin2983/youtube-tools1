@@ -34,6 +34,10 @@
 - --since / --until(原則 4: 時期で分ける)は、マークの作られた日時(data.json は createdAt・archive は解析の日時・feedback だけのものは最初の行の日時)と
   手で足した・取り消した行の日時で絞る(until はその日を含む)。配信が 10 本未満のときは「まだ少ない(参考)」と出す(少ないデータで決めすぎない)。
   friendRanges は実行の記録の時刻(出どころ 2 はマークの作られた時刻)で絞る。解析済みの区間が 20 未満・配信が 5 本未満のときは「まだ少ない(参考)」
+- C1 の入口の数(結果の overall.judgedElsewhere・judgedAll。K2 = 10-08 決定): 判定のある配信の数に、スタジオの判定の外の人の判定も足す =
+  線 D の録画(live/live_feedback.jsonl の人の「届けた」「要らない」)と、友人の返事(logs/friend_feedback.jsonl。配信は videoId → 実行記録の runId →
+  切り抜きのフォルダの順にたどる)。採用率・見逃しなどの指標には混ぜない(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。入口の「調子」の
+  「採用の記録 配信 10 本」は judgedAll を読む(src/home/accuracy.py の summarize_marks)
 - --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/home/live_report.py が録画中に書き、
   終わったら締める)と採用の記録(live/live_feedback.jsonl)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
   要らない = 悪い。自動の採用だけ)・配信中の候補とアーカイブの候補の重なり(detect_compare の行 = 配信後の全自動 M7 が書く)・ワーカーの遅れとメモリの最大・
@@ -808,8 +812,11 @@ def evaluate(data_dir=None, since=None, until=None, status_fallback=False):
     if mach:
         notes.append("まとめて実行の自動採用とみなして正に数えなかったマークが %d 個あります(自動採用はマークに印が残らないため、実行記録で近似)" % mach)
     few = overall["judgedVideos"] < FEW_VIDEOS
+    studio_judged = {V["id"] for V in vlist if group_metrics([V])["judgedVideos"]}
+    overall["judgedElsewhere"] = judged_elsewhere(app, studio_judged, since_ms, until_ms, records, folder_videos(dvideos))
+    overall["judgedAll"] = overall["judgedElsewhere"]["all"]
     meta = {"schema": SCHEMA, "at": int(time.time() * 1000), "since": since, "until": until, "statusFallback": bool(status_fallback), "git": C.git_rev(),
-            "studioDir": studio, "videos": len(vlist), "judgedVideos": overall["judgedVideos"], "few": few,
+            "studioDir": studio, "videos": len(vlist), "judgedVideos": overall["judgedVideos"], "judgedAll": overall["judgedAll"], "few": few,
             "fewNote": "まだ少ない(参考): 判定のある配信が %d 本(%d 本未満)。これで既定値を決めない" % (overall["judgedVideos"], FEW_VIDEOS) if few else "", "notes": notes}
     by_video = []
     for V in vlist:
@@ -829,6 +836,64 @@ LIVE_FEW = 5             # 録画がこれより少ないときは「まだ少�
 LIVE_DIR = "live"
 REPORTS_DIR = "reports"
 LIVE_FEEDBACK = "live_feedback.jsonl"
+FRIEND_FEEDBACK = "friend_feedback.jsonl"   # 入口の logs/ の友人の「要らない」(src/home/friend_feedback.py の FEEDBACK_LOG)
+
+
+def folder_videos(dvideos):
+    """スタジオのマークの書き出し先のフォルダ(path の親。配信ごとのフォルダ)-> 配信の ID(大文字小文字・区切りをそろえた鍵)"""
+    out = {}
+    for vid, v in (dvideos or {}).items():
+        for m in (v.get("marks") if isinstance(v, dict) else None) or []:
+            p = m.get("path") if isinstance(m, dict) else None
+            if isinstance(p, str) and p:
+                out.setdefault(os.path.normcase(os.path.dirname(os.path.abspath(p))), vid)
+    return out
+
+
+def _friend_folder(r, run_src):
+    """友人の返事の行の切り抜きのフォルダ(パックのフォルダの親か、実行記録の sourcePath の親)。分からなければ空"""
+    for p in r.get("packs") or []:
+        d = p.get("dir") if isinstance(p, dict) else None
+        if isinstance(d, str) and d:
+            return os.path.normcase(os.path.dirname(os.path.abspath(d)))
+    src = run_src.get(r.get("runId"))
+    return os.path.normcase(os.path.dirname(os.path.abspath(src))) if isinstance(src, str) and src else ""
+
+
+def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=None, folders=None):
+    """C1 の入口(「採用の記録 配信 10 本」)に数える、スタジオの判定の外の人の判定(K2。10-08 決定 = 線 D の [採用][要らない]・友人の返事も数える)。
+    線 D の録画 = live/live_feedback.jsonl の人の行(event deliver = 届けた = 良い・reject = 要らない = 悪い。自動の採用は数えない)を録画ごとに。
+    友人の返事 = logs/friend_feedback.jsonl の行(友人の「要らない」)のある配信。行の videoId が空(自動で届けた切り抜き)なら、行の runId から
+    入口の実行記録(autorun-runs.jsonl)の videoId をたどり、それも無ければ(ファイル 1 本ずつの全自動)切り抜きのフォルダ = 配信ごとのフォルダを
+    スタジオのマークの書き出し先(folders = folder_videos)と突き合わせる。突き合わなければフォルダを 1 つの配信として数える。
+    **採用率には混ぜない**(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。records = run_records(app) を読んであれば渡す。
+    -> {"live": {"recordings", "good", "bad"}, "friend": {"videos", "rows", "unknown", "notInStudio"}, "all": スタジオの判定のある配信 + 線 D の録画 + ほかで数えていない友人の配信}"""
+    live = {}
+    for _, r in read_jsonl(os.path.join(app, LIVE_DIR, LIVE_FEEDBACK)):
+        if r.get("human") is True and r.get("event") in ("deliver", "reject") and _live_period_ok(r.get("at"), since_ms, until_ms):
+            g = live.setdefault((str(r.get("recorder") or ""), str(r.get("recording") or "")), {"good": 0, "bad": 0})
+            g["good" if r.get("event") == "deliver" else "bad"] += 1
+    recs = run_records(app) if records is None else records
+    run_vid = {r.get("id"): r.get("videoId") for r in recs if isinstance(r.get("videoId"), str) and r.get("videoId")}
+    run_src = {r.get("id"): r.get("sourcePath") for r in recs if isinstance(r.get("sourcePath"), str)}
+    friend, unknown = {}, 0
+    for _, r in read_jsonl(os.path.join(app, "logs", FRIEND_FEEDBACK)):
+        at = r.get("at") if isinstance(r.get("at"), int) and not isinstance(r.get("at"), bool) else None
+        if not C.in_period(at, since_ms, until_ms):
+            continue
+        vid = r.get("videoId") if isinstance(r.get("videoId"), str) and r.get("videoId") else run_vid.get(r.get("runId"))
+        if not vid:
+            folder = _friend_folder(r, run_src)
+            vid = (folders or {}).get(folder) or (("folder:" + folder) if folder else "")
+        if vid:
+            friend[vid] = friend.get(vid, 0) + 1
+        else:
+            unknown += 1
+    recordings = {rec for _rc, rec in live}
+    extra = [v for v in friend if v not in studio_judged and v not in recordings]
+    return {"live": {"recordings": len(live), "good": sum(g["good"] for g in live.values()), "bad": sum(g["bad"] for g in live.values())},
+            "friend": {"videos": len(friend), "rows": sum(friend.values()) + unknown, "unknown": unknown, "notInStudio": len(extra)},
+            "all": len(studio_judged) + len(live) + len(extra)}
 
 
 def _live_period_ok(iso_at, since_ms, until_ms):
@@ -1083,6 +1148,10 @@ def print_report(res):
     m = res["meta"]
     rng = C.period_label(m["since"], m["until"])
     print("盛り上がり検出の測定(%s)  配信 %d 本・判定のある配信 %d 本  スタジオ: %s" % (rng, m["videos"], m["judgedVideos"], m["studioDir"]))
+    je = res["overall"].get("judgedElsewhere") or {}
+    if je:
+        print("C1 の入口に数える判定のある配信 %d 本 = スタジオ %d・線 D の録画 %d(届けた %d・要らない %d)・友人の返事だけの配信 %d(採用率には混ぜない)" % (
+            je["all"], m["judgedVideos"], je["live"]["recordings"], je["live"]["good"], je["live"]["bad"], je["friend"]["notInStudio"]))
     if m["fewNote"]:
         print("★ " + m["fewNote"])
     if not m["videos"]:
