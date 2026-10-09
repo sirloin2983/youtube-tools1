@@ -27,7 +27,7 @@ import subprocess
 import threading
 import time
 
-from ytt_core import fsio as _fsio, jobs as _heavy, tools as _tools  # noqa: E402,F401
+from ytt import fsio as _fsio, jobs as _heavy, tools as _tools  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401

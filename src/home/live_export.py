@@ -57,7 +57,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools
+from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。M3)
 

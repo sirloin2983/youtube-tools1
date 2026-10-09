@@ -56,7 +56,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 if ROOT not in sys.path:
     sys.path.append(ROOT)
-from ytt_core import datadir, excite, fsio, recproto, schemas, tools  # noqa: E402
+from pipeline.analyze import excite  # noqa: E402
+from ytt import datadir, fsio, recproto, schemas, tools  # noqa: E402
 
 WORKER_VERSION = "1"
 POLL_SEC = 6.0             # 周期(5〜10 秒)

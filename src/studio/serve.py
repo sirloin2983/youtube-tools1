@@ -30,7 +30,7 @@ import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 import txlink  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
-from ytt_core import datadir, httpsec, runtime as ytt_runtime, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt import datadir, httpsec, runtime as ytt_runtime, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
 SERVER_VERSION = "0.26.0"  # core.js 側の APP_VERSION と揃える

@@ -62,16 +62,17 @@ def _load_core():
     """共通部品 ytt_core(リポジトリ直下)を読み込めるようにする(文字起こし・スタジオの serve.py と同じ規則)。
     探す場所: 環境変数 YTT_CORE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。sys.path の末尾に足す(隣の部品を隠さないため)。"""
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(CODE_DIR)):
-        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+        if d and os.path.isfile(os.path.join(d, "ytt", "__init__.py")):
             if d not in sys.path:
                 sys.path.append(d)
             return
-    raise SystemExit("共通部品 ytt_core が見つかりません(%s の隣に ytt_core フォルダが必要です)。"
+    raise SystemExit("共通部品 ytt が見つかりません(%s の隣に ytt フォルダが必要です)。"
                      "リポジトリのフォルダの中身をまとめて置き直してください" % CODE_DIR)
 
 
 _load_core()
-from ytt_core import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools, txindex as _txi  # noqa: E402
+from manage.cases import txindex as _txi  # noqa: E402
+from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"

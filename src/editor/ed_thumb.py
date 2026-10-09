@@ -14,7 +14,7 @@ import time
 import ed_jobs
 import ed_state
 import ed_store
-from ytt_core import fsio as _fsio, schemas as _yschemas
+from ytt import fsio as _fsio, schemas as _yschemas
 
 THUMB_CROPS = ("alt", "center", "right")
 THUMB_SUFFIX = "_thumb-ideas"

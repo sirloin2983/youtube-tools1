@@ -27,7 +27,7 @@ SRC = os.path.join(REPO, "src")   # ツールと ytt_core の置き場所
 sys.path.insert(0, SRC)
 sys.path.insert(0, os.path.join(SRC, "editor"))
 import tx_engines as E  # noqa: E402   版・コミット・置き場所の正(ネイティブの部品は読まない)
-from ytt_core import datadir  # noqa: E402
+from ytt import datadir  # noqa: E402
 
 
 def say(msg):

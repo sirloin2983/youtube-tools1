@@ -22,7 +22,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import httpsec, layout   # フォルダ名・合言葉と本文の読み捨て(入口の launch.py が src を sys.path に入れてから読み込む)
+from ytt import httpsec, layout   # フォルダ名・合言葉と本文の読み捨て(入口の launch.py が src を sys.path に入れてから読み込む)
 
 # 取り込めるツール。prefix は画面の場所(/studio/)。順番は スタジオ → cut2resolve → 文字起こし(段階3 の決定)。
 # csp が None のツールは、ツール自身の CSP(serve.py の CSP。script-src 'self' で外部・インラインのスクリプトなし)をそのまま使う

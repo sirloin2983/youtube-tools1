@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-from ytt_core import httpsec, layout   # 入口の launch.py が src を sys.path に入れてから読み込む(mount.py と同じ)
+from ytt import httpsec, layout   # 入口の launch.py が src を sys.path に入れてから読み込む(mount.py と同じ)
 
 WAIT_PORT_TIMEOUT = 30.0   # 新しい入口が、古い入口がポートを離すのを待つ最長(秒)。古い入口の後始末は子1つにつき最大 8 秒
 WAIT_PORT_POLL = 0.25

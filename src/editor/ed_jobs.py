@@ -21,7 +21,7 @@ import time
 import unicodedata
 import uuid
 
-from ytt_core import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
 import roster as _roster  # noqa: E402,F401
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
@@ -174,7 +174,7 @@ def worker_env():
     env = dict(os.environ)
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
-    import ytt_core as _yc   # ワーカーも同じ ytt_core を使う(一時フォルダに写したテストでも見つかるように)
+    import ytt as _yc   # ワーカーも同じ ytt(共通部品)を使う(一時フォルダに写したテストでも見つかるように)
     env["YTT_CORE_DIR"] = os.path.dirname(os.path.dirname(os.path.abspath(_yc.__file__)))
     return env
 

@@ -51,7 +51,8 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, fsio, tools, txindex
+from manage.cases import txindex
+from ytt import colors, fsio, tools
 import cases  # noqa: E402  (src/home/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
@@ -158,7 +159,7 @@ RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
 def _media_is_30fps(path):
     """素材がちょうど 30fps か(ytt_core.normalize の probe。ffprobe が無い・読めないときは False = 設定の値を使う)。2026-10-04 Q1"""
     try:
-        from ytt_core import normalize
+        from ytt import normalize
         info = normalize.probe(path)
     except Exception:
         return False

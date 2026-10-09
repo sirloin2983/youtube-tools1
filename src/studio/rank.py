@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 import common
 from common import ApiError, Cancelled, atomic_write, get_api_key
-from ytt_core import fsio as _fsio  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt import fsio as _fsio  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 API_BASE = common.YT_API_BASE
 NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"

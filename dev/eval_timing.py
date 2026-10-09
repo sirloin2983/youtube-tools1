@@ -44,7 +44,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・git の rev・保存。src を sys.path に足す)
 from _evalcommon import rate, read_json  # noqa: E402
-from ytt_core.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
+from ytt.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
 import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
 
 SCHEMA = "youtube-tools-timing-eval/v1"

@@ -34,8 +34,9 @@ REPO = os.path.dirname(HERE)   # リポジトリ直下(「リポジトリの中�
 SRC = os.path.join(REPO, "src")   # ツールと ytt_core の置き場所
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt_core import evaldata as ev, fsio  # noqa: E402
-from ytt_core.schemas import iso_now as _now  # noqa: E402
+from eval.tools import evaldata as ev  # noqa: E402
+from ytt import fsio  # noqa: E402
+from ytt.schemas import iso_now as _now  # noqa: E402
 
 CHECK_FORMAT = "youtube-tools-eval-check/v1"       # check.json の形式の名前
 REJECT_FORMAT = "youtube-tools-eval-reject/v1"     # rejected/*.json の形式の名前

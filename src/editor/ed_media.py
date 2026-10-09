@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 
-from ytt_core import jobs as _heavy  # noqa: E402
+from ytt import jobs as _heavy  # noqa: E402
 import ed_misc  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401

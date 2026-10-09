@@ -33,7 +33,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
-from ytt_core import fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
 
 YTCAP_SCHEMA = "youtube-tools-ytcap/v1"            # transcripts/<id>.ytcap.json(文書の範囲に切り出した字幕。形は alt.json に合わせる)
 YTCAP_VIDEO_SCHEMA = "youtube-tools-ytcap-video/v1"   # ytcaps/<videoId>.json(配信 1 本ぶんの字幕。使い回す)

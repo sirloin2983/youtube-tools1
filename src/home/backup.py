@@ -28,7 +28,7 @@ import time
 _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC not in sys.path:   # コマンドで単独に動かす(--restore)ときも ytt_core を読めるように(入口から読むときは入っている)
     sys.path.insert(0, _SRC)
-from ytt_core import fsio, tools  # noqa: E402
+from ytt import fsio, tools  # noqa: E402
 
 STATE_FILE = "backup-state.json"
 DEST_NAME = "youtube-tools-data"
@@ -371,7 +371,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     target = a.target
     if not target:
-        from ytt_core import datadir
+        from ytt import datadir
         target = datadir.data_root()
     try:
         r = restore_once(a.restore, target, dry_run=True)

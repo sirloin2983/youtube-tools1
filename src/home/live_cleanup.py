@@ -29,7 +29,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import schemas
+from ytt import schemas
 import live_archive as LA
 import live_export as LX
 import live_detect  # noqa: E402  (録画元・録画の id の形の検査 _ids_ok)

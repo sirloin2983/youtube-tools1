@@ -88,16 +88,16 @@ def _load_core():
     探す場所: 環境変数 YTT_CORE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。sys.path の末尾に足す(隣の部品を隠さないため)。"""
     here = os.path.dirname(os.path.abspath(__file__))
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(here)):
-        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+        if d and os.path.isfile(os.path.join(d, "ytt", "__init__.py")):
             if d not in sys.path:
                 sys.path.append(d)
             return
-    raise SystemExit("共通部品 ytt_core が見つかりません(%s の隣に ytt_core フォルダが必要です)。"
+    raise SystemExit("共通部品 ytt が見つかりません(%s の隣に ytt フォルダが必要です)。"
                      "リポジトリのフォルダの中身をまとめて置き直してください" % here)
 
 
 _load_core()
-from ytt_core import datadir as _datadir, httpsec, layout as _layout, runtime as _runtime  # noqa: E402
+from ytt import datadir as _datadir, httpsec, layout as _layout, runtime as _runtime  # noqa: E402
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
@@ -527,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
         tmp_dir = None
         try:
             try:   # 配信者の名前 → 字幕の文字の色(ytt_core/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
-                from ytt_core import colors as _colors
+                from ytt import colors as _colors
                 who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
             except ValueError as e:
                 raise ed_state.ApiError("bad_streamer", str(e), 400)

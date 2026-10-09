@@ -14,7 +14,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 
-from ytt_core import datadir, fsio, tools as ytools
+from ytt import datadir, fsio, tools as ytools
 
 CACHE_SEC = 600          # 作業データの大きさ・外部プログラムの版を数え直す間隔(秒)。「数え直す」で即
 TOP_ITEMS = 12           # ツールごとに出す直下の項目の数

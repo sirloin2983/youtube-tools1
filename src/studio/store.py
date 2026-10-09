@@ -21,7 +21,7 @@ import time
 import analyze
 import common
 from common import ApiError, atomic_write
-from ytt_core import fsio as _fsio, schemas, settings as _settings  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt import fsio as _fsio, schemas, settings as _settings  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 SCHEMA = "clip-studio/v1"
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)

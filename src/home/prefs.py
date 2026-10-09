@@ -36,7 +36,7 @@ import time
 _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC not in sys.path:   # 入口から読むときは入っている。テストが単独で読むときのため
     sys.path.insert(0, _SRC)
-from ytt_core import settings as _settings  # noqa: E402  (設定ファイルの読み書きの決まり。S4)
+from ytt import settings as _settings  # noqa: E402  (設定ファイルの読み書きの決まり。S4)
 
 MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分)
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)

@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 
-from ytt_core import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
 import ed_drill  # noqa: E402,F401  (評価ドリルの要約 drill_doc_summary を、文書の要約と一緒に作る)
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
@@ -51,7 +51,7 @@ def backup_doc(tid, kind):
 # 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形を確かめ、知らない鍵・形の違う値は黙って捨てる(画面・Lua に入るので必ずここを通す)
 def _sub_color(v):
     """字幕の文字の色: 16 進 6 桁(# はあってもなくても)→ "#RRGGBB"(大文字)。違えば None(規則は ytt_core.colors.norm_hex の 1 か所。文字列だけ)"""
-    from ytt_core import colors as _colors
+    from ytt import colors as _colors
     return _colors.norm_hex(v) if isinstance(v, str) else None
 
 
@@ -329,7 +329,7 @@ PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調
 def pack_info(media_path):
     """動画の隣の <名前>_pack(cut2resolve の既定の出力先)。規則は ytt_core/txindex.pack_info の1か所(入口の案件の画面と同じ判定)。
     -> {"textplus": bool, "updatedAt": ms} か None(一覧の API にフォルダのパスは出さない)"""
-    from ytt_core import txindex as _txi   # 一覧を作るときだけ使う(読み込みを軽く)
+    from manage.cases import txindex as _txi   # 一覧を作るときだけ使う(読み込みを軽く)
     p = _txi.pack_info(media_path)
     return {"textplus": p["textplus"], "updatedAt": p["updatedAt"]} if p else None
 
@@ -814,7 +814,7 @@ def pack_readme(tid):
     """GET /api/edit/pack-readme?id=: 前回のパックの Resolve での手順。記録したフォルダが cut2resolve のパック
     (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。ytt_core.txindex.is_pack_dir)のときだけ読む。
     今のパックは手順書のファイルが無いので、パックの Lua から作り直す(resolve_export.pack_instructions)。以前のパックはファイルを読む"""
-    from ytt_core import txindex as _txi
+    from manage.cases import txindex as _txi
     read_transcript(tid)
     d, _ = read_edit(tid)
     pk = (d or {}).get("pack") or {}

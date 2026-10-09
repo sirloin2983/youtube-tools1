@@ -34,7 +34,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from _evalcommon import dist, rate, read_json  # noqa: E402
-from ytt_core import txindex  # noqa: E402
+from manage.cases import txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-cut-eval/v1"
 EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/editor/ed_store.py の EDIT_SCHEMA と同じ(editor は読み込まない)

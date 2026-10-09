@@ -22,7 +22,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
-from ytt_core import fsio as _fsio, settings as _settings  # noqa: E402
+from ytt import fsio as _fsio, settings as _settings  # noqa: E402
 # ---------- 設定(settings.json)----------
 SETTINGS_MAX = 400000   # settings.json の大きさの上限(バイト)。読むときも書くときも同じ
 _settings_lock = threading.RLock()   # 設定の読み→書きを 1 つにする(SettingsFile に渡す)

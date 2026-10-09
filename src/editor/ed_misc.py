@@ -8,7 +8,7 @@ import functools
 import json
 import os
 
-from ytt_core import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
+from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401

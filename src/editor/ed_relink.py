@@ -12,7 +12,7 @@ import threading
 import time
 import unicodedata
 
-from ytt_core import fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
+from ytt import fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -488,7 +488,7 @@ def relink_find(obj):
 def pick_path(obj):
     """POST /api/pick {"kind": "file"|"dir", "hint"}: PC の標準の窓で動画かフォルダを選ぶ(ytt_core/pick.py)。
     -> {path}(やめたら "")。選んだ動画の検査は、そのあとの /api/relink/check と /api/relink/find が行う"""
-    from ytt_core import pick as _pick
+    from ytt import pick as _pick
     kind = "dir" if obj.get("kind") == "dir" else "file"
     try:
         p = _pick.pick(kind, "動画のあるフォルダを選ぶ" if kind == "dir" else "動画を選ぶ", obj.get("hint") or "", ed_state.MEDIA_TYPES)

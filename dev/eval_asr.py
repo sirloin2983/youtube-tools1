@@ -76,7 +76,8 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from _evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
-from ytt_core import evaldata as ev, tools  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
+from eval.tools import evaldata as ev  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
+from ytt import tools  # noqa: E402
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)

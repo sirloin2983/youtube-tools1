@@ -20,8 +20,9 @@ import uuid
 
 import common
 from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, num, redact, run_capture, tail_reason, fmt_ms
-from ytt_core import excite, fsio as _fsio  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式)
-from ytt_core.excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
+from pipeline.analyze import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式)
+from ytt import fsio as _fsio  # noqa: E402
+from pipeline.analyze.excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
                              chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
 
 API_BASE = common.YT_API_BASE

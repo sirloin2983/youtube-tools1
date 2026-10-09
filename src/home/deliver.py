@@ -21,7 +21,7 @@ import time
 import uuid
 import zipfile
 
-from ytt_core import fsio, normalize, tools
+from ytt import fsio, normalize, tools
 from intake import BAD_NAME_CHARS, OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む。フォルダの名前は受付の 1 か所)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")   # 圧縮しても小さくならない物は ZIP_STORED
@@ -365,14 +365,15 @@ class Deliveries:
         try:
             job["message"] = "zip にしています"
             dest = zip_pack(job["dir"], out_dir, job["name"][:-4], progress=prog)
-            job.update(state="done", progress=1.0, name=os.path.basename(dest),
-                       message="Dropbox の 出力 に置きました。同期が終わると友人のアプリの「受け取る」に出ます")
+            done = dict(state="done", progress=1.0, name=os.path.basename(dest),
+                        message="Dropbox の 出力 に置きました。同期が終わると友人のアプリの「受け取る」に出ます")
             self.log("友人へ届ける: %s を 出力 に置きました" % os.path.basename(dest))
-            if on_done:
+            if on_done:   # 記録してから done にする(画面は done を見てすぐ一覧を読み直すので、先に done にすると「届けた」がまだ無い一覧を読む。10-09)
                 try:
-                    on_done(dict(job))
+                    on_done(dict(job, **done))
                 except Exception as e:   # 記録できなくても、届けたことは変わらない(ログにだけ残す)
                     self.log("友人へ届ける: 届けたことを記録できませんでした: %r" % (e,))
+            job.update(done)
         except OSError as e:
             job.update(state="error", error=tools.why(e),
                        message="届けられませんでした: %s" % tools.why(e))

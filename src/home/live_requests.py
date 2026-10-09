@@ -13,7 +13,7 @@ import copy
 import threading
 import time
 
-from ytt_core import fsio, schemas, tools
+from ytt import fsio, schemas, tools
 
 SENS = ("high", "normal", "low")
 SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}

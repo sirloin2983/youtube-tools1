@@ -15,7 +15,7 @@ import re
 import time
 
 import cases
-from ytt_core import tools
+from ytt import tools
 
 DELIVERIES_LOG = "deliveries.jsonl"       # 届けた記録(入口の作業データの logs の中)
 FEEDBACK_LOG = "friend_feedback.jsonl"    # 友人の「要らない」の記録

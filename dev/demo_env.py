@@ -62,7 +62,8 @@ def make_media(dirpath, n=3, sec=40):
 
 
 def seed(tmp, rnd, streams, samples):
-    from ytt_core import schemas, txindex
+    from manage.cases import txindex
+    from ytt import schemas
     studio_home = os.path.join(tmp, "studio-home")
     os.makedirs(studio_home, exist_ok=True)
     txdir = os.path.join(tmp, "editor", "transcripts")
@@ -185,7 +186,7 @@ def main(argv=None):
         if fresh:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
     if fresh:
-        from ytt_core import layout as _layout
+        from ytt import layout as _layout
         _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__", "tests"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         samples = make_media(os.path.join(tmp, "media"))
         _, nv, nt = seed(tmp, random.Random(a.seed), a.streams, samples)

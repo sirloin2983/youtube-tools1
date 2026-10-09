@@ -43,7 +43,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from _evalcommon import dist, rate  # noqa: E402
-from ytt_core.schemas import num, plain_int  # noqa: E402  num = 有限の数(bool は除く)なら float、それ以外は None / plain_int = bool 以外の整数か None
+from ytt.schemas import num, plain_int  # noqa: E402  num = 有限の数(bool は除く)なら float、それ以外は None / plain_int = bool 以外の整数か None
 import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
 
 SCHEMA = "youtube-tools-effort-eval/v1"

@@ -60,7 +60,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from _evalcommon import dist, is_reviewed, pct, rate, read_json  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
 DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/editor/ed_speakers.py の DIAR_SCHEMA と同じ(editor は読み込まない)

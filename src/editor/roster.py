@@ -24,7 +24,7 @@ _lock = threading.Lock()
 def _stamp_cache():
     with _lock:
         if not _cache:
-            from ytt_core import fsio as _fsio
+            from ytt import fsio as _fsio
             _cache.append(_fsio.StampCache())
         return _cache[0]
 
@@ -49,7 +49,7 @@ def load(path):
 
 def _parse(path):
     """名簿のファイル → load の形(読めない・形が違えば空)"""
-    from ytt_core import fsio as _fsio
+    from ytt import fsio as _fsio
     d = _fsio.read_json_or(path, {}, kind=dict)
     groups, people, members = [], [], {}
     for g in d.get("groups") or []:

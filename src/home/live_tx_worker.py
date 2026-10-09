@@ -51,7 +51,7 @@ def main(argv):
         return 2
     data_dir, model, wav, out = argv[1:5]
     _paths()
-    from ytt_core import fsio   # 書きかけを入口に読ませない(一時ファイル → 置き換え)
+    from ytt import fsio   # 書きかけを入口に読ませない(一時ファイル → 置き換え)
     try:
         doc = recognize(data_dir, model, wav)
     except Exception as e:   # noqa: BLE001  (理由を入口へ返す。何が起きても json を書く)

@@ -10,7 +10,7 @@ import analyze
 import common
 from common import ApiError
 from store import now_ms as _now_ms
-from ytt_core import jobs  # common が ytt_core を読めるようにしてある
+from ytt import jobs  # common が ytt_core を読めるようにしてある
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30

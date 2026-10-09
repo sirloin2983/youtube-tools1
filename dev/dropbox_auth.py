@@ -25,7 +25,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.join(ROOT, "src") not in sys.path:
     sys.path.insert(0, os.path.join(ROOT, "src"))
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 DEFAULT_OUT = os.path.join(ROOT, "friend-apps", "request-sender", "config.json")
 AUTHORIZE_URL = "https://www.dropbox.com/oauth2/authorize"
 TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"

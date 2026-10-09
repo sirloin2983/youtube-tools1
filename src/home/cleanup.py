@@ -17,7 +17,7 @@ import os
 import shutil
 import time
 
-from ytt_core import datadir, fsio, schemas
+from ytt import datadir, fsio, schemas
 
 TRASH_DIR = "ごみ箱"
 # 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(docs/spec/data-location.md)

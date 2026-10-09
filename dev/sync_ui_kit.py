@@ -18,8 +18,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "src")   # ツール・ytt_core・ui-kit の置き場所
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt_core import fsio  # noqa: E402
-from ytt_core.layout import TOOL_DIRS  # noqa: E402  フォルダ名はここだけが知っている
+from ytt import fsio  # noqa: E402
+from ytt.layout import TOOL_DIRS  # noqa: E402  フォルダ名はここだけが知っている
 KIT = os.path.join(SRC, "ui-kit")
 HEADER = "/* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */\n"
 FILE_TARGETS = [(TOOL_DIRS["studio"], ("css", "js")), (TOOL_DIRS["transcribe"], ("js",))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)

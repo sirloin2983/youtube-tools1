@@ -44,7 +44,7 @@ KIND_NAMES = {"daily": "日報", "weekly": "週報", "monthly": "月報"}
 
 def data_dir(legacy=None):
     """作業データのフォルダ(ytt_core.datadir の規則。inplace なら src/analytics/data)"""
-    from ytt_core import datadir
+    from ytt import datadir
     legacy = legacy or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     return datadir.tool_dir("analytics", legacy)
 
@@ -134,7 +134,7 @@ class Service:
     def _matcher(self):
         if self.members is None:
             try:
-                from ytt_core import colors
+                from ytt import colors
                 self.members = data.member_matcher(colors.load())
             except Exception as e:   # 一覧が読めなくても分析は続ける(配信者の列が空になるだけ)
                 self.log("分析: メンバーの一覧を読めませんでした: %s" % e.__class__.__name__)
@@ -410,7 +410,7 @@ class Service:
 def _heavy(fn, label):
     """見込みの計算(数秒〜十数秒)は、他のツールの重い処理と順番を待つ(ytt_core.jobs.SLOTS。AGENTS.md の決まり)"""
     try:
-        from ytt_core import jobs
+        from ytt import jobs
     except ImportError:
         return fn()
     with jobs.SLOTS.slot("analytics", label) as ok:
@@ -427,7 +427,7 @@ def _inject_token(body, token):
 
 def _atomic_write(path, data_bytes):
     try:
-        from ytt_core import fsio
+        from ytt import fsio
         fsio.atomic_write(path, data_bytes)
     except ImportError:
         tmp = path + ".tmp"

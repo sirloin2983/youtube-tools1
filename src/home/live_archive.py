@@ -65,7 +65,8 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import fsio, jobs, normalize, schemas, tools, txindex
+from manage.cases import txindex
+from ytt import fsio, jobs, normalize, schemas, tools
 import live_export as LX
 import live_failures  # noqa: E402  (失敗の文は 1 か所。M3・M7)
 

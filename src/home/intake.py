@@ -30,7 +30,7 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, fsio, jobs, normalize, tools
+from ytt import colors, fsio, jobs, normalize, tools
 import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
 

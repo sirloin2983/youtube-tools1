@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 
-from ytt_core import fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)

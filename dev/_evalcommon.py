@@ -24,8 +24,8 @@ REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 EDITOR = os.path.join(REPO, "editor")
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt_core import datadir, fsio  # noqa: E402
-from ytt_core.fsio import read_json_or as read_json  # noqa: E402   read_json(path, default, limit) = JSON のファイル(BOM 可)。読めない・壊れている・NaN・limit バイト超は default
+from ytt import datadir, fsio  # noqa: E402
+from ytt.fsio import read_json_or as read_json  # noqa: E402   read_json(path, default, limit) = JSON のファイル(BOM 可)。読めない・壊れている・NaN・limit バイト超は default
 
 DOC_BYTES = 64 * 1024 * 1024    # 文書・記録の JSON を読むときの上限(limit を渡さない呼び出しにも付ける。fsio の既定は 16MiB)
 SAVED_MARK = "保存: "            # 結果を残した最後の行の頭(入口の src/home/accuracy.py が SAVED_MARK として読む。形を変えない)

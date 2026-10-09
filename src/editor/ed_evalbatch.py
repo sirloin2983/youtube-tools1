@@ -29,7 +29,7 @@ import os
 import re
 import threading
 
-from ytt_core import fsio as _fsio  # noqa: E402
+from ytt import fsio as _fsio  # noqa: E402
 import ed_drill  # noqa: E402,F401
 import ed_evalaudio  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401

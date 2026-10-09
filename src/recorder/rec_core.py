@@ -39,7 +39,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:   # 共通部品 ytt_core(ツールと同じ src/ の中)
     sys.path.append(ROOT)
-from ytt_core import fsio, recproto, tools as ytools  # noqa: E402
+from ytt import fsio, recproto, tools as ytools  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
 DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026-10-04 ユーザー決定。ホームの設定で変えられる)

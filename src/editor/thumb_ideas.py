@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)   # src(ツールの親 = ytt_core の置き場所。ytt_core.layout の src_root と同じ)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt_core import datadir, tools  # noqa: E402
+from ytt import datadir, tools  # noqa: E402
 
 W, H = 540, 960                 # 1 案の大きさ(9:16)
 SAFE_H = W * 3 // 2             # チャンネルページで見える 2:3 の範囲の高さ
@@ -198,7 +198,7 @@ def doc_rows(doc):
 def member_color(name, hay):
     """配信者のメンバーカラー(--name か、動画のパス・題名に名前があるメンバー)-> "#RRGGBB" | None"""
     try:
-        from ytt_core import colors
+        from ytt import colors
         entries = colors.load()
     except Exception:   # 色は飾り。読めなくても案は作る
         return None

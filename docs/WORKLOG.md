@@ -3221,3 +3221,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 注意: 起動中の入口は古いコードのまま(メモリの中の ytt_core を使う)。この段では入口が後から ytt_core のファイルを読みに行く所は無いが、念のため段の終わりに「すべて終了 → start.bat」
 - 次: RS1-1b(src と dev の実コードの import を新しい名前に・4 か所の _load_core が ytt/ を探す)
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Opus + 並列 Sonnet × 2。セッション「RS1」)— RS1-1b: 実コードの import を新しい名前に・入口の「届けた」の記録の順番の直し・AGENTS にサブエージェントの決まり
+- 変更(RS1-1b): src・dev・setup の実コード(tests/ を除く)の `from ytt_core import …` を新しい名前に(基盤 → `from ytt import …`・excite → `from pipeline.analyze import excite`・evaldata → `from eval.tools import evaldata`・txindex → `from manage.cases import txindex`。95 か所・73 ファイル)。4 か所の `_load_core`(studio/common・cut2resolve/serve・editor/serve・editor/pipeline_io)は `ytt/__init__.py` を探す。テストは旧い名前のまま(転送の確かめ)。docstring の「ytt_core.xxx」は転送で正しいので RS5 の片付けで
+- 直し(RS1-0 の不具合): `src/editor/tests/e2e_edit_common.py`・`e2e_ui_mounted.py` の関数の中の `from ytt_core import layout as _layout` を消した(モジュールの頭で読んでいるので、関数の中で読むと前の行が UnboundLocalError)
+- 直し(前からの不具合が表に出た): `src/home/deliver.py` の `_run` は、仕事を done にしてから `on_done`(案件に「届けた」を書く)を呼んでいた → 画面は done を見てすぐ一覧を読み直すので、「届けた」がまだ無い一覧を読み、続けて確認の引き出しで届けた 1 本目が「まだ決めていない」に戻ることがあった。**記録してから done にする**順に。RS1-1b で読み込みの時間が少し変わり、e2e_portal の A5 が毎回この隙間に当たるようになって見つかった(RS1 より前のコミットでは通る・mount.py だけ/それ以外だけの書き換えでは通る、で切り分け)
+- AGENTS.md: 「最初にやること」5 と「サブエージェントを使うとき」の先頭に「基本は使う」(ユーザー指示「基本的にどのセッションもサブエージェントは適切に使用して」「作業に時間かかってない?もう少し並行で」)
+- テスト: unittest 全部(home 582・studio 313・editor 598・cut2resolve 383・recorder 28・analytics 27・層 179・dev 353・契約 35。home の test_live_archive の 1 件は全体を流したときだけの時間の揺れ = 単独とファイル単独では OK)・lint 0・e2e: pipeline・datadir・analyze・autorun・portal・keymap・live・live_studio・live_archive・ui_mounted・edit_pack OK。**e2e_window は RS1 より前(626839d)から [7-1] スタジオの ② の設定 で落ちている**(スタジオの画面に #count が無い = 欄を設定の画面へ移した変更の取り残し。RS1 とは別。別の作業に)
+- 並列(このあと取り込む): RS1-5 鍵の JSON の形(Sonnet・別の作業フォルダ)・RS1-6 pipeline/spec.py(Sonnet・別の作業フォルダ)
+- 未コミット: なし(この記録と一緒にコミット)

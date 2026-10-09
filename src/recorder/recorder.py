@@ -43,7 +43,7 @@ if ROOT not in sys.path:
     sys.path.append(ROOT)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-from ytt_core import datadir, fsio, httpsec, runtime  # noqa: E402
+from ytt import datadir, fsio, httpsec, runtime  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"

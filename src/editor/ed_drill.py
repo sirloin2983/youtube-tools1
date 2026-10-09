@@ -29,7 +29,7 @@ import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
-from ytt_core import fsio as _fsio  # noqa: E402
+from ytt import fsio as _fsio  # noqa: E402
 
 DRILL_RECENT_SEC = 600       # 直近これだけの間に更新した文書は選ばない(編集の画面で開いている可能性)
 DRILL_GOAL_SEC = 900         # 定点 = 確かめ済みの評価用の動画 15 分(マスタープラン Q4)

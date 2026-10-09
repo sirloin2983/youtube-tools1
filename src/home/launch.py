@@ -75,7 +75,8 @@ CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, txindex  # noqa: E402
+from manage.cases import txindex  # noqa: E402
+from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import intake as intake_mod  # noqa: E402  (src/home/intake.py: 友人からの依頼の受付)

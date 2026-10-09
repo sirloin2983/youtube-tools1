@@ -25,8 +25,8 @@ import sys
 ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")   # ツールと ytt_core の置き場所
 if ROOT not in sys.path:
     sys.path.append(ROOT)
-from ytt_core import datadir, runtime  # noqa: E402
-from ytt_core.layout import TOOL_DIRS  # noqa: E402
+from ytt import datadir, runtime  # noqa: E402
+from ytt.layout import TOOL_DIRS  # noqa: E402
 
 # (ツールID, 以前の場所, 写したデータ(各 serve.py の DATA_ITEMS と同じ), 写さない一時的なもの)
 TOOLS = (

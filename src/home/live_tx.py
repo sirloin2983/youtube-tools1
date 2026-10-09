@@ -19,7 +19,7 @@ import subprocess
 import threading
 import time
 
-from ytt_core import datadir, fsio, jobs, tools
+from ytt import datadir, fsio, jobs, tools
 import live_export as LX
 
 WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_tx_worker.py")

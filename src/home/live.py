@@ -72,7 +72,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import datadir, fsio, layout, schemas, tools
+from ytt import datadir, fsio, layout, schemas, tools
 import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)

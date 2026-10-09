@@ -723,10 +723,10 @@ def split_json_inputs(paths):
 def loudness_mod():
     """ytt_core/loudness.py(ラウドネスの決まりの1か所)。コマンドとして動かしたときは ytt_core を読んでいないので、リポジトリ直下を足して読む"""
     try:
-        from ytt_core import loudness
+        from ytt import loudness
     except ImportError:
         sys.path.append(str(Path(__file__).resolve().parent.parent))
-        from ytt_core import loudness
+        from ytt import loudness
     return loudness
 
 

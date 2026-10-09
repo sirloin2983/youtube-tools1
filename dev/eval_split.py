@@ -29,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt_core import datadir, fsio, normalize  # noqa: E402
+from ytt import datadir, fsio, normalize  # noqa: E402
 
 SCHEMA = "youtube-tools-eval-split/v1"
 PLAN_NAME = "split-plan.json"

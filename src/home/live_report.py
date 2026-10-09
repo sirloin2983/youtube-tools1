@@ -21,7 +21,7 @@ import json
 import os
 import time
 
-from ytt_core import fsio
+from ytt import fsio
 import live_export as LX  # noqa: E402
 import live_failures  # noqa: E402
 

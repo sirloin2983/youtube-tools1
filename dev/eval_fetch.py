@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt_core import fsio, normalize, schemas, tools  # noqa: E402
+from ytt import fsio, normalize, schemas, tools  # noqa: E402
 import eval_split  # noqa: E402  (同じ dev/ の道具。評価用のフォルダの決め方・名簿の読み方を使う)
 
 SCHEMA = "youtube-tools-eval-fetch/v1"
@@ -381,7 +381,7 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=0, help="fetch: 今回取る数の上限(0 = 全部)")
     args = p.parse_args(argv)
     if not args.root:
-        from ytt_core import datadir
+        from ytt import datadir
         args.root = eval_split.default_root(args.data or datadir.tool_dir("transcribe", os.path.join(REPO, "editor")))
     if not args.root or not os.path.isdir(args.root) or fsio.is_network_path(args.root):
         print("評価用のフォルダが分かりません(--root で指定してください。ネットワーク上のフォルダは使えません)。")

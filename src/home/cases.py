@@ -45,7 +45,8 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import datadir, fsio, schemas, tools, txindex
+from manage.cases import txindex
+from ytt import datadir, fsio, schemas, tools
 import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。線 D の M3)
 

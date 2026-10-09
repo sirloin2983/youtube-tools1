@@ -27,16 +27,16 @@ def _load_core():
     探す場所: 環境変数 YTT_CORE_DIR(ツールを一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。
     sys.path の末尾に足す(このフォルダの同名のモジュールを隠さないため)。"""
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(CODE_DIR)):
-        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+        if d and os.path.isfile(os.path.join(d, "ytt", "__init__.py")):
             if d not in sys.path:
                 sys.path.append(d)
             return
-    raise SystemExit("共通部品 ytt_core が見つかりません(%s の隣に ytt_core フォルダが必要です)。"
+    raise SystemExit("共通部品 ytt が見つかりません(%s の隣に ytt フォルダが必要です)。"
                      "リポジトリのフォルダの中身をまとめて置き直してください" % CODE_DIR)
 
 
 _load_core()
-from ytt_core import datadir as _datadir, fsio as _fsio, tools as _tools  # noqa: E402
+from ytt import datadir as _datadir, fsio as _fsio, tools as _tools  # noqa: E402
 _home = _datadir.override("studio") or os.path.abspath(CODE_DIR)   # data.json などの置き場所(STUDIO_HOME の規則は ytt_core.datadir の1か所)
 
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}\Z")

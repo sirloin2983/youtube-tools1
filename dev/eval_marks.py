@@ -58,7 +58,8 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from _evalcommon import pct, rate, read_json  # noqa: E402
-from ytt_core import excite, txindex  # noqa: E402
+from manage.cases import txindex  # noqa: E402
+from pipeline.analyze import excite  # noqa: E402
 
 SCHEMA = "youtube-tools-marks-eval/v1"
 TOPS = (5, 10, 20)

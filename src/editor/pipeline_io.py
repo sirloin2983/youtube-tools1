@@ -20,7 +20,7 @@ def _load_core():
     """共通部品 ytt_core を読み込めるようにする(serve.py の _load_core と同じ規則。pipeline_io だけを読み込むテスト・道具のため)。"""
     here = os.path.dirname(os.path.abspath(__file__))
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(here)):
-        if d and os.path.isfile(os.path.join(d, "ytt_core", "__init__.py")):
+        if d and os.path.isfile(os.path.join(d, "ytt", "__init__.py")):
             if d not in sys.path:
                 sys.path.append(d)
             return
@@ -28,7 +28,7 @@ def _load_core():
 
 _load_core()
 import resolve_export  # noqa: E402
-from ytt_core import fsio, runtime, schemas  # noqa: E402
+from ytt import fsio, runtime, schemas  # noqa: E402
 
 TOOL_NAME = runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない)
 CLIP_SCHEMA = schemas.CLIP_SCHEMA

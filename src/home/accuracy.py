@@ -31,7 +31,8 @@ import re
 import threading
 import time
 
-from ytt_core import datadir, fsio, layout, schemas, tools, txindex
+from manage.cases import txindex
+from ytt import datadir, fsio, layout, schemas, tools
 
 STATE_FILE = "accuracy-state.json"
 FIRST_WAIT = 120           # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)

@@ -45,7 +45,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存・editor の読み込み)
 import eval_asr as E  # noqa: E402  文書の選び方・採点・まとめ・表示(同じ物差しで測るため)
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 # 単価(USD / 分。2026-10-07 に公式の料金ページで確認。申し込みの前にもう 1 度見る)
 #   OpenAI: developers.openai.com/api/docs/pricing(gpt-4o-transcribe は音声トークン $2.50/M = 目安 $0.006/分。whisper-1 は $0.006/分)
