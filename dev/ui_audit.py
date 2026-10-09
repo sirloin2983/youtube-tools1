@@ -62,7 +62,8 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 MOUNTED = ("studio", "editor")   # 入口に取り込まれる画面(絶対パス禁止の対象)
-SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js"],
+SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js",
+                    "settings/index.html", "settings/settings.js", "settings/settings.css"],
            "studio": ["index.html", "core.js", "rank.js", "queue.js", "review.js", "collab.js", "settings.js", "app.css", "review.css"],
            "editor": ["index.html", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
@@ -521,6 +522,7 @@ def default_scenes(base):
         {"name": "home-empty-filter", "url": base + "/", "actions": [("fill", "#fText", "zzzz-no-match-zzzz"), ("wait", 500)]},
         {"name": "home-advanced", "url": base + "/", "actions": [("click", "#advancedBox > summary"), ("wait", 400)]},
         {"name": "home-settings", "url": base + "/", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
+        {"name": "home-settings-page", "url": base + "/settings", "wide": True, "actions": [("wait", 800)]},   # 設定の画面(S5。schema.json から描く。設定の画面そのものなので header の ⚙(A-28)は見ない)
         {"name": "studio-rank", "url": base + "/studio/?step=rank", "header": True},
         {"name": "studio-review-empty", "url": base + "/studio/?step=review"},
         {"name": "studio-review", "url": base + "/studio/?video=demo0000000", "wide": True},

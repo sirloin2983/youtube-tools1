@@ -1,0 +1,26 @@
+/* 設定の画面(/settings。部品は src/home/settings/)。部品の見た目は ui-kit(.ui-set-* = UIKit.settingsForm)。ここは置き方だけ */
+.st-main{max-width:1100px;margin:0 auto;padding:16px 16px 48px}
+.st-h1{margin:0 0 4px;font:650 20px/1.3 var(--font-display)}
+.st-head>.hint{margin:0 0 10px}
+.st-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px}
+.st-search{display:flex;align-items:center;gap:6px;flex:1 1 260px;max-width:460px;min-width:0}
+.st-search input{flex:1 1 auto;min-width:0}
+.st-body{display:grid;grid-template-columns:200px minmax(0,1fr);gap:18px;align-items:start}
+.st-nav{position:sticky;top:calc(var(--header-h) + 12px);display:flex;flex-direction:column;gap:2px}
+.st-nav a{display:block;padding:6px 10px;border-radius:var(--r);color:var(--ink-2);text-decoration:none;font-size:13px}
+.st-nav a:hover{background:var(--panel-2);color:var(--ink)}
+.st-nav a[aria-current=true]{background:var(--accent-soft);color:var(--ink);font-weight:600}
+.st-nav a.st-nav-off{color:var(--ink-3)}
+.st-sections{min-width:0}
+.st-sec{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg,12px);padding:14px 18px 10px;margin:0 0 14px;scroll-margin-top:calc(var(--header-h) + 12px)}
+.st-sec>h2{margin:0 0 4px;font:650 16px/1.3 var(--font-display);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.st-sec>h2 .pill{font-weight:500}
+.st-sec>.hint{margin:0 0 10px}
+.st-sec .ui-settings-sec{margin:0}
+.st-sec .ui-settings-sec>h3{display:none}
+.st-sec.st-nomatch{display:none}
+@media (max-width:760px){
+  .st-body{grid-template-columns:1fr}
+  .st-nav{position:static;flex-direction:row;flex-wrap:wrap;gap:4px 6px}
+  .st-nav a{padding:4px 10px;border:1px solid var(--line);border-radius:var(--r-pill)}
+}

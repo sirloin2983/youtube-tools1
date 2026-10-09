@@ -97,7 +97,7 @@ except ImportError:
     analytics_mod = None
 
 APP_ID = "ytt-launcher"
-VERSION = "0.51.0"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.52.0"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -527,9 +527,14 @@ class Supervisor:
 
 
 # ---------- 入口の画面(HTTP) ----------
+SETTINGS_DIR = os.path.join(CODE_DIR, "settings")   # 設定の画面(/settings。設定を 1 つに S5。スキーマ schema.json から UIKit.settingsForm が描く。
+# 入口の直下の 1 枚にする = 画面の相対パス api/ytt/… が入口の API を指す(ui-kit の決まり。/settings/ のフォルダにすると /settings/api/… になる)
 STATIC = {"/": ("portal.html", CODE_DIR), "/index.html": ("portal.html", CODE_DIR), "/portal.js": ("portal.js", CODE_DIR),
-          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR)}
-STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
+          "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
+          "/settings": ("index.html", SETTINGS_DIR), "/settings.js": ("settings.js", SETTINGS_DIR),
+          "/settings.css": ("settings.css", SETTINGS_DIR), "/settings-schema.json": ("schema.json", SETTINGS_DIR)}
+STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
+NAV_PAGES = httpsec.PAGES + ("/settings",)   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
@@ -608,7 +613,7 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     def _navigation_ok(self, path):
         """他のツールの画面のリンクで入口を開くのは許す(画面を開くだけで、URL で処理は始まらない)。API は同じ画面からだけ"""
-        return httpsec.navigation_ok(self.headers, path)
+        return httpsec.navigation_ok(self.headers, path, NAV_PAGES)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt_core の 1 か所(取り込んだツールと同じ)
@@ -629,6 +634,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return
         if u.path == "/cases.html":   # 案件の一覧はホーム(/)にまとめた(段階5)。以前のリンク・ブックマークはホームの案件の一覧へ
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/#cases"})
+        if u.path in ("/settings/", "/settings/index.html"):   # 設定の画面は /settings(入口の直下。相対パスが入口の API を指すように)
+            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/settings"})
         if u.path in STATIC:
             name, base = STATIC[u.path]
             try:

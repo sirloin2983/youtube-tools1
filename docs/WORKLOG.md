@@ -3080,3 +3080,18 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: test_live・test_live_archive(録画の片付けの場面を書き直した)・test_cases(expire の場面)・test_launch・test_live_detect OK(test_live_archive の 1 件は負荷の高いときだけ時間切れ = 単独で OK)・lint 0
 - 版: まだ上げていない(ホームの 0.52.0 は「スタジオ設定の整理」が S5 で使用中 = launch.py・README が作業途中)。残りの (ec) 友人側で届け方を選ぶ(送るアプリと入口の組)と一緒に 0.53.0 にする
 - 未コミット: なし(このセッションの分。src/home の launch.py・README.txt・prefs.py・live_archive.py・test_launch.py は他のセッションの途中)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「スタジオ設定の整理」)— S5 単体の「設定」の画面: 入口の /settings(ホーム 0.52.0・ui-kit v25)。設定を 1 つに(S1〜S5)完了
+- 依頼: 「そのあと設定はそれ単体で一つのものにして使いやすくしたい」の段 3(`docs/spec/settings.md` の 4)。ユーザー「計画をどんどん前倒ししてよい。確認が必要なことは仮で決定して最後にまとめて」
+- 棚卸し: サブエージェント 4 体(Sonnet 3・Haiku 1)でホーム prefs・スタジオ・編集・録画/分析/cut2resolve/入口の経路の設定の鍵・型・範囲・既定値・ラベル・API を一覧にした(結果はスキーマに反映。文書には残していない)
+- 新(`src/home/settings/`): `index.html`(入口の `/settings`。相対パスで `ui-kit.js`・`settings.js`・`settings.css`)・`settings.js`(置き場所 home/studio/editor/analytics ごとの読み書きの口・描く・目次・検索・JSON でコピー。`window.YttSettings` はテスト用)・`settings.css`・`schema.json`(8 節・約 100 項目。`/settings-schema.json` として配る)
+- ui-kit v25(`src/ui-kit/`): `UIKit.settingsForm.render(host, group, io)`(型 bool/enum/int/number/text/folder/textarea/link・scale・when・validated・「標準に戻す」・保存の印・`ui-set-changed` の知らせ)と `.filter(root, text)`・`UIKit.settings.general()`・⚙ の「全体」の節に「設定の画面を開く」(入口に取り込まれているときだけ)。`.ui-set-*` の CSS。`dev/sync_ui_kit.py` で写し(studio の css/js・editor の js と index.html の CSS)
+- 入口(`src/home/launch.py` 0.52.0): `STATIC` に `/settings`・`/settings.js`・`/settings.css`・`/settings-schema.json`(`STATIC_TYPES` に .json)。`/settings/`・`/settings/index.html` は `/settings` へ 302。ほかの画面のリンクで開ける `NAV_PAGES`(httpsec.PAGES + /settings)。README に ■ v0.52.0
+- テスト(新): `src/home/tests/test_settings_schema.py`(スキーマの形・home の鍵が prefs.py にある・既定値が同じ・DEFAULTS の葉が全部画面にある(NO_UI 3 つ)・範囲の端/外・選択肢を CLEANERS に実際に通す)・`src/studio/tests/test_settings_schema.py`(analyze.validate_settings の既定値・丸め・選択肢・全部の鍵)・`src/editor/tests/test_settings_schema.py`(validated の印 = SETTINGS_PATCH_KEYS・予定どおり通る/断る・CUT_SILENCE_RANGE)・`src/home/tests/e2e_settings.py`(描く・動いていない節は無効・値を変える → prefs に入る → 標準に戻す・範囲の外は断る・入れ子の鍵と when・検索・読み直し・コンソールにエラーなし)。`test_launch.py` に /settings の配信と CSP・302。`dev/ui_audit.py` に settings/ のファイルと場面 home-settings-page(header の ⚙ は見ない)
+- 結果: test_launch 43・schema 3 本(5+3+4)・test_ui_kit_sync・lint 0・ui_audit static Must 0・ui_audit all --demo Must 0(Should 8 は以前からの studio の固定色など)・e2e_settings ALL OK・e2e_styleguide OK・e2e_edit_pack ALL PASSED(⚙ に行を足した影響なし)。画面の写真(960/390・明暗)を見て確かめた
+- 直しながら決めたこと: `/settings/`(フォルダ)だと ui-kit の `api/ytt/live` が `/settings/api/…` になって 404 → 入口の直下の 1 枚 `/settings` に(gf)。ほかの節の when を描き直すために `ui-set-changed` を節の要素から bubbles で知らせ、画面が document で聞いて全部の節を refresh。ui_audit の A-09(用語)で「クリップボード」「入口」を「コピー」「ホーム」に
+- 仮で決めたこと(ユーザー不在): `plan/decisions.md` 3-19 (gf)〜(gk)
+- 計画: `plan/data.js` S5 を done(1.5 時間)・まとめの文・版(ホーム 0.52.0・ui-kit v25)。`docs/spec/settings.md` の状態の行と 4(段 3・一緒に直すものの結果)。AGENTS.md の表(テストの名前)
+- 並行セッション: 「ツール全体のコード修正」が src/editor・src/home/live*・ytt_core の小道具などを編集中(未コミット)。こちらのコミットは自分のファイルだけ(`src/editor/index.html` は ui-kit の CSS の写しの hunk だけ)
+- 次: ユーザーに使ってもらう(ホームの ⚙ → 設定の画面を開く)。入口は起動し直すまで古いコード(すべて終了 → start.bat)。残り: 各ツールの ⚙ を同じ描き手にするか(gg)・Text+ の字幕の見た目を設定にするか(要相談)・`src/editor/AGENTS.md` の「config.json」の表記
+- 未コミット: なし(このセッションの分はこの記録と一緒にコミット)

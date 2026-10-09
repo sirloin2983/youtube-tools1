@@ -1,5 +1,5 @@
 /* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */
-/* ui-kit v24 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v25 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -54,7 +54,9 @@
        置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。知らせがあふれたとき、ボタンの無い失敗も失敗でない知らせより後に閉じる。README.md の「v23」
    v24(2026-10-09・コードの見直しの直す順番 B の土台): UIKit.http(url, opt)(JSON の API を呼ぶ 1 か所・合言葉を付ける 1 か所・失敗の形を 1 つに)・
        UIKit.homeApi(path, opt) / homeUrl(path)(入口の API。画面の 1 つ上)・UIKit.copy(text, opt)(クリップボード)・fmt.day・fmt.dur の opt(floor・tenths・noHours)・
-       icon.names()。ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形に。README.md の「v24」 */
+       icon.names()。ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形に。README.md の「v24」
+   v25(2026-10-09・設定を 1 つに S5): UIKit.settingsForm(宣言的なスキーマから設定の節を描く。入口の /settings/ の画面が使う)・
+       ⚙ の「全体」の節に「すべての設定を 1 つの画面で」(入口に取り込まれているときだけ。/settings へ)。README.md の「v25」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -1138,6 +1140,12 @@
     kbRow.appendChild(kbLabel);
 
     sec.appendChild(themeRow); sec.appendChild(fsRow); sec.appendChild(kbRow);
+    if (tools.mounted() && !/\/settings\/?$/.test(location.pathname)) {   /* v25: すべての設定を 1 つの画面で(入口の /settings。S5) */
+      var allRow = document.createElement('div'); allRow.className = 'ui-settings-row';
+      var allSpan = document.createElement('span'); allSpan.textContent = 'すべての設定を 1 つの画面で';
+      var allA = document.createElement('a'); allA.className = 'btn small'; allA.href = homeUrl('settings'); allA.textContent = '設定の画面を開く';
+      allRow.appendChild(allSpan); allRow.appendChild(allA); sec.appendChild(allRow);
+    }
     generalSectionEl = sec;
     return sec;
   }
@@ -1216,7 +1224,183 @@
     paintSettingsStatus();
     return el;
   }
-  var settings = { mount: settingsMount, status: settingsStatus, statusOf: function () { return { state: setStatus.state, message: setStatus.message }; } };
+  var settings = { mount: settingsMount, status: settingsStatus, statusOf: function () { return { state: setStatus.state, message: setStatus.message }; },
+                   general: buildGeneralSection };   /* v25: 「全体」の節(テーマ・文字の大きさ・キーの帯)を /settings/ の画面にも置く */
+
+  /* ---- settingsForm(v25。設定を 1 つに S5。docs/spec/settings.md の 4)---- 宣言的なスキーマから設定の節を描く。
+     ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は今までの作り)。
+     UIKit.settingsForm.render(host, group, io) -> {refresh()}
+       group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link}]}
+         type: 'bool'(スイッチ)/ 'enum'(select)/ 'int' / 'number' / 'text' / 'folder'(フルパスの欄)/ 'textarea' / 'link'(別の画面で直すもの。ボタンだけ)
+         scale: 欄に出す値 = 保存の値 × scale(0.65 を 65% と出すとき 100)。when: {key, eq} か {key, ne}(その鍵の値で行を出す・隠す)
+       io = {get(key) -> 今の値(undefined = 無い), set(key, 値) -> Promise(保存して io.get が新しい値を返すようにする), disabled() -> 文(あれば欄を無効にして理由を出す)}
+     欄を変えると検査 → io.set → 行に「保存しました」(2 秒)→ 節の要素から 'ui-set-changed'(detail {key, value}。bubbles)。失敗なら理由を行に出して値を戻す。
+     「標準に戻す」は default と違うときだけ出す。
+     UIKit.settingsForm.filter(root, text) -> 見える項目の数(ラベル・説明・鍵に text を含む行だけ残す。節に 1 つも無ければ節も隠す) */
+  function setFormId(key) { return 'uiSet-' + String(key).replace(/[^A-Za-z0-9_-]/g, '_'); }
+  function setFormEl(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function setFormOptValue(item, str) {   /* select の文字列 → options に書いた元の型(数値の選択肢は数値のまま保存する) */
+    var o = item.options || [];
+    for (var i = 0; i < o.length; i++) if (String(o[i][0]) === str) return o[i][0];
+    return str;
+  }
+  function setFormNum(item, raw) {   /* 欄の文字 → 保存する数(scale を戻す)。範囲の外・数でなければ null */
+    var s = String(raw == null ? '' : raw).trim();
+    if (!s) return null;
+    var v = Number(s);
+    if (!isFinite(v)) return null;
+    if (item.scale) v = v / item.scale;
+    v = Math.round(v * 1e6) / 1e6;
+    if (item.type === 'int' && Math.round(v) !== v) return null;
+    if (item.min != null && v < item.min) return null;
+    if (item.max != null && v > item.max) return null;
+    return v;
+  }
+  function setFormShown(item, v) { return v == null ? '' : item.scale ? String(Math.round(v * item.scale * 1e6) / 1e6) : String(v); }
+  function setFormRangeText(item) {
+    var lo = item.min != null ? setFormShown(item, item.min) : '', hi = item.max != null ? setFormShown(item, item.max) : '';
+    return lo !== '' && hi !== '' ? lo + '〜' + hi : lo !== '' ? lo + ' 以上' : hi !== '' ? hi + ' 以下' : '';
+  }
+  function setFormControl(item, id) {
+    var c;
+    if (item.type === 'bool') { c = document.createElement('input'); c.type = 'checkbox'; c.className = 'ui-switch'; }
+    else if (item.type === 'enum') {
+      c = document.createElement('select');
+      var o = item.options || [];
+      for (var i = 0; i < o.length; i++) { var op = document.createElement('option'); op.value = String(o[i][0]); op.textContent = o[i][1] != null ? o[i][1] : String(o[i][0]); c.appendChild(op); }
+    } else if (item.type === 'textarea') { c = document.createElement('textarea'); c.rows = item.rows || 3; c.spellcheck = false; }
+    else if (item.type === 'link') { c = document.createElement('a'); c.className = 'btn small'; c.href = item.link && item.link.href ? item.link.href : '#'; c.textContent = item.link && item.link.label ? item.link.label : '開く'; }
+    else {
+      c = document.createElement('input');
+      c.type = item.type === 'int' || item.type === 'number' ? 'number' : 'text';
+      if (c.type === 'number') {
+        if (item.min != null) c.min = setFormShown(item, item.min);
+        if (item.max != null) c.max = setFormShown(item, item.max);
+        c.step = item.step != null ? String(item.step) : item.type === 'int' ? '1' : 'any';
+        c.inputMode = item.type === 'int' ? 'numeric' : 'decimal';
+      } else { c.autocomplete = 'off'; c.spellcheck = false; if (item.type === 'folder') c.classList.add('ui-set-folder'); }
+      if (item.maxlength) c.maxLength = item.maxlength;
+    }
+    if (item.placeholder && 'placeholder' in c) c.placeholder = item.placeholder;
+    c.id = id;
+    return c;
+  }
+  function setFormFill(item, c, v) {
+    if (item.type === 'link') return;
+    if (v === undefined) v = item['default'];
+    if (item.type === 'bool') c.checked = v === true;
+    else if (item.type === 'enum') {
+      c.value = String(v == null ? '' : v);
+      if (c.value !== String(v == null ? '' : v) && item['default'] !== undefined) c.value = String(item['default']);   /* 選択肢に無い値は標準に */
+    } else if (item.type === 'int' || item.type === 'number') c.value = setFormShown(item, v);
+    else c.value = v == null ? '' : String(v);
+  }
+  function setFormRead(item, c) {   /* 欄 → 保存する値。形が悪ければ {error} */
+    if (item.type === 'bool') return { value: c.checked };
+    if (item.type === 'enum') return { value: setFormOptValue(item, c.value) };
+    if (item.type === 'int' || item.type === 'number') {
+      var n = setFormNum(item, c.value);
+      if (n === null) return { error: (setFormRangeText(item) ? setFormRangeText(item) + ' の' : '') + '数で入れてください' };
+      return { value: n };
+    }
+    var s = String(c.value == null ? '' : c.value);
+    if (item.type !== 'textarea') s = s.trim();
+    if (item.maxlength && s.length > item.maxlength) return { error: item.maxlength + ' 文字までです' };
+    if (item.pattern && s && !(new RegExp(item.pattern)).test(s)) return { error: item.patternText || '形が正しくありません' };
+    return { value: s };
+  }
+  function setFormSame(a, b) { return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
+  function setFormWhen(item, io) {
+    var w = item.when;
+    if (!w || !w.key) return true;
+    var v = io.get(w.key);
+    if ('eq' in w) return setFormSame(v, w.eq);
+    if ('ne' in w) return !setFormSame(v, w.ne);
+    return true;
+  }
+  function settingsFormRender(host, group, io) {
+    var sec = setFormEl('section', 'ui-set-group');
+    sec.setAttribute('data-ui-set-group', group.id || '');
+    if (group.title) sec.appendChild(setFormEl('h4', null, group.title));
+    if (group.hint) sec.appendChild(setFormEl('p', 'hint ui-set-ghint', group.hint));
+    var off = typeof io.disabled === 'function' ? io.disabled() : '';
+    if (off) sec.appendChild(setFormEl('p', 'notice ui-set-off', off));
+    var rows = [];
+    for (var i = 0; i < (group.items || []).length; i++) {
+      (function (item) {
+        var id = setFormId(item.key), row = setFormEl('div', 'ui-set-item');
+        row.setAttribute('data-ui-set-key', item.key);
+        row.setAttribute('data-ui-set-text', ((item.label || '') + ' ' + (item.hint || '') + ' ' + item.key).toLowerCase());
+        var main = setFormEl('div', 'ui-set-main'), lab = setFormEl('label', 'ui-set-label', item.label || item.key), ctl = setFormEl('div', 'ui-set-ctl');
+        var c = setFormControl(item, id);
+        if (item.type === 'link') lab.id = id + '-l'; else lab.htmlFor = id;
+        if (off && item.type !== 'link') c.disabled = true;
+        ctl.appendChild(c);
+        if (item.unit) ctl.appendChild(setFormEl('span', 'hint ui-set-unit', item.unit));
+        main.appendChild(lab); main.appendChild(ctl);
+        var side = setFormEl('div', 'ui-set-side'), reset = setFormEl('button', 'btn ghost small ui-set-reset', '標準に戻す'), mark = setFormEl('span', 'ui-set-mark');
+        reset.type = 'button'; reset.hidden = true; mark.setAttribute('role', 'status');
+        side.appendChild(reset); side.appendChild(mark);
+        if (item.type === 'link' || item['default'] === undefined || off) reset.hidden = true;
+        row.appendChild(main); row.appendChild(side);
+        if (item.hint) row.appendChild(setFormEl('p', 'hint ui-set-hint', item.hint));
+        sec.appendChild(row);
+        var markTimer = 0;
+        function showMark(text, err) {
+          clearTimeout(markTimer);
+          mark.textContent = text; mark.classList.toggle('err', !!err);
+          if (!err && text) markTimer = setTimeout(function () { mark.textContent = ''; }, 2000);
+        }
+        function paint() {
+          var v = io.get(item.key);
+          setFormFill(item, c, v);
+          if (item['default'] !== undefined && !off && item.type !== 'link') reset.hidden = setFormSame(v === undefined ? item['default'] : v, item['default']);
+          row.hidden = !setFormWhen(item, io);
+        }
+        function save(value) {
+          if (setFormSame(value, io.get(item.key))) { showMark(''); return Promise.resolve(); }
+          c.disabled = true;
+          return Promise.resolve().then(function () { return io.set(item.key, value); }).then(function () {
+            c.disabled = !!off; showMark('保存しました', false); paintAll();
+            /* ほかの節の when(この鍵で出す・隠す)も描き直せるように知らせる(画面が document で聞いて全部の節の refresh を呼ぶ) */
+            sec.dispatchEvent(new CustomEvent('ui-set-changed', { bubbles: true, detail: { key: item.key, value: value } }));
+          }, function (e) {
+            c.disabled = !!off; showMark((e && e.message) || '保存できませんでした', true); paint();
+            throw e;
+          }).then(null, function () { /* 行に出した */ });
+        }
+        if (item.type !== 'link') {
+          c.addEventListener('change', function () {
+            var r = setFormRead(item, c);
+            if (r.error) { showMark(r.error, true); return; }
+            save(r.value);
+          });
+          reset.addEventListener('click', function () { save(item['default']); });
+        }
+        rows.push(paint);
+      })(group.items[i]);
+    }
+    function paintAll() { for (var k = 0; k < rows.length; k++) rows[k](); }
+    paintAll();
+    host.appendChild(sec);
+    return { el: sec, refresh: paintAll };
+  }
+  function settingsFormFilter(root, text) {
+    var q = String(text || '').trim().toLowerCase(), n = 0;
+    var groups = root.querySelectorAll('[data-ui-set-group]');
+    for (var g = 0; g < groups.length; g++) {
+      var items = groups[g].querySelectorAll('[data-ui-set-key]'), shown = 0;
+      for (var i = 0; i < items.length; i++) {
+        var hit = !q || (items[i].getAttribute('data-ui-set-text') || '').indexOf(q) >= 0;
+        items[i].classList.toggle('ui-set-nomatch', !hit);
+        if (hit && !items[i].hidden) shown++;
+      }
+      groups[g].classList.toggle('ui-set-nomatch', !!q && shown === 0);
+      n += shown;
+    }
+    return n;
+  }
+  var settingsForm = { render: settingsFormRender, filter: settingsFormFilter, id: setFormId };
 
   /* ---- keys(共通の再生キー) ---- isTyping/helpHtml/playback(NOT auto-installed。画面が自分のキー処理の前に呼び、true なら自分の処理をしない) */
   /* 文字を打てる input だけ「入力中」とみなす(checkbox・radio・button・submit・color・file などは単体キーを邪魔しない) */
@@ -2475,8 +2659,8 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 24, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
-                   portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
+  window.UIKit = { version: 25, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+                   portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };
 })();

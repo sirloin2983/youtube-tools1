@@ -494,11 +494,18 @@ class PortalHttpTest(Base):
         self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
         self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
         self.assertIn("動画編集ツール — ホーム".encode("utf-8"), body)
-        for path in ("/portal.js", "/portal.css", "/ui-kit.css", "/ui-kit.js"):
+        for path in ("/portal.js", "/portal.css", "/ui-kit.css", "/ui-kit.js", "/settings.js", "/settings.css", "/settings-schema.json"):
             r, body = self.req("GET", path)
             self.assertEqual(r.status, 200, path)
             self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
             self.assertGreater(len(body), 100, path)
+        r, body = self.req("GET", "/settings")   # 設定の画面(S5): 入口の画面と同じ CSP・合言葉
+        self.assertEqual(r.status, 200)
+        self.assertIn("script-src 'self'", r.getheader("Content-Security-Policy"))
+        self.assertIn("動画編集ツール — 設定".encode("utf-8"), body)
+        self.assertIn(b'name="ytt-token"', body)
+        r, _ = self.req("GET", "/settings/")
+        self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         r, _ = self.req("GET", "/launch.py")   # コードや他のファイルは配らない
         self.assertEqual(r.status, 404)
 
