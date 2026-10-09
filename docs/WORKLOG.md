@@ -3266,3 +3266,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 文書: AGENTS.md(層の行に postproc とテスト)・src/editor/AGENTS.md(engine_home・expand_segments と後処理・prompt_terms の新しい場所)・plan/role-restructure.md の進み・plan/data.js(RS2 の説明)。コミット済みの 4a・4b のテスト結果は各コミットのとおりで、このセッションでは流し直していない
 - 次: RS2-5(records)→ RS2-6(worker_client)→ RS2-7(recognize)→ 相談 → RS2-8(human/proof)。ユーザー側は RS1 の本物の 1 本の確認待ち(変わらず)
 - 未コミット: なし(この記録・AGENTS.md・src/editor/AGENTS.md・plan/role-restructure.md・plan/data.js と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Opus まとめ役。実装 Opus・下調べ Sonnet 2 体。セッション「RS1」の続き)— 役割で組み直す RS2-4(後処理を pipeline/transcribe/postproc.py へ)
+- ユーザー: RS2-0〜3 の区切りの報告に「次へ」→ RS2-4 を取り込み・RS2-5〜7 を Opus に別の作業フォルダで依頼(実施中)
+- **RS2-4a**(b7fb082): `prompt_terms` → `pipeline/transcribe/roster.py`、`engine_of`・`ENGINE_DIR`・`engine_home` → `tx_engines.py`(engine_home は呼ぶたびに ENGINE_DIR → 環境変数 → txenv の DATA_DIR)。roster・tx_engines を serve の受付と ed_jobs の転送に足した(名前の重なり `_SMALL_VOWELS` は roster 側を `_SMALL_VOWEL_MAP` に)
+- **RS2-4b**(3e1745d): 行の後処理と要確認の印を `src/pipeline/transcribe/postproc.py` へ(中身は変えず。make_flags 群・split_segment・expand_segments・clip_rows・merge_repeats・trim_ends・join_rows・END_TRIM・JOIN_GAP・machine_conf・post_record・row_words など)。ed_learn の `_cc` は `txbase.char_class`。ed_jobs の残りは `postproc.名前` で呼ぶ。テスト `src/pipeline/transcribe/tests/test_postproc.py`(serve なしで読める・numpy などと ed_*・serve・eval を読まない)
+- 残した: finish_range_lines(ed_fill を読む → RS2-7)・subtitle_settings 群(設定を読む → RS2-8)
+- テスト: 編集の単体 602・層・lint 0・postproc・txenv・eval_*・test_mount・契約・autorun・run・live_tx OK。e2e: 編集 15 本 OK(e2e_ui_handoff は前から)・pipeline・autorun・datadir OK。e2e_eval_set が一式の中で 2 回目の失敗(23 件目のあと「文字起こしを 20 秒待つ」所)→ 単独 4 回・前のテストと続けて 2 回は OK。**落ちた 2 回はどちらもサブエージェントが別の作業フォルダで重いテストを流していた間** = 負荷で待ちを超えたと見る。次のセッションでサブエージェントが動いていない時に一式を流し直して確かめる(落ちるならテストの待ちを延ばすか原因を調べる)。e2e_live_studio 2 件は続けて流したときの揺れ(単独 189/189)
+- 下調べ: RS2-8 の切り方(空の ed_jobs の層は human・doc_jobs へ丸ごと git mv → rerun を割る → 評価用・30fps・ed_state を口に = 違反 66 → 59 の見込み)。要点は次のセッションの HANDOVER に
+- 未コミット: なし(この記録と一緒にコミット)
