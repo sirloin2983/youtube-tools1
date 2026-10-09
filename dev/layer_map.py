@@ -121,7 +121,7 @@ def allowed(src_layer, dst_layer):
 
 # 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
 # ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
-KNOWN_MAX = 61   # RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)
+KNOWN_MAX = 59   # RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)・RS2-8d で doc_jobs → ed_evalbatch・ed_relink を serve が登録する口(set_hooks)にして消した(61 → 59)
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),
@@ -157,7 +157,6 @@ KNOWN = {
     ("src/studio/analyze.py", "src/studio/common.py"),
     ("src/studio/batch.py", "src/studio/common.py"),
     ("src/pipeline/export/exporter.py", "src/studio/common.py"),
-    ("src/human/proof/doc_jobs.py", "src/editor/ed_evalbatch.py"),
     ("src/editor/ed_speakers.py", "src/editor/ed_drill.py"),
     ("src/home/live.py", "src/home/live_report.py"),
     ("src/editor/ed_retime.py", "src/editor/ed_alt.py"),
@@ -170,7 +169,6 @@ KNOWN = {
     ("src/home/live.py", "src/home/intake.py"),
     ("src/home/live.py", "src/home/live_requests.py"),
     ("src/studio/batch.py", "src/studio/store.py"),
-    ("src/human/proof/doc_jobs.py", "src/editor/ed_relink.py"),
     ("src/editor/resolve_export.py", "src/editor/pipeline_io.py"),
     ("src/home/autorun.py", "src/home/cases.py"),
     ("src/home/autorun.py", "src/home/clientlog.py"),

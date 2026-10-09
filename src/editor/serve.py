@@ -177,6 +177,12 @@ _txworker.WORKER_SCRIPT = os.path.join(ed_state.ROOT, "tx_worker.py")
 _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(ed_fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
 _txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
+# 文書の側(doc_jobs)が使う評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)。② から ③・④ を読まないための口。
+# 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)
+_docjobs.set_hooks(eval_guard=lambda path, is_eval: ed_relink.eval_name_guard(path, is_eval), in_eval_dir=lambda path: ed_relink.in_eval_dir(path),
+                   redo_skip=lambda job: ed_evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: ed_evalbatch.eb_redo_fill(job, spec, fields),
+                   norm_after=lambda job, spec, tid: ed_relink.norm_after_transcribe(job, spec, tid))
+_docjobs.check_hooks()
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、

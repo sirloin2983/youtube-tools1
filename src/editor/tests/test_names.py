@@ -118,6 +118,19 @@ class TestTxenvRegistered(unittest.TestCase):
         self.assertEqual(pio_calls, [False])   # .clip.json 探しは無くても続けられる(required=False。None なら clip なし)
 
 
+class TestDocJobsHooks(unittest.TestCase):
+    """serve が doc_jobs.set_hooks に登録した口(評価用のフォルダ = ed_relink・評価用の作り直し = ed_evalbatch。RS2-8d)は全部埋まっていて、
+    呼ぶたびに持ち主の属性を読む(S.名前 の差し替え・patch.object(ed_relink, …) が届く)"""
+
+    def test_hooks_registered_and_follow_patches(self):
+        from human.proof import doc_jobs
+        doc_jobs.check_hooks()
+        with mock.patch.object(S, "in_eval_dir", lambda path, dirs=None: "patched"):
+            self.assertEqual(doc_jobs._hook("in_eval_dir")("x.mp4"), "patched")
+        with mock.patch.object(S, "eb_redo_skip_at_start", lambda job: "skip"):
+            self.assertEqual(doc_jobs._hook("redo_skip")({}), "skip")
+
+
 class TestEdJobsForwarding(unittest.TestCase):
     """ed_jobs の転送の口(ytt/modfwd.py)。移した先に見立てた部品で、読み・書き・削除・patch.object が本体に届くか"""
 

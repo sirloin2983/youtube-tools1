@@ -10,6 +10,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 旧い名前 ed_jobs.名前 は editor/ed_jobs.py(転送だけの殻。RS5 で消す)がここと移した先へ回す。名前は serve.py からも見える
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
 editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap と pipeline の ed_fill・ed_llm・ed_speakers は層の向きが許す)。
 """
 import bisect
@@ -30,11 +31,45 @@ import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
-import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
 import ed_learn  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
+
+# ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の ed_evalbatch をここから読まない = ② から ③・④ を読まない) ----------
+_HOOK_KEYS = ("eval_guard", "in_eval_dir", "redo_skip", "redo_fill", "norm_after")
+_hooks = {}
+
+
+def set_hooks(**hooks):
+    """編集の serve.py が読み込みのときに登録する口(どれも関数。serve は呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。
+    eval_guard(path, is_eval) -> None: 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら ApiError(ed_relink.eval_name_guard。validate_job)
+    in_eval_dir(path) -> bool: 評価用のフォルダの中の動画か(ed_relink.in_eval_dir。validate_job)
+    redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(ed_evalbatch.eb_redo_skip_at_start。run_job)
+    redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。ed_evalbatch.eb_redo_fill。run_job)
+    norm_after(job, spec, tid) -> None: 文字起こしのあとの 30fps の作り直しと付け替え(ed_relink.norm_after_transcribe。run_job)
+    知らない鍵・関数でない値は TypeError"""
+    bad = sorted(k for k in hooks if k not in _HOOK_KEYS)
+    if bad:
+        raise TypeError("doc_jobs の口に知らない鍵: %s" % ", ".join(bad))
+    for k, fn in hooks.items():
+        if not callable(fn):
+            raise TypeError("doc_jobs の口 %s は関数で渡す" % k)
+    _hooks.update(hooks)
+
+
+def check_hooks(names=_HOOK_KEYS):
+    """names のうち登録されていない口があれば RuntimeError(serve が登録のあとで呼ぶ。txenv.check と同じ形)"""
+    missing = [k for k in names if k not in _hooks]
+    if missing:
+        raise RuntimeError("doc_jobs に登録されていない口: %s(編集の serve.py が読み込みのときに登録する)" % ", ".join(missing))
+
+
+def _hook(name):
+    """登録した口(呼ぶたびに引く)。登録されていなければ RuntimeError"""
+    try:
+        return _hooks[name]
+    except KeyError:
+        raise RuntimeError("doc_jobs の口 %s が登録されていません(編集の serve.py が読み込みのときに登録する)" % name) from None
 
 
 def glossary_of(req, st=None):
@@ -86,8 +121,8 @@ def validate_job(req):
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
         ev = ev or target.get("evalSet") is True
-    ed_relink.eval_name_guard(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。master-plan Q0)
-    ev = ev or ed_relink.in_eval_dir(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用(2026-10-01)
+    _hook("eval_guard")(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。master-plan Q0)
+    ev = ev or _hook("in_eval_dir")(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用(2026-10-01)
     if ev:
         glossary, gauto = [], []
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
@@ -307,7 +342,7 @@ def run_job(job):
         return _heavy.JOB_RUNNERS[kind](job)
     spec = job["spec"]
     # 未確認の評価用の作り直し(ed_evalbatch): 動き出す直前にもう一度「手つかず」を確かめる。手が入っていれば認識せずに「作り直しませんでした」
-    if spec.get("evalRedo") and ed_evalbatch.eb_redo_skip_at_start(job):
+    if spec.get("evalRedo") and _hook("redo_skip")(job):
         return
     with _heavy.job_temp_wav(job) as wav:
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
@@ -341,7 +376,7 @@ def run_job(job):
         if spec.get("evalRedo"):
             # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認 2026-10-04)。
             # 認識の間に手が入っていたら書かない(新しい文書も作らない)
-            tid = ed_evalbatch.eb_redo_fill(job, spec, fields)
+            tid = _hook("redo_fill")(job, spec, fields)
             if tid is None:
                 return
         else:
@@ -367,7 +402,7 @@ def run_job(job):
             ed_llm.llm_write(tid, llm_rec, llm_items)   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
-        ed_relink.norm_after_transcribe(job, spec, tid)
+        _hook("norm_after")(job, spec, tid)
         # 話者の自動判別(評価用は常に・それ以外は設定 autoDiarize。v0.50.0)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         ed_speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)
