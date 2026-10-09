@@ -21,12 +21,14 @@ import urllib.request
 
 import ed_drill  # noqa: E402,F401   (評価用の文書の名前の候補 drill_candidates。呼ぶときに読む)
 import ed_fill  # noqa: E402,F401   (判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns。0.60.0)
-import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   環境変数の数 env_num だけ(ネイティブの部品は読み込まない)
 from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカー(IN_WORKER・WORKER)と wav を読まずに渡す形 read_wav_f32(RS2-6 にここから移した)
+from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し extract_audio(RS2-8a。持ち主から直に読む)
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   話者の印 SPK_FLAGS(RS2-8a)
+from ytt import jobs as _heavy  # noqa: E402   ジョブの表・取り消し・同時に入れない組(RS2-8a。持ち主から直に読む = 文書の側を human へ移しても ① から ② を読まない)
 from ytt import fsio as _fsio  # noqa: E402
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
@@ -85,7 +87,7 @@ def _download_verified(job, item, tmp):
     with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         while True:
-            ed_jobs.check_cancel(job)
+            _heavy.check_cancel(job)
             chunk = r.read(256 * 1024)
             if not chunk:
                 break
@@ -182,7 +184,7 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=N
         return 1 if job["cancel"] else 0   # 0 以外を返すと中断する
 
     res = sd.process(samples, callback=cb).sort_by_start_time()
-    ed_jobs.check_cancel(job)
+    _heavy.check_cancel(job)
     return [(float(r.start), float(r.end), int(r.speaker)) for r in res]
 
 
@@ -191,7 +193,7 @@ def diarize_fake(job, total, num, threshold=None):
     threshold(判別の設定を変えて測るとき)が 1.0 以上で人数が自動なら、全部を 1 人にまとめる(本物も、しきい値を上げるとまとまる)。渡さなければ以前と同じ"""
     n, t, k, turns = (num or (1 if threshold is not None and threshold >= 1.0 else 2)), 0.0, 0, []
     while t < total:
-        ed_jobs.check_cancel(job)
+        _heavy.check_cancel(job)
         e = min(total, t + 10.0)
         turns.append((t, e, k % n))
         job["progress"] = min(0.99, e / total)
@@ -478,7 +480,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
                 sg["speaker"] = remap.get(str(sg["speaker"]), sg["speaker"])
             continue
         sg["speaker"] = idmap.get(sp, "")
-        parts = [x for x in str(sg.get("flag", "")).split("、") if x and x not in ed_jobs.SPK_FLAGS]
+        parts = [x for x in str(sg.get("flag", "")).split("、") if x and x not in _txbase.SPK_FLAGS]
         mark = ed_state.NONE_FLAG if not sg["speaker"] else ed_state.MIXED_FLAG if mixed else ed_state.WEAK_FLAG if weak else ""
         if mark:
             parts.append(mark)
@@ -504,7 +506,7 @@ def validate_diarize(req):
         n = int(req.get("numSpeakers") or 0)
     except (TypeError, ValueError):
         n = 0
-    if ed_jobs.tid_busy(tid, ed_jobs.EXCLUSIVE["diarize"]):
+    if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["diarize"]):
         raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     emb = str(req.get("embedding") or DIAR_EMB_DEFAULT)
     names = []   # 出てくる人の名前(友人からの依頼の「話す人」。2026-10-01)
@@ -512,7 +514,7 @@ def validate_diarize(req):
         s = str(x or "").strip()[:60] if isinstance(x, str) else ""
         if s and not any(ord(ch) < 32 for ch in s) and s not in names and not DEFAULT_SPK_NAME.match(s):
             names.append(s)
-    return {"tid": tid, "numSpeakers": n if 1 <= n <= 10 else 0, "names": names[:10], "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": ed_jobs.job_title("話者判別: ", doc),
+    return {"tid": tid, "numSpeakers": n if 1 <= n <= 10 else 0, "names": names[:10], "embedding": emb if emb in DIAR_EMBS else DIAR_EMB_DEFAULT, "title": _heavy.job_title("話者判別: ", doc),
             "recognize": req.get("recognize") is not False,   # A-3: 覚えている声と照らし合わせる(既定オン)
             "smooth": req["smooth"] if isinstance(req.get("smooth"), bool) else diar_smooth_setting()}   # S2: 細切れをならす(要求に無ければ設定 diarSmooth。既定オフ)
 
@@ -536,7 +538,7 @@ def single_speaker(tid, name):
                     sg["speaker"] = remap.get(str(sg["speaker"]), sg["speaker"])
                 continue
             sg["speaker"] = "S1"
-            sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in ed_jobs.SPK_FLAGS)[:100]
+            sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in _txbase.SPK_FLAGS)[:100]
         ed_store.backup_doc(tid, "diarize")
         doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}] + kept_sps, "segments": segs, "updatedAt": int(time.time() * 1000),
                     "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
@@ -557,11 +559,11 @@ def run_diarize(job):
             single_speaker(spec["tid"], (spec.get("names") or [""])[0])
             job["speakers"], job["unsure"] = 1, 0
             job["named"] = [{"speaker": "S1", "name": spec["names"][0], "score": None}] if spec.get("names") else []
-            ed_jobs.job_done(job, spec["tid"])
+            _heavy.job_done(job, spec["tid"])
         except Exception as e:
             job["state"], job["error"], job["phase"] = "error", "話者を付けられませんでした: %s %s" % (e.__class__.__name__, str(e)[:150]), "失敗"
         return
-    with ed_jobs.job_temp_wav(job) as wav:
+    with _heavy.job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
         src = ed_state.check_source(doc.get("sourcePath"))
         start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
@@ -569,7 +571,7 @@ def run_diarize(job):
         if span > MAX_DIAR_SEC:
             raise ed_state.ApiError("too_long", "話者判別は3時間までの範囲で使えます。範囲を分けて文字起こししてください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
-        ed_jobs.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
+        recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
         total = ed_state.media_duration(wav) or span
         if ed_state.backend_name() == "fake":
             job["state"], job["phase"] = "running", "話者を判別中"
@@ -582,17 +584,17 @@ def run_diarize(job):
             job["state"], job["phase"], job["progress"] = "running", "話者を判別中(CPU。長い音声は時間がかかります)", 0.0
             try:
                 turns = diarize_real(job, wav, spec["numSpeakers"], spec["embedding"])
-            except (ed_jobs.Cancelled, ed_state.ApiError):
+            except (_heavy.Cancelled, ed_state.ApiError):
                 raise
             except Exception as e:
                 raise ed_state.ApiError("diar_failed", "話者の判別に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:150]), 500)
-        ed_jobs.check_cancel(job)
+        _heavy.check_cancel(job)
         auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
                 job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
-            except ed_jobs.Cancelled:
+            except _heavy.Cancelled:
                 raise
             except Exception as e:
                 ed_state.log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
@@ -608,7 +610,7 @@ def run_diarize(job):
                     job["named"] = list(job.get("named") or []) + [hit]
             except Exception as e:   # 名前が付けられなくても判別の結果は残す
                 ed_state.log.warning("動画の手がかりで名前を付けられませんでした: %s %s", e.__class__.__name__, str(e)[:200])
-        ed_jobs.job_done(job, spec["tid"])
+        _heavy.job_done(job, spec["tid"])
 
 
 # ---------- 重なりの所の空の行の下書き(2026-10-05。plan/line-b-overlap.md の 5-3 の C・6-2 の 1・2) ----------
@@ -902,14 +904,14 @@ def autodiar_enqueue(tid, batch=False):
     st = ed_learn.load_settings()   # 判別モデルと「細切れをならす」(diarSmooth)を 1 回で読む
     spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": st.get("diarEmb"), "smooth": st.get("diarSmooth") is True})
     spec.update({"auto": True, "autoEval": ev, "contextName": name,
-                 "title": ed_jobs.job_title("話者判別(自動): ", doc)})
+                 "title": _heavy.job_title("話者判別(自動): ", doc)})
     if batch:
         spec["evalBatch"] = True
-    return {"job": ed_jobs.add_job(spec, "diarize"), "name": name}
+    return {"job": _heavy.add_job(spec, "diarize"), "name": name}
 
 
 def autodiar_after_transcribe(job, spec, tid):
-    """文字起こしのジョブ(ed_jobs.run_job)の終わり。文書を書いたあと・「完了」にする前に呼ぶ(ドリルが判別の前の文書を開かないよう、間を空けない)。
+    """文字起こしのジョブ(run_job)の終わり。文書を書いたあと・「完了」にする前に呼ぶ(ドリルが判別の前の文書を開かないよう、間を空けない)。
     評価用は常に・それ以外は設定 autoDiarize。始められなくても文字起こしは成功のまま(job["warnings"])"""
     if not (spec.get("evalSet") or spec.get("autoDiarize")):
         return
@@ -934,7 +936,7 @@ def autodiar_skip_at_start(job):
     if not why:
         return False
     job["autoSkipped"] = why
-    ed_jobs.job_done(job, spec["tid"], "判別しませんでした(" + {"has_speakers": "話者が付いていました", "reviewed": "確かめ済みです", "empty": "文字のある行がありません"}.get(why, why) + ")")
+    _heavy.job_done(job, spec["tid"], "判別しませんでした(" + {"has_speakers": "話者が付いていました", "reviewed": "確かめ済みです", "empty": "文字のある行がありません"}.get(why, why) + ")")
     return True
 
 
@@ -1118,7 +1120,7 @@ def _embed_local(job, wav, emb, groups):
     for g in groups:
         vecs, weights = [], []
         for a, b in g:
-            ed_jobs.check_cancel(job)
+            _heavy.check_cancel(job)
             done += 1
             job["progress"] = min(0.99, done / total)
             seg = samples[int(a * sr):int(b * sr)]
@@ -1337,15 +1339,15 @@ def validate_voice_learn(req):
     ask = [n for n in names if n in voices and n not in same]
     if ask:   # 監査18: 既にある名前に足すのは「同じ人」と確かめたときだけ(別人の声が混ざると、その名前の照らし合わせが外れる)
         raise ed_state.ApiError("confirm_same", "「%s」の声はもう覚えています。同じ人か確かめてから、もう一度押してください" % "」「".join(ask), 409, extra={"names": ask})
-    if ed_jobs.tid_busy(tid, ed_jobs.EXCLUSIVE["voice-learn"]):
+    if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["voice-learn"]):
         raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     return {"tid": tid, "embedding": emb, "names": names, "confirmSame": sorted(same & set(names)),
-            "title": ed_jobs.job_title("声を覚える: ", doc)}
+            "title": _heavy.job_title("声を覚える: ", doc)}
 
 
 def run_voice_learn(job):
     spec = job["spec"]
-    with ed_jobs.job_temp_wav(job) as wav:
+    with _heavy.job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
         if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
             raise ed_state.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
@@ -1358,14 +1360,14 @@ def run_voice_learn(job):
         if ed_state.backend_name() != "fake" and not has_sherpa():
             raise ed_state.ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
-        ed_jobs.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
+        recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
         if ed_state.backend_name() != "fake":
             job["state"] = "loading"
             ensure_diar_models(job, spec["embedding"])
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
         people = sorted(grp)
         vecs = embed_groups(job, wav, spec["embedding"], [grp[n][0] for n in people], start)
-        ed_jobs.check_cancel(job)
+        _heavy.check_cancel(job)
         learned = []
         with _voices_lock:
             voices = load_voices(spec["embedding"])
@@ -1392,7 +1394,7 @@ def run_voice_learn(job):
             raise ed_state.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
         job["learned"] = learned
         job["speakers"] = len(learned)
-        ed_jobs.job_done(job, spec["tid"])
+        _heavy.job_done(job, spec["tid"])
 
 
 def voices_summary():
@@ -1430,9 +1432,9 @@ def _spksub_key(name):
 
 
 def _spksub_busy(tid):
-    with ed_jobs._jobs_lock:
-        return any(j.get("state") in ed_jobs.ACTIVE_STATES and j.get("kind") not in SPKSUB_SKIP_KINDS
-                   and tid in (j.get("tid"), (j.get("spec") or {}).get("tid"), (j.get("spec") or {}).get("intoDoc")) for j in ed_jobs._jobs.values())
+    with _heavy._jobs_lock:
+        return any(j.get("state") in _heavy.ACTIVE_STATES and j.get("kind") not in SPKSUB_SKIP_KINDS
+                   and tid in (j.get("tid"), (j.get("spec") or {}).get("tid"), (j.get("spec") or {}).get("intoDoc")) for j in _heavy._jobs.values())
 
 
 def speakers_sub_apply(obj):

@@ -5,10 +5,14 @@
   認識のヒント(initial_prompt・hotwords)に渡す。入る長さに限りがある(先頭 150 字)ので、出る人に絞る。**題名の文字列そのものは渡さない**
 - プロンプトの漏れ出し(S-3): 声の無い所で、ヒントに渡した語だけが字幕に出ることがある。行が渡した語だけでできているかを調べる
 サーバー側で使う(numpy などのネイティブの部品は読まない)。
+名簿のファイルとスタジオの配信の情報(stream_context)は txenv の口から読む(RS2-8a。値は編集の serve が登録する)。
 """
+import os
 import re
 import threading
 import unicodedata
+
+from . import txbase as _txbase, txenv as _txenv
 
 PROMPT_LIMIT = 150      # initial_prompt に入れる語の長さ(「用語: 」を除く。以前からの上限。画面の GLOSS_PROMPT と同じ)
 HOT_LIMIT = 300         # hotwords の長さ
@@ -165,6 +169,36 @@ def prompt_terms(spec):
     先頭 150 字に収まるだけ(語の途中で切らない)。プロンプトの漏れ出しの印(S-3)も、この語で調べる。
     RS2-4a(2026-10-10)に編集の ed_jobs から移した。読む側は呼ぶたびに roster.prompt_terms で読む(テストの差し替えが届くように)"""
     return fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
+
+
+def split_terms(text):
+    """「、」「,」・改行で区切った語の並び(用語集の欄など)。RS2-8a に編集の ed_jobs から移した"""
+    return [t.strip() for t in re.split(r"[\r\n,、]+", str(text or "")) if t.strip()]
+
+
+def stream_context(doc, enabled=True):
+    """配信ごとの文脈(段1-2): その配信に出る人を、配信のチャンネル名・コラボ相手(スタジオの data.json を読むだけ)・話者の名前・題名から決め、
+    その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
+    doc: clip・title・sourceName・sourcePath・speakers を持つ辞書。-> {"members": [{"name", "from"}], "terms": [語]}。
+    名簿は txenv.ROSTER、スタジオの配信の情報は txenv.studio_stream(配信の ID -> {"channel", "title", "collab"} か None)。
+    スタジオの情報が読めない(口が無い・例外)ときは、文脈なしで続ける。RS2-8a に編集の ed_jobs から移した"""
+    if not enabled:
+        return {"members": [], "terms": []}
+    r = load(_txenv.ROSTER)
+    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
+    src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
+    try:
+        info = _txenv.studio_stream(src.get("videoId")) if src.get("videoId") else None
+    except Exception as e:   # 他のツールのデータが読めなくても、文脈なしで続ける
+        _txbase.log.info("スタジオの配信の情報を読めませんでした: %s", str(e)[:120])
+        info = None
+    path = str(doc.get("sourcePath") or "")
+    titles = [src.get("title"), (info or {}).get("title"), doc.get("title"), doc.get("sourceName"),
+              os.path.basename(os.path.dirname(path)) if path else ""]   # 動画の入ったフォルダ(スタジオは配信の題名のフォルダに書き出す)
+    ctx = build_context(r, (info or {}).get("channel", ""), [c["channel"] for c in (info or {}).get("collab") or []],
+                        [s.get("name") for s in doc.get("speakers") or [] if isinstance(s, dict)], [str(t or "")[:300] for t in titles])
+    ctx["terms"] = member_terms([m["name"] for m in ctx["members"]], r)
+    return ctx
 
 
 def leak_only(text, terms):

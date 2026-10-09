@@ -20,7 +20,7 @@
    出す条件: 当たった文字の割合 RETIME_MIN_MATCH 以上・端ごとに、その端の字が当たっている・今との差 RETIME_MIN_DELTA 秒以上・
    同じ話者(か話者の無い行)の前後の行と重ならない所まで詰める(違う話者・字幕に出さない行・空の下書きとの重なりはそのまま)・行の長さが RETIME_MIN_LEN 秒以上。
    最後に当たった単語のすぐ後ろの「ー」「~」「!?」だけの単語(寄せると何も残らない)は行の終わりに含める(RETIME_JOIN)。
-   行の終わりの調整(ed_jobs の END_TRIM)は候補にかけない(かけると人から遠くなった。下の RETIME_END_SKIP の測った数字)。
+   行の終わりの調整(pipeline/transcribe/postproc の END_TRIM)は候補にかけない(かけると人から遠くなった。下の RETIME_END_SKIP の測った数字)。
 
 名前は serve.py からも見える(serve.py の _ED_MODULES)。ほかの部品と重ならないよう subread_ / SUBREAD_ / retime_ / RETIME_ で始める。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
@@ -29,9 +29,9 @@ import bisect
 import unicodedata
 
 import ed_alt  # noqa: E402,F401   寄せ方 alt_fold(二重に書かない)
-import ed_jobs  # noqa: E402,F401   単語の時刻 read_words
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
+from pipeline.transcribe import records  # noqa: E402   単語の時刻 read_words(RS2-8a。持ち主から直に読む)
 
 # ---------- 1. 読む速さ ----------
 SUBREAD_FAST_CPS = 10.0     # 1 秒あたりの字幕の文字がこれを超えたら「速い」(app-rows.js の READ_FAST_CPS と同じ値)
@@ -281,7 +281,7 @@ def retime_doc(obj):
     rows = rows[:RETIME_MAX_ROWS]
     doc = ed_store.read_transcript(tid)
     upd = int(doc.get("updatedAt") or 0)
-    words = ed_jobs.read_words(tid)
+    words = records.read_words(tid)
     if not words:
         return {"items": [], "checked": 0, "updatedAt": upd, "reasonCode": "no_words",
                 "reason": "この文字起こしには単語の時刻がありません(古い文字起こし・単語の時刻を使わない設定)。範囲を再認識すると取り直せます"}

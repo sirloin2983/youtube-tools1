@@ -161,7 +161,9 @@ _txenv.register(DATA_DIR=lambda: ed_state.DATA_DIR, TX_DIR=lambda: ed_state.TX_D
                 ROSTER=lambda: ed_state.ROSTER, SERVER_VERSION=lambda: ed_state.SERVER_VERSION,
                 find_ffmpeg=lambda: ed_state.find_ffmpeg, worker_python=lambda: ed_state.worker_python, worker_fake=lambda: ed_state.worker_fake,
                 gpu_ready=lambda: ed_state.gpu_ready, has_faster_whisper=lambda: ed_state.has_faster_whisper,
-                media_duration=lambda: ed_state.media_duration, check_source=lambda: ed_state.check_source)
+                media_duration=lambda: ed_state.media_duration, check_source=lambda: ed_state.check_source,
+                # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(ed_jobs が ed_state を読まずに済むように)
+                studio_stream=lambda: ed_store.studio_stream, valid_model=lambda: ed_state.valid_model, pio=lambda: ed_state.pio)
 _txenv.check()
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)

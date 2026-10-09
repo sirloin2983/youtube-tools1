@@ -48,6 +48,20 @@ class TestTxenv(unittest.TestCase):
         txenv.register(**{k: (lambda: None) for k in txenv.KEYS})
         txenv.check()
 
+    def test_rs28a_keys(self):
+        """RS2-8a で足した鍵: スタジオの配信の情報 studio_stream・モデル名の検査 valid_model・受け渡しの部品 pio(関数を返す鍵はそのまま呼べる)"""
+        for k in ("studio_stream", "valid_model", "pio"):
+            self.assertIn(k, txenv.KEYS)
+        txenv.register(studio_stream=lambda: (lambda vid: {"channel": "ch:" + vid}), valid_model=lambda: (lambda m: m == "small"),
+                       pio=lambda: (lambda required=True: "pio" if required else None))
+        self.assertEqual(txenv.studio_stream("v1"), {"channel": "ch:v1"})
+        self.assertTrue(txenv.valid_model("small"))
+        self.assertFalse(txenv.valid_model("../x"))
+        self.assertIsNone(txenv.pio(required=False))
+        self.assertEqual(txenv.pio(), "pio")
+        with self.assertRaises(RuntimeError):
+            txenv.check()   # ほかの鍵は登録していない
+
 
 class TestBackend(unittest.TestCase):
     def tearDown(self):

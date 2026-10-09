@@ -14,7 +14,7 @@
                  同じ長さで 1 字だけ違う並び(かなの違いは数えない)があれば、その呼び名に直す。無条件の 1 字違い直しは誤爆した(11.3〜13.7%)ので
                  別のエンジンの一致を条件にする。名前の再現 +4
 決まり:
-  - 設定 autoFill(「認識の設定」。既定オン。ed_jobs.validate_job)。評価用の文書には当てない(autoDict と同じ = 定点の正解が 2 つのエンジンに寄らない)
+  - 設定 autoFill(「認識の設定」。既定オン。文字起こしの指定 validate_job)。評価用の文書には当てない(autoDict と同じ = 定点の正解が 2 つのエンジンに寄らない)
   - 置き換えた・直した行には印(FILL_FLAG / FILL_NAME_FLAG)と元の文字(行の fill = {"from": 元の文字, "by": "sense-voice"})を残す = 画面の「別の読み」の札で戻せる。
     whisper の生の結果は <id>.asr.json にそのまま残る(後から「後処理あり/なし」を同じ文書で測り直せる)
   - SenseVoice が使えない(sherpa-onnx が無い・取得できない)ときは文字起こしを失敗にせず、警告を出して whisper の結果のまま
@@ -25,9 +25,9 @@ import os
 import re
 import unicodedata
 
-import ed_jobs  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
-from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
+from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
+from ytt import jobs as _heavy  # noqa: E402   取り消し Cancelled(RS2-8a。持ち主から直に読む)
 import ed_state  # noqa: E402,F401
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前だけ(ネイティブの部品は読み込まない)
@@ -300,11 +300,11 @@ def fill_reader(job, spec, wav):
     if not ed_speakers.has_sherpa():
         raise ed_state.ApiError("no_sherpa", "別の読み(SenseVoice)の部品 sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
     phase = job.get("phase")
-    model, _dev = ed_jobs.load_model(FILL_MODEL, job, "cpu", engine=FILL_ENGINE)
+    model, _dev = worker_client.load_model(FILL_MODEL, job, "cpu", engine=FILL_ENGINE)
     job["phase"] = phase
     audio = worker_client.read_wav_f32(wav)
     lang = spec.get("language") if spec.get("language") in FILL_LANGS else "auto"
-    kw = ed_jobs.filter_kwargs(model, {"language": lang})
+    kw = worker_client.filter_kwargs(model, {"language": lang})
 
     def read(s0, e0):
         chunk = audio[int(s0 * 16000):int(e0 * 16000)]
@@ -327,7 +327,7 @@ def fill_after_rows(job, spec, rows, wav, total):
         read = fill_reader(job, spec, wav)
         job["phase"] = "文字の少ない行を別の読みで埋め中"
         rows, st = fill_apply(rows, read, total)
-    except ed_jobs.Cancelled:
+    except _heavy.Cancelled:
         raise
     except (ed_state.ApiError, tx_engines.EngineError) as e:
         job["phase"] = phase
@@ -351,7 +351,7 @@ def fill_agree_doc(job, segs, read, total, spec):
     try:
         job["phase"] = "別のエンジンで名簿の呼び名を確かめ中"
         rows = read(0.0, float(total))
-    except ed_jobs.Cancelled:
+    except _heavy.Cancelled:
         raise
     except (ed_state.ApiError, tx_engines.EngineError) as e:
         ed_state.add_warning(job, "別のエンジンで名簿の呼び名を確かめられませんでした: " + str(getattr(e, "message", e))[:200])

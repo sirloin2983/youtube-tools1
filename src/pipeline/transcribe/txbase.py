@@ -30,6 +30,7 @@ REP_RE = re.compile(r"(.{2,10}?)\1{%d,}" % (REP_MIN - 1))
 MIXED_FLAG = "声が混ざっている可能性"   # 話者判別の要確認の印
 WEAK_FLAG = "話者が不確か"
 NONE_FLAG = "話者を判別できなかった"
+SPK_FLAGS = (MIXED_FLAG, WEAK_FLAG, NONE_FLAG)   # 話者の印(行の flag のうち文字の印と分ける。選んだ行の再認識は残し、判別は付け直す。RS2-8a に ed_jobs から移した)
 
 
 def char_class(ch):

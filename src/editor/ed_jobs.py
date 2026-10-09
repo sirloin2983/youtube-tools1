@@ -8,7 +8,6 @@
 import bisect
 import json
 import os
-import re
 import time
 import uuid
 
@@ -28,19 +27,13 @@ import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の ev
 import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 
 
-def split_terms(text):
-    """「、」「,」・改行で区切った語の並び(用語集の欄など)"""
-    return [t.strip() for t in re.split(r"[\r\n,、]+", str(text or "")) if t.strip()]
-
-
 def glossary_of(req, st=None):
     """要求の用語集(200 語まで)と、自動で足す語(autoGloss。よく直される正しい語)-> (用語集, 自動の語)。st = 読んである設定"""
-    glossary = split_terms(req.get("glossary"))[:200]
+    glossary = _roster.split_terms(req.get("glossary"))[:200]
     return glossary, (ed_learn.auto_glossary(glossary, settings=st) if req.get("autoGloss") is not False else [])
 
 
@@ -63,11 +56,11 @@ def validate_job(req):
     # 切り抜きスタジオが書き出した mp4 なら、隣の .clip.json(youtube-tools-clip/v1)を読んで文書に残す(元の配信のどこかが分かる)。
     # 不正・別の版なら使わずに警告だけ(文字起こし自体は続ける)。範囲指定でも clip はそのまま残す:
     # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
-    pm = ed_state.pio(required=False)
+    pm = _txenv.pio(required=False)
     clip, clip_warn, _clip_path = pm.find_clip(src, dur) if pm else (None, None, None)
     warnings = [clip_warn] if clip_warn else []
     model = str(req.get("model") or "small").strip()
-    if not ed_state.valid_model(model):
+    if not _txenv.valid_model(model):
         raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or "ja")
     if lang not in _txbase.LANGS:
@@ -92,7 +85,7 @@ def validate_job(req):
     if ev:
         glossary, gauto = [], []
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
-    ctx = stream_context({"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
+    ctx = _roster.stream_context({"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
 
     def pref(key, default_on=False):
         """要求の真偽値があればそれ、無ければ(まとめて実行・古い画面)保存した設定。default_on = 設定に無いときもオン(明示の false だけオフ)"""
@@ -150,29 +143,6 @@ def public_job(j):
     out["normOk"] = bool(j.get("normOk"))
     out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 全体の再認識で残した行(3-4)
     return out
-
-
-def stream_context(doc, enabled=True):
-    """配信ごとの文脈(段1-2): その配信に出る人を、配信のチャンネル名・コラボ相手(スタジオの data.json を読むだけ)・話者の名前・題名から決め、
-    その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
-    doc: clip・title・sourceName・sourcePath・speakers を持つ辞書。-> {"members": [{"name", "from"}], "terms": [語]}"""
-    if not enabled:
-        return {"members": [], "terms": []}
-    r = _roster.load(_txenv.ROSTER)
-    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
-    src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
-    try:
-        info = ed_store.studio_stream(src.get("videoId")) if src.get("videoId") else None
-    except Exception as e:   # 他のツールのデータが読めなくても、文脈なしで続ける
-        _txbase.log.info("スタジオの配信の情報を読めませんでした: %s", str(e)[:120])
-        info = None
-    path = str(doc.get("sourcePath") or "")
-    titles = [src.get("title"), (info or {}).get("title"), doc.get("title"), doc.get("sourceName"),
-              os.path.basename(os.path.dirname(path)) if path else ""]   # 動画の入ったフォルダ(スタジオは配信の題名のフォルダに書き出す)
-    ctx = _roster.build_context(r, (info or {}).get("channel", ""), [c["channel"] for c in (info or {}).get("collab") or []],
-                                [s.get("name") for s in doc.get("speakers") or [] if isinstance(s, dict)], [str(t or "")[:300] for t in titles])
-    ctx["terms"] = _roster.member_terms([m["name"] for m in ctx["members"]], r)
-    return ctx
 
 
 # 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
@@ -519,9 +489,6 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
 
 
 # ---------- 選んだ行の再認識 ----------
-SPK_FLAGS = (_txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG)
-
-
 MAX_RANGE_SEC = 900
 
 
@@ -537,12 +504,12 @@ def validate_retranscribe(req):
     if not ids and mode != "whole":
         raise _errors.ApiError("empty", "再認識する行がありません", 400)
     model = str(req.get("model") or "large-v3").strip()
-    if not ed_state.valid_model(model):
+    if not _txenv.valid_model(model):
         raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or doc.get("language") or "ja")
     st = ed_learn.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
     glossary, gauto = glossary_of(req, st)
-    ctx = stream_context(doc, req.get("autoContext") is True)
+    ctx = _roster.stream_context(doc, req.get("autoContext") is True)
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["retranscribe"]):
         raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     rng = None
@@ -597,7 +564,7 @@ def _apply_retranscribe(spec, results):
         if not r:
             continue
         raw, flag = r
-        keep = [x for x in str(sg.get("flag", "")).split("、") if x in SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
+        keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
         sg["text"], _ = ed_learn.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
         sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
         sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
@@ -795,7 +762,7 @@ def redo_spec(tid, req=None):
     if not targets:
         raise _errors.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
     model = str(doc.get("model") or "large-v3")
-    if not ed_state.valid_model(model):
+    if not _txenv.valid_model(model):
         model = "large-v3"
     if "kotoba" in model.lower() and req.get("redoLarge") is not False:
         model = "large-v3"   # kotoba は聞き取りにくい音声が苦手なので、重いモデルで試す(設定)
@@ -1033,6 +1000,7 @@ _MOVED += (postproc,)   # 行の後処理と要確認の印(RS2-4b。END_TRIM・
 _MOVED += (records,)   # 認識の記録・辞書の版・生出力・単語の時刻(RS2-5。dict_version の差し替えもここへ届く)
 _MOVED += (worker_client,)   # 認識ワーカー・モデル・エンジンの確かめ・wav の形(RS2-6。IN_WORKER・WORKER_*・load_model・check_engine の差し替えもここへ届く)
 _MOVED += (recognize,)   # 音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。extract_audio・WHOLE_PART_SEC・RangeRecognizer.main の差し替えもここへ届く)
+_MOVED += (_txbase,)   # 話者の印 SPK_FLAGS(RS2-8a)。serve の受付には並べない(ed_state の別名と重なる。S.SPK_FLAGS は ed_state の別名で同じ物。test_names が確かめる)
 _moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")
 
 

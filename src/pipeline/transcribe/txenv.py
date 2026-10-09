@@ -9,9 +9,13 @@
     txenv.get("TX_DIR") / txenv.TX_DIR          # 呼んだときの値
     txenv.check_source(path)                    # 関数を返す鍵は、そのまま呼べる
     txenv.check()                               # KEYS のうち登録されていない鍵があれば RuntimeError
+
+RS2-8a で足した鍵: studio_stream(スタジオの配信の情報 = 編集の ed_store。roster.stream_context が読む)・
+valid_model(モデル名の検査)・pio(受け渡しの部品 pipeline_io。required=False で無ければ None)= ed_jobs が ed_state を読まずに済むように。
 """
 KEYS = ("DATA_DIR", "TX_DIR", "TMP_DIR", "ROOT", "ROSTER", "SERVER_VERSION",
-        "find_ffmpeg", "worker_python", "worker_fake", "gpu_ready", "has_faster_whisper", "media_duration", "check_source")
+        "find_ffmpeg", "worker_python", "worker_fake", "gpu_ready", "has_faster_whisper", "media_duration", "check_source",
+        "studio_stream", "valid_model", "pio")
 _providers = {}
 
 

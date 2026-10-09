@@ -11,12 +11,12 @@
   4 当てる llm_apply   文書の行(segments)の文字を置き換え、fill = {"from": 元の文字, "by": "llm"} と印 LLM_FLAG を付ける(画面の「別の読み」の札で戻せる)。
                        機械の出力 original は変えない(精度の測定の正解との比べ方が変わらない)
 決まり(10-08 の「守りを付けて先に入れて様子見」と decisions 3-17):
-  - 設定 autoLlm(既定オン。ed_jobs.validate_job)。評価用の文書には当てない
+  - 設定 autoLlm(既定オン。文字起こしの指定 validate_job)。評価用の文書には当てない
   - 選んだ所が無ければ LLM を読み込まない(モデルは 5GB)。読めない・失敗したら文字起こしを失敗にせず、警告を出して認識の結果のまま
   - 生の提案・採否・断った理由は <id>.llm.json(LLM_SCHEMA)、数は recognition.runs[].llm
   - 学習(ed_learn.learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)
   - 測る道具は dev/eval_llm.py(この部品の規則をそのまま使う)。10-09 に確かめ済み 22 本で CER 13.5 → 13.4%・名前 28 → 34/53
-規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(dev/eval_llm.py が単独で読む)。組み込みの部分だけが、関数の中で ed_state・ed_jobs・roster を読む。
+規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(dev/eval_llm.py が単独で読む)。組み込みの部分だけが、関数の中で ed_state・ytt/jobs・worker_client・roster を読む。
 名前は llm_ / LLM_ で始める(serve.py の _ED_MODULES の最後。ほかの部品と重ならないように)。
 """
 import json
@@ -245,26 +245,26 @@ def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None)
 def llm_ask_fn(job, spec):
     """問い合わせの関数 messages -> 答えの文字。疑似(TRANSCRIBE_BACKEND=fake)は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す。
     本物は LLM(tx_engines.LlamaText)を認識ワーカーに読み込み(主のモデルは手放さない = light)、op complete で聞く"""
-    import ed_jobs
     import ed_state
+    from pipeline.transcribe import worker_client   # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)
     if ed_state.backend_name() == "fake":
         reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
         return lambda messages: reply
     phase = job.get("phase")
-    model, dev = ed_jobs.load_model(LLM_MODEL, job, "auto", engine=LLM_ENGINE)
+    model, dev = worker_client.load_model(LLM_MODEL, job, "auto", engine=LLM_ENGINE)
     job["phase"] = phase
-    if ed_jobs.IN_WORKER:   # 測る道具(このプロセスの中でモデルを読む)
+    if worker_client.IN_WORKER:   # 測る道具(このプロセスの中でモデルを読む)
         return lambda messages: model.complete(messages, LLM_MAX_TOKENS)
     args = {"name": LLM_MODEL, "device": dev, "engine": LLM_ENGINE, "max_tokens": LLM_MAX_TOKENS}
-    return lambda messages: str((ed_jobs.WORKER.call("complete", dict(args, messages=messages), job) or {}).get("content") or "")
+    return lambda messages: str((worker_client.WORKER.call("complete", dict(args, messages=messages), job) or {}).get("content") or "")
 
 
 def llm_after_doc(job, spec, segs):
     """run_job の文書の行(_rows_to_doc のあと・後処理 D のあと)に LLM の直しを当てる(segs を書き換える)。
     -> 記録(recognition.runs[].llm に入れる。設定オフなら None)と、<id>.llm.json に書く中身(記録の items)の組"""
-    import ed_jobs
     import ed_state
     from pipeline.transcribe import roster
+    from ytt import jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
     if not spec.get("autoLlm"):
         return None, None
     rec = {"engine": LLM_ENGINE, "model": LLM_MODEL, "picked": 0, "proposed": 0, "applied": 0, "rejected": {}}
@@ -274,9 +274,9 @@ def llm_after_doc(job, spec, segs):
         ed_state.log.warning("名簿を読めないので LLM の直しはしません: %s", e)
         return rec, None
     doc = {"title": spec.get("title"), "sourcePath": spec.get("sourcePath")}
-    try:   # 出る人は、題名・動画のパスに加えて配信ごとの文脈(チャンネル名・コラボ相手・動画のフォルダ = ed_jobs.stream_context)からも(文字起こしの時点では話者がまだいない)
-        ctx = ed_jobs.stream_context({"clip": spec.get("clip"), "title": spec.get("title"), "sourceName": os.path.basename(str(spec.get("sourcePath") or "")),
-                                      "sourcePath": spec.get("sourcePath")}, True)
+    try:   # 出る人は、題名・動画のパスに加えて配信ごとの文脈(チャンネル名・コラボ相手・動画のフォルダ = roster.stream_context)からも(文字起こしの時点では話者がまだいない)
+        ctx = roster.stream_context({"clip": spec.get("clip"), "title": spec.get("title"), "sourceName": os.path.basename(str(spec.get("sourcePath") or "")),
+                                     "sourcePath": spec.get("sourcePath")}, True)
         doc["speakers"] = [{"name": m["name"]} for m in ctx.get("members") or []]
     except Exception as e:   # 文脈は補助。読めなくても題名とパスで選ぶ
         ed_state.log.warning("配信ごとの文脈を読めませんでした(LLM の後処理は題名とパスだけで): %s", e)
@@ -289,7 +289,7 @@ def llm_after_doc(job, spec, segs):
         ask = llm_ask_fn(job, spec)
         job["phase"] = "名簿の呼び名を LLM で確かめ中"
         out = llm_run(segs, members, doc, ask, picks=picks)
-    except ed_jobs.Cancelled:
+    except _heavy.Cancelled:
         raise
     except Exception as e:   # LLM は補助。読めない・失敗しても文字起こしは失敗にしない(ApiError・EngineError・ワーカーの失敗)
         ed_state.add_warning(job, "LLM で名前を確かめられませんでした(認識の結果のまま): " + str(getattr(e, "message", e))[:200])
