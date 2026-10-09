@@ -2976,3 +2976,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 案: 1 文字起こし のタブに「つなぐ・分ける」のキーが無い(ボタンと右クリックだけ)→ キー M 次とつなぐ・Shift+M 前とつなぐ・Y 再生位置で分ける + つないだあとに頭から聞き直す。実装は S3 のコミットのあと
 - data.js: A6 を進行中に(測定は済み)・線 A の計画に文書を足した。ROADMAP に索引。仮で決めたこと: decisions 3-17 の (fw)
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable)— S3 編集 0.62.0: 「3 パック」のタブを無くし、パックを作るのは「2 カット」の末尾へ・パックの設定は ⚙ の「パック」の節へ
+- 依頼: S2 と同じ(ユーザー「解析と編集のパックはタブごと消して設定にまとめて」「配信者(字幕の色)は文字起こしか友人の指定をそのまま使えばいい」「他はおすすめでいい」)。docs/spec/settings.md の 3
+- 変更(src/editor): `index.html` タブを 2 つに(`#edtab-pack`・`#tabPack` を消した)。パックのカード(前回の設定・これから作るパック・字幕の見本・前回のパック)は `#tabCut` の末尾の `<section id="packArea">`(見出し「パック(DaVinci Resolve へ渡す)」)。作るときの値(出力先 `#pkDir`・開始 TC・リール名・zip・残す区間の保存)は「これから作るパック」の「詳しく」`#pkMore`。配信者の欄 `#pkWho` は見せず(hidden の中。UIKit.streamer.autoFill が文書に覚えた名前を入れる = 友人の依頼・まとめて実行の指定をそのまま)、どの名前を使うかを `#pkWhoNote` の 1 行で。旧「パックの設定」の引き出し `#pkSettingsDrawer` は消し、中身を `#edSettings` の `<section id="edSetPack">`(置き先の fps・大きさ / 入れるもの: 音量・予備・粗編集 / 字幕: 1 段の文字数 `#optWrapV/H`(認識の設定から移した)・話者の色 `#pkSpk`+`#pkSpkList`・行の後の余白 `#pkPadAfter`)に。欄の id は全部そのまま(読み書きの配線 `SET_CHECKS`・app.js:1213 の change の一覧・pack-tab.js は id で読む)/ `app.js` `ED_TABS` = tx・cut、Alt+1/2 だけ、履歴の `data-tab="pack"` は setEditTab が読み替え、題名の行の配信者の欄の change で `PACK.refreshWho()` / `app-core.js` `setEditTab('pack')` → cut + `showPackArea()`(#packArea へスクロールして「パックを作る」へフォーカス)・`onEditTab` は cut で `CUT.onShown()` と `PACK.shown()` / `pack-tab.js` 「設定を変える」は ⚙(`#uiSettingsDrawer`)を開いて `#edSetPack` へ、`openMoreAt('#pkDir')`、`shown()` は帯を触らない(カットの場面のまま)、`h.tab() === 'cut'` / `README.txt`・`AGENTS.md` の版と概要 / `dev/ui_audit.py` の editor-pack → editor-pack-more(「詳しく」を開いた形)・editor-pack-settings は ⚙ を開く形
+- 版: 編集 0.61.0 → 0.62.0(`app.js`・`serve.py`・README。0.61.0 は並行セッション「作業１」の P18)
+- テスト(直したもの): `e2e_edit_tabs.py`(タブ 2 つ・Alt+3 は何もしない・旧 #pack は 2 カット の #cut に・→ の巡回)・`e2e_edit_pack.py`(⚙ の引き出しで設定・配信者は隠した欄に名前を入れて change・話者の色のスイッチは ⚙ の中・出力先は「詳しく」・⚙ はタブを移っても開いたまま = × で閉じる)・`e2e_edit_cut.py`(帯の場面はカットのまま・行の後の余白は ⚙・読み直しは Alt+1 → Alt+2)・`e2e_ui_mounted.py`(出力先・zip は「詳しく」)
+- 結果: e2e_edit_tabs 157 OK・e2e_edit_pack 119 OK・e2e_edit_cut 116 OK・e2e_edit_voices 34 OK・e2e_ui_mounted 56 OK / unittest test_metrics ほか OK / node test_document_save 10 OK / lint 0 / ui_audit static Must 0・all --demo Must 0(1 回目は editor-keys の場面 3 件が Must = 直前の場面で開いた ⚙ の引き出しが # の切り替えで残り inert → setEditTab で閉じるようにして 0)
+- 決定・理由: 「認識の設定」はタブ 1 に残した(settings.md の 3)。配信者の欄を無くしたので、名前を変える入口は題名の行の「まとめて実行」の配信者の欄(文書に覚える → パックが読む)。旧 URL `#pack`・履歴の「パックを作る」・前回のタブの記憶は 2 カット のパックへ読み替える(リンクを壊さない)
+- 仮で決めたこと(ユーザー不在): タブを移ると ⚙ の引き出しも閉じる(以前のパックの引き出しと同じ。開いたままだと新しいタブが inert で触れず、ui_audit の editor-keys の場面が 3 件落ちた → setEditTab で閉じる)・「パック」の見出しの下に字幕の見本と前回のパックを右の列で残した → decisions 3-19 に (fv)〜(fw) として追記
+- 次: 「作業１」が ⚙ に autoLlm のチェックと P5 のボタンを足す(S3 のコミットのあと)。S4(設定の形をそろえる)・S5(単体の設定ページ)は計画の phase 3。ユーザーに確かめてほしいこと: 2 カット の末尾のパックの置き方(カットの下にスクロールする形でよいか)
+- 未コミット: なし(このセッションの分はこの記録と一緒にコミット)

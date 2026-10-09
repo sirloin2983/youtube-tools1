@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「編集」E2 画面の骨組みの確認(docs/design/edit-tool-design.md の 3 と 7): 3つのタブ・Alt+1/2/3・URL の #tx/#cut/#pack・
+"""「編集」E2 画面の骨組みの確認(docs/design/edit-tool-design.md の 3 と 7): 2 つのタブ(0.62.0 で 3 パック は 2 カット の末尾へ)・Alt+1/2・URL の #tx/#cut(旧 #pack は 2 カット のパックへ)・
 題名の行の札・カット/パックのタブでの左のメニューの細い帯・文字起こしせずに開く・行の無い文書・狭い画面。
 
     python e2e_edit_tabs.py
@@ -69,8 +69,8 @@ def _scene_header_open(cx):
     check(pg.inner_text('[data-ui-appnav-item="transcribe"]') == "編集" and pg.get_attribute('[data-ui-appnav-item="transcribe"]', "aria-current") == "page",
           "ヘッダー左の ui-appnav に「編集」(いま開いている画面)")
     tabs = pg.locator("[data-edtab]")
-    check(tabs.count() == 3 and ["".join(t.split()) for t in pg.locator("[data-edtab]").all_inner_texts()] == ["1文字起こし", "2カット", "3パック"],
-          "ヘッダーに 1 文字起こし / 2 カット / 3 パック のタブ: %s" % pg.locator("[data-edtab]").all_inner_texts())
+    check(tabs.count() == 2 and ["".join(t.split()) for t in pg.locator("[data-edtab]").all_inner_texts()] == ["1文字起こし", "2カット"],
+          "ヘッダーに 1 文字起こし / 2 カット のタブ(3 パック は 0.62.0 で 2 カット の末尾へ): %s" % pg.locator("[data-edtab]").all_inner_texts())
     check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("location.hash") == "", "最初は 1 文字起こし(URL に # は付けない)")
 
     # ---- 文書を開く・題名の行
@@ -267,7 +267,7 @@ def _scene_tab_switch(cx):
     check, pg, srv = cx.check, cx.pg, cx.srv
     # ---- タブの切り替え(クリック・URL・キー)
     pg.click("[data-edtab=cut]")
-    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut") and pg.is_hidden("#tabTx") and pg.is_hidden("#tabPack"),
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#tabCut") and pg.is_hidden("#tabTx") and pg.locator("[data-edtab]").count() == 2,
           "「2 カット」を押すとカットのタブだけが出る")
     check(pg.evaluate("location.hash") == "#cut", "今のタブは URL の #cut に残る")
     check(pg.is_visible("#docBar"), "題名の行はカットのタブにも出る")
@@ -277,10 +277,10 @@ def _scene_tab_switch(cx):
     pg.keyboard.press("ArrowDown")
     pg.keyboard.press("Shift+ArrowDown")
     check(pg.evaluate("document.querySelectorAll('#segs .seg.nav').length") == nav0, "カットのタブでは、校正のキー(↓・Shift+↓)で行が動かない")
-    pg.keyboard.press("Alt+3")
-    check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#tabPack") and pg.evaluate("location.hash") == "#pack",
-          "Alt+3 で 3 パック")
-    check(pg.is_visible("#pkBuild") and pg.is_visible("#pkLen"), "パックのタブに「これから作るパック」と「パックを作る」がある")
+    pg.keyboard.press("Alt+2")
+    pg.wait_for_timeout(150)
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.evaluate("location.hash") == "#cut", "Alt+3 は何もしない(タブは 2 つ。0.62.0)")
+    check(pg.is_visible("#packArea") and pg.is_visible("#pkBuild") and pg.is_visible("#pkLen"), "2 カット の末尾の「パック」に「これから作るパック」と「パックを作る」がある")
     wait_js(pg, "!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('ホーム(start.bat)から開いたとき')", 10000)
     check(pg.is_disabled("#pkBuild"), "単体で開いたときはパック作りは使えず、理由(ホームから開いたときだけ)が出る")
     wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && document.querySelector('#pkCaps').textContent === '3'", 15000)
@@ -292,10 +292,12 @@ def _scene_tab_switch(cx):
     check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true", "Alt+2 で 2 カット")
     pg.focus("[data-edtab=cut]")
     pg.keyboard.press("ArrowRight")
-    check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.evaluate("document.activeElement.dataset.edtab") == "pack",
-          "タブの並びの中は → で次のタブへ(フォーカスも移る)")
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true" and pg.evaluate("document.activeElement.dataset.edtab") == "tx",
+          "最後のタブの次は最初へ(フォーカスも移る。タブは 2 つ)")
     pg.keyboard.press("ArrowRight")
-    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true", "最後のタブの次は最初へ")
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true", "タブの並びの中は → で次のタブへ")
+    pg.keyboard.press("ArrowLeft")
+    check(pg.get_attribute("[data-edtab=tx]", "aria-selected") == "true", "← で前のタブへ")
     # 行の文字の入力中の Alt+数字 は話者(タブは変えない)
     pg.locator("#segs textarea").first.click()
     pg.keyboard.press("Alt+2")
@@ -304,8 +306,8 @@ def _scene_tab_switch(cx):
 
     # ---- 再読み込み・URL の # でタブを開く
     pg.goto(srv.base + "#pack")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
-    check(pg.is_hidden("#tabTx") and pg.evaluate("location.hash") == "#pack", "URL の #pack で開くと 3 パック のタブ(再読み込み・窓で開いても同じタブ)")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
+    check(pg.is_hidden("#tabTx") and pg.evaluate("location.hash") == "#cut", "以前の URL の #pack で開くと 2 カット(パックはその末尾。# は #cut に。0.62.0)")
     pg.evaluate("location.hash = '#cut'")
     wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
     check(True, "URL の # を変えるとタブも変わる")
@@ -551,13 +553,13 @@ def _scene_keys_and_urls(cx):
     check, pg, srv, v2, v3 = cx.check, cx.pg, cx.srv, cx.v2, cx.v3
     # ---- キー操作の一覧・狭い画面
     pg.click("#btnKeys")
-    check("タブ(文字起こし・カット・パック)を切り替える" in pg.inner_text("#keys"), "キー操作の一覧に Alt+1/2/3")
+    check("タブ(文字起こし・カット)を切り替える" in pg.inner_text("#keys"), "キー操作の一覧に Alt+1/2")
     pg.keyboard.press("Escape")
     pg.set_viewport_size({"width": 390, "height": 800})
     pg.keyboard.press("Alt+2")
     pg.wait_for_timeout(300)
     check(pg.evaluate("document.documentElement.scrollWidth") <= 392, "幅 390px で横にはみ出さない: %s" % pg.evaluate("document.documentElement.scrollWidth"))
-    check(pg.is_visible("[data-edtab=pack]") and pg.is_visible("#menuStrip"), "幅 390px でもタブと帯が見える")
+    check(pg.is_visible("[data-edtab=cut]") and pg.is_visible("#menuStrip"), "幅 390px でもタブと帯が見える")
 
     # ---- B-1: ホームからは文書 ID で開く(?doc=)。同じ動画から作った別の文書(新しい方)ではなく、選んだ文書が開く
     pg.set_viewport_size({"width": 1440, "height": 900})

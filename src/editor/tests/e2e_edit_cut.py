@@ -172,12 +172,9 @@ def _scene_edge_drag_keybar(cx):
     pg.keyboard.press("Alt+2")
     wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
     check("S" in keybar_keys(), "2 カット のタブへ戻ると、下の帯もカットの場面に戻る: %s" % keybar_keys())
-    pg.keyboard.press("Alt+3")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
-    check(len(keybar_keys()) == 0, "3 パック のタブには帯の場面が無いので、カットの場面は残らず消える: %s" % keybar_keys())
-    pg.keyboard.press("Alt+2")
-    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
-    check("S" in keybar_keys(), "カットのタブへ戻ると、下の帯もまた出る: %s" % keybar_keys())
+    pg.keyboard.press("Alt+2")   # 0.62.0: 3 パック のタブは無い(Alt+3 は何もしない。パックは 2 カット の末尾で、帯はカットの場面のまま)
+    pg.wait_for_timeout(150)
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and "S" in keybar_keys(), "Alt+3 は何もしない・帯はカットの場面のまま: %s" % keybar_keys())
     # 上の帯の確かめで Esc で選択を外したので、端のドラッグの前にもう一度区間を選ぶ
     pg.locator("#tlVideo .tt-k[data-i='1']").click()
     wait_js(pg, "document.querySelectorAll('#tlVideo .tt-k[data-i=\"1\"] .tt-h').length === 2", 3000)
@@ -647,20 +644,19 @@ def _scene_rowedge_draft_length(cx):
     # ---- 「行から ▾」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ)
     # 6-2: 「行の後の余白」は 3 パック の詳しい設定の1か所で変える → 「行から ▾」は値を出すだけ・「行から ▾」で保存しても消えない
     pg.keyboard.press("Escape")
-    pg.keyboard.press("Alt+3")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 5000)
-    pg.click("#pkSettingsBtn")
-    pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
-    pg.click("#pkMore summary")
+    pg.keyboard.press("Alt+2")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000)
+    pg.click("#pkSettingsBtn")   # 0.62.0: 行の後の余白は ⚙ の「パック」の節
+    pg.wait_for_selector("#pkPadAfter", state="visible")
     pg.fill("#pkPadAfter", "0.35")
     pg.press("#pkPadAfter", "Tab")
     for _ in range(50):
         if (srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") == 0.35:
             break
         time.sleep(0.2)
-    check((srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") == 0.35, "6-2: パックの詳しい設定の「行の後の余白」が設定 rowEdge.padAfter に保存される: %s" % srv.get("/api/settings").get("rowEdge"))
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    check((srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") == 0.35, "6-2: ⚙ の「パック」の「行の後の余白」が設定 rowEdge.padAfter に保存される: %s" % srv.get("/api/settings").get("rowEdge"))
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     pg.keyboard.press("Alt+2")
     wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000)
     pg.click("#cutRowEdge summary")
@@ -768,11 +764,12 @@ def _scene_load_fail_missing(cx):
           "読めないときは理由と「もう一度読み込む」: " + pg.inner_text("#cutOff"))
     check(pg.locator("#tlVideo .tt-k").count() == 0 and pg.is_disabled("#cutSplit"), "たたき台(動画全体)で始めない・編集できない")
     check(srv.get("/api/edit?id=" + tid5)["rev"] == 1, "保存済みのカットは書き換えない")
-    pg.keyboard.press("Alt+3")
     wait_js(pg, "!document.querySelector('#pkOff').hidden", 10000)
-    check("読み込めませんでした" in pg.inner_text("#pkOff") and pg.is_disabled("#pkBuild"), "3 パック も止まる: " + pg.inner_text("#pkOff"))
+    check("読み込めませんでした" in pg.inner_text("#pkOff") and pg.is_disabled("#pkBuild"), "2 カット の末尾のパックも止まる: " + pg.inner_text("#pkOff"))
     gets = fail["gets"]
-    pg.keyboard.press("Alt+2")   # タブを開き直すと読み直す(ここではまだ失敗させる)
+    pg.keyboard.press("Alt+1")   # タブを開き直すと読み直す(ここではまだ失敗させる)
+    wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'", 5000)
+    pg.keyboard.press("Alt+2")
     for _ in range(100):
         if fail["gets"] > gets:
             break

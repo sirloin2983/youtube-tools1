@@ -173,20 +173,25 @@ function loadView(){
 
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
 
-function tabFromHash(){ const h = String(location.hash || '').replace(/^#/, ''); return ED_TABS.includes(h) ? h : null; }
+function tabFromHash(){ const h = String(location.hash || '').replace(/^#/, ''); return h === 'pack' || ED_TABS.includes(h) ? h : null; }   // 'pack'(旧 3 パック)は setEditTab が 2 カット のパックへ読み替える(0.62.0)
 
 function setEditTab(t, opt = {}){
+  let toPack = false;
+  if (t === 'pack'){ t = 'cut'; toPack = true; }   // 0.62.0: 旧「3 パック」(URL の #pack・履歴の「パックを作る」・前回のタブ)は 2 カット の末尾のパックへ
   if (!ED_TABS.includes(t)) t = 'tx';
   const was = EDT.tab;
   EDT.tab = t; EDT.overlay = false;
   document.querySelectorAll('[data-edtab]').forEach(b => { const on = b.dataset.edtab === t; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
-  /* 監査01(段1): 隠れるタブの中で開いている引き出し(3 パック の設定など)は、隠す前に閉じる。modal の引き出しは裏を inert にし、close まで残すので、
+  /* 監査01(段1): 隠れるタブの中で開いている引き出し(書き出しの欄など)は、隠す前に閉じる。modal の引き出しは裏を inert にし、close まで残すので、
      開いたまま隠すと見えない引き出しが全部の操作を塞ぐ(Alt+数字は下で止めるが、戻る・# のリンク・プログラムからの切り替えでも残さないための保険) */
   let closedDrawer = false;
   document.querySelectorAll('[data-edpanel]').forEach(p => {
     if (p.dataset.edpanel === t) return;
     p.querySelectorAll('.ui-drawer:not([hidden])').forEach(d => { closedDrawer = true; UIKit.drawer.close(d); });
   });
+  /* 0.62.0: パックの設定は ⚙ の引き出し(全体)に移った。タブを移る(# のリンク・履歴の「パックを作る」・プログラムから)ときは以前のパックの引き出しと同じく閉じる
+     (modal の引き出しが開いたままだと裏が inert のまま = 新しいタブの操作ができない。Alt+数字は modalOpen で先に止まる) */
+  { const g = $('#uiSettingsDrawer'); if (was !== t && g && !g.hidden){ closedDrawer = true; UIKit.drawer.close(g); } }
   document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
   if (opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
@@ -194,12 +199,18 @@ function setEditTab(t, opt = {}){
   if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(段7 E-7。文書を開いていなければ何もしない)
   if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
   if (opt.into) focusTabStart(t);   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
+  if (toPack) showPackArea();
+}
+/* 2 カット の末尾の「パック」へ(0.62.0。旧 #pack・履歴の「パックを作る」)。見える所まで送り、押せるなら「パックを作る」へフォーカス */
+function showPackArea(){
+  const el = $('#packArea'); if (!el) return;
+  requestAnimationFrame(() => { el.scrollIntoView({ block: 'start' }); const b = $('#pkBuild'); if (b && !b.disabled && b.offsetParent) b.focus({ preventScroll: true }); });
 }
 
 /* キー(Alt+2/3)・「文字起こしせずに開く」でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように。UI の見直し S18)。
-   2 カット = 再生(読み込みが終わって押せるようになるまで少し待つ)・3 パック = パックを作る。1 文字起こし は行の操作のキーがどこからでも効くので動かさない */
+   2 カット = 再生(読み込みが終わって押せるようになるまで少し待つ)。1 文字起こし は行の操作のキーがどこからでも効くので動かさない */
 function focusTabStart(t, tries = 30){
-  const el = t === 'cut' ? $('#cutPlay') : t === 'pack' ? $('#pkBuild') : null;
+  const el = t === 'cut' ? $('#cutPlay') : null;
   if (!el || EDT.tab !== t) return;
   if (!el.disabled && el.offsetParent){ el.focus(); return; }
   if (tries > 0) setTimeout(() => focusTabStart(t, tries - 1), 100);
@@ -210,10 +221,9 @@ function onEditTab(from, to){
   if (from === 'tx' && S.doc) player().pause();
   if (from === 'cut' && CUT) CUT.onHidden();   // カットのタブの再生位置を、文字起こしの映像へ引き継ぐ・未保存のカットを保存
   if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
-  if (to === 'cut' && CUT) CUT.onShown();
-  paintSaveState();   // ヘッダーの保存の状態(1 は文書・2 と 3 はカットも。S4)
-  if (to === 'pack' && PACK) PACK.shown();
-  /* カット・パックのタブは、CUT.onShown()/PACK.shown()(上)が自分の帯をすでに出している(cut は M.sel に応じた場面、pack は clear)。
+  if (to === 'cut' && CUT){ CUT.onShown(); if (PACK) PACK.shown(); }   // パックは 2 カット の末尾(0.62.0)。帯の場面はカットのもの(PACK.shown は帯を触らない)
+  paintSaveState();   // ヘッダーの保存の状態(1 は文書・2 はカットも。S4)
+  /* カットのタブは CUT.onShown()(上)が自分の帯をすでに出している(M.sel に応じた場面)。
      ここで tx 以外もまとめて「from が tx なら clear」としてしまうと、その直後の帯を上書きして消してしまう(2026-09-27 に見つけて直した) */
   if (to === 'tx') txKeybarScene();
   renderDocBar();

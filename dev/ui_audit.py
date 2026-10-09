@@ -536,8 +536,8 @@ def default_scenes(base):
         {"name": "editor-tx-more", "url": ed + "#tx", "actions": [("click", "#moreTools > summary"), ("wait", 300)]},
         {"name": "editor-tx-jump", "url": ed + "#tx", "actions": [("click", "#jumpMenu > summary"), ("wait", 300)]},
         {"name": "editor-cut", "url": ed + "#cut", "wide": True},
-        {"name": "editor-pack", "url": ed + "#pack"},
-        {"name": "editor-pack-settings", "url": ed + "#pack", "actions": [("click", "#pkSettingsBtn"), ("wait", 500)], "modal": {"root": "#pkSettingsDrawer", "opener": "#pkSettingsBtn"}},
+        {"name": "editor-pack-more", "url": ed + "#cut", "actions": [("click", "#pkMore > summary"), ("wait", 300)]},   # 0.62.0: パックは 2 カット の末尾。「詳しく」(出力先・zip)を開いた形
+        {"name": "editor-pack-settings", "url": ed + "#cut", "actions": [("click", "#pkSettingsBtn"), ("wait", 500)], "modal": {"root": "#uiSettingsDrawer", "opener": "#pkSettingsBtn"}},   # 0.62.0: パックの設定は ⚙ の節
         {"name": "editor-keys", "url": ed + "#tx", "actions": [("click", "#btnKeys"), ("wait", 400)], "modal": {"root": "#keys", "opener": "#btnKeys"}, "min_width": 561},   # 560px 以下はキー操作のボタンを出さない(? キーだけ)
         {"name": "editor-settings", "url": base + "/transcribe/", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
         {"name": "styleguide", "url": styleguide},

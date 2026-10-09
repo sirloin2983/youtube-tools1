@@ -1,4 +1,6 @@
-/* 「編集」3 パック のタブ(docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+/* 「編集」のパック(2 カット の末尾 #packArea。docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+   0.62.0 で「3 パック」のタブを無くした: 作るのは 2 カット の末尾・設定(fps・大きさ・音量・予備・字幕の 1 段の文字数・余白・話者の色)は ⚙ の「パック」の節 #edSetPack(欄の id は以前のまま)・
+   配信者(字幕の色)の欄は見せず、文書に覚えている名前(友人の依頼・まとめて実行の指定)を隠した欄 #pkWho に UIKit.streamer.autoFill で入れてそのまま使う(docs/spec/settings.md の 3)。
    パックは cut2resolve の pack.py だけが作る(api/build の spec.keeps = 2 カット のタブの残す区間。pack.EDIT_KEEPS)。ここに Resolve 用の計算を書かない。
    「これから作るパック」の字幕の数・注意は、文字起こしのサーバーの /api/edit/preview(同じ pack.py でファイルを作らずに見積もる)。
    作り終えたら /api/edit/pack に記録し(packRev)、カットか字幕が変わったら「作り直し」と知らせる */
@@ -121,6 +123,11 @@ function create(h){
     const who = e.detail;
     if (who) document.body.style.setProperty('--tt-cap-color', who.hex); else document.body.style.removeProperty('--tt-cap-color');
     $('#pkLookName').textContent = who ? `けいふぉんと・${who.name}の色の文字(${who.hex})・白いふち・黒いふち` : 'けいふぉんと・黒い文字・白いふち・黒いふち';
+    /* 配信者の欄は見せない(0.62.0)ので、どの名前を使うかを 1 行で */
+    const note = $('#pkWhoNote'), name = whoOf();
+    if (note) note.textContent = who ? `配信者: ${who.name}(この文書に覚えている名前。字幕の文字をこの色に。変えるには題名の行の「まとめて実行」の配信者の欄)`
+      : name ? `配信者「${name}」はメンバーカラーに見つからないので、黒い文字になります(ホロカラーのマイカラーに足すと使えます)`
+      : h.TOKEN ? '配信者はまだ決まっていないので黒い文字(題名の行の「まとめて実行」の配信者の欄で決めると、この文書に覚えます)' : '配信者の色はホームから開いたときだけ(単体では黒い文字)';
     render();   // 「前回の設定」の要約の色の丸も、入れ直すたびに合わせる
   });
 
@@ -218,7 +225,7 @@ function create(h){
     const hasRows = d.segments.some(kept), o = outputNow(hasRows);
     // 4-1: 鍵が変わっていて(縦横・字幕の文字数・カット・行)、予約も計算も無く、同じ鍵で失敗していなければ、ここで出し直しを予約する。
     // 設定を変える所ごとに予約を書くと足し忘れで同じ不具合が戻るので、描画の1か所で(タブを見ているときだけ。render は rAF でまとまるので連打にならない)
-    if (!fresh && sm && sm.count && h.tab() === 'pack' && P.pv !== 'wait' && P.pv !== 'run' && P.pvErrKey !== pvKey) schedulePreview();
+    if (!fresh && sm && sm.count && h.tab() === 'cut' && P.pv !== 'wait' && P.pv !== 'run' && P.pvErrKey !== pvKey) schedulePreview();
     $('#pkLen').textContent = sm ? h.fmtCs(sm.keptSec) : '–';
     $('#pkSrcLen').textContent = sm ? h.fmtCs(sm.durSec) : '–';
     $('#pkCount').textContent = sm ? String(sm.count) : '–';
@@ -307,7 +314,7 @@ function create(h){
     $('#pkSummaryText').textContent = bits.join(' ・ ');   // 要約は覚えている物だけ(4-2): 再読み込みの前後で同じになる
     // 出力先は覚えない(09-29 決定: 別の案件へ間違って出さないため)ので要約に入れず、毎回どこに作るかを1行で
     const dir = $('#pkDir').value.trim();
-    $('#pkPlace').textContent = dir ? `作る場所(この文書を開いている間だけ): ${dir}` : `作る場所: 動画の隣の「${defaultDirName()}」(毎回ここ。変えるときは「設定を変える」の 3。出力先は覚えません)`;
+    $('#pkPlace').textContent = dir ? `作る場所(この文書を開いている間だけ): ${dir}` : `作る場所: 動画の隣の「${defaultDirName()}」(毎回ここ。変えるときは下の「詳しく」の出力先。出力先は覚えません)`;
     const color = hasRows ? ($('#pkWho').dataset.color || '') : '', sw = $('#pkSummarySw');
     sw.hidden = !color; if (color) sw.style.background = color;
     sw.title = color ? `配信者の色(${color})` : '';
@@ -336,9 +343,9 @@ function create(h){
       body: '次のフォルダに、前に作ったパックがあります。作り直すと、中のファイルを上書きします(Resolve に取り込み済みなら、取り込み直してください)。' + (dir ? '\n\n' + dir : '') + (list ? '\n' + list : ''),
       buttons: [{ label: 'やめる', value: null, kind: 'ghost' }, { label: '別の場所を選ぶ', value: 'other' }, { label: '上書きして作り直す', value: 'over', kind: 'danger' }], cancel: null });
   }
-  /* 詳しい設定の引き出しを開いて、その欄へ(上書きの確認の「別の場所を選ぶ」) */
-  function openSettingsAt(sel){
-    UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: $('#pkBuild') });
+  /* 「詳しく」を開いて、その欄へ(上書きの確認の「別の場所を選ぶ」= 出力先。0.62.0 から出力先はカードの「詳しく」の中) */
+  function openMoreAt(sel){
+    const m = $('#pkMore'); if (m) m.open = true;
     requestAnimationFrame(() => { const el = $(sel); if (el){ el.focus(); if (el.select) el.select(); } });
   }
   const sameDir = (a, b) => { const n = p => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase(); return !!a && n(a) === n(b); };   // Windows のパス(大文字小文字・区切り)をそろえて比べる
@@ -403,7 +410,7 @@ function create(h){
             /* 前回この文書のパックを作った場所(P.pack.dir)への作り直しは確認を省く(段7 E-15)。ほかの物がある場所だけ、何を上書きするかを見せて聞く */
             if (!(P.pack && sameDir(dd.dir, P.pack.dir))){
               const v = await overwriteChoice(dd.files || [], dd.dir || '');
-              if (v === 'other'){ openSettingsAt('#pkDir'); return; }   // 別の場所: 詳しい設定の「出力先」へ
+              if (v === 'other'){ openMoreAt('#pkDir'); return; }   // 別の場所: 「詳しく」の出力先へ
               if (v !== 'over'){ setTimeout(() => { const b = $('#pkBuild'); if (!b.disabled && b.offsetParent) b.focus(); }, 150); return; }   // やめた: 押したボタンへ戻す(開いた時の「中止」は消えている。2 周目 N4)
             }
             force = true; continue;
@@ -436,9 +443,12 @@ function create(h){
   }
 
   /* ---------- イベント ---------- */
-  /* 「設定を変える」の右の欄(段3。docked ではなく modal: 開いている間はパックを作る操作に集中させる) */
-  $('#pkSettingsBtn').addEventListener('click', e => UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: e.currentTarget }));
-  $('#pkSettingsClose').addEventListener('click', () => UIKit.drawer.close($('#pkSettingsDrawer')));
+  /* 「設定を変える」= ⚙ の設定の引き出し(UIKit.settings)を開いて「パック」の節へ(0.62.0。以前はパックのタブの中の右の欄) */
+  $('#pkSettingsBtn').addEventListener('click', e => {
+    const d = $('#uiSettingsDrawer'); if (!d) return;
+    UIKit.drawer.open(d, { modal: true, opener: e.currentTarget });
+    requestAnimationFrame(() => { const sec = $('#edSetPack'); if (sec) sec.scrollIntoView({ block: 'start' }); });
+  });
   function setOpt(key, v){ saveLoud({ [key]: v }); }   // パックの出力は「送ったキーだけ直す」API で(まとめて実行の欄と同じ値。段4)
   $('#pkFps').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b){ $('#pkFpsOther').value = ''; setOpt('packFps', b.dataset.v); } });
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
@@ -533,14 +543,15 @@ function create(h){
 
   return {
     load,
-    shown(){
-      UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); }
+    shown(){   // 2 カット を開いたとき(帯の場面はカットのものなので触らない。0.62.0)
+      if (h.S.doc){ render(); schedulePreview(0); }
       h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
         const keys = ['packLoudness', 'packVolume', 'packFps', 'packSize', 'speakerColors', 'packBackup', 'packRender'];   // ほかの画面(まとめて実行の欄)でも変えられる値
         if (st && keys.some(k => st[k] !== h.S.settings[k])){ for (const k of keys) h.S.settings[k] = st[k]; if (h.S.doc) render(); h.onSpeakerColors(); }
       }, () => {});
     },
-    changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'pack') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
+    changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'cut') schedulePreview(); else { P.previewKey = ''; } },
+    refreshWho(){ if (h.S.docId) UIKit.streamer.autoFill($('#pkWho'), { docId: h.S.docId }); },   // 題名の行で配信者を直したあと(隠した欄を入れ直す。0.62.0)   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
     refresh: render,
     state: () => ({ building: P.building, pack: P.pack })
   };

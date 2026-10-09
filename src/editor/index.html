@@ -1109,7 +1109,7 @@ html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense
 /* カット・パックのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む。帯から開くと本文の上に重ねる(タイムラインの幅を変えない) */
 .tt-mstrip{display:none}
 .app.tab-wide{grid-template-columns:44px minmax(0,1fr)}
-html[data-edtab-now=cut] #btnMenu,html[data-edtab-now=pack] #btnMenu{display:none}   /* カット・パックのタブでは帯の ☰ を使う(同じ操作を2か所に置かない) */
+html[data-edtab-now=cut] #btnMenu{display:none}   /* カットのタブでは帯の ☰ を使う(同じ操作を2か所に置かない) */
 .app.tab-wide>.tt-mstrip{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(var(--toph,52px) + 8px);align-self:start}
 .app.tab-wide>.tt-mstrip .btn{width:36px;height:36px;padding:0;justify-content:center}
 .app.tab-wide>#menuPanel{display:none}
@@ -1218,6 +1218,12 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 @container editor (max-width:900px){.tt-cut-top{grid-template-columns:minmax(0,1fr)}.tt-cut-subs{max-height:260px}}
 
 /* ---------- 3 パック(E4。pack-tab.js) ---------- */
+/* パック(0.62.0 で「3 パック」のタブから 2 カット の末尾へ。設定は ⚙ の「パック」の節 #edSetPack) */
+.tt-pack{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.tt-pack-h{margin:0 0 10px;font:650 16px/1.35 var(--font-display)}
+#edSetPack .tt-pk-row{margin:6px 0}
+#edSetPack .tt-pk-l{min-width:9em}
+#edSetPack .tt-pk-item{padding:8px 0}
 .tt-pk-off{margin:0 0 12px}
 .tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
 .tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
@@ -1288,11 +1294,11 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <!-- ホーム/スタジオ/編集(ui-kit v6。画面の全面見直し 段1)。中身は ui-kit.js の UIKit.appnav が描く -->
   <nav class="ui-appnav" data-ui-appnav="transcribe" aria-label="ホーム/スタジオ/編集"></nav>
   <span class="ui-ver" id="ver"></span>
-  <!-- 「編集」の3つのタブ(docs/design/edit-tool-design.md 3)。Alt+1/2/3 でも切り替える。今のタブは URL の #tx / #cut / #pack に残す -->
+  <!-- 「編集」の 2 つのタブ(docs/design/edit-tool-design.md 3)。Alt+1/2 でも切り替える。今のタブは URL の #tx / #cut に残す。
+       0.62.0: 「3 パック」のタブは無くした(パックを作るのは 2 カット の末尾の「パック」= #packArea・パックの設定は ⚙ の「パック」の節 = #edSetPack。旧 #pack は 2 カット のパックへ。docs/spec/settings.md の 3) -->
   <nav class="ui-tabs tt-edtabs" id="edTabs" role="tablist" aria-label="編集の段">
     <button type="button" class="ui-tab" role="tab" id="edtab-tx" data-edtab="tx" aria-selected="true" aria-controls="tabTx" title="文字起こし: 文字と話者を直す(Alt+1)"><span class="ui-tab-n">1</span>文字起こし</button>
     <button type="button" class="ui-tab" role="tab" id="edtab-cut" data-edtab="cut" aria-selected="false" aria-controls="tabCut" title="カット: 残す・削る所をタイムラインで決める(Alt+2)"><span class="ui-tab-n">2</span>カット</button>
-    <button type="button" class="ui-tab" role="tab" id="edtab-pack" data-edtab="pack" aria-selected="false" aria-controls="tabPack" title="パック: Resolve へ渡すパックを作る(Alt+3)"><span class="ui-tab-n">3</span>パック</button>
   </nav>
   <div class="ui-header-actions">
     <span class="savest" id="saveState" role="status"></span>
@@ -1384,11 +1390,8 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <div class="row"><label class="lag">字幕の向き <select id="optSubOrient" style="width:auto"><option value="vertical">縦(ショート)</option><option value="horizontal">横</option></select></label>
           <label class="lag">最大 縦 <input id="optMaxV" type="number" min="4" max="80" step="1" value="16" style="width:4.5em"></label>
           <label class="lag">横 <input id="optMaxH" type="number" min="4" max="80" step="1" value="28" style="width:4.5em"></label></div>
-        <div class="row"><span class="hint">パックの字幕の改行(1段の文字数)</span>
-          <label class="lag">縦 <input id="optWrapV" type="number" min="2" max="40" step="1" value="8" style="width:4.5em"></label>
-          <label class="lag">横 <input id="optWrapH" type="number" min="2" max="40" step="1" value="14" style="width:4.5em"></label></div>
         <span class="hint">長い行は、選んだ向きの文字数(2 文字までのはみ出しは許す)を超えないように、間・句読点・真ん中に近い所で分けます(単語の時刻で分けるとき)。
-          パックの Text+ 字幕は、改行の文字数で2段にします。</span></div>
+          パックの Text+ 字幕の 1 段の文字数(改行)は、右上の設定の「パック」で変えます。</span></div>
       <label class="lag" style="margin-top:6px" title="、。？！ と半角の ?! を、認識結果の文字から取り除きます(テロップ表示向け)。単語分割の区切り判断には、除く前の句読点を使うので、行の分け方は変わりません"><input type="checkbox" id="optStripPunct" checked>句読点(、。？！)を取り除く</label>
       <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoDict" checked>終わったら置換辞書を自動で適用する</label>
       <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoGloss" checked>よく直される語を、認識のヒント(用語集)に自動で足す</label>
@@ -1789,13 +1792,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          </div>
        </div>
      </div>
-     <div class="tt-cut-status" id="cutStatus" aria-live="polite"></div>
-     <p class="hint tt-cut-keys"><span id="cutKeysText">すべてのキー: <kbd class="ui-kbd">?</kbd>(一覧・キーを変える)</span><span class="savest" id="cutSaveSt" hidden></span></p>   <!-- 長いキーの説明の行はやめて ? の一覧へ(S17)。カットの保存の状態はヘッダーに出す(#cutSaveSt は元の値だけ持つ。S4) -->
-   </section>
-   <section class="tt-tabpanel" id="tabPack" role="tabpanel" aria-labelledby="edtab-pack" data-edpanel="pack" hidden>
-     <!-- 3 パック(docs/design/edit-tool-design.md の 3。pack-tab.js)。パックは cut2resolve の pack.py だけが作る(区間は 2 カット のタブのとおり = spec.keeps)。
-          段3: 前回の設定の要約 + 大きな「作る」+ 字幕の見本(いつも見える)だけを主に出し、詳しい設定(fps・大きさ・入れるもの・出力先)は
-          「設定を変える」で開く右の欄(#pkSettingsDrawer)にまとめた -->
+     <!-- パック(0.62.0 で「3 パック」のタブから 2 カット の末尾へ。pack-tab.js。パックは cut2resolve の pack.py だけが作る(区間 = 上のカットのとおり = spec.keeps)。
+          「これから作るパック」の字幕の数・注意は /api/edit/preview。設定(fps・大きさ・音量・予備・字幕の 1 段の文字数・行の後の余白・話者の色)は ⚙ の「パック」の節(#edSetPack)。docs/spec/settings.md の 3 -->
+     <section class="tt-pack" id="packArea" aria-labelledby="packAreaTitle">
+     <h3 class="tt-pack-h" id="packAreaTitle">パック(DaVinci Resolve へ渡す)</h3>
      <div class="notice tt-pk-off" id="pkOff" hidden role="status"></div>
      <div class="tt-pk-grid">
        <div class="tt-pk-col">
@@ -1803,7 +1803,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <h3 class="tt-pk-h">前回の設定</h3>
            <p class="hint tt-pk-sumrow"><span class="ui-streamer-sw" id="pkSummarySw" hidden aria-hidden="true"></span><span id="pkSummaryText"></span></p>
            <p class="hint tt-pk-place" id="pkPlace"></p>
-           <div class="row" style="margin-top:8px"><button type="button" class="btn" id="pkSettingsBtn"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span> 設定を変える</button></div>
+           <div class="row" style="margin-top:8px"><button type="button" class="btn" id="pkSettingsBtn" title="右上の設定の「パック」の節を開きます(fps・大きさ・音量・予備・字幕の 1 段の文字数・行の後の余白)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span> 設定を変える</button></div>
          </div>
          <div class="card tt-pk-card">
            <h3 class="tt-pk-h">これから作るパック</h3>
@@ -1821,6 +1821,20 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
            <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
            <div class="notice err" id="pkErr" hidden role="alert"></div>
+           <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しく(出力先・タイムコード・zip)</summary>
+             <div class="fld"><label for="pkDir">出力先のフォルダ</label><input id="pkDir" type="text" autocomplete="off" spellcheck="false" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
+               <span class="hint">空欄なら動画の隣の「&lt;動画名&gt;_pack」。<b>出力先は覚えません</b>(文書を開くたびに空欄に戻ります。別の案件へ間違って出さないため)。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</span></div>
+             <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"><span class="hint" id="pkSrcTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
+             <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"><span class="hint" id="pkRecTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
+             <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
+             <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
+               <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
+               <span class="notice tt-pk-zipwarn" id="pkZipWarn" hidden></span>
+               <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。ホームから開いていなくても使えます。</span></div>
+             <div class="fld"><span class="l">残す区間だけを作業用フォルダに保存</span>
+               <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画のフォルダの「作業用」に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
+               <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
+           </details>
          </div>
        </div>
        <div class="tt-pk-col">
@@ -1828,11 +1842,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          <div class="card tt-pk-card tt-pk-lookcard">
            <h3 class="tt-pk-h">字幕の見本</h3>
            <div class="tt-pk-sub">字幕の見た目(<span id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span>)</div>
-           <label class="lag tt-pk-who" title="名前を入れると、字幕の文字をその人のメンバーカラーにします(ホロカラーの色の一覧。空なら黒い文字。この文書に覚えます)">配信者(字幕の色)
-             <input id="pkWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
-           <label class="lag tt-pk-spk" title="話者の名前(「話者」の欄で付けた名前)がメンバーと1人に合えば、その話者の字幕だけ文字をその人の色にします。合わない話者は上の配信者の色(空なら黒)のまま">
-             <input type="checkbox" class="ui-switch" id="pkSpk" checked>話者の名前がメンバーと合えば、その話者の字幕をその色に</label>
-           <div class="hint tt-pk-spklist" id="pkSpkList"></div>
+           <p class="hint tt-pk-p" id="pkWhoNote" style="margin:0 0 8px">配信者(字幕の色)は、この文書に覚えている名前(友人の依頼の指定・まとめて実行で選んだ名前)をそのまま使います。</p>
+           <!-- 配信者の欄は見せない(0.62.0。ユーザー決定「文字起こしか友人の指定をそのまま使えばいい」)。UIKit.streamer.autoFill が覚えた名前を入れ、pack-tab.js がその値を output.streamer に渡す。
+                話者ごとの色のスイッチ(#pkSpk)は ⚙ の「パック」の節(#edSetPack) -->
+           <div hidden><input id="pkWho" type="text" aria-label="配信者(字幕の色)" data-ui-streamer tabindex="-1"></div>
            <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap tt-cap-look" id="pkPhoneCap"></span></div>
              <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
          </div>
@@ -1848,57 +1861,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
          </div>
        </div>
      </div>
-     <!-- 「設定を変える」で開く右の欄(段3。手順1〜7の今の設定の全部)。要素の id は今までどおり -->
-     <aside class="ui-drawer" id="pkSettingsDrawer" hidden aria-labelledby="pkSettingsTitle">
-       <div class="ui-drawer-head"><h2 class="ui-drawer-title" id="pkSettingsTitle">パックの設定</h2>
-         <button type="button" class="btn ghost icon small" id="pkSettingsClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button></div>
-       <div class="ui-drawer-body">
-         <div class="card tt-pk-card">
-           <h3 class="tt-pk-h"><span class="tt-pk-n">1</span>置き先のプロジェクト(Resolve で作るもの)</h3>
-           <div class="tt-pk-row" id="pkFpsFixedRow"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。素材は 30fps にそろえてあるので、Resolve のプロジェクトも 30fps で作ります">フレームレート</abbr></span>
-             <span id="pkFpsFixed">素材とプロジェクトは 30fps</span></div>
-           <div class="tt-pk-row" id="pkFpsRow" hidden><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は元の動画の fps で数えます)">フレームレート</abbr></span>
-             <div class="ui-seg" id="pkFps" role="group" aria-label="フレームレート"><button type="button" data-v="30">30 fps</button><button type="button" data-v="60">60 fps</button></div></div>
-           <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
-             <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
-           <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦に切り取る作業(クロップ)は Resolve で行います。</p>
-           <p class="notice tt-pk-fpswarn" id="pkFpsWarn" hidden></p>
-         </div>
-         <div class="card tt-pk-card">
-           <h3 class="tt-pk-h"><span class="tt-pk-n">2</span>パックに入れるもの</h3>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
-           <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve で区間の端を延ばせます。Resolve での手順は、作ったあと「Resolve での手順を見る」で出ます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
-           <div class="tt-pk-row"><label class="tt-pk-l" for="pkLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
-             <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14 LUFS(YouTube と同じくらい・おすすめ)</option><option value="-11">-11 LUFS(大きめ)</option><option value="-16">-16 LUFS(少し小さめ)</option><option value="-18">-18 LUFS(小さめ)</option><option value="0">音量を % で決める</option></select>
-             <span id="pkVolBox" hidden><input id="pkVol" type="number" min="1" max="200" step="5" style="width:4.5em" aria-label="音量(%。元の音量 = 100)" title="元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下">%</span></div>
-           <p class="hint tt-pk-p">LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。カットで残す部分だけを測って、パックに入れる動画の音声をその大きさにそろえます。
-             単位が分かりにくいときは「音量を % で決める」(元の音量 = 100%。小さくするなら 100 より下)。映像はそのまま・元の動画は書き換えません。まとめて実行のパックも同じ値を使います。</p>
-           <label class="tt-pk-item"><input type="checkbox" id="pkBackup"><span><b>予備も入れる(<abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・予備_EDLで開く手順.txt・カット後の字幕 <abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)</b><span class="hint" id="pkBackupHint">スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません</span></span></label>
-           <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
-           <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しい設定(タイムコード・リール名・zip など)</summary>
-             <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"><span class="hint" id="pkSrcTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
-             <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"><span class="hint" id="pkRecTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
-             <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
-             <div class="fld"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
-               <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
-               <span class="hint" id="pkPadAfterNote"></span></div>
-             <div class="fld" id="pkFpsOtherFld" hidden><label for="pkFpsOther">その他のフレームレート(置き先。30fps でない古い素材のとき)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
-             <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
-               <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
-               <span class="notice tt-pk-zipwarn" id="pkZipWarn" hidden></span>
-               <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。ホームから開いていなくても使えます。</span></div>
-             <div class="fld"><span class="l">残す区間だけを作業用フォルダに保存</span>
-               <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画のフォルダの「作業用」に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
-               <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
-           </details>
-         </div>
-         <div class="card tt-pk-card">
-           <h3 class="tt-pk-h"><span class="tt-pk-n">3</span>出力先</h3>
-           <input id="pkDir" type="text" autocomplete="off" spellcheck="false" aria-label="出力先のフォルダ" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
-           <p class="hint tt-pk-p">空欄なら動画の隣の「&lt;動画名&gt;_pack」。<b>出力先は覚えません</b>(文書を開くたびに空欄に戻ります。別の案件へ間違って出さないため)。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</p>
-         </div>
-       </div>
-     </aside>
+     </section>
+     <div class="tt-cut-status" id="cutStatus" aria-live="polite"></div>
+     <p class="hint tt-cut-keys"><span id="cutKeysText">すべてのキー: <kbd class="ui-kbd">?</kbd>(一覧・キーを変える)</span><span class="savest" id="cutSaveSt" hidden></span></p>   <!-- 長いキーの説明の行はやめて ? の一覧へ(S17)。カットの保存の状態はヘッダーに出す(#cutSaveSt は元の値だけ持つ。S4) -->
    </section>
   </div>
 </main>
@@ -1966,6 +1931,40 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <label class="lag" title="行の「開始 −/＋」「終了 −/＋」ボタンで動かす幅"><span>時刻の微調整の幅</span> <select id="adjStep" class="mini"><option value="0.05">0.05秒</option><option value="0.1" selected>0.1秒</option><option value="0.25">0.25秒</option><option value="0.5">0.5秒</option><option value="1">1秒</option></select></label>
   </div>
   <p class="hint" style="margin:8px 0 0">この設定は、このブラウザだけに保存されます。</p>
+  <section id="edSetPack">
+  <h3 style="margin-top:18px">パック</h3>
+  <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックの決まり。変えるとすぐ保存し、2 カット の「パックを作る」とホームのまとめて実行の両方に効きます。出力先・タイムコード・zip は、作るときの値なので「パックを作る」の「詳しく」にあります。</p>
+  <h4 class="tt-set-sub">置き先のプロジェクト(Resolve で作るもの)</h4>
+  <div class="tt-pk-row" id="pkFpsFixedRow"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。素材は 30fps にそろえてあるので、Resolve のプロジェクトも 30fps で作ります">フレームレート</abbr></span>
+    <span id="pkFpsFixed">素材とプロジェクトは 30fps</span></div>
+  <div class="tt-pk-row" id="pkFpsRow" hidden><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は元の動画の fps で数えます)">フレームレート</abbr></span>
+    <div class="ui-seg" id="pkFps" role="group" aria-label="フレームレート"><button type="button" data-v="30">30 fps</button><button type="button" data-v="60">60 fps</button></div></div>
+  <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
+    <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
+  <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦に切り取る作業(クロップ)は Resolve で行います。</p>
+  <p class="notice tt-pk-fpswarn" id="pkFpsWarn" hidden></p>
+  <div class="fld" id="pkFpsOtherFld" hidden><label for="pkFpsOther">その他のフレームレート(置き先。30fps でない古い素材のとき)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
+  <h4 class="tt-set-sub">パックに入れるもの</h4>
+  <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
+  <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve で区間の端を延ばせます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>
+  <div class="tt-pk-row"><label class="tt-pk-l" for="pkLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
+    <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14 LUFS(YouTube と同じくらい・おすすめ)</option><option value="-11">-11 LUFS(大きめ)</option><option value="-16">-16 LUFS(少し小さめ)</option><option value="-18">-18 LUFS(小さめ)</option><option value="0">音量を % で決める</option></select>
+    <span id="pkVolBox" hidden><input id="pkVol" type="number" min="1" max="200" step="5" style="width:4.5em" aria-label="音量(%。元の音量 = 100)" title="元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下">%</span></div>
+  <p class="hint tt-pk-p">LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。カットで残す部分だけを測って、パックに入れる動画の音声をその大きさにそろえます。単位が分かりにくいときは「音量を % で決める」(元の音量 = 100%。小さくするなら 100 より下)。映像はそのまま・元の動画は書き換えません。</p>
+  <label class="tt-pk-item"><input type="checkbox" id="pkBackup"><span><b>予備も入れる(<abbr class="ui-term" title="Edit Decision List。カットの位置を並べた、編集ソフト共通の古い形式のファイル">EDL</abbr>・予備_EDLで開く手順.txt・カット後の字幕 <abbr class="ui-term" title="字幕の標準的なファイル形式(時刻と文字の組)">SRT</abbr>)</b><span class="hint" id="pkBackupHint">スクリプトが使えないときに、EDL と字幕のファイルで開くための予備。ふだんは要りません</span></span></label>
+  <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
+  <h4 class="tt-set-sub">字幕</h4>
+  <div class="fld"><span class="l">Text+ 字幕の 1 段の文字数(改行)</span>
+    <div class="row"><label class="lag">縦 <input id="optWrapV" type="number" min="2" max="40" step="1" value="8" style="width:4.5em"></label>
+      <label class="lag">横 <input id="optWrapH" type="number" min="2" max="40" step="1" value="14" style="width:4.5em"></label></div>
+    <span class="hint">置き先が縦なら縦の値、横なら横の値で 2 段にします(文字起こしの行を分ける文字数とは別。そちらは「認識の設定」の「字幕の文字数」)。</span></div>
+  <label class="lag tt-pk-spk" title="話者の名前(「話者」の欄で付けた名前)がメンバーと1人に合えば、その話者の字幕だけ文字をその人の色にします。合わない話者は配信者の色(無ければ黒)のまま">
+    <input type="checkbox" class="ui-switch" id="pkSpk" checked>話者の名前がメンバーと合えば、その話者の字幕をその色に</label>
+  <div class="hint tt-pk-spklist" id="pkSpkList"></div>
+  <div class="fld" style="margin-top:10px"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" style="width:5em" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
+    <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
+    <span class="hint" id="pkPadAfterNote"></span></div>
+  </section>
   <h3 style="margin-top:18px">評価用のフォルダ</h3>
   <p class="hint" style="margin:0 0 6px">この中(下のフォルダも)の動画は、評価用(精度を測るためだけ。学習・辞書に使わない)として文字起こしし、評価用の印は外せません。
     「整理」は動画の名前を「フォルダ名_番号_済 / 未 / 未文字起こし」にそろえ、文書を新しい名前に付け替えます(ホームの起動時にも自動で行います)。済 = 文字のある行がすべて校正済み。

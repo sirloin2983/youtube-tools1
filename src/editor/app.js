@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.61.0';
+const APP_VERSION = '0.62.0';
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -37,9 +37,10 @@ const norm = s => String(s).normalize('NFKC').toLowerCase();
 const VIEW_KEY = 'tx.view.v1';
 const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
-/* 「編集」の3つのタブ(docs/design/edit-tool-design.md 3)。今のタブは URL の #tx / #cut / #pack に残す(再読み込み・窓で開いても同じタブ)。
+/* 「編集」の 2 つのタブ(docs/design/edit-tool-design.md 3)。今のタブは URL の #tx / #cut に残す(再読み込み・窓で開いても同じタブ)。
+   0.62.0: 「3 パック」のタブは無くした(パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。旧 #pack・tab=pack は setEditTab が cut に読み替えてパックの所へ)。
    カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
-const ED_TABS = ['tx', 'cut', 'pack'];
+const ED_TABS = ['tx', 'cut'];
 const EDT = { tab: 'tx', overlay: false };
 const wideTab = () => EDT.tab !== 'tx';
 const menuOpen = () => wideTab() ? EDT.overlay : V.menu;
@@ -804,7 +805,7 @@ const KM = UIKit.keymap.create({
   fixed: [
     { group: 'listen', why: '入力欄の出入りに使うキー', rows: [['Tab', '選んだ行の入力欄へ'], ['Esc / Tab', '入力欄から抜ける']] },
     { group: 'memo', why: 'Ctrl つきのキー', rows: [['Ctrl+Z', '元に戻す']] },
-    { group: 'screen', rows: [['Alt+1 / Alt+2 / Alt+3', 'タブ(文字起こし・カット・パック)を切り替える', 'Alt つきのキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
+    { group: 'screen', rows: [['Alt+1 / Alt+2', 'タブ(文字起こし・カット)を切り替える', 'Alt つきのキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
     { title: '話者', why: '数字は話者の番号', rows: [['1…9', 'この行の話者を n 番目に'], ['0', '話者なし']] },
     { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者'], ['Shift+右クリック', '行のメニュー(普通の右クリックはコピー・貼り付け)']] },
     { title: '2 カット のタブ', note: '(共通の再生キーに加えて)', why: '2 カット のタブの操作', rows: CUT_KEY_ROWS }
@@ -833,7 +834,7 @@ const menuHasKeys = t => !!((menuOpen() && isDrawer()) || (t && t.closest && t.c
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
 window.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || imeKey(e) || e.defaultPrevented || modalOpen()) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い。監査01)
-  const m = /^Digit([123])$/.exec(e.code); if (!m) return;
+  const m = /^Digit([12])$/.exec(e.code); if (!m) return;   // タブは 2 つ(0.62.0。Alt+3 は何もしない)
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
   e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1], { into: true });   // タブの中の最初の操作へ(S18)
 });
@@ -1229,6 +1230,9 @@ $('#docAutoGo').addEventListener('click', startDocAuto);
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている。段5)
   if ($('#docAuto').open && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });
+/* 配信者の欄(題名の行)で名前を直したら、パックの配信者(隠した欄 #pkWho。文書に覚えた名前をそのまま使う。0.62.0)も入れ直す(覚えるのは ui-kit の change のあと) */
+$('#docAutoWho').addEventListener('change', () => { setTimeout(() => { if (PACK) PACK.refreshWho(); }, 400);
+});
 $('#txRuns').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const row = b.closest('.tt-run');
@@ -1259,7 +1263,7 @@ $('#txList').addEventListener('click', e => {
   if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
   if (b.dataset.act === 'open') openDoc(id);
   else if (b.dataset.act === 'gotab'){   // 履歴の行の「パックを作る」「作り直す」: 開いてそのタブへ(段7 E-13)
-    const t = ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';
+    const t = b.dataset.tab === 'pack' || ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';   // 'pack' は setEditTab が 2 カット の末尾のパックへ読み替える(0.62.0)
     (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) setEditTab(t, { focus: true }); });
   }
   else if (b.dataset.act === 'hide' || b.dataset.act === 'unhide'){

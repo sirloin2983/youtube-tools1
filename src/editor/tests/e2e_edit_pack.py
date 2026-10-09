@@ -107,8 +107,8 @@ def _scene_frame_step(cx):
     wait_js(pg, "document.querySelector('#cutPlayer').currentTime > %s" % (t3 + 0.001), 3000)
     tc = pg.evaluate("document.querySelector('#cutPlayer').currentTime")
     check(abs(tc - (124 / FPS + 0.0005)) < 0.0003, "3-4: 2 カット で続けて . = 124 コマ目(同じ1コマ): %.5f" % tc)
-    pg.keyboard.press("Alt+3")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 5000)
+    pg.keyboard.press("Alt+2")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000)
 
 
 def _scene_settings_drawer(cx):
@@ -117,7 +117,7 @@ def _scene_settings_drawer(cx):
     # 段3: 詳しい設定(fps・大きさ・入れるもの・出力先)は「設定を変える」で開く右の欄
     check("30fps" in pg.inner_text("#pkSummaryText"), "前回の設定の要約が出る(既定は 30fps): " + pg.inner_text("#pkSummaryText"))
     pg.click("#pkSettingsBtn")
-    pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+    pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
     # 60fps の古い素材(30fps でない入れ直し前の文書)なら、今までどおり選択と 60↔30 の注意が出る(Q1。30fps の素材は下で選択を出さないことを確かめる)
     check(pg.is_visible("#pkFpsRow") and pg.is_hidden("#pkFpsFixedRow") and pg.evaluate("!document.querySelector('#pkFpsOtherFld').hidden"),"60fps の古い素材: フレームレートの選択(30/60・その他)が出る")
     check(pg.is_visible("#pkFpsWarn") and "60fps" in pg.inner_text("#pkFpsWarn"), "60fps の元の動画を 30fps のプロジェクトに入れるときの注意: " + pg.inner_text("#pkFpsWarn"))
@@ -126,18 +126,8 @@ def _scene_settings_drawer(cx):
     check(True, "置き先を 60fps にすると注意は消える")
     pg.click("#pkFps [data-v='30']")
     pg.click("#pkSize [data-v='1080x1920']")
-    # ---- 段6 6-2(B-1): 詳しい設定の「行の後の余白」→ 設定 rowEdge.padAfter に保存。手で直したカットには効かない(案内)。要約には既定と違うときだけ
-    pg.click("#pkMore summary")
+    # ---- 段6 6-2(B-1): ⚙ の「パック」の「行の後の余白」→ 設定 rowEdge.padAfter に保存。手で直したカットには効かない(案内)。要約には既定と違うときだけ
     check(pg.input_value("#pkPadAfter") == "0.2", "行の後の余白の既定は 0.2 秒: " + pg.input_value("#pkPadAfter"))
-    # ---- 段9-5: 開始タイムコードに ; を入れるとドロップフレームの注意が欄の下に出る(消せば消える)
-    for _id in ("pkSrcTc", "pkRecTc"):
-        check(pg.evaluate("document.querySelector('#%sHint').hidden" % _id), "9-5: %s の注意は最初は出ていない" % _id)
-        pg.fill("#" + _id, "01:00:00;00")
-        check(wait_js(pg, "!document.querySelector('#%sHint').hidden" % _id, 2000), "9-5: %s に ; を入れると注意が出る" % _id)
-        check("ノンドロップとして扱います" in pg.text_content("#" + _id + "Hint"), "9-5: 注意の文: " + pg.text_content("#" + _id + "Hint"))
-        pg.fill("#" + _id, "01:00:00:00")
-        check(wait_js(pg, "document.querySelector('#%sHint').hidden" % _id, 2000), "9-5: : に直すと注意は消える")
-        pg.fill("#" + _id, "")
     pg.fill("#pkPadAfter", "0.5")
     pg.press("#pkPadAfter", "Tab")
     deadline = time.time() + 10
@@ -162,24 +152,36 @@ def _scene_settings_drawer(cx):
     check((st.get("packLoudness"), st.get("packVolume")) == (0, 70), "編集の設定に残る: %s" % ((st.get("packLoudness"), st.get("packVolume")),))
     pg.select_option("#pkLoud", "-14")
     check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 -14 LUFS') >= 0", 5000), "LUFS に戻すと要約も戻る")
-    # 監査01(段1): 引き出しを開いたまま Alt+1 → タブは 3 パック のまま・引き出しも開いたまま(ダイアログと同じ扱い)
+    # 監査01(段1): 引き出しを開いたまま Alt+1 → タブは 2 カット のまま・引き出しも開いたまま(ダイアログと同じ扱い)
     pg.keyboard.press("Alt+1")
     pg.wait_for_timeout(150)
-    check(pg.get_attribute("[data-edtab=pack]", "aria-selected") == "true" and pg.is_visible("#pkSettingsDrawer"),
-          "パックの設定を開いたまま Alt+1 を押しても、タブは 3 パック のまま・引き出しも開いたまま")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
-    # 開いたまま # を変えて(戻る・# のリンクと同じ)タブを移ると、引き出しを閉じ、裏の inert を残さない
+    check(pg.get_attribute("[data-edtab=cut]", "aria-selected") == "true" and pg.is_visible("#uiSettingsDrawer"),
+          "パックの設定(⚙)を開いたまま Alt+1 を押しても、タブは 2 カット のまま・引き出しも開いたまま")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
+    # 0.62.0: パックの設定は ⚙ の設定の引き出し。開いたまま # を変えて(戻る・# のリンクと同じ)タブを移ると、以前のパックの引き出しと同じく閉じ、裏の inert を残さない
     pg.click("#pkSettingsBtn")
-    pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
-    check(pg.evaluate("!!document.querySelector('[inert]')"), "(前提)パックの設定は modal で裏が inert")
+    pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
+    check(pg.evaluate("!!document.querySelector('[inert]')"), "(前提)⚙ の設定は modal で裏が inert")
+    check(pg.evaluate("document.querySelector('#edSetPack').getBoundingClientRect().top < window.innerHeight"), "「設定を変える」で ⚙ の「パック」の節が見える所に出る")
     pg.evaluate("location.hash = '#tx'")
-    check(wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true' && document.querySelector('#pkSettingsDrawer').hidden && !document.querySelector('[inert]') && !document.querySelector('.ui-drawer-scrim')", 5000),
-          "開いたまま # で 1 文字起こし へ移ると、引き出しが閉じて inert・幕が残らない")
+    check(wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true' && document.querySelector('#uiSettingsDrawer').hidden && !document.querySelector('[inert]') && !document.querySelector('.ui-drawer-scrim')", 5000),
+          "開いたまま # で 1 文字起こし へ移ると、⚙ の引き出しが閉じて inert・幕が残らない")
     check(pg.evaluate("document.activeElement === document.querySelector('[data-edtab=tx]')"), "フォーカスは移った先のタブのボタン: %s" % pg.evaluate("document.activeElement && (document.activeElement.id || document.activeElement.outerHTML.slice(0, 80))"))
-    pg.click("[data-edtab=pack]")   # 裏が操作できる(クリックが通る)ことの確かめを兼ねる
-    check(wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 3000), "ヘッダーのタブのボタンが押せる(操作不能になっていない)")
+    pg.click("[data-edtab=cut]")   # 裏が操作できる(クリックが通る)ことの確かめを兼ねる
+    check(wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 3000), "ヘッダーのタブのボタンが押せる(操作不能になっていない)")
     check("縦 1080" in pg.inner_text("#pkSummaryText"), "設定を変えると要約も変わる: " + pg.inner_text("#pkSummaryText"))
+    # ---- 段9-5: 開始タイムコードに ; を入れるとドロップフレームの注意が欄の下に出る(消せば消える)。0.62.0: 作るときの値なのでカードの「詳しく」(⚙ ではない)
+    pg.evaluate("document.querySelector('#pkMore').open = true")
+    for _id in ("pkSrcTc", "pkRecTc"):
+        check(pg.evaluate("document.querySelector('#%sHint').hidden" % _id), "9-5: %s の注意は最初は出ていない" % _id)
+        pg.fill("#" + _id, "01:00:00;00")
+        check(wait_js(pg, "!document.querySelector('#%sHint').hidden" % _id, 2000), "9-5: %s に ; を入れると注意が出る" % _id)
+        check("ノンドロップとして扱います" in pg.text_content("#" + _id + "Hint"), "9-5: 注意の文: " + pg.text_content("#" + _id + "Hint"))
+        pg.fill("#" + _id, "01:00:00:00")
+        check(wait_js(pg, "document.querySelector('#%sHint').hidden" % _id, 2000), "9-5: : に直すと注意は消える")
+        pg.fill("#" + _id, "")
+    pg.evaluate("document.querySelector('#pkMore').open = false")
 
 
 def _scene_estimate(cx):
@@ -187,7 +189,7 @@ def _scene_estimate(cx):
     check, errors, pg = cx.check, cx.errors, cx.pg
     # ---- 段4 4-1(監査 07): 置き先(縦横 = 字幕の1段の文字数)を変えると、タブを移らずに見積もりを出し直す(字幕数が「…」のままにならない・注意が戻る)
     pg.click("#pkSettingsBtn")
-    pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+    pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
     pg.click("#pkSize [data-v='1920x1080']")
     check(wait_js(pg, "document.querySelector('#pkCaps').textContent === '3' && document.querySelector('#pkSummaryText').textContent.indexOf('横 1920') >= 0 && !document.querySelector('#pkWarn').hidden && !document.querySelector('#pkWarn').classList.contains('old') && document.querySelector('#pkPvState').hidden", 15000),
           "4-1: 縦 → 横 で字幕数が数字に戻り、注意も新しい見積もりで出る: " + pg.inner_text("#pkCaps") + " / " + pg.inner_text("#pkWarn"))
@@ -198,8 +200,8 @@ def _scene_estimate(cx):
           "4-1: 見積もりの失敗が見える(理由・「もう一度」・前の設定での注意は薄く残す): " + pg.inner_text("#pkPvState"))
     check(pg.inner_text("#pkCaps") == "…", "失敗している間は字幕数は「…」: " + pg.inner_text("#pkCaps"))
     pg.unroute("**/api/edit/preview")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     check(pg.inner_text("#pkPvState").find("見積もりを出せませんでした") >= 0, "(前提)引き出しを閉じても失敗のまま(同じ設定では自動で出し直さない)")
     pg.click("#pkPvRetry")
     check(wait_js(pg, "document.querySelector('#pkPvState').hidden && document.querySelector('#pkCaps').textContent === '3' && !document.querySelector('#pkWarn').classList.contains('old')", 15000), "4-1: 「もう一度」で出し直して最新になる")
@@ -210,16 +212,17 @@ def _scene_streamer_build(cx):
     """配信者の名前とメンバーカラー・話者の色・パックを作る(最小限)・映像の上の字幕の色・作った記録"""
     check, clips, pg, srv, tid, v1 = cx.check, cx.clips, cx.pg, cx.srv, cx.tid, cx.v1
     # 配信者の名前(字幕の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4): 候補・色の見本・字幕の見本の色。パックの Lua の見た目もその色(pkWho は主画面にいつも見える)
-    pg.fill("#pkWho", "ぺこら")
+    # 0.62.0: 配信者の欄は見せない(文書に覚えている名前をそのまま使う)。題名の行の「まとめて実行 ▾」の配信者の欄で直した形 = 隠した欄に名前を入れて change
+    pg.evaluate("const i = document.querySelector('#pkWho'); i.value = 'ぺこら'; i.dispatchEvent(new Event('change'))")
     wait_js(pg, "document.querySelector('#pkWho').dataset.color === '#65BAEA'", 10000)
-    check("兎田ぺこら" in pg.inner_text(".tt-pk-who .ui-streamer-hint") and "兎田ぺこらの色の文字" in pg.inner_text("#pkLookName") and
+    check("兎田ぺこら" in pg.text_content("#pkWhoNote") and "兎田ぺこらの色の文字" in pg.inner_text("#pkLookName") and
           pg.evaluate("getComputedStyle(document.querySelectorAll('#pkSamples .tt-pk-cap')[1]).color") == "rgb(101, 186, 234)",   # 2行目(話者なし)の見本。1行目は話者「みこ」の色(段2)
-          "配信者の名前 → メンバーカラーの見本・字幕の見本の色: %s" % pg.inner_text(".tt-pk-who .ui-streamer-hint"))
+          "配信者の名前 → メンバーカラーの見本・字幕の見本の色(配信者の 1 行): %s" % pg.text_content("#pkWhoNote"))
     check(pg.evaluate("document.querySelectorAll('#ui-streamer-list option').length") > 50, "名前の候補(ホロカラーの一覧)")
     check(wait_js(pg, "!document.querySelector('#pkSummarySw').hidden && getComputedStyle(document.querySelector('#pkSummarySw')).backgroundColor === 'rgb(101, 186, 234)'", 5000),
           "「前回の設定」の要約にも配信者の色の丸が出る(pkWho の色と同じ)")
     # A-2: 話者の名前がメンバーと合えば、その話者の字幕をその色に(既定オン)。どの話者が何色かを見せる
-    check(pg.is_checked("#pkSpk"), "「話者の名前がメンバーと合えば…」は既定でオン")
+    check(pg.evaluate("document.querySelector('#pkSpk').checked"), "「話者の名前がメンバーと合えば…」は既定でオン(⚙ の「パック」の節)")
     wait_js(pg, "document.querySelector('#pkSpkList').textContent.indexOf('さくらみこの色') >= 0", 10000)
     check(True, "話者「みこ」→ さくらみこの色、と見せる: " + pg.inner_text("#pkSpkList"))
     phone = "getComputedStyle(document.querySelector('#pkPhoneCap')).color"
@@ -227,7 +230,7 @@ def _scene_streamer_build(cx):
     check(wait_js(pg, "getComputedStyle(document.querySelectorAll('#pkSamples .tt-pk-cap')[0]).color === 'rgb(254, 75, 116)' && document.querySelector('#pkCaps').textContent === '3'", 10000),
           "4-5(監査 12): 見積もりができたあとの見本の1つ目(話者「みこ」の字幕。sampleSpeakers = pack.py の cue_speakers)も さくらみこの色")
     # 段3: 設定の引き出しを開かずに(主画面だけで)「パックを作る」を1クリックで作れる(ワンクリック)
-    check(pg.evaluate("document.querySelector('#pkSettingsDrawer').hidden") is True, "「作る」を押す前に、設定の引き出しは閉じている")
+    check(pg.evaluate("document.querySelector('#uiSettingsDrawer').hidden") is True, "「作る」を押す前に、設定の引き出しは閉じている")
     pg.click("#pkBuild")
     wait_js(pg, "(!document.querySelector('#pkLast').hidden || !document.querySelector('#pkErr').hidden) && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
     check(pg.is_hidden("#pkErr"), "パックができる(エラーが出ない): " + pg.inner_text("#pkErr"))
@@ -268,9 +271,13 @@ def _scene_streamer_build(cx):
     check(pg.evaluate(line) == "#fe4b74", "行の左端の線も さくらみこの色(話者の色は1つの関数。段2): %s" % pg.evaluate(line))
     # スイッチ(編集の設定 speakerColors。以前はこのブラウザの tx.pk.speakerColors)を切ると、全部の場所から消え、設定に残る
     pg.keyboard.press("Escape")          # 行の文字の入力中の Alt+数字 は話者なので、タブは押して戻る
-    pg.click("[data-edtab=pack]")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+    pg.click("[data-edtab=cut]")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
+    pg.click("#pkSettingsBtn")   # 0.62.0: スイッチは ⚙ の「パック」の節
+    pg.wait_for_selector("#pkSpk", state="visible")
     pg.uncheck("#pkSpk")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     check(wait_js(pg, "%s !== 'rgb(254, 75, 116)'" % phone, 5000), "切ると字幕の見本もメンバーの色ではなくなる")
     deadline = time.time() + 10
     while time.time() < deadline and srv.get("/api/settings").get("speakerColors") is not False:
@@ -282,14 +289,18 @@ def _scene_streamer_build(cx):
     check(wait_js(pg, "%s === 'rgb(101, 186, 234)'" % cap_color, 5000), "切っていれば、映像の上の字幕でも出さない(配信者の色)")
     check(pg.evaluate(line) != "#fe4b74", "行の左端の線も自動の色に戻る: %s" % pg.evaluate(line))
     pg.keyboard.press("Escape")
-    pg.click("[data-edtab=pack]")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+    pg.click("[data-edtab=cut]")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
+    pg.click("#pkSettingsBtn")
+    pg.wait_for_selector("#pkSpk", state="visible")
     pg.check("#pkSpk")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     pg.click("[data-edtab=tx]")
     wait_js(pg, "document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'")
     pg.keyboard.press("Escape")
-    pg.click("[data-edtab=pack]")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'")
+    pg.click("[data-edtab=cut]")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'")
     e = srv.get("/api/edit?id=" + tid)
     check(e["edit"]["packRev"] == e["rev"] == 1 and os.path.normcase(e["edit"]["pack"]["dir"]) == os.path.normcase(packdir) and not e["packStale"],
           "作った記録(packRev = 作ったときのカットの rev・出力フォルダ)")
@@ -325,7 +336,7 @@ def _scene_deliver_diff(cx):
     r = srv.call("POST", "/api/ytt/deliver", {"op": "start", "dir": srv.media, "title": "x"})
     check(r.get("error") == "bad_request", "パックではないフォルダは断る: %s" % r)
     pg.click("#pkSettingsBtn")
-    pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+    pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
     pg.click("#pkFps [data-v='60']")
     check(wait_js(pg, "document.querySelector('#pkLastPill').textContent === '設定が違う' && document.querySelector('#pkLastDiff').textContent.indexOf('フレームレート: 30fps → 60fps') >= 0 && document.querySelector('#pkLastDiff').textContent.indexOf('作ったときのまま') >= 0", 10000),
           "4-3: 60fps に変えると「設定が違う」・違いの中身・ファイルは作ったときのまま: " + pg.inner_text("#pkLastDiff"))
@@ -337,8 +348,8 @@ def _scene_deliver_diff(cx):
     pg.uncheck("#pkRender")
     pg.click("#pkFps [data-v='30']")
     check(wait_js(pg, "document.querySelector('#pkLastPill').textContent === '前回のパック' && document.querySelector('#pkLastDiff').hidden", 10000), "設定を戻すと違いが消える")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
 
 
 def _scene_sub_nosub_read(cx):
@@ -376,8 +387,8 @@ def _scene_backup_cancel_summary(cx):
     pg.click("#pkSettingsBtn")
     pg.wait_for_selector("#pkBackup", state="visible")
     pg.check("#pkBackup")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     pg.click("#pkBuild")
     check(wait_js(pg, "document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled && document.querySelector('#pkLastPill').textContent === '前回のパック' && !document.querySelector('dialog.ui-dialog[open]')", 120000),
           "前回と同じ場所への作り直しは、上書きの確認を出さずに作る(段7 E-15)")
@@ -397,8 +408,8 @@ def _scene_backup_cancel_summary(cx):
     pg.uncheck("#pkBackup")
     # 作っている途中の「中止」(粗編集の動画も作る。間に合わず終わってしまったときは、そのことを出す)
     pg.check("#pkRender")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     pg.click("#pkBuild")
     wait_js(pg, "document.querySelector('#pkBuild').disabled", 5000)   # 作り始めた(確認のダイアログが無くなったので、押した直後はまだ前の状態のことがある)
     wait_js(pg, "!document.querySelector('#pkJob').hidden || !document.querySelector('#pkBuild').disabled", 20000)
@@ -415,15 +426,16 @@ def _scene_backup_cancel_summary(cx):
     pg.click("#pkSettingsBtn")
     pg.wait_for_selector("#pkRender", state="visible")
     pg.uncheck("#pkRender")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     # ---- 段4 4-2(監査 09): 「前回の設定」の要約は覚えている物だけ(再読み込みの前後で同じ)。粗編集・予備は覚える、出力先は覚えない(作る場所の行で毎回どこかが分かる)
     pg.click("#pkSettingsBtn")
     pg.wait_for_selector("#pkRender", state="visible")
     pg.check("#pkRender")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
+    pg.evaluate("document.querySelector('#pkMore').open = true")   # 0.62.0: 出力先は「パックを作る」の「詳しく」
     pg.fill("#pkDir", "C:\\tmp\\別の場所")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
     check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('粗編集の動画つき') >= 0 && document.querySelector('#pkSummaryText').textContent.indexOf('出力先') < 0 && document.querySelector('#pkPlace').textContent.indexOf('別の場所') >= 0", 5000),
           "要約に粗編集の動画つき・出力先は要約に出さず「作る場所」の行に: " + pg.inner_text("#pkSummaryText") + " / " + pg.inner_text("#pkPlace"))
     deadline = time.time() + 10
@@ -433,15 +445,15 @@ def _scene_backup_cancel_summary(cx):
     pg.reload()
     wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
     wait_url_doc(pg)
-    pg.keyboard.press("Alt+3")
-    wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 5000)
+    pg.keyboard.press("Alt+2")
+    wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 5000)
     check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('粗編集の動画つき') >= 0 && document.querySelector('#pkRender').checked && document.querySelector('#pkDir').value === '' && document.querySelector('#pkPlace').textContent.indexOf('_pack') >= 0 && document.querySelector('#pkPlace').textContent.indexOf('別の場所') < 0", 15000),
           "再読み込みしても要約は同じ(粗編集つき・チェックも戻る)。出力先は空欄に戻り、作る場所は動画の隣: " + pg.inner_text("#pkSummaryText") + " / " + pg.inner_text("#pkPlace"))
     pg.click("#pkSettingsBtn")
     pg.wait_for_selector("#pkRender", state="visible")
     pg.uncheck("#pkRender")
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
 
 
 def _scene_no_caption_30fps(cx):
@@ -453,7 +465,7 @@ def _scene_no_caption_30fps(cx):
     pg.fill("#srcPath", v2)
     pg.click("#btnOpenVideo")
     wait_js(pg, "document.querySelector('#docTitle').value === '字幕なし'", 15000)
-    pg.keyboard.press("Alt+3")
+    pg.keyboard.press("Alt+2")
     wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && !document.querySelector('#pkBuild').disabled", 30000)
     check("Text+ は作りません" in pg.inner_text("#pkBuildHint") and pg.inner_text("#pkCaps") == "0", "字幕が無いときは Text+ を作らないと知らせる: " + pg.inner_text("#pkBuildHint"))
     pg.click("#pkBuild")
@@ -469,15 +481,15 @@ def _scene_no_caption_30fps(cx):
     pg.reload()
     wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
     wait_url_doc(pg)
-    pg.keyboard.press("Alt+3")
+    pg.keyboard.press("Alt+2")
     wait_js(pg, "document.querySelector('#pkCount').textContent === '1' && !document.querySelector('#pkBuild').disabled", 30000)
     check("30fps" in pg.inner_text("#pkSummaryText") and "60fps" not in pg.inner_text("#pkSummaryText"), "30fps の素材: 設定が 60 でも要約は 30fps: " + pg.inner_text("#pkSummaryText"))
     pg.click("#pkSettingsBtn")
-    pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+    pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
     check(pg.is_hidden("#pkFpsRow") and pg.evaluate("document.querySelector('#pkFpsOtherFld').hidden") and pg.is_visible("#pkFpsFixedRow"), "30fps の素材: フレームレートの選択は出さない")
     check(pg.inner_text("#pkFpsFixed") == "素材とプロジェクトは 30fps" and pg.is_hidden("#pkFpsWarn"), "30fps の素材: 1行の説明だけ・60↔30 の注意は出ない: " + pg.inner_text("#pkFpsFixed"))
-    pg.click("#pkSettingsClose")
-    wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+    wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
     check(srv.get("/api/settings").get("packFps") == "60", "保存してある設定 packFps は消さない")
     srv.call("POST", "/api/settings/patch", {"values": {"packFps": "30"}})
 

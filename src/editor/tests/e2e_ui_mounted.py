@@ -290,7 +290,7 @@ def main():
             check(True, "「前回の続き」で前の文書とタブが開く")
 
             # ==================== 3c) パック(「編集」E4: 3 パック のタブ。区間は 2 カット のタブのとおり = cut2resolve の spec.keeps) ====================
-            pg.click("[data-edtab=pack]")
+            pg.click("[data-edtab=cut]")
             pk_is = lambda cnt, ln, caps: "document.querySelector('#pkCount').textContent === '%s' && document.querySelector('#pkLen').textContent === '%s' && document.querySelector('#pkCaps').textContent === '%s'" % (cnt, ln, caps)   # noqa: E731
             wait_js(pg, pk_is(1, "0:20.00", 5), 30000)
             try:
@@ -308,19 +308,19 @@ def main():
                   "開いただけでは、動画の隣に .transcript.json を書き出さない・カットも保存しない(見積もりは一時フォルダで)")
             pg.click("[data-edtab=tx]")
             pg.locator("#segs .seg").nth(1).locator("[data-act=cut]").click()   # 2行目(4〜8秒)を削る
-            pg.click("[data-edtab=pack]")
+            pg.click("[data-edtab=cut]")
             wait_js(pg, pk_is(2, "0:16.00", 4), 30000)
             check(True, "行を削ると、これから作るパックも変わる(2区間・0:16.00・字幕 4)")
             check(pg.locator("#pkMap i").count() == 2, "区間の略図が出る")
             # パックを作る(置き先の fps・画面の大きさ)
             pg.click("#pkSettingsBtn")   # 段3(2026-09-27): 詳しい設定は「設定を変える」の右の欄
-            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
             pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1920x1080']")
             wait_js(pg, "document.querySelector('#pkSize [data-v=\"1920x1080\"]').getAttribute('aria-pressed') === 'true'", 3000)
             check(True, "画面の大きさを選べる(横)")
-            pg.click("#pkSettingsClose")
-            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
+            pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")
+            wait_js(pg, "document.querySelector('#uiSettingsDrawer').hidden === true")
             pg.click("#pkBuild")
             wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkBuild').textContent === '同じ内容で作り直す' && document.querySelector('#pkJob').hidden", 120000)   # 作り直しが要らないとき(S2)
             packdir = os.path.splitext(media)[0] + "_pack"
@@ -340,7 +340,7 @@ def main():
             # カットを変えると「作り直しが要る」
             pg.click("[data-edtab=tx]")
             pg.locator("#segs .seg").nth(3).locator("[data-act=cut]").click()   # 4行目(12〜16秒)も削る
-            pg.click("[data-edtab=pack]")
+            pg.click("[data-edtab=cut]")
             wait_js(pg, pk_is(3, "0:12.00", 3) + " && document.querySelector('#pkLastPill').textContent === '作り直しが要る'", 30000)
             check("作り直し" in pg.inner_text("#pkLastWhen") and "カットが変わった" in pg.inner_text("#pkLastWhen") and "字幕が変わった" not in pg.inner_text("#pkLastWhen"),
                   "カットが変わったら「作り直しが要る」と理由(カットが変わった)を知らせる(段7 E-20): " + pg.inner_text("#pkLastWhen"))
@@ -354,11 +354,9 @@ def main():
             # ほかのパックがある別の場所へ作るときだけ、上書きの確認(やめる → 何もしない / 上書き → 作る)
             packdir2 = packdir + "_別の場所"
             shutil.copytree(packdir, packdir2)
-            pg.click("#pkSettingsBtn")
-            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
+            pg.evaluate("document.querySelector('#pkMore').open = true")   # 0.62.0: 出力先は「パックを作る」の「詳しく」
             pg.fill("#pkDir", packdir2)
-            pg.click("#pkSettingsClose")
-            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true && document.querySelector('#pkBuild').textContent === 'パックを作る'")
+            wait_js(pg, "document.querySelector('#pkBuild').textContent === 'パックを作る'")
             pg.click("#pkBuild")
             wait_js(pg, "!!document.querySelector('dialog.ui-dialog[open]')", 20000)   # M3: ui-kit の 3 択 UIKit.dialog.choose(以前の #dlgOverwrite)
             ow = pg.inner_text("dialog.ui-dialog[open] .ui-dlg-body")
@@ -390,13 +388,11 @@ def main():
             wait_js(pg, "!!document.querySelector('#txList .txi.cur button.tt-txi-next[data-act=gotab]')", 10000)
             check(pg.inner_text("#txList .txi.cur button.tt-txi-next") == "作り直す", "履歴の行の「作り直す」はボタン(段7 E-13)")
             pg.click("#txList .txi.cur button.tt-txi-next")
-            wait_js(pg, "document.querySelector('[data-edtab=pack]').getAttribute('aria-selected') === 'true'", 10000)
-            check("字幕が変わった" in pg.inner_text("#pkLastWhen"), "押すと 3 パック のタブへ・作り直しの理由は「字幕が変わった」(段7 E-20): " + pg.inner_text("#pkLastWhen"))
+            wait_js(pg, "document.querySelector('[data-edtab=cut]').getAttribute('aria-selected') === 'true'", 10000)
+            check("字幕が変わった" in pg.inner_text("#pkLastWhen"), "押すと 2 カット のパックへ・作り直しの理由は「字幕が変わった」(段7 E-20): " + pg.inner_text("#pkLastWhen"))
 
             # ==================== 3d) zip でダウンロード(詳しい設定。中身は同じ cut2resolve の Text+ パック・同じ区間) ====================
-            pg.click("#pkSettingsBtn")   # 段3: zip は「設定を変える」の右の欄の中
-            pg.wait_for_selector("#pkSettingsDrawer:not([hidden])", state="visible")
-            pg.evaluate("document.querySelector('#pkMore').open = true")
+            pg.evaluate("document.querySelector('#pkMore').open = true")   # 0.62.0: zip は「パックを作る」の「詳しく」の中
             with pg.expect_download(timeout=60000) as dl_info:
                 pg.click("#pkZip")
             zpath = os.path.join(tmp, "dl-resolve.zip")
@@ -415,8 +411,6 @@ def main():
                   "zip にも選んだ fps・大きさと、パックと同じ区間(カットのとおり)が入る: %s" % {k: ipz.get(k) for k in ("target",)})
             wait_js(pg, "[...document.querySelectorAll('.toast, [role=status]')].some(e => /パック\\(zip\\)を作成しました/.test(e.textContent))", 10000)
             check(True, "作成できたことを画面に知らせる")
-            pg.click("#pkSettingsClose")   # 右の欄(modal)を閉じてから、ほかのタブへ
-            wait_js(pg, "document.querySelector('#pkSettingsDrawer').hidden === true")
 
             # ==================== 4) 認識ワーカーの異常終了からの立ち直り ====================
             pids_before = find_worker_pids(tmp)
