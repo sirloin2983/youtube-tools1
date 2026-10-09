@@ -17,7 +17,6 @@ from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E40
 import ed_drill  # noqa: E402,F401  (評価ドリルの要約 drill_doc_summary を、文書の要約と一緒に作る)
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
-import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402   (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
