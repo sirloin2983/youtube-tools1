@@ -3258,3 +3258,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 文書: AGENTS.md(フォルダの並び・ytt と層の行)・src/editor/AGENTS.md(tx_engines・roster の場所・構成のジョブの表と転送と疑似)・plan/role-restructure.md(状態の行・RS2 の手順と決定)・plan/data.js(RS2 doing)
 - 次: RS2-4(postproc。下ごしらえを別の作業フォルダで実施中)〜RS2-7 → 相談 → RS2-8。段の組み替え(prompt_terms → roster・finish_range_lines は RS2-7・whole/resume は recognize)は下調べ(Sonnet)の提案を採った
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Sonnet まとめ役。セッション「RS1」の続き)— 役割で組み直す RS2-4a・4b + 今日の報告と資料の更新
+- **RS2-4a**(b7fb082): `prompt_terms` → `src/pipeline/transcribe/roster.py`、`engine_of`・`engine_home`・`ENGINE_DIR` → `tx_engines.py`(engine_home の作業データは呼ぶたびに txenv から)。ed_jobs は `_roster.prompt_terms`・`tx_engines.…` で読む。serve の `_ED_MODULES`・ed_jobs の `_MOVED` に roster・tx_engines を足した。roster の `_SMALL_VOWELS` → `_SMALL_VOWEL_MAP` に改名(ed_learn の同名の表と重なるため)
+- **RS2-4b**(3e1745d): 行の後処理と要確認の印を ed_jobs → 新しい `src/pipeline/transcribe/postproc.py`(make_flags 群・split_segment/expand_segments・clip_rows/merge_repeats/trim_ends/join_rows・machine_conf/post_record・row_words ほか。中身は同じ)。postproc は標準ライブラリと兄弟(txbase・tx_engines・roster・txenv)だけを読む。移した名前は ed_jobs に持たない(転送で S.END_TRIM・patch.object は postproc に届く)。`ed_learn._cc` は `txbase.char_class` へ。subtitle_settings 群と finish_range_lines は ed_jobs に残した(設定・ed_fill を読む → RS2-7)。テスト `pipeline/transcribe/tests/test_postproc.py`
+- 向きの違反は **66 のまま**(`test_layering --list` で確認。4a・4b は ① の内側の整理で、違反を減らすのは RS2-5 以降)
+- 文書: AGENTS.md(層の行に postproc とテスト)・src/editor/AGENTS.md(engine_home・expand_segments と後処理・prompt_terms の新しい場所)・plan/role-restructure.md の進み・plan/data.js(RS2 の説明)。コミット済みの 4a・4b のテスト結果は各コミットのとおりで、このセッションでは流し直していない
+- 次: RS2-5(records)→ RS2-6(worker_client)→ RS2-7(recognize)→ 相談 → RS2-8(human/proof)。ユーザー側は RS1 の本物の 1 本の確認待ち(変わらず)
+- 未コミット: なし(この記録・AGENTS.md・src/editor/AGENTS.md・plan/role-restructure.md・plan/data.js と一緒にコミット)

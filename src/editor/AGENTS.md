@@ -51,7 +51,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   画面(v0.37.0): 処理方式「GPU(AMD など・whisper.cpp)」= 要求の `device: "vulkan"` → `req_engine` が whisper.cpp(spec の device は auto)。whisper.cpp で使えないモデルは `bad_model` で使えるモデルを案内。`/api/tools` の `wcpp`(`engines_info`)
   モデルは `WCPP_MODELS`(large-v3・large-v3-turbo)を `fetch_file`(https・大きさ・SHA-256。合わなければ消す)で `models/whispercpp/`
   (0.64.0 までは声の検出のモデル `WCPP_VAD` も取得した。定数は home/live_tx_worker が名前を使うので残す)。
-  サーバー: 要求の `engine`(`req_engine`)・`check_engine`・`engine_home()`(精度を測る道具は `TRANSCRIBE_ENGINE_DIR` で本物の作業データ)。テストは `tests/test_whispercpp.py`(偽の whisper-cli `tests/fake_whisper_cli.py`)と test_worker の `test_whispercpp_through_worker`(worker-fake のワーカーは偽の whisper-cli)
+  サーバー: 要求の `engine`(`req_engine`)・`check_engine`・`engine_home()`(RS2-4 から `engine_of`・`engine_home` は `pipeline/transcribe/tx_engines.py`)(精度を測る道具は `TRANSCRIBE_ENGINE_DIR` で本物の作業データ)。テストは `tests/test_whispercpp.py`(偽の whisper-cli `tests/fake_whisper_cli.py`)と test_worker の `test_whispercpp_through_worker`(worker-fake のワーカーは偽の whisper-cli)
 - **Qwen3-ASR(段2-3。v0.38.0)**: 共通の元 `_Qwen3Chunked`(時刻を出さないモデルなので、音の大きさ(0.05 秒ごとの RMS)で `q3_chunks` = 12〜28 秒の区切りの、ならした音のいちばん小さい所で切る →
   区切りごとに `_decode` → `q3_rows`(。？！で分け・長い文は「、」でも・時刻は区切りの中の声のあるコマ(`q3_floor` より大きい)に字数で割り振る目安)。無音の区切り(`Q3_SILENT`)は送らない。
   言語は区切りごとに指定する(`Q3_LANG`。自動の判定では日本語の区切りが中国語になり繰り返しが止まらなかった)・出力の上限は区切りの秒 × `Q3_TOKENS_PER_SEC`・繰り返しは `q3_squash` で 4 回まで・`<|` から先は捨てる。
@@ -67,7 +67,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 - `tx_engines.WhisperCpp.args` は既定で `-nfa`(`flash_attn()`。環境変数 `TRANSCRIBE_WCPP_FA=1` で戻す)。v1.9.4 の既定のフラッシュアテンションでは RX 7800 XT の Vulkan で行の時刻が整数秒に丸まり(`[_TT_250]` = 5.00 …)、
   繰り返しの行・音声の長さを越える行が出た。測った数字(評価用の配信 5 本 + ショート 2 本・40 秒前後): 整数秒の境目 29.2% → 11.7%・ショート 2 本の CER 9.3% → 4.9%・
   40 秒の f5d60a04a467 は 53 行(長さの外 21 行)→ 22 行。速さは 1 本 5.4 秒 → 6.6 秒。DTW(`--dtw large.v3`。`-nfa` が要る)の言葉の時刻は境目が良くならなかった(使わない)・`-sow`・`-sns`・`-et` は効かなかった
-- `ed_jobs.expand_segments(gen, spec, dur=None, join=True)`: 分けたあとに `clip_rows`(dur より後ろの行を捨て、終わりを切る。単語は捨てずに時刻を収める)→ `merge_repeats`(同じ 1 文字だけの行が `REP_ROWS` 行以上・すき間 `REP_ROW_GAP` 以下で続いたら 1 行に・
+- `ed_jobs.expand_segments(gen, spec, dur=None, join=True)`(2026-10-10 の RS2-4 から本体は `src/pipeline/transcribe/postproc.py`。行の後処理の `clip_rows`・`merge_repeats`・`trim_ends`・`join_rows`・`END_TRIM`・`JOIN_GAP`・`make_flags`・`machine_conf`・`post_record` も同じ。ed_jobs.名前・S.名前 は転送で読める): 分けたあとに `clip_rows`(dur より後ろの行を捨て、終わりを切る。単語は捨てずに時刻を収める)→ `merge_repeats`(同じ 1 文字だけの行が `REP_ROWS` 行以上・すき間 `REP_ROW_GAP` 以下で続いたら 1 行に・
   同じ文字の続きは `REP_CHAR_KEEP` 文字まで。印は行の `_rep` → `make_flags` の「繰り返しの可能性」)→ whisper.cpp なら `trim_ends`(`END_TRIM` > 0 のときだけ。既定 0)→ `join_rows`(下の v0.57.1)。
 - 0.51.0〜0.64.0 は whisper.cpp の行の終わりを音の谷へ寄せる `pull_ends`(`WavLevels`・`row_levels`・`PULL_*`。引数 levels)があった。0.53.1 から既定オフ(`TRANSCRIBE_PULL_ENDS=1` のときだけ。
   早めすぎて言葉の終わりが切れた)で、0.65.0 で部品ごと消した(履歴 c2dde44 以前)。`trim_ends` の定数は `TRIM_GAP`・`TRIM_MIN`(旧 `PULL_GAP`・`PULL_MIN`。値は同じ 0.3 秒)
@@ -103,7 +103,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 - 配信ごとの文脈 `stream_context(doc, enabled)`: チャンネル名(スタジオの data.json の videos。`_studio_load` = 履歴の一覧と同じキャッシュ)→ コラボ相手(data.json の groups。`studio_stream`)→
   話者の名前(`roster.match_name`。ちょうど同じときだけ)→ 題名・動画のファイル名・**動画の入ったフォルダの名前**(`roster.find_in_text`。正式な名前か、common でない 3 文字以上の呼び名)。
   6 人まで・1人 = 名前 + 呼び名 3 つ。**題名の文字列そのものはヒントに渡さない**。使った人は `params.context`・`recognition.runs[].settings.context`
-- ヒントの語は `prompt_terms(spec)` の1か所(用語集 → 文脈。`roster.fit` で先頭 150 字・語の途中で切らない)。`whisper_kwargs`・`make_flags`(英字の除外・漏れ出し)が使う。
+- ヒントの語は `prompt_terms(spec)` の1か所(RS2-4 から `pipeline/transcribe/roster.py`)(用語集 → 文脈。`roster.fit` で先頭 150 字・語の途中で切らない)。`whisper_kwargs`・`make_flags`(英字の除外・漏れ出し)が使う。
   設定 `autoContext`(既定オフ)。**評価用の文書・評価用として始めた文字起こし(`evalSet: true`)には用語集・文脈・置換辞書・学習した置換を渡さない**
 - S-3 の印(`make_flags`): `stock_phrase`(以前からの HALLUC は文の一部でも・`HALLUC_LINE` は行のほとんどがその文のときだけ・♪/(音楽) だけの行)・`repeats_in_line`(2〜10 文字が 5 回以上。1 文字の繰り返しは除く)・
   近くの行の同じ文(前の5行に2回)・`LEAK_FLAG`(3 秒以内でヒントの語だけ、または「用語:」を含む)。声の検出のやり直し(`transcribe_vad_fallback`)は決まり文句・ヒントの語だけの結果を「文字 0」とみなし、
