@@ -13,7 +13,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 # ---------- 設定の比較(A/B): 校正済みの行の音声を複数の設定で認識し直し、正解との差を比べる(文字起こしは書き換えない) ----------
 MAX_AB_LINES = 300
@@ -30,7 +30,7 @@ def ab_label(v):
 def validate_abtest(req):
     tid = str(req.get("tid") or "")
     doc = ed_store.read_transcript(tid)
-    ed_state.check_source(doc.get("sourcePath"))
+    _tools.check_source(doc.get("sourcePath"))
     ids = [g["id"] for g in doc.get("segments") or [] if isinstance(g, dict) and g.get("proofed") and "unclear" not in (g.get("tags") or []) and str(g.get("text", "")).strip()][:MAX_AB_LINES]
     if not ids:
         raise ed_state.ApiError("empty", "校正済みの行がありません(正しく直した行に「校正済み」を付けてから比べてください)", 400)
@@ -72,7 +72,7 @@ def run_abtest(job):
     with ed_jobs.job_errors(job, wav):
         os.makedirs(_workdata.TMP_DIR, exist_ok=True)
         doc = ed_store.read_transcript(spec["tid"])
-        src = ed_state.check_source(doc.get("sourcePath"))
+        src = _tools.check_source(doc.get("sourcePath"))
         start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
         targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])
@@ -318,7 +318,7 @@ def scan_folder(path, recursive=False):
             # 途中のファイルの 作業用\(編集用素材 _edit.mp4 など)は拾わない(2026-09-27)
             dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d != _yschemas.WORK_DIR) if recursive and depth < 3 else []
             for name in sorted(files):
-                if name.startswith(".") or os.path.splitext(name)[1].lower() not in ed_state.MEDIA_TYPES:
+                if name.startswith(".") or os.path.splitext(name)[1].lower() not in _tools.MEDIA_TYPES:
                     continue
                 if len(found) >= MAX_SCAN_FILES:
                     trunc = True
@@ -409,11 +409,11 @@ def clip_info(path):
         clip, warn = pm.load_clip_file(p)
         out.update({"clip": clip, "clipPath": p if clip else None, "warning": warn})
         if clip:
-            out["mediaPath"] = pm.resolve_clip_media(p, clip, ed_state.MEDIA_TYPES)
+            out["mediaPath"] = pm.resolve_clip_media(p, clip, _tools.MEDIA_TYPES)
             if not out["mediaPath"]:
                 out["warning"] = ".clip.json が指す動画が見つかりません(同じフォルダにも見当たりません)"
         return out
-    if os.path.splitext(p)[1].lower() not in ed_state.MEDIA_TYPES:
+    if os.path.splitext(p)[1].lower() not in _tools.MEDIA_TYPES:
         raise ed_state.ApiError("bad_ext", "動画・音声ファイルか .clip.json のパスを指定してください", 400)
     if not os.path.isfile(p):
         out["warning"] = "動画が見つかりません(パスを確認してください)"

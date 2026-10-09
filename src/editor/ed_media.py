@@ -17,7 +17,7 @@ import time
 from ytt import jobs as _heavy  # noqa: E402
 import ed_misc  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 # ---------- 音の波形(カットのタイムライン用。docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
@@ -54,10 +54,10 @@ def _samples(raw):
 def compute_peaks(path, task=None):
     """-> (波形のバイト列, 1秒あたりの数, 長さ秒)。音声が無ければ空のバイト列"""
     global _PEAK_LUT
-    ff = ed_state.find_ffmpeg()
+    ff = _tools.find_ffmpeg()
     if not ff:
         raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-    dur, _has_v, has_a = ed_store.probe_media(path)
+    dur, _has_v, has_a = _tools.probe_media(path)
     rate = peaks_rate(dur)
     if not has_a:
         return b"", rate, dur or 0.0
@@ -125,7 +125,7 @@ def get_peaks(tid):
     動画のパスは文書から取る(パスを引数で受けない)。作業データの cache/peaks/ に保存し、動画のパス・大きさ・更新日時が同じなら使い回す"""
     doc = ed_store.read_transcript(tid)
     try:
-        path = ed_state.check_source(doc.get("sourcePath"))
+        path = _tools.check_source(doc.get("sourcePath"))
         st = os.stat(path)
     except (ed_state.ApiError, OSError):
         raise ed_state.ApiError("source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)", 404)

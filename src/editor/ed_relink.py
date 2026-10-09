@@ -16,7 +16,7 @@ from ytt import fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 # ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 1) ----------
 # 動画を移した・改名した文書の sourcePath を、行・校正・話者・カットを残したまま新しいパスに直す。
@@ -63,8 +63,8 @@ def relink_path(raw):
             raise ed_state.ApiError("network_path", "ネットワーク上のファイルは選べません(このパソコンにコピーしてから選んでください)", 400)
         if ":" in os.path.splitdrive(p)[1]:
             raise ed_state.ApiError("bad_path", "パスに「:」が入っています(ファイルそのもののパスを入れてください)", 400)
-        if os.path.splitext(p)[1].lower() not in ed_state.MEDIA_TYPES:
-            raise ed_state.ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(ed_state.MEDIA_TYPES)), 400)
+        if os.path.splitext(p)[1].lower() not in _tools.MEDIA_TYPES:
+            raise ed_state.ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(_tools.MEDIA_TYPES)), 400)
         if _fsio.is_inside(p, _workdata.DATA_DIR):   # このツールの作業データ(文書・設定・保管)。スタジオの既定の書き出し先(作業データの studio\exports)は選べる
             raise ed_state.ApiError("bad_path", "このツールの作業データの中のファイルは選べません", 400)
     if not os.path.isfile(p):
@@ -92,7 +92,7 @@ def relink_check(obj):
     doc = ed_store.read_transcript(tid)
     p = relink_path(obj.get("path"))
     eval_name_guard(p, doc.get("evalSet") is True, "付け替えてください")   # 評価用のフォルダの設定が消えているときは、評価用のフォルダへの付け替えを止める
-    dur, has_v, has_a = ed_store.probe_media(p)
+    dur, has_v, has_a = _tools.probe_media(p)
     if not (has_v or has_a):
         raise ed_state.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
     fps, warnings = None, []
@@ -240,7 +240,7 @@ def norm_plan(src):
         return None
     src = os.path.abspath(src)
     ext = os.path.splitext(src)[1].lower()
-    if ed_state.MEDIA_TYPES.get(ext, "").startswith("audio/"):   # 音声だけのファイル(カバー画像を映像と数えない)
+    if _tools.MEDIA_TYPES.get(ext, "").startswith("audio/"):   # 音声だけのファイル(カバー画像を映像と数えない)
         return None
     if _fsio.is_network_path(src) or _remote_drive(src):
         return {"src": src, "dst": None, "reuse": False, "why": [], "note": "ネットワーク上の動画は 30fps にそろえません(元の動画のまま使います)"}
@@ -461,7 +461,7 @@ def relink_find(obj):
             continue
         sm = ed_store.transcript_summary(tid)
         name = re.split(r"[\\/]", str((sm or {}).get("_sourcePath") or ""))[-1] or str((sm or {}).get("sourceName") or "")
-        if name and os.path.splitext(name)[1].lower() in ed_state.MEDIA_TYPES:
+        if name and os.path.splitext(name)[1].lower() in _tools.MEDIA_TYPES:
             want.setdefault(os.path.normcase(name), []).append(tid)
     found = {k: [] for k in want}
     t0, seen, truncated = time.monotonic(), 0, False
@@ -492,7 +492,7 @@ def pick_path(obj):
     from ytt import pick as _pick
     kind = "dir" if obj.get("kind") == "dir" else "file"
     try:
-        p = _pick.pick(kind, "動画のあるフォルダを選ぶ" if kind == "dir" else "動画を選ぶ", obj.get("hint") or "", ed_state.MEDIA_TYPES)
+        p = _pick.pick(kind, "動画のあるフォルダを選ぶ" if kind == "dir" else "動画を選ぶ", obj.get("hint") or "", _tools.MEDIA_TYPES)
     except _pick.PickBusy as e:
         raise ed_state.ApiError("pick_busy", str(e), 409)
     except _pick.PickError as e:
@@ -593,7 +593,7 @@ def _eval_videos(root, skip_staging=True):
     """評価用のフォルダの下の動画 {フォルダ: [ファイル名]}(作業用/ と _edit の動画は除く。仮置きは skip_staging で除く)"""
     out = {}
     for cur, _dirs, files in _eval_walk(root, skip_staging):
-        vids = [f for f in files if os.path.splitext(f)[1].lower() in ed_state.MEDIA_TYPES and not os.path.splitext(f)[0].endswith("_edit")]
+        vids = [f for f in files if os.path.splitext(f)[1].lower() in _tools.MEDIA_TYPES and not os.path.splitext(f)[0].endswith("_edit")]
         if vids:
             out[cur] = vids
     return out

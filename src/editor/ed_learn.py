@@ -21,7 +21,7 @@ import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(suggest_for_doc 
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, settings as _settings  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
@@ -914,7 +914,7 @@ def export_corrections(tid=None, audio=True, scope="changed"):
     if not _export_lock.acquire(blocking=False):
         raise ed_state.ApiError("busy", "別の書き出しの最中です", 409)
     try:
-        ff = ed_state.find_ffmpeg() if audio else None
+        ff = _tools.find_ffmpeg() if audio else None
         if scope == "proofed":
             docs = [tid] if tid else sorted(ed_store._tids())
         else:
@@ -950,7 +950,7 @@ def _export_corrections_zip(path, docs, tid, ff, scope):
             if not groups:
                 continue
             try:
-                src = ed_state.check_source(d.get("sourcePath")) if ff else None
+                src = _tools.check_source(d.get("sourcePath")) if ff else None
             except ed_state.ApiError:
                 src = None
             for g in groups:
@@ -1120,10 +1120,10 @@ def archive_doc(tid, full=True):
     for e in entries:
         e["split"] = "eval" if doc.get("evalSet") is True else "train"   # 追加学習に使うときは、split が eval のものを必ず除く
     want = [e for e in entries if e["role"] in ("positive", "unclear", "negative")]
-    ff = ed_state.find_ffmpeg()
+    ff = _tools.find_ffmpeg()
     src, note = None, ""
     try:
-        src = ed_state.check_source(doc.get("sourcePath")) if ff else None
+        src = _tools.check_source(doc.get("sourcePath")) if ff else None
         if not ff:
             note = "ffmpeg が見つからないため、音声は保管していません"
     except ed_state.ApiError:

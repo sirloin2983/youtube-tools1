@@ -65,12 +65,6 @@ def valid_model(name):
         return not (os.path.exists(name) or os.path.exists(os.path.join(_workdata.ROOT, name)))
     except (OSError, ValueError):
         return False
-MEDIA_TYPES = {
-    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",
-    ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".flv": "video/x-flv",
-    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav", ".flac": "audio/flac",
-    ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wma": "audio/x-ms-wma",
-}
 MODELS = [
     ("small", "small(軽い・精度はそこそこ)"),
     ("medium", "medium(バランス型)"),
@@ -211,46 +205,8 @@ def clear_mark():
     unlink_quiet(RUN_MARK)
 
 
-def find_ffmpeg():
-    """環境変数 TRANSCRIBE_FFMPEG があればそれ、無ければ PATH から。"""
-    return _tools.find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
-
-
-def ffmpeg_info(path, ff=None):
-    """ffmpeg -i の出力(長さ・ストリームの行。ed_store.probe_media も読む)。ffmpeg が無い・動かせなければ None"""
-    ff = ff or find_ffmpeg()
-    if not ff:
-        return None
-    try:
-        p = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return p.stdout or ""
-
-
-def duration_in(text):
-    """ffmpeg -i の出力の Duration(秒)。無ければ None"""
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text or "")
-    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
-
-
-def media_duration(path):
-    out = ffmpeg_info(path)
-    return duration_in(out) if out is not None else None
-
-
 num = _yschemas.num_or        # lint: keep 別名(RS2-1a)= 数にできれば float、違えば default
 fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
-
-
-def check_source(path):
-    p = os.path.abspath(str(path or "").strip().strip('"'))
-    if not os.path.isfile(p):
-        raise ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
-    if os.path.splitext(p)[1].lower() not in MEDIA_TYPES:
-        raise ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(MEDIA_TYPES)), 400)
-    return p
 
 
 # GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local)は RS2-9 に

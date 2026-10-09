@@ -13,7 +13,7 @@ import time
 
 import ed_state
 import ed_store
-from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas
+from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools
 
 THUMB_CROPS = ("alt", "center", "right")
 THUMB_SUFFIX = "_thumb-ideas"
@@ -29,7 +29,7 @@ def thumb_paths(src):
 def _thumb_doc_src(tid):
     """文書と動画のパス(動画が無ければ ApiError)"""
     doc = ed_store.read_transcript(str(tid or ""))
-    return doc, ed_state.check_source(doc.get("sourcePath"))
+    return doc, _tools.check_source(doc.get("sourcePath"))
 
 
 def thumb_spec(tid, req=None):

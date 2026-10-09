@@ -28,6 +28,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio  # noqa: E402
 
@@ -420,7 +421,7 @@ def _media_ok(path):
     if not path or _fsio.is_network_path(path):   # ネットワーク上のパスには触らない(資格情報を送らない)
         return False
     try:
-        ed_state.check_source(path)
+        _tools.check_source(path)
         return True
     except ed_state.ApiError:
         return False

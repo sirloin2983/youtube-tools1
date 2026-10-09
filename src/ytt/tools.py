@@ -5,6 +5,7 @@
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg の -progress を読みながら動かす(取り消し・無出力で止める)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
+- MEDIA_TYPES・find_ffmpeg・ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・長さ・元のファイルの検査・映像と音声の有無。RS3-0A に編集の ed_state・ed_store から)
 """
 import collections
 import os
@@ -15,6 +16,8 @@ import subprocess
 import sys
 import threading
 import time
+
+from . import errors as _errors
 
 PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS"}   # no_window_flags の priority
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
@@ -36,6 +39,72 @@ def find_tool(name, env_var=None, ytt=False):
         if env and os.path.isfile(env):
             return env
     return shutil.which(name)
+
+
+# ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う。RS3-0A に編集の ed_state・ed_store から移した) ----------
+# 編集の部品は呼ぶたびに tools.名前 で読む(テストの S.find_ffmpeg = …・patch.object(S, "check_source", …) は編集の serve の名前の受付がここへ届ける)
+MEDIA_TYPES = {   # 編集が受け付ける動画・音声の拡張子 → 配信する Content-Type(/media・check_source・フォルダの一括・付け替え)
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".flv": "video/x-flv",
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav", ".flac": "audio/flac",
+    ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wma": "audio/x-ms-wma",
+}
+
+
+def find_ffmpeg():
+    """編集の ffmpeg: 環境変数 TRANSCRIBE_FFMPEG があればそれ、無ければ PATH から。"""
+    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
+
+
+def ffmpeg_info(path, ff=None):
+    """ffmpeg -i の出力(長さ・ストリームの行。probe_media も読む)。ffmpeg が無い・動かせなければ None"""
+    ff = ff or find_ffmpeg()
+    if not ff:
+        return None
+    try:
+        p = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return p.stdout or ""
+
+
+def duration_in(text):
+    """ffmpeg -i の出力の Duration(秒)。無ければ None"""
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text or "")
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+
+
+def media_duration(path):
+    """動画・音声の長さ(秒。ffmpeg -i の Duration)。ffmpeg が無い・読めなければ None"""
+    out = ffmpeg_info(path)
+    return duration_in(out) if out is not None else None
+
+
+def check_source(path):
+    """文字起こしの元のファイルのパス(前後の空白と引用符を外して絶対パスに)。無い・動画や音声の拡張子でなければ ApiError(400)"""
+    p = os.path.abspath(str(path or "").strip().strip('"'))
+    if not os.path.isfile(p):
+        raise _errors.ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
+    if os.path.splitext(p)[1].lower() not in MEDIA_TYPES:
+        raise _errors.ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(MEDIA_TYPES)), 400)
+    return p
+
+
+def probe_media(path):
+    """ffmpeg -i で長さと、映像・音声の有無を調べる。-> (長さ秒 または None, 映像あり, 音声あり)。
+    カバー画像(音声ファイルに付いた attached pic)は映像に数えない。ffmpeg が無ければ ApiError(400)"""
+    ff = find_ffmpeg()
+    if not ff:
+        raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+    out = ffmpeg_info(path, ff)
+    if out is None:
+        return None, False, False
+    dur = duration_in(out)
+    streams = [l for l in out.splitlines() if re.match(r"\s*Stream #\d+:\d+", l)]
+    has_v = any(": Video:" in l and "attached pic" not in l for l in streams)
+    has_a = any(": Audio:" in l for l in streams)
+    return dur, has_v, has_a
 
 
 def no_window_flags(new_group=False, priority=None):

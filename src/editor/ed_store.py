@@ -20,7 +20,7 @@ import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 # ---------- 文字起こしの保存 ----------
 def tx_path(tid):
     return os.path.join(_workdata.TX_DIR, tid + ".json")
@@ -1029,22 +1029,6 @@ def fill_doc(spec, fields):
         return tid
 
 
-def probe_media(path):
-    """ffmpeg -i で長さと、映像・音声の有無を調べる。-> (長さ秒 または None, 映像あり, 音声あり)。
-    カバー画像(音声ファイルに付いた attached pic)は映像に数えない"""
-    ff = ed_state.find_ffmpeg()
-    if not ff:
-        raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-    out = ed_state.ffmpeg_info(path, ff)
-    if out is None:
-        return None, False, False
-    dur = ed_state.duration_in(out)
-    streams = [l for l in out.splitlines() if re.match(r"\s*Stream #\d+:\d+", l)]
-    has_v = any(": Video:" in l and "attached pic" not in l for l in streams)
-    has_a = any(": Audio:" in l for l in streams)
-    return dur, has_v, has_a
-
-
 _open_lock = threading.Lock()
 
 
@@ -1068,12 +1052,12 @@ def open_video(req):
     """POST /api/open-video {"path", "title"?} -> {"id", "created", "warnings"}。「文字起こしせずに開く」: 動画のパスだけで文書を作る。
     同じ動画の文書があればそれを返す(行のある文書・新しいものを先に)。隣の .clip.json があれば文書の clip に入れる(スタジオの切り抜きと紐づく)。
     文書にした動画は /media で配るので、動画・音声の拡張子で、ffmpeg で映像か音声が読めるものだけ受け付ける"""
-    src = ed_state.check_source(req.get("path"))
+    src = _tools.check_source(req.get("path"))
     with _open_lock:   # 同じ動画を続けて2回開いても、文書を2つ作らない
         hit = find_doc_for_media(src)
         if hit:
             return {"id": hit["id"], "created": False, "warnings": []}
-        dur, has_v, has_a = probe_media(src)
+        dur, has_v, has_a = _tools.probe_media(src)
         if not (has_v or has_a):
             raise ed_state.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
         pm = ed_state.pio(required=False)

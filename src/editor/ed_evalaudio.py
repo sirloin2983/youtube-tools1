@@ -214,7 +214,7 @@ def run_pass(why="manual", log=None):
     log = log or (lambda m: ed_state.log.info("評価用の音声: %s", m))
     if not ed_relink.eval_dirs():
         return {"skipped": "no_eval_dirs"}
-    ff = ed_state.find_ffmpeg()
+    ff = _tools.find_ffmpeg()
     if not ff:
         return {"skipped": "no_ffmpeg"}
     if not _pass_lock.acquire(blocking=False):
@@ -257,7 +257,7 @@ def _run_locked(ff, why, log):
         if e is None:
             dst = os.path.join(folder, name)
             idx["items"][key] = {"src": p, "size": size, "mtime": mtime, "flac": name, "flacSize": os.path.getsize(dst),
-                                 "durationSec": round(ed_state.media_duration(dst) or 0.0, 3), "madeAt": ed_state.now_ms()}
+                                 "durationSec": round(_tools.media_duration(dst) or 0.0, 3), "madeAt": ed_state.now_ms()}
             res["made"] += 1
             log("作りました %s" % os.path.basename(p))
         else:

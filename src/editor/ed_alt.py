@@ -28,7 +28,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)
@@ -94,7 +94,7 @@ def alt_spec(tid, req=None):
         raise ed_state.ApiError("eval_set", "評価用の文字起こしには、別のエンジンの候補を出しません(定点の正解が2つのエンジンに寄らないように)", 400)
     if not ed_store.doc_has_rows(doc):
         raise ed_state.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
-    src = ed_state.check_source(doc.get("sourcePath"))
+    src = _tools.check_source(doc.get("sourcePath"))
     if ed_relink.in_eval_dir(src):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
         raise ed_state.ApiError("eval_set", "評価用のフォルダの動画には、別のエンジンの候補を出しません", 400)
     key = alt_engine_key(req)
@@ -162,7 +162,7 @@ def run_alt(job):
         os.makedirs(_workdata.TMP_DIR, exist_ok=True)
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         ed_jobs.extract_audio(job, {"sourcePath": spec["sourcePath"], "start": spec["start"], "end": spec["end"], "boost": False}, wav)
-        total = ed_state.media_duration(wav) or ((spec["end"] or 0) - spec["start"])
+        total = _tools.media_duration(wav) or ((spec["end"] or 0) - spec["start"])
         t0 = time.monotonic()
         if ed_state.backend_name() == "fake":
             gen = _alt_fake(job, spec, wav, total)

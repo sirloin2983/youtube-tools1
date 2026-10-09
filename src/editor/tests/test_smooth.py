@@ -148,7 +148,7 @@ class TestSmoothApply(StoreDir):
 
     def test_validate_and_setting(self):
         self.put()
-        with unittest.mock.patch.object(S.ed_state, "check_source", lambda p: p):
+        with unittest.mock.patch.object(S, "check_source", lambda p: p):
             self.assertIs(S.validate_diarize({"tid": TID})["smooth"], False)                 # 既定オフ
             self.assertIs(S.validate_diarize({"tid": TID, "smooth": True})["smooth"], True)
             S.patch_settings({"values": {"diarSmooth": True}})
@@ -169,9 +169,9 @@ class TestSmoothApply(StoreDir):
             seen.append(a[6] if len(a) > 6 else k.get("smooth"))
             return real(*a, **k)
         with unittest.mock.patch.object(S.ed_speakers, "apply_diarization", spy), \
-                unittest.mock.patch.object(S.ed_state, "check_source", lambda p: p), \
+                unittest.mock.patch.object(S, "check_source", lambda p: p), \
                 unittest.mock.patch.object(S.ed_jobs, "extract_audio", lambda job, spec, wav: None), \
-                unittest.mock.patch.object(S.ed_state, "media_duration", lambda p: 12.0), \
+                unittest.mock.patch.object(S, "media_duration", lambda p: 12.0), \
                 unittest.mock.patch.object(S.ed_state, "backend_name", lambda: "fake"):
             spec = S.validate_diarize({"tid": TID, "smooth": True, "recognize": False})
             job = {"id": "j1", "spec": spec, "cancel": False, "state": "queued", "phase": "", "progress": 0.0, "kind": "diarize"}

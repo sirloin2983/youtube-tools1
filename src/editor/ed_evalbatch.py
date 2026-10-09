@@ -37,7 +37,7 @@ import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
-from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 
 EB_SCHEMA = "ytt-eval-batch/v1"
@@ -172,7 +172,7 @@ def eb_require_ready():
     """まとめての文字起こしを動かせるか(評価用のフォルダが見えている・ffmpeg がある)。だめなら ApiError"""
     if not ed_relink.eval_dirs():
         raise ed_state.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
-    if not ed_state.find_ffmpeg():
+    if not _tools.find_ffmpeg():
         raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
 
 
@@ -747,7 +747,7 @@ def eval_batch_redo_one(req=None):
             raise ed_state.ApiError("touched", "この動画は人が手を入れています(%s)。作り直すと置き換わります" % EB_REDO_LABELS.get(why, why), 409,
                                     {"why": why, "label": EB_REDO_LABELS.get(why, why), "rows": _eb_touched_rows(doc, why),
                                      "total": sum(1 for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip())})
-        if not ed_state.find_ffmpeg():
+        if not _tools.find_ffmpeg():
             raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
         spec = eb_redo_spec(tid, doc)
         spec.pop("evalBatch", None)
