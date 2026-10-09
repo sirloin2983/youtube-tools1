@@ -20,7 +20,8 @@ window.PLAN = {
     { id: "⑦", name: "10-08 夜: 全体計画の見直し(このページ)", state: "done", detail: "サブエージェント 9 体(Sonnet 6・Haiku 3)で計画・資料・コードを突き合わせ。フェーズを「今週 → 次の配信 → 使いながら → G2 → 最後」に並べ直し、済んだ工程を 1 列に。AI の見積もりを実績に合わせて縮め、提案(D-12〜D-15・K1・K2・A5・A6・R1・O1)と決めてほしいことを足した。段 15(A4)は 10-08 のユーザー決定でやめたので外した。ユーザーの答え(10-08): 線 D の守りは全部・採用の記録は線 D と友人の返事も数える・重いのは採用の判断と字幕の直し(→ A5・A6)・段 8 は全部。setup/requirements.txt の日本語(pip が落ちる)を直した" },
     { id: "⑧", name: "10-09: 線 D の守りと記録(D-12〜D-14)", state: "done", detail: "ホーム 0.49.0。D-12 録画ごとの結果の記録(live/reports/ の JSON + dev/eval_marks.py --live)・D-13 安全弁(1 録画 10 本・未確認 20 本で休む・友人の依頼は同時 1 本・6 時間で止める)・D-14 終わったあとの待ち中の候補の採用・配信中の文字起こしを SLOTS に・消えない録画の知らせ。数は仮(decisions 3-15)。次の配信(U4)で読む" },
     { id: "⑨", name: "10-09: 分析と日報(別件。新しい src/analytics)", state: "done", detail: "ホーム 0.50.0・分析と日報 0.1.0〜0.1.1。入口が /analytics/ を受け持つ。Apps Script の連携(gas/Code.gs)から数字を受け取り、日報・週報・月報を作って LINE へ(新しいデータなら送り直す・手動の実行)。見込みはチェーンラダーの曲線とモンテカルロで、10/1 の前後 2 通り。既存の「Youtube日次」の監査(誤り E1〜E7)から作り直した。日報・週報は LINE に届いた。月報は日付の形の不具合を 0.1.1 で直し、入口を起動し直して送り直したら届いた(10-09)。設計 plan/analytics-daily-report.md" },
-    { id: "⑩", name: "10-09: 送るアプリ 2.8.1・友人のライブ依頼の不具合", state: "done", detail: "まとめ動画の小窓の音量をはじめ 30% にし、音量のつまみを足した(settings.json に覚える)。友人のライブ依頼が配信前だと受付の yt-dlp が失敗して「アーカイブから ①」に落ちていた → --ignore-no-formats-error を付け、状態が分からなければ先に録画を試す(spec 2-15)。2.8.1 の zip は作り直し済み・友人にはまだ渡していない" }
+    { id: "⑩", name: "10-09: 送るアプリ 2.8.1・友人のライブ依頼の不具合", state: "done", detail: "まとめ動画の小窓の音量をはじめ 30% にし、音量のつまみを足した(settings.json に覚える)。友人のライブ依頼が配信前だと受付の yt-dlp が失敗して「アーカイブから ①」に落ちていた → --ignore-no-formats-error を付け、状態が分からなければ先に録画を試す(spec 2-15)。2.8.1 の zip は作り直し済み・友人にはまだ渡していない" },
+    { id: "⑪", name: "10-09 夜: ツール全体のコードの役割分担の計画(plan/role-restructure.md)", state: "done", detail: "ユーザー「もともと 1 個ずつ開発して合体したからいびつ。今の形を完全に変えてもいい」→ 工程ごとのツール分け(スタジオ・編集・cut2resolve・入口)をやめ、役割の層で組み直す計画を決めた: pipeline(① URL か動画 + 指定 → 解析 → 書き出し → 文字起こし → パックの自動の流れ。ライブ含む。画面と案件を知らない)/ human(② 候補の確認・校正・カット・検索・友人)/ manage(③ 案件・保管・運用)/ eval(④ 疑似・ドリル・物差し)/ app(入口と画面。UI の作りは後で)。決まり: import の向きをテストで守る・人の直しは ① の出力とは別の上書きで「その段からやり直し」(止めて待たない)・成果物に鍵を付けて切り抜き単位で使い回す・精度は (A) コードを物差しで直す (B) 人の直しから作る学習データを ① が読む。移し方 RS0〜RS6(移動と転送。書き直さない)。実装はまだ(始める時期は未定)" }
   ],
   /* 各線の進捗(pct は実装の進み) */
   lines: [
@@ -62,7 +63,7 @@ window.PLAN = {
     { id: "2", name: "次の配信で確かめる(10-18/19)", gate: "配信", items: "U4 長い配信で全部オン(10-09 済み。記録なし)・U8 友人のライブ依頼(次の配信に当てる)" },
     { id: "3", name: "使いながら決め直す(10-20〜)", gate: "配信の記録・採用の記録", items: "D-15 数の決め直し(記録のある長い配信の翌日)/ L5 当たり具合(配信数本)/ C1・C3・C2(記録がたまったら)/ 提案から決めた P5 サムネの案・P18 LLM の後処理(条件なし。今週の分のあと)" },
     { id: "4", name: "G2 のあと", gate: "G2(校正 約 10 時間)", items: "B4 後処理を残すかの判定 → I-3b カット「行から」" },
-    { id: "5", name: "最後", gate: "学習用 3 時間ほか", items: "B5 FT → B6 E4 + 段 12 コラボ / O1 Python の移行の下調べ" }
+    { id: "5", name: "最後", gate: "学習用 3 時間ほか", items: "B5 FT → B6 E4 + 段 12 コラボ / O1 Python の移行の下調べ / RS0〜RS6 役割で組み直す(plan/role-restructure.md。10-09 決定。始める時期は未定なので仮にここ)" }
   ],
   /* 全工程(依存の図と表の元。pre = 前提(済まないと始められない)、rec = 推奨の前(先にやると楽)。ai の見積もりは 10-08 に実績に合わせて縮めた) */
   tasks: [
@@ -131,7 +132,15 @@ window.PLAN = {
     /* 5 最後 */
     { id: "B5", name: "FT 追加学習", line: "B", who: "AI + ユーザー", phase: "5", pre: ["B4"], rec: ["B2"], ai: "半日 + 学習の計算(借りる GPU)", user: "学習用の校正 約 25〜40 時間 + 借りる GPU の相談", state: "todo" },
     { id: "B6", name: "重なり声(E4)+ 段 12 コラボ・別視点", line: "B・A", who: "AI", phase: "5", pre: ["B4"], rec: ["B5"], ai: "半日〜1 日", user: "URL を集める 30 分", state: "todo" },
-    { id: "O1", name: "Python 3.10 → 3.12 の移行(下調べ済み 10-09 = plan/python-migration.md。yt-dlp は winget の exe で 3.10 終了の影響なし・固定の版を変えずに移れる・3.12 は入っている。静かな日に 1 晩。急がない)", line: "運用", who: "AI + ユーザー", phase: "5", pre: [], rec: [], ai: "1 晩", user: "pip の導入 10〜15 分(自分の cmd で)", state: "todo" }
+    { id: "O1", name: "Python 3.10 → 3.12 の移行(下調べ済み 10-09 = plan/python-migration.md。yt-dlp は winget の exe で 3.10 終了の影響なし・固定の版を変えずに移れる・3.12 は入っている。静かな日に 1 晩。急がない)", line: "運用", who: "AI + ユーザー", phase: "5", pre: [], rec: [], ai: "1 晩", user: "pip の導入 10〜15 分(自分の cmd で)", state: "todo" },
+    /* RS 役割で組み直す(plan/role-restructure.md。10-09 ユーザー決定。始める時期は未定 = フェーズは仮に 5。段ごとに全テスト + 入口を起動し直して本物の 1 本) */
+    { id: "RS0", name: "RS0 行き先の表(ファイル・関数ごと)・パッケージの骨組み src/{ytt,pipeline,human,manage,eval,app}・import の向きの検査のテスト(今ある違反の一覧つき)・版 1 つの準備", line: "運用", who: "AI", phase: "5", pre: [], rec: [], ai: "半日", user: "始める時期の決定", state: "todo" },
+    { id: "RS1", name: "RS1 ① の骨組み: ytt_core → ytt(excite は pipeline/analyze へ)・cut2resolve → pipeline/pack・recorder → pipeline/ingest・exporter → pipeline/export・spec.py と run.py(まとめて実行の ① の経路を 1 本に)・鍵の JSON の形", line: "運用", who: "AI", phase: "5", pre: ["RS0"], rec: [], ai: "1 日", user: "—", state: "todo" },
+    { id: "RS2", name: "RS2 ① の文字起こし: ed_jobs を認識(pipeline/transcribe)と文書(human/proof)に分割・認識と後処理の段を分ける・エンジンの登録の口・疑似モードを eval/fake から(いちばん重い = 別のセッションで慎重に)", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: [], ai: "1〜2 日", user: "校正の画面が壊れていないか 10 分", state: "todo" },
+    { id: "RS3", name: "RS3 ② と ③: home の友人・案件・片付け・調子・ライブを行き先へ・スタジオの検索と手動マークを human へ・編集の校正の補助と学習を human/proof へ・上書きの置き場", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: ["RS2"], ai: "1 日", user: "—", state: "todo" },
+    { id: "RS4", name: "RS4 ④: ドリル・評価用フォルダ・A/B・精度の自動測定を eval/drill・dev/eval_* を eval/tools・① の記録と ② の記録を分ける", line: "運用", who: "AI", phase: "5", pre: ["RS1"], rec: ["RS2", "RS3"], ai: "半日", user: "—", state: "todo" },
+    { id: "RS5", name: "RS5 app を薄く(配線だけ)・旧い URL の転送・版 1 つ・設定 1 ファイル・向きの違反 0・転送の別名を消す・文書を新しい形に・消す物(友人の「確認してから届ける」・4 ツールの版・あとから解析・疑似の if)", line: "運用", who: "AI", phase: "5", pre: ["RS2", "RS3", "RS4"], rec: [], ai: "半日〜1 日", user: "start.bat で起動して本物の 1 本 20 分", state: "todo" },
+    { id: "RS6", name: "RS6 ① の新機能: アーカイブと動画ファイルの自動採用・切り抜き単位の使い回し(鍵)・校正の上書きを切り抜きの鍵に付ける(再認識で消えない)・① 単体の起動(URL か動画 → パック)", line: "運用", who: "AI", phase: "5", pre: ["RS5"], rec: [], ai: "1 日", user: "アーカイブ 1 本と動画ファイル 1 本で確かめる 30 分", state: "todo" }
   ],
   /* 合計(目安。10-08 に AI の分を実績に合わせて縮めた。人の分は今のまま) */
   totals: [

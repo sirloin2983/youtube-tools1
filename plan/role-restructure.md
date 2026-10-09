@@ -1,0 +1,185 @@
+# 役割で組み直す(ツール全体のコードの役割分担。2026-10-09)
+
+> 状態(2026-10-09): **計画(ユーザー決定済み。実装はまだ)**。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた。いつ始めるかは未定(段 0 から。`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
+
+## 1. なぜ組み直すか(ユーザーの言葉)
+- 「もともと 1 個ずつ開発して合体したからいびつになっている。今の形を完全に変えてもいいから最適な形を考えて」
+- 機能の重要度を 4 つに分ける: **① 解析 → 文字起こし → 話者 → パックの自動の流れ(ライブと動画を含む)を中心にし、これだけで一通り動く(① + α で友人に配れるのが理想)** / ② 校正・カット・友人の依頼の受付と送信 / ③ データの管理 / ④ テストと精度の検証
+- 友人用の Windows アプリと Chrome 拡張は置いておく。UI(画面)は後で再考する(この計画は画面の作りを決めない)
+
+## 2. 決めたこと(10-09 の問答の答え)
+| 問い | 答え |
+| --- | --- |
+| 自動と人の役割 | **最終的に自動が中心**。人が操作する理由は (a) 自動の精度を上げるため (b) 確実に切り抜きたい所を指定するため |
+| ① の入力 | **URL か動画ファイル + 処理に必要な指定の束**(切り抜く数・長さ・重み・エンジン・パックの設定・API キー)。URL が配信中ならライブの処理。① は案件も画面も知らない |
+| 友人の依頼 | 友人の依頼を処理する機能は友人に渡さない。自分の環境でも「送られてきた動画ファイルを ① に流すだけ」= ② は ① を呼ぶ薄い層 + 届ける |
+| API キー | コメントの解析で使うので ① の中。配信の検索(`rank.py`)は ① の外(②) |
+| ③ の中身 | 流れの状態(案件・紐づけ)・保管と片付け(バックアップ・ごみ箱・録画の片付け・置き場所)・運用(調子・失敗の集約・分析と日報)**すべて** |
+| 友人への配布 | ① + α で少し足せるので、その時に考える |
+| 形 | 今のツール分け(工程ごと)をやめ、**役割の層で切る**(3 節)。import の向きをテストで守る |
+| 人の作業と ① の関係 | **終わってから直して、その段からやり直す**(4 節)。止めて待つ形は作らない。友人の依頼の「確認してから届ける」の経路は、この実装が終わったら消す |
+| 精度の向上 | 2 本立て(6 節): (A) ① のコードを ④ の物差しで測って直す / (B) ② が人の直しから作る学習データを ① が読む |
+
+## 3. 目標の形
+```
+src/
+├─ ytt/        基盤(今の ytt_core から excite を除く。書き込み・検査・置き場所・設定・外部プログラム・30fps)
+├─ pipeline/   ① 自動の流れ。段ごとの部品 + 流れ。画面なし。これだけで URL か動画 → パック
+│   ├─ ingest/      取り込み: URL か動画ファイルの判定・取得(yt-dlp)・配信中なら録画(今の recorder)
+│   ├─ analyze/     解析: 盛り上がりの式(excite)・チャットとコメント・候補・自動採用・配信中の検出
+│   ├─ export/      書き出し: 区間 → 動画(exporter・live_export)
+│   ├─ transcribe/  文字起こし: 認識(エンジン・ワーカー)・話者・後処理(埋める・LLM・時刻)・名簿と辞書を読む
+│   ├─ pack/        パック(今の cut2resolve の pack・textplus・core)
+│   ├─ spec.py      指定の束の形と既定値
+│   └─ run.py       流れ: run(入力, 指定, from=段) → 結果。配信中なら録画しながら。配信後の全自動もここ
+├─ human/      ② 人の操作。① の成果物とは別に「上書き」を書き、その段からやり直しを頼む。学習データを作る
+│   ├─ review/      候補の確認(手動マーク・採用と不採用・端の調整・その記録)
+│   ├─ proof/       字幕の校正(文書・別の読み・YouTube の字幕・辞書と名簿と声の学習・校正の記録)
+│   ├─ cut/         カット(残す区間・たたき台)
+│   ├─ find/        配信の検索(YouTube Data API・事務所の登録)
+│   └─ friend/      友人: 受付(Dropbox)→ ① に流す → 届ける。ライブの依頼の結びつき
+├─ manage/     ③ データの管理
+│   ├─ cases/       案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
+│   ├─ keep/        置き場所・バックアップ・ごみ箱・録画の片付け
+│   └─ ops/         調子・失敗の集約・起動し直し・エラーの記録・分析と日報
+├─ eval/       ④ テストと検証
+│   ├─ fake/        疑似モード(偽のエンジン・偽の YouTube API・偽の録画元)を登録の口から差し込む
+│   ├─ drill/       評価ドリル・評価用フォルダ・精度のカード・A/B・精度の自動測定
+│   └─ tools/       今の dev/eval_*(物差し)・_evalcommon・demo_env
+├─ app/        入口と画面
+│   ├─ server.py    起動・1 つのポート・API の配線・設定の画面の API(薄く)。旧い URL(/studio/ など)の転送
+│   └─ ui/          ホーム・確認の画面・校正の画面・ui-kit(作りは後で再考。当面は今の画面をそのまま置く)
+dev/           リポジトリの道具だけ残す(lint・ui_audit・push_helper・sync_ui_kit・plan_artifact・dropbox_auth)
+```
+テストは各パッケージの `tests/` に(今のまま)。`friend-apps/`・`chrome-ext/`・`setup/` は変えない(`start.bat` の起動先だけ `src/app/server.py` に)。
+
+## 4. 守る決まり
+1. **import の向き**: `ytt ← pipeline ← human ← manage ← eval`。`app` は全部を使ってよい。逆向きは**テストで落とす**(各パッケージの import を機械で読み、許される相手の表と比べる。`src/tests/test_layering.py`)。移す途中は「今ある違反の一覧」を許し、減らして 0 にする
+2. **① は画面と案件を知らない**。① の結果は「ファイルと JSON(横に鍵の JSON)」だけ。② と ③ がそれを読む
+3. **人の直しは ① の出力を書き換えない**。② は別の「上書き」として保存し、① はどの段を動かすときも「自動の出力 + 上書き」を読む。① を再実行しても上書きは消えない
+4. **成果物には鍵を付ける**(5 節)。同じ鍵の成果物があれば作らない = 使い回し。飛ばす判定は「記録に済みと書いてある」ではなく「鍵が一致する」
+5. **① の記録と ② の記録は別**。① は自分が何をしたか(認識の生の結果・候補の点数・使った指定と版)を結果に残す。② は人がどう直したか(採用と不採用・校正)を残す。④ はその 2 つを読むだけ
+6. **実験は指定の違いで**。① のコードに実験用の `if`・疑似モードの `if` を入れない。各段に「エンジンの登録の口」を 1 つ置き、`eval/fake` が偽物を、実験が別の設定を登録する。採用したら既定値を変える
+7. **作業データの場所と URL は当面そのまま**(`%LOCALAPPDATA%\youtube-tools\{studio,transcribe,app}\`・`/studio/` `/transcribe/`)。コードの単位とデータの単位を一度に変えない。案件ごとに 1 フォルダにする形は UI の再考と一緒に(別の段)
+8. **版は 1 つ**(4 ツールの版と赤い帯の検査は別々に作っていた頃の名残)。**設定は 1 ファイル**(`pipeline / human / manage / eval` の節。旧い 4 ファイルは最初の起動で読み込む = コピーのみ・元は残す)
+9. 今までの決まりは続く: 外部へ動画・音声を送らない・CSP `script-src 'self'`・書き込みの API は合言葉・重い処理は `SLOTS`・削除はユーザー確認後・データ移行はコピーのみ
+
+## 5. ① の設計
+### 5-1 入口
+- `run(入力, 指定, from=None)`。入力 = URL か動画ファイルのパス。指定 = `spec.py` の束(本数・長さ・感度・重み・エンジン・モデル・言語・VAD・後処理・パックの設定・API キー・配信者)。`from` = やり直す段(無ければ最初から)
+- 今の 3 つの経路(まとめて実行 `autorun` の本体の経路・配信後の全自動 `live_archive`・ライブの流れ `live.py`)を**この 1 本**にする。URL が配信中なら ingest が録画しながら analyze を 1 秒ごとに回す(今の `live_detect`・`live_excite_worker`)
+- 人を待たない。止めて待つ印は作らない
+
+### 5-2 段と成果物と鍵
+| 段 | 成果物 1 つの単位 | 鍵に入れるもの | 鍵が変わる操作 |
+| --- | --- | --- | --- |
+| ingest | 元の動画(か録画) | URL か動画の ID・取得の設定 | — |
+| analyze | 候補の一覧(区間と点数)。**自動採用**の結果 | 元の動画の鍵・解析の設定(重み・感度)・学習データの版(長さの目安) | 設定を変える |
+| export | 切り抜き 1 本 | 元の動画の ID・区間(開始と終わり)・書き出しの設定(画質・音量・fps) | 候補の端を動かす・区間を足す |
+| transcribe(認識。重い) | 切り抜き 1 本の生の認識と話者 | 切り抜きの鍵・エンジン・モデル・言語・VAD | 切り抜きが変わる・エンジンを変える |
+| transcribe(後処理。軽い) | 切り抜き 1 本の後処理ずみ | 生の認識の鍵・後処理の設定・辞書と名簿の版 | 辞書が育つ(毎回当て直してよい) |
+| pack | 案件 1 つ | 入っている切り抜きの鍵の一覧・有効な字幕の版・カットの上書き・パックの設定 | 字幕やカットを直す(数秒で作り直し) |
+- 鍵は成果物の横の小さな JSON(今の `.clip.json` の仲間)に書く。③ の案件はそれを読んで状態(認識ずみ・パックは古い)を出す
+- 認識と後処理を分けるのはこのため(今は 1 つの段なので辞書が育つと再認識が要る)
+- 第 1 版の使い回しは「切り抜き 1 本まるごと」。「伸びた 2 秒だけ認識して継ぐ」は今の範囲の再認識を使って後から
+
+### 5-3 人の上書き(②)と ① の関係
+```
+自動:  入力 → 解析 → 書き出し → 文字起こし → パック(ここまで人を待たない)
+                ↑                    ↑
+人:         候補を直す          字幕を直す・カットを決める
+                └── その段からやり直し(run(..., from=段)) ──┘
+```
+| 段 | ① の出力 | ② の上書き | 今のデータで言うと |
+| --- | --- | --- | --- |
+| 解析 | 候補の区間と点数・自動採用 | 手動マーク・採用と不採用・端の調整 | スタジオの自動マーク / 手動マーク・採用 |
+| 文字起こし | 認識の生の結果・話者 | 校正した文書・話者の名前の訂正 | `asr.json` / `transcripts/<id>.json` |
+| カット | 自動のたたき台 | 残す区間 | `edit.json` |
+- 人の操作の 3 つの時機: **前に指定する**(指定の束に「この区間は必ず」「この人は除く」。友人の依頼の区間指定もこれ)/ **動いている最中**(配信中に打つマークも上書き。解析は 1 秒ごとに読むので止めずに反映)/ **終わってから直す**(いちばん多い。直したらその段からやり直し。前のパックは残す)
+- 校正の上書きは**切り抜きの鍵**に付ける(認識の実行には付けない)。エンジンを変えて生の認識が変わっても上書きは残り、「古い認識を元にした直し」の印が付く(今は再認識で直しが消える = 改善点)
+- この形にする理由: 人がいなくても結果が出る(夜のアーカイブ・友人の依頼・配信中・配った友人の環境)/ 仕組みが 1 つで済む(止めて待つ形は「待っている」状態・再開・期限が要る。今の入口の失敗の状態が増えたのはこのため)/ 自動の出力と人の直しが混ざらない(再認識で直しが消えない・④ が生の結果と直しを比べられる・元に戻すのは上書きを消すだけ)/ やり直しが安い(重いのは認識だけ。字幕を直したあとはパックの段だけ)
+- 代償: ③ の案件が「自動の結果と人の上書きのどちらが有効か」を持つ / 切り抜き単位の使い回しを ① に作る(今の「済みの段を飛ばす」と紐づけに近い物がある)
+
+## 6. 精度の輪
+- **(A) ① のコードを直す(AI)**: ④ が人の直しを正解として ① の段を評価用の材料で動かし数字を出す → AI が段のコードか既定値を変える → 同じ材料で測り直す(今の線 B の実験ループと同じ)。段が「入力 → 出力」の純粋な部品なので画面も案件も無しに動かせる。実験の変種は指定の束の違いで渡す(① に `if` を増やさない)
+- **(B) 学習したデータを ① が読む(人の直しがそのまま効く)**: ② が人の上書きから作り、③ の学習データの置き場に置き、① は読むだけ、④ が効き目を測る(向きが一方向)
+
+| 人の直し | ② が作る物 | ① のどの段が読むか |
+| --- | --- | --- |
+| 字幕の言い直し・名前の訂正 | 用語集・置換辞書・名簿の呼び名と誤認識 | 認識のヒント・後処理 |
+| 話者の名前を付ける | 覚えた声 | 話者判別 |
+| 候補の採用と不採用・端の調整 | 配信者ごとの長さの目安・重み(今の `lengthHint` の発展) | 解析の自動採用 |
+| カットで残した区間 | たたき台の規則の材料 | カットのたたき台 |
+- (B) が先(コードを触らず、配った友人の環境でも効く)。(A) は (B) で届かない所。(B) で正解が増えるほど (A) の測定が確かになる(今は 22 本で 95% の幅が広い)
+
+## 7. 今のファイルの行き先(移すときの表。行番号つきの根拠は inventory の文書)
+| 今 | 行き先 | 備考 |
+| --- | --- | --- |
+| `ytt_core/*`(excite・evaldata を除く) | `ytt/` | `txindex` は `manage/cases/`。`datadir` は `ytt/`(置き場所の規則)だが管理の操作は `manage/keep/` |
+| `ytt_core/excite.py` | `pipeline/analyze/` | golden のテストも一緒に |
+| `ytt_core/evaldata.py` | `eval/tools/` | src からの使い手 0 |
+| `recorder/*` | `pipeline/ingest/` | 別プロセスのまま(ingest が起動する) |
+| `cut2resolve/pack.py`・`resolve_textplus.py`・`cut2resolve_core.py`・`cut2resolve.py`(CLI) | `pipeline/pack/` | `serve.py` の API は `app/server.py` の配線へ。`auto_cut.py` は `human/cut/`(使っていなければ消す)。`srt2resolve.py` は旧い単独 CLI = 消す候補(要確認) |
+| `studio/analyze.py`・`batch.py` | `pipeline/analyze/`・`pipeline/run.py`(順番待ち) | feedback.jsonl の書き手は `human/review/` |
+| `studio/store.py` | 候補のデータ → `pipeline/analyze/`、手動マーク・採用・コラボの転写 → `human/review/` | 分割 |
+| `studio/exporter.py` | `pipeline/export/` | |
+| `studio/rank.py` | `human/find/` | API キーの保管は `ytt/settings` |
+| `studio/common.py`・`serve.py`・`handoff.py`・`txlink.py` | `app/`(配線)・`manage/cases/`(紐づけ) | 疑似の分岐は `eval/fake/` |
+| `studio/*.js`・`*.css`・`index.html` | `app/ui/studio/` | 作りは後で再考 |
+| `editor/ed_jobs.py` | 認識と後処理の本筋 → `pipeline/transcribe/`、文書のジョブと進み具合 → `human/proof/` | **いちばん重い分割**(2,800 行) |
+| `editor/tx_engines.py`・`tx_worker.py`・`ed_fill.py`・`ed_llm.py`・`ed_retime.py`・`roster.py` | `pipeline/transcribe/` | 偽エンジンは `eval/fake/` |
+| `editor/ed_speakers.py` | 判別 → `pipeline/transcribe/`、声の登録 → `human/proof/`(学習データ) | 分割 |
+| `editor/ed_store.py`・`ed_alt.py`・`ed_ytcap.py` | `human/proof/` | 文書 = 上書きの置き場 |
+| `editor/ed_learn.py` | 辞書と学習 → `human/proof/`、精度の測定と基準 → `eval/drill/`、修正データの書き出しとデータの保管 → `eval/tools/`(使っていなければ消す) | 分割 |
+| `editor/ed_relink.py` | 紐づけ → `manage/cases/`、評価用フォルダ → `eval/drill/` | 分割 |
+| `editor/ed_misc.py` | A/B → `eval/drill/`、clip-marker 連携・進行度・受け渡し → `manage/cases/`・`app/` | 分割 |
+| `editor/ed_drill.py`・`ed_evalbatch.py`・`ed_evalaudio.py` | `eval/drill/`(evalaudio は消す = 読む側が無い) | |
+| `editor/resolve_export.py`・`pipeline_io.py` | `pipeline/pack/`・`manage/cases/` | |
+| `editor/ed_media.py`・`ed_thumb.py`・`thumb_ideas.py` | `app/`(配信)・`human/cut/`(サムネ案。P5) | |
+| `editor/ed_state.py`・`serve.py` | 設定 → `ytt/settings`、名前の受付 → `app/`、`backend_name` → `eval/fake/` の登録 | |
+| `editor/*.js`・`index.html` | `app/ui/editor/` | 作りは後で再考 |
+| `home/launch.py`・`mount.py`・`appwindow.py`・`prefs.py`・`settings/`・`restart.py` | `app/`(`restart` は `manage/ops/`) | 薄くする |
+| `home/autorun.py` | ① の経路 → `pipeline/run.py`、友人の依頼の経路 → `human/friend/`、「あとから解析(測るため)」 → 消す(④ の道具で代える) | 分割 |
+| `home/live.py`・`live_detect.py`・`live_excite_worker.py`・`live_align_worker.py`・`live_export.py`・`live_tx.py`・`live_tx_worker.py`・`live_archive.py` | `pipeline/`(ingest・analyze・export・transcribe・run) | ライブの流れを run に |
+| `home/intake.py`・`deliver.py`・`live_requests.py`・`friend_feedback.py` | `human/friend/` | 「確認してから届ける」の経路は消す |
+| `home/cases.py` | `manage/cases/` | |
+| `home/backup.py`・`cleanup.py`・`live_cleanup.py` | `manage/keep/` | |
+| `home/health.py`・`live_failures.py`・`clientlog.py`・`live_report.py` | `manage/ops/`(`live_report` は `eval/tools/`) | |
+| `home/accuracy.py` | `eval/drill/` | |
+| `home/portal.*` | `app/ui/home/` | |
+| `analytics/*` | `manage/ops/analytics/` | 別件。中身は変えない |
+| `ui-kit/*` | `app/ui/kit/` | 写しは `app/ui/` の中で 1 つにできる(sync が不要になる) |
+| `dev/eval_*.py`・`_evalcommon.py`・`demo_env.py` | `eval/tools/` | `lint`・`ui_audit`・`push_helper`・`sync_ui_kit`・`plan_artifact`・`dropbox_auth` は `dev/` に残す |
+
+## 8. 移し方(書き直しではなく、移動と分割。各段のあとで全テスト + 入口を起動し直して本物の 1 本)
+「移す → 旧い名前を転送(import の別名)で残す → テストが通ったら転送を消す」の繰り返し。コード 10 万行・テスト 6.5 万行は書き直さない。
+
+| 段 | 中身 | 通すもの | 目安 |
+| --- | --- | --- | --- |
+| RS0 | 全ファイルの行き先の表(7 節を各ファイル・各関数まで)・パッケージの骨組み(空の `src/{ytt,pipeline,human,manage,eval,app}`)・**向きの検査のテスト**(今ある違反の一覧つき)・版 1 つの準備 | 検査のテストが「違反 n 件(一覧と一致)」で通る | 半日 |
+| RS1 | ① の骨組み: `ytt_core` → `ytt`(excite を `pipeline/analyze` へ)・`cut2resolve` → `pipeline/pack`・`recorder` → `pipeline/ingest`・`exporter` → `pipeline/export`。`spec.py` と `run.py`(まとめて実行の ① の経路を移して 1 本に)。鍵の JSON の形 | 全 unittest・`test_resolve_pack_contract`(単独)・`e2e_pipeline`・`e2e_live*` | 1 日 |
+| RS2 | ① の文字起こし: `ed_jobs` を認識(`pipeline/transcribe`)と文書(`human/proof`)に分割・認識と後処理の段を分ける・エンジンの登録の口・疑似モードを `eval/fake` から差し込む | 編集の unittest と e2e 全部・`test_worker`(サーバー側で numpy を import しない) | 1〜2 日(**いちばん重い。校正の画面が一時的に壊れやすい = 別のセッションで慎重に**) |
+| RS3 | ② と ③: home の友人・案件・片付け・調子・ライブを行き先へ、スタジオの検索と手動マーク・採用を `human/review`・`human/find` へ、編集の校正の補助と学習を `human/proof` へ。上書きの置き場を決める | home の unittest と e2e 全部・スタジオの unittest と e2e | 1 日 |
+| RS4 | ④: ドリル・評価用フォルダ・A/B・精度の自動測定を `eval/drill`・`dev/eval_*` を `eval/tools`。① の記録と ② の記録を分ける | `eval/` のテスト・`dev/tests/test_eval_*` | 半日 |
+| RS5 | `app/` を薄く(配線だけ)・旧い URL の転送・版 1 つ・設定 1 ファイル(旧ファイルを読み込む)・向きの違反 0・転送の別名を消す・文書(AGENTS・README・spec)を新しい形に | 全テスト・lint 0・ui_audit Must 0・`start.bat` で起動して本物の 1 本 | 半日〜1 日 |
+| RS6 | ① の新機能: アーカイブと動画ファイルの**自動採用**(今はライブだけ)・切り抜き単位の使い回し(鍵)・校正の上書きを切り抜きの鍵に付ける・① 単体の起動(URL か動画 → パック) | 新しいテスト + 本物のアーカイブ 1 本と動画ファイル 1 本 | 1 日 |
+
+RS0〜RS1 は操作が変わらない。RS2 以降も画面の操作は変えない(画面の作りは後で)。合計の目安は AI の作業で 5〜7 日分(並列にできる段は RS3 と RS4)。
+
+## 9. 実装が終わったら消す物・要確認
+- 消す(決定済み): 友人の依頼の「確認してから届ける」の経路(止めて待つ形)・4 ツール別の版と赤い帯の検査・設定の 4 ファイル(読み込んだあと)・「あとから解析(測るため)」・`ed_evalaudio.py` と `eval-audio/`・疑似モードの `if`(登録の口に置き換え)・`runs[].replaced`・`trim_ends`・死んだフック(`TRANSCRIBE_FAKE_REDO`・`STUDIO_FAKE_CHAT_DELAY`・`YTT_RECORDER_SOURCE`)・`ui-kit` の写しと `sync_ui_kit`(`app/ui/` に 1 つ)
+- 要確認(小さい。移すときに聞く): `srt2resolve.py`(旧い単独 CLI)・`auto_cut.py` の CLI・設定の比較 A/B・修正データの書き出し・データの保管(`dataset/`)・エンジンの選択肢「Qwen3-ASR(CPU)」・スタジオの `export-log.txt`・友人の区間の長さと配信中の長さの目安を dev の測定結果から決めている作り(学習データとして ③ に置く形に直す)
+
+## 10. リスクと注意
+- **RS2 の `ed_jobs` の分割**: 認識・文書の保存・ジョブの進み具合・評価用の例外が 1 ファイルに絡む。転送の別名で画面を動かしたまま少しずつ移す。`serve.py` の名前の受付(`_ServeModule`)は `tx_worker` と取り込みが使うので最後まで残す
+- **テストの名前**: 多くのテストが `S.xxx` のようにモジュールの名前で関数を取る。転送の別名を残す間は通る。消すのは RS5 で一括
+- **一時フォルダに写すテスト**: 写すファイルの一覧(各 e2e の先頭)が新しいパスになる。RS1 で `layout.py` の表を先に直し、写す側はそれを読む形にする
+- **作業データ**: 場所は変えないので移行は無し。設定 1 ファイルだけコピーで読み込む(元は残す)
+- **並行のセッション**: RS2 と RS3 は触るファイルが重ならないように段で分ける。同じ段を 2 つのセッションで触らない
+- 入口が起動中の間はコードを変えても古いまま動く。各段の終わりに「すべて終了 → start.bat」
+
+## 11. 関連
+- 棚卸し(行番号つき): `docs/design/code-separation-inventory-2026-10-09.md`
+- 前の案(置き換え): `plan/code-separation.md`
+- 今の決まり: `AGENTS.md`(取り込みの決まり・担当表)・`docs/spec/pipeline.md`(受け渡しの形式)・`docs/spec/settings.md`(設定)・`docs/spec/data-location.md`(置き場所)
+- 10-09 に途中まで動かして止めた「中だけ分ける」案の変更は `git stash`(「WIP: コードの役割分担 S1〜S3 の途中」)に退避してある。この計画では使わない(消してよい)
