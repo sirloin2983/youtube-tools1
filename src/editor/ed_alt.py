@@ -23,7 +23,6 @@ import json
 import os
 import threading
 import time
-import unicodedata
 
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
@@ -31,6 +30,7 @@ import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
@@ -46,8 +46,7 @@ ALT_DEFAULT = "llama.cpp"   # 既定 = Qwen3-ASR(Whisper と間違え方が違�
 ALT_WINDOW_SEC = 90         # 行の時刻でこの長さごとの窓に区切ってそろえる(長い文書でも遅くならないように)
 ALT_WINDOW_SLACK = 20       # 窓の区切りは、目安の前後この秒の中で、行と行のすき間がいちばん長い所
 ALT_MAX_CHARS = 12          # wrong・right のどちらかがこれより長い食い違いは候補にしない
-ALT_DROP_CHARS = "ー〜～~"   # そろえるときに無視する字(伸ばし。表記だけの違いにしない)
-ALT_MAX_ITEMS = 1000
+ALT_MAX_ITEMS = 1000        # (そろえるときに無視する字 ALT_DROP_CHARS は寄せ方 alt_fold と一緒に pipeline/transcribe/txbase.py。RS2-9)
 
 
 # ---------- エンジンの選び方 ----------
@@ -208,17 +207,7 @@ def alt_after_transcribe(job, spec, tid):
 
 
 # ---------- 食い違いから候補を作る(純粋な関数) ----------
-def alt_fold(ch):
-    """比べるときだけの寄せ方: NFKC・小文字・カタカナ → ひらがな・伸ばしと記号と空白は捨てる(文字でも数字でもないもの)"""
-    out = []
-    for c in unicodedata.normalize("NFKC", ch).lower():
-        o = ord(c)
-        if 0x30A1 <= o <= 0x30F6:
-            c = chr(o - 0x60)
-        if c in ALT_DROP_CHARS or unicodedata.category(c)[0] not in "LN":
-            continue
-        out.append(c)
-    return "".join(out)
+alt_fold = _txbase.alt_fold   # lint: keep 別名(RS2-9)= 比べるときだけの寄せ方(正は txbase。S.alt_fold・dev/eval_alt・ed_retime・ed_ytcap が読む。差し替えない)
 
 
 def _alt_chars(text, tag):

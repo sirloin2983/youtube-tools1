@@ -165,7 +165,9 @@ _txenv.register(DATA_DIR=lambda: ed_state.DATA_DIR, TX_DIR=lambda: ed_state.TX_D
                 gpu_ready=lambda: ed_state.gpu_ready, has_faster_whisper=lambda: ed_state.has_faster_whisper,
                 media_duration=lambda: ed_state.media_duration, check_source=lambda: ed_state.check_source,
                 # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(文書の側の doc_jobs が ed_state を読まずに済むように)
-                studio_stream=lambda: ed_store.studio_stream, valid_model=lambda: ed_state.valid_model, pio=lambda: ed_state.pio)
+                studio_stream=lambda: ed_store.studio_stream, valid_model=lambda: ed_state.valid_model, pio=lambda: ed_state.pio,
+                # RS2-9: 認識ワーカーの Python にモジュールがあるか(話者判別の部品 sherpa-onnx の有無。話者の部品が ed_state を読まずに済むように)
+                worker_has=lambda: ed_state.worker_has)
 _txenv.check()
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
@@ -714,8 +716,7 @@ def set_data_dir(d):
     ed_state.LOG_FILE = os.path.join(ed_state.DATA_DIR, "serve.log")
     ed_state.CRASH_FILE = os.path.join(ed_state.DATA_DIR, "serve.crash.log")
     ed_state.RUN_MARK = os.path.join(ed_state.DATA_DIR, ".running.json")
-    _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")
-    ed_speakers.DIAR_DIR = os.path.join(ed_state.DATA_DIR, "models", "diar")
+    _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")   # (判別のモデル models/diar と覚えた声 voices の置き場所は、話者の部品が呼ぶたびに txenv の DATA_DIR から作る。RS2-9)
     ed_learn.EVAL_BASE = os.path.join(ed_state.DATA_DIR, "eval-baselines.json")
     os.environ["TRANSCRIBE_DATA_DIR"] = ed_state.DATA_DIR
     _datadir.register(ed_state.TOOL_ID, ed_state.DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt_core.datadir の1か所。2026-10-01)

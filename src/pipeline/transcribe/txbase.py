@@ -3,9 +3,12 @@
 役割で組み直す RS2-1a(2026-10-10)に編集の ed_state(app の層)から移した。ed_jobs の中身を pipeline/transcribe へ移したとき、
 移した先が ed_state を読まずに済むように。ed_state には同じ物の別名を残している(どれも差し替え・付け直しをしない名前 =
 テストも本体も `S.名前 = …` をしていないことを確かめてから移した)。差し替える名前(置き場所のパス・ffmpeg など)は移さず、txenv の口を通す(RS2-2)。
+RS2-9 で足した物: 比べるときの文字の寄せ方 alt_fold(ed_alt から)・環境変数のスイッチ env_off(ed_state から)。
 """
 import logging
+import os
 import re
+import unicodedata
 
 log = logging.getLogger("tx")   # 編集の記録(serve.log)。ed_state.setup_logging がこの logger に書き先を付ける(名前で同じ物)
 
@@ -46,6 +49,30 @@ def char_class(ch):
     return ""
 
 
+ALT_DROP_CHARS = "ー〜～~"   # alt_fold で無視する字(伸ばし。表記だけの違いにしない)
+
+
+def alt_fold(ch):
+    """比べるときだけの寄せ方: NFKC・小文字・カタカナ → ひらがな・伸ばしと記号と空白は捨てる(文字でも数字でもないもの)。
+    2 つ目のエンジンの食い違い(ed_alt)・YouTube の字幕(ed_ytcap)・行の時刻の候補(ed_retime)・dev/eval_alt が同じ寄せ方を使う
+    (RS2-9 に ed_alt から移した。ed_alt には別名がある)"""
+    out = []
+    for c in unicodedata.normalize("NFKC", ch).lower():
+        o = ord(c)
+        if 0x30A1 <= o <= 0x30F6:
+            c = chr(o - 0x60)
+        if c in ALT_DROP_CHARS or unicodedata.category(c)[0] not in "LN":
+            continue
+        out.append(c)
+    return "".join(out)
+
+
 def add_warning(job, msg):
     """ジョブの注意(画面の知らせ)を 1 つ足す。新しい list に付け直す(/api/jobs が JSON にしている最中の list を書き換えない)"""
     job["warnings"] = list(job.get("warnings") or []) + [msg]
+
+
+def env_off(name):
+    """環境変数 name が「止める」の値(off・0・no・false。大文字小文字と前後の空白は問わない)か(裏の処理を止めるスイッチ。
+    RS2-9 に編集の ed_state から移した。ed_state には別名がある)"""
+    return os.environ.get(name, "").strip().lower() in ("off", "0", "no", "false")

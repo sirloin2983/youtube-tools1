@@ -1,7 +1,7 @@
 """サーバー側の認識の本物と疑似の差し込み口(役割で組み直す RS2-2。2026-10-10)。
 
 認識の部品(今は移す前の ed_jobs)は「疑似なら …」の if を持たず、違う所(文字起こしの行・記録のエンジン名・疑わしい所の認識し直し・
-範囲と全体の再認識・選んだ行の再認識・全体の再認識の続きの目印)を `select()` が返す Backend のメソッドで呼ぶ。
+範囲と全体の再認識・選んだ行の再認識・全体の再認識の続きの目印。RS2-9 から話者判別の区間と声の特徴も)を `select()` が返す Backend のメソッドで呼ぶ。
 本物の処理は呼ぶ側が real に渡す(本物の Backend = REAL はそれをそのまま呼ぶ)。疑似は ④ の `eval/fake/fake_asr.py` の FakeBackend が上書きする。
 どちらを使うかは app(編集の serve.py)が set_selector で登録する(呼ぶたびに決める = テストの `S.backend_name` の差し替えが効く)。
 この層(pipeline)は eval を読まない。登録が無ければ REAL。
@@ -36,6 +36,16 @@ class Backend:
     def each_lines(self, job, spec, targets, wav, start, real):
         """選んだ行を 1 行ずつ認識 -> {行の id: (文章, 要確認の理由)}。real(job, spec, targets, wav, start)"""
         return real(job, spec, targets, wav, start)
+
+    def diarize(self, job, spec, wav, total, real):
+        """話者判別のジョブの区間 [(開始, 終了, 話者番号)](音声の頭からの秒)。spec = 判別のジョブの指定(numSpeakers・embedding)・
+        total = 音声の長さ(秒)。real(job, spec, wav) = 部品の確かめ・モデルの取得・ワーカーでの判別(RS2-9。疑似は eval/fake/fake_asr)"""
+        return real(job, spec, wav)
+
+    def embed(self, job, wav, emb, groups, real):
+        """声の特徴 -> [長さ 1 の特徴 or None](groups と同じ並び)。groups = [[(開始, 終了)…]](音声の頭からの秒)・emb = 判別モデル。
+        real(job, wav, emb, groups) = ワーカー(かワーカーの中)で特徴を取る(RS2-9)"""
+        return real(job, wav, emb, groups)
 
 
 REAL = Backend()

@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import re
 
 from . import fsio
 
@@ -80,6 +81,38 @@ def fmt_hms(t):
 
 def _r3(x):
     return None if x is None else round(float(x), 3)
+
+
+# ---------- 文字起こしの文書の形の小道具(役割で組み直す RS2-9 に編集の ed_state から移した。ed_state には同じ物の別名がある) ----------
+TID_RE = re.compile(r"^[0-9a-f]{12}$")   # 文書の id の形(12 文字の 16 進)
+# 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。plan/line-b-overlap.md の 6)。
+# 文書の speakers に {"id": OTHER_SPK_ID, "name": OTHER_SPK_NAME, "builtin": OTHER_SPK_BUILTIN} で 1 つだけ入る(選んだときに画面が足す)。
+# 名前は変えない・声を覚えない・判別のやり直しで上書きしない。画面の app.js の OTHER_SP と同じ値(変えるときは両方)
+OTHER_SPK_ID = "other"
+OTHER_SPK_NAME = "ゲーム音声など"
+OTHER_SPK_BUILTIN = "other"
+OTHER_SPK_COLOR = "#8a8f98"
+
+
+def other_speaker(sp):
+    """文書の話者が組み込みの「ゲーム音声など」か(id で決める。sanitize_transcript が id と印をそろえる)"""
+    return isinstance(sp, dict) and sp.get("id") == OTHER_SPK_ID
+
+
+def no_sub_row(g):
+    """行の印 noSub(字幕に出さない)。真のときだけ持つ。カットの「残す」には今までどおり数える"""
+    return isinstance(g, dict) and g.get("noSub") is True
+
+
+# 行の印 draft(機械が置いた下書き・まだ人が打っていない。2026-10-05。話者の部品 human/proof/speakers の ovdraft_)。決まった文字列のときだけ持つ。
+# "overlap" = 声があるのに行の無い所に置いた空の行(重なりの下書き)。文字を打ったら画面が外す。文字の無い行なので字幕・カット・パックには出ない
+# "missing" = 主の話者も含めて、声があるのにどの行も無い所(抜けの下書き。音のメモ overlap は付けない。決まりは overlap と同じ)
+ROW_DRAFT_KINDS = ("overlap", "missing")
+
+
+def blank_draft_row(g):
+    """機械の下書きのまま(印 draft があって文字が空)の行か"""
+    return isinstance(g, dict) and g.get("draft") in ROW_DRAFT_KINDS and not str(g.get("text") or "").strip()
 
 
 # ---------- 途中のファイルの置き場所(2026-09-27。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 1) ----------

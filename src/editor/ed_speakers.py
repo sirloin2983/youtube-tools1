@@ -22,18 +22,21 @@ import urllib.request
 import ed_drill  # noqa: E402,F401   (評価用の文書の名前の候補 drill_candidates。呼ぶときに読む)
 import ed_fill  # noqa: E402,F401   (判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns。0.60.0)
 import ed_learn  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   環境変数の数 env_num だけ(ネイティブの部品は読み込まない)
 from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカー(IN_WORKER・WORKER)と wav を読まずに渡す形 read_wav_f32(RS2-6 にここから移した)
 from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し extract_audio(RS2-8a。持ち主から直に読む)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   話者の印 SPK_FLAGS(RS2-8a)
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   話者の印 SPK_FLAGS(RS2-8a)・ロガー・ジョブの注意・環境変数のスイッチ env_off(RS2-9)
+from pipeline.transcribe import txenv as _txenv  # noqa: E402   置き場所(DATA_DIR・TX_DIR)と外の道具(check_source・media_duration・worker_fake・worker_has)の口(RS2-9。ed_state を読まない)
+from pipeline.transcribe import backend as _backend  # noqa: E402   本物と疑似の差し込み口(判別の区間 diarize・声の特徴 embed。RS2-9)
 from ytt import jobs as _heavy  # noqa: E402   ジョブの表・取り消し・同時に入れない組(RS2-8a。持ち主から直に読む = 文書の側を human へ移しても ① から ② を読まない)
-from ytt import fsio as _fsio  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・書き込み・数の読みと区間・文書の形(RS2-9)
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
 # 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。CPU で動く(PyTorch 不要)。
-DIAR_DIR = os.path.join(ed_state.DATA_DIR, "models", "diar")
+# モデルの置き場所は呼ぶたびに作業データ(txenv の DATA_DIR)の models/diar(以前は読み込みのときに作り、serve の set_data_dir が直していた = 同じ場所。RS2-9)。
+# DIAR_DIR は上書き用(dev/eval_speakers が本物の作業データの models/diar を入れる)。None なら作業データの中
+DIAR_DIR = None
 DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "label": "話者の切り替わり検出",
             "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
             "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488", "max": 40 * 1024 * 1024}
@@ -62,13 +65,18 @@ def diar_threads():
 
 
 def has_sherpa():
-    if ed_state.worker_fake():
+    if _txenv.worker_fake():
         return True
-    return ed_state.worker_has("sherpa_onnx", "numpy")
+    return _txenv.worker_has("sherpa_onnx", "numpy")
+
+
+def diar_models_dir():
+    """判別のモデルの置き場所(上書きの DIAR_DIR があればそれ、無ければ作業データの models/diar。呼ぶたびに決める)"""
+    return DIAR_DIR or os.path.join(_txenv.DATA_DIR, "models", "diar")
 
 
 def _diar_path(item):
-    return os.path.join(DIAR_DIR, item["file"])
+    return os.path.join(diar_models_dir(), item["file"])
 
 
 def _have(item):
@@ -76,7 +84,7 @@ def _have(item):
 
 
 def diar_info():
-    return {"ready": ed_state.backend_name() == "fake" or has_sherpa(), "segReady": _have(DIAR_SEG), "default": DIAR_EMB_DEFAULT,
+    return {"ready": _backend.select().name == "fake" or has_sherpa(), "segReady": _have(DIAR_SEG), "default": DIAR_EMB_DEFAULT,
             "embeddings": [{"key": k, "label": v["label"], "mb": v["mb"], "ready": _have(v)} for k, v in DIAR_EMBS.items()]}
 
 
@@ -93,19 +101,19 @@ def _download_verified(job, item, tmp):
                 break
             done += len(chunk)
             if done > item["max"]:
-                raise ed_state.ApiError("model_download", "モデルのサイズが想定より大きいため中止しました", 500)
+                raise _errors.ApiError("model_download", "モデルのサイズが想定より大きいため中止しました", 500)
             h.update(chunk)
             f.write(chunk)
             if total:
                 job["phase"] = "話者判別のモデルをダウンロード中(%s %d%%)" % (item["label"], min(100, done * 100 // total))
     if h.hexdigest() != item["sha256"]:
-        raise ed_state.ApiError("model_hash", "ダウンロードしたモデルが想定と一致しません(配布元で差し替えられた可能性があります)。ツールの更新を確認してください", 500)
+        raise _errors.ApiError("model_hash", "ダウンロードしたモデルが想定と一致しません(配布元で差し替えられた可能性があります)。ツールの更新を確認してください", 500)
 
 
 def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
-    if ed_state.worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
+    if _txenv.worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
         return
-    os.makedirs(DIAR_DIR, exist_ok=True)
+    os.makedirs(diar_models_dir(), exist_ok=True)
     for item in (DIAR_SEG, DIAR_EMBS[emb]):
         if _have(item):
             continue
@@ -117,14 +125,14 @@ def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
                 with tarfile.open(tmp, "r:bz2") as tf:
                     m = tf.getmember(item["member"])
                     if not m.isfile() or m.size > item["max"]:
-                        raise ed_state.ApiError("model_download", "モデルの形式が想定と違います", 500)
+                        raise _errors.ApiError("model_download", "モデルの形式が想定と違います", 500)
                     with tf.extractfile(m) as src, open(part, "wb") as out:
                         shutil.copyfileobj(src, out)
                 _fsio.replace_retry(part, dest)
             else:
                 _fsio.replace_retry(tmp, dest)
         except (urllib.error.URLError, OSError, tarfile.TarError, KeyError) as e:
-            raise ed_state.ApiError("model_download", "話者判別のモデルをダウンロードできませんでした(初回はインターネット接続が必要です): %s" % str(e)[:150], 500)
+            raise _errors.ApiError("model_download", "話者判別のモデルをダウンロードできませんでした(初回はインターネット接続が必要です): %s" % str(e)[:150], 500)
         finally:
             for x in (tmp, part):
                 _fsio.unlink_quiet(x)
@@ -144,7 +152,7 @@ def diar_tune(threshold=None, min_on=None, min_off=None):
         except (TypeError, ValueError):
             x = -1.0
         if not 0.0 <= x < 10.0:   # NaN もここで断る
-            raise ed_state.ApiError("bad_request", "話者判別の設定(%s)が正しくありません" % k, 400)
+            raise _errors.ApiError("bad_request", "話者判別の設定(%s)が正しくありません" % k, 400)
         out[k] = x
     return out
 
@@ -172,10 +180,10 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=N
         clustering=so.FastClusteringConfig(num_clusters=num if num > 0 else -1, threshold=tune.get("threshold", DIAR_CLUSTER_THRESHOLD)),
         min_duration_on=tune.get("min_on", DIAR_MIN_ON), min_duration_off=tune.get("min_off", DIAR_MIN_OFF))   # 短い相づちを落としにくくする
     if not cfg.validate():
-        raise ed_state.ApiError("diar_failed", "話者判別の設定を読み込めませんでした(モデルファイルが壊れている可能性があります。models フォルダを削除して、もう一度試してください)", 500)
+        raise _errors.ApiError("diar_failed", "話者判別の設定を読み込めませんでした(モデルファイルが壊れている可能性があります。models フォルダを削除して、もう一度試してください)", 500)
     sd = so.OfflineSpeakerDiarization(cfg)
     if sd.sample_rate != 16000:
-        raise ed_state.ApiError("diar_failed", "話者判別のモデルの形式が想定と違います", 500)
+        raise _errors.ApiError("diar_failed", "話者判別のモデルの形式が想定と違います", 500)
     samples = worker_client.read_wav_f32(wav)
 
     def cb(done, total, *_):
@@ -186,20 +194,6 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=N
     res = sd.process(samples, callback=cb).sort_by_start_time()
     _heavy.check_cancel(job)
     return [(float(r.start), float(r.end), int(r.speaker)) for r in res]
-
-
-def diarize_fake(job, total, num, threshold=None):
-    """テスト用: 10秒ごとに話者が入れ替わる(行の途中で切り替わる場面も作る)。
-    threshold(判別の設定を変えて測るとき)が 1.0 以上で人数が自動なら、全部を 1 人にまとめる(本物も、しきい値を上げるとまとまる)。渡さなければ以前と同じ"""
-    n, t, k, turns = (num or (1 if threshold is not None and threshold >= 1.0 else 2)), 0.0, 0, []
-    while t < total:
-        _heavy.check_cancel(job)
-        e = min(total, t + 10.0)
-        turns.append((t, e, k % n))
-        job["progress"] = min(0.99, e / total)
-        ed_state.fake_sleep()
-        t, k = e, k + 1
-    return turns
 
 
 def assign_speakers(segs, turns, offset):
@@ -308,16 +302,16 @@ _diar_lock = threading.Lock()
 
 
 def diar_path(tid):
-    return os.path.join(ed_state.TX_DIR, tid + ".diar.json")
+    return os.path.join(_txenv.TX_DIR, tid + ".diar.json")
 
 
 def read_diar(tid):
     """{"schema", "latest": {…}, "history": [前の回(新しい順)]}。無い・壊れていれば None"""
-    return ed_state.read_schema_json(diar_path(tid), MAX_DIAR_BYTES, DIAR_SCHEMA, "latest", dict)
+    return _fsio.read_schema_json(diar_path(tid), MAX_DIAR_BYTES, DIAR_SCHEMA, "latest", dict)
 
 
 def _diar_put(tid, d):
-    ed_state.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    _fsio.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
 
 
 def write_diar(tid, run):
@@ -356,7 +350,7 @@ def update_diar_voices(tid, voices):
 
 
 def _diar_engine(emb, requested):
-    if ed_state.backend_name() == "fake":
+    if _backend.select().name == "fake":
         return {"name": "fake", "requested": requested or "auto"}
     return {"name": "sherpa-onnx", "segmentation": "pyannote-segmentation-3-0", "embedding": emb, "embeddingFile": DIAR_EMBS[emb]["file"],
             "requested": requested or "auto", "clusterThreshold": DIAR_CLUSTER_THRESHOLD, "minDurationOn": DIAR_MIN_ON, "minDurationOff": DIAR_MIN_OFF,
@@ -372,7 +366,7 @@ def _turn_overlaps(ts):
             if t != s:
                 raw.append((a, min(b, y)))
         active.append((a, b, s))
-    return [[round(a, 2), round(b, 2)] for a, b in ed_state.union_spans(raw)[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
+    return [[round(a, 2), round(b, 2)] for a, b in _yschemas.union_spans(raw)[:MAX_DIAR_OVERLAPS] if b - a > 0.01]
 
 
 def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None, smoothed=None, ratios=None):
@@ -401,7 +395,7 @@ def _record_diar(tid, run):
     try:
         write_diar(tid, run)
     except Exception as e:   # 記録が書けなくても判別の結果は残す
-        ed_state.log.warning("判別の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+        _txbase.log.warning("判別の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
 def apply_diarization(tid, turns, offset, requested, emb=DIAR_EMB_DEFAULT, auto=None, smooth=False):
@@ -426,7 +420,7 @@ def diar_keep_row(g, ids):
     if not isinstance(g, dict):
         return False
     sp = str(g.get("speaker") or "")
-    if ed_state.no_sub_row(g) or sp == ed_state.OTHER_SPK_ID or ed_state.blank_draft_row(g):
+    if _yschemas.no_sub_row(g) or sp == _yschemas.OTHER_SPK_ID or _yschemas.blank_draft_row(g):
         return True
     return bool(sp) and sp in ids and "overlap" in (g.get("tags") if isinstance(g.get("tags"), list) else [])
 
@@ -442,14 +436,14 @@ def _diar_kept_speakers(doc, segs, keep, taken):
         if sid not in used:
             continue
         nid, n = sid, 0
-        if sid != ed_state.OTHER_SPK_ID:
-            while nid in have or nid == ed_state.OTHER_SPK_ID:   # 例: 守った行の「S2」→「S2p」(新しい判別の S2 とは別の人)
+        if sid != _yschemas.OTHER_SPK_ID:
+            while nid in have or nid == _yschemas.OTHER_SPK_ID:   # 例: 守った行の「S2」→「S2p」(新しい判別の S2 とは別の人)
                 n += 1
                 nid = sid[:8] + "p" + (str(n) if n > 1 else "")
         have.add(nid)
         remap[sid] = nid
         out.append(dict(s, id=nid))
-    out.sort(key=lambda s: s.get("id") == ed_state.OTHER_SPK_ID)   # 組み込みの話者は最後(Alt+数字の番号に入らない)
+    out.sort(key=lambda s: s.get("id") == _yschemas.OTHER_SPK_ID)   # 組み込みの話者は最後(Alt+数字の番号に入らない)
     return out, remap
 
 
@@ -481,7 +475,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
             continue
         sg["speaker"] = idmap.get(sp, "")
         parts = [x for x in str(sg.get("flag", "")).split("、") if x and x not in _txbase.SPK_FLAGS]
-        mark = ed_state.NONE_FLAG if not sg["speaker"] else ed_state.MIXED_FLAG if mixed else ed_state.WEAK_FLAG if weak else ""
+        mark = _txbase.NONE_FLAG if not sg["speaker"] else _txbase.MIXED_FLAG if mixed else _txbase.WEAK_FLAG if weak else ""
         if mark:
             parts.append(mark)
             unsure += 1
@@ -500,14 +494,14 @@ def validate_diarize(req):
     tid = str(req.get("tid") or "")
     doc = ed_store.read_transcript(tid)
     if not doc.get("segments"):
-        raise ed_state.ApiError("empty", "行がないため、話者を判別できません", 400)
-    ed_state.check_source(doc.get("sourcePath"))
+        raise _errors.ApiError("empty", "行がないため、話者を判別できません", 400)
+    _txenv.check_source(doc.get("sourcePath"))
     try:
         n = int(req.get("numSpeakers") or 0)
     except (TypeError, ValueError):
         n = 0
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["diarize"]):
-        raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
+        raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識)の最中です", 409)
     emb = str(req.get("embedding") or DIAR_EMB_DEFAULT)
     names = []   # 出てくる人の名前(友人からの依頼の「話す人」。2026-10-01)
     for x in req.get("names") if isinstance(req.get("names"), list) else []:
@@ -529,7 +523,7 @@ def single_speaker(tid, name):
         keep = [diar_keep_row(g, ids) for g in segs]
         kept_sps, remap = _diar_kept_speakers(doc, segs, keep, {"S1"})
         same = _spk_name_key(name or "話者1")
-        for s in [s for s in kept_sps if s.get("id") != ed_state.OTHER_SPK_ID and _spk_name_key(s.get("name")) == same]:   # 同じ名前の人は 1 人にまとめる
+        for s in [s for s in kept_sps if s.get("id") != _yschemas.OTHER_SPK_ID and _spk_name_key(s.get("name")) == same]:   # 同じ名前の人は 1 人にまとめる
             remap.update({k: "S1" for k, v in remap.items() if v == s["id"]})
             kept_sps.remove(s)
         for sg, k in zip(segs, keep):
@@ -550,6 +544,21 @@ def single_speaker(tid, name):
         return len(segs)
 
 
+def _diarize_job_real(job, spec, wav):
+    """判別のジョブの本物の道(backend の口の real): 部品の確かめ → モデルの取得 → ワーカーで判別 -> [(開始, 終了, 話者番号)]"""
+    if not has_sherpa():
+        raise _errors.ApiError("no_sherpa", "話者判別の部品(sherpa-onnx)が入っていません。フォルダ内の install-diarize.bat(Mac は install-diarize.command)を実行してください", 400)
+    job["state"] = "loading"
+    ensure_diar_models(job, spec["embedding"])
+    job["state"], job["phase"], job["progress"] = "running", "話者を判別中(CPU。長い音声は時間がかかります)", 0.0
+    try:
+        return diarize_real(job, wav, spec["numSpeakers"], spec["embedding"])
+    except (_heavy.Cancelled, _errors.ApiError):
+        raise
+    except Exception as e:
+        raise _errors.ApiError("diar_failed", "話者の判別に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:150]), 500)
+
+
 def run_diarize(job):
     spec = job["spec"]
     if spec.get("auto") and autodiar_skip_at_start(job):   # 自動の判別: 待っている間に人が話者を付けた・確かめ済みにしたなら何もしない(v0.50.0)
@@ -565,29 +574,15 @@ def run_diarize(job):
         return
     with _heavy.job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
-        src = ed_state.check_source(doc.get("sourcePath"))
-        start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
-        span = (end if end else (ed_state.media_duration(src) or 0.0)) - start
+        src = _txenv.check_source(doc.get("sourcePath"))
+        start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
+        span = (end if end else (_txenv.media_duration(src) or 0.0)) - start
         if span > MAX_DIAR_SEC:
-            raise ed_state.ApiError("too_long", "話者判別は3時間までの範囲で使えます。範囲を分けて文字起こししてください", 400)
+            raise _errors.ApiError("too_long", "話者判別は3時間までの範囲で使えます。範囲を分けて文字起こししてください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
         recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
-        total = ed_state.media_duration(wav) or span
-        if ed_state.backend_name() == "fake":
-            job["state"], job["phase"] = "running", "話者を判別中"
-            turns = diarize_fake(job, total, spec["numSpeakers"])
-        else:
-            if not has_sherpa():
-                raise ed_state.ApiError("no_sherpa", "話者判別の部品(sherpa-onnx)が入っていません。フォルダ内の install-diarize.bat(Mac は install-diarize.command)を実行してください", 400)
-            job["state"] = "loading"
-            ensure_diar_models(job, spec["embedding"])
-            job["state"], job["phase"], job["progress"] = "running", "話者を判別中(CPU。長い音声は時間がかかります)", 0.0
-            try:
-                turns = diarize_real(job, wav, spec["numSpeakers"], spec["embedding"])
-            except (_heavy.Cancelled, ed_state.ApiError):
-                raise
-            except Exception as e:
-                raise ed_state.ApiError("diar_failed", "話者の判別に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:150]), 500)
+        total = _txenv.media_duration(wav) or span
+        turns = _backend.select().diarize(job, spec, wav, total, _diarize_job_real)   # 疑似は eval/fake/fake_asr の diarize_fake(RS2-9)
         _heavy.check_cancel(job)
         auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
@@ -597,7 +592,7 @@ def run_diarize(job):
             except _heavy.Cancelled:
                 raise
             except Exception as e:
-                ed_state.log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
+                _txbase.log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
                 job["voiceError"] = "覚えている声との照らし合わせに失敗しました(話者の判別の結果はそのまま): %s" % str(e)[:120]
                 try:
                     update_diar_voices(spec["tid"], {"checked": False, "error": "%s %s" % (e.__class__.__name__, str(e)[:150]), "speakers": {}})
@@ -609,7 +604,7 @@ def run_diarize(job):
                 if hit:
                     job["named"] = list(job.get("named") or []) + [hit]
             except Exception as e:   # 名前が付けられなくても判別の結果は残す
-                ed_state.log.warning("動画の手がかりで名前を付けられませんでした: %s %s", e.__class__.__name__, str(e)[:200])
+                _txbase.log.warning("動画の手がかりで名前を付けられませんでした: %s %s", e.__class__.__name__, str(e)[:200])
         _heavy.job_done(job, spec["tid"])
 
 
@@ -625,7 +620,7 @@ OVDRAFT_JOIN = 0.3    # 同じラベルの区間をつなぐすき間(秒)
 OVDRAFT_MIN = 0.5     # これより短い区間は出さない(短い相づちは数が多く当たりも悪いので、最初は出さない)
 OVDRAFT_MAX = 40      # 1 回に出す数(開始の順。超えた数は more)
 OVDRAFT_COVER = 0.5   # 区間のこの割合以上が書いてあれば出さない
-OVDRAFT_KIND = "overlap"   # 置いた行の印 draft の値(ed_state.ROW_DRAFT_KINDS の 1 つ)
+OVDRAFT_KIND = "overlap"   # 置いた行の印 draft の値(ytt/schemas の ROW_DRAFT_KINDS の 1 つ)
 # 抜け(why "missing"。計画 第2版 E2 の前倒し): 主の話者も含めて、どのラベルの声の区間でも、書いてある所(文字のある行は話者によらず・空の下書き・字幕に出さない行・
 # ゲーム音声などの行)と、先に出した重なりの候補を除いた残り。区間の中のすき間(1 人の話の途中で認識が落とした所)も拾うため、区間ごとの「半分以上」ではなく、
 # 書いてある所を引いた残りの切れ端ごとに見る。違うラベルの切れ端が重なればつなぐ(話者は長い方)。置いた行の印は OVDRAFT_MISS_KIND(音のメモ overlap は付けない)
@@ -641,7 +636,7 @@ OVDRAFT_REASONS = {
 
 def _ovdraft_union(spans):
     """[(開始, 終了)] をつなげて開始の順に(重なる・接するものは 1 つに。長さの無い区間は捨てる)"""
-    return ed_state.union_spans((a, b) for a, b in spans if b > a)
+    return _yschemas.union_spans((a, b) for a, b in spans if b > a)
 
 
 def _ovdraft_covered(a, b, union):
@@ -668,16 +663,16 @@ def _ovdraft_cover_rows(segs, ids, speaker):
     for g in segs:
         if not isinstance(g, dict):
             continue
-        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
         if a is None or b is None or b <= a:
             continue
-        if ed_state.blank_draft_row(g):
+        if _yschemas.blank_draft_row(g):
             spans.append((a, b))
             continue
         if not str(g.get("text") or "").strip():
             continue
         sp = str(g.get("speaker") or "")
-        if ed_state.no_sub_row(g) or sp == ed_state.OTHER_SPK_ID:
+        if _yschemas.no_sub_row(g) or sp == _yschemas.OTHER_SPK_ID:
             spans.append((a, b))
         elif speaker is None:
             if sp not in ids or diar_keep_row(g, ids):
@@ -704,14 +699,14 @@ def ovdraft_candidates(doc, latest, kinds=None):
     for t in latest.get("turns") or []:
         if not isinstance(t, dict) or t.get("label") is None:
             continue
-        a, b = ed_state.num(t.get("start")), ed_state.num(t.get("end"))
+        a, b = _yschemas.num_or(t.get("start")), _yschemas.num_or(t.get("end"))
         if a is not None and b is not None and b > a:
             turns.append((a, b, t["label"]))
     if not turns:
         return empty("no_turns")
     lmap = {str(k): str(v) for k, v in (latest.get("labelMap") or {}).items() if v} if isinstance(latest.get("labelMap"), dict) else {}
-    ovl = _ovdraft_union((ed_state.num(x[0]), ed_state.num(x[1])) for x in latest.get("overlaps") or []
-                         if isinstance(x, (list, tuple)) and len(x) >= 2 and ed_state.num(x[0]) is not None and ed_state.num(x[1]) is not None)
+    ovl = _ovdraft_union((_yschemas.num_or(x[0]), _yschemas.num_or(x[1])) for x in latest.get("overlaps") or []
+                         if isinstance(x, (list, tuple)) and len(x) >= 2 and _yschemas.num_or(x[0]) is not None and _yschemas.num_or(x[1]) is not None)
     total = {}
     for a, b, lb in turns:
         total[str(lb)] = total.get(str(lb), 0.0) + (b - a)
@@ -720,9 +715,9 @@ def ovdraft_candidates(doc, latest, kinds=None):
     for lb in total:
         if lb != main:
             joined += [tuple(j) for j in _join_label_spans(sorted(t for t in turns if str(t[2]) == lb))]
-    lo = ed_state.num(doc.get("start"), 0.0) or 0.0
-    hi = ed_state.num(doc.get("end"))
-    dur = ed_state.num(doc.get("duration"))
+    lo = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
+    hi = _yschemas.num_or(doc.get("end"))
+    dur = _yschemas.num_or(doc.get("duration"))
     hi = min(x for x in (hi, dur, float("inf")) if x is not None and x > 0)
     segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
     ids = _spk_ids(doc)
@@ -772,11 +767,11 @@ def _ovdraft_cover_any(segs):
     """抜けの覆い: 文字のある行(話者によらない)・機械の下書きのままの空の行・字幕に出さない行・ゲーム音声などの行"""
     spans = []
     for g in segs:
-        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
         if a is None or b is None or b <= a:
             continue
-        if (str(g.get("text") or "").strip() or ed_state.blank_draft_row(g) or ed_state.no_sub_row(g)
-                or str(g.get("speaker") or "") == ed_state.OTHER_SPK_ID):
+        if (str(g.get("text") or "").strip() or _yschemas.blank_draft_row(g) or _yschemas.no_sub_row(g)
+                or str(g.get("speaker") or "") == _yschemas.OTHER_SPK_ID):
             spans.append((a, b))
     return _ovdraft_union(spans)
 
@@ -854,15 +849,15 @@ AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで
 
 def autodiar_enabled():
     """環境変数 TRANSCRIBE_AUTO_DIARIZE=off で自動の判別をしない(テスト・困ったとき用。評価用の決まりは変えない)"""
-    return not ed_state.env_off("TRANSCRIBE_AUTO_DIARIZE")
+    return not _txbase.env_off("TRANSCRIBE_AUTO_DIARIZE")
 
 
 def autodiar_ready():
     """判別の部品があるか(疑似のときは常に)。サーバー側では sherpa-onnx を読み込まない(has_sherpa はワーカー側で調べる)。
     テスト用の worker-fake(ワーカーの中だけ偽のモデル)では使わない(判別は本物の経路 = モデルの取得になるため)"""
-    if ed_state.backend_name() == "fake":
+    if _backend.select().name == "fake":
         return True
-    return not ed_state.worker_fake() and has_sherpa()
+    return not _txenv.worker_fake() and has_sherpa()
 
 
 def autodiar_why_not(doc):
@@ -886,7 +881,7 @@ def autodiar_enqueue(tid, batch=False):
     if not autodiar_enabled():
         return {"skipped": "off"}
     if not autodiar_ready():
-        ed_state.log.info("話者の自動判別を飛ばしました(判別の部品 sherpa-onnx が無い): %s", tid)
+        _txbase.log.info("話者の自動判別を飛ばしました(判別の部品 sherpa-onnx が無い): %s", tid)
         return {"skipped": "no_sherpa"}
     doc = ed_store.read_transcript(tid)
     why = autodiar_why_not(doc)
@@ -898,7 +893,7 @@ def autodiar_enqueue(tid, batch=False):
         try:
             name = str(ed_drill.drill_candidates(tid).get("suggest") or "").strip()[:30] or None
         except Exception as e:   # 名簿・ほかのツールのデータが読めなくても判別は始める(名前は付けない)
-            ed_state.log.info("話者の名前の候補を決められませんでした: %s %s", tid, str(e)[:150])
+            _txbase.log.info("話者の名前の候補を決められませんでした: %s %s", tid, str(e)[:150])
         if name and (DEFAULT_SPK_NAME.match(name) or is_generic_speaker_name(name)):
             name = None
     st = ed_learn.load_settings()   # 判別モデルと「細切れをならす」(diarSmooth)を 1 回で読む
@@ -918,11 +913,11 @@ def autodiar_after_transcribe(job, spec, tid):
     try:
         r = autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")))
         if r.get("skipped") == "no_sherpa" and not spec.get("evalSet"):   # 設定でオンにした人には知らせる(評価用は黙って飛ばす = 人が「全行をこの人に」)
-            ed_state.add_warning(job, "話者の判別の部品(sherpa-onnx)が入っていないため、話者は自動で判別しませんでした")
-    except ed_state.ApiError as e:
-        ed_state.add_warning(job, "話者の自動判別を始められませんでした: " + e.message)
+            _txbase.add_warning(job, "話者の判別の部品(sherpa-onnx)が入っていないため、話者は自動で判別しませんでした")
+    except _errors.ApiError as e:
+        _txbase.add_warning(job, "話者の自動判別を始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
-        ed_state.log.warning("話者の自動判別を始められませんでした: %s %s %s", tid, e.__class__.__name__, str(e)[:150])
+        _txbase.log.warning("話者の自動判別を始められませんでした: %s %s %s", tid, e.__class__.__name__, str(e)[:150])
 
 
 def autodiar_skip_at_start(job):
@@ -931,7 +926,7 @@ def autodiar_skip_at_start(job):
     spec = job["spec"]
     try:
         why = autodiar_why_not(ed_store.read_transcript(spec["tid"]))
-    except ed_state.ApiError as e:
+    except _errors.ApiError as e:
         why = e.code
     if not why:
         return False
@@ -952,8 +947,8 @@ def autodiar_name_by_context(tid, name):
         sps = [s for s in doc.get("speakers") or [] if isinstance(s, dict)]
         spent = {}
         for g in doc.get("segments") or []:
-            if isinstance(g, dict) and g.get("speaker") and str(g.get("text") or "").strip() and not ed_state.no_sub_row(g):   # 字幕に出さない行(ゲームの声など)は話した秒に数えない
-                a, b = ed_state.num(g.get("start"), 0.0) or 0.0, ed_state.num(g.get("end"), 0.0) or 0.0
+            if isinstance(g, dict) and g.get("speaker") and str(g.get("text") or "").strip() and not _yschemas.no_sub_row(g):   # 字幕に出さない行(ゲームの声など)は話した秒に数えない
+                a, b = _yschemas.num_or(g.get("start"), 0.0) or 0.0, _yschemas.num_or(g.get("end"), 0.0) or 0.0
                 spent[g["speaker"]] = spent.get(g["speaker"], 0.0) + max(0.0, b - a)
         left = [s for s in sps if DEFAULT_SPK_NAME.match(str(s.get("name") or "")) and spent.get(s.get("id"), 0.0) > 0]
         if not nm or not sps:
@@ -992,7 +987,7 @@ def _autodiar_record(tid, name, hit, reason):
             v["context"] = {"name": name, "speaker": hit["speaker"] if hit else None, "reason": reason}
             latest["voices"] = v
     except Exception as e:
-        ed_state.log.warning("動画の手がかりの名前の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+        _txbase.log.warning("動画の手がかりの名前の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
 # ---------- 話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md) ----------
@@ -1000,7 +995,10 @@ def _autodiar_record(tid, name, hit, reason):
 # 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
 # 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
 # 計算(numpy・sherpa-onnx)は認識ワーカーの中だけ(_embed_local)。サーバーでは読み込まない
-VOICES_DIR = os.path.join(ed_state.DATA_DIR, "voices")
+# 置き場所は呼ぶたびに作業データ(txenv の DATA_DIR)の voices(voices_dir)。VOICES_DIR は上書き用(テストが一時フォルダを入れる)。None なら作業データの中。
+# RS2-9 の不具合の直し(動きが変わる): 以前は読み込みのときに作り、serve の set_data_dir が直さなかったので、入口から起動すると
+# 覚えた声が作業データではなく editor のフォルダの voices に読み書きされていた(判別のモデルの DIAR_DIR だけ直っていた)
+VOICES_DIR = None
 VOICE_MATCH = 0.60        # 覚えている声とのコサイン類似度がこれ以上なら同じ人とみなす
 VOICE_MARGIN = 0.08       # 2番目に近い声との差がこれより小さければ決めない(似た声を取り違えるより、名前を付けない方が安全)
 VOICE_MIN_ROW = 1.0       # 声の特徴を取る行の最短(秒)。短い行(相づち)は特徴が安定しない
@@ -1012,7 +1010,7 @@ _voices_lock = threading.Lock()
 # 一般的な名前(監査18。段1・2026-09-29 ユーザー決定): 声を覚えると、別の配信の「本人」「ゲスト」に同じ名前が付いてしまう(人ではなく役の名前)ので覚えない。
 # 判定は is_generic_speaker_name の1か所(画面は preview の結果を出すだけ)。比べる前に NFKC・小文字・空白を寄せる(全角の「ＭＣ」・「Speaker 1」も同じに)
 GENERIC_SPK_NAMES = frozenset(("本人", "ゲスト", "配信者", "私", "自分", "相手", "司会", "mc", "男性", "女性", "不明", "その他", "視聴者", "ナレーション",
-                               "話者", "speaker", "スピーカー", ed_state.OTHER_SPK_NAME))   # 組み込みの「ゲーム音声など」も人の名前ではない(覚えない・照らし合わせない)
+                               "話者", "speaker", "スピーカー", _yschemas.OTHER_SPK_NAME))   # 組み込みの「ゲーム音声など」も人の名前ではない(覚えない・照らし合わせない)
 GENERIC_SPK_FORM = re.compile(r"^(?:話者|speaker|spk|スピーカー)?(?:\d+|[a-z])$")   # 話者A・話者1・Speaker 1・英字1文字・数字だけ
 
 
@@ -1025,8 +1023,13 @@ def is_generic_speaker_name(name):
     return bool(k) and (k in GENERIC_SPK_NAMES or bool(GENERIC_SPK_FORM.match(k)))
 
 
+def voices_dir():
+    """覚えた声の置き場所(上書きの VOICES_DIR があればそれ、無ければ作業データの voices。呼ぶたびに決める)"""
+    return VOICES_DIR or os.path.join(_txenv.DATA_DIR, "voices")
+
+
 def voices_path(emb):
-    return os.path.join(VOICES_DIR, emb + ".json")
+    return os.path.join(voices_dir(), emb + ".json")
 
 
 def load_voices(emb):
@@ -1039,8 +1042,8 @@ def load_voices(emb):
 
 
 def save_voices(emb, voices):
-    os.makedirs(VOICES_DIR, exist_ok=True)
-    ed_state.atomic_write(voices_path(emb), json.dumps({"schema": "ytt-voices/v1", "embedding": emb, "voices": voices}, ensure_ascii=False).encode("utf-8"))
+    os.makedirs(voices_dir(), exist_ok=True)
+    _fsio.atomic_write(voices_path(emb), json.dumps({"schema": "ytt-voices/v1", "embedding": emb, "voices": voices}, ensure_ascii=False).encode("utf-8"), fsync_required=True)
 
 
 def _unit(v):
@@ -1061,8 +1064,8 @@ def voice_groups(segs, key):
         k = key(g)
         if not k:
             continue
-        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
-        if a is None or b is None or b - a < VOICE_MIN_ROW or ed_state.MIXED_FLAG in str(g.get("flag") or ""):
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
+        if a is None or b is None or b - a < VOICE_MIN_ROW or _txbase.MIXED_FLAG in str(g.get("flag") or ""):
             continue
         by.setdefault(k, []).append((a, b))
     out = {}
@@ -1079,31 +1082,18 @@ def voice_groups(segs, key):
 
 
 def embed_groups(job, wav, emb, groups, offset):
-    """groups: [[(開始, 終了)...]](元の動画の時刻)。wav は offset 秒から始まる音声。-> [長さ 1 の特徴 or None](groups と同じ並び)"""
+    """groups: [[(開始, 終了)...]](元の動画の時刻)。wav は offset 秒から始まる音声。-> [長さ 1 の特徴 or None](groups と同じ並び)。
+    疑似は eval/fake/fake_asr の embed_fake(backend の口。RS2-9)"""
     rel = [[[max(0.0, a - offset), max(0.0, b - offset)] for a, b in g] for g in groups]
-    if ed_state.backend_name() == "fake":
-        return embed_fake(rel)
+    return _backend.select().embed(job, wav, emb, rel, _embed_real)
+
+
+def _embed_real(job, wav, emb, groups):
+    """声の特徴の本物の道(backend の口の real): ワーカーの中なら _embed_local、サーバーならワーカーに頼む"""
     if worker_client.IN_WORKER:
-        return _embed_local(job, wav, emb, rel)
-    res = worker_client.WORKER.call("embed", {"wav": wav, "emb": emb, "groups": rel}, job)
+        return _embed_local(job, wav, emb, groups)
+    res = worker_client.WORKER.call("embed", {"wav": wav, "emb": emb, "groups": groups}, job)
     return [[float(x) for x in v] if isinstance(v, list) and v else None for v in res]
-
-
-def embed_fake(groups):
-    """テスト用: 偽の話者判別(diarize_fake: 10秒ごとに入れ替わる)と同じ区切りの番号ごとに、向きの違う特徴"""
-    out = []
-    for g in groups:
-        votes = {}
-        for a, b in g:
-            k = int(((a + b) / 2.0) // 10) % 2   # diarize_fake の既定(2人)と同じ入れ替わり
-            votes[k] = votes.get(k, 0.0) + (b - a)
-        if not votes:
-            out.append(None)
-            continue
-        v = [0.1] * 8
-        v[max(votes, key=votes.get)] = 1.0
-        out.append(_unit(v))
-    return out
 
 
 def _embed_local(job, wav, emb, groups):
@@ -1113,7 +1103,7 @@ def _embed_local(job, wav, emb, groups):
     threads = diar_threads()
     cfg = so.SpeakerEmbeddingExtractorConfig(model=_diar_path(DIAR_EMBS[emb]), num_threads=threads)
     if not cfg.validate():
-        raise ed_state.ApiError("diar_failed", "声の特徴のモデルを読み込めませんでした(models フォルダを削除して、もう一度試してください)", 500)
+        raise _errors.ApiError("diar_failed", "声の特徴のモデルを読み込めませんでした(models フォルダを削除して、もう一度試してください)", 500)
     ex = so.SpeakerEmbeddingExtractor(cfg)
     samples, sr = worker_client.read_wav_f32(wav), 16000
     total, done, out = max(1, sum(len(g) for g in groups)), 0, []
@@ -1201,7 +1191,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
     got, detail = {}, {}
     if voices:
         doc = ed_store.read_transcript(tid)
-        grp = voice_groups(doc.get("segments") or [], lambda g: "" if ed_state.no_sub_row(g) or g.get("speaker") == ed_state.OTHER_SPK_ID else (g.get("speaker") or ""))   # ゲーム音声など・字幕に出さない行は照らし合わせない
+        grp = voice_groups(doc.get("segments") or [], lambda g: "" if _yschemas.no_sub_row(g) or g.get("speaker") == _yschemas.OTHER_SPK_ID else (g.get("speaker") or ""))   # ゲーム音声など・字幕に出さない行は照らし合わせない
         ids = list(grp)
         if ids:
             job["phase"] = "覚えている声と照らし合わせ中"
@@ -1226,7 +1216,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
             update_diar_voices(tid, {"checked": True, "embedding": emb, "registered": len(all_voices), "restrictedNames": list(names) if names else None,
                                      "match": VOICE_MATCH, "margin": VOICE_MARGIN, "speakers": rec})
         except Exception as e:
-            ed_state.log.warning("声の照合の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+            _txbase.log.warning("声の照合の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
     if not got and not names:
         record(ed_store.read_transcript(tid), [])
@@ -1263,7 +1253,7 @@ def voice_learn_plan(doc):
     話者判別のときの照らし合わせ(recognize_voices)は voice_groups のまま(校正前の文書でも名前が付くように。変えない決定)。
     -> {"groups": {名前: ([(開始, 終了)...], 秒)}, "speakers": {名前: [話者の id]}, "refused": [{"name", "speakers", "reason": "generic"|"no_rows"}],
         "skipped": {"unproofed", "tagged", "mixed", "short"}(覚える人の行のうち使わなかった数。理由は 1秒未満 → 混ざる → 音のメモ → 未校正 の順に1つ)}"""
-    names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict) and not ed_state.other_speaker(s)}   # 組み込みの「ゲーム音声など」は覚えない(断った扱いにもしない)
+    names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict) and not _yschemas.other_speaker(s)}   # 組み込みの「ゲーム音声など」は覚えない(断った扱いにもしない)
     by_name, refused = {}, {}
     for sid, n in names.items():
         if not n or DEFAULT_SPK_NAME.match(n):
@@ -1278,11 +1268,11 @@ def voice_learn_plan(doc):
     for g in doc.get("segments") or []:
         if not isinstance(g, dict) or g.get("speaker") not in who:
             continue
-        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
         tags = g.get("tags") if isinstance(g.get("tags"), list) else []
         if a is None or b is None or b - a < VOICE_MIN_ROW:
             skipped["short"] += 1
-        elif ed_state.MIXED_FLAG in str(g.get("flag") or ""):
+        elif _txbase.MIXED_FLAG in str(g.get("flag") or ""):
             skipped["mixed"] += 1
         elif any(t in tags for t in VOICE_LEARN_TAGS):
             skipped["tagged"] += 1
@@ -1322,25 +1312,25 @@ def validate_voice_learn(req):
     tid = str(req.get("tid") or "")
     doc = ed_store.read_transcript(tid)
     if doc.get("evalSet") is True:   # 監査02: 評価用の声を覚えると、評価用のデータがほかの文書の名前付けに使われる
-        raise ed_state.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
+        raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
     want = req.get("names")
     if not isinstance(want, list) or not all(isinstance(n, str) for n in want):   # 画面と API の版はそろえて上げる(古い形は受けない = 確認を飛ばして覚えない)
-        raise ed_state.ApiError("bad_request", "覚える人の指定(names)がありません。画面を読み込み直してから、もう一度押してください", 400)
+        raise _errors.ApiError("bad_request", "覚える人の指定(names)がありません。画面を読み込み直してから、もう一度押してください", 400)
     plan = voice_learn_plan(doc)
     names = [n for n in dict.fromkeys(str(x).strip()[:60] for x in want) if n in plan["groups"]]
     if not names:
         gen = [r["name"] for r in plan["refused"] if r["reason"] == "generic"]
-        raise ed_state.ApiError("no_names", "覚えられる話者がいません。校正済みの行(1秒以上・音のメモなし)がある、名前を付けた話者の声だけを覚えます"
+        raise _errors.ApiError("no_names", "覚えられる話者がいません。校正済みの行(1秒以上・音のメモなし)がある、名前を付けた話者の声だけを覚えます"
                        "(「話者1」のような仮の名前%sは覚えません)" % ("・「%s」のような一般的な名前" % "」「".join(gen[:3]) if gen else ""), 400)
-    ed_state.check_source(doc.get("sourcePath"))
+    _txenv.check_source(doc.get("sourcePath"))
     emb = _voice_emb(req, doc)
     same = {str(x) for x in req.get("confirmSame") or [] if isinstance(x, str)}
     voices = load_voices(emb)
     ask = [n for n in names if n in voices and n not in same]
     if ask:   # 監査18: 既にある名前に足すのは「同じ人」と確かめたときだけ(別人の声が混ざると、その名前の照らし合わせが外れる)
-        raise ed_state.ApiError("confirm_same", "「%s」の声はもう覚えています。同じ人か確かめてから、もう一度押してください" % "」「".join(ask), 409, extra={"names": ask})
+        raise _errors.ApiError("confirm_same", "「%s」の声はもう覚えています。同じ人か確かめてから、もう一度押してください" % "」「".join(ask), 409, extra={"names": ask})
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["voice-learn"]):
-        raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
+        raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     return {"tid": tid, "embedding": emb, "names": names, "confirmSame": sorted(same & set(names)),
             "title": _heavy.job_title("声を覚える: ", doc)}
 
@@ -1350,18 +1340,19 @@ def run_voice_learn(job):
     with _heavy.job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
         if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
-            raise ed_state.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
-        src = ed_state.check_source(doc.get("sourcePath"))
-        start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
+            raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
+        src = _txenv.check_source(doc.get("sourcePath"))
+        start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         plan = voice_learn_plan(doc)   # 読み直した文書で決め直し、確認した人(spec["names"])との積だけを覚える(確認のあとで名前を付けた人を黙って覚えない)
         grp = {n: plan["groups"][n] for n in spec.get("names") or [] if n in plan["groups"]}
         if not grp:
-            raise ed_state.ApiError("no_names", "覚えられる話者の行がありません(待っている間に名前・校正済みの印が変わった可能性があります)", 400)
-        if ed_state.backend_name() != "fake" and not has_sherpa():
-            raise ed_state.ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
+            raise _errors.ApiError("no_names", "覚えられる話者の行がありません(待っている間に名前・校正済みの印が変わった可能性があります)", 400)
+        fake = _backend.select().name == "fake"
+        if not fake and not has_sherpa():
+            raise _errors.ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
         recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
-        if ed_state.backend_name() != "fake":
+        if not fake:
             job["state"] = "loading"
             ensure_diar_models(job, spec["embedding"])
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
@@ -1378,7 +1369,7 @@ def run_voice_learn(job):
                 rows, sec = len(grp[n][0]), grp[n][1]
                 old = voices.get(n)
                 if old and n not in same:   # 待っている間にほかで同じ名前を覚えた(確かめていない人の声には足さない)
-                    ed_state.add_warning(job, "「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
+                    _txbase.add_warning(job, "「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
                     continue
                 if old and len(old["vec"]) == len(v):   # 前に覚えた声と、使った長さで重みを付けて混ぜる(配信ごとの声の揺れをならす)
                     w0 = min(float(old.get("sec") or 0.0), 3600.0)
@@ -1387,11 +1378,11 @@ def run_voice_learn(job):
                 voices[n] = {"vec": [round(x, 6) for x in v], "rows": rows, "sec": round(sec, 1), "updatedAt": int(time.time() * 1000)}
                 learned.append(n)
             if len(voices) > VOICE_MAX_PEOPLE:
-                raise ed_state.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % VOICE_MAX_PEOPLE, 400)
+                raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % VOICE_MAX_PEOPLE, 400)
             if learned:
                 save_voices(spec["embedding"], voices)
         if not learned:
-            raise ed_state.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
+            raise _errors.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
         job["learned"] = learned
         job["speakers"] = len(learned)
         _heavy.job_done(job, spec["tid"])
@@ -1411,11 +1402,11 @@ def voices_summary():
 
 def delete_voice(emb, name):
     if emb not in DIAR_EMBS:
-        raise ed_state.ApiError("bad_request", "判別モデルの指定が正しくありません", 400)
+        raise _errors.ApiError("bad_request", "判別モデルの指定が正しくありません", 400)
     with _voices_lock:
         voices = load_voices(emb)
         if name not in voices:
-            raise ed_state.ApiError("not_found", "その声は覚えていません", 404)
+            raise _errors.ApiError("not_found", "その声は覚えていません", 404)
         del voices[name]
         save_voices(emb, voices)
 
@@ -1439,17 +1430,17 @@ def _spksub_busy(tid):
 
 def speakers_sub_apply(obj):
     tid = str(obj.get("id") or "") if isinstance(obj, dict) else ""
-    if not ed_state.TID_RE.match(tid):
-        raise ed_state.ApiError("bad_request", "文書の指定が正しくありません", 400)
+    if not _yschemas.TID_RE.match(tid):
+        raise _errors.ApiError("bad_request", "文書の指定が正しくありません", 400)
     styles = obj.get("styles")
     if not isinstance(styles, dict) or len(styles) > 50:
-        raise ed_state.ApiError("bad_request", "styles は {名前: {color}} の形で送ってください(50 人まで)", 400)
+        raise _errors.ApiError("bad_request", "styles は {名前: {color}} の形で送ってください(50 人まで)", 400)
     want = {}
     for name, st in styles.items():
         if not isinstance(name, str) or not isinstance(st, dict) or len(name) > 200 or any(ord(ch) < 32 for ch in name):
-            raise ed_state.ApiError("bad_request", "styles の名前・中身の形が正しくありません", 400)
+            raise _errors.ApiError("bad_request", "styles の名前・中身の形が正しくありません", 400)
         if "color" in st and ed_store._sub_color(st["color"]) is None:
-            raise ed_state.ApiError("bad_request", "字幕の色は 16 進 6 桁(#RRGGBB)で送ってください: %s" % str(st["color"])[:20], 400)
+            raise _errors.ApiError("bad_request", "字幕の色は 16 進 6 桁(#RRGGBB)で送ってください: %s" % str(st["color"])[:20], 400)
         one = ed_store.sanitize_sub_style(st)   # 知らない鍵は黙って捨てる(新しい入口が古い編集へ送っても、色までは効く)
         key = _spksub_key(name)
         if one and key:
@@ -1457,16 +1448,16 @@ def speakers_sub_apply(obj):
     with ed_store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)
         doc = ed_store.read_transcript(tid)
         if _spksub_busy(tid):
-            raise ed_state.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度送ってください)", 409)
+            raise _errors.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度送ってください)", 409)
         applied = []
         for s in doc.get("speakers") or []:
-            if not isinstance(s, dict) or ed_state.other_speaker(s):
+            if not isinstance(s, dict) or _yschemas.other_speaker(s):
                 continue
             one = want.get(_spksub_key(s.get("name")))
             if one:
                 s["sub"] = dict(ed_store.sanitize_sub_style(s.get("sub")) or {}, **one)
                 applied.append(str(s.get("name") or ""))
         if applied:
-            doc["updatedAt"] = max(int(time.time() * 1000), int(ed_state.num(doc.get("updatedAt"), 0) or 0) + 1)
+            doc["updatedAt"] = max(int(time.time() * 1000), int(_yschemas.num_or(doc.get("updatedAt"), 0) or 0) + 1)
             ed_store.write_doc(tid, doc)
     return {"ok": True, "applied": applied}

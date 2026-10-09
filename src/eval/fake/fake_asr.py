@@ -5,7 +5,10 @@
 (`backend.set_selector`。ed_state.backend_name() が "fake" のとき FAKE)。
 `transcribe_fake`・`_fake_spans` は今までどおり ed_jobs.名前 / S.名前 でも読める(serve が ed_jobs の転送にこのモジュールを足す)。編集の ed_state.fake_sleep は fake_wait の別名。
 本体は呼ぶたびにこのモジュールの名前を読む(`mock.patch.object(ed_jobs, "transcribe_fake", …)` が効く)。
+RS2-9 に、話者判別と声の特徴の疑似 diarize_fake・embed_fake を編集の ed_speakers から移した(S.diarize_fake・S.embed_fake は serve の受付で読める。
+認識ワーカーの worker-fake もこの 2 つを使う = 偽物どうしが食い違わない)。
 """
+import math
 import os
 import time
 
@@ -66,6 +69,38 @@ def fake_range_lines(job, a, b, loose, share=(0.0, 1.0)):
     return lines
 
 
+def diarize_fake(job, total, num, threshold=None):
+    """話者判別の疑似: 10秒ごとに話者が入れ替わる(行の途中で切り替わる場面も作る)。
+    threshold(判別の設定を変えて測るとき)が 1.0 以上で人数が自動なら、全部を 1 人にまとめる(本物も、しきい値を上げるとまとまる)。渡さなければ以前と同じ"""
+    n, t, k, turns = (num or (1 if threshold is not None and threshold >= 1.0 else 2)), 0.0, 0, []
+    while t < total:
+        _fa_jobs.check_cancel(job)
+        e = min(total, t + 10.0)
+        turns.append((t, e, k % n))
+        job["progress"] = min(0.99, e / total)
+        fake_wait()
+        t, k = e, k + 1
+    return turns
+
+
+def embed_fake(groups):
+    """声の特徴の疑似: 偽の話者判別(diarize_fake: 10秒ごとに入れ替わる)と同じ区切りの番号ごとに、向きの違う特徴(長さ 1)"""
+    out = []
+    for g in groups:
+        votes = {}
+        for a, b in g:
+            k = int(((a + b) / 2.0) // 10) % 2   # diarize_fake の既定(2人)と同じ入れ替わり
+            votes[k] = votes.get(k, 0.0) + (b - a)
+        if not votes:
+            out.append(None)
+            continue
+        v = [0.1] * 8
+        v[max(votes, key=votes.get)] = 1.0
+        s = math.sqrt(sum(x * x for x in v))   # 長さ 1 に(話者の部品の _unit と同じ計算)
+        out.append([x / s for x in v])
+    return out
+
+
 class FakeBackend(_fa_backend.Backend):
     """疑似の認識(本物の処理 real は呼ばない)"""
     name = "fake"
@@ -104,6 +139,13 @@ class FakeBackend(_fa_backend.Backend):
             job["progress"] = (n + 1) / len(targets)
             fake_wait()
         return results
+
+    def diarize(self, job, spec, wav, total, real):
+        job["state"], job["phase"] = "running", "話者を判別中"
+        return diarize_fake(job, total, spec["numSpeakers"])   # 呼ぶたびにこのモジュールの名前を読む(テストの差し替え)
+
+    def embed(self, job, wav, emb, groups, real):
+        return embed_fake(groups)
 
 
 FAKE = FakeBackend()
