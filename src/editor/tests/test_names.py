@@ -196,6 +196,36 @@ class TestEdSpeakersShell(unittest.TestCase):
             S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR = saved
 
 
+class TestPipelineMovedWithoutShell(unittest.TestCase):
+    """RS2-9c: ed_fill・ed_llm は pipeline/transcribe の fill・llm へ、ed_retime の計算は retime へ移した(殻・別名なし)。
+    S.名前 で読め、S.名前 = … の差し替えが持ち主に届き、ed_retime には文書を読む包みの 2 つの名前だけが残る"""
+
+    def test_moved_names_read_through_serve(self):
+        from pipeline.transcribe import fill, llm, retime
+        for mod, names in ((fill, ("fill_apply", "fill_strip_names", "fill_clean_turns", "FILL_FLAG")),
+                           (llm, ("llm_run", "llm_path", "read_llm", "LLM_FLAG")),
+                           (retime, ("subread_mark", "SUBREAD_FAST_CPS", "retime_candidates", "RETIME_PAD"))):
+            for n in names:
+                self.assertIs(getattr(S, n), getattr(mod, n), n)
+        self.assertIs(S.retime_doc, __import__("ed_retime").retime_doc)
+
+    def test_patch_reaches_owner(self):
+        from pipeline.transcribe import llm, retime
+        with mock.patch.object(S, "LLM_MIN_CONF", 0.9), mock.patch.object(S, "RETIME_PAD", 0.5):
+            self.assertEqual((llm.LLM_MIN_CONF, retime.RETIME_PAD), (0.9, 0.5))
+        self.assertEqual((llm.LLM_MIN_CONF, retime.RETIME_PAD), (0.5, 1.5))
+
+    def test_ed_retime_keeps_only_the_wrapper(self):
+        import ed_retime
+        own = sorted(k for k, v in vars(ed_retime).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["retime_doc", "retime_engine"])
+
+    def test_old_shells_do_not_exist(self):
+        for name in ("ed_fill", "ed_llm"):
+            with self.assertRaises(ImportError):
+                __import__(name)
+
+
 class TestEdJobsForwarding(unittest.TestCase):
     """ed_jobs の転送の口(ytt/modfwd.py)。移した先に見立てた部品で、読み・書き・削除・patch.object が本体に届くか"""
 
