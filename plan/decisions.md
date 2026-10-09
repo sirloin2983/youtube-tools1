@@ -465,3 +465,12 @@
 - RS0-l 仮: 片付けの実行は持ち主の層、起動時の呼び出しと見張りだけ manage/keep・manage/ops
 - RS0-m 仮: 文書の要約・削除は human/proof が基本を持ち、進行度(manage)・ドリル(eval)・付き物は登録の口で各層が足す
 - 共通の作法(仮): 下の層が上の層を呼んでいる所は (1) 読むだけならファイルを境目に下の層が読み手を持つ (2) 上の処理を挟むなら登録の口 (3) どちらでもなければ処理ごと上へ
+
+### 3-23 役割で組み直す RS2-8 の仮決め(2026-10-10 深夜〜早朝。ユーザー「仮で決定してよい・最後にまとめて確認・今から寝るから質問はなし」。下調べ Sonnet・設計の相談 Fable・実装 Opus。**まだ確認していない**)
+- RS2-8-a 仮: 8d の口は、関数ごとの lambda を 1 つの `doc_jobs.set_hooks`(5 本 = eval_guard・in_eval_dir・redo_skip・redo_fill・norm_after)にまとめる。登録されていなければ RuntimeError、serve は登録の直後に `check_hooks()`(何もしない既定にすると、評価用の作り直しや 30fps の作り直しを黙って飛ばすため採らない)
+- RS2-8-b 仮: 殻の `src/editor/ed_jobs.py` は層 human で `dev/layer_map.py` の FILES だけ(FORWARDERS には入れない)・serve の `_ED_MODULES` に残す(test_names が位置を見る)・serve 自身の参照は本物の持ち主へ。持つ名前は `_MOVED`・`_moved_owner`・`_add_moved` だけ(RS5 で消す)
+- RS2-8-c 仮: rerun の境目 = 受付(validate_retranscribe・redo_spec・redo_targets)は doc_jobs、本体と反映・record_rerun は rerun(run_job が autoRedo で redo_spec を呼ぶため。向きは rerun → doc_jobs の一方向)
+- RS2-8-d 仮: RS0-i の第 1 歩として、取り出し → 認識 → 整えた行を `recognize.transcribe_rows` へ(ed_fill・ed_llm は RS2-9、辞書と学習の置換を ① の後処理へ入れるのは RS6)。辞書と学習の記録を読む時機が「取り出しの後」から「取り出しの前」に変わった(どちらも認識の前 = F-8 は保つ)
+- RS2-8-e 仮: `stream_context`・`split_terms` は roster へ。配信の情報・モデル名の検査・clip の読み(`studio_stream`・`valid_model`・`pio`)は txenv の鍵に(RS3 で ytt/settings に置き換えるときの対象)。`SPK_FLAGS` は txbase に置き、ed_state に別名を残す(dev/eval_asr が S.SPK_FLAGS を読むため)
+- RS2-8-f 仮: ついでの整理 = ed_thumb・ed_evalaudio は ytt/jobs を直に読む・ed_state の末尾の `import ed_jobs`(読み込みの順のためだけ)を外した・pipeline/spec.py のコメントの古い行番号を関数名に
+- RS2-8-g 仮: RS2 を済みにし、残り(ed_fill・ed_llm・ed_retime・tx_worker の移動・ed_speakers の分割)は RS2-9 として RS3 の前か一緒に行う

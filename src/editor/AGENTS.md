@@ -100,7 +100,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 ## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
 - 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(channel = YouTube のチャンネルの ID(2026-10-04。公式サイトから。使うのは `dev/eval_fetch.py` だけで、`roster.py` は読まない)・aliases = 呼び名・common = 普通の言葉と重なる呼び名・
   misrecognitions = 誤りやすい形。**学習用の文書の修正に出るものだけ**入れる。評価用にしか出ない誤りは入れない)。読むのは `roster.py`(RS2-3 で `src/pipeline/transcribe/roster.py` へ。名簿の JSON は編集のフォルダのまま = `ed_state.ROSTER`)(`load` は更新日時でキャッシュ)
-- 配信ごとの文脈 `stream_context(doc, enabled)`: チャンネル名(スタジオの data.json の videos。`_studio_load` = 履歴の一覧と同じキャッシュ)→ コラボ相手(data.json の groups。`studio_stream`)→
+- 配信ごとの文脈 `stream_context(doc, enabled)`(RS2-8a から `src/pipeline/transcribe/roster.py`。スタジオの配信の情報 `ed_store.studio_stream` は txenv の鍵 `studio_stream` で受け取る): チャンネル名(スタジオの data.json の videos。`_studio_load` = 履歴の一覧と同じキャッシュ)→ コラボ相手(data.json の groups。`studio_stream`)→
   話者の名前(`roster.match_name`。ちょうど同じときだけ)→ 題名・動画のファイル名・**動画の入ったフォルダの名前**(`roster.find_in_text`。正式な名前か、common でない 3 文字以上の呼び名)。
   6 人まで・1人 = 名前 + 呼び名 3 つ。**題名の文字列そのものはヒントに渡さない**。使った人は `params.context`・`recognition.runs[].settings.context`
 - ヒントの語は `prompt_terms(spec)` の1か所(RS2-4 から `pipeline/transcribe/roster.py`)(用語集 → 文脈。`roster.fit` で先頭 150 字・語の途中で切らない)。`whisper_kwargs`・`make_flags`(英字の除外・漏れ出し)が使う。
@@ -113,7 +113,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 ## 素材を 30fps にそろえる(マスタープラン Q1。2026-10-04。v0.45.0)
 - 部品は `ed_relink.py` の「素材を 30fps にそろえる」の節(作り直しは `ytt_core/normalize.py`。別名 `_vnorm` = **`_norm` は ed_learn の関数と重なるので使わない**。serve が部品の名前をまとめて見せるため)。
   判定は `normalize.needs_normalize(probe())`(H.264・8bit・yuv420p・30/1 の CFR・AAC 以外は作り直す)。音声だけの拡張子・映像の無いもの・`TRANSCRIBE_NORMALIZE=off` は何もしない
-- **文字起こし**: `ed_jobs.run_job` が文書・単語・生出力を書いたあと `ed_relink.norm_after_transcribe(job, spec, tid)` → `norm_plan`(置き先 = 隣の `<名前>_30fps.mp4`。
+- **文字起こし**: `doc_jobs.run_job`(`src/human/proof/doc_jobs.py`。RS2-8b から) が文書・単語・生出力を書いたあと `ed_relink.norm_after_transcribe(job, spec, tid)` → `norm_plan`(置き先 = 隣の `<名前>_30fps.mp4`。
   あって使える(30fps・長さが同じ)なら reuse、使えないなら上書きせず `_30fps_2.mp4`…)→ `norm_run`(`_norm_room` = 書けるか・空き(元の大きさ + 1GB)→ normalize → `norm_swap`)。
   ジョブは work_one で SLOTS を持っているので取り直さない。作り直しの間 `job["tid"]` を入れる(`_doc_busy` で選び直しを止める)。進み具合は state running・phase `NORM_PHASE`・progress 0〜1
   (画面は phase + n% を出すので変えていない)。結果は `job["normNote"]`・`normOk`(`public_job`)、付け替えなかったときは warnings にも。失敗・中止でも文書は元の動画のまま・ジョブは done
@@ -129,7 +129,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 
 ## 評価用のフォルダの設定が消えたときの安全と、評価用の音声(マスタープラン Q0。2026-10-04)
 - **安全の止め**: `ed_relink.eval_name_guard(path, is_eval, todo)`。設定 `evalDirs` が空・壊れているのに、動画のパスのフォルダ名のどこかに「評価用」が入っていたら `ApiError("eval_dir_unset", 400)` で止めて案内する
-  (学習用に混ざらないように)。呼ぶのは `ed_jobs.validate_job`(`evalSet: true` で始める・`intoDoc` の文書が評価用のときは通す)と `ed_relink.relink_check`(`relink_doc` も通る。評価用の文書は通す)。
+  (学習用に混ざらないように)。呼ぶのは `doc_jobs.validate_job`(`evalSet: true` で始める・`intoDoc` の文書が評価用のときは通す)と `ed_relink.relink_check`(`relink_doc` も通る。評価用の文書は通す)。
   `evalDirs` が設定されていれば何もしない(今までどおり)。パスの文字を調べるだけでファイルには触らない。テストは test_edit の `TestEvalFolder.test_unset_eval_dirs_stops_eval_named_folder`
 - **評価用の音声** `ed_evalaudio.py`(動画が E:\ にしか無いため、評価用のフォルダ(`ed_relink.eval_dirs()`)の下の動画 = `_eval_videos(skip_staging=False)` から 16kHz・モノラルの flac を作業データの `eval-audio/` に作る。バックアップに入る):
   `index.json`(`items[sha1 の先頭 12 文字] = {src, size, mtime, flac, flacSize, durationSec, madeAt}`・`gone`(元が消えた。flac は消さない)・失敗は `error`/`fails`(同じ元で `MAX_FAILS` 回まで)・`scan`・`lastRun`・`lastError`)と
@@ -168,7 +168,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   - 見回り `_eb_redo_pass`(話者の後追いのあと・新しい動画の文字起こしより先。待ちの数 `EB_MAX_WAIT` の中で): 入れる直前に `eb_redo_why` → 手が入っていれば skipped で外す。
     spec は `eb_redo_spec` = `eb_request`(編集の設定・evalSet)→ `validate_job`(intoDoc は渡さない = 行のある文書を断る決まりは画面からの道のまま)→ `intoDoc`・`tid`・`evalBatch`・`evalRedo` を足す
     (spec の tid で `ed_drill._busy_tids`・付け替えの `_doc_busy` が処理中と見る)。文書の範囲が全体でなければ start/end も同じ
-  - `ed_jobs.run_job`: 最初に `eb_redo_skip_at_start`(もう一度判定。自分のジョブは busy から除く。手つかずなら `evalRedo.base` = 今の updatedAt)、書くときは `fill_doc` の代わりに `eb_redo_fill`
+  - `doc_jobs.run_job`(口 `redo_skip`・`redo_fill` = serve が `doc_jobs.set_hooks` で登録した ed_evalbatch の関数。RS2-8d): 最初に `eb_redo_skip_at_start`(もう一度判定。自分のジョブは busy から除く。手つかずなら `evalRedo.base` = 今の updatedAt)、書くときは `fill_doc` の代わりに `eb_redo_fill`
     (保存のロックの中で 動画が同じ・updatedAt が base のまま・手つかず を確かめ、違えば書かずに `job["redoSkipped"]`・「作り直しませんでした」で done。新しい文書も作らない)。
     書くもの: `hist_snapshot(force)` → `record_rerun(kind "evalRedo", replaced = 前の original)` + `replacedRun` = 前の最初の認識の記録 → fields で置き換え →
     `recognition.runs` = [新しい最初の認識(kind なし)] + 前の kind つきの記録(evalRedo を含む)・diarization・evalReviewed・resplit を消す・evalSet は True のまま。
@@ -203,7 +203,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
     `effort_rows`・`apply_edit_cuts`・`hist_snapshot`・updatedAt は必ず前より大きく。行が 0 の文書(本当に無音)も付けられる。付いていれば付け直す
   - 外すのは `POST api/drill/unreviewed {id, baseUpdatedAt}`(`drill_unreviewed`): 印と、**印が校正済みにした行(proofedAt が `at` と同じ)の校正済み**を戻す(前から校正済みの行はそのまま)
   - 画面の保存(`sanitize_transcript`)は base から引き継ぐだけ(画面が送った値は使わない = 付けも消しもできない)。**評価用を外すと消える**(外している間は一括置換・再認識で機械が書き換えられるため)。
-    行の文字・時刻・話者を人が後から直しても残す。**機械が行を書いたら外す**: `ed_jobs.record_rerun`(再認識 each・range・whole と疑わしい所の認識し直し redo が差し替える前に必ず通る)・
+    行の文字・時刻・話者を人が後から直しても残す。**機械が行を書いたら外す**: `rerun.record_rerun`(`src/human/proof/rerun.py`。RS2-8c)(再認識 each・range・whole と疑わしい所の認識し直し redo が差し替える前に必ず通る)・
     `ed_store.fill_doc`(行の無い文書への文字起こし)。以前の版に戻す(`restore_history`)は、その版の印のまま。PUT /api/transcript の応答に `evalReviewed`(画面が評価用を外したときに表示を合わせる)
   - **測る道具(dev/eval_asr.py など)が「確かめ済みだけ」を選ぶときは `drill_is_reviewed(doc)` と同じ条件**(evalSet が True かつ evalReviewed が dict)。確かめ済みの文書は、
     行の範囲だけでなく**動画全体(0〜durationSec)**が正解(すき間 = 何も話していない、が正解)。行の無い確かめ済みの文書も「無音が正解」として使える
@@ -238,10 +238,10 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   保存済みで校正済みでなかった行は今の時刻・外した行は捨てる。この項目より前から校正済みの行には作らない(時刻なし = 以前から)。
   機械が書き換えて校正済みを外す所(`_apply_retranscribe`)は proofedAt も外す
 - **再認識の前の機械の出力**: `_apply_retranscribe`(each)・`_apply_range`(range / whole)・`apply_redo`(redo)が `original` を差し替える**前**に、
-  `ed_jobs.record_rerun` が `recognition.runs` に1件足す: `{"kind", "engine", "engineVersion", "model", "device", "language", "settings": {beam, vadMode, boost, wordSplit, autoDict, dict}, "range": [a, b], "spans"?(2つ以上), "replaced": [差し替えられた original の行], "replacedOmitted"?, "at"}`。
+  `rerun.record_rerun`(旧 `ed_jobs.record_rerun`) が `recognition.runs` に1件足す: `{"kind", "engine", "engineVersion", "model", "device", "language", "settings": {beam, vadMode, boost, wordSplit, autoDict, dict}, "range": [a, b], "spans"?(2つ以上), "replaced": [差し替えられた original の行], "replacedOmitted"?, "at"}`。
   差し替える行は `replaced_rows`(`replace_original(_multi)` と同じ「真ん中」の決まり・守った行は入れない)。上限は再認識の記録 `MAX_RERUNS`(30)件・replaced の行の合計 `MAX_REPLACED_ROWS`(20000)(古い記録から捨てる。最初の認識の記録 = kind の無いものは捨てない)。
   **runs を読むときは kind の有無で分ける**(kind が無い = 最初の認識。`runs[-1]` は再認識のあとは再認識の記録になる)
-- **辞書の版** `ed_jobs.dict_version(spec)`: `{"glossary", "replacements"(autoDict), "learned"(autoLearned。規則と採用・却下の記録), "roster"(名簿のファイル)}` = 中身の SHA-256 の先頭 10 文字。
+- **辞書の版** `records.dict_version(spec)`(`pipeline/transcribe/records.py`。RS2-5。旧 `ed_jobs.dict_version`): `{"glossary", "replacements"(autoDict), "learned"(autoLearned。規則と採用・却下の記録), "roster"(名簿のファイル)}` = 中身の SHA-256 の先頭 10 文字。
   `recognition_run` の `settings.dict`・最初の文字起こしの `params.dict`・再認識の記録の `settings.dict`
 - **カットの `draft`**(初めてのたたき台): 画面(`cut.js` の `noteDraft`)がまだ1回も保存していない間に作ったたたき台(開いたときの「行から」・作り直し・行から/カットしない/無音/時刻リスト/スタジオ)の最後のものを覚え、
   初めての保存(`body(0)`)に `draft: {"origin", "settings", "keepsSec", "at"}` を添える。サーバーの `save_edit` は保存済みの edit.json が無い(壊れていた)ときだけ書き(`sanitize_draft`。正しくなければ黙って捨ててカットは保存)、以後は引き継ぐ。
@@ -250,7 +250,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 - **校正の手間** 文書の `effort = {"activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows", "lastAt"}`: 時間は画面(app-learn.js の `effortTick`・`effortStart`・`effortFlush`。`S.eff`)が
   `S.sess.activeMs` と同じ 30 秒刻みで、1 文字起こし = activeSec・2 カット / 3 パック = cutSec にため、5 分たまったとき・`UIKit.life.onLeave`(keepalive)・別の文書を開くとき(`openDoc`)に `POST /api/effort`(`ed_store.add_effort`。1回 3600 秒まで)。
   行(proofedRows・unproofedRows)は `save_transcript` で `effort_rows` が数える。`restore_history` は effort を戻さない
-- **生出力** `transcripts/<id>.asr.json`(v0.34.0 から。`ed_jobs.capture_raw`・`write_asr`・`read_asr`): 文字起こしのジョブの、分ける前・置換の前の認識の結果と単語ごとの確信度(`seg_to_dict` の `wordProbs`。words の3つ組は変えない)。
+- **生出力** `transcripts/<id>.asr.json`(v0.34.0 から。`records.capture_raw`・`write_asr`・`read_asr`。`pipeline/transcribe/records.py`。RS2-5): 文字起こしのジョブの、分ける前・置換の前の認識の結果と単語ごとの確信度(`seg_to_dict` の `wordProbs`。words の3つ組は変えない)。
   簡易版の送る用 zip の元だったが、v0.53.0 で簡易版を消したあとも機械の最初の結果の記録として書き続ける(単語の確信度はここにしか無い)。今は読む所が無い(`read_asr` はテストだけ)。文書の削除で一緒に消す
 
 ## 2つ目のエンジンの候補(計画 第2版 D1-b。v0.49.0)
@@ -351,7 +351,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 
 ## 構成
 - **段10(2026-10-01)で serve.py を役割ごとの部品に分けた**(`git の履歴の docs/plan/phase10-code-split.md`。動きは同じ): `ed_state.py`(置き場所・設定の値・共通の小道具・記録・作業データの切り替え)・
-  `ed_store.py`(保存・履歴・編集の内容)・`ed_relink.py`(付け替え・評価用のフォルダ)・`ed_media.py`(波形)・`ed_jobs.py`(ジョブ・認識ワーカー・声の検出のやり直し・単語の時刻・再認識・疑わしい所)・
+  `ed_store.py`(保存・履歴・編集の内容)・`ed_relink.py`(付け替え・評価用のフォルダ)・`ed_media.py`(波形)・`ed_jobs.py`(ジョブ・認識ワーカー・声の検出のやり直し・単語の時刻・再認識・疑わしい所。**RS2-8 から転送だけの殻**で、中身は `src/human/proof/doc_jobs.py`・`rerun.py`・`src/pipeline/transcribe/`・`src/ytt/jobs.py`。下の「役割で組み直す RS2」の段落)・
   `ed_speakers.py`(話者判別・声を覚える)・`ed_learn.py`(辞書・学習・提案・精度・基準・書き出し・保管)・`ed_misc.py`(設定の比較・clip-marker・進行度・フォルダの一括・受け渡し)・`ed_evalaudio.py`(評価用の音声 flac。上の節)・`ed_alt.py`(2つ目のエンジンの候補。上の節)・`ed_fill.py`(認識のあとの後処理 A・C・D。上の節)・`serve.py`(版・起動・HTTP の振り分け)。
   部品どうしは `ed_xxx.名前` で呼ぶたびに読む(`from … import` しない = 差し替えが効く)。**serve.py が名前の受付**: `serve.名前` は持ち主の部品から読み、`serve.名前 = …`(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)は持ち主の部品へ転送する。
   版の正は serve.py の `SERVER_VERSION`(入口が読む。部品は `ed_state.SERVER_VERSION`)。新しい名前は、役割に合う部品に書く(serve.py の名前を部品から使わない)。import のときに使ってよいのは `ed_state` の名前だけ(ほかの部品は呼ぶときに)。
@@ -364,10 +364,10 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   `ed_store`: `write_doc`(文書の書き込みはここを通す)・`snapshot`(履歴へ。残せなくても続ける)・`backup_doc`(機械が行を書き換える前の `.bak/<id>.pre-<kind>.json` と履歴)・`summaries()`(全文書の要約と動画のパス)。
   文書の要約のキャッシュは `_summary_cache` の 1 つ(0.60.1。鍵 = パス・更新日時・大きさ)。要約に進行度 `_prog`(`ed_misc.progress_stats` が足すだけ)と評価ドリル `_drill`(`ed_drill.drill_doc_summary`。呼び名の行の数だけ `drill_docs` が今の名簿で数える)も入る =
   一覧・進行度・ドリルで文書の JSON を読むのは 1 回。文書の JSON の読み方は `_load_doc`(read_transcript・履歴も同じ)。
-  `ed_jobs`: `job_errors`(ジョブの本体を with で囲む = 取り消し・ApiError・想定外を job の状態に・一時の wav を消す)・`job_done`・`tid_busy`(同じ文書の処理中)・
-  `JOB_RUNNERS`(ジョブの種類 → 本体)・`ChunkModel`(行ごとの認識と、GPU が実行時に失敗したら CPU でやり直す。再認識の each と設定の比較)・`split_terms`/`glossary_of`(用語集の欄)・`engine_version`・`_fresh_id`(新しい行の id)。
-  文字起こしのジョブは `run_job` → `_rows_to_doc`(行・original・単語)→ `_doc_fields`(文書の中身・recognition.runs)。範囲・全体の再認識は `run_retranscribe` → `_retranscribe_range` / `_retranscribe_each`。
-  `ed_jobs`(0.60.1): `check_cancel`・`set_cancelled`・`job_temp_wav`・`job_title`・`cpu_fallback`(GPU → CPU の決まりを 1 か所に。ChunkModel は取り消しまで捕まえる今の動きを `passthrough=()` で保つ)。同時に入れない組は `EXCLUSIVE` の 1 か所(入口の検査 `validate_*` も同じ表を使う・登録は `_busy_locked`)。**2026-10-10(役割で組み直す RS2)から**: ジョブの表・待機列・ワーカーの繰り返し・取り消し・`JOB_RUNNERS`・`EXCLUSIVE`・`JOB_PRIORITY` の本体は `src/ytt/jobs.py`(`register(kind, run, …)`・`configure(…)`)で、編集の種類と排他の値は serve.py が読み込みのときに登録する(本体は呼ぶたびに読む lambda = `S.run_job = …` の差し替えが効く)。ed_jobs の中身は少しずつ `src/pipeline/transcribe/`(RS2-4 `postproc` = 行の後処理と印・RS2-5 `records` = 認識の記録・asr.json・words.json・RS2-6 `worker_client` = 認識ワーカーとモデル・RS2-7 `recognize` = 音声の取り出し・声の検出のやり直し・範囲と全体の再認識の認識・続きから)・`src/human/proof/`(RS2-8)へ移し、ed_jobs.名前・S.名前 は転送(`ytt/modfwd.py`。読む・書く・消すを本物の持ち主へ)で今までどおり使える。移した名前を ed_jobs・ed_state に別名で書き足さない(差し替えが別名に当たる。`tests/test_names.py` が検査)。疑似の認識(`TRANSCRIBE_BACKEND=fake`)の本体は `src/eval/fake/fake_asr.py`(ed_jobs の中は `pipeline/transcribe/backend.select()` を呼ぶだけ。どちらを使うかは serve の selector)。置き場所のパスは `pipeline/transcribe/txenv.py` の口から読む(serve が「呼ぶたびに ed_state の値を返す関数」を登録。RS3 で消す)。設定は要求の頭で 1 回読んで渡す(`glossary_of`・`auto_glossary`・`learn_rules` の `settings` 引数・`dict_pairs` の組を渡す)。`tx_engines`: `env_num`(環境変数の数)・`is_16k_mono`・`half_cpu`・SenseVoice は `_Qwen3Chunked` の子クラス(`_chunk_rows` だけ上書き)。
+  `ytt/jobs`(旧 `ed_jobs`。RS2-1b): `job_errors`(ジョブの本体を with で囲む = 取り消し・ApiError・想定外を job の状態に・一時の wav を消す)・`job_done`・`tid_busy`(同じ文書の処理中)・
+  `JOB_RUNNERS`(ジョブの種類 → 本体)。今の持ち主(RS2 で移した): `recognize.ChunkModel`(行ごとの認識と、GPU が実行時に失敗したら CPU でやり直す。再認識の each と設定の比較)・`roster.split_terms`(用語の区切り。RS2-8a)・`doc_jobs.glossary_of`(用語集の欄)・`records.engine_version`・`doc_jobs._fresh_id`(新しい行の id)。
+  文字起こしのジョブは `doc_jobs.run_job`(音声の取り出し → 認識 → 整えた行は `recognize.transcribe_rows`。RS2-8e)→ `_rows_to_doc`(行・original・単語)→ `_doc_fields`(文書の中身・recognition.runs)。範囲・全体の再認識は `rerun.run_retranscribe` → `_retranscribe_range` / `_retranscribe_each`、疑わしい所の認識し直しは `rerun.run_redo`。受付(`validate_retranscribe`・`redo_spec`・`redo_targets`)は `doc_jobs` に残してある(`run_job` が autoRedo で `redo_spec` を呼ぶため。向きは rerun → doc_jobs だけ。RS2-8c)。
+  0.60.1 の `check_cancel`・`set_cancelled`・`job_temp_wav`・`job_title`(今は `ytt/jobs`)・`cpu_fallback`(今は `worker_client`。GPU → CPU の決まりを 1 か所に。ChunkModel は取り消しまで捕まえる今の動きを `passthrough=()` で保つ)。同時に入れない組は `EXCLUSIVE` の 1 か所(入口の検査 `validate_*` も同じ表を使う・登録は `_busy_locked`)。**2026-10-10(役割で組み直す RS2)から**: ジョブの表・待機列・ワーカーの繰り返し・取り消し・`JOB_RUNNERS`・`EXCLUSIVE`・`JOB_PRIORITY` の本体は `src/ytt/jobs.py`(`register(kind, run, …)`・`configure(…)`)で、編集の種類と排他の値は serve.py が読み込みのときに登録する(本体は呼ぶたびに読む lambda = `S.run_job = …` の差し替えが効く)。ed_jobs の中身は RS2 で `src/pipeline/transcribe/`(RS2-4 `postproc` = 行の後処理と印・RS2-5 `records` = 認識の記録・asr.json・words.json・RS2-6 `worker_client` = 認識ワーカーとモデル・RS2-7 `recognize` = 音声の取り出し・声の検出のやり直し・範囲と全体の再認識の認識・続きから。8e から `transcribe_rows` = 取り出し → 認識 → 整えた行。8a から `roster` に `stream_context`・`split_terms`、`txbase` に `SPK_FLAGS`)へ、文書の側は `src/human/proof/` の `doc_jobs.py`(RS2-8b。文字起こしのジョブの本体 `run_job`・文書づくり・受付 `validate_job` ほか・`public_job`・字幕の文字数の設定・`resplit_doc`・`dict_pairs`・serve が登録する口 `set_hooks`)と `rerun.py`(RS2-8c。再認識と疑わしい所の本体・反映・`record_rerun`)へ移した(RS2 は済み)。`src/editor/ed_jobs.py` は今は転送だけの殻(35 行。持つ名前は `_MOVED`・`_moved_owner`・`_add_moved` だけ。RS5 で消す。serve の `_ED_MODULES` では `doc_jobs`・`rerun` を ed_jobs より前に並べる)。ed_jobs.名前・S.名前 は転送(`ytt/modfwd.py`。読む・書く・消すを本物の持ち主へ)で今までどおり使える。移した名前を ed_jobs・ed_state に別名で書き足さない(差し替えが別名に当たる。`tests/test_names.py` が検査)。疑似の認識(`TRANSCRIBE_BACKEND=fake`)の本体は `src/eval/fake/fake_asr.py`(ed_jobs の中は `pipeline/transcribe/backend.select()` を呼ぶだけ。どちらを使うかは serve の selector)。置き場所のパスは `pipeline/transcribe/txenv.py` の口から読む(serve が「呼ぶたびに ed_state の値を返す関数」を登録。RS3 で消す。RS2-8a で鍵 `studio_stream`・`valid_model`・`pio` を足した)。serve が登録する口はほかに `records.set_dict_inputs`(辞書の版の材料)・`recognize.set_head_stripper`・`doc_jobs.set_hooks`(5 本 = `eval_guard`・`in_eval_dir`・`redo_skip`・`redo_fill`・`norm_after`。manage の ed_relink と eval の ed_evalbatch の関数を呼ぶたびに引く lambda で、登録されていなければ RuntimeError。serve が登録の直後に `check_hooks()`。RS2-8d。`src/human/proof/tests/test_doc_jobs.py` は serve なしで読める)。設定は要求の頭で 1 回読んで渡す(`glossary_of`・`auto_glossary`・`learn_rules` の `settings` 引数・`dict_pairs` の組を渡す)。`tx_engines`: `env_num`(環境変数の数)・`is_16k_mono`・`half_cpu`・SenseVoice は `_Qwen3Chunked` の子クラス(`_chunk_rows` だけ上書き)。
   `ed_alt`: `alt_cached`・`alt_spans_of`・`alt_skip`(候補の計算を覚える・出さない候補。ed_ytcap も使う)。`resolve_export`: `_source_and_pack`・`_write_transcript`(たたき台・見積もり・zip で同じ)。
   serve.py の HTTP の振り分けは表 `GET_API`・`POST_API`(パス → 関数。部品の関数は lambda の中で `ed_xxx.名前` と呼ぶたびに読む = テストの差し替えが効く)。
   新しい API はこの表に 1 行足す(zip を返す 2 つ = `_export_corrections`・`_resolve_package` と /api/settings・/api/peaks・/media だけ Handler の中)
@@ -539,13 +539,13 @@ python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に�
     機械の下書きのまま(仮の名前か、voices の decided と同じ名前で by が threshold・elimination・context の話者で、人が確かめた行が 1 つも無い)と、確かめられない行は数えず、数だけ別に出す(`--include-draft` で以前の数え方)。
     以前は自動の判別と名前付けがそのまま正解に数えられ、100% と出ていた(評価用 106 本のうち確かめ済みは 2 本だった)
   - 重なり: 機械の mixed・overlaps(行との重なり 0.1 秒以上)を、人の行の tags の `overlap` と比べた適合率・再現率
-  - `run --threshold 0.5,0.7 --num auto --emb voxceleb [--min-on] [--min-off] [--docs]`: 全部の組み合わせを、本番と同じ道(`extract_audio` → `diarize_real` → `assign_speakers`)で**道具のプロセスの中で**判別する(`ed_jobs.IN_WORKER = True`。ワーカーは起動しない)。
+  - `run --threshold 0.5,0.7 --num auto --emb voxceleb [--min-on] [--min-off] [--docs]`: 全部の組み合わせを、本番と同じ道(`extract_audio` → `diarize_real` → `assign_speakers`)で**道具のプロセスの中で**判別する(`S.IN_WORKER = True` = `worker_client.IN_WORKER`(RS2-6。旧 `ed_jobs.IN_WORKER`)。ワーカーは起動しない)。
     行の正しさ・話者の数(機械 − 人)・60 秒未満/以上の別・かかった秒。文書・diar.json は書かない(`--json` のときだけ `evals/speakers/<日時>-run.json`)。モデルが作業データの `models\diar` に無ければ取得せずに止まる
   - そのための任意の引数: `diarize_real`・`_diarize_local` の `threshold`・`min_on`・`min_off`(検査 `diar_tune`・ワーカーの要求の鍵 `threshold`・`minOn`・`minOff` = `DIAR_TUNE`)。**渡さなければワーカーへの要求は `{wav, num, emb}` のまま・既定の値も同じ**。
     `diarize_fake` と worker-fake の偽の判別は、しきい値 1.0 以上・人数 自動で 1 人にまとめる(テスト用)。既定の値(しきい値 0.5・VOICE_MATCH・VOICE_MARGIN)は、確かめ済みの文書がたまってから決める(今は変えていない)
   - まだ入れていない案: 似た声の話者をまとめる後処理(`run_diarize` の `diarize_real` のあと・`apply_diarization` の前に、話者ごとの特徴 `embed_groups` のコサイン類似度で)。短い動画で 1 人を 2 人に分ける対策の候補。`run --merge` で測ってから
 - **話者の自動判別(v0.50.0。ユーザーの要望 2026-10-04)**: 本体は `ed_speakers` の `autodiar_*`(名前は `autodiar_`・`AUTODIAR_` で始める)。新しい認識の道は作らず、今の `diarize` のジョブ(`validate_diarize` → `add_job` → `run_diarize`)を使う。
-  - いつ: `ed_jobs.run_job` の終わり(文書を書いて 30fps の作り直しのあと・**「完了」にする前**)に `autodiar_after_transcribe(job, spec, tid)`。評価用(spec の evalSet)は**設定によらず常に**、
+  - いつ: `doc_jobs.run_job` の終わり(文書を書いて 30fps の作り直しのあと・**「完了」にする前**)に `autodiar_after_transcribe(job, spec, tid)`。評価用(spec の evalSet)は**設定によらず常に**、
     それ以外は `spec["autoDiarize"]`(`validate_job` = 要求の真偽値か、無ければ保存した設定 `autoDiarize`。既定オフ。画面は新規の「認識の設定」の `#optAutoDiar`。`optAutoAlt` と同じ配線 = `readOpts`・`applySettings`・`jobOpts`・丸ごとの設定の保存)。
     始められなくても文字起こしは成功のまま(`job["warnings"]`)。まとめての文字起こしの後追いは上の節
   - `autodiar_enqueue(tid, batch)`: `autodiar_why_not(doc)` = empty(文字のある行が無い)・reviewed(評価用で確かめ済み)・**has_speakers(文字のある行に 1 つでも話者 = 人が付けたものを置き換えない)** なら `{"skipped"}`。
