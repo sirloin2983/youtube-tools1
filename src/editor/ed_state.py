@@ -261,31 +261,8 @@ def check_source(path):
     return p
 
 
-def setup_cuda_paths():
-    """pip の nvidia-cublas-cu12 / nvidia-cudnn-cu12 が入れた DLL / .so を、ctranslate2 が見つけられるようにする。"""
-    try:
-        import importlib.util
-        spec = importlib.util.find_spec("nvidia")
-        roots = list(spec.submodule_search_locations or []) if spec else []
-    except Exception:
-        roots = []
-    for root in roots:
-        try:
-            names = os.listdir(root)
-        except OSError:
-            continue
-        for n in names:
-            for sub in ("bin", "lib"):
-                d = os.path.join(root, n, sub)
-                if os.path.isdir(d):
-                    if hasattr(os, "add_dll_directory"):
-                        try:
-                            os.add_dll_directory(d)
-                        except OSError:
-                            pass
-                    os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
-
-
+# GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local)は RS2-9 に
+# pipeline/transcribe/worker_client へ移した(認識ワーカーが serve を読まずに使う。S.名前 は serve の受付で読める)
 _nv_cache = []
 
 
@@ -347,39 +324,15 @@ def worker_has(*mods):
     return ok
 
 
-def cuda_count():
-    try:
-        import ctranslate2
-        return int(ctranslate2.get_cuda_device_count())
-    except Exception:
-        return 0
-
-
-def cuda_libs_ok():
-    """GPU 処理に必要な cuBLAS(CUDA 12) と cuDNN(9) が読み込めるか。ドライバだけでは GPU 処理はできない。"""
-    import ctypes
-    names = (("cublas64_12.dll", "cudnn64_9.dll") if os.name == "nt" else ("libcublas.so.12", "libcudnn.so.9"))
-    try:
-        for n in names:
-            ctypes.CDLL(n)
-        return True
-    except OSError:
-        return False
-
-
-def _gpu_ready_local():
-    """このプロセスで GPU(CUDA)が使えるか。ctranslate2 を読み込むので、認識ワーカーの中でだけ呼ぶ。"""
-    return cuda_count() > 0 and cuda_libs_ok()
-
-
 _gpu_cache = {}
 
 
 def gpu_ready():
     """GPU で文字起こしできるか(画面の表示用)。サーバーのプロセスでは ctranslate2(ネイティブのライブラリ)を読み込まないよう、
-    1回だけ別プロセス(tx_worker.py --probe)で調べて覚えておく。調べ終わるまでは False。"""
+    1回だけ別プロセス(認識ワーカー pipeline/transcribe/worker.py --probe)で調べて覚えておく。調べ終わるまでは False。
+    このプロセスの中で認識する測る道具(IN_WORKER)は、その場で調べる(worker_client._gpu_ready_local)"""
     if _txworker.IN_WORKER:
-        return _gpu_ready_local()
+        return _txworker._gpu_ready_local()
     if "v" in _gpu_cache:
         return _gpu_cache["v"]
     if backend_name() == "fake" or worker_fake() or not has_faster_whisper():

@@ -577,10 +577,6 @@ class TestHttp(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp()
         for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
             shutil.copy(os.path.join(HERE, n), cls.tmp)
-        for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
-            p = os.path.join(HERE, n)
-            if os.path.exists(p):
-                shutil.copy(p, cls.tmp)
         cls.wav = os.path.join(cls.tmp, "sample.wav")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=24", cls.wav], check=True)
         with open(os.path.join(cls.tmp, "settings.json"), "w", encoding="utf-8") as f:

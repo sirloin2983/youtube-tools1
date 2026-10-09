@@ -231,7 +231,7 @@ def audio_span(S, doc, data, doc_id=None, boost=None):
 
 
 class InProcessModel:
-    """このプロセスの中で読んだモデル(IN_WORKER)の包み。transcribe に来た音声を、認識ワーカーの受け口(tx_worker の _audio)と同じ形に直して渡す。
+    """このプロセスの中で読んだモデル(IN_WORKER)の包み。transcribe に来た音声を、認識ワーカーの受け口(pipeline/transcribe/worker の _audio)と同じ形に直して渡す。
     editor のサーバー側の書き方は、モデルの代理(RemoteModel)に WavSlice・WavRef(wav のパスとサンプルの範囲だけ。ワーカーが読む)を渡す。
     道具ではそれが faster-whisper に直接届き、読めずに落ちる("File object has no read() method")。
     2026-10-07 夜に分かった: 見直し 2 周目で IN_WORKER が届くようになってから、1 秒丸めの聞き直し(ed_jobs.quant_words_provider。編集 0.65.0 で消した)がこれで落ち、
@@ -257,12 +257,12 @@ def in_process_models(S):
     J = S.ed_jobs
     if getattr(J._load_model_local, "in_process", False):
         return
-    import tx_worker  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない)
+    from pipeline.transcribe import worker as txw  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない。RS2-9 に editor/tx_worker から移した)
     local = J._load_model_local
 
     def audio_of(a):
         if isinstance(a, S.WavSlice):
-            return tx_worker._audio({"wav": a.path, "from": a.a, "to": a.b})
+            return txw._audio({"wav": a.path, "from": a.a, "to": a.b})
         return a.path if isinstance(a, S.WavRef) else a
 
     def load_local(*a, **k):

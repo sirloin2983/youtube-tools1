@@ -31,7 +31,7 @@ from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeli
 import ed_state  # noqa: E402
 import ed_store  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-import tx_worker  # noqa: E402
+from pipeline.transcribe import worker as W  # noqa: E402  (認識ワーカーの受け口。RS2-9 から pipeline/transcribe/worker.py。旧 tx_worker)
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 MEMBERS = [{"name": "雪花ラミィ", "aliases": ["ラミィ", "ラミィちゃん"], "common": []},
@@ -222,14 +222,15 @@ class TestLlamaTextEngine(unittest.TestCase):
 
     def test_worker_op_complete(self):
         model = types.SimpleNamespace(complete=lambda msgs, n: "答え:%d:%d" % (len(msgs), n))
-        fake_s = types.SimpleNamespace(tx_engines=E, ApiError=ed_state.ApiError, _model_lock=ed_jobs._model_lock,
-                                       _models={("qwen3-8b", "vulkan", "llama-text"): model}, _model_used=[0], _load_model_local=None)
         m = {"name": "qwen3-8b", "device": "vulkan", "engine": "llama-text", "messages": [{"role": "user", "content": "x"}], "max_tokens": 50}
-        self.assertEqual(tx_worker._op_complete(fake_s, m, 1, {}, None, set()), {"content": "答え:1:50"})
-        with self.assertRaises(ed_state.ApiError):
-            tx_worker._op_complete(fake_s, dict(m, messages=[{"role": "tool", "content": "x"}]), 1, {}, None, set())
-        with self.assertRaises(ed_state.ApiError):
-            tx_worker._op_complete(fake_s, dict(m, engine="faster-whisper"), 1, {}, None, set())
+        # ワーカーは読み込んだモデルを worker_client._models から呼ぶたびに読む(S._models は同じ辞書。_model_used は差し替えて元に戻す)
+        with mock.patch.dict(S._models, {("qwen3-8b", "vulkan", "llama-text"): model}, clear=True), mock.patch.object(S, "_model_used", [0]), \
+                mock.patch.object(S, "_load_model_local", None):
+            self.assertEqual(W._op_complete(m, 1, {}, None, set()), {"content": "答え:1:50"})
+            with self.assertRaises(ed_state.ApiError):
+                W._op_complete(dict(m, messages=[{"role": "tool", "content": "x"}]), 1, {}, None, set())
+            with self.assertRaises(ed_state.ApiError):
+                W._op_complete(dict(m, engine="faster-whisper"), 1, {}, None, set())
 
 
 if __name__ == "__main__":

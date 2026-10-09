@@ -5,7 +5,7 @@
 
 本物の入口(home/launch.py --only transcribe,cut2resolve)を子プロセスとして起動し、http://localhost:<port>/transcribe/ で:
   - CSP(home/mount.py の MOUNTS["transcribe"]["csp"])の下で画面が動く・合言葉(<meta name="ytt-token">)が入る
-  - 認識は別プロセスのワーカー(tx_worker.py。TRANSCRIBE_BACKEND=worker-fake でワーカーの中だけ偽のモデル)を通る
+  - 認識は別プロセスのワーカー(pipeline/transcribe/worker.py。TRANSCRIBE_BACKEND=worker-fake でワーカーの中だけ偽のモデル)を通る
   - ワーカーを強制終了しても、入口・次の文字起こしは止まらない(次の要求で起動し直す)
   - 動画は /transcribe/media?... の下から読む
   - 書き込み系 API(PUT・POST)は合言葉(X-YTT-Token)が要る
@@ -83,30 +83,60 @@ def call(port, method, path, body=None, token=None, prefix="/transcribe"):
             return e.code, {}
 
 
-def find_worker_pids(tmp):
-    """この確認が起動した tx_worker.py(一時フォルダの下のもの)の pid を探す。Linux は /proc、Windows は PowerShell(Win32_Process のコマンドライン)"""
-    needle = os.path.join(tmp, EDITOR, "tx_worker.py").encode()
-    pids = []
+WORKER_TAIL = os.path.join("pipeline", "transcribe", "worker.py")   # 認識ワーカーの本体(RS2-9 から。旧い editor/tx_worker.py は起動用の転送だけ)
+
+
+def _python_procs():
+    """動いている Python のプロセス -> {pid: (親の pid, コマンドライン)}。Linux は /proc、Windows は PowerShell(Win32_Process)"""
+    procs = {}
     if os.name == "nt":
-        ps = ("Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }")
+        ps = ("Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | "
+              "ForEach-Object { \"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }")
         out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=60).stdout
         for line in out.decode("utf-8", "replace").splitlines():
-            pid, _, cmd = line.partition("	")
-            if needle.decode().lower() in cmd.lower() and pid.strip().isdigit():
-                pids.append(int(pid))
-        return pids
-    for p in glob.glob("/proc/[0-9]*/cmdline"):
+            pid, ppid, cmd = (line.split("\t", 2) + ["", ""])[:3]
+            if pid.strip().isdigit() and ppid.strip().isdigit():
+                procs[int(pid)] = (int(ppid), cmd)
+        return procs
+    for d in glob.glob("/proc/[0-9]*"):
         try:
-            with open(p, "rb") as f:
-                data = f.read()
-        except OSError:
+            with open(d + "/cmdline", "rb") as f:
+                cmd = f.read().replace(b"\0", b" ").decode("utf-8", "replace")
+            with open(d + "/stat", "rb") as f:
+                ppid = int(f.read().decode("utf-8", "replace").rsplit(")", 1)[1].split()[1])   # pid (名前) 状態 親の pid ...
+            procs[int(os.path.basename(d))] = (ppid, cmd)
+        except (OSError, ValueError, IndexError):
             continue
-        if needle in data:
-            try:
-                pids.append(int(p.split("/")[2]))
-            except (IndexError, ValueError):
-                pass
-    return pids
+    return procs
+
+
+def _is_worker(cmd):
+    return WORKER_TAIL.lower() in cmd.lower().replace("/", os.sep)
+
+
+def find_worker_pids(root_pid):
+    """この確認が起動した入口(root_pid)の子孫のうち、認識ワーカー(…/pipeline/transcribe/worker.py)の pid を探す。
+    ワーカーの本体は写した一時フォルダではなく本物の src のものになることもあるので、コマンドラインだけで探すと、
+    ユーザーが起動している入口のワーカーまで当たる = 親子(ParentProcessId)をたどって、この入口の子孫に絞る(RS2-9)。
+    入口が終わったあとも Windows は親の pid を覚えているので、取り残されたワーカーも当たる(Linux は init に付け替わる = alive_workers も見る)"""
+    procs = _python_procs()
+    pids = []
+    for pid, (ppid, cmd) in procs.items():
+        if not _is_worker(cmd):
+            continue
+        cur, seen = ppid, set()
+        while cur not in seen and cur != root_pid and cur in procs:   # Python のプロセスの親をたどる(入口は Python なので一覧にいる)
+            seen.add(cur)
+            cur = procs[cur][0]
+        if cur == root_pid:
+            pids.append(pid)
+    return sorted(pids)
+
+
+def alive_workers(pids):
+    """pids のうち、まだ動いている認識ワーカー(入口を終えたあとに取り残されていないかを見る)"""
+    procs = _python_procs()
+    return sorted(p for p in set(pids) if p in procs and _is_worker(procs[p][1]))
 
 
 def main():
@@ -120,6 +150,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="tx-mounted-e2e-")
     rt = os.path.join(tmp, "rt")
     proc = None
+    seen_workers = []   # この確認で見つけた認識ワーカーの pid(入口を終えたあとに残っていないかを見る)
     try:
         copy_dir(os.path.join(REPO, HOME), os.path.join(tmp, HOME))
         copy_dir(os.path.join(REPO, EDITOR), os.path.join(tmp, EDITOR))
@@ -410,8 +441,9 @@ def main():
             check(True, "作成できたことを画面に知らせる")
 
             # ==================== 4) 認識ワーカーの異常終了からの立ち直り ====================
-            pids_before = find_worker_pids(tmp)
-            check(len(pids_before) == 1, "認識ワーカー(tx_worker.py)が1本だけ動いている: %s" % pids_before)
+            pids_before = find_worker_pids(proc.pid)
+            seen_workers += pids_before
+            check(len(pids_before) == 1, "認識ワーカー(worker.py。この入口の子)が1本だけ動いている: %s" % pids_before)
             if pids_before:
                 os.kill(pids_before[0], getattr(signal, "SIGKILL", signal.SIGTERM))   # Windows は SIGTERM = 強制終了(TerminateProcess)
             time.sleep(0.5)
@@ -434,7 +466,8 @@ def main():
             open_doc(pg, "ワーカー再起動後")
             texts2 = pg.evaluate("[...document.querySelectorAll('#segs textarea')].map(e => e.value)")
             check(texts2[:2] == ["テスト文1", "テスト文2"], "ワーカーを強制終了したあとの文字起こしも成功する(次の要求で起動し直す): %s" % texts2)
-            pids_after = find_worker_pids(tmp)
+            pids_after = find_worker_pids(proc.pid)
+            seen_workers += pids_after
             check(len(pids_after) == 1 and pids_after != pids_before, "新しい認識ワーカー(別プロセス)が起動している: %s → %s" % (pids_before, pids_after))
 
             check(not errors, "画面のエラー・コンソールエラーが無い: %s" % errors[:5])
@@ -455,7 +488,7 @@ def main():
                 proc.kill()
                 proc.wait(5)
             check(proc.returncode is not None, "終了の合図(SIGTERM / Windows は SIGBREAK)で入口のプロセスが終わる")
-            remaining = find_worker_pids(tmp)
+            remaining = sorted(set(find_worker_pids(proc.pid)) | set(alive_workers(seen_workers)))
             check(not remaining, "入口を終えると認識ワーカーの子プロセスも残らない: %s" % remaining)
             check(not os.path.exists(os.path.join(rt, "transcribe.json")), "入口を終えると .runtime/transcribe.json が消える")
         shutil.rmtree(tmp, ignore_errors=True)

@@ -9,6 +9,7 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -32,10 +33,72 @@ class TestPaths(unittest.TestCase):
 
     def test_script_and_log_fall_back_to_txenv(self):
         with mock.patch.object(W, "WORKER_SCRIPT", None), mock.patch.object(W, "WORKER_LOG", None):
-            self.assertEqual(W.worker_script(), os.path.join("/tool", "tx_worker.py"))
+            here = os.path.dirname(os.path.abspath(W.__file__))
+            self.assertEqual(W.worker_script(), os.path.join(here, "worker.py"))   # 本体はこのフォルダの worker.py(RS2-9。以前は編集の tx_worker.py)
+            self.assertTrue(os.path.isfile(W.worker_script()))
             self.assertEqual(W.worker_log(), os.path.join("/data", "worker.log"))
         with mock.patch.object(W, "WORKER_SCRIPT", "/x/w.py"), mock.patch.object(W, "WORKER_LOG", "/x/w.log"):   # 入れた値(app・テスト)が先
             self.assertEqual((W.worker_script(), W.worker_log()), ("/x/w.py", "/x/w.log"))
+
+    def test_worker_env(self):
+        """作業データの場所は必ず渡す。疑似の部品の名前は worker-fake のときだけ(サーバーの環境変数に残っていても本物には渡さない)・
+        worker-fake なのに名前が登録されていなければ RuntimeError(RS2-9)"""
+        fake = [False]
+        txenv.register(worker_fake=lambda: (lambda: fake[0]))
+        with mock.patch.dict(os.environ, {W.FAKES_ENV: "x.y"}), mock.patch.object(W, "FAKES_MODULE", "eval.fake.fake_worker"):
+            env = W.worker_env()
+            self.assertEqual(env["TRANSCRIBE_DATA_DIR"], "/data")
+            self.assertNotIn(W.FAKES_ENV, env)
+            fake[0] = True
+            self.assertEqual(W.worker_env()[W.FAKES_ENV], "eval.fake.fake_worker")
+        with mock.patch.object(W, "FAKES_MODULE", None), self.assertRaises(RuntimeError):
+            W.worker_env()
+
+
+class TestWorkerModule(unittest.TestCase):
+    """認識ワーカーの本体 worker.py(RS2-9 に編集の tx_worker.py から移した)を serve なしで読む"""
+
+    def test_import_reads_no_app_eval_or_native(self):
+        """import しただけでは、編集の serve・ed_*・eval(疑似)・numpy などを読まない(疑似は worker-fake のときに main が名前で読む)"""
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import pipeline.transcribe.worker as w; "
+                "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
+                "print(sorted(m for m in sys.modules if m in native or m == 'serve' or m.startswith('ed_') or m == 'eval' or m.startswith('eval.')))")
+        p = subprocess.run([sys.executable, "-c", code, SRC], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr[-2000:])
+        self.assertEqual(p.stdout.strip(), "[]")
+
+    def test_handle_routes_to_owner_modules(self):
+        """要求は呼ぶたびに持ち主のモジュールの名前を読む(diarize._diarize_local の差し替えが届く)・知らない要求は bad_op"""
+        from pipeline.transcribe import diarize, worker
+        sent, got = [], []
+
+        class Out:
+            def send(self, obj):
+                sent.append(obj)
+
+        def fake(job, wav, num, emb, **kw):
+            got.append((wav, num, emb, kw))
+            return [(0.0, 1.5, 1)]
+        with mock.patch.object(diarize, "_diarize_local", fake):
+            worker.handle({"rid": 7, "op": "diarize", "wav": "a.wav", "num": 2, "minOn": 0.2}, Out(), set())
+        worker.handle({"rid": 8, "op": "nope"}, Out(), set())
+        self.assertEqual(got, [("a.wav", 2, diarize.DIAR_EMB_DEFAULT, {"min_on": 0.2})])
+        self.assertEqual(sent[0], {"rid": 7, "ev": "result", "v": [[0.0, 1.5, 1]]})
+        self.assertEqual((sent[1]["rid"], sent[1]["ev"], sent[1]["code"]), (8, "error", "bad_op"))
+
+    def test_handle_api_error_and_cancel(self):
+        from pipeline.transcribe import worker
+        from ytt import jobs
+        sent = []
+
+        class Out:
+            def send(self, obj):
+                sent.append(obj)
+        worker.handle({"rid": 1, "op": "load", "name": "small", "engine": "no-such"}, Out(), set())   # 知らないエンジンは ApiError
+        with mock.patch.object(W, "_load_model_local", mock.Mock(side_effect=jobs.Cancelled())):
+            worker.handle({"rid": 2, "op": "load", "name": "small"}, Out(), {2})
+        self.assertEqual((sent[0]["code"], sent[0]["status"]), ("bad_engine", 400))
+        self.assertEqual((sent[1]["rid"], sent[1]["code"]), (2, "cancelled"))
 
 
 class TestWav(unittest.TestCase):

@@ -402,7 +402,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
 @unittest.skipUnless(all(os.path.isfile(os.path.join(REPO, d, "serve.py")) for d in (STUDIO_DIR, TX_DIR)) and shutil.which("ffmpeg"),
                      "ツールのフォルダか ffmpeg が無い")
 class TestTranscribeMounted(unittest.TestCase):
-    """文字起こしを取り込んだ入口(段階3-3)。認識は別プロセスのワーカー(tx_worker.py)で動き、ワーカーが落ちても入口は止まらない。
+    """文字起こしを取り込んだ入口(段階3-3)。認識は別プロセスのワーカー(pipeline/transcribe/worker.py)で動き、ワーカーが落ちても入口は止まらない。
     faster-whisper の無い環境でも確かめられるよう TRANSCRIBE_BACKEND=worker-fake(ワーカーの中だけ偽のモデル)で動かす。"""
 
     @classmethod

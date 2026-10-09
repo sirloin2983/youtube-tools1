@@ -37,7 +37,7 @@ MOUNTS = {
                                     "form-action 'none'; frame-ancestors 'none'"),
     # cut2resolve の画面は「編集」に統合して消したので、画面を開いたら「編集」へ転送する(「編集」も取り込まれているときだけ。API は今までどおり /cut2resolve/api/...)
     "cut2resolve": _mount_spec("cut2resolve", None, page_to={"prefix": "/transcribe", "params": {"video": "media"}}),
-    # 文字起こし: 認識(faster-whisper・sherpa-onnx)は tx_worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
+    # 文字起こし: 認識(faster-whisper・sherpa-onnx)は pipeline/transcribe/worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
     "transcribe": _mount_spec("transcribe", "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
 }
 TOKEN_HEADER = "X-YTT-Token"

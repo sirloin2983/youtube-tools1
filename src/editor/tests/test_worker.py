@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""認識ワーカー(tx_worker.py。別プロセス。統合計画の段階3-3)のテスト。  python -m unittest test_worker -v
+"""認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス。統合計画の段階3-3。RS2-9 に編集の tx_worker.py から移した)のテスト。  python -m unittest test_worker -v
 
 faster-whisper を入れていない環境でも動くよう、TRANSCRIBE_BACKEND=worker-fake で動かす:
-サーバー側(serve.py)は本物の経路(ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデル(tx_worker.install_fakes)を使う。
+サーバー側(serve.py)は本物の経路(ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデル(eval/fake/fake_worker.install)を使う。
 確かめること: 文字起こし・再認識(行ごと / 範囲)・設定の比較・話者判別がワーカー経由で動く / 取り消し /
 ワーカーが落ちてもサーバーは止まらず、そのジョブだけ失敗し、次のジョブで起動し直す / 取り消しに応じなければ強制終了 /
 しばらく使わなければワーカーを終わらせる / サーバーがいなくなればワーカーも終わる / 標準出力への余計な出力がやり取りを壊さない。
@@ -474,7 +474,8 @@ class WorkerTest(unittest.TestCase):
             job = self.transcribe()
         self.assertEqual(job["state"], "error")
         self.assertIn("文字起こしの部品が見つかりません", job["error"])   # 内部の名前は errorDetail だけ(UI の見直し S12)
-        self.assertIn("tx_worker.py", job.get("errorDetail", ""))
+        self.assertIn("worker.py", job.get("errorDetail", ""))
+        self.assertIn("nope.py", job.get("errorDetail", ""))
 
     def test_retry_failed(self):
         """失敗した文字起こしを、同じ指定でもう一度待機列に入れる(画面の [やり直す]。UI の見直し M9)。失敗していないものはやり直せない"""
@@ -542,12 +543,31 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
         self.assertEqual(out["loaded"], [])
 
     def test_gpu_probe_runs_in_separate_process(self):
-        """GPU の有無は別プロセス(tx_worker.py --probe)で調べる(サーバーのプロセスに ctranslate2 を読み込まない)。"""
-        env = dict(os.environ, TRANSCRIBE_BACKEND="worker-fake")
-        p = subprocess.run([sys.executable, S.WORKER_SCRIPT, "--probe"], capture_output=True, timeout=60, env=env)
+        """GPU の有無は別プロセス(worker.py --probe)で調べる(サーバーのプロセスに ctranslate2 を読み込まない)。
+        疑似の部品はサーバーと同じく環境変数(FAKES_ENV)でモジュールの名前を渡す(RS2-9)"""
+        env = dict(os.environ, TRANSCRIBE_BACKEND="worker-fake", **{S.FAKES_ENV: S.FAKES_MODULE})
+        self.assertTrue(S.worker_script().endswith(os.path.join("pipeline", "transcribe", "worker.py")))
+        p = subprocess.run([sys.executable, S.worker_script(), "--probe"], capture_output=True, timeout=60, env=env)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(json.loads(p.stdout), {"cuda": False})
         self.assertNotIn("ctranslate2", sys.modules)
+
+    def test_old_path_forwards_to_worker(self):
+        """旧い場所 editor/tx_worker.py(起動中の古い入口が起動し直すとき用の転送。RS5 で消す)も同じワーカーを動かす"""
+        env = dict(os.environ, TRANSCRIBE_BACKEND="worker-fake", **{S.FAKES_ENV: S.FAKES_MODULE})
+        p = subprocess.run([sys.executable, os.path.join(HERE, "tx_worker.py"), "--probe"], capture_output=True, timeout=60, env=env, cwd=HERE)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), {"cuda": False})
+
+    def test_worker_env(self):
+        """ワーカーへは作業データの場所を必ず渡し、疑似の部品の名前は worker-fake のときだけ(サーバーの環境に残っていても本物には渡さない。RS2-9)"""
+        env = S.worker_env()
+        self.assertEqual(env["TRANSCRIBE_DATA_DIR"], S.DATA_DIR)
+        self.assertEqual(env[S.FAKES_ENV], "eval.fake.fake_worker")
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", S.FAKES_ENV: "eval.fake.fake_worker"}):
+            self.assertNotIn(S.FAKES_ENV, S.worker_env())
+        with mock.patch.object(S, "FAKES_MODULE", None), self.assertRaises(RuntimeError):
+            S.worker_env()
 
     # ---- 認識エンジンの口(精度改善の計画 段2-1・2-2)
     def test_whispercpp_through_worker(self):
@@ -713,7 +733,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_diarize_request_tune_is_optional(self):
         """ワーカーの diarize: threshold・minOn・minOff が無い要求は以前と同じ呼び方(引数 4 つ)。あれば名前つきで渡す"""
-        import tx_worker
+        from pipeline.transcribe import worker as W
         got, sent = [], []
 
         def fake(job, wav, num, emb, **kw):
@@ -724,8 +744,8 @@ class ProtocolTest(unittest.TestCase):
             def send(self, obj):
                 sent.append(obj)
         with mock.patch.object(S, "_diarize_local", fake):
-            tx_worker.handle(S, {"rid": 1, "op": "diarize", "wav": "a.wav", "num": 0, "emb": "voxceleb"}, Out(), set())
-            tx_worker.handle(S, {"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}, Out(), set())
+            W.handle({"rid": 1, "op": "diarize", "wav": "a.wav", "num": 0, "emb": "voxceleb"}, Out(), set())
+            W.handle({"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}, Out(), set())
         self.assertEqual(got, [(("a.wav", 0, "voxceleb"), {}), (("a.wav", 2, "voxceleb"), {"threshold": 0.7, "min_off": 0.5})])
         self.assertEqual([m["ev"] for m in sent], ["result", "result"])
 

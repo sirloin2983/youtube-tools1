@@ -692,7 +692,7 @@ _SERVE = []
 
 def load_serve():
     """src/editor/serve.py(_evalcommon.load_serve。1 プロセスで 1 回だけ)。serve 自身の作業データは一時フォルダ eval_speakers_…で、
-    読み込んだあと環境変数を戻す(戻さないと、このあとの locate(本物の作業データ)が一時フォルダを指す)。判別はこのプロセスの中で動かす(ed_jobs.IN_WORKER)"""
+    読み込んだあと環境変数を戻す(戻さないと、このあとの locate(本物の作業データ)が一時フォルダを指す)。判別はこのプロセスの中で動かす(worker_client.IN_WORKER)"""
     if not _SERVE:
         _SERVE.append(C.load_serve(prefix="eval_speakers_", keep_env=False))
     return _SERVE[0]

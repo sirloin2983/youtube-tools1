@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""文字起こしの認識ワーカー(統合計画の段階3-3)。serve.py が別プロセスとして起動する。人が直接起動するものではない。
+"""① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
 
-    python tx_worker.py            要求を標準入力から読み、結果を標準出力へ書く(serve.py の WorkerClient が使う)
-    python tx_worker.py --probe    GPU(CUDA)が使えるかを調べて {"cuda": true|false} を出して終わる
+    python worker.py            要求を標準入力から読み、結果を標準出力へ書く(pipeline/transcribe/worker_client.py の WorkerClient が使う)
+    python worker.py --probe    GPU(CUDA)が使えるかを調べて {"cuda": true|false} を出して終わる
 
 faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メモリ不足・GPU のドライバなどでプロセスごと落ちることがある。
 その処理だけをこのプロセスで行い、落ちてもサーバー(入口に取り込んだときはスタジオ・cut2resolve も同じプロセス)は止まらないようにする。
-中身の処理は serve.py の関数(_load_model_local・_diarize_local)をそのまま使う(2か所に同じ処理を書かない)。
+中身の処理は ① の部品の関数(worker_client._load_model_local・diarize._diarize_local・_embed_local)をそのまま使う(2か所に同じ処理を書かない)。
+
+役割で組み直す RS2-9(2026-10-10)に src/editor/tx_worker.py から移した(旧い場所は起動用の転送だけ。RS5 で消す)。編集の serve を読まない:
+- 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
+  スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
+  import したとき(テスト・dev/_evalcommon の _audio)は sys.path に触らない
+- 置き場所と外の道具の口(txenv)はこのプロセスで登録する(_setup_env): DATA_DIR = 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
+  無ければ以前の既定 = 編集のフォルダ)・gpu_ready = worker_client._gpu_ready_local(呼ぶたびに読む = 疑似の差し替えが効く)・worker_fake = 環境変数 TRANSCRIBE_BACKEND
+- 疑似(TRANSCRIBE_BACKEND=worker-fake のテスト)は ④ の eval/fake/fake_worker.install()。① は ④ を import しないので、サーバーが渡す環境変数
+  YTT_WORKER_FAKES(モジュール名の文字。app = 編集の serve が worker_client.FAKES_MODULE に入れる)を importlib で読む
+- 読むのは標準ライブラリ・ytt・pipeline/transcribe だけ(編集の ed_*・serve は読まない)。numpy などは要求を処理する部品の関数の中で
 
 やり取り(1行1件の JSON。ASCII):
   要求  {"rid": 1, "op": "load", "name": "large-v3", "pref": "auto", "force_cpu": false, "engine": "faster-whisper"}
@@ -24,16 +34,24 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 標準入力が閉じた(サーバーが終わった・落ちた)ら、すぐに終わる(取り残されたプロセスがメモリを持ち続けないように)。
 """
 import faulthandler
+import importlib
 import json
 import logging
 import os
 import queue
+import re
 import sys
 import threading
 import time
 import wave
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.dirname(os.path.dirname(HERE))   # transcribe -> pipeline -> src
+if not __package__:   # スクリプトとして起動したとき(python worker.py・旧い場所の転送の runpy)だけ。兄弟を裸の名前で読まないように、このフォルダを外して src を先頭に
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from pipeline.transcribe import diarize, tx_engines, txenv, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
+from ytt import errors as _errors, jobs as _heavy, layout as _layout  # noqa: E402
+
 PROGRESS_EVERY = 0.25   # 進み具合を送る間隔(秒)。行ごとに送ると、長い音声で無駄に多くなる
 
 
@@ -73,7 +91,7 @@ class Out:
 
 
 class JobProxy(dict):
-    """serve.py の関数に渡す job の代わり。phase・state・device・progress を書くと、サーバーへ途中経過として送る。
+    """部品の関数(_load_model_local・_diarize_local など)に渡す job の代わり。phase・state・device・progress を書くと、サーバーへ途中経過として送る。
     job["cancel"] は、サーバーから取り消しが届いていれば True。"""
 
     def __init__(self, rid, out, cancels):
@@ -121,7 +139,6 @@ def _audio(a):
     if "from" not in a:
         return path
     import numpy as np
-    from pipeline.transcribe import tx_engines   # serve を読んだあと(src は serve が足してある)
     lo, hi = int(a["from"]), int(a["to"])
     with wave.open(path, "rb") as w:
         if not tx_engines.is_16k_mono(w):
@@ -132,97 +149,61 @@ def _audio(a):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-# ---------------------------------------------------------------- テスト用の偽物(TRANSCRIBE_BACKEND=worker-fake)
+# ---------------------------------------------------------------- このプロセスの口(txenv)と疑似(RS2-9)
 
-def install_fakes(S):
-    """faster-whisper・sherpa-onnx の代わり。本物の _load_model_local(モデルの使い回し・手放し)の流れはそのまま通す。
-    TRANSCRIBE_WORKER_CRASH=<n> なら、認識の n 行目を送ったあとにプロセスごと落ちる(異常終了からの立ち直りの確認用)。"""
-    import types
-    delay = float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05"))
-    crash_at = int(os.environ.get("TRANSCRIBE_WORKER_CRASH", "0") or 0)
-    vad_mode_drop = os.environ.get("TRANSCRIBE_FAKE_VAD", "")
+def _fake_mode():
+    """テスト用の TRANSCRIBE_BACKEND=worker-fake か(サーバーの ed_state.worker_fake と同じ決まり。ワーカーは serve を読まないのでここで見る)"""
+    return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
 
-    class Seg:
-        def __init__(self, a, b, text, lp=-0.3):
-            self.start, self.end, self.text = a, b, text
-            self.avg_logprob, self.no_speech_prob, self.compression_ratio = lp, 0.1, 1.2
-            self.words = [types.SimpleNamespace(start=a, end=(a + b) / 2, word=text[:len(text) // 2]),
-                          types.SimpleNamespace(start=(a + b) / 2, end=b, word=text[len(text) // 2:])]
 
-    class FakeWhisper:
-        def __init__(self, name, device="cpu", compute_type="int8", local_files_only=False, cpu_threads=0):
-            self.name = name
-            print("偽のモデルを読み込み: %s" % name)        # ライブラリの print・ネイティブの出力が、やり取りに混ざらないことの確認用
-            os.write(1, b"native-like output on fd 1\n")
+def _data_dir():
+    """作業データ(判別のモデル models/diar・エンジンの実行ファイルとモデル)。サーバーの worker_client.worker_env が環境変数 TRANSCRIBE_DATA_DIR で必ず渡す。
+    無ければ以前の既定(編集の ed_state.DATA_DIR の既定 = 編集のフォルダ)"""
+    return os.environ.get("TRANSCRIBE_DATA_DIR") or _layout.tool_dir("transcribe")
 
-        def transcribe(self, audio, language=None, beam_size=5, vad_filter=True, vad_parameters=None, word_timestamps=False,
-                       condition_on_previous_text=False, no_speech_threshold=0.6, initial_prompt=None, hotwords=None, chunk_length=None):
-            if isinstance(audio, str):
-                with wave.open(audio, "rb") as w:
-                    total = w.getnframes() / float(w.getframerate())
-            else:
-                total = len(audio) / 16000.0
-            # TRANSCRIBE_FAKE_VAD: drop-normal = 声の検出「標準」のとき全部を捨てる / drop-vad = 声の検出をかけると全部を捨てる(「なし」だけ文字が出る)
-            weak = bool(vad_parameters) and vad_parameters.get("threshold") == 0.3
-            drop = vad_filter and ((vad_mode_drop == "drop-normal" and not weak) or vad_mode_drop == "drop-vad")
-            info = types.SimpleNamespace(language=language or "ja", duration=total, duration_after_vad=0.0 if drop else total)
-            if drop:
-                return iter(()), info
 
-            def gen():
-                t, i = 0.0, 0
-                while t < total - 0.05:
-                    e = min(total, t + 4.0)
-                    i += 1
-                    yield Seg(t, e, "テスト文%d" % i, -1.4 if i % 5 == 0 else -0.3)
-                    if crash_at and i >= crash_at:
-                        os._exit(70)
-                    time.sleep(delay)
-                    t = e
-            return gen(), info
+def _setup_env():
+    """このプロセスの txenv の口(ワーカーの中で読む鍵だけ = DATA_DIR・gpu_ready・worker_fake)。どれも呼ぶたびに読む(疑似の差し替えが効く)"""
+    txenv.register(DATA_DIR=_data_dir, gpu_ready=lambda: worker_client._gpu_ready_local, worker_fake=lambda: _fake_mode)
 
-    fw = types.ModuleType("faster_whisper")
-    fw.WhisperModel = FakeWhisper
-    sys.modules["faster_whisper"] = fw
-    S._gpu_ready_local = lambda: False
 
-    def fake_diarize(job, wav, num, emb=None, threshold=None, min_on=None, min_off=None):
-        """サーバーの疑似の判別(ed_speakers.diarize_fake)と同じ区切りを、wav の長さで作る(偽物どうしが食い違わないよう、本体を共有する)"""
-        with wave.open(wav, "rb") as w:
-            total = w.getnframes() / float(w.getframerate())
-        S.diar_tune(threshold, min_on, min_off)   # 本物と同じく、正しくない値は断る
-        return S.diarize_fake(job, total, num, threshold)
-    S._diarize_local = fake_diarize
-    S._embed_local = lambda job, wav, emb, groups: S.embed_fake(groups)   # 声の特徴(A-3)も偽の話者判別と同じ区切りで
-    # whisper.cpp(段2-2)は偽の whisper-cli(tests/fake_whisper_cli.py)を動かす。モデルは取らない
-    E = S.tx_engines
-    E.WhisperCpp.COMMAND = [sys.executable, os.path.join(HERE, "tests", "fake_whisper_cli.py")]
-    E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
-    E.SenseVoice.FAKE_TEXT = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 2 つ目の読み(ed_fill)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
-    E.LlamaText.FAKE_REPLY = os.environ.get("TRANSCRIBE_FAKE_LLM", "")   # 文字の LLM(ed_llm)は環境変数の文字をそのまま答える(server を起動しない)
+_MODULE_NAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
+
+
+def _install_fakes():
+    """worker-fake(テスト)のとき、サーバーが渡したモジュール(環境変数 worker_client.FAKES_ENV。④ の eval/fake/fake_worker)の install() を呼ぶ
+    (faster-whisper・sherpa-onnx・whisper.cpp などを偽物に。本物の _load_model_local の流れはそのまま通す)。
+    ① は ④ を import しない = 名前の文字を app から受け取って importlib で読む。worker-fake でなければ、環境変数があっても読まない"""
+    if not _fake_mode():
+        return
+    name = os.environ.get(worker_client.FAKES_ENV, "")
+    if not _MODULE_NAME.fullmatch(name):
+        logging.getLogger("tx").warning("worker-fake ですが疑似の部品の名前(%s)がありません: %r", worker_client.FAKES_ENV, name[:80])
+        return
+    importlib.import_module(name).install()
 
 
 # ---------------------------------------------------------------- 本体
 
-def _engine(S, m):
+def _engine(m):
     """要求の認識エンジンの名前(一覧に無ければ ApiError。要求の文字列からクラスを探さない)"""
-    e = str(m.get("engine") or S.tx_engines.DEFAULT)
-    if not S.tx_engines.valid(e):
-        raise S.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
+    e = str(m.get("engine") or tx_engines.DEFAULT)
+    if not tx_engines.valid(e):
+        raise _errors.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
     return e
 
 
-def _op_load(S, m, rid, job, out, cancels):
-    model, dev = S._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(S, m))
+def _op_load(m, rid, job, out, cancels):
+    model, dev = worker_client._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(m))
     return {"device": dev, "params": list(model.params())}   # エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)
 
 
-def _op_transcribe(S, m, rid, job, out, cancels):
-    name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(S, m)
-    with S._model_lock:
-        model = S._models.get((name, dev, eng))
+def _op_transcribe(m, rid, job, out, cancels):
+    name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(m)
+    with worker_client._model_lock:
+        model = worker_client._models.get((name, dev, eng))
     if model is None:   # 読み込んだあとに手放された(通常は起きない)→ 同じ機器で読み直す
-        model, dev = S._load_model_local(name, job, dev, False, eng)
+        model, dev = worker_client._load_model_local(name, job, dev, False, eng)
     audio = _audio(m.get("audio") or {})
     kw = m.get("kw") or {}
     # 子プロセスで動くエンジン(whisper.cpp)は、終わるまで行が出ないので、取り消しと進み具合をエンジンに渡す
@@ -238,38 +219,38 @@ def _op_transcribe(S, m, rid, job, out, cancels):
             break
         out.send({"rid": rid, "ev": "item", "v": _seg_dict(s)})
         n += 1
-    S._model_used[0] = time.time()
+    worker_client._model_used[0] = time.time()
     return {"count": n, "cancelled": rid in cancels, "language": getattr(info, "language", None)}
 
 
-def _op_diarize(S, m, rid, job, out, cancels):
+def _op_diarize(m, rid, job, out, cancels):
     # 判別の設定(threshold・minOn・minOff)は任意。無い要求は以前と同じ呼び方(既定の値)
-    tune = {k: m[w] for k, w in S.DIAR_TUNE if m.get(w) is not None}
-    turns = S._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or S.DIAR_EMB_DEFAULT), **tune)
+    tune = {k: m[w] for k, w in diarize.DIAR_TUNE if m.get(w) is not None}
+    turns = diarize._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or diarize.DIAR_EMB_DEFAULT), **tune)
     return [[float(a), float(b), int(k)] for a, b, k in turns]
 
 
-def _op_embed(S, m, rid, job, out, cancels):
+def _op_embed(m, rid, job, out, cancels):
     groups = [[(float(a), float(b)) for a, b in g] for g in (m.get("groups") or [])]
-    return S._embed_local(job, str(m.get("wav")), str(m.get("emb") or S.DIAR_EMB_DEFAULT), groups)
+    return diarize._embed_local(job, str(m.get("wav")), str(m.get("emb") or diarize.DIAR_EMB_DEFAULT), groups)
 
 
-def _op_complete(S, m, rid, job, out, cancels):
+def _op_complete(m, rid, job, out, cancels):
     """文字の LLM に聞く(LLM の後処理 = ed_llm)。messages = [{"role", "content": 文字}](40 件・1 件 8000 字まで)-> {"content": 答え}"""
-    name, dev, eng = str(m.get("name")), str(m.get("device") or "vulkan"), _engine(S, m)
-    if eng != S.tx_engines.LlamaText.id:
-        raise S.ApiError("bad_engine", "文字の問い合わせは文字の LLM だけです", 400)
+    name, dev, eng = str(m.get("name")), str(m.get("device") or "vulkan"), _engine(m)
+    if eng != tx_engines.LlamaText.id:
+        raise _errors.ApiError("bad_engine", "文字の問い合わせは文字の LLM だけです", 400)
     msgs = m.get("messages")
     if not isinstance(msgs, list) or not 0 < len(msgs) <= 40 or not all(
             isinstance(x, dict) and x.get("role") in ("system", "user", "assistant") and isinstance(x.get("content"), str) and len(x["content"]) <= 8000 for x in msgs):
-        raise S.ApiError("bad_request", "問い合わせの形が違います", 400)
-    with S._model_lock:
-        model = S._models.get((name, dev, eng))
+        raise _errors.ApiError("bad_request", "問い合わせの形が違います", 400)
+    with worker_client._model_lock:
+        model = worker_client._models.get((name, dev, eng))
     if model is None:   # 読み込んだあとに手放された → 同じ機器で読み直す
-        model, dev = S._load_model_local(name, job, dev, False, eng)
+        model, dev = worker_client._load_model_local(name, job, dev, False, eng)
     model.hooks = {"cancelled": lambda: rid in cancels}
     content = model.complete([{"role": x["role"], "content": x["content"]} for x in msgs], max(1, min(2000, int(m.get("max_tokens") or 400))))
-    S._model_used[0] = time.time()
+    worker_client._model_used[0] = time.time()
     return {"content": content}
 
 
@@ -277,7 +258,8 @@ OPS = {"load": _op_load, "transcribe": _op_transcribe, "diarize": _op_diarize, "
        "complete": _op_complete}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
 
 
-def handle(S, m, out, cancels):
+def handle(m, out, cancels):
+    """要求 1 つを処理して、結果かエラーを送る(部品の名前は呼ぶたびにモジュールから読む = テストの差し替えが効く)"""
     rid, op = m.get("rid"), m.get("op")
     job = JobProxy(rid, out, cancels)
     try:
@@ -285,10 +267,10 @@ def handle(S, m, out, cancels):
         if fn is None:
             out.send({"rid": rid, "ev": "error", "code": "bad_op", "message": "不明な要求: %s" % op, "status": 500})
         else:
-            out.send({"rid": rid, "ev": "result", "v": fn(S, m, rid, job, out, cancels)})
-    except S.Cancelled:
+            out.send({"rid": rid, "ev": "result", "v": fn(m, rid, job, out, cancels)})
+    except _heavy.Cancelled:
         out.send({"rid": rid, "ev": "error", "code": "cancelled", "message": "中止しました"})
-    except (S.tx_engines.EngineError, S.ApiError) as e:
+    except (tx_engines.EngineError, _errors.ApiError) as e:
         out.send({"rid": rid, "ev": "error", "code": e.code, "message": e.message, "status": e.status})
     except MemoryError:
         out.send({"rid": rid, "ev": "error", "code": "no_memory", "status": 500,
@@ -306,16 +288,14 @@ def main(argv=None):
     inp = _protocol_input()
     faulthandler.enable(file=sys.stderr, all_threads=True)   # ネイティブコードで落ちたときの場所を worker.log に残す
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s [worker %(process)d] %(message)s")
-    sys.path.insert(0, HERE)
-    import serve as S   # 読み込むだけ(サーバーは起動しない)
-    S.IN_WORKER = True
-    S.setup_cuda_paths()
-    if S.worker_fake():
-        install_fakes(S)
+    _setup_env()   # 編集の serve は読まない(RS2-9)。置き場所などの口はここで
+    worker_client.IN_WORKER = True
+    worker_client.setup_cuda_paths()
+    _install_fakes()
     out = Out(fp)
     if "--probe" in argv:
         try:
-            ok = bool(S._gpu_ready_local())
+            ok = bool(worker_client._gpu_ready_local())
         except Exception:
             ok = False
         out.send({"cuda": ok})
@@ -342,7 +322,7 @@ def main(argv=None):
         os._exit(0)   # 処理の途中でも終わる(サーバーがいなくなった・終了の指示)
     threading.Thread(target=reader, daemon=True, name="stdin").start()
     while True:
-        handle(S, reqs.get(), out, cancels)
+        handle(reqs.get(), out, cancels)
 
 
 if __name__ == "__main__":

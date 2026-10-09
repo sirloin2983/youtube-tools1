@@ -106,6 +106,7 @@ import ed_ytcap  # noqa: E402,F401  (元の配信の YouTube の字幕との食�
 import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補。2026-10-05)
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
+from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
 from pipeline.transcribe import backend as _txbackend, txenv as _txenv  # noqa: E402  (本物と疑似の差し込み口・置き場所と外の道具の口。RS2-2)
 from pipeline.transcribe import roster as _txroster, tx_engines as _txengines  # noqa: E402  (名簿の prompt_terms・エンジンの engine_of・engine_home を ed_jobs から移した。RS2-4a)
 from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処理と要確認の印を ed_jobs から移した。RS2-4b)
@@ -175,9 +176,10 @@ _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fak
 ed_jobs._add_moved(fake_asr)
 # 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が ed_learn を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
 _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
-# 認識ワーカーの本体と記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)
-_txworker.WORKER_SCRIPT = os.path.join(ed_state.ROOT, "tx_worker.py")
+# 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
+# 本体は worker_client と同じフォルダの pipeline/transcribe/worker.py(RS2-9。serve を読まない)。worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前
 _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")
+_txworker.FAKES_MODULE = fake_worker.__name__
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
 _txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
 # 文書の側(doc_jobs)が使う評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)。② から ③・④ を読まないための口。
@@ -757,7 +759,7 @@ def prepare(port, base_path="/", hooks=False):
     if not ed_state.ALLOWED_HOSTS:
         ed_state.ALLOWED_HOSTS = httpsec.allowed_hosts(port)
     choose_data_dir()   # ログより先に(ログも置き場所の中に書く)
-    ed_state.setup_cuda_paths()
+    _txworker.setup_cuda_paths()
     ed_state.setup_logging(hooks)
     prev = ed_state.check_previous_run()
     if prev is not None:

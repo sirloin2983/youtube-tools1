@@ -43,10 +43,6 @@ def main():
     tmp = tempfile.mkdtemp()
     for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品   # 受け渡しの API(pipeline_io)・Resolve 書き出しも使うので一緒に写す
         shutil.copy(os.path.join(HERE, n), tmp)
-    for n in ("tx_worker.py",):   # 文字起こしワーカー(あれば一緒に写す。まだ無い環境でも他の確認は動くように)
-        p = os.path.join(HERE, n)
-        if os.path.exists(p):
-            shutil.copy(p, tmp)
     fd = os.path.join(tmp, "clips")
     os.makedirs(os.path.join(fd, "video1"))
     for rel in ("a.wav", "b.wav", os.path.join("video1", "c.wav")):

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文字起こしの認識エンジンの口(精度改善の計画 段2。plan/line-b-transcription.md(付録))。
 
-認識ワーカー(tx_worker.py)が読み込むモデルは、ここのエンジンの1つとして作る。
+認識ワーカー(worker.py)が読み込むモデルは、ここのエンジンの1つとして作る。
   faster-whisper … 今までのエンジン(CPU / NVIDIA の GPU)。段2-1
   whisper.cpp    … whisper-cli.exe を子プロセスで動かす。AMD の GPU(Vulkan)で large-v3 などを動かす。段2-2
   qwen3-asr      … Qwen3-ASR 0.6B を sherpa-onnx の CPU で動かす(時刻は区切りの中の目安)。段2-3
@@ -837,7 +837,7 @@ def sv_rows(tokens, stamps, a, b, gap=SV_GAP, max_chars=SV_MAX_CHARS):
 class SenseVoice(_Qwen3Chunked):
     """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(ed_fill)。小さいので主のモデルと一緒に持つ(light)。
     区切り方は Qwen3 と同じ(_Qwen3Chunked)。区切りの中の行はトークンの時刻で作る(_chunk_rows。時刻が無ければ Qwen3 と同じ割り振り)。
-    FAKE_TEXT(テスト用)が文字列なら、音声を読まずにその文字を 1 行にして返す(空なら行なし。tx_worker.install_fakes が環境変数 TRANSCRIBE_FAKE_FILL から入れる)"""
+    FAKE_TEXT(テスト用)が文字列なら、音声を読まずにその文字を 1 行にして返す(空なら行なし。認識ワーカーの疑似 eval/fake/fake_worker が環境変数 TRANSCRIBE_FAKE_FILL から入れる)"""
     id = "sense-voice"
     package = "sherpa-onnx"
     light = True
@@ -1153,7 +1153,7 @@ class LlamaQwen3(_Qwen3Chunked):
 class LlamaText(LlamaQwen3):
     """文字の LLM(Qwen3-8B Q4_K_M)を同じ llama-server(Vulkan)で。LLM の後処理(提案 P18 = ed_llm)が complete() で聞く。音声は認識しない。
     主の認識のモデルと一緒に持つ(light)= 認識のたびに読み直さない(VRAM 16GB に large-v3 と合わせて約 8GB)。使わなければ認識ワーカーのアイドル終了で手放す。
-    FAKE_REPLY(テスト用)が文字列なら、server を起動せずにその文字を答える(tx_worker.install_fakes が環境変数 TRANSCRIBE_FAKE_LLM から入れる)"""
+    FAKE_REPLY(テスト用)が文字列なら、server を起動せずにその文字を答える(認識ワーカーの疑似 eval/fake/fake_worker が環境変数 TRANSCRIBE_FAKE_LLM から入れる)"""
     id = "llama-text"
     DEFAULT_MODEL = "qwen3-8b"
     WHAT = "llama.cpp(文字の LLM)"
