@@ -629,6 +629,8 @@ def validate_job(req):
             "autoFill": pref("autoFill", default_on=True) and not ev,
             # LLM の後処理(ed_llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
             "autoLlm": pref("autoLlm", default_on=True) and not ev,
+            # 行の頭の話者名(「名前:」)を外す(ed_fill の B。既定オン。0.67.0)。評価用には当てない
+            "stripNames": pref("stripNames", default_on=True) and not ev,
             # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(ed_speakers.autodiar_after_transcribe)
             "autoDiarize": pref("autoDiarize"),
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
@@ -1822,6 +1824,7 @@ def run_job(job):
         pairs = dict_pairs(spec)
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
         rows = list(expand_segments(gen, spec, total))
+        rows, names_n = ed_fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
         # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
         rows, fill_rec, fill_read = ed_fill.fill_after_rows(job, spec, rows, wav, total)
         check_cancel(job)
@@ -1835,6 +1838,8 @@ def run_job(job):
         fields = _doc_fields(job, spec, out, total, t_rec, pairs)
         if fill_rec:
             fields["recognition"]["runs"][-1]["fill"] = fill_rec   # 後処理の記録(読んだ窓・置き換えた行・捨てた行・直した呼び名)
+        if names_n:
+            fields["recognition"]["runs"][-1]["names"] = names_n   # 話者名を外した行の数(B)
         if llm_rec:
             fields["recognition"]["runs"][-1]["llm"] = llm_rec   # LLM の後処理の記録(選んだ所・案・当てた数・断った理由)
         if spec.get("evalRedo"):
@@ -1892,7 +1897,8 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
         seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
         if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(ed_fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
             seg["fill"] = {"from": str(s["fill"].get("from") or "")[:ed_state.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
-            seg["flag"] = "、".join(x for x in (ed_fill.FILL_FLAG, seg["flag"]) if x)[:100]
+            mark = ed_fill.FILL_SPK_FLAG if seg["fill"]["by"] == ed_fill.FILL_SPK_BY else ed_fill.FILL_FLAG   # B は話者名を外した印
+            seg["flag"] = "、".join(x for x in (mark, seg["flag"]) if x)[:100]
         prev.append(seg["text"])
         if SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
             sparse_lp[seg["id"]] = float(s["avg_logprob"])
@@ -1916,7 +1922,8 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
               "autoDict": bool(spec.get("autoDict")), "dictApplied": out["dictApplied"], "wordSplit": bool(spec.get("wordSplit")),
               "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
               "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
-              "context": context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm"))}
+              "context": context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm")),
+              "stripNames": bool(spec.get("stripNames"))}
     fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
               "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,
               "recognition": {"runs": [recognition_run(spec, job, total, time.monotonic() - t_rec, pairs)]}}
@@ -2033,7 +2040,7 @@ def validate_retranscribe(req):
             "vadMode": ("off" if req.get("vadMode") == "off" else "weak") if mode == "whole"
             else req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
             "wordSplit": mode in ("range", "whole") and req.get("wordSplit") is not False, "splitChars": split_chars_for(req, st),
-            "stripPunct": req.get("stripPunct") is not False,
+            "stripPunct": req.get("stripPunct") is not False, "stripNames": st.get("stripNames") is not False,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx,
             "title": job_title({"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: "), doc)}
@@ -2294,13 +2301,19 @@ def finish_range_lines(raw, spec, shift, join=True):
     join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
     a, b = spec["range"]
     out, prev, terms = [], [], prompt_terms(spec)
+    names = ed_fill.fill_spk_names(spec) if spec.get("stripNames", True) is not False and not spec.get("evalSet") else None   # 行の頭の「名前:」(0.67.0)
     for s in expand_segments(raw, spec, join=join):
+        head = None
+        if names is not None:
+            s["text"], head = ed_fill.fill_spk_split(s["text"], names)
         if not s["text"]:
             continue
         st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
         if en - st < 0.05:
             continue
         flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], terms)
+        if head:
+            flag = "、".join(x for x in (ed_fill.FILL_SPK_NOTE, flag) if x)[:100]
         prev.append(s["text"])
         out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift), "lp": s.get("avg_logprob"), "conf": machine_conf(s)})
     return out
@@ -2358,6 +2371,7 @@ def redo_spec(tid, req=None):
     old_lp = req.get("oldLp") if isinstance(req.get("oldLp"), dict) else {}
     return {"tid": tid, "ids": [g["id"] for g, _a, _b in targets], "model": model, "language": doc.get("language") if doc.get("language") in ed_state.LANGS else "ja",
             "beam": 5, "vadMode": "normal", "wordSplit": True, "splitChars": split_chars_for({}), "stripPunct": pr.get("stripPunct", True) is not False,
+            "stripNames": pr.get("stripNames", True) is not False,
             "device": "auto", "boost": pr.get("boost") is True, "autoDict": False, "glossary": [], "glossAuto": [],
             "oldLp": {k: float(v) for k, v in old_lp.items() if isinstance(v, (int, float)) and not isinstance(v, bool)},
             "title": job_title("疑わしい所を認識し直す: ", doc)}

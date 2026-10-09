@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""認識のあとの後処理 A・C・D(ed_fill.py。10-08 の実験ループ。編集 0.60.0)のテスト。test_metrics から読み込まれる。
+"""認識のあとの後処理 A・B・C・D(ed_fill.py。10-08 の実験ループ。編集 0.60.0。B = 行の頭の話者名は 0.67.0)のテスト。test_metrics から読み込まれる。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
@@ -107,6 +107,28 @@ class TestFillPure(unittest.TestCase):
         self.assertEqual([g["text"] for g in segs[1:]], ["みこちが来たよ", "みこぢが来たよ", "みこぢが来たよ", "ミコチが来たよ"])   # 既にある・校正済み・時間が違う・かなの違いだけ は直さない
         self.assertEqual(ed_fill.fill_agree(segs, [{"start": 0, "end": 3, "text": "こんばんは"}], {"みこち"}), 0)
 
+    def test_strip_names(self):
+        """B: 行の頭の「名前:」を外す(名簿・用語集の名前か、かな・カタカナだけの短い語。直後に本文があるときだけ)"""
+        names = {"宝鐘マリン", "マリン"}
+        split = ed_fill.fill_spk_split
+        self.assertEqual(split("リリー:ラデンだねぇ", names), ("ラデンだねぇ", "リリー:"))
+        self.assertEqual(split(" リリー： もう一回言って", names), ("もう一回言って", " リリー： "))
+        self.assertEqual(split("宝鐘マリン:ahoy", names), ("ahoy", "宝鐘マリン:"))
+        self.assertEqual(split("マリン船長:ahoy", names)[1], None)               # 名簿に無い漢字まじり
+        self.assertEqual(split("マリンさん:ahoy", names)[1], "マリンさん:")     # 敬称を除くと名簿の名前
+        for text in ("結論:やらない", "12:30に集合", "リリー:", "リリー:!?", "とてもとても長いなまえです:はい", "Q:質問"):
+            self.assertEqual(split(text, names), (text, None), text)
+        rows = [_row(0, 2, "リリー:もう一回", _words=[[0, 0.3, "リ"], [0.3, 0.6, "リー"], [0.6, 0.7, ":"], [0.7, 2, "もう一回"]]),
+                _row(2, 4, "テスト文2", fill={"from": "x", "by": "sense-voice"}), _row(4, 6, "ねえ:テスト文3", fill={"from": "y", "by": "sense-voice"})]
+        out, n = ed_fill.fill_strip_names({"stripNames": True, "glossary": ["マリン"]}, rows)
+        self.assertEqual((n, [r["text"] for r in out]), (2, ["もう一回", "テスト文2", "テスト文3"]))
+        self.assertEqual(out[0]["fill"], {"from": "リリー:もう一回", "by": "name"})
+        self.assertEqual(out[0]["_words"], [[0.7, 2, "もう一回"]])                # 名前と「:」の単語は除く
+        self.assertEqual(out[2]["fill"], {"from": "y", "by": "sense-voice"})     # 先に付いた元の文字は残す
+        rows = [_row(0, 2, "リリー:もう一回")]
+        self.assertEqual(ed_fill.fill_strip_names({"stripNames": False}, rows), (rows, 0))
+        self.assertEqual(rows[0]["text"], "リリー:もう一回")
+
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg が必要")
 class TestFillJob(StoreDir):
@@ -175,6 +197,26 @@ class TestFillJob(StoreDir):
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
         self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True})["autoFill"])
         self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True, "evalSet": True})["autoFill"])
+
+    def test_job_strips_speaker_names(self):
+        """B のジョブ: 「名前:」を外し、fill(by name)と印・記録 runs[].names・params.stripNames。設定でオフ・評価用はオフ"""
+        orig = ed_jobs.expand_segments
+
+        def named(gen, spec, *a, **kw):
+            for i, r in enumerate(orig(gen, spec, *a, **kw)):
+                yield dict(r, text="リリー:" + r["text"]) if i == 0 else r
+        with mock.patch.object(ed_jobs, "expand_segments", named), mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
+            doc = ed_store.read_transcript(self.transcribe()["tid"])
+            off = ed_store.read_transcript(self.transcribe(stripNames=False)["tid"])
+        g = doc["segments"][0]
+        self.assertEqual((g["text"], g["fill"]), ("テスト文1", {"from": "リリー:テスト文1", "by": "name"}))
+        self.assertTrue(g["flag"].startswith(ed_fill.FILL_SPK_FLAG), g["flag"])
+        self.assertNotIn("fill", doc["segments"][1])
+        self.assertEqual((doc["recognition"]["runs"][0]["names"], doc["params"]["stripNames"]), (1, True))
+        self.assertEqual((off["segments"][0]["text"], off["params"]["stripNames"]), ("リリー:テスト文1", False))
+        self.assertNotIn("names", off["recognition"]["runs"][0])
+        self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["stripNames"])
+        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "evalSet": True})["stripNames"])
 
 
 class TestSenseVoiceEngine(unittest.TestCase):

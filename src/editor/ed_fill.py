@@ -5,6 +5,8 @@
   A fill_apply   文字の少ない行(FILL_MIN_SEC 秒以上で、記号を除き同じ字の繰り返しを 1 字に縮めた文字数が FILL_MAX_CPS 字/秒 未満、または繰り返しで縮む行
                  = 声が重なって片方しか書けていない所)の窓(前後 FILL_PAD 秒)を SenseVoice(tx_engines.SenseVoice。CPU・1 窓 0.1 秒)で読み、
                  字数が FILL_RATIO 倍以上なら置き換える。確かめ済み 22 本で CER 13.0 → 11.8%・重なり区間の抜け 109 → 51 字
+  B fill_strip_names  行の頭の「名前:」(whisper が字幕の学習データの形を出す)を外す。名前が名簿・用語集・文脈の語に当たるか、かな・カタカナだけの短い語のとき。
+                 設定 stripNames(既定オン・autoFill とは別のスイッチ)。印 FILL_SPK_FLAG・行の fill = {"from": 元の文字, "by": "name"}(0.67.0)
   C fill_clean_tail   前の行の末尾だけをもう一度出した行(窓の境目の重複)を捨てる(run_job)
     fill_clean_turns  定型の幻覚(FILL_STOCK)で、声の区間(話者判別の turns)と FILL_MIN_VOICE も重ならない行を捨てる(apply_diarization = 判別のあとだけ。
                  判別を回さない文書では捨てない)。22 本で 13.0 → 12.8%
@@ -46,6 +48,13 @@ FILL_AGREE_MIN = 3       # D: 呼び名の最小の文字数
 FILL_AGREE_SLACK = 0.5   # D: 行と 2 つ目のエンジンの行の時間の重なりの余裕(秒)
 FILL_AGREE_MAX_SEC = 1800   # D: 全体を読むのはこの秒までの文書(CPU で音声の約 2% の時間)
 _FILL_REP3 = re.compile(r"(.)\1{2,}")
+FILL_SPK_BY = "name"       # B: 行の fill の by(話者名を外した)
+FILL_SPK_NOTE = "話者名を外した"   # 範囲・全体の再認識・疑わしい所の認識し直しの印(元の文字は残さない)
+FILL_SPK_FLAG = FILL_SPK_NOTE + "(元の文字は「別の読み」の札)"
+FILL_SPK_KANA_MAX = 8      # B: 名簿に無い名前は、かな・カタカナだけのこの字数まで
+_FILL_SPK_RE = re.compile(r"^\s*([^\s:：「」『』()（）\[\]【】]{1,16})\s*[:：]\s*(\S.*)$", re.S)
+_FILL_SPK_KANA = re.compile(r"^[ぁ-ゖァ-ヺー・]{1,%d}$" % FILL_SPK_KANA_MAX)
+_FILL_SPK_HONOR = re.compile(r"(さん|ちゃん|くん|君|様|さま|先輩|せんぱい)$")
 
 
 # ---------- 文字の数え方 ----------
@@ -157,6 +166,78 @@ def fill_clean_turns(doc, turns, offset):
     if n:
         doc["segments"] = keep
     return n
+
+
+# ---------- B: 行の頭の話者名を外す(0.67.0。10-09 ユーザー報告「『Aさん:発言』のような形になってる」) ----------
+def fill_spk_key(s):
+    """話者名を比べる用: NFKC・前後の空白を除く"""
+    return unicodedata.normalize("NFKC", str(s or "")).strip()
+
+
+def fill_spk_names(spec):
+    """外してよい名前: 名簿の名前と呼び名(common も含む = 直後に「:」が来るときだけ使う)・用語集・配信ごとの文脈の語(友人が指定した名前もここに入る)"""
+    names = set()
+    try:
+        r = _roster.load(ed_state.ROSTER)
+        for name, m in (r.get("members") or {}).items():
+            m = m if isinstance(m, dict) else {}
+            names.update(fill_spk_key(a) for a in [name] + list(m.get("aliases") or []))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
+        ed_state.log.warning("名簿を読めないので、話者名は名簿なしで判断します: %s", e)
+    for t in list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []):
+        names.add(fill_spk_key(t))
+    names.discard("")
+    return names
+
+
+def fill_spk_split(text, names):
+    """行の頭の「名前:」か「名前：」を分ける -> (本文, 外した頭) か (text, None)。
+    外すのは、名前が names に当たる(敬称を除いても)か、かな・カタカナだけの FILL_SPK_KANA_MAX 字以下で、直後に本文(文字か数字)が続くときだけ"""
+    m = _FILL_SPK_RE.match(str(text or ""))
+    if not m:
+        return text, None
+    name, body = m.group(1), m.group(2).strip()
+    key = fill_spk_key(name)
+    known = key in names or _FILL_SPK_HONOR.sub("", key) in names
+    if not fill_norm(body) or not (known or _FILL_SPK_KANA.match(key)):
+        return text, None
+    return body, str(text)[:len(str(text)) - len(m.group(2))]
+
+
+def _fill_spk_words(words, head):
+    """頭の単語(3 つ組 [始め, 終わり, 文字])のうち、外した頭の字だけでできたものを除く。境目が単語の途中なら単語はそのまま"""
+    def chars(w):
+        return fill_norm(w[2] if isinstance(w, (list, tuple)) and len(w) > 2 else "")
+    want, acc, k = fill_norm(head), "", 0
+    while k < len(words) and acc != want:
+        acc += chars(words[k])
+        if not want.startswith(acc):
+            return words
+        k += 1
+    while k < len(words) and not chars(words[k]):   # 名前のあとの「:」だけの単語
+        k += 1
+    return words[k:] if acc == want and k < len(words) else words
+
+
+def fill_strip_names(spec, rows):
+    """run_job の行(expand_segments のあと・C と A の前)の頭の話者名を外す(設定 stripNames。評価用は validate_job が外す)。
+    whisper が字幕の学習データの「名前:」の形を出す(ヒントが無くても)。外した行は fill = {"from": 元の文字, "by": FILL_SPK_BY}(画面の「別の読み」の札で戻せる)。
+    whisper の生の結果 <id>.asr.json はそのまま -> (行, 外した数)"""
+    if not spec.get("stripNames"):
+        return rows, 0
+    names, n = fill_spk_names(spec), 0
+    for r in rows:
+        body, head = fill_spk_split(r.get("text"), names)
+        if head is None:
+            continue
+        if not isinstance(r.get("fill"), dict):
+            r["fill"] = {"from": r["text"], "by": FILL_SPK_BY}
+        r["text"] = body
+        for k in ("_words", "words"):
+            if isinstance(r.get(k), list) and r[k]:
+                r[k] = _fill_spk_words(r[k], head)
+        n += 1
+    return rows, n
 
 
 # ---------- D: 別のエンジンも同じ呼び名なら 1 字違いを直す ----------

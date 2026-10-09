@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.66.0';
+const APP_VERSION = '0.67.0';
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -617,7 +617,7 @@ $('#segs').addEventListener('click', e => {
     case 'tag': toggleTag(s, b.dataset.t, row); break;
     case 'unfill': {   // 別の読みで埋めた行を whisper の文字に戻す(ed_fill)。後処理の印も外し、行を描き直す(元に戻せる)
       pushUndo(); s.text = (s.fill && s.fill.from) || ''; delete s.fill;
-      s.flag = (s.flag || '').split('、').filter(f => f && !/^(別の読みで埋めた|名簿の呼び名に直した)/.test(f)).join('、');
+      s.flag = (s.flag || '').split('、').filter(f => f && !/^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)/.test(f)).join('、');
       rowChanged(); undoToast('whisper の文字に戻しました'); break; }
     case 'unflag': pushUndo(); s.flag = ''; row.classList.remove('flag'); b.remove(); markDirty(); updateRt(); drawStripSoon();
       undoToast('要確認の印を外しました(確認済み)'); break;   // S15

@@ -117,6 +117,7 @@
         { "key": "autoRedo", "type": "bool", "label": "疑わしい所(長い区間に文字が少ない行)を自動で認識し直す", "default": false },
         { "key": "redoLarge", "type": "bool", "label": "kotoba で文字起こししたときは、認識し直しに large-v3 を使う", "default": true },
         { "key": "autoFill", "type": "bool", "label": "文字の少ない行を別のエンジンの読みで埋め、名簿の呼び名に直す", "default": true, "hint": "初回は 163MB のモデルを取得します。評価用の文書には何もしません。" },
+        { "key": "stripNames", "type": "bool", "label": "行の頭の話者名(「リリー:」のような形)を外す", "default": true, "hint": "whisper が字幕の形をまねて名前を付けることがあります。外した行は「別の読み」の札で戻せます。評価用の文書には何もしません。" },
         { "key": "autoLlm", "type": "bool", "label": "名前の聞き違いらしい所を手元の LLM で直す(GPU)", "default": true, "hint": "名簿の呼び名と 1 字違いの所だけ Qwen3-8B で直します。モデルは作業データの models/llm-gguf。" },
         { "key": "autoAlt", "type": "bool", "label": "別のエンジンでも聞いて、食い違う所に候補を出す(試験中)", "default": false },
         { "key": "altEngine", "type": "enum", "label": "別のエンジン", "default": "llama.cpp", "options": [["llama.cpp", "Qwen3-ASR 1.7B(GPU)"], ["whisper.cpp", "whisper.cpp(GPU)"], ["faster-whisper", "faster-whisper(CPU)"]], "validated": true, "when": { "key": "autoAlt", "eq": true } },

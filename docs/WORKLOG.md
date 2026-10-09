@@ -3142,3 +3142,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: `e2e_alt`・`e2e_fill`・`e2e_proofread_accuracy`・`e2e_edit_tabs`(チェックの代わりに `S.settings` + `putSettingsNow()`)・`e2e_proofread_keys` の `_scene_opt_checks`(残る 4 つのチェック + 欄の無い鍵が要求に付く)
 - 結果: e2e_proofread_keys・e2e_alt・e2e_fill・e2e_proofread_accuracy・e2e_edit_tabs・e2e_ui_mounted・e2e_edit_pack(保存の待ちを足した)すべて OK・lint 0・ui_audit static/all --demo Must 0。最初の 1 周は app.js の optSubOrient の change の配線(外した欄)で画面が起動せず 7 本とも落ちた → 直した(redo・設定の比較・再認識・文字起こしの要求が欄を直接読んでいた所も vadModeOf/optCheck に)
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Opus。セッション「作業１」)— 編集 0.67.0: 行の頭の話者名(「リリー:…」)を認識の後処理で外す
+- 依頼: ユーザー報告「文字起こしかパック化の時に人の名前もついてきてるからそれはいらない」(セッション「議論」経由。議論が調べた出どころ = whisper.cpp large-v3 の生の結果。書き出しの exSpk はオフ・パックは名前を足さない)。担当: 作業１(編集)
+- `src/editor/ed_fill.py` に後処理 B: `fill_spk_split`(頭の「名前:」/「名前：」。名前が `fill_spk_names` = 名簿の名前と呼び名・用語集・文脈の語に当たる(敬称を除いても)か、かな・カタカナだけの 8 字まで、かつ後ろに本文)・`fill_strip_names`(行の fill = {from, by: name}・頭の単語も除く)。`ed_jobs.py`: `validate_job` の `stripNames`(既定オン・評価用はオフ)・`run_job` で expand_segments のあと C・A の前に外す・`_rows_to_doc` の印は by で FILL_SPK_FLAG / FILL_FLAG・記録 runs[].names・params.stripNames・`finish_range_lines`(範囲・全体の再認識・疑わしい所)も外して印 FILL_SPK_NOTE。`validate_retranscribe` は保存した設定・redo は文書の params
+- 画面: 「別の読み」の札の title に by name の文・unfill が「話者名を外した」の印も外す(app-rows.js・app.js)・`OPT_CHECKS` に stripNames(欄は設定の画面だけ)・`src/home/settings/schema.json` の自動の後処理に 1 項目
+- 版: 編集 0.67.0(serve.py・app.js・README ■ v0.67.0・AGENTS の現在の行)・data.js の版。仮の決め方 decisions 3-21 (gr)〜(gv)(今ある文書 73cc02b8e9d3 は書き換えない = 4 行は画面で)
+- テスト: test_fill に `test_strip_names`(純粋)・`test_job_strips_speaker_names`(疑似の文字起こし・オフ・評価用)。editor の unittest 603 件 OK(test_metrics・resolve_export・roster・settings_schema 2 本)・e2e_fill・e2e_settings・e2e_proofread_keys OK・lint 0・ui_audit static Must 0
+- 未コミット: なし(この記録と一緒にコミット)
