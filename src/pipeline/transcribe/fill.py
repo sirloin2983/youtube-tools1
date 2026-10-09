@@ -19,18 +19,18 @@
     whisper の生の結果は <id>.asr.json にそのまま残る(後から「後処理あり/なし」を同じ文書で測り直せる)
   - SenseVoice が使えない(sherpa-onnx が無い・取得できない)ときは文字起こしを失敗にせず、警告を出して whisper の結果のまま
   - 置き換えた・捨てた数は記録に残す(recognition.runs[].fill・diarization.fillDropped)
-名前は fill_ / FILL_ / _fill_ で始める(serve.py の _ED_MODULES の最後。ほかの部品と重ならないように)。ほかの部品は ed_xxx.名前 の形で呼ぶたびに読む。
+名前は fill_ / FILL_ / _fill_ で始める(serve.py の _ED_MODULES。ほかの部品と重ならないように)。
+
+役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_fill.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.fill_* は serve の名前の受付で読める)。
+標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・txenv・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
+txenv の口から、話者判別の部品の有無は diarize.has_sherpa から、疑似かどうかは backend.select().name から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
 import os
 import re
 import unicodedata
 
-from pipeline.transcribe import diarize  # noqa: E402   話者判別の部品(sherpa-onnx)の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)
-from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
-from ytt import jobs as _heavy  # noqa: E402   取り消し Cancelled(RS2-8a。持ち主から直に読む)
-import ed_state  # noqa: E402,F401
-from pipeline.transcribe import roster as _roster  # noqa: E402,F401
-from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前だけ(ネイティブの部品は読み込まない)
+from ytt import errors as _errors, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
+from . import backend as _backend, diarize, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv, worker_client   # diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
 
 FILL_ENGINE, FILL_MODEL = "sense-voice", "sense-voice-small"   # 2 つ目の読み(tx_engines.SenseVoice)
 FILL_LANGS = ("ja", "en", "zh", "ko")   # SenseVoice に言語として渡せるもの(それ以外は auto)
@@ -179,12 +179,12 @@ def fill_spk_names(spec):
     """外してよい名前: 名簿の名前と呼び名(common も含む = 直後に「:」が来るときだけ使う)・用語集・配信ごとの文脈の語(友人が指定した名前もここに入る)"""
     names = set()
     try:
-        r = _roster.load(ed_state.ROSTER)
+        r = _roster.load(_txenv.ROSTER)
         for name, m in (r.get("members") or {}).items():
             m = m if isinstance(m, dict) else {}
             names.update(fill_spk_key(a) for a in [name] + list(m.get("aliases") or []))
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as e:
-        ed_state.log.warning("名簿を読めないので、話者名は名簿なしで判断します: %s", e)
+        _txbase.log.warning("名簿を読めないので、話者名は名簿なしで判断します: %s", e)
     for t in list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []):
         names.add(fill_spk_key(t))
     names.discard("")
@@ -244,7 +244,7 @@ def fill_strip_names(spec, rows):
 # ---------- D: 別のエンジンも同じ呼び名なら 1 字違いを直す ----------
 def fill_aliases(r=None):
     """名簿の呼び名(名前 + aliases。common = 普通の言葉と重なる語は除く・FILL_AGREE_MIN 字以上)。r = 名簿(無ければ読む)"""
-    r = _roster.load(ed_state.ROSTER) if r is None else r
+    r = _roster.load(_txenv.ROSTER) if r is None else r
     out = set()
     for name, m in (r.get("members") or {}).items():
         m = m if isinstance(m, dict) else {}
@@ -294,11 +294,11 @@ def fill_agree(segs, others, aliases):
 def fill_reader(job, spec, wav):
     """窓を読む関数 read(s0, e0) -> [{start, end, text}](wav の秒)。疑似(TRANSCRIBE_BACKEND=fake)は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に(空 = 行なし)。
     本物は SenseVoice を認識ワーカーに読み込み(主のモデルは手放さない = tx_engines.Engine.light)、窓のサンプルの範囲だけを渡す"""
-    if ed_state.backend_name() == "fake":
+    if _backend.select().name == "fake":
         text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")
         return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
-    if not diarize.has_sherpa():
-        raise ed_state.ApiError("no_sherpa", "別の読み(SenseVoice)の部品 sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
+    if not diarize.has_sherpa():   # 話者判別の部品 sherpa-onnx の有無(呼ぶたびに読む。ネイティブの部品はここでは読み込まない)
+        raise _errors.ApiError("no_sherpa", "別の読み(SenseVoice)の部品 sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
     phase = job.get("phase")
     model, _dev = worker_client.load_model(FILL_MODEL, job, "cpu", engine=FILL_ENGINE)
     job["phase"] = phase
@@ -329,9 +329,9 @@ def fill_after_rows(job, spec, rows, wav, total):
         rows, st = fill_apply(rows, read, total)
     except _heavy.Cancelled:
         raise
-    except (ed_state.ApiError, tx_engines.EngineError) as e:
+    except (_errors.ApiError, tx_engines.EngineError) as e:
         job["phase"] = phase
-        ed_state.add_warning(job, "別の読みで埋められませんでした(whisper の結果のまま): " + str(getattr(e, "message", e))[:200])
+        _txbase.add_warning(job, "別の読みで埋められませんでした(whisper の結果のまま): " + str(getattr(e, "message", e))[:200])
         return rows, rec, None
     job["phase"] = phase
     rec.update(st)
@@ -343,7 +343,7 @@ def fill_agree_doc(job, segs, read, total, spec):
     try:
         aliases = fill_aliases()
     except (OSError, ValueError, TypeError, KeyError) as e:
-        ed_state.log.warning("名簿を読めないので呼び名の直しはしません: %s", e)
+        _txbase.log.warning("名簿を読めないので呼び名の直しはしません: %s", e)
         return 0
     if not aliases or not segs or not total or float(total) > FILL_AGREE_MAX_SEC:
         return 0
@@ -353,8 +353,8 @@ def fill_agree_doc(job, segs, read, total, spec):
         rows = read(0.0, float(total))
     except _heavy.Cancelled:
         raise
-    except (ed_state.ApiError, tx_engines.EngineError) as e:
-        ed_state.add_warning(job, "別のエンジンで名簿の呼び名を確かめられませんでした: " + str(getattr(e, "message", e))[:200])
+    except (_errors.ApiError, tx_engines.EngineError) as e:
+        _txbase.add_warning(job, "別のエンジンで名簿の呼び名を確かめられませんでした: " + str(getattr(e, "message", e))[:200])
         return 0
     finally:
         job["phase"] = phase

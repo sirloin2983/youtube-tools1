@@ -6,12 +6,12 @@
 
 役割で組み直す RS2-7(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
 txbase・txenv・worker_client・records)だけを読む。ffmpeg・置き場所(TX_DIR)は呼ぶたびに txenv の口から。
-行の頭の「名前:」を外す決まり(編集の ed_fill の B)は ① から ed_fill を読まず、app(編集の serve.py)が set_head_stripper で登録した関数を呼ぶたびに使う
+行の頭の「名前:」を外す決まり(fill の B)は ① から fill を読まず、app(編集の serve.py)が set_head_stripper で登録した関数を呼ぶたびに使う
 (ed_jobs.head_stripper。spec -> None(外さない)か 文字 -> (本文, 足す印) の関数)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
 mock.patch.object(S.RangeRecognizer, "main", …) は serve の名前の受付と ed_jobs の転送(ytt/modfwd)でここに届く。
 ジョブの本体(run_job・run_retranscribe・run_redo)と文書への反映(apply_range・plan_range・fit_lines・_ov など)は文書の側(human/proof の doc_jobs・rerun)。
-run_job は transcribe_rows が返す行を受け取って、別の読み(ed_fill)・LLM(ed_llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
+run_job は transcribe_rows が返す行を受け取って、別の読み(fill)・LLM(llm)・置換辞書と学習した置換・文書の書き込みをする(計算 = ① / 文書への書き込み = ② の第 1 歩)。
 """
 import hashlib
 import json
@@ -263,7 +263,7 @@ def finish_range_lines(raw, spec, shift, join=True):
     join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
     a, b = spec["range"]
     out, prev, terms = [], [], _roster.prompt_terms(spec)
-    split = _stripper(spec)   # 行の頭の「名前:」(0.67.0。決まりは app が登録した ed_jobs.head_stripper = ed_fill の B)
+    split = _stripper(spec)   # 行の頭の「名前:」(0.67.0。決まりは app が登録した ed_jobs.head_stripper = fill の B)
     for s in postproc.expand_segments(raw, spec, join=join):
         note = None
         if split is not None:

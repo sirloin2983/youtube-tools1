@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLM の後処理 E(ed_llm.py。提案 P18。編集 0.61.0)のテスト。test_metrics から読み込まれる。
+"""LLM の後処理 E(pipeline/transcribe/llm.py。旧 src/editor/ed_llm.py。提案 P18。編集 0.61.0)のテスト。test_metrics から読み込まれる。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest test_llm -q                         # これだけ(src/editor/tests で)
@@ -27,7 +27,7 @@ from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
 import ed_jobs  # noqa: E402
 import ed_learn  # noqa: E402
-import ed_llm  # noqa: E402
+from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/llm.py を直に読む。旧 ed_llm)
 import ed_state  # noqa: E402
 import ed_store  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
@@ -46,24 +46,24 @@ def _seg(i, text, **kw):
 class TestLlmRules(unittest.TestCase):
     def test_members_and_pick(self):
         doc = {"title": "配信_雪花ラミィ_x", "sourcePath": "E:/v.mp4"}
-        self.assertEqual([m["name"] for m in ed_llm.llm_members(doc, MEMBERS)], ["雪花ラミィ"])
+        self.assertEqual([m["name"] for m in llm.llm_members(doc, MEMBERS)], ["雪花ラミィ"])
         rows = [_seg(0, "生き花ラミーちゃんが好き"), _seg(1, "ラミィちゃん来た"), _seg(2, "ラミーちゃん", fill={"from": "x", "by": "sense-voice"}), _seg(3, "")]
-        picks = ed_llm.llm_pick(rows, MEMBERS, doc)
+        picks = llm.llm_pick(rows, MEMBERS, doc)
         self.assertEqual([(p["row"], p["span"], p["why"]) for p in picks], [(0, "ラミーちゃん", "name")])   # 長い方だけ・そのまま出ている行・後処理の行・空の行は選ばない
         doc2 = {"title": "26-01-01_常闇トワ"}
-        self.assertEqual([p["why"] for p in ed_llm.llm_pick([_seg(0, "トーイ様こんばんは")], MEMBERS, doc2)], ["mis"])
-        self.assertEqual(len(ed_llm.llm_pick([_seg(i, "ラミーちゃん") for i in range(40)], MEMBERS, doc)), ed_llm.LLM_MAX_PICKS)
+        self.assertEqual([p["why"] for p in llm.llm_pick([_seg(0, "トーイ様こんばんは")], MEMBERS, doc2)], ["mis"])
+        self.assertEqual(len(llm.llm_pick([_seg(i, "ラミーちゃん") for i in range(40)], MEMBERS, doc)), llm.LLM_MAX_PICKS)
 
     def test_katakana_rule(self):
-        targets = ed_llm.llm_targets([MEMBERS[2]])
-        self.assertEqual(ed_llm.llm_near("言ってみるか", targets), [])   # ひらがなの普通の言葉はカタカナの名前に近いとみない
-        self.assertIn(("トルカ", "ポルカ"), ed_llm.llm_near("トルカ来た", targets))
+        targets = llm.llm_targets([MEMBERS[2]])
+        self.assertEqual(llm.llm_near("言ってみるか", targets), [])   # ひらがなの普通の言葉はカタカナの名前に近いとみない
+        self.assertIn(("トルカ", "ポルカ"), llm.llm_near("トルカ来た", targets))
 
     def test_parse_and_messages(self):
-        self.assertEqual(ed_llm.llm_parse('<think>x</think>答え {"edits": [{"from": "a", "to": "b", "confidence": 0.9}, {"from": 1}]}'),
+        self.assertEqual(llm.llm_parse('<think>x</think>答え {"edits": [{"from": "a", "to": "b", "confidence": 0.9}, {"from": 1}]}'),
                          [{"from": "a", "to": "b", "confidence": 0.9}])
-        self.assertEqual(ed_llm.llm_parse("なし"), [])
-        m = ed_llm.llm_messages([_seg(i, "行%d" % i) for i in range(6)], 3, [{"span": "行", "cands": ["ラミィ"]}], ["雪花ラミィ"])
+        self.assertEqual(llm.llm_parse("なし"), [])
+        m = llm.llm_messages([_seg(i, "行%d" % i) for i in range(6)], 3, [{"span": "行", "cands": ["ラミィ"]}], ["雪花ラミィ"])
         self.assertEqual([x["role"] for x in m], ["system", "user"])
         self.assertIn("/no_think", m[0]["content"])
         self.assertIn("→ 行3", m[1]["content"])
@@ -71,18 +71,18 @@ class TestLlmRules(unittest.TestCase):
 
     def test_guard_cap_apply(self):
         t = "生き花ラミーちゃんが好き"
-        names = ed_llm.llm_names(MEMBERS)
-        self.assertIsNone(ed_llm.llm_guard(t, {"from": "ラミー", "to": "ラミィ", "confidence": 0.9}, ["ラミィ"], names))
-        self.assertEqual(ed_llm.llm_guard(t, {"from": "無い", "to": "x", "confidence": 0.9}, [], names), "notInRow")
-        self.assertEqual(ed_llm.llm_guard(t, {"from": "ラミー", "to": "ラミィ", "confidence": 0.1}, [], names), "lowConfidence")
-        self.assertEqual(ed_llm.llm_guard(t, {"from": "好き", "to": "とても大好きです", "confidence": 0.9}, [], names), "length")
-        self.assertEqual(ed_llm.llm_guard("言ってみるか", {"from": "みるか", "to": "ポルカ", "confidence": 0.9}, [], names), "newName")
+        names = llm.llm_names(MEMBERS)
+        self.assertIsNone(llm.llm_guard(t, {"from": "ラミー", "to": "ラミィ", "confidence": 0.9}, ["ラミィ"], names))
+        self.assertEqual(llm.llm_guard(t, {"from": "無い", "to": "x", "confidence": 0.9}, [], names), "notInRow")
+        self.assertEqual(llm.llm_guard(t, {"from": "ラミー", "to": "ラミィ", "confidence": 0.1}, [], names), "lowConfidence")
+        self.assertEqual(llm.llm_guard(t, {"from": "好き", "to": "とても大好きです", "confidence": 0.9}, [], names), "length")
+        self.assertEqual(llm.llm_guard("言ってみるか", {"from": "みるか", "to": "ポルカ", "confidence": 0.9}, [], names), "newName")
         rows = [_seg(i, "あいう") for i in range(10)]
-        keep, drop = ed_llm.llm_cap([(0, {"from": "あ", "to": "か", "confidence": 0.9}), (1, {"from": "あ", "to": "か", "confidence": None})], len(rows))
+        keep, drop = llm.llm_cap([(0, {"from": "あ", "to": "か", "confidence": 0.9}), (1, {"from": "あ", "to": "か", "confidence": None})], len(rows))
         self.assertEqual(([i for i, _ in keep], len(drop)), ([0], 1))
-        ed_llm.llm_apply(rows, keep)
-        self.assertEqual((rows[0]["text"], rows[0]["fill"], rows[0]["flag"]), ("かいう", {"from": "あいう", "by": "llm"}, ed_llm.LLM_FLAG))
-        self.assertTrue(ed_llm.LLM_FLAG.startswith("名簿の呼び名に直した"))   # 画面の「戻す」(app.js の unfill)が同じ規則で印を外す
+        llm.llm_apply(rows, keep)
+        self.assertEqual((rows[0]["text"], rows[0]["fill"], rows[0]["flag"]), ("かいう", {"from": "あいう", "by": "llm"}, llm.LLM_FLAG))
+        self.assertTrue(llm.LLM_FLAG.startswith("名簿の呼び名に直した"))   # 画面の「戻す」(app.js の unfill)が同じ規則で印を外す
 
     def test_run_records_and_skips_ask_without_picks(self):
         doc = {"title": "配信_雪花ラミィ"}
@@ -92,12 +92,12 @@ class TestLlmRules(unittest.TestCase):
             asked.append(messages)
             return json.dumps({"edits": [{"from": "ラミーちゃん", "to": "ラミィちゃん", "confidence": 0.95}, {"from": "好き", "to": "大嫌いだよね", "confidence": 0.9}]})
         rows = [_seg(0, "生き花ラミーちゃんが好き")] + [_seg(i, "行") for i in range(1, 10)]
-        rec = ed_llm.llm_run(rows, MEMBERS, doc, ask)
+        rec = llm.llm_run(rows, MEMBERS, doc, ask)
         self.assertEqual((rec["picked"], rec["proposed"], rec["applied"], rec["rejected"]), (1, 2, 1, {"length": 1}))
         self.assertEqual(rows[0]["text"], "生き花ラミィちゃんが好き")
         self.assertEqual([it["rejected"] for it in rec["items"]], [None, "length"])
         asked.clear()
-        ed_llm.llm_run([_seg(0, "こんにちは")], MEMBERS, doc, ask)
+        llm.llm_run([_seg(0, "こんにちは")], MEMBERS, doc, ask)
         self.assertEqual(asked, [])
 
 
@@ -157,33 +157,33 @@ class TestLlmJob(StoreDir):
         segs = doc["segments"]
         self.assertEqual(segs[0]["text"], "テスト分1")   # 3 行のうち 15% = 1 行まで
         self.assertEqual(segs[0]["fill"], {"from": "テスト文1", "by": "llm"})
-        self.assertTrue(segs[0]["flag"].startswith(ed_llm.LLM_FLAG))
+        self.assertTrue(segs[0]["flag"].startswith(llm.LLM_FLAG))
         self.assertEqual([g["text"] for g in segs[1:]], ["テスト文2", "テスト文3"])
         self.assertEqual([o["text"] for o in doc["original"]], ["テスト文1", "テスト文2", "テスト文3"])   # 機械の出力は変えない
         run = doc["recognition"]["runs"][0]
         self.assertEqual(run["llm"], {"engine": "llama-text", "model": "qwen3-8b", "picked": 3, "proposed": 3, "applied": 1, "rejected": {"cap": 2}})
         self.assertIs(doc["params"]["autoLlm"], True)
-        raw = ed_llm.read_llm(job["tid"])
+        raw = llm.read_llm(job["tid"])
         self.assertEqual([it["rejected"] for it in raw["items"]], [None, "cap", "cap"])
         # 保存しても fill は残る・文書を消すと llm.json も消える
         saved = ed_store.sanitize_transcript(dict(doc), doc)
         self.assertEqual(saved["segments"][0]["fill"], {"from": "テスト文1", "by": "llm"})
-        self.assertTrue(os.path.exists(ed_llm.llm_path(job["tid"])))
+        self.assertTrue(os.path.exists(llm.llm_path(job["tid"])))
 
     def test_no_picks_does_not_load_llm(self):
         other = os.path.join(self.tmp, "roster2.json")
         write_json(other, {"groups": [{"id": "t", "label": "試し", "names": ["別の人"]}], "members": [{"name": "別の人", "aliases": ["べつのひと"]}]})
         called = []
-        with mock.patch.object(ed_state, "ROSTER", other), mock.patch.object(ed_llm, "llm_ask_fn", side_effect=lambda job, spec: called.append(1)):
+        with mock.patch.object(ed_state, "ROSTER", other), mock.patch.object(llm, "llm_ask_fn", side_effect=lambda job, spec: called.append(1)):
             job = self.transcribe()
         doc = ed_store.read_transcript(job["tid"])
         self.assertEqual((doc["recognition"]["runs"][0]["llm"]["picked"], called), (0, []))   # 名簿の人が出ない文書 = 選んだ所なし = LLM を読み込まない
-        self.assertFalse(os.path.exists(ed_llm.llm_path(job["tid"])))
+        self.assertFalse(os.path.exists(llm.llm_path(job["tid"])))
 
     def test_failure_keeps_transcript(self):
         def boom(job, spec):
             raise ed_state.ApiError("engine_failed", "llama-server が起動の途中で止まりました", 500)
-        with mock.patch.object(ed_llm, "llm_ask_fn", side_effect=boom):
+        with mock.patch.object(llm, "llm_ask_fn", side_effect=boom):
             job = self.transcribe()
         doc = ed_store.read_transcript(job["tid"])
         self.assertEqual([g["text"] for g in doc["segments"]], ["テスト文1", "テスト文2", "テスト文3"])

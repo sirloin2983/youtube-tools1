@@ -104,9 +104,7 @@ import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文
 import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
 import ed_ytcap  # noqa: E402,F401  (元の配信の YouTube の字幕との食い違いの候補。案 A1)
 import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補。2026-10-05)
-import ed_fill  # noqa: E402,F401  (認識のあとの後処理 A・C・D = 文字の少ない行を別の読みで埋める・定型の幻覚と重複の掃除・名簿の呼び名の 1 字違い。10-08 の実験ループ。0.60.0)
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
-import ed_llm  # noqa: E402,F401  (LLM の後処理 E = 名簿の呼び名の聞き違いらしい所だけを文字の LLM で直す。提案 P18。0.61.0)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from pipeline.transcribe import backend as _txbackend, txenv as _txenv  # noqa: E402  (本物と疑似の差し込み口・置き場所と外の道具の口。RS2-2)
 from pipeline.transcribe import roster as _txroster, tx_engines as _txengines  # noqa: E402  (名簿の prompt_terms・エンジンの engine_of・engine_home を ed_jobs から移した。RS2-4a)
@@ -114,6 +112,7 @@ from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処
 from pipeline.transcribe import records as _txrecords  # noqa: E402  (認識の記録・辞書の版・生出力・単語の時刻を ed_jobs から移した。RS2-5)
 from pipeline.transcribe import worker_client as _txworker  # noqa: E402  (認識ワーカー・モデル・エンジンの確かめを ed_jobs から、wav の形を ed_speakers から移した。RS2-6)
 from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを ed_jobs から移した。RS2-7)
+from pipeline.transcribe import fill as _txfill, llm as _txllm  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E を ed_fill・ed_llm から移した。殻は作らない。RS2-9)
 from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・文書づくり・受付。RS2-8b に ed_jobs から移した。ed_jobs は転送だけの殻)
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
@@ -130,8 +129,8 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
 _ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
-_ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
-_ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
+_ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
+_ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 
 
@@ -179,7 +178,7 @@ _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned
 # 認識ワーカーの本体と記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)
 _txworker.WORKER_SCRIPT = os.path.join(ed_state.ROOT, "tx_worker.py")
 _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")
-# 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(ed_fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
+# 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
 _txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
 # 文書の側(doc_jobs)が使う評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)。② から ③・④ を読まないための口。
 # 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)
@@ -622,7 +621,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.unlink(ed_store.tx_path(tid))
                 for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
                               _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
-                              ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), ed_llm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
+                              ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), _txllm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

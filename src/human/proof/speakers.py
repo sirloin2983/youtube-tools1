@@ -8,7 +8,7 @@ recognize_voices・voice_learn_plan・run_voice_learn)・話者ごとの字幕�
 テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") が届く)。
 旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、serve.名前 は serve の名前の受付がここへ回す。
 評価用の文書の名前の候補(eval の ed_drill.drill_candidates)は読まず、serve が set_context_namer で登録する口を呼ぶたびに引く(② から ④ を読まない)。
-editor の部品は裸の名前で読む(human の ed_store・ed_learn と pipeline の ed_fill は層の向きが許す)。
+editor の部品は裸の名前で読む(human の ed_store・ed_learn は層の向きが許す)。後処理 fill は pipeline/transcribe の部品を fill.名前 で呼ぶたびに読む(RS2-9)。
 """
 import bisect
 import json
@@ -21,7 +21,7 @@ import unicodedata
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from pipeline.transcribe import backend as _backend, diarize, recognize  # noqa: E402   本物と疑似の差し込み口・判別の計算(呼ぶたびに diarize.名前 で読む)・音声の取り出し
 from pipeline.transcribe import txbase as _txbase, txenv as _txenv  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 置き場所と外の道具の口
-import ed_fill  # noqa: E402,F401   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0)
+from pipeline.transcribe import fill  # noqa: E402   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0。呼ぶたびに fill.名前 で読む)
 import ed_learn  # noqa: E402,F401   設定(diarSmooth・diarEmb)
 import ed_store  # noqa: E402,F401   文書の読み書き・保存のロック・控え
 
@@ -111,7 +111,7 @@ def _diar_kept_speakers(doc, segs, keep, taken):
 
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = ed_store.read_transcript(tid)
-    dropped = ed_fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ。0.60.0)
+    dropped = fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ。0.60.0)
     segs = doc.get("segments") or []
     ids = _spk_ids(doc)
     keep = [diar_keep_row(g, ids) for g in segs]   # 手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない

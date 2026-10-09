@@ -16,8 +16,13 @@
   - 生の提案・採否・断った理由は <id>.llm.json(LLM_SCHEMA)、数は recognition.runs[].llm
   - 学習(ed_learn.learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)
   - 測る道具は dev/eval_llm.py(この部品の規則をそのまま使う)。10-09 に確かめ済み 22 本で CER 13.5 → 13.4%・名前 28 → 34/53
-規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(dev/eval_llm.py が単独で読む)。組み込みの部分だけが、関数の中で ed_state・ytt/jobs・worker_client・roster を読む。
-名前は llm_ / LLM_ で始める(serve.py の _ED_MODULES の最後。ほかの部品と重ならないように)。
+規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(dev/eval_llm.py が単独で読む)。組み込みの部分だけが、ytt/jobs・worker_client・roster・backend・txenv を呼ぶ。
+名前は llm_ / LLM_ で始める(read_llm のほか。serve.py の _ED_MODULES。ほかの部品と重ならないように)。
+
+役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_llm.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.llm_* は serve の名前の受付で読める)。
+以前は組み込みの部分が関数の中で import していた(ed_state・roster・ytt/jobs・worker_client)。今は先頭で同じパッケージの兄弟(backend・roster・txbase・txenv・worker_client)と
+ytt(fsio・jobs)を読み、置き場所(TX_DIR・ROSTER)は呼ぶたびに txenv の口から、疑似かどうかは backend.select().name から読む(app の ed_state を読まない)。
+標準ライブラリ・ytt・兄弟だけなので、ネイティブの部品は読み込まない。
 """
 import json
 import os
@@ -25,9 +30,12 @@ import re
 import time
 import unicodedata
 
+from ytt import fsio as _fsio, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)・書き込みと付き物の JSON の読み
+from . import backend as _backend, roster as _roster, txbase as _txbase, txenv as _txenv, worker_client   # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)
+
 LLM_ENGINE, LLM_MODEL = "llama-text", "qwen3-8b"   # tx_engines.LlamaText と LLAMA_TEXT_MODELS の名前
 LLM_SCHEMA = "youtube-tools-llm/v1"
-LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を ed_fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
+LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
 LLM_MIN_ALIAS = 3        # 近い所を探す呼び名の最小の文字数(かなに寄せたあと)
 LLM_MAX_PICKS = 30       # 1 文書で選ぶ所の上限
 LLM_MIN_CONF = 0.5       # LLM の自信がこれ未満の案は当てない
@@ -245,9 +253,7 @@ def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None)
 def llm_ask_fn(job, spec):
     """問い合わせの関数 messages -> 答えの文字。疑似(TRANSCRIBE_BACKEND=fake)は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す。
     本物は LLM(tx_engines.LlamaText)を認識ワーカーに読み込み(主のモデルは手放さない = light)、op complete で聞く"""
-    import ed_state
-    from pipeline.transcribe import worker_client   # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)
-    if ed_state.backend_name() == "fake":
+    if _backend.select().name == "fake":
         reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
         return lambda messages: reply
     phase = job.get("phase")
@@ -262,24 +268,21 @@ def llm_ask_fn(job, spec):
 def llm_after_doc(job, spec, segs):
     """run_job の文書の行(_rows_to_doc のあと・後処理 D のあと)に LLM の直しを当てる(segs を書き換える)。
     -> 記録(recognition.runs[].llm に入れる。設定オフなら None)と、<id>.llm.json に書く中身(記録の items)の組"""
-    import ed_state
-    from pipeline.transcribe import roster
-    from ytt import jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
     if not spec.get("autoLlm"):
         return None, None
     rec = {"engine": LLM_ENGINE, "model": LLM_MODEL, "picked": 0, "proposed": 0, "applied": 0, "rejected": {}}
     try:
-        members = list(roster.load(ed_state.ROSTER)["members"].values())
+        members = list(_roster.load(_txenv.ROSTER)["members"].values())
     except (OSError, ValueError, TypeError, KeyError) as e:
-        ed_state.log.warning("名簿を読めないので LLM の直しはしません: %s", e)
+        _txbase.log.warning("名簿を読めないので LLM の直しはしません: %s", e)
         return rec, None
     doc = {"title": spec.get("title"), "sourcePath": spec.get("sourcePath")}
     try:   # 出る人は、題名・動画のパスに加えて配信ごとの文脈(チャンネル名・コラボ相手・動画のフォルダ = roster.stream_context)からも(文字起こしの時点では話者がまだいない)
-        ctx = roster.stream_context({"clip": spec.get("clip"), "title": spec.get("title"), "sourceName": os.path.basename(str(spec.get("sourcePath") or "")),
+        ctx = _roster.stream_context({"clip": spec.get("clip"), "title": spec.get("title"), "sourceName": os.path.basename(str(spec.get("sourcePath") or "")),
                                      "sourcePath": spec.get("sourcePath")}, True)
         doc["speakers"] = [{"name": m["name"]} for m in ctx.get("members") or []]
     except Exception as e:   # 文脈は補助。読めなくても題名とパスで選ぶ
-        ed_state.log.warning("配信ごとの文脈を読めませんでした(LLM の後処理は題名とパスだけで): %s", e)
+        _txbase.log.warning("配信ごとの文脈を読めませんでした(LLM の後処理は題名とパスだけで): %s", e)
     picks = llm_pick(segs, members, doc)
     rec["picked"] = len(picks)
     if not picks:
@@ -292,7 +295,7 @@ def llm_after_doc(job, spec, segs):
     except _heavy.Cancelled:
         raise
     except Exception as e:   # LLM は補助。読めない・失敗しても文字起こしは失敗にしない(ApiError・EngineError・ワーカーの失敗)
-        ed_state.add_warning(job, "LLM で名前を確かめられませんでした(認識の結果のまま): " + str(getattr(e, "message", e))[:200])
+        _txbase.add_warning(job, "LLM で名前を確かめられませんでした(認識の結果のまま): " + str(getattr(e, "message", e))[:200])
         rec["error"] = str(getattr(e, "message", e))[:200]
         return rec, None
     finally:
@@ -302,21 +305,18 @@ def llm_after_doc(job, spec, segs):
 
 
 def llm_path(tid):
-    import ed_state
-    return os.path.join(ed_state.TX_DIR, tid + ".llm.json")
+    return os.path.join(_txenv.TX_DIR, tid + ".llm.json")
 
 
 def llm_write(tid, rec, items):
     """生の提案・採否を <id>.llm.json に(書けなくても文字起こしは失敗にしない)"""
-    import ed_state
     body = {"schema": LLM_SCHEMA, "id": tid, "engine": rec.get("engine"), "model": rec.get("model"), "at": int(time.time() * 1000), "items": items or []}
     try:
-        ed_state.atomic_write(llm_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        _fsio.atomic_write(llm_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
     except OSError as e:
-        ed_state.log.warning("LLM の提案を保存できませんでした: %s %s", tid, e)
+        _txbase.log.warning("LLM の提案を保存できませんでした: %s %s", tid, e)
 
 
 def read_llm(tid):
     """<id>.llm.json(無い・形が違えば None)"""
-    import ed_state
-    return ed_state.read_schema_json(llm_path(tid), LLM_MAX_BYTES, LLM_SCHEMA, "items")
+    return _fsio.read_schema_json(llm_path(tid), LLM_MAX_BYTES, LLM_SCHEMA, "items")

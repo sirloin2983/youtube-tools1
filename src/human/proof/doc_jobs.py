@@ -11,7 +11,8 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
-editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap と pipeline の ed_fill・ed_llm は層の向きが許す)。話者の部品は隣の speakers(RS2-9)。
+editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap は層の向きが許す)。話者の部品は隣の speakers(RS2-9)。
+後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
 """
 import bisect
 import json
@@ -27,9 +28,9 @@ from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要�
 from pipeline.transcribe import records  # noqa: E402   認識の記録・生出力・単語の時刻(RS2-5。呼ぶたびに records.名前 で読む)
 from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカーとのやり取り・モデル・wav を読まずに渡す形(RS2-6。呼ぶたびに worker_client.名前 で読む)
 from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。呼ぶたびに recognize.名前 で読む)
+from pipeline.transcribe import fill  # noqa: E402   認識のあとの後処理 A・B・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0。RS2-9 に ed_fill から移した)
+from pipeline.transcribe import llm  # noqa: E402   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0。RS2-9 に ed_llm から移した)
 import ed_alt  # noqa: E402,F401
-import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
-import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_learn  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
@@ -144,11 +145,11 @@ def validate_job(req):
             "autoAlt": pref("autoAlt") and not ev,
             # 終わったら元の配信の YouTube の字幕と比べる(案 A1)。要求に無ければ保存した設定 autoYtcap。元の配信が分からない文書は ytcap_after_transcribe が黙って飛ばす
             "autoYtcap": pref("autoYtcap") and not ev,
-            # 認識のあとの後処理(ed_fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
+            # 認識のあとの後処理(fill の A・C・D。既定オン。0.60.0)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
             "autoFill": pref("autoFill", default_on=True) and not ev,
-            # LLM の後処理(ed_llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
+            # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17。0.61.0)。評価用には当てない
             "autoLlm": pref("autoLlm", default_on=True) and not ev,
-            # 行の頭の話者名(「名前:」)を外す(ed_fill の B。既定オン。0.67.0)。評価用には当てない
+            # 行の頭の話者名(「名前:」)を外す(fill の B。既定オン。0.67.0)。評価用には当てない
             "stripNames": pref("stripNames", default_on=True) and not ev,
             # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(speakers.autodiar_after_transcribe)
             "autoDiarize": pref("autoDiarize"),
@@ -344,16 +345,16 @@ def run_job(job):
         # ① 音声を取り出して認識し、整えた行を受け取る(recognize.transcribe_rows。RS2-8e)。ここから下は文書への書き込み(② の文書づくり)
         res = recognize.transcribe_rows(job, spec, wav)
         rows, raw_asr, total, t_rec = res["rows"], res["raw"], res["total"], res["t_rec"]   # raw = 生出力(<id>.asr.json)・t_rec = 認識を始めた時刻(recognition.runs の wallSec)
-        rows, names_n = ed_fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
+        rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
         # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
-        rows, fill_rec, fill_read = ed_fill.fill_after_rows(job, spec, rows, wav, total)
+        rows, fill_rec, fill_read = fill.fill_after_rows(job, spec, rows, wav, total)
         _heavy.check_cancel(job)
         out = _rows_to_doc(job, spec, rows, pairs, lrules, lfb)
         if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
-            fill_rec["agree"] = ed_fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
+            fill_rec["agree"] = fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
         _heavy.check_cancel(job)
         # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
-        llm_rec, llm_items = ed_llm.llm_after_doc(job, spec, out["segs"])
+        llm_rec, llm_items = llm.llm_after_doc(job, spec, out["segs"])
         _heavy.check_cancel(job)
         fields = _doc_fields(job, spec, out, total, t_rec, pairs)
         if fill_rec:
@@ -388,7 +389,7 @@ def run_job(job):
         except (OSError, TypeError, ValueError) as e:
             _txbase.log.warning("生出力を保存できませんでした: %s %s", tid, e)
         if llm_items:
-            ed_llm.llm_write(tid, llm_rec, llm_items)   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
+            llm.llm_write(tid, llm_rec, llm_items)   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
         _hook("norm_after")(job, spec, tid)
@@ -415,9 +416,9 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
         seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
                "text": s["text"][:_txbase.MAX_TEXT], "speaker": "", "flag": ""}
         seg["flag"] = postproc.make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
-        if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(ed_fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
+        if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
             seg["fill"] = {"from": str(s["fill"].get("from") or "")[:_txbase.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
-            mark = ed_fill.FILL_SPK_FLAG if seg["fill"]["by"] == ed_fill.FILL_SPK_BY else ed_fill.FILL_FLAG   # B は話者名を外した印
+            mark = fill.FILL_SPK_FLAG if seg["fill"]["by"] == fill.FILL_SPK_BY else fill.FILL_FLAG   # B は話者名を外した印
             seg["flag"] = "、".join(x for x in (mark, seg["flag"]) if x)[:100]
         prev.append(seg["text"])
         if postproc.SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
@@ -568,14 +569,14 @@ def redo_spec(tid, req=None):
 
 
 def head_stripper(spec):
-    """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(ed_fill の B。0.67.0)。recognize.finish_range_lines が使う
-    (① の recognize は ed_fill を読まない。serve が recognize.set_head_stripper で登録する。RS2-7)。
+    """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(fill の B。0.67.0)。recognize.finish_range_lines が使う
+    (① の recognize は fill を読まない。serve が recognize.set_head_stripper で登録する。RS2-7)。
     -> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
     if spec.get("stripNames", True) is False or spec.get("evalSet"):
         return None
-    names = ed_fill.fill_spk_names(spec)
+    names = fill.fill_spk_names(spec)
 
     def split(text):
-        text, head = ed_fill.fill_spk_split(text, names)
-        return text, (ed_fill.FILL_SPK_NOTE if head else None)
+        text, head = fill.fill_spk_split(text, names)
+        return text, (fill.FILL_SPK_NOTE if head else None)
     return split

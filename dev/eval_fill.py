@@ -38,13 +38,13 @@ import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所�
 from _evalcommon import rate, read_json  # noqa: E402
 
 SCHEMA = "youtube-tools-fill-eval/v1"
-LLM_SCHEMA = "youtube-tools-llm/v1"   # 編集の <id>.llm.json(src/editor/ed_llm.py の LLM_SCHEMA)
+LLM_SCHEMA = "youtube-tools-llm/v1"   # 編集の <id>.llm.json(src/pipeline/transcribe/llm.py の LLM_SCHEMA)
 FEW_ROWS = 30                      # 判定できた A の行がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = 64 * 1024 * 1024
 MAX_EDIT_CHARS = 400               # 編集距離を測る文字の上限(長い行は測らない)
 OVERLAP_SHARE = 0.5                # 機械の行の長さのこの割合以上重なる今の行を「同じ所」とみなす
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
-NAME_FLAG = "名簿の呼び名に直した"   # src/editor/ed_fill.py の FILL_NAME_FLAG の頭(印の文はそちらが正)
+NAME_FLAG = "名簿の呼び名に直した"   # src/pipeline/transcribe/fill.py の FILL_NAME_FLAG の頭(印の文はそちらが正)
 KINDS = ("kept", "edited", "reverted", "deleted", "unchecked")
 KIND_LABELS = {"kept": "残した", "edited": "直した", "reverted": "戻した", "deleted": "消した", "unchecked": "未確認"}
 NOTES = ["戻した D(名簿の呼び名)は数えられない(札で戻すと印も元の文字も消えるため)",

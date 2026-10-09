@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLM の後処理(提案 P18。編集の src/editor/ed_llm.py。plan/llm-postfix.md)を、確かめ済みの評価用の文書で測る道具。
+"""LLM の後処理(提案 P18。pipeline/transcribe/llm.py(旧 src/editor/ed_llm.py)。plan/llm-postfix.md)を、確かめ済みの評価用の文書で測る道具。
 
     python dev/eval_llm.py [--docs id,id] [--limit 30] [--only name,mis] [--dry] [--label 名前] [--no-save]
 
@@ -7,7 +7,7 @@
   (dev/eval_asr.py compare でそのまま比べられる形)と、提案の中身 evals/llm/<日時>.json に残す(--no-save で残さない)
 - 対象: dev/eval_asr.py と同じ選び方(既定は評価用の確かめ済みだけ)。機械の出力 original(評価用には辞書・後処理が当たっていない)に LLM の直しを当てる前と後を、
   eval_asr の採点(score_doc・summarize = 画面の精度の測定と同じ規則)で比べ、最後に compare の対の差(95% の範囲)を出す
-- 規則は編集の ed_llm をそのまま使う(選ぶ llm_pick・聞く llm_messages・読む llm_parse・検査 llm_guard・上限 llm_cap・当てる llm_apply = 本番と同じ)。
+- 規則は pipeline/transcribe/llm.py をそのまま使う(選ぶ llm_pick・聞く llm_messages・読む llm_parse・検査 llm_guard・上限 llm_cap・当てる llm_apply = 本番と同じ)。
   この道具だけの選び方: (b) whisper の語の確信度(生の結果 asr.json の words)が LOW_PROB 未満の 2 字以上の語(同じ字の繰り返しは除く)。
   10-09 の測定で外れが多かったので本番には入れていない(--only name,mis で本番と同じ選び方)
 - LLM は編集と同じ tx_engines.LlamaText(作業データの models/llm-gguf/ の Qwen3-8B Q4_K_M・bin/llama.cpp-*-vulkan/ の llama-server。大きさと SHA-256 を確かめ、
@@ -29,7 +29,7 @@ import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所�
 import eval_asr as E  # noqa: E402  選び方と採点(score_doc・summarize・compare)
 if C.EDITOR not in sys.path:
     sys.path.insert(0, C.EDITOR)
-import ed_llm  # noqa: E402  本番の規則(規則の部分は編集のほかの部品を読まない)
+from pipeline.transcribe import llm as ed_llm  # noqa: E402  本番の規則(別名 ed_llm のまま = main の中に局所の llm がある。2026-10-10 の RS2-9 に src/editor/ed_llm.py から pipeline/transcribe/llm.py へ移した。規則の部分は編集のほかの部品を読まない)
 
 LOW_PROB = 0.35          # whisper の語の確信度がこれ未満なら疑わしい(この道具だけ)
 fold = ed_llm.llm_fold

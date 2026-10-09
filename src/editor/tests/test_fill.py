@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""認識のあとの後処理 A・B・C・D(ed_fill.py。10-08 の実験ループ。編集 0.60.0。B = 行の頭の話者名は 0.67.0)のテスト。test_metrics から読み込まれる。
+"""認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。旧 src/editor/ed_fill.py。10-08 の実験ループ。編集 0.60.0。B = 行の頭の話者名は 0.67.0)のテスト。test_metrics から読み込まれる。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
-import ed_fill  # noqa: E402
+from pipeline.transcribe import fill  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/fill.py を直に読む。旧 ed_fill)
 import ed_jobs  # noqa: E402
 import ed_state  # noqa: E402
 import ed_store  # noqa: E402
@@ -37,13 +37,13 @@ def _row(a, b, text, **kw):
 
 class TestFillPure(unittest.TestCase):
     def test_sparse_row(self):
-        self.assertTrue(ed_fill.fill_sparse_row(_row(0, 4, "テスト文1")))                     # 5 字 / 4 秒 = 1.25 < 1.5
-        self.assertFalse(ed_fill.fill_sparse_row(_row(0, 1.5, "テスト文1")))                  # 2 秒未満
-        self.assertFalse(ed_fill.fill_sparse_row(_row(0, 4, "これは十分に長い文字の行です")))     # 3.5 字/秒
-        self.assertTrue(ed_fill.fill_sparse_row(_row(0, 2, "うわああああああああああああ")))        # 繰り返しで 3 字に縮む(密度は高い)
-        self.assertFalse(ed_fill.fill_sparse_row(_row(0, 2, "ああいいううええおお")))             # 2 回の繰り返しは縮めない
-        self.assertFalse(ed_fill.fill_sparse_row({"start": "x", "end": 1, "text": "a"}))
-        self.assertEqual((ed_fill.fill_chars("うわああああ!!"), ed_fill.fill_norm("A B、c。")), (3, "ABc"))   # う・わ・あ(3 回以上の繰り返しは 1 字)
+        self.assertTrue(fill.fill_sparse_row(_row(0, 4, "テスト文1")))                     # 5 字 / 4 秒 = 1.25 < 1.5
+        self.assertFalse(fill.fill_sparse_row(_row(0, 1.5, "テスト文1")))                  # 2 秒未満
+        self.assertFalse(fill.fill_sparse_row(_row(0, 4, "これは十分に長い文字の行です")))     # 3.5 字/秒
+        self.assertTrue(fill.fill_sparse_row(_row(0, 2, "うわああああああああああああ")))        # 繰り返しで 3 字に縮む(密度は高い)
+        self.assertFalse(fill.fill_sparse_row(_row(0, 2, "ああいいううええおお")))             # 2 回の繰り返しは縮めない
+        self.assertFalse(fill.fill_sparse_row({"start": "x", "end": 1, "text": "a"}))
+        self.assertEqual((fill.fill_chars("うわああああ!!"), fill.fill_norm("A B、c。")), (3, "ABc"))   # う・わ・あ(3 回以上の繰り返しは 1 字)
 
     def test_apply_replaces_only_when_three_times(self):
         r1, r2 = _row(0, 4, "テスト文1"), _row(4, 8, "これは十分に長い文字の行です")
@@ -52,22 +52,22 @@ class TestFillPure(unittest.TestCase):
         def read(s0, e0):
             calls.append((s0, e0))
             return [{"start": s0 + 0.2, "end": e0 - 0.2, "text": LONG}]
-        out, st = ed_fill.fill_apply([r1, r2], read, 8.0)
+        out, st = fill.fill_apply([r1, r2], read, 8.0)
         self.assertEqual((st, calls), ({"windows": 1, "rows": 1, "added": 1}, [(0.0, 4.5)]))   # 窓は前後 0.5 秒(0 より前・total より後ろへは出ない)
         self.assertEqual([(x["start"], x["end"], x["text"]) for x in out], [(0.2, 4.3, LONG), (4, 8, "これは十分に長い文字の行です")])
         self.assertEqual(out[0]["fill"], {"from": "テスト文1", "by": "sense-voice"})
         self.assertNotIn("fill", out[1])
         # 字数が 3 倍未満・窓の読みが元の行の時間に半分も入らない → 置き換えない
-        out, st = ed_fill.fill_apply([r1], lambda s0, e0: [{"start": s0, "end": e0, "text": "短い文です"}], 8.0)
+        out, st = fill.fill_apply([r1], lambda s0, e0: [{"start": s0, "end": e0, "text": "短い文です"}], 8.0)
         self.assertEqual((st["rows"], out[0]["text"]), (0, "テスト文1"))
-        out, st = ed_fill.fill_apply([r1], lambda s0, e0: [{"start": 3.9, "end": 4.5, "text": LONG}], 8.0)
+        out, st = fill.fill_apply([r1], lambda s0, e0: [{"start": 3.9, "end": 4.5, "text": LONG}], 8.0)
         self.assertEqual((st["rows"], out[0]["text"]), (0, "テスト文1"))
-        out, st = ed_fill.fill_apply([r1], lambda s0, e0: [], 8.0)
+        out, st = fill.fill_apply([r1], lambda s0, e0: [], 8.0)
         self.assertEqual((st, out[0]["text"]), ({"windows": 1, "rows": 0, "added": 0}, "テスト文1"))
 
     def test_clean_tail(self):
         rows = [_row(0, 3, "今日はいい天気ですね"), _row(3, 4, "いい天気ですね"), _row(4, 5, "ですね"), _row(5, 6, "いい天気ですね")]
-        out, n = ed_fill.fill_clean_tail(rows)
+        out, n = fill.fill_clean_tail(rows)
         self.assertEqual(([r["text"] for r in out], n), (["今日はいい天気ですね", "ですね", "いい天気ですね"], 1))   # 6 字未満・前の行の末尾でない行は残す
 
     def test_clean_turns(self):
@@ -80,19 +80,19 @@ class TestFillPure(unittest.TestCase):
         orig[3]["text"] = "ご視聴ありがとう"   # s4 は人(か辞書)が直した行
         doc = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
         turns = [(0.0, 5.0, 0), (39.0, 45.0, 1)]   # 声があるのは 0〜5 秒と 39〜45 秒(wav の秒。offset 0)
-        self.assertEqual(ed_fill.fill_clean_turns(doc, turns, 0.0), 1)
+        self.assertEqual(fill.fill_clean_turns(doc, turns, 0.0), 1)
         self.assertEqual([g["id"] for g in doc["segments"]], ["s2", "s3", "s4", "s5"])   # 声の中・校正済み・直した行・普通の文は残す
         doc2 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig, "evalSet": True}
-        self.assertEqual(ed_fill.fill_clean_turns(doc2, turns, 0.0), 0)
+        self.assertEqual(fill.fill_clean_turns(doc2, turns, 0.0), 0)
         doc3 = {"params": {}, "segments": [dict(g) for g in seg], "original": orig}
-        self.assertEqual(ed_fill.fill_clean_turns(doc3, turns, 0.0), 0)
+        self.assertEqual(fill.fill_clean_turns(doc3, turns, 0.0), 0)
         doc4 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
-        self.assertEqual(ed_fill.fill_clean_turns(doc4, [(0.0, 5.0, 0)], 10.0), 1)   # offset で声の区間が 10〜15 秒 = s1 は声の中・s2 が声の外
+        self.assertEqual(fill.fill_clean_turns(doc4, [(0.0, 5.0, 0)], 10.0), 1)   # offset で声の区間が 10〜15 秒 = s1 は声の中・s2 が声の外
         self.assertEqual([g["id"] for g in doc4["segments"]], ["s1", "s3", "s4", "s5"])
 
     def test_aliases(self):
         r = {"members": {"さくらみこ": {"aliases": ["みこ", "みこち"], "common": ["みこ"]}, "白上フブキ": {"aliases": ["フブキ", "フブ"], "common": []}}}
-        self.assertEqual(ed_fill.fill_aliases(r), {"さくらみこ", "みこち", "白上フブキ", "フブキ"})   # 3 字未満と common は入れない
+        self.assertEqual(fill.fill_aliases(r), {"さくらみこ", "みこち", "白上フブキ", "フブキ"})   # 3 字未満と common は入れない
 
     def test_agree(self):
         segs = [{"id": "s1", "start": 0, "end": 3, "text": "みこぢが来たよ", "speaker": "", "flag": "自信が低い"},
@@ -101,16 +101,16 @@ class TestFillPure(unittest.TestCase):
                 {"id": "s4", "start": 20, "end": 23, "text": "みこぢが来たよ", "speaker": "", "flag": ""},
                 {"id": "s5", "start": 9, "end": 12, "text": "ミコチが来たよ", "speaker": "", "flag": ""}]
         others = [{"start": 0.2, "end": 12, "text": "みこちが来たよみこちが来たよ"}]
-        n = ed_fill.fill_agree(segs, others, {"みこち", "さくらみこ"})
+        n = fill.fill_agree(segs, others, {"みこち", "さくらみこ"})
         self.assertEqual(n, 1)
         self.assertEqual((segs[0]["text"], segs[0]["fill"], segs[0]["flag"]), ("みこちが来たよ", {"from": "みこぢが来たよ", "by": "sense-voice"}, "名簿の呼び名に直した(別のエンジンも同じ呼び名)、自信が低い"))
         self.assertEqual([g["text"] for g in segs[1:]], ["みこちが来たよ", "みこぢが来たよ", "みこぢが来たよ", "ミコチが来たよ"])   # 既にある・校正済み・時間が違う・かなの違いだけ は直さない
-        self.assertEqual(ed_fill.fill_agree(segs, [{"start": 0, "end": 3, "text": "こんばんは"}], {"みこち"}), 0)
+        self.assertEqual(fill.fill_agree(segs, [{"start": 0, "end": 3, "text": "こんばんは"}], {"みこち"}), 0)
 
     def test_strip_names(self):
         """B: 行の頭の「名前:」を外す(名簿・用語集の名前か、かな・カタカナだけの短い語。直後に本文があるときだけ)"""
         names = {"宝鐘マリン", "マリン"}
-        split = ed_fill.fill_spk_split
+        split = fill.fill_spk_split
         self.assertEqual(split("リリー:ラデンだねぇ", names), ("ラデンだねぇ", "リリー:"))
         self.assertEqual(split(" リリー： もう一回言って", names), ("もう一回言って", " リリー： "))
         self.assertEqual(split("宝鐘マリン:ahoy", names), ("ahoy", "宝鐘マリン:"))
@@ -120,13 +120,13 @@ class TestFillPure(unittest.TestCase):
             self.assertEqual(split(text, names), (text, None), text)
         rows = [_row(0, 2, "リリー:もう一回", _words=[[0, 0.3, "リ"], [0.3, 0.6, "リー"], [0.6, 0.7, ":"], [0.7, 2, "もう一回"]]),
                 _row(2, 4, "テスト文2", fill={"from": "x", "by": "sense-voice"}), _row(4, 6, "ねえ:テスト文3", fill={"from": "y", "by": "sense-voice"})]
-        out, n = ed_fill.fill_strip_names({"stripNames": True, "glossary": ["マリン"]}, rows)
+        out, n = fill.fill_strip_names({"stripNames": True, "glossary": ["マリン"]}, rows)
         self.assertEqual((n, [r["text"] for r in out]), (2, ["もう一回", "テスト文2", "テスト文3"]))
         self.assertEqual(out[0]["fill"], {"from": "リリー:もう一回", "by": "name"})
         self.assertEqual(out[0]["_words"], [[0.7, 2, "もう一回"]])                # 名前と「:」の単語は除く
         self.assertEqual(out[2]["fill"], {"from": "y", "by": "sense-voice"})     # 先に付いた元の文字は残す
         rows = [_row(0, 2, "リリー:もう一回")]
-        self.assertEqual(ed_fill.fill_strip_names({"stripNames": False}, rows), (rows, 0))
+        self.assertEqual(fill.fill_strip_names({"stripNames": False}, rows), (rows, 0))
         self.assertEqual(rows[0]["text"], "リリー:もう一回")
 
 
@@ -168,8 +168,8 @@ class TestFillJob(StoreDir):
         segs = doc["segments"]
         self.assertEqual([(g["start"], g["end"], g["text"]) for g in segs], [(0.0, 4.5, LONG), (3.5, 8.5, LONG), (8.0, 9.0, "テスト文3")])   # 窓 = 前後 0.5 秒
         self.assertEqual([g.get("fill") for g in segs], [{"from": "テスト文1", "by": "sense-voice"}, {"from": "テスト文2", "by": "sense-voice"}, None])
-        self.assertTrue(all(g["flag"].startswith(ed_fill.FILL_FLAG) for g in segs[:2]), [g["flag"] for g in segs])
-        self.assertNotIn(ed_fill.FILL_FLAG, segs[2]["flag"])
+        self.assertTrue(all(g["flag"].startswith(fill.FILL_FLAG) for g in segs[:2]), [g["flag"] for g in segs])
+        self.assertNotIn(fill.FILL_FLAG, segs[2]["flag"])
         run = doc["recognition"]["runs"][0]
         self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 2, "rows": 2, "added": 2, "dup": 0, "agree": 0})
         self.assertIs(doc["params"]["autoFill"], True)
@@ -210,7 +210,7 @@ class TestFillJob(StoreDir):
             off = ed_store.read_transcript(self.transcribe(stripNames=False)["tid"])
         g = doc["segments"][0]
         self.assertEqual((g["text"], g["fill"]), ("テスト文1", {"from": "リリー:テスト文1", "by": "name"}))
-        self.assertTrue(g["flag"].startswith(ed_fill.FILL_SPK_FLAG), g["flag"])
+        self.assertTrue(g["flag"].startswith(fill.FILL_SPK_FLAG), g["flag"])
         self.assertNotIn("fill", doc["segments"][1])
         self.assertEqual((doc["recognition"]["runs"][0]["names"], doc["params"]["stripNames"]), (1, True))
         self.assertEqual((off["segments"][0]["text"], off["params"]["stripNames"]), ("リリー:テスト文1", False))
