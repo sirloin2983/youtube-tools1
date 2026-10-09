@@ -28,6 +28,7 @@
 | 各ツールの `README.txt`・リポジトリ直下の `README.txt` | ユーザー向けの使い方と変更の記録 |
 | `docs/spec/pipeline.md` | ツール間の受け渡しの形式と API |
 | `docs/spec/data-location.md` | 作業データの置き場所(`%LOCALAPPDATA%\youtube-tools\`)・バックアップ・写し戻し |
+| `docs/spec/settings.md` | 設定の決まり(どこに保存するか・⚙ に置くか操作の隣に置くかの基準・今の置き場所の棚卸し・1 つにまとめる段 1〜3 = 計画の S1〜S5) |
 | `docs/spec/eval-folder.md` | 評価用のフォルダの規則(仮置き・取り込み・名前) |
 | `docs/spec/friend-intake.md` | 友人からの依頼の受付の仕様(Dropbox・送るアプリ・配信者と色・ライブ配信の依頼・組で届けて 1 本ずつ選ぶ) |
 | `docs/spec/row-timing-policy.md` | 行(字幕の区間)の時刻の原則(10-07 ユーザー決定)と測る 5 つの数字 |
@@ -49,7 +50,7 @@
 | 文書 | 中身 |
 |---|---|
 | `plan/index.html` + `plan/data.js` | 全体の計画(今の状態と残り)・各線の進捗・フェーズ・全工程の表(前提・後続・時間)・依存の図・日程・入口の条件・前提の数字。表示の部品は `plan/plan.js`・`plan/plan.css` |
-| `plan/user-tasks.html`(データは同じ `data.js`) | ユーザーがやること(U1〜U13。U6 は欠番。U8 = 送るアプリ 2.8.1 を本物の Dropbox で・U9 = Chrome 拡張を本物の Studio で(10-09 済み)・U10 = 仮決めの確認・U13 = 月報の推定収益の単位。ほかに実機で確かめること・決めてほしいこと) |
+| `plan/user-tasks.html`(データは同じ `data.js`) | ユーザーがやること(U1〜U13。U6 は欠番。U8 = 送るアプリ 2.8.1 を本物の Dropbox で・U9 = Chrome 拡張を本物の Studio で(10-09 済み)・U10 = 仮決めの確認・U13 = 月報の受け取り(10-09 済み)。ほかに実機で確かめること・決めてほしいこと) |
 | `plan/decisions.md` | 決めたこと・やらないこと・AI が仮で決めたこと |
 | `plan/improvements.md` | 改善点・追加するとよい機能 |
 | `plan/analytics-daily-report.md` | 分析と日報(新しいツール `src/analytics/` の設計。2026-10-08 に決定・10-09 に実装(0.1.1)して日報・週報・月報が LINE に届いた。10-09 に既存の「Youtube日次」(ブックマーク → Apps Script → LINE)を引き継いでツールに移し分析を作り直すと決定。日報・週報・月報で YPP の守り・初動・配信者別などを出す。既存の仕組みの監査と作り直しの方針は 12 節。提案の P24 から) |
