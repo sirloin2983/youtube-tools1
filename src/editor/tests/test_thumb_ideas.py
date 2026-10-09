@@ -1,6 +1,6 @@
-"""dev/thumb_ideas.py(サムネの案の試作。提案 P5 の S)のテスト。リポジトリ直下で:
+"""src/editor/thumb_ideas.py(サムネの案。提案 P5 の S。10-09 に dev/ から移した)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_thumb_ideas.py
+    py -3.10 -m unittest src/editor/tests/test_thumb_ideas.py
 
 作業データは使わない(文字起こしの文書は一時フォルダに作る)。最後の 1 件だけ ffmpeg で 4 秒の試しの動画を作って 1 枚を描く(ffmpeg が無ければ飛ばす)。
 """
@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/editor
 sys.path.insert(0, HERE)
 import thumb_ideas as T  # noqa: E402
 

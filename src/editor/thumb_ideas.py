@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
 
-    python dev/thumb_ideas.py <切り抜きの動画> [--doc 文字起こしの id] [--name 配信者] [--out 出力の png]
+    python src/editor/thumb_ideas.py <切り抜きの動画> [--doc 文字起こしの id] [--name 配信者] [--out 出力の png]
 
 - 入力: 切り抜きの動画(横 16:9 の配信の画面)と、その文字起こし(編集の作業データ transcripts/<id>.json。--doc が無ければ動画のパスが同じ文書を探す。無くても動く)
 - 時刻の候補(2-1): 音の大きい瞬間(0.5 秒ごとの RMS)・場面の切り替わり(ffmpeg の scene)・感情の強い行(！？・伸ばし棒・笑い・同じ字の繰り返し)。
@@ -23,7 +23,7 @@ import tempfile
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.join(os.path.dirname(HERE), "src")
+REPO = os.path.dirname(HERE)   # src(ツールの親 = ytt_core の置き場所。ytt_core.layout の src_root と同じ)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt_core import datadir, tools  # noqa: E402

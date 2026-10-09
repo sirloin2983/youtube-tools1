@@ -2995,3 +2995,8 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: `src/editor/tests/e2e_row_editing.py` に 12-2(Shift+M・M・Ctrl+Z・Y・行の外・保存・キーの一覧)= ALL PASSED。e2e_proofread_keys(設定のチェック 18 個)・home の e2e_keymap OK。test_metrics 565 件 OK・lint 0・ui_audit all --demo Must 0
 - data.js: A6 を済みに・編集の版 0.63.0・P18 の残りから ⚙ のチェックを外した。llm-postfix・line-a-proofread-effort の状態の行。仮で決めたこと: decisions 3-17 の (fx)
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— 移動: dev/thumb_ideas.py → src/editor/thumb_ideas.py(P5 の画面の準備)
+- `git mv` で dev/thumb_ideas.py → src/editor/thumb_ideas.py・dev/tests/test_thumb_ideas.py → src/editor/tests/test_thumb_ideas.py(編集のジョブから呼ぶため。名前は ed_ でない独立の部品 = serve.py の名前の受付に入れない)。ytt_core の場所の行と説明文のパスだけ直した。テスト 9 件 OK・lint 0
+- 使い方のコマンドは `py -3.10 src/editor/thumb_ideas.py <切り抜きの動画>` に変わった(plan/thumb-ideas.md・data.js の P5 を直した。decisions の (fn) は記録なので旧いパスのまま)
+- 未コミット: なし(このセッションの分)
