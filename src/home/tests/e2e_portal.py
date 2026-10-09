@@ -347,7 +347,7 @@ def _mounted_cases_and_memo(cx):
     check(any(t == "編集で開く" and h.startswith("/transcribe/?doc=") and "&media=" in h and h.endswith("#tx") for t, h in acts),
           "[A] 切り抜きの操作は「編集で開く」(文書 ID で校正のタブへ。B-1: 同じ動画の別の文書が開かないように): %s" % acts)
     case_doc = [h for t, h in acts if t == "編集で開く"][0].split("doc=")[1].split("&")[0]
-    # B-8(段1): 案件の行から、その配信をスタジオの ③ 確認で開く。S-15(入口 0.42.0): 同じ窓で移る(target を付けない = 窓・タブを増やさない)
+    # B-8(段1): 案件の行から、その配信をスタジオの ② 確認で開く。S-15(入口 0.42.0): 同じ窓で移る(target を付けない = 窓・タブを増やさない)
     sh = pg.eval_on_selector_all(".pt-case-studio a", "els => els.map(a => [a.textContent, a.getAttribute('href'), a.getAttribute('target')])")
     check(sh == [["スタジオで開く", "/studio/?video=e2eCase0001", None]],
           "[A] 案件の行に「スタジオで開く」(?video= に案件の id・同じ窓で移る): %s" % sh)
@@ -359,7 +359,7 @@ def _mounted_cases_and_memo(cx):
     tab.click(".pt-case-studio a")
     tab.wait_for_url(lambda u: "/studio/" in u, timeout=20000)
     check(wait_js(tab, "!!(window.Studio && Studio.ready) && Studio.params.video === 'e2eCase0001' && Studio.step === 'review'", 20000),
-          "[A] 「スタジオで開く」でスタジオがその配信を ③ 確認で開いた: %s"
+          "[A] 「スタジオで開く」でスタジオがその配信を ② 確認で開いた: %s"
           % tab.evaluate("window.Studio && [Studio.params, Studio.step]"))
     check(len(ctx.pages) == n_pages, "[A] S-15: 「スタジオで開く」は同じタブで移る(新しいタブを開かない): %d → %d" % (n_pages, len(ctx.pages)))
     tab.close()
@@ -652,7 +652,7 @@ def _mounted_next_steps(cx):
 
 
 def _next_todo(cx):
-    """S-6: 次にやることに 文字起こし待ち・書き出し待ち・確認前の候補(スタジオの ③ へ)と並び / S-26: 紐づかない文書の副題"""
+    """S-6: 次にやることに 文字起こし待ち・書き出し待ち・確認前の候補(スタジオの ② へ)と並び / S-26: 紐づかない文書の副題"""
     check, pg = cx.check, cx.pg
     if pg.is_visible("#todoMore") and pg.text_content("#todoMore").startswith("すべて見る"):
         pg.click("#todoMore")
@@ -660,7 +660,7 @@ def _next_todo(cx):
     todo = pg.eval_on_selector_all("#todoList .pt-todo-item", "els => els.map(e => [e.querySelector('.pt-todo-pill').textContent, "
                                    "e.querySelector('.pt-todo-link').getAttribute('href'), e.querySelector('.pt-todo-sub').textContent])")
     check(any(p == "候補の確認待ち" and h == "/studio/?video=e2eNext0001" and "候補 3個" in s and "chNext" in s for p, h, s in todo),
-          "[A] S-6: 候補の確認待ち(見送りは数えない)・スタジオの ③ でその配信を開く: %s" % todo)
+          "[A] S-6: 候補の確認待ち(見送りは数えない)・スタジオの ② でその配信を開く: %s" % todo)
     check(any(p == "文字起こし待ち" and h == "/studio/?video=e2eNext0002" and "文字起こし 1本" in s for p, h, s in todo), "[A] S-6: 文字起こし待ち: %s" % todo)
     check(any(p == "書き出し待ち" and h == "/studio/?video=e2eList0000" and "書き出し 1本" in s for p, h, s in todo), "[A] S-6: 書き出し待ち(採用したマーク): %s" % todo)
     order_api = pg.evaluate("fetch('/api/cases', {cache: 'no-store'}).then(r => r.json()).then(j => j.todoOrder)")
@@ -862,7 +862,7 @@ def _ui_review_checks(cx):
           "[A] M2: やることが無いとき、理由 + 次の一歩 + [候補の確認へ]: %s" % p6.evaluate("[...document.querySelectorAll('.ui-toast')].map(t => t.textContent)"))
     p6.evaluate("document.querySelector('.ui-toast-act').click()")
     p6.wait_for_url(lambda u: "/studio/" in u and "video=e2eNext0001" in u, timeout=20000)
-    check(True, "[A] M2: [候補の確認へ] はスタジオの ③ でその配信を開く: %s" % p6.url)
+    check(True, "[A] M2: [候補の確認へ] はスタジオの ② でその配信を開く: %s" % p6.url)
     p6.close()
     # M9: 状態の保存が失敗したとき: 「何が」+「どうすれば」・HTTP の番号は本文に出さない・[もう一度]
     p7 = ctx.new_page()

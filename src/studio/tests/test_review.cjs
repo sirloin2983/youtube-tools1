@@ -814,7 +814,7 @@ test('links to the home use data-ui-portal (no new tab); the autorun entry is no
   assert.ok(!/\$\('#rvAuto'\)\.hidden = !Studio\.token/.test(source), 'no longer hidden only because the home is not used');
   assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("UIKit.menuOff($('#rkAuto'), "), '① まとめて実行 too (ui-kit v21 menuOff)');
   const ram = between('function renderAutoMenu(', 'function renderDuration(');
-  assert.ok(ram.includes('UIKit.menuOff(d, why, '), '③ uses the shared disabled-menu helper (ui-kit v21)');
+  assert.ok(ram.includes('UIKit.menuOff(d, why, '), '② uses the shared disabled-menu helper (ui-kit v21)');
   assert.ok(!source.includes("$('#rvAuto > summary').addEventListener('click'"), 'no own click handler on the summary (ui-kit stops the click and tells why)');
 });
 
@@ -905,7 +905,7 @@ test('live recordings are registered in one place with the channel name (core.js
   assert.ok(!sliceOf('review.js', 'async function openLiveRecording(', '/* ---------- マーク操作').includes("'/api/videos/open'"), 'the header badge "開く" uses register too');
 });
 
-// ---- 0.23.4(コードの見直し B): スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・③ の設定と欄の対応は 1 つの表 ----
+// ---- 0.23.4(コードの見直し B): スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・② の設定と欄の対応は 1 つの表 ----
 test('core.js API wrappers go through UIKit.http / homeApi with the studio messages, the live timeouts and the empty POST body', async () => {
   const calls = [];
   const kit = makeUIKit({
@@ -969,7 +969,7 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
   assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
   for (const id of ['rvRoot', 'rvPick', 'rvJump', 'rvEmpty', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
     assert.ok(ids.includes(id), id);
-  /* 0.22.3(見直し M9): 操作の設定は ③ の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
+  /* 0.22.3(見直し M9): 操作の設定は ② の中ではなく ⚙ の節(#opsHost)に入れる(mountSettings) */
   assert.ok(!ids.includes('rvSettings') && !ids.includes('rvAutoNext'), 'the operation settings are not in the review pane');
   assert.ok(between('function mountSettings(', '/* 書き出しの引き出し').includes("$('#opsHost')"), 'mountSettings puts them into the settings drawer');
   assert.ok(html.startsWith('\n<div class="rv-root" id="rvRoot">\n  <div class="rv-warn notice cs-notice-act"') && html.endsWith('    </section>\n  </div>\n</div>'));
@@ -1164,7 +1164,7 @@ test('live peaks: adopt sends one request (no double press) with the band settin
   const posts = h.calls.filter(c => c.body);
   assert.equal(posts.length, 1, 'pressed twice before the answer: one request');
   assert.deepEqual(plain(posts[0].body), { op: 'adopt', recorder: 'local', recording: 'R', id: 'a', after: 'auto', streamer: '兎田ぺこら' });
-  assert.deepEqual(h.after, ['save', 'sync', 'jobs'], 'saved first; then the new mark and the export row are read (③ does not see server-side marks by itself)');
+  assert.deepEqual(h.after, ['save', 'sync', 'jobs'], 'saved first; then the new mark and the export row are read (② does not see server-side marks by itself)');
   assert.equal(h.PKV.list[0].state, 'adopted');
   assert.equal(h.PKV.list[0].text, '候補の文字', 'the POST answer has no text (the GET adds it): the text on the row stays');
   assert.ok(h.notes.some(m => String(m).includes('候補 0:10 を採用しました')));

@@ -3,7 +3,7 @@
 
     python3 serve.py [開始ポート] [--no-open]
 
-  ① 探す(配信ランキング)→ ② 解析(切り抜き候補の自動選定・バッチ)→ ③ 確認・書き出し(クリップマーカー)。
+  ① 探す(配信ランキング。先頭に URL から入れる欄と解析の順番待ち = 切り抜き候補の自動選定・バッチ)→ ② 確認・書き出し(クリップマーカー)。
   エンドポイントは API.md を参照。127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
 """
 import json
@@ -33,7 +33,7 @@ from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
 from ytt_core import datadir, httpsec, runtime as ytt_runtime, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.23.4"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.24.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR

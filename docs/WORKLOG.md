@@ -2931,3 +2931,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 本物の LLM: 本番と同じ道(load_model → LlamaText → complete。このプロセスの中)で評価用の 783157af3200 の行の写しに当てて「メコちゃん」→「みこちゃん」(8 秒・読み込み込み)。文書は書き換えていない
 - 注意: 起動中の入口は古いまま(「すべて終了」→ start.bat で 0.61.0)。初めて名簿の人の聞き違いらしい所がある文書を文字起こしすると、LLM(作業データの models/llm-gguf/ に取得済み 5GB)を認識ワーカーに読み込む(VRAM 約 5GB を主のモデルと一緒に持つ。使わなければアイドル終了で手放す)
 - 未コミット: なし(このセッションの分。dev/ui_audit.py・src/home・src/studio などの並行セッションの差分は stage していない)
+
+## 2026-10-09 Claude Code(PC。Fable)— S2 スタジオ 0.24.0: 「2 解析」のタブを無くし、解析の設定を ⚙ の「解析」の節へ
+- 依頼: ユーザー「解析と編集のパックはタブごと消して設定にまとめて」(10-09。docs/spec/settings.md の 3 = 段 1)。URL を入れる口は「1 探す」の小さなカードに(ユーザー決定)。順番待ちはその右(おすすめで進めた)
+- 変更(src/studio): `index.html` タブを 2 つに(data-step="queue" のボタンと #paneQueue を消し、確認・書き出しの番号を 2 に) / `core.js` STEPS・PANES から queue を外し、`Studio.go('queue')` と旧い保存値 `clipstudio:step` は rank に読み替え・`?url=` は ① へ / `queue.js` paneHtml を `entryHtml`(① の先頭の「URL から入れる」カード = URL 欄・解析に追加・解析せずに開く・「解析の設定」ボタン・「動画ファイル・コラボ」の折りたたみ + 順番待ちのカード)と `optsHtml`(⚙ の節の中身。欄の id は以前のまま)に分けた。`settings()` は欄が無ければ読み込んだ値 `O.value`。`S.enqueue` は ② へ移らず順番待ちへスクロール(`showList`。知らせは「順番待ちを見る」)。順番待ちの数は ① のタブのバッジに。「画質の上限」(maxHeight)の欄は消した(解析で読まれていなかった。保存値は読み捨て) / `rank.js` ① の先頭に器 `#qHost` / `settings.js` 節 `#setAnalyze`(summary の横に今の設定の要約 #qOptSum・中身の器 #analyzeHost)を出力先の次に / `review.js`・`collab.js` 空の状態の「② 解析へ」→「URL から入れる」(go-step=queue のまま = Studio.go が ① に読み替えて URL の欄へフォーカス) / `app.css` ① の先頭の 2 列(狭い幅は 1 列)・順番待ちは高さ 420px まで / 画面の文の「③」(確認・書き出し)を「②」に(スタジオの js・css・py・README の概要、ホームの portal.js・live.py の「スタジオの ③」。「今をマーク③」は番号の列なので変えない。過去の版の記録は当時のまま)/ `README.txt` 見出し・概要・v0.24.0 の節
+- 版: スタジオ 0.23.4 → 0.24.0(`core.js`・`serve.py`・README)
+- テスト: `src/studio/tests/e2e_ui.py`(タブ 2 つ・?url= は ① へ・Studio.go('queue') の読み替え・「URL から入れる」のボタン名・gorank は「配信を探す」のワードの欄へ)・`src/home/tests/e2e_live_studio.py`・`e2e_live_archive.py`(data-step="queue" → rank)・`dev/ui_audit.py`(studio-queue のページを外し、⚙ の「解析」の節を開く studio-settings-analyze を足した)・test_review.cjs と e2e_portal.py はコメントの番号だけ
+- 結果: node test_review.cjs 53 OK / unittest スタジオ 8 本 315 OK / lint 0 / ui_audit static Must 0 / e2e_ui.py 213 OK・--mounted 238 OK / e2e_analyze.py OK / e2e_live_studio.py・e2e_live_archive.py: e2e_live_studio.py 179 OK・e2e_live_archive.py 100 OK
+- 決定・理由: 「③ → ②」の付け替えは画面の文だけ(過去の記録は当時のまま。「今をマーク③」の列は除く)= タブの番号と文が食い違わないようにするため。解析の設定の保存先(settings-ui.json の analyze)と値の形は変えない(ホームのまとめて実行が同じ設定を読む)。③ の「書き出しの設定」と編集の「認識の設定」は動かさない(settings.md の 3)
+- 仮で決めたこと(ユーザー不在): 順番待ちは ① の先頭の右(URL の欄の隣)・動画ファイルのパスとコラボは折りたたみの中・「画質の上限」は消す → plan/decisions.md の 3-19 (fs)〜(fu)
+- 次: S3(編集 0.61.0。「3 パック」のタブを無くす)。並行セッション「作業１」が編集のサーバー側(P18)を触っているので、画面側だけ・版は先にコミットした方が 0.61.0
+- 未コミット: なし(このセッションの分はこの記録と一緒にコミット)

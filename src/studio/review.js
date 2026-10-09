@@ -1,4 +1,4 @@
-/* 切り抜きスタジオ ③ 確認・書き出し(切り抜きマーカー由来)。
+/* 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
    Studio.review = { open(id), refresh() }。データはすべてサーバー保存(PUT /api/video)。UI設定は /api/settings の settings.review。 */
 (() => {
 'use strict';
@@ -163,7 +163,7 @@ function topBarHTML(){
         <div class="rv-vmenuacts">
           <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター表示</span><kbd class="ui-kbd" data-kbd="theater"></kbd></button>
           <a class="btn small ghost" id="rvYtLink" target="_blank" rel="noopener noreferrer" hidden title="YouTube で、いまの位置から開きます">YouTube で開く</a>
-          <button class="btn small" id="rvAnalyze" type="button" hidden title="この配信を ② 解析の順番待ちに入れて、自動マークを作ります">この配信を解析する</button>
+          <button class="btn small" id="rvAnalyze" type="button" hidden title="この配信を解析の順番待ちに入れて、自動マークを作ります">この配信を解析する</button>
           <button class="btn small danger" id="rvDelVideo" type="button" title="スタジオの一覧から消します(書き出した切り抜きのファイルは残ります)">スタジオから削除</button>
         </div>
       </div>
@@ -179,8 +179,8 @@ function jumpHTML(){
   </nav>
   <div class="rv-emptybox empty" id="rvEmpty" hidden>
     <b>まだ配信が開かれていません</b>
-    <span>② 解析で配信を入れると、終わったものから、ここで自動のマークを確かめられます。解析せずに手でマークを付けるときは、上の「配信」から URL か動画ファイルを開きます。</span>
-    <div class="cs-emptyacts"><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button><button type="button" class="btn ghost" id="rvEmptyRank" data-go-step="rank">① 探すで選ぶ</button><button type="button" class="btn ghost" id="rvEmptyQueue" data-go-step="queue">② 解析へ</button></div>
+    <span>① 探す の「URL から入れる」で配信を入れると、終わったものから、ここで自動のマークを確かめられます。解析せずに手でマークを付けるときは、上の「配信」から URL か動画ファイルを開きます。</span>
+    <div class="cs-emptyacts"><button type="button" class="btn" id="rvEmptyOpen">配信を選ぶ・開く</button><button type="button" class="btn ghost" id="rvEmptyRank" data-go-step="rank">① 探すで選ぶ</button><button type="button" class="btn ghost" id="rvEmptyQueue" data-go-step="queue">URL から入れる</button></div>
   </div>`;
 }
 /* プレーヤー・タイムライン・盛り上がりグラフ・再生の操作。
@@ -283,8 +283,8 @@ function markToolsHTML(){
         </div>
       </details>`;
 }
-/* 操作の設定(音量・確認の進め方・マークの付け方・キー配置・ライブ配信)。置き場所は ⚙ 設定の「このツール」の節「③ の操作」(settings.js の #opsHost)。
-   0.22.3(見直し M9・仮決め (aw)): 以前は ③ の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた */
+/* 操作の設定(音量・確認の進め方・マークの付け方・キー配置・ライブ配信)。置き場所は ⚙ 設定の「このツール」の節「② の操作」(settings.js の #opsHost)。
+   0.22.3(見直し M9・仮決め (aw)): 以前は ② の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた */
 function settingsHTML(){
   return `      <div class="rv-settings" id="rvSettings">
         <div class="rv-setpanel">
@@ -527,7 +527,7 @@ async function refreshList(){
 }
 let quietT = null;
 function refreshListQuiet(){ clearTimeout(quietT); quietT = setTimeout(() => { quietT = null; refreshList(); }, 300); }
-/* ③ のタブの件数: 判定か書き出しが残っている配信の数(候補か、書き出していない採用がある) */
+/* ② のタブの件数: 判定か書き出しが残っている配信の数(候補か、書き出していない採用がある) */
 function updateBadge(){
   const n = S.videos.filter(v => (Number(v.candidates) || 0) + (Number(v.adopted) || 0) > 0).length;
   Studio.setBadge('review', n ? String(n) : '', n ? `判定か書き出しが残っている配信 ${n}本` : '');
@@ -568,7 +568,7 @@ function renderPickList(){
   const hit = showHid ? base : base.filter(v => !pickHidden(v));
   HIDE.toggle($('#rvPickHidden'), 'videos', base.filter(pickHidden).length);
   $('#rvPickN').textContent = `${hit.length} / ${vs.length} 本`;
-  if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
+  if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>① の「URL から入れる」で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
   if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字と絞り込みを消すと、全部の配信が出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-pick-clear>探す文字と絞り込みを消す</button></div></div>'; return; }
   const list = hit.slice(0, PK.limit);
   let html;
@@ -669,7 +669,7 @@ async function loadVideo(id){
   loadTranscripts();
   return true;
 }
-/* 別の場所(② 解析の完了・書き出し)で変わったサーバー側の状態を取り込む。手元の未保存の編集は失わない */
+/* 別の場所(解析の完了・書き出し)で変わったサーバー側の状態を取り込む。手元の未保存の編集は失わない */
 async function syncFromServer(){
   const v0 = S.cur; if (!v0) return;
   try { await flushSave(); } catch { return; }
@@ -696,7 +696,7 @@ async function openFromInput(){
       if (b){
         inp.value = '';
         const pk = $('#rvPick'); if (pk) pk.open = false;
-        toast(Studio.live.begunText(b), 5000, 'ok');   // ③ にいるので Studio.openReview ではなく loadVideo(文は ② ① と同じ)
+        toast(Studio.live.begunText(b), 5000, 'ok');   // ② にいるので Studio.openReview ではなく loadVideo(文は ② ① と同じ)
         await loadVideo(b.video.id);
         return;
       }
@@ -1119,7 +1119,7 @@ async function loadSettings(){
   KM.reload();
   syncSettingsUI(); applyTheater();
 }
-/* ③ の設定と欄の対応の表(G4 の 2。0.23.4): [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
+/* ② の設定と欄の対応の表(G4 の 2。0.23.4): [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
    欄へ書くのは syncSettingsUI、欄から読むのは wireSettings。値の検め方は sanitizeSettings の 1 か所(設定を足すときは sanitizeSettings とこの表の 2 か所)。
    音量の数字(output)・押せない欄・「書き出しのあと自動で文字起こし」(settings.js の欄)は syncSettingsUI に別に書く */
 const SET_UI = [
@@ -1209,7 +1209,7 @@ function currentPreset(){
   const km = S.settings.keymap;
   return Object.keys(KEY_PRESETS).find(n => ACTION_DEFS.every(([id]) => (KEY_PRESETS[n][id] || '') === (km[id] || ''))) || 'custom';
 }
-const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは ③ のボタンの横の − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']],
+const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは ② のボタンの横の − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']],
   ['配信中の候補(ライブの録画で「配信中の候補」をオンにしたとき)', ['nextPeak', 'adoptPeak']]];
 /* 割り当てられないキー(固定の意味がある)。値は使い道 */
 const STUDIO_FIXED = { Escape: '閉じる・取り消し', Enter: '確定', Tab: 'フォーカスの移動', 'Shift+Tab': 'フォーカスの移動', '?': 'キー操作の一覧' };
@@ -1225,10 +1225,10 @@ const KM = UIKit.keymap.create({
   groups: KEY_GROUPS.map(([h], i) => ['g' + i, h]),
   actions: ACTION_DEFS.map(([id, label]) => ({ id, def: KEY_PRESETS.standard[id], label, group: 'g' + KEY_GROUPS.findIndex(g => g[1].includes(id)) })),
   refuse: combo => STUDIO_FIXED[combo] || '',
-  intro: '③ 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。',
+  intro: '② 確認・書き出しで配信を開いているときに使えます(文字の入力欄にいる間は効きません)。キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。',
   fixed: [{ title: '全体', rows: [['?', 'この一覧を開く・閉じる', '一覧を開くキー'], ['Esc', '一覧・設定を閉じる', '閉じるキー']] },
     { title: 'その他', why: '入力欄のキー', rows: [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']] }],
-  /* 今をマークの長さは見せるだけ(変えるのは ③ のボタンの横の − ＋ の1か所。設定の場所を重ねない 2026-10-04) */
+  /* 今をマークの長さは見せるだけ(変えるのは ② のボタンの横の − ＋ の1か所。設定の場所を重ねない 2026-10-04) */
   extra: id => { const m = /^quickMark(\d?)$/.exec(id); return m ? `<span class="muted rv-kmspan">前後${spanLabel((S.settings ? S.settings.quickSpans : DEFAULT_QUICK_SPANS)[m[1] ? Number(m[1]) - 1 : 0])}</span>` : ''; },
   footNote: '「すべて標準に戻す」は共通の再生キーも標準に戻します(編集も同じ割り当てです)。',
   load: () => (S.settings && S.settings.keymap) || {},
@@ -1269,9 +1269,9 @@ const markLive = () => !!S.live && !(S.cur && S.cur.kind === 'live');
 function renderLiveCount(){
   const n = S.cur ? marks().filter(c => c.live).length : 0;
   $('#rvLiveMarks').textContent = n + '件'; $('#rvShiftCount').textContent = n ? `対象 ${n}件` : '対象なし';
-  /* ⚙ の節にあるので ① ② からも押せてしまう。③ で配信を開いていて対象があるときだけ押せる(理由は title と data-ui-why。2 周目 N1) */
+  /* ⚙ の節にあるので ① からも押せてしまう。② で配信を開いていて対象があるときだけ押せる(理由は title と data-ui-why。2 周目 N1) */
   const b = $('#rvShift'); if (!b) return;
-  const why = !S.cur || Studio.step !== 'review' ? '③ で配信を開くと押せます' : !n ? 'ずらすマークがありません(配信中に打った「ライブ」の印のマークが対象です)' : '';
+  const why = !S.cur || Studio.step !== 'review' ? '② で配信を開くと押せます' : !n ? 'ずらすマークがありません(配信中に打った「ライブ」の印のマークが対象です)' : '';
   Studio.why(b, why, `「ライブ」の印のマーク ${n}件の時刻をずらします`);
 }
 function updateLive(){
@@ -1776,7 +1776,7 @@ function startLiveExport(onlyIds, opts){
   LV.chain = LV.chain.then(run, run);
   return LV.chain;
 }
-/* ヘッダーの札の「開く」(UIKit.liveBadge.onOpen): ページを移らずに、その録画をスタジオの ③ で開く(まだ登録していなければ登録する) */
+/* ヘッダーの札の「開く」(UIKit.liveBadge.onOpen): ページを移らずに、その録画をスタジオの ② で開く(まだ登録していなければ登録する) */
 async function openLiveRecording(rec){
   if (!rec || !rec.id) return;
   const hit = () => S.videos.find(x => x.kind === 'live' && liveRecId(x) === rec.id && (!rec.recorder || !x.live || x.live.recorder === rec.recorder));
@@ -2124,7 +2124,7 @@ async function peakPost(v, id, body, before){
     return await Studio.live.api('api/peaks', { body: Object.assign({ recorder: v.live.recorder, recording: v.live.recording, id }, body) });
   } finally { PKV.busy.delete(id); }
 }
-/* [採用]: 入口がマークを足して書き出しを頼む(Live.adopt と同じ)。応答のあとスタジオのマークを読み直す(③ を開いたままだとサーバー側で足したマークは自動では出ない)。
+/* [採用]: 入口がマークを足して書き出しを頼む(Live.adopt と同じ)。応答のあとスタジオのマークを読み直す(② を開いたままだとサーバー側で足したマークは自動では出ない)。
    書き出したあと・配信者は帯の値を渡す(手で付けたマークの書き出しと同じ) */
 async function adoptPeak(id){
   const v = S.cur, p = peakActable(v, id); if (!p) return;
@@ -2391,7 +2391,7 @@ function autoTitleFromPlayer(){
 /* ---------- 書き出し(サーバーが store から組み立てる。クライアントは id とマークIDだけ送る)---------- */
 let expTimer = null;
 const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ(見直し S7)
-const EXP_CLS = { done: 'ok', error: 'err', running: 'run', cancelled: 'warn' };   // 状態の色(ほかは wait。② の解析の一覧と同じ色)
+const EXP_CLS = { done: 'ok', error: 'err', running: 'run', cancelled: 'warn' };   // 状態の色(ほかは wait。順番待ちの解析の一覧と同じ色)
 /* 書き出したファイルの名前の見せ方: 名前の中の開始時刻 00h29m21s は 0:29:21 の形で見せる(ファイル名そのものは変えない。title に本当の名前。見直し S6) */
 const fileLabel = f => String(f || '').replace(/(\d{2})h(\d{2})m(\d{2})s/g, (_, h, m, sec) => `${Number(h)}:${m}:${sec}`);
 function errHint(msg){
@@ -2798,7 +2798,7 @@ function renderMeta(){
   renderAutoMenu(v);
   if (!v){
     $('#rvCurLabel').textContent = S.videos.length ? '選んでください' : 'まだありません'; $('#rvCurLabel').classList.add('is-empty'); $('#rvChips').textContent = S.videos.length ? `${S.videos.length}本から探せます` : ''; closeExportDrawer();
-    /* 空の状態の次の一手(S-13): 配信があれば「選ぶ・開く」、まだ無ければ「② 解析へ」を主なボタンに */
+    /* 空の状態の次の一手(S-13): 配信があれば「選ぶ・開く」、まだ無ければ「URL から入れる」を主なボタンに */
     const has = !!S.videos.length;
     $('#rvEmptyOpen').className = 'btn' + (has ? ' primary' : ' ghost'); $('#rvEmptyQueue').className = 'btn' + (has ? ' ghost' : ' primary');
     return;
@@ -3167,8 +3167,8 @@ const handlePlayback = UIKit.keys.playback({
     if (act === 'stop' || act === 'play'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // 止める・再生は再生速度を変えるので、速度の選択も合わせる
   }
 });
-/* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
-   書き出しの欄を重ねて開いている間(③ のキーは効かない)は、その欄で使うキーだけにする(重ねているかは属性で見る。S.expModal は開いたあとで入るため) */
+/* キーの帯(下の細い帯)の中身。② の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
+   書き出しの欄を重ねて開いている間(② のキーは効かない)は、その欄で使うキーだけにする(重ねているかは属性で見る。S.expModal は開いたあとで入るため) */
 function keybarScene(){
   { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
@@ -3300,7 +3300,7 @@ function wire(){
     gHover.firstChild.textContent = tickLabel(f * totalDur());
   });
   $('#rvGraph').addEventListener('pointerleave', () => { gHover.hidden = true; });
-  /* 幅が変わったら描き直す(目盛りの間隔と札の段は幅で決まる。見えていなかった ③ を開いたときも) */
+  /* 幅が変わったら描き直す(目盛りの間隔と札の段は幅で決まる。見えていなかった ② を開いたときも) */
   if (window.ResizeObserver){
     let gw = 0;
     new ResizeObserver(() => { const w = $('#rvGraph').clientWidth; if (w && Math.abs(w - gw) > 1){ gw = w; renderGraph(); } }).observe($('#rvGraph'));
@@ -3345,7 +3345,7 @@ function wire(){
     if (e.key === 'ArrowUp' && i === 0) $('#rvPickQ').focus(); else rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))].focus();
   });
   $('#rvEmptyOpen').addEventListener('click', () => openPicker(!S.videos.length));
-  /* 空の状態から ① 探す・② 解析へ(S-13)。② は URL の欄へフォーカス */
+  /* 空の状態から ① 探す・URL の欄へ(S-13。go-step=queue は ① の先頭の URL の欄 = Studio.go が ① に読み替える)。URL はその欄へフォーカス */
   $('#rvEmpty').addEventListener('click', e => {
     const b = e.target.closest('[data-go-step]'); if (!b) return;
     Studio.go(b.dataset.goStep);
@@ -3398,7 +3398,7 @@ function wire(){
   $('#rvMomBefore').addEventListener('change', e => setMomentSec('momentBefore', e.target));
   $('#rvMomAfter').addEventListener('change', e => setMomentSec('momentAfter', e.target));
   renderMomentSet();
-  /* キー配置は ? の一覧の1か所(2026-10-04。以前は ③ の「操作の設定」にも同じ一覧があった)。組み合わせの選択も一覧の上(index.html の #keyPresetRow) */
+  /* キー配置は ? の一覧の1か所(2026-10-04。以前は ② の「操作の設定」にも同じ一覧があった)。組み合わせの選択も一覧の上(index.html の #keyPresetRow) */
   $('#rvKeysOpen').addEventListener('click', () => Studio.openKeyHelp());
   $('#keyPresetRow').hidden = false;
   $('#rvKeyPreset').addEventListener('change', e => {
@@ -3508,7 +3508,7 @@ function wire(){
 async function activate(){
   startPoll();
   keybarScene();
-  liveResume();   // ライブの録画の状態の見回り(③ を離れている間は止めている)
+  liveResume();   // ライブの録画の状態の見回り(② を離れている間は止めている)
   await refreshList();
   if (Studio.step !== 'review') return;
   if (!S.cur && !S.loadSeq){
@@ -3516,7 +3516,7 @@ async function activate(){
   } else if (S.cur) syncFromServer();
 }
 function deactivate(){
-  pausePlayback(); stopPoll(); liveStopPoll();   // ③ を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
+  pausePlayback(); stopPoll(); liveStopPoll();   // ② を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
   placeFlush();   // 前回の場所(S-8)をすぐ書く
   UIKit.keybar.clear();
   if (setTimer) saveSettings();
@@ -3561,9 +3561,9 @@ async function maybeAutoTranscribe(videoId, markIds){
     else toast('文字起こしを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
-/* まとめて実行(③ のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
+/* まとめて実行(② のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
    採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
-/* マークの行の「この後を」: 実行する前に字幕の色(③ のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
+/* マークの行の「この後を」: 実行する前に字幕の色(② のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
 function autoWhoText(){ const el = document.getElementById('rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
 function fillAutoWho(){
   if (Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
@@ -3628,13 +3628,13 @@ Studio.onReady(() => {
     pollAuto();
   });
   showDataWarning();
-  /* ヘッダーの「録画中」の札(UIKit.liveBadge): 「開く」でページを移らずにその録画を ③ で開く・録画中の札が変わったら配信の一覧の「録画中」も合わせる */
+  /* ヘッダーの「録画中」の札(UIKit.liveBadge): 「開く」でページを移らずにその録画を ② で開く・録画中の札が変わったら配信の一覧の「録画中」も合わせる */
   UIKit.liveBadge.onOpen(rec => { openLiveRecording(rec); });
   UIKit.liveBadge.onChange(() => renderPickList());
   if (Studio.live) Studio.live.available().then(i => { const el = $('#rvOpenForm .rv-openlive'); if (el) el.hidden = !i; }, () => {});   // ライブの機能が使えるときだけ「録画を始めて開きます」と添える
   wireSettings(); wire(); renderKeyUI();
   renderAll();
-  Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ③ にいるか次第
+  Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ② にいるか次第
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
   /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2。ブラウザのタブの切り替えの合図を直接使わない = AGENTS.md の決まり)。別の窓へ移った('blur')ときは保存だけ:
      再生を止めない・状態の確認も続ける(窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */

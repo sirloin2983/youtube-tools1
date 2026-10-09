@@ -1,4 +1,4 @@
-/* 切り抜きスタジオ 共通CSS(枠・設定の引き出し・① 探す・② 解析・④ コラボ)。③ の見た目は review.css。
+/* 切り抜きスタジオ 共通CSS(枠・設定の引き出し・① 探す(URL から入れる・解析の順番待ち)・コラボ・⚙ の解析の節)。② 確認・書き出しの見た目は review.css。
    色・文字・部品(ボタン・入力・カード・タブ・表・通知など)は ui-kit.css にある。ここには「スタジオ固有の配置」だけを書く。
    色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しいクラスには cs- を付ける(docs/spec/pipeline.md 5.) */
 
@@ -180,16 +180,15 @@ main{display:block}
 .lv-row[data-state=live] .lv-th{position:relative}
 .lv-row[data-state=live] .lv-th::after{content:"配信中";position:absolute;left:4px;bottom:4px;padding:0 5px;border-radius:4px;background:#C42660;color:#fff;font:700 10.5px/16px var(--font)}
 
-/* ==================== ② 解析 ==================== */
+/* ==================== 解析(① の先頭の URL から入れる・順番待ち。設定は ⚙ の節) ==================== */
 /* 左 = 入れる・解析の設定(閉じておく)、右 = キュー。狭い画面では 入れる → キュー → 設定 の順(主な作業に早く届く順) */
-.q-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-areas:"entry list" "opts list";grid-template-rows:auto 1fr;gap:16px;align-items:start}
+/* ① の先頭: 「URL から入れる」(左)と解析の順番待ち(右)。0.24.0 で「2 解析」のタブを無くした(解析の設定は ⚙ の「解析」の節 = .set-sec の中に #qOpts) */
+.q-host{margin-bottom:16px}
+.q-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"entry list";gap:16px;align-items:start}
 .q-entry{grid-area:entry;margin-bottom:0}
-.q-optcard{grid-area:opts;margin-bottom:0}
-.q-optcard>summary{flex-wrap:wrap;min-height:28px}
-.q-optcard>summary .card-title{margin-right:4px}
-.q-optsum{font-weight:400;font-size:12.5px}
+.q-more{margin-top:12px}
 .q-optnote{margin:0 0 10px}
-.q-listcard{grid-area:list;position:sticky;top:calc(var(--cs-head) + 12px);max-height:calc(100dvh - var(--cs-head) - 28px);display:flex;flex-direction:column;margin-bottom:0}
+.q-listcard{grid-area:list;display:flex;flex-direction:column;margin-bottom:0;max-height:min(420px,60vh)}
 .q-next{margin:-4px 0 8px}
 .q-listcard #qList{overflow-y:auto;min-height:0;margin:0 -16px -14px;padding:0 16px 14px}
 .q-acts{margin-top:14px}
@@ -249,7 +248,7 @@ main{display:block}
 .cl-vlist{display:flex;flex-direction:column;gap:0;max-height:min(460px,calc(100dvh - 300px));min-height:120px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);overscroll-behavior:contain}
 .cl-vlist>*{flex:none}   /* 枠の高さが足りないときに、まとまりが縮んで中身が重ならないように */
 .cl-vlist>.empty{border:0;background:none;padding:18px 10px}
-/* 空の状態の次の一手のボタン(S-13。② の解析キュー・コラボ・③ の配信が開かれていないとき) */
+/* 空の状態の次の一手のボタン(S-13。解析の順番待ち・コラボ・② の配信が開かれていないとき) */
 .cs-emptyacts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
 .cl-vg{margin:0 0 6px}
 .cl-vg:last-child{margin-bottom:0}
@@ -292,9 +291,9 @@ main{display:block}
 
 /* ==================== 狭い画面 ==================== */
 @media (max-width:1000px){
-  .q-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"entry" "list" "opts";grid-template-rows:auto}
+  .q-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"entry" "list"}
   .cl-grid{grid-template-columns:minmax(0,1fr)}
-  .q-listcard{position:static;max-height:none}
+  .q-listcard{max-height:none}
   .q-listcard #qList{overflow:visible}
   .cl-vlist{max-height:min(420px,60vh)}
 }

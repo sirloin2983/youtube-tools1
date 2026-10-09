@@ -174,7 +174,7 @@ function paneHtml(){
     <span class="row rk-pickact"><button type="button" class="btn small ghost" id="pickClear">選択を外す</button><button type="button" class="btn primary" id="pickGo" disabled>選んだ配信 0 本を解析に追加</button>
       <details class="ui-menu rk-auto" id="rkAuto" hidden><summary class="btn" title="選んだ配信を、解析からパックまで自動で進めます"><span>まとめて実行</span></summary>
         <div class="rk-autopop" data-ui-fit>
-          <p class="hint">選んだ配信を、ホームの案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合はホームの案件の一覧と、各配信の ③ の上の帯に出ます。</p>
+          <p class="hint">選んだ配信を、ホームの案件の一覧と同じ順番待ちで「解析から全部」進めます(解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック)。進み具合はホームの案件の一覧と、各配信の ② の上の帯に出ます。</p>
           <label class="lag">採用する数 <input id="rkAutoTop" type="number" min="1" max="30" step="1" value="3"></label>
           <label class="lag rk-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
             <input id="rkAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
@@ -428,7 +428,7 @@ async function startAuto(){
 
 /* ================= 配信中・これからの予定(「配信中」のタブ。2026-10-05 ユーザー決定) =================
    サーバーの GET /api/rank/live(登録した事務所のチャンネル。結果は 60 秒覚える)を、開いている間 2 分ごとに読み直す(隠れている間は止める = UIKit.life)。
-   各行の「録画する」「始まったら録画」は、② の URL 欄と同じ Studio.live.begin(入口の ../live/api/begin)。配信中なら ③ で開き、予定なら行に「予約済み」。
+   各行の「録画する」「始まったら録画」は、① の先頭の URL 欄と同じ Studio.live.begin(入口の ../live/api/begin)。配信中なら ② で開き、予定なら行に「予約済み」。
    行は差分で直す(読み直しで作り直すと、押そうとしたボタンが入れ替わる。ヘッダーの札の一覧と同じ考え) */
 const LV_POLL_MS = 120000, LV_TIME_MS = 30000;
 const L = { tab: 'past', data: null, err: null, loading: false, seq: 0, at: 0, timer: 0, tick: 0, avail: false, rows: new Map(), pending: new Set(), recs: new Map() };
@@ -561,13 +561,13 @@ function lvAct(row){
     row.pill.className = 'pill ' + (waiting ? 'wait' : 'run'); setText(row.pill, waiting ? '予約済み' : '録画中'); row.pill.hidden = false;
     row.pill.title = waiting ? '配信が始まったら録画します(ヘッダーの札に「配信待ち」と出ます)' : '';
     row.rec.hidden = true; row.open.hidden = false; row.open.disabled = busy;
-    row.open.setAttribute('aria-label', `「${v.title}」の録画を ③ で開く`);
+    row.open.setAttribute('aria-label', `「${v.title}」の録画を ② で開く`);
   } else {
     row.pill.hidden = true; row.open.hidden = true;
     row.rec.hidden = !L.avail || !okId(vid);
     setText(row.rec, busy ? '始めています…' : label);
     row.rec.disabled = busy || !!bl;
-    row.rec.title = bl ? bl[1] : v.state === 'live' ? '録画を始めて、③ で見ながらマークします' : '配信の前から待って、始まったら録画します(③ へは移りません)';
+    row.rec.title = bl ? bl[1] : v.state === 'live' ? '録画を始めて、② で見ながらマークします' : '配信の前から待って、始まったら録画します(② へは移りません)';
     row.rec.setAttribute('aria-label', `${label}: ${v.title}`);
   }
 }
@@ -618,7 +618,7 @@ function lvPaint(){
 function lvActs(){ for (const row of L.rows.values()) lvAct(row); }
 function lvTimes(){ if (!lvShowing()) return; for (const row of L.rows.values()) setText(row.meta, lvMeta(row.v)); }
 
-/* 「録画する」「始まったら録画」: ② の URL 欄と同じ流れ(Studio.live.begin → 配信中なら ③ で開く)。二度押しは L.pending で止める */
+/* 「録画する」「始まったら録画」: ① の先頭の URL 欄と同じ流れ(Studio.live.begin → 配信中なら ② で開く)。二度押しは L.pending で止める */
 async function lvBegin(vid){
   const row = L.rows.get(vid); if (!row || L.pending.has(vid) || !okId(vid)) return;
   const v = row.v, url = S.watchUrl(vid);
@@ -630,14 +630,14 @@ async function lvBegin(vid){
     else {
       const rec = b.recording || {}, now = v.state === 'live' || rec.state === 'recording' || rec.state === 'reconnecting';
       L.recs.set(vid, { recorder: b.recorder, id: rec.id, url: rec.url || url, title: rec.title || v.title, channel: rec.channel || v.channel || '', state: rec.state || (v.state === 'live' ? 'recording' : 'waiting'), video: b.video && b.video.id });
-      if (now) await S.live.openBegun(b);   // 知らせて ③ で開く(② 解析と同じ)
+      if (now) await S.live.openBegun(b);   // 知らせて ② で開く(URL の欄と同じ)
       else S.toast(b.existing ? 'この配信は、もう録画を予約しています' : `配信が始まったら録画します(「${v.title}」)。ヘッダーの札に「配信待ち」と出ます`, 7000, 'ok');
     }
   } catch (e){ S.toast(e.message, 0, 'err'); }
   L.pending.delete(vid);
   const r2 = L.rows.get(vid); if (r2) lvAct(r2);
 }
-/* 「開く」: その録画を ③ で開く(スタジオにまだ無ければ登録する。ヘッダーの札の「開く」と同じ) */
+/* 「開く」: その録画を ② で開く(スタジオにまだ無ければ登録する。ヘッダーの札の「開く」と同じ) */
 async function lvOpen(vid){
   const rec = lvRec(vid); if (!rec || L.pending.has(vid)) return;
   L.pending.add(vid); const row = L.rows.get(vid); if (row) lvAct(row);
@@ -673,7 +673,7 @@ function wireLive(){
 S.rank = { mountRegistry, refresh: refreshMarks };
 S.onReady(async () => {
   const pane = $('#paneRank');
-  pane.innerHTML = `<div class="ui-seg rk-mode" id="rkMode" role="group" aria-label="探す配信"><button type="button" data-mode="past" aria-pressed="true">終わった配信</button><button type="button" data-mode="live" aria-pressed="false">配信中</button></div>` +
+  pane.innerHTML = `<div id="qHost" class="q-host"></div><div class="ui-seg rk-mode" id="rkMode" role="group" aria-label="探す配信"><button type="button" data-mode="past" aria-pressed="true">終わった配信</button><button type="button" data-mode="live" aria-pressed="false">配信中</button></div>` +
     `<div id="rkPast">${paneHtml()}</div>` + liveHtml();
   loadAgPick();
   { const v = lsGet('view'), l = lsGet('limit'); if (v === 'ag' || v === 'all') R.view = v; if (LIMITS.includes(l)) R.limit = l; }
@@ -696,7 +696,7 @@ S.onReady(async () => {
   $('#rkOpenReg').addEventListener('click', () => S.openSettings('setReg'));
   $('#pickClear').addEventListener('click', () => { R.picked.clear(); paintPick(); });
   $('#pickGo').addEventListener('click', () => enqueue([...R.picked.values()]));
-  /* まとめて実行は入口から開いたときだけ(ほかの入口と同じ)。開いていないときも隠さず、押せない理由を出す(S-25。③ の「まとめて実行」と同じ形) */
+  /* まとめて実行は入口から開いたときだけ(ほかの入口と同じ)。開いていないときも隠さず、押せない理由を出す(S-25。② の「まとめて実行」と同じ形) */
   $('#rkAuto').hidden = false;
   if (!S.token){
     /* 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
@@ -729,7 +729,7 @@ S.onReady(async () => {
     if (e.target.closest('[data-rkclearq]')){ R.q = ''; const q = $('#rkQ'); if (q){ q.value = ''; q.focus(); } renderBody(); return; }
     if (e.target.closest('#rkMore')){ const i = LIMITS.indexOf(R.limit); R.limit = LIMITS[Math.min(LIMITS.length - 1, i + 1)]; const sl = $('#rkLimit'); if (sl) sl.value = String(R.limit); lsSet('limit', R.limit); renderBody(); return; }
     const b = e.target.closest('.add1'); if (!b || b.disabled) return;
-    const tr = b.closest('tr');   // ① に残って続けて選べるように、② へは移らない(知らせの [② 解析を見る] で移れる)
+    const tr = b.closest('tr');   // ① に残って続けて選べるように、順番待ちへスクロールしない(知らせの [順番待ちを見る] で移れる)
     enqueue([{ kind: 'youtube', videoId: b.dataset.id, title: b.dataset.title, channel: b.dataset.channel }], { stay: true }).then(() => focusNextAdd(tr));
   });
   $('#results').addEventListener('input', e => { if (e.target.id === 'rkQ'){ R.q = e.target.value; renderBody(); } });

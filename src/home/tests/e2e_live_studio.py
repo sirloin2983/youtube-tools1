@@ -3,7 +3,7 @@
 ブラウザでスタジオの画面を操作する。本物の YouTube には繋がない。
 
     py -3.10 src/home/tests/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
-    py -3.10 src/home/tests/e2e_live_studio.py --shots DIR     # あわせて ③ などのスクリーンショットを DIR に残す
+    py -3.10 src/home/tests/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
     py -3.10 src/home/tests/e2e_live_studio.py --chromium      # Edge があっても Playwright の chromium で(再生が要る確認は飛ばす)
 
 作り(e2e_live.py と同じ部品):
@@ -17,11 +17,11 @@
 
 確かめること(番号は依頼の 1〜14):
   13 オフ: URL を入れても begin に進まず /api/queue/add(今までどおりの解析)・ヘッダーに札が出ない
-  1 ホームの「試験中の機能」でオン → 2 ② の URL 欄 →「解析に追加」→ 録画が始まり ③ へ移ってその録画が開く・一覧に kind live
+  1 ホームの「試験中の機能」でオン → 2 ① の URL 欄 →「解析に追加」→ 録画が始まり ② へ移ってその録画が開く・一覧に kind live
   3 自動で再生(currentTime が進む)・LIVE の帯・「録画中」・ヘッダーの札「録画中 1」
   4 I → O → 追加 → すぐ書き出す → 書き出しの欄に状態 → 済み・30fps・長さ・.clip.json の source.kind live・スタジオのマークが「書き出し済み」
   5 書き出した区間の絶対時刻 = マークした時点の hls.playingDate ± 0.3 秒
-  6 タイムラインで頭へ → 「ライブ端へ」  7 ② へ移ると止まる・戻ると続きから  8 見回りで要素が作り直されない
+  6 タイムラインで頭へ → 「ライブ端へ」  7 ① へ移ると止まる・戻ると続きから  8 見回りで要素が作り直されない
   9 札 → 一覧 →「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
   10 終わった録画でマーク → 採用 →「書き出す」  11 設定の引き出しの「ライブの録画」(置き場所・空き・画質 → live.quality → 次の begin)
   12 ?video=<id> で開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし・375px で横にはみ出さない
@@ -331,7 +331,7 @@ def _scene_off(cx):
     pg.on("request", lambda r: begins.append(r.url) if "/live/api/begin" in r.url else None)
     pg.goto(studio_url)
     wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
-    pg.click('#steps [data-step="queue"]')
+    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
     pg.fill("#qUrls", YT1)
     pg.click("#qAdd")
     check(wait_for(lambda: queued, 10), "13 オフ: URL を入れて「解析に追加」→ 今までどおり /api/queue/add: %s" % queued[:1])
@@ -380,20 +380,20 @@ def _scene_turn_on(cx):
 
 
 def _scene_begin_and_play(cx):
-    """2. ② の URL 欄から録画を始める / 3. 自動で再生・録画中・札"""
+    """2. ① の URL 欄から録画を始める / 3. 自動で再生・録画中・札"""
     LX, api, check, ctx, edge, shots, skip, starts = cx.LX, cx.api, cx.check, cx.ctx, cx.edge, cx.shots, cx.skip, cx.starts
     studio_url, watch = cx.studio_url, cx.watch
-    # ---------------- 2. ② の URL 欄から録画を始める ----------------
+    # ---------------- 2. ① の URL 欄から録画を始める ----------------
     pg = ctx.new_page()
     watch(pg, "studio")
     pg.goto(studio_url)
     wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
     wait_js(pg, "() => !document.querySelector('#rvOpenForm .rv-openlive').hidden", 8000)
-    pg.click('#steps [data-step="queue"]')
+    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
     pg.fill("#qUrls", YT1)
     pg.click("#qAdd")
     check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000),
-          "2 録画が始まり、自動で ③ 確認・書き出しへ移って LIVE の帯(録画の行)が出る")
+          "2 録画が始まり、自動で ② 確認・書き出しへ移って LIVE の帯(録画の行)が出る")
     code, vs = api("GET", "/studio/api/videos")
     lv = [v for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"]
     rid = cx.rid = lv[0]["id"] if lv else None
@@ -401,7 +401,7 @@ def _scene_begin_and_play(cx):
           and lv[0]["live"]["videoId"] == "TESTlive001", "2 スタジオの一覧に kind live の配信(id = 録画の id): %s" % (lv[:1],))
     check(lv and lv[0]["title"] == TITLE, "2 題は yt-dlp の題(HTML にしない): %s" % (lv[0]["title"] if lv else None))
     check(pg.evaluate("() => document.querySelector('#rvTitle').value") == TITLE and pg.evaluate("() => !document.querySelector('#rvTitle b')"),
-          "2 ③ の題の欄に配信の題")
+          "2 ② の題の欄に配信の題")
     check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
     check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
 
@@ -490,7 +490,7 @@ def _scene_mark_and_export(cx):
         ok_exp = wait_for(lambda: (lambda m: m and m[0]["status"] == "exported" and os.path.normcase(m[0].get("path") or "") == os.path.normcase(job["path"]))(
             ((api("GET", "/studio/api/video?id=%s" % rid)[1] or {}).get("video") or {}).get("marks")), 15)
         check(ok_exp, "4 スタジオのマークが「書き出し済み」(path は書き出した mp4)")
-        check(wait_js(pg, "() => !!document.querySelector('#rvList .rv-mark-row .rv-chip.exported')", 8000), "4 ③ のマークの行に「書き出し済み」")
+        check(wait_js(pg, "() => !!document.querySelector('#rvList .rv-mark-row .rv-chip.exported')", 8000), "4 ② のマークの行に「書き出し済み」")
         # 5. マークの位置(書き出しの絶対時刻とマークした時点の hls.playingDate)
         if edge and at_in and at_out:
             d_in = LX.iso_epoch(job["start"]) - at_in / 1000
@@ -509,7 +509,7 @@ def _scene_mark_and_export(cx):
 
 
 def _scene_seek_and_leave(cx):
-    """6. シーク / 7. ③ を離れると止まる / 8. 作り直されない"""
+    """6. シーク / 7. ② を離れると止まる / 8. 作り直されない"""
     check, edge, keep_at, pg, skip = cx.check, cx.edge, cx.keep_at, cx.pg, cx.skip
     # ---------------- 6. シーク ----------------
     if edge:
@@ -522,11 +522,11 @@ def _scene_seek_and_leave(cx):
     else:
         skip("6 シーク(再生できない)")
 
-    # ---------------- 7. ③ を離れると止まる ----------------
+    # ---------------- 7. ② を離れると止まる ----------------
     if edge:
         wait_js(pg, "() => !%s.paused" % VIDEO, 5000)
-        pg.click('#steps [data-step="queue"]')
-        check(wait_js(pg, "() => %s.paused" % VIDEO, 3000), "7 ② へ移ると再生が止まる")
+        pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
+        check(wait_js(pg, "() => %s.paused" % VIDEO, 3000), "7 ① へ移ると再生が止まる")
         pos = pg.evaluate("() => %s.currentTime" % VIDEO)
         pg.wait_for_timeout(1200)
         pg.click('#steps [data-step="review"]')
@@ -789,7 +789,7 @@ def _scene_adopt_api(cx):
     LX, api, check, handed, handed_kw, live, n_jobs, normalize = cx.LX, cx.api, cx.check, cx.handed, cx.handed_kw, cx.live, cx.n_jobs, cx.normalize
     pg, rid, schemas, studio_url = cx.pg, cx.rid, cx.schemas, cx.studio_url
     # ---------------- M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt。画面を閉じていても) ----------------
-    pg.goto("about:blank")   # スタジオの画面を閉じる(③ でこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
+    pg.goto("about:blank")   # スタジオの画面を閉じる(② でこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
     n_handed = len(handed)
 
     def marks_of(v):
@@ -826,7 +826,7 @@ def _scene_adopt_api(cx):
     check(code == 400, "M1 origin は manual・auto・archive だけ: %s" % (code,))
     pg.goto(studio_url + "?video=" + rid)
     check(wait_js(pg, "() => Studio.step === 'review' && document.querySelectorAll('#rvList .rv-chip.exported').length === %d" % (n_jobs + 2), 15000),
-          "M1 ③ で開くと、足したマークも「書き出し済み」")
+          "M1 ② で開くと、足したマークも「書き出し済み」")
     # M3: 「調子」にリアルタイム切り抜きの失敗の行(この通しでは失敗が無い = 「なし」)
     code, hh = api("GET", "/api/health")
     check(code == 200 and isinstance(((hh or {}).get("live") or {}).get("failures"), list), "M3 「調子」の live に failures: %s" % (((hh or {}).get("live") or {}).get("failures"),))
@@ -1113,7 +1113,7 @@ def _scene_narrow_and_errors(cx):
     # ---------------- 14. 狭い画面・エラー ----------------
     pg.set_viewport_size({"width": 375, "height": 812})
     pg.wait_for_timeout(400)
-    check(pg.evaluate(NO_HSCROLL_JS), "14 375px の ③(録画を開いている)で横にはみ出さない")
+    check(pg.evaluate(NO_HSCROLL_JS), "14 375px の ②(録画を開いている)で横にはみ出さない")
     wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden; }", 15000)
     if pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !!b && !b.hidden; }"):
         pg.click("[data-ui-live] .ui-live-btn")

@@ -1,4 +1,4 @@
-/* ③ 確認・書き出し。クラス名は rv- で始める。色は ui-kit の変数と、app.css の --cs-in / --cs-out / --cs-auto / --cs-cand を使う。
+/* ② 確認・書き出し。クラス名は rv- で始める。色は ui-kit の変数と、app.css の --cs-in / --cs-out / --cs-auto / --cs-cand を使う。
    プレーヤー・タイムライン・マーク一覧を同時に見る作業画面なので、余白は控えめにして情報密度を保つ。
    v0.8.0: 上の行を「配信の選択(検索できる一覧)」に、書き出しは右の列の先頭に固定(シアターでも同じ場所)、狭い画面では「画面の中の移動」を上に貼り付け */
 .rv-root{max-width:1760px;margin:0 auto;color:var(--ink)}
@@ -300,7 +300,7 @@
 .rv-addcell .hint{font-size:12px}
 
 /* ---- 操作の設定(音量・キー) ---- */
-/* 0.22.3: ⚙ 設定の「③ の操作」の節の中(#opsHost)に置く。節のカードの中なので、自分の枠は持たない */
+/* 0.22.3: ⚙ 設定の「② の操作」の節の中(#opsHost)に置く。節のカードの中なので、自分の枠は持たない */
 .rv-setpanel{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:0 24px}
 .rv-setpanel>.rv-sec:first-child{border-top:0;padding-top:0}
 .rv-sec{padding:10px 0;border-top:1px solid var(--line);min-width:0}

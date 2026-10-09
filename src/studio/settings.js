@@ -1,4 +1,4 @@
-/* 切り抜きスタジオ: 設定(右の引き出し: APIキー / 出力先フォルダ / 書き出し / ③ の操作(中身は review.js が #opsHost に入れる)/ コラボ / 事務所の登録)と、ffmpeg・yt-dlp が無いときのお知らせ */
+/* 切り抜きスタジオ: 設定(右の引き出し: APIキー / 出力先フォルダ / 解析(中身は queue.js が #analyzeHost に入れる。0.24.0) / 書き出し / ② の操作(中身は review.js が #opsHost に入れる)/ コラボ / 事務所の登録)と、ffmpeg・yt-dlp が無いときのお知らせ */
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
@@ -25,12 +25,13 @@ function build(){
       <input type="text" id="outIn" placeholder="例: D:\\clips  /  /Users/you/Movies/clips(フルパス)" spellcheck="false" autocomplete="off"></div>
       <div class="row set-actions"><button type="button" class="btn small primary" id="outSave">保存</button><button type="button" class="btn small" id="outReset">標準に戻す</button></div></div>
     <p class="msg hint" id="outMsg" role="status"></p></div></details>
+  <details class="card set-sec" id="setAnalyze"><summary><span class="set-title">解析</span><span class="set-sub" id="qOptSum" title="盛り上がりの材料・本数・長さ・感度・詳しい設定"></span></summary><div class="body" id="analyzeHost"><p class="hint">読み込み中…</p></div></details>
   <details class="card set-sec" id="setExport" open><summary><span class="set-title">書き出し</span><span class="set-sub" title="書き出したあとの自動化">書き出したあとの自動化</span></summary><div class="body">
     ${S.token ? `<label class="rv-check" for="setAutoTx"><input type="checkbox" class="ui-switch" id="setAutoTx">書き出しのあと自動で文字起こしを始める</label>
-    <p class="hint">③ の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとでマークの行の「この後を」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
+    <p class="hint">② の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで自動的に文字起こしします(すでに実行中の配信は、あとでマークの行の「この後を」からやり直せます)。この設定はスタジオに保存します(窓とブラウザのどちらで開いても同じ)。</p>`
     : '<p class="hint">ホーム(start.bat)から開いているときだけ使えます。</p>'}
   </div></details>
-  <details class="card set-sec" id="setOps"><summary><span class="set-title">③ の操作</span><span class="set-sub" title="音量・確認の進め方・マークの付け方・キー配置・ライブ配信">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary><div class="body" id="opsHost"><p class="hint">読み込み中…</p></div></details>
+  <details class="card set-sec" id="setOps"><summary><span class="set-title">② の操作</span><span class="set-sub" title="音量・確認の進め方・マークの付け方・キー配置・ライブ配信">音量・確認の進め方・マークの付け方・キー配置・ライブ配信</span></summary><div class="body" id="opsHost"><p class="hint">読み込み中…</p></div></details>
   <details class="card set-sec" id="setCollab"><summary><span class="set-title">コラボ</span><span class="pill" id="collabBadge" hidden></span><span class="set-sub" title="複数人のコラボ配信をグループにまとめ、採用したマークを転写">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="collabHost"></div></details>
   <details class="card set-sec reg" id="setReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub" title="事務所ごとの所属チャンネル(① 探す の検索対象)">事務所ごとの所属チャンネル(① 探す の検索対象)</span></summary><div class="body" id="regHost"></div></details>`;
   $('#keySave').addEventListener('click', () => saveKey($('#keyIn').value.trim(), $('#keySave')));
@@ -51,7 +52,7 @@ function build(){
   $('#outIn').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#outSave').click(); } });
   $('#outSave').addEventListener('click', () => saveOut($('#outIn').value.trim(), $('#outSave')));
   $('#outReset').addEventListener('click', () => saveOut('', $('#outReset')));
-  /* 書き出しのあと自動で文字起こし: 値は ③ の設定(サーバーの /api/settings の review.autoTx。0.22.0 でこのブラウザの localStorage から移した)。
+  /* 書き出しのあと自動で文字起こし: 値は ② の設定(サーバーの /api/settings の review.autoTx。0.22.0 でこのブラウザの localStorage から移した)。
      読み込みと保存は review.js(読み込めたら、このスイッチも合わせる)。ここは押したときに渡すだけ */
   if (S.token){
     const cb = $('#setAutoTx');
@@ -82,7 +83,7 @@ function buildLive(){
   const sec = document.createElement('details');
   sec.className = 'card set-sec'; sec.id = 'setLive'; sec.open = true;
   sec.innerHTML = `<summary><span class="set-title">ライブの録画</span><span class="set-sub" title="配信を録画しながら切り抜くとき">配信を録画しながら切り抜くとき</span></summary><div class="body">
-    <p class="hint">② の URL 欄か ③ の「開く」に配信中・配信前の URL を入れると、録画を始めて ③ で開きます。</p>
+    <p class="hint">① の URL の欄か ② の「開く」に配信中・配信前の URL を入れると、録画を始めて ② で開きます。</p>
     <div class="set-path"><span class="l">録画の置き場所</span><span class="path" id="liveFolderNow"></span></div>
     <p class="hint" id="liveFree"></p>
     <div class="fld"><label class="l" for="liveFolderIn">新しい置き場所(フルパス。空にすると標準)</label>
@@ -93,12 +94,12 @@ function buildLive(){
       <select id="liveQuality">${LIVE_QUALITY.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
       <span class="hint">次に始める録画から使います</span></div>
     <label class="rv-check" for="liveAutoArch"><input type="checkbox" class="ui-switch" id="liveAutoArch" checked>配信が終わったら、自動で本番版に作り直す</label>
-    <p class="hint">アーカイブが用意できてから作り直します(翌日になることもあります)。書き出した切り抜きを、同じ名前のまま本番の画質に入れ替えます。③ の帯の「アーカイブで作り直す」でも始められます。</p>
+    <p class="hint">アーカイブが用意できてから作り直します(翌日になることもあります)。書き出した切り抜きを、同じ名前のまま本番の画質に入れ替えます。② の帯の「アーカイブで作り直す」でも始められます。</p>
     <label class="rv-check" for="liveAutoDel"><input type="checkbox" class="ui-switch" id="liveAutoDel">本番版に入れ替えたら録画を消す(マークが無い録画は 1 日で消す)</label>
     <p class="hint">録画は 1 時間で 3〜4GB 使います。マークと本番版の切り抜きはそのまま使えます。入れ替えで作業用のフォルダへ移した速報版は、3 日たったら消します。</p>
     <div class="rv-setgroup" id="livePeaksBox" hidden><div class="rv-subh">配信中の候補(試験中)</div>
       <label class="rv-check" for="liveDetect"><input type="checkbox" class="ui-switch" id="liveDetect">録画しながら、盛り上がりの候補を出す</label>
-      <p class="hint">音とチャットの勢いから山を見つけて、③ の LIVE の帯に候補として出します(30〜45 秒遅れ)。候補はマークにはしません(「採用」を押すとマークになります)。</p>
+      <p class="hint">音とチャットの勢いから山を見つけて、② の LIVE の帯に候補として出します(30〜45 秒遅れ)。候補はマークにはしません(「採用」を押すとマークになります)。</p>
       <div class="fld"><label class="l" for="liveDetectSens">感度</label>
         <select id="liveDetectSens">${LIVE_SENS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
       <div class="fld"><label class="l" for="liveDetectPerHour">1 時間に出す候補の数(${PEAK_PER_HOUR[0]}〜${PEAK_PER_HOUR[1]})</label>
@@ -129,14 +130,14 @@ function buildLive(){
     const q = LIVE_QUALITY.some(([v]) => v === e.target.value) ? e.target.value : '1080p';
     UIKit.prefs.patch('live', { quality: q }).then(() => { $('#liveMsg').textContent = '画質を ' + q + ' にしました(次に始める録画から)'; }, () => {});   // 失敗の知らせは UIKit.prefs が出す
   });
-  /* ホームの設定の節 live の 1 つの鍵を保存する(入口が読む)。保存できたら ③ の帯の案内にも伝える(studio:liveprefs)。失敗の知らせは UIKit.prefs が出す */
+  /* ホームの設定の節 live の 1 つの鍵を保存する(入口が読む)。保存できたら ② の帯の案内にも伝える(studio:liveprefs)。失敗の知らせは UIKit.prefs が出す */
   const livePatch = (key, val, text) => UIKit.prefs.patch('live', { [key]: val }).then(() => {
     $('#liveMsg').textContent = text;
     document.dispatchEvent(new CustomEvent('studio:liveprefs', { detail: { [key]: val } }));
   }, () => {});
   const liveSwitch = (id, key, onText, offText) => $(id).addEventListener('change', e => { const on = e.target.checked; livePatch(key, on, on ? onText : offText); });
   /* 本番版への自動の作り直し(live.autoArchive。既定オン)。帯の案内は「自動: オン/オフ」 */
-  liveSwitch('#liveAutoArch', 'autoArchive', '配信が終わったら、自動で本番版に作り直します', '自動の作り直しをやめました(③ の帯の「アーカイブで作り直す」で始められます)');
+  liveSwitch('#liveAutoArch', 'autoArchive', '配信が終わったら、自動で本番版に作り直します', '自動の作り直しをやめました(② の帯の「アーカイブで作り直す」で始められます)');
   /* 録画を自動で消す(live.autoDelete)。帯の案内は「入れ替えたら録画は消します」 */
   liveSwitch('#liveAutoDel', 'autoDelete', '本番版に入れ替えたら、録画を消します(マークが無い録画は 1 日で消します)', '録画を自動では消しません(録画の置き場所の空きに気をつけてください)');
   /* 配信中の候補(live.detect)と自動採用(live.autoAdopt)。入れ子の節は欄の今の値を全部そろえて送る(続けて変えても片方の鍵が抜けない) */
@@ -243,7 +244,7 @@ function update(){
   k.title = t.keySource === 'env' ? '環境変数 YOUTUBE_API_KEY を使用中' : '';
   /* 設定の「!」は「やることがある」印(API キーが未設定)。タブの件数(残っている作業の数)とは形も色も分けている */
   $('#settingsDot').hidden = !!t.hasKey; $('#settingsDotText').hidden = !!t.hasKey;
-  $('#btnSettings').title = t.hasKey ? '設定(APIキー・出力先フォルダ・③ の操作・コラボ・事務所の登録)' : '設定(API キーが未設定です。① 探す に必要)';
+  $('#btnSettings').title = t.hasKey ? '設定(APIキー・出力先フォルダ・解析・② の操作・コラボ・事務所の登録)' : '設定(API キーが未設定です。① 探す に必要)';
   /* 見出しの横は、長いときにフォルダの末尾が見えるように先頭を省く(CSS の direction:rtl。記号の並びが崩れないよう前後に LRM) */
   $('#outNow').textContent = t.outDir || ''; $('#outSub').textContent = t.outDir ? '\u200e' + t.outDir + '\u200e' : ''; $('#outSub').title = t.outDir || '';
 }
@@ -303,7 +304,7 @@ S.onReady(() => {
   build(); update();
   setupLive();
   S.on('state', update);
-  /* which: 開く節の id(setKey / setOut / setExport / setOps / setCollab / setReg)。引き出しの中でその節までスクロールする */
+  /* which: 開く節の id(setKey / setOut / setAnalyze / setExport / setOps / setCollab / setReg)。引き出しの中でその節までスクロールする */
   S.openSettings = which => {
     S.drawer.open();
     const d = which && $('#' + which);

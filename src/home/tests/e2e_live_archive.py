@@ -18,11 +18,11 @@
 
 確かめること:
   S  設定の引き出しの「自動で本番版に作り直す」「録画を消す」が本物の入口(live.autoArchive・live.autoDelete)に保存される
-  1  録画 → ③ でマーク(自動の書き出し)→ 速報版 / 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要差し替え / 欠けのあとのマーク
+  1  録画 → ② でマーク(自動の書き出し)→ 速報版 / 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要差し替え / 欠けのあとのマーク
   2  止める → 帯の案内・「アーカイブで作り直す」/ 用意がまだ(post_live)→ 409 の文が帯に出る
   3  押す → 帯の進み具合(n/3 本・段)・スタジオが 409 busy の間は待つ → 速報版が同じ名前で本番版に入れ替わる(30fps・長さ・退避先に速報版・
      clip.json の source.live.archive・速報版との音のずれが 1 コマ以内)・欠けのマークは本番版で新しく書き出される(書き出し済み)
-  4  マークに「本番版」の札(スタジオの /api/video の archived・③ の行)・前に作った Resolve のパックの注意(無いので出ない)
+  4  マークに「本番版」の札(スタジオの /api/video の archived・② の行)・前に作った Resolve のパックの注意(無いので出ない)
   5  「録画を消す」がオフの間は録画が残る → オンにすると録画が消え、帯とプレーヤーの所が「録画は消しました…」(開き直しても同じ)・マークは残る
   6  自動: 録画が終わる → 見回りが本番版に作り直す(archive.auto)→ 入れ替えが全部済んだので録画を消す
   7  マークの無い録画: 終わって(縮めた)1 日 → 録画とスタジオの行が消える / 退避した速報版は(縮めた)7 日で消える
@@ -316,7 +316,7 @@ def run(tmp, shots, force_chromium):
         return "%d:%04.1f" % (int(sec // 60), sec % 60)
 
     def mark(pg, a, b):
-        """③ の時刻の欄で a 秒 → I、b 秒 → O → 追加(「マークしたらすぐ書き出す」がオンなら自動で書き出す)"""
+        """② の時刻の欄で a 秒 → I、b 秒 → O → 追加(「マークしたらすぐ書き出す」がオンなら自動で書き出す)"""
         pg.evaluate("() => { const v = %s; if (v) v.pause(); }" % VIDEO)
         for t, btn in ((a, "#rvIn"), (b, "#rvOut")):
             pg.fill("#rvNow", fmt_t(t))
@@ -427,10 +427,10 @@ def _scene_record_marks(cx):
     LX, api, check, jobs_of, mark, pg, rec_len, rec_status = cx.LX, cx.api, cx.check, cx.jobs_of, cx.mark, cx.pg, cx.rec_len, cx.rec_status
     srcs = cx.srcs
     # ---------------- 1. 録画 → マーク(速報版)・欠け・欠けのあと ----------------
-    pg.click('#steps [data-step="queue"]')
+    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
     pg.fill("#qUrls", YT1)
     pg.click("#qAdd")
-    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000), "1 URL を入れると録画が始まり ③ で開く")
+    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000), "1 URL を入れると録画が始まり ② で開く")
     code, vs = api("GET", "/studio/api/videos")
     rid1 = cx.rid1 = next((v["id"] for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"), None)
     check(rid1 and LX.REC_RE.match(rid1), "1 録画の id: %s" % rid1)
@@ -614,7 +614,7 @@ def _scene_chips_and_delete(cx):
     ms = wait_for(lambda: (lambda m: m and len([x for x in m if x.get("archived")]) == 3 and m)(smarks(rid1)), 30, 0.5)
     check(ms and all(x["status"] == "exported" and x.get("archived") for x in ms),
           "4 スタジオのマーク 3 つが書き出し済み + 本番版(/api/video の archived): %s" % [(x.get("status"), x.get("archived")) for x in (smarks(rid1) or [])])
-    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 3", 15000), "4 ③ のマークの行に「本番版」の札が 3 つ")
+    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 3", 15000), "4 ② のマークの行に「本番版」の札が 3 つ")
     code, vs = api("GET", "/studio/api/videos")
     row = next((v for v in (vs or {}).get("videos") or [] if v["id"] == rid1), {})
     check(row.get("archived") == 3, "4 一覧の行の本番版の数: %s" % row.get("archived"))
@@ -668,7 +668,7 @@ def _scene_auto_rebuild(cx):
     pg.click("#liveAutoArch")
     check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoArchive"] is True, 5), "6 「自動で本番版に作り直す」を付けると live.autoArchive = true")
     close_settings(pg)
-    pg.click('#steps [data-step="queue"]')
+    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
     pg.fill("#qUrls", YT2)
     pg.click("#qAdd")
     check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden && /録画中/.test(document.querySelector('#rvRecState').textContent)", 40000),
@@ -748,7 +748,7 @@ def _scene_after_stream(cx):
     rid4 = cx.rid4 = ((d or {}).get("recording") or {}).get("id")
     check(code == 200 and rid4, "9 4 本目の録画(人はマークしない): %s" % rid4)
     wait_for(lambda: rec_len(rid4) > 2, 30, 0.5)
-    # 見るだけ(マークしない): スタジオに登録して ③ で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)。帯の進み具合の 1 行を見る
+    # 見るだけ(マークしない): スタジオに登録して ② で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)。帯の進み具合の 1 行を見る
     api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid4, "url": YT4, "title": "配信後の全自動"})
     pg.goto(studio_url + "?video=" + rid4)
     wait_js(pg, "() => !document.querySelector('#rvLiveRec').hidden", 20000)

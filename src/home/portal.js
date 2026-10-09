@@ -678,7 +678,7 @@
     var cand = (c.marks && c.marks.candidates) || 0, adopted = (c.marks && c.marks.adopted) || 0, exported = (c.marks && c.marks.exported) || 0;
     var next = '', act = null;
     if (!c.gone && !adopted && !exported) {
-      if (cand) { next = '。スタジオの ③ 確認で候補を採用すると、書き出せます'; act = { label: '候補の確認へ', href: studioHref(c.id) }; }
+      if (cand) { next = '。スタジオの ② 確認で候補を採用すると、書き出せます'; act = { label: '候補の確認へ', href: studioHref(c.id) }; }
       else { next = '。スタジオで配信を解析すると、候補が出ます'; act = { label: 'スタジオで解析する', href: studioHref(c.id) }; }
     }
     var opt = { kind: 'info', ms: 12000 };
@@ -734,10 +734,10 @@
     if (path) q.push('media=' + encodeURIComponent(path));
     return '/transcribe/' + (q.length ? '?' + q.join('&') : '') + '#' + (tab || 'tx');
   }
-  /* その配信をスタジオの ③ 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を確かめ、保存済みなら ③ で開く。B-8) */
+  /* その配信をスタジオの ② 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を確かめ、保存済みなら ② で開く。B-8) */
   function studioHref(id) { return '/studio/?video=' + encodeURIComponent(id); }
-  /* 案件の「次にやること」の行き先(S-6・S-18)。候補の確認・書き出し・文字起こし = スタジオの ③ でその配信を開く・
-     校正・パック = 最初に残っている切り抜きの文書を編集で開く(そのタブへ)。スタジオから消えた配信は ③ で開けないので、
+  /* 案件の「次にやること」の行き先(S-6・S-18)。候補の確認・書き出し・文字起こし = スタジオの ② でその配信を開く・
+     校正・パック = 最初に残っている切り抜きの文書を編集で開く(そのタブへ)。スタジオから消えた配信は ② で開けないので、
      文字起こしは残っている切り抜きを編集で開く。行き先が無ければ '' */
   function caseNextHref(c, kind) {
     var clips = c.clips || [];
@@ -749,8 +749,8 @@
     }
     return kind === 'proof' || kind === 'pack' || c.gone ? '' : studioHref(c.id);
   }
-  var NEXT_TITLE = { review: 'スタジオの ③ 確認でこの配信を開きます(候補を採用・見送りする)', export: 'スタジオの ③ 確認でこの配信を開きます(採用したマークを書き出す)',
-    transcribe: 'スタジオの ③ 確認でこの配信を開きます(書き出した切り抜きを文字起こしする)', proof: '編集で、校正が残っている切り抜きの文書を開きます',
+  var NEXT_TITLE = { review: 'スタジオの ② 確認でこの配信を開きます(候補を採用・見送りする)', export: 'スタジオの ② 確認でこの配信を開きます(採用したマークを書き出す)',
+    transcribe: 'スタジオの ② 確認でこの配信を開きます(書き出した切り抜きを文字起こしする)', proof: '編集で、校正が残っている切り抜きの文書を開きます',
     pack: '編集で、パックがまだの切り抜きの文書を「3 パック」のタブで開きます' };
   /* 案件の行の「次にやること」(S-18): 押せるボタン(同じ窓で移る)。行き先が無ければ押せない札。見送り・投稿済みの案件には出さない(次にやることと同じ。B-4) */
   function paintNext(node, c) {
@@ -825,7 +825,7 @@
         failToast('状態を保存できませんでした', '少し待って、もう一度選んでください', e, function () { sel.value = want; sel.dispatchEvent(new Event('change')); });
       });
     });
-    // B-8(段1): その配信をスタジオの ③ 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を正規表現で確かめ、保存済みなら ③ で開く)。
+    // B-8(段1): その配信をスタジオの ② 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を正規表現で確かめ、保存済みなら ② で開く)。
     // スタジオから消えた配信は開いても ① に落ちるので出さない。場所は /studio/ の直書き(docHref が /transcribe/ を直書きしているのと同じ。取り込みに失敗して子プロセスで動いたときは合わない → B-7 で見直す候補)
     if (!c.gone) $('.pt-case-studio', node).appendChild(link('スタジオで開く', studioHref(c.id)));
     if (hideApi()) $('.pt-case-studio', node).parentNode.appendChild(hideBtn('cases', c.id, c.title || c.id));
@@ -1535,7 +1535,7 @@
     return items;
   }
   /* 案件(配信)ごとの作業(S-6。入口 0.42.0): 文字起こし待ち・書き出し待ち・確認前の候補は案件の一覧の todo(cases.py)から、いつも出す
-     (リンクはスタジオの ③ でその配信を開く = caseNextHref)。校正待ち・パック待ちは、「編集」の文書の一覧が読めれば文書ごと(buildTodoFine)・
+     (リンクはスタジオの ② でその配信を開く = caseNextHref)。校正待ち・パック待ちは、「編集」の文書の一覧が読めれば文書ごと(buildTodoFine)・
      読めないとき(withDocs が false)だけここで配信ごとに出す */
   var CASE_TODO = [
     ['transcribe', '文字起こし待ち', function (n) { return '文字起こし ' + n + '本(書き出した切り抜き)'; }],

@@ -46,13 +46,13 @@ function paneHtml(){
   </section>
   </div>`;
 }
-/* 空の状態は 2 文 + 次に押すボタン 1 つ(S-13): まとめられる配信(グループに入っていない配信)が 2 本以上あれば「配信を選ぶ」(上の一覧へ)、無ければ「② 解析へ」 */
+/* 空の状態は 2 文 + 次に押すボタン 1 つ(S-13): まとめられる配信(グループに入っていない配信)が 2 本以上あれば「配信を選ぶ」(上の一覧へ)、無ければ「URL から入れる」 */
 function emptyGroupsHtml(){
   const free = C.videos.filter(v => !v.groupId).length;
-  const btn = free >= 2 ? '<button type="button" class="btn small" data-cl-go="pick">まとめる配信を選ぶ</button>' : '<button type="button" class="btn small" data-cl-go="queue">② 解析で配信を入れる</button>';
-  return `<div class="empty"><b>まだグループはありません</b>「配信をコラボにまとめる」で2本以上の配信を選んで「まとめる」か、② 解析で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。<div class="cs-emptyacts">${btn}</div></div>`;
+  const btn = free >= 2 ? '<button type="button" class="btn small" data-cl-go="pick">まとめる配信を選ぶ</button>' : '<button type="button" class="btn small" data-cl-go="queue">URL から配信を入れる</button>';
+  return `<div class="empty"><b>まだグループはありません</b>「配信をコラボにまとめる」で2本以上の配信を選んで「まとめる」か、① の「URL から入れる」で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。<div class="cs-emptyacts">${btn}</div></div>`;
 }
-const EMPTY_VIDEOS = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、③ で配信を開くと、ここに出ます。<div class="cs-emptyacts"><button type="button" class="btn small" data-cl-go="queue">② 解析へ</button></div></div>';
+const EMPTY_VIDEOS = '<div class="empty"><b>まだ配信がありません</b>① の「URL から入れる」で配信を入れるか、② で配信を開くと、ここに出ます。<div class="cs-emptyacts"><button type="button" class="btn small" data-cl-go="queue">URL から入れる</button></div></div>';
 
 /* ---------- 配信の選択(左のカード) ---------- */
 function vlabel(v){ return v.title || v.fileName || v.id; }
@@ -298,7 +298,7 @@ async function onGroupClick(e){
     saveAnchor(gid, vid);
   }
 }
-/* 空の状態のボタン(S-13): ② 解析へ(設定の引き出しを閉じて ② の URL の欄へ)/ まとめる配信を選ぶ(上の一覧の最初のチェックへ) */
+/* 空の状態のボタン(S-13): URL から入れる(設定の引き出しを閉じて ① の先頭の URL の欄へ)/ まとめる配信を選ぶ(上の一覧の最初のチェックへ) */
 function clGo(where){
   if (where === 'queue'){
     if (S.drawer) S.drawer.close();
