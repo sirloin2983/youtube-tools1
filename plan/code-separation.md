@@ -47,6 +47,6 @@ S1〜S3 は操作が変わらないので先に進められる。S4 は 5 節の
 3. 要確認の小さい物: 入口の `_friend_length`・`length_hint`(友人の区間・配信中の候補の長さを、dev の測定結果から決めている。本体で直接数える形に直してよいか)/ `auto_cut.py` の CLI(使っているか)/ 入口の設定のエンジン選択肢「Qwen3-ASR(CPU)」(使っているか。消せば `Qwen3Asr` 70 行も)/ スタジオの `export-log.txt`(書き出しごとの映像情報の 1 行。要るか)
 
 ## 6. 根拠(棚卸しの報告)
-- 読んだのは `src/home`・`src/studio`・`src/editor`(Python と JS)・`src/ui-kit`・`src/cut2resolve`・`src/recorder`・`src/ytt_core`・`dev`・各 tests。行番号つきの表は WORKLOG の 10-09 の記録のセッションの控え(scratchpad)にあり、実装の段で各担当に渡す
+- 読んだのは `src/home`・`src/studio`・`src/editor`(Python と JS)・`src/ui-kit`・`src/cut2resolve`・`src/recorder`・`src/ytt_core`・`dev`・各 tests。**行番号つきの表は `docs/design/code-separation-inventory-2026-10-09.md`**(実装の段で各担当に渡す)
 - 環境変数のフック(本体が読む物)の一覧: `YTT_DATA_DIR=inplace`(101 ファイル)・`YTT_RUNTIME_DIR`・`YTT_CORE_DIR`(ytt_core を読む前なので 4 か所の写しは集約できない)・`YTT_CUT2RESOLVE_DIR`・`YTT_HOLO_MEMBERS`・`STUDIO_HOME`・`TRANSCRIBE_DATA_DIR/STUDIO_DATA/MARKER_DATA`・`TRANSCRIBE_BACKEND`(約 30 ファイル)・`TRANSCRIBE_FAKE_*`・`TRANSCRIBE_WORKER_CRASH`・`TRANSCRIBE_YTDLP`・`TRANSCRIBE_NORMALIZE/AUTO_DIARIZE/EVAL_BATCH/EVAL_AUDIO`・`STUDIO_FAKE/_MEDIA/_CHAT/_COMMENTS/_META`・`YTT_APP_BROWSER`・`YTT_DEFER_ANALYZE`
 - 分けられない物: `editor/serve.py` の名前の受付(`_ServeModule`。本物のワーカーと入口の取り込みも使う)・`worker-fake`(本物の起動経路を通す)・`YTT_CORE_DIR` の写し・`data-ui-audit-allow` の印(検査の例外は要素に付けるしかない)・`test_review.cjs` が review.js を文字列の境目で切り出す構造(分けるなら review.js のファイル分割 = CSP と IIFE の大工事)
