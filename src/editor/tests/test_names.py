@@ -53,6 +53,28 @@ class TestNames(unittest.TestCase):
         self.assertEqual(set(ed_jobs.public_job(job)), _PUBLIC_JOB_KEYS)
 
 
+class TestBackendSelect(unittest.TestCase):
+    """本物と疑似の差し込み口(RS2-2): serve の登録は呼ぶたびに S.backend_name を読む・疑似の旧い名前は fake_asr へ転送"""
+
+    def test_selector_follows_backend_name(self):
+        from eval.fake import fake_asr
+        from pipeline.transcribe import backend
+        with mock.patch.object(S, "backend_name", lambda: "fake"):
+            self.assertIs(backend.select(), fake_asr.FAKE)
+        with mock.patch.object(S, "backend_name", lambda: "faster-whisper"):
+            self.assertIs(backend.select(), backend.REAL)
+
+    def test_fake_names_forward_to_fake_asr(self):
+        from eval.fake import fake_asr
+        self.assertIs(ed_jobs.transcribe_fake, fake_asr.transcribe_fake)
+        self.assertIs(S.transcribe_fake, fake_asr.transcribe_fake)
+        self.assertNotIn("transcribe_fake", vars(ed_jobs))
+        called = []
+        with mock.patch.object(ed_jobs, "transcribe_fake", lambda *a: called.append(a) or iter(())):   # FakeBackend は呼ぶたびに読む
+            list(fake_asr.FAKE.transcribe({}, {}, "w", 1.0, None))
+        self.assertEqual(len(called), 1)
+
+
 class TestEdJobsForwarding(unittest.TestCase):
     """ed_jobs の転送の口(ytt/modfwd.py)。移した先に見立てた部品で、読み・書き・削除・patch.object が本体に届くか"""
 

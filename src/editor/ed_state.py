@@ -18,6 +18,7 @@ import time
 
 from ytt import errors as _errors, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402
+from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -155,9 +156,7 @@ def env_off(name):
     return os.environ.get(name, "").strip().lower() in ("off", "0", "no", "false")
 
 
-def fake_sleep():
-    """疑似のバックエンド(テスト)の 1 行ごとの待ち(環境変数 TRANSCRIBE_FAKE_DELAY 秒)"""
-    time.sleep(float(os.environ.get("TRANSCRIBE_FAKE_DELAY", "0.05")))
+fake_sleep = _fake_asr.fake_wait   # lint: keep 別名(RS2-2)= 疑似のバックエンド(テスト)の 1 行ごとの待ち(環境変数 TRANSCRIBE_FAKE_DELAY 秒)
 
 
 # ---------- 記録(落ちたときの手がかり) ----------

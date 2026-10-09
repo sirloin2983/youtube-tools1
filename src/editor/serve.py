@@ -107,6 +107,8 @@ import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻
 import ed_fill  # noqa: E402,F401  (認識のあとの後処理 A・C・D = 文字の少ない行を別の読みで埋める・定型の幻覚と重複の掃除・名簿の呼び名の 1 字違い。10-08 の実験ループ。0.60.0)
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
 import ed_llm  # noqa: E402,F401  (LLM の後処理 E = 名簿の呼び名の聞き違いらしい所だけを文字の LLM で直す。提案 P18。0.61.0)
+from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
+from pipeline.transcribe import backend as _txbackend, txenv as _txenv  # noqa: E402  (本物と疑似の差し込み口・置き場所と外の道具の口。RS2-2)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -117,7 +119,7 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b。移した先は ed_jobs より前)
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)。移した先は ed_jobs より前
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
 _ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
 _ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
@@ -146,6 +148,19 @@ _heavy_jobs.register("thumb", lambda job: ed_thumb.run_thumb(job), exclusive=("t
 _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: ed_state.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
                       mark=lambda info: ed_state.write_mark(info), after=lambda: ed_jobs.models_touched(),
                       idle=lambda: ed_jobs.release_idle_models(), no_retry=lambda: ed_jobs.NO_RETRY)
+
+
+# ---------- 認識の部品の口(役割で組み直す RS2-2)----------
+# 置き場所と外の道具: 呼ぶたびに ed_state の今の値を返す(set_data_dir・テストの S.TX_DIR = …・patch.object(S, "check_source") が効く。RS3 で ytt/settings に置き換える)
+_txenv.register(DATA_DIR=lambda: ed_state.DATA_DIR, TX_DIR=lambda: ed_state.TX_DIR, TMP_DIR=lambda: ed_state.TMP_DIR, ROOT=lambda: ed_state.ROOT,
+                ROSTER=lambda: ed_state.ROSTER, SERVER_VERSION=lambda: ed_state.SERVER_VERSION,
+                find_ffmpeg=lambda: ed_state.find_ffmpeg, worker_python=lambda: ed_state.worker_python, worker_fake=lambda: ed_state.worker_fake,
+                gpu_ready=lambda: ed_state.gpu_ready, has_faster_whisper=lambda: ed_state.has_faster_whisper,
+                media_duration=lambda: ed_state.media_duration, check_source=lambda: ed_state.check_source)
+_txenv.check()
+# 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
+_txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
+ed_jobs._add_moved(fake_asr)
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
