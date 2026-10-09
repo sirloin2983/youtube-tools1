@@ -383,18 +383,28 @@ async function reloadSettings(){
 
 /* 設定のチェック [設定の鍵, 欄の id, 無いときの扱い](readOpts・applySettings・jobOpts と、変えたら保存する配線(app.js)が同じ表を使う)。
    扱い: true = 明示の false のときだけ外す / false = true のときだけ付ける / null = 真らしい値なら付ける。
-   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける。autoYtcap = 終わったら元の配信の YouTube の字幕と比べる 案 A1) */
+   OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける。autoYtcap = 終わったら元の配信の YouTube の字幕と比べる 案 A1)。
+   0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(docs/spec/settings.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
   ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false], ['redoLarge', 'optRedoLarge', true],
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
   ['autoLlm', 'optAutoLlm', true]];   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン。0.61.0 のサーバー・画面のチェックは 0.63.0)
 const SET_CHECKS = OPT_CHECKS.concat([['archiveAuto', 'arcAuto', true], ['archiveFull', 'arcFull', true], ['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
-const checksOf = list => Object.fromEntries(list.map(([k, id]) => [k, $('#' + id).checked]));
+/* 0.66.0: 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面へ移した)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */
+const checksOf = list => Object.fromEntries(list.map(([k, id, dv]) => {
+  const el = $('#' + id);
+  return [k, el ? el.checked : (dv === true ? S.settings[k] !== false : dv === false ? S.settings[k] === true : !!S.settings[k])];
+}));
+
+/* 0.66.0: 声の検出の欄は設定の画面へ。欄があれば欄、無ければ保存した設定(既定 weak) */
+function vadModeOf(){ const e = $('#optVad'); const v = e ? e.value : (S.settings && S.settings.vadMode); return ['normal', 'off'].includes(v) ? v : 'weak'; }
+/* 認識の設定のチェック 1 つの今の値(欄が無ければ保存した設定から。checksOf と同じ決まり) */
+function optCheck(k){ return checksOf(OPT_CHECKS.filter(c => c[0] === k))[k] === true; }
 
 function readOpts(){
   const s = S.settings;
-  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; s.vadMode = $('#optVad').value; s.subtitle = readSubtitle();
+  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; if ($('#optVad')) s.vadMode = $('#optVad').value; s.subtitle = readSubtitle();
   Object.assign(s, checksOf(SET_CHECKS));
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
@@ -422,8 +432,8 @@ function applySettings(){
   const s = S.settings;
   if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : 'auto'; $('#optVad').value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; fillSubtitle(s.subtitle);
-  for (const [k, id, dv] of SET_CHECKS) $('#' + id).checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k];
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : 'auto'; { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
+  for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 0.66.0: 欄の無い鍵(設定の画面へ)は飛ばす
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   if (s.mPad) $('#mPad').value = s.mPad; if (s.mFilter) $('#mFilter').value = s.mFilter;

@@ -150,7 +150,7 @@ def main():
             after = pg.locator("#segs .seg.proofed").count()
             check(after < before, "一括置換で変わった行は校正済みが外れる(%d → %d)" % (before, after))
             # 単語の途中には当てない置換(|語|)・単語の時刻の設定
-            check(pg.evaluate("document.querySelector('#optWordSplit').checked"), "単語の時刻の設定が既定でオン")
+            check(pg.evaluate("S.settings.wordSplit !== false && !document.querySelector('#optWordSplit')"), "単語の時刻の設定が既定でオン(欄は設定の画面。0.66.0)")
             # ホロライブの名簿(用語集へ追加・効く長さの表示)
             check(pg.locator("#rosterGroups .rg").count() >= 15, "名簿の所属が並ぶ")
             pg.evaluate("document.querySelectorAll('#optGloss')[0].value='' ; document.querySelector('#rosterGroups .rg[value=gen3]').checked=true; document.querySelector('#rosterGroups .rg[value=gen5]').checked=true; document.querySelector('#rosterAdd').click()")

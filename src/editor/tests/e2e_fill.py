@@ -72,9 +72,8 @@ def main():
             check(pg.locator("#segs .seg[data-i='0'] .tt-fill").count() == 1, "元に戻すで別の読みと札が戻る")
 
             # ---- 認識の設定 autoFill(既定オン)。外すと設定に保存され、要求にも入る ----
-            pg.evaluate("for (let e = document.querySelector('#optAutoFill'); e; e = e.parentElement) if (e.tagName === 'DETAILS') e.open = true")
-            check(pg.is_checked("#optAutoFill"), "「文字の少ない行を別のエンジンの読みで埋め…」は既定オン")
-            pg.evaluate("const c = document.querySelector('#optAutoFill'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true }))")
+            check(pg.locator("#optAutoFill").count() == 0 and pg.evaluate("S.settings.autoFill !== false"), "「文字の少ない行を別のエンジンの読みで埋め…」は既定オン(欄は設定の画面。0.66.0)")
+            pg.evaluate("S.settings.autoFill = false; putSettingsNow()")
             for _ in range(80):
                 if srv.get("/api/settings").get("autoFill") is False:
                     break

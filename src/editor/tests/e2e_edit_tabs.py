@@ -376,7 +376,8 @@ def _scene_new_and_redo(cx):
     pg.keyboard.press("Alt+1")
     open_doc(pg, "一本目")
     wait_js(pg, "document.querySelectorAll('#segs .seg').length === 2", 10000)
-    check(pg.input_value("#optMaxV") == "16" and pg.input_value("#optMaxH") == "28" and pg.input_value("#optWrapV") == "8" and pg.input_value("#optSubOrient") == "vertical",
+    check((lambda v: v["maxChars"]["vertical"] == 16 and v["maxChars"]["horizontal"] == 28 and v["wrapChars"]["vertical"] == 8 and v["orientation"] == "vertical")(pg.evaluate("readSubtitle()"))
+          and pg.input_value("#optWrapV") == "8" and pg.locator("#optMaxV").count() == 0,   # 0.66.0: 向きと最大文字数の欄は設定の画面へ
           "新規の設定に 字幕の向き(縦)・最大文字数 縦 16 / 横 28・改行 縦 8 / 横 14")
     check(not pg.evaluate("document.querySelector('#recogDetails').open") and "モデル:" in pg.evaluate("document.querySelector('#optSummary').textContent"),
           "認識の設定は既定で閉じ、「始める」の上に要約が1行出る: %s" % pg.evaluate("document.querySelector('#optSummary').textContent"))
@@ -399,7 +400,7 @@ def _scene_new_and_redo(cx):
     wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
     open_doc(pg, "文字なし")
     wait_js(pg, "document.querySelectorAll('#segs .seg').length === 1", 10000)
-    check(pg.is_checked("#optAutoRedo") is False and pg.is_checked("#optRedoLarge"), "新規の設定: 疑わしい所を自動で認識し直す(既定オフ)・kotoba なら large-v3(既定オン)")
+    check(pg.evaluate("S.settings.autoRedo !== true && S.settings.redoLarge !== false && !document.querySelector('#optAutoRedo')"), "新規の設定: 疑わしい所を自動で認識し直す(既定オフ)・kotoba なら large-v3(既定オン)。欄は設定の画面(0.66.0)")
     pg.evaluate("document.querySelector('#fixDetails').open = true")
     pg.click("#redoGo")
     try:

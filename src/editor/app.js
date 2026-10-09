@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.65.2';
+const APP_VERSION = '0.66.0';
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -292,13 +292,13 @@ $('#rsGo').addEventListener('click', resplitDoc);
 $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
   if (!S.docId || lockJob() || !(await saveDone())) return;
   try {
-    await api('/api/redo', { body: { tid: S.docId, redoLarge: $('#optRedoLarge').checked } });
+    await api('/api/redo', { body: { tid: S.docId, redoLarge: optCheck('redoLarge') } });   // 0.66.0: チェックは設定の画面へ
     $('#redoMsg').textContent = '認識し直しています(終わると読み込み直します)';
     kickJobs();
   } catch (e){ $('#redoMsg').textContent = ''; toast(e.message, 7000, 'err'); }
 });
 $('#rsOrient').addEventListener('change', () => { $('#rsOrient').dataset.touched = '1'; });
-['optSubOrient', 'optMaxV', 'optMaxH'].forEach(id => $('#' + id).addEventListener('change', renderResplitOpts));
+// 0.66.0: 字幕の向きと最大文字数の欄は設定の画面へ(renderResplitOpts は applySettings → fillSubtitle から)
 $('#rtGo').addEventListener('click', e => {
   const b = e.currentTarget, first = !b.dataset.armed;
   armDelete(b, async () => { b.disabled = true; try { await startRetranscribe(); } catch (er){ toast(er.message); } finally { updateRt(); } });   // 文字を上書きするので、2度押しにする
@@ -499,8 +499,8 @@ $('#abGo').addEventListener('click', async () => {
   const b = $('#abGo'); b.disabled = true;
   try {
     if (!(await saveFirst())) return;
-    await api('/api/abtest', { body: { tid: S.docId, variants: abVariants, language: $('#optLang').value, device: $('#optDevice').value, boost: $('#optBoost').checked,
-      glossary: $('#optGloss').value, autoGloss: $('#optAutoGloss').checked } });
+    await api('/api/abtest', { body: { tid: S.docId, variants: abVariants, language: $('#optLang').value, device: $('#optDevice').value, boost: optCheck('boost'),
+      glossary: $('#optGloss').value, autoGloss: optCheck('autoGloss') } });
     await kickJobs(); toast('設定の比較を待機列に追加しました。終わると、ここに結果が出ます');
   } catch (er){ toast(er.message); } finally { renderAbHint(); }
 });
@@ -1198,7 +1198,7 @@ $('#mClips').addEventListener('change', updateMCount);
 $('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える(段7 E-6)
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
 // 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べていたときは表に足したチェックが漏れた(0.58.1 まで #optAutoContext は、ほかの設定を変えるまで保存されなかった)
-SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => $('#' + id).addEventListener('change', readOpts));
+SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });   // 0.66.0: 設定の画面へ移した欄は無い
 ['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
 $('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
 $('#txBatchGo').addEventListener('click', startBatch);

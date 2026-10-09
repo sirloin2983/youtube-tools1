@@ -104,8 +104,7 @@ def main():
             check(True, "画面を読み直しても残りの候補は 1 件")
 
             # ---- 新規の「終わったら、別のエンジンでも聞いて…」(autoAlt) ----
-            pg.evaluate("for (let e = document.querySelector('#optAutoAlt'); e; e = e.parentElement) if (e.tagName === 'DETAILS') e.open = true")
-            pg.evaluate("const c = document.querySelector('#optAutoAlt'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true }))")
+            pg.evaluate("S.settings.autoAlt = true; putSettingsNow()")   # 0.66.0: チェックは設定の画面へ(ここでは保存した設定を直接)
             for _ in range(80):
                 if srv.get("/api/settings").get("autoAlt") is True:
                     break
@@ -184,8 +183,7 @@ def main():
             check(sug["yt"]["count"] == 0 and sorted({x["seg"] for x in sug["items"]}) == ["s2", "s3"] and all(x["tier"] == "alt" for x in sug["items"]), "読み直すと、採用・却下した所は出ない: %s" % [(x["seg"], x["tier"]) for x in sug["items"]])
 
             # ---- 新規の「終わったら、元の配信の YouTube の字幕と比べて…」(autoYtcap) ----
-            pg.evaluate("for (let e = document.querySelector('#optAutoYtcap'); e; e = e.parentElement) if (e.tagName === 'DETAILS') e.open = true")
-            pg.evaluate("const c = document.querySelector('#optAutoYtcap'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true }))")
+            pg.evaluate("S.settings.autoYtcap = true; putSettingsNow()")   # 0.66.0: チェックは設定の画面へ
             for _ in range(80):
                 if srv.get("/api/settings").get("autoYtcap") is True:
                     break

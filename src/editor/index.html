@@ -1403,29 +1403,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
         <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
         <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="auto">自動(GPUがあれば使う)</option><option value="cuda">GPU(NVIDIA)</option><option value="cpu">CPU</option></select></label></div>
       <p class="hint tt-dev-hint" id="optDevHint" role="status" hidden></p>
-      <div class="fld"><label for="optVad">無音・BGMの扱い(声の検出)</label>
-        <select id="optVad"><option value="weak">弱め(声が抜けにくい・おすすめ)</option><option value="normal">標準(BGMでの誤認識が減る)</option><option value="off">使わない</option></select>
-        <span class="hint">「抜ける」ときは「弱め」か「使わない」、「無い文が出る」ときは「標準」を試してください。</span></div>
-      <label class="lag" style="margin-top:10px"><input type="checkbox" id="optBoost">小さい声を持ち上げる(音量をそろえる)</label>
-      <label class="lag" style="margin-top:6px" title="単語ごとの時刻を使います。声のない所まで伸びた行の時刻をつめ、長い行や間のあいた行を分けます。認識は少し遅くなります(数%〜2割程度)"><input type="checkbox" id="optWordSplit" checked>単語の時刻で、長い行を分ける・行の時刻を声のある所にそろえる</label>
-      <div class="fld tt-subchars"><span class="l">字幕の文字数(1つの字幕に入れる文字の上限)</span>
-        <div class="row"><label class="lag">字幕の向き <select id="optSubOrient" style="width:auto"><option value="vertical">縦(ショート)</option><option value="horizontal">横</option></select></label>
-          <label class="lag">最大 縦 <input id="optMaxV" type="number" min="4" max="80" step="1" value="16" style="width:4.5em"></label>
-          <label class="lag">横 <input id="optMaxH" type="number" min="4" max="80" step="1" value="28" style="width:4.5em"></label></div>
-        <span class="hint">長い行は、選んだ向きの文字数(2 文字までのはみ出しは許す)を超えないように、間・句読点・真ん中に近い所で分けます(単語の時刻で分けるとき)。
-          パックの Text+ 字幕の 1 段の文字数(改行)は、右上の設定の「パック」で変えます。</span></div>
-      <label class="lag" style="margin-top:6px" title="、。？！ と半角の ?! を、認識結果の文字から取り除きます(テロップ表示向け)。単語分割の区切り判断には、除く前の句読点を使うので、行の分け方は変わりません"><input type="checkbox" id="optStripPunct" checked>句読点(、。？！)を取り除く</label>
-      <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoDict" checked>終わったら置換辞書を自動で適用する</label>
-      <label class="lag" style="margin-top:6px"><input type="checkbox" id="optAutoGloss" checked>よく直される語を、認識のヒント(用語集)に自動で足す</label>
-      <label class="lag" style="margin-top:6px" title="配信のチャンネル名・コラボ相手(スタジオのコラボのまとまり)・話者の名前・題名から、その配信に出る人を決め、名簿の名前と呼び名だけを渡します(題名の文字そのものは渡しません)。出る人が分からない動画では何も足しません"><input type="checkbox" id="optAutoContext">配信に出る人の名前と呼び名を、認識のヒントに自動で足す(名簿の呼び名から)</label>
-      <label class="lag" style="margin-top:6px" title="直した回数が多く、そのまま残した例が1つもない置換だけ。それ以外は行に「候補」として出るだけです"><input type="checkbox" id="optAutoLearned">終わったら、学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)</label>
-      <label class="lag" style="margin-top:6px" title="「長い区間に文字が少ない(抜けの可能性)」の行だけ、前後を少し広げて、声の検出を標準・短い区切りで認識し直します。文字が増えて疑わしい印が消えたときだけ置き換えます(前の版は「以前の版に戻す」に残ります)"><input type="checkbox" id="optAutoRedo">終わったら、疑わしい所(長い区間に文字が少ない行)を自動で認識し直す</label>
-      <label class="lag" style="margin-top:6px" title="kotoba-whisper は聞き取りにくい音声が苦手なので、認識し直すときは重いモデルで試します"><input type="checkbox" id="optRedoLarge" checked>kotoba で文字起こししたときは、認識し直しに large-v3 を使う</label>
-      <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、同じ音声を別のエンジン(「文字をまとめて直す」の「別のエンジンの候補」で選んだもの)でも認識し、2つの結果が食い違う所の行に「別」の候補を出します。文字は自動では書き換えません。評価用の文字起こしでは聞きません"><input type="checkbox" id="optAutoAlt">終わったら、別のエンジンでも聞いて、食い違う所に候補を出す(試験中)</label>
-      <label class="lag" style="margin-top:6px" title="whisper の行のうち、長い区間に文字が少ない行(声が重なって片方しか書けていない所)を、その窓だけ別のエンジン(SenseVoice。CPU)で読んで、字数が 3 倍以上なら置き換えます。別のエンジンに名簿の呼び名がそのまま出ていれば、1 字違いの並びをその呼び名に直します。前の行の末尾の重複と、話者判別のあとに声の無い所の定型の文(「ご視聴ありがとうございました」など)も捨てます。置き換えた行には「別の読み」の札が付き、押すと whisper の文字に戻せます。評価用の文字起こしでは何もしません(10-08 の測定: 13.0 → 11.1%)"><input type="checkbox" id="optAutoFill" checked>文字の少ない行を別のエンジンの読みで埋め、名簿の呼び名に直す(初回は 163MB のモデルを取得)</label>
-      <label class="lag" style="margin-top:6px" title="その配信に出る人(題名・動画のパス・チャンネル名・コラボ相手から)の名簿の呼び名と 1 字違いの所と、誤りやすい形の所だけを選び、手元の LLM(Qwen3-8B・GPU。動画や音声は外へ送りません)に文脈から直してもらいます。選んだ所が無ければ LLM は読み込みません。直した行には「別の読み」の札が付き、押すと元の文字に戻せます。評価用の文字起こしでは何もしません(10-09 の測定: 名前 28 → 34/53)"><input type="checkbox" id="optAutoLlm" checked>名前の聞き違いらしい所を手元の LLM で直す(GPU。モデルは作業データの models/llm-gguf)</label>
-      <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、元の配信(スタジオで書き出した切り抜き)の YouTube の字幕を取り、食い違う所の行に「YT」の候補を出します。取るのは字幕だけです。元の配信が分からない動画・評価用の文字起こしでは何もしません"><input type="checkbox" id="optAutoYtcap">終わったら、元の配信の YouTube の字幕と比べて、食い違う所に候補を出す(試験中)</label>
-      <label class="lag" style="margin-top:6px" title="文字起こしが終わったら、話者の判別(人数は自動・覚えている声で名前を付ける)を続けて行います。判別の部品(sherpa-onnx)が要ります。評価用の文字起こしは、このチェックによらず判別し、動画の入ったフォルダ・配信から名前の候補も付けます"><input type="checkbox" id="optAutoDiar">終わったら、話者を自動で判別する</label>
+      <!-- 0.66.0: 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(docs/spec/settings.md の 6)。
+           文字起こしの要求には保存した設定が付く(app-core.js の checksOf・readSubtitle が S.settings から読む) -->
+      <p class="hint" style="margin-top:8px">声の検出・小さい声を持ち上げる・単語の時刻・字幕の文字数・終わったあとの自動の後処理(置換辞書・用語集・LLM・話者の自動判別など)は、
+        <a href="../settings#sec-editor">設定の画面(編集の節)</a>で変えます(保存した設定を次の文字起こしに使います)。</p>
       <div class="fld"><label for="optGloss">用語集(1行に1語。名前や固有名詞)</label>
         <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
         <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>

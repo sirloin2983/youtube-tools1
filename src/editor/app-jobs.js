@@ -15,7 +15,7 @@ function setTab(t){
 }
 
 function jobOpts(){
-  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: $('#optVad').value,
+  return { model: $('#optModel').value, language: $('#optLang').value, quality: $('#optQuality').value, device: $('#optDevice').value, vadMode: vadModeOf(),
     ...checksOf(OPT_CHECKS), ...subtitleReq(), glossary: $('#optGloss').value, evalSet: $('#optEvalStart').checked };   // チェックの表は app-core.js の OPT_CHECKS
 }
 
@@ -640,7 +640,7 @@ async function startRetranscribe(){
   const whole = $('#rtTarget').value === 'whole';
   const ids = whole ? [] : rtIds(); if (!ids.length && !whole) return toast('再認識する行がありません');
   if (!(await saveFirst())) return;
-  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: whole ? 'whole' : $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: $('#optVad').value, wordSplit: $('#optWordSplit').checked, ...subtitleReq(), stripPunct: $('#optStripPunct').checked, model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
-    boost: $('#optBoost').checked, glossary: $('#optGloss').value, autoDict: $('#optAutoDict').checked, autoGloss: $('#optAutoGloss').checked, autoContext: $('#optAutoContext').checked } });
+  await api('/api/retranscribe', { body: { tid: S.docId, ids, mode: whole ? 'whole' : $('#rtTarget').value === 'range' ? 'range' : 'each', vadMode: vadModeOf(), wordSplit: optCheck('wordSplit'), ...subtitleReq(), stripPunct: optCheck('stripPunct'), model: $('#rtModel').value, language: $('#optLang').value, device: $('#optDevice').value,
+    boost: optCheck('boost'), glossary: $('#optGloss').value, autoDict: optCheck('autoDict'), autoGloss: optCheck('autoGloss'), autoContext: optCheck('autoContext') } });   // 0.66.0: チェックは設定の画面へ(保存した設定から)
   await kickJobs(); toast(whole ? '動画全体の再認識を待機列に追加しました(終わると読み込み直します)' : `${ids.length}行の再認識を待機列に追加しました`);
 }

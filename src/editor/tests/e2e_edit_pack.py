@@ -149,7 +149,11 @@ def _scene_settings_drawer(cx):
     wait_js(pg, "!document.querySelector('#pkVolBox').hidden", 5000)
     pg.fill("#pkVol", "70"); pg.press("#pkVol", "Tab")
     check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 70%') >= 0", 5000), "要約に「音量 70%」: " + pg.inner_text("#pkSummaryText"))
-    st = srv.get("/api/settings")
+    for _ in range(50):   # 保存(api/settings/patch)は要約の描き直しより少し遅れることがあるので待つ
+        st = srv.get("/api/settings")
+        if (st.get("packLoudness"), st.get("packVolume")) == (0, 70):
+            break
+        time.sleep(0.1)
     check((st.get("packLoudness"), st.get("packVolume")) == (0, 70), "編集の設定に残る: %s" % ((st.get("packLoudness"), st.get("packVolume")),))
     pg.select_option("#pkLoud", "-14")
     check(wait_js(pg, "document.querySelector('#pkSummaryText').textContent.indexOf('音量 -14 LUFS') >= 0", 5000), "LUFS に戻すと要約も戻る")

@@ -130,21 +130,28 @@ def main():
 
 
 def _scene_opt_checks(cx):
-    """「認識の設定」のチェックは、変えたらすぐ保存する(0.58.2 で直した #optAutoContext と、表 SET_CHECKS のチェックすべて)"""
+    """設定のチェックは、変えたらすぐ保存する(表 SET_CHECKS のうち画面に残ったもの = 保管・書き出しの 4 つ)。
+    0.66.0: 認識の設定の自動の後処理・声の検出・字幕の向きと最大文字数の欄は設定の画面へ(欄の無い鍵は保存した設定 S.settings から要求に付く)"""
     check, pg, port = cx.check, cx.pg, cx.port
-    pg.evaluate("for (let e = document.querySelector('#optAutoContext'); e; e = e.parentElement) if (e.tagName === 'DETAILS') e.open = true")
-    before = pg.evaluate("Object.fromEntries(SET_CHECKS.map(([k, id]) => [id, document.querySelector('#' + id).checked]))")
-    check(before.get("optAutoContext") is False, "(前提)「配信に出る人の名前と呼び名を…」は既定で外れている")
-    pg.click("#optAutoContext")
-    check(wait_settings(port, {"autoContext": True}), "#optAutoContext を付けると、ほかの設定を変えなくても保存される(0.58.1 までは保存されなかった)")
+    check(pg.locator("#optAutoContext, #optVad, #optAutoFill, #optSubOrient").count() == 0 and pg.locator("#recogDetails a[href$='settings#sec-editor']").count() == 1,
+          "認識の設定に自動の後処理・声の検出・字幕の向きの欄は無く、設定の画面へのリンクがある")
+    shown = pg.evaluate("SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).map(([k, id]) => id)")
+    check(set(shown) == {"arcAuto", "arcFull", "exSpk", "exTs"}, "画面に残るチェックは保管・書き出しの 4 つ: %s" % shown)
+    before = pg.evaluate("Object.fromEntries(SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).map(([k, id]) => [id, document.querySelector('#' + id).checked]))")
     # 表のチェックを 1 つずつ変え、その場で設定(S.settings)に入るか = 変えたら保存する待ち受けが漏れていないか
-    missed = pg.evaluate("""SET_CHECKS.filter(([k, id]) => { const c = document.querySelector('#' + id); c.checked = !c.checked;
+    missed = pg.evaluate("""SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).filter(([k, id]) => { const c = document.querySelector('#' + id); c.checked = !c.checked;
       c.dispatchEvent(new Event('change', { bubbles: true })); return S.settings[k] !== c.checked; }).map(([k, id]) => id)""")
-    check(not missed, "設定のチェック(SET_CHECKS の %d 個)はどれも、変えたらすぐ設定に入る: 漏れ %s" % (len(before), missed))
-    want = pg.evaluate("""b => { SET_CHECKS.forEach(([k, id]) => { const c = document.querySelector('#' + id);
+    check(not missed, "設定のチェック(%d 個)はどれも、変えたらすぐ設定に入る: 漏れ %s" % (len(before), missed))
+    want = pg.evaluate("""b => { SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).forEach(([k, id]) => { const c = document.querySelector('#' + id);
       if (c.checked !== b[id]){ c.checked = b[id]; c.dispatchEvent(new Event('change', { bubbles: true })); } });
-      return Object.fromEntries(SET_CHECKS.map(([k, id]) => [k, document.querySelector('#' + id).checked])); }""", before)
+      return Object.fromEntries(SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).map(([k, id]) => [k, document.querySelector('#' + id).checked])); }""", before)
     check(wait_settings(port, want), "元に戻すと、サーバーの設定も元の値になる")
+    # 欄の無い鍵(自動の後処理)は、保存した設定が文字起こしの要求に付く(checksOf は欄が無ければ S.settings を読む)
+    check(pg.evaluate("checksOf(OPT_CHECKS).autoContext === false && checksOf(OPT_CHECKS).autoDict === true"), "欄の無い鍵は既定の扱い(autoContext オフ・autoDict オン)で要求に付く")
+    pg.evaluate("S.settings.autoContext = true; putSettingsNow()")
+    check(wait_settings(port, {"autoContext": True}) and pg.evaluate("checksOf(OPT_CHECKS).autoContext === true"), "保存した設定を変えると要求にも付く(autoContext)")
+    pg.evaluate("S.settings.autoContext = false; putSettingsNow()")
+    check(wait_settings(port, {"autoContext": False}), "戻す")
 
 
 def _scene_keys(cx):

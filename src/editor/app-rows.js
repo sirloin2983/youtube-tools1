@@ -67,17 +67,24 @@ function saveDoc(){
 function subNum(v, lo, hi, dv){ const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dv; }
 
 function readSubtitle(){
-  const d = SUB_DEFAULT;
-  return { orientation: $('#optSubOrient').value === 'horizontal' ? 'horizontal' : 'vertical',
-    maxChars: { vertical: subNum($('#optMaxV').value, 4, 80, d.maxChars.vertical), horizontal: subNum($('#optMaxH').value, 4, 80, d.maxChars.horizontal) },
-    wrapChars: { vertical: subNum($('#optWrapV').value, 2, 40, d.wrapChars.vertical), horizontal: subNum($('#optWrapH').value, 2, 40, d.wrapChars.horizontal) } };
+  const d = SUB_DEFAULT, cur = S.settings && S.settings.subtitle && typeof S.settings.subtitle === 'object' ? S.settings.subtitle : {};
+  const m = cur.maxChars || {}, w = cur.wrapChars || {};
+  /* 0.66.0: 字幕の向きと最大文字数の欄は設定の画面へ(保存した値をそのまま)。1 段の文字数(改行)は ⚙ の「パック」の欄のまま。
+     保存した subtitle のほかの鍵(splitChars・read)は消さない(以前は欄の 3 つだけで作り直していた) */
+  const so = $('#optSubOrient');
+  const orientation = (so ? so.value : cur.orientation) === 'horizontal' ? 'horizontal' : 'vertical';
+  const num = (sel, saved, lo, hi, fb) => { const e = $(sel); return subNum(e ? e.value : saved, lo, hi, fb); };
+  return Object.assign({}, cur, { orientation,
+    maxChars: { vertical: num('#optMaxV', m.vertical, 4, 80, d.maxChars.vertical), horizontal: num('#optMaxH', m.horizontal, 4, 80, d.maxChars.horizontal) },
+    wrapChars: { vertical: num('#optWrapV', w.vertical, 2, 40, d.wrapChars.vertical), horizontal: num('#optWrapH', w.horizontal, 2, 40, d.wrapChars.horizontal) } });
 }
 
 function fillSubtitle(v){
   const d = SUB_DEFAULT, o = v && typeof v === 'object' ? v : {}, m = o.maxChars || {}, w = o.wrapChars || {};
-  $('#optSubOrient').value = o.orientation === 'horizontal' ? 'horizontal' : 'vertical';
-  $('#optMaxV').value = subNum(m.vertical, 4, 80, d.maxChars.vertical); $('#optMaxH').value = subNum(m.horizontal, 4, 80, d.maxChars.horizontal);
-  $('#optWrapV').value = subNum(w.vertical, 2, 40, d.wrapChars.vertical); $('#optWrapH').value = subNum(w.horizontal, 2, 40, d.wrapChars.horizontal);
+  const set = (sel, val) => { const e = $(sel); if (e) e.value = val; };   // 0.66.0: 向きと最大文字数の欄は設定の画面へ(無ければ飛ばす)
+  set('#optSubOrient', o.orientation === 'horizontal' ? 'horizontal' : 'vertical');
+  set('#optMaxV', subNum(m.vertical, 4, 80, d.maxChars.vertical)); set('#optMaxH', subNum(m.horizontal, 4, 80, d.maxChars.horizontal));
+  set('#optWrapV', subNum(w.vertical, 2, 40, d.wrapChars.vertical)); set('#optWrapH', subNum(w.horizontal, 2, 40, d.wrapChars.horizontal));
   renderResplitOpts();
 }
 
