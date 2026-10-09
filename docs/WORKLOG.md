@@ -3000,3 +3000,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - `git mv` で dev/thumb_ideas.py → src/editor/thumb_ideas.py・dev/tests/test_thumb_ideas.py → src/editor/tests/test_thumb_ideas.py(編集のジョブから呼ぶため。名前は ed_ でない独立の部品 = serve.py の名前の受付に入れない)。ytt_core の場所の行と説明文のパスだけ直した。テスト 9 件 OK・lint 0
 - 使い方のコマンドは `py -3.10 src/editor/thumb_ideas.py <切り抜きの動画>` に変わった(plan/thumb-ideas.md・data.js の P5 を直した。decisions の (fn) は記録なので旧いパスのまま)
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable)— スタジオ: 解析の設定 maxHeight をサーバー側も廃止・仮決め 3-19 をユーザー確認済みに
+- 依頼: セッション「ツール全体のコード修正」から「ユーザーがコードの見直しの F(古い経路の削除)をやってよいと答えた。スタジオの解析の maxHeight は S2 の中で消して」。ユーザー 12:05「今回の仮決め3つは全てよい」(12:00 の中間報告の仮決め = decisions 3-19)
+- 変更(2b07ef9): `src/studio/analyze.py` validate_settings から maxHeight を外した(S2 で画面の欄は消していた。解析は音声しか取らず読んでいない。保存してある値は読み捨て)。`src/studio/README.txt` v0.24.0 の節に 1 行。版は上げない(0.24.0 のまま = 動きは変わらない)。このコミットに `plan/decisions.md` 3-18 の見出し(別セッションの未コミット = 確認済みの印)を巻き込んだ(中身は変えていない。stage の前の git diff の確認が条件分岐のミスで抜けた)
+- この記録と一緒に: `plan/decisions.md` 3-19 を「ユーザー確認済み 12:05」に
+- テスト: test_analyze・test_api・test_robustness 151 OK・e2e_analyze OK・lint 0
+- 次(ユーザー指示 12:03「影響がなければ計画を前倒ししてよい。確認が要ることは仮で決めて最後にまとめて」): S4(設定の形をそろえる)→ S5(単体の設定ページ)を続けて進める
+- 未コミット: なし
