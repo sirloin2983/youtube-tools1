@@ -2,7 +2,7 @@
 
 役割で組み直す RS2-1a(2026-10-10)に編集の ed_state(app の層)から移した。ed_jobs の中身を pipeline/transcribe へ移したとき、
 移した先が ed_state を読まずに済むように。ed_state には同じ物の別名を残している(どれも差し替え・付け直しをしない名前 =
-テストも本体も `S.名前 = …` をしていないことを確かめてから移した)。差し替える名前(置き場所のパス・ffmpeg など)は移さず、txenv の口を通す(RS2-2)。
+テストも本体も `S.名前 = …` をしていないことを確かめてから移した)。差し替える名前(置き場所のパス・ffmpeg など)は移さない(RS3-0A から持ち主は ytt/workdata・ytt/tools・worker_client。それまでは txenv の口)。
 RS2-9 で足した物: 比べるときの文字の寄せ方 alt_fold(ed_alt から)・環境変数のスイッチ env_off(ed_state から)。
 """
 import logging

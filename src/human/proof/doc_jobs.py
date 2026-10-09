@@ -23,7 +23,7 @@ import uuid
 from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
-from pipeline.transcribe import txenv as _txenv  # noqa: E402   置き場所と外の道具の口(RS2-2。本物と疑似の差し込み口 backend は RS2-8e から recognize.transcribe_rows が読む)
+from ytt import tools as _tools  # noqa: E402   元のファイルの検査と長さ(check_source・media_duration。RS3-0A まで txenv の口)
 from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要確認の印(RS2-4b。呼ぶたびに postproc.名前 で読む)
 from pipeline.transcribe import records  # noqa: E402   認識の記録・生出力・単語の時刻(RS2-5。呼ぶたびに records.名前 で読む)
 from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカーとのやり取り・モデル・wav を読まずに渡す形(RS2-6。呼ぶたびに worker_client.名前 で読む)
@@ -59,7 +59,7 @@ def set_hooks(**hooks):
 
 
 def check_hooks(names=_HOOK_KEYS):
-    """names のうち登録されていない口があれば RuntimeError(serve が登録のあとで呼ぶ。txenv.check と同じ形)"""
+    """names のうち登録されていない口があれば RuntimeError(serve が登録のあとで呼ぶ)"""
     missing = [k for k in names if k not in _hooks]
     if missing:
         raise RuntimeError("doc_jobs に登録されていない口: %s(編集の serve.py が読み込みのときに登録する)" % ", ".join(missing))
@@ -80,8 +80,8 @@ def glossary_of(req, st=None):
 
 
 def validate_job(req):
-    src = _txenv.check_source(req.get("sourcePath"))
-    dur = _txenv.media_duration(src)
+    src = _tools.check_source(req.get("sourcePath"))
+    dur = _tools.media_duration(src)
     start = _yschemas.num_or(req.get("start"), 0.0) or 0.0
     end = _yschemas.num_or(req.get("end"))
     if start < 0:
@@ -98,10 +98,10 @@ def validate_job(req):
     # 切り抜きスタジオが書き出した mp4 なら、隣の .clip.json(youtube-tools-clip/v1)を読んで文書に残す(元の配信のどこかが分かる)。
     # 不正・別の版なら使わずに警告だけ(文字起こし自体は続ける)。範囲指定でも clip はそのまま残す:
     # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
-    clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)   # (RS3-0A まで受け渡しの部品 pipeline_io を txenv の口から読んでいた)
+    clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)   # (RS3-0A まで受け渡しの部品 pipeline_io を口から読んでいた)
     warnings = [clip_warn] if clip_warn else []
     model = str(req.get("model") or "small").strip()
-    if not _txenv.valid_model(model):
+    if not worker_client.valid_model(model):
         raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or "ja")
     if lang not in _txbase.LANGS:
@@ -245,7 +245,7 @@ def dict_pairs(spec):
         return []
     pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))
     try:
-        pairs += _roster.variant_pairs(_roster.load(_txenv.ROSTER))
+        pairs += _roster.variant_pairs(_roster.load(_roster.ROSTER))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
         _txbase.log.warning("名簿の表記ゆれの表を作れませんでした: %s", e)
     return pairs
@@ -466,14 +466,14 @@ def validate_retranscribe(req):
     doc = ed_store.read_transcript(tid)
     if doc.get("evalSet") is True:
         raise _errors.ApiError("eval_set", "評価用の文字起こしは再認識できません(機械の出力=比べる基準が書き換わるため)。評価用を外してから行ってください", 400)
-    src = _txenv.check_source(doc.get("sourcePath"))
+    src = _tools.check_source(doc.get("sourcePath"))
     valid = {g["id"] for g in (doc.get("segments") or [])}
     ids = [i for i in dict.fromkeys(str(x)[:16] for x in (req.get("ids") or [])[:5000] if isinstance(x, (str, int))) if i in valid][:2000]
     mode = req.get("mode") if req.get("mode") in ("range", "whole") else "each"
     if not ids and mode != "whole":
         raise _errors.ApiError("empty", "再認識する行がありません", 400)
     model = str(req.get("model") or "large-v3").strip()
-    if not _txenv.valid_model(model):
+    if not worker_client.valid_model(model):
         raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or doc.get("language") or "ja")
     st = ed_learn.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
@@ -485,7 +485,7 @@ def validate_retranscribe(req):
     segs = sorted((g for g in doc.get("segments") or []), key=lambda g: g["start"])
     if mode == "whole":   # 動画全体(文書の範囲全体)を範囲と同じやり方で認識し直す。校正済みの行は残す(docs/design/whole-retranscribe-design.md の 3)
         a = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
-        b = _yschemas.num_or(doc.get("end")) or _txenv.media_duration(src) or max([g["end"] for g in segs] or [0.0])
+        b = _yschemas.num_or(doc.get("end")) or _tools.media_duration(src) or max([g["end"] for g in segs] or [0.0])
         if b <= a + 0.5:
             raise _errors.ApiError("bad_range", "動画の長さが分かりません", 400)
         if b - a > _txbase.MAX_SPAN_SEC:
@@ -546,12 +546,12 @@ def redo_spec(tid, req=None):
     doc = ed_store.read_transcript(tid)
     if doc.get("evalSet") is True:
         raise _errors.ApiError("eval_set", "評価用の文字起こしは認識し直せません(機械の出力=比べる基準が書き換わるため)", 400)
-    _txenv.check_source(doc.get("sourcePath"))
+    _tools.check_source(doc.get("sourcePath"))
     targets = redo_targets(doc)
     if not targets:
         raise _errors.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
     model = str(doc.get("model") or "large-v3")
-    if not _txenv.valid_model(model):
+    if not worker_client.valid_model(model):
         model = "large-v3"
     if "kotoba" in model.lower() and req.get("redoLarge") is not False:
         model = "large-v3"   # kotoba は聞き取りにくい音声が苦手なので、重いモデルで試す(設定)

@@ -18,9 +18,9 @@ import threading
 import time
 import unicodedata
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from pipeline.transcribe import backend as _backend, diarize, recognize  # noqa: E402   本物と疑似の差し込み口・判別の計算(呼ぶたびに diarize.名前 で読む)・音声の取り出し
-from pipeline.transcribe import txbase as _txbase, txenv as _txenv  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 置き場所と外の道具の口
+from pipeline.transcribe import txbase as _txbase, worker_client  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 疑似のワーカーの判定 worker_fake
 from pipeline.transcribe import fill  # noqa: E402   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0。呼ぶたびに fill.名前 で読む)
 import ed_learn  # noqa: E402,F401   設定(diarSmooth・diarEmb)
 import ed_store  # noqa: E402,F401   文書の読み書き・保存のロック・控え
@@ -157,7 +157,7 @@ def validate_diarize(req):
     doc = ed_store.read_transcript(tid)
     if not doc.get("segments"):
         raise _errors.ApiError("empty", "行がないため、話者を判別できません", 400)
-    _txenv.check_source(doc.get("sourcePath"))
+    _tools.check_source(doc.get("sourcePath"))
     try:
         n = int(req.get("numSpeakers") or 0)
     except (TypeError, ValueError):
@@ -236,14 +236,14 @@ def run_diarize(job):
         return
     with _heavy.job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
-        src = _txenv.check_source(doc.get("sourcePath"))
+        src = _tools.check_source(doc.get("sourcePath"))
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
-        span = (end if end else (_txenv.media_duration(src) or 0.0)) - start
+        span = (end if end else (_tools.media_duration(src) or 0.0)) - start
         if span > diarize.MAX_DIAR_SEC:
             raise _errors.ApiError("too_long", "話者判別は3時間までの範囲で使えます。範囲を分けて文字起こししてください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
         recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
-        total = _txenv.media_duration(wav) or span
+        total = _tools.media_duration(wav) or span
         turns = _backend.select().diarize(job, spec, wav, total, _diarize_job_real)   # 疑似は eval/fake/fake_asr の diarize_fake(RS2-9)
         _heavy.check_cancel(job)
         auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
@@ -519,7 +519,7 @@ def autodiar_ready():
     テスト用の worker-fake(ワーカーの中だけ偽のモデル)では使わない(判別は本物の経路 = モデルの取得になるため)"""
     if _backend.select().name == "fake":
         return True
-    return not _txenv.worker_fake() and diarize.has_sherpa()
+    return not worker_client.worker_fake() and diarize.has_sherpa()
 
 
 def autodiar_why_not(doc):
@@ -657,7 +657,7 @@ def _autodiar_record(tid, name, hit, reason):
 # 次からの話者判別のあとで、見つかった話者を覚えている声と比べて名前を付ける。
 # 声の特徴は個人を見分けられる情報なので、作業データ(voices/)にだけ置く(リポジトリ・パックには入れない)。
 # 声の特徴の計算と照らし合わせ(VOICE_MATCH・embed_groups・match_voices)は pipeline/transcribe/diarize(numpy・sherpa-onnx は認識ワーカーの中だけ)。
-# 置き場所は呼ぶたびに作業データ(txenv の DATA_DIR)の voices(voices_dir)。VOICES_DIR は上書き用(テストが一時フォルダを入れる)。None なら作業データの中。
+# 置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の voices(voices_dir)。VOICES_DIR は上書き用(テストが一時フォルダを入れる)。None なら作業データの中。
 # RS2-9 の不具合の直し(動きが変わる): 以前は読み込みのときに作り、serve の set_data_dir が直さなかったので、入口から起動すると
 # 覚えた声が作業データではなく editor のフォルダの voices に読み書きされていた(判別のモデルの DIAR_DIR だけ直っていた)
 VOICES_DIR = None
@@ -682,7 +682,7 @@ def is_generic_speaker_name(name):
 
 def voices_dir():
     """覚えた声の置き場所(上書きの VOICES_DIR があればそれ、無ければ作業データの voices。呼ぶたびに決める)"""
-    return VOICES_DIR or os.path.join(_txenv.DATA_DIR, "voices")
+    return VOICES_DIR or os.path.join(_workdata.DATA_DIR, "voices")
 
 
 def voices_path(emb):
@@ -843,7 +843,7 @@ def validate_voice_learn(req):
         gen = [r["name"] for r in plan["refused"] if r["reason"] == "generic"]
         raise _errors.ApiError("no_names", "覚えられる話者がいません。校正済みの行(1秒以上・音のメモなし)がある、名前を付けた話者の声だけを覚えます"
                        "(「話者1」のような仮の名前%sは覚えません)" % ("・「%s」のような一般的な名前" % "」「".join(gen[:3]) if gen else ""), 400)
-    _txenv.check_source(doc.get("sourcePath"))
+    _tools.check_source(doc.get("sourcePath"))
     emb = _voice_emb(req, doc)
     same = {str(x) for x in req.get("confirmSame") or [] if isinstance(x, str)}
     voices = load_voices(emb)
@@ -862,7 +862,7 @@ def run_voice_learn(job):
         doc = ed_store.read_transcript(spec["tid"])
         if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
             raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
-        src = _txenv.check_source(doc.get("sourcePath"))
+        src = _tools.check_source(doc.get("sourcePath"))
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         plan = voice_learn_plan(doc)   # 読み直した文書で決め直し、確認した人(spec["names"])との積だけを覚える(確認のあとで名前を付けた人を黙って覚えない)
         grp = {n: plan["groups"][n] for n in spec.get("names") or [] if n in plan["groups"]}

@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
 
 認識の流れ(声の検出のやり直し・GPU から CPU・全体の区間ごとの続き)は編集のテスト(src/editor/tests/test_metrics.py・test_worker.py・test_whispercpp.py。
-serve の名前で読む)が確かめる。ここは「① が serve なしで読めて、行の頭の名前を外す決まりと ffmpeg を口(set_head_stripper・txenv)から読む」ことだけ。
+serve の名前で読む)が確かめる。ここは「① が serve なしで読めて、行の頭の名前を外す決まりと ffmpeg を口(set_head_stripper・ytt/tools)から読む」ことだけ。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -16,8 +16,8 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import backend, recognize, txenv  # noqa: E402
-from ytt import errors  # noqa: E402
+from pipeline.transcribe import backend, recognize  # noqa: E402
+from ytt import errors, tools, workdata  # noqa: E402
 
 SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
 
@@ -25,18 +25,23 @@ SPEC = {"range": [10.0, 20.0], "language": "ja", "wordSplit": False}
 class _Env(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="txrecognize_")
-        self.saved = (dict(txenv._providers), list(recognize._head_stripper))
-        txenv.register(TX_DIR=lambda: self.tmp, find_ffmpeg=lambda: (lambda: None))
+        self.saved = list(recognize._head_stripper)
+        self.patch(workdata, "TX_DIR", self.tmp)
+        self.patch(tools, "find_ffmpeg", lambda: None)
+
+    def patch(self, mod, name, value):
+        """mod.name を試験の間だけ value に(終わったら元に戻す。serve と同じプロセスで流しても壊さない)"""
+        p = mock.patch.object(mod, name, value)
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved[0])
-        recognize._head_stripper[:] = self.saved[1]
+        recognize._head_stripper[:] = self.saved
         shutil.rmtree(self.tmp, True)
 
 
 class TestTranscribeRows(_Env):
-    """transcribe_rows(RS2-8e): 取り出し → 長さ(txenv.media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""
+    """transcribe_rows(RS2-8e): 取り出し → 長さ(ytt/tools の media_duration)→ backend.select().transcribe → 生出力を控えながら整えた行。serve なし"""
 
     def setUp(self):
         super().setUp()
@@ -66,7 +71,7 @@ class TestTranscribeRows(_Env):
         self.calls.append(("extract", job["state"], job["phase"], wav, spec["start"]))
 
     def test_rows_raw_total(self):
-        txenv.register(media_duration=lambda: (lambda p: 8.0))
+        self.patch(tools, "media_duration", lambda p: 8.0)
         job = {"state": "queued"}
         spec = {"start": 10.0, "end": 20.0, "language": "ja", "wordSplit": False, "stripPunct": True}
         with mock.patch.object(recognize, "extract_audio", self.extract):   # 呼ぶたびに recognize.extract_audio を読む(S.extract_audio の差し替えが届く)
@@ -82,7 +87,7 @@ class TestTranscribeRows(_Env):
                          [(0.0, 2.1, "こんにちは"), (2.1, 8.0, "長さの外まで")])   # 長さの外を捨てて切る・続く行をつなぐ・句読点を除く(postproc.expand_segments)
 
     def test_total_falls_back_to_range(self):
-        txenv.register(media_duration=lambda: (lambda p: None))
+        self.patch(tools, "media_duration", lambda p: None)
         with mock.patch.object(recognize, "extract_audio", self.extract):
             res = recognize.transcribe_rows({"state": "queued"}, {"start": 10.0, "end": 20.0, "language": "ja"}, "w.wav")
         self.assertEqual(res["total"], 10.0)   # 長さが分からなければ範囲の長さ(end が無ければ 0)

@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_fill_llm.py -v
 
 細かい決まり(置き換えの 3 倍の条件・名簿の呼び名・検査と上限・ジョブの記録)は編集のテスト(src/editor/tests/test_fill.py・test_llm.py。serve の名前で読む)が確かめる。
-ここは「① が serve なしで読めて、名簿と作業データの置き場所は txenv の口・疑似かどうかは backend・話者判別の部品の有無は diarize.has_sherpa から読む」ことと、
+ここは「① が serve なしで読めて、名簿のファイルは roster.ROSTER・作業データの置き場所は ytt/workdata(RS3-0A まで txenv の口)・疑似かどうかは backend・話者判別の部品の有無は diarize.has_sherpa から読む」ことと、
 読み込みでネイティブの部品・app・eval を読まないことだけ。
 """
 import os
@@ -19,8 +19,8 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import backend, diarize, fill, llm, txenv  # noqa: E402
-from ytt import errors  # noqa: E402
+from pipeline.transcribe import backend, diarize, fill, llm, roster  # noqa: E402
+from ytt import errors, studiodata, workdata  # noqa: E402
 
 
 class _FakeBackend(backend.Backend):
@@ -29,30 +29,30 @@ class _FakeBackend(backend.Backend):
 
 class _Base(unittest.TestCase):
     def setUp(self):
-        self.saved = dict(txenv._providers)
         self.tmp = tempfile.mkdtemp()
         self.roster = os.path.join(self.tmp, "roster.json")
         with open(self.roster, "w", encoding="utf-8") as f:
             json.dump({"groups": [{"id": "t", "label": "試し", "names": ["テスト分子"]}],
                        "members": [{"name": "テスト分子", "aliases": ["テスト分", "てすとぶん"]}]}, f, ensure_ascii=False)
-        txenv.register(ROSTER=lambda: self.roster, TX_DIR=lambda: self.tmp, studio_stream=lambda: (lambda vid: {}))
         self.addCleanup(self._restore)
+        for mod, name, value in ((roster, "ROSTER", self.roster), (workdata, "TX_DIR", self.tmp), (studiodata, "studio_stream", lambda vid: {})):
+            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
+            p.start()
+            self.addCleanup(p.stop)
 
     def _restore(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved)
         backend.set_selector(lambda: backend.REAL)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
 
 class TestFill(_Base):
-    def test_names_and_aliases_from_txenv_roster(self):
-        """名簿のファイルは呼ぶたびに txenv の ROSTER から(ed_state を読まない)"""
+    def test_names_and_aliases_from_roster_file(self):
+        """名簿のファイルは呼ぶたびに roster.ROSTER から(ed_state を読まない)"""
         names = fill.fill_spk_names({"glossary": ["マリン"], "context": {"terms": ["ぺこら"]}})
         self.assertTrue({"テスト分子", "テスト分", "マリン", "ぺこら"} <= names)
         self.assertEqual(fill.fill_aliases(), {"テスト分子", "テスト分", "てすとぶん"})
         other = os.path.join(self.tmp, "none.json")   # 無い名簿は空(読めなくても止めない)
-        txenv.register(ROSTER=lambda: other)
+        roster.ROSTER = other
         self.assertEqual(fill.fill_aliases(), set())
 
     def test_reader_fake_follows_backend_select(self):
@@ -85,7 +85,7 @@ class TestFill(_Base):
 
 
 class TestLlm(_Base):
-    def test_path_write_read_from_txenv_tx_dir(self):
+    def test_path_write_read_from_workdata_tx_dir(self):
         self.assertEqual(llm.llm_path("abcdefabcde1"), os.path.join(self.tmp, "abcdefabcde1.llm.json"))
         self.assertIsNone(llm.read_llm("abcdefabcde1"))
         llm.llm_write("abcdefabcde1", {"engine": "llama-text", "model": "qwen3-8b"}, [{"row": 0, "from": "あ", "to": "い"}])
@@ -101,7 +101,7 @@ class TestLlm(_Base):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_LLM": '{"edits": []}'}):
             self.assertEqual(llm.llm_ask_fn({}, {})([{"role": "user", "content": "x"}]), '{"edits": []}')
 
-    def test_after_doc_fixes_with_roster_from_txenv(self):
+    def test_after_doc_fixes_with_roster_file(self):
         """設定オフは何もしない・名簿の呼び名に 1 字違いの所があれば疑似の答えで直し、fill と印を付ける。選んだ所が無ければ LLM を呼ばない"""
         backend.set_selector(lambda: _FakeBackend())
         reply = json.dumps({"edits": [{"from": "テスト文", "to": "テスト分", "confidence": 0.9}]})

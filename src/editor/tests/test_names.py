@@ -100,22 +100,46 @@ class TestBackendSelect(unittest.TestCase):
         self.assertEqual(len(called), 1)
 
 
-class TestTxenvRegistered(unittest.TestCase):
-    """serve が txenv に登録した RS2-8a の鍵(studio_stream・valid_model)は、呼ぶたびに持ち主(ytt/studiodata・worker_client)を読む = S.名前 の差し替えが効く"""
+class TestOwnersFollowServePatches(unittest.TestCase):
+    """RS3-0A: 一時の口 txenv を消し、置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・
+    名簿のファイル(roster)・スタジオの配信の情報(ytt/studiodata)は、下の層の部品が持ち主を呼ぶたびに直に読む。
+    S.名前 = …・patch.object(S, …) は持ち主へ届き、ed_state・ed_store に同じ名前は残っていない(残すと差し替えが別名に当たって届かない)"""
+    MOVED = (("workdata", ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "DATASET_DIR", "EVAL_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")),
+             ("tools", ("MEDIA_TYPES", "find_ffmpeg", "ffmpeg_info", "duration_in", "media_duration", "check_source", "probe_media")),
+             ("worker_client", ("nvidia_gpu", "has_faster_whisper", "worker_python", "worker_has", "gpu_ready", "worker_fake", "valid_model", "MODEL_RE")),
+             ("studiodata", ("studio_videos", "studio_stream")),
+             ("roster", ("ROSTER",)))
 
-    def test_keys_follow_serve_patches(self):
-        from pipeline.transcribe import txenv
-        txenv.check()
-        for name in ("studio_stream", "valid_model"):
-            fake = lambda *a, **k: ("fake", a, k)  # noqa: E731
-            with mock.patch.object(S, name, fake):
-                self.assertIs(txenv.get(name), fake, name)
-            self.assertIsNot(txenv.get(name), fake, name)
+    @staticmethod
+    def owners():
+        from pipeline.transcribe import roster, worker_client
+        from ytt import studiodata, tools, workdata
+        return {"workdata": workdata, "tools": tools, "worker_client": worker_client, "studiodata": studiodata, "roster": roster}
+
+    def test_patches_reach_owner_and_no_alias_is_left(self):
+        import ed_state
+        import ed_store
+        own = self.owners()
+        sentinel = object()
+        for key, names in self.MOVED:
+            for name in names:
+                self.assertIs(getattr(S, name), getattr(own[key], name), name)
+                self.assertNotIn(name, vars(ed_state), name)
+                self.assertNotIn(name, vars(ed_store), name)
+                with mock.patch.object(S, name, sentinel):
+                    self.assertIs(getattr(own[key], name), sentinel, name)
+                self.assertIsNot(getattr(own[key], name), sentinel, name)
+        self.assertEqual(own["workdata"].SERVER_VERSION, S.SERVER_VERSION)   # 部品が読む版(正は serve.py の SERVER_VERSION)
+        with self.assertRaises(ImportError):
+            __import__("pipeline.transcribe.txenv")
+
+    def test_validate_job_reads_owners(self):
+        """文字起こしの受付(human/proof/doc_jobs)は元のファイルの検査・長さ・モデル名を持ち主から呼ぶたびに読む(S の差し替えが届く)"""
         src = os.path.abspath(__file__)
         with mock.patch.object(S, "check_source", lambda p: src), mock.patch.object(S, "media_duration", lambda p: 10.0), \
                 mock.patch.object(S, "valid_model", lambda m: False):
             with self.assertRaises(S.ApiError) as cm:
-                ed_jobs.validate_job({"sourcePath": src, "model": "small"})   # ed_jobs は ed_state を読まずに txenv の口から読む
+                ed_jobs.validate_job({"sourcePath": src, "model": "small"})
         self.assertEqual(cm.exception.code, "bad_model")
 
 

@@ -4,7 +4,7 @@
 
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v
 
-名簿のファイルとスタジオの配信の情報は txenv の口(ROSTER・studio_stream)から読む。本物のスタジオの data.json を読む形
+名簿のファイルは roster.ROSTER、スタジオの配信の情報は ytt/studiodata.studio_stream から読む(RS3-0A まで txenv の口)。本物のスタジオの data.json を読む形
 (serve の登録 = ytt/studiodata.studio_stream。RS3-0A まで ed_store)は編集のテスト(src/editor/tests/test_roster.py の TestStreamContext。serve の名前で読む)が確かめる。
 """
 import json
@@ -14,10 +14,12 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import roster, txenv  # noqa: E402
+from pipeline.transcribe import roster  # noqa: E402
+from ytt import studiodata  # noqa: E402
 
 STREAMS = {"vidA": {"channel": "Pekora Ch. 兎田ぺこら", "title": "コラボ!", "collab": [{"videoId": "vidB", "channel": "Marine Ch. 宝鐘マリン", "title": "別視点"}]}}
 
@@ -32,7 +34,6 @@ class TestSplitTerms(unittest.TestCase):
 class TestStreamContext(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="txroster_")
-        self.saved = dict(txenv._providers)
         path = os.path.join(self.tmp, "roster.json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"groups": [{"id": "gen0", "label": "0期生", "names": ["ときのそら"]},
@@ -45,11 +46,12 @@ class TestStreamContext(unittest.TestCase):
         def studio_stream(vid):
             self.calls.append(vid)
             return STREAMS.get(vid)
-        txenv.register(ROSTER=lambda: path, studio_stream=lambda: studio_stream)
+        for mod, name, value in ((roster, "ROSTER", path), (studiodata, "studio_stream", studio_stream)):
+            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
+            p.start()
+            self.addCleanup(p.stop)
 
     def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved)
         shutil.rmtree(self.tmp, True)
 
     def doc(self, vid="vidA"):
@@ -73,18 +75,14 @@ class TestStreamContext(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
     def test_studio_unknown_or_broken_continues_without_context(self):
-        """スタジオの情報が無い(None)・例外・口が登録されていないときは、チャンネル名とコラボ相手なしで題名・フォルダから続ける(移す前と同じ)"""
+        """スタジオの情報が無い(None)・例外のときは、チャンネル名とコラボ相手なしで題名・フォルダから続ける(移す前と同じ)"""
         expect = [("ときのそら", ["title"])]
         c = roster.stream_context(self.doc("無い配信"))
         self.assertEqual([(m["name"], m["from"]) for m in c["members"]], expect)
 
         def broken(vid):
             raise ValueError("壊れた data.json")
-        txenv.register(studio_stream=lambda: broken)
-        c = roster.stream_context(self.doc())
-        self.assertEqual([(m["name"], m["from"]) for m in c["members"]], expect)
-
-        del txenv._providers["studio_stream"]   # 口が無い(RuntimeError)も同じ扱い
+        studiodata.studio_stream = broken
         c = roster.stream_context(self.doc())
         self.assertEqual([(m["name"], m["from"]) for m in c["members"]], expect)
 

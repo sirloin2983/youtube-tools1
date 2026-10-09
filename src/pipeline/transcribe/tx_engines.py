@@ -38,23 +38,22 @@ import wave
 import zlib
 
 try:
-    from ytt import fsio as _fsio, tools as _tools   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
+    from ytt import fsio as _fsio, tools as _tools, workdata as _workdata   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
 except ImportError:   # このファイルだけを読み込んだとき(tests/test_worker.py の子プロセスなど): ツールの 1 つ上(src/)の共通部品
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from ytt import fsio as _fsio, tools as _tools
+    from ytt import fsio as _fsio, tools as _tools, workdata as _workdata
 
 DEFAULT = "faster-whisper"
 ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。RS2-4a(2026-10-10)に編集の ed_jobs から移した
 
 
 def engine_home():
-    """エンジンの実行ファイル・モデルの置き場所: ENGINE_DIR → 環境変数 TRANSCRIBE_ENGINE_DIR → 作業データ(txenv の DATA_DIR。呼ぶたびに読む)。
+    """エンジンの実行ファイル・モデルの置き場所: ENGINE_DIR → 環境変数 TRANSCRIBE_ENGINE_DIR → 作業データ(ytt/workdata の DATA_DIR。呼ぶたびに読む)。
     精度を測る道具は serve の DATA_DIR を一時フォルダにするので、本物の作業データを環境変数で渡す(認識ワーカーにも届く)"""
     d = ENGINE_DIR or os.environ.get("TRANSCRIBE_ENGINE_DIR")
     if d:
         return d
-    from . import txenv   # このファイルだけを読み込んだとき(パッケージの外)も、先頭の読み込みは止めない
-    return txenv.DATA_DIR
+    return _workdata.DATA_DIR
 
 
 def engine_of(spec):

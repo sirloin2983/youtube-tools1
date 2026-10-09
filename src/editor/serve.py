@@ -109,7 +109,7 @@ import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
-from pipeline.transcribe import backend as _txbackend, txenv as _txenv  # noqa: E402  (本物と疑似の差し込み口・置き場所と外の道具の口。RS2-2)
+from pipeline.transcribe import backend as _txbackend  # noqa: E402  (本物と疑似の差し込み口。RS2-2)
 from pipeline.transcribe import roster as _txroster, tx_engines as _txengines  # noqa: E402  (名簿の prompt_terms・エンジンの engine_of・engine_home を ed_jobs から移した。RS2-4a)
 from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処理と要確認の印を ed_jobs から移した。RS2-4b)
 from pipeline.transcribe import records as _txrecords  # noqa: E402  (認識の記録・辞書の版・生出力・単語の時刻を ed_jobs から移した。RS2-5)
@@ -163,17 +163,9 @@ _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _
 
 
 # ---------- 認識の部品の口(役割で組み直す RS2-2)----------
-# 置き場所と外の道具: 呼ぶたびに持ち主(置き場所は ytt/workdata)の今の値を返す(set_data_dir・テストの S.TX_DIR = …・patch.object(S, "check_source") が効く。RS3-0A の E3 で消す)
-_txenv.register(DATA_DIR=lambda: _workdata.DATA_DIR, TX_DIR=lambda: _workdata.TX_DIR, TMP_DIR=lambda: _workdata.TMP_DIR, ROOT=lambda: _workdata.ROOT,
-                ROSTER=lambda: _txroster.ROSTER, SERVER_VERSION=lambda: _workdata.SERVER_VERSION,
-                find_ffmpeg=lambda: _tools.find_ffmpeg, worker_python=lambda: _txworker.worker_python, worker_fake=lambda: _txworker.worker_fake,
-                gpu_ready=lambda: _txworker.gpu_ready, has_faster_whisper=lambda: _txworker.has_faster_whisper,
-                media_duration=lambda: _tools.media_duration, check_source=lambda: _tools.check_source,
-                # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(文書の側の doc_jobs が ed_state を読まずに済むように)
-                studio_stream=lambda: _studiodata.studio_stream, valid_model=lambda: _txworker.valid_model,
-                # RS2-9: 認識ワーカーの Python にモジュールがあるか(話者判別の部品 sherpa-onnx の有無。話者の部品が ed_state を読まずに済むように)
-                worker_has=lambda: _txworker.worker_has)
-_txenv.check()
+# 置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・名簿のファイル(roster.ROSTER)・
+# スタジオの配信の情報(ytt/studiodata)は、下の層の部品が持ち主を呼ぶたびに直に読む(RS3-0A で txenv の口と登録を消した。
+# S.TX_DIR = …・patch.object(S, "check_source") は名前の受付が持ち主へ届ける)
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
 ed_jobs._add_moved(fake_asr)
@@ -718,7 +710,7 @@ def set_data_dir(d):
     ed_state.LOG_FILE = os.path.join(_workdata.DATA_DIR, "serve.log")
     ed_state.CRASH_FILE = os.path.join(_workdata.DATA_DIR, "serve.crash.log")
     ed_state.RUN_MARK = os.path.join(_workdata.DATA_DIR, ".running.json")
-    _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")   # (判別のモデル models/diar と覚えた声 voices の置き場所は、話者の部品が呼ぶたびに txenv の DATA_DIR から作る。RS2-9)
+    _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")   # (判別のモデル models/diar と覚えた声 voices の置き場所は、話者の部品が呼ぶたびに ytt/workdata の DATA_DIR から作る。RS2-9)
     os.environ["TRANSCRIBE_DATA_DIR"] = _workdata.DATA_DIR
     _datadir.register(ed_state.TOOL_ID, _workdata.DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt_core.datadir の1か所。2026-10-01)
 

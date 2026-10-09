@@ -4,13 +4,13 @@
 役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_speakers.py から移した(中身は同じ。文書へ反映する側・判別のジョブ・空の行の下書き・
 自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、
 serve.名前 は serve の名前の受付がここへ回す(テストの S.名前 = …・patch.object(S, "has_sherpa") もここに届く)。
-- 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに txenv の DATA_DIR から
+- 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
   (diar_models_dir。DIAR_DIR は上書き用 = dev/eval_speakers が本物の作業データの場所を入れる)
 - 判別: diarize_real(サーバーは認識ワーカーに頼む)→ ワーカーの中の _diarize_local(sherpa-onnx)。行への割り当て assign_speakers・細切れのならし smooth_labels
 - 判別の記録 transcripts/<id>.diar.json(build_diar_run・write_diar・read_diar・update_diar_voices)
 - 声の特徴: embed_groups(ワーカーの中の _embed_local)と照らし合わせ match_voices。本物と疑似は backend の口(疑似は eval/fake/fake_asr の diarize_fake・embed_fake)
 numpy・sherpa_onnx は _diarize_local・_embed_local の関数の中で読む(サーバーのプロセスでは読まない = src/editor/tests/test_worker.py の検査)。
-読むのは標準ライブラリ・ytt・兄弟(backend・tx_engines・txbase・txenv・worker_client)だけ(editor の ed_*・serve・eval は読まない)。
+読むのは標準ライブラリ・ytt・兄弟(backend・tx_engines・txbase・worker_client)だけ(editor の ed_*・serve・eval は読まない)。
 """
 import bisect
 import contextlib
@@ -25,13 +25,13 @@ import time
 import urllib.error
 import urllib.request
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas
-from . import backend as _backend, tx_engines, txbase as _txbase, txenv as _txenv, worker_client
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, workdata as _workdata
+from . import backend as _backend, tx_engines, txbase as _txbase, worker_client
 
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
 # 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。CPU で動く(PyTorch 不要)。
-# モデルの置き場所は呼ぶたびに作業データ(txenv の DATA_DIR)の models/diar(以前は読み込みのときに作り、serve の set_data_dir が直していた = 同じ場所。RS2-9)。
+# モデルの置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の models/diar(以前は読み込みのときに作り、serve の set_data_dir が直していた = 同じ場所。RS2-9)。
 # DIAR_DIR は上書き用(dev/eval_speakers が本物の作業データの models/diar を入れる)。None なら作業データの中
 DIAR_DIR = None
 DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "label": "話者の切り替わり検出",
@@ -60,14 +60,14 @@ def diar_threads():
 
 
 def has_sherpa():
-    if _txenv.worker_fake():
+    if worker_client.worker_fake():
         return True
-    return _txenv.worker_has("sherpa_onnx", "numpy")
+    return worker_client.worker_has("sherpa_onnx", "numpy")
 
 
 def diar_models_dir():
     """判別のモデルの置き場所(上書きの DIAR_DIR があればそれ、無ければ作業データの models/diar。呼ぶたびに決める)"""
-    return DIAR_DIR or os.path.join(_txenv.DATA_DIR, "models", "diar")
+    return DIAR_DIR or os.path.join(_workdata.DATA_DIR, "models", "diar")
 
 
 def _diar_path(item):
@@ -106,7 +106,7 @@ def _download_verified(job, item, tmp):
 
 
 def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
-    if _txenv.worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
+    if worker_client.worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
         return
     os.makedirs(diar_models_dir(), exist_ok=True)
     for item in (DIAR_SEG, DIAR_EMBS[emb]):
@@ -292,7 +292,7 @@ _diar_lock = threading.Lock()
 
 
 def diar_path(tid):
-    return os.path.join(_txenv.TX_DIR, tid + ".diar.json")
+    return os.path.join(_workdata.TX_DIR, tid + ".diar.json")
 
 
 def read_diar(tid):

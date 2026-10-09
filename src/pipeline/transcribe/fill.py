@@ -22,15 +22,15 @@
 名前は fill_ / FILL_ / _fill_ で始める(serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
 役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_fill.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.fill_* は serve の名前の受付で読める)。
-標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・txenv・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
-txenv の口から、話者判別の部品の有無は diarize.has_sherpa から、疑似かどうかは backend.select().name から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
+標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
+roster.ROSTER から(RS3-0A まで txenv の口)、話者判別の部品の有無は diarize.has_sherpa から、疑似かどうかは backend.select().name から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
 import os
 import re
 import unicodedata
 
 from ytt import errors as _errors, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
-from . import backend as _backend, diarize, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv, worker_client   # diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
+from . import backend as _backend, diarize, roster as _roster, tx_engines, txbase as _txbase, worker_client   # diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
 
 FILL_ENGINE, FILL_MODEL = "sense-voice", "sense-voice-small"   # 2 つ目の読み(tx_engines.SenseVoice)
 FILL_LANGS = ("ja", "en", "zh", "ko")   # SenseVoice に言語として渡せるもの(それ以外は auto)
@@ -179,7 +179,7 @@ def fill_spk_names(spec):
     """外してよい名前: 名簿の名前と呼び名(common も含む = 直後に「:」が来るときだけ使う)・用語集・配信ごとの文脈の語(友人が指定した名前もここに入る)"""
     names = set()
     try:
-        r = _roster.load(_txenv.ROSTER)
+        r = _roster.load(_roster.ROSTER)
         for name, m in (r.get("members") or {}).items():
             m = m if isinstance(m, dict) else {}
             names.update(fill_spk_key(a) for a in [name] + list(m.get("aliases") or []))
@@ -244,7 +244,7 @@ def fill_strip_names(spec, rows):
 # ---------- D: 別のエンジンも同じ呼び名なら 1 字違いを直す ----------
 def fill_aliases(r=None):
     """名簿の呼び名(名前 + aliases。common = 普通の言葉と重なる語は除く・FILL_AGREE_MIN 字以上)。r = 名簿(無ければ読む)"""
-    r = _roster.load(_txenv.ROSTER) if r is None else r
+    r = _roster.load(_roster.ROSTER) if r is None else r
     out = set()
     for name, m in (r.get("members") or {}).items():
         m = m if isinstance(m, dict) else {}

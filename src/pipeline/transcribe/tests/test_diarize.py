@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_diarize.py -v
 
 細かい決まり(割り当て・ならし・記録・照らし合わせの条件)は編集のテスト(test_voices・test_smooth・test_ovdraft・test_autodiar。serve の名前で読む)が確かめる。
-ここは「① が serve なしで読めて同じ物が動く」こと・置き場所が txenv の口から決まること・本物と疑似の口(backend)・
+ここは「① が serve なしで読めて同じ物が動く」こと・置き場所が ytt/workdata から決まること(RS3-0A まで txenv の口)・本物と疑似の口(backend)・
 読み込みでネイティブの部品(numpy・sherpa_onnx)・app(serve・ed_*)・eval を読まないことだけ。
 """
 import os
@@ -14,21 +14,22 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import backend, diarize, txenv, worker_client  # noqa: E402
+from pipeline.transcribe import backend, diarize, worker_client  # noqa: E402
+from ytt import workdata  # noqa: E402
 
 
-class _TxenvSaved(unittest.TestCase):
-    """txenv の登録を試験の前に控え、後で戻す(serve と同じプロセスで流しても登録を壊さない)"""
+class _Patches(unittest.TestCase):
+    """持ち主(ytt/workdata・worker_client)の値を試験の間だけ差し替える"""
 
-    def setUp(self):
-        self.saved = dict(txenv._providers)
-
-    def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved)
+    def patch(self, mod, name, value):
+        """mod.name を試験の間だけ value に(終わったら元に戻す。serve と同じプロセスで流しても壊さない)"""
+        p = mock.patch.object(mod, name, value)
+        p.start()
+        self.addCleanup(p.stop)
 
 
 class TestPure(unittest.TestCase):
@@ -60,12 +61,11 @@ class TestPure(unittest.TestCase):
         self.assertEqual((got, info["S1"]["reason"]), ({}, "no_feature"))
 
 
-class TestPlaces(_TxenvSaved):
-    def test_models_dir_follows_txenv(self):
-        box = {"d": os.path.join("a", "data")}
-        txenv.register(DATA_DIR=lambda: box["d"])
+class TestPlaces(_Patches):
+    def test_models_dir_follows_workdata(self):
+        self.patch(workdata, "DATA_DIR", os.path.join("a", "data"))
         self.assertEqual(diarize.diar_models_dir(), os.path.join("a", "data", "models", "diar"))
-        box["d"] = os.path.join("b", "data")   # 作業データの切り替え(set_data_dir)に呼ぶたびについていく
+        workdata.DATA_DIR = os.path.join("b", "data")   # 作業データの切り替え(set_data_dir)に呼ぶたびについていく
         self.assertEqual(diarize._diar_path(diarize.DIAR_SEG), os.path.join("b", "data", "models", "diar", diarize.DIAR_SEG["file"]))
         saved, diarize.DIAR_DIR = diarize.DIAR_DIR, os.path.join("c", "diar")   # 上書き(dev/eval_speakers)
         try:
@@ -76,7 +76,7 @@ class TestPlaces(_TxenvSaved):
     def test_write_read_and_voices(self):
         tmp = tempfile.mkdtemp(prefix="rs29-diar-")
         try:
-            txenv.register(TX_DIR=lambda: tmp)
+            self.patch(workdata, "TX_DIR", tmp)
             tid = "0123456789ab"
             self.assertIsNone(diarize.read_diar(tid))
             self.assertFalse(diarize.update_diar_voices(tid, {"speakers": {}}))   # 記録が無ければ何もしない
@@ -90,11 +90,13 @@ class TestPlaces(_TxenvSaved):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_has_sherpa_reads_txenv(self):
-        txenv.register(worker_fake=lambda: (lambda: True), worker_has=lambda: (lambda *m: False))
+    def test_has_sherpa_reads_worker_client(self):
+        self.patch(worker_client, "worker_fake", lambda: True)
+        self.patch(worker_client, "worker_has", lambda *m: False)
         self.assertTrue(diarize.has_sherpa())   # worker-fake は部品があるとみなす
         asked = []
-        txenv.register(worker_fake=lambda: (lambda: False), worker_has=lambda: (lambda *m: asked.append(m) or False))
+        worker_client.worker_fake = lambda: False
+        worker_client.worker_has = lambda *m: asked.append(m) or False
         self.assertFalse(diarize.has_sherpa())
         self.assertEqual(asked, [("sherpa_onnx", "numpy")])
 

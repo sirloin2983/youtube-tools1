@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_worker_client.py -v
 
 ワーカーの起動・取り消し・落ちたときの立ち直りは編集のテスト(src/editor/tests/test_worker.py。serve の名前で読む・本物の経路)が確かめる。
-ここは「① が serve なしで読めて、ワーカーの本体と記録のパスを差し替えか txenv から読む・サーバーのプロセスでは wav を読まない」ことだけ。
+ここは「① が serve なしで読めて、ワーカーの本体と記録のパスを差し替えか ytt/workdata から読む(RS3-0A まで txenv の口)・サーバーのプロセスでは wav を読まない」ことだけ。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -18,20 +18,19 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import txenv, worker_client as W  # noqa: E402
+from pipeline.transcribe import worker_client as W  # noqa: E402
+from ytt import workdata  # noqa: E402
 from ytt import errors  # noqa: E402
 
 
 class TestPaths(unittest.TestCase):
     def setUp(self):
-        self.saved = dict(txenv._providers)
-        txenv.register(ROOT=lambda: "/tool", DATA_DIR=lambda: "/data")
+        for mod, name, value in ((workdata, "ROOT", "/tool"), (workdata, "DATA_DIR", "/data")):
+            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
+            p.start()
+            self.addCleanup(p.stop)
 
-    def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved)
-
-    def test_script_and_log_fall_back_to_txenv(self):
+    def test_script_and_log_fall_back_to_workdata(self):
         with mock.patch.object(W, "WORKER_SCRIPT", None), mock.patch.object(W, "WORKER_LOG", None):
             here = os.path.dirname(os.path.abspath(W.__file__))
             self.assertEqual(W.worker_script(), os.path.join(here, "worker.py"))   # 本体はこのフォルダの worker.py(RS2-9。以前は編集の tx_worker.py)
@@ -44,7 +43,9 @@ class TestPaths(unittest.TestCase):
         """作業データの場所は必ず渡す。疑似の部品の名前は worker-fake のときだけ(サーバーの環境変数に残っていても本物には渡さない)・
         worker-fake なのに名前が登録されていなければ RuntimeError(RS2-9)"""
         fake = [False]
-        txenv.register(worker_fake=lambda: (lambda: fake[0]))
+        p = mock.patch.object(W, "worker_fake", lambda: fake[0])   # この試験の終わりまで(下の FAKES_MODULE なしの確かめも worker-fake のまま)
+        p.start()
+        self.addCleanup(p.stop)
         with mock.patch.dict(os.environ, {W.FAKES_ENV: "x.y"}), mock.patch.object(W, "FAKES_MODULE", "eval.fake.fake_worker"):
             env = W.worker_env()
             self.assertEqual(env["TRANSCRIBE_DATA_DIR"], "/data")

@@ -4,7 +4,7 @@
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_txrecords.py -v
 
 細かい決まり(記録の項目・辞書の版の中身)は編集のテスト(src/editor/tests/test_records.py・test_whispercpp.py。serve の名前で読む)が確かめる。
-ここは「① が serve なしで読めて、置き場所と辞書の材料を口(txenv・set_dict_inputs)か引数から読む」ことだけ。
+ここは「① が serve なしで読めて、置き場所と辞書の材料を持ち主(ytt/workdata・roster.ROSTER)・口(set_dict_inputs)か引数から読む」ことだけ。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -16,23 +16,25 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import records, txenv  # noqa: E402
+from pipeline.transcribe import records, roster as roster_mod  # noqa: E402
+from ytt import workdata  # noqa: E402
 
 
 class _Env(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="txrecords_")
-        self.saved = (dict(txenv._providers), dict(records._dict_inputs))
+        self.saved = dict(records._dict_inputs)
         roster = os.path.join(self.tmp, "roster.json")
         with open(roster, "w", encoding="utf-8") as f:
             f.write("{}")
-        txenv.register(TX_DIR=lambda: self.tmp, ROSTER=lambda: roster, SERVER_VERSION=lambda: "9.9.9")
+        for mod, name, value in ((workdata, "TX_DIR", self.tmp), (roster_mod, "ROSTER", roster), (workdata, "SERVER_VERSION", "9.9.9")):
+            p = mock.patch.object(mod, name, value)   # 試験の間だけ(終わったら元に戻す)
+            p.start()
+            self.addCleanup(p.stop)
 
     def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved[0])
         records._dict_inputs.clear()
-        records._dict_inputs.update(self.saved[1])
+        records._dict_inputs.update(self.saved)
         shutil.rmtree(self.tmp, True)
 
 

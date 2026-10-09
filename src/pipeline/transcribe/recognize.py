@@ -5,7 +5,7 @@
 全体の再認識の区間分けと続きから(whole_parts・whole_key・read_resume・write_resume・drop_resume・whole_lines)。
 
 役割で組み直す RS2-7(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(backend・postproc・roster・tx_engines・
-txbase・txenv・worker_client・records)だけを読む。ffmpeg・置き場所(TX_DIR)は呼ぶたびに txenv の口から。
+txbase・worker_client・records)だけを読む。ffmpeg(ytt/tools)・置き場所(ytt/workdata の TX_DIR)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)。
 行の頭の「名前:」を外す決まり(fill の B)は ① から fill を読まず、app(編集の serve.py)が set_head_stripper で登録した関数を呼ぶたびに使う
 (ed_jobs.head_stripper。spec -> None(外さない)か 文字 -> (本文, 足す印) の関数)。
 差し替えられる名前(extract_audio・WHOLE_PART_SEC・RangeRecognizer.main など)と読み手は同じこのモジュール。テストの S.extract_audio = …・
@@ -19,8 +19,8 @@ import os
 import subprocess
 import time
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools
-from . import backend as _backend, postproc, records, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv, worker_client
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata
+from . import backend as _backend, postproc, records, roster as _roster, tx_engines, txbase as _txbase, worker_client
 
 _head_stripper = []
 
@@ -37,7 +37,7 @@ def _stripper(spec):
 
 
 def extract_audio(job, spec, wav):
-    ff = _txenv.find_ffmpeg()
+    ff = _tools.find_ffmpeg()
     if not ff:
         raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
     cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file"]
@@ -178,7 +178,7 @@ def transcribe_rows(job, spec, wav):
     名前は全部モジュール名つきで呼ぶたびに読む(S.extract_audio・backend の選び方・S.transcribe_fake・S.expand_segments の差し替えが届く)。RS2-8e に doc_jobs の run_job から移した(中身は同じ)"""
     job["state"], job["phase"] = "extracting", "音声を取り出し中"
     extract_audio(job, spec, wav)
-    total = _txenv.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
+    total = _tools.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
     t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
     gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
     raw = []   # 生出力(<id>.asr.json)
@@ -390,7 +390,7 @@ def whole_parts(doc, a, b, part=None):
 
 
 def resume_path(tid):
-    return os.path.join(_txenv.TX_DIR, ".resume", tid + ".whole.json")
+    return os.path.join(_workdata.TX_DIR, ".resume", tid + ".whole.json")
 
 
 def whole_key(spec, doc):

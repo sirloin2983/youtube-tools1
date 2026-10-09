@@ -15,7 +15,8 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import postproc, txbase, txenv  # noqa: E402
+from pipeline.transcribe import postproc, txbase  # noqa: E402
+from ytt import workdata  # noqa: E402
 
 
 def _row(a, b, text, **kw):
@@ -57,25 +58,18 @@ class TestRows(unittest.TestCase):
 
 
 class TestPostRecord(unittest.TestCase):
-    def setUp(self):
-        self.saved = dict(txenv._providers)
-
-    def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved)
-
-    def test_reads_version_from_txenv(self):
-        txenv.register(SERVER_VERSION=lambda: "9.9.9")
-        with mock.patch.object(postproc, "END_TRIM", 0.1):
+    def test_reads_version_from_workdata(self):
+        """版は呼ぶたびに ytt/workdata の SERVER_VERSION(app = 編集の serve が入れる。RS3-0A まで txenv の口)"""
+        with mock.patch.object(workdata, "SERVER_VERSION", "9.9.9"), mock.patch.object(postproc, "END_TRIM", 0.1):
             self.assertEqual(postproc.post_record(), {"version": "9.9.9", "endTrim": 0.1, "joinGap": postproc.JOIN_GAP})
 
 
 class TestImportsAlone(unittest.TestCase):
     def test_no_native_app_or_eval(self):
-        """postproc と兄弟(txenv・backend・roster・tx_engines・txbase・records(RS2-5)・worker_client(RS2-6)・recognize(RS2-7)・diarize・fill・llm・retime(RS2-9))は、numpy などのネイティブの部品・serve などの app・eval を読まずに import できる
+        """postproc と兄弟(backend・roster・tx_engines・txbase・records(RS2-5)・worker_client(RS2-6)・recognize(RS2-7)・diarize・fill・llm・retime(RS2-9))は、numpy などのネイティブの部品・serve などの app・eval を読まずに import できる
         (serve の import で読まれる = 編集のサーバーのプロセスにネイティブの部品を入れない決まり。src/editor/tests/test_worker.py と同じ)"""
         code = ("import sys; sys.path.insert(0, %r); "
-                "from pipeline.transcribe import postproc, txenv, backend, roster, tx_engines, txbase, records, worker_client, recognize, diarize, fill, llm, retime; "
+                "from pipeline.transcribe import postproc, backend, roster, tx_engines, txbase, records, worker_client, recognize, diarize, fill, llm, retime; "
                 "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
                 "bad = [m for m in sys.modules if m in native or m.startswith('ed_') or m == 'serve' or m == 'eval' or m.startswith('eval.')]; "
                 "print(bad); sys.exit(1 if bad else 0)") % SRC

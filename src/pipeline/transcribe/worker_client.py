@@ -5,11 +5,11 @@
 GPU で失敗したら CPU でやり直す決まり(cpu_fallback)・wav をサーバーのプロセスで読まずに渡す形(WavRef・WavSlice・read_wav_f32)。
 
 役割で組み直す RS2-6(2026-10-10)に編集の ed_jobs(WavRef・WavSlice・read_wav_f32 は ed_speakers)から移した(中身は同じ)。
-標準ライブラリ・ytt・同じパッケージの兄弟(roster・tx_engines・txbase・txenv)だけを読む。
+標準ライブラリ・ytt・同じパッケージの兄弟(backend・roster・tx_engines・txbase)だけを読む。
 **このモジュールは編集のサーバーのプロセスでも読む**ので、numpy・faster_whisper・ctranslate2・sherpa_onnx は IN_WORKER のときだけ通る関数の中で読む
 (src/editor/tests/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(dev/_evalcommon)が入れる。
 ワーカーの本体は同じフォルダの worker.py(RS2-9 に編集の tx_worker.py から移した。WORKER_SCRIPT はテストの差し替え用)。記録 WORKER_LOG は
-app(編集の serve.py)が読み込みのときと作業データの切り替えで入れる(入っていなければ呼ぶたびに txenv の DATA_DIR から作る)。
+app(編集の serve.py)が読み込みのときと作業データの切り替えで入れる(入っていなければ呼ぶたびに ytt/workdata の DATA_DIR から作る)。
 ワーカーへは作業データの場所(環境変数 TRANSCRIBE_DATA_DIR)を必ず渡し、worker-fake(テスト)のときだけ疑似の部品のモジュール名(FAKES_MODULE。app が入れる)を渡す。
 GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local。ワーカーの中で使う)はここ(RS2-9 に ed_state から)。
 サーバーのプロセスでの GPU の有無(別プロセスで 1 回だけ調べる gpu_ready)・部品の有無(has_faster_whisper・worker_has・nvidia_gpu)・ワーカーの Python(worker_python)・
@@ -32,7 +32,7 @@ import time
 import wave
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, tools as _tools, workdata as _workdata
-from . import backend as _backend, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv
+from . import backend as _backend, roster as _roster, tx_engines, txbase as _txbase
 
 
 # ---------- 読み込んだモデル ----------
@@ -75,7 +75,7 @@ def release_idle_models(now=None):
 # 落ちたら(標準出力が閉じたら)そのジョブを「失敗」にし、次の要求でワーカーを起動し直す。しばらく使わなければワーカーごと終わらせてメモリを返す。
 IN_WORKER = False   # 認識ワーカー(worker.py)の中で True にする(そのときは load_model などが本体をその場で実行する)
 WORKER_SCRIPT = None   # 認識ワーカーの本体の上書き(テストが差し替える)。None ならこのフォルダの worker.py(RS2-9。以前は app が編集の tx_worker.py を入れた)
-WORKER_LOG = None      # ワーカーの標準エラーの記録。app が入れる(作業データの切り替え set_data_dir も)。None なら txenv の DATA_DIR の worker.log
+WORKER_LOG = None      # ワーカーの標準エラーの記録。app が入れる(作業データの切り替え set_data_dir も)。None なら ytt/workdata の DATA_DIR の worker.log
 FAKES_MODULE = None    # worker-fake(テスト)のときワーカーに読ませる疑似の部品のモジュール名(④ の eval/fake/fake_worker。app = 編集の serve が入れる。① は ④ を import しない = 名前の文字だけ)
 FAKES_ENV = "YTT_WORKER_FAKES"   # FAKES_MODULE をワーカーへ渡す環境変数(worker_env が入れ、worker.py の main が読む)
 WORKER_LOG_MAX = 1024 * 1024
@@ -90,8 +90,8 @@ def worker_script():
 
 
 def worker_log():
-    """ワーカーの標準エラーの記録のパス(WORKER_LOG。入っていなければ txenv の DATA_DIR の worker.log)"""
-    return WORKER_LOG or os.path.join(_txenv.DATA_DIR, "worker.log")
+    """ワーカーの標準エラーの記録のパス(WORKER_LOG。入っていなければ ytt/workdata の DATA_DIR の worker.log)"""
+    return WORKER_LOG or os.path.join(_workdata.DATA_DIR, "worker.log")
 
 
 # Windows: 黒い画面を増やさない・Ctrl+C / Ctrl+Break がワーカーに直接届かないようにする(終わらせるのは親の役目)。
@@ -107,7 +107,7 @@ def _worker_priority():
 
 
 def worker_env():
-    """認識ワーカー(と GPU の調べ --probe)の環境変数。ワーカーは編集の serve を読まないので、作業データの場所 TRANSCRIBE_DATA_DIR(txenv の DATA_DIR)を
+    """認識ワーカー(と GPU の調べ --probe)の環境変数。ワーカーは編集の serve を読まないので、作業データの場所 TRANSCRIBE_DATA_DIR(ytt/workdata の DATA_DIR)を
     必ず渡す(RS2-9)。疑似の部品の名前(FAKES_ENV)は worker-fake のときだけ渡す(サーバーの環境変数に残っていても、本物のワーカーには渡さない)。
     worker-fake なのに app が FAKES_MODULE を入れていなければ RuntimeError(偽物の無いワーカーが本物のモデルを読みに行かないように)"""
     env = dict(os.environ)
@@ -115,9 +115,9 @@ def worker_env():
     env["PYTHONIOENCODING"] = "utf-8"
     import ytt as _yc   # ワーカーも同じ ytt(共通部品)を使う(一時フォルダに写したテストでも見つかるように)
     env["YTT_CORE_DIR"] = os.path.dirname(os.path.dirname(os.path.abspath(_yc.__file__)))
-    env["TRANSCRIBE_DATA_DIR"] = _txenv.DATA_DIR
+    env["TRANSCRIBE_DATA_DIR"] = _workdata.DATA_DIR
     env.pop(FAKES_ENV, None)
-    if _txenv.worker_fake():
+    if worker_fake():
         if not FAKES_MODULE:
             raise RuntimeError("worker-fake の疑似の部品(worker_client.FAKES_MODULE)が登録されていません(編集の serve.py が読み込みのときに入れる)")
         env[FAKES_ENV] = FAKES_MODULE
@@ -180,8 +180,8 @@ class WorkerClient:
             self.log_fp = open(log, "ab")
         except OSError:
             self.log_fp = None
-        self.proc = subprocess.Popen([_txenv.worker_python(), "-u", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=self.log_fp or subprocess.DEVNULL, cwd=_txenv.ROOT, env=worker_env(),
+        self.proc = subprocess.Popen([worker_python(), "-u", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=self.log_fp or subprocess.DEVNULL, cwd=_workdata.ROOT, env=worker_env(),
                                      creationflags=_tools.no_window_flags(new_group=True, priority=_worker_priority()))
         self.starts += 1
         self.q = queue.Queue()   # 起動ごとに新しい列(前のプロセスの読み残しを混ぜない)
@@ -516,8 +516,8 @@ def engines_info():
 def check_engine(spec):
     """認識を始める前に、そのエンジンが使えるか(サーバー側。ネイティブの部品は読まない)"""
     e = tx_engines.engine_of(spec)
-    if e == tx_engines.DEFAULT or _txenv.worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
-        if not _txenv.has_faster_whisper():
+    if e == tx_engines.DEFAULT or worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
+        if not has_faster_whisper():
             raise _errors.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
         return
     ok, why = tx_engines.get(e).ready(tx_engines.engine_home())
@@ -551,7 +551,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
     elif env in ("cuda", "cpu"):
         pref = env
     # 試す機器の順はエンジンが決める(faster-whisper = CUDA → CPU、whisper.cpp = Vulkan だけ・CPU は明示のときだけ)。CUDA の有無を調べるのは faster-whisper のときだけ
-    order = eng.device_order(pref, eng is tx_engines.FasterWhisper and pref == "auto" and _txenv.gpu_ready())
+    order = eng.device_order(pref, eng is tx_engines.FasterWhisper and pref == "auto" and gpu_ready())
     hooks = {"cancelled": lambda: bool(job.get("cancel")),
              "download": lambda r: job.__setitem__("phase", "モデルを取得中 %d%%(初回だけ)" % int(r * 100))}
     with _model_lock:
@@ -640,7 +640,7 @@ def cuda_libs_ok():
 
 def _gpu_ready_local():
     """このプロセスで GPU(CUDA)が使えるか。ctranslate2 を読み込むので、認識ワーカーの中(と IN_WORKER の測る道具)でだけ呼ぶ。
-    ワーカーの疑似(eval/fake/fake_worker)はこの名前を差し替える(ワーカーの txenv の gpu_ready は呼ぶたびにこの名前を読む)"""
+    ワーカーの疑似(eval/fake/fake_worker)はこの名前を差し替える(ワーカーの中の gpu_ready は IN_WORKER なので呼ぶたびにこの名前を読む)"""
     return cuda_count() > 0 and cuda_libs_ok()
 
 

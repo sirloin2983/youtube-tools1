@@ -3,8 +3,8 @@
 長さで切る clip_rows・同じ文字の行をまとめる merge_repeats・終わりを早める trim_ends・続いている行をつなぐ join_rows・句読点の除去 strip_punct)・
 自信の度合い(machine_conf)・後処理の記録(post_record)・行の単語(row_words)。
 
-役割で組み直す RS2-4b(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster・txenv)だけを読む
-= 編集のサーバー(serve)なしで ① から読める(post_record の編集の版だけは txenv の口 = app が登録した値)。
+役割で組み直す RS2-4b(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
+= 編集のサーバー(serve)なしで ① から読める(post_record の編集の版だけは ytt/workdata の SERVER_VERSION = app が入れた値)。
 差し替えられる値(END_TRIM・JOIN_GAP)と、それを読む expand_segments・join_rows・post_record は同じこのモジュールにある。
 テストの S.END_TRIM = …・mock.patch.object(ed_jobs, "expand_segments", …) は serve の名前の受付と ed_jobs の転送(ytt/modfwd)でここに届くので、
 読む側は呼ぶたびに postproc.名前(ed_jobs)か ed_jobs.名前(ほかの編集の部品)で読む(from … import で読み直さない)。
@@ -14,7 +14,8 @@ import math
 import re
 import unicodedata
 
-from . import roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv
+from ytt import workdata as _workdata
+from . import roster as _roster, tx_engines, txbase as _txbase
 
 
 LATIN_MIN_LETTERS = 4   # 英字がこの数以上で、文字全体の LATIN_RATIO 以上を占め、
@@ -354,7 +355,7 @@ def post_record():
     version = 編集の版・endTrim = END_TRIM(whisper.cpp の続いている行の終わりを早める秒)・joinGap = JOIN_GAP(続いている行をつなぐすき間)。
     0.64.0 までは pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)も書いた(0.65.0 で部品ごと消した。古い記録の鍵は読むだけ)。
     同じく runs[].retimed(配り直しの数)も 0.65.0 から書かない"""
-    return {"version": str(_txenv.SERVER_VERSION or ""), "endTrim": END_TRIM, "joinGap": JOIN_GAP}
+    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": END_TRIM, "joinGap": JOIN_GAP}
 
 
 def row_words(p, shift=0.0):

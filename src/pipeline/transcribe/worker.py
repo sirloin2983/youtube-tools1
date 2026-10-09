@@ -13,8 +13,9 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 - 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
   スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
   import したとき(テスト・dev/_evalcommon の _audio)は sys.path に触らない
-- 置き場所と外の道具の口(txenv)はこのプロセスで登録する(_setup_env): DATA_DIR = 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
-  無ければ以前の既定 = 編集のフォルダ)・gpu_ready = worker_client._gpu_ready_local(呼ぶたびに読む = 疑似の差し替えが効く)・worker_fake = 環境変数 TRANSCRIBE_BACKEND
+- 作業データの場所(ytt/workdata の DATA_DIR)はこのプロセスで入れる(_setup_env): 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
+  無ければ以前の既定 = 編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので worker_client._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
+  疑似のワーカーの判定 worker_client.worker_fake は環境変数 TRANSCRIBE_BACKEND(RS3-0A まではこのプロセスで txenv の口に登録していた)
 - 疑似(TRANSCRIBE_BACKEND=worker-fake のテスト)は ④ の eval/fake/fake_worker.install()。① は ④ を import しないので、サーバーが渡す環境変数
   YTT_WORKER_FAKES(モジュール名の文字。app = 編集の serve が worker_client.FAKES_MODULE に入れる)を importlib で読む
 - 読むのは標準ライブラリ・ytt・pipeline/transcribe だけ(編集の ed_*・serve は読まない)。numpy などは要求を処理する部品の関数の中で
@@ -49,8 +50,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # transcribe -> pipeline -> src
 if not __package__:   # スクリプトとして起動したとき(python worker.py・旧い場所の転送の runpy)だけ。兄弟を裸の名前で読まないように、このフォルダを外して src を先頭に
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
-from pipeline.transcribe import diarize, tx_engines, txenv, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
-from ytt import errors as _errors, jobs as _heavy, layout as _layout  # noqa: E402
+from pipeline.transcribe import diarize, tx_engines, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
+from ytt import errors as _errors, jobs as _heavy, layout as _layout, workdata as _workdata  # noqa: E402
 
 PROGRESS_EVERY = 0.25   # 進み具合を送る間隔(秒)。行ごとに送ると、長い音声で無駄に多くなる
 
@@ -149,22 +150,12 @@ def _audio(a):
     return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-# ---------------------------------------------------------------- このプロセスの口(txenv)と疑似(RS2-9)
-
-def _fake_mode():
-    """テスト用の TRANSCRIBE_BACKEND=worker-fake か(サーバーの ed_state.worker_fake と同じ決まり。ワーカーは serve を読まないのでここで見る)"""
-    return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
-
-
-def _data_dir():
-    """作業データ(判別のモデル models/diar・エンジンの実行ファイルとモデル)。サーバーの worker_client.worker_env が環境変数 TRANSCRIBE_DATA_DIR で必ず渡す。
-    無ければ以前の既定(編集の ed_state.DATA_DIR の既定 = 編集のフォルダ)"""
-    return os.environ.get("TRANSCRIBE_DATA_DIR") or _layout.tool_dir("transcribe")
-
+# ---------------------------------------------------------------- このプロセスの作業データの場所と疑似(RS2-9。RS3-0A から ytt/workdata)
 
 def _setup_env():
-    """このプロセスの txenv の口(ワーカーの中で読む鍵だけ = DATA_DIR・gpu_ready・worker_fake)。どれも呼ぶたびに読む(疑似の差し替えが効く)"""
-    txenv.register(DATA_DIR=_data_dir, gpu_ready=lambda: worker_client._gpu_ready_local, worker_fake=lambda: _fake_mode)
+    """このプロセスの作業データの場所(ytt/workdata。判別のモデル models/diar・エンジンの実行ファイルとモデルの置き場所)。
+    サーバーの worker_client.worker_env が環境変数 TRANSCRIBE_DATA_DIR で必ず渡す。無ければ以前の既定(編集のフォルダ)"""
+    _workdata.set_data_dir(os.environ.get("TRANSCRIBE_DATA_DIR") or _layout.tool_dir("transcribe"))
 
 
 _MODULE_NAME = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
@@ -174,7 +165,7 @@ def _install_fakes():
     """worker-fake(テスト)のとき、サーバーが渡したモジュール(環境変数 worker_client.FAKES_ENV。④ の eval/fake/fake_worker)の install() を呼ぶ
     (faster-whisper・sherpa-onnx・whisper.cpp などを偽物に。本物の _load_model_local の流れはそのまま通す)。
     ① は ④ を import しない = 名前の文字を app から受け取って importlib で読む。worker-fake でなければ、環境変数があっても読まない"""
-    if not _fake_mode():
+    if not worker_client.worker_fake():
         return
     name = os.environ.get(worker_client.FAKES_ENV, "")
     if not _MODULE_NAME.fullmatch(name):
@@ -288,7 +279,7 @@ def main(argv=None):
     inp = _protocol_input()
     faulthandler.enable(file=sys.stderr, all_threads=True)   # ネイティブコードで落ちたときの場所を worker.log に残す
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s [worker %(process)d] %(message)s")
-    _setup_env()   # 編集の serve は読まない(RS2-9)。置き場所などの口はここで
+    _setup_env()   # 編集の serve は読まない(RS2-9)。作業データの場所はここで
     worker_client.IN_WORKER = True
     worker_client.setup_cuda_paths()
     _install_fakes()

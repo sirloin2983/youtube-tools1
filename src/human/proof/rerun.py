@@ -5,14 +5,14 @@
 役割で組み直す RS2-8c(2026-10-10)に human/proof/doc_jobs から割った(中身は同じ。元は編集の ed_jobs)。受付(validate_retranscribe・redo_spec)・
 疑わしい行の選び方(redo_targets)・辞書の組(dict_pairs)・新しい行の id(_fresh_id)は doc_jobs に残し、ここから `doc_jobs.名前` で呼ぶたびに読む
 (向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。認識そのものは pipeline/transcribe(recognize・worker_client・records・postproc)。
-ed_state は読まない(置き場所は txenv の口・ジョブの表は ytt/jobs)。旧い名前 ed_jobs.名前・S.名前 は editor/ed_jobs.py の殻と serve の受付がここへ回す
+ed_state は読まない(置き場所と元のファイルの検査は ytt の workdata・tools・ジョブの表は ytt/jobs)。旧い名前 ed_jobs.名前・S.名前 は editor/ed_jobs.py の殻と serve の受付がここへ回す
 (テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
 """
 import time
 
-from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import backend as _backend, postproc, records, recognize  # noqa: E402
-from pipeline.transcribe import roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv, worker_client  # noqa: E402
+from pipeline.transcribe import roster as _roster, tx_engines, txbase as _txbase, worker_client  # noqa: E402
 import ed_learn  # noqa: E402   置換辞書を当てる apply_replacements
 import ed_store  # noqa: E402   文書の読み書き・保存のロック・控え
 from . import doc_jobs  # noqa: E402   受付の側の dict_pairs・_fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
@@ -357,7 +357,7 @@ def run_redo(job):
     spec = job["spec"]
     with _heavy.job_temp_wav(job, "中止しました(何も置き換えていません)", "疑わしい所の認識し直しで例外") as wav:
         doc = ed_store.read_transcript(spec["tid"])
-        src = _txenv.check_source(doc.get("sourcePath"))
+        src = _tools.check_source(doc.get("sourcePath"))
         targets = doc_jobs.redo_targets(doc, set(spec["ids"]))
         if not targets:
             job["segments"] = 0
@@ -393,7 +393,7 @@ def run_retranscribe(job):
     spec = job["spec"]
     with _heavy.job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
-        src = _txenv.check_source(doc.get("sourcePath"))
+        src = _tools.check_source(doc.get("sourcePath"))
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
         targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])

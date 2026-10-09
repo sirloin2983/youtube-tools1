@@ -5,14 +5,15 @@
   認識のヒント(initial_prompt・hotwords)に渡す。入る長さに限りがある(先頭 150 字)ので、出る人に絞る。**題名の文字列そのものは渡さない**
 - プロンプトの漏れ出し(S-3): 声の無い所で、ヒントに渡した語だけが字幕に出ることがある。行が渡した語だけでできているかを調べる
 サーバー側で使う(numpy などのネイティブの部品は読まない)。
-名簿のファイルとスタジオの配信の情報(stream_context)は txenv の口から読む(RS2-8a。値は編集の serve が登録する)。
+名簿のファイルは下の ROSTER(編集の ed_state が入れる)、スタジオの配信の情報(stream_context)は ytt/studiodata から読む(RS3-0A まで txenv の口)。
 """
 import os
 import re
 import threading
 import unicodedata
 
-from . import txbase as _txbase, txenv as _txenv
+from ytt import studiodata as _studiodata
+from . import txbase as _txbase
 
 ROSTER = None   # 名簿のファイル(編集のフォルダの hololive-roster.json)。app(編集の ed_state)が読み込みのときに入れる。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける。RS3-0A に ed_state から移した)
 
@@ -182,15 +183,15 @@ def stream_context(doc, enabled=True):
     """配信ごとの文脈(段1-2): その配信に出る人を、配信のチャンネル名・コラボ相手(スタジオの data.json を読むだけ)・話者の名前・題名から決め、
     その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
     doc: clip・title・sourceName・sourcePath・speakers を持つ辞書。-> {"members": [{"name", "from"}], "terms": [語]}。
-    名簿は txenv.ROSTER、スタジオの配信の情報は txenv.studio_stream(配信の ID -> {"channel", "title", "collab"} か None)。
-    スタジオの情報が読めない(口が無い・例外)ときは、文脈なしで続ける。RS2-8a に編集の ed_jobs から移した"""
+    名簿は roster.ROSTER、スタジオの配信の情報は ytt/studiodata.studio_stream(配信の ID -> {"channel", "title", "collab"} か None)。
+    スタジオの情報が読めない(例外)ときは、文脈なしで続ける。RS2-8a に編集の ed_jobs から移した"""
     if not enabled:
         return {"members": [], "terms": []}
-    r = load(_txenv.ROSTER)
+    r = load(ROSTER)
     clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
     src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
     try:
-        info = _txenv.studio_stream(src.get("videoId")) if src.get("videoId") else None
+        info = _studiodata.studio_stream(src.get("videoId")) if src.get("videoId") else None
     except Exception as e:   # 他のツールのデータが読めなくても、文脈なしで続ける
         _txbase.log.info("スタジオの配信の情報を読めませんでした: %s", str(e)[:120])
         info = None

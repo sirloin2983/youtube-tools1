@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe の一時的な口 txenv と、本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
+"""pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
 
-    py -3.10 -m unittest src/pipeline/transcribe/tests/test_txenv.py -v
+    py -3.10 -m unittest src/pipeline/transcribe/tests/test_txbackend.py -v
 
 編集の serve を読まずに動く(この層は app = serve・ed_state と ④ = eval を読まない)。serve の登録で S.backend_name に合わせて
 切り替わることは src/editor/tests/test_names.py(test_metrics から)が確かめる。
+RS3-0A に test_txenv.py から名前を変えた(一時の口 txenv は消した = 置き場所は ytt/workdata、外の道具などは持ち主を直に読む。
+持ち主が S の差し替えに従うことは test_names.py の TestOwnersFollowServePatches)。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
@@ -14,51 +16,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import backend, txenv  # noqa: E402
-
-
-class TestTxenv(unittest.TestCase):
-    def setUp(self):
-        self.saved = dict(txenv._providers)
-        txenv._providers.clear()
-
-    def tearDown(self):
-        txenv._providers.clear()
-        txenv._providers.update(self.saved)
-
-    def test_register_and_read_at_call_time(self):
-        box = {"dir": "a"}
-        txenv.register(TX_DIR=lambda: box["dir"], check_source=lambda: (lambda p: "checked:" + p))
-        self.assertEqual(txenv.get("TX_DIR"), "a")
-        box["dir"] = "b"   # 登録した関数を呼ぶたびに読む(作業データの切り替え・テストの差し替えが効く)
-        self.assertEqual(txenv.TX_DIR, "b")
-        self.assertEqual(txenv.check_source("x.mp4"), "checked:x.mp4")
-
-    def test_unregistered_and_unknown(self):
-        with self.assertRaises(RuntimeError):
-            txenv.get("ROSTER")
-        with self.assertRaises(RuntimeError):
-            txenv.check()
-        with self.assertRaises(TypeError):
-            txenv.register(NOT_A_KEY=lambda: 1)
-        with self.assertRaises(TypeError):
-            txenv.register(TX_DIR="not callable")
-        with self.assertRaises(AttributeError):
-            txenv.NOT_A_KEY  # noqa: B018
-        txenv.register(**{k: (lambda: None) for k in txenv.KEYS})
-        txenv.check()
-
-    def test_rs28a_keys(self):
-        """RS2-8a で足した鍵: スタジオの配信の情報 studio_stream・モデル名の検査 valid_model(関数を返す鍵はそのまま呼べる。受け渡しの部品 pio は RS3-0A で廃止)"""
-        for k in ("studio_stream", "valid_model"):
-            self.assertIn(k, txenv.KEYS)
-        self.assertNotIn("pio", txenv.KEYS)
-        txenv.register(studio_stream=lambda: (lambda vid: {"channel": "ch:" + vid}), valid_model=lambda: (lambda m: m == "small"))
-        self.assertEqual(txenv.studio_stream("v1"), {"channel": "ch:v1"})
-        self.assertTrue(txenv.valid_model("small"))
-        self.assertFalse(txenv.valid_model("../x"))
-        with self.assertRaises(RuntimeError):
-            txenv.check()   # ほかの鍵は登録していない
+from pipeline.transcribe import backend  # noqa: E402
 
 
 class TestBackend(unittest.TestCase):
@@ -90,9 +48,10 @@ class TestBackend(unittest.TestCase):
 
 class TestImportsAlone(unittest.TestCase):
     def test_no_app_or_eval(self):
-        """backend・txenv は serve・ed_state(app)と eval を読まずに import できる(層の向き)"""
-        code = ("import sys; sys.path.insert(0, %r); from pipeline.transcribe import backend, txenv; "
+        """backend は serve・ed_state(app)と eval を読まずに import できる(層の向き)。一時の口 txenv は無い(RS3-0A で消した)"""
+        code = ("import sys, importlib.util; sys.path.insert(0, %r); from pipeline.transcribe import backend; "
                 "bad = [m for m in sys.modules if m in ('serve', 'ed_state', 'ed_jobs') or m == 'eval' or m.startswith('eval.')]; "
+                "bad += ['txenv'] if importlib.util.find_spec('pipeline.transcribe.txenv') else []; "
                 "print(bad); sys.exit(1 if bad else 0)") % SRC
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
