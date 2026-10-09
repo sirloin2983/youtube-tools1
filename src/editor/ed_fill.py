@@ -27,6 +27,7 @@ import unicodedata
 
 import ed_jobs  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
+from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前だけ(ネイティブの部品は読み込まない)
@@ -301,7 +302,7 @@ def fill_reader(job, spec, wav):
     phase = job.get("phase")
     model, _dev = ed_jobs.load_model(FILL_MODEL, job, "cpu", engine=FILL_ENGINE)
     job["phase"] = phase
-    audio = ed_speakers.read_wav_f32(wav)
+    audio = worker_client.read_wav_f32(wav)
     lang = spec.get("language") if spec.get("language") in FILL_LANGS else "auto"
     kw = ed_jobs.filter_kwargs(model, {"language": lang})
 

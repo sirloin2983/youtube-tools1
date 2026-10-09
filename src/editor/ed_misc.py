@@ -12,6 +12,7 @@ from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
+from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 # ---------- 設定の比較(A/B): 校正済みの行の音声を複数の設定で認識し直し、正解との差を比べる(文字起こしは書き換えない) ----------
@@ -85,7 +86,7 @@ def run_abtest(job):
         if not fake:
             if not ed_state.has_faster_whisper():
                 raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
-            audio = ed_speakers.read_wav_f32(wav)
+            audio = worker_client.read_wav_f32(wav)
         pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))
         all_terms = list(spec["glossary"]) + [t for v in spec["variants"] for t in v.get("terms", [])]
         terms = list(dict.fromkeys(ed_learn.metric_terms() + [x for x in (ed_learn.norm_cer(g) for g in all_terms) if len(x) >= 2]))

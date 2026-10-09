@@ -203,20 +203,20 @@ class EvalAsrTest(unittest.TestCase):
 
         S = E.load_serve("fake")
         S2 = E.load_serve("fake")   # 何回読んでも包むのは 1 回(部品は同じもの)
-        J, SP = S.ed_jobs, S.ed_speakers
+        J = S.ed_jobs
         self.assertIs(J, S2.ed_jobs)
         fw = J.tx_engines.FasterWhisper.id
         job = {"cancel": False, "phase": ""}
         with mock.patch.dict(J._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(S.ed_state, "gpu_ready", lambda: False), \
                 mock.patch.object(S.ed_state, "backend_name", lambda: "faster-whisper"):
             m, _dev = J.load_model("small", job, "cpu", engine=fw)
-            segs, _info = m.transcribe(SP.WavSlice(wav, 8000, 24000), language="ja")
+            segs, _info = m.transcribe(S.WavSlice(wav, 8000, 24000), language="ja")
             self.assertEqual([x.text for x in segs], ["テスト"])
             self.assertEqual(len(got), 1)
             self.assertIsInstance(got[0], np.ndarray)                                    # 範囲のサンプル(wav の 0.5〜1.5 秒)
             self.assertEqual(len(got[0]), 16000)
             self.assertAlmostEqual(float(got[0][0]) * 32768, 8000, places=3)
-            self.assertEqual(m.transcribe(SP.WavRef(wav))[0].__next__().text, "テスト")
+            self.assertEqual(m.transcribe(S.WavRef(wav))[0].__next__().text, "テスト")
             self.assertEqual(got[-1], wav)                                                # WavRef = wav のパスのまま
             m.hooks = {"x": 1}
             self.assertEqual(J._models[("small", "cpu", fw)].hooks, {"x": 1})             # 属性は中のモデルへ

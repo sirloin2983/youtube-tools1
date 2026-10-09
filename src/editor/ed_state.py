@@ -19,6 +19,7 @@ import time
 from ytt import errors as _errors, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
+from pipeline.transcribe import worker_client as _txworker  # noqa: E402   (IN_WORKER・ワーカーの本体のパスと環境。RS2-6 に ed_jobs から移した)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -400,7 +401,7 @@ _gpu_cache = {}
 def gpu_ready():
     """GPU で文字起こしできるか(画面の表示用)。サーバーのプロセスでは ctranslate2(ネイティブのライブラリ)を読み込まないよう、
     1回だけ別プロセス(tx_worker.py --probe)で調べて覚えておく。調べ終わるまでは False。"""
-    if ed_jobs.IN_WORKER:
+    if _txworker.IN_WORKER:
         return _gpu_ready_local()
     if "v" in _gpu_cache:
         return _gpu_cache["v"]
@@ -416,8 +417,8 @@ def gpu_ready():
 def _probe_gpu():
     ok = False
     try:
-        p = subprocess.run([worker_python(), ed_jobs.WORKER_SCRIPT, "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=120, env=ed_jobs.worker_env(), cwd=ROOT, creationflags=_tools.no_window_flags(new_group=True))
+        p = subprocess.run([worker_python(), _txworker.worker_script(), "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=120, env=_txworker.worker_env(), cwd=ROOT, creationflags=_tools.no_window_flags(new_group=True))
         ok = p.returncode == 0 and b'"cuda": true' in (p.stdout or b"")
     except (OSError, subprocess.SubprocessError):
         ok = False

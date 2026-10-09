@@ -18,7 +18,6 @@ import time
 import unicodedata
 import urllib.error
 import urllib.request
-import wave
 
 import ed_drill  # noqa: E402,F401   (評価用の文書の名前の候補 drill_candidates。呼ぶときに読む)
 import ed_fill  # noqa: E402,F401   (判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns。0.60.0)
@@ -27,6 +26,7 @@ import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   環境変数の数 env_num だけ(ネイティブの部品は読み込まない)
+from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカー(IN_WORKER・WORKER)と wav を読まずに渡す形 read_wav_f32(RS2-6 にここから移した)
 from ytt import fsio as _fsio  # noqa: E402
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
@@ -128,46 +128,6 @@ def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
                 _fsio.unlink_quiet(x)
 
 
-class WavRef:
-    """16kHz・モノラル・16bit の wav を「読まずに」表す(サーバーのプロセス用)。audio[a:b] は WavSlice になり、
-    認識ワーカーに渡すと、ワーカーがその範囲だけを読む。サーバーのプロセスに numpy(と音声全体のメモリ)を持ち込まないため。"""
-
-    def __init__(self, path):
-        with wave.open(path, "rb") as w:
-            if not tx_engines.is_16k_mono(w):
-                raise ed_state.ApiError("diar_failed", "音声の形式が想定と違います", 500)
-            self.n = w.getnframes()
-        self.path = path
-
-    def __len__(self):
-        return self.n
-
-    def __getitem__(self, sl):
-        if not isinstance(sl, slice) or sl.step not in (None, 1):
-            raise TypeError("WavRef は audio[a:b] の形でだけ使えます")
-        a, b, _ = sl.indices(self.n)
-        return WavSlice(self.path, a, max(a, b))
-
-
-class WavSlice:
-    def __init__(self, path, a, b):
-        self.path, self.a, self.b = path, a, b
-
-    def __len__(self):
-        return self.b - self.a
-
-
-def read_wav_f32(path):
-    if not ed_jobs.IN_WORKER:
-        return WavRef(path)
-    import numpy as np
-    with wave.open(path, "rb") as w:
-        if not tx_engines.is_16k_mono(w):
-            raise ed_state.ApiError("diar_failed", "音声の形式が想定と違います", 500)
-        raw = w.readframes(w.getnframes())
-    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-
-
 DIAR_TUNE = (("threshold", "threshold"), ("min_on", "minOn"), ("min_off", "minOff"))   # 判別の設定を変えて測るときの任意の引数(引数の名前, ワーカーの要求の鍵)
 
 
@@ -191,11 +151,11 @@ def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=Non
     """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。
     threshold・min_on・min_off は判別の設定を変えて測るとき(dev/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求も以前と同じ形"""
     tune = diar_tune(threshold, min_on, min_off)
-    if ed_jobs.IN_WORKER:
+    if worker_client.IN_WORKER:
         return _diarize_local(job, wav, num, emb, **tune)
     args = {"wav": wav, "num": int(num), "emb": emb}
     args.update({w: tune[k] for k, w in DIAR_TUNE if k in tune})
-    turns = ed_jobs.WORKER.call("diarize", args, job)
+    turns = worker_client.WORKER.call("diarize", args, job)
     return [(float(a), float(b), int(k)) for a, b, k in turns]
 
 
@@ -214,7 +174,7 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=N
     sd = so.OfflineSpeakerDiarization(cfg)
     if sd.sample_rate != 16000:
         raise ed_state.ApiError("diar_failed", "話者判別のモデルの形式が想定と違います", 500)
-    samples = read_wav_f32(wav)
+    samples = worker_client.read_wav_f32(wav)
 
     def cb(done, total, *_):
         if total:
@@ -1121,9 +1081,9 @@ def embed_groups(job, wav, emb, groups, offset):
     rel = [[[max(0.0, a - offset), max(0.0, b - offset)] for a, b in g] for g in groups]
     if ed_state.backend_name() == "fake":
         return embed_fake(rel)
-    if ed_jobs.IN_WORKER:
+    if worker_client.IN_WORKER:
         return _embed_local(job, wav, emb, rel)
-    res = ed_jobs.WORKER.call("embed", {"wav": wav, "emb": emb, "groups": rel}, job)
+    res = worker_client.WORKER.call("embed", {"wav": wav, "emb": emb, "groups": rel}, job)
     return [[float(x) for x in v] if isinstance(v, list) and v else None for v in res]
 
 
@@ -1153,7 +1113,7 @@ def _embed_local(job, wav, emb, groups):
     if not cfg.validate():
         raise ed_state.ApiError("diar_failed", "声の特徴のモデルを読み込めませんでした(models フォルダを削除して、もう一度試してください)", 500)
     ex = so.SpeakerEmbeddingExtractor(cfg)
-    samples, sr = read_wav_f32(wav), 16000
+    samples, sr = worker_client.read_wav_f32(wav), 16000
     total, done, out = max(1, sum(len(g) for g in groups)), 0, []
     for g in groups:
         vecs, weights = [], []

@@ -258,12 +258,12 @@ def in_process_models(S):
     if getattr(J._load_model_local, "in_process", False):
         return
     import tx_worker  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない)
-    SP, local = S.ed_speakers, J._load_model_local
+    local = J._load_model_local
 
     def audio_of(a):
-        if isinstance(a, SP.WavSlice):
+        if isinstance(a, S.WavSlice):
             return tx_worker._audio({"wav": a.path, "from": a.a, "to": a.b})
-        return a.path if isinstance(a, SP.WavRef) else a
+        return a.path if isinstance(a, S.WavRef) else a
 
     def load_local(*a, **k):
         model, dev = local(*a, **k)
