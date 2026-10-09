@@ -28,6 +28,7 @@ import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
+from pipeline.transcribe import worker_client  # noqa: E402   (faster-whisper の有無 has_faster_whisper。RS3-0A に ed_state から)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
@@ -68,7 +69,7 @@ def alt_info():
         if fake:
             ok, why = True, ""
         elif e["engine"] == tx_engines.DEFAULT:
-            ok = ed_state.has_faster_whisper()
+            ok = worker_client.has_faster_whisper()
             why = "" if ok else "faster-whisper が入っていません"
         else:
             ok, why = tx_engines.get(e["engine"]).ready(ed_jobs.engine_home())

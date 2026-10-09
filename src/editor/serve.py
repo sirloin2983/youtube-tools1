@@ -165,13 +165,13 @@ _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _
 # 置き場所と外の道具: 呼ぶたびに持ち主(置き場所は ytt/workdata)の今の値を返す(set_data_dir・テストの S.TX_DIR = …・patch.object(S, "check_source") が効く。RS3-0A の E3 で消す)
 _txenv.register(DATA_DIR=lambda: _workdata.DATA_DIR, TX_DIR=lambda: _workdata.TX_DIR, TMP_DIR=lambda: _workdata.TMP_DIR, ROOT=lambda: _workdata.ROOT,
                 ROSTER=lambda: ed_state.ROSTER, SERVER_VERSION=lambda: _workdata.SERVER_VERSION,
-                find_ffmpeg=lambda: _tools.find_ffmpeg, worker_python=lambda: ed_state.worker_python, worker_fake=lambda: ed_state.worker_fake,
-                gpu_ready=lambda: ed_state.gpu_ready, has_faster_whisper=lambda: ed_state.has_faster_whisper,
+                find_ffmpeg=lambda: _tools.find_ffmpeg, worker_python=lambda: _txworker.worker_python, worker_fake=lambda: _txworker.worker_fake,
+                gpu_ready=lambda: _txworker.gpu_ready, has_faster_whisper=lambda: _txworker.has_faster_whisper,
                 media_duration=lambda: _tools.media_duration, check_source=lambda: _tools.check_source,
                 # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(文書の側の doc_jobs が ed_state を読まずに済むように)
-                studio_stream=lambda: ed_store.studio_stream, valid_model=lambda: ed_state.valid_model, pio=lambda: ed_state.pio,
+                studio_stream=lambda: ed_store.studio_stream, valid_model=lambda: _txworker.valid_model, pio=lambda: ed_state.pio,
                 # RS2-9: 認識ワーカーの Python にモジュールがあるか(話者判別の部品 sherpa-onnx の有無。話者の部品が ed_state を読まずに済むように)
-                worker_has=lambda: ed_state.worker_has)
+                worker_has=lambda: _txworker.worker_has)
 _txenv.check()
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
@@ -220,7 +220,7 @@ def _ping():
 
 
 def _tools_info():
-    return {"ffmpeg": bool(_tools.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
+    return {"ffmpeg": bool(_tools.find_ffmpeg()), "fasterWhisper": _txworker.has_faster_whisper(), "cuda": _txworker.gpu_ready(), "nvidia": _txworker.nvidia_gpu(),
             "backend": ed_state.backend_name(), "diarize": _txdiarize.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": _workdata.TX_DIR,
             "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **_txworker.engines_info()}
 
@@ -785,7 +785,7 @@ def prepare(port, base_path="/", hooks=False):
         t.start()
         ed_evalbatch.eb_start_background()   # 評価用の動画のまとめての文字起こし(ボタンでオンにしたときだけ動く。オフなら状態を読むだけ)
         ed_evalaudio.start_background()   # 評価用の音声(flac)の作成(起動の5分後と6時間ごと。評価用のフォルダが無ければ何もしない)
-    if not ed_state.has_faster_whisper() and ed_state.backend_name() != "fake":
+    if not _txworker.has_faster_whisper() and ed_state.backend_name() != "fake":
         print("※ faster-whisper が入っていません。install.bat(Mac は install.command)を実行してください")
     return rt
 

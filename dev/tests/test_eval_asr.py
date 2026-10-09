@@ -207,7 +207,7 @@ class EvalAsrTest(unittest.TestCase):
         self.assertIs(J, S2.ed_jobs)
         fw = J.tx_engines.FasterWhisper.id
         job = {"cancel": False, "phase": ""}
-        with mock.patch.dict(J._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(S.ed_state, "gpu_ready", lambda: False), \
+        with mock.patch.dict(J._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(S, "gpu_ready", lambda: False), \
                 mock.patch.object(S.ed_state, "backend_name", lambda: "faster-whisper"):
             m, _dev = J.load_model("small", job, "cpu", engine=fw)
             segs, _info = m.transcribe(S.WavSlice(wav, 8000, 24000), language="ja")

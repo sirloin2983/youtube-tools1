@@ -12,7 +12,8 @@ GPU で失敗したら CPU でやり直す決まり(cpu_fallback)・wav をサ�
 app(編集の serve.py)が読み込みのときと作業データの切り替えで入れる(入っていなければ呼ぶたびに txenv の DATA_DIR から作る)。
 ワーカーへは作業データの場所(環境変数 TRANSCRIBE_DATA_DIR)を必ず渡し、worker-fake(テスト)のときだけ疑似の部品のモジュール名(FAKES_MODULE。app が入れる)を渡す。
 GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local。ワーカーの中で使う)はここ(RS2-9 に ed_state から)。
-サーバーのプロセスでの GPU の有無(別プロセスで 1 回だけ調べる gpu_ready)・部品の有無(has_faster_whisper・worker_python)は編集の ed_state に残し、txenv の口から呼ぶ。
+サーバーのプロセスでの GPU の有無(別プロセスで 1 回だけ調べる gpu_ready)・部品の有無(has_faster_whisper・worker_has・nvidia_gpu)・ワーカーの Python(worker_python)・
+疑似のワーカーの判定(worker_fake)・モデル名の検査(valid_model)もここ(RS3-0A に ed_state から)。
 差し替えられる名前(IN_WORKER・WORKER・WORKER_*・_load_model_local・_gpu_ready_local・check_engine・load_model・read_wav_f32 など)と読み手は同じこのモジュール。
 ほかの部品は呼ぶたびに worker_client.名前(か転送の ed_jobs.名前・S.名前)で読む(from … import で読み直さない)。
 """
@@ -22,13 +23,16 @@ import itertools
 import json
 import os
 import queue
+import re
+import shutil
 import subprocess
+import sys
 import threading
 import time
 import wave
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, tools as _tools
-from . import roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, tools as _tools, workdata as _workdata
+from . import backend as _backend, roster as _roster, tx_engines, txbase as _txbase, txenv as _txenv
 
 
 # ---------- 読み込んだモデル ----------
@@ -588,7 +592,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
 
 
 # ---------- GPU(CUDA)の部品の場所と有無(このプロセスで調べる = 認識ワーカーの中と測る道具。RS2-9 に編集の ed_state から移した) ----------
-# サーバーのプロセスは ctranslate2 を読まない: 画面に出す GPU の有無は編集の ed_state.gpu_ready が別プロセス(worker.py --probe)で 1 回だけ調べる
+# サーバーのプロセスは ctranslate2 を読まない: 画面に出す GPU の有無は下の gpu_ready が別プロセス(worker.py --probe)で 1 回だけ調べる
 def setup_cuda_paths():
     """pip の nvidia-cublas-cu12 / nvidia-cudnn-cu12 が入れた DLL / .so を、ctranslate2 が見つけられるようにする。"""
     try:
@@ -638,6 +642,122 @@ def _gpu_ready_local():
     """このプロセスで GPU(CUDA)が使えるか。ctranslate2 を読み込むので、認識ワーカーの中(と IN_WORKER の測る道具)でだけ呼ぶ。
     ワーカーの疑似(eval/fake/fake_worker)はこの名前を差し替える(ワーカーの txenv の gpu_ready は呼ぶたびにこの名前を読む)"""
     return cuda_count() > 0 and cuda_libs_ok()
+
+
+# ---------- サーバーのプロセスでの GPU と部品の有無・ワーカーの Python・疑似のワーカー・モデル名の検査(RS3-0A に編集の ed_state から移した) ----------
+# 画面の表示(/api/tools)・文字起こしの受付(doc_jobs の valid_model)・エンジンの確かめ(check_engine)・話者判別の部品の有無(diarize.has_sherpa)が読む。
+# 疑似かどうかは backend.select().name(編集の serve が登録する selector = ed_state.backend_name を呼ぶたびに読む)。置き場所は ytt/workdata の ROOT
+_nv_cache = []
+
+
+def nvidia_gpu():
+    """NVIDIA GPU の名前(nvidia-smi で確認)。なければ None。"""
+    if _nv_cache:
+        return _nv_cache[0]
+    name = None
+    exe = shutil.which("nvidia-smi")
+    if exe:
+        try:
+            p = subprocess.run([exe, "--query-gpu=name", "--format=csv,noheader"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", timeout=10)
+            name = (p.stdout or "").strip().splitlines()[0].strip()[:80] if p.returncode == 0 and (p.stdout or "").strip() else None
+        except (OSError, subprocess.SubprocessError, IndexError):
+            name = None
+    _nv_cache.append(name)
+    return name
+
+
+def has_faster_whisper():
+    if worker_fake():
+        return True
+    return worker_has("faster_whisper")
+
+
+_has_cache = {}
+
+
+def worker_python():
+    """認識ワーカーを動かす Python。Mac/Linux で このフォルダに .venv があればそちら(install.command が faster-whisper を入れる先。
+    入口(home/launch.py)が単独起動のときに使うのと同じ規則)。Windows は今と同じ Python。"""
+    if os.name != "nt":
+        v = os.path.join(_workdata.ROOT, ".venv", "bin", "python")
+        if os.path.isfile(v):
+            return v
+    return sys.executable
+
+
+def worker_has(*mods):
+    """認識ワーカーの Python に、そのモジュールが入っているか(読み込みはしない)。サーバーと同じ Python ならその場で調べ、
+    違う Python(入口に取り込まれ、ワーカーは .venv のとき)なら1回だけ別プロセスで調べて覚えておく。"""
+    key = mods
+    if key in _has_cache:
+        return _has_cache[key]
+    import importlib.util
+    py = worker_python()
+    ok = False
+    try:
+        if os.path.normcase(os.path.abspath(py)) == os.path.normcase(os.path.abspath(sys.executable)):
+            ok = all(importlib.util.find_spec(m) is not None for m in mods)
+        else:
+            code = "import importlib.util,sys; sys.exit(0 if all(importlib.util.find_spec(m) for m in sys.argv[1:]) else 1)"
+            ok = subprocess.run([py, "-c", code] + list(mods), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                timeout=60, creationflags=_tools.no_window_flags(new_group=True)).returncode == 0
+    except Exception:
+        ok = False
+    _has_cache[key] = ok
+    return ok
+
+
+_gpu_cache = {}
+
+
+def gpu_ready():
+    """GPU で文字起こしできるか(画面の表示用)。サーバーのプロセスでは ctranslate2(ネイティブのライブラリ)を読み込まないよう、
+    1回だけ別プロセス(認識ワーカー pipeline/transcribe/worker.py --probe)で調べて覚えておく。調べ終わるまでは False。
+    このプロセスの中で認識する測る道具(IN_WORKER)は、その場で調べる(worker_client._gpu_ready_local)"""
+    if IN_WORKER:
+        return _gpu_ready_local()
+    if "v" in _gpu_cache:
+        return _gpu_cache["v"]
+    if _backend.select().name == "fake" or worker_fake() or not has_faster_whisper():
+        _gpu_cache["v"] = False
+        return False
+    if not _gpu_cache.get("started"):
+        _gpu_cache["started"] = True
+        threading.Thread(target=_probe_gpu, daemon=True, name="gpu-probe").start()
+    return False
+
+
+def _probe_gpu():
+    ok = False
+    try:
+        p = subprocess.run([worker_python(), worker_script(), "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=120, env=worker_env(), cwd=_workdata.ROOT, creationflags=_tools.no_window_flags(new_group=True))
+        ok = p.returncode == 0 and b'"cuda": true' in (p.stdout or b"")
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    _gpu_cache["v"] = ok
+
+
+def worker_fake():
+    """テスト用: TRANSCRIBE_BACKEND=worker-fake のとき、サーバーは本物の経路(認識ワーカー)を使い、ワーカーの中だけ偽のモデルで動く。
+    faster-whisper を入れていない環境でも、ワーカーとのやり取り・異常終了からの立ち直りを確かめられるようにする。"""
+    return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
+
+
+MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]+(/(?!\.)[A-Za-z0-9_.-]+)?$")   # 「..」で始まる名前(親フォルダの指定)は受け付けない
+
+
+def valid_model(name):
+    """モデル名として受け付けるか。faster-whisper は、名前と同じフォルダが(起動したフォルダからの相対で)あれば、
+    それをモデルとして読み込むので、手元に実在するパスになる名前は断る(例: 「transcripts」「models/diar」)。
+    Hugging Face の「組織/名前」と、small・large-v3 などの名前だけを通す。起動したフォルダ = ワーカーの cwd = ytt/workdata の ROOT。"""
+    if not isinstance(name, str) or len(name) > 100 or not MODEL_RE.match(name):
+        return False
+    try:
+        return not (os.path.exists(name) or os.path.exists(os.path.join(_workdata.ROOT, name)))
+    except (OSError, ValueError):
+        return False
 
 
 CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")

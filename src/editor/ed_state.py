@@ -9,9 +9,6 @@ import json
 import logging
 import logging.handlers
 import os
-import re
-import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -19,7 +16,6 @@ import time
 from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
-from pipeline.transcribe import worker_client as _txworker  # noqa: E402   (IN_WORKER・ワーカーの本体のパスと環境。RS2-6 に ed_jobs から移した)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -52,19 +48,7 @@ blank_draft_row = _yschemas.blank_draft_row   # lint: keep 別名(RS2-9)= 機械
 MAX_SPAN_SEC = _txbase.MAX_SPAN_SEC
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = _yschemas.TID_RE   # lint: keep 別名(RS2-9)= 文書の id の形
-MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]+(/(?!\.)[A-Za-z0-9_.-]+)?$")   # 「..」で始まる名前(親フォルダの指定)は受け付けない
-
-
-def valid_model(name):
-    """モデル名として受け付けるか。faster-whisper は、名前と同じフォルダが(起動したフォルダからの相対で)あれば、
-    それをモデルとして読み込むので、手元に実在するパスになる名前は断る(例: 「transcripts」「models/diar」)。
-    Hugging Face の「組織/名前」と、small・large-v3 などの名前だけを通す。"""
-    if not isinstance(name, str) or len(name) > 100 or not MODEL_RE.match(name):
-        return False
-    try:
-        return not (os.path.exists(name) or os.path.exists(os.path.join(_workdata.ROOT, name)))
-    except (OSError, ValueError):
-        return False
+# モデル名の検査 valid_model・MODEL_RE は pipeline/transcribe/worker_client へ移した(RS3-0A。ワーカーの cwd = ROOT と対の決まり)
 MODELS = [
     ("small", "small(軽い・精度はそこそこ)"),
     ("medium", "medium(バランス型)"),
@@ -209,108 +193,12 @@ num = _yschemas.num_or        # lint: keep 別名(RS2-1a)= 数にできれば fl
 fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
 
 
-# GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_ready_local)は RS2-9 に
-# pipeline/transcribe/worker_client へ移した(認識ワーカーが serve を読まずに使う。S.名前 は serve の受付で読める)
-_nv_cache = []
-
-
-def nvidia_gpu():
-    """NVIDIA GPU の名前(nvidia-smi で確認)。なければ None。"""
-    if _nv_cache:
-        return _nv_cache[0]
-    name = None
-    exe = shutil.which("nvidia-smi")
-    if exe:
-        try:
-            p = subprocess.run([exe, "--query-gpu=name", "--format=csv,noheader"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", timeout=10)
-            name = (p.stdout or "").strip().splitlines()[0].strip()[:80] if p.returncode == 0 and (p.stdout or "").strip() else None
-        except (OSError, subprocess.SubprocessError, IndexError):
-            name = None
-    _nv_cache.append(name)
-    return name
-
-
-def has_faster_whisper():
-    if worker_fake():
-        return True
-    return worker_has("faster_whisper")
-
-
-_has_cache = {}
-
-
-def worker_python():
-    """認識ワーカーを動かす Python。Mac/Linux で このフォルダに .venv があればそちら(install.command が faster-whisper を入れる先。
-    入口(home/launch.py)が単独起動のときに使うのと同じ規則)。Windows は今と同じ Python。"""
-    if os.name != "nt":
-        v = os.path.join(_workdata.ROOT, ".venv", "bin", "python")
-        if os.path.isfile(v):
-            return v
-    return sys.executable
-
-
-def worker_has(*mods):
-    """認識ワーカーの Python に、そのモジュールが入っているか(読み込みはしない)。サーバーと同じ Python ならその場で調べ、
-    違う Python(入口に取り込まれ、ワーカーは .venv のとき)なら1回だけ別プロセスで調べて覚えておく。"""
-    key = mods
-    if key in _has_cache:
-        return _has_cache[key]
-    import importlib.util
-    py = worker_python()
-    ok = False
-    try:
-        if os.path.normcase(os.path.abspath(py)) == os.path.normcase(os.path.abspath(sys.executable)):
-            ok = all(importlib.util.find_spec(m) is not None for m in mods)
-        else:
-            code = "import importlib.util,sys; sys.exit(0 if all(importlib.util.find_spec(m) for m in sys.argv[1:]) else 1)"
-            ok = subprocess.run([py, "-c", code] + list(mods), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                timeout=60, creationflags=_tools.no_window_flags(new_group=True)).returncode == 0
-    except Exception:
-        ok = False
-    _has_cache[key] = ok
-    return ok
-
-
-_gpu_cache = {}
-
-
-def gpu_ready():
-    """GPU で文字起こしできるか(画面の表示用)。サーバーのプロセスでは ctranslate2(ネイティブのライブラリ)を読み込まないよう、
-    1回だけ別プロセス(認識ワーカー pipeline/transcribe/worker.py --probe)で調べて覚えておく。調べ終わるまでは False。
-    このプロセスの中で認識する測る道具(IN_WORKER)は、その場で調べる(worker_client._gpu_ready_local)"""
-    if _txworker.IN_WORKER:
-        return _txworker._gpu_ready_local()
-    if "v" in _gpu_cache:
-        return _gpu_cache["v"]
-    if backend_name() == "fake" or worker_fake() or not has_faster_whisper():
-        _gpu_cache["v"] = False
-        return False
-    if not _gpu_cache.get("started"):
-        _gpu_cache["started"] = True
-        threading.Thread(target=_probe_gpu, daemon=True, name="gpu-probe").start()
-    return False
-
-
-def _probe_gpu():
-    ok = False
-    try:
-        p = subprocess.run([worker_python(), _txworker.worker_script(), "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=120, env=_txworker.worker_env(), cwd=_workdata.ROOT, creationflags=_tools.no_window_flags(new_group=True))
-        ok = p.returncode == 0 and b'"cuda": true' in (p.stdout or b"")
-    except (OSError, subprocess.SubprocessError):
-        ok = False
-    _gpu_cache["v"] = ok
+# GPU と部品の有無(nvidia_gpu・has_faster_whisper・worker_has・gpu_ready・_probe_gpu)・ワーカーの Python(worker_python)・
+# 疑似のワーカーの判定(worker_fake)は pipeline/transcribe/worker_client へ移した(RS3-0A。S.名前 は serve の受付で読める)
 
 
 def backend_name():
     return "fake" if os.environ.get("TRANSCRIBE_BACKEND") == "fake" else "faster-whisper"
-
-
-def worker_fake():
-    """テスト用: TRANSCRIBE_BACKEND=worker-fake のとき、サーバーは本物の経路(認識ワーカー)を使い、ワーカーの中だけ偽のモデルで動く。
-    faster-whisper を入れていない環境でも、ワーカーとのやり取り・異常終了からの立ち直りを確かめられるようにする。"""
-    return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
 
 
 MIXED_FLAG, WEAK_FLAG, NONE_FLAG = _txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG   # 別名(RS2-1a)

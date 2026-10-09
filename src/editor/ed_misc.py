@@ -39,7 +39,7 @@ def validate_abtest(req):
         if not isinstance(v, dict):
             continue
         m = str(v.get("model") or "").strip()
-        if not ed_state.valid_model(m):
+        if not worker_client.valid_model(m):
             raise ed_state.ApiError("bad_model", "モデル名が正しくありません", 400)
         one = {"model": m, "glossary": v.get("glossary") is not False}
         # 設定ごとの用語集: 空なら共通の用語集(+自動追加)を使う。書いてあればその設定だけ、その語だけを使う(自動追加はしない)
@@ -84,7 +84,7 @@ def run_abtest(job):
         fake = ed_state.backend_name() == "fake"
         audio = None
         if not fake:
-            if not ed_state.has_faster_whisper():
+            if not worker_client.has_faster_whisper():
                 raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
             audio = worker_client.read_wav_f32(wav)
         pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))
