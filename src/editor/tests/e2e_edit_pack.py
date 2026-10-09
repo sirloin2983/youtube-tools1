@@ -61,6 +61,7 @@ def main():
             _scene_frame_step(cx)
             _scene_settings_drawer(cx)
             _scene_estimate(cx)
+            _scene_thumb(cx)
             _scene_streamer_build(cx)
             _scene_deliver_diff(cx)
             _scene_sub_nosub_read(cx)
@@ -206,6 +207,31 @@ def _scene_estimate(cx):
     pg.click("#pkPvRetry")
     check(wait_js(pg, "document.querySelector('#pkPvState').hidden && document.querySelector('#pkCaps').textContent === '3' && !document.querySelector('#pkWarn').classList.contains('old')", 15000), "4-1: 「もう一度」で出し直して最新になる")
     errors[:] = [e for e in errors if "500" not in e and "preview" not in e]   # わざと失敗させた 500 はブラウザがエラーとして記録する(想定どおり)
+
+
+def _scene_thumb(cx):
+    """サムネの案(提案 P5。0.64.0): カードが出る → 切り取りを選ぶと設定に覚える → 作る → 画像が出る・作業用 に png と json(案 6 つ・選んだ切り取り)"""
+    check, pg, srv = cx.check, cx.pg, cx.srv
+    check(wait_js(pg, "!document.querySelector('#thCard').hidden && !document.querySelector('#thGo').disabled"
+                      " && document.querySelector('#thMsg').textContent === 'まだ作っていません'", 15000),
+          "サムネの案のカードが出て、まだ作っていない: %s" % pg.inner_text("#thMsg"))
+    pg.select_option("#thCrop", "center")
+    end = time.time() + 10
+    while time.time() < end and srv.get("/api/settings").get("thumbCrop") != "center":
+        time.sleep(0.1)
+    check(srv.get("/api/settings").get("thumbCrop") == "center", "切り取りを選ぶと設定 thumbCrop に覚える")
+    pg.click("#thGo")
+    check(wait_js(pg, "(() => { const i = document.querySelector('#thImg'); return !document.querySelector('#thLink').hidden && i.complete && i.naturalWidth > 500"
+                      " && document.querySelector('#thGo').textContent === 'サムネの案を作り直す'; })()", 90000),
+          "作ると画像が出て、ボタンは「作り直す」に: %s" % pg.inner_text("#thMsg"))
+    png = os.path.join(srv.media, "作業用", "パックの確認_thumb-ideas.png")
+    rec = {}
+    if os.path.isfile(os.path.splitext(png)[0] + ".json"):
+        with open(os.path.splitext(png)[0] + ".json", encoding="utf-8") as f:
+            rec = json.load(f)
+    check(os.path.isfile(png) and [c.get("crop") for c in rec.get("cards", [])] == ["center"] * 6,
+          "動画のフォルダの 作業用 に png と json(案 6 つ・切り取りは全部中央): %s" % [c.get("crop") for c in rec.get("cards", [])])
+    check("作業用" in pg.inner_text("#thMsg"), "作った時刻と置き場所を出す: " + pg.inner_text("#thMsg"))
 
 
 def _scene_streamer_build(cx):

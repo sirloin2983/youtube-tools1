@@ -3008,3 +3008,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: test_analyze・test_api・test_robustness 151 OK・e2e_analyze OK・lint 0
 - 次(ユーザー指示 12:03「影響がなければ計画を前倒ししてよい。確認が要ることは仮で決めて最後にまとめて」): S4(設定の形をそろえる)→ S5(単体の設定ページ)を続けて進める
 - 未コミット: なし
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— 編集 0.64.0: サムネの案を画面から(P5)
+- 依頼: 同上。計画の P5 の残り「編集のボタン」。src/editor は「ツール全体のコード修正」が次に F(古い経路の削除)で触るので、先にコミットして知らせる約束
+- 作り: 新 `src/editor/ed_thumb.py`(名前は thumb_。ジョブ kind thumb = thumb_spec → run_thumb が `thumb_ideas.make` を呼ぶ・置き場所は 作業用/<名前>_thumb-ideas.png と .json・文書は読むだけ・EXCLUSIVE は thumb どうし・thumb_info・thumb_image_path)。
+  `thumb_ideas.py` は失敗を `ThumbError` に(SystemExit はジョブの中で捕まえられないため。コマンドでは SystemExit にして出す)。serve.py に API 3 本(POST/GET /api/thumb-ideas・GET /api/thumb-ideas/image)・ed_jobs の JOB_RUNNERS・ed_learn の SETTINGS_PATCH_KEYS に thumbCrop。
+  画面: index.html の `#thCard`(2 カット の末尾の「パック」の右の列)・pack-tab.js の th*(作る前に保存 → ジョブ → /api/jobs を 0.8 秒ごとに待つ → 画像)・app.js の host に apiUrl。版 0.64.0(serve.py・app.js・README・AGENTS)
+- テスト: 新 `src/editor/tests/test_thumb_job.py` 4 件(test_metrics から)・test_metrics 全体 OK・test_thumb_ideas 9 件・e2e_edit_pack に _scene_thumb(カード → 切り取りを覚える → 作る → 画像・作業用 に png と json)ALL PASSED・home の test_mount OK・lint 0・ui_audit all --demo Must 0
+- data.js: P5 の残りを直した・編集の版 0.64.0。plan/thumb-ideas.md の 8。仮で決めたこと: decisions 3-17 の (fy)(fz)
+- 未コミット: なし(このセッションの分。作業コピーには他のセッションの cut2resolve・ytt_core・studio・docs/spec の途中がある = 触っていない)

@@ -44,6 +44,8 @@
   POST /api/effort           {"id", "activeSec", "cutSec"?, "newSession"?} 校正の手間(操作していた秒)を文書の effort に足す(updatedAt は変えない。
                              校正済みにした行の数は保存のときにサーバーが数える。Q2)
   POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
+  POST /api/thumb-ideas      {"id", "crop"?: alt|center|right} サムネの案(6 案を 1 枚の PNG に。作業用/<名前>_thumb-ideas.png。ジョブ kind thumb。文書は読むだけ。P5。本体は ed_thumb.py → thumb_ideas.py)
+  GET  /api/thumb-ideas?id=   その文書のサムネの案の有無・作った時刻・案ごとの型と文字 / GET /api/thumb-ideas/image?id= で PNG
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
@@ -103,11 +105,12 @@ import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの�
 import ed_ytcap  # noqa: E402,F401  (元の配信の YouTube の字幕との食い違いの候補。案 A1)
 import ed_retime  # noqa: E402,F401  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補。2026-10-05)
 import ed_fill  # noqa: E402,F401  (認識のあとの後処理 A・C・D = 文字の少ない行を別の読みで埋める・定型の幻覚と重複の掃除・名簿の呼び名の 1 字違い。10-08 の実験ループ。0.60.0)
+import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
 import ed_llm  # noqa: E402,F401  (LLM の後処理 E = 名簿の呼び名の聞き違いらしい所だけを文字の LLM で直す。提案 P18。0.61.0)
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.63.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.64.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -118,6 +121,7 @@ _ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
 _ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
 _ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
+_ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 
 
 _ED_OWNER = {}   # 名前 → 持ち主の部品(読み込んだ時点の表。mock が一度消してから戻すときも、持ち主が分かるように)
@@ -241,6 +245,7 @@ GET_API = {
     "/api/eval-batch": lambda a: ed_evalbatch.eval_batch_status(),   # 評価用の動画のまとめての文字起こしの状態(Q4)
     "/api/edit": lambda a: ed_store.get_edit(a("id")),
     "/api/edit/draft": lambda a: ed_store.edit_draft(a("id"), a("rows") == "1"),
+    "/api/thumb-ideas": lambda a: ed_thumb.thumb_info(a("id")),   # サムネの案の有無・作った時刻・案ごとの型と文字(P5)
     "/api/edit/pack-readme": lambda a: ed_store.pack_readme(a("id")),
     "/api/doc-for": lambda a: {"doc": ed_store.find_doc_for_media(a("path"))},
 }
@@ -274,6 +279,7 @@ POST_API = {
     "/api/retranscribe": lambda o: _job(ed_jobs.validate_retranscribe(o), "retranscribe"),
     "/api/redo": lambda o: _job(ed_jobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
     "/api/alt": lambda o: _job(ed_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
+    "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/ytcap": lambda o: _job(ed_ytcap.ytcap_spec(_id_of(o), o), "ytcap"),   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
     "/api/scan-folder": lambda o: ed_misc.scan_folder(o.get("path"), o.get("recursive") is True),
     "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
@@ -458,6 +464,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._peaks(arg("id"))
             if u.path == "/media":
                 return self._media(arg("id"))
+            if u.path == "/api/thumb-ideas/image":   # サムネの案の PNG(パスは文書の動画から作る。P5)
+                return httpsec.send_file(self, ed_thumb.thumb_image_path(arg("id")), "image/png")
         except ed_state.ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "そのページ・操作はありません")

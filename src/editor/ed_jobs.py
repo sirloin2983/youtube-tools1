@@ -31,6 +31,7 @@ import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
+import ed_thumb  # noqa: E402,F401   サムネの案(ジョブ kind thumb。P5。0.64.0)
 import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
@@ -644,7 +645,7 @@ ACTIVE_STATES = ("queued", "loading", "extracting", "running")
 # 10-09: 声を覚える(voice-learn)は入口だけが再認識・疑わしい所の最中を断り、判別・再認識は入口と登録で見る組が違っていたのをそろえた)
 EXCLUSIVE = {"diarize": ("diarize", "retranscribe", "redo", "voice-learn"), "voice-learn": ("diarize", "retranscribe", "redo", "voice-learn"),
              "retranscribe": ("diarize", "retranscribe", "redo"),
-             "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",), "alt": ("alt",), "ytcap": ("ytcap",)}
+             "redo": ("diarize", "retranscribe", "redo"), "abtest": ("abtest",), "alt": ("alt",), "ytcap": ("ytcap",), "thumb": ("thumb",)}
 
 
 RETRY_KINDS = ("transcribe",)   # [やり直す] で同じ指定のまま入れ直せる処理(文書を書き換える処理は、文書の画面のボタンから始め直す)
@@ -681,7 +682,7 @@ def add_job(spec, kind="transcribe"):
             # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
             raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
-        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn", "normalize", "alt", "ytcap") else None, "error": None,
+        job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn", "normalize", "alt", "ytcap", "thumb") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
         _jobs[jid] = job
         _order.append(jid)
@@ -2067,7 +2068,8 @@ JOB_RUNNERS = {   # ジョブの種類 → 本体(文字起こし = transcribe �
     "abtest": lambda job: ed_misc.run_abtest(job),
     "normalize": lambda job: ed_relink.run_normalize(job),   # 動画を選び直したあとの 30fps の作り直し(Q1。ed_relink)
     "alt": lambda job: ed_alt.run_alt(job),   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b。ed_alt)
-    "ytcap": lambda job: ed_ytcap.run_ytcap(job),   # 元の配信の YouTube の字幕を取って <id>.ytcap.json に(文書は書き換えない。案 A1。ed_ytcap)
+    "ytcap": lambda job: ed_ytcap.run_ytcap(job),
+    "thumb": lambda job: ed_thumb.run_thumb(job),   # サムネの案を 1 枚に(作業用/<名前>_thumb-ideas.png。文書は読むだけ。P5。ed_thumb)   # 元の配信の YouTube の字幕を取って <id>.ytcap.json に(文書は書き換えない。案 A1。ed_ytcap)
 }
 
 

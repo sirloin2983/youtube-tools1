@@ -1228,6 +1228,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
 .tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
 .tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+/* サムネの案(P5。0.64.0) */
+.tt-th-row{gap:8px;align-items:center;flex-wrap:wrap}
+.tt-th-img{display:block;width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:var(--r)}
 .tt-pk-card{padding:14px 16px}
 .tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
 .tt-pk-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--panel-3);color:var(--ink-2);font:700 12px/1 var(--mono);flex:none}   /* 0.59.3: .ui-tab-n と同じ色(白 on 黄色は 2:1 で読めなかった。A-22) */
@@ -1859,6 +1862,16 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
            <div class="row tt-pk-lastbtns"><button type="button" class="btn small" id="pkOpen">フォルダを開く</button><button type="button" class="btn small" id="pkReadme">Resolve での手順を見る</button><button type="button" class="btn small" id="pkCopy">パスをコピー</button><button type="button" class="btn small" id="pkDeliver" hidden title="パックを zip にして Dropbox の「出力」に置きます。友人の送るアプリの「受け取る」に出ます">友人へ届ける</button></div>
            <p class="hint" id="pkDeliverMsg" role="status" hidden></p>
            <pre class="tt-cp-readme" id="pkReadmeText" hidden></pre>
+         </div>
+         <!-- サムネの案(提案 P5。0.64.0)。作るのはサーバーのジョブ kind thumb(ed_thumb.py → thumb_ideas.py)。画面は pack-tab.js の th* -->
+         <div class="card tt-pk-card" id="thCard" hidden>
+           <h3 class="tt-pk-h">サムネの案(参照)</h3>
+           <p class="hint tt-pk-p">音の大きい瞬間・場面の切り替わり・字幕から時刻を 6 つ選び、型の違う縦長の案を 1 枚に並べます。完成品ではなく、サムネを作るときの参照です。動画のフォルダの「作業用」に保存します(友人へ届けるパックには入りません)。</p>
+           <div class="row tt-th-row"><label for="thCrop">切り取り</label>
+             <select id="thCrop"><option value="alt">中央と右下を交互</option><option value="center">全部中央(アバターが中央の配信)</option><option value="right">全部右下</option></select>
+             <button type="button" class="btn" id="thGo">サムネの案を作る</button></div>
+           <p class="hint" id="thMsg" role="status" aria-live="polite"></p>
+           <a id="thLink" hidden target="_blank" rel="noopener" title="大きく見る(新しいタブ)"><img id="thImg" class="tt-th-img" alt="サムネの案 6 つ(番号・型・時刻つき)"></a>
          </div>
        </div>
      </div>

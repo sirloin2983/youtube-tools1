@@ -162,6 +162,7 @@ function create(h){
   async function load(docId){
     Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', err: '', readme: '', lastRes: null, notes: [], focusOpen: false });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
+    thLoad(docId);
     const old = docId ? whoFor(docId) : '';
     if (old && UIKit.prefs.available()) UIKit.prefs.get(['streamer']).then(p => {
       if (!(docId in ((p.streamer || {}).docs || {}))) return UIKit.prefs.remember('docs', docId, old);
@@ -176,6 +177,68 @@ function create(h){
     } catch {}
     render(); schedulePreview(0);
   }
+  /* ---------- サムネの案(提案 P5。0.64.0)----------
+     作るのはサーバーのジョブ kind thumb(POST /api/thumb-ideas → 作業用/<名前>_thumb-ideas.png)。結果は GET /api/thumb-ideas・画像は /api/thumb-ideas/image。
+     切り取りは編集の設定 thumbCrop に覚える。文書は読むだけなので、作っている間も編集はできる(作る前に保存して、今の字幕で作る) */
+  const TH = { docId: null, info: null, busy: false, msg: '', seq: 0 };
+  const thCropOf = () => ['alt', 'center', 'right'].includes(h.S.settings.thumbCrop) ? h.S.settings.thumbCrop : 'alt';
+  async function thLoad(docId){
+    const seq = ++TH.seq;
+    Object.assign(TH, { docId, info: null, msg: '' });
+    thRender();
+    if (!docId) return;
+    try { const r = await h.api('/api/thumb-ideas?id=' + encodeURIComponent(docId)); if (seq === TH.seq) TH.info = r; }
+    catch (e){ if (seq === TH.seq) TH.msg = e.message; }   // 動画が無いなど(作るボタンの理由に出す)
+    if (seq === TH.seq) thRender();
+  }
+  function thRender(){
+    const card = $('#thCard'), d = h.S.doc;
+    card.hidden = !TH.docId || !d;
+    if (card.hidden) return;
+    $('#thCrop').value = thCropOf();
+    const info = TH.info, go = $('#thGo');
+    go.disabled = TH.busy || !info;
+    go.textContent = info && info.ok ? 'サムネの案を作り直す' : 'サムネの案を作る';
+    go.title = TH.busy ? '作っている途中です' : !info ? (TH.msg || '読み込み中です') : '今の字幕と動画から 6 案を作ります(上書き)';
+    $('#thMsg').textContent = TH.busy ? (TH.msg || '作っています…') : TH.msg || (info && info.ok ? `作った案(${h.ago(info.at)}・${info.file}・動画のフォルダの 作業用)` : 'まだ作っていません');
+    const link = $('#thLink');
+    link.hidden = !(info && info.ok);
+    if (!link.hidden){ const u = h.apiUrl('/api/thumb-ideas/image?id=' + encodeURIComponent(TH.docId) + '&t=' + info.at); link.href = u; if ($('#thImg').getAttribute('src') !== u) $('#thImg').src = u; }
+  }
+  async function thGo(){
+    const id = TH.docId; if (!id || TH.busy) return;
+    TH.busy = true; TH.msg = '保存しています…'; thRender();
+    try {
+      try { await h.saveDoc(); } catch { /* 保存できなくても、保存済みの字幕で作る */ }
+      TH.msg = '作っています…'; thRender();
+      const job = await h.api('/api/thumb-ideas', { body: { id, crop: thCropOf() } });
+      const end = await thWait(job.id);
+      if (TH.docId !== id) return;
+      if (end.state === 'done') h.toast('サムネの案を作りました(作業用 のフォルダ)', { kind: 'ok' });
+      else h.toast(end.error || 'サムネの案を作れませんでした', { kind: 'err', ms: 10000 });
+      TH.msg = end.state === 'done' ? '' : (end.error || '作れませんでした');
+    } catch (e){ TH.msg = e.message; }
+    finally { TH.busy = false; }
+    if (TH.docId === id){ const keep = TH.msg; await thLoad(id); if (keep) { TH.msg = keep; thRender(); } }
+  }
+  /* ジョブが終わるまで待つ(0.8 秒ごとに一覧を聞く。続けて 5 回読めなければやめる) */
+  async function thWait(jid){
+    for (let errs = 0; ;){
+      await new Promise(r => setTimeout(r, 800));
+      let j = null;
+      try { const r = await h.api('/api/jobs'); j = (r.jobs || []).find(x => x.id === jid); errs = 0; }
+      catch (e){ if (++errs >= 5) throw e; continue; }
+      if (!j) return { state: 'error', error: '処理の記録が見つかりませんでした(画面を読み込み直してください)' };
+      if (!['queued', 'loading', 'extracting', 'running'].includes(j.state)) return j;
+    }
+  }
+  $('#thGo').addEventListener('click', thGo);
+  $('#thCrop').addEventListener('change', async () => {
+    const v = $('#thCrop').value;
+    try { await h.api('/api/settings/patch', { body: { values: { thumbCrop: v } } }); h.S.settings.thumbCrop = v; }
+    catch (e){ h.toast('切り取りの指定を保存できませんでした: ' + e.message, { kind: 'err' }); $('#thCrop').value = thCropOf(); }
+  });
+
   /* ---------- これから作るパック(見積もり) ---------- */
   function schedulePreview(ms = PREVIEW_DELAY){
     clearTimeout(P.pvT); P.pvT = 0;

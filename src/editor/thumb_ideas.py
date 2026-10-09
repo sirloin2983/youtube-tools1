@@ -132,7 +132,7 @@ def card_texts(layout, rows, t):
 def ffmpeg_path():
     p = tools.find_tool("ffmpeg", "YTT_FFMPEG")
     if not p:
-        raise SystemExit("ffmpeg が見つかりません(winget の Gyan.FFmpeg か、環境変数 YTT_FFMPEG)")
+        raise ThumbError("ffmpeg が見つかりません(winget の Gyan.FFmpeg か、環境変数 YTT_FFMPEG)")
     return p
 
 
@@ -142,7 +142,7 @@ def probe(ff, video):
     m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", r.stderr)
     s = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", r.stderr)
     if not m or not s:
-        raise SystemExit("動画を読めませんでした: %s" % video)
+        raise ThumbError("動画を読めませんでした: %s" % os.path.basename(video))
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)), int(s.group(1)), int(s.group(2))
 
 
@@ -215,7 +215,7 @@ def font_path():
     for p in FONTS:
         if p and os.path.isfile(p):
             return p
-    raise SystemExit("日本語のフォントが見つかりません(游ゴシックか BIZ UD ゴシック)")
+    raise ThumbError("日本語のフォントが見つかりません(游ゴシックか BIZ UD ゴシック)")
 
 
 def fpath(p):
@@ -291,7 +291,7 @@ def render_card(ff, tmp, video, n, t, vw, vh, crop, filters, rect=None):
         if r.returncode == 0 and os.path.isfile(out):
             break
     if r.returncode != 0 or not os.path.isfile(out):
-        raise SystemExit("案 %d を描けませんでした: %s" % (n, r.stderr.strip()[-300:]))
+        raise ThumbError("案 %d を描けませんでした" % n, r.stderr.strip()[-300:])
     return out
 
 
@@ -304,7 +304,7 @@ def tile(ff, cards, out):
     r = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-y"] + ins + ["-filter_complex", "xstack=inputs=%d:layout=%s" % (len(cards), layout), "-frames:v", "1", out],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=tools.no_window_flags())
     if r.returncode != 0:
-        raise SystemExit("1 枚にまとめられませんでした: %s" % r.stderr.strip()[-300:])
+        raise ThumbError("1 枚にまとめられませんでした", r.stderr.strip()[-300:])
 
 
 def mmss(t):
@@ -349,6 +349,13 @@ def make(video, doc=None, name=None, out=None, crop="alt", rect=None):
 FONT = ""
 
 
+class ThumbError(Exception):
+    """作れなかった理由(文 = 画面・知らせに出す日本語・detail = ffmpeg の原文。編集のジョブ(ed_thumb)が捕まえる。コマンドでは SystemExit にして出す)"""
+    def __init__(self, message, detail=""):
+        super().__init__(message)
+        self.message, self.detail = message, detail
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="サムネの案を 6 つ並べた 1 枚を作る(LLM なしの試作。完成品ではなく参照)")
     p.add_argument("video", help="切り抜きの動画")
@@ -373,7 +380,10 @@ def main(argv=None):
     if not os.path.isfile(args.video):
         raise SystemExit("動画がありません: %s" % args.video)
     doc = find_doc(args.video, args.doc)
-    out, rec = make(args.video, doc, args.name, args.out, args.crop, rect)
+    try:
+        out, rec = make(args.video, doc, args.name, args.out, args.crop, rect)
+    except ThumbError as e:
+        raise SystemExit(e.message + (": " + e.detail if e.detail else ""))
     print("文字起こし: %s・帯の色: %s・フォント: %s" % (rec["doc"] or "(なし)", rec["color"] or "(なし)", rec["font"]))
     for c in rec["cards"]:
         print("  %d %s %s(%s)%s" % (c["n"], c["label"], mmss(c["at"]), c["from"], " / ".join(([c["top"]] if c["top"] else []) + c["lines"] + ([c["word"]] if c["word"] else []))))
