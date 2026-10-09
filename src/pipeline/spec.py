@@ -18,6 +18,7 @@ from ytt import schemas
 RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
 RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
+PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。autorun.py の _cut_method と同じ)
 TX_ENGINES = ("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 文字起こしのエンジンを実行ごとに選ぶとき(リアルタイム切り抜きの live.auto。M2)。editor の tx_engines の id
 TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # 同じくモデルの名前(src/home/prefs.py の LIVE_MODEL_RE と同じ形)
 WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
@@ -149,7 +150,7 @@ DEFAULTS = {
         "backup": False, "render": False, "speakerColors": True,
         "wrapChars": {"vertical": 8, "horizontal": 14},   # 字幕 1 段の文字数(ed_jobs.py の SUBTITLE_DEFAULT)
         "rowEdge": True,      # 行から作るときの端の広げ方。True = 既定・False = 広げない・{on?, after?, before?}
-        "cut": LIVE_AUTO_CUT,                              # カットの方法 none か silence(autorun.py の _cut_method の既定 none)
+        "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(autorun.py の _cut_method の既定 none)
         "cutSilence": {"noise": -35.0, "min": 0.6, "pad": 0.15},   # 無音で削る値(cut2resolve_core.py の DEFAULT_NOISE_DB・SILENCE_MIN・SILENCE_PAD)
         "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。src/home/intake.py の VIDEO_TRACKS_DEFAULT・MAX)
     },
@@ -307,7 +308,7 @@ SCHEMA = {
              "backup": (_is_bool, "true か false"), "render": (_is_bool, "true か false"), "speakerColors": (_is_bool, "true か false"),
              "wrapChars": (_dict_of(**_WRAP_ORIENT), "{vertical, horizontal}(どちらも 2〜40 の整数)"),
              "rowEdge": (row_edge_ok, "true か false か {on?, after?, before?}(0〜2 秒)"),
-             "cut": (_one_of(*CUTS), "%s のどれか" % "・".join(CUTS)),
+             "cut": (_one_of(*PACK_CUTS), "%s のどれか" % "・".join(PACK_CUTS)),
              "cutSilence": (_dict_of(noise=_num_in(-90, 0), min=_num_in(0.05, 60), pad=_num_in(0, 10)),
                             "{noise: -90〜0, min: 0.05〜60, pad: 0〜10}"),
              "videoTracks": (_int_in(1, 5), "1〜5 の整数")},

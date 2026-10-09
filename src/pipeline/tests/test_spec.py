@@ -216,8 +216,9 @@ class TestValidate(unittest.TestCase):
         spec.validate(spec.merge({"pack": {"size": "1920x1080", "loudness": -16, "volume": 100, "backup": True, "render": True, "rowEdge": {"after": 1.0},
                                            "cut": "silence", "videoTracks": 5, "wrapChars": {"vertical": 2, "horizontal": 40},
                                            "cutSilence": {"noise": -90, "min": 0.05, "pad": 10}}}))
+        spec.validate(spec.merge({"pack": {"cut": "rows"}}))   # 行から(ホームの設定 autorun.cut の選択肢)も束で表せる
         for kw in ({"size": "1280x720"}, {"loudness": -12}, {"loudness": None}, {"volume": 0}, {"backup": 1}, {"speakerColors": None},
-                   {"rowEdge": {"after": 3}}, {"rowEdge": None}, {"cut": "rows"}, {"cut": ""}, {"videoTracks": 0}, {"videoTracks": 6},
+                   {"rowEdge": {"after": 3}}, {"rowEdge": None}, {"cut": "words"}, {"cut": ""}, {"videoTracks": 0}, {"videoTracks": 6},
                    {"wrapChars": {"vertical": 1, "horizontal": 14}}, {"cutSilence": {"noise": 1, "min": 0.6, "pad": 0.15}},
                    {"cutSilence": {"noise": -35, "min": 0.01, "pad": 0.15}}, {"cutSilence": {"noise": -35, "min": 0.6}}):
             self.bad("pack", **kw)
