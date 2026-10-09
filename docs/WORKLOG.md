@@ -3184,3 +3184,9 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: test_layering 3 件 OK・lint 0・test_mount/test_launch 69 件 OK(unittest に PYTHONIOENCODING を付けると test_mount の子プロセスの読みで落ちる = 付けない)
 - 未完了・次: ユーザーに RS0-a〜m を確認 → RS1(ytt_core → ytt・cut2resolve → pipeline/pack・recorder → pipeline/ingest・exporter → pipeline/export・spec.py と run.py)。以後は段ごとに相談(ユーザー指示)
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「ツール全体のコードの役割分担」)— ① に渡す物(指定の束 spec)をユーザーと詰めた(文書だけ。コードは変えていない)
+- 変更: `plan/role-restructure.md` 5-4(束の形: 入力 / 固定にした物 / 7 つの節・約 60 項目の表 / 束に入れない物 / ① が返す物)・`plan/decisions.md` 1-5(ユーザー決定 7 行)
+- 決定・理由(ユーザー): 常にパックまで(upto 無し)/ 1 本失敗しても続ける(on_fail 固定)/ 30fps・精密・画質最大は固定(設定を消す)/ 自動採用は URL の入力でオン・動画ファイルは区間があればそれだけ、無ければ候補を出して止める(友人が自分で録画した物が大半)/ API キーは束の外 / 用語集・辞書・名簿・声は「場所と版」で渡す / 「配信者」の欄を無くし出る人 `people` の先頭を既定の色の人に(配信者を特別扱いする理由は字幕の既定の色だけ。そのうち話者識別で話者ごとに色)
+- 未完了・次: RS1(ユーザーに確認してから。段ごとに相談の指示)
+- 未コミット: なし(この記録と一緒にコミット)
