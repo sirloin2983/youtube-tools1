@@ -103,7 +103,8 @@ class TestStudioMounted(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="ytt-mount-")
         _copy_tool(os.path.join(REPO, STUDIO_DIR), os.path.join(cls.tmp, STUDIO_DIR))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(cls.tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
         cls.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": cls.rdir, "STUDIO_FAKE": "1", "STUDIO_HOME": os.path.join(cls.tmp, "home")})
@@ -237,7 +238,8 @@ class TestCut2ResolveMounted(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="ytt-mount-c2r-")
         for d in (STUDIO_DIR, "cut2resolve"):
             _copy_tool(os.path.join(REPO, d), os.path.join(cls.tmp, d))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(cls.tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         cls.c2r_dir = os.path.join(cls.tmp, "cut2resolve")
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
@@ -408,7 +410,8 @@ class TestTranscribeMounted(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="ytt-mount-tx-")
         for d in (STUDIO_DIR, TX_DIR):
             _copy_tool(os.path.join(REPO, d), os.path.join(cls.tmp, d))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(cls.tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         cls.tx_dir = os.path.join(cls.tmp, TX_DIR)
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
@@ -552,7 +555,8 @@ class TestMountFallbacks(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-mount-fb-")
         _copy_tool(os.path.join(REPO, STUDIO_DIR), os.path.join(self.tmp, STUDIO_DIR))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(self.tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         self.rdir = os.path.join(self.tmp, ".runtime")
         self.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.rdir, "STUDIO_FAKE": "1", "STUDIO_HOME": os.path.join(self.tmp, "home")})
         self.env.start()

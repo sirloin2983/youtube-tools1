@@ -94,7 +94,8 @@ class Server:
         if mounted:
             for d in (_layout.TOOL_DIRS["app"], _layout.TOOL_DIRS["transcribe"], _layout.TOOL_DIRS["cut2resolve"]):
                 copy_tool(os.path.join(REPO, d), os.path.join(self.tmp, d))
-            shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(self.tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+            from ytt_core import layout as _layout
+            _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
             self.base = "http://localhost:%d/transcribe/" % self.port
             self.api_prefix = "/transcribe"
             cmd = [sys.executable, os.path.join(self.tmp, _layout.TOOL_DIRS["app"], "launch.py"), "--port", str(self.port), "--no-open", "--only", "transcribe,cut2resolve"]

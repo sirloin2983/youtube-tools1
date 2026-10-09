@@ -3203,3 +3203,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 決定・理由(ユーザー): F-1(速報版と本番版の鍵)は「区間を微妙に変える」案ではなく媒体の識別を鍵に入れる(意味を数字に隠さない・③ が同じ切り抜きと分かる・媒体は鍵の材料にもともとある)。「これでいい。進むのはセッションを切り替える」
 - 未完了・次: 新しいセッションで RS1(HANDOVER の指示文を貼る)。公開ページ(Artifact)の出し直しは次のセッションで data.js を直すときに一緒に
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Opus + 読むだけ Sonnet × 3 + 判断 Fable。セッション「RS1」)— 役割で組み直す RS1-0(準備。ファイルは移していない)と RS1 の手順の決定
+- 手順(ユーザー確認済み。plan/role-restructure.md の RS1 を 9 段に): RS1-0 準備 → RS1-1 ytt_core → ytt(excite → pipeline/analyze・evaldata → eval/tools・txindex → manage/cases。ytt_core は転送)→ RS1-1b src と dev の実コードの import を新しい名前に(テストは旧い名前のまま = 転送の確認)→ RS1-2 cut2resolve → pipeline/pack → RS1-3 recorder → pipeline/ingest → RS1-4 exporter → pipeline/export → RS1-5 鍵の JSON の形 → RS1-6 pipeline/spec.py → RS1-7 pipeline/run.py → RS1-8 文書。段の間で相談
+- 決定(ユーザー。4 問とも推奨の案): (1) pack・exporter・recorder の部品は旧い場所に転送のモジュールを置かない(入口の取り込み mount.check_no_collision が「同じ名前のモジュールの実体が別のフォルダ」で取り込みを止めるため)。読む側を新しい名前に直し、起動するスクリプト cut2resolve.py(.bat 用)と recorder.py だけ新しいほうを呼ぶ転送を残す。ytt_core は転送を残す(150 行の import が使う)(2) srt2resolve.py(pack・字幕・core が読む土台。「旧い CLI」ではなかった)と auto_cut.py(カットの計画の中心)も pipeline/pack へ(pack → auto_cut の違反が 1 件減る)(3) 鍵の JSON は形と純粋な関数だけ。書き込みは RS6 から (4) テストはモジュールと一緒に新しい場所の tests/ へ(cut2resolve の API のテスト test_serve は残す)
+- 判断(Fable と相談): ytt_core の転送は「実体と同じモジュールを sys.modules に登録」(SLOTS などが二重にならない)/ 層のパッケージの中は兄弟を相対 import・外からは絶対 import・裸の名前で層のパッケージを読まない(`pack` と `pipeline.pack.pack` が別のモジュールになる事故を防ぐ)/ run.py は autorun の ① の段をそのまま切り出し、HTTP の部品は外から渡す(友人とあとから解析の経路は RS3 へ)
+- 変更(RS1-0): `src/ytt_core/layout.py`(写す共通のコードの一覧 SHARED_CODE_DIRS と copy_shared_code)・テストが ytt_core だけを写していた 12 か所をそれに置き換え(test_launch・test_mount ×4・e2e_autorun・e2e_keymap・e2e_portal・e2e_window・e2e_ui_mounted・e2e_edit_common・dev/demo_env・dev/tests/e2e_datadir)・`dev/tests/test_layering.py`(入れ子のパッケージを解く find_module・転送の付け替え forward・裸の名前で層のパッケージを読んだら落とす・KNOWN の上限・層のパッケージの __init__ は import しない)・`dev/layer_map.py`(FORWARDERS・KNOWN_MAX = 69)・`src/ytt_core/tests/test_ytt_core.py`(作業データを分けているかの検査を入れ子の tests/ まで)
+- テスト: test_layering 7・test_ytt_core 119・test_mount/test_launch 69 OK・e2e_datadir OK・lint 0
+- **告知: 次のコミット(RS1-1)で `src/ytt_core/*` を `git mv` で `src/ytt/` ほかへ移す**。他の AI は src/ytt_core を触らないこと。移したあとも `from ytt_core import …` は転送で動く
+- 未コミット: なし(この記録と一緒にコミット)

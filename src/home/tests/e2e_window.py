@@ -123,7 +123,8 @@ def main():
     try:
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         ports = dict(zip(L.TOOL_IDS, free_ports(3)))
         sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=tuple(M.MOUNTS))
         srv, port = L.make_server(0, sup)

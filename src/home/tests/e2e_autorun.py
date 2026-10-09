@@ -69,7 +69,8 @@ def main():
     try:
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         media_a = os.path.join(tmp, "media", "配信A.mp4")
         media_b = os.path.join(tmp, "media", "配信B.mp4")
         os.makedirs(os.path.dirname(media_a))

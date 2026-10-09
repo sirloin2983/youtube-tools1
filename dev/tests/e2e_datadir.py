@@ -48,8 +48,11 @@ def main():
     data = os.path.join(tmp, "data")
     proc = None
     try:
-        for d in ("home", "studio", "editor", "cut2resolve", "ytt_core", "ui-kit"):
+        for d in ("home", "studio", "editor", "cut2resolve", "ui-kit"):
             shutil.copytree(os.path.join(REPO, d), os.path.join(repo, d), ignore=IGNORE)
+        sys.path.insert(0, REPO)
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(repo, ignore=IGNORE, root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS)
         # ---- 以前の場所のデータ
         st, tx = os.path.join(repo, "studio"), os.path.join(repo, "editor")
         os.makedirs(os.path.join(st, "cache", "meta"))

@@ -1238,8 +1238,8 @@ class TestDatadir(unittest.TestCase):
         import glob
         import re
         bad = []
-        files = sorted(glob.glob(os.path.join(REPO, "*", "tests", "test_*.py")) + glob.glob(os.path.join(REPO, "*", "tests", "e2e_*.py"))
-                       + glob.glob(os.path.join(TOP, "dev", "tests", "test_*.py")) + glob.glob(os.path.join(TOP, "dev", "tests", "e2e_*.py")))   # テストは各フォルダの tests/(段0)。dev/ は src の外
+        files = sorted(glob.glob(os.path.join(REPO, "**", "tests", "test_*.py"), recursive=True) + glob.glob(os.path.join(REPO, "**", "tests", "e2e_*.py"), recursive=True)
+                       + glob.glob(os.path.join(TOP, "dev", "tests", "test_*.py")) + glob.glob(os.path.join(TOP, "dev", "tests", "e2e_*.py")))   # テストは各フォルダの tests/(段0。役割の層は pipeline/pack/tests のように入れ子)。dev/ は src の外
         self.assertTrue(any(os.path.basename(f) == "test_launch.py" for f in files), "テストの場所が見つからない")
         for f in files:
             with open(f, encoding="utf-8") as fp:

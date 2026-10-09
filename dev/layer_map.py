@@ -120,6 +120,11 @@ FILES = {
 # 新しいフォルダ(RS1 以降に移した先)。フォルダ名 → 層。ここにある物は FILES に書かなくてよい
 DIRS = {"src/ytt": "ytt", "src/pipeline": "pipeline", "src/human": "human", "src/manage": "manage", "src/eval": "eval", "src/app": "app"}
 
+# 旧い名前の転送(移したあとも旧い名前の import を動かすためだけのファイル。RS5 で消す = これが空になったら転送の片付けは済み)。
+# 転送のファイル → {旧い名前の中の名前: 実体のパス, "*": 表に無い名前の実体のパスの型}。test_layering は転送を import する側としては
+# 検査せず、転送に落ちた import を実体へ付け替えて向きを見る(転送のせいで違反が「直った」と見えないように)
+FORWARDERS = {}
+
 
 def layer_of(relpath):
     """リポジトリ直下からのパス(区切り /)→ 層の名前。知らないファイルは None"""
@@ -138,7 +143,9 @@ def allowed(src_layer, dst_layer):
     return RANK[dst_layer] <= RANK[src_layer]
 
 
-# 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)
+# 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
+# ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
+KNOWN_MAX = 69
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),

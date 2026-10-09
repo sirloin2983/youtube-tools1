@@ -22,6 +22,9 @@ RECORDER_DIR = "recorder"           # src/ の中(録画の部品。入口と別
 UI_KIT_DIR = "ui-kit"               # src/ の中(共通の見た目の正本)
 HOLO_COLORS_DIR = os.path.join(FRIEND_APPS_DIR, "holo-colors")          # リポジトリ直下からの相対
 REQUEST_SENDER_DIR = os.path.join(FRIEND_APPS_DIR, "request-sender")    # 同上
+# src/ の中の共通のコード(ツールのフォルダではない物)。役割で組み直す計画(plan/role-restructure.md)の層のパッケージと、
+# 旧い名前の転送 ytt_core。ツールを一時フォルダに写すテストは、ツールと一緒にこれを全部写す(copy_shared_code)
+SHARED_CODE_DIRS = ("ytt_core", "ytt", "pipeline", "human", "manage", "eval", "app")
 
 
 def src_root():
@@ -42,3 +45,11 @@ def tool_dir(tool, root=None):
 def holo_colors_dir(repo=None):
     """ホロカラーのフォルダ(members.json の場所)。repo の既定は repo_root()"""
     return os.path.join(repo or repo_root(), HOLO_COLORS_DIR)
+
+
+def copy_shared_code(dst, ignore=None, root=None):
+    """共通のコード(SHARED_CODE_DIRS)を dst の直下に写す(ツールを一時フォルダに写すテスト用。本物と同じ並びにする)。
+    root の既定は src_root()。ignore は shutil.copytree の ignore"""
+    import shutil
+    for d in SHARED_CODE_DIRS:
+        shutil.copytree(os.path.join(root or src_root(), d), os.path.join(dst, d), ignore=ignore)

@@ -1309,7 +1309,8 @@ def main():
     try:
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__"))   # 共通部品(本物と同じ並び)
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
         os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]
         seed_cases(tmp, env["STUDIO_HOME"])

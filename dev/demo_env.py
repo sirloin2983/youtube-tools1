@@ -185,7 +185,8 @@ def main(argv=None):
         if fresh:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
     if fresh:
-        shutil.copytree(os.path.join(REPO, "ytt_core"), os.path.join(tmp, "ytt_core"), ignore=shutil.ignore_patterns("__pycache__", "tests"))
+        from ytt_core import layout as _layout
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__", "tests"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         samples = make_media(os.path.join(tmp, "media"))
         _, nv, nt = seed(tmp, random.Random(a.seed), a.streams, samples)
         print("見本のデータ: 配信 %d 本・文字起こし %d 件" % (nv, nt), flush=True)
