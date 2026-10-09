@@ -87,16 +87,14 @@ def validate_source(item):
 
 
 def validate_settings(req):
-    """解析の設定(範囲外は丸める)。autoExport は廃止。"""
+    """解析の設定(範囲外は丸める)。autoExport は廃止。maxHeight(画質の上限)も 0.24.0 で廃止(解析は音声しか取らず読んでいなかった。保存してある値は読み捨てる)。"""
     req = req if isinstance(req, dict) else {}
     sens = req.get("sensitivity") if req.get("sensitivity") in ("high", "normal", "low") else "normal"
-    mh = req.get("maxHeight")
     return {"useAudio": req.get("useAudio") is not False, "useChat": req.get("useChat") is not False,
             "useComments": req.get("useComments") is not False,
             "count": int(num(req.get("count"), 1, 30, 8)), "length": num(req.get("length"), 10, 120, 45), "preRatio": num(req.get("preRatio"), 0.3, 0.9, excite.PRE_RATIO_DEFAULT),
             "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT), "typePreset": req.get("typePreset") is True,
             "typeOverride": req.get("typeOverride") if req.get("typeOverride") in STREAM_TYPES else "auto", "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
-            "maxHeight": mh if mh in (480, 720, 1080, 1440, 0) and not isinstance(mh, bool) else 1080,
             "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7)}
 
 
