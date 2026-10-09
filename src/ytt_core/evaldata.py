@@ -1,12 +1,13 @@
-"""評価データ(友人用 文字起こし簡易版の「送る用ファイル」)の形式と規則。書き出す側(簡易版の editor/ed_lite.py。
-簡易版は 2026-10-04 に消した = git の cf617a8 までの履歴)と受け取る側(dev/eval_import.py)が同じ規則を使うための1か所。標準ライブラリだけ・純粋な関数(ファイルを書くのは呼び出し側)。
+"""評価データ(友人用 文字起こし簡易版の「送る用ファイル」)の形式と規則。受け取る側(dev/eval_import.py)が使う。
+書き出す側(簡易版の editor/ed_lite.py。2026-10-04 に消した = git の cf617a8 までの履歴)の部品(RULES・scrub_paths・zip_name・safe_url・
+overlap・raw_links)は 2026-10-09 に消した(使う所が無かった。必要なら git の履歴)。標準ライブラリだけ・純粋な関数(ファイルを書くのは呼び出し側)。
 
 設計の正本(簡易版は 10-04 に取り下げ。形式だけ残す): git の履歴(679ff01 以前)の docs/design/briefs/friend-transcribe-lite/DESIGN_BRIEF.md(10-07 に消した。git の履歴)の「文字起こしルールと評価データ」「セキュリティ」「エッジケース」。
 
 - 記号の規則: 聞き取れない所は "[?]"、笑い声などは "[笑]"。評価データには残し、Resolve 用の字幕からは取り除く(strip_marks)
 - 形式違いの記号(【笑】・(笑)・w など)は bad_marks で見つける。評価ではその行だけを外す(データは消さず、印と理由を残す)
 - 整えてしまった疑い(生出力よりフィラーが大きく減った)は tidy_suspect。作業ごと外す。基準は仮(最初のデータを見て調整)
-- 絶対パス(PC のユーザー名を含む)は入れない: scrub_paths でファイル名だけにし、find_abs_paths で残っていないか確かめる
+- 絶対パス(PC のユーザー名を含む)は入れない: find_abs_paths で残っていないか確かめる(取り込みの検査)
 - 届いた zip は信用しない: check_zip が展開する前に名前・数・大きさ・種類を確かめ、extract_zip は確かめた名前だけを書く
 """
 import json
@@ -18,13 +19,7 @@ import zipfile
 
 FORMAT = "youtube-tools-eval/v1"   # 送る用 zip の形式の名前(meta.json・final.json・asr_raw.json に入れる)
 FORMAT_VERSION = 1
-RULES_VERSION = 1                  # 友人に渡す書き方のルールの版(RULES を変えたら上げる。meta.json に残す)
-RULES = (
-    "言った言葉はすべて書く(「えー」・言い直し・噛みも含む)",
-    "聞き取れない所は [?]、笑い声などは [笑] にする",
-    "二人が同時に話したら、行を分けて話者ごとに書く",
-    "言っていない言葉は足さない",
-)
+RULES_VERSION = 1                  # 友人に渡した書き方のルールの版(届いた zip の meta.json と比べる。ルールの文面は docs/spec/subtitle-notation.md が正)
 MARK_UNSURE, MARK_LAUGH = "[?]", "[笑]"
 MARKS = (MARK_UNSURE, MARK_LAUGH)
 
@@ -128,7 +123,6 @@ def tidy_suspect(raw_texts, final_texts):
 
 # ---------------------------------------------------------------- パス
 
-_ABS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|//|/(?:Users|home|mnt|Volumes|private|tmp|var)/)")
 _ABS_ANY = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\[^\\/\s]+[\\/]|(?<![A-Za-z0-9_.])/(?:Users|home)/[^/\s]+)")   # 「https://」の s:/ は数えない
 
 
@@ -137,29 +131,8 @@ def base_name(path):
     return _PATH_SEP.split(str(path or ""))[-1]
 
 
-def scrub_paths(obj, home=None):
-    """JSON にする値の中の絶対パスをファイル名だけにした写しを返す(dict・list をたどる)。
-    文字列の途中にパスやホームフォルダ(PC のユーザー名)が入っていれば、その部分を消す"""
-    home = home if home is not None else os.path.expanduser("~")
-    if isinstance(obj, dict):
-        return {k: scrub_paths(v, home) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [scrub_paths(v, home) for v in obj]
-    if isinstance(obj, str):
-        s = obj
-        if _ABS.match(s):
-            return base_name(s)
-        if home and len(home) > 3 and home.lower() in s.lower():
-            s = re.sub(re.escape(home), "~", s, flags=re.IGNORECASE)
-        if _ABS_ANY.search(s):
-            s = re.sub(r"(?:(?<![A-Za-z])[A-Za-z]:[\\/]|(?<!:)\\\\)[^\s\"'<>|]*[\\/]", "", s)
-            s = re.sub(r"/(?:Users|home)/[^\s\"'<>|]*/", "", s)
-        return s
-    return obj
-
-
 def find_abs_paths(obj, where=""):
-    """値の中に残っている絶対パスらしい文字列の一覧 [(場所, 文字列)](書き出しの最後の確認と、取り込みの検査)"""
+    """値の中に残っている絶対パスらしい文字列の一覧 [(場所, 文字列)](取り込みの検査)"""
     out = []
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -181,11 +154,6 @@ def safe_part(text, limit=40):
     return s or "unknown"
 
 
-def zip_name(date, streamer, work_id):
-    """送る用 zip の名前: 日付_配信者_作業ID.zip(作業ID で二重の送付を見分ける)"""
-    return "%s_%s_%s%s" % (safe_part(date, 10), safe_part(streamer), safe_part(work_id, 32), ZIP_SUFFIX)
-
-
 WORK_ID = re.compile(r"^[0-9a-f]{12}$")
 
 
@@ -193,14 +161,6 @@ def work_id_of(name):
     """zip の名前 -> 作業ID(形が違えば None)"""
     m = re.match(r"^.+_([0-9a-f]{12})\.zip$", base_name(name), re.IGNORECASE)
     return m.group(1).lower() if m else None
-
-
-def safe_url(url):
-    """元の動画の URL(任意)。http・https で空白の無いものだけ・500 文字まで。違えば "" """
-    u = str(url or "").strip()
-    if len(u) > 500 or not re.match(r"^https?://[^\s<>\"']+$", u):
-        return ""
-    return u
 
 
 # ---------------------------------------------------------------- 作業の記録(edits.jsonl)
@@ -231,17 +191,6 @@ def sanitize_op(o):
 
 
 # ---------------------------------------------------------------- final.json・判定
-
-def overlap(a0, a1, b0, b1):
-    return max(0.0, min(a1, b1) - max(a0, b0))
-
-
-def raw_links(row, raw_segments):
-    """校正後の行 -> 時刻が重なる生出力の行の番号(生出力との対応)"""
-    a, b = float(row["start"]), float(row["end"])
-    return [i for i, r in enumerate(raw_segments) if overlap(a, b, float(r.get("start", 0)), float(r.get("end", 0))) > 0
-            or (a == b and float(r.get("start", 0)) <= a <= float(r.get("end", 0)))]
-
 
 def check_rows(rows):
     """行ごとの判定 -> [{"id", "use", "reasons": [...]}]。確認済みでない行・形式違いの記号の行は外す(データは消さない)"""

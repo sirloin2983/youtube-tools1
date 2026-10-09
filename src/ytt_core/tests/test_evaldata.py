@@ -44,31 +44,21 @@ class Marks(unittest.TestCase):
 
 
 class Paths(unittest.TestCase):
-    def test_scrub(self):
-        home = r"C:\Users\taro"
+    def test_find_abs_paths(self):
         obj = {"sourcePath": r"C:\Users\taro\Videos\a b.mp4", "unc": r"\\server\share\x.mp4", "mac": "/Users/taro/v/x.mov",
                "note": r"保存先 C:\Users\taro\Videos\x.mp4 を見る", "list": [r"D:\clips\y.mp4"], "n": 3, "ok": "そのまま",
                "url": "https://www.youtube.com/watch?v=abc", "path_url": "https://example.com/home/x"}
-        out = E.scrub_paths(obj, home=home)
-        self.assertEqual(out["sourcePath"], "a b.mp4")
-        self.assertEqual(out["unc"], "x.mp4")
-        self.assertEqual(out["mac"], "x.mov")
-        self.assertEqual(out["list"], ["y.mp4"])
-        self.assertEqual(out["url"], obj["url"])            # URL はパスではない
-        self.assertEqual(out["path_url"], obj["path_url"])
-        self.assertNotIn("taro", json.dumps(out, ensure_ascii=False))
-        self.assertEqual(E.find_abs_paths(out), [])
-        self.assertTrue(E.find_abs_paths(obj))
+        found = {w for w, _ in E.find_abs_paths(obj)}
+        self.assertEqual(found, {"sourcePath", "unc", "mac", "note", "list[0]"})
+        self.assertEqual(E.find_abs_paths({"url": obj["url"], "path_url": obj["path_url"], "ok": "そのまま"}), [])   # URL はパスではない
 
     def test_names(self):
-        self.assertEqual(E.zip_name("2026-10-02", "兎田 ぺこら", "0123456789ab"), "2026-10-02_兎田_ぺこら_0123456789ab.zip")
-        self.assertEqual(E.zip_name("2026-10-02", 'a:b*?', "0123456789ab"), "2026-10-02_ab_0123456789ab.zip")
-        self.assertNotIn("/", E.zip_name("d", "../x", "0123456789ab"))
+        self.assertEqual(E.safe_part("兎田 ぺこら"), "兎田_ぺこら")
+        self.assertEqual(E.safe_part('a:b*?'), "ab")
+        self.assertNotIn("/", E.safe_part("../x"))
+        self.assertEqual(E.safe_part(""), "unknown")
         self.assertEqual(E.work_id_of("2026-10-02_x_0123456789ab.zip"), "0123456789ab")
         self.assertIsNone(E.work_id_of("x.zip"))
-        self.assertEqual(E.safe_url("https://www.youtube.com/watch?v=abc"), "https://www.youtube.com/watch?v=abc")
-        for bad in ("javascript:alert(1)", "file:///C:/x", "https://a b", "x" * 600):
-            self.assertEqual(E.safe_url(bad), "")
 
 
 class Ops(unittest.TestCase):
@@ -102,11 +92,6 @@ class Judge(unittest.TestCase):
         j = E.judge({"rows": rows}, raw)
         self.assertFalse(j["work"]["use"])
         self.assertFalse(E.judge({"rows": []}, raw)["work"]["use"])
-
-    def test_raw_links(self):
-        segs = [{"start": 0, "end": 1}, {"start": 1, "end": 3}, {"start": 5, "end": 6}]
-        self.assertEqual(E.raw_links({"start": 0.5, "end": 2}, segs), [0, 1])
-        self.assertEqual(E.raw_links({"start": 4, "end": 4.5}, segs), [])
 
 
 class Zips(unittest.TestCase):

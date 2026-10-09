@@ -79,14 +79,6 @@ def norm_hex(s):
     return "#" + m.group(1).upper() if m else None
 
 
-def rgb01(hex_):
-    """'#FF6699' -> [1.0, 0.4, 0.6](Resolve の Text+ の色は 0〜1)"""
-    h = norm_hex(hex_)
-    if not h:
-        raise ValueError("カラーコードの形が違います: %r" % (hex_,))
-    return [round(int(h[i:i + 2], 16) / 255.0, 4) for i in (1, 3, 5)]
-
-
 def normalize(s):
     """照らし合わせ用: NFKC・小文字・カタカナ → ひらがな・空白と区切り(・ - _ . など)を除く"""
     return _norm_text(str(s or ""))

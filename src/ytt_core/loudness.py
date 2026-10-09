@@ -46,10 +46,6 @@ def pct_to_db(pct):
     return round(20 * math.log10(pct / 100.0), 2)
 
 
-def db_to_pct(db):
-    return int(round(100 * 10 ** (db / 20.0)))
-
-
 def parse(text):
     """loudnorm の出力 -> (統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)"""
     i, tp = _field(text, "input_i"), _field(text, "input_tp")

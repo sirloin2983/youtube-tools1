@@ -485,7 +485,6 @@ class MoodShift:
 CONFIRM_DROP = 0.6      # しきい値のこの割合を下回ったら「下り」
 CONFIRM_LOW_SEC = 10    # 下りがこの秒数続いたら確定
 CONFIRM_MAX_SEC = 90    # 上り始めてからこの秒数たったら確定
-PEAK_STATES = ("frame", "bench", "adopted", "dismissed")
 CHANGES_KEEP = 500
 PROV_EXPIRE = CONFIRM_MAX_SEC + 30   # 仮の候補の山から、本番の計算(チャット込み)がこれだけ進んでも近くで確定しなければ外す(本番の山の区間に含まれていた = 重なり)
 

@@ -1,4 +1,4 @@
-cut2resolve v0.22.3(「編集」の部品・コマンド)
+cut2resolve v0.23.0(「編集」の部品・コマンド)
 ==================================================
 
 切り抜いた動画に「カット」と「字幕」を入れて、DaVinci Resolve(以下 Resolve)で続きを編集できる形(パック)にして渡すツールです。
@@ -32,6 +32,10 @@ cut2resolve v0.22.3(「編集」の部品・コマンド)
     api/job/cancel・api/open-folder(パックのフォルダだけ)。書き込み系は合言葉(X-YTT-Token)が要る。呼ぶのは「編集」(2 カット・3 パック)と入口の「まとめて実行」
   - v0.22.0 で消した API(消した画面のためのもので、使う側が無かった): api/state・api/inspect・api/upload・media/<合言葉>(動画の配信)と、
     plan・build の結果の mediaUrl・roughcutUrl。消した API は 404 を返す
+  - v0.23.0 で受けなくした指定(消した画面のためのもので、送る側が無かった): spec.silenceExtra(②③に無音を重ねる)・spec.handles(② の前後の余白)・
+    spec.joinGap(近い区間をつなぐ隙間)・output.fcpxml(補助の FCPXML)・output.crf(粗編集の画質)。送っても黙って無視する(知らない鍵と同じ。400 にしない)。
+    API では余白・つなぐ隙間は既定の 0、FCPXML は作らない、粗編集は既定の画質(crf 18)。どれもコマンドの cut2resolve.py(--handles・--join-gap・--fcpxml・--crf)に残る。
+    spec.listKind "drop"(時刻リストを削る区間として読む)は、入口のまとめて実行の「カットしない」(listText 空 = 動画全体)が使うので残した
   - spec.keeps(v0.11.0): 残す区間を秒の組 [[開始, 終了], …] でそのまま渡す(「編集」のカット)。余白・最短・つなぎ・無音検出はしない(pack.EDIT_KEEPS)。
     preset と一緒には使えない。0.5 秒より短い区間は注意を出す。上限 5000 区間
   - 文字起こしの行から作るとき(preset "transcript-rows"・mode keep の keepSource "transcript"・コマンドの --keep-rows)は、
@@ -66,7 +70,8 @@ cut2resolve v0.22.3(「編集」の部品・コマンド)
 ■ 単独のコマンド(手で使う道具。ytt_core を読まないので、このフォルダだけでも動く)
   - cut2resolve.py(パックを作る。中身は API と同じ pack.py): python cut2resolve.py 動画.mp4 カットリスト.txt [字幕.srt]
     (出力は <動画名>_pack/。以前のシンプル版 cut2resolve_simple.bat は 2026-09-26 に廃止)。cut2resolve.bat に動画・字幕などをドロップ(フル版。無音カット+粗編集つき)
-  - auto_cut.py(採用区間 JSON = youtube-tools-cut-plan/v1 から、前後の余白つきの EDL・FCPXML・SRT・cut-plan.json): python auto_cut.py 動画.mp4 採用区間.json [字幕.srt]
+  - auto_cut.py(採用区間 JSON = youtube-tools-cut-plan/v1 から、前後の余白つきの EDL・FCPXML・SRT・cut-plan.json・友人へ.txt): python auto_cut.py 動画.mp4 採用区間.json [字幕.srt]
+    (出力は <動画名>_resolve_pack/。v0.23.0 から中身は pack.py = cut2resolve.py 動画.mp4 --plan 採用区間.json --fcpxml --min-len 0 --no-edit-media とほぼ同じ)
   - srt2resolve.py(カットせず、動画 + 字幕から FCPXML(字幕をタイトルとして並べる)と、フレームに丸めた SRT): python srt2resolve.py 動画.mp4 字幕.srt
   - 補助の FCPXML(カット済みのタイムライン + 字幕のタイトル。Resolve の実機では未確認): python cut2resolve.py … --fcpxml
   python cut2resolve.py --help / python auto_cut.py --help / python srt2resolve.py --help で全オプション
@@ -87,6 +92,20 @@ cut2resolve v0.22.3(「編集」の部品・コマンド)
   - API のサーバーは 127.0.0.1(このパソコン)からだけ使えます。動画は配信しません(v0.22.0 で動画の配信 media/ を消しました)。
   - ログ: %LOCALAPPDATA%\youtube-tools\cut2resolve\work\serve.log(2026-09-26 まではこのフォルダの work\ の中)
 
+
+■ v0.23.0 の変更点(2026-10-09・古い経路の削除: auto_cut は pack 経由・API の指定 5 つを受けない)
+  - auto_cut.py のパックを pack.py で作るようにした(AGENTS.md の「Resolve パックは pack.py だけが作る」に合わせる。コードの見直し 10-08 の G9-1)。
+    消した部品: auto_cut.write_package(EDL・FCPXML・SRT・cut-plan.json・友人へ.txt を自分で書いていた 2 本目の道)。
+    auto_cut.run は pack.plan_cut(採用区間 + 前後の余白 = base "plan"。最短の長さで捨てない・余白つき素材は入れない)→ pack.build_pack(FCPXML つき)の薄い包み。
+    残す区間・EDL・FCPXML・カット後の SRT の作り方と、出力の既定のフォルダ(<動画名>_resolve_pack)・--handles・--copy-video・--force は今までどおり。
+    動きの違い: (1) 友人へ.txt が固定の短い文から、cut2resolve.py と同じ手順書(Resolve での読み込みの手順・入っているファイルの説明)になる
+    (2) cut-plan.json の tool.name が "cut2resolve-auto_cut" から "cut2resolve"(version は cut2resolve の版)になる
+    (3) 動画の注意(可変フレームレート・コーデックなど)と、前のパックの残り・動画のファイル名の注意を「注意: …」で表示する(cut2resolve.py と同じ)
+    (4) 入力の検査が cut2resolve.py と同じになる(--handles は 0〜3600 秒・字幕が 1 件も読めなければ止まる・タイムコードは書き始める前に確かめる)
+  - API(serve.py)で、消した画面のための指定を受けなくした(G9-6): spec.silenceExtra・spec.handles・spec.joinGap・output.fcpxml・output.crf。
+    送っても黙って無視する(知らない鍵と同じ)。「編集」(cut.js・pack-tab.js)と入口のまとめて実行(autorun.py)は送っていない(src・dev・friend-apps を探して確かめた)。
+    補助の FCPXML・粗編集の画質・余白・つなぐ隙間はコマンドの cut2resolve.py に残る。spec.listKind "drop" は、まとめて実行の「カットしない」が使うので残した
+  - 「編集」・まとめて実行が作るパックの中身(EDL・SRT・Lua・Text+)は変えていない(契約テスト dev/tests/test_resolve_pack_contract.py)
 
 ■ v0.22.3 の変更点(2026-10-09・内部の整理。動きは同じ。直した不具合 2 つ)
   - 直した不具合 1: API の試算(api/plan)が、無音の検出(動画の音声を全部読む重い処理)が要るときも、他のツールの重い処理の順番(ytt_core.jobs の SLOTS)を

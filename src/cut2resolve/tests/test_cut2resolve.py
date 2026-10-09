@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """cut2resolve のテスト。 python test_cut2resolve.py  (ffmpeg が無ければ通しテストは自動スキップ)"""
+import contextlib
+import io
 import json
 import re
 import shutil
@@ -274,20 +276,35 @@ class TestOutputSafety(unittest.TestCase):
         self.assertEqual([x.get("start") for x in clips], ["0s", "2s"])
         self.assertEqual([x.find("title/text/text-style").text for x in clips], ["one", "two"])
 
+    @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_auto_cut_package_contains_recovery_files_and_protects_existing_outputs(self):
+        """auto_cut.py は pack の薄い包み(0.23.0。以前の write_package は消した): 既定の出力は <動画名>_resolve_pack(以前のまま)で、
+        EDL・FCPXML・カット後の SRT・cut-plan.json・友人へ.txt の 5 つ。cut-plan.json の tool.name は "cut2resolve"(以前は "cut2resolve-auto_cut")、
+        友人へ.txt は pack の手順書。2 回目は --force が要る"""
         video = self.dir / "source.mp4"
-        video.write_bytes(b"fake media for package-only test")
-        out = self.dir / "package"
-        meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
-        plan = AC.build_plan([{"id": "m1", "label": "moment", "start_seconds": 3, "end_seconds": 5}],
-                             meta, 1)
-        files = AC.write_package(video, out, meta, plan, [(30, 90, "字幕")], "00:00:00:00")
-        self.assertEqual(len(files), 5)
+        make_video(video, 10, audio=None)
+        sel = self.dir / "selection.json"
+        sel.write_text(json.dumps({"schema": "youtube-tools-cut-plan/v1",
+                                   "segments": [{"id": "m1", "label": "moment", "start": 3, "end": 5}]}), encoding="utf-8")
+        srt = self.dir / "source.srt"
+        srt.write_text("1\n00:00:03,000 --> 00:00:05,000\n字幕\n", encoding="utf-8")
+        out = self.dir / "source_resolve_pack"
+        args = [str(video), str(sel), str(srt), "--handles", "1"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(AC.main(args), 0)
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         sorted(["source.edl", "source_cut.fcpxml", "source_cut.srt", "cut-plan.json", "友人へ.txt"]))
         saved = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["keep_frames"], [[60, 180]])
         self.assertEqual(saved["removed_frames"], [[0, 60], [180, 300]])
-        with self.assertRaisesRegex(C.ToolError, "--force"):
-            AC.write_package(video, out, meta, plan, [(30, 90, "字幕")], "00:00:00:00")
-        AC.write_package(video, out, meta, plan, [(30, 90, "字幕")], "00:00:00:00", force=True)
+        self.assertEqual(saved["tool"]["name"], "cut2resolve")
+        self.assertIn("DaVinci Resolve", (out / "友人へ.txt").read_text(encoding="utf-8-sig"))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(AC.main(args), 1)
+        self.assertIn("--force", err.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(AC.main(args + ["--force"]), 0)
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")

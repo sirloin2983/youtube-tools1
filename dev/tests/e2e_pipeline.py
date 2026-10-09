@@ -174,7 +174,7 @@ def main():
         # ③ cut2resolve: 文字起こしの残す行で試算 → パック
         st, ping = call(pc, "GET", "/api/ping")   # 入力の中身を見る /api/inspect は cut2resolve 0.22.0 で消した(読み込みは試算の中で確かめる)
         check(st == 200 and ping.get("app") == "cut2resolve", "cut2resolve が動いている: %s" % st)
-        spec = {"video": clip_mp4, "transcript": tr_path, "mode": "keep", "keepSource": "transcript", "handles": 0}
+        spec = {"video": clip_mp4, "transcript": tr_path, "mode": "keep", "keepSource": "transcript"}
         st, pj = call(pc, "POST", "/api/plan", {"spec": spec})
         res = None
         if st == 200:
@@ -192,7 +192,7 @@ def main():
             check(len(keeps) == 2 and keeps[0][0] >= 0.4 and keeps[0][1] <= 4.1 and keeps[1][0] >= 12.4,
                   "残す区間は「残す」行の2つ(カット済の行・すき間は削る): %s" % keeps)
             out = os.path.join(tmp, "pack")
-            st, bj = call(pc, "POST", "/api/build", {"spec": spec, "output": {"dir": out, "render": False, "copyVideo": False, "fcpxml": False, "force": False}})
+            st, bj = call(pc, "POST", "/api/build", {"spec": spec, "output": {"dir": out, "render": False, "copyVideo": False, "force": False}})
             done = None
             for _ in range(300):
                 st2, bj2 = call(pc, "GET", "/api/job?id=" + urllib.parse.quote(((bj or {}).get("job") or {}).get("id", "")))

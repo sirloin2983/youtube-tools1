@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """cut2resolve の見直し(2026-09)で直した所・足した所のテスト。
 python -m unittest test_cut2resolve で一緒に走る(test_cut2resolve の load_tests)。単独なら python -m unittest test_pack"""
+import contextlib
+import io
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -665,16 +667,22 @@ class TestOutputGuard(unittest.TestCase):
         self.assertEqual(p.read_bytes(), "\ufeffあ\r\nい\r\n".encode("utf-8"))
         self.assertEqual(sorted(x.name for x in self.dir.iterdir()), ["x.txt"])
 
+    @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_auto_cut_package_protects_subtitle_input_even_with_force(self):
-        video = write(self.dir / "v.mp4", "fake")
+        """auto_cut.py(0.23.0 から pack 経由)でも、出力と同じパスにある入力の字幕は --force でも上書きしない"""
+        video = self.dir / "v.mp4"
+        make_video(video, 10, audio=None)
         out = self.dir / "pack"
         out.mkdir()
         sub = write(out / "v_cut.srt", "1\n00:00:01,000 --> 00:00:02,000\nx\n")
-        meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
-        plan = AC.build_plan([{"id": "a", "label": "", "start_seconds": 1, "end_seconds": 2}], meta, 0)
-        with self.assertRaisesRegex(C.ToolError, "入力ファイル"):
-            AC.write_package(video, out, meta, plan, [(0, 30, "x")], "00:00:00:00", force=True, protected=(sub,))
+        sel = write(self.dir / "sel.json", json.dumps({"schema": "youtube-tools-cut-plan/v1",
+                                                       "segments": [{"id": "a", "start": 1, "end": 2}]}))
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(AC.main([str(video), str(sel), str(sub), "--handles", "0", "-o", str(out), "--force"]), 1)
+        self.assertIn("入力ファイル", err.getvalue())
         self.assertIn("x", sub.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["v_cut.srt"])   # 断ったときは何も書かない
 
 
 class TestGainCopyRecord(unittest.TestCase):
@@ -825,20 +833,29 @@ class TestCutPlanDocs(unittest.TestCase):
         self.assertEqual([(s["start_seconds"], s["end_seconds"]) for s in doc["segments"]], [(1, 2), (3, 5)])
         self.assertEqual(AC.default_handles(doc), 0.0)
 
+    @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
     def test_package_plan_round_trips(self):
-        """書いた cut-plan.json を読み直すと、同じ残す区間になる(以前は segments が無く読み直せなかった)"""
-        video = write(self.dir / "v.mp4", "fake")
-        meta = {"fps": (30000, 1001), "total": 900, "w": 640, "h": 360, "audio": (2, 48000)}
-        plan = AC.build_plan([{"id": "a", "label": "", "start_seconds": 3.3, "end_seconds": 7.7},
-                              {"id": "b", "label": "", "start_seconds": 20, "end_seconds": 25}], meta, 1.5)
-        AC.write_package(video, self.dir / "out", meta, plan, None, "00:00:00:00")
-        saved = json.loads((self.dir / "out" / "cut-plan.json").read_text(encoding="utf-8"))
+        """書いた cut-plan.json を読み直すと、同じ残す区間になる(以前は segments が無く読み直せなかった)。
+        auto_cut.py は 0.23.0 から pack 経由で書く(以前の write_package は消した)"""
+        video = self.dir / "v.mp4"
+        make_video(video, 30, fps="30000/1001", size="320x180", audio=None)
+        segs = [{"id": "a", "start": 3.3, "end": 7.7}, {"id": "b", "start": 20, "end": 25}]
+        out = self.dir / "out"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(AC.main([str(video), str(self._plan(segs=segs)), "--handles", "1.5", "-o", str(out)]), 0)
+        saved = json.loads((out / "cut-plan.json").read_text(encoding="utf-8"))
         for k in ("schema", "tool", "createdAt", "media", "segments"):
             self.assertIn(k, saved)
         self.assertEqual(saved["media"]["name"], "v.mp4")
-        doc = AC.read_cut_plan(self.dir / "out" / "cut-plan.json")
+        meta = S.probe(video)
+        self.assertEqual(meta["fps"], (30000, 1001))
+        plan = AC.build_plan([dict(id=s["id"], label="", start_seconds=s["start"], end_seconds=s["end"]) for s in segs], meta, 1.5)
+        self.assertEqual(saved["keep_frames"], plan["keep_frames"])                 # pack 経由でも build_plan と同じ区間
+        doc = AC.read_cut_plan(out / "cut-plan.json")
         again = AC.build_plan(doc["segments"], meta, AC.default_handles(doc))
         self.assertEqual(again["keep_frames"], plan["keep_frames"])
+        plan2 = pack.plan_cut(pack.Request(video=video, plan=out / "cut-plan.json", base="plan", min_len=0.0))   # cut2resolve.py --plan の道
+        self.assertEqual([list(x) for x in plan2.keeps], plan["keep_frames"])
 
 
 class TestTranscript(unittest.TestCase):
@@ -1108,7 +1125,8 @@ class TestPackWithFfmpeg(unittest.TestCase):
         self.assertNotIn(C.COPY_SKIPPED.format("clip.mp4"), res["warnings"])
 
     def test_copy_video_direct_and_same_copy(self):
-        """copy_video を直接呼ぶ道(auto_cut.py --copy-video)も同じ決まり。same_copy は無い・フォルダなら False"""
+        """copy_video を直接呼ぶ道も同じ決まり。same_copy は無い・フォルダなら False。
+        auto_cut.py --copy-video(0.23.0 から pack 経由)も、2 回目は写さずに注意を出す"""
         d = self.dir / "direct"
         d.mkdir()
         self.assertEqual(C.copy_video(self.video, d), d / "clip.mp4")    # 無ければ写す
@@ -1117,13 +1135,17 @@ class TestPackWithFfmpeg(unittest.TestCase):
         self.assertFalse(C.same_copy(self.video, d / "none.mp4"))
         self.assertFalse(C.same_copy(self.video, d))
         self.assertFalse(C.same_copy(d / "none.mp4", d / "clip.mp4"))
-        meta = {"fps": FPS30, "total": 300, "w": 640, "h": 360, "audio": None}
-        plan = AC.build_plan([{"id": "m1", "label": "", "start_seconds": 1, "end_seconds": 2}], meta, 0.5)
+        sel = write(self.dir / "sel.json", json.dumps({"schema": "youtube-tools-cut-plan/v1",
+                                                       "segments": [{"id": "m1", "start": 1, "end": 2}]}))
         out = self.dir / "ac"
-        AC.write_package(self.video, out, meta, plan, None, "00:00:00:00", copy_video=True)
+        args = [str(self.video), str(sel), "--handles", "0.5", "-o", str(out), "--copy-video"]
         with mock.patch("builtins.print") as p:
-            AC.write_package(self.video, out, meta, plan, None, "00:00:00:00", copy_video=True, force=True)
-        p.assert_called_once_with("注意: " + C.COPY_SKIPPED.format("clip.mp4"))
+            self.assertEqual(AC.main(args), 0)
+        self.assertNotIn(mock.call("注意: " + C.COPY_SKIPPED.format("clip.mp4")), p.call_args_list)
+        self.assertTrue(C.same_copy(self.video, out / "clip.mp4"))
+        with mock.patch("builtins.print") as p:
+            self.assertEqual(AC.main(args + ["--force"]), 0)
+        p.assert_any_call("注意: " + C.COPY_SKIPPED.format("clip.mp4"))
 
     # ---- E-15 の続き(0.22.2): 音量をかけた写しも、前のパックの記録(videoCopy)と条件・置き場所の動画が同じなら作り直さない
     def _gain_pack(self, name, **kw):

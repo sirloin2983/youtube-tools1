@@ -56,16 +56,6 @@ def remove_runtime(tool, port):
     return tool in TOOL_APPS and runtime.remove_runtime(runtime_dir(), tool, port)
 
 
-def read_runtime_port(tool):
-    """<runtime>/<tool>.json のポート。無い・壊れている・tool が違う・範囲外なら None(このファイルは信用しない)。"""
-    return runtime.read_runtime_port(runtime_dir(), tool) if tool in TOOL_APPS else None
-
-
-def ping_app(port, timeout=PING_TIMEOUT):
-    """127.0.0.1:<port> の /api/ping の app(応答が無い・形が違えば None)。"""
-    return runtime.ping_app(port, timeout)
-
-
 def siblings(self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_path="/"):
     """{"tools": {"studio": 8800, ...}}(取り込まれたツールがあれば "paths" も)。応答した(app が一致した)ものだけ。自分自身は問い合わせずに含める。"""
     return runtime.siblings(runtime_dir(), self_tool, self_port, timeout, self_path)

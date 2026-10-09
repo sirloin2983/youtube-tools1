@@ -90,9 +90,10 @@ class TestGuards(ServerBase):
         self.assertEqual((st, j), (200, {"app": "cut2resolve", "version": serve.SERVER_VERSION}))
         # 指定を省いたときの値は pack.Request(コマンドと同じ)の既定と同じ(/api/state で画面に見せていたもの。0.22.0 で api/state は消した)
         r = serve.pack.Request(video=Path("x.mp4"))
-        self.assertEqual({k: serve.DEFAULTS[k] for k in ("noise", "silenceMin", "silencePad", "minLen", "joinGap", "recStart")},
+        self.assertEqual({k: serve.DEFAULTS[k] for k in ("noise", "silenceMin", "silencePad", "minLen", "recStart")},
                          {"noise": r.noise, "silenceMin": r.silence_min, "silencePad": r.silence_pad, "minLen": r.min_len,
-                          "joinGap": r.join_gap, "recStart": r.rec_start})
+                          "recStart": r.rec_start})
+        self.assertFalse({"joinGap", "crf"} & set(serve.DEFAULTS))   # 0.23.0: spec.joinGap・output.crf は受けないので既定も持たない
 
     def test_host_header_is_checked(self):
         st, _, body = self.c.req("GET", "/api/ping", headers={"Host": "evil.example:%d" % self.port})
@@ -491,7 +492,8 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="drop", listText="0 1\n")})
         self.assertEqual(j["result"]["keeps"], [[30, 300]])
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="drop", listText="", silenceExtra=True)})
-        self.assertEqual(j["result"]["count"], 3)
+        self.assertEqual(j["result"]["keeps"], [[0, 300]])        # 0.23.0: silenceExtra(③に無音を重ねる)は受けない = 黙って無視する
+        self.assertNotIn("silence", j["result"]["drops"])
         st, j = self.c.json("POST", "/api/plan", {"spec": self.spec(mode="list", listText="0:05 abc")})
         self.assertEqual((st, j["error"]), (400, "bad_list"))
         self.assertIn("1行目", j["message"])
@@ -547,6 +549,9 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
                                                 "rowEdge": False}})
         self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 広げない
+        j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "mode": "keep", "keepSource": "transcript",
+                                                "rowEdge": False, "handles": 3, "joinGap": 10}})
+        self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 0.23.0: handles(余白)・joinGap(つなぐ隙間)は受けない = 無視する
         j = self.run_job("/api/plan", {"spec": {"video": str(self.video), "transcript": str(t), "preset": "transcript-rows",
                                                 "rowEdge": {"after": 0, "before": 0}}})
         self.assertEqual(j["result"]["keeps"], [[15, 45], [255, 285]])   # 上限 0 = 広げない(決まった余白も上限の中)
@@ -618,7 +623,8 @@ class TestJobs(ServerBase):
 
     def test_build_overwrite_confirm_open_folder_and_roughcut(self):
         out = self.dir / "out1"
-        body = {"spec": self.spec(), "output": {"dir": str(out), "render": True}}
+        # fcpxml・crf は 0.23.0 から受けない(送っても無視する: FCPXML は作らない・範囲外の crf でも 400 にしない)
+        body = {"spec": self.spec(), "output": {"dir": str(out), "render": True, "fcpxml": True, "crf": 99}}
         j = self.run_job("/api/build", body)
         self.assertEqual(j["state"], "done", j)
         r = j["result"]
@@ -845,6 +851,15 @@ class TestTextPlusTargetOption(unittest.TestCase):
         o = serve.output_from_spec({"textplus": True, "textplusFps": "60", "textplusSize": "1920x1080"}, v)
         self.assertEqual(o["textplusTarget"], {"fps": 60, "width": 1920, "height": 1080})
         self.assertTrue(o["copyVideo"])
+
+    def test_removed_output_keys_are_ignored(self):
+        """0.23.0: 消した画面のための output.fcpxml・output.crf は受けない。送っても黙って無視する(形が違っても 400 にしない)"""
+        v = Path(tempfile.gettempdir()) / "x.mp4"
+        for o in ({"fcpxml": True, "crf": 99}, {"fcpxml": "yes", "crf": "bad"}):
+            got = serve.output_from_spec(o, v)
+            self.assertFalse({"fcpxml", "crf"} & set(got))
+            self.assertEqual(got, serve.output_from_spec({}, v))
+        self.assertTrue(serve.output_from_spec({"copyVideo": True, "fcpxml": True}, v)["copyVideo"])
 
     def test_output_loudness_and_volume(self):
         """output.loudness(LUFS)と output.volume(%)。LUFS があれば % は使わない"""

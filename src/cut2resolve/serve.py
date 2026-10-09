@@ -10,7 +10,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/spec/pipeline.md の 4)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, backup?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
+  POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, backup?, force}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(ytt_core.txindex が読む。④)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
@@ -27,6 +27,8 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
 消した API(0.22.0。消した画面のためのもので、使う側が無かった): /api/state・/api/inspect・/api/upload・/media/<token>
 (plan・build の結果の mediaUrl・roughcutUrl も)。消した API は 404
+受けなくした指定(0.23.0。消した画面のためのもので、送る側が無かった): spec.silenceExtra・spec.handles・spec.joinGap・
+output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML・粗編集の画質・余白・つなぐ隙間はコマンドの cut2resolve.py に残る
 
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(home/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
@@ -95,7 +97,7 @@ QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
 # 指定を省いたときの値(正は pack.Request の既定と cut2resolve_core の DEFAULT_*。コマンドも同じものを読む)
 _REQ = {f.name: f.default for f in dataclasses.fields(pack.Request)}
 DEFAULTS = {"noise": _REQ["noise"], "silenceMin": _REQ["silence_min"], "silencePad": _REQ["silence_pad"], "minLen": _REQ["min_len"],
-            "joinGap": _REQ["join_gap"], "crf": C.DEFAULT_CRF, "recStart": _REQ["rec_start"], "reel": _REQ["reel"]}
+            "recStart": _REQ["rec_start"], "reel": _REQ["reel"]}
 TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt_core.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
@@ -384,7 +386,10 @@ def _str(v, what, maxlen=200):
 
 def request_from_spec(spec):
     """画面の指定(JSON)→ pack.Request。モード: silence(① 無音で自動カット)/ keep(② 残す区間)/ list(③ 時刻リスト)
-    どのモードでも、文字起こしがあれば「カット済」の行を削る(dropCutRows。既定 true)を重ねられる。②③では無音も重ねられる"""
+    どのモードでも、文字起こしがあれば「カット済」の行を削る(dropCutRows。既定 true)を重ねられる。
+    0.23.0 で、消した画面のための指定(silenceExtra = ②③に無音を重ねる・handles = ②の前後の余白・joinGap = つなぐ隙間)は受けない
+    (送っても黙って無視する = 知らない鍵と同じ。余白・つなぐ隙間はコマンドの cut2resolve.py に残る)。
+    listKind "drop"(③の削る区間)は、入口のまとめて実行の「カットしない」(listText "" = 動画全体)が使うので残す"""
     if not isinstance(spec, dict):
         raise ApiError("bad_request", "指定の形が正しくありません")
     video = input_path(spec.get("video"), "video")
@@ -413,8 +418,7 @@ def request_from_spec(spec):
     noise = _num(sil.get("noise"), "無音とみなす音量", -90, 0, DEFAULTS["noise"])
     smin = _num(sil.get("min"), "無音の長さ", 0.05, 60, DEFAULTS["silenceMin"])
     spad = _num(sil.get("pad"), "話の前後に残す秒数", 0, 10, DEFAULTS["silencePad"])
-    use_silence = mode == "silence" or bool(spec.get("silenceExtra"))
-    base, keep_pairs, drop_pairs, handles = "all", None, [], None
+    base, keep_pairs, drop_pairs = "all", None, []
     if mode == "keep":
         src = spec.get("keepSource") or ("plan" if plan else "transcript")
         if src == "plan":
@@ -427,8 +431,6 @@ def request_from_spec(spec):
             base = "rows"
         else:
             raise ApiError("bad_value", "残す区間の元が正しくありません")
-        if spec.get("handles") not in (None, ""):
-            handles = _num(spec.get("handles"), "前後の余白", 0, 600)
     elif mode == "list":
         text = spec.get("listText") or ""
         if not isinstance(text, str) or len(text) > 1_000_000:
@@ -445,10 +447,9 @@ def request_from_spec(spec):
             base, keep_pairs = "list", pairs
     return pack.Request(
         video=video, sub=sub, transcript=tr, plan=plan, base=base, keep_pairs=keep_pairs, drop_pairs=drop_pairs,
-        handles=handles, silence=use_silence, noise=noise, silence_min=smin, silence_pad=spad,
+        silence=mode == "silence", noise=noise, silence_min=smin, silence_pad=spad,
         drop_cut_rows=spec.get("dropCutRows") is not False,
         min_len=_num(spec.get("minLen"), "最短の長さ", 0, 3600, DEFAULTS["minLen"]),
-        join_gap=_num(spec.get("joinGap"), "つなぐ隙間", 0, 3600, DEFAULTS["joinGap"]),
         row_edge=row_edge_from_spec(spec) if base == "rows" else None, **advanced_from_spec(spec))
 
 
@@ -557,10 +558,12 @@ def apply_speaker_styles(plan, styles, color_map, shown):
 
 
 def output_from_spec(o, video):
+    """出力の指定(JSON)→ build_pack の引数のもと。0.23.0 で、消した画面のための fcpxml(補助の FCPXML)・crf(粗編集の画質)は受けない
+    (送っても黙って無視する。FCPXML は作らない・粗編集は既定の画質 C.DEFAULT_CRF。どちらもコマンドの cut2resolve.py に残る)"""
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
     textplus = bool(o.get("textplus"))
-    copy_video, fcpxml = pack.normalize_outputs(o.get("copyVideo"), o.get("fcpxml"), textplus)
+    copy_video, _ = pack.normalize_outputs(o.get("copyVideo"), False, textplus)
     try:
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:
@@ -581,7 +584,7 @@ def output_from_spec(o, video):
         raise ApiError("bad_tracks", str(e))
     return {"videoTracks": tracks, "textplusColor": {"hex": hex_, "who": who} if hex_ else None,
             "dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
-            "copyVideo": copy_video, "fcpxml": fcpxml,
+            "copyVideo": copy_video,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)
             "speakerColors": o.get("speakerColors") is not False,
@@ -590,7 +593,7 @@ def output_from_spec(o, video):
             "backup": o.get("backup") is True,   # Text+ パックに予備(EDL・予備の手順書・SRT)も入れる(既定は入れない = 最小限。④)
             # Text+ 字幕の1段の文字数(2段にする。省略 = 置き先の向きの既定・0 = 改行しない。②)
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else _num(o.get("textplusWrap"), "字幕の1段の文字数", 0, 40, integer=True),
-            "crf": _num(o.get("crf"), "粗編集の画質", 0, 51, DEFAULTS["crf"], integer=True), "loudness": loud, "volume": vol}
+            "loudness": loud, "volume": vol}
 
 
 FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "予備の EDL で開く手順", "plan": "カットの記録",
@@ -761,8 +764,8 @@ class Handler(BaseHTTPRequestHandler):
 
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
-            out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], out_opts["render"], out_opts["copyVideo"],
-                                                            out_opts["fcpxml"], out_opts["textplus"], out_opts["backup"], plan_file=False,
+            out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], render=out_opts["render"], copy_video=out_opts["copyVideo"],
+                                                            textplus=out_opts["textplus"], backup=out_opts["backup"], plan_file=False,
                                                             readme_file=False)
             res = with_warning_levels(pack.summary(plan))
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
@@ -776,8 +779,8 @@ class Handler(BaseHTTPRequestHandler):
         if out["dir"].exists() and not out["dir"].is_dir():
             raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
         if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
-            names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), out["render"], out["copyVideo"], out["fcpxml"],
-                                        out["textplus"], out["backup"], plan_file=False, readme_file=False)
+            names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
+                                        textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
             existing = [p for p in names.values() if p.exists()]
             if existing:
                 raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
@@ -789,9 +792,9 @@ class Handler(BaseHTTPRequestHandler):
             if out["textplus"] and out["speakerStyles"]:
                 spk_map, spk_shown = apply_speaker_styles(plan, out["speakerStyles"], spk_map, spk_shown)
             prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
-            res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], fcpxml=out["fcpxml"],
+            res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
                                   textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                                  force=out["force"], crf=out["crf"], task=task, backup=out["backup"], plan_file=False,
+                                  force=out["force"], task=task, backup=out["backup"], plan_file=False,
                                   textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
                                   speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
                                   video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))

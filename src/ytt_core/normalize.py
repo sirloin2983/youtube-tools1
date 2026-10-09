@@ -28,7 +28,6 @@ from fractions import Fraction
 from . import fsio, tools
 
 TARGET_FPS = 30
-TARGET = "30/1"
 AVG_TOL = 0.01            # avg_frame_rate は 29.99〜30.01 を許す(長さの端数で 30/1 ちょうどにならないことがある)
 DURATION_TOL = 0.5        # 作り直したあとの長さが元と ±この秒数なら良しとする
 PRESET = "veryfast"       # スタジオの「精密」と同じ

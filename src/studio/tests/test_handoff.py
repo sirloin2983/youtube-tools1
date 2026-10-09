@@ -18,7 +18,7 @@ os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import common
 import handoff
-from ytt_core import schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
+from ytt_core import runtime, schemas  # noqa: E402  (common が ytt_core を読めるようにしてある。途中のファイルの置き場所 WORK_DIR)
 import serve
 
 
@@ -119,24 +119,6 @@ class TestRuntimeFile(RuntimeDir):
 
     def test_unknown_tool_id_is_refused(self):
         self.assertIsNone(handoff.write_runtime("../evil", 8800, "v"))
-        self.assertIsNone(handoff.read_runtime_port("../evil"))
-
-    def test_read_port_distrusts_file(self):
-        cases = [({"tool": "transcribe", "port": 8775}, 8775),
-                 ({"tool": "transcribe", "port": True}, None), ({"tool": "transcribe", "port": "8775"}, None),
-                 ({"tool": "transcribe", "port": 8775.0}, None), ({"tool": "transcribe", "port": 80}, None),
-                 ({"tool": "transcribe", "port": 1023}, None), ({"tool": "transcribe", "port": 65536}, None),
-                 ({"tool": "cut2resolve", "port": 8810}, None),   # ファイル名と tool が違う
-                 ([8775], None), ("x", None)]
-        for obj, want in cases:
-            self.put("transcribe", obj)
-            self.assertEqual(handoff.read_runtime_port("transcribe"), want, obj)
-        self.put("transcribe", raw=b"\xef\xbb\xbf" + json.dumps({"tool": "transcribe", "port": 1024}).encode())
-        self.assertEqual(handoff.read_runtime_port("transcribe"), 1024)   # BOM 付きも読む
-        self.put("transcribe", raw=b"{not json")
-        self.assertIsNone(handoff.read_runtime_port("transcribe"))
-        self.put("transcribe", raw=json.dumps({"tool": "transcribe", "port": 8775, "pad": "x" * 5000}).encode())
-        self.assertIsNone(handoff.read_runtime_port("transcribe"))   # 大きすぎるファイルは読まない
 
 
 class TestSiblings(RuntimeDir):
@@ -174,17 +156,6 @@ class TestSiblings(RuntimeDir):
         self.assertEqual(handoff.siblings("studio", 8800), {"tools": {"studio": 8800}})
         self.assertEqual(handoff.siblings(None, None), {"tools": {}})
 
-    def test_ping_app_refuses_bad_ports_without_connecting(self):
-        with patch.object(handoff.http.client, "HTTPConnection") as conn:
-            for p in (0, 80, 70000, True, "8800", None):
-                self.assertIsNone(handoff.ping_app(p))
-            conn.assert_not_called()
-
-    def test_proxy_environment_is_not_used(self):
-        tt = self.fake(app="transcribe-tool")
-        with patch.dict(os.environ, {"http_proxy": "http://127.0.0.1:%d" % dead_port(), "HTTP_PROXY": "http://127.0.0.1:1", "no_proxy": "", "NO_PROXY": ""}):
-            self.assertEqual(handoff.ping_app(tt.port), "transcribe-tool")
-
 
 class TestSiblingsApi(RuntimeDir):
     def setUp(self):
@@ -219,7 +190,7 @@ class TestSiblingsApi(RuntimeDir):
 
     def test_studio_answers_ping_from_other_tool(self):
         # 他のツールの /api/siblings から問い合わせられたときに、スタジオとして応答する
-        self.assertEqual(handoff.ping_app(self.port), "clip-studio")
+        self.assertEqual(runtime.ping_app(self.port), "clip-studio")
 
 
 class TestClipManifest(unittest.TestCase):

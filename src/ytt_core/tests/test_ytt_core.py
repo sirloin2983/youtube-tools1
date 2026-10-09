@@ -1599,9 +1599,6 @@ class TestColors(unittest.TestCase):
     def test_hex(self):
         self.assertEqual(colors.norm_hex("ff8fdf"), "#FF8FDF")
         self.assertIsNone(colors.norm_hex("#ff8fd"))
-        self.assertEqual(colors.rgb01("#FF8000"), [1.0, 0.502, 0.0])
-        with self.assertRaises(ValueError):
-            colors.rgb01("red")
 
     def test_repo_members_json_is_readable(self):
         es = colors.load({"YTT_DATA_DIR": "inplace"})                                     # リポジトリの holo-colors/members.json
@@ -1740,7 +1737,7 @@ class TestLoudness(unittest.TestCase):
         for bad in (0, 201, 7.5, True, "x"):
             with self.assertRaises(ValueError):
                 L.check_volume(bad)
-        self.assertEqual((L.pct_to_db(50), L.pct_to_db(200), L.db_to_pct(0.8), L.db_to_pct(-3.1)), (-6.02, 6.02, 110, 70))
+        self.assertEqual((L.pct_to_db(50), L.pct_to_db(200)), (-6.02, 6.02))
 
     def test_parse_and_gain(self):
         from ytt_core import loudness as L
