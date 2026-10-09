@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: ジョブの列・認識ワーカー・声の検出のやり直し・単語の時刻・選んだ行/範囲/全体の再認識・疑わしい所の認識し直し(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+"""「編集」のサーバーの部品: ジョブの本体(文字起こし・選んだ行/範囲/全体の再認識・疑わしい所の認識し直し)と文書への反映・再認識の記録・長い行の分け直し(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+認識そのもの(ワーカー・モデル・音声の取り出し・声の検出のやり直し・範囲の行・記録・単語の時刻)は役割で組み直す RS2-4〜7(2026-10-10)に pipeline/transcribe へ移した(下の _MOVED の転送で ed_jobs.名前 のまま読める)。
 
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
 import bisect
-import hashlib
 import json
 import os
 import re
-import subprocess
 import time
 import uuid
 
@@ -20,6 +19,7 @@ from pipeline.transcribe import backend as _backend, txenv as _txenv  # noqa: E4
 from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要確認の印(RS2-4b。呼ぶたびに postproc.名前 で読む)
 from pipeline.transcribe import records  # noqa: E402   認識の記録・生出力・単語の時刻(RS2-5。呼ぶたびに records.名前 で読む)
 from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカーとのやり取り・モデル・wav を読まずに渡す形(RS2-6。呼ぶたびに worker_client.名前 で読む)
+from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。呼ぶたびに recognize.名前 で読む)
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
@@ -152,37 +152,6 @@ def public_job(j):
     return out
 
 
-def extract_audio(job, spec, wav):
-    ff = _txenv.find_ffmpeg()
-    if not ff:
-        raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-    cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file"]
-    if spec["start"] > 0:
-        cmd += ["-ss", "%.3f" % spec["start"]]
-    cmd += ["-i", spec["sourcePath"]]
-    if spec["end"]:
-        cmd += ["-t", "%.3f" % (spec["end"] - spec["start"])]
-    cmd += ["-vn"]
-    if spec.get("boost"):  # 小さい声を持ち上げる(低域のこもりを削り、音量のばらつきをならす)
-        cmd += ["-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"]
-    cmd += ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]
-    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                         encoding="utf-8", errors="replace")
-    job["proc"] = p
-    try:
-        err = p.stderr.read()
-        p.wait()
-    finally:
-        job["proc"] = None
-        _tools.kill_quiet(p)
-        p.stderr.close()   # 読み終えたパイプを閉じる(閉じないと GC まで残る)
-    _heavy.check_cancel(job)
-    if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
-        tail = " / ".join([l.strip() for l in (err or "").splitlines() if l.strip()][-2:])
-        raise _errors.ApiError("extract_failed", "音声を取り出せませんでした。音声の無い動画か、壊れたファイルの可能性があります。別の動画を選んでください", 400,
-                                {"detail": tail[:300]})   # ffmpeg の原文(パスを含む)は「詳しく」だけ(2 周目 N2)
-
-
 def stream_context(doc, enabled=True):
     """配信ごとの文脈(段1-2): その配信に出る人を、配信のチャンネル名・コラボ相手(スタジオの data.json を読むだけ)・話者の名前・題名から決め、
     その人の名前と呼び名だけをヒントの語にする。**題名の文字列そのものは渡さない**。
@@ -204,103 +173,6 @@ def stream_context(doc, enabled=True):
                                 [s.get("name") for s in doc.get("speakers") or [] if isinstance(s, dict)], [str(t or "")[:300] for t in titles])
     ctx["terms"] = _roster.member_terms([m["name"] for m in ctx["members"]], r)
     return ctx
-
-
-# ---------- 声の検出(VAD)が捨てすぎたときのやり直し(docs/design/whole-retranscribe-design.md の 4-2) ----------
-# 声が重なる所・BGM のある所を、Silero VAD が「声ではない」と判断して全部捨て、モデルに何も渡らないことがある(2026-09-28。40 秒が 0 文字)。
-# 残った割合が VAD_MIN_KEEP 未満か、文字が 1 つも出なかったら、「弱め」→「なし」の順に緩めてやり直す
-VAD_MIN_KEEP = 0.2
-VAD_LADDER = {"normal": ("normal", "weak", "off"), "weak": ("weak", "off"), "off": ("off",)}
-VAD_NAMES = {"normal": "標準", "weak": "弱め", "off": "なし"}
-
-
-def seg_to_dict(s, shift=0.0):
-    """認識の1行(faster-whisper の行・ワーカーの代理)→ 辞書(秒は shift を足す)"""
-    ws = [w for w in (getattr(s, "words", None) or []) if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
-    words = [(float(w.start) + shift, float(w.end) + shift, str(w.word)) for w in ws]
-    probs = [_prob(getattr(w, "probability", None)) for w in ws]   # words と同じ並びの確信度(3つ組は変えない。生出力 <id>.asr.json 用)
-    return {"start": float(s.start) + shift, "end": float(s.end) + shift, "text": (s.text or "").strip(), "avg_logprob": getattr(s, "avg_logprob", None),
-            "no_speech_prob": getattr(s, "no_speech_prob", None), "compression_ratio": getattr(s, "compression_ratio", None), "words": words,
-            "wordProbs": probs}
-
-
-def _prob(v):
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return None
-    return round(f, 4) if f == f else None
-
-
-def vad_kept(info, mode):
-    """(声の検出のあとに残った割合, 捨てた秒)。声の検出をかけていない・分からないときは (None, 0.0)"""
-    d, k = getattr(info, "duration", None), getattr(info, "duration_after_vad", None)
-    if mode == "off" or not isinstance(d, (int, float)) or not isinstance(k, (int, float)) or d <= 0:
-        return None, 0.0
-    return max(0.0, min(1.0, k / d)), round(max(0.0, d - k), 2)
-
-
-def vad_note(vad):
-    """やり直したときに画面に出す文(やり直していなければ '')"""
-    if not vad or not vad.get("retries"):
-        return ""
-    steps = "→".join([VAD_NAMES.get(r["mode"], r["mode"]) for r in vad["retries"]] + [VAD_NAMES.get(vad["used"], vad["used"])])
-    return "声の検出で大部分が「声ではない」と判断されたので、検出を緩めて認識しました(声の検出: %s)" % steps
-
-
-def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
-    """声の検出を spec["vadMode"] から始め、捨てすぎ・文字が 0 なら緩めてやり直す。-> (行の辞書の一覧, 声の検出の記録)。
-    記録 = {"requested", "used", "removedSec"(使った設定で捨てた秒), "retries": [{"mode", "kept", "removedSec", "why": "kept"|"empty"}]}。
-    よくある誤認識の文(HALLUC)しか出なかったときも「文字が 0」とみなす(2026-09-28 白上フブキ03: 標準で 22 秒捨て、残りから「ご視聴ありがとうございました」だけ)"""
-    mode0 = spec.get("vadMode", "weak")
-    ladder = VAD_LADDER.get(mode0, (mode0,))
-    retries, terms = [], _roster.prompt_terms(spec)
-    for i, mode in enumerate(ladder):
-        last = i == len(ladder) - 1
-        kw = worker_client.filter_kwargs(model, worker_client.whisper_kwargs(dict(spec, vadMode=mode)))
-        segs, info = model.transcribe(audio, **kw)
-        kept, removed = vad_kept(info, mode)
-        if kept is not None and kept < VAD_MIN_KEEP and not last:
-            close = getattr(segs, "close", None)
-            if close:
-                close()   # 行は読まない(ほとんど捨てた結果なので)
-            retries.append({"mode": mode, "kept": round(kept, 3), "removedSec": removed, "why": "kept"})
-            _txbase.log.info("声の検出が %.0f%% を捨てたので、緩めてやり直します(%s)", (1 - kept) * 100, mode)
-            continue
-        raw = []
-        for s in segs:
-            _heavy.check_cancel(job)
-            raw.append(seg_to_dict(s))
-            if on_seg:
-                on_seg(raw[-1], len(raw))   # この回(やり直しごと)の行の数
-        if not any(r["text"] and not postproc.stock_phrase(r["text"]) and not _roster.leak_only(r["text"], terms) for r in raw) and not last:
-            # 「ご視聴ありがとうございました」だけ・ヒントの語だけ = 文字が 0 と同じ
-            retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})
-            _txbase.log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
-            continue
-        return raw, {"requested": mode0, "used": mode, "removedSec": removed, "retries": retries}
-    return [], {"requested": mode0, "used": ladder[-1], "removedSec": 0.0, "retries": retries}
-
-
-def transcribe_real(job, spec, wav, total):
-    model, device = worker_client.load_model(spec["model"], job, spec.get("device", "auto"), engine=tx_engines.engine_of(spec))
-    job["device"] = device
-    _heavy.check_cancel(job)
-    job["phase"], job["state"] = "文字起こし中", "running"
-    use = [model]
-
-    def progress(r, n):
-        job["progress"] = min(0.99, r["end"] / total) if total else 0.0
-        job["segments"] = n   # 処理状況の「n 行」(行は最後まで読んでから流すので、ここで数える)
-
-    def reload():
-        use[0] = worker_client.load_model(spec["model"], job, force_cpu=True)[0]
-
-    # やり直しに備えて、行は最後まで読んでから流す(やり直す前の行を文書に入れないため)
-    raw, vad = worker_client.cpu_fallback(job, device, spec.get("device"), lambda: transcribe_vad_fallback(job, use[0], wav, spec, progress), reload, worker_client.GPU_FAILED_SETUP_MSG)
-    job["vad"] = vad
-    for x in raw:
-        yield x
 
 
 # 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
@@ -510,7 +382,7 @@ def _transcribe_checked(job, spec, wav, total):
     """run_job の本物の認識: エンジンを確かめてから transcribe_real(行の生成器)"""
     worker_client.check_engine(spec)
     job["state"] = "loading"
-    return transcribe_real(job, spec, wav, total)
+    return recognize.transcribe_real(job, spec, wav, total)
 
 
 def run_job(job):
@@ -524,7 +396,7 @@ def run_job(job):
         return
     with _heavy.job_temp_wav(job) as wav:
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        extract_audio(job, spec, wav)
+        recognize.extract_audio(job, spec, wav)
         total = _txenv.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
         t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
         gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
@@ -639,7 +511,7 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
     params["dict"] = fields["recognition"]["runs"][0]["settings"]["dict"]
     if job.get("vad"):
         params["vadUsed"] = job["vad"].get("used")
-        note = vad_note(job["vad"])
+        note = recognize.vad_note(job["vad"])
         if note:
             _txbase.add_warning(spec, note)
             job["vadNote"] = note
@@ -700,61 +572,6 @@ def validate_retranscribe(req):
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
             "autoDict": req.get("autoDict") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx,
             "title": _heavy.job_title({"range": "範囲を再認識: ", "whole": "全体を再認識: "}.get(mode, "再認識: "), doc)}
-
-
-AUDIO_MARGIN = 3.0   # 取り出す範囲の前後の余裕(秒)。音量補正(dynaudnorm)の窓が数秒あるので、端で音が変わらないよう広めに
-
-
-def audio_span(targets, doc_start, doc_end, pad=0.3):
-    """再認識・比較で取り出す音声の範囲(元の動画の秒)。対象の行の最初〜最後(+余裕)だけにする。
-    以前は文書の範囲全体(最大6時間)を毎回取り出していて、1行の再認識でも数十秒と、1〜2GB のメモリを使っていた。"""
-    a = max(doc_start, min(float(t["start"]) for t in targets) - pad - AUDIO_MARGIN)
-    b = max(float(t["end"]) for t in targets) + pad + AUDIO_MARGIN
-    if doc_end:
-        b = min(doc_end, b)
-    return round(a, 3), round(max(b, a + 0.5), 3)
-
-
-def recognize_chunk(model, kw, chunk, seg, sep, terms=()):
-    """短い範囲を認識して (文章, 要確認の理由) を返す。何も認識できなければ None。"""
-    if len(chunk) < 1600:
-        return None
-    segs, _info = model.transcribe(chunk, **kw)
-    parts, lp, ns, cr = [], [], [], []
-    for x in segs:
-        t = (x.text or "").strip()
-        if t:
-            parts.append(t)
-            for lst, key in ((lp, "avg_logprob"), (ns, "no_speech_prob"), (cr, "compression_ratio")):
-                v = getattr(x, key, None)
-                if v is not None:
-                    lst.append(v)
-    text = sep.join(parts)
-    if not text:
-        return None
-    agg = {"text": text, "start": seg["start"], "end": seg["end"], "avg_logprob": min(lp) if lp else None,
-           "no_speech_prob": max(ns) if ns else None, "compression_ratio": max(cr) if cr else None}
-    return text, postproc.make_flags(agg, [], kw.get("language"), terms)
-
-
-class ChunkModel:
-    """選んだ行を 1 行ずつ認識するモデル(再認識の each・設定の比較 ed_misc.run_abtest)。kw_spec = whisper_kwargs に渡す指定。
-    自動のとき、最初の行で GPU が実行時に失敗(CUDA のライブラリ不足など)したら、CPU で読み直してやり直す"""
-
-    def __init__(self, job, name, pref, kw_spec, engine=tx_engines.DEFAULT):
-        self.job, self.name, self.pref, self.kw_spec = job, name, pref, kw_spec
-        self._use(*worker_client.load_model(name, job, pref, engine=engine))
-
-    def _use(self, model, device):
-        self.model, self.device = model, device
-        self.job["device"] = device
-        self.kw = worker_client.filter_kwargs(model, worker_client.whisper_kwargs(self.kw_spec))
-
-    def recognize(self, chunk, row, sep, terms, first=False):
-        """recognize_chunk と同じ (文章, 要確認の理由) か None。CPU に切り替えるのは最初の行(first)だけ。
-        取り消し・理由のある失敗(ApiError)はそのまま上げる(0.65.1。それまでは GPU 固定で最初の行の途中に取り消すと gpu_failed になっていた = ユーザー「なおす」)"""
-        return worker_client.cpu_fallback(self.job, self.device, self.pref, lambda: recognize_chunk(self.model, self.kw, chunk, row, sep, terms),
-                            lambda: self._use(*worker_client.load_model(self.name, self.job, force_cpu=True)), retry=first)
 
 
 def replace_original(orig, a, b, text):
@@ -936,45 +753,6 @@ def _apply_range(spec, lines, loose=()):
     return {"lines": len(new), "unsure": unsure, "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose}
 
 
-def range_lines_real(job, model, kw, audio, spec, offset):
-    """範囲の音声をひとまとまりで認識し、単語の時刻で整えた行の一覧を返す。"""
-    a, b = spec["range"]
-    lo, hi = max(0.0, a - offset - 0.3), b - offset + 0.3
-    chunk = audio[int(lo * 16000):int(hi * 16000)]
-    if len(chunk) < 1600:
-        return []
-    segs, _info = model.transcribe(chunk, **kw)
-    raw = []
-    for s in segs:
-        _heavy.check_cancel(job)
-        raw.append(seg_to_dict(s))
-        job["progress"] = min(0.95, 0.1 + float(s.end) / max(1e-6, hi - lo))
-    return finish_range_lines(raw, spec, lo + offset, join=False)   # 疑わしい所の認識し直し: 文字を比べるだけで時刻を使わない(続いている行をつながない)
-
-
-def finish_range_lines(raw, spec, shift, join=True):
-    """認識した行(チャンク内の秒)を、絶対の秒にして、範囲 [a,b] の内側に収め、要確認の印を付ける。
-    join = 続いている行をつなぐか(expand_segments の join。範囲・全体の再認識は行の時刻を使うのでつなぐ・疑わしい所の認識し直しはつながない)"""
-    a, b = spec["range"]
-    out, prev, terms = [], [], _roster.prompt_terms(spec)
-    names = ed_fill.fill_spk_names(spec) if spec.get("stripNames", True) is not False and not spec.get("evalSet") else None   # 行の頭の「名前:」(0.67.0)
-    for s in postproc.expand_segments(raw, spec, join=join):
-        head = None
-        if names is not None:
-            s["text"], head = ed_fill.fill_spk_split(s["text"], names)
-        if not s["text"]:
-            continue
-        st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
-        if en - st < 0.05:
-            continue
-        flag = postproc.make_flags({**s, "start": st, "end": en}, prev, spec["language"], terms)
-        if head:
-            flag = "、".join(x for x in (ed_fill.FILL_SPK_NOTE, flag) if x)[:100]
-        prev.append(s["text"])
-        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": postproc.row_words(s, shift), "lp": s.get("avg_logprob"), "conf": postproc.machine_conf(s)})
-    return out
-
-
 # ---------- 疑わしい所だけ認識し直す(12 ③-2。ユーザー承認 2026-09-27: 設計どおり) ----------
 REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
 REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
@@ -1112,12 +890,26 @@ def _redo_real(job, spec, wav, start):
     job["device"] = device
     audio = worker_client.read_wav_f32(wav)
     kw = worker_client.filter_kwargs(model, redo_kwargs(spec))
-    return lambda sub, a, b: range_lines_real(job, model, kw, audio, sub, start)
+    return lambda sub, a, b: recognize.range_lines_real(job, model, kw, audio, sub, start)
 
 
 def _redo_finish(raw, sub, shift):
     """疑わしい所の認識し直しの行の整え方(疑似の差し込み口が使う。文字を比べるだけなので続いている行をつながない)"""
-    return finish_range_lines(raw, sub, shift, join=False)
+    return recognize.finish_range_lines(raw, sub, shift, join=False)
+
+
+def head_stripper(spec):
+    """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(ed_fill の B。0.67.0)。recognize.finish_range_lines が使う
+    (① の recognize は ed_fill を読まない。serve が recognize.set_head_stripper で登録する。RS2-7)。
+    -> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
+    if spec.get("stripNames", True) is False or spec.get("evalSet"):
+        return None
+    names = ed_fill.fill_spk_names(spec)
+
+    def split(text):
+        text, head = ed_fill.fill_spk_split(text, names)
+        return text, (ed_fill.FILL_SPK_NOTE if head else None)
+    return split
 
 
 def run_redo(job):
@@ -1132,10 +924,10 @@ def run_redo(job):
             job["segments"] = 0
             _heavy.job_done(job, spec["tid"], "完了(認識し直す行がありませんでした)")
             return
-        start, end = audio_span([{"start": a, "end": b} for _g, a, b in targets], _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end")))
+        start, end = recognize.audio_span([{"start": a, "end": b} for _g, a, b in targets], _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end")))
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
-        recognize = _backend.select().redo_recognizer(job, spec, wav, start, _redo_real, _redo_finish)
+        recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
+        recognize_row = _backend.select().redo_recognizer(job, spec, wav, start, _redo_real, _redo_finish)
         job["state"] = "running"
         t0, results, tried, timed_out = time.monotonic(), [], 0, False
         for n, (g, a, b) in enumerate(targets):
@@ -1145,7 +937,7 @@ def run_redo(job):
                 break
             job["phase"] = "疑わしい所を認識し直し中(%d / %d)" % (n + 1, len(targets))
             sub = dict(spec, range=[a, b])
-            lines = recognize(sub, a, b)
+            lines = recognize_row(sub, a, b)
             tried += 1
             ok, _why = redo_better(g, lines, spec.get("oldLp", {}).get(g["id"]))
             if ok:
@@ -1155,195 +947,6 @@ def run_redo(job):
         n_rep = apply_redo(spec, results)
         job["segments"], job["unsure"] = n_rep, max(0, tried - n_rep)
         _heavy.job_done(job, spec["tid"], "完了(%d か所のうち %d か所を置き換えました%s)" % (tried, n_rep, "。時間の上限で残りはやめました" if timed_out else ""))
-
-
-class RangeRecognizer:
-    """範囲・全体の再認識の認識の部分(本物のモデル / 疑似)。音声は run_retranscribe が取り出した wav(先頭 = 元の動画の offset 秒)。
-    main(a, b): 範囲をひとまとまりで認識(声の検出が捨てすぎたら緩めてやり直す。4-2 の 1)
-    loose(spans): ほぼ空だった所だけ、声の検出なし・捨てる判定なしで認識(4-2 の 3。よくある誤認識の文は捨てる)"""
-
-    def __init__(self, job, spec, wav, offset):
-        self.job, self.spec, self.wav, self.offset = job, spec, wav, offset
-        self.model = self.audio = None
-        self.vad = None
-
-    def _load(self):
-        if self.model is not None:
-            return
-        worker_client.check_engine(self.spec)
-        self.job["state"] = "loading"
-        self.model, device = worker_client.load_model(self.spec["model"], self.job, self.spec["device"], engine=tx_engines.engine_of(self.spec))
-        self.job["device"] = device
-        self.audio = worker_client.read_wav_f32(self.wav)
-        self.job["state"] = "running"
-
-    def _chunk(self, a, b, pad):
-        lo, hi = max(0.0, a - self.offset - pad), b - self.offset + pad
-        return self.audio[int(lo * 16000):int(hi * 16000)], lo
-
-    def main(self, a, b, share=(0.0, 1.0)):
-        """[a, b](元の動画の秒)を認識した行。行は [a, b] の内側に収める(全体を区間に分けたとき、隣の区間と重ならない)。
-        share = 進み具合のうち、この区間が受け持つ割合(全体を区間に分けたとき)。本物と疑似は backend の差し込み口(呼ぶたびに選ぶ)"""
-        return _backend.select().range_main(self.job, a, b, share, self._main_real)
-
-    def _main_real(self, a, b, share):
-        self._load()
-        chunk, lo = self._chunk(a, b, 0.3)
-        if len(chunk) < 1600:
-            return []
-        total = max(1e-6, b - a + 0.6)
-        s0, s1 = share
-
-        def progress(r, _n):
-            self.job["progress"] = s0 + (s1 - s0) * min(0.9, 0.05 + r["end"] / total * 0.85)
-
-        def reload():
-            self.model = worker_client.load_model(self.spec["model"], self.job, force_cpu=True)[0]
-        raw, self.vad = worker_client.cpu_fallback(self.job, self.job.get("device"), self.spec["device"],
-                                     lambda: transcribe_vad_fallback(self.job, self.model, chunk, self.spec, progress), reload)
-        return finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset)
-
-    def loose(self, spans):
-        if not spans:
-            return []
-        self.job["phase"] = "文字が出なかった所を、条件を緩めて認識中"
-        return _backend.select().range_loose(self.job, spans, self._loose_real)
-
-    def _loose_real(self, spans):
-        out = []
-        self._load()
-        kw = worker_client.filter_kwargs(self.model, dict(worker_client.whisper_kwargs(dict(self.spec, vadMode="off")), no_speech_threshold=None))
-        for n, (s0, s1) in enumerate(spans):
-            _heavy.check_cancel(self.job)
-            chunk, lo = self._chunk(s0, s1, 0.0)
-            if len(chunk) < 1600:
-                continue
-            segs, _info = self.model.transcribe(chunk, **kw)
-            raw = []
-            for x in segs:
-                _heavy.check_cancel(self.job)
-                raw.append(seg_to_dict(x))
-            lines = finish_range_lines(raw, dict(self.spec, range=[s0, s1]), lo + self.offset)
-            out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "") and _txbase.LEAK_FLAG not in str(x.get("flag") or "")]   # 無音から出やすい幻覚・ヒントの書き写しは入れない(元の行が残る)
-            self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
-        return out
-
-
-# ---------- 全体の再認識を区間ごとに保存して、続きから(計画の 9 の S-1) ----------
-# 全体の再認識は最大 6 時間。途中で落ちる・中止すると、それまでの認識が全部むだになっていた。
-# 長い動画は WHOLE_PART_SEC ごとの区間に分けて1つずつ認識し、終わった区間の行を transcripts/.resume/<id>.whole.json に書く。
-# 同じ文書・同じ設定・同じ動画でもう一度始めたら、書いてある区間は認識せずに使う。全部終わって文書に反映したら消す。
-# 短い動画(WHOLE_PART_SEC の 1.5 倍まで)は今までどおり1回で認識する(分けない = 結果は変わらない・書かない)
-WHOLE_PART_SEC = 600
-WHOLE_SPLIT_WINDOW = 90      # 区切りは、目安の前後この秒の中で、行の無いすき間の真ん中(話している途中で切らない)
-RESUME_KEEP_SEC = 7 * 86400  # 使われなかった続きの記録は、この秒数で消す
-RESUME_VERSION = 1
-MAX_RESUME_BYTES = 64 * 1024 * 1024   # 続きの記録を読む大きさの上限(6 時間分の行と単語。生出力 asr.json と同じ上限)
-
-
-def whole_parts(doc, a, b, part=None):
-    """[a, b] を、目安 part 秒ごとの区間 [[p0, p1], …] に分ける。区切りは、今の文書の行(どれでも)の無いすき間を選ぶ。無ければ目安の所"""
-    part = float(part or WHOLE_PART_SEC)
-    if b - a <= part * 1.5:
-        return [[a, b]]
-    rows = _yschemas.union_spans([(float(g["start"]), float(g["end"])) for g in doc.get("segments") or []
-                        if isinstance(g, dict) and isinstance(g.get("start"), (int, float)) and isinstance(g.get("end"), (int, float))])
-    gaps = [(rows[i][1], rows[i + 1][0]) for i in range(len(rows) - 1)]
-    out, t = [], a
-    while b - t > part * 1.5:
-        target = t + part
-        lo, hi = max(t + part / 2, target - WHOLE_SPLIT_WINDOW), target + WHOLE_SPLIT_WINDOW
-        best = None
-        for g0, g1 in gaps:
-            x0, x1 = max(g0, lo), min(g1, hi)
-            if x1 > x0 and (best is None or x1 - x0 > best[1] - best[0]):
-                best = (x0, x1)
-        cut = round((best[0] + best[1]) / 2 if best else target, 3)
-        out.append([t, cut])
-        t = cut
-    out.append([t, b])
-    return out
-
-
-def resume_path(tid):
-    return os.path.join(_txenv.TX_DIR, ".resume", tid + ".whole.json")
-
-
-def whole_key(spec, doc):
-    """続きを使ってよいかの目印: 文書・範囲・行を作る設定・ヒントの語・エンジンとモデル・元の動画(大きさと更新日時)が同じ"""
-    try:
-        st = os.stat(str(doc.get("sourcePath") or ""))
-        src = [st.st_size, int(st.st_mtime)]
-    except OSError:
-        src = None
-    k = {"v": RESUME_VERSION, "tid": spec["tid"], "range": spec["range"], "engine": spec.get("engine") or tx_engines.DEFAULT, "model": spec["model"],
-         "backend": _backend.select().name, "language": spec["language"], "beam": spec["beam"], "vadMode": spec["vadMode"], "boost": bool(spec.get("boost")),
-         "wordSplit": bool(spec.get("wordSplit")), "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
-         "terms": _roster.prompt_terms(spec), "source": src, "part": WHOLE_PART_SEC}
-    return hashlib.sha256(json.dumps(k, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-
-
-def read_resume(tid, key):
-    """続きの記録 {"parts", "done": {番号: {"lines", "vad"}}}。無い・目印が違う・壊れている・大きすぎるときは None"""
-    d = _fsio.read_json_or(resume_path(tid), None, MAX_RESUME_BYTES, dict)
-    if d is None or d.get("key") != key or not isinstance(d.get("parts"), list) or not isinstance(d.get("done"), dict):
-        return None
-    return d
-
-
-def write_resume(tid, d):
-    path = resume_path(tid)
-    folder = os.path.dirname(path)
-    os.makedirs(folder, exist_ok=True)
-    _fsio.atomic_write(path, json.dumps(dict(d, at=int(time.time() * 1000)), ensure_ascii=False).encode("utf-8"), fsync_required=True)
-    now = time.time()
-    for n in os.listdir(folder):   # 使われなかった古い続きの記録を消す
-        q = os.path.join(folder, n)
-        try:
-            if n.endswith(".whole.json") and q != path and now - os.path.getmtime(q) > RESUME_KEEP_SEC:
-                os.unlink(q)
-        except OSError:
-            pass
-
-
-def drop_resume(tid):
-    _fsio.unlink_quiet(resume_path(tid))
-
-
-def whole_lines(job, spec, doc, rec):
-    """全体の再認識の認識の部分。長ければ区間に分けて1つずつ認識し、終わった区間を書いておく(続きから再開できる)。-> 行の一覧。
-    rec.vad には、声の検出をやり直した区間があればその記録を入れる(画面の知らせ)"""
-    a, b = spec["range"]
-    key = whole_key(spec, doc)
-    cp = read_resume(spec["tid"], key)
-    parts = cp["parts"] if cp else whole_parts(doc, a, b)
-    done = cp["done"] if cp else {}
-    n = len(parts)
-    reused = sum(1 for i in range(n) if str(i) in done)
-    if reused:
-        job["resumed"] = [reused, n]
-        _txbase.add_warning(job, "前回の途中から続けました(%d 区間のうち %d 区間は前回の認識を使いました)" % (n, reused))
-        _txbase.log.info("全体の再認識を前回の途中から続けます: %s %d/%d 区間", spec["tid"], reused, n)
-    lines, vads = [], []
-    for i, (p0, p1) in enumerate(parts):
-        _heavy.check_cancel(job)
-        if str(i) in done:
-            lines += done[str(i)].get("lines") or []
-            vads.append(done[str(i)].get("vad"))
-            continue
-        job["phase"] = "全体を認識中(%d / %d 区間)" % (i + 1, n) if n > 1 else "全体を認識中"
-        got = rec.main(p0, p1, (i / n, (i + 1) / n))
-        _heavy.check_cancel(job)   # 途中で止めた区間は書かない(行が欠けている)
-        lines += got
-        vads.append(rec.vad)
-        if n > 1:
-            done[str(i)] = {"lines": got, "vad": rec.vad}
-            try:
-                write_resume(spec["tid"], {"v": RESUME_VERSION, "key": key, "parts": parts, "done": done})
-            except (OSError, TypeError, ValueError) as e:   # 書けなくても認識は続ける(続きから再開できないだけ)
-                _txbase.log.warning("全体の再認識の続きの記録を書けませんでした: %s %s", spec["tid"], e)
-    rec.vad = next((v for v in vads if v and v.get("retries")), None) or (vads[-1] if vads else None)
-    return lines
 
 
 def run_retranscribe(job):
@@ -1358,9 +961,9 @@ def run_retranscribe(job):
         if not targets and not whole:
             raise _errors.ApiError("empty", "再認識する行が見つかりません(先に削除された可能性があります)", 400)
         span_src = targets + ([{"start": spec["range"][0], "end": spec["range"][1]}] if spec.get("mode") in ("range", "whole") else [])
-        start, end = audio_span(span_src, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
+        start, end = recognize.audio_span(span_src, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
+        recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
         if spec.get("mode") in ("range", "whole"):
             return _retranscribe_range(job, spec, doc, wav, start, whole)
         results = _retranscribe_each(job, spec, targets, wav, start)
@@ -1372,9 +975,9 @@ def run_retranscribe(job):
 def _retranscribe_range(job, spec, doc, wav, start, whole):
     """範囲・全体の再認識(run_retranscribe の続き。音声は取り出し済み。先頭 = 元の動画の start 秒)"""
     a, b = spec["range"]
-    rec = RangeRecognizer(job, spec, wav, start)
+    rec = recognize.RangeRecognizer(job, spec, wav, start)
     job["state"], job["phase"] = "running", "全体を認識中" if whole else "範囲を認識中"
-    lines = whole_lines(job, spec, doc, rec) if whole else rec.main(a, b)
+    lines = recognize.whole_lines(job, spec, doc, rec) if whole else rec.main(a, b)
     _heavy.check_cancel(job)
     # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
     gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in plan_range(doc, spec, lines)["empty"]]
@@ -1382,13 +985,13 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     _heavy.check_cancel(job)
     if not lines and not loose:
         if whole:
-            drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
+            recognize.drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
         raise _errors.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
     r = apply_range(spec, lines, loose)
     if whole:
-        drop_resume(spec["tid"])
+        recognize.drop_resume(spec["tid"])
     job["segments"], job["unsure"], job["kept"], job["emptyKept"], job["loose"] = r["lines"], r["unsure"], r["kept"], r["emptyKept"], r["loose"]
-    note = vad_note(rec.vad)
+    note = recognize.vad_note(rec.vad)
     if note:
         job["vadNote"] = note
         _txbase.add_warning(job, note)
@@ -1405,7 +1008,7 @@ def _each_real(job, spec, targets, wav, start):
     results = {}
     worker_client.check_engine(spec)
     job["state"] = "loading"
-    cm = ChunkModel(job, spec["model"], spec["device"], spec, tx_engines.engine_of(spec))
+    cm = recognize.ChunkModel(job, spec["model"], spec["device"], spec, tx_engines.engine_of(spec))
     audio = worker_client.read_wav_f32(wav)
     job["state"], job["phase"] = "running", "再認識中"
     sep = "" if spec["language"] in ("ja", "zh", "ko") else " "
@@ -1429,6 +1032,7 @@ _MOVED += (_roster, tx_engines)   # 名簿の prompt_terms・エンジンの eng
 _MOVED += (postproc,)   # 行の後処理と要確認の印(RS2-4b。END_TRIM・JOIN_GAP・expand_segments の差し替えもここへ届く)
 _MOVED += (records,)   # 認識の記録・辞書の版・生出力・単語の時刻(RS2-5。dict_version の差し替えもここへ届く)
 _MOVED += (worker_client,)   # 認識ワーカー・モデル・エンジンの確かめ・wav の形(RS2-6。IN_WORKER・WORKER_*・load_model・check_engine の差し替えもここへ届く)
+_MOVED += (recognize,)   # 音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。extract_audio・WHOLE_PART_SEC・RangeRecognizer.main の差し替えもここへ届く)
 _moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")
 
 
