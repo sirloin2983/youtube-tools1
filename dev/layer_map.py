@@ -31,7 +31,7 @@ FILES = {
     "src/studio/txlink.py": ("manage", "manage/cases", "文字起こしとの紐づけ(読むだけ)"),
     # ---- editor
     "src/editor/ed_jobs.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/doc_jobs・rerun と pipeline/transcribe"),
-    "src/editor/tx_worker.py": ("pipeline", "pipeline/transcribe", "install_fakes は eval/fake"),
+    "src/editor/tx_worker.py": ("pipeline", "pipeline/transcribe", "転送(RS5 で消す)。本体は RS2-9 で pipeline/transcribe/worker.py へ(疑似 install_fakes は eval/fake/fake_worker)。古い入口が旧い場所で起動するための runpy だけ"),
     "src/editor/ed_retime.py": ("human", "human/proof", "行の時刻の候補の API の包み(RS2-9 で計算を pipeline/transcribe/retime.py へ切り出した。RS3 で human/proof へ)"),
     "src/editor/ed_speakers.py": ("human", "human/proof", "転送(RS5 で消す)。中身は pipeline/transcribe/diarize(判別の計算)と human/proof/speakers(文書の側・声の登録)"),
     "src/editor/ed_store.py": ("human", "human/proof", "文書 = 上書きの置き場"),
