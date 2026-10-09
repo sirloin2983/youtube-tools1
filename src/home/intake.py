@@ -293,6 +293,11 @@ def parse_video_tracks(v):
     return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= VIDEO_TRACKS_MAX else VIDEO_TRACKS_DEFAULT
 
 
+def _deliver_how(n):
+    """受付の記録の文に入れる届け方(n = 1〜10。それ以外は 1 本ずつと読む)"""
+    return "%d 本ごとに組で" % n if isinstance(n, int) and not isinstance(n, bool) and 2 <= n <= 10 else "1 本ずつ"
+
+
 def parse_deliver_batch(v):
     """依頼の JSON の deliverBatch(2.8.0 のアプリ。1〜10)-> int か None(無い・範囲の外 = ホームの設定 intake.deliverBatch のまま)"""
     lo, hi = DELIVER_BATCH_RANGE
@@ -556,6 +561,8 @@ class Intake:
         vid = youtube_id(url)
         settings = live_requests.clean_settings(d.get("live"))
         who, note = _streamer(d.get("streamer"))
+        batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.9.0 のアプリから。無ければホームの設定 intake.deliverBatch。10-09 ユーザー決定 = decisions 3-20)
+        how = _deliver_how(batch if batch is not None else cfg.get("deliverBatch"))
         moved = [n]
         if not vid:
             self._record(folder, "live", "app", n, moved, who or "", memo, [], [{"label": url or n, "state": "rejected", "reason": "YouTube の配信の URL ではありません"}], "auto",
@@ -575,27 +582,27 @@ class Intake:
         # 10-08 に友人の配信前の依頼 2 件が「確かめられない → アーカイブ」に落ちて、解析が「This live event will begin」で失敗していた(10-09)
         if ended or (not info and self.live_begin is None):
             notes = [{"label": "ライブ配信", "state": "accepted",
-                      "reason": "配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)" if ended else
-                      "配信の状態を確かめられなかったので、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)"}]
+                      "reason": ("配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(%s届けます)" if ended else
+                                 "配信の状態を確かめられなかったので、アーカイブから ① 全自動で切り抜きます(%s届けます)") % how}]
             self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", memo, rid, "auto", speakers, tracks,
-                               ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=1, notes=notes)
+                               ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=batch, notes=notes)
             return
         ctx = {"rid": rid, "deliverDir": os.path.join(folder, OUT_DIR), "url": "https://www.youtube.com/watch?v=" + vid, "title": title, "streamer": who or "",
-               "speakers": speakers, "videoTracks": tracks, "cut": cut, "memo": memo, "settings": settings}
+               "speakers": speakers, "videoTracks": tracks, "cut": cut, "memo": memo, "settings": settings, "deliverBatch": batch}
         if self.live_begin is None:
             res = {"label": label, "state": "rejected", "reason": "この PC ではライブ配信の依頼を受け付けられません(リアルタイム切り抜きが使えません)"}
         else:
             try:
                 out = self.live_begin(ctx["url"], ctx) or {}
                 res = {"label": label, "state": "accepted",
-                       "reason": "録画を%s(切り抜きはできしだい 1 本ずつ届けます)" % ("始めました" if not out.get("existing") else "しています(前から録画中)")}
+                       "reason": "録画を%s(切り抜きは%s届けます)" % ("始めました" if not out.get("existing") else "しています(前から録画中)", how)}
             except Exception as e:   # noqa: BLE001  (録画元が動いていない・オフ・URL の形など。理由を友人に返す)
                 msg = str(e)[:160]   # Live.begin の LiveError はもう「録画を始められませんでした: …」で始まる(二重にしない)
                 if not info:   # 状態を確かめられず、録画も始められない(配信が終わっていた・録画元が動いていないなど)→ アーカイブから ① 全自動(今までの流れ)
                     notes = [{"label": "ライブ配信", "state": "accepted",
-                              "reason": "配信の状態を確かめられず、録画も始められなかったので(%s)、アーカイブから ① 全自動で切り抜きます(1 本ずつ届けます)" % msg}]
+                              "reason": "配信の状態を確かめられず、録画も始められなかったので(%s)、アーカイブから ① 全自動で切り抜きます(%s届けます)" % (msg, how)}]
                     self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", memo, rid, "auto", speakers,
-                                       tracks, ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=1, notes=notes)
+                                       tracks, ranges={}, cut=cut, streamer=who, streamer_note=note, deliver_batch=batch, notes=notes)
                     return
                 res = {"label": label, "state": "rejected", "reason": msg if msg.startswith("録画を始められませんでした") else "録画を始められませんでした: " + msg}
         items = [res, {"label": "ライブ配信", "state": "accepted", "reason": live_requests.settings_label(settings)}]

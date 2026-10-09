@@ -1801,11 +1801,12 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual((j["state"], j["runId"], j["handoffError"]), ("done", "run-1", ""))
         self.assertEqual((runner.files[-1][0], runner.files[-1][2], runner.streamers[-1]), (media, "auto", "兎田ぺこら"))
         self.assertEqual(runner.kws[-1], {"cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": deliver,
-                                          "speakers": req["speakers"], "video_tracks": 2, "deliver_batch": 1})
+                                          "speakers": req["speakers"], "video_tracks": 2, "deliver_batch": None, "pool": LX.deliver_pool(j, j["request"])})
+        self.assertEqual(LX.deliver_pool(j, j["request"])["key"], "live|%s|local/%s" % (req["rid"], rec))   # 溜めは 依頼 × 段 × 録画(10-09 ユーザー決定)
         # 依頼にカットの指定が無ければ live.auto のカット・届け先が空なら None(まとめて実行が断る = 失敗として見える)
         j = run("2026-10-04T06:01:00Z", dict(req, cut=None, deliverDir="", speakers=None, videoTracks=None))
         self.assertEqual(runner.kws[-1], {"cut": "none", "engine": "whisper.cpp", "model": "large-v3", "request_id": req["rid"], "deliver_dir": None,
-                                          "speakers": None, "video_tracks": None, "deliver_batch": 1})
+                                          "speakers": None, "video_tracks": None, "deliver_batch": None, "pool": LX.deliver_pool(j, j["request"])})
         # 依頼 id の無い request・依頼なし: 今までどおり(依頼の引数を渡さない)
         for k, bad in enumerate((dict(req, rid=""), None, "x")):
             j = run("2026-10-04T06:0%d:00Z" % (2 + k), bad)
@@ -1950,7 +1951,7 @@ class LiveRequestsStoreTest(unittest.TestCase):
         item = s.put("local", self.REC, ctx)
         self.assertEqual(item["settings"], dict(LR.SETTINGS_DEFAULT, sens="low", pad=0.5))   # 範囲の外(99)は既定
         self.assertEqual((len(item["title"]), item["createdAt"], "extra" in item), (LR.TEXT_MAX, self.now, False))
-        self.assertEqual(sorted(item), ["createdAt", "cut", "deliverDir", "memo", "rid", "settings", "speakers", "streamer", "title", "url", "videoTracks"])
+        self.assertEqual(sorted(item), ["createdAt", "cut", "deliverBatch", "deliverDir", "memo", "rid", "settings", "speakers", "streamer", "title", "url", "videoTracks"])
         got = s.get("local", self.REC)
         self.assertEqual(got, item)
         got["settings"]["pad"] = 9   # 写しを返す(中の記録は変わらない)

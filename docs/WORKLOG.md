@@ -3112,3 +3112,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次(次の周の候補。担当外で残っている写し): `src/home/live_export.py` の `Exporter._encode`(古い ffmpeg のやり直し → `normalize.run_with_legacy(run, enc, tmp)`(取り消しは渡さない = 今の動き)・30fps と長さの確かめ → `normalize.verify(tmp, dur, LEN_TOL, ffprobe, ref="区間", got="動画", error=LiveError)`)・`Exporter._run` → `normalize.run_ffmpeg`・`Exporter.disk` → `fsio.existing_parent` / 終了の合図と標準出力の写し: `src/home/launch.py`(main の stdio・`_set_stop_handlers`)・`live_excite_worker.main`・`src/editor/serve.py:install_stop_signals`(KeyboardInterrupt に変える形)・`src/studio/serve.py` 498-510・`dev/eval_import.py:379` / `prefs.py:72` と `live.py` の RELAY_RE → `recproto.RECORDER_ID_RE`・`live.py:947-953` の中継の見出し → `httpsec.send_head(cache=)` / cut2resolve の `listKind "drop"` を消すなら autorun に `mode "all"` / 入口の autorun が同じ動画を 2 回 ffprobe(deliver に 1 回で求める関数)/ `health` の accuracy の try を `_try` にすると失敗時に `"accuracy": None` が付く(やっていない)
 - 注意: 別セッションの未コミット(src/home の多数・ui-kit・settings の新規)が作業フォルダにあったので、`git add` は自分のファイルを名指し(scratchpad の mine.txt)で add と commit を同時に行った
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「作業１」)— ホーム 0.53.0・送るアプリ 2.9.0: ライブ配信の依頼でも友人が届け方を選ぶ(decisions 3-20 の (ec) の変更)
+- 依頼: セッション「議論」経由のユーザー決定(3-20)の残り 1 件。担当: 作業１
+- 送るアプリ 2.9.0(サブエージェント Sonnet に任せた = friend-apps/request-sender だけの決まった直し。テスト 47 件・dist の zip まで通った): RequestJson.Live に deliverBatch(live のあと・sentAt の前。1〜10 のときだけ)・ライブの URL でも届け方の欄が使える・説明の文(DeliverBatch.LiveHint)・README。「切り抜けが n 本」は「切り抜きが n 本」に直した
+- ホーム: `intake.py` の _handle_live_request が deliverBatch を読み(無ければ PC の設定)、結びつき(`live_requests.put` の deliverBatch)と受付の記録の文(_deliver_how)に。`live_export.py` は job.request に deliverBatch を残し、`_handoff` が deliver_batch と溜めの指定(`deliver_pool` = 依頼(自動で届ける分は録画)× 段 × 録画)を まとめて実行へ。`autorun.py` に組の溜め(Run.pool・clean_pool・_PoolRun・_pool_add・_pool_deliver・flush_pools・pools()・logs/deliver-pool.json)= 今の組の届け方(_deliver_pending・_deliver_group)をそのまま使う。`live.py` の見回りが 60 秒ごとに flush_pools(録画が終わり、書き出しの途中・受け渡し待ちが無ければ「もう作らない」)
+- テスト: test_autorun に溜めの場面(2 本で組・3 本目は溜める・録画が作るかもしれない間は待つ・終わったら残り 1 本)・test_intake に届け方の場面・既存の約束(1 本ずつ固定)を新しい約束に。test_autorun・test_intake・test_live・test_cases・test_friend_feedback・test_deliver 285 件 OK・lint 0。仕様 docs/spec/friend-intake.md の 2-15・2-16
+- 版: ホーム 0.53.0(0.52.1 は「ツール全体のコード修正」= 820ecc2)・送るアプリ 2.9.0。data.js の版と U8(2.9.0 を友人に渡して確かめる)
+- まだ: e2e(画面)は変えていない = 画面の変更なし。本物の配信での組の届き方は U8・D-16 のときに確かめる
+- 未コミット: なし(このセッションの分)

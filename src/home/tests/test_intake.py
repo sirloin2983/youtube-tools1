@@ -764,6 +764,14 @@ class TestLiveRequest(Base):
                 texts.append(f.read())
         return names, texts
 
+    def test_live_request_keeps_deliver_batch(self):
+        """10-09 ユーザー決定(decisions 3-20): ライブ配信の依頼も届け方(2.9.0 のアプリの deliverBatch)を結びつきに残し、受付の記録の文も合わせる"""
+        self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "配信中", "channel": "Miko Ch."}
+        rec = self.send("20261008-200000-abc302", deliverBatch=3)
+        (_url, ctx), = self.begun
+        self.assertEqual(ctx["deliverBatch"], 3)
+        self.assertIn("3 本ごとに組で届けます", rec["items"][0]["reason"])
+
     def test_live_now_begins_recording_and_links(self):
         self.infos[self.VID] = {"duration": None, "live": "is_live", "title": "【歌枠】配信中", "channel": "Miko Ch."}
         rid = "20261008-200000-abc301"
@@ -772,7 +780,8 @@ class TestLiveRequest(Base):
         self.assertEqual(url, "https://www.youtube.com/watch?v=abcdefghijk")   # 書き方の違う URL(/live/…?si=)はそろえる
         want = {"sens": "high", "perHour": 6, "length": 60, "waitMin": 5, "pad": 1.5, "afterStream": False}   # 範囲の外(31・0)は既定
         self.assertEqual(ctx, {"rid": rid, "deliverDir": os.path.join(self.folder, intake.OUT_DIR), "url": url, "title": "【歌枠】配信中",
-                               "streamer": "さくらみこ", "speakers": self.SPEAKERS, "videoTracks": 3, "cut": "silence", "memo": "歌のところ", "settings": want})
+                               "streamer": "さくらみこ", "speakers": self.SPEAKERS, "videoTracks": 3, "cut": "silence", "memo": "歌のところ", "settings": want,
+                               "deliverBatch": None})   # 届け方の指定が無い依頼(2.8.x のアプリ)= ホームの設定
         self.assertEqual((self.runner.requests, self.runner.files), ([], []), "録画の依頼はまとめて実行へ入れない(切り抜きごとに入口が入れる)")
         self.assertEqual((rec["kind"], rec["state"], rec["source"], rec["title"], rec["flowLabel"], rec["streamer"], rec["memo"]),
                          ("live", "accepted", "app", "【歌枠】配信中", "① 全自動", "さくらみこ", "歌のところ"))
@@ -802,16 +811,16 @@ class TestLiveRequest(Base):
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
 
     def test_ended_stream_goes_as_auto_url_request(self):
-        """終わった配信(not_live・was_live)は kind url の ① 全自動と同じ: 切り抜く数はホームの既定・1 本ずつ届ける(deliver_batch 1)・知らせの行「ライブ配信」"""
+        """終わった配信(not_live・was_live)は kind url の ① 全自動と同じ: 切り抜く数はホームの既定・届け方は依頼の指定(2.9.0。10-09 ユーザー決定)・知らせの行「ライブ配信」"""
         for i, (live, title) in enumerate((("not_live", "終わった配信"), ("was_live", "アーカイブ"))):
             self.infos[self.VID] = {"duration": 3600.0, "live": live, "title": title, "channel": "ch"}
             rid = "20261008-200000-abc31%d" % i
-            rec = self.send(rid, deliverBatch=5)   # ライブ配信の依頼は届け方の指定があっても 1 本ずつ
+            rec = self.send(rid, deliverBatch=5)   # 届け方の指定(5 本ごと)をそのまま
             self.assertEqual(self.begun, [], "録画は始めない")
             items, got = self.runner.requests[-1]
             self.assertEqual(([(x["id"], x["top"], x["ranges"]) for x in items], got), ([(self.VID, 4, [])], rid))
             self.assertEqual(self.runner.last, {"flow": "auto", "deliver": os.path.join(self.folder, intake.OUT_DIR), "speakers": self.SPEAKERS, "tracks": 3,
-                                                "cut": "silence", "weights": None, "streamer": "さくらみこ", "batch": 1})
+                                                "cut": "silence", "weights": None, "streamer": "さくらみこ", "batch": 5})
             self.assertEqual((rec["kind"], rec["state"], rec["title"], rec["flowLabel"]), ("url", "accepted", title, "① 全自動"))
             note = [x for x in rec["items"] if x["label"] == "ライブ配信"]
             self.assertEqual([(x["state"], "配信は終わっていた" in x["reason"]) for x in note], [("accepted", True)])

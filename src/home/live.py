@@ -104,6 +104,7 @@ QUALITIES = ("best", "1080p", "720p")     # src/recorder/rec_core.py の QUALITI
 DEFAULT_QUALITY = "1080p"
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/recorder/rec_core.py の YT_HOSTS と同じ
 URL_MAX = 500
+POOL_EVERY = 60.0      # ライブの切り抜きの組の溜め(まとめて実行の flush_pools)を見る間隔
 EXPIRE_EVERY = 600.0   # 見ていない自動の切り抜きの片付け(cases.expire_unseen)を見る間隔(案件の一覧を組み立て直すので、見回りのたびには見ない)
 LIVE_STATUSES = ("is_live", "is_upcoming", "was_live", "not_live", "post_live")   # yt-dlp の live_status
 PROBE_TIMEOUT = 25.0     # yt-dlp で配信の状態を調べる時間切れ(秒)
@@ -295,6 +296,7 @@ class Live:
         self.unconfirmed = None            # () -> ホームの「自動の切り抜き: 未確認」の数(入口 launch.py が cases の数を渡す。D-13 の休む判断)
         self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
         self._expire_at = 0.0              # 見ていない自動の切り抜きの片付けを最後に見た時刻(EXPIRE_EVERY ごと)
+        self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
         self._scope = threading.local()    # cfg_scope の中で読んだ設定(スレッドごと)
         self._tokens = fsio.StampCache()   # 手元の録画元の合言葉(token.txt。変わったときだけ読み直す)
 
@@ -671,6 +673,26 @@ class Live:
             return []
         return [r for r in self.list_recordings()
                 if r.get("active") and live_requests.key_of(r["recorder"], r["id"]) in items and not _same_stream(url, r.get("url") or "", r["id"])]
+
+    def flush_pools(self, force=False):
+        """まとめて実行の組の溜め(src/home/autorun.py の flush_pools)の残りを届ける見回り。その録画が終わり、書き出しの途中・受け渡し待ちが無ければ「もう作らない」。
+        -> 届けた本数"""
+        now = time.time()
+        if not force and now - self._pool_at < POOL_EVERY:
+            return 0
+        self._pool_at = now
+        ar = self.runner()
+        if ar is None or not hasattr(ar, "flush_pools") or not ar.pools():
+            return 0
+        active = {(r["recorder"], r["id"]) for r in self.list_recordings() if r.get("active")}
+        ex = self.exporter
+        with ex.lock:
+            busy = {(j.get("recorder"), j.get("recording")) for j in ex.jobs if j.get("state") in live_export.ACTIVE or j.get("handoffWait")}
+
+        def done(meta):
+            key = (meta.get("recorder"), meta.get("recording"))
+            return key not in active and key not in busy
+        return ar.flush_pools(done)
 
     def expire_unseen(self, force=False):
         """見ても届けてもいない自動の切り抜きを、作ってから cases.EXPIRE_SEC(3 日)で片付ける(src/home/cases.py の expire_unseen。EXPIRE_EVERY ごと)。
@@ -1103,6 +1125,7 @@ class Live:
         self._guard("友人の依頼の結びつきの片付けでエラー", self.requests.prune)   # 2-15: 古い結びつきを消す(消すものがあるときだけ書く)
         self._guard("友人の依頼の録画の上限の見回りでエラー", self.stop_long_requests)   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
         self._guard("配信の記録の見回りでエラー", self.reporter.tick)   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
+        self._guard("届け方の組の見回りでエラー", self.flush_pools)   # n 本の組で届けるライブの切り抜き: 録画が終わったら残りも届ける(10-09 ユーザー決定)
         self._guard("見ていない自動の切り抜きの片付けでエラー", self.expire_unseen)   # 3 日見ない自動の切り抜きはごみ箱へ(10-09 ユーザー決定。オフでも前の分は片付ける)
         cfg = self.cfg()
         if cfg.get("enabled") is not True:

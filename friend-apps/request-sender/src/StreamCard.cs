@@ -470,8 +470,8 @@ namespace RequestSender
         public readonly TextBox Url = new TextBox();
         readonly Field urlField;
         readonly Lbl lUrl = new Lbl("ライブ配信の URL(1 本)", Tone.Text), title = new Lbl("", Tone.Muted),
-                     explain = new Lbl("配信中か配信前の YouTube の URL を貼ります。送り先の PC が配信を録画しながら見どころを見つけ、切り抜けしだい 1 本ずつ" +
-                                       "「受け取る」に届けます(① 全自動のパック)。もう終わった配信なら、ふつうの ① 全自動の依頼になります。", Tone.Muted),
+                     explain = new Lbl("配信中か配信前の YouTube の URL を貼ります。送り先の PC が配信を録画しながら見どころを見つけ、切り抜けしだい" +
+                                       "「受け取る」に届けます(① 全自動のパック。1 本ずつか n 本ごとかは「02 仕上げ方」の右の「届け方」で)。もう終わった配信なら、ふつうの ① 全自動の依頼になります。", Tone.Muted),
                      head = new Lbl("ライブ配信の設定(ベータ。試しながら変えてください)", Tone.Text);
         readonly Btn sensHigh = new Btn("高", BtnKind.Toggle), sensNormal = new Btn("普通", BtnKind.Toggle), sensLow = new Btn("低", BtnKind.Toggle);
         readonly Stepper perHour, length, waitMin, pad;

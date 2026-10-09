@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.8.1";
+        public const string Version = "2.9.0";
     }
 
     // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
@@ -338,7 +338,8 @@ namespace RequestSender
     }
 
     // 届け方(2.8.0。docs/spec/friend-intake.md の 2-16): 1 = 1 本ずつ / n = n 本の組(まとめ動画 1 本 + 1 本ずつの zip)。
-    // ① 全自動の url・video の依頼だけ JSON に書く(②③ はパックを届けない)。1〜10 の外は書かない(= PC の設定 intake.deliverBatch)。ライブ配信の依頼は常に 1 本ずつなので書かない
+    // ① 全自動の依頼(url・video・ライブ配信)だけ JSON に書く(②③ はパックを届けない)。1〜10 の外は書かない(= PC の設定 intake.deliverBatch)。
+    // ライブ配信の依頼(2.9.0)も書く: PC は依頼ごとに n 本たまったら組で届け、録画が終わったら残りを届ける。配信後のアーカイブからの追加は別の組になる
     public static class DeliverBatch
     {
         public const int Min = 1, Max = 10, Default = 1;
@@ -365,10 +366,17 @@ namespace RequestSender
             if (n <= 1) return "PC がパックまで作ります。字幕の校正前のパックが、できた順に 1 本ずつ「受け取る」に届きます。";
             return "PC がパックまで作ります。" + n + " 本の組で「受け取る」に届き、まとめ動画を見て 1 本ずつ選べます。";
         }
+
+        // ライブ配信の説明(2.9.0。「02 仕上げ方」の下の文)
+        public static string LiveHint(int n)
+        {
+            if (n <= 1) return "ライブ配信の依頼は ① 全自動だけです。切り抜けしだい、1 本ずつ「受け取る」に届きます。";
+            return "ライブ配信の依頼は ① 全自動だけです。切り抜きが " + n + " 本たまるごとに組で「受け取る」に届き、録画が終わると残りが届きます(配信後のアーカイブから足した分は別の組)。";
+        }
     }
 
     // 依頼の JSON(キーの順番も受け取る側の約束)。配信者は SpeakerSet(名前 + 字幕の色)。flow の知らない値は ① に寄せる。
-    // deliverBatch(2.8.0・届け方)は ① のときだけ・1〜10 のときだけ、sentAt の直前に書く(0 = 書かない = PC の設定)
+    // deliverBatch(2.8.0・届け方。ライブ配信は 2.9.0 から)は ① のときだけ・1〜10 のときだけ、sentAt の直前に書く(0 = 書かない = PC の設定)
     public static class RequestJson
     {
         // 動画の依頼。"streamer" は 1 人目の名前(無ければ空文字)。speakers には names と people(名前と style.color)が入る。cut は ① のときだけ書く
@@ -410,8 +418,8 @@ namespace RequestSender
         }
 
         // ライブ配信の依頼(2.8.0。docs/spec/friend-intake.md の 2-15): 配信の URL 1 本(正規化済み)・flow は auto 固定・友人のベータの設定 live。
-        // 鍵の順: v kind id flow url streamer memo [speakers] videoTracks cut live sentAt。streamer は 1 人目の名前(無ければ空文字)。届け方は常に 1 本ずつ(deliverBatch は書かない)
-        public static string Live(string id, string url, string memo, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, LiveSettings live)
+        // 鍵の順: v kind id flow url streamer memo [speakers] videoTracks cut live sentAt。streamer は 1 人目の名前(無ければ空文字)。届け方 deliverBatch は live の後・sentAt の直前(2.9.0。1〜10 のときだけ。0 や範囲の外は書かない = PC の設定)
+        public static string Live(string id, string url, string memo, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, LiveSettings live, int deliverBatch = 0)
         {
             var sb = new StringBuilder();
             sb.Append("{\"v\":1,\"kind\":\"live\",\"id\":").Append(JsonText.Quote(id, false));
@@ -423,6 +431,7 @@ namespace RequestSender
             sb.Append(VideoTracks.JsonPart(Flow.Auto, videoTracks));
             sb.Append(Cut.JsonPart(Flow.Auto, cut));
             sb.Append((live ?? new LiveSettings()).JsonPart());
+            sb.Append(DeliverBatch.JsonPart(Flow.Auto, deliverBatch));
             return Finish(sb, sentAt);
         }
 

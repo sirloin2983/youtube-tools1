@@ -1382,6 +1382,33 @@ class TestRequests(Base):
         doc = self.group_json(out, "%s__%s 1-2.group.json" % (self.RID, run["title"]))
         self.assertEqual([(p["n"], p["previewStart"], p["duration"]) for p in doc["packs"]], [(1, 0.0, 48.2), (2, 48.2, 31.46)])
 
+    def test_live_clips_pool_across_runs(self):
+        """10-09 ユーザー決定(decisions 3-20): ライブの切り抜きは 1 本ごとに別の実行でも、溜め(run.pool)に預けて n 本たまったら組で届ける。
+        録画がもう作らない(is_done)・最後に預けてから POOL_IDLE_SEC たったら残りを届ける(1 本なら 1 本の形)。溜めは logs/deliver-pool.json に残る"""
+        self.tools.known = False
+        out = os.path.join(self.tmp, "Dropbox", "出力")
+        self.r.pool_path = os.path.join(self.tmp, "logs", A.POOL_FILE)   # この組み立ては log_dir なし(log_path だけ)なので、溜めの置き場所も足す
+        pool = {"key": "live|%s|local/rec1" % self.RID, "rid": self.RID, "title": "配信", "meta": {"recorder": "local", "recording": "rec1", "phase": "live"}}
+        for i in range(3):
+            media = self.live_clip("l%d.mp4" % i, "auto")
+            run = self.wait(self.r.start_file(media, title="l%d" % i, flow="auto", request_id=self.RID, deliver_dir=out, deliver_batch=2, pool=pool))
+            self.assertEqual(run["state"], "done", run)
+            names = sorted(os.listdir(out)) if os.path.isdir(out) else []
+            if i == 0:
+                self.assertEqual((names, self.r.pools()[pool["key"]]["waiting"]), ([], 1))   # 1 本目は溜めるだけ
+            elif i == 1:
+                pre = "%s__配信 1-2" % self.RID
+                self.assertEqual(names, sorted([pre + ".preview.mp4", pre + ".group.json", "%s__l0.zip" % self.RID, "%s__l1.zip" % self.RID]), names)
+            else:
+                self.assertEqual(len(names), 4)   # 3 本目は溜めるだけ
+        self.assertEqual(self.r.pools()[pool["key"]]["waiting"], 1)
+        self.assertTrue(os.path.isfile(self.r.pool_path))   # 起動し直しても続く
+        later = self.r.clock() + A.POOL_IDLE_SEC + 1
+        self.assertEqual(self.r.flush_pools(lambda meta: False, now=later), 0)   # 録画がまだ作るかもしれない間は待つ
+        self.assertEqual(self.r.flush_pools(lambda meta: meta.get("recording") == "rec1", now=later), 1)
+        self.assertIn("%s__l2.zip" % self.RID, os.listdir(out))
+        self.assertEqual(self.r.pools(), {})
+
     def test_delivers_one_by_one_when_batch_is_1(self):
         """まとめて届ける本数 1 = 1 本ずつ(<依頼 id>__<パックの題>.zip + 隣にそのクリップの <同じ名前>.preview.mp4。組の一覧は作らない)"""
         self.tools.known = False

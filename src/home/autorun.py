@@ -30,6 +30,9 @@
 - ① 全自動の Dropbox へ届ける段: パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、組 = まとめ動画 1 本 +
   1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。n=1 か 1 本だけのときは
   1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(docs/spec/friend-intake.md の 2-16)。作り方・名前は src/home/deliver.py
+  ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
+  n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/home/live.py が見回りで呼ぶ)。
+  溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
 - あとから解析(測るため。2026-10-05 ユーザー決定): 友人の依頼(URL)が区間だけ(解析の段を外した形)で終わったら、その配信を「あとから解析する一覧」
   (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
   スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
@@ -102,6 +105,10 @@ HISTORY_DEFAULT, HISTORY_MAX = 50, 200   # /api/autorun/history の limit の既
 PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "state", "stateLabel", "nothing", "message", "error",
              "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
 MAX_WAITING = 20       # 順番待ちの上限
+POOL_FILE = "deliver-pool.json"   # ライブの切り抜きの組の溜め(実行をまたいで n 本ためて組で届ける。log_dir の中)
+POOL_SCHEMA = "ytt-deliver-pool/v1"
+POOL_IDLE_SEC = 600.0              # 録画が終わって書き出しも実行も無くなってから、最後に預けてこれだけたったら残りを届ける
+POOL_MAX_AGE = 12 * 3600.0         # 溜めを作ってからこれだけたったら、終わりを待たずに残りを届ける(録画が長すぎる・見張りが止まった)
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
 TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
            "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
@@ -306,11 +313,35 @@ def _busy_reason(active, same, what=""):
     return None
 
 
+def clean_pool(p):
+    """組の溜めの指定 {key, rid, title, meta: {recorder, recording, phase}} を検査した形か None(live_export._handoff が作る)"""
+    if not isinstance(p, dict) or not isinstance(p.get("key"), str) or not 0 < len(p["key"]) <= 200:
+        return None
+    meta = p.get("meta") if isinstance(p.get("meta"), dict) else {}
+    return {"key": p["key"], "rid": str(p.get("rid") or "")[:120], "title": str(p.get("title") or "")[:120],
+            "meta": {k: str(meta[k])[:120] for k in ("recorder", "recording", "phase") if isinstance(meta.get(k), str)}}
+
+
+class _PoolRun:
+    """組の溜めを届けるときに Autorun の届ける部品(_deliver_pending・_deliver_group・_deliver_one・_record_delivery)へ渡す、実行の代わり"""
+
+    def __init__(self, key, p):
+        self.id = "pool" + uuid.uuid5(uuid.NAMESPACE_URL, key).hex[:6]
+        self.request_id, self.title, self.deliver_dir = p.get("rid") or "", p.get("title") or "pack", p.get("deliverDir") or ""
+        b = p.get("batch")
+        self.deliver_batch = b if isinstance(b, int) and not isinstance(b, bool) and 1 <= b <= 10 else None
+        self.video_id = (p.get("meta") or {}).get("recording") or ""
+        self.packs, self.delivered = list(p.get("packs") or []), list(p.get("delivered") or [])
+        self.pack_marks = dict(p.get("marks") or {})
+        self.cancel, self.pool = False, None
+
+
 class Run:
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
                  source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
-                 engine=None, model=None, deliver_batch=None):
+                 engine=None, model=None, deliver_batch=None, pool=None):
         self.id = uuid.uuid4().hex[:10]
+        self.pool = clean_pool(pool)   # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta": {recorder, recording, phase}}(None = この実行の中で届ける)
         self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
         self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
         self.deliver_batch = deliver_batch if isinstance(deliver_batch, int) and not isinstance(deliver_batch, bool) and 1 <= deliver_batch <= 10 else None   # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
@@ -362,7 +393,7 @@ class Run:
                 "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
-                "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
+                "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks),
                 "created": self.created, "state": self.state, "message": self.message,
                 "steps": [{"key": s["key"], "state": s["state"], "detail": s["detail"]} for s in self.steps]}
@@ -390,7 +421,7 @@ class Run:
                       speakers=d.get("speakers") if isinstance(d.get("speakers"), dict) else None,
                       video_tracks=vt if isinstance(vt, int) and not isinstance(vt, bool) else None, ranges=clean_ranges(d.get("ranges")),
                       cut=d.get("cut"), weights=clean_weights(d.get("weights")), duration=d.get("duration") if _num(d.get("duration")) else None,
-                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"))
+                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"))
         except (TypeError, ValueError, KeyError):
             return None
         run.id = d["id"]
@@ -511,6 +542,9 @@ class AutoRunner:
         self.active_error = ""     # 最後に待ちの記録を書けなかった理由(書けたら空に戻す)
         self._active_lock = threading.Lock()   # 待ちの記録のファイル(これを持ったまま self.cv を取る。逆の順では取らない)
         self.defer_path = os.path.join(log_dir, DEFER_FILE) if log_dir else None
+        self.pool_path = os.path.join(log_dir, POOL_FILE) if log_dir else None   # ライブの切り抜きの組の溜め(None = メモリだけ)
+        self._pool_lock = threading.RLock()   # 溜めの読み書きと組で届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
+        self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, batch, meta, packs, delivered, marks, created, updated}}(初めて使うときに読む)
         self.defer_idle, self.defer_retry = defer_idle, defer_retry
         self.clock = clock or time.time
         self.log = log or (lambda msg: None)   # 入口のログ(launcher.log)に1行
@@ -770,7 +804,7 @@ class AutoRunner:
         return self._enqueue(items, make)
 
     def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
-                   engine=None, model=None, deliver_batch=None):
+                   engine=None, model=None, deliver_batch=None, pool=None):
         """友人が切り抜いた動画の依頼(src/home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)。
         engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)"""
@@ -782,7 +816,7 @@ class AutoRunner:
                 raise ValueError(why)
             out = self._push(Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
                                  on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                                 video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch))
+                                 video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch, pool=pool))
         self._save_active()
         return out
 
@@ -1954,6 +1988,8 @@ class AutoRunner:
         if not dirs:
             st["state"], st["detail"] = "skip", "届けるパックがありません"
             return None
+        if run.pool and self._batch_size(run) > 1:   # ライブの切り抜き: 実行をまたいで溜めに預け、n 本たまったら組で届ける(1 本ずつのときは今までどおり)
+            return self._pool_add(run, st, dirs)
         for d in dirs:
             if d not in run.packs:
                 run.packs.append(d)   # 前からあったパックも、この実行の並び(1 本目・2 本目…)に入れて同じ数え方で届ける
@@ -2081,6 +2117,105 @@ class AutoRunner:
             self._mark_delivered(run, [d])
             self._record_delivery(run, dest, [d])
             return dest
+
+    # ------------------------------------------------------------ ライブの切り抜きの組の溜め(10-09 ユーザー決定 = decisions 3-20)
+    def _pools_load(self):
+        """溜めの一覧(呼ぶのは self._pool_lock を持っている間)"""
+        if self._pools is None:
+            d = fsio.read_json_or(self.pool_path, {}) if self.pool_path else {}
+            pools = d.get("pools") if isinstance(d, dict) and d.get("schema") == POOL_SCHEMA else None
+            self._pools = {k: v for k, v in (pools or {}).items() if isinstance(k, str) and isinstance(v, dict) and isinstance(v.get("packs"), list)}
+        return self._pools
+
+    def _pools_save(self):
+        if not self.pool_path:
+            return
+        try:
+            fsio.atomic_write(self.pool_path, json.dumps({"schema": POOL_SCHEMA, "pools": self._pools or {}}, ensure_ascii=False, indent=1).encode("utf-8"))
+        except OSError as e:
+            self.log("まとめて実行: 組の溜めを書けませんでした(%s)" % tools.why(e))
+
+    def pools(self):
+        """溜めの今(画面・テスト用)-> {鍵: {rid, title, waiting(まだ届けていない本数), meta}}"""
+        with self._pool_lock:
+            return {k: {"rid": p.get("rid"), "title": p.get("title"), "meta": p.get("meta"),
+                        "waiting": sum(1 for d in p["packs"] if d not in (p.get("delivered") or []))} for k, p in self._pools_load().items()}
+
+    def _pool_add(self, run, st, dirs):
+        """この実行のパックを溜めに預け、n 本たまっていれば組で届ける。預けたパックはこの実行では届け済みの扱い(二重に置かない)"""
+        key, now = run.pool["key"], self.clock()
+        with self._pool_lock:
+            pools = self._pools_load()
+            p = pools.get(key) or {"rid": run.pool.get("rid") or run.request_id or run.id, "title": run.pool.get("title") or run.title or "pack",
+                                   "deliverDir": run.deliver_dir, "batch": run.deliver_batch, "meta": run.pool.get("meta") or {},
+                                   "packs": [], "delivered": [], "marks": {}, "created": now}
+            for d in dirs:
+                if d not in p["packs"]:
+                    p["packs"].append(d)
+                if isinstance(run.pack_marks.get(d), dict):
+                    p["marks"][d] = run.pack_marks[d]
+            p["updated"] = now
+            pools[key] = p
+            self._pools_save()
+            self._mark_delivered(run, [d for d in dirs if d not in run.delivered])
+            self._pool_deliver(key, final=False, st=st)
+            p = self._pools_load().get(key)
+            waiting = sum(1 for d in (p or {}).get("packs", []) if d not in (p or {}).get("delivered", []))
+        n = self._batch_size(run)
+        st["detail"] = ("%d 本たまったので組で Dropbox の 出力 に置きました(字幕は校正前)" % n) if not waiting else \
+            "%d 本の組にためています(今 %d 本。録画が終わったら残りも届けます)" % (n, waiting)
+        return None
+
+    def _pool_deliver(self, key, final, st=None):
+        """溜め 1 つの、まだ届けていないパックを n 本ごとに届ける(final = 残りも)。-> 届けた本数。届け終えた溜めは消す"""
+        with self._pool_lock:
+            pools = self._pools_load()
+            p = pools.get(key)
+            if not p:
+                return 0
+            prun = _PoolRun(key, p)
+            before = len(prun.delivered)
+            try:
+                self._deliver_pending(prun, st if st is not None else {}, "", final)
+            finally:
+                p["delivered"] = list(prun.delivered)
+                if final and all(d in p["delivered"] or not os.path.isdir(d) for d in p["packs"]):
+                    pools.pop(key, None)
+                self._pools_save()
+            return len(prun.delivered) - before
+
+    def flush_pools(self, is_done, now=None):
+        """溜めの残りを届ける見回り(入口の src/home/live.py が呼ぶ)。is_done(meta) = その録画・その段がもう切り抜きを作らないか
+        (録画が終わった・書き出しの途中が無い)。届けるのは: is_done が真で、その溜めに預ける実行が待ち・実行中に無く、最後に預けてから POOL_IDLE_SEC たったとき、
+        または溜めを作ってから POOL_MAX_AGE たったとき。-> 届けた本数の合計"""
+        now = self.clock() if now is None else now
+        with self._pool_lock:
+            keys = list(self._pools_load())
+        total = 0
+        for key in keys:
+            with self._pool_lock:
+                p = self._pools_load().get(key)
+                if not p:
+                    continue
+                if not any(d not in p["delivered"] and os.path.isdir(d) for d in p["packs"]):
+                    self._pools_load().pop(key, None)
+                    self._pools_save()
+                    continue
+                with self.cv:
+                    busy = any(r.pool and r.pool.get("key") == key for r in self._active_runs())
+                idle = now - float(p.get("updated") or 0) >= POOL_IDLE_SEC
+                old = now - float(p.get("created") or now) >= POOL_MAX_AGE
+                try:
+                    done = bool(is_done(p.get("meta") or {}))
+                except Exception:   # noqa: BLE001  (確かめられなければ、届けるのは待つ)
+                    done = False
+                if not (old or (idle and not busy and done)):
+                    continue
+                try:
+                    total += self._pool_deliver(key, final=True)
+                except Exception as e:   # noqa: BLE001  (置けなければ次の見回りでまた試す)
+                    self.log("まとめて実行: 組の残りを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
+        return total
 
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""

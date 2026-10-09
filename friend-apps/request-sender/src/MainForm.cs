@@ -241,13 +241,13 @@ namespace RequestSender
         // 右: 02 仕上げ方(どこまでやるか・カット・映像トラックの数・見どころの重み)
         void BuildFlowSection()
         {
-            // 見出しの行: 左に「02 仕上げ方」・右に届け方(2.8.0。1 本ずつ / n 本ごと。① の url・video の依頼に deliverBatch で送る。ライブ配信はいつも 1 本ずつ)
+            // 見出しの行: 左に「02 仕上げ方」・右に届け方(2.8.0。1 本ずつ / n 本ごと。① の依頼に deliverBatch で送る。ライブ配信も 2.9.0 から)
             deliver = new Stepper(DeliverBatch.Min, DeliverBatch.Max, settings.DeliverBatch, Ui.S(76), "届け方(何本ごとに届けるか)");
             deliver.Format = DeliverBatch.Label;
             deliver.Show_();
             deliver.ValueChanged += () => { UpdateFlow(); UpdateAll(); };
             lDeliver.Font = Theme.Small;
-            string deliverTip = "届け方: 1 本ずつ = 切り抜きができた順に 1 本ずつ届く / n 本ごと = n 本の組(まとめ動画 1 本 + 1 本ずつ)で届き、まとめ動画を見てから 1 本ずつ選べる。ライブ配信はいつも 1 本ずつ";
+            string deliverTip = "届け方: 1 本ずつ = 切り抜きができた順に 1 本ずつ届く / n 本ごと = n 本の組(まとめ動画 1 本 + 1 本ずつ)で届き、まとめ動画を見てから 1 本ずつ選べる。ライブ配信は n 本たまるごとに組で届き、録画が終わると残りが届く";
             tips.SetToolTip(lDeliver, deliverTip);
             foreach (Control c in deliver.Controls) tips.SetToolTip(c, deliverTip);
             head02.Controls.AddRange(new Control[] { headFlow, lDeliver, deliver });
@@ -638,7 +638,7 @@ namespace RequestSender
             modeLive.Location = new Point(modeVideo.Right + Ui.S(4), modeLive.Top);
         }
 
-        // ライブ配信の依頼を送るか(URL の欄に何か入っている)。入っている間は ① 全自動・1 本ずつに固定し、重みは使わない
+        // ライブ配信の依頼を送るか(URL の欄に何か入っている)。入っている間は ① 全自動に固定し、重みは使わない
         bool LiveOn { get { return liveCard.HasUrlText; } }
 
         // ---------------------------------------------------------------- 配信のカード
@@ -692,9 +692,9 @@ namespace RequestSender
             string f = SelectedFlow;
             bool live = LiveOn;
             bool auto = f == Flow.Auto;   // ②③ はパックを PC で作らないので、カットとトラック・届け方は使わない
-            flowExplain.Text = live ? "ライブ配信の依頼は ① 全自動だけです。切り抜けしだい、1 本ずつ「受け取る」に届きます。" : auto ? DeliverBatch.Hint(deliver.Value) : Flow.Explain(f);
+            flowExplain.Text = live ? DeliverBatch.LiveHint(deliver.Value) : auto ? DeliverBatch.Hint(deliver.Value) : Flow.Explain(f);
             cutRow.Enabled = tracksRow.Enabled = tracksHint.Enabled = auto;
-            lDeliver.Enabled = deliver.Enabled = auto && !live && !Busy;   // ライブ配信はいつも 1 本ずつ
+            lDeliver.Enabled = deliver.Enabled = auto && !Busy;   // ライブ配信も届け方を選べる(2.9.0)
             for (int i = 1; i < flowRadios.Length; i++) flowRadios[i].Enabled = !live && !Busy;
             weightsOn.Enabled = !live && !Busy;   // ライブ配信は見どころの重みを使わない(配信中の検出)
             UpdateWeights();
@@ -751,7 +751,7 @@ namespace RequestSender
                 justSent = false;
                 summary.Font = Theme.Body;
                 summary.Tone = alone ? Tone.Text : Tone.Error;
-                summary.Text = alone ? string.Join(" ・ ", new[] { "ライブ配信(配信中に自動で切り抜き → 1 本ずつ届く)", liveCard.Settings.Summary(), Cut.Label(cut), "トラック " + tracks.Value }
+                summary.Text = alone ? string.Join(" ・ ", new[] { "ライブ配信(配信中に自動で切り抜き)", liveCard.Settings.Summary(), Cut.Label(cut), "トラック " + tracks.Value, DeliverBatch.Label(deliver.Value) }
                                            .Concat(speakerCount.Value > 0 ? new[] { "配信者 " + speakerCount.Value + " 人" } : new string[0]))
                                      : "⚠ " + Sending.LiveAloneMessage;
                 tips.SetToolTip(summary, summary.Text);
@@ -990,7 +990,7 @@ namespace RequestSender
             return input;
         }
 
-        // ライブ配信の依頼(2.8.0): URL 1 本 + 設定。配信の URL・動画ファイルと一緒には送らない(1 件 1 本)。仕上げ方は ① 固定・届け方は 1 本ずつ
+        // ライブ配信の依頼(2.8.0): URL 1 本 + 設定。配信の URL・動画ファイルと一緒には送らない(1 件 1 本)。仕上げ方は ① 固定・届け方は今の値(2.9.0)
         SendInput CollectLive()
         {
             Control bad = liveCard.Validate_();
@@ -1015,6 +1015,7 @@ namespace RequestSender
                 Flow = Flow.Auto,
                 VideoTracks = tracks.Value,
                 Cut = cut,
+                DeliverBatch = deliver.Value,
             };
             var errs = Sending.Check(input);
             if (errs.Count > 0)
@@ -1033,7 +1034,7 @@ namespace RequestSender
             bar.Value = 0;
             SetStatus("送る準備をしています…", Tone.Muted);
             Log.Write("send: videos=" + input.Videos.Count + " urls=" + input.Items.Count + " ranges=" + input.Items.Sum(i => i.Ranges.Count) + " flow=" + input.Flow +
-                      (input.Live != null ? " live" : " deliverBatch=" + input.DeliverBatch));
+                      (input.Live != null ? " live" : "") + " deliverBatch=" + input.DeliverBatch);
             var client = new DropboxClient(config) { IsCanceled = () => cancel, Log = Log.Write };
             var sending = new Sending(client);
             int lastPermille = -1;
@@ -1098,7 +1099,7 @@ namespace RequestSender
         {
             ClearInputs(true, true);
             justSent = true;
-            SetStatus(live ? "配信中に切り抜けしだい、1 本ずつ「受け取る」に届きます(もう終わった配信なら、できあがると届きます)。続けて送ることもできます"
+            SetStatus(live ? (deliver.Value <= 1 ? "配信中に切り抜けしだい、1 本ずつ「受け取る」に届きます" : "配信中に切り抜きが " + deliver.Value + " 本たまるごとに、組で「受け取る」に届きます") + "(もう終わった配信なら、できあがると届きます)。続けて送ることもできます"
                       : auto ? "できあがると「受け取る」に届きます(時間がかかります)。続けて送ることもできます" : "続けて送ることもできます", Tone.Muted);
             UpdateAll();
         }

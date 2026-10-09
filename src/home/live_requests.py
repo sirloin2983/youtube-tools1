@@ -93,7 +93,9 @@ class Store:
                 "speakers": ctx.get("speakers") if isinstance(ctx.get("speakers"), dict) else None,
                 "videoTracks": ctx["videoTracks"] if isinstance(ctx.get("videoTracks"), int) and not isinstance(ctx.get("videoTracks"), bool) else None,
                 "cut": ctx.get("cut") if isinstance(ctx.get("cut"), str) and ctx.get("cut") else None,
-                "memo": str(ctx.get("memo") or "")[:500], "settings": clean_settings(ctx.get("settings")), "createdAt": self.clock()}
+                "memo": str(ctx.get("memo") or "")[:500], "settings": clean_settings(ctx.get("settings")), "createdAt": self.clock(),
+                "deliverBatch": ctx["deliverBatch"] if isinstance(ctx.get("deliverBatch"), int) and not isinstance(ctx.get("deliverBatch"), bool)
+                and 1 <= ctx["deliverBatch"] <= 10 else None}   # 届け方(2.9.0 のアプリ。None = ホームの設定 intake.deliverBatch)
         with self.lock:
             items = self._load()
             items[key_of(rc, rec)] = item

@@ -191,6 +191,17 @@ def check_streamer(v):
     return v
 
 
+def deliver_pool(job, req):
+    """ライブの切り抜きを n 本の組で届けるときの溜めの指定(src/home/autorun.py の Run.pool)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
+    (配信中の live = 自動の採用・人のマーク / 配信後の追加 archive)ごと。10-09 ユーザー決定 = decisions 3-20"""
+    phase = "archive" if job.get("origin") == "archive" else "live"
+    who = "auto" if req.get("autoDeliver") is True else str(req.get("rid") or "")
+    rec = "%s/%s" % (job.get("recorder") or "", job.get("recording") or "")
+    title = job.get("title") if isinstance(job.get("title"), str) and job.get("title") else job.get("recording") or "live"
+    return {"key": "%s|%s|%s" % (phase, who, rec), "rid": str(req.get("rid") or ""), "title": (title + (" 配信後" if phase == "archive" else ""))[:100],
+            "meta": {"recorder": job.get("recorder") or "", "recording": job.get("recording") or "", "phase": phase}}
+
+
 def job_after(job):
     """ジョブの書き出したあと(この版より前のジョブは transcribe から)"""
     a = job.get("after")
@@ -547,6 +558,8 @@ class Exporter:
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             if isinstance(request, dict) and request.get("rid"):
                 job["request"] = {k: request.get(k) for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}   # 友人の依頼(2-15)
+                if isinstance(request.get("deliverBatch"), int) and not isinstance(request.get("deliverBatch"), bool):   # 届け方(2.9.0 のアプリ)
+                    job["request"]["deliverBatch"] = request["deliverBatch"]
                 if request.get("autoDeliver") is True:   # 自分の配信の自動の切り抜きを確認なしで届ける(live.autoDeliver)= 友人の依頼と分ける印
                     job["request"]["autoDeliver"] = True
             self.jobs.append(job)
@@ -1093,7 +1106,7 @@ class Exporter:
             req = job.get("request") if isinstance(job.get("request"), dict) and job["request"].get("rid") else None
             if req:   # 友人のライブ配信の依頼の録画(2-15): 依頼 id・届け先・配信者の設定を渡す = パックを 1 本ずつ友人へ届ける
                 kw.update(request_id=req["rid"], deliver_dir=req.get("deliverDir") or None, speakers=req.get("speakers"), video_tracks=req.get("videoTracks"),
-                          deliver_batch=1)
+                          deliver_batch=req.get("deliverBatch"), pool=deliver_pool(job, req))   # 届け方は依頼の指定(無ければホームの設定)・n 本の組は録画をまたいで溜める
                 if req.get("cut"):
                     kw["cut"] = req["cut"]
             run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after, **kw) or {}).get("id") or ""

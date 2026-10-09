@@ -57,14 +57,14 @@ static class CoreTests
         Run("画面: 確かめた題名の ✓ だけアクセントの色(残りの文字は同じ描き方)", TitleMark);
         Run("画面: Ctrl+Enter で送る(送るの画面だけ)", CtrlEnter);
         Run("画面: 配信者が多いときは行の欄の中でスクロールして、メモを下に隠さない", ManySpeakers);
-        Run("JSON: ライブ配信の依頼(鍵の順・flow は auto 固定・範囲の外は既定・届け方は書かない)", LiveJson);
-        Run("JSON: 届け方 deliverBatch(① の url・video だけ・1〜10 だけ・sentAt の直前)", DeliverBatchJson);
+        Run("JSON: ライブ配信の依頼(鍵の順・flow は auto 固定・範囲の外は既定・届け方 deliverBatch は 1〜10 のときだけ)", LiveJson);
+        Run("JSON: 届け方 deliverBatch(① の url・video・live だけ・1〜10 だけ・sentAt の直前)", DeliverBatchJson);
         Run("設定: ライブ配信の設定と届け方を覚える・壊れた値は既定", LiveSettingsRoundTrip);
         Run("送る前の検査: ライブ配信は 1 件だけ・URL は YouTube の形", LiveChecks);
         Run("組: .group.json の読み取り(形・名前の検査・壊れた JSON・数の範囲)", GroupParse);
         Run("組: 一覧に組の行と 1 本ずつの行(zip が欠けている・1 本も無い・壊れた組・1 本の zip のまとめ動画)", GroupArrange);
         Run("組: 最後の 1 本まで片付けた組だけ消す・まとめ動画は組ごとに 1 本先に取る・小窓の決めるボタンの文字", GroupsDoneAndQueue);
-        Run("画面: ライブ配信の欄(① に固定・重みと届け方は使わない・ほかと一緒には送らない・要約)", FormLive);
+        Run("画面: ライブ配信の欄(① に固定・重みは使わない・届け方は選べる・ほかと一緒には送らない・要約)", FormLive);
         Run("画面: 受け取るの組の行(受け取る(n 本)・要らない(n 本)・まとめ動画は組のもの)・1 本の行・片付けたら組の行も消える", FormGroups);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
@@ -1256,7 +1256,15 @@ static class CoreTests
         string plain = RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, null);
         True(plain.Contains("\"flow\":\"auto\",\"url\":\"" + Norm + "\",\"streamer\":\"\",\"memo\":\"\",\"videoTracks\":1,\"cut\":\"none\"," +
                             "\"live\":{\"sens\":\"normal\",\"perHour\":6,\"length\":45,\"waitMin\":5,\"pad\":2,\"afterStream\":true},\"sentAt\""), "既定・配信者なし(streamer は空文字・speakers は無い): " + plain);
-        True(!plain.Contains("deliverBatch") && !plain.Contains("weights") && !plain.Contains("items"), "届け方・重み・items は書かない(いつも 1 本ずつ)");
+        True(!plain.Contains("deliverBatch") && !plain.Contains("weights") && !plain.Contains("items"), "届け方を指定しない(0)・重み・items は書かない");
+        // 2.9.0: ライブ配信の依頼にも届け方(live の後・sentAt の直前。1〜10 のときだけ)
+        string two = RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, null, 2);
+        True(two.EndsWith("\"afterStream\":true},\"deliverBatch\":2,\"sentAt\":\"2026-10-01T12:00:00+09:00\"}"), "ライブ: 届け方 2 は live の後・sentAt の直前: " + two);
+        Eq(2L, Json.Long(Json.Parse(two), "deliverBatch", -1), "ライブ: 読み直せる");
+        True(RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, null, 1).Contains("\"deliverBatch\":1,\"sentAt\""), "ライブ: 1 本ずつ = 1 を書く");
+        True(RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, null, 10).Contains("\"deliverBatch\":10,\"sentAt\""), "ライブ: 10 は書く");
+        foreach (int n in new[] { 0, 11, -1 })
+            True(!RequestJson.Live(id, Norm, "", T, null, 1, Cut.None, null, n).Contains("deliverBatch"), "ライブ: 1〜10 の外は書かない(PC の設定): " + n);
         foreach (var bad in new[] {
             new LiveSettings { Sens = "x", PerHour = 0, Length = 9, WaitMin = 0, Pad = -1 },
             new LiveSettings { Sens = "HIGH", PerHour = 31, Length = 121, WaitMin = 61, Pad = 6 } })
@@ -1480,8 +1488,12 @@ static class CoreTests
                 True(!deliver.Enabled, "② では届け方は使わない");
                 live.Url.Text = "https://www.youtube.com/live/dQw4w9WgXcQ";
                 True(radios[0].Checked && !radios[1].Enabled && !radios[2].Enabled, "ライブ配信の URL を入れると ① に固定");
-                True(!weights.Enabled && !deliver.Enabled, "重みと届け方は使わない");
-                True(summary().StartsWith("ライブ配信(配信中に自動で切り抜き → 1 本ずつ届く)") && summary().Contains("感度 普通") && summary().Contains("カットしない"), "要約: " + summary());
+                True(!weights.Enabled && deliver.Enabled, "ライブ配信でも届け方は選べる(2.9.0)・重みは使わない");
+                True(summary().StartsWith("ライブ配信(配信中に自動で切り抜き)") && summary().Contains("感度 普通") && summary().Contains("カットしない") && summary().Contains("1 本ずつ"), "要約: " + summary());
+                deliver.Value = 4;
+                True(summary().Contains("4 本ごと") && !summary().Contains("1 本ずつ"), "ライブの要約に届け方: " + summary());
+                True(((Lbl)typeof(MainForm).GetField("flowExplain", flags).GetValue(f)).Text.Contains("4 本たまるごと"), "ライブの説明が届け方に合う");
+                deliver.Value = 1;
                 True(FindAll(f).OfType<Btn>().Any(b => b.Text == "ライブ配信(1)"), "入れたら数が出る");
 
                 var card = FindAll(f).OfType<StreamCard>().First();

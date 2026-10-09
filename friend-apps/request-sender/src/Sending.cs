@@ -18,7 +18,7 @@ namespace RequestSender
         public int VideoTracks = RequestSender.VideoTracks.Default;   // Resolve の映像トラックの数(① 全自動のときだけ送る)
         public string Cut = RequestSender.Cut.None;                   // カット(① 全自動のときだけ送る)
         public Weights Weights = new Weights();                       // 解析の重み(指定したときだけ・URL の依頼だけ)
-        public int DeliverBatch = RequestSender.DeliverBatch.Default; // 届け方(① 全自動の url・video の依頼だけ送る。2.8.0)
+        public int DeliverBatch = RequestSender.DeliverBatch.Default; // 届け方(① 全自動の依頼に送る。url・video は 2.8.0・ライブ配信は 2.9.0 から)
         public LiveRequest Live;                                      // ライブ配信の依頼(2.8.0。null = なし)
     }
 
@@ -92,7 +92,7 @@ namespace RequestSender
                 string id = RequestId.New(now.LocalDateTime);
                 prog.Step = "ライブ配信の依頼を送っています";
                 Progress(prog);
-                string json = RequestJson.Live(id, input.Live.Url, input.Memo, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.Live.Settings);
+                string json = RequestJson.Live(id, input.Live.Url, input.Memo, DateTimeOffset.Now, input.People, input.VideoTracks, input.Cut, input.Live.Settings, input.DeliverBatch);
                 client.UploadBytes(new UTF8Encoding(false).GetBytes(json), RequestId.RequestPath(id));
                 Sent.Add("ライブ配信");
                 Progress(new SendProgress { Done = prog.Total, Total = prog.Total, Step = "送りました" });
