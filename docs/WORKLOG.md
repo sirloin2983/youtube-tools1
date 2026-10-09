@@ -3159,3 +3159,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: `test_analyze`(classify・preset・type の 3 件を消す)・`test_robustness`(load_meta の title で)・`e2e_analyze`(type が出ない・古い鍵は読み捨て)・`test_review.cjs`(帯に音量と消音)・`e2e_live_studio.py` 11a(つまみ 40 → 映像の volume 0.4・↑ で 45・「消音」→ M で戻る・review.volume に残る)
 - 結果: スタジオ unittest 313 件 OK・test_review.cjs 53 件 OK・e2e_analyze OK・e2e_live_studio 189/189(1 回目は 11a の数字の更新を直す前で 1 件落ち・M2 の live.auto の保存が 1 回落ちた = 揺れ。2 回目は全部 OK)・e2e_ui 214/214・e2e_ui --mounted 237/237・e2e_live_archive 1 回目 94/95(9 段の analyze の段を 1 秒の見回りが見逃した = 時間の揺れ)→ 2 回目 95/95・lint 0・ui_audit all --demo Must 0・test_launch/test_mount/test_ui_kit_sync/ホームと編集の test_settings_schema OK
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。まとめ役 Fable + 読むだけのサブエージェント Sonnet × 5)— ツール本体と AI のテスト・測定のための物の棚卸しと、分ける計画(案。コードは変えていない)
+- 依頼: ユーザー「今のコードの総数を教えて」→「コード量って適切? 適切じゃないなら減らす計画を」→「ツール側で必要なものと AI のテストに必要なものが混ざってるなら分離はしたい」
+- 総数(HEAD 8c7ad56 の時点): コード 102,615 行(src 67,000 + dev 9,700 + friend-apps 12,500 + ほか。ui-kit の写し約 5,600 を含む)・テスト 65,019 行・文書 20,450 行。関数 3,697 個(中央値 8 行・100 行超 8 個)
+- 棚卸し(読むだけ 5 体: home / studio / editor Python / editor JS + ui-kit + cut2resolve + recorder / ytt_core + dev + テストの置き場所): src の本体のうち AI のテスト・測定のためだけの物は約 7,400 行(11%)= T テストの都合 約 720・M-記録(画面が読まない記録)約 2,900・M-画面(画面のある測定の機能)約 3,400 + JS 660。読む側が無い物 約 600(ed_evalaudio 352・runs[].replaced 50・trim_ends/ENGINE_DIR/重なりの数え方 80・死んだフック 3 つ・別名)。dev の eval_* は本体の accuracy.py が子プロセスで呼ぶ(本体が dev に依存する唯一の線)
+- 文書: 新 `plan/code-separation.md`(内訳の表・分け方 = 各ツールの fake.py / measure.py / 測定を別のツール src/eval/ に・S1〜S4 の順番と目安・決めてほしいこと 5 節)。`docs/ROADMAP.md` に 1 行。棚卸しの行番号つきの表はセッションの scratchpad(inventory-notes.md と各担当の報告)
+- 決定・理由: まだ無し(ユーザーの答え待ち = 5 節)。S1〜S3 は操作が変わらないので先に進められる
+- 未完了・次: ユーザーの答え → S1(読む側の無い物を消す)から。plan/data.js への項目は、やると決まってから
+- 未コミット: なし
