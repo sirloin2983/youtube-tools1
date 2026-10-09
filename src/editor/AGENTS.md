@@ -30,7 +30,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   2026-10-04 夜: `--reviewed only|prefer|ignore`(評価用の既定は only。確かめ済みが 0 本なら従来の選び方に戻して注意)。確かめ済み(`drill_is_reviewed` と同条件)の文書は動画全体(0〜durationSec)が正解で、人の行の無い所の機械の文字は余分・機械の無い所の人の行は抜け。結果の `summary.reviewed`(docs・sec・missChars・extraChars・extraOutsideChars)
 
 ## 認識エンジンの口と全体の再認識の続きから(計画 段2-1・S-1。v0.35.0)
-- `tx_engines.py`: 認識エンジンの形(`create(name, device, compute_type, log)` → エンジン・`transcribe(audio, **kw)` = faster-whisper の WhisperModel.transcribe と同じ (行, 情報)・`params()`)と一覧 `ENGINES`(今は `FasterWhisper` だけ。引数と結果をそのまま通す)。
+- `tx_engines.py`(2026-10-10 の RS2-3 で `src/pipeline/transcribe/tx_engines.py` へ移した。読むのは `from pipeline.transcribe import tx_engines`): 認識エンジンの形(`create(name, device, compute_type, log)` → エンジン・`transcribe(audio, **kw)` = faster-whisper の WhisperModel.transcribe と同じ (行, 情報)・`params()`)と一覧 `ENGINES`(今は `FasterWhisper` だけ。引数と結果をそのまま通す)。
   **新しいエンジン(whisper.cpp・Qwen3-ASR)はここにクラスを足して `ENGINES` に登録する**。行・情報は faster-whisper と同じ属性で返す(サーバー側の整え方は変えない)。
   このファイルはサーバー側も名前と版のために読むので、**ネイティブの部品は `create` の中で読む**(`test_worker.EngineTest` が検査)
 - 選び方: `load_model(name, job, pref, force_cpu, engine)` → ワーカーの要求 `load`/`transcribe` の `engine`(既定のときは送らない = 以前と同じやり取り)。ワーカーは一覧に無い名前を `bad_engine` で断る。
@@ -99,7 +99,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 
 ## 名簿の呼び名と配信ごとの文脈(計画 段1・S-3。v0.22.0)
 - 名簿 `hololive-roster.json`: `groups`(画面の「名簿から追加」。`/api/roster` の形は変えていない)+ `members`(channel = YouTube のチャンネルの ID(2026-10-04。公式サイトから。使うのは `dev/eval_fetch.py` だけで、`roster.py` は読まない)・aliases = 呼び名・common = 普通の言葉と重なる呼び名・
-  misrecognitions = 誤りやすい形。**学習用の文書の修正に出るものだけ**入れる。評価用にしか出ない誤りは入れない)。読むのは `roster.py`(`load` は更新日時でキャッシュ)
+  misrecognitions = 誤りやすい形。**学習用の文書の修正に出るものだけ**入れる。評価用にしか出ない誤りは入れない)。読むのは `roster.py`(RS2-3 で `src/pipeline/transcribe/roster.py` へ。名簿の JSON は編集のフォルダのまま = `ed_state.ROSTER`)(`load` は更新日時でキャッシュ)
 - 配信ごとの文脈 `stream_context(doc, enabled)`: チャンネル名(スタジオの data.json の videos。`_studio_load` = 履歴の一覧と同じキャッシュ)→ コラボ相手(data.json の groups。`studio_stream`)→
   話者の名前(`roster.match_name`。ちょうど同じときだけ)→ 題名・動画のファイル名・**動画の入ったフォルダの名前**(`roster.find_in_text`。正式な名前か、common でない 3 文字以上の呼び名)。
   6 人まで・1人 = 名前 + 呼び名 3 つ。**題名の文字列そのものはヒントに渡さない**。使った人は `params.context`・`recognition.runs[].settings.context`
@@ -367,7 +367,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   `ed_jobs`: `job_errors`(ジョブの本体を with で囲む = 取り消し・ApiError・想定外を job の状態に・一時の wav を消す)・`job_done`・`tid_busy`(同じ文書の処理中)・
   `JOB_RUNNERS`(ジョブの種類 → 本体)・`ChunkModel`(行ごとの認識と、GPU が実行時に失敗したら CPU でやり直す。再認識の each と設定の比較)・`split_terms`/`glossary_of`(用語集の欄)・`engine_version`・`_fresh_id`(新しい行の id)。
   文字起こしのジョブは `run_job` → `_rows_to_doc`(行・original・単語)→ `_doc_fields`(文書の中身・recognition.runs)。範囲・全体の再認識は `run_retranscribe` → `_retranscribe_range` / `_retranscribe_each`。
-  `ed_jobs`(0.60.1): `check_cancel`・`set_cancelled`・`job_temp_wav`・`job_title`・`cpu_fallback`(GPU → CPU の決まりを 1 か所に。ChunkModel は取り消しまで捕まえる今の動きを `passthrough=()` で保つ)。同時に入れない組は `EXCLUSIVE` の 1 か所(入口の検査 `validate_*` も同じ表を使う・登録は `_busy_locked`)。設定は要求の頭で 1 回読んで渡す(`glossary_of`・`auto_glossary`・`learn_rules` の `settings` 引数・`dict_pairs` の組を渡す)。`tx_engines`: `env_num`(環境変数の数)・`is_16k_mono`・`half_cpu`・SenseVoice は `_Qwen3Chunked` の子クラス(`_chunk_rows` だけ上書き)。
+  `ed_jobs`(0.60.1): `check_cancel`・`set_cancelled`・`job_temp_wav`・`job_title`・`cpu_fallback`(GPU → CPU の決まりを 1 か所に。ChunkModel は取り消しまで捕まえる今の動きを `passthrough=()` で保つ)。同時に入れない組は `EXCLUSIVE` の 1 か所(入口の検査 `validate_*` も同じ表を使う・登録は `_busy_locked`)。**2026-10-10(役割で組み直す RS2)から**: ジョブの表・待機列・ワーカーの繰り返し・取り消し・`JOB_RUNNERS`・`EXCLUSIVE`・`JOB_PRIORITY` の本体は `src/ytt/jobs.py`(`register(kind, run, …)`・`configure(…)`)で、編集の種類と排他の値は serve.py が読み込みのときに登録する(本体は呼ぶたびに読む lambda = `S.run_job = …` の差し替えが効く)。ed_jobs の中身は少しずつ `src/pipeline/transcribe/`・`src/human/proof/` へ移し、ed_jobs.名前・S.名前 は転送(`ytt/modfwd.py`。読む・書く・消すを本物の持ち主へ)で今までどおり使える。移した名前を ed_jobs・ed_state に別名で書き足さない(差し替えが別名に当たる。`tests/test_names.py` が検査)。疑似の認識(`TRANSCRIBE_BACKEND=fake`)の本体は `src/eval/fake/fake_asr.py`(ed_jobs の中は `pipeline/transcribe/backend.select()` を呼ぶだけ。どちらを使うかは serve の selector)。置き場所のパスは `pipeline/transcribe/txenv.py` の口から読む(serve が「呼ぶたびに ed_state の値を返す関数」を登録。RS3 で消す)。設定は要求の頭で 1 回読んで渡す(`glossary_of`・`auto_glossary`・`learn_rules` の `settings` 引数・`dict_pairs` の組を渡す)。`tx_engines`: `env_num`(環境変数の数)・`is_16k_mono`・`half_cpu`・SenseVoice は `_Qwen3Chunked` の子クラス(`_chunk_rows` だけ上書き)。
   `ed_alt`: `alt_cached`・`alt_spans_of`・`alt_skip`(候補の計算を覚える・出さない候補。ed_ytcap も使う)。`resolve_export`: `_source_and_pack`・`_write_transcript`(たたき台・見積もり・zip で同じ)。
   serve.py の HTTP の振り分けは表 `GET_API`・`POST_API`(パス → 関数。部品の関数は lambda の中で `ed_xxx.名前` と呼ぶたびに読む = テストの差し替えが効く)。
   新しい API はこの表に 1 行足す(zip を返す 2 つ = `_export_corrections`・`_resolve_package` と /api/settings・/api/peaks・/media だけ Handler の中)

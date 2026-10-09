@@ -3245,3 +3245,16 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 判断(サブエージェントの判断で残したもの): spec の transcribe.model の既定は "small"(サーバーの既定。ユーザーの保存は large-v3 = app が束を組むので RS1 では影響なし)・pack.fps は束の鍵にせず FIXED だけ・`txindex.packs_dir` の `YTT_CUT2RESOLVE_DIR` は残した(パックの記録の置き場所 = serve.py のフォルダ)・auto_cut.py と srt2resolve.py をコマンドで使うときは `src/pipeline/pack/` のパスで(README に書いた)
 - 未完了・次: ユーザーが入口を起動し直して本物の 1 本(data.js の RS1 の user 欄)→ RS2(別のセッションで慎重に)・RS3・RS4。HANDOVER に貼る指示文
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Opus まとめ役 + サブエージェント: 調べもの Sonnet 4 体・Opus 1 体・設計の相談 Fable・RS2-1/2 の実装 Opus・RS2-3 Sonnet。セッション「RS1」の続き)— 役割で組み直す RS2-0〜3(ed_jobs の分割の土台)
+- ユーザー: 「このまま続行してよい」(RS2 をこのセッションで)・作業フォルダ 6 つは消してよい → 消した。RS2 の 4 問(範囲 = ed_jobs + tx_engines・roster / ジョブの表は ytt/jobs / パスは一時の口 / 疑似は ed_jobs の中だけ)は推奨の案。手順と決定は `plan/role-restructure.md` の 8 節「RS2 の手順と決定」
+- **RS2-0**(4f2d244): 名前の転送の仕組み `src/ytt/modfwd.py`(install = PEP 562 の __getattr__ + 書き込み・削除を持ち主へ回すモジュールのクラス・duplicates)。editor/serve.py の名前の受付をこれに置き換え(動きは同じ)・ed_jobs の末尾に転送の口 `_MOVED`。テスト `src/editor/tests/test_names.py`(受付の部品どうしで名前が重ならない・RS2 の前の ed_jobs の名前 `data_ed_jobs_names.txt` が S と ed_jobs で読める・移した名前を ed_jobs に残さない・public_job の鍵・転送で patch.object が本体に届く)・`src/ytt/tests/test_modfwd.py`
+- **RS2-3**(1f53c8a 移動・25f6c9f 付け替え): **移動の告知** `src/editor/tx_engines.py`・`roster.py` → `src/pipeline/transcribe/`(git mv。転送なし。名簿の JSON は editor のまま)。読み手は `from pipeline.transcribe import tx_engines`(ed_*・tx_worker・home/live_tx_worker・dev/eval_alt・setup/build_whisper_vulkan・テスト)。e2e の写す一覧から 2 つを外した
+- **RS2-1a**(6c78df5): ApiError → `src/ytt/errors.py`、認識の決まり(log・MAX_TEXT・LANGS・HALLUC*・LEAK_*・REP_*・話者の印・add_warning)→ `src/pipeline/transcribe/txbase.py`、num_or・union_spans・fmt_hms → ytt/schemas、read_schema_json → ytt/fsio、memory_label → ytt/tools。ed_state には同じ物の別名(差し替えの無い名前だけ。grep で確かめた)
+- **RS2-1b**(b93c918): ジョブの表・待機列・ワーカーの繰り返し・取り消し・job_errors など → `src/ytt/jobs.py`(`register(kind, run, priority, exclusive, has_tid, retry)`・`configure(...)`)。編集の種類と排他の値は serve が読み込みのときに登録(本体は呼ぶたびに読む lambda = S.run_job の差し替えが効く)。public_job・NO_RETRY・run_job は ed_jobs に残る
+- **RS2-2**(138d2d5): `pipeline/transcribe/txenv.py`(置き場所・ffmpeg などの一時の口。serve が ed_state を呼ぶたびに読む関数を登録。RS3 で消す)・`backend.py`(疑似の差し込み口・selector は serve)・`src/eval/fake/fake_asr.py`(transcribe_fake・範囲の疑似・fake_wait)。ed_jobs の疑似の if を backend.select() に。死んだフック `TRANSCRIBE_FAKE_REDO` を消した。テスト `src/pipeline/transcribe/tests/test_txenv.py`・test_names の TestBackendSelect
+- **RS2-1c**(e37cc97): ed_jobs の使っていない import ed_thumb・ed_misc を消した → 向きの違反 **68 → 66**(KNOWN_MAX 66)
+- テスト: 編集の単体 602 OK・層 OK・lint 0・ytt・txenv・eval_asr/timing/speakers/alt・test_mount・契約・autorun と run OK。e2e: 編集の 15 本(e2e_ui_handoff は前から落ちている)・e2e_pipeline・autorun・portal・datadir・keymap OK。揺れ: e2e_eval_set(続けて流したときに 1 回 KeyError。単独 OK・次の一式で OK)・e2e_live_studio 2 件(続けて流したとき。単独 189/189)
+- 文書: AGENTS.md(フォルダの並び・ytt と層の行)・src/editor/AGENTS.md(tx_engines・roster の場所・構成のジョブの表と転送と疑似)・plan/role-restructure.md(状態の行・RS2 の手順と決定)・plan/data.js(RS2 doing)
+- 次: RS2-4(postproc。下ごしらえを別の作業フォルダで実施中)〜RS2-7 → 相談 → RS2-8。段の組み替え(prompt_terms → roster・finish_range_lines は RS2-7・whole/resume は recognize)は下調べ(Sonnet)の提案を採った
+- 未コミット: なし(この記録と一緒にコミット)
