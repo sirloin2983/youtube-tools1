@@ -14,17 +14,14 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS.parent))   # cut2resolve/(部品)
+sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack。RS1-2 で cut2resolve から移した)
 sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
-# cut2resolve.py(CLI)は、`python -m unittest src/cut2resolve/tests/...` が作るフォルダ名のパッケージ(src の中の cut2resolve)と名前が重なるおそれがあるので、ファイルから読む
-import importlib.util  # noqa: E402
-_spec = importlib.util.spec_from_file_location("cut2resolve_cli", str(TESTS.parent / "cut2resolve.py"))
-FULL = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(FULL)
-import cut2resolve_core as C  # noqa: E402
-import auto_cut as AC  # noqa: E402
-import srt2resolve as S  # noqa: E402
-import resolve_textplus as RTP  # noqa: E402
+import importlib  # noqa: E402
+FULL = importlib.import_module("pipeline.pack.cut2resolve")   # cut2resolve.py(CLI)。FULL._D などの差し替えが本物に届くように同じモジュール
+from pipeline.pack import cut2resolve_core as C  # noqa: E402
+from pipeline.pack import auto_cut as AC  # noqa: E402
+from pipeline.pack import srt2resolve as S  # noqa: E402
+from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS30 = (30, 1)
@@ -316,8 +313,8 @@ class TestDefaultsInOnePlace(unittest.TestCase):
         import dataclasses
         import inspect
         import io
-        import pack
-        req = {f.name: f.default for f in dataclasses.fields(pack.Request)}
+        from pipeline.pack import pack
+        req ={f.name: f.default for f in dataclasses.fields(pack.Request)}
         self.assertEqual((req["noise"], req["silence_min"], req["silence_pad"], req["rec_start"], req["reel"]),
                          (C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD, C.DEFAULT_REC_START, C.DEFAULT_REEL))
         param = lambda fn, name: inspect.signature(fn).parameters[name].default   # noqa: E731
@@ -645,11 +642,12 @@ class TestWithFfmpeg(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    """python -m unittest test_cut2resolve で、追加のテスト(test_pack: 見直しで直した所・pack、test_serve: 画面のサーバー)も走らせる。
+    """python -m unittest test_cut2resolve で、追加のテスト(test_pack: 見直しで直した所・pack)も走らせる。
+    画面のサーバーのテスト test_serve は src/cut2resolve/tests に残した(RS1-2)ので別に流す。
     discover(pattern あり)のときは各ファイルが自分で読まれるので足さない(二重に走らないように)"""
     if pattern is None:
         import importlib.util
-        for name in ("test_pack", "test_serve"):
+        for name in ("test_pack",):
             if importlib.util.find_spec(name) is not None:
                 tests.addTests(loader.loadTestsFromName(name))
     return tests

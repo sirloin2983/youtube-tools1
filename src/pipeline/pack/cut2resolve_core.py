@@ -27,8 +27,7 @@ import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import srt2resolve as S  # noqa: E402
+from . import srt2resolve as S
 
 ToolError = S.ToolError
 VERSION = "0.23.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
@@ -721,11 +720,11 @@ def split_json_inputs(paths):
 
 
 def loudness_mod():
-    """ytt_core/loudness.py(ラウドネスの決まりの1か所)。コマンドとして動かしたときは ytt_core を読んでいないので、リポジトリ直下を足して読む"""
+    """ytt/loudness.py(ラウドネスの決まりの1か所)。コマンドとして動かしたときは ytt を読める所に無いことがあるので、src を足して読む"""
     try:
         from ytt import loudness
     except ImportError:
-        sys.path.append(str(Path(__file__).resolve().parent.parent))
+        sys.path.append(str(Path(__file__).resolve().parents[2]))   # src/pipeline/pack の 2 つ上 = src
         from ytt import loudness
     return loudness
 

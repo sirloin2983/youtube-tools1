@@ -28,9 +28,14 @@ import dataclasses
 import sys
 from pathlib import Path
 
-import cut2resolve_core as C
-import pack
-import resolve_textplus as TP
+if not __package__:   # パスで動かしたとき(python cut2resolve.py)も兄弟を相対 import で読めるように(src を足してパッケージとして読む)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import pipeline.pack  # noqa: F401
+    __package__ = "pipeline.pack"
+
+from . import cut2resolve_core as C  # noqa: E402
+from . import pack  # noqa: E402
+from . import resolve_textplus as TP  # noqa: E402
 
 # 指定を省いたときの値の正は pack.Request の既定(画面の API の serve.py も同じものを読む)
 _D = {f.name: f.default for f in dataclasses.fields(pack.Request)}

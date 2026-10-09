@@ -47,7 +47,7 @@ JS_FUNC = re.compile(r"^(?:\s*)function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", re.M
 VERSIONS = {
     "studio": [("src/studio/serve.py", r'^SERVER_VERSION\s*=\s*"([^"]+)"'), ("src/studio/core.js", r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]"), ("src/studio/README.txt", r"v(\d+\.\d+\.\d+)")],
     "editor": [("src/editor/serve.py", r'^SERVER_VERSION\s*=\s*"([^"]+)"'), ("src/editor/app.js", r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]"), ("src/editor/README.txt", r"v(\d+\.\d+\.\d+)")],
-    "cut2resolve": [("src/cut2resolve/cut2resolve_core.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/cut2resolve/README.txt", r"v(\d+\.\d+\.\d+)")],
+    "cut2resolve": [("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/cut2resolve/README.txt", r"v(\d+\.\d+\.\d+)")],
     "home": [("src/home/launch.py", r'^(?:LAUNCHER_VERSION|VERSION|SERVER_VERSION)\s*=\s*"([^"]+)"'), ("src/home/README.txt", r"v(\d+\.\d+\.\d+)")],
     "recorder": [("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/recorder/README.txt", r"v(\d+\.\d+\.\d+)")],
 }

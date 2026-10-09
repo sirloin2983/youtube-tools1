@@ -4,7 +4,7 @@
 
     python serve.py [開始ポート] [--no-open]      (既定のポート 8810。使用中なら次の番号)
 
-127.0.0.1 だけで待ち受け、Host / Origin / Sec-Fetch-Site を検査する。カットの計算とパックの作成は pack.py(CLI と同じ関数)。
+127.0.0.1 だけで待ち受け、Host / Origin / Sec-Fetch-Site を検査する。カットの計算とパックの作成は pipeline/pack/pack.py(CLI と同じ関数)。
 
 API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
@@ -52,10 +52,6 @@ from pathlib import Path
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, CODE_DIR)
-import cut2resolve_core as C  # noqa: E402
-import pack  # noqa: E402
-import resolve_textplus as TP  # noqa: E402
-import srt2resolve as S  # noqa: E402
 
 
 def _load_core():
@@ -72,6 +68,7 @@ def _load_core():
 
 _load_core()
 from manage.cases import txindex as _txi  # noqa: E402
+from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP, srt2resolve as S  # noqa: E402
 from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools  # noqa: E402
 
 APP_ID = "cut2resolve"

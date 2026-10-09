@@ -26,10 +26,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-import auto_cut as AC
-import cut2resolve_core as C
-import srt2resolve as S
-import resolve_textplus as TP
+from . import auto_cut as AC
+from . import cut2resolve_core as C
+from . import srt2resolve as S
+from . import resolve_textplus as TP
 
 ToolError = C.ToolError
 BASES = ("all", "list", "plan", "rows")

@@ -25,7 +25,6 @@ import ed_relink  # noqa: E402
 import ed_store  # noqa: E402
 from ytt_core import normalize as N  # noqa: E402
 
-os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(os.path.dirname(os.path.dirname(TESTS)), "cut2resolve"))
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 

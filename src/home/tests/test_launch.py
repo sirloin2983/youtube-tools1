@@ -125,8 +125,10 @@ def make_fake_root(tmp, versions=VERSIONS):
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "serve.py"), "w", encoding="utf-8") as f:
             f.write(FAKE_SERVE % {"tool": spec["id"], "app": spec["app"], "ver": versions[spec["id"]]})
-        vline = ('SERVER_VERSION = "%s"\n' if spec["version_file"] == "serve.py" else 'VERSION = "%s"\n') % versions[spec["id"]]
-        with open(os.path.join(d, spec["version_file"]), "a", encoding="utf-8") as f:
+        vline = ('SERVER_VERSION = "%s"\n' if os.path.basename(spec["version_path"]) == "serve.py" else 'VERSION = "%s"\n') % versions[spec["id"]]
+        vpath = os.path.join(tmp, spec["version_path"])   # src/ からの相対(cut2resolve は pipeline/pack/cut2resolve_core.py)
+        os.makedirs(os.path.dirname(vpath), exist_ok=True)
+        with open(vpath, "a", encoding="utf-8") as f:
             f.write("\n" + vline)
     return tmp
 

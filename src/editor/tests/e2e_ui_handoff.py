@@ -25,8 +25,7 @@ from playwright.sync_api import sync_playwright
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
-os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(os.path.dirname(HERE), "cut2resolve"))   # 単体で動かすサーバーが pack.py(カットの下書き・見積もり・zip)を見つけられるように
-os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
+os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
 
 def call(port, method, path, body=None):

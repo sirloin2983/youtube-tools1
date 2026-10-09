@@ -113,10 +113,12 @@ YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の AP
 SERVE_VERSION_RE = r'^SERVER_VERSION\s*=\s*"([^"]+)"'   # serve.py の版の行
 
 
-def _spec(tid, name, sub, port, version_file="serve.py", version_re=SERVE_VERSION_RE, **kw):
-    """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt_core の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から"""
-    return dict({"id": tid, "app": runtime.TOOL_APPS[tid], "name": name, "sub": sub, "dir": layout.TOOL_DIRS[tid], "port": port,
-                 "version_file": version_file, "version_re": version_re}, **kw)
+def _spec(tid, name, sub, port, version_path=None, version_re=SERVE_VERSION_RE, **kw):
+    """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt_core の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
+    version_path: 版を読むファイル(root = src/ からの相対。既定はツールのフォルダの serve.py)"""
+    d = layout.TOOL_DIRS[tid]
+    return dict({"id": tid, "app": runtime.TOOL_APPS[tid], "name": name, "sub": sub, "dir": d, "port": port,
+                 "version_path": version_path or os.path.join(d, "serve.py"), "version_re": version_re}, **kw)
 
 
 # 作業の順番どおり。port は各ツールの既定(使用中ならツール自身が次の番号を選ぶ)
@@ -125,7 +127,7 @@ TOOLS = (
     _spec("transcribe", "編集", "文字起こし・カット・Resolve へのパック", 8775, venv=True),
     # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/design/edit-tool-design.md の 6)
     _spec("cut2resolve", "cut2resolve", "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)", 8810,
-          version_file="cut2resolve_core.py", version_re=r'^VERSION\s*=\s*"([^"]+)"', hidden=True),
+          version_path=layout.PACK_CORE, version_re=r'^VERSION\s*=\s*"([^"]+)"', hidden=True),
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
 
@@ -176,7 +178,7 @@ def tail(path, lines=200, max_bytes=256 * 1024):
 def expected_version(spec, root):
     """フォルダの中のコードの版(読めなければ None)。別の画面で古い版が動いているのを見分けるため。"""
     try:
-        with open(os.path.join(root, spec["dir"], spec["version_file"]), "r", encoding="utf-8") as f:
+        with open(os.path.join(root, spec["version_path"]), "r", encoding="utf-8") as f:
             m = re.search(spec["version_re"], f.read(), re.M)
         return m.group(1) if m else None
     except (OSError, UnicodeError):

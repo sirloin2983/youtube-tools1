@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
 
-経緯: 2つの実装(src/editor/resolve_export.py(旧 transcribe-tool)と src/cut2resolve/pack.py)があった(AGENTS.md の【高】リスク)。
+経緯: 2つの実装(src/editor/resolve_export.py(旧 transcribe-tool)と src/cut2resolve/pack.py。今は src/pipeline/pack/pack.py)があった(AGENTS.md の【高】リスク)。
 2026-09-26 に、先にこのテストで「同じ入力から同じ中身」を固定してから、resolve_export を pack.py を呼ぶだけの形に寄せた。
 
 このテストが守ること:
@@ -15,7 +15,7 @@
      2026-09-26(④)から textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
   B'. 重なる行のある文書(2026-10-05)… zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
-     (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは src/cut2resolve/tests/test_pack.py の TestCaptionLanes)
+     (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは src/pipeline/pack/tests/test_pack.py の TestCaptionLanes)
 
   F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
      渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
@@ -44,14 +44,14 @@ import zipfile
 from fractions import Fraction
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent / "src"   # ツールと ytt_core の置き場所
-for d in (ROOT / "cut2resolve", ROOT / "editor", ROOT):
+ROOT = Path(__file__).resolve().parent.parent.parent / "src"   # ツールと共通のコード(ytt・pipeline)の置き場所
+for d in (ROOT / "editor", ROOT):
     if str(d) not in sys.path:
         sys.path.insert(0, str(d))
 
-import pack  # noqa: E402  cut2resolve
-import resolve_textplus as TP  # noqa: E402  cut2resolve
-import srt2resolve as S  # noqa: E402  cut2resolve
+from pipeline.pack import pack  # noqa: E402  パックの部品(RS1-2 で cut2resolve から移した)
+from pipeline.pack import resolve_textplus as TP  # noqa: E402
+from pipeline.pack import srt2resolve as S  # noqa: E402
 import pipeline_io  # noqa: E402  editor
 import resolve_export  # noqa: E402  editor
 

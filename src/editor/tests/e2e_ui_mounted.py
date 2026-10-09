@@ -50,10 +50,7 @@ IGNORE = shutil.ignore_patterns(
 
 def read_pack_plan(path):
     """パックの Lua に埋め込んだ計画(区間・字幕・置き先)。2026-09-26(④)から textplus-import.json は出さない"""
-    d = os.path.join(REPO, "cut2resolve")
-    if d not in sys.path:
-        sys.path.append(d)   # 末尾に足す(同じ名前の serve.py などを隠さない)
-    import resolve_textplus
+    from pipeline.pack import resolve_textplus   # REPO(src)は上で sys.path に足してある
     with open(path, encoding="utf-8") as f:
         return resolve_textplus.read_script_plan(f.read())
 
@@ -128,7 +125,7 @@ def main():
         copy_dir(os.path.join(REPO, EDITOR), os.path.join(tmp, EDITOR))
         _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         # studio は写さない(--only なら Supervisor はそのツールの Tool を作らないので不要。home/launch.py 参照)。
-        # cut2resolve も入口に取り込む(v0.15.0: 校正画面の「カットとパック」が同じ入口の /cut2resolve/api/... を呼ぶ。zip も cut2resolve/pack.py で作る)
+        # cut2resolve も入口に取り込む(v0.15.0: 校正画面の「カットとパック」が同じ入口の /cut2resolve/api/... を呼ぶ。zip も pipeline/pack/pack.py で作る)
         copy_dir(os.path.join(REPO, "cut2resolve"), os.path.join(tmp, "cut2resolve"))
 
         # CSP・版はハードコードせず、写した本物の home/mount.py・app.js から読む

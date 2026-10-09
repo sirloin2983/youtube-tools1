@@ -23,17 +23,13 @@ HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
 sys.path.append(REPO)   # ytt_core.layout(フォルダ名の対応表)を読むため
 from ytt_core import layout as _layout  # noqa: E402
-os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
-os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(REPO, "cut2resolve"))   # 単体で動かすとき、たたき台「行から」・zip が pack.py を見つけられるように
+os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
 
 
 def read_pack_plan(path):
     """パックの Lua に埋め込んだ計画(区間・字幕・置き先)。2026-09-26(④)から textplus-import.json は出さない"""
-    d = os.path.join(REPO, "cut2resolve")
-    if d not in sys.path:
-        sys.path.append(d)   # 末尾に足す(同じ名前の serve.py などを隠さない)
-    import resolve_textplus
+    from pipeline.pack import resolve_textplus   # REPO(src)は上で sys.path に足してある
     with open(path, encoding="utf-8") as f:
         return resolve_textplus.read_script_plan(f.read())
 

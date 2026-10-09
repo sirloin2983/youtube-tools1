@@ -16,18 +16,15 @@ from pathlib import Path
 from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS.parent))   # cut2resolve/(部品)
+sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack。RS1-2 で cut2resolve から移した)
 sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
-import auto_cut as AC  # noqa: E402
-# cut2resolve.py(CLI)は、`python -m unittest src/cut2resolve/tests/...` が作るフォルダ名のパッケージ(src の中の cut2resolve)と名前が重なるおそれがあるので、ファイルから読む
-import importlib.util  # noqa: E402
-_spec = importlib.util.spec_from_file_location("cut2resolve_cli", str(TESTS.parent / "cut2resolve.py"))
-FULL = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(FULL)
-import cut2resolve_core as C  # noqa: E402
-import pack  # noqa: E402
-import resolve_textplus as RTP  # noqa: E402
-import srt2resolve as S  # noqa: E402
+from pipeline.pack import auto_cut as AC  # noqa: E402
+import importlib  # noqa: E402
+FULL = importlib.import_module("pipeline.pack.cut2resolve")   # cut2resolve.py(CLI)。FULL._D などの差し替えが本物に届くように同じモジュール
+from pipeline.pack import cut2resolve_core as C  # noqa: E402
+from pipeline.pack import pack  # noqa: E402
+from pipeline.pack import resolve_textplus as RTP  # noqa: E402
+from pipeline.pack import srt2resolve as S  # noqa: E402
 from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, tc2f  # noqa: E402
 
 

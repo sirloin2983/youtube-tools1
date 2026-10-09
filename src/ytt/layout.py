@@ -21,6 +21,7 @@ TOOL_DIRS = {"app": "home", "studio": "studio", "transcribe": "editor", "cut2res
 RECORDER_DIR = "recorder"           # src/ の中(録画の部品の作業データ inplace の data/・AGENTS.md・README.txt のフォルダ。コードは RECORDER_SCRIPT)
 RECORDER_SCRIPT = os.path.join("pipeline", "ingest", "recorder.py")   # src からの相対(録画の部品。入口と別のプロセス。パスで起動する)
 UI_KIT_DIR = "ui-kit"               # src/ の中(共通の見た目の正本)
+PACK_CORE = os.path.join("pipeline", "pack", "cut2resolve_core.py")   # src/ の中(cut2resolve の版 VERSION の正。RS1-2 で cut2resolve から移した)
 HOLO_COLORS_DIR = os.path.join(FRIEND_APPS_DIR, "holo-colors")          # リポジトリ直下からの相対
 REQUEST_SENDER_DIR = os.path.join(FRIEND_APPS_DIR, "request-sender")    # 同上
 # src/ の中の共通のコード(ツールのフォルダではない物)。役割で組み直す計画(plan/role-restructure.md)の層のパッケージと、

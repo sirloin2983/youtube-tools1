@@ -580,7 +580,7 @@ async function exportBeside(fmt, btn){
 }
 
 /* ---------- cut2resolve の API(3 パック のタブ・カットのたたき台が使う) ----------
-   パックを作るのは cut2resolve/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/design/resolve-pack-unification.md)。
+   パックを作るのは pipeline/pack/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/design/resolve-pack-unification.md)。
    cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
    (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
 

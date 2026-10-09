@@ -1,6 +1,6 @@
 """DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
 
-パックの中身は cut2resolve の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
+パックの中身は pipeline/pack の pack.py で作る(2026-09-26 一本化。以前はここに別の実装があり、Python の取り込みスクリプトで
 新しいプロジェクトを作っていた)。zip の中身は cut2resolve の Text+ パックと同じ:
   動画(パックの直下。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1(最小限。④。手順書は画面で見る)。
   backup=True のときだけ予備(EDL・予備_EDLで開く手順.txt・SRT)も。cut-plan.json は入れない(zip はダウンロードなので記録も残さない)
@@ -9,7 +9,7 @@
 同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。
 
 このファイルに残しているもの: 「残す行」の規則(is_kept / kept_spans)と SRT の書式。pipeline_io(cut-plan/v1・SRT の保存)も使う。
-cut2resolve の部品は create_package を呼んだときに初めて読み込む(文字起こしの他の機能は cut2resolve が無くても動く)。
+パックの部品(pipeline.pack)は create_package を呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
 """
 from __future__ import annotations
 
@@ -76,16 +76,7 @@ def kept_spans(segments: list[dict]) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- パック(cut2resolve の pack.py で作る)
-
-def cut2resolve_dir() -> str | None:
-    """cut2resolve のフォルダ。環境変数 YTT_CUT2RESOLVE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの隣。"""
-    here = os.path.dirname(os.path.abspath(__file__))
-    for d in (os.environ.get("YTT_CUT2RESOLVE_DIR"), os.path.join(os.path.dirname(here), "cut2resolve")):
-        if d and os.path.isfile(os.path.join(d, "pack.py")):
-            return os.path.abspath(d)
-    return None
-
+# ---------------------------------------------------------------- パック(pipeline/pack の pack.py で作る)
 
 def pack_instructions(folder):
     """パックのフォルダ -> Resolve での手順(画面の「手順を見る」)。手順書のファイルは入れない(2026-09-27)ので、
@@ -101,19 +92,21 @@ def pack_instructions(folder):
 
 
 def _load_pack():
-    """cut2resolve の pack と resolve_textplus。入口の中では取り込み済みのものをそのまま使う。
-    単独で起動したときは cut2resolve のフォルダを sys.path の末尾に足す(先頭に足すと、同じ名前の serve.py などを隠してしまうため)。"""
-    if "pack" not in sys.modules:
-        d = cut2resolve_dir()
-        if not d:
-            raise ResolveExportError("cut2resolve のフォルダが見つかりません(文字起こしツールの隣に cut2resolve が必要です)")
-        if d not in sys.path:
-            sys.path.append(d)
+    """パックの部品 pipeline.pack の pack と resolve_textplus(役割で組み直す RS1-2 で cut2resolve から移した)。
+    src はふつう serve.py の _load_core が sys.path に足している(入口の中でも同じ。cut2resolve の API と同じモジュールを使う)。
+    このファイルだけを読んだとき(テスト・道具)は、serve.py と同じ規則(YTT_CORE_DIR → このフォルダの1つ上)で src を末尾に足す。"""
     try:
-        import pack
-        import resolve_textplus
-    except ImportError as e:
-        raise ResolveExportError("cut2resolve の部品を読み込めません: %s" % e)
+        from pipeline.pack import pack, resolve_textplus
+    except ImportError:
+        for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+            if d and os.path.isfile(os.path.join(d, "pipeline", "pack", "pack.py")):
+                if d not in sys.path:
+                    sys.path.append(d)
+                break
+        try:
+            from pipeline.pack import pack, resolve_textplus
+        except ImportError as e:
+            raise ResolveExportError("パックの部品(pipeline.pack)を読み込めません: %s" % e)
     return pack, resolve_textplus
 
 

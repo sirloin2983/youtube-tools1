@@ -16,8 +16,13 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
-import cut2resolve_core as C
-import srt2resolve as S
+if not __package__:   # パスで動かしたとき(python auto_cut.py)も兄弟を相対 import で読めるように(src を足してパッケージとして読む)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import pipeline.pack  # noqa: F401
+    __package__ = "pipeline.pack"
+
+from . import cut2resolve_core as C  # noqa: E402
+from . import srt2resolve as S  # noqa: E402
 
 VERSION = "0.2.0"
 SCHEMA = C.CUT_PLAN_SCHEMA
@@ -197,7 +202,7 @@ def run(args):
     plan_cut の base "plan"(採用区間 + 前後の余白)→ build_pack の fcpxml=True(EDL・FCPXML・カット後の SRT・cut-plan.json・友人へ.txt)。
     以前の auto_cut に合わせて、最短の長さで区間を捨てない(min_len=0)・スタジオの余白つき素材は入れない(edit_media=False)。
     出力の既定のフォルダ名は以前のまま <動画名>_resolve_pack(cut2resolve.py の既定は _pack)"""
-    import pack   # pack が auto_cut を読むので、ここで読む(読み込みの輪を作らない)
+    from . import pack   # pack が auto_cut を読むので、ここで読む(読み込みの輪を作らない)
     video = Path(args.video)
     sub = Path(args.subtitle) if args.subtitle else None
     selection_path = Path(args.selection)

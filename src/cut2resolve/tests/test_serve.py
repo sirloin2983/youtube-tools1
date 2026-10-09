@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """画面のサーバー(serve.py)の API のテスト。実サーバーを空きポートで別スレッドに起動する。
-python -m unittest test_cut2resolve で一緒に走る。単独なら python -m unittest test_serve"""
+python -m unittest src/cut2resolve/tests/test_serve.py(パックの部品のテストは src/pipeline/pack/tests。RS1-2 で分かれた)"""
 import http.client
 import json
 import os
@@ -17,7 +17,8 @@ from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS.parent))   # cut2resolve/(部品)
-sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
+sys.path.insert(0, str(TESTS))
+sys.path.append(str(TESTS.parents[1] / "pipeline" / "pack" / "tests"))   # test_cut2resolve の道具(RS1-2 で pipeline/pack/tests へ移した)
 import serve  # noqa: E402
 from test_cut2resolve import HAVE_FFMPEG, make_video, parse_edl  # noqa: E402
 

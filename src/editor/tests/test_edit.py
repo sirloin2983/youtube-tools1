@@ -23,8 +23,6 @@ import urllib.request
 
 from test_backend import HERE, S, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve)
 
-os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(os.path.dirname(HERE), "cut2resolve"))   # 一時フォルダに写した serve.py が pack.py を見つけられるように
-
 
 def doc_obj(**over):
     d = {"schema": "transcribe/v1", "id": TID, "title": "t", "sourcePath": "C:\\x\\clip.mp4", "sourceName": "clip.mp4",
@@ -586,8 +584,8 @@ class TestEditHttp(unittest.TestCase):
         self.call("PUT", "/api/transcript?id=" + tid, {"title": dd["title"], "speakers": [], "segments": segs2, "baseUpdatedAt": dd["updatedAt"]})
         st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
         with zipfile.ZipFile(io.BytesIO(body)) as z:
-            import resolve_textplus
-            ipw = resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
+            from pipeline.pack import resolve_textplus
+            ipw =resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
         self.assertIn("今日はいい天気ですね" + NL + "散歩に行こう", [c["text"] for c in ipw["captions"]])   # zip も設定の縦 8 で2段
         self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs,
                                                        "baseUpdatedAt": self.call("GET", "/api/transcript?id=" + tid)["updatedAt"]})
@@ -603,8 +601,8 @@ class TestEditHttp(unittest.TestCase):
         st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
         self.assertEqual((st, hd["X-Resolve-Cuts"]), (200, "3"))
         with zipfile.ZipFile(io.BytesIO(body)) as z:
-            import resolve_textplus
-            ip = resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
+            from pipeline.pack import resolve_textplus
+            ip =resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 54), (60, 66), (90, 153)])
         # 残す区間(.cut-plan.json)の保存もカットのとおり
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})

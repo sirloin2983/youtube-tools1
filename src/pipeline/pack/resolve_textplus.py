@@ -6,7 +6,7 @@ import re
 import shutil
 from pathlib import Path
 
-import srt2resolve as S
+from . import srt2resolve as S
 
 
 SCHEMA = "youtube-tools-resolve-textplus/v1"

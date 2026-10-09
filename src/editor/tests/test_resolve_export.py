@@ -13,8 +13,7 @@ import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
-os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
-os.environ.setdefault("YTT_CUT2RESOLVE_DIR", os.path.join(os.path.dirname(HERE), "cut2resolve"))   # 一時フォルダに写した serve.py 用
+os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が src(ytt・pipeline.pack)を見つけられるように
 
 import resolve_export  # noqa: E402
 
@@ -44,8 +43,10 @@ class RulesTests(unittest.TestCase):
                          "1\n00:00:00,000 --> 00:00:01,500\n一\n\n2\n01:01:01,001 --> 01:01:02,000\n二\n行\n")
         self.assertEqual(resolve_export.srt_time(-1), "00:00:00,000")
 
-    def test_cut2resolve_dir(self):
-        self.assertTrue(os.path.isfile(os.path.join(resolve_export.cut2resolve_dir(), "pack.py")))
+    def test_load_pack(self):
+        """パックの部品は pipeline.pack から読む(RS1-2 で cut2resolve から移した。cut2resolve の API と同じモジュール)"""
+        pack, tp = resolve_export._load_pack()
+        self.assertEqual((pack.__name__, tp.__name__), ("pipeline.pack.pack", "pipeline.pack.resolve_textplus"))
 
 
 class NoSubTests(unittest.TestCase):
@@ -174,7 +175,7 @@ class PackageTests(unittest.TestCase):
 
     def ip(self, z):
         """パックの Lua に埋め込んだ計画(区間・字幕)。2026-09-26 まで textplus-import.json で入れていた中身"""
-        import resolve_textplus
+        from pipeline.pack import resolve_textplus
         return resolve_textplus.read_script_plan(z.read("テスト_pack/create_resolve_textplus_project.lua").decode("utf-8"))
 
     def test_zip_is_the_textplus_pack(self):
@@ -245,7 +246,7 @@ class PackageTests(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class HttpTests(unittest.TestCase):
-    """/api/resolve-package(一時フォルダに写した serve.py から、隣に無い cut2resolve を YTT_CUT2RESOLVE_DIR で見つける)"""
+    """/api/resolve-package(一時フォルダに写した serve.py から、パックの部品 pipeline.pack を YTT_CORE_DIR(src)で見つける)"""
 
     @classmethod
     def setUpClass(cls):

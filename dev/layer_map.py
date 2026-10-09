@@ -17,14 +17,9 @@ FILES = {
     "src/ytt_core/__init__.py": ("ytt", "ytt", "転送(RS5 で消す)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
     "src/recorder/recorder.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)"),
-    # ---- cut2resolve → pipeline/pack
-    "src/cut2resolve/pack.py": ("pipeline", "pipeline/pack", ""),
-    "src/cut2resolve/resolve_textplus.py": ("pipeline", "pipeline/pack", ""),
-    "src/cut2resolve/cut2resolve_core.py": ("pipeline", "pipeline/pack", ""),
-    "src/cut2resolve/cut2resolve.py": ("pipeline", "pipeline/pack", "CLI"),
+    # ---- cut2resolve → pipeline/pack は RS1-2 で移した(pack・resolve_textplus・cut2resolve_core・cut2resolve(CLI)・srt2resolve・auto_cut。DIRS で読む)
+    "src/cut2resolve/cut2resolve.py": ("app", "app", "転送(RS5 で消す)。cut2resolve.bat 用に pipeline/pack/cut2resolve.py を動かすだけ"),
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
-    "src/cut2resolve/auto_cut.py": ("human", "human/cut", "採用区間 → パックの CLI(使っていなければ消す。要確認)"),
-    "src/cut2resolve/srt2resolve.py": ("pipeline", "pipeline/pack", "旧い単独 CLI。消す候補(要確認)"),
     # ---- studio
     "src/studio/analyze.py": ("pipeline", "pipeline/analyze", "split: feedback.jsonl の書き手は human/review"),
     "src/studio/batch.py": ("pipeline", "pipeline/run", "解析の順番待ち"),
@@ -128,7 +123,7 @@ def allowed(src_layer, dst_layer):
 
 # 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
 # ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
-KNOWN_MAX = 69
+KNOWN_MAX = 68   # RS1-2 で pack → auto_cut が消えた(69 → 68)
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),
@@ -169,7 +164,6 @@ KNOWN = {
     ("src/editor/ed_jobs.py", "src/editor/ed_evalbatch.py"),
     ("src/editor/ed_speakers.py", "src/editor/ed_drill.py"),
     ("src/home/live.py", "src/home/live_report.py"),
-    ("src/cut2resolve/pack.py", "src/cut2resolve/auto_cut.py"),
     ("src/editor/ed_jobs.py", "src/editor/ed_alt.py"),
     ("src/editor/ed_jobs.py", "src/editor/ed_learn.py"),
     ("src/editor/ed_jobs.py", "src/editor/ed_store.py"),
