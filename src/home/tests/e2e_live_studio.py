@@ -351,29 +351,26 @@ def _scene_turn_on(cx):
     # ---------------- 1. ホームでオンにする ----------------
     pg = ctx.new_page()
     watch(pg, "home")
-    pg.goto(base + "/")
-    pg.click("[data-ui-settings]")   # 試験中の機能は ⚙ 設定の「ホーム」の節(UI の見直し M10。以前は「詳しく」の中)
-    wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden")
-    pg.click("#liveEnabled")
-    check(wait_js(pg, "document.getElementById('liveMsg').hidden === false") and srv.prefs.get(["live"])["live"]["enabled"] is True,
-          "1 ホームの「試験中の機能」でオンにする")
+    pg.goto(base + "/settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(docs/spec/settings.md の 6)
+    wait_js(pg, "!!document.getElementById('uiSet-live_enabled')")
+    pg.click("#uiSet-live_enabled")
+    check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'") and srv.prefs.get(["live"])["live"]["enabled"] is True, "1 設定の画面でオンにする")
     # M2: オンにすると「書き出したあとの自動の流れ」(live.auto)の欄が出て、選ぶと設定に入る
-    check(wait_js(pg, "!document.getElementById('liveAutoBox').hidden", 5000), "M2 ホームの「試験中の機能」に「書き出したあとの自動の流れ」が出る")
-    pg.evaluate("document.getElementById('liveAutoBox').open = true")
-    pg.select_option("#liveAutoEngine", "whisper.cpp")
-    pg.fill("#liveAutoModel", "large-v3")
-    pg.press("#liveAutoModel", "Tab")
+    check(wait_js(pg, "!document.querySelector('[data-ui-set-key=\"live.auto.after\"]').hidden", 5000), "M2 オンにすると「書き出したあと」の欄が出る")
+    pg.select_option("#uiSet-live_auto_engine", "whisper.cpp")
+    pg.fill("#uiSet-live_auto_model", "large-v3")
+    pg.press("#uiSet-live_auto_model", "Tab")
     check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),
           "M2 エンジン・モデルを選ぶと live.auto に入る: %s" % srv.prefs.get(["live"])["live"]["auto"])
     # M7: 配信後の全自動のスイッチと 1 時間あたりの数(既定オフ・6)
-    check(pg.evaluate("document.getElementById('liveAfterStream').checked") is False and pg.input_value("#liveAfterPerHour") == "6",
+    check(pg.evaluate("document.getElementById('uiSet-live_autoAfterStream').checked") is False and pg.input_value("#uiSet-live_afterStreamPerHour") == "6",
           "M7 「配信が終わったら、アーカイブの解析で自動で切り抜く」は既定オフ・1 時間あたり 6")
-    pg.click("#liveAfterStream")
+    pg.click("#uiSet-live_autoAfterStream")
     check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is True, 8), "M7 付けると live.autoAfterStream = true")
-    pg.fill("#liveAfterPerHour", "8")
-    pg.press("#liveAfterPerHour", "Tab")
+    pg.fill("#uiSet-live_afterStreamPerHour", "8")
+    pg.press("#uiSet-live_afterStreamPerHour", "Tab")
     check(wait_for(lambda: srv.prefs.get(["live"])["live"]["afterStreamPerHour"] == 8, 8), "M7 1 時間あたりを 8 に")
-    pg.click("#liveAfterStream")   # 外す(この e2e の録画で配信後の全自動を動かさない)
+    pg.click("#uiSet-live_autoAfterStream")   # 外す(この e2e の録画で配信後の全自動を動かさない)
     check(wait_for(lambda: srv.prefs.get(["live"])["live"]["autoAfterStream"] is False, 8), "M7 外すと live.autoAfterStream = false")
     pg.close()
     cx.pg = pg

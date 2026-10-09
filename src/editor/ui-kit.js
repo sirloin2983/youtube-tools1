@@ -1321,6 +1321,7 @@
   function settingsFormRender(host, group, io) {
     var sec = setFormEl('section', 'ui-set-group');
     sec.setAttribute('data-ui-set-group', group.id || '');
+    if (group.id) sec.id = 'uiSetGroup-' + group.id;   /* ほかの画面からのリンク先(settings#uiSetGroup-intake など) */
     if (group.title) sec.appendChild(setFormEl('h4', null, group.title));
     if (group.hint) sec.appendChild(setFormEl('p', 'hint ui-set-ghint', group.hint));
     var off = typeof io.disabled === 'function' ? io.disabled() : '';

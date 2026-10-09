@@ -1260,15 +1260,14 @@
     box.appendChild(row);
     return box;
   }
-  /* 設定の欄(依頼の受付・バックアップ)を開いて、最初に入れる欄へ(フォルダが空ならフォルダ、入っていればオン・オフのスイッチ) */
-  function openSettingsBox(boxSel, folderSel, switchSel) {
+  /* 受付・バックアップのパネルを開いて、オン/オフのスイッチへ(フォルダ・数の欄は設定の画面 = 0.54.0) */
+  function openSettingsBox(boxSel, switchSel) {
     var box = $(boxSel);
     box.open = true;
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    ($(folderSel).value.trim() ? $(switchSel) : $(folderSel)).focus({ preventScroll: true });
+    $(switchSel).focus({ preventScroll: true });
   }
-  function openIntakeSettings() { openSettingsBox('#intakeBox', '#intakeFolder', '#intakeEnabled'); }   // 「依頼を受け付ける」のスイッチ
-  function openBackupSettings() { openSettingsBox('#backupBox', '#backupFolder', '#backupEnabled'); }   // 「自動でバックアップする」のスイッチ
+  function openIntakeSettings() { openSettingsBox('#intakeBox', '#intakeEnabled'); }   // 「依頼を受け付ける」のスイッチ
 
   function updateSummaryLine() {
     if (!casesData) return;
@@ -1928,25 +1927,17 @@
   function prefsPatch(section, value) { return api('api/ytt/prefs', 'POST', { op: 'patch', section: section, value: value }); }
   /* 欄の設定を保存できなかった: 欄の下の文と、知らせ([もう一度] つき)。check = 何を確かめるか */
   function saveFailed(msg, what, check, e, retry) {
-    msg.textContent = failText('保存できませんでした', check + '、もう一度「設定を保存」を押してください', e);
+    msg.textContent = failText('保存できませんでした', check + '、もう一度お試しください', e);
     failToast(what + 'の設定を保存できませんでした', check + '、もう一度お試しください', e, retry);
-  }
-  /* 欄に入力したら「まだ保存していない」の印を付けて(読み直しで欄を上書きしない)、前の保存の文を消す */
-  function onEdit(sels, msgSel, mark) {
-    sels.forEach(function (s) { $(s).addEventListener('input', function () { mark(); $(msgSel).textContent = ''; }); });
   }
 
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
-  var intakeData = null, intakeSig = '', intakeBusy = false, intakeDirty = false, intakeOpened = false;
-  /* 受付の数の欄: [ホームの設定の節 intake の鍵, 欄, 名前, 下限, 上限](範囲は home/prefs.py の INTAKE_RANGES と同じ。欄の min/max も portal.html で同じ値) */
-  var INTAKE_NUMS = [['top', '#intakeTop', '既定の切り抜く数', 1, 10], ['deliverBatch', '#intakeBatch', 'まとめて届ける本数', 1, 10],
-    ['maxHours', '#intakeHours', '配信の長さの上限', 1, 24], ['maxGB', '#intakeGB', '動画の大きさの上限', 1, 200], ['interval', '#intakeInterval', '見る間隔', 10, 600]];
-
+  var intakeData = null, intakeSig = '', intakeBusy = false, intakeOpened = false;
+  /* 0.54.0: 見張るフォルダ・数の欄は設定の画面(/settings。範囲は home/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
   function fillIntakeSettings(d) {
     $('#intakeEnabled').checked = !!d.enabled;
-    $('#intakeFolder').value = d.folder || '';
-    INTAKE_NUMS.forEach(function (n) { if (d[n[0]] != null) $(n[1]).value = String(d[n[0]]); });
-    intakeDirty = false;
+    $('#intakeFolderNow').textContent = d.folder ? '見張るフォルダ: ' + d.folder : '見張るフォルダは未設定(「設定を変える」で決めます)';
+    $('#intakeFolderNow').title = d.folder || '';
   }
   function renderIntakeStatus(d) {
     paintStatePill('#intakeState', INTAKE_PILL, d, '見張り中');
@@ -2007,7 +1998,7 @@
       intakeOpened = true;
       if (d.enabled || d.state === 'error') $('#intakeBox').open = true;
       fillIntakeSettings(d);
-    } else if (!intakeDirty) fillIntakeSettings(d);
+    } else fillIntakeSettings(d);
   }
   function pollIntake() {
     return pollSection('api/intake', '#intakeBox', '#intakeState', '依頼の受付', renderIntake);
@@ -2019,46 +2010,33 @@
       function (e) { failToast('依頼を確認できませんでした', '少し待って、もう一度「今すぐ確認」を押してください', e); })
       .then(function () { intakeBusy = false; if (intakeData) renderIntakeStatus(intakeData); });
   }
-  function intakeValue() {
-    var v = { enabled: $('#intakeEnabled').checked, folder: $('#intakeFolder').value.trim() };
-    for (var i = 0; i < INTAKE_NUMS.length; i++) {
-      var n = INTAKE_NUMS[i], x = Number($(n[1]).value);
-      if (!isFinite(x) || $(n[1]).value === '' || x < n[3] || x > n[4]) throw new Error(n[2] + 'は ' + n[3] + '〜' + n[4] + ' の数で入れてください');
-      v[n[0]] = Math.round(x);
-    }
-    return v;
-  }
-  function intakeSave(partial) {
-    var msg = $('#intakeSaveMsg'), v;
-    try { v = partial || intakeValue(); } catch (e) { msg.textContent = e.message; return Promise.resolve(); }
+  /* スイッチ(enabled)だけを保存する(フォルダ・数は設定の画面)。断られたら(フォルダが空など)理由を出してスイッチを戻す */
+  function intakeSave(v) {
+    var msg = $('#intakeSaveMsg');
     msg.textContent = '保存しています…';
     return prefsPatch('intake', v).then(function () {
-      msg.textContent = '保存しました';
-      if (!partial) intakeDirty = false;
+      msg.textContent = '';
       return pollIntake();
     }, function (e) {
-      saveFailed(msg, '依頼の受付', '内容を確かめて', e, function () { intakeSave(partial); });
-      if (partial && intakeData) $('#intakeEnabled').checked = !!intakeData.enabled;   // スイッチだけの保存が断られたら、表示を元に戻す
+      saveFailed(msg, '依頼の受付', '「設定を変える」で見張るフォルダを決めて', e, function () { intakeSave(v); });
+      if (intakeData) $('#intakeEnabled').checked = !!intakeData.enabled;   // 断られたら、表示を元に戻す
     });
   }
   function wireIntake() {
     if (!$('#intakeBox')) return;
     $('#intakeScanBtn').addEventListener('click', intakeScanNow);
-    $('#intakeSave').addEventListener('click', function () { intakeSave(); });
     $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
-    onEdit(['#intakeFolder'].concat(INTAKE_NUMS.map(function (n) { return n[1]; })), '#intakeSaveMsg', function () { intakeDirty = true; });
   }
 
   /* ================================================================ 作業データのバックアップ(src/home/backup.py。docs/spec/data-location.md の「バックアップ」) ================================================================ */
 
   var BACKUP_PILL = { off: 'wait', idle: 'ok', running: 'run', error: 'err' };
-  var backupData = null, backupBusy = false, backupDirty = false, backupOpened = false, backupTimer = null, backupFastUntil = 0;
-
+  var backupData = null, backupBusy = false, backupOpened = false, backupTimer = null, backupFastUntil = 0;
+  /* 0.54.0: 写す先・間隔の欄は設定の画面(/settings)。ここはスイッチと今の写す先だけ */
   function fillBackupSettings(d) {
     $('#backupEnabled').checked = !!d.enabled;
-    $('#backupFolder').value = d.folder || '';
-    if (d.everyHours != null) $('#backupEvery').value = String(d.everyHours);
-    backupDirty = false;
+    $('#backupFolderNow').textContent = d.folder ? '写す先: ' + d.folder + (d.everyHours ? '(' + d.everyHours + ' 時間ごと)' : '') : '写す先は未設定(「設定を変える」で決めます)';
+    $('#backupFolderNow').title = d.folder || '';
   }
   function renderBackupStatus(d) {
     paintStatePill('#backupState', BACKUP_PILL, d, '動いています');
@@ -2079,7 +2057,7 @@
       backupOpened = true;
       if ((!d.enabled && d.source) || d.state === 'error') $('#backupBox').open = true;
       fillBackupSettings(d);
-    } else if (!backupDirty) fillBackupSettings(d);
+    } else fillBackupSettings(d);
   }
   function pollBackup() {
     if (!$('#backupBox')) return Promise.resolve();
@@ -2093,33 +2071,23 @@
       function (e) { failToast('バックアップを始められませんでした', '写す先のフォルダを確かめて、もう一度「今すぐ写す」を押してください', e); })
       .then(function () { backupBusy = false; if (backupData) renderBackupStatus(backupData); });
   }
-  function backupValue() {
-    var x = Number($('#backupEvery').value);
-    if (!isFinite(x) || $('#backupEvery').value === '' || x < 1 || x > 168) throw new Error('間隔は 1〜168 の数で入れてください');
-    var v = { enabled: $('#backupEnabled').checked, folder: $('#backupFolder').value.trim(), everyHours: Math.round(x) };
-    if (v.enabled && !v.folder) throw new Error('写す先のフォルダを入れてください');
-    return v;
-  }
-  function backupSave(partial) {
-    var msg = $('#backupSaveMsg'), v;
-    try { v = partial || backupValue(); } catch (e) { msg.textContent = e.message; if (partial === undefined && backupData) $('#backupEnabled').checked = !!backupData.enabled; return Promise.resolve(); }
+  /* スイッチ(enabled)だけを保存する(写す先・間隔は設定の画面)。写す先が空のままオンにすると入口が断る(home/prefs.py)→ 理由を出してスイッチを戻す */
+  function backupSave(v) {
+    var msg = $('#backupSaveMsg');
     msg.textContent = '保存しています…';
     return prefsPatch('backup', v).then(function () {
-      msg.textContent = '保存しました';
-      backupDirty = false;
+      msg.textContent = '';
       backupFastUntil = Date.now() + 30000;
       return pollBackup();
     }, function (e) {
-      saveFailed(msg, 'バックアップ', '写す先のフォルダを確かめて', e, function () { backupSave(partial); });
+      saveFailed(msg, 'バックアップ', '「設定を変える」で写す先のフォルダを決めて', e, function () { backupSave(v); });
       if (backupData) $('#backupEnabled').checked = !!backupData.enabled;   // 断られたら、スイッチの表示を元に戻す
     });
   }
   function wireBackup() {
     if (!$('#backupBox')) return;
     $('#backupRunBtn').addEventListener('click', backupRunNow);
-    $('#backupSave').addEventListener('click', function () { backupSave(); });
-    $('#backupEnabled').addEventListener('change', function () { backupSave(); });   // スイッチは押したらすぐ効く(フォルダと一緒に送る。フォルダが空ならオンにできない)
-    onEdit(['#backupFolder', '#backupEvery'], '#backupSaveMsg', function () { backupDirty = true; });
+    $('#backupEnabled').addEventListener('change', function () { backupSave({ enabled: $('#backupEnabled').checked }); });   // スイッチは押したらすぐ効く
   }
 
   /* ================================================================ まとめて実行の記録(段2 B-6。入口を終えても残る。開いたときだけ読む) ================================================================ */
@@ -2187,106 +2155,8 @@
     }).then(function () { histBusy = false; });
   }
 
-  /* ================================================================ 試験中の機能: リアルタイム切り抜き(線 D。src/home/live.py)================================================================
-     ホームの設定の節 live の enabled だけをここで切り替える(既定はオフ)。録画と再生・マークはスタジオの中(P3。別の録画の画面は 2026-10-05 にやめた) */
-  /* 入力中の欄は書き換えない(打っている途中の値を、保存の答えで戻さない) */
-  function setIdle(sel, value) { if (document.activeElement !== $(sel)) $(sel).value = value; }
-  function renderLive(v) {
-    $('#liveEnabled').checked = !!(v && v.enabled);
-    var box = $('#liveAutoBox'), a = (v && v.auto) || {};   // 書き出したあとの自動の流れ(live.auto)。オンのときだけ
-    if (!box) return;
-    box.hidden = !(v && v.enabled);
-    $('#liveAutoAfter').value = a.after || 'check';
-    $('#liveAutoCut').value = a.cut || '';
-    $('#liveAutoEngine').value = a.engine || '';
-    setIdle('#liveAutoModel', a.model || '');
-    if ($('#liveAutoPad')) setIdle('#liveAutoPad', a.pad == null ? 2 : a.pad);   // 自動の採用の前後の余白(live.auto.pad。M8。0.46.2)
-    if ($('#liveAfterStream')) {   // 配信後の全自動(live.autoAfterStream・afterStreamPerHour)
-      $('#liveAfterStream').checked = !!(v && v.autoAfterStream);
-      setIdle('#liveAfterPerHour', (v && v.afterStreamPerHour) || 6);
-    }
-    var db = $('#liveDetectBox'), dt = (v && v.detect) || {}, aa = (v && v.autoAdopt) || {};   // 配信中の候補(live.detect)・自動の採用(live.autoAdopt)
-    if (db) {
-      db.hidden = !(v && v.enabled);
-      $('#liveDetect').checked = !!dt.enabled;
-      $('#liveDetectSens').value = dt.sens || 'normal';
-      setIdle('#liveDetectPerHour', dt.perHour || 6);
-      $('#liveAutoAdopt').checked = !!aa.enabled;
-      setIdle('#liveAutoAdoptWait', aa.waitMin || 5);
-    }
-  }
-  /* live の節を一部だけ保存する(value は節の中の鍵。入れ子の detect・autoAdopt・auto は送った鍵だけ変わる)。断られたら今の値を読み直す */
-  function saveLiveTop(value, okText) {
-    prefsPatch('live', value).then(function (j) {
-      renderLive(j.value);
-      toast(okText, 'ok');
-    }, function (e) {
-      failToast('設定を保存できませんでした', 'もう一度お試しください', e);
-      loadLive();
-    });
-  }
-  function saveLiveAuto(key, value) {
-    var body = {}; body[key] = value;
-    saveLiveTop({ auto: body }, '書き出したあとの設定を保存しました');
-  }
-  /* 数の欄: lo〜hi の整数なら save(n)、違えば知らせて今の値に戻す */
-  function wireLiveNum(sel, lo, hi, badText, save) {
-    $(sel).addEventListener('change', function () {
-      var n = parseInt($(sel).value, 10);
-      if (!(n >= lo && n <= hi)) { toast(badText, 'err'); loadLive(); return; }
-      save(n);
-    });
-  }
-  function loadLive() {
-    return api('api/ytt/prefs', 'POST', { op: 'get', sections: ['live'] }).then(function (j) { renderLive((j.prefs || {}).live); },
-      function () { $('#labBox').hidden = true; });   // 設定を読めない(古い入口)なら出さない
-  }
-  function wireLive() {
-    if (!$('#labBox')) return;
-    $('#liveEnabled').addEventListener('change', function () {
-      var on = $('#liveEnabled').checked, msg = $('#liveMsg');
-      prefsPatch('live', { enabled: on }).then(function (j) {
-        renderLive(j.value);
-        msg.hidden = false;
-        msg.textContent = on ? 'オンにしました。録画の部品を裏で起動します(数秒かかります)。スタジオの URL の欄に配信中の URL を入れると録画します' : 'オフにしました(録画中の物があれば、録画の部品はそのまま続けます)';
-      }, function (e) {
-        $('#liveEnabled').checked = !on;
-        failToast('試験中の機能を切り替えられませんでした', 'もう一度お試しください', e);
-      });
-    });
-    if ($('#liveAutoBox')) {
-      [['#liveAutoAfter', 'after'], ['#liveAutoCut', 'cut'], ['#liveAutoEngine', 'engine']].forEach(function (p) {
-        $(p[0]).addEventListener('change', function () { saveLiveAuto(p[1], $(p[0]).value); });
-      });
-      $('#liveAutoModel').addEventListener('change', function () { saveLiveAuto('model', $('#liveAutoModel').value.trim()); });
-      if ($('#liveAutoPad')) $('#liveAutoPad').addEventListener('change', function () {   // 0〜5 秒(小数も可)
-        var n = parseFloat($('#liveAutoPad').value);
-        if (!(n >= 0 && n <= 5)) { toast('前後の余白は 0〜5 秒にしてください', 'err'); loadLive(); return; }
-        saveLiveAuto('pad', n);
-      });
-    }
-    if ($('#liveAfterStream')) {
-      $('#liveAfterStream').addEventListener('change', function () {
-        var on = $('#liveAfterStream').checked;
-        saveLiveTop({ autoAfterStream: on }, on ? '配信が終わったら、アーカイブの解析で自動で切り抜きます' : '配信後の自動の切り抜きをやめました');
-      });
-      wireLiveNum('#liveAfterPerHour', 1, 30, '1 時間あたりの数は 1〜30 にしてください', function (n) { saveLiveTop({ afterStreamPerHour: n }, '1 時間あたり ' + n + ' 本にしました'); });
-    }
-    if ($('#liveDetectBox')) {   // 配信中の候補(live.detect)・候補の自動の採用(live.autoAdopt)。節の中の鍵ごとに送る
-      $('#liveDetect').addEventListener('change', function () {
-        var on = $('#liveDetect').checked;
-        saveLiveTop({ detect: { enabled: on } }, on ? '配信中の候補を出します(録画中の配信を見ます)' : '配信中の候補をやめました');
-      });
-      $('#liveDetectSens').addEventListener('change', function () { saveLiveTop({ detect: { sens: $('#liveDetectSens').value } }, '候補の感度を変えました'); });
-      wireLiveNum('#liveDetectPerHour', 1, 30, '1 時間の本数は 1〜30 にしてください', function (n) { saveLiveTop({ detect: { perHour: n } }, '候補は 1 時間に ' + n + ' 本までにしました'); });
-      $('#liveAutoAdopt').addEventListener('change', function () {
-        var on = $('#liveAutoAdopt').checked;
-        saveLiveTop({ autoAdopt: { enabled: on } }, on ? '候補を自動で採用します(確定から ' + ($('#liveAutoAdoptWait').value || 5) + ' 分待ちます)' : '候補の自動の採用をやめました');
-      });
-      wireLiveNum('#liveAutoAdoptWait', 1, 60, '待つ分は 1〜60 にしてください', function (n) { saveLiveTop({ autoAdopt: { waitMin: n } }, '候補が確定してから ' + n + ' 分待って採用します'); });
-    }
-    loadLive();
-  }
+  /* 試験中の機能(リアルタイム切り抜き。線 D)の欄は 0.54.0 で設定の画面(/settings の「リアルタイム切り抜き」の節)へ移した(docs/spec/settings.md の 6)。
+     録画と再生・マークはスタジオの中(P3)。入口の側の切り替え(録画の部品の起動)は api/ytt/prefs の patch(section live)で今までどおり動く */
 
   /* ================================================================ ハッシュ(#cases・#case-<id>・#doc-<id>): 次にやることのリンク先へ移る ================================================================ */
 
@@ -2318,19 +2188,10 @@
   UIKit.portal.listen();
 
   document.addEventListener('DOMContentLoaded', function () {
-    /* ⚙ 設定の「ホーム」の節(M10): 窓で開く・まとめて実行の既定・試験中の機能。以前は「詳しく」の中・案件の行に散らばっていた。
-       依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは「開く」ボタンで移る */
+    /* ⚙ 設定の「ホーム」の節(M10): 窓で開く と、設定の画面へのリンク(0.54.0: まとめて実行の既定・試験中の機能・受付・バックアップの欄は設定の画面へ) */
     var hs = $('#homeSettings');
     if (hs) hs.hidden = false;
     UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' });
-    if ($('#setAutorun')) UIKit.autorun.panel($('#setAutorun'), { kind: 'new' });
-    function goFromSettings(open) {
-      var d = document.getElementById('uiSettingsDrawer');
-      if (d) UIKit.drawer.close(d);
-      setTimeout(open, 0);
-    }
-    $('#setGoIntake').addEventListener('click', function () { goFromSettings(openIntakeSettings); });
-    $('#setGoBackup').addEventListener('click', function () { goFromSettings(openBackupSettings); });
     UIKit.streamer.attach($('#docWho'));
 
     $('#btnQuit').addEventListener('click', quit);
@@ -2378,7 +2239,6 @@
     $('#historyMore').addEventListener('click', function () { loadHistory(false); });
     wireIntake();
     wireBackup();
-    wireLive();
     wireReview();
     UIKit.hide.onChange(function (list) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
       if (!list || list === 'cases') render();

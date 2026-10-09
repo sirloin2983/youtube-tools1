@@ -321,5 +321,5 @@
 ## v25(2026-10-09・設定を 1 つに S5。`docs/spec/settings.md` の 4)
 - `UIKit.settingsForm.render(host, group, io)` … 宣言的なスキーマ(`src/home/settings/schema.json`。鍵・型・範囲・既定値・ラベル・1 行の説明)から設定の節を描く。
   範囲と形の検査・「標準に戻す」(既定と違うときだけ)・保存の印(「保存しました」2 秒。失敗は理由を行に出して値を戻す)・`when` で出す/隠す・ツールが動いていないときの無効化(`io.disabled()`)が自動で付く。
-  `UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/home/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
+  節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/home/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
 - `UIKit.settings.general()` … ⚙ の「全体」の節(テーマ・文字の大きさ・キーの帯)の要素。/settings にも置く。入口に取り込まれている画面の「全体」の節には「すべての設定を 1 つの画面で → 設定の画面を開く」(`/settings`)が付く

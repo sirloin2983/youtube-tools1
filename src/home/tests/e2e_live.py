@@ -168,19 +168,18 @@ def main():
                 pg.on("pageerror", lambda e: errors.append(str(e)))
 
                 # 1. オフ
-                pg.goto(base)
-                pg.click("[data-ui-settings]")   # 試験中の機能は ⚙ 設定の「ホーム」の節(UI の見直し M10。以前は「詳しく」の中)
-                check(wait_js(pg, "!!document.getElementById('labBox') && !document.getElementById('labBox').hidden"), "「試験中の機能」が出る")
-                check(pg.evaluate("document.getElementById('liveEnabled').checked") is False, "既定はオフ")
+                pg.goto(base + "settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(docs/spec/settings.md の 6)
+                check(wait_js(pg, "!!document.querySelector('#sec-live [data-ui-set-key]')"), "設定の画面に「リアルタイム切り抜き」の節が出る")
+                check(pg.evaluate("document.getElementById('uiSet-live_enabled').checked") is False, "既定はオフ")
                 check(pg.evaluate("document.getElementById('liveLink')") is None, "録画の画面へのリンクは無い(スタジオに統合した)")
-                check("スタジオの URL の欄に配信中の URL を入れるだけで録画します" in (pg.text_content("#liveNote") or ""),
-                      "案内の1行: %s" % pg.text_content("#liveNote"))
+                check("スタジオの URL の欄に配信中の URL を入れるだけで録画します" in (pg.text_content("[data-ui-set-key='live.enabled'] .ui-set-hint") or ""),
+                      "案内の1行: %s" % pg.text_content("[data-ui-set-key='live.enabled'] .ui-set-hint"))
                 check(api.call("GET", "/live/")[0] == 404, "オフの間は /live/ が 404")
                 check(api.call("POST", "/api/ytt/live", {"op": "status"})[1] == {"enabled": False}, "オフの間は札の status が {enabled: false}")
 
                 # 2. スイッチでオンにする
-                pg.click("#liveEnabled")
-                check(wait_js(pg, "document.getElementById('liveMsg').hidden === false"), "オンにした知らせ: %s" % pg.text_content("#liveMsg"))
+                pg.click("#uiSet-live_enabled")
+                check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'"), "設定の画面で「保存しました」")
                 check(srv.prefs.get(["live"])["live"]["enabled"] is True, "設定に残る")
                 code, _, _, loc = api.call("GET", "/live/", redirect=False)
                 check((code, loc) == (302, "/studio/"), "/live/ はスタジオへ 302: %s %s" % (code, loc))
@@ -249,8 +248,10 @@ def main():
                 check(b"#EXT-X-ENDLIST" in api.call("GET", "/live/r/local/%s/index.m3u8" % rid)[1], "再生リストに終わりの印")
 
                 # 7. オフに戻す
-                pg.click("#liveEnabled")
-                check(wait_js(pg, "/オフにしました/.test(document.getElementById('liveMsg').textContent)"), "オフに戻す")
+                pg.goto(base + "settings")
+                check(wait_js(pg, "!!document.getElementById('uiSet-live_enabled') && document.getElementById('uiSet-live_enabled').checked"), "設定の画面はオン")
+                pg.click("#uiSet-live_enabled")
+                check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'") and srv.prefs.get(["live"])["live"]["enabled"] is False, "オフに戻す")
                 check(api.call("POST", "/api/ytt/live", {"op": "status"})[1] == {"enabled": False}, "オフなら札の status は {enabled: false}")
                 check(not errors, "ホームの画面にコンソールのエラーなし: %s" % errors[:5])
             finally:

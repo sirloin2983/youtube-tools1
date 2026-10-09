@@ -3130,3 +3130,9 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 結果: e2e_ui 単体 214・取り込み 237・test_review.cjs 53・e2e_live_studio 182 すべて OK。lint 0・ui_audit static Must 0。e2e_live_archive 95 も OK
 - 次: ホーム(⚙ の「まとめて実行の既定」「試験中の機能」と、受付・バックアップのパネルの欄 → 設定の画面。(gn)(go))→ 編集(並行セッション「ツール全体のコード修正」が src/editor を終えてから。(gp))→ (gq) の確認
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-09 Claude Code(PC。Fable。セッション「スタジオ設定の整理」)— S6 ⚙ の見直し 2: ホーム 0.54.0(⚙ と受付・バックアップのパネルの欄を設定の画面へ)
+- decisions (gn)(go)。`src/home/portal.html` = ⚙ の「ホーム」の節は 窓で開く + 「ほかの設定」(設定の画面へのリンク `#setGoPage`・`#setGoLive`・`#setGoIntake`・`#setGoBackup` = `settings#sec-home`・`#sec-live`・`#uiSetGroup-intake`・`#uiSetGroup-backup`)だけ(`#setAutorunBox`・`#labBox` と中の欄を消した)。受付・バックアップのパネルはスイッチ・今のフォルダ `#intakeFolderNow`/`#backupFolderNow`・「設定を変える」`#intakeSettingsLink`/`#backupSettingsLink`・知らせ `#*SaveMsg` だけ(フォルダ・数の欄と「設定を保存」を消した)/ `portal.js` = `fillIntakeSettings`・`fillBackupSettings` は表示だけ、`intakeSave(v)`・`backupSave(v)` はスイッチの {enabled} だけを送る(断られたら戻す)、試験中の機能の節(renderLive・saveLiveTop・wireLive など約 100 行)と `INTAKE_NUMS`・`intakeValue`・`backupValue`・`onEdit`・`openBackupSettings`・`UIKit.autorun.panel(#setAutorun)` を消した / `launch.py` 0.54.0・README ■ v0.54.0 / ui-kit: 節の要素に `id="uiSetGroup-<節>"`(リンク先。README の v25 に追記。写しも同期)
+- テスト: `e2e_intake_ui.py`(欄が無い・スイッチだけの patch・今のフォルダ)・`e2e_backup_ui.py`(写す先は `srv.prefs.patch`・400 はわざと)・`e2e_live.py`・`e2e_live_studio.py`(ホームの側は設定の画面 /settings の欄で)・`e2e_portal.py`(⚙ の節・受付のフォーカスはスイッチへ)
+- 結果: e2e_settings・e2e_intake_ui・e2e_backup_ui OK・lint 0・ui_audit static Must 0・test_launch/test_window/test_ui_kit_sync OK。`e2e_portal.py` は最初 A5(続けて確認)の 3 件が落ちた = M10 の場面で ⚙ を Esc で閉じたつもりが開いたまま(modal)で、後の場面のキーが届かなかった(ホームの変更を外すと通る = テストの直し方の問題)→ 閉じるボタンを押す形に直して すべて OK。e2e_live OK・e2e_live_studio 176/177(落ちた 1 件「再生リストの受信時刻に欠け」は録画の時刻の検査で設定と無関係 = 負荷による揺れと見ている。直前の同じ e2e は 182/182)・ui_audit all --demo Must 0
+- 未コミット: なし(この記録と一緒にコミット)

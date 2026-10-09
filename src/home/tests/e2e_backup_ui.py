@@ -89,7 +89,8 @@ def main():
                 check(pg.evaluate("document.getElementById('backupBox').open") is True, "まだ決めていないときは開いて見せる")
                 check("フォルダを決めて" in pg.text_content("#backupMsg"), "案内が出る: %s" % pg.text_content("#backupMsg"))
                 check(pg.is_disabled("#backupRunBtn"), "オフのときは「今すぐ写す」を押せない")
-                check(pg.input_value("#backupEvery") == "1", "間隔の既定は 1 時間")
+                check("未設定" in (pg.text_content("#backupFolderNow") or "") and (pg.get_attribute("#backupSettingsLink", "href") or "").endswith("settings#uiSetGroup-backup"),
+                      "写す先は未設定と出て、「設定を変える」は設定の画面のバックアップの節へ(0.54.0: 欄は設定の画面)")
 
                 # 2. フォルダが空ではオンにできない(送らない・スイッチは戻る)
                 pg.click("#backupEnabled")
@@ -97,17 +98,17 @@ def main():
                 check(pg.is_checked("#backupEnabled") is False, "スイッチは元に戻る")
 
                 # 3. 作業データの中は断る(保存はできるが、写すときに止まって理由を出す)
-                pg.fill("#backupFolder", os.path.join(data, "studio"))
+                srv.prefs.patch("backup", {"folder": os.path.join(data, "studio")})   # 0.54.0: 写す先は設定の画面(prefs)で
                 pg.click("#backupEnabled")
                 check(wait_js(pg, "document.getElementById('backupState').textContent === '止まっています'"), "作業データの中を選ぶと「止まっています」: %s" % pg.text_content("#backupState"))
                 check("作業データの中" in pg.text_content("#backupMsg"), "理由が出る: %s" % pg.text_content("#backupMsg"))
                 check(not os.path.exists(os.path.join(data, "studio", "youtube-tools-data", "studio")), "作業データの中には写していない")
 
                 # 4. 正しい先: 保存 → すぐ1回写る
-                pg.fill("#backupFolder", dest)
-                pg.fill("#backupEvery", "6")
-                pg.click("#backupSave")
-                check(wait_js(pg, "document.getElementById('backupSaveMsg').textContent === '保存しました'"), "設定を保存できる")
+                srv.prefs.patch("backup", {"enabled": False, "folder": dest, "everyHours": 6})   # 写す先と間隔は設定の画面(prefs)で
+                check(wait_js(pg, "!document.getElementById('backupEnabled').checked", 20000), "写す先を変えて止めた状態が画面に出る")
+                pg.click("#backupEnabled")   # オンにする(スイッチだけを送る)
+                check(wait_js(pg, "document.getElementById('backupEnabled').checked && document.getElementById('backupSaveMsg').textContent === ''", 10000), "オンにできる")
                 check(wait_js(pg, "document.getElementById('backupLast').textContent.includes('最後に写した')", 20000), "写したあと「最後に写した」が出る: %s" % pg.text_content("#backupLast"))
                 check(pg.text_content("#backupState") == "動いています", "札は「動いています」: %s" % pg.text_content("#backupState"))
                 check("2 個" in pg.text_content("#backupLast"), "写した数が出る(キャッシュは数えない): %s" % pg.text_content("#backupLast"))
@@ -127,8 +128,8 @@ def main():
                 check(wait_js(pg, "document.getElementById('backupState')?.textContent === '動いています'"), "読み直しても「動いています」")
                 check(pg.evaluate("document.getElementById('backupBox').open") is False, "動いているときは閉じたまま")
                 pg.evaluate("document.getElementById('backupBox').open = true")
-                check(pg.input_value("#backupFolder") == dest and pg.input_value("#backupEvery") == "6" and pg.is_checked("#backupEnabled"), "設定が残っている")
-                bad = [e for e in errors if "404" not in e]
+                check(dest in (pg.text_content("#backupFolderNow") or "") and "6 時間" in (pg.text_content("#backupFolderNow") or "") and pg.is_checked("#backupEnabled"), "設定が残っている: %s" % pg.text_content("#backupFolderNow"))
+                bad = [e for e in errors if "404" not in e and "400" not in e]   # 400 = フォルダが空のままオンにして入口が断った(わざと起こしている)
                 bad += ["404: " + u for u in notfound if "favicon" not in u and "/transcribe/api/" not in u]   # 編集は取り込んでいないテストなので 404 は想定内
                 check(not bad, "コンソールのエラーなし: %s" % bad[:3])
             finally:

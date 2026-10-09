@@ -147,9 +147,9 @@ def main():
                 check("オフです" in pg.text_content("#intakeMsg"), "オフの案内が出る: %s" % pg.text_content("#intakeMsg"))
                 check(pg.is_disabled("#intakeScanBtn"), "オフのときは「今すぐ確認」を押せない")
                 check(not pg.is_visible("#intakeList") and pg.is_visible("#intakeEmpty"), "依頼が無いときは「まだ依頼は届いていません」")
-                check("Dropbox\\アプリ\\切り抜き依頼" in pg.text_content("#intakeBox"), "フォルダの入力の説明に例が出る")
-                check(pg.input_value("#intakeTop") == "3" and pg.input_value("#intakeHours") == "6" and pg.input_value("#intakeGB") == "10",
-                      "設定の欄にサーバーの値が入る")
+                # 0.54.0: フォルダ・数の欄は設定の画面へ。パネルには今のフォルダと「設定を変える」
+                check("未設定" in (pg.text_content("#intakeFolderNow") or "") and (pg.get_attribute("#intakeSettingsLink", "href") or "").endswith("settings#uiSetGroup-intake"),
+                      "フォルダは未設定と出て、「設定を変える」は設定の画面の受付の節へ: %s" % pg.text_content("#intakeFolderNow"))
 
                 # 2. スイッチ: フォルダが空だとサーバーが断る → エラーを出してスイッチを戻す
                 state["patch_error"] = "見張るフォルダを指定してください"
@@ -159,31 +159,15 @@ def main():
                 check(wait_js(pg, "document.getElementById('intakeEnabled').checked === false"), "断られたらスイッチを戻す")
                 check(wait_js(pg, "document.getElementById('toast')?.textContent.includes('見張るフォルダ')", 3000), "トーストにも出る")
 
-                # 3. 設定の保存: 正しい patch の本文
+                # 3. スイッチでオンにする(0.54.0: フォルダ・数は設定の画面で決める。patch の本文はスイッチだけ)
                 state["patch_error"] = None
-                pg.fill("#intakeFolder", "  C:\\Dropbox\\アプリ\\切り抜き依頼  ")
-                pg.fill("#intakeTop", "4"); pg.fill("#intakeHours", "8"); pg.fill("#intakeGB", "30")
-                pg.check("#intakeEnabled")
+                state["intake"] = intake_obj(False, state["intake"]["requests"], folder="C:\\Dropbox\\アプリ\\切り抜き依頼")
                 state["patches"].clear()
-                pg.click("#intakeSave")
-                check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent === '保存しました'"), "保存できた: %s" % pg.text_content("#intakeSaveMsg"))
-                want = {"enabled": True, "folder": "C:\\Dropbox\\アプリ\\切り抜き依頼", "top": 4, "deliverBatch": 5, "maxHours": 8, "maxGB": 30, "interval": 30}   # 見る間隔(段9 9-4)・まとめて届ける本数(0.45.0)。1 日の上限(dailyMax)は 2026-10-07 に撤廃
-                check(state["patches"] and state["patches"][-1] == want, "patch の本文(節 intake の全キー): %s" % (state["patches"][-1:],))
-                check(wait_js(pg, "document.getElementById('intakeState').textContent === '見張り中'"), "保存後に状態が見張り中になる")
+                pg.check("#intakeEnabled")
+                check(wait_js(pg, "document.getElementById('intakeState').textContent === '見張り中'"), "オンにすると状態が見張り中になる")
+                check(state["patches"] and state["patches"][-1] == {"enabled": True}, "patch の本文はスイッチだけ: %s" % (state["patches"][-1:],))
                 check(not pg.is_disabled("#intakeScanBtn"), "見張り中は「今すぐ確認」を押せる")
-
-                # 3b. 範囲外はサーバーへ送らず、その場で言う
-                n = len(state["patches"])
-                pg.fill("#intakeTop", "99")
-                pg.click("#intakeSave")
-                check("既定の切り抜く数" in pg.text_content("#intakeSaveMsg") and len(state["patches"]) == n, "範囲外は送らずに言う: %s" % pg.text_content("#intakeSaveMsg"))
-                pg.fill("#intakeTop", "4")
-
-                # 3c. 保存のサーバーエラー(400 の message)
-                state["patch_error"] = "配信の長さの上限(時間)は 1〜24 です"
-                pg.click("#intakeSave")
-                check(wait_js(pg, "document.getElementById('intakeSaveMsg').textContent.includes('配信の長さの上限(時間)は 1〜24 です')"), "保存のエラーを表示: %s" % pg.text_content("#intakeSaveMsg"))
-                state["patch_error"] = None
+                check(wait_js(pg, "/見張るフォルダ: /.test(document.getElementById('intakeFolderNow').textContent)"), "今のフォルダが出る: %s" % pg.text_content("#intakeFolderNow"))
 
                 # 4. 今すぐ確認 → scan が呼ばれて一覧が出る
                 pg.click("#intakeScanBtn")

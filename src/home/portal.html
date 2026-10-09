@@ -119,24 +119,12 @@
         <button type="button" class="btn small" id="intakeScanBtn">今すぐ確認</button>
       </div>
 
+      <!-- 0.54.0: 見張るフォルダ・数の欄と「設定を保存」は設定の画面(/settings の「依頼の受付」)へ。ここはオン/オフと今のフォルダだけ(docs/spec/settings.md の 6) -->
       <div class="pt-intake-settings card flat">
         <div class="row">
           <label class="lag"><input type="checkbox" class="ui-switch" id="intakeEnabled">依頼を受け付ける</label>
-        </div>
-        <div class="row">
-          <label class="lag pt-intake-folder">見張るフォルダ
-            <input id="intakeFolder" type="text" size="44" placeholder="例: C:\Users\(あなた)\Dropbox\アプリ\切り抜き依頼" autocomplete="off" spellcheck="false"></label>
-        </div>
-        <p class="hint">Dropbox\アプリ\切り抜き依頼 など、友人と共有しているフォルダの場所(ドライブ名からの全部のパス)を入れます。</p>
-        <div class="row pt-intake-nums">
-          <label class="lag">既定の切り抜く数 <input id="intakeTop" type="number" min="1" max="10" step="1" value="3"></label>
-          <label class="lag">まとめて届ける本数 <input id="intakeBatch" type="number" min="1" max="10" step="1" value="5"></label>
-          <label class="lag">配信の長さの上限(時間) <input id="intakeHours" type="number" min="1" max="24" step="1" value="6"></label>
-          <label class="lag">動画の大きさの上限(GB) <input id="intakeGB" type="number" min="1" max="200" step="1" value="10"></label>
-          <label class="lag">見る間隔(秒) <input id="intakeInterval" type="number" min="10" max="600" step="5" value="30"></label>
-        </div>
-        <div class="row">
-          <button type="button" class="btn small primary" id="intakeSave">設定を保存</button>
+          <span class="hint" id="intakeFolderNow"></span>
+          <a class="btn small" id="intakeSettingsLink" href="settings#uiSetGroup-intake">設定を変える(フォルダ・数)</a>
           <span class="hint" id="intakeSaveMsg" role="status"></span>
         </div>
       </div>
@@ -157,21 +145,12 @@
         <span class="hint num" id="backupLast"></span>
         <button type="button" class="btn small" id="backupRunBtn">今すぐ写す</button>
       </div>
+      <!-- 0.54.0: 写す先・間隔の欄と「設定を保存」は設定の画面(/settings の「作業データのバックアップ」)へ。ここはオン/オフと今の写す先だけ -->
       <div class="pt-intake-settings card flat">
         <div class="row">
           <label class="lag"><input type="checkbox" class="ui-switch" id="backupEnabled">自動でバックアップする</label>
-        </div>
-        <div class="row">
-          <label class="lag pt-intake-folder">写す先のフォルダ
-            <input id="backupFolder" type="text" size="44" placeholder="例: D:\backup" autocomplete="off" spellcheck="false"></label>
-        </div>
-        <p class="hint">作業データとは別のドライブのフォルダ(ドライブ名からの全部のパス)を入れます。その中の youtube-tools-data に写します。
-          API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。</p>
-        <div class="row pt-intake-nums">
-          <label class="lag">間隔(時間) <input id="backupEvery" type="number" min="1" max="168" step="1" value="1"></label>
-        </div>
-        <div class="row">
-          <button type="button" class="btn small primary" id="backupSave">設定を保存</button>
+          <span class="hint" id="backupFolderNow"></span>
+          <a class="btn small" id="backupSettingsLink" href="settings#uiSetGroup-backup">設定を変える(写す先・間隔)</a>
           <span class="hint" id="backupSaveMsg" role="status"></span>
         </div>
       </div>
@@ -278,65 +257,16 @@
     </div>
     <p class="hint" id="winHint"></p>
   </div>
-  <div class="pt-set-block" id="setAutorunBox">
-    <div class="pt-set-head">まとめて実行の既定</div>
-    <div id="setAutorun"></div>
-    <p class="hint">案件の行の「設定を変える」で変えた値も、ここと同じ既定になります(どこで変えても同じ)。</p>
-  </div>
-  <!-- 試験中の機能(既定はオフ。オンにするまで画面にも出さず、裏でも動かさない)。リアルタイム切り抜き = 線 D(src/home/live.py・src/recorder/) -->
-  <div class="pt-set-block" id="labBox">
-    <div class="pt-set-head">試験中の機能</div>
-    <p class="hint">まだ試している機能です。オンにするまで、画面にも出ず、裏でも動きません。</p>
-    <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveEnabled">リアルタイム切り抜き(試験中)</label>
-    <p class="hint" id="liveNote">オンにすると、スタジオの URL の欄に配信中の URL を入れるだけで録画します。</p>
-    <p class="hint" id="liveMsg" role="status" hidden></p>
-    <!-- 書き出したあとの自動の流れ(ホームの設定 live.auto。線 D の M2)。オンのときだけ出す -->
-    <details class="ui-disclosure pt-live-auto" id="liveAutoBox" hidden>
-      <summary>書き出したあとの自動の流れ</summary>
-      <div class="row">
-        <label class="lag">書き出したあと(画面・API が指定しないとき)
-          <select id="liveAutoAfter"><option value="none">何もしない</option><option value="check">文字起こしまで</option><option value="auto">文字起こし → パック</option></select></label>
-        <label class="lag">パックのカット
-          <select id="liveAutoCut"><option value="">ホームの設定のまま</option><option value="none">カットしない</option><option value="silence">無音で削る</option></select></label>
-        <label class="lag">文字起こしのエンジン
-          <select id="liveAutoEngine"><option value="">「編集」の設定のまま</option><option value="faster-whisper">faster-whisper(CPU)</option><option value="whisper.cpp">whisper.cpp(GPU)</option><option value="qwen3-asr">Qwen3-ASR(CPU)</option><option value="llama.cpp">Qwen3-ASR 1.7B(GPU)</option></select></label>
-        <label class="lag">モデル
-          <input type="text" id="liveAutoModel" maxlength="60" placeholder="空 = 「編集」の設定" spellcheck="false" autocomplete="off"></label>
-        <label class="lag">自動の採用の前後の余白(秒)
-          <input type="number" id="liveAutoPad" min="0" max="5" step="0.5" inputmode="decimal"></label>
-      </div>
-      <p class="hint">新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。余白は、配信中の候補の自動の採用とアーカイブの自動の切り抜きの区間の前後に足します(人が採用した区間には足しません。録れている範囲の外へは広げません)。</p>
-      <!-- 配信後の全自動(ホームの設定 live.autoAfterStream・live.afterStreamPerHour。線 D の M7) -->
-      <div class="row">
-        <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveAfterStream">配信が終わったら、アーカイブの解析で自動で切り抜く(パックまで)</label>
-        <label class="lag">1 時間あたり
-          <input type="number" id="liveAfterPerHour" min="1" max="30" step="1" inputmode="numeric"></label>
-      </div>
-      <p class="hint">録画が終わってアーカイブを使えるようになったら、アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、書き出し → 本番版 → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
-    </details>
-    <!-- 配信中の盛り上がりの候補(ホームの設定 live.detect・live.autoAdopt。src/home/live_detect.py)。既定はどちらもオフ。リアルタイム切り抜きがオンのときだけ出す -->
-    <details class="ui-disclosure pt-live-auto" id="liveDetectBox" hidden>
-      <summary>配信中の候補(盛り上がりの検出)</summary>
-      <div class="row">
-        <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveDetect">配信中の候補を出す</label>
-        <label class="lag">感度
-          <select id="liveDetectSens"><option value="high">高い(多めに出す)</option><option value="normal">ふつう</option><option value="low">低い(少なめに出す)</option></select></label>
-        <label class="lag">1 時間の本数
-          <input type="number" id="liveDetectPerHour" min="1" max="30" step="1" inputmode="numeric"></label>
-      </div>
-      <p class="hint">録画中の配信の音とチャットから盛り上がりを見つけて、スタジオの LIVE の帯に「候補」として出します(1〜2 分ほど遅れて出ます)。1 時間に出す数を超えたら、点数の低い候補を「控え」にします。</p>
-      <div class="row">
-        <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="liveAutoAdopt">候補を自動で採用する</label>
-        <label class="lag">確定から待つ分
-          <input type="number" id="liveAutoAdoptWait" min="1" max="60" step="1" inputmode="numeric"></label>
-      </div>
-      <p class="hint">「配信中の候補を出す」がオンのときだけ効きます。候補が確定してから決めた分だけ待って、まだ枠に残っている候補を採用し、書き出し → 文字起こし → パックまで進めます(届けるのは人が確かめてから)。</p>
-    </details>
-  </div>
-  <div class="pt-set-block">
+  <!-- 0.54.0: まとめて実行の既定・試験中の機能(リアルタイム切り抜き)・受付・バックアップの欄は設定の画面(/settings)へ(docs/spec/settings.md の 6) -->
+  <div class="pt-set-block" id="setPageBox">
     <div class="pt-set-head">ほかの設定</div>
-    <div class="ui-settings-row"><span>依頼の受付(見張るフォルダ・上限)</span><button type="button" class="btn small" id="setGoIntake">開く</button></div>
-    <div class="ui-settings-row"><span>作業データのバックアップ</span><button type="button" class="btn small" id="setGoBackup">開く</button></div>
+    <p class="hint">まとめて実行の既定・依頼の受付・バックアップ・精度の自動測定・リアルタイム切り抜きは、設定の画面にまとめました(スタジオ・編集の設定も同じ画面)。</p>
+    <div class="row pt-set-links">
+      <a class="btn small primary" id="setGoPage" href="settings#sec-home">設定の画面を開く</a>
+      <a class="btn small" id="setGoLive" href="settings#sec-live">リアルタイム切り抜き</a>
+      <a class="btn small" id="setGoIntake" href="settings#uiSetGroup-intake">依頼の受付</a>
+      <a class="btn small" id="setGoBackup" href="settings#uiSetGroup-backup">バックアップ</a>
+    </div>
   </div>
 </section>
 

@@ -728,8 +728,8 @@ def _next_empty_state(cx):
     check(wait_js(p3, "!document.getElementById('todoEmpty').hidden && document.getElementById('todoEmptyBtn').getAttribute('href') === '/studio/?step=rank'", 10000)
           and "ここに出ます" in p3.text_content("#todoEmpty"), "[A] M5: 次にやることが 0 件のときも 2 文 + [スタジオで配信を探す]: %s" % p3.text_content("#todoEmpty"))
     p3.click("#emptyIntake")
-    check(wait_js(p3, "document.getElementById('intakeBox').open && document.activeElement && document.activeElement.id === 'intakeFolder'", 5000),
-          "[A] S-13: 押すと依頼の受付が開き、見張るフォルダの欄へフォーカス: %s" % p3.evaluate("document.activeElement && document.activeElement.id"))
+    check(wait_js(p3, "document.getElementById('intakeBox').open && document.activeElement && document.activeElement.id === 'intakeEnabled'", 5000),
+          "[A] S-13: 押すと依頼の受付が開き、オン/オフのスイッチへフォーカス(0.54.0: フォルダの欄は設定の画面): %s" % p3.evaluate("document.activeElement && document.activeElement.id"))
     p3.close()
 
 
@@ -840,12 +840,14 @@ def _ui_review_checks(cx):
     # M10: ⚙ の「ホーム」の節(窓で開く・まとめて実行の既定・試験中の機能)。「詳しく」の中には無い
     check(pg.evaluate("!document.querySelector('#advancedBox #winBox, #advancedBox #labBox')"), "[A] M10: 窓で開く・試験中の機能は「詳しく」から ⚙ の「ホーム」の節へ移った(二重にしない)")
     pg.click("[data-ui-settings]")
-    check(wait_js(pg, "!!document.querySelector('#uiSettingsDrawer #homeSettings #labBox') && !!document.querySelector('#uiSettingsDrawer #homeSettings .ui-ar-sum')", 5000)
-          and pg.evaluate("document.querySelector('#uiSettingsDrawer #homeSettings > h3').textContent") == "ホーム",
-          "[A] M10: ⚙ に「ホーム」の節(窓で開く・まとめて実行の既定・試験中の機能)")
-    pg.click("#setGoBackup")
-    check(wait_js(pg, "document.getElementById('backupBox').open && !document.getElementById('uiSettingsDrawer').classList.contains('in')", 5000),
-          "[A] M10: ⚙ の「作業データのバックアップ」の「開く」で、その欄へ移る")
+    check(wait_js(pg, "!!document.querySelector('#uiSettingsDrawer #homeSettings #winBox') && !!document.querySelector('#uiSettingsDrawer #homeSettings #setGoPage')", 5000)
+          and pg.evaluate("document.querySelector('#uiSettingsDrawer #homeSettings > h3').textContent") == "ホーム"
+          and pg.evaluate("!document.querySelector('#homeSettings #labBox, #homeSettings .ui-ar-sum, #homeSettings #setAutorun')"),
+          "[A] M10: ⚙ に「ホーム」の節(窓で開く と 設定の画面へのリンク。0.54.0: まとめて実行の既定・試験中の機能の欄は設定の画面へ)")
+    check((pg.get_attribute("#setGoBackup", "href") or "").endswith("settings#uiSetGroup-backup") and (pg.get_attribute("#setGoPage", "href") or "").endswith("settings#sec-home"),
+          "[A] M10: ⚙ の「バックアップ」「設定の画面を開く」は設定の画面の節へのリンク")
+    pg.click("#uiSettingsDrawer .ui-drawer-head button[aria-label=閉じる]")   # 閉じる(開いたままだと後の場面でキーが届かない)
+    check(wait_js(pg, "!document.getElementById('uiSettingsDrawer').classList.contains('in')", 5000), "[A] M10: ⚙ を閉じる")
     # M2: 候補だけの配信で [実行] → やることが無い。理由だけでなく次の一手のボタンを出す
     p6 = ctx.new_page()
     p6.on("pageerror", lambda e: cx.errors.append(str(e)))
