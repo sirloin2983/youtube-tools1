@@ -9,6 +9,7 @@
 - 画面が読むジョブの形(public_job の鍵)を変えない
 - RS2-9 の前に ed_speakers が持っていた名前(data_ed_speakers_names.txt)は、pipeline/transcribe/diarize と human/proof/speakers に分けても
   S.名前 と ed_speakers.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
+- RS3-0A の前に ed_state が持っていた名前(data_ed_state_names.txt)は、置き場所・動きのある関数を持ち主へ移しても S.名前 で読める
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -194,6 +195,17 @@ class TestEdSpeakersShell(unittest.TestCase):
             self.assertEqual(S.diar_models_dir(), os.path.join("d", "data", "models", "diar"))
         finally:
             S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR = saved
+
+
+class TestEdStateNames(unittest.TestCase):
+    """RS3-0A: ed_state の置き場所(ytt/workdata)と動きのある関数(ytt/tools・worker_client・ytt/studiodata・roster)を持ち主へ移しても、
+    旧い名前は S で読める(ed_state に殻は置かない = 読むのは serve の名前の受付だけ)"""
+
+    def test_old_ed_state_names_still_resolve(self):
+        names = _old_names("data_ed_state_names.txt")
+        self.assertGreater(len(names), 90)
+        missing = [n for n in names if not hasattr(S, n)]
+        self.assertEqual(missing, [])
 
 
 class TestPipelineMovedWithoutShell(unittest.TestCase):
