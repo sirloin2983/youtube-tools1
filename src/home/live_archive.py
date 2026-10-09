@@ -65,7 +65,6 @@ import threading
 import time
 import urllib.parse
 
-from manage.cases import txindex
 from ytt import fsio, jobs, normalize, schemas, tools
 import live_export as LX
 import live_failures  # noqa: E402  (失敗の文は 1 か所。M3・M7)
@@ -371,7 +370,8 @@ class Archiver:
     def __init__(self, exporter, studio, enabled=None, auto=None, recording_state=None, probe=None, audio=None, align=None,
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
-                 after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None):
+                 after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
+                 pack_info=None):
         """exporter: src/home/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -380,6 +380,8 @@ class Archiver:
         配信後の全自動(M7): after_stream() = 設定 live.autoAfterStream・per_hour() = live.afterStreamPerHour・
         recordings() -> 録画元の録画の一覧 [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch。src/home/live.py の list_recordings)・
         adopt(body, hold=) = M1 の採用(Live.adopt)。
+        pack_info(動画のパス) -> その動画の Resolve パックの情報か None(速報版を本番版にしたとき、前に作ったパックが速報版のままだと知らせるため。
+        パックの有無の規則は manage/cases/txindex.pack_info だけが持つので、入口(Live)が渡す。None = 知らせない)。
         テストは probe・audio・studio を偽物に、間隔を短くする(本物の YouTube へ繋がない)"""
         self.ex, self.studio = exporter, studio
         self.after = after
@@ -391,6 +393,7 @@ class Archiver:
         self.adopt = adopt
         self.after_max_age = after_max_age
         self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/home/live_detect.py)
+        self.pack_info = pack_info or (lambda path: None)
         self.enabled = enabled or (lambda: True)
         self.auto = auto or (lambda: True)
         self.recording_state = recording_state or (lambda rc, rec: None)
@@ -1142,7 +1145,7 @@ class Archiver:
                 kept = self._swap(job, speed, tmp, folder)
                 self._update_clip(speed, out, meta)
                 try:   # 前に作った Resolve のパック(動画の写しを入れる)は速報版のまま。作り直すと本番版になることを知らせる
-                    pack = txindex.pack_info(speed)
+                    pack = self.pack_info(speed)
                 except Exception:
                     pack = None
                 self._aset(job, state="done", progress=1.0, at=meta["at"], built=None, keep=kept, packOld=bool(pack),

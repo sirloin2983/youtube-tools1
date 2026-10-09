@@ -72,6 +72,7 @@ import threading
 import time
 import urllib.parse
 
+from manage.cases import txindex
 from ytt import datadir, fsio, layout, schemas, tools
 import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
@@ -372,7 +373,9 @@ class Live:
                            "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
                            "per_hour": lambda: self.cfg().get("afterStreamPerHour") or 6,
                            "recordings": self.list_recordings, "adopt": self.adopt, "request": self.requests.get,   # 友人の依頼の録画は afterStream の設定で(2-15)
-                           "compare": self.detector.compare}, **self.archive_opts)   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
+                           "compare": self.detector.compare,   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
+                           "pack_info": lambda path: txindex.pack_info(path)},   # パックの有無の規則は txindex だけ(live_archive は読まない)
+                          **self.archive_opts)
                 self._archiver = live_archive.Archiver(ex, **kw)
             return self._archiver
 

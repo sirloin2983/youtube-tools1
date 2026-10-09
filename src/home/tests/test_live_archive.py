@@ -236,8 +236,9 @@ class ArchiveTest(unittest.TestCase):
         j3 = self.job(260.0, 6.0, 3, "error")   # 欠けで書き出せなかった(速報版なし)
         size1 = os.path.getsize(p1)
         studio = FakeStudio(self.arc)
-        afters = []
-        ar = self.archiver(studio, after=lambda rc, rec: afters.append((rc, rec)))
+        afters, asked = [], []
+        ar = self.archiver(studio, after=lambda rc, rec: afters.append((rc, rec)),
+                           pack_info=lambda path: asked.append(path) or ({"dir": "p"} if path == p1 else None))   # 1 本目だけ前に作ったパックがある
         self.assertEqual(ar.info_view("local", REC), {"ready": None, "checkedAt": None, "message": ""})
         r = ar.request("local", REC)
         self.assertEqual((r["ok"], r["queued"]), (True, 3), r)
@@ -252,6 +253,10 @@ class ArchiveTest(unittest.TestCase):
             self.assertEqual(j["state"], "done")
         self.assert_30fps(p1, 12.0)
         self.assert_30fps(p2, 8.0)
+        self.assertCountEqual(asked, [p1, p2])   # 速報版を入れ替えた 2 本だけ、パックの有無を渡された口で聞く(txindex は読まない)
+        self.assertEqual((self.arc_of(j1)["packOld"], self.arc_of(j2)["packOld"]), (True, False))
+        self.assertIn("作り直してください", self.arc_of(j1)["message"])
+        self.assertNotIn("作り直してください", self.arc_of(j2)["message"])
         self.assertNotEqual(os.path.getsize(p1), size1)   # 入れ替わった
         kept = os.path.join(os.path.dirname(p1), schemas.WORK_DIR, A.SPEED_DIR, os.path.basename(p1))
         self.assertEqual(os.path.getsize(kept), size1)    # 速報版は消さずに 作業用\速報版 へ
