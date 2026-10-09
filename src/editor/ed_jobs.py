@@ -21,8 +21,9 @@ import time
 import unicodedata
 import uuid
 
-from ytt import fsio as _fsio, jobs as _heavy, modfwd as _modfwd, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, modfwd as _modfwd, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
@@ -63,7 +64,7 @@ def release_idle_models(now=None):
     with _model_lock:
         if not _models or now - _model_used[0] < MODEL_IDLE_SEC:
             return False
-        ed_state.log.info("しばらく使っていないモデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in _models), ed_state._mem())
+        _txbase.log.info("しばらく使っていないモデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in _models), _tools.memory_label())
         _models.clear()
     gc.collect()
     return True
@@ -100,14 +101,14 @@ def job_errors(job, wav=None, cancelled="中止しました", log=None):
         yield
     except Cancelled:
         set_cancelled(job, cancelled)
-    except ed_state.ApiError as e:
+    except _errors.ApiError as e:
         job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
         job["errorCode"] = e.code
         if e.extra.get("detail"):
             job["errorDetail"] = str(e.extra["detail"])[:300]   # 内部の名前・原文は「詳しく」の中だけ(UI の見直し S12)
     except Exception as e:
         if log:
-            ed_state.log.exception(log)
+            _txbase.log.exception(log)
         set_internal_error(job, e)
     finally:
         if wav:
@@ -221,13 +222,13 @@ class WorkerClient:
 
     def _spawn(self):
         if self.closed:
-            raise ed_state.ApiError("stopping", "終了処理中のため、文字起こしを始められません", 503)
+            raise _errors.ApiError("stopping", "終了処理中のため、文字起こしを始められません", 503)
         if not os.path.isfile(WORKER_SCRIPT):
-            raise ed_state.ApiError("missing_module", "文字起こしの部品が見つかりません。ツールのフォルダの中身をまとめて入れ直してください(新しい zip を展開し直す)", 500,
+            raise _errors.ApiError("missing_module", "文字起こしの部品が見つかりません。ツールのフォルダの中身をまとめて入れ直してください(新しい zip を展開し直す)", 500,
                                     {"detail": "tx_worker.py が見つかりません: %s" % WORKER_SCRIPT})
         try:
             if os.path.exists(WORKER_LOG) and os.path.getsize(WORKER_LOG) > WORKER_LOG_MAX:
-                ed_state.replace_retry(WORKER_LOG, WORKER_LOG + ".old")
+                _fsio.replace_retry(WORKER_LOG, WORKER_LOG + ".old")
         except OSError:
             pass
         try:
@@ -240,7 +241,7 @@ class WorkerClient:
         self.starts += 1
         self.q = queue.Queue()   # 起動ごとに新しい列(前のプロセスの読み残しを混ぜない)
         threading.Thread(target=self._reader, args=(self.proc, self.q), daemon=True, name="tx-worker-reader").start()
-        ed_state.log.info("認識ワーカーを起動 pid=%s(%d回目)", self.proc.pid, self.starts)
+        _txbase.log.info("認識ワーカーを起動 pid=%s(%d回目)", self.proc.pid, self.starts)
 
     @staticmethod
     def _reader(p, q):
@@ -257,7 +258,7 @@ class WorkerClient:
 
     def _ensure(self):
         if self.proc is not None and self.proc.poll() is not None:
-            ed_state.log.warning("認識ワーカーが終わっていました(終了コード %s)。起動し直します", self.proc.returncode)
+            _txbase.log.warning("認識ワーカーが終わっていました(終了コード %s)。起動し直します", self.proc.returncode)
             self._reap()
         if self.proc is None:
             self._spawn()
@@ -315,7 +316,7 @@ class WorkerClient:
         if not self.lock.acquire(blocking=False):   # 要求の途中(使用中)
             return False
         try:
-            ed_state.log.info("しばらく使っていないので認識ワーカーを終了(モデルのメモリを返す)")
+            _txbase.log.info("しばらく使っていないので認識ワーカーを終了(モデルのメモリを返す)")
             self.stop()
             return True
         finally:
@@ -340,7 +341,7 @@ class WorkerClient:
 
         def force():
             if self.proc is p and p.poll() is None and self._busy_rid == rid:
-                ed_state.log.warning("認識ワーカーが取り消しに応じないため強制終了します")
+                _txbase.log.warning("認識ワーカーが取り消しに応じないため強制終了します")
                 self.killed_rid = rid
                 self.kill()
         t = threading.Timer(WORKER_CANCEL_GRACE, force)
@@ -353,12 +354,12 @@ class WorkerClient:
         try:
             line = self.q.get(timeout=WORKER_SILENCE_TIMEOUT)
         except queue.Empty:   # 黙ったワーカー(ネイティブの部品で止まった・デッドロック)。待ち続けると SLOTS を持ったまま他のツールの重い処理まで塞ぐので、強制終了して失敗にする
-            ed_state.log.error("認識ワーカーから %.0f 秒なにも届かないため強制終了します", WORKER_SILENCE_TIMEOUT)
+            _txbase.log.error("認識ワーカーから %.0f 秒なにも届かないため強制終了します", WORKER_SILENCE_TIMEOUT)
             self.kill()
             self._reap()
             if self.killed_rid == rid:
                 raise Cancelled()
-            raise ed_state.ApiError("worker_hung", "文字起こしの部品(認識を行う別プロセス)が %d 分なにも応答しないため止めました。もう一度実行すると部品を起動し直します"
+            raise _errors.ApiError("worker_hung", "文字起こしの部品(認識を行う別プロセス)が %d 分なにも応答しないため止めました。もう一度実行すると部品を起動し直します"
                                           "(モデルの初回のダウンロード中に出たときは、そのままもう一度実行してください。詳しくは worker.log)" % max(1, round(WORKER_SILENCE_TIMEOUT / 60)), 500)
         if not line:
             code = None
@@ -369,13 +370,13 @@ class WorkerClient:
             self._reap()
             if self.killed_rid == rid:
                 raise Cancelled()
-            ed_state.log.error("認識ワーカーが異常終了しました(終了コード %s)", code)
-            raise ed_state.ApiError("worker_crashed", "文字起こしの部品(認識を行う別プロセス)が途中で止まりました(終了コード %s)。"
+            _txbase.log.error("認識ワーカーが異常終了しました(終了コード %s)", code)
+            raise _errors.ApiError("worker_crashed", "文字起こしの部品(認識を行う別プロセス)が途中で止まりました(終了コード %s)。"
                                              "メモリ不足などが考えられます。もう一度実行すると部品を起動し直します(詳しくは worker.log)" % code, 500)
         try:
             m = json.loads(line.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
-            ed_state.log.warning("認識ワーカーの出力を読めません: %r", line[:200])
+            _txbase.log.warning("認識ワーカーの出力を読めません: %r", line[:200])
             return None
         return m if isinstance(m, dict) else None
 
@@ -404,7 +405,7 @@ class WorkerClient:
             status = int(m.get("status") or 500)
         except (TypeError, ValueError):
             status = 500
-        return ed_state.ApiError(code or "worker_error", msg or "文字起こしの部品でエラーが起きました", status)
+        return _errors.ApiError(code or "worker_error", msg or "文字起こしの部品でエラーが起きました", status)
 
     def stream(self, op, args, job=None):
         """要求を送り、("item", v) を途中で、最後に ("result", v) を返す生成器。エラーは例外(ApiError / Cancelled / WorkerError)。
@@ -458,7 +459,7 @@ class WorkerClient:
                 m = self._read(rid)
                 if m and m.get("rid") == rid and m.get("ev") in ("result", "error"):
                     return
-        except (ed_state.ApiError, Cancelled):
+        except (_errors.ApiError, Cancelled):
             pass
 
     def call(self, op, args, job=None):
@@ -470,7 +471,7 @@ class WorkerClient:
                     return v
         finally:
             g.close()
-        raise ed_state.ApiError("worker_error", "文字起こしの部品から結果が返りませんでした", 500)
+        raise _errors.ApiError("worker_error", "文字起こしの部品から結果が返りませんでした", 500)
 
 
 WORKER = WorkerClient()
@@ -562,18 +563,18 @@ def glossary_of(req, st=None):
 def validate_job(req):
     src = ed_state.check_source(req.get("sourcePath"))
     dur = ed_state.media_duration(src)
-    start = ed_state.num(req.get("start"), 0.0) or 0.0
-    end = ed_state.num(req.get("end"))
+    start = _yschemas.num_or(req.get("start"), 0.0) or 0.0
+    end = _yschemas.num_or(req.get("end"))
     if start < 0:
-        raise ed_state.ApiError("bad_range", "開始時刻が正しくありません", 400)
+        raise _errors.ApiError("bad_range", "開始時刻が正しくありません", 400)
     if dur is not None and start >= dur - 0.5:
-        raise ed_state.ApiError("bad_range", "開始時刻がファイルの長さ(%s)を超えています" % ed_state.fmt_hms(dur), 400)
+        raise _errors.ApiError("bad_range", "開始時刻がファイルの長さ(%s)を超えています" % _yschemas.fmt_hms(dur), 400)
     if end is None or (dur is not None and end > dur):
         end = dur
     if end is not None and end <= start + 0.5:
-        raise ed_state.ApiError("bad_range", "終了は開始より後にしてください", 400)
-    if end is not None and end - start > ed_state.MAX_SPAN_SEC:
-        raise ed_state.ApiError("too_long", "1回に処理できるのは6時間までです。範囲を分けてください", 400)
+        raise _errors.ApiError("bad_range", "終了は開始より後にしてください", 400)
+    if end is not None and end - start > _txbase.MAX_SPAN_SEC:
+        raise _errors.ApiError("too_long", "1回に処理できるのは6時間までです。範囲を分けてください", 400)
     whole = start == 0 and (end is None or dur is None or abs(end - dur) < 0.5)
     # 切り抜きスタジオが書き出した mp4 なら、隣の .clip.json(youtube-tools-clip/v1)を読んで文書に残す(元の配信のどこかが分かる)。
     # 不正・別の版なら使わずに警告だけ(文字起こし自体は続ける)。範囲指定でも clip はそのまま残す:
@@ -583,9 +584,9 @@ def validate_job(req):
     warnings = [clip_warn] if clip_warn else []
     model = str(req.get("model") or "small").strip()
     if not ed_state.valid_model(model):
-        raise ed_state.ApiError("bad_model", "モデル名が正しくありません", 400)
+        raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or "ja")
-    if lang not in ed_state.LANGS:
+    if lang not in _txbase.LANGS:
         lang = "ja"
     st = ed_learn.load_settings()   # 保存した設定は 1 回だけ読む(自動の用語・下の 4 つの auto・行を分ける文字数)
     glossary, gauto = glossary_of(req, st)
@@ -596,9 +597,9 @@ def validate_job(req):
         into = str(req.get("intoDoc"))
         target = ed_store.read_transcript(into)
         if os.path.normcase(os.path.abspath(str(target.get("sourcePath") or ""))) != os.path.normcase(src):
-            raise ed_state.ApiError("bad_request", "文字起こしを入れる文書の動画と、選んだ動画が違います", 400)
+            raise _errors.ApiError("bad_request", "文字起こしを入れる文書の動画と、選んだ動画が違います", 400)
         if ed_store.doc_has_rows(target):
-            raise ed_state.ApiError("not_empty", "この文書にはもう行があります(新しい文字起こしとして作ってください)", 409)
+            raise _errors.ApiError("not_empty", "この文書にはもう行があります(新しい文字起こしとして作ってください)", 409)
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
         ev = ev or target.get("evalSet") is True
@@ -661,9 +662,9 @@ def retry_job(jid):
     with _jobs_lock:
         j = _jobs.get(str(jid or ""))
         if not j:
-            raise ed_state.ApiError("not_found", "その処理は見つかりません。画面を読み込み直してください", 404)
+            raise _errors.ApiError("not_found", "その処理は見つかりません。画面を読み込み直してください", 404)
         if not can_retry(j):
-            raise ed_state.ApiError("bad_state", "この処理は、同じ指定ではやり直せません(失敗した文字起こしのうち、指定を変えなくてよいものだけ)", 409)
+            raise _errors.ApiError("bad_state", "この処理は、同じ指定ではやり直せません(失敗した文字起こしのうち、指定を変えなくてよいものだけ)", 409)
         kind, spec = j["kind"], j["spec"]
         try:
             spec = json.loads(json.dumps(spec, ensure_ascii=False))   # 前の job と指定を共有しない
@@ -676,11 +677,11 @@ def add_job(spec, kind="transcribe"):
     with _jobs_lock:
         waiting = sum(1 for j in _jobs.values() if j["state"] in ACTIVE_STATES)
         if waiting >= ed_state.MAX_QUEUE:
-            raise ed_state.ApiError("busy", "待機中のジョブが多すぎます(最大%d件)" % ed_state.MAX_QUEUE, 429)
+            raise _errors.ApiError("busy", "待機中のジョブが多すぎます(最大%d件)" % ed_state.MAX_QUEUE, 429)
         excl = EXCLUSIVE.get(kind)
         if excl and spec.get("tid") and _busy_locked(spec["tid"], excl):
             # validate_* でも確かめているが、確認と登録の間に同じ要求が割り込めたので、登録と同じロックの中でもう一度確かめる
-            raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
+            raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・比較)の最中です", 409)
         jid = uuid.uuid4().hex[:12]
         job = {"id": jid, "title": spec["title"], "state": "queued", "phase": "順番待ち", "progress": 0.0, "tid": spec["tid"] if kind in ("diarize", "retranscribe", "redo", "voice-learn", "normalize", "alt", "ytcap", "thumb") else None, "error": None,
                "segments": 0, "speakers": 0, "unsure": 0, "kind": kind, "device": "", "createdAt": int(time.time() * 1000), "cancel": False, "proc": None, "spec": spec}
@@ -726,7 +727,7 @@ def public_job(j):
 def extract_audio(job, spec, wav):
     ff = ed_state.find_ffmpeg()
     if not ff:
-        raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+        raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
     cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file"]
     if spec["start"] > 0:
         cmd += ["-ss", "%.3f" % spec["start"]]
@@ -750,7 +751,7 @@ def extract_audio(job, spec, wav):
     check_cancel(job)
     if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
         tail = " / ".join([l.strip() for l in (err or "").splitlines() if l.strip()][-2:])
-        raise ed_state.ApiError("extract_failed", "音声を取り出せませんでした。音声の無い動画か、壊れたファイルの可能性があります。別の動画を選んでください", 400,
+        raise _errors.ApiError("extract_failed", "音声を取り出せませんでした。音声の無い動画か、壊れたファイルの可能性があります。別の動画を選んでください", 400,
                                 {"detail": tail[:300]})   # ffmpeg の原文(パスを含む)は「詳しく」だけ(2 周目 N2)
 
 
@@ -812,12 +813,12 @@ def _letters(text):
 def stock_phrase(text):
     """よくある誤認識の文か(時間は見ない): 以前からの HALLUC が含まれる・行のほとんどが HALLUC_LINE の文・音楽の表記だけ(♪・(音楽))"""
     t = str(text or "")
-    if any(h in t for h in ed_state.HALLUC):
+    if any(h in t for h in _txbase.HALLUC):
         return True
-    if t.strip() and ed_state.MUSIC_ONLY.match(t) and ("♪" in t or "♫" in t or "♬" in t or "(" in t or "（" in t or "[" in t or "【" in t or "［" in t):
+    if t.strip() and _txbase.MUSIC_ONLY.match(t) and ("♪" in t or "♫" in t or "♬" in t or "(" in t or "（" in t or "[" in t or "【" in t or "［" in t):
         return True
     n = _letters(t)
-    return any(k in n and len(n) - len(k) <= ed_state.HALLUC_LINE_REST for k in _halluc_keys(tuple(ed_state.HALLUC_LINE)))
+    return any(k in n and len(n) - len(k) <= _txbase.HALLUC_LINE_REST for k in _halluc_keys(tuple(_txbase.HALLUC_LINE)))
 
 
 @functools.lru_cache(maxsize=4)
@@ -829,11 +830,11 @@ def _halluc_keys(lines):
 def repeats_in_line(text):
     """行の中で同じ語(2〜10 文字)が REP_MIN 回以上続くか(「ぱんぱんぱんぱんぱん…」。1 文字の繰り返し = 笑い・叫びは除く)"""
     k = _letters(text)
-    m = ed_state.REP_RE.search(k)
+    m = _txbase.REP_RE.search(k)
     while m:
         if len(set(m.group(1))) > 1:
             return True
-        m = ed_state.REP_RE.search(k, m.start() + 1)
+        m = _txbase.REP_RE.search(k, m.start() + 1)
     return False
 
 
@@ -858,8 +859,8 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     key = _letters(text)
     if text and (prev_texts[-2:] == [text, text] or (len(key) >= 4 and sum(1 for p in prev_texts[-5:] if _letters(p) == key) >= 2)):
         why.append("同じ文の繰り返し")   # 続けて3回、または近く(前の5行)に同じ文が2回あって3回目
-    if terms and (("用語" in text and ":" in unicodedata.normalize("NFKC", text)) or (dur <= ed_state.LEAK_MAX_SEC and _roster.leak_only(text, terms))):
-        why.append(ed_state.LEAK_FLAG)
+    if terms and (("用語" in text and ":" in unicodedata.normalize("NFKC", text)) or (dur <= _txbase.LEAK_MAX_SEC and _roster.leak_only(text, terms))):
+        why.append(_txbase.LEAK_FLAG)
     if lang == "ja" and latin_suspect(text, terms):
         why.append("英字が多い(英語の幻覚の可能性)")
     if sparse_row(seg.get("start"), seg.get("end"), text):
@@ -884,11 +885,11 @@ def req_engine(req, model):
     画面の「処理方式」の GPU(AMD など・whisper.cpp)は device = "vulkan" で来る → whisper.cpp(機器は auto = Vulkan。黙って CPU にしない)"""
     e = str(req.get("engine") or (tx_engines.WhisperCpp.id if req.get("device") == "vulkan" else tx_engines.DEFAULT))
     if not tx_engines.valid(e):
-        raise ed_state.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
+        raise _errors.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
     if not tx_engines.get(e).valid_model(model):
         if e == tx_engines.WhisperCpp.id:
-            raise ed_state.ApiError("bad_model", "GPU(whisper.cpp)で使えるモデルは %s だけです(今は %s)。モデルを変えてください" % ("・".join(tx_engines.WCPP_MODELS), model[:60]), 400)
-        raise ed_state.ApiError("bad_model", "%s では使えないモデルです: %s" % (e, model[:60]), 400)
+            raise _errors.ApiError("bad_model", "GPU(whisper.cpp)で使えるモデルは %s だけです(今は %s)。モデルを変えてください" % ("・".join(tx_engines.WCPP_MODELS), model[:60]), 400)
+        raise _errors.ApiError("bad_model", "%s では使えないモデルです: %s" % (e, model[:60]), 400)
     return e
 
 
@@ -903,11 +904,11 @@ def check_engine(spec):
     e = engine_of(spec)
     if e == tx_engines.DEFAULT or ed_state.worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
         if not ed_state.has_faster_whisper():
-            raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
+            raise _errors.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
         return
     ok, why = tx_engines.get(e).ready(engine_home())
     if not ok:
-        raise ed_state.ApiError("engine_missing", why, 400)
+        raise _errors.ApiError("engine_missing", why, 400)
 
 
 def load_model(name, job, pref="auto", force_cpu=False, engine=tx_engines.DEFAULT):
@@ -929,7 +930,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
     try:
         eng = tx_engines.get(engine)
     except ValueError as e:
-        raise ed_state.ApiError("bad_engine", str(e), 400)
+        raise _errors.ApiError("bad_engine", str(e), 400)
     env = os.environ.get("TRANSCRIBE_DEVICE")
     if force_cpu:
         pref = "cpu"
@@ -948,32 +949,32 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
                 return _models[key], dev
             heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(SenseVoice = light)は主のモデルと一緒に持つ(0.60.0)
             if heavy and not eng.light:   # 別の(重い)モデルは手放す(large-v3 と turbo を交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
-                ed_state.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in heavy), ed_state._mem())
+                _txbase.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in heavy), _tools.memory_label())
                 for k in heavy:
                     _models.pop(k, None)
                 gc.collect()
             job["phase"] = "モデルを読み込み中(初回はダウンロードのため数分かかります)"
             try:
-                ed_state.log.info("モデルを読み込み: %s/%s/%s(メモリ %s)", eng.id, name, dev, ed_state._mem())
-                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", ed_state.log, engine_home(), hooks)
-                ed_state.log.info("モデルを読み込み終わり: %s/%s(メモリ %s)", name, dev, ed_state._mem())
+                _txbase.log.info("モデルを読み込み: %s/%s/%s(メモリ %s)", eng.id, name, dev, _tools.memory_label())
+                m = eng.create(name, dev, cuda_compute() if dev == "cuda" else "int8", _txbase.log, engine_home(), hooks)
+                _txbase.log.info("モデルを読み込み終わり: %s/%s(メモリ %s)", name, dev, _tools.memory_label())
             except tx_engines.EngineError as e:   # エンジンが理由を書いた失敗(実行ファイルが無い・取得の失敗・GPU を使えない)はそのまま出す
                 if e.code == "cancelled":
                     raise Cancelled()
-                raise ed_state.ApiError(e.code, e.message, e.status)
+                raise _errors.ApiError(e.code, e.message, e.status)
             except MemoryError:
-                raise ed_state.ApiError("no_memory", "メモリが足りずモデルを読み込めませんでした。他のアプリ(動画編集ソフトなど)を閉じてから、もう一度試してください", 500)
+                raise _errors.ApiError("no_memory", "メモリが足りずモデルを読み込めませんでした。他のアプリ(動画編集ソフトなど)を閉じてから、もう一度試してください", 500)
             except Exception as e:
                 last = e
                 if dev == "cuda" and pref == "auto":
                     continue  # 自動のときは、GPU が使えなければ CPU にする
                 if dev == "cuda":
-                    raise ed_state.ApiError("gpu_failed", "GPU で読み込めませんでした。GPU 用ライブラリが未導入の可能性があります。install-gpu.bat を実行するか、処理方式を「自動」か「CPU」にしてください", 500,
+                    raise _errors.ApiError("gpu_failed", "GPU で読み込めませんでした。GPU 用ライブラリが未導入の可能性があります。install-gpu.bat を実行するか、処理方式を「自動」か「CPU」にしてください", 500,
                                             {"detail": str(e)[:300]})
-                raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした。ネットワーク接続とモデル名を確かめて、もう一度始めてください", 500, {"detail": str(e)[:300]})
+                raise _errors.ApiError("model_failed", "モデルを読み込めませんでした。ネットワーク接続とモデル名を確かめて、もう一度始めてください", 500, {"detail": str(e)[:300]})
             _models[key] = m
             return m, dev
-        raise ed_state.ApiError("model_failed", "モデルを読み込めませんでした。もう一度始めてください", 500, {"detail": str(last)[:300]})
+        raise _errors.ApiError("model_failed", "モデルを読み込めませんでした。もう一度始めてください", 500, {"detail": str(last)[:300]})
 
 
 CUDA_COMPUTE_TYPES = ("float16", "int8_float16", "int8", "float32")
@@ -1028,7 +1029,7 @@ def stream_context(doc, enabled=True):
     try:
         info = ed_store.studio_stream(src.get("videoId")) if src.get("videoId") else None
     except Exception as e:   # 他のツールのデータが読めなくても、文脈なしで続ける
-        ed_state.log.info("スタジオの配信の情報を読めませんでした: %s", str(e)[:120])
+        _txbase.log.info("スタジオの配信の情報を読めませんでした: %s", str(e)[:120])
         info = None
     path = str(doc.get("sourcePath") or "")
     titles = [src.get("title"), (info or {}).get("title"), doc.get("title"), doc.get("sourceName"),
@@ -1114,7 +1115,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
             if close:
                 close()   # 行は読まない(ほとんど捨てた結果なので)
             retries.append({"mode": mode, "kept": round(kept, 3), "removedSec": removed, "why": "kept"})
-            ed_state.log.info("声の検出が %.0f%% を捨てたので、緩めてやり直します(%s)", (1 - kept) * 100, mode)
+            _txbase.log.info("声の検出が %.0f%% を捨てたので、緩めてやり直します(%s)", (1 - kept) * 100, mode)
             continue
         raw = []
         for s in segs:
@@ -1125,7 +1126,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
         if not any(r["text"] and not stock_phrase(r["text"]) and not _roster.leak_only(r["text"], terms) for r in raw) and not last:
             # 「ご視聴ありがとうございました」だけ・ヒントの語だけ = 文字が 0 と同じ
             retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})
-            ed_state.log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
+            _txbase.log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
             continue
         return raw, {"requested": mode0, "used": mode, "removedSec": removed, "retries": retries}
     return [], {"requested": mode0, "used": ladder[-1], "removedSec": 0.0, "retries": retries}
@@ -1136,7 +1137,7 @@ GPU_FAILED_SETUP_MSG = "GPU での処理に失敗しました。GPU 用ライブ
 CPU_FALLBACK_PHASE = "GPU が使えないため CPU で処理します"
 
 
-def cpu_fallback(job, device, pref, run, reload, msg=GPU_FAILED_MSG, retry=True, passthrough=(Cancelled, ed_state.ApiError)):
+def cpu_fallback(job, device, pref, run, reload, msg=GPU_FAILED_MSG, retry=True, passthrough=(Cancelled, _errors.ApiError)):
     """GPU(CUDA)で実行時に失敗したとき(CUDA のライブラリ不足など)の決まり。新規の文字起こし・行ごとの再認識(ChunkModel)・範囲と全体の再認識で 1 つ。
     run() を実行し、例外が起きたら: GPU で動いていなければ(device が cuda でない)そのまま上げる / 処理方式 pref が GPU 固定(cuda)なら gpu_failed(文 msg)/
     それ以外(自動)は phase と job["device"] を CPU にして、reload()(CPU で読み直す)のあともう一度 run()。
@@ -1149,7 +1150,7 @@ def cpu_fallback(job, device, pref, run, reload, msg=GPU_FAILED_MSG, retry=True,
         if device != "cuda":
             raise
         if pref == "cuda":
-            raise ed_state.ApiError("gpu_failed", msg, 500)
+            raise _errors.ApiError("gpu_failed", msg, 500)
         if not retry:
             raise
         job["phase"], job["device"] = CPU_FALLBACK_PHASE, "cpu"
@@ -1525,7 +1526,7 @@ def dict_pairs(spec):
     try:
         pairs += _roster.variant_pairs(_roster.load(ed_state.ROSTER))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
-        ed_state.log.warning("名簿の表記ゆれの表を作れませんでした: %s", e)
+        _txbase.log.warning("名簿の表記ゆれの表を作れませんでした: %s", e)
     return pairs
 
 
@@ -1547,7 +1548,7 @@ def dict_version(spec, pairs=None):
             out["learned"] = short_hash(json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k not in ("alt", "yt")}},
                                                    ensure_ascii=False, sort_keys=True))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 記録のための値なので、作れなくても認識は止めない
-        ed_state.log.warning("辞書の版を作れませんでした: %s", e)
+        _txbase.log.warning("辞書の版を作れませんでした: %s", e)
     rh = roster_hash()
     if rh:
         out["roster"] = rh
@@ -1652,12 +1653,12 @@ def capture_raw(gen, raw, shift=0.0):
 def write_asr(tid, segments, run):
     """生出力を保存する(run = recognition.runs の1件 = モデル・設定・版)。書けなくても文字起こしは失敗にしない(呼び出し側)"""
     body = {"schema": ASR_SCHEMA, "run": run, "segments": segments, "updatedAt": int(time.time() * 1000)}
-    ed_state.atomic_write(asr_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    _fsio.atomic_write(asr_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
 
 
 def read_asr(tid):
     """生出力 {"schema", "run", "segments"}。無い・壊れていれば None"""
-    return ed_state.read_schema_json(asr_path(tid), MAX_ASR_BYTES, ASR_SCHEMA, "segments")
+    return _fsio.read_schema_json(asr_path(tid), MAX_ASR_BYTES, ASR_SCHEMA, "segments")
 
 
 # ---------- 単語の時刻(12 ②。transcripts/<id>.words.json。行のデータには入れない = 画面の保存で落ちたり古くなったりしないように) ----------
@@ -1671,7 +1672,7 @@ def words_path(tid):
 
 def read_words(tid):
     """文書の単語の時刻 [[開始, 終了, 文字], ...](時刻の順)。無い・壊れていれば None"""
-    d = ed_state.read_schema_json(words_path(tid), MAX_WORDS_BYTES, WORDS_SCHEMA, "words")
+    d = _fsio.read_schema_json(words_path(tid), MAX_WORDS_BYTES, WORDS_SCHEMA, "words")
     if d is None:
         return None
     out = []
@@ -1688,7 +1689,7 @@ def write_words(tid, words, model=""):
         return
     body = {"schema": WORDS_SCHEMA, "model": str(model or ""), "updatedAt": int(time.time() * 1000),
             "words": sorted(words, key=lambda w: (w[0], w[1]))}
-    ed_state.atomic_write(words_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    _fsio.atomic_write(words_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
 
 
 def replace_words(tid, a, b, new_words, model="", keep_spans=()):
@@ -1724,10 +1725,10 @@ def resplit_doc(obj):
         doc = ed_store.read_transcript(tid)
         base = obj.get("baseUpdatedAt")
         if isinstance(base, int) and not isinstance(base, bool) and base != int(doc.get("updatedAt") or 0):
-            raise ed_state.ApiError("conflict", "別の画面で先に保存されています。読み直してから、もう一度押してください", 409)
+            raise _errors.ApiError("conflict", "別の画面で先に保存されています。読み直してから、もう一度押してください", 409)
         words = read_words(tid)
         if not words:
-            raise ed_state.ApiError("no_words", "この文字起こしには単語の時刻がありません(v0.17.0 より前の文字起こし・単語の時刻を使わない設定)。"
+            raise _errors.ApiError("no_words", "この文字起こしには単語の時刻がありません(v0.17.0 より前の文字起こし・単語の時刻を使わない設定)。"
                                        "行を選んで「範囲を再認識」すると、その範囲の単語の時刻を取り直せます", 400)
         mids = [(w[0] + w[1]) / 2 for w in words]
         segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
@@ -1760,7 +1761,7 @@ def resplit_doc(obj):
                 t = strip_punct(p["text"]) if strip else p["text"]
                 base = str(g.get("id"))
                 sid = _fresh_id(used, lambda n: "%s-%d" % (base, n), k)[0] if k else base   # 2つめからは <元の id>-2, -3 …(ほかの行と重ならない番号)
-                out.append(dict(g, id=sid, start=round(p["start"], 2), end=round(p["end"], 2), text=t[:ed_state.MAX_TEXT]))
+                out.append(dict(g, id=sid, start=round(p["start"], 2), end=round(p["end"], 2), text=t[:_txbase.MAX_TEXT]))
         if not changed:
             return {"changed": 0, "added": 0, "skipped": skipped, "rows": len(segs), "updatedAt": int(doc.get("updatedAt") or 0)}
         ed_store.snapshot(tid)   # 分ける前を「以前の版に戻す」に残す
@@ -1862,11 +1863,11 @@ def run_job(job):
         try:
             write_words(tid, out["words"], spec["model"])
         except OSError as e:
-            ed_state.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
+            _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
         try:
             write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
         except (OSError, TypeError, ValueError) as e:
-            ed_state.log.warning("生出力を保存できませんでした: %s %s", tid, e)
+            _txbase.log.warning("生出力を保存できませんでした: %s %s", tid, e)
         if llm_items:
             ed_llm.llm_write(tid, llm_rec, llm_items)   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
@@ -1878,8 +1879,8 @@ def run_job(job):
         if spec.get("autoRedo") and any(SPARSE_FLAG in g["flag"] for g in out["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:
                 add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": out["sparseLp"]}), "redo")
-            except ed_state.ApiError as e:
-                ed_state.add_warning(job, "疑わしい所の認識し直しを始められませんでした: " + e.message)
+            except _errors.ApiError as e:
+                _txbase.add_warning(job, "疑わしい所の認識し直しを始められませんでした: " + e.message)
         ed_alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く。D1-b)
         ed_ytcap.ytcap_after_transcribe(job, spec, tid)   # 設定 autoYtcap: 元の配信の YouTube の字幕と比べて候補を出す(既定オフ・評価用と元の配信が分からない文書は黙って飛ばす。A1)
 
@@ -1893,10 +1894,10 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
         if not s["text"]:
             continue
         seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
-               "text": s["text"][:ed_state.MAX_TEXT], "speaker": "", "flag": ""}
+               "text": s["text"][:_txbase.MAX_TEXT], "speaker": "", "flag": ""}
         seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
         if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(ed_fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
-            seg["fill"] = {"from": str(s["fill"].get("from") or "")[:ed_state.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
+            seg["fill"] = {"from": str(s["fill"].get("from") or "")[:_txbase.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
             mark = ed_fill.FILL_SPK_FLAG if seg["fill"]["by"] == ed_fill.FILL_SPK_BY else ed_fill.FILL_FLAG   # B は話者名を外した印
             seg["flag"] = "、".join(x for x in (mark, seg["flag"]) if x)[:100]
         prev.append(seg["text"])
@@ -1932,7 +1933,7 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
         params["vadUsed"] = job["vad"].get("used")
         note = vad_note(job["vad"])
         if note:
-            ed_state.add_warning(spec, note)
+            _txbase.add_warning(spec, note)
             job["vadNote"] = note
     return fields
 
@@ -1961,13 +1962,13 @@ def work_one(jid):
                 if not ok:
                     set_cancelled(job)
                     return
-                ed_state.log.info("ジョブ開始 %s %s モデル=%s(メモリ %s)", info["kind"], info["id"], info["model"], ed_state._mem())
+                _txbase.log.info("ジョブ開始 %s %s モデル=%s(メモリ %s)", info["kind"], info["id"], info["model"], _tools.memory_label())
                 run_job(job)
-            ed_state.log.info("ジョブ終了 %s %s 状態=%s %.0f秒(メモリ %s)%s", info["kind"], info["id"], job["state"], time.time() - t0, ed_state._mem(), (" エラー: " + str(job.get("error"))) if job.get("error") else "")
+            _txbase.log.info("ジョブ終了 %s %s 状態=%s %.0f秒(メモリ %s)%s", info["kind"], info["id"], job["state"], time.time() - t0, _tools.memory_label(), (" エラー: " + str(job.get("error"))) if job.get("error") else "")
         elif job and job["state"] == "queued":
             set_cancelled(job)
     except Exception as e:   # 想定外でもワーカーを止めない(止まると、以後のジョブが動かないまま待機列に残る)
-        ed_state.log.exception("ワーカーで例外")
+        _txbase.log.exception("ワーカーで例外")
         if job:
             set_internal_error(job, e)
     finally:
@@ -1978,7 +1979,7 @@ def work_one(jid):
 def cancel_job(jid):
     job = _jobs.get(str(jid))
     if not job:
-        raise ed_state.ApiError("not_found", "ジョブが見つかりません", 404)
+        raise _errors.ApiError("not_found", "ジョブが見つかりません", 404)
     job["cancel"] = True
     if job["state"] == "queued":
         set_cancelled(job)
@@ -1991,7 +1992,7 @@ def cancel_job(jid):
 
 
 # ---------- 選んだ行の再認識 ----------
-SPK_FLAGS = (ed_state.MIXED_FLAG, ed_state.WEAK_FLAG, ed_state.NONE_FLAG)
+SPK_FLAGS = (_txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG)
 
 
 MAX_RANGE_SEC = 900
@@ -2001,31 +2002,31 @@ def validate_retranscribe(req):
     tid = str(req.get("tid") or "")
     doc = ed_store.read_transcript(tid)
     if doc.get("evalSet") is True:
-        raise ed_state.ApiError("eval_set", "評価用の文字起こしは再認識できません(機械の出力=比べる基準が書き換わるため)。評価用を外してから行ってください", 400)
+        raise _errors.ApiError("eval_set", "評価用の文字起こしは再認識できません(機械の出力=比べる基準が書き換わるため)。評価用を外してから行ってください", 400)
     src = ed_state.check_source(doc.get("sourcePath"))
     valid = {g["id"] for g in (doc.get("segments") or [])}
     ids = [i for i in dict.fromkeys(str(x)[:16] for x in (req.get("ids") or [])[:5000] if isinstance(x, (str, int))) if i in valid][:2000]
     mode = req.get("mode") if req.get("mode") in ("range", "whole") else "each"
     if not ids and mode != "whole":
-        raise ed_state.ApiError("empty", "再認識する行がありません", 400)
+        raise _errors.ApiError("empty", "再認識する行がありません", 400)
     model = str(req.get("model") or "large-v3").strip()
     if not ed_state.valid_model(model):
-        raise ed_state.ApiError("bad_model", "モデル名が正しくありません", 400)
+        raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or doc.get("language") or "ja")
     st = ed_learn.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
     glossary, gauto = glossary_of(req, st)
     ctx = stream_context(doc, req.get("autoContext") is True)
     if tid_busy(tid, EXCLUSIVE["retranscribe"]):
-        raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
+        raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     rng = None
     segs = sorted((g for g in doc.get("segments") or []), key=lambda g: g["start"])
     if mode == "whole":   # 動画全体(文書の範囲全体)を範囲と同じやり方で認識し直す。校正済みの行は残す(docs/design/whole-retranscribe-design.md の 3)
-        a = ed_state.num(doc.get("start"), 0.0) or 0.0
-        b = ed_state.num(doc.get("end")) or ed_state.media_duration(src) or max([g["end"] for g in segs] or [0.0])
+        a = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
+        b = _yschemas.num_or(doc.get("end")) or ed_state.media_duration(src) or max([g["end"] for g in segs] or [0.0])
         if b <= a + 0.5:
-            raise ed_state.ApiError("bad_range", "動画の長さが分かりません", 400)
-        if b - a > ed_state.MAX_SPAN_SEC:
-            raise ed_state.ApiError("too_long", "1回に処理できるのは6時間までです", 400)
+            raise _errors.ApiError("bad_range", "動画の長さが分かりません", 400)
+        if b - a > _txbase.MAX_SPAN_SEC:
+            raise _errors.ApiError("too_long", "1回に処理できるのは6時間までです", 400)
         ids = [g["id"] for g in segs if not g.get("proofed")]   # 校正済みでない行を差し替える(画面の選択は使わない)
         rng = [round(a, 3), round(b, 3)]
     elif mode == "range":   # 選んだ行の最初〜最後を、ひとまとまりの音声として認識し直す(間にある選んでいない行も含む)
@@ -2033,9 +2034,9 @@ def validate_retranscribe(req):
         a, b = min(g["start"] for g in chosen), max(g["end"] for g in chosen)
         ids = [g["id"] for g in segs if a - 1e-6 <= (g["start"] + g["end"]) / 2 <= b + 1e-6]
         if b - a > MAX_RANGE_SEC:
-            raise ed_state.ApiError("too_long", "範囲が長すぎます(最大%d分)。範囲を狭めてください" % (MAX_RANGE_SEC // 60), 400)
+            raise _errors.ApiError("too_long", "範囲が長すぎます(最大%d分)。範囲を狭めてください" % (MAX_RANGE_SEC // 60), 400)
         rng = [a, b]
-    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "engine": req_engine(req, model), "language": lang if lang in ed_state.LANGS else "ja", "beam": 5,
+    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "engine": req_engine(req, model), "language": lang if lang in _txbase.LANGS else "ja", "beam": 5,
             # 全体は画面の設定によらず「弱め」から(抜けを拾うのが目的。捨てすぎたら「なし」へ緩める)。明示の「なし」だけは尊重する
             "vadMode": ("off" if req.get("vadMode") == "off" else "weak") if mode == "whole"
             else req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
@@ -2125,7 +2126,7 @@ def _apply_retranscribe(spec, results):
             continue
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
-        sg["text"], _ = ed_learn.apply_replacements(raw[:ed_state.MAX_TEXT], pairs)
+        sg["text"], _ = ed_learn.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
         sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
         sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
         sg["flag"] = "、".join(([flag] if flag else []) + keep)[:100]
@@ -2150,7 +2151,7 @@ def _in_spans(t, spans):
 def replace_original_multi(orig, a, b, items, keep=()):
     """機械の出力の記録のうち、a〜b にある分を新しい機械の出力に差し替える。keep の区間(校正済み・元のまま残した行)にある分は古いまま残す"""
     keep_o = [o for o in orig if not (a <= (o["start"] + o["end"]) / 2 <= b) or _in_spans((o["start"] + o["end"]) / 2, keep)]
-    keep_o += [{"start": x["start"], "end": x["end"], "text": x["raw"][:ed_state.MAX_TEXT], **(x.get("conf") or {})} for x in items]
+    keep_o += [{"start": x["start"], "end": x["end"], "text": x["raw"][:_txbase.MAX_TEXT], **(x.get("conf") or {})} for x in items]
     keep_o.sort(key=lambda o: o["start"])
     return keep_o
 
@@ -2257,7 +2258,7 @@ def _apply_range(spec, lines, loose=()):
             ov = min(g["end"], x["end"]) - max(g["start"], x["start"])
             if ov > bo and g.get("speaker"):
                 best, bo = g["speaker"], ov
-        text, _ = ed_learn.apply_replacements(x["raw"][:ed_state.MAX_TEXT], pairs)
+        text, _ = ed_learn.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
         sid, n = _fresh_id(used, "r%d".__mod__, n)
         new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": x.get("flag", "")[:100]})
         unsure += 1 if x.get("flag") else 0
@@ -2276,7 +2277,7 @@ def _apply_range(spec, lines, loose=()):
     try:   # 単語の時刻も範囲の分を差し替える(守った行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
         replace_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
     except OSError as e:
-        ed_state.log.warning("単語の時刻を保存できませんでした: %s %s", spec["tid"], e)
+        _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", spec["tid"], e)
     return {"lines": len(new), "unsure": unsure, "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose}
 
 
@@ -2323,7 +2324,7 @@ def finish_range_lines(raw, spec, shift, join=True):
 REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
 REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
 REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はやめて、そこまでの結果で置き換える
-REDO_BAD_FLAGS = (SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", ed_state.LEAK_FLAG)
+REDO_BAD_FLAGS = (SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
 
 
 def redo_targets(doc, ids=None):
@@ -2332,8 +2333,8 @@ def redo_targets(doc, ids=None):
     segs = sorted((g for g in doc.get("segments") or [] if isinstance(g, dict)), key=lambda g: (g["start"], g["end"]))
     orig = doc.get("original") if isinstance(doc.get("original"), list) else None
     machine = {(round(float(o["start"]), 2), round(float(o["end"]), 2)): o.get("text") for o in orig or [] if isinstance(o, dict)}
-    lo_doc = ed_state.num(doc.get("start"), 0.0) or 0.0
-    hi_doc = ed_state.num(doc.get("end")) or (lo_doc + (ed_state.num(doc.get("duration")) or 0.0)) or None
+    lo_doc = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
+    hi_doc = _yschemas.num_or(doc.get("end")) or (lo_doc + (_yschemas.num_or(doc.get("duration")) or 0.0)) or None
     out = []
     for k, g in enumerate(segs):
         if (ids is not None and g["id"] not in ids) or SPARSE_FLAG not in str(g.get("flag") or "") or g.get("proofed") is True:
@@ -2355,21 +2356,21 @@ def redo_spec(tid, req=None):
     req = req or {}
     doc = ed_store.read_transcript(tid)
     if doc.get("evalSet") is True:
-        raise ed_state.ApiError("eval_set", "評価用の文字起こしは認識し直せません(機械の出力=比べる基準が書き換わるため)", 400)
+        raise _errors.ApiError("eval_set", "評価用の文字起こしは認識し直せません(機械の出力=比べる基準が書き換わるため)", 400)
     ed_state.check_source(doc.get("sourcePath"))
     targets = redo_targets(doc)
     if not targets:
-        raise ed_state.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
+        raise _errors.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
     model = str(doc.get("model") or "large-v3")
     if not ed_state.valid_model(model):
         model = "large-v3"
     if "kotoba" in model.lower() and req.get("redoLarge") is not False:
         model = "large-v3"   # kotoba は聞き取りにくい音声が苦手なので、重いモデルで試す(設定)
     if tid_busy(tid, EXCLUSIVE["redo"]):
-        raise ed_state.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
+        raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}
     old_lp = req.get("oldLp") if isinstance(req.get("oldLp"), dict) else {}
-    return {"tid": tid, "ids": [g["id"] for g, _a, _b in targets], "model": model, "language": doc.get("language") if doc.get("language") in ed_state.LANGS else "ja",
+    return {"tid": tid, "ids": [g["id"] for g, _a, _b in targets], "model": model, "language": doc.get("language") if doc.get("language") in _txbase.LANGS else "ja",
             "beam": 5, "vadMode": "normal", "wordSplit": True, "splitChars": split_chars_for({}), "stripPunct": pr.get("stripPunct", True) is not False,
             "stripNames": pr.get("stripNames", True) is not False,
             "device": "auto", "boost": pr.get("boost") is True, "autoDict": False, "glossary": [], "glossAuto": [],
@@ -2424,7 +2425,7 @@ def apply_redo(spec, results):
             k = 0
             for x in lines:
                 sid, k = _fresh_id(used, lambda n: "%s-r%d" % (rid, n), k)
-                segs.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": x["raw"][:ed_state.MAX_TEXT],
+                segs.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": x["raw"][:_txbase.MAX_TEXT],
                              "speaker": g.get("speaker", ""), "flag": str(x.get("flag") or "")[:100]})
             spans.append((a, b))
             if isinstance(doc.get("original"), list):
@@ -2444,7 +2445,7 @@ def apply_redo(spec, results):
             try:
                 replace_words(tid, a, b, ws, spec["model"])
             except OSError as e:
-                ed_state.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
+                _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
         return n_rep
 
 
@@ -2460,7 +2461,7 @@ def run_redo(job):
             job["segments"] = 0
             job_done(job, spec["tid"], "完了(認識し直す行がありませんでした)")
             return
-        start, end = audio_span([{"start": a, "end": b} for _g, a, b in targets], ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end")))
+        start, end = audio_span([{"start": a, "end": b} for _g, a, b in targets], _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end")))
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
         extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
         fake = ed_state.backend_name() == "fake"
@@ -2579,7 +2580,7 @@ class RangeRecognizer:
                 check_cancel(self.job)
                 raw.append(seg_to_dict(x))
             lines = finish_range_lines(raw, dict(self.spec, range=[s0, s1]), lo + self.offset)
-            out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "") and ed_state.LEAK_FLAG not in str(x.get("flag") or "")]   # 無音から出やすい幻覚・ヒントの書き写しは入れない(元の行が残る)
+            out += [x for x in lines if "よくある誤認識の文" not in str(x.get("flag") or "") and _txbase.LEAK_FLAG not in str(x.get("flag") or "")]   # 無音から出やすい幻覚・ヒントの書き写しは入れない(元の行が残る)
             self.job["progress"] = min(0.99, 0.9 + 0.09 * (n + 1) / len(spans))
         return out
 
@@ -2622,7 +2623,7 @@ def whole_parts(doc, a, b, part=None):
     part = float(part or WHOLE_PART_SEC)
     if b - a <= part * 1.5:
         return [[a, b]]
-    rows = ed_state.union_spans([(float(g["start"]), float(g["end"])) for g in doc.get("segments") or []
+    rows = _yschemas.union_spans([(float(g["start"]), float(g["end"])) for g in doc.get("segments") or []
                         if isinstance(g, dict) and isinstance(g.get("start"), (int, float)) and isinstance(g.get("end"), (int, float))])
     gaps = [(rows[i][1], rows[i + 1][0]) for i in range(len(rows) - 1)]
     out, t = [], a
@@ -2671,7 +2672,7 @@ def write_resume(tid, d):
     path = resume_path(tid)
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
-    ed_state.atomic_write(path, json.dumps(dict(d, at=int(time.time() * 1000)), ensure_ascii=False).encode("utf-8"))
+    _fsio.atomic_write(path, json.dumps(dict(d, at=int(time.time() * 1000)), ensure_ascii=False).encode("utf-8"), fsync_required=True)
     now = time.time()
     for n in os.listdir(folder):   # 使われなかった古い続きの記録を消す
         q = os.path.join(folder, n)
@@ -2698,8 +2699,8 @@ def whole_lines(job, spec, doc, rec):
     reused = sum(1 for i in range(n) if str(i) in done)
     if reused:
         job["resumed"] = [reused, n]
-        ed_state.add_warning(job, "前回の途中から続けました(%d 区間のうち %d 区間は前回の認識を使いました)" % (n, reused))
-        ed_state.log.info("全体の再認識を前回の途中から続けます: %s %d/%d 区間", spec["tid"], reused, n)
+        _txbase.add_warning(job, "前回の途中から続けました(%d 区間のうち %d 区間は前回の認識を使いました)" % (n, reused))
+        _txbase.log.info("全体の再認識を前回の途中から続けます: %s %d/%d 区間", spec["tid"], reused, n)
     lines, vads = [], []
     for i, (p0, p1) in enumerate(parts):
         check_cancel(job)
@@ -2717,7 +2718,7 @@ def whole_lines(job, spec, doc, rec):
             try:
                 write_resume(spec["tid"], {"v": RESUME_VERSION, "key": key, "parts": parts, "done": done})
             except (OSError, TypeError, ValueError) as e:   # 書けなくても認識は続ける(続きから再開できないだけ)
-                ed_state.log.warning("全体の再認識の続きの記録を書けませんでした: %s %s", spec["tid"], e)
+                _txbase.log.warning("全体の再認識の続きの記録を書けませんでした: %s %s", spec["tid"], e)
     rec.vad = next((v for v in vads if v and v.get("retries")), None) or (vads[-1] if vads else None)
     return lines
 
@@ -2727,12 +2728,12 @@ def run_retranscribe(job):
     with job_temp_wav(job) as wav:
         doc = ed_store.read_transcript(spec["tid"])
         src = ed_state.check_source(doc.get("sourcePath"))
-        start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
+        start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
         targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])
         whole = spec.get("mode") == "whole"
         if not targets and not whole:
-            raise ed_state.ApiError("empty", "再認識する行が見つかりません(先に削除された可能性があります)", 400)
+            raise _errors.ApiError("empty", "再認識する行が見つかりません(先に削除された可能性があります)", 400)
         span_src = targets + ([{"start": spec["range"][0], "end": spec["range"][1]}] if spec.get("mode") in ("range", "whole") else [])
         start, end = audio_span(span_src, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
@@ -2754,12 +2755,12 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     check_cancel(job)
     # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
     gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in plan_range(doc, spec, lines)["empty"]]
-    loose = rec.loose(ed_state.union_spans(gaps)) if gaps else []
+    loose = rec.loose(_yschemas.union_spans(gaps)) if gaps else []
     check_cancel(job)
     if not lines and not loose:
         if whole:
             drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
-        raise ed_state.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
+        raise _errors.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
     r = apply_range(spec, lines, loose)
     if whole:
         drop_resume(spec["tid"])
@@ -2767,7 +2768,7 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     note = vad_note(rec.vad)
     if note:
         job["vadNote"] = note
-        ed_state.add_warning(job, note)
+        _txbase.add_warning(job, note)
     job_done(job, spec["tid"])
 
 

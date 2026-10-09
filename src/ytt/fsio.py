@@ -140,6 +140,18 @@ def read_json_or(path, default=None, max_bytes=READ_OR_MAX, kind=None, allow_nan
     return d if kind is None or isinstance(d, kind) else default
 
 
+def read_schema_json(path, max_bytes, schema, key, kind=list):
+    """付き物の JSON(編集の <id>.words.json・.asr.json・.diar.json・.alt.json・.ytcap.json など)を読む。
+    形が違う(schema が違う・d[key] が kind でない)・無い・壊れていれば None(編集の ed_state.read_schema_json の正。RS2-1a)"""
+    try:
+        d = read_json_file(path, max_bytes)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("schema") != schema or not isinstance(d.get(key), kind):
+        return None
+    return d
+
+
 def stamp(path):
     """(更新日時 ns, 大きさ)。無い・調べられなければ None(「ファイルが変わったときだけ読み直す」キャッシュの鍵)"""
     try:

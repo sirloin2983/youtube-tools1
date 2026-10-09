@@ -52,6 +52,32 @@ def int_in(v, lo, hi):
     return v if type(v) is int and lo <= v <= hi else None
 
 
+def num_or(x, default=None):
+    """float にできる有限の数(文字の "1.5" も可)ならその float、違えば default(要求の値の読み。編集の ed_state.num の正。RS2-1a)"""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return default
+    return v if math.isfinite(v) else default
+
+
+def union_spans(spans):
+    """区間 [(開始, 終了)…] を開始の順に並べ、重なる・接するものをつなぐ -> [[開始, 終了]…](編集の ed_state.union_spans の正。RS2-1a)"""
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def fmt_hms(t):
+    """秒 → 「時:分:秒」(0:01:05。負は 0。編集の ed_state.fmt_hms の正。RS2-1a)"""
+    t = max(0, int(t))
+    return "%d:%02d:%02d" % (t // 3600, t % 3600 // 60, t % 60)
+
+
 def _r3(x):
     return None if x is None else round(float(x), 3)
 

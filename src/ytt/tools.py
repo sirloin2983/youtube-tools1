@@ -285,6 +285,12 @@ def process_memory_mb(peak=False):
         return None
 
 
+def memory_label():
+    """このプロセスのメモリの記録用の文字(「812MB」。測れなければ「?」。編集の ed_state._mem の正。RS2-1a)"""
+    m = process_memory_mb()
+    return "%dMB" % m if m is not None else "?"
+
+
 class KillJob:
     """Windows: 子プロセスを「閉じたら中のプロセスを終わらせる」ジョブ(JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)に入れる。
     ジョブは close() か、このプロセスが終わる(落ちた・強制終了されたときも)ときに閉じる = 親が落ちても子が残らない

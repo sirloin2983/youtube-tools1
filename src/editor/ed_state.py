@@ -8,7 +8,6 @@ import faulthandler
 import json
 import logging
 import logging.handlers
-import math
 import os
 import re
 import shutil
@@ -17,7 +16,8 @@ import sys
 import threading
 import time
 
-from ytt import fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _yschemas, tools as _tools  # noqa: E402
+from pipeline.transcribe import txbase as _txbase  # noqa: E402
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -45,7 +45,7 @@ BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込ま
 MAX_BODY = 32 * 1024 * 1024
 MAX_SEGMENTS = 20000
 TAGS = ("unclear", "overlap", "bgm")   # 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
-MAX_TEXT = 2000
+MAX_TEXT = _txbase.MAX_TEXT   # 別名(RS2-1a。下の別名も同じ: 差し替えない名前なので、認識の部品が読む正へ移して同じ物を残した)
 # 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。plan/line-b-overlap.md の 6)。
 # 文書の speakers に {"id": OTHER_SPK_ID, "name": OTHER_SPK_NAME, "builtin": OTHER_SPK_BUILTIN} で 1 つだけ入る(選んだときに画面が足す)。
 # 名前は変えない・声を覚えない・判別のやり直しで上書きしない。画面の app.js の OTHER_SP と同じ値(変えるときは両方)
@@ -76,7 +76,7 @@ def blank_draft_row(g):
     return isinstance(g, dict) and g.get("draft") in ROW_DRAFT_KINDS and not str(g.get("text") or "").strip()
 
 
-MAX_SPAN_SEC = 6 * 3600
+MAX_SPAN_SEC = _txbase.MAX_SPAN_SEC
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = re.compile(r"^[0-9a-f]{12}$")
 MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]+(/(?!\.)[A-Za-z0-9_.-]+)?$")   # 「..」で始まる名前(親フォルダの指定)は受け付けない
@@ -105,26 +105,13 @@ MODELS = [
     ("large-v3-turbo", "large-v3-turbo(large-v3に近い精度で、より速い)"),
     ("kotoba-tech/kotoba-whisper-v2.0-faster", "kotoba-whisper v2.0(日本語特化・高速。聞き取りにくい音声は苦手なことも)"),
 ]
-LANGS = ["ja", "en", "ko", "zh", "auto"]
-HALLUC = ("ご視聴ありがとうございました", "チャンネル登録", "字幕", "Thanks for watching", "Subtitles by", "ご清聴ありがとうございました")
-# よくある誤認識の文(S-3。2026-09-29 に足した分): 配信者が本当に言うこともある文なので、**行のほとんどがその文のとき**だけ印を付ける
-# (上の HALLUC は以前からの決まりのまま = 文の一部に含まれれば印)。Whisper が無音・BGM から出しやすい動画の締めの決まり文句と、音楽の表記
-HALLUC_LINE = ("ご視聴いただきありがとうございました", "ご視聴いただきありがとうございます", "ご覧いただきありがとうございました",
-               "最後までご視聴", "高評価よろしくお願いします", "高評価お願いします", "高評価とチャンネル登録", "グッドボタン",
-               "次回もお楽しみに", "次の動画でお会いしましょう", "次回の動画でお会いしましょう", "また次回お会いしましょう",
-               "今日の動画はここまで", "今回の動画はここまで", "Thank you for watching", "Please subscribe", "Amara.org")
-HALLUC_LINE_REST = 3    # 決まり文句を除いた残りがこの文字数以下なら「行のほとんどがその文」
-MUSIC_ONLY = re.compile(r"^[\s♪♫♬～~〜・.。、]*([(（\[［【]\s*(音楽|拍手|BGM|ＢＧＭ)\s*[)）\]］】])?[\s♪♫♬～~〜・.。、]*$")
-LEAK_FLAG = "ヒントの語だけ(プロンプトの漏れ出しの可能性)"
-LEAK_MAX_SEC = 3.0      # 短い区間で、認識のヒントに渡した語だけが出た行(声が無い所でヒントを書き写すことがある。S-3)
-REP_MIN = 5             # 行の中で同じ語(2〜10 文字)がこの回数以上続いたら「繰り返しの可能性」(笑い・叫びの 1 文字の繰り返しは除く)
-REP_RE = re.compile(r"(.{2,10}?)\1{%d,}" % (REP_MIN - 1))
+LANGS = _txbase.LANGS
+# 幻覚の決まり文句・要確認の印の文(正は pipeline/transcribe/txbase.py。RS2-1a)
+HALLUC, HALLUC_LINE, HALLUC_LINE_REST, MUSIC_ONLY = _txbase.HALLUC, _txbase.HALLUC_LINE, _txbase.HALLUC_LINE_REST, _txbase.MUSIC_ONLY
+LEAK_FLAG, LEAK_MAX_SEC, REP_MIN, REP_RE = _txbase.LEAK_FLAG, _txbase.LEAK_MAX_SEC, _txbase.REP_MIN, _txbase.REP_RE
 
 
-class ApiError(Exception):
-    def __init__(self, code, message, status=400, extra=None):
-        super().__init__(message)
-        self.code, self.message, self.status, self.extra = code, message, status, extra or {}
+ApiError = _errors.ApiError   # 別名(正は ytt/errors.py。RS2-1a。同じクラス = except ed_state.ApiError も ytt の物を捕まえる)
 
 
 # ---------- ユーティリティ ----------
@@ -148,32 +135,9 @@ plain_int = _yschemas.plain_int     # lint: keep 別名 = JSON の整数(真偽�
 rss_mb = _tools.process_memory_mb   # lint: keep 別名 = このプロセスが使っているメモリ(MB)。取れなければ None
 
 
-def read_schema_json(path, max_bytes, schema, key, kind=list):
-    """付き物の JSON(<id>.words.json・.asr.json・.diar.json・.alt.json・.ytcap.json など)を読む。
-    形が違う(schema が違う・d[key] が kind でない)・無い・壊れていれば None"""
-    try:
-        d = _fsio.read_json_file(path, max_bytes)
-    except (OSError, UnicodeError, ValueError):
-        return None
-    if not isinstance(d, dict) or d.get("schema") != schema or not isinstance(d.get(key), kind):
-        return None
-    return d
-
-
-def union_spans(spans):
-    """区間 [(開始, 終了)…] を開始の順に並べ、重なる・接するものをつなぐ -> [[開始, 終了]…]"""
-    out = []
-    for a, b in sorted(spans):
-        if out and a <= out[-1][1]:
-            out[-1][1] = max(out[-1][1], b)
-        else:
-            out.append([a, b])
-    return out
-
-
-def add_warning(job, msg):
-    """ジョブの注意(画面の知らせ)を 1 つ足す。新しい list に付け直す(/api/jobs が JSON にしている最中の list を書き換えない)"""
-    job["warnings"] = list(job.get("warnings") or []) + [msg]
+read_schema_json = _fsio.read_schema_json   # lint: keep 別名(RS2-1a)= 付き物の JSON(words・asr・diar・alt・ytcap)を読む。形が違えば None
+union_spans = _yschemas.union_spans         # lint: keep 別名(RS2-1a)= 区間をつなぐ
+add_warning = _txbase.add_warning           # lint: keep 別名(RS2-1a)= ジョブの注意を付け直す
 
 
 def norm_path(p):
@@ -220,14 +184,12 @@ def pio(required=True):
             raise ApiError("missing_module", "受け渡しの部品が見つかりません。ツールのフォルダの中身をまとめて入れ直してください(新しい zip を展開し直す)", 500,
                            {"detail": "pipeline_io.py / resolve_export.py: %s" % e})   # 内部の名前は detail(UI の見直し S12)
     return _pio_mod[0]
-log = logging.getLogger("tx")
+log = _txbase.log   # 別名(RS2-1a)= logging.getLogger("tx")
 _run_state = {"pid": os.getpid(), "started": 0, "job": None}
 _crash_fp = None
 
 
-def _mem():
-    m = rss_mb()
-    return "%dMB" % m if m is not None else "?"
+_mem = _tools.memory_label   # lint: keep 別名(RS2-1a)= 記録用のメモリの文字
 
 
 def setup_logging(hooks=True):
@@ -309,17 +271,8 @@ def media_duration(path):
     return duration_in(out) if out is not None else None
 
 
-def num(x, default=None):
-    try:
-        v = float(x)
-    except (TypeError, ValueError):
-        return default
-    return v if math.isfinite(v) else default
-
-
-def fmt_hms(t):
-    t = max(0, int(t))
-    return "%d:%02d:%02d" % (t // 3600, t % 3600 // 60, t % 60)
+num = _yschemas.num_or        # lint: keep 別名(RS2-1a)= 数にできれば float、違えば default
+fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
 
 
 def check_source(path):
@@ -482,9 +435,7 @@ def worker_fake():
     return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
 
 
-MIXED_FLAG = "声が混ざっている可能性"
-WEAK_FLAG = "話者が不確か"
-NONE_FLAG = "話者を判別できなかった"
+MIXED_FLAG, WEAK_FLAG, NONE_FLAG = _txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG   # 別名(RS2-1a)
 
 
 # ほかの部品(呼ぶたびに読む。ここで読むのは、上の値を全部作ってからにするため)
