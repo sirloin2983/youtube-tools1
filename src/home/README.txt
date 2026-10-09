@@ -8,7 +8,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 (cut2resolve はパックを作る部品として裏で動き、ホームのカードは出しません)。
 統合計画(docs/design/integration-plan.md)の段階1で作り、段階3から「ツールをホームの中に取り込む」ことを始めました。
 3つとも取り込みます: 切り抜きスタジオ(http://localhost:8700/studio/)・文字起こし(/transcribe/)・cut2resolve(/cut2resolve/)。
-文字起こしの認識(faster-whisper)だけは、落ちてもホームごと止まらないよう、別のプログラム(src\editor\tx_worker.py)で動きます。
+文字起こしの認識(faster-whisper)だけは、落ちてもホームごと止まらないよう、別のプログラム(src\pipeline\transcribe\worker.py)で動きます。
 各ツールの start.bat での単独起動は 2026-09-26 にやめました(起動は start.bat だけ)。使い方の全体はリポジトリ直下の README.txt。
 
 ■ 使い方

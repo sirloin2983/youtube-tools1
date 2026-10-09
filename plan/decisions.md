@@ -474,3 +474,12 @@
 - RS2-8-e 仮: `stream_context`・`split_terms` は roster へ。配信の情報・モデル名の検査・clip の読み(`studio_stream`・`valid_model`・`pio`)は txenv の鍵に(RS3 で ytt/settings に置き換えるときの対象)。`SPK_FLAGS` は txbase に置き、ed_state に別名を残す(dev/eval_asr が S.SPK_FLAGS を読むため)
 - RS2-8-f 仮: ついでの整理 = ed_thumb・ed_evalaudio は ytt/jobs を直に読む・ed_state の末尾の `import ed_jobs`(読み込みの順のためだけ)を外した・pipeline/spec.py のコメントの古い行番号を関数名に
 - RS2-8-g 仮: RS2 を済みにし、残り(ed_fill・ed_llm・ed_retime・tx_worker の移動・ed_speakers の分割)は RS2-9 として RS3 の前か一緒に行う
+
+### 3-24 役割で組み直す RS2-9 の仮決め(2026-10-10 早朝。ユーザー「仮で決定してよい・最後にまとめて確認・今から寝るから質問はなし・進められるところはすべて」。下調べ Sonnet 3 体・手順の見直し Fable・実装 Opus 2 体と Sonnet 1 体。**まだ確認していない**)
+- RS2-9-a 仮: 段の順 = X(下ごしらえ → ed_speakers の分割)→ Y(fill・llm・retime)と Z(認識ワーカー)を並列。ed_speakers の境目 = diarize(判別の計算・diar.json の読み書き・声の照合。`pipeline/transcribe/diarize.py`)/ speakers(文書・ジョブ・自動の判別・声の登録簿・下書き・字幕の色。`human/proof/speakers.py`)。voices・ovdraft は今は割らない。human の側が diar.json に書き足す所(`update_diar_voices`・`_autodiar_record`)は RS0-h と食い違うが RS6 で
+- RS2-9-b 仮: **不具合の直し(動きが変わる)**: 覚えた声の置き場所 `VOICES_DIR` を呼ぶたびに作業データの voices に(判別のモデルの置き場所も同じ形)。10-01 の serve の分割から、入口の起動では存在しない editor のフォルダの voices を見ていた = 覚えた声で名前が付かなかった。本物の作業データの voxceleb.json(09-30)が次の判別から使われる。旧い場所に声は無い = 移す物なし
+- RS2-9-c 仮: 疑似は口で差し込む = `Backend.diarize`・`embed`(本体は `eval/fake/fake_asr.py`)。認識ワーカーの疑似は `eval/fake/fake_worker.py` を serve が名前で渡す(`worker_client.FAKES_MODULE` に入れ、環境変数 `YTT_WORKER_FAKES` は worker-fake のときだけ。名前が無ければ `worker_env` が止まる)
+- RS2-9-d 仮: ed_drill の名前の候補は口 `speakers.set_context_namer`(名前だけ返す)+ serve が `check_context_namer`(speakers が評価用の ed_drill を読まないため)
+- RS2-9-e 仮: ed_retime は計算(`pipeline/transcribe/retime.py`)と文書を読む包み(editor の `ed_retime.py`。層 human。RS3 で human/proof へ)に分けた。fill・llm は殻なしで移した。`alt_fold`・`env_off` は txbase、文書の形の小道具は `ytt/schemas`(ed_state・ed_alt に別名)
+- RS2-9-f 仮: 認識ワーカーはスクリプトのパスで起動のまま `pipeline/transcribe/worker.py` へ。旧い場所 `src/editor/tx_worker.py` に起動用の転送(起動中の古い入口用。RS5 で消す)。絶対 import は層の決まりの例外(スクリプトとして起動するため)。GPU の調べ(`setup_cuda_paths`・`cuda_count`・`cuda_libs_ok`・`_gpu_ready_local`)は `worker_client` へ
+- RS2-9-g 仮: 気づいたが直していない = `ed_state._probe_gpu` の判定が空白つきの文字で探していて常に偽(ワーカーの出力は空白なし)。画面の GPU 表示(`/api/tools` の cuda)が CUDA の GPU があっても偽になるだけ。この PC は AMD なので実害なし。直すなら 1 行
