@@ -59,6 +59,7 @@ from ytt import colors, fsio, tools
 from pipeline import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
 from pipeline.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
+from pipeline import runlog  # noqa: E402  (終わった実行の記録の形と読み方。RS3-0B で read_runs_log などをここへ出した)
 from pipeline import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from pipeline.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
                           OTHER_MODES, POST_MODE, REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
@@ -73,9 +74,8 @@ import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範�
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
               "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
-MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は下の RUNS_LOG)
-RUNS_LOG = "autorun-runs.jsonl"   # 終わった実行の記録(入口の作業データの logs の中。段2 B-6)
-LOG_VERSION = 1        # 記録の1行の形の版(v)
+MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
+# 終わった実行の記録のファイル名 RUNS_LOG と1行の形の版 LOG_VERSION・読み方 read_runs_log は src/pipeline/runlog.py(RS3-0B。入口の外の部品も読むため)
 LOG_MAX_BYTES = 1024 * 1024   # これを超えたら .1 に回す(1件 1〜2KB なので 500〜1000 件ぶん)
 LOG_READ_BYTES = 256 * 1024   # 起動時に読む末尾の大きさ(前回の結果 past を作る)
 PAST_MAX = 50          # snapshot の past(配信・文書ごとの前回の結果で、メモリに無いもの)の数
@@ -88,7 +88,7 @@ POOL_FILE = "deliver-pool.json"   # ライブの切り抜きの組の溜め(実�
 POOL_SCHEMA = "ytt-deliver-pool/v1"
 POOL_IDLE_SEC = 600.0              # 録画が終わって書き出しも実行も無くなってから、最後に預けてこれだけたったら残りを届ける
 POOL_MAX_AGE = 12 * 3600.0         # 溜めを作ってからこれだけたったら、終わりを待たずに残りを届ける(録画が長すぎる・見張りが止まった)
-DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 RUNS_LOG の隣)
+DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 runlog.RUNS_LOG の隣)
 DEFER_VERSION = 1
 DEFER_ENV = "YTT_DEFER_ANALYZE"        # off = 一覧に足さない・始めない(テスト・困ったとき用)
 DEFER_KEEP_SEC = 3 * 24 * 3600         # 足してからこれだけたったら捨てる
@@ -110,7 +110,7 @@ FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオ�
 EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/accuracy.py の RESULT_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
 # 入口の起動し直しで戻す(線 D の M5。2026-10-07)
-ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。RUNS_LOG の隣)
+ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。runlog.RUNS_LOG の隣)
 ACTIVE_VERSION = 1
 ACTIVE_READ_MAX = 4 * 1024 * 1024
 RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
@@ -238,56 +238,6 @@ def _rec_key(rec):
     return ("doc", rec.get("docId")) if rec.get("kind") == "doc" else ("video", rec.get("videoId"))
 
 
-def _parse_rec(raw):
-    """記録の1行 -> 辞書(壊れた行・形の違う行は None。途中で切れた行・手で直した行を飛ばす)"""
-    raw = raw.strip()
-    if not raw:
-        return None
-    try:
-        rec = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
-        return None
-    if not isinstance(rec, dict) or rec.get("v") != LOG_VERSION or not isinstance(rec.get("id"), str):
-        return None
-    if rec.get("state") not in ("done", "error", "cancelled") or not isinstance(rec.get("steps"), list):
-        return None
-    kind = rec.get("kind")
-    if not ((kind == "doc" and isinstance(rec.get("docId"), str)) or (kind == "video" and isinstance(rec.get("videoId"), str))
-            or (kind == "file" and isinstance(rec.get("sourcePath"), str))):
-        return None
-    return rec
-
-
-def read_runs_log(path, max_bytes=None):
-    """記録(.1 → 今のファイル = 書いた順)の中身のリスト。max_bytes = 末尾からこの大きさだけ読む(途中から読んだ最初の行は捨てる)"""
-    chunks, left = [], max_bytes
-    for p in (path, path + ".1"):
-        if left is not None and left <= 0:
-            break
-        try:
-            with open(p, "rb") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                start = 0 if left is None else max(0, size - left)
-                f.seek(start)
-                data = f.read()
-        except OSError:
-            continue
-        if start > 0:
-            nl = data.find(b"\n")
-            data = data[nl + 1:] if nl >= 0 else b""
-        if left is not None:
-            left -= size - start
-        chunks.insert(0, data)
-    out = []
-    for data in chunks:
-        for raw in data.split(b"\n"):
-            rec = _parse_rec(raw)
-            if rec:
-                out.append(rec)
-    return out
-
-
 class AutoRunner(run_mod.Runner):
     """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す・あとから解析・届けること。段の中身は src/pipeline/run.py の Runner
     (ここでは hook を案件・ホームの設定・届けることで埋める)"""
@@ -300,7 +250,7 @@ class AutoRunner(run_mod.Runner):
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner が持つ
         super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack)
         self.root = repo_root
-        self.log_path = os.path.join(log_dir, RUNS_LOG) if log_dir else None
+        self.log_path = os.path.join(log_dir, runlog.RUNS_LOG) if log_dir else None
         self.active_path = os.path.join(log_dir, ACTIVE_FILE) if log_dir else None   # 待ち・実行中の記録(M5)
         self.active_error = ""     # 最後に待ちの記録を書けなかった理由(書けたら空に戻す)
         self._active_lock = threading.Lock()   # 待ちの記録のファイル(これを持ったまま self.cv を取る。逆の順では取らない)
@@ -320,7 +270,7 @@ class AutoRunner(run_mod.Runner):
         self._log_lock = threading.Lock()   # 記録のファイルと past(self.cv とは別。self.cv を持ったまま _log を呼ばない)
         self._past = collections.OrderedDict()   # (種類, id) -> 最後の記録(書いた順)
         if self.log_path:
-            for rec in read_runs_log(self.log_path, LOG_READ_BYTES):
+            for rec in runlog.read_runs_log(self.log_path, LOG_READ_BYTES):
                 self._remember(rec)
         self.prefs = prefs   # ホームの設定(src/home/prefs.py)。カットの無い文書のカットの方法 autorun.cut
         self.lock = threading.Lock()
@@ -740,7 +690,7 @@ class AutoRunner(run_mod.Runner):
         if not self.log_path:
             return {"runs": [], "total": 0, "more": False, "offset": offset}
         with self._log_lock:   # 書き込み(.1 へ回す)と重ねない
-            recs = read_runs_log(self.log_path)
+            recs = runlog.read_runs_log(self.log_path)
         recs.reverse()
         return {"runs": recs[offset:offset + limit], "total": len(recs), "more": offset + limit < len(recs), "offset": offset}
 
@@ -762,7 +712,7 @@ class AutoRunner(run_mod.Runner):
             if run.logged:
                 return
             run.logged = True
-            rec = dict(run.public(), v=LOG_VERSION)
+            rec = dict(run.public(), v=runlog.LOG_VERSION)
             self._remember(rec)
             if not self.log_path:
                 return
@@ -845,7 +795,7 @@ class AutoRunner(run_mod.Runner):
             return
         now = self._now_ms()
         try:
-            recs = read_runs_log(self.log_path)
+            recs = runlog.read_runs_log(self.log_path)
         except Exception:   # 読めなくても入口は動かす(次の起動でまた試す)
             return
         picked = []

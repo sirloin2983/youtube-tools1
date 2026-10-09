@@ -74,6 +74,7 @@ import urllib.parse
 
 from manage.cases import txindex
 from ytt import datadir, fsio, layout, schemas, tools
+from pipeline import runlog
 import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
@@ -358,7 +359,7 @@ class Live:
         with self._ex_lock:
             if self._exporter is None:
                 self._exporter = live_export.Exporter(self, self.store_dir, lambda: self.out_dir(), runner=lambda: self.runner(), log=self.log, audio=lambda: self.audio(),
-                                                      runs_log=os.path.join(self.logs_dir, "autorun-runs.jsonl"))   # 失敗の集約(M3)が読む まとめて実行の記録
+                                                      runs_log=os.path.join(self.logs_dir, runlog.RUNS_LOG))   # 失敗の集約(M3)が読む まとめて実行の記録
             return self._exporter
 
     @property

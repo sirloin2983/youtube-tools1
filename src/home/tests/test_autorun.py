@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import autorun as A  # noqa: E402
 import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
+from pipeline import runlog  # noqa: E402
 from ytt_core import fsio  # noqa: E402
 
 
@@ -778,7 +779,7 @@ class TestRunLog(Base):
 
     @property
     def path(self):
-        return os.path.join(self.logs, A.RUNS_LOG)
+        return os.path.join(self.logs, runlog.RUNS_LOG)
 
     def lines(self, path=None):
         try:
@@ -1003,7 +1004,7 @@ class TestRestore(Base):
             return []
 
     def lines(self):
-        return A.read_runs_log(os.path.join(self.logs, A.RUNS_LOG))
+        return runlog.read_runs_log(os.path.join(self.logs, runlog.RUNS_LOG))
 
     def restart(self, saved=None):
         """入口を止めて起動し直す。saved: 強制終了のふり(止める前の待ちの記録に戻してから起動する)"""
@@ -1182,7 +1183,7 @@ class TestRequests(Base):
         from ytt_core import fsio
         self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         self.r.prefs = self.prefs
-        self.r.log_path = os.path.join(self.tmp, "logs", A.RUNS_LOG)
+        self.r.log_path = os.path.join(self.tmp, "logs", runlog.RUNS_LOG)
         jobs = self.tools.h_transcribe_GET_api_jobs
 
         def with_tid(path, body):   # 本物の「編集」のジョブは、できた文書の id(tid)を返す
@@ -1228,7 +1229,7 @@ class TestRequests(Base):
         self.assertEqual(run["docs"], ["000000000001"])
         self.assertEqual(self.prefs.get(["streamer"])["streamer"]["docs"], {"000000000001": "さくらみこ"})   # パックのときの字幕の色
         # 記録のファイルに kind file で残り、読み直せる
-        recs = A.read_runs_log(self.r.log_path)
+        recs = runlog.read_runs_log(self.r.log_path)
         self.assertEqual([(x["kind"], x["sourcePath"]) for x in recs], [("file", media)])
         # もう一度: 文字起こし済みなので飛ばす
         run = self.wait(self.r.start_file(media))
@@ -2005,7 +2006,7 @@ class TestDeferred(Base):
         self.fail("待ちきれません: %s" % msg)
 
     def lines(self):
-        return A.read_runs_log(os.path.join(self.logs, A.RUNS_LOG))
+        return runlog.read_runs_log(os.path.join(self.logs, runlog.RUNS_LOG))
 
     def logged(self, run_id):
         """実行の記録に書かれるまで待つ(一覧への足し・外しは記録より先に済んでいる)"""
@@ -2232,7 +2233,7 @@ class TestDeferred(Base):
                  dict(base, id="fu", videoId="fullrun0000", finished=now, mode="full"),
                  dict(base, id="pe", videoId="parterr0000", finished=now, state="error", steps=[step("adopt"), step("export", "error")])]
         os.makedirs(self.logs)
-        log = os.path.join(self.logs, A.RUNS_LOG)
+        log = os.path.join(self.logs, runlog.RUNS_LOG)
         with open(log + ".1", "w", encoding="utf-8") as f:   # 古い方(.1)にもある
             f.write("".join(json.dumps(x) + "\n" for x in recs[:10]))
         with open(log, "w", encoding="utf-8") as f:

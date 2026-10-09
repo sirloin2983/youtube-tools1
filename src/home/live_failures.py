@@ -20,6 +20,8 @@
 import os
 import threading
 
+from pipeline import runlog
+
 KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動",
                "detect": "盛り上がりの検出", "keep": "録画の片付け"}
 PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
@@ -143,8 +145,7 @@ class Reader:
         key = tuple(key)
         with self._lock:
             if key != self._key:
-                import autorun   # 記録の読み方は 1 か所(read_runs_log)。ここで読むのは、live だけを読むテストで要らないため
-                recs = autorun.read_runs_log(self.runs_log, RUNS_READ_BYTES)
+                recs = runlog.read_runs_log(self.runs_log, RUNS_READ_BYTES)   # 記録の読み方は 1 か所(pipeline/runlog。autorun は読まない)
                 self._runs = {r["id"]: r for r in recs if isinstance(r, dict) and isinstance(r.get("id"), str)}
                 self._key = key
             return self._runs
