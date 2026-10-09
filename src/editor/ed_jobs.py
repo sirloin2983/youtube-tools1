@@ -11,20 +11,19 @@ import gc
 import hashlib
 import itertools
 import json
-import math
 import os
 import queue
 import re
 import subprocess
 import threading
 import time
-import unicodedata
 import uuid
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, modfwd as _modfwd, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
 from pipeline.transcribe import backend as _backend, txenv as _txenv  # noqa: E402   本物と疑似の差し込み口・置き場所と外の道具の口(RS2-2)
+from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要確認の印(RS2-4b。呼ぶたびに postproc.名前 で読む)
 import ed_alt  # noqa: E402,F401
 import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0)
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
@@ -623,119 +622,6 @@ def extract_audio(job, spec, wav):
                                 {"detail": tail[:300]})   # ffmpeg の原文(パスを含む)は「詳しく」だけ(2 周目 N2)
 
 
-LATIN_MIN_LETTERS = 4   # 英字がこの数以上で、文字全体の LATIN_RATIO 以上を占め、
-LATIN_RATIO = 0.3       # かつ「英字が LATIN_LONG 文字以上」か「英字の語が2つ以上」の行、
-LATIN_LONG = 6          # または、英字と空白が LATIN_RUN 文字以上続く行を「英語の幻覚かも」とする(初期値。実データで調整する)
-LATIN_RUN = 8
-_LATIN_RUN_RE = re.compile(r"[A-Za-z][A-Za-z' ]{%d,}" % (LATIN_RUN - 1))
-
-
-def latin_suspect(text, terms=()):
-    """日本語の音声なのに英字が目立つ行か(英語のでたらめな文の幻覚に多い)。用語集にある英字の語(Apex など)は数えない。
-    Apex・GG のような短い英単語が1つだけ混じる行は対象外(要確認だらけになるのを避ける)。"""
-    t = str(text or "")
-    for w in _latin_terms(tuple(terms)):
-        t = t.replace(w, "")
-    t = re.sub(r"(?i)w{2,}|\b(?:lol|lmao|gg|wp|ok)\b", "", t)   # 笑いの「wwww」や定番の略語は数えない
-    letters = len(re.findall(r"[A-Za-z]", t))
-    if letters < LATIN_MIN_LETTERS:
-        return False
-    body = len(re.sub(r"[\W_]+", "", t))   # 記号・空白を除いた文字数(日本語も数える)
-    if body and letters / body >= LATIN_RATIO and (letters >= LATIN_LONG or len(re.findall(r"[A-Za-z']+", t)) >= 2):
-        return True
-    return bool(_LATIN_RUN_RE.search(t))
-
-
-@functools.lru_cache(maxsize=32)
-def _latin_terms(terms):
-    """ヒントの語のうち英字を含む語(長い順)。行ごとに並べ直さない(同じヒントの語の組なら覚えた並び)"""
-    return tuple(sorted({x for x in terms if x and re.search(r"[A-Za-z]", x)}, key=len, reverse=True))
-
-
-SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(docs/design/edit-tool-design.md の 12 ③-1): この長さより長くて
-                        # (ちょうど 4.0 秒は含めない。疑似の文字起こしの行(4.0 秒に「テスト文N」)を対象にしないため。本物の行への影響は境目だけ)
-SPARSE_MAX_CPS = 1.5    # 記号・空白を除いた文字数が 1 秒あたりこれ未満
-SPARSE_FLAG = "長い区間に文字が少ない(抜けの可能性)"
-
-
-def text_chars(text):
-    """記号・空白を除いた文字数(文字と数字だけ。かな・漢字・英数字)"""
-    return sum(1 for ch in str(text or "") if unicodedata.category(ch)[0] in "LN")
-
-
-def sparse_row(start, end, text):
-    """長い区間に文字が少ない行か(③-1)。取りこぼしを減らすために VAD を甘くしている(vadMode weak)ので、BGM やゲーム音が声として通り、
-    Whisper が長い塊に単語1つを出したり、途中を飛ばしたりする(区間ごとの抜け)。その形をつかまえる"""
-    try:
-        dur = float(end) - float(start)
-    except (TypeError, ValueError):
-        return False
-    return dur > SPARSE_MIN_SEC and text_chars(text) < SPARSE_MAX_CPS * dur
-
-
-def _letters(text):
-    """比べる用: NFKC・小文字・文字と数字だけ"""
-    return "".join(ch for ch in unicodedata.normalize("NFKC", str(text or "")).lower() if unicodedata.category(ch)[0] in "LN")
-
-
-def stock_phrase(text):
-    """よくある誤認識の文か(時間は見ない): 以前からの HALLUC が含まれる・行のほとんどが HALLUC_LINE の文・音楽の表記だけ(♪・(音楽))"""
-    t = str(text or "")
-    if any(h in t for h in _txbase.HALLUC):
-        return True
-    if t.strip() and _txbase.MUSIC_ONLY.match(t) and ("♪" in t or "♫" in t or "♬" in t or "(" in t or "（" in t or "[" in t or "【" in t or "［" in t):
-        return True
-    n = _letters(t)
-    return any(k in n and len(n) - len(k) <= _txbase.HALLUC_LINE_REST for k in _halluc_keys(tuple(_txbase.HALLUC_LINE)))
-
-
-@functools.lru_cache(maxsize=4)
-def _halluc_keys(lines):
-    """HALLUC_LINE の文の比べる形(_letters)。行ごとに作り直さない(表を差し替えれば作り直す = 表そのものが鍵)"""
-    return tuple(k for k in (_letters(h) for h in lines) if k)
-
-
-def repeats_in_line(text):
-    """行の中で同じ語(2〜10 文字)が REP_MIN 回以上続くか(「ぱんぱんぱんぱんぱん…」。1 文字の繰り返し = 笑い・叫びは除く)"""
-    k = _letters(text)
-    m = _txbase.REP_RE.search(k)
-    while m:
-        if len(set(m.group(1))) > 1:
-            return True
-        m = _txbase.REP_RE.search(k, m.start() + 1)
-    return False
-
-
-def make_flags(seg, prev_texts, lang=None, terms=()):
-    """Whisper は BGM・無音・歌で幻覚(でたらめな文)を出しやすいので、要確認の印を付ける。
-    lang が "ja" のときは、英字が目立つ行も対象にする(terms = 認識のヒントに渡した語(prompt_terms)。その中の英字の語は数えない)。
-    長い区間に文字が少ない行(抜けの可能性。sparse_row)にも付ける(2026-09-26 ③-1)。
-    S-3(2026-09-29): よくある誤認識の文を増やした(stock_phrase)・行の中の繰り返し(repeats_in_line)・近くの行に同じ文が3回・
-    短い区間でヒントの語だけが出た行(LEAK_FLAG。roster.leak_only)"""
-    why = []
-    lp, ns, cr = seg.get("avg_logprob"), seg.get("no_speech_prob"), seg.get("compression_ratio")
-    if lp is not None and lp < -1.0:
-        why.append("自信が低い")
-    if ns is not None and ns > 0.6:
-        why.append("音声でない可能性(BGMなど)")
-    text = seg["text"]
-    if (cr is not None and cr > 2.4) or repeats_in_line(text) or seg.get("_rep"):   # _rep = 同じ文字の行をまとめた・縮めた(merge_repeats)
-        why.append("繰り返しの可能性")
-    dur = seg["end"] - seg["start"]
-    if stock_phrase(text) and dur < 8:
-        why.append("よくある誤認識の文")
-    key = _letters(text)
-    if text and (prev_texts[-2:] == [text, text] or (len(key) >= 4 and sum(1 for p in prev_texts[-5:] if _letters(p) == key) >= 2)):
-        why.append("同じ文の繰り返し")   # 続けて3回、または近く(前の5行)に同じ文が2回あって3回目
-    if terms and (("用語" in text and ":" in unicodedata.normalize("NFKC", text)) or (dur <= _txbase.LEAK_MAX_SEC and _roster.leak_only(text, terms))):
-        why.append(_txbase.LEAK_FLAG)
-    if lang == "ja" and latin_suspect(text, terms):
-        why.append("英字が多い(英語の幻覚の可能性)")
-    if sparse_row(seg.get("start"), seg.get("end"), text):
-        why.append(SPARSE_FLAG)
-    return "、".join(why)
-
-
 def req_engine(req, model):
     """要求の認識エンジン(無ければ faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る。
     画面の「処理方式」の GPU(AMD など・whisper.cpp)は device = "vulkan" で来る → whisper.cpp(機器は auto = Vulkan。黙って CPU にしない)"""
@@ -973,7 +859,7 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
             raw.append(seg_to_dict(s))
             if on_seg:
                 on_seg(raw[-1], len(raw))   # この回(やり直しごと)の行の数
-        if not any(r["text"] and not stock_phrase(r["text"]) and not _roster.leak_only(r["text"], terms) for r in raw) and not last:
+        if not any(r["text"] and not postproc.stock_phrase(r["text"]) and not _roster.leak_only(r["text"], terms) for r in raw) and not last:
             # 「ご視聴ありがとうございました」だけ・ヒントの語だけ = 文字が 0 と同じ
             retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})
             _txbase.log.info("文字が出なかったので、声の検出を緩めてやり直します(%s)", mode)
@@ -1029,14 +915,9 @@ def transcribe_real(job, spec, wav, total):
         yield x
 
 
-SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 24   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の subtitle.splitChars(既定 24 = 0.59.6。0.59.5 は 40)。
-# 0.59.5(2026-10-08)までは字幕の最大文字数(縦 16)で分けていたが、区切りを意識した校正(確かめ済み 22 本)で 16 文字の内側の切れ目は 73% が戻され、
-# whisper の行をそのまま残す方が人の分け方に近かった(的中 68% → 74〜76%・①頭 19% → 14%・①末 25% → 20%。plan/line-b-row-split.md の 8)。字幕の長さはパックの折り返しで別に扱う。
-# 0.59.6(2026-10-08): 友人「字幕が長すぎる(縦 8 字で 5 段)」→ ユーザー「3 段(24 字)以上はやめてほしい・とりあえず 24 で」。24 で分けても境目の的中 74%・①末 20% は 40 と同じ(plan/line-b-transcription.md の「長い行だけ分けると」))
-SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。docs/design/edit-tool-design.md の 12 ②)
 # 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
 SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14},
-                    "splitChars": SPLIT_CHARS}   # splitChars = 文字起こしの行を分ける文字数(0.59.5 から maxChars とは別。既定 24 = 0.59.6。画面の欄はまだ無い = settings.json か環境変数 TRANSCRIBE_SPLIT_CHARS)
+                    "splitChars": postproc.SPLIT_CHARS}   # splitChars = 文字起こしの行を分ける文字数(0.59.5 から maxChars とは別。既定 24 = 0.59.6。画面の欄はまだ無い = settings.json か環境変数 TRANSCRIBE_SPLIT_CHARS)
 ORIENTATIONS = ("vertical", "horizontal")
 
 
@@ -1083,216 +964,6 @@ def split_chars_for(req=None, st=None):
     if env.isdigit() and 8 <= int(env) <= 80:
         return int(env)
     return subtitle_settings(st)["splitChars"]
-STRIP_PUNCT_CHARS = "、。？！?!"   # ショート動画のテロップでは句読点が浮きやすいので、既定で取り除く対象(全角の読点・句点・疑問符・感嘆符と、その半角形)
-_strip_punct_re = re.compile("[%s]" % re.escape(STRIP_PUNCT_CHARS))
-
-
-def strip_punct(text):
-    """テロップ表示用に、句読点(、。？！ と半角の ?!)を取り除く。"""
-    return _strip_punct_re.sub("", text)
-
-
-def _cut_words(ws, max_chars=SPLIT_CHARS):
-    """単語の並び ws=[(開始,終了,文字)] を、長すぎる間は「間が大きい・句読点のあと・真ん中に近い」所で分けていく。
-    文字数は max_chars + SPLIT_SLACK まで許す。同じ種類の文字(カタカナ・漢字・英数字)の並びの途中では、なるべく切らない(12 ②)"""
-    dur = ws[-1][1] - ws[0][0]
-    chars = sum(len(t.strip()) for _a, _b, t in ws)
-    if len(ws) < 2 or (dur <= SPLIT_SEC and chars <= max_chars + SPLIT_SLACK):
-        return [ws]
-    best, bi = None, 1
-    for i in range(1, len(ws)):
-        gap = max(0.0, ws[i][0] - ws[i - 1][1])
-        prev_t, next_t = ws[i - 1][2].rstrip(), ws[i][2].lstrip()
-        tail = prev_t[-1:]
-        punct = 1.0 if tail in "。！？!?" else (0.4 if tail in "、,，" else 0.0)
-        balance = 1.0 - abs((ws[i - 1][1] - ws[0][0]) / dur - 0.5) if dur > 0 else 0.5
-        same = 1.0 if prev_t and next_t and ed_learn._cc(prev_t[-1]) and ed_learn._cc(prev_t[-1]) == ed_learn._cc(next_t[0]) else 0.0   # 語の途中
-        score = gap * 2 + punct + balance * 0.5 - same
-        if best is None or score > best:
-            best, bi = score, i
-    return _cut_words(ws[:bi], max_chars) + _cut_words(ws[bi:], max_chars)
-
-
-def split_segment(s, max_chars=SPLIT_CHARS):
-    """認識した1行 s を、単語の時刻で整える。①行の始まり・終わりを最初・最後の単語にそろえる(声のない所まで伸びた行を直す)
-    ②単語の間が1秒以上あいた所で分ける ③長すぎる行(8秒・max_chars 文字 + 2 超)は区切りのよい所で分ける。
-    単語の並びが行の文章と合わないとき、単語の時刻が無いときは、何もせずそのまま返す。
-    分けた行には、その行の単語を "_words" に付ける(文書の words.json に保存する用。行のデータには入れない)"""
-    words = s.get("words") or []
-    if not words:
-        return [s]
-    ws = [(a, b, t) for a, b, t in words if b >= a]
-    if not ws or _squash("".join(t for _a, _b, t in ws)) != _squash(s.get("text", "")):
-        return [s]
-    groups, cur = [], [ws[0]]
-    for w in ws[1:]:
-        if w[0] - cur[-1][1] >= SPLIT_GAP:
-            groups.append(cur)
-            cur = []
-        cur.append(w)
-    groups.append(cur)
-    parts = [p for g in groups for p in _cut_words(g, max_chars)]
-    out = []
-    for p in parts:
-        text = "".join(t for _a, _b, t in p).strip()
-        if text:
-            out.append({**{k: v for k, v in s.items() if k != "words"}, "start": p[0][0], "end": max(p[-1][1], p[0][0]), "text": text, "_words": p})
-    return out or [s]
-
-
-def expand_segments(gen, spec, dur=None, join=True):
-    """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
-    句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
-    (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。
-    2026-10-04: 分けたあとに、音声の長さ dur(秒。行と同じ基準)で切る(clip_rows)・同じ文字だけの行が続いたら1行にまとめる(merge_repeats)。
-    whisper.cpp の続いている行の終わりを END_TRIM 秒早める(trim_ends。0.57.1 から既定 0 = かけない)。
-    2026-10-07(0.57.1。行の時刻の原則 docs/spec/row-timing-policy.md の ①): 最後に、続いている行(すき間 JOIN_GAP 以下)の終わりを次の行の始まりへ延ばす(join_rows。全エンジン)。
-    join=False は時刻を使わない呼び出し(疑わしい所の認識し直し・2つ目のエンジンの候補)。
-    0.65.0(2026-10-09)で、行の終わりを音の谷へ寄せる pull_ends(引数 levels・TRANSCRIBE_PULL_ENDS)を消した(既定オフのままだった)"""
-    strip = spec.get("stripPunct", True)
-    mc = spec.get("splitChars") or SPLIT_CHARS
-    rows = (p for s in gen for p in (split_segment(s, mc) if spec.get("wordSplit") else [s]))
-    if dur:
-        rows = clip_rows(rows, dur)
-    rows = merge_repeats(rows)
-    if spec.get("engine") == tx_engines.WhisperCpp.id and END_TRIM > 0:
-        rows = trim_ends(rows, END_TRIM)
-    if join and JOIN_GAP > 0:
-        rows = join_rows(rows, JOIN_GAP)
-    for p in rows:
-        yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
-
-
-# ---------- 行の後処理(2026-10-04。ユーザーの報告「行の終わりに次の行の頭の言葉が入る」「動画の長さより後ろに行がある」「ああああ…の行が大量」) ----------
-# 測った結果と理由は README の「次の版の変更」と editor/AGENTS.md の「行の後処理」
-REP_ROWS = 3          # 同じ1文字だけの行(「ああああ」)がこの数以上続いたら1行にまとめる(本当に叫んでいることもあるので消さない。印「繰り返しの可能性」)
-REP_ROW_GAP = 1.0     # まとめる行の間のすき間の上限(秒)
-REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに縮める(「あああ…」×40 → 10 文字)
-# 行の終わりを音の谷へ寄せる pull_ends(0.51.0)は 2026-10-05 に既定でやめ、0.65.0(2026-10-09)で部品ごと消した(早めすぎて言葉の終わりが切れた。履歴 c2dde44 以前)
-# whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒)。2026-10-07(0.57.1)に既定でやめた(0): 行の時刻の原則の ①
-# 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。10-05 の目安は「この行だけ再生」で聞くための値)。
-# TRANSCRIBE_END_TRIM=0.1 で戻せる(測り直すとき用。plan/line-b-row-timing.md の 7-1)
-END_TRIM = tx_engines.env_num("TRANSCRIBE_END_TRIM", 0.0, lo=0.0, hi=0.5, cast=float)
-# 続いている行の終わりを次の行の始まりへ延ばす、すき間の上限(秒。2026-10-07 = 0.57.1。原則の ①: 字幕が一瞬消えてまた出るのをやめ、言葉の末を切らない。
-# 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。plan/line-b-row-timing.md の 7-2)。TRANSCRIBE_JOIN_GAP=0 でやめる
-JOIN_GAP = tx_engines.env_num("TRANSCRIBE_JOIN_GAP", 0.5, lo=0.0, hi=2.0, cast=float)
-TRIM_GAP = 0.3        # trim_ends: 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを早める(0.64.0 までの名前は PULL_GAP)
-TRIM_MIN = 0.3        # trim_ends: 早めたあとの行の長さの下限(秒。0.64.0 までの名前は PULL_MIN)
-_SAME_CHAR_RUN = re.compile(r"(.)\1{%d,}" % REP_CHAR_KEEP)
-
-
-def _clip_words(p, lo, hi):
-    """行の単語("_words" か "words")の時刻を [lo, hi] の中に収める(単語は捨てない = 行の文字と単語の並びは合ったまま)"""
-    key = "_words" if p.get("_words") is not None else "words"
-    ws = p.get(key)
-    if not ws:
-        return p
-    out = []
-    for a, b, t in ws:
-        a2 = min(hi, max(lo, a))
-        out.append((a2, min(hi, max(a2, b)), t))
-    return {**p, key: out}
-
-
-def clip_rows(rows, dur):
-    """音声の長さ dur より後ろの行を捨て、終わりを dur で切る。whisper.cpp は最後の 30 秒の窓の残り(無音で埋めた所)に、
-    音声の長さを越える時刻の行を出すことがある(40.7 秒の音声に 56 秒までの「ああああ」18 行。2026-10-04)"""
-    for p in rows:
-        if p["start"] >= dur:
-            continue
-        if p["end"] > dur:
-            p = _clip_words({**p, "end": dur}, p["start"], dur)
-        yield p
-
-
-def _one_char(text):
-    """行の文字(句読点・空白を除く)が同じ1文字の2つ以上の続きなら、その文字。そうでなければ None"""
-    k = _letters(text)
-    return k[0] if len(k) >= 2 and k == k[0] * len(k) else None
-
-
-def merge_repeats(rows):
-    """同じ1文字だけの行(「ああ」「ああああああ」)が REP_ROWS 行以上続いたら(すき間 REP_ROW_GAP 秒以下)、1行にまとめる(始まり = 最初・終わり = 最後・
-    単語はつなぐ・"_rep" = まとめた行の数 → make_flags が「繰り返しの可能性」)。どの行も、同じ文字の続きは REP_CHAR_KEEP 文字までに縮める。
-    「早く!早く!…」のように意味のある語の繰り返しの行は、本当に言っていることが多いのでまとめない(印は従来どおり)"""
-    buf = []
-
-    def flush():
-        if len(buf) >= REP_ROWS:
-            words = [w for p in buf for w in (p.get("_words") if p.get("_words") is not None else p.get("words") or [])]
-            m = {**buf[0], "end": max(p["end"] for p in buf), "text": "".join(p["text"] for p in buf), "_rep": len(buf)}
-            m.pop("words", None)
-            m["_words"] = words
-            out = [m]
-        else:
-            out = list(buf)
-        buf.clear()
-        return [_squash_row(p) for p in out]
-
-    for p in rows:
-        c = _one_char(p.get("text"))
-        if buf and (c is None or c != _one_char(buf[-1].get("text")) or p["start"] - buf[-1]["end"] > REP_ROW_GAP):
-            yield from flush()
-        if c is None:
-            yield _squash_row(p)
-        else:
-            buf.append(p)
-    yield from flush()
-
-
-def _squash_row(p):
-    """行の中の同じ文字の続きを REP_CHAR_KEEP 文字までに縮める(縮めたら "_rep")"""
-    t = p.get("text") or ""
-    s = _SAME_CHAR_RUN.sub(lambda m: m.group(1) * REP_CHAR_KEEP, t)
-    if s == t:
-        return p
-    return {**p, "text": s, "_rep": p.get("_rep") or 1}
-
-
-def _with_next(rows, fix):
-    """流れの行の各行に fix(行, 次の行) をかけて流す(次の行を1つ先に読む。最後の行はそのまま)"""
-    prev = None
-    for p in rows:
-        if prev is not None:
-            yield fix(prev, p)
-        prev = p
-    if prev is not None:
-        yield prev
-
-
-def trim_ends(rows, sec):
-    """whisper.cpp の行のうち、次の行とのすき間が TRIM_GAP 秒以下の行の終わりを sec 秒だけ早める(行の長さは TRIM_MIN 秒を残す。次の行の始まり・文字は変えない)。
-    2026-10-05 ユーザーの目安「前回の作業の前の状態から行末を 0.1 秒早く終わらせる程度」。音の谷へ寄せる pull_ends は早めすぎた(0.65.0 で消した)。
-    2026-10-07(0.57.1)から既定ではかけない(END_TRIM = 0。原則の ① に反するため)"""
-    def fix(prev, p):
-        if p["start"] - prev["end"] <= TRIM_GAP:
-            new = round(max(prev["start"] + TRIM_MIN, prev["end"] - sec), 3)
-            if new < prev["end"] - 0.005:
-                return _clip_words({**prev, "end": new}, prev["start"], new)
-        return prev
-    return _with_next(rows, fix)
-
-
-def join_rows(rows, gap=None):
-    """続いている行の前の行の終わりを、次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ① 言葉の末を切らない > ② > ③。plan/line-b-row-timing.md の 7-2)。
-    0 < 次の始まり − 前の終わり ≤ gap(既定 JOIN_GAP)のときだけ。縮めない・重なり(次の始まりが前の終わりより前)は触らない・最後の行はそのまま・
-    文字と単語は変えない(延ばした所は単語の無いすき間)。gap が 0 以下なら何もしない。流れ(生成器)で受けて流す(次の行を1つ先に読む)"""
-    gap = JOIN_GAP if gap is None else gap
-    return _with_next(rows, lambda prev, p: {**prev, "end": p["start"]} if gap > 0 and 0 < p["start"] - prev["end"] <= gap + 1e-9 else prev)
-
-
-CONF_KEYS = ("avg_logprob", "no_speech_prob", "compression_ratio")   # 機械の出力 original の各行に残す、認識の自信の度合い(文字起こしの改善の計画 段0-1)
-
-
-def machine_conf(s):
-    """認識の1行の自信の度合い {avg_logprob, no_speech_prob, compression_ratio}(分かるものだけ。小数4桁)。
-    original に残して、どの値のときに誤りが多いか(怪しい所だけ別の方法で聞き直す判断の材料)を測れるようにする"""
-    out = {}
-    for k in CONF_KEYS:
-        v = s.get(k)
-        if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
-            out[k] = round(float(v), 4)
-    return out
 
 
 @functools.lru_cache(maxsize=None)
@@ -1327,7 +998,7 @@ def _run_base(spec, pairs=None):
     return {"engine": eid, "engineVersion": ever, "model": str(spec.get("model") or ""), "language": str(spec.get("language") or ""),
             "settings": {"beam": spec.get("beam"), "vadMode": spec.get("vadMode"), "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "dict": dict_version(spec) if pairs is None else dict_version(spec, pairs)},
-            "at": int(time.time() * 1000), "post": post_record()}
+            "at": int(time.time() * 1000), "post": postproc.post_record()}
 
 
 def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
@@ -1339,14 +1010,6 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
     run.update({"audioSec": round(float(audio_sec or 0), 2), "wallSec": round(float(wall_sec), 2),
                 **vad_record(job.get("vad"))})
     return run
-
-
-def post_record():
-    """recognition.runs[].post: この認識の行の後処理の設定(0.57.1 から。測る道具 dev/eval_timing.py が「版ごと」に分ける。無い記録は 0.57.0 まで)。
-    version = 編集の版・endTrim = END_TRIM(whisper.cpp の続いている行の終わりを早める秒)・joinGap = JOIN_GAP(続いている行をつなぐすき間)。
-    0.64.0 までは pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)も書いた(0.65.0 で部品ごと消した。古い記録の鍵は読むだけ)。
-    同じく runs[].retimed(配り直しの数)も 0.65.0 から書かない"""
-    return {"version": str(getattr(ed_state, "SERVER_VERSION", "") or ""), "endTrim": END_TRIM, "joinGap": JOIN_GAP}
 
 
 def short_hash(text):
@@ -1477,11 +1140,6 @@ def vad_record(vad):
     return {"vadUsed": vad.get("used"), "vadRemovedSec": vad.get("removedSec", 0.0), "vadRetries": list(vad.get("retries") or [])}
 
 
-def row_words(p, shift=0.0):
-    """expand_segments が出した行の単語(split_segment の "_words" か、分けなかった行の "words")→ [[開始, 終了, 文字]](絶対の秒)"""
-    return [[round(a + shift, 3), round(b + shift, 3), t] for a, b, t in (p.get("_words") or p.get("words") or [])]
-
-
 # ---------- 生出力(transcripts/<id>.asr.json。分ける前・置換の前の認識の結果。単語ごとの時刻と確信度。記録の土台 = 機械の最初の結果を書き換えずに残す) ----------
 ASR_SCHEMA = "youtube-tools-asr-raw/v1"
 MAX_ASR_BYTES = 64 * 1024 * 1024
@@ -1497,7 +1155,7 @@ def capture_raw(gen, raw, shift=0.0):
         try:
             ws, ps = s.get("words") or [], s.get("wordProbs") or []
             raw.append({"start": round(float(s["start"]) + shift, 3), "end": round(float(s["end"]) + shift, 3), "text": str(s.get("text") or ""),
-                        **machine_conf(s), "words": [[round(a + shift, 3), round(b + shift, 3), t, ps[i] if i < len(ps) else None]
+                        **postproc.machine_conf(s), "words": [[round(a + shift, 3), round(b + shift, 3), t, ps[i] if i < len(ps) else None]
                                                      for i, (a, b, t) in enumerate(ws)]})
         except (KeyError, TypeError, ValueError):
             pass   # 生出力が残せなくても文字起こしは止めない
@@ -1554,10 +1212,6 @@ def replace_words(tid, a, b, new_words, model="", keep_spans=()):
     write_words(tid, keep + [list(w) for w in new_words], model)
 
 
-def _squash(text):
-    return re.sub(r"\s+", "", str(text or ""))
-
-
 def _fresh_id(used, make, n=0):
     """行の新しい id: make(n+1), make(n+2), … のうち used に無い最初のもの(used に足す)。-> (id, その番号)"""
     while True:
@@ -1590,29 +1244,29 @@ def resplit_doc(obj):
         out, changed, added, skipped = [], 0, 0, 0
         for g in segs:
             text = str(g.get("text") or "")
-            if g.get("proofed") is True or len(_squash(text)) <= max_chars + SPLIT_SLACK:
+            if g.get("proofed") is True or len(postproc._squash(text)) <= max_chars + postproc.SPLIT_SLACK:
                 out.append(g)
                 continue
             a, b = float(g.get("start") or 0), float(g.get("end") or 0)
             lo, hi = bisect.bisect_left(mids, a - 0.05), bisect.bisect_right(mids, b + 0.05)
             ws = [tuple(w) for w in words[lo:hi]]
             joined = "".join(t for _a, _b, t in ws)
-            if ws and _squash(joined) == _squash(text):
+            if ws and postproc._squash(joined) == postproc._squash(text):
                 strip = False
-            elif ws and _squash(strip_punct(joined)) == _squash(text):
+            elif ws and postproc._squash(postproc.strip_punct(joined)) == postproc._squash(text):
                 strip = True        # 句読点を取り除いた行(stripPunct)
             else:
                 skipped += 1        # 人が直した行・辞書で置き換えた行・単語の無い行は分けない
                 out.append(g)
                 continue
-            parts = split_segment({"start": a, "end": b, "text": joined, "words": ws}, max_chars)
+            parts = postproc.split_segment({"start": a, "end": b, "text": joined, "words": ws}, max_chars)
             if len(parts) < 2:
                 out.append(g)
                 continue
             changed += 1
             added += len(parts) - 1
             for k, p in enumerate(parts):
-                t = strip_punct(p["text"]) if strip else p["text"]
+                t = postproc.strip_punct(p["text"]) if strip else p["text"]
                 base = str(g.get("id"))
                 sid = _fresh_id(used, lambda n: "%s-%d" % (base, n), k)[0] if k else base   # 2つめからは <元の id>-2, -3 …(ほかの行と重ならない番号)
                 out.append(dict(g, id=sid, start=round(p["start"], 2), end=round(p["end"], 2), text=t[:_txbase.MAX_TEXT]))
@@ -1653,7 +1307,7 @@ def run_job(job):
         gen = capture_raw(gen, raw_asr, spec["start"])
         pairs = dict_pairs(spec)
         lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
-        rows = list(expand_segments(gen, spec, total))
+        rows = list(postproc.expand_segments(gen, spec, total))
         rows, names_n = ed_fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
         # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
         rows, fill_rec, fill_read = ed_fill.fill_after_rows(job, spec, rows, wav, total)
@@ -1705,7 +1359,7 @@ def run_job(job):
         # 話者の自動判別(評価用は常に・それ以外は設定 autoDiarize。v0.50.0)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         ed_speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)
-        if spec.get("autoRedo") and any(SPARSE_FLAG in g["flag"] for g in out["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
+        if spec.get("autoRedo") and any(postproc.SPARSE_FLAG in g["flag"] for g in out["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:
                 _heavy.add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": out["sparseLp"]}), "redo")
             except _errors.ApiError as e:
@@ -1724,19 +1378,19 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
             continue
         seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
                "text": s["text"][:_txbase.MAX_TEXT], "speaker": "", "flag": ""}
-        seg["flag"] = make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
+        seg["flag"] = postproc.make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
         if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(ed_fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
             seg["fill"] = {"from": str(s["fill"].get("from") or "")[:_txbase.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
             mark = ed_fill.FILL_SPK_FLAG if seg["fill"]["by"] == ed_fill.FILL_SPK_BY else ed_fill.FILL_FLAG   # B は話者名を外した印
             seg["flag"] = "、".join(x for x in (mark, seg["flag"]) if x)[:100]
         prev.append(seg["text"])
-        if SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
+        if postproc.SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
             sparse_lp[seg["id"]] = float(s["avg_logprob"])
         if lrules:   # 確度が高い学習済みの置換は、機械の出力側にも反映する(そうしないと自分の置換を「人が直した」と数えて自己強化してしまう)
             seg["text"], ln = ed_learn.auto_learned_replace(seg["text"], lrules, lfb)
             learn_n += ln
-        original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"], **machine_conf(s)})   # 機械の出力をそのまま残す(修正からの学習・精度の測定に使う)
-        words.extend(row_words(s, spec["start"]))
+        original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"], **postproc.machine_conf(s)})   # 機械の出力をそのまま残す(修正からの学習・精度の測定に使う)
+        words.extend(postproc.row_words(s, spec["start"]))
         seg["text"], n = ed_learn.apply_replacements(seg["text"], pairs)
         dict_n += n
         segs.append(seg)
@@ -1855,7 +1509,7 @@ def recognize_chunk(model, kw, chunk, seg, sep, terms=()):
         return None
     agg = {"text": text, "start": seg["start"], "end": seg["end"], "avg_logprob": min(lp) if lp else None,
            "no_speech_prob": max(ns) if ns else None, "compression_ratio": max(cr) if cr else None}
-    return text, make_flags(agg, [], kw.get("language"), terms)
+    return text, postproc.make_flags(agg, [], kw.get("language"), terms)
 
 
 class ChunkModel:
@@ -1972,7 +1626,7 @@ def fit_lines(lines, protect, strip=True):
             y = dict(x, start=st, end=en, words=ws)
             if x.get("words"):
                 joined = "".join(w[2] for w in ws).strip()
-                y["raw"] = strip_punct(joined) if strip else joined
+                y["raw"] = postproc.strip_punct(joined) if strip else joined
                 if not y["raw"]:
                     continue
             x = y
@@ -2079,7 +1733,7 @@ def finish_range_lines(raw, spec, shift, join=True):
     a, b = spec["range"]
     out, prev, terms = [], [], _roster.prompt_terms(spec)
     names = ed_fill.fill_spk_names(spec) if spec.get("stripNames", True) is not False and not spec.get("evalSet") else None   # 行の頭の「名前:」(0.67.0)
-    for s in expand_segments(raw, spec, join=join):
+    for s in postproc.expand_segments(raw, spec, join=join):
         head = None
         if names is not None:
             s["text"], head = ed_fill.fill_spk_split(s["text"], names)
@@ -2088,11 +1742,11 @@ def finish_range_lines(raw, spec, shift, join=True):
         st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
         if en - st < 0.05:
             continue
-        flag = make_flags({**s, "start": st, "end": en}, prev, spec["language"], terms)
+        flag = postproc.make_flags({**s, "start": st, "end": en}, prev, spec["language"], terms)
         if head:
             flag = "、".join(x for x in (ed_fill.FILL_SPK_NOTE, flag) if x)[:100]
         prev.append(s["text"])
-        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": row_words(s, shift), "lp": s.get("avg_logprob"), "conf": machine_conf(s)})
+        out.append({"start": st, "end": en, "raw": s["text"], "flag": flag, "words": postproc.row_words(s, shift), "lp": s.get("avg_logprob"), "conf": postproc.machine_conf(s)})
     return out
 
 
@@ -2100,7 +1754,7 @@ def finish_range_lines(raw, spec, shift, join=True):
 REDO_PAD = 1.0          # 行の前後に足す余白(秒)。ただし隣の行にはかからない(隣の行を消さないため)
 REDO_MAX_ROWS = 30      # 1回で認識し直す行の上限
 REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はやめて、そこまでの結果で置き換える
-REDO_BAD_FLAGS = (SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
+REDO_BAD_FLAGS = (postproc.SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
 
 
 def redo_targets(doc, ids=None):
@@ -2113,7 +1767,7 @@ def redo_targets(doc, ids=None):
     hi_doc = _yschemas.num_or(doc.get("end")) or (lo_doc + (_yschemas.num_or(doc.get("duration")) or 0.0)) or None
     out = []
     for k, g in enumerate(segs):
-        if (ids is not None and g["id"] not in ids) or SPARSE_FLAG not in str(g.get("flag") or "") or g.get("proofed") is True:
+        if (ids is not None and g["id"] not in ids) or postproc.SPARSE_FLAG not in str(g.get("flag") or "") or g.get("proofed") is True:
             continue
         if machine and machine.get((round(float(g["start"]), 2), round(float(g["end"]), 2))) != g.get("text"):
             continue   # 機械の出力と違う(人・辞書が直した)。機械の出力が無い文書(文字起こしせずに開いた)は見分けない
@@ -2168,7 +1822,7 @@ def redo_better(row, lines, old_lp=None):
     avg_logprob が分かれば上がった。-> (良くなったか, 理由)"""
     if not lines:
         return False, "何も認識されない"
-    new_chars, old_chars = sum(text_chars(x["raw"]) for x in lines), text_chars(row.get("text"))
+    new_chars, old_chars = sum(postproc.text_chars(x["raw"]) for x in lines), postproc.text_chars(row.get("text"))
     if new_chars <= old_chars:
         return False, "文字が増えない"
     flags = "、".join(str(x.get("flag") or "") for x in lines)
@@ -2537,7 +2191,7 @@ def _each_real(job, spec, targets, wav, start):
         r = cm.recognize(audio[int(a * 16000):int(b * 16000)], t, sep, terms, n == 0)
         if r:
             text, flag = r
-            results[t["id"]] = (strip_punct(text) if spec.get("stripPunct", True) else text, flag)
+            results[t["id"]] = (postproc.strip_punct(text) if spec.get("stripPunct", True) else text, flag)
         job["progress"] = min(0.99, (n + 1) / len(targets))
     return results
 
@@ -2547,6 +2201,7 @@ def _each_real(job, spec, targets, wav, start):
 # ここに残っている名前が先。移した名前を from … import で読み直さない(serve の名前の受付と同じく、差し替えが別名に当たって本体に効かなくなる)。
 _MOVED = (_heavy,)   # 移した先のモジュール(移すたびに足す。serve.py の _ED_MODULES にも ed_jobs より前に足す)。ytt/jobs = ジョブの表・待機列・ワーカー・取り消し(RS2-1b)
 _MOVED += (_roster, tx_engines)   # 名簿の prompt_terms・エンジンの engine_of・engine_home・ENGINE_DIR(RS2-4a)
+_MOVED += (postproc,)   # 行の後処理と要確認の印(RS2-4b。END_TRIM・JOIN_GAP・expand_segments の差し替えもここへ届く)
 _moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")
 
 

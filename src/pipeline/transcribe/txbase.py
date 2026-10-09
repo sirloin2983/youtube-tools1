@@ -32,6 +32,19 @@ WEAK_FLAG = "話者が不確か"
 NONE_FLAG = "話者を判別できなかった"
 
 
+def char_class(ch):
+    """文字の種類。K=カタカナ(ー・を含む) / H=漢字 / A=英数字。それ以外(ひらがな・記号・空白)は空。単語の切れ目の判定に使う
+    (行を分ける postproc._cut_words と、学習の語の境目 ed_learn。RS2-4b に ed_learn._cc から移した)"""
+    o = ord(ch)
+    if 0x30A1 <= o <= 0x30FA or ch in "ー・ヽヾ":
+        return "K"
+    if 0x4E00 <= o <= 0x9FFF or ch in "々〆":
+        return "H"
+    if (ch.isascii() and ch.isalnum()) or 0xFF10 <= o <= 0xFF19 or 0xFF21 <= o <= 0xFF3A or 0xFF41 <= o <= 0xFF5A:
+        return "A"
+    return ""
+
+
 def add_warning(job, msg):
     """ジョブの注意(画面の知らせ)を 1 つ足す。新しい list に付け直す(/api/jobs が JSON にしている最中の list を書き換えない)"""
     job["warnings"] = list(job.get("warnings") or []) + [msg]

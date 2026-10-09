@@ -23,6 +23,7 @@ import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, settings as _settings  # noqa: E402
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
 # ---------- 設定(settings.json)----------
 SETTINGS_MAX = 400000   # settings.json の大きさの上限(バイト)。読むときも書くときも同じ
 _settings_lock = threading.RLock()   # 設定の読み→書きを 1 つにする(SettingsFile に渡す)
@@ -137,26 +138,14 @@ def parse_replacements(text):
     return sorted(pairs[:500], key=lambda p: -len(p[0]))
 
 
-def _cc(ch):
-    """文字の種類。K=カタカナ(ー・を含む) / H=漢字 / A=英数字。それ以外(ひらがな・記号・空白)は空。単語の切れ目の判定に使う。"""
-    o = ord(ch)
-    if 0x30A1 <= o <= 0x30FA or ch in "ー・ヽヾ":
-        return "K"
-    if 0x4E00 <= o <= 0x9FFF or ch in "々〆":
-        return "H"
-    if (ch.isascii() and ch.isalnum()) or 0xFF10 <= o <= 0xFF19 or 0xFF21 <= o <= 0xFF3A or 0xFF41 <= o <= 0xFF5A:
-        return "A"
-    return ""
-
-
 def _bounded(text, k, w):
     """text の位置 k にある w が、同じ種類の文字の並び(カタカナ・漢字・英数字)の途中で切れていないか。
     例: 「トル」は「トルコ」の中では×、「トル様」の中なら○(ひらがな・記号との境目は切れ目とみなす)。"""
-    c = _cc(w[0])
-    if c and k > 0 and _cc(text[k - 1]) == c:
+    c = _txbase.char_class(w[0])
+    if c and k > 0 and _txbase.char_class(text[k - 1]) == c:
         return False
-    c = _cc(w[-1])
-    if c and k + len(w) < len(text) and _cc(text[k + len(w)]) == c:
+    c = _txbase.char_class(w[-1])
+    if c and k + len(w) < len(text) and _txbase.char_class(text[k + len(w)]) == c:
         return False
     return True
 
@@ -339,9 +328,9 @@ def learn_events(doc):
             if PUNCT_ONLY.match(w) or PUNCT_ONLY.match(r) or len(w) > 12 or len(r) > 12:
                 continue   # 句読点だけの違い・言い回しごと書き換えた箇所は、辞書向きでない
             # 語の途中だけ(「ーイ→ワ」など)にならないよう、同じ種類の文字(カタカナ・漢字・英数字)が続く分は語の全体まで広げる
-            while i1 > 0 and j1 > 0 and a[i1 - 1] == b[j1 - 1] and _cc(a[i1 - 1]) and _cc(a[i1 - 1]) == _cc(a[i1]) == _cc(b[j1]):
+            while i1 > 0 and j1 > 0 and a[i1 - 1] == b[j1 - 1] and _txbase.char_class(a[i1 - 1]) and _txbase.char_class(a[i1 - 1]) == _txbase.char_class(a[i1]) == _txbase.char_class(b[j1]):
                 i1 -= 1; j1 -= 1
-            while i2 < len(a) and j2 < len(b) and a[i2] == b[j2] and _cc(a[i2]) and _cc(a[i2]) == _cc(a[i2 - 1]) == _cc(b[j2 - 1]):
+            while i2 < len(a) and j2 < len(b) and a[i2] == b[j2] and _txbase.char_class(a[i2]) and _txbase.char_class(a[i2]) == _txbase.char_class(a[i2 - 1]) == _txbase.char_class(b[j2 - 1]):
                 i2 += 1; j2 += 1
             w, r = a[i1:i2], b[j1:j2]
             if len(w) > 12 or len(r) > 12:
