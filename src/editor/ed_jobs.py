@@ -30,9 +30,7 @@ import ed_fill  # noqa: E402,F401   認識のあとの後処理 A・C・D(文字
 import ed_llm  # noqa: E402,F401   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0)
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
 import ed_evalbatch  # noqa: E402,F401   評価用の作り直し(run_job の evalRedo)
-import ed_thumb  # noqa: E402,F401   (RS2-1b から使っていない。ジョブの種類の登録は serve。名前の一覧 tests/data_ed_jobs_names.txt に入っているので残す)
 import ed_learn  # noqa: E402,F401
-import ed_misc  # noqa: E402,F401   (同上)
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401

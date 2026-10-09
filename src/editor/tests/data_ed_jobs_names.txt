@@ -1,4 +1,4 @@
-# RS2(2026-10-10)の前に ed_jobs が持っていた名前(標準のモジュールを除く)。中身を移しても serve と ed_jobs の名前で読めることを test_names.py が確かめる
+# RS2(2026-10-10)の前に ed_jobs が持っていた名前(標準のモジュールと編集の兄弟の部品 ed_*・ytt の別名を除く)。中身を移しても serve と ed_jobs の名前で読めることを test_names.py が確かめる
 ACTIVE_STATES
 ASR_SCHEMA
 AUDIO_MARGIN
@@ -90,7 +90,6 @@ _doc_fields
 _fake_spans
 _file_hash
 _fresh_id
-_fsio
 _halluc_keys
 _heavy
 _in_spans
@@ -118,10 +117,8 @@ _seq_counter
 _squash
 _squash_row
 _strip_punct_re
-_tools
 _with_next
 _worker_priority
-_yschemas
 add_job
 apply_range
 apply_redo
@@ -140,18 +137,6 @@ cuda_compute
 dict_pairs
 dict_version
 drop_resume
-ed_alt
-ed_evalbatch
-ed_fill
-ed_learn
-ed_llm
-ed_misc
-ed_relink
-ed_speakers
-ed_state
-ed_store
-ed_thumb
-ed_ytcap
 engine_home
 engine_of
 engine_version

@@ -121,7 +121,7 @@ def allowed(src_layer, dst_layer):
 
 # 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
 # ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
-KNOWN_MAX = 68   # RS1-2 で pack → auto_cut が消えた(69 → 68)
+KNOWN_MAX = 66   # RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),
@@ -150,7 +150,6 @@ KNOWN = {
     ("src/studio/txlink.py", "src/studio/common.py"),
     ("src/editor/ed_fill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_jobs.py", "src/editor/ed_state.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_thumb.py"),
     ("src/editor/ed_llm.py", "src/editor/ed_state.py"),
     ("src/editor/ed_retime.py", "src/editor/ed_state.py"),
     ("src/editor/ed_speakers.py", "src/editor/ed_state.py"),
@@ -176,7 +175,6 @@ KNOWN = {
     ("src/home/live.py", "src/home/intake.py"),
     ("src/home/live.py", "src/home/live_requests.py"),
     ("src/studio/batch.py", "src/studio/store.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_misc.py"),
     ("src/editor/ed_jobs.py", "src/editor/ed_relink.py"),
     ("src/editor/resolve_export.py", "src/editor/pipeline_io.py"),
     ("src/home/autorun.py", "src/home/cases.py"),
