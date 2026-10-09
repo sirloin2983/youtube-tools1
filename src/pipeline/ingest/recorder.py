@@ -298,7 +298,7 @@ def parse_args(argv):
     ap.add_argument("--allow-host", action="append", default=[], help="Host ヘッダーで許す名前(例 192.168.1.20:8730。2台のとき)")
     ap.add_argument("--folder", default="", help="録画の置き場所(指定すると設定に覚える。既定 %s)" % rec_core.DEFAULT_FOLDER)
     ap.add_argument("--data-dir", default="", help="作業データ(token・設定・記録)の場所(テスト用)")
-    ap.add_argument("--source", default=os.environ.get("YTT_RECORDER_SOURCE") or "streamlink", choices=("streamlink", "direct"),
+    ap.add_argument("--source", default="streamlink", choices=("streamlink", "direct"),
                     help="取得のしかた(direct = HLS の URL を直接 ffmpeg に渡す。テスト用)")
     ap.add_argument("--hls-time", type=int, default=rec_core.HLS_TIME)
     ap.add_argument("--backoff", default="", help="繋ぎ直すまでの秒(例 5,10,30。テスト用)")

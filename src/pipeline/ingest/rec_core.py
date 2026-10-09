@@ -9,7 +9,7 @@
 
 取得のしかた(source):
   streamlink … 本番。`python -m streamlink --stdout <URL> <画質>` の出力を ffmpeg の標準入力へ(シェルを通さない引数のリスト)
-  direct     … テスト用。HLS の URL を直接 ffmpeg に渡す(手元の 127.0.0.1 の URL だけ。環境変数 YTT_RECORDER_SOURCE=direct)
+  direct     … テスト用。HLS の URL を直接 ffmpeg に渡す(手元の 127.0.0.1 の URL だけ。起動の引数 --source direct)
 
 切れたら: 5 → 10 → 30 秒(以後 30 秒)の間を空けて繋ぎ直す。データの来ない時間が続いたら「終了」:
   配信の前(まだ1つも取れていない)… WAIT_START 秒、途中で切れた … IDLE_END 秒。

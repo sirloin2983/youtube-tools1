@@ -411,14 +411,6 @@ def download_chat(job, vid, wdir, timeout):
     c = job["chat"]
     if common.fake():
         p = os.environ.get("STUDIO_FAKE_CHAT", "")
-        delay = float(os.environ.get("STUDIO_FAKE_CHAT_DELAY", "0") or 0)
-        t0 = time.time()
-        while time.time() - t0 < delay:
-            if job["cancel"]:
-                raise Cancelled()
-            if c["skip"]:
-                return None, "チャットは待たずに進めました"
-            time.sleep(0.05)
         return (p, "") if os.path.isfile(p) else (None, "疑似モード: チャットなし")
     cp = chat_cache_path(vid)
     if _usable_chat(cp):
