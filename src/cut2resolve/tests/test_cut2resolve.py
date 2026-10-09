@@ -291,6 +291,97 @@ class TestOutputSafety(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
+class TestDefaultsInOnePlace(unittest.TestCase):
+    """指定を省いたときの値は、cut2resolve_core の DEFAULT_* と pack.Request の既定の 1 か所(API のサーバーとコマンドの cut2resolve.py は読むだけ。サーバーは動かさない)"""
+
+    def test_defaults_agree(self):
+        import contextlib
+        import dataclasses
+        import inspect
+        import io
+        import pack
+        req = {f.name: f.default for f in dataclasses.fields(pack.Request)}
+        self.assertEqual((req["noise"], req["silence_min"], req["silence_pad"], req["rec_start"], req["reel"]),
+                         (C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD, C.DEFAULT_REC_START, C.DEFAULT_REEL))
+        param = lambda fn, name: inspect.signature(fn).parameters[name].default   # noqa: E731
+        self.assertEqual([param(C.detect_silence, n) for n in ("noise_db", "min_sec", "pad_sec")],
+                         [C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD])
+        self.assertEqual((param(C.build_edl, "reel"), param(C.build_edl, "rec_start"), param(C.write_pack, "args_reel"),
+                          param(C.write_pack, "rec_start"), param(C.check_timecodes, "rec_start")),
+                         (C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REC_START))
+        self.assertEqual((param(C.render_rough_cut, "crf"), param(pack.build_pack, "crf")), (C.DEFAULT_CRF, C.DEFAULT_CRF))
+        self.assertEqual(C._reel(""), C.DEFAULT_REEL)
+        self.assertEqual(AC.SCHEMA, C.CUT_PLAN_SCHEMA)
+        # コマンドの --help の「既定」も同じ値から出る(argparse の default)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            FULL.main(["--help"])
+        text = " ".join(out.getvalue().split())
+        for want in ("既定 -35。", "既定 0.6)", "既定 0.15)", "既定 0.3 秒)", "既定 18)", "既定 AX)", "既定 01:00:00:00)"):
+            self.assertIn(want, text)
+        self.assertEqual(FULL._D["min_len"], req["min_len"])
+
+
+class TestStagedWrite(unittest.TestCase):
+    """一時ファイルに書いて付け替える処理(srt2resolve.staged・_replace_retry)。付け替えのやり直しの規則は ytt_core/fsio.py の replace_retry と同じ"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_staged_replaces_on_success_and_cleans_on_failure(self):
+        dst = self.dir / "out.bin"
+        dst.write_bytes(b"old")
+        with S.staged(dst) as tmp:
+            self.assertEqual(Path(tmp).parent, self.dir)
+            self.assertTrue(Path(tmp).name.startswith(".tmp-"))
+            Path(tmp).write_bytes(b"new")
+            self.assertEqual(dst.read_bytes(), b"old")   # 書き終えるまで元は壊さない
+        self.assertEqual(dst.read_bytes(), b"new")
+        self.assertEqual([p.name for p in self.dir.iterdir()], ["out.bin"])   # 一時ファイルは残らない
+        with self.assertRaises(RuntimeError):
+            with S.staged(dst, ".mp4") as tmp:
+                Path(tmp).write_bytes(b"half")
+                raise RuntimeError("途中で失敗")
+        self.assertEqual(dst.read_bytes(), b"new")   # 失敗したら元のまま・書きかけを残さない
+        self.assertEqual([p.name for p in self.dir.iterdir()], ["out.bin"])
+        S.write_bytes_atomic(self.dir / "w.bin", b"x")
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["out.bin", "w.bin"])
+
+    def test_replace_retry_waits_only_for_temporary_locks(self):
+        import os
+        from unittest import mock
+        calls = []
+
+        def locked(winerror, ok_after):
+            def fake(src, dst):
+                calls.append(1)
+                if len(calls) <= ok_after:
+                    e = PermissionError(13, "denied")
+                    e.winerror = winerror
+                    raise e
+            return fake
+        with mock.patch.object(S.time, "sleep") as sleep:
+            with mock.patch.object(os, "replace", locked(32, 2)):   # 共有違反 = 一時的なロック: 待ってやり直す
+                S._replace_retry("a", "b")
+            self.assertEqual((len(calls), [c.args[0] for c in sleep.call_args_list]), (3, [0.1, 0.2]))
+            calls.clear()
+            sleep.reset_mock()
+            with mock.patch.object(os, "replace", locked(32, 99)):   # ロックが続けば 4 回で諦める
+                with self.assertRaises(PermissionError):
+                    S._replace_retry("a", "b")
+            self.assertEqual(len(calls), 4)
+            calls.clear()
+            sleep.reset_mock()
+            with mock.patch.object(os, "replace", locked(None, 99)):   # 読み取り専用のフォルダなど(winerror が 5・32・33 でない): 待たずにすぐ上げる
+                with self.assertRaises(PermissionError):
+                    S._replace_retry("a", "b")
+            self.assertEqual((len(calls), sleep.call_count), (1, 0))
+
+
 class TestCodecWarnings(unittest.TestCase):
     """無料版の Resolve で読めないことがある形式の注意(srt2resolve.codec_warnings。試算・パックの warnings に出る)"""
 

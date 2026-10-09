@@ -37,7 +37,7 @@ function build(){
   /* キーを削除は取り消せない(もう一度貼り付けが要る)ので確認する(見直し M3。中止のような取り消せる操作は確認しない) */
   $('#keyDel').addEventListener('click', async () => {
     const b = $('#keyDel');
-    if (S.state && S.state.hasKey && window.UIKit && UIKit.dialog){
+    if (S.state && S.state.hasKey){
       const ok = await UIKit.dialog.confirm({ title: 'API キーを削除しますか?', body: '保存してある YouTube Data API キーを消します。① 探す をまた使うには、キーをもう一度貼り付けます。', ok: '削除する', danger: true });
       if (!ok) return;
     }
@@ -176,9 +176,7 @@ function fillLivePeaks(l){
 }
 /* 自動採用は、配信中の候補がオンのときだけ押せる(押せない理由を出す) */
 function syncLivePeaks(on){
-  const b = $('#liveAutoAdopt'), why = on ? '' : '「録画しながら、盛り上がりの候補を出す」をオンにすると使えます';
-  b.disabled = !on; b.title = why;
-  if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
+  S.why($('#liveAutoAdopt'), on ? '' : '「録画しながら、盛り上がりの候補を出す」をオンにすると使えます');
 }
 /* 今の置き場所・空き・画質を読み直す(引き出しを開いたとき)。読めないところは空欄のまま(録画は続けられる) */
 let liveSeq = 0;
@@ -202,7 +200,7 @@ async function refreshLive(){
   $('#liveFree').textContent = free != null ? `空き ${fmtBytes(free)}${total ? ' / ' + fmtBytes(total) : ''}` : '';
   $('#liveFolderIn').disabled = $('#liveFolderSave').disabled = !!liveActive;
   $('#liveFolderNote').textContent = liveActive ? `録画中(${liveActive}本)は置き場所を変えられません。録画を止めてから変えます。` : '録画中は変えられません(録画を止めてから変えます)。変えると、次に始める録画から使います。';
-  if (window.UIKit && UIKit.prefs && UIKit.prefs.available()){
+  if (UIKit.prefs.available()){
     try {
       const p = await UIKit.prefs.get(['live']), l = (p && p.live) || {}, q = l.quality;
       $('#liveQuality').value = LIVE_QUALITY.some(([v]) => v === q) ? q : '1080p';
@@ -288,8 +286,7 @@ function saveOut(path, btn){
 /* 状態の取得(/api/ping・/api/state)が失敗しても ⚙ がずっと働かない、ということがないよう、器(引き出し)は
    S.onReady を待たずに今すぐ作る。toolEl はいったん「読み込み中…」のまま渡し、中身(build/update。S.state が要る)は
    state が読めてから onReady で差し替える */
-if (window.UIKit && UIKit.settings) UIKit.settings.mount({ tool: toolEl, title: '設定', version: 'v' + S.version });
-else document.body.appendChild(toolEl);   // 保険(通常は起きない): UIKit が無くても壊さない
+UIKit.settings.mount({ tool: toolEl, title: '設定', version: 'v' + S.version });
 /* #btnSettings の aria-expanded を、引き出しの開閉(ui-kit の 'ui-drawer' イベント)に合わせる */
 document.addEventListener('ui-drawer', e => {
   const d = e.detail || {};

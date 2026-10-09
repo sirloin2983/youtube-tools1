@@ -17,13 +17,11 @@
             if ok:
                 normalize.normalize(src, dst, cancelled=..., on_progress=...)
 """
-import collections
 import json
+import math
 import os
 import re
 import subprocess
-import threading
-import time
 import uuid
 from fractions import Fraction
 
@@ -38,7 +36,6 @@ FAST_PRESET = "ultrafast" # スタジオの「高速」(コピーでは fps を�
 CRF = "18"
 IDLE_SEC = 600            # ffmpeg がこの秒数まったく出力しなければ止める
 PART = ".normalizing-"    # 作り直しの途中の名前(<名前>.normalizing-xxxxxxxx.mp4。検証が済んでから本当の名前へ)
-_OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")   # ffmpeg の -progress の進み具合の行
 _PIX_DEPTH = re.compile(r"p(\d{2})(?:le|be)$")             # yuv420p10le などの bit 数
 
 
@@ -103,7 +100,7 @@ def _float(x):
         v = float(x)
     except (TypeError, ValueError):
         return None
-    return v if v == v and v not in (float("inf"), float("-inf")) else None
+    return v if math.isfinite(v) else None
 
 
 def _bit_depth(stream):
@@ -202,48 +199,13 @@ def _report(on_progress, v):
 
 
 def _run_ffmpeg(cmd, flags, popen, cancelled, idle_sec, on_progress, dur):
-    """ffmpeg を1回動かす(cmd は -progress pipe:1 つき)。cancelled() が真・idle_sec 秒なにも出力しなければ止める。
+    """ffmpeg を1回動かす(cmd は -progress pipe:1 つき)。cancelled() が真・idle_sec 秒なにも出力しなければ止める(ytt_core.tools.run_progress)。
     -> (終了コード, エラーの行の最後の 20 行, 止めた理由 None|"cancel"|"idle")"""
-    tail = collections.deque(maxlen=20)
+    on_time = (lambda sec: _report(on_progress, min(0.99, sec / dur))) if on_progress and dur > 0 else None
     try:
-        proc = (popen or subprocess.Popen)(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                           creationflags=flags)
+        return tools.run_progress(cmd, flags, cancelled, idle_sec, on_time, popen, tail=20)
     except OSError as e:
         raise NormalizeError("ffmpeg を起動できませんでした: %s" % e)
-    state = {"last": time.time(), "why": None}
-    done = threading.Event()
-
-    def watchdog():
-        while not done.wait(0.3):
-            if cancelled():
-                state["why"] = "cancel"
-            elif time.time() - state["last"] > idle_sec:
-                state["why"] = "idle"
-            else:
-                continue
-            tools.kill_quiet(proc)
-            return
-    threading.Thread(target=watchdog, daemon=True).start()
-    try:
-        for raw in proc.stdout:
-            state["last"] = time.time()
-            line = raw.decode("utf-8", "replace").strip()
-            m = _OUT_TIME.match(line)
-            if m:
-                if on_progress and dur > 0:
-                    _report(on_progress, min(0.99, int(m.group(1)) / 1e6 / dur))
-                continue
-            if line and "=" not in line[:20]:   # -progress の key=value 以外(= ffmpeg のエラー)
-                tail.append(line)
-        proc.wait()
-    finally:
-        done.set()
-        tools.kill_quiet(proc)
-        try:
-            proc.stdout.close()
-        except OSError:
-            pass
-    return proc.returncode, list(tail), state["why"]
 
 
 def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, preset=PRESET, ffmpeg=None, ffprobe=None,
@@ -270,9 +232,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     tmp = temp_path(dst)
     base = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
     enc = encode_args(preset)
-    flags = tools.no_window_flags(new_group=True)
-    if os.name == "nt" and priority_low:
-        flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    flags = tools.no_window_flags(new_group=True, priority="low" if priority_low else None)
 
     def run(args):
         return _run_ffmpeg(base + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)

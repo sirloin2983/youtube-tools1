@@ -31,6 +31,26 @@ def num(v):
     return v if math.isfinite(v) else None
 
 
+def is_num(v):
+    """有限の数か(bool・NaN・Infinity・float にできない巨大な整数は False)。num(v) is not None と同じ"""
+    return num(v) is not None
+
+
+def is_int(v):
+    """JSON の整数か(bool は数えない。type(v) is int と同じ)"""
+    return type(v) is int
+
+
+def plain_int(v):
+    """JSON の整数(bool は数えない)ならその値、違えば None"""
+    return v if type(v) is int else None
+
+
+def int_in(v, lo, hi):
+    """JSON の整数(bool は数えない)で lo 以上 hi 以下ならその値、違えば None(ポート・件数・ミリ秒などの検査)"""
+    return v if type(v) is int and lo <= v <= hi else None
+
+
 def _r3(x):
     return None if x is None else round(float(x), 3)
 
@@ -41,6 +61,10 @@ def _r3(x):
 # 以前の置き方(動画の隣)のファイルは動かさない。読む側は「作業用/ → 動画の隣」の順に探す(find_sidecar)。
 # cut2resolve(ytt_core を読まないコマンドもある)は cut2resolve_core.WORK_DIR に同じ名前を持つ(test_serve が同じか確かめる)
 WORK_DIR = "作業用"
+# 動画と同じ名前で持つ途中のファイルの名前の終わり(全部。2026-10-09 に一覧だけ置いた)。各ツールの一覧は目的ごとに少しずつ違うので、
+# まだここを読んでいない: 入口の片付け cleanup.SIDECARS(.studio-id 無し)・cleanup._media_stem(_edit.clip.json 無し)・
+# 編集の ed_relink.EVAL_SIDECARS(_edit.clip.json・.studio-id 無し)。寄せるときは、足りない名前を足してよいかを確かめてから
+SIDECAR_SUFFIXES = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json", ".studio-id")
 
 
 def work_dir(media_path):
@@ -67,14 +91,9 @@ def sidecar_candidates(media_path, suffix):
 
 
 def find_sidecar(media_path, suffix):
-    """候補のうち、あるもの(無ければ None)。ネットワーク上のパスかどうかは呼び出し側で確かめる"""
-    for p in sidecar_candidates(media_path, suffix):
-        try:
-            if os.path.isfile(p):
-                return p
-        except (OSError, ValueError):
-            continue
-    return None
+    """候補のうち、あるもの(無ければ None)。ネットワーク上のパスかどうかは呼び出し側で確かめる
+    (os.path.isfile は OSError・ValueError(NUL を含むパス)を中で握って False を返すので、ここでは囲まない)"""
+    return next((p for p in sidecar_candidates(media_path, suffix) if os.path.isfile(p)), None)
 
 
 # ---------- youtube-tools-clip/v1 ----------

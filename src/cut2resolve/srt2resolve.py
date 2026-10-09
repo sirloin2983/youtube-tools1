@@ -11,6 +11,7 @@
 依存: Python 3.9+(標準ライブラリのみ) と ffprobe(ffmpeg に同梱)。
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -51,34 +52,43 @@ def same_path(a, b):
     return os.path.normcase(os.path.abspath(str(Path(a).resolve()))) == os.path.normcase(os.path.abspath(str(Path(b).resolve())))
 
 
-def _replace_retry(src, dst):
-    """os.replace。Windows ではウイルス対策・検索インデックスが一瞬ファイルを開いていて失敗することがあるので、少し待って数回やり直す"""
-    for i in range(6):
+def _replace_retry(src, dst):   # lint: keep 単独のコマンドは ytt_core を読まない(規則は ytt_core/fsio.py の replace_retry と同じ)
+    """os.replace。Windows ではウイルス対策・検索インデックスが一瞬ファイルを開いていて失敗することがあるので、
+    一時的なロック(winerror 5・32・33)だけ、0.1 → 0.2 → 0.4 秒待って 4 回までやり直す。
+    読み取り専用のフォルダなど、それ以外の PermissionError は待っても直らないのですぐに上げる"""
+    for attempt in range(4):
         try:
             os.replace(src, dst)
             return
-        except PermissionError:
-            if os.name != "nt" or i == 5:
+        except PermissionError as e:
+            if getattr(e, "winerror", None) not in (5, 32, 33) or attempt == 3:
                 raise
-            time.sleep(0.05 * (i + 1))
+            time.sleep(0.1 * 2 ** attempt)
+
+
+@contextlib.contextmanager
+def staged(dst, suffix=".part"):
+    """dst の隣に作った一時ファイルのパスを渡す。with の中で書き終えて(ffmpeg の出力先にしてもよい)普通に抜けたら dst へ付け替える。
+    失敗・取り消しで抜けたら一時ファイルを消す(書きかけを残さない。付け替え前の dst は壊さない)。書きかけの一時ファイルは「.tmp-」で始まる"""
+    fd, tmp = tempfile.mkstemp(dir=arg_path(Path(dst).parent), prefix=".tmp-", suffix=suffix)
+    os.close(fd)
+    try:
+        yield tmp
+        _replace_retry(tmp, str(dst))
+    finally:
+        try:
+            os.unlink(tmp)   # 付け替えたあとは無い(OSError)
+        except OSError:
+            pass
 
 
 def write_bytes_atomic(path, data):
     """一時ファイルに書いてから置き換える(書きかけのファイルを Resolve・他のツールに読ませない。docs/spec/pipeline.md の 1)"""
-    path = Path(path)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".part")
-    try:
-        with os.fdopen(fd, "wb") as f:
+    with staged(path) as tmp:
+        with open(tmp, "wb") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        _replace_retry(tmp, str(path))
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
 
 
 def write_text_atomic(path, text, encoding="utf-8", newline="\n"):
@@ -555,12 +565,17 @@ def run(args):
     return 0
 
 
-def main(argv=None):
+def safe_stdio():
+    """画面(Windows の cp932 など)に出せない文字があっても、エラーで落ちずに「?」にする(コマンドの main の最初で呼ぶ)"""
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(errors="replace")
         except Exception:
             pass
+
+
+def main(argv=None):
+    safe_stdio()
     ap = argparse.ArgumentParser(description="動画+字幕 -> DaVinci Resolve 用 FCPXML")
     ap.add_argument("inputs", nargs=2, metavar="FILE", help="動画ファイルと字幕ファイル(順不同)")
     ap.add_argument("-o", "--output", help="出力フォルダ(既定: 動画と同じ場所の <動画名>_resolve)")

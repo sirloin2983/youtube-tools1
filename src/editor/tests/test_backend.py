@@ -986,12 +986,71 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual((r["_status"], r["error"]), (400, "bad_json"))
         r = self.call("PUT", "/api/settings", b"{}", headers={"Content-Type": "text/plain"})
         self.assertEqual((r["_status"], r["error"]), (415, "bad_type"))
-        # 想定外の例外(深すぎる JSON で RecursionError)でも、接続を切らずに 500 と理由を返す
+        # 深すぎる JSON(読むと RecursionError)は「JSON として読めない」(0.60.1 から。本文の読み方を ytt_core.httpsec.read_json_body にした。
+        # 以前は想定外の例外として 500 internal だった。想定外の例外の 500 は TestSafe で確かめる)
         deep = b'{"a":' + b"[" * 100000 + b"]" * 100000 + b"}"
         r = self.call("PUT", "/api/settings", deep)
-        self.assertEqual((r["_status"], r["error"]), (500, "internal"))
+        self.assertEqual((r["_status"], r["error"]), (400, "bad_json"))
         self.assertEqual(self.call("GET", "/api/ping")["app"], "transcribe-tool")   # サーバーは生きている
+        r = self.call("PUT", "/api/settings", b"[1]")
+        self.assertEqual((r["_status"], r["error"], r["message"]), (400, "bad_json", "JSON のオブジェクトを送ってください"))
+        r = self.call("PUT", "/api/settings", b"")
+        self.assertEqual((r["_status"], r["error"]), (413, "too_big"))
+        self.assertIn("最大32MB", r["message"])
+        self.assertEqual(self.call("PUT", "/api/settings", b"{}", headers={"Content-Type": "application/json; charset=utf-8"}), {"ok": True})
+
+    def test_media_range_head_and_416(self):
+        """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt_core.httpsec.send_file(0.60.1。スタジオと同じ 1 か所)"""
+        tid = self.call("POST", "/api/open-video", {"path": self.wav})["id"]
+        with open(self.wav, "rb") as f:
+            body = f.read()
+        size = len(body)
+        st, hd, d = self.call("GET", "/media?id=" + tid, raw=True)
+        self.assertEqual((st, d, hd.get("Accept-Ranges"), hd.get("Content-Type")), (200, body, "bytes", "audio/wav"))
+        self.assertEqual((hd.get("Cache-Control"), hd.get("X-Content-Type-Options")), ("no-store", "nosniff"))
+        st, hd, d = self.call("GET", "/media?id=" + tid, headers={"Range": "bytes=10-19"}, raw=True)
+        self.assertEqual((st, d, hd.get("Content-Range"), hd.get("Content-Length")), (206, body[10:20], "bytes 10-19/%d" % size, "10"))
+        st, hd, d = self.call("GET", "/media?id=" + tid, headers={"Range": "bytes=-5"}, raw=True)
+        self.assertEqual((st, d, hd.get("Content-Range")), (206, body[-5:], "bytes %d-%d/%d" % (size - 5, size - 1, size)))
+        st, hd, d = self.call("GET", "/media?id=" + tid, headers={"Range": "bytes=%d-" % (size - 3)}, raw=True)
+        self.assertEqual((st, d), (206, body[-3:]))
+        st, hd, _d = self.call("GET", "/media?id=" + tid, headers={"Range": "bytes=%d-" % size}, raw=True)
+        self.assertEqual((st, hd.get("Content-Range")), (416, "bytes */%d" % size))
+        st, hd, d = self.call("HEAD", "/media?id=" + tid, raw=True)
+        self.assertEqual((st, d, hd.get("Content-Length")), (200, b"", str(size)))
+        r = self.call("GET", "/media?id=ffffffffffff")
+        self.assertEqual(r["_status"], 404)
         self.assertEqual(self.call("POST", "/api/transcribe", {"sourcePath": self.wav, "model": "hololive-roster.json"}).get("error"), "bad_model")
+
+
+class TestSafe(unittest.TestCase):
+    """Handler._safe: 想定外の例外でも黙って接続を切らずに 500 internal と理由を返す・応答を始めたあとは書かない・切断は黙る"""
+
+    class Fake:
+        command, path = "PUT", "/api/settings?x=1"
+
+        def __init__(self):
+            self.sent = []
+
+        def _fail(self, code, error, message):
+            self.sent.append((code, error, message))
+
+    def test_unexpected_error_is_500(self):
+        h = self.Fake()
+        S.Handler._safe(h, lambda: (_ for _ in ()).throw(RecursionError("deep")))
+        self.assertEqual([(c, e) for c, e, _m in h.sent], [(500, "internal")])
+        self.assertIn("RecursionError", h.sent[0][2])
+
+    def test_after_response_and_disconnect(self):
+        h = self.Fake()
+
+        def started():
+            h._responded = True
+            raise ValueError("途中")
+        S.Handler._safe(h, started)
+        self.assertEqual(h.sent, [])   # 応答を始めたあとは 500 を重ねて書かない
+        S.Handler._safe(h, lambda: (_ for _ in ()).throw(BrokenPipeError()))
+        self.assertEqual(h.sent, [])   # 切断は黙る
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")

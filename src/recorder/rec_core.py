@@ -39,13 +39,12 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:   # 共通部品 ytt_core(ツールと同じ src/ の中)
     sys.path.append(ROOT)
-from ytt_core import fsio, tools as ytools  # noqa: E402
+from ytt_core import fsio, recproto, tools as ytools  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
 DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026-10-04 ユーザー決定。ホームの設定で変えられる)
-REC_ID_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z")
-SESSION_RE = re.compile(r"^session_(\d{3,6})\Z")
-SEG_RE = re.compile(r"^seg_\d{6,9}\.ts\Z")
+# 録画の id・セッション・セグメントの形と時刻の書き方は ytt_core/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
+REC_ID_RE, SESSION_RE, SEG_RE = recproto.REC_ID_RE, recproto.SESSION_RE, recproto.SEG_RE
 ACTIVE = ("waiting", "recording", "reconnecting")   # ほかの状態: stopped(手で止めた)・ended(配信が終わった)・error
 QUALITIES = {"best": "best", "1080p": "1080p60,1080p,best", "720p": "720p60,720p,best"}   # streamlink の画質(左から順に試す)
 DEFAULT_QUALITY = "1080p"   # 既定(2026-10-04 ユーザー決定): 4K の配信で容量が膨らむのを避けつつ、速報版の見た目を保つ。720p・best も選べる
@@ -83,17 +82,7 @@ class RecError(ValueError):
 
 
 # ---------- 小さな道具 ----------
-def _utc_text(d):
-    """datetime → UTC の "2026-10-04T06:30:12.345Z"(ミリ秒まで。録画の記録・API の時刻はすべてこの形)"""
-    return d.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-def now_iso():
-    return _utc_text(datetime.datetime.now(datetime.timezone.utc))
-
-
-def epoch_iso(e):
-    return _utc_text(datetime.datetime.fromtimestamp(e, datetime.timezone.utc))
+_utc_text, now_iso, epoch_iso, iso_epoch = recproto.utc_text, recproto.now_iso, recproto.epoch_iso, recproto.iso_epoch
 
 
 def to_utc(pdt):
@@ -105,19 +94,6 @@ def to_utc(pdt):
         except ValueError:
             continue
     return s
-
-
-def iso_epoch(s):
-    """UTC の時刻(画面・入口から来た 2026-10-04T06:30:12.345Z / ミリ秒なし / +00:00、セグメントの pdt)→ epoch 秒。読めなければ None"""
-    if not isinstance(s, str) or len(s) > 40:
-        return None
-    t = s.strip().replace("+00:00", "Z")
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
-        try:
-            return datetime.datetime.strptime(t, fmt).replace(tzinfo=datetime.timezone.utc).timestamp()
-        except ValueError:
-            continue
-    return None
 
 
 def pick_segments(flat, start, end, tol=GAP_TOL):
@@ -425,10 +401,10 @@ class Recording:
         picked, gaps = pick_segments(flat, a, b)
         if len(picked) > SEGMENTS_MAX:
             raise RecError("セグメントが多すぎます")
-        return {"id": self.id, "url": s["url"], "title": s["title"], "state": s["state"], "active": s["active"], "message": s["message"],
-                "firstPdt": s["firstPdt"], "lastPdt": s["lastPdt"], "start": epoch_iso(a), "end": epoch_iso(b),
-                "segments": [{"uri": x["uri"], "session": x["session"], "pdt": x["pdt"], "dur": x["dur"]} for x in picked],
-                "gaps": [{"from": epoch_iso(f), "to": epoch_iso(t), "sec": round(t - f, 3)} for f, t in gaps]}
+        return dict({"id": self.id}, **{k: s[k] for k in ("url", "title", "state", "active", "message", "firstPdt", "lastPdt")},
+                    start=epoch_iso(a), end=epoch_iso(b),
+                    segments=[{"uri": x["uri"], "session": x["session"], "pdt": x["pdt"], "dur": x["dur"]} for x in picked],
+                    gaps=[{"from": epoch_iso(f), "to": epoch_iso(t), "sec": round(t - f, 3)} for f, t in gaps])
 
     def segment_path(self, session, name):
         if not SESSION_RE.match(session or "") or not SEG_RE.match(name or ""):
@@ -650,8 +626,7 @@ class Recording:
             with contextlib.suppress(subprocess.TimeoutExpired):
                 p.wait(wait)
                 return
-        with contextlib.suppress(OSError):
-            p.kill()
+        ytools.kill_quiet(p)
         with contextlib.suppress(subprocess.TimeoutExpired):
             p.wait(5)
 
@@ -744,7 +719,7 @@ class Recorder:
                 s = info.get(n)
                 if s is None:
                     s = {"name": n, "started": None}
-                    meta.setdefault("sessions", []).append(s)
+                    meta["sessions"].append(s)   # 上で必ず list にしてある
                 if not rec.session_segments(n)[0]:
                     if s.get("state") != "broken":
                         s["state"] = "broken"

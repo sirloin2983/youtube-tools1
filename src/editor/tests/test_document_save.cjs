@@ -6,6 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
+// UIKit の代わり(ui-kit v24)。画面の JS から `window.UIKit &&` の予備の経路を外しても、抜き出した関数が動くように、
+// vm の context にはいつも withUIKit(context) を通す(context.UIKit と、harness の window に window.UIKit)。呼ばれた部品は h.context.UIKit.called('toast') などで読める
+const { withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 
 // CSP 対応(script-src 'self')でアプリの JS は index.html から app.js へ外出しした。段10 で関数の定義は app-*.js に分けた。
 // テストは index.html が読む順番(app-*.js → app.js)にファイルをつなげて読み、使う関数・状態を名前で取り出す
@@ -26,7 +29,7 @@ function lineSource(prefix) {
   assert.ok(line, 'application line must exist: ' + prefix);
   return line + '\n';
 }
-const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc');
+const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc') + fnSource('showConflict');   // 保存の 409 の案内は app-core.js の showConflict(0.60.1)
 const openSource = fnSource('openDoc') + fnSource('docInfoText') + fnSource('setUrlDoc') + fnSource('setUrlParam');   // 文書の 1 行の説明と URL の ?doc=(app-core.js の setUrlParam)も本物
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
@@ -60,7 +63,7 @@ function harness(respond) {
   for (const name of ['toast', 'scheduleLearn', 'scheduleAcc', 'scheduleProgress', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
     'effortStart', 'ovdAfterSave', 'loadOvd', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};   // 話者の人数の欄・前回の文書(段7 E-6・E-7)
   context.apiUrl = p => p;
-  vm.createContext(context);
+  vm.createContext(withUIKit(context));
   vm.runInContext(saveSource + '\n' + openSource, context);
   return { S, calls, nodes, timers, context };
 }
@@ -200,7 +203,7 @@ test('readMark matches the server rule (subread_cases.json)', () => {
   const src = lineSource("const OVD_KIND =") + lineSource('const DRAFT_KINDS =') + lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
     + fnSource('isBlankDraft') + fnSource('readChars') + fnSource('readLimits') + fnSource('readMark');
   const context = { S: { settings: {} } };
-  vm.createContext(context);
+  vm.createContext(withUIKit(context));
   vm.runInContext(src + '\nthis.readChars = readChars; this.readMark = readMark;', context);
   for (const [text, n] of cases.chars) assert.equal(context.readChars(text), n, text);
   for (const [row, want] of cases.marks) {

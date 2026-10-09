@@ -15,7 +15,7 @@ import re
 import time
 
 import cases
-from ytt_core import fsio
+from ytt_core import tools
 
 DELIVERIES_LOG = "deliveries.jsonl"       # 届けた記録(入口の作業データの logs の中)
 FEEDBACK_LOG = "friend_feedback.jsonl"    # 友人の「要らない」の記録
@@ -33,12 +33,18 @@ def record_delivery(log_dir, zip_path, run, packs, marks=None):
            "videoId": run.video_id or "", "title": run.title or "",
            "packs": [{"dir": d, "path": (marks.get(d) or {}).get("path") or "", "markId": (marks.get(d) or {}).get("markId") or ""} for d in packs]}
     try:
-        os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, DELIVERIES_LOG), "a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        _append(log_dir, DELIVERIES_LOG, row)
     except OSError:
         pass
     return row
+
+
+def _append(log_dir, name, row):
+    """log_dir/name(jsonl)に 1 行足す(フォルダが無ければ作る)。書けなければ OSError。
+    回さない(clientlog.append_line と違う: find_delivery は今のファイルだけを見るので、回すと届けた記録を引けなくなる)"""
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, name), "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def find_delivery(log_dir, zip_name):
@@ -105,11 +111,9 @@ def apply(log_dir, fb, trash=None, log=None):
     rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": fb["verdict"], "requestId": fb.get("requestId") or row.get("requestId") or "",
            "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": results}
     try:
-        os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, FEEDBACK_LOG), "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        _append(log_dir, FEEDBACK_LOG, rec)
     except OSError as e:
-        log("友人の返事: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+        log("友人の返事: 記録を書けませんでした(%s)" % tools.why(e))
     done = [r for r in results if "error" not in r]
     summary = "%d 本をごみ箱フォルダへ(スタジオのマークはそのまま。記録は %s)" % (len(done), FEEDBACK_LOG)
     if errors:
@@ -119,7 +123,9 @@ def apply(log_dir, fb, trash=None, log=None):
 
 
 def read_text(path, limit=MAX_BYTES):
-    """.feedback.json を読む(大きすぎれば ValueError)"""
-    if os.path.getsize(path) > limit:
+    """.feedback.json を読む(大きすぎれば ValueError・読めなければ OSError。BOM は外す・壊れた文字は置き換える)"""
+    with open(path, "rb") as f:
+        raw = f.read(limit + 1)
+    if len(raw) > limit:
         raise ValueError("ファイルが大きすぎます")
-    return fsio.read_text_file(path, limit) if hasattr(fsio, "read_text_file") else open(path, "rb").read(limit).decode("utf-8-sig", "replace")
+    return raw.decode("utf-8-sig", "replace")

@@ -13,8 +13,8 @@ live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の 
 (配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
 入口の見回り(Live.tick。30 秒ごと)が tick() で候補を見つけて列に入れ、裏のスレッドが 1 本ずつ処理する。
 """
-import json
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -122,22 +122,16 @@ class LiveTx:
     def _load(self, rc, rec):
         key = (rc, rec)
         if key not in self._docs:
-            d = None
-            try:
-                d = fsio.read_json_file(os.path.join(self.folder(rc, rec), "tx.json"), DOC_MAX)
-            except (OSError, ValueError):
-                d = None
-            items = d.get("items") if isinstance(d, dict) else None
-            self._docs[key] = {k: v for k, v in (items or {}).items() if isinstance(v, dict)} if isinstance(items, dict) else {}
+            d = fsio.read_json_or(os.path.join(self.folder(rc, rec), "tx.json"), None, DOC_MAX, kind=dict)
+            items = d.get("items") if d else None
+            self._docs[key] = {k: v for k, v in items.items() if isinstance(v, dict)} if isinstance(items, dict) else {}
         return self._docs[key]
 
     def _save(self, rc, rec):
-        folder = self.folder(rc, rec)
         try:
-            os.makedirs(folder, exist_ok=True)
-            fsio.atomic_write(os.path.join(folder, "tx.json"), json.dumps({"v": 1, "items": self._docs[(rc, rec)]}, ensure_ascii=False).encode("utf-8"))
+            fsio.write_json(os.path.join(self.folder(rc, rec), "tx.json"), {"v": 1, "items": self._docs[(rc, rec)]}, indent=None)
         except OSError as e:
-            self.log("配信中の文字起こし: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            self.log("配信中の文字起こし: 記録を書けませんでした(%s)" % tools.why(e))
 
     def view(self, rc, rec):
         """候補の id -> {"text", "at", ...}(文字の付いたものだけ。API が候補に足す)"""
@@ -234,11 +228,8 @@ class LiveTx:
         self._halt.set()
         self.wake.set()
         p = self.proc
-        if p is not None and p.poll() is None:
-            try:
-                p.kill()
-            except OSError:
-                pass
+        if p is not None:
+            tools.kill_quiet(p)
 
     def _loop(self):
         while not self._halt.is_set():
@@ -304,7 +295,8 @@ class LiveTx:
             wav = os.path.join(wdir, "in.wav")
             cmd = wav_args(self._ffmpeg(), files[0][0], wav, ss, b - a)
             try:
-                p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120, creationflags=LX.low_flags())
+                p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120,
+                                   creationflags=tools.no_window_flags(priority="low"))
             except (OSError, subprocess.TimeoutExpired) as e:   # ffmpeg が消えた・120 秒で終わらない
                 return self._after(rc, rec, pid, False, "wav を作れませんでした(%s)" % e.__class__.__name__)
             if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
@@ -320,11 +312,7 @@ class LiveTx:
         except (LX.Cancelled, LX.Halted):
             return
         finally:
-            try:
-                import shutil
-                shutil.rmtree(wdir, ignore_errors=True)
-            except Exception:   # noqa: BLE001
-                pass
+            shutil.rmtree(wdir, ignore_errors=True)
 
     def _run_in_slot(self, rec, wav):
         """重い処理の順番(SLOTS)を取ってから認識する(D-14)。待っている間に入口が終わったら None"""
@@ -343,29 +331,16 @@ class LiveTx:
     def _run_worker(self, data_dir, model, wav):
         """子プロセス(live_tx_worker.py)を動かして結果の json を読む"""
         out = wav + ".json"
-        import sys
-        py = self.python or sys.executable
-        if os.path.basename(py).lower() == "pythonw.exe":   # 窓の無い python は標準出力を返せないことがある(live_archive.worker_python と同じ)
-            alt = os.path.join(os.path.dirname(py), "python.exe")
-            py = alt if os.path.isfile(alt) else py
-        try:
-            p = subprocess.Popen([py, WORKER, data_dir, model, wav, out], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                 creationflags=LX.low_flags())
+        cmd = [tools.python_exe(self.python), WORKER, data_dir, model, wav, out]   # 窓の無い pythonw は隣の python.exe(標準出力を返せないことがある)
+        try:   # 起動した子は close() が止める(on_start で覚える)
+            r = tools.run(cmd, timeout=TX_TIMEOUT, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=lambda p: setattr(self, "proc", p))
         except OSError as e:
             return {"ok": False, "reason": "子プロセスを起動できませんでした: %s" % e}
-        self.proc = p   # close() が止める
-        try:
-            _o, err = p.communicate(timeout=TX_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            p.communicate()
-            return {"ok": False, "reason": "%d 秒で終わりませんでした" % int(TX_TIMEOUT)}
         finally:
             self.proc = None
-        try:
-            with open(out, "r", encoding="utf-8") as f:
-                d = json.load(f)
-        except (OSError, ValueError):
-            tail = err.decode("utf-8", "replace").strip().splitlines()[-3:] if err else []
-            return {"ok": False, "reason": "結果を読めませんでした(%s)" % (" / ".join(tail) or "終了コード %s" % p.returncode)}
+        if r.why == "timeout":
+            return {"ok": False, "reason": "%d 秒で終わりませんでした" % int(TX_TIMEOUT)}
+        d = fsio.read_json_or(out, None)
+        if d is None:
+            return {"ok": False, "reason": "結果を読めませんでした(%s)" % (" / ".join(r.err_lines(3)) or "終了コード %s" % r.code)}
         return d if isinstance(d, dict) else {"ok": False, "reason": "結果の形が違います"}

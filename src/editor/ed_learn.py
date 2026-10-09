@@ -22,14 +22,12 @@ import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
+from ytt_core import fsio as _fsio  # noqa: E402
 # ---------- 置換辞書・修正からの学習 ----------
 def load_settings():
-    try:
-        with open(ed_state.SETTINGS, "r", encoding="utf-8-sig") as f:   # メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    """編集の設定(config.json)。無い・壊れている・dict でなければ {}(毎回新しい dict = 呼ぶ側が書き換えてよい)。
+    BOM 付きも読む(メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように)。1 回の要求で何度も使うときは、頭で 1 回読んで渡す"""
+    return _fsio.read_json_or(ed_state.SETTINGS, {}, kind=dict)
 
 
 # ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)
@@ -442,19 +440,15 @@ _fb_lock = threading.Lock()
 
 
 def load_feedback():
-    try:
-        with open(ed_state.FEEDBACK, "r", encoding="utf-8-sig") as f:
-            d = json.load(f)
-        if isinstance(d, dict):
-            out = {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
-            for src in ("alt", "yt"):   # 2つ目のエンジン(D1-b)・YouTube の字幕(案 A1)の候補の採用・却下の数(学習の統計とは別)
-                a = d.get(src)
-                if isinstance(a, dict):
-                    out[src] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}
-            return out
-    except (OSError, ValueError):
-        pass
-    return {"stat": {}, "dismissed": {}}
+    d = _fsio.read_json_or(ed_state.FEEDBACK, None, kind=dict)
+    if d is None:
+        return {"stat": {}, "dismissed": {}}
+    out = {"stat": d.get("stat") if isinstance(d.get("stat"), dict) else {}, "dismissed": d.get("dismissed") if isinstance(d.get("dismissed"), dict) else {}}
+    for src in ("alt", "yt"):   # 2つ目のエンジン(D1-b)・YouTube の字幕(案 A1)の候補の採用・却下の数(学習の統計とは別)
+        a = d.get(src)
+        if isinstance(a, dict):
+            out[src] = {k: int(a[k]) if isinstance(a.get(k), int) and not isinstance(a.get(k), bool) and a[k] >= 0 else 0 for k in ("acc", "rej")}
+    return out
 
 
 def record_feedback(obj):
@@ -503,9 +497,9 @@ def _spans(text, w, r):
     return out
 
 
-def learn_rules():
-    """全文字起こしの修正から、{(誤,正): {pos, docs, pctx, neg(そのまま残した例の前後), ctx}} を作る。"""
-    settings = load_settings()
+def learn_rules(settings=None):
+    """全文字起こしの修正から、{(誤,正): {pos, docs, pctx, neg(そのまま残した例の前後), ctx}} を作る。settings = 読んである設定(無ければ読む)"""
+    settings = settings if settings is not None else load_settings()
     have = {(wb_split(w)[0], r) for w, r in parse_replacements(settings.get("replacements"))}
     ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
     infos = _all_infos()
@@ -620,25 +614,24 @@ def auto_learned_replace(text, rules, fb):
 
 
 def load_roster():
-    """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。"""
-    try:
-        with open(ed_state.ROSTER, "rb") as f:
-            d = json.loads(f.read().decode("utf-8-sig"))   # README で「直せます」と案内しているので、BOM 付きでも読む
-        groups = []
-        for g in d.get("groups") or []:
-            names = [str(n).strip() for n in g.get("names") or [] if str(n).strip()]
-            if names and g.get("id") and g.get("label"):
-                groups.append({"id": str(g["id"])[:40], "label": str(g["label"])[:80], "names": names[:100]})
-        return {"asOf": str(d.get("asOf") or "")[:20], "note": str(d.get("note") or "")[:400], "groups": groups}
-    except (OSError, ValueError):
+    """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。
+    README で「直せます」と案内しているので、BOM 付きでも読む"""
+    d = _fsio.read_json_or(ed_state.ROSTER, None, kind=dict)
+    if d is None:
         return {"asOf": "", "note": "", "groups": []}
+    groups = []
+    for g in d.get("groups") or []:
+        names = [str(n).strip() for n in g.get("names") or [] if str(n).strip()]
+        if names and g.get("id") and g.get("label"):
+            groups.append({"id": str(g["id"])[:40], "label": str(g["label"])[:80], "names": names[:100]})
+    return {"asOf": str(d.get("asOf") or "")[:20], "note": str(d.get("note") or "")[:400], "groups": groups}
 
 
-def auto_glossary(user_terms, limit=150):
-    """よく直される正しい語を、認識のヒントとして自動で足す(ヒント全体が limit 文字に収まる範囲)。"""
+def auto_glossary(user_terms, limit=150, settings=None):
+    """よく直される正しい語を、認識のヒントとして自動で足す(ヒント全体が limit 文字に収まる範囲)。settings = 読んである設定(learn_rules へ)"""
     have = list(user_terms)
     out = []
-    ranked = sorted(((x["pos"], r) for (w, r), x in learn_rules().items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
+    ranked = sorted(((x["pos"], r) for (w, r), x in learn_rules(settings).items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
     for _pos, r in ranked:
         if r in have or r in out:
             continue
@@ -800,24 +793,14 @@ def doc_metrics(doc, legacy=False, terms=()):
         return None
     acc = new_acc()
     for go, ge in _groups(orig, segs):
-        if go and ge:
-            if not all(is_ok(segs[i]) for i in ge):
-                continue
-            ref, hyp = norm_cer(_norm(segs, ge)), norm_cer(_norm(orig, go))
-            a, b, mo = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge), False
-            raw_ref, raw_hyp = _norm(segs, ge), _norm(orig, go)
-        elif go:
-            a, b = min(orig[i]["start"] for i in go), max(orig[i]["end"] for i in go)
-            if a < lo - 0.05 or b > hi + 0.05:
-                continue
-            raw_ref, raw_hyp = "", _norm(orig, go)
-            ref, hyp, mo = "", norm_cer(raw_hyp), True
-        else:
-            if not all(is_ok(segs[i]) for i in ge):
-                continue
-            a, b = min(segs[i]["start"] for i in ge), max(segs[i]["end"] for i in ge)
-            raw_ref, raw_hyp = _norm(segs, ge), ""
-            ref, hyp, mo = norm_cer(raw_ref), "", False
+        if ge and not all(is_ok(segs[i]) for i in ge):   # 人の行があるまとまり(①・③)は全行が校正済みのときだけ
+            continue
+        rows = [segs[i] for i in ge] or [orig[i] for i in go]   # 時刻は人の行を優先
+        a, b = min(r["start"] for r in rows), max(r["end"] for r in rows)
+        if not ge and (a < lo - 0.05 or b > hi + 0.05):   # 機械だけ(②)は校正した範囲の中だけ
+            continue
+        raw_ref, raw_hyp = (_norm(segs, ge) if ge else ""), (_norm(orig, go) if go else "")
+        ref, hyp, mo = norm_cer(raw_ref), norm_cer(raw_hyp), not ge   # norm_cer("") は ""
         if not ref and not hyp:
             continue
         acc_line(acc, ref, hyp, terms, {"start": round(a, 2), "end": round(b, 2), "ref": raw_ref[:120], "hyp": raw_hyp[:120]}, mo)
@@ -878,12 +861,7 @@ _base_lock = threading.Lock()
 
 
 def read_baselines():
-    try:
-        with open(EVAL_BASE, "r", encoding="utf-8-sig") as f:
-            d = json.load(f)
-        return d if isinstance(d, list) else []
-    except (OSError, ValueError):
-        return []
+    return _fsio.read_json_or(EVAL_BASE, [], kind=list)
 
 
 def record_baseline(label):
@@ -894,9 +872,10 @@ def record_baseline(label):
         raise ed_state.ApiError("no_eval", "評価用の文字起こしがありません(画面の「評価用にする」で印を付けてください)", 400)
     if not o.get("groups"):
         raise ed_state.ApiError("no_proofed", "評価用に校正済みの行がまだありません", 400)
+    st = load_settings()
     rec = {"at": int(time.time() * 1000), "label": str(label or "")[:80], "docs": m["docs"], "cer": o["cer"], "refChars": o["refChars"], "sub": o["sub"], "del": o["del"], "ins": o["ins"],
            "configs": [{"config": c["config"], "cer": c["cer"], "refChars": c["refChars"]} for c in m["byConfig"]][:6],
-           "dict": len(parse_replacements(load_settings().get("replacements"))), "glossaryChars": len(str(load_settings().get("glossary") or ""))}
+           "dict": len(parse_replacements(st.get("replacements"))), "glossaryChars": len(str(st.get("glossary") or ""))}
     with _base_lock:
         items = read_baselines()
         items.append(rec)
@@ -934,7 +913,7 @@ def export_corrections(tid=None, audio=True, scope="changed"):
         try:
             return _export_corrections_zip(path, docs, tid, ff, scope)
         except BaseException:   # 途中で失敗したら(評価用の指定・ディスク不足など)、作りかけの zip を残さない
-            ed_state.unlink_quiet(path)
+            _fsio.unlink_quiet(path)
             raise
     finally:
         _export_lock.release()
@@ -986,7 +965,7 @@ def _export_corrections_zip(path, docs, tid, ff, scope):
                     except (OSError, subprocess.SubprocessError):
                         name = None
                     finally:
-                        ed_state.unlink_quiet(tmp)
+                        _fsio.unlink_quiet(tmp)
                 lines.append(json.dumps({"doc": t, "source": d.get("sourceName", ""), "start": g["start"], "end": g["end"],
                                          "original": g["original"], "text": g["text"], "audio": name,
                                          **({"changed": g["changed"], "proofed": True} if scope == "proofed" else {})}, ensure_ascii=False))
@@ -1108,24 +1087,13 @@ def _flac_cut(ff, src, dst, ss, dur):
         r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, ss), "-i", src, "-t", "%.3f" % dur,
                             "-vn", "-ac", "1", "-ar", "16000", "-c:a", "flac", tmp], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
         if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 200:
-            os.replace(tmp, dst)
+            _fsio.replace_retry(tmp, dst)
             return True
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
-        ed_state.unlink_quiet(tmp)
+        _fsio.unlink_quiet(tmp)
     return False
-
-
-def _dir_bytes(d):
-    n = 0
-    for root, _dirs, files in os.walk(d):
-        for f in files:
-            try:
-                n += os.path.getsize(os.path.join(root, f))
-            except OSError:
-                pass
-    return n
 
 
 def archive_doc(tid, full=True):
@@ -1135,11 +1103,7 @@ def archive_doc(tid, full=True):
     root = os.path.join(ed_state.DATASET_DIR, "docs", tid)
     adir = os.path.join(root, "audio")
     os.makedirs(adir, exist_ok=True)
-    try:
-        with open(os.path.join(root, "manifest.json"), "r", encoding="utf-8") as f:
-            old = json.load(f)
-    except (OSError, ValueError):
-        old = {}
+    old = _fsio.read_json_or(os.path.join(root, "manifest.json"), {}, kind=dict)
     old_sig = old.get("clips") if isinstance(old.get("clips"), dict) else {}
     entries = archive_entries(doc)
     for e in entries:
@@ -1178,7 +1142,7 @@ def archive_doc(tid, full=True):
             if _flac_cut(ff, base, os.path.join(adir, e["key"] + ".flac"), e["start"] - start - ARCH_PAD, dur):
                 made += 1
     if wav:
-        ed_state.unlink_quiet(wav)
+        _fsio.unlink_quiet(wav)
     keep, sig, spk_sec = set(), {}, {}
     counts = {"lines": len(entries), "positive": 0, "negative": 0, "unclear": 0, "unproofed": 0, "added": 0, "positiveSec": 0.0, "negativeSec": 0.0}
     lines = []
@@ -1203,7 +1167,7 @@ def archive_doc(tid, full=True):
         lines.append(e)
     for n in os.listdir(adir):   # 使わなくなった行(校正を外した・時刻が変わった)の音声は消す
         if n.endswith(".flac") and n not in keep:
-            ed_state.unlink_quiet(os.path.join(adir, n))
+            _fsio.unlink_quiet(os.path.join(adir, n))
     counts["positiveSec"], counts["negativeSec"] = round(counts["positiveSec"], 1), round(counts["negativeSec"], 1)
     try:
         st = os.stat(doc.get("sourcePath") or "")
@@ -1214,7 +1178,7 @@ def archive_doc(tid, full=True):
     ed_state.atomic_write(os.path.join(root, "doc.json"), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
     man = {"version": 1, "tid": tid, "title": str(doc.get("title") or "")[:120], "archivedAt": int(time.time() * 1000), "docUpdatedAt": doc.get("updatedAt", 0),
            "sourceName": doc.get("sourceName", ""), "sourceSize": ssize, "sourceMtime": smt, "start": start, "end": end, "model": doc.get("model", ""), "language": doc.get("language", ""),
-           "split": "eval" if doc.get("evalSet") is True else "train", "counts": counts, "speakerSec": spk_sec, "clips": sig, "fullAudio": os.path.isfile(fpath), "audioBytes": _dir_bytes(root), "note": note, "newClips": made}
+           "split": "eval" if doc.get("evalSet") is True else "train", "counts": counts, "speakerSec": spk_sec, "clips": sig, "fullAudio": os.path.isfile(fpath), "audioBytes": _fsio.dir_size(root)[0], "note": note, "newClips": made}
     ed_state.atomic_write(os.path.join(root, "manifest.json"), json.dumps(man, ensure_ascii=False, indent=1).encode("utf-8"))
     return man
 
@@ -1293,10 +1257,8 @@ def dataset_stats():
     spk = {}
     dd = os.path.join(ed_state.DATASET_DIR, "docs")
     for t in sorted(os.listdir(dd)) if os.path.isdir(dd) else []:
-        try:
-            with open(os.path.join(dd, t, "manifest.json"), "r", encoding="utf-8") as f:
-                m = json.load(f)
-        except (OSError, ValueError):
+        m = _fsio.read_json_or(os.path.join(dd, t, "manifest.json"), None, kind=dict)
+        if m is None:
             continue
         c = m.get("counts") or {}
         cur_eval = False

@@ -17,7 +17,7 @@ import os
 import shutil
 import time
 
-from ytt_core import datadir, schemas
+from ytt_core import datadir, fsio, schemas
 
 TRASH_DIR = "ごみ箱"
 # 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(docs/spec/data-location.md)
@@ -43,20 +43,8 @@ def _id(path):
 
 
 def _size(path):
-    total = 0
-    if os.path.isfile(path):
-        try:
-            return os.path.getsize(path)
-        except OSError:
-            return 0
-    for dp, dn, fn in os.walk(path):
-        dn[:] = [d for d in dn if not os.path.islink(os.path.join(dp, d))]
-        for n in fn:
-            try:
-                total += os.path.getsize(os.path.join(dp, n))
-            except OSError:
-                pass
-    return total
+    """バイト数(フォルダは中身の合計。リンクはたどらない・数えない。読めない物は飛ばす)"""
+    return fsio.dir_size(path)[0]
 
 
 def _mtime(path):
@@ -141,29 +129,21 @@ class Cleanup:
     def trash_roots(self):
         """purge が見るごみ箱フォルダ: 作業データ・書き出し先・作ったことのある場所(trash-roots.json)"""
         roots = [self.trash_dir] + [os.path.join(o, TRASH_DIR) for o in self._out_dirs()]
-        try:
-            with open(os.path.join(self.app_dir, ROOTS_FILE), encoding="utf-8") as f:
-                v = json.load(f)
-            roots += [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
-        except (OSError, ValueError):
-            pass
+        roots += [x for x in self._read_roots() if isinstance(x, str)]
         return list(dict.fromkeys(os.path.normcase(os.path.abspath(r)) for r in roots))
 
+    def _read_roots(self):
+        """trash-roots.json の中身(リスト。無い・読めない・リストでなければ [])"""
+        return fsio.read_json_or(os.path.join(self.app_dir, ROOTS_FILE), [], kind=list)
+
     def remember_root(self, root):
-        """作業データの外に作ったごみ箱フォルダを trash-roots.json に足す(起動時の purge が見る。片付けの move と案件の「要らない」が呼ぶ)"""
+        """作業データの外に作ったごみ箱フォルダを trash-roots.json に足す(起動時の purge が見る。片付けの move と案件の「要らない」が呼ぶ)。
+        原子的に書く(書きかけで落ちても前の一覧が残る = 作ったことのあるごみ箱フォルダを purge が見失わない)"""
         if os.path.normcase(root) == os.path.normcase(self.trash_dir):
             return
-        p = os.path.join(self.app_dir, ROOTS_FILE)
-        try:
-            with open(p, encoding="utf-8") as f:
-                v = json.load(f)
-            v = v if isinstance(v, list) else []
-        except (OSError, ValueError):
-            v = []
+        v = self._read_roots()
         if root not in v:
-            os.makedirs(self.app_dir, exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                json.dump(v + [root], f, ensure_ascii=False)
+            fsio.write_json(os.path.join(self.app_dir, ROOTS_FILE), v + [root], indent=None)
 
     # ---------- 候補 ----------
     def candidates(self, cases=None, intake_dir=None):
@@ -288,22 +268,7 @@ class Cleanup:
         done = os.path.join(intake_dir, "受付済み")
         if not os.path.isdir(done):
             return []
-        out, now = [], self.clock()
-        try:
-            names = os.listdir(done)
-        except OSError:
-            return []
-        for n in names:
-            p = os.path.join(done, n)
-            if not os.path.isdir(p):
-                continue
-            try:
-                day = time.mktime(time.strptime(n[:10], "%Y-%m-%d"))
-            except ValueError:
-                continue
-            if now - day > self.keep_days * 86400:
-                out.append(_item("intake", p, "受け付けた日 %s" % n[:10]))
-        return out
+        return [_item("intake", p, "受け付けた日 %s" % n[:10]) for n, p in _old_day_dirs(done, self.keep_days, self.clock())]
 
     # ---------- 移す・消す ----------
     def move(self, ids):
@@ -349,25 +314,34 @@ class Cleanup:
         return sum(self._purge_root(r) for r in self.trash_roots())
 
     def _purge_root(self, root):
-        try:
-            names = os.listdir(root)
-        except OSError:
-            return 0
-        n, now = 0, self.clock()
-        for name in names:
-            p = os.path.join(root, name)
+        n = 0
+        for name, p in _old_day_dirs(root, self.trash_days, self.clock()):
+            shutil.rmtree(p, ignore_errors=True)
             if not os.path.isdir(p):
-                continue
-            try:
-                day = time.mktime(time.strptime(name[:10], "%Y-%m-%d"))
-            except ValueError:
-                continue
-            if now - day > self.trash_days * 86400:
-                shutil.rmtree(p, ignore_errors=True)
-                if not os.path.isdir(p):
-                    n += 1
-                    self.log("ごみ箱フォルダの %s を消しました(%d 日を過ぎた)" % (name, self.trash_days))
+                n += 1
+                self.log("ごみ箱フォルダの %s を消しました(%d 日を過ぎた)" % (name, self.trash_days))
         return n
+
+
+def _old_day_dirs(root, days, now):
+    """root の直下で、名前の頭 10 文字が YYYY-MM-DD の日付のフォルダのうち days 日より古いもの -> [(名前, パス)]。
+    root を読めなければ []。日付でない名前・ファイルは飛ばす(受付済み と ごみ箱フォルダの両方の決まり)"""
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        p = os.path.join(root, name)
+        if not os.path.isdir(p):
+            continue
+        try:
+            day = time.mktime(time.strptime(name[:10], "%Y-%m-%d"))
+        except ValueError:
+            continue
+        if now - day > days * 86400:
+            out.append((name, p))
+    return out
 
 
 def _media_stem(name):

@@ -46,8 +46,6 @@ handoffWait "archive" で待ち、アーカイブで本番版に入れ替えて�
 絶対時刻と録画の素性は source.live に入れる(P4 でアーカイブの時刻へ置き換えるため)。videoId は YouTube の動画の id(分かるとき)。
 url は入れない(range がアーカイブの秒ではないので、YouTube の位置へのリンクにしない)。
 """
-import datetime
-import glob
 import hashlib
 import json
 import math
@@ -55,12 +53,11 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
 import threading
 import time
 import urllib.parse
 
-from ytt_core import colors, fsio, jobs, loudness, normalize, schemas, tools
+from ytt_core import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。M3)
 
@@ -68,12 +65,13 @@ VERSION = "0.1.0"
 TOOL = {"name": "ytt-live", "version": VERSION}
 MARKS_SCHEMA = "ytt-live-marks/v1"
 JOBS_SCHEMA = "ytt-live-exports/v1"
-ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")                       # 録画元の id(src/home/live.py の RELAY_RE と同じ)
-REC_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z")      # 録画の id(src/recorder/rec_core.py の REC_ID_RE と同じ)
+# 録画元との約束(id の形・時刻の書き方・動画の id)は ytt_core/recproto.py の 1 か所(録画の部品・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
+ID_RE = recproto.RECORDER_ID_RE   # 録画元の id
+REC_RE = recproto.REC_ID_RE       # 録画の id
 MARK_RE = re.compile(r"^lm-[0-9a-f]{8,16}\Z")
 JOB_RE = re.compile(r"^lx-[0-9a-f]{8,16}\Z")
-SEG_URI_RE = re.compile(r"^session_\d{3,6}/seg_\d{6,9}\.ts\Z")
-YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
+SEG_URI_RE = recproto.SEG_URI_RE
+YT_ID_RE = recproto.YT_VID_RE
 STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジオの配信・マークの id(P3。POST /live/api/export の studio)
 MAX_MARKS = 300            # 録画1本のマークの数
 MAX_MARK_SEC = 3600        # 1つのマークの長さ(スタジオの MAX_MARK_SEC と同じ)
@@ -99,12 +97,6 @@ DISK_POLL = 60.0           # 空きを調べ直す間隔(秒)
 HOLDS = ("archive",)       # まとめて実行へ渡すのを待つ理由(holdFor。M7: 本番版にしてから)
 ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(src/home/live_archive.py の RUN と同じ)の動いている段
 ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
-# スタジオの書き出しと同じ名前の規則(src/studio/exporter.py。ツールをまたいで import しないので同じ値を持つ)
-MAX_PATH_UNITS = 240
-SUFFIX_ROOM = 36
-BASE_ROOM = 26
-PARTIAL = ".partial"
-WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {"COM%s" % d for d in "123456789¹²³"} | {"LPT%s" % d for d in "123456789¹²³"}
 
 
 class LiveError(ValueError):
@@ -122,103 +114,18 @@ class Halted(Exception):
     """入口の終了(ジョブは「録画待ち」に戻して、次の起動でやり直す)"""
 
 
-# ---------- 時刻 ----------
-def iso_epoch(s):
-    """UTC の時刻の文字列("…Z"・ミリ秒あり/なし・+00:00)→ epoch 秒。読めなければ None"""
-    if not isinstance(s, str) or len(s) > 40:
-        return None
-    t = s.strip().replace("+00:00", "Z")
-    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
-        try:
-            return datetime.datetime.strptime(t, fmt).replace(tzinfo=datetime.timezone.utc).timestamp()
-        except ValueError:
-            continue
-    return None
-
-
-def epoch_iso(e):
-    return datetime.datetime.fromtimestamp(e, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-def now_iso():
-    return epoch_iso(time.time())
-
-
-# ---------- 名前(スタジオの書き出しと同じ規則) ----------
-def compact_ts(t):
-    s = int(max(0, t))
-    return "%02dh%02dm%02ds" % (s // 3600, s % 3600 // 60, s % 60)
-
-
-def safe_name(s, n):
-    s = re.sub(r'[\\/:*?"<>|%\x00-\x1f]+', "_", str(s or ""))
-    return s[:n].strip(" ._")
-
-
-def path_units(s):
-    return len(str(s).encode("utf-16-le", "surrogatepass")) // 2
-
-
-def trim_units(s, n):
-    s = str(s)
-    while s and path_units(s) > n:
-        s = s[:-1]
-    return s.rstrip(" ._")
-
-
-def is_reserved(name):
-    return name.split(".", 1)[0].rstrip(" ").upper() in WIN_RESERVED
-
-
-def _read_owner(path):
-    for m in (os.path.join(path, schemas.WORK_DIR, ".studio-id"), os.path.join(path, ".studio-id")):
-        try:
-            with open(m, encoding="utf-8") as f:
-                return f.read().strip()
-        except OSError:
-            continue
-    return None
-
-
-def _write_owner(path, owner):
-    os.makedirs(os.path.join(path, schemas.WORK_DIR), exist_ok=True)
-    with open(os.path.join(path, schemas.WORK_DIR, ".studio-id"), "w", encoding="utf-8") as f:
-        f.write(owner)
+# ---------- 時刻・名前(ytt_core の 1 か所。テストと live_archive・live_cleanup などがここの名前で読む) ----------
+iso_epoch, epoch_iso, now_iso, video_id_of = recproto.iso_epoch, recproto.epoch_iso, recproto.now_iso, recproto.video_id_of
+compact_ts, safe_name, unique_base = names.compact_ts, names.safe_name, names.unique_base   # スタジオの書き出しと同じ規則(ytt_core/names.py)
 
 
 def pick_folder(root, title, owner):
-    """<書き出し先>/<配信の名前>/(スタジオの pick_folder と同じ: 作業用/.studio-id に持ち主を書き、同じ名前の別の配信とは混ぜない)"""
-    room = MAX_PATH_UNITS - path_units(root) - 1 - 3 - 1 - BASE_ROOM - SUFFIX_ROOM
-    name = trim_units(safe_name(title, 60), max(8, min(60, room))) or safe_name(owner, 60) or "live"
-    if is_reserved(name):
-        name = "_" + name
-    for i in range(1, 100):
-        cand = name if i == 1 else "%s_%d" % (name, i)
-        path = os.path.join(root, cand)
-        if not os.path.exists(path):
-            os.makedirs(path)
-            _write_owner(path, owner)
-            return path
-        if os.path.isdir(path):
-            got = _read_owner(path)
-            if got == owner:
-                return path
-            if got is None:
-                _write_owner(path, owner)
-                return path
-    raise LiveError("保存先のフォルダを作れませんでした")
-
-
-def unique_base(base, folder):
-    """フォルダ(と 作業用/)で使われていない名前(スタジオの unique_base と同じ。<名前>_edit も空いていること)"""
-    def used(name):
-        return any(glob.glob(glob.escape(os.path.join(d, n)) + ".*")
-                   for d in (folder, os.path.join(folder, schemas.WORK_DIR)) for n in (name, name + "_edit"))
-    name, i = base, 2
-    while used(name):
-        name = "%s_%d" % (base, i)
-        i += 1
-    return name
+    """<書き出し先>/<配信の名前>/(スタジオの pick_folder と同じ ytt_core.names.pick_folder: 作業用/.studio-id に持ち主を書き、
+    同じ名前の別の配信とは混ぜない)。題が空なら持ち主の名前か live"""
+    got = names.pick_folder(root, title, owner, safe_name(owner, 60) or "live")
+    if got is None:
+        raise LiveError("保存先のフォルダを作れませんでした")
+    return got[1]
 
 
 def rec_list(call, rc, timeout=5.0):
@@ -238,22 +145,6 @@ def latest_per_mark(js):
         if p is None or str(j.get("created") or "") >= str(p.get("created") or ""):
             last[j.get("markId")] = j
     return list(last.values())
-
-
-def video_id_of(url, rec_id=""):
-    """YouTube の動画の id(11 文字)。分からなければ ""(録画の id の後ろ = recorder の new_rec_id が URL から取った物も見る)"""
-    try:
-        u = urllib.parse.urlsplit(url or "")
-        q = urllib.parse.parse_qs(u.query)
-        v = (q.get("v") or [""])[0]
-        if not v and (u.hostname == "youtu.be" or u.path.startswith("/live/")):
-            v = u.path.rstrip("/").rsplit("/", 1)[-1]
-    except ValueError:
-        v = ""
-    if YT_ID_RE.match(v or ""):
-        return v
-    tail = (rec_id or "").split("-", 2)[2:] if rec_id else []
-    return tail[0] if tail and YT_ID_RE.match(tail[0]) else ""
 
 
 # ---------- マーク(正本) ----------
@@ -375,14 +266,10 @@ class MarkStore:
         op = body.get("op")
         with self.lock:
             d = self.load(rc, rec)
-            if isinstance(body.get("url"), str) and not d.get("url"):
-                d["url"] = _text(body["url"], 500)
-            if isinstance(body.get("title"), str) and body["title"].strip():
-                d["title"] = _text(body["title"], TITLE_MAX)
+            self._touch(d, body.get("url"), body.get("title"))
             marks = d["marks"]
             if op == "add":
-                if len(marks) >= MAX_MARKS:
-                    raise LiveError("1本の録画に付けられるマークは %d 個までです" % MAX_MARKS, 409)
+                self._room(marks)
                 m = {"id": "lm-" + secrets.token_hex(5), "n": max([x.get("n") or 0 for x in marks] + [0]) + 1,
                      "start": None, "end": None, "label": "", "created": now_iso()}
                 self._set(m, body, new=True)
@@ -400,10 +287,7 @@ class MarkStore:
                 raise LiveError("op は add・update・delete のどれかです")
             if m is not None:
                 m["updated"] = now_iso()
-            try:
-                self._save(d)
-            except OSError as e:
-                raise LiveError("マークを保存できませんでした: %s" % (e.strerror or e.__class__.__name__), 500)
+            self._save_or_raise(d)
             return m, marks
 
     def upsert(self, rc, rec, mid, n, start, end, label="", url=None, title=None):
@@ -413,14 +297,10 @@ class MarkStore:
             raise LiveError("マークの指定が正しくありません")
         with self.lock:
             d = self.load(rc, rec)
-            if isinstance(url, str) and not d.get("url"):
-                d["url"] = _text(url, 500)
-            if isinstance(title, str) and title.strip():
-                d["title"] = _text(title, TITLE_MAX)
+            self._touch(d, url, title)
             m = next((x for x in d["marks"] if x["id"] == mid), None)
             if m is None:
-                if len(d["marks"]) >= MAX_MARKS:
-                    raise LiveError("1本の録画に付けられるマークは %d 個までです" % MAX_MARKS, 409)
+                self._room(d["marks"])
                 m = {"id": mid, "n": n, "start": None, "end": None, "label": "", "created": now_iso(), "src": "studio"}
                 self._set(m, {"start": start, "end": end, "label": label}, new=True)
                 d["marks"].append(m)
@@ -428,11 +308,29 @@ class MarkStore:
                 self._set(m, {"start": start, "end": end, "label": label})
                 m["n"] = n
             m["updated"] = now_iso()
-            try:
-                self._save(d)
-            except OSError as e:
-                raise LiveError("マークを保存できませんでした: %s" % (e.strerror or e.__class__.__name__), 500)
+            self._save_or_raise(d)
             return dict(m)
+
+    @staticmethod
+    def _touch(d, url, title):
+        """録画の記録に配信の URL(まだ無いときだけ)と題名(空でなければ)を入れる(apply と upsert の共通)"""
+        if isinstance(url, str) and not d.get("url"):
+            d["url"] = _text(url, 500)
+        if isinstance(title, str) and title.strip():
+            d["title"] = _text(title, TITLE_MAX)
+
+    @staticmethod
+    def _room(marks):
+        """マークを 1 つ足せるか(上限 MAX_MARKS。超えるなら 409 の LiveError)"""
+        if len(marks) >= MAX_MARKS:
+            raise LiveError("1本の録画に付けられるマークは %d 個までです" % MAX_MARKS, 409)
+
+    def _save_or_raise(self, d):
+        """保存する。書けなければ 500 の LiveError(画面に出す文)"""
+        try:
+            self._save(d)
+        except OSError as e:
+            raise LiveError("マークを保存できませんでした: %s" % tools.why(e), 500)
 
     @staticmethod
     def _set(m, body, new=False):
@@ -573,7 +471,7 @@ class Exporter:
             try:
                 clientlog.append_line(path, line, FEEDBACK_MAX_BYTES)
             except OSError as e:
-                self.log("リアルタイム切り抜き: 採用の記録を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+                self.log("リアルタイム切り抜き: 採用の記録を書けませんでした: %s" % tools.why(e))
 
     def _tx_states(self):
         """文字起こしへ渡したジョブの、まとめて実行の状態(runId -> {state, label})"""
@@ -922,12 +820,10 @@ class Exporter:
             self._set(job, state="cancelled", message="取り消しました", progress=0)
         except Halted:
             self._set(job, state="wait", message="ホームを終えたので、次の起動でやり直します", progress=0)
-        except LiveError as e:
-            self._set(job, state="error", error=str(e), message="")
-        except normalize.NormalizeError as e:
+        except (LiveError, normalize.NormalizeError) as e:
             self._set(job, state="error", error=str(e), message="")
         except OSError as e:
-            self._set(job, state="error", error="書けませんでした: %s" % (e.strerror or e.__class__.__name__), message="")
+            self._set(job, state="error", error="書けませんでした: %s" % tools.why(e), message="")
         except Exception as e:
             self.log("リアルタイム切り抜き: 書き出しでエラー %r" % (e,))
             self._set(job, state="error", error="内部エラー: %s" % e.__class__.__name__, message="")
@@ -983,8 +879,8 @@ class Exporter:
                     f.write("file '%s'\n" % p.replace("\\", "/").replace("'", "'\\''"))
             src = ["-f", "concat", "-safe", "0", "-i", lst]
         folder, base, title = self.target(job, d, rec, a, b)
-        tmp = os.path.join(folder, base + PARTIAL + ".mp4")
-        flags = low_flags()
+        tmp = names.partial_path(folder, base)
+        flags = tools.no_window_flags(priority="low")   # 書き出しは「通常より下」(録画は「通常より上」)
         # -ss は入力の前(作り直しなので位置はコマ単位で正確)。長さは出力の -t で決める(入力の -t だけだと、fps フィルタが最後のコマを
         # 増やして映像が約 0.5 秒長くなる。2026-10-04 に確かめた)。入力の -t は読む量を抑えるだけ(少し長めに)
         head_args = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % ss, "-t", "%.3f" % (dur + 1.0)] + src + \
@@ -1028,10 +924,8 @@ class Exporter:
         os.makedirs(root, exist_ok=True)
         owner = video_id_of(d.get("url"), rec) or "live-" + rec
         folder = pick_folder(root, title, owner)
-        head = "%02d_%s-%s" % (job.get("n") or 0, compact_ts(a - self._base(d, a)), compact_ts(b - self._base(d, a)))
-        room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(folder, head))
-        label = trim_units(safe_name(job.get("label"), 30), max(0, room))
-        return folder, unique_base(head + ("_" + label if label else ""), folder), title
+        base = self._base(d, a)
+        return folder, names.clip_base(folder, job.get("n") or 0, a - base, b - base, job.get("label"), unique=unique_base), title
 
     def _audio_cfg(self):
         """-> (音量(%。100 = 変えない), ラウドネスの目標 LUFS か None)。形が正しくなければ「変えない」"""
@@ -1093,41 +987,15 @@ class Exporter:
         return res
 
     def _run(self, job, cmd, dur, flags):
-        """ffmpeg を1回動かす(取り消し・入口の終了で止める)。-> (終了コード, エラーの行, None|"cancel")"""
-        tail, state = [], {"why": None}
+        """ffmpeg を1回動かす(取り消し・入口の終了で止める)。-> (終了コード, エラーの行, None|"cancel")。
+        中身は ytt_core.tools.run_progress(-progress の進み具合を job["progress"] の 0.2〜1.0 に写す)"""
+        def on_time(sec):
+            if dur > 0:
+                job["progress"] = round(0.2 + 0.8 * min(0.99, sec / dur), 3)
         try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=flags)
+            return tools.run_progress(cmd, flags=flags, cancelled=lambda: job.get("cancel") or self._halt.is_set(), on_time=on_time)
         except OSError as e:
             raise LiveError("ffmpeg を起動できませんでした: %s" % e)
-        done = threading.Event()
-
-        def watchdog():
-            while not done.wait(0.3):
-                if job.get("cancel") or self._halt.is_set():
-                    state["why"] = "cancel"
-                    try:
-                        proc.kill()
-                    except OSError:
-                        pass
-                    return
-        threading.Thread(target=watchdog, daemon=True).start()
-        try:
-            for raw in proc.stdout:
-                line = raw.decode("utf-8", "replace").strip()
-                m = re.match(r"^out_time_(?:us|ms)=(\d+)$", line)
-                if m:
-                    if dur > 0:
-                        job["progress"] = round(0.2 + 0.8 * min(0.99, int(m.group(1)) / 1e6 / dur), 3)
-                    continue
-                if line and "=" not in line[:20]:
-                    tail = (tail + [line])[-20:]
-            proc.wait()
-        finally:
-            done.set()
-            if proc.poll() is None:
-                proc.kill()
-            proc.stdout.close()
-        return proc.returncode, tail, state["why"]
 
     @staticmethod
     def _base(d, a):
@@ -1170,7 +1038,7 @@ class Exporter:
             fsio.write_json(manifest, clip)
         except OSError as e:
             manifest = ""
-            warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % (e.strerror or e.__class__.__name__))
+            warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % tools.why(e))
         run_id, handoff, wait = "", "", ""
         after = job_after(job)
         if after != "none":   # 書き出したあと: まとめて実行の動画ファイルの形へ(check = 文字起こしまで・auto = 文字起こし → パック)
@@ -1286,12 +1154,6 @@ class Exporter:
         if code is None or code == 200:
             return ""
         return "スタジオのマークを「書き出し済み」にできませんでした: %s" % str((d or {}).get("message") or "HTTP %s" % code)[:160]
-
-
-def low_flags():
-    """書き出し・作り直しの子プロセス(ffmpeg・yt-dlp・照合)の creationflags: 窓を出さない・通常より下の優先度
-    (録画は「通常より上」・書き出しは「通常より下」。src/home/live_archive.py も同じ)"""
-    return tools.no_window_flags() | (getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0) if os.name == "nt" else 0)
 
 
 def _disk_usage(path):

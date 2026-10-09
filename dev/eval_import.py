@@ -20,7 +20,6 @@
 - 終了コード: 0 = 断ったもの・失敗が無い、1 = 1つでも断った・失敗した、2 = 置き場所・振り分けの設定が使えない
 """
 import argparse
-import datetime
 import hashlib
 import json
 import os
@@ -35,7 +34,8 @@ REPO = os.path.dirname(HERE)   # リポジトリ直下(「リポジトリの中�
 SRC = os.path.join(REPO, "src")   # ツールと ytt_core の置き場所
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt_core import evaldata as ev  # noqa: E402
+from ytt_core import evaldata as ev, fsio  # noqa: E402
+from ytt_core.schemas import iso_now as _now  # noqa: E402
 
 CHECK_FORMAT = "youtube-tools-eval-check/v1"       # check.json の形式の名前
 REJECT_FORMAT = "youtube-tools-eval-reject/v1"     # rejected/*.json の形式の名前
@@ -62,11 +62,6 @@ def _norm(p):
     return os.path.normcase(os.path.realpath(p))
 
 
-def _inside(child, parent):
-    c, p = _norm(child), _norm(parent)
-    return c == p or c.startswith(p.rstrip("\\/") + os.sep)
-
-
 def _git_root(path):
     """path(まだ無くてもよい)か、その上のフォルダに .git があればそのフォルダ。無ければ None"""
     cur = _norm(path)
@@ -84,7 +79,7 @@ def check_dest(dest):
     if not dest:
         raise DestError("置き場所が空です")
     real = os.path.realpath(os.path.abspath(dest))
-    if _inside(real, REPO):
+    if fsio.is_inside(real, REPO):   # 比べる相手(リポジトリ)はローカル。ネットワーク上の置き場所はここでは False だが、リポジトリの中ではないので結果は同じ
         raise DestError("リポジトリの中には置けません(評価データを Public のリポジトリに入れないため): %s" % real)
     g = _git_root(real)
     if g:
@@ -123,11 +118,9 @@ def prepare_dest(dest):
 def load_routing(root):
     """routing.json -> 学習に入れない名前の集合。読めない・形が違えば DestError(振り分けを決められないので取り込まない)"""
     rp = os.path.join(root, "routing.json")
-    try:
-        with open(rp, "rb") as f:
-            obj = json.loads(f.read(1024 * 1024).decode("utf-8-sig"))
-    except (OSError, UnicodeDecodeError, ValueError) as e:
-        raise DestError("routing.json を読めません: %s" % e)
+    obj = fsio.read_json_or(rp, None, 1024 * 1024)
+    if obj is None:
+        raise DestError("routing.json を読めません(無い・大きすぎる・JSON ではない)")
     names = obj.get("noTrain") if isinstance(obj, dict) else None
     if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
         raise DestError("routing.json の形が違います(\"noTrain\": [名前, ...])")
@@ -139,14 +132,7 @@ def _name_key(s):
 
 
 def _write_json(path, obj):
-    tmp = "%s.%s.part" % (path, uuid.uuid4().hex[:8])
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
-
-
-def _now():
-    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    fsio.write_json(path, obj, indent=1)
 
 
 # ---------------------------------------------------------------- 1つの zip
@@ -306,11 +292,8 @@ def _reject(root, res, problems):
     base = ev.safe_part(res["zipName"], 120)
     p = os.path.join(root, "rejected", base + ".json")
     if os.path.lexists(p):   # 同じ名前で中身の違う zip が来たら、前の記録を残して別の名前にする
-        try:
-            with open(p, "rb") as f:
-                same = json.loads(f.read(1024 * 1024).decode("utf-8")).get("sha256") == rec["sha256"]
-        except (OSError, ValueError, AttributeError):
-            same = False
+        prev = fsio.read_json_or(p, None, 1024 * 1024, dict)
+        same = prev is not None and prev.get("sha256") == rec["sha256"]
         if not same or os.path.islink(p):
             p = os.path.join(root, "rejected", "%s.%s.json" % (base, (rec["sha256"] or uuid.uuid4().hex)[:12]))
     _write_json(p, rec)

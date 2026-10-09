@@ -1,5 +1,5 @@
 /* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */
-/* ui-kit v23 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v24 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -51,7 +51,10 @@
    v23(2026-10-07・UI の見直しの基準。クラウド側。PC 側の段9 の直しと同じ番号で合流): 知らせの × を SVG に(A-10)・設定の「全体」の節の名前を label for に(A-24)。README.md の「v23」
    v23(2026-10-07・段9 の直し): v22 の fitPop の var POP_SEL が上の POP_SEL を書き直していて、外側のクリック・Esc が開いていないメニューにも効き、
        Esc でフォーカスが最後のメニューの summary へ飛んでいた → FIT_SEL に分けた。まとめて実行の fps の欄の名前を「フレームレート」に。
-       置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。知らせがあふれたとき、ボタンの無い失敗も失敗でない知らせより後に閉じる。README.md の「v23」 */
+       置き直す中身に [data-ui-fit](画面が作った中身。スタジオ ① の .rk-autopop)。知らせがあふれたとき、ボタンの無い失敗も失敗でない知らせより後に閉じる。README.md の「v23」
+   v24(2026-10-09・コードの見直しの直す順番 B の土台): UIKit.http(url, opt)(JSON の API を呼ぶ 1 か所・合言葉を付ける 1 か所・失敗の形を 1 つに)・
+       UIKit.homeApi(path, opt) / homeUrl(path)(入口の API。画面の 1 つ上)・UIKit.copy(text, opt)(クリップボード)・fmt.day・fmt.dur の opt(floor・tenths・noHours)・
+       icon.names()。ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形に。README.md の「v24」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -267,27 +270,86 @@
       if (days <= 0) return '今日 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
       if (days === 1) return '昨日 ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
       if (days < 7) return days + '日前';
-      return fmt.date(ms).split(' ')[0];
+      return fmt.day(ms);
     },
-    dur: function (sec) {
-      sec = Math.max(0, Math.round(+sec || 0));
-      var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s2 = sec % 60;
-      return (h ? h + ':' + pad2(m) : m) + ':' + pad2(s2);
+    /* v24: 日付だけ(date の時刻の前。年は今年でなければ付ける) */
+    day: function (ms) { return ms ? fmt.date(ms).split(' ')[0] : ''; },
+    /* 秒 → 1:23:45(1 時間未満は 23:45)。v24 の opt(省略なら v3 のまま = 四捨五入):
+       floor = 切り捨て(タイムラインの目盛りなど)・tenths = 0.1 秒まで(0.1 秒で四捨五入して末尾に .4。スタジオの Studio.fmtTime と同じ)・
+       noHours = 時を出さず分を 60 以上にも(83:45) */
+    dur: function (sec, opt) {
+      opt = opt || {};
+      var t = Math.max(0, +sec || 0), d = Math.round(t * 10);
+      var whole = opt.tenths ? Math.floor(d / 10) : opt.floor ? Math.floor(t) : Math.round(t);
+      var h = opt.noHours ? 0 : Math.floor(whole / 3600), m = opt.noHours ? Math.floor(whole / 60) : Math.floor(whole % 3600 / 60), s2 = whole % 60;
+      return (h ? h + ':' + pad2(m) : m) + ':' + pad2(s2) + (opt.tenths ? '.' + (d % 10) : '');
     }
   };
 
   /* ---- 入口の共通の API(api/ytt/…)---- 画面の場所からの相対パス(入口の画面 → /api/ytt/…、取り込んだツール → /studio/api/ytt/… など。
      どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
   function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
+
+  /* ---- http(v24。docs/design/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
+     UIKit.http(url, opt) -> Promise<応答の JSON(JSON でなければ {})>(opt.raw なら成功のときは Response)。opt:
+       method(既定: body があれば POST・無ければ GET)・body(JSON にして送る。Content-Type も付ける)・keepalive・
+       timeout(ミリ秒。応答の見出しが届くまで)・signal(呼ぶ側の AbortSignal)・raw・
+       token(省略 = 画面の meta ytt-token / 文字列 = その値 / false = 付けない)・needToken(合言葉が無ければ送らずに失敗 code 'no_token')・
+       offline(つながらないときの文)・slow(時間切れの文)・fail(サーバーが message を返さなかったときの文。文字列か function(status))
+     合言葉 X-YTT-Token は GET・HEAD 以外で、送り先が同じオリジンのときだけ付ける(ほかのサイトへ合言葉を出さない)。
+     失敗はいつも Error で、形は 1 つ: message(画面に出す文)・code(サーバーの error | 'http' | 'network' | 'timeout' | 'abort' | 'no_token')・
+       status(HTTP の番号。応答が無ければ 0)・body(応答の JSON。無い・JSON でなければ {})・data(body と同じもの。編集の以前の名前)・
+       reason(サーバーの message。無ければ '')・detail(知らせの「詳しく」に出す原文: 'HTTP 409' / 通信の例外の文) */
+  var HTTP_OFFLINE = 'サーバーにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)';
+  var HTTP_SLOW = 'サーバーの応答が遅れています。少し待ってから、もう一度試してください';
+  function httpFail(st) { return st >= 500 ? 'サーバーで問題が起きました。少し待ってから、もう一度試してください' : '要求を受け付けてもらえませんでした。画面を読み込み直してから、もう一度試してください'; }
+  function httpCodeText(st) { return 'HTTP ' + st; }   /* ui-kit の中の呼び出しは v23 までと同じ文(HTTP 404)にする */
+  function httpErr(message, code, status, j, detail) {
+    var e = new Error(message), b = j && typeof j === 'object' ? j : {};
+    e.code = code; e.status = status; e.body = b; e.data = b;
+    e.reason = typeof b.message === 'string' ? b.message : ''; e.detail = detail || '';
+    return e;
+  }
+  function sameOrigin(url) { try { return new URL(url, location.href).origin === location.origin; } catch (e) { return false; } }
+  function http(url, opt) {
+    opt = opt || {};
+    var method = String(opt.method || (opt.body === undefined ? 'GET' : 'POST')).toUpperCase();
+    var tk = typeof opt.token === 'string' ? opt.token : opt.token === false ? '' : token();
+    if (opt.needToken && !tk) return Promise.reject(httpErr('ホーム(start.bat)から開いたときだけ使えます', 'no_token', 0, null, ''));
+    var init = { method: method, cache: 'no-store', credentials: 'same-origin', headers: {} };
+    if (opt.keepalive) init.keepalive = true;
+    if (opt.body !== undefined) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opt.body); }
+    if (tk && method !== 'GET' && method !== 'HEAD' && sameOrigin(url)) init.headers['X-YTT-Token'] = tk;
+    var ctl = null, timer = 0, timedOut = false, outer = opt.signal || null;
+    if (+opt.timeout > 0) {   /* 時間切れと呼ぶ側の取り消しを 1 つの signal に(どちらで止まったかは timedOut で分ける) */
+      ctl = new AbortController();
+      if (outer) { if (outer.aborted) ctl.abort(); else outer.addEventListener('abort', function () { ctl.abort(); }); }
+      timer = setTimeout(function () { timedOut = true; ctl.abort(); }, +opt.timeout);
+      init.signal = ctl.signal;
+    } else if (outer) init.signal = outer;
+    function noReply(e) {
+      var detail = String((e && e.message) || e || '');
+      if (timedOut) return httpErr(opt.slow || HTTP_SLOW, 'timeout', 0, null, detail);
+      if (init.signal && init.signal.aborted) return httpErr('取り消しました', 'abort', 0, null, detail);
+      return httpErr(opt.offline || HTTP_OFFLINE, 'network', 0, null, detail);
+    }
+    return fetch(url, init).then(function (r) {
+      clearTimeout(timer);
+      if (opt.raw && r.ok) return r;
+      return r.json().then(null, function (e) { if (init.signal && init.signal.aborted) throw noReply(e); return null; }).then(function (j) {
+        if (r.ok) return j == null ? {} : j;
+        var fb = typeof opt.fail === 'function' ? opt.fail(r.status) : typeof opt.fail === 'string' ? opt.fail : httpFail(r.status);
+        throw httpErr((j && j.message) ? String(j.message) : fb, (j && j.error) || 'http', r.status, j, 'HTTP ' + r.status);
+      });
+    }, function (e) { clearTimeout(timer); throw noReply(e); });
+  }
+  /* 入口(ホーム)の API の場所。path は入口の直下からの相対('api/autorun'・'api/ytt/prefs'・'live/api/info'。先頭の / は外す)。
+     取り込んだツールの画面(/studio/・/transcribe/)からもホームの画面(/)からも、画面の場所の 1 つ上 = 入口の直下を指す(絶対パスを書かない) */
+  function homeUrl(path) { return new URL('../' + String(path == null ? '' : path).replace(/^\/+/, ''), location.href).href; }
+  function homeApi(path, opt) { return http(homeUrl(path), opt); }
   function yttPost(name, obj, keepalive) {
-    var tk = token();
-    if (!tk || !window.fetch) return Promise.reject(new Error('ホーム(start.bat)から開いたときだけ使えます'));
-    return fetch('api/ytt/' + name, { method: 'POST', cache: 'no-store', credentials: 'same-origin', keepalive: !!keepalive,
-      headers: { 'Content-Type': 'application/json', 'X-YTT-Token': tk }, body: JSON.stringify(obj) })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok) { var err = new Error(j.message || ('HTTP ' + r.status)); err.status = r.status; throw err; }   /* v16: status(liveBadge が 404 と一時的な失敗を分ける) */
-        return j;
-      }); });
+    /* v16: 失敗の status(liveBadge が 404 と一時的な失敗を分ける) */
+    return http('api/ytt/' + name, { method: 'POST', body: obj, keepalive: keepalive, needToken: true, fail: httpCodeText });
   }
 
   /* ---- 画面のエラーを入口のログへ(段階7-0)---- 同じエラーは1回、1回の表示で20件まで(画面の不具合でログを埋めない。サーバー側にも上限) */
@@ -824,6 +886,33 @@
     });
     box.appendChild(item);
     return { close: remove, el: item };
+  }
+
+  /* ---- copy(v24)---- クリップボードへ文字を写す。UIKit.copy(text, opt) -> Promise<true | false>(失敗しても reject しない)。
+     opt.ok / opt.fail に文があれば、その知らせ(UIKit.toast。ok は 2.5 秒・fail は 5 秒の err)も出す。
+     clipboard API が使えない(権限なし・フォーカスが無い)ときは、見えない textarea を選んで execCommand('copy') で写す
+     (以前の 3 つ = スタジオの copyText・編集の copyPath・ホームのデータの場所。失敗したときに欄を選ぶなどは呼ぶ側で) */
+  function copyByCommand(text) {
+    try {
+      var ta = document.createElement('textarea'), back = document.activeElement;
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0'; ta.style.top = '0'; ta.style.left = '0';
+      document.body.appendChild(ta); ta.select();
+      var ok = document.execCommand('copy');
+      ta.remove();
+      if (back && back.focus) try { back.focus({ preventScroll: true }); } catch (e) { /* 戻せなくても写せたかは変わらない */ }
+      return !!ok;
+    } catch (e) { return false; }
+  }
+  function copyText(text, opt) {
+    opt = opt || {};
+    text = String(text == null ? '' : text);
+    var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text).then(function () { return true; }, function () { return copyByCommand(text); })
+      : Promise.resolve(copyByCommand(text));
+    return p.then(function (ok) {
+      if (ok && opt.ok) toastFn(opt.ok, { kind: 'ok', ms: 2500 });
+      if (!ok && opt.fail) toastFn(opt.fail, { kind: 'err', ms: 5000 });
+      return ok;
+    });
   }
 
   /* ---- confirmTwice(二度押しの確認。v7)---- 1回目でボタンの文字を text に変え、3秒以内のもう1回で run。実行したらすぐ元に戻す
@@ -1607,6 +1696,8 @@
       if (Object.prototype.hasOwnProperty.call(ICONS, name)) els[i].innerHTML = icon(name);
     }
   };
+  /* v24: アイコンの名前の一覧(見本 styleguide.js はこれで並べる = 手書きの一覧がずれて lock が抜けていた) */
+  icon.names = function () { return Object.keys(ICONS); };
   document.addEventListener('DOMContentLoaded', function () { icon.fill(document); });
 
   /* ---- packLoud(パックの音量のそろえ方。v7・2026-09-29)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
@@ -1617,9 +1708,7 @@
   function txApiUrl(p) { var b = tools.paths && tools.paths.transcribe; return b ? b + p : ''; }
   /* 編集の設定の、送ったキーだけを直す(api/settings/patch。編集の画面の丸ごとの保存とは別)。失敗は Error(サーバーの文) */
   function txPatch(values) {
-    return fetch(txApiUrl('api/settings/patch'), { method: 'POST', cache: 'no-store', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', 'X-YTT-Token': token() }, body: JSON.stringify({ values: values }) })
-      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.message || ('HTTP ' + r.status)); }); });
+    return http(txApiUrl('api/settings/patch'), { body: { values: values }, fail: httpCodeText }).then(function () {});
   }
   function loudNorm(raw) {
     if (raw === undefined || raw === null || raw === '') return 0;   // 既定はそろえない = 音量 30%(2026-10-01)
@@ -1654,7 +1743,7 @@
       var u = txApiUrl('api/settings');
       if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
       if (!loudGet) {
-        loudGet = fetch(u, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); })
+        loudGet = http(u, { fail: httpCodeText })
           .then(function (j) { return { loud: loudNorm(j.packLoudness), vol: volNorm(j.packVolume) }; });
         loudGet.then(function () { setTimeout(function () { loudGet = null; }, 3000); }, function () { loudGet = null; });   /* 続けて読むときは1回に */
       }
@@ -1702,17 +1791,11 @@
   var AR_MODES = { adopted: '採用後を全部', transcribe: '文字起こしまで', full: '解析から全部' };
   var AR_CUT = { rows: '行から', none: 'カットしない', silence: '無音で削る' };
   var arSeq = 0, arPanels = [], arWatched = {}, arTimer = 0, arState = null;
-  function arHomeApi(path, body) {
-    var init = { cache: 'no-store', credentials: 'same-origin', method: body === undefined ? 'GET' : 'POST' };
-    if (body !== undefined) { init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': token() }; init.body = JSON.stringify(body); }
-    return fetch(new URL('../' + path, location.href).href, init).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.message || ('HTTP ' + r.status)); e.code = j.error; throw e; } return j; });
-    });
-  }
+  function arHomeApi(path, body) { return homeApi(path, { body: body, fail: httpCodeText }); }
   function arLoad() {
     var pr = prefs.available() ? prefs.get(['autorun']).then(function (p) { return p.autorun || {}; }, function () { return {}; }) : Promise.resolve({});
     var u = txApiUrl('api/settings');
-    var tx = u ? fetch(u, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) { return r.json(); }).catch(function () { return {}; }) : Promise.resolve({});
+    var tx = u ? http(u).catch(function () { return {}; }) : Promise.resolve({});
     return Promise.all([pr, tx]).then(function (x) {
       var a = x[0], t = x[1] || {};
       arState = { mode: a.mode || null, top: +a.top || 3, cut: AR_CUT[a.cut] ? a.cut : 'rows', overwrite: a.overwrite === true, onFail: a.onFail === 'stop' ? 'stop' : 'next',
@@ -1908,14 +1991,7 @@
      ボタンはホームから開いた画面(合言葉 ytt-token がある)だけ。単体で開いたときは今までどおりの案内の文だけ。
      起動し直したあとは api/ping を数秒ごとに読み、戻ったら再読み込みする(新しい入口は合言葉が変わるので、読み込み直さないと書き込みができない) */
   var RESTART_POLL = 2000, RESTART_TIMEOUT = 90000;
-  function restartPing(ms) {
-    var ctl = window.AbortController ? new AbortController() : null;
-    var tm = ctl ? setTimeout(function () { ctl.abort(); }, ms) : null;
-    function done() { if (tm) clearTimeout(tm); }
-    return fetch('api/ping', { cache: 'no-store', credentials: 'same-origin', signal: ctl ? ctl.signal : undefined })
-      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (j) { done(); return j; }, function (e) { done(); throw e; });
-  }
+  function restartPing(ms) { return http('api/ping', { timeout: ms, fail: httpCodeText }); }
   /* 頼んで、戻るのを待って、読み込み直す。opts: from(今のサーバーの版)・onState(state, text)('waiting' | 'done' | 'timeout')・
      interval・timeout(ミリ秒。テスト用)・reload(既定 location.reload)。-> Promise<true(読み込み直す) | false(戻らなかった)>。断られたら reject(理由の文) */
   function restartRun(opts) {
@@ -2399,7 +2475,8 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 23, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 24, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff };
+                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
+                   http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };
 })();

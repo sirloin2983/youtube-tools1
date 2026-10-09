@@ -1595,7 +1595,11 @@ class TestRequests(Base):
         self.assertEqual(self.states(run)["deliver"], "error")
         self.assertIn("No space left on device", run["error"])
         pre = "%s__%s" % (self.RID, run["title"])
-        names = os.listdir(out)
+        for _ in range(300):   # 失敗の知らせは状態が error になったあとに置く(状態だけ見て読むと、まだ無いことがある)
+            names = os.listdir(out)
+            if pre + ".失敗.txt" in names:
+                break
+            time.sleep(0.01)
         self.assertIn(pre + ".失敗.txt", names)
         self.assertEqual(sorted(n for n in names if n.endswith(".zip")), ["%s__a2.zip" % self.RID])
         self.assertFalse([n for n in names if n.endswith(".group.json")])
@@ -1684,7 +1688,12 @@ class TestRequests(Base):
         self.tools.fail_tx = True
         run = self.wait(self.r.start_file(media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out))
         self.assertEqual(run["state"], "error")
-        with open(os.path.join(out, "rid2__二本目.失敗.txt"), encoding="utf-8-sig") as f:
+        note = os.path.join(out, "rid2__二本目.失敗.txt")
+        for _ in range(300):   # 失敗の知らせは状態が error になったあとに置く
+            if os.path.exists(note):
+                break
+            time.sleep(0.01)
+        with open(note, encoding="utf-8-sig") as f:
             self.assertIn("モデルが読めません", f.read())
 
     def test_file_auto_video_tracks_to_pack(self):

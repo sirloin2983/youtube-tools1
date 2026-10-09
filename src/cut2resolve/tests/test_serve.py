@@ -133,6 +133,61 @@ class TestGuards(ServerBase):
         st, _, body = self.c.req("POST", "/api/plan", raw=b"[]")
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
 
+    def raw_post(self, head_lines, body=b""):
+        """本文を足さずに見出しを自由に書く POST(http.client は Content-Length を自動で付けるため、数の無い・数でない場合は自分で書く)。-> (状態, JSON)"""
+        import socket
+        lines = ["POST /api/plan HTTP/1.1", "Host: %s" % self.c.host] + list(head_lines)
+        with socket.create_connection(("127.0.0.1", self.port), timeout=30) as s:
+            s.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + body)
+            buf = b""
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+        head, _, payload = buf.partition(b"\r\n\r\n")
+        return int(head.split(b" ", 2)[1]), json.loads(payload.decode("utf-8"))
+
+    def test_json_body_errors_keep_status_and_code(self):
+        """書き込みの本文の読み方は ytt_core.httpsec.read_json_body。断る理由ごとの状態とコード・文は今までどおり(0.22.3)"""
+        ok = "Content-Type: application/json"
+        for heads, body, want in (
+                ([ok], b"", (411, "bad_length")),                                    # Content-Length が無い
+                ([ok, "Content-Length: abc"], b"", (411, "bad_length")),               # 数でない
+                ([ok, "Content-Length: 0"], b"", (413, "too_big")),                    # 空
+                ([ok, "Content-Length: -1"], b"", (413, "too_big")),
+                (["Content-Type: text/plain", "Content-Length: 2"], b"{}", (415, "bad_type")),
+                (["Content-Type: text/plain"], b"", (415, "bad_type")),                # 型が先(長さが無くても 415)
+                ([ok, "Content-Length: 5"], b"[1,2]", (400, "bad_json")),             # オブジェクトでない
+                ([ok, "Content-Length: 3"], b"{x}", (400, "bad_json")),
+                ([ok, "Content-Length: 12"], b'{"a": NaN}\n\n', (400, "bad_json")),    # NaN は断る
+                (["Content-Type: Application/JSON; charset=utf-8", "Content-Length: 2"], b"{}", (400, "bad_request"))):   # 型は大文字小文字・charset 付きも可
+            st, j = self.raw_post(heads, body)
+            self.assertEqual((st, j["error"]), want, heads)
+        big = "Content-Length: %d" % (serve.MAX_BODY + 1)
+        self.assertEqual(self.raw_post([ok, big])[0], 413)   # 上限を超える長さは本文を読まずに断る
+
+    def test_response_headers_come_from_httpsec(self):
+        """応答の見出しは ytt_core.httpsec.send(Content-Type・Content-Length・no-store・nosniff の順)に Referrer-Policy を足したもの。
+        案内のページは、その後ろに CSP・X-Frame-Options"""
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        try:
+            conn.request("GET", "/api/ping", headers={"Host": self.c.host})
+            r = conn.getresponse()
+            r.read()
+            names = [k for k, _ in r.getheaders() if k not in ("Server", "Date")]
+            self.assertEqual(names, ["Content-Type", "Content-Length", "Cache-Control", "X-Content-Type-Options", "Referrer-Policy"])
+            self.assertEqual((r.getheader("Cache-Control"), r.getheader("Referrer-Policy"), r.getheader("X-Content-Type-Options")),
+                             ("no-store", "no-referrer", "nosniff"))
+            conn.request("GET", "/", headers={"Host": self.c.host})
+            r = conn.getresponse()
+            r.read()
+            names = [k for k, _ in r.getheaders() if k not in ("Server", "Date")]
+            self.assertEqual(names[-3:], ["Referrer-Policy", "Content-Security-Policy", "X-Frame-Options"])
+        finally:
+            conn.close()
+
     def test_page_moved_to_edit_tool(self):
         """画面は「編集」に統合した(2026-09-26)。/ は案内だけ(スクリプトなし・CSP つき)。前の画面の部品は無い"""
         st, hd, body = self.c.req("GET", "/")
@@ -238,13 +293,40 @@ class TestPaths(ServerBase):
         self.assertEqual(st, 400)
         self.assertEqual(self.opened, [])
 
+    def test_pack_record_prune_removes_missing_folders_and_broken_records_first(self):
+        """パックを作った記録が MAX_PACK_RECORDS を超えたら、古い順に見て フォルダの無いもの・読めないもの・形の違うものを消す(フォルダが残っているものは残す)"""
+        import types
+        recs = self.dir / "recs"
+        recs.mkdir()
+        alive, alive2 = self.dir / "alive_pack", self.dir / "alive2_pack"
+        alive.mkdir()
+        alive2.mkdir()
+        for i, (name, text) in enumerate((("a.json", json.dumps({"dir": str(alive)})), ("b.json", json.dumps({"dir": str(self.dir / "prune_missing_pack")})),
+                                          ("c.json", "{broken"), ("d.json", "[1]")), 1):
+            (recs / name).write_text(text, encoding="utf-8")
+            os.utime(recs / name, (1000 * i, 1000 * i))
+        res = {"out_dir": alive2, "files": [("edl", alive2 / "x.edl")], "editMedia": None, "plan": {}}
+        plan = types.SimpleNamespace(video=self.dir / "v.mp4")
+        with mock.patch.object(serve._txi, "packs_dir", return_value=str(recs)), mock.patch.object(serve, "MAX_PACK_RECORDS", 2):
+            serve.write_pack_record(res, plan, True, False)
+        left = sorted(p.name for p in recs.iterdir())
+        self.assertEqual(len(left), 3, left)              # 新しい記録 + 残したもの a(フォルダがある)・d(最後まで古い順の外)
+        self.assertIn("a.json", left)
+        self.assertIn("d.json", left)
+        self.assertNotIn("b.json", left)
+        self.assertNotIn("c.json", left)
+        new = [p for p in recs.iterdir() if p.name not in ("a.json", "d.json")][0]
+        self.assertEqual(json.loads(new.read_text(encoding="utf-8"))["dir"], str(alive2))
+        self.assertTrue(new.read_text(encoding="utf-8").endswith("}\n"))   # 今までと同じ形(indent=1・最後に改行)
+
     def test_media_unknown_token(self):
         for tok in ("nope-nope-nope", "..%2Fserve.py", "a"):
             self.assertEqual(self.c.req("GET", "/media/" + tok)[0], 404, tok)
 
 
 class TestHeavyJobLimit(unittest.TestCase):
-    """パックの作成は、他のツールの重い処理と順番を待つ(ytt_core.jobs)。試算は待たない"""
+    """パックの作成は、他のツールの重い処理と順番を待つ(ytt_core.jobs)。試算は、無音の検出が要るとき(heavy が真)だけ待つ
+    (API を通した確かめは TestJobs.test_plan_with_detection_waits_for_heavy_slot)"""
 
     def test_build_waits_and_can_be_cancelled(self):
         from ytt_core import jobs
@@ -420,6 +502,38 @@ class TestJobs(ServerBase):
         j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listText="100 200")})
         self.assertEqual(j["state"], "error")
         self.assertIn("範囲", j["error"]["message"])
+
+    def test_plan_with_detection_waits_for_heavy_slot(self):
+        """無音の検出が要る試算(動画の音声を全部読む)は、パックの作成と同じく他のツールの重い処理と順番を待つ(ytt_core.jobs。0.22.3)。
+        検出が要らない試算・検出結果が覚えてある試算は待たない。待っている間は取り消せる"""
+        from ytt_core import jobs
+        slots = jobs.HeavySlots(1)
+        held = slots.acquire("transcribe")
+        try:
+            with mock.patch.object(serve._heavy, "SLOTS", slots):
+                j = self.run_job("/api/plan", {"spec": self.spec(mode="list", listKind="keep", listText="0:01 0:03")})
+                self.assertEqual(j["state"], "done")   # 検出が要らない試算は待たない
+                st, j = self.c.json("POST", "/api/plan", {"spec": self.spec(silence={"noise": -41.5})})   # 覚えていない設定 = 検出が要る
+                self.assertEqual(st, 200, j)
+                job = j["job"]
+                for _ in range(200):
+                    st, cur = self.c.json("GET", "/api/job?id=" + job["id"])
+                    if cur["message"] == jobs.WAIT_MESSAGE:
+                        break
+                    time.sleep(0.02)
+                self.assertEqual((cur["state"], cur["message"]), ("running", jobs.WAIT_MESSAGE))
+                self.c.json("POST", "/api/job/cancel", {"id": job["id"]})
+                self.assertEqual(self.c.wait(job)["state"], "cancelled")
+            slots.release(held)
+            held = None
+            j = self.run_job("/api/plan", {"spec": self.spec(silence={"noise": -41.5})})   # 空いたら通る(以後は覚えるので、次の試算は待たない)
+            self.assertEqual(j["state"], "done", j)
+            held = slots.acquire("transcribe")
+            with mock.patch.object(serve._heavy, "SLOTS", slots):
+                j = self.run_job("/api/plan", {"spec": self.spec(silence={"noise": -41.5})})
+                self.assertEqual(j["state"], "done", j)
+        finally:
+            slots.release(held)
 
     def test_plan_keep_from_transcript_rows(self):
         t = self.dir / "rows.transcript.json"

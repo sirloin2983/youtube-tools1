@@ -16,6 +16,8 @@ import os
 import threading
 import time
 
+from ytt_core import fsio   # 入口(launch.py)が src を sys.path に入れてから読み込む
+
 FILE_NAME = "client-errors.jsonl"
 PER_MINUTE = 30
 MAX_BYTES = 512 * 1024
@@ -27,11 +29,7 @@ def append_line(path, line, max_bytes):
     """1 行を書き足す(max_bytes を超えていたら先に .1 へ回す = 1 世代)。書けなければ OSError。
     画面のエラーの記録・まとめて実行の記録(autorun.py)・採用の記録(live_export.py)が同じ形で使う"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    try:
-        if os.path.getsize(path) > max_bytes:
-            os.replace(path, path + ".1")
-    except OSError:
-        pass
+    fsio.rotate(path, max_bytes, old=path + ".1")
     with open(path, "a", encoding="utf-8") as f:
         f.write(line)
 

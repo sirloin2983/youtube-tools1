@@ -249,7 +249,7 @@ def fill_after_rows(job, spec, rows, wav, total):
         raise
     except (ed_state.ApiError, tx_engines.EngineError) as e:
         job["phase"] = phase
-        job["warnings"] = list(job.get("warnings") or []) + ["別の読みで埋められませんでした(whisper の結果のまま): " + str(getattr(e, "message", e))[:200]]
+        ed_state.add_warning(job, "別の読みで埋められませんでした(whisper の結果のまま): " + str(getattr(e, "message", e))[:200])
         return rows, rec, None
     job["phase"] = phase
     rec.update(st)
@@ -272,7 +272,7 @@ def fill_agree_doc(job, segs, read, total, spec):
     except ed_jobs.Cancelled:
         raise
     except (ed_state.ApiError, tx_engines.EngineError) as e:
-        job["warnings"] = list(job.get("warnings") or []) + ["別のエンジンで名簿の呼び名を確かめられませんでした: " + str(getattr(e, "message", e))[:200]]
+        ed_state.add_warning(job, "別のエンジンで名簿の呼び名を確かめられませんでした: " + str(getattr(e, "message", e))[:200])
         return 0
     finally:
         job["phase"] = phase

@@ -62,7 +62,7 @@ def make_media(dirpath, n=3, sec=40):
 
 
 def seed(tmp, rnd, streams, samples):
-    from ytt_core import schemas
+    from ytt_core import schemas, txindex
     studio_home = os.path.join(tmp, "studio-home")
     os.makedirs(studio_home, exist_ok=True)
     txdir = os.path.join(tmp, "editor", "transcripts")
@@ -136,7 +136,7 @@ def seed(tmp, rnd, streams, samples):
                               "segments": segments(rnd.randint(12, 30), 40.0, proof, 0.15 if proof > 0 else 0.0, genre == "コラボ"),
                               "createdAt": tcreated, "updatedAt": tcreated + int(rnd.uniform(0, 3) * 86400000), "clip": cj})
                     if r > 0.6:   # パックも作った(中身は印だけ。パックの有無は中の cut-plan.json で判定する: src/ytt_core/txindex.pack_info)
-                        pd = os.path.splitext(clip)[0] + "_pack"
+                        pd = txindex.pack_dir(clip)
                         os.makedirs(pd, exist_ok=True)
                         for n in ("cut-plan.json", "textplus-import.json"):
                             with open(os.path.join(pd, n), "w", encoding="utf-8") as f:

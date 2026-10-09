@@ -7,6 +7,7 @@ if (!S) return;
 const esc = S.esc;
 const $ = s => document.querySelector(s);
 const fmt = S.fmtTime;
+const durText = s => fmt(s).replace(/\.\d$/, '');   // 配信の長さ(0.1 秒に丸めてから小数を出さない)
 /* 2回押しの確認。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1) */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
 
@@ -61,7 +62,7 @@ function vmeta(v){
   const parts = [];
   const t = v.createdAt || v.updatedAt;
   if (t) parts.push(`<span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>`);
-  if (v.duration) parts.push(`<span class="num">${fmt(v.duration).replace(/\.\d$/, '')}</span>`);
+  if (v.duration) parts.push(`<span class="num">${durText(v.duration)}</span>`);
   if (v.marks) parts.push(`マーク ${Number(v.marks) || 0}件`);
   return parts.join('<span class="q-dot">・</span>');
 }
@@ -78,16 +79,10 @@ function matchV(v){
   if (C.f === 'free' && v.groupId) return false;
   if (C.f === 'analyzed' && !v.analysis) return false;
   if (C.f === 'fresh' && v.analysis) return false;
-  const q = C.q.trim().toLowerCase(); if (!q) return true;
-  const hay = (vlabel(v) + ' ' + who(v) + ' ' + v.id).toLowerCase();
-  return q.split(/\s+/).every(w => hay.includes(w));
+  return S.matchWords(C.q, vlabel(v) + ' ' + who(v) + ' ' + v.id);
 }
 /* 配信者ごとのまとまり。描くのは開いているまとまりの中身だけ(配信が数百本あっても重くならないように) */
-function groupsOf(list){
-  const m = new Map();
-  for (const v of list){ const k = who(v); if (!m.has(k)) m.set(k, []); m.get(k).push(v); }
-  return [...m.entries()];   // /api/videos は更新の新しい順。まとまりも最初に出てきた(= 新しい)順
-}
+const groupsOf = list => [...S.groupBy(list, who).entries()];   // /api/videos は更新の新しい順。まとまりも最初に出てきた(= 新しい)順
 function isOpenG(k, items, many){
   if (C.openG.has(k)) return C.openG.get(k);
   if (C.q.trim() || !many) return true;
@@ -148,7 +143,7 @@ function baseTitle(g){ const b = g.members.find(x => x.isBase); return b ? (b.ti
 function memberMeta(m){
   const v = vById(m.id); if (!v) return '';
   const t = v.createdAt || v.updatedAt;
-  return `<span class="cl-mmeta">${esc(who(v))}${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>` : ''}${v.duration ? `<span class="q-dot">・</span><span class="num">${fmt(v.duration).replace(/\.\d$/, '')}</span>` : ''}</span>`;
+  return `<span class="cl-mmeta">${esc(who(v))}${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>` : ''}${v.duration ? `<span class="q-dot">・</span><span class="num">${durText(v.duration)}</span>` : ''}</span>`;
 }
 function anchorFormHtml(g, m){
   return `<div class="cl-anchor">

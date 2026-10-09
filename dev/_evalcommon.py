@@ -10,8 +10,8 @@
 import atexit
 import datetime
 import importlib.util
-import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,20 +24,32 @@ REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
 EDITOR = os.path.join(REPO, "editor")
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt_core import datadir  # noqa: E402
+from ytt_core import datadir, fsio  # noqa: E402
+from ytt_core.fsio import read_json_or as read_json  # noqa: E402   read_json(path, default, limit) = JSON のファイル(BOM 可)。読めない・壊れている・NaN・limit バイト超は default
+
+DOC_BYTES = 64 * 1024 * 1024    # 文書・記録の JSON を読むときの上限(limit を渡さない呼び出しにも付ける。fsio の既定は 16MiB)
+SAVED_MARK = "保存: "            # 結果を残した最後の行の頭(入口の src/home/accuracy.py が SAVED_MARK として読む。形を変えない)
 
 
-# ---------------------------------------------------------------- 読み込み(読むだけ)
+# ---------------------------------------------------------------- 引数の定義(since / until / json / data-dir は全部の道具で同じ)
 
-def read_json(path, default=None, limit=None):
-    """JSON のファイル(BOM があってもよい)。読めない・壊れている・limit バイトより大きいときは default"""
-    try:
-        if limit and os.path.getsize(path) > limit:
-            return default
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
+def add_period_args(p, since_help, until_help="この日(YYYY-MM-DD。この日を含む)までだけ", json_help="同じ形の JSON を 文字起こしの作業データの evals/ 以下に残す"):
+    """--since / --until / --json / --data-dir を足す(--data-dir は全ツールの作業データの親フォルダ = テスト用。
+    eval_asr・eval_cloud の --data は文字起こしの作業データのフォルダそのもの = 意味が違うので別)"""
+    p.add_argument("--since", help=since_help)
+    p.add_argument("--until", help=until_help)
+    p.add_argument("--json", action="store_true", help=json_help)
+    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+
+
+def split_ids(text):
+    """「,」区切りの文書の id -> 空白を除いた list(指定が無い・空なら None)"""
+    return [x.strip() for x in text.split(",") if x.strip()] if text else None
+
+
+def label_name(text, limit=40):
+    """結果のファイル名に使う名前(英数字と . - _ 以外は _ に)"""
+    return re.sub(r"[^\w.-]+", "_", text)[:limit]
 
 
 def data_env(data_dir, base=None):
@@ -79,6 +91,11 @@ def in_period(t, since_ms, until_ms, unknown=True):
 
 def period_label(since, until):
     return "%s 〜 %s" % (since or "最初", until or "今") if (since or until) else "全期間"
+
+
+def is_reviewed(d):
+    """動画を全部聞いて確かめた文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
+    return isinstance(d, dict) and d.get("evalSet") is True and isinstance(d.get("evalReviewed"), dict)
 
 
 # ---------------------------------------------------------------- 数の小道具
@@ -129,16 +146,16 @@ def save(res, root, area, suffix="", out=None):
     suffix = 名前の後ろ(eval_asr = "_<名前>"・eval_speakers の run = "-run")。out = 作業データではなくそのファイルに書く(eval_timing --out)"""
     if out:
         path = os.path.abspath(out)
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     else:
-        d = os.path.join(root, "evals", area)
-        os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, "%s%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), suffix))
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(res, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+        path = os.path.join(root, "evals", area, "%s%s.json" % (datetime.datetime.now().strftime("%Y%m%d-%H%M%S"), suffix))
+    fsio.write_json(path, res, indent=1)   # フォルダも作る・Windows の一時的なロックは待ってやり直す
     return path
+
+
+def report_saved(res, enabled, root, area, suffix="", out=None):
+    """enabled なら save して、最後の行「保存: <パス>」を出す(入口の accuracy.py がこの行を読む)"""
+    if enabled:
+        print("\n" + SAVED_MARK + save(res, root, area, suffix, out))
 
 
 def utf8_stdout():
@@ -191,6 +208,26 @@ def load_serve(backend=None, prefix="eval_asr_", keep_env=True):
     mod.setup_cuda_paths()                       # 認識ワーカーの起動と同じ(pip の CUDA の部品の場所。無ければ何もしない)
     in_process_models(mod)                       # モデルへ渡す音声を、認識ワーカーの受け口と同じ形に(InProcessModel)
     return mod
+
+
+def fake_job():
+    """editor の extract_audio などに渡す、取り消しも進み具合も使わない空のジョブ"""
+    return {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
+
+
+def audio_span(S, doc, data, doc_id=None, boost=None):
+    """文書の音声の出どころ(元の動画 → 保管データの dataset/docs/<id>/full.flac)-> (extract_audio の spec, 行の時刻の基準の秒, "動画" か "保管の音声")。
+    どちらも無ければ RuntimeError。ネットワーク上の動画は読まない(存在を確かめるだけで資格情報を送ってしまう。eval_speakers にあった決まりを全部の道具に)。
+    boost = None なら spec に boost を入れない(extract_audio は spec.get("boost") で見る = 無ければ偽)"""
+    src = str(doc.get("sourcePath") or "")
+    start, end = S.num(doc.get("start"), 0.0) or 0.0, S.num(doc.get("end"))
+    full = os.path.join(data, "dataset", "docs", doc_id or doc["id"], "full.flac")
+    extra = {} if boost is None else {"boost": boost}
+    if src and not fsio.is_network_path(src) and os.path.isfile(src):
+        return dict({"sourcePath": src, "start": start, "end": end}, **extra), start, "動画"
+    if os.path.isfile(full):   # 保管データの全体の音声(文書の範囲の先頭 = 0 秒)
+        return dict({"sourcePath": full, "start": 0.0, "end": None}, **extra), start, "保管の音声"
+    raise RuntimeError("音声が見つかりません(元の動画も保管データの full.flac も無い)")
 
 
 class InProcessModel:

@@ -24,7 +24,7 @@ function parseTime(str){
 }
 function looksLikeYouTube(s){
   s = String(s).trim();
-  return /^[\w-]{11}$/.test(s) || /(?:youtu\.be\/|youtube\.com\/|[?&]v=)/i.test(s);
+  return Studio.isVideoId(s) || /(?:youtu\.be\/|youtube\.com\/|[?&]v=)/i.test(s);
 }
 
 /* ---------- 定数・設定 ---------- */
@@ -321,12 +321,8 @@ function settingsHTML(){
         </div>
       </div>`;
 }
-/* ⚙ の節の器(#opsHost。settings.js が先に作る)に入れる。器が無い(ui-kit が無い)ときだけ、③ の左の列の下に置く */
-function mountSettings(){
-  const host = $('#opsHost');
-  if (host) host.innerHTML = settingsHTML();
-  else $('#rvStage').insertAdjacentHTML('beforeend', settingsHTML());
-}
+/* ⚙ の節の器(#opsHost。settings.js が先に作る。index.html で settings.js は review.js より前)に入れる */
+function mountSettings(){ $('#opsHost').innerHTML = settingsHTML(); }
 /* 書き出しの引き出し(書き出す・つなげて1本に・設定・一覧) */
 function exportDrawerHTML(){
   return `      <aside class="ui-drawer rv-exportdrawer" id="rvExport" hidden aria-labelledby="rvExpTitle">
@@ -548,39 +544,36 @@ function pickMatch(v){
   if (f === 'adopt' && !nz(v.adopted)) return false;
   if (f === 'done' && !nz(v.exported)) return false;
   if (f === 'none' && nz(v.marks)) return false;
-  const q = PK.q.trim().toLowerCase(); if (!q) return true;
-  const hay = (vLabel(v) + ' ' + vWho(v) + ' ' + v.id).toLowerCase();
-  return q.split(/\s+/).every(w => hay.includes(w));
+  return Studio.matchWords(PK.q, vLabel(v) + ' ' + vWho(v) + ' ' + v.id);
 }
 /* 非表示にした配信(UIKit.hide の一覧 'videos'。入口から開いたときだけ)。今開いている配信は隠していても一覧に残す */
-const HIDE = window.UIKit && UIKit.hide;
-const pickHidden = v => !!(HIDE && HIDE.available() && HIDE.has('videos', v.id) && !(S.cur && S.cur.id === v.id));
+const HIDE = UIKit.hide;
+const pickHidden = v => !!(HIDE.available() && HIDE.has('videos', v.id) && !(S.cur && S.cur.id === v.id));
 function pickRowHTML(v){
   const cur = S.cur && S.cur.id === v.id, t = v.createdAt || v.updatedAt;
-  const hid = HIDE && HIDE.available() && HIDE.has('videos', v.id);
+  const hid = HIDE.available() && HIDE.has('videos', v.id);
   const pills = [v.kind === 'live' ? (liveRecActive(v) ? '<span class="pill run">録画中</span>' : '<span class="pill">録画</span>') : '', nz(v.candidates) ? `<span class="pill warn">候補 ${nz(v.candidates)}</span>` : '', nz(v.adopted) ? `<span class="pill ok">採用 ${nz(v.adopted)}</span>` : '',
     nz(v.exported) ? `<span class="pill">書き出し済み ${nz(v.exported)}</span>` : '', !v.analysis && v.kind === 'youtube' ? '<span class="pill wait">解析前</span>' : '', v.groupId ? '<span class="pill info">コラボ</span>' : '', hid ? '<span class="ui-hidden-tag">非表示</span>' : ''].join('');
   const row = `<button type="button" class="rv-prow${cur ? ' is-cur' : ''}" data-vid="${esc(v.id)}"${cur ? ' aria-current="true"' : ''} title="${esc(vLabel(v))}">
     <span class="rv-prow-t">${esc(vLabel(v))}</span>
     <span class="rv-prow-m"><span>${esc(vWho(v))}</span>${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(Studio.date(t))}">${esc(Studio.ago(t))}</span>` : ''}${pills ? `<span class="rv-prow-p">${pills}</span>` : ''}</span></button>`;
-  if (!(HIDE && HIDE.available())) return row;
+  if (!HIDE.available()) return row;
   const tip = hid ? '表示に戻す' : '一覧で非表示にする(配信のデータは消しません)';
   return `<div class="rv-prow-wrap${hid ? ' ui-hidden-item' : ''}">${row}<button type="button" class="btn small ghost rv-prow-hide" data-hide-vid="${esc(v.id)}" data-hide-on="${hid ? '0' : '1'}" title="${tip}" aria-label="${esc(vLabel(v))}: ${tip}">${hid ? '戻す' : '隠す'}</button></div>`;
 }
 function renderPickList(){
   const box = $('#rvPickList'); if (!box || !$('#rvPick').open) return;
   const vs = S.videos.map(v0 => (S.cur && S.cur.id === v0.id ? { ...v0, title: S.cur.title } : v0));
-  const base = vs.filter(pickMatch), showHid = !HIDE || HIDE.showing('videos');
+  const base = vs.filter(pickMatch), showHid = HIDE.showing('videos');
   const hit = showHid ? base : base.filter(v => !pickHidden(v));
-  if (HIDE) HIDE.toggle($('#rvPickHidden'), 'videos', base.filter(pickHidden).length);
+  HIDE.toggle($('#rvPickHidden'), 'videos', base.filter(pickHidden).length);
   $('#rvPickN').textContent = `${hit.length} / ${vs.length} 本`;
   if (!vs.length){ box.innerHTML = '<div class="empty"><b>まだ配信がありません</b>② 解析で配信を入れるか、下の欄で URL・動画ファイルを開くと、ここに出ます。</div>'; return; }
   if (!hit.length){ box.innerHTML = '<div class="empty"><b>条件に合う配信はありません</b>探す文字と絞り込みを消すと、全部の配信が出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-pick-clear>探す文字と絞り込みを消す</button></div></div>'; return; }
   const list = hit.slice(0, PK.limit);
   let html;
   if (PK.sort === 'channel'){
-    const m = new Map();
-    for (const v of list){ const k = vWho(v); if (!m.has(k)) m.set(k, []); m.get(k).push(v); }
+    const m = Studio.groupBy(list, vWho);
     const curK = S.cur ? vWho(S.cur) : '', searching = !!PK.q.trim() || PK.f !== 'all';
     html = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ja')).map(([k, items]) =>
       `<details class="ui-group rv-pg"${searching || k === curK ? ' open' : ''}><summary>${esc(k)} <span class="ui-group-n">${items.length}本</span></summary><div class="rv-pg-body">${items.map(pickRowHTML).join('')}</div></details>`).join('');
@@ -660,17 +653,17 @@ async function loadVideo(id){
   S.dirty = false; setSaveState('idle'); S.base = snap(S.cur.marks); S.baseTitle = S.cur.title;
   S.duration = S.cur.duration > 0 ? S.cur.duration : 0;
   /* 前回の場所(S-8): 選んでいたマークと再生位置へ戻す。位置はプレーヤーの準備ができたら合わせる(S.resumeAt。YouTube は playerVars の start) */
-  const back = typeof placeOf === 'function' ? placeOf(S.cur) : null;
+  const back = placeOf(S.cur);
   if (back && back.sel){ S.sel = back.sel; S.fold.set(back.sel, false); }
   S.resumeAt = back && back.t > 0 ? back.t : null;
   $('#rvLiveBar').hidden = true;
-  if (typeof liveOpened === 'function') liveOpened(S.cur);   // ライブの録画(kind live)なら録画の状態の見回りを始める。プレーヤーを作る前に(録画の状態で作り方が変わる)
+  liveOpened(S.cur);   // ライブの録画(kind live)なら録画の状態の見回りを始める。プレーヤーを作る前に(録画の状態で作り方が変わる)
   setNow(S.resumeAt || 0);
   mountPlayer();
   renderAll();
-  if (S.sel && typeof placeScroll === 'function') placeScroll();
-  if (typeof fillAutoWho === 'function') fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から(段5)
-  if (typeof syncExportDock === 'function') syncExportDock();   // (テストは loadVideo だけを切り出して動かすので、無いときは飛ばす) // 配信を開いたとき(の1回だけ)欄の開閉を合わせる
+  if (S.sel) placeScroll();
+  fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から(段5)
+  syncExportDock();   // 配信を開いたとき(の1回だけ)欄の開閉を合わせる(test_review.cjs の harness は、これらを何もしない関数で渡す)
   refreshList();
   fetchAutoTitle(S.cur);
   loadTranscripts();
@@ -703,7 +696,7 @@ async function openFromInput(){
       if (b){
         inp.value = '';
         const pk = $('#rvPick'); if (pk) pk.open = false;
-        toast(b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます', 5000, 'ok');
+        toast(Studio.live.begunText(b), 5000, 'ok');   // ③ にいるので Studio.openReview ではなく loadVideo(文は ② ① と同じ)
         await loadVideo(b.video.id);
         return;
       }
@@ -762,7 +755,7 @@ function clearYtReadyTimer(){ if (ytReadyTimer){ clearTimeout(ytReadyTimer); ytR
 function showNotice(t, opts){
   S.playerErr = true;
   const n = $('#rvNotice'), v = S.cur;
-  const yt0 = v && v.kind === 'youtube' ? `https://www.youtube.com/watch?v=${enc(v.id)}` : liveYtHref(v);
+  const yt0 = v && v.kind === 'youtube' ? Studio.watchUrl(v.id) : liveYtHref(v);
   const retry = opts && opts.retry ? '<button type="button" class="btn small" data-act="ytretry">もう一度試す</button> ' : '';   // 押したときの動きは #rvNotice のクリックで受ける(CSP: インラインの onclick は動かない)
   n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${retry || yt0 ? ' ' : ''}${retry}${yt0 ? `<a class="btn small" href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
   n.hidden = false; phMsg('');
@@ -1096,7 +1089,7 @@ function reclaimFocus(){
 /* 監査 11(全体の計画 段2): 保存の失敗は ⚙ の印と設定の引き出しの先頭に出して [もう一度](UIKit.settings.status)。成功したら消す。
    読み込みに失敗したら既定値で始めるが、読み直すまで保存しない(既定値で保存済みの設定を上書きしないため) */
 let setTimer = null, setFailed = false, setLoadErr = '';
-const settingsStatus = (...a) => { if (window.UIKit && UIKit.settings && UIKit.settings.status) UIKit.settings.status(...a); };
+const settingsStatus = (...a) => UIKit.settings.status(...a);
 function touchSettings(){ clearTimeout(setTimer); setTimer = setTimeout(saveSettings, 600); }
 async function saveSettings(){
   clearTimeout(setTimer); setTimer = null;
@@ -1123,24 +1116,39 @@ async function loadSettings(){
     setLoadErr = (e && e.message) || 'エラー';
     settingsStatus('err', `設定を読み込めませんでした(${setLoadErr})。読み直すまで、ここで変えた設定は保存しません`, () => loadSettings(), '読み直す');
   }
-  if (KM) KM.reload();
+  KM.reload();
   syncSettingsUI(); applyTheater();
 }
+/* ③ の設定と欄の対応の表(G4 の 2。0.23.4): [欄, 設定の鍵, 欄の値の場所('value' | 'checked'), 変えたあとに呼ぶ関数, 受けるイベント(既定 'change')]。
+   欄へ書くのは syncSettingsUI、欄から読むのは wireSettings。値の検め方は sanitizeSettings の 1 か所(設定を足すときは sanitizeSettings とこの表の 2 か所)。
+   音量の数字(output)・押せない欄・「書き出しのあと自動で文字起こし」(settings.js の欄)は syncSettingsUI に別に書く */
+const SET_UI = [
+  ['#rvVol', 'volume', 'value', () => { $('#rvVolOut').textContent = S.settings.volume; applyToPlayer(); }, 'input'],
+  ['#rvMute', 'muted', 'checked', () => applyToPlayer()],
+  ['#rvLag', 'lag', 'value'],
+  ['#rvLiveMode', 'liveMode', 'value', () => updateLive()],
+  ['#rvHeight', 'maxHeight', 'value', () => expSetSummary()],
+  ['#rvPrecision', 'precision', 'value', () => expSetSummary()],
+  ['#rvExpVol', 'exportVolume', 'value', () => { $('#rvExpVolOut').textContent = S.settings.exportVolume; expSetSummary(); }, 'input'],
+  ['#rvExpLoud', 'exportLoudness', 'value', () => syncSettingsUI()],   // 書き出しの音量の欄を押せなくする・戻す
+  ['#rvAutoExp', 'liveAutoExport', 'checked', () => renderLiveRec()],   // LIVE の帯(ライブの録画)
+  ['#rvDuck', 'liveDuck', 'value', () => applyToPlayer()],
+  ['#rvAfter', 'liveAfter', 'value'],
+  ['#rvAutoPlay', 'autoPlay', 'checked'],
+  ['#rvAutoNext', 'autoNext', 'checked'],
+  ['#rvSort', 'sortBy', 'value', () => renderList()],
+  ['#rvExpTarget', 'exportTarget', 'value', () => { renderExportUI(); expSetSummary(); }]
+];
 function syncSettingsUI(){
   const s = S.settings;
-  $('#rvVol').value = s.volume; $('#rvVolOut').textContent = s.volume; $('#rvMute').checked = s.muted;
-  renderKeyUI(); $('#rvLag').value = String(s.lag); $('#rvLiveMode').value = s.liveMode;
-  $('#rvHeight').value = String(s.maxHeight); $('#rvPrecision').value = s.precision;
-  $('#rvExpVol').value = s.exportVolume; $('#rvExpVolOut').textContent = s.exportVolume;
-  $('#rvExpLoud').value = String(s.exportLoudness); $('#rvExpVol').disabled = !!s.exportLoudness;
+  for (const [sel, k, prop] of SET_UI){ const el = $(sel); if (el) el[prop] = prop === 'checked' ? !!s[k] : String(s[k]); }
+  $('#rvVolOut').textContent = s.volume; $('#rvExpVolOut').textContent = s.exportVolume;
+  renderKeyUI();
+  $('#rvExpVol').disabled = !!s.exportLoudness;
   /* 音量をそろえるときは使わない欄: 薄く見せ、押せない欄であることと理由を属性で伝える(押せない物は薄くてよい。A-22・A-34) */
   { const vb = $('#rvExpVolBox'), off = !!s.exportLoudness; vb.classList.toggle('rv-off', off); vb.setAttribute('aria-disabled', String(off)); vb.title = off ? '音量のそろえ方が「そろえない」のときだけ使います' : ''; }
   expSetSummary();
-  { const ae = $('#rvAutoExp'); if (ae) ae.checked = s.liveAutoExport; }
-  { const dk = $('#rvDuck'); if (dk) dk.value = s.liveDuck; }
-  { const af = $('#rvAfter'); if (af) af.value = s.liveAfter; }
   { const at = $('#setAutoTx'); if (at) at.checked = s.autoTx !== false; }   // 設定の「書き出し」節(settings.js が作る。入口から開いたときだけ)
-  $('#rvAutoPlay').checked = s.autoPlay; $('#rvAutoNext').checked = s.autoNext; $('#rvSort').value = s.sortBy; $('#rvExpTarget').value = s.exportTarget;
 }
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
 function expSetSummary(){
@@ -1156,7 +1164,7 @@ function expSetSummary(){
 const DUCK_RATIO = 0.2;
 function duckMode(){
   if (!(S.cur && S.cur.kind === 'live') || S.settings.liveDuck === 'off') return 'off';
-  return window.UIKit && UIKit.sound && UIKit.sound.other('studio') ? S.settings.liveDuck : 'off';
+  return UIKit.sound.other('studio') ? S.settings.liveDuck : 'off';
 }
 function applyToPlayer(){
   const mode = duckMode();
@@ -1175,32 +1183,21 @@ function syncVolumeFromPlayer(){ // プレーヤー側(標準UI)での変更を�
 }
 function adjustVolume(d){ S.settings.volume = Math.min(100, Math.max(0, S.settings.volume + d)); syncSettingsUI(); applyToPlayer(); touchSettings(); }
 function toggleMute(){ S.settings.muted = !S.settings.muted; syncSettingsUI(); applyToPlayer(); touchSettings(); }
+/* 欄を変えた: 欄の値を sanitizeSettings で検めて設定へ入れ、保存を頼んでから、表の「変えたあと」を呼ぶ */
 function wireSettings(){
-  $('#rvVol').addEventListener('input', e => {
-    S.settings.volume = Number(e.target.value); $('#rvVolOut').textContent = S.settings.volume;
-    applyToPlayer();
-    touchSettings();
-  });
-  $('#rvMute').addEventListener('change', e => { S.settings.muted = e.target.checked; applyToPlayer(); touchSettings(); });
-  $('#rvLag').addEventListener('change', e => { S.settings.lag = Number(e.target.value) || 0; touchSettings(); });
-  $('#rvLiveMode').addEventListener('change', e => { S.settings.liveMode = e.target.value; updateLive(); touchSettings(); });
-  $('#rvPrecision').addEventListener('change', e => { S.settings.precision = e.target.value === 'fast' ? 'fast' : 'accurate'; touchSettings(); expSetSummary(); });
-  $('#rvHeight').addEventListener('change', e => { S.settings.maxHeight = Number(e.target.value); touchSettings(); expSetSummary(); });
-  $('#rvExpVol').addEventListener('input', e => {
-    S.settings.exportVolume = Number(e.target.value); $('#rvExpVolOut').textContent = S.settings.exportVolume;
-    touchSettings(); expSetSummary();
-  });
-  $('#rvExpLoud').addEventListener('change', e => { S.settings.exportLoudness = Number(e.target.value) || 0; syncSettingsUI(); touchSettings(); });
-  $('#rvAutoPlay').addEventListener('change', e => { S.settings.autoPlay = e.target.checked; touchSettings(); });
-  $('#rvAutoNext').addEventListener('change', e => { S.settings.autoNext = e.target.checked; touchSettings(); });
-  $('#rvSort').addEventListener('change', e => { S.settings.sortBy = e.target.value === 'score' ? 'score' : 'time'; touchSettings(); renderList(); });
-  $('#rvExpTarget').addEventListener('change', e => { S.settings.exportTarget = ['adopted', 'pending', 'all'].includes(e.target.value) ? e.target.value : 'adopted'; touchSettings(); renderExportUI(); expSetSummary(); });
+  for (const [sel, k, prop, after, ev] of SET_UI){
+    $(sel).addEventListener(ev || 'change', e => {
+      S.settings[k] = sanitizeSettings({ ...S.settings, [k]: e.target[prop] })[k];
+      touchSettings();
+      if (after) after();
+    });
+  }
 }
 
 /* ---------- キー配置 ---------- */
 /* キーの表記と、押したキーの組み合わせ(Shift+j など)は ui-kit の 1 か所(? の一覧・編集と同じ) */
-const keyText = combo => (window.UIKit && UIKit.keys ? UIKit.keys.keyText(combo) : combo || '未設定');
-const comboOf = e => (window.UIKit && UIKit.keys ? UIKit.keys.comboOf(e) : '');
+const keyText = combo => UIKit.keys.keyText(combo);
+const comboOf = e => UIKit.keys.comboOf(e);
 /* ACTION_DEFS の操作 → 実行(I/O・再生・移動は共通の再生キー UIKit.keys.playback が受け持つ) */
 const ACTION_FN = {
   addClip: () => addClip(), quickMark: () => quickMark(0), quickMark2: () => quickMark(1), quickMark3: () => quickMark(2), quickMark4: () => quickMark(3), quickMark5: () => quickMark(4),
@@ -1224,7 +1221,7 @@ function presetLabel(n){
 }
 /* キーの一覧 = キー配置(UIKit.keymap。気が利く画面へ 段6): ? の一覧と「操作の設定 → キー配置」は同じ部品。共通の再生キー(Space・J/K/L など)も
    ここで変えられる(ホームの設定。編集と同じ割り当て。S-27)。重なりの検査は部品の 1 か所 */
-const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
+const KM = UIKit.keymap.create({
   groups: KEY_GROUPS.map(([h], i) => ['g' + i, h]),
   actions: ACTION_DEFS.map(([id, label]) => ({ id, def: KEY_PRESETS.standard[id], label, group: 'g' + KEY_GROUPS.findIndex(g => g[1].includes(id)) })),
   refuse: combo => STUDIO_FIXED[combo] || '',
@@ -1237,8 +1234,8 @@ const KM = window.UIKit && UIKit.keymap ? UIKit.keymap.create({
   load: () => (S.settings && S.settings.keymap) || {},
   save: km => { S.settings.keymap = km; touchSettings(); },
   onChange: () => renderKeyUI()
-}) : null;
-const curKeymap = () => (KM ? KM.map() : S.settings.keymap);
+});
+const curKeymap = () => KM.map();
 function spanSelHTML(i){
   const cur = S.settings.quickSpans[i];
   return `<span class="rv-stepper"><button type="button" class="rv-step" data-slot="${i}" data-d="-1" aria-label="ボタン${i + 1}の長さを短く">−</button><span class="rv-stv"><span class="rv-pre">前後</span>${spanLabel(cur)}</span><button type="button" class="rv-step" data-slot="${i}" data-d="1" aria-label="ボタン${i + 1}の長さを長く">＋</button></span>`;
@@ -1275,8 +1272,7 @@ function renderLiveCount(){
   /* ⚙ の節にあるので ① ② からも押せてしまう。③ で配信を開いていて対象があるときだけ押せる(理由は title と data-ui-why。2 周目 N1) */
   const b = $('#rvShift'); if (!b) return;
   const why = !S.cur || Studio.step !== 'review' ? '③ で配信を開くと押せます' : !n ? 'ずらすマークがありません(配信中に打った「ライブ」の印のマークが対象です)' : '';
-  b.disabled = !!why; b.title = why || `「ライブ」の印のマーク ${n}件の時刻をずらします`;
-  if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
+  Studio.why(b, why, `「ライブ」の印のマーク ${n}件の時刻をずらします`);
 }
 function updateLive(){
   if (!S.cur) return;
@@ -1323,13 +1319,13 @@ const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: fal
 const liveRest = (v, tail) => 'r/' + enc(v.live.recorder) + '/' + enc(v.live.recording) + '/' + tail;
 const liveRecId = v => (v && v.live && v.live.recording) || (v && v.id) || '';
 /* YouTube の配信へのリンク(動画の id が分かるときだけ。録画の秒は配信の秒ではないので時刻は付けない) */
-function liveVideoId(v){ const id = v && v.kind === 'live' && v.live && v.live.videoId; return id && /^[\w-]{11}$/.test(id) ? id : ''; }
-function liveYtHref(v){ const id = liveVideoId(v); return id ? 'https://www.youtube.com/watch?v=' + id : ''; }
+function liveVideoId(v){ const id = v && v.kind === 'live' && v.live && v.live.videoId; return id && Studio.isVideoId(id) ? id : ''; }
+function liveYtHref(v){ const id = liveVideoId(v); return id ? Studio.watchUrl(id) : ''; }
 /* 録画中か。開いている1本は録画の状態(3 秒ごと)、ほかはヘッダーの札(UIKit.liveBadge。10 秒ごと)から */
 function liveRecActive(v){
   if (!v || v.kind !== 'live') return false;
   if (LV.vid === v.id && LV.status) return !!LV.status.active;
-  const lb = window.UIKit && UIKit.liveBadge && UIKit.liveBadge.get ? UIKit.liveBadge.get() : null, rid = liveRecId(v);
+  const lb = UIKit.liveBadge.get(), rid = liveRecId(v);
   return !!(lb && lb.enabled && (lb.recordings || []).some(r => r.id === rid && r.active && (!r.recorder || !v.live || r.recorder === v.live.recorder)));
 }
 const liveAutoExportOn = v => !!(v && v.kind === 'live' && Studio.token && S.settings.liveAutoExport);
@@ -1474,7 +1470,7 @@ function liveOpened(v){
 }
 /* ホームの設定の live.autoArchive(帯の案内の「自動: オン/オフ」用。既定オン)。設定の引き出しで変えたら studio:liveprefs で届く */
 function loadLiveAutoArchive(v){
-  if (!(window.UIKit && UIKit.prefs && UIKit.prefs.available())) return;
+  if (!UIKit.prefs.available()) return;
   UIKit.prefs.get(['live']).then(p => {
     if (LV.vid !== v.id) return;
     LV.autoArchive = !(p && p.live && p.live.autoArchive === false);
@@ -1545,7 +1541,7 @@ function liveDeletedShown(v){
 function liveEndedNotice(){
   if (LV.endedShown) return;
   LV.endedShown = true;
-  const lb = window.UIKit && UIKit.liveBadge && UIKit.liveBadge.get ? UIKit.liveBadge.get() : null;
+  const lb = UIKit.liveBadge.get();
   if (!(lb && lb.enabled)) toast(`録画が終わりました(合計 ${tickLabel(liveTotal(LV.status))})。最後まで再生・マーク・書き出しができます`, 8000, 'ok');
   renderExportUI();
 }
@@ -1566,7 +1562,7 @@ function renderLiveRec(){
   liveSet('#rvRecState', label); liveSet('#rvRecMsg', msg);
   $('#rvRecStop').hidden = !active;
   for (const sel of ['label[for="rvAutoExp"]', 'label[for="rvDuck"]', 'label[for="rvAfter"]']){ const el = document.querySelector(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出す・音の扱い・書き出したあとは意味が無い
-  { const w = $('#rvLiveWho'), can = !gone && !!(Studio.token && window.UIKit && UIKit.streamer && UIKit.streamer.autoFill); if (w && w.hidden !== !can) w.hidden = !can; }
+  { const w = $('#rvLiveWho'), can = !gone && !!Studio.token; if (w && w.hidden !== !can) w.hidden = !can; }
   const ended = (!!st && !err && !active) || gone;
   $('#rvLiveBar').classList.toggle('is-ended', ended);
   liveSet('#rvLiveBadge', ended ? '録画' : 'LIVE');
@@ -1646,7 +1642,7 @@ async function stopLiveRec(btn){
     btn.disabled = true;
     try {
       await Studio.live.api(liveRest(v, 'stop'), { body: {} });
-      if (window.UIKit && UIKit.liveBadge && UIKit.liveBadge.refresh) UIKit.liveBadge.refresh();   // ヘッダーの札もすぐ合わせる
+      UIKit.liveBadge.refresh();   // ヘッダーの札もすぐ合わせる
     } catch (e){ toast('録画を止められませんでした: ' + e.message, 0, 'err'); }
     finally { btn.disabled = false; if (S.cur === v) pollLiveStatus(); }
   }, 'もう一度押すと録画を止めます');
@@ -1718,7 +1714,7 @@ function renderLiveWho(){ liveSet('#rvLiveWhoText', liveWhoLabel(LV.who)); }
 /* 録画を開いたとき: 欄を自動で埋める(手で直したあとは同じ録画では入れ直さない = UIKit.streamer の約束) */
 function liveWhoOpened(v){
   const box = $('#rvLiveWho'), inp = $('#rvLiveWhoIn'); if (!box || !inp) return;
-  const can = !!(Studio.token && window.UIKit && UIKit.streamer && UIKit.streamer.autoFill);
+  const can = !!Studio.token;
   box.hidden = !can; if (box.open) box.open = false;
   LV.who = { vid: v.id, name: '', match: null };
   renderLiveWho();
@@ -2235,10 +2231,12 @@ function checkRange(start, end){
   if (end - start > MAX_MARK_SEC) return '1本の長さは60分までです';
   return [start, end];
 }
+/* 今の位置から反応の遅れ補正(設定の lag。sanitizeSettings が 0・2・3・5 に限る。欄 #rvLag は設定と同じ値)を引いた位置。今をマーク・一瞬・IN で同じ */
+const lagNow = () => Math.max(0, S.now - S.settings.lag);
 function quickMark(slot = 0){
   if (!S.cur) return toast('先に配信を開いてください');
   if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
-  const center = Math.max(0, S.now - S.settings.lag);
+  const center = lagNow();
   const span = S.settings.quickSpans[slot] || 30;
   const r = checkRange(center - span, center + span);
   if (typeof r === 'string') return toast(r);
@@ -2253,7 +2251,7 @@ const MOMENT_LABEL = '一瞬';
 function momentMark(){
   if (!S.cur) return toast('先に配信を開いてください');
   if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
-  const c = Math.max(0, S.now - (Number(S.settings.lag) || 0));   // 今をマークと同じく、遅れ(lag)を引いた位置
+  const c = lagNow();   // 今をマークと同じく、遅れ(lag)を引いた位置
   const b = S.settings.momentBefore, a = S.settings.momentAfter;
   const r = checkRange(c - b, c + a);
   if (typeof r === 'string') return toast(r);
@@ -2275,8 +2273,7 @@ function setMomentSec(key, el){
 }
 function markIn(){
   if (!S.cur) return toast('先に配信を開いてください');
-  const lag = Number($('#rvLag').value) || 0;
-  S.draft.start = round1(Math.max(0, S.now - lag));
+  S.draft.start = round1(lagNow());
   if (S.draft.end != null && S.draft.end <= S.draft.start) S.draft.end = null;
   renderDraft();
 }
@@ -2394,6 +2391,7 @@ function autoTitleFromPlayer(){
 /* ---------- 書き出し(サーバーが store から組み立てる。クライアントは id とマークIDだけ送る)---------- */
 let expTimer = null;
 const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ(見直し S7)
+const EXP_CLS = { done: 'ok', error: 'err', running: 'run', cancelled: 'warn' };   // 状態の色(ほかは wait。② の解析の一覧と同じ色)
 /* 書き出したファイルの名前の見せ方: 名前の中の開始時刻 00h29m21s は 0:29:21 の形で見せる(ファイル名そのものは変えない。title に本当の名前。見直し S6) */
 const fileLabel = f => String(f || '').replace(/(\d{2})h(\d{2})m(\d{2})s/g, (_, h, m, sec) => `${Number(h)}:${m}:${sec}`);
 function errHint(msg){
@@ -2432,7 +2430,7 @@ function handoffHTML(j, it){
   const path = it.status === 'done' ? clipPathOf(j, it) : '';
   if (!path) return '';
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
-  if (window.UIKit && UIKit.appnav) UIKit.appnav.setLink('transcribe', '?media=' + enc(path));   // 「編集」に今の切り抜きを引き継ぐ(ヘッダーの appnav)
+  UIKit.appnav.setLink('transcribe', '?media=' + enc(path));   // 「編集」に今の切り抜きを引き継ぐ(ヘッダーの appnav)
   const tt = editorHref(path);
   return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" data-edit-open title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">切り抜きの記録あり</span>` : ''}</div>`;
 }
@@ -2443,8 +2441,8 @@ function editorHref(path){ return path ? Studio.toolUrl('transcribe', '/?media='
    ホームへのリンク(案件で見る・案件の一覧)は data-ui-portal(ホームが開いていれば前に出す) */
 function openEditor(href){
   if (!href) return;
-  const w = window.UIKit && window.UIKit.win;
-  if (w && Studio.token && w.isApp()){ w.open(href).catch(() => { window.open(href, '_blank', 'noopener'); }); return; }
+  const w = UIKit.win;
+  if (Studio.token && w.isApp()){ w.open(href).catch(() => { window.open(href, '_blank', 'noopener'); }); return; }
   window.open(href, '_blank', 'noopener');
 }
 /* 書き出しが済んだ知らせ(S-7)。paths: 書き出した mp4 の絶対パス(書き出しの順)。最初の1本を [編集で開く](行のリンクと同じ URL・同じ開き方)。
@@ -2453,13 +2451,6 @@ function doneToast(msg, kind, paths){
   const ok = (paths || []).filter(Boolean), href = ok.length ? editorHref(ok[0]) : '';
   if (!href) return toast(msg, 0, kind);
   return Studio.toast(msg, { kind, ms: 8000, action: { label: ok.length > 1 ? '1本目を編集で開く' : '編集で開く', fn: () => openEditor(href) } });
-}
-async function copyText(text){
-  try { await navigator.clipboard.writeText(text); return true; } catch {}
-  try {   // clipboard API が使えないとき(古いブラウザ・権限なし)の予備
-    const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok;
-  } catch { return false; }
 }
 function jobDirText(j, st){
   const base = (j && j.outDir) || st.outDir || '';
@@ -2534,7 +2525,7 @@ function renderExportUI(){
   renderExpTools(v, st, live);
   const t = exportTargets();
   $('#rvExpTarget').value = S.settings.exportTarget;
-  const running = !!(S.job && S.job.running) || S.starting || !!S.exportAll;
+  const running = exportBusy();
   const j = live ? null : S.lastJob, jrun = !!(j && S.job && S.job.running && j.items.length);
   const done = jrun ? j.items.filter(i => i.status === 'done').length : 0;
   const lact = live ? LV.jobs.filter(x => LIVE_ACTIVE.includes(x.state)) : [];
@@ -2555,7 +2546,7 @@ function joinIds(){ return sortedMarks().filter(c => S.join.has(c.id)).sort((a, 
 /* チェックしたマークを時刻の順につないで1本の mp4 に(2026-09-28 ユーザー要望。同じ配信の中だけ・つなぎ目はそのまま)。
    つないだ動画は元の配信の1つの区間ではないので、.clip.json・マークの「書き出し済み」・自動の文字起こしは付けない(「編集で開く」から) */
 async function startJoin(){
-  if (S.starting || S.exportAll || (S.job && S.job.running)) return;
+  if (exportBusy()) return;
   const v = S.cur, ids = joinIds();
   if (!v || ids.length < 2) return toast('つなげるマークを2件以上チェックしてください');
   if (S.live) return toast('配信中は書き出せません。配信終了後に実行してください');
@@ -2572,9 +2563,9 @@ async function startJoin(){
 }
 function combinedHTML(j){   // つないだ1本の行(書き出しの一覧の先頭)
   const c = j.combined; if (!c) return '';
-  const pct = Math.round((c.progress || 0) * 100), cls = c.status === 'done' ? 'ok' : c.status === 'error' ? 'err' : c.status === 'running' ? 'run' : c.status === 'cancelled' ? 'warn' : 'wait';
+  const pct = Math.round((c.progress || 0) * 100), cls = EXP_CLS[c.status] || 'wait';
   return `<li class="rv-ejob st-${cls}"><div class="rv-ejob-h">
-      <span class="rv-ejob-n">つないだ1本(${c.count}件${c.seconds ? '・' + fmt(c.seconds) : ''})</span>
+      <span class="rv-ejob-n">つないだ1本(${Number(c.count) || 0}件${c.seconds ? '・' + fmt(c.seconds) : ''})</span>
       <span class="pill ${cls}">${esc(c.status === 'queued' ? '部品を切り出し中' : EXP_LABEL[c.status] || c.status)}${c.status === 'running' ? ' ' + pct + '%' : ''}</span></div>
       ${c.status === 'running' ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
       ${c.file ? `<div class="rv-ejob-s mono">${esc(c.file)}</div>` : ''}
@@ -2592,7 +2583,7 @@ function loudHTML(lo){   // ラウドネスをそろえた結果(書き出しの
   return `<div class="rv-ejob-s hint">音量: ${m.toFixed(1)} → ${(m + g).toFixed(1)} LUFS(${g >= 0 ? '+' : ''}${g.toFixed(1)} dB${reached ? '' : '。音が割れないよう目標の手前で止めました'})</div>`;
 }
 function jobItemHTML(j, it, i){
-  const pct = Math.round((it.progress || 0) * 100), cls = it.status === 'done' ? 'ok' : it.status === 'error' ? 'err' : it.status === 'running' ? 'run' : it.status === 'cancelled' ? 'warn' : 'wait';
+  const pct = Math.round((it.progress || 0) * 100), cls = EXP_CLS[it.status] || 'wait';
   /* ライブの録画(入口の書き出し。j.live): 状態は入口の言葉(録画待ち・取得中・作り直し中 n%)。行ごとに取り消す・やり直すは「書き出す」から */
   const lv = !!j.live, act = lv && (it.status === 'queued' || it.status === 'running');
   const label = (lv && it.stateLabel) || EXP_LABEL[it.status] || it.status;
@@ -2679,7 +2670,7 @@ function pollJob(){
           const nf = j.items.length - done;
           toast(done ? `${done}件を書き出しました。${nf}件は失敗しました` : `書き出しに失敗しました(${nf}件)`, { kind: 'err', ms: 0, action: { label: '失敗した分をやり直す', fn: () => { const ids = failedIds(); if (ids.size) startExport(ids); } } });
         } else doneToast(`書き出しました(${done}件)`, 'ok', paths);
-        if (!j.combined && j.state !== 'cancelled' && typeof maybeAutoTranscribe === 'function'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
+        if (!j.combined && j.state !== 'cancelled'){ const vid = S.job.videoId, doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (doneIds.length) maybeAutoTranscribe(vid, doneIds); }
       }
     } catch (e){
       if (e.status === 404){ S.job = null; rememberJob(null); stopExpPoll(); renderExportUI(); }
@@ -2689,7 +2680,7 @@ function pollJob(){
 }
 async function startExport(onlyIds){
   if (S.cur && S.cur.kind === 'live') return startLiveExport(onlyIds);   // ライブの録画は入口の書き出しへ(スタジオの /api/export は録画を読めない。録画中でも書き出せる)
-  if (S.starting || S.exportAll || (S.job && S.job.running)) return;
+  if (exportBusy()) return;
   const v = S.cur;
   if (!v) return toast('先に配信を開いてください');
   if (S.live) return toast('配信中は書き出せません。配信終了後に実行してください');
@@ -2758,8 +2749,7 @@ async function startExportAll(){
           if (j.state === 'running') await new Promise(r => setTimeout(r, 1000));
         }
         rememberJob(null);
-        // typeof で確かめる: test_review.cjs はこの関数を、まとめて実行の定義を含まない範囲だけ切り出して確かめるため
-        if (typeof maybeAutoTranscribe === 'function'){ const doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (j.state !== 'cancelled' && doneIds.length) maybeAutoTranscribe(v.id, doneIds); }
+        { const doneIds = j.items.filter(i => i.status === 'done').map(i => i.id); if (j.state !== 'cancelled' && doneIds.length) maybeAutoTranscribe(v.id, doneIds); }   // test_review.cjs の harness は maybeAutoTranscribe を渡す
         S.exportAll.done += j.items.filter(i => i.status === 'done').length;
         S.exportAll.fail += j.items.filter(i => i.status !== 'done').length;
         if (S.cur && S.cur.id === v.id) await syncFromServer();
@@ -2791,6 +2781,9 @@ async function resumeJob(){
     }
   }
 }
+/* 書き出しの実行中か(1 本ずつ・つなぐ・全部の配信)。exportBusy は「始めている途中」(S.starting)も含める(書き出しを始めるボタンの判定) */
+const exportRunning = () => !!(S.job && S.job.running) || !!S.exportAll;
+const exportBusy = () => S.starting || exportRunning();
 
 /* ---------- 描画 ---------- */
 function totalDur(){
@@ -2822,7 +2815,7 @@ function renderMeta(){
   const t = $('#rvTitle'); if (document.activeElement !== t) t.value = v.title || '';
   $('#rvAnalyze').hidden = v.kind !== 'youtube';   // ライブの録画は解析しない(サーバーも断る)
   /* YouTube で開く: ライブの録画は動画の id が分かるときだけ。時刻は付けない(録画の秒は配信の秒ではない) */
-  const ytHref = v.kind === 'youtube' ? 'https://www.youtube.com/watch?v=' + enc(v.id) : liveYtHref(v);
+  const ytHref = v.kind === 'youtube' ? Studio.watchUrl(v.id) : liveYtHref(v);
   const yl = $('#rvYtLink'); yl.hidden = !ytHref; if (ytHref) yl.href = ytHref;
   yl.title = v.kind === 'live' ? 'YouTube で配信を開きます(録画の時刻とは合わないので、頭から開きます)' : 'YouTube で、いまの位置から開きます';
 }
@@ -2839,7 +2832,7 @@ function renderAutoMenu(v){
   const why = autoOffReason(v);
   d.classList.toggle('is-off', !!why);
   /* 押せないときは押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
-  if (window.UIKit && UIKit.menuOff) UIKit.menuOff(d, why, '案件の画面と同じ「まとめて実行」を、この配信で始めます');
+  UIKit.menuOff(d, why, '案件の画面と同じ「まとめて実行」を、この配信で始めます');
 }
 function renderDuration(){
   $('#rvDur').textContent = '/ ' + (S.duration ? fmt(S.duration) : '--');
@@ -2881,10 +2874,8 @@ const G_LANE = 21, G_PAD = 5;   // 札の1段の高さ・上の余白(px)。下�
 const TICK_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
 /* 目盛りの間隔: 画面の幅で 70px 以上空く、いちばん細かい間隔 */
 function tickStep(dur, w){ return TICK_STEPS.find(st => st / dur * w >= 70) || TICK_STEPS[TICK_STEPS.length - 1]; }
-function tickLabel(t){
-  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), sec = Math.floor(t % 60), p2 = n => String(n).padStart(2, '0');
-  return h ? `${h}:${p2(m)}:${p2(sec)}` : `${m}:${p2(sec)}`;
-}
+/* 秒 → 1:23 / 1:02:03(秒の切り捨て。目盛り・候補の時刻・録画の長さ。ui-kit の 1 か所) */
+function tickLabel(t){ return UIKit.fmt.dur(t, { floor: true }); }
 const PEAK_MAX = 5;
 function findPeaks(total){
   const idx = [];
@@ -3056,7 +3047,7 @@ function renderList(){
   }
   S.rendering = true;
   try { ol.innerHTML = list.map(markHTML).join(''); UIKit.timebox.attachAll(ol); } finally { S.rendering = false; }   // 時刻の欄(時:分:秒.0.1秒。数字だけで入れる。ui-kit v11)
-  if (window.UIKit && UIKit.icon) UIKit.icon.fill(ol);   // 行の中の「…」の SVG(動的に描くので、読み込み後の一括の埋め込みには乗らない)
+  UIKit.icon.fill(ol);   // 行の中の「…」の SVG(動的に描くので、読み込み後の一括の埋め込みには乗らない)
 }
 function renderStats(){
   const v = S.cur; if (!v){ return; }
@@ -3102,15 +3093,14 @@ function placeJump(){
    それより狭いときは重ねる「overlay」(閉じるまで畳んでおく) ---------- */
 const WIDE_EXPORT = '(min-width:1680px)';   // 1440px では並べるとマークの一覧が細くなりすぎた(2026-09-27。以前は 1280px)
 const exportDockActive = () => window.matchMedia(WIDE_EXPORT).matches;
-const exportRunning = () => !!(S.job && S.job.running) || !!S.exportAll;
 /* 主画面の余白(rv-dock)は、実際に欄が docked で開いているときだけ付ける(× で閉じている間は余白を残さない) */
 function updateDockClass(){
   const el = $('#rvExport'), root = $('#rvRoot');
-  if (root) root.classList.toggle('rv-dock', exportDockActive() && !!el && !!window.UIKit && UIKit.drawer.isOpen(el));
+  if (root) root.classList.toggle('rv-dock', exportDockActive() && !!el && UIKit.drawer.isOpen(el));
 }
 /* opts.focus:false は自動で開くとき(docked)にフォーカスを奪わないため。1680px 以上は docked(modal:false)、それより狭い重ねる表示は modal:true */
 function openExportDrawer(opener, opts){
-  const el = $('#rvExport'); if (!el || !window.UIKit) return;
+  const el = $('#rvExport'); if (!el) return;
   opts = opts || {};
   const wantModal = !exportDockActive();
   if (UIKit.drawer.isOpen(el)){
@@ -3123,7 +3113,7 @@ function openExportDrawer(opener, opts){
 }
 /* userClosed: ユーザーが × を押して閉じたか。true のときは、次に配信を開き直すか自分で開くまで、docked でも自動では開き直さない */
 function closeExportDrawer(userClosed){
-  const el = $('#rvExport'); if (!el || !window.UIKit) return;
+  const el = $('#rvExport'); if (!el) return;
   if (UIKit.drawer.isOpen(el)) UIKit.drawer.close(el);
   if (userClosed) S.expDockClosed = true;
   updateDockClass();
@@ -3133,7 +3123,7 @@ function closeExportDrawer(userClosed){
    1680px 以上: 閉じたと覚えていなければ、いつも見える場所として開いておく(focus:false)。
    それより狭い: 自動で開けていた(docked)ぶんは重ねる表示をやめて畳む。書き出し中は、進み具合を見失わないよう畳まない */
 function syncExportDock(){
-  const el = $('#rvExport'); if (!el || !window.UIKit) return;
+  const el = $('#rvExport'); if (!el) return;
   const wide = exportDockActive();
   if (wide){
     if (S.cur && !S.expDockClosed) openExportDrawer(null, { focus: false }); else updateDockClass();
@@ -3169,18 +3159,17 @@ const rvMedia = {
 /* I/O は markIn/markOut を呼ぶ(キー配置で別のキーを割り当てていても、共通キーとしてはこれが優先。「操作の設定」に注記あり)。
    media は yt が無くても常に rvMedia を返す(rvMedia の各操作が yt の有無を自分で見るので、プレーヤーが無い間も S.now は , . ← → で動かせる)。
    再生できない画面(埋め込み不可・通信不調)で Space・L(再生を試みるキー)を押したときだけ、これまでどおり案内を出す */
-const handlePlayback = window.UIKit && UIKit.keys ? UIKit.keys.playback({
+const handlePlayback = UIKit.keys.playback({
   media: () => rvMedia, keymap: () => curKeymap(),   // 割り当ては共通(ホームの設定。? の一覧で変えられる。段6)
   onIn: () => markIn(), onOut: () => markOut(),
   onKey: (name, act) => {
     if (!canPlay() && (act === 'playPause' || act === 'play')) noPlayerToast();
     if (act === 'stop' || act === 'play'){ const r = $('#rvRate'); if (r) r.value = String(S.rate); }   // 止める・再生は再生速度を変えるので、速度の選択も合わせる
   }
-}) : null;
+});
 /* キーの帯(下の細い帯)の中身。③ の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
    書き出しの欄を重ねて開いている間(③ のキーは効かない)は、その欄で使うキーだけにする(重ねているかは属性で見る。S.expModal は開いたあとで入るため) */
 function keybarScene(){
-  if (!window.UIKit || !UIKit.keybar) return;
   { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
   /* ライブの録画で配信中の候補が出ている間は、マークの採用・不採用の代わりに候補のキー(7 個までに収める) */
@@ -3364,7 +3353,7 @@ function wire(){
   });
   $('#rvJump').addEventListener('click', e => { const b = e.target.closest('[data-jump]'); if (b) jumpTo(b.dataset.jump); });
   /* YouTube で開くリンクは、押したときの再生位置から */
-  const ytNow = a => { if (S.cur && S.cur.kind === 'youtube') a.href = `https://www.youtube.com/watch?v=${enc(S.cur.id)}${S.now >= 1 ? '&t=' + Math.floor(S.now) + 's' : ''}`; };
+  const ytNow = a => { if (S.cur && S.cur.kind === 'youtube') a.href = Studio.watchUrl(S.cur.id, S.now); };
   $('#rvNotice').addEventListener('click', e => {
     if (e.target.closest('[data-act="ytretry"]')){ mountPlayer(); return; }
     const a = e.target.closest('a[data-yt-now]'); if (a) ytNow(a);
@@ -3414,8 +3403,7 @@ function wire(){
   $('#keyPresetRow').hidden = false;
   $('#rvKeyPreset').addEventListener('change', e => {
     const pr = KEY_PRESETS[e.target.value]; if (!pr) return;
-    if (KM) KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
-    else { S.settings.keymap = sanitizeKeymap(pr); renderKeyUI(); touchSettings(); }
+    KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
   });
   $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
   $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
@@ -3427,10 +3415,8 @@ function wire(){
     if (d && typeof d.autoDelete === 'boolean'){ LV.autoDelete = d.autoDelete; renderLiveRec(); }
     if (d && (d.detect || d.autoAdopt)) peakPrefs(d, true);
   });
-  $('#rvAutoExp').addEventListener('change', e => { S.settings.liveAutoExport = e.target.checked; touchSettings(); renderLiveRec(); });
-  $('#rvAfter').addEventListener('change', e => { S.settings.liveAfter = LIVE_AFTERS.includes(e.target.value) ? e.target.value : 'check'; touchSettings(); });
-  $('#rvDuck').addEventListener('change', e => { S.settings.liveDuck = ['low', 'mute', 'off'].includes(e.target.value) ? e.target.value : 'low'; applyToPlayer(); touchSettings(); });
-  if (window.UIKit && UIKit.sound) UIKit.sound.onChange(() => applyToPlayer());   // ほかの窓の再生が始まった・止まった
+  /* LIVE の帯の「マークしたらすぐ書き出す」「書き出したあと」「音の扱い」は設定の表(SET_UI)の wireSettings が受ける */
+  UIKit.sound.onChange(() => applyToPlayer());   // ほかの窓の再生が始まった・止まった
   $('#rvShift').addEventListener('click', () => {
     if (!S.cur) return;
     const d = Number($('#rvShiftSec').value);
@@ -3458,7 +3444,7 @@ function wire(){
   const onCopy = async e => {   // 書き出しの一覧と、書き出し済みのマークの行の「パスをコピー」
     const b = e.target.closest('[data-act="copy"]'); if (!b) return;
     e.stopPropagation();
-    const ok = await copyText(b.dataset.path);
+    const ok = await UIKit.copy(b.dataset.path);   // クリップボード(ui-kit の 1 か所。使えなければ textarea の予備)
     Studio.toast(ok ? 'パスをコピーしました: ' + b.dataset.path : 'コピーできませんでした。パス: ' + b.dataset.path, 0, ok ? 'ok' : 'err');
   };
   $('#rvExpList').addEventListener('click', onCopy);
@@ -3495,21 +3481,21 @@ function wire(){
   document.addEventListener('keydown', e => {
     if (Studio.step !== 'review' || !S.cur) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;   // 日本語の変換中は受け取らない
-    if (Studio.overlayOpen && Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
+    if (Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
     /* 書き出しの欄: 重ねて開いている(1680px 未満)間と、欄の中にフォーカスがある間は、裏の配信を操作しない(B-2。→ で裏の再生位置が動いていた)。
        1680px 以上で横に並べている(docked)ときは、欄の外ではこれまでどおり効く */
-    { const ex = $('#rvExport'); if (ex && window.UIKit && UIKit.drawer.isOpen(ex) && (S.expModal || ex.contains(e.target))) return; }
-    if (Studio.inMenu && Studio.inMenu(e.target)) return;      // 配信の選択・配信の操作のメニューの中では、そのメニューの操作を優先する
+    { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && (S.expModal || ex.contains(e.target))) return; }
+    if (Studio.inMenu(e.target)) return;      // 配信の選択・配信の操作のメニューの中では、そのメニューの操作を優先する
     const tag = e.target.tagName;
-    if (Studio.isTyping ? Studio.isTyping(e.target) : (tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable || (tag === 'INPUT' && !['checkbox', 'radio', 'button'].includes(e.target.type)))) return; // 文字入力中はショートカットを無効化(チェックボックス上では有効。スライダーの上ではキーをスライダーに譲る)
+    if (Studio.isTyping(e.target)) return; // 文字入力中はショートカットを無効化(チェックボックス上では有効。スライダーの上ではキーをスライダーに譲る)
     // ボタン・リンク・開閉の見出しの上では、Space / Enter はその部品の操作を優先する(Space で「操作の設定」を開けなかったのを修正)
     const onControl = tag === 'BUTTON' || tag === 'INPUT' || tag === 'SUMMARY' || tag === 'A';
     // 押しっぱなしの Space で再生・停止を連打しないように、繰り返しのキー入力(e.repeat)は無視する(スクロールなどの既定の動きも止める)
     if (e.repeat && (e.key === ' ' || e.key === 'Spacebar')){ e.preventDefault(); return; }
     // 共通の再生キー(全ツール共通。Space・J/K/L・← →(±1秒/Shift ±5秒)・,/.・I/O)を先に。処理したら(true)ここで終わる
-    if (handlePlayback && handlePlayback(e)) return;
+    if (handlePlayback(e)) return;
     const combo = comboOf(e); if (!combo) return;
-    const hit = KM ? KM.actionOf(combo) : (ACTION_DEFS.find(([id]) => S.settings.keymap[id] === combo) || [])[0];
+    const hit = KM.actionOf(combo);
     if (hit && !(combo === 'Space' && onControl)){
       e.preventDefault();
       if (e.repeat && !['volUp', 'volDown'].includes(hit)) return; // 押しっぱなしでマークが連続作成されないように
@@ -3532,7 +3518,7 @@ async function activate(){
 function deactivate(){
   pausePlayback(); stopPoll(); liveStopPoll();   // ③ を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
   placeFlush();   // 前回の場所(S-8)をすぐ書く
-  if (window.UIKit && UIKit.keybar) UIKit.keybar.clear();
+  UIKit.keybar.clear();
   if (setTimer) saveSettings();
   if (S.dirty || saveTimer) save();
 }
@@ -3553,8 +3539,7 @@ Studio.review = {
 };
 /* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
-const AUTO_STATE = { queued: ['wait', '待ち'], running: ['run', '実行中'], done: ['ok', '済み'], error: ['err', '失敗'], cancelled: ['wait', '中止'] };
-const AUTO_STEP = { wait: '待ち', run: '実行中', done: '済', skip: '飛ばした', warn: '一部', error: '失敗' };
+const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };   // 実行の状態の色(言葉は UIKit.autorun.runLabel の 1 か所)
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);
 /* ---------- 書き出しのあと自動で文字起こし(入口から開いたときだけ。設定「書き出しのあと自動で文字起こし」既定オン。IMPLEMENTATION.md 4) ----------
@@ -3566,7 +3551,7 @@ async function maybeAutoTranscribe(videoId, markIds){
   if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
   try {
     const r = await portalApi('api/autorun/start', { id: videoId, mode: 'transcribe', marks: markIds });
-    if (r && r.run && window.UIKit && UIKit.autorun) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる(段4)
+    if (r && r.run) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる(段4)
     toast('書き出しに続けて、文字起こしを始めました', 4000, 'ok');
     if (S.cur && S.cur.id === videoId) pollAuto();
   } catch (e){
@@ -3581,19 +3566,18 @@ async function maybeAutoTranscribe(videoId, markIds){
 /* マークの行の「この後を」: 実行する前に字幕の色(③ のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
 function autoWhoText(){ const el = document.getElementById('rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
 function fillAutoWho(){
-  if (window.UIKit && UIKit.streamer && UIKit.streamer.autoFill && Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
+  if (Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
 }
 async function startAuto(mode, marks){
   if (!S.cur) return;
   const top = Math.min(20, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
-    const who = window.UIKit && UIKit.streamer && UIKit.streamer.check ? await UIKit.streamer.check($('#rvAutoWho')) : $('#rvAutoWho').value.trim();
+    const who = await UIKit.streamer.check($('#rvAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
-    const ar = window.UIKit && UIKit.autorun, st = ar ? ar.state() : null;
+    const st = UIKit.autorun.state();
     const body = { id: S.cur.id, mode, ...(mode === 'full' ? { top } : {}), streamer: who, ...(marks ? { marks } : {}), overwrite: !!(st && st.overwrite) };   // 空 = 色なし(欄は自動で入る)
-    const r = ar ? await ar.start('api/autorun/start', body, { id: body.id, mode, marks: marks || null, top: body.top, overwrite: body.overwrite })
-      : await portalApi('api/autorun/start', body);
+    const r = await UIKit.autorun.start('api/autorun/start', body, { id: body.id, mode, marks: marks || null, top: body.top, overwrite: body.overwrite });
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
     $('#rvAuto').open = false;
     pollAuto();
@@ -3610,9 +3594,8 @@ async function pollAuto(){
   const r = runs.find(x => x.kind !== 'doc' && x.videoId === vid);   // いちばん新しい実行(一覧は新しい順)
   const active = !!r && (r.state === 'queued' || r.state === 'running');
   if (!r || (!active && !AUTO.active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ bar.hidden = true; AUTO.active = false; return; }   // 10分より前に終わったものは出さない
-  const cls = r.nothing ? 'info' : (AUTO_STATE[r.state] || ['info'])[0], label = window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : (AUTO_STATE[r.state] || [0, r.state])[1];   // 状態の言葉は1か所
-  const stepLabel = s => (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(s) : AUTO_STEP[s.state] || s.state);   // 状態の言葉は1か所
-  const steps = r.steps.map(s => `${esc(s.label)}: ${esc(stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
+  const cls = r.nothing ? 'info' : AUTO_STATE[r.state] || 'info', label = UIKit.autorun.runLabel(r);   // 状態の言葉は1か所
+  const steps = r.steps.map(s => `${esc(s.label)}: ${esc(UIKit.autorun.stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
     (active ? '<button type="button" class="btn small" data-act="autocancel" title="まとめて実行を止めます(済んだ段は残ります。もう一度始めると、残りから進めます)">中止</button>' : '') +
     `<a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
@@ -3628,17 +3611,17 @@ async function pollAuto(){
 function showDataWarning(){ Studio.dataWarning($('#rvWarn')); }   // 文・閉じる・知らせ 1 回は core.js の 1 か所(② の帯と同じ。見直し M8)
 Studio.onReady(() => {
   buildDOM(); mountSettings(); S.built = true; placeJump();
-  if (window.UIKit && UIKit.icon) UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
-  if (HIDE){ HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {}); }
+  UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
+  HIDE.onChange(list => { if (!list || list === 'videos') renderPickList(); }); HIDE.load().then(() => renderPickList(), () => {});
   /* まとめて実行はホームから開いたときだけ(12 ⑦(a))。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる。S-25) */
-  if (window.UIKit && UIKit.packLoud) UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
-  if (window.UIKit && UIKit.autorun && Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
+  UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所。2026-09-29)
+  if (Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品。段4)・採用数はホームの設定
     UIKit.autorun.panel($('#paneReview .rv-autopanel'), { kind: 'video' });
     UIKit.autorun.load().then(st => { $('#rvAutoTop').value = String(st.top); }, () => {});
-    $('#rvAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rvAutoTop').value)); if (n >= 1 && n <= 20 && UIKit.prefs) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
+    $('#rvAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rvAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
+    UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   }
   $('#rvAuto').addEventListener('click', e => { const b = e.target.closest('[data-auto]'); if (b) startAuto(b.dataset.auto); });
-  if (Studio.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   $('#rvAutoBar').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=autocancel]')) return;
     try { await portalApi('api/autorun/cancel', { runId: $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }
@@ -3646,18 +3629,15 @@ Studio.onReady(() => {
   });
   showDataWarning();
   /* ヘッダーの「録画中」の札(UIKit.liveBadge): 「開く」でページを移らずにその録画を ③ で開く・録画中の札が変わったら配信の一覧の「録画中」も合わせる */
-  if (window.UIKit && UIKit.liveBadge){
-    if (UIKit.liveBadge.onOpen) UIKit.liveBadge.onOpen(rec => { openLiveRecording(rec); });
-    if (UIKit.liveBadge.onChange) UIKit.liveBadge.onChange(() => renderPickList());
-  }
+  UIKit.liveBadge.onOpen(rec => { openLiveRecording(rec); });
+  UIKit.liveBadge.onChange(() => renderPickList());
   if (Studio.live) Studio.live.available().then(i => { const el = $('#rvOpenForm .rv-openlive'); if (el) el.hidden = !i; }, () => {});   // ライブの機能が使えるときだけ「録画を始めて開きます」と添える
   wireSettings(); wire(); renderKeyUI();
   renderAll();
   Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ③ にいるか次第
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
-  /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2)。別の窓へ移った('blur')ときは保存だけ: 再生を止めない・状態の確認も続ける
-     (窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */
-  const life = window.UIKit && UIKit.life;
+  /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2。ブラウザのタブの切り替えの合図を直接使わない = AGENTS.md の決まり)。別の窓へ移った('blur')ときは保存だけ:
+     再生を止めない・状態の確認も続ける(窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */
   const onLeft = reason => {
     if (setTimer) saveSettings();
     if (S.dirty) save();
@@ -3668,8 +3648,7 @@ Studio.onReady(() => {
     if (setFailed && !setLoadErr) saveSettings();   // 離れるときの保存が失敗していたら送り直す(監査 11)
     if (Studio.step === 'review'){ startPoll(); loadTranscripts(); liveResume(); }   // 文字起こしのタブ・窓で直してから戻ったとき
   };
-  if (life){ life.onLeave(onLeft); life.onReturn(onBack); }
-  else document.addEventListener('visibilitychange', () => { if (document.hidden) onLeft('hidden'); else onBack(); });
+  UIKit.life.onLeave(onLeft); UIKit.life.onReturn(onBack);
   window.addEventListener('beforeunload', e => {
     if (S.dirty || saveP || S.exportAll){ e.preventDefault(); e.returnValue = ''; }
   });

@@ -52,10 +52,8 @@ def read_wav(path, np):
 
 
 def next_pow2(n):
-    p = 1
-    while p < n:
-        p <<= 1
-    return p
+    """n 以上でいちばん小さい 2 の累乗(n が 1 以下なら 1)"""
+    return 1 << max(0, n - 1).bit_length()
 
 
 def xcorr_valid(ref, win, np):

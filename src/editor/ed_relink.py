@@ -41,14 +41,6 @@ def _remote_drive(p):
         return False
 
 
-def _inside(p, folder):
-    try:
-        a, b = os.path.normcase(os.path.realpath(p)), os.path.normcase(os.path.realpath(folder))
-    except (OSError, ValueError):
-        return False
-    return a == b or a.startswith(b.rstrip("\\/") + os.sep)
-
-
 def relink_path(raw):
     """付け替え先のパスの検査。ネットワーク上のパスは、ファイルに触る前に断る(存在を確かめるだけで資格情報を送るため)。
     ジャンクション・リンクを解いた先でも、もう一度 ネットワーク・「:」(NTFS の代替ストリーム)・拡張子・作業データの中 を確かめる。-> 実体のパス"""
@@ -72,7 +64,7 @@ def relink_path(raw):
             raise ed_state.ApiError("bad_path", "パスに「:」が入っています(ファイルそのもののパスを入れてください)", 400)
         if os.path.splitext(p)[1].lower() not in ed_state.MEDIA_TYPES:
             raise ed_state.ApiError("bad_ext", "動画・音声ファイルではないようです(対応: %s)" % " ".join(sorted(ed_state.MEDIA_TYPES)), 400)
-        if _inside(p, ed_state.DATA_DIR):   # このツールの作業データ(文書・設定・保管)。スタジオの既定の書き出し先(作業データの studio\exports)は選べる
+        if _fsio.is_inside(p, ed_state.DATA_DIR):   # このツールの作業データ(文書・設定・保管)。スタジオの既定の書き出し先(作業データの studio\exports)は選べる
             raise ed_state.ApiError("bad_path", "このツールの作業データの中のファイルは選べません", 400)
     if not os.path.isfile(p):
         raise ed_state.ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
@@ -130,12 +122,12 @@ def relink_check(obj):
     key = os.path.normcase(p)
     used = []
     for other, sm, sp in ed_store.summaries():
-        if other != tid and sp and not _fsio.is_network_path(sp) and os.path.normcase(os.path.abspath(sp)) == key:
+        if other != tid and sp and not _fsio.is_network_path(sp) and ed_state.norm_path(sp) == key:
             used.append({"id": other, "title": str(sm.get("title") or "")[:120]})
             if len(used) >= 10:
                 break
     cur = str(doc.get("sourcePath") or "")
-    same = bool(cur) and not _fsio.is_network_path(cur) and os.path.normcase(os.path.abspath(cur)) == key
+    same = bool(cur) and not _fsio.is_network_path(cur) and ed_state.norm_path(cur) == key
     return {"path": p, "name": os.path.basename(p), "durationSec": round(dur, 3), "fps": fps, "hasVideo": bool(has_v),
             "docDuration": round(ref, 3) if ref else None, "diffSec": diff, "mismatch": mismatch, "sameAsNow": same,
             "usedBy": used, "rowsAfterEnd": after, "warnings": warnings}
@@ -157,7 +149,7 @@ def relink_doc(obj):
     409: 先に更新された(conflict)・ジョブの最中(busy)・長さが違うのに acceptDiff が無い(duration_mismatch)"""
     tid = str(obj.get("id") or "")
     base = obj.get("baseUpdatedAt")
-    if isinstance(base, bool) or not isinstance(base, int):
+    if ed_state.plain_int(base) is None:
         raise ed_state.ApiError("bad_request", "baseUpdatedAt(読み込んだときの更新日時)を付けてください", 400)
     chk = relink_check(obj)   # 動画を調べるのは時間がかかるので、ロックの外で
     if chk["sameAsNow"]:
@@ -191,9 +183,9 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     ed_store.backup_doc(tid, "relink")   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)・「以前の版に戻す」で元のパスへ戻せる
     if os.path.isfile(ed_store.edit_path(tid)):
         shutil.copy2(ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, ".bak", tid + ".edit.pre-relink.json"))
-    now = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
+    now = max(ed_state.now_ms(), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
     prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
-    rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, int(time.time() * 1000)), "diffSec": diff}
+    rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, ed_state.now_ms()), "diffSec": diff}
     if why:
         rec["why"] = why
     doc["relinks"] = (prev + [rec])[-RELINK_KEEP:]
@@ -223,7 +215,7 @@ NORM_WHY = "normalize30"                  # 付け替えの記録 relinks[].why
 
 def norm_enabled():
     """TRANSCRIBE_NORMALIZE=off で作り直さない(どの fps でも動くので、困ったときの逃げ道)"""
-    return os.environ.get("TRANSCRIBE_NORMALIZE", "").strip().lower() not in ("off", "0", "false", "no")
+    return not ed_state.env_off("TRANSCRIBE_NORMALIZE")
 
 
 def norm_name(src):
@@ -301,7 +293,7 @@ def norm_swap(tid, src, dst):
         except ed_state.ApiError:
             return "文書が見つからないため、付け替えませんでした(%s は残っています)" % os.path.basename(dst)
         cur = str(doc.get("sourcePath") or "")
-        if not cur or os.path.normcase(os.path.abspath(cur)) != os.path.normcase(os.path.abspath(src)):
+        if not cur or ed_state.norm_path(cur) != ed_state.norm_path(src):
             return "作り直しの間に文書の動画が変わったため、付け替えませんでした(%s は残っています)" % os.path.basename(dst)
         info = _vnorm.probe(dst) or {}
         ref = ed_state.num(doc.get("duration"))
@@ -364,7 +356,7 @@ def _norm_note(job, ok, note):
         return
     job["normNote"], job["normOk"] = note, bool(ok)
     if not ok:
-        job["warnings"] = list(job.get("warnings") or []) + [note]
+        ed_state.add_warning(job, note)
 
 
 def norm_start(tid, path, doc):
@@ -453,7 +445,7 @@ def relink_folder(raw):
         raise ed_state.ApiError("bad_path", "パスに「:」が入っています", 400)
     if not os.path.isdir(p):
         raise ed_state.ApiError("no_dir", "フォルダが見つかりません(パスを確認してください)", 400)
-    if _inside(p, ed_state.DATA_DIR):
+    if _fsio.is_inside(p, ed_state.DATA_DIR):
         raise ed_state.ApiError("bad_path", "このツールの作業データの中は探せません", 400)
     return p
 
@@ -488,7 +480,7 @@ def relink_find(obj):
             dnames[:] = []
         else:
             dnames[:] = sorted(d for d in dnames if not d.startswith(".") and d.lower() not in _FIND_SKIP
-                               and not _inside(os.path.join(cur, d), ed_state.DATA_DIR))
+                               and not _fsio.is_inside(os.path.join(cur, d), ed_state.DATA_DIR))
     cands = {tid: found[k] for k, tids in want.items() for tid in tids if found[k]}
     return {"folder": root, "candidates": cands, "scanned": seen, "truncated": truncated}
 
@@ -539,7 +531,7 @@ def eval_dirs():
     for p in v:
         p = os.path.abspath(p)
         try:
-            if not _remote_drive(p) and os.path.isdir(p) and not _inside(p, ed_state.DATA_DIR) and not _inside(ed_state.DATA_DIR, p):
+            if not _remote_drive(p) and os.path.isdir(p) and not _fsio.is_inside(p, ed_state.DATA_DIR) and not _fsio.is_inside(ed_state.DATA_DIR, p):
                 out.append(p)
         except (OSError, ValueError):
             pass
@@ -551,7 +543,7 @@ def in_eval_dir(path, dirs=None):
     s = str(path or "")
     if not s or _fsio.is_network_path(s) or not os.path.isabs(s):
         return False
-    return any(_inside(s, d) for d in (eval_dirs() if dirs is None else dirs))
+    return any(_fsio.is_inside(s, d) for d in (eval_dirs() if dirs is None else dirs))
 
 
 EVAL_NAME_WORD = "評価用"
@@ -638,11 +630,7 @@ def _move(a, b):
             os.remove(b)
             raise
     except BaseException:
-        if os.path.exists(part):
-            try:
-                os.remove(part)
-            except OSError:
-                pass
+        _fsio.unlink_quiet(part)
         raise
     ed_state.log.info("別のドライブへ移した: %s → %s(最初の名前の変更: %s)", a, b, first)
 
@@ -772,7 +760,7 @@ def _eval_adopt_copy(path, copies):
         return None, "文書が処理の最中です"
     with ed_store._save_lock:
         doc = ed_store.read_transcript(tid)
-        if os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) != os.path.normcase(os.path.abspath(hits[0]["_sourcePath"])):
+        if ed_state.norm_path(str(doc.get("sourcePath") or "")) != ed_state.norm_path(hits[0]["_sourcePath"]):
             return None, None   # 調べている間に付け替えられた
         _relink_write(tid, doc, path, 0.0, "evalStagingCopy")
     ed_state.log.info("評価用の仮置き: コピー %s に文書 %s を付け替えた(元 %s)", os.path.basename(path), tid, hits[0]["_sourcePath"])
@@ -825,9 +813,9 @@ def _eval_outside_docs(dirs, only=None):
     同じ動画を使う文書は印の無いものも入れる(断るかを決めるため)。only: この文書の動画だけ"""
     by_path, marked = {}, set()
     for _tid, sm, sp in ed_store.summaries():
-        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _inside(sp, ed_state.DATA_DIR):
+        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _fsio.is_inside(sp, ed_state.DATA_DIR):
             continue
-        key = os.path.normcase(os.path.abspath(sp))
+        key = ed_state.norm_path(sp)
         by_path.setdefault(key, (sp, []))[1].append(sm)
         if sm.get("evalSet") and (only is None or sm["id"] == only):
             marked.add(key)
@@ -893,7 +881,7 @@ def eval_organize(trigger="button"):
         raise ed_state.ApiError("busy", "評価用のフォルダの整理は、いま動いています", 409)
     try:
         dirs = eval_dirs()
-        res = {"at": int(time.time() * 1000), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": [],
+        res = {"at": ed_state.now_ms(), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": [],
                "moved": [], "staged": [], "intaken": []}
         if not dirs:
             return res
@@ -956,7 +944,7 @@ def _eval_docs_by_path(dirs):
     by_path = {}
     for _tid, sm, sp in ed_store.summaries():
         if sp and in_eval_dir(sp, dirs):
-            by_path.setdefault(os.path.normcase(os.path.abspath(sp)), []).append(sm)
+            by_path.setdefault(ed_state.norm_path(sp), []).append(sm)
     return by_path
 
 
@@ -974,7 +962,7 @@ def eval_settle(obj):
 
         def run():
             try:
-                res = {"at": int(time.time() * 1000), "trigger": "settle", "skipped": [], "intaken": []}
+                res = {"at": ed_state.now_ms(), "trigger": "settle", "skipped": [], "intaken": []}
                 _eval_intake_pass(dirs, res, only=tid)
                 for r in res["intaken"]:
                     ed_state.log.info("評価用のフォルダへ取り込んだ: %s → %s", r["from"], r["to"])
@@ -988,12 +976,12 @@ def eval_settle(obj):
                 _evalorg_lock.release()
         threading.Thread(target=run, daemon=True, name="eval-intake").start()
         return {"moved": None, "reason": None, "intake": True}
-    if not sp or not any(_inside(sp, os.path.join(r, EVAL_STAGING)) for r in dirs):
+    if not sp or not any(_fsio.is_inside(sp, os.path.join(r, EVAL_STAGING)) for r in dirs):
         return {"moved": None, "reason": None}
     if not _evalorg_lock.acquire(blocking=False):
         return {"moved": None, "reason": "整理が動いています"}
     try:
-        key = os.path.normcase(os.path.abspath(sp))
+        key = ed_state.norm_path(sp)
         res = {"marked": 0, "moved": [], "staged": [], "_only": True}
         _eval_staging_pass(dirs, {k: v for k, v in _eval_docs_by_path(dirs).items() if k == key}, res)
         moved = res["moved"][0] if res["moved"] else None
@@ -1015,7 +1003,7 @@ def _eval_mark_docs(tids):
                 continue
             ed_store.snapshot(tid)
             doc["evalSet"] = True
-            doc["updatedAt"] = max(int(time.time() * 1000), int(doc.get("updatedAt") or 0) + 1)
+            doc["updatedAt"] = max(ed_state.now_ms(), int(doc.get("updatedAt") or 0) + 1)
             ed_store.write_doc(tid, doc)
             n += 1
     return n
@@ -1031,7 +1019,7 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
         for tid in tids:
             with ed_store._save_lock:
                 doc = ed_store.read_transcript(tid)
-                if os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) != os.path.normcase(old):
+                if ed_state.norm_path(str(doc.get("sourcePath") or "")) != os.path.normcase(old):
                     continue
                 _relink_write(tid, doc, new, 0.0, why)
                 done.append(tid)

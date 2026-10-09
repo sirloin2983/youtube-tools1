@@ -887,6 +887,29 @@ class DetectApiTest(unittest.TestCase):
                 self.det.api_post(dict({"op": "adopt", "recorder": "fake", "recording": REC, "id": "p0-302"}, **body))
             self.assertEqual(cm.exception.code, code, body)
 
+    def test_one_settings_read_per_request(self):
+        """C(2026-10-09): 1 回の GET /live/api/peaks(スタジオが 3 秒ごとに呼ぶ)で設定のファイルを読むのは 1 回(以前は約 11 回)。
+        時間では覚えない: 設定を変えた直後の要求は新しい値"""
+        n = [0]
+        get = self.prefs.get
+
+        def counted(*a, **k):
+            n[0] += 1
+            return get(*a, **k)
+        self.prefs.get = counted
+        h = Handler()
+        for q in ("", "&since=4"):
+            n[0] = 0
+            self.assertTrue(self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s%s" % (REC, q))))
+            self.assertEqual((h.out[0], n[0]), (200, 1), q)
+        n[0] = 0
+        self.live.health()
+        self.assertEqual(n[0], 1)
+        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 7}})
+        self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s" % REC))
+        self.assertEqual(h.out[1]["autoAdopt"], {"enabled": True, "waitMin": 7})
+        self.assertIsNone(getattr(self.live._scope, "cfg", None))   # 要求が終われば捨てる
+
     def test_routes_through_live(self):
         """Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は launch.py が先に済ませる)"""
         h = Handler()
@@ -1665,7 +1688,8 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual([W._level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, W.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):
             W.write_json(os.path.join(self.tmp, "x.json"), {"a": float("nan")})
-        self.assertEqual((W._why(ValueError("nan")), W._why(OSError(28, "空きがありません"))), ("ValueError", "空きがありません"))   # 書けなかった理由(ValueError には strerror が無い)
+        self.assertEqual((tools.why(ValueError("nan")), tools.why(OSError(28, "空きがありません"))), ("ValueError", "空きがありません"))   # 書けなかった理由(ValueError には strerror が無い)
+        self.assertEqual(W.clean_requests({"fake/" + REC: {"length": 10 ** 400}}), {"fake/" + REC: {"sens": "normal", "perHour": 6, "length": None}})   # float にできない巨大な数は「無い」(schemas.is_num)
         st = W.RecState(self.tmp, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {}, False)
         st.place(T0 + 10 ** 7, 4.0, [-30.0] * 4, [-40.0] * 4)   # 受信時刻が何年も先: 埋めずに続けて置く
         self.assertEqual(st.next_box, 4)
@@ -1746,6 +1770,20 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual((w.cfg["requests"], w.cfg["detectAll"]), ({k: {"sens": "low", "perHour": 1, "length": None}}, True))   # detectAll が無い = 全部(今までどおり)
         self.assertEqual((w._detect_for("fake", REC), w._detect_for("fake", REC_B)), ({"sens": "low", "perHour": 1}, {"sens": "normal", "perHour": 6}))
         w.close()
+
+
+class SameAsExportTest(unittest.TestCase):
+    """ワーカー(live_excite_worker。別のプロセス)と入口の live_export が、録画元との約束(id の形・時刻の書き方・動画の id)に
+    同じ物(ytt_core/recproto.py)を使う(以前は写しを持っていて、値の一致をここで確かめていた。docs/design/code-review-simplify-2026-10-08.md の
+    4 節の 7・T8)。値そのものの検査は src/ytt_core/tests/test_ytt_core.py の RecprotoTest"""
+
+    def test_same_objects(self):
+        from ytt_core import recproto
+        for w, lx, core in ((W.ID_RE, LX.ID_RE, recproto.RECORDER_ID_RE), (W.REC_RE, LX.REC_RE, recproto.REC_ID_RE),
+                            (W.SEG_URI_RE, LX.SEG_URI_RE, recproto.SEG_URI_RE), (W.iso_epoch, LX.iso_epoch, recproto.iso_epoch),
+                            (W.epoch_iso, LX.epoch_iso, recproto.epoch_iso), (W.video_id, LX.video_id_of, recproto.video_id_of)):
+            self.assertIs(w, core)
+            self.assertIs(lx, core)
 
 
 class NoNumpyTest(unittest.TestCase):

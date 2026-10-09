@@ -59,13 +59,13 @@
   (whisper.cpp で TRANSCRIBE_PULL_ENDS=1 のときだけ)。印が違う結果どうしを compare すると注意を出す
 """
 import argparse
-import ctypes
 import datetime
 import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -74,8 +74,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
-from _evalcommon import load_serve, read_json  # noqa: E402  load_serve は eval_alt・eval_effort・eval_timing・テストも eval_asr.load_serve で使う
-from ytt_core import evaldata as ev  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
+from _evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
+from ytt_core import evaldata as ev, tools  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)
@@ -107,7 +107,7 @@ def load_docs(data, scope, only=None):
     for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
         if not re.fullmatch(r"[0-9a-f]{12}\.json", name):
             continue
-        d = read_json(os.path.join(tdir, name))
+        d = read_json(os.path.join(tdir, name), None, C.DOC_BYTES)
         if not isinstance(d, dict):
             continue
         if only and d.get("id") not in only:
@@ -123,11 +123,6 @@ def load_docs(data, scope, only=None):
 
 def has_proofed(d):
     return any(isinstance(g, dict) and g.get("proofed") for g in d.get("segments") or [])
-
-
-def is_reviewed(d):
-    """動画を全部聞いて確かめた文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
-    return isinstance(d, dict) and d.get("evalSet") is True and isinstance(d.get("evalReviewed"), dict)
 
 
 def whole_video(d):
@@ -164,9 +159,7 @@ def resolve_source(args):
 
 def default_intake():
     """友人の zip の取り込み先(dev/eval_import.py と同じ場所)"""
-    if HERE not in sys.path:
-        sys.path.insert(0, HERE)
-    import eval_import
+    import eval_import   # HERE(dev/)は冒頭で sys.path に足してある
     return eval_import.default_dest()
 
 
@@ -196,8 +189,8 @@ def load_friend_docs(intake, only=None):
         if not ev.WORK_ID.match(wid) or (only and wid not in only):
             continue
         base = os.path.join(works, wid)
-        final, raw = read_json(os.path.join(base, "final.json")), read_json(os.path.join(base, "asr_raw.json"))
-        meta, check = read_json(os.path.join(base, "meta.json"), {}) or {}, read_json(os.path.join(base, "check.json"), {}) or {}
+        final, raw = read_json(os.path.join(base, "final.json"), None, C.DOC_BYTES), read_json(os.path.join(base, "asr_raw.json"), None, C.DOC_BYTES)
+        meta, check = read_json(os.path.join(base, "meta.json"), {}, kind=dict), read_json(os.path.join(base, "check.json"), {}, kind=dict)
         if not isinstance(final, dict) or not isinstance(raw, dict) or not isinstance(final.get("rows"), list):
             skipped.append({"id": wid, "why": "final.json・asr_raw.json を読めない"})
             continue
@@ -424,29 +417,10 @@ def fingerprint(docs):
     return h.hexdigest()[:16]
 
 
-def peak_memory_mb():
-    """このプロセスが使ったメモリの最大(MB)。分からなければ None"""
-    try:
-        if sys.platform.startswith("win"):
-            class PMC(ctypes.Structure):
-                _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong), ("PeakWorkingSetSize", ctypes.c_size_t),
-                            ("WorkingSetSize", ctypes.c_size_t), ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
-            c = PMC()
-            c.cb = ctypes.sizeof(PMC)
-            k32 = ctypes.WinDLL("kernel32")
-            psapi = ctypes.WinDLL("psapi")
-            k32.GetCurrentProcess.restype = ctypes.c_void_p
-            psapi.GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(PMC), ctypes.c_ulong]
-            if psapi.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(c), c.cb):
-                return round(c.PeakWorkingSetSize / 1048576)
-            return None
-        import resource
-        r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        return round(r / (1048576 if sys.platform == "darwin" else 1024))
-    except Exception:
-        return None
+def peak_mem():
+    """このプロセスが使ったメモリの最大(MB。整数)。分からなければ None(測り方は ytt_core.tools.process_memory_mb)"""
+    mb = tools.process_memory_mb(peak=True)
+    return None if mb is None else round(mb)
 
 
 def name_terms(S, settings):
@@ -707,16 +681,8 @@ def summarize(groups, docs, S=None, compared=STORED, group=None, nosub=None):
 
 def recognize_doc(S, doc, spec, data):
     """文書の範囲の音声を認識し直して、機械の行(元の動画の秒・印・自信の度合いつき)を返す。-> (行, 音声の秒, かかった秒, 音声の出どころ)"""
-    src = str(doc.get("sourcePath") or "")
-    start, end = S.num(doc.get("start"), 0.0) or 0.0, S.num(doc.get("end"))
-    full = os.path.join(data, "dataset", "docs", doc["id"], "full.flac")
-    if src and os.path.isfile(src):
-        a_spec, offset, where = {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, start, "動画"
-    elif os.path.isfile(full):   # 保管データの全体の音声(文書の範囲の先頭 = 0 秒)
-        a_spec, offset, where = {"sourcePath": full, "start": 0.0, "end": None, "boost": spec["boost"]}, start, "保管の音声"
-    else:
-        raise RuntimeError("音声が見つかりません(元の動画も保管データの full.flac も無い)")
-    job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
+    a_spec, offset, where = C.audio_span(S, doc, data, boost=spec["boost"])
+    job = C.fake_job()
     tmp = tempfile.mkdtemp(prefix="eval_asr_wav_")
     wav = os.path.join(tmp, "a.wav")
     try:
@@ -738,12 +704,7 @@ def recognize_doc(S, doc, spec, data):
             rows.append(row)
         return rows, audio_sec, time.monotonic() - t0, where, job.get("device", "")
     finally:
-        try:
-            for n in os.listdir(tmp):
-                os.unlink(os.path.join(tmp, n))
-            os.rmdir(tmp)
-        except OSError:
-            pass
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def run_spec(S, args, settings, hint_free=False):
@@ -883,7 +844,7 @@ def group_spec(args, mode):
 
 
 def cmd_stored(S, args, data):
-    settings = read_json(os.path.join(data, "settings.json"), {}) or {}
+    settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     docs, sel = select_docs(data, args)
     terms = name_terms(S, settings)
     groups, mismatch, nosub = [], [], {}
@@ -905,7 +866,7 @@ def cmd_stored(S, args, data):
 
 
 def cmd_run(S, args, data):
-    settings = read_json(os.path.join(data, "settings.json"), {}) or {}
+    settings = read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     docs, sel = select_docs(data, args)
     if not docs:
         raise SystemExit("測れる文書がありません(校正済みの行がある%s)" % ("評価用の文書" if resolve_source(args) == "eval" else "文書"))
@@ -944,7 +905,7 @@ def cmd_run(S, args, data):
                             "model": spec["model"], "device": device,
                             "settings": {k: spec[k] for k in ("language", "beam", "vadMode", "boost", "wordSplit", "splitChars", "stripPunct", "temp0")},
                             "glossary": spec["glossary"][:50], "context": args.context, "hintFree": hint_free},
-                 "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_memory_mb(),
+                 "audioSec": round(audio_sec, 2), "wallSec": round(wall_sec, 2), "loadSec": round(load_sec, 2), "peakMemMB": peak_mem(),
                  "post": post_meta(S, spec), "perDoc": per_doc, "failed": len(failed)})
     if rep:
         meta["repeat"] = rep   # 付くのは --repeat 2 以上のときだけ(1 回なら今までと同じ出力)
@@ -1058,7 +1019,7 @@ def compare_overlap(A, B, keys):
 
 def cmd_compare(a_path, b_path, n=BOOT, seed=1):
     """同じ文書どうしで CER の差(B − A)と、文書を選び直した 95% の範囲。-> 結果の dict(表示もする)"""
-    A, B = read_json(a_path), read_json(b_path)
+    A, B = read_json(a_path, None, C.DOC_BYTES), read_json(b_path, None, C.DOC_BYTES)
     if not A or not B:
         raise SystemExit("結果のファイルを読めません")
     warn = []
@@ -1146,7 +1107,7 @@ def cmd_compare(a_path, b_path, n=BOOT, seed=1):
 def cmd_list(data):
     d = os.path.join(data, "evals", "asr")
     for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-        r = read_json(os.path.join(d, name))
+        r = read_json(os.path.join(d, name), None, C.DOC_BYTES)
         if not r or r.get("meta", {}).get("schema") != SCHEMA:
             continue
         m, o = r["meta"], r["summary"]["overall"]
@@ -1155,12 +1116,10 @@ def cmd_list(data):
                                                "  (まだ少ない・参考)" if r["summary"].get("lowData") else ""))
 
 
-def main(argv=None):
-    p = argparse.ArgumentParser(description="文字起こしの精度を評価用の校正済みデータで測る(作業データは読むだけ)")
-    p.add_argument("mode", choices=("stored", "run", "compare", "list"))
-    p.add_argument("files", nargs="*", help="compare の2つの結果")
+def add_select_args(p, label_help="結果に付ける名前", no_save_help="結果を保存しない"):
+    """測る文書の選び方(--data・--scope・--source・--reviewed・--since・--until・--intake・--docs)と --label・--no-save。eval_cloud も同じ"""
     p.add_argument("--data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
-    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="eval = 評価用(既定)/ train = 評価用以外 / all = 自分の文書すべて(友人の zip は入れない)")
+    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="eval = 評価用(既定)/ train = 評価用以外 / all = 自分の文書すべて(友人の zip は入れない)。--source が優先")
     p.add_argument("--source", choices=("eval", "daily", "all", "friend"),
                    help="測る文書の出どころ(--scope より優先)。eval = 評価用(既定)/ daily = 普段の校正済み(評価用以外)/ friend = 友人の zip / all = 全部")
     p.add_argument("--reviewed", choices=("only", "prefer", "ignore"),
@@ -1168,11 +1127,19 @@ def main(argv=None):
                         "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
     p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ。文書の時刻 = 校正済みの行の proofedAt の最大(無ければ updatedAt)")
     p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
+    p.add_argument("--intake", help="友人の zip の取り込み先(--source friend・all のとき。既定は dev/eval_import.py と同じ eval-intake)")
+    p.add_argument("--docs", help="文書の id をカンマ区切りで(scope・source より優先。時期の指定は効く)")
+    p.add_argument("--label", help=label_help)
+    p.add_argument("--no-save", action="store_true", help=no_save_help)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="文字起こしの精度を評価用の校正済みデータで測る(作業データは読むだけ)")
+    p.add_argument("mode", choices=("stored", "run", "compare", "list"))
+    p.add_argument("files", nargs="*", help="compare の2つの結果")
+    add_select_args(p)
     p.add_argument("--group-by", dest="group_by", choices=("engine", "model", "origin"),
                    help="エンジン・設定・辞書の版ごとに集計する(engine = beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ)/ origin = 出どころ(編集前・ショート)ごと")
-    p.add_argument("--intake", help="友人の zip の取り込み先(既定は dev/eval_import.py と同じ eval-intake)")
-    p.add_argument("--docs", help="文書の id をカンマ区切りで(scope・source より優先。時期の指定は効く)")
-    p.add_argument("--label", help="結果に付ける名前")
     p.add_argument("--model")
     p.add_argument("--vad", choices=("weak", "normal", "off"))
     p.add_argument("--beam", type=int)
@@ -1183,11 +1150,10 @@ def main(argv=None):
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--repeat", type=int, default=1, help="run を N 回繰り返し、全体の CER が中央の回を代表にする(既定 1 = 1 回。温度のやり直しありの認識は回ごとにぶれる。計画は 3 回)")
-    p.add_argument("--no-save", action="store_true", help="結果を保存しない")
     args = p.parse_args(argv)
     if args.repeat < 1:
         raise SystemExit("--repeat は 1 以上で指定してください")
-    args.docs = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None
+    args.docs = C.split_ids(args.docs)
     if args.mode == "compare":
         if len(args.files) != 2:
             raise SystemExit("compare には結果のファイルを2つ指定してください")
@@ -1198,15 +1164,11 @@ def main(argv=None):
     S = load_serve()
     res = cmd_stored(S, args, data) if args.mode == "stored" else cmd_run(S, args, data)
     print_summary(res)
-    if not args.no_save:   # <日時>_<名前>.json(名前は --label か mode)
-        label = re.sub(r"[^\w.-]+", "_", res["meta"].get("label") or res["meta"]["mode"])[:40]
-        print("\n保存: " + C.save(res, data, "asr", "_" + label))
+    # <日時>_<名前>.json(名前は --label か mode)
+    C.report_saved(res, not args.no_save, data, "asr", "_" + C.label_name(res["meta"].get("label") or res["meta"]["mode"]))
     return res
 
 
 if __name__ == "__main__":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+    C.utf8_stdout()
     main()

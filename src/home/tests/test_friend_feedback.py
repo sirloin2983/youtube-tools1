@@ -58,6 +58,19 @@ class TestParse(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 F.parse(bad)
 
+    def test_read_text_limit_and_bom(self):
+        """.feedback.json の読み取り: BOM は外す・上限ちょうどは読む・1 バイトでも超えれば ValueError・無ければ OSError"""
+        tmp = tempfile.mkdtemp(prefix="ytt-ffb-read-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        p = put(os.path.join(tmp, "a.feedback.json"), b"\xef\xbb\xbf{\"v\":1}")
+        self.assertEqual(F.read_text(p), '{"v":1}')
+        put(p, b"x" * 10)
+        self.assertEqual(F.read_text(p, limit=10), "x" * 10)
+        with self.assertRaises(ValueError):
+            F.read_text(p, limit=9)
+        with self.assertRaises(OSError):
+            F.read_text(os.path.join(tmp, "無い.feedback.json"))
+
 
 class TestApply(Base):
     def test_record_and_apply(self):

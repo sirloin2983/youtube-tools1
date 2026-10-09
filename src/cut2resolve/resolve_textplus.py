@@ -87,9 +87,8 @@ def text_style(color=None, kind="default"):
     st = json.loads(json.dumps(TEXT_STYLES[kind]))
     if color and color.get("hex"):
         h = str(color["hex"]).lstrip("#")
-        rgb = [round(int(h[i:i + 2], 16) / 255.0, 4) for i in (0, 2, 4)]
         fill = next(e for e in st["shading"] if e["shape"] == 0)
-        fill["rgba"] = rgb + [1.0]
+        fill["rgba"] = hex_rgba(h)
         who = str(color.get("who") or "").strip()
         st["name"] = st["name"].replace("黒い文字", "%s色の文字(#%s)" % (who + "の" if who else "", h.upper()))
     return st
@@ -368,11 +367,6 @@ def importer_script(plan):
     p = json.loads(json.dumps(plan))
     p["media"]["absolutePath"] = "__C2R_MEDIA_PATH__"
     p["template"] = {"absolutePath": "__C2R_TEMPLATE_PATH__"}
-    p.setdefault("target", dict(DEFAULT_TARGET))
-    p.setdefault("style", _style_data())
-    if "mediaFps" not in p:
-        n, d = p["fps"].split("/")
-        p["mediaFps"] = int(n) / int(d)
     # JSONの配列・オブジェクトはLuaのテーブル構文と互換でないため、生成時にLuaリテラルへ変換。
     def lua(v):
         if isinstance(v, dict):
@@ -944,41 +938,41 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 def write_files(paths, plan, out_dir, target=None, backup=True, wrap=None, color=None, fills=None, outlines=None, style="default",
                 video_tracks=1, order=None):
-    """Text+固有ファイルを書き、kind -> Path を返す。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
+    """Text+固有ファイルを書き、kind -> Path を返す(鍵 readme_text だけは手順書の中身の文字列)。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(2026-09-26 まで別に書いていた textplus-import.json は出さない。読み直すのは read_script_plan)。
     backup: 予備(EDL と手順書)を入れたか(手順書の注意の書き方が変わる)。order: 同時に始まる字幕の段の順(stack_captions)"""
     target = dict(target or DEFAULT_TARGET)
     import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks,
                                     order)
     script = importer_script(import_plan)
+    readme = readme_from_data(import_plan, backup)   # 計画は 1 回だけ作る(段の数・字幕の数・見た目の名前はこの計画から読む = 前のパックの「手順を見る」と必ず同じ)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
     # Windows PowerShell 5.1はBOMなしUTF-8をANSIとして読むため、日本語文字列内のバイトを引用符扱いすることがある。
     S.write_text_atomic(paths["textplus_install"], installer_script(paths["video"].name), encoding="utf-8-sig", newline="\r\n")
     S.write_text_atomic(paths["textplus_launcher"], launcher_script(), encoding="utf-8-sig", newline="")
     if "textplus_readme" in paths:   # コマンドのときだけ(画面・API は書かない。pack.pack_paths の readme_file)
-        S.write_text_atomic(paths["textplus_readme"], readme_text(plan, target, backup, color, style, video_tracks, order),
-                            encoding="utf-8-sig", newline="\n")
+        S.write_text_atomic(paths["textplus_readme"], readme, encoding="utf-8-sig", newline="\n")
     template_source = Path(__file__).with_name(TEMPLATE_NAME)
     if not S.same_path(template_source, paths["textplus_template"]):
         shutil.copyfile(template_source, paths["textplus_template"])
-    return {key: paths[key] for key in ("textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
-            if key in paths}
+    files = {key: paths[key] for key in ("textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
+             if key in paths}
+    files["readme_text"] = readme   # 手順書の中身(書かなかったときも。画面に出す用。パスではない。cut2resolve_core.write_pack の同じ鍵と同じ使い方)
+    return files
 
 
-def readme_text(plan, target=None, backup=True, color=None, style="default", video_tracks=1, order=None):
-    """pack.Plan -> Text+ パックの手順書の中身(書くとき・画面に出すとき共通)。段の数は Lua の計画と同じ規則(stack_captions)で数える"""
-    lanes = stack_captions(plan.cues_out, plan.meta["fps"], order)["count"]
-    return instructions(plan.video.name, target, plan.meta, len(plan.cues_out or []), len(plan.keeps), backup, text_style(color, style)["name"],
-                        video_tracks, lanes)
-
-
-def readme_from_script(text, backup=True):
-    """パックの Lua(importer_script が書いたもの)から手順書の中身を作り直す(手順書のファイルが無いパックの「手順を見る」)"""
-    d = read_script_plan(text)
+def readme_from_data(d, backup=True):
+    """Text+ の計画(build_import_plan の結果か、read_script_plan で Lua から読み直したもの)-> 手順書の中身。
+    書くとき・画面に出すとき・前のパックの「手順を見る」で共通(計画に無い項目は既定で補う)"""
     num, den = (int(x) for x in str(d["fps"]).split("/"))
     meta = {"w": d["media"]["width"], "h": d["media"]["height"], "fps": (num, den)}
     return instructions(d["media"]["name"], d.get("target"), meta, len(d.get("captions") or []), len(d.get("cuts") or []), backup,
                         (d.get("style") or {}).get("name"), d.get("videoTracks") or 1, d.get("captionLanes") or 1)
+
+
+def readme_from_script(text, backup=True):
+    """パックの Lua(importer_script が書いたもの)から手順書の中身を作り直す(手順書のファイルが無いパックの「手順を見る」)"""
+    return readme_from_data(read_script_plan(text), backup)
 
 
 def read_script_plan(text):

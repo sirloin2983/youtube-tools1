@@ -14,12 +14,8 @@
     document.getElementById('swStage').innerHTML = ['--stage-bg', '--stage-ink', '--playhead', '--toast-bg', '--toast-ink']
       .map(function (v) { return '<div class="on-stage" style="--c:var(' + v + ')">' + v + '</div>'; }).join('');
 
-    // ---- アイコンの一覧(UIKit.icon の ICONS と同じ名前) ----
-    var ICON_NAMES = ['play', 'pause', 'back', 'forward', 'frame-prev', 'frame-next', 'scissors', 'split', 'merge', 'trash', 'plus', 'minus', 'more',
-      'gear', 'menu', 'close', 'chevron-down', 'chevron-right', 'chevron-left', 'folder', 'download', 'undo', 'redo', 'check', 'alert', 'info',
-      'search', 'home', 'film', 'text', 'mic', 'flag', 'keyboard', 'zoom-in', 'zoom-out', 'refresh', 'external', 'copy', 'sun', 'moon',
-      'mark-in', 'mark-out', 'clock', 'list', 'layers', 'wave', 'user'];
-    document.getElementById('iconGrid').innerHTML = ICON_NAMES.map(function (n) {
+    // ---- アイコンの一覧(v24: UIKit.icon.names() = ICONS の名前そのもの。以前の手書きの一覧は lock が抜けていた) ----
+    document.getElementById('iconGrid').innerHTML = UIKit.icon.names().map(function (n) {
       return '<div><span class="ui-icon" data-icon="' + n + '"></span><small>' + n + '</small></div>';
     }).join('');
     UIKit.icon.fill(document.getElementById('iconGrid'));

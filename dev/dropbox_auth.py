@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""切り抜き依頼(request-sender)の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリだけ)。
+"""切り抜き依頼(request-sender)の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt_core の fsio だけ)。
 
     python dev/dropbox_auth.py <App key> [--out friend-apps/request-sender/config.json]
 
@@ -23,6 +23,9 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if os.path.join(ROOT, "src") not in sys.path:
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+from ytt_core import fsio  # noqa: E402
 DEFAULT_OUT = os.path.join(ROOT, "friend-apps", "request-sender", "config.json")
 AUTHORIZE_URL = "https://www.dropbox.com/oauth2/authorize"
 TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
@@ -104,12 +107,8 @@ def missing_scopes(scope_text):
 
 
 def write_config(path, app_key, refresh_token):
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        json.dump({"appKey": app_key, "refreshToken": refresh_token}, f, ensure_ascii=False, indent=1)
-        f.write("\n")
-    os.replace(tmp, path)
+    body = json.dumps({"appKey": app_key, "refreshToken": refresh_token}, ensure_ascii=False, indent=1) + "\n"
+    fsio.atomic_write(path, body.encode("utf-8"), mode=0o600)   # 鍵のファイル: 書きかけを残さない・本人だけが読める形に(Windows では効かない)
 
 
 def main(argv=None, input_fn=input, urlopen=urllib.request.urlopen, out=print):

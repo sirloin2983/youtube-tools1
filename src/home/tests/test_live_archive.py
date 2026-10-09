@@ -36,6 +36,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
 REPO = os.path.dirname(HERE)
+sys.path.insert(0, REPO)    # ytt_core(このファイルだけを流しても読めるように。2026-10-09)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import live_archive as A  # noqa: E402
@@ -974,6 +975,44 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual((st["jobs"], st["progress"]["finished"], st["text"]), (2, 1, A.after_text(st, st["progress"])))
         self.assertEqual(ar.info_view("local", REC)["afterStream"]["progress"]["total"], 2)   # jobs を渡さなければ書き出しの一覧から
 
+    def test_ended_at_accepts_epoch_and_iso(self):
+        """録画の一覧の行の「終わった時刻」(ended_at): epoch(入口の list_recordings)と ISO の文字列(録画の部品の生の行)のどちらでも同じ値。
+        endedAt が無ければ lastPdt。録画を消すのを待つか(after_stream_hold)も、どちらの形で渡しても古い録画は待たない(2026-10-09。前は ISO だけ見ていた)"""
+        t = 1790000000.5
+        for row in ({"endedAt": t}, {"endedAt": LX.epoch_iso(t)}, {"endedAt": None, "lastPdt": t}, {"endedAt": "", "lastPdt": LX.epoch_iso(t)}):
+            self.assertAlmostEqual(A.ended_at(row), t, places=3, msg=row)
+        self.assertIsNone(A.ended_at({}))
+        self.assertIsNone(A.ended_at({"endedAt": True, "lastPdt": "読めない"}))
+        a = self.archiver()
+        old = time.time() - A.AFTER_MAX_AGE - 60
+        for ended in (old, LX.epoch_iso(old)):
+            self.assertEqual(a.after_stream_hold("local", dict(self.rec, endedAt=ended)), "", ended)   # 終わって AFTER_MAX_AGE を過ぎた録画は待たない
+        for ended in (time.time() - 7200, LX.epoch_iso(time.time() - 7200)):
+            self.assertTrue(a.after_stream_hold("local", dict(self.rec, endedAt=ended)), ended)      # まだなので待つ
+
+    def test_speed_file_is_probed_once_while_unchanged(self):
+        """速報版の ffprobe は、同じ作り直しの中では 1 回(照合・高さ・ずれの確かめで使い回す)。ファイルが変われば調べ直す・終われば忘れる"""
+        a = self.archiver()
+        speed = os.path.join(self.out, "速報版.mp4")
+        with open(speed, "wb") as f:
+            f.write(b"x")
+        calls = []
+
+        def probe(p, ffprobe=None):
+            calls.append(p)
+            return {"duration": 12.0, "height": 1080}
+        with mock.patch.object(A.normalize, "probe", probe):
+            self.assertEqual((a._probe_speed(speed)["height"], a._probe_speed(speed)["duration"]), (1080, 12.0))
+            self.assertEqual(len(calls), 1)
+            with open(speed, "wb") as f:
+                f.write(b"xy")   # 入れ替えた(大きさが変わった)
+            a._probe_speed(speed)
+            self.assertEqual(len(calls), 2)
+            a._probes.clear()
+            a._probe_speed(speed)
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(a._probe_speed(os.path.join(self.out, "無い.mp4")), {})   # 無いファイルは調べない
+
     def test_off_old_no_video_and_failure_text(self):
         a = self.archiver()
         self.on = False
@@ -1101,6 +1140,19 @@ class YtdlpRetryTest(unittest.TestCase):
         with mock.patch.object(A.tools, "find_tool", return_value="yt-dlp"), mock.patch.object(A, "run_proc", self.fake_run([member, ok])):
             p = A.probe_archive("abcdefghijk", wait=0)
         self.assertEqual((p["availability"], len(self.calls)), ("subscriber_only", 1))   # メンバー限定はやり直さない
+
+    def test_probe_does_not_retry_final_failures(self):
+        """やり直しても変わらない失敗(id が正しくない・yt-dlp が無い)は待たずに返す(印 final で決める。画面の文の中身では決めない)。
+        印は結果に残さない"""
+        with mock.patch.object(A, "run_proc", self.fake_run([])), mock.patch.object(A, "_pause", side_effect=AssertionError("待った")):
+            p = A.probe_archive("bad id", wait=0)
+            self.assertEqual((p["status"], "final" in p), ("unknown", False))
+            self.assertIn("正しくありません", p["message"])
+            with mock.patch.object(A.tools, "find_tool", return_value=None):
+                p = A.probe_archive("abcdefghijk", wait=0)
+            self.assertEqual((p["status"], "final" in p), ("unknown", False))
+            self.assertIn("yt-dlp", p["message"])
+        self.assertEqual(self.calls, [])
 
     def test_full_audio_retries(self):
         e403 = (1, "", ["ERROR: HTTP Error 403: Forbidden"])

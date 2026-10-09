@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v23
+# ui-kit(共通の見た目)v24
 
 ツール(ホーム・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -137,6 +137,26 @@
 - 帯の状態は `el` の `data-ui-restart`(`ready` / `sending` / `waiting` / `done` / `refused` / `timeout`)。部品: `band(el, …)`(比べずに出す)・`run(opts)`(頼んで待つだけ。`from`・`onState(state, text)`・`reload`)・`available()`
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
+
+## v24(2026-10-09・コードの見直しの直す順番 B の土台。`docs/design/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
+- **`UIKit.http(url, opt)`** → Promise<応答の JSON(JSON でなければ `{}`)>。JSON の API を呼ぶ 1 か所で、**合言葉 `X-YTT-Token` を付けるのはここだけ**
+  (GET・HEAD 以外で、送り先が同じオリジンのときだけ。ほかのサイトへ合言葉を出さない)。opt: `method`(既定: body があれば POST)・`body`(JSON)・`keepalive`・
+  `timeout`(ミリ秒)・`signal`・`raw`(成功なら Response = zip の受け取り)・`token`(省略 = meta / 文字列 / false)・`needToken`(合言葉が無ければ送らずに失敗)・
+  `offline`(つながらないときの文)・`slow`(時間切れの文)・`fail`(サーバーが message を返さなかったときの文。文字列か function(status)。省略は「サーバーで問題が起きました…」など HTTP の番号を出さない文)。
+  **失敗の形は 1 つ**: `message`・`code`(サーバーの error | `'http'` | `'network'` | `'timeout'` | `'abort'` | `'no_token'`)・`status`(応答が無ければ 0)・
+  `body`(応答の JSON。無ければ `{}`)・`data`(body と同じ)・`reason`(サーバーの message か '')・`detail`(`'HTTP 409'` / 通信の例外の文)
+- **`UIKit.homeApi(path, opt)`** = `UIKit.http(UIKit.homeUrl(path), opt)`。**`UIKit.homeUrl(path)`** = 入口(ホーム)の直下の URL(画面の場所の 1 つ上。先頭の / は外す)。
+  path は `'api/autorun'`・`'api/ytt/prefs'`・`'live/api/info'` のように入口の直下から。ツールの画面(/studio/・/transcribe/)からもホーム(/)からも同じ所を指す
+- **`UIKit.copy(text, opt)`** → Promise<true | false>(reject しない)。クリップボードへ写す(clipboard API が使えなければ execCommand の予備)。`opt.ok` / `opt.fail` の文があれば知らせも
+- `UIKit.fmt.day(ms)`(日付だけ)・`UIKit.fmt.dur(秒, opt)` の opt(`floor` 切り捨て・`tenths` 0.1 秒まで(`1:23.4`)・`noHours` 時を出さない(`83:45`)。省略は今までどおり四捨五入)・
+  `UIKit.icon.names()`(アイコンの名前の一覧。見本はこれで並べる = 手書きの一覧から `lock` が抜けていた)
+- ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形にした。外から見える名前・引数・戻り値は同じ。
+  違うのは (1) つながらないときの文が日本語の決まった文に(以前はブラウザの原文 `Failed to fetch`)・(2) `packLoud.get` は編集の api/settings が失敗(HTTP のエラー)なら reject
+  (以前はエラーの本文を設定として読み、既定の値を出していた)・(3) 合言葉が空なら見出しを付けない(以前は空の `X-YTT-Token` を送っていた)
+- node のテスト用の **UIKit の代わり** `tests/uikit_stub.cjs`(`makeUIKit(overrides)`・`withUIKit(context)`。esc・fmt は本物の ui-kit.js から切り出す・呼ばれた部品は `calls` に残る・
+  知らない名前は何もしない関数)。スタジオの `test_review.cjs`・編集の `test_document_save.cjs` の vm の context はこれを通す(画面の `window.UIKit &&` の予備の経路を外しても動く)。
+  本物と食い違っていないかは `node --test src/ui-kit/tests/test_uikit_stub.cjs`(本物の window.UIKit の名前を全部知っているか。名前を足したら stub の kit か FALLBACK にも足す)
+- テスト: `e2e_styleguide` の `check_http`(偽の API で 合言葉・失敗の形・時間切れ・取り消し・raw・ほかのオリジン・homeApi)・`check_v24_fmt_copy`・アイコンの一覧(`lock`)。`UIKit.version` は 24
 
 ## v23(2026-10-07・UI の見直しの基準 `docs/spec/ui-review-criteria.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
 - 文字記号のアイコンをやめる(A-10): 知らせの × は `UIKit.icon('close')`。メニューが開く印は `.ui-caret`(線で描く小さな山形。`<span class="ui-caret" aria-hidden="true">`。右向きは `.right`・上向きは `.up`)。各ツールの「まとめて ▾」「無音 ▾」「この後を ▸」はこれに替える

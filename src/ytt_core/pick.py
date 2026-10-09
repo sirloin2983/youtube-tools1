@@ -49,15 +49,12 @@ def initial_dir(hint):
     """窓を最初に開くフォルダ。hint(元のパスなど)から、存在するいちばん近いフォルダ。
     ネットワーク上のパスには触らない(存在を確かめるだけで資格情報を送るため)。見つからなければ ""(窓の既定)"""
     s = str(hint or "").strip().strip('"')
-    if not s or _fsio.is_network_path(s) or not os.path.isabs(s):
+    if not s or "\0" in s or _fsio.is_network_path(s) or not os.path.isabs(s):   # NUL を含むパスは使わない(以前は isdir の ValueError で "")
         return ""
     p = os.path.abspath(s)
     for _ in range(40):
-        try:
-            if os.path.isdir(p):
-                return p
-        except (OSError, ValueError):
-            return ""
+        if os.path.isdir(p):   # isdir は OSError・ValueError(NUL を含むパス)を中で握って False を返す
+            return p
         up = os.path.dirname(p)
         if up == p:
             return ""

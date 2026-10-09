@@ -37,6 +37,17 @@ class UiKitSyncTest(unittest.TestCase):
                 f.write(b"/* x */\r\n.a{}\r\n")
             self.assertEqual(S.read(p), "/* x */\n.a{}\n")
 
+    def test_write_keeps_lf_bytes_and_leaves_no_temp(self):
+        """写しは改行を変えずに(LF のまま)原子的に書く。一時ファイルを残さない"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "a.css")
+            S.write(p, "/* x */\n.a{}\n")
+            S.write(p, "/* y */\n日本語\n")
+            with open(p, "rb") as f:
+                self.assertEqual(f.read(), "/* y */\n日本語\n".encode("utf-8"))
+            self.assertEqual(os.listdir(d), ["a.css"])
+
     def test_embed_rejects_closing_tags(self):
         src = "/* ui-kit:css:begin *//* ui-kit:css:end *//* ui-kit:js:begin *//* ui-kit:js:end */"
         with self.assertRaises(ValueError):

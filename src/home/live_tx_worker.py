@@ -7,7 +7,6 @@
   モデルとワーカー(whisper-cli)の場所は入口側(src/home/live_tx.py の LiveTx.ready)が先に確かめる(ここでは取りに行かない = 3GB を黙って取得しない)。
   GPU を頼んで Vulkan で動かなければ、編集と同じく黙って CPU にせず失敗にする(WhisperCpp._check_gpu)。
 """
-import json
 import os
 import sys
 import time
@@ -51,14 +50,13 @@ def main(argv):
         print("usage: live_tx_worker.py <data_dir> <model> <wav> <out.json>", file=sys.stderr)
         return 2
     data_dir, model, wav, out = argv[1:5]
+    _paths()
+    from ytt_core import fsio   # 書きかけを入口に読ませない(一時ファイル → 置き換え)
     try:
         doc = recognize(data_dir, model, wav)
     except Exception as e:   # noqa: BLE001  (理由を入口へ返す。何が起きても json を書く)
         doc = {"ok": False, "reason": "%s: %s" % (e.__class__.__name__, str(e)[:300])}
-    tmp = out + ".part"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False)
-    os.replace(tmp, out)
+    fsio.write_json(out, doc, indent=None)
     return 0 if doc.get("ok") else 1
 
 

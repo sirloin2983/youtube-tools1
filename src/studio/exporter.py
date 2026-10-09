@@ -19,7 +19,7 @@ import uuid
 import common
 import handoff
 from common import ApiError, VID_RE, find_tool, redact, fmt_ts
-from ytt_core import jobs, loudness as _loud, normalize as _norm, schemas  # common が ytt_core を読めるようにしてある
+from ytt_core import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools  # common が ytt_core を読めるようにしてある
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -32,15 +32,16 @@ LOUDNESS_CHOICES = _loud.CHOICES
 TRUE_PEAK_CEIL = _loud.TRUE_PEAK_CEIL   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
 MAX_GAIN_DB = _loud.MAX_GAIN_DB         # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
 EDIT_HANDLE_SEC = 10.0
-# Windows の MAX_PATH(260)より少し短く抑える。長いパスを有効にしていない PC や、ffmpeg・yt-dlp の一時ファイル名(.part など)の分の余裕。
-# UTF-16 の単位で数える(Windows のパスの長さの数え方。絵文字などは2つ分)
-MAX_PATH_UNITS = 240
-SUFFIX_ROOM = 36    # base のあとに付く最長の名前(作業用/ + _edit.partial.mp4.vol.mp4 / yt-dlp の区間取得の 作業用/ + _edit_dl.partial.f399.mp4.part など)
-BASE_ROOM = 26      # 01_00h00m00s-00h00m00s(22文字)+ 連番 _NN の分。ラベルは余った分だけ付ける
+# 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt_core/names.py の 1 か所
+# (入口のライブの書き出し src/home/live_export.py と同じ規則。2026-10-09 見直し T8)。ここの名前はテストと他の部品が読むので残す
+MAX_PATH_UNITS, SUFFIX_ROOM, BASE_ROOM = _names.MAX_PATH_UNITS, _names.SUFFIX_ROOM, _names.BASE_ROOM
+compact_ts, safe_name, is_reserved, path_units, trim_units = _names.compact_ts, _names.safe_name, _names.is_reserved, _names.path_units, _names.trim_units
+unique_base, _read_owner, _write_owner = _names.unique_base, _names.read_owner, _names.write_owner
 LOG_MAX = 200000    # export-log.txt がこれを超えたら export-log.old.txt に回す
 # 書きかけの印(2026-09-30。設計レビュー studio の 4)。書き出しは <base>.partial.mp4 に書き、音量・ラウドネスまで仕上がったら <base>.mp4 へ置き換える
-# (途中で止まった・落ちたときに、壊れた・仕上がっていないファイルが完成品と同じ名前で残らないように)。拡張子は .mp4 のまま(ffmpeg は拡張子で形式を決める)
-PARTIAL = ".partial"
+# (途中で止まった・落ちたときに、壊れた・仕上がっていないファイルが完成品と同じ名前で残らないように)
+PARTIAL = _names.PARTIAL
+partial_path, is_partial, final_path = _names.partial_path, _names.is_partial, _names.final_path
 _jobs = {}
 _jobs_lock = threading.Lock()
 
@@ -57,39 +58,6 @@ def is_busy():
 def is_busy_for(video_id):
     with _jobs_lock:
         return any(j["state"] == "running" and j.get("videoId") == video_id for j in _jobs.values())
-
-
-def compact_ts(t):
-    s = int(t)
-    return "%02dh%02dm%02ds" % (s // 3600, s % 3600 // 60, s % 60)
-
-
-def safe_name(s, n):
-    # パス区切り・予約文字・制御文字と、yt-dlp の出力テンプレートで意味を持つ % を除く
-    s = re.sub(r'[\\/:*?"<>|%\x00-\x1f]+', "_", str(s or ""))
-    return s[:n].strip(" ._")
-
-
-# Windows の予約名(拡張子を付けても・後ろに空白があっても使えない)。上付き数字の COM¹ などと CONIN$ / CONOUT$ も予約されている
-_RES_DIGITS = [str(i) for i in range(1, 10)] + ["\u00b9", "\u00b2", "\u00b3"]
-WIN_RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {"COM" + d for d in _RES_DIGITS} | {"LPT" + d for d in _RES_DIGITS}
-
-
-def is_reserved(name):
-    return name.split(".", 1)[0].rstrip(" ").upper() in WIN_RESERVED
-
-
-def path_units(s):
-    """Windows のパスの長さ(UTF-16 の単位)。"""
-    return len(str(s).encode("utf-16-le", "surrogatepass")) // 2
-
-
-def trim_units(s, n):
-    """UTF-16 の単位で n 以下になるよう後ろを削る(削った後の末尾の空白・ドット・_ も除く)。"""
-    s = str(s)
-    while s and path_units(s) > n:
-        s = s[:-1]
-    return s.rstrip(" ._")
 
 
 def log_export(note, cmd, tail):
@@ -124,84 +92,13 @@ def verify_output(path, expected, tail=None):
         raise ExportError("書き出したファイルが空か短すぎます(長さ %s 秒 / 期待 %.0f 秒)。%s" % ("不明" if dur is None else "%.1f" % dur, expected, detail))
 
 
-def _marker(path):
-    """フォルダの持ち主の印 .studio-id を書く場所(作業用/。途中のファイルは直下に置かない。2026-09-27)"""
-    return os.path.join(path, schemas.WORK_DIR, ".studio-id")
-
-
-def _read_owner(path):
-    """印を読む(作業用/ → 以前の置き方 = フォルダの直下)。無ければ None"""
-    for m in (_marker(path), os.path.join(path, ".studio-id")):
-        try:
-            with open(m, encoding="utf-8") as f:
-                return f.read().strip()
-        except OSError:
-            continue
-    return None
-
-
-def _write_owner(path, video_id):
-    os.makedirs(os.path.join(path, schemas.WORK_DIR), exist_ok=True)
-    with open(_marker(path), "w", encoding="utf-8") as f:
-        f.write(video_id)
-
-
 def pick_folder(spec):
-    """動画ごとの保存先フォルダ(<出力先>/<動画名>/)を決める。
-    フォルダ内の 作業用/.studio-id(以前はフォルダの直下)に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける。"""
-    root = common.get_out_dir()
-    # 出力先が長いときは、フォルダ名を短くしてファイル名(BASE_ROOM + ラベル + SUFFIX_ROOM)の分を残す
-    room = MAX_PATH_UNITS - path_units(root) - 1 - 3 - 1 - BASE_ROOM - SUFFIX_ROOM
-    name = trim_units(safe_name(spec["title"], 60), max(8, min(60, room))) or spec["videoId"]
-    if is_reserved(name):
-        name = "_" + name
-    for i in range(1, 100):
-        cand = name if i == 1 else "%s_%d" % (name, i)
-        path = os.path.join(root, cand)
-        if not os.path.exists(path):
-            os.makedirs(path)
-            _write_owner(path, spec["videoId"])
-            return cand, path
-        if os.path.isdir(path):
-            owner = _read_owner(path)
-            if owner == spec["videoId"]:
-                return cand, path
-            if owner is None:  # 手で作られたフォルダは、その動画のものとして使う
-                _write_owner(path, spec["videoId"])
-                return cand, path
-    raise ExportError("保存先フォルダを作れませんでした")
-
-
-def unique_base(base, folder):
-    """フォルダ内で使われていない名前。<名前>.* だけでなく、同時に作る <名前>_edit.* も空いていることを確かめる
-    (前回の編集用素材だけが残っていると、ffmpeg の -y で上書き・yt-dlp は取得済みとして古い物を使ってしまうため)。
-    途中のファイルの 作業用/ の中も見る(2026-09-27 から .clip.json・_edit.mp4 などはそこ。以前の置き方の直下も見る)"""
-    def used(name):
-        return any(glob.glob(glob.escape(os.path.join(d, n)) + ".*")
-                   for d in (folder, os.path.join(folder, schemas.WORK_DIR)) for n in (name, name + "_edit"))
-    name, i = base, 2
-    while used(name):
-        name = "%s_%d" % (base, i)
-        i += 1
-    return name
-
-
-def partial_path(folder, base, ext=".mp4"):
-    """書きかけのファイルの場所(同じフォルダ・<base>.partial.mp4。置き換えが同じドライブの中で済む)。"""
-    return os.path.join(folder, base + PARTIAL + ext)
-
-
-def is_partial(path):
-    return os.path.splitext(os.path.basename(str(path or "")))[0].endswith(PARTIAL)
-
-
-def final_path(path):
-    """<base>.partial.<拡張子> → <base>.<拡張子>(書きかけでなければそのまま)。"""
-    if not is_partial(path):
-        return path
-    d, n = os.path.split(path)
-    root, ext = os.path.splitext(n)
-    return os.path.join(d, root[:-len(PARTIAL)] + ext)
+    """動画ごとの保存先フォルダ(<出力先>/<動画名>/)を決める。-> (フォルダ名, パス)。
+    フォルダ内の 作業用/.studio-id(以前はフォルダの直下)に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける(ytt_core.names.pick_folder)。"""
+    got = _names.pick_folder(common.get_out_dir(), spec["title"], spec["videoId"], spec["videoId"])
+    if got is None:
+        raise ExportError("保存先フォルダを作れませんでした")
+    return got
 
 
 def promote(path):
@@ -209,17 +106,16 @@ def promote(path):
     if not is_partial(path):
         return path
     final = final_path(path)
+    info = common.media_info_known(path)
     common.replace_file(path, final)
+    common.remember_media_info(final, info)   # 中身は同じ(.clip.json を書くときに測り直さない)
     return final
 
 
 def _rm(*paths):
     """消せなくても続ける(使用中など)"""
     for p in paths:
-        try:
-            os.unlink(p)
-        except OSError:
-            pass
+        _fsio.unlink_quiet(p)
 
 
 def drop_partial(path):
@@ -334,13 +230,6 @@ def check_section_path(raw):
     return path
 
 
-def _num_sec(v):
-    """秒の数(有限の int / float。bool は不可)。だめなら None"""
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v or v in (float("inf"), float("-inf")):
-        return None
-    return float(v)
-
-
 def build_section_spec(req):
     """POST /api/live/section の依頼 {videoId, start, end, path, volume?, loudness?, maxHeight?, precision?} → spec(start_job に渡す)。
     スタジオの配信・マークは見ない(登録の無い videoId でもよい)。作るのは YouTube の videoId の start〜end(アーカイブの秒)を、
@@ -348,7 +237,7 @@ def build_section_spec(req):
     vid = req.get("videoId")
     if not isinstance(vid, str) or not VID_RE.match(vid):
         raise _bad("配信の ID が正しくありません(YouTube の ID は 11 文字)")
-    s, e = _num_sec(req.get("start")), _num_sec(req.get("end"))
+    s, e = schemas.num(req.get("start")), schemas.num(req.get("end"))   # 有限の数(bool・NaN・float にできない巨大な整数は None)
     if s is None or e is None:
         raise _bad("start・end が数値ではありません")
     if s < 0 or e <= s:
@@ -509,7 +398,7 @@ def _pump(job, cmd, it, dur, span=(0.0, 1.0)):
                 common.terminate(proc)
                 break
             line = line.strip()
-            m = re.match(r"^out_time_(?:us|ms)=(\d+)$", line) or None
+            m = _tools.OUT_TIME.match(line)   # -progress の進み具合(us も ms もマイクロ秒)
             if m and dur > 0:
                 it["progress"] = min(0.99, lo + (hi - lo) * min(1.0, int(m.group(1)) / 1e6 / dur))
                 continue
@@ -658,7 +547,7 @@ def _ytdlp_sections(job, spec, it, base):
     cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
                           "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end)),
                           "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", common.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
-                          "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
+                          "--", common.watch_url(spec["videoId"])]
     tail = []
     try:
         tail = _pump(job, cmd, it, dl_len, span=(0.0, 0.5))
@@ -693,7 +582,7 @@ def _ytdlp_sections(job, spec, it, base):
 
 def stream_urls(spec):
     """yt-dlp -g で映像/音声の直接URLを得る(取得だけで、ダウンロードはしない)。"""
-    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "--", "https://www.youtube.com/watch?v=" + spec["videoId"]]
+    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "--", common.watch_url(spec["videoId"])]
     try:
         p = common.run_short(cmd, timeout=90)   # spawn を通す(終了の流れで止められる・窓を出さない)
     except (OSError, subprocess.SubprocessError):
@@ -744,9 +633,11 @@ def _reencode_audio(job, it, path, afilter, what):
     # 以前はマークの長さと比べていて、末尾をまたぐマークが「短すぎます」で失敗していた)
     dur = common.media_info(path)[0] or (it["end"] - it["start"])
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", afilter,
-           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp]
+           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + PROGRESS + [tmp]
     _make(job, cmd, it, dur, tmp, what)
+    info = common.media_info_known(tmp)   # _make の確かめで測った結果(置き換えたあとのファイルの中身と同じ)
     common.replace_file(tmp, path)
+    common.remember_media_info(path, info)
 
 
 def apply_volume(job, spec, it, rel_file):
@@ -762,7 +653,7 @@ def measure_loudness(job, it, path):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)。ffmpeg の loudnorm で測るだけ(書き換えない)"""
     dur = common.media_info(path)[0] or (it["end"] - it["start"])
     cmd = [find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
-           "-f", "null", "-", "-progress", "pipe:1", "-nostats"]
+           "-f", "null", "-"] + PROGRESS
     tail = _pump(job, cmd, it, dur)
     return _loud.parse("\n".join(tail))
 
@@ -1055,11 +946,8 @@ def _run_job(job, spec, on_done=None):
 def _export_clip(job, spec, it, idx, on_done):
     """_run_job の1本ぶん: 切り出し → 音量 → 編集用素材 → ラウドネス → 本当の名前へ → マークへの記録・.clip.json。
     失敗は例外で返す(状態と書きかけの片付けは呼び出し側)"""
-    head = "%02d_%s-%s" % (idx, compact_ts(it["start"]), compact_ts(it["end"]))
-    # ラベルは、出力先+ファイル名が MAX_PATH_UNITS に収まる分だけ付ける(連番 _NN と SUFFIX_ROOM の分を残す)
-    room = MAX_PATH_UNITS - SUFFIX_ROOM - 3 - 1 - path_units(os.path.join(spec["outDir"], head))
-    label = trim_units(safe_name(it["label"], 30), max(0, room))
-    base = unique_base(head + ("_" + label if label else ""), spec["outDir"])
+    # <番号>_<開始>-<終わり>_<ラベル>(パスの長さに収まる分)。unique はここの名前を通す(テストが exporter.unique_base を差し替える)
+    base = _names.clip_base(spec["outDir"], idx, it["start"], it["end"], it["label"], unique=unique_base)
     runner = _runner(spec)
     it["file"] = runner(job, spec, it, base)   # 書きかけ(<base>.partial.mp4)
     it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))

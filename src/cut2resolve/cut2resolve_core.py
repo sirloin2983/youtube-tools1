@@ -31,12 +31,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import srt2resolve as S  # noqa: E402
 
 ToolError = S.ToolError
-VERSION = "0.22.2"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = "0.22.3"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
 CUT_PLAN_SCHEMA = "youtube-tools-cut-plan/v1"
 MAX_JSON_BYTES = 32 * 1024 * 1024   # 文字起こし・cut-plan の上限(3時間の配信でも数MB)
+# 指定を省いたときの値の正(pack.Request・serve.py の API・cut2resolve.py のコマンドはここ(か Request の既定)を読む。2026-10-09 に写しをやめた)
+DEFAULT_NOISE_DB = -35.0            # 無音とみなす音量 dB
+DEFAULT_SILENCE_MIN = 0.6           # この秒数以上続く無音だけ削る
+DEFAULT_SILENCE_PAD = 0.15          # 話の前後に残す秒数
+DEFAULT_CRF = 18                    # 粗編集の画質
+DEFAULT_REC_START = "01:00:00:00"   # タイムラインの開始タイムコード
+DEFAULT_REEL = "AX"                 # EDL のリール名
 MAX_EDL_EVENTS = 999                # CMX3600 のイベント番号は 3 桁
 
 
@@ -378,7 +385,10 @@ def check_silence_params(noise_db, min_sec, pad_sec):
         raise ToolError("話の前後に残す秒数(--silence-pad)は 0〜10 秒で指定してください。")
 
 
-def detect_silence(video, fps, total, noise_db=-35.0, min_sec=0.6, pad_sec=0.15, task=None):
+_SILENCE_LINE = re.compile(r"silence_(start|end):\s*(-?[\d.]+)")   # ffmpeg の silencedetect の行
+
+
+def detect_silence(video, fps, total, noise_db=DEFAULT_NOISE_DB, min_sec=DEFAULT_SILENCE_MIN, pad_sec=DEFAULT_SILENCE_PAD, task=None):
     """無音区間 -> 削る区間[(開始f, 終了f)]。話の前後に pad_sec だけ残す。
     音声は最初の音声トラック(粗編集の書き出しと同じ)。複数の音声トラックがある録画でも、どちらを調べたか食い違わないように"""
     check_silence_params(noise_db, min_sec, pad_sec)
@@ -390,13 +400,13 @@ def detect_silence(video, fps, total, noise_db=-35.0, min_sec=0.6, pad_sec=0.15,
         raise ToolError("無音の検出に失敗しました(音声が無い動画かもしれません): " + (r.stderr or "").strip()[-200:])
     spans, cur = [], None
     for line in r.stderr.splitlines():
-        m = re.search(r"silence_start:\s*(-?[\d.]+)", line)
-        if m:
-            cur = max(0.0, float(m.group(1)))
+        m = _SILENCE_LINE.search(line)
+        if not m:
             continue
-        m = re.search(r"silence_end:\s*(-?[\d.]+)", line)
-        if m and cur is not None:
-            spans.append((cur, float(m.group(1))))
+        if m.group(1) == "start":
+            cur = max(0.0, float(m.group(2)))
+        elif cur is not None:
+            spans.append((cur, float(m.group(2))))
             cur = None
     if cur is not None:  # 最後まで無音
         spans.append((cur, total_sec))
@@ -411,11 +421,12 @@ def detect_silence(video, fps, total, noise_db=-35.0, min_sec=0.6, pad_sec=0.15,
 
 # タイムコードの計算は srt2resolve と共通(FCPXML の開始タイムコードにも使うため、向こうに1か所だけ持つ)
 nominal_rate = S.nominal_rate
+safe_stdio = S.safe_stdio
 tc_to_frames = S.tc_to_frames
 frames_to_tc = S.frames_to_tc
 
 
-def check_timecodes(fps, rec_start="01:00:00:00", src_start="00:00:00:00"):
+def check_timecodes(fps, rec_start=DEFAULT_REC_START, src_start="00:00:00:00"):
     """重い処理(無音の検出・粗編集の書き出し)の前に、タイムコードの指定を確かめる。
     以前は EDL を書く直前まで確かめず、粗編集の動画だけ書き出してから失敗していた"""
     nom = nominal_rate(fps)
@@ -464,11 +475,11 @@ def resolve_src_start(video, override=None, meta=None):
 
 def _reel(name):
     r = re.sub(r"[^A-Za-z0-9]", "", name or "").upper()[:8]
-    return r or "AX"
+    return r or DEFAULT_REEL
 
 
-def build_edl(title, clip_name, keeps, fps, has_audio, reel="AX",
-              rec_start="01:00:00:00", src_start="00:00:00:00"):
+def build_edl(title, clip_name, keeps, fps, has_audio, reel=DEFAULT_REEL,
+              rec_start=DEFAULT_REC_START, src_start="00:00:00:00"):
     """CMX3600 の EDL。イベント = 残す区間1つ。ファイル名は「* FROM CLIP NAME」で渡す"""
     nom = nominal_rate(fps)
     rec = tc_to_frames(rec_start, nom)
@@ -524,7 +535,7 @@ def remap_cues(cues_ms, keeps, fps, min_piece_frames=6, with_src=False):
 
 # ---------------------------------------------------------------- 粗編集の動画(EDL が通らないときの代替)
 
-def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None, gain_db=0.0):
+def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, task=None, gain_db=0.0):
     """残す区間だけをつないだ H.264 の mp4 を作る(再エンコード。フレーム単位で切る)。
     一時ファイルに書き出してから置き換える(途中で失敗・取り消しても、書きかけの mp4 を残さない)。
     gain_db: 音量をそろえるとき(パックの loudness)に、つないだ音にかける量(dB。0 = そのまま)"""
@@ -542,24 +553,18 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=18, task=None, 
         chains.append("[outa0]" + (f"volume={gain_db:.2f}dB" if abs(gain_db) >= 0.01 else "anull") + "[outa]")
     kept_sec = frames_to_sec(sum(e - s for s, e in keeps), fps)
     out_path = Path(S.arg_path(out_path))
-    fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=".tmp-" , suffix=".mp4")
-    os.close(fd)
-    out_opts = ["-map", "[outv]"] + (["-map", "[outa]"] if has_audio else []) + [
-        "-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p",
-        "-r", f"{fps[0]}/{fps[1]}"]
-    if has_audio:
-        out_opts += ["-c:a", "aac", "-b:a", "192k"]
-    out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
-    try:
+    with S.staged(out_path, ".mp4") as tmp:   # 一時の名前に書いて、できたら付け替える(失敗・取り消しで書きかけを残さない)
+        out_opts = ["-map", "[outv]"] + (["-map", "[outa]"] if has_audio else []) + [
+            "-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p",
+            "-r", f"{fps[0]}/{fps[1]}"]
+        if has_audio:
+            out_opts += ["-c:a", "aac", "-b:a", "192k"]
+        out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
         r = _ffmpeg_script(";\n".join(chains), ("-filter_complex_script", "-/filter_complex"),
                            lambda opt, sp: ["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
                            7200, task, kept_sec)
         if r.returncode != 0:
             raise ToolError("粗編集の動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
-        S._replace_retry(tmp, str(out_path))
-        tmp = None
-    finally:
-        _unlink_quiet(tmp)
 
 
 # ---------------------------------------------------------------- 表示・手順書・出力
@@ -647,7 +652,7 @@ D. 「タイムコードの範囲が一致しない(timecode extents do not matc
 """
 
 
-def write_pack(out_dir, video, meta, keeps, cues_out, args_reel="AX", rec_start="01:00:00:00",
+def write_pack(out_dir, video, meta, keeps, cues_out, args_reel=DEFAULT_REEL, rec_start=DEFAULT_REC_START,
                src_start="00:00:00:00", rough_path=None, edl_title=None, extras=None, readme_path=None, stem=None):
     """EDL・字幕・手順書を書く(どれも一時ファイル経由で置き換える)。書いたファイルのパス辞書を返す。
     extras: 友人へ.txt に載せる追加のファイル [(名前, 説明)](書くのは呼び出し側)
@@ -755,16 +760,10 @@ def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
     dst = Path(dst)
     ext = dst.suffix.lower()
     opts = _gain_copy_opts(video, ext, gain_db, meta)
-    fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=ext or ".mp4")
-    os.close(fd)
-    try:
+    with S.staged(dst, ext or ".mp4") as tmp:
         r = _ffmpeg_run(["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], 7200, task, duration)
         if r.returncode != 0:
             raise ToolError("音量をそろえた動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
-        S._replace_retry(tmp, str(dst))
-        tmp = None
-    finally:
-        _unlink_quiet(tmp)
     return dst
 
 
@@ -786,14 +785,20 @@ def _file_sig(path):
     return {"size": st.st_size, "mtime": st.st_mtime_ns // 1_000_000_000}
 
 
+def _named_sig(path):
+    """_file_sig に名前(ファイル名)を足した形。音量をかけた写しの記録(元の動画・置き場所の動画)に使う。読めなければ None"""
+    sig = _file_sig(path)
+    return None if sig is None else dict(sig, name=Path(path).name)
+
+
 def gain_copy_key(video, final, gain_db, meta=None):
     """音量をかけて写すときの条件 = 元の動画(名前・大きさ・更新日時の秒)・かける量(dB。ffmpeg に渡すのと同じ小数 2 桁)・
     書き出しの設定(ffmpeg の出力のオプション。音声の形式・ビットレート・開始タイムコードなど。_gain_copy_opts)。final: 置き場所(拡張子で形式が決まる)。
     写す前に作る(写している間に元の動画が変わったら、次は記録と合わないので作り直す)。元の動画が読めないときは None(記録しない・飛ばさない)"""
-    src = _file_sig(video)
+    src = _named_sig(video)
     if src is None:
         return None
-    return {"v": GAIN_COPY_V, "source": dict(src, name=Path(video).name), "gainDb": round(float(gain_db), 2),
+    return {"v": GAIN_COPY_V, "source": src, "gainDb": round(float(gain_db), 2),
             "ffmpeg": _gain_copy_opts(video, Path(final).suffix.lower(), gain_db, meta)}
 
 
@@ -801,10 +806,10 @@ def gain_copy_record(key, final, **how):
     """パックの記録(作業データの packs/<ハッシュ>.json)の videoCopy に残す中身 = 条件 key + 置き場所の動画 final(名前・大きさ・更新日時の秒。
     写して付け替えたあとに読む)+ 量の決め方 how(volume = 音量 % / loudness = LUFS の目標。人が読む用で、比べるのは実際にかけた gainDb)。
     key が無い・final が読めないときは None"""
-    out = _file_sig(final) if key else None
+    out = _named_sig(final) if key else None
     if out is None:
         return None
-    return dict(key, output=dict(out, name=Path(final).name), **how)
+    return dict(key, output=out, **how)
 
 
 def same_gain_copy(key, final, prev):
@@ -813,8 +818,8 @@ def same_gain_copy(key, final, prev):
     記録が無い・形が違う・1つでも違う・読めないときは False(作り直す側に倒す)。中身は読まない(same_copy と同じ考え方)"""
     if not key or not isinstance(prev, dict):
         return False
-    out = _file_sig(final)
-    if out is None or prev.get("output") != dict(out, name=Path(final).name):
+    out = _named_sig(final)
+    if out is None or prev.get("output") != out:
         return False
     return all(prev.get(k) == key[k] for k in ("v", "source", "gainDb", "ffmpeg"))
 
@@ -823,12 +828,8 @@ def same_copy(src, dst):
     """dst を src の写しとみなせるか: 普通のファイルで、大きさと更新日時(秒単位)が同じ(rsync の既定の比べ方と同じ)。
     中身は読まない(数 GB の動画を読み比べると、写し直すのと同じくらい時間がかかるため)。copy_video は写したあと更新日時を
     元に合わせるので、前に写した動画はこれで分かる。どちらかが無い・読めないときは False(写す側に倒す)"""
-    try:
-        a, b = os.stat(src), os.stat(dst)
-    except OSError:
-        return False
-    sec = 1_000_000_000
-    return stat.S_ISREG(b.st_mode) and a.st_size == b.st_size and a.st_mtime_ns // sec == b.st_mtime_ns // sec
+    a = _file_sig(src)
+    return a is not None and a == _file_sig(dst)
 
 
 def copy_video(video, out_dir, task=None, dst=None, final=None):
@@ -843,9 +844,8 @@ def copy_video(video, out_dir, task=None, dst=None, final=None):
     if same_copy(video, final or dst):
         return None
     size = video.stat().st_size
-    fd, tmp = tempfile.mkstemp(dir=S.arg_path(dst.parent), prefix=".tmp-", suffix=".part")
-    try:
-        with open(video, "rb") as src, os.fdopen(fd, "wb") as out:
+    with S.staged(dst) as tmp:
+        with open(video, "rb") as src, open(tmp, "wb") as out:
             done = 0
             while True:
                 if task:
@@ -858,10 +858,6 @@ def copy_video(video, out_dir, task=None, dst=None, final=None):
                 if task and size:
                     task.report(done / size, None)
         shutil.copystat(str(video), tmp)
-        S._replace_retry(tmp, str(dst))
-        tmp = None
-    finally:
-        _unlink_quiet(tmp)
     return dst
 
 

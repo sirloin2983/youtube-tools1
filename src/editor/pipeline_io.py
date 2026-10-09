@@ -152,15 +152,19 @@ def build_transcript_v1(doc, version):
         if g.get("noSub") is True:   # 字幕に出さない行(ゲームの声など。2026-10-05)。パックはこの行の字幕を作らず、残す区間には数える(cut2resolve の側)
             one["noSub"] = True
         segs.append(one)
-    out = {"schema": TRANSCRIPT_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(),
-           "media": {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
-                     "durationSec": _num(doc.get("duration"))}}
+    out = {"schema": TRANSCRIPT_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(), "media": _media_of(doc)}
     if isinstance(doc.get("clip"), dict):
         out["clip"] = doc["clip"]
     out.update({"title": str(doc.get("title") or ""), "language": str(doc.get("language") or ""), "speakers": speakers, "segments": segs})
     if doc.get("whole") is False:   # 範囲を指定して文字起こしした文書は、その範囲も示す(約束に無い項目。読む側は無視してよい)
         out["transcribedRange"] = {"start": _num(doc.get("start")) or 0.0, "end": _num(doc.get("end"))}
     return out
+
+
+def _media_of(doc):
+    """受け渡しの JSON の media(動画のパス・名前・長さ。transcript/v1 と cut-plan/v1 で同じ)"""
+    return {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
+            "durationSec": _num(doc.get("duration"))}
 
 
 # ---------- youtube-tools-cut-plan/v1 ----------
@@ -173,9 +177,7 @@ def build_cut_plan_v1(doc, version):
         label = "".join(str(g.get("text") or "").strip() for g in sp["segments"])
         segs.append({"id": "segment-%03d" % i, "start": round(sp["start"], 3), "end": round(sp["end"], 3), "status": "adopted",
                      "label": label[:40] + ("…" if len(label) > 40 else ""), "lines": [str(g.get("id") or "") for g in sp["segments"]]})
-    return {"schema": CUT_PLAN_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(),
-            "media": {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
-                      "durationSec": _num(doc.get("duration"))},
+    return {"schema": CUT_PLAN_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(), "media": _media_of(doc),
             "title": str(doc.get("title") or ""), "segments": segs}
 
 
@@ -210,8 +212,6 @@ _beside_lock = threading.Lock()
 
 
 # 書き込みの部品は ytt_core.fsio(Windows の一時的なロックのやり直し・一時ファイル → 置き換え・既存を上書きしない作成)
-_replace_retry = fsio.replace_retry
-_temp_in = fsio.temp_in
 _create_new = fsio.create_new
 
 
@@ -248,15 +248,7 @@ def save_beside(media_path, suffix, data, schema=None):
                 if os.path.lexists(p):
                     # 同じ名前があっても、このツールが前に書いた同じ schema のものなら上書き(別名の「(2)」も同じ扱いにして、書き出すたびに増えないように)
                     if schema and os.path.isfile(p) and written_by_us(p, schema):
-                        tmp = _temp_in(folder, data)
-                        try:
-                            _replace_retry(tmp, p)
-                        except BaseException:
-                            try:
-                                os.unlink(tmp)
-                            except OSError:
-                                pass
-                            raise
+                        fsio.atomic_write(p, data, fsync_required=True)   # 一時ファイル → 置き換え(失敗したら一時ファイルを消す)
                         return p, True
                     continue
                 if _create_new(p, data):
@@ -274,20 +266,11 @@ def save_beside(media_path, suffix, data, schema=None):
 valid_port = runtime.valid_port
 
 
-def runtime_dir(tool_root):
-    """<ツールのフォルダの1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)。"""
-    return runtime.runtime_dir(tool_root)
-
-
-def write_runtime(rdir, tool_id, port, version, path="/"):
-    """起動時に書く。書けなくても起動は続ける(None を返す)。pid は「自分が書いた記録か」の確認だけに使う。
-    path は画面の場所(入口の統合サーバーに取り込まれたときは "/transcribe/")。"""
-    return runtime.write_runtime(rdir, tool_id, port, version, path)
-
-
-def remove_runtime(rdir, tool_id, port):
-    """正常終了時に消す。自分が書いたもの(同じポート・同じプロセス)のときだけ。"""
-    return runtime.remove_runtime(rdir, tool_id, port)
+# 中身は ytt_core.runtime(名前は今までどおり。呼ぶ側は位置で渡す):
+runtime_dir = runtime.runtime_dir          # (ツールのフォルダ) → <1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)
+write_runtime = runtime.write_runtime      # (rdir, ツールID, ポート, 版, 画面の場所="/") 起動時に書く。書けなくても起動は続ける(None)。
+                                           # 画面の場所は入口の統合サーバーに取り込まれたときは "/transcribe/"
+remove_runtime = runtime.remove_runtime    # (rdir, ツールID, ポート) 正常終了時に消す。自分が書いたもの(同じポート・同じプロセス)のときだけ
 
 
 def read_runtime_entries(rdir):

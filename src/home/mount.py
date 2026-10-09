@@ -15,7 +15,6 @@
 - 画面の共通の API(/studio/api/ytt/… など。画面のエラーの記録・窓で開く。段階7)は、ツールに渡さず入口(server.ytt_request)へ回す。
   ツールの画面は相対パス api/ytt/… で呼ぶので、取り込んだツールごとに同じものを書かずに済む
 """
-import hmac
 import importlib.util
 import os
 import sys
@@ -23,43 +22,35 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import layout   # フォルダ名(入口の launch.py がリポジトリ直下を sys.path に入れてから読み込む)
+from ytt_core import httpsec, layout   # フォルダ名・合言葉と本文の読み捨て(入口の launch.py が src を sys.path に入れてから読み込む)
 
 # 取り込めるツール。prefix は画面の場所(/studio/)。順番は スタジオ → cut2resolve → 文字起こし(段階3 の決定)。
 # csp が None のツールは、ツール自身の CSP(serve.py の CSP。script-src 'self' で外部・インラインのスクリプトなし)をそのまま使う
+def _mount_spec(tid, csp, **kw):
+    """取り込みの表の 1 行。dir は layout.TOOL_DIRS、場所は /<ID>(URL は互換のため変えない)、読み込む名前は ytt_tool_<ID>"""
+    return dict({"dir": layout.TOOL_DIRS[tid], "prefix": "/" + tid, "alias": "ytt_tool_" + tid, "csp": csp}, **kw)
+
+
 MOUNTS = {
-    "studio": {"dir": layout.TOOL_DIRS["studio"], "prefix": "/studio", "alias": "ytt_tool_studio",
-               # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
-               "csp": ("script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
-                       "form-action 'none'; frame-ancestors 'none'")},
+    # YouTube のプレイヤー(iframe_api)だけ外部のスクリプトを許す。スタイルの属性は画面が使うので制限しない
+    "studio": _mount_spec("studio", "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
+                                    "form-action 'none'; frame-ancestors 'none'"),
     # cut2resolve の画面は「編集」に統合して消したので、画面を開いたら「編集」へ転送する(「編集」も取り込まれているときだけ。API は今までどおり /cut2resolve/api/...)
-    "cut2resolve": {"dir": layout.TOOL_DIRS["cut2resolve"], "prefix": "/cut2resolve", "alias": "ytt_tool_cut2resolve", "csp": None,
-                    "page_to": {"prefix": "/transcribe", "params": {"video": "media"}}},
+    "cut2resolve": _mount_spec("cut2resolve", None, page_to={"prefix": "/transcribe", "params": {"video": "media"}}),
     # 文字起こし: 認識(faster-whisper・sherpa-onnx)は tx_worker.py(別プロセス)で動くので、入口のプロセスにネイティブのライブラリは入らない
-    "transcribe": {"dir": layout.TOOL_DIRS["transcribe"], "prefix": "/transcribe", "alias": "ytt_tool_transcribe",
-                   "csp": "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"},
+    "transcribe": _mount_spec("transcribe", "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
 }
 TOKEN_HEADER = "X-YTT-Token"
 SAFE_METHODS = ("GET", "HEAD")
 YTT_API = "/api/ytt/"   # 画面の共通の API(入口が受け持つ。src/home/launch.py の PortalServer.ytt_request)
 
 
+# 合言葉が違うときの応答(入口の API・取り込んだツール・画面の共通の API で同じ文。src/home/launch.py も使う)
+TOKEN_FAIL = {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"}
+
+
 class MountError(Exception):
     pass
-
-
-DRAIN_MAX = 1024 * 1024   # 断る要求の本文を読み捨てる上限(これより大きい本文は読まずに閉じる)
-
-
-def drain_body(headers, rfile, limit=DRAIN_MAX):
-    """断る要求の本文を読み捨てる(中身は見ない。上限まで)。読まずに接続を閉じると、Windows では受け取っていない本文が残っているために
-    接続ごと切られ(RST)、相手に 403 の応答が届かないことがある(2026-10-03。入れ直した PC で test_csrf_token などがときどき落ちて分かった)"""
-    try:
-        length = int(headers.get("Content-Length") or 0)
-        if 0 < length <= limit:
-            rfile.read(length)
-    except (OSError, ValueError):
-        pass
 
 
 def tool_modules(tool_dir):
@@ -116,6 +107,16 @@ def inject_token(body, token):
     return body[:i] + tag + body[i:] if i >= 0 else tag + body
 
 
+def send_redirect(h, code, location, extra=None):
+    """転送の応答(本文なし)。見出しは Location・Content-Length: 0・extra の順"""
+    h.send_response(code)
+    h.send_header("Location", location)
+    h.send_header("Content-Length", "0")
+    for k, v in (extra or {}).items():
+        h.send_header(k, v)
+    h.end_headers()
+
+
 def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
     """ツールの Handler を、/prefix の下で動くように包んだクラス。
     page_to: {"prefix", "params"} があれば、画面(/ と /index.html)を開いたときに、そのツールの画面へ転送する(そのツールも取り込まれているときだけ)"""
@@ -133,10 +134,7 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
             self.close_connection = True   # 1つの接続に1つの要求(接続ごとに受け持ちを決めるため)
             u = urllib.parse.urlsplit(self.path)
             if u.path == prefix:   # /studio → /studio/(画面の中の相対パスが正しく解決されるように)
-                self.send_response(301)
-                self.send_header("Location", prefix + "/" + ("?" + u.query if u.query else ""))
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                send_redirect(self, 301, prefix + "/" + ("?" + u.query if u.query else ""))
                 return False
             if not u.path.startswith(prefix + "/"):
                 self._json(404, {"error": "not_found", "message": "その場所はありません"})
@@ -144,9 +142,10 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
             self.path = self.path[len(prefix):]
             if page_to and self.command in SAFE_METHODS and self._page_moved():
                 return False
-            if self.command not in SAFE_METHODS and not hmac.compare_digest(self.headers.get(TOKEN_HEADER) or "", token):
-                drain_body(self.headers, self.rfile)
-                self._json(403, {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"})
+            if self.command not in SAFE_METHODS and not httpsec.token_ok(self.headers, token, TOKEN_HEADER):
+                # 断る要求の本文は読み捨てる(読まずに閉じると Windows では接続ごと切られ、403 が届かないことがある。2026-10-03)
+                httpsec.drain_body(self.headers, self.rfile)
+                self._json(403, TOKEN_FAIL)
                 return False
             if urllib.parse.urlsplit(self.path).path.startswith(YTT_API):   # 画面の共通の API は入口へ(ツールには渡さない)
                 serve = getattr(self.server, "ytt_request", None)
@@ -163,11 +162,7 @@ def make_handler(mod, prefix, token, csp, access_log=None, page_to=None):
             if u.path not in ("/", "/index.html") or page_to["prefix"] not in (getattr(self.server, "mounts", None) or {}):
                 return False
             out = [(dst, q[src][0][:4000]) for src, dst in page_to["params"].items() if q.get(src) and q[src][0].strip()]
-            self.send_response(302)
-            self.send_header("Location", page_to["prefix"] + "/" + ("?" + urllib.parse.urlencode(out) if out else ""))
-            self.send_header("Content-Length", "0")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
+            send_redirect(self, 302, page_to["prefix"] + "/" + ("?" + urllib.parse.urlencode(out) if out else ""), {"Cache-Control": "no-store"})
             return True
 
         def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):

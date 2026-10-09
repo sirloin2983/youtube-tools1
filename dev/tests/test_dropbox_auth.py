@@ -126,6 +126,17 @@ class TestMain(unittest.TestCase):
         self.assertEqual(self.run_main(urlopen), 1)
         self.assertFalse(os.path.exists(self.out))
 
+    def test_write_config_is_atomic_json_with_lf(self):
+        """鍵のファイルは fsio.atomic_write で書く: UTF-8・BOM なし・末尾に LF 1 つ・書きかけ(.tmp)を残さない・上書きできる"""
+        path = os.path.join(self.dir, "sub2", "config.json")
+        A.write_config(path, "appkey01", FAKE)
+        A.write_config(path, "appkey02", FAKE + "2")
+        with open(path, "rb") as f:
+            raw = f.read()
+        self.assertTrue(raw.endswith(b"}\n") and b"\r" not in raw and not raw.startswith(b"\xef\xbb\xbf"))
+        self.assertEqual(json.loads(raw.decode("utf-8")), {"appKey": "appkey02", "refreshToken": FAKE + "2"})
+        self.assertEqual(os.listdir(os.path.dirname(path)), ["config.json"])
+
     def test_bad_key_and_empty_code(self):
         self.assertEqual(self.run_main(None, key="Not A Key!"), 2)
         self.assertEqual(self.run_main(None, code="  "), 2)

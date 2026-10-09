@@ -113,6 +113,35 @@ class BackupTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "ドライブ"):
                     backup.run_once(self.src, free[0] + ":\\backup")
 
+    def test_refuses_overlap_through_junction(self):
+        """写す先が、見かけは外でもジャンクション越しに作業データの中なら断る(リンクを解いたパスでも比べる。fsio.is_inside。2026-10-09)。
+        見かけで重なる指定は今までどおり断る・重ならない指定は通る"""
+        try:
+            import _winapi
+            link = os.path.join(self.tmp, "見かけは外")
+            _winapi.CreateJunction(os.path.join(self.src, "studio"), link)
+        except (ImportError, AttributeError, OSError):
+            self.skipTest("ジャンクションを作れない")
+        self.addCleanup(lambda: os.path.isdir(link) and os.rmdir(link))
+        with self.assertRaisesRegex(ValueError, "作業データの中"):
+            backup.run_once(self.src, link)
+        self.assertFalse(os.path.exists(os.path.join(self.src, "studio", backup.DEST_NAME)))
+        self.assertTrue(backup._overlaps(os.path.join(self.src, "x"), self.src))
+        self.assertFalse(backup._overlaps(self.src + "2", self.src))   # 名前の頭だけ同じ別のフォルダは重ならない
+        self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 9)
+
+    def test_state_file_roundtrip_and_broken(self):
+        """最後に写した記録(backup-state.json): 1 行の JSON で原子的に書く・壊れた・大きすぎる・dict でない記録は「記録なし」"""
+        b, _ = self.make(lambda: 5.0)
+        b.last = {"ok": 5.0, "folder": "D:/バックアップ"}
+        b._save_state()
+        self.assertEqual(read(b.state_path), '{"ok": 5.0, "folder": "D:/バックアップ"}')
+        self.assertEqual(sorted(os.listdir(os.path.dirname(b.state_path))), [backup.STATE_FILE])   # 一時ファイルを残さない
+        self.assertEqual(b._load_state(), b.last)
+        for bad in ("{壊れた", "[1]", '{"x": "%s"}' % ("y" * backup.STATE_MAX)):
+            put(b.state_path, bad)
+            self.assertEqual(b._load_state(), {}, bad[:20])
+
     def test_does_not_follow_symlinks(self):
         outside = os.path.join(self.tmp, "outside")
         put(os.path.join(outside, "secret.txt"), "s")

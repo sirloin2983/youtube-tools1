@@ -177,10 +177,9 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
     if not rows:
         out["skipped"] = True
         return out
-    if not any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)):
+    if not _has_kept(doc):
         return out
-    tmp_dir = tempfile.mkdtemp(prefix="edit-draft-")
-    try:
+    with tempfile.TemporaryDirectory(prefix="edit-draft-", ignore_cleanup_errors=True) as tmp_dir:
         tpath = _write_transcript(doc, version, tmp_dir)
         warns = []
         try:
@@ -200,8 +199,11 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
             return out
         out.update(keepsSec=pack.summary(plan)["keepsSec"], base="rows", warnings=warns + list(plan.warnings))
         return out
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _has_kept(doc: dict) -> bool:
+    """文書に「残す」行(is_kept)が 1 つでもあるか(無ければ字幕の元の文字起こしを書かない)"""
+    return any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict))
 
 
 def _edit_request(pack, source: str, tpath: str | None, keeps, row_edge=None, warnings=None):
@@ -216,9 +218,8 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)"""
     source, pack, _tp = _source_and_pack(doc)
     cache = _draft_cache(pack)
-    tmp_dir = tempfile.mkdtemp(prefix="edit-preview-")
-    try:
-        tpath = _write_transcript(doc, version, tmp_dir) if any(is_kept(g) for g in doc.get("segments") or [] if isinstance(g, dict)) else None
+    with tempfile.TemporaryDirectory(prefix="edit-preview-", ignore_cleanup_errors=True) as tmp_dir:
+        tpath = _write_transcript(doc, version, tmp_dir) if _has_kept(doc) else None
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps), cache=cache)
         except pack.ToolError as e:
@@ -238,8 +239,6 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
                 "sampleSpeakers": sample_speakers,
                 # 重なる字幕の段分けと字幕に出さない行(2026-10-05。cut2resolve の pack.summary のまま渡す。古い cut2resolve なら 0)
                 **{k: int(sm.get(k) or 0) for k in ("captionLanes", "captionsStacked", "captionsTrimmed", "noSubRows")}}
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 _SUB_COLOR_RE = re.compile(r"#?([0-9A-Fa-f]{6})")

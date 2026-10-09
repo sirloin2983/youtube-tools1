@@ -37,6 +37,7 @@
   3 日たったもの・3 回失敗したものは捨てる(理由は一覧のファイルの dropped に残す)。環境変数 YTT_DEFER_ANALYZE=off で止める(足さない・始めない)
 """
 import collections
+import contextlib
 import http.client
 import json
 import os
@@ -47,7 +48,8 @@ import threading
 import time
 import uuid
 
-from ytt_core import colors, fsio, txindex
+from ytt_core import colors, fsio, tools, txindex
+import cases  # noqa: E402  (src/home/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
 import friend_feedback  # noqa: E402  (届けた zip の中身の記録 deliveries.jsonl。友人の「要らない」が来たときに引く。2026-10-08)
@@ -155,6 +157,12 @@ def _media_is_30fps(path):
         return False
     fps = (info or {}).get("fps")
     return isinstance(fps, (int, float)) and abs(fps - 30) <= 0.01
+
+
+def _has_captions(doc):
+    """文書に残す字幕の行(文字があってカットしていない行)があるか"""
+    return any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
+
 
 TOOL_NAMES = {"studio": "切り抜きスタジオ", "transcribe": "編集", "cut2resolve": "cut2resolve(パックを作る部品)"}   # 知らせの文のツール名
 
@@ -276,7 +284,6 @@ def live_auto_origin(media):
     """M8: 切り抜きが、リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)か。
     .clip.json の読み方と自動の出どころの一覧は src/home/cases.py の clip_live・AUTO_ORIGINS(案件の画面の札と同じ)。
     読めない・無い・人の採用(manual)・ライブでない → False"""
-    import cases
     live, _mark = cases.clip_live(media)
     return bool(live) and live.get("origin") in cases.AUTO_ORIGINS
 
@@ -428,6 +435,14 @@ class Run:
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
 
 
+def _defer_eligible(rec):
+    """区間だけで終わった依頼(URL)か = あとから解析の一覧に足す条件。rec は記録の行(Run.public() の形)。
+    依頼(URL)・区間あり・配信の ID が正しい・解析の段なし・区間のマークを作った(採用が done か warn)・終わった(done か error。中止は足さない)"""
+    keys = {s.get("key"): s.get("state") for s in rec.get("steps") or [] if isinstance(s, dict)}
+    return (rec.get("mode") in REQUEST_URL_MODES and bool(rec.get("ranges")) and _yt_id_ok(rec.get("videoId")) and "analyze" not in keys
+            and rec.get("state") in ("done", "error") and keys.get("adopt") in ("done", "warn"))
+
+
 def _rec_key(rec):
     if rec.get("kind") == "file":
         return ("file", rec.get("sourcePath"))
@@ -514,8 +529,7 @@ class AutoRunner:
                 self._remember(rec)
         self.prefs = prefs   # ホームの設定(src/home/prefs.py)。カットの無い文書のカットの方法 autorun.cut
         self.sleep = sleep or time.sleep
-        if find_pack is None:
-            import cases   # src/home/cases.py(パックの有無の見方を案件の画面とそろえる)
+        if find_pack is None:   # パックの有無の見方は案件の画面とそろえる
             find_pack = cases.find_pack
         self.find_pack = find_pack
         self.lock = threading.Lock()
@@ -619,8 +633,7 @@ class AutoRunner:
         vid = run.video_id or ((clip.get("source") or {}).get("videoId") if isinstance(clip.get("source"), dict) else None)
         ch = (v or {}).get("channel") or (run.fresh or {}).get("channel")
         if vid and not ch:
-            import cases
-            ch = (cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}).get("channel")
+            ch = self._studio_video(vid).get("channel")
         r = prefs_mod.guess_streamer(self.prefs, (doc or {}).get("id") or run.doc_id, vid, ch or None,
                                      from_channel=lambda c: (colors.from_channel(c, env=self.env) or {}).get("name"))
         run.streamer = r["name"] or ""
@@ -713,7 +726,7 @@ class AutoRunner:
         if not isinstance(ids, list) or not ids or len(ids) > MAX_WAITING:
             raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
         who = self._streamer(streamer)
-        docs = {d["id"]: d for d in txindex.load(txindex.folder(self.root, self.env))}
+        docs = {d["id"]: d for d in self._docs()}
 
         def make(tid, active):
             d = docs.get(tid) if _doc_id_ok(tid) else None
@@ -777,7 +790,7 @@ class AutoRunner:
     def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False):
         """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。実行は実行したときの状態で決めるので、ずれることがある。
         -> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}], "total": 分かっている本数の合計, "nothing": bool, "reason"}"""
-        docs = txindex.load(txindex.folder(self.root, self.env))
+        docs = self._docs()
         if doc_ids is not None:   # 文書単位(文字起こし → パック)
             if not isinstance(doc_ids, list) or not doc_ids or len(doc_ids) > MAX_WAITING:
                 raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
@@ -852,24 +865,25 @@ class AutoRunner:
         """順番待ちを動かす(呼ぶのは self.cv を持っている間)。あとから解析の最中に新しい実行が入ったら、それを止めて新しい実行を先にする
         (止めた配信は一覧に残っているので、待ちが無くなったらまた始める。試した回数は増やさない)"""
         if any(r.state == "queued" for r in self.runs):
-            for r in self.runs:
-                if r.mode == POST_MODE and r.state == "running" and not r.cancel:
-                    r.cancel, r.preempted = True, "新しい実行を先にするため"
-                    r.message = "新しい実行を先にするため止めています(あとで続けます)"
+            self._preempt_deferred("新しい実行を先にするため")
         self.cv.notify_all()
         if self.thread is None or not self.thread.is_alive():
             self.thread = threading.Thread(target=self._loop, name="autorun", daemon=True)
             self.thread.start()
+
+    def _preempt_deferred(self, reason):
+        """動いているあとから解析に止める印を付ける(呼ぶのは self.cv を持っている間)。一覧には残り、試した回数は増やさない(preempted)"""
+        for r in self.runs:
+            if r.mode == POST_MODE and r.state == "running" and not r.cancel:
+                r.cancel, r.preempted = True, reason
+                r.message = "%s止めています(あとで続けます)" % reason
 
     def stop_deferred(self, reason="起動し直すため", wait=CANCEL_WAIT + 5, hold=DEFER_IDLE_SEC * 2):
         """動いているあとから解析を止めて(スタジオの解析も取り消す)、止まるまで待つ(「起動し直す」の前。launch.py の restart_self)。
         一覧には残り、試した回数は増やさない。hold 秒は次のあとから解析を始めない。-> 止まったか(動いていなければ True)"""
         with self.cv:
             self._defer_hold_until = self.clock() + hold
-            for r in self.runs:
-                if r.mode == POST_MODE and r.state == "running" and not r.cancel:
-                    r.cancel, r.preempted = True, reason
-                    r.message = "%s止めています(あとで続けます)" % reason
+            self._preempt_deferred(reason)
             return self.cv.wait_for(lambda: not any(r.mode == POST_MODE and r.state == "running" for r in self.runs), wait)
 
     def restart_info(self, timeout=5):
@@ -1051,11 +1065,9 @@ class AutoRunner:
             return
         picked = []
         for rec in reversed(recs):   # 新しい順
-            vid, keys = rec.get("videoId"), {s.get("key"): s.get("state") for s in rec.get("steps") if isinstance(s, dict)}
-            fin = rec.get("finished")
-            if (rec.get("mode") not in REQUEST_URL_MODES or not rec.get("ranges") or not _yt_id_ok(vid) or "analyze" in keys
-                    or rec.get("state") not in ("done", "error") or keys.get("adopt") not in ("done", "warn")
-                    or not _ms_ok(fin) or now - fin > DEFER_IMPORT_DAYS * 86400 * 1000 or vid in [p["videoId"] for p in picked]):
+            vid, fin = rec.get("videoId"), rec.get("finished")
+            if (not _defer_eligible(rec) or not _ms_ok(fin) or now - fin > DEFER_IMPORT_DAYS * 86400 * 1000
+                    or vid in [p["videoId"] for p in picked]):
                 continue
             picked.append({"videoId": vid, "title": str(rec.get("title") or "")[:120], "added": now, "tries": 0, "reason": "",
                            "lastTry": None, "requestId": rec.get("requestId") if isinstance(rec.get("requestId"), str) else None})
@@ -1165,12 +1177,7 @@ class AutoRunner:
         """実行が終わったとき(self.cv の外): 区間だけで終わった依頼(URL)は一覧に足す。あとから解析が終わったら外す・失敗を数える"""
         if run.mode == POST_MODE:
             return self._defer_post_done(run)
-        if run.mode not in REQUEST_URL_MODES or not run.ranges or not _yt_id_ok(run.video_id) or run.state == "cancelled":
-            return None
-        keys = {s["key"]: s["state"] for s in run.steps}
-        if "analyze" in keys or keys.get("adopt") not in ("done", "warn"):   # 解析した依頼・区間のマークを作る前に止まった依頼は足さない
-            return None
-        if not self._defer_on():
+        if not _defer_eligible(run.public()) or not self._defer_on():   # 記録の行と同じ形で、取り込み(_defer_import)と同じ条件
             return None
         with self._defer_lock:
             it = self._defer_find(run.video_id)
@@ -1263,6 +1270,14 @@ class AutoRunner:
             self._save_active()   # 終わった実行を待ちの記録から外す(M5)
 
     # ------------------------------------------------------------ 実行
+    def _docs(self):
+        """文字起こしの文書の一覧(txindex。更新時刻で覚えているので何度呼んでも読み直さない)"""
+        return txindex.load(txindex.folder(self.root, self.env))
+
+    def _studio_video(self, vid):
+        """スタジオの一覧の 1 本(cases.read_studio。無ければ {})"""
+        return cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}
+
     def _check(self, run):
         if run.cancel or self.closed:
             raise Cancelled()
@@ -1271,6 +1286,36 @@ class AutoRunner:
         self._check(run)
         self.sleep(self.poll if seconds is None else seconds)
         self._check(run)
+
+    def _call_when_free(self, run, st, tool, path, body, waiting):
+        """POST して、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)"""
+        while True:
+            status, res = self.client.call(tool, "POST", path, body)
+            if not (status == 409 and res.get("error") == "busy"):
+                return status, res
+            st["detail"] = waiting
+            self._wait(run, BUSY_WAIT)
+
+    def _poll(self, run, owned, read, cancel=None, start=None):
+        """ツールの仕事が終わるまで待つ骨組み(解析・書き出し・文字起こし・パック・「編集」のジョブで共通)。-> read() の結果
+        owned: 起動し直すときに止めてよいツールの仕事(run.owned。None = 書き出しのように自分の仕事にしない)。終わったら外す。
+        start(): 待つ前の投入(中止されたら、投入済みの分も cancel で取り消す)。read(): 終わったら None 以外、まだなら None(進み具合は read の中で st へ)。
+        中止(Cancelled)なら cancel()(ツールの仕事を取り消す)を呼んでから上げ直す"""
+        run.owned = owned
+        try:
+            if start is not None:
+                start()
+            while True:
+                self._wait(run)
+                r = read()
+                if r is not None:
+                    return r
+        except Cancelled:
+            if cancel is not None:
+                cancel()
+            raise
+        finally:
+            run.owned = None
 
     def _video(self, run):
         st, obj = self.client.call("studio", "GET", "/api/video?id=" + run.video_id)
@@ -1343,8 +1388,7 @@ class AutoRunner:
         if run.fresh and item["kind"] == "youtube":   # ① 探す から: 題名・配信者はスタジオの一覧にそのまま出る(解析の前に分かっている分)
             item.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
         if item["kind"] == "file":
-            import cases
-            path = (cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(run.video_id) or {}).get("path")
+            path = self._studio_video(run.video_id).get("path")
             if not path:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
@@ -1360,7 +1404,6 @@ class AutoRunner:
             return None
         if self._pref("friendLength", True) is False:
             return None
-        import cases
         folder = os.path.join(os.path.dirname(cases.locations(self.root, self.env)["studio"]), "evals", "marks")
         try:
             names = sorted(n for n in os.listdir(folder) if EVAL_MARKS_NAME_RE.match(n))
@@ -1421,26 +1464,21 @@ class AutoRunner:
                                     else "スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
         st["detail"] += fl_note
-        run.owned = ("studio", [qid]) if qid else None   # 人が入れた解析(qid なし)を待つときは自分の仕事にしない
-        try:
-            while True:
-                self._wait(run)
-                items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
-                it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
-                if it is None:
-                    raise StepError("解析の順番から外れました(スタジオで取り消したかもしれません)。もう一度実行してください")
-                st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
-                if it.get("status") == "done":
-                    st["detail"] = "解析しました(候補 %s 件)" % it.get("marks", "?") + fl_note
-                    return None
-                if it.get("status") in ("error", "cancelled", "skipped"):
-                    raise StepError("解析が終わりませんでした: %s" % (it.get("error") or JOB_STATE_JA.get(it.get("status"), "理由は不明です")))
-        except Cancelled:
-            if qid:   # この実行が入れた解析だけ取り消す(人がスタジオで入れた解析 = qid なし は止めない)
-                self._cancel_analysis(qid)
-            raise
-        finally:
-            run.owned = None
+        def read():
+            items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
+            it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
+            if it is None:
+                raise StepError("解析の順番から外れました(スタジオで取り消したかもしれません)。もう一度実行してください")
+            st["detail"] = "%s %d%%" % (it.get("phase") or "", round((it.get("progress") or 0) * 100))
+            if it.get("status") == "done":
+                st["detail"] = "解析しました(候補 %s 件)" % it.get("marks", "?") + fl_note
+                return True
+            if it.get("status") in ("error", "cancelled", "skipped"):
+                raise StepError("解析が終わりませんでした: %s" % (it.get("error") or JOB_STATE_JA.get(it.get("status"), "理由は不明です")))
+            return None
+        # 人が入れた解析(qid なし)を待つときは自分の仕事にしない・中止しても止めない(この実行が入れた解析だけ取り消す)
+        self._poll(run, ("studio", [qid]) if qid else None, read, (lambda: self._cancel_analysis(qid)) if qid else None)
+        return None
 
     def _cancel_analysis(self, qid):
         """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
@@ -1513,29 +1551,20 @@ class AutoRunner:
             done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
             return None if done else "stop"
-        body = self._export_body(run, ids[:50])
-        while True:
-            status, res = self.client.call("studio", "POST", "/api/export", body)
-            if status == 200:
-                break
-            if status == 409 and res.get("error") == "busy":
-                st["detail"] = "別の書き出しが終わるのを待っています"
-                self._wait(run, BUSY_WAIT)
-                continue
+        status, res = self._call_when_free(run, st, "studio", "/api/export", self._export_body(run, ids[:50]), "別の書き出しが終わるのを待っています")
+        if status != 200:
             raise StepError("書き出しを始められませんでした: %s" % (res.get("message") or "HTTP %d" % status))
         jid = res.get("id")
-        try:
-            while True:
-                self._wait(run)
-                j = self.client.ok("studio", "GET", "/api/export?id=" + jid)
-                items = j.get("items") or []
-                done = sum(1 for i in items if i.get("status") == "done")
-                st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting") else "%d / %d 本" % (done, len(items)))
-                if j.get("state") != "running":
-                    break
-        except Cancelled:
-            self.client.call("studio", "POST", "/api/export/cancel", {"id": jid})
-            raise
+
+        def read():
+            j = self.client.ok("studio", "GET", "/api/export?id=" + jid)
+            items = j.get("items") or []
+            st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting")
+                            else "%d / %d 本" % (sum(1 for i in items if i.get("status") == "done"), len(items)))
+            return j if j.get("state") != "running" else None
+        # 書き出しは自分の仕事にしない(owned なし = 書き出しの最中は起動し直しを断る。REDO_STEPS)
+        items = self._poll(run, None, read, lambda: self.client.call("studio", "POST", "/api/export/cancel", {"id": jid})).get("items") or []
+        done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")
         if bad and (not done or run.on_fail == "stop"):
@@ -1554,34 +1583,32 @@ class AutoRunner:
         if not clips:
             st["state"], st["detail"] = "skip", "書き出した切り抜きがありません"
             return "stop"
-        docs = txindex.load(txindex.folder(self.root, self.env))
+        docs = self._docs()
         todo = [m for m in clips if not txindex.pick(docs, run.video_id, m.get("id"), m["path"])[0]]
         if not todo:
             st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips)
             return None
         opts = self._tx_opts()
-        jobs = []
-        run.owned = ("transcribe", jobs)   # 入れたジョブ(同じリストに足していく)
-        try:
+        jobs = []   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
+
+        def submit():
             for m in todo:
                 self._check(run)
                 res = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=m["path"]))
                 jobs.append(res.get("id"))
-            while True:
-                self._wait(run)
-                all_jobs = {j.get("id"): j for j in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or []}
-                mine = [all_jobs.get(j) or {"state": "error", "error": "文字起こしのジョブが見つかりません"} for j in jobs]
-                fin = [j for j in mine if j.get("state") in ("done", "error", "cancelled")]
-                cur = next((j for j in mine if j.get("state") not in ("done", "error", "cancelled", "queued")), None)
-                st["detail"] = "%d / %d 本" % (len(fin), len(jobs)) + (" ・ %s %d%%" % (cur.get("phase") or "", round((cur.get("progress") or 0) * 100)) if cur else "")
-                if len(fin) == len(jobs):
-                    break
-        except Cancelled:
+
+        def read():
+            all_jobs = {j.get("id"): j for j in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or []}
+            mine = [all_jobs.get(j) or {"state": "error", "error": "文字起こしのジョブが見つかりません"} for j in jobs]
+            fin = [j for j in mine if j.get("state") in ("done", "error", "cancelled")]
+            cur = next((j for j in mine if j.get("state") not in ("done", "error", "cancelled", "queued")), None)
+            st["detail"] = "%d / %d 本" % (len(fin), len(jobs)) + (" ・ %s %d%%" % (cur.get("phase") or "", round((cur.get("progress") or 0) * 100)) if cur else "")
+            return mine if len(fin) == len(jobs) else None
+
+        def cancel():
             for j in jobs:
                 self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": j})
-            raise
-        finally:
-            run.owned = None
+        mine = self._poll(run, ("transcribe", jobs), read, cancel, start=submit)
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
         run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
@@ -1669,7 +1696,7 @@ class AutoRunner:
             wrap_out = dict(wrap_out, textplusFps="30")   # 素材がちょうど 30fps なら設定の packFps に関係なく 30(Q1。_pack_settings の説明)
         keeps, rev = self._edit_keeps(doc)
         if keeps:
-            captions = any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
+            captions = _has_captions(doc)
             tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
             spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
@@ -1696,31 +1723,21 @@ class AutoRunner:
         styles = self._speaker_styles(run)
         if styles:   # 友人が指定した話者ごとの字幕の色(古い cut2resolve は知らない鍵を読み飛ばす。空なら鍵ごと付けない = 今までと同じ要求)
             body["output"]["speakerStyles"] = styles
-        while True:
-            status, res = self.client.call("cut2resolve", "POST", "/api/build", body)
-            if not (status == 409 and res.get("error") == "busy"):
-                break
-            st["detail"] = prefix + "cut2resolve の別の処理が終わるのを待っています"
-            self._wait(run, BUSY_WAIT)
+        status, res = self._call_when_free(run, st, "cut2resolve", "/api/build", body, prefix + "cut2resolve の別の処理が終わるのを待っています")
         if status == 409 and res.get("error") == "exists":
             return "exists", False
         if status != 200:
             raise StepError("パックを作れませんでした: %s" % (res.get("message") or "HTTP %d" % status))
         jid = (res.get("job") or {}).get("id")
-        run.owned = ("cut2resolve", [jid])
-        try:
-            while True:
-                self._wait(run)
-                j = self.client.ok("cut2resolve", "GET", "/api/job?id=" + jid)
-                if j.get("state") != "running":
-                    break
-                if j.get("message"):
-                    st["detail"] = prefix + j["message"]
-        except Cancelled:
-            self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid})
-            raise
-        finally:
-            run.owned = None
+
+        def read():
+            j = self.client.ok("cut2resolve", "GET", "/api/job?id=" + jid)
+            if j.get("state") != "running":
+                return j
+            if j.get("message"):
+                st["detail"] = prefix + j["message"]
+            return None
+        j = self._poll(run, ("cut2resolve", [jid]), read, lambda: self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid}))
         if j.get("state") != "done":
             err = j.get("error")
             raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or _job_why(j)))
@@ -1739,7 +1756,7 @@ class AutoRunner:
 
     def _step_pack(self, run, st, v):
         clips = self._clips(v, run)
-        docs = txindex.load(txindex.folder(self.root, self.env))
+        docs = self._docs()
         todo, no_tx, made = [], 0, 0
         for m in clips:
             doc = txindex.pick(docs, run.video_id, m.get("id"), m["path"])[0]
@@ -1789,7 +1806,7 @@ class AutoRunner:
 
     # 文書単位の実行(⑦(b)) -------------------------------------
     def _doc(self, run):
-        d = next((x for x in txindex.load(txindex.folder(self.root, self.env)) if x["id"] == run.doc_id), None)
+        d = next((x for x in self._docs() if x["id"] == run.doc_id), None)
         if not d:
             raise StepError("文書が見つかりません(消した可能性があります)")
         run.title = d["title"] or run.title
@@ -1805,21 +1822,15 @@ class AutoRunner:
 
     def _wait_job(self, run, jid, st=None, what="文字起こし"):
         """「編集」のジョブ 1 つが終わるまで待つ(st があれば進み具合を出す)。中止されたらジョブを取り消して上げる。-> 終わったジョブ"""
-        run.owned = ("transcribe", [jid])
-        try:
-            while True:
-                self._wait(run)
-                j = next((x for x in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or [] if x.get("id") == jid),
-                         {"state": "error", "error": "%sのジョブが見つかりません" % what})
-                if j.get("state") in ("done", "error", "cancelled"):
-                    return j
-                if st is not None:
-                    st["detail"] = "%s %d%%" % (j.get("phase") or "", round((j.get("progress") or 0) * 100))
-        except Cancelled:
-            self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid})
-            raise
-        finally:
-            run.owned = None
+        def read():
+            j = next((x for x in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or [] if x.get("id") == jid),
+                     {"state": "error", "error": "%sのジョブが見つかりません" % what})
+            if j.get("state") in ("done", "error", "cancelled"):
+                return j
+            if st is not None:
+                st["detail"] = "%s %d%%" % (j.get("phase") or "", round((j.get("progress") or 0) * 100))
+            return None
+        return self._poll(run, ("transcribe", [jid]), read, lambda: self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid}))
 
     def _doc_transcribe(self, run, st):
         doc = self._doc(run)
@@ -1838,7 +1849,7 @@ class AutoRunner:
         if self.find_pack(doc["sourcePath"]) and not run.overwrite:
             st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
             return None
-        if not any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or []) and not self._edit_keeps(doc)[0]:
+        if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
             st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
             return None
         opts = self._pack_settings()
@@ -1990,12 +2001,13 @@ class AutoRunner:
             self._check(run)
         preview = deliver_mod.batch_preview(batch, check=check, log=self.log)   # 作れなければ None
         seconds = deliver_mod.clip_seconds(batch)
-        placed, zips, titles, secs = None, [], [], []
-        try:
+        zips, titles, secs = [], [], []
+        # 一覧(.group.json)を書けなかったら、先に置いた組のまとめ動画は消す(相手のいない動画は誰にも見えないごみになる。置けた zip は 1 本ずつの形で残る)
+        with self._placing(preview) as placed:
             os.makedirs(run.deliver_dir, exist_ok=True)
             pv_path, json_path, name = deliver_mod.group_paths(run.deliver_dir, name)
             if preview:
-                placed = pv_path   # 写している途中で止まっても(ディスクがいっぱい)、書きかけを残さないように先に控える
+                placed[0] = pv_path   # 写している途中で止まっても(ディスクがいっぱい)、書きかけを残さないように先に控える
                 shutil.copyfile(preview, pv_path)
             for i, d in enumerate(batch):
                 st["detail"] = prefix + "%d 本を 1 本ずつ zip にして Dropbox へ届けています(%d / %d)" % (len(batch), i + 1, len(batch))
@@ -2004,14 +2016,7 @@ class AutoRunner:
                     zips.append((run.packs.index(d) + 1, zp))
                     titles.append(deliver_mod.pack_title(d))
                     secs.append(seconds[i])
-            deliver_mod.write_group_json(json_path, run.title or "pack", rng, placed, deliver_mod.group_members(zips, titles, secs))
-        except Exception as e:
-            deliver_mod.remove_quiet(placed)   # 一覧(.group.json)を書けなかったら、先に置いた組のまとめ動画は消す(相手のいない動画は誰にも見えないごみになる。置けた zip は 1 本ずつの形で残る)
-            if isinstance(e, OSError):
-                raise self._place_error(e)
-            raise
-        finally:
-            deliver_mod.remove_quiet(preview)
+            deliver_mod.write_group_json(json_path, run.title or "pack", rng, placed[0], deliver_mod.group_members(zips, titles, secs))
 
     def _mark_delivered(self, run, dirs):
         """届けたパックを run.delivered に足して、すぐ残す(段の途中で起動し直しても、同じパックを二度置かない。M5)"""
@@ -2022,8 +2027,7 @@ class AutoRunner:
         """届けた zip の中身(パックのフォルダ・切り抜きの動画・スタジオのマーク)を logs/deliveries.jsonl に残す(友人の「要らない」が来たときに引く)"""
         if self.log_path:
             friend_feedback.record_delivery(os.path.dirname(self.log_path), zip_path, run, dirs, run.pack_marks)
-        import cases   # ライブの自動の切り抜きなら、案件の一覧に「届けた」を残す(二重に届けない。live.autoDeliver・友人の依頼)
-        for d in dirs:
+        for d in dirs:   # ライブの自動の切り抜きなら、案件の一覧に「届けた」を残す(二重に届けない。live.autoDeliver・友人の依頼)
             path = (run.pack_marks.get(d) or {}).get("path") or ""
             try:
                 if path:
@@ -2033,7 +2037,22 @@ class AutoRunner:
 
     @staticmethod
     def _place_error(e):
-        return StepError("パックを Dropbox へ置けませんでした: %s" % (e.strerror or e.__class__.__name__))
+        return StepError("パックを Dropbox へ置けませんでした: %s" % tools.why(e))
+
+    @contextlib.contextmanager
+    def _placing(self, preview):
+        """届けるときの後片付け(組と 1 本で共通): 中で失敗したら、先に置いたまとめ動画(箱 placed[0])を消し、OSError は StepError(_place_error)に変える。
+        最後に一時のまとめ動画 preview を消す。-> 箱 [置いたまとめ動画のパス or None]"""
+        placed = [None]
+        try:
+            yield placed
+        except Exception as e:
+            deliver_mod.remove_quiet(placed[0])
+            if isinstance(e, OSError):
+                raise self._place_error(e)
+            raise
+        finally:
+            deliver_mod.remove_quiet(preview)
 
     def _deliver_rest_quietly(self, run):
         """止まった実行に、まとめて届ける前のパック(n 本に満たず手元に残っていた分)があれば届ける。届けられなくても失敗の知らせは置く"""
@@ -2052,24 +2071,16 @@ class AutoRunner:
             return None
         name = self._deliver_name(run, deliver_mod.pack_title(d) or run.title or "pack")
         preview = deliver_mod.batch_preview([d], check=lambda: self._check(run), log=self.log) if with_preview else None
-        placed = None
-        try:
+        with self._placing(preview) as placed:   # zip が置けなかったら、先に置いたまとめ動画も残さない
             os.makedirs(run.deliver_dir, exist_ok=True)
             dest = deliver_mod.unique_zip(run.deliver_dir, name)
             if preview:
-                placed = deliver_mod.preview_path_for(dest)   # place_preview の途中で止まっても書きかけを残さないように先に控える
+                placed[0] = deliver_mod.preview_path_for(dest)   # place_preview の途中で止まっても書きかけを残さないように先に控える
                 deliver_mod.place_preview(preview, dest)
             deliver_mod.zip_packs([d], run.deliver_dir, name, check=lambda: self._check(run), dest=dest)
             self._mark_delivered(run, [d])
             self._record_delivery(run, dest, [d])
             return dest
-        except Exception as e:
-            deliver_mod.remove_quiet(placed)   # zip が置けなかったら、先に置いたまとめ動画も残さない
-            if isinstance(e, OSError):
-                raise self._place_error(e)
-            raise
-        finally:
-            deliver_mod.remove_quiet(preview)
 
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)"""
@@ -2085,7 +2096,7 @@ class AutoRunner:
     def _file_transcribe(self, run, st):
         if not os.path.isfile(run.source_path):
             raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
-        doc = txindex.pick(txindex.load(txindex.folder(self.root, self.env)), None, None, run.source_path)[0]
+        doc = txindex.pick(self._docs(), None, None, run.source_path)[0]
         if doc and doc.get("count"):
             st["state"], st["detail"] = "skip", "文字起こし済み"
             tid = doc["id"]

@@ -19,11 +19,9 @@
 import argparse
 import datetime
 import hashlib
-import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import unicodedata
 
@@ -31,7 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt_core import datadir, fsio, tools  # noqa: E402
+from ytt_core import datadir, fsio, normalize  # noqa: E402
 
 SCHEMA = "youtube-tools-eval-split/v1"
 PLAN_NAME = "split-plan.json"
@@ -40,6 +38,7 @@ VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".ts", ".flv")
 ROSTER = os.path.join(REPO, "editor", "hololive-roster.json")
 ALIAS_MIN = 3                                # 名前が無いときに呼び名で決める最短の長さ(短い呼び名は別の語に紛れる)
 UNKNOWN = "(不明)"
+MAX_DOC_BYTES = 64 * 1024 * 1024        # 文字起こしの文書を読む大きさの上限
 _SEP = re.compile(r"[\s・･\-‐_＿.,、。'\"/|｜!！?？#＃【】\[\]()（）「」『』<>〈〉★☆♪~〜]+")
 _DATE = re.compile(r"\d{2}-\d{2,4}(?:-\d{2})?(?:,\d{2})*")
 _NOISE = re.compile(r"教師データ|ショート|\d+")
@@ -55,11 +54,7 @@ def fold(s):
 def roster_members(path=ROSTER):
     """名簿の人 -> [(正式な名前, 名簿の項目, [(照らし合わせ用の形, 種類)])](名前の無い項目は飛ばす。読めなければ [])。
     種類 0 = 正式な名前・1 = 呼び名・2 = 普通の言葉と重なる呼び名(common)か短い呼び名(ALIAS_MIN 未満)。eval_fetch.py も使う"""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            members = json.load(f).get("members") or []
-    except (OSError, ValueError):
-        return []
+    members = (fsio.read_json_or(path, None, kind=dict) or {}).get("members") or []
     out = []
     for m in members:
         name = str(m.get("name") or "").strip()
@@ -98,16 +93,7 @@ def parse_name(filename, roster):
 
 def probe_sec(path):
     """動画の長さ(秒)。分からなければ 0"""
-    exe = tools.find_tool("ffprobe")
-    if not exe:
-        return 0.0
-    try:
-        r = subprocess.run([exe, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return round(float(r.stdout.strip()), 2)
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return 0.0
+    return round((normalize.probe(path) or {}).get("duration") or 0.0, 2)
 
 
 def list_videos(staging):
@@ -133,11 +119,7 @@ def doc_sources(data):
     for n in names:
         if not n.endswith(".json") or n.count(".") != 1:
             continue
-        try:
-            with open(os.path.join(folder, n), "r", encoding="utf-8") as f:
-                src = json.load(f).get("sourcePath")
-        except (OSError, ValueError, AttributeError):
-            continue
+        src = (fsio.read_json_or(os.path.join(folder, n), None, MAX_DOC_BYTES, dict) or {}).get("sourcePath")
         if src:
             out.add(norm_path(src))
     return out
@@ -145,11 +127,7 @@ def doc_sources(data):
 
 def batch_running(data):
     """まとめての文字起こし(eval-batch)が動いているか"""
-    try:
-        with open(os.path.join(data, "eval-batch.json"), "r", encoding="utf-8") as f:
-            return json.load(f).get("enabled") is True
-    except (OSError, ValueError, AttributeError):
-        return False
+    return (fsio.read_json_or(os.path.join(data, "eval-batch.json"), None, kind=dict) or {}).get("enabled") is True
 
 
 def _order(seed, text):
@@ -243,12 +221,8 @@ def plan_path(root):
 
 
 def read_plan(root):
-    try:
-        with open(plan_path(root), "r", encoding="utf-8") as f:
-            plan = json.load(f)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(plan, dict) or plan.get("schema") != SCHEMA:
+    plan = fsio.read_json_or(plan_path(root), None, kind=dict)
+    if plan is None or plan.get("schema") != SCHEMA:
         return None
     plan["path"] = plan_path(root)
     return plan
@@ -256,7 +230,7 @@ def read_plan(root):
 
 def write_plan(root, plan):
     body = {k: v for k, v in plan.items() if k != "path"}
-    fsio.atomic_write(plan_path(root), json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8"))
+    fsio.write_json(plan_path(root), body, indent=1)
 
 
 def cmd_plan(args, probe=probe_sec):
@@ -362,11 +336,7 @@ def cmd_apply(args):
 
 def default_root(data):
     """編集の設定の評価用のフォルダ(1つ目)"""
-    try:
-        with open(os.path.join(data, "settings.json"), "r", encoding="utf-8") as f:
-            dirs = json.load(f).get("evalDirs") or []
-    except (OSError, ValueError, AttributeError):
-        dirs = []
+    dirs = (fsio.read_json_or(os.path.join(data, "settings.json"), None, kind=dict) or {}).get("evalDirs") or []
     return dirs[0] if dirs and isinstance(dirs[0], str) else None
 
 

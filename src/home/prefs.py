@@ -95,7 +95,7 @@ def _clean_autorun(v, cur):
             raise PrefsError("まとめて実行の形が正しくありません")
         out["mode"] = v["mode"]
     if "top" in v:
-        if not isinstance(v["top"], int) or isinstance(v["top"], bool) or not 1 <= v["top"] <= 20:
+        if not _int_in(v["top"], 1, 20):
             raise PrefsError("採用数は 1〜20 で指定してください")
         out["top"] = v["top"]
     if "cut" in v:
@@ -119,7 +119,7 @@ def _clean_folder(f):
         raise PrefsError("フォルダは文字で指定してください")
     f = f.strip().strip('"').strip()
     if f:
-        if len(f) > FOLDER_MAX or any(ord(ch) < 32 for ch in f):
+        if len(f) > FOLDER_MAX or _has_ctrl(f):
             raise PrefsError("フォルダの指定が長すぎるか、使えない文字があります")
         if f.replace("/", "\\").startswith("\\\\"):
             raise PrefsError("ネットワーク上のフォルダは選べません(この PC のドライブのフォルダを指定してください)")
@@ -136,10 +136,9 @@ def _clean_backup(v, cur):
     if "folder" in v:
         out["folder"] = _clean_folder(v["folder"])
     if "everyHours" in v:
-        x = v["everyHours"]
-        if isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 168:
+        if not _int_in(v["everyHours"], 1, 168):
             raise PrefsError("バックアップの間隔は 1〜168 時間で指定してください")
-        out["everyHours"] = x
+        out["everyHours"] = v["everyHours"]
     if out["enabled"] and not out["folder"]:
         raise PrefsError("バックアップ先のフォルダを指定してから、オンにしてください")
     return out
@@ -152,10 +151,9 @@ def _clean_accuracy(v, cur):
         out["enabled"] = v["enabled"] is True
     for k, lo, hi, label in (("nightFrom", 0, 23, "夜の窓の開始(時)"), ("nightTo", 1, 24, "夜の窓の終わり(時)")):
         if k in v:
-            x = v[k]
-            if isinstance(x, bool) or not isinstance(x, int) or not lo <= x <= hi:
+            if not _int_in(v[k], lo, hi):
                 raise PrefsError("%sは %d〜%d の整数で指定してください" % (label, lo, hi))
-            out[k] = x
+            out[k] = v[k]
     if out["nightFrom"] == out["nightTo"]:
         raise PrefsError("夜の窓の開始と終わりは違う時刻にしてください")
     return out
@@ -184,26 +182,14 @@ def _clean_live(v, cur):
         if v["quality"] not in LIVE_QUALITIES:
             raise PrefsError("録画の画質は %s のどれかにしてください" % "・".join(LIVE_QUALITIES))
         out["quality"] = v["quality"]
-    if "autoArchive" in v:   # 配信が終わったら自動で本番版に作り直す(P4)
-        if not isinstance(v["autoArchive"], bool):
-            raise PrefsError("「自動で本番版に作り直す」は true か false で指定してください")
-        out["autoArchive"] = v["autoArchive"]
-    if "autoDeliver" in v:   # 自動の切り抜きを確認なしで友人へ届ける
-        if not isinstance(v["autoDeliver"], bool):
-            raise PrefsError("「自動の切り抜きを友人へ届ける」は true か false で指定してください")
-        out["autoDeliver"] = v["autoDeliver"]
-    if "autoAfterStream" in v:   # 配信が終わったらアーカイブの解析で自動で切り抜く(M7)
-        if not isinstance(v["autoAfterStream"], bool):
-            raise PrefsError("「配信後に自動で切り抜く」は true か false で指定してください")
-        out["autoAfterStream"] = v["autoAfterStream"]
+    _put_bool(out, v, "autoArchive", "「自動で本番版に作り直す」")   # 配信が終わったら自動で本番版に作り直す(P4)
+    _put_bool(out, v, "autoDeliver", "「自動の切り抜きを友人へ届ける」")   # 自動の切り抜きを確認なしで友人へ届ける
+    _put_bool(out, v, "autoAfterStream", "「配信後に自動で切り抜く」")   # 配信が終わったらアーカイブの解析で自動で切り抜く(M7)
     if "afterStreamPerHour" in v:
         if not _int_in(v["afterStreamPerHour"], *LIVE_PER_HOUR):
             raise PrefsError("1 時間あたりの数は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)
         out["afterStreamPerHour"] = v["afterStreamPerHour"]
-    if "autoDelete" in v:   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/home/live_cleanup.py)
-        if not isinstance(v["autoDelete"], bool):
-            raise PrefsError("「録画を消す」は true か false で指定してください")
-        out["autoDelete"] = v["autoDelete"]
+    _put_bool(out, v, "autoDelete", "「録画を消す」")   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/home/live_cleanup.py)
     if "recorders" in v:
         rs = v["recorders"]
         if not isinstance(rs, list) or len(rs) > RECORDERS_MAX:
@@ -231,6 +217,25 @@ def _clean_live(v, cur):
 def _int_in(x, lo, hi):
     """bool でない整数で lo〜hi か"""
     return isinstance(x, int) and not isinstance(x, bool) and lo <= x <= hi
+
+
+def _has_ctrl(s):
+    """制御文字(コード 32 未満)を含むか"""
+    return any(ord(ch) < 32 for ch in s)
+
+
+def _put_bool(out, v, k, label):
+    """v に鍵 k があれば、true / false だけを out へ(それ以外は「<label>は true か false で指定してください」で断る)"""
+    if k in v:
+        if not isinstance(v[k], bool):
+            raise PrefsError("%sは true か false で指定してください" % label)
+        out[k] = v[k]
+
+
+def _drop_oldest(m, limit):
+    """覚えた順の辞書 m を、古い順に捨てて limit 件までにする(同じ鍵は pop してから入れ直すと新しい方へ動く)"""
+    while len(m) > limit:
+        m.pop(next(iter(m)))
 
 
 def _clean_keys(v, cur, defaults, checks, strict):
@@ -349,7 +354,7 @@ def _clean_name(name):
     if not isinstance(name, str):
         raise PrefsError("名前は文字で指定してください")
     s = name.strip()
-    if len(s) > NAME_MAX or any(ord(ch) < 32 for ch in s):
+    if len(s) > NAME_MAX or _has_ctrl(s):
         raise PrefsError("名前が長すぎるか、使えない文字があります")
     return s
 
@@ -456,7 +461,7 @@ class Prefs:
         同じキーは新しい方へ動かし、MAX_REMEMBER を超えたら古い順に捨てる"""
         if kind not in STREAMER_KINDS:
             raise PrefsError("覚える種類が正しくありません")
-        if not isinstance(key, str) or not key.strip() or len(key) > KEY_MAX or any(ord(ch) < 32 for ch in key):
+        if not isinstance(key, str) or not key.strip() or len(key) > KEY_MAX or _has_ctrl(key):
             raise PrefsError("覚える相手の指定が正しくありません")
         name = _clean_name(name)
         with self.lock:
@@ -465,8 +470,7 @@ class Prefs:
             m = st[kind]
             m.pop(key, None)
             m[key] = name
-            while len(m) > MAX_REMEMBER:
-                m.pop(next(iter(m)))
+            _drop_oldest(m, MAX_REMEMBER)
             d["streamer"] = st
             self._save(d, broken)
             return st
@@ -481,7 +485,7 @@ class Prefs:
         if not isinstance(ids, list) or not ids or len(ids) > HIDE_IDS_MAX:
             raise PrefsError("非表示にする項目の指定が正しくありません")
         for i in ids:
-            if not isinstance(i, str) or not i.strip() or len(i) > KEY_MAX or any(ord(ch) < 32 for ch in i):
+            if not isinstance(i, str) or not i.strip() or len(i) > KEY_MAX or _has_ctrl(i):
                 raise PrefsError("非表示にする項目の指定が正しくありません")
         now = int(time.time() * 1000)
         with self.lock:
@@ -492,8 +496,7 @@ class Prefs:
                 m.pop(i, None)
                 if hidden is not False:
                     m[i] = now
-            while len(m) > HIDE_MAX:
-                m.pop(next(iter(m)))
+            _drop_oldest(m, HIDE_MAX)
             d["hidden"] = hd
             self._save(d, broken)
             return m

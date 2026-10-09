@@ -56,7 +56,6 @@
   どちらも各ツールが .runtime を消してから終わる合図。一定時間で終わらなければ強制終了する
 """
 import argparse
-import hmac
 import http.client
 import json
 import os
@@ -70,13 +69,13 @@ import sys
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
     sys.path.append(ROOT)
-from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, txindex  # noqa: E402
+from ytt_core import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, txindex  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import intake as intake_mod  # noqa: E402  (src/home/intake.py: 友人からの依頼の受付)
@@ -98,28 +97,34 @@ except ImportError:
     analytics_mod = None
 
 APP_ID = "ytt-launcher"
-VERSION = "0.50.0"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.50.1"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
 UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正本をそのまま配る(写しを作らない)
-LOG_MAX = 1024 * 1024
+LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超えたら <名前>.old.log に回す(fsio.rotate。回せなければそのまま追記)
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
 
+SERVE_VERSION_RE = r'^SERVER_VERSION\s*=\s*"([^"]+)"'   # serve.py の版の行
+
+
+def _spec(tid, name, sub, port, version_file="serve.py", version_re=SERVE_VERSION_RE, **kw):
+    """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt_core の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から"""
+    return dict({"id": tid, "app": runtime.TOOL_APPS[tid], "name": name, "sub": sub, "dir": layout.TOOL_DIRS[tid], "port": port,
+                 "version_file": version_file, "version_re": version_re}, **kw)
+
+
 # 作業の順番どおり。port は各ツールの既定(使用中ならツール自身が次の番号を選ぶ)
 TOOLS = (
-    {"id": "studio", "app": "clip-studio", "name": "切り抜きスタジオ", "sub": "配信を探す・切り抜く区間を選ぶ・書き出す",
-     "dir": layout.TOOL_DIRS["studio"], "port": 8800, "version_file": "serve.py", "version_re": r'^SERVER_VERSION\s*=\s*"([^"]+)"'},
-    {"id": "transcribe", "app": "transcribe-tool", "name": "編集", "sub": "文字起こし・カット・Resolve へのパック",
-     "dir": layout.TOOL_DIRS["transcribe"], "port": 8775, "version_file": "serve.py", "version_re": r'^SERVER_VERSION\s*=\s*"([^"]+)"',
-     "venv": True},
+    _spec("studio", "切り抜きスタジオ", "配信を探す・切り抜く区間を選ぶ・書き出す", 8800),
+    _spec("transcribe", "編集", "文字起こし・カット・Resolve へのパック", 8775, venv=True),
     # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/design/edit-tool-design.md の 6)
-    {"id": "cut2resolve", "app": "cut2resolve", "name": "cut2resolve", "sub": "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)",
-     "dir": layout.TOOL_DIRS["cut2resolve"], "port": 8810, "version_file": "cut2resolve_core.py", "version_re": r'^VERSION\s*=\s*"([^"]+)"', "hidden": True},
+    _spec("cut2resolve", "cut2resolve", "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)", 8810,
+          version_file="cut2resolve_core.py", version_re=r'^VERSION\s*=\s*"([^"]+)"', hidden=True),
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
 
@@ -144,15 +149,6 @@ def port_open(port, timeout=0.3):
     """そのポートで何かが待ち受けているか(つないですぐ切る)。動作中の確認はこれで行う:
     /api/ping を数秒ごとに送ると、アクセスを記録するツール(文字起こし)の黒い画面・ログが埋まるため。"""
     return runtime.port_open(port, timeout)
-
-
-def rotate(path, limit=LOG_MAX):
-    """limit を超えたログを <名前>.old.log に回す(*.log は .gitignore 済み)。使用中などで回せなければそのまま追記する。"""
-    try:
-        if os.path.getsize(path) > limit:
-            os.replace(path, path[:-4] + ".old.log" if path.endswith(".log") else path + ".old")
-    except OSError:
-        pass
 
 
 def tail(path, lines=200, max_bytes=256 * 1024):
@@ -310,11 +306,7 @@ class Supervisor:
             cands.append((info["port"], info["path"]))
         base = t.default_port
         cands += [(p, "/") for p in (range(base, base + PORT_RANGE) if scan else [base])]
-        seen = set()
-        for p, path in cands:
-            if (p, path) in seen:
-                continue
-            seen.add((p, path))
+        for p, path in dict.fromkeys(cands):   # 同じ所は 1 回だけ問い合わせる(順番はそのまま)
             r = ping(p, 0.3 if scan else PING_TIMEOUT, path)
             if r and r["app"] == t.app:
                 return p, r["version"]
@@ -373,7 +365,7 @@ class Supervisor:
 
     def _spawn(self, t):
         os.makedirs(self.logs_dir, exist_ok=True)
-        rotate(t.log_path)
+        fsio.rotate(t.log_path, LOG_MAX)
         env = dict(os.environ)
         env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")   # ファイルへの出力で cp932 に無い文字(絵文字の題名など)で落ちないように
         env["PYTHONUNBUFFERED"] = "1"
@@ -386,7 +378,7 @@ class Supervisor:
                 proc = subprocess.Popen(cmd, cwd=t.dir, env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, **kw)
         except OSError as e:
             t.proc, t.managed = None, False
-            t.set_state("crashed", "起動できませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            t.set_state("crashed", "起動できませんでした(%s)" % tools.why(e))
             self.log("× %s: %s" % (t.spec["name"], t.message))
             return
         t.proc, t.managed, t.port, t.version, t.exit_code, t.fail_pings = proc, True, None, "", None, 0
@@ -418,10 +410,7 @@ class Supervisor:
             proc.wait(self.stop_timeout)
         except subprocess.TimeoutExpired:
             self.log("※ %s が %d 秒で終わらないので強制終了します" % (t.spec["name"], self.stop_timeout))
-            try:
-                proc.kill()
-            except OSError:
-                pass
+            tools.kill_quiet(proc)
             try:
                 proc.wait(5)
             except subprocess.TimeoutExpired:
@@ -460,10 +449,7 @@ class Supervisor:
         r = ping(info["port"], 0.3)
         if r and r["app"] == t.app:
             return
-        try:
-            os.unlink(os.path.join(self.rdir, t.id + ".json"))
-        except OSError:
-            pass
+        fsio.unlink_quiet(os.path.join(self.rdir, t.id + ".json"))
 
     # --- 監視 ---
     def _tick(self, t):
@@ -570,27 +556,41 @@ def query_int(q, key, default):
         return default
 
 
-def read_json_body(headers, rfile, limit=MAX_BODY):
-    """要求の本文(JSON のオブジェクト)。-> (辞書, None) か (None, (HTTP の番号, エラーの JSON))。
-    application/json だけを受け付ける(他サイトからのフォーム送信は、この形を作れない)"""
-    if (headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
-        mount_mod.drain_body(headers, rfile)   # 断るときも本文は読み捨てる(読まずに閉じると、Windows では応答が届かないことがある。mount.drain_body)
-        return None, (415, {"error": "content_type", "message": "application/json だけを受け付けます"})
+# 本文を断った理由(httpsec.BodyError の kind)→ (HTTP の番号, error, 画面の文)。ここに無いもの(read・short・json)は (400, "json", "JSON が読めません")
+BODY_ERRORS = {"type": (415, "content_type", "application/json だけを受け付けます"),
+               "length": (413, "size", "本文の大きさが正しくありません"), "size": (413, "size", "本文の大きさが正しくありません"),
+               "object": (400, "json", "JSON のオブジェクトを送ってください")}
+FORBIDDEN = {"error": "forbidden", "message": "この画面からは使えません"}
+TOKEN_FAIL = mount_mod.TOKEN_FAIL
+
+
+def read_json_body(h, limit=MAX_BODY):
+    """要求 h の本文(JSON のオブジェクト)。-> (辞書, None) か (None, (HTTP の番号, エラーの JSON))。
+    読み方は ytt_core.httpsec.read_json_body(application/json だけ = 他サイトのフォームはこの形を作れない・断るときは本文を読み捨てる)。
+    入口は前から空の本文を {} として読み、NaN も通している(empty_ok・allow_nan)"""
     try:
-        length = int(headers.get("Content-Length") or 0)
-    except ValueError:
-        length = -1
-    if length < 0 or length > limit:
-        mount_mod.drain_body(headers, rfile)
-        return None, (413, {"error": "size", "message": "本文の大きさが正しくありません"})
-    try:
-        raw = rfile.read(length) if length else b"{}"
-        obj = json.loads(raw.decode("utf-8"))
-    except (OSError, ValueError, UnicodeError):
-        return None, (400, {"error": "json", "message": "JSON が読めません"})
-    if not isinstance(obj, dict):
-        return None, (400, {"error": "json", "message": "JSON のオブジェクトを送ってください"})
-    return obj, None
+        return httpsec.read_json_body(h, limit, empty_ok=True, allow_nan=True), None
+    except httpsec.BodyError as e:
+        code, err, msg = BODY_ERRORS.get(e.kind, (400, "json", "JSON が読めません"))
+        return None, (code, {"error": err, "message": msg})
+
+
+def site_ok(headers, allowed):
+    """書き込み系の要求の出どころ: Host(DNS rebinding 対策)・Origin・Sec-Fetch-Site(他サイトからの操作 = CSRF 対策)。規則は ytt_core.httpsec"""
+    return httpsec.host_ok(headers, allowed) and httpsec.origin_ok(headers, allowed) and httpsec.fetch_site_ok(headers)
+
+
+def guarded_body(h, token, limit):
+    """出どころ(site_ok)を確かめたあとの書き込み系の要求: 合言葉 → 本文。-> 本文の辞書か None(断りの応答を送った)。
+    断るときは本文を読み捨てる(読まずに閉じると Windows では 403 が届かないことがある。httpsec.drain_body)"""
+    if not httpsec.token_ok(h.headers, token, mount_mod.TOKEN_HEADER):
+        httpsec.drain_body(h.headers, h.rfile)
+        h._json(403, TOKEN_FAIL)
+        return None
+    body, err = read_json_body(h, limit)
+    if err:
+        h._json(*err)
+    return body
 
 
 class PortalHandler(BaseHTTPRequestHandler):
@@ -602,9 +602,6 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     def _host_ok(self):          # DNS rebinding 対策
         return httpsec.host_ok(self.headers, self.server.allowed_hosts)
-
-    def _origin_ok(self):        # 他サイトからの操作(CSRF)対策
-        return httpsec.origin_ok(self.headers, self.server.allowed_hosts)
 
     def _site_ok(self):
         return httpsec.fetch_site_ok(self.headers)
@@ -644,7 +641,7 @@ class PortalHandler(BaseHTTPRequestHandler):
                 body = mount_mod.inject_token(body, self.server.token)
             return self._send(200, body, STATIC_TYPES[os.path.splitext(name)[1]],
                               {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
-        sup = self.server.sup
+        sup, q = self.server.sup, urllib.parse.parse_qs(u.query)
         if u.path == "/api/ping":
             return self._json(200, {"app": APP_ID, "version": VERSION})
         if u.path == "/api/status":
@@ -652,12 +649,10 @@ class PortalHandler(BaseHTTPRequestHandler):
             st["window"] = self.server.window.status()   # 画面を窓で開くか(段階7-3)
             return self._json(200, st)
         if u.path == "/api/health":   # 「調子」(段9 9-1。重い物は別のスレッドで数え、10 分は前の値。?refresh=1 で数え直す)
-            q = urllib.parse.parse_qs(u.query)
             return self._json(200, self.server.health.snapshot(refresh=(q.get("refresh") or ["0"])[0] == "1"))
         if u.path == "/api/cleanup":   # 片付けの候補(段9 9-2。候補の一覧は入口が持ち、POST は候補に出した物だけ)
             return self._json(200, self.server.cleanup_candidates())
         if u.path == "/api/log":
-            q = urllib.parse.parse_qs(u.query)
             tid = (q.get("tool") or [""])[0]
             if tid == "client":   # 画面のエラーの記録(段階7-0。1行 = 1件の JSON)
                 path = self.server.client_log.path
@@ -670,7 +665,6 @@ class PortalHandler(BaseHTTPRequestHandler):
         if u.path in GET_SNAPSHOTS:
             return self._json(200, getattr(self.server, GET_SNAPSHOTS[u.path]).snapshot())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
-            q = urllib.parse.parse_qs(u.query)
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0)))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/home/cases.py)
             try:
@@ -679,30 +673,18 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._fail(500, "cases", "案件の一覧を作れませんでした: %s" % e.__class__.__name__)
         return self._fail(404, "not_found", "その操作はありません")
 
-    def _read_json(self):
-        obj, err = read_json_body(self.headers, self.rfile, MAX_BODY)
-        if err:
-            self._json(*err)
-        return obj
-
     def do_POST(self):
         u = urllib.parse.urlsplit(self.path)
-        if not (self._host_ok() and self._origin_ok() and self._site_ok()):
-            mount_mod.drain_body(self.headers, self.rfile)
+        if not site_ok(self.headers, self.server.allowed_hosts):
+            httpsec.drain_body(self.headers, self.rfile)
             return self._send(403, b"forbidden")
-        if not hmac.compare_digest(self.headers.get(mount_mod.TOKEN_HEADER) or "", self.server.token):
-            mount_mod.drain_body(self.headers, self.rfile)
-            return self._fail(403, "token", "画面を開き直してから、もう一度操作してください(合言葉が違います)")
-        if u.path.startswith(YTT_API):   # 画面の共通の API(取り込んだツールの画面からも同じ所へ来る)
+        if u.path.startswith(YTT_API):   # 画面の共通の API(取り込んだツールの画面からも同じ所へ来る。合言葉・本文の検査も ytt_request で)
             return self.server.ytt_request(self, "portal", VERSION)
-        if u.path.startswith("/live/") and self.server.live.enabled():   # リアルタイム切り抜き: 録画元へ中継(オフなら下の 404 のまま)
-            body = self._read_json()
-            if body is not None:
-                self.server.live.handle_post(self, u, body)
-            return
-        body = self._read_json()
+        body = guarded_body(self, self.server.token, MAX_BODY)   # 合言葉 → 本文(断ったら応答は送ってある)
         if body is None:
             return
+        if u.path.startswith("/live/") and self.server.live.enabled():   # リアルタイム切り抜き: 録画元へ中継(オフなら下の 404 のまま)
+            return self.server.live.handle_post(self, u, body)
         if u.path.startswith("/analytics/") and self.server.analytics:   # 分析と日報(src/analytics/service.py)
             return self.server.analytics.handle_post(self, u, body)
         m = ACTION_RE.fullmatch(u.path)
@@ -727,7 +709,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
         except OSError as e:
-            return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % tools.why(e))
 
     def _post_case_auto(self, path, body):
         """自動でできた切り抜きの確認(線 D の M9・M12): 見た・採用 = 友人へ届ける・要らない。中身は src/home/cases.py の auto_review"""
@@ -779,7 +761,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
         except OSError as e:
-            return self._fail(500, "write", "設定を書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            return self._fail(500, "write", "設定を書けませんでした: %s" % tools.why(e))
         return self._json(200, {"window": self.server.window.status()})
 
     def _post_cleanup(self, path, body):
@@ -800,6 +782,24 @@ class PortalHandler(BaseHTTPRequestHandler):
             pass
         self._json(200, out)
         threading.Thread(target=self.server.request_shutdown, daemon=True).start()
+
+
+def _color_entry(e):
+    return {k: e[k] for k in ("name", "en", "hex", "group", "mine")}
+
+
+def streamer_colors(body):
+    """api/ytt/streamer-colors の中身: {q, all?} → 入れた名前に合う人・候補(all なら全員も)/ {names: [...]} → 名前ごとに合う人
+    (話者の名前をまとめて。画面が行ごとに通信しないように。気が利く画面へ 段2)。規則は src/ytt_core/colors.py"""
+    entries = colors_mod.load()
+    if isinstance(body.get("names"), list):
+        names = list(dict.fromkeys(n.strip()[:colors_mod.NAME_MAX] for n in body["names"][:60] if isinstance(n, str) and n.strip()))
+        matches = {n: colors_mod.lookup(n, entries)["match"] for n in names}
+        return {"ok": True, "matches": {n: _color_entry(m) if m else None for n, m in matches.items()}}
+    q = body.get("q") if isinstance(body.get("q"), str) else ""
+    r = colors_mod.lookup(q[:colors_mod.NAME_MAX], entries)
+    return {"ok": True, "match": _color_entry(r["match"]) if r["match"] else None, "candidates": [_color_entry(e) for e in r["candidates"]],
+            "items": [_color_entry(e) for e in entries] if body.get("all") is True else []}
 
 
 def hide_tokens(live_cfg):
@@ -826,11 +826,9 @@ def peek_path(sock, timeout=10.0):
     return parts[1] if len(parts) >= 3 else None
 
 
-class PortalServer(ThreadingHTTPServer):
+class PortalServer(httpsec.ExclusiveServer):
     """入口のサーバー。取り込んだツール(mounts: {"/studio": Handler})の要求は、そのツールの Handler に渡す。
-    Windows では SO_REUSEADDR だと使用中のポートにも bind できてしまうので、代わりに SO_EXCLUSIVEADDRUSE で独占する(切り抜きスタジオと同じ)。"""
-    allow_reuse_address = os.name != "nt"
-    daemon_threads = True
+    Windows では SO_REUSEADDR だと使用中のポートにも bind できてしまうので、代わりに SO_EXCLUSIVEADDRUSE で独占する(httpsec.ExclusiveServer。各ツールと同じ)。"""
 
     def __init__(self, addr, sup):
         super().__init__(addr, PortalHandler)
@@ -842,17 +840,20 @@ class PortalServer(ThreadingHTTPServer):
         self.mounts = {}
         self._autorun = None
         self._autorun_lock = threading.Lock()
+        self._torn_down = False
+        self._teardown_lock = threading.Lock()
+        app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
-        self.window = appwindow_mod.Opener(os.path.dirname(sup.logs_dir), fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
-        self.prefs = prefs_mod.Prefs(os.path.join(os.path.dirname(sup.logs_dir), "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
+        self.window = appwindow_mod.Opener(app_dir, fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
+        self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
-        self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, os.path.dirname(sup.logs_dir), log=sup.log,
+        self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
                                         feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log),
                                         live_begin=lambda url, ctx: self.live.begin_request(url, ctx))   # ライブ配信の依頼(2-15。live は下で作る)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
-        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), os.path.dirname(sup.logs_dir), log=sup.log)
+        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log)
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
-        self.accuracy = accuracy_mod.Accuracy(self.prefs, os.path.dirname(sup.logs_dir), sup.root, busy=self._accuracy_busy,
+        self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
                                               last_edit=self._accuracy_last_edit, log=sup.log)
         self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
                                                  txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
@@ -862,7 +863,7 @@ class PortalServer(ThreadingHTTPServer):
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
                                         live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
-        self.cleanup = cleanup_mod.Cleanup(os.path.dirname(sup.logs_dir), repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
+        self.cleanup = cleanup_mod.Cleanup(app_dir, repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
         # 分析と日報(見張りは main で start。テストで作る入口では動かさない。連携の設定が無ければ何もしない)
         self.analytics = analytics_mod.Service(log=sup.log, token=self.token) if analytics_mod else None
@@ -939,7 +940,7 @@ class PortalServer(ThreadingHTTPServer):
             restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts),
                                            log=self.sup.log)
         except OSError as e:
-            return 500, {"ok": False, "error": "spawn", "message": "ホームを起動し直せませんでした(新しいホームを起動できません): %s" % (e.strerror or e.__class__.__name__)}
+            return 500, {"ok": False, "error": "spawn", "message": "ホームを起動し直せませんでした(新しいホームを起動できません): %s" % tools.why(e)}
         self.sup.log("画面から「起動し直す」が押されました" + ("(%s)" % notice if notice else ""))
         threading.Timer(0.3, self.request_shutdown).start()   # 応答を返してから後始末(新しい入口はポートが空くのを待っている)
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
@@ -963,15 +964,11 @@ class PortalServer(ThreadingHTTPServer):
         return w if isinstance(w, dict) else None
 
     def _extra_dirs(self):
-        """空き容量を見る追加の場所: スタジオの書き出し先(スタジオの settings.json の outDir。無ければ作業データの exports)"""
-        try:
-            sdir = datadir.resolve("studio", self.sup.root)
-            with open(os.path.join(sdir, "settings.json"), "r", encoding="utf-8") as f:
-                st = json.load(f)
-            out = st.get("outDir") if isinstance(st, dict) else None
-            return [out if isinstance(out, str) and out else os.path.join(sdir, "exports")]
-        except (OSError, ValueError):
+        """空き容量を見る追加の場所・ごみ箱フォルダを置く書き出し先: スタジオの書き出し先(datadir.studio_out_dir。outDir が無ければ作業データの exports)。
+        スタジオの settings.json がまだ無いとき(スタジオを一度も保存していない)は [](今までどおり。studio_out_dir は exports を返す)"""
+        if not os.path.isfile(os.path.join(datadir.resolve("studio", self.sup.root), "settings.json")):
             return []
+        return [datadir.studio_out_dir(self.sup.root)]
 
     def tool_ports(self):
         """別のプログラムとして動いているツールのポート(窓で開いてよい先。取り込んだツールは入口と同じポートなので含めない)"""
@@ -1008,15 +1005,7 @@ class PortalServer(ThreadingHTTPServer):
             if sub == "prefs":   # ホームの設定(src/home/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は src/ytt_core/colors.py)
-                q = body.get("q") if isinstance(body.get("q"), str) else ""
-                entries = colors_mod.load()
-                pick = lambda e: {k: e[k] for k in ("name", "en", "hex", "group", "mine")}   # noqa: E731
-                if isinstance(body.get("names"), list):   # 話者の名前をまとめて(画面が行ごとに通信しないように。気が利く画面へ 段2)
-                    names = list(dict.fromkeys(n.strip()[:colors_mod.NAME_MAX] for n in body["names"][:60] if isinstance(n, str) and n.strip()))
-                    return 200, {"ok": True, "matches": {n: (lambda m: pick(m) if m else None)(colors_mod.lookup(n, entries)["match"]) for n in names}}
-                r = colors_mod.lookup(q[:colors_mod.NAME_MAX], entries)
-                return 200, {"ok": True, "match": pick(r["match"]) if r["match"] else None, "candidates": [pick(e) for e in r["candidates"]],
-                             "items": [pick(e) for e in entries] if body.get("all") is True else []}
+                return 200, streamer_colors(body)
         except ValueError as e:
             return 400, {"error": "bad_request", "message": str(e)}
         except appwindow_mod.TooMany as e:
@@ -1024,7 +1013,7 @@ class PortalServer(ThreadingHTTPServer):
         except appwindow_mod.Unavailable as e:
             return 409, {"error": "unavailable", "message": str(e)}
         except OSError as e:
-            return 500, {"error": "open", "message": "開けませんでした: %s" % (e.strerror or e.__class__.__name__)}
+            return 500, {"error": "open", "message": "開けませんでした: %s" % tools.why(e)}
         return 404, {"error": "not_found", "message": "その操作はありません"}
 
     def streamer_guess(self, doc_id=None, video_id=None, channel=None):
@@ -1055,12 +1044,11 @@ class PortalServer(ThreadingHTTPServer):
                 return {"ok": True, "prefs": got}
             if op == "patch":
                 value = self.prefs.patch(body.get("section"), body.get("value"))
-                if body.get("section") == "intake":   # 受付の設定を変えたら、すぐ見直す(オン・フォルダ)
-                    self.intake.wake.set()
-                if body.get("section") == "backup":   # バックアップの設定を変えたら、すぐ見直す(オンにした・先を変えた → 最初の1回を写す)
-                    self.backup.wake.set()
-                if body.get("section") == "accuracy":   # 精度の自動測定の設定を変えたら、すぐ見直す(オフにした → 待っていた「今すぐ」を取り下げる)
-                    self.accuracy.wake.set()
+                # 設定を変えたら、その部品がすぐ見直す: 受付(オン・フォルダ)・バックアップ(オンにした・先を変えた → 最初の1回を写す)・
+                # 精度の自動測定(オフにした → 待っていた「今すぐ」を取り下げる)
+                watcher = {"intake": self.intake, "backup": self.backup, "accuracy": self.accuracy}.get(body.get("section"))
+                if watcher is not None:
+                    watcher.wake.set()
                 if body.get("section") == "live":   # リアルタイム切り抜き: オンにした・置き場所を変えた → 見回りをすぐ(録画の部品を起こす・置き場所を伝える)
                     self.live.on_patch(None, value)
                     value = hide_tokens(value)
@@ -1071,24 +1059,23 @@ class PortalServer(ThreadingHTTPServer):
                 lst = body.get("list")
                 return {"ok": True, "list": lst, "hidden": self.prefs.hide(lst, body.get("ids"), body.get("hidden") is not False)}
         except OSError as e:
-            raise ValueError("設定を保存できませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            raise ValueError("設定を保存できませんでした(%s)" % tools.why(e))
         raise ValueError("その操作はありません: %s" % str(op)[:20])
 
     def ytt_request(self, h, tool, version=""):
         """画面の共通の API(api/ytt/<名前>)の要求を受け持つ。h は入口か、取り込んだツールの Handler(_json を持つ)。
         取り込んだツールの画面の /studio/api/ytt/… も src/home/mount.py がここへ回す(ツールごとに同じものを書かないため)。
-        検査は入口の API と同じ: POST だけ・Host・Origin・Sec-Fetch-Site・合言葉・本文は application/json で 16KB まで"""
+        検査は入口の API と同じ: POST だけ・Host・Origin・Sec-Fetch-Site・合言葉・本文は application/json で 16KB まで。
+        断るときは本文を読み捨てる(0.50.0 までは取り込んだ画面から来た要求を Host・Origin で断るときに読まずに閉じていた = Windows で 403 が届かないことがある形)"""
         path = urllib.parse.urlsplit(h.path).path
         if h.command != "POST":
             return h._json(405, {"error": "method", "message": "POST で送ってください"})
-        hs = h.headers
-        if not (httpsec.host_ok(hs, self.allowed_hosts) and httpsec.origin_ok(hs, self.allowed_hosts) and httpsec.fetch_site_ok(hs)):
-            return h._json(403, {"error": "forbidden", "message": "この画面からは使えません"})
-        if not hmac.compare_digest(hs.get(mount_mod.TOKEN_HEADER) or "", self.token):
-            return h._json(403, {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"})
-        body, err = read_json_body(hs, h.rfile, YTT_BODY_MAX)
-        if err:
-            return h._json(*err)
+        if not site_ok(h.headers, self.allowed_hosts):
+            httpsec.drain_body(h.headers, h.rfile)
+            return h._json(403, FORBIDDEN)
+        body = guarded_body(h, self.token, YTT_BODY_MAX)
+        if body is None:
+            return None
         code, obj = self.ytt_api(path[len(YTT_API):] if path.startswith(YTT_API) else "", body, tool, version)
         return h._json(code, obj)
 
@@ -1123,11 +1110,6 @@ class PortalServer(ThreadingHTTPServer):
         # 覗けなかった(何も送らずに切った接続・壊れた要求の行)ときは入口の Handler に任せる(読んで静かに終わる)
         self.handler_for(peek_path(request))(request, client_address, self)
 
-    def server_bind(self):
-        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        super().server_bind()
-
     def close_watchers(self):
         """裏の見張りを止める(すべて終了・入口の終了の両方から。2 回呼んでもよい)"""
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
@@ -1137,17 +1119,29 @@ class PortalServer(ThreadingHTTPServer):
         if self.analytics:
             self.analytics.close()
 
+    def teardown(self):
+        """終了の後始末(1 回だけ。2 回目からは何もしない)。画面の「すべて終了」(request_shutdown)と main の終わり(Ctrl+C・黒い画面の×も)の両方から呼ぶ。
+        順番: 裏の見張り → まとめて実行(実行中の段を止める。順番待ち・実行中の実行は次の起動で続く。M5)→ 監視 → ツールを止める → 取り込んだツールの後始末。
+        0.50.0 までは「すべて終了」で 2 回走り(取り込んだツールの finish も 2 回)、Ctrl+C・× ではまとめて実行を閉じていなかった"""
+        with self._teardown_lock:   # 途中で 2 つ目が来たら(「すべて終了」の後始末の最中の Ctrl+C)、終わるのを待ってから戻る
+            if self._torn_down:
+                return
+            self._torn_down = True
+            self.closing.set()
+            self.close_watchers()
+            if self._autorun is not None:
+                self._autorun.close()
+            self.sup.close()
+            self.sup.stop_all()
+            self.sup.unmount_all()
+
     def request_shutdown(self):
         """画面の「すべて終了」。この入口から起動したツールを止めてから、待ち受けを終える(serve_forever が戻る)。"""
         if self.closing.is_set():
             return
         self.closing.set()
         self.sup.log("画面から「すべて終了」が押されました")
-        self.close_watchers()
-        if self._autorun is not None:
-            self._autorun.close()   # まとめて実行の実行中の段を止める(順番待ち・実行中の実行は次の起動で続く。M5)
-        self.sup.stop_all()
-        self.sup.unmount_all()
+        self.teardown()
         self.shutdown()
 
 
@@ -1180,7 +1174,7 @@ def make_logger(path):
     q = queue.Queue(maxsize=1000)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        rotate(path)
+        fsio.rotate(path, LOG_MAX)
     except OSError:
         pass
 
@@ -1329,11 +1323,7 @@ def main(argv=None):
         log("終了の合図を受け取りました。このホームから起動したツールを止めています…")
     finally:
         ignore_stop_signals()
-        srv.closing.set()
-        srv.close_watchers()
-        sup.close()
-        sup.stop_all()
-        sup.unmount_all()
+        srv.teardown()   # 「すべて終了」で済んでいれば何もしない
         if http_thread is not None and http_thread.is_alive():
             srv.shutdown()
         runtime.remove_runtime(sup.rdir, TOOL_ID, port)   # 自分が書いた記録のときだけ消す(別の入口が書き直したものは残す)

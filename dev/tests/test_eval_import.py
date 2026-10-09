@@ -345,7 +345,7 @@ class DestAndCli(Base):
         self.assertIn("[重複]", buf.getvalue())
 
     def test_default_dest_outside_repo(self):
-        self.assertFalse(I._inside(I.default_dest(), REPO))
+        self.assertFalse(I.fsio.is_inside(I.default_dest(), REPO))
         self.assertTrue(I.default_dest().endswith(os.path.join("youtube-tools", "eval-intake")))
 
 

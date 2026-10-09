@@ -6,7 +6,6 @@
 """
 import bisect
 import json
-import math
 import os
 import re
 import shutil
@@ -15,6 +14,7 @@ import time
 import uuid
 
 from ytt_core import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
+import ed_drill  # noqa: E402,F401  (評価ドリルの要約 drill_doc_summary を、文書の要約と一緒に作る)
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_misc  # noqa: E402,F401
@@ -49,13 +49,10 @@ def backup_doc(tid, kind):
 # ---------- 話者ごとの字幕の見た目 sub(2026-10-05。docs/spec/friend-intake.md の 6) ----------
 # 色を単独の値で持たず「字幕の見た目」のまとまりの 1 項目にする(あとでフォント・大きさなどを足しても形を変えない)。
 # 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形を確かめ、知らない鍵・形の違う値は黙って捨てる(画面・Lua に入るので必ずここを通す)
-_SUB_HEX_RE = re.compile(r"#?([0-9A-Fa-f]{6})")
-
-
 def _sub_color(v):
-    """字幕の文字の色: 16 進 6 桁(# はあってもなくても)→ "#RRGGBB"(大文字)。違えば None"""
-    m = _SUB_HEX_RE.fullmatch(v.strip()) if isinstance(v, str) else None
-    return "#" + m.group(1).upper() if m else None
+    """字幕の文字の色: 16 進 6 桁(# はあってもなくても)→ "#RRGGBB"(大文字)。違えば None(規則は ytt_core.colors.norm_hex の 1 か所。文字列だけ)"""
+    from ytt_core import colors as _colors
+    return _colors.norm_hex(v) if isinstance(v, str) else None
 
 
 SUB_STYLE_KEYS = {"color": _sub_color}   # 鍵 → 検査(値を返す・だめなら None)。足すときはここに 1 行
@@ -97,12 +94,12 @@ def sanitize_transcript(obj, base=None):
             one["sub"] = st
         speakers.append(one)
     segs, ids = [], set()
-    now = int(time.time() * 1000)
+    now = ed_state.now_ms()
     base_at = {}   # 保存済みの校正済みの行 id -> 校正した時刻(以前の文書で時刻が無ければ None = 分からないまま。今の時刻を作らない)
     for g in (base or {}).get("segments") or []:
         if isinstance(g, dict) and g.get("proofed") is True and isinstance(g.get("id"), str):
             at = g.get("proofedAt")
-            base_at[g["id"]] = at if isinstance(at, int) and not isinstance(at, bool) and at > 0 else None
+            base_at[g["id"]] = at if (ed_state.plain_int(at) or 0) > 0 else None
     for i, sg in enumerate(obj.get("segments") or []):
         if i >= ed_state.MAX_SEGMENTS:
             raise ed_state.ApiError("too_many", "行数が多すぎます", 400)
@@ -168,23 +165,65 @@ def doc_length(d):
     return max(0.0, max([ed_state.num(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
 
 
-_summary_cache = {}   # tid -> ((更新日時ns, 大きさ), 要約)。一覧・文字起こし済みの判定のたびに、全部の文書を JSON として読み直さないため
+# 文書ごとの要約のキャッシュは 1 つ(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
+# 一覧(list_transcripts)・文字起こし済みの判定・進行度(ed_misc.progress_stats)・評価ドリル(ed_drill.drill_docs)が同じ要約を使うので、
+# 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
+# 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
+_summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
+_summary_lock = threading.Lock()
 
 
-def transcript_summary(tid):
-    """文書1件の要約(一覧の1行 + 元ファイル・範囲)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+def good_row(g):
+    """進行度・定点に数える行(校正済み・聞き取れない印なし)"""
+    return g.get("proofed") is True and "unclear" not in (g.get("tags") or [])
+
+
+def row_dur(g):
+    """行の長さ(秒。読めない時刻は 0)"""
+    return max(0.0, (ed_state.num(g.get("end"), 0.0) or 0.0) - (ed_state.num(g.get("start"), 0.0) or 0.0))
+
+
+def _load_doc(path):
+    """文書の JSON(読めない・dict でなければ None)。read_transcript と同じ読み方(このツールが書いたファイル)"""
     try:
-        st = os.stat(tx_path(tid))
-        key = (st.st_mtime_ns, st.st_size)
-        hit = _summary_cache.get(tid)
-        if hit and hit[0] == key:
-            return hit[1]
-        with open(tx_path(tid), "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             d = json.load(f)
     except (OSError, ValueError):
         return None
-    if not isinstance(d, dict):
+    return d if isinstance(d, dict) else None
+
+
+def _prog_of(segs, d):
+    """進行度(ed_misc.progress_stats)に要る数: 評価用か・校正済みの行の秒と数・未校正の文字のある行の数・全体の秒と行の数"""
+    good = [g for g in segs if good_row(g)]
+    pend = sum(1 for g in segs if g.get("proofed") is not True and str(g.get("text", "")).strip() and "unclear" not in (g.get("tags") or []))
+    return {"eval": d.get("evalSet") is True, "sec": sum(row_dur(g) for g in good), "lines": len(good), "pend": pend,
+            "totalSec": sum(row_dur(g) for g in segs), "totalLines": len(segs)}
+
+
+def _part(name, fn, *args):
+    """要約の一部(進行度・ドリル)を作る。形の崩れた文書で例外が出ても、一覧の要約は返す(その部分だけ None = 数えない)"""
+    try:
+        return fn(*args)
+    except Exception as e:   # 形の崩れた文書(手で書き換えたなど)でも一覧を止めない
+        ed_state.log.warning("文書の要約(%s)を作れませんでした: %s", name, e.__class__.__name__)
         return None
+
+
+def transcript_summary(tid):
+    """文書1件の要約(一覧の1行 + 元ファイル・範囲 + 進行度 _prog + 評価ドリル _drill)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    path = tx_path(tid)
+    st = ed_state.file_stamp(path)
+    if st is None:
+        return None
+    key = (path,) + st
+    with _summary_lock:
+        hit = _summary_cache.get(tid)
+    if hit and hit[0] == key:
+        return hit[1]
+    d = _load_doc(path)
+    if d is None:
+        return None   # 読めない(書きかけ・ほかのアプリが開いている)ものは覚えない = 次にもう一度読む
     segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
     text_rows = sum(1 for s in segs if str(s.get("text") or "").strip())
     proofed = sum(1 for s in segs if s.get("proofed") is True and str(s.get("text") or "").strip())
@@ -203,8 +242,10 @@ def transcript_summary(tid):
           "videoId": str(src.get("videoId") or "")[:40] if clip else "", "clipTitle": str(src.get("title") or "")[:200] if clip else "",
           "clipStart": ed_state.num(rng.get("start")), "clipEnd": ed_state.num(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
           "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole")),
-          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:]}   # 30fps の写しへ付け替える前のパス(Q1)
-    _summary_cache[tid] = (key, sm)
+          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(Q1)
+          "_key": key, "_prog": _part("進行度", _prog_of, segs, d), "_drill": _part("ドリル", ed_drill.drill_doc_summary, d)}
+    with _summary_lock:
+        _summary_cache[tid] = (key, sm)
     return sm
 
 
@@ -212,32 +253,30 @@ def _tids():
     return [n[:-5] for n in (os.listdir(ed_state.TX_DIR) if os.path.isdir(ed_state.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5])]
 
 
+def prune_cache(cache, keep, lock=None):
+    """文書ごとのキャッシュ {tid: …} から、keep に無い(消えた)文書の分を捨てる"""
+    with lock or _summary_lock:
+        for k in [k for k in cache if k not in keep]:
+            cache.pop(k, None)
+
+
 def summaries():
-    """全文書の (id, 要約 transcript_summary, 動画のパス)(読めない文書は除く。要約はキャッシュ = 文書を読み直さない)"""
+    """全文書の (id, 要約 transcript_summary, 動画のパス)(読めない文書は除く。要約はキャッシュ = 文書を読み直さない)。
+    最後まで回したら、消えた文書の要約を捨てる"""
+    seen = set()
     for tid in _tids():
+        seen.add(tid)
         sm = transcript_summary(tid)
         if sm:
             yield tid, sm, str(sm.get("_sourcePath") or "")
+    prune_cache(_summary_cache, seen)
 
 
-_studio_cache = {"key": None, "path": None, "videos": {}, "groups": []}   # スタジオの data.json から読んだ {videoId: {"channel", "title"}} と
-                                                                        # コラボのまとまり [[videoId, …]](更新日時と大きさでキャッシュ)
-_studio_lock = threading.Lock()
+_studio_cache = _fsio.StampCache()   # スタジオの data.json のパス → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(更新日時と大きさでキャッシュ)
 
 
-def _studio_load():
-    """切り抜きスタジオの data.json(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
-    -> ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])。一覧のたびに大きな data.json を読み直さないよう、
-    ファイルの更新日時と大きさが同じなら前の結果を使う。"""
-    path = ed_state.STUDIO_DATA
-    try:
-        st = os.stat(path)
-        key = (st.st_mtime_ns, st.st_size)
-    except (OSError, ValueError):
-        return {}, []
-    with _studio_lock:
-        if _studio_cache["key"] == key and _studio_cache["path"] == path:
-            return _studio_cache["videos"], _studio_cache["groups"]
+def _studio_parse(path):
+    """スタジオの data.json → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(読めなければ空)"""
     d = ed_misc._read_json_file(path)
     out, groups = {}, []
     vids = d.get("videos") if isinstance(d, dict) else None
@@ -250,9 +289,17 @@ def _studio_load():
         ms = g.get("members") if isinstance(g, dict) else None
         if isinstance(ms, list):
             groups.append([str(m)[:40] for m in ms[:50] if isinstance(m, str)])
-    with _studio_lock:
-        _studio_cache.update({"key": key, "path": path, "videos": out, "groups": groups})
     return out, groups
+
+
+def _studio_load():
+    """切り抜きスタジオの data.json(読むだけ。置き場所は studio_data_path() と同じ規則 = 入口の案件の画面・ytt_core.txindex と同じ)。
+    -> ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])。一覧のたびに大きな data.json を読み直さないよう、
+    ファイルの更新日時と大きさが同じなら前の結果を使う。"""
+    path = ed_state.STUDIO_DATA
+    r = _studio_cache.get(path, _studio_parse)
+    _studio_cache.prune([path])   # 覚えるのは今の場所の 1 つだけ
+    return r if r is not None else ({}, [])
 
 
 def studio_videos():
@@ -332,9 +379,8 @@ def list_transcripts():
             it["packStale"] = pack_stale(it)
             it.pop("_packDocAt", None)
             items.append(it)
-    for cache in (_summary_cache, _edit_cache):   # 消した文書の分は捨てる
-        for k in [k for k in cache if k not in seen]:
-            cache.pop(k, None)
+    prune_cache(_summary_cache, seen)   # 消した文書の分は捨てる
+    prune_cache(_edit_cache, seen)
     studio = studio_videos()
     for it in items:
         sv = studio.get(it["videoId"]) if it["videoId"] else None
@@ -349,11 +395,10 @@ def list_transcripts():
 def read_transcript(tid):
     if not ed_state.TID_RE.match(tid or "") or not os.path.isfile(tx_path(tid)):
         raise ed_state.ApiError("not_found", "文字起こしが見つかりません", 404)
-    try:
-        with open(tx_path(tid), "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
+    d = _load_doc(tx_path(tid))
+    if d is None:
         raise ed_state.ApiError("broken", "文字起こしファイルを読み込めません", 500)
+    return d
 
 
 # ---------- 履歴(自動スナップショット)と保存の競合検出 ----------
@@ -382,7 +427,7 @@ def hist_snapshot(tid, force=False):
     if not os.path.isfile(src):
         return None
     stamps = hist_stamps(tid)
-    now = int(time.time() * 1000)
+    now = ed_state.now_ms()
     if not force and stamps and now - stamps[-1] < HIST_INTERVAL * 1000:
         return None
     d = _hist_dir(tid)
@@ -391,10 +436,7 @@ def hist_snapshot(tid, force=False):
     shutil.copy2(src, os.path.join(d, "%d.json" % ts))
     stamps.append(ts)
     for old in stamps[:-HIST_KEEP]:
-        try:
-            os.unlink(os.path.join(d, "%d.json" % old))
-        except OSError:
-            pass
+        ed_state.unlink_quiet(os.path.join(d, "%d.json" % old))
     return ts
 
 
@@ -402,10 +444,8 @@ def list_history(tid):
     read_transcript(tid)
     items = []
     for ts in reversed(hist_stamps(tid)):
-        try:
-            with open(os.path.join(_hist_dir(tid), "%d.json" % ts), "r", encoding="utf-8") as f:
-                d = json.load(f)
-        except (OSError, ValueError):
+        d = _load_doc(os.path.join(_hist_dir(tid), "%d.json" % ts))
+        if d is None:
             continue
         segs = d.get("segments") or []
         items.append({"ts": ts, "segments": len(segs), "proofed": sum(1 for s in segs if s.get("proofed") is True),
@@ -435,10 +475,11 @@ def restore_history(tid, ts):
             raise ed_state.ApiError("not_found", "その履歴は見つかりません", 404)
         p = os.path.join(_hist_dir(tid), "%d.json" % ts)
         try:
-            with open(p, "r", encoding="utf-8") as f:
-                old = json.load(f)
+            old = _load_doc(p)
+            if old is None:
+                raise ed_state.ApiError("broken", "履歴を読み込めません", 500)
             hist_snapshot(tid, force=True)      # 戻す前の状態も残す(戻したことを取り消せるように)
-            old["updatedAt"] = int(time.time() * 1000)
+            old["updatedAt"] = ed_state.now_ms()
             cur = read_transcript(tid)
             if isinstance(cur.get("effort"), dict):   # 校正の手間の累計は戻さない(戻すのは文字と行。マスタープラン Q2)
                 old["effort"] = cur["effort"]
@@ -479,7 +520,7 @@ def effort_rows(base, doc):
         ef = _effort_of(doc)
         ef["proofedRows"] += on
         ef["unproofedRows"] += off
-        ef["lastAt"] = doc.get("updatedAt") or int(time.time() * 1000)
+        ef["lastAt"] = doc.get("updatedAt") or ed_state.now_ms()
         doc["effort"] = ef
 
 
@@ -498,7 +539,7 @@ def add_effort(obj):
         ef["activeSec"] += sec
         ef["cutSec"] += cut
         ef["sessions"] += 1 if obj.get("newSession") is True else 0
-        ef["lastAt"] = int(time.time() * 1000)
+        ef["lastAt"] = ed_state.now_ms()
         doc["effort"] = ef
         write_doc(tid, doc)
         return {"effort": ef}
@@ -509,7 +550,7 @@ def set_diar_num(obj):
     画面が選んだときだけ送る(開いたときの既定 = その文書の話者の数は画面が決める)。**文書の updatedAt は変えない**
     (人数を選んだだけで保存の競合 409・パックの「作り直しが要る」を起こさない。校正の手間 add_effort と同じ)。画面の保存(PUT)は前の値を残す"""
     n = obj.get("diarNum")
-    if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n <= DIAR_NUM_MAX:
+    if _yschemas.int_in(n, 0, DIAR_NUM_MAX) is None:
         raise ed_state.ApiError("bad_request", "diarNum は 0〜%d の整数にしてください" % DIAR_NUM_MAX, 400)
     tid = str(obj.get("id") or "")
     with _save_lock:
@@ -535,16 +576,11 @@ def edit_path(tid):
     return os.path.join(ed_state.TX_DIR, tid + ".edit.json")
 
 
-def _real(x):
-    """JSON の数(真偽値・文字列・NaN は数として扱わない)。-> float か None"""
-    if isinstance(x, bool) or not isinstance(x, (int, float)):
-        return None
-    x = float(x)
-    return x if math.isfinite(x) else None
+_real = _yschemas.num   # JSON の数(真偽値・文字列・NaN・float にできない巨大な整数は数として扱わない)。-> float か None
 
 
 def _fps_pair(v):
-    if not isinstance(v, list) or len(v) != 2 or any(isinstance(x, bool) or not isinstance(x, int) for x in v):
+    if not isinstance(v, list) or len(v) != 2 or any(ed_state.plain_int(x) is None for x in v):
         return None
     n, d = v
     if not (1 <= n <= 1000000 and 1 <= d <= 1000000 and 1 <= n / d <= 300):
@@ -618,28 +654,26 @@ def sanitize_draft(v):
             settings[k] = round(_real(x), 4)
     at = v.get("at")
     return {"origin": v["origin"], "settings": settings, "keepsSec": out_k,
-            "at": at if isinstance(at, int) and not isinstance(at, bool) and at > 0 else int(time.time() * 1000)}
+            "at": at if (ed_state.plain_int(at) or 0) > 0 else ed_state.now_ms()}
 
 
 def read_edit(tid):
     """保存済みの編集の内容。-> (中身 または None, 壊れているか)。形が正しくないもの(手で書き換えた・書きかけ)は壊れている扱い"""
     try:
-        with open(edit_path(tid), "rb") as f:
-            raw = f.read(MAX_EDIT_BYTES + 1)
+        d = _fsio.read_json_file(edit_path(tid), MAX_EDIT_BYTES)   # 上限を超える・UTF-8 でない・NaN を含む = ValueError(壊れている扱い)
     except FileNotFoundError:
         return None, False
-    except OSError:
+    except (OSError, ValueError):
         return None, True
     try:
-        d = json.loads(raw.decode("utf-8-sig"), parse_constant=ed_state._reject_json_constant) if len(raw) <= MAX_EDIT_BYTES else None
-        if not isinstance(d, dict) or d.get("schema") != EDIT_SCHEMA or isinstance(d.get("rev"), bool) or not isinstance(d.get("rev"), int):
+        if not isinstance(d, dict) or d.get("schema") != EDIT_SCHEMA or ed_state.plain_int(d.get("rev")) is None:
             return None, True
         out = sanitize_edit(d)
-    except (UnicodeDecodeError, ValueError, ed_state.ApiError):
+    except (ValueError, ed_state.ApiError):
         return None, True
     pr = d.get("packRev")
     out.update({"schema": EDIT_SCHEMA, "rev": max(0, d["rev"]), "updatedAt": d.get("updatedAt") if isinstance(d.get("updatedAt"), int) else 0,
-                "packRev": pr if isinstance(pr, int) and not isinstance(pr, bool) and pr >= 0 else 0})
+                "packRev": max(0, ed_state.plain_int(pr) or 0)})
     if isinstance(d.get("pack"), dict):
         out["pack"] = d["pack"]
     draft = sanitize_draft(d.get("draft"))   # 初めてのたたき台の記録(Q2。以前の edit.json には無い)
@@ -732,14 +766,9 @@ def edit_draft(tid, rows=False):
 
 
 def edit_keeps_sec(edit):
-    """編集の内容の残す区間(秒)。接している区間(分割しただけ)は1つにまとめる(パックと同じ)"""
-    out = []
-    for c in edit["clips"]:
-        if out and c["in"] <= out[-1][1] + 1e-9:
-            out[-1][1] = max(out[-1][1], c["out"])
-        else:
-            out.append([c["in"], c["out"]])
-    return out
+    """編集の内容の残す区間(秒)。接している区間(分割しただけ)は1つにまとめる(パックと同じ)。
+    区間は sanitize_edit が 3 桁に丸めて時刻の順に並べてあるので、つなぎ方は ed_state.union_spans(接していればつなぐ)と同じ"""
+    return ed_state.union_spans((c["in"], c["out"]) for c in edit["clips"])
 
 
 def keeps_arg(v):
@@ -772,7 +801,7 @@ def edit_preview(obj):
 
 def wrap_arg(v, size=None):
     """Text+ 字幕の1段の文字数(0〜40)。無ければ設定の subtitle.wrapChars(size が横 1920x1080 なら横、それ以外は縦)"""
-    if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 40:
+    if _yschemas.is_num(v) and 0 <= v <= 40:
         return int(v)
     sub = ed_jobs.subtitle_settings()
     return sub["wrapChars"]["horizontal" if str(size or "") == "1920x1080" else "vertical"]
@@ -821,7 +850,7 @@ def save_edit(tid, obj):
     文書の行の cutState も同じロックの中で合わせる(画面から2回に分けて送らない)。文書の updatedAt は変えない
     (cutState は編集の内容から決まる値なので、校正の保存の競合の検出(baseUpdatedAt)に巻き込まない)"""
     base = obj.get("baseRev")
-    if isinstance(base, bool) or not isinstance(base, int) or base < 0:
+    if ed_state.plain_int(base) is None or base < 0:
         raise ed_state.ApiError("bad_request", "baseRev(読み込んだときの rev)を付けてください", 400)
     clean = sanitize_edit(obj.get("edit"))
     with _save_lock:
@@ -835,7 +864,7 @@ def save_edit(tid, obj):
                 shutil.copy2(edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"))
             except OSError:
                 pass
-        now = int(time.time() * 1000)
+        now = ed_state.now_ms()
         d = dict(clean, schema=EDIT_SCHEMA, rev=rev + 1, updatedAt=now, packRev=cur["packRev"] if cur else 0)
         if cur and cur.get("pack"):
             d["pack"] = cur["pack"]
@@ -865,43 +894,33 @@ def _pack_text(v, limit):
     return v
 
 
+# 出力の設定の鍵と検査(値を受けるなら True)。必須は全部そろわなければ output なし。任意は入っていれば正しいこと
+_PACK_REQUIRED = (("fps", lambda v: isinstance(v, str) and re.fullmatch(r"\d{1,3}", v, re.A) is not None),
+                  ("size", lambda v: v in ("1080x1920", "1920x1080")),
+                  ("wrap", lambda v: _yschemas.int_in(v, 0, 40) is not None),
+                  *((k, lambda v: isinstance(v, bool)) for k in ("textplus", "backup", "render", "speakerColors")))
+_PACK_OPTIONAL = (("streamer", lambda v: _pack_text(v, 200) is not None),
+                  ("loudness", lambda v: _yschemas.is_num(v) and v in PACK_OUTPUT_LOUDNESS),
+                  ("volume", lambda v: _yschemas.int_in(v, 1, 200) is not None))
+
+
 def sanitize_pack_output(o):
     """POST /api/edit/pack の output(作ったときの出力の設定)を確かめる。決まった鍵だけ残し(余計な鍵は黙って捨てる)、
     必須の鍵が1つでも正しくなければ、あるいは任意の鍵が入っていて正しくなければ None(= 記録には output を入れない。
-    古い画面・まとめて実行 home/autorun.py は output を送らないので、エラーにはしない)。bool は int でもあるので先に isinstance(bool) で見る"""
+    古い画面・まとめて実行 home/autorun.py は output を送らないので、エラーにはしない)。bool は int でもあるので数の検査は schemas で(bool を数えない)。
+    鍵と検査は表 _PACK_REQUIRED・_PACK_OPTIONAL(足すときは 1 行。並びは記録の鍵の順)"""
     if not isinstance(o, dict):
         return None
     out = {}
-    fps = o.get("fps")
-    if not isinstance(fps, str) or not re.fullmatch(r"\d{1,3}", fps, re.A):
-        return None
-    out["fps"] = fps
-    if o.get("size") not in ("1080x1920", "1920x1080"):
-        return None
-    out["size"] = o["size"]
-    wrap = o.get("wrap")
-    if isinstance(wrap, bool) or not isinstance(wrap, int) or not 0 <= wrap <= 40:
-        return None
-    out["wrap"] = wrap
-    for k in ("textplus", "backup", "render", "speakerColors"):
-        if not isinstance(o.get(k), bool):
+    for k, ok in _PACK_REQUIRED:
+        if not ok(o.get(k)):
             return None
         out[k] = o[k]
-    if "streamer" in o:
-        st = _pack_text(o["streamer"], 200)
-        if st is None:
-            return None
-        out["streamer"] = st
-    if "loudness" in o:
-        v = o["loudness"]
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v not in PACK_OUTPUT_LOUDNESS:
-            return None
-        out["loudness"] = v
-    if "volume" in o:
-        v = o["volume"]
-        if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 200:
-            return None
-        out["volume"] = v
+    for k, ok in _PACK_OPTIONAL:
+        if k in o:
+            if not ok(o[k]):
+                return None
+            out[k] = o[k]
     if "advanced" in o:
         adv = o["advanced"]
         if not isinstance(adv, dict):
@@ -935,7 +954,7 @@ def record_pack(obj):
     packRev = そのパックを作った編集の rev。rev ≠ packRev か、文書の updatedAt が docUpdatedAt より新しければ「作り直し」"""
     tid = str(obj.get("id") or "")
     rev, dua = obj.get("rev"), obj.get("docUpdatedAt")
-    if isinstance(rev, bool) or not isinstance(rev, int) or rev < 1 or isinstance(dua, bool) or not isinstance(dua, int) or dua < 0:
+    if ed_state.plain_int(rev) is None or rev < 1 or ed_state.plain_int(dua) is None or dua < 0:
         raise ed_state.ApiError("bad_request", "rev・docUpdatedAt が正しくありません", 400)
     out_dir = obj.get("dir")
     if not isinstance(out_dir, str) or not out_dir or len(out_dir) > 1000 or any(ch in out_dir for ch in "\x00\r\n") or not os.path.isabs(out_dir):
@@ -949,7 +968,7 @@ def record_pack(obj):
             raise ed_state.ApiError("no_edit", "カットがまだ保存されていません", 409)
         if rev > cur["rev"]:
             raise ed_state.ApiError("bad_request", "rev が保存済みのカットより新しくなっています", 400)
-        now = int(time.time() * 1000)
+        now = ed_state.now_ms()
         pk = {"rev": rev, "at": now, "docUpdatedAt": dua, "dir": out_dir, "files": files}
         if output is not None:
             pk["output"] = output
@@ -994,7 +1013,7 @@ def fill_doc(spec, fields):
             doc = read_transcript(tid)
         except ed_state.ApiError:
             doc = None
-        same = doc is not None and os.path.normcase(os.path.abspath(str(doc.get("sourcePath") or ""))) == os.path.normcase(spec["sourcePath"])
+        same = doc is not None and ed_state.norm_path(str(doc.get("sourcePath") or "")) == os.path.normcase(spec["sourcePath"])
         if not same or doc_has_rows(doc):
             spec.setdefault("warnings", []).append("文字起こしを入れる文書が変わっていたため、新しい文字起こしとして保存しました")
             return None
@@ -1033,10 +1052,10 @@ def find_doc_for_media(path):
     p = str(path or "").strip().strip('"')
     if not p or "\x00" in p:
         return None
-    key = os.path.normcase(os.path.abspath(p))
+    key = ed_state.norm_path(p)
     best = None
     for tid, sm, _sp in summaries():
-        if not any(p and os.path.normcase(os.path.abspath(p)) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
+        if not any(p and ed_state.norm_path(p) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
             continue
         rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
         if best is None or rank > best[0]:
@@ -1059,7 +1078,7 @@ def open_video(req):
         pm = ed_state.pio(required=False)
         clip, warn, _cp = pm.find_clip(src, dur) if pm else (None, None, None)
         tid = uuid.uuid4().hex[:12]
-        now = int(time.time() * 1000)
+        now = ed_state.now_ms()
         doc = {"schema": "transcribe/v1", "id": tid, "title": str(req.get("title") or "").strip()[:120] or os.path.splitext(os.path.basename(src))[0][:120],
                "sourcePath": src, "sourceName": os.path.basename(src), "start": 0, "end": round(dur, 2) if dur else None, "whole": True,
                "duration": dur, "model": "", "language": "", "params": {}, "speakers": [], "segments": [], "original": [],

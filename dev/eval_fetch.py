@@ -224,10 +224,7 @@ def download(vid, start, clip_sec, out, work, run=run_cmd):
         return None
     finally:
         for f in glob.glob(glob.escape(raw_base) + ".*") + [tmp]:
-            try:
-                os.unlink(f)
-            except OSError:
-                pass
+            fsio.unlink_quiet(f)
 
 
 # ---------- 一覧 ----------
@@ -236,16 +233,12 @@ def plan_path(root):
 
 
 def read_plan(root):
-    try:
-        with open(plan_path(root), "r", encoding="utf-8") as f:
-            plan = json.load(f)
-    except (OSError, ValueError):
-        return None
-    return plan if isinstance(plan, dict) and plan.get("schema") == SCHEMA else None
+    plan = fsio.read_json_or(plan_path(root), None, kind=dict)
+    return plan if plan is not None and plan.get("schema") == SCHEMA else None
 
 
 def write_plan(root, plan):
-    fsio.atomic_write(plan_path(root), json.dumps(plan, ensure_ascii=False, indent=1).encode("utf-8"))
+    fsio.write_json(plan_path(root), plan, indent=1)
 
 
 def default_since(root):
@@ -357,8 +350,7 @@ def cmd_fetch(args, fetcher=download, silence=silent_ratio):
             dur = (normalize.probe(out) or {}).get("duration") or plan["clipSec"]
             clip = schemas.build_clip(out, dur, {"kind": "youtube", "videoId": vid, "title": cand["title"]}, (start, start + dur),
                                       {"id": "", "label": "評価用(配信から取得)", "status": "", "src": "auto"}, {"mode": "precise"}, TOOL)
-            os.makedirs(os.path.dirname(schemas.clip_path_for(out)), exist_ok=True)
-            fsio.atomic_write(schemas.clip_path_for(out), json.dumps(clip, ensure_ascii=False, indent=1).encode("utf-8"))
+            fsio.write_json(schemas.clip_path_for(out), clip, indent=1)   # フォルダも作る
             item["done"] = {"id": vid, "start": start, "sec": round(dur, 2), "file": os.path.basename(out), "silent": round(ratio, 2),
                             "date": cand["date"], "collab": cand["collab"], "at": datetime.datetime.now().isoformat(timespec="seconds")}
             used.add(vid)

@@ -61,8 +61,6 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
 import json
 import os
 import shutil
-import subprocess
-import sys
 import threading
 import time
 import urllib.parse
@@ -136,53 +134,17 @@ class Later(Exception):
 
 def run_proc(cmd, timeout, cancelled=None):
     """外のプログラムを1回(シェルを通さない・窓を出さない・通常より下の優先度)。取り消し・時間切れで止める。
-    -> (終了コード, 標準出力, エラーの行の最後の数行)。取り消しは LX.Cancelled、時間切れ・起動できないは ArchiveError"""
+    -> (終了コード, 標準出力, エラーの行の最後の数行)。取り消しは LX.Cancelled、時間切れ・起動できないは ArchiveError。
+    中身は ytt_core.tools.run(標準エラーは最後の 20 行だけ持つ)。名前はテストが差し替えるので残す"""
     try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=LX.low_flags())
+        r = tools.run(cmd, timeout=timeout, cancelled=cancelled, flags=tools.no_window_flags(priority="low"), err_tail=20)
     except OSError as e:
-        raise ArchiveError("%s を起動できませんでした: %s" % (os.path.basename(cmd[0]), e.strerror or e.__class__.__name__))
-    out, err = [], []
-
-    def drain(f, buf, keep):
-        for line in f:
-            buf.append(line)
-            if keep and len(buf) > keep:
-                del buf[0]
-    ts = [threading.Thread(target=drain, args=(proc.stdout, out, 0), daemon=True),
-          threading.Thread(target=drain, args=(proc.stderr, err, 20), daemon=True)]
-    for t in ts:
-        t.start()
-    end = time.time() + timeout
-    why = None
-    while proc.poll() is None:
-        if cancelled and cancelled():
-            why = "cancel"
-        elif time.time() > end:
-            why = "timeout"
-        if why:
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            break
-        try:
-            proc.wait(0.3)
-        except subprocess.TimeoutExpired:
-            pass
-    proc.wait()
-    for t in ts:
-        t.join(5)
-    for f in (proc.stdout, proc.stderr):
-        try:
-            f.close()
-        except OSError:
-            pass
-    if why == "cancel":
+        raise ArchiveError("%s を起動できませんでした: %s" % (os.path.basename(cmd[0]), tools.why(e)))
+    if r.why == "cancel":
         raise LX.Cancelled()
-    if why == "timeout":
+    if r.why == "timeout":
         raise ArchiveError("%s が %d 秒で終わりませんでした" % (os.path.basename(cmd[0]), int(timeout)))
-    tail = [x.decode("utf-8", "replace").strip() for x in err if x.strip()]
-    return proc.returncode, b"".join(out).decode("utf-8", "replace"), tail[-3:]
+    return r.code, r.out.decode("utf-8", "replace"), r.err_lines(3)
 
 
 def _num(s):
@@ -209,18 +171,20 @@ def probe_archive(video_id, timeout=PROBE_TIMEOUT, retries=None, wait=None, canc
     retries = YTDLP_RETRIES if retries is None else retries
     for n in range(retries + 1):
         p = _probe_once(video_id, timeout)
-        if p.get("status") != "unknown" or p.get("availability") or n == retries or "見つからない" in p.get("message", "") or "正しくありません" in p.get("message", ""):
+        final = p.pop("final", False)   # やり直しても変わらない失敗(id が正しくない・yt-dlp が無い)。画面の文の中身では決めない
+        if p.get("status") != "unknown" or p.get("availability") or n == retries or final:
             return p
         _pause(YTDLP_RETRY_WAIT if wait is None else wait, cancelled)
     return p
 
 
 def _probe_once(video_id, timeout):
+    """yt-dlp で 1 回だけ調べる(probe_archive の中身)。やり直しても無駄な失敗には "final": True を付ける(probe_archive が外す)"""
     if not LX.YT_ID_RE.match(video_id or ""):
-        return {"status": "unknown", "message": "YouTube の動画の id が正しくありません"}
+        return {"status": "unknown", "message": "YouTube の動画の id が正しくありません", "final": True}
     yd = tools.find_tool("yt-dlp")
     if not yd:
-        return {"status": "unknown", "message": "yt-dlp が見つからないので、アーカイブを確かめられませんでした"}
+        return {"status": "unknown", "message": "yt-dlp が見つからないので、アーカイブを確かめられませんでした", "final": True}
     cmd = [yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error",
            "--print", "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s",
            "--", "https://www.youtube.com/watch?v=" + video_id]
@@ -293,12 +257,7 @@ def fetch_full_audio(video_id, folder, cancelled=None, timeout=FETCH_TIMEOUT, re
 
 def worker_python(python=None):
     """照合の子プロセスの Python(入口と同じ = numpy が入っている 3.10)。窓の無い pythonw は標準出力を返せないことがあるので python.exe にする"""
-    p = python or sys.executable
-    if os.path.basename(p).lower() == "pythonw.exe":
-        alt = os.path.join(os.path.dirname(p), "python.exe")
-        if os.path.isfile(alt):
-            return alt
-    return p
+    return tools.python_exe(python)
 
 
 def run_align(ref, win, python=None, timeout=WORKER_TIMEOUT):
@@ -315,19 +274,9 @@ def run_align(ref, win, python=None, timeout=WORKER_TIMEOUT):
 
 
 # ---------- ファイルの置き場所 ----------
-def _real(p):
-    return os.path.normcase(os.path.realpath(p))
-
-
 def inside(path, root):
-    """path が root の中か(realpath で。シンボリックリンク・.. で外へ出ない)"""
-    if not path or not root or fsio.is_network_path(path) or fsio.is_network_path(root):
-        return False
-    try:
-        r, p = _real(root), _real(path)
-        return p != r and os.path.commonpath([p, r]) == r
-    except ValueError:   # ドライブが違う
-        return False
+    """path が root の中か(root そのものは含めない。realpath で比べる = シンボリックリンク・.. で外へ出ない。ネットワーク上のパスは False)"""
+    return fsio.is_inside(path, root, strict=True)
 
 
 def free_name(folder, name):
@@ -341,6 +290,24 @@ def free_name(folder, name):
 
 
 # ---------- 配信後の全自動(M7)の決め方 ----------
+def ended_at(r):
+    """録画の一覧の行 r の「終わった時刻」(epoch 秒): endedAt、無ければ lastPdt(最後のセグメントの時刻)。分からなければ None。
+    行の時刻の型は呼ぶ側で違う: after_tick は epoch(src/home/live.py の list_recordings)、after_stream_hold は録画の部品の生の行 = ISO の文字列
+    (src/home/live_cleanup.py)。どちらでも同じ値にする(3 か所で別々に求めていたのを 1 つに。2026-10-09)"""
+    for k in ("endedAt", "lastPdt"):
+        v = r.get(k)
+        t = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else LX.iso_epoch(v)
+        if t is not None:
+            return t
+    return None
+
+
+def _checked_within(i, ttl, now=None):
+    """記録 i の用意の確認(checkedAt)が ttl 秒以内か(確かめたばかりなら確かめ直さない)。checkedAt が無い・読めなければ False"""
+    checked = LX.iso_epoch(i.get("checkedAt"))
+    return bool(checked) and (time.time() if now is None else now) - checked < ttl
+
+
 def after_count(rec_sec, per_hour):
     """自動で採用する数 N = 録画の長さ(時間)× 1 時間あたりの数(四捨五入。1〜AFTER_TOP_MAX)"""
     try:
@@ -432,6 +399,7 @@ class Archiver:
         self.align = align or (lambda ref, win: run_align(ref, win, self.python))
         self.slots = slots or jobs.SLOTS
         self.ffmpeg, self.ffprobe = ffmpeg, ffprobe
+        self._probes = fsio.StampCache()   # 速報版の ffprobe の結果(1 本の作り直しで照合・高さ・ずれの確かめに使う。ファイルが変われば調べ直す)
         self.log = log or (lambda m: None)
         self.first_delay, self.interval, self.give_up = first_delay, interval, give_up
         self.poll, self.retry_sec, self.step = poll, retry_sec, step
@@ -521,7 +489,7 @@ class Archiver:
                 raise ArchiveError("どのマークも本番版になっています", 409)
             raise ArchiveError("本番版に作り直すものがありません(書き出したマークと、欠けで書き出せなかったマークが対象です)", 409)
         i = self.info_view(rc, rec)
-        fresh = i["ready"] is True and time.time() - (LX.iso_epoch(i["checkedAt"]) or 0) < READY_CACHE
+        fresh = i["ready"] is True and _checked_within(i, READY_CACHE)
         if not fresh:
             i = self.check(rc, rec, quick=True)   # 画面のボタン: やり直して待たせない(断られたら、もう一度押せる)
         if i.get("ready") is not True:
@@ -577,9 +545,12 @@ class Archiver:
             except Exception as e:   # 調べる部品の不具合でも見回りは止めない
                 p = {"status": "unknown", "message": "アーカイブを確かめられませんでした(%s)" % e.__class__.__name__}
             ready, msg = readiness(p)
+        return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=LX.now_iso(), release=p.get("release"), timestamp=p.get("timestamp"))
+
+    def _info_put(self, rc, rec, **kw):
+        """録画ごとの記録に kw を足して archive.json に残す -> 足したあとの記録の写し"""
         with self.lock:
-            i = dict(self.info.get(self.key(rc, rec)) or {}, recorder=rc, recording=rec, videoId=vid, ready=ready, message=msg,
-                     checkedAt=LX.now_iso(), release=p.get("release"), timestamp=p.get("timestamp"))
+            i = dict(self.info.get(self.key(rc, rec)) or {}, recorder=rc, recording=rec, **kw)
             self.info[self.key(rc, rec)] = i
         self._save_info()
         return dict(i)
@@ -587,7 +558,7 @@ class Archiver:
     def _ready_info(self, rc, rec):
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})
-        if i.get("ready") is True and time.time() - (LX.iso_epoch(i.get("checkedAt")) or 0) < self.interval:
+        if i.get("ready") is True and _checked_within(i, self.interval):
             return i
         return self.check(rc, rec)
 
@@ -701,9 +672,7 @@ class Archiver:
                 return None
             e = st.get("endedAt")
             if isinstance(e, (int, float)):
-                with self.lock:
-                    self.info[self.key(rc, rec)] = dict(self.info.get(self.key(rc, rec)) or {}, recorder=rc, recording=rec, endedAt=e)
-                self._save_info()
+                self._info_put(rc, rec, endedAt=e)
                 return e
         ends = [LX.iso_epoch(j.get("end")) for j in js]
         ends = [e for e in ends if e is not None]
@@ -734,16 +703,13 @@ class Archiver:
             ended = self._ended_at(rc, rec, js)
             if ended is None or now < ended + self.first_delay:
                 continue
-            checked = LX.iso_epoch(i.get("checkedAt"))
-            if not (i.get("ready") is True and checked and now - checked < self.interval):
+            recent = _checked_within(i, self.interval, now)
+            if not (i.get("ready") is True and recent):
                 if now - ended > self.give_up:
-                    with self.lock:
-                        self.info[k] = dict(i, recorder=rc, recording=rec, gaveUp=True,
-                                            message="録画が終わって %d 日たってもアーカイブを使えなかったので、自動で作り直すのをやめました(%s)"
-                                            % (int(self.give_up // 86400) or 1, i.get("message") or "理由は分かりません"))
-                    self._save_info()
+                    self._info_put(rc, rec, gaveUp=True, message="録画が終わって %d 日たってもアーカイブを使えなかったので、自動で作り直すのをやめました(%s)"
+                                   % (int(self.give_up // 86400) or 1, i.get("message") or "理由は分かりません"))
                     continue
-                if checked and now - checked < self.interval:
+                if recent:
                     continue
                 i = self.check(rc, rec)
             if i.get("ready") is not True:
@@ -797,8 +763,8 @@ class Archiver:
             a = self._after_get(rc, rec)
             if a.get("state") in AFTER_END:
                 continue
-            ended = r.get("endedAt") if isinstance(r.get("endedAt"), (int, float)) else r.get("lastPdt")
-            if not isinstance(ended, (int, float)) or now < ended + self.first_delay:
+            ended = ended_at(r)
+            if ended is None or now < ended + self.first_delay:
                 continue
             if not a and now - ended > self.after_max_age:   # 機能を入れる前・オンにする前の古い録画は始めない
                 continue
@@ -827,7 +793,7 @@ class Archiver:
         except Later as e:
             self._after_set(rc, rec, message=str(e), retryAt=time.time() + (e.after if e.after is not None else self.interval))
         except (LX.LiveError, normalize.NormalizeError, OSError) as e:
-            self._after_set(rc, rec, state="error", message=str(e) if not isinstance(e, OSError) else "書けませんでした: %s" % (e.strerror or e.__class__.__name__))
+            self._after_set(rc, rec, state="error", message=str(e) if not isinstance(e, OSError) else "書けませんでした: %s" % tools.why(e))
         except Exception as e:
             self.log("リアルタイム切り抜き: 配信後の自動の切り抜きでエラー %r" % (e,))
             self._after_set(rc, rec, state="error", message="内部エラー: %s" % e.__class__.__name__)
@@ -860,15 +826,16 @@ class Archiver:
         if not vid:
             self._after_set(rc, rec, state="error", message="YouTube の動画が分からない録画なので、アーカイブで切り抜けません")
             return True
-        if now - (r.get("endedAt") or r.get("lastPdt") or now) > self.after_max_age:
+        ended = ended_at(r)
+        if ended is not None and now - ended > self.after_max_age:
             self._after_set(rc, rec, state="error", message="録画が終わって %d 日たってもアーカイブを使えなかったので、自動で切り抜くのをやめました(%s)"
                             % (int(self.after_max_age // 86400) or 1, a.get("message") or "理由は分かりません"))
             return True
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})
-        checked = LX.iso_epoch(i.get("checkedAt"))
-        if not (i.get("ready") is True and checked and now - checked < self.interval):
-            if checked and now - checked < self.interval and i.get("ready") is not True:   # 確かめたばかり(P4 と同じ間隔で)
+        recent = _checked_within(i, self.interval, now)
+        if not (i.get("ready") is True and recent):
+            if recent:   # 確かめたばかり(P4 と同じ間隔で。用意できていない)
                 if not a:
                     self._after_set(rc, rec, state="wait", message=i.get("message") or "アーカイブの用意を待っています", title=str(r.get("title") or "")[:LX.TITLE_MAX])
                 return False
@@ -888,8 +855,8 @@ class Archiver:
         n = after_count(last - first, self._per_hour_for(rc, rec))
         base = dict(vid=vid, t0=t0, offset=round(offset, 3), offsetFrom=how, first=first, last=last, n=n, title=str(r.get("title") or "")[:LX.TITLE_MAX],
                     retryAt=None)
-        code, d = self.studio("GET", "/api/video?id=" + urllib.parse.quote(vid), None)
-        if code == 200 and isinstance(d, dict) and isinstance(d.get("video"), dict) and d["video"].get("analysis"):   # 人がもう解析した: それを使う
+        _code, v = self._studio_video(vid)
+        if v is not None and v.get("analysis"):   # 人がもう解析した: それを使う
             a = self._after_set(rc, rec, state="analyze", qid=None, message="スタジオで解析済みの結果を使います", **base)
             return self._after_adopt(rc, rec, a)
         code, d = self.studio("GET", "/api/settings", None)
@@ -971,8 +938,8 @@ class Archiver:
         items = (d or {}).get("items") or [] if code == 200 and isinstance(d, dict) else []
         it = next((x for x in items if isinstance(x, dict) and (x.get("qid") == a.get("qid") if a.get("qid") else x.get("videoId") == a.get("vid"))), None)
         if it is None:
-            code, v = self.studio("GET", "/api/video?id=" + urllib.parse.quote(a.get("vid") or ""), None)
-            if code == 200 and isinstance(v, dict) and (v.get("video") or {}).get("analysis"):
+            _code, v = self._studio_video(a.get("vid") or "")
+            if v is not None and v.get("analysis"):
                 return self._after_adopt(rc, rec, a)
             raise ArchiveError("アーカイブの解析がスタジオの順番から消えました(スタジオを起動し直したかもしれません)")
         if it.get("status") == "done":
@@ -987,23 +954,29 @@ class Archiver:
                     i["afterStream"] = dict(i["afterStream"], message=msg)
         return False
 
+    def _studio_video(self, vid):
+        """スタジオの GET /api/video?id=<vid> -> (HTTP の状態, video の dict か None(つながらない・無い・形が違う))"""
+        code, d = self.studio("GET", "/api/video?id=" + urllib.parse.quote(vid), None)
+        v = d.get("video") if code == 200 and isinstance(d, dict) else None
+        return code, v if isinstance(v, dict) else None
+
     def _after_adopt(self, rc, rec, a):
         """候補から上位 N を選び、M1 の採用(origin archive)を 1 本ずつ頼む"""
         if self.adopt is None:
             raise ArchiveError("採用の仕組み(M1)が使えません")
-        code, d = self.studio("GET", "/api/video?id=" + urllib.parse.quote(a["vid"]), None)
-        if code != 200 or not isinstance(d, dict) or not isinstance(d.get("video"), dict):
+        code, v = self._studio_video(a["vid"])
+        if v is None:
             raise Later("スタジオからアーカイブの解析の結果を読めませんでした(HTTP %s)" % code, self.retry_sec)
-        marks = d["video"].get("marks") or []
+        marks = v.get("marks") or []
         if self.compare is not None:   # 配信中の候補(L2)とアーカイブの候補を比べて live_feedback.jsonl へ(0-10-6。失敗しても採用は続ける)
             try:
                 self.compare(rc, rec, a, marks)
             except Exception as e:
                 self.log("リアルタイム切り抜き: 配信中の候補とアーカイブの候補を比べられませんでした: %r" % (e,))
-        code, lv = self.studio("GET", "/api/video?id=" + urllib.parse.quote(rec), None)
+        _code, lv = self._studio_video(rec)
         taken = []
-        if code == 200 and isinstance(lv, dict) and isinstance(lv.get("video"), dict):   # 録画の配信の、もう採用・書き出し済みのマーク(人が付けたもの)と重ねない
-            for m in lv["video"].get("marks") or []:
+        if lv is not None:   # 録画の配信の、もう採用・書き出し済みのマーク(人が付けたもの)と重ねない
+            for m in lv.get("marks") or []:
                 if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and isinstance(m.get("start"), (int, float)) and isinstance(m.get("end"), (int, float)):
                     taken.append((a["first"] + m["start"], a["first"] + m["end"]))
         picked = pick_candidates(marks, a["n"], a["t0"], a["offset"], a["first"], a["last"] - LX.READY_PAD, taken)
@@ -1082,7 +1055,7 @@ class Archiver:
             return ""
         if self._after_get(rc, rec).get("state") in AFTER_END:
             return ""
-        ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
+        ended = ended_at(r)
         if ended is not None and time.time() - ended > self.after_max_age:
             return ""
         if not LX.video_id_of(str(r.get("url") or ""), rec):
@@ -1200,13 +1173,14 @@ class Archiver:
             self._aset(job, state="error", message=str(e), progress=0, built=None)
         except OSError as e:
             keep_build = False
-            self._aset(job, state="error", message="書けませんでした: %s" % (e.strerror or e.__class__.__name__), progress=0, built=None)
+            self._aset(job, state="error", message="書けませんでした: %s" % tools.why(e), progress=0, built=None)
         except Exception as e:
             keep_build = False
             self.log("リアルタイム切り抜き: 本番版への作り直しでエラー %r" % (e,))
             self._aset(job, state="error", message="内部エラー: %s" % e.__class__.__name__, progress=0, built=None)
         finally:
             self._cancel.discard(job["id"])
+            self._probes.clear()   # 速報版は入れ替えたかもしれない・次の作り直しは別の速報版
             arc = job.get("archive") or {}
             if job.get("handoffWait") == "archive" and arc.get("state") in ("error", "cancelled"):   # 本番版にできなかった(M7): 速報版のまま渡す
                 self.ex.release_hold(job, "本番版にできなかったので、速報版のまま文字起こし・パックへ渡しました(%s)" % str(arc.get("message") or "")[:160])
@@ -1297,6 +1271,10 @@ class Archiver:
             raise ArchiveError("音を取り出せませんでした(%s)" % (" / ".join(tail) or "終了コード %s" % code))
         return dst
 
+    def _probe_speed(self, speed):
+        """速報版の ffprobe の結果(読めなければ {})。同じ作り直しの中で何度も呼ぶので、更新日時と大きさが同じなら前の結果を使う"""
+        return self._probes.get(speed, lambda p: normalize.probe(p, self.ffprobe)) or {}
+
     def _ref_span(self, dur):
         """照合に使う速報版の区間 (頭から除く秒, 長さ)。頭と終わりの端(作り直しの端の揺れ)を少し外す"""
         trim = min(1.0, dur * 0.2)
@@ -1305,7 +1283,7 @@ class Archiver:
     def _align(self, job, speed, vid, est, wdir):
         """速報版の音をアーカイブの窓の音と照合する -> 速報版の頭のアーカイブの秒。ずれ(offset)と aligned を archive に残す"""
         os.makedirs(wdir, exist_ok=True)
-        info = normalize.probe(speed, self.ffprobe) or {}
+        info = self._probe_speed(speed)
         a, b = LX.iso_epoch(job["start"]), LX.iso_epoch(job["end"])
         dur = info.get("duration") or (b - a)
         trim, span = self._ref_span(dur)
@@ -1368,7 +1346,7 @@ class Archiver:
         """スタジオで作り直して確かめる(速報版との音のずれが 1 コマを超えたら、1回だけずれを足して作り直す)。-> (アーカイブの秒, ずれ, probe の結果)"""
         height = 0
         if speed:
-            h = (normalize.probe(speed, self.ffprobe) or {}).get("height")
+            h = self._probe_speed(speed).get("height")
             height = h if h in HEIGHTS else 0   # 速報版と同じ高さ(文字起こし・カット・パックの見た目を変えない)
         vol, loud = self._audio(speed)
         for attempt in (0, 1):
@@ -1397,7 +1375,7 @@ class Archiver:
     def _residual(self, job, speed, new, wdir):
         """本番版と速報版の音のずれ(秒。正 = 本番版の頭が早すぎる = アーカイブの開始を足す)"""
         os.makedirs(wdir, exist_ok=True)
-        dur = (normalize.probe(speed, self.ffprobe) or {}).get("duration") or 1.0
+        dur = self._probe_speed(speed).get("duration") or 1.0
         trim, span = self._ref_span(dur)
         ref = self._wav(speed, os.path.join(wdir, "vref.wav"), trim, span, job)
         win = self._wav(new, os.path.join(wdir, "vnew.wav"), job=job)

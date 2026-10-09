@@ -5,7 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
-const source = fs.readFileSync(path.join(__dirname, '..', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
+// UIKit の代わり(ui-kit v24)。切り出した関数が UIKit を直接呼んでも動くように、vm の context にはいつも withUIKit(context) を通す
+// (context.UIKit・context.window.UIKit。テストが自分で入れた UIKit / window.UIKit はそのまま)。呼ばれた部品は context.UIKit.called('toast') などで読める
+const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
+const source =fs.readFileSync(path.join(__dirname, '..', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
 function between(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'application function boundaries must exist');
@@ -49,8 +52,10 @@ function harness(respond) {
   };
   for (const name of ['renderVideoSelect', 'refreshList', 'refreshListQuiet', 'renderExportUI',
     'renderTimeline', 'renderStats', 'renderMeta', 'renderLiveCount', 'renderList',
-    'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts', 'pollAuto']) context[name] = () => {};   // pollAuto: まとめて実行の進み具合(⑦)
-  vm.createContext(context);
+    'renderListKeep', 'renderAll', 'setNow', 'mountPlayer', 'fetchAutoTitle', 'syncFromServer', 'loadTranscripts', 'pollAuto',
+    // 0.23.4: loadVideo・startExportAll は typeof で確かめずに呼ぶ(前回の場所・ライブの録画・配信者の欄・書き出しの欄・書き出しのあとの文字起こし)
+    'placeOf', 'placeScroll', 'liveOpened', 'fillAutoWho', 'syncExportDock', 'maybeAutoTranscribe']) context[name] = () => {};   // pollAuto: まとめて実行の進み具合(⑦)
+  vm.createContext(withUIKit(context));
   vm.runInContext(
     between('let saveTimer =', '/* サーバー側の最新') +
     between('async function flushSave()', '/* サーバーだけが決める') +
@@ -195,7 +200,7 @@ test('restoring a completed export shows its warnings and releases its saved ID'
 
 /* ---- 2026-09-24 画面の見直しで足したテスト ---- */
 function load(parts, extra) {
-  const context = { Map, Set, Error, ...extra };
+  const context = withUIKit({ Map, Set, Error, ...extra });
   vm.createContext(context);
   vm.runInContext(parts.map(([a, b]) => between(a, b)).join('\n'), context);
   return context;
@@ -275,7 +280,7 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
   const context = { S, enc: encodeURIComponent, esc: s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'), fmt: t => 't' + t,
     renderListKeep: () => { renders++; },
     Studio: { api: url => new Promise(resolve => pending.push({ url, resolve })) } };
-  vm.createContext(context);
+  vm.createContext(withUIKit(context));
   vm.runInContext(between('function txHTML(', 'function renderList(){'), context);
   const first = context.loadTranscripts();
   assert.equal(pending[0].url, '/api/transcripts?id=A');
@@ -310,7 +315,7 @@ test('player unavailable: automatic playback stays silent, an explicit play expl
   const notes = [], seeks = [];
   const S = { playerAlive: false, playerErr: true, settings: { autoPlay: true }, now: 0 };
   const context = { S, yt: null, toast: m => notes.push(m), seek: t => { seeks.push(t); S.now = t; } };
-  vm.createContext(context);
+  vm.createContext(withUIKit(context));
   vm.runInContext(between('const canPlay', 'function phMsg(') + '\n' + between('function togglePlay(', '// iframe内をクリック'), context);
   context.previewClip({ start: 12, end: 20 }, true);   // 前後のマークへ移動したときの自動再生
   context.previewClip({ start: 30, end: 40 }, true);
@@ -331,7 +336,7 @@ test('player unavailable: automatic playback stays silent, an explicit play expl
 test('agency checks: untouched agencies follow registration, user choices are kept (rank.js)', () => {
   const store = {};
   const context = { R: { agPick: {} }, lsGet: k => (k in store ? JSON.parse(store[k]) : null) };
-  vm.createContext(context);
+  vm.createContext(withUIKit(context));
   vm.runInContext(sliceOf('rank.js', 'const okCount', 'function renderAgChecks(') + '\nthis.agChecked = agChecked;', context);   // const は context に出ないので渡す
   const ag = (id, ok) => ({ id, channels: Array.from({ length: ok }, () => ({ status: 'ok' })).concat([{ status: 'error' }]) });
   assert.equal(context.agChecked(ag('vspo', 0)), false, 'no resolved channel yet: not checked');
@@ -354,7 +359,7 @@ test('agency checks: untouched agencies follow registration, user choices are ke
 
 test('analysis errors are explained as what happened + what to do (queue.js)', () => {
   const context = {};
-  vm.createContext(context);
+  vm.createContext(withUIKit(context));
   vm.runInContext(sliceOf('queue.js', 'const ERR_HELP', '/* ---------- キューへ追加'), context);
   const h = m => context.errHelp(m);
   assert.match(h('音声を取得できませんでした: ERROR: [youtube] x: Sign in to confirm your age').what, /年齢制限/);
@@ -770,10 +775,12 @@ test('opening a stream gives back the place (selected mark and the position the 
 test('export done notice has [編集で開く] with the same URL as the row link (S-7), opened the same way (S-15)', () => {
   const shown = [], opened = [];
   let app = false;
-  const ctx = load([['function editorHref(', 'async function copyText(']], {
+  // 0.23.4: copyText は UIKit.copy にしたので、切り出しの終わりは次の関数(jobDirText)。openEditor は UIKit.win を直接使う
+  const ctx = load([['function editorHref(', 'function jobDirText(']], {
     enc: encodeURIComponent, toast: (m, ms, k) => shown.push({ m, ms, k }),
     Studio: { token: 't', toolUrl: (id, p) => '/transcribe' + p, toast: (m, o) => shown.push({ m, o }) },
-    window: { UIKit: { win: { isApp: () => app, open: u => { opened.push(['win', u]); return Promise.resolve(); } } }, open: (u, t, f) => opened.push(['tab', u, t, f]) } });
+    UIKit: makeUIKit({ 'win.isApp': () => app, 'win.open': u => { opened.push(['win', u]); return Promise.resolve(); } }),
+    window: { open: (u, t, f) => opened.push(['tab', u, t, f]) } });
   assert.equal(ctx.editorHref('C:\\clips\\a b.mp4'), '/transcribe/?media=C%3A%5Cclips%5Ca%20b.mp4');
   ctx.doneToast('書き出し完了: 1/1件', 'ok', ['C:\\clips\\a.mp4']);
   const t1 = shown.at(-1);
@@ -876,7 +883,7 @@ test('live recordings are registered in one place with the channel name (core.js
   const opened = [];
   const ctx = { Studio: { token: 't', api: async (url, o) => { opened.push({ url, body: o.body }); return { video: { id: o.body.recording } }; } }, String, Promise,
     window: {}, LIVE: { infoP: null, offAt: 0 } };
-  vm.createContext(ctx);
+  vm.createContext(withUIKit(ctx));
   const core = sliceOf('core.js', 'Studio.live = {', '/* 通知。');
   vm.runInContext(core, ctx);
   let reply = { live: true, recorder: 'local', recording: { id: '20261005-185300-abcdefghijk', url: 'https://www.youtube.com/watch?v=abcdefghijk', title: 'T', state: 'recording', channel: '' } };
@@ -898,11 +905,64 @@ test('live recordings are registered in one place with the channel name (core.js
   assert.ok(!sliceOf('review.js', 'async function openLiveRecording(', '/* ---------- マーク操作').includes("'/api/videos/open'"), 'the header badge "開く" uses register too');
 });
 
+// ---- 0.23.4(コードの見直し B): スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・③ の設定と欄の対応は 1 つの表 ----
+test('core.js API wrappers go through UIKit.http / homeApi with the studio messages, the live timeouts and the empty POST body', async () => {
+  const calls = [];
+  const kit = makeUIKit({
+    http: (url, o) => { calls.push(['http', url, o]); return Promise.resolve({ ok: 1 }); },
+    homeApi: (p, o) => { calls.push(['home', p, o]); return Promise.resolve({ ok: 2 }); },
+    homeUrl: p => 'http://h/' + p });
+  const ctx = { Studio: { url: p => '/studio' + p, token: 't' }, UIKit: kit, LIVE: { infoP: null, offAt: 0 }, String, Promise };
+  vm.createContext(withUIKit(ctx));
+  const src = sliceOf('core.js', 'const OFFLINE_STUDIO', '/* ---------- 入口のリアルタイム切り抜き') + sliceOf('core.js', 'Studio.live = {', '/* 通知。');
+  vm.runInContext(src, ctx);
+  assert.deepEqual(plain(await ctx.Studio.api('/api/video', { method: 'PUT', body: { id: 'A' } })), { ok: 1 });
+  let [kind, url, o] = calls.at(-1);
+  assert.equal(kind, 'http'); assert.equal(url, '/studio/api/video', 'the URL is still made by Studio.url (one place)');
+  assert.deepEqual(plain({ method: o.method, body: o.body }), { method: 'PUT', body: { id: 'A' } });
+  assert.ok(o.offline.includes('サーバーに接続できません') && !('fail' in o), 'the failure text without a server message is the ui-kit default (same words as before)');
+  await ctx.Studio.portalApi('api/autorun');
+  [kind, url, o] = calls.at(-1);
+  assert.equal(kind, 'home'); assert.equal(url, 'api/autorun'); assert.equal(o.body, undefined, 'no body = GET (no token)');
+  assert.ok(o.offline.includes('ホームのサーバーに接続できません'));
+  await ctx.Studio.live.api('api/info');
+  [kind, url, o] = calls.at(-1);
+  assert.deepEqual([kind, url, o.method, o.body, o.timeout], ['home', 'live/api/info', 'GET', undefined, 10000], 'GET: 10 seconds, no body');
+  await ctx.Studio.live.api('r/local/R1/stop', { body: undefined, method: 'POST' });
+  o = calls.at(-1)[2];
+  assert.deepEqual([o.method, plain(o.body), o.timeout], ['POST', {}, 45000], 'POST: 45 seconds and always a body ({} when none)');
+  await ctx.Studio.live.api('api/begin', { body: { url: 'u' }, timeout: 5000 });
+  o = calls.at(-1)[2];
+  assert.deepEqual([o.method, plain(o.body), o.timeout, o.slow], ['POST', { url: 'u' }, 5000, 'ホームから時間内に応答がありません']);
+  assert.equal(ctx.Studio.live.url('hls.min.js'), 'http://h/live/hls.min.js', 'media URLs come from UIKit.homeUrl');
+  assert.equal(ctx.Studio.live.begunText({ existing: true }), 'この配信はもう録画しています。その録画を開きました');
+  assert.equal(ctx.Studio.live.begunText({}), '配信の録画を始めました。見ながらマークできます');
+});
+
+test('review settings: one table of field ↔ setting; every field value read back through sanitizeSettings gives the same setting', () => {
+  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */'], ['const SET_UI = [', 'function syncSettingsUI(']],
+    { autoTxLegacy: () => null, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
+  vm.runInContext('this.SET_UI = SET_UI;', ctx);
+  const def = ctx.sanitizeSettings({}), sels = ctx.SET_UI.map(r => r[0]);
+  assert.equal(new Set(sels).size, sels.length, 'each field once');
+  for (const [sel, k, prop] of ctx.SET_UI){
+    assert.ok(k in def, sel + ': ' + k + ' is a sanitized setting');
+    assert.ok(prop === 'value' || prop === 'checked', sel);
+    const shown = prop === 'checked' ? !!def[k] : String(def[k]);   // syncSettingsUI が欄へ書く値
+    assert.deepEqual(ctx.sanitizeSettings({ ...def, [k]: shown })[k], def[k], sel + ': the field value comes back as the same setting');
+  }
+  assert.equal(ctx.sanitizeSettings({ lag: '3' }).lag, 3); assert.equal(ctx.sanitizeSettings({ exportLoudness: '0' }).exportLoudness, 0);
+  assert.equal(ctx.sanitizeSettings({ liveMode: 'x' }).liveMode, 'auto', 'an unknown field value falls back like the saved settings do');
+  const wire = between('function wireSettings(){', '/* ---------- キー配置');
+  assert.ok(wire.includes('for (const [sel, k, prop, after, ev] of SET_UI)') && wire.includes('sanitizeSettings('), 'wireSettings reads every field through the table');
+  assert.ok(!source.includes("$('#rvAutoExp').addEventListener"), 'the LIVE band switches are in the table too (not wired twice)');
+});
+
 // ---- 2026-10-07 見直し 2 周目: buildDOM・renderExportUI を場所ごとの関数に分けた / LIVE の帯の状態の問い合わせに since ----
 test('buildDOM: the parts put together keep every id exactly once (the split did not drop or repeat a section)', () => {
   const box = {};
   const ctx = { $: sel => (box[sel] ||= {}) };
-  vm.createContext(ctx);
+  vm.createContext(withUIKit(ctx));
   vm.runInContext(source.match(/^const FILTERS = .*$/m)[0] + '\n' + between('const SVG = {', '/* ---------- 保存(サーバー') + '\nbuildDOM();', ctx);
   const html = box['#paneReview'].innerHTML;
   const ids = [...html.matchAll(/\sid="([^"$]+)"/g)].map(m => m[1]);
@@ -919,7 +979,7 @@ test('buildDOM: the parts put together keep every id exactly once (the split did
 test('export count text: what will be written, or what to do when nothing can be written', () => {
   const S = { settings: { exportTarget: 'adopted' }, exportAll: null, live: false };
   const ctx = { S, fmt: t => t + 's' };
-  vm.createContext(ctx);
+  vm.createContext(withUIKit(ctx));
   vm.runInContext(between('function exportCountText(', '/* 「書き出す」を押せるか'), ctx);
   const v = (...st) => ({ marks: st.map((s, i) => ({ id: 'm' + i, status: s })) });
   const t2 = [{ start: 0, end: 5 }, { start: 10, end: 12 }];

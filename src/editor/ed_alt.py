@@ -182,7 +182,7 @@ def run_alt(job):
         if job["cancel"]:
             raise ed_jobs.Cancelled()
         body = {"schema": ALT_SCHEMA, "id": tid, "engine": spec["engine"], "engineVersion": alt_engine_version(spec), "model": spec["model"],
-                "device": job.get("device", ""), "at": int(time.time() * 1000), "range": [spec["start"], spec["end"]],
+                "device": job.get("device", ""), "at": ed_state.now_ms(), "range": [spec["start"], spec["end"]],
                 "audioSec": round(float(total or 0), 2), "wallSec": round(time.monotonic() - t0, 2), "rows": rows,
                 "post": {"clip": True, "mergeRepeats": True, "pullEnds": levels is not None}}   # 行の後処理の印(0.52.1 より前の alt.json には無い)
         if ed_state.backend_name() == "fake":
@@ -203,7 +203,7 @@ def alt_after_transcribe(job, spec, tid):
     try:
         ed_jobs.add_job(alt_spec(tid, {}), "alt")
     except ed_state.ApiError as e:
-        job["warnings"] = list(job.get("warnings") or []) + ["別のエンジンで聞くのを始められませんでした: " + e.message]
+        ed_state.add_warning(job, "別のエンジンで聞くのを始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
         ed_state.log.warning("別のエンジンで聞くのを始められませんでした: %s %s", tid, e)
 

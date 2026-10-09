@@ -61,9 +61,9 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 スタートアップのショートカットにしない理由: 既定オフ(オンにするまで自動で起動しない)を、ショートカットを置く・消す手作業なしで守れるため。
 ログインしたら録画も上げたいときは、今までどおり入口を裏で起動するショートカット(src\\home\\start_hidden.vbs)を置けば、入口が録画の部品も起こす。
 """
+import contextlib
 import http.client
 import json
-import math
 import os
 import re
 import subprocess
@@ -72,7 +72,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import datadir, layout, tools
+from ytt_core import datadir, fsio, layout, schemas, tools
 import live_export  # noqa: E402  (マークと書き出し。P2)
 import live_archive  # noqa: E402  (アーカイブで本番版に作り直す。P4)
 import live_cleanup  # noqa: E402  (録画を自動で消す。P4)
@@ -139,26 +139,6 @@ def validate_url(url, allow_local=False):
     return "https://www.youtube.com/watch?v=" + vid if vid else url   # 動画の id が分かる形はそろえる(同じ配信を別の書き方で二重に録らない)
 
 
-def kill_tree(proc, wait=5.0):
-    """子プロセスを孫ごと止める(スタジオの common.hard_kill と同じ形: Windows は taskkill /T /F・それ以外は kill)"""
-    if proc is None or proc.poll() is not None:
-        return
-    if os.name == "nt":
-        try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=10, creationflags=tools.no_window_flags())
-        except (OSError, subprocess.SubprocessError):
-            pass
-    try:
-        proc.kill()
-    except OSError:
-        pass
-    try:
-        proc.wait(wait)
-    except subprocess.TimeoutExpired:
-        pass
-
-
 def _clean(s, n):
     """yt-dlp の出した値 → 画面へ返す文字(制御文字を落とす・NA は空・長さを切る)"""
     s = "".join(c for c in str(s or "") if ord(c) >= 32 and ord(c) != 127).strip()
@@ -215,25 +195,19 @@ def recorder_data_dir(root):
     return datadir.locate("recorder", legacy_dir=os.path.join(root, layout.RECORDER_DIR, "data"))
 
 
+def _read_token(path):
+    try:
+        with open(path, "r", encoding="ascii") as f:
+            return f.read().strip()[:200]
+    except (OSError, UnicodeError):
+        return ""
+
+
 def is_local_url(url):
     try:
         return (urllib.parse.urlsplit(url).hostname or "") in ("127.0.0.1", "localhost")
     except ValueError:
         return False
-
-
-def studio_out_dir(root):
-    """スタジオの書き出し先(スタジオの settings.json の outDir。無ければスタジオの作業データの exports。読むだけ。launch.py の _extra_dirs と同じ)"""
-    sdir = datadir.resolve("studio", root)
-    try:
-        with open(os.path.join(sdir, "settings.json"), "r", encoding="utf-8") as f:
-            st = json.load(f)
-        out = st.get("outDir") if isinstance(st, dict) else None
-        if isinstance(out, str) and out and os.path.isabs(out):
-            return out
-    except (OSError, ValueError):
-        pass
-    return os.path.join(sdir, "exports")
 
 
 # スタジオの「書き出しの設定」の既定(src/studio/review.js の DEFAULT_SETTINGS の exportVolume・exportLoudness・lag と同じ値。ツールをまたいで import しない)
@@ -244,13 +218,9 @@ STUDIO_LAGS = (0, 2, 3, 5)
 
 def studio_review(root):
     """スタジオが覚えている画面の設定の節 review(スタジオの作業データの settings-ui.json。読むだけ)。読めなければ {}"""
-    try:
-        with open(os.path.join(datadir.resolve("studio", root), "settings-ui.json"), "r", encoding="utf-8") as f:
-            d = json.load(f)
-        r = d.get("review") if isinstance(d, dict) else None
-        return r if isinstance(r, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    d = fsio.read_json_or(os.path.join(datadir.resolve("studio", root), "settings-ui.json"), None, kind=dict)
+    r = d.get("review") if d else None
+    return r if isinstance(r, dict) else {}
 
 
 def studio_audio(root):
@@ -291,7 +261,7 @@ class Live:
         cleanup_opts: src/home/live_cleanup.py の Cleaner へ渡す引数(テスト用: 24 時間・7 日・見回りの間隔を縮める)"""
         self.prefs, self.root, self.logs_dir = prefs, root, logs_dir
         self.store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
-        self.out_dir = out_dir or (lambda: studio_out_dir(self.root))
+        self.out_dir = out_dir or (lambda: datadir.studio_out_dir(self.root))
         self.audio = audio or (lambda: studio_audio(self.root))
         self.runner = runner or (lambda: getattr(self._server, "autorun", None) if self._server is not None else None)
         self._server = server
@@ -323,13 +293,33 @@ class Live:
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
         self.unconfirmed = None            # () -> ホームの「自動の切り抜き: 未確認」の数(入口 launch.py が cases の数を渡す。D-13 の休む判断)
         self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
+        self._scope = threading.local()    # cfg_scope の中で読んだ設定(スレッドごと)
+        self._tokens = fsio.StampCache()   # 手元の録画元の合言葉(token.txt。変わったときだけ読み直す)
 
     # --- 設定 ---
     def cfg(self):
+        """ホームの設定の節 live(読めなければオフ)。要求・見回りの中(cfg_scope)では、頭で 1 回読んだ値"""
+        hit = getattr(self._scope, "cfg", None)
+        return hit if hit is not None else self._read_cfg()
+
+    def _read_cfg(self):
         try:
             return self.prefs.get(["live"])["live"]
         except Exception:
             return {"enabled": False, "folder": "", "recorders": [], "quality": DEFAULT_QUALITY}
+
+    @contextlib.contextmanager
+    def cfg_scope(self):
+        """1 つの要求・見回りの間は、設定を頭で 1 回だけ読む(スタジオが 3 秒ごとに呼ぶ GET /live/api/peaks 1 回で約 11 回読み直していた)。
+        時間では覚えない(終われば捨てる = 設定を変えた直後の要求・見回りは新しい値)。入れ子なら外側の値のまま。スレッドごと(ほかの要求・裏の処理は自分で読む)"""
+        if getattr(self._scope, "cfg", None) is not None:
+            yield
+            return
+        self._scope.cfg = self._read_cfg()
+        try:
+            yield
+        finally:
+            self._scope.cfg = None
 
     def enabled(self):
         return self.cfg().get("enabled") is True
@@ -355,7 +345,7 @@ class Live:
         pad = a.get("pad")
         return {"after": a.get("after") if a.get("after") in live_export.AFTERS else "check",
                 "cut": a.get("cut") or "", "engine": a.get("engine") or "", "model": a.get("model") or "",
-                "pad": float(pad) if isinstance(pad, (int, float)) and not isinstance(pad, bool) and 0 <= pad <= 5 else 2.0}
+                "pad": float(pad) if schemas.is_num(pad) and 0 <= pad <= 5 else 2.0}
 
     @property
     def exporter(self):
@@ -431,11 +421,8 @@ class Live:
         return None
 
     def local_token(self):
-        try:
-            with open(os.path.join(self.data_dir, "token.txt"), "r", encoding="ascii") as f:
-                return f.read().strip()[:200]
-        except (OSError, UnicodeError):
-            return ""
+        """手元の録画元の合言葉(録画の部品の作業データの token.txt。更新日時と大きさが変わったときだけ読み直す。無ければ "")"""
+        return self._tokens.get(os.path.join(self.data_dir, "token.txt"), _read_token) or ""
 
     def expected_version(self):
         try:
@@ -488,6 +475,10 @@ class Live:
     # --- 画面と中継(launch.py の PortalHandler から) ---
     def handle_get(self, h, u):
         """GET /live…。オフなら False(入口の今までどおりの 404 になる)"""
+        with self.cfg_scope():
+            return self._handle_get(h, u)
+
+    def _handle_get(self, h, u):
         if not self.enabled():
             return False
         if u.path in TO_STUDIO:   # 以前の録画の画面(P3 でスタジオへ統合した)
@@ -542,6 +533,10 @@ class Live:
 
     def handle_post(self, h, u, body):
         """POST /live…(入口の合言葉・Origin の検査と本文の読み取りは launch.py が済ませてある)。オフなら False"""
+        with self.cfg_scope():
+            return self._handle_post(h, u, body)
+
+    def _handle_post(self, h, u, body):
         if not self.enabled():
             return False
         if u.path.startswith("/live/api/"):
@@ -593,7 +588,7 @@ class Live:
     # --- P3: スタジオから ---
     def _ids(self, rc_id, rec):
         """録画元と録画の id を確かめる -> 録画元(合言葉つき)。だめなら LiveError"""
-        if not isinstance(rc_id, str) or not live_export.ID_RE.match(rc_id) or not isinstance(rec, str) or not live_export.REC_RE.match(rec):
+        if not live_detect._ids_ok(rc_id, rec):
             raise live_export.LiveError("録画元か録画の指定が正しくありません")
         rc = self.find(rc_id)
         if rc is None:
@@ -626,9 +621,12 @@ class Live:
             raise live_export.LiveError("録画元がありません", 409)
         rc = rcs[0]   # 既定の録画元 = 一覧の先頭(2台(P5)で二重録画するときは、ここで全部に頼む)
         ch = _clean(info.get("channel"), CHANNEL_MAX) if isinstance(info.get("channel"), str) else ""   # 録画中だった(existing)ときも付ける
+
+        def view(r, existing):
+            return {"live": True, "recorder": rc["id"], "recording": _rec_view(r, ch), "existing": existing}
         found = self._find_active(rc, url)
         if found:
-            return {"live": True, "recorder": rc["id"], "recording": _rec_view(found, ch), "existing": True}
+            return view(found, True)
         q = self.cfg().get("quality")
         title = info.get("title") if isinstance(info.get("title"), str) else ""
         code, d = self.call(rc, "POST", "/live/start", {"url": url, "quality": q if q in QUALITIES else DEFAULT_QUALITY, "title": title[:live_export.TITLE_MAX]},
@@ -636,11 +634,11 @@ class Live:
         if code == 200 and isinstance(d, dict) and isinstance(d.get("recording"), dict):
             self._recent = None   # ヘッダーの札にすぐ出す
             self.log("リアルタイム切り抜き: 録画を始めました %s(%s)" % (d["recording"].get("id"), url))
-            return {"live": True, "recorder": rc["id"], "recording": _rec_view(d["recording"], ch), "existing": False}
+            return view(d["recording"], False)
         if code == 409:   # 「その配信はもう録画しています」(ほかは streamlink が無い・置き場所が無いなど)
             found = self._find_active(rc, url)
             if found:
-                return {"live": True, "recorder": rc["id"], "recording": _rec_view(found, ch), "existing": True}
+                return view(found, True)
         if code is None:
             raise self._down(rc)
         msg = (d or {}).get("message") if isinstance(d, dict) else ""
@@ -772,7 +770,7 @@ class Live:
                 if e is None:
                     raise live_export.LiveError("%s の時刻が正しくありません(UTC の …Z か、録画の頭からの秒)" % k)
                 v = e - first
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            if not schemas.is_num(v):
                 raise live_export.LiveError("%s は録画の頭からの秒(数)か、絶対時刻(UTC の文字列)で指定してください" % k)
             out.append(round(float(v), 3))
         a, b = out
@@ -850,7 +848,7 @@ class Live:
         after, streamer = live_export.check_after(body, auto["after"]), live_export.check_streamer(body.get("streamer"))
         label = live_export._text(body.get("label"), live_export.LABEL_MAX)
         text = live_export._text(body.get("text"), live_tx.TEXT_MAX)   # 配信中の文字起こし(D-11 案 b)の文字(採用の記録に残す = C2 の材料。任意)
-        score = body.get("score") if isinstance(body.get("score"), (int, float)) and not isinstance(body.get("score"), bool) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
+        score = body.get("score") if schemas.is_num(body.get("score")) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
         rc_id, rec = body.get("recorder"), body.get("recording")
         rc = self._ids(rc_id, rec)
         req, after, streamer = self._request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
@@ -882,6 +880,10 @@ class Live:
     # --- 画面の共通の API api/ytt/live(launch.py の PortalServer.ytt_api から。全ツールのヘッダーの札) ---
     def ytt(self, body):
         """-> (HTTP の番号, JSON)"""
+        with self.cfg_scope():
+            return self._ytt(body)
+
+    def _ytt(self, body):
         op = body.get("op")
         if op == "status":
             if not self.enabled():   # オフ: 録画元に問い合わせない
@@ -918,11 +920,11 @@ class Live:
                         continue
                     secs = r.get("seconds")
                     a, b = live_export.iso_epoch(r.get("firstPdt")), live_export.iso_epoch(r.get("lastPdt"))
-                    if a is not None and b is not None and isinstance(secs, (int, float)) and not isinstance(secs, bool):
+                    if a is not None and b is not None and schemas.is_num(secs):
                         secs = round(max(secs, b - a), 3)   # スタジオの録画の長さと同じ(受信時刻の幅。繋ぎ直しの欠けの間も時間は進む)
                     out.append({"recorder": rc["id"], "id": r["id"], "title": str(r.get("title") or "")[:live_export.TITLE_MAX],
                                 "state": str(r.get("state") or ""), "active": r.get("active") is True,
-                                "seconds": secs if isinstance(secs, (int, float)) and not isinstance(secs, bool) else 0,
+                                "seconds": secs if schemas.is_num(secs) else 0,
                                 "endedAt": r.get("endedAt") if ended is not None else None, "url": str(r.get("url") or "")[:URL_MAX]})
             self._recent = (time.time(), out)
             return out
@@ -1040,14 +1042,14 @@ class Live:
                     return "quit"
                 time.sleep(0.2)
             if own is not None:
-                kill_tree(own)
+                tools.kill_tree(own, wait=5.0)
                 self.log("録画の部品が %d 秒で終わらないので、止めました(ホームの終了)" % int(QUIT_WAIT))
                 return "killed"
             self.log("録画の部品に終わるよう伝えました(終わるのを待ちきれませんでした)")
             return "quit"
         if code is None:   # 応答が無い: この入口が起動したものなら孫ごと止める。それ以外は動いていない
             if own is not None:
-                kill_tree(own)
+                tools.kill_tree(own, wait=5.0)
                 self.log("録画の部品が応答しないので、止めました(ホームの終了)")
                 return "killed"
             return "none"
@@ -1064,29 +1066,26 @@ class Live:
             self.wake.wait(self.watch_sec)
             self.wake.clear()
 
+    def _guard(self, what, fn, default=None):
+        """見回り・「調子」の 1 つを動かす(不具合でもほかは続ける。記録は「リアルタイム切り抜き: <what>: <例外>」を同じ文なら 1 回だけ)-> fn() か default"""
+        try:
+            return fn()
+        except Exception as e:
+            self.note("リアルタイム切り抜き: %s: %r" % (what, e))
+            return default
+
     def tick(self):
         """オンなら: 手元の録画元が動いていなければ起動する・古い版なら(録画中でなければ)起動し直す・置き場所の設定が違えば伝える。
         -> "off"|"running"|"spawned"|"waiting"|"failed\""""
-        try:   # 盛り上がりの検出(L2・M11): オンならワーカーを見張り・自動の採用、オフなら止める
-            self.detector.tick()
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 盛り上がりの検出の見回りでエラー: %r" % (e,))
-        try:
-            self.livetx.tick()   # 配信中の候補の文字起こし(D-11 案 b): 確定した候補を列に入れる(準備が無ければ何もしない)
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 配信中の文字起こしの見回りでエラー: %r" % (e,))
-        try:
-            self.requests.prune()   # 友人の依頼の古い結びつきを消す(2-15。消すものがあるときだけ書く)
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 友人の依頼の結びつきの片付けでエラー: %r" % (e,))
-        try:
-            self.stop_long_requests()   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 友人の依頼の録画の上限の見回りでエラー: %r" % (e,))
-        try:
-            self.reporter.tick()   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 配信の記録の見回りでエラー: %r" % (e,))
+        with self.cfg_scope():   # 1 回の見回りの中では同じ設定(C)
+            return self._tick()
+
+    def _tick(self):
+        self._guard("盛り上がりの検出の見回りでエラー", self.detector.tick)   # L2・M11: オンならワーカーを見張り・自動の採用、オフなら止める
+        self._guard("配信中の文字起こしの見回りでエラー", self.livetx.tick)   # D-11 案 b: 確定した候補を列に入れる(準備が無ければ何もしない)
+        self._guard("友人の依頼の結びつきの片付けでエラー", self.requests.prune)   # 2-15: 古い結びつきを消す(消すものがあるときだけ書く)
+        self._guard("友人の依頼の録画の上限の見回りでエラー", self.stop_long_requests)   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
+        self._guard("配信の記録の見回りでエラー", self.reporter.tick)   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
@@ -1094,11 +1093,8 @@ class Live:
             if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける(空き待ちの受け渡しも。M4)
                 self.exporter.start()
             self.archiver.start()   # 本番版への作り直し(P4): 途中のものを続ける・自動の見回り(設定 live.autoArchive)・配信後の全自動(M7)
-        if self.auto_delete():   # 録画を自動で消す(P4。設定 live.autoDelete。中で間隔を見る = 10 分ごと)
-            try:
-                self.cleaner.tick()
-            except Exception as e:   # 消す見回りの不具合でも、録画の部品の見回りは続ける
-                self.note("リアルタイム切り抜き: 録画を消す見回りでエラー: %r" % (e,))
+        if self.auto_delete():   # 録画を自動で消す(P4。設定 live.autoDelete。中で間隔を見る = 10 分ごと。不具合でも録画の部品の見回りは続ける)
+            self._guard("録画を消す見回りでエラー", lambda: self.cleaner.tick())
         local = next((r for r in self.recorders(cfg) if is_local_url(r.get("url") or "")), None)
         if local is None:
             return "off"
@@ -1142,24 +1138,14 @@ class Live:
         cmd = [self.python, "-u", script, "--port", str(port), "--quiet", "--data-dir", self.data_dir]
         if folder:
             cmd += ["--folder", folder]
-        env = dict(os.environ)
-        env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
-        env["PYTHONUNBUFFERED"] = "1"
-        flags = 0
-        if os.name == "nt":   # 別のプロセスグループ(入口への Ctrl+Break が届かない)・隠れた黒い画面(入口の黒い画面を閉じても止まらない)
-            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)
+        # 別のプロセスグループ(入口への Ctrl+Break が届かない)・隠れた黒い画面(入口の黒い画面を閉じても止まらない)・通常より上の優先度
+        flags = tools.no_window_flags(new_group=True, priority="high")
         os.makedirs(self.logs_dir, exist_ok=True)
-        try:
-            with open(os.path.join(self.logs_dir, "recorder.log"), "ab") as logf:
-                logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
-                logf.flush()
-                kw = dict(cwd=os.path.dirname(script), env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT)
-                try:   # 入口がジョブ(閉じると子も消える)の中で動いていても、録画の部品は外へ出す。出られないジョブならそのまま
-                    self.proc = subprocess.Popen(cmd, creationflags=flags | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0), **kw)
-                except OSError:
-                    self.proc = subprocess.Popen(cmd, creationflags=flags, **kw)
+        try:   # 入口がジョブ(閉じると子も消える)の中で動いていても、録画の部品は外へ出す。出られないジョブならそのまま
+            self.proc = live_detect.start_logged(cmd, os.path.join(self.logs_dir, "recorder.log"), os.path.dirname(script),
+                                                 [flags | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0), flags])
         except OSError as e:
-            self.log("録画の部品を起動できませんでした: %s" % (e.strerror or e.__class__.__name__))
+            self.log("録画の部品を起動できませんでした: %s" % tools.why(e))
             return False
         self.log("録画の部品を起動しました(%s。置き場所 %s)" % (rc["url"], folder or "前回の設定か既定 " + DEFAULT_FOLDER))
         return True
@@ -1167,6 +1153,10 @@ class Live:
     # --- 「調子」 ---
     def health(self):
         """オフなら None(「調子」に出さない)。オンなら録画元ごとの状態と空き容量"""
+        with self.cfg_scope():   # 1 回の「調子」の中では同じ設定(C)
+            return self._health()
+
+    def _health(self):
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return None
@@ -1188,32 +1178,17 @@ class Live:
             else:
                 row["message"] = ((d or {}).get("message") if isinstance(d, dict) else "") or "応答が正しくありません(HTTP %s)" % code
             out.append(row)
-        failures = []
-        if os.path.isfile(os.path.join(self.store_dir, "exports.json")):   # 失敗の集約(M3。文は LIVE の帯と同じ = live_failures.failure_of)
-            try:
-                failures = self.exporter.failures()
-            except Exception as e:
-                self.note("リアルタイム切り抜き: 失敗の一覧を作れませんでした: %r" % (e,))
-        if self._archiver is not None:   # 配信後の全自動(M7)が止まった録画(文は live_failures.after_stream_failure)
-            try:
-                failures = sorted(failures + self._archiver.after_failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
-            except Exception as e:
-                self.note("リアルタイム切り抜き: 配信後の自動の失敗を読めませんでした: %r" % (e,))
-        try:   # 盛り上がりの検出(L2・M11)の失敗
-            failures = sorted(failures + self.detector.failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 盛り上がりの検出の失敗を読めませんでした: %r" % (e,))
-        if self._cleaner is not None:   # D-14: 本番版に置き換わらないまま残っている録画の知らせ(文は live_failures.keep_failure)
-            try:
-                failures = sorted(failures + self._cleaner.kept_failures(), key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
-            except Exception as e:
-                self.note("リアルタイム切り抜き: 残っている録画の一覧を作れませんでした: %r" % (e,))
-        try:   # 書き出し先・パック・live\work の空き(M4)
-            disk = self.exporter.disk()
-        except Exception as e:
-            self.note("リアルタイム切り抜き: 空き容量を調べられませんでした: %r" % (e,))
-            disk = None
-        try:   # 配信中の検出(L2。worker.json・peaks.json を読む)
+        failures = []   # 新しい順に MAX_LIST まで(文は LIVE の帯と同じ = live_failures)
+        if os.path.isfile(os.path.join(self.store_dir, "exports.json")):   # 書き出し・まとめて実行へ渡す・文字起こし・パック(M3。failure_of)
+            failures += self._guard("失敗の一覧を作れませんでした", self.exporter.failures, [])
+        if self._archiver is not None:   # 配信後の全自動(M7)が止まった録画(after_stream_failure)
+            failures += self._guard("配信後の自動の失敗を読めませんでした", self._archiver.after_failures, [])
+        failures += self._guard("盛り上がりの検出の失敗を読めませんでした", self.detector.failures, [])   # L2・M11
+        if self._cleaner is not None:   # D-14: 本番版に置き換わらないまま残っている録画の知らせ(keep_failure)
+            failures += self._guard("残っている録画の一覧を作れませんでした", self._cleaner.kept_failures, [])
+        failures = sorted(failures, key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
+        disk = self._guard("空き容量を調べられませんでした", self.exporter.disk)   # 書き出し先・パック・live\work の空き(M4)
+        try:   # 配信中の検出(L2。worker.json・peaks.json を読む。オフなら None)
             detect = self.detector.health()
         except Exception as e:
             self.note("リアルタイム切り抜き: 検出の状態を読めませんでした: %r" % (e,))

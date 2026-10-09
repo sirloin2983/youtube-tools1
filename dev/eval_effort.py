@@ -43,14 +43,14 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from _evalcommon import dist, rate  # noqa: E402
-from ytt_core.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
+from ytt_core.schemas import num, plain_int  # noqa: E402  num = 有限の数(bool は除く)なら float、それ以外は None / plain_int = bool 以外の整数か None
 import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
 
 SCHEMA = "youtube-tools-effort-eval/v1"
 FEW_DOCS = 10                  # 終わった文書がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                # original と行の端が一致したとみなす秒(eval_speakers.py の TIME_TOL と同じ)
 GROUP_SLACK = 0.05             # 時刻が重なるまとまり(src/editor/ed_learn.py の _groups と同じ)
-MAX_BYTES = 64 * 1024 * 1024
+MAX_BYTES = C.DOC_BYTES
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 MAX_EFFORT_SEC = 3600          # src/editor/ed_store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
 BUCKETS = ((0.25, "〜25%"), (0.50, "25〜50%"), (0.75, "50〜75%"), (float("inf"), "75%〜"))
@@ -61,14 +61,6 @@ EDIT_KEYS = (("text", "文字を直した行"), ("added", "人が足した行"),
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)
-
-def read_json(path):
-    return C.read_json(path, None, MAX_BYTES)
-
-
-def plain_int(x):
-    return x if isinstance(x, int) and not isinstance(x, bool) else None
-
 
 # ---------------------------------------------------------------- 1つの文書(純粋な関数)
 
@@ -334,14 +326,14 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True)
         if not DOC_RE.match(name):
             continue
         tid = name[:-5]
-        doc = read_json(os.path.join(tdir, name))
+        doc = C.read_json(os.path.join(tdir, name), None, MAX_BYTES)
         if not isinstance(doc, dict):
             skipped["broken"] += 1
             continue
         if doc.get("evalSet") is True and not include_eval:
             skipped["evalSet"] += 1
             continue
-        diar = read_json(os.path.join(tdir, tid + ".diar.json"))
+        diar = C.read_json(os.path.join(tdir, tid + ".diar.json"), None, MAX_BYTES)
         latest = diar.get("latest") if isinstance(diar, dict) and isinstance(diar.get("latest"), dict) else None
         rows = latest.get("rows") if latest and isinstance(latest.get("rows"), dict) else None
         rec, why = doc_record(doc, rows, os.path.exists(os.path.join(tdir, tid + ".alt.json")))
@@ -451,23 +443,16 @@ def print_report(res):
         print("注意: " + n)
 
 
-def save(res, root):
-    return C.save(res, root, "effort")
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="校正の手間(時間・直しの量)を見る(作業データは読むだけ)")
-    p.add_argument("--since", help="この日(YYYY-MM-DD)以後の文書だけ(effort.lastAt、無ければ updatedAt)")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までの文書だけ")
-    p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/effort/<日時>.json に残す")
-    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    C.add_period_args(p, "この日(YYYY-MM-DD)以後の文書だけ(effort.lastAt、無ければ updatedAt)", "この日(YYYY-MM-DD。この日を含む)までの文書だけ",
+                      "同じ形の JSON を 文字起こしの作業データの evals/effort/<日時>.json に残す")
     p.add_argument("--no-eval", action="store_true", help="評価用(evalSet)の文書を外す")
     p.add_argument("--no-cer", action="store_true", help="機械の CER を数えない(eval_asr の採点の部品を読み込まない)")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, not args.no_cer)
     print_report(res)
-    if args.json:
-        print("\n保存: " + save(res, res["meta"]["dataDir"]))
+    C.report_saved(res, args.json, res["meta"]["dataDir"], "effort")
     return res
 
 

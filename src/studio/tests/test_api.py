@@ -149,6 +149,12 @@ class TestBody(Base):
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"{oops", headers=h)[0], 400)
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"[1,2]", headers=h)[0], 400)
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"\xff\xfe", headers=h)[0], 400)
+        # 本文の規則は ytt_core.httpsec.read_json_body(2026-10-09): UTF-8 の JSON だけ。BOM・UTF-16・NaN / Infinity は 400(以前の json.loads(bytes) は通していた)
+        for raw in (b"\xef\xbb\xbf{}", '{"settings": {}}'.encode("utf-16"), b'{"settings": {"a": NaN}}', b'{"settings": {"a": -Infinity}}'):
+            st, _j, data, _r = self.req("PUT", "/api/settings", raw=raw, headers=h)
+            self.assertEqual((st, data), (400, b"invalid json"), raw)
+        self.assertEqual(self.req("PUT", "/api/settings", raw=b'{"settings": {}}', headers={"Content-Type": "application/json; charset=utf-8"})[0], 200)
+        self.assertEqual(self.req("GET", "/api/settings")[1]["settings"], {})   # 断った本文は保存していない
 
     def test_settings_too_large(self):
         st, j, *_ = self.req("PUT", "/api/settings", {"settings": {"x": "a" * 40000}})
@@ -962,6 +968,9 @@ class TestLiveSectionApi(Base):
             raw = json.dumps(dict(self.body("nan.mp4"), end=float("nan"))).encode()   # NaN・Infinity の JSON
             self.assertEqual(self.req("POST", "/api/live/section", headers={"Content-Type": "application/json"}, raw=raw)[0], 400)
             self.assertEqual(self.req("POST", "/api/live/section", dict(self.body("inf.mp4"), end=1e999))[0], 400)
+            raw = json.dumps(self.body("big.mp4")).replace('"end": ', '"end": 1' + "0" * 400 + ', "x": ', 1).encode()   # float にできない巨大な整数(以前は 500)
+            st, j, *_ = self.req("POST", "/api/live/section", headers={"Content-Type": "application/json"}, raw=raw)
+            self.assertEqual((st, j["error"]), (400, "bad_request"))
         sj.assert_not_called()
         self.assertFalse(os.path.exists(outside))
         with open(existing, "rb") as f:

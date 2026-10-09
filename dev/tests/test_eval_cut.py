@@ -313,7 +313,7 @@ class TestEvaluate(unittest.TestCase):
         self.assertIn("まだ少ない(参考)", out)
         self.assertIn("行から", out)
         self.assertIn("端のずれ", out)
-        path = E.save(res, res["meta"]["dataDir"])
+        path = E.C.save(res, res["meta"]["dataDir"], "cut")
         self.assertEqual(os.path.dirname(path), os.path.join(self.env.root, "transcribe", "evals", "cut"))
         with open(path, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["meta"]["schema"], E.SCHEMA)

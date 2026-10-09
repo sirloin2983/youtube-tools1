@@ -207,13 +207,13 @@ function renderDocBar(){ if (!dbQ) dbQ = requestAnimationFrame(() => { dbQ = 0; 
 
 function renderDocBarNow(){
   const d = S.doc; if (!d) return;
-  const it = S.list.find(x => x.id === S.docId) || {}, parts = [];
+  const it = curItem() || {}, parts = [];
   if (it.channel) parts.push(it.channel);
   const len = docLength(d); if (len > 0) parts.push(fmtT(len));
   const rg = d.clip && typeof d.clip === 'object' && d.clip.range && typeof d.clip.range === 'object' ? d.clip.range : null, a = rg ? Number(rg.start) : NaN;
   if (Number.isFinite(a)) parts.push('元の配信 ' + fmtT(a) + '〜');
   const meta = $('#docMeta'); meta.textContent = parts.join(' ・ '); meta.title = String(d.sourcePath || '');
-  const txt = d.segments.filter(g => String(g.text || '').trim()), pf = txt.filter(g => g.proofed).length;
+  const txt = d.segments.filter(hasText), pf = txt.filter(g => g.proofed).length;
   const pp = $('#pillProof'); pp.hidden = !txt.length; pp.textContent = `校正 ${pf} / ${txt.length}行`; pp.className = 'pill ' + (txt.length && pf === txt.length ? 'ok' : 'wait');
   const pc = $('#pillCut'), cs = CUT && CUT.summary();
   if (cs){ pc.textContent = `残す ${cs.count}区間 ・ カット後 ${fmtCs(cs.keptSec)}`; pc.hidden = false; }
@@ -499,7 +499,7 @@ function takeUrlParams(){
   try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
   if (list){   // 履歴の種類を変えて左のメニューの履歴を開く(doc・media と同時なら、下で文書を開く方も行う)
     L.kind = list; saveListPrefs(); const el = $('#txFilter'); if (el) el.value = list;
-    for (const x of Object.keys(txLimit)) delete txLimit[x];
+    txLimit.clear();
     setSideTab('files'); renderList();
   }
   if (!media && !clip && !docId) return false;
@@ -539,14 +539,12 @@ function renderDocExtras(d){
   renderHandoff();
   /* ヘッダーの ui-appnav の「スタジオ」に、元の配信を引き継ぐ(スタジオの ?url= は解析の欄に入るだけ)。
      url が無い文書に切り替えたときは '?'(パラメータ無し)を渡して、前の文書の分を消す(渡さないと残ってしまう) */
-  if (window.UIKit && UIKit.appnav){
-    const src = d && d.clip && typeof d.clip === 'object' && d.clip.source && typeof d.clip.source === 'object' ? d.clip.source : null;
-    const url = src && typeof src.url === 'string' && src.url.startsWith(YT_PREFIX) ? src.url : '';
-    const vid = src && typeof src.videoId === 'string' && /^[\w-]{1,64}$/.test(src.videoId) ? src.videoId : '';
-    /* B-6: ?video= を先に(スタジオに保存済みなら、その配信の確認画面で開く)。?url= は保存されていなかったときの予備(解析の欄に入る) */
-    const q = [vid ? 'video=' + encodeURIComponent(vid) : '', url ? 'url=' + encodeURIComponent(url) : ''].filter(Boolean).join('&');
-    UIKit.appnav.setLink('studio', '?' + q);
-  }
+  const src = d && d.clip && typeof d.clip === 'object' && d.clip.source && typeof d.clip.source === 'object' ? d.clip.source : null;
+  const url = src && typeof src.url === 'string' && src.url.startsWith(YT_PREFIX) ? src.url : '';
+  const vid = src && typeof src.videoId === 'string' && /^[\w-]{1,64}$/.test(src.videoId) ? src.videoId : '';
+  /* B-6: ?video= を先に(スタジオに保存済みなら、その配信の確認画面で開く)。?url= は保存されていなかったときの予備(解析の欄に入る) */
+  const q = [vid ? 'video=' + encodeURIComponent(vid) : '', url ? 'url=' + encodeURIComponent(url) : ''].filter(Boolean).join('&');
+  UIKit.appnav.setLink('studio', '?' + q);
 }
 
 function renderHandoff(){
@@ -588,21 +586,16 @@ async function exportBeside(fmt, btn){
 
 /* 取り込まれた cut2resolve の場所('/cut2resolve/')。使えないときは ''。URL はここと c2rUrl() だけで作る */
 function c2rBase(){
-  if (!TOKEN || !window.UIKit || !UIKit.tools.paths || !UIKit.tools.paths.cut2resolve) return '';
+  if (!TOKEN || !UIKit.tools.paths || !UIKit.tools.paths.cut2resolve) return '';
   const here = Number(location.port || (location.protocol === 'https:' ? 443 : 80));
   if (!S.ports || Number(S.ports.cut2resolve) !== here) return '';   // 同じ入口(同じポート)の中の cut2resolve だけ
   return UIKit.tools.base('cut2resolve');
 }
 
+/* 中身は api() と同じ UIKit.http(つながらないときの code 'network' は c2rWait が見る) */
 async function c2rApi(path, opt = {}){
   if (!c2rBase()){ const e = new Error('cut2resolve を使えません(ホーム(start.bat)から開いてください)'); e.code = 'unavailable'; throw e; }
-  const init = { cache: 'no-store', method: opt.body !== undefined ? 'POST' : 'GET', headers: {} };
-  if (opt.body !== undefined){ init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opt.body); init.headers['X-YTT-Token'] = TOKEN; }
-  let r;
-  try { r = await fetch(c2rUrl(path), init); } catch { const e = new Error('cut2resolve に接続できません(start.bat の黒い画面が閉じていないか確認してください)'); e.code = 'network'; throw e; }
-  const j = await r.json().catch(() => null);
-  if (!r.ok){ const e = new Error((j && j.message) || `cut2resolve のエラー(${r.status})`); e.code = (j && j.error) || 'http'; e.status = r.status; e.data = j || {}; throw e; }
-  return j;
+  return UIKit.http(c2rUrl(path), { body: opt.body, offline: 'cut2resolve に接続できません(start.bat の黒い画面が閉じていないか確認してください)', fail: st => `cut2resolve のエラー(${st})` });
 }
 
 /* cut2resolve のジョブが終わるまで待つ(api/job?id= を見て、done なら結果、error なら中身を投げる) */
@@ -621,7 +614,7 @@ async function c2rWait(job, onTick){
 
 /* カットが使えないとき(動画が無いなど)の題名の行の目安: 残す行(文字があり、カット済でない)の時間を、重なりをまとめて足す */
 function cpApproxSpans(){
-  const spans = S.doc.segments.filter(g => g.cutState !== 'cut' && g.text.trim() && g.end > g.start).map(g => [g.start, g.end]).sort((a, b) => a[0] - b[0]);
+  const spans = S.doc.segments.filter(g => g.cutState !== 'cut' && hasText(g) && g.end > g.start).map(g => [g.start, g.end]).sort((a, b) => a[0] - b[0]);
   const out = [];
   for (const [a, b] of spans){ const cur = out[out.length - 1]; if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b); else out.push([a, b]); }
   return out;
@@ -664,7 +657,7 @@ function bulkCut(cut){
     return toast(`${idx.length}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);   // 1 行ずつの経路と同じ言葉(S8)
   }
   pushUndo(); let n = 0;
-  for (const g of S.doc.segments) if (S.sel.has(g.id)){ if (cut) g.cutState = 'cut'; else delete g.cutState; n++; }
+  for (const g of S.doc.segments) if (S.sel.has(g.id)){ setCut(g, cut); n++; }
   renderDoc(); markDirty(); toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
 }
 
@@ -714,8 +707,8 @@ function goTxInto(){
 function onCutSaved(r){
   if (!S.doc) return;
   const set = new Set(r.cutRows || []), changed = [];
-  S.doc.segments.forEach((g, i) => { const want = set.has(g.id); if (want !== (g.cutState === 'cut')){ if (want) g.cutState = 'cut'; else delete g.cutState; changed.push(i); } });
-  const it = S.list.find(x => x.id === S.docId); if (it){ it.hasEdit = true; it.editRev = r.rev; }
+  S.doc.segments.forEach((g, i) => { const want = set.has(g.id); if (want !== (g.cutState === 'cut')){ setCut(g, want); changed.push(i); } });
+  const it = curItem(); if (it){ it.hasEdit = true; it.editRev = r.rev; }
   onCutMarks(changed);
   cpAfterSave();   // 3 パック のタブの見積もりを出し直す
 }

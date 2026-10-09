@@ -1,24 +1,71 @@
-"""外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。"""
+"""外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+
+- find_tool … 外部プログラムの場所(環境変数 → PATH)。tool_version / tool_output … その版を調べる
+- no_window_flags … creationflags(窓を出さない・別グループ・優先度)。python_exe … 子プロセスに使う python.exe
+- run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg の -progress を読みながら動かす(取り消し・無出力で止める)
+- kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
+- process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
+"""
+import collections
 import os
+import re
 import shutil
+import signal
 import subprocess
+import sys
+import threading
+import time
+
+PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS"}   # no_window_flags の priority
+KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
+OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")    # ffmpeg の -progress の進み具合の行(us も ms もマイクロ秒)
 
 
-def find_tool(name, env_var=None):
+def ytt_env(name):
+    """外部プログラムの名前 → 共通の環境変数の名前(ffmpeg → YTT_FFMPEG・yt-dlp → YTT_YTDLP)"""
+    return "YTT_" + name.upper().replace("-", "")
+
+
+def find_tool(name, env_var=None, ytt=False):
     """環境変数 env_var に実在するファイルが入っていればそれ、無ければ PATH から探す(見つからなければ None)。
-    環境変数は、PATH を通していない場所の ffmpeg を使うため・テストで偽物に差し替えるため。"""
-    env = os.environ.get(env_var) if env_var else None
-    if env and os.path.isfile(env):
-        return env
+    環境変数は、PATH を通していない場所の ffmpeg を使うため・テストで偽物に差し替えるため。
+    ytt=True なら、env_var の次に共通の環境変数 ytt_env(name)(YTT_FFMPEG など)も見る(2026-10-09。ツール固有の名前
+    STUDIO_FFMPEG・TRANSCRIBE_FFMPEG などは互換として先に見る = 今までの指定がそのまま効く)。既定の False は今までと同じ"""
+    for var in (env_var, ytt_env(name) if ytt else None):
+        env = os.environ.get(var) if var else None
+        if env and os.path.isfile(env):
+            return env
     return shutil.which(name)
 
 
-def no_window_flags(new_group=False):
+def no_window_flags(new_group=False, priority=None):
     """子プロセスの creationflags: Windows では黒い窓を出さない(CREATE_NO_WINDOW)。Windows 以外は 0。
-    new_group=True は CREATE_NEW_PROCESS_GROUP も足す(Ctrl+C・CTRL_BREAK を親と分ける)"""
+    new_group=True は CREATE_NEW_PROCESS_GROUP も足す(Ctrl+C・CTRL_BREAK を親と分ける)。
+    priority: None(親と同じ)・"low"(通常より下。書き出し・作り直し・文字起こしなど、画面の操作に CPU を譲る)・"high"(通常より上。録画)。
+    それ以外の値は ValueError"""
+    if priority is not None and priority not in PRIORITY:
+        raise ValueError("priority は low か high です: %r" % (priority,))
     if os.name != "nt":
         return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if new_group else 0)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if new_group else 0)
+    return flags | (getattr(subprocess, PRIORITY[priority], 0) if priority else 0)
+
+
+def python_exe(python=None):
+    """子プロセスに使う Python(python、無ければこのプロセスの sys.executable)。窓の無い pythonw.exe は標準出力を返せないことがあるので、
+    隣に python.exe があればそれにする(無ければそのまま)"""
+    p = python or sys.executable
+    if os.path.basename(p).lower() == "pythonw.exe":
+        alt = os.path.join(os.path.dirname(p), "python.exe")
+        if os.path.isfile(alt):
+            return alt
+    return p
+
+
+def why(e):
+    """例外 → 画面・記録に出せる短い理由(OSError は strerror。strerror の無いもの・ほかの例外は例外の名前)。
+    パスや中身を出さない(e の文字列はパス・他人の書いた中身を含みうる)"""
+    return getattr(e, "strerror", None) or e.__class__.__name__
 
 
 def kill_quiet(proc):
@@ -29,6 +76,213 @@ def kill_quiet(proc):
         proc.kill()
     except OSError:
         pass
+
+
+def kill_tree(proc, wait=None):
+    """子プロセスを孫ごと止める(上げない)。yt-dlp(PyInstaller の 1 ファイルの exe)は起動すると子(本体)を作るので、親だけ止めると子が
+    .part に書き続ける。Windows は System32 の taskkill /T /F(PATH を差し替えられても本物を呼ぶ)、ほかはプロセスグループに SIGKILL
+    (起動するときに start_new_session=True にしておくこと。グループが無ければ子だけ止まる)。そのあと kill_quiet。
+    proc が None・終わっていれば何もしない。本物のプロセス(Popen)でなければ(テストの偽物)kill_quiet だけ。
+    wait(秒)を渡すと、止まるのをその秒数まで待つ(待ちきれなくても上げない)"""
+    if proc is None:
+        return
+    if not isinstance(proc, subprocess.Popen):
+        kill_quiet(proc)
+        return
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        exe = os.path.join(os.environ.get("SystemRoot") or os.environ.get("windir") or "C:" + os.sep + "Windows", "System32", "taskkill.exe")
+        try:
+            subprocess.run([exe, "/T", "/F", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=KILL_TREE_TIMEOUT, creationflags=no_window_flags())
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    kill_quiet(proc)
+    if wait is not None:
+        try:
+            proc.wait(wait)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+class RunResult(collections.namedtuple("RunResult", "code out err why")):
+    """run の結果。code = 終了コード・out = 標準出力の bytes・err = 標準エラーの bytes・
+    why = 止めた理由(None = 最後まで動いた・"cancel"・"timeout" のどれか)"""
+    __slots__ = ()
+
+    def err_lines(self, n=3):
+        """標準エラーの空でない行の最後の n 行(前後の空白を除いた文字列。壊れた文字は置き換える)"""
+        lines = [x.strip() for x in self.err.decode("utf-8", "replace").splitlines() if x.strip()]
+        return lines[-n:] if n > 0 else []
+
+
+def _drain(f, buf):
+    """パイプを最後まで読んで buf(list か deque)に 1 行ずつ足す(読めなくなったら終わる)"""
+    try:
+        for line in f:
+            buf.append(line)
+    except (OSError, ValueError):
+        pass
+
+
+def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=None, on_start=None, poll=0.3, **popen_kw):
+    """子プロセスを 1 回、最後まで動かして出力を集める(シェルを通さない・標準入力なし)。取り消し・時間切れでは止める。-> RunResult
+    - timeout: 秒(None = 待ち続ける)。過ぎたら止めて why = "timeout"
+    - cancelled(): poll 秒ごとに見る。真なら止めて why = "cancel"。cancelled が例外を上げたら、子を止めてから上げ直す(中止を例外で伝える呼び出し側用)
+    - flags: creationflags(既定 no_window_flags())。stdout=False なら標準出力は捨てる(out は b"")
+    - err_tail: 標準エラーを最後の N 行だけ持つ(長く動く yt-dlp などでメモリを使い切らない)。None は全部
+    - on_start(proc): 起動した直後に呼ぶ(呼ぶ側が「止める」ために proc を覚えるとき)
+    - popen_kw: cwd・env・preexec_fn など、そのまま Popen へ
+    起動できなければ OSError をそのまま上げる(呼ぶ側が自分の例外・文にする。理由の文は why(e))。
+    止めるのは子だけ(kill)。孫ごと止めたいものは on_start で覚えて kill_tree を使う。止めたあと、出力のパイプは最大 5 秒で読み終える"""
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if stdout else subprocess.DEVNULL, stderr=subprocess.PIPE,
+                            creationflags=no_window_flags() if flags is None else flags, **popen_kw)
+    out, err = [], (collections.deque(maxlen=err_tail) if err_tail else [])
+    readers = [threading.Thread(target=_drain, args=(proc.stderr, err), daemon=True)]
+    if stdout:
+        readers.append(threading.Thread(target=_drain, args=(proc.stdout, out), daemon=True))
+    for t in readers:
+        t.start()
+    end = None if timeout is None else time.monotonic() + timeout
+    reason = None
+    try:
+        if on_start is not None:
+            on_start(proc)
+        while proc.poll() is None:
+            if cancelled is not None and cancelled():
+                reason = "cancel"
+            elif end is not None and time.monotonic() > end:
+                reason = "timeout"
+            if reason:
+                kill_quiet(proc)
+                break
+            try:
+                proc.wait(poll)
+            except subprocess.TimeoutExpired:
+                pass
+    except BaseException:
+        kill_quiet(proc)
+        raise
+    finally:
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            pass
+        for t in readers:
+            t.join(5)
+        for f in (proc.stdout, proc.stderr):
+            if f is not None:
+                try:
+                    f.close()
+                except OSError:
+                    pass
+    return RunResult(proc.returncode, b"".join(out), b"".join(err), reason)
+
+
+def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, popen=None, tail=20):
+    """ffmpeg を -progress pipe:1 つきで 1 回動かす(標準出力と標準エラーを 1 本で読む)。-> (終了コード, エラーの行の最後の tail 行, 止めた理由)
+    止めた理由: None | "cancel"(cancelled() が真)| "idle"(idle_sec 秒なにも出力しなかった)。0.3 秒ごとに見る(取り消しが先)。
+    - on_time(秒): 進み具合の行(out_time_us= / out_time_ms=。どちらもマイクロ秒)ごとに、出力した長さ(秒)で呼ぶ
+    - エラーの行 = 進み具合の行と key=value の行(頭の 20 字に = がある)を除いた、空でない行
+    - popen: 子プロセスの起動を差し替える(既定 subprocess.Popen)。flags: creationflags(既定 no_window_flags())
+    起動できなければ OSError をそのまま上げる。on_time が上げた例外は、子を止めてから上げる"""
+    lines = collections.deque(maxlen=tail)
+    proc = (popen or subprocess.Popen)(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       creationflags=no_window_flags() if flags is None else flags)
+    state = {"last": time.time(), "why": None}
+    done = threading.Event()
+
+    def watchdog():
+        while not done.wait(0.3):
+            if cancelled is not None and cancelled():
+                state["why"] = "cancel"
+            elif idle_sec is not None and time.time() - state["last"] > idle_sec:
+                state["why"] = "idle"
+            else:
+                continue
+            kill_quiet(proc)
+            return
+    threading.Thread(target=watchdog, daemon=True).start()
+    try:
+        for raw in proc.stdout:
+            state["last"] = time.time()
+            line = raw.decode("utf-8", "replace").strip()
+            m = OUT_TIME.match(line)
+            if m:
+                if on_time is not None:
+                    on_time(int(m.group(1)) / 1e6)
+                continue
+            if line and "=" not in line[:20]:
+                lines.append(line)
+        proc.wait()
+    finally:
+        done.set()
+        kill_quiet(proc)
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    return proc.returncode, list(lines), state["why"]
+
+
+def tool_output(path, args=("-version",), timeout=15):
+    """外部プログラムを引数つきで動かした出力(標準出力 + 標準エラー。壊れた文字は置き換える)。動かせなければ ""。"""
+    try:
+        r = subprocess.run([path] + list(args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout,
+                           creationflags=no_window_flags())
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.decode("utf-8", "replace")
+
+
+def tool_version(path, args=("-version",), pattern=r"version\s+(\S+)", timeout=15, first_line=False):
+    """外部プログラムの版の文字(40 字まで)。出力(tool_output)から pattern の 1 つ目のかっこを抜く。見つからない・動かせなければ ""。
+    first_line=True は出力の 1 行目だけを見て、見つからなければその行の先頭 60 字を返す(入口の「調子」の形)"""
+    text = tool_output(path, args, timeout)
+    if first_line:
+        text = text.strip().splitlines()[0] if text.strip() else ""
+    m = re.search(pattern, text)
+    if m:
+        return m.group(1)[:40]
+    return text[:60] if first_line else ""
+
+
+def process_memory_mb(peak=False):
+    """このプロセスのメモリ(MB の float)。測れなければ None。
+    Windows は WorkingSetSize(peak=True なら PeakWorkingSetSize)、ほかは /proc/self/statm の RSS(peak=True なら getrusage の ru_maxrss)"""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            class PMC(ctypes.Structure):   # PROCESS_MEMORY_COUNTERS
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD), ("PeakWorkingSetSize", ctypes.c_size_t),
+                            ("WorkingSetSize", ctypes.c_size_t), ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+            c = PMC()
+            c.cb = ctypes.sizeof(c)
+            k = ctypes.WinDLL("kernel32")   # 自分用の写し(argtypes を ctypes.windll の共有の物に付けない)
+            psapi = ctypes.WinDLL("psapi")
+            k.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD)
+            if psapi.GetProcessMemoryInfo(k.GetCurrentProcess(), ctypes.byref(c), c.cb):
+                return (c.PeakWorkingSetSize if peak else c.WorkingSetSize) / 1048576.0
+            return None
+        if peak:
+            import resource
+            r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return r / (1048576.0 if sys.platform == "darwin" else 1024.0)
+        with open("/proc/self/statm", "r") as f:
+            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1048576.0
+    except Exception:
+        return None
 
 
 class KillJob:

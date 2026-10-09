@@ -183,6 +183,163 @@ class TestFsio(unittest.TestCase):
         self.assertFalse(os.path.exists(p))
         fsio.unlink_quiet(p)   # 無くても上げない
 
+    def write(self, name, data):
+        p = os.path.join(self.tmp, name)
+        with open(p, "wb") as f:
+            f.write(data if isinstance(data, bytes) else data.encode("utf-8"))
+        return p
+
+    def test_read_json_or(self):
+        """読めなければ既定値(上げない)。BOM は可・NaN・大きすぎ・形の違いは既定値"""
+        ok = self.write("ok.json", '\ufeff{"a": 1}')
+        self.assertEqual(fsio.read_json_or(ok), {"a": 1})
+        self.assertEqual(fsio.read_json_or(ok, kind=dict), {"a": 1})
+        self.assertEqual(fsio.read_json_or(ok, "既定", kind=list), "既定")
+        self.assertEqual(fsio.read_json_or(ok, kind=(list, dict)), {"a": 1})
+        lst = self.write("l.json", "[1, 2]")
+        self.assertEqual(fsio.read_json_or(lst, {}, kind=dict), {})
+        default = {"x": 1}
+        for p in (os.path.join(self.tmp, "無い.json"), self.write("broken.json", "{壊れ"), self.write("nan.json", '{"a": NaN}'),
+                  self.write("sjis.json", '{"a": "あ"}'.encode("cp932")), self.write("deep.json", "[" * 100000 + "]" * 100000), self.tmp):
+            self.assertIs(fsio.read_json_or(p, default), default, p)
+        self.assertIsNone(fsio.read_json_or(ok, max_bytes=3))      # 上限を超える
+        self.assertEqual(fsio.read_json_or(ok, max_bytes=100), {"a": 1})
+
+    def test_stamp_and_cache(self):
+        p = self.write("a.json", "1")
+        st = fsio.stamp(p)
+        self.assertEqual(st, (os.stat(p).st_mtime_ns, 1))
+        self.assertIsNone(fsio.stamp(os.path.join(self.tmp, "無い")))
+        self.assertIsNone(fsio.stamp("a\0b"))
+        cache, calls = fsio.StampCache(), []
+
+        def load(path):
+            calls.append(path)
+            return fsio.read_json_or(path)
+        self.assertEqual(cache.get(p, load), 1)
+        self.assertEqual(cache.get(p, load), 1)
+        self.assertEqual(len(calls), 1)                           # 変わっていなければ読み直さない
+        self.write("a.json", "22")
+        os.utime(p, ns=(time.time_ns(), time.time_ns() + 10 ** 9))
+        self.assertEqual(cache.get(p, load), 22)
+        self.assertEqual(len(calls), 2)                           # 変わったら読み直す
+        bad = self.write("b.json", "{壊れ")
+        self.assertIsNone(cache.get(bad, load))
+        self.assertIsNone(cache.get(bad, load))
+        self.assertEqual(len(calls), 3)                           # 読めなかった結果(None)も覚える
+        self.assertIsNone(cache.get(os.path.join(self.tmp, "無い"), load))
+        self.assertEqual(len(calls), 3)                           # 無いファイルは load を呼ばない
+        self.assertEqual((len(cache), p in cache, sorted(cache)), (2, True, sorted([p, bad])))
+        other = os.path.join(self.tmp, "sub", "c.json")
+        os.makedirs(os.path.dirname(other))
+        self.write(os.path.join("sub", "c.json"), "3")
+        cache.get(other, load)
+        cache.prune([p], folder=self.tmp)                         # そのフォルダの直下で keep に無いものだけ外す
+        self.assertEqual(sorted(cache), sorted([p, other]))
+        cache.prune([])
+        self.assertEqual(len(cache), 0)
+        cache.get(p, load)
+        cache.clear()
+        self.assertNotIn(p, cache)
+        with self.assertRaises(ZeroDivisionError):                # load の例外はそのまま(覚えない)
+            cache.get(p, lambda path: 1 / 0)
+        self.assertNotIn(p, cache)
+
+    def test_cache_peek_and_set(self):
+        """peek は読み直さずに覚えた値だけ(変わった・無いなら None)。set は今の stamp で上書きする(無いファイルは覚えない)"""
+        p = self.write("a.json", "1")
+        cache = fsio.StampCache()
+        self.assertIsNone(cache.peek(p))                          # まだ覚えていない
+        self.assertTrue(cache.set(p, "覚えた"))
+        self.assertEqual(cache.peek(p), "覚えた")
+        self.assertEqual(cache.get(p, lambda path: self.fail("読み直さない")), "覚えた")
+        self.assertTrue(cache.set(p, "上書き"))
+        self.assertEqual(cache.peek(p), "上書き")
+        self.write("a.json", "22")
+        os.utime(p, ns=(time.time_ns(), time.time_ns() + 10 ** 9))
+        self.assertIsNone(cache.peek(p))                          # 変わったら覚えた値を返さない
+        missing = os.path.join(self.tmp, "無い")
+        self.assertFalse(cache.set(missing, 1))
+        self.assertIsNone(cache.peek(missing))
+        self.assertNotIn(missing, cache)
+
+    def test_read_json_nan_option(self):
+        """allow_nan=True なら NaN / Infinity を float として通す(既定は ValueError / 既定値)"""
+        import math
+        p = self.write("nan.json", '{"a": NaN, "b": Infinity}')
+        self.assertIsNone(fsio.read_json_or(p))
+        d = fsio.read_json_or(p, allow_nan=True)
+        self.assertTrue(math.isnan(d["a"]) and d["b"] == float("inf"))
+        with self.assertRaises(ValueError):
+            fsio.read_json_file(p, 100)
+        self.assertTrue(math.isnan(fsio.read_json_file(p, 100, allow_nan=True)["a"]))
+        self.assertEqual(fsio.read_json_or(p, "既定", max_bytes=5, allow_nan=True), "既定")   # 上限は同じ
+
+    def test_write_json_mode(self):
+        p = os.path.join(self.tmp, "key.json")
+        with mock.patch.object(fsio, "atomic_write") as aw:
+            fsio.write_json(p, {"a": 1}, mode=0o600)
+            fsio.write_json(p, {"a": 1})
+        self.assertEqual([c.kwargs.get("mode") for c in aw.call_args_list], [0o600, None])
+        fsio.write_json(p, {"a": 1}, indent=None, mode=0o600)
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), b'{"a": 1}')
+        if os.name != "nt":
+            self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
+
+    def test_rotate(self):
+        log = self.write("serve.log", "x" * 10)
+        self.assertFalse(fsio.rotate(log, 10))                    # 上限ちょうどは回さない
+        self.assertTrue(fsio.rotate(log, 9))
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["serve.old.log"])
+        self.write("serve.log", "y" * 10)
+        self.assertTrue(fsio.rotate(log, 1))                      # 前の世代は置き換わる(1 世代)
+        with open(os.path.join(self.tmp, "serve.old.log")) as f:
+            self.assertEqual(f.read(), "y" * 10)
+        j = self.write("errors.jsonl", "z" * 10)
+        self.assertTrue(fsio.rotate(j, 1, old=j + ".1"))           # 回した先を選べる(画面のエラーの記録)
+        self.assertTrue(os.path.isfile(j + ".1"))
+        other = self.write("x.txt", "z" * 10)
+        self.assertTrue(fsio.rotate(other, 1))
+        self.assertTrue(os.path.isfile(other + ".old"))           # .log でなければ <名前>.old
+        self.assertFalse(fsio.rotate(os.path.join(self.tmp, "無い.log"), 1))   # 無くても上げない
+
+    def test_is_inside(self):
+        root = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(root, "sub"))
+        self.assertTrue(fsio.is_inside(os.path.join(root, "sub", "まだ無い.mp4"), root))
+        self.assertTrue(fsio.is_inside(root, root))
+        self.assertFalse(fsio.is_inside(root, root, strict=True))     # strict はフォルダそのものを含めない
+        self.assertTrue(fsio.is_inside(os.path.join(root, "sub"), root, strict=True))
+        self.assertTrue(fsio.is_inside(root.upper() if os.name == "nt" else root, root))   # Windows は大文字小文字を区別しない
+        self.assertFalse(fsio.is_inside(root + "2", root))             # 文字列の頭ではなくフォルダの区切りで比べる
+        self.assertFalse(fsio.is_inside(os.path.join(root, "..", "x"), root))
+        self.assertFalse(fsio.is_inside(self.tmp, root))
+        for bad in ("", None, "a\0b"):
+            self.assertFalse(fsio.is_inside(bad, root), repr(bad))
+            self.assertFalse(fsio.is_inside(root, bad), repr(bad))
+        with mock.patch.object(fsio.os.path, "realpath") as rp:    # ネットワーク上のパスは調べずに False
+            self.assertFalse(fsio.is_inside("\\\\server\\share\\a.mp4", root))
+            self.assertFalse(fsio.is_inside(os.path.join(root, "a"), "//server/share"))
+            rp.assert_not_called()
+        if os.name == "nt":
+            self.assertFalse(fsio.is_inside("Z:\\a\\b", "C:\\a"))        # 別のドライブ
+        link = os.path.join(root, "外へ")
+        try:
+            os.symlink(self.tmp, link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            return                                                 # リンクを作れない(Windows の権限)なら飛ばす
+        self.assertFalse(fsio.is_inside(os.path.join(link, "x.mp4"), root))   # リンクを解いた先で比べる
+
+    def test_dir_size(self):
+        d = os.path.join(self.tmp, "d")
+        os.makedirs(os.path.join(d, "sub"))
+        self.write(os.path.join("d", "a.bin"), b"12345")
+        self.write(os.path.join("d", "sub", "b.bin"), b"123")
+        self.assertEqual(fsio.dir_size(d), (8, 2))
+        self.assertEqual(fsio.dir_size(os.path.join(d, "a.bin")), (5, 1))
+        self.assertEqual(fsio.dir_size(os.path.join(self.tmp, "無い")), (0, 0))
+
 
 class TestRuntime(unittest.TestCase):
     def setUp(self):
@@ -397,6 +554,21 @@ class TestSchemas(unittest.TestCase):
             with open(p, "w") as f:
                 f.write(" " * (schemas.MAX_CLIP_BYTES + 1))
             self.assertIn("大きすぎ", schemas.load_clip_file(p)[1])
+        self.assertIsNone(schemas.find_sidecar(os.path.join("x", "a\0b.mp4"), ".srt"))   # NUL を含むパスでも上げない
+
+    def test_int_checks(self):
+        vals = (1, 0, -3, True, False, 1.0, "1", None, float("nan"), 10 ** 400)
+        self.assertEqual([schemas.is_int(v) for v in vals], [True, True, True, False, False, False, False, False, False, True])
+        self.assertEqual([schemas.plain_int(v) for v in vals], [1, 0, -3, None, None, None, None, None, None, 10 ** 400])
+        self.assertEqual([schemas.int_in(v, 0, 10) for v in (0, 10, 11, -1, True, 5.0, "5")], [0, 10, None, None, None, None, None])
+        self.assertEqual([schemas.is_num(v) for v in (1, 2.5, True, "1", None, float("nan"), float("inf"), 10 ** 400)],
+                         [True, True, False, False, False, False, False, False])
+
+    def test_sidecar_suffixes(self):
+        """途中のファイルの名前の一覧(全部入り)。各ツールの一覧はここの部分集合(まだ寄せていない)"""
+        self.assertEqual(len(set(schemas.SIDECAR_SUFFIXES)), len(schemas.SIDECAR_SUFFIXES))
+        for s in (schemas.CLIP_SUFFIX, ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", ".studio-id"):
+            self.assertIn(s, schemas.SIDECAR_SUFFIXES)
 
 
 class TestHttpsec(unittest.TestCase):
@@ -454,6 +626,151 @@ class TestHttpsec(unittest.TestCase):
         self.assertEqual(h.calls, [("status", 206), ("Content-Type", "video/mp4"), ("Content-Length", "100"), ("Cache-Control", "no-store"),
                                    ("X-Content-Type-Options", "nosniff"), ("Accept-Ranges", "bytes"), ("Content-Range", "bytes 0-99/500"), ("end",)])
         self.assertEqual(h.body, b"")
+        h = H("GET")   # cache: Cache-Control だけ変える(録画の部品のセグメント・再生リスト)
+        httpsec.send(h, 200, b"x", "video/mp2t", cache="private, max-age=86400")
+        self.assertEqual(h.calls[3], ("Cache-Control", "private, max-age=86400"))
+        h = H("GET")
+        httpsec.send_head(h, 200, "application/vnd.apple.mpegurl", 0, cache="no-cache")
+        self.assertEqual([c for c in h.calls if c[0] == "Cache-Control"], [("Cache-Control", "no-cache")])
+
+    @staticmethod
+    def body_handler(body, ctype="application/json", length=None):
+        import io
+        headers = {"Content-Type": ctype, "Content-Length": str(len(body)) if length is None else length}
+        return mock.Mock(headers={k: v for k, v in headers.items() if v is not None}, rfile=io.BytesIO(body))
+
+    def test_read_json_body(self):
+        h = self.body_handler('{"a": "あ"}'.encode("utf-8"), "Application/JSON; charset=utf-8")
+        self.assertEqual(httpsec.read_json_body(h, 100), {"a": "あ"})
+        cases = [(self.body_handler(b"{}", "text/plain"), "type", 415), (self.body_handler(b"{}", length="x"), "length", 400),
+                 (self.body_handler(b"{}" * 60), "size", 413), (self.body_handler(b""), "size", 413),
+                 (self.body_handler(b"{}", length="-1"), "size", 413), (self.body_handler(b"{}", length="5"), "short", 400),
+                 (self.body_handler(b"{bad"), "json", 400), (self.body_handler(b'{"a": NaN}'), "json", 400),
+                 (self.body_handler(b"\xff\xfe"), "json", 400), (self.body_handler(b"[1]"), "object", 400)]
+        for handler, kind, status in cases:
+            with self.assertRaises(httpsec.BodyError) as cm:
+                httpsec.read_json_body(handler, 100)
+            self.assertEqual((cm.exception.kind, cm.exception.status), (kind, status), handler.rfile.getvalue())
+        self.assertEqual(httpsec.read_json_body(self.body_handler(b"", length=None), 100, empty_ok=True), {})   # 本文なし = {}
+        nan = httpsec.read_json_body(self.body_handler(b'{"a": NaN}'), 100, allow_nan=True)["a"]
+        self.assertNotEqual(nan, nan)                             # allow_nan=True なら NaN も通す(以前の入口と同じ)
+        h = self.body_handler(b"x" * 50, "text/plain")
+        with self.assertRaises(httpsec.BodyError):
+            httpsec.read_json_body(h, 100)
+        self.assertEqual(h.rfile.tell(), 50)                      # 断るときは本文を読み捨てる
+        h = self.body_handler(b"x" * 50, "text/plain")
+        with self.assertRaises(httpsec.BodyError):
+            httpsec.read_json_body(h, 100, drain=False)
+        self.assertEqual(h.rfile.tell(), 0)
+        h = self.body_handler(b"{}")
+        h.rfile = mock.Mock(read=mock.Mock(side_effect=OSError("timed out")))
+        with self.assertRaises(httpsec.BodyError) as cm:
+            httpsec.read_json_body(h, 100)
+        self.assertEqual(cm.exception.kind, "read")
+
+    def test_drain_body(self):
+        import io
+        r = io.BytesIO(b"x" * 10)
+        httpsec.drain_body({"Content-Length": "10"}, r)
+        self.assertEqual(r.tell(), 10)
+        r = io.BytesIO(b"x" * 10)
+        httpsec.drain_body({"Content-Length": "10"}, r, limit=5)     # 上限より大きければ読まない
+        self.assertEqual(r.tell(), 0)
+        httpsec.drain_body({"Content-Length": "x"}, r)              # 形が違っても上げない
+        httpsec.drain_body({}, mock.Mock(read=mock.Mock(side_effect=OSError)))
+
+    def test_token_ok(self):
+        self.assertTrue(httpsec.token_ok({"X-YTT-Token": "abc"}, "abc"))
+        self.assertFalse(httpsec.token_ok({"X-YTT-Token": "abd"}, "abc"))
+        self.assertFalse(httpsec.token_ok({}, "abc"))
+        self.assertFalse(httpsec.token_ok({"X-YTT-Token": ""}, ""))      # 合言葉が空なら常に断る
+        self.assertFalse(httpsec.token_ok({"X-YTT-Token": "あ"}, "abc"))   # ASCII 以外でも落ちない
+        self.assertTrue(httpsec.token_ok({"Authorization": "Bearer t1"}, "t1", "Authorization", "Bearer "))
+        self.assertFalse(httpsec.token_ok({"Authorization": "t1"}, "t1", "Authorization", "Bearer "))
+
+    def test_byte_range(self):
+        self.assertEqual(httpsec.byte_range(None, 100), (0, 99, False))
+        self.assertEqual(httpsec.byte_range("bytes=10-19", 100), (10, 19, True))
+        self.assertEqual(httpsec.byte_range("bytes=10-", 100), (10, 99, True))
+        self.assertEqual(httpsec.byte_range("bytes=-10", 100), (90, 99, True))
+        self.assertEqual(httpsec.byte_range("bytes=-500", 100), (0, 99, True))
+        self.assertEqual(httpsec.byte_range("bytes=50-5000", 100), (50, 99, True))
+        self.assertEqual(httpsec.byte_range("bytes=-", 100), (0, 99, False))       # 読めない形は全体
+        self.assertEqual(httpsec.byte_range("bytes=0-1,5-6", 100), (0, 99, False))
+        for bad in ("bytes=100-", "bytes=20-10", "bytes=-0"):
+            self.assertIsNone(httpsec.byte_range(bad, 100), bad)
+        self.assertIsNone(httpsec.byte_range("bytes=0-", 0))
+
+    def test_send_file(self):
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "v.mp4")
+            with open(p, "wb") as f:
+                f.write(bytes(range(200)) * 1000)
+
+            def handler(rng=None, command="GET"):
+                h = mock.Mock(command=command, headers={"Range": rng} if rng else {}, wfile=io.BytesIO())
+                h.calls = []
+                h.send_response.side_effect = lambda c: h.calls.append(("status", c))
+                h.send_header.side_effect = lambda k, v: h.calls.append((k, v))
+                return h
+            h = handler("bytes=100-199")
+            httpsec.send_file(h, p, "video/mp4", chunk=7)
+            self.assertEqual(h.calls, [("status", 206), ("Content-Type", "video/mp4"), ("Content-Length", "100"), ("Cache-Control", "no-store"),
+                                       ("X-Content-Type-Options", "nosniff"), ("Accept-Ranges", "bytes"), ("Content-Range", "bytes 100-199/200000")])
+            self.assertEqual(h.wfile.getvalue(), bytes(range(100, 200)))
+            h = handler()
+            httpsec.send_file(h, p, "video/mp4", extra={"X-A": "1"})
+            self.assertEqual(h.calls[0], ("status", 200))
+            self.assertEqual(h.calls[-2:], [("Accept-Ranges", "bytes"), ("X-A", "1")])
+            self.assertEqual(len(h.wfile.getvalue()), 200000)
+            h = handler("bytes=0-9", "HEAD")
+            httpsec.send_file(h, p, "video/mp4")
+            self.assertEqual(h.wfile.getvalue(), b"")                 # HEAD は見出しだけ
+            h = handler("bytes=999999-")
+            httpsec.send_file(h, p, "video/mp4")
+            h._send.assert_called_once_with(416, b"", extra={"Content-Range": "bytes */200000"})
+            h = handler()
+            h.wfile = mock.Mock(write=mock.Mock(side_effect=ConnectionResetError))
+            httpsec.send_file(h, p, "video/mp4")                      # 送っている途中の切断は上げない
+            with self.assertRaises(OSError):
+                httpsec.send_file(handler(), os.path.join(d, "無い.mp4"), "video/mp4")
+
+    def test_exclusive_server(self):
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                httpsec.send(self, 200, b"ok")
+
+            def log_message(self, *a):
+                pass
+        srv = httpsec.ExclusiveServer(("127.0.0.1", 0), H)
+        try:
+            port = srv.server_address[1]
+            self.assertTrue(srv.daemon_threads)
+            if os.name == "nt":
+                with self.assertRaises(OSError):                  # 使用中のポートには bind できない
+                    httpsec.ExclusiveServer(("127.0.0.1", port), H)
+                s = socket.socket()
+                try:
+                    httpsec.bind_opts(s)
+                    with self.assertRaises(OSError):
+                        s.bind(("127.0.0.1", port))
+                finally:
+                    s.close()
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            import urllib.request
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open("http://127.0.0.1:%d/" % port, timeout=5) as r:
+                self.assertEqual(r.read(), b"ok")
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        s = socket.socket()
+        try:
+            httpsec.bind_opts(s)
+            s.bind(("127.0.0.1", 0))                               # 空いているポートには bind できる
+        finally:
+            s.close()
 
 
 class TestTools(unittest.TestCase):
@@ -514,6 +831,190 @@ class TestTools(unittest.TestCase):
         self.assertEqual((out.returncode, added), (3, "True"))
         self.assertTrue(gone, "親が落ちたのに子が残った")   # 親(このテストの子)が落ちてジョブが閉じた = 孫も終わる
 
+    def test_find_tool_ytt_env(self):
+        """ytt=True は 固有の環境変数 → YTT_<名前> → PATH。既定(ytt=False)は今までどおり YTT_ を見ない"""
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a.exe"), os.path.join(d, "b.exe")
+            for p in (a, b):
+                open(p, "wb").close()
+            self.assertEqual(tools.ytt_env("yt-dlp"), "YTT_YTDLP")
+            with mock.patch.dict(os.environ, {"YTT_YTDLP": a, "STUDIO_YTDLP": b}), mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
+                self.assertEqual(tools.find_tool("yt-dlp", ytt=True), a)
+                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP", ytt=True), b)     # 固有の名前が先(今までの指定が効く)
+                self.assertEqual(tools.find_tool("yt-dlp"), "/p/yt-dlp")                      # 既定は YTT_ を見ない
+            with mock.patch.dict(os.environ, {"YTT_YTDLP": a + ".missing", "STUDIO_YTDLP": ""}), \
+                    mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
+                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP", ytt=True), "/p/yt-dlp")   # 実在しなければ PATH
+
+    def test_no_window_flags_priority(self):
+        with self.assertRaises(ValueError):
+            tools.no_window_flags(priority="idle")
+        if os.name != "nt":
+            self.assertEqual((tools.no_window_flags(priority="low"), tools.no_window_flags(True, "high")), (0, 0))
+            return
+        self.assertEqual(tools.no_window_flags(priority="low"), subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+        self.assertEqual(tools.no_window_flags(new_group=True, priority="high"),
+                         subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.ABOVE_NORMAL_PRIORITY_CLASS)
+
+    def test_python_exe_and_why(self):
+        with tempfile.TemporaryDirectory() as d:
+            w = os.path.join(d, "pythonw.exe")
+            self.assertEqual(tools.python_exe(w), w)                    # 隣に python.exe が無ければそのまま
+            open(os.path.join(d, "python.exe"), "wb").close()
+            self.assertEqual(tools.python_exe(w), os.path.join(d, "python.exe"))
+            self.assertEqual(tools.python_exe(os.path.join(d, "python.exe")), os.path.join(d, "python.exe"))
+        self.assertTrue(os.path.isfile(tools.python_exe()))           # 省けばこのプロセスの Python
+        self.assertEqual(tools.why(FileNotFoundError(2, "見つかりません", "C:/秘密/x")), "見つかりません")   # パスは出さない
+        self.assertEqual(tools.why(OSError("strerror の無い OSError")), "OSError")
+        self.assertEqual(tools.why(ValueError("中身")), "ValueError")
+
+    def test_kill_tree_fake_and_done(self):
+        tools.kill_tree(None)
+        fake = mock.Mock(poll=mock.Mock(return_value=None))
+        tools.kill_tree(fake, wait=1)                               # Popen でなければ kill_quiet だけ(待たない)
+        fake.kill.assert_called_once()
+        fake.wait.assert_not_called()
+        p = subprocess.Popen([sys.executable, "-c", "pass"], creationflags=tools.no_window_flags())
+        p.wait(30)
+        with mock.patch.object(tools.subprocess, "run") as run:
+            tools.kill_tree(p)                                      # 終わっていれば何もしない
+            run.assert_not_called()
+
+    def test_kill_tree_kills_grandchild(self):
+        code = ("import subprocess, sys, time; c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                "print(c.pid, flush=True); time.sleep(60)")
+        extra = {} if os.name == "nt" else {"start_new_session": True}
+        p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, creationflags=tools.no_window_flags(), **extra)
+        try:
+            child = int(p.stdout.readline())
+            tools.kill_tree(p, wait=15)
+            self.assertIsNotNone(p.poll())                          # 親が止まった(wait で待った)
+            if os.name == "nt":
+                import ctypes
+                k = ctypes.WinDLL("kernel32", use_last_error=True)
+                k.OpenProcess.restype = ctypes.c_void_p
+                h = k.OpenProcess(0x00100001, False, child)          # SYNCHRONIZE | PROCESS_TERMINATE
+                try:
+                    gone = not h or k.WaitForSingleObject(ctypes.c_void_p(h), 10000) == 0
+                    if not gone:
+                        k.TerminateProcess(ctypes.c_void_p(h), 1)
+                finally:
+                    if h:
+                        k.CloseHandle(ctypes.c_void_p(h))
+            else:
+                deadline = time.time() + 10
+                while time.time() < deadline:
+                    try:
+                        os.kill(child, 0)
+                    except OSError:
+                        break
+                    time.sleep(0.1)
+                try:
+                    os.kill(child, 0)
+                    gone = False
+                except OSError:
+                    gone = True
+            self.assertTrue(gone, "孫が残った")
+        finally:
+            tools.kill_quiet(p)
+            p.stdout.close()
+
+    def py(self, code):
+        return [sys.executable, "-c", code]
+
+    def test_run_collects_output(self):
+        r = tools.run(self.py("import sys; print('出力'); sys.stderr.write('e1\\n\\ne2\\n'); sys.exit(3)"),
+                      env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        self.assertEqual((r.code, r.why), (3, None))
+        self.assertEqual(r.out.decode("utf-8").strip(), "出力")
+        self.assertEqual(r.err_lines(), ["e1", "e2"])
+        self.assertEqual(r.err_lines(1), ["e2"])
+        self.assertEqual(r.err_lines(0), [])
+        r = tools.run(self.py("import sys\nfor i in range(50): sys.stderr.write('l%d\\n' % i)"), err_tail=3, stdout=False)
+        self.assertEqual((r.out, r.err_lines(10)), (b"", ["l47", "l48", "l49"]))   # err_tail は最後の N 行だけ持つ
+        seen = []
+        tools.run(self.py("pass"), on_start=seen.append)
+        self.assertEqual(len(seen), 1)
+        self.assertIsInstance(seen[0], subprocess.Popen)
+        with self.assertRaises(OSError):
+            tools.run([os.path.join(tempfile.gettempdir(), "無いプログラム.exe")])
+
+    def test_run_timeout_and_cancel(self):
+        sleeper = self.py("import time; time.sleep(60)")
+        t0 = time.monotonic()
+        r = tools.run(sleeper, timeout=0.5, poll=0.1)
+        self.assertEqual(r.why, "timeout")
+        self.assertIsNotNone(r.code)
+        self.assertLess(time.monotonic() - t0, 20)
+        flag = {"n": 0}
+
+        def cancelled():
+            flag["n"] += 1
+            return flag["n"] > 2
+        self.assertEqual(tools.run(sleeper, cancelled=cancelled, poll=0.1).why, "cancel")
+        seen = []
+
+        class Stop(Exception):
+            pass
+
+        def boom():
+            raise Stop()
+        with self.assertRaises(Stop):                               # cancelled が上げたら、子を止めてから上げ直す(中止を例外で伝える形)
+            tools.run(sleeper, cancelled=boom, on_start=seen.append, poll=0.1)
+        self.assertIsNotNone(seen[0].poll())
+
+    def test_run_progress(self):
+        code = ("import sys, time\n"
+                "for line in ['out_time_us=1500000', 'frame=10', 'progress=continue', '', 'error line', 'out_time_ms=3000000', 'x' * 30 + '=y']:\n"
+                "    sys.stdout.write(line + '\\n')\n"
+                "sys.stdout.flush(); sys.exit(4)\n")
+        times = []
+        code_, tail, why = tools.run_progress(self.py(code), on_time=times.append)
+        self.assertEqual((code_, why), (4, None))
+        self.assertEqual(times, [1.5, 3.0])
+        self.assertEqual(tail, ["error line", "x" * 30 + "=y"])         # key=value(頭の 20 字に =)と進み具合の行は除く
+        many = "import sys\nfor i in range(30): print('e%d' % i)\n"
+        self.assertEqual(tools.run_progress(self.py(many), tail=2)[1], ["e28", "e29"])
+        sleeper = self.py("import time; time.sleep(60)")
+        self.assertEqual(tools.run_progress(sleeper, idle_sec=0.5)[2], "idle")
+        self.assertEqual(tools.run_progress(sleeper, cancelled=lambda: True)[2], "cancel")
+        calls = []
+
+        def popen(cmd, **kw):
+            calls.append(kw)
+            return subprocess.Popen(cmd, **kw)
+        tools.run_progress(self.py("pass"), flags=0, popen=popen)
+        self.assertEqual(calls[0]["creationflags"], 0)               # 起動の差し替え・flags はそのまま渡す
+        with self.assertRaises(OSError):
+            tools.run_progress([os.path.join(tempfile.gettempdir(), "無いプログラム.exe")])
+
+    def test_out_time(self):
+        """-progress の進み具合の行(スタジオの exporter._pump も読む。us も ms もマイクロ秒)"""
+        self.assertEqual(tools.OUT_TIME.match("out_time_us=1500000").group(1), "1500000")
+        self.assertEqual(tools.OUT_TIME.match("out_time_ms=42").group(1), "42")
+        for line in ("out_time=00:00:01.500000", "out_time_us=N/A", " out_time_us=1", "out_time_us=1 "):
+            self.assertIsNone(tools.OUT_TIME.match(line), line)
+
+    def test_tool_version(self):
+        exe = sys.executable
+        ver = ("-c", "print('ffmpeg version 9.0.2-full_build-www Copyright'); print('built with version 1')")
+        self.assertEqual(tools.tool_version(exe, ver), "9.0.2-full_build-www")
+        self.assertEqual(tools.tool_version(exe, ("-c", "print('2026.08.19')"), r"(\d{4}\.\d{2}\.\d{2})"), "2026.08.19")
+        self.assertEqual(tools.tool_version(exe, ("-c", "print('no number here')")), "")
+        self.assertEqual(tools.tool_version(exe, ("-c", "print('streamlink 7.1'); print('version 2')"), first_line=True), "streamlink 7.1")
+        self.assertEqual(tools.tool_version(exe, ver, first_line=True), "9.0.2-full_build-www")
+        self.assertEqual(tools.tool_version(os.path.join(tempfile.gettempdir(), "無い.exe")), "")
+        self.assertIn("ffmpeg version", tools.tool_output(exe, ver))
+        self.assertEqual(tools.tool_output(os.path.join(tempfile.gettempdir(), "無い.exe")), "")
+
+    def test_process_memory_mb(self):
+        now, peak = tools.process_memory_mb(), tools.process_memory_mb(peak=True)
+        if os.name == "nt" or os.path.isfile("/proc/self/statm"):
+            self.assertGreater(now, 1.0)
+            self.assertGreaterEqual(peak, now * 0.5)
+        with mock.patch.object(tools.os, "name", "posix"), mock.patch("builtins.open", side_effect=OSError):
+            self.assertIsNone(tools.process_memory_mb())             # 測れなければ None
+
 
 class TestDatadir(unittest.TestCase):
     """作業データの置き場所と、以前の場所からのコピー(段階4)"""
@@ -530,6 +1031,28 @@ class TestDatadir(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_studio_out_dir(self):
+        """スタジオの書き出し先(入口の live.py・launch.py が読む): settings.json の outDir(絶対パス)か、無ければ作業データの exports"""
+        env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
+        sdir = os.path.join(self.tmp, "data", "studio")
+        self.assertEqual(datadir.studio_out_dir(env=env), os.path.join(sdir, "exports"))
+        os.makedirs(sdir)
+        out = os.path.join(self.tmp, "書き出し")
+        for body, want in ((json.dumps({"outDir": out}), out), (json.dumps({"outDir": "相対"}), None), (json.dumps({"outDir": ""}), None),
+                           (json.dumps({"outDir": 3}), None), ("[1]", None), ("{壊れ", None)):
+            with open(os.path.join(sdir, "settings.json"), "w", encoding="utf-8") as f:
+                f.write(body)
+            self.assertEqual(datadir.studio_out_dir(env=env), want or os.path.join(sdir, "exports"), body)
+
+    def test_read_marker(self):
+        d = os.path.join(self.tmp, "m")
+        os.makedirs(d)
+        self.assertIsNone(datadir.read_marker(d))
+        for body, want in (('\ufeff{"items": []}', {"items": []}), ("[]", None), ("{壊れ", None), ('{"a": "' + "x" * datadir.MARKER_MAX + '"}', None)):
+            with open(os.path.join(d, datadir.MARKER), "w", encoding="utf-8") as f:
+                f.write(body)
+            self.assertEqual(datadir.read_marker(d), want, body[:20])
 
     def test_root(self):
         self.assertEqual(datadir.data_root({"LOCALAPPDATA": r"C:\Users\u\AppData\Local"}, "win32"),
@@ -1193,6 +1716,7 @@ class TestPick(unittest.TestCase):
             with open(f, "wb") as fh:
                 fh.write(b"x")
             self.assertEqual(pick.initial_dir(f), os.path.abspath(sub))   # ファイルならその入っているフォルダ
+            self.assertEqual(pick.initial_dir(os.path.join(sub, "a\0b.mp4")), "")   # NUL を含むパスは上のフォルダへたどらない(以前と同じ)
         for bad in ("", None, "   ", "相対/パス/a.mp4", "clip.mp4"):
             self.assertEqual(pick.initial_dir(bad), "", repr(bad))
 
@@ -1232,6 +1756,133 @@ class TestLoudness(unittest.TestCase):
         self.assertIn("between(t,1.000,2.500)", L.select_filter([(1, 2.5), (3, 3)]))
         self.assertEqual(L.select_filter([]), "")
         self.assertEqual(L.select_filter([(i, i + 0.5) for i in range(L.MAX_SPANS + 1)]), "")   # 多すぎるときは全体で測る
+
+
+class TestNames(unittest.TestCase):
+    """書き出しの名前の規則(スタジオの exporter と入口の live_export が同じ物を読む。T8)。
+    値は 2026-10-09 に一本化する前の両方の実装の出力(名前が 1 バイトでも変わると、前に書き出したフォルダと別になる)"""
+
+    def setUp(self):
+        from ytt_core import names
+        self.N = names
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_text_rules(self):
+        N = self.N
+        self.assertEqual([N.compact_ts(t) for t in (0, 59.9, 3725.9, 36000, 359999)], ["00h00m00s", "00h00m59s", "01h02m05s", "10h00m00s", "99h59m59s"])
+        self.assertEqual(N.compact_ts(-5), "00h00m00s")   # 負の数は 0(スタジオのマークは 0 以上。ライブは録画の頭より前を 0 に)
+        self.assertEqual(N.safe_name('a/b:c*?"<>|%d', 30), "a_b_c_d")
+        self.assertEqual(N.safe_name(" ..配信\x01\x1fです.. ", 60), "配信_です")
+        self.assertEqual(N.safe_name(None, 10), "")
+        self.assertEqual(N.safe_name("あいうえおかきくけこ", 3), "あいう")
+        self.assertEqual(N.path_units("a😀"), 3)
+        self.assertEqual(N.trim_units("ab😀", 3), "ab")
+        self.assertEqual(N.trim_units("ab. c", 4), "ab")
+        for name in ("CON", "con.txt", "COM1", "lpt9.mp4", "COM¹", "conin$", "NUL .x", "AUX"):
+            self.assertTrue(N.is_reserved(name), name)
+        for name in ("CONX", "COM0", "LPT10", "_CON", "配信"):
+            self.assertFalse(N.is_reserved(name), name)
+
+    def test_folder_and_owner(self):
+        N = self.N
+        name, path = N.pick_folder(self.tmp, "配信:1", "abcdefghijk", "abcdefghijk")
+        self.assertEqual((name, path), ("配信_1", os.path.join(self.tmp, "配信_1")))
+        self.assertEqual(N.read_owner(path), "abcdefghijk")
+        self.assertTrue(os.path.isfile(os.path.join(path, schemas.WORK_DIR, ".studio-id")))
+        self.assertEqual(N.pick_folder(self.tmp, "配信:1", "abcdefghijk", "x"), (name, path))     # 同じ持ち主は同じフォルダ
+        self.assertEqual(N.pick_folder(self.tmp, "配信:1", "zzzzzzzzzzz", "x")[0], "配信_1_2")   # 別の持ち主は連番
+        os.makedirs(os.path.join(self.tmp, "手"))                                                  # 印の無いフォルダはその持ち主のもの
+        self.assertEqual(N.pick_folder(self.tmp, "手", "yyyyyyyyyyy", "x")[0], "手")
+        self.assertEqual(N.read_owner(os.path.join(self.tmp, "手")), "yyyyyyyyyyy")
+        self.assertEqual(N.pick_folder(self.tmp, "", "o", "既定")[0], "既定")                     # 題が空なら fallback
+        self.assertEqual(N.pick_folder(self.tmp, "com²", "o", "x")[0], "_com²")                    # 予約名は _ を前に
+        long_root = os.path.join(self.tmp, "d" * max(1, 170 - N.path_units(self.tmp)))
+        os.makedirs(long_root)
+        got = N.pick_folder(long_root, "あ" * 80, "o", "x")[0]
+        self.assertEqual(got, "あ" * max(8, min(60, N.MAX_PATH_UNITS - N.path_units(long_root) - 5 - N.BASE_ROOM - N.SUFFIX_ROOM)))
+        old = os.path.join(self.tmp, "以前")                                                       # 以前の置き方(直下の印)も読む
+        os.makedirs(old)
+        with open(os.path.join(old, ".studio-id"), "w", encoding="utf-8") as f:
+            f.write("old\n")
+        self.assertEqual(N.read_owner(old), "old")
+        self.assertIsNone(N.read_owner(os.path.join(self.tmp, "無い")))
+
+    def test_clip_names(self):
+        N = self.N
+        self.assertEqual(N.clip_base(self.tmp, 1, 3725.9, 3790.2, "いい:ところ"), "01_01h02m05s-01h03m10s_いい_ところ")
+        self.assertEqual(N.clip_base(self.tmp, 12, 0, 5, ""), "12_00h00m00s-00h00m05s")
+        self.assertEqual(N.clip_base(self.tmp, 2, 0, 5, None), "02_00h00m00s-00h00m05s")
+        open(os.path.join(self.tmp, "01_00h00m00s-00h00m05s_a.mp4"), "w").close()
+        self.assertEqual(N.clip_base(self.tmp, 1, 0, 5, "a"), "01_00h00m00s-00h00m05s_a_2")
+        os.makedirs(os.path.join(self.tmp, schemas.WORK_DIR))
+        open(os.path.join(self.tmp, schemas.WORK_DIR, "01_x_2_edit.clip.json"), "w").close()   # 作業用/ の <名前>_edit.* も使用中
+        open(os.path.join(self.tmp, "01_x.mp4"), "w").close()
+        self.assertEqual(N.unique_base("01_x", self.tmp), "01_x_3")
+        long_folder = os.path.join(self.tmp, "f" * max(1, 150 - N.path_units(self.tmp)))
+        base = N.clip_base(long_folder, 1, 0, 5, "ラベル" * 20)                                     # ラベルはパスの長さに収まる分だけ
+        self.assertLessEqual(N.path_units(os.path.join(long_folder, base)) + N.SUFFIX_ROOM + 3, N.MAX_PATH_UNITS)
+        self.assertTrue(base.startswith("01_00h00m00s-00h00m05s"))
+        p = N.partial_path(self.tmp, "01_x")
+        self.assertEqual(os.path.basename(p), "01_x.partial.mp4")
+        self.assertTrue(N.is_partial(p))
+        self.assertEqual(N.final_path(p), os.path.join(self.tmp, "01_x.mp4"))
+        self.assertEqual(N.final_path(os.path.join(self.tmp, "a.mp4")), os.path.join(self.tmp, "a.mp4"))
+        self.assertFalse(N.is_partial(None))
+
+
+class TestRecproto(unittest.TestCase):
+    """録画元との約束(録画の部品 rec_core・入口の live_export・配信中の検出のワーカーが同じ物を読む。T8)。
+    以前は 3 か所の写しの一致を test_live_detect の SameAsExportTest で確かめていた(その例をここへ移した)"""
+
+    def setUp(self):
+        from ytt_core import recproto
+        self.R = recproto
+
+    def test_ids(self):
+        R = self.R
+        for ok in ("local", "pc-2", "a" * 16):
+            self.assertTrue(R.RECORDER_ID_RE.match(ok), ok)
+        for bad in ("Local", "2pc", "a" * 17, "a_b", "", "a\n"):
+            self.assertFalse(R.RECORDER_ID_RE.match(bad), bad)
+        for ok in ("20261009-120000", "20261009-120000-abcdefghijk", "20261009-120000-a1b2c3"):
+            self.assertTrue(R.REC_ID_RE.match(ok), ok)
+        for bad in ("20261009-12000", "20261009-120000-", "20261009-120000-" + "a" * 25, "../x", "20261009-120000\n"):
+            self.assertFalse(R.REC_ID_RE.match(bad), bad)
+        self.assertTrue(R.SEG_URI_RE.match("session_001/seg_000000.ts"))
+        self.assertFalse(R.SEG_URI_RE.match("session_001/../seg_000000.ts"))
+        self.assertEqual(R.SESSION_RE.match("session_012").group(1), "012")
+        self.assertTrue(R.SEG_RE.match("seg_000001.ts") and not R.SEG_RE.match("seg_1.ts"))
+
+    def test_time(self):
+        R = self.R
+        base = 1791549296.0   # 2026-10-09T12:34:56Z
+        for s, want in (("2026-10-09T12:34:56Z", base), ("2026-10-09T12:34:56.789Z", base + 0.789), ("2026-10-09T12:34:56+00:00", base),
+                        ("2026-10-09T12:34:56.5+00:00", base + 0.5), (" 2026-10-09T12:34:56Z ", base)):
+            self.assertAlmostEqual(R.iso_epoch(s), want, places=6, msg=s)
+        for s in ("2026-10-09T12:34:56", "2026-10-09T12:34:56.Z", "2026-13-09T12:34:56Z", "x", "", None, 5, "9" * 41, "2026-10-09T12:34:56+09:00"):
+            self.assertIsNone(R.iso_epoch(s), s)
+        self.assertEqual(R.epoch_iso(0), "1970-01-01T00:00:00.000Z")
+        self.assertEqual(R.epoch_iso(base + 0.9999), "2026-10-09T12:34:56.999Z")   # ミリ秒は切り捨て
+        self.assertEqual(R.epoch_iso(base + 0.123), "2026-10-09T12:34:56.123Z")
+        self.assertAlmostEqual(R.iso_epoch(R.now_iso()), time.time(), delta=2)
+        import datetime
+        self.assertEqual(R.utc_text(datetime.datetime(2026, 10, 9, 21, 34, 56, 789000, tzinfo=datetime.timezone(datetime.timedelta(hours=9)))),
+                         "2026-10-09T12:34:56.789Z")
+
+    def test_video_id(self):
+        R, rec = self.R, "20261009-120000-abcdefghijk"
+        for url, rid, want in (("https://www.youtube.com/watch?v=abcdefghijk", "", "abcdefghijk"),
+                               ("https://www.youtube.com/watch?x=1&v=abcdefghijk&t=3", "", "abcdefghijk"),
+                               ("https://youtu.be/abcdefghijk", "", "abcdefghijk"), ("https://youtu.be/abcdefghijk?si=x", "", "abcdefghijk"),
+                               ("https://www.youtube.com/live/abcdefghijk", "", "abcdefghijk"),
+                               ("https://www.youtube.com/live/abcdefghijk?si=x", "", "abcdefghijk"),
+                               ("https://www.youtube.com/watch?v=short", "", ""), ("", rec, "abcdefghijk"),
+                               ("https://example.com/", "20261009-120000", ""), ("http://127.0.0.1:9/x.m3u8", rec, "abcdefghijk"),
+                               (None, "", ""), ("https://www.youtube.com/watch?v=short", rec, "abcdefghijk"),
+                               ("https://www.youtube.com/@x/live", "20261004-000000-ab-defghijk", "ab-defghijk"),
+                               ("http://127.0.0.1:1/live.m3u8", "20261004-000000-a1b2c3", ""), ("http://[::1", "", "")):
+            self.assertEqual(R.video_id_of(url, rid), want, (url, rid))
 
 
 if __name__ == "__main__":

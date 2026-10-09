@@ -76,7 +76,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォルダから起動しても、隣の部品(pipeline_io.py・resolve_export.py)を読めるように
 
@@ -106,7 +106,7 @@ import ed_fill  # noqa: E402,F401  (認識のあとの後処理 A・C・D = 文�
 
 
 APP_ID = "transcribe-tool"
-SERVER_VERSION = "0.60.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
+SERVER_VERSION = "0.60.1"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ed_state.SERVER_VERSION で読む)
 ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 
 
@@ -307,6 +307,20 @@ POST_API = {
 }
 
 
+def _qid(u):
+    """URL の ?id=(無ければ "")"""
+    return (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
+
+
+# 本文を断る理由(httpsec.BodyError の kind)→ (error, 画面の文)。文は以前の _read_json と同じ({mb} = 上限の MB)
+_BODY_ERRORS = {"type": ("bad_type", "Content-Type は application/json にしてください"),
+                "length": ("bad_length", "Content-Length が正しくありません"),
+                "size": ("too_big", "送る内容が空か、大きすぎます(最大{mb}MB)"),
+                "short": ("bad_json", "JSON として読めません"),
+                "json": ("bad_json", "JSON として読めません"),
+                "object": ("bad_json", "JSON のオブジェクトを送ってください")}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "TranscribeTool/0.1"
     timeout = 120   # 送ると言った長さより短い本文・読まれない応答で、処理のスレッドが永久に止まらないように(秒)
@@ -346,16 +360,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, f.read(), ctype, extra)
 
     def _send_zip(self, path, name, extra):
-        """作った zip を添付で返す(ファイルを消すのは呼び出し側)"""
-        self.send_response(200)
-        self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Length", str(os.path.getsize(path)))
-        self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
-        for k, v in extra.items():
-            self.send_header(k, v)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
+        """作った zip を添付で返す(ファイルを消すのは呼び出し側。見出しは httpsec.send_head)"""
+        httpsec.send_head(self, 200, "application/zip", os.path.getsize(path), dict({"Content-Disposition": 'attachment; filename="%s"' % name}, **extra))
         with open(path, "rb") as f:
             shutil.copyfileobj(f, self.wfile, 65536)
 
@@ -370,26 +376,16 @@ class Handler(BaseHTTPRequestHandler):
         self._json(code, {"error": error, "message": message})
 
     def _read_json(self):
-        if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
-            self._fail(415, "bad_type", "Content-Type は application/json にしてください")
-            return None
+        """書き込み系の要求の本文(JSON のオブジェクト)。だめなら理由を返して None(読み方は ytt_core.httpsec.read_json_body。
+        NaN / Infinity は受け付けない = 保存すると画面の JSON.parse が壊れる)。途中で切れた接続(read)には応答しない"""
         try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self._fail(400, "bad_length", "Content-Length が正しくありません")
+            return httpsec.read_json_body(self, ed_state.MAX_BODY)
+        except httpsec.BodyError as e:
+            if e.kind == "read":
+                return None
+            code, msg = _BODY_ERRORS.get(e.kind) or ("bad_json", "JSON として読めません")
+            self._fail(e.status, code, msg.replace("{mb}", str(ed_state.MAX_BODY // 1048576)))
             return None
-        if length <= 0 or length > ed_state.MAX_BODY:
-            self._fail(413, "too_big", "送る内容が空か、大きすぎます(最大%dMB)" % (ed_state.MAX_BODY // 1048576))
-            return None
-        try:
-            obj = json.loads(self.rfile.read(length), parse_constant=ed_state._reject_json_constant)   # NaN / Infinity は受け付けない(保存すると画面の JSON.parse が壊れる)
-        except ValueError:
-            self._fail(400, "bad_json", "JSON として読めません")
-            return None
-        if not isinstance(obj, dict):
-            self._fail(400, "bad_json", "JSON のオブジェクトを送ってください")
-            return None
-        return obj
 
     def _guard(self, write, path=""):
         if not self._host_ok():
@@ -478,44 +474,7 @@ class Handler(BaseHTTPRequestHandler):
             path = ed_state.check_source(d.get("sourcePath"))
         except ed_state.ApiError:
             return self._fail(404, "source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)")
-        size = os.path.getsize(path)
-        ctype = ed_state.MEDIA_TYPES[os.path.splitext(path)[1].lower()]
-        a, b = 0, size - 1
-        m = re.match(r"^bytes=(\d*)-(\d*)$", self.headers.get("Range") or "")
-        code = 200
-        if m and (m.group(1) or m.group(2)):
-            if m.group(1):
-                a = int(m.group(1))
-                b = int(m.group(2)) if m.group(2) else size - 1
-            else:
-                a = max(0, size - int(m.group(2)))
-            b = min(b, size - 1)
-            if a > b or a >= size:
-                return self._send(416, b"", extra={"Content-Range": "bytes */%d" % size})
-            code = 206
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Length", str(b - a + 1))
-        if code == 206:
-            self.send_header("Content-Range", "bytes %d-%d/%d" % (a, b, size))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        if self.command == "HEAD":
-            return
-        try:
-            with open(path, "rb") as f:
-                f.seek(a)
-                left = b - a + 1
-                while left > 0:
-                    chunk = f.read(min(65536, left))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    left -= len(chunk)
-        except (BrokenPipeError, ConnectionError, OSError):
-            pass
+        return httpsec.send_file(self, path, ed_state.MEDIA_TYPES[os.path.splitext(path)[1].lower()])   # Range(シーク)・HEAD・416 は ytt_core の 1 か所
 
     def _post(self):
         if not self._guard(True):
@@ -602,14 +561,13 @@ class Handler(BaseHTTPRequestHandler):
                     ed_state.atomic_write(ed_state.SETTINGS, json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8"))
                 return self._json(200, {"ok": True})
             if u.path == "/api/transcript":
-                tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
-                doc = ed_store.save_transcript(tid, obj)
+                doc = ed_store.save_transcript(_qid(u), obj)
                 return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True,
                                         "evalReviewed": doc.get("evalReviewed")})   # 確かめ済みの印(評価用を外すと消える。画面の表示を合わせる)
             if u.path == "/api/edit":
                 if len(json.dumps(obj)) > ed_store.MAX_EDIT_BYTES:
                     raise ed_state.ApiError("too_big", "区間が多すぎて保存できません", 413)
-                return self._json(200, ed_store.save_edit((urllib.parse.parse_qs(u.query).get("id") or [""])[0], obj))
+                return self._json(200, ed_store.save_edit(_qid(u), obj))
         except ed_state.ApiError as e:
             return self._err(e)
         except OSError as e:
@@ -622,7 +580,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         if u.path != "/api/transcript":
             return self._fail(404, "not_found", "その操作はありません")
-        tid = (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
+        tid = _qid(u)
         try:
             with ed_store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 ed_store.read_transcript(tid)
@@ -659,7 +617,7 @@ def make_server(start_port):
             print("※ ポート%d では古い版のサーバーが動いています。その黒い画面を閉じておくと迷いません。" % p)
             continue
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            srv = httpsec.ExclusiveServer(("127.0.0.1", p), Handler)
         except OSError:
             continue
         ed_state.PORT = p
@@ -837,18 +795,12 @@ def mounted_elsewhere():
 def main():
     live = mounted_elsewhere()
     if live:
-        print("入口の中ですでに起動しています。ブラウザで開きます:", live)
-        if "--no-open" not in sys.argv:
-            webbrowser.open(live)
-        return
+        return _open_running("入口の中ですでに起動しています。ブラウザで開きます:", live)
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     srv, port = make_server(int(args[0]) if args else 8775)
     url = "http://localhost:%d" % port
     if srv is None:
-        print("すでに起動しています。ブラウザで開きます:", url)
-        if "--no-open" not in sys.argv:
-            webbrowser.open(url)
-        return
+        return _open_running("すでに起動しています。ブラウザで開きます:", url)
     install_stop_signals()
     prepare(port, "/", hooks=True)
     print("文字起こしツール:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
@@ -861,6 +813,13 @@ def main():
         pass
     finally:
         finish()
+
+
+def _open_running(msg, url):
+    """もう動いているサーバーをブラウザで開く(--no-open なら知らせるだけ)"""
+    print(msg, url)
+    if "--no-open" not in sys.argv:
+        webbrowser.open(url)
 
 
 def install_stop_signals():

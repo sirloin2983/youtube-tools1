@@ -86,6 +86,23 @@ class TestGolden(unittest.TestCase):
         self.assertEqual([excite.snap_quiet(excite.smooth(self.full, 3), t, n) for t in (0.0, 12.0, 333.3, float(n - 1))], g["snap"])
         self.same(excite.comment_score(STAMPS, 400), g["comment"])
 
+    def test_helpers_and_constants(self):
+        """2026-10-09 に 1 か所へまとめた数字と小さな関数(snap_region・ramp・_drop_before)。値・計算の順は移す前と同じ"""
+        self.assertEqual((excite.AUDIO_PARTS, excite.AUDIO_FLOOR, excite.CHAT_SMOOTH, excite.CHAT_FLOOR), (((3, 0.6), (3, 0.4)), 1.5, 9, 0.25))
+        self.assertEqual((excite.PICK_SMOOTH, excite.LEVEL_SMOOTH, excite.SNAP_RADIUS, excite.SNAP_RATIO, excite.PARTS_RADIUS),
+                         (5, 3, 4, (0.7, 1.3), 6))
+        self.assertEqual((excite.EXCLUDE_BEFORE, excite.EXCLUDE_AFTER), (5, 6))
+        self.assertEqual([excite.ramp(t, 180) for t in (0, 90, 180, 400)], [0.0, 0.25, 1.0, 1.0])
+        self.assertEqual(excite.head_ramp([2.0, 2.0, 2.0], 2), [2.0 * excite.ramp(i, 2) for i in range(3)])
+        lows = [5.0] * 100
+        lows[18], lows[62] = 0.0, 0.0                               # 静かな所
+        self.assertEqual(excite.snap_region(lows, 20.0, 60.0, 40, 100, 40), (18.0, 62.0))   # 両端を静かな所へ
+        self.assertEqual(excite.snap_region(lows, 20.0, 60.0, 62, 100, 40), (20.0, 60.0))   # 合わせた区間が山を含まなければ元のまま
+        self.assertEqual(excite.snap_region(lows, 20.0, 60.0, 40, 100, 20), (20.0, 60.0))   # 長さが 0.7〜1.3 倍の外なら元のまま
+        d = {1: "a", 5: "b", 9: "c"}
+        excite._drop_before(d, 5)
+        self.assertEqual(d, {5: "b", 9: "c"})
+
     def test_baseline_back_fwd_default_is_same(self):
         x = self.full[:500]
         self.same(excite.local_baseline(x, back=150, fwd=150), excite.local_baseline(x))
@@ -113,7 +130,7 @@ class TestOnline(unittest.TestCase):
 
     def test_channel_equals_batch(self):
         full, band, act = synth(3, n=4200)
-        for x, floor, w, log in ((full, 1.5, 3, False), (act, 0.25, 9, True)):
+        for x, floor, w, log in ((full, excite.AUDIO_FLOOR, excite.AUDIO_PARTS[0][0], False), (act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, True)):
             batch = excite.windowed_scores(x, floor, w, back=270, fwd=30, window=600, log=log)
             ch = excite._Channel(floor, w, 270, 30, 600, excite.STEP, log=log)
             got = []
@@ -139,12 +156,13 @@ class TestOnline(unittest.TestCase):
         self.assertEqual([t for t, _, _ in out], list(range(len(out))))
         self.assertGreater(len(out), 2900)
         # 同じ値を一括で
-        a = excite.windowed_scores(full, 1.5, 3, back=270, fwd=30, window=600)
-        b = excite.windowed_scores(band, 1.5, 3, back=270, fwd=30, window=600)
-        c = excite.windowed_scores(act, 0.25, 9, back=270, fwd=30, window=600, log=True)
+        (w_full, wt_full), (w_band, wt_band) = excite.AUDIO_PARTS   # 式の数字は excite の 1 か所(値は golden が守る)
+        a = excite.windowed_scores(full, excite.AUDIO_FLOOR, w_full, back=270, fwd=30, window=600)
+        b = excite.windowed_scores(band, excite.AUDIO_FLOOR, w_band, back=270, fwd=30, window=600)
+        c = excite.windowed_scores(act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, back=270, fwd=30, window=600, log=True)
         for t, total, parts in out:
-            ref_a = 0.6 * a[t] + 0.4 * b[t]
-            ref = (ref_a + c[t + 11]) * min(1.0, t / 180) ** 2
+            ref_a = wt_full * a[t] + wt_band * b[t]
+            ref = (ref_a + c[t + 11]) * excite.ramp(t, 180)
             self.assertAlmostEqual(total, ref, places=12, msg="t=%d" % t)
             self.assertAlmostEqual(parts["audio"], ref_a, places=12)
         # 途中の状態から続けても同じ

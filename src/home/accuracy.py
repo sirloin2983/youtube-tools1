@@ -28,12 +28,10 @@ import json
 import math
 import os
 import re
-import subprocess
-import sys
 import threading
 import time
 
-from ytt_core import datadir, fsio, layout, schemas, txindex
+from ytt_core import datadir, fsio, layout, schemas, tools, txindex
 
 STATE_FILE = "accuracy-state.json"
 FIRST_WAIT = 120           # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)
@@ -49,6 +47,7 @@ KEEP_FILES = 30            # 自動の測定が作った結果ファイルは、
 # 消してよい名前の形(道具の save の形: <日時>.json。asr は --label auto の <日時>_auto.json)。これに合わないファイルは数えもしない・消さない
 RESULT_NAME_RE = re.compile(r"^\d{8}-\d{6}(?:_auto)?\.json\Z")
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "waiting": "手が空くのを待っています", "running": "測っています…"}
+STATE_MAX = 1024 * 1024    # 記録(accuracy-state.json)を読む上限(これより大きければ読めない扱い = 記録なし)
 MAX_DOC_BYTES = 64 * 1024 * 1024   # 普段の校正済みの秒を数えるとき、これより大きい文書は読まない
 DOC_NAME_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")   # 文字起こしの文書(src/editor の TID_RE と同じ形)。edit.json・diar.json などは数えない
 
@@ -240,16 +239,6 @@ def day_of(now):
     return datetime.date.fromtimestamp(now).isoformat()
 
 
-def _python():
-    """子プロセスの python。pythonw.exe(黒い画面なしの起動)のときは、標準出力を持つ python.exe を探す"""
-    exe = sys.executable
-    if os.path.basename(exe).lower() == "pythonw.exe":
-        alt = os.path.join(os.path.dirname(exe), "python.exe")
-        if os.path.isfile(alt):
-            return alt
-    return exe
-
-
 class Accuracy:
     def __init__(self, prefs, data_dir, repo_root, busy=None, last_edit=None, log=None, clock=None, commands=None, evals_dir=None,
                  timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES, transcripts_dir=None):
@@ -281,21 +270,16 @@ class Accuracy:
 
     # ---- 記録
     def _load_state(self):
-        try:
-            with open(self.state_path, "rb") as f:
-                d = json.loads(f.read(1024 * 1024).decode("utf-8-sig"))
-        except (OSError, ValueError):
-            d = None
-        d = d if isinstance(d, dict) else {}
+        d = fsio.read_json_or(self.state_path, {}, max_bytes=STATE_MAX, kind=dict)
         if not isinstance(d.get("areas"), dict):
             d["areas"] = {}
         return d
 
     def _save_state(self):
         try:
-            fsio.atomic_write(self.state_path, json.dumps(self.last, ensure_ascii=False).encode("utf-8"))
+            fsio.write_json(self.state_path, self.last, indent=None)
         except OSError as e:
-            self.log("精度の測定: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            self.log("精度の測定: 記録を書けませんでした(%s)" % tools.why(e))
 
     def _cfg(self):
         import prefs as prefs_mod
@@ -307,7 +291,7 @@ class Accuracy:
     # ---- 道具の呼び方
     def _default_commands(self, area):
         script = os.path.join(layout.repo_root(self.repo_root), "dev", area["script"])   # dev/ はリポジトリ直下(src の1つ上)
-        return [_python(), script] + list(area["args"]) if os.path.isfile(script) else None
+        return [tools.python_exe(), script] + list(area["args"]) if os.path.isfile(script) else None
 
     def _default_evals_dir(self, area):
         try:
@@ -334,29 +318,18 @@ class Accuracy:
     def _run(self, argv):
         """子プロセスで道具を動かす -> 標準出力。失敗・時間切れは ToolError(理由の文)"""
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")   # 作業データの場所(YTT_DATA_DIR など)はそのまま引き継ぐ
-        kw = {}
-        if os.name == "nt":
-            kw["creationflags"] = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x4000) | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-        else:
-            kw["preexec_fn"] = lambda: os.nice(10)
+        kw = {} if os.name == "nt" else {"preexec_fn": lambda: os.nice(10)}   # 優先度: Windows は creationflags、ほかは nice
         try:
-            p = subprocess.Popen(argv, cwd=self.repo_root, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kw)
+            r = tools.run(argv, timeout=self.timeout, cancelled=lambda: self.closed, flags=tools.no_window_flags(priority="low"), poll=1.0,
+                          cwd=self.repo_root, env=env, **kw)
         except OSError as e:
-            raise ToolError("道具を起動できませんでした(%s)" % (e.strerror or e.__class__.__name__))
-        deadline = time.monotonic() + self.timeout
-        while True:
-            try:
-                out, err = p.communicate(timeout=1.0)
-                break
-            except subprocess.TimeoutExpired:
-                if self.closed or time.monotonic() > deadline:
-                    p.kill()
-                    p.communicate()
-                    raise ToolError("ホームを終了します" if self.closed else "時間切れ(%d 分)で止めました" % max(1, int(self.timeout // 60)))
-        if p.returncode != 0:
-            lines = [x.strip() for x in err.decode("utf-8", "replace").splitlines() if x.strip()]
-            raise ToolError("道具が失敗しました(終了コード %d)%s" % (p.returncode, ": " + lines[-1][:ERR_TAIL] if lines else ""))
-        return out.decode("utf-8", "replace")
+            raise ToolError("道具を起動できませんでした(%s)" % tools.why(e))
+        if r.why:
+            raise ToolError("ホームを終了します" if r.why == "cancel" else "時間切れ(%d 分)で止めました" % max(1, int(self.timeout // 60)))
+        if r.code != 0:
+            lines = r.err_lines(1)
+            raise ToolError("道具が失敗しました(終了コード %d)%s" % (r.code, ": " + lines[-1][:ERR_TAIL] if lines else ""))
+        return r.out.decode("utf-8", "replace")
 
     def _result_path(self, out, edir, t0):
         """道具が結果を書いたファイル。標準出力の「保存: <パス>」を優先し、無ければ置き場所の中で今回の測定のあとに書かれた最新のファイル。

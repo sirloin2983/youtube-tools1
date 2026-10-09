@@ -22,8 +22,9 @@ from datetime import datetime, timedelta, timezone
 
 import common
 from common import ApiError, Cancelled, atomic_write, get_api_key
+from ytt_core import fsio as _fsio  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
-API_BASE = "https://www.googleapis.com/youtube/v3/"
+API_BASE = common.YT_API_BASE
 NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
 CHID_RE = re.compile(r"^UC[\w-]{22}\Z", re.ASCII)
 HANDLE_RE = re.compile(r"^@[\w.\-]{3,60}\Z")
@@ -281,11 +282,7 @@ def load_registry():
         # (seed で続けると、解決・取り込みの保存で登録が上書きされるため)
         common.log_failure("registry.json の読み込み", e)
         raise ApiError("registry_read", "事務所の登録を読み込めませんでした。少し待ってからもう一度試してください", 500, {"detail": "registry.json: %s" % (e.strerror or e.__class__.__name__)})   # ファイル名は「元のメッセージ」へ(見直し S4)
-    try:
-        with open(SEED, encoding="utf-8") as f:
-            return sanitize_registry(json.load(f))
-    except (OSError, ValueError):
-        return {"agencies": []}
+    return sanitize_registry(_fsio.read_json_or(SEED, {}))   # 読めなければ事務所なし
 
 
 def _quarantine_registry(path, error):
@@ -303,6 +300,24 @@ def save_registry(reg):
     atomic_write(registry_path(), json.dumps(reg, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
+def _soft(fn, default, on_err=None):
+    """fn() の ApiError のうち、検索・取り込み全体を止めるもの(FATAL = 上限・キーなど)は投げ直し、
+    それ以外(1 チャンネルの失敗)は on_err(ex) を呼んで default を返す"""
+    try:
+        return fn()
+    except ApiError as ex:
+        if ex.code in FATAL:
+            raise
+        if on_err:
+            on_err(ex)
+        return default
+
+
+def _pending(ref):
+    """まだ解決していない所属チャンネル(_resolve_channels に渡す)"""
+    return {"ref": ref, "id": "", "title": "", "uploads": "", "status": "pending", "note": ""}
+
+
 def _resolve_channels(entries):
     """entries: 解決前の channel dict のリスト(その場で更新)。IDはまとめて50件ずつ、ハンドルは1件ずつ問い合わせる。"""
     by_id = [e for e in entries if CHID_RE.match(e["ref"])]
@@ -314,12 +329,7 @@ def _resolve_channels(entries):
     for e in entries:
         if CHID_RE.match(e["ref"]):
             continue
-        try:
-            items = yt_get("channels", {"part": "snippet,contentDetails", "forHandle": e["ref"]}).get("items", [])
-        except ApiError as ex:
-            if ex.code in FATAL:
-                raise
-            items = []
+        items = _soft(lambda: yt_get("channels", {"part": "snippet,contentDetails", "forHandle": e["ref"]}).get("items", []), [])
         _apply_channel(e, items[0] if items else None)
 
 
@@ -350,19 +360,14 @@ def import_official(agency_id):
             raise ApiError("not_found", "事務所が見つかりません", 404)
         if not ag["official"]:
             raise ApiError("no_official", "この事務所には公式チャンネルが登録されていません(下の欄に @ハンドルかURLを入れてください)", 400)
-        offs = [{"ref": r, "id": "", "title": "", "uploads": "", "status": "pending", "note": ""} for r in ag["official"]]
+        offs = [_pending(r) for r in ag["official"]]
         _resolve_channels(offs)
         found, notes = [], []
         for o in offs:
             if o["status"] != "ok":
                 notes.append("公式チャンネル %s が見つかりません" % o["ref"])
                 continue
-            try:
-                secs = yt_get("channelSections", {"part": "snippet,contentDetails", "channelId": o["id"]}).get("items", [])
-            except ApiError as ex:
-                if ex.code in FATAL:
-                    raise
-                secs = []
+            secs = _soft(lambda: yt_get("channelSections", {"part": "snippet,contentDetails", "channelId": o["id"]}).get("items", []), [])
             n0 = len(found)
             for s in secs:
                 for cid in (s.get("contentDetails", {}).get("channels") or []):
@@ -371,7 +376,7 @@ def import_official(agency_id):
             if len(found) == n0:
                 notes.append("%s の「チャンネル」欄に、取り込める所属チャンネルの一覧がありませんでした" % o["ref"])
         have = {c["ref"].lower() for c in ag["channels"]} | {c["id"].lower() for c in ag["channels"] if c["id"]}
-        new = [{"ref": cid, "id": "", "title": "", "uploads": "", "status": "pending", "note": ""} for cid in found if cid.lower() not in have][:MAX_CHANNELS - len(ag["channels"])]
+        new = [_pending(cid) for cid in found if cid.lower() not in have][:MAX_CHANNELS - len(ag["channels"])]
         _resolve_channels(new)
         ag["channels"].extend(new)
         save_registry(reg)
@@ -437,12 +442,22 @@ def validate_search(req):
             "minDur": min_dur, "agencies": ags}
 
 
-def _cached(key, fn, ttl=CACHE_TTL):
-    now = time.time()
+_MISS = object()
+
+
+def _cache_get(key, ttl, now=None):
+    """_cache に覚えた値(ttl 秒以内のもの)。無ければ _MISS"""
+    now = time.time() if now is None else now
     with _cache_lock:
         hit = _cache.get(key)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
+    return hit[1] if hit and now - hit[0] < ttl else _MISS
+
+
+def _cached(key, fn, ttl=CACHE_TTL):
+    now = time.time()
+    val = _cache_get(key, ttl, now)
+    if val is not _MISS:
+        return val
     val = fn()
     with _cache_lock:
         if len(_cache) > 5000:
@@ -485,13 +500,12 @@ def list_candidates(job, ch, spec):
 def fetch_videos(job, ids):
     out, todo = {}, []
     now = time.time()
-    with _cache_lock:
-        for i in ids:
-            hit = _cache.get(("v", i))
-            if hit and now - hit[0] < CACHE_TTL:
-                out[i] = hit[1]
-            else:
-                todo.append(i)
+    for i in ids:
+        hit = _cache_get(("v", i), CACHE_TTL, now)
+        if hit is _MISS:
+            todo.append(i)
+        else:
+            out[i] = hit
     for k in range(0, len(todo), 50):
         if job["cancel"]:
             raise Cancelled()
@@ -546,15 +560,8 @@ def run_search(job, spec):
 
         def one(item):
             a, c = item
-            try:
-                ids = list_candidates(job, c, spec)
-            except Cancelled:
-                raise
-            except ApiError as ex:
-                if ex.code in FATAL:
-                    raise
-                warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
-                ids = []
+            ids = _soft(lambda: list_candidates(job, c, spec), [],
+                        lambda ex: warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message)))
             done[0] += 1
             job["progress"] = 0.5 * done[0] / len(chans)
             return a["id"], c, ids
@@ -593,7 +600,7 @@ def run_search(job, spec):
             out.append({"id": a["id"], "name": a["name"], "channels": sum(1 for c in a["channels"] if c["status"] == "ok"), "unresolved": sum(1 for c in a["channels"] if c["status"] != "ok"),
                         "scanned": scanned[a["id"]], "matched": len(rows),
                         "items": [{"id": r["id"], "title": r["title"], "channel": r["channel"], "channelId": r["channelId"], "views": r["views"], "likes": r["likes"], "comments": r["comments"],
-                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": "https://www.youtube.com/watch?v=" + r["id"], "thumb": r["thumb"]}
+                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": common.watch_url(r["id"]), "thumb": r["thumb"]}
                                   for r in rows[:spec["top"]]]})
         job["result"] = {"agencies": out, "warnings": warns[:30], "unresolved": unresolved, "quota": _quota - q0, "videos": len(vids)}
         job["state"], job["phase"], job["progress"] = "done", "完了", 1.0
@@ -671,7 +678,7 @@ def _ms(dt):
 def live_row(it, now):
     """videos.list の1件 → 一覧の1行(配信中・24 時間以内の予定でなければ None)。外から来る文字は長さを切る"""
     vid = str(it.get("id") or "")
-    if not re.match(r"^[\w-]{11}\Z", vid, re.ASCII):
+    if not common.VID_RE.match(vid):
         return None
     sn, ld = it.get("snippet") or {}, it.get("liveStreamingDetails") or {}
     kind = sn.get("liveBroadcastContent")
@@ -701,7 +708,7 @@ def live_row(it, now):
         blocked = "age"
     return {"id": vid, "title": title, "channel": str(sn.get("channelTitle") or "")[:LIVE_NAME_MAX], "channelId": cid if CHID_RE.match(cid) else "",
             "state": "live" if kind == "live" else "upcoming", "start": _ms(start), "viewers": viewers, "thumb": thumb,
-            "url": "https://www.youtube.com/watch?v=" + vid, "blocked": blocked}
+            "url": common.watch_url(vid), "blocked": blocked}
 
 
 def _live_fetch(ids):
@@ -734,14 +741,11 @@ def _live_build(ags, now):
 
     def one(item):
         a, c = item
-        try:
-            return a, _live_scan(c)
-        except ApiError as ex:
-            if ex.code in FATAL:
-                raise
+
+        def failed(ex):
             warns.append("%s: 一覧を読めませんでした(%s)" % (c["title"] or c["ref"], ex.message))
             fails.append(ex)
-            return a, []
+        return a, _soft(lambda: _live_scan(c), [], failed)
     with ThreadPoolExecutor(WORKERS * 2) as ex:   # 1 チャンネル 1 回の軽い問い合わせなので、検索より多く並べる(最初の1回の待ち時間を短く)
         results = list(ex.map(one, chans))
     if fails and len(fails) == len(chans):   # 1つも読めない(つながらないなど)は、空の一覧ではなく失敗として返す
@@ -777,10 +781,9 @@ def live_list(agencies=None, now=None):
     key = ("lv", tuple(sorted(a["id"] for a in ags)))
     with _live_lock:
         t = time.time() if now is None else now
-        with _cache_lock:
-            hit = _cache.get(key)
-        if hit and t - hit[0] < LIVE_TTL:
-            return dict(hit[1], cached=True)
+        hit = _cache_get(key, LIVE_TTL, t)
+        if hit is not _MISS:
+            return dict(hit, cached=True)
         out = _live_build(ags, t)
         with _cache_lock:
             _cache[key] = (t, out)

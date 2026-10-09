@@ -65,7 +65,7 @@ function txSortFn(){
 }
 
 /* 非表示の操作は ui-kit の UIKit.hide(入口から開いたときだけ使える)。隠していても、今開いている文書は一覧から消さない */
-const hideOn = () => !!(window.UIKit && UIKit.hide && UIKit.hide.available());
+const hideOn = () => UIKit.hide.available();
 const txIsHidden = i => hideOn() && UIKit.hide.has('transcripts', i.id);
 
 function txFiltered(opt){
@@ -100,7 +100,7 @@ function txRowHTML(i){
   if (!i.hasClip && i.sourceName) meta.push(i.sourceName);                  // 配信と紐づかないものは、ファイル名で見分ける
   meta.push(ago(Number(i.updatedAt) || Number(i.createdAt) || 0));
   if (i.hasClip && i.clipStart !== null && Number.isFinite(Number(i.clipStart))) meta.push('配信の ' + fmtT(i.clipStart) + '〜');
-  if (Number(i.durationSec) > 0) meta.push(window.UIKit && UIKit.fmt ? UIKit.fmt.dur(i.durationSec) : fmtT(i.durationSec));
+  if (Number(i.durationSec) > 0) meta.push(UIKit.fmt.dur(i.durationSec));
   const side = [];
   if (i.evalSet) side.push('<span class="pill info" title="精度を測るためだけに取っておく文字起こし(学習・辞書に使わない)">評価用</span>');
   if (i.mediaOk === false) side.push(`<span class="pill warn" title="元の動画が見つかりません(移動・削除した可能性があります)。文字の直しと書き出しはできます">動画なし</span>`);
@@ -117,22 +117,16 @@ function txRowHTML(i){
   if (hid) side.push('<span class="ui-hidden-tag">非表示</span>');
   const hideBtn = hideOn() ? (hid ? '<button type="button" class="btn small" data-act="unhide" title="一覧にまた出します">表示に戻す</button>' : '<button type="button" class="btn small" data-act="hide" title="履歴に出さないだけで、文字起こしは消しません">一覧で非表示にする</button>') : '';
   return `<div class="txi${i.id === S.docId ? ' cur' : ''}${hid ? ' ui-hidden-item' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">${uiIcon('more', { size: 16 }) || '…'}</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span>${i.mediaOk === false ? '<button type="button" class="btn small" data-act="relink">動画を選び直す</button>' : ''}${hideBtn}<button type="button" class="btn small danger" data-act="del">この文字起こしを消す</button></div></details></div>
+    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">${uiIcon('more', { size: 16 })}</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span>${i.mediaOk === false ? '<button type="button" class="btn small" data-act="relink">動画を選び直す</button>' : ''}${hideBtn}<button type="button" class="btn small danger" data-act="del">この文字起こしを消す</button></div></details></div>
     <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
   </div>`;
 }
 
 /* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の /api/autorun/start-docs。入口から開いたときだけ) ---------- */
 
-/* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(絶対パスを書かない) */
-async function portalApi(path, body){
-  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
-  if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': TOKEN }; init.body = JSON.stringify(body); }
-  let r;
-  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)'); }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw httpError(r, j);
-  return j;
+/* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(UIKit.homeApi。絶対パスを書かない。エラーの形は api() と同じ) */
+function portalApi(path, body){
+  return UIKit.homeApi(path, { body, offline: 'ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)', fail: httpFailText });
 }
 
 /* ホームから開いていない(合言葉なし)ときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由を出す(以前は丸ごと隠していて、機能があること自体が分からなかった) */
@@ -140,7 +134,7 @@ const NEED_HOME = 'ホーム(start.bat)から開くと使えます(まとめて�
 function applyNeedHome(){
   if (TOKEN) return;
   const pick = $('#txPick'); pick.disabled = true; pick.closest('label').title = NEED_HOME; $('#txBatchOff').hidden = false;
-  if (window.UIKit && UIKit.menuOff) UIKit.menuOff($('#docAuto'), NEED_HOME);   // 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方。Enter・Space も)
+  UIKit.menuOff($('#docAuto'), NEED_HOME);   // 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方。Enter・Space も)
 }
 
 function renderPickBar(){
@@ -193,11 +187,10 @@ async function startDocAuto(){
   const b = $('#docAutoGo'); b.disabled = true;
   try {
     if (!(await savedAll())) return;
-    const who = window.UIKit && UIKit.streamer && UIKit.streamer.check ? await UIKit.streamer.check($('#docAutoWho')) : $('#docAutoWho').value.trim();
+    const who = await UIKit.streamer.check($('#docAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ(S-20)
     const body = { ids: [id], overwrite: $('#docAutoOverwrite').checked, streamer: who };   // 空 = 色なし(欄は自動で入る)
-    const ar = window.UIKit && UIKit.autorun;   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
-    const r = ar ? await ar.start('api/autorun/start-docs', body, { ids: [id], overwrite: body.overwrite }) : await portalApi('api/autorun/start-docs', body);
+    const r = await UIKit.autorun.start('api/autorun/start-docs', body, { ids: [id], overwrite: body.overwrite });   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
     if (!r) return;   // やることが無い(知らせは部品が出す)
     if ((r.runs || []).length) $('#docAuto').open = false;
     else toast('始められませんでした: ' + ((r.skipped || [])[0] ? r.skipped[0].reason : '理由が分かりません'), 7000, 'err');
@@ -223,8 +216,7 @@ async function startBatch(){
   try {
     const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
     const body = { ids, overwrite: $('#txOverwrite').checked, ...(who ? { streamer: who } : {}) };
-    const ar = window.UIKit && UIKit.autorun;   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
-    const r = ar ? await ar.start('api/autorun/start-docs', body, { ids, overwrite: body.overwrite }) : await portalApi('api/autorun/start-docs', body);
+    const r = await UIKit.autorun.start('api/autorun/start-docs', body, { ids, overwrite: body.overwrite });   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品。段4)
     if (!r) return;
     PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
@@ -232,7 +224,7 @@ async function startBatch(){
 }
 
 function txRowsHTML(key, items){
-  const lim = txLimit[key] || (key === 'all' ? FLAT_FIRST : GROUP_FIRST), rest = items.length - Math.min(lim, items.length);
+  const lim = txLimit.get(key) || (key === 'all' ? FLAT_FIRST : GROUP_FIRST), rest = items.length - Math.min(lim, items.length);
   return items.slice(0, lim).map(txRowHTML).join('') + (rest > 0 ? `<button type="button" class="btn small list-more" data-act="more" data-g="${esc(key)}">もっと見る(残り${rest}件)</button>` : '');
 }
 
@@ -250,7 +242,7 @@ function renderList(){
   if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
   txGroups = new Map();
   for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }
-  const cur = S.docId && S.list.find(i => i.id === S.docId), curKey = cur ? txGroupKey(cur) : null;
+  const cur = curItem(), curKey = cur ? txGroupKey(cur) : null;
   if (curKey){ txOpen.add(curKey); if (txAuto && txAuto !== curKey) txOpen.delete(txAuto); txAuto = null; }   // 今開いている文書のまとまりだけ開く
   if (!txInitDone){ txInitDone = true; if (!txOpen.size){ txAuto = txGroups.keys().next().value; txOpen.add(txAuto); } }   // 文書を開いていなければ、先頭のまとまりを開く
   const q = $('#txSearch').value.trim();
@@ -262,8 +254,8 @@ function renderList(){
 
 /* 保存したら、一覧の進み具合も今の内容に合わせる(一覧を読み直さずに。開いている「⋮」を閉じないよう、少し待ってから) */
 function syncListItem(){
-  const d = S.doc, it = d && S.list.find(x => x.id === S.docId); if (!it) return;
-  const segs = d.segments, txt = segs.filter(g => g.text.trim());
+  const d = S.doc, it = d && curItem(); if (!it) return;
+  const segs = d.segments, txt = segs.filter(hasText);
   Object.assign(it, { title: d.title, evalSet: d.evalSet === true, segments: segs.length, rows: txt.length, proofed: txt.filter(g => g.proofed).length,
     cut: segs.filter(g => g.cutState === 'cut').length, flagged: segs.filter(g => g.flag).length, updatedAt: S.baseUpdatedAt || it.updatedAt });
   clearTimeout(syncListItem.t);

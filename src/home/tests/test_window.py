@@ -19,8 +19,8 @@ HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import appwindow as W  # noqa: E402
+import launch as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt_core を読むので先に)
 import clientlog as C  # noqa: E402
-import launch as L  # noqa: E402
 import prefs as PR  # noqa: E402
 from ytt_core import fsio  # noqa: E402
 

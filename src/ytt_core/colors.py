@@ -13,21 +13,19 @@ version 2。先頭 = hex)は項目の "colors" に入れて返すが、使う側
 完全に一致しなければ、名前の一部で1人に決まるときだけその人(「ぺこら」→ 兎田ぺこら)。2人以上なら決めない(候補を返す)。
 """
 import functools
-import json
 import os
 import re
-import threading
 import unicodedata
 
-from . import datadir, layout
+from . import datadir, fsio, layout
 
 MEMBERS_ENV = "YTT_HOLO_MEMBERS"
 HEX_RE = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 NAME_MAX = 60
 LABEL_MAX = 12
+MAX_BYTES = 4 * 1024 * 1024   # 色の一覧のファイルの上限(members.json は約 50KB。ホロカラーが書く作業データも小さい)
 _SEP = re.compile(r"[\s・･\-_.,、。'\"]+")   # 照らし合わせで除く空白と区切り
-_cache = {}
-_lock = threading.Lock()
+_files = fsio.StampCache()   # パス -> 読んだ中身(ファイルが変わったときだけ読み直す)
 
 
 def members_path(env=None):
@@ -36,16 +34,20 @@ def members_path(env=None):
     return p or os.path.join(layout.holo_colors_dir(), "members.json")
 
 
-def mine_path(env=None):
-    """ホロカラーのマイカラー(ホロカラーは YTT_DATA_DIR を知らないので、inplace のとき(テスト)は読まない)"""
+def _holo_file(env, name):
+    """ホロカラーの作業データ(holo-colors/<name>)。ホロカラーは YTT_DATA_DIR を知らないので、inplace のとき(テスト)は読まない(None)"""
     root = datadir.data_root(env)
-    return None if root is None else os.path.join(root, "holo-colors", "my-colors.json")
+    return None if root is None else os.path.join(root, "holo-colors", name)
+
+
+def mine_path(env=None):
+    """ホロカラーのマイカラー(inplace のとき(テスト)は読まない)"""
+    return _holo_file(env, "my-colors.json")
 
 
 def member_colors_path(env=None):
     """ホロカラーで直したメンバーの色(マイカラーと同じく、inplace のとき(テスト)は読まない)"""
-    root = datadir.data_root(env)
-    return None if root is None else os.path.join(root, "holo-colors", "member-colors.json")
+    return _holo_file(env, "member-colors.json")
 
 
 def _color_list(items):
@@ -98,56 +100,53 @@ def _norm_text(t):
 
 
 def _read_json(path):
-    try:
-        st = os.stat(path)
-    except OSError:
+    """色の一覧のファイル(読めなければ None。ファイルが変わったときだけ読み直す)"""
+    return _files.get(path, lambda p: fsio.read_json_or(p, None, MAX_BYTES))
+
+
+def _hex_name(m):
+    """一覧の 1 項目 -> (主な色, 名前) か None(形が違う・色か名前が無い)"""
+    if not isinstance(m, dict):
         return None
-    key = (path, st.st_mtime_ns, st.st_size)
-    with _lock:
-        if _cache.get(path, (None,))[0] == key:
-            return _cache[path][1]
-    try:
-        with open(path, encoding="utf-8-sig") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        data = None
-    with _lock:
-        _cache[path] = (key, data)
-    return data
+    h, name = norm_hex(m.get("hex")), str(m.get("name") or "").strip()
+    return (h, name) if h and name else None
+
+
+def _member_entry(m, group_name, fixed):
+    """members.json のメンバー 1 人 -> 項目 か None。字幕の色の優先順位: ホロカラーで直した色の先頭 > subtitle > hex(ここ 1 か所)"""
+    hn = _hex_name(m)
+    if hn is None:
+        return None
+    h, name = hn
+    mid = str(m.get("id") or "")
+    cs = _color_list(m.get("colors"))
+    sub = norm_hex(m.get("subtitle"))   # 字幕の既定の色(ユーザーの指定 2026-10-05)。無ければ hex
+    h = sub or h
+    main = next((c for c in cs if c["hex"] == h), {"hex": h, "label": "字幕" if sub else ""})   # 字幕の色を先頭へ
+    cs = [main] + [c for c in cs if c["hex"] != h]
+    custom = mid in fixed
+    if custom:
+        cs = fixed[mid]
+    return {"name": name[:NAME_MAX], "en": str(m.get("en") or ""), "id": mid, "hex": cs[0]["hex"],
+            "group": group_name, "mine": False, "colors": cs, "custom": custom}
 
 
 def load(env=None, members=None, mine=None, member_colors=None):
     """-> [{"name", "en", "id", "hex", "group", "mine", "colors", "custom"}](マイカラーが先。読めない一覧は飛ばす)。
     hex = 字幕の色(直した色の先頭 > subtitle > members.json の hex)・colors = その人の色の一覧(先頭 = hex)・custom = ホロカラーで直した色か"""
-    out = []
     mp = mine if mine is not None else mine_path(env)
     d = _read_json(mp) if mp else None
+    out = []
     for m in (d.get("colors") or []) if isinstance(d, dict) else []:
-        if isinstance(m, dict):
-            h, name = norm_hex(m.get("hex")), str(m.get("name") or "").strip()
-            if h and name:
-                out.append({"name": name[:NAME_MAX], "en": "", "id": str(m.get("id") or ""), "hex": h, "group": "マイカラー", "mine": True,
-                            "colors": [{"hex": h, "label": ""}], "custom": False})
+        hn = _hex_name(m)
+        if hn:
+            h, name = hn
+            out.append({"name": name[:NAME_MAX], "en": "", "id": str(m.get("id") or ""), "hex": h, "group": "マイカラー", "mine": True,
+                        "colors": [{"hex": h, "label": ""}], "custom": False})
     fixed = _member_overrides(member_colors if member_colors is not None else member_colors_path(env))
     d = _read_json(members if members is not None else members_path(env))
-    for g in (d.get("groups") or []) if isinstance(d, dict) else []:
-        if not isinstance(g, dict):
-            continue
-        for m in g.get("members") or []:
-            if isinstance(m, dict):
-                h, name = norm_hex(m.get("hex")), str(m.get("name") or "").strip()
-                if h and name:
-                    mid = str(m.get("id") or "")
-                    cs = _color_list(m.get("colors"))
-                    sub = norm_hex(m.get("subtitle"))   # 字幕の既定の色(ユーザーの指定 2026-10-05)。無ければ hex
-                    h = sub or h
-                    main = next((c for c in cs if c["hex"] == h), {"hex": h, "label": "字幕" if sub else ""})   # 字幕の色を先頭へ
-                    cs = [main] + [c for c in cs if c["hex"] != h]
-                    custom = mid in fixed
-                    if custom:
-                        cs = fixed[mid]
-                    out.append({"name": name[:NAME_MAX], "en": str(m.get("en") or ""), "id": mid, "hex": cs[0]["hex"],
-                                "group": str(g.get("name") or ""), "mine": False, "colors": cs, "custom": custom})
+    groups = [g for g in ((d.get("groups") or []) if isinstance(d, dict) else []) if isinstance(g, dict)]
+    out += [e for g in groups for e in (_member_entry(m, str(g.get("name") or ""), fixed) for m in g.get("members") or []) if e is not None]
     return out
 
 

@@ -19,12 +19,16 @@
 """
 import argparse
 import datetime
-import json
 import os
 import shutil
 import sys
 import threading
 import time
+
+_SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SRC not in sys.path:   # コマンドで単独に動かす(--restore)ときも ytt_core を読めるように(入口から読むときは入っている)
+    sys.path.insert(0, _SRC)
+from ytt_core import fsio, tools  # noqa: E402
 
 STATE_FILE = "backup-state.json"
 DEST_NAME = "youtube-tools-data"
@@ -38,6 +42,7 @@ KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始ま
 NOISY = (STATE_FILE, ".running.json")   # 写す対象だが「変わった」の判定には使わない(写すたびに・ジョブのたびに書き換わる)
 PREV_SUFFIX = ".prev"
 MAX_ERRORS = 20
+STATE_MAX = 64 * 1024     # backup-state.json を読む上限(これより大きければ読めない扱い = 記録なし)
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "running": "写しています…", "error": "止まっています"}
 
 
@@ -45,9 +50,12 @@ def _norm(p):
     return os.path.normcase(os.path.abspath(p))
 
 
-def _inside(child, parent):
+def _overlaps(child, parent):
+    """child が parent の中か(同じも含む)。重なりを断る検査なので、見かけのパス(abspath)とリンクを解いたパス(fsio.is_inside)の
+    どちらで見ても中なら真(片方だけにすると、ジャンクション越しに重なる指定・見かけだけ重なる指定のどちらかを通してしまう)。
+    ネットワーク上のパスは is_inside が調べない(False)ので、見かけのパスだけで決まる"""
     c, p = _norm(child), _norm(parent)
-    return c == p or c.startswith(p.rstrip("\\/") + os.sep)
+    return c == p or c.startswith(p.rstrip("\\/") + os.sep) or fsio.is_inside(child, parent)
 
 
 def skip(name, is_dir):
@@ -57,14 +65,16 @@ def skip(name, is_dir):
     return low in SKIP_DIRS if is_dir else low.endswith(SKIP_SUFFIX)
 
 
-def plan(source):
-    """写す候補を順に返す: (作業データからの相対パス, 大きさ, 更新時刻)。シンボリックリンクはたどらない。
-    transcribe\\bin の下は whisper.cpp- で始まるフォルダだけ入り、その中はフォルダ名で除かない(build の bin\\Release などの名前でも写す)"""
-    stack = [("", None)]   # (相対パス, 入り方) None = ふつう / "bin" = whisper.cpp- のフォルダだけ / "keep" = フォルダ名で除かない
+def _scan(root, enter, keep):
+    """root の下のファイルを順に返す: (root からの相対パス, 大きさ, 更新時刻)。plan(写す側)と _walk_backup(写し戻す側)の歩き方。
+    scandir を名前順・シンボリックリンクはたどらない・読めないものは飛ばす(安全の決まりはここ 1 か所)。
+    enter(相対パス, 名前, 親の入り方) -> そのフォルダの入り方(None = 入らない)。keep(名前, 入り方) -> そのファイルを返すか。
+    os.walk にしない(Windows では DirEntry がフォルダを読んだときの stat を持っているので、ファイルごとの stat が増えない)"""
+    stack = [("", "")]   # (相対パス, 入り方)
     while stack:
         rel, mode = stack.pop()
         try:
-            entries = sorted(os.scandir(os.path.join(source, rel)), key=lambda e: e.name)
+            entries = sorted(os.scandir(os.path.join(root, rel)), key=lambda e: e.name)
         except OSError:
             continue
         for e in entries:
@@ -73,23 +83,34 @@ def plan(source):
                     continue
                 r = os.path.join(rel, e.name)
                 if e.is_dir(follow_symlinks=False):
-                    low = e.name.lower()
-                    if mode == "bin":
-                        if low.startswith(KEEP_BIN_PREFIX):
-                            stack.append((r, "keep"))
-                    elif mode == "keep":
-                        stack.append((r, "keep"))
-                    elif low == "bin" and rel.lower() == "transcribe":
-                        stack.append((r, "bin"))
-                    elif _excite_chat(r):
-                        continue   # 配信中の検出の生のチャット(他の視聴者の発言。64MB まで)は写さない(写すと、配信のあとワーカーが消しても写しに残る)
-                    elif not skip(e.name, True):
-                        stack.append((r, None))
-                elif mode != "bin" and e.is_file(follow_symlinks=False) and not skip(e.name, False):
+                    sub = enter(r, e.name, mode)
+                    if sub is not None:
+                        stack.append((r, sub))
+                elif e.is_file(follow_symlinks=False) and keep(e.name, mode):
                     st = e.stat(follow_symlinks=False)
                     yield r, st.st_size, st.st_mtime
             except OSError:
                 continue
+
+
+def _plan_enter(r, name, mode):
+    """plan の入り方: "" = ふつう / "bin" = whisper.cpp- のフォルダだけ / "keep" = フォルダ名で除かない / None = 入らない"""
+    low = name.lower()
+    if mode == "bin":
+        return "keep" if low.startswith(KEEP_BIN_PREFIX) else None
+    if mode == "keep":
+        return "keep"
+    if low == "bin" and os.path.dirname(r).lower() == "transcribe":
+        return "bin"
+    if _excite_chat(r):
+        return None   # 配信中の検出の生のチャット(他の視聴者の発言。64MB まで)は写さない(写すと、配信のあとワーカーが消しても写しに残る)
+    return None if skip(name, True) else ""
+
+
+def plan(source):
+    """写す候補を順に返す: (作業データからの相対パス, 大きさ, 更新時刻)。シンボリックリンクはたどらない。
+    transcribe\\bin の下は whisper.cpp- で始まるフォルダだけ入り、その中はフォルダ名で除かない(build の bin\\Release などの名前でも写す)"""
+    return _scan(source, _plan_enter, lambda name, mode: mode != "bin" and not skip(name, False))
 
 
 def _excite_chat(rel):
@@ -121,14 +142,15 @@ def same(dst, size, mtime):
     return st.st_size == size and abs(st.st_mtime - mtime) < 2.0   # FAT・exFAT の更新時刻は 2 秒きざみ
 
 
-def copy_one(src, dst, day):
-    """一時的な名前へ写してから改名。すでにあるファイルは、その日の最初の1回だけ `.prev` に1つ前を残す"""
+def copy_one(src, dst, day=None):
+    """一時的な名前へ写してから改名。すでにあるファイルは、その日(day = YYYY-MM-DD)の最初の1回だけ `.prev` に1つ前を残す。
+    day が None なら 1つ前は残さない(写し戻し)"""
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     tmp = "%s%s%d" % (dst, SKIP_MARK, os.getpid())
     try:
         shutil.copy2(src, tmp)
-        if os.path.exists(dst):
-            prev = dst + ".prev"
+        if day is not None and os.path.exists(dst):
+            prev = dst + PREV_SUFFIX
             try:
                 fresh = os.path.exists(prev) and datetime.date.fromtimestamp(os.stat(prev).st_mtime).isoformat() == day
             except OSError:
@@ -143,11 +165,7 @@ def copy_one(src, dst, day):
                     pass   # 1つ前を残せなくても、新しい分は写す
         os.replace(tmp, dst)
     finally:
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+        fsio.unlink_quiet(tmp)   # 写しきれなかった一時ファイル(置き換えたあとは無い)
 
 
 def run_once(source, folder, day=None, stop=None, on_file=None):
@@ -161,7 +179,7 @@ def run_once(source, folder, day=None, stop=None, on_file=None):
     if drive and not os.path.isdir(drive + os.sep):
         raise ValueError("バックアップ先のドライブ(%s)が見つかりません" % drive)
     dest = os.path.join(os.path.abspath(folder), DEST_NAME)
-    if _inside(dest, source) or _inside(source, dest) or _inside(folder, source):
+    if _overlaps(dest, source) or _overlaps(source, dest) or _overlaps(folder, source):
         raise ValueError("バックアップ先を作業データの中(または外側)にはできません。別のドライブのフォルダを指定してください")
     os.makedirs(dest, exist_ok=True)
     day = day or datetime.date.today().isoformat()
@@ -181,7 +199,7 @@ def run_once(source, folder, day=None, stop=None, on_file=None):
                 on_file(rel)
         except OSError as e:   # 使用中・読めないファイルは飛ばして続ける(次の回でもう一度)
             if len(out["errors"]) < MAX_ERRORS:
-                out["errors"].append("%s: %s" % (rel, e.strerror or e.__class__.__name__))
+                out["errors"].append("%s: %s" % (rel, tools.why(e)))
     return out
 
 
@@ -204,22 +222,13 @@ class Backup:
         self.last = self._load_state()
 
     def _load_state(self):
-        try:
-            with open(self.state_path, "rb") as f:
-                d = json.loads(f.read(64 * 1024).decode("utf-8-sig"))
-        except (OSError, ValueError):
-            d = None
-        return d if isinstance(d, dict) else {}
+        return fsio.read_json_or(self.state_path, {}, max_bytes=STATE_MAX, kind=dict)
 
     def _save_state(self):
         try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            tmp = self.state_path + ".tmp"
-            with open(tmp, "wb") as f:
-                f.write(json.dumps(self.last, ensure_ascii=False).encode("utf-8"))
-            os.replace(tmp, self.state_path)
+            fsio.write_json(self.state_path, self.last, indent=None)
         except OSError as e:
-            self.log("バックアップ: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            self.log("バックアップ: 記録を書けませんでした(%s)" % (tools.why(e)))
 
     def _cfg(self):
         import prefs as prefs_mod
@@ -314,40 +323,7 @@ class Backup:
 
 def _walk_backup(root):
     """バックアップ側の (相対パス, 大きさ, 更新時刻)。`.prev`(1つ前の控え)と途中のファイルは数えない。シンボリックリンクはたどらない"""
-    stack = [""]
-    while stack:
-        rel = stack.pop()
-        try:
-            entries = sorted(os.scandir(os.path.join(root, rel)), key=lambda e: e.name)
-        except OSError:
-            continue
-        for e in entries:
-            try:
-                if e.is_symlink():
-                    continue
-                r = os.path.join(rel, e.name)
-                if e.is_dir(follow_symlinks=False):
-                    stack.append(r)
-                elif e.is_file(follow_symlinks=False) and not e.name.lower().endswith(PREV_SUFFIX) and SKIP_MARK not in e.name.lower():
-                    st = e.stat(follow_symlinks=False)
-                    yield r, st.st_size, st.st_mtime
-            except OSError:
-                continue
-
-
-def _put(src, dst):
-    """一時的な名前へ写してから改名(写し戻し用。1つ前は残さない)"""
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    tmp = "%s%s%d" % (dst, SKIP_MARK, os.getpid())
-    try:
-        shutil.copy2(src, tmp)
-        os.replace(tmp, dst)
-    finally:
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+    return _scan(root, lambda r, name, mode: "", lambda name, mode: not name.lower().endswith(PREV_SUFFIX) and SKIP_MARK not in name.lower())
 
 
 def restore_once(folder, target, stop=None, dry_run=False):
@@ -363,7 +339,7 @@ def restore_once(folder, target, stop=None, dry_run=False):
     if not target:
         raise ValueError("写し戻す先(作業データ)が決まっていません")
     target = os.path.abspath(target)
-    if _inside(src_root, target) or _inside(target, src_root):
+    if _overlaps(src_root, target) or _overlaps(target, src_root):
         raise ValueError("バックアップと写し戻す先が重なっています")
     out = {"copied": 0, "same": 0, "newer": 0, "bytes": 0, "errors": [], "source": src_root}
     for rel, size, mtime in _walk_backup(src_root):
@@ -378,12 +354,12 @@ def restore_once(folder, target, stop=None, dry_run=False):
                 out["newer"] += 1
                 continue
             if not dry_run:
-                _put(os.path.join(src_root, rel), dst)
+                copy_one(os.path.join(src_root, rel), dst, None)
             out["copied"] += 1
             out["bytes"] += size
         except OSError as e:
             if len(out["errors"]) < MAX_ERRORS:
-                out["errors"].append("%s: %s" % (rel, e.strerror or e.__class__.__name__))
+                out["errors"].append("%s: %s" % (rel, tools.why(e)))
     return out
 
 
@@ -393,9 +369,6 @@ def main(argv=None):
     ap.add_argument("--target", metavar="DIR", help="写し戻す先(既定: 作業データの本物の場所)")
     ap.add_argument("--yes", action="store_true", help="確認を聞かない")
     a = ap.parse_args(argv)
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if root not in sys.path:
-        sys.path.insert(0, root)
     target = a.target
     if not target:
         from ytt_core import datadir

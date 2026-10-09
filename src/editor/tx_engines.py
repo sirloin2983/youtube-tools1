@@ -46,6 +46,25 @@ except ImportError:   # このファイルだけを読み込んだとき(tests/t
 DEFAULT = "faster-whisper"
 
 
+def env_num(name, default, lo=1, hi=64, cast=int):
+    """環境変数 name の数(cast で読む)を lo〜hi に収めて返す。無い・空・読めなければ default(収めない)。
+    サーバー側(ed_jobs・ed_speakers)とワーカーの両方が使う(標準ライブラリだけ)"""
+    try:
+        return max(lo, min(hi, cast(str(os.environ.get(name) or default).strip())))
+    except ValueError:
+        return default
+
+
+def is_16k_mono(w):
+    """開いた wav(wave.open)が、認識・判別に渡す形(16kHz・モノラル・16bit = ed_jobs.extract_audio が作るもの)か"""
+    return w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == 16000
+
+
+def half_cpu():
+    """CPU で動かす認識(whisper.cpp の -t・sherpa-onnx の認識器)のスレッド数: CPU の半分(1〜8)"""
+    return max(1, min(8, (os.cpu_count() or 4) // 2))
+
+
 class EngineError(Exception):
     """エンジンの準備・実行の失敗(理由を画面に出す)。code はサーバーの ApiError の code になる"""
 
@@ -130,7 +149,7 @@ class FasterWhisper(Engine):
         既定は 8(この PC の P コアの数)。環境変数 TRANSCRIBE_CPU_THREADS で変えられる(0 = ライブラリの既定)。git の履歴(679ff01 以前)の docs/plan/stability-review-2026-10.md の S2"""
         if device != "cpu":
             return {}
-        n = _env_int("TRANSCRIBE_CPU_THREADS", min(8, os.cpu_count() or 4), lo=0)
+        n = env_num("TRANSCRIBE_CPU_THREADS", min(8, os.cpu_count() or 4), lo=0)
         return {"cpu_threads": n} if n > 0 else {}
 
     def transcribe(self, audio, **kw):
@@ -222,7 +241,7 @@ def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
     if got != spec["size"] or h.hexdigest() != spec["sha256"]:
         _fsio.unlink_quiet(part)
         raise EngineError("fetch_failed", "取得した %s の中身が想定と違うので使いません(大きさ %d / SHA-256 が一致しない)" % (spec["file"], got))
-    os.replace(part, path)
+    _fsio.replace_retry(part, path)
     return path
 
 
@@ -274,12 +293,7 @@ class WhisperCpp(Engine):
 
     @classmethod
     def manifest(cls, data_dir):
-        try:
-            with open(os.path.join(wcpp_bin_dir(data_dir), "build.json"), encoding="utf-8") as f:
-                d = json.load(f)
-            return d if isinstance(d, dict) else None
-        except (OSError, ValueError):
-            return None
+        return _fsio.read_json_or(os.path.join(wcpp_bin_dir(data_dir), "build.json"), None, kind=dict)
 
     @classmethod
     def ready(cls, data_dir):
@@ -334,7 +348,7 @@ class WhisperCpp(Engine):
     def args(self, wav, out_base, kw):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(ed_jobs.whisper_kwargs が作る)"""
         a = ["-m", _ascii_path(self.model["model"]), "-f", _ascii_path(wav), "-ojf", "-of", _ascii_path(out_base), "-pp",
-             "-t", str(max(1, min(8, (os.cpu_count() or 4) // 2))), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
+             "-t", str(half_cpu()), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
             a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(10-08 の測定。ヒントで精度は上がらなかったので -mc 0 のまま。画面の #glossDev で案内)
         if not self.flash_attn():
@@ -653,15 +667,45 @@ def _read_16k(audio, what):
     import numpy as np
     if isinstance(audio, str):
         with wave.open(audio, "rb") as w:
-            if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
+            if not is_16k_mono(w):
                 raise EngineError("engine_failed", "%s に渡す音声の形が想定と違います(16kHz・モノラル・16bit)" % what)
             return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
     return np.asarray(audio, dtype=np.float32)
 
 
+def _frame_rms(x):
+    """float32 のサンプル → Q3_FRAME 秒の 1 コマごとの音の大きさ(RMS)の並び(最後の半端なコマも 1 コマ)。認識ワーカーの中だけで呼ぶ(numpy)"""
+    import numpy as np
+    f = int(16000 * Q3_FRAME)
+    nf = len(x) // f + (1 if len(x) % f else 0)
+    return [float(np.sqrt(np.mean(np.square(x[i * f:(i + 1) * f])))) if len(x[i * f:(i + 1) * f]) else 0.0 for i in range(nf)]
+
+
+def _ensure_tar_model(spec, folder, log, hooks):
+    """sherpa-onnx の公式の tar.bz2 のモデル(spec = dir・parts・url・size・sha256)を folder に用意して、そのフォルダを返す。
+    parts がそろっていれば何もしない。無ければ取得(fetch_file)→ 展開(_safe_extract)→ 圧縮ファイルを消す → そろったか確かめる"""
+    mdir = os.path.join(folder, spec["dir"])
+    if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
+        tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
+        _safe_extract(tar, folder, spec["dir"])
+        _fsio.unlink_quiet(tar)
+        if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
+            raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
+    return mdir
+
+
+def _need_sherpa(setup):
+    """sherpa-onnx が入っていなければ EngineError(setup = 入れ方の案内の .bat の名前)"""
+    try:
+        import sherpa_onnx  # noqa: F401
+    except ImportError:
+        raise EngineError("engine_missing", "sherpa-onnx が入っていません(setup\\%s を実行してください)" % setup, 400)
+
+
 class _Qwen3Chunked(Engine):
-    """Qwen3-ASR の共通部分: 音の小さい所で区切り(q3_chunks)、区切りごとに _decode で文章にし、q3_rows で行にする。
-    時刻・自信の度合いを出さないので、行の時刻は目安・avg_logprob は無い。温度は 0 相当(faster-whisper の温度のやり直しは使わない)"""
+    """時刻を出さない(または区切りごとに読む)エンジンの共通部分(Qwen3-ASR の 2 つと SenseVoice): 音の小さい所で区切り(q3_chunks)、
+    無音の区切りは読まず、区切りの中の行は _chunk_rows で作る(Qwen3 = _decode の文章 → q3_rows / SenseVoice = トークンの時刻 → sv_rows)。
+    自信の度合いを出さないので avg_logprob は無い。温度は 0 相当(faster-whisper の温度のやり直しは使わない)"""
     PARAMS = ["hotwords", "language", "vad_filter", "vad_parameters", "word_timestamps"]   # language は区切りごとに指定・vad と単語の時刻は受け取るだけ
     DEFAULT_MODEL = ""
     WHAT = "Qwen3-ASR"
@@ -672,27 +716,34 @@ class _Qwen3Chunked(Engine):
     def _decode(self, samples, lang, hot, max_tokens):
         raise NotImplementedError
 
-    def transcribe(self, audio, **kw):
-        import numpy as np
-        x = _read_16k(audio, self.WHAT)
+    def _setup(self, kw):
+        """区切りを読む前に 1 回 -> (情報の language, 区切りごとに _chunk_rows へ渡すもの)。Qwen3 = 言語の名前とヒントの語"""
         hot = ",".join(t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip())
-        lang = Q3_LANG.get(str(kw.get("language") or ""), "")
+        return kw.get("language") or "ja", (Q3_LANG.get(str(kw.get("language") or ""), ""), hot)
+
+    def _chunk_rows(self, x, c0, c1, rms, ctx):
+        """区切り [c0, c1)(コマ)の行 [(始め, 終わり, 文字)](音声の頭からの秒)。Qwen3: 文章にして、声のあるコマに字数を比例させて割り振る"""
         f = int(16000 * Q3_FRAME)
-        nf = len(x) // f + (1 if len(x) % f else 0)
-        rms = [float(np.sqrt(np.mean(np.square(x[i * f:(i + 1) * f])))) if len(x[i * f:(i + 1) * f]) else 0.0 for i in range(nf)]
+        lang, hot = ctx
+        text = self._decode(x[c0 * f:c1 * f], lang, hot, max(Q3_TOKENS_MIN, int((c1 - c0) * Q3_FRAME * Q3_TOKENS_PER_SEC)))
+        floor = q3_floor(rms[c0:c1])
+        return q3_rows(text, c0 * Q3_FRAME, c1 * Q3_FRAME, voiced=[v > floor for v in rms[c0:c1]])
+
+    def transcribe(self, audio, **kw):
+        x = _read_16k(audio, self.WHAT)
+        rms = _frame_rms(x)
         chunks = q3_chunks(rms)
-        info = types.SimpleNamespace(language=kw.get("language") or "ja", duration=len(x) / 16000.0, duration_after_vad=None)
+        language, ctx = self._setup(kw)
+        info = types.SimpleNamespace(language=language, duration=len(x) / 16000.0, duration_after_vad=None)
 
         def gen():
-            for n, (a, b) in enumerate(chunks):
+            for n, (c0, c1) in enumerate(chunks):
                 if self._cancelled():
                     raise EngineError("cancelled", "中止しました")
                 self._progress(min(0.99, n / max(1, len(chunks))))
-                if max(rms[a:b] or [0.0]) < Q3_SILENT:
+                if max(rms[c0:c1] or [0.0]) < Q3_SILENT:
                     continue
-                text = self._decode(x[a * f:b * f], lang, hot, max(Q3_TOKENS_MIN, int((b - a) * Q3_FRAME * Q3_TOKENS_PER_SEC)))
-                floor = q3_floor(rms[a:b])
-                for t0, t1, line in q3_rows(text, a * Q3_FRAME, b * Q3_FRAME, voiced=[v > floor for v in rms[a:b]]):
+                for t0, t1, line in self._chunk_rows(x, c0, c1, rms, ctx):
                     raw = line.encode("utf-8")
                     yield types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
                                                 compression_ratio=len(raw) / len(zlib.compress(raw)))
@@ -718,19 +769,8 @@ class Qwen3Asr(_Qwen3Chunked):
         spec = QWEN3_MODELS.get(name)
         if spec is None:
             raise EngineError("bad_model", "Qwen3-ASR で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(QWEN3_MODELS)), 400)
-        try:
-            import sherpa_onnx  # noqa: F401
-        except ImportError:
-            raise EngineError("engine_missing", "sherpa-onnx が入っていません(setup\\install.bat を実行してください)", 400)
-        hooks = hooks or {}
-        folder = q3_model_dir(data_dir)
-        mdir = os.path.join(folder, spec["dir"])
-        if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
-            tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
-            _safe_extract(tar, folder, spec["dir"])
-            _fsio.unlink_quiet(tar)
-            if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
-                raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
+        _need_sherpa("install.bat")
+        mdir = _ensure_tar_model(spec, q3_model_dir(data_dir), log, hooks or {})
         e = cls(name, device, {"dir": mdir, "rec": {}})
         try:
             e._recognizer("")   # 読み込めるかをここで確かめる
@@ -751,7 +791,7 @@ class Qwen3Asr(_Qwen3Chunked):
             rec[hotwords] = sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
                 conv_frontend=os.path.join(d, "conv_frontend.onnx"), encoder=os.path.join(d, "encoder.int8.onnx"),
                 decoder=os.path.join(d, "decoder.int8.onnx"), tokenizer=os.path.join(d, "tokenizer"),
-                num_threads=max(1, min(8, (os.cpu_count() or 4) // 2)), max_new_tokens=512, max_total_len=1536, hotwords=hotwords)
+                num_threads=half_cpu(), max_new_tokens=512, max_total_len=1536, hotwords=hotwords)
         return rec[hotwords]
 
     def _decode(self, samples, lang, hot, max_tokens):
@@ -822,14 +862,16 @@ def sv_rows(tokens, stamps, a, b, gap=SV_GAP, max_chars=SV_MAX_CHARS):
     return out
 
 
-class SenseVoice(Engine):
+class SenseVoice(_Qwen3Chunked):
     """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(ed_fill)。小さいので主のモデルと一緒に持つ(light)。
+    区切り方は Qwen3 と同じ(_Qwen3Chunked)。区切りの中の行はトークンの時刻で作る(_chunk_rows。時刻が無ければ Qwen3 と同じ割り振り)。
     FAKE_TEXT(テスト用)が文字列なら、音声を読まずにその文字を 1 行にして返す(空なら行なし。tx_worker.install_fakes が環境変数 TRANSCRIBE_FAKE_FILL から入れる)"""
     id = "sense-voice"
     package = "sherpa-onnx"
     light = True
     PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # language 以外は受け取るだけ
     DEFAULT_MODEL = "sense-voice-small"
+    WHAT = "SenseVoice"
     FAKE_TEXT = None
 
     @classmethod
@@ -847,25 +889,10 @@ class SenseVoice(Engine):
             raise EngineError("bad_model", "SenseVoice で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(SENSE_VOICE_MODELS)), 400)
         if cls.FAKE_TEXT is not None:
             return cls(name, "cpu", {"fake": cls.FAKE_TEXT})
-        try:
-            import sherpa_onnx  # noqa: F401
-        except ImportError:
-            raise EngineError("engine_missing", "sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
-        hooks = hooks or {}
-        folder = sv_model_dir(data_dir)
-        mdir = os.path.join(folder, spec["dir"])
-        if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
-            tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
-            _safe_extract(tar, folder, spec["dir"])
-            _fsio.unlink_quiet(tar)
-            if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
-                raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
-        e = cls(name, "cpu", {"dir": mdir, "rec": {}})
+        _need_sherpa("install-diarize.bat")
+        e = cls(name, "cpu", {"dir": _ensure_tar_model(spec, sv_model_dir(data_dir), log, hooks or {}), "rec": {}})
         e._recognizer("ja")   # 読み込めるかをここで確かめる
         return e
-
-    def params(self):
-        return list(self.PARAMS)
 
     def _recognizer(self, lang):
         """言語ごとの認識器(1 つだけ持つ)"""
@@ -875,46 +902,36 @@ class SenseVoice(Engine):
             rec.clear()
             d = self.model["dir"]
             rec[lang] = sherpa_onnx.OfflineRecognizer.from_sense_voice(model=os.path.join(d, "model.int8.onnx"), tokens=os.path.join(d, "tokens.txt"),
-                                                                       num_threads=max(1, min(8, (os.cpu_count() or 4) // 2)), language=lang, use_itn=False)
+                                                                       num_threads=half_cpu(), language=lang, use_itn=False)
         return rec[lang]
 
-    def transcribe(self, audio, **kw):
+    @staticmethod
+    def _lang(kw):
         lang = str(kw.get("language") or "ja")
-        lang = lang if lang in SV_LANGS else "auto"
-        if "fake" in self.model:
-            return self._fake(audio, lang)
-        import numpy as np
-        x = _read_16k(audio, "SenseVoice")
-        f = int(16000 * Q3_FRAME)
-        nf = len(x) // f + (1 if len(x) % f else 0)
-        rms = [float(np.sqrt(np.mean(np.square(x[i * f:(i + 1) * f])))) if len(x[i * f:(i + 1) * f]) else 0.0 for i in range(nf)]
-        chunks = q3_chunks(rms)
-        info = types.SimpleNamespace(language=lang, duration=len(x) / 16000.0, duration_after_vad=None)
-        rec = self._recognizer(lang)
+        return lang if lang in SV_LANGS else "auto"
 
-        def gen():
-            for n, (c0, c1) in enumerate(chunks):
-                if self._cancelled():
-                    raise EngineError("cancelled", "中止しました")
-                self._progress(min(0.99, n / max(1, len(chunks))))
-                if max(rms[c0:c1] or [0.0]) < Q3_SILENT:
-                    continue
-                st = rec.create_stream()
-                st.accept_waveform(16000, x[c0 * f:c1 * f])
-                rec.decode_stream(st)
-                r = st.result
-                a0, b0 = c0 * Q3_FRAME, c1 * Q3_FRAME
-                toks, ts = list(getattr(r, "tokens", None) or []), list(getattr(r, "timestamps", None) or [])
-                if toks and len(ts) == len(toks):
-                    rows = sv_rows(toks, ts, a0, b0)
-                else:   # 時刻が無ければ Qwen3 と同じ割り振り(声のあるコマに字数を比例)
-                    floor = q3_floor(rms[c0:c1])
-                    rows = q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
-                for t0, t1, line in rows:
-                    raw = line.encode("utf-8")
-                    yield types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
-                                                compression_ratio=len(raw) / len(zlib.compress(raw)))
-        return gen(), info
+    def transcribe(self, audio, **kw):
+        if "fake" in self.model:
+            return self._fake(audio, self._lang(kw))
+        return super().transcribe(audio, **kw)
+
+    def _setup(self, kw):
+        """言語ごとの認識器(区切りを読む前に 1 回作る)"""
+        lang = self._lang(kw)
+        return lang, self._recognizer(lang)
+
+    def _chunk_rows(self, x, c0, c1, rms, rec):
+        f = int(16000 * Q3_FRAME)
+        st = rec.create_stream()
+        st.accept_waveform(16000, x[c0 * f:c1 * f])
+        rec.decode_stream(st)
+        r = st.result
+        a0, b0 = c0 * Q3_FRAME, c1 * Q3_FRAME
+        toks, ts = list(getattr(r, "tokens", None) or []), list(getattr(r, "timestamps", None) or [])
+        if toks and len(ts) == len(toks):
+            return sv_rows(toks, ts, a0, b0)
+        floor = q3_floor(rms[c0:c1])   # 時刻が無ければ Qwen3 と同じ割り振り(声のあるコマに字数を比例)
+        return q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
 
     def _fake(self, audio, lang):
         """テスト用(FAKE_TEXT): 音声の長さ全体に 1 行(空なら行なし)"""
@@ -925,16 +942,9 @@ class SenseVoice(Engine):
         return iter(segs), info
 
 
-def _env_int(name, default, lo=1, hi=64):
-    try:
-        return min(hi, max(lo, int(str(os.environ.get(name) or default).strip())))
-    except ValueError:
-        return default
-
-
 # 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた(2026-10-02)。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
 # CPU を替えたので(10-04)環境変数 TRANSCRIBE_LLAMA_THREADS で変えられるようにした
-LLAMA_THREADS = _env_int("TRANSCRIBE_LLAMA_THREADS", 8)
+LLAMA_THREADS = env_num("TRANSCRIBE_LLAMA_THREADS", 8)
 LLAMA_START_SEC = 180    # 起動(モデルの読み込み)を待つ上限
 _ASR_TEXT = "<asr_text>"
 

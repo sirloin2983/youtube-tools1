@@ -26,19 +26,17 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
 録画そのものは置き場所(既定 E:\\Video\\live-rec\\)。ドライブが無ければ作業データの中へ逃がさず、画面で案内する。
 """
 import argparse
-import hmac
 import json
 import os
 import re
 import secrets
 import shutil
 import signal
-import socket
 import sys
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -50,7 +48,7 @@ from ytt_core import datadir, fsio, httpsec  # noqa: E402
 import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
-VERSION = "0.3.2"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
+VERSION = "0.3.3"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024
@@ -82,12 +80,7 @@ def load_token(ddir):
 
 
 def read_settings(ddir):
-    try:
-        with open(os.path.join(ddir, "settings.json"), "r", encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return fsio.read_json_or(os.path.join(ddir, "settings.json"), {}, max_bytes=64 * 1024, kind=dict)
 
 
 def save_folder(ddir, folder):
@@ -115,10 +108,9 @@ def make_logger(path, echo=True):
     lock = threading.Lock()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        if os.path.getsize(path) > LOG_MAX:
-            os.replace(path, path[:-4] + ".old.log")
     except OSError:
         pass
+    fsio.rotate(path, LOG_MAX)
 
     def log(msg):
         line = "%s %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
@@ -156,11 +148,8 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _head(self, code, ctype, size, cache):
-        """応答の見出し。-> 本文を送るか(HEAD なら送らない)"""
-        self.send_response(code)
-        for k, v in (("Content-Type", ctype), ("Content-Length", str(size)), ("X-Content-Type-Options", "nosniff"), ("Cache-Control", cache)):
-            self.send_header(k, v)
-        self.end_headers()
+        """応答の見出し(ytt_core.httpsec.send_head)。-> 本文を送るか(HEAD なら送らない)"""
+        httpsec.send_head(self, code, ctype, size, cache=cache)
         return self.command != "HEAD"
 
     def _send(self, code, body=b"", ctype="application/json; charset=utf-8", cache="no-store"):
@@ -191,8 +180,7 @@ class Handler(BaseHTTPRequestHandler):
             err = ("host", "forbidden")
         elif h.get("Origin") is not None or h.get("Sec-Fetch-Site") is not None:   # ブラウザは入口を通す
             err = ("browser", "録画の部品はブラウザから直接は使えません(ホームの画面から使ってください)")
-        elif path == "/api/ping" or hmac.compare_digest((h.get(TOKEN_HEADER) or "").encode("utf-8", "replace"),
-                                                        ("Bearer " + self.server.token).encode("ascii")):
+        elif path == "/api/ping" or httpsec.token_ok(h, self.server.token, header=TOKEN_HEADER, prefix="Bearer "):
             return True
         else:
             err = ("token", "合言葉が違います")
@@ -244,27 +232,20 @@ class Handler(BaseHTTPRequestHandler):
     do_HEAD = do_GET
 
     def _body(self):
-        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
-            self._drain()
-            self._fail(415, "content_type", "application/json だけを受け付けます")
-            return None
+        """書き込み系の要求の本文(JSON のオブジェクト。本文が空なら {})。読み方の規則は ytt_core.httpsec.read_json_body。
+        断る理由ごとの状態・コード・文だけここで決める。-> dict か、応答済みの None"""
         try:
-            n = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            n = -1
-        if n < 0 or n > BODY_MAX:
-            self._drain()
-            self._fail(413, "size", "本文の大きさが正しくありません")
+            return httpsec.read_json_body(self, BODY_MAX, empty_ok=True)
+        except httpsec.BodyError as e:
+            if e.kind == "type":
+                self._fail(415, "content_type", "application/json だけを受け付けます")
+            elif e.kind in ("length", "size"):
+                self._fail(413, "size", "本文の大きさが正しくありません")
+            elif e.kind == "object":
+                self._fail(400, "json", "JSON のオブジェクトを送ってください")
+            else:   # 読めなかった・途中で切れた・JSON でない
+                self._fail(400, "json", "JSON が読めません")
             return None
-        try:
-            obj = json.loads((self.rfile.read(n) if n else b"{}").decode("utf-8"))
-        except (OSError, ValueError, UnicodeError):
-            self._fail(400, "json", "JSON が読めません")
-            return None
-        if not isinstance(obj, dict):
-            self._fail(400, "json", "JSON のオブジェクトを送ってください")
-            return None
-        return obj
 
     def do_POST(self):
         u = urllib.parse.urlsplit(self.path)
@@ -302,19 +283,11 @@ class Handler(BaseHTTPRequestHandler):
         return self._missing("その操作はありません")
 
 
-class Server(ThreadingHTTPServer):
-    allow_reuse_address = os.name != "nt"
-    daemon_threads = True
-
+class Server(httpsec.ExclusiveServer):   # Windows は使用中のポートにも bind できてしまうので独占する(httpsec が持つ。入口と同じ)
     def __init__(self, addr, rec, token, ddir, allowed_hosts):
         super().__init__(addr, Handler)
         self.rec, self.token, self.ddir = rec, token, ddir
         self.allowed_hosts = set(allowed_hosts)
-
-    def server_bind(self):   # Windows は使用中のポートにも bind できてしまうので独占する(入口と同じ)
-        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        super().server_bind()
 
     def request_quit(self):
         time.sleep(0.2)

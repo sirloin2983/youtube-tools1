@@ -127,7 +127,7 @@ def ytcap_after_transcribe(job, spec, tid):
         ed_jobs.add_job(ytcap_spec(tid, {}), "ytcap")
     except ed_state.ApiError as e:
         if e.code not in ("no_clip", "eval_set"):
-            job["warnings"] = list(job.get("warnings") or []) + ["YouTube の字幕を取るのを始められませんでした: " + e.message]
+            ed_state.add_warning(job, "YouTube の字幕を取るのを始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
         ed_state.log.warning("YouTube の字幕を取るのを始められませんでした: %s %s", tid, e)
 
@@ -140,27 +140,6 @@ def ytcap_command():
     if not p:
         raise ed_state.ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
     return [sys.executable, p] if p.lower().endswith(".py") else [p]
-
-
-def _ytcap_flags():
-    if os.name != "nt":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)   # 窓を出さない・画面の操作が先に CPU を取る
-
-
-def _ytcap_kill(proc):
-    """yt-dlp(Windows の exe は中で子のプロセスを起こす)を、子ごと止める"""
-    if proc.poll() is not None:
-        return
-    if os.name == "nt":
-        try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        except (OSError, subprocess.SubprocessError):
-            pass
-    try:
-        proc.kill()
-    except OSError:
-        pass
 
 
 def ytcap_classify(err, rc):
@@ -189,16 +168,17 @@ def _ytcap_run(job, cmd, work):
     """yt-dlp を動かす(取り消し・時間の上限)。→ (終了コード, 標準出力, 標準エラーの終わり)"""
     out_p, err_p = os.path.join(work, "stdout.txt"), os.path.join(work, "stderr.txt")
     with open(out_p, "wb") as fo, open(err_p, "wb") as fe:
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fo, stderr=fe, cwd=work, creationflags=_ytcap_flags())
-        job["proc"] = proc   # cancel_job が止める(子のプロセスは下の _ytcap_kill)
+        # 窓を出さない・画面の操作が先に CPU を取る(「通常より下」の優先度)
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=fo, stderr=fe, cwd=work, creationflags=_tools.no_window_flags(priority="low"))
+        job["proc"] = proc   # cancel_job が止める(yt-dlp の exe は中で子のプロセスを起こすので、下で子ごと止める = tools.kill_tree)
         t0 = time.monotonic()
         try:
             while proc.poll() is None:
                 if job.get("cancel"):
-                    _ytcap_kill(proc)
+                    _tools.kill_tree(proc)
                     raise ed_jobs.Cancelled()
                 if time.monotonic() - t0 > YTCAP_TIMEOUT_SEC:
-                    _ytcap_kill(proc)
+                    _tools.kill_tree(proc)
                     raise ed_state.ApiError("timeout", "YouTube の字幕の取得が %d 秒を超えたのでやめました。しばらく時間をおいてから、もう一度試してください" % YTCAP_TIMEOUT_SEC, 504)
                 time.sleep(0.2)
         finally:
@@ -260,7 +240,7 @@ def ytcap_fetch(job, vid):
                 break
         if pick is None and os.path.isfile(os.path.join(work, "cap.%s.json3" % YTCAP_AUTO_LANG)):
             pick = ("auto", YTCAP_AUTO_LANG, os.path.join(work, "cap.%s.json3" % YTCAP_AUTO_LANG))
-        now = int(time.time() * 1000)
+        now = ed_state.now_ms()
         if pick is None:
             if rc != 0 or info is None:   # 取れなかった(非公開・削除・ボットの確認など)
                 raise ytcap_classify(err, rc)
@@ -348,7 +328,7 @@ def ytcap_load(vid):
 
 def ytcap_fresh(d, now_ms=None):
     """取り直さなくてよいか(字幕は 30 日・「字幕が無い」は 1 日)"""
-    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    now_ms = ed_state.now_ms() if now_ms is None else now_ms
     ttl = YTCAP_NONE_TTL_SEC if d.get("kind") == "none" else YTCAP_TTL_SEC
     return 0 <= now_ms - d["at"] < ttl * 1000
 
@@ -498,7 +478,7 @@ def run_ytcap(job):
             doc = ed_store.read_transcript(tid)
             rows, rng = ytcap_doc_rows(doc, cache)   # 取る間に文書の範囲が変わっていても、今の範囲で切る
             body = {"schema": YTCAP_SCHEMA, "id": tid, "source": "youtube", "kind": cache["kind"], "lang": cache.get("lang", ""), "videoId": rng["videoId"],
-                    "at": int(time.time() * 1000), "fetchedAt": cache["at"], "offset": rng["offset"], "streamRange": [rng["a"], rng["b"]],
+                    "at": ed_state.now_ms(), "fetchedAt": cache["at"], "offset": rng["offset"], "streamRange": [rng["a"], rng["b"]],
                     "range": [rng["docStart"], rng["docEnd"]], "rows": rows}
             ed_state.atomic_write(ytcap_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         with _ytcap_cache_lock:

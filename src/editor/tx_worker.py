@@ -120,9 +120,10 @@ def _audio(a):
     if "from" not in a:
         return path
     import numpy as np
+    import tx_engines
     lo, hi = int(a["from"]), int(a["to"])
     with wave.open(path, "rb") as w:
-        if w.getnchannels() != 1 or w.getsampwidth() != 2 or w.getframerate() != 16000:
+        if not tx_engines.is_16k_mono(w):
             raise ValueError("音声の形式が想定と違います")
         lo = max(0, min(lo, w.getnframes()))
         w.setpos(lo)
@@ -185,20 +186,11 @@ def install_fakes(S):
     S._gpu_ready_local = lambda: False
 
     def fake_diarize(job, wav, num, emb=None, threshold=None, min_on=None, min_off=None):
+        """サーバーの疑似の判別(ed_speakers.diarize_fake)と同じ区切りを、wav の長さで作る(偽物どうしが食い違わないよう、本体を共有する)"""
         with wave.open(wav, "rb") as w:
             total = w.getnframes() / float(w.getframerate())
         S.diar_tune(threshold, min_on, min_off)   # 本物と同じく、正しくない値は断る
-        n, t, k, turns = (num or (1 if threshold is not None and threshold >= 1.0 else 2)), 0.0, 0, []   # ed_speakers.diarize_fake と同じ
-        while t < total:
-            if job["cancel"]:
-                raise S.Cancelled()
-            e = min(total, t + 10.0)
-            turns.append((t, e, k % n))
-            k += 1
-            t = e
-            job["progress"] = min(0.99, t / max(total, 1e-6))
-            time.sleep(delay)
-        return turns
+        return S.diarize_fake(job, total, num, threshold)
     S._diarize_local = fake_diarize
     S._embed_local = lambda job, wav, emb, groups: S.embed_fake(groups)   # 声の特徴(A-3)も偽の話者判別と同じ区切りで
     # whisper.cpp(段2-2)は偽の whisper-cli(tests/fake_whisper_cli.py)を動かす。モデルは取らない
@@ -218,47 +210,60 @@ def _engine(S, m):
     return e
 
 
+def _op_load(S, m, rid, job, out, cancels):
+    model, dev = S._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(S, m))
+    return {"device": dev, "params": list(model.params())}   # エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)
+
+
+def _op_transcribe(S, m, rid, job, out, cancels):
+    name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(S, m)
+    with S._model_lock:
+        model = S._models.get((name, dev, eng))
+    if model is None:   # 読み込んだあとに手放された(通常は起きない)→ 同じ機器で読み直す
+        model, dev = S._load_model_local(name, job, dev, False, eng)
+    audio = _audio(m.get("audio") or {})
+    kw = m.get("kw") or {}
+    # 子プロセスで動くエンジン(whisper.cpp)は、終わるまで行が出ないので、取り消しと進み具合をエンジンに渡す
+    model.hooks = {"cancelled": lambda: rid in cancels, "progress": lambda v: job.__setitem__("progress", v)}
+    segs, info = model.transcribe(audio, **kw)
+    # 声の検出(VAD)の結果は、行を読み始める前に分かる(faster-whisper は transcribe() の中で先に VAD をかける)。
+    # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
+    out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
+                                               for k in ("duration", "duration_after_vad")}})
+    n = 0
+    for s in segs:
+        if rid in cancels:
+            break
+        out.send({"rid": rid, "ev": "item", "v": _seg_dict(s)})
+        n += 1
+    S._model_used[0] = time.time()
+    return {"count": n, "cancelled": rid in cancels, "language": getattr(info, "language", None)}
+
+
+def _op_diarize(S, m, rid, job, out, cancels):
+    # 判別の設定(threshold・minOn・minOff)は任意。無い要求は以前と同じ呼び方(既定の値)
+    tune = {k: m[w] for k, w in S.DIAR_TUNE if m.get(w) is not None}
+    turns = S._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or S.DIAR_EMB_DEFAULT), **tune)
+    return [[float(a), float(b), int(k)] for a, b, k in turns]
+
+
+def _op_embed(S, m, rid, job, out, cancels):
+    groups = [[(float(a), float(b)) for a, b in g] for g in (m.get("groups") or [])]
+    return S._embed_local(job, str(m.get("wav")), str(m.get("emb") or S.DIAR_EMB_DEFAULT), groups)
+
+
+OPS = {"load": _op_load, "transcribe": _op_transcribe, "diarize": _op_diarize, "embed": _op_embed}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
+
+
 def handle(S, m, out, cancels):
     rid, op = m.get("rid"), m.get("op")
     job = JobProxy(rid, out, cancels)
     try:
-        if op == "load":
-            model, dev = S._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(S, m))
-            out.send({"rid": rid, "ev": "result", "v": {"device": dev, "params": list(model.params())}})   # エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)
-        elif op == "transcribe":
-            name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(S, m)
-            with S._model_lock:
-                model = S._models.get((name, dev, eng))
-            if model is None:   # 読み込んだあとに手放された(通常は起きない)→ 同じ機器で読み直す
-                model, dev = S._load_model_local(name, job, dev, False, eng)
-            audio = _audio(m.get("audio") or {})
-            kw = m.get("kw") or {}
-            # 子プロセスで動くエンジン(whisper.cpp)は、終わるまで行が出ないので、取り消しと進み具合をエンジンに渡す
-            model.hooks = {"cancelled": lambda: rid in cancels, "progress": lambda v: job.__setitem__("progress", v)}
-            segs, info = model.transcribe(audio, **kw)
-            # 声の検出(VAD)の結果は、行を読み始める前に分かる(faster-whisper は transcribe() の中で先に VAD をかける)。
-            # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
-            out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
-                                                       for k in ("duration", "duration_after_vad")}})
-            n = 0
-            for s in segs:
-                if rid in cancels:
-                    break
-                out.send({"rid": rid, "ev": "item", "v": _seg_dict(s)})
-                n += 1
-            S._model_used[0] = time.time()
-            out.send({"rid": rid, "ev": "result", "v": {"count": n, "cancelled": rid in cancels,
-                                                         "language": getattr(info, "language", None)}})
-        elif op == "diarize":
-            # 判別の設定(threshold・minOn・minOff)は任意。無い要求は以前と同じ呼び方(既定の値)
-            tune = {k: m[w] for k, w in S.DIAR_TUNE if m.get(w) is not None}
-            turns = S._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or S.DIAR_EMB_DEFAULT), **tune)
-            out.send({"rid": rid, "ev": "result", "v": [[float(a), float(b), int(k)] for a, b, k in turns]})
-        elif op == "embed":
-            groups = [[(float(a), float(b)) for a, b in g] for g in (m.get("groups") or [])]
-            out.send({"rid": rid, "ev": "result", "v": S._embed_local(job, str(m.get("wav")), str(m.get("emb") or S.DIAR_EMB_DEFAULT), groups)})
-        else:
+        fn = OPS.get(op) if isinstance(op, str) else None
+        if fn is None:
             out.send({"rid": rid, "ev": "error", "code": "bad_op", "message": "不明な要求: %s" % op, "status": 500})
+        else:
+            out.send({"rid": rid, "ev": "result", "v": fn(S, m, rid, job, out, cancels)})
     except S.Cancelled:
         out.send({"rid": rid, "ev": "error", "code": "cancelled", "message": "中止しました"})
     except (S.tx_engines.EngineError, S.ApiError) as e:

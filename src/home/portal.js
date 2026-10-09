@@ -15,7 +15,6 @@
   var BUSY_LABEL = { start: '起動しています…', stop: '止めています…', restart: '再起動しています…' };
   var STATUS = { '': '未設定', working: '作業中', posted: '投稿済み', skipped: '見送り' };
   var STATUS_PILL = { '': '', working: 'accent', posted: 'ok', skipped: 'wait' };   // 作業中は人が付けた状態(回る輪の run は本当に動いているときだけ。M7)
-  var STEP_STATE = { wait: '待ち', run: '実行中', done: '済み', skip: '飛ばした', warn: '一部失敗', error: '失敗' };
   var STEP_PILL = { wait: 'wait', run: 'run', done: 'ok', skip: 'wait', warn: 'warn', error: 'err' };
   var POLL_MS = 1500, POLL_HIDDEN_MS = 5000;
   var PAGE_SIZE = 30, DOC_PAGE = 20, TODO_CAP = 5;
@@ -23,8 +22,6 @@
   var cards = {};        // ツールID → {el, data}
   var busy = {};         // ツールID → 実行中の操作(二重押し防止)
   var fails = 0, closed = false, timer = null, quitNotice = '';
-  var tokenMeta = document.querySelector('meta[name="ytt-token"]');
-  var TOKEN = tokenMeta ? tokenMeta.content : '';   // 書き込み系の API の合言葉(CSRF トークン。サーバーが画面に入れる)
 
   var casesData = null;                 // /api/cases の中身
   var txList = null, txById = {};       // /transcribe/api/transcripts(読めないときは null。次にやること・単体の文字起こしの詳しい表示に使う)
@@ -52,32 +49,16 @@
   function $(sel, el) { return (el || document).querySelector(sel); }
   function $all(sel, el) { return Array.prototype.slice.call((el || document).querySelectorAll(sel)); }
 
-  function fetchT(path, init, ms) {
-    var ctl = window.AbortController ? new AbortController() : null, t = null;
-    if (ctl) { init.signal = ctl.signal; t = setTimeout(function () { ctl.abort(); }, ms); }
-    return fetch(path, init).then(function (r) { clearTimeout(t); return r; }, function (e) { clearTimeout(t); throw e; });
+  /* 入口の API(UIKit.homeApi。合言葉・時間切れ・失敗の形は ui-kit の 1 か所)。path は入口の直下からの相対('api/cases')。
+     POST はいつも本文を送る(無ければ {})。時間切れは GET 8 秒・POST 60 秒(opt で上書き: keepalive・timeout)。
+     失敗の本文(message)に出すのは日本語の文だけ。サーバーの文は e.reason、HTTP の番号・通信の例外の原文は e.detail(知らせの「詳しく」・title)へ(B-03) */
+  var API_TEXT = { offline: 'ホームにつながりませんでした', slow: 'ホームの応答が遅れています', fail: 'ホームがうまく応答できませんでした' };
+  function api(path, method, body, opt) {
+    var post = method === 'POST';
+    return UIKit.homeApi(path, Object.assign({ method: method || 'GET', body: post ? (body || {}) : undefined, timeout: post ? 60000 : 8000 }, API_TEXT, opt));
   }
 
-  function api(path, method, body) {
-    var init = { method: method || 'GET', cache: 'no-store', headers: {} };
-    if (init.method === 'POST') { init.headers['Content-Type'] = 'application/json'; init.headers['X-YTT-Token'] = TOKEN; init.body = JSON.stringify(body || {}); }
-    return fetchT(path, init, init.method === 'POST' ? 60000 : 8000).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok) {   // 本文に出すのは日本語の文だけ。HTTP の番号・サーバーの原文は detail(知らせの「詳しく」・title)へ(B-03)
-          var e = new Error(j.message || 'ホームがうまく応答できませんでした');
-          e.status = r.status; e.reason = j.message || ''; e.detail = 'HTTP ' + r.status + (j.message ? ' ' + j.message : '');
-          throw e;
-        }
-        return j;
-      });
-    }, function (e) {
-      var ne = new Error(e && e.name === 'AbortError' ? 'ホームの応答が遅れています' : 'ホームにつながりませんでした');
-      ne.reason = ''; ne.detail = String((e && e.message) || e);
-      throw ne;
-    });
-  }
-
-  function toast(msg, kind) { if (window.UIKit && UIKit.toast) UIKit.toast(msg, kind ? { kind: kind } : undefined); }
+  function toast(msg, kind) { UIKit.toast(msg, kind ? { kind: kind } : undefined); }
   /* 失敗の文は「何ができなかったか」+「どうすればいいか」(B-03)。サーバーの文(日本語)は間に入れ、HTTP の番号・例外の名前・英語の原文は
      知らせの「詳しく」(detail)・title にだけ出す */
   function reasonOf(e) {
@@ -92,7 +73,7 @@
   function failToast(what, next, e, retry) {
     var text = failText(what, next, e), opt = { kind: 'err', detail: detailOf(e) };
     if (retry) { opt.action = { label: 'もう一度', fn: retry }; opt.ms = 0; }
-    if (window.UIKit && UIKit.toast) UIKit.toast(text, opt);
+    UIKit.toast(text, opt);
     return text;
   }
 
@@ -119,7 +100,7 @@
   }
   /* ---- 一覧の非表示(ui-kit の UIKit.hide。2026-10-04)---- 案件・次にやること・単体の文字起こし・届いた依頼・まとめて実行の記録。
      覚える場所はホームの設定の節 hidden(どの窓・ツールでも同じ)。データは消さない。「非表示 n件を表示」で薄く出して「表示に戻す」 */
-  function hideApi() { return window.UIKit && UIKit.hide && UIKit.hide.available() ? UIKit.hide : null; }
+  function hideApi() { return UIKit.hide.available() ? UIKit.hide : null; }   // 合言葉があるとき(start.bat から開いたとき)だけ使える
   function isHid(list, id) { var h = hideApi(); return !!(h && h.has(list, id)); }
   function showHid(list) { var h = hideApi(); return !!(h && h.showing(list)); }
   /* 押したボタンが描き直しで消えても、フォーカスを失わない(M6。キーボードの人が画面の先頭から Tab し直さないように)。
@@ -149,7 +130,7 @@
     var on = isHid(list, id), h0 = hideApi();
     var b = el('button', 'btn small ghost pt-hide');
     var ic = el('span', 'pt-hide-ic'); ic.setAttribute('aria-hidden', 'true');
-    if (window.UIKit && UIKit.icon) ic.innerHTML = UIKit.icon(on ? 'undo' : 'close', { size: 14 });   // 狭い幅では文字をやめてアイコンだけ(S11)
+    ic.innerHTML = UIKit.icon(on ? 'undo' : 'close', { size: 14 });   // 狭い幅では文字をやめてアイコンだけ(S11)
     b.appendChild(ic); b.appendChild(el('span', 'pt-hide-t', on ? '表示に戻す' : '非表示にする'));
     b.type = 'button';
     b.setAttribute('aria-label', on ? '表示に戻す' : '非表示にする');
@@ -169,7 +150,7 @@
     node.classList.add('ui-hidden-item');
     if (tagBox) tagBox.appendChild(el('span', 'ui-hidden-tag', '非表示'));
   }
-  function hideToggle(sel, list, n) { if (window.UIKit && UIKit.hide) UIKit.hide.toggle($(sel), list, n); }
+  function hideToggle(sel, list, n) { UIKit.hide.toggle($(sel), list, n); }
 
   function term(word, title) {
     if (termShown[word]) return document.createTextNode(word);
@@ -178,11 +159,8 @@
     a.className = 'ui-term'; a.title = title; a.textContent = word;
     return a;
   }
-  function tc(sec) {
-    sec = Math.max(0, Math.floor(Number(sec) || 0));
-    var h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, s = sec % 60;
-    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
-  }
+  function tc(sec) { return UIKit.fmt.dur(sec, { floor: true }); }   // 秒 → 1:23:45(切り捨て)
+  /* 月/日 時:分(時は 0 埋めしない・年は出さない。UIKit.fmt.date と文が違うので残す。札の title・パックの日時) */
   function when(ms) {
     if (!ms) return '';
     var d = new Date(ms);
@@ -283,7 +261,7 @@
     var c = cards[id];
     if (!c) return;
     var pre = $('.pt-log', c.el);
-    api('/api/log?tool=' + encodeURIComponent(id) + '&lines=300').then(function (j) {
+    api('api/log?tool=' + encodeURIComponent(id) + '&lines=300').then(function (j) {
       var atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
       var text = j.exists ? (j.lines.length ? j.lines.join('\n') : '(まだ出力はありません)') : '(ログはまだありません)';
       if (c.data.state === 'external') text = '※ 別の黒い画面で起動したツールの出力は、その画面に出ています。下は、以前この画面から起動したときのログです。\n\n' + text;
@@ -308,15 +286,15 @@
   function poll() {
     if (closed) return;
     clearTimeout(timer);
-    api('/api/status').then(function (st) {
+    api('api/status').then(function (st) {
       fails = 0;
       setConn(true);
       $('#ver').textContent = 'ホーム v' + st.version;
-      if (window.UIKit && UIKit.appnav) UIKit.appnav.setVersion('v' + st.version);
+      UIKit.appnav.setVersion('v' + st.version);
       if (st.dataDir) { $('#dataDir').textContent = st.dataDir; $('#dataBox').hidden = false; }
       if (st.window) renderWin(st.window);
       st.tools.forEach(updateTool);
-      if (window.UIKit && UIKit.tools && UIKit.tools.setPaths) UIKit.tools.setPaths(toolPaths(st.tools));
+      UIKit.tools.setPaths(toolPaths(st.tools));
       Object.keys(cards).forEach(function (id) { if ($('.pt-logbox', cards[id].el).open) loadLog(id); });
     }).catch(function () {
       fails++;
@@ -330,7 +308,7 @@
     if (busy[id] || closed) return;
     busy[id] = action;
     updateTool(cards[id].data);
-    api('/api/tools/' + encodeURIComponent(id) + '/' + action, 'POST').then(function (j) {
+    api('api/tools/' + encodeURIComponent(id) + '/' + action, 'POST').then(function (j) {
       delete busy[id];
       if (j.tool) updateTool(j.tool);
     }).catch(function (e) {
@@ -342,7 +320,7 @@
 
   /* 窓で開く(段階7-3。2026-09-27 から既定で窓) */
   var winBusy = false;
-  function inApp() { return !!(window.UIKit && UIKit.win && UIKit.win.isApp()); }
+  function inApp() { return UIKit.win.isApp(); }
   function renderWin(w) {
     if (winBusy) return;
     var box = $('#winBox'), sw = $('#winMode'), now = $('#btnWinNow');
@@ -360,7 +338,7 @@
   }
   function setWin(mode) {
     winBusy = true;
-    api('/api/window', 'POST', { mode: mode }).then(function (j) {
+    api('api/window', 'POST', { mode: mode }).then(function (j) {
       winBusy = false;
       renderWin(j.window);
       toast(mode === 'app' ? '次に起動したときから、窓で開きます(いま開くなら「いま窓で開く」)' : '次に起動したときから、いつものブラウザで開きます', 'ok');
@@ -371,7 +349,6 @@
     });
   }
   function openWinNow() {
-    if (!(window.UIKit && UIKit.win)) return;
     UIKit.win.open(location.origin + '/').then(function () {
       toast('窓で開きました。このタブは閉じてかまいません', 'ok');
     }, function (e) { failToast('窓で開けませんでした', 'いつものブラウザのタブのまま使えます', e); });
@@ -382,7 +359,7 @@
     var b = $('#btnQuit');
     b.disabled = true;
     b.textContent = '終了しています…';
-    api('/api/shutdown', 'POST').then(function (r) {
+    api('api/shutdown', 'POST').then(function (r) {
       quitNotice = (r && r.notice) || '';   // 録画中なので録画の部品を残した、など(0.38.1)
       closed = true;
       clearTimeout(timer);
@@ -397,13 +374,16 @@
   }
   function quit() {
     var b = $('#btnQuit');
-    if (window.UIKit && UIKit.confirmTwice) UIKit.confirmTwice(b, doQuit, 'もう一度押すと終了します');
+    UIKit.confirmTwice(b, doQuit, 'もう一度押すと終了します');
   }
+  /* 入口が止まるまで待つ: 応答があれば(エラーの応答 = e.status があるときも)まだ動いている。応答が無くなったら終わった */
   function waitGone(n) {
-    fetchT('/api/ping', { cache: 'no-store' }, 2000).then(function () {
+    function alive() {
       if (n < 40) setTimeout(function () { waitGone(n + 1); }, 700);
       else doneText('終了に時間がかかっています', '黒い画面が残っていれば、その画面を閉じてください。');
-    }).catch(function () {
+    }
+    api('api/ping', 'GET', null, { timeout: 2000 }).then(alive, function (e) {
+      if (e.status) { alive(); return; }
       doneText('すべて終了しました', 'この画面(タブ・窓)は閉じてかまいません。もう一度使うときは start.bat をダブルクリックしてください。');
     });
   }
@@ -481,11 +461,10 @@
   var deliverJobs = {};          // 案件の id/マークの id → {msg}(届けている途中。一覧を描き直しても出し続ける)
   var deliverFolder = null;      // 依頼の受付の Dropbox のフォルダが決まっているか(null = まだ分からない = 押せる。決まっていなければサーバーが理由を返す)
   function autoKey(kase, cl) { return kase.id + '/' + cl.markId; }
-  function twice(btn, run, text) { if (window.UIKit && UIKit.confirmTwice) UIKit.confirmTwice(btn, run, text); }   // 二度押しの確認(ブラウザの confirm は使わない)
   function iconBtn(icon, label, cls) {
     var b = el('button', 'btn small ' + cls);
     b.type = 'button';
-    if (window.UIKit && UIKit.icon) b.innerHTML = UIKit.icon(icon);   // 決まった SVG の文字列だけ(画面のデータは入れない)
+    b.innerHTML = UIKit.icon(icon);   // 決まった SVG の文字列だけ(画面のデータは入れない)
     b.appendChild(document.createTextNode(label));
     return b;
   }
@@ -530,14 +509,14 @@
       ok.disabled = !!why;
       ok.title = why || 'パックを zip にして Dropbox の 出力 に置きます(友人のアプリの「受け取る」に出ます。字幕は校正前のたたき台です)';
       ok.setAttribute('aria-describedby', msg.id);
-      ok.addEventListener('click', function () { twice(ok, function () { autoDeliver(kase, cl); }, 'もう一度押すと届けます'); });
+      ok.addEventListener('click', function () { UIKit.confirmTwice(ok, function () { autoDeliver(kase, cl); }, 'もう一度押すと届けます'); });   // 二度押しの確認(ブラウザの confirm は使わない)
       row.appendChild(ok);
       msg.textContent = dj ? dj.msg : why;
     }
     var no = iconBtn('trash', '要らない', 'danger pt-ac-discard');
     no.disabled = !!dj;
     no.title = dj ? '届けている途中です(終わってから押せます)' : 'パック・切り抜きの動画を ごみ箱フォルダ へ移し(3 日で消えます)、スタジオのマークを不採用にして、誤検出として記録します';
-    no.addEventListener('click', function () { twice(no, function () { autoDiscard(kase, cl, no); }, 'もう一度押すとごみ箱へ'); });
+    no.addEventListener('click', function () { UIKit.confirmTwice(no, function () { autoDiscard(kase, cl, no); }, 'もう一度押すとごみ箱へ'); });
     row.appendChild(no);
     row.appendChild(msg);
     li.appendChild(row);
@@ -546,10 +525,8 @@
   function markSeen(kase, cl) {
     if ((cl.review || {}).seenAt) return;
     cl.review = Object.assign({}, cl.review, { seenAt: Date.now(), unconfirmed: false });
-    try {
-      fetch('/api/cases/auto', { method: 'POST', keepalive: true, cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-YTT-Token': TOKEN },
-        body: JSON.stringify({ op: 'seen', id: kase.id, markId: cl.markId }) }).catch(function () { /* 次に開いたときにまた送る */ });
-    } catch (e) { /* 同上 */ }
+    api('api/cases/auto', 'POST', { op: 'seen', id: kase.id, markId: cl.markId }, { keepalive: true, timeout: 0 })
+      .catch(function () { /* 次に開いたときにまた送る */ });
   }
   /* 案件の行の切り抜きだけを描き直す(押したボタンが消えても、同じ切り抜きの次の操作へフォーカスを移す) */
   function repaintClips(caseId) {
@@ -569,7 +546,7 @@
     var k = autoKey(kase, cl);
     deliverJobs[k] = { msg: 'zip にしています…' };
     repaintClips(kase.id);
-    api('/api/cases/auto', 'POST', { op: 'deliver', id: kase.id, markId: cl.markId }).then(function (r) {
+    api('api/cases/auto', 'POST', { op: 'deliver', id: kase.id, markId: cl.markId }).then(function (r) {
       followDeliver(kase, cl, r.job, 0);
     }, function (e) {
       delete deliverJobs[k];
@@ -595,8 +572,8 @@
   }
   function autoDiscard(kase, cl, btn) {
     btn.disabled = true;
-    api('/api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
-      if (window.UIKit && UIKit.toast) UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(3 日で消えます)', { kind: 'ok', detail: r.trash || '' });
+    api('api/cases/auto', 'POST', { op: 'discard', id: kase.id, markId: cl.markId }).then(function (r) {
+      UIKit.toast('ごみ箱フォルダへ移して、スタジオのマークを不採用にしました(3 日で消えます)', { kind: 'ok', detail: r.trash || '' });
       var h = hideApi(); if (h) h.load(true);   // その文字起こしを非表示にしたので、覚えている非表示を読み直す
       afterAutoAction(kase.id);
     }, function (e) {
@@ -652,29 +629,27 @@
   function wireAuto(node, c) {
     var box = $('.pt-auto', node), mode = $('.pt-auto-mode', box), top = $('.pt-auto-top', box), who = $('.pt-auto-streamer', box);
     if (c.gone) { goneAuto(box, c); return; }
-    if (window.UIKit && UIKit.streamer) UIKit.streamer.attach(who);
+    UIKit.streamer.attach(who);
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
-    else if (window.UIKit && UIKit.streamer && UIKit.streamer.autoFill) UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
+    else UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
     /* 形・採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4。以前はこのブラウザの ytt.cases.mode/top)。
        形の初期値は配信の状態から(マークが 0 = 解析から全部・採用あり = 採用後を全部。どちらでもなければ保存した形。S-4) */
-    var ar = window.UIKit && UIKit.autorun;
+    var ar = UIKit.autorun;
     var stateMode = !c.marks.total ? 'full' : c.marks.adopted ? 'adopted' : null;
     mode.value = stateMode || 'adopted';
     var sync = function () { $('.pt-auto-topbox', box).hidden = mode.value !== 'full'; };
-    if (ar) {
-      ar.panel($('.pt-auto-panel', box), { kind: 'video' });
-      ar.load().then(function (st) { if (!stateMode && st.mode) mode.value = st.mode; top.value = String(st.top); sync(); }, function () {});
-    }
-    mode.addEventListener('change', function () { if (window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { mode: mode.value }).catch(function () {}); sync(); });
-    top.addEventListener('change', function () { var n = Math.round(Number(top.value)); if (n >= 1 && n <= 20 && window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { top: n }).catch(function () {}); });
+    ar.panel($('.pt-auto-panel', box), { kind: 'video' });
+    ar.load().then(function (st) { if (!stateMode && st.mode) mode.value = st.mode; top.value = String(st.top); sync(); }, function () {});
+    mode.addEventListener('change', function () { UIKit.prefs.patch('autorun', { mode: mode.value }).catch(function () {}); sync(); });
+    top.addEventListener('change', function () { var n = Math.round(Number(top.value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(function () {}); });
     sync();
     $('.pt-auto-run', box).addEventListener('click', function () {
-      var st = ar ? ar.state() : null;
+      var st = ar.state();
       var body = { id: c.id, mode: mode.value, overwrite: !!(st && st.overwrite) };
       if (mode.value === 'full') body.top = Math.round(Number(top.value) || 3);
-      var chk = window.UIKit && UIKit.streamer && UIKit.streamer.check ? UIKit.streamer.check(who) : Promise.resolve(who.value.trim());
+      var chk = UIKit.streamer.check(who);
       var estBody = { id: c.id, mode: body.mode, top: body.top, overwrite: body.overwrite };
       chk.then(function (name) {
         if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
@@ -682,7 +657,7 @@
         // 先に見積もる: やることが無いなら、理由だけでなく次の一手(スタジオで候補を確認する など)を押せる形で知らせる(M2)
         return api('api/autorun/estimate', 'POST', estBody).catch(function () { return null; }).then(function (est) {
           if (est && est.nothing) { nothingToDo(c, est.reason); return null; }
-          return ar ? ar.start('api/autorun/start', body, estBody) : api('/api/autorun/start', 'POST', body);
+          return ar.start('api/autorun/start', body, estBody);
         });
       }).then(function (r) {
         if (!r) return;   // やることが無い(見積もり。知らせは上の nothingToDo)
@@ -693,7 +668,7 @@
     enterRuns(top, $('.pt-auto-run', box));
     $('.pt-auto-cancel', box).addEventListener('click', function () {
       var r = runsByVideo[c.id]; if (!r) return;
-      api('/api/autorun/cancel', 'POST', { runId: r.id }).then(function (x) { runsByVideo[c.id] = x.run; renderAuto(node, c.id); })
+      api('api/autorun/cancel', 'POST', { runId: r.id }).then(function (x) { runsByVideo[c.id] = x.run; renderAuto(node, c.id); })
         .catch(function (e) { failToast('中止できませんでした', 'もう一度「中止」を押してください', e); });
     });
     renderAuto(node, c.id);
@@ -708,10 +683,10 @@
     }
     var opt = { kind: 'info', ms: 12000 };
     if (act) opt.action = { label: act.label, fn: function () { location.href = act.href; } };   // 同じ窓で移る(S-15)
-    if (window.UIKit && UIKit.toast) UIKit.toast('やることがありません: ' + (reason || '済んでいます') + next, opt);
+    UIKit.toast('やることがありません: ' + (reason || '済んでいます') + next, opt);
   }
-  function runLabel(r) { return window.UIKit && UIKit.autorun ? UIKit.autorun.runLabel(r) : r.state; }   // 状態の言葉は1か所(何もしなかったら「完了」と言わない)
-  function ago(ms) { return ms ? (window.UIKit && UIKit.fmt ? UIKit.fmt.ago(ms) : when(ms)) : ''; }
+  function runLabel(r) { return UIKit.autorun.runLabel(r); }   // 状態の言葉は1か所(何もしなかったら「完了」と言わない)
+  function ago(ms) { return UIKit.fmt.ago(ms); }   // 「3分前」「昨日 12:34」(無ければ '')
   /* 止まった理由(失敗 = エラーの文・中止 = 「入口を終了しました」など)。済みなら空 */
   function runReason(r) { return r.error || (r.state === 'cancelled' && r.message ? r.message : ''); }
   /* 前回の結果の1行(記録のファイルから。段2 B-6): 「前回 採用後を全部: 失敗 ・ 理由(3日前)」 */
@@ -743,7 +718,7 @@
     if (!x) return;
     (x.steps || []).forEach(function (st) {   // 段の札は前回の分も出す
       var li = el('li', 'pt-auto-step');
-      li.appendChild(el('span', 'pill ' + (STEP_PILL[st.state] || 'wait'), st.label + ' ' + (window.UIKit && UIKit.autorun ? UIKit.autorun.stepLabel(st) : (STEP_STATE[st.state] || st.state))));
+      li.appendChild(el('span', 'pill ' + (STEP_PILL[st.state] || 'wait'), st.label + ' ' + UIKit.autorun.stepLabel(st)));
       if (st.detail) li.appendChild(el('span', 'hint', st.detail));
       ol.appendChild(li);
     });
@@ -790,7 +765,7 @@
 
   function caseSubText(c) {
     var parts = [c.channel || '(配信者不明)'];
-    if (c.streamedAt && window.UIKit && UIKit.fmt) parts.push(UIKit.fmt.ago(c.streamedAt));
+    if (c.streamedAt) parts.push(ago(c.streamedAt));
     parts.push('切り抜き ' + c.marks.exported + '本');
     if (c.gone) parts.push('スタジオから消えた配信(最後に見えた内容)');
     return parts.filter(Boolean).join(' ・ ');
@@ -838,7 +813,7 @@
     var sel = $('.pt-case-status', node);
     sel.value = c.status || '';
     sel.addEventListener('change', function () {
-      api('/api/cases/update', 'POST', { id: c.id, status: sel.value }).then(function (r) {
+      api('api/cases/update', 'POST', { id: c.id, status: sel.value }).then(function (r) {
         c.status = r.status; toast('状態を「' + STATUS[r.status] + '」にしました', 'ok');
         pill.className = 'pill pt-case-statuspill' + (STATUS_PILL[r.status] ? ' ' + STATUS_PILL[r.status] : '');
         pill.textContent = STATUS[r.status];
@@ -901,7 +876,7 @@
     var value = memoNow(id);
     st.busy = true; st.sent = value; st.again = false; st.msg = '';
     memoUi(id);
-    api('/api/cases/update', 'POST', { id: id, memo: value }).then(function (r) {
+    api('api/cases/update', 'POST', { id: id, memo: value }).then(function (r) {
       var c = caseById(id);
       if (c) c.memo = r.memo;
       st.busy = false;
@@ -1017,16 +992,20 @@
       });
     }
 
-    var moreBox = $('#moreBox'), moreBtn = $('#btnMore'), rest = totalCount - shown.length;
-    moreBox.hidden = rest <= 0;
-    if (rest > 0) moreBtn.textContent = 'もっと見る(あと ' + rest + ' 件)';
+    var narrowed = gval || $('#fStatus').value || $('#fText').value.trim() || autoOnly;
+    paintCount('#count', '#moreBox', '#btnMore', narrowed, totalCount, casesData.cases.length, shown.length);
     hideToggle('#casesHidden', 'cases', casesData.cases.filter(function (c) { return visible(c, true) && isHid('cases', c.id) && !active(runsByVideo[c.id]); }).length);
     paintAutoFilter();
-    var narrowed = gval || $('#fStatus').value || $('#fText').value.trim() || autoOnly;
-    // 絞り込んだときは「合う数 / 全体の数」(分母は全体。「もっと見る」で隠れている分は別に書く。S5)
-    $('#count').textContent = (narrowed ? totalCount + ' / ' + casesData.cases.length + ' 件' : totalCount + ' 件') + (rest > 0 ? '(' + shown.length + ' 件を表示)' : '');
     restoreFocus(focusInfo);
     updateSummaryLine();
+  }
+  /* 一覧の件数の文と「もっと見る(あと n 件)」(案件・単体の文字起こし)。絞り込んだときは「合う数 / 全体の数」(分母は全体。
+     「もっと見る」で隠れている分は「(m 件を表示)」と別に書く。S5) */
+  function paintCount(countSel, moreBoxSel, moreBtnSel, narrowed, n, total, shownN) {
+    var rest = n - shownN;
+    $(moreBoxSel).hidden = rest <= 0;
+    if (rest > 0) $(moreBtnSel).textContent = 'もっと見る(あと ' + rest + ' 件)';
+    $(countSel).textContent = (narrowed ? n + ' / ' + total + ' 件' : n + ' 件') + (rest > 0 ? '(' + shownN + ' 件を表示)' : '');
   }
   function resetPaging() { visibleCount = PAGE_SIZE; render(); }
   /* 絞り込みで 0 件のとき(M5): 条件を消すボタン。条件が空なのに 0 件 = 全部が非表示 → 非表示を出すボタン */
@@ -1039,7 +1018,7 @@
     }
     if (!filtered) {
       return emptyBox('表示できる配信はありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。',
-        { label: '非表示のものも出す', fn: function () { if (window.UIKit && UIKit.hide) UIKit.hide.setShowing('cases', true); } });
+        { label: '非表示のものも出す', fn: function () { UIKit.hide.setShowing('cases', true); } });
     }
     return emptyBox('条件に合う配信はありません', '絞り込みを消すと、全部の配信が出ます。', { label: '絞り込みを消す', fn: function () {
       $('#fText').value = ''; $('#fStatus').value = ''; lsSet('status', ''); autoOnly = false; resetPaging(); $('#fText').focus({ preventScroll: true });
@@ -1069,21 +1048,15 @@
     box.appendChild(row);
     return box;
   }
-  /* 「依頼の受付」を開いて、最初に入れる欄へ(見張るフォルダが空ならフォルダ、入っていれば「依頼を受け付ける」のスイッチ) */
-  function openIntakeSettings() {
-    var box = $('#intakeBox');
+  /* 設定の欄(依頼の受付・バックアップ)を開いて、最初に入れる欄へ(フォルダが空ならフォルダ、入っていればオン・オフのスイッチ) */
+  function openSettingsBox(boxSel, folderSel, switchSel) {
+    var box = $(boxSel);
     box.open = true;
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    ($('#intakeFolder').value.trim() ? $('#intakeEnabled') : $('#intakeFolder')).focus({ preventScroll: true });
+    ($(folderSel).value.trim() ? $(switchSel) : $(folderSel)).focus({ preventScroll: true });
   }
-
-  /* 「作業データのバックアップ」を開いて、最初に入れる欄へ(写す先が空ならフォルダ、入っていれば「自動でバックアップする」のスイッチ) */
-  function openBackupSettings() {
-    var box = $('#backupBox');
-    box.open = true;
-    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    ($('#backupFolder').value.trim() ? $('#backupEnabled') : $('#backupFolder')).focus({ preventScroll: true });
-  }
+  function openIntakeSettings() { openSettingsBox('#intakeBox', '#intakeFolder', '#intakeEnabled'); }   // 「依頼を受け付ける」のスイッチ
+  function openBackupSettings() { openSettingsBox('#backupBox', '#backupFolder', '#backupEnabled'); }   // 「自動でバックアップする」のスイッチ
 
   function updateSummaryLine() {
     if (!casesData) return;
@@ -1096,7 +1069,7 @@
 
   var casesLoadFailed = false;
   function loadCases() {
-    return api('/api/cases').then(function (j) { casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+    return api('api/cases').then(function (j) { casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
       casesLoadFailed = true;
       if (casesData) { failToast('案件の一覧を読み直せませんでした', '「読み込み直す」を押してください', e); return; }   // 前の一覧は残す
       // 初めての読み込みの失敗(M9): 欄の中に「何が」+「どうすれば」の 2 文 + [読み込み直す](赤い帯は接続の文だけ)
@@ -1116,7 +1089,7 @@
   function refreshCases() {
     // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
     // (E2 finding 1: 前は render() だけで、alt-tab で戻ったときにこの2つが古いままだった)
-    return api('/api/cases').then(function (j) { casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
+    return api('api/cases').then(function (j) { casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {
@@ -1129,10 +1102,7 @@
   /* ================================================================ 単体の文字起こし(紐づかない文書。旧・案件画面の下の一覧を拡張) ================================================================ */
 
   function loadTxList() {
-    return fetchT('/transcribe/api/transcripts', { cache: 'no-store' }, 8000).then(function (r) {
-      if (!r.ok) throw new Error('http ' + r.status);
-      return r.json();
-    }).then(function (j) {
+    return api('transcribe/api/transcripts').then(function (j) {
       txList = (j && j.items) || [];
       txById = {};
       txList.forEach(function (it) { txById[it.id] = it; });
@@ -1149,12 +1119,14 @@
   /* 同じ題名の文書を見分ける副題(S-26): 元のファイル名・更新日時 */
   function docSubText(fileName, updatedAt) { return [fileName || '', updatedAt ? '更新 ' + ago(updatedAt) : ''].filter(Boolean).join(' ・ '); }
 
+  /* 単体の文字起こしの一覧(検索で絞り、更新の新しい順)。mergedDoc は 1 件に 1 回だけ作る(並べ替えの比較のたびに作らない) */
   function docSearchList(noHide) {
     var q = $('#docSearch').value.trim().toLowerCase();
-    var list = ((casesData && casesData.unlinked) || []).filter(function (u) { return noHide || !isHid('transcripts', u.id) || showHid('transcripts'); });
-    if (q) list = list.filter(function (u) { return (mergedDoc(u).title || '').toLowerCase().indexOf(q) >= 0; });
-    list.sort(function (a, b) { return (mergedDoc(b).updatedAt || 0) - (mergedDoc(a).updatedAt || 0); });
-    return list;
+    var rows = ((casesData && casesData.unlinked) || []).filter(function (u) { return noHide || !isHid('transcripts', u.id) || showHid('transcripts'); })
+      .map(function (u) { return { u: u, d: mergedDoc(u) }; });
+    if (q) rows = rows.filter(function (x) { return (x.d.title || '').toLowerCase().indexOf(q) >= 0; });
+    rows.sort(function (a, b) { return (b.d.updatedAt || 0) - (a.d.updatedAt || 0); });
+    return rows.map(function (x) { return x.u; });
   }
 
   function docCard(u) {
@@ -1226,16 +1198,11 @@
     var de = $('#docEmpty'); de.hidden = !!shown.length;   // 検索で 0 件のとき(M5)
     if (!shown.length) {
       if ($('#docSearch').value.trim()) emptyBox('条件に合う文字起こしはありません', '検索を消すと、全部の文字起こしが出ます。', { label: '検索を消す', fn: function () { $('#docSearch').value = ''; resetDocPaging(); $('#docSearch').focus(); } }, de);
-      else emptyBox('表示できる文字起こしはありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。', { label: '非表示のものも出す', fn: function () { if (window.UIKit && UIKit.hide) UIKit.hide.setShowing('transcripts', true); } }, de);
+      else emptyBox('表示できる文字起こしはありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。', { label: '非表示のものも出す', fn: function () { UIKit.hide.setShowing('transcripts', true); } }, de);
     }
     Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
     hideToggle('#docHidden', 'transcripts', docSearchList(true).filter(function (u) { return isHid('transcripts', u.id); }).length);
-    var narrowed = $('#docSearch').value.trim();
-    var restN = full.length - shown.length;
-    $('#docCount').textContent = (narrowed ? full.length + ' / ' + total + ' 件' : full.length + ' 件') + (restN > 0 ? '(' + shown.length + ' 件を表示)' : '');   // 分母は全体(S5)
-    var rest = restN;
-    $('#docMoreBox').hidden = rest <= 0;
-    if (rest > 0) $('#docMore').textContent = 'もっと見る(あと ' + rest + ' 件)';
+    paintCount('#docCount', '#docMoreBox', '#docMore', $('#docSearch').value.trim(), full.length, total, shown.length);
     syncDocRunButton();
   }
   function resetDocPaging() { docVisibleCount = DOC_PAGE; renderDocs(); }
@@ -1247,15 +1214,12 @@
     var who = $('#docWho').value.trim();
     if (who) body.streamer = who;
     offBtn($('#docRunBtn'), true, '始めています。少し待ってください');
-    var ar = window.UIKit && UIKit.autorun;
-    var go = ar ? ar.start('api/autorun/start-docs', body, { ids: ids, overwrite: body.overwrite }) : api('/api/autorun/start-docs', 'POST', body);
-    go.then(function (r) {
+    UIKit.autorun.start('api/autorun/start-docs', body, { ids: ids, overwrite: body.overwrite }).then(function (r) {
       if (!r) { syncDocRunButton(); return; }   // やることが無い(見積もり)
       (r.runs || []).forEach(function (run) { runsByDoc[run.docId] = run; });
       docPicked = {};
       renderDocs();
       pollAuto();
-      if (!ar) toast(r.runs.length + '件を始めました', 'ok');
     }).catch(function (e) { failToast('まとめて実行を始められませんでした', 'もう一度「選んだ文字起こしをまとめて実行」を押してください', e); syncDocRunButton(); });
   }
 
@@ -1270,7 +1234,7 @@
     if (cleanBusy) return;
     cleanBusy = true;
     $('#cleanWhen').textContent = '探しています…';
-    api('/api/cleanup').then(renderCleanup, function (e) {
+    api('api/cleanup').then(renderCleanup, function (e) {
       $('#cleanWhen').textContent = '';
       var box = $('#cleanKinds'); box.textContent = '';
       var p = el('p', 'hint', failText('候補を読めませんでした', '「候補を探す」をもう一度押してください', e)); p.title = detailOf(e);
@@ -1316,15 +1280,13 @@
   function moveCleanup() {
     var ids = cleanPicked();
     if (!ids.length) return;
-    var ask = window.UIKit && UIKit.dialog ? UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
-      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.trashDays + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' })
-      : Promise.resolve(window.confirm('選んだ物をごみ箱フォルダへ移しますか?'));
-    ask.then(function (ok) {
+    UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
+      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.trashDays + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' }).then(function (ok) {
       if (!ok) return;
       offBtn($('#btnCleanMove'), true, '移しています。少し待ってください');
-      return api('/api/cleanup', 'POST', { ids: ids }).then(function (r) {
+      return api('api/cleanup', 'POST', { ids: ids }).then(function (r) {
         var msg = r.moved.length + ' 件をごみ箱フォルダへ移しました' + (r.failed.length ? '。' + r.failed.length + ' 件は移せませんでした(使っているツールを閉じてから、もう一度「候補を探す」で選び直してください)' : '');
-        if (r.failed.length && window.UIKit && UIKit.toast) UIKit.toast(msg, { kind: 'err', detail: String(r.failed[0].error || '') });
+        if (r.failed.length) UIKit.toast(msg, { kind: 'err', detail: String(r.failed[0].error || '') });
         else toast(msg);
         loadCleanup();
       }, function (e) { failToast('ごみ箱フォルダへ移せませんでした', 'もう一度選んで「移す」を押してください', e); cleanSync(); });
@@ -1334,7 +1296,7 @@
   function loadHealth(refresh) {
     if (healthBusy) return;
     healthBusy = true;
-    api('/api/health' + (refresh ? '?refresh=1' : '')).then(function (h) {
+    api('api/health' + (refresh ? '?refresh=1' : '')).then(function (h) {
       renderHealth(h);
       clearTimeout(healthTimer);
       if (h.computing) healthTimer = setTimeout(function () { loadHealth(false); }, 1500);   // 数えている途中: 少し待って読み直す
@@ -1345,9 +1307,9 @@
   }
   /* 調子の 1 行。札の言葉は決まりの言葉(ok = 問題なし・warn = 注意・err = 要対応・info = 測った数字。S13)。
      subs の項目は文字か {text, title}。tip は行の title(開発者向けの細かい説明・pid・環境変数など。本文には出さない。S9) */
+  var HEALTH_PILL = { ok: ['ok', '問題なし'], bad: ['err', '要対応'], warn: ['warn', '注意'], info: ['info', '測定'] };   // info = 良い・悪いを決めない数字(精度)
   function healthRow(state, title, text, subs, tip) {
-    var li = el('li'), pill = state === 'info' ? el('span', 'pill info', '測定')   // info = 良い・悪いを決めない数字(精度)
-      : el('span', 'pill ' + (state === 'ok' ? 'ok' : state === 'bad' ? 'err' : 'warn'), state === 'ok' ? '問題なし' : state === 'bad' ? '要対応' : '注意');
+    var p = HEALTH_PILL[state] || HEALTH_PILL.warn, li = el('li'), pill = el('span', 'pill ' + p[0], p[1]);
     var body = el('div', 'pt-health-body');
     body.appendChild(el('b', '', title));
     if (text) body.appendChild(el('span', 'hint', ' ' + text));
@@ -1373,6 +1335,8 @@
     row.id = 'liveDetectHealth';
     return row;
   }
+  /* 空き容量の判定(10 GB 未満 = 要対応・30 GB 未満 = 注意) */
+  function diskState(freeBytes) { return freeBytes < 10 * GB ? 'bad' : freeBytes < 30 * GB ? 'warn' : 'ok'; }
   function renderHealth(h) {
     var ul = $('#healthList'); ul.textContent = '';
     $('#healthWhen').textContent = h.countedAt ? '大きさは ' + fmtAgo((Date.now() - h.countedAt) / 1000) + 'に数えた' + (h.computing ? '(数えています…)' : '') : (h.computing ? '数えています…' : '');
@@ -1394,7 +1358,7 @@
     }
     // 空き容量
     (h.disk || []).forEach(function (d) {
-      var st = d.freeBytes < 10 * GB ? 'bad' : d.freeBytes < 30 * GB ? 'warn' : 'ok';
+      var st = diskState(d.freeBytes);
       ul.appendChild(healthRow(st, '空き容量 ' + (d.drive || d.path), fmtBytes(d.freeBytes) + ' / ' + fmtBytes(d.totalBytes) + (st !== 'ok' ? '。片付けを考えてください' : ''), [d.path]));
     });
     // 作業データの大きさ
@@ -1426,7 +1390,7 @@
     // リアルタイム切り抜き(線 D。オンのときだけ h.live がある): 録画元ごとにつながるか・置き場所と空き容量・録画中の本数
     if (h.live) (h.live.recorders || []).forEach(function (r) {
       if (!r.ok) { ul.appendChild(healthRow('bad', '録画元 ' + r.name, r.message || 'つながりません', [r.url])); return; }
-      var lst = r.freeBytes == null ? 'warn' : r.freeBytes < 10 * GB ? 'bad' : r.freeBytes < 30 * GB ? 'warn' : 'ok';
+      var lst = r.freeBytes == null ? 'warn' : diskState(r.freeBytes);
       var st = !r.folderOk || r.streamlink === false || (r.expected && r.version !== r.expected) ? 'bad' : lst;
       var text = (r.active ? '録画中 ' + r.active + ' 本' : '録画していません') + '・空き ' + (r.freeBytes != null ? fmtBytes(r.freeBytes) + ' / ' + fmtBytes(r.totalBytes) : '不明')
         + (r.expected && r.version !== r.expected ? '。版が違います(動いているのは ' + r.version + '、ファイルは ' + r.expected + '。録画中でなければ、ホームが 30 秒以内に起動し直します)' : '')
@@ -1550,7 +1514,7 @@
       if (isHid('transcripts', it.id) || (loc && loc.kase && isHid('cases', loc.kase.id))) return;   // 非表示にした文書・案件の作業は勧めない
       /* どの配信か分かるように、配信者と配信日(案件に無ければ文字起こしの配信者)を添える(B-5) */
       var kase = loc && loc.kase, who = (kase && kase.channel) || it.channel || '';
-      var day = kase && kase.streamedAt && window.UIKit && UIKit.fmt ? UIKit.fmt.date(kase.streamedAt).split(' ')[0] : '';
+      var day = kase && kase.streamedAt ? UIKit.fmt.day(kase.streamedAt) : '';
       var meta = [who, day ? day + ' の配信' : ''].filter(Boolean).join(' ・ ');
       // 配信に紐づかない文書は同じ題名が並びやすいので、元のファイル名と更新日時も添える(S-26)
       if (!kase) meta = [meta, docSubText(it.sourceName || baseName(loc && loc.path), it.updatedAt)].filter(Boolean).join(' ・ ');
@@ -1582,7 +1546,7 @@
     var items = [];
     ((casesData && casesData.cases) || []).forEach(function (c) {
       if (!c.next || DONE_STATUS[c.status] || isHid('cases', c.id)) return;
-      var meta = [c.channel, c.streamedAt && window.UIKit && UIKit.fmt ? UIKit.fmt.date(c.streamedAt).split(' ')[0] + ' の配信' : ''].filter(Boolean).join(' ・ ');
+      var meta = [c.channel, c.streamedAt ? UIKit.fmt.day(c.streamedAt) + ' の配信' : ''].filter(Boolean).join(' ・ ');
       meta = meta ? ' ・ ' + meta : '';
       CASE_TODO.forEach(function (k) {
         var n = active(runsByVideo[c.id]) ? 0 : (c.todo || {})[k[0]] || 0;   // まとめて実行の最中は進行中の行だけ(同じ作業を二重に勧めない)
@@ -1682,7 +1646,7 @@
 
   function pollAuto() {
     clearTimeout(autoTimer);
-    api('/api/autorun').then(function (j) {
+    api('api/autorun').then(function (j) {
       var latestV = {}, latestD = {}, latestF = {}, latestP = {}, anyActive = false, finished = false;
       (j.runs || []).forEach(function (r) {
         if (r.mode === POST_MODE) { if (r.videoId && !latestP[r.videoId]) latestP[r.videoId] = r; }
@@ -1690,33 +1654,17 @@
         else if (r.kind === 'file' || !r.videoId) latestF[r.id || ('f' + Object.keys(latestF).length)] = r;   // 依頼の文字起こしだけ(配信にも文書にも紐づかない)
         else if (!latestV[r.videoId]) latestV[r.videoId] = r;
       });
-      Object.keys(latestF).forEach(function (id) {
-        var r = latestF[id];
-        if (active(r)) anyActive = true;
-        if (wasActiveFile[id] && !active(r)) finished = true;
-        wasActiveFile[id] = active(r);
-      });
-      runsByFile = latestF;
-      Object.keys(latestP).forEach(function (id) {
-        var r = latestP[id];
-        if (active(r)) anyActive = true;
-        if (wasActivePost[id] && !active(r)) finished = true;   // 自動マークが増える(案件の表示を新しくする)
-        wasActivePost[id] = active(r);
-      });
-      postByVideo = latestP;
-      Object.keys(latestV).forEach(function (id) {
-        var r = latestV[id];
-        if (active(r)) anyActive = true;
-        if (wasActiveVideo[id] && !active(r)) finished = true;
-        wasActiveVideo[id] = active(r);
-      });
-      Object.keys(latestD).forEach(function (id) {
-        var r = latestD[id];
-        if (active(r)) anyActive = true;
-        if (wasActiveDoc[id] && !active(r)) finished = true;
-        wasActiveDoc[id] = active(r);
-      });
-      runsByVideo = latestV; runsByDoc = latestD;
+      /* 実行の種類ごとに: 動いているものがあるか(読む間隔)・前は動いていて今は終わったものがあるか(一覧を読み直す)。was はその種類の前回の状態 */
+      function track(latest, was) {
+        Object.keys(latest).forEach(function (id) {
+          var on = active(latest[id]);
+          if (on) anyActive = true;
+          if (was[id] && !on) finished = true;   // あとから解析が終わった = 自動マークが増える(案件の表示を新しくする)
+          was[id] = on;
+        });
+      }
+      track(latestF, wasActiveFile); track(latestP, wasActivePost); track(latestV, wasActiveVideo); track(latestD, wasActiveDoc);
+      runsByFile = latestF; postByVideo = latestP; runsByVideo = latestV; runsByDoc = latestD;
       var pastV = {}, pastD = {};   // 前回の結果(サーバーがこの起動の実行の無い配信・文書だけを返す。新しい順)
       (j.past || []).forEach(function (p) {
         if (p.kind === 'doc') { if (p.docId && !pastD[p.docId]) pastD[p.docId] = p; }
@@ -1749,6 +1697,33 @@
 
   /* ================================================================ 依頼の受付(友人の依頼の自動受付。docs/spec/friend-intake.md の 6) ================================================================ */
 
+  /* ---- 状態と設定を持つ欄(依頼の受付・バックアップ)の共通の形 ---- */
+  /* 状態の札: 色は state の表から・言葉はサーバーの stateLabel(無ければ オン = onText / オフ) */
+  function paintStatePill(sel, colors, d, onText) {
+    var pill = $(sel);
+    pill.className = 'pill ' + (colors[d.state] || 'wait');
+    pill.textContent = d.stateLabel || (d.enabled ? onText : 'オフ');
+  }
+  /* 状態を読む。404(その機能の無い版の入口)なら欄ごと隠す・それ以外で読めなければ札に「読めません」(理由は title) */
+  function pollSection(path, boxSel, pillSel, what, render) {
+    return api(path).then(render, function (e) {
+      if (e.status === 404) { $(boxSel).hidden = true; return; }
+      var pill = $(pillSel);
+      pill.className = 'pill wait'; pill.textContent = '読めません'; pill.title = failText(what + 'の状態を読めませんでした', '画面を読み込み直してください', e);
+    });
+  }
+  /* ホームの設定の節の一部を保存する(api/ytt/prefs の patch。答えの value = 保存したあとの節)。UIKit.prefs.patch はまとめて送り・知らせを自分で出すので使わない */
+  function prefsPatch(section, value) { return api('api/ytt/prefs', 'POST', { op: 'patch', section: section, value: value }); }
+  /* 欄の設定を保存できなかった: 欄の下の文と、知らせ([もう一度] つき)。check = 何を確かめるか */
+  function saveFailed(msg, what, check, e, retry) {
+    msg.textContent = failText('保存できませんでした', check + '、もう一度「設定を保存」を押してください', e);
+    failToast(what + 'の設定を保存できませんでした', check + '、もう一度お試しください', e, retry);
+  }
+  /* 欄に入力したら「まだ保存していない」の印を付けて(読み直しで欄を上書きしない)、前の保存の文を消す */
+  function onEdit(sels, msgSel, mark) {
+    sels.forEach(function (s) { $(s).addEventListener('input', function () { mark(); $(msgSel).textContent = ''; }); });
+  }
+
   var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
   var intakeData = null, intakeSig = '', intakeBusy = false, intakeDirty = false, intakeOpened = false;
   /* 受付の数の欄: [ホームの設定の節 intake の鍵, 欄, 名前, 下限, 上限](範囲は home/prefs.py の INTAKE_RANGES と同じ。欄の min/max も portal.html で同じ値) */
@@ -1762,9 +1737,7 @@
     intakeDirty = false;
   }
   function renderIntakeStatus(d) {
-    var pill = $('#intakeState');
-    pill.className = 'pill ' + (INTAKE_PILL[d.state] || 'wait');
-    pill.textContent = d.stateLabel || (d.enabled ? '見張り中' : 'オフ');
+    paintStatePill('#intakeState', INTAKE_PILL, d, '見張り中');
     $('#intakeMsg').textContent = d.message || '';
     $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
     $('#intakeScan').title = d.lastScan ? when(d.lastScan) : '';
@@ -1813,7 +1786,7 @@
       reqs.forEach(function (r) { ol.appendChild(intakeRow(r)); });
       $('#intakeEmpty').hidden = !!reqs.length;
       if (!reqs.length) {
-        if ((d.requests || []).length) emptyBox('表示できる依頼はありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。', { label: '非表示のものも出す', fn: function () { if (window.UIKit && UIKit.hide) UIKit.hide.setShowing('intake', true); } }, $('#intakeEmpty'));
+        if ((d.requests || []).length) emptyBox('表示できる依頼はありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。', { label: '非表示のものも出す', fn: function () { UIKit.hide.setShowing('intake', true); } }, $('#intakeEmpty'));
         else emptyBox('まだ依頼は届いていません', '友人のアプリから送られると、ここに出ます。', { label: d.enabled ? '受付の設定を見る' : '受付をオンにする', fn: openIntakeSettings }, $('#intakeEmpty'));
       }
     }
@@ -1825,10 +1798,7 @@
     } else if (!intakeDirty) fillIntakeSettings(d);
   }
   function pollIntake() {
-    return api('api/intake').then(renderIntake, function (e) {
-      if (e.status === 404) { $('#intakeBox').hidden = true; return; }   // 受付の無い版の入口(古いサーバー)では出さない
-      $('#intakeState').className = 'pill wait'; $('#intakeState').textContent = '読めません'; $('#intakeState').title = failText('依頼の受付の状態を読めませんでした', '画面を読み込み直してください', e);
-    });
+    return pollSection('api/intake', '#intakeBox', '#intakeState', '依頼の受付', renderIntake);
   }
   function intakeScanNow() {
     if (intakeBusy) return;
@@ -1850,13 +1820,12 @@
     var msg = $('#intakeSaveMsg'), v;
     try { v = partial || intakeValue(); } catch (e) { msg.textContent = e.message; return Promise.resolve(); }
     msg.textContent = '保存しています…';
-    return api('api/ytt/prefs', 'POST', { op: 'patch', section: 'intake', value: v }).then(function () {
+    return prefsPatch('intake', v).then(function () {
       msg.textContent = '保存しました';
       if (!partial) intakeDirty = false;
       return pollIntake();
     }, function (e) {
-      msg.textContent = failText('保存できませんでした', '内容を確かめて、もう一度「設定を保存」を押してください', e);
-      failToast('依頼の受付の設定を保存できませんでした', '内容を確かめて、もう一度お試しください', e, function () { intakeSave(partial); });
+      saveFailed(msg, '依頼の受付', '内容を確かめて', e, function () { intakeSave(partial); });
       if (partial && intakeData) $('#intakeEnabled').checked = !!intakeData.enabled;   // スイッチだけの保存が断られたら、表示を元に戻す
     });
   }
@@ -1865,9 +1834,7 @@
     $('#intakeScanBtn').addEventListener('click', intakeScanNow);
     $('#intakeSave').addEventListener('click', function () { intakeSave(); });
     $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
-    ['#intakeFolder'].concat(INTAKE_NUMS.map(function (n) { return n[1]; })).forEach(function (s) {
-      $(s).addEventListener('input', function () { intakeDirty = true; $('#intakeSaveMsg').textContent = ''; });
-    });
+    onEdit(['#intakeFolder'].concat(INTAKE_NUMS.map(function (n) { return n[1]; })), '#intakeSaveMsg', function () { intakeDirty = true; });
   }
 
   /* ================================================================ 作業データのバックアップ(src/home/backup.py。docs/spec/data-location.md の「バックアップ」) ================================================================ */
@@ -1882,9 +1849,7 @@
     backupDirty = false;
   }
   function renderBackupStatus(d) {
-    var pill = $('#backupState');
-    pill.className = 'pill ' + (BACKUP_PILL[d.state] || 'wait');
-    pill.textContent = d.stateLabel || (d.enabled ? '動いています' : 'オフ');
+    paintStatePill('#backupState', BACKUP_PILL, d, '動いています');
     var n = (d.errors || []).length;
     $('#backupMsg').textContent = d.message || '';
     $('#backupMsg').title = n ? d.errors.join(' / ') : '';
@@ -1906,10 +1871,7 @@
   }
   function pollBackup() {
     if (!$('#backupBox')) return Promise.resolve();
-    return api('api/backup').then(renderBackup, function (e) {
-      if (e.status === 404) { $('#backupBox').hidden = true; return; }   // バックアップの無い版の入口(古いサーバー)では出さない
-      $('#backupState').className = 'pill wait'; $('#backupState').textContent = '読めません'; $('#backupState').title = failText('バックアップの状態を読めませんでした', '画面を読み込み直してください', e);
-    });
+    return pollSection('api/backup', '#backupBox', '#backupState', 'バックアップ', renderBackup);
   }
   function backupRunNow() {
     if (backupBusy) return;
@@ -1930,14 +1892,13 @@
     var msg = $('#backupSaveMsg'), v;
     try { v = partial || backupValue(); } catch (e) { msg.textContent = e.message; if (partial === undefined && backupData) $('#backupEnabled').checked = !!backupData.enabled; return Promise.resolve(); }
     msg.textContent = '保存しています…';
-    return api('api/ytt/prefs', 'POST', { op: 'patch', section: 'backup', value: v }).then(function () {
+    return prefsPatch('backup', v).then(function () {
       msg.textContent = '保存しました';
       backupDirty = false;
       backupFastUntil = Date.now() + 30000;
       return pollBackup();
     }, function (e) {
-      msg.textContent = failText('保存できませんでした', '写す先のフォルダを確かめて、もう一度「設定を保存」を押してください', e);
-      failToast('バックアップの設定を保存できませんでした', '写す先のフォルダを確かめて、もう一度お試しください', e, function () { backupSave(partial); });
+      saveFailed(msg, 'バックアップ', '写す先のフォルダを確かめて', e, function () { backupSave(partial); });
       if (backupData) $('#backupEnabled').checked = !!backupData.enabled;   // 断られたら、スイッチの表示を元に戻す
     });
   }
@@ -1946,9 +1907,7 @@
     $('#backupRunBtn').addEventListener('click', backupRunNow);
     $('#backupSave').addEventListener('click', function () { backupSave(); });
     $('#backupEnabled').addEventListener('change', function () { backupSave(); });   // スイッチは押したらすぐ効く(フォルダと一緒に送る。フォルダが空ならオンにできない)
-    ['#backupFolder', '#backupEvery'].forEach(function (s) {
-      $(s).addEventListener('input', function () { backupDirty = true; $('#backupSaveMsg').textContent = ''; });
-    });
+    onEdit(['#backupFolder', '#backupEvery'], '#backupSaveMsg', function () { backupDirty = true; });
   }
 
   /* ================================================================ まとめて実行の記録(段2 B-6。入口を終えても残る。開いたときだけ読む) ================================================================ */
@@ -1998,7 +1957,7 @@
     histBusy = true;
     if (reset) histOffset = 0;
     var empty = $('#historyEmpty');
-    api('/api/autorun/history?limit=' + HIST_PAGE + '&offset=' + histOffset).then(function (j) {
+    api('api/autorun/history?limit=' + HIST_PAGE + '&offset=' + histOffset).then(function (j) {
       var ol = $('#historyList'), runs = j.runs || [];
       if (reset) ol.textContent = '';
       runs.forEach(function (r) { ol.appendChild(historyRow(r)); });
@@ -2046,7 +2005,7 @@
   }
   /* live の節を一部だけ保存する(value は節の中の鍵。入れ子の detect・autoAdopt・auto は送った鍵だけ変わる)。断られたら今の値を読み直す */
   function saveLiveTop(value, okText) {
-    api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: value }).then(function (j) {
+    prefsPatch('live', value).then(function (j) {
       renderLive(j.value);
       toast(okText, 'ok');
     }, function (e) {
@@ -2074,7 +2033,7 @@
     if (!$('#labBox')) return;
     $('#liveEnabled').addEventListener('change', function () {
       var on = $('#liveEnabled').checked, msg = $('#liveMsg');
-      api('api/ytt/prefs', 'POST', { op: 'patch', section: 'live', value: { enabled: on } }).then(function (j) {
+      prefsPatch('live', { enabled: on }).then(function (j) {
         renderLive(j.value);
         msg.hidden = false;
         msg.textContent = on ? 'オンにしました。録画の部品を裏で起動します(数秒かかります)。スタジオの URL の欄に配信中の URL を入れると録画します' : 'オフにしました(録画中の物があれば、録画の部品はそのまま続けます)';
@@ -2144,22 +2103,23 @@
   });
 
   // ホームがここで開いていることを、ほかの窓の「ホーム」リンクに答える(開き直さずにこの窓を前に出すため。ui-kit の UIKit.portal)
-  if (window.UIKit && UIKit.portal) UIKit.portal.listen();
+  UIKit.portal.listen();
 
   document.addEventListener('DOMContentLoaded', function () {
     /* ⚙ 設定の「ホーム」の節(M10): 窓で開く・まとめて実行の既定・試験中の機能。以前は「詳しく」の中・案件の行に散らばっていた。
        依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは「開く」ボタンで移る */
     var hs = $('#homeSettings');
-    if (window.UIKit && UIKit.settings) { if (hs) hs.hidden = false; UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' }); }
-    if (window.UIKit && UIKit.autorun && $('#setAutorun')) UIKit.autorun.panel($('#setAutorun'), { kind: 'new' });
+    if (hs) hs.hidden = false;
+    UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' });
+    if ($('#setAutorun')) UIKit.autorun.panel($('#setAutorun'), { kind: 'new' });
     function goFromSettings(open) {
       var d = document.getElementById('uiSettingsDrawer');
-      if (d && window.UIKit && UIKit.drawer) UIKit.drawer.close(d);
+      if (d) UIKit.drawer.close(d);
       setTimeout(open, 0);
     }
     $('#setGoIntake').addEventListener('click', function () { goFromSettings(openIntakeSettings); });
     $('#setGoBackup').addEventListener('click', function () { goFromSettings(openBackupSettings); });
-    if (window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#docWho'));
+    UIKit.streamer.attach($('#docWho'));
 
     $('#btnQuit').addEventListener('click', quit);
     $('#btnHealthRefresh').addEventListener('click', function () { loadHealth(true); });
@@ -2172,10 +2132,7 @@
     $('#btnWinNow').addEventListener('click', openWinNow);
     $('#btnCopyData').addEventListener('click', function () {
       var t = $('#dataDir').textContent;
-      if (!t) return;
-      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(
-        function () { toast('パスをコピーしました'); },
-        function () { toast('コピーできませんでした。パスを選んでコピーしてください', 'err'); });
+      if (t) UIKit.copy(t, { ok: 'パスをコピーしました', fail: 'コピーできませんでした。パスを選んでコピーしてください' });
     });
 
     $('#fStatus').addEventListener('change', function () { lsSet('status', $('#fStatus').value); resetPaging(); });
@@ -2184,13 +2141,11 @@
     $('#fGroup').addEventListener('change', function () { lsSet('group', $('#fGroup').value); resetPaging(); });
     $('#autoFilter').addEventListener('click', function () { autoOnly = !autoOnly; openCases = {}; resetPaging(); });   // 絞り込みを変えたら、行の開き方は絞り込みに合わせ直す
     /* 紐づかない文書の「パックがあれば作り直す(上書き)」も、まとめて実行の設定(ホームの設定)と同じ値(どの入口で変えても同じ。段4) */
-    if (window.UIKit && UIKit.autorun) {
-      UIKit.autorun.load().then(function (st) { $('#docOverwrite').checked = st.overwrite; }, function () {});
-      document.addEventListener('ui-autorun-settings', function (e) { if (e.detail) $('#docOverwrite').checked = e.detail.overwrite; });
-    }
+    UIKit.autorun.load().then(function (st) { $('#docOverwrite').checked = st.overwrite; }, function () {});
+    document.addEventListener('ui-autorun-settings', function (e) { if (e.detail) $('#docOverwrite').checked = e.detail.overwrite; });
     $('#docPickAll').addEventListener('click', function () { pickDocs(false); });
     $('#docPickNoPack').addEventListener('click', function () { pickDocs(true); });
-    $('#docOverwrite').addEventListener('change', function () { if (window.UIKit && UIKit.prefs) UIKit.prefs.patch('autorun', { overwrite: $('#docOverwrite').checked }).catch(function () {}); });
+    $('#docOverwrite').addEventListener('change', function () { UIKit.prefs.patch('autorun', { overwrite: $('#docOverwrite').checked }).catch(function () {}); });
     $('#btnMore').addEventListener('click', function () {
       var from = $all('#list .pt-case').length; visibleCount += PAGE_SIZE; render(); focusNewRow('#list .pt-case', from);
     });
@@ -2212,21 +2167,18 @@
     wireIntake();
     wireBackup();
     wireLive();
-    if (window.UIKit && UIKit.hide) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
-      UIKit.hide.onChange(function (list) {
-        if (!list || list === 'cases') render();
-        if (!list || list === 'transcripts') renderDocs();
-        if (!list || list === 'cases' || list === 'transcripts' || list === 'todo') buildTodo();
-        if ((!list || list === 'intake') && intakeData) renderIntake(intakeData);
-        if (!list || list === 'runs') applyHistoryHidden();
-      });
-      UIKit.hide.load();
-    }
+    UIKit.hide.onChange(function (list) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
+      if (!list || list === 'cases') render();
+      if (!list || list === 'transcripts') renderDocs();
+      if (!list || list === 'cases' || list === 'transcripts' || list === 'todo') buildTodo();
+      if ((!list || list === 'intake') && intakeData) renderIntake(intakeData);
+      if (!list || list === 'runs') applyHistoryHidden();
+    });
+    UIKit.hide.load();
 
     restoreFilters();
-    /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため) */
-    if (window.UIKit && UIKit.life) UIKit.life.onReturn(function () { poll(); refreshCases(); });
-    else document.addEventListener('visibilitychange', function () { if (!document.hidden) { poll(); refreshCases(); } });
+    /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため。visibilitychange は直接使わない) */
+    UIKit.life.onReturn(function () { poll(); refreshCases(); });
 
     poll();
     loadCases().then(function () { return loadTxList(); }).then(function () { renderDocs(); buildTodo(); pollAuto(); focusHash(); });

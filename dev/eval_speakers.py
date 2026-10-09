@@ -59,7 +59,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・git の rev・保存・editor の読み込み。src を sys.path に足す)
-from _evalcommon import dist, pct, rate, read_json  # noqa: E402
+from _evalcommon import dist, is_reviewed, pct, rate, read_json  # noqa: E402
+from ytt_core import fsio  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
 DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/editor/ed_speakers.py の DIAR_SCHEMA と同じ(editor は読み込まない)
@@ -196,14 +197,8 @@ def is_other_row(sg, names):
     return sg.get("noSub") is True or sg.get("speaker") == OTHER_VOICE_ID or (bool(sg.get("speaker")) and str(names.get(sg.get("speaker")) or "") == OTHER_VOICE_NAME)
 
 
-def is_reviewed(doc):
-    """動画を全部聞いて確かめた評価用の文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件。道具は editor を読み込まないのでここにも書く)"""
-    return doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
-
-
 def in_period(sg, doc_t, since_ms, until_ms):
-    t = num(sg.get("proofedAt")) or doc_t
-    return not ((since_ms is not None and t < since_ms) or (until_ms is not None and t >= until_ms))
+    return C.in_period(num(sg.get("proofedAt")) or doc_t, since_ms, until_ms)
 
 
 def confirm_map(doc, run, whole):
@@ -449,7 +444,7 @@ def load_docs(tdir, include_eval, only=None):
         tid = name[:-5]
         if only and tid not in only:
             continue
-        doc = read_json(os.path.join(tdir, name))
+        doc = read_json(os.path.join(tdir, name), None, C.DOC_BYTES)
         if not isinstance(doc, dict):
             skipped["broken"] += 1
             continue
@@ -645,11 +640,14 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
         for r_ in [run] + [h for h in diar.get("history") or [] if isinstance(h, dict)]:
             if is_single(r_) or not isinstance(r_.get("rows"), dict):
                 continue
-            hr, _ = human_rows(doc, r_["rows"], since_ms, until_ms, include_draft, conf)
-            if not hr:
-                continue
-            c = new_counts()
-            add_counts(c, hr, best_mapping(hr))
+            if r_ is run:   # 最新の回は上で同じ引数で採点した結果(rows・one)をそのまま使う
+                c = one
+            else:
+                hr, _ = human_rows(doc, r_["rows"], since_ms, until_ms, include_draft, conf)
+                if not hr:
+                    continue
+                c = new_counts()
+                add_counts(c, hr, best_mapping(hr))
             e = engines.setdefault(engine_key(r_), {"runs": 0, "docs": set(), "counts": new_counts()})
             e["runs"] += 1
             e["docs"].add(tid)
@@ -770,15 +768,8 @@ def check_models(S, root, grid):
 def doc_audio(S, tid, doc, root, wav, job):
     """文書の範囲の音声を wav に取り出す(本番の run_diarize と同じ extract_audio)-> (offset = 音声の先頭が元の動画の何秒か, 音声の秒, 出どころ)。
     元の動画が無ければ保管データの full.flac(eval_asr.py と同じ)。ネットワーク上の動画は読まない(資格情報を送らない)"""
-    src = str(doc.get("sourcePath") or "")
-    start, end = num(doc.get("start")) or 0.0, num(doc.get("end"))
-    full = os.path.join(root, "dataset", "docs", tid, "full.flac")
-    if src and not src.startswith(("\\\\", "//")) and os.path.isfile(src):
-        spec, where = {"sourcePath": src, "start": start, "end": end}, "動画"
-    elif os.path.isfile(full):
-        spec, where = {"sourcePath": full, "start": 0.0, "end": None}, "保管の音声"
-    else:
-        raise RuntimeError("音声が見つかりません(元の動画も保管データの full.flac も無い)")
+    spec, start, where = C.audio_span(S, doc, root, doc_id=tid)
+    end = S.num(doc.get("end"))
     S.extract_audio(job, spec, wav)
     return start, S.media_duration(wav) or max(0.0, (end or 0.0) - start), where
 
@@ -852,7 +843,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                 skipped["noRows"] += 1
                 continue
             log("(%d/%d) %s %s …" % (n, len(picked), tid, str(doc.get("title") or "")[:30]), flush=True)
-            job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
+            job = C.fake_job()
             wav = os.path.join(tmp, "%s.wav" % tid)
             try:
                 offset, total, where = doc_audio(S, tid, doc, root, wav, job)
@@ -906,10 +897,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                 one["bySetting"].append({"key": a["key"], "machineSpeakers": found, "rows": c["rows"], "correct": c["correct"], "rate": rate(c["correct"], c["rows"]),
                                          "sec": round(sec, 2)})
             by_doc.append(one)
-            try:
-                os.unlink(wav)
-            except OSError:
-                pass
+            fsio.unlink_quiet(wav)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     nrows = totals["rows"]
@@ -1040,7 +1028,7 @@ def print_smooth(items, indent="  ", title="[話者の細切れをならす(--sm
 
 def print_report(res):
     m = res["meta"]
-    rng = "%s 〜 %s" % (m["since"] or "最初", m["until"] or "今") if (m["since"] or m["until"]) else "全期間"
+    rng = C.period_label(m["since"], m["until"])
     print("話者の判別の測定(%s)  文書 %d 件(うち評価用 %d・確かめ済み %d)・人が確かめた話者つきの行 %d  作業データ: %s"
           % (rng, m["docs"], m["evalDocs"], m.get("reviewedDocs", 0), m["rows"], m["dataDir"]))
     rv = m.get("reviewed") or {}
@@ -1075,10 +1063,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="話者の判別と声の照合の当たり具合を、人が直した最終で測る(作業データは読むだけ)")
     p.add_argument("mode", nargs="?", choices=("stored", "run"), default="stored",
                    help="stored = 保存してある判別の記録を比べる(既定)/ run = 音声をもう一度判別して設定の組ごとに比べる")
-    p.add_argument("--since", help="この日(YYYY-MM-DD)以後の行だけ(行の校正した時刻 proofedAt、無ければ文書の更新時刻)")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までの行だけ")
-    p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/speakers/<日時>.json(run は <日時>-run.json)に残す")
-    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    C.add_period_args(p, "この日(YYYY-MM-DD)以後の行だけ(行の校正した時刻 proofedAt、無ければ文書の更新時刻)", "この日(YYYY-MM-DD。この日を含む)までの行だけ",
+                      "同じ形の JSON を 文字起こしの作業データの evals/speakers/<日時>.json(run は <日時>-run.json)に残す")
     p.add_argument("--no-eval", action="store_true", help="評価用(evalSet)の文書を外す")
     p.add_argument("--include-draft", action="store_true",
                    help="仮の名前(話者1…)・機械の下書きのまま・確かめられない行も測る(今までの数え方 = 人が確かめていないので甘く出る)")
@@ -1094,7 +1080,7 @@ def main(argv=None):
     g.add_argument("--min-off", dest="min_off", help="すき間の最短(秒。DIAR_MIN_OFF)")
     p.add_argument("--smooth", help="話者の細切れをならす(S2)を比べる: off・on の「,」区切り(例 off,on)。stored は記録から計算・run は同じ判別の結果を両方で採点")
     args = p.parse_args(argv)
-    only = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None
+    only = C.split_ids(args.docs)
     tune = {"threshold": args.threshold, "num_": args.num, "emb": args.emb, "min_on": args.min_on, "min_off": args.min_off}
     smooth = parse_smooth(args.smooth)
     if args.mode == "stored":
@@ -1105,8 +1091,7 @@ def main(argv=None):
     else:
         res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth=smooth, **tune)
         print_run(res)
-    if args.json:
-        print("\n保存: " + C.save(res, res["meta"]["dataDir"], "speakers", "-run" if args.mode == "run" else ""))
+    C.report_saved(res, args.json, res["meta"]["dataDir"], "speakers", "-run" if args.mode == "run" else "")
     return res
 
 

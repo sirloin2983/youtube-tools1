@@ -41,6 +41,7 @@ DONE_DIR, FAIL_DIR, OUT_DIR = "受付済み", "失敗", "出力"   # 出力\ = �
 FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認", "manual": "③ 全部人が行う"}   # 友人が送るときに選ぶ(2026-10-01)。無ければ ②
 REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信。2-15。2.8.0 のアプリ)
 NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
+BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')   # ファイル名に使えない文字(_ に置き換える。届ける側 deliver.py も使う)
 DELIVER_BATCH_RANGE = (1, 10)          # 依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。無ければホームの設定。2-16)
 REQ_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 APP_FILE_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")   # 友人のプログラムが送った動画の名前
@@ -126,24 +127,21 @@ def decode_text(raw):
     return raw.decode("utf-8", "replace")
 
 
+def _accepted(items):
+    """一覧の行に、知らせ(NOTE_LABELS)以外で受け付けたものがあるか"""
+    return any(i["state"] == "accepted" and i.get("label") not in NOTE_LABELS for i in items)
+
+
 def probe_video(path):
-    """ffprobe で動画の形を確かめる -> {"ok", "duration" (秒 か None), "reason"}"""
-    fp = tools.find_tool("ffprobe")
+    """ffprobe で動画の形を確かめる -> {"ok", "duration" (秒 か None), "reason"}。ok = 音声がある(文字起こしに要る)。
+    調べ方は ytt_core.normalize.probe(30fps の判定と同じ ffprobe の呼び方。YTT_FFPROBE も見る)"""
+    fp = tools.find_tool("ffprobe", "YTT_FFPROBE")
     if not fp:
         return {"ok": False, "duration": None, "reason": "ffprobe が見つからないので、動画を確かめられません"}
-    try:
-        r = subprocess.run([fp, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", path],
-                           capture_output=True, timeout=60, creationflags=tools.no_window_flags())
-        d = json.loads(r.stdout.decode("utf-8", "replace") or "{}")
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        return {"ok": False, "duration": None, "reason": "動画として読めませんでした"}
-    if r.returncode != 0 or not any(s.get("codec_type") == "audio" for s in d.get("streams") or []):
+    info = normalize.probe(path, ffprobe=fp)
+    if info is None or not info["has_audio"]:   # 読めない(壊れている・時間切れ)・音声が無い
         return {"ok": False, "duration": None, "reason": "音声のある動画として読めませんでした"}
-    try:
-        dur = float((d.get("format") or {}).get("duration"))
-    except (TypeError, ValueError):
-        dur = None
-    return {"ok": True, "duration": dur, "reason": ""}
+    return {"ok": True, "duration": info["duration"], "reason": ""}
 
 
 def youtube_info(vid):
@@ -371,7 +369,7 @@ class Intake:
         try:
             fsio.atomic_write(self.state_path, json.dumps(dict(self.st, v=1), ensure_ascii=False).encode("utf-8"))
         except OSError as e:
-            self.log("依頼の受付: 記録を書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            self.log("依頼の受付: 記録を書けませんでした(%s)" % tools.why(e))
 
     def _today(self):
         return datetime.datetime.fromtimestamp(self.clock()).date().isoformat()
@@ -437,7 +435,7 @@ class Intake:
             try:
                 names = sorted(os.listdir(folder))
             except OSError as e:
-                self.state, self.message = "error", "フォルダを読めませんでした(%s)" % (e.strerror or e.__class__.__name__)
+                self.state, self.message = "error", "フォルダを読めませんでした(%s)" % tools.why(e)
                 return
             files = {}
             for n in names:
@@ -711,7 +709,7 @@ class Intake:
         n_ranges = sum(len(it["ranges"]) for it in todo)
         if streamer_note:   # 動画の依頼と同じ形の知らせ(受け付けた・断ったの数には入れない)
             results.append({"label": "配信者", "state": "accepted", "reason": streamer_note})
-        if notes and any(r["state"] == "accepted" and r.get("label") not in NOTE_LABELS for r in results):   # 受け付けたときだけ(断ったのに「切り抜きます」と出さない)
+        if notes and _accepted(results):   # 受け付けたときだけ(断ったのに「切り抜きます」と出さない)
             results.extend(notes)
         self._record(folder, "url", source, first, moved, streamer or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
                      ranges_label="区間: %s" % "・".join(["%s〜%s" % (hms(s), hms(e)) for it in todo for s, e in it["ranges"]][:3]) +
@@ -728,7 +726,7 @@ class Intake:
             if size > float(cfg["maxGB"]) * 1024 ** 3:
                 return {"state": "rejected", "reason": "動画が大きすぎます(%.1f GB。上限 %s GB)" % (size / 1024 ** 3, cfg["maxGB"])}
         except OSError as e:
-            return {"state": "rejected", "reason": "動画を読めませんでした(%s)" % (e.strerror or e.__class__.__name__)}
+            return {"state": "rejected", "reason": "動画を読めませんでした(%s)" % tools.why(e)}
         pr = self.probe(p)
         if not pr.get("ok"):
             return {"state": "rejected", "reason": pr.get("reason") or "動画として読めませんでした"}
@@ -736,7 +734,7 @@ class Intake:
             return {"state": "rejected", "reason": "動画が長すぎます(%.1f 時間。上限 %s 時間)" % (pr["duration"] / 3600, cfg["maxHours"])}
         day = self._today()
         dest_dir = os.path.join(self.data_dir, "intake", day)
-        base = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", label)[:150] or ("video" + ext)
+        base = BAD_NAME_CHARS.sub("_", label)[:150] or ("video" + ext)
         if not base.lower().endswith(ext):
             base += ext
         try:
@@ -748,7 +746,7 @@ class Intake:
             shutil.copyfile(p, tmp)
             os.replace(tmp, dest)
         except OSError as e:
-            return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % (e.strerror or e.__class__.__name__)}
+            return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % tools.why(e)}
         dest, note = self._normalize_copy(dest, label)   # 30fps でなければ写しを作り直す(元の動画は触らない。失敗しても写しのまま続ける)
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
@@ -809,7 +807,7 @@ class Intake:
     # ------------------------------------------------------------ 後始末と記録
     def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None, tracks=None, cut=None,
                 weights=None, ranges_label=""):
-        accepted = any(i["state"] == "accepted" and i.get("label") not in NOTE_LABELS for i in items)
+        accepted = _accepted(items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
         rec = {"id": uuid.uuid4().hex[:10], "kind": kind, "source": source, "title": str(title)[:200], "streamer": streamer or "",
@@ -833,8 +831,8 @@ class Intake:
         bad = [i for i in items if i["state"] == "rejected"]
         if not bad or not rid or not REQ_ID_RE.match(str(rid)):
             return
-        whole = not any(i["state"] == "accepted" and i.get("label") not in NOTE_LABELS for i in items)
-        name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", "%s__%s" % (rid, title or "依頼"))[:180] + ".失敗.txt"
+        whole = not _accepted(items)
+        name = BAD_NAME_CHARS.sub("_", "%s__%s" % (rid, title or "依頼"))[:180] + ".失敗.txt"
         text = ("依頼を受け付けられませんでした。" if whole else "依頼の一部を受け付けられませんでした(ほかは処理します)。") + "\r\n" + \
             "\r\n".join("%s: %s" % (i["label"], i.get("reason") or "受け付けられませんでした") for i in bad)
         try:
@@ -843,7 +841,7 @@ class Intake:
             with open(os.path.join(out, name), "w", encoding="utf-8-sig", newline="") as f:
                 f.write(text + "\r\n")
         except OSError as e:
-            self.log("依頼の受付: 断った理由を 出力 に置けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            self.log("依頼の受付: 断った理由を 出力 に置けませんでした(%s)" % tools.why(e))
 
     def _move(self, folder, names, state, items):
         """元のファイルを 受付済み\\日付\\ か 失敗\\ へ(消さない)。断ったものには理由の .txt を添える"""
@@ -863,7 +861,7 @@ class Intake:
             try:
                 fsio.replace_retry(src, dst)
             except OSError as e:
-                self.log("依頼の受付: %s を移せませんでした(%s)" % (n, e.strerror or e.__class__.__name__))
+                self.log("依頼の受付: %s を移せませんでした(%s)" % (n, tools.why(e)))
             self._seen_size.pop(src, None)
         bad = [i for i in items if i["state"] == "rejected" or i.get("reason")]
         if bad and names:

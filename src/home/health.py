@@ -14,7 +14,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 
-from ytt_core import datadir, tools as ytools
+from ytt_core import datadir, fsio, tools as ytools
 
 CACHE_SEC = 600          # 作業データの大きさ・外部プログラムの版を数え直す間隔(秒)。「数え直す」で即
 TOP_ITEMS = 12           # ツールごとに出す直下の項目の数
@@ -30,28 +30,7 @@ _EVT_NS = "{http://schemas.microsoft.com/win/2004/08/events/event}"
 DATA_TOOLS = (("app", "ホーム"), ("studio", "スタジオ"), ("transcribe", "編集"), ("cut2resolve", "cut2resolve"), ("holo-colors", "ホロカラー"))
 
 
-# ---------- フォルダの大きさ ----------
-def dir_size(path):
-    """(バイト数, ファイル数)。リンクはたどらない。無ければ (0, 0)"""
-    if os.path.isfile(path):
-        try:
-            return os.path.getsize(path), 1
-        except OSError:
-            return 0, 0
-    total = count = 0
-    for dirpath, dirnames, filenames in os.walk(path):
-        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
-        for n in filenames:
-            fp = os.path.join(dirpath, n)
-            try:
-                if not os.path.islink(fp):
-                    total += os.path.getsize(fp)
-                    count += 1
-            except OSError:
-                pass
-    return total, count
-
-
+# ---------- フォルダの大きさ(数えるのは ytt_core.fsio.dir_size = (バイト数, ファイル数)。リンクはたどらない) ----------
 def top_items(path, limit=TOP_ITEMS):
     """フォルダ直下の項目を大きい順に [{name, bytes, files, dir}]"""
     out = []
@@ -61,7 +40,7 @@ def top_items(path, limit=TOP_ITEMS):
         return out
     for n in names:
         p = os.path.join(path, n)
-        b, c = dir_size(p)
+        b, c = fsio.dir_size(p)
         out.append({"name": n, "bytes": b, "files": c, "dir": os.path.isdir(p)})
     out.sort(key=lambda x: -x["bytes"])
     return out[:limit]
@@ -78,7 +57,7 @@ def data_sizes(repo_root=None, env=None):
             continue
         if not os.path.isdir(path):
             continue
-        b, c = dir_size(path)
+        b, c = fsio.dir_size(path)
         total += b
         dirs.append({"tool": tool, "label": label, "path": path, "bytes": b, "files": c, "items": top_items(path)})
     return {"root": root, "dirs": dirs, "bytes": total}
@@ -110,27 +89,12 @@ def disk_free(paths):
 
 
 # ---------- 外部プログラム ----------
-def parse_version_line(name, text):
-    """`ffmpeg -version` などの1行目から版の文字を抜く(見つからなければ先頭の 60 字)"""
-    line = (text or "").strip().splitlines()[0] if (text or "").strip() else ""
-    m = re.search(r"version\s+([^\s]+)", line)
-    if m:
-        return m.group(1)[:40]
-    return line[:60]
-
-
 def tool_version(name, env_var=None, args=("-version",), timeout=TOOL_TIMEOUT):
-    """{"path", "version"}(無ければ path None)"""
+    """{"path", "version"}(無ければ path None)。版は出力の 1 行目から抜く(見つからなければ先頭の 60 字。ytt_core.tools.tool_version)"""
     path = ytools.find_tool(name, env_var)
     if not path:
         return {"path": None, "version": ""}
-    try:
-        p = subprocess.run([path] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout,
-                           creationflags=ytools.no_window_flags())
-        text = p.stdout.decode("utf-8", "replace")
-    except (OSError, subprocess.SubprocessError):
-        text = ""
-    return {"path": path, "version": parse_version_line(name, text)}
+    return {"path": path, "version": ytools.tool_version(path, args, timeout=timeout, first_line=True)}
 
 
 def tool_versions():
@@ -291,6 +255,14 @@ def count_worker_incidents(path, now=None):
 
 
 # ---------- まとめ ----------
+def _try(fn):
+    """fn() の結果。上げたら None(「調子」の一部が取れなくても、ほかの項目は出す)"""
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
 class Health:
     """入口の「調子」。sup = Supervisor(status() を使う)。worker_probe() = 「編集」の /api/ping の worker(無ければ None)。
     extra_dirs() = 空き容量を見る追加の場所(スタジオの書き出し先など)"""
@@ -363,10 +335,7 @@ class Health:
         versions = [{"tool": t["id"], "name": t.get("name", t["id"]), "state": t.get("state"), "version": t.get("version") or "",
                      "expected": t.get("expectedVersion") or "", "ok": (not t.get("expectedVersion") or not t.get("version") or t["expectedVersion"] == t["version"])}
                     for t in st.get("tools", [])]
-        try:
-            worker = self.worker_probe()
-        except Exception:
-            worker = None
+        worker = _try(self.worker_probe)
         client_log = os.path.join(self.logs_dir, "client-errors.jsonl")
         runs_log = os.path.join(self.logs_dir, "autorun-runs.jsonl")
         now = self.clock()
@@ -382,10 +351,7 @@ class Health:
             "computing": computing,
         }
         if self.live_probe is not None:   # リアルタイム切り抜き(線 D): オンのときだけ "live" を足す(オフなら今までと同じ形)
-            try:
-                lv = self.live_probe()
-            except Exception:
-                lv = None
+            lv = _try(self.live_probe)
             if lv is not None:
                 out["live"] = lv
         if self.accuracy_probe is not None:   # 精度(Q3): 領域ごとの直近・前回と、いつ測るか。軽い(記録を返すだけ)

@@ -5,7 +5,6 @@
 中身は共通部品 ytt_core(schemas・runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。
 スタジオ固有の値(ツール名・版)は TOOL に入れる。
 """
-import os
 import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt_core.runtime も同じモジュールを使う)
 
 import common
@@ -31,8 +30,7 @@ def write_clip_manifest(media_path, **kw):
     """mp4 の .clip.json を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。
     UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない。ytt_core.fsio.write_json)"""
     path = manifest_path(media_path)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fsio.write_json(path, clip_manifest(media_path, **kw))
+    fsio.write_json(path, clip_manifest(media_path, **kw))   # 作業用/ は atomic_write が作る
     return path
 
 

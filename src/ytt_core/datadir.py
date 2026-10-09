@@ -22,7 +22,6 @@
   ツールの側(起動時): prepare(移行もする。②があればそれを使い、写さない)。移行の要らないもの(入口)は locate + register
   読む側: resolve
 """
-import json
 import os
 import shutil
 import sys
@@ -34,6 +33,7 @@ from . import fsio, layout
 APP_DIR_NAME = "youtube-tools"
 INPLACE = "inplace"
 MARKER = ".migrated.json"
+MARKER_MAX = 64 * 1024   # 移した記録はこれより大きければ読まない(中身は名前の一覧と数だけ)
 PART = ".part-"          # コピー中の一時的な名前の印(次の起動で消す)
 SPACE_MARGIN = 256 * 1024 * 1024   # 空き容量の余裕(コピーする量 + これ)
 # そのツールのデータのフォルダを直接決める環境変数(テスト用・以前からの指定)。あれば YTT_DATA_DIR より先に使い、移行はしない
@@ -108,8 +108,18 @@ def resolve(tool, repo_root=None, env=None, legacy_dir=None):
     return locate(tool, repo_root, env, legacy_dir)
 
 
+def studio_out_dir(repo_root=None, env=None):
+    """スタジオの書き出し先(他のツールから読むだけ。2026-10-09 に入口の live.py・launch.py の写しから移した)。
+    スタジオの作業データ(resolve)の settings.json の outDir が空でない絶対パスならそれ、無い・読めない・形が違えば <スタジオの作業データ>/exports"""
+    sdir = resolve("studio", repo_root, env)
+    st = fsio.read_json_or(os.path.join(sdir, "settings.json"), None, kind=dict)
+    out = st.get("outDir") if st else None
+    return out if isinstance(out, str) and out and os.path.isabs(out) else os.path.join(sdir, "exports")
+
+
 def _size(path):
-    """(バイト数, ファイル数)。フォルダは中身の合計。リンクはたどらない。"""
+    """(バイト数, ファイル数)。フォルダは中身の合計。リンクはたどらない。
+    fsio.dir_size と違い、大きさを調べられないファイルがあれば OSError を上げる(コピーの確かめに使うので、数え漏れを「同じ」にしない)"""
     if os.path.isfile(path):
         return os.path.getsize(path), 1
     total = count = 0
@@ -166,12 +176,8 @@ def _clean_parts(d):
 
 
 def read_marker(d):
-    try:
-        with open(os.path.join(d, MARKER), encoding="utf-8") as f:
-            m = json.load(f)
-        return m if isinstance(m, dict) else None
-    except (OSError, ValueError):
-        return None
+    """移した記録(.migrated.json)-> dict か None(無い・壊れている・64KB より大きい)"""
+    return fsio.read_json_or(os.path.join(d, MARKER), None, MARKER_MAX, dict)
 
 
 def prepare(tool, legacy_dir, items, env=None, log=None, free_bytes=None):
@@ -209,9 +215,10 @@ def _prepare(tool, legacy_dir, items, env, log, free_bytes):
     _clean_parts(new)
     if read_marker(new):
         return result(new, "done")
-    todo = [n for n in items if os.path.lexists(os.path.join(legacy_dir, n)) and not os.path.lexists(os.path.join(new, n))]
+    present = [n for n in items if os.path.lexists(os.path.join(legacy_dir, n))]   # 以前の場所にあるもの
+    todo = [n for n in present if not os.path.lexists(os.path.join(new, n))]
     if not todo:
-        state = "new" if not any(os.path.lexists(os.path.join(legacy_dir, n)) for n in items) else "done"
+        state = "done" if present else "new"
         _write_marker(new, legacy_dir, [], 0)
         return result(new, state)
     need = sum(_size(os.path.join(legacy_dir, n))[0] for n in todo)

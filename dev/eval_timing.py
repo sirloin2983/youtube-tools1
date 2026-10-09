@@ -34,7 +34,7 @@ import argparse
 import difflib
 import os
 import re
-import shutil
+import statistics
 import sys
 import time
 import unicodedata
@@ -54,7 +54,7 @@ EPS = 1e-6                     # 浮動小数の誤差(0.1 秒ちょうどのず
 MATCH_CHARS = 3                # 「文字が合う」= 頭か末のこの文字数が同じ
 FEW_ROWS = 100                 # 文字が合う行がこれより少ないときは「まだ少ない(参考)」
 REPRO_TOL = 0.011              # --apply の reproduced: 当て直した行と original の行の端がこの秒以内なら同じ(行の時刻は 0.01 秒で保存)
-MAX_BYTES = 64 * 1024 * 1024
+MAX_BYTES = C.DOC_BYTES
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 KEYS = (("head", "①頭"), ("tail", "①末"), ("prev", "②前"), ("next", "②次"))
 POST_NONE = "後処理の記録なし(0.57.0 まで)"
@@ -126,14 +126,6 @@ def measure_rows(human, machine):
     return {"proofed": proofed, "rows": out}
 
 
-def _median(v):
-    v = sorted(v)
-    if not v:
-        return None
-    k = len(v) // 2
-    return round(v[k] if len(v) % 2 else (v[k - 1] + v[k]) / 2, 3)
-
-
 # ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。plan/line-b-row-split.md)
 
 def _pos_map(src, dst):
@@ -191,7 +183,7 @@ def summarize(rows):
     n = len(rows)
     counts = {k: sum(1 for r in rows if r[k]) for k, _ in KEYS}
     ex = [r["extra"] for r in rows]
-    out = {"n": n, "counts": counts, "extraMedian": _median(ex), "extraMean": round(sum(ex) / n, 3) if n else None}
+    out = {"n": n, "counts": counts, "extraMedian": round(statistics.median(ex), 3) if ex else None, "extraMean": round(sum(ex) / n, 3) if n else None}
     out.update({k: rate(counts[k], n) for k, _ in KEYS})
     return out
 
@@ -227,7 +219,7 @@ def doc_record(doc):
         return None, "noOriginal"
     human = text_rows(doc.get("segments"))
     run = eval_asr.draft_run(doc)
-    at = int(num(run.get("at"))) if isinstance(run, dict) and num(run.get("at")) else (int(num(doc.get("updatedAt"))) if num(doc.get("updatedAt")) else None)
+    at = next((int(v) for v in (num(run.get("at")) if isinstance(run, dict) else None, num(doc.get("updatedAt"))) if v), None)
     m = measure_rows(human, machine)
     eng, post = engine_label(run), post_label(run)
     rec = {"id": str(doc.get("id") or ""), "title": str(doc.get("title") or "")[:40], "engine": eng, "post": post, "group": "%s | %s" % (eng, post),
@@ -263,12 +255,8 @@ def asr_raw(doc, asr):
 
 def reapply(S, raw, spec, dur, start):
     """後処理(S.expand_segments。音の谷へ寄せる levels は使わない = 0.53.1 から既定オフ)を当て直した機械の行(元の動画の秒・文字のある行だけ)"""
-    out = []
-    for s in S.expand_segments([dict(r) for r in raw], spec, dur, None):
-        if not s.get("text"):
-            continue
-        out.append({"start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2), "text": s["text"]})
-    return out
+    return [{"start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2), "text": s["text"]}
+            for s in S.expand_segments([dict(r) for r in raw], spec, dur, None) if s.get("text")]
 
 
 def reproduced(rows, original):
@@ -284,7 +272,6 @@ def reproduced(rows, original):
 def apply_variants(docs, tdir, S=None):
     """--apply: 文書ごとに生出力へ VARIANTS の後処理を当て直して測る。S = 読み込んだ serve(テストで渡す。無ければ eval_asr.load_serve("fake"))
     -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
-    own = S is None
     S = S or eval_asr.load_serve("fake")
     # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)。
     # "splitChars" だけは ed_jobs の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
@@ -324,10 +311,6 @@ def apply_variants(docs, tdir, S=None):
     finally:
         for k, val in saved.items():
             setattr(J, k, val)
-        if own:
-            tmp = os.environ.get("TRANSCRIBE_DATA_DIR", "")
-            if tmp and os.path.basename(tmp).startswith("eval_asr_"):
-                shutil.rmtree(tmp, ignore_errors=True)   # load_serve が作った一時の置き場
     for v in res["variants"]:
         v["overall"] = summarize(v.pop("rows"))
         v["boundary"] = boundary_sum(v.pop("bnd"))
@@ -435,7 +418,7 @@ def print_report(res):
         if rp:
             low = [d["id"] for d in ap["variants"][0]["byDoc"] if d.get("reproduced") is not None and d["reproduced"] < 0.9]
             print("    0.57.0 の後処理で保存してある original を再現できた行の割合: 中央値 %s(9 割未満の文書 %d 本%s)" % (
-                pct(_median(rp)), len(low), (": " + ", ".join(low[:8])) if low else ""))
+                pct(round(statistics.median(rp), 3)), len(low), (": " + ", ".join(low[:8])) if low else ""))
     print("  [文書ごと]")
     for r in res["byDoc"]:
         b = r.get("boundary") or {}
@@ -444,17 +427,14 @@ def print_report(res):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="行の時刻を原則(①頭・①末・②前・②次・③)の数字で測る(作業データは読むだけ)")
-    p.add_argument("--since", help="この日(YYYY-MM-DD)以後に作った機械の出力だけ(最初の認識の at、無ければ updatedAt)")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までだけ")
-    p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/timing/<日時>.json に残す")
+    C.add_period_args(p, "この日(YYYY-MM-DD)以後に作った機械の出力だけ(最初の認識の at、無ければ updatedAt)",
+                      json_help="同じ形の JSON を 文字起こしの作業データの evals/timing/<日時>.json に残す")
     p.add_argument("--out", help="JSON をこのファイルに書く(作業データには書かない。--json を付けなくてよい)")
-    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
     p.add_argument("--apply", action="store_true", help="保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直した数字も出す")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until, args.apply)
     print_report(res)
-    if args.json or args.out:
-        print("\n保存: " + C.save(res, res["meta"]["dataDir"], "timing", out=args.out))
+    C.report_saved(res, args.json or args.out, res["meta"]["dataDir"], "timing", out=args.out)
     return res
 
 

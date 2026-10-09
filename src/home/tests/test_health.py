@@ -36,9 +36,9 @@ class SizesTest(unittest.TestCase):
         self.write("a/one.bin", 300)
         self.write("a/sub/two.bin", 200)
         self.write("b.bin", 50)
-        self.assertEqual(H.dir_size(self.tmp), (550, 3))
-        self.assertEqual(H.dir_size(os.path.join(self.tmp, "b.bin")), (50, 1))
-        self.assertEqual(H.dir_size(os.path.join(self.tmp, "nothing")), (0, 0))
+        self.assertEqual(H.fsio.dir_size(self.tmp), (550, 3))
+        self.assertEqual(H.fsio.dir_size(os.path.join(self.tmp, "b.bin")), (50, 1))
+        self.assertEqual(H.fsio.dir_size(os.path.join(self.tmp, "nothing")), (0, 0))
         items = H.top_items(self.tmp)
         self.assertEqual([(i["name"], i["bytes"], i["files"], i["dir"]) for i in items], [("a", 500, 2, True), ("b.bin", 50, 1, False)])
         self.assertEqual(len(H.top_items(self.tmp, limit=1)), 1)
@@ -59,9 +59,14 @@ class SizesTest(unittest.TestCase):
 
 class ToolsTest(unittest.TestCase):
     def test_parse_version_line(self):
-        self.assertEqual(H.parse_version_line("ffmpeg", "ffmpeg version 6.1.1-full_build-www.gyan.dev Copyright (c) 2000-2023"), "6.1.1-full_build-www.gyan.dev")
-        self.assertEqual(H.parse_version_line("yt-dlp", "2025.09.05\n"), "2025.09.05")
-        self.assertEqual(H.parse_version_line("x", ""), "")
+        # 版は出力の 1 行目から抜く(見つからなければ先頭の 60 字)。中身は ytt_core.tools.tool_version(first_line=True)(2026-10-09 に移した)
+        from unittest import mock
+        cases = [("ffmpeg version 6.1.1-full_build-www.gyan.dev Copyright (c) 2000-2023\nbuilt with gcc", "6.1.1-full_build-www.gyan.dev"),
+                 ("2025.09.05\n", "2025.09.05"), ("", ""), ("x" * 80 + "\nversion 9", "x" * 60)]
+        for text, want in cases:
+            with mock.patch.object(H.ytools, "find_tool", return_value="/bin/fake-tool"), \
+                    mock.patch.object(H.ytools, "tool_output", return_value=text):
+                self.assertEqual(H.tool_version("fake-tool"), {"path": "/bin/fake-tool", "version": want}, text)
 
     def test_tool_version_missing(self):
         self.assertEqual(H.tool_version("ytt-no-such-program-xyz"), {"path": None, "version": ""})

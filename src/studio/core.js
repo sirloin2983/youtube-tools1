@@ -2,19 +2,16 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.23.3';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = '0.23.4';   // serve.py の SERVER_VERSION と同じ値にする
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'queue', 'review'];
 const PANES = { rank: '#paneRank', queue: '#paneQueue', review: '#paneReview' };
+/* ui-kit.js は index.html で core.js より先に同期で読むので、UIKit はいつもある(無いときの予備の経路は持たない。0.23.4) */
 
-Studio.esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-/* 秒 → 1:23.4 / 1:02:03.4(0.1 秒まで。③ のマーク・コラボの時刻) */
-Studio.fmtTime = t => {
-  t = Math.max(0, Number(t) || 0);
-  const d = Math.round(t * 10), h = Math.floor(d / 36000), m = Math.floor(d % 36000 / 600), s = ((d % 600) / 10).toFixed(1).padStart(4, '0');
-  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
-};
+Studio.esc = UIKit.esc;   // HTML の文字の書き換え(ui-kit の 1 か所。null・undefined は '')
+/* 秒 → 1:23.4 / 1:02:03.4(0.1 秒まで。③ のマーク・コラボの時刻。ui-kit の 1 か所) */
+Studio.fmtTime = t => UIKit.fmt.dur(t, { tenths: true });
 
 /* API・メディアの URL はここでだけ組み立てる(docs/spec/pipeline.md 5.)。
    画面の場所から決める: 単独で起動したときは http://localhost:8800/ → ''、入口の統合サーバーに取り込まれたときは http://localhost:8700/studio/ → '/studio' */
@@ -24,34 +21,16 @@ const tokenMeta = document.querySelector('meta[name="ytt-token"]');
 Studio.token = tokenMeta ? tokenMeta.content : '';
 Studio.url = p => Studio.base + p;
 
-/* JSON API 呼び出し。失敗は Error(message)(e.code にサーバーのエラーコード、e.status にHTTPステータス、e.body に応答の JSON) */
-Studio.api = async (path, opts = {}) => {
-  const init = { method: opts.method || (opts.body !== undefined ? 'POST' : 'GET'), cache: 'no-store', headers: {} };
-  if (opts.body !== undefined){ init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
-  if (Studio.token && init.method !== 'GET') init.headers['X-YTT-Token'] = Studio.token;
-  if (opts.signal) init.signal = opts.signal;
-  let r;
-  try { r = await fetch(Studio.url(path), init); } catch (e){ const er = new Error('サーバーに接続できません(黒い画面が閉じていないか確認してください)'); er.code = 'network'; throw er; }
-  let j = null;
-  try { j = await r.json(); } catch {}
-  if (!r.ok){ const er = new Error((j && j.message) || httpMsg(r.status)); er.code = (j && j.error) || 'http'; er.status = r.status; er.body = j; er.detail = 'HTTP ' + r.status; throw er; }
-  return j;
-};
-/* サーバーが文を返さなかった失敗の文。HTTP の番号は本文に出さず e.detail に(見直し S4・2 周目) */
-const httpMsg = st => (st >= 500 ? 'サーバーで問題が起きました。少し待ってから、もう一度試してください' : '要求を受け付けてもらえませんでした。画面を読み込み直してから、もう一度試してください');
+/* JSON API 呼び出し。中身は ui-kit の UIKit.http(合言葉を付けるのも失敗の形を決めるのもそこの 1 か所。0.23.4)。
+   失敗は Error(message)(e.code にサーバーのエラーコード(無ければ 'http'。応答が無ければ 'network')、e.status にHTTPステータス、e.body に応答の JSON(無ければ {})、e.detail)。
+   サーバーが文を返さなかった失敗の文は UIKit.http の既定(HTTP の番号は本文に出さず e.detail に。見直し S4・2 周目) */
+const OFFLINE_STUDIO = 'サーバーに接続できません(黒い画面が閉じていないか確認してください)';
+const OFFLINE_HOME = 'ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)';
+Studio.api = (path, opts = {}) => UIKit.http(Studio.url(path), { method: opts.method, body: opts.body, signal: opts.signal, offline: OFFLINE_STUDIO });
 
-/* 入口の API(/api/autorun など。まとめて実行)。取り込まれた画面は入口の /studio/ の下にあるので、画面の場所から1つ上(絶対パスを書かない)。
-   入口から開いたとき(Studio.token があるとき)だけ使う。失敗は Error(message)(e.code・e.status) */
-Studio.portalApi = async (path, body) => {
-  const init = { cache: 'no-store', method: body === undefined ? 'GET' : 'POST' };
-  if (body !== undefined){ init.headers = { 'Content-Type': 'application/json', 'X-YTT-Token': Studio.token }; init.body = JSON.stringify(body); }
-  let r;
-  try { r = await fetch(new URL('../' + path, location.href).href, init); } catch { throw new Error('ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)'); }
-  let j = {};
-  try { j = await r.json(); } catch {}
-  if (!r.ok){ const er = new Error(j.message || httpMsg(r.status)); er.code = j.error; er.status = r.status; er.detail = 'HTTP ' + r.status; throw er; }
-  return j;
-};
+/* 入口の API(/api/autorun など。まとめて実行)。取り込まれた画面は入口の /studio/ の下にあるので、画面の場所から1つ上(UIKit.homeApi。絶対パスを書かない)。
+   入口から開いたとき(Studio.token があるとき)だけ使う。body があれば POST(合言葉つき)、無ければ GET。失敗の形は Studio.api と同じ */
+Studio.portalApi = (path, body) => UIKit.homeApi(path, { body, offline: OFFLINE_HOME });
 
 /* ---------- 入口のリアルタイム切り抜き(線 D の P3。plan/line-d-live-clipping.md の 0-8)の API(../live/…) ----------
    スタジオのサーバーは録画の部品と話さない(単独でも動く作りを保つ)ので、画面が入口の ../live/… を呼ぶ(同じオリジン・入口の合言葉)。
@@ -60,27 +39,13 @@ const LIVE = { infoP: null, offAt: 0 };
 const LIVE_RECHECK_MS = 60000;   // オフ(404)と分かったあと、入口の設定でオンにされたかを確かめ直すまでの間(begin は呼ばない)
 Studio.live = {
   info: null,
-  url: rest => new URL('../live/' + rest, location.href).href,
-  /* JSON の API。失敗は Error(message)(e.code・e.status)。GET は 10 秒・POST は 45 秒で打ち切る(begin は yt-dlp で配信の状態を調べるので数秒かかる) */
-  api: async (rest, opts = {}) => {
+  url: rest => UIKit.homeUrl('live/' + rest),
+  /* JSON の API(UIKit.homeApi)。失敗の形は Studio.api と同じ(時間切れは e.code 'timeout')。GET は 10 秒・POST は 45 秒で打ち切る(begin は yt-dlp で配信の状態を調べるので数秒かかる)。
+     GET 以外はいつも本文を送る(無ければ {}。begin・stop などが頼っている) */
+  api: (rest, opts = {}) => {
     const method = opts.method || (opts.body !== undefined ? 'POST' : 'GET');
-    const init = { method, cache: 'no-store', headers: {} };
-    if (method !== 'GET'){ init.headers['Content-Type'] = 'application/json'; init.headers['X-YTT-Token'] = Studio.token; init.body = JSON.stringify(opts.body || {}); }
-    const ctl = window.AbortController ? new AbortController() : null;
-    let t = null;
-    if (ctl){ init.signal = ctl.signal; t = setTimeout(() => ctl.abort(), opts.timeout || (method === 'GET' ? 10000 : 45000)); }
-    let r;
-    try { r = await fetch(Studio.live.url(rest), init); }
-    catch (e){
-      clearTimeout(t);
-      const er = new Error(e && e.name === 'AbortError' ? 'ホームから時間内に応答がありません' : 'ホームのサーバーに接続できません(start.bat の黒い画面が閉じていないか確かめてください)');
-      er.code = 'network'; throw er;
-    }
-    clearTimeout(t);
-    let j = {};
-    try { j = await r.json(); } catch {}
-    if (!r.ok){ const er = new Error((j && j.message) || httpMsg(r.status)); er.code = j && j.error; er.status = r.status; er.body = j; er.detail = 'HTTP ' + r.status; throw er; }
-    return j;
+    return UIKit.homeApi('live/' + rest, { method, body: method !== 'GET' ? (opts.body || {}) : undefined, timeout: opts.timeout || (method === 'GET' ? 10000 : 45000),
+      offline: OFFLINE_HOME, slow: 'ホームから時間内に応答がありません' });
   },
   /* ライブの機能が使えるか(入口の ../live/api/info)。使えるなら info、使えない(単独起動・オフ・失敗)なら null。
      成功は覚える。404(オフ)も覚えて、しばらく聞き直さない。通信の失敗は覚えない(次に聞き直す) */
@@ -116,8 +81,15 @@ Studio.live = {
     let r;
     try { r = await Studio.live.register(b.recorder, rec, { url, channel: opts && opts.channel }); }
     catch (e){ throw new Error('録画は始めましたが、スタジオに登録できませんでした: ' + e.message); }
-    try { if (window.UIKit && UIKit.liveBadge) UIKit.liveBadge.refresh(); } catch {}   // ヘッダーの「録画中」の札をすぐ出す(札の見回りは 10 秒ごと)
+    try { UIKit.liveBadge.refresh(); } catch {}   // ヘッダーの「録画中」の札をすぐ出す(札の見回りは 10 秒ごと)
     return { video: r.video, existing: !!b.existing, recording: rec, recorder: b.recorder };
+  },
+  /* begin の結果 b を知らせる文(② の URL 欄・③ の「開く」・① 探す の「録画する」で同じ文) */
+  begunText: b => (b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます'),
+  /* 録画を始めた配信を知らせて ③ で開く(② 解析・① 探す)。more: 文の後ろに足す一言 */
+  openBegun: (b, more) => {
+    Studio.toast(Studio.live.begunText(b) + (more || ''), 6000, 'ok');
+    return Studio.openReview(b.video.id);
   }
 };
 
@@ -126,7 +98,6 @@ Studio.live = {
    ui-kit v7 の ms: 0 =「消えない」をそのまま渡さない(段1。渡していたので、成功の知らせまで × を押すまで残っていた)。
    消えない知らせにしたいときは ms にオブジェクトを渡す(例: Studio.toast(msg, { ms: 0, kind: 'err' })。そのまま UIKit.toast へ) */
 Studio.toast = (msg, ms, kind) => {
-  if (!(window.UIKit && UIKit.toast)) return;
   if (ms && typeof ms === 'object') return UIKit.toast(msg, ms);
   return UIKit.toast(msg, { ms: ms || undefined, kind });
 };
@@ -138,7 +109,7 @@ Studio.showErr = msg => {
   const acts = el('span', 'cs-err-acts'), reload = el('button', 'btn small', '読み込み直す');
   reload.type = 'button'; reload.addEventListener('click', () => location.reload());
   const x = el('button', 'btn small ghost icon cs-err-x'); x.type = 'button'; x.setAttribute('aria-label', 'エラーの帯を閉じる'); x.title = 'エラーの帯を閉じる';
-  x.innerHTML = window.UIKit && UIKit.icon ? UIKit.icon('close', { size: 14 }) : '閉じる';
+  x.innerHTML = UIKit.icon('close', { size: 14 });
   x.addEventListener('click', () => { b.hidden = true; });
   acts.append(reload, x);
   b.append(el('span', 'cs-err-msg', String(msg)), acts); b.hidden = false;
@@ -175,18 +146,41 @@ Studio.refreshState = async () => {
   return Studio.state;
 };
 
+/* 押せない理由(A-34): why があれば押せなくして、理由を title と data-ui-why に出す。無ければ押せるようにして、title は okTitle(使えるときの説明) */
+Studio.why = (b, why, okTitle) => {
+  b.disabled = !!why; b.title = why || okTitle || '';
+  if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
+};
+
 /* タブの右の小さな件数(「残っている作業の数」。赤い警告ではない)。text が空なら隠す。title は件数の意味(読み上げにも使う) */
 Studio.setBadge = (step, text, title) => {
   const b = $('#badge' + step.charAt(0).toUpperCase() + step.slice(1)); if (!b) return;
   b.textContent = text || ''; b.hidden = !text;
   if (title){ b.title = title; b.setAttribute('aria-label', title); } else { b.removeAttribute('title'); b.removeAttribute('aria-label'); }
 };
-/* 一覧の「いつの」(ui-kit の UIKit.fmt。無いときは空) */
-Studio.ago = ms => (window.UIKit && UIKit.fmt && ms ? UIKit.fmt.ago(ms) : '');
-Studio.date = ms => (window.UIKit && UIKit.fmt && ms ? UIKit.fmt.date(ms) : '');
+/* 一覧の「いつの」(ui-kit の UIKit.fmt。ms が無いときは空) */
+Studio.ago = ms => UIKit.fmt.ago(ms);
+Studio.date = ms => UIKit.fmt.date(ms);
 /* 配信か手元の動画ファイルか(用語集: 配信 = YouTube の配信、動画ファイル = 手元のファイル)。
    ライブの録画(kind "live")も配信1本として扱う(録画中の札は ③ の一覧と LIVE の帯で出す) */
 Studio.noun = v => (v && v.kind === 'file' ? '動画ファイル' : '配信');
+/* YouTube の動画 ID(11 文字)か。① 探す・② 解析・③ で同じ決まり */
+Studio.isVideoId = s => /^[\w-]{11}$/.test(s || '');
+/* YouTube で開く URL(t 秒が 1 以上ならその位置から) */
+Studio.watchUrl = (id, t) => 'https://www.youtube.com/watch?v=' + encodeURIComponent(id) + (t >= 1 ? '&t=' + Math.floor(t) + 's' : '');
+/* 一覧の探す欄: 空白で分けた語が全部 hay(題名・配信者など)に入っているか。大文字と小文字は区別しない。q が空なら true */
+Studio.matchWords = (q, hay) => {
+  q = String(q || '').trim().toLowerCase();
+  if (!q) return true;
+  hay = String(hay).toLowerCase();
+  return q.split(/\s+/).every(w => hay.includes(w));
+};
+/* key(x) ごとにまとめる → Map(最初に出てきた順) */
+Studio.groupBy = (list, key) => {
+  const m = new Map();
+  for (const x of list){ const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }
+  return m;
+};
 
 Studio.step = 'rank';
 Studio.go = step => {
@@ -196,6 +190,13 @@ Studio.go = step => {
   document.querySelectorAll('#steps .step').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.step === step)));
   try { localStorage.setItem('clipstudio:step', step); } catch {}
   document.dispatchEvent(new CustomEvent('studio:step', { detail: step }));
+};
+
+/* ③ 確認・書き出しでその配信を開く(① 探す・② 解析・録画を始めたとき)。review.js は読み込みの時点で Studio.review を作るので、
+   無いのは review.js が読み込みで落ちたときだけ(そのときは知らせる) */
+Studio.openReview = async id => {
+  if (Studio.review && Studio.review.open) return Studio.review.open(id);
+  Studio.toast('確認画面がまだ読み込まれていません', 0, 'err');
 };
 
 /* 各 JS の初期化。ready 後に呼ばれる(すでに ready なら即実行) */
@@ -233,21 +234,21 @@ Studio.loadSiblings = () => {
   sibP = Studio.api('/api/siblings')
     .then(j => {
       Studio.ports = j && j.tools && typeof j.tools === 'object' ? j.tools : null;
-      if (window.UIKit && window.UIKit.tools.setPaths) window.UIKit.tools.setPaths(j && j.paths);   // 取り込まれたツールの場所(/studio/ など)
+      UIKit.tools.setPaths(j && j.paths);   // 取り込まれたツールの場所(/studio/ など)
     })
     .catch(() => { Studio.ports = null; })   // 404(未実装の古いサーバー)・通信失敗は既定のポートで
     .finally(() => { sibP = null; document.dispatchEvent(new CustomEvent('studio:ports', { detail: Studio.ports })); });
   return sibP;
 };
 /* 他のツールの画面の URL(ports が分からなければ既定のポート) */
-Studio.toolUrl = (id, path) => window.UIKit ? window.UIKit.tools.url(id, Studio.ports, path) : '';
+Studio.toolUrl = (id, path) => UIKit.tools.url(id, Studio.ports, path);
 
 /* ---------- 設定の引き出し(中身は settings.js。器は ui-kit の UIKit.settings.mount が作る #uiSettingsDrawer) ----------
    Studio.drawer / Studio.openSettings は他のコード・テストが使うので、薄い包み(UIKit.drawer + #uiSettingsDrawer)として残す */
 const drawer = Studio.drawer = {
-  isOpen: () => { const d = $('#uiSettingsDrawer'); return !!(d && window.UIKit && UIKit.drawer.isOpen(d)); },
-  open(opener){ const d = $('#uiSettingsDrawer'); if (d && window.UIKit) UIKit.drawer.open(d, { modal: true, opener: opener || document.activeElement }); },
-  close(){ const d = $('#uiSettingsDrawer'); if (d && window.UIKit) UIKit.drawer.close(d); }
+  isOpen: () => { const d = $('#uiSettingsDrawer'); return !!(d && UIKit.drawer.isOpen(d)); },
+  open(opener){ const d = $('#uiSettingsDrawer'); if (d) UIKit.drawer.open(d, { modal: true, opener: opener || document.activeElement }); },
+  close(){ const d = $('#uiSettingsDrawer'); if (d) UIKit.drawer.close(d); }
 };
 /* settings.js が中身を作ったあとで、特定の節を開く版に置き換える。ここでは引き出しを開くだけ */
 Studio.openSettings = () => drawer.open();
@@ -294,7 +295,7 @@ function paneError(msg){
 document.querySelectorAll('#steps .step').forEach(b => b.addEventListener('click', () => Studio.go(b.dataset.step)));
 $('#ver').textContent = 'v' + APP_VERSION;
 /* UIKit.appnav の中身は DOMContentLoaded で描かれるので、そのあと(= ここより後)で版を出す */
-document.addEventListener('DOMContentLoaded', () => { if (window.UIKit && UIKit.appnav) UIKit.appnav.setVersion('v' + APP_VERSION); });
+document.addEventListener('DOMContentLoaded', () => { UIKit.appnav.setVersion('v' + APP_VERSION); });
 readParams();
 watchHeader();
 wireKeyHelp();
@@ -306,7 +307,7 @@ const start = async () => {
   try {
     const p = await Studio.api('/api/ping');
     if (p.app !== 'clip-studio') throw new Error('このアドレスは切り抜きスタジオではありません');
-    if (p.version !== APP_VERSION && !(window.UIKit && UIKit.restart && UIKit.restart.check($('#errBar'), APP_VERSION, p.version)))   // 帯に「起動し直す」(段9 9-3)
+    if (p.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, p.version))   // 帯に「起動し直す」(段9 9-3)
       Studio.showErr('画面(v' + APP_VERSION + ')とサーバー(v' + p.version + ')の版が違います。黒い画面を閉じて起動し直してください');
     await Studio.refreshState();
   } catch (e){ Studio.showErr(e.message); paneError(e.message); return; }

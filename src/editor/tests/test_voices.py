@@ -73,6 +73,26 @@ class TestVoiceRules(unittest.TestCase):
         for n in ("兎田ぺこら", "ぺこら", "Pekora", "AZKi", "マリン船長", "話者A子", "私たち", "", "  "):
             self.assertFalse(S.is_generic_speaker_name(n), n)
 
+    def test_assign_ratio_matches_label_ratio(self):
+        """割り当てのときに出す割合(_assign の 4 つ目)は、全区間を数え直す label_ratio とちょうど同じ値(判別の記録・ならしが使う)"""
+        import random
+        rnd = random.Random(7)
+        for _ in range(30):
+            ts, t = [], 0.0
+            for _k in range(rnd.randint(0, 40)):
+                a = t + rnd.uniform(-2.0, 3.0)
+                ts.append((max(0.0, a), max(0.0, a) + rnd.uniform(0.05, 9.0), rnd.randint(0, 3)))
+                t = max(t, a)
+            ts.sort()
+            segs = []
+            for _k in range(rnd.randint(0, 30)):
+                a = rnd.uniform(0.0, max(1.0, t + 5))
+                segs.append({"start": a, "end": a + rnd.choice((0.0, 0.3, 1.5, 6.0))})
+            full = S.ed_speakers._assign(segs, ts)
+            self.assertEqual([r[:3] for r in full], S.assign_speakers(segs, ts, 0.0))
+            for sg, (sp, _m, _w, ratio) in zip(segs, full):
+                self.assertEqual(ratio, S.label_ratio(sg["start"], sg["end"], sp, ts), (sg, sp))
+
     def test_fake_embeddings_follow_fake_diarization(self):
         a, b, c = S.embed_fake([[[0, 8]], [[21, 29]], [[10, 18]]])
         self.assertGreater(S._cos(a, b), 0.99)                     # 0〜10秒と20〜30秒は同じ偽の話者(偽の判別は既定 2人が 10秒ごとに入れ替わる)
@@ -556,6 +576,43 @@ class TestOtherVoice(StoreDir):
         self.assertEqual(S.eb_redo_why(TID, d, now=10 ** 13, media=False), "noSub")
         self.assertIn("noSub", S.EB_REDO_TOUCHED)
         self.assertEqual(S._eb_touched_rows(d, "noSub"), 1)
+
+
+class TestExclusive(StoreDir):
+    """同じ文書に同時に入れない組み合わせ(ed_jobs.EXCLUSIVE)は、入口の検査(validate_*)と登録(add_job)で同じ組を断る
+    (10-08 の見直しの疑い 11: 声を覚える・判別・再認識で、入口と登録の組がずれていた)"""
+
+    def active(self, kind):
+        return mock.patch.dict(S._jobs, {"jx": {"id": "jx", "kind": kind, "state": "queued", "tid": TID, "spec": {"tid": TID}}})
+
+    def busy(self, fn):
+        with self.assertRaises(S.ApiError) as cm:
+            fn()
+        self.assertEqual((cm.exception.status, cm.exception.code), (409, "busy"))
+
+    def test_add_job_refuses_what_validate_refuses(self):
+        # 声を覚える: 入口は再認識・疑わしい所の最中を断る。登録(add_job)も同じ組で断る(以前は判別と声を覚えるだけ)
+        for other in ("retranscribe", "redo"):
+            with self.active(other):
+                self.busy(lambda: S.add_job({"tid": TID, "title": "t"}, "voice-learn"))
+        self.assertNotIn("voice-learn", [j.get("kind") for j in S._jobs.values() if j["spec"].get("tid") == TID])
+
+    def test_validate_refuses_what_add_job_refuses(self):
+        self.put_doc(doc_with_speakers([("S1", "兎田ぺこら")], [(0, 5, "S1", ""), (6, 12, "S1", "")], proofed=True))
+        with mock.patch.object(S, "check_source", lambda p: p):
+            for other in ("redo", "voice-learn"):   # 判別: 以前の入口は判別・再認識だけを見て、疑わしい所・声を覚えるは登録で断っていた
+                with self.active(other):
+                    self.busy(lambda: S.validate_diarize({"tid": TID}))
+            with self.active("redo"):   # 再認識: 以前の入口は疑わしい所の最中を見ていなかった
+                self.busy(lambda: S.validate_retranscribe({"tid": TID, "ids": ["s1"]}))
+            with self.active("diarize"):
+                self.busy(lambda: S.validate_voice_learn({"tid": TID, "names": ["兎田ぺこら"]}))
+
+    def test_table_is_the_only_rule(self):
+        for kind in ("diarize", "voice-learn", "retranscribe", "redo"):
+            for other in S.EXCLUSIVE[kind]:
+                self.assertIn(other, S.EXCLUSIVE, (kind, other))
+        self.assertEqual(set(S.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "redo", "voice-learn"})
 
 
 class TestDiarDelete(unittest.TestCase):

@@ -1,7 +1,12 @@
-"""ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。"""
+"""ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
+
+ほかに、各ツールが自前で書いていた小道具(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の A・G10):
+read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
+is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
 import json
 import os
 import tempfile
+import threading
 import time
 
 RETRY_WINERRORS = (5, 32, 33)   # アクセス拒否・共有違反・ロック違反(ウイルス対策・検索インデックス・同期ソフトが一瞬開いている)
@@ -88,22 +93,26 @@ def create_new(path, data):
             unlink_quiet(tmp)
 
 
-def write_json(path, obj, indent=2):
-    """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。docs/spec/pipeline.md の 1)。"""
-    atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=indent) + ("\n" if indent is not None else "")).encode("utf-8"))
+def write_json(path, obj, indent=2, mode=None):
+    """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。docs/spec/pipeline.md の 1)。
+    mode を渡すとそのファイルの権限(例 0o600 = 鍵のファイル。atomic_write と同じ)"""
+    atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=indent) + ("\n" if indent is not None else "")).encode("utf-8"), mode=mode)
 
 
 def _reject_constant(name):
     raise ValueError("NaN / Infinity は JSON として受け付けません: %s" % name)
 
 
-def read_json_file(path, max_bytes):
+def read_json_file(path, max_bytes, allow_nan=False):
     """UTF-8(BOM があっても可)の JSON を読む。max_bytes を超えるファイル・NaN / Infinity を含むものは ValueError。
-    他のツール・他人が作ったかもしれないファイルを読むときに使う(巨大なファイルで固まらないように)。"""
+    他のツール・他人が作ったかもしれないファイルを読むときに使う(巨大なファイルで固まらないように)。
+    allow_nan=True なら NaN / Infinity をそのまま float として通す(json.dump の既定で書いた自分のファイル。以前の読み方との互換)"""
     with open(path, "rb") as f:
         raw = f.read(max_bytes + 1)
     if len(raw) > max_bytes:
         raise ValueError("ファイルが大きすぎます")
+    if allow_nan:
+        return json.loads(raw.decode("utf-8-sig"))
     return json.loads(raw.decode("utf-8-sig"), parse_constant=_reject_constant)
 
 
@@ -112,3 +121,150 @@ def is_network_path(p):
     Windows でこうしたパスの存在を確かめるだけで、そのサーバーへ接続して資格情報(NTLM のハッシュ)を送ってしまうため、
     利用者が押したボタン以外(URL から自動で呼ばれる処理、他人が作ったファイルの中のパス)では調べない。"""
     return str(p or "").replace("/", "\\").startswith("\\\\")
+
+
+# ---------- 各ツールにあった小道具(2026-10-09) ----------
+READ_OR_MAX = 16 * 2**20   # read_json_or の既定の大きさの上限(設定・記録のファイル。これより大きいものは「読めない」扱い)
+
+
+def read_json_or(path, default=None, max_bytes=READ_OR_MAX, kind=None, allow_nan=False):
+    """JSON のファイルを「読めれば読む」(read_json_file の上げない版)。-> 中身 か default。
+    無い・読めない・UTF-8 でない・JSON でない・NaN / Infinity を含む・max_bytes より大きい・入れ子が深すぎる・
+    kind(dict・list など。タプルで複数も可)の形でない、のどれでも default を返す。BOM があってもよい。
+    allow_nan=True なら NaN / Infinity を float として通す(default にしない)。
+    default は複製しない(書き換える呼び出し側は、{} などをその場で作って渡す)"""
+    try:
+        d = read_json_file(path, max_bytes, allow_nan=allow_nan)
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return default
+    return d if kind is None or isinstance(d, kind) else default
+
+
+def stamp(path):
+    """(更新日時 ns, 大きさ)。無い・調べられなければ None(「ファイルが変わったときだけ読み直す」キャッシュの鍵)"""
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+class StampCache:
+    """ファイルの中身を、更新日時と大きさ(stamp)が変わったときだけ読み直すキャッシュ。スレッドから同時に呼んでよい。
+    get(path, load): stamp が前と同じなら覚えた値、違えば load(path) を呼んで覚える(load の結果が None でも覚える)。
+      ファイルが無い・調べられなければ None を返す(覚えた値は prune まで残す)。load は鍵のロックの外で呼ぶ(重い読みで他を待たせない)。
+      load が上げた例外はそのまま上げる(覚えない)
+    peek(path): stamp が前と同じときだけ覚えた値(読み直さない)。無い・変わった・覚えていなければ None
+    set(path, value): 今の stamp で value を覚える(上書き。ファイルが無ければ覚えずに False)。名前の付け替えで中身が移ったファイルに使う
+    prune(keep, folder=None): keep に無い鍵を外す(folder を渡すと、そのフォルダの直下の鍵だけを見る)。clear(): 全部外す。
+    len()・in・for で覚えている鍵を見られる(テスト用)"""
+
+    def __init__(self):
+        self._d = {}
+        self._lock = threading.Lock()
+
+    def get(self, path, load):
+        key = stamp(path)
+        if key is None:
+            return None
+        with self._lock:
+            hit = self._d.get(path)
+            if hit is not None and hit[0] == key:
+                return hit[1]
+        value = load(path)
+        with self._lock:
+            self._d[path] = (key, value)
+        return value
+
+    def peek(self, path):
+        key = stamp(path)
+        if key is None:
+            return None
+        with self._lock:
+            hit = self._d.get(path)
+        return hit[1] if hit is not None and hit[0] == key else None
+
+    def set(self, path, value):
+        key = stamp(path)
+        if key is None:
+            return False
+        with self._lock:
+            self._d[path] = (key, value)
+        return True
+
+    def prune(self, keep, folder=None):
+        keep = set(keep)
+        with self._lock:
+            for p in [p for p in self._d if p not in keep and (folder is None or os.path.dirname(p) == folder)]:
+                del self._d[p]
+
+    def clear(self):
+        with self._lock:
+            self._d.clear()
+
+    def __len__(self):
+        return len(self._d)
+
+    def __contains__(self, path):
+        return path in self._d
+
+    def __iter__(self):
+        """覚えている鍵(パス)の写し"""
+        with self._lock:
+            return iter(list(self._d))
+
+
+def rotate(path, limit, old=None):
+    """ログを 1 世代だけ回す: path が limit バイトを超えていたら old へ置き換える(前の old は消える)。-> 回したか。
+    old を省くと <名前>.old.log(.log で終わらなければ <名前>.old)。画面のエラーの記録のように <名前>.1 にしたいときは old に渡す。
+    無い・使用中などで回せなければ何もしない(上げない。呼ぶ側はそのまま追記する)"""
+    if old is None:
+        old = path[:-4] + ".old.log" if path.endswith(".log") else path + ".old"
+    try:
+        if os.path.getsize(path) > limit:
+            os.replace(path, old)
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def is_inside(path, root, strict=False):
+    """path が root の中か(strict=True なら root そのものは含めない)。許可したフォルダの中だけを読み書きさせる検査に使う(セキュリティの決まりはここ 1 か所)。
+    いちばん厳しい形にそろえた(2026-10-09。各ツールの 6 通りは realpath の有無・ネットワークの扱いが違った):
+    - ネットワーク上のパス(どちらか)は調べずに False(存在を確かめるだけで資格情報を送るため。is_network_path)
+    - realpath で比べる(シンボリックリンク・ジャンクション・.. で外へ出られない。まだ無いファイルでもよい = 親のリンクは解く)
+    - 大文字小文字をそろえて比べ、文字列の頭ではなくフォルダの区切りで比べる(C:/data と C:/data2 を取り違えない。commonpath)
+    - 空・別のドライブ・NUL を含む・調べられないときは False
+    False は「中だと確かめられなかった」の意味。「中にあれば断る」検査に使うときは、ネットワーク上のパスを呼ぶ側で先に断ること"""
+    if not path or not root or is_network_path(path) or is_network_path(root):
+        return False
+    try:
+        p, r = os.path.normcase(os.path.realpath(path)), os.path.normcase(os.path.realpath(root))
+        if os.path.commonpath([p, r]) != r:
+            return False
+    except (OSError, ValueError, TypeError):
+        return False
+    return not (strict and p == r)
+
+
+def dir_size(path):
+    """(バイト数, ファイル数)。ファイルを渡せばその大きさと 1。フォルダは中身の合計(リンクはたどらない・数えない)。
+    無い・読めないものは数えない(無ければ (0, 0)。上げない)"""
+    if os.path.isfile(path):
+        try:
+            return os.path.getsize(path), 1
+        except OSError:
+            return 0, 0
+    total = count = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+        for n in filenames:
+            fp = os.path.join(dirpath, n)
+            try:
+                if not os.path.islink(fp):
+                    total += os.path.getsize(fp)
+                    count += 1
+            except OSError:
+                pass
+    return total, count

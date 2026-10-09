@@ -44,7 +44,7 @@ BIG_FRAMES = 5                             # 「大きく動かした」とみ�
 FEW_PACKS = 20                             # 最終がパックの文書がこれより少ないときは「まだ少ない(参考)」
 EPS = 1e-6
 MAX_EDIT_BYTES = 8 * 1024 * 1024
-MAX_DOC_BYTES = 64 * 1024 * 1024
+MAX_DOC_BYTES = C.DOC_BYTES
 MAX_PACK_RECORD_BYTES = 16 * 1024 * 1024
 EDIT_RE = re.compile(r"^([0-9a-f]{12})\.edit\.json\Z")
 ORIGIN_LABELS = {"rows": "行から", "silence": "無音", "list": "時刻リスト", "plan": "スタジオ(cut-plan)", "all": "動画全体(行が無い)", "whole": "カットしない"}
@@ -389,21 +389,14 @@ def print_report(res):
         print("注意: " + n)
 
 
-def save(res, root):
-    return C.save(res, root, "cut")
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="カットのたたき台と人の最終の差を測る(作業データは読むだけ)")
-    p.add_argument("--since", help="この日(YYYY-MM-DD)以後だけ(たたき台を作った時刻 draft.at、無ければ edit.json の更新時刻)")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までだけ")
-    p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/cut/<日時>.json に残す")
-    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    C.add_period_args(p, "この日(YYYY-MM-DD)以後だけ(たたき台を作った時刻 draft.at、無ければ edit.json の更新時刻)",
+                      json_help="同じ形の JSON を 文字起こしの作業データの evals/cut/<日時>.json に残す")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until)
     print_report(res)
-    if args.json:
-        print("\n保存: " + save(res, res["meta"]["dataDir"]))
+    C.report_saved(res, args.json, res["meta"]["dataDir"], "cut")
     return res
 
 

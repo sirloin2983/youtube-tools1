@@ -96,9 +96,10 @@ def _clean(url):
     return urllib.parse.urlsplit(url)
 
 
-def local_url(url, portal_port, tool_ports=(), prefixes=("/studio", "/transcribe", "/cut2resolve")):
+def local_url(url, portal_port, tool_ports=(), prefixes=()):
     """窓で開いてよい URL か確かめて、正規の形(http://localhost:<port><path>)で返す。だめなら ValueError。
-    入口のポート: 入口の画面と、取り込んだツールの画面(/studio/ など。prefixes)。ツールのポート(別のプログラムとして動いているもの): その画面だけ"""
+    入口のポート: 入口の画面と、取り込んだツールの画面(/studio/ など。prefixes = 入口が今取り込んでいる場所。既定は無し)。
+    ツールのポート(別のプログラムとして動いているもの): その画面だけ"""
     u = _clean(url)
     if u.scheme != "http" or u.hostname not in ("localhost", "127.0.0.1") or u.username or u.password:
         raise ValueError("このパソコンの画面ではありません")
@@ -126,26 +127,25 @@ def external_url(url):
     return url
 
 
-def read_mode(path):
+def _read_settings(path):
+    """入口の settings.json(辞書)。無い・読めない・辞書でなければ {}(read_mode と write_mode で同じ読み方)"""
     try:
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
     except (OSError, ValueError):
-        return DEFAULT_MODE
-    m = d.get("window") if isinstance(d, dict) else None
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def read_mode(path):
+    m = _read_settings(path).get("window")
     return m if m in MODES else DEFAULT_MODE
 
 
 def write_mode(path, mode, atomic_write):
     if mode not in MODES:
         raise ValueError("mode は browser か app です")
-    try:
-        with open(path, encoding="utf-8") as f:
-            d = json.load(f)
-        if not isinstance(d, dict):
-            d = {}
-    except (OSError, ValueError):
-        d = {}
+    d = _read_settings(path)
     d["window"] = mode
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write(path, json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))

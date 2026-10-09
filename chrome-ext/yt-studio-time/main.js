@@ -30,9 +30,7 @@
     return null;
   }
   // 応答の JSON や行の持つデータから videoId と時刻の組を拾って times に入れる(入れ子の位置に頼らない)。拾った件数を返す
-  function harvest(obj, visited, depth) {
-    visited = visited || new Set();
-    depth = depth || 0;
+  function harvest(obj, visited = new Set(), depth = 0) {
     if (!obj || typeof obj !== 'object' || depth > 12 || visited.has(obj)) return 0;
     if (typeof Node !== 'undefined' && obj instanceof Node) return 0;
     visited.add(obj);
@@ -72,7 +70,7 @@
 
   // ---------- ここから画面 ----------
   const debug = () => { try { return localStorage.getItem('yttStudioTimeDebug') === '1'; } catch (e) { return false; } };
-  const log = function () { if (debug()) console.log.apply(console, ['[' + TAG + ']'].concat([].slice.call(arguments))); };
+  const log = (...args) => { if (debug()) console.log('[' + TAG + ']', ...args); };
 
   // 応答を控える(fetch と XHR の両方。Studio がどちらを使っても拾う)
   function capture(url, body) {
@@ -87,7 +85,7 @@
   window.fetch = function (input) {
     const url = typeof input === 'string' ? input : (input && input.url) || '';
     const p = origFetch.apply(window, arguments);
-    if (API_RE.test(url)) p.then(function (res) { res.clone().text().then(function (t) { capture(url, t); }).catch(function () {}); }).catch(function () {});
+    if (API_RE.test(url)) p.then(res => res.clone().text()).then(t => capture(url, t), () => {});   // 読めなくても Studio の動きは変えない
     return p;
   };
   const origOpen = XMLHttpRequest.prototype.open;
@@ -110,13 +108,12 @@
     if (observer) observer.observe(sr, OBS);
     return sr;
   };
-  function queryAll(sel) {
-    const out = [];
-    roots.forEach(function (r) { r.querySelectorAll(sel).forEach(function (el) { out.push(el); }); });
-    return out;
-  }
+  const queryAll = sel => [...roots].flatMap(r => [...r.querySelectorAll(sel)]);
+  // 行の中を探す範囲(行そのものと、あれば行の shadow root)
+  const scopesOf = row => row.shadowRoot ? [row, row.shadowRoot] : [row];
   function inRow(row, sel) {
-    return row.querySelector(sel) || (row.shadowRoot && row.shadowRoot.querySelector(sel)) || null;
+    for (const s of scopesOf(row)) { const el = s.querySelector(sel); if (el) return el; }
+    return null;
   }
   function videoIdOf(row) {
     const a = inRow(row, 'a[href*="/video/"]');
@@ -134,9 +131,7 @@
   function dateCellOf(row) {
     const cell = inRow(row, '.tablecell-date');
     if (cell) return cell;
-    const scopes = [row];
-    if (row.shadowRoot) scopes.push(row.shadowRoot);
-    for (const s of scopes) for (const el of s.querySelectorAll('div, span')) if (DATE_RE.test(ownText(el))) return el.parentElement || el;
+    for (const s of scopesOf(row)) for (const el of s.querySelectorAll('div, span')) if (DATE_RE.test(ownText(el))) return el.parentElement || el;
     return null;
   }
   // 欄の中で日付の文字を直接持つ要素(そのうしろに時刻を足す)。無ければ欄そのもの
@@ -186,4 +181,4 @@
     schedule();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+})(globalThis);

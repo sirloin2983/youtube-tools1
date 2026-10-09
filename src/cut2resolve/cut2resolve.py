@@ -24,12 +24,16 @@
   python cut2resolve.py 動画.mp4 動画.transcript.json --silence  # 字幕は文字起こしから、カット済の行と無音を削る
 """
 import argparse
+import dataclasses
 import sys
 from pathlib import Path
 
 import cut2resolve_core as C
 import pack
 import resolve_textplus as TP
+
+# 指定を省いたときの値の正は pack.Request の既定(画面の API の serve.py も同じものを読む)
+_D = {f.name: f.default for f in dataclasses.fields(pack.Request)}
 
 
 def build_request(args):
@@ -95,11 +99,7 @@ def run(args):
 
 
 def main(argv=None):
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(errors="replace")
-        except Exception:
-            pass
+    C.safe_stdio()
     ap = argparse.ArgumentParser(description="元動画+カット+字幕 -> Resolve 用 EDL(フル版)")
     ap.add_argument("inputs", nargs="+", metavar="FILE",
                     help="動画・字幕(.srt/.vtt)・カットリスト(.txt)・文字起こし/採用区間(.json) 順不同")
@@ -115,13 +115,13 @@ def main(argv=None):
     ap.add_argument("--drop", help="削る区間のファイル(1行に「開始 終了」)")
     ap.add_argument("--drop-lines", help="削る字幕の行(字幕ファイルの上から何番目か。例: 3,5-7)")
     ap.add_argument("--silence", action="store_true", help="無音区間を自動で削る")
-    ap.add_argument("--noise", type=float, default=-35.0, help="無音とみなす音量 dB(既定 -35。大きくすると多く削る)")
-    ap.add_argument("--silence-min", type=float, default=0.6, help="この秒数以上続く無音だけ削る(既定 0.6)")
-    ap.add_argument("--silence-pad", type=float, default=0.15, help="話の前後に残す秒数(既定 0.15)")
-    ap.add_argument("--min-len", type=float, default=0.3, help="これより短い残り区間は捨てる(既定 0.3秒)")
-    ap.add_argument("--join-gap", type=float, default=0.0, help="この秒数以下の隙間ならつなぐ(既定 0)")
+    ap.add_argument("--noise", type=float, default=_D["noise"], help="無音とみなす音量 dB(既定 %(default)g。大きくすると多く削る)")
+    ap.add_argument("--silence-min", type=float, default=_D["silence_min"], help="この秒数以上続く無音だけ削る(既定 %(default)g)")
+    ap.add_argument("--silence-pad", type=float, default=_D["silence_pad"], help="話の前後に残す秒数(既定 %(default)g)")
+    ap.add_argument("--min-len", type=float, default=_D["min_len"], help="これより短い残り区間は捨てる(既定 %(default)g 秒)")
+    ap.add_argument("--join-gap", type=float, default=_D["join_gap"], help="この秒数以下の隙間ならつなぐ(既定 %(default)g)")
     ap.add_argument("--render", action="store_true", help="残す区間をつないだ粗編集の動画(H.264 mp4)も作る")
-    ap.add_argument("--crf", type=int, default=18, help="粗編集の画質(小さいほど高画質。既定 18)")
+    ap.add_argument("--crf", type=int, default=C.DEFAULT_CRF, help="粗編集の画質(小さいほど高画質。既定 %(default)s)")
     ap.add_argument("--copy-video", action="store_true", help="元動画を出力フォルダにコピーする(大きいので注意)")
     ap.add_argument("--fcpxml", action="store_true", help="補助の FCPXML(カット済みのタイムライン+字幕タイトル。実機未確認)も作る")
     ap.add_argument("--textplus", action="store_true", help="動画同梱・Resolve Free用Text+生成スクリプト・復旧タイムラインを含むパックを作る")
@@ -133,8 +133,8 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true", help="残る区間を表示するだけで、ファイルは作らない")
     ap.add_argument("-o", "--output", help="出力フォルダ(既定: 動画と同じ場所の <動画名>_pack)")
     ap.add_argument("--name", help="EDL のタイトル(既定: 動画名)")
-    ap.add_argument("--reel", default="AX", help="EDL のリール名(英数字8文字まで。既定 AX)")
-    ap.add_argument("--rec-start", default="01:00:00:00", help="タイムラインの開始タイムコード(既定 01:00:00:00)")
+    ap.add_argument("--reel", default=_D["reel"], help="EDL のリール名(英数字8文字まで。既定 %(default)s)")
+    ap.add_argument("--rec-start", default=_D["rec_start"], help="タイムラインの開始タイムコード(既定 %(default)s)")
     ap.add_argument("--src-start-tc", default=None,
                     help="元動画の開始タイムコード HH:MM:SS:FF(既定: 動画に埋め込まれた値、無ければ 00:00:00:00)")
     ap.add_argument("--fps", help="フレームレートを指定(通常は自動)")

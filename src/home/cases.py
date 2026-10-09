@@ -45,7 +45,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt_core import datadir, fsio, schemas, txindex
+from ytt_core import datadir, fsio, schemas, tools, txindex
 import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。線 D の M3)
 
@@ -384,7 +384,7 @@ def auto_review(repo_root, body, deliveries=None, studio=None, feedback=None, tr
     except ValueError as e:
         return 400, {"error": "bad_request", "message": str(e)}
     except OSError as e:
-        return 500, {"error": "write", "message": "案件ファイルを書けませんでした: %s" % (e.strerror or e.__class__.__name__)}
+        return 500, {"error": "write", "message": "案件ファイルを書けませんでした: %s" % tools.why(e)}
 
 
 def _find_auto(repo_root, case_id, mark_id, env):

@@ -8,10 +8,10 @@ const LS = 'clipstudio:rank:';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v)); } catch {} };
 const fmtN = n => (Number.isFinite(Number(n)) ? Number(n).toLocaleString('ja-JP') : '-');
-const fmtDur = s => (window.UIKit ? UIKit.fmt.dur(s) : '');   // 1:23:45(ui-kit の 1 か所)
+const fmtDur = s => UIKit.fmt.dur(s);   // 1:23:45(ui-kit の 1 か所)
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const okThumb = u => /^https:\/\/([\w-]+\.)?ytimg\.com\//.test(u || '');
-const okId = i => /^[\w-]{11}$/.test(i || '');
+const okId = S.isVideoId;
 /* 検索結果の配信日時("2026-09-20 21:00"。日本時間)→ ミリ秒(読めなければ 0) */
 const atMs = at => { const m = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)$/.exec(at || ''); return m ? Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+09:00`) || 0 : 0; };
 const LIMITS = [10, 30, 50, 100, 0];   // 「全部まとめて」の上位の本数(0 = すべて)
@@ -207,11 +207,14 @@ function agChipsHtml(cls){
 }
 const MIN_DUR = 600;   // 「10分以上の動画だけ」の秒数(既定でオン。2026-10-04 ユーザー指示)
 function setRange(a, b){ $('#dStart').value = ymd(a); $('#dEnd').value = ymd(b); }
+/* 期間を「n 日前〜今日」(今日を含めて n 日)にする */
+function lastDays(n){ const s = new Date(); s.setDate(s.getDate() - (n - 1)); setRange(s, new Date()); }
 function condBody(){
   return { start: $('#dStart').value, end: $('#dEnd').value, words: $('#words').value, mode: $('#mode').value, inDesc: $('#inDesc').value === '1', top: Number($('#top').value),
     minViews: Number($('#minViews').value) || 0, archiveOnly: $('#archiveOnly').checked, noShorts: $('#noShorts').checked, minDur: $('#minDur10').checked ? MIN_DUR : 0, agencies: [...document.querySelectorAll('.agc:checked')].map(x => x.value) };
 }
-function saveCond(){ const c = condBody(); lsSet('cond', { words: c.words, mode: c.mode, inDesc: c.inDesc, top: c.top, minViews: c.minViews, archiveOnly: c.archiveOnly, noShorts: c.noShorts, minDur: c.minDur, start: c.start, end: c.end }); advSummary(); }
+/* 検索の条件を覚える(選んだ事務所は R.agPick の 1 か所に別に覚えるので除く) */
+function saveCond(){ const c = condBody(); delete c.agencies; lsSet('cond', c); advSummary(); }
 /* 「詳しい条件」を閉じていても、いまの条件が分かるように見出しの横に短く出す */
 function advSummary(){
   const el = $('#rkAdvSum'); if (!el) return;
@@ -248,8 +251,7 @@ const IDLE = {
 function syncGo(){
   const b = $('#btnGo'); if (!b) return;
   const [code, why] = goState();
-  b.disabled = !!why; b.title = why;
-  if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why');
+  S.why(b, why);
   const idle = $('#results > .rk-idle');
   if (idle && code !== 'busy' && idle.dataset.code !== code){ idle.dataset.code = code; idle.innerHTML = IDLE[code]; }
 }
@@ -311,7 +313,7 @@ function renderResults(){
   const q = $('#rkQ'); q.value = R.q;
   renderBody(); paintPick();
 }
-const matchQ = (v, agName) => { const q = R.q.trim().toLowerCase(); if (!q) return true; return q.split(/\s+/).every(w => (v.title + ' ' + v.channel + ' ' + (agName || '')).toLowerCase().includes(w)); };
+const matchQ = (v, agName) => S.matchWords(R.q, v.title + ' ' + v.channel + ' ' + (agName || ''));
 const TABLE_HEAD = '<thead><tr><th class="ck"><span class="sr-only">選択</span></th><th class="rk">#</th><th class="hide-s"><span class="sr-only">サムネイル</span></th><th>タイトル</th><th class="n">再生数</th><th class="n hide-s">高評価</th><th class="hide-s">配信日時</th><th class="n hide-s">長さ</th></tr></thead>';
 function renderBody(){
   const r = R.result, box = $('#rkBody'); if (!r || !box) return;
@@ -339,7 +341,7 @@ function renderBody(){
   paintRows();
 }
 function row(v, i, agName){
-  const id = okId(v.id), link = id ? 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id) : '', ms = atMs(v.at);
+  const id = okId(v.id), link = id ? S.watchUrl(v.id) : '', ms = atMs(v.at);
   const meta = [esc(v.channel), agName ? `<span class="rk-ag-name">${esc(agName)}</span>` : '', ms ? `<span title="${esc(v.at)}">${esc(S.ago(ms))}</span>` : ''].filter(Boolean).join('<span class="q-dot">・</span>');
   return `<tr data-vid="${esc(v.id)}"><td class="ck">${id ? `<input type="checkbox" class="pk" aria-label="解析に追加する: ${esc(v.title)}" data-id="${esc(v.id)}" data-title="${esc(v.title)}" data-channel="${esc(v.channel)}">` : ''}</td><td class="rk num">${i + 1}</td>
     <td class="hide-s th-cell">${okThumb(v.thumb) && id ? `<a href="${link}" target="_blank" rel="noopener noreferrer" tabindex="-1"><img loading="lazy" src="${esc(v.thumb)}" alt=""></a>` : '<span class="rk-noimg"></span>'}</td>
@@ -414,13 +416,11 @@ async function startAuto(){
   R.adding = true; paintPick();
   try {
     const body = { items, top, ...(who ? { streamer: who } : {}) };
-    const ar = window.UIKit && UIKit.autorun;   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
-    const r = ar ? await ar.start('api/autorun/start-new', body, null) : await S.portalApi('api/autorun/start-new', body);
+    const r = await UIKit.autorun.start('api/autorun/start-new', body, null);   // 始める・終わったら知らせる は共通の部品(段4。まだスタジオに無い配信なので見積もりはしない)
     const made = (r && r.runs) || [], sk = (r && r.skipped) || [];
     for (const x of made) R.picked.delete(x.videoId);
     if (made.length) $('#rkAuto').open = false;
-    if (!ar) S.toast(`${made.length} 本のまとめて実行を始めました`, 8000, made.length ? 'ok' : 'err');
-    if (sk.length && ar) S.toast('始めなかった配信: ' + sk.map(s => `${s.title || s.id}(${s.reason})`).join('、'), 8000, 'info');
+    if (sk.length) S.toast('始めなかった配信: ' + sk.map(s => `${s.title || s.id}(${s.reason})`).join('、'), 8000, 'info');
   } catch (e){ S.toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
   R.adding = false;
   await refreshMarks(); paintPick();
@@ -494,7 +494,7 @@ async function lvLoad(){
 
 /* 録画との照らし合わせ: ヘッダーの札(UIKit.liveBadge。入口の録画の一覧)を正にする。札がまだ知らない(始めた直後)ものは、ここで始めた録画を使う */
 function lvRec(vid){
-  const lb = window.UIKit && UIKit.liveBadge && UIKit.liveBadge.get ? UIKit.liveBadge.get() : null;
+  const lb = UIKit.liveBadge.get();
   const own = L.recs.get(vid);
   if (lb && lb.enabled){
     for (const r of lb.recordings || []) if (r.active && ytId(r.url) === vid) return { recorder: r.recorder, id: r.id, url: r.url, title: r.title, state: r.state, video: own && own.id === r.id ? own.video : '' };
@@ -541,7 +541,7 @@ function lvMeta(v){
 }
 function lvFill(row, v){
   row.v = v;
-  const id = okId(v.id), link = id ? 'https://www.youtube.com/watch?v=' + encodeURIComponent(v.id) : '';
+  const id = okId(v.id), link = id ? S.watchUrl(v.id) : '';
   if (row.title.getAttribute('href') !== link){ if (link){ row.title.href = link; row.th.href = link; } else { row.title.removeAttribute('href'); row.th.removeAttribute('href'); } }
   setText(row.title, v.title || v.id); row.title.title = v.title || '';
   setText(row.meta, lvMeta(v));
@@ -621,7 +621,7 @@ function lvTimes(){ if (!lvShowing()) return; for (const row of L.rows.values())
 /* 「録画する」「始まったら録画」: ② の URL 欄と同じ流れ(Studio.live.begin → 配信中なら ③ で開く)。二度押しは L.pending で止める */
 async function lvBegin(vid){
   const row = L.rows.get(vid); if (!row || L.pending.has(vid) || !okId(vid)) return;
-  const v = row.v, url = 'https://www.youtube.com/watch?v=' + vid;
+  const v = row.v, url = S.watchUrl(vid);
   if (BLOCK[v.blocked]) return;
   L.pending.add(vid); lvAct(row);
   try {
@@ -630,10 +630,8 @@ async function lvBegin(vid){
     else {
       const rec = b.recording || {}, now = v.state === 'live' || rec.state === 'recording' || rec.state === 'reconnecting';
       L.recs.set(vid, { recorder: b.recorder, id: rec.id, url: rec.url || url, title: rec.title || v.title, channel: rec.channel || v.channel || '', state: rec.state || (v.state === 'live' ? 'recording' : 'waiting'), video: b.video && b.video.id });
-      if (now){
-        S.toast(b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます', 6000, 'ok');
-        if (S.review && S.review.open) await S.review.open(b.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
-      } else S.toast(b.existing ? 'この配信は、もう録画を予約しています' : `配信が始まったら録画します(「${v.title}」)。ヘッダーの札に「配信待ち」と出ます`, 7000, 'ok');
+      if (now) await S.live.openBegun(b);   // 知らせて ③ で開く(② 解析と同じ)
+      else S.toast(b.existing ? 'この配信は、もう録画を予約しています' : `配信が始まったら録画します(「${v.title}」)。ヘッダーの札に「配信待ち」と出ます`, 7000, 'ok');
     }
   } catch (e){ S.toast(e.message, 0, 'err'); }
   L.pending.delete(vid);
@@ -646,7 +644,7 @@ async function lvOpen(vid){
   try {
     let id = rec.video;
     if (!id) id = (await S.live.register(rec.recorder, rec, { channel: (L.rows.get(vid) || { v: {} }).v.channel || '' })).video.id;   // 登録は1か所(core.js の Studio.live.register。チャンネル名も)
-    if (S.review && S.review.open) await S.review.open(id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+    await S.openReview(id);
   } catch (e){ S.toast('録画を開けませんでした: ' + e.message, 0, 'err'); }
   L.pending.delete(vid); const r2 = L.rows.get(vid); if (r2) lvAct(r2);
 }
@@ -666,11 +664,9 @@ function wireLive(){
   });
   $('#rkMode').addEventListener('click', e => { const b = e.target.closest('[data-mode]'); if (b) setTab(b.dataset.mode, true); });
   S.on('step', st => { if (st === 'rank' && L.tab === 'live') lvResume(); else lvPause(); });
-  if (window.UIKit && UIKit.life){
-    UIKit.life.onLeave(reason => { if (reason !== 'blur') lvPause(); });   // 隣の窓へ移っただけ(blur)なら見えているので続ける
-    UIKit.life.onReturn(() => { if (L.tab === 'live' && S.step === 'rank') lvResume(); });
-  }
-  if (window.UIKit && UIKit.liveBadge && UIKit.liveBadge.onChange) UIKit.liveBadge.onChange(() => { if (L.rows.size) lvActs(); });
+  UIKit.life.onLeave(reason => { if (reason !== 'blur') lvPause(); });   // 隣の窓へ移っただけ(blur)なら見えているので続ける
+  UIKit.life.onReturn(() => { if (L.tab === 'live' && S.step === 'rank') lvResume(); });
+  UIKit.liveBadge.onChange(() => { if (L.rows.size) lvActs(); });
 }
 
 /* ================= 起動 ================= */
@@ -684,10 +680,10 @@ S.onReady(async () => {
   const c = lsGet('cond');
   if (c){ $('#words').value = c.words || ''; $('#mode').value = c.mode === 'all' ? 'all' : 'any'; $('#inDesc').value = c.inDesc === false ? '0' : '1'; if ([10, 20, 50, 100].includes(c.top)) $('#top').value = String(c.top); $('#minViews').value = c.minViews || 0; $('#archiveOnly').checked = c.archiveOnly !== false; $('#noShorts').checked = c.noShorts !== false; $('#minDur10').checked = c.minDur !== 0; }
   if (c && /^\d{4}-\d\d-\d\d$/.test(c.start || '') && /^\d{4}-\d\d-\d\d$/.test(c.end || '')) setRange(new Date(c.start + 'T00:00:00'), new Date(c.end + 'T00:00:00'));
-  else { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 29); setRange(s, e); }
+  else lastDays(30);
   /* 昨日0時〜今: 日付の単位で「昨日〜今日」(サーバーは終了日の翌日0時(日本時間)の手前までを探すので、今の時刻までが入る) */
-  document.querySelectorAll('[data-yday]').forEach(b => b.addEventListener('click', () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - 1); setRange(s, e); saveCond(); }));
-  document.querySelectorAll('[data-days]').forEach(b => b.addEventListener('click', () => { const e = new Date(), s = new Date(); s.setDate(s.getDate() - (Number(b.dataset.days) - 1)); setRange(s, e); saveCond(); }));
+  document.querySelectorAll('[data-yday]').forEach(b => b.addEventListener('click', () => { lastDays(2); saveCond(); }));
+  document.querySelectorAll('[data-days]').forEach(b => b.addEventListener('click', () => { lastDays(Number(b.dataset.days)); saveCond(); }));
   document.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => { const n = new Date(), k = Number(b.dataset.m); setRange(new Date(n.getFullYear(), n.getMonth() - k, 1), k ? new Date(n.getFullYear(), n.getMonth(), 0) : n); saveCond(); }));
   ['words', 'mode', 'inDesc', 'top', 'minViews', 'archiveOnly', 'noShorts', 'minDur10', 'dStart', 'dEnd'].forEach(id => $('#' + id).addEventListener('change', saveCond));
   advSummary();
@@ -704,14 +700,15 @@ S.onReady(async () => {
   $('#rkAuto').hidden = false;
   if (!S.token){
     /* 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
-    if (window.UIKit && UIKit.menuOff) UIKit.menuOff($('#rkAuto'), 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます');
+    UIKit.menuOff($('#rkAuto'), 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます');
   }
   $('#rkAutoGo').addEventListener('click', startAuto);
-  if (S.token && window.UIKit && UIKit.streamer) UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
-  if (S.token && window.UIKit && UIKit.autorun){   // まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4。以前は毎回 3 に戻っていた)
+  if (S.token){
+    UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
+    /* まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4。以前は毎回 3 に戻っていた) */
     UIKit.autorun.panel($('#paneRank .rk-autopanel'), { kind: 'new' });
     UIKit.autorun.load().then(st => { $('#rkAutoTop').value = String(st.top); }, () => {});
-    $('#rkAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rkAutoTop').value)); if (n >= 1 && n <= 20 && UIKit.prefs) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
+    $('#rkAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rkAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
   }
   $('#results').addEventListener('change', e => {
     const cb = e.target.closest('.pk'); if (!cb) return;
@@ -728,7 +725,7 @@ S.onReady(async () => {
     { const o = e.target.closest('[data-rkopen]'); if (o){ S.openSettings(o.dataset.rkopen); return; } }   // 失敗・空の表示の次の一手(見直し M6・M7)
     if (e.target.closest('[data-rkretry]')){ startSearch(); return; }
     { const f = e.target.closest('[data-rkfocus]'); if (f){ const el = document.querySelector(f.dataset.rkfocus); if (el){ el.scrollIntoView({ block: 'center' }); el.focus(); } return; } }
-    { const d = e.target.closest('[data-rkdays]'); if (d){ const en = new Date(), st = new Date(); st.setDate(st.getDate() - (Number(d.dataset.rkdays) - 1)); setRange(st, en); saveCond(); startSearch(); return; } }
+    { const d = e.target.closest('[data-rkdays]'); if (d){ lastDays(Number(d.dataset.rkdays)); saveCond(); startSearch(); return; } }
     if (e.target.closest('[data-rkclearq]')){ R.q = ''; const q = $('#rkQ'); if (q){ q.value = ''; q.focus(); } renderBody(); return; }
     if (e.target.closest('#rkMore')){ const i = LIMITS.indexOf(R.limit); R.limit = LIMITS[Math.min(LIMITS.length - 1, i + 1)]; const sl = $('#rkLimit'); if (sl) sl.value = String(R.limit); lsSet('limit', R.limit); renderBody(); return; }
     const b = e.target.closest('.add1'); if (!b || b.disabled) return;

@@ -27,7 +27,7 @@ import subprocess
 import threading
 import time
 
-from ytt_core import fsio as _fsio, jobs as _heavy  # noqa: E402,F401
+from ytt_core import fsio as _fsio, jobs as _heavy, tools as _tools  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -61,7 +61,7 @@ def index_path():
 
 def path_key(path):
     """元のパスの正規化(大文字小文字・区切りをそろえる)の sha1 の先頭 12 文字"""
-    return hashlib.sha1(os.path.normcase(os.path.abspath(path)).encode("utf-8", "surrogatepass")).hexdigest()[:12]
+    return hashlib.sha1(ed_state.norm_path(path).encode("utf-8", "surrogatepass")).hexdigest()[:12]
 
 
 def safe_stem(name):
@@ -78,18 +78,15 @@ def _empty_index():
 
 
 def read_index():
-    try:
-        d = _fsio.read_json_file(index_path(), INDEX_MAX_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return _empty_index()
-    if not isinstance(d, dict) or not isinstance(d.get("items"), dict):
+    d = _fsio.read_json_or(index_path(), None, INDEX_MAX_BYTES, kind=dict)
+    if d is None or not isinstance(d.get("items"), dict):
         return _empty_index()
     return dict(_empty_index(), **{k: d[k] for k in ("scan", "lastRun", "lastError", "items") if k in d})
 
 
 def _write_index(idx):
     idx["schema"] = SCHEMA
-    idx["updatedAt"] = int(time.time() * 1000)
+    idx["updatedAt"] = ed_state.now_ms()
     ed_state.atomic_write(index_path(), json.dumps(idx, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
@@ -125,19 +122,14 @@ def _busy_reason():
     return None
 
 
-def _flags():
-    """Windows: 黒い画面を出さない・「通常より下」の優先度(画面・文字起こしより先に CPU を取らない)"""
-    if os.name != "nt":
-        return 0
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
-
-
 def _make(ff, src, dst):
-    """src の音声を 16kHz・モノラルの flac にして dst へ(一時名に書いてから改名)。-> None(成功)| エラーの文"""
+    """src の音声を 16kHz・モノラルの flac にして dst へ(一時名に書いてから改名)。-> None(成功)| エラーの文。
+    Windows では黒い画面を出さず「通常より下」の優先度(画面・文字起こしより先に CPU を取らない)"""
     part = dst + ".part"
     cmd = [ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "flac", "-f", "flac", part]
     try:
-        p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=MAKE_TIMEOUT_SEC, creationflags=_flags())
+        p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=MAKE_TIMEOUT_SEC,
+                           creationflags=_tools.no_window_flags(priority="low"))
     except subprocess.TimeoutExpired:
         err = "ffmpeg が %d 分たっても終わりませんでした" % (MAKE_TIMEOUT_SEC // 60)
     except (OSError, subprocess.SubprocessError) as e:
@@ -152,11 +144,8 @@ def _make(ff, src, dst):
             ed_state.replace_retry(part, dst)
         except OSError as e:
             err = "flac の名前を付けられませんでした: %s" % e
-    if err is not None and os.path.exists(part):
-        try:
-            os.remove(part)
-        except OSError:
-            pass
+    if err is not None:
+        _fsio.unlink_quiet(part)
     return err
 
 
@@ -167,7 +156,7 @@ def scan_sources():
         for folder, names in ed_relink._eval_videos(root, skip_staging=False).items():
             for n in names:
                 p = os.path.join(folder, n)
-                k = os.path.normcase(os.path.abspath(p))
+                k = ed_state.norm_path(p)
                 if k in seen:
                     continue
                 seen.add(k)
@@ -211,7 +200,7 @@ def _reconcile(idx, found):
                 continue   # 同じ元で何度も失敗している(元が変わるまで試さない)
         todo.append((p, size, mtime))
     if ed_relink.eval_dirs():   # 評価用のフォルダが見えているときだけ(ドライブを外していると全部消えたことになってしまう)
-        now = int(time.time() * 1000)
+        now = ed_state.now_ms()
         for k, it in items.items():
             if k not in keys and isinstance(it, dict) and not it.get("gone") and not os.path.exists(str(it.get("src") or "")):
                 it["gone"] = True
@@ -244,14 +233,11 @@ def _run_locked(ff, why, log):
     folder = audio_dir()
     for n in os.listdir(folder):   # 前回の書きかけ(この関数は _file_lock の中なので、ほかに作っている人はいない)
         if n.endswith(".part"):
-            try:
-                os.remove(os.path.join(folder, n))
-            except OSError:
-                pass
+            _fsio.unlink_quiet(os.path.join(folder, n))
     idx = read_index()
     found = scan_sources()
     todo, adopted = _reconcile(idx, found)
-    idx["scan"] = {"at": int(time.time() * 1000), "found": len(found), "pending": len(todo)}
+    idx["scan"] = {"at": ed_state.now_ms(), "found": len(found), "pending": len(todo)}
     _write_index(idx)
     res = {"made": 0, "failed": 0, "adopted": adopted, "found": len(found), "pending": len(todo), "deferred": None}
     err = None
@@ -271,18 +257,18 @@ def _run_locked(ff, why, log):
         if e is None:
             dst = os.path.join(folder, name)
             idx["items"][key] = {"src": p, "size": size, "mtime": mtime, "flac": name, "flacSize": os.path.getsize(dst),
-                                 "durationSec": round(ed_state.media_duration(dst) or 0.0, 3), "madeAt": int(time.time() * 1000)}
+                                 "durationSec": round(ed_state.media_duration(dst) or 0.0, 3), "madeAt": ed_state.now_ms()}
             res["made"] += 1
             log("作りました %s" % os.path.basename(p))
         else:
             fails = int(old.get("fails") or 0) + 1 if _same(old, size, mtime) else 1
-            idx["items"][key] = {"src": p, "size": size, "mtime": mtime, "flac": None, "error": e, "fails": fails, "failedAt": int(time.time() * 1000)}
+            idx["items"][key] = {"src": p, "size": size, "mtime": mtime, "flac": None, "error": e, "fails": fails, "failedAt": ed_state.now_ms()}
             if old.get("flac") and not _same(old, size, mtime):   # 元が変わったのに作り直せなかった: 古い flac は残す(精度の測定の記録として)
                 idx["items"][key]["flac"] = old["flac"]
                 idx["items"][key]["flacSize"] = old.get("flacSize")
                 idx["items"][key]["durationSec"] = old.get("durationSec")
             res["failed"] += 1
-            err = {"at": int(time.time() * 1000), "src": os.path.basename(p), "message": e}
+            err = {"at": ed_state.now_ms(), "src": os.path.basename(p), "message": e}
             log("失敗 %s: %s" % (os.path.basename(p), e))
         idx["scan"]["pending"] = max(0, idx["scan"]["pending"] - 1)
         if err:
@@ -290,7 +276,7 @@ def _run_locked(ff, why, log):
         _write_index(idx)
     if res["deferred"] is None and not any(isinstance(i, dict) and i.get("error") and not i.get("flac") for i in idx["items"].values()):
         idx["lastError"] = None   # 失敗している元が1つも残っていなければ消す(あきらめた元がある間は残す)
-    idx["lastRun"] = {"at": int(time.time() * 1000), "why": why, "made": res["made"], "failed": res["failed"], "adopted": adopted,
+    idx["lastRun"] = {"at": ed_state.now_ms(), "why": why, "made": res["made"], "failed": res["failed"], "adopted": adopted,
                       "deferred": res["deferred"], "sec": round(time.time() - t0, 1)}
     _write_index(idx)
     return res
@@ -336,7 +322,7 @@ def _file_lock(path):
 def start_background(first_delay=FIRST_DELAY_SEC, interval=INTERVAL_SEC):
     """起動の first_delay 秒後と、その後 interval 秒ごとに1回まわる裏のスレッド(serve.py の prepare から1回だけ)。
     環境変数 TRANSCRIBE_EVAL_AUDIO=off で始めない。ジョブが動いていて途中でやめたときは RETRY_SEC 後にもう一度"""
-    if os.environ.get("TRANSCRIBE_EVAL_AUDIO", "").strip().lower() in ("off", "0", "no", "false") or _bg:
+    if ed_state.env_off("TRANSCRIBE_EVAL_AUDIO") or _bg:
         return None
 
     def loop():

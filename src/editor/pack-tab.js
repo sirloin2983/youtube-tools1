@@ -148,21 +148,19 @@ function create(h){
   /* 字幕の見本の色: 話者の字幕の色(sub)→ メンバーと合えばその色(合わなければ配信者の色 = body の --tt-cap-color のまま)。行の話者(id)からと、見積もりの話者(名前)から。
      メンバーの色のスイッチ(speakerColors)は app.js の speakerColor / speakerColorByName が見る(指定の色はスイッチによらず効く) */
   const segHex = seg => seg && seg.speaker ? h.speakerColor(seg.speaker).hex : '';
-  const nameHex = name => name && h.speakerColorByName ? h.speakerColorByName(name).hex : '';
+  const nameHex = name => name ? h.speakerColorByName(name).hex : '';
   const capStyle = hex => hex ? ` style="--tt-cap-color:${h.esc(hex)}"` : '';
 
   /* ---------- 読み込み(文書を開いたとき・タブを開いたとき) ---------- */
   async function load(docId){
     Object.assign(P, { docId, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', err: '', readme: '', lastRes: null, notes: [], focusOpen: false });
     $('#pkReadmeText').hidden = true; $('#pkDir').value = '';
-    if (window.UIKit && UIKit.streamer){
-      const old = docId ? whoFor(docId) : '';
-      if (old && UIKit.prefs && UIKit.prefs.available()) UIKit.prefs.get(['streamer']).then(p => {
-        if (!(docId in ((p.streamer || {}).docs || {}))) return UIKit.prefs.remember('docs', docId, old);
-      }).catch(() => {}).then(() => UIKit.streamer.autoFill($('#pkWho'), { docId }));
-      else if (docId) UIKit.streamer.autoFill($('#pkWho'), { docId });
-      else UIKit.streamer.set($('#pkWho'), '');
-    }
+    const old = docId ? whoFor(docId) : '';
+    if (old && UIKit.prefs.available()) UIKit.prefs.get(['streamer']).then(p => {
+      if (!(docId in ((p.streamer || {}).docs || {}))) return UIKit.prefs.remember('docs', docId, old);
+    }).catch(() => {}).then(() => UIKit.streamer.autoFill($('#pkWho'), { docId }));
+    else if (docId) UIKit.streamer.autoFill($('#pkWho'), { docId });
+    else UIKit.streamer.set($('#pkWho'), '');
     if (!docId) return render();
     try {
       const r = await h.api('/api/edit?id=' + encodeURIComponent(docId));
@@ -340,7 +338,6 @@ function create(h){
   }
   /* 詳しい設定の引き出しを開いて、その欄へ(上書きの確認の「別の場所を選ぶ」) */
   function openSettingsAt(sel){
-    if (!(window.UIKit && UIKit.drawer)) return;
     UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: $('#pkBuild') });
     requestAnimationFrame(() => { const el = $(sel); if (el){ el.focus(); if (el.select) el.select(); } });
   }
@@ -440,8 +437,8 @@ function create(h){
 
   /* ---------- イベント ---------- */
   /* 「設定を変える」の右の欄(段3。docked ではなく modal: 開いている間はパックを作る操作に集中させる) */
-  $('#pkSettingsBtn').addEventListener('click', e => { if (window.UIKit && UIKit.drawer) UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: e.currentTarget }); });
-  $('#pkSettingsClose').addEventListener('click', () => { if (window.UIKit && UIKit.drawer) UIKit.drawer.close($('#pkSettingsDrawer')); });
+  $('#pkSettingsBtn').addEventListener('click', e => UIKit.drawer.open($('#pkSettingsDrawer'), { modal: true, opener: e.currentTarget }));
+  $('#pkSettingsClose').addEventListener('click', () => UIKit.drawer.close($('#pkSettingsDrawer')));
   function setOpt(key, v){ saveLoud({ [key]: v }); }   // パックの出力は「送ったキーだけ直す」API で(まとめて実行の欄と同じ値。段4)
   $('#pkFps').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b){ $('#pkFpsOther').value = ''; setOpt('packFps', b.dataset.v); } });
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
@@ -537,7 +534,7 @@ function create(h){
   return {
     load,
     shown(){
-      if (window.UIKit && UIKit.keybar) UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); }
+      UIKit.keybar.clear(); if (h.S.doc){ render(); schedulePreview(0); }
       h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
         const keys = ['packLoudness', 'packVolume', 'packFps', 'packSize', 'speakerColors', 'packBackup', 'packRender'];   // ほかの画面(まとめて実行の欄)でも変えられる値
         if (st && keys.some(k => st[k] !== h.S.settings[k])){ for (const k of keys) h.S.settings[k] = st[k]; if (h.S.doc) render(); h.onSpeakerColors(); }

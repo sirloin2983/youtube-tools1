@@ -13,7 +13,6 @@
 """
 import argparse
 import glob
-import json
 import os
 import sys
 
@@ -23,7 +22,7 @@ for d in (os.path.join(REPO, "editor"), REPO):
         sys.path.insert(0, d)
 
 import serve as TX  # noqa: E402  文字起こしの serve.py(読み込むだけでは作業データに書かない。規則 sparse_row を使う)
-from ytt_core import txindex  # noqa: E402
+from ytt_core import fsio, txindex  # noqa: E402
 
 
 def load_docs(folder):
@@ -32,12 +31,8 @@ def load_docs(folder):
         n = os.path.basename(p)
         if n.count(".") != 1:   # <id>.edit.json などは飛ばす
             continue
-        try:
-            with open(p, encoding="utf-8") as f:
-                d = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if isinstance(d, dict) and isinstance(d.get("segments"), list):
+        d = fsio.read_json_or(p, None, 64 * 1024 * 1024, dict)
+        if d is not None and isinstance(d.get("segments"), list):
             d.setdefault("id", n[:-5])
             out.append(d)
     return out

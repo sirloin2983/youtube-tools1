@@ -30,7 +30,7 @@ ICON_NAMES = [
     "play", "pause", "back", "forward", "frame-prev", "frame-next", "scissors", "split", "merge", "trash", "plus", "minus", "more",
     "gear", "menu", "close", "chevron-down", "chevron-right", "chevron-left", "folder", "download", "undo", "redo", "check", "alert", "info",
     "search", "home", "film", "text", "mic", "flag", "keyboard", "zoom-in", "zoom-out", "refresh", "external", "copy", "sun", "moon",
-    "mark-in", "mark-out", "clock", "list", "layers", "wave", "user",
+    "mark-in", "mark-out", "clock", "lock", "list", "layers", "wave", "user",
 ]
 
 
@@ -792,6 +792,12 @@ def check_icons_settings(pg, check):
 
     bad = [n for n, svg in zip(ICON_NAMES, res) if not svg.startswith("<svg") or no_shape(svg)]
     check(not bad, "UIKit.icon がすべての名前で中身のある svg を返す: %s" % bad)
+    # v24: 名前の一覧は UIKit.icon.names() が正(見本はそれで並べる)。このテストの一覧とずれたら、アイコンを足した・消したのに確かめを直していない
+    names = pg.evaluate("UIKit.icon.names()")
+    check(sorted(names) == sorted(ICON_NAMES), "v24: UIKit.icon.names() とテストの一覧が同じ(lock を含む): 余分 %s・不足 %s"
+          % (sorted(set(names) - set(ICON_NAMES)), sorted(set(ICON_NAMES) - set(names))))
+    check(pg.evaluate("document.querySelectorAll('#iconGrid .ui-icon svg').length") == len(names)
+          and pg.evaluate("!!document.querySelector('#iconGrid [data-icon=\"lock\"] svg')"), "v24: 見本の一覧にすべてのアイコン(lock も)が出る")
 
     # ---- 設定の引き出し(UIKit.settings。文字の大きさ) ----
     pg.click("#btnSettings")
@@ -804,6 +810,165 @@ def check_icons_settings(pg, check):
     pg.reload()
     pg.wait_for_selector("#iconGrid .ui-icon svg", timeout=10000)
     check(pg.evaluate("document.documentElement.getAttribute('data-fs') === 'lg'"), "読み込み直しても保持される(永続化)")
+
+
+def check_v24_fmt_copy(pg, base, check):
+    """v24: fmt.day・fmt.dur の opt(floor・tenths・noHours)と UIKit.copy(クリップボード。写せなければ execCommand の予備・知らせ)"""
+    got = pg.evaluate("""() => [UIKit.fmt.dur(59.6), UIKit.fmt.dur(59.6, { floor: true }), UIKit.fmt.dur(83.44, { tenths: true }),
+        UIKit.fmt.dur(3723.96, { tenths: true }), UIKit.fmt.dur(3723, { noHours: true }), UIKit.fmt.dur(3723.7, { floor: true }), UIKit.fmt.dur(-5),
+        UIKit.fmt.day(new Date(2020, 0, 2, 3, 4).getTime()), UIKit.fmt.day(0)]""")
+    check(got == ["1:00", "0:59", "1:23.4", "1:02:04.0", "62:03", "1:02:03", "0:00", "2020/1/2", ""],
+          "v24: fmt.dur は省略なら四捨五入のまま・floor = 切り捨て・tenths = 0.1 秒まで・noHours = 時を出さない、fmt.day = 日付だけ: %s" % got)
+    try:
+        pg.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base.rstrip("/"))
+    except Exception:
+        pass
+    res = pg.evaluate("""async () => {
+        const ok = await UIKit.copy('コピーのテスト 1', { ok: '写しました(テスト)' });
+        let back = null; try { back = await navigator.clipboard.readText(); } catch (e) { back = null; }
+        const toast = [...document.querySelectorAll('.ui-toast')].some(t => t.textContent.includes('写しました(テスト)'));
+        const orig = navigator.clipboard.writeText, ex = document.execCommand;
+        navigator.clipboard.writeText = () => Promise.reject(new Error('denied')); document.execCommand = () => false;
+        const ng = await UIKit.copy('x', { fail: '写せませんでした(テスト)' });
+        navigator.clipboard.writeText = orig; document.execCommand = ex;
+        const toastNg = [...document.querySelectorAll('.ui-toast.err')].some(t => t.textContent.includes('写せませんでした(テスト)'));
+        const bare = await UIKit.copy('知らせなし');
+        return { ok, back, toast, ng, toastNg, bare, left: !!document.querySelector('body > textarea') };
+    }""")
+    check(res["ok"] is True and res["toast"] and (res["back"] is None or res["back"] == "コピーのテスト 1"),
+          "v24: UIKit.copy は写せたら true と ok の知らせ(読み戻せれば同じ文字): %s" % res)
+    check(res["ng"] is False and res["toastNg"], "v24: UIKit.copy は写せなければ false(reject しない)と fail の知らせ: %s" % res)
+    check(isinstance(res["bare"], bool) and not res["left"], "v24: 知らせの文が無ければ真偽値だけ・予備の textarea を残さない")
+    pg.evaluate("document.querySelectorAll('.ui-toast').forEach(t => t.remove())")
+
+
+HTTP_JS = """async () => {
+  const out = {};
+  const run = async f => { try { const v = await f(); return { ok: v instanceof Response ? { response: v.status, text: await v.text() } : v }; }
+    catch (e) { return { err: { isErr: e instanceof Error, message: e.message, code: e.code, status: e.status, body: e.body, same: e.data === e.body,
+                                reason: e.reason, detail: e.detail } }; } };
+  out.noToken = await run(() => UIKit.http('fake-api/ok', { method: 'POST', body: {}, needToken: true }));
+  const m = document.createElement('meta'); m.name = 'ytt-token'; m.content = 'tok-h'; document.head.appendChild(m);
+  out.get = await run(() => UIKit.http('fake-api/ok'));
+  out.post = await run(() => UIKit.http('fake-api/ok', { body: { a: [1, 'あ'] } }));
+  out.put = await run(() => UIKit.http('fake-api/ok', { method: 'put', body: { b: 2 } }));
+  out.noTok = await run(() => UIKit.http('fake-api/ok', { body: { c: 3 }, token: false }));
+  out.ownTok = await run(() => UIKit.http('fake-api/ok', { body: { d: 4 }, token: 'tok-own' }));
+  out.conflict = await run(() => UIKit.http('fake-api/conflict', { body: {} }));
+  out.broken = await run(() => UIKit.http('fake-api/broken'));
+  out.brokenStr = await run(() => UIKit.http('fake-api/broken', { fail: '壊れています(テスト)' }));
+  out.brokenFn = await run(() => UIKit.http('fake-api/missing', { fail: st => 'HTTP ' + st }));
+  out.empty = await run(() => UIKit.http('fake-api/empty'));
+  out.down = await run(() => UIKit.http('fake-api/down', { offline: 'つながりません(テスト)' }));
+  out.downDefault = await run(() => UIKit.http('fake-api/down'));
+  out.slow = await run(() => UIKit.http('fake-api/slow', { timeout: 300, slow: '遅れています(テスト)' }));
+  const c1 = new AbortController(); setTimeout(() => c1.abort(), 100);
+  out.abort = await run(() => UIKit.http('fake-api/slow', { signal: c1.signal }));
+  const c2 = new AbortController(); setTimeout(() => c2.abort(), 100);
+  out.abortT = await run(() => UIKit.http('fake-api/slow', { signal: c2.signal, timeout: 5000 }));
+  out.raw = await run(() => UIKit.http('fake-api/file', { body: {}, raw: true }));
+  out.rawErr = await run(() => UIKit.http('fake-api/conflict', { body: {}, raw: true }));
+  out.cross = await run(() => UIKit.http('http://other.invalid/x', { method: 'POST' }));
+  out.home = await run(() => UIKit.homeApi('fake-api/ok', { body: { e: 5 } }));
+  out.homeUrl = [UIKit.homeUrl('api/ytt/prefs'), UIKit.homeUrl('/api/ytt/prefs'), UIKit.homeUrl('live/api/info')];
+  return out;
+}"""
+
+
+def check_http(browser, base, check):
+    """v24: UIKit.http / homeApi(偽の API = page.route)。合言葉・失敗の形(e.status / e.body)・時間切れ・取り消し・raw・ほかのオリジン。
+    409 などはコンソールに出るので、別の窓(context)で確かめる"""
+    seen, held = [], []
+
+    def on_api(route):
+        req = route.request
+        name = req.url.split("/")[-1]
+        seen.append({"name": name, "url": req.url, "method": req.method, "token": req.headers.get("x-ytt-token"),
+                     "ctype": req.headers.get("content-type"), "body": req.post_data})
+        if name == "ok":
+            route.fulfill(status=200, content_type="application/json", body='{"a": 1}')
+        elif name == "conflict":
+            route.fulfill(status=409, content_type="application/json",
+                          body=json.dumps({"error": "conflict", "message": "先に保存されています(テスト)", "rev": 3}, ensure_ascii=False))
+        elif name == "broken":
+            route.fulfill(status=500, content_type="text/plain", body="oops")
+        elif name == "missing":
+            route.fulfill(status=404, content_type="application/json", body="{}")
+        elif name == "empty":
+            route.fulfill(status=200, content_type="text/plain", body="")
+        elif name == "down":
+            route.abort()
+        elif name == "slow":
+            held.append(route)   # 答えない(時間切れ・取り消しを確かめる)
+        elif name == "file":
+            route.fulfill(status=200, content_type="application/zip", body="PK-zip")
+        else:
+            route.fulfill(status=404, body="")
+
+    def on_other(route):
+        req = route.request
+        seen.append({"name": "cross", "url": req.url, "method": req.method, "token": req.headers.get("x-ytt-token")})
+        route.fulfill(status=200, content_type="application/json", headers={"access-control-allow-origin": "*"}, body='{"cross": 1}')
+
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    try:
+        pg = ctx.new_page()
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.route("**/fake-api/**", on_api)
+        pg.route("http://other.invalid/**", on_other)
+        pg.goto(base + "styleguide.html")
+        pg.wait_for_selector("#iconGrid .ui-icon svg")
+        r = pg.evaluate(HTTP_JS)
+        for h in held:
+            try:
+                h.abort()
+            except Exception:
+                pass
+        by = {}
+        for s in seen:
+            by.setdefault(s["name"], []).append(s)
+        oks = by.get("ok", [])
+
+        check((r["noToken"].get("err") or {}).get("code") == "no_token" and oks and oks[0]["method"] == "GET",
+              "needToken: 合言葉が無ければ送らずに code 'no_token': %s" % r["noToken"])
+        check(r["get"].get("ok") == {"a": 1} and oks[0]["method"] == "GET" and oks[0]["token"] is None and oks[0]["body"] is None,
+              "GET: 応答の JSON を返し、合言葉・本文は付けない: %s" % oks[:1])
+        check(oks[1]["method"] == "POST" and oks[1]["token"] == "tok-h" and (oks[1]["ctype"] or "").startswith("application/json")
+              and json.loads(oks[1]["body"]) == {"a": [1, "あ"]}, "body があれば POST・JSON・合言葉(meta ytt-token)を付ける: %s" % oks[1:2])
+        check(oks[2]["method"] == "PUT" and oks[2]["token"] == "tok-h", "method は大文字にそろえ、PUT にも合言葉")
+        check(oks[3]["token"] is None and oks[4]["token"] == "tok-own", "token: false なら付けない・文字列ならその値")
+        e = r["conflict"].get("err") or {}
+        check(e.get("isErr") and e.get("status") == 409 and e.get("code") == "conflict" and e.get("message") == "先に保存されています(テスト)"
+              and (e.get("body") or {}).get("rev") == 3 and e.get("same") and e.get("reason") == "先に保存されています(テスト)" and e.get("detail") == "HTTP 409",
+              "失敗の形: message・code(サーバーの error)・status・body(= data)・reason・detail: %s" % e)
+        e = r["broken"].get("err") or {}
+        check(e.get("status") == 500 and e.get("code") == "http" and e.get("body") == {} and e.get("reason") == ""
+              and "サーバーで問題が起きました" in (e.get("message") or "") and "500" not in (e.get("message") or ""),
+              "JSON でない 500: code 'http'・body {}・本文に HTTP の番号を出さない既定の文: %s" % e)
+        check((r["brokenStr"].get("err") or {}).get("message") == "壊れています(テスト)"
+              and (r["brokenFn"].get("err") or {}).get("message") == "HTTP 404", "fail: 文字列か function(status) で文を決められる")
+        check(r["empty"].get("ok") == {}, "成功で JSON でなければ {}")
+        e = r["down"].get("err") or {}
+        check(e.get("code") == "network" and e.get("status") == 0 and e.get("message") == "つながりません(テスト)" and e.get("body") == {} and e.get("detail"),
+              "つながらない: code 'network'・status 0・offline の文・detail に原文: %s" % e)
+        check("start.bat" in ((r["downDefault"].get("err") or {}).get("message") or ""), "offline を省略すると start.bat の案内の文")
+        e = r["slow"].get("err") or {}
+        check(e.get("code") == "timeout" and e.get("message") == "遅れています(テスト)", "timeout: 時間切れは code 'timeout' と slow の文: %s" % e)
+        check((r["abort"].get("err") or {}).get("code") == "abort" and (r["abortT"].get("err") or {}).get("code") == "abort",
+              "signal: 呼ぶ側の取り消しは code 'abort'(timeout と一緒でも)")
+        check(r["raw"].get("ok") == {"response": 200, "text": "PK-zip"} and by.get("file", [{}])[0].get("token") == "tok-h",
+              "raw: 成功なら Response を返す(zip の受け取り)")
+        check((r["rawErr"].get("err") or {}).get("status") == 409 and (r["rawErr"].get("err") or {}).get("code") == "conflict", "raw でも失敗は同じ形")
+        cross = by.get("cross", [])
+        check(r["cross"].get("ok") == {"cross": 1} and cross and all(c["token"] is None and c["method"] == "POST" for c in cross),
+              "ほかのオリジンには合言葉を付けない(預けた合言葉を外へ出さない): %s" % cross)
+        check(r["home"].get("ok") == {"a": 1} and oks[-1]["url"] == base + "fake-api/ok" and oks[-1]["token"] == "tok-h",
+              "homeApi: 画面の 1 つ上(入口の直下)へ送る")
+        check(r["homeUrl"] == [base + "api/ytt/prefs", base + "api/ytt/prefs", base + "live/api/info"], "homeUrl: 先頭の / は外して入口の直下: %s" % r["homeUrl"])
+        check(not errs, "画面のエラーなし(http): %s" % errs[:5])
+    finally:
+        ctx.close()
 
 
 def check_page(browser, base, check):
@@ -824,6 +989,8 @@ def check_page(browser, base, check):
     check_icons_settings(pg, check)
     # ---- v11: 時刻の欄(UIKit.timebox) ----
     check_timebox(pg, check)
+    # ---- v24: fmt.day・fmt.dur の opt・UIKit.copy ----
+    check_v24_fmt_copy(pg, base, check)
 
     check(not errors, "コンソール・画面のエラーなし: %s" % errors[:5])
     ctx.close()
@@ -850,6 +1017,9 @@ def main():
 
                 # ---- v16: ヘッダーの録画中の札(UIKit.liveBadge)。入口の API は偽物(page.route) ----
                 check_live(browser, base, check)
+
+                # ---- v24: UIKit.http / homeApi(fetch の包みを 1 本に)。API は偽物(page.route) ----
+                check_http(browser, base, check)
             finally:
                 browser.close()
     finally:

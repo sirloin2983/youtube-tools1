@@ -6,8 +6,6 @@
 - プロンプトの漏れ出し(S-3): 声の無い所で、ヒントに渡した語だけが字幕に出ることがある。行が渡した語だけでできているかを調べる
 サーバー側で使う(numpy などのネイティブの部品は読まない)。
 """
-import json
-import os
 import re
 import threading
 import unicodedata
@@ -19,8 +17,16 @@ ALIASES_PER = 3
 DETECT_MIN = 3          # 題名・チャンネル名から呼び名で判定するときの最短の長さ(「ルイ」「トワ」のような短い形は別の語に紛れる)
 SOURCES = ("channel", "collab", "speaker", "title")   # 出る人を決めた材料(先の方が強い)
 _SEP = re.compile(r"[\s・･\-‐_＿.,、。'\"/|｜!！?？#＃【】\[\]()（）「」『』<>〈〉★☆♪~〜]+")
-_cache = {}
+_cache = []   # [ytt_core.fsio.StampCache](初めて読むときに作る。ytt_core は読む側が sys.path に足してから = このファイルだけを読むテストのため)
 _lock = threading.Lock()
+
+
+def _stamp_cache():
+    with _lock:
+        if not _cache:
+            from ytt_core import fsio as _fsio
+            _cache.append(_fsio.StampCache())
+        return _cache[0]
 
 
 def fold(s):
@@ -37,21 +43,14 @@ def _strs(v, n=40, size=40):
 def load(path):
     """-> {"groups": [{"id", "label", "names"}], "members": {名前: {"name", "aliases", "common", "misrecognitions"}}, "people": [人の名前]}。
     読めない・形が違うときは空。ファイルが変わったときだけ読み直す"""
-    try:
-        st = os.stat(path)
-        key = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        return {"groups": [], "members": {}, "people": []}
-    with _lock:
-        hit = _cache.get(path)
-        if hit and hit[0] == key:
-            return hit[1]
-    try:
-        with open(path, "rb") as f:
-            d = json.loads(f.read().decode("utf-8-sig"))
-    except (OSError, ValueError):
-        d = {}
-    d = d if isinstance(d, dict) else {}
+    r = _stamp_cache().get(path, _parse)
+    return r if r is not None else {"groups": [], "members": {}, "people": []}
+
+
+def _parse(path):
+    """名簿のファイル → load の形(読めない・形が違えば空)"""
+    from ytt_core import fsio as _fsio
+    d = _fsio.read_json_or(path, {}, kind=dict)
     groups, people, members = [], [], {}
     for g in d.get("groups") or []:
         if not isinstance(g, dict):
@@ -71,10 +70,7 @@ def load(path):
         members[name] = {"name": name, "aliases": aliases, "common": [c for c in _strs(m.get("common")) if c in aliases], "misrecognitions": mis}
         if name not in people:
             people.append(name)
-    out = {"groups": groups, "members": members, "people": people}
-    with _lock:
-        _cache[path] = (key, out)
-    return out
+    return {"groups": groups, "members": members, "people": people}
 
 
 def _keys(r, strict):
@@ -227,6 +223,7 @@ def variant_pairs(r):
     名簿の全員の名前と呼び名(common = 普通の言葉と重なる語は入れない)+ KANJI_VARIANTS"""
     pairs, seen = [], set()
     members = r.get("members") or {}
+    all_aliases = {a for mm in members.values() for a in mm.get("aliases") or []}   # 全員の呼び名(綴りごとに全員をなめない)
     for name, m in members.items():
         for src, dst in KANJI_VARIANTS.get(name, []):
             if src not in seen:
@@ -237,7 +234,7 @@ def variant_pairs(r):
             if alias in common:
                 continue
             for v in alias_variants(alias):
-                if v not in seen and v not in members and not any(v == a for mm in members.values() for a in mm.get("aliases") or []):
+                if v not in seen and v not in members and v not in all_aliases:
                     seen.add(v)
                     pairs.append((v, alias))
     return sorted(pairs, key=lambda p: (-len(p[0]), p[0]))

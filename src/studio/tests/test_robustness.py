@@ -140,6 +140,21 @@ class TestCaches(Home):
         self.assertTrue(analyze.save_archive("abcdefghijk", {"n": 1}, {"at": 1}))
         self.assertEqual(analyze.load_archive("abcdefghijk")["runs"], [{"at": 1}])
 
+    def test_prefetch_refuses_non_ascii_video_id(self):
+        """先読みの動画 ID の検査は common.VID_RE と同じ(ASCII だけ)。以前は [\\w-]{11} で全角の英字なども通っていた"""
+        with patch.object(common, "fake", return_value=False), patch.object(analyze, "find_tool", return_value="yt-dlp"), \
+                patch.object(analyze, "download_chat", return_value=(None, "テスト")) as dl:
+            for vid in ("ａｂｃｄｅｆｇｈｉｊｋ", "あいうえおかきくけこさ", "abcdefghijé", "abcdefghijk\n", None, ""):
+                self.assertEqual(analyze.prefetch_chat(vid, 60), "skip", repr(vid))
+            dl.assert_not_called()
+            self.assertEqual(analyze.prefetch_chat("abcdefghijk", 60), "started")   # 正しい ID は先読みする
+            for _ in range(100):
+                if not analyze.PREFETCH:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(analyze.PREFETCH, {})
+            dl.assert_called_once()
+
     def test_sig_cache_write_leaves_no_temp_files(self):
         analyze.save_sig("abcdefghijk", 30.0, [-30.0] * 30, [-40.0] * 30)
         self.assertEqual(os.listdir(analyze.sig_cache_dir()), ["abcdefghijk.json"])
@@ -372,6 +387,78 @@ def _wait_file(path, sec=15):
             return True
         time.sleep(0.05)
     return False
+
+
+FAKE_INFO = "  Duration: 00:00:05.00, start: 0\n  Stream #0:0: Video: h264, 64x64\n  Stream #0:1: Audio: aac\n"
+
+
+class TestMediaInfoCache(Home):
+    """common.media_info は (パス・更新日時・大きさ) が同じあいだ ffmpeg -i を動かし直さない(2026-10-09 見直し T7。書き出し 1 本で 11 回 → 5 回)"""
+
+    def setUp(self):
+        super().setUp()
+        common._media_cache.clear()
+        self.calls = []
+
+        def fake_run(cmd, timeout, merge_stderr=False):
+            self.calls.append(cmd[-1])
+            if self.fail:
+                raise subprocess.TimeoutExpired(cmd, timeout)
+            return subprocess.CompletedProcess(cmd, 0, FAKE_INFO, "")
+        self.fail = False
+        self.patches = [patch.object(common, "find_tool", return_value="ffmpeg-fake"), patch.object(common, "run_short", side_effect=fake_run)]
+        for p in self.patches:
+            p.start()
+        self.path = os.path.join(self.tmp, "a.mp4")
+        with open(self.path, "wb") as f:
+            f.write(b"x" * 10)
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        common._media_cache.clear()
+        super().tearDown()
+
+    def test_same_file_is_probed_once(self):
+        want = (5.0, True, True, "Stream #0:0: Video: h264, 64x64")
+        self.assertEqual(common.media_info(self.path), want)
+        self.assertEqual(common.media_info(self.path), want)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(common.media_info_known(self.path), want)
+
+    def test_changed_file_is_probed_again(self):
+        common.media_info(self.path)
+        with open(self.path, "wb") as f:
+            f.write(b"y" * 20)   # 大きさが変わった = 書き直された
+        common.media_info(self.path)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_missing_file_and_failures_are_not_remembered(self):
+        self.assertEqual(common.media_info(os.path.join(self.tmp, "none.mp4")), (None, False, False, ""))
+        self.assertEqual(self.calls, [])   # 無いファイルには ffmpeg を動かさない
+        self.fail = True
+        self.assertEqual(common.media_info(self.path), (None, False, False, ""))
+        self.fail = False
+        self.assertEqual(common.media_info(self.path)[0], 5.0)   # 時間切れは覚えない(次は測り直す)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_renamed_file_keeps_the_result(self):
+        """書き出しの置き換え(一時の名前 → 本当の名前)では、移す前の結果を覚えさせる(exporter.promote・_reencode_audio)"""
+        info = common.media_info(self.path)
+        dst = os.path.join(self.tmp, "b.mp4")
+        known = common.media_info_known(self.path)
+        common.replace_file(self.path, dst)
+        common.remember_media_info(dst, known)
+        self.assertEqual(common.media_info(dst), info)
+        self.assertEqual(len(self.calls), 1)
+        self.assertIsNone(common.media_info_known(os.path.join(self.tmp, "c.mp4")))
+        common.remember_media_info(dst, None)   # None なら何もしない
+
+    def test_other_ffmpeg_forgets(self):
+        common.media_info(self.path)
+        with patch.object(common, "find_tool", return_value="ffmpeg-other"):
+            common.media_info(self.path)
+        self.assertEqual(len(self.calls), 2)
 
 
 class TestStopChildren(Home):

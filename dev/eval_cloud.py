@@ -45,6 +45,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存・editor の読み込み)
 import eval_asr as E  # noqa: E402  文書の選び方・採点・まとめ・表示(同じ物差しで測るため)
+from ytt_core import fsio  # noqa: E402
 
 # 単価(USD / 分。2026-10-07 に公式の料金ページで確認。申し込みの前にもう 1 度見る)
 #   OpenAI: developers.openai.com/api/docs/pricing(gpt-4o-transcribe は音声トークン $2.50/M = 目安 $0.006/分。whisper-1 は $0.006/分)
@@ -224,19 +225,12 @@ def rows_from(service, model, resp, offset, audio_sec):
 # ---------------------------------------------------------------- 応答の控え(<作業データ>/evals/cloud/<送り先>/<モデル>/<文書 id>.json)
 
 def cache_dir(data, service, model):
-    return os.path.join(data, "evals", "cloud", service, re.sub(r"[^\w.-]+", "_", model))
+    return os.path.join(data, "evals", "cloud", service, C.label_name(model, None))
 
 
 def audio_span(S, doc, data, boost):
     """文書の音声の出どころ(eval_asr.recognize_doc と同じ順: 元の動画 → 保管の full.flac)-> (extract_audio の spec, 行の時刻の基準の秒, 出どころの名前)"""
-    src = str(doc.get("sourcePath") or "")
-    start, end = S.num(doc.get("start"), 0.0) or 0.0, S.num(doc.get("end"))
-    full = os.path.join(data, "dataset", "docs", doc["id"], "full.flac")
-    if src and os.path.isfile(src):
-        return {"sourcePath": src, "start": start, "end": end, "boost": boost}, start, "動画"
-    if os.path.isfile(full):
-        return {"sourcePath": full, "start": 0.0, "end": None, "boost": boost}, start, "保管の音声"
-    raise RuntimeError("音声が見つかりません(元の動画も保管データの full.flac も無い)")
+    return C.audio_span(S, doc, data, boost=boost)
 
 
 def span_key(spec):
@@ -245,7 +239,7 @@ def span_key(spec):
 
 def load_cache(path, spec):
     """控えがあり、文書の範囲と boost が同じならその応答。違えば None(送り直し)"""
-    c = C.read_json(path)
+    c = C.read_json(path, None, C.DOC_BYTES)
     if not isinstance(c, dict) or not isinstance(c.get("response"), dict) or c.get("span") != span_key(spec):
         return None
     return c
@@ -253,10 +247,7 @@ def load_cache(path, spec):
 
 def save_cache(path, rec):
     """応答の控えを書く(フォルダは必要になったときに作る。書きかけを残さない)"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(rec, f, ensure_ascii=False, indent=1)
-    os.replace(path + ".tmp", path)
+    fsio.write_json(path, rec, indent=1)
 
 
 def doc_seconds(S, spec):
@@ -269,7 +260,7 @@ def doc_seconds(S, spec):
 
 def extract_wav(S, spec):
     """音声を 16kHz モノラルの wav に取り出して bytes で返す(一時フォルダは消す)-> (bytes, 秒)"""
-    job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
+    job = C.fake_job()
     tmp = tempfile.mkdtemp(prefix="eval_cloud_wav_")
     wav = os.path.join(tmp, "a.wav")
     try:
@@ -415,7 +406,7 @@ def cmd_run(S, args, data):
             raise SystemExit("モデル %s の単価はこの道具に無いので --send できません(SERVICES の models に単価を足してから。公式の料金ページで確かめること)" % model)
         print("注意: モデル %s の単価はこの道具に無い(見積もりは $0 = --max-usd の上限も効かない。--send は断る)。公式の料金ページで確かめること" % model)
         price = 0.0
-    settings = C.read_json(os.path.join(data, "settings.json"), {}) or {}
+    settings = C.read_json(os.path.join(data, "settings.json"), {}, kind=dict)
     boost = (settings.get("boost") is True) if args.boost is None else args.boost == "on"
     docs, sel = E.select_docs(data, args)
     if not docs:
@@ -493,21 +484,12 @@ def main(argv=None):
     p.add_argument("--keep-remote", dest="keep_remote", action="store_true", help="先方に残った文字起こしを消さない(ElevenLabs)")
     p.add_argument("--key-file", dest="key_file", default=DEFAULT_KEY_FILE,
                    help="環境変数が無いときに読む鍵のファイル(NAME=value の行。既定 %%USERPROFILE%%\\youtube-tools-keys.txt。リポジトリの外に置く)")
-    p.add_argument("--data", help="文字起こしの作業データのフォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools\\transcribe)")
-    p.add_argument("--scope", choices=("eval", "train", "all"), default="eval", help="古い指定(--source が優先。eval_asr.py と同じ)")
-    p.add_argument("--source", choices=("eval", "daily", "all", "friend"), help="測る文書の出どころ(既定 eval = 評価用。eval_asr.py と同じ)")
-    p.add_argument("--reviewed", choices=("only", "prefer", "ignore"), help="確かめ済みの扱い(eval_asr.py と同じ。既定は評価用なら only)")
-    p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ(eval_asr.py と同じ)")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
-    p.add_argument("--intake", help="友人の zip の取り込み先(--source friend・all のとき。既定は eval_asr.py と同じ)")
-    p.add_argument("--docs", help="文書の id をカンマ区切りで")
+    E.add_select_args(p, "結果に付ける名前(既定 cloud-<送り先>-<モデル>)", "結果を保存しない(応答の控えは送ったときに残る)")
     p.add_argument("--boost", choices=("on", "off"), help="小さい声の持ち上げ(既定は設定どおり。手元の測定と同じにする)")
-    p.add_argument("--label", help="結果に付ける名前(既定 cloud-<送り先>-<モデル>)")
-    p.add_argument("--no-save", dest="no_save", action="store_true", help="結果を保存しない(応答の控えは送ったときに残る)")
     args = p.parse_args(argv)
     if args.mode == "prices":   # 作業データは要らない
         return cmd_prices()
-    args.docs = [x.strip() for x in args.docs.split(",") if x.strip()] if args.docs else None
+    args.docs = C.split_ids(args.docs)
     data = E.real_data_dir(args.data)
     if args.mode == "list":
         return cmd_list(data)
@@ -519,9 +501,7 @@ def main(argv=None):
         print("送っていません(見積もりだけ)。")
         return None
     E.print_summary(res)
-    if not args.no_save:
-        label = re.sub(r"[^\w.-]+", "_", res["meta"].get("label") or "cloud")[:40]
-        print("\n保存: " + C.save(res, data, "asr", "_" + label))
+    C.report_saved(res, not args.no_save, data, "asr", "_" + C.label_name(res["meta"].get("label") or "cloud"))
     return res
 
 

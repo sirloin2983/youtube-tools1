@@ -29,6 +29,7 @@ import urllib.parse
 from ytt_core import schemas
 import live_archive as LA
 import live_export as LX
+import live_detect  # noqa: E402  (録画元・録画の id の形の検査 _ids_ok)
 import live_failures  # noqa: E402  (残っている録画の知らせの文。D-14)
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
@@ -37,6 +38,11 @@ INTERVAL = 600.0               # 見回り(入口の録画の見回り src/home/
 STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない(本番版に置き換わらない)録画を「調子」に知らせる
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
 REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/recorder/rec_core.py の ACTIVE と同じ
+
+
+def _near(a, b):
+    """スタジオのマークと書き出したときの区間が同じか(秒の数で、差が 0.05 秒未満)"""
+    return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 0.05
 
 
 class Cleaner:
@@ -77,7 +83,7 @@ class Cleaner:
 
     def check(self, rc_id, rec):
         """1本だけ確かめる(本番版への作り直しが1本終わったとき。src/home/live_archive.py の Archiver の after から)。-> 消したら True"""
-        if not self.enabled() or not LX.ID_RE.match(rc_id or "") or not LX.REC_RE.match(rec or ""):
+        if not self.enabled() or not live_detect._ids_ok(rc_id, rec):   # 録画元・録画の id の形(文字列でなければ False)
             return False
         rc = self.live.find(rc_id)
         if rc is None:
@@ -179,11 +185,10 @@ class Cleaner:
         if marks is None:
             return "スタジオに確かめられない"
         done = {(j.get("studio") or {}).get("mark"): j.get("studio") or {} for j in last}
-        near = lambda a, b: isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 0.05   # noqa: E731
         for m in marks:   # 採用のまま書き出していない(新しいマーク・区間を直して採用に戻ったマーク)= これから録画から書き出すかもしれない
             if isinstance(m, dict) and m.get("status") == "adopted":
                 s = done.get(m.get("id"))
-                if s is None or not (near(m.get("start"), s.get("start")) and near(m.get("end"), s.get("end"))):
+                if s is None or not (_near(m.get("start"), s.get("start")) and _near(m.get("end"), s.get("end"))):
                     return "採用のまま書き出していないマークがある"
         return ""
 

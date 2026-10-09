@@ -268,11 +268,8 @@ def retime_candidates(segments, words, ids=None, end_ok=True):
 
 def retime_engine(doc):
     """文書の最初の認識のエンジン(recognition.runs の kind の無い最初の記録。無ければ faster-whisper とみなす)"""
-    runs = ((doc.get("recognition") or {}).get("runs") or []) if isinstance(doc, dict) else []
-    for r in runs:
-        if isinstance(r, dict) and not r.get("kind"):
-            return str(r.get("engine") or "faster-whisper")
-    return "faster-whisper"
+    first = ed_alt.alt_first_run(doc) if isinstance(doc, dict) else None   # 探し方は ed_alt の 1 か所
+    return str((first or {}).get("engine") or "faster-whisper")
 
 
 def retime_doc(obj):

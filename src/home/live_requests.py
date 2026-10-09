@@ -9,12 +9,11 @@
                                                    "settings": {"sens", "perHour", "length", "waitMin", "pad", "afterStream"}, "createdAt"}}}
 settings = 友人のベータの設定(依頼の JSON の live)。範囲の外・無い鍵は既定(SETTINGS_DEFAULT)。
 """
-import json
-import os
+import copy
 import threading
 import time
 
-from ytt_core import fsio
+from ytt_core import fsio, schemas, tools
 
 SENS = ("high", "normal", "low")
 SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}
@@ -23,10 +22,6 @@ KEEP_DAYS = 14          # 結びつきを残す日数(録画 12 時間 + 配信�
 MAX_SEC = 6 * 3600.0    # D-13(仮の数): 1 依頼の録画の上限(依頼から。超えたら入口が録画を止める = src/home/live.py の stop_long_requests)
 MAX_ITEMS = 50
 TEXT_MAX = 300
-
-
-def _num(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 def clean_settings(v):
@@ -38,9 +33,9 @@ def clean_settings(v):
     for k in ("perHour", "length", "waitMin"):
         x = v.get(k)
         lo, hi = RANGES[k]
-        if _num(x) and lo <= x <= hi:
+        if schemas.is_num(x) and lo <= x <= hi:
             out[k] = int(round(x))
-    if _num(v.get("pad")) and RANGES["pad"][0] <= v["pad"] <= RANGES["pad"][1]:
+    if schemas.is_num(v.get("pad")) and RANGES["pad"][0] <= v["pad"] <= RANGES["pad"][1]:
         out["pad"] = float(v["pad"])
     if isinstance(v.get("afterStream"), bool):
         out["afterStream"] = v["afterStream"]
@@ -67,32 +62,28 @@ class Store:
 
     def _load(self):
         if self._items is None:
-            try:
-                d = fsio.read_json_file(self.path, 1024 * 1024)
-            except (OSError, ValueError):
-                d = None
-            items = d.get("items") if isinstance(d, dict) else None
+            d = fsio.read_json_or(self.path, None, 1024 * 1024, kind=dict)
+            items = d.get("items") if d else None
             # 読み直した項目も settings は検査済みの形・createdAt は数にそろえる(live.py が settings["pad"] を、prune が引き算をそのまま使う)
-            self._items = {k: dict(v, settings=clean_settings(v.get("settings")), createdAt=v["createdAt"] if _num(v.get("createdAt")) else 0)
+            self._items = {k: dict(v, settings=clean_settings(v.get("settings")), createdAt=v["createdAt"] if schemas.is_num(v.get("createdAt")) else 0)
                            for k, v in (items if isinstance(items, dict) else {}).items() if isinstance(v, dict) and isinstance(v.get("rid"), str)}
         return self._items
 
     def _save(self):
         try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            fsio.atomic_write(self.path, json.dumps({"v": 1, "items": self._items}, ensure_ascii=False).encode("utf-8"))
+            fsio.write_json(self.path, {"v": 1, "items": self._items}, indent=None)
         except OSError as e:
-            self.log("リアルタイム切り抜き: 友人の依頼の結びつきを書けませんでした(%s)" % (e.strerror or e.__class__.__name__))
+            self.log("リアルタイム切り抜き: 友人の依頼の結びつきを書けませんでした(%s)" % tools.why(e))
 
     def get(self, rc, rec):
         """録画に結びついた依頼(dict の写し)か None"""
         with self.lock:
             v = self._load().get(key_of(rc, rec))
-            return json.loads(json.dumps(v)) if v else None
+            return copy.deepcopy(v) if v else None
 
     def all(self):
         with self.lock:
-            return json.loads(json.dumps(self._load()))
+            return copy.deepcopy(self._load())
 
     def put(self, rc, rec, ctx):
         """録画を依頼に結びつける(同じ録画に 2 つ目の依頼が来たら、新しいほうで置き換える)。-> 残した項目"""

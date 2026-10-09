@@ -51,7 +51,7 @@ function saveDoc(){
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
         S.dirty = true;
-        if (e.code === 'conflict'){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); if (CUT) CUT.refresh(); }   // 2 カット の字幕の段にも出す(段6 6-6)
+        if (e.code === 'conflict'){ showConflict(); toast('別の場所で先に更新されています。映像の上の案内から選んでください', 6000, 'err'); if (CUT) CUT.refresh(); }   // 2 カット の字幕の段にも出す(段6 6-6)
         else { setSaveState('保存できません(5秒後にもう一度試します)', 'err'); toast('保存に失敗: ' + e.message, 3800, 'err'); clearTimeout(markDirty.t); markDirty.t = setTimeout(saveDoc, 5000); }
         return false;
       }
@@ -155,7 +155,7 @@ async function openDoc(id, keep){
   lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
   renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
   fillDiarNum(); rememberLast();   // 話者の人数はこの文書の値(段7 E-6)・前回の文書とタブを覚える(E-7)
-  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; if (window.UIKit && UIKit.streamer) UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
+  if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep){ window.scrollTo(0, scrollY); if ($('.tx-list')) $('.tx-list').scrollTop = listY; }
   else if (resumeIdx >= 0){ setNav(resumeIdx); const row = rowsEl()[resumeIdx]; if (row) ensureVisible(row, 0.5); toast(`前回の続き(${fmtT(d.segments[resumeIdx].start)} の行)に移動しました。先頭から見るには、上へスクロールしてください`, 5000); }
   else { window.scrollTo(0, 0); if ($('.tx-list')) $('.tx-list').scrollTop = 0; }
@@ -234,7 +234,7 @@ function blankDrafts(){ return S.doc ? S.doc.segments.filter(isBlankDraft) : [];
 
 /* 文字が入った下書きの印を外す(行の文字の入力から)。札・placeholder・重なりの赤・「空のままを消す」の数を合わせる */
 function clearDraftMark(s, row){
-  if (!s.draft || !String(s.text || '').trim()) return;
+  if (!s.draft || !hasText(s)) return;
   delete s.draft;
   if (row){
     row.classList.remove('tt-draft');
@@ -246,7 +246,7 @@ function clearDraftMark(s, row){
 }
 
 /* 字幕に出さない行の数(書き出しのカード・3 パック の「これから作るパック」に出す。0 なら出さない) */
-function noSubCount(){ return S.doc ? S.doc.segments.filter(g => g.noSub && String(g.text || '').trim()).length : 0; }
+function noSubCount(){ return S.doc ? S.doc.segments.filter(g => g.noSub && hasText(g)).length : 0; }
 function renderNoSubCount(){
   const n = noSubCount(), el = $('#exNoSub');
   if (el){ el.hidden = !n; el.textContent = n ? `字幕に出さない行: ${n} 行(SRT・VTT・パックの字幕に入りません。テキスト・JSON には入ります)` : ''; }
@@ -379,7 +379,7 @@ const rtFmt = c => c.edges.map(f => `${f === 'start' ? '開始' : '終了'} ${fm
 /* 選んだ行の操作の欄に「時刻を言葉に合わせる」を置く(前に選んでいた行からは外す)。状態: 候補あり / 無し(押せない) / まだ調べていない(押すと調べる) */
 function rtPaint(){
   const i = S.navIdx, row = S.doc && i >= 0 ? rowsEl()[i] : null, s = row && row.classList && row.classList.contains('seg') ? S.doc.segments[i] : null;
-  if (!s || !String(s.text || '').trim()){ if (RT.el){ RT.el.remove(); RT.el = null; } return; }
+  if (!s || !hasText(s)){ if (RT.el){ RT.el.remove(); RT.el = null; } return; }
   const adj = row.querySelector('.adj'); if (!adj) return;
   if (!RT.el){ RT.el = document.createElement('span'); RT.el.className = 'g tt-rt'; RT.el.setAttribute('aria-label', '時刻を言葉に合わせる'); }
   if (RT.el.parentNode !== adj) adj.appendChild(RT.el);
@@ -397,7 +397,7 @@ function rtSoon(){
   clearTimeout(RT.t);
   RT.t = setTimeout(() => {
     const s = S.doc && S.navIdx >= 0 ? S.doc.segments[S.navIdx] : null;
-    if (!s || !String(s.text || '').trim() || S.conflict || lockJob() || RT.cache.has(rtKey(s))) return;
+    if (!s || !hasText(s) || S.conflict || lockJob() || RT.cache.has(rtKey(s))) return;
     if (S.dirty || S.saving) return rtSoon();   // 保存が終わるまで待つ(保存済みの文書で調べるため)
     rtFetch([s]).then(() => rtPaint(), () => {});
   }, RT_SOON);
@@ -455,7 +455,7 @@ function rtApply(cands, texts){
 /* 「まとめて ▾」の「選んだ行の時刻を言葉に合わせる」: 校正済みの行は外す(人が時刻を決めた行)。候補のある行だけ・件数を確かめてから */
 async function rtSelected(){
   if (!S.doc || lockJob()) return;
-  const sel = S.doc.segments.filter(g => S.sel.has(g.id) && String(g.text || '').trim());
+  const sel = S.doc.segments.filter(g => S.sel.has(g.id) && hasText(g));
   if (!sel.length) return toast('行の左端のチェックで、合わせる行を選んでください', 4000);
   const rows = sel.filter(g => !g.proofed), skipped = sel.length - rows.length;
   if (!rows.length) return toast(`選んだ ${sel.length} 行はどれも校正済みです(校正済みの行は、行ごとの「時刻を言葉に合わせる」で 1 行ずつ合わせられます)`, 6000);
@@ -474,7 +474,7 @@ async function rtSelected(){
 
 /* 行のボタンの title と読む速さの基準(キーの割り当て・設定から作る)。描き直し 1 回につき 1 回だけ作り、全部の行で使う(4000 行でも作り直さない) */
 function rowTitles(){
-  return { play: esc(titlePlay()), playIc: uiIcon('play', { size: 12 }) || '再生', proof: esc(titleProof()), addAfter: esc(titleAddAfter()), del: esc(titleDel()), lim: readLimits(),
+  return { play: esc(titlePlay()), playIc: uiIcon('play', { size: 12 }), proof: esc(titleProof()), addAfter: esc(titleAddAfter()), del: esc(titleDel()), lim: readLimits(),
     tag: Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, esc(titleTag(t))])) };
 }
 
@@ -541,6 +541,9 @@ function autoSizeList(tas){   // まとめて縮める → まとめて測る �
 }
 
 function autoSizeSoon(){ clearTimeout(sizeT); sizeT = setTimeout(() => { if (S.doc) autoSizeAll(); drawStripSoon(); }, 200); }
+
+/* i 行目が絞り込みで隠れていれば、絞り込み(検索・印)を外して見せる。-> 外したか */
+function revealRow(i){ const row = rowsEl()[i]; if (!row || !row.hidden) return false; $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); return true; }
 
 function applyFilter(){
   const q = norm($('#q').value.trim()), only = $('#flagKind').value;
@@ -709,7 +712,7 @@ function updateCaption(){
 /* ---------- 重なる行の字幕(2026-10-05。plan/line-b-overlap.md の 2-2・6)----------
    1 文字起こし の映像の上(#playerCaption)と 2 カット のプレビュー(#cutCaption)が同じ関数を使う(cut.js には app.js が渡す) */
 const CAP_SCAN = 40;   // 再生位置より前に始まった行を何行さかのぼって見るか(長い行が続く所でも足りる数。全部は見ない)
-const capOk = g => !!g && !!String(g.text || '').trim() && !g.noSub;
+const capOk = g => hasText(g) && !g.noSub;
 const capOverlap = (a, b) => Math.min(a.end, b.end) - Math.max(a.start, b.start);
 
 /* 時刻 t に出す字幕の行(添字。下の段 → 上の段の順)。重なりが CAP_OVERLAP_MIN 秒以上の行どうしは両方(開始が早い方を下・同時開始は話者の並び順・
@@ -820,7 +823,7 @@ function findRow(from, dir, pred){
 
 function navigate(kind, dir){
   if (!S.doc || lockJob()) return;
-  const pred = kind === 'unproofed' ? g => !g.proofed && g.text.trim() : kind === 'flag' ? g => !!g.flag : null;
+  const pred = kind === 'unproofed' ? isUnproofed : kind === 'flag' ? g => !!g.flag : null;
   const from = curNav(), i = findRow(from < 0 && dir > 0 ? -1 : from, dir, pred);
   if (i < 0) return toast({ unproofed: dir > 0 ? 'これより後に、未校正の行はありません' : 'これより前に、未校正の行はありません', flag: '該当する「要確認」の行はありません' }[kind] || (dir > 0 ? '最後の行です' : '最初の行です'));
   gotoRow(i, { play: V.autoNext, center: !!kind });
@@ -850,25 +853,24 @@ function proofOk(){   // 校正済みにして、次の行へ(すでに校正済
   /* 最後の行(S-17): 未校正が残っていれば数と [最初の未校正へ]。以前は残っていても「すべて確認しました」と出ていた */
   const n = unproofedCount();
   if (n) toast(`最後の行です。まだ未校正の行が ${n} 行あります`, { ms: 8000, action: { label: '最初の未校正へ', fn: gotoFirstUnproofed } });
-  else toast('最後の行です。すべての行を校正済みにしました', { ms: 8000, kind: 'ok', action: { label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) } });
+  else toast('最後の行です。すべての行を校正済みにしました', { ms: 8000, kind: 'ok', action: TO_CUT });
 }
 
 /* 未校正の行(文字のある行で、校正済みでない)の数 */
-function unproofedCount(){ return S.doc ? S.doc.segments.filter(g => !g.proofed && String(g.text || '').trim()).length : 0; }
+function unproofedCount(){ return S.doc ? S.doc.segments.filter(isUnproofed).length : 0; }
 
 /* 校正済みにした操作で、未校正が 0 になった(before > 0 → 0)ら知らせて [2 カットへ](次の一手。段7 S-17)-> 知らせたか */
 function proofNext(before){
   if (!(before > 0) || unproofedCount() > 0) return false;
-  toast('すべての行を校正済みにしました。次はカットを決めます', { ms: 8000, kind: 'ok', action: { label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) } });
+  toast('すべての行を校正済みにしました。次はカットを決めます', { ms: 8000, kind: 'ok', action: TO_CUT });
   return true;
 }
 
 /* 最初の未校正の行へ(絞り込みで隠れていれば絞り込みを外す) */
 function gotoFirstUnproofed(){
   if (!S.doc) return;
-  const i = S.doc.segments.findIndex(g => !g.proofed && String(g.text || '').trim()); if (i < 0) return;
-  const row = rowsEl()[i];
-  if (row && row.hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); }
+  const i = S.doc.segments.findIndex(isUnproofed); if (i < 0) return;
+  revealRow(i);
   gotoRow(i, { center: true, play: V.autoNext });
 }
 
@@ -898,9 +900,9 @@ function saveKeymap(part){
   api('/api/settings/patch', { body: { values: { keymap: km } } }).catch(e => toast('キー配置を保存できませんでした: ' + e.message, { ms: 0, kind: 'err' }));
 }
 
-function keymap(){ return KM ? KM.map() : {}; }
+function keymap(){ return KM.map(); }
 
-function txActionOf(combo){ return KM ? KM.actionOf(combo) : null; }
+function txActionOf(combo){ return KM.actionOf(combo); }
 
 /* ---------- キー配置の表示と変更(⚙ 設定の「キー配置」。2026-09-27) ----------
    割り当てを変えたら、下の帯・一覧の上の手がかり・キー操作の一覧(?)・設定の欄をまとめて描き直す(renderKeyUI) */
@@ -943,7 +945,7 @@ function renderFpsNote(){
 }
 
 /* キー操作の一覧(? とヘッダーの「キー」)。? をもう一度押すと閉じる(スタジオと同じ。S-29) */
-function openKeys(){ const d = $('#keys'); if (d.open) return; if (KM) KM.clearNote(); renderFpsNote(); d.showModal(); }
+function openKeys(){ const d = $('#keys'); if (d.open) return; KM.clearNote(); renderFpsNote(); d.showModal(); }
 
 /* ---------- 用語のワンクリック挿入 ---------- */
 
@@ -1002,7 +1004,7 @@ function insertRow(at, start, end, speaker){
   const g = { id: uid(), start: r2(start), end: r2(end), text: '', speaker: speaker || '', flag: '' };
   S.doc.segments.splice(at, 0, g);   // 決めた位置に入れる(開始時刻の順は、呼び出し側で保っている)
   S.navIdx = at; renderDoc(); markDirty();
-  if (rowsEl()[at] && rowsEl()[at].hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); toast('絞り込みを解除しました(足した行が見えるように)'); }
+  if (revealRow(at)) toast('絞り込みを解除しました(足した行が見えるように)');
   gotoRow(at, { edit: true, center: true });
   if (ovl(at)) toast('同じ話者の行と時刻が重なっています。必要なら開始・終了を直すか、別の人の声なら話者を付けてください', 3500);
   else toast('行を足しました。文字を入力してください(Esc で抜けます・Ctrl+Z で取り消し)', 2500);

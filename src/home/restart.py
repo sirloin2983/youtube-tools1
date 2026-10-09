@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-from ytt_core import layout   # 入口の launch.py が src を sys.path に入れてから読み込む(mount.py と同じ)
+from ytt_core import httpsec, layout   # 入口の launch.py が src を sys.path に入れてから読み込む(mount.py と同じ)
 
 WAIT_PORT_TIMEOUT = 30.0   # 新しい入口が、古い入口がポートを離すのを待つ最長(秒)。古い入口の後始末は子1つにつき最大 8 秒
 WAIT_PORT_POLL = 0.25
@@ -90,10 +90,7 @@ def _bind_ok(host, port):
     """そのポートで待ち受けられるか(入口と同じ形で bind してみる。Windows は SO_EXCLUSIVEADDRUSE、ほかは SO_REUSEADDR)"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        else:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        httpsec.bind_opts(s)   # 入口のサーバー(httpsec.ExclusiveServer)と同じ 1 か所
         s.bind((host, port))
         return True
     except OSError:

@@ -4,11 +4,11 @@
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
+import functools
 import json
 import os
-import time
 
-from ytt_core import runtime as _runtime, schemas as _yschemas  # noqa: E402
+from ytt_core import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
@@ -119,7 +119,7 @@ def run_abtest(job):
                         "termRef": fin["termRef"], "termHit": fin["termHit"], "termExtra": fin["termExtra"], "worst": fin["worst"]})
         if job["cancel"]:
             raise ed_jobs.Cancelled()
-        result = {"id": job["id"], "tid": spec["tid"], "title": str(doc.get("title") or "")[:100], "at": int(time.time() * 1000), "lines": len(targets),
+        result = {"id": job["id"], "tid": spec["tid"], "title": str(doc.get("title") or "")[:100], "at": ed_state.now_ms(), "lines": len(targets),
                   "language": spec["language"], "device": job.get("device", ""), "variants": out}
         os.makedirs(ed_state.EVAL_DIR, exist_ok=True)
         ed_state.atomic_write(os.path.join(ed_state.EVAL_DIR, job["id"] + ".json"), json.dumps(result, ensure_ascii=False, indent=1).encode("utf-8"))
@@ -132,11 +132,13 @@ def run_abtest(job):
 def read_eval(eid):
     if not ed_state.TID_RE.match(eid or "") or not os.path.isfile(os.path.join(ed_state.EVAL_DIR, eid + ".json")):
         raise ed_state.ApiError("not_found", "比較の結果が見つかりません", 404)
-    try:
-        with open(os.path.join(ed_state.EVAL_DIR, eid + ".json"), "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
+    d = _fsio.read_json_or(os.path.join(ed_state.EVAL_DIR, eid + ".json"), _BROKEN)
+    if d is _BROKEN:
         raise ed_state.ApiError("broken", "比較の結果を読み込めません", 500)
+    return d
+
+
+_BROKEN = object()   # read_eval: 読めなかった
 
 
 def list_evals(tid=None, limit=20):
@@ -156,12 +158,9 @@ def list_evals(tid=None, limit=20):
 
 
 # ---------- clip-marker との連携 ----------
-def _read_json_file(path):
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:   # 他のツール(スタジオ・旧マーカー)が書くファイル。BOM 付きでも読む
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
+OTHER_JSON_MAX = 64 * 1024 * 1024   # 他のツールが書く JSON(スタジオの data.json・旧マーカー・波形の記録)を読む上限(これより大きいものは読めない扱い)
+# 他のツール(スタジオ・旧マーカー)が書くファイルを読む。BOM 付きでも読む。読めなければ None(ytt_core.fsio.read_json_or。名前はテストが呼ぶので残す)
+_read_json_file = functools.partial(_fsio.read_json_or, default=None, max_bytes=OTHER_JSON_MAX)  # lint: keep 写しではなく別名(上限つき。名前はテストが呼ぶ)
 
 
 def studio_out_dir(data_path):
@@ -187,13 +186,13 @@ def transcribed_ranges():
         if not sp:
             continue
         a, b = ed_state.num(sm.get("start"), 0.0) or 0.0, ed_state.num(sm.get("end"))
-        out.append({"path": os.path.normcase(os.path.abspath(sp)), "start": a, "end": b, "whole": sm["_whole"], "tid": tid})
+        out.append({"path": ed_state.norm_path(sp), "start": a, "end": b, "whole": sm["_whole"], "tid": tid})
     return out
 
 
 def _covered(ranges, path, start, end):
     """path の [start,end] が、すでにある文字起こしに含まれているか(全体を処理したものは常に含む。部分は9割以上重なれば含む)。"""
-    k = os.path.normcase(os.path.abspath(path))
+    k = ed_state.norm_path(path)
     length = max(0.0001, end - start)
     for r in ranges:
         if r["path"] != k:
@@ -274,35 +273,15 @@ def marker_videos(d):
 
 
 # ---------- 進行度(校正済みの量) ----------
-_prog_cache = {}
-
-
 def progress_stats():
-    """校正済みの量。学習用(評価用でない文書)と評価用を分けて数える。「聞き取れない」の印がある行は、どちらも数えない。"""
+    """校正済みの量。学習用(評価用でない文書)と評価用を分けて数える。「聞き取れない」の印がある行は、どちらも数えない。
+    文書は読み直さない(ed_store の要約のキャッシュの _prog を足し合わせる = 一覧と同じ 1 回の読み込み)"""
     tot = {"proofedSec": 0.0, "proofedLines": 0, "docs": 0, "docsProofed": 0, "totalSec": 0.0, "totalLines": 0,
            "evalDocs": 0, "evalDocsDone": 0, "evalProofedSec": 0.0, "evalProofedLines": 0, "evalPendingLines": 0}
-    seen = set()
-    for tid in ed_store._tids():
-        seen.add(tid)
-        key = ed_state.file_stamp(ed_store.tx_path(tid))
-        if key is None:
+    for _tid, sm, _sp in ed_store.summaries():
+        r = sm.get("_prog")
+        if r is None:
             continue
-        hit = _prog_cache.get(tid)
-        if hit and hit[0] == key:
-            r = hit[1]
-        else:
-            try:
-                with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
-                    d = json.load(f)
-            except (OSError, ValueError):
-                continue
-            segs = [g for g in d.get("segments") or [] if isinstance(g, dict)]
-            dur = lambda g: max(0.0, (ed_state.num(g.get("end"), 0) or 0) - (ed_state.num(g.get("start"), 0) or 0))
-            good = [g for g in segs if g.get("proofed") is True and "unclear" not in (g.get("tags") or [])]
-            pend = [g for g in segs if g.get("proofed") is not True and str(g.get("text", "")).strip() and "unclear" not in (g.get("tags") or [])]
-            r = {"eval": d.get("evalSet") is True, "sec": sum(dur(g) for g in good), "lines": len(good), "pend": len(pend),
-                 "totalSec": sum(dur(g) for g in segs), "totalLines": len(segs)}
-            _prog_cache[tid] = (key, r)
         if r["eval"]:
             tot["evalDocs"] += 1
             tot["evalDocsDone"] += 1 if r["lines"] and not r["pend"] else 0
@@ -316,8 +295,6 @@ def progress_stats():
         tot["proofedLines"] += r["lines"]
         tot["totalSec"] += r["totalSec"]
         tot["totalLines"] += r["totalLines"]
-    for k in [k for k in _prog_cache if k not in seen]:
-        _prog_cache.pop(k, None)
     for k in ("proofedSec", "totalSec", "evalProofedSec"):
         tot[k] = round(tot[k], 1)
     return tot
@@ -355,11 +332,8 @@ def scan_folder(path, recursive=False):
                 break
     except OSError as e:
         raise ed_state.ApiError("scan_failed", "フォルダを読めませんでした: %s" % e.__class__.__name__, 400)
-    done, active = _done_and_active()
-    for f in found:
-        k = os.path.normcase(os.path.abspath(f["path"]))
-        f["doneTid"] = done.get(k, "")
-        f["queued"] = k in active
+    for f, st in zip(found, scan_common([f["path"] for f in found])):   # 文字起こし済み・待機中の判定は scan_common の 1 か所
+        f["doneTid"], f["queued"] = st["doneTid"], st["queued"]
     return {"dir": p, "files": found, "truncated": trunc}
 
 
@@ -367,21 +341,21 @@ def _done_and_active():
     """({正規化したパス: 全体を文字起こし済みの id}, {待機中・処理中の文字起こしのパス})。"""
     done = {r["path"]: r["tid"] for r in transcribed_ranges() if r["whole"]}
     with ed_jobs._jobs_lock:
-        active = {os.path.normcase(os.path.abspath(j["spec"].get("sourcePath", ""))) for j in ed_jobs._jobs.values()
+        active = {ed_state.norm_path(j["spec"].get("sourcePath", "")) for j in ed_jobs._jobs.values()
                   if j.get("kind") == "transcribe" and j["state"] in ed_jobs.ACTIVE_STATES and j["spec"].get("sourcePath")}
     return done, active
 
 
 def add_batch(req):
     """複数のファイルを、それぞれ別の文字起こしとして待機列に入れる(設定は共通)。同じファイルが2回あっても1回だけ入れる。"""
-    paths = list({os.path.normcase(os.path.abspath(str(x))): str(x) for x in (req.get("paths") or []) if isinstance(x, str) and x.strip()}.values())[:MAX_SCAN_FILES]
+    paths = list({ed_state.norm_path(str(x)): str(x) for x in (req.get("paths") or []) if isinstance(x, str) and x.strip()}.values())[:MAX_SCAN_FILES]
     if not paths:
         raise ed_state.ApiError("empty", "対象のファイルがありません", 400)
     skip_done = req.get("skipDone") is not False
-    info = {os.path.normcase(os.path.abspath(f["path"])): f for f in scan_common(paths)} if skip_done else {}
+    info = {ed_state.norm_path(f["path"]): f for f in scan_common(paths)} if skip_done else {}
     added, skipped = [], []
     for fp in paths:
-        k = os.path.normcase(os.path.abspath(fp))
+        k = ed_state.norm_path(fp)
         f = info.get(k)
         if f and (f["doneTid"] or f["queued"]):
             skipped.append({"path": fp, "reason": "文字起こし済み" if f["doneTid"] else "すでに待機中"})
@@ -402,7 +376,7 @@ def scan_common(paths):
     done, active = _done_and_active()
     out = []
     for p in paths:
-        k = os.path.normcase(os.path.abspath(p))
+        k = ed_state.norm_path(p)
         out.append({"path": p, "doneTid": done.get(k, ""), "queued": k in active})
     return out
 

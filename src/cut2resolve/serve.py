@@ -9,7 +9,7 @@
 API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/spec/pipeline.md の 4)
-  POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
+  POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, fcpxml, textplus, textplusFps?, textplusSize?, backup?, force, crf?}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(ytt_core.txindex が読む。④)
@@ -31,10 +31,10 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(home/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
 """
+import dataclasses
 import json
 import os
 import secrets
-import shutil
 import socket
 import subprocess
 import sys
@@ -45,7 +45,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 from collections import OrderedDict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -69,7 +69,7 @@ def _load_core():
 
 
 _load_core()
-from ytt_core import colors as _colors, datadir, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, txindex as _txi  # noqa: E402
+from ytt_core import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools, txindex as _txi  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
@@ -92,8 +92,10 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
-# 指定を省いたときの値(pack.Request・コマンドの既定と同じ値)
-DEFAULTS = {"noise": -35.0, "silenceMin": 0.6, "silencePad": 0.15, "minLen": 0.3, "joinGap": 0.0, "crf": 18, "recStart": "01:00:00:00"}
+# 指定を省いたときの値(正は pack.Request の既定と cut2resolve_core の DEFAULT_*。コマンドも同じものを読む)
+_REQ = {f.name: f.default for f in dataclasses.fields(pack.Request)}
+DEFAULTS = {"noise": _REQ["noise"], "silenceMin": _REQ["silence_min"], "silencePad": _REQ["silence_pad"], "minLen": _REQ["min_len"],
+            "joinGap": _REQ["join_gap"], "crf": C.DEFAULT_CRF, "recStart": _REQ["rec_start"], "reel": _REQ["reel"]}
 TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt_core.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
@@ -118,8 +120,7 @@ def log(msg):
     try:
         with _log_lock:
             os.makedirs(WORK_DIR, exist_ok=True)
-            if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > LOG_MAX:
-                os.replace(LOG_PATH, os.path.join(WORK_DIR, "serve.old.log"))
+            fsio.rotate(LOG_PATH, LOG_MAX)
             with open(LOG_PATH, "a", encoding="utf-8") as f:
                 f.write(line)
     except Exception:
@@ -257,7 +258,8 @@ class AppState:
             return os.path.normcase(os.path.realpath(str(path))) in self.out_dirs
 
     # ---- ジョブ(同時に1つだけ。無音の検出・書き出しは重いので、画面の二度押しで並ばないように)
-    def start_job(self, kind, fn):
+    def start_job(self, kind, fn, heavy=None):
+        """heavy: 引数なしで呼べる関数。真を返すなら、その処理は他のツールの重い処理と順番を待つ(build は常に待つ。試算は無音の検出が要るときだけ)"""
         with self.lock:
             if self.running is not None and self.running.state == "running":
                 raise ApiError("busy", "前の処理が終わっていません(「取り消す」で止められます)", 409,
@@ -267,14 +269,15 @@ class AppState:
             self.jobs[job.id] = job
             while len(self.jobs) > 20:
                 self.jobs.popitem(last=False)
-        th = threading.Thread(target=self._run, args=(job, fn), daemon=True, name="job-" + kind)
+        th = threading.Thread(target=self._run, args=(job, fn, heavy), daemon=True, name="job-" + kind)
         th.start()
         return job
 
-    def _run(self, job, fn):
+    def _run(self, job, fn, heavy=None):
         try:
-            if job.kind == "build":   # パックの作成(粗編集・動画のコピー)は重いので、他のツールの重い処理と順番を待つ(ytt_core.jobs)
-                with _heavy.SLOTS.slot(TOOL_ID, "パックの作成", cancelled=lambda: job.task.cancelled,
+            # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt_core.jobs)
+            if job.kind == "build" or (heavy is not None and heavy()):
+                with _heavy.SLOTS.slot(TOOL_ID, "パックの作成" if job.kind == "build" else "試算(無音の検出)", cancelled=lambda: job.task.cancelled,
                                        on_wait=lambda: setattr(job, "message", _heavy.WAIT_MESSAGE)) as ok:
                     if not ok:
                         raise C.Cancelled()
@@ -329,18 +332,14 @@ def write_pack_record(res, plan, textplus, backup, color=None):
            "editMedia": res["editMedia"], "cutPlan": res["plan"],
            "videoCopy": res.get("videoCopy"),   # 音量をかけて写した動画の条件(C.gain_copy_record)。次のパックで同じなら作り直さない(E-15 の続き)
            "textColor": (color or {}).get("hex"), "streamer": (color or {}).get("who")}   # 字幕の文字の色(配信者の名前を入れたとき)
-    S.write_text_atomic(Path(d) / _txi.pack_key(out_dir), json.dumps(rec, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    fsio.write_json(os.path.join(d, _txi.pack_key(out_dir)), rec, indent=1)
     try:
         names = [os.path.join(d, n) for n in os.listdir(d) if n.endswith(".json")]
         if len(names) > MAX_PACK_RECORDS:
-            names.sort(key=lambda n: os.path.getmtime(n))
+            names.sort(key=os.path.getmtime)
             for n in names[:len(names) - MAX_PACK_RECORDS]:
-                try:
-                    with open(n, encoding="utf-8") as f:
-                        gone = not os.path.isdir(json.load(f).get("dir") or "")
-                except (OSError, ValueError, AttributeError):
-                    gone = True
-                if gone:
+                folder = fsio.read_json_or(n, {}, kind=dict).get("dir")   # 読めない・形の違う記録は、フォルダが無いものとして消す
+                if not (isinstance(folder, str) and os.path.isdir(folder)):
                     os.unlink(n)
     except OSError:
         pass
@@ -470,7 +469,7 @@ def advanced_from_spec(spec):
             "frames": None if frames in (None, "") else _num(frames, "フレーム数", 1, 10**9, integer=True),
             "src_start_tc": _str(adv.get("srcStartTc"), "元動画の開始タイムコード", 20) or None,
             "rec_start": _str(adv.get("recStart"), "タイムラインの開始タイムコード", 20) or DEFAULTS["recStart"],
-            "reel": _str(adv.get("reel"), "リール名", 40) or "AX", "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
+            "reel": _str(adv.get("reel"), "リール名", 40) or DEFAULTS["reel"], "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
 
 
 def keeps_from_spec(v):
@@ -482,7 +481,7 @@ def keeps_from_spec(v):
     for x in v:
         if not isinstance(x, list) or len(x) != 2:
             raise ApiError("bad_keeps", "残す区間は [開始秒, 終了秒] の形にしてください")
-        if any(isinstance(t, bool) or not isinstance(t, (int, float)) or t != t for t in x):
+        if any(C.num(t) is None for t in x):
             raise ApiError("bad_keeps", "残す区間の時刻は数で指定してください")
         a, b = float(x[0]), float(x[1])
         if not 0 <= a < b <= 24 * 3600:
@@ -561,6 +560,7 @@ def output_from_spec(o, video):
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
     textplus = bool(o.get("textplus"))
+    copy_video, fcpxml = pack.normalize_outputs(o.get("copyVideo"), o.get("fcpxml"), textplus)
     try:
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:
@@ -581,7 +581,7 @@ def output_from_spec(o, video):
         raise ApiError("bad_tracks", str(e))
     return {"videoTracks": tracks, "textplusColor": {"hex": hex_, "who": who} if hex_ else None,
             "dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
-            "copyVideo": bool(o.get("copyVideo")) or textplus, "fcpxml": bool(o.get("fcpxml")) and not textplus,
+            "copyVideo": copy_video, "fcpxml": fcpxml,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)
             "speakerColors": o.get("speakerColors") is not False,
@@ -670,17 +670,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- 応答
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")
-        for k, v in (extra or {}).items():
-            self.send_header(k, v)
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        httpsec.send(self, code, body, ctype, dict({"Referrer-Policy": "no-referrer"}, **(extra or {})))
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
@@ -706,29 +696,24 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-    def _read_body(self, limit, ctype):
-        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != ctype:
-            raise ApiError("bad_type", "Content-Type は %s にしてください" % ctype, 415)
-        try:
-            length = int(self.headers.get("Content-Length") or "")
-        except ValueError:
-            raise ApiError("bad_length", "Content-Length が正しくありません", 411)
-        if length <= 0 or length > limit:
-            raise ApiError("too_big", "送る内容が空か、大きすぎます(上限 %dMB)" % max(1, limit // 1048576), 413)
-        data = self.rfile.read(length)
-        if len(data) != length:
-            raise ApiError("bad_length", "送る内容が途中で切れました", 400)
-        return data
-
     def _read_json(self):
-        raw = self._read_body(MAX_BODY, "application/json")
+        """書き込み系の要求の本文(JSON のオブジェクト)。読み方の規則は ytt_core.httpsec.read_json_body。ここは断る理由ごとの文と状態を決めるだけ
+        (Content-Length が無いときは 411 = 数が読めないのと同じ)"""
         try:
-            obj = json.loads(raw.decode("utf-8"), parse_constant=C._reject_constant)
-        except (UnicodeDecodeError, ValueError):
-            raise ApiError("bad_json", "JSON として読めません")
-        if not isinstance(obj, dict):
-            raise ApiError("bad_json", "JSON のオブジェクトを送ってください")
-        return obj
+            return httpsec.read_json_body(self, MAX_BODY)
+        except httpsec.BodyError as e:
+            kind = "length" if e.kind == "size" and not self.headers.get("Content-Length") else e.kind
+            if kind == "type":
+                raise ApiError("bad_type", "Content-Type は application/json にしてください", 415)
+            if kind == "length":
+                raise ApiError("bad_length", "Content-Length が正しくありません", 411)
+            if kind == "size":
+                raise ApiError("too_big", "送る内容が空か、大きすぎます(上限 %dMB)" % max(1, MAX_BODY // 1048576), 413)
+            if kind == "read":
+                raise ConnectionError("本文を読めませんでした")   # _safe は応答せずに閉じる(読んでいる途中の切断・時間切れ)
+            if kind == "short":
+                raise ApiError("bad_length", "送る内容が途中で切れました", 400)
+            raise ApiError("bad_json", "JSON のオブジェクトを送ってください" if kind == "object" else "JSON として読めません")
 
     # ---- GET
     def do_HEAD(self):
@@ -782,7 +767,7 @@ class Handler(BaseHTTPRequestHandler):
             res = with_warning_levels(pack.summary(plan))
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
             return res
-        return {"job": app.start_job("plan", work).public()}
+        return {"job": app.start_job("plan", work, heavy=lambda: pack.detect_pending(req, app.cache)).public()}
 
     def _build(self, o):
         req = request_from_spec(o.get("spec"))
@@ -843,16 +828,8 @@ class Handler(BaseHTTPRequestHandler):
         return {"ok": True}
 
 
-class C2RServer(ThreadingHTTPServer):
-    """Windows では SO_REUSEADDR を付けると「他のアプリが使用中のポート」にも bind できてしまい、どちらに繋がるか分からなくなる
-    (clip-studio の見直しで見つかった問題)。Windows では使わず、代わりに SO_EXCLUSIVEADDRUSE で独占する"""
-    allow_reuse_address = os.name != "nt"
-    daemon_threads = True
-
-    def server_bind(self):
-        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        super().server_bind()
+class C2RServer(httpsec.ExclusiveServer):
+    """単独で動かすときのサーバー。Windows で使用中のポートに bind できてしまう問題の対策(SO_EXCLUSIVEADDRUSE)は ytt_core.httpsec.ExclusiveServer"""
 
 
 def probe(port):
@@ -909,7 +886,6 @@ def _choose_work_dir():
         print("※ " + w, flush=True)
     base = r["dir"] if r["state"] != "inplace" else CODE_DIR
     WORK_DIR = os.path.join(base, "work")
-    _txi.use_packs_dir(os.path.join(base, "packs"))   # パックを作った記録(④)。入口の中の「編集」・案件・まとめて実行も同じ場所を読む
     LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 
 
@@ -961,11 +937,7 @@ def mounted_elsewhere():
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(errors="replace")
-        except Exception:
-            pass
+    S.safe_stdio()
     live = mounted_elsewhere()
     if live:
         print("入口の中ですでに起動しています。ブラウザで開きます:", live)
@@ -982,7 +954,7 @@ def main(argv=None):
         return 0
     runtime = _startup(port)
     print("cut2resolve:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
-    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+    if not (tools.find_tool("ffmpeg") and tools.find_tool("ffprobe")):
         print("※ ffmpeg / ffprobe が見つかりません(README の準備を確認してください)")
 
     import signal

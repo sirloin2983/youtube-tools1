@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 
-from ytt_core import fsio as _fsio, layout as _layout, tools as _tools  # noqa: E402
+from ytt_core import fsio as _fsio, layout as _layout, schemas as _yschemas, tools as _tools  # noqa: E402
 
 
 APP_ID = "transcribe-tool"
@@ -121,10 +121,6 @@ REP_MIN = 5             # 行の中で同じ語(2〜10 文字)がこの回数以
 REP_RE = re.compile(r"(.{2,10}?)\1{%d,}" % (REP_MIN - 1))
 
 
-def _reject_json_constant(name):
-    raise ValueError("NaN / Infinity は受け付けません: %s" % name)
-
-
 class ApiError(Exception):
     def __init__(self, code, message, status=400, extra=None):
         super().__init__(message)
@@ -144,21 +140,12 @@ def atomic_write(path, data: bytes):
     _fsio.atomic_write(path, data, fsync_required=True)
 
 
-def unlink_quiet(path):
-    """消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)"""
-    try:
-        os.unlink(path)
-    except OSError:
-        pass
-
-
-def file_stamp(path):
-    """(更新日時ns, 大きさ)。無い・読めなければ None(読み直しを省くキャッシュの鍵)"""
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size)
+# 共通の小道具は ytt_core の物(2026-10-09。名前は今までどおり ed_state.名前 で呼べる = 呼ぶ側は変えない)
+# (下の 4 つは写しではなく別名。lint の dup-helper には `lint: keep` で印を付けた)
+unlink_quiet = _fsio.unlink_quiet   # lint: keep 別名 = 消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)
+file_stamp = _fsio.stamp            # lint: keep 別名 = (更新日時ns, 大きさ)。無い・読めなければ None(読み直しを省くキャッシュの鍵)
+plain_int = _yschemas.plain_int     # lint: keep 別名 = JSON の整数(真偽値は数えない)か None
+rss_mb = _tools.process_memory_mb   # lint: keep 別名 = このプロセスが使っているメモリ(MB)。取れなければ None
 
 
 def read_schema_json(path, max_bytes, schema, key, kind=list):
@@ -184,9 +171,24 @@ def union_spans(spans):
     return out
 
 
-def plain_int(v):
-    """JSON の整数(真偽値は数えない)か None"""
-    return v if isinstance(v, int) and not isinstance(v, bool) else None
+def add_warning(job, msg):
+    """ジョブの注意(画面の知らせ)を 1 つ足す。新しい list に付け直す(/api/jobs が JSON にしている最中の list を書き換えない)"""
+    job["warnings"] = list(job.get("warnings") or []) + [msg]
+
+
+def norm_path(p):
+    """同じ動画かを比べる鍵: 絶対パスにして大文字小文字・区切りをそろえる(normcase(abspath))。ファイルには触らない"""
+    return os.path.normcase(os.path.abspath(p))
+
+
+def now_ms():
+    """今の時刻(ミリ秒の整数。文書・記録の at・updatedAt と同じ単位)"""
+    return int(time.time() * 1000)
+
+
+def env_off(name):
+    """環境変数 name が「止める」の値(off・0・no・false。大文字小文字と前後の空白は問わない)か(裏の処理を止めるスイッチ)"""
+    return os.environ.get(name, "").strip().lower() in ("off", "0", "no", "false")
 
 
 def fake_sleep():
@@ -221,31 +223,6 @@ def pio(required=True):
 log = logging.getLogger("tx")
 _run_state = {"pid": os.getpid(), "started": 0, "job": None}
 _crash_fp = None
-
-
-def rss_mb():
-    """このプロセスが使っているメモリ(MB)。取れなければ None。"""
-    try:
-        if os.name == "nt":
-            import ctypes
-            from ctypes import wintypes
-
-            class PMC(ctypes.Structure):
-                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD), ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
-                            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t), ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                            ("QuotaNonPagedPoolUsage", ctypes.c_size_t), ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
-            pmc = PMC()
-            pmc.cb = ctypes.sizeof(pmc)
-            k32, ps = ctypes.windll.kernel32, ctypes.windll.psapi
-            k32.GetCurrentProcess.restype = wintypes.HANDLE
-            ps.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
-            if ps.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
-                return pmc.WorkingSetSize / 1048576.0
-            return None
-        with open("/proc/self/statm", "r") as f:
-            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1048576.0
-    except Exception:
-        return None
 
 
 def _mem():
@@ -290,19 +267,17 @@ def write_mark(job=None):
 
 def check_previous_run():
     """前回の印が残っていれば(=正常に終了しなかった)、その内容を返す。なければ None。"""
-    try:
-        with open(RUN_MARK, "r", encoding="utf-8") as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {"pid": "?"}
-    except (OSError, ValueError):
+    d = _fsio.read_json_or(RUN_MARK, _NO_MARK)
+    if d is _NO_MARK:
         return None
+    return d if isinstance(d, dict) else {"pid": "?"}
+
+
+_NO_MARK = object()   # check_previous_run: 印が無い・読めない
 
 
 def clear_mark():
-    try:
-        os.unlink(RUN_MARK)
-    except OSError:
-        pass
+    unlink_quiet(RUN_MARK)
 
 
 def find_ffmpeg():
@@ -435,7 +410,7 @@ def worker_has(*mods):
         else:
             code = "import importlib.util,sys; sys.exit(0 if all(importlib.util.find_spec(m) for m in sys.argv[1:]) else 1)"
             ok = subprocess.run([py, "-c", code] + list(mods), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                timeout=60, creationflags=ed_jobs._worker_flags()).returncode == 0
+                                timeout=60, creationflags=_tools.no_window_flags(new_group=True)).returncode == 0
     except Exception:
         ok = False
     _has_cache[key] = ok
@@ -490,7 +465,7 @@ def _probe_gpu():
     ok = False
     try:
         p = subprocess.run([worker_python(), ed_jobs.WORKER_SCRIPT, "--probe"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           timeout=120, env=ed_jobs.worker_env(), cwd=ROOT, creationflags=ed_jobs._worker_flags())
+                           timeout=120, env=ed_jobs.worker_env(), cwd=ROOT, creationflags=_tools.no_window_flags(new_group=True))
         ok = p.returncode == 0 and b'"cuda": true' in (p.stdout or b"")
     except (OSError, subprocess.SubprocessError):
         ok = False

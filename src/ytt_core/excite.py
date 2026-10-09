@@ -33,6 +33,16 @@ WARM_BONUS = 1.5   # 「草」などの反応の重み
 PAID_BONUS = 4.0   # スーパーチャットは強い反応
 ONLINE_BACK, ONLINE_FWD, ONLINE_WINDOW = 270, 30, 1800   # 配信中の既定(0-10-2)。アーカイブは back = fwd = 150・window = 全体
 STEP = 10   # ふだんの中央値を取る間隔(秒)。local_baseline の step と同じ
+# 式の数字(一括の関数と配信中の Online・PeakBook が同じ値を読む。2026-10-09 に 1 か所へ。値を変えると golden が食い違う)
+AUDIO_PARTS = ((3, 0.6), (3, 0.4))   # 音の点数の (ならす幅(秒), 重み): 全帯域・高音域(笑い声・叫び)の順
+AUDIO_FLOOR = 1.5                    # 音の跳ね上がりの尺度の下限(robust_scale の floor)
+CHAT_SMOOTH, CHAT_FLOOR = 9, 0.25    # チャットの活気: ならす幅(秒)・尺度の下限
+PICK_SMOOTH = 5                      # 山を探す前に合計をならす幅(秒)
+LEVEL_SMOOTH = 3                     # 区間を静かな所へ合わせる前に音量をならす幅(秒)
+SNAP_RADIUS = 4                      # 静かな所を探す前後の秒数(snap_quiet)
+SNAP_RATIO = (0.7, 1.3)              # 合わせた区間の長さがこの倍率の中なら合わせる(山を含むときだけ)
+PARTS_RADIUS = 6                     # 点数の内訳(parts)を取る山の前後の秒数
+EXCLUDE_BEFORE, EXCLUDE_AFTER = 5, 6   # 確定した区間の前後(pick_clips の [s-5, e+6))は次の山にしない
 
 
 # ---------------------------------------------------------------- 一括の式(アーカイブの解析。golden で固定 = 式・加算の順・丸めを変えない)
@@ -81,20 +91,21 @@ def robust_scale(dev, floor):
 def audio_score(full_db, band_db):
     """音量が「ふだん」からどれだけ跳ね上がったか(標準偏差のような無単位の値。0〜CAP)。高音域(笑い声・叫び)は少し重く見る。"""
     out = []
-    for series, wt in ((smooth(full_db, 3), 0.6), (smooth(band_db, 3), 0.4)):
+    for raw, (w, wt) in zip((full_db, band_db), AUDIO_PARTS):
+        series = smooth(raw, w)
         base = local_baseline(series)
         dev = [a - b for a, b in zip(series, base)]
-        sc = robust_scale(dev, 1.5)
+        sc = robust_scale(dev, AUDIO_FLOOR)
         out.append([wt * max(0.0, min(CAP, d / sc)) for d in dev])
     return [a + b for a, b in zip(*out)]
 
 
 def chat_z(act):
     """チャットの活気(9秒平均)が「ふだん」からどれだけ増えたか(ずらす前)。"""
-    x = [math.log1p(v) for v in smooth(act, 9)]
+    x = [math.log1p(v) for v in smooth(act, CHAT_SMOOTH)]
     base = local_baseline(x)
     dev = [a - b for a, b in zip(x, base)]
-    sc = robust_scale(dev, 0.25)
+    sc = robust_scale(dev, CHAT_FLOOR)
     return [max(0.0, min(CAP, d / sc)) for d in dev]
 
 
@@ -132,11 +143,16 @@ def estimate_lag(audio, chat, max_lag=LAG_MAX):
     return best, sm[best]
 
 
+def ramp(t, head):
+    """冒頭の減点の倍率: 0秒で0倍 → head 秒で1倍へ、なだらかに(2乗)戻す(head_ramp と Online が同じ式を読む。head > 0 のときだけ呼ぶ)"""
+    return min(1.0, t / head) ** 2
+
+
 def head_ramp(total, head):
     """配信の冒頭(挨拶・BGM・雑談の始まり)の減点。0秒で0倍 → head 秒で1倍へ、なだらかに(2乗)戻す。"""
     if head <= 0:
         return total
-    return [v * min(1.0, i / head) ** 2 for i, v in enumerate(total)]
+    return [v * ramp(i, head) for i, v in enumerate(total)]
 
 
 def comment_score(stamps, n):
@@ -154,10 +170,10 @@ def comment_score(stamps, n):
 def pick_clips(total, level, spec, n):
     """合計スコアの山を高い順に選び、区間(開始・終了)にする。見つけた区間は重ならない。"""
     length, pre = spec["length"], spec["preRatio"]
-    work = list(smooth(total, 5))
+    work = list(smooth(total, PICK_SMOOTH))
     thr = SENS[spec["sensitivity"]]
     out = []
-    lows = smooth(level, 3)
+    lows = smooth(level, LEVEL_SMOOTH)
     while len(out) < spec["count"]:
         peak = max(range(n), key=lambda i: work[i]) if n else 0
         if not n or work[peak] < thr:
@@ -165,18 +181,24 @@ def pick_clips(total, level, spec, n):
         s = max(0.0, min(peak - length * pre, n - length))
         e = min(float(n), s + length)
         s = max(0.0, e - length)
-        s2 = snap_quiet(lows, s, n)   # 声の途中で切らないよう、近くの静かなところに合わせる
-        e2 = snap_quiet(lows, e, n)
-        if length * 0.7 <= e2 - s2 <= length * 1.3 and s2 < peak < e2:
-            s, e = s2, e2
+        s, e = snap_region(lows, s, e, peak, n, length)   # 声の途中で切らないよう、近くの静かなところに合わせる
         out.append({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(work[peak], 2)})
-        a, b = max(0, int(s) - 5), min(n, int(e) + 6)
+        a, b = max(0, int(s) - EXCLUDE_BEFORE), min(n, int(e) + EXCLUDE_AFTER)
         for i in range(a, b):
             work[i] = 0.0
     return sorted(out, key=lambda c: -c["score"])
 
 
-def snap_quiet(level, t, n, radius=4):
+def snap_region(lows, s, e, peak, n, length):
+    """区間 [s, e] の両端を静かな所(snap_quiet)へ合わせる -> (開始, 終わり)。合わせた長さが length の SNAP_RATIO 倍の中で、
+    山 peak を含むときだけ合わせ、違えば元の (s, e)(pick_clips と PeakBook._snap が同じ規則を読む)"""
+    s2, e2 = snap_quiet(lows, s, n), snap_quiet(lows, e, n)
+    if length * SNAP_RATIO[0] <= e2 - s2 <= length * SNAP_RATIO[1] and s2 < peak < e2:
+        return s2, e2
+    return s, e
+
+
+def snap_quiet(level, t, n, radius=SNAP_RADIUS):
     """t の前後 radius 秒のうち、いちばん静かな秒(できるだけ近いもの)へ。"""
     lo, hi = max(0, int(t) - radius), min(n - 1, int(t) + radius)
     if hi < lo:
@@ -198,7 +220,7 @@ def candidates(picks, comps):
     cands = []
     for i, c in enumerate(picks):
         pk = c["peak"]
-        parts = {k: round(max(comps[k][max(0, pk - 6):pk + 7]), 2) for k in comps}
+        parts = {k: round(max(comps[k][max(0, pk - PARTS_RADIUS):pk + PARTS_RADIUS + 1]), 2) for k in comps}
         cands.append({"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": reasons_of(parts)})
     return cands
 
@@ -245,6 +267,12 @@ def message_text(renderer):
 def _int_keys(d):
     """JSON で文字列になった秒・点の鍵を int に戻す(to_json / load の往復)"""
     return {int(k): v for k, v in (d or {}).items()}
+
+
+def _drop_before(d, k0):
+    """d(秒・点 -> 値)から、鍵が k0 より前のものを捨てる(窓の分だけ持つ)"""
+    for k in [k for k in d if k < k0]:
+        del d[k]
 
 
 def windowed_scores(x, floor, w, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, log=False):
@@ -330,14 +358,10 @@ class _Channel:
             self.raw_base = keep_from
         for d, margin in ((self.sm, self.back + self.step + 2), (self.dev, self.window + self.step + 2)):
             if len(d) > margin + 64:
-                floor_k = self.next_out - margin
-                for k in [k for k in d if k < floor_k]:
-                    del d[k]
+                _drop_before(d, self.next_out - margin)
         for d in (self.med, self.scale):
             if len(d) > 8:
-                floor_p = (self.next_out // self.step) * self.step - 2 * self.step
-                for k in [k for k in d if k < floor_p]:
-                    del d[k]
+                _drop_before(d, (self.next_out // self.step) * self.step - 2 * self.step)
 
     def to_json(self):
         return {"raw": self.raw, "raw_base": self.raw_base, "sm": self.sm, "med": self.med, "dev": self.dev, "scale": self.scale,
@@ -349,16 +373,17 @@ class _Channel:
 
 
 class Online:
-    """配信中の合計の点数を 1 秒ずつ足す。audio_score(全体 0.6 + 高音域 0.4。floor 1.5)と chat_z(9 秒平均・log1p・floor 0.25)の窓つき版を合わせ、
+    """配信中の合計の点数を 1 秒ずつ足す。audio_score(全体 0.6 + 高音域 0.4。floor 1.5 = AUDIO_PARTS・AUDIO_FLOOR)と
+    chat_z(9 秒平均・log1p・floor 0.25 = CHAT_SMOOTH・CHAT_FLOOR)の窓つき版を合わせ、
     チャットは lag 秒だけ前へずらし(t の値 = chat[t+lag])、重み(w_audio・w_chat)で足して head_ramp をかける。
     push(full, band, act) -> [(秒, 合計, {"audio": 音の点数, "chat": チャットの点数, "chatRaw": ずらす前のその秒のチャットの点数})]
     (新しく確定した秒。遅れは fwd + step + 4 + lag 秒ほど。chatRaw は遅れの推定 estimate_lag 用)。
     lag は set_lag で途中から変えられる(過去の秒は出し直さない)。to_json / load で途中から続けられる。"""
 
     def __init__(self, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, lag=8, w_audio=1.0, w_chat=1.0, head=180, use_chat=True):
-        self.ch_full = _Channel(1.5, 3, back, fwd, window, step)
-        self.ch_band = _Channel(1.5, 3, back, fwd, window, step)
-        self.ch_chat = _Channel(0.25, 9, back, fwd, window, step, log=True) if use_chat else None
+        self.ch_full = _Channel(AUDIO_FLOOR, AUDIO_PARTS[0][0], back, fwd, window, step)
+        self.ch_band = _Channel(AUDIO_FLOOR, AUDIO_PARTS[1][0], back, fwd, window, step)
+        self.ch_chat = _Channel(CHAT_FLOOR, CHAT_SMOOTH, back, fwd, window, step, log=True) if use_chat else None
         self.lag = int(round(lag))
         self.w_audio, self.w_chat, self.head = float(w_audio), float(w_chat), int(head)
         self.full, self.band, self.chat = {}, {}, {}   # 確定したが、まだ合計にしていない秒
@@ -369,9 +394,9 @@ class Online:
 
     def push(self, full_db, band_db, act=0.0):
         for t, v in self.ch_full.push(full_db):
-            self.full[t] = 0.6 * v
+            self.full[t] = AUDIO_PARTS[0][1] * v
         for t, v in self.ch_band.push(band_db):
-            self.band[t] = 0.4 * v
+            self.band[t] = AUDIO_PARTS[1][1] * v
         if self.ch_chat is not None:
             for t, v in self.ch_chat.push(act):
                 self.chat[t] = v
@@ -389,13 +414,12 @@ class Online:
             a = self.full[t] + self.band[t]
             total = self.w_audio * a + self.w_chat * c
             if self.head > 0:
-                total = total * min(1.0, t / self.head) ** 2
+                total = total * ramp(t, self.head)
             out.append((t, total, {"audio": a, "chat": c, "chatRaw": self.chat.get(t, 0.0) if self.ch_chat is not None else 0.0}))
             self.next_out = t + 1
             del self.full[t], self.band[t]
             if self.ch_chat is not None:
-                for k in [k for k in self.chat if k < t + 1]:   # ずらした分より前は要らない
-                    del self.chat[k]
+                _drop_before(self.chat, t + 1)   # ずらした分より前は要らない
         return out
 
     def to_json(self):
@@ -461,7 +485,6 @@ class MoodShift:
 CONFIRM_DROP = 0.6      # しきい値のこの割合を下回ったら「下り」
 CONFIRM_LOW_SEC = 10    # 下りがこの秒数続いたら確定
 CONFIRM_MAX_SEC = 90    # 上り始めてからこの秒数たったら確定
-EXCLUDE_BEFORE, EXCLUDE_AFTER = 5, 6   # 確定した区間の前後(pick_clips の [s-5, e+6) と同じ)
 PEAK_STATES = ("frame", "bench", "adopted", "dismissed")
 CHANGES_KEEP = 500
 PROV_EXPIRE = CONFIRM_MAX_SEC + 30   # 仮の候補の山から、本番の計算(チャット込み)がこれだけ進んでも近くで確定しなければ外す(本番の山の区間に含まれていた = 重なり)
@@ -515,9 +538,10 @@ class PeakBook:
 
     @staticmethod
     def _smooth5(d, t):
-        """秒 t まで足した値 d(秒 -> 値)から、smooth(・, 5) が確定する秒 w = t - 2 とその値 -> (w, 値) か None(前後の値がそろっていない)"""
-        w = t - 2
-        ks = range(max(0, w - 2), w + 3)
+        """秒 t まで足した値 d(秒 -> 値)から、smooth(・, PICK_SMOOTH = 5) が確定する秒 w = t - 2 とその値 -> (w, 値) か None(前後の値がそろっていない)"""
+        h = PICK_SMOOTH // 2
+        w = t - h
+        ks = range(max(0, w - h), w + h + 1)
         if w < 0 or not all(k in d for k in ks):
             return None
         return w, sum(d[k] for k in ks) / len(ks)
@@ -601,8 +625,7 @@ class PeakBook:
         sm = self._smooth5(f["total"], t)
         changed = self._fast_step(sm[0], sm[1], t) if sm else []
         for d in (f["total"], f["audio"]):
-            for k in [k for k in d if k < t - 12]:
-                del d[k]
+            _drop_before(d, t - 12)
         return changed
 
     def _fast_step(self, w, work, t):
@@ -610,10 +633,10 @@ class PeakBook:
         r = f["rising"]
         if r is None:
             if work >= self._thr_at(w) and w > max(self.block_until, f["block"]) and f["open"] is None:
-                f["rising"] = {"since": w, "peak": w, "value": work, "low": 0, "audio": self._fast_audio(w - 6, t)}
+                f["rising"] = {"since": w, "peak": w, "value": work, "low": 0, "audio": self._fast_audio(w - PARTS_RADIUS, t)}
                 return [self._provisional(w, work, f["rising"]["audio"])]
             return []
-        r["audio"] = max(r["audio"], self._fast_audio(w - 6, t))
+        r["audio"] = max(r["audio"], self._fast_audio(w - PARTS_RADIUS, t))
         if not self._climb(r, w, work):
             return []
         f["rising"] = None
@@ -671,24 +694,23 @@ class PeakBook:
 
     def _parts_at(self, peak):
         ks = sorted({k for p in self.parts.values() for k in p})
-        return {k: round(max([self.parts[i].get(k, 0.0) for i in range(peak - 6, peak + 7) if i in self.parts] or [0.0]), 2) for k in ks}
+        return {k: round(max([self.parts[i].get(k, 0.0) for i in range(peak - PARTS_RADIUS, peak + PARTS_RADIUS + 1) if i in self.parts] or [0.0]), 2)
+                for k in ks}
 
     def _snap(self, pk):
-        """pick_clips と同じ区間の合わせ方(静かな所へ)。終わりの音量がまだ無ければ endPending のまま"""
+        """pick_clips と同じ区間の合わせ方(静かな所へ。snap_region)。終わりの音量がまだ無ければ endPending のまま"""
         s, e = float(pk["start"]), float(pk["end"])
-        need = int(e) + 4 + 1   # snap_quiet(radius 4)+ smooth(level, 3)
+        need = int(e) + SNAP_RADIUS + LEVEL_SMOOTH // 2   # snap_quiet(radius 4)+ smooth(level, 3)
         if self.last_t < need:
             return False
-        lo = max(0, int(s) - 4 - 1)
+        lo = max(0, int(s) - SNAP_RADIUS - LEVEL_SMOOTH // 2)
         if not all(k in self.level for k in range(lo, need + 1)):   # 欠け(繋ぎ直し)で音量が無い所がある → 合わせずに確定
             pk["endPending"] = False
             return True
         n = need + 1
-        lows = [0.0] * lo + smooth([self.level[k] for k in range(lo, n)], 3)   # 絶対の秒で引けるよう前を埋める(lo より前は見ない。lo の値だけ端で縮むが使わない)
-        s2 = snap_quiet(lows, s, n)
-        e2 = snap_quiet(lows, e, n)
-        if self.length * 0.7 <= e2 - s2 <= self.length * 1.3 and s2 < pk["peak"] < e2:
-            pk["start"], pk["end"] = round(s2, 1), round(e2, 1)
+        lows = [0.0] * lo + smooth([self.level[k] for k in range(lo, n)], LEVEL_SMOOTH)   # 絶対の秒で引けるよう前を埋める(lo より前は見ない。lo の値だけ端で縮むが使わない)
+        s2, e2 = snap_region(lows, s, e, pk["peak"], n, self.length)
+        pk["start"], pk["end"] = round(s2, 1), round(e2, 1)   # 合わせなかったときは元の値(round 済み)のまま
         pk["endPending"] = False
         self.block_until = max(self.block_until, self._block_end(pk["end"]))
         return True
@@ -803,18 +825,16 @@ class PeakBook:
         keep = self.last_t - 200
         for d in (self.total, self.parts, self.level):
             if len(d) > 400:
-                for k in [k for k in d if k < keep]:
-                    del d[k]
+                _drop_before(d, keep)
         if self.boost and self.boost[0][1] < self.last_t - 10:   # 本番の計算(先回りより遅い)が過ぎた区間は要らない
             self.boost = [b for b in self.boost if b[1] >= self.last_t - 10]
 
     def to_json(self):
-        f = self.fast
         return {"v": 1, "length": self.length, "pre": self.pre, "thr": self.thr, "per_hour": self.per_hour, "peaks": self.peaks, "order": self.order,
                 "changes": self.changes, "seq": self.seq, "n_ids": self.n_ids, "last_t": self.last_t, "rising": self.rising,
                 "block_until": self.block_until, "pending": self.pending,
                 "total": self.total, "parts": self.parts, "level": self.level, "confirmLow": self.confirm_low, "boost": self.boost,
-                "fast": {"total": f["total"], "audio": f["audio"], "rising": f["rising"], "open": f["open"], "block": f["block"]}}
+                "fast": dict(self.fast)}   # 鍵は total・audio・rising・open・block(_fast_init と from_json がこの 5 つだけを作る)
 
     @classmethod
     def from_json(cls, d):

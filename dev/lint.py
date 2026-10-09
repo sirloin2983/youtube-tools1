@@ -19,7 +19,6 @@
 """
 import argparse
 import ast
-import hashlib
 import json
 import os
 import re
@@ -31,7 +30,17 @@ SRC = os.path.join(REPO, "src")
 SKIP_DIRS = {"__pycache__", "node_modules", ".venv", "build", "dist", "packs", "work", "exports", "logs", "fixtures", ".artifact-build"}
 TEXT_EXT = (".py", ".js", ".cjs", ".html", ".css", ".cs", ".md", ".txt", ".bat", ".vbs", ".json")
 DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_quiet", "_no_window": "tools.no_window_flags", "NO_WINDOW": "tools.no_window_flags",
-               "KillJob": "tools.KillJob(1 か所に)", "_kill_on_close_job": "tools.KillJob(1 か所に)"}
+               "KillJob": "tools.KillJob(1 か所に)", "_kill_on_close_job": "tools.KillJob(1 か所に)",
+               # 別名の写し(2026-10-09。ytt_core 1.3.0 で足した小道具。docs/design/code-review-simplify-2026-10-08.md の A・G10)
+               "unlink_quiet": "fsio.unlink_quiet", "file_stamp": "fsio.stamp", "rotate": "fsio.rotate",
+               "read_json": "fsio.read_json_or", "_read_json_file": "fsio.read_json_or", "_inside": "fsio.is_inside",
+               "dir_size": "fsio.dir_size", "_dir_bytes": "fsio.dir_size",
+               "low_flags": "tools.no_window_flags(priority=\"low\")", "_flags": "tools.no_window_flags(priority=\"low\")",
+               "_ytcap_flags": "tools.no_window_flags(priority=\"low\")", "child_flags": "tools.no_window_flags(priority=\"low\")",
+               "_worker_flags": "tools.no_window_flags(new_group=True)", "kill_tree": "tools.kill_tree", "_ytcap_kill": "tools.kill_tree",
+               "_python": "tools.python_exe", "_why": "tools.why", "rss_mb": "tools.process_memory_mb", "memory_mb": "tools.process_memory_mb",
+               "peak_memory_mb": "tools.process_memory_mb(peak=True)", "parse_version_line": "tools.tool_version(first_line=True)",
+               "plain_int": "schemas.plain_int", "_num_sec": "schemas.num", "drain_body": "httpsec.drain_body"}
 IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 JS_FUNC = re.compile(r"^(?:\s*)function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", re.M)
 # 版の 3 か所(ツールごと)
@@ -101,12 +110,13 @@ def has_mark(lines, lineno, mark):
     return mark in line or (lineno >= 2 and mark in lines[lineno - 2])
 
 
-def unused_imports(path, tree, src):
+def unused_imports(path, nodes, src):
+    """nodes = ast.walk の結果(main で 1 回だけ作って 3 つの検査に渡す)。属性の根(a.b.c の a)は ast.walk が Name としても返すので、Name だけ見ればよい"""
     if os.path.basename(path) == "__init__.py":
         return []
     lines = src.splitlines()
-    imported = {}
-    for node in ast.walk(tree):
+    imported, used, strs = {}, set(), []
+    for node in nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             if isinstance(node, ast.ImportFrom) and node.module == "__future__":
                 continue
@@ -116,17 +126,11 @@ def unused_imports(path, tree, src):
                 name = (a.asname or a.name).split(".")[0]
                 if name != "*":
                     imported[name] = node.lineno
-    used = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
+        elif isinstance(node, ast.Name):
             used.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            n = node
-            while isinstance(n, ast.Attribute):
-                n = n.value
-            if isinstance(n, ast.Name):
-                used.add(n.id)
-    text_names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", "\n".join(s.value for s in ast.walk(tree) if isinstance(s, ast.Constant) and isinstance(s.value, str))))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            strs.append(node.value)
+    text_names = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", "\n".join(strs)))
     return [(ln, name) for name, ln in imported.items() if name not in used and name not in text_names]
 
 
@@ -143,22 +147,22 @@ def dead_names(path, tree, src, corpus):
     return out
 
 
-def long_functions(path, tree, src, limit):
+def long_functions(path, nodes, src, limit):
     out = []
     lines = src.splitlines()
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            n = getattr(node, "end_lineno", node.lineno) - node.lineno + 1
+            n = node.end_lineno - node.lineno + 1
             if n > limit and not has_mark(lines, node.lineno, "lint: long"):
                 out.append((node.lineno, node.name, n))
     return out
 
 
-def dup_helpers(path, tree, src):
+def dup_helpers(path, nodes, src):
     if "/ytt_core/" in rel(path):
         return []
     out, lines = [], src.splitlines()
-    for node in ast.walk(tree):
+    for node in nodes:
         names = []
         if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
             names = [node.name]
@@ -196,22 +200,21 @@ def norm_line(line):
     return re.sub(r"\s+", " ", line).strip()
 
 
-def dup_blocks(n):
-    """同じ正規化した行の並び(n 行以上)が 2 か所以上にあるものを、ハッシュで探す(tests は除く。空行・括弧だけの行は数えない)"""
-    files = [p for p in list(walk(SRC, (".py", ".js"))) + list(walk(os.path.join(REPO, "dev"), (".py",))) if not is_test(p) and not p.endswith("ui-kit.js") or p.endswith(os.path.join("ui-kit", "ui-kit.js"))]
-    files = [p for p in files if not (p.endswith("ui-kit.js") and "/ui-kit/" not in rel(p)) and not p.endswith("ui-kit.css")]
+def dup_blocks(n, corpus):
+    """同じ正規化した行の並び(n 行以上)が 2 か所以上にあるものを探す(tests は除く。空行・括弧だけの行は数えない)。
+    窓は行の並びそのもの(タプル)をキーにする(ハッシュにしない = 衝突も無く、12 行を結んで符号化する手間も要らない)"""
+    # tests/ は除く。ui-kit.js は正本(ui-kit/ui-kit.js)だけ入れる(各ツールの写しは数えない)
+    files = [p for p in list(walk(SRC, (".py", ".js"))) + list(walk(os.path.join(REPO, "dev"), (".py",)))
+             if (not is_test(p) and not p.endswith("ui-kit.js")) or p.endswith(os.path.join("ui-kit", "ui-kit.js"))]
     windows = defaultdict(list)
     for p in files:
-        raw = read(p).splitlines()
+        raw = (corpus.texts.get(p) or read(p)).splitlines()
         norm = [(i + 1, norm_line(l)) for i, l in enumerate(raw)]
         norm = [(ln, t) for ln, t in norm if t and t not in ("}", "{", "});", ")", "]", "},", "],", "else:", "try:", "else {", "} else {", "return", "pass", "continue", "break")]
+        texts = [t for _, t in norm]
         for i in range(0, max(0, len(norm) - n + 1)):
-            h = hashlib.md5("\n".join(t for _, t in norm[i:i + n]).encode("utf-8")).hexdigest()
-            windows[h].append((rel(p), norm[i][0]))
-    groups = {}
-    for h, locs in windows.items():
-        if len(locs) >= 2 and len({loc[0] for loc in locs}) + len(locs) > 2:
-            groups[h] = locs
+            windows[tuple(texts[i:i + n])].append((rel(p), norm[i][0]))
+    groups = {h: locs for h, locs in windows.items() if len(locs) >= 2}
     # 連続する窓は 1 つの塊にまとめる(同じファイルの隣り合う開始行)
     merged, seen = [], set()
     for h, locs in sorted(groups.items(), key=lambda kv: kv[1][0]):
@@ -256,30 +259,35 @@ def main():
         pass
     corpus = Corpus()
     issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version")}
+
+    def add(kind, file, line, name, **extra):
+        issues[kind].append(dict({"file": file, "line": line, "name": name}, **extra))
+
     for p in py_files():
-        src = read(p)
+        src = corpus.texts.get(p) or read(p)   # Corpus が読んだ写し(同じファイルを読み直さない)
         try:
             tree = ast.parse(src)
         except SyntaxError as e:
-            issues["unused-import"].append({"file": rel(p), "line": e.lineno or 0, "name": "SyntaxError: %s" % e.msg})
+            add("unused-import", rel(p), e.lineno or 0, "SyntaxError: %s" % e.msg)
             continue
-        for ln, name in unused_imports(p, tree, src):
-            issues["unused-import"].append({"file": rel(p), "line": ln, "name": name})
-        for ln, name, n in long_functions(p, tree, src, a.long_test if is_test(p) else a.long):
-            issues["long-function"].append({"file": rel(p), "line": ln, "name": name, "lines": n})
+        nodes = list(ast.walk(tree))   # 木をなめるのは 1 ファイル 1 回
+        for ln, name in unused_imports(p, nodes, src):
+            add("unused-import", rel(p), ln, name)
+        for ln, name, n in long_functions(p, nodes, src, a.long_test if is_test(p) else a.long):
+            add("long-function", rel(p), ln, name, lines=n)
         if not is_test(p):
             for ln, name in dead_names(p, tree, src, corpus):
-                issues["dead-name"].append({"file": rel(p), "line": ln, "name": name})
-            for ln, name, hint in dup_helpers(p, tree, src):
-                issues["dup-helper"].append({"file": rel(p), "line": ln, "name": name, "hint": hint})
+                add("dead-name", rel(p), ln, name)
+            for ln, name, hint in dup_helpers(p, nodes, src):
+                add("dup-helper", rel(p), ln, name, hint=hint)
             if missing_docstrings(p, tree):
-                issues["no-docstring"].append({"file": rel(p), "line": 1, "name": "docstring"})
+                add("no-docstring", rel(p), 1, "docstring")
     for f, ln, name in js_dead(corpus):
-        issues["js-dead"].append({"file": f, "line": ln, "name": name})
-    for locs in dup_blocks(a.dup):
-        issues["dup-block"].append({"file": locs[0][0], "line": locs[0][1], "name": "同じ %d 行以上: " % a.dup + "・".join("%s:%d" % loc for loc in locs[1:4])})
+        add("js-dead", f, ln, name)
+    for locs in dup_blocks(a.dup, corpus):
+        add("dup-block", locs[0][0], locs[0][1], "同じ %d 行以上: " % a.dup + "・".join("%s:%d" % loc for loc in locs[1:4]))
     for tool, found in version_mismatch():
-        issues["version"].append({"file": found[0][0], "line": 1, "name": tool + ": " + "・".join("%s=%s" % (os.path.basename(f), v) for f, v in found)})
+        add("version", found[0][0], 1, tool + ": " + "・".join("%s=%s" % (os.path.basename(f), v) for f, v in found))
     total = sum(len(v) for v in issues.values())
     if a.json:
         print(json.dumps({"total": total, "issues": issues}, ensure_ascii=False, indent=1))

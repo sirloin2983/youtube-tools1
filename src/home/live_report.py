@@ -22,7 +22,6 @@ import os
 import time
 
 from ytt_core import fsio
-import live_excite_worker as EW  # noqa: E402  (read_json)
 import live_export as LX  # noqa: E402
 import live_failures  # noqa: E402
 
@@ -77,7 +76,7 @@ class Reporter:
         return os.path.join(self.dir, key_of(rc, rec) + ".json")
 
     def load(self, rc, rec):
-        d = EW.read_json(self.path(rc, rec), DOC_MAX)
+        d = fsio.read_json_or(self.path(rc, rec), None, DOC_MAX, kind=dict)
         return d if isinstance(d, dict) and d.get("v") == 1 else None
 
     # ---- 見回り
@@ -234,7 +233,7 @@ class Reporter:
             return out
         for n in names:
             if n.endswith(".json"):
-                d = EW.read_json(os.path.join(self.dir, n), DOC_MAX)
+                d = fsio.read_json_or(os.path.join(self.dir, n), None, DOC_MAX, kind=dict)
                 if isinstance(d, dict) and d.get("v") == 1:
                     out.append(d)
         out.sort(key=lambda x: x.get("startedAt") or "", reverse=True)

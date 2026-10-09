@@ -20,14 +20,12 @@ function parseT(str){
   return p.reduce((a, x) => a * 60 + Number(x), 0);
 }
 
-/* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり(UI の見直し A-10)。ui-kit が無いときは空(呼ぶ側が文字で補う) */
-function uiIcon(name, opts){ return (window.UIKit && UIKit.icon) ? UIKit.icon(name, opts) : ''; }
+/* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり(UI の見直し A-10)。ui-kit は index.html の head で必ず読む(0.60.1 で予備の経路を外した) */
+function uiIcon(name, opts){ return UIKit.icon(name, opts); }
 
-/* kind: 'ok' | 'err' | 'info'(左の色の印。省略可)。ui-kit v6 の UIKit.toast を呼ぶだけ(重ねて最大3つ・入れ物は #toast) */
+/* kind: 'ok' | 'err' | 'info'(左の色の印。省略可)。ui-kit の UIKit.toast を呼ぶだけ(重ねて最大3つ・入れ物は #toast) */
 function toast(msg, ms, kind = ''){   // ms にオブジェクト({ms, kind, action})を渡せば、そのまま UIKit.toast へ(ボタンつきの知らせ)
-  if (ms && typeof ms === 'object' && window.UIKit && UIKit.toast) return UIKit.toast(msg, ms);
-  if (window.UIKit && UIKit.toast) UIKit.toast(msg, { ms, kind });
-  else { const t = $('#toast'); if (t){ t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms || 3800); } }
+  return UIKit.toast(msg, ms && typeof ms === 'object' ? ms : { ms, kind });
 }
 
 /* 画面の赤い帯(段8 E-26): 何が起きたか + 次の一手([読み込み直す]・ホームから開いたときは [ホームへ])+ 閉じる(×)。
@@ -42,9 +40,13 @@ function showErr(msg, opt = {}){
   const acts = el('span', 'tt-err-acts'), reload = el('button', 'btn small', '読み込み直す');
   reload.type = 'button'; reload.addEventListener('click', () => location.reload()); acts.append(reload);
   if (document.querySelector('meta[name="ytt-token"]')){ const home = el('a', 'btn small', 'ホームへ'); home.href = '../'; home.setAttribute('data-ui-portal', ''); acts.append(home); }   // ホームから開いたときだけ(入口の / = この画面の 1 つ上)。TOKEN は app.js の読み込み前のエラーでも使えるように直接見る
-  const x = el('button', 'btn small ghost icon tt-err-x'); x.type = 'button'; x.innerHTML = uiIcon('close', { size: 14 }) || '閉じる'; x.setAttribute('aria-label', 'エラーの帯を閉じる'); x.title = 'エラーの帯を閉じる'; x.addEventListener('click', () => { b.hidden = true; }); acts.append(x);
+  const x = el('button', 'btn small ghost icon tt-err-x'); x.type = 'button'; x.innerHTML = uiIcon('close', { size: 14 }); x.setAttribute('aria-label', 'エラーの帯を閉じる'); x.title = 'エラーの帯を閉じる'; x.addEventListener('click', () => { b.hidden = true; }); acts.append(x);
   b.append(acts); b.hidden = false;
 }
+
+/* 知らせの次の一手(段7): 「元に戻す」(1 文字起こし の元に戻す)・「2 カットへ」 */
+function undoToast(msg, ms = 5000){ return toast(msg, { kind: 'ok', ms, action: { label: '元に戻す', fn: () => doUndo('tx') } }); }
+const TO_CUT = Object.freeze({ label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) });
 
 /* ---------- 区間の終わりで止める見張り(「この行だけ再生」・▶・評価ドリルの帯の「聞く」・端を動かしたあとの聞き直し) ----------
    以前は timeupdate(Chromium で約 250ms ごと)で止めていて、止まるまでに 9〜236ms(平均 約 116ms)行の終わりを過ぎた。機械の行の終わりは次の声の出だしの
@@ -78,31 +80,25 @@ function stopAtEnd(media, getEnd, onStop){
 /* S.playEnd を立てて play() したあとに呼ぶ(再生の速さが変わったときも呼び直す) */
 function armPlayEnd(){ if (S.playEnd !== null) stopAtEnd(player(), () => S.playEnd, () => { S.playEnd = null; }); }
 
-/* 応答が ok でないときのエラー(api()・apiBlob()・portalApi() で同じ形: message・code = サーバーの error・status・data = 本文) */
-function httpError(r, j){ const er = new Error(j.message || ('エラー ' + r.status)); er.code = j.error; er.status = r.status; er.data = j; return er; }
+/* 編集のサーバーの API。中身は ui-kit の UIKit.http の 1 本(合言葉 X-YTT-Token を付ける条件・エラーの形はそこの 1 か所。0.60.1)。
+   失敗は Error: message(サーバーの message、無ければ「エラー n」)・code(サーバーの error、無ければ 'http'。つながらないときは 'network')・status・data(本文) */
 const NO_SERVER = 'サーバーに接続できません。黒い画面(ターミナル)が閉じていないか確認してください';
-
-async function api(path, opt = {}){
-  const init = { cache: 'no-store', method: opt.method || 'GET', ...(opt.keepalive ? { keepalive: true } : {}) };
-  if (opt.body !== undefined){ init.method = opt.method || 'POST'; init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opt.body); }
-  if (TOKEN && init.method !== 'GET' && init.method !== 'HEAD') init.headers = { ...(init.headers || {}), 'X-YTT-Token': TOKEN };
-  let r;
-  try { r = await fetch(apiUrl(path), init); } catch { throw new Error(NO_SERVER); }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw httpError(r, j);
-  return j;
+const httpFailText = st => 'エラー ' + st;
+function api(path, opt = {}){
+  return UIKit.http(apiUrl(path), { method: opt.method, body: opt.body, keepalive: opt.keepalive, offline: NO_SERVER, fail: httpFailText });
 }
 
 /* ファイル(zip)を受け取る POST。失敗時は api() と同じ形のエラー。成功時は Response(ヘッダーと blob を使う) */
-async function apiBlob(path, body){
-  let r;
-  try { r = await fetch(apiUrl(path), { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json', ...(TOKEN ? { 'X-YTT-Token': TOKEN } : {}) }, body: JSON.stringify(body) }); }
-  catch { throw new Error(NO_SERVER); }
-  if (!r.ok) throw httpError(r, await r.json().catch(() => ({})));
-  return r;
+function apiBlob(path, body){
+  return UIKit.http(apiUrl(path), { body, raw: true, offline: NO_SERVER, fail: httpFailText });
 }
 
 /* ---------- ボタンの処理の決まった形(同じ書き方を 1 か所に。保存できていなければ知らせて false) ---------- */
+/* 押している間はボタンを押せなくし(label があれば文字も)、終わったら(失敗しても)戻す。押せるかを計算し直す所は busy(...).finally(renderX) */
+async function busy(btn, fn, label){
+  const t = btn.textContent; btn.disabled = true; if (label) btn.textContent = label;
+  try { return await fn(); } finally { btn.disabled = false; if (label) btn.textContent = t; }
+}
 function kickJobs(){ startPolling(); return pollJobs(); }   // ジョブを待機列に入れたあと: 見回りを始めて、すぐ 1 回読む
 async function saveFirst(){   // ジョブを始める前(話者判別・再認識など)
   await saveDoc();
@@ -119,10 +115,9 @@ async function savedAll(){   // 文書とカットの両方(まとめて実行�
 }
 /* 文書 id を保存し終えたか(知らせない。保存の途中・競合・別の文書へ移ったなら false) */
 async function savedFor(id){ return !!(await saveDoc()) && !S.dirty && !S.saving && !S.conflict && S.docId === id; }
-function showConflict(){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 の案内(saveDoc と同じ形)
-async function copyPath(text){   // 動画の隣に保存した結果・前回のパックのパス
-  try { await navigator.clipboard.writeText(text); toast('パスをコピーしました', 2000, 'ok'); }
-  catch { toast('コピーできませんでした(パスを選んでコピーしてください)', 3000, 'err'); }
+function showConflict(){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 の案内(saveDoc もこれを呼ぶ)
+function copyPath(text){   // 動画の隣に保存した結果・前回のパックのパス(写し方と知らせは UIKit.copy の 1 か所)
+  return UIKit.copy(text, { ok: 'パスをコピーしました', fail: 'コピーできませんでした(パスを選んでコピーしてください)' });
 }
 /* URL の引数を 1 つ直す(replaceState。v が空・null なら消す)。タブの # とほかの引数はそのまま */
 function setUrlParam(key, v){
@@ -133,6 +128,14 @@ function setUrlParam(key, v){
     if (url !== location.pathname + location.search + location.hash) history.replaceState(history.state, '', url);
   } catch {}
 }
+/* キーの前置きの判定(日本語の変換中にキーを奪わない・Ctrl/⌘/Alt つき。cut.js には h で渡す) */
+const imeKey = e => e.isComposing || e.keyCode === 229;
+const anyMod = e => e.ctrlKey || e.metaKey || e.altKey;
+/* 行に文字があるか(空白だけは数えない・text の無い行でも落ちない)・未校正の行(文字があって校正済みでない) */
+const hasText = g => !!String(g && g.text || '').trim();
+const isUnproofed = g => !g.proofed && hasText(g);
+function setCut(g, on){ if (on) g.cutState = 'cut'; else delete g.cutState; }   // 行の「カット済」の印(残すなら印を消す)
+function curItem(){ return S.list.find(x => x.id === S.docId); }   // 今の文書の、履歴の一覧の項目(無ければ undefined)
 function modalOpen(){ return !!document.querySelector('dialog[open], .ui-drawer:not([hidden])'); }   // ダイアログ・引き出しが開いている = 文書を操作するキーを効かせない
 /* 行の並び(開始時刻の順)で、開始が t 以前の最後の行の添字(無ければ -1。二分探索) */
 function segIndexAt(segs, t){ let lo = 0, hi = segs.length - 1, ans = -1; while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ ans = m; lo = m + 1; } else hi = m - 1; } return ans; }
@@ -162,7 +165,7 @@ function loadView(){
          以前の版が tx.view.v1 の theme に保存していた選択は、ui-kit にまだ選択が無いときだけ引き継ぐ。
          v6 から ytt:theme が無いときの既定は 'system' ではなく 'light' になったので、「無い」の判定は UIKit.theme.get() ではなく
          localStorage を直接見る(以前は既定が 'system' だったことを前提にしていたため、v6 のままだと引き継ぎが動かなかった) */
-      if ((o.theme === 'light' || o.theme === 'dark') && window.UIKit){ try { if (localStorage.getItem('ytt:theme') === null) UIKit.theme.set(o.theme); } catch {} }
+      if (o.theme === 'light' || o.theme === 'dark'){ try { if (localStorage.getItem('ytt:theme') === null) UIKit.theme.set(o.theme); } catch {} }
       if ('theme' in o){ delete o.theme; saveView(); }
     }
   } catch {}
@@ -182,7 +185,7 @@ function setEditTab(t, opt = {}){
   let closedDrawer = false;
   document.querySelectorAll('[data-edpanel]').forEach(p => {
     if (p.dataset.edpanel === t) return;
-    p.querySelectorAll('.ui-drawer:not([hidden])').forEach(d => { closedDrawer = true; if (window.UIKit && UIKit.drawer) UIKit.drawer.close(d); else d.hidden = true; });
+    p.querySelectorAll('.ui-drawer:not([hidden])').forEach(d => { closedDrawer = true; UIKit.drawer.close(d); });
   });
   document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
@@ -218,7 +221,7 @@ function onEditTab(from, to){
 
 /* 画面の下の帯(UIKit.keybar。段2)。1 文字起こし のタブだけ、2つの場面(行を選んでいる/文字を直している)で置き換える */
 function txKeybarScene(){
-  if (!window.UIKit || !UIKit.keybar || wideTab()) return;
+  if (wideTab()) return;
   if (!S.doc){ UIKit.keybar.clear(); return; }
   const editing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#segs textarea');
   if (editing) UIKit.keybar.set([{ k: 'Esc', l: '抜ける' }, { k: 'Alt+Enter', l: '校正済みで次へ' }]);
@@ -276,7 +279,7 @@ function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) 
 /* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容(旧 #viewMenu)をツールの節にし、画面の色は全体の節(ui-kit)へ一本化 ---------- */
 
 /* ヘッダー左の ui-appnav(ホーム/スタジオ/編集)に版を出す。appnav は DOMContentLoaded で描かれるので、間に合わなければそこでも試す */
-function setAppnavVersion(){ if (window.UIKit && UIKit.appnav) UIKit.appnav.setVersion('v' + APP_VERSION); }
+function setAppnavVersion(){ UIKit.appnav.setVersion('v' + APP_VERSION); }
 
 /* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ----------
    v6: ヘッダーの「他のツール」メニューは ui-appnav(ホーム/スタジオ/編集)に置き換えたので、ここでは S.ports と
@@ -287,7 +290,7 @@ function loadSiblings(){
   sibP = api('/api/siblings')
     .then(j => {
       S.ports = j && j.tools && typeof j.tools === 'object' ? j.tools : null;
-      if (window.UIKit && UIKit.tools.setPaths) UIKit.tools.setPaths(j && j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
+      UIKit.tools.setPaths(j && j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
     })
     .catch(() => { S.ports = null; })   // 古いサーバー(404)・通信の失敗は、既定のポートで
     .finally(() => { sibP = null; S.sibLoaded = true; renderHandoff(); if (S.doc) cpAfterSave(); if (CUT) CUT.refresh(); });
@@ -347,7 +350,7 @@ async function loadSettings(){
 async function reloadSettings(){
   clearTimeout(setT); setT = null;
   if (!(await loadSettings())) return;
-  if (KM) KM.reload();
+  KM.reload();
   applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderOptSummary(); renderKeyUI();
   toast('設定を読み直しました', 3000, 'ok');
 }
@@ -442,7 +445,7 @@ function renderProgress(){
   for (const [s] of ms){ const b = document.createElement('b'); b.style.left = (s / goal * 100) + '%'; bar.appendChild(b); }
   const list = [...ms, [goal, '目標']];
   const next = list.find(m => cur < m[0]);
-  $('#goalMs').innerHTML = list.map(([s, txt]) => `<div class="ms${cur >= s ? ' done' : ''}"><span class="ck">${cur >= s ? uiIcon('check', { size: 12 }) || '済' : '・'}</span><span>${fmtDur(s)}: ${esc(txt)}${next && next[0] === s ? `(あと ${fmtDur(s - cur)})` : ''}</span></div>`).join('');
+  $('#goalMs').innerHTML = list.map(([s, txt]) => `<div class="ms${cur >= s ? ' done' : ''}"><span class="ck">${cur >= s ? uiIcon('check', { size: 12 }) : '・'}</span><span>${fmtDur(s)}: ${esc(txt)}${next && next[0] === s ? `(あと ${fmtDur(s - cur)})` : ''}</span></div>`).join('');
   let base = cur;
   try { const o = JSON.parse(localStorage.getItem('tx.goalday') || 'null'); if (o && o.day === todayKey() && Number.isFinite(o.base)) base = o.base; else localStorage.setItem('tx.goalday', JSON.stringify({ day: todayKey(), base: cur })); } catch {}
   const gain = Math.max(0, cur - base);

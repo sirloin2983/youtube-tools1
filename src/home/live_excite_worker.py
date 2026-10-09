@@ -39,7 +39,6 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 (src/home/tests/test_live_detect.py)。
 """
 import argparse
-import datetime
 import glob
 import http.client
 import json
@@ -57,7 +56,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 if ROOT not in sys.path:
     sys.path.append(ROOT)
-from ytt_core import datadir, excite, fsio, tools  # noqa: E402
+from ytt_core import datadir, excite, fsio, recproto, schemas, tools  # noqa: E402
 
 WORKER_VERSION = "1"
 POLL_SEC = 6.0             # 周期(5〜10 秒)
@@ -104,13 +103,11 @@ LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(dev
 SPEC_RANGES = {"length": (10.0, 120.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 EVAL_MARKS_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/autorun.py の EVAL_MARKS_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
-ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")                       # 録画元の id(src/home/live_export.py の ID_RE と同じ)
-REC_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z")      # 録画の id(同じく REC_RE)
-SEG_URI_RE = re.compile(r"^session_\d{3,6}/seg_\d{6,9}\.ts\Z")
+# 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt_core/recproto.py の 1 か所(入口の live_export と同じ物)
+ID_RE, REC_RE, SEG_URI_RE = recproto.RECORDER_ID_RE, recproto.REC_ID_RE, recproto.SEG_URI_RE
+iso_epoch, epoch_iso, video_id = recproto.iso_epoch, recproto.epoch_iso, recproto.video_id_of
 PEAK_ID_RE = re.compile(r"^p(\d{1,7})-\d{1,8}\Z")    # 候補の id(excite.PeakBook の "p<通し番号>-<山の秒>"。入口の live_detect も同じ形で検査する)
 PEAK_AHEAD = 20            # まだ帳簿に無い候補の決定を待つのは、通し番号が今の番号からこれ未満先のときだけ(起動し直して最後の保存より後の候補がまだ出ていない)
-YT_ID_RE = re.compile(r"(?:[?&]v=|youtu\.be/|/live/)([A-Za-z0-9_-]{11})(?=[?&#/]|\Z)")
-VID_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
 LEVEL_KEY = "lavfi.astats.Overall.RMS_level="
 LEVEL_MAX = 20.0           # RMS(dB)の上限(壊れた値で式が振り切れないように。ふつうは 0 以下)
 STATS = "asetnsamples=n=16000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level"
@@ -131,63 +128,6 @@ class RecorderDown(Exception):
 
 
 # ---------------------------------------------------------------- 小道具
-def iso_epoch(s):
-    """UTC の時刻の文字列("…Z"・ミリ秒あり/なし)→ epoch 秒。読めなければ None"""
-    if not isinstance(s, str) or len(s) > 40:
-        return None
-    t = s.strip().replace("+00:00", "Z")
-    fmt = "%Y-%m-%dT%H:%M:%S.%fZ" if "." in t else "%Y-%m-%dT%H:%M:%SZ"
-    try:
-        return datetime.datetime.strptime(t, fmt).replace(tzinfo=datetime.timezone.utc).timestamp()
-    except ValueError:
-        return None
-
-
-def epoch_iso(t):
-    return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
-def video_id(url, rec_id=""):
-    """YouTube の動画の id(11 文字)。URL に無ければ録画の id の後ろ(録画の部品が URL から付けたもの)。分からなければ "" """
-    m = YT_ID_RE.search(url or "")
-    if m:
-        return m.group(1)
-    tail = (rec_id or "").split("-", 2)[2:]
-    return tail[0] if tail and VID_RE.match(tail[0]) else ""
-
-
-def child_flags():
-    """ffmpeg・yt-dlp の creationflags: 窓を出さない・通常より下の優先度(src/home/live_export.py の low_flags と同じ値)"""
-    return tools.no_window_flags() | (getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0) if os.name == "nt" else 0)
-
-
-def memory_mb():
-    """このプロセスのメモリ(MB。Windows は WorkingSetSize、ほかは /proc/self/statm の RSS)。測れなければ 0"""
-    try:
-        if os.name == "nt":
-            import ctypes
-            from ctypes import wintypes
-
-            class PMC(ctypes.Structure):
-                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD), ("PeakWorkingSetSize", ctypes.c_size_t),
-                            ("WorkingSetSize", ctypes.c_size_t), ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
-            c = PMC()
-            c.cb = ctypes.sizeof(c)
-            psapi = ctypes.WinDLL("psapi")
-            k = ctypes.WinDLL("kernel32")
-            k.GetCurrentProcess.restype = wintypes.HANDLE
-            psapi.GetProcessMemoryInfo.argtypes = (wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD)
-            if psapi.GetProcessMemoryInfo(k.GetCurrentProcess(), ctypes.byref(c), c.cb):
-                return c.WorkingSetSize / 1048576.0
-            return 0.0
-        with open("/proc/self/statm", "r") as f:
-            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1048576.0
-    except Exception:
-        return 0.0
-
-
 def pid_alive(pid):
     """入口(親)がまだ動いているか。分からなければ True(勝手に終わらない)"""
     if not pid:
@@ -235,14 +175,6 @@ def take_lock(path):
         return None
 
 
-def read_json(path, max_bytes=STATE_MAX):
-    try:
-        d = fsio.read_json_file(path, max_bytes)
-    except (OSError, ValueError):
-        return None
-    return d if isinstance(d, dict) else None
-
-
 def write_json(path, obj):
     """書きかけを残さずに JSON を書く。NaN・無限大は書かない(ValueError。JSON として読めないファイルを作らない)"""
     fsio.atomic_write(path, json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
@@ -255,21 +187,6 @@ def append_jsonl(path, rows):
             f.write(json.dumps(row, separators=(",", ":")) + "\n")
 
 
-def _why(e):
-    """書けなかった・起動できなかった理由の短い文(OSError は strerror。strerror の無い ValueError などは例外の名前)"""
-    return getattr(e, "strerror", None) or e.__class__.__name__
-
-
-def _num(x):
-    """有限の数か(bool は数えない)"""
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf")
-
-
-def _int(x):
-    """int か(bool は数えない)"""
-    return isinstance(x, int) and not isinstance(x, bool)
-
-
 def clean_requests(v):
     """config.json の requests(友人のライブ配信の依頼の録画ごとの設定。2-15)-> {"<録画元>/<録画>": {"sens", "perHour", "length"}}(読めない鍵は飛ばす)"""
     out = {}
@@ -278,7 +195,7 @@ def clean_requests(v):
             continue
         det = clean_detect(s)
         llo, lhi = SPEC_RANGES["length"]
-        length = float(s.get("length")) if _num(s.get("length")) and llo <= s["length"] <= lhi else None
+        length = float(s.get("length")) if schemas.is_num(s.get("length")) and llo <= s["length"] <= lhi else None
         out[k] = {"sens": det["sens"], "perHour": det["perHour"], "length": length}
     return out
 
@@ -287,7 +204,7 @@ def clean_detect(det):
     """感度と 1 時間の本数(入口の設定 live.detect → config.json の detect)-> {"sens", "perHour"}(読めなければ normal・6)。
     入口(live_detect.Detector.config)が書くときとワーカーが読むときの両方で通す"""
     det = det if isinstance(det, dict) else {}
-    return {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal", "perHour": det["perHour"] if _int(det.get("perHour")) else 6}
+    return {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal", "perHour": det["perHour"] if schemas.is_int(det.get("perHour")) else 6}
 
 
 def _level(v):
@@ -322,9 +239,9 @@ def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-protocol_whitelist", "file,pipe", "-i", os.path.abspath(path),
            "-filter_complex", fc, "-map", "[oa]", "-f", "null", "-", "-map", "[ob]", "-f", "null", "-"]
     try:
-        proc = subprocess.Popen(cmd, cwd=wdir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=child_flags())
+        proc = subprocess.Popen(cmd, cwd=wdir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=tools.no_window_flags(priority="low"))
     except OSError as e:
-        raise NoTool("ffmpeg を起動できませんでした: %s" % _why(e))
+        raise NoTool("ffmpeg を起動できませんでした: %s" % tools.why(e))
     if job is not None:
         job.add(proc)
     try:
@@ -407,8 +324,8 @@ def length_hint(root=None, env=None, now=None):
     out = None
     try:
         s = fsio.read_json_file(path, EVAL_READ_MAX)["clipLength"]["suggest"]
-        if isinstance(s, dict) and _num(s.get("length")) and _int(s.get("samples")) and _int(s.get("videos")):
-            out = {"length": float(s["length"]), "preRatio": float(s["preRatio"]) if _num(s.get("preRatio")) else None,
+        if isinstance(s, dict) and schemas.is_num(s.get("length")) and schemas.is_int(s.get("samples")) and schemas.is_int(s.get("videos")):
+            out = {"length": float(s["length"]), "preRatio": float(s["preRatio"]) if schemas.is_num(s.get("preRatio")) else None,
                    "samples": s["samples"], "videos": s["videos"], "enough": s.get("enough") is True, "file": name}
     except (OSError, ValueError, KeyError, TypeError):
         out = None
@@ -419,14 +336,14 @@ def length_hint(root=None, env=None, now=None):
 def clean_hint(h):
     """config.json の lengthHint -> 使ってよい目安 {"length", "preRatio"?, "samples", "videos", "file"} か None。
     使うのは enough(見本 LENGTH_HINT_MIN_SAMPLES 以上かつ配信 LENGTH_HINT_MIN_VIDEOS 本以上)のときだけ。長さは 10〜120 秒・前の割合は 0.3〜0.9 に丸める"""
-    if not isinstance(h, dict) or h.get("enough") is not True or not _num(h.get("length")):
+    if not isinstance(h, dict) or h.get("enough") is not True or not schemas.is_num(h.get("length")):
         return None
     n, v = h.get("samples"), h.get("videos")
-    if not (_int(n) and n >= LENGTH_HINT_MIN_SAMPLES and _int(v) and v >= LENGTH_HINT_MIN_VIDEOS):
+    if not (schemas.is_int(n) and n >= LENGTH_HINT_MIN_SAMPLES and schemas.is_int(v) and v >= LENGTH_HINT_MIN_VIDEOS):
         return None
     (llo, lhi), (plo, phi) = SPEC_RANGES["length"], SPEC_RANGES["preRatio"]
     out = {"length": float(round(min(lhi, max(llo, float(h["length"]))))), "samples": n, "videos": v, "file": str(h.get("file") or "")[:40]}
-    if _num(h.get("preRatio")):
+    if schemas.is_num(h.get("preRatio")):
         out["preRatio"] = round(min(phi, max(plo, float(h["preRatio"]))), 2)
     return out
 
@@ -482,31 +399,7 @@ class RecorderClient:
 def launch_process(cmd, logf):
     """yt-dlp を起動する(既定の launcher。テストは偽物に替える)。Windows 以外は新しいセッション(kill_tree がプロセスグループごと止める)"""
     extra = {} if os.name == "nt" else {"start_new_session": True}
-    return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, creationflags=child_flags(), **extra)
-
-
-def kill_tree(proc):
-    """yt-dlp を子ごと止める: この PC の yt-dlp は PyInstaller の 1 ファイルの exe で、起動すると子(本体)を作る。親だけ止めると子が前の番号の
-    .part に書き続ける(64MB で回したあと同じメッセージを 2 つのファイルから数える・403 の間隔が効かない・プロセスが溜まる)。
-    Windows は taskkill /T /F(親子をたどって止める。System32 の taskkill を直に)、ほかはプロセスグループ。本物のプロセス(Popen)でなければ kill だけ"""
-    if not isinstance(proc, subprocess.Popen):
-        tools.kill_quiet(proc)
-        return
-    if proc.poll() is not None:
-        return
-    if os.name == "nt":
-        exe = os.path.join(os.environ.get("SystemRoot") or os.environ.get("windir") or "C:" + os.sep + "Windows", "System32", "taskkill.exe")
-        try:
-            subprocess.run([exe, "/T", "/F", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=15, creationflags=tools.no_window_flags())
-        except (OSError, subprocess.SubprocessError):
-            pass
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
-    tools.kill_quiet(proc)
+    return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, creationflags=tools.no_window_flags(priority="low"), **extra)
 
 
 # ---------------------------------------------------------------- チャット(配信 1 本に yt-dlp 1 つ)
@@ -628,7 +521,7 @@ class ChatFeed:
         except OSError as e:
             self._close_log()
             self.proc = None
-            self._failed(now, "", "yt-dlp を起動できませんでした: %s" % _why(e))
+            self._failed(now, "", "yt-dlp を起動できませんでした: %s" % tools.why(e))
             return
         if self.job is not None:
             self.job.add(self.proc)
@@ -650,7 +543,7 @@ class ChatFeed:
     def _kill(self):
         p, self.proc = self.proc, None
         if p is not None:
-            kill_tree(p)   # 子ごと(PyInstaller の yt-dlp)
+            tools.kill_tree(p)   # 子ごと(PyInstaller の yt-dlp。System32 の taskkill /T /F・ほかはプロセスグループ)
             try:
                 p.wait(5)
             except Exception:
@@ -1064,7 +957,6 @@ class RecState:
             self.write_peaks(now)
 
     def write_peaks(self, now):
-        os.makedirs(self.folder, exist_ok=True)
         write_json(os.path.join(self.folder, "peaks.json"), self.peaks_doc(now))
         self.peaks_dirty = False
 
@@ -1156,7 +1048,7 @@ class Worker:
             key = None
         if key == self.cfg_key and not force:
             return False
-        d = read_json(self.config_path, 1024 * 1024) or {}
+        d = fsio.read_json_or(self.config_path, None, 1024 * 1024, kind=dict) or {}
         self.cfg_key = key
         rcs = [r for r in d.get("recorders") or [] if isinstance(r, dict) and ID_RE.match(str(r.get("id") or "")) and isinstance(r.get("url"), str)]
         spec, src = dict(SPEC_DEFAULT), d.get("spec") if isinstance(d.get("spec"), dict) else {}
@@ -1165,7 +1057,7 @@ class Worker:
             if isinstance(dv, bool):
                 if isinstance(v, bool):
                     spec[k] = v
-            elif _num(v):
+            elif schemas.is_num(v):
                 spec[k] = float(v)
         self.cfg = {"dir": d.get("dir") if isinstance(d.get("dir"), str) and d.get("dir") else os.path.dirname(self.config_path), "recorders": rcs,
                     "detect": clean_detect(d.get("detect")), "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,
@@ -1241,10 +1133,10 @@ class Worker:
                 try:
                     st.write_peaks(now)
                 except (OSError, ValueError) as e:
-                    self.error = "候補を書けませんでした: %s" % _why(e)
+                    self.error = "候補を書けませんでした: %s" % tools.why(e)
         if now - self.mem_at >= MEM_CHECK_SEC:
             self.mem_at = now
-            self.mem = memory_mb()
+            self.mem = tools.process_memory_mb() or 0.0
         self.heartbeat(now)
 
     def _save_rec(self, st, now):
@@ -1253,7 +1145,7 @@ class Worker:
         try:
             st.save(now)
         except (OSError, ValueError) as e:
-            self.error = "状態を保存できませんでした: %s" % _why(e)
+            self.error = "状態を保存できませんでした: %s" % tools.why(e)
 
     def _release(self, key):
         st = self.recs.pop(key, None)
@@ -1367,7 +1259,7 @@ class Worker:
     def _was_queued(self, folder):
         """順番待ちにした録画か(peaks.json の queued。順番待ちのうちに配信が終わっても、あとで音だけ測る)"""
         p = os.path.join(folder, "peaks.json")
-        return os.path.isfile(p) and (read_json(p, 1024 * 1024) or {}).get("queued") is True
+        return os.path.isfile(p) and (fsio.read_json_or(p, None, 1024 * 1024, kind=dict) or {}).get("queued") is True
 
     def _request_for(self, rc_id, rec):
         """友人のライブ配信の依頼の録画なら、その設定(2-15)。無ければ None"""
@@ -1410,7 +1302,7 @@ class Worker:
             if prev and prev[0] == msg and now - prev[1] < QUEUED_EVERY:
                 continue
             folder = self._folder(rc, r)
-            doc = read_json(os.path.join(folder, "peaks.json")) if os.path.isfile(os.path.join(folder, "state.json")) else None
+            doc = fsio.read_json_or(os.path.join(folder, "peaks.json"), None, STATE_MAX, kind=dict) if os.path.isfile(os.path.join(folder, "state.json")) else None
             if not doc:
                 first, last = iso_epoch(r.get("firstPdt")), iso_epoch(r.get("lastPdt"))
                 doc = {"v": 1, "recorder": rc["id"], "recording": r["id"], "seq": 0, "decN": 0, "perHour": self._detect_for(rc["id"], r["id"])["perHour"], "counts": {},
@@ -1419,11 +1311,10 @@ class Worker:
                        "lateChat": 0, "ended": False, "peaks": [], "changes": []}
             doc.update(message=msg, queued=True, queuePos=i + 1, at=epoch_iso(now))
             try:
-                os.makedirs(folder, exist_ok=True)
                 write_json(os.path.join(folder, "peaks.json"), doc)
                 keep[key] = (msg, now)
             except (OSError, ValueError) as e:
-                self.error = "順番待ちの文を書けませんでした: %s" % _why(e)
+                self.error = "順番待ちの文を書けませんでした: %s" % tools.why(e)
         self.queued_msgs = keep
 
     def _open(self, rc, r):
@@ -1431,7 +1322,7 @@ class Worker:
         順番待ちのうちに終わったとき(音だけ。チャットのリプレイは読まない)だけ"""
         folder = self._folder(rc, r)
         key = (rc["id"], r["id"])
-        d = read_json(os.path.join(folder, "state.json"))
+        d = fsio.read_json_or(os.path.join(folder, "state.json"), None, STATE_MAX, kind=dict)
         if d is not None:
             try:
                 st = RecState.from_json(folder, d, self._detect_for(rc["id"], r["id"]), self.chat_grace)
@@ -1606,7 +1497,7 @@ class Worker:
             return
         if self.dec_keys.get(key) == k:
             return
-        d = read_json(p, 8 * 1024 * 1024) or {}
+        d = fsio.read_json_or(p, None, 8 * 1024 * 1024, kind=dict) or {}
         items = sorted((x for x in d.get("items") or [] if isinstance(x, dict) and isinstance(x.get("n"), int) and x["n"] > st.dec_n),
                        key=lambda x: x["n"])
         for x in items:

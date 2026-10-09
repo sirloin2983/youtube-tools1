@@ -6,12 +6,10 @@
   ① 探す(配信ランキング)→ ② 解析(切り抜き候補の自動選定・バッチ)→ ③ 確認・書き出し(クリップマーカー)。
   エンドポイントは API.md を参照。127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
 """
-import http.client
 import json
 import os
 import re
 import shutil
-import socket
 import sys
 import threading
 import time
@@ -19,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -32,10 +30,10 @@ import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 import txlink  # noqa: E402
 from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
-from ytt_core import datadir, httpsec, runtime as ytt_runtime  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt_core import datadir, httpsec, runtime as ytt_runtime, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 APP_ID = "clip-studio"
-SERVER_VERSION = "0.23.3"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = "0.23.4"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 handoff.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = common.CODE_DIR
@@ -72,7 +70,7 @@ def fetch_title(vid):
     """oEmbed(公開エンドポイント・キー不要)でタイトルだけ取得する。失敗時は空文字。接続先は固定で、IDは検証済み。"""
     if common.fake():
         return "疑似タイトル(%s)" % vid
-    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote("https://www.youtube.com/watch?v=" + vid, safe="")
+    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(common.watch_url(vid), safe="")
     try:
         with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=8) as r:
             return str(json.loads(r.read(200000).decode("utf-8", "replace")).get("title", ""))[:120]
@@ -122,32 +120,26 @@ class Handler(BaseHTTPRequestHandler):
     def _err(self, e):
         self._json(e.status, dict(e.extra or {}, error=e.code, message=e.message))
 
+    # 本文で断るときの文(kind は httpsec.BodyError。read = 読み取りの時間切れ・切断は応答せずに閉じる)
+    BODY_ERRORS = {"type": b"application/json only", "length": b"bad length", "size": b"invalid size",
+                   "short": b"invalid json", "json": b"invalid json", "object": b"object required"}
+
     def _read_json(self):
-        if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
-            self._send(415, b"application/json only")
-            return None
+        """JSON の本文(規則は httpsec.read_json_body: application/json・1〜MAX_BODY バイト・UTF-8・オブジェクト。NaN / Infinity は断る)。
+        だめなら応答して None"""
         try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            self._send(400, b"bad length")
+            return httpsec.read_json_body(self, MAX_BODY)
+        except httpsec.BodyError as e:
+            if e.kind == "read":   # 読み取りのタイムアウト・切断: 応答せずに閉じる
+                self.close_connection = True
+            else:
+                self._send(e.status, self.BODY_ERRORS[e.kind])
             return None
-        if length <= 0 or length > MAX_BODY:
-            self._send(413, b"invalid size")
-            return None
-        try:
-            body = self.rfile.read(length)
-        except OSError:   # 読み取りのタイムアウト・切断: 応答せずに閉じる
-            self.close_connection = True
-            return None
-        try:
-            obj = json.loads(body)
-        except ValueError:
-            self._send(400, b"invalid json")
-            return None
-        if not isinstance(obj, dict):
-            self._send(400, b"object required")
-            return None
-        return obj
+
+    def _internal(self, e):
+        """想定外の例外: サーバーは落とさない(詳細は伏せる。黒い画面にだけ短く出す)"""
+        sys.stderr.write("internal error: %s %s\n" % (e.__class__.__name__, redact(str(e))[:200]))
+        return self._json(500, {"error": "internal", "message": "内部エラーが発生しました"})
 
     def _guard(self, fn, *a):
         try:
@@ -157,11 +149,10 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:   # 何が起きたかを具体的に返す(パスはローカルの画面にだけ出る)。詳細は studio-errors.log
             common.log_failure("API %s %s" % (self.command, self.path.split("?", 1)[0]), e)
             msg = common.permission_message(e) if isinstance(e, PermissionError) else \
-                "ファイルの読み書きに失敗しました(%s)。ディスクの空き・ドライブの接続を確認してください" % (e.strerror or e.__class__.__name__)
+                "ファイルの読み書きに失敗しました(%s)。ディスクの空き・ドライブの接続を確認してください" % _tools.why(e)
             return self._json(500, {"error": "write", "message": msg})
         except Exception as e:   # 想定外でもサーバーは落とさない(詳細は伏せる)
-            sys.stderr.write("internal error: %s %s\n" % (e.__class__.__name__, redact(str(e))[:200]))
-            return self._json(500, {"error": "internal", "message": "内部エラーが発生しました"})
+            return self._internal(e)
 
     # ---------- GET ----------
     def do_HEAD(self):
@@ -205,13 +196,12 @@ class Handler(BaseHTTPRequestHandler):
         fn = routes.get(u.path)
         if fn is None:
             return self._send(404, b"not found")
-        try:
+        try:   # GET の OSError は _guard と違って「内部エラー」のまま(書き込みの失敗の文にしない)
             return self._json(200, fn())
         except ApiError as e:
             return self._err(e)
         except Exception as e:
-            sys.stderr.write("internal error: %s %s\n" % (e.__class__.__name__, redact(str(e))[:200]))
-            return self._json(500, {"error": "internal", "message": "内部エラーが発生しました"})
+            return self._internal(e)
 
     @staticmethod
     def _video(vid):
@@ -231,37 +221,7 @@ class Handler(BaseHTTPRequestHandler):
         ext = os.path.splitext(real)[1].lower()
         if not real or ext not in MEDIA_EXT or not os.path.isfile(real):
             return self._send(404, b"not found")
-        size = os.path.getsize(real)
-        a, b, code = 0, size - 1, 200
-        m = re.match(r"^bytes=(\d*)-(\d*)$", self.headers.get("Range") or "")
-        if m and (m.group(1) or m.group(2)):
-            if m.group(1):
-                a = int(m.group(1))
-                b = int(m.group(2)) if m.group(2) else size - 1
-            else:
-                a = max(0, size - int(m.group(2)))
-            b = min(b, size - 1)
-            if a > b or a >= size:
-                return self._send(416, b"", extra={"Content-Range": "bytes */%d" % size})
-            code = 206
-        extra = {"Accept-Ranges": "bytes"}
-        if code == 206:
-            extra["Content-Range"] = "bytes %d-%d/%d" % (a, b, size)
-        httpsec.send_head(self, code, MEDIA_TYPES.get(ext, "application/octet-stream"), b - a + 1, extra)
-        if self.command == "HEAD":
-            return
-        try:
-            with open(real, "rb") as f:
-                f.seek(a)
-                left = b - a + 1
-                while left > 0:
-                    chunk = f.read(min(65536, left))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    left -= len(chunk)
-        except (BrokenPipeError, ConnectionError, OSError):
-            pass
+        httpsec.send_file(self, real, MEDIA_TYPES.get(ext, "application/octet-stream"))   # Range・416・HEAD・送信中の切断は ytt_core の 1 か所
 
     # ---------- POST / PUT ----------
     def _write_guard(self):
@@ -270,27 +230,23 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def do_POST(self):
+    def _write(self, routes):
+        """書き込み系の要求の順番(1 か所): Host → Sec-Fetch-Site → Origin → 表にあるか → 本文 → 処理"""
         if not self._write_guard():
             return
-        path = self.path.split("?", 1)[0]
-        if path not in POST_ROUTES:
+        fn = routes.get(self.path.split("?", 1)[0])
+        if fn is None:
             return self._send(404, b"not found")
         obj = self._read_json()
         if obj is None:
             return
-        self._guard(lambda: self._json(200, POST_ROUTES[path](obj)))
+        self._guard(lambda: self._json(200, fn(obj)))
+
+    def do_POST(self):
+        self._write(POST_ROUTES)
 
     def do_PUT(self):
-        if not self._write_guard():
-            return
-        path = self.path.split("?", 1)[0]
-        if path not in PUT_ROUTES:
-            return self._send(404, b"not found")
-        obj = self._read_json()
-        if obj is None:
-            return
-        self._guard(lambda: self._json(200, PUT_ROUTES[path](obj)))
+        self._write(PUT_ROUTES)
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), redact(fmt % args)))
@@ -399,10 +355,6 @@ def _settings(o):
     return {"ok": True}
 
 
-def _put_registry(o):
-    return rank.put_registry(o)
-
-
 def _export(o):
     spec = exporter.build_spec(STORE, o)
     return exporter.job_public(exporter.start_job(spec, STORE.mark_exported))
@@ -462,37 +414,19 @@ PUT_ROUTES = {
     "/api/config": _config,
     "/api/outdir": _outdir,
     "/api/settings": _settings,
-    "/api/rank/registry": _put_registry,
+    "/api/rank/registry": rank.put_registry,
     "/api/video": _put_video,
 }
 
 
 # ---------- 起動 ----------
-class StudioServer(ThreadingHTTPServer):
-    """Windows では SO_REUSEADDR を付けると「他のアプリが使用中のポート」にも bind できてしまい、どちらに繋がるか分からなくなる
-    (例: 8810 の cut2resolve と同じポートで起動してしまう)。Windows では使わず、代わりに SO_EXCLUSIVEADDRUSE で独占する。"""
-    allow_reuse_address = os.name != "nt"
-    daemon_threads = True
-
-    def server_bind(self):
-        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-        super().server_bind()
+StudioServer = httpsec.ExclusiveServer   # 使用中のポートに bind しない(Windows は SO_EXCLUSIVEADDRUSE)・要求のスレッドは daemon
 
 
 def probe(port):
-    """そのポートで動いているスタジオの版(スタジオでなければ None)。
-    urllib ではなく http.client: 環境変数・Windows のプロキシ設定で 127.0.0.1 宛てがプロキシに回るのを避ける。"""
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
-    try:
-        conn.request("GET", "/api/ping", headers={"Host": "127.0.0.1:%d" % port})
-        r = conn.getresponse()
-        j = json.loads(r.read(4096).decode("utf-8", "replace")) if r.status == 200 else {}
-        return str(j.get("version", "")) if isinstance(j, dict) and j.get("app") == APP_ID else None
-    except (OSError, ValueError, http.client.HTTPException):
-        return None
-    finally:
-        conn.close()
+    """そのポートで動いているスタジオの版(スタジオでなければ None)。問い合わせは ytt_core.runtime.ping(127.0.0.1 に固定・プロキシを通さない)"""
+    r = ytt_runtime.ping(port, 1)
+    return r["version"] if r and r["app"] == APP_ID else None
 
 
 def _bound(srv):

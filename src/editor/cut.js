@@ -23,12 +23,11 @@ const FIXED_KEYS = { [IO_CUT_KEY.toLowerCase()]: '2 カット: 始まり〜終�
 
 function create(h){
   const $ = h.$, esc = h.esc;
-  const M = {
-    docId: null, loading: 0, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '',
-    sel: null, edge: null, io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0,
-    peaks: null, peaksRate: 100, peaksAudio: true, peaksMsg: '', silence: [], planBeside: '', draftBusy: false, lastDraftSig: '',
-    pps: 0, fit: true, snap: true, vis: [0, 0], mode: 'cut', mediaFor: null, drag: null, rdrag: null, rowFlags: [], shown: false, seekingOut: false
-  };
+  /* 文書ごとの状態(作るときと reset で同じ値。タブの見た目の状態 = 倍率 pps・吸着 snap・表示 mode・shown・seekingOut・読み込みの番号 loading は文書を替えても残す) */
+  const fresh = docId => ({ docId, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
+    io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0, peaks: null, peaksAudio: true, peaksMsg: '', silence: [],
+    planBeside: '', draftBusy: false, lastDraftSig: '', draft: null, fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
+  const M = { ...fresh(null), loading: 0, peaksRate: 100, pps: 0, snap: true, vis: [0, 0], mode: 'cut', shown: false, seekingOut: false };
   const V = () => $('#cutPlayer');
   /* ---------- フレームと秒 ---------- */
   const f2s = f => f * M.fps[1] / M.fps[0];
@@ -116,23 +115,21 @@ function create(h){
     syncRowCuts(); render(); scheduleSave();
   }
   /* 積むときに操作の通し番号(app.js の nextOp。文字起こしの履歴と同じ番号)を付ける = 1 文字起こし の「元に戻す」が新しい方を選ぶ(段3 3-5)。やり直しも新しい番号 */
-  const opSeq = () => (h.nextOp ? h.nextOp() : 0);
+  const opSeq = () => h.nextOp();
   function pushCutUndo(clips, origin, seq){ M.undo.push({ clips, origin, seq }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = []; }   // 新しい操作(やり直しは消える)
   /* 2 カット の Ctrl+Z・元に戻すボタン: 文書(行の時刻・分割)とカットのうち新しい方を戻す(app.js の doUndo と同じ順。段6 6-4。字幕の段からは文書も変えるため) */
-  function undoNewest(){ if (h.doUndo) h.doUndo(); else undo(); }
+  function undoNewest(){ h.doUndo(); }
   function undo(){
     const u = M.undo.pop(); if (!u) return;
     M.redo.push({ clips: M.clips, origin: M.origin }); M.clips = u.clips; M.origin = u.origin; M.sel = null; afterChange();
-    if (u.seq && h.undoDocIf && h.undoDocIf(u.seq)) h.toast('行の時刻と残す区間を戻しました', 2500);   // 字幕の段の1回の操作(行 + 区間)は同じ番号で積む(段6 6-4)→ 一緒に戻す
+    if (u.seq && h.undoDocIf(u.seq)) h.toast('行の時刻と残す区間を戻しました', 2500);   // 字幕の段の1回の操作(行 + 区間)は同じ番号で積む(段6 6-4)→ 一緒に戻す
   }
   function redo(){ const r = M.redo.pop(); if (!r) return; M.undo.push({ clips: M.clips, origin: M.origin, seq: opSeq() }); M.clips = r.clips; M.origin = r.origin; M.sel = null; afterChange(); }
 
   /* ---------- 読み込み(文書を開いたとき) ---------- */
   function reset(docId){
     clearTimeout(M.saveT);
-    Object.assign(M, { docId, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
-      io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0, peaks: null, peaksAudio: true, peaksMsg: '', silence: [],
-      planBeside: '', draftBusy: false, lastDraftSig: '', draft: null, fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
+    Object.assign(M, fresh(docId));
     const v = V(); v.pause(); v.removeAttribute('src'); v.load();
     renderSaveState();   // 競合の案内・保存の状態も初めに戻す(読み直したとき)
   }
@@ -172,8 +169,7 @@ function create(h){
         }
       }
     } else if (dr){
-      M.clips = norm(dr.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = dr.base === 'rows' ? 'rows' : 'all'; M.pristine = true; M.rev = ed ? ed.rev : 0;
-      noteDraft(M.origin, dr.keepsSec, M.origin === 'rows' ? edgeSetting() : {});
+      M.pristine = true; M.rev = ed ? ed.rev : 0; takeDraft(dr);
     }
     if ((e || dr) && ed && ed.broken) h.toast('保存されていたカットのファイルが読めませんでした。たたき台から始めます(壊れたファイルは残してあります)', 7000, 'err');
     M.lastDraftSig = rowSig();
@@ -193,6 +189,10 @@ function create(h){
   }
   /* 始めたたき台の記録(マスタープラン Q2。機械の最初の結果 = たたき台と、人の最終 = 保存したカット・パックを並べて、たたき台の規則を直すため)。
      まだ1回も保存していない間は、最後に作ったたたき台(種類・設定・区間の秒)を覚えておき、初めての保存に添える。保存済みのカットがあれば送らない */
+  /* たたき台の応答(api/edit/draft の keepsSec・base)を区間にする(開いたとき・行が変わったときの作り直し) */
+  function takeDraft(r){ M.clips = norm(r.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = r.base === 'rows' ? 'rows' : 'all'; noteDraft(M.origin, r.keepsSec, M.origin === 'rows' ? edgeSetting() : {}); }
+  /* たたき台のまま(手で直していない)= 行が変わったら「行から」を作り直してよい */
+  const redraftable = () => M.pristine && (M.origin === 'rows' || M.origin === 'all');
   function noteDraft(origin, keepsSec, settings){
     if (M.rev) return;
     M.draft = { origin, settings: settings || {}, keepsSec: (keepsSec || []).map(([a, b]) => [Math.round(a * 1000) / 1000, Math.round(b * 1000) / 1000]), at: Date.now() };
@@ -226,8 +226,7 @@ function create(h){
     return M.saving;
   }
   async function flush(){
-    if (M.drag) endDrag(true);
-    if (M.rdrag) endRowDrag(true);
+    endDrags(true);
     if (!M.dirty) return !(M.saving && !(await M.saving));
     return save();
   }
@@ -237,15 +236,14 @@ function create(h){
     const el = $('#cutSaveSt');
     const [t, k] = M.conflict ? ['カットが競合しています', 'err'] : M.saving ? ['カットを保存中…', 'busy'] : M.dirty ? ['未保存…', ''] : M.rev ? ['カットを保存しました', 'ok'] : ['', ''];
     el.textContent = t; el.setAttribute('data-state', k);
-    if (h.onCutSave) h.onCutSave(M.conflict ? 'カット: 競合しています' : M.saving ? 'カット: 保存中…' : M.dirty ? 'カット: 未保存…' : M.rev ? 'カット: 保存しました' : '', k);   // ヘッダーの保存の状態へ(S4)
+    h.onCutSave(M.conflict ? 'カット: 競合しています' : M.saving ? 'カット: 保存中…' : M.dirty ? 'カット: 未保存…' : M.rev ? 'カット: 保存しました' : '', k);   // ヘッダーの保存の状態へ(S4)
     h.onCutState();
   }
 
   /* ---------- たたき台(規則はサーバー・cut2resolve) ---------- */
   function confirmReplace(){
     if (M.pristine || !M.undo.length && M.origin !== 'manual') return Promise.resolve(true);
-    if (window.UIKit && UIKit.dialog) return UIKit.dialog.confirm({ title: '今のカットを、たたき台で置き換えますか?', body: '手で直したカットがあります。置き換えても「元に戻す」(Ctrl+Z)で戻せます。', ok: '置き換える' });
-    return h.confirm('今のカットを、たたき台で置き換えますか?', '手で直したカットがあります。置き換えても「元に戻す」(Ctrl+Z)で戻せます。', '置き換える');
+    return UIKit.dialog.confirm({ title: '今のカットを、たたき台で置き換えますか?', body: '手で直したカットがあります。置き換えても「元に戻す」(Ctrl+Z)で戻せます。', ok: '置き換える' });
   }
   function applyKeeps(keepsSec, origin, label){
     const cs = norm((keepsSec || []).map(([a, b]) => [s2f(a), Math.min(s2f(b), M.total)]));
@@ -351,15 +349,14 @@ function create(h){
   /* 開いたまま(まだ手で直していない)下書きは、行が変わったら「行から」を作り直す(以前の「カットとパック」と同じ結果に保つ) */
   function docChanged(){
     if (!ready()) return;
-    if (M.pristine && M.origin === 'rows' || M.pristine && M.origin === 'all'){
+    if (redraftable()){
       const sig = rowSig();
       if (sig !== M.lastDraftSig){ clearTimeout(docChanged.t); docChanged.t = setTimeout(async () => {
         if (!M.pristine || M.docId !== h.S.docId) return;
         try {
           const r = await h.api('/api/edit/draft?rows=1&id=' + encodeURIComponent(M.docId));
           if (!M.pristine || M.docId !== h.S.docId || r.unavailable) return;
-          M.clips = norm(r.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = r.base === 'rows' ? 'rows' : 'all'; M.lastDraftSig = rowSig();
-          noteDraft(M.origin, r.keepsSec, M.origin === 'rows' ? edgeSetting() : {});
+          takeDraft(r); M.lastDraftSig = rowSig();
           syncRowCuts(); render(); h.onCutState();
         } catch {}
       }, 1500); }
@@ -474,11 +471,11 @@ function create(h){
     cutKeybarScene();
   }
   /* 共通の再生キーの今の割り当て(編集のキー配置 = UIKit.keymap)の表記。外していれば ''(帯・案内の文を割り当てから作る。段6・GPT-16) */
-  function pkMap(){ const km = h.keymap ? h.keymap() : null; return km && Object.keys(km).length ? km : (window.UIKit && UIKit.keys ? UIKit.keys.playbackMap(null) : {}); }
-  function pk(id){ const k = pkMap()[id]; return k && window.UIKit && UIKit.keys ? UIKit.keys.keyText(k) : ''; }
+  function pkMap(){ const km = h.keymap(); return km && Object.keys(km).length ? km : UIKit.keys.playbackMap(null); }
+  function pk(id){ const k = pkMap()[id]; return k ? UIKit.keys.keyText(k) : ''; }
   /* 画面の下の帯(UIKit.keybar。段3): 端を選んでいる間だけ、1コマのキーの意味を知らせる場面に変える */
   function cutKeybarScene(){
-    if (!window.UIKit || !UIKit.keybar || h.tab() !== 'cut' || !M.shown) return;
+    if (h.tab() !== 'cut' || !M.shown) return;
     const set = items => UIKit.keybar.set(items.filter(x => x.k));
     if (M.sel && M.sel.kind === 'clip' && M.edge) set([{ k: pk('frameBack'), l: '1コマ' }, { k: pk('frameFwd'), l: '1コマ' }, { k: 'Shift', l: '10コマ' }, { k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Esc', l: '選択を外す' }]);
     else if (M.sel && M.sel.kind === 'clip') set([{ k: 'Q / W', l: '始まり/終わりの端' }, { k: '[ ]', l: '前/次の区間' }, { k: 'Del', l: '削る' }, { k: 'S', l: '分割' }, { k: 'Esc', l: '選択を外す' }]);
@@ -626,11 +623,11 @@ function create(h){
     const gone = () => M.docId !== id || M.loading !== seq;   // 別の文書・同じ文書の読み直し(reset で fps が無くなる)に移った
     M.peaksMsg = '';
     for (let n = 0; n < 1200 && !gone(); n++){
-      let r;
-      try { r = await fetch(h.apiUrl('/api/peaks?id=' + encodeURIComponent(id)), { cache: 'no-store' }); } catch { M.peaksMsg = '音の波形を読み込めませんでした'; break; }
+      let r;   // UIKit.http の raw = 成功(202 の「作っている」も)なら Response。失敗は status 0 = つながらない・それ以外 = サーバーの答え(reason = サーバーの message)
+      try { r = await UIKit.http(h.apiUrl('/api/peaks?id=' + encodeURIComponent(id)), { raw: true }); }
+      catch (e){ if (gone()) return; M.peaksMsg = e.status ? '音の波形を作れませんでした' + (e.reason ? ': ' + e.reason : '') : '音の波形を読み込めませんでした'; break; }
       if (gone()) return;
       if (r.status === 202){ const j = await r.json().catch(() => ({})); M.peaksMsg = j.message || '音の波形を作っています…'; drawWave(); await new Promise(res => setTimeout(res, 1000)); continue; }
-      if (!r.ok){ const j = await r.json().catch(() => ({})); M.peaksMsg = '音の波形を作れませんでした' + (j.message ? ': ' + j.message : ''); break; }
       M.peaksRate = Number(r.headers.get('X-Peaks-Rate')) || 100; M.peaksAudio = r.headers.get('X-Peaks-Audio') !== '0';
       const buf = await r.arrayBuffer();
       if (gone()) return;
@@ -670,11 +667,11 @@ function create(h){
   function showCaption(t){   // プレビューの字幕(Resolve の Text+ のおおよその見え方。カット後では削った行を出さない)
     const segs = h.S.doc ? h.S.doc.segments : [];
     /* 出す行は 1 文字起こし の映像の上の字幕と同じ関数(app-rows.js の capStack。字幕に出さない行を外し、0.3 秒以上重なる行は上下に積む。2026-10-05) */
-    const idxs = h.capStack ? h.capStack(segs, t, { skip: i => M.mode === 'cut' && !!M.rowFlags[i] }) : [];
+    const idxs = h.capStack(segs, t, { skip: i => M.mode === 'cut' && !!M.rowFlags[i] });
     const key = idxs.join(',');
     if (key === capIdx) return;
     capIdx = key;
-    if (h.paintCaps) h.paintCaps($('#cutCaption'), idxs, segs);   // 話者の色も app.js の speakerColor の1か所(段2)。合わなければ配信者の色(body の --tt-cap-color)
+    h.paintCaps($('#cutCaption'), idxs, segs);   // 話者の色も app.js の speakerColor の1か所(段2)。合わなければ配信者の色(body の --tt-cap-color)
     document.querySelectorAll('#cutSubs .tt-csub.now').forEach(r => r.classList.remove('now'));
     const idx = idxs.length ? idxs[idxs.length - 1] : -1;   // 一覧で「今」の印を付けて追うのは、いちばん上の段(開始が遅い行)
     for (const i of idxs){ const r = document.querySelector(`#cutSubs .tt-csub[data-i="${i}"]`); if (r) r.classList.add('now'); }
@@ -698,7 +695,7 @@ function create(h){
     st.innerHTML = `<span>残す <b>${n}区間</b></span><span>カット後 <b class="mono">${fmtF(kf)}</b> / 元 <span class="mono">${h.fmtCs(M.dur)}</span></span>${sel ? `<span>${sel}</span>` : ''}<span class="hint">${snapTo}</span>` +
       (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作ったたたき台' : '動画全体のたたき台'}。手で直すと保存します)</span>`
         : M.origin === 'whole' && M.clips.length === 1 ? '<span class="hint">(カットしない = 動画全体)</span>' : '') +
-      (n > 0 && h.toPack ? '<button type="button" class="btn small ui-next-btn tt-cut-next" data-act="topack" title="カットを決めたら、3 パック のタブで Resolve へ渡すパックを作ります(Alt+3)">3 パックへ</button>' : '');   // 次の一手(M6)
+      (n > 0 ? '<button type="button" class="btn small ui-next-btn tt-cut-next" data-act="topack" title="カットを決めたら、3 パック のタブで Resolve へ渡すパックを作ります(Alt+3)">3 パックへ</button>' : '');   // 次の一手(M6)
   }
   function renderTools(){
     const ok = editable(), c2r = !!h.c2rBase(), busy = M.draftBusy;
@@ -839,8 +836,8 @@ function create(h){
   }
   /* ---------- 字幕の段の行(段6 6-3〜6-6。git の履歴(679ff01 以前)の docs/plan/phase6-edit-features.md)。文書の時刻を書き、残す行を外へ広げたら残す区間も広げる ---------- */
   const segAt = i => (h.S.doc && Number.isInteger(i) ? h.S.doc.segments[i] : null);
-  const rowEditable = () => editable() && !h.S.conflict && !(h.lockJob && h.lockJob());
-  const rowWhy = () => !editable() ? '' : h.S.conflict ? '文字起こしの保存が競合しています(1 文字起こし の映像の上の案内から選んでください)' : (h.lockJob && h.lockJob()) ? '処理中(話者判別・再認識)のため、今は行を動かせません' : '';
+  const rowEditable = () => editable() && !h.S.conflict && !h.lockJob();
+  const rowWhy = () => !editable() ? '' : h.S.conflict ? '文字起こしの保存が競合しています(1 文字起こし の映像の上の案内から選んでください)' : h.lockJob() ? '処理中(話者判別・再認識)のため、今は行を動かせません' : '';
   const r2 = v => Math.round(v * 100) / 100;
   function rowBounds(i, edge){   // フレーム。前後の行を越えない(重ならない)・長さは1フレーム以上
     const segs = h.S.doc.segments, g = segs[i], a = s2f(g.start), b = s2f(g.end);
@@ -986,6 +983,7 @@ function create(h){
     $('#tlVideo').insertAdjacentHTML('beforeend', gapsHTML());
     renderStatus();
   }
+  function endDrags(cancel){ if (M.drag) endDrag(cancel); if (M.rdrag) endRowDrag(cancel); }   // 区間と行の端のドラッグを両方終える(保存の前・タブを離れるとき)
   function endDrag(cancel){
     const d = M.drag; if (!d) return;
     M.drag = null; hideTip();
@@ -999,7 +997,7 @@ function create(h){
   /* ---------- イベント ---------- */
   function bind(){
     const sc = scroller();
-    $('#cutRelink').addEventListener('click', () => { if (h.relink) h.relink(); });
+    $('#cutRelink').addEventListener('click', () => h.relink());
     $('#cutRetry').addEventListener('click', () => { if (M.docId) load(M.docId); });
     sc.addEventListener('scroll', () => { if (ready()) { if (!bind.q) bind.q = requestAnimationFrame(() => { bind.q = 0; scrolled(); }); } });
     /* 段3: ホイールで拡大縮小(Ctrl は要らない。マウスの位置が中心)。Shift+ホイールは横に移動(縦のホイールを横の移動に読み替える) */
@@ -1038,7 +1036,7 @@ function create(h){
     $('#cutDocConflictGo').addEventListener('click', () => { location.hash = '#tx'; });
     $('#cutSubs').addEventListener('click', e => {
       const b = e.target.closest('[data-act]'); if (!b) return;
-      if (b.dataset.act === 'totx'){ if (h.toTx) h.toTx(); return; }   // 字幕の無い文書: 1 文字起こし のタブの「文字起こしする」へ(段7 E-14)
+      if (b.dataset.act === 'totx'){ h.toTx(); return; }   // 字幕の無い文書: 1 文字起こし のタブの「文字起こしする」へ(段7 E-14)
       const i = Number(b.closest('.tt-csub').dataset.i), g = h.S.doc && h.S.doc.segments[i]; if (!g) return;
       if (b.dataset.act === 'go') seekTo(g.start + 0.0005);
       else if (b.dataset.act === 'cutrow' || b.dataset.act === 'keeprow'){ const want = b.dataset.act === 'cutrow'; if (!!M.rowFlags[i] !== want) rowsCut([i], want); }   // 押した側の状態に(M1)
@@ -1067,7 +1065,7 @@ function create(h){
     $('#cutDraftPlan').addEventListener('click', () => draftC2R('plan'));
     document.querySelectorAll('#tabCut details.pop > summary').forEach(s => { s.dataset.title = s.title; s.addEventListener('click', e => { if (s.classList.contains('disabled')){ e.preventDefault(); h.toast(s.title || '今は使えません', 3000); } }); });
     $('#cutReload').addEventListener('click', reloadFromServer);
-    $('#cutForce').addEventListener('click', e => { if (!M.conflict) return; if (window.UIKit && UIKit.confirmTwice) UIKit.confirmTwice(e.currentTarget, () => { if (M.conflict) save(true); }); else save(true); });   // 保存済みのカットを上書きする(戻せない)= 二度押し(1 文字起こし の #cfForce と同じ。M4)
+    $('#cutForce').addEventListener('click', e => { if (!M.conflict) return; UIKit.confirmTwice(e.currentTarget, () => { if (M.conflict) save(true); }); });   // 保存済みのカットを上書きする(戻せない)= 二度押し(1 文字起こし の #cfForce と同じ。M4)
     const v = V();
     v.addEventListener('play', startLoop);
     v.addEventListener('seeked', () => { M.seekingOut = false; moveHead(); });
@@ -1098,18 +1096,18 @@ function create(h){
     play(){ if (V().paused) togglePlay(); },
     pause(){ if (!V().paused) togglePlay(); }
   };
-  const commonKeys = window.UIKit && UIKit.keys ? UIKit.keys.playback({
-    media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30), keymap: () => (h.keymap ? h.keymap() : null),   // 再生のキーの割り当て(編集の ⚙ 設定の「キー配置」)
-    enabled: () => h.tab() === 'cut' && ready() && !h.modalOpen() && !(h.menuHasKeys && h.menuHasKeys(document.activeElement)),
+  const commonKeys = UIKit.keys.playback({
+    media: () => mediaProxy, fps: () => (M.fps ? M.fps[0] / M.fps[1] : 30), keymap: () => h.keymap(),   // 再生のキーの割り当て(編集の ⚙ 設定の「キー配置」)
+    enabled: () => h.tab() === 'cut' && ready() && !h.modalOpen() && !h.menuHasKeys(document.activeElement),
     onIn: () => { if (editable()){ M.io.i = headFrame(); render(); } },
     onOut: () => { if (editable()){ M.io.o = headFrame(); render(); } },
     /* , . : 端を選んでいればその端を1コマ(nudgeEdge)、そうでなければ再生位置を1コマ(stepFrames。フレームの境目に必ず揃える) */
     onFrame: dir => { if (editable() && M.sel && M.sel.kind === 'clip' && M.edge) nudgeEdge(dir); else if (M.sel && M.sel.kind === 'row' && M.edge && rowEditable()) nudgeRowEdge(dir); else stepFrames(dir); return true; },
     onKey: () => { moveHead(); keepHeadVisible(); }   // 共通キーは v.currentTime を直に書くので、タイムラインの追従はここで
-  }) : null;
+  });
   function onKey(e){
-    if (h.tab() !== 'cut' || !h.S.doc || e.isComposing || e.keyCode === 229 || h.modalOpen() || h.isTextEntry(e.target)) return;
-    if (h.menuHasKeys && h.menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作を優先する(GPT-04)
+    if (h.tab() !== 'cut' || !h.S.doc || h.imeKey(e) || h.modalOpen() || h.isTextEntry(e.target)) return;
+    if (h.menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作を優先する(GPT-04)
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2/3 はタブ(app.js)
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else undoNewest(); return; }
@@ -1120,12 +1118,12 @@ function create(h){
     /* Shift+, / Shift+. : 選んだ端を10コマ(共通キーは Shift つきの , . を処理しないので、ここで先に扱う)。
        Shift を押すと e.key は ","."" ではなく "<"">"" になる(US 配列)ので、物理キーの e.code で見る */
     /* 1コマのキーが , . のままなら物理キー(e.code)で、英字などに変えていれば「そのキー + Shift」で */
-    const fm = pkMap(), sc = e.shiftKey && window.UIKit && UIKit.keys ? UIKit.keys.comboOf(e) : '';
+    const fm = pkMap(), sc = e.shiftKey ? UIKit.keys.comboOf(e) : '';
     const tenDir = !e.shiftKey ? 0 : (e.code === 'Comma' && fm.frameBack === ',') || (fm.frameBack && sc === 'Shift+' + fm.frameBack) ? -1 : (e.code === 'Period' && fm.frameFwd === '.') || (fm.frameFwd && sc === 'Shift+' + fm.frameFwd) ? 1 : 0;
     if (tenDir && editable() && M.sel && M.sel.kind === 'clip' && M.edge) return run(() => nudgeEdge(tenDir * 10));
     if (tenDir && M.sel && M.sel.kind === 'row' && M.edge && rowEditable()) return run(() => nudgeRowEdge(tenDir * 10));
     if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && e.target && e.target.closest && e.target.closest('#edTabs')) return;   // タブの並びの中は #edTabs 自身の ← → 処理(タブ切り替え)に任せる
-    if (commonKeys && commonKeys(e)) return;
+    if (commonKeys(e)) return;
     switch (e.code){
       case 'Home': return run(() => seekTo(0));
       case 'End': return run(() => seekTo(M.dur));
@@ -1159,8 +1157,7 @@ function create(h){
     M.shown = false;
     const v = V(); if (!v.paused) v.pause();
     if (ready() && v.readyState >= 1){ const p = h.player(); if (p.readyState >= 1) p.currentTime = v.currentTime; }
-    if (M.drag) endDrag();
-    if (M.rdrag) endRowDrag();
+    endDrags();
     save();
   }
 
@@ -1171,7 +1168,7 @@ function create(h){
     refresh: () => render(),   // cut2resolve が使えるか分かったとき(たたき台のボタン)
     refreshCaption(){ capIdx = -2; if (ready()) showCaption(V().currentTime || 0); },   // 話者の色が変わったとき(app.js の onSpeakerColors。段2)
     /* 3 パック の「行の後の余白」を変えたとき(段6 6-2): たたき台のまま(手で直していない)なら「行から」を作り直す(→ true)。手で直したカットは触らない(→ false) */
-    redraftPristine(){ if (!ready() || !M.pristine || !(M.origin === 'rows' || M.origin === 'all')) return false; M.lastDraftSig = ''; docChanged(); return true; },
+    redraftPristine(){ if (!ready() || !redraftable()) return false; M.lastDraftSig = ''; docChanged(); return true; },
     unload(){ M.loading++; reset(null); render(); },
     summary(){ return ready() ? { count: mergedCount(M.clips), keptSec: f2s(keptFrames(M.clips)), durSec: M.dur, pristine: M.pristine } : null; },
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, offCode: M.offCode, loaded: M.loaded, docId: M.docId, pristine: M.pristine, origin: M.origin }; },

@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -635,6 +636,52 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(parts), 3)
         self.assertTrue(all(p[0] < p[1] for p in parts) and all(parts[i][1] == parts[i + 1][0] for i in range(len(parts) - 1)))
 
+    def test_sense_voice_reads_chunks_like_qwen3(self):
+        """SenseVoice は Qwen3-ASR と同じ区切り方(_Qwen3Chunked。無音の区切りは読まない)で読み、区切りの中の行はトークンの時刻(sv_rows)で作る。
+        時刻が無ければ Qwen3 と同じ割り振り(q3_rows)。認識器は言語ごとに読む前に 1 つ(知らない言語は auto)"""
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy が無い")
+        import tx_engines as E
+        t = np.arange(16000 * 47) / 16000.0
+        x = (0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        x[16000 * 20:16000 * 47] = 0.0   # 後ろは無音(読まない区切り)
+        toks, stamps = ["<|ja|>", "あい", "う。", "え"], [0.0, 0.5, 0.9, 3.0]
+
+        class Rec:
+            def __init__(self, with_time):
+                self.with_time, self.calls = with_time, []
+
+            def create_stream(rec):
+                st = types.SimpleNamespace(accept_waveform=lambda sr, w: rec.calls.append(len(w)))
+                st.result = types.SimpleNamespace(tokens=toks if rec.with_time else [], timestamps=stamps if rec.with_time else [], text="あいう。え")
+                return st
+
+            def decode_stream(self, st):
+                pass
+
+        rms = E._frame_rms(x)
+        loud = [(a, b) for a, b in E.q3_chunks(rms) if max(rms[a:b]) >= E.Q3_SILENT]
+        self.assertTrue(loud and len(loud) < len(E.q3_chunks(rms)))
+        for with_time in (True, False):
+            rec = Rec(with_time)
+            e = E.SenseVoice("sense-voice-small", "cpu", {"dir": "x", "rec": {"ja": rec}})
+            segs, info = e.transcribe(x, language="ja")
+            rows = [(s.start, s.end, s.text) for s in segs]
+            self.assertEqual((info.language, info.duration), ("ja", 47.0))
+            self.assertEqual(len(rec.calls), len(loud))                                    # 無音の区切りは読まない
+            want = []
+            for a, b in loud:
+                a0, b0 = a * E.Q3_FRAME, b * E.Q3_FRAME
+                floor = E.q3_floor(rms[a:b])
+                want += E.sv_rows(toks, stamps, a0, b0) if with_time else E.q3_rows("あいう。え", a0, b0, voiced=[v > floor for v in rms[a:b]])
+            self.assertEqual(rows, want)
+        with mock.patch.object(E.SenseVoice, "_recognizer", lambda self, lang: self.model.setdefault("asked", lang) and Rec(True)):
+            e = E.SenseVoice("sense-voice-small", "cpu", {"dir": "x", "rec": {}})
+            self.assertEqual(e.transcribe(x[:16000 * 15], language="xx")[1].language, "auto")
+            self.assertEqual(e.model["asked"], "auto")
+
     def test_engine_module_has_no_native_imports(self):
         """tx_engines はサーバー側でも読む(名前と版)。ファイルの先頭でネイティブの部品を読み込まない"""
         code = "import sys; sys.path.insert(0, sys.argv[1]); import tx_engines; print([m for m in ('numpy', 'faster_whisper', 'ctranslate2') if m in sys.modules])"
@@ -681,6 +728,152 @@ class ProtocolTest(unittest.TestCase):
             tx_worker.handle(S, {"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}, Out(), set())
         self.assertEqual(got, [(("a.wav", 0, "voxceleb"), {}), (("a.wav", 2, "voxceleb"), {"threshold": 0.7, "min_off": 0.5})])
         self.assertEqual([m["ev"] for m in sent], ["result", "result"])
+
+
+class JobHelperTest(unittest.TestCase):
+    """ジョブの決まった手順の小道具(ed_jobs の check_cancel・job_temp_wav・job_title・_chars_in と tx_engines.env_num。注意の足し方は ed_state.add_warning)"""
+
+    def test_cancel_and_title(self):
+        S.check_cancel({"cancel": False})
+        with self.assertRaises(S.Cancelled):
+            S.check_cancel({"cancel": True})
+        self.assertEqual(S.job_title("話者判別: ", {"title": ""}), "話者判別: 無題")
+        self.assertEqual(S.job_title("x: ", {"title": "あ" * 150}), "x: " + "あ" * 100)
+
+    def test_temp_wav(self):
+        tmp = tempfile.mkdtemp(prefix="tx-wav-")
+        saved = S.TMP_DIR
+        S.TMP_DIR = os.path.join(tmp, ".tmp")
+        try:
+            job = {"id": "j1", "state": "running", "phase": ""}
+            with S.job_temp_wav(job) as wav:
+                self.assertTrue(os.path.isdir(S.TMP_DIR))                     # 一時のフォルダは作ってから渡す
+                open(wav, "wb").close()
+                raise S.Cancelled()
+            self.assertFalse(os.path.exists(wav))                             # 終わったら消す
+            self.assertEqual((job["state"], job["phase"]), ("cancelled", "中止しました"))
+            with S.job_temp_wav(job, "中止しました(何も置き換えていません)", "例外") as wav:
+                raise S.ApiError("no_file", "動画がありません", 400)
+            self.assertEqual((job["state"], job["error"], job["errorCode"]), ("error", "動画がありません", "no_file"))
+            with S.job_temp_wav(job) as wav:
+                raise RuntimeError("boom")
+            self.assertEqual((job["state"], job["error"], job["internal"]), ("error", S.INTERNAL_MSG, True))
+        finally:
+            S.TMP_DIR = saved
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_numbers(self):
+        import tx_engines
+        c = S.ed_jobs._chars_in
+        self.assertEqual([c(v, 4, 80) for v in (16, 16.9, 4, 80, 3, 81, True, float("nan"), float("inf"), 10 ** 400, "16", None)],
+                         [16, 16, 4, 80, None, None, None, None, None, None, None, None])
+        for env, want in (("", 7), ("12", 12), (" 3 ", 3), ("x", 7), ("-5", 0), ("999", 64)):
+            with mock.patch.dict(os.environ, {"X_TEST_NUM": env}):
+                self.assertEqual(tx_engines.env_num("X_TEST_NUM", 7, lo=0, hi=64), want, env)
+        with mock.patch.dict(os.environ, {"X_TEST_NUM": "nan"}):
+            self.assertEqual(tx_engines.env_num("X_TEST_NUM", 0.0, lo=0.0, hi=0.5, cast=float), 0.5)   # 以前の END_TRIM と同じ収め方
+
+
+class CpuFallbackTest(unittest.TestCase):
+    """GPU(CUDA)で実行時に失敗したときの決まり(新規の文字起こし・行ごとの再認識・範囲と全体の再認識。ed_jobs.cpu_fallback の 1 か所):
+    処理方式が自動なら CPU で読み直してもう一度・GPU 固定なら gpu_failed・CPU で動いていたらそのまま上げる。
+    偽のモデルで確かめる(ワーカーは起動しない)。CPU に切り替わったら phase と device を書き換える"""
+
+    class Good:
+        params = None
+
+        def transcribe(self, audio, **kw):
+            return iter([types.SimpleNamespace(start=0.0, end=1.0, text="CPUの行", words=[])]), types.SimpleNamespace(duration=None, duration_after_vad=None)
+
+    class Bad:
+        params = None
+
+        def __init__(self, exc=None):
+            self.exc = exc or RuntimeError("CUDA failed")
+
+        def transcribe(self, audio, **kw):
+            raise self.exc
+
+    SPEC = {"model": "small", "language": "ja", "beam": 5, "vadMode": "off", "glossary": []}
+
+    def loader(self, first, device, calls):
+        def load(name, job, pref="auto", force_cpu=False, engine=None):
+            calls.append(force_cpu)
+            if job.get("cancel"):   # ワーカーは取り消し済みの要求を送らない(WorkerClient.stream)
+                raise S.Cancelled()
+            return (self.Good(), "cpu") if force_cpu else (first, device)
+        return mock.patch.object(S, "load_model", load)
+
+    def job(self):
+        return {"id": "j", "phase": "", "state": "loading", "device": "", "cancel": False, "progress": 0.0, "segments": 0}
+
+    def real(self, first, device, pref, job=None):
+        calls, job = [], job or self.job()
+        with self.loader(first, device, calls):
+            rows = list(S.transcribe_real(job, dict(self.SPEC, device=pref), "a.wav", 1.0))
+        return rows, job, calls
+
+    def test_transcribe_real(self):
+        rows, job, calls = self.real(self.Bad(), "cuda", "auto")
+        self.assertEqual(([r["text"] for r in rows], job["device"], job["phase"], calls), (["CPUの行"], "cpu", "GPU が使えないため CPU で処理します", [False, True]))
+        with self.assertRaises(S.ApiError) as cm:
+            self.real(self.Bad(), "cuda", "cuda")
+        self.assertEqual(cm.exception.code, "gpu_failed")
+        self.assertIn("install-gpu.bat", cm.exception.message)   # 新規の文字起こしの文は GPU 用ライブラリの案内つき
+        with self.assertRaises(RuntimeError):
+            self.real(self.Bad(), "cpu", "auto")                 # CPU で動いていたら、そのまま上げる
+        for exc in (S.Cancelled(), S.ApiError("worker_crashed", "落ちた", 500)):   # 取り消し・理由のある失敗は CPU でやり直さない
+            calls = []
+            with self.loader(self.Bad(exc), "cuda", calls), self.assertRaises(type(exc)):
+                list(S.transcribe_real(self.job(), dict(self.SPEC, device="auto"), "a.wav", 1.0))
+            self.assertEqual(calls, [False])
+
+    def chunk(self, first, device, pref, row_first=True, job=None):
+        calls, job = [], job or self.job()
+        with self.loader(first, device, calls):
+            cm = S.ChunkModel(job, "small", pref, dict(self.SPEC, device=pref))
+            r = cm.recognize([0.0] * 16000, {"start": 0.0, "end": 1.0}, "", (), row_first)
+        return r, job, calls
+
+    def test_chunk_model(self):
+        r, job, calls = self.chunk(self.Bad(), "cuda", "auto")
+        self.assertEqual((r[0], job["device"], job["phase"], calls), ("CPUの行", "cpu", "GPU が使えないため CPU で処理します", [False, True]))
+        with self.assertRaises(RuntimeError):
+            self.chunk(self.Bad(), "cuda", "auto", row_first=False)   # CPU に切り替えるのは最初の行だけ
+        with self.assertRaises(S.ApiError) as cm:
+            self.chunk(self.Bad(), "cuda", "cuda")
+        self.assertEqual(cm.exception.code, "gpu_failed")
+        self.assertNotIn("install-gpu.bat", cm.exception.message)
+        with self.assertRaises(RuntimeError):
+            self.chunk(self.Bad(), "cpu", "auto")
+        # 今の動き(そろえていない): 行ごとの再認識は取り消し・理由のある失敗も同じに扱う(最初の行なら CPU を読みに行き、GPU 固定なら gpu_failed)
+        job = dict(self.job(), cancel=True)
+        with self.assertRaises(S.Cancelled):
+            self.chunk(self.Bad(S.Cancelled()), "cuda", "auto", job=job)
+        with self.assertRaises(S.ApiError) as cm:
+            self.chunk(self.Bad(S.Cancelled()), "cuda", "cuda")
+        self.assertEqual(cm.exception.code, "gpu_failed")
+
+    def range_main(self, first, device, pref):
+        calls, job = [], self.job()
+        rec = S.RangeRecognizer(job, dict(self.SPEC, device=pref, wordSplit=False), "a.wav", 0.0)
+        with self.loader(first, device, calls), mock.patch.object(S, "check_engine", lambda spec: None), \
+                mock.patch.object(S, "read_wav_f32", lambda wav: [0.0] * 16000 * 3), mock.patch.object(S, "backend_name", lambda: "worker"):
+            rec.fake = False
+            lines = rec.main(0.0, 2.0)
+        return lines, job, calls
+
+    def test_range_recognizer(self):
+        lines, job, calls = self.range_main(self.Bad(), "cuda", "auto")
+        self.assertEqual(([x["raw"] for x in lines], job["device"], job["phase"], calls), (["CPUの行"], "cpu", "GPU が使えないため CPU で処理します", [False, True]))
+        with self.assertRaises(S.ApiError) as cm:
+            self.range_main(self.Bad(), "cuda", "cuda")
+        self.assertEqual(cm.exception.code, "gpu_failed")
+        with self.assertRaises(RuntimeError):
+            self.range_main(self.Bad(), "cpu", "auto")
+        for exc in (S.Cancelled(), S.ApiError("worker_crashed", "落ちた", 500)):
+            with self.assertRaises(type(exc)):
+                self.range_main(self.Bad(exc), "cuda", "auto")
 
 
 if __name__ == "__main__":

@@ -7,9 +7,18 @@ const LS = 'clipstudio:queue:';
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(LS + k)); } catch { return null; } };
 /* 状態の言葉は 3 画面で同じ(待ち・実行中・済み・飛ばした・失敗・中止。見直し S7) */
 const STATUS = { waiting: ['待ち', 'wait'], running: ['実行中', 'run'], done: ['済み', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['飛ばした', 'wait'] };
-const OPT_IDS = ['useAudio', 'useChat', 'useComments', 'count', 'length', 'sens', 'pre', 'lag', 'lagAuto', 'headSec', 'typePreset', 'typeOver', 'chatTo', 'maxH', 'wA', 'wC', 'wM'];   // noCache は保存しない
+/* 解析の設定の欄と送る名前の表(0.23.4。以前は欄の id・送る名前・既定値の 3 つの並び): [欄の id, settings() の名前, 種類, 既定, 保存しないなら false]。
+   種類: bool = チェック・str = 選択・num = 数(空・数でなければ既定)・pct = 欄は %、送るのは 0〜1。並びは送る JSON の鍵の順 */
+const FIELDS = [
+  ['useAudio', 'useAudio', 'bool'], ['useChat', 'useChat', 'bool'], ['useComments', 'useComments', 'bool'],
+  ['count', 'count', 'num', 8], ['length', 'length', 'num', 45], ['sens', 'sensitivity', 'str'], ['pre', 'preRatio', 'pct', 65],
+  ['lag', 'lag', 'num', 8], ['lagAuto', 'lagAuto', 'bool'], ['headSec', 'headSec', 'num', 180], ['typePreset', 'typePreset', 'bool'],
+  ['typeOver', 'typeOverride', 'str'], ['chatTo', 'chatTimeout', 'num', 20], ['noCache', 'noCache', 'bool', null, false],   // noCache はその場だけの指定(保存しない)
+  ['maxH', 'maxHeight', 'num', 1080], ['wA', 'wAudio', 'num', 1], ['wC', 'wChat', 'num', 1], ['wM', 'wComments', 'num', 0.7]
+];
+const OPT_IDS = FIELDS.filter(f => f[4] !== false).map(f => f[0]);   // 保存する欄
 const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, busy: false };
-const mmss = t => { t = Math.max(0, Math.floor(Number(t) || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+const mmss = t => UIKit.fmt.dur(t, { floor: true, noHours: true });   // チャット取得の経過(83:45。ui-kit の 1 か所)
 
 function paneHtml(){
   return `
@@ -72,15 +81,18 @@ const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありま�
 
 /* ---------- 設定 ---------- */
 function settings(){
-  const num = (id, d) => { const v = Number($('#' + id).value); return Number.isFinite(v) && $('#' + id).value !== '' ? v : d; };
-  return { useAudio: $('#useAudio').checked, useChat: $('#useChat').checked, useComments: $('#useComments').checked, count: num('count', 8), length: num('length', 45), sensitivity: $('#sens').value,
-    preRatio: num('pre', 65) / 100, lag: num('lag', 8), lagAuto: $('#lagAuto').checked, headSec: num('headSec', 180), typePreset: $('#typePreset').checked, typeOverride: $('#typeOver').value, chatTimeout: num('chatTo', 20), noCache: $('#noCache').checked, maxHeight: num('maxH', 1080), wAudio: num('wA', 1), wChat: num('wC', 1), wComments: num('wM', 0.7) };
+  const o = {};
+  for (const [id, key, kind, d] of FIELDS){
+    const e = $('#' + id);
+    if (kind === 'bool') o[key] = e.checked;
+    else if (kind === 'str') o[key] = e.value;
+    else { const v = Number(e.value), n = Number.isFinite(v) && e.value !== '' ? v : d; o[key] = kind === 'pct' ? n / 100 : n; }
+  }
+  return o;
 }
 /* 解析の設定の保存先はスタジオのサーバー(/api/settings の settings.analyze。段階7-1)。
    まとめて実行(入口)も同じ設定で解析し、窓(専用のプロファイル)やほかのブラウザで開いても設定が変わらない。
    保存するのは settings() の形(noCache はその場だけの指定なので除く)。以前のブラウザの保存(localStorage の opts)は、サーバーに無いときに1回だけ引き継ぐ */
-const FROM_SETTINGS = { useAudio: 'useAudio', useChat: 'useChat', useComments: 'useComments', count: 'count', length: 'length', sensitivity: 'sens',
-  lag: 'lag', lagAuto: 'lagAuto', headSec: 'headSec', typePreset: 'typePreset', typeOverride: 'typeOver', chatTimeout: 'chatTo', maxHeight: 'maxH', wAudio: 'wA', wChat: 'wC', wComments: 'wM' };
 const O = { timer: null, touched: false };
 function applyForm(o){   // o: 画面の欄の id → 値
   for (const id of OPT_IDS){
@@ -92,8 +104,11 @@ function applyForm(o){   // o: 画面の欄の id → 値
 }
 function applySettings(v){   // v: settings() の形(サーバーに保存したもの)
   const o = {};
-  for (const [k, id] of Object.entries(FROM_SETTINGS)) if (k in v) o[id] = v[k];
-  if (typeof v.preRatio === 'number') o.pre = Math.round(v.preRatio * 100);
+  for (const [id, key, kind, , save] of FIELDS){
+    if (save === false) continue;
+    if (kind === 'pct'){ if (typeof v[key] === 'number') o[id] = Math.round(v[key] * 100); }
+    else if (key in v) o[id] = v[key];
+  }
   applyForm(o);
 }
 async function pushOpts(){
@@ -114,12 +129,12 @@ async function loadOpts(){
 
 /* ---------- 入口の読み取り ---------- */
 const unquote = s => s.trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
-const looksYt = s => /^https?:\/\//i.test(s) || /(^|[/.@])(youtube\.com|youtu\.be)\b/i.test(s) || /^[\w-]{11}$/.test(s);
+const looksYt = s => /^https?:\/\//i.test(s) || /(^|[/.@])(youtube\.com|youtu\.be)\b/i.test(s) || S.isVideoId(s);
 function entries(){
   const out = [];
   for (const l of $('#qUrls').value.split(/\r?\n/)){
     const s = unquote(l); if (!s) continue;
-    out.push(looksYt(s) ? { kind: 'youtube', url: /^[\w-]{11}$/.test(s) ? 'https://www.youtube.com/watch?v=' + s : s } : { kind: 'file', path: s });
+    out.push(looksYt(s) ? { kind: 'youtube', url: S.isVideoId(s) ? S.watchUrl(s) : s } : { kind: 'file', path: s });
   }
   const p = unquote($('#qPath').value);
   if (p) out.push(looksYt(p) ? { kind: 'youtube', url: p } : { kind: 'file', path: p });
@@ -225,10 +240,7 @@ async function beginLive(items){
 /* 録画を始めた配信を ③ 確認・書き出しで開く(自動で移って再生する)。2本以上なら最初の1本 */
 async function openBegun(begun){
   if (!begun.length) return;
-  const b = begun[0];
-  const more = begun.length > 1 ? `(ほか ${begun.length - 1}本も録画しています。③ の「配信」から開けます)` : '';
-  S.toast((b.existing ? 'この配信はもう録画しています。その録画を開きました' : '配信の録画を始めました。見ながらマークできます') + more, 6000, 'ok');
-  if (S.review && S.review.open) await S.review.open(b.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+  await S.live.openBegun(begun[0], begun.length > 1 ? `(ほか ${begun.length - 1}本も録画しています。③ の「配信」から開けます)` : '');
 }
 async function addFromForm(){
   if (Q.busy) return;
@@ -262,7 +274,7 @@ async function openWithout(){
     else {
       const r = await S.api('/api/videos/open', { body: e[0] });
       setMsg(e.length > 1 ? `複数入っているので、最初の1つだけ開きました(${r.video.title || r.video.id})` : `確認画面を開きました(${r.video.title || r.video.id})`);
-      if (S.review && S.review.open) await S.review.open(r.video.id); else S.toast('確認画面がまだ読み込まれていません', 0, 'err');
+      await S.openReview(r.video.id);
     }
   } catch (er){ S.toast(er.message, 0, 'err'); setMsg(er.message); }
   Q.busy = false; syncAdd(); refocusForm(from);
@@ -374,7 +386,7 @@ async function listClick(e){
   const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
   if (b.dataset.act === 'gorank'){ S.go('rank'); return; }   // 空の状態の次の一手(S-13)
   const act = b.dataset.act, qid = b.closest('.q-item').dataset.qid;
-  if (act === 'review'){ if (S.review && S.review.open) S.review.open(b.dataset.vid); else S.toast('確認画面がまだ読み込まれていません', 0, 'err'); return; }
+  if (act === 'review'){ S.openReview(b.dataset.vid); return; }
   b.disabled = true;
   try {
     const path = { cancel: '/api/queue/cancel', skipchat: '/api/queue/skipchat', retry: '/api/queue/retry' }[act];
@@ -392,7 +404,7 @@ S.onReady(() => {
   paintKinds(); loadOpts();
   OPT_IDS.forEach(id => $('#' + id).addEventListener('change', () => { saveOpts(); optSummary(); }));
   optSummary();
-  if (window.UIKit && UIKit.life) UIKit.life.onLeave(() => { if (O.timer) pushOpts(); });   // 変えた直後に離れた・閉じたときも送る
+  UIKit.life.onLeave(() => { if (O.timer) pushOpts(); });   // 変えた直後に離れた・閉じたときも送る
   $('#qUrls').addEventListener('input', paintKinds); $('#qPath').addEventListener('input', paintKinds);
   $('#qUrls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addFromForm(); } });   // Ctrl+Enter で追加
   $('#qPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); addFromForm(); } });

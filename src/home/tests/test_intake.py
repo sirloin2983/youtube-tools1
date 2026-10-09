@@ -552,6 +552,21 @@ class TestNormalize(Base):
         f, = self.runner.files
         return f["path"]
 
+    def test_probe_video_needs_audio(self):
+        """届いた動画の確かめ(probe_video。中は normalize.probe = 30fps の判定と同じ ffprobe の呼び方。2026-10-09 に寄せた):
+        音声があれば ok と長さ・映像だけ・壊れた・無いファイルは「音声のある動画として読めませんでした」(寄せる前と同じ結果を確かめた)"""
+        ok = intake.probe_video(self.make("音あり", 30))
+        self.assertEqual((ok["ok"], ok["reason"]), (True, ""))
+        self.assertAlmostEqual(ok["duration"], 2.0, delta=0.1)
+        silent = os.path.join(self.folder, "映像だけ.mp4")
+        subprocess.run([tools.find_tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=30:duration=1", "-c:v", "libx264", silent],
+                       check=True, stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        bad = os.path.join(self.folder, "壊れた.mp4")
+        with open(bad, "wb") as f:
+            f.write(os.urandom(3000))
+        for p in (silent, bad, os.path.join(self.folder, "無い.mp4")):
+            self.assertEqual(intake.probe_video(p), {"ok": False, "duration": None, "reason": "音声のある動画として読めませんでした"}, p)
+
     def test_60fps_copy_is_replaced_with_30fps(self):
         src = self.make("【さくらみこ】にぇ", 60)
         before = os.path.getsize(src)

@@ -153,6 +153,32 @@ class CleanupTest(unittest.TestCase):
         finally:
             C._drive = saved
 
+    def test_remember_root_keeps_old_list_when_write_fails(self):
+        """trash-roots.json は原子的に書く: 書く途中で失敗しても前の一覧が残る(前は open "w" で先に空にしていた。資料 4 節の疑い 3)"""
+        far = os.path.join(self.tmp, "E", "ごみ箱")
+        self.cl.remember_root(far)
+        self.cl.remember_root(far)   # 同じものは足さない
+        p = os.path.join(self.app, C.ROOTS_FILE)
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), ('["%s"]' % far.replace("\\", "\\\\")).encode("utf-8"))   # 中身の形は今までと同じ(1 行・改行なし)
+        with self.assertRaises(UnicodeError):
+            self.cl.remember_root(os.path.join(self.tmp, "bad\ud800"))   # UTF-8 にできない名前 = 書く途中の失敗
+        self.assertIn(os.path.normcase(os.path.abspath(far)), self.cl.trash_roots())
+        self.assertEqual([n for n in os.listdir(self.app) if n != C.ROOTS_FILE], [])   # 一時ファイルを残さない
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("{壊れた")
+        self.assertEqual(self.cl.trash_roots(), [os.path.normcase(os.path.abspath(self.cl.trash_dir))])   # 読めなければ足さない(上げない)
+
+    def test_old_day_dirs_skip_files_and_other_names(self):
+        old = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
+        root = os.path.join(self.tmp, "days")
+        os.makedirs(os.path.join(root, old + " 2"))
+        os.makedirs(os.path.join(root, "メモ"))
+        touch(os.path.join(root, old + ".txt"))
+        self.assertEqual(C._old_day_dirs(root, 3, self.now[0]), [(old + " 2", os.path.join(root, old + " 2"))])
+        self.assertEqual(C._old_day_dirs(root, 30, self.now[0]), [])
+        self.assertEqual(C._old_day_dirs(os.path.join(self.tmp, "無い"), 3, self.now[0]), [])
+
     def test_paths_not_offered_cannot_be_moved(self):
         secret = touch(os.path.join(self.tmp, "secret.txt"))
         res = self.cl.move([C._id(secret)])

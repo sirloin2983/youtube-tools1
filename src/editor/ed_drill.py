@@ -19,11 +19,9 @@
 名前は serve.py からも見える(serve.py の _ED_MODULES の最後。ほかの部品と重ならないよう、名前は drill_ / DRILL_ で始める)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
-import json
 import os
 import random
 import threading
-import time
 
 import roster as _roster  # noqa: E402  (名簿の呼び名。隣の部品)
 import ed_jobs  # noqa: E402,F401
@@ -41,20 +39,8 @@ DRILL_MAX_CANDIDATES = 16
 DRILL_CONDS = (("speakers", "話者", 4, "人"), ("streams", "配信", 3, "本"), ("overlap", "声の重なり", 30, "秒"),
                ("bgm", "BGM", 30, "秒"), ("calls", "呼び名", 10, "行"))
 
-_drill_cache = {}            # tid -> ((更新日時ns, 大きさ, 名簿の版), 要約)
+_drill_cache = {}            # tid -> ((文書の要約の鍵, 名簿の版), 要約)。文書そのものは ed_store の要約のキャッシュ(ここでは読まない)
 _drill_cache_lock = threading.Lock()
-
-
-def _now_ms():
-    return int(time.time() * 1000)
-
-
-def _num(v):
-    return ed_state.num(v, 0.0) or 0.0
-
-
-def _dur(g):
-    return max(0.0, _num(g.get("end")) - _num(g.get("start")))
 
 
 def drill_is_reviewed(doc):
@@ -84,69 +70,67 @@ def drill_stream_key(doc):
     return ("m:" + ed_relink._norm_member(m.group(1))) if m else ("d:" + os.path.normcase(os.path.dirname(path)))
 
 
-def _good(g):
-    """定点の条件に数える行(校正済み・聞き取れない印なし。progress_stats と同じ)"""
-    return g.get("proofed") is True and "unclear" not in (g.get("tags") or [])
-
-
 def _drill_text_rows(segs):
     return [g for g in segs if str(g.get("text") or "").strip()]
 
 
-def _doc_summary(doc):
+def drill_doc_summary(doc):
+    """文書 1 本のドリルの要約(評価用でなければ {"eval": False})。文書の要約(ed_store.transcript_summary の _drill)と一緒に作って覚える。
+    呼び名の行の数は名簿で変わるので、ここでは行の文字 callTexts だけを持ち、drill_docs が今の名簿で数える"""
     if doc.get("evalSet") is not True:
         return {"eval": False}
     segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
     names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     rows = _drill_text_rows(segs)
     rv = drill_is_reviewed(doc)
-    good = [g for g in segs if _good(g)] if rv else []   # 条件は確かめ済みの文書の中だけで数える
-    spk, r = {}, None
-    if good:
-        r = _roster.load(ed_state.ROSTER)
-        for g in good:
-            nm = names.get(g.get("speaker"), "").strip()
-            if nm and not ed_speakers.is_generic_speaker_name(nm):
-                spk.setdefault(ed_speakers._spk_name_key(nm), nm)
+    good = [g for g in segs if ed_store.good_row(g)] if rv else []   # 条件は確かめ済みの文書の中だけで数える
+    spk = {}
+    for g in good:
+        nm = names.get(g.get("speaker"), "").strip()
+        if nm and not ed_speakers.is_generic_speaker_name(nm):
+            spk.setdefault(ed_speakers._spk_name_key(nm), nm)
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
     return {"eval": True, "updatedAt": ed_state.plain_int(doc.get("updatedAt")) or 0, "lastAt": ed_state.plain_int(ef.get("lastAt")) or 0,
             "sourcePath": str(doc.get("sourcePath") or ""), "rows": len(rows),
             "spkRows": sum(1 for g in rows if g.get("speaker") and g.get("speaker") in names),   # 話者のある文字の行(自動の判別の後追い = ed_evalbatch が読む。v0.50.0)
             "reviewed": rv, "sec": round(drill_reviewed_sec(doc), 1) if rv else 0.0, "names": spk,
-            "overlapSec": sum(_dur(g) for g in good if "overlap" in (g.get("tags") or [])),
-            "bgmSec": sum(_dur(g) for g in good if "bgm" in (g.get("tags") or [])),
-            "callRows": sum(1 for g in good if _roster.find_in_text(str(g.get("text") or ""), r)) if good else 0,
+            "overlapSec": sum(ed_store.row_dur(g) for g in good if "overlap" in (g.get("tags") or [])),
+            "bgmSec": sum(ed_store.row_dur(g) for g in good if "bgm" in (g.get("tags") or [])),
+            "callTexts": [str(g.get("text") or "") for g in good],
             "stream": drill_stream_key(doc) if rv else ""}
 
 
+def _with_calls(s):
+    """ドリルの要約(callTexts)→ 呼び名の行の数 callRows(今の名簿で数える。名簿は良い行があるときだけ読む)"""
+    if not s.get("eval"):
+        return s
+    out = {k: v for k, v in s.items() if k != "callTexts"}
+    texts = s.get("callTexts") or []
+    r = _roster.load(ed_state.ROSTER) if texts else None
+    out["callRows"] = sum(1 for t in texts if _roster.find_in_text(t, r)) if texts else 0
+    return out
+
+
 def drill_docs():
-    """[(tid, 要約)](評価用でない文書は {"eval": False})。更新日時と大きさ(と名簿の版)が同じなら読み直さない"""
+    """[(tid, 要約)](評価用でない文書は {"eval": False})。文書は ed_store の要約のキャッシュから(読み直さない)。
+    呼び名の行の数は、文書の鍵と名簿の版が同じなら前の結果(_drill_cache)"""
     out, seen, rs = [], set(), ed_state.file_stamp(ed_state.ROSTER)
     for tid in sorted(ed_store._tids()):
         seen.add(tid)
-        st = ed_state.file_stamp(ed_store.tx_path(tid))
-        if st is None:
+        sm = ed_store.transcript_summary(tid)
+        if not sm or sm.get("_drill") is None:
             continue
-        key = st + (rs,)
+        key = (sm["_key"], rs)
         with _drill_cache_lock:
             hit = _drill_cache.get(tid)
         if hit and hit[0] == key:
             out.append((tid, hit[1]))
             continue
-        try:
-            with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
-                d = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if not isinstance(d, dict):
-            continue
-        s = _doc_summary(d)
+        s = _with_calls(sm["_drill"])
         with _drill_cache_lock:
             _drill_cache[tid] = (key, s)
         out.append((tid, s))
-    with _drill_cache_lock:
-        for k in [k for k in _drill_cache if k not in seen]:
-            _drill_cache.pop(k, None)
+    ed_store.prune_cache(_drill_cache, seen, _drill_cache_lock)
     return out
 
 
@@ -200,7 +184,7 @@ def drill_next(skip=(), seed=None):
     処理中(話者判別など)でない・今回のドリルで飛ばしていない文書から、動画の単位で乱数で 1 本(自信の低いものを選ぶと数字が悪い側に偏るため)。
     動画の無い文書(ネットワーク上は調べずに除く)は聞けないので除く"""
     skip = _drill_skip_ids(skip)
-    now, busy = _now_ms(), _busy_tids()
+    now, busy = ed_state.now_ms(), _busy_tids()
     n = {"eval": 0, "reviewed": 0, "untranscribed": 0, "skipped": 0, "recent": 0, "busy": 0, "noMedia": 0}
     pool = []
     for tid, s in drill_docs():
@@ -328,7 +312,7 @@ def _own_member(path, dirs):
     """動画の入ったフォルダから評価用のフォルダまでさかのぼって、最初の「…数字_名前」のフォルダの名前(評価用のフォルダの中だけ)"""
     if not path or not ed_relink.in_eval_dir(path, dirs):
         return ""
-    roots = [os.path.normcase(os.path.abspath(d)) for d in dirs]
+    roots = [ed_state.norm_path(d) for d in dirs]
     cur = os.path.dirname(os.path.abspath(path))
     for _ in range(ed_relink.EVAL_WALK_DEPTH + 1):
         if os.path.normcase(cur) in roots:

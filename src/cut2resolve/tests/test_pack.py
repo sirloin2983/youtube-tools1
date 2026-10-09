@@ -344,8 +344,8 @@ class TestCaptionLanes(unittest.TestCase):
         self.assertIn('V1 映像・A1 音声・V2〜V3 Text+ 字幕。同時にしゃべっている所の字幕は、重ならないように上のトラック(V3)に置き', readme)
         self.assertIn('V2〜V3 の Text+ を選び', readme)
         self.assertIn('重なる字幕(V3)の高さを直す', readme)
-        self.assertEqual(RTP.readme_text(self.plan(self.OVER)), RTP.instructions('v.mp4', None, self.plan(self.OVER).meta, 4, 1, True,
-                                                                                   RTP.TEXT_STYLE['name'], 1, 2))
+        self.assertEqual(RTP.readme_from_data(RTP.build_import_plan(self.plan(self.OVER), 'v.mp4')),
+                         RTP.instructions('v.mp4', None, self.plan(self.OVER).meta, 4, 1, True, RTP.TEXT_STYLE['name'], 1, 2))
 
     def test_video_tracks_and_three_lanes(self):
         """映像トラック 3 + 段 3: 字幕は V4〜V6(Lua は captionTrack = 映像の数 + 1 から cap.trackUp だけ上)"""

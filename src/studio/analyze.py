@@ -20,11 +20,11 @@ import uuid
 
 import common
 from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, num, redact, run_capture, tail_reason, fmt_ms
-from ytt_core import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式)
+from ytt_core import excite, fsio as _fsio  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式)
 from ytt_core.excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
                              chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
 
-API_BASE = "https://www.googleapis.com/youtube/v3/"
+API_BASE = common.YT_API_BASE
 CHAT_CACHE_KEEP = 30
 # チャットのキャッシュの合計の上限(2026-09-30。件数だけでは、実機で 30 件・2.0GB になっていた)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
 CHAT_CACHE_MAX_BYTES = 1024 ** 3
@@ -274,7 +274,7 @@ def download_audio(job, vid, wdir):
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
     cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", find_tool("ffmpeg") or "", "-f", "ba/b", "-o", common.ytdlp_out(wdir, "audio.%(ext)s"),
-           "--", "https://www.youtube.com/watch?v=" + vid]
+           "--", common.watch_url(vid)]
 
     def on(line):
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
@@ -340,18 +340,20 @@ def prune_chat_cache(limit=None, keep=CHAT_CACHE_KEEP):
         with _pf_lock:
             busy = set(_chat_in_use) | set(PREFETCH)
         files, tmps = [], []
-        for p in glob.glob(os.path.join(glob.escape(d), "*.live_chat.json*")):
+        total, count = 0, 0   # 合計と件数は、使っている最中で飛ばしたものも含めて数える(消せないものの分も上限に入る)
+        for p in glob.glob(os.path.join(glob.escape(d), "*.live_chat.json*")):   # フォルダは 1 回だけ読む
             name = os.path.basename(p)
             vid = name.split(".live_chat.json", 1)[0]
-            if vid in busy:
-                continue
             try:
                 st = os.stat(p)
             except OSError:
                 continue
             if name.endswith(".live_chat.json"):
-                files.append((st.st_mtime, st.st_size, p))
-            elif name.endswith(".live_chat.json.tmp"):
+                total += st.st_size
+                count += 1
+                if vid not in busy:
+                    files.append((st.st_mtime, st.st_size, p))
+            elif name.endswith(".live_chat.json.tmp") and vid not in busy:
                 tmps.append((st.st_size, p))
         for size, p in tmps:
             try:
@@ -360,14 +362,6 @@ def prune_chat_cache(limit=None, keep=CHAT_CACHE_KEEP):
             except OSError:
                 pass
         files.sort()
-        # 合計と件数は、使っている最中で飛ばしたものも含めて数える(消せないものの分も上限に入る)
-        total, count = 0, 0
-        for p in glob.glob(os.path.join(glob.escape(d), "*.live_chat.json")):
-            try:
-                total += os.path.getsize(p)
-                count += 1
-            except OSError:
-                pass
         newest = files[-1][2] if files else None
         for _mtime, size, p in files:
             if count <= keep and total <= limit:
@@ -390,9 +384,8 @@ def sig_path(vid):
 
 def load_sig(vid):
     """保存済みの音量の解析結果(長さ・全帯域・高音域)。無い・壊れている・形が違うなら None。"""
+    d = _fsio.read_json_or(sig_path(vid), {}, kind=dict)
     try:
-        with open(sig_path(vid), encoding="utf-8") as f:
-            d = json.load(f)
         full, band, dur = d.get("full"), d.get("band"), d.get("dur")
         if d.get("v") != 1 or not isinstance(full, list) or not isinstance(band, list) or not isinstance(dur, (int, float)):
             return None
@@ -408,7 +401,6 @@ def load_sig(vid):
 
 def save_sig(vid, dur, full, band):
     try:
-        os.makedirs(sig_cache_dir(), exist_ok=True)
         data = {"v": 1, "dur": round(dur, 2), "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band]}
         atomic_write(sig_path(vid), json.dumps(data, separators=(",", ":")).encode("utf-8"))   # 一時ファイル名を固定しない・Windows のロックは再試行
         prune_cache(sig_cache_dir(), "*.json")
@@ -456,7 +448,7 @@ def download_chat(job, vid, wdir, timeout):
     yt = find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", common.ytdlp_out(wdir, "chat.%(ext)s"), "--", "https://www.youtube.com/watch?v=" + vid]
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", common.ytdlp_out(wdir, "chat.%(ext)s"), "--", common.watch_url(vid)]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)
@@ -503,7 +495,7 @@ PREFETCH = {}   # 動画ID -> {"job", "done": Event, "why", "path"}
 
 def prefetch_chat(vid, timeout, on_done=None):
     """"started" / "full"(先読みの枠がいっぱい)/ "skip"(すでに取得済み・取得中、または使えない)。"""
-    if common.fake() or not re.fullmatch(r"[\w-]{11}", vid or ""):
+    if common.fake() or not isinstance(vid, str) or not common.VID_RE.match(vid):   # ASCII の 11 文字だけ(以前は全角の英字なども通っていた)
         return "skip"
     with _pf_lock:
         if vid in PREFETCH:
@@ -692,10 +684,8 @@ def _meta_ok(d):
 
 
 def load_meta(vid):
+    d = _fsio.read_json_or(os.path.join(meta_dir(), vid + ".json"))
     try:
-        p = os.path.join(meta_dir(), vid + ".json")
-        with open(p, encoding="utf-8") as f:
-            d = json.load(f)
         if _meta_ok(d) and time.time() - float(d.get("fetchedAt") or 0) < META_TTL:
             return d
     except (OSError, ValueError, TypeError):
@@ -719,7 +709,7 @@ def fetch_meta(job, vid):
         return None, "yt-dlp が見つかりません"
     buf = []
     try:
-        rc, err = run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", "https://www.youtube.com/watch?v=" + vid],
+        rc, err = run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", common.watch_url(vid)],
                               lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, slot="proc3", what="動画情報の取得")
     except ApiError as e:
         return None, e.message
@@ -731,7 +721,6 @@ def fetch_meta(job, vid):
         return None, "動画情報を読み取れませんでした"
     if m:
         try:
-            os.makedirs(meta_dir(), exist_ok=True)
             atomic_write(os.path.join(meta_dir(), vid + ".json"), json.dumps(m, ensure_ascii=False).encode("utf-8"))
             prune_cache(meta_dir(), "*.json", META_KEEP)
         except OSError:
@@ -984,11 +973,6 @@ def _weights(job, spec, warnings):
     return wts, meta, stream_type
 
 
-def _candidates(picks, comps):
-    """選んだ区間に、山の前後の材料ごとの点数(parts)と理由の文を付ける(式は excite.candidates。配信中の候補と同じ)"""
-    return excite.candidates(picks, comps)
-
-
 def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, stream_type, info, cands):
     """後から実データで見直すための記録(save_archive)。levels = (full, band)・chat = _chat_signal の結果(使わなかったときは None)。失敗しても解析は続ける"""
     try:
@@ -1055,7 +1039,7 @@ def run_analyze(job):
         total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点
         # 材料が重なるほど合計が大きくなる(音声・チャット・コメントが同じ場面を指すと強い)
-        cands = _candidates(pick_clips(total, full, spec, n), comps)
+        cands = excite.candidates(pick_clips(total, full, spec, n), comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
         _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, stream_type, info, cands)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         if job["cancel"]:

@@ -10,6 +10,7 @@
 import copy
 import json
 import math
+import operator
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ import time
 import analyze
 import common
 from common import ApiError, atomic_write
+from ytt_core import fsio as _fsio, schemas  # noqa: E402  (common が ytt_core を読めるようにしてある)
 
 SCHEMA = "clip-studio/v1"
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
@@ -49,7 +51,11 @@ def now_ms():
 
 
 def _pos_int(x):
-    return isinstance(x, int) and not isinstance(x, bool) and x > 0
+    return schemas.is_int(x) and x > 0
+
+
+_BY_SCORE = lambda m: -(m["score"] or 0)            # noqa: E731  点数の高い順
+_BY_TIME = operator.itemgetter("start", "end")      # 時刻の順
 
 
 def _ms_or_now(x):
@@ -77,13 +83,31 @@ def _f(v):
 
 def _num_strict(v):
     """JSON の数値(int/float)だけを受け付ける。文字列・真偽値・NaN・Infinity・巨大な値は None。"""
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
-        return None
-    try:
-        x = float(v)
-    except (OverflowError, ValueError):
-        return None
-    return x if math.isfinite(x) and abs(x) <= MAX_TIME else None
+    x = schemas.num(v)
+    return x if x is not None and abs(x) <= MAX_TIME else None
+
+
+def _clean_reasons(v):
+    """理由の文(6 件・40 字まで)。リストでなければ []"""
+    return [str(r)[:40] for r in v[:6]] if isinstance(v, list) else []
+
+
+def _clean_parts(v):
+    """材料ごとの点数 {audio, chat, comments}(数のものだけ・小数 2 桁)。辞書でなければ {}"""
+    parts = {}
+    if isinstance(v, dict):
+        for k in PART_KEYS:
+            x = _f(v.get(k))
+            if x is not None:
+                parts[k] = round(x, 2)
+    return parts
+
+
+def _clamp_end(dur, s, e):
+    """終わりを配信の長さ dur(秒。0・None なら切らない)で切る。開始より後でなくなれば None"""
+    if dur and dur > 0:
+        e = min(e, round(float(dur), 1))
+    return e if e > s else None
 
 
 def check_times(s_raw, e_raw):
@@ -125,13 +149,7 @@ def _clean_server(d):
     # 書き出した mp4 の絶対パス(サーバーだけが決める。画面のマークの行から他のツールへ渡すリンクに使う。出力先を後で変えても元の場所が分かる)
     fp = d.get("path") if st == "exported" and f and isinstance(d.get("path"), str) and len(d.get("path")) <= 600 and "\x00" not in d.get("path") else ""
     score, peak = _f(d.get("score")), _f(d.get("peak"))
-    reasons = [str(r)[:40] for r in d.get("reasons")[:6]] if isinstance(d.get("reasons"), list) else []
-    parts = {}
-    if isinstance(d.get("parts"), dict):
-        for k in PART_KEYS:
-            x = _f(d["parts"].get(k))
-            if x is not None:
-                parts[k] = round(x, 2)
+    reasons, parts = _clean_reasons(d.get("reasons")), _clean_parts(d.get("parts"))
     src = d.get("src") if d.get("src") in ("auto", "collab") else "manual"
     return {"src": src, "score": None if score is None else round(score, 2), "reasons": reasons, "parts": parts,
             "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "", "path": fp,
@@ -308,12 +326,17 @@ def offset_from_anchors(points):
     return {"a": round(a, 6), "b": round(b, 3), "tStart": None, "tEnd": None}
 
 
+def _in_piece(pc, t):
+    """t がオフセットの区分 pc(tStart 以上 tEnd 未満。None は端なし)の中か"""
+    lo, hi = pc.get("tStart"), pc.get("tEnd")
+    return (lo is None or t >= lo) and (hi is None or t < hi)
+
+
 def _piece_for(pieces, t):
     if not pieces:
         return None
     for pc in pieces:
-        lo, hi = pc.get("tStart"), pc.get("tEnd")
-        if (lo is None or t >= lo) and (hi is None or t < hi):
+        if _in_piece(pc, t):
             return pc
     return pieces[-1]   # 境界が噛み合わない場合は最後の要素で近似する
 
@@ -339,8 +362,7 @@ def _from_ref(g, vid, t_ref):
         if not a:
             continue
         t = (t_ref - pc["b"]) / a
-        lo, hi = pc.get("tStart"), pc.get("tEnd")
-        if (lo is None or t >= lo) and (hi is None or t < hi):
+        if _in_piece(pc, t):
             return t
         if best is None:
             best = t
@@ -392,26 +414,19 @@ class SeriesCache(dict):
         if not p or val is None:
             return
         try:
-            os.makedirs(self.folder, exist_ok=True)
-            atomic_write(p, json.dumps(val, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-            files = sorted((os.path.getmtime(os.path.join(self.folder, f)), f) for f in os.listdir(self.folder) if f.endswith(".json"))
-            for _, f in files[:-SERIES_KEEP]:
-                os.remove(os.path.join(self.folder, f))
+            atomic_write(p, json.dumps(val, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))   # フォルダは atomic_write が作る
         except OSError:
-            pass   # 保存に失敗してもメモリには残る
+            return   # 保存に失敗してもメモリには残る
+        analyze.prune_cache(self.folder, "*.json", SERIES_KEEP)   # 古いものから消して SERIES_KEEP 本に
 
     def get(self, vid, default=None):
         if super().__contains__(vid):
             return super().get(vid)
         p = self._path(vid)
-        try:
-            with open(p, encoding="utf-8") as f:
-                d = json.load(f)
-            if isinstance(d, dict):
-                super().__setitem__(vid, d)
-                return d
-        except (OSError, ValueError, TypeError):
-            pass
+        d = _fsio.read_json_or(p, kind=dict) if p else None
+        if d is not None:
+            super().__setitem__(vid, d)
+            return d
         return default
 
     def __contains__(self, vid):
@@ -423,10 +438,7 @@ class SeriesCache(dict):
     def pop(self, vid, *default):
         p = self._path(vid)
         if p:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+            _fsio.unlink_quiet(p)
         return super().pop(vid, *default)
 
 
@@ -687,7 +699,7 @@ class Store:
     def put_video(self, vid, title, marks_raw, base_rev=None):
         if not isinstance(marks_raw, list):
             raise ApiError("bad_request", "marks が正しくありません", 400)
-        if base_rev is not None and (not isinstance(base_rev, int) or isinstance(base_rev, bool)):
+        if base_rev is not None and not schemas.is_int(base_rev):
             raise ApiError("bad_request", "baseRev が正しくありません", 400)
         with self.lock:
             v = self._need(vid)
@@ -743,7 +755,7 @@ class Store:
         """「まとめて実行(解析から全部)」用: 自動マークの候補(判定前)を点数の高い順に top 件だけ採用にする。
         人の判定ではないので、学習の記録(feedback.jsonl の「よかった」)は書かない・コラボへの転写もしない。
         すでに採用・書き出し済みのマークがあれば何もしない(人が選んだものを優先)。-> (採用にしたマークの id, 公開用の動画)"""
-        if not isinstance(top, int) or isinstance(top, bool) or not (1 <= top <= 30):
+        if schemas.int_in(top, 1, 30) is None:
             raise ApiError("bad_request", "採用する数は1〜30です", 400)
         with self.lock:
             v = self._need(vid)
@@ -751,7 +763,7 @@ class Store:
                 raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)   # 解析していない録画に自動マークは無い
             if any(m["status"] in ("adopted", "exported") for m in v["marks"]):
                 return [], self._pub(v)
-            cands = sorted((m for m in v["marks"] if m["src"] == "auto" and m["status"] == ""), key=lambda m: -(m["score"] or 0))[:top]
+            cands = sorted((m for m in v["marks"] if m["src"] == "auto" and m["status"] == ""), key=_BY_SCORE)[:top]
             if not cands:
                 return [], self._pub(v)
             ids = {m["id"] for m in cands}
@@ -771,7 +783,7 @@ class Store:
         -> (区間のマークの id(ranges の順), 自動のマークの id(点数の高い順), 公開用の動画)"""
         if not isinstance(ranges, list) or len(ranges) > MAX_REQUEST_RANGES:
             raise ApiError("bad_request", "区間は%d個までです" % MAX_REQUEST_RANGES, 400)
-        if not isinstance(auto, int) or isinstance(auto, bool) or not (0 <= auto <= 30):
+        if schemas.int_in(auto, 0, 30) is None:
             raise ApiError("bad_request", "自動で選ぶ数は0〜30です", 400)
         want = []
         for r in ranges:
@@ -786,13 +798,11 @@ class Store:
             if v["kind"] == "live":   # 依頼(時刻指定)は YouTube の配信が対象。録画の時刻は別の基準(録画の頭からの秒)
                 raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)
             nv = copy.deepcopy(v)
-            dur = round(float(nv["duration"]), 1) if nv["duration"] and nv["duration"] > 0 else 0
             range_ids, changed = [], False
             for s, e in want:
-                if dur:
-                    e = min(e, dur)
-                    if e <= s:
-                        raise ApiError("bad_request", "区間が配信の長さの外です(%s 秒から)" % s, 400)
+                e = _clamp_end(nv["duration"], s, e)
+                if e is None:
+                    raise ApiError("bad_request", "区間が配信の長さの外です(%s 秒から)" % s, 400)
                 m = next((x for x in nv["marks"] if _same(x, {"start": s, "end": e})), None)
                 if m is None:
                     if len(nv["marks"]) >= MAX_MARKS:
@@ -808,13 +818,13 @@ class Store:
                     range_ids.append(m["id"])
             picked = [(m["start"], m["end"]) for m in nv["marks"] if m["id"] in range_ids]
             autos = sorted((m for m in nv["marks"] if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in range_ids
-                            and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=lambda m: -(m["score"] or 0))[:auto]
+                            and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_BY_SCORE)[:auto]
             for m in autos:
                 if m["status"] == "":
                     m["status"], m["adoptedBy"] = "adopted", "auto"
                     changed = True
             if changed:
-                nv["marks"] = sorted(nv["marks"], key=lambda x: (x["start"], x["end"]))
+                nv["marks"] = sorted(nv["marks"], key=_BY_TIME)
                 self._bump(nv)
             return range_ids, [m["id"] for m in autos], self._pub(nv)
 
@@ -846,15 +856,15 @@ class Store:
                 except (BadMark, KeyError, TypeError):
                     continue
                 m = _new_mark("a", s, e)
-                m.update({"src": "auto", "score": _f(c.get("score")), "reasons": [str(r)[:40] for r in (c.get("reasons") or [])][:6], "peak": _f(c.get("peak")),
-                          "parts": {k: round(_f(x), 2) for k, x in (c.get("parts") or {}).items() if k in PART_KEYS and _f(x) is not None}, "auto0": [s, e]})
+                m.update({"src": "auto", "score": _f(c.get("score")), "reasons": _clean_reasons(c.get("reasons")), "peak": _f(c.get("peak")),
+                          "parts": _clean_parts(c.get("parts")), "auto0": [s, e]})
                 if any(_same(m, o) for o in kept + autos):
                     continue
                 autos.append(m)
             if len(kept) + len(autos) > MAX_MARKS:   # 残したマークを優先し、自動を減らす
-                autos = sorted(autos, key=lambda m: -(m["score"] or 0))[:max(0, MAX_MARKS - len(kept))]
+                autos = sorted(autos, key=_BY_SCORE)[:max(0, MAX_MARKS - len(kept))]
             nv = copy.deepcopy(v)
-            nv["marks"] = sorted(kept + autos, key=lambda m: (m["start"], m["end"]))[:MAX_MARKS]
+            nv["marks"] = sorted(kept + autos, key=_BY_TIME)[:MAX_MARKS]
             nv["analysis"] = analysis
             if duration and duration > 0:
                 nv["duration"] = round(float(duration), 2)
@@ -983,11 +993,10 @@ class Store:
             if len(g["members"]) + len(new) > MAX_GROUP_MEMBERS:
                 raise ApiError("bad_request", "1つのグループにまとめられるのは%d本までです" % MAX_GROUP_MEMBERS, 400)
             self._check_free(new)
-            ng = dict(g, members=g["members"] + new, offsets=dict(g["offsets"]), updatedAt=now_ms())
+            offsets = dict(g["offsets"])
             for vid in new:
-                ng["offsets"][vid] = []
-            self._commit_group(g["id"], ng)
-            return self._group_summary(ng)
+                offsets[vid] = []
+            return self._save_group(g, members=g["members"] + new, offsets=offsets)
 
     def remove_member(self, gid, vid):
         """メンバーを外す。基準の動画を外す・残り1本になる場合はグループごと削除する(ズレの基準がなくなるため)。
@@ -1000,9 +1009,13 @@ class Store:
                 return None
             members = [m for m in g["members"] if m != vid]
             offsets = {k: v for k, v in g["offsets"].items() if k != vid}
-            ng = dict(g, members=members, offsets=offsets, updatedAt=now_ms())
-            self._commit_group(g["id"], ng)
-            return self._group_summary(ng)
+            return self._save_group(g, members=members, offsets=offsets)
+
+    def _save_group(self, g, **changes):
+        """グループ g を changes で変えて保存し(updatedAt を付ける)、要約を返す"""
+        ng = dict(g, updatedAt=now_ms(), **changes)
+        self._commit_group(g["id"], ng)
+        return self._group_summary(ng)
 
     def delete_group(self, gid):
         with self.lock:
@@ -1022,10 +1035,9 @@ class Store:
                 piece = offset_from_anchors(points)
             except BadMark as e:
                 raise ApiError("bad_anchor", str(e), 400)
-            ng = dict(g, offsets=dict(g["offsets"]), updatedAt=now_ms())
-            ng["offsets"][vid] = [piece]
-            self._commit_group(g["id"], ng)
-            return self._group_summary(ng)
+            offsets = dict(g["offsets"])
+            offsets[vid] = [piece]
+            return self._save_group(g, offsets=offsets)
 
     def _transfer_collab(self, vid, mark):
         """採用されたマークを、同じグループの他の動画へ「候補」として転写する(自動採用はしない)。"""
@@ -1057,17 +1069,17 @@ class Store:
             v = self.videos.get(vid)
             if not v:
                 return
-            already = any((m.get("collabFrom") or {}).get("markId") == from_mark_id and (m.get("collabFrom") or {}).get("videoId") == from_vid for m in v["marks"])
+            origin = {"videoId": from_vid, "markId": from_mark_id}   # collabFrom は必ずこの 2 つの鍵だけ(_collab_from)
+            already = any(m.get("collabFrom") == origin for m in v["marks"])
             if already:
                 return
             try:
                 s, e = check_times(max(0.0, s_raw), e_raw)
             except BadMark:
                 return
-            if v["duration"] and v["duration"] > 0:
-                e = min(e, round(float(v["duration"]), 1))
-                if e <= s:
-                    return
+            e = _clamp_end(v["duration"], s, e)
+            if e is None:
+                return
             from_title = (self.videos.get(from_vid) or {}).get("title") or from_vid
             note = ("コラボ転写(元: %s)" % from_title)[:40]
             similar = next((x for x in v["marks"] if _overlaps(s, e, x["start"], x["end"])), None)
@@ -1093,17 +1105,12 @@ class Store:
             m = _new_mark("c", s, e)
             m.update({"src": "collab", "reasons": [note], "collabFrom": {"videoId": from_vid, "markId": from_mark_id}, "auto0": [s, e]})
             nv = copy.deepcopy(v)
-            nv["marks"] = sorted(nv["marks"] + [m], key=lambda x: (x["start"], x["end"]))[:MAX_MARKS]
+            nv["marks"] = sorted(nv["marks"] + [m], key=_BY_TIME)[:MAX_MARKS]
             self._bump(nv)
 
     # ---- 画面の設定(不透明な辞書) ----
     def get_ui(self):
-        try:
-            with open(self.ui_path, encoding="utf-8") as f:
-                d = json.load(f)
-            return d if isinstance(d, dict) else {}
-        except (OSError, ValueError):
-            return {}
+        return _fsio.read_json_or(self.ui_path, {}, kind=dict)   # 読めなければ空(呼ぶ側が書き換えるので {} は毎回作る)
 
     def set_ui_section(self, name, value):
         """画面の設定のうち1つの節(例: review)だけを置き換える。読み込み→書き込みをロックの中で行うので、

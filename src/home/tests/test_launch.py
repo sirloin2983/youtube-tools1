@@ -7,6 +7,7 @@
 ポートは OS に空きを選ばせるので、本物のツールが動いている PC でも走らせられる。
 """
 import http.client
+import io
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -418,7 +419,7 @@ class HelpersTest(unittest.TestCase):
         p = os.path.join(self.tmp, "b.log")
         with open(p, "wb") as f:
             f.write(b"x" * 20)
-        L.rotate(p, limit=10)
+        L.fsio.rotate(p, 10)   # 入口のログの回し方(0.50.1 で launch.rotate → fsio.rotate。名前は .old.log のまま)
         self.assertFalse(os.path.exists(p))
         self.assertTrue(os.path.exists(os.path.join(self.tmp, "b.old.log")))
 
@@ -536,6 +537,59 @@ class PortalHttpTest(Base):
         r, _ = self.post("/api/tools/studio/delete")
         self.assertEqual(r.status, 404)
         self.assertEqual(self.state("studio"), "stopped", "拒否したのに起動した")
+
+    def test_post_body_edges(self):
+        """本文の読み取りの境目(0.50.1 で httpsec.read_json_body に寄せた。応答の番号と文は前と同じ)"""
+        def err(r, body):
+            return r.status, json.loads(body).get("error")
+        self.assertEqual(err(*self.post("/api/cases/update", body=b"")), (400, "bad_request"))   # 空の本文は {} として読む(案件の検査で断る)
+        self.assertEqual(err(*self.post("/api/cases/update", body=b'{"id": NaN}')), (400, "bad_request"))   # NaN は今までどおり通す(案件の検査で断る)
+        self.assertEqual(err(*self.post("/api/cases/update", headers={"Content-Length": "abc"}, body=None)), (413, "size"))
+        self.assertEqual(err(*self.post("/api/cases/update", headers={"Content-Type": "application/json; charset=UTF-8"}, body=b"[]")), (400, "json"))
+        self.assertEqual(err(*self.post("/api/cases/update", body=b'{"a": 1')), (400, "json"))
+        self.assertEqual(err(*self.post("/api/cases/update", body=b"[" * 3000)), (400, "json"))   # 深い入れ子でも落ちずに 400
+        self.assertEqual(err(*self.post("/api/cases/update", headers={"Content-Type": "text/plain"})), (415, "content_type"))
+        r, _ = self.post("/api/tools/studio/start", headers={"X-YTT-Token": "é" * 10})   # ASCII 以外の合言葉でも落ちずに 403
+        self.assertEqual(r.status, 403)
+
+    def test_extra_dirs(self):
+        """空き容量・ごみ箱フォルダの書き出し先(0.50.1 で datadir.studio_out_dir に寄せた)。settings.json が無ければ今までどおり []"""
+        sdir = os.path.join(self.tmp, "studio-data")
+        os.makedirs(sdir)
+        path = os.path.join(sdir, "settings.json")
+        out = os.path.join(self.tmp, "書き出し")
+        with mock.patch.object(L.datadir, "resolve", lambda tool, root=None, env=None: sdir):
+            self.assertEqual(self.srv._extra_dirs(), [])
+            for st, want in (({"outDir": out}, [out]), ({}, [os.path.join(sdir, "exports")]), ({"outDir": ""}, [os.path.join(sdir, "exports")]),
+                             ([1], [os.path.join(sdir, "exports")]), ({"outDir": "rel/x"}, [os.path.join(sdir, "exports")])):
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(st, f)
+                self.assertEqual(self.srv._extra_dirs(), want, st)
+
+    def test_ytt_request_drains_refused_body(self):
+        """不具合の疑い 1(10-08 の見直し): 取り込んだ画面から回ってきた api/ytt/… を Host/Origin・合言葉で断るときも本文を読み捨てる
+        (読まずに閉じると Windows では接続ごと切られて 403 が届かないことがある。mount.py の parse_request が合言葉だけ見てから回す)"""
+        body = b'{"message": "x"}'
+
+        class H:
+            command, path = "POST", "/api/ytt/client-log"
+
+            def __init__(self, headers):
+                self.headers = dict({"Content-Type": "application/json", "Content-Length": str(len(body))}, **headers)
+                self.rfile, self.sent = io.BytesIO(body), []
+
+            def _json(self, code, obj):
+                self.sent.append((code, obj.get("error")))
+        ok = {"Host": self.host, "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin", "X-YTT-Token": self.srv.token}
+        for bad, want in (({"Host": "evil.example"}, "forbidden"), ({"Origin": "http://evil.example"}, "forbidden"),
+                          ({"Sec-Fetch-Site": "cross-site"}, "forbidden"), ({"X-YTT-Token": "x"}, "token")):
+            h = H(dict(ok, **bad))
+            self.srv.ytt_request(h, "studio", "1")
+            self.assertEqual(h.sent, [(403, want)], bad)
+            self.assertEqual(h.rfile.read(), b"", "断った要求の本文を読み捨てていない: %r" % (bad,))
+        h = H(ok)
+        self.srv.ytt_request(h, "studio", "1")
+        self.assertEqual(h.sent, [(200, None)])
 
     def test_health_api(self):
         """「調子」(段9 9-1): 版・ワーカー・空き容量・エラーの件数・作業データの大きさ(別のスレッドで数える)"""
@@ -814,6 +868,66 @@ class PortalHttpTest(Base):
         srv2, port2 = L.make_server(self.port, self.sup)
         self.assertIsNone(srv2)
         self.assertEqual(port2, self.port)
+
+
+class MainShutdownTest(unittest.TestCase):
+    """不具合の疑い 2(10-08 の見直し): main() の終了の後始末は 1 回だけ。「すべて終了」(request_shutdown)のあとに finally でもう一度走らない・
+    Ctrl+C・黒い画面の×(KeyboardInterrupt)の経路でもまとめて実行を閉じる(閉じないと実行中の段が「失敗」として記録され、次の起動で続かない。M5)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-main-")
+        self.root = make_fake_root(self.tmp)
+        self.saved_app = L.datadir.registered("app")
+
+    def tearDown(self):
+        L.datadir.register("app", self.saved_app)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_main(self, on_live_start):
+        got, unmounts, logs = {}, [], []
+        real_make_server = L.make_server
+
+        def make_server(port, sup):
+            got["srv"], p = real_make_server(port, sup)
+            return got["srv"], p
+
+        def make_logger(path):   # 黒い画面へは出さない
+            def log(msg):
+                logs.append(msg)
+            log.flush = lambda timeout=1.0: None
+            return log
+
+        def live_start(live):   # 起動の最後のほう(まとめて実行を作ったあと)で、終了の合図を送る
+            on_live_start(got["srv"])
+
+        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
+                   mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_server", make_server),
+                   mock.patch.object(L, "make_logger", make_logger),
+                   mock.patch.object(L, "install_stop_signals"), mock.patch.object(L, "ignore_stop_signals"),
+                   mock.patch.object(L, "analytics_mod", None), mock.patch.object(L.Supervisor, "start_all"),
+                   mock.patch.object(L.Supervisor, "unmount_all", lambda sup: unmounts.append(1)),
+                   mock.patch.object(L.live_mod.Live, "start", live_start), mock.patch.object(L.PortalServer, "purge_trash", lambda srv: None)]
+        for p in patches:
+            p.start()
+        try:
+            self.assertEqual(L.main(["--port", "0", "--no-open", "--no-mount"]), 0)
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        return got["srv"], unmounts
+
+    def test_shutdown_from_page_runs_teardown_once(self):
+        srv, unmounts = self.run_main(lambda srv: srv.request_shutdown())
+        self.assertEqual(unmounts, [1], "後始末が 2 回走った")
+        self.assertTrue(srv._autorun.closed)
+
+    def test_ctrl_c_closes_autorun(self):
+        def interrupt(srv):
+            raise KeyboardInterrupt()
+        srv, unmounts = self.run_main(interrupt)
+        self.assertEqual(unmounts, [1])
+        self.assertTrue(srv.closing.is_set())
+        self.assertTrue(srv._autorun.closed, "Ctrl+C の経路でまとめて実行を閉じていない")
 
 
 def _copy_tool(src, dst):

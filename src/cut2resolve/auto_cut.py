@@ -21,7 +21,7 @@ import cut2resolve_core as C
 import srt2resolve as S
 
 VERSION = "0.1.0"
-SCHEMA = "youtube-tools-cut-plan/v1"
+SCHEMA = C.CUT_PLAN_SCHEMA
 DEFAULT_HANDLES = 10.0   # スタジオの採用区間のような長い区間の既定(前後10秒の編集余白)
 
 
@@ -101,15 +101,10 @@ def build_plan(segments, meta, handle_seconds=10.0):
     if not core:
         raise C.ToolError("採用区間が動画の長さの範囲にありません。")
     core.sort(key=lambda x: (x[0], x[1]))
-    keeps = C.normalize([(max(0, a - handle), min(total, b + handle)) for a, b, _ in core], total)
-    removed = removed_between(keeps, total)
-    records = []
-    for a, b, m in core:
-        records.append({"id": m["id"], "label": m["label"], "selected_frames": [a, b],
-                        "keep_with_handles_frames": [max(0, a-handle), min(total, b+handle)]})
-    return {"schema": SCHEMA, "frame_rate": f"{fps[0]}/{fps[1]}", "source_frames": total,
-            "handle_frames": handle, "selected_segments": records,
-            "keep_frames": [list(x) for x in keeps], "removed_frames": [list(x) for x in removed]}
+    padded = [(max(0, a - handle), min(total, b + handle)) for a, b, _ in core]   # 余白つきの区間(残す区間と記録の両方に使う)
+    records = [{"id": m["id"], "label": m["label"], "selected_frames": [a, b], "keep_with_handles_frames": list(span)}
+               for (a, b, m), span in zip(core, padded)]
+    return plan_from_keeps(C.normalize(padded, total), meta, records, handle)
 
 
 def removed_between(keeps, total):
@@ -262,6 +257,7 @@ def run(args):
 
 
 def main(argv=None):
+    C.safe_stdio()
     ap = argparse.ArgumentParser(description="採用区間JSONから編集余白付きのResolveカット計画を生成")
     ap.add_argument("video", help="元動画")
     ap.add_argument("selection", help="採用区間JSON (youtube-tools-cut-plan/v1)")

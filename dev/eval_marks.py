@@ -109,7 +109,7 @@ def locate(data_dir=None):
 
 def studio_videos(studio):
     """スタジオの data.json の videos(読めない・形が違えば {})。ライブの録画も含めたまま"""
-    data = read_json(os.path.join(studio, "data.json"), {})
+    data = read_json(os.path.join(studio, "data.json"), {}, C.DOC_BYTES)
     return data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
 
 
@@ -1103,29 +1103,21 @@ def print_report(res):
     print_clip_length(res["clipLength"])
 
 
-def save(res, studio):
-    return C.save(res, studio, "marks")
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="盛り上がり検出の当たり具合を人の判定の記録で測る(作業データは読むだけ)")
-    p.add_argument("--since", help="この日(YYYY-MM-DD)以後のものだけ")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までのものだけ")
-    p.add_argument("--json", action="store_true", help="同じ形の JSON を スタジオの作業データの evals/marks/<日時>.json に残す")
-    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    C.add_period_args(p, "この日(YYYY-MM-DD)以後のものだけ", "この日(YYYY-MM-DD。この日を含む)までのものだけ",
+                      "同じ形の JSON を スタジオの作業データの evals/marks/<日時>.json に残す")
     p.add_argument("--status-fallback", action="store_true", help="行も実行記録も無い採用・書き出しの状態を、人の判定として数える")
     p.add_argument("--live", action="store_true", help="配信ごとの記録(入口の live/reports/ と live_feedback.jsonl。線 D の D-12)を並べる")
     args = p.parse_args(argv)
     if args.live:
         res = evaluate_live(args.data_dir, args.since, args.until)
         print_live(res)
-        if args.json:
-            print("\n保存: " + C.save(res, locate(args.data_dir)[1], "marks", "-live"))
+        C.report_saved(res, args.json, locate(args.data_dir)[1], "marks", "-live")
         return res
     res = evaluate(args.data_dir, args.since, args.until, args.status_fallback)
     print_report(res)
-    if args.json:
-        print("\n保存: " + save(res, res["meta"]["studioDir"]))
+    C.report_saved(res, args.json, res["meta"]["studioDir"], "marks")
     return res
 
 

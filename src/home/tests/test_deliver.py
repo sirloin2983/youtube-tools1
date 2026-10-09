@@ -206,6 +206,19 @@ class GroupFilesTest(unittest.TestCase):
                              datetime.datetime.fromtimestamp(t).astimezone().isoformat(timespec="seconds"), t)
         self.assertRegex(deliver.write_group_json(path, "t", "1", None, [])["sentAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")   # now を省けば今
 
+    def test_write_group_json_is_atomic(self):
+        """組の一覧は原子的に書く: 書く途中で失敗しても書きかけのファイルを残さない(友人のアプリは一覧が見えたら組がそろっているとみなす。
+        前は open "w" で先に作っていた。資料 4 節の疑い 3)。中身は今までと同じ 1 行(json.dump と同じバイト列・改行なし)"""
+        os.makedirs(self.out)
+        path = os.path.join(self.out, "rid__t 1-2.group.json")
+        with self.assertRaises(UnicodeError):
+            deliver.write_group_json(path, "bad\ud800", "1-2", None, [])   # UTF-8 にできない題 = 書く途中の失敗
+        self.assertEqual(os.listdir(self.out), [])
+        doc = deliver.write_group_json(path, "雑談", "1-2", None, [], now=1791000000)
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
+        self.assertEqual(os.listdir(self.out), [os.path.basename(path)])   # 一時ファイルを残さない
+
     def test_write_group_json_without_preview_is_null(self):
         """まとめ動画を作れなかった組: preview は null(zip と一覧は届ける)"""
         path = os.path.join(self.tmp, "g.group.json")
@@ -316,6 +329,27 @@ class PreviewTest(unittest.TestCase):
         self.assertFalse(deliver.make_preview([bad], os.path.join(self.tmp, "p.mp4"), ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append))
         self.assertTrue(self.logs and "まとめ動画を作れませんでした" in self.logs[-1], self.logs)
         self.assertFalse(deliver.make_preview([], os.path.join(self.tmp, "p.mp4")))
+
+    def test_run_ffmpeg_stops_on_check_and_timeout(self):
+        """まとめ動画の ffmpeg: check() が例外を投げたら止めて投げ直す・時間切れは (1, "timeout")・普通に終われば (0, 標準エラーの末尾)"""
+        slow = [self.ffmpeg, "-hide_banner", "-nostdin", "-re", "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=10:duration=30", "-f", "null", "-"]
+
+        class Stop(Exception):
+            pass
+        calls = []
+
+        def check():
+            calls.append(1)
+            if len(calls) >= 2:
+                raise Stop()
+        t0 = time.time()
+        with self.assertRaises(Stop):
+            deliver._run_ffmpeg(slow, 60, check)
+        self.assertEqual(deliver._run_ffmpeg(slow, 1, None), (1, "timeout"))
+        self.assertLess(time.time() - t0, 15)
+        code, err = deliver._run_ffmpeg([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", os.path.join(self.tmp, "無い.mp4"), "-f", "null", "-"], 30, None)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(err)
 
     def test_clip_seconds_with_real_ffprobe(self):
         """組の一覧の長さ: 本物の動画は秒が読める・壊れた動画・動画の無いパックは None"""

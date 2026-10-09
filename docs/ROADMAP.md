@@ -76,7 +76,7 @@
 | `docs/design/integration-plan.md` | 統合計画(段階 0〜7 完了)。正本は Claude Docs「動画編集ツール 統合計画」 |
 | `docs/design/edit-tool-design.md` | 「編集」ツールの設計(データ・API・決めごと) |
 | `docs/design/resolve-pack-unification.md` | Resolve パックの一本化と Resolve の注意 |
-| `docs/design/code-review-simplify-2026-10-08.md` | 10-08 のコードの見直し(「もっと簡潔な処理ができないか」。13 グループ・指摘 193 件・横断の傾向 T1〜T12・直す順番 A〜F・不具合の疑い 14 件。コードは変えていない) |
+| `docs/design/code-review-simplify-2026-10-08.md` | 10-08 のコードの見直し(「もっと簡潔な処理ができないか」。13 グループ・指摘 193 件・横断の傾向 T1〜T12・直す順番 A〜F・不具合の疑い 14 件。**A〜E は 10-09 に実装済み**(F の削除はユーザー確認待ち = plan/decisions.md 3-18)) |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |

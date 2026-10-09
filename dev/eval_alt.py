@@ -51,7 +51,7 @@ from _evalcommon import rate, read_json  # noqa: E402
 
 SCHEMA = "youtube-tools-alt-eval/v1"
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
-MAX_DOC_BYTES = 64 * 1024 * 1024
+MAX_DOC_BYTES = C.DOC_BYTES
 MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを超えたら判定しない(比べる計算が重くなりすぎないように)
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 ENV0 = dict(os.environ)            # 作業データの場所を決めるための環境変数(serve.py を読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになるので、その前の値)
@@ -530,23 +530,16 @@ def print_report(res):
         print("注意: " + n)
 
 
-def save(res, root):
-    return C.save(res, root, "alt")
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description="2つ目のエンジンとの食い違いの候補の当たり率を、人の最終で測る(作業データは読むだけ)")
-    p.add_argument("--since", help="この日(YYYY-MM-DD)以後だけ(まとまりの時刻 = 人の行の proofedAt の最大、無ければ文書の更新時刻)")
-    p.add_argument("--until", help="この日(YYYY-MM-DD。この日を含む)までだけ")
-    p.add_argument("--json", action="store_true", help="同じ形の JSON を 文字起こしの作業データの evals/alt/<日時>.json に残す")
-    p.add_argument("--data-dir", help="作業データの親フォルダ(既定 %%LOCALAPPDATA%%\\youtube-tools。テスト用)")
+    C.add_period_args(p, "この日(YYYY-MM-DD)以後だけ(まとまりの時刻 = 人の行の proofedAt の最大、無ければ文書の更新時刻)",
+                      json_help="同じ形の JSON を 文字起こしの作業データの evals/alt/<日時>.json に残す")
     p.add_argument("--source", choices=SOURCES, default="alt", help="候補の出どころ: alt(既定。2つ目のエンジン)・yt(元の配信の YouTube の字幕。保存してある ytcaps/ だけ・通信しない)・both")
     p.add_argument("--include-eval", action="store_true", help="評価用の文書も測る(読むだけ)")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until, args.source, args.include_eval)
     print_report(res)
-    if args.json:
-        print("\n保存: " + save(res, res["meta"]["dataDir"]))
+    C.report_saved(res, args.json, res["meta"]["dataDir"], "alt")
     return res
 
 

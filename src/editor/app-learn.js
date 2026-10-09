@@ -91,11 +91,11 @@ function renderAlt(){
   if (info){ const want = S.settings.altEngine || info.default; if ([...sel.options].some(o => o.value === want)) sel.value = want; }
   const d = S.doc, j = altJob(), b = $('#altGo'), msg = $('#altMsg');
   const why = !d ? '' : d.evalSet ? '評価用の文字起こしでは使えません(定点の正解が2つのエンジンに寄らないように)' : !d.sourcePath ? 'この文書には動画のパスが無いため使えません'
-    : !(d.segments || []).some(s => (s.text || '').trim()) ? '先に文字起こしをしてください' : '';
+    : !(d.segments || []).some(hasText) ? '先に文字起こしをしてください' : '';
   b.disabled = !d || !!why || !!j;
   b.title = why;
   const n = (S.sug || []).filter(x => x.tier === 'alt').length;
-  msg.textContent = j ? `聞いています(${j.phase || ''}${j.state === 'running' ? ' ' + pctOf(j) + '%' : ''})。終わると候補が行に出ます`
+  msg.textContent = j ? `聞いています(${jobPhase(j)})。終わると候補が行に出ます`
     : why ? why
     : S.alt ? `${S.alt.label} の結果(${ago(S.alt.at)}): 食い違いの候補 ${n} 件`
     : 'まだ別のエンジンで聞いていません';
@@ -114,7 +114,7 @@ function ytcapWhy(d){
   if (d.evalSet) return '評価用の文字起こしには出しません(定点の正解が字幕に寄らないように)';
   const src = d.clip && d.clip.source;
   if (!src || src.kind !== 'youtube' || !/^[\w-]{11}$/.test(src.videoId || '')) return '元の配信が分からない文書です(スタジオで書き出した切り抜きだけ使えます)';
-  if (!(d.segments || []).some(s => (s.text || '').trim())) return '先に文字起こしをしてください';
+  if (!(d.segments || []).some(hasText)) return '先に文字起こしをしてください';
   const t = S.tools && S.tools.ytcap;
   return t && !t.ready ? (t.why || 'yt-dlp が見つかりません') : '';
 }
@@ -166,7 +166,7 @@ function updatePfStat(){
   const n = S.doc.segments.filter(s => s.proofed).length, t = S.doc.segments.length;
   $('#btnProofAll').textContent = t && n === t ? '校正済みを全解除' : '全行を校正済みに';
   $('#btnProofSel').disabled = !S.sel.size; $('#btnProofSel').title = S.sel.size ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます';   // 押せない理由(S16)
-  $('#btnNextUn').classList.toggle('primary', S.doc.segments.some(s => !s.proofed && String(s.text || '').trim()));   // 未校正がある間は次の一手(S3)
+  $('#btnNextUn').classList.toggle('primary', S.doc.segments.some(isUnproofed));   // 未校正がある間は次の一手(S3)
   renderAbHint(); updateSess(); drawStripSoon();
 }
 
@@ -318,7 +318,7 @@ function renderDrillSpk(){
   const el = $('#drSpkHint'); if (!el || !DR.on) return;
   const d = S.doc;
   if (!d){ el.textContent = ''; return; }
-  const ids = new Set((d.speakers || []).map(s => s.id)), rows = d.segments.filter(s => String(s.text || '').trim());
+  const ids = new Set((d.speakers || []).map(s => s.id)), rows = d.segments.filter(hasText);
   const none = rows.filter(s => !ids.has(s.speaker)).length;
   el.textContent = !rows.length ? '' : none ? `話者の無い行 ${none} 行` : '話者: 全行に付いています';
   // 機械が付けた話者(文字起こしのあとの自動の判別。文書の diarization.auto。人が判別し直す・全行をこの人に で消える。v0.50.0)
@@ -357,7 +357,7 @@ async function markReviewed(via){
     if (S.docId !== id) return false;
     removeBlankDrafts();
   }
-  const none = S.doc.segments.filter(s => String(s.text || '').trim() && !ids.has(s.speaker)).length;
+  const none = S.doc.segments.filter(s => hasText(s) && !ids.has(s.speaker)).length;
   if (none && !(await UIKit.dialog.confirm({ title: '話者が無い行があります', ok: 'このまま済みにする',
     body: `話者が無い行が ${none} 行あります(評価用のフォルダへ移すには全行に話者が要ります)。このまま済みにしますか` }))) return false;
   if (S.docId !== id) return false;
@@ -543,7 +543,7 @@ function renderAb(){
   if (!abVariants){ const m = $('#optModel').value; abVariants = [{ model: m, glossary: true }, { model: m, glossary: false }]; }
   $('#abRows').innerHTML = abVariants.map((v, i) => `<div class="row" data-i="${i}" style="margin-top:4px;flex-wrap:nowrap">
     <select class="abm" style="min-width:0;flex:1" aria-label="モデル">${S.tools.models.map(([val, l]) => `<option value="${esc(val)}"${val === v.model ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small icon" data-act="abdel" aria-label="この設定を外す" title="この設定を外す">' + (uiIcon('close', { size: 14 }) || '外す') + '</button>' : ''}</div>
+    <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small icon" data-act="abdel" aria-label="この設定を外す" title="この設定を外す">' + uiIcon('close', { size: 14 }) + '</button>' : ''}</div>
     ${v.glossary ? `<textarea class="abt" rows="2" style="width:100%;margin:2px 0 0" placeholder="空欄=上の共通の用語集を使う。書くと、この設定だけその語を使います(改行かカンマ区切り)" aria-label="この設定だけの用語集">${esc(v.terms || '')}</textarea>
     <div class="row" style="margin:2px 0 0"><select class="abr" aria-label="名簿から足す" style="min-width:0"><option value="">名簿から足す…</option>${((S.roster && S.roster.groups) || []).map(g => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('')}</select><span class="hint">${glossFitText(glossTerms(v.terms))}</span></div>` : ''}`).join('');
   $('#abAdd').disabled = abVariants.length >= 4;

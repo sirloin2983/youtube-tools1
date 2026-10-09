@@ -60,15 +60,24 @@ def write_runtime(rdir, tool, port, version, path="/"):
         return None
 
 
+def _load(rdir, tool):
+    """<rdir>/<tool>.json の (パス, 中身)。tool の形が違う・無い・壊れている・大きすぎれば (None, None)
+    (.runtime は誰でも書けるので、読みの規則はここ 1 か所。中身の形は呼ぶ側が確かめる)"""
+    try:
+        path = runtime_path(rdir, tool)
+        return path, fsio.read_json_file(path, MAX_BYTES)
+    except (OSError, UnicodeError, ValueError):
+        return None, None
+
+
 def read_runtime(rdir, tool):
     """<rdir>/<tool>.json → {"port", "version", "pid", "mtime", "path"}。無い・壊れている・tool が違う・ポートが範囲外なら None。
     path が無い・形が違うときは "/"(以前の記録・他人が書いた値で、別の場所へ向けさせない)。
     mtime はファイルの更新時刻(入口が「今回起動した子が書いた記録か」を見分けるため)。"""
+    path, d = _load(rdir, tool)
     try:
-        path = runtime_path(rdir, tool)
-        d = fsio.read_json_file(path, MAX_BYTES)
-        mtime = os.stat(path).st_mtime
-    except (OSError, UnicodeError, ValueError):
+        mtime = os.stat(path).st_mtime if path else None
+    except OSError:
         return None
     if not isinstance(d, dict) or d.get("tool") != tool or not valid_port(d.get("port")):
         return None
@@ -84,11 +93,7 @@ def read_runtime_port(rdir, tool):
 
 def remove_runtime(rdir, tool, port):
     """正常終了時に消す。自分が書いたもの(同じポート・同じプロセス)のときだけ(後から別のポートで起動した同じツールの記録を消さないため)。"""
-    try:
-        path = runtime_path(rdir, tool)
-        d = fsio.read_json_file(path, MAX_BYTES)
-    except (OSError, UnicodeError, ValueError):
-        return False
+    path, d = _load(rdir, tool)
     if not isinstance(d, dict) or d.get("port") != port or d.get("pid") != os.getpid():
         return False
     try:
@@ -143,14 +148,15 @@ def siblings(rdir, self_tool=None, self_port=None, timeout=PING_TIMEOUT, self_pa
     統合サーバーに取り込まれたツール(path が "/" 以外)があれば {"paths": {"studio": "/studio/"}} も付ける(無ければ付けない)。
     自分自身は問い合わせずに含める。問い合わせは並行して行い、全体でも timeout を少し超える程度で返す(応答しないポートを待たない)。"""
     found, paths = {}, {}
+    self_path = self_path if valid_path(self_path) else "/"
     if self_tool in TOOL_APPS and valid_port(self_port):
         found[self_tool] = self_port
-        if valid_path(self_path) and self_path != "/":
+        if self_path != "/":
             paths[self_tool] = self_path
     todo = []
     for tid, app in TOOL_APPS.items():
         info = read_runtime(rdir, tid) if tid != self_tool else None
-        if info and not (info["port"] == self_port and info["path"] == (self_path if valid_path(self_path) else "/")):
+        if info and not (info["port"] == self_port and info["path"] == self_path):
             todo.append((tid, app, info["port"], info["path"]))
     lock = threading.Lock()
 

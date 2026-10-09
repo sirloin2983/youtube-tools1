@@ -4,22 +4,20 @@
 - 失敗・中止は次の item へ続行。終わった item の履歴は新しい順に最大30件。
 """
 import threading
-import time
 import uuid
 
 import analyze
 import common
 from common import ApiError
+from store import now_ms as _now_ms
 from ytt_core import jobs  # common が ytt_core を読めるようにしてある
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
 FINISHED = ("done", "error", "cancelled", "skipped")
 RETRYABLE = ("error", "cancelled", "skipped")
-
-
-def _now_ms():
-    return int(time.time() * 1000)
+FULL_MSG = "一度に入れられるのは%d本までです" % MAX_ACTIVE
+DUP_MSG = "すでに解析の順番待ちにあります"
 
 
 class Batch:
@@ -105,12 +103,9 @@ class Batch:
                     continue
                 if src["kind"] == "file":
                     label = src["name"]
-                act = self._active()
-                if len(act) >= MAX_ACTIVE:
-                    rejected.append({"input": label, "reason": "一度に入れられるのは10本までです"})
-                    continue
-                if any(i["videoId"] == src["videoId"] for i in act):
-                    rejected.append({"input": label, "reason": "すでに解析の順番待ちにあります"})
+                full = self._admit_error(src["videoId"])
+                if full:
+                    rejected.append({"input": label, "reason": full[1]})
                     continue
                 title, channel = str(raw.get("title") or "")[:120], str(raw.get("channel") or "")[:100]
                 try:
@@ -129,6 +124,15 @@ class Batch:
         for i in items[100:]:
             rejected.append({"input": "", "reason": "一度に指定できる数を超えています"})
         return {"added": added, "rejected": rejected}
+
+    def _admit_error(self, vid):
+        """待ち + 実行中に入れられないとき (code, 文)(いっぱい・同じ配信がもうある)。入れられるなら None。cv を持って呼ぶ"""
+        act = self._active()
+        if len(act) >= MAX_ACTIVE:
+            return "full", FULL_MSG
+        if any(i["videoId"] == vid for i in act):
+            return "duplicate", DUP_MSG
+        return None
 
     # ---- 操作 ----
     def cancel(self, qid):
@@ -153,11 +157,9 @@ class Batch:
             it = self._find(qid)
             if it["status"] not in RETRYABLE:
                 raise ApiError("bad_state", "やり直せるのは、失敗・中止・取り除いた配信だけです", 409)
-            act = self._active()
-            if len(act) >= MAX_ACTIVE:
-                raise ApiError("full", "一度に入れられるのは10本までです", 409)
-            if any(i["videoId"] == it["videoId"] for i in act):
-                raise ApiError("duplicate", "すでに解析の順番待ちにあります", 409)
+            full = self._admit_error(it["videoId"])
+            if full:
+                raise ApiError(full[0], full[1], 409)
             self.store.ensure(it["src"], it["title"], it["channel"])
             new = self._new_item(it["src"], it["settings"], it["title"], it["channel"])
             self.items.remove(it)

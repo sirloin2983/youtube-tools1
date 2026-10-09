@@ -82,9 +82,9 @@ class Request:
     drop_lines: Optional[set] = None
     handles: Optional[float] = None       # None = 入力しだいの既定(文字起こし由来は 0、スタジオの採用区間などは 10)
     silence: bool = False
-    noise: float = -35.0
-    silence_min: float = 0.6
-    silence_pad: float = 0.15
+    noise: float = C.DEFAULT_NOISE_DB
+    silence_min: float = C.DEFAULT_SILENCE_MIN
+    silence_pad: float = C.DEFAULT_SILENCE_PAD
     drop_cut_rows: bool = True            # 文字起こしの「カット済」の行を削る(= 文字起こしツールでの意味どおり)
     min_len: float = 0.3
     join_gap: float = 0.0
@@ -92,8 +92,8 @@ class Request:
     fps: Optional[str] = None
     frames: Optional[int] = None
     src_start_tc: Optional[str] = None
-    rec_start: str = "01:00:00:00"
-    reel: str = "AX"
+    rec_start: str = C.DEFAULT_REC_START
+    reel: str = C.DEFAULT_REEL
     name: Optional[str] = None
     extra_inputs: tuple = ()               # カットリストなど、出力で上書きしてはいけない入力ファイル
     edit_media: bool = True               # 動画を同梱するパックで、スタジオの余白つき素材(.edit.json)があればそれを入れる
@@ -273,6 +273,23 @@ def row_edge_pending(req, cache):
     return bool(args) and not cache.silence_cached(*args)
 
 
+def silence_pending(req, cache):
+    """plan_cut が「無音で削る」(silence)の検出をするか(cache に無い設定のとき)。row_edge_pending と同じ使い方"""
+    if not req.silence:
+        return False
+    meta = cache.probe(Path(req.video), req.fps, req.frames)
+    return not cache.silence_cached(Path(req.video), meta["fps"], meta["total"], req.noise, req.silence_min, req.silence_pad)
+
+
+def detect_pending(req, cache):
+    """plan_cut が無音の検出(重い処理)をするか。画面の API が SLOTS を通すかを決める。調べられない(ファイル無し・形が違う)ときは False
+    (そのまま plan_cut が正しいエラーを返す)"""
+    try:
+        return row_edge_pending(req, cache) or silence_pending(req, cache)
+    except (ToolError, OSError, ValueError, KeyError):
+        return False
+
+
 def without_detect(req):
     """無音を調べずに決まった余白だけで広げる Request(重い処理の順番を待てないとき)"""
     return dataclasses.replace(req, row_edge=dataclasses.replace(req.row_edge, detect=False)) if req.row_edge else req
@@ -332,8 +349,8 @@ def _check_request(req, video):
     """指定の検査(重い処理の前に)。-> (最短の長さ, つなぐ隙間)(秒)"""
     if req.base not in BASES:
         raise ToolError(f"カットの決め方が正しくありません: {req.base}")
-    for p in (video, req.sub, req.transcript, req.plan) + tuple(req.extra_inputs):
-        if p is not None and not Path(p).is_file():
+    for p in req.inputs():
+        if not p.is_file():
             raise ToolError(f"ファイルが見つかりません: {p}")
     min_len = _finite(req.min_len, "最短の長さ(--min-len)", 0, 3600)
     join_gap = _finite(req.join_gap, "つなぐ隙間(--join-gap)", 0, 3600)
@@ -451,8 +468,8 @@ def _drop_spans(req, meta, cues, tr, warns, task=None, cache=None, log=None):
     elif req.base == "all" and req.silence and not others:
         # 既定の「無音で自動」だけで削れた区間が 0 か、ごくわずか(動画全体の 1% 未満)なら、
         # 何も言わずにそのまま「動画全体を1区間」のパックを作ってしまわないよう注意する(問題3)
-        removed_sec = sum(b - a for a, b in drops.get("silence", [])) * fps[1] / fps[0]
-        total_sec = total * fps[1] / fps[0]
+        removed_sec = C.frames_to_sec(sum(b - a for a, b in drops.get("silence", [])), fps)
+        total_sec = C.frames_to_sec(total, fps)
         if removed_sec < max(1.0, total_sec * 0.01):
             warns.append("切れる所が見つかりませんでした。「無音とみなす音量」を上げる(-30 など)か、"
                          "②残す区間・③時刻リストを試してみてください。")
@@ -568,6 +585,12 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, fcpxml=
     return p
 
 
+def normalize_outputs(copy_video, fcpxml, textplus):
+    """出力の指定のつじつま合わせ(画面の API・パックの作成・上書き確認の下見で共通。1 か所):
+    Text+ パックは動画を同梱し(copy_video が真)、補助の FCPXML は作らない(Text+ の道は FCPXML を使わない)。-> (copy_video, fcpxml)"""
+    return bool(copy_video or textplus), bool(fcpxml and not textplus)
+
+
 def edit_media_path(video, req=None, include_video=True):
     """パックに入れる余白つき素材のパス(使わないなら None)。ffprobe を使わない下見(画面の上書き確認用)"""
     if not include_video or (req is not None and not req.edit_media):
@@ -613,9 +636,9 @@ def media_for_pack(plan, include_video):
 def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, fcpxml=False, textplus=False, backup=True, plan_file=True,
                    readme_file=True):
     """作る予定のファイル {種類: パス}(pack_paths。同梱する余白つき素材の名前も。ffprobe を使わない下見)"""
-    media = edit_media_path(req.video, req, copy_video or textplus)
-    return pack_paths(req.video, out_dir, has_subs, render, copy_video, fcpxml and not textplus, textplus, media, backup, plan_file,
-                      readme_file)
+    copy_video, fcpxml = normalize_outputs(copy_video, fcpxml, textplus)
+    media = edit_media_path(req.video, req, copy_video)
+    return pack_paths(req.video, out_dir, has_subs, render, copy_video, fcpxml, textplus, media, backup, plan_file, readme_file)
 
 
 def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, backup=True, plan_file=True,
@@ -627,7 +650,7 @@ def planned_outputs(plan, out_dir=None, render=False, copy_video=False, fcpxml=F
     return out_dir, paths, [p for p in paths.values() if p.exists()]
 
 
-def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=18,
+def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False, textplus=False, force=False, crf=C.DEFAULT_CRF,
                task=None, log=None, textplus_target=None, backup=True, plan_file=True, textplus_wrap=None, readme_file=True,
                textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
                video_tracks=1, prev_copy=None):
@@ -660,8 +683,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     out_dir = Path(out_dir) if out_dir else default_out_dir(video)
     if out_dir.exists() and not out_dir.is_dir():
         raise ToolError(f"出力先がフォルダではありません: {out_dir}")
-    fcpxml = bool(fcpxml and not textplus)
-    copy_video = bool(copy_video or textplus)
+    copy_video, fcpxml = normalize_outputs(copy_video, fcpxml, textplus)
     m = media_for_pack(plan, copy_video)   # 同梱する動画(余白つき素材なら、残す区間もそれに合わせる)
     mvideo, mmeta, mkeeps = m["video"], m["meta"], m["keeps"]
     paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, fcpxml, textplus, mvideo, backup, plan_file,
@@ -751,9 +773,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     video_copy = C.gain_copy_record(copy_key, paths["video"], **how) if copy_key else None
     ordered = [(k, files[k]) for k in PACK_FILE_KINDS if k in files]
     # 画面に出す手順書: Text+ パックは Text+ の手順(予備の EDL の手順ではなく)。ファイルに書かなかったときも中身は返す
-    readme = (TP.readme_text(tplan, textplus_target, "edl" in paths, textplus_color, textplus_style, video_tracks, order) if textplus
-              else files["readme_text"])
-    return {"out_dir": out_dir, "files": ordered, "readme": readme, "warnings": warnings, "editMedia": m["edit"],
+    # (どちらも書いた側が files["readme_text"] に入れる。Text+ のほうが後に入るので予備の EDL の手順より優先)
+    return {"out_dir": out_dir, "files": ordered, "readme": files["readme_text"], "warnings": warnings, "editMedia": m["edit"],
             "mediaKeeps": [list(x) for x in mkeeps], "plan": doc, "loudness": loud, "videoCopy": video_copy}
 
 
@@ -777,7 +798,7 @@ def _stage_video(m, out_dir, final, tmp, gain, prev_copy, task=None, log=None):
 
 def _stale_warning(video, out_dir, paths, mvideo):
     """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
-    known = pack_paths(video, out_dir, True, True, False, True, True)
+    known = pack_paths(video, out_dir, True, render=True, fcpxml=True, textplus=True)
     known["textplus_plan"] = out_dir / OLD_TEXTPLUS_PLAN
     known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 2026-09-27 までの Text+ パックの動画の場所
     stale = [p for k, p in known.items() if k not in paths and p.exists()]
@@ -839,7 +860,6 @@ def summary(plan, limit=5000):
     """試算の結果(画面のタイムライン・一覧・合計に使う)。区間はフレーム [開始, 終了)、fps で秒に直せる"""
     m, fps, total = plan.meta, plan.meta["fps"], plan.meta["total"]
     kept = sum(e - s for s, e in plan.keeps)
-    removed = AC.removed_between(plan.keeps, total)
     subs = None
     if plan.cues is not None:
         subs = {"source": plan.sub_source, "in": len(plan.cues), "out": len(plan.cues_out), "vanished": plan.vanished,
@@ -853,7 +873,7 @@ def summary(plan, limit=5000):
     lay = lay or {"count": 0, "stacked": 0, "trimmed": 0}
     return {
         "fps": list(fps), "fpsValue": fps[0] / fps[1], "total": total, "durationSec": _sec(total, fps),
-        "keeps": [list(x) for x in plan.keeps], "removed": [list(x) for x in removed],
+        "keeps": [list(x) for x in plan.keeps], "removed": [list(x) for x in plan.doc["removed_frames"]],
         "keepsSec": [[_sec(a, fps), _sec(b, fps)] for a, b in plan.keeps],   # 残す区間(秒)。「編集」のたたき台はこれで今の編集を置き換える
         "selected": [list(x) for x in plan.selected], "base": [list(x) for x in plan.base],
         "drops": {k: [list(x) for x in v][:limit] for k, v in plan.drops.items()},

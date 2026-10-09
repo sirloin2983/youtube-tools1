@@ -44,7 +44,7 @@ import sys
 import threading
 import time
 
-from ytt_core import excite, fsio, tools
+from ytt_core import excite, fsio, schemas, tools
 import live_excite_worker as EW  # noqa: E402  (ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない)
 import live_export as LX  # noqa: E402
 import live_failures  # noqa: E402
@@ -67,6 +67,27 @@ CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャ
 def _dump(obj):
     """入口が書く JSON(config.json・decisions.json・auto_failures.json)のバイト列"""
     return json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8")
+
+
+def start_logged(cmd, log_path, cwd, flags, rotate=None):
+    """入口が起こす常駐の子プロセス(録画の部品・検出のワーカー)を、標準出力と標準エラーをログに足す形で起動する -> Popen。
+    見出しの行(起動の時刻)・PYTHONIOENCODING(無ければ)・PYTHONUNBUFFERED を付ける。rotate(バイト数)を渡すと、超えていたら起動の前に .old.log へ回す。
+    flags: creationflags か、その候補の並び(先頭から試し、起動できなければ次。最後もだめなら OSError)"""
+    env = dict(os.environ)
+    env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
+    env["PYTHONUNBUFFERED"] = "1"
+    if rotate is not None:
+        fsio.rotate(log_path, rotate)
+    tries = list(flags) if isinstance(flags, (list, tuple)) else [flags]
+    with open(log_path, "ab") as logf:
+        logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
+        logf.flush()
+        for i, f in enumerate(tries):
+            try:
+                return subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, creationflags=f)
+            except OSError:
+                if i == len(tries) - 1:
+                    raise
 
 
 def _ids_ok(rc, rec):
@@ -130,7 +151,7 @@ class Detector:
         self._seen = {}                    # (録画元, 録画, 候補) -> 入口が最初に見た時刻(M11 の waitMin の起点)。見かけなくなって SEEN_KEEP_SEC たったら消す
         self._seen_at = {}                 # (録画元, 録画, 候補) -> 見回りで最後に見た時刻(_seen を消す判断)
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
-        self._series = {}                  # series.jsonl の読み取りの覚え (key, 結果)
+        self._series = fsio.StampCache()   # series.jsonl の読み取りの覚え(更新日時と大きさが変わったときだけ読み直す)
         self._unconf, self._unconf_at, self._unconf_err = 0, -1e18, False   # D-13: 未確認の自動の切り抜きの数(UNCONFIRMED_EVERY 秒ごとに聞く)
         self._paused_said = ""             # D-13: 休む理由を記録に出したか(変わったときだけ出す)
         self._capped_said = set()          # D-13: 上限に達した録画(記録に 1 回だけ出す)
@@ -157,20 +178,15 @@ class Detector:
 
     def requests_cfg(self):
         """友人のライブ配信の依頼の録画ごとの設定(config.json の requests。ワーカーはこの録画を、ホームの検出がオフでも測り、感度・枠・長さをこの値で)"""
-        out = {}
-        for k, v in self.live.requests.all().items():
-            s = v.get("settings") if isinstance(v.get("settings"), dict) else {}
-            out[k] = {"sens": s.get("sens", "normal"), "perHour": s.get("perHour", 6), "length": s.get("length", 45)}
-        return out
+        # settings は live_requests.Store が検査済み(無い鍵・範囲の外は既定 = live_requests.SETTINGS_DEFAULT。読み直した項目も)
+        return {k: {x: v["settings"][x] for x in ("sens", "perHour", "length")} for k, v in self.live.requests.all().items()}
 
     def adopt_for(self, req):
         """録画ごとの自動の採用 {"enabled", "waitMin"}: 友人の依頼の録画(req = live.requests.get の項目)は常にオンで待ちは依頼の waitMin(2-15)、
         ほかはホームの設定(adopt_cfg)"""
-        a = self.adopt_cfg()
         if req is None:
-            return a
-        w = (req.get("settings") if isinstance(req.get("settings"), dict) else {}).get("waitMin")
-        return {"enabled": True, "waitMin": w if isinstance(w, int) and not isinstance(w, bool) and w > 0 else a["waitMin"]}
+            return self.adopt_cfg()
+        return {"enabled": True, "waitMin": req["settings"]["waitMin"]}   # Store が検査済み(1〜60 の整数)
 
     def wake(self):
         """友人の依頼で録画を始めた直後: 次の見回りを待たずに config.json を書いてワーカーを起こす"""
@@ -236,7 +252,7 @@ class Detector:
 
     def heartbeat(self):
         """worker.json(ワーカーの心拍)。無い・読めなければ None"""
-        return EW.read_json(os.path.join(self.dir, "worker.json"), 1024 * 1024)
+        return fsio.read_json_or(os.path.join(self.dir, "worker.json"), None, 1024 * 1024, kind=dict)
 
     def _hb_age(self, hb):
         at = LX.iso_epoch((hb or {}).get("at"))
@@ -280,23 +296,11 @@ class Detector:
         os.makedirs(self.dir, exist_ok=True)
         os.makedirs(self.live.logs_dir, exist_ok=True)
         cmd = [self.python, "-u", self.worker, "--config", os.path.join(self.dir, "config.json"), "--parent", str(os.getpid())]
-        env = dict(os.environ)
-        env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
-        env["PYTHONUNBUFFERED"] = "1"
-        log_path = os.path.join(self.live.logs_dir, "excite.log")
-        try:
-            if os.path.isfile(log_path) and os.path.getsize(log_path) > LOG_MAX:
-                os.replace(log_path, log_path[:-4] + ".old.log")
-        except OSError:
-            pass
-        try:
-            with open(log_path, "ab") as logf:
-                logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
-                logf.flush()
-                self.proc = subprocess.Popen(cmd, cwd=CODE_DIR, env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT,
-                                             creationflags=LX.low_flags() | (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0))
+        try:   # 通常より下の優先度・別のプロセスグループ(_kill の CTRL_BREAK がワーカーだけに届く)
+            self.proc = start_logged(cmd, os.path.join(self.live.logs_dir, "excite.log"), CODE_DIR,
+                                     tools.no_window_flags(new_group=True, priority="low"), rotate=LOG_MAX)
         except OSError as e:
-            self.live.note("盛り上がりの検出: ワーカーを起動できませんでした: %s" % (e.strerror or e.__class__.__name__))
+            self.live.note("盛り上がりの検出: ワーカーを起動できませんでした: %s" % tools.why(e))
             return False
         self.started_at = self.clock()
         self.live.log("盛り上がりの検出: ワーカーを起動しました(pid %d)" % self.proc.pid)
@@ -337,7 +341,7 @@ class Detector:
             shutil.rmtree(self.folder(rc, rec), ignore_errors=True)
 
     def _decisions(self, folder):
-        d = EW.read_json(os.path.join(folder, "decisions.json"), 8 * 1024 * 1024)
+        d = fsio.read_json_or(os.path.join(folder, "decisions.json"), None, 8 * 1024 * 1024, kind=dict)
         if d is None or not isinstance(d.get("items"), list):
             return {"v": 1, "n": 0, "items": []}
         return {"v": 1, "n": int(d.get("n") or 0), "items": [x for x in d["items"] if isinstance(x, dict) and isinstance(x.get("n"), int)]}
@@ -345,7 +349,7 @@ class Detector:
     def view(self, rc, rec):
         """peaks.json(ワーカー)+ まだ当たっていない決定(decisions.json)-> (peaks.json の中身か None, 候補の一覧, {id: 重ねた決定})"""
         folder = self.folder(rc, rec)
-        doc = EW.read_json(os.path.join(folder, "peaks.json"), PEAKS_MAX)
+        doc = fsio.read_json_or(os.path.join(folder, "peaks.json"), None, PEAKS_MAX, kind=dict)
         dec_n = int((doc or {}).get("decN") or 0)
         pending = {}
         for it in sorted(self._decisions(folder)["items"], key=lambda x: x["n"]):
@@ -356,15 +360,11 @@ class Detector:
 
     def series(self, rc, rec):
         """series.jsonl(1 分 1 行)→ 600 点 {n, step, total, audio, chat}(スタジオのアーカイブの解析の series と同じ形)。無ければ None"""
-        p = os.path.join(self.folder(rc, rec), "series.jsonl")
-        try:
-            st = os.stat(p)
-        except OSError:
-            return None
-        key = (p, st.st_mtime_ns, st.st_size)
-        hit = self._series.get(p)
-        if hit and hit[0] == key:
-            return hit[1]
+        return self._series.get(os.path.join(self.folder(rc, rec), "series.jsonl"), self._load_series)
+
+    @staticmethod
+    def _load_series(p):
+        """series.jsonl を読んで 600 点にする(series の読み直し)。読めなければ None"""
         rows = {}
         try:
             with open(p, "r", encoding="utf-8", errors="replace") as f:
@@ -384,9 +384,7 @@ class Detector:
                 for i, v in enumerate(d.get(k) or []):
                     if 0 <= t0 + i < n and isinstance(v, (int, float)):
                         cols[k][t0 + i] = float(v)
-        out = {"n": n, "step": max(1.0, n / 600.0), **{k: excite.downsample(v) for k, v in cols.items()}} if n else None
-        self._series[p] = (key, out)
-        return out
+        return {"n": n, "step": max(1.0, n / 600.0), **{k: excite.downsample(v) for k, v in cols.items()}} if n else None
 
     def worker_view(self, doc):
         hb = self.heartbeat() or {}
@@ -395,16 +393,10 @@ class Detector:
                 "memMB": hb.get("memMB"), "lag": (doc or {}).get("lag"), "message": (doc or {}).get("message") or hb.get("message") or "",
                 "error": hb.get("error") or ""}
 
-    def _check_ids(self, rc, rec):
-        if not _ids_ok(rc, rec):
-            raise LX.LiveError("録画元か録画の指定が正しくありません")
-        if self.live.find(rc) is None:
-            raise LX.LiveError("その録画元はありません", 404)
-
     def api_get(self, q):
         """GET /live/api/peaks(q = parse_qs の結果)-> JSON(だめなら LiveError)"""
         rc, rec, since = (q.get("recorder") or [""])[0], (q.get("recording") or [""])[0], (q.get("since") or [None])[0]
-        self._check_ids(rc, rec)
+        self.live._ids(rc, rec)   # 録画元と録画の id の検査(文・番号は Live の API と同じ)
         if since is not None:
             try:
                 since = int(since)
@@ -466,7 +458,7 @@ class Detector:
         if op not in OPS:
             raise LX.LiveError("op は adopt・dismiss・restore のどれかです")
         rc, rec, pid = body.get("recorder"), body.get("recording"), body.get("id")
-        self._check_ids(rc, rec)
+        self.live._ids(rc, rec)
         if not isinstance(pid, str) or not EW.PEAK_ID_RE.match(pid):
             raise LX.LiveError("候補の id が正しくありません")
         _doc, peaks, _pending = self.view(rc, rec)
@@ -485,7 +477,7 @@ class Detector:
     def adopt(self, rc, rec, pk, origin, after=None, streamer=None):
         """候補を M1 の採用(Live.adopt)に通して、決定を残す -> API の応答の形"""
         body = {"recorder": rc, "recording": rec, "start": pk["start"], "end": pk["end"], "label": "", "origin": origin}
-        if isinstance(pk.get("score"), (int, float)) and not isinstance(pk.get("score"), bool):
+        if schemas.is_num(pk.get("score")):
             body["score"] = pk["score"]   # 候補の点数を切り抜きの記録(.clip.json の source.live.score)に残す(M9 の一覧が出す)
         if after is not None:
             body["after"] = after
@@ -506,7 +498,7 @@ class Detector:
     def _load_fails(self):
         """自動の採用を諦めた候補(auto_failures.json。最初の 1 回だけ読み、あとは覚えた一覧に足して書く)"""
         if self._fails is None:
-            d = EW.read_json(os.path.join(self.dir, "auto_failures.json"), 1024 * 1024) or {}
+            d = fsio.read_json_or(os.path.join(self.dir, "auto_failures.json"), None, 1024 * 1024, kind=dict) or {}
             self._fails = [x for x in d.get("items") or [] if isinstance(x, dict)]
         return self._fails
 

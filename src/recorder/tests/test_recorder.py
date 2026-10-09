@@ -691,6 +691,33 @@ class TestHttp(unittest.TestCase):
         code, _ = self.call("GET", "/live/99999999-999999/status")
         self.assertEqual(code, 404)
 
+    def _post_raw(self, body, ctype="application/json", headers=None):
+        """本文をそのまま送る POST(/live/config)。-> (状態, エラーのコード か None)"""
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        try:
+            h = {"Host": "127.0.0.1:%d" % self.port, "Authorization": "Bearer " + self.token, "Content-Type": ctype}
+            h.update(headers or {})
+            c.request("POST", "/live/config", body=body, headers=h)
+            r = c.getresponse()
+            d = json.loads(r.read().decode("utf-8"))
+            return r.status, d.get("error")
+        finally:
+            c.close()
+
+    def test_1b_body_errors(self):
+        """書き込みの本文の読み方は ytt_core.httpsec.read_json_body(0.3.3)。断る理由ごとの状態とコードは今までどおり"""
+        self.assertEqual(self._post_raw(b"{}", "text/plain"), (415, "content_type"))
+        self.assertEqual(self._post_raw(b"[1]"), (400, "json"))                               # オブジェクトでない
+        self.assertEqual(self._post_raw(b"{x"), (400, "json"))
+        self.assertEqual(self._post_raw(b"\xff\xfe"), (400, "json"))                         # UTF-8 でない
+        self.assertEqual(self._post_raw(b"", headers={"Content-Length": "abc"}), (413, "size"))   # 数でない
+        self.assertEqual(self._post_raw(b"", headers={"Content-Length": "-1"}), (413, "size"))
+        self.assertEqual(self._post_raw(b" " * (16 * 1024 + 1)), (413, "size"))               # 上限(recorder.BODY_MAX = 16KB)より大きい
+        code, err = self._post_raw(b"")                                                       # 空の本文は {} として通り、中身の検査で断られる
+        self.assertEqual(code, 400)
+        self.assertNotIn(err, ("json", "size", "content_type"))
+        self.assertEqual(self._post_raw(b'{"folder": 1}', "application/json; charset=utf-8")[0], 400)   # ; charset 付きも通る(中身の検査まで届く)
+
     def test_2_record_play_stop(self):
         code, d = self.call("POST", "/live/start", {"url": self.srv.url, "title": "http のテスト"})
         self.assertEqual(code, 200, d)

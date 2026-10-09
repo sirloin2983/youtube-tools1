@@ -35,7 +35,7 @@ async function startFile(){
    -> 新しく文字起こしするか。UIKit.dialog.confirm は Esc も「キャンセル」と同じ false なので、Esc(dialog の cancel)だけは別に見て「やめる」にする */
 async function askTxAgain(path){
   let r; try { r = await api('/api/doc-for?path=' + encodeURIComponent(path)); } catch { return true; }   // 調べられなければ今までどおり始める
-  const hit = r && r.doc; if (!hit || !(hit.rows > 0) || !window.UIKit || !UIKit.dialog) return true;   // 文字起こしせずに開いた文書(行 0)は聞かない
+  const hit = r && r.doc; if (!hit || !(hit.rows > 0)) return true;   // 文字起こしせずに開いた文書(行 0)は聞かない
   const it = S.list.find(x => x.id === hit.id), when = it ? ago(Number(it.updatedAt) || 0) : '';
   const p = UIKit.dialog.confirm({ title: '前に作った文書があります', ok: '開く', cancel: '作り直す',
     body: `この動画は前に文字起こししています(「${(it && it.title) || '無題'}」・${hit.rows} 行${when ? '・' + when : ''})。「開く」でその文書の続きから直せます。` +
@@ -247,7 +247,7 @@ function namedBy(j, ctx){ return (j.named || []).filter(x => (x.by === 'context'
 
 function renderJobBadge(){
   const act = S.jobs.filter(j => ACTIVE.has(j.state)), b = $('#jobBadge');
-  b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}`; }
+  b.hidden = !act.length; if (act.length){ const j = act[0]; b.textContent = `処理中 ${act.length}件 ${jobProg(j)}`; }
 }
 
 /* 文字起こしの無い文書の「この動画を文字起こしする」(#btnTxInto)と、文字が認識されなかった文書の「もう一度文字起こしする」(#btnTxAgain。段7 E-14):
@@ -269,12 +269,19 @@ function renderIntoState(){
   const j = S.jobs.find(x => x.kind === 'transcribe' && x.into === S.docId && ACTIVE.has(x.state));
   $('#btnTxInto').disabled = !!j || !S.doc.sourcePath;
   const again = $('#btnTxAgain'); if (again) again.disabled = !!j || !S.doc.sourcePath;
-  $('#txIntoHint').textContent = j ? `文字起こし中 ${j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || ''}(終わると、ここに行が出ます)`
+  $('#txIntoHint').textContent = j ? `文字起こし中 ${jobProg(j)}(終わると、ここに行が出ます)`
     : S.doc.sourcePath ? '認識の設定は、メニューの「新規」のものを使います' : 'この文書には動画のパスが無いため、文字起こしできません';
 }
 
 /* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
 const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', ytcap: 'YouTube の字幕との比較', normalize: '30fps にそろえる処理', abtest: '設定の比較' };
+/* 進み具合の文: 「n% か状態」(札・文字起こし中の 1 行)と「段階 + n%」(カード・別のエンジンの欄) */
+const jobProg = j => j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || '';
+const jobPhase = j => (j.phase || '') + (j.state === 'running' ? ' ' + pctOf(j) + '%' : '');
+/* 終わったジョブのカードの 1 行(種類ごと。表に無い種類は行の数) */
+const JOB_DONE = { 'voice-learn': j => (j.learned || []).length + '人の声を覚えた', diarize: j => j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : ''),
+  retranscribe: j => j.segments + '行を更新', redo: j => j.segments + 'か所を置き換え', normalize: j => j.normOk ? '30fps にそろえました' : '元の動画のまま', alt: j => '別のエンジンで ' + j.segments + '行' };
+const jobDoneText = j => (Object.hasOwn(JOB_DONE, j.kind) ? JOB_DONE[j.kind] : x => x.segments + '行')(j);
 function jobFailText(j){
   const t = j.title || '無題', k = JOB_KIND_NAME[j.kind] || '処理';
   return j.internal ? `「${t}」の${k}が途中で止まりました。もう一度始めてください` : `「${t}」の${k}に失敗しました: ${j.error || '理由は不明です'}`;
@@ -293,11 +300,11 @@ function renderJobs(){
     <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${esc(j.title)}</span>
       <span class="pill ${j.state === 'done' ? 'ok' : j.state === 'error' ? 'err' : ACTIVE.has(j.state) ? (j.state === 'queued' ? 'wait' : 'run') : ''}">${esc(STATE_LABEL[j.state] || j.state)}</span></div>
     ${j.hasClip ? '<div class="hint" style="margin-top:2px">元の配信の情報(.clip.json)つき</div>' : ''}
-    ${ACTIVE.has(j.state) ? `<div class="bar${j.state === 'running' ? '' : ' indeterminate'}"><i style="width:${pctOf(j)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(j.phase || '')}${j.state === 'running' ? ' ' + pctOf(j) + '%' : ''}${j.device ? '(' + devLabel(j.device) + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
+    ${ACTIVE.has(j.state) ? `<div class="bar${j.state === 'running' ? '' : ' indeterminate'}"><i style="width:${pctOf(j)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(jobPhase(j))}${j.device ? '(' + devLabel(j.device) + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
     ${j.error ? `<div class="hint tt-jerr">${esc(j.internal ? (JOB_KIND_NAME[j.kind] || '処理') + 'が途中で止まりました。もう一度始めてください' : j.error)}</div>${j.errorDetail ? `<details class="tt-jerr-detail"><summary>詳しく</summary><span class="mono">${esc(j.errorDetail)}</span></details>` : ''}${j.canRetry ? '<div class="row" style="margin-top:4px"><button type="button" class="btn small" data-act="retry">やり直す</button></div>' : ''}` : ''}
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
     ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
-    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${j.kind === 'voice-learn' ? (j.learned || []).length + '人の声を覚えた' : j.kind === 'diarize' ? j.speakers + '人を判別' + ((j.named || []).length ? '(' + j.named.length + '人に名前)' : '') : j.kind === 'retranscribe' ? j.segments + '行を更新' : j.kind === 'redo' ? j.segments + 'か所を置き換え' : j.kind === 'normalize' ? (j.normOk ? '30fps にそろえました' : '元の動画のまま') : j.kind === 'alt' ? '別のエンジンで ' + j.segments + '行' : j.segments + '行'}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
+    ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${jobDoneText(j)}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
 }
 
@@ -450,7 +457,7 @@ async function ovdPlace(){
     sortSegs(); navRestore(navId, S.navIdx); renderDoc(); markDirty();
     const goFirst = () => {   // 知らせの「最初の行へ」: 絞り込みで隠れていれば解いてから
       const i = S.doc && S.docId === id ? S.doc.segments.findIndex(g => g.id === added[0].id) : -1; if (i < 0) return;
-      if (rowsEl()[i] && rowsEl()[i].hidden){ $('#q').value = ''; $('#flagKind').value = ''; applyFilter(); }
+      revealRow(i);
       gotoRow(i, { center: true });
     };
     toast(`${n} か所に空の行を置きました(重なり ${no}・抜け ${nm}。札「下書き(…)」。絞り込みの「下書きだけ」で、その行だけを出せます)`, { ms: 8000, kind: 'ok', action: { label: '最初の行へ', fn: goFirst } });
@@ -493,7 +500,7 @@ function removeBlankDrafts(){
 function spAllNeeded(){
   const d = S.doc; if (!d || d.evalSet !== true) return false;
   const ids = new Set((d.speakers || []).map(s => s.id));
-  return d.segments.some(s => String(s.text || '').trim() && !ids.has(s.speaker));
+  return d.segments.some(s => hasText(s) && !ids.has(s.speaker));
 }
 
 function renderSpAll(){
@@ -502,7 +509,7 @@ function renderSpAll(){
   const on = spAllNeeded(); box.hidden = !on;
   if (!on) return;
   if (SPALL.id !== S.docId){ SPALL.id = S.docId; SPALL.cands = []; SPALL.suggest = ''; fillSpAll(); loadSpAll(S.docId); }
-  const ids = new Set(S.doc.speakers.map(s => s.id)), none = S.doc.segments.filter(s => String(s.text || '').trim() && !ids.has(s.speaker)).length;
+  const ids = new Set(S.doc.speakers.map(s => s.id)), none = S.doc.segments.filter(s => hasText(s) && !ids.has(s.speaker)).length;
   $('#spAllHint').textContent = `話者の無い行が ${none} 行あります(評価用のフォルダへ移すには、全行に話者が要ります)。1人で話している動画なら、候補から選んで全行に付けられます(今付いている話者も置き換わります)。`;
   $('#spAllGo').disabled = !!lockJob();
 }

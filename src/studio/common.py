@@ -41,6 +41,7 @@ _home = _datadir.override("studio") or os.path.abspath(CODE_DIR)   # data.json �
 
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}\Z")
 VID_RE = re.compile(r"^[\w-]{11}\Z", re.ASCII)   # ASCII のみ・末尾の改行も不可
+YT_API_BASE = "https://www.googleapis.com/youtube/v3/"   # YouTube Data API(① 探す・② のコメント欄)
 MEDIA_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3", ".wav", ".flac", ".ogg", ".opus", ".aac", ".ts", ".flv"}
 
 
@@ -186,13 +187,9 @@ def get_api_key():
     key = os.environ.get("YOUTUBE_API_KEY", "").strip()
     if key:
         return key, "env"
-    try:
-        with open(p("config.json"), encoding="utf-8") as f:
-            key = str(json.load(f).get("apiKey", "")).strip()
-        if key:
-            return key, "file"
-    except (OSError, ValueError, AttributeError):
-        pass
+    key = str(_fsio.read_json_or(p("config.json"), {}, kind=dict).get("apiKey", "")).strip()
+    if key:
+        return key, "file"
     return "", None
 
 
@@ -276,6 +273,11 @@ def file_video_id(path):
     return "f" + hashlib.sha1(os.path.abspath(path).encode("utf-8", "surrogatepass")).hexdigest()[:10]
 
 
+def watch_url(vid):
+    """YouTube の動画のページ(yt-dlp・oEmbed に渡す。vid は検査済みの動画 ID)"""
+    return "https://www.youtube.com/watch?v=" + vid
+
+
 def ytdlp_out(folder, name_tmpl):
     """yt-dlp の -o(出力テンプレート)。テンプレートは % 書式なので、フォルダ側の % は %% にする
     (出力先の設定では % を断っているが、既定の exports/ や work/ はこのフォルダの場所しだいで % を含みうる)。
@@ -284,20 +286,47 @@ def ytdlp_out(folder, name_tmpl):
 
 
 # ---------- ffmpeg でメディア情報 ----------
-def media_info(path):
-    """(長さ秒 or None, 映像あり, 音声あり, 映像ストリームの行)。ffprobe がなくても動く。"""
-    ff = find_tool("ffmpeg")
-    if not ff:
-        return None, False, False, ""
-    try:
-        pr = run_short([ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path], timeout=60, merge_stderr=True)
-    except (OSError, subprocess.SubprocessError):
-        return None, False, False, ""
+# 同じファイルに ffmpeg -i を何度もかけない(書き出し 1 本で約 11 回 → 5 回。2026-10-09 見直し T7)。
+# 鍵は (パス・更新日時 ns・大きさ)(ytt_core.fsio.StampCache)。書き出しは一時の名前に書いてから置き換えるので、中身が変われば鍵も変わる。
+# 時間では覚えない(テストが作り直した直後に測る)。ffmpeg を動かせなかったとき(例外)は覚えない。道具を差し替えたら全部忘れる
+MEDIA_CACHE_MAX = 256
+_media_cache = _fsio.StampCache()
+_media_ff = [None]
+_NO_MEDIA = (None, False, False, "")
+
+
+def _probe_media(ff, path):
+    pr = run_short([ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path], timeout=60, merge_stderr=True)
     out = pr.stdout or ""
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
     dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
     vm = re.search(r"Stream #.*Video:.*", out)
     return dur, bool(vm), bool(re.search(r"Stream #.*Audio:", out)), (vm.group(0).strip()[:300] if vm else "")
+
+
+def media_info(path):
+    """(長さ秒 or None, 映像あり, 音声あり, 映像ストリームの行)。ffprobe がなくても動く。ファイルが変わっていなければ前の結果を使う"""
+    ff = find_tool("ffmpeg")
+    if not ff:
+        return _NO_MEDIA
+    if _media_ff[0] != ff or len(_media_cache) > MEDIA_CACHE_MAX:
+        _media_cache.clear()
+        _media_ff[0] = ff
+    try:
+        return _media_cache.get(path, lambda p: _probe_media(ff, p)) or _NO_MEDIA   # 無いファイルは ffmpeg を動かさずに「分からない」
+    except (OSError, subprocess.SubprocessError):
+        return _NO_MEDIA
+
+
+def media_info_known(path):
+    """覚えている media_info の結果(ファイルが変わっていないときだけ。ffmpeg は動かさない)。無ければ None"""
+    return _media_cache.peek(path)
+
+
+def remember_media_info(path, info):
+    """置き換え(名前の付け替え)で中身がそのまま移ったファイルに、移す前の media_info の結果を覚えさせる(info が None なら何もしない)"""
+    if info is not None:
+        _media_cache.set(path, info)
 
 
 # ---------- 外部コマンド(中止・時間切れ対応。子プロセスも含めて止める) ----------
@@ -316,7 +345,7 @@ def spawn(cmd, **kw):
     if os.name != "nt":
         kw["start_new_session"] = True
     else:   # 別のプロセスグループにして、黒い画面への Ctrl+C / Ctrl+Break を子に流さない・子の終了で画面が巻き込まれないようにする
-        kw["creationflags"] = kw.get("creationflags", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        kw["creationflags"] = kw.get("creationflags", 0) | _tools.no_window_flags(new_group=True)
     proc = subprocess.Popen(cmd, **kw)
     with _children_lock:
         _children.add(proc)
@@ -388,36 +417,27 @@ def run_short(cmd, timeout, merge_stderr=False):
     return subprocess.CompletedProcess(cmd, proc.returncode, out or "", err or "")
 
 
-def _signal_tree(proc, sig):
-    try:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-        else:
-            os.killpg(proc.pid, sig)   # グループID = 起動したプロセスのPID
-    except (OSError, subprocess.SubprocessError):
-        try:
-            proc.send_signal(sig) if os.name != "nt" else proc.kill()
-        except (OSError, ValueError):
-            pass
-
-
 def hard_kill(proc):
-    if proc is None:
-        return
-    _signal_tree(proc, getattr(signal, "SIGKILL", signal.SIGTERM))
-    try:
-        proc.kill()
-    except OSError:
-        pass
+    """孫ごと強制終了する(ytt_core.tools.kill_tree: Windows は System32 の taskkill /T /F・ほかはプロセスグループに SIGKILL)。
+    名前はテストが呼ぶので残す"""
+    _tools.kill_tree(proc)
 
 
 def terminate(proc, grace=None):
-    """止める依頼(待たない): 子プロセスごと SIGTERM(Windows は taskkill /T /F)。猶予のあと残っていれば SIGKILL。"""
+    """止める依頼(待たない): 子プロセスごと SIGTERM(Windows は窓なし・別グループの子に穏やかな合図が届かないので kill_tree)。
+    猶予のあと残っていれば SIGKILL。"""
     if not proc or proc.poll() is not None:
         return
-    _signal_tree(proc, signal.SIGTERM)
     if os.name == "nt":
+        _tools.kill_tree(proc)
         return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)   # グループID = 起動したプロセスのPID
+    except OSError:
+        try:
+            proc.send_signal(signal.SIGTERM)
+        except (OSError, ValueError):
+            pass
 
     def escalate():
         time.sleep(KILL_GRACE if grace is None else grace)
@@ -547,13 +567,12 @@ def load_out_dir():
     global _out_dir
     _out_dir = None
     try:
-        with open(p("settings.json"), encoding="utf-8") as f:
-            v = json.load(f).get("outDir")
+        v = _fsio.read_json_or(p("settings.json"), {}, kind=dict).get("outDir")
         if v:
             _out_dir = check_out_dir(v)
             if _out_dir == default_out_dir():
                 _out_dir = None
-    except (OSError, ValueError, ApiError, AttributeError):
+    except ApiError:
         _out_dir = None   # 消えた・書き込めなくなったときは標準に戻す(画面に出るパスで分かる)
 
 
@@ -588,17 +607,11 @@ _env_lock = threading.Lock()
 
 
 def _tool_version(name, args, pattern, timeout=15):
+    """{"found", "version"}(版を読めなければ ""。動かすのは ytt_core.tools.tool_version = 窓を出さない)"""
     exe = find_tool(name)
     if not exe:
         return {"found": False, "version": ""}
-    try:
-        r = subprocess.run([exe] + args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
-        m = re.search(pattern, r.stdout or "")
-        return {"found": True, "version": m.group(1)[:40] if m else ""}
-    except (OSError, subprocess.SubprocessError):
-        return {"found": True, "version": ""}
+    return {"found": True, "version": _tools.tool_version(exe, args, pattern, timeout)}
 
 
 def check_tools():

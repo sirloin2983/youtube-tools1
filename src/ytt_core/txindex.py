@@ -15,7 +15,6 @@ cut2resolve の作業データ packs/ に「パックを作った記録」を残
 """
 import hashlib
 import os
-import threading
 
 from . import datadir, fsio, layout, schemas
 
@@ -30,8 +29,7 @@ TEXTPLUS_SCRIPT = "create_resolve_textplus_project.lua"
 OLD_TEXTPLUS_PLAN = "textplus-import.json"
 MAX_OLD_CUT_PLAN_BYTES = 4 * 1024 * 1024
 CUT_PLAN_SCHEMA = schemas.CUT_PLAN_SCHEMA
-_cache = {}          # パス -> ((更新日時ns, 大きさ), 読んだ中身)
-_lock = threading.Lock()
+_cache = fsio.StampCache()   # パス -> 読んだ中身(ファイルの更新日時・大きさが変わったときだけ読み直す。テストが名前で見る)
 
 
 def folder(repo_root, env=None):
@@ -47,6 +45,11 @@ def norm(p):
 def _num(x):
     v = schemas.num(x)
     return v if v is not None and abs(v) < 1e9 else None
+
+
+def _ms(v):
+    """更新日時(ms の整数。bool は数えない)。違えば 0"""
+    return v if schemas.is_int(v) else 0
 
 
 def _parse(d, fallback_id):
@@ -67,12 +70,11 @@ def _parse(d, fallback_id):
                      "speaker": names.get(s.get("speaker"), "") if isinstance(s.get("speaker"), str) else "",
                      "proofed": s.get("proofed") is True, "cut": s.get("cutState") == "cut"})
     clip = d.get("clip") if isinstance(d.get("clip"), dict) else None
-    up = d.get("updatedAt")
     aliases = [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == NORM_WHY and isinstance(r.get("from"), str) and r["from"]][-5:]
     src = d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else ""
     return {"id": str(d.get("id") or fallback_id)[:40], "title": str(d.get("title") or "")[:120],
             "sourcePath": src, "aliases": aliases, "_paths": _norm_paths(src, aliases),
-            "clip": clip, "segments": segs, "updatedAt": up if isinstance(up, int) and not isinstance(up, bool) else 0,
+            "clip": clip, "segments": segs, "updatedAt": _ms(d.get("updatedAt")),
             "count": len(segs), "proofed": sum(1 for s in segs if s["proofed"]), "cut": sum(1 for s in segs if s["cut"])}
 
 
@@ -88,30 +90,10 @@ def load(dirpath):
         names = sorted(n for n in os.listdir(dirpath) if n.endswith(".json") and len(n) == 17)   # <12文字の id>.json
     except OSError:
         return []
-    out, seen = [], set()
-    with _lock:
-        for n in names:
-            p = os.path.join(dirpath, n)
-            seen.add(p)
-            try:
-                st = os.stat(p)
-            except OSError:
-                continue
-            key = (st.st_mtime_ns, st.st_size)
-            hit = _cache.get(p)
-            if hit and hit[0] == key:
-                doc = hit[1]
-            else:
-                try:
-                    doc = _parse(fsio.read_json_file(p, MAX_DOC_BYTES), n[:-5])
-                except (OSError, UnicodeError, ValueError):
-                    doc = None
-                _cache[p] = (key, doc)
-            if doc is not None:
-                out.append(doc)
-        for p in [p for p in _cache if os.path.dirname(p) == dirpath and p not in seen]:
-            del _cache[p]   # 消えた文書
-    return out
+    paths = [os.path.join(dirpath, n) for n in names]
+    docs = [_cache.get(p, lambda p, n=n: _parse(fsio.read_json_or(p, None, MAX_DOC_BYTES), n[:-5])) for p, n in zip(paths, names)]
+    _cache.prune(paths, dirpath)   # 消えた文書
+    return [d for d in docs if d is not None]
 
 
 def summary(doc):
@@ -145,18 +127,17 @@ def offset(doc, video_id, media_path, fallback):
     """切り抜きの中の時刻 → 元の配信の時刻 のずれ。-> (offset, 根拠 "clip" | "sidecar" | "mark")
     ① 文書に入っている .clip.json の中身(同じ配信のものだけ)② 書き出した mp4 の .clip.json(作業用/ か隣)③ マークの開始(fallback)"""
     def usable(c):
+        """検証できて、同じ配信のもの(videoId が無いものも可)だけ。validate_clip は dict でないもの(None など)に (None, 理由) を返す"""
         c, _ = schemas.validate_clip(c)
-        src = (c or {}).get("source") if c else None
-        if c and (not isinstance(src, dict) or src.get("videoId") in (None, "", video_id)):
-            return c
-        return None
-    c = usable(doc.get("clip")) if doc.get("clip") else None
+        src = c.get("source") if c else None
+        return c if c and (not isinstance(src, dict) or src.get("videoId") in (None, "", video_id)) else None
+    c = usable(doc.get("clip"))
     if c:
         return schemas.clip_offset(c), "clip"
     if media_path and not fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない)
         cp = schemas.find_clip_path(media_path)   # 作業用/ → 以前の置き方(動画の隣)
         side, _ = schemas.load_clip_file(cp) if cp else (None, None)
-        c = usable(side) if side else None
+        c = usable(side)
         if c:
             return schemas.clip_offset(c), "sidecar"
     return float(fallback or 0), "mark"
@@ -173,9 +154,10 @@ def pack_dir(media_path):
 
 
 def use_packs_dir(path):
-    """cut2resolve の serve.py が起動したときに、自分の記録のフォルダ(<作業データ>/packs)を知らせる(テストがツールを一時フォルダに写して
-    動かしても、書く場所と読む場所がずれないように)。cut2resolve の作業データのフォルダとして ytt_core.datadir に登録する
-    (datadir.prepare も登録するので、今は念のため。None で取り消す)"""
+    """**非推奨(2026-10-09)。datadir.register("cut2resolve", <作業データ>) を使う**(datadir.prepare も同じ登録をするので、呼ばなくても読む場所は同じ。
+    呼ぶ側 src/cut2resolve/serve.py が外れたら消す)。
+    cut2resolve の serve.py が起動したときに、自分の記録のフォルダ(<作業データ>/packs)を知らせる(テストがツールを一時フォルダに写して
+    動かしても、書く場所と読む場所がずれないように)。cut2resolve の作業データのフォルダとして ytt_core.datadir に登録する(None で取り消す)"""
     datadir.register("cut2resolve", os.path.dirname(os.path.abspath(path)) if path else None)
 
 
@@ -231,9 +213,7 @@ def pack_info(media_path, env=None):
     d = pack_dir(media_path)
     rec = read_pack_record(d, env)
     if rec:
-        at = rec.get("builtAt")
-        return {"dir": d, "textplus": rec.get("textplus") is True,
-                "updatedAt": at if isinstance(at, int) and not isinstance(at, bool) else 0}
+        return {"dir": d, "textplus": rec.get("textplus") is True, "updatedAt": _ms(rec.get("builtAt"))}
     old = _old_cut_plan(d)
     if not old:
         return None

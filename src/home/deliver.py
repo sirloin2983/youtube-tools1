@@ -12,19 +12,17 @@ docs/spec/friend-intake.md の 2-7。
 zip は動画を圧縮しない(ZIP_STORED)ので CPU はほとんど使わない → 重い処理の枠(jobs.SLOTS)は通さない(文字起こしの後ろで何時間も待たせないため)。
 同時に作るのは1本だけ(ディスクの取り合いを避ける)。
 """
+import datetime
 import os
-import json
-import re
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
 import uuid
 import zipfile
 
-from ytt_core import normalize, tools
-from intake import OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む。フォルダの名前は受付の 1 か所)
+from ytt_core import fsio, normalize, tools
+from intake import BAD_NAME_CHARS, OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む。フォルダの名前は受付の 1 か所)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")   # 圧縮しても小さくならない物は ZIP_STORED
 CLIP_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")                     # パックの中の切り抜きの動画
@@ -36,7 +34,7 @@ PREVIEW_TIMEOUT = 600          # まとめ動画を作る ffmpeg の上限(秒)
 PREVIEW_NAME = "まとめ.mp4"            # zip の中に入れるときの名前(0.46.0 からは zip に入れない = 受け取ったあとは要らない。zip_packs の extra の見本・テストで使う)
 PREVIEW_SUFFIX = ".preview.mp4"        # zip の隣の名前(<zip の名前>.preview.mp4。友人のアプリが先にこれだけ取ってきて見る)
 FONT_CANDIDATES = ("meiryo.ttc", "YuGothM.ttc", "msgothic.ttc")   # 札の文字(Windows の日本語フォント。無ければ札を付けない)
-BAD_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+BAD_CHARS = BAD_NAME_CHARS   # ファイル名に使えない文字(受付と同じ決まり。intake.BAD_NAME_CHARS)
 KEEP_JOBS = 20
 
 
@@ -74,28 +72,21 @@ def scratch_path(pack_dir, tag, ext):
 
 
 def remove_quiet(path):
-    """あれば消す(消せなくても構わないもの: 作りかけの zip・まとめ動画・置きかけの preview)"""
-    try:
-        if path and os.path.exists(path):
-            os.remove(path)
-    except OSError:
-        pass
+    """あれば消す(消せなくても構わないもの: 作りかけの zip・まとめ動画・置きかけの preview)。None・空でもよい"""
+    if path:
+        fsio.unlink_quiet(path)
 
 
 def zip_pack(d, out_dir, name, check=None, progress=None):
     """パックのフォルダ d を zip にして out_dir/<name>.zip に置く(同じ名前があれば末尾に 4 文字足す)。-> 置いたパス。
     check(): 止めるなら例外を投げる(まとめて実行の中止)。progress(済んだバイト, 全体のバイト)"""
-    return _zip_many([d], out_dir, name, None, check, progress, None)
+    return zip_packs([d], out_dir, name, check=check, progress=progress)
 
 
 def zip_packs(dirs, out_dir, name, extra=None, check=None, progress=None, dest=None):
     """n 本のパックのフォルダを 1 つの zip に(それぞれ <題>_pack/ の下に並ぶ)。extra = [(ファイル, zip の中の名前)](まとめ動画)。
-    dest を渡せばその名前に置く(先に unique_zip で決めて、隣に置くまとめ動画の名前をそろえるため)。-> 置いたパス"""
-    return _zip_many(list(dirs), out_dir, name, extra, check, progress, dest)
-
-
-def _zip_many(dirs, out_dir, name, extra, check, progress, dest):
-    """zip_pack と zip_packs の中身。zip は Dropbox の外(最初のパックの隣)で作ってから移す"""
+    dest を渡せばその名前に置く(先に unique_zip で決めて、隣に置くまとめ動画の名前をそろえるため)。-> 置いたパス。
+    zip は Dropbox の外(最初のパックの隣)で作ってから移す"""
     dirs = [os.path.normpath(d) for d in dirs]
     os.makedirs(out_dir, exist_ok=True)
     files = []   # (ファイル, zip の中の名前, 大きさ)
@@ -189,23 +180,15 @@ def _atempo(speed):
 
 
 def _run_ffmpeg(args, timeout, check):
-    """ffmpeg を動かして終わるのを待つ。check() が例外を投げたら(中止)ffmpeg を止めて投げ直す。-> (終了コード, stderr の末尾)"""
-    proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=tools.no_window_flags())
-    end = time.time() + timeout
-    while True:
-        try:
-            err = proc.communicate(timeout=0.5)[1]
-            return proc.returncode, (err or b"")[-400:].decode("utf-8", "replace").strip()
-        except subprocess.TimeoutExpired:
-            if check:
-                try:
-                    check()
-                except BaseException:
-                    tools.kill_quiet(proc)
-                    raise
-            if time.time() > end:
-                tools.kill_quiet(proc)
-                return 1, "timeout"
+    """ffmpeg を動かして終わるのを待つ。check() が例外を投げたら(中止)ffmpeg を止めて投げ直す。-> (終了コード, stderr の末尾)。
+    時間切れは (1, "timeout")"""
+    def cancelled():
+        check()          # 止めるなら例外(tools.run が子を止めてから上げ直す)。戻り値は見ない
+        return False
+    r = tools.run(args, timeout=timeout, cancelled=cancelled if check else None, stdout=False)
+    if r.why == "timeout":
+        return 1, "timeout"
+    return r.code, r.err[-400:].decode("utf-8", "replace").strip()
 
 
 def _preview_args(ffmpeg, videos, out, speed, height, audio, label_files=None, font=None):
@@ -318,21 +301,14 @@ def group_members(zips, titles, seconds):
 
 
 def write_group_json(path, title, rng, preview_path, members, now=None):
-    """組の一覧を書く(最後に置く = 友人のアプリは一覧が見えたら組がそろっているとみなす)。UTF-8・BOM なし"""
+    """組の一覧を書く(最後に置く = 友人のアプリは一覧が見えたら組がそろっているとみなす)。UTF-8・BOM なし・1 行。
+    原子的に書く(一時ファイルから置き換える = 書きかけの一覧を Dropbox に乗せない。一時ファイル .tmp-*.part は友人のアプリの一覧に出ない)。
+    sentAt は その時刻の地方時 + UTC とのずれ(2026-10-09T12:00:00+09:00 の形)"""
     when = now if now is not None else time.time()
     doc = {"v": 1, "title": title, "range": rng, "preview": os.path.basename(preview_path) if preview_path else None, "packs": list(members),
-           "sentAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(when)) + _tz_text(when)}
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        json.dump(doc, f, ensure_ascii=False)
+           "sentAt": datetime.datetime.fromtimestamp(when).astimezone().isoformat(timespec="seconds")}
+    fsio.write_json(path, doc, indent=None)
     return doc
-
-
-def _tz_text(t):
-    """その時刻の UTC とのずれ(+09:00 の形。夏時間もその時刻のもの)"""
-    off = time.localtime(t).tm_gmtoff
-    sign = "+" if off >= 0 else "-"
-    off = abs(int(off))
-    return "%s%02d:%02d" % (sign, off // 3600, off % 3600 // 60)
 
 
 class Deliveries:
@@ -398,8 +374,8 @@ class Deliveries:
                 except Exception as e:   # 記録できなくても、届けたことは変わらない(ログにだけ残す)
                     self.log("友人へ届ける: 届けたことを記録できませんでした: %r" % (e,))
         except OSError as e:
-            job.update(state="error", error=e.strerror or e.__class__.__name__,
-                       message="届けられませんでした: %s" % (e.strerror or e.__class__.__name__))
+            job.update(state="error", error=tools.why(e),
+                       message="届けられませんでした: %s" % tools.why(e))
             self.log("友人へ届ける: 失敗 %s (%s)" % (job["dir"], job["message"]))
         finally:
             self.busy.release()
