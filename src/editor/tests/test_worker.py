@@ -846,13 +846,13 @@ class CpuFallbackTest(unittest.TestCase):
         self.assertNotIn("install-gpu.bat", cm.exception.message)
         with self.assertRaises(RuntimeError):
             self.chunk(self.Bad(), "cpu", "auto")
-        # 今の動き(そろえていない): 行ごとの再認識は取り消し・理由のある失敗も同じに扱う(最初の行なら CPU を読みに行き、GPU 固定なら gpu_failed)
-        job = dict(self.job(), cancel=True)
-        with self.assertRaises(S.Cancelled):
-            self.chunk(self.Bad(S.Cancelled()), "cuda", "auto", job=job)
-        with self.assertRaises(S.ApiError) as cm:
-            self.chunk(self.Bad(S.Cancelled()), "cuda", "cuda")
-        self.assertEqual(cm.exception.code, "gpu_failed")
+        # 0.65.1: 行ごとの再認識も、取り消し・理由のある失敗は CPU でやり直さずそのまま上げる(GPU 固定で取り消しても gpu_failed にしない = 新規の文字起こしと同じ)
+        for exc in (S.Cancelled(), S.ApiError("worker_crashed", "落ちた", 500)):
+            for pref in ("auto", "cuda"):
+                with self.assertRaises(type(exc)) as cm:
+                    self.chunk(self.Bad(exc), "cuda", pref)
+                if isinstance(exc, S.ApiError):
+                    self.assertEqual(cm.exception.code, "worker_crashed")
 
     def range_main(self, first, device, pref):
         calls, job = [], self.job()

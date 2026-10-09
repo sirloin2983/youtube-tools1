@@ -2089,9 +2089,9 @@ class ChunkModel:
 
     def recognize(self, chunk, row, sep, terms, first=False):
         """recognize_chunk と同じ (文章, 要確認の理由) か None。CPU に切り替えるのは最初の行(first)だけ。
-        取り消し・理由のある失敗も同じ決まりで扱う(passthrough なし。cpu_fallback にまとめる前からの動き = 2026-10-09 にそろえていない)"""
+        取り消し・理由のある失敗(ApiError)はそのまま上げる(0.65.1。それまでは GPU 固定で最初の行の途中に取り消すと gpu_failed になっていた = ユーザー「なおす」)"""
         return cpu_fallback(self.job, self.device, self.pref, lambda: recognize_chunk(self.model, self.kw, chunk, row, sep, terms),
-                            lambda: self._use(*load_model(self.name, self.job, force_cpu=True)), retry=first, passthrough=())
+                            lambda: self._use(*load_model(self.name, self.job, force_cpu=True)), retry=first)
 
 
 def replace_original(orig, a, b, text):

@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.65.0';
+const APP_VERSION = '0.65.1';
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,

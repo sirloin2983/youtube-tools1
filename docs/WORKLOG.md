@@ -3065,3 +3065,9 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 未完了・次: 起動中の入口は古いまま(「すべて終了」→ start.bat)。次の周の候補は decisions (fn)。並行セッションが src/editor/serve.py・ed_learn.py(設定 S4)を未コミットで作業中 = このコミットの serve.py は版の 1 行だけを入れた(`git apply --cached` で分けた)
 - 注意: 資料 `docs/design/code-review-simplify-2026-10-08.md` の G9-6「autorun は送っていない」は誤り(listKind "drop" を使う)。`src/editor/tests/test_alt.py` が LF になっていたので CRLF に戻した
 - 未コミット: なし(このセッションの分)
+
+## 2026-10-09 Claude Code — 編集 0.65.1: GPU 固定で行ごとの再認識の最初の行の途中に取り消しても「中止」になる(decisions 3-18 (fl)。ユーザー「なおす」)
+- 変更: `src/editor/ed_jobs.py` の `ChunkModel.recognize` が `cpu_fallback` に `passthrough=()` を渡すのをやめ、既定(Cancelled・ApiError はそのまま上げる)に = 新規の文字起こしと同じ決まり。`tests/test_worker.py` の CpuFallbackTest.test_chunk_model を新しい動き(auto・cuda とも Cancelled は Cancelled・ApiError はその code)に。README・AGENTS.md
+- 版: 編集 0.65.0 → 0.65.1(serve.py・app.js・README)
+- テスト: 編集 591 OK・e2e_edit_tabs OK・lint 0
+- 未コミット: なし
