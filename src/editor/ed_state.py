@@ -438,6 +438,3 @@ def worker_fake():
 MIXED_FLAG, WEAK_FLAG, NONE_FLAG = _txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG   # 別名(RS2-1a)
 SPK_FLAGS = _txbase.SPK_FLAGS   # 別名(RS2-8a。ed_jobs から txbase へ移した。dev/eval_asr が S.SPK_FLAGS を読む・差し替えない名前)
 
-
-# ほかの部品(呼ぶたびに読む。ここで読むのは、上の値を全部作ってからにするため)
-import ed_jobs  # noqa: E402,F401

@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: ジョブの本体(文字起こし・選んだ行/範囲/全体の再認識・疑わしい所の認識し直し)と文書への反映・再認識の記録・長い行の分け直し(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
-認識そのもの(ワーカー・モデル・音声の取り出し・声の検出のやり直し・範囲の行・記録・単語の時刻)は役割で組み直す RS2-4〜7(2026-10-10)に pipeline/transcribe へ移した(下の _MOVED の転送で ed_jobs.名前 のまま読める)。
+"""② 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と文書づくり(行 → 文書の行・機械の出力・単語)・受付(validate_*・redo_spec)・
+選んだ行/範囲/全体の再認識と疑わしい所の認識し直しの反映・再認識の記録・長い行の分け直し・字幕の文字数の設定・辞書の組。
 
-名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
-ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+役割で組み直す RS2-8b(2026-10-10)に編集の src/editor/ed_jobs.py から移した(中身は同じ。段10 で editor/serve.py から分けた部品。
+git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識そのもの(ワーカー・モデル・音声の取り出し・声の検出のやり直し・範囲の行・
+記録・単語の時刻)は RS2-4〜7 に pipeline/transcribe へ、ジョブの表は ytt/jobs へ移してある。
+旧い名前 ed_jobs.名前 は editor/ed_jobs.py(転送だけの殻。RS5 で消す)がここと移した先へ回す。名前は serve.py からも見える
+(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
+ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap と pipeline の ed_fill・ed_llm・ed_speakers は層の向きが許す)。
 """
 import bisect
 import json
@@ -11,7 +16,7 @@ import os
 import time
 import uuid
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, modfwd as _modfwd, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
 from pipeline.transcribe import backend as _backend, txenv as _txenv  # noqa: E402   本物と疑似の差し込み口・置き場所と外の道具の口(RS2-2)
@@ -989,25 +994,3 @@ def _each_real(job, spec, targets, wav, start):
             results[t["id"]] = (postproc.strip_punct(text) if spec.get("stripPunct", True) else text, flag)
         job["progress"] = min(0.99, (n + 1) / len(targets))
     return results
-
-
-# ---------- 移した名前の転送(役割で組み直す RS2。2026-10-10。RS5 で消す) ----------
-# 中身を pipeline/transcribe・human/proof・ytt/jobs へ移す間、ed_jobs.名前 の読み・書き・削除を移した先へ回す(ytt/modfwd.py)。
-# ここに残っている名前が先。移した名前を from … import で読み直さない(serve の名前の受付と同じく、差し替えが別名に当たって本体に効かなくなる)。
-_MOVED = (_heavy,)   # 移した先のモジュール(移すたびに足す。serve.py の _ED_MODULES にも ed_jobs より前に足す)。ytt/jobs = ジョブの表・待機列・ワーカー・取り消し(RS2-1b)
-_MOVED += (_roster, tx_engines)   # 名簿の prompt_terms・エンジンの engine_of・engine_home・ENGINE_DIR(RS2-4a)
-_MOVED += (postproc,)   # 行の後処理と要確認の印(RS2-4b。END_TRIM・JOIN_GAP・expand_segments の差し替えもここへ届く)
-_MOVED += (records,)   # 認識の記録・辞書の版・生出力・単語の時刻(RS2-5。dict_version の差し替えもここへ届く)
-_MOVED += (worker_client,)   # 認識ワーカー・モデル・エンジンの確かめ・wav の形(RS2-6。IN_WORKER・WORKER_*・load_model・check_engine の差し替えもここへ届く)
-_MOVED += (recognize,)   # 音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。extract_audio・WHOLE_PART_SEC・RangeRecognizer.main の差し替えもここへ届く)
-_MOVED += (_txbase,)   # 話者の印 SPK_FLAGS(RS2-8a)。serve の受付には並べない(ed_state の別名と重なる。S.SPK_FLAGS は ed_state の別名で同じ物。test_names が確かめる)
-_moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")
-
-
-def _add_moved(mod):
-    """ed_jobs が読まない層の持ち主(④ の疑似 eval/fake/fake_asr の transcribe_fake・_fake_spans)を転送に足す。呼ぶのは app(serve)だけ
-    (ed_jobs から eval を import しない = 層の向きを守る。RS2-2)"""
-    global _MOVED, _moved_owner
-    if mod not in _MOVED:
-        _MOVED += (mod,)
-        _moved_owner = _modfwd.install(globals(), _MOVED, "ed_jobs")

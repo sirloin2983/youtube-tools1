@@ -28,7 +28,6 @@ import threading
 import time
 
 from ytt import fsio as _fsio, jobs as _heavy, tools as _tools  # noqa: E402,F401
-import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 
@@ -112,10 +111,10 @@ def _busy_reason():
     """いま始めてはいけない理由(無ければ None)。ジョブが動いている・待っている間と、評価用のフォルダの整理(動画の名前を変える)の間。
     SLOTS の中から呼ばれるので、ジョブの表のロックは取らない(コピーを読むだけ)"""
     try:
-        jobs = list(ed_jobs._jobs.values())
+        jobs = list(_heavy._jobs.values())
     except RuntimeError:
         jobs = []
-    if any(j.get("state") in ed_jobs.ACTIVE_STATES for j in jobs):
+    if any(j.get("state") in _heavy.ACTIVE_STATES for j in jobs):
         return "文字起こしなどのジョブが動いています"
     if ed_relink._evalorg_lock.locked():
         return "評価用のフォルダを整理中です"

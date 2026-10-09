@@ -136,13 +136,13 @@ DEFAULTS = {
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
     },
-    "transcribe": {           # 認識(重い。src/editor/ed_jobs.py の文字起こしの要求 584・613-621 行・pipeline/transcribe/tx_engines.py の DEFAULT)
+    "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求)・pipeline/transcribe/tx_engines.py の DEFAULT)
         "engine": "faster-whisper", "model": "small", "language": "ja",
         "quality": "best",    # best か fast(fast は beam 1)
         "device": "auto", "vadMode": "weak", "boost": False,
         "diarize": None,      # 話者判別の人数のヒント(1〜10)。None = しない(src/home/intake.py の parse_speakers の範囲)
     },
-    "post": {                 # 後処理(軽い。ed_jobs.py の同じ所と 1187-1189 行・各 auto は pref() の既定)
+    "post": {                 # 後処理(軽い。doc_jobs.py の validate_job と SUBTITLE_DEFAULT・各 auto は validate_job の pref() の既定)
         "wordSplit": True, "stripPunct": True,
         "orientation": "vertical",
         "maxChars": {"vertical": 16, "horizontal": 28},
@@ -158,7 +158,7 @@ DEFAULTS = {
         "loudness": 0,        # パックの音量をそろえる目標(LUFS)。0 = そろえない(volume で決める)
         "volume": 30,         # loudness が 0 のときの音量(%)
         "backup": False, "render": False, "speakerColors": True,
-        "wrapChars": {"vertical": 8, "horizontal": 14},   # 字幕 1 段の文字数(ed_jobs.py の SUBTITLE_DEFAULT)
+        "wrapChars": {"vertical": 8, "horizontal": 14},   # 字幕 1 段の文字数(src/human/proof/doc_jobs.py の SUBTITLE_DEFAULT)
         "rowEdge": True,      # 行から作るときの端の広げ方。True = 既定・False = 広げない・{on?, after?, before?}
         "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(run.py の _cut_method の既定 none)
         "cutSilence": {"noise": -35.0, "min": 0.6, "pad": 0.15},   # 無音で削る値(cut2resolve_core.py の DEFAULT_NOISE_DB・SILENCE_MIN・SILENCE_PAD)

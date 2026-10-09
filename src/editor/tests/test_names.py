@@ -63,6 +63,11 @@ class TestNames(unittest.TestCase):
                 self.assertIs(getattr(S, k), v, k)
         self.assertIs(ed_jobs.SPK_FLAGS, S.SPK_FLAGS)
 
+    def test_shell_owns_only_forwarding_names(self):
+        """殻(editor/ed_jobs.py)はモジュールの import と転送の口だけを持つ(中身は human/proof/doc_jobs ほか。RS2-8b)"""
+        own = sorted(k for k, v in vars(ed_jobs).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["_MOVED", "_add_moved", "_moved_owner"])
+
     def test_public_job_keys(self):
         job = {"id": "j1", "title": "t", "state": "done", "phase": "完了", "progress": 1.0, "tid": "", "error": "", "segments": 0,
                "speakers": 0, "unsure": 0, "kind": "transcribe", "device": "cpu", "createdAt": 0, "spec": {}}
@@ -141,12 +146,13 @@ class TestEdJobsForwarding(unittest.TestCase):
         self.assertFalse(hasattr(self.part, "RS2_PROBE"))
 
     def test_own_names_stay_local(self):
-        before = ed_jobs.public_job
-        self.part.public_job = "other"
+        """殻が自分で持つ名前(_add_moved など。RS2-8b から殻の名前はこれと _MOVED・_moved_owner だけ)は、持ち主に同じ名前があっても殻のまま"""
+        before = ed_jobs._add_moved
+        self.part._add_moved = "other"
         try:
-            self.assertIs(ed_jobs.public_job, before)
+            self.assertIs(ed_jobs._add_moved, before)
         finally:
-            del self.part.public_job
+            del self.part._add_moved
 
 
 if __name__ == "__main__":

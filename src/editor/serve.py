@@ -114,6 +114,7 @@ from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処
 from pipeline.transcribe import records as _txrecords  # noqa: E402  (認識の記録・辞書の版・生出力・単語の時刻を ed_jobs から移した。RS2-5)
 from pipeline.transcribe import worker_client as _txworker  # noqa: E402  (認識ワーカー・モデル・エンジンの確かめを ed_jobs から、wav の形を ed_speakers から移した。RS2-6)
 from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを ed_jobs から移した。RS2-7)
+from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・文書づくり・受付・再認識の反映。RS2-8b に ed_jobs から移した。ed_jobs は転送だけの殻)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -124,7 +125,7 @@ ed_state.APP_ID, ed_state.SERVER_VERSION = APP_ID, SERVER_VERSION
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)。移した先は ed_jobs より前
+_ED_MODULES = (ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)。移した先は ed_jobs より前
 _ED_MODULES += (ed_retime,)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)
 _ED_MODULES += (ed_fill,)   # 認識のあとの後処理 A・C・D(2026-10-08。0.60.0)
 _ED_MODULES += (ed_llm,)   # LLM の後処理 E(2026-10-09。0.61.0)
@@ -140,19 +141,19 @@ _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 # 優先度は数値が小さいほど先(話者判別 0 = 待っている文字起こしを追い越す・alt と ytcap 2 = 普通の文字起こしより後。D1-b)。
 # retry = [やり直す] で同じ指定のまま入れ直せる(文書を書き換える処理は、文書の画面のボタンから始め直す)
 _DOC_LOCK = ("diarize", "retranscribe", "redo", "voice-learn")
-_heavy_jobs.register("transcribe", lambda job: ed_jobs.run_job(job), retry=True)
+_heavy_jobs.register("transcribe", lambda job: _docjobs.run_job(job), retry=True)
 _heavy_jobs.register("diarize", lambda job: ed_speakers.run_diarize(job), priority=0, exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("voice-learn", lambda job: ed_speakers.run_voice_learn(job), exclusive=_DOC_LOCK, has_tid=True)
-_heavy_jobs.register("retranscribe", lambda job: ed_jobs.run_retranscribe(job), exclusive=_DOC_LOCK, has_tid=True)
-_heavy_jobs.register("redo", lambda job: ed_jobs.run_redo(job), exclusive=_DOC_LOCK, has_tid=True)
+_heavy_jobs.register("retranscribe", lambda job: _docjobs.run_retranscribe(job), exclusive=_DOC_LOCK, has_tid=True)
+_heavy_jobs.register("redo", lambda job: _docjobs.run_redo(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("abtest", lambda job: ed_misc.run_abtest(job), exclusive=("abtest",))
 _heavy_jobs.register("normalize", lambda job: ed_relink.run_normalize(job), has_tid=True)   # 動画を選び直したあとの 30fps の作り直し(Q1)
 _heavy_jobs.register("alt", lambda job: ed_alt.run_alt(job), priority=2, exclusive=("alt",), has_tid=True)   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
 _heavy_jobs.register("ytcap", lambda job: ed_ytcap.run_ytcap(job), priority=2, exclusive=("ytcap",), has_tid=True)   # 元の配信の YouTube の字幕(案 A1)
 _heavy_jobs.register("thumb", lambda job: ed_thumb.run_thumb(job), exclusive=("thumb",), has_tid=True)   # サムネの案を 1 枚に(文書は読むだけ。P5)
 _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: ed_state.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
-                      mark=lambda info: ed_state.write_mark(info), after=lambda: ed_jobs.models_touched(),
-                      idle=lambda: ed_jobs.release_idle_models(), no_retry=lambda: ed_jobs.NO_RETRY)
+                      mark=lambda info: ed_state.write_mark(info), after=lambda: _txworker.models_touched(),
+                      idle=lambda: _txworker.release_idle_models(), no_retry=lambda: _docjobs.NO_RETRY)
 
 
 # ---------- 認識の部品の口(役割で組み直す RS2-2)----------
@@ -162,19 +163,19 @@ _txenv.register(DATA_DIR=lambda: ed_state.DATA_DIR, TX_DIR=lambda: ed_state.TX_D
                 find_ffmpeg=lambda: ed_state.find_ffmpeg, worker_python=lambda: ed_state.worker_python, worker_fake=lambda: ed_state.worker_fake,
                 gpu_ready=lambda: ed_state.gpu_ready, has_faster_whisper=lambda: ed_state.has_faster_whisper,
                 media_duration=lambda: ed_state.media_duration, check_source=lambda: ed_state.check_source,
-                # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(ed_jobs が ed_state を読まずに済むように)
+                # RS2-8a: スタジオの配信の情報(roster.stream_context)・モデル名の検査と受け渡しの部品(文書の側の doc_jobs が ed_state を読まずに済むように)
                 studio_stream=lambda: ed_store.studio_stream, valid_model=lambda: ed_state.valid_model, pio=lambda: ed_state.pio)
 _txenv.check()
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
 ed_jobs._add_moved(fake_asr)
-# 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(ed_jobs が ed_learn を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
-_txrecords.set_dict_inputs(pairs=lambda spec: ed_jobs.dict_pairs(spec), learned=lambda: ed_jobs.dict_learned())
+# 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が ed_learn を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
+_txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの本体と記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)
 _txworker.WORKER_SCRIPT = os.path.join(ed_state.ROOT, "tx_worker.py")
 _txworker.WORKER_LOG = os.path.join(ed_state.DATA_DIR, "worker.log")
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(ed_fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
-_txrecognize.set_head_stripper(lambda spec: ed_jobs.head_stripper(spec))
+_txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
@@ -194,21 +195,21 @@ def _tid_arg(tid, required=True):
 
 
 def _ping():
-    w = ed_jobs.WORKER   # 認識ワーカーの状態(入口の「調子」が読む。段9 9-1)
+    w = _txworker.WORKER   # 認識ワーカーの状態(入口の「調子」が読む。段9 9-1)
     return {"app": ed_state.APP_ID, "version": ed_state.SERVER_VERSION,
             "worker": {"alive": w.alive(), "pid": (w.proc.pid if w.proc is not None else None), "starts": w.starts,
-                       "lastUsedAgo": (int(time.time() - w.last_used) if w.last_used else None), "silenceTimeoutSec": ed_jobs.WORKER_SILENCE_TIMEOUT}}
+                       "lastUsedAgo": (int(time.time() - w.last_used) if w.last_used else None), "silenceTimeoutSec": _txworker.WORKER_SILENCE_TIMEOUT}}
 
 
 def _tools_info():
     return {"ffmpeg": bool(ed_state.find_ffmpeg()), "fasterWhisper": ed_state.has_faster_whisper(), "cuda": ed_state.gpu_ready(), "nvidia": ed_state.nvidia_gpu(),
             "backend": ed_state.backend_name(), "diarize": ed_speakers.diar_info(), "models": ed_state.MODELS, "langs": ed_state.LANGS, "root": ed_state.TX_DIR,
-            "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **ed_jobs.engines_info()}
+            "envWarnings": list(_env_warnings), "alt": ed_alt.alt_info(), "ytcap": ed_ytcap.ytcap_info(), **_txworker.engines_info()}
 
 
 def _jobs_list():
-    with ed_jobs._jobs_lock:
-        return {"jobs": [ed_jobs.public_job(ed_jobs._jobs[i]) for i in ed_jobs._order if i in ed_jobs._jobs]}
+    with _heavy_jobs._jobs_lock:
+        return {"jobs": [_docjobs.public_job(_heavy_jobs._jobs[i]) for i in _heavy_jobs._order if i in _heavy_jobs._jobs]}
 
 
 def _learned(a):
@@ -266,7 +267,7 @@ GET_API = {
 
 
 def _job(spec, kind="transcribe"):
-    return ed_jobs.public_job(ed_jobs.add_job(spec, kind))
+    return _docjobs.public_job(_heavy_jobs.add_job(spec, kind))
 
 
 def _id_of(o):
@@ -279,19 +280,19 @@ def _delete_voice(o):
 
 
 def _cancel(o):
-    ed_jobs.cancel_job(o.get("id"))
+    _heavy_jobs.cancel_job(o.get("id"))
     return {"ok": True}
 
 
 # POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON(zip を返す 2 つは Handler の _export_corrections・_resolve_package)
 POST_API = {
-    "/api/transcribe": lambda o: _job(ed_jobs.validate_job(o)),
+    "/api/transcribe": lambda o: _job(_docjobs.validate_job(o)),
     "/api/diarize": lambda o: _job(ed_speakers.validate_diarize(o), "diarize"),
     "/api/voices/learn": lambda o: _job(ed_speakers.validate_voice_learn(o), "voice-learn"),   # A-3: 名前を付けた話者の声を覚える(ジョブ)
     "/api/speakers/sub": lambda o: ed_speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える。2026-10-05)
     "/api/voices/delete": _delete_voice,
-    "/api/retranscribe": lambda o: _job(ed_jobs.validate_retranscribe(o), "retranscribe"),
-    "/api/redo": lambda o: _job(ed_jobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
+    "/api/retranscribe": lambda o: _job(_docjobs.validate_retranscribe(o), "retranscribe"),
+    "/api/redo": lambda o: _job(_docjobs.redo_spec(str(o.get("tid") or ""), o), "redo"),
     "/api/alt": lambda o: _job(ed_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
     "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/ytcap": lambda o: _job(ed_ytcap.ytcap_spec(_id_of(o), o), "ytcap"),   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
@@ -316,7 +317,7 @@ POST_API = {
     "/api/eval-batch/redo": lambda o: ed_evalbatch.eval_batch_redo(o),   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
     "/api/eval-batch/redo-one": lambda o: ed_evalbatch.eval_batch_redo_one(o),   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
     "/api/pick": lambda o: ed_relink.pick_path(o),
-    "/api/resplit": lambda o: ed_jobs.resplit_doc(o),
+    "/api/resplit": lambda o: _docjobs.resplit_doc(o),
     "/api/retime": lambda o: ed_retime.retime_doc(o),   # 行の時刻を単語の時刻に合わせる候補(読むだけ。ed_retime)
     "/api/edit/pack": lambda o: ed_store.record_pack(o),
     "/api/edit/preview": lambda o: ed_store.edit_preview(o),
@@ -325,7 +326,7 @@ POST_API = {
     "/api/drill/reviewed": lambda o: ed_drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
     "/api/drill/unreviewed": lambda o: ed_drill.drill_unreviewed(o),   # 確かめ済みの印を外す
     "/api/transcribe/cancel": _cancel,
-    "/api/jobs/retry": lambda o: ed_jobs.public_job(ed_jobs.retry_job(o.get("id"))),   # 失敗した文字起こしを同じ指定でもう一度(UI の見直し M9)
+    "/api/jobs/retry": lambda o: _docjobs.public_job(_heavy_jobs.retry_job(o.get("id"))),   # 失敗した文字起こしを同じ指定でもう一度(UI の見直し M9)
 }
 
 
@@ -604,8 +605,8 @@ class Handler(BaseHTTPRequestHandler):
             with ed_store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 ed_store.read_transcript(tid)
                 os.unlink(ed_store.tx_path(tid))
-                for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), ed_jobs.words_path(tid),
-                              ed_jobs.asr_path(tid), ed_speakers.diar_path(tid),
+                for extra in (ed_store.edit_path(tid), os.path.join(ed_state.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
+                              _txrecords.asr_path(tid), ed_speakers.diar_path(tid),
                               ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), ed_llm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
                     try:
                         os.unlink(extra)
@@ -768,7 +769,7 @@ def prepare(port, base_path="/", hooks=False):
         print("※ OneDrive の同期フォルダの中で動いています。保存に失敗することがあれば、同期を一時停止するか、同期しないフォルダへ移してください")
     if not _started:
         _started.append(True)
-        threading.Thread(target=ed_jobs.worker, daemon=True, name="tx-jobs").start()
+        threading.Thread(target=_heavy_jobs.worker, daemon=True, name="tx-jobs").start()
         t = threading.Timer(5.0, ed_relink._evalorg_startup)   # 評価用のフォルダの整理(起動時に1回。設定が無ければ何もしない)
         t.daemon = True
         t.start()
@@ -781,20 +782,20 @@ def prepare(port, base_path="/", hooks=False):
 
 def busy():
     """ジョブ(文字起こし・話者判別など)が動いているか・待っているか(入口の「すべて終了」の確認用)"""
-    with ed_jobs._jobs_lock:
-        return any(j["state"] in ed_jobs.ACTIVE_STATES for j in ed_jobs._jobs.values())
+    with _heavy_jobs._jobs_lock:
+        return any(j["state"] in _heavy_jobs.ACTIVE_STATES for j in _heavy_jobs._jobs.values())
 
 
 def finish():
     """終了の後始末: 動いているジョブを取り消し、認識ワーカーを終わらせ、.runtime の記録と起動中の印を消す。"""
-    with ed_jobs._jobs_lock:
-        active = [j["id"] for j in ed_jobs._jobs.values() if j["state"] in ed_jobs.ACTIVE_STATES]
+    with _heavy_jobs._jobs_lock:
+        active = [j["id"] for j in _heavy_jobs._jobs.values() if j["state"] in _heavy_jobs.ACTIVE_STATES]
     for jid in active:
         try:
-            ed_jobs.cancel_job(jid)
+            _heavy_jobs.cancel_job(jid)
         except ed_state.ApiError:
             pass
-    ed_jobs.WORKER.close()
+    _txworker.WORKER.close()
     ed_state.log.info("終了(正常)")
     pm = ed_state.pio(required=False)
     if pm:

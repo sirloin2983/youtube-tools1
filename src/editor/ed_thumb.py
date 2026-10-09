@@ -1,7 +1,7 @@
 """「編集」のサムネの案(提案 P5 の S。plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
 
 - ジョブ kind `thumb`(`POST /api/thumb-ideas {id, crop?}` → `thumb_spec` → `run_thumb`)。切り抜きの動画と文書の行から 6 案を 1 枚の PNG に。
-  文書は読むだけ(書き換えない・updatedAt も動かさない)ので、編集を止めるジョブ(LOCK_KINDS)にしない。同じ文書で 1 つだけ(ed_jobs.EXCLUSIVE)
+  文書は読むだけ(書き換えない・updatedAt も動かさない)ので、編集を止めるジョブ(LOCK_KINDS)にしない。同じ文書で 1 つだけ(ytt/jobs の EXCLUSIVE。serve が登録する)
 - 置き場所: 動画のフォルダの 作業用/<名前>_thumb-ideas.png と同じ名前の .json(ytt_core.schemas.work_dir。パックのフォルダには入れない =
   友人へ届ける zip に混ざらないように)。作り直すと上書き
 - 切り取り crop: alt(中央と右下を交互。既定)/ center / right。画面が選んだ値は編集の設定 thumbCrop(ed_learn.SETTINGS_PATCH_KEYS)に覚える
@@ -11,10 +11,9 @@
 import os
 import time
 
-import ed_jobs
 import ed_state
 import ed_store
-from ytt import fsio as _fsio, schemas as _yschemas
+from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas
 
 THUMB_CROPS = ("alt", "center", "right")
 THUMB_SUFFIX = "_thumb-ideas"
@@ -43,7 +42,7 @@ def thumb_spec(tid, req=None):
     crop = req.get("crop", "alt")
     if crop not in THUMB_CROPS:
         raise ed_state.ApiError("bad_request", "切り取りの指定が正しくありません", 400)
-    if ed_jobs.tid_busy(tid, ("thumb",)):
+    if _heavy.tid_busy(tid, ("thumb",)):
         raise ed_state.ApiError("busy", "この文書のサムネの案は、いま作っている最中です", 409)
     return {"tid": tid, "sourcePath": src, "crop": crop, "title": "サムネの案: " + (str(doc.get("title") or "") or "無題")[:100]}
 
@@ -53,7 +52,7 @@ def run_thumb(job):
     import thumb_ideas   # 呼ばれたときに読む(サーバーの起動を重くしない)
     spec = job["spec"]
     tid = spec["tid"]
-    with ed_jobs.job_errors(job, log="サムネの案で例外"):
+    with _heavy.job_errors(job, log="サムネの案で例外"):
         job["state"], job["phase"] = "running", "サムネの案を作っています"
         doc = ed_store.read_transcript(tid)
         png, _js = thumb_paths(spec["sourcePath"])
@@ -61,9 +60,9 @@ def run_thumb(job):
             thumb_ideas.make(spec["sourcePath"], doc, None, png, spec["crop"])
         except thumb_ideas.ThumbError as e:
             raise ed_state.ApiError("thumb_failed", "サムネの案を作れませんでした: " + e.message, 400, {"detail": e.detail}) from None
-        ed_jobs.check_cancel(job)
+        _heavy.check_cancel(job)
         job["progress"] = 1.0
-        ed_jobs.job_done(job, tid, "完了")
+        _heavy.job_done(job, tid, "完了")
 
 
 def thumb_info(tid):

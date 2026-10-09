@@ -30,7 +30,7 @@ FILES = {
     "src/studio/handoff.py": ("manage", "manage/cases", "受け渡し"),
     "src/studio/txlink.py": ("manage", "manage/cases", "文字起こしとの紐づけ(読むだけ)"),
     # ---- editor
-    "src/editor/ed_jobs.py": ("pipeline", "pipeline/transcribe", "split: 認識と後処理の本筋は pipeline/transcribe、文書のジョブと進み具合は human/proof、疑似は eval/fake"),
+    "src/editor/ed_jobs.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/doc_jobs・rerun と pipeline/transcribe"),
     "src/editor/tx_worker.py": ("pipeline", "pipeline/transcribe", "install_fakes は eval/fake"),
     "src/editor/ed_fill.py": ("pipeline", "pipeline/transcribe", "後処理"),
     "src/editor/ed_llm.py": ("pipeline", "pipeline/transcribe", "後処理(LLM)"),
@@ -121,7 +121,7 @@ def allowed(src_layer, dst_layer):
 
 # 今ある向きの違反(RS0 の時点。減らすだけ。新しい違反はテストが落とす)。形: (import する側, される側)。
 # ファイルを移したときは同じ組のままパスだけ付け替えてよい(件数は増やさない。KNOWN_MAX が上限)
-KNOWN_MAX = 65   # RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)
+KNOWN_MAX = 61   # RS1-2 で pack → auto_cut が消えた(69 → 68)・RS2-1b で ed_jobs → ed_thumb・ed_misc が消えた(68 → 66)・RS2-8a で ed_jobs → ed_state が消えた(66 → 65。valid_model・pio を txenv の口から読む)・RS2-8b で ed_jobs を human/proof/doc_jobs へ = (ed_jobs → ed_alt・ed_learn・ed_store・ed_ytcap)が human どうしになって消えた(65 → 61。ed_evalbatch・ed_relink は doc_jobs へ付け替え)
 KNOWN = {
     ("src/editor/ed_drill.py", "src/editor/ed_state.py"),
     ("src/editor/ed_evalaudio.py", "src/editor/ed_state.py"),
@@ -157,13 +157,9 @@ KNOWN = {
     ("src/studio/analyze.py", "src/studio/common.py"),
     ("src/studio/batch.py", "src/studio/common.py"),
     ("src/pipeline/export/exporter.py", "src/studio/common.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_evalbatch.py"),
+    ("src/human/proof/doc_jobs.py", "src/editor/ed_evalbatch.py"),
     ("src/editor/ed_speakers.py", "src/editor/ed_drill.py"),
     ("src/home/live.py", "src/home/live_report.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_alt.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_learn.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_store.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_ytcap.py"),
     ("src/editor/ed_retime.py", "src/editor/ed_alt.py"),
     ("src/editor/ed_retime.py", "src/editor/ed_store.py"),
     ("src/editor/ed_speakers.py", "src/editor/ed_learn.py"),
@@ -174,7 +170,7 @@ KNOWN = {
     ("src/home/live.py", "src/home/intake.py"),
     ("src/home/live.py", "src/home/live_requests.py"),
     ("src/studio/batch.py", "src/studio/store.py"),
-    ("src/editor/ed_jobs.py", "src/editor/ed_relink.py"),
+    ("src/human/proof/doc_jobs.py", "src/editor/ed_relink.py"),
     ("src/editor/resolve_export.py", "src/editor/pipeline_io.py"),
     ("src/home/autorun.py", "src/home/cases.py"),
     ("src/home/autorun.py", "src/home/clientlog.py"),
