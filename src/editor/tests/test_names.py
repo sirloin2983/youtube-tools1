@@ -7,6 +7,8 @@
 - RS2 の前に ed_jobs が持っていた名前(data_ed_jobs_names.txt)は、中身を移しても S.名前 と ed_jobs.名前 の両方で読める
 - ed_jobs.名前 = … と mock.patch.object(ed_jobs, …) は移した先の本体に届く
 - 画面が読むジョブの形(public_job の鍵)を変えない
+- RS2-9 の前に ed_speakers が持っていた名前(data_ed_speakers_names.txt)は、pipeline/transcribe/diarize と human/proof/speakers に分けても
+  S.名前 と ed_speakers.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -15,6 +17,7 @@ from unittest import mock
 
 from test_backend import S  # noqa: F401  (S = serve)
 import ed_jobs
+import ed_speakers
 from pipeline.transcribe import txbase
 from ytt import modfwd
 
@@ -26,8 +29,8 @@ _PUBLIC_JOB_KEYS = {
 _ALIAS_OWNERS = (txbase,)   # ed_jobs の転送にだけ入れる持ち主(serve では ed_state の別名で読む。RS2-8a)
 
 
-def _old_names():
-    with open(os.path.join(_TESTS, "data_ed_jobs_names.txt"), encoding="utf-8") as f:
+def _old_names(name="data_ed_jobs_names.txt"):
+    with open(os.path.join(_TESTS, name), encoding="utf-8") as f:
         return [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
 
 
@@ -129,6 +132,68 @@ class TestDocJobsHooks(unittest.TestCase):
             self.assertEqual(doc_jobs._hook("in_eval_dir")("x.mp4"), "patched")
         with mock.patch.object(S, "eb_redo_skip_at_start", lambda job: "skip"):
             self.assertEqual(doc_jobs._hook("redo_skip")({}), "skip")
+
+
+class TestEdSpeakersShell(unittest.TestCase):
+    """ed_speakers を pipeline/transcribe/diarize と human/proof/speakers に分けた(RS2-9)。旧い名前は殻と serve で読め、差し替えは持ち主に届く"""
+
+    def test_old_ed_speakers_names_still_resolve(self):
+        names = _old_names("data_ed_speakers_names.txt")
+        self.assertEqual(len(names), 125)
+        missing = [n for n in names if not hasattr(S, n) or not hasattr(ed_speakers, n)]
+        self.assertEqual(missing, [])
+
+    def test_shell_owns_only_forwarding_names(self):
+        own = sorted(k for k, v in vars(ed_speakers).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["_MOVED", "_add_moved", "_moved_owner"])
+        self.assertNotIn(ed_speakers, S._ED_MODULES)   # ed_jobs の殻と同じ 3 つの名前を持つので、serve の受付には並べない
+
+    def test_moved_owners(self):
+        from eval.fake import fake_asr
+        from human.proof import speakers
+        from pipeline.transcribe import diarize
+        self.assertEqual(ed_speakers._MOVED, (diarize, speakers, fake_asr))   # fake_asr は serve が _add_moved で足す(殻は eval を読まない)
+        for m in (diarize, speakers):
+            self.assertIn(m, S._ED_MODULES, m.__name__)
+        self.assertIs(ed_speakers.diarize_fake, fake_asr.diarize_fake)
+        self.assertIs(S.embed_fake, fake_asr.embed_fake)
+        self.assertIs(ed_speakers.run_diarize, speakers.run_diarize)
+        self.assertIs(S.assign_speakers, diarize.assign_speakers)
+
+    def test_patches_reach_owner(self):
+        """殻・S の差し替えは持ち主に届き、speakers は呼ぶたびに diarize.名前 を読む(テストの patch.object(S, "has_sherpa") などの形)"""
+        from human.proof import speakers
+        from pipeline.transcribe import diarize
+        with mock.patch.object(ed_speakers, "has_sherpa", lambda: "patched"):
+            self.assertEqual(diarize.has_sherpa(), "patched")
+            self.assertEqual(S.has_sherpa(), "patched")
+        self.assertNotIn("has_sherpa", vars(ed_speakers))
+        with mock.patch.object(S, "autodiar_enabled", lambda: True), mock.patch.object(ed_speakers, "autodiar_ready", lambda: False):
+            self.assertEqual(speakers.autodiar_enqueue("0123456789ab"), {"skipped": "no_sherpa"})   # 同じモジュールの名前も差し替えが届く(test_autodiar の形)
+        saved = diarize.DIAR_DIR
+        try:
+            ed_speakers.DIAR_DIR = os.path.join("x", "diar")   # dev/eval_speakers の形(S.ed_speakers.DIAR_DIR = d)
+            self.assertEqual(diarize.diar_models_dir(), os.path.join("x", "diar"))
+        finally:
+            ed_speakers.DIAR_DIR = saved
+        self.assertNotIn("DIAR_DIR", vars(ed_speakers))
+
+    def test_context_namer_follows_patches(self):
+        """serve が set_context_namer に登録した口(eval の ed_drill.drill_candidates の suggest)は呼ぶたびに持ち主を読む"""
+        from human.proof import speakers
+        speakers.check_context_namer()
+        with mock.patch.object(S, "drill_candidates", lambda tid: {"suggest": "名前" + tid}):
+            self.assertEqual(speakers._context_name("t1"), "名前t1")
+
+    def test_places_follow_data_dir(self):
+        """判別のモデル・覚えた声の置き場所は呼ぶたびに作業データ(S.DATA_DIR)から(RS2-9。覚えた声は以前 set_data_dir に付いてこなかった)"""
+        saved = (S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR)
+        try:
+            S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR = os.path.join("d", "data"), None, None
+            self.assertEqual(S.voices_dir(), os.path.join("d", "data", "voices"))
+            self.assertEqual(S.diar_models_dir(), os.path.join("d", "data", "models", "diar"))
+        finally:
+            S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR = saved
 
 
 class TestEdJobsForwarding(unittest.TestCase):

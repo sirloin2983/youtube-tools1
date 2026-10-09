@@ -72,10 +72,10 @@ class TestPostRecord(unittest.TestCase):
 
 class TestImportsAlone(unittest.TestCase):
     def test_no_native_app_or_eval(self):
-        """postproc と兄弟(txenv・backend・roster・tx_engines・txbase・records(RS2-5)・worker_client(RS2-6)・recognize(RS2-7))は、numpy などのネイティブの部品・serve などの app・eval を読まずに import できる
+        """postproc と兄弟(txenv・backend・roster・tx_engines・txbase・records(RS2-5)・worker_client(RS2-6)・recognize(RS2-7)・diarize(RS2-9))は、numpy などのネイティブの部品・serve などの app・eval を読まずに import できる
         (serve の import で読まれる = 編集のサーバーのプロセスにネイティブの部品を入れない決まり。src/editor/tests/test_worker.py と同じ)"""
         code = ("import sys; sys.path.insert(0, %r); "
-                "from pipeline.transcribe import postproc, txenv, backend, roster, tx_engines, txbase, records, worker_client, recognize; "
+                "from pipeline.transcribe import postproc, txenv, backend, roster, tx_engines, txbase, records, worker_client, recognize, diarize; "
                 "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
                 "bad = [m for m in sys.modules if m in native or m.startswith('ed_') or m == 'serve' or m == 'eval' or m.startswith('eval.')]; "
                 "print(bad); sys.exit(1 if bad else 0)") % SRC
