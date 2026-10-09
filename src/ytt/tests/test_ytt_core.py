@@ -304,6 +304,23 @@ class TestFsio(unittest.TestCase):
         self.assertTrue(os.path.isfile(other + ".old"))           # .log でなければ <名前>.old
         self.assertFalse(fsio.rotate(os.path.join(self.tmp, "無い.log"), 1))   # 無くても上げない
 
+    def test_append_line(self):
+        """記録の 1 行の書き足し(RS3-0B で clientlog から移した): フォルダが無ければ作る・UTF-8・上限を超えていたら先に <名前>.1 へ 1 世代回す・書けなければ OSError"""
+        p = os.path.join(self.tmp, "新しい", "rec.jsonl")
+        fsio.append_line(p, '{"a": "あ"}\n', 100)
+        fsio.append_line(p, '{"a": 2}\n', 100)
+        with open(p, encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"a": "あ"}\n{"a": 2}\n')
+        self.assertFalse(os.path.exists(p + ".1"))
+        fsio.append_line(p, '{"a": 3}\n', 5)                      # もう 5 バイトを超えている → 先に回してから新しく始める
+        with open(p + ".1", encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"a": "あ"}\n{"a": 2}\n')
+        with open(p, encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"a": 3}\n')
+        os.makedirs(os.path.join(self.tmp, "dir.jsonl"))
+        with self.assertRaises(OSError):                           # 書けなければ OSError(呼ぶ側が握りつぶすか決める)
+            fsio.append_line(os.path.join(self.tmp, "dir.jsonl"), "x\n", 10 ** 9)
+
     def test_is_inside(self):
         root = os.path.join(self.tmp, "data")
         os.makedirs(os.path.join(root, "sub"))

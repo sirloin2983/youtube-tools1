@@ -241,6 +241,15 @@ def rotate(path, limit, old=None):
     return False
 
 
+def append_line(path, line, max_bytes):
+    """1 行を書き足す(max_bytes を超えていたら先に <path>.1 へ回す = 1 世代)。書けなければ OSError。line は改行つきの文字列(UTF-8 で書く)。
+    画面のエラーの記録(clientlog)・まとめて実行の記録(autorun)・採用の記録(live_export)が同じ形で使う(RS3-0B で clientlog から移した)"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    rotate(path, max_bytes, old=path + ".1")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line)
+
+
 def is_inside(path, root, strict=False):
     """path が root の中か(strict=True なら root そのものは含めない)。許可したフォルダの中だけを読み書きさせる検査に使う(セキュリティの決まりはここ 1 か所)。
     いちばん厳しい形にそろえた(2026-10-09。各ツールの 6 通りは realpath の有無・ネットワークの扱いが違った):

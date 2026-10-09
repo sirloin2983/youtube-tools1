@@ -58,7 +58,6 @@ import time
 import urllib.parse
 
 from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools
-import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import live_failures  # noqa: E402  (失敗の文は 1 か所。M3)
 
 VERSION = "0.1.0"
@@ -480,7 +479,7 @@ class Exporter:
         line = json.dumps(dict({"v": 1, "at": now_iso()}, **row), ensure_ascii=False) + "\n"
         with self.fb_lock:
             try:
-                clientlog.append_line(path, line, FEEDBACK_MAX_BYTES)
+                fsio.append_line(path, line, FEEDBACK_MAX_BYTES)   # 記録のファイルに 1 行ずつ書く形は 1 か所(ytt/fsio)
             except OSError as e:
                 self.log("リアルタイム切り抜き: 採用の記録を書けませんでした: %s" % tools.why(e))
 

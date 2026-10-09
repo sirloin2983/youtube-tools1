@@ -64,7 +64,6 @@ from pipeline.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEP
                           OTHER_MODES, POST_MODE, REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
                           TX_KEYS, Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, _row_edge_ok, clean_pool)
 import cases  # noqa: E402  (src/home/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
-import clientlog  # noqa: E402  (記録のファイルに 1 行ずつ書く形は 1 か所)
 import deliver as deliver_mod  # noqa: E402  (① 全自動のパックを zip にして届ける。名前の整え方も同じ)
 import friend_feedback  # noqa: E402  (届けた zip の中身の記録 deliveries.jsonl。友人の「要らない」が来たときに引く。2026-10-08)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
@@ -768,7 +767,7 @@ class AutoRunner(run_mod.Runner):
             if not self.log_path:
                 return
             try:
-                clientlog.append_line(self.log_path, json.dumps(rec, ensure_ascii=False) + "\n", self.log_max)
+                fsio.append_line(self.log_path, json.dumps(rec, ensure_ascii=False) + "\n", self.log_max)   # 記録のファイルに 1 行ずつ書く形は 1 か所(ytt/fsio)
                 self.log_error = ""
             except (OSError, TypeError, ValueError) as e:
                 self.log_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")

@@ -25,15 +25,6 @@ KINDS = ("error", "rejection", "report")
 TEXT = {"message": 500, "source": 300, "stack": 2000, "page": 300}
 
 
-def append_line(path, line, max_bytes):
-    """1 行を書き足す(max_bytes を超えていたら先に .1 へ回す = 1 世代)。書けなければ OSError。
-    画面のエラーの記録・まとめて実行の記録(autorun.py)・採用の記録(live_export.py)が同じ形で使う"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fsio.rotate(path, max_bytes, old=path + ".1")
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(line)
-
-
 def clean(body):
     """画面から来た1件を、決まった項目・長さの辞書にする。message が無ければ ValueError"""
     if not isinstance(body, dict):
@@ -89,6 +80,6 @@ class ClientLog:
 
     def _write(self, obj):
         try:
-            append_line(self.path, json.dumps(obj, ensure_ascii=False) + "\n", self.max_bytes)
+            fsio.append_line(self.path, json.dumps(obj, ensure_ascii=False) + "\n", self.max_bytes)
         except OSError:
             pass   # 記録できなくても画面の操作は止めない
