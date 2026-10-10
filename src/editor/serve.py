@@ -121,6 +121,8 @@ from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を
 from pipeline.transcribe import replace as _txreplace  # noqa: E402  (置換辞書の読み方と当て方。RS3-E5c に ed_learn から移した。ed_learn は転送だけの殻)
 from human.proof import learn as _learn  # noqa: E402  (人が直した内容からの学習・提案・採用と却下の記録・名簿。RS3-E5c に ed_learn から)
 from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測定・noSub と重なりの数え方・評価用の基準の記録。RS3-E5c に ed_learn から)
+from human.proof import store as _store  # noqa: E402  (文書の読み書き・履歴・整形・手間・要約のキャッシュ・編集の内容・文字起こしせずに開く。RS3-E5a に ed_store から移した。ed_store は転送だけの殻)
+from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に ed_store から切り出した)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -132,12 +134,13 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から�
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, ed_misc, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
+_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, ed_misc, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
 _ED_MODULES += (_txretime, ed_retime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は ed_retime より前)・文書を読む包みが ed_retime
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 _ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
+# ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a。ed_store のあった所。殻の ed_store は ed_jobs の殻と名前が重なるので並べない)
 
 
 # ---------- ジョブの種類の登録と、ジョブの表に渡す編集の値(役割で組み直す RS2-1b。表と待機列は ytt/jobs) ----------
@@ -170,6 +173,7 @@ _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
 ed_jobs._add_moved(fake_asr)
+ed_store._add_moved(_doclist)   # 旧い名前 ed_store.list_transcripts・pack_readme・PACK_CHECK_BUDGET を ③ の doclist へ(殻は層 human = manage を読まない。RS3-E5a)
 # 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が learn・replace を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
 _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
@@ -236,7 +240,7 @@ def _metrics(a):
 
 
 def _transcript(tid):
-    d = ed_store.read_transcript(tid)
+    d = _store.read_transcript(tid)
     return dict(d, evalLocked=_settings.in_eval_dir(d.get("sourcePath")))   # 評価用のフォルダの動画(画面で外せない)
 
 
@@ -254,7 +258,7 @@ GET_API = {
     "/api/voices/preview": lambda a: _speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
     "/api/transcribed-ranges": lambda a: {"items": ed_misc.transcribed_ranges()},
     "/api/jobs": lambda a: _jobs_list(),
-    "/api/transcripts": lambda a: {"items": ed_store.list_transcripts()},
+    "/api/transcripts": lambda a: {"items": _doclist.list_transcripts()},
     "/api/learned": _learned,
     "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
@@ -263,15 +267,15 @@ GET_API = {
     "/api/drill/status": lambda a: ed_drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: ed_drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
     "/api/drill/candidates": lambda a: ed_drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
-    "/api/history": lambda a: {"items": ed_store.list_history(a("id"))},
+    "/api/history": lambda a: {"items": _store.list_history(a("id"))},
     "/api/transcript": lambda a: _transcript(a("id")),
     "/api/eval-folders": lambda a: ed_relink.eval_folders_info(),
     "/api/eval-batch": lambda a: ed_evalbatch.eval_batch_status(),   # 評価用の動画のまとめての文字起こしの状態(Q4)
-    "/api/edit": lambda a: ed_store.get_edit(a("id")),
-    "/api/edit/draft": lambda a: ed_store.edit_draft(a("id"), a("rows") == "1"),
+    "/api/edit": lambda a: _store.get_edit(a("id")),
+    "/api/edit/draft": lambda a: _store.edit_draft(a("id"), a("rows") == "1"),
     "/api/thumb-ideas": lambda a: ed_thumb.thumb_info(a("id")),   # サムネの案の有無・作った時刻・案ごとの型と文字(P5)
-    "/api/edit/pack-readme": lambda a: ed_store.pack_readme(a("id")),
-    "/api/doc-for": lambda a: {"doc": ed_store.find_doc_for_media(a("path"))},
+    "/api/edit/pack-readme": lambda a: _doclist.pack_readme(a("id")),
+    "/api/doc-for": lambda a: {"doc": _store.find_doc_for_media(a("path"))},
 }
 
 
@@ -309,10 +313,10 @@ POST_API = {
     "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/eval-baseline": lambda o: _evmetrics.record_baseline(o.get("label")),
-    "/api/restore": lambda o: {"ok": True, "updatedAt": ed_store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
+    "/api/restore": lambda o: {"ok": True, "updatedAt": _store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": _learn.record_feedback(o)},
     "/api/export-file": lambda o: ed_misc.export_file(o),
-    "/api/open-video": lambda o: ed_store.open_video(o),
+    "/api/open-video": lambda o: _store.open_video(o),
     "/api/relink/check": lambda o: ed_relink.relink_check(o),
     "/api/relink": lambda o: ed_relink.relink_doc(o),
     "/api/relink/missing": lambda o: ed_relink.relink_missing(),
@@ -326,10 +330,10 @@ POST_API = {
     "/api/pick": lambda o: ed_relink.pick_path(o),
     "/api/resplit": lambda o: _docjobs.resplit_doc(o),
     "/api/retime": lambda o: ed_retime.retime_doc(o),   # 行の時刻を単語の時刻に合わせる候補(読むだけ。ed_retime)
-    "/api/edit/pack": lambda o: ed_store.record_pack(o),
-    "/api/edit/preview": lambda o: ed_store.edit_preview(o),
-    "/api/effort": lambda o: ed_store.add_effort(o),
-    "/api/doc-diarnum": lambda o: ed_store.set_diar_num(o),   # 文書ごとの話者判別の人数(updatedAt は変えない。段7 E-6)
+    "/api/edit/pack": lambda o: _store.record_pack(o),
+    "/api/edit/preview": lambda o: _store.edit_preview(o),
+    "/api/effort": lambda o: _store.add_effort(o),
+    "/api/doc-diarnum": lambda o: _store.set_diar_num(o),   # 文書ごとの話者判別の人数(updatedAt は変えない。段7 E-6)
     "/api/drill/reviewed": lambda o: ed_drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
     "/api/drill/unreviewed": lambda o: ed_drill.drill_unreviewed(o),   # 確かめ済みの印を外す
     "/api/transcribe/cancel": _cancel,
@@ -501,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
                           {"X-Peaks-Rate": str(rate), "X-Peaks-Duration": "%.3f" % dur, "X-Peaks-Scale": "sqrt", "X-Peaks-Audio": "1" if data else "0"})
 
     def _media(self, tid):
-        d = ed_store.read_transcript(tid)
+        d = _store.read_transcript(tid)
         try:
             path = _tools.check_source(d.get("sourcePath"))
         except ed_state.ApiError:
@@ -537,14 +541,14 @@ class Handler(BaseHTTPRequestHandler):
                 who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
             except ValueError as e:
                 raise ed_state.ApiError("bad_streamer", str(e), 400)
-            tdoc = ed_store.read_transcript(tid)
+            tdoc = _store.read_transcript(tid)
             spk_map = _colors.speaker_colors(s.get("name") for s in tdoc.get("speakers") or [] if isinstance(s, dict))[0] \
                 if obj.get("speakerColors") is not False else {}   # A-2: 話者の名前ごとの字幕の色(既定はオン)
-            ed, _broken = ed_store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
+            ed, _broken = _store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
             zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, _workdata.SERVER_VERSION,
-                                                              keeps=ed_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
+                                                              keeps=_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
                                                               row_edge=_settings.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
-                                                              wrap=ed_store.wrap_arg(obj.get("wrap"), obj.get("size")),
+                                                              wrap=_store.wrap_arg(obj.get("wrap"), obj.get("size")),
                                                               color={"hex": hex_, "who": who} if hex_ else None, speaker_colors=spk_map)
             self._send_zip(zp, "resolve-package.zip", {"X-Resolve-Cuts": str(info["cuts"]), "X-Resolve-Captions": str(info["captions"]),
                                                         "X-Resolve-Handles": "1" if info["media"]["hasEditHandles"] else "0",
@@ -572,13 +576,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(200, _settings.merge_settings(obj))
                 return self._json(200, _settings.replace_settings(obj))   # 丸ごと(ほかの画面から直す項目はサーバーの値を残す)
             if u.path == "/api/transcript":
-                doc = ed_store.save_transcript(_qid(u), obj)
+                doc = _store.save_transcript(_qid(u), obj)
                 return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True,
                                         "evalReviewed": doc.get("evalReviewed")})   # 確かめ済みの印(評価用を外すと消える。画面の表示を合わせる)
             if u.path == "/api/edit":
-                if len(json.dumps(obj)) > ed_store.MAX_EDIT_BYTES:
+                if len(json.dumps(obj)) > _store.MAX_EDIT_BYTES:
                     raise ed_state.ApiError("too_big", "区間が多すぎて保存できません", 413)
-                return self._json(200, ed_store.save_edit(_qid(u), obj))
+                return self._json(200, _store.save_edit(_qid(u), obj))
         except ed_state.ApiError as e:
             return self._err(e)
         except OSError as e:
@@ -593,10 +597,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._fail(404, "not_found", "その操作はありません")
         tid = _qid(u)
         try:
-            with ed_store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
-                ed_store.read_transcript(tid)
-                os.unlink(ed_store.tx_path(tid))
-                for extra in (ed_store.edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
+            with _store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
+                _store.read_transcript(tid)
+                os.unlink(_store.tx_path(tid))
+                for extra in (_store.edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"), _txrecords.words_path(tid),
                               _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
                               ed_alt.alt_path(tid), ed_ytcap.ytcap_path(tid), _txllm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
                     try:
@@ -605,7 +609,7 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                     except OSError as e:
                         ed_state.log.warning("編集の内容を消せませんでした: %s %s", os.path.basename(extra), e)
-                ed_store._edit_cache.pop(tid, None)
+                _store._edit_cache.pop(tid, None)
         except ed_state.ApiError as e:
             return self._err(e)
         except OSError as e:
