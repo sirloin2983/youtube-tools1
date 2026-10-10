@@ -3331,3 +3331,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 文書: AGENTS.md・src/editor/AGENTS.md(workdata・studiodata・runlog・テストの名前)・plan/role-restructure.md(状態・8 節の RS3・RS4 の手順の案と 0A・0B)・plan/data.js(RS3 doing・RS4 の注記)・plan/decisions.md 3-25・HANDOVER
 - 次: ユーザーの確認 = decisions 3-25(とくに確かめてから進める RS3-f〜m)・入口を起動し直して本物の 1 本(RS1・RS2・RS3-0 の分)→ RS3 の段 1(設定の口と評価用の判定を ytt/settings へ)→ 波 1・波 2 → RS4
 - 未コミット: なし(この記録と文書と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Opus まとめ役。実装 Opus 2 体。セッション「RS2-8 ed_jobs リファクタリング」の続き)— 段 D(使っていない機能を消す・編集 0.68.0)と RS3 の段 1(設定の口と評価用の判定を ytt/settings へ)。ここでセッションを区切る
+- ユーザー: A/B・修正データの書き出し・データの保管は「使用していない」→ 消す / 確認してから届ける・あとから解析・進行度は「いつでもいい」/ 層の表の案(live・autorun を app)は解説のあと「一時的な案は全部勝手にしていい」→ 確定 / 後片付けは任せる → 作業フォルダ 8 つを消した(中身が main にあることを確かめて)/「実装は次のセッションに移るからきりのいい所まで」。記録は decisions 3-25。進め方の変更(文書は RS ごとに 1 回・e2e は少なめ)は別のセッションが aaf97ac で AGENTS と計画に書いた
+- **段 D**(597afe0〜5592835。編集 0.67.0 → **0.68.0**): 設定の比較 A/B・修正データの書き出し・データの保管(自動の保管・/api/archive・/api/dataset・画面のカード・設定の archiveAuto/archiveFull)・評価用の音声 ed_evalaudio を消した。作業データの dataset/・eval-audio/・evals/ とバックアップの指定は残した・測る道具は今ある full.flac を読む。workdata.EVAL_DIR・DATASET_DIR も消えた。違反 21 → **19**
+- **RS3 の段 1**(bf45895〜0675e04): 編集の設定の読み書きと鍵の検査(load_settings・SETTINGS_PATCH_KEYS・patch/merge/replace・新しい口 register_patch_key)と評価用の判定(eval_dirs・in_eval_dir・eval_name_guard)を ytt/settings へ、別ドライブへ移す部品を ytt/fsio(is_remote_drive・same_drive・move_file)へ。doc_jobs の口は 5 → 3 本(redo_skip・redo_fill・norm_after)。違反 25 → 21
+- テスト(合わせた状態・サブエージェントが止まってから): 単体 695・325・test_mount 26・lint 0・e2e_eval_set・e2e_ui_mounted OK(実装役が e2e_proofread_accuracy・e2e_proofread_keys・ui_audit static Must 0 も)
+- 文書(AGENTS・editor の AGENTS・計画・data.js)は進め方の変更どおり RS3 の終わりに 1 回で直す = editor の AGENTS.md に A/B・保管・ed_evalaudio の記述が残っている・data.js の編集の版は 0.67.0 のまま
+- 次: RS3 の波 1(docs/design/rs3-rs4-survey-2026-10-10/plan_order.md の表)。HANDOVER に指示文
+- 未コミット: なし
