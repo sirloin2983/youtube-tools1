@@ -34,7 +34,7 @@ FILES = {
     "src/editor/ed_ytcap.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/ytcap(YouTube の字幕 = 校正の補助)"),
     "src/editor/ed_learn.py": ("human", "human/proof", "転送(RS5 で消す)。中身は pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度と基準。serve が _add_moved で足す)"),
     "src/editor/ed_relink.py": ("manage", "manage/cases", "転送(RS5 で消す)。中身は manage/cases/relink(付け替え・まとめて付け替える・30fps)と eval/drill/folders(評価用のフォルダの整理。serve が _add_moved で足す)"),
-    "src/editor/ed_misc.py": ("manage", "manage/cases", "転送(RS5 で消す)。中身は manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括)・human/proof/progress(進行度。D2 で消す)。runtime_path_dir は app の ed_state(A/B は 0.68.0 で消した)"),
+    "src/editor/ed_misc.py": ("manage", "manage/cases", "転送(RS5 で消す)。中身は manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括)。進行度 human/proof/progress は 0.69.0(段 D2)で消した。runtime_path_dir は app の ed_state(A/B は 0.68.0 で消した)"),
     # ---- ed_drill・ed_evalbatch は RS4-2 で eval/drill の drill・evalbatch へ移した(殻なし。決定 3-25 #7。DIRS で読む)
     # ---- resolve_export は RS3-E5b で pipeline/pack へ(受け渡しの JSON と SRT の組み立て build_* も一緒)・pipeline_io は manage/cases へ(読み・保存・.runtime)。どちらも DIRS で読む = 旧い場所の転送は無い
     "src/editor/ed_media.py": ("app", "app", "動画の配信"),
