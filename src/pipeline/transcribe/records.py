@@ -12,10 +12,9 @@ dict_version を読むのは同じモジュールの _run_base だけ(テスト�
 import functools
 import hashlib
 import json
-import os
 import time
 
-from ytt import fsio as _fsio, workdata as _workdata
+from ytt import docloc as _docloc, fsio as _fsio
 from . import backend as _backend, postproc, roster as _roster, tx_engines
 from ytt import txbase as _txbase
 
@@ -152,7 +151,7 @@ MAX_ASR_BYTES = 64 * 1024 * 1024
 
 
 def asr_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".asr.json")
+    return _docloc.doc_file(tid, ".asr.json")
 
 
 def capture_raw(gen, raw, shift=0.0):

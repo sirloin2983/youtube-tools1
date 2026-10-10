@@ -26,7 +26,7 @@ import time
 import urllib.error
 import urllib.request
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, workdata as _workdata
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, workdata as _workdata
 from . import backend as _backend, tx_engines, worker_client
 from ytt import txbase as _txbase
 
@@ -291,7 +291,7 @@ _diar_lock = threading.Lock()
 
 
 def diar_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".diar.json")
+    return _docloc.doc_file(tid, ".diar.json")
 
 
 def read_diar(tid):

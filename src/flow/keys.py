@@ -25,7 +25,7 @@ import logging
 import os
 
 from pipeline.pack import pack as _pack, resolve_textplus as _tp
-from ytt import colors as _colors, errors as _errors, fsio as _fsio, loudness as _loud, schemas as _schemas, version as _version, workdata as _workdata
+from ytt import colors as _colors, docloc as _docloc, errors as _errors, fsio as _fsio, loudness as _loud, schemas as _schemas, version as _version
 
 log = logging.getLogger("ytt.flow.keys")
 
@@ -48,7 +48,7 @@ def doc_key_path(tid, stage):
         raise ValueError("文書の id が正しくありません")
     if stage not in _schemas.KEY_STAGES:
         raise ValueError("段が正しくありません: %r" % (stage,))
-    return os.path.join(_workdata.TX_DIR, tid + "." + stage + _schemas.KEY_SUFFIX)
+    return _docloc.doc_file(tid, "." + stage + _schemas.KEY_SUFFIX)
 
 
 def pack_key_path(folder):

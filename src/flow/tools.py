@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 
 from pipeline.pack import cut2resolve_core as _core, pack as _pack, resolve_textplus as _tp
-from ytt import colors as _colors, errors as _errors, fsio as _fsio, jobs as _slots, loudness as _loud, schemas as _yschemas, tools as _ytools
+from ytt import colors as _colors, docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, loudness as _loud, schemas as _yschemas, tools as _ytools
 from ytt import txbase as _txbase, txtext as _txtext, workdata as _workdata
 
 from . import jobs as _jobs, keys as _keys, pack as _flowpack, tx as _tx
@@ -252,24 +252,18 @@ class LocalTools:
 
     def docs(self):
         """作業データ(ytt/workdata の TX_DIR)の文書を直に読んだ一覧(doc_row の形。RS6 b-K2。置き場所が決まっていなければ [])"""
-        try:
-            names = sorted(os.listdir(_workdata.TX_DIR)) if _workdata.TX_DIR else []
-        except OSError:
-            return []
         out = []
-        for n in names:
-            tid, ext = os.path.splitext(n)
-            if ext == ".json" and _yschemas.TID_RE.match(tid):
-                row = self.doc(tid)
-                if row:
-                    out.append(row)
+        for tid in _docloc.iter_tids():
+            row = self.doc(tid)
+            if row:
+                out.append(row)
         return out
 
     def doc(self, tid):
         """文書 1 つ(doc_row の形)か None(無い・読めない)"""
         try:
-            d = _read_doc(os.path.join(_workdata.TX_DIR, str(tid) + ".json"))
-        except (_errors.ApiError, TypeError):
+            d = _read_doc(_docloc.doc_file(str(tid), ".json"))
+        except (_errors.ApiError, TypeError, ValueError):
             return None
         return doc_row(str(tid), d) if d.get("segments") is not None else None
 
@@ -279,7 +273,7 @@ class LocalTools:
 
     def transcript_file(self, tid):
         """文書の受け渡しの JSON(transcript-v1。② flow/pack.handoff_files)を作業データの一時フォルダに書く -> {"path"}"""
-        doc = _read_doc(os.path.join(_workdata.TX_DIR, tid + ".json"))
+        doc = _read_doc(_docloc.doc_file(tid, ".json"))
         obj, count = _flowpack.handoff_files(doc, "transcript-v1")
         if not count:
             raise _step_error("パックに渡す文字のある行がありません")

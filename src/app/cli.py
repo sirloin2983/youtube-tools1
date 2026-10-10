@@ -34,7 +34,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from flow import envelope as _envelope, keys as _keys, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
-from ytt import datadir as _datadir, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
+from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
 from ytt import tools as _ytools, workdata as _workdata, yturl as _yturl  # noqa: E402
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_NO_PORTAL, EXIT_BUSY, EXIT_INTERRUPT = 0, 1, 2, 3, 4, 130
@@ -224,15 +224,8 @@ def _read_doc(path):
 def find_doc(source_path):
     """この動画の文書のうち行のある新しい物(LocalTools の一覧と同じ形)か None。作業データの文書を読むだけ"""
     want, best = os.path.normcase(os.path.abspath(source_path)), None
-    try:
-        names = os.listdir(_workdata.TX_DIR)
-    except OSError:
-        return None
-    for n in names:
-        tid, ext = os.path.splitext(n)
-        if ext != ".json" or not _schemas.TID_RE.match(tid):
-            continue
-        d = _read_doc(os.path.join(_workdata.TX_DIR, n))
+    for tid in _docloc.iter_tids():
+        d = _read_doc(_docloc.doc_file(tid, ".json"))
         if not d or os.path.normcase(os.path.abspath(str(d.get("sourcePath") or "."))) != want or not d.get("segments"):
             continue
         row = {"id": tid, "title": d.get("title") or tid, "sourcePath": d.get("sourcePath"), "updatedAt": d.get("updatedAt") or 0,
@@ -493,9 +486,9 @@ def artifacts(out):
     for tid in out.get("docs") or []:
         if not _schemas.TID_RE.match(str(tid)):
             continue
-        path = os.path.join(_workdata.TX_DIR, tid + ".json")
+        path = _docloc.doc_file(tid, ".json")
         docs.append(path)
-        keys += [_keys.doc_key_path(tid, st) for st in ("transcribe", "post", "diar")]
+        keys += [_keys.doc_key_path(tid, st) for st in _docloc.DOC_KEY_STAGES]
         src = (_read_doc(path) or {}).get("sourcePath")
         if isinstance(src, str) and src:
             keys.append(_keys.media_key_path(src))

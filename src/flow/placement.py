@@ -27,7 +27,7 @@ import os
 import secrets
 import time
 
-from ytt import datadir as _datadir, fsio as _fsio, layout as _layout, names as _names, procs as _procs, runtime as _runtime, \
+from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, names as _names, procs as _procs, runtime as _runtime, \
     schemas as _schemas, version as _version, workdata as _workdata
 from . import keys as _keys, runlog as _runlog
 
@@ -187,7 +187,7 @@ def _doc_key(tid, stage):
 
 
 def _doc_path(tid):
-    return _existing(os.path.join(_workdata.TX_DIR, tid + ".json")) if _workdata.TX_DIR and _schemas.TID_RE.match(str(tid or "")) else None
+    return _existing(_docloc.doc_file(tid, ".json")) if _workdata.TX_DIR and _schemas.TID_RE.match(str(tid or "")) else None
 
 
 def outputs(run, video=None):

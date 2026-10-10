@@ -61,19 +61,39 @@ class TestDictVersion(_Env):
         self.assertEqual((run["settings"]["dict"], run["device"], run["post"]["version"]), ({"x": 1}, "cpu", "9.9.9"))
 
 
+TID = "abc123abc123"   # 文書の id の形(12 文字の 16 進)
+
+
 class TestFiles(_Env):
     def test_words_and_asr_in_tx_dir(self):
-        txwords.write_words("abc", [[1.0, 1.5, "い"], [0.0, 0.5, "あ"]], "small")
-        self.assertEqual(txwords.words_path("abc"), os.path.join(self.tmp, "abc.words.json"))
-        self.assertEqual(txwords.read_words("abc"), [[0.0, 0.5, "あ"], [1.0, 1.5, "い"]])
+        txwords.write_words(TID, [[1.0, 1.5, "い"], [0.0, 0.5, "あ"]], "small")
+        self.assertEqual(txwords.words_path(TID), os.path.join(self.tmp, TID + ".words.json"))
+        self.assertEqual(txwords.read_words(TID), [[0.0, 0.5, "あ"], [1.0, 1.5, "い"]])
         raw = []
         rows = list(records.capture_raw(iter([{"start": 0.0, "end": 1.0, "text": "あ", "words": [(0.0, 1.0, "あ")], "wordProbs": [0.9]}]), raw, 10.0))
         self.assertEqual((len(rows), raw[0]["words"]), (1, [[10.0, 11.0, "あ", 0.9]]))
-        records.write_asr("abc", raw, {"engine": "x"})
-        with open(records.asr_path("abc"), encoding="utf-8") as f:
+        records.write_asr(TID, raw, {"engine": "x"})
+        with open(records.asr_path(TID), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["segments"], raw)
-        txwords.write_words("abc", [])
-        self.assertIsNone(txwords.read_words("abc"))
+        txwords.write_words(TID, [])
+        self.assertIsNone(txwords.read_words(TID))
+
+
+    def test_indexed_doc_files_follow_the_index(self):
+        """索引(docloc.place)を置いた文書の 単語の時刻・生出力は 作業用 のフォルダから読み書きされる"""
+        from ytt import docloc
+        work = os.path.join(self.tmp, "案件", "作業用")
+        os.makedirs(work)
+        with open(os.path.join(work, TID + ".json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        docloc.place(TID, work)
+        txwords.write_words(TID, [[0.0, 0.5, "あ"]], "small")
+        records.write_asr(TID, [], {"engine": "x"})
+        self.assertEqual(txwords.words_path(TID), os.path.join(os.path.normpath(work), TID + ".words.json"))
+        self.assertTrue(os.path.isfile(os.path.join(work, TID + ".words.json")))
+        self.assertTrue(os.path.isfile(os.path.join(work, TID + ".asr.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, TID + ".words.json")))
+        self.assertEqual(txwords.read_words(TID), [[0.0, 0.5, "あ"]])
 
 
 if __name__ == "__main__":

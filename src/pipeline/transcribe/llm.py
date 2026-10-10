@@ -30,7 +30,7 @@ import re
 import time
 import unicodedata
 
-from ytt import fsio as _fsio, jobs as _heavy, workdata as _workdata   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)・書き込みと付き物の JSON の読み
+from ytt import docloc as _docloc, fsio as _fsio, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)・書き込みと付き物の JSON の読み
 from . import backend as _backend, roster as _roster, tx_engines, worker_client  # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)・LLM のモデルの一覧(RS7-1 S1)
 from ytt import txbase as _txbase
 
@@ -321,7 +321,7 @@ def llm_after_doc(job, spec, segs):
 
 
 def llm_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".llm.json")
+    return _docloc.doc_file(tid, ".llm.json")
 
 
 def llm_write(tid, rec, items):

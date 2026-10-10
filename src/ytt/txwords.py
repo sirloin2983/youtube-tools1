@@ -5,10 +5,9 @@
 (① は単語の時刻を読まない)。置き場所は ytt/workdata の TX_DIR を呼ぶたびに読む。編集の serve の名前の受付に並ぶ(S.words_path・S.read_words)。
 """
 import json
-import os
 import time
 
-from ytt import fsio as _fsio, workdata as _workdata
+from ytt import docloc as _docloc, fsio as _fsio
 
 # 行のデータには入れない = 画面の保存で落ちたり古くなったりしないように(12 ②)
 WORDS_SCHEMA = "youtube-tools-words/v1"
@@ -16,7 +15,7 @@ MAX_WORDS_BYTES = 32 * 1024 * 1024
 
 
 def words_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".words.json")
+    return _docloc.doc_file(tid, ".words.json")
 
 
 def read_words(tid):

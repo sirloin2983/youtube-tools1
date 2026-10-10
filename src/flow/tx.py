@@ -21,7 +21,7 @@ import json
 import os
 import time
 
-from ytt import dictfmt as _dictfmt, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, settings as _settings
+from ytt import dictfmt as _dictfmt, docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, settings as _settings
 from ytt import tools as _tools, txbase as _txbase, txtext as _txtext, txwords as _txwords, workdata as _workdata
 from pipeline.transcribe import backend as _backend, clipjob, llm, postproc, recognize, records, roster as _roster, tx_engines, worker_client
 from pipeline.transcribe import retime as _retime
@@ -154,7 +154,7 @@ def write_machine_doc(tid, fields, spec=None):
         doc["clip"] = spec["clip"]
     if spec and spec.get("evalSet"):
         doc["evalSet"] = True
-    path = os.path.join(_workdata.TX_DIR, tid + ".json")
+    path = _docloc.doc_file(tid, ".json")
     _fsio.write_json(path, doc, indent=1, fsync_required=True)
     return path
 
