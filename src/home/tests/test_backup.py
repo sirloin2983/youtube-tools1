@@ -1,4 +1,4 @@
-"""作業データのバックアップ(src/home/backup.py)の単体テスト。一時フォルダだけを使う。
+"""作業データのバックアップ(src/manage/keep/backup.py。Prefs と組み合わせるので入口の tests に置く)の単体テスト。一時フォルダだけを使う。
 
 実行(リポジトリ直下から): python -m unittest src/home/tests/test_backup.py -v
 """
@@ -18,9 +18,9 @@ for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import backup  # noqa: E402
+from manage.keep import backup  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 
 def put(path, text):

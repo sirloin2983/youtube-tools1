@@ -1,6 +1,6 @@
-"""src/home/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
+"""src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
 
-    python -m unittest src/home/tests/test_cleanup.py
+    python -m unittest src/manage/keep/tests/test_cleanup.py
 """
 import os
 import shutil
@@ -9,10 +9,10 @@ import tempfile
 import time
 import unittest
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))
-sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
-import cleanup as C  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
+from manage.keep import cleanup as C  # noqa: E402
 
 
 def touch(path, size=10, mtime=None):

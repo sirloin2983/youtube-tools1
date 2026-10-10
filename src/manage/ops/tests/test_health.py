@@ -1,6 +1,6 @@
-"""src/home/health.py(「調子」。段9 9-1)の単体テスト。
+"""src/manage/ops/health.py(「調子」。段9 9-1)の単体テスト。
 
-    python -m unittest src/home/tests/test_health.py
+    python -m unittest src/manage/ops/tests/test_health.py
 """
 import json
 import os
@@ -12,10 +12,10 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))
-sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
-import health as H  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> ops -> manage -> src
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
+from manage.ops import health as H  # noqa: E402
 
 
 class SizesTest(unittest.TestCase):

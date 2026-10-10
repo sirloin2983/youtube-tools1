@@ -635,7 +635,7 @@ class PortalHttpTest(Base):
 
     def test_restart_self(self):
         """起動し直す(段9 9-3): 重い処理の最中は 409 で断る。空いていれば新しい入口を --wait-port で起こし、後始末を頼む"""
-        import restart as R
+        from manage.ops import restart as R
         calls, stops = [], []
         saved = (R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart)
         R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
@@ -661,7 +661,7 @@ class PortalHttpTest(Base):
 
     def test_restart_self_stops_deferred_analysis(self):
         """あとから解析(測るため)だけが動いているときは、止めてから起動し直す(2026-10-05)。止まらなければ 409"""
-        import restart as R
+        from manage.ops import restart as R
 
         class Stub:
             def __init__(self, ok):
@@ -701,7 +701,7 @@ class PortalHttpTest(Base):
     def test_restart_self_keeps_autorun_runs(self):
         """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5。入口 0.41.0)。
         実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)今までどおり断る"""
-        import restart as R
+        from manage.ops import restart as R
 
         class Stub:
             def __init__(self, redo):
@@ -839,7 +839,7 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 403)
 
     def test_backup_api(self):
-        """作業データのバックアップ(src/home/backup.py): 状態・設定(api/ytt/prefs の節 backup)・今すぐ写す。テスト(inplace)では作業データの親が無いので写さない"""
+        """作業データのバックアップ(src/manage/keep/backup.py): 状態・設定(api/ytt/prefs の節 backup)・今すぐ写す。テスト(inplace)では作業データの親が無いので写さない"""
         r, body = self.req("GET", "/api/backup")
         j = json.loads(body)
         self.assertEqual((r.status, j["enabled"], j["state"], j["everyHours"], j["source"]), (200, False, "off", 1, None))

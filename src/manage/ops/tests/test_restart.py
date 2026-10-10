@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""入口を起動し直す部品(src/home/restart.py。段9 9-3)のテスト。  python -m unittest src/home/tests/test_restart.py -v
+"""入口を起動し直す部品(src/manage/ops/restart.py。段9 9-3)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
 
 - spawn_new_launcher: 一時フォルダに偽の home/launch.py(受け取った引数・環境変数・作業フォルダを書いて終わる)を置き、
   本物の Python で起動して、引数・環境・作業フォルダ・待ち受けのソケットを引き継がないことを確かめる
 - wait_port_free / port_free: 本物の待ち受けのソケット(少しあとで閉じる)で
-- can_restart: 重い処理の枠(ytt_core.jobs.SLOTS.snapshot() の形)・取り込んだツールの busy・まとめて実行の実行中の段の仕事(redo。0.41.0)で
+- can_restart: 重い処理の枠(ytt.jobs.SLOTS.snapshot() の形)・取り込んだツールの busy・まとめて実行の実行中の段の仕事(redo。0.41.0)で
 """
 import json
 import os
@@ -20,14 +20,11 @@ import time
 import unittest
 from unittest import mock
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
-HERE = os.path.dirname(TESTS)   # home
-REPO = os.path.dirname(HERE)
-sys.path.insert(0, HERE)
-if REPO not in sys.path:
-    sys.path.append(REPO)
-import restart as R  # noqa: E402
-from ytt_core import jobs, layout  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> ops -> manage -> src
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
+from manage.ops import restart as R  # noqa: E402
+from ytt import jobs, layout  # noqa: E402
 
 FAKE_LAUNCH = textwrap.dedent(r'''
     import json, os, sys, time

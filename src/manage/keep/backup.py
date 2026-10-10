@@ -14,7 +14,7 @@
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
 - 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)のほかに、**変わったらすぐ写す**: 写す対象のファイルが前回の写し始めより新しく更新され、
   最後の変更から QUIET 秒(保存が続いている間は待つ)たっていれば、間隔を待たずに写す(CHECK_EVERY ごとに見る)
-- 写し戻し: `restore_once`(コマンド `py -3.10 src/home/backup.py --restore <folder>`)。手順は docs/spec/data-location.md の「写し戻しの手順」
+- 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は docs/spec/data-location.md の「写し戻しの手順」
 - 鍵(studio\\config.json の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有のフォルダ・クラウドに置かない)
 """
 import argparse
@@ -25,8 +25,8 @@ import sys
 import threading
 import time
 
-_SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _SRC not in sys.path:   # コマンドで単独に動かす(--restore)ときも ytt_core を読めるように(入口から読むときは入っている)
+_SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # keep -> manage -> src
+if _SRC not in sys.path:   # コマンドで単独に動かす(--restore)ときも ytt を読めるように(入口から読むときは入っている)
     sys.path.insert(0, _SRC)
 from ytt import fsio, tools  # noqa: E402
 
