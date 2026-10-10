@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""段階7 のテスト: 窓で開く(src/home/appwindow.py)・画面のエラーの記録(src/manage/ops/clientlog.py)・入口の共通の API(api/ytt/…)。
+"""段階7 のテスト: 窓で開く(src/home/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
     python -m unittest src/home/tests/test_window.py -v
 
 Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は src/home/tests/test_mount.py。
@@ -20,7 +20,6 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import appwindow as W  # noqa: E402
 import launch as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt を読むので先に)
-from manage.ops import clientlog as C  # noqa: E402
 import prefs as PR  # noqa: E402
 from ytt import fsio  # noqa: E402
 
@@ -271,57 +270,6 @@ class TestOpener(unittest.TestCase):
         self.fake.now += W.RATE[1] + 0.1
         self.o.open_url("http://localhost:8700/", 8700)
         self.assertEqual(self.fake.spawned[-1][0][1], "--app=http://localhost:8700/")
-
-
-class TestClientLog(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-clog-")
-        self.t = [1000.0]
-        self.log = C.ClientLog(self.tmp, per_minute=3, max_bytes=400, clock=lambda: self.t[0])
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def lines(self, path=None):
-        with open(path or self.log.path, encoding="utf-8") as f:
-            return [json.loads(x) for x in f.read().splitlines()]
-
-    def test_clean(self):
-        e = C.clean({"kind": "evil", "message": "x" * 900, "stack": "s\n" * 2000, "line": 12, "col": True, "extra": "捨てる", "page": 5})
-        self.assertEqual(e["kind"], "report")
-        self.assertEqual(len(e["message"]), 500)
-        self.assertEqual(len(e["stack"]), 2000)
-        self.assertEqual(e["line"], 12)
-        self.assertNotIn("col", e)
-        self.assertNotIn("extra", e)
-        self.assertNotIn("page", e)
-        for bad in ({}, {"message": ""}, {"message": 3}, [], "x"):
-            with self.subTest(bad=bad), self.assertRaises(ValueError):
-                C.clean(bad)
-
-    def test_one_line_per_entry_and_limit(self):
-        self.log.max_bytes = 10 ** 6   # 回さない
-        self.assertTrue(self.log.record("studio", {"kind": "error", "message": "a\n{\"tool\":\"fake\"}\r\nb"}, "0.7.0"))
-        self.assertTrue(self.log.record("portal", {"message": "2"}))
-        self.assertTrue(self.log.record("portal", {"message": "3"}))
-        self.assertFalse(self.log.record("portal", {"message": "4"}))   # 1分に3件まで
-        self.assertFalse(self.log.record("portal", {"message": "5"}))
-        got = self.lines()
-        self.assertEqual(len(got), 3)   # 改行を含むエラーの文でも1件は1行(偽の行を作れない)
-        self.assertEqual((got[0]["tool"], got[0]["version"], got[0]["kind"]), ("studio", "0.7.0", "error"))
-        self.assertIn("\n", got[0]["message"])
-        self.t[0] += 61
-        self.assertTrue(self.log.record("portal", {"message": "6"}))
-        got = self.lines()
-        self.assertEqual((got[3]["kind"], got[3]["count"]), ("dropped", 2))   # 書かなかった件数を残す
-        self.assertEqual(got[4]["message"], "6")
-
-    def test_rotation(self):
-        for i in range(12):
-            self.t[0] += 61
-            self.log.record("portal", {"message": "m%d" % i + "x" * 60})
-        self.assertTrue(os.path.exists(self.log.path + ".1"))
-        self.assertLess(os.path.getsize(self.log.path), 400 + 200)
 
 
 class TestPrefs(unittest.TestCase):

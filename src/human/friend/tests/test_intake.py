@@ -1,6 +1,7 @@
 """友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 
-実行(リポジトリ直下から): python -m unittest src/home/tests/test_intake.py -v
+実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_intake.py -v
+(設定 prefs の intake の節の検査は入口の側 src/home/tests/test_intake_prefs.py)
 """
 import json
 import os
@@ -12,8 +13,8 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-ROOT = os.path.dirname(HOME)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+HOME = os.path.join(ROOT, "home")   # 設定 prefs(入口 = app)を、本物の設定と組み合わせて使うため
 for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -118,41 +119,6 @@ class TestParse(unittest.TestCase):
         self.assertEqual(intake.decode_text("あ".encode("cp932")), "あ")
         self.assertEqual(intake.decode_text("\ufeffあ".encode("utf-8")), "あ")
         self.assertEqual(intake.parse_url_file("[InternetShortcut]\r\nURL=https://youtu.be/abcdefghijk\r\n"), "https://youtu.be/abcdefghijk")
-
-
-class TestPrefs(unittest.TestCase):
-    def test_cfg_falls_back_to_given_defaults(self):
-        """設定が読めないときの既定は入口が渡す(intake は prefs を読み込まない。RS3-0B)"""
-        class Broken:
-            def get(self, sections):
-                raise OSError("読めない")
-        tmp = tempfile.mkdtemp(prefix="intake-")
-        self.addCleanup(shutil.rmtree, tmp, True)
-        d = prefs_mod.DEFAULTS["intake"]
-        it = intake.Intake(Broken(), lambda: None, tmp, defaults=d)
-        self.assertEqual(it._cfg(), d)
-        self.assertIsNot(it._cfg(), d)    # 呼ぶ側が書き換えても既定は変わらない
-        self.assertEqual(intake.Intake(Broken(), lambda: None, tmp)._cfg(), {})   # 渡さなければ空 = オフ扱い
-
-    def test_intake_prefs(self):
-        tmp = tempfile.mkdtemp()
-        try:
-            p = prefs_mod.Prefs(os.path.join(tmp, "prefs.json"), fsio.atomic_write)
-            self.assertEqual(p.get(["intake"])["intake"], prefs_mod.DEFAULTS["intake"])
-            v = p.patch("intake", {"enabled": True, "top": 5, "maxHours": 2.5})
-            self.assertEqual((v["enabled"], v["top"], v["maxHours"], v["interval"]), (True, 5, 2.5, 30))
-            self.assertNotIn("dailyMax", v)   # 1 日の上限は無い。古いアプリ・古い prefs.json の dailyMax は読み飛ばす
-            self.assertNotIn("dailyMax", p.patch("intake", {"dailyMax": 3}))
-            self.assertEqual(p.patch("intake", {"interval": 120})["interval"], 120)   # 見る間隔(段9 9-4)
-            for bad in ({"top": 11}, {"top": 2.5}, {"maxGB": True}, {"folder": 3}, {"folder": "\\\\server\\share"},
-                        {"interval": 5}, {"interval": 601}, {"interval": 30.5},
-                        {"folder": "//server/share"}, {"folder": "relative\\dir"}):
-                with self.assertRaises(prefs_mod.PrefsError, msg=str(bad)):
-                    p.patch("intake", bad)
-            if os.name == "nt":
-                self.assertEqual(p.patch("intake", {"folder": ' "C:\\Users\\x\\Dropbox" '})["folder"], "C:\\Users\\x\\Dropbox")
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestState(Base):

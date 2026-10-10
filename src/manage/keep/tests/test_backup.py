@@ -1,6 +1,6 @@
-"""作業データのバックアップ(src/manage/keep/backup.py。Prefs と組み合わせるので入口の tests に置く)の単体テスト。一時フォルダだけを使う。
+"""作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/home/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
 
-実行(リポジトリ直下から): python -m unittest src/home/tests/test_backup.py -v
+実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_backup.py -v
 """
 import contextlib
 import io
@@ -12,8 +12,8 @@ import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-ROOT = os.path.dirname(HOME)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+HOME = os.path.join(ROOT, "home")   # 設定 prefs(入口 = app)を借りる
 for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -381,16 +381,6 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(read(os.path.join(tgt, "studio", "data.json")), '{"v": 1}')
         self.assertEqual(backup.main(["--restore", self.dst, "--target", tgt, "--yes"]), 0)   # 写すものなし
         self.assertEqual(backup.main(["--restore", os.path.join(self.tmp, "無い"), "--target", tgt, "--yes"]), 2)
-
-    def test_prefs_shape(self):
-        p = prefs_mod.Prefs(os.path.join(self.tmp, "p.json"), fsio.atomic_write)
-        self.assertEqual(p.get(["backup"])["backup"], {"enabled": False, "folder": "", "everyHours": 1})
-        for bad in ({"enabled": True}, {"folder": "\\\\srv\\share"}, {"folder": "rel"}, {"everyHours": 0}, {"everyHours": 1.5}, {"everyHours": True}):
-            with self.assertRaises(prefs_mod.PrefsError, msg=bad):
-                p.patch("backup", bad)
-        self.assertEqual(p.patch("backup", {"enabled": True, "folder": self.dst, "everyHours": 6, "x": 1}),
-                         {"enabled": True, "folder": self.dst, "everyHours": 6})
-        self.assertEqual(p.get(["intake"])["intake"]["enabled"], False)   # ほかの節はそのまま
 
 
 if __name__ == "__main__":
