@@ -241,6 +241,20 @@ def fill_strip_names(spec, rows):
     return rows, n
 
 
+def fill_head_stripper(spec):
+    """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(B。0.67.0)。recognize.finish_range_lines が使う
+    (recognize は fill を読まない = 編集の serve が recognize.set_head_stripper で登録する)。RS6 a-3 に human/proof/doc_jobs.head_stripper からここへ
+    (③ を通さない ① どうしの決まり)。-> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
+    if spec.get("stripNames", True) is False or spec.get("evalSet"):
+        return None
+    names = fill_spk_names(spec)
+
+    def split(text):
+        text, head = fill_spk_split(text, names)
+        return text, (FILL_SPK_NOTE if head else None)
+    return split
+
+
 # ---------- D: 別のエンジンも同じ呼び名なら 1 字違いを直す ----------
 def fill_aliases(r=None):
     """名簿の呼び名(名前 + aliases。common = 普通の言葉と重なる語は除く・FILL_AGREE_MIN 字以上)。r = 名簿(無ければ読む)"""

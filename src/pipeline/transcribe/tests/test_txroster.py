@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(役割で組み直す RS2-8a に編集の ed_jobs から移した)を、
+"""pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(役割で組み直す RS2-8a に編集の ed_jobs から移した。RS6 a-3 から ytt/txtext)を、
 編集の serve を読まずに使うテスト。
 
     py -3.10 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v
@@ -20,15 +20,16 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 sys.path.insert(0, SRC)
 from pipeline.transcribe import roster  # noqa: E402
 from ytt import studiodata  # noqa: E402
+from ytt import txtext  # noqa: E402   用語の区切り split_terms(RS6 a-3 に roster から)
 
 STREAMS = {"vidA": {"channel": "Pekora Ch. 兎田ぺこら", "title": "コラボ!", "collab": [{"videoId": "vidB", "channel": "Marine Ch. 宝鐘マリン", "title": "別視点"}]}}
 
 
 class TestSplitTerms(unittest.TestCase):
     def test_separators(self):
-        self.assertEqual(roster.split_terms("ホロライブ、ぺこら,マリン\n船長\r\n  みこ  ,、"), ["ホロライブ", "ぺこら", "マリン", "船長", "みこ"])
-        self.assertEqual(roster.split_terms(None), [])
-        self.assertEqual(roster.split_terms(""), [])
+        self.assertEqual(txtext.split_terms("ホロライブ、ぺこら,マリン\n船長\r\n  みこ  ,、"), ["ホロライブ", "ぺこら", "マリン", "船長", "みこ"])
+        self.assertEqual(txtext.split_terms(None), [])
+        self.assertEqual(txtext.split_terms(""), [])
 
 
 class TestStreamContext(unittest.TestCase):

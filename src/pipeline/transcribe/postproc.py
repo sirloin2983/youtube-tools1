@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""① 文字起こしの行の後処理: 要確認の印(make_flags)・行を単語の時刻で分ける(split_segment)・認識の出力を整える流れ(expand_segments =
+"""① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
 長さで切る clip_rows・同じ文字の行をまとめる merge_repeats・終わりを早める trim_ends・続いている行をつなぐ join_rows・句読点の除去 strip_punct)・
 自信の度合い(machine_conf)・後処理の記録(post_record)・行の単語(row_words)。
+split_segment・strip_punct・SPARSE_FLAG・text_chars・SPLIT_*・_squash の本体は RS6 a-3(2026-10-10)から ytt/txtext.py(③ も読む語彙)。ここに別名は残さない。
 
 役割で組み直す RS2-4b(2026-10-10)に編集の ed_jobs から移した(中身は同じ)。標準ライブラリ・ytt・同じパッケージの兄弟(txbase・tx_engines・roster)だけを読む
 = 編集のサーバー(serve)なしで ① から読める(post_record の編集の版だけは ytt/workdata の SERVER_VERSION = app が入れた値)。
@@ -17,6 +18,7 @@ import unicodedata
 from ytt import workdata as _workdata
 from . import roster as _roster, tx_engines
 from ytt import txbase as _txbase
+from ytt import txtext as _txtext   # 行を分ける split_segment・句読点の除去 strip_punct・印の文 SPARSE_FLAG・文字数 text_chars(RS6 a-3 にここから ytt へ)
 
 
 LATIN_MIN_LETTERS = 4   # 英字がこの数以上で、文字全体の LATIN_RATIO 以上を占め、
@@ -51,12 +53,7 @@ def _latin_terms(terms):
 SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(docs/design/edit-tool-design.md の 12 ③-1): この長さより長くて
                         # (ちょうど 4.0 秒は含めない。疑似の文字起こしの行(4.0 秒に「テスト文N」)を対象にしないため。本物の行への影響は境目だけ)
 SPARSE_MAX_CPS = 1.5    # 記号・空白を除いた文字数が 1 秒あたりこれ未満
-SPARSE_FLAG = "長い区間に文字が少ない(抜けの可能性)"
-
-
-def text_chars(text):
-    """記号・空白を除いた文字数(文字と数字だけ。かな・漢字・英数字)"""
-    return sum(1 for ch in str(text or "") if unicodedata.category(ch)[0] in "LN")
+# 印の文 SPARSE_FLAG と文字数 text_chars は RS6 a-3 に ytt/txtext.py へ下ろした(③ の再認識・疑わしい所の選び方も読む)
 
 
 def sparse_row(start, end, text):
@@ -66,7 +63,7 @@ def sparse_row(start, end, text):
         dur = float(end) - float(start)
     except (TypeError, ValueError):
         return False
-    return dur > SPARSE_MIN_SEC and text_chars(text) < SPARSE_MAX_CPS * dur
+    return dur > SPARSE_MIN_SEC and _txtext.text_chars(text) < SPARSE_MAX_CPS * dur
 
 
 def _letters(text):
@@ -128,72 +125,11 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
     if lang == "ja" and latin_suspect(text, terms):
         why.append("英字が多い(英語の幻覚の可能性)")
     if sparse_row(seg.get("start"), seg.get("end"), text):
-        why.append(SPARSE_FLAG)
+        why.append(_txtext.SPARSE_FLAG)
     return "、".join(why)
 
 
-SPLIT_GAP, SPLIT_SEC, SPLIT_CHARS = 1.0, 8.0, 24   # 単語の間がこの秒数以上あいたら行を分ける / 1行の最大の長さ(秒・文字。文字は設定の subtitle.splitChars(既定 24 = 0.59.6。0.59.5 は 40)。
-# 0.59.5(2026-10-08)までは字幕の最大文字数(縦 16)で分けていたが、区切りを意識した校正(確かめ済み 22 本)で 16 文字の内側の切れ目は 73% が戻され、
-# whisper の行をそのまま残す方が人の分け方に近かった(的中 68% → 74〜76%・①頭 19% → 14%・①末 25% → 20%。plan/line-b-row-split.md の 8)。字幕の長さはパックの折り返しで別に扱う。
-# 0.59.6(2026-10-08): 友人「字幕が長すぎる(縦 8 字で 5 段)」→ ユーザー「3 段(24 字)以上はやめてほしい・とりあえず 24 で」。24 で分けても境目の的中 74%・①末 20% は 40 と同じ(plan/line-b-transcription.md の「長い行だけ分けると」))
-SPLIT_SLACK = 2          # 最大文字数を 2 文字まで超えるのは許す(無理に分けて変な所で切らない。docs/design/edit-tool-design.md の 12 ②)
-
-
-STRIP_PUNCT_CHARS = "、。？！?!"   # ショート動画のテロップでは句読点が浮きやすいので、既定で取り除く対象(全角の読点・句点・疑問符・感嘆符と、その半角形)
-_strip_punct_re = re.compile("[%s]" % re.escape(STRIP_PUNCT_CHARS))
-
-
-def strip_punct(text):
-    """テロップ表示用に、句読点(、。？！ と半角の ?!)を取り除く。"""
-    return _strip_punct_re.sub("", text)
-
-
-def _cut_words(ws, max_chars=SPLIT_CHARS):
-    """単語の並び ws=[(開始,終了,文字)] を、長すぎる間は「間が大きい・句読点のあと・真ん中に近い」所で分けていく。
-    文字数は max_chars + SPLIT_SLACK まで許す。同じ種類の文字(カタカナ・漢字・英数字)の並びの途中では、なるべく切らない(12 ②)"""
-    dur = ws[-1][1] - ws[0][0]
-    chars = sum(len(t.strip()) for _a, _b, t in ws)
-    if len(ws) < 2 or (dur <= SPLIT_SEC and chars <= max_chars + SPLIT_SLACK):
-        return [ws]
-    best, bi = None, 1
-    for i in range(1, len(ws)):
-        gap = max(0.0, ws[i][0] - ws[i - 1][1])
-        prev_t, next_t = ws[i - 1][2].rstrip(), ws[i][2].lstrip()
-        tail = prev_t[-1:]
-        punct = 1.0 if tail in "。！？!?" else (0.4 if tail in "、,，" else 0.0)
-        balance = 1.0 - abs((ws[i - 1][1] - ws[0][0]) / dur - 0.5) if dur > 0 else 0.5
-        same = 1.0 if prev_t and next_t and _txbase.char_class(prev_t[-1]) and _txbase.char_class(prev_t[-1]) == _txbase.char_class(next_t[0]) else 0.0   # 語の途中
-        score = gap * 2 + punct + balance * 0.5 - same
-        if best is None or score > best:
-            best, bi = score, i
-    return _cut_words(ws[:bi], max_chars) + _cut_words(ws[bi:], max_chars)
-
-
-def split_segment(s, max_chars=SPLIT_CHARS):
-    """認識した1行 s を、単語の時刻で整える。①行の始まり・終わりを最初・最後の単語にそろえる(声のない所まで伸びた行を直す)
-    ②単語の間が1秒以上あいた所で分ける ③長すぎる行(8秒・max_chars 文字 + 2 超)は区切りのよい所で分ける。
-    単語の並びが行の文章と合わないとき、単語の時刻が無いときは、何もせずそのまま返す。
-    分けた行には、その行の単語を "_words" に付ける(文書の words.json に保存する用。行のデータには入れない)"""
-    words = s.get("words") or []
-    if not words:
-        return [s]
-    ws = [(a, b, t) for a, b, t in words if b >= a]
-    if not ws or _squash("".join(t for _a, _b, t in ws)) != _squash(s.get("text", "")):
-        return [s]
-    groups, cur = [], [ws[0]]
-    for w in ws[1:]:
-        if w[0] - cur[-1][1] >= SPLIT_GAP:
-            groups.append(cur)
-            cur = []
-        cur.append(w)
-    groups.append(cur)
-    parts = [p for g in groups for p in _cut_words(g, max_chars)]
-    out = []
-    for p in parts:
-        text = "".join(t for _a, _b, t in p).strip()
-        if text:
-            out.append({**{k: v for k, v in s.items() if k != "words"}, "start": p[0][0], "end": max(p[-1][1], p[0][0]), "text": text, "_words": p})
-    return out or [s]
+# 行を単語の時刻で分ける split_segment(と SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK・_cut_words)・句読点の除去 strip_punct(STRIP_PUNCT_CHARS)・空白を詰める _squash は RS6 a-3(2026-10-10)に ytt/txtext.py へ下ろした(③ が ① を読まずに使えるように。ここは _txtext.名前 で呼ぶたびに読む)
 
 
 def expand_segments(gen, spec, dur=None, join=True):
@@ -206,8 +142,8 @@ def expand_segments(gen, spec, dur=None, join=True):
     join=False は時刻を使わない呼び出し(疑わしい所の認識し直し・2つ目のエンジンの候補)。
     0.65.0(2026-10-09)で、行の終わりを音の谷へ寄せる pull_ends(引数 levels・TRANSCRIBE_PULL_ENDS)を消した(既定オフのままだった)"""
     strip = spec.get("stripPunct", True)
-    mc = spec.get("splitChars") or SPLIT_CHARS
-    rows = (p for s in gen for p in (split_segment(s, mc) if spec.get("wordSplit") else [s]))
+    mc = spec.get("splitChars") or _txtext.SPLIT_CHARS
+    rows = (p for s in gen for p in (_txtext.split_segment(s, mc) if spec.get("wordSplit") else [s]))
     if dur:
         rows = clip_rows(rows, dur)
     rows = merge_repeats(rows)
@@ -216,7 +152,7 @@ def expand_segments(gen, spec, dur=None, join=True):
     if join and JOIN_GAP > 0:
         rows = join_rows(rows, JOIN_GAP)
     for p in rows:
-        yield {**p, "text": strip_punct(p["text"])} if strip and p.get("text") else p
+        yield {**p, "text": _txtext.strip_punct(p["text"])} if strip and p.get("text") else p
 
 
 # ---------- 行の後処理(2026-10-04。ユーザーの報告「行の終わりに次の行の頭の言葉が入る」「動画の長さより後ろに行がある」「ああああ…の行が大量」) ----------
@@ -362,7 +298,3 @@ def post_record():
 def row_words(p, shift=0.0):
     """expand_segments が出した行の単語(split_segment の "_words" か、分けなかった行の "words")→ [[開始, 終了, 文字]](絶対の秒)"""
     return [[round(a + shift, 3), round(b + shift, 3), t] for a, b, t in (p.get("_words") or p.get("words") or [])]
-
-
-def _squash(text):
-    return re.sub(r"\s+", "", str(text or ""))

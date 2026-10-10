@@ -18,6 +18,7 @@ sys.path.insert(0, SRC)
 from pipeline.transcribe import postproc  # noqa: E402
 from ytt import txbase  # noqa: E402
 from ytt import workdata  # noqa: E402
+from ytt import txtext  # noqa: E402   印の文 SPARSE_FLAG・行を分ける split_segment(RS6 a-3 に postproc から ytt へ)
 
 
 def _row(a, b, text, **kw):
@@ -26,7 +27,7 @@ def _row(a, b, text, **kw):
 
 class TestFlags(unittest.TestCase):
     def test_sparse_and_stock_phrase(self):
-        self.assertIn(postproc.SPARSE_FLAG, postproc.make_flags(_row(0, 7.2, "黒"), []))
+        self.assertIn(txtext.SPARSE_FLAG, postproc.make_flags(_row(0, 7.2, "黒"), []))
         self.assertIn("よくある誤認識の文", postproc.make_flags(_row(0, 2.0, "ご視聴ありがとうございました"), []))
         self.assertEqual(postproc.make_flags(_row(0, 2.0, "こんにちは"), []), "")
 
@@ -38,7 +39,7 @@ class TestFlags(unittest.TestCase):
 class TestRows(unittest.TestCase):
     def test_split_segment_by_word_gap(self):
         s = _row(0.0, 5.0, "あいうえお", words=[(0.0, 0.5, "あい"), (2.0, 2.5, "うえお")])
-        out = postproc.split_segment(s)
+        out = txtext.split_segment(s)
         self.assertEqual([(o["start"], o["end"], o["text"]) for o in out], [(0.0, 0.5, "あい"), (2.0, 2.5, "うえお")])
 
     def test_expand_segments_clip_merge_join_strip(self):
@@ -70,7 +71,7 @@ class TestImportsAlone(unittest.TestCase):
         """postproc と兄弟(backend・roster・tx_engines・txbase・records(RS2-5)・worker_client(RS2-6)・recognize(RS2-7)・diarize・fill・llm・retime(RS2-9))は、numpy などのネイティブの部品・serve などの app・eval を読まずに import できる
         (serve の import で読まれる = 編集のサーバーのプロセスにネイティブの部品を入れない決まり。src/editor/tests/test_worker.py と同じ)"""
         code = ("import sys; sys.path.insert(0, %r); "
-                "from pipeline.transcribe import postproc, backend, roster, tx_engines, records, worker_client, recognize, diarize, fill, llm, retime; "
+                "from pipeline.transcribe import postproc, backend, roster, tx_engines, records, worker_client, recognize, diarize, fill, llm, retime, clipjob, replace; "
                 "from ytt import txbase; "
                 "native = ('numpy', 'faster_whisper', 'ctranslate2', 'sherpa_onnx', 'onnxruntime'); "
                 "bad = [m for m in sys.modules if m in native or m.startswith('ed_') or m == 'serve' or m == 'eval' or m.startswith('eval.')]; "

@@ -174,9 +174,7 @@ def prompt_terms(spec):
     return fit(list(spec.get("glossary") or []) + list((spec.get("context") or {}).get("terms") or []))
 
 
-def split_terms(text):
-    """「、」「,」・改行で区切った語の並び(用語集の欄など)。RS2-8a に編集の ed_jobs から移した"""
-    return [t.strip() for t in re.split(r"[\r\n,、]+", str(text or "")) if t.strip()]
+# 用語集の欄の区切り split_terms は RS6 a-3(2026-10-10)に ytt/txtext.py へ下ろした(③ の受付が ① を読まずに使えるように)
 
 
 def stream_context(doc, enabled=True):
