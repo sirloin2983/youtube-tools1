@@ -12,7 +12,8 @@
 
 ## 次
 1. ~~R1(RS7-1 の本物の確認)~~ **済み 10-11 1 時台**: ユーザーのまとめて実行 1 本(スマート アプリ コントロールが whisper-cli.exe を止めた → ユーザーがオフにして通った)・AI の CLI の submit と、文字起こしの最中の restart-self で新しい入口が続きから流した。WORKLOG の末尾
-2. **RS7-2 玄関とヘッドレス**(plan_order_v2.md の 2 節): 波 4 = G0 親の口(`flow/livehost.py` の Protocol)∥ G1a F-5 の規則を ① へ ∥ 1b B-1(case.json)∥ serverkit(余り)→ 波 5 = G1b スタジオなしの採用(StudioMarks / LocalMarks)∥ G5 `app/server.py --headless` → 波 6 = G2 ライブ係 `flow/livesession.py`(ライブの依頼も封筒 + 束・`GET /api/settings` をやめる)→ G3(余り)→ Z2(e2e 一式・文書・版 0.57.0・R2 = ライブ 1 本・配信後の作り直し 1 本・headless に CLI から submit 1 本)。**R2 で止めない(decisions 3-32)**: R2 は AI の 5 項目(plan_order_v3.md 5 節)+ 他人の本物の配信 1 本を AI がツールで録画(D-16 と兼ねる)で済みにして、そのまま RS8 へ。ユーザーの分は data.js のやること R2(普段の配信のついでに後追い)
+2. **RS7-2 玄関とヘッドレス**(plan_order_v2.md の 2 節): 波 4 = G0 親の口(`flow/livehost.py` の Protocol)∥ G1a F-5 の規則を ① へ ∥ 1b B-1(case.json)∥ serverkit(余り)→ 波 5 = G1b スタジオなしの採用(StudioMarks / LocalMarks)∥ G5 `app/server.py --headless` → 波 6 = G2 ライブ係 `flow/livesession.py`(ライブの依頼も封筒 + 束・`GET /api/settings` をやめる)→ G3(余り)→ Z2(e2e 一式・文書・版 0.57.0・R2 = ライブ 1 本・配信後の作り直し 1 本・headless に CLI から submit 1 本)。**R2 で止めない(decisions 3-32)**: R2 は AI の 5 項目(plan_order_v3.md 5 節)で済みにして、そのまま RS8 へ。他人の本物の配信を AI が録画するのは後回し(3-33。D-16 と一緒)。ユーザーの分は data.js のやること R2(普段の配信のついでに後追い)
+   - **優先の順(decisions 3-33)**: RS7-2 → RS8 → V1 → F1 → RV 全体の見直し 1 周(コード・UI・フォルダ・全資料)→ 1.0.0。A3・U10R・D-16・P5・線 B〜D の調整は RV のあと
 3. そのあと RS8(`plan/rs8-cases-ui.md`: 画面の形を紙で → B-2 → B-3 → O2 → URL も CLI → 新しい画面)・F1 の送るアプリの側(`plan/f1-friend-pc.md`。C#。RS7-2 のあと)
 - 後へ回したもの: CLI の結果でパックを鍵で飛ばすと packs が空(前のパックは残っている)/ S3 の一時の形(封筒の `legacy{mode, onFail, streamer}`・`run.pinned`・待ちの記録に欄の鍵も残す)は RS7-2 以降で封筒 + 束だけに / 配信者を `hints.people` の先頭にする決まりは submit で封筒に配信者が無いときだけ / スタジオの test_api の test_origin_on_writes は組の中だけで時々落ちる / AGENTS.md の analytics のテストの書き方(ImportError)/ O2 の行き先(機械の結果 + 人の層から組み立てる)に逆らわない(`plan/rs8-cases-ui.md`)
 
