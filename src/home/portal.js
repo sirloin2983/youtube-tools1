@@ -1615,7 +1615,21 @@
     // 重い処理
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
+    if (h.docs) ul.appendChild(docsHealthRow(h.docs));
     renderAccuracy(h.accuracy, ul);
+  }
+  /* 文書の置き場所の 1 行(RS8 B2-3。src/manage/cases/docmove.py の status): 案件の 作業用 へ移した・transcripts に残した・見えない文書の数 */
+  function docsHealthRow(dc) {
+    var kept = dc.kept || {}, keptN = 0, subs = [], un = dc.unseen || { count: 0, reasons: {} };
+    Object.keys(kept).forEach(function (k) { keptN += kept[k]; subs.push('残した理由: ' + ((dc.reasons || {})[k] || k) + ' ' + kept[k] + ' 本'); });
+    Object.keys(un.reasons || {}).forEach(function (k) { subs.push('見えない理由: ' + k + ' ' + un.reasons[k] + ' 本'); });
+    var text = dc.state === 'waitBackup' ? 'バックアップが 1 回済むまで、文書を案件のフォルダへ移すのを待っています(設定のバックアップをオンに)'
+      : dc.state === 'paused' ? '移すのを止めています(再開は py -3.10 src/manage/cases/docmove.py --resume)'
+      : '案件のフォルダへ移した ' + (dc.moved || 0) + ' 本・transcripts に残した ' + keptN + ' 本' + (dc.remaining ? '・続きの ' + dc.remaining + ' 本は次の起動で' : '');
+    if (un.count) text += '。見えない文書が ' + un.count + ' 本あります(案件のフォルダのドライブがつながっているか確かめてください。つながるまで、その文書は直せません)';
+    var row = healthRow(un.count || dc.state === 'waitBackup' ? 'warn' : 'ok', '文書の置き場所', text, subs);
+    row.id = 'docsHealth';
+    return row;
   }
 
   /* ---- 精度(Q3。src/eval/drill/accuracy.py): 領域ごとに「直近 x(前回 y)・日時・文書数」。手が空いた夜に 1 日 1 回測る。「今すぐ測る」はいつでも ---- */

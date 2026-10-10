@@ -102,6 +102,7 @@ from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/bac
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
 from human.friend import deliver as deliver_mod  # noqa: E402  (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
+from manage.cases import docmove as docmove_mod  # noqa: E402  (src/manage/cases/docmove.py: 起動のとき文書を案件の 作業用 へ移す。RS8 B2-3)
 from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
 import appwindow as appwindow_mod  # noqa: E402  (src/home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
@@ -872,6 +873,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.closing = threading.Event()
         self.token = secrets.token_urlsafe(24)   # 書き込み系の API の合言葉(CSRF トークン)。起動ごとに変わる
         self.headless = False   # 画面なし(--headless。main が決める。起動し直しを断る)
+        self.docs_moved = None  # 起動のときの文書の移行の結果(move_docs。「調子」の 1 行に出す。RS8 B2-3)
         self.mounts = {}
         self._autorun = None
         self._autorun_lock = threading.Lock()
@@ -899,7 +901,8 @@ class PortalServer(httpsec.ExclusiveServer):
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log, server=self)   # server: P4 の作り直しがスタジオの API を呼ぶ
         self.live.unconfirmed = lambda: cases_mod.snapshot(sup.root)["auto"]["unconfirmed"]   # 自動の切り抜きの未確認の数(D-13: 20 本で自動の採用を休む)
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
-                                        live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行)
+                                        live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot,
+                                        docs_probe=self._docs_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・文書の置き場所の行)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。2026-10-01 ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(app_dir, repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()
@@ -1005,6 +1008,12 @@ class PortalServer(httpsec.ExclusiveServer):
             return None
         w = d.get("worker") if st == 200 else None
         return w if isinstance(w, dict) else None
+
+    def _docs_probe(self):
+        """「調子」の文書の置き場所の行(案件へ移した・残した・見えない文書の数。RS8 B2-3)。作業データがツールの中(inplace)・何も無ければ None = 行を出さない"""
+        if datadir.data_root() is None:
+            return None
+        return docmove_mod.status(os.path.dirname(txindex.folder(self.sup.root)), self.docs_moved)
 
     def _extra_dirs(self):
         """空き容量を見る追加の場所・ごみ箱フォルダを置く書き出し先: スタジオの書き出し先(datadir.studio_out_dir。outDir が無ければ作業データの exports)。
@@ -1357,6 +1366,21 @@ def emit_ready(out, port, token):
     out.flush()
 
 
+def move_docs(srv, log):
+    """起動のとき 1 回、transcripts の文書を案件の 作業用 へ移す(予算まで。src/manage/cases/docmove.py。RS8 B2-3)。
+    .flow.lock を取ったあと・待ち受けの前に呼ぶ(CLI・画面の書き込みとぶつからない)。フォルダは workdata.TX_DIR(取り込む前はまだ無い)でなく txindex.folder。
+    作業データがツールの中(inplace = テスト)なら何もしない。バックアップが 1 回済んでいなければ移さない
+    (画面なしはバックアップを動かさない = 記録が無ければ移さない)。-> 結果か None。失敗しても入口は起動する"""
+    if datadir.data_root() is None:
+        return None
+    try:
+        return docmove_mod.run(os.path.dirname(txindex.folder(srv.sup.root)), datadir.studio_out_dir(srv.sup.root),
+                               backup_ok=docmove_mod.backup_done(srv.backup.last), log=log)
+    except Exception as e:
+        log("文書を案件のフォルダへ移せませんでした: %r" % (e,))
+        return None
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -1419,6 +1443,7 @@ def _main(opts, ready_out=None):
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
         log("ホーム v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)%s" % (VERSION, url, "(画面なし)" if headless else ""))
         log("各ツールの出力: %s" % sup.logs_dir)
+        srv.docs_moved = move_docs(srv, log)   # 文書を案件の 作業用 へ(.flow.lock の後・待ち受けの前。予算 20 秒か 50 本。RS8 B2-3)
         sup.attach(srv)
         served = threading.Event()
 

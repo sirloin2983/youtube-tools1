@@ -76,6 +76,13 @@
 - id: `作業用\.studio-id`(持ち主の印)があればそれ -> 配信なら videoId -> 動画ファイルならパス(正規化)の sha1 の先頭 16 桁に `f-` を付けた物。`.studio-id` は残す(消さない)
 - 読み手: 入口の案件の一覧(`manage/cases` の snapshot)が各案件に `caseFile {id, createdAt}` として載せる(読むだけ。無い既存の案件は今までどおり・後付けでは書かない)。ファイルの索引は結果の束の `resultPath`
 
+## 文書を案件の 作業用 へ移す(RS8 B2-3・2026-10-11。持ち主は `src/manage/cases/docmove.py`。決定は `plan/rs8-cases-ui.md` の「B-2 の移し方」)
+- いつ: 入口の起動のとき 1 回(`.flow.lock` を取った後・待ち受けの前 = CLI・画面の書き込みとぶつからない)。**バックアップが 1 回済んでから**(`app\backup-state.json` の ok。済んでいなければ移さず、ログと「調子」の 1 行)。作業データがツールの中(inplace)・画面なしでバックアップの記録が無いときは移さない。1 回の起動で 20 秒か 50 本まで(続きは次の起動)
+- 何を: `transcribe\transcripts\<tid>.json` のうち、元の動画が書き出し先(outDir。固定ディスク)の下の案件にあり、その案件に `作業用\.studio-id` か `作業用\case.json` がある物。文書と横のファイル(`ytt/docloc` の `DOC_SUFFIXES`)・`.hist\<tid>\`・`.bak\<tid>.*` を `<案件>\作業用\` へ(名前は文書 id のまま)。残す: 評価用・動画が無い・ネットワーク上・outDir の外・持ち主の videoId が違う
+- 移し方: `<名前>.part-<pid>` へコピー → 大きさと中身を比べる・本体は JSON として読める → 改名(本体が最後)→ 索引 `transcripts\<tid>.loc.json` → 元は `transcripts\.migrated\` へ改名して残す。作業用に同じ名前があれば、同じ中身なら飛ばす・違えばその文書は移さない(上書きしない)。途中で落ちても次の起動で続き(残った `.part-` は消す・索引があって元が残っていれば、同じ中身なら `.migrated` へ)。2 回流しても同じ
+- 結果: `transcribe\.docs-moved.json`(移した本数・残した理由ごとの本数・続きの本数・時刻・paused)。入口の「調子」に「文書の置き場所」の 1 行(移した・残した・見えない文書の数)
+- コマンド(入口を「すべて終了」してから。`.flow.lock` を取る): `py -3.10 src/manage/cases/docmove.py --back [--dry-run]` = 作業用 → transcripts へ写し戻して索引を消す(上書きしない・作業用の写しは残す)+ 自動の移行を止める(paused)/ `--resume` = 再開 / `--now` = バックアップを待たずに今すぐ(y/N・予算なし)/ `--purge-migrated` = `transcripts\.migrated\` を消す(y/N。画面で本数が合うのを確かめてから)
+
 ## ライブの束と採用の印(RS7-2 G2b・G1b・2026-10-11。持ち主は `src/flow/livesession.py`・`src/flow/live_adopt.py`)
 - `live/bundles.json`(作業データの `app\live\` の中): 録画ごとの封筒 + 束。形 `{"<recorder の名前>/<録画 id>": {"envelope", "spec", "at"}}`。7 日を過ぎた物・200 件を超えた古い物は書くときに落とす。録画を始めた時点の値に固定する(検出・採用の待ち・配信後の解析・音量。仮決定 3-31)。束が無い録画・自分の配信は今までの読み方
 - `live/marks/<recorder>__<録画 id>.json`: スタジオなしの採用の置き場 `LocalMarks`(ヘッドレス)。マークごとの採用の印と番号。スタジオのある PC は今までどおりスタジオの data.json(`StudioMarks`)で、このファイルは作らない
