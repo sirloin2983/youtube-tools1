@@ -1,29 +1,32 @@
-"""切り抜きスタジオ: 共通ユーティリティ(標準ライブラリのみ)。
+"""切り抜きスタジオ: 旧い名前 common.名前 の転送の殻と、スタジオの起動の小物(役割で組み直す RS3-4。2026-10-10。**RS5 で消す**)。
 
-ApiError / Cancelled は全モジュール共通(Handler は ApiError だけを捕まえればよい)。
-データの置き場所は set_home() で変えられる(既定は studio/ フォルダ。環境変数 STUDIO_HOME でも指定可)。
+中身は RS3-4 に分けた(読む側は持ち主を `モジュール.名前` で呼ぶたびに読む。ここを読まない):
+- ytt/studio_env: データの置き場所(set_home・home・p)・スタジオのフォルダ(code_dir)・疑似の旗(fake・fake_media)・外部の道具(find_tool)・
+  失敗の記録(log_failure・rotate_log・old_log_name)・書き出し先(get_out_dir・set_out_dir・load_out_dir・is_inside_out_dir・_out_lock ほか)
+- ytt/procs: 子プロセスの管理(spawn・forget・children・stop_children・run_short・run_capture・terminate・hard_kill・idle_message)
+- ytt/mediainfo: ffmpeg -i のメディア情報と覚え(media_info・media_info_known・remember_media_info)
+- ytt/apikey: YouTube Data API のキー(get_api_key・set_api_key・KEY_RE)
+- ytt/textutil: 文と数の小物(redact・permission_message・tail_reason・fmt_ts・fmt_ms・num)
+- ytt/errors: ApiError・Cancelled(スタジオの別のクラスはやめて 1 つに)
+- pipeline/ingest/sources: 入力の判定(parse_video_id・check_live・check_media_path・file_video_id・watch_url・ytdlp_out・VID_RE・MEDIA_EXT ほか)
+- 保存の置き換え(旧 atomic_write・replace_file)は ytt/fsio の atomic_write・replace_retry を直に使う
+common.名前 の読み・書き・削除(テストの差し替え・unittest.mock の patch.object)は、下の _MOVED の持ち主へ回す(ytt/modfwd.py)。
+新しい名前はここに書かない。ここに残すのは、読み込み(_load_core。src を sys.path に足す・スタジオのフォルダを studio_env に知らせる)と、
+serve だけが使う起動の小物(環境チェック check_tools・start_env_check・env_state と、古いログの名前の付け替え migrate_old_logs)。
 """
 import datetime
-import hashlib
 import json
-import math
 import os
 import re
 import shutil
-import signal
-import subprocess
 import sys
-import tempfile
 import threading
-import time
-import traceback
-import urllib.parse
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))   # コード・静的ファイル・seed.json の場所
 
 
 def _load_core():
-    """共通部品 ytt_core(リポジトリ直下。統合計画の段階2)を読み込めるようにする。
+    """共通部品 ytt(src の直下)を読み込めるようにする。
     探す場所: 環境変数 YTT_CORE_DIR(ツールを一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。
     sys.path の末尾に足す(このフォルダの同名のモジュールを隠さないため)。"""
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(CODE_DIR)):
@@ -36,567 +39,26 @@ def _load_core():
 
 
 _load_core()
-from ytt import datadir as _datadir, fsio as _fsio, tools as _tools  # noqa: E402
-_home = _datadir.override("studio") or os.path.abspath(CODE_DIR)   # data.json などの置き場所(STUDIO_HOME の規則は ytt_core.datadir の1か所)
+from ytt import apikey as _apikey, errors as _errors, fsio as _fsio, mediainfo as _mediainfo, modfwd as _modfwd  # noqa: E402
+from ytt import procs as _procs, studio_env as _studio_env, textutil as _textutil, tools as _tools  # noqa: E402
+from pipeline.ingest import sources as _sources  # noqa: E402
 
-KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}\Z")
-VID_RE = re.compile(r"^[\w-]{11}\Z", re.ASCII)   # ASCII のみ・末尾の改行も不可
-YT_API_BASE = "https://www.googleapis.com/youtube/v3/"   # YouTube Data API(① 探す・② のコメント欄)
-MEDIA_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3", ".wav", ".flac", ".ogg", ".opus", ".aac", ".ts", ".flv"}
+_studio_env.set_code_dir(CODE_DIR)   # 既定のデータの置き場所 = このフォルダ(ytt から見たスタジオのフォルダは、テストが ytt を別の場所から読むとずれる)
 
-
-class ApiError(Exception):
-    def __init__(self, code, message, status=400, extra=None):
-        super().__init__(message)
-        self.code, self.message, self.status, self.extra = code, message, status, extra
-
-
-class Cancelled(Exception):
-    pass
-
-
-def set_home(d):
-    global _home
-    _home = os.path.abspath(d)
-    os.makedirs(_home, exist_ok=True)
-    reset_out_dir()
-
-
-def home():
-    return _home
-
-
-def p(*parts):
-    """データ置き場の中のパス。"""
-    return os.path.join(_home, *parts)
-
-
-def fake():
-    """疑似モード(テスト用)。"""
-    return os.environ.get("STUDIO_FAKE") == "1"
-
-
-def fake_media():
-    """疑似モードで YouTube の動画の代わりに使う手元のファイル(環境変数 STUDIO_FAKE_MEDIA)。無ければ ApiError 500"""
-    path = os.environ.get("STUDIO_FAKE_MEDIA", "")
-    if not os.path.isfile(path):
-        raise ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
-    return path
-
-
-def find_tool(name):
-    """環境変数 STUDIO_<名前>(例 STUDIO_FFMPEG・STUDIO_YTDLP)があればそれ、無ければ PATH から。"""
-    return _tools.find_tool(name, "STUDIO_" + name.upper().replace("-", ""))
-
-
-def replace_file(source, target):
-    """Windows の一時的な共有違反だけ、短く待って再試行する(ytt_core.fsio.replace_retry)。"""
-    _fsio.replace_retry(source, target)
-
-
-def atomic_write(path, data: bytes, mode=None):
-    """一時ファイルに書いてから置き換える(ytt_core.fsio.atomic_write。fsync できないドライブでも保存は続ける)。"""
-    _fsio.atomic_write(path, data, mode=mode)
-
-
-# ---------- ログ・表示用 ----------
-_URL_RE = re.compile(r"https?://\S+")
-
-
-def redact(line):
-    """署名つきURLなどはログ・画面に出さない。"""
-    return _URL_RE.sub("<URL>", str(line))
-
-
-_error_log_lock = threading.Lock()
-
-
-def old_log_name(path):
-    """studio.log → studio.old.log。*.log のまま回すのは、.gitignore の *.log に掛けるため
-    (以前の studio.log.old は掛からず、push.bat の git add -A で公開リポジトリに載るおそれがあった)。"""
-    root, ext = os.path.splitext(path)
-    return root + ".old" + ext
-
-
-def rotate_log(path, limit):
-    """path が limit バイトを超えていたら、1世代だけ <名前>.old.<拡張子> に回す(前の .old は上書き)。"""
-    if os.path.exists(path) and os.path.getsize(path) > limit:
-        replace_file(path, old_log_name(path))
+# 移した先のモジュール。前の持ち主が勝つ(名前は重ならない)
+_MOVED = (_studio_env, _apikey, _procs, _mediainfo, _textutil, _errors, _sources)
+_moved_owner = _modfwd.install(globals(), _MOVED, "common")
 
 
 def migrate_old_logs():
     """以前の版が作った studio.log.old / studio-errors.log.old を studio.old.log などへ改名する(起動時に1回。失敗しても無視)。"""
     for name in ("studio.log", "studio-errors.log", "studio.crash.log"):
-        old = p(name + ".old")
+        old = _studio_env.p(name + ".old")
         try:
             if os.path.isfile(old):
-                replace_file(old, old_log_name(p(name)))
+                _fsio.replace_retry(old, _studio_env.old_log_name(_studio_env.p(name)))
         except OSError:
             pass
-
-
-def log_failure(context, error):
-    """握りつぶしていた処理エラーも、原因と失敗箇所をローカルに残す。"""
-    try:
-        with _error_log_lock:
-            path = p("studio-errors.log")
-            rotate_log(path, 1024 * 1024)
-            with open(path, "a", encoding="utf-8") as f:
-                detail = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-                f.write("[%s] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), context, redact(detail)))
-    except OSError:
-        pass
-
-
-def permission_message(error):
-    path = getattr(error, "filename2", None) or getattr(error, "filename", None)
-    detail = " 対象: %s" % path if path else ""
-    return ("ファイルへのアクセスが拒否されました。対象ファイルを再生・編集中のアプリを閉じ、"
-            "保存先の書き込み権限とドライブの接続を確認してください。" + detail)
-
-
-def tail_reason(err, n=2):
-    keep = [redact(l)[:220] for l in err if l.strip()]
-    key = [l for l in keep if re.search(r"error|fail|forbidden|denied|invalid|not found|unable|HTTP|403|404|private|unavailable|Sign in", l, re.I)]
-    return " / ".join((key or keep)[-n:])
-
-
-def fmt_ts(t):
-    t = max(0.0, float(t))
-    return "%02d:%02d:%06.3f" % (int(t // 3600), int(t % 3600 // 60), t % 60)
-
-
-def fmt_ms(t):
-    t = int(max(0, t))
-    return "%d:%02d" % (t // 60, t % 60)
-
-
-def num(v, lo, hi, default):
-    if isinstance(v, bool):
-        return default
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        return default
-    return default if math.isnan(x) else max(lo, min(hi, x))
-
-
-# ---------- APIキー ----------
-def get_api_key():
-    """(キー, "env"|"file"|None)。環境変数 YOUTUBE_API_KEY が優先。"""
-    key = os.environ.get("YOUTUBE_API_KEY", "").strip()
-    if key:
-        return key, "env"
-    key = str(_fsio.read_json_or(p("config.json"), {}, kind=dict).get("apiKey", "")).strip()
-    if key:
-        return key, "file"
-    return "", None
-
-
-def set_api_key(raw):
-    key = str(raw or "").strip()
-    if key and not KEY_RE.match(key):
-        raise ApiError("key_format", "APIキーの形式が正しくありません", 400)
-    if key:
-        atomic_write(p("config.json"), json.dumps({"apiKey": key}).encode("utf-8"), 0o600)
-    elif os.path.exists(p("config.json")):
-        os.unlink(p("config.json"))
-    return bool(get_api_key()[0])
-
-
-# ---------- 入力の検査 ----------
-def parse_video_id(text):
-    """YouTube の URL(watch / youtu.be / live / shorts / embed)または11文字のID → 動画ID。"""
-    raw = str(text or "")
-    if VID_RE.match(raw.strip(" \t")):   # 素のID(改行などは不可)
-        return raw.strip(" \t")
-    t = raw.strip()
-    try:
-        u = urllib.parse.urlsplit(t if "://" in t else "https://" + t)
-    except ValueError:
-        return None
-    host = (u.hostname or "").lower()
-    if host in ("youtu.be",):
-        cand = u.path.strip("/").split("/")[0]
-    elif host in ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"):
-        parts = [x for x in u.path.split("/") if x]
-        if u.path.startswith("/watch"):
-            cand = (urllib.parse.parse_qs(u.query).get("v") or [""])[0]
-        elif len(parts) >= 2 and parts[0] in ("live", "shorts", "embed", "v"):
-            cand = parts[1]
-        else:
-            return None
-    else:
-        return None
-    return cand if VID_RE.match(cand) else None
-
-
-# ---------- ライブの録画(kind "live")。録画の部品(recorder/)の録画 id の形。YouTube の 11 文字・file の "f…" とは重ならない ----------
-LIVE_ID_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z", re.ASCII)
-LIVE_RECORDER_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z", re.ASCII)
-YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
-
-
-def check_live(o):
-    """録画1本の記述({recorder, recording, url}) → {recorder, recording, url, videoId}。不正は ApiError 400。
-    url は YouTube の https だけ(チャンネルの /live など動画の ID が取れない URL も可。そのとき videoId は "")。"""
-    bad = lambda m: ApiError("bad_source", m, 400)
-    if not isinstance(o, dict):
-        raise bad("入力が正しくありません")
-    rec, rid, url = o.get("recorder"), o.get("recording"), o.get("url")
-    if not isinstance(rec, str) or not LIVE_RECORDER_RE.match(rec):
-        raise bad("録画元(recorder)の形が正しくありません")
-    if not isinstance(rid, str) or not LIVE_ID_RE.match(rid):
-        raise bad("録画の ID(recording)の形が正しくありません")
-    if not isinstance(url, str) or not url or len(url) > 300 or any(ord(c) < 32 or ord(c) == 127 for c in url):
-        raise bad("配信の URL が正しくありません")
-    try:
-        u = urllib.parse.urlsplit(url.strip())
-        host = (u.hostname or "").lower()
-    except ValueError:
-        raise bad("配信の URL が正しくありません")
-    if u.scheme != "https" or host not in YT_HOSTS:
-        raise bad("配信の URL は YouTube の https の URL だけです")
-    return {"recorder": rec, "recording": rid, "url": url.strip(), "videoId": parse_video_id(url.strip()) or ""}
-
-
-def check_media_path(raw):
-    """手元の動画・音声ファイルのパスを検査して絶対パスを返す。"""
-    s = str(raw or "").strip().strip('"')
-    if not s or "\x00" in s or len(s) > 1000 or not os.path.isfile(s) or os.path.splitext(s)[1].lower() not in MEDIA_EXT:
-        raise ApiError("bad_source", "ファイルが見つかりません(動画・音声ファイルのパスを指定してください)", 400)
-    return os.path.abspath(s)
-
-
-def file_video_id(path):
-    """file 動画の id: "f" + sha1(絶対パス) の先頭10桁(11文字)。"""
-    return "f" + hashlib.sha1(os.path.abspath(path).encode("utf-8", "surrogatepass")).hexdigest()[:10]
-
-
-def watch_url(vid):
-    """YouTube の動画のページ(yt-dlp・oEmbed に渡す。vid は検査済みの動画 ID)"""
-    return "https://www.youtube.com/watch?v=" + vid
-
-
-def ytdlp_out(folder, name_tmpl):
-    """yt-dlp の -o(出力テンプレート)。テンプレートは % 書式なので、フォルダ側の % は %% にする
-    (出力先の設定では % を断っているが、既定の exports/ や work/ はこのフォルダの場所しだいで % を含みうる)。
-    name_tmpl はこちらで決めた名前(%(ext)s など)で、利用者の文字列は入れない(safe_name で % を除いている)。"""
-    return os.path.join(str(folder).replace("%", "%%"), name_tmpl)
-
-
-# ---------- ffmpeg でメディア情報 ----------
-# 同じファイルに ffmpeg -i を何度もかけない(書き出し 1 本で約 11 回 → 5 回。2026-10-09 見直し T7)。
-# 鍵は (パス・更新日時 ns・大きさ)(ytt_core.fsio.StampCache)。書き出しは一時の名前に書いてから置き換えるので、中身が変われば鍵も変わる。
-# 時間では覚えない(テストが作り直した直後に測る)。ffmpeg を動かせなかったとき(例外)は覚えない。道具を差し替えたら全部忘れる
-MEDIA_CACHE_MAX = 256
-_media_cache = _fsio.StampCache()
-_media_ff = [None]
-_NO_MEDIA = (None, False, False, "")
-
-
-def _probe_media(ff, path):
-    pr = run_short([ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path], timeout=60, merge_stderr=True)
-    out = pr.stdout or ""
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
-    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
-    vm = re.search(r"Stream #.*Video:.*", out)
-    return dur, bool(vm), bool(re.search(r"Stream #.*Audio:", out)), (vm.group(0).strip()[:300] if vm else "")
-
-
-def media_info(path):
-    """(長さ秒 or None, 映像あり, 音声あり, 映像ストリームの行)。ffprobe がなくても動く。ファイルが変わっていなければ前の結果を使う"""
-    ff = find_tool("ffmpeg")
-    if not ff:
-        return _NO_MEDIA
-    if _media_ff[0] != ff or len(_media_cache) > MEDIA_CACHE_MAX:
-        _media_cache.clear()
-        _media_ff[0] = ff
-    try:
-        return _media_cache.get(path, lambda p: _probe_media(ff, p)) or _NO_MEDIA   # 無いファイルは ffmpeg を動かさずに「分からない」
-    except (OSError, subprocess.SubprocessError):
-        return _NO_MEDIA
-
-
-def media_info_known(path):
-    """覚えている media_info の結果(ファイルが変わっていないときだけ。ffmpeg は動かさない)。無ければ None"""
-    return _media_cache.peek(path)
-
-
-def remember_media_info(path, info):
-    """置き換え(名前の付け替え)で中身がそのまま移ったファイルに、移す前の media_info の結果を覚えさせる(info が None なら何もしない)"""
-    if info is not None:
-        _media_cache.set(path, info)
-
-
-# ---------- 外部コマンド(中止・時間切れ対応。子プロセスも含めて止める) ----------
-KILL_GRACE = 3.0   # SIGTERM のあと、この秒数で終わらなければ SIGKILL
-
-
-STOP_WAIT = 3.0    # 終了の流れ(stop_children)で、止める依頼のあと子プロセスが終わるのを待つ秒数。過ぎたら強制終了
-_children = set()  # spawn で起動して、まだ見届けていない子プロセス(終了の流れで止めるため。2026-09-30)
-_children_lock = threading.Lock()
-
-
-def spawn(cmd, **kw):
-    """外部コマンドを起動する。POSIX では新しいセッション(=プロセスグループ)にして、孫プロセスごと止められるようにする。
-    起動した子は _children に覚える(終わりを見届けた側が forget で外す。外し忘れても children() が終わったものを除く)。
-    Windows では別のプロセスグループ・窓なしなので、親が終わっても子は残る → 終了の流れで stop_children() を呼ぶ"""
-    if os.name != "nt":
-        kw["start_new_session"] = True
-    else:   # 別のプロセスグループにして、黒い画面への Ctrl+C / Ctrl+Break を子に流さない・子の終了で画面が巻き込まれないようにする
-        kw["creationflags"] = kw.get("creationflags", 0) | _tools.no_window_flags(new_group=True)
-    proc = subprocess.Popen(cmd, **kw)
-    with _children_lock:
-        _children.add(proc)
-    return proc
-
-
-def forget(proc):
-    """終わりを見届けた子プロセスを一覧から外す。"""
-    with _children_lock:
-        _children.discard(proc)
-
-
-def children():
-    """まだ動いている子プロセス(終わったものは一覧から外す)。"""
-    with _children_lock:
-        for proc in [x for x in _children if x.poll() is not None]:
-            _children.discard(proc)
-        return list(_children)
-
-
-def stop_children(wait=None):
-    """動いている子プロセスを孫ごと止める(終了の流れ用)。止めた数を返す。子が無ければ待たずにすぐ戻る。
-    止め方: POSIX は SIGTERM(穏やかに)→ wait 秒のうちに終わらなければ SIGKILL。
-    Windows は窓なし・別グループの子に穏やかな合図(Ctrl+Break・WM_CLOSE)が届かないので、taskkill /T /F で孫ごと止める
-    (書き出しは一時の名前に書いているので、途中で止めても完成品と同じ名前の壊れたファイルは残らない)"""
-    live = children()
-    if not live:
-        return 0
-    wait = STOP_WAIT if wait is None else wait
-    for proc in live:
-        terminate(proc, grace=wait)
-    deadline = time.time() + wait
-    for proc in live:
-        try:
-            proc.wait(max(0.05, deadline - time.time()))
-        except subprocess.TimeoutExpired:
-            pass
-    for proc in live:
-        if proc.poll() is None:
-            hard_kill(proc)
-            try:
-                proc.wait(2)
-            except subprocess.TimeoutExpired:
-                pass
-        if proc.poll() is not None:
-            forget(proc)
-    return len(live)
-
-
-def run_short(cmd, timeout, merge_stderr=False):
-    """すぐ終わる外部コマンド(情報を読むだけ: ffmpeg -i・ffprobe・yt-dlp -g)。subprocess.run の代わりに spawn を通す
-    (終了の流れで止められる・窓を出さない)。時間切れは孫ごと止めて subprocess.TimeoutExpired。戻り値は CompletedProcess"""
-    proc = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
-                 text=True, encoding="utf-8", errors="replace")
-    try:
-        try:
-            out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            hard_kill(proc)
-            try:
-                proc.communicate(timeout=5)
-            except (subprocess.TimeoutExpired, ValueError, OSError):
-                pass
-            raise
-    finally:
-        if proc.poll() is None:
-            hard_kill(proc)
-        forget(proc)
-    return subprocess.CompletedProcess(cmd, proc.returncode, out or "", err or "")
-
-
-def hard_kill(proc):
-    """孫ごと強制終了する(ytt_core.tools.kill_tree: Windows は System32 の taskkill /T /F・ほかはプロセスグループに SIGKILL)。
-    名前はテストが呼ぶので残す"""
-    _tools.kill_tree(proc)
-
-
-def terminate(proc, grace=None):
-    """止める依頼(待たない): 子プロセスごと SIGTERM(Windows は窓なし・別グループの子に穏やかな合図が届かないので kill_tree)。
-    猶予のあと残っていれば SIGKILL。"""
-    if not proc or proc.poll() is not None:
-        return
-    if os.name == "nt":
-        _tools.kill_tree(proc)
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)   # グループID = 起動したプロセスのPID
-    except OSError:
-        try:
-            proc.send_signal(signal.SIGTERM)
-        except (OSError, ValueError):
-            pass
-
-    def escalate():
-        time.sleep(KILL_GRACE if grace is None else grace)
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)   # 残っていれば(孫プロセスを含む)強制終了。なければ何もしない
-        except OSError:
-            pass
-    threading.Thread(target=escalate, daemon=True).start()
-
-
-def idle_message(what, sec):
-    return "%sが%s、出力がなかったため中止しました" % (what, ("%d分間" % max(1, round(sec / 60))) if sec >= 60 else ("%d秒間" % max(1, round(sec))))
-
-
-def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=None, what="処理"):
-    """コマンドを実行し、標準出力を1行ずつ on_line に渡す。(終了コード, 標準エラーの末尾) を返す。中止に対応。
-    job は {"cancel": bool, <slot>: Popen} を持つ辞書。idle_timeout 秒のあいだ出力(標準出力・標準エラー)が無ければ止めて ApiError("timeout")。"""
-    p_ = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
-    job[slot] = p_
-    err = []
-    last = [time.time()]
-    idle = [False]
-
-    def drain():
-        for l in p_.stderr:
-            last[0] = time.time()
-            err.append(l.rstrip())
-            del err[:-40]
-    th = threading.Thread(target=drain, daemon=True)
-    th.start()
-    t0 = time.time()
-    done = threading.Event()
-
-    def watchdog():   # 出力が止まっていても、中止・時間切れで確実に止める
-        while not done.wait(0.5):
-            now = time.time()
-            if job["cancel"] or (timeout and now - t0 > timeout):
-                terminate(p_)
-                return
-            if idle_timeout and now - last[0] > idle_timeout:
-                idle[0] = True
-                terminate(p_)
-                return
-    threading.Thread(target=watchdog, daemon=True).start()
-    try:
-        for line in p_.stdout:
-            last[0] = time.time()
-            if job["cancel"] or (timeout and time.time() - t0 > timeout):
-                terminate(p_)
-                break
-            if on_line:
-                on_line(line.rstrip("\n"))
-        try:
-            p_.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            hard_kill(p_)
-            try:
-                p_.wait(5)
-            except subprocess.TimeoutExpired:
-                pass
-        th.join(2)
-    finally:
-        done.set()
-        job[slot] = None
-        if p_.poll() is None:
-            hard_kill(p_)
-        forget(p_)
-    if job["cancel"]:
-        raise Cancelled()
-    if idle[0]:
-        raise ApiError("timeout", idle_message(what, idle_timeout), 504)
-    return p_.returncode, err
-
-
-# ---------- 出力先フォルダ(settings.json の outDir) ----------
-_out_dir = None   # None = 標準
-
-
-def default_out_dir():
-    return p("exports")
-
-
-def reset_out_dir():
-    global _out_dir
-    _out_dir = None
-
-
-def get_out_dir():
-    return _out_dir or default_out_dir()
-
-
-def is_inside_out_dir(raw):
-    """raw(絶対パス)が書き出し先(get_out_dir)の中のもの(書き出し先そのものは含まない)か。realpath で比べる(.. やリンクで外へ出られない)。
-    ファイルがまだ無くてもよい(親のリンクは解決される)"""
-    real, root = os.path.realpath(raw), os.path.realpath(get_out_dir())
-    try:
-        return os.path.commonpath([os.path.normcase(real), os.path.normcase(root)]) == os.path.normcase(root) and os.path.normcase(real) != os.path.normcase(root)
-    except ValueError:   # 別のドライブ
-        return False
-
-
-def check_out_dir(raw):
-    """入力された保存先を検査して、絶対パスにして返す(空なら標準に戻す)。作れない・書き込めないときは ApiError。"""
-    s = str(raw or "").strip().strip('"')
-    if not s:
-        return default_out_dir()
-    if "\x00" in s or len(s) > 400:
-        raise ApiError("bad_dir", "保存先のパスが正しくありません", 400)
-    if "%" in s:
-        raise ApiError("bad_dir", "保存先に「%」は使えません(yt-dlp の出力指定と衝突するため)。別のフォルダを指定してください", 400)
-    s = os.path.expanduser(s)
-    if not os.path.isabs(s):
-        raise ApiError("bad_dir", "保存先は、C:\\Users\\… や /Users/… のようにフルパスで指定してください", 400)
-    s = os.path.abspath(s)
-    if os.path.dirname(s) == s:
-        raise ApiError("bad_dir", "ドライブの直下ではなく、その中のフォルダ(例: D:\\clips)を指定してください", 400)
-    try:
-        os.makedirs(s, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=s, prefix=".write-test-"):
-            pass
-    except OSError as e:
-        raise ApiError("bad_dir", "そのフォルダを作れない、または書き込めません: " + str(e.strerror or e)[:120], 400)
-    return s
-
-
-def load_out_dir():
-    global _out_dir
-    _out_dir = None
-    try:
-        v = _fsio.read_json_or(p("settings.json"), {}, kind=dict).get("outDir")
-        if v:
-            _out_dir = check_out_dir(v)
-            if _out_dir == default_out_dir():
-                _out_dir = None
-    except ApiError:
-        _out_dir = None   # 消えた・書き込めなくなったときは標準に戻す(画面に出るパスで分かる)
-
-
-_out_lock = threading.Lock()
-BUSY_MSG = "処理の実行中は出力先を変えられません。終わってから変更してください"
-
-
-def set_out_dir(raw, busy):
-    """busy: 実行中の処理があるかを返す関数。実行中は 409。"""
-    global _out_dir
-    if busy():   # フォルダを作る前に判定(拒否したときに空フォルダを残さない)
-        raise ApiError("busy", BUSY_MSG, 409)
-    new = check_out_dir(raw)
-    with _out_lock:
-        if busy():
-            raise ApiError("busy", BUSY_MSG, 409)
-        if new == default_out_dir():
-            if os.path.exists(p("settings.json")):
-                os.unlink(p("settings.json"))
-            _out_dir = None
-        else:
-            atomic_write(p("settings.json"), json.dumps({"outDir": new}, ensure_ascii=False).encode("utf-8"))
-            _out_dir = new
-    return new
 
 
 # ---------- 起動時の環境チェック(/api/state の env) ----------
@@ -607,8 +69,8 @@ _env_lock = threading.Lock()
 
 
 def _tool_version(name, args, pattern, timeout=15):
-    """{"found", "version"}(版を読めなければ ""。動かすのは ytt_core.tools.tool_version = 窓を出さない)"""
-    exe = find_tool(name)
+    """{"found", "version"}(版を読めなければ ""。動かすのは ytt.tools.tool_version = 窓を出さない)"""
+    exe = _studio_env.find_tool(name)
     if not exe:
         return {"found": False, "version": ""}
     return {"found": True, "version": _tools.tool_version(exe, args, pattern, timeout)}
@@ -616,9 +78,10 @@ def _tool_version(name, args, pattern, timeout=15):
 
 def check_tools():
     """ffmpeg / ffprobe / yt-dlp の有無と版を調べて覚える(起動時に裏のスレッドで1回。数秒かかることがある)。"""
+    fake = _studio_env.fake()
     tools = {"ffmpeg": _tool_version("ffmpeg", ["-hide_banner", "-version"], r"ffmpeg version (\S+)"),
-             "ffprobe": {"found": bool(find_tool("ffprobe")), "version": ""}}
-    tools["ytdlp"] = {"found": fake(), "version": ""} if fake() else _tool_version("yt-dlp", ["--version"], r"^\s*(\d{4}\.\d{2}\.\d{2}\S*)")
+             "ffprobe": {"found": bool(_studio_env.find_tool("ffprobe")), "version": ""}}
+    tools["ytdlp"] = {"found": fake, "version": ""} if fake else _tool_version("yt-dlp", ["--version"], r"^\s*(\d{4}\.\d{2}\.\d{2}\S*)")
     m = re.match(r"(\d{4})\.(\d{2})\.(\d{2})", tools["ytdlp"]["version"])
     if m:
         try:
@@ -631,6 +94,7 @@ def check_tools():
 
 
 def start_env_check():
+    """check_tools を裏のスレッドで 1 回動かす(serve.prepare が呼ぶ)"""
     threading.Thread(target=check_tools, daemon=True, name="env-check").start()
 
 
@@ -643,7 +107,7 @@ def env_state():
     warnings = []
     free = None
     try:
-        d = get_out_dir()
+        d = _studio_env.get_out_dir()
         while d and not os.path.isdir(d) and os.path.dirname(d) != d:   # まだ作っていない出力先は、存在する親で測る
             d = os.path.dirname(d)
         free = shutil.disk_usage(d).free
@@ -651,9 +115,9 @@ def env_state():
             warnings.append("書き出し先のドライブの空きが少なくなっています(残り %.1f GB)" % (free / 1024 ** 3))
     except OSError:
         pass
-    if not find_tool("ffmpeg"):
+    if not _studio_env.find_tool("ffmpeg"):
         warnings.append("ffmpeg が見つかりません。解析・書き出しに必要です(README の準備手順を確認してください)")
-    if not fake() and not find_tool("yt-dlp"):
+    if not _studio_env.fake() and not _studio_env.find_tool("yt-dlp"):
         warnings.append("yt-dlp が見つかりません。YouTube の解析・書き出しに必要です(手元のファイルは使えます)")
     age = (tools.get("ytdlp") or {}).get("ageDays")
     if isinstance(age, int) and age > YTDLP_OLD_DAYS:
