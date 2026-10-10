@@ -141,6 +141,8 @@ DEFAULTS = {
         "pad": 2.0,           # 区間の前後に足す秒(上の RANGE_PAD)
         "perHour": 6,         # ライブの 1 時間の候補の枠(src/home/prefs.py の DEFAULTS live.detect.perHour)
         "waitMin": 5,         # ライブの候補を最初に見てから採用まで待つ分(同 live.autoAdopt.waitMin)
+        "sens": "normal",     # ライブの検出の感度 high|normal|low(human/friend/live_requests.py の SETTINGS_DEFAULT sens)
+        "afterStream": True,  # ライブ: 配信が終わったあとにアーカイブから全自動で流すか(同 SETTINGS_DEFAULT afterStream)
     },
     "export": {               # 書き出し(run.py の _export_body。exporter.py の DEFAULT_EXPORT_VOLUME)
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
@@ -314,7 +316,8 @@ SCHEMA = {
                 "lagAuto": (_is_bool, "true か false"), "lag": (_num_in(0, 30), "0〜30 の数(秒)"),
                 "chatTimeout": (_int_in(1, 120), "1〜120 の整数(秒)")},
     "adopt": {"top": (_top_ok, "1〜30 の整数"), "pad": (_num_in(0, RANGE_MAX_SEC), "0〜%d の数(秒)" % RANGE_MAX_SEC),
-              "perHour": (_int_in(1, 30), "1〜30 の整数"), "waitMin": (_int_in(1, 60), "1〜60 の整数(分)")},
+              "perHour": (_int_in(1, 30), "1〜30 の整数"), "waitMin": (_int_in(1, 60), "1〜60 の整数(分)"),
+              "sens": (_one_of("high", "normal", "low"), "high・normal・low のどれか"), "afterStream": (_is_bool, "true か false")},
     "export": {"loudness": (_or_none(_one_of(*_LUFS)), "null か %s のどれか" % "・".join(map(str, _LUFS))),
                "volume": (_int_in(1, 200), "1〜200 の整数(%)")},
     "transcribe": {"engine": (_one_of(*TX_ENGINES), "%s のどれか" % "・".join(TX_ENGINES)),

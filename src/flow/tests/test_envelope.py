@@ -22,6 +22,17 @@ class TestCheck(unittest.TestCase):
                      "deliver": {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "meta": {"phase": "live", "x": 1}}}, "note": "メモ"})
         self.assertEqual(f["deliver"], {"dir": "D:/out", "batch": 3, "pool": {"key": "k", "rid": "", "title": "", "meta": {"phase": "live"}}})
 
+    def test_live_input(self):
+        url = "https://www.youtube.com/watch?v=" + VID
+        got = E.check({"id": "L1", "kind": "live", "input": {"url": url, "title": "配信", "recorder": "rec1"}})
+        self.assertEqual(got["input"], {"title": "配信", "videoId": VID, "url": url, "recorder": "rec1"})
+        self.assertEqual(E.check({"id": "L1", "kind": "live", "input": {"videoId": VID}})["input"], {"title": "", "videoId": VID, "recorder": None})
+        for inp, why in (({"videoId": VID, "marks": []}, "封筒.input.marks"), ({"url": "https://example.com/"}, "YouTube"), ({}, "videoId"),
+                         ({"videoId": VID, "recorder": ""}, "recorder")):
+            with self.assertRaises(ValueError, msg=inp) as cm:
+                E.check({"id": "L1", "kind": "live", "input": inp})
+            self.assertIn(why, str(cm.exception))
+
     def test_refusals_say_why(self):
         ok = {"id": "a", "kind": "docs", "input": {"docId": "d1"}}
         bad = [

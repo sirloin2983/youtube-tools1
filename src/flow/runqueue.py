@@ -33,7 +33,7 @@ import time
 import urllib.parse
 
 from ytt import colors as _colors, fsio, tools as _ytools
-from . import machine as _machine, run as run_mod, runlog, spec as _spec
+from . import envelope as _envelope, machine as _machine, run as run_mod, runlog, spec as _spec
 from .run import MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError
 
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
@@ -129,6 +129,7 @@ class Queue(run_mod.Runner):
         self.lock = threading.Lock()
         self.cv = threading.Condition(self.lock)
         self.runs = []
+        self.live_hook = None   # ライブの封筒の受け口(set_live_hook)
         self.thread = None
         restored = self._restore_active()   # 前の起動で待ち・実行中だった実行(M5)
         if restored:
@@ -242,6 +243,8 @@ class Queue(run_mod.Runner):
         配信者: 封筒に無ければ(legacy.streamer が null)束の hints.people の先頭の名前を照らし合わせた名前(字幕の色。ytt/colors.resolve =
         友人の受付と同じ。合わなければ決めない)。決まらなければ実行中に決める(入口は hook の _auto_streamer = チャンネル名などから)。
         封筒・束の形が違う・同じ入力(配信・文書・動画)か同じ id が待ち・実行中・待ちが多すぎれば理由つきの ValueError"""
+        if isinstance(envelope, dict) and envelope.get("kind") == "live":
+            return self._submit_live(envelope, spec)
         run = Run.from_envelope(envelope, spec)
         if run.kind() == "file":
             _check_media(run.source_path)
@@ -258,6 +261,19 @@ class Queue(run_mod.Runner):
             out = self._push(run)
         self._save_active()
         return out
+
+    def set_live_hook(self, fn):
+        """ライブの封筒(kind live)の受け口を登録する: fn(封筒(検査済み), 束(検査済み)) -> {"id", ...}(ライブ係 = RS7-2 G2。入口が登録)"""
+        self.live_hook = fn
+
+    def _submit_live(self, envelope, spec):
+        """kind live は Run を作らず(待ち行列に積まない)live の hook へ。hook が無ければ理由つきの ValueError"""
+        env = _envelope.check(envelope)
+        bundle = _spec.validate(_spec.merge(spec))
+        hook = self.live_hook
+        if hook is None:
+            raise ValueError("ライブの依頼を受ける係がまだ登録されていません")
+        return hook(env, bundle)
 
     # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
     def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False):

@@ -9,7 +9,7 @@ docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S3)。
   {"id": 依頼の 1 件の id(英数字と - _ の 64 字まで。10 桁の 16 進なら実行の id にもなる),
    "kind": "url" | "file" | "docs" | "live",
    "input": kind ごとの入力(INPUT_KEYS。url = {videoId か url, title, duration, fresh, marks}・file = {path, title}・docs = {docId, title}・
-            live = {videoId か url, title}(ライブ係は RS7-2。今は形だけ)),
+            live = {videoId か url, title, recorder}(recorder = 録画の部品の名前。無ければ既定。Queue.submit が live の hook へ回す = RS7-2 G2a)),
    "requestId": 友人の依頼の id か None, "deliver": {"dir", "batch", "pool"}(届け先・n 本の組・ライブの組の溜め。どれも None = 届けない・既定),
    "note": メモ, "createdAt": 受けた時刻(ミリ秒), "specVersion": 束の形の版(SPEC_VERSION),
    "legacy": {"mode", "onFail", "streamer"}(一時。今の Run の欄で、まだ束に写せない物 = 段の並びの形・1 本が失敗したとき・字幕の色の配信者。
@@ -28,7 +28,7 @@ from . import spec as _spec
 SPEC_VERSION = 1   # 束の形の版(flow/spec.py の DEFAULTS の形。形を変えたら上げる。知らない版は断る)
 KINDS = ("url", "file", "docs", "live")
 KEYS = ("id", "kind", "input", "requestId", "deliver", "note", "createdAt", "specVersion", "legacy")
-INPUT_KEYS = {"url": ("videoId", "url", "title", "duration", "fresh", "marks"), "live": ("videoId", "url", "title"),
+INPUT_KEYS = {"url": ("videoId", "url", "title", "duration", "fresh", "marks"), "live": ("videoId", "url", "title", "recorder"),
               "file": ("path", "title"), "docs": ("docId", "title")}
 DELIVER_KEYS = ("dir", "batch", "pool")
 LEGACY_KEYS = ("mode", "onFail", "streamer")
@@ -88,6 +88,8 @@ def _input(kind, inp):
         out["videoId"] = _video_id(inp, where)
         if inp.get("url") is not None:
             out["url"] = _str(inp["url"], PATH_MAX, where + ".url")
+    if kind == "live":
+        out["recorder"] = _str(inp.get("recorder"), CHANNEL_MAX, where + ".recorder", empty=False)
     if kind == "url":
         dur = inp.get("duration")
         if dur is not None and not (_spec.num_ok(dur) and dur > 0):

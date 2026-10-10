@@ -41,6 +41,15 @@ class _Env(unittest.TestCase):
         shutil.rmtree(self.tmp, True)
 
 
+class TestKeysIgnoreAdopt(unittest.TestCase):
+    def test_no_bundle_adopt_in_keys(self):
+        """束の adopt 節(top・pad・perHour・waitMin・sens・afterStream)は成果物の鍵の材料にしない = 欄を足しても今の鍵は「違う」にならない"""
+        with open(keys.__file__, encoding="utf-8") as f:
+            src = f.read()
+        for word in ("adopt", "afterStream", "perHour", "waitMin"):
+            self.assertNotIn(word, src.replace("adoptedBy", ""))
+
+
 class TestWriteReadStale(_Env):
     def test_write_read_roundtrip(self):
         kp = keys.media_key_path(self.media, "export")

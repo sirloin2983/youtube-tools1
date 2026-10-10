@@ -93,6 +93,33 @@ class TestImport(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
+class TestSubmitLive(Base):
+    def live_env(self):
+        return {"id": "live000001", "kind": "live", "input": {"videoId": "abcdefghijk", "title": "配信"}}
+
+    def test_without_hook(self):
+        q = self.queue()
+        with self.assertRaisesRegex(ValueError, "ライブの依頼を受ける係"):
+            q.submit(self.live_env())
+        self.assertEqual(q.status()["runs"], [])
+
+    def test_to_hook(self):
+        """kind live は Run を作らず hook へ(検査済みの封筒と束)。hook の返り値がそのまま返る。形の違いは hook の前に断る"""
+        q = self.queue()
+        seen = []
+        q.set_live_hook(lambda env, spec: seen.append((env, spec)) or {"id": env["id"], "state": "recording"})
+        out = q.submit(self.live_env(), {"adopt": {"sens": "low", "afterStream": False}})
+        self.assertEqual(out, {"id": "live000001", "state": "recording"})
+        env, spec = seen[0]
+        self.assertEqual((env["kind"], env["input"]["videoId"]), ("live", "abcdefghijk"))
+        self.assertEqual((spec["adopt"]["sens"], spec["adopt"]["afterStream"], spec["adopt"]["top"]), ("low", False, SP.DEFAULT_TOP))
+        self.assertEqual(q.status()["runs"], [])
+        for bad_env, bad_spec in (({"id": "x", "kind": "live", "input": {}}, None), (self.live_env(), {"adopt": {"sens": "x"}})):
+            with self.assertRaises(ValueError):
+                q.submit(bad_env, bad_spec)
+        self.assertEqual(len(seen), 1)
+
+
 class TestSubmit(Base):
     def test_submit_status_done(self):
         """封筒 + 束を積む → 糸が束のとおりに進める → status で 0 本に戻る・記録と history に 1 行"""

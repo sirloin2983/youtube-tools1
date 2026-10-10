@@ -191,6 +191,10 @@ class TestValidate(unittest.TestCase):
 
     def test_adopt_export(self):
         spec.validate(spec.merge({"adopt": {"top": 30, "perHour": 30, "waitMin": 60}, "export": {"loudness": None, "volume": 200}}))
+        spec.validate(spec.merge({"adopt": {"sens": "high", "afterStream": False}}))
+        self.assertEqual((spec.DEFAULTS["adopt"]["sens"], spec.DEFAULTS["adopt"]["afterStream"]), ("normal", True))
+        for kw in ({"sens": "mid"}, {"sens": None}, {"afterStream": 1}, {"afterStream": "yes"}):
+            self.bad("adopt", **kw)
         for kw in ({"top": None}, {"top": 31}, {"top": True}, {"top": 2.0}, {"pad": -1}, {"perHour": 0}, {"waitMin": 61}):
             self.bad("adopt", **kw)
         for kw in ({"loudness": -12}, {"loudness": 0}, {"loudness": True}, {"volume": 0}, {"volume": 201}):

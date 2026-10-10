@@ -317,7 +317,7 @@ class Run:
         env = _envelope.check(env)
         kind, inp, lg, dl = env["kind"], env["input"], env["legacy"], env["deliver"]
         if kind == "live":
-            raise ValueError("ライブの依頼はまだ受けられません(RS7-2 のライブ係から)")
+            raise ValueError("ライブの依頼は Run にしません(Queue.submit が live の hook へ回す)")
         mode = lg["mode"] or KIND_DEFAULT_MODE[kind]
         if mode not in KIND_MODES[kind]:
             raise ValueError("封筒.legacy.mode は %s のどれかにしてください" % "・".join(KIND_MODES[kind]))
