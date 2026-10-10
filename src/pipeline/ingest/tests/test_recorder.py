@@ -228,7 +228,7 @@ class TestRecording(unittest.TestCase):
         rec = R.Recorder(d + ":\\Video\\live-rec", **FAST)
         with self.assertRaises(R.RecError) as cm:
             rec.start(self.srv.url)
-        self.assertEqual(cm.exception.code, 409)
+        self.assertEqual(cm.exception.status, 409)
         self.assertFalse(rec.overview()["folderOk"])
 
     def test_recover_on_start(self):
@@ -308,11 +308,11 @@ class TestRecording(unittest.TestCase):
         self.assertTrue(wait_for(lambda: r.summary()["segments"] >= 2, 30), self.logs)
         with self.assertRaises(R.RecError) as cm:
             self.rec.delete(rid)
-        self.assertEqual(cm.exception.code, 409)   # 録画中
+        self.assertEqual(cm.exception.status, 409)   # 録画中
         for bad in (None, 3, "", "x", "../" + rid, rid + "/..", "20261004-000000/../../x", "..\\" + rid, rid + "\\session_001"):
             with self.assertRaises(R.RecError, msg=repr(bad)) as cm:
                 self.rec.delete(bad)
-            self.assertEqual(cm.exception.code, 400, bad)
+            self.assertEqual(cm.exception.status, 400, bad)
         self.rec.stop(rid)
         # 使用中(再生中の画面がセグメントを読んでいる など)→ 409。recording.json は残り、一覧にも残る
         seg = os.path.join(r.dir, "session_001", "seg_000000.ts")
@@ -320,7 +320,7 @@ class TestRecording(unittest.TestCase):
         try:
             with self.assertRaises(R.RecError) as cm:
                 self.rec.delete(rid)
-            self.assertEqual(cm.exception.code, 409)
+            self.assertEqual(cm.exception.status, 409)
             self.assertIn("使用中", str(cm.exception))
             self.assertTrue(os.path.isfile(os.path.join(r.dir, "recording.json")))
             self.assertIs(self.rec.get(rid), r)
@@ -330,17 +330,17 @@ class TestRecording(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.folder, rid)))
         with self.assertRaises(R.RecError) as cm:
             self.rec.get(rid)
-        self.assertEqual(cm.exception.code, 404)
+        self.assertEqual(cm.exception.status, 404)
         with self.assertRaises(R.RecError) as cm:
             self.rec.delete(rid)
-        self.assertEqual(cm.exception.code, 404)
+        self.assertEqual(cm.exception.status, 404)
         # recording.json の無いフォルダ(録画ではない)は消さない
         plain = os.path.join(self.folder, "20261004-000000-plain")
         os.makedirs(plain)
         open(os.path.join(plain, "keep.txt"), "wb").close()
         with self.assertRaises(R.RecError) as cm:
             self.rec.delete("20261004-000000-plain")
-        self.assertEqual(cm.exception.code, 404)
+        self.assertEqual(cm.exception.status, 404)
         self.assertTrue(os.path.isfile(os.path.join(plain, "keep.txt")))
         # 置き場所の中のジャンクションの先(置き場所の外)は消さない
         outside = os.path.join(self.tmp, "outside")

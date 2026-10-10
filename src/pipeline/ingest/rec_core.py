@@ -39,7 +39,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # src/(この ingest の2つ上)
 if ROOT not in sys.path:   # 共通部品 ytt(src/ の中)
     sys.path.append(ROOT)
-from ytt import fsio, recproto, tools as ytools  # noqa: E402
+from ytt import errors as yerrors, fsio, recproto, tools as ytools  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
 DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026-10-04 ユーザー決定。ホームの設定で変えられる)
@@ -73,12 +73,11 @@ SEGMENTS_MAX = 5000
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
 
 
-class RecError(ValueError):
-    """画面に出せる理由(400・404・409)。kind は HTTP の応答の error"""
-    def __init__(self, message, code=400):
-        super().__init__(message)
-        self.code = code
-        self.kind = {400: "bad_request", 409: "conflict"}.get(code, "not_found")
+class RecError(yerrors.ApiError):
+    """画面に出せる理由(400・404・409)。形は基盤の ytt/errors.ApiError(code = 応答の error・message・status = HTTP の状態。OPT1 でそろえた)。
+    録画の部品は入口と別のプロセスだが、もう ytt を読んでいるので写しを持たない。応答の error は状態から決める"""
+    def __init__(self, message, status=400):
+        super().__init__({400: "bad_request", 409: "conflict"}.get(status, "not_found"), message, status)
 
 
 # ---------- 小さな道具 ----------

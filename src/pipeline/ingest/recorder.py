@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
             if rest == "segments":   # 区間にかかるセグメントと欠け(入口の書き出しの「録画待ち」と「取得」。P2)
                 return self._json(200, r.segments_in((q.get("start") or [""])[0], (q.get("end") or [""])[0]))
         except rec_core.RecError as e:
-            return self._fail(e.code, e.kind, str(e))
+            return self._fail(e.status, e.code, e.message)
         if rest == "index.m3u8":
             return self._send(200, r.playlist().encode("utf-8"), "application/vnd.apple.mpegurl", "no-cache")
         p = r.segment_path(*rest.split("/")) if rest.count("/") == 1 else None
@@ -274,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
             if m and m.group(2) == "delete":   # P4 の「録画を自動で消す」(入口の中の処理だけが呼ぶ。入口の中継は通さない)
                 return self._json(200, {"ok": True, "deleted": rec.delete(m.group(1))})
         except rec_core.RecError as e:
-            return self._fail(e.code, e.kind, str(e))
+            return self._fail(e.status, e.code, e.message)
         except OSError as e:
             return self._fail(500, "write", "書けませんでした: %s" % (e.strerror or e.__class__.__name__))
         return self._missing("その操作はありません")
