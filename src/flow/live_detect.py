@@ -48,6 +48,7 @@ from ytt import fsio, schemas, tools
 from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所(RS6 b-R1)
 from . import live_failures
 from . import live_export as LX
+from . import livehost   # 親の口の型(RS7-2 G0)
 from pipeline.analyze import excite
 from pipeline.analyze import live_excite_worker as EW   # ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない
 
@@ -127,10 +128,10 @@ UNCONFIRMED_EVERY = 120.0  # 未確認の数を聞き直す間隔(案件の一�
 
 
 class Detector:
-    def __init__(self, live, python=None, spawn=True, worker=WORKER, stale_sec=STALE_SEC, clock=time.time):
-        """live: src/home/live.py の Live(設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
+    def __init__(self, host: "livehost.DetectHost", python=None, spawn=True, worker=WORKER, stale_sec=STALE_SEC, clock=time.time):
+        """host: 親(flow/livehost.py の DetectHost。今は src/home/live.py の Live。設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
         テストは spawn=False(ワーカーを起動しない)か、worker に偽のワーカーを渡す・stale_sec を縮める"""
-        self.live = live
+        self.host = host
         self.python = python or sys.executable
         self.spawn_ok, self.worker, self.stale_sec, self.clock = spawn, worker, stale_sec, clock
         self.ffmpeg = lambda: tools.find_tool("ffmpeg", "YTT_FFMPEG")
@@ -156,10 +157,10 @@ class Detector:
     # ---- 設定
     @property
     def dir(self):
-        return os.path.join(self.live.store_dir, "excite")
+        return os.path.join(self.host.store_dir, "excite")
 
     def _sub(self, name, defaults):
-        v = self.live.cfg().get(name)
+        v = self.host.cfg().get(name)
         return dict(defaults, **v) if isinstance(v, dict) else dict(defaults)
 
     def detect_cfg(self):
@@ -171,12 +172,12 @@ class Detector:
 
     def enabled(self):
         """検出を動かすか: リアルタイム切り抜きがオンで、検出のスイッチがオンか、友人のライブ配信の依頼の録画がある(2-15: 友人の録画は常に動かす)"""
-        return self.live.enabled() and (self.detect_cfg().get("enabled") is True or bool(self.requests_cfg()))
+        return self.host.enabled() and (self.detect_cfg().get("enabled") is True or bool(self.requests_cfg()))
 
     def requests_cfg(self):
         """友人のライブ配信の依頼の録画ごとの設定(config.json の requests。ワーカーはこの録画を、ホームの検出がオフでも測り、感度・枠・長さをこの値で)"""
         # settings は live_requests.Store が検査済み(無い鍵・範囲の外は既定 = live_requests.SETTINGS_DEFAULT。読み直した項目も)
-        return {k: {x: v["settings"][x] for x in ("sens", "perHour", "length")} for k, v in self.live.requests.all().items()}
+        return {k: {x: v["settings"][x] for x in ("sens", "perHour", "length")} for k, v in self.host.requests.all().items()}
 
     def adopt_for(self, req):
         """録画ごとの自動の採用 {"enabled", "waitMin"}: 友人の依頼の録画(req = live.requests.get の項目)は常にオンで待ちは依頼の waitMin(2-15)、
@@ -190,7 +191,7 @@ class Detector:
         try:
             self.tick()
         except Exception as e:   # noqa: BLE001  (起こせなくても見回りが拾う)
-            self.live.note("盛り上がりの検出: 友人の依頼で起こせませんでした: %r" % (e,))
+            self.host.note("盛り上がりの検出: 友人の依頼で起こせませんでした: %r" % (e,))
 
     def spec(self):
         """スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)。SETTINGS_EVERY ごとにスタジオに聞く。つながらなければ前の値か既定"""
@@ -198,7 +199,7 @@ class Detector:
         if self._spec is None or now - self._spec_at > SETTINGS_EVERY:
             self._spec_at = now
             try:
-                code, d = self.live.studio_call("GET", "/api/settings")
+                code, d = self.host.studio_call("GET", "/api/settings")
             except Exception:
                 code, d = None, None
             if code == 200 and isinstance(d, dict):
@@ -208,7 +209,7 @@ class Detector:
         return self._spec
 
     def config(self):
-        return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.live.recorders()],
+        return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.host.recorders()],
                 "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
                 "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint(),
                 "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg()}   # 友人の依頼の録画(2-15)
@@ -216,9 +217,9 @@ class Detector:
     def _length_hint(self):
         """M10: 人が選んだ区間の長さの目安(夜の自動測定 src/eval/tools/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
         try:
-            return EW.length_hint(self.live.root)
+            return EW.length_hint(self.host.root)
         except Exception as e:
-            self.live.note("盛り上がりの検出: 長さの目安を読めませんでした: %r" % (e,))
+            self.host.note("盛り上がりの検出: 長さの目安を読めませんでした: %r" % (e,))
             return None
 
     def write_config(self):
@@ -244,7 +245,7 @@ class Detector:
             try:
                 self.auto_tick()
             except Exception as e:   # 自動の採用の不具合でも、見張りは続ける
-                self.live.note("リアルタイム切り抜き: 自動の採用でエラー: %r" % (e,))
+                self.host.note("リアルタイム切り抜き: 自動の採用でエラー: %r" % (e,))
             return state
 
     def heartbeat(self):
@@ -277,30 +278,30 @@ class Detector:
             ref = age if age is not None else self.clock() - (self.started_at or self.clock())
             if ref <= self.stale_sec:
                 return "running"
-            self.live.log("盛り上がりの検出: ワーカーの心拍が %d 秒止まったので、起動し直します" % int(ref))
+            self.host.log("盛り上がりの検出: ワーカーの心拍が %d 秒止まったので、起動し直します" % int(ref))
             self._kill(p)
             self.restarts += 1
         elif p is not None:
             self.proc, self.last_exit = None, p.returncode
             if p.returncode != EW.EXIT_LOCKED:   # ほかのワーカー(前の入口が残したもの)が終わるのを待つときは数えない
                 self.restarts += 1
-            self.live.log("盛り上がりの検出: ワーカーが終わりました(終了コード %s)。起動し直します" % p.returncode)
+            self.host.log("盛り上がりの検出: ワーカーが終わりました(終了コード %s)。起動し直します" % p.returncode)
         return "spawned" if self._spawn() else "failed"
 
     def _spawn(self):
-        if getattr(self.live, "_halt", None) is not None and self.live._halt.is_set():   # 入口の終了の途中
+        if getattr(self.host, "_halt", None) is not None and self.host._halt.is_set():   # 入口の終了の途中
             return False
         os.makedirs(self.dir, exist_ok=True)
-        os.makedirs(self.live.logs_dir, exist_ok=True)
+        os.makedirs(self.host.logs_dir, exist_ok=True)
         cmd = [self.python, "-u", self.worker, "--config", os.path.join(self.dir, "config.json"), "--parent", str(os.getpid())]
         try:   # 通常より下の優先度・別のプロセスグループ(_kill の CTRL_BREAK がワーカーだけに届く)
-            self.proc = start_logged(cmd, os.path.join(self.live.logs_dir, "excite.log"), CODE_DIR,
+            self.proc = start_logged(cmd, os.path.join(self.host.logs_dir, "excite.log"), CODE_DIR,
                                      tools.no_window_flags(new_group=True, priority="low"), rotate=LOG_MAX)
         except OSError as e:
-            self.live.note("盛り上がりの検出: ワーカーを起動できませんでした: %s" % tools.why(e))
+            self.host.note("盛り上がりの検出: ワーカーを起動できませんでした: %s" % tools.why(e))
             return False
         self.started_at = self.clock()
-        self.live.log("盛り上がりの検出: ワーカーを起動しました(pid %d)" % self.proc.pid)
+        self.host.log("盛り上がりの検出: ワーカーを起動しました(pid %d)" % self.proc.pid)
         return True
 
     @staticmethod
@@ -326,7 +327,7 @@ class Detector:
         p, self.proc = self.proc, None
         if p is not None and p.poll() is None:
             self._kill(p)
-            self.live.log("盛り上がりの検出: ワーカーを止めました")
+            self.host.log("盛り上がりの検出: ワーカーを止めました")
 
     # ---- 候補を読む
     def folder(self, rc, rec):
@@ -393,25 +394,25 @@ class Detector:
     def api_get(self, q):
         """GET /live/api/peaks(q = parse_qs の結果)-> JSON(だめなら LiveError)"""
         rc, rec, since = (q.get("recorder") or [""])[0], (q.get("recording") or [""])[0], (q.get("since") or [None])[0]
-        self.live._ids(rc, rec)   # 録画元と録画の id の検査(文・番号は Live の API と同じ)
+        self.host._ids(rc, rec)   # 録画元と録画の id の検査(文・番号は Live の API と同じ)
         if since is not None:
             try:
                 since = int(since)
             except ValueError:
                 raise LX.LiveError("since は数で指定してください")
         doc, peaks, pending = self.view(rc, rec)
-        tx = self.live.livetx.view(rc, rec)   # 配信中の文字起こし(D-11 案 b): 文字の付いた候補
+        tx = self.host.livetx.view(rc, rec)   # 配信中の文字起こし(D-11 案 b): 文字の付いた候補
         for p in peaks:
             t = tx.get(p.get("id"))
             if t:
                 p["text"], p["textAt"] = t.get("text"), t.get("at")
         det = self.detect_cfg()
-        req = self.live.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出・自動採用がオフでも依頼の設定で動く(2-15)
+        req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、ホームの検出・自動採用がオフでも依頼の設定で動く(2-15)
         seq = int((doc or {}).get("seq") or 0)
         out = {"ok": True, "enabled": self.enabled() and (det.get("enabled") is True or req is not None), "recorder": rc, "recording": rec, "seq": seq,
                "worker": self.worker_view(doc),
                "hour": {"perHour": (doc or {}).get("perHour") or det.get("perHour") or DETECT_DEFAULT["perHour"], "counts": (doc or {}).get("counts") or {}},
-               "autoAdopt": self.adopt_for(req), "changes": [], "tx": self.live.livetx.status()}
+               "autoAdopt": self.adopt_for(req), "changes": [], "tx": self.host.livetx.status()}
         chs = [c for c in (doc or {}).get("changes") or [] if isinstance(c, dict) and isinstance(c.get("seq"), int)]
         if since is None or since > seq or (chs and since < chs[0]["seq"] - 1):
             out["peaks"] = peaks
@@ -429,7 +430,7 @@ class Detector:
                 last[c.get("id")] = c["seq"]
         for pid in pending:   # まだワーカーが当てていない決定も「変わった」として返す(ほかの窓にもすぐ出す)
             last.setdefault(pid, seq)
-        for pid in self.live.livetx.recent_ids(rc, rec):   # 最近文字が付いた候補も(行に文字を出す)
+        for pid in self.host.livetx.recent_ids(rc, rec):   # 最近文字が付いた候補も(行に文字を出す)
             last.setdefault(pid, seq)
         out["changes"] = [{"seq": s, "id": pid, "state": by_id[pid].get("state"), "peak": by_id[pid]}
                           for pid, s in sorted(last.items(), key=lambda x: x[1]) if pid in by_id]
@@ -455,7 +456,7 @@ class Detector:
         if op not in OPS:
             raise LX.LiveError("op は adopt・dismiss・restore のどれかです")
         rc, rec, pid = body.get("recorder"), body.get("recording"), body.get("id")
-        self.live._ids(rc, rec)
+        self.host._ids(rc, rec)
         if not isinstance(pid, str) or not EW.PEAK_ID_RE.match(pid):
             raise LX.LiveError("候補の id が正しくありません")
         _doc, peaks, _pending = self.view(rc, rec)
@@ -480,10 +481,10 @@ class Detector:
             body["after"] = after
         if streamer is not None:
             body["streamer"] = streamer
-        text = self.live.livetx.text_for(rc, rec, pk.get("id"))   # 配信中の文字起こしの文字があれば採用の記録に(D-11 案 b)
+        text = self.host.livetx.text_for(rc, rec, pk.get("id"))   # 配信中の文字起こしの文字があれば採用の記録に(D-11 案 b)
         if text:
             body["text"] = text
-        res = self.live.adopt(body)
+        res = self.host.adopt(body)
         job = res.get("job") or {}
         item = {"state": "adopted", "origin": pk.get("origin") or origin, "markId": pk.get("markId"), "jobId": pk.get("jobId")}
         if pk.get("state") != "adopted" or pk.get("markId") != res.get("mark"):
@@ -509,7 +510,7 @@ class Detector:
                 fsio.atomic_write(os.path.join(self.dir, "auto_failures.json"), _dump({"v": 1, "items": fails}))
             except OSError:
                 pass
-        self.live.log("盛り上がりの検出: 候補 %s(%s)を自動で採用できなかったので諦めました: %s" % (pk.get("id"), rec, why))
+        self.host.log("盛り上がりの検出: 候補 %s(%s)を自動で採用できなかったので諦めました: %s" % (pk.get("id"), rec, why))
 
     def unconfirmed(self):
         """ホームの「自動の切り抜き: 未確認」の数(D-13 の休む判断。Live.unconfirmed = 入口が cases の数を渡す。UNCONFIRMED_EVERY 秒は前の値)。
@@ -517,7 +518,7 @@ class Detector:
         now = self.clock()
         if now - self._unconf_at < UNCONFIRMED_EVERY:
             return self._unconf
-        fn = getattr(self.live, "unconfirmed", None)
+        fn = getattr(self.host, "unconfirmed", None)
         n = 0
         try:
             if fn is not None:
@@ -526,7 +527,7 @@ class Detector:
             self._unconf_err = False
         except Exception as e:   # noqa: BLE001
             if not self._unconf_err:
-                self.live.note("リアルタイム切り抜き: 未確認の自動の切り抜きの数を読めませんでした(安全弁は効きません): %r" % (e,))
+                self.host.note("リアルタイム切り抜き: 未確認の自動の切り抜きの数を読めませんでした(安全弁は効きません): %r" % (e,))
             self._unconf_err = True
         self._unconf, self._unconf_at = max(0, n), now
         return self._unconf
@@ -545,7 +546,7 @@ class Detector:
     def _target_recordings(self, now):
         """自動の採用の対象の録画 -> [(録画, 終わったか)]: 録画中(firstPdt・lastPdt あり)と、終わって END_GRACE_SEC 以内でワーカーが帳簿を締めたもの(D-14)"""
         out = []
-        for r in self.live.list_recordings():
+        for r in self.host.list_recordings():
             if not isinstance(r.get("firstPdt"), (int, float)):
                 continue
             if r.get("active"):
@@ -574,13 +575,13 @@ class Detector:
             return 0
         paused = self.paused_why() if home else ""
         if paused and paused != self._paused_said:
-            self.live.log("盛り上がりの検出: " + paused)
+            self.host.log("盛り上がりの検出: " + paused)
         self._paused_said = paused
         done = 0
         given = {(x.get("recorder"), x.get("recording"), x.get("id")) for x in self._load_fails()}
         for r, ended in self._target_recordings(now):
             rc, rec = r["recorder"], r["id"]
-            req = self.live.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、自動採用のスイッチがオフでも採用する(待ちは依頼の設定。2-15)
+            req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、自動採用のスイッチがオフでも採用する(待ちは依頼の設定。2-15)
             if req is None and (not home or paused):
                 continue
             wait_min = self.adopt_for(req)["waitMin"]
@@ -601,7 +602,7 @@ class Detector:
                 if used >= AUTO_MAX_PER_REC:   # D-13: この録画はもう上限(候補は帯に残る = 人が採用できる)
                     if rec not in self._capped_said:
                         self._capped_said.add(rec)
-                        self.live.log("盛り上がりの検出: 録画 %s の自動の採用は上限の %d 本に達したので、残りの候補は人の採用に任せます" % (rec, AUTO_MAX_PER_REC))
+                        self.host.log("盛り上がりの検出: 録画 %s の自動の採用は上限の %d 本に達したので、残りの候補は人の採用に任せます" % (rec, AUTO_MAX_PER_REC))
                     break
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")
@@ -655,7 +656,7 @@ class Detector:
                "ratio": round(hits / len(arch), 3) if arch else None, "medianAbsDiff": ds[len(ds) // 2] if ds else None, "diffs": diffs[:200],
                "liveFrame": sum(1 for p in live if p.get("state") in ("frame", "adopted")), "liveBench": sum(1 for p in live if p.get("state") == "bench"),
                "liveUnmatched": unmatched, "lag": doc.get("lag"), "chat": doc.get("chat"), "gaps": doc.get("gaps"), "offset": a.get("offset")}
-        self.live.exporter.feedback(row)
+        self.host.exporter.feedback(row)
         return row
 
     # ---- 「調子」
@@ -685,7 +686,7 @@ class Detector:
 
     def failures(self, now=None):
         """「調子」の失敗(kind detect。文は src/flow/live_failures.py の detect_failure)"""
-        if not self.live.enabled():
+        if not self.host.enabled():
             return []
         now = time.time() if now is None else now
         out = []

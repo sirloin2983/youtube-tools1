@@ -898,7 +898,7 @@ class Archiver:
         known = self._known_offset(rc, rec, vid)
         if known is not None:
             return known, "照合済みのマークから"
-        rco = self.ex.live.find(rc)
+        rco = self.ex.host.find(rc)
         if rco is None:
             raise ArchiveError("その録画元はありません")
         span = min(REF_SEC, last - first - 2.0)

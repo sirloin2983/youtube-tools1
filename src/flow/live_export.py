@@ -60,6 +60,7 @@ import urllib.parse
 from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools, version as _version
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3
+from . import livehost   # 親の口の型(RS7-2 G0)
 
 VERSION = _version.VERSION   # 全体の版(ytt/version.py)
 TOOL = {"name": "ytt-live", "version": VERSION}
@@ -370,14 +371,14 @@ class MarkStore:
 
 # ---------- 書き出しのジョブ ----------
 class Exporter:
-    def __init__(self, live, folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
+    def __init__(self, host: "livehost.ExportHost", folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
                  runs_log=None, disk_usage=None, disk_poll=DISK_POLL):
-        """live: src/home/live.py の Live(録画元の一覧と要求)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
+        """host: 親(flow/livehost.py の ExportHost。今は src/home/live.py の Live。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
         runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
         audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
         runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
         disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 shutil.disk_usage。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)"""
-        self.live, self.folder, self.out_dir, self.runner, self.audio = live, folder, out_dir, runner, audio
+        self.host, self.folder, self.out_dir, self.runner, self.audio = host, folder, out_dir, runner, audio
         self.disk_usage = disk_usage or _disk_usage
         self.disk_poll = disk_poll
         self._disk = None          # 前に調べた結果(disk)
@@ -513,7 +514,7 @@ class Exporter:
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
         after・streamer・origin・auto・hold・score: add と同じ"""
-        if self.live.find(rc) is None:
+        if self.host.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         mid = studio_mark_id(studio["mark"])
         with self.lock:   # 書き出しの途中のマークは、正本を書き換える前に断る(途中のジョブの区間と正本が食い違わないように)
@@ -534,7 +535,7 @@ class Exporter:
         request: 友人のライブ配信の依頼(live_requests.Store の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
         after = after if after in AFTERS else ("check" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
-        if self.live.find(rc) is None:
+        if self.host.find(rc) is None:
             raise LiveError("その録画元はありません", 404)
         m = self.marks.get(rc, rec, mid)
         if not m.get("end"):
@@ -706,7 +707,7 @@ class Exporter:
                 since = job.get("downSince") or time.time()
                 if not job.get("downSince"):
                     job["downSince"] = since
-                rc = self.live.find(job["recorder"]) or {"name": job["recorder"]}
+                rc = self.host.find(job["recorder"]) or {"name": job["recorder"]}
                 if time.time() - since > self.down_sec:
                     if self._backup_for(job, a, b):
                         return job
@@ -739,17 +740,17 @@ class Exporter:
         return None
 
     def _query(self, rc_id, rec, a, b):
-        rc = self.live.find(rc_id)
+        rc = self.host.find(rc_id)
         if rc is None:
             return 404, None
-        return self.live.call(rc, "GET", "/live/%s/segments?%s" % (rec, urllib.parse.urlencode({"start": epoch_iso(a), "end": epoch_iso(b)})),
+        return self.host.call(rc, "GET", "/live/%s/segments?%s" % (rec, urllib.parse.urlencode({"start": epoch_iso(a), "end": epoch_iso(b)})),
                               timeout=10.0)
 
     def _sources(self, job, a, b):
         """取得の順番: 主(マークを付けた録画)→ 予備(ほかの録画元で、同じ配信の URL を録っている録画)。-> [(rc, rec, 区間の答え)]"""
         out = []
         code, d = self._query(job["recorder"], job["recording"], a, b)
-        rc = self.live.find(job["recorder"])
+        rc = self.host.find(job["recorder"])
         url = ""
         if code == 200 and isinstance(d, dict):
             out.append((rc, job["recording"], d))
@@ -760,10 +761,10 @@ class Exporter:
             except LiveError:
                 url = ""
         if url:
-            for other in self.live.recorders():
+            for other in self.host.recorders():
                 if other.get("id") == job["recorder"]:
                     continue
-                for r in rec_list(self.live.call, other) or []:
+                for r in rec_list(self.host.call, other) or []:
                     if r.get("url") == url:
                         c3, d3 = self._query(other["id"], r["id"], a, b)
                         if c3 == 200 and isinstance(d3, dict):
@@ -862,7 +863,7 @@ class Exporter:
                     path = os.path.join(wdir, "part_%02d.ts" % len(files))
                     files.append((path, cur))
                     f = open(path, "wb")
-                conn, r = self.live.request(rc, "GET", "/live/%s/%s" % (rec, s["uri"]), timeout=FETCH_TIMEOUT)
+                conn, r = self.host.request(rc, "GET", "/live/%s/%s" % (rec, s["uri"]), timeout=FETCH_TIMEOUT)
                 try:
                     if r.status != 200:
                         raise OSError("HTTP %s" % r.status)
@@ -1172,7 +1173,7 @@ class Exporter:
         """スタジオのマーク(ジョブの studio)を「書き出し済み」にする(M1: 画面を閉じていても。画面も同じ API を呼ぶ = 何度呼んでも同じ)。
         -> 警告の文(できなかったとき)か ""。スタジオが動いていない・入口のサーバーが無い(テスト)ときは黙って飛ばす(画面が開いたときに突き合わせる)"""
         st = job.get("studio") if isinstance(job.get("studio"), dict) else None
-        call = getattr(self.live, "studio_call", None)
+        call = getattr(self.host, "studio_call", None)
         if not st or not st.get("video") or not st.get("mark") or call is None:
             return ""
         body = {"id": st["video"], "markId": st["mark"], "path": media}

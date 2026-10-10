@@ -291,6 +291,7 @@ class Live:
         self._adopt_lock = threading.Lock()
         self._stop_lock = threading.Lock()
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
+        # 子(Detector・LiveTx・Reporter・Exporter)は self を親 host として受ける = Live は flow/livehost.py の LiveHost を満たす(RS7-2 G0)
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
         self.requests = live_requests.Store(os.path.join(self.store_dir, "requests.json"), log=self.log)   # 友人のライブ配信の依頼と録画の結びつき(2-15)
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)

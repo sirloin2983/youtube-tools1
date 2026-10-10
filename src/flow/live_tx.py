@@ -21,7 +21,7 @@ import threading
 import time
 
 from ytt import datadir, fsio, jobs, tools
-from . import live_export as LX, machine as _machine, spec as _spec
+from . import live_export as LX, livehost, machine as _machine, spec as _spec
 
 WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
 # whisper.cpp の置き場所(編集の tx_engines.WHISPER_CPP["version"]・wcpp_bin_dir・wcpp_model_dir・WCPP_MODELS と同じ値。入口は編集の部品を import しないので値を持つ。test_live_tx が同じことを確かめる)
@@ -48,11 +48,11 @@ def wav_args(ffmpeg, src, dst, ss, dur):
 
 
 class LiveTx:
-    def __init__(self, live, log=None, clock=time.time, python=None, run=None, ffmpeg=None, slots=None):
-        """live: src/home/live.py の Live(設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
+    def __init__(self, host: "livehost.TxHost", log=None, clock=time.time, python=None, run=None, ffmpeg=None, slots=None):
+        """host: 親(flow/livehost.py の TxHost。今は src/home/live.py の Live。設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
         run(data_dir, model, wav) -> 子プロセスの結果の dict(テストは偽物に差し替える。既定 = live_tx_worker.py を子プロセスで)。ffmpeg: パス(既定は探す)。
         slots: 重い処理の順番(既定 ytt.jobs.SLOTS。テストは小さな HeavySlots を渡す)"""
-        self.live = live
+        self.host = host
         self.log = log or (lambda m: None)
         self.clock = clock
         self.python = python
@@ -78,7 +78,7 @@ class LiveTx:
 
     # ---- 設定・準備
     def cfg(self):
-        v = self.live.cfg().get("liveTx")
+        v = self.host.cfg().get("liveTx")
         v = v if isinstance(v, dict) else {}
         model = v.get("model") if isinstance(v.get("model"), str) and v.get("model") in WCPP_MODEL_FILES else DEFAULT_MODEL   # 形の違う値(list など)でも落ちない
         return {"enabled": v.get("enabled") is not False, "model": model}
@@ -95,7 +95,7 @@ class LiveTx:
 
     def data_dir(self):
         """編集の作業データ(whisper.cpp とモデルの置き場所。ytt.datadir.resolve = txindex.folder と同じ決め方)"""
-        return datadir.resolve("transcribe", self.live.root)
+        return datadir.resolve("transcribe", self.host.root)
 
     def paths(self):
         d = self.data_dir()
@@ -107,7 +107,7 @@ class LiveTx:
         """(使えるか, 使えない理由)。オフ・リアルタイム切り抜きがオフ・whisper.cpp が無い・モデルが無い・ffmpeg が無い"""
         if not self.cfg()["enabled"]:
             return False, "オフ(設定 live.liveTx)"
-        if not self.live.enabled():
+        if not self.host.enabled():
             return False, "リアルタイム切り抜きがオフ"
         p = self.paths()
         if not os.path.isfile(p["exe"]):
@@ -130,7 +130,7 @@ class LiveTx:
 
     # ---- 記録(tx.json)
     def folder(self, rc, rec):
-        return self.live.detector.folder(rc, rec)
+        return self.host.detector.folder(rc, rec)
 
     def _load(self, rc, rec):
         key = (rc, rec)
@@ -188,7 +188,7 @@ class LiveTx:
         """録画中の録画の確定した候補のうち、まだ文字の無いものを列に入れて裏のスレッドを起こす。-> 入れた数(オフ・準備なしは 0)"""
         ok, why = self.ready()
         if not ok:
-            if why != self._ready_note and self.cfg()["enabled"] and self.live.enabled():
+            if why != self._ready_note and self.cfg()["enabled"] and self.host.enabled():
                 self.log("配信中の文字起こし: %s" % why)
             self._ready_note = why
             return 0
@@ -197,7 +197,7 @@ class LiveTx:
             return 0
         added = 0
         try:
-            recs = self.live.list_recordings()
+            recs = self.host.list_recordings()
         except Exception as e:   # noqa: BLE001  (録画元につながらない: 次の見回りで)
             self.log("配信中の文字起こし: 録画の一覧を読めませんでした: %r" % (e,))
             return 0
@@ -206,7 +206,7 @@ class LiveTx:
                 continue
             rc, rec = r["recorder"], r["id"]
             try:
-                _doc, peaks, _p = self.live.detector.view(rc, rec)
+                _doc, peaks, _p = self.host.detector.view(rc, rec)
             except Exception:   # noqa: BLE001
                 continue
             with self.lock:
@@ -281,8 +281,8 @@ class LiveTx:
     # ---- 1 本
     def _one(self, rc, rec, pk, first):
         pid = pk["id"]
-        ex = self.live.exporter
-        rco = self.live.find(rc)
+        ex = self.host.exporter
+        rco = self.host.find(rc)
         if rco is None:
             return self._after(rc, rec, pid, False, "録画元がありません")
         a, b = first + float(pk["start"]), first + float(pk["end"])

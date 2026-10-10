@@ -24,6 +24,7 @@ import time
 from ytt import fsio
 from . import live_export as LX
 from . import live_failures
+from . import livehost   # 親の口の型(RS7-2 G0)
 
 REPORT_DIR = "reports"
 EVERY = 60.0                 # 録画中に書き直す間隔
@@ -61,16 +62,16 @@ def key_of(rc, rec):
 
 
 class Reporter:
-    def __init__(self, live, clock=time.time, every=EVERY, end_window=END_WINDOW, finish_delay=FINISH_DELAY):
-        """live: src/home/live.py の Live(list_recordings・detector・livetx・exporter・requests・store_dir)。時間はテストで縮める"""
-        self.live = live
+    def __init__(self, host: "livehost.ReportHost", clock=time.time, every=EVERY, end_window=END_WINDOW, finish_delay=FINISH_DELAY):
+        """host: 親(flow/livehost.py の ReportHost。今は src/home/live.py の Live。list_recordings・detector・livetx・exporter・requests・store_dir)。時間はテストで縮める"""
+        self.host = host
         self.clock, self.every, self.end_window, self.finish_delay = clock, every, end_window, finish_delay
         self._last = -1e18
         self._done = set()   # 最後まで書いた録画(見回りのたびに読み直さない)
 
     @property
     def dir(self):
-        return os.path.join(self.live.store_dir, REPORT_DIR)
+        return os.path.join(self.host.store_dir, REPORT_DIR)
 
     def path(self, rc, rec):
         return os.path.join(self.dir, key_of(rc, rec) + ".json")
@@ -82,14 +83,14 @@ class Reporter:
     # ---- 見回り
     def tick(self, force=False):
         """-> 書いた録画の数"""
-        if not self.live.enabled():
+        if not self.host.enabled():
             return 0
         now = self.clock()
         if not force and now - self._last < self.every:
             return 0
         self._last = now
         n = 0
-        for r in self.live.list_recordings():
+        for r in self.host.list_recordings():
             if not LX.ID_RE.match(r.get("recorder") or "") or not LX.REC_RE.match(r.get("id") or ""):
                 continue
             key = key_of(r["recorder"], r["id"])
@@ -110,7 +111,7 @@ class Reporter:
             if prev is None and not _num(r.get("firstPdt")):   # 録画の中身が無いまま終わった(何も測っていない)
                 self._done.add(key)
                 continue
-            doc, _peaks, _p = self.live.detector.view(r["recorder"], r["id"])
+            doc, _peaks, _p = self.host.detector.view(r["recorder"], r["id"])
             final = bool((doc or {}).get("ended")) or now - ended >= self.finish_delay
             if self._write(r, now, final=final):
                 n += 1
@@ -125,25 +126,25 @@ class Reporter:
         try:
             rep = self.build(r, prev, now, final)
         except Exception as e:   # noqa: BLE001  (記録の不具合で見回りを止めない)
-            self.live.note("リアルタイム切り抜き: 配信の記録を作れませんでした(%s): %r" % (rec, e))
+            self.host.note("リアルタイム切り抜き: 配信の記録を作れませんでした(%s): %r" % (rec, e))
             return False
         try:
             os.makedirs(self.dir, exist_ok=True)
             fsio.atomic_write(self.path(rc, rec), json.dumps(rep, ensure_ascii=False, indent=1).encode("utf-8"))
         except OSError as e:
-            self.live.note("リアルタイム切り抜き: 配信の記録を書けませんでした(%s): %s" % (rec, e.strerror or e.__class__.__name__))
+            self.host.note("リアルタイム切り抜き: 配信の記録を書けませんでした(%s): %s" % (rec, e.strerror or e.__class__.__name__))
             return False
         if final:
-            self.live.log("リアルタイム切り抜き: 配信の記録を残しました %s(%s)" % (rec, self.summary(rep)))
+            self.host.log("リアルタイム切り抜き: 配信の記録を残しました %s(%s)" % (rec, self.summary(rep)))
             self._trim()
         return True
 
     def build(self, r, prev, now, final):
         rc, rec = r["recorder"], r["id"]
-        live = self.live
-        doc, peaks, _pending = live.detector.view(rc, rec)
+        host = self.host
+        doc, peaks, _pending = host.detector.view(rc, rec)
         doc = doc or {}
-        hb = live.detector.heartbeat() or {}
+        hb = host.detector.heartbeat() or {}
         mine = next((x for x in hb.get("recordings") or [] if isinstance(x, dict) and x.get("recorder") == rc and x.get("id") == rec), None)
         ps = prev.get("samples") if isinstance(prev.get("samples"), dict) else {}
         behind = (mine or {}).get("behindSec") if mine else doc.get("behindSec")
@@ -152,25 +153,25 @@ class Reporter:
                    "behindMax": _mx(ps.get("behindMax"), behind), "behindLast": behind if _num(behind) else ps.get("behindLast"),
                    "memMaxMB": _mx(ps.get("memMaxMB"), hb.get("memMB")), "memLastMB": hb.get("memMB") if _num(hb.get("memMB")) else ps.get("memLastMB"),
                    "lagMax": _mx(ps.get("lagMax"), doc.get("lag")), "lagLast": doc.get("lag") if _num(doc.get("lag")) else ps.get("lagLast"),
-                   "restarts": max(int(ps.get("restarts") or 0), int(live.detector.restarts or 0)),
+                   "restarts": max(int(ps.get("restarts") or 0), int(host.detector.restarts or 0)),
                    "chatRestarts": max(int(ps.get("chatRestarts") or 0), int(hb.get("chatRestarts") or 0)),
                    "chat": _worst_chat(chat, ps.get("chat"))}
-        dec = live.detector._decisions(live.detector.folder(rc, rec))["items"]
+        dec = host.detector._decisions(host.detector.folder(rc, rec))["items"]
         adopted = [x for x in dec if x.get("state") == "adopted"]
-        fails = [x for x in live.detector._load_fails() if x.get("recorder") == rc and x.get("recording") == rec]
+        fails = [x for x in host.detector._load_fails() if x.get("recorder") == rc and x.get("recording") == rec]
         detect = {"frame": sum(1 for p in peaks if p.get("state") == "frame"), "bench": sum(1 for p in peaks if p.get("state") == "bench"),
                   "dismissed": sum(1 for p in peaks if p.get("state") == "dismissed"), "adopted": sum(1 for p in peaks if p.get("state") == "adopted"),
                   "adoptedAuto": sum(1 for x in adopted if x.get("origin") == "auto"), "adoptedManual": sum(1 for x in adopted if x.get("origin") != "auto"),
                   "givenUp": len(fails), "gaps": doc.get("gaps"), "perHour": doc.get("perHour"), "counts": doc.get("counts") if isinstance(doc.get("counts"), dict) else {},
                   "ended": bool(doc.get("ended")), "measured": doc is not None and bool(doc)}
-        txv = live.livetx.items(rc, rec) or {}
+        txv = host.livetx.items(rc, rec) or {}
         secs = [v.get("sec") for v in txv.values() if isinstance(v, dict) and "error" not in v]
         tx = {"ok": sum(1 for v in txv.values() if isinstance(v, dict) and "error" not in v and (v.get("text") or "").strip()),
               "empty": sum(1 for v in txv.values() if isinstance(v, dict) and "error" not in v and not (v.get("text") or "").strip()),
               "error": sum(1 for v in txv.values() if isinstance(v, dict) and "error" in v),
               "secMedian": _median(secs), "secMax": max([s for s in secs if _num(s)] or [None]) if any(_num(s) for s in secs) else None,
               "pending": sum(1 for p in peaks if p.get("state") in ("frame", "bench", "adopted") and p.get("id") not in txv)}
-        jobs = live.exporter.snapshot(rc, rec) if os.path.isfile(os.path.join(live.store_dir, "exports.json")) else []
+        jobs = host.exporter.snapshot(rc, rec) if os.path.isfile(os.path.join(host.store_dir, "exports.json")) else []
         waits = []
         for j in jobs:
             if j.get("state") == "done":
@@ -185,12 +186,12 @@ class Reporter:
                    "failures": sum(1 for j in jobs if live_failures.failure_of(j) is not None),
                    "waitSecMedian": _median(waits), "waitSecMax": max(waits) if waits else None}
         try:
-            d = live.exporter.disk()
+            d = host.exporter.disk()
             disk = {"state": d.get("state"), "rows": [{"label": x.get("label"), "drive": x.get("drive"), "freeGB": round(float(x.get("freeBytes") or 0) / 2 ** 30, 1)}
                                                      for x in d.get("rows") or []]}
         except Exception:   # noqa: BLE001
             disk = None
-        req = live.requests.get(rc, rec)
+        req = host.requests.get(rc, rec)
         first, last = r.get("firstPdt"), r.get("lastPdt")
         ended = r.get("endedAt") if _num(r.get("endedAt")) else (last if not r.get("active") else None)
         hours = round((last - first) / 3600.0, 2) if _num(first) and _num(last) and last >= first else None
