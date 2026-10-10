@@ -76,6 +76,10 @@
 - id: `作業用\.studio-id`(持ち主の印)があればそれ -> 配信なら videoId -> 動画ファイルならパス(正規化)の sha1 の先頭 16 桁に `f-` を付けた物。`.studio-id` は残す(消さない)
 - 読み手: 入口の案件の一覧(`manage/cases` の snapshot)が各案件に `caseFile {id, createdAt}` として載せる(読むだけ。無い既存の案件は今までどおり・後付けでは書かない)。ファイルの索引は結果の束の `resultPath`
 
+## ライブの束と採用の印(RS7-2 G2b・G1b・2026-10-11。持ち主は `src/flow/livesession.py`・`src/flow/live_adopt.py`)
+- `live/bundles.json`(作業データの `app\live\` の中): 録画ごとの封筒 + 束。形 `{"<recorder の名前>/<録画 id>": {"envelope", "spec", "at"}}`。7 日を過ぎた物・200 件を超えた古い物は書くときに落とす。録画を始めた時点の値に固定する(検出・採用の待ち・配信後の解析・音量。仮決定 3-31)。束が無い録画・自分の配信は今までの読み方
+- `live/marks/<recorder>__<録画 id>.json`: スタジオなしの採用の置き場 `LocalMarks`(ヘッドレス)。マークごとの採用の印と番号。スタジオのある PC は今までどおりスタジオの data.json(`StudioMarks`)で、このファイルは作らない
+
 ## 以前の場所のデータの片付け(`setup/cleanup_legacy_data.py`・`setup\cleanup_legacy_data.bat`)
 - 新しい場所で使えることを確かめてから、ユーザーが実行する(Cowork は PC のファイルを消せない)。消すものの一覧と大きさを見せ、y で**ごみ箱へ**移す(戻せる)
 - 消すのは、確かめられたものだけ: 新しい場所に `.migrated.json` があり、写した元がこのリポジトリのフォルダで、写した一覧にあり、新しい場所にも同じ名前があるもの。

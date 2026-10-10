@@ -84,6 +84,7 @@
 | `docs/design/code-separation-inventory-2026-10-09.md` | ツール本体に混ざっている AI のテスト・測定のための物の棚卸し(2026-10-09。ツールごとの行番号つきの表。T/M/D と分け方の案。計画は plan/code-separation.md) |
 | `docs/design/role-restructure-map-2026-10-09.md` | 役割で組み直す計画の RS0: 分割が要る 33 ファイル(約 31,000 行)の関数・クラス・定数ごとの行き先と理由(読むだけの 3 体の報告)+ 横断する要相談 13 件の仮決め RS0-a〜m(2026-10-09 夜。ファイル単位は dev/layer_map.py) |
 | `docs/design/rs3-rs4-survey-2026-10-10/` | 役割で組み直す RS3・RS4 の下調べ(読むだけの報告 `survey_rs3_editor.md`・`survey_rs3_home_studio.md`・`survey_rs4.md` と、それを突き合わせた段の並びとユーザーに決めてもらうこと `plan_order.md`。2026-10-10 朝。済んだ設計・調査の記録。実際の段は `plan/role-restructure.md` と WORKLOG) |
+| `docs/design/rs7-survey-2026-10-10/` | 役割で組み直す RS7 の下調べ(`speed.md`・`code_volume.md`・`live_split.md`・`server_settings.md`・`small_items.md`)と段の並び(`plan_order.md` → `plan_order_v2.md` → 第 3 版 `plan_order_v3.md`。RS7-2 の段と RS8 へ送った物。2026-10-10〜11。済んだ設計の記録。実際の段は `plan/role-restructure.md` と WORKLOG) |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |
