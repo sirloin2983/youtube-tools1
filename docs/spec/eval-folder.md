@@ -30,20 +30,20 @@
 - 「ほかの文書へ移ったとき」の確認(`eval_settle`)は、その文書の動画だけを見るので付け替えはしない(整理のとき = 起動時・「今すぐ整理」だけ)
 
 ## 外からの取り込み(編集 0.43.0。ユーザー決定 2026-10-04「評価用にした動画を評価用データの対応したフォルダに名前を変更して移動(すべて校正済み以外は仮置きへ)」)
-- 「評価用」の印を付けた文書の動画が評価用のフォルダの**外**にあれば、評価用のフォルダ(設定の1つ目)へ移して文書を付け替える(`ed_relink._eval_intake_pass`・`_eval_intake_one`)
+- 「評価用」の印を付けた文書の動画が評価用のフォルダの**外**にあれば、評価用のフォルダ(設定の1つ目)へ移して文書を付け替える(`src/eval/drill/folders.py` の `_eval_intake_pass`・`_eval_intake_one`)
   - 全行が校正済み・全行に話者・メンバーのフォルダと同じ名前の話者がいる(仮置きから移す条件 `_eval_ready` と同じ)→ そのメンバーのフォルダの「フォルダ名_番号_済」
   - それ以外 → `評価用_仮置き` へ名前はそのまま(同じ名前があれば「名前 (2)」)。そろったら今までどおり仮置きから移る
 - いつ: ほかの文書へ移ったとき(画面の `evalSettle` = 再生中の動画を動かさないため。別のドライブへのコピーは裏のスレッド)・「今すぐ整理」・起動時の整理
-- 別のドライブ(C: → E:)は `_move`: コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せない(開いている)ときはコピーを消して元のまま(失敗は「飛ばした」)
+- 別のドライブ(C: → E:)は `ytt/fsio.move_file`: コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せない(開いている)ときはコピーを消して元のまま(失敗は「飛ばした」)
 - 途中のファイル(作業用\ の .clip.json など)も一緒に移す。同じ動画を評価用でない文書も使っていれば動かさない(理由を出す)
 - 動画の隣の `<名前>_pack` は動かさない(今までの名前の変更と同じ。パックの記録はフォルダのパスで引くため、移すとパックは見つからなくなる)
 
-## 仕組み(src/editor/serve.py の「評価用のフォルダ」の節)
+## 仕組み(src/eval/drill/folders.py。判定 `eval_dirs`・`in_eval_dir` は src/ytt/settings.py、文書の付け替え `_relink_write` は src/manage/cases/relink.py。API の配線は src/editor/serve.py)
 - 設定 `evalDirs`(作業データの settings.json。パスは個人の情報なのでリポジトリに入れない)。`api/settings/patch` だけで直す(`SETTINGS_PATCH_KEYS`。丸ごとの保存では消えない)。
   使うのは、あって・ネットワーク上でなく・作業データの中でも外側でもないフォルダだけ(`eval_dirs`)
-- 印を付ける所(`in_eval_dir` でパスを比べる。ジャンクションは `_inside` が解く):
-  - 文字起こしの開始 `validate_job`(1本・フォルダ一括・まとめて実行・依頼の受付がすべて通る)→ 用語集・文脈・置換辞書・学習した置換も使わない
-  - 保存 `sanitize_transcript`・以前の版に戻す `restore_history`・付け替え `_relink_write`(画面からの付け替えと整理の両方)
+- 印を付ける所(`ytt/settings.in_eval_dir` でパスを比べる。ジャンクションは `ytt/fsio.is_inside` が解く):
+  - 文字起こしの開始 `human/proof/doc_jobs.validate_job`(1本・フォルダ一括・まとめて実行・依頼の受付がすべて通る)→ 用語集・文脈・置換辞書・学習した置換も使わない
+  - 保存 `sanitize_transcript`・以前の版に戻す `restore_history`(どちらも `human/proof/store.py`)・付け替え `manage/cases/relink._relink_write`(画面からの付け替えと整理の両方)
   - `GET /api/transcript` の `evalLocked` で画面のチェックを固定(`syncEval`)
 - 整理 `eval_organize`(`POST /api/eval-folders/organize`・起動時は `prepare` の 5 秒後に `_evalorg_startup`。一度に1つ = `_evalorg_lock`):
   - 動画 = 評価用のフォルダの下 4 段までの動画・音声(`作業用` と `.` で始まるフォルダ、`_edit` で終わる名前は除く)。番号は動画のフォルダごと:
@@ -53,7 +53,7 @@
   - 名前を変える → 途中のファイル(`作業用\` と動画の隣の `.clip.json`・`.edit.json`・`.transcript.json`・`.cut-plan.json`・`.srt`・`_edit.mp4`)も同じ名前へ → 文書を `_relink_write`
     (控え `.bak/<id>.pre-relink.json`・履歴・`relinks` に `why: evalOrganize`)。途中で失敗したら文書・途中のファイル・動画の名前を元に戻す
   - 印の無い文書には印を付ける(`_eval_mark_docs`)
-  - `.clip.json` の中身(`media.path`・`media.name`)は書き換えない(ほかのツールのデータ)。読む側は「.clip.json と同じ名前 + 動画の拡張子」で見つける(`pipeline_io.resolve_clip_media` の ③)
+  - `.clip.json` の中身(`media.path`・`media.name`)は書き換えない(ほかのツールのデータ)。読む側は「.clip.json と同じ名前 + 動画の拡張子」で見つける(`manage/cases/pipeline_io.resolve_clip_media` の ③)
 - 結果は `GET /api/eval-folders` の `last`(メモリだけ。起動し直すと消える)と serve.log
 
 ## 限界・注意

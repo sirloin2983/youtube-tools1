@@ -1,8 +1,9 @@
 # ROADMAP(AI 向け: 文書の索引と段の進め方)
 
-> 状態(2026-10-08): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
-> 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ytt_core・ui-kit)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、自分用の Chrome 拡張は `chrome-ext/`(yt-studio-time。10-08)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt_core/layout.py`。
+> 状態(2026-10-10): **これからの順番・各線の進捗・時間の見積もりは `plan/index.html`(データ `plan/data.js`)(ユーザー向け。正本)**。この文書は「どの文書を読めばよいか」の索引と、段の進め方だけを持つ。
+> 2026-10-07 にフォルダを整理した: 動くコードは `src/`(home・studio・editor・cut2resolve・recorder・ui-kit と、役割の層 ytt = 基盤(旧 ytt_core)・pipeline・human・manage・eval)、友人用の Windows アプリは `friend-apps/`(holo-colors・request-sender)、自分用の Chrome 拡張は `chrome-ext/`(yt-studio-time。10-08)、ユーザーが読む計画は `plan/`、AI 向けの記録と仕様は `docs/`。フォルダ名の正は `src/ytt/layout.py`。
 > 09-30 の改名(app→home・clip-studio→studio・transcribe-tool→editor)の対応表は `docs/design/phase0-restructure.md`。WORKLOG・design の中の旧いパスは当時のまま。
+> 2026-10-10: 役割で組み直す計画(`plan/role-restructure.md`)は RS3・RS4(コードの段。入口・スタジオ・編集の部品を層へ移し、測る道具を `src/eval/tools/` へ)まで済み。import の向きの違反は 0。次は RS5(`app/` を薄くする・旧い名前の転送の殻を消す・文書を新しい形に)。移したファイルの行き先は `dev/layer_map.py`。
 
 ## 1. 全体像
 ```
@@ -57,7 +58,7 @@
 | `plan/proposals-2026-10.md` | 今後の機能追加・改善の提案(議論用。2026-10-08。投稿の後の閉ループ・守り・価値を足す仕上げ・検出・校正・運用・友人の 29 件 + 前提の事実と聞きたいこと。3-3・3-4 にユーザーの答えと決定) |
 | `plan/llm-postfix.md` | P18 LLM の後処理の設計(疑わしい箇所だけ・差分だけ・上限つき・ワーカーの中・既定オフで 22 本を測ってから。2026-10-08「やってみる」。実装はまだ)+ P28 の訂正と残り |
 | `plan/thumb-ideas.md` | P5 サムネの案を数パターン出す設計(完成品ではなく参照の 1 枚 + LLM のキャッチ案。2026-10-08。実装はまだ) |
-| `plan/role-restructure.md` | **役割で組み直す計画**(2026-10-09 ユーザー決定。今の工程ごとのツール分けをやめ、役割の層 ytt / pipeline(① 自動の流れ)/ human(② 人の操作)/ manage(③ データ)/ eval(④ 検証)/ app(入口と画面)に。import の向きをテストで守る・① は run(入力, 指定) の 1 本・人の直しは上書きでその段からやり直し・成果物に鍵を付けて使い回す・精度の輪は (A) コード (B) 学習データ。今のファイルの行き先の表と移し方 RS0〜RS6) |
+| `plan/role-restructure.md` | **役割で組み直す計画**(2026-10-09 ユーザー決定。今の工程ごとのツール分けをやめ、役割の層 ytt / pipeline(① 自動の流れ)/ human(② 人の操作)/ manage(③ データ)/ eval(④ 検証)/ app(入口と画面)に。import の向きをテストで守る・① は run(入力, 指定) の 1 本・人の直しは上書きでその段からやり直し・成果物に鍵を付けて使い回す・精度の輪は (A) コード (B) 学習データ。今のファイルの行き先の表と移し方 RS0〜RS6。**RS4 までのコードの段は済み(2026-10-10)・次は RS5**) |
 | `plan/code-separation.md` | (置き換え済み → role-restructure.md)ツール本体と AI のテスト・測定のための物を分ける前の案(2026-10-09。棚卸しの数字 = src の本体 約 67,000 行のうち約 7,400 行が T / M-記録 / M-画面、と「分けられない物」の節は根拠として残す) |
 | `plan/python-migration.md` | O1 = P21 Python 3.10 → 3.12 の下調べ(2026-10-08 済み。yt-dlp は winget の exe で影響なし・固定の版を変えずに移れる。移行は静かな日に 1 晩) |
 | `plan/line-a-remaining.md`・`plan/line-a-phase8-multi-clip.md` | 線 A の残り(段 8・12・15)と段 8 の細かい計画 |
@@ -82,6 +83,7 @@
 | `docs/design/code-review-simplify-2026-10-08.md` | 10-08 のコードの見直し(「もっと簡潔な処理ができないか」。13 グループ・指摘 193 件・横断の傾向 T1〜T12・直す順番 A〜F・不具合の疑い 14 件。**A〜E は 10-09 に実装済み**(F の削除はユーザー確認待ち = plan/decisions.md 3-18)) |
 | `docs/design/code-separation-inventory-2026-10-09.md` | ツール本体に混ざっている AI のテスト・測定のための物の棚卸し(2026-10-09。ツールごとの行番号つきの表。T/M/D と分け方の案。計画は plan/code-separation.md) |
 | `docs/design/role-restructure-map-2026-10-09.md` | 役割で組み直す計画の RS0: 分割が要る 33 ファイル(約 31,000 行)の関数・クラス・定数ごとの行き先と理由(読むだけの 3 体の報告)+ 横断する要相談 13 件の仮決め RS0-a〜m(2026-10-09 夜。ファイル単位は dev/layer_map.py) |
+| `docs/design/rs3-rs4-survey-2026-10-10/` | 役割で組み直す RS3・RS4 の下調べ(読むだけの報告 `survey_rs3_editor.md`・`survey_rs3_home_studio.md`・`survey_rs4.md` と、それを突き合わせた段の並びとユーザーに決めてもらうこと `plan_order.md`。2026-10-10 朝。済んだ設計・調査の記録。実際の段は `plan/role-restructure.md` と WORKLOG) |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |

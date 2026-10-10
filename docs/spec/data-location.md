@@ -21,7 +21,7 @@
 - パックの出力(cut2resolve の `<動画名>_pack`)・スタジオの書き出した動画は、これまでどおり動画の隣・指定したフォルダ(作業データではない)。
   受け渡しの途中のファイル(`.clip.json`・`.transcript.json`・`_edit.mp4` など)は、動画のフォルダの下の `作業用` フォルダ(2026-09-27。`docs/spec/pipeline.md` の 1)
 
-## 仕組み(`ytt_core/datadir.py`)
+## 仕組み(`src/ytt/datadir.py`。旧い名前 `ytt_core` は転送で動く = RS5 で消す)
 - `data_root()`: 環境変数 `YTT_DATA_DIR` → Windows は `%LOCALAPPDATA%\youtube-tools`(macOS `~/Library/Application Support/youtube-tools`、それ以外 `$XDG_DATA_HOME/youtube-tools`)。
   `YTT_DATA_DIR=inplace` は以前と同じ「各ツールのフォルダの中」(テスト・元に戻したいとき用)
 - `prepare(ツールID, 以前の場所, 写す名前)`: 各ツールが起動時に1回呼ぶ
@@ -34,27 +34,27 @@
   cut2resolve `serve._choose_work_dir()`、入口 `launch.logs_dir_for()`。どれも「テスト・入口が先に場所を決めていれば、それを使う」
 - 入口の画面(`/api/status` の `dataDir`)に置き場所を出す(隠しフォルダなので、パスをコピーしてエクスプローラーで開く)
 
-## 置き場所の求め方は ytt_core/datadir の1か所(2026-10-01 ユーザー決定)
-以前は「`STUDIO_HOME` があればそれ、無ければ `datadir.tool_dir(...)`」のような式が、入口の案件(`home/cases.py`)・`ytt_core/txindex.py`・
-各ツールの serve.py に別々に書かれていた。今は `ytt_core/datadir.py` だけが決め、他はそれを呼ぶ。
+## 置き場所の求め方は ytt/datadir の1か所(2026-10-01 ユーザー決定)
+以前は「`STUDIO_HOME` があればそれ、無ければ `datadir.tool_dir(...)`」のような式が、入口の案件(`src/manage/cases/cases.py`)・`src/manage/cases/txindex.py`・
+各ツールの serve.py に別々に書かれていた。今は `src/ytt/datadir.py` だけが決め、他はそれを呼ぶ。
 - `datadir.resolve(ツールID, repo_root, env)`(他のツールのデータを読む側)の順番:
   1. **登録された場所**(`datadir.register`)… 起動したツールが実際に決めたフォルダ。入口の中では同じプロセスの他のツールがそれを読む
      (移せずに以前の場所のまま動いた・テストがツールを一時フォルダに写して動かした、でも読む場所がずれない)。
      **`env` を渡したとき(テスト・明示の指定)は見ない**(`txindex.packs_dir` と同じ決まり)
   2. **ツールごとの環境変数** `datadir.ENV_OVERRIDE`(`studio` → `STUDIO_HOME`、`transcribe` → `TRANSCRIBE_DATA_DIR`。テスト用・以前からの指定)
-  3. `tool_dir`(`YTT_DATA_DIR` → `%LOCALAPPDATA%\youtube-tools\<ツールID>` など。`inplace` なら各ツールのフォルダの中。フォルダ名は `ytt_core/layout.py`)
+  3. `tool_dir`(`YTT_DATA_DIR` → `%LOCALAPPDATA%\youtube-tools\<ツールID>` など。`inplace` なら各ツールのフォルダの中。フォルダ名は `src/ytt/layout.py`)
 - `datadir.locate(...)` は 2 → 3 だけ(登録を見ない。自分で決める側 = 入口の `launch.app_data_dir` が使う)
 - `datadir.prepare(...)`(ツールの起動時): 2 の環境変数があれば、写さずにそこを使う(`state: "override"`)。無ければ 3 の場所へ移行する。
   **`env` を渡さない(本物の起動の)ときは、決めたフォルダを登録する**(テストが `env` を渡して呼んでも、プロセス全体の登録は変わらない)
-- 登録するところ: スタジオ `serve.prepare()`(テスト・入口が先に決めていたときも、実際に使う `common.home()` を登録)、
+- 登録するところ: スタジオ `serve.prepare()`(テスト・入口が先に決めていたときも、実際に使う `ytt/studio_env.home()`(旧 `common.home()`)を登録)、
   「編集」は `serve.set_data_dir()`(`TRANSCRIBE_DATA_DIR` のときも `datadir.prepare` のときも通る)、cut2resolve は `datadir.prepare` の中で、入口は `launch.main()`(`app`)。cut2resolve の `txindex.use_packs_dir(<作業データ>/packs)` も
   `cut2resolve` の登録になる
-- 読むところ: 入口の案件 `cases.locations()`(スタジオの data.json・案件ファイル)、`txindex.folder()`(文字起こし)・`txindex.packs_dir()`(パックを作った記録)、
-  スタジオのセリフの表示(`studio/txlink.py` → `txindex.folder`)
+- 読むところ: 入口の案件 `src/manage/cases/cases.py` の `locations()`(スタジオの data.json・案件ファイル)、`txindex.folder()`(文字起こし)・`txindex.packs_dir()`(パックを作った記録)、
+  スタジオのセリフの表示(`src/manage/cases/txlink.py` → `txindex.folder`)
 
 ## テストの決まり(重要)
 - サーバー(serve.py・入口)を動かすテストは、必ず `os.environ.setdefault("YTT_DATA_DIR", "inplace")` を先頭に置く。
-  忘れると、移し済みの PC で、テストのサーバーが**本物の作業データ**を読み書きする。`ytt_core/tests/test_ytt_core.py` の `test_every_server_test_isolates_data_dir` が検査する
+  忘れると、移し済みの PC で、テストのサーバーが**本物の作業データ**を読み書きする。`src/ytt/tests/test_ytt_core.py` の `test_every_server_test_isolates_data_dir` が検査する
 - 置き場所の通し確認: `python dev/tests/e2e_datadir.py`(本物の入口を、以前の場所にデータがある状態で起動。一時フォルダだけを使う)
 
 ## 元に戻すとき
@@ -67,9 +67,9 @@
 - 片付ける一覧は各 serve.py の `DATA_ITEMS` と同じ(`dev/tests/test_cleanup_legacy_data.py` が検査)。コード・cut2resolve の exports(パックの出力)は触らない
 
 ## 案件ファイル(`app\cases.json`。2026-09-26 v0.6.0)
-- 案件 = 切り抜きスタジオの動画1本(配信・ファイル)。入口の「案件」の画面(`/cases.html`・`home/cases.py`)が、配信ごとに
+- 案件 = 切り抜きスタジオの動画1本(配信・ファイル)。入口の「案件」の画面(`/cases.html`・`src/manage/cases/cases.py`)が、配信ごとに
   書き出した切り抜き・文字起こし(校正の進み具合)・パック(`<名前>_pack\cut-plan.json`)を並べる
-- 紐づけは**開くたびに各ツールのデータから組み立て直す**(ユーザー決定。各ツールの記録と食い違わないため)。規則は `ytt_core/txindex.py`(スタジオのセリフの表示と共通):
+- 紐づけは**開くたびに各ツールのデータから組み立て直す**(ユーザー決定。各ツールの記録と食い違わないため)。規則は `src/manage/cases/txindex.py`(スタジオのセリフの表示と共通):
   切り抜き = スタジオの書き出し済みのマーク(mp4 の絶対パス)/ 文字起こし = 文書の sourcePath が同じ、無ければ文書の clip(.clip.json)の配信・マークが同じ(新しいものを優先)
 - `cases.json` に持つのは人が付ける状態(未設定・作業中・投稿済み・見送り)・メモ(2000 文字まで)と、状態かメモを付けた案件の「最後に見えた紐づけ」だけ
   (`{"schema": "youtube-tools-cases/v1", "cases": {<動画ID>: {status, memo, statusUpdatedAt, last}}}`)。どちらも外すと案件ファイルからも消える
@@ -82,19 +82,19 @@
 
 | 何 | 期限 | 消し方 | 定数 |
 | --- | --- | --- | --- |
-| ごみ箱フォルダ(片付けで移した物・自動の切り抜きの「要らない」) | 3 日 | 入口の起動時に消す | `home/cleanup.py` の `TRASH_DAYS` |
-| 退避した速報版(`<配信のフォルダ>\作業用\速報版\`) | 入れ替えから 3 日 | 自動で消す | `home/live_cleanup.py` の `KEEP_SEC` |
-| マークの無いライブの録画 | 24 時間 | 自動で消す(`plan/line-d-live-clipping.md` の 0-9) | `home/live_cleanup.py` |
-| スタジオの書き出しの元動画 | パックから 3 日(または案件が投稿済み/見送り) | 片付けの**候補に出すだけ**(自動では移さない) | `home/cleanup.py` の `PACK_AGE_DAYS` |
-| 受け付けた依頼の動画(`受付済み\<日付>\` と作業データの写し) | 3 日より前 | 片付けの候補に出すだけ | `home/cleanup.py` の `KEEP_DAYS` |
-| あとから解析の一覧(`logs/autorun-deferred.json`) | 3 日 | 捨てる | `home/autorun.py` の `DEFER_KEEP_SEC` |
-| 起動し直しで戻すまとめて実行 | 3 日より前は戻さない | — | `home/autorun.py` の `RESTORE_MAX_AGE` |
+| ごみ箱フォルダ(片付けで移した物・自動の切り抜きの「要らない」) | 3 日 | 入口の起動時に消す | `src/manage/keep/cleanup.py` の `TRASH_DAYS` |
+| 退避した速報版(`<配信のフォルダ>\作業用\速報版\`) | 入れ替えから 3 日 | 自動で消す | `src/manage/keep/live_cleanup.py` の `KEEP_SEC` |
+| マークの無いライブの録画 | 24 時間 | 自動で消す(`plan/line-d-live-clipping.md` の 0-9) | `src/manage/keep/live_cleanup.py` |
+| スタジオの書き出しの元動画 | パックから 3 日(または案件が投稿済み/見送り) | 片付けの**候補に出すだけ**(自動では移さない) | `src/manage/keep/cleanup.py` の `PACK_AGE_DAYS` |
+| 受け付けた依頼の動画(`受付済み\<日付>\` と作業データの写し) | 3 日より前 | 片付けの候補に出すだけ | `src/manage/keep/cleanup.py` の `KEEP_DAYS` |
+| あとから解析の一覧(`logs/autorun-deferred.json`) | **0.55.0(2026-10-10)で使わなくなった**(「あとから解析」を消した)。残っていても読まない | 要らなければ消してよい | — |
+| 起動し直しで戻すまとめて実行 | 3 日より前は戻さない | — | `src/home/autorun.py` の `RESTORE_MAX_AGE` |
 | 変えていないもの | 文字起こし・案件・パック・Dropbox の `出力\`(友人が受け取る/要らないまで)・バックアップ(`D:\backup`。消したものも残る)・編集の履歴(30 世代)と字幕のキャッシュ(30 日) | | |
 
 次の候補(ユーザーに提案中。決まっていない): `D:\backup` の写しは「作業データで消したものを 7 日後に写しからも消す」/ 編集の `.hist` 30 世代 → 10 / 友人のアプリの `%TEMP%` のまとめ動画の写しを起動時に 7 日で消す
 
 ## ごみ箱フォルダ(段9 9-2。入口 0.20.0。2026-10-01 ユーザー決定)
-- ホームの「詳しく」の「片付け」で選んだ物は、すぐには消さず「ごみ箱フォルダ」の `<日付>\<種類>\` へ移す。3 日たった日付のフォルダは入口の起動時に消える(`home/cleanup.py` の `purge`。期限は上の「保存の方針と期限」の表)
+- ホームの「詳しく」の「片付け」で選んだ物は、すぐには消さず「ごみ箱フォルダ」の `<日付>\<種類>\` へ移す。3 日たった日付のフォルダは入口の起動時に消える(`src/manage/keep/cleanup.py` の `purge`。期限は上の「保存の方針と期限」の表)
 - 置き場所は**動画と同じドライブ**(別のドライブへ数 GB を写さない・C: を圧迫しない): 作業データと同じドライブ → `%LOCALAPPDATA%\youtube-tools\app\ごみ箱\`、
   スタジオの書き出し先と同じドライブ → `<書き出し先>\ごみ箱\`、それ以外 → `<ドライブ>\youtube-tools ごみ箱\`。作業データの外に作った場所は `app\trash-roots.json` に残し、起動時の purge がそこも見る
 - 元の場所は日付のフォルダの `manifest.jsonl`(1行 = {from, to, kind, bytes, at})。戻すときはエクスプローラーで移す
@@ -106,7 +106,7 @@
 ## バックアップ(2026-10-03。ホーム 0.24.0 で自動に)
 - 作業データは**リポジトリの外**にあるので、git にも GitHub にも入らない(push.bat でも守られない)
 - **2026-10-03 に Windows を入れ直したとき、作業データ(文字起こしと校正・スタジオの解析とマーク・設定)を失った**。バックアップが無かったため戻せなかった
-- **自動のバックアップ**(ユーザー決定 2026-10-03。`home/backup.py`): ホームの「作業データのバックアップ」で写す先のフォルダを決めてオンにすると、
+- **自動のバックアップ**(ユーザー決定 2026-10-03。`src/manage/keep/backup.py`): ホームの「作業データのバックアップ」で写す先のフォルダを決めてオンにすると、
   入口が動いている間、決めた間隔(既定 1 時間。2026-10-04 に 24 → 1。すでに保存した設定は変わらない)で `<写す先>\youtube-tools-data\<ツールID>\…` へ写す。この PC の設定は `D:\backup`(設定はホームの `prefs.json` の節 `backup`)
   - 写すもの: 作り直せないもの(transcripts(.hist・.bak を含む)・dataset・evals・voices・settings・スタジオの data.json・feedback.jsonl・archive・registry・config.json・
     cut2resolve の packs・入口の cases.json・prefs.json など)
@@ -121,10 +121,10 @@
     上書きするときは、その日の最初の1回だけ1つ前を `.prev` で残す・シンボリックリンクはたどらない・写す先が作業データの中のときは断る
   - `YTT_DATA_DIR=inplace`(テスト・以前の形)では写さない。写す処理は入口のプロセスの中のスレッド(起動の 90 秒後に、時間が来ていれば)
   - 鍵(スタジオの `config.json` の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有・クラウドのフォルダに置かない)
-- 写し戻し: `home/backup.py` の `restore_once`(下の「写し戻しの手順」)。**2026-10-04 に一時フォルダで「写す → 消す → 写し戻す → 中身が同じ」をテストで確かめた**(`home/tests/test_backup.py`)。本物の作業データへの写し戻しは、まだ実際には試していない
+- 写し戻し: `src/manage/keep/backup.py` の `restore_once`(下の「写し戻しの手順」)。**2026-10-04 に一時フォルダで「写す → 消す → 写し戻す → 中身が同じ」をテストで確かめた**(`src/home/tests/test_backup.py`)。本物の作業データへの写し戻しは、まだ実際には試していない
 - 残るリスク: 入口を動かしていない間は写らない・同じ PC の別のドライブなので、PC ごと失うと一緒に失う(外付けやクラウドへの写しは別に考える)・
   履歴は「1つ前」だけ(文字起こしは transcripts の `.hist` が別に履歴を持つ)
-- テスト: `python -m unittest home/tests/test_backup.py`・`python home/tests/e2e_backup_ui.py`
+- テスト: `python -m unittest src/home/tests/test_backup.py`・`python src/home/tests/e2e_backup_ui.py`
 
 ## 写し戻しの手順(2026-10-04)
 バックアップ(`<写す先>\youtube-tools-data\`)から作業データ(`%LOCALAPPDATA%\youtube-tools\`)へ、無い・違うファイルを写す。
@@ -136,9 +136,9 @@
 3. コマンド(リポジトリ直下から。`python` ではなく `py -3.10`):
 
    ```
-   py -3.10 home\backup.py --restore D:\backup
+   py -3.10 src\manage\keep\backup.py --restore D:\backup
    ```
 
-   写す個数・大きさ・「作業データのほうが新しいので上書きしない」個数を出して、`y/N` を聞く。`--yes` で聞かない。写し戻す先の既定は本物の作業データ(`ytt_core/datadir` の場所)。`--target <フォルダ>` で別の場所へ(確かめ用)
+   写す個数・大きさ・「作業データのほうが新しいので上書きしない」個数を出して、`y/N` を聞く。`--yes` で聞かない。写し戻す先の既定は本物の作業データ(`ytt/datadir` の場所)。`--target <フォルダ>` で別の場所へ(確かめ用)
 4. 入口を start.bat(またはデスクトップのショートカット)で起動する。画面で文字起こしの一覧・案件・スタジオのマークが戻っていることを確かめる
 5. 写し戻したあとの最初の自動バックアップは、写す先と作業データが同じ内容なので、ほとんど何も写さない
