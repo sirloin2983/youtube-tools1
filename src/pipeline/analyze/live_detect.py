@@ -91,11 +91,6 @@ def start_logged(cmd, log_path, cwd, flags, rotate=None):
                     raise
 
 
-def _ids_ok(rc, rec):
-    """録画元・録画の id の形(API の引数・worker.json の値をパスに使う前に見る)"""
-    return isinstance(rc, str) and isinstance(rec, str) and bool(LX.ID_RE.match(rc)) and bool(LX.REC_RE.match(rec))
-
-
 def clean_spec(an):
     """スタジオの解析の設定(settings-ui.json の analyze)→ ワーカーの spec(範囲外は丸め、読めなければ既定。仮決め (bn))"""
     an = an if isinstance(an, dict) else {}
@@ -338,7 +333,7 @@ class Detector:
 
     def forget(self, rc, rec):
         """録画を消したとき(src/manage/keep/live_cleanup.py): その録画の検出の記録(state.json・series.jsonl・peaks.json・decisions.json)も消す"""
-        if _ids_ok(rc, rec):
+        if schemas.ids_ok(rc, rec):
             shutil.rmtree(self.folder(rc, rec), ignore_errors=True)
 
     def _decisions(self, folder):
@@ -670,7 +665,7 @@ class Detector:
         hb = self.heartbeat() or {}
         recs, chats = [], []
         for x in hb.get("recordings") or []:
-            if not isinstance(x, dict) or not _ids_ok(x.get("recorder"), x.get("id")):   # worker.json の id はパスに使う前に形を見る
+            if not isinstance(x, dict) or not schemas.ids_ok(x.get("recorder"), x.get("id")):   # worker.json の id はパスに使う前に形を見る
                 continue
             doc, peaks, _p = self.view(x["recorder"], x["id"])
             ch = (doc or {}).get("chat") or "off"

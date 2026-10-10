@@ -626,7 +626,7 @@ def edit_draft(tid, rows=False):
     try:
         need = bool(rows) or not read_edit(tid)[0]
         out = resolve_export.edit_draft(doc, _workdata.SERVER_VERSION, rows=need, row_edge=_settings.load_settings().get("rowEdge"), heavy=_draft_slot)
-    except resolve_export.ResolveExportError as e:
+    except _errors.ResolveExportError as e:
         msg = str(e)
         if "動画ストリーム" in msg:
             return unavailable("no_video", "映像の無いファイル(音声だけ)は、カットとパックに使えません")
@@ -664,7 +664,7 @@ def edit_preview(obj):
         raise _errors.ApiError("no_media", "元の動画が見つかりません", 400)
     try:
         return resolve_export.edit_preview(doc, keeps, _workdata.SERVER_VERSION, wrap_arg(obj.get("wrap")))
-    except resolve_export.ResolveExportError as e:
+    except _errors.ResolveExportError as e:
         raise _errors.ApiError("preview_failed", str(e), 400)
 
 

@@ -54,6 +54,7 @@ from pipeline.pack import resolve_textplus as TP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
 from manage.cases import pipeline_io  # noqa: E402,F401  manage/cases(RS3-E5b。build_* は resolve_export へ移った)
 from pipeline.pack import resolve_export  # noqa: E402  pipeline/pack(RS3-E5b に editor から移した)
+from ytt import errors as _errors  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS_RATE = {"24": "24", "25": "25", "29.97": "30000/1001", "30": "30", "50": "50", "59.94": "60000/1001", "60": "60"}
@@ -302,7 +303,7 @@ class ResolvePackContract(unittest.TestCase):
 
     def test_nothing_to_keep_is_an_error(self):
         d = self.doc([seg(1, 1, 2, "a", cut=True), seg(2, 3, 4, " ")])
-        with self.assertRaises(resolve_export.ResolveExportError):
+        with self.assertRaises(_errors.ResolveExportError):
             resolve_export.create_package(d)
         with self.assertRaises(pack.ToolError):
             self.current(d)
@@ -477,7 +478,7 @@ class ZipSkipsContract(unittest.TestCase):
         for name, rows in (("行が無い", []), ("残す行が無い", [seg(1, 0, 2, "a", cut=True), seg(2, 3, 4, " ")])):
             with self.subTest(doc=name):
                 doc = self.doc(rows)
-                with self.assertRaises(resolve_export.ResolveExportError):
+                with self.assertRaises(_errors.ResolveExportError):
                     resolve_export.create_package(doc, "30", None, keeps=[(1.0, 3.0)])
                 # パックのタブ: 字幕なし(文字起こしは渡さない)→ Text+ でないパック。EDL(本体)ができる
                 out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"

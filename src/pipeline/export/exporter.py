@@ -17,6 +17,7 @@ import time
 import uuid
 
 from pipeline.ingest import sources as _src
+from ytt import yturl as _yturl   # URL・動画 ID の形(RS6 a-1 に pipeline/ingest/sources から)
 from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools
 from ytt import mediainfo as _media, procs as _procs, studio_env as _env   # RS3-4 にスタジオの common から(呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError
@@ -238,7 +239,7 @@ def build_section_spec(req):
     スタジオの配信・マークは見ない(登録の無い videoId でもよい)。作るのは YouTube の videoId の start〜end(アーカイブの秒)を、
     今の YouTube の書き出し(run_ytdlp: 区間取得 → 正確に切る → 30fps → 音量/ラウドネス)と同じ中身で、ちょうど path へ。"""
     vid = req.get("videoId")
-    if not isinstance(vid, str) or not _src.VID_RE.match(vid):
+    if not isinstance(vid, str) or not _yturl.VID_RE.match(vid):
         raise _bad("配信の ID が正しくありません(YouTube の ID は 11 文字)")
     s, e = schemas.num(req.get("start")), schemas.num(req.get("end"))   # 有限の数(bool・NaN・float にできない巨大な整数は None)
     if s is None or e is None:
@@ -301,7 +302,7 @@ def build_spec(store, req):
             raise ApiError("no_file", "元の動画ファイルが見つかりません(移動・削除されていないか確認してください)", 400)
         spec.update(mode="file", sourcePath=v["path"])
     else:
-        if not _env.fake() and not _src.VID_RE.match(str(v["id"])):   # yt-dlp に渡す URL は、検査済みの動画IDだけから組み立てる(data.json を手で直された場合の備え)
+        if not _env.fake() and not _yturl.VID_RE.match(str(v["id"])):   # yt-dlp に渡す URL は、検査済みの動画IDだけから組み立てる(data.json を手で直された場合の備え)
             raise ApiError("bad_request", "YouTube の配信の ID が正しくありません", 400)
         _youtube_source(spec)
     return spec
@@ -550,7 +551,7 @@ def _ytdlp_sections(job, spec, it, base):
     cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
                           "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end)),
                           "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", _src.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
-                          "--", _src.watch_url(spec["videoId"])]
+                          "--", _yturl.watch_url(spec["videoId"])]
     tail = []
     try:
         tail = _pump(job, cmd, it, dl_len, span=(0.0, 0.5))
@@ -585,7 +586,7 @@ def _ytdlp_sections(job, spec, it, base):
 
 def stream_urls(spec):
     """yt-dlp -g で映像/音声の直接URLを得る(取得だけで、ダウンロードはしない)。"""
-    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "--", _src.watch_url(spec["videoId"])]
+    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "--", _yturl.watch_url(spec["videoId"])]
     try:
         p = _procs.run_short(cmd, timeout=90)   # spawn を通す(終了の流れで止められる・窓を出さない)
     except (OSError, subprocess.SubprocessError):

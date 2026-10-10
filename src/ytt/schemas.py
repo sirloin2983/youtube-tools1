@@ -8,7 +8,7 @@ import os
 import re
 import time
 
-from . import fsio
+from . import fsio, recproto
 
 CLIP_SCHEMA = "youtube-tools-clip/v1"
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"
@@ -402,3 +402,9 @@ def key_path(path, stage):
     if stage not in KEY_STAGES:
         raise ValueError("段が正しくありません: %r" % (stage,))
     return sidecar_path(path, "." + stage + KEY_SUFFIX)
+
+
+def ids_ok(rc, rec):
+    """録画元・録画の id の形(API の引数・worker.json の値をパスに使う前に見る。文字列でなければ False)。
+    RS6 a-1(2026-10-10)に pipeline/analyze/live_detect の _ids_ok から移した(manage/keep・home も使う)"""
+    return isinstance(rc, str) and isinstance(rec, str) and bool(recproto.RECORDER_ID_RE.match(rc)) and bool(recproto.REC_ID_RE.match(rec))

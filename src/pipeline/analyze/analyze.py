@@ -20,13 +20,14 @@ import uuid
 
 from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式。隣のファイル)
 from pipeline.ingest import sources as _src  # 入力の判定(RS3-4 にスタジオの common から)
+from ytt import yturl as _yturl   # URL・動画 ID の形(RS6 a-1 に pipeline/ingest/sources から)
 from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, redact, tail_reason   # 純粋な関数(差し替えない)
 from .excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
                              chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
 
-API_BASE = _src.YT_API_BASE
+API_BASE = _yturl.YT_API_BASE
 CHAT_CACHE_KEEP = 30
 # チャットのキャッシュの合計の上限(2026-09-30。件数だけでは、実機で 30 件・2.0GB になっていた)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
 CHAT_CACHE_MAX_BYTES = 1024 ** 3
@@ -73,7 +74,7 @@ def validate_source(item):
         return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": _src.file_video_id(p)}
     if item.get("kind") == "live" or _src.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
         raise ApiError("bad_source", LIVE_NO_ANALYZE, 400)   # ライブの録画は、YouTube としても file としても解析へ進めない(yt-dlp を呼ばない)
-    vid = _src.parse_video_id(item.get("url") or item.get("videoId"))
+    vid = _yturl.parse_video_id(item.get("url") or item.get("videoId"))
     if not vid:
         raise ApiError("bad_source", "YouTube の動画URLではありません(watch?v=… / youtu.be/… / live/…)", 400)
     return {"kind": "youtube", "videoId": vid, "name": vid}
@@ -137,7 +138,7 @@ def download_audio(job, vid, wdir):
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
     cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _src.ytdlp_out(wdir, "audio.%(ext)s"),
-           "--", _src.watch_url(vid)]
+           "--", _yturl.watch_url(vid)]
 
     def on(line):
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
@@ -303,7 +304,7 @@ def download_chat(job, vid, wdir, timeout):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _src.ytdlp_out(wdir, "chat.%(ext)s"), "--", _src.watch_url(vid)]
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _src.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)
@@ -350,7 +351,7 @@ PREFETCH = {}   # 動画ID -> {"job", "done": Event, "why", "path"}
 
 def prefetch_chat(vid, timeout, on_done=None):
     """"started" / "full"(先読みの枠がいっぱい)/ "skip"(すでに取得済み・取得中、または使えない)。"""
-    if _env.fake() or not isinstance(vid, str) or not _src.VID_RE.match(vid):   # ASCII の 11 文字だけ(以前は全角の英字なども通っていた)
+    if _env.fake() or not isinstance(vid, str) or not _yturl.VID_RE.match(vid):   # ASCII の 11 文字だけ(以前は全角の英字なども通っていた)
         return "skip"
     with _pf_lock:
         if vid in PREFETCH:
@@ -564,7 +565,7 @@ def fetch_meta(job, vid):
         return None, "yt-dlp が見つかりません"
     buf = []
     try:
-        rc, err = _procs.run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _src.watch_url(vid)],
+        rc, err = _procs.run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
                               lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, slot="proc3", what="動画情報の取得")
     except ApiError as e:
         return None, e.message

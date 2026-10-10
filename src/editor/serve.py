@@ -100,6 +100,7 @@ from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdat
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品。段10。RS5-A で転送だけの殻 ed_store・ed_relink・ed_jobs・ed_speakers・ed_learn・ed_misc を消した。評価用の音声 ed_evalaudio は 0.68.0 で消した)
 from manage.cases import pipeline_io  # noqa: E402  (受け渡しの読み・保存・.runtime。RS3-E5b に editor から manage/cases へ。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
 from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て。RS3-E5b に editor から pipeline/pack へ)
+from ytt import errors as _errors  # noqa: E402
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
@@ -114,6 +115,7 @@ from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしの�
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
 from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目。RS2-9)
+from ytt import dictfmt as _dictfmt  # noqa: E402  (置換辞書の読み方 parse_replacements・wb_split・_bounded。RS6 a-1 に pipeline/transcribe/replace から ytt へ = S.parse_replacements・S._bounded はここへ届く)
 from pipeline.transcribe import replace as _txreplace  # noqa: E402  (置換辞書の読み方と当て方。RS3-E5c に ed_learn から移した。ed_learn は転送だけの殻)
 from human.proof import learn as _learn  # noqa: E402  (人が直した内容からの学習・提案・採用と却下の記録・名簿。RS3-E5c に ed_learn から)
 from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測定・noSub と重なりの数え方・評価用の基準の記録。RS3-E5c に ed_learn から)
@@ -145,6 +147,7 @@ _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 _ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
+_ED_MODULES += (_dictfmt,)   # 置換辞書の読み方(RS6 a-1。ytt へ移した。S.parse_replacements・S.wb_split・S._bounded の差し替えが届く)
 # ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a。ed_store のあった所。殻の ed_store は ed_jobs の殻と名前が重なるので並べない)
 # ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理(RS3-E7。ed_relink のあった所)・_handoff_io・_batch = 受け渡し・フォルダの一括(RS3-E7。ed_misc のあった所。進行度 _progress は 0.69.0 で消した)。殻の ed_relink・ed_misc も並べない
 
@@ -553,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_zip(zp, "resolve-package.zip", {"X-Resolve-Cuts": str(info["cuts"]), "X-Resolve-Captions": str(info["captions"]),
                                                         "X-Resolve-Handles": "1" if info["media"]["hasEditHandles"] else "0",
                                                         "Access-Control-Expose-Headers": "X-Resolve-Cuts, X-Resolve-Captions, X-Resolve-Handles"})
-        except resolve_export.ResolveExportError as e:
+        except _errors.ResolveExportError as e:
             raise ed_state.ApiError("resolve_export", str(e), 400)
         except (BrokenPipeError, ConnectionError):
             pass

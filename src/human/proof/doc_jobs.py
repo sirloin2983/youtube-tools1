@@ -32,6 +32,7 @@ from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し�
 from pipeline.transcribe import fill  # noqa: E402   認識のあとの後処理 A・B・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0。RS2-9 に ed_fill から移した)
 from pipeline.transcribe import llm  # noqa: E402   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0。RS2-9 に ed_llm から移した)
 from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c に ed_learn から。呼ぶたびに replace.名前 で読む)
+from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements(RS6 a-1 に replace から)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
@@ -243,7 +244,7 @@ def dict_pairs(spec):
     設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ"""
     if not spec.get("autoDict"):
         return []
-    pairs = replace.parse_replacements(_settings.load_settings().get("replacements"))
+    pairs = _dictfmt.parse_replacements(_settings.load_settings().get("replacements"))
     try:
         pairs += _roster.variant_pairs(_roster.load(_roster.ROSTER))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない

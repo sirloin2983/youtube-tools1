@@ -87,7 +87,7 @@ def relink_check(obj):
         try:
             dr = resolve_export.edit_draft(dict(doc, sourcePath=p), _workdata.SERVER_VERSION, rows=False)
             fps, dur = dr["fps"], dr["durationSec"]
-        except resolve_export.ResolveExportError as e:
+        except _errors.ResolveExportError as e:
             warnings.append("fps を調べられませんでした(%s)。カットのタブで使えない可能性があります" % str(e)[:200])
     else:
         warnings.append("映像の無いファイル(音声だけ)です。文字の直しはできますが、カットとパックには使えません")

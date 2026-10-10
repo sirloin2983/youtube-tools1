@@ -18,3 +18,8 @@ class ApiError(Exception):
 
 class Cancelled(Exception):
     pass
+
+
+class ResolveExportError(ValueError):
+    """Resolve パックの書き出し(pipeline/pack/resolve_export)の失敗。メッセージは画面に出せる文。
+    RS6 a-1(2026-10-10)に resolve_export から移した(③ 人・④ データが ① を読まずに捕まえられるように)"""

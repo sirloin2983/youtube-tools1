@@ -29,8 +29,7 @@ from manage.cases import txlink  # noqa: E402
 from pipeline import batch as batch_mod  # noqa: E402
 from pipeline.analyze import analyze  # noqa: E402
 from pipeline.export import exporter, manifest as _manifest  # noqa: E402
-from pipeline.ingest import sources as _src  # noqa: E402
-from pipeline.ingest.sources import MEDIA_EXT, VID_RE  # noqa: E402  差し替えない定数
+from ytt import yturl as _yturl  # noqa: E402
 from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
 from ytt import version as _version  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
@@ -74,7 +73,7 @@ def fetch_title(vid):
     """oEmbed(公開エンドポイント・キー不要)でタイトルだけ取得する。失敗時は空文字。接続先は固定で、IDは検証済み。"""
     if _env.fake():
         return "疑似タイトル(%s)" % vid
-    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(_src.watch_url(vid), safe="")
+    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(_yturl.watch_url(vid), safe="")
     try:
         with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=8) as r:
             return str(json.loads(r.read(200000).decode("utf-8", "replace")).get("title", ""))[:120]
@@ -214,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _title(v):
-        if not VID_RE.match(v):
+        if not _yturl.VID_RE.match(v):
             raise ApiError("bad_request", "配信の ID が正しくありません", 400)
         return {"title": fetch_title(v)}
 
@@ -223,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
         path = STORE.media_path(vid)
         real = os.path.realpath(path) if path else ""
         ext = os.path.splitext(real)[1].lower()
-        if not real or ext not in MEDIA_EXT or not os.path.isfile(real):
+        if not real or ext not in _yturl.MEDIA_EXT or not os.path.isfile(real):
             return self._send(404, b"not found")
         httpsec.send_file(self, real, MEDIA_TYPES.get(ext, "application/octet-stream"))   # Range・416・HEAD・送信中の切断は ytt の 1 か所
 

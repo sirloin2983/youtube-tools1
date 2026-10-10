@@ -31,7 +31,6 @@ import urllib.parse
 
 from ytt import schemas
 from pipeline import live_failures   # 残っている録画の知らせの文。D-14
-from pipeline.analyze import live_detect   # 録画元・録画の id の形の検査 _ids_ok
 from pipeline.export import live_export as LX
 from pipeline.ingest import live_archive as LA
 
@@ -88,7 +87,7 @@ class Cleaner:
 
     def check(self, rc_id, rec):
         """1本だけ確かめる(本番版への作り直しが1本終わったとき。src/pipeline/ingest/live_archive.py の Archiver の after から)。-> 消したら True"""
-        if not self.enabled() or not live_detect._ids_ok(rc_id, rec):   # 録画元・録画の id の形(文字列でなければ False)
+        if not self.enabled() or not schemas.ids_ok(rc_id, rec):   # 録画元・録画の id の形(文字列でなければ False)
             return False
         rc = self.live.find(rc_id)
         if rc is None:

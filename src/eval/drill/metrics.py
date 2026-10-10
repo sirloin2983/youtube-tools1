@@ -18,7 +18,7 @@ import time
 import unicodedata
 
 from ytt import errors as _errors, fsio as _fsio, settings as _settings, workdata as _workdata  # noqa: E402
-from pipeline.transcribe import replace  # noqa: E402   置換辞書の「正」を用語に数える(parse_replacements)
+from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements・wb_split・_bounded(RS6 a-1 に pipeline/transcribe/replace から)
 from pipeline.transcribe import roster as _roster  # noqa: E402   用語集の区切り split_terms(RS2-8a に ed_jobs から)
 from human.proof import learn  # noqa: E402   機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm。呼ぶたびに learn.名前 で読む)
 from human.proof import store  # noqa: E402   文書の一覧と読み(_tids・read_transcript。RS3-E5a に editor/ed_store から。呼ぶたびに store.名前 で読む)
@@ -152,7 +152,7 @@ def metric_terms(settings=None):
     """「用語が正しく出たか」を数えるための用語(用語集 + 置換辞書の「正」)。正規化済み・2文字以上。"""
     st = settings if settings is not None else _settings.load_settings()
     raw = _roster.split_terms(st.get("glossary"))
-    raw += [r for _w, r in replace.parse_replacements(st.get("replacements")) if r]
+    raw += [r for _w, r in _dictfmt.parse_replacements(st.get("replacements")) if r]
     out = []
     for t in raw:
         n = norm_cer(t)
@@ -318,7 +318,7 @@ def record_baseline(label):
     st = _settings.load_settings()
     rec = {"at": int(time.time() * 1000), "label": str(label or "")[:80], "docs": m["docs"], "cer": o["cer"], "refChars": o["refChars"], "sub": o["sub"], "del": o["del"], "ins": o["ins"],
            "configs": [{"config": c["config"], "cer": c["cer"], "refChars": c["refChars"]} for c in m["byConfig"]][:6],
-           "dict": len(replace.parse_replacements(st.get("replacements"))), "glossaryChars": len(str(st.get("glossary") or ""))}
+           "dict": len(_dictfmt.parse_replacements(st.get("replacements"))), "glossaryChars": len(str(st.get("glossary") or ""))}
     with _base_lock:
         items = read_baselines()
         items.append(rec)

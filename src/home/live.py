@@ -590,7 +590,7 @@ class Live:
     # --- P3: スタジオから ---
     def _ids(self, rc_id, rec):
         """録画元と録画の id を確かめる -> 録画元(合言葉つき)。だめなら LiveError"""
-        if not live_detect._ids_ok(rc_id, rec):
+        if not schemas.ids_ok(rc_id, rec):
             raise live_export.LiveError("録画元か録画の指定が正しくありません")
         rc = self.find(rc_id)
         if rc is None:

@@ -18,6 +18,7 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層)。RS3-E5b から resolve_export は pipeline/pack
 
 from pipeline.pack import resolve_export  # noqa: E402
+from ytt import errors as _errors  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
@@ -132,7 +133,7 @@ class NoSubTests(unittest.TestCase):
             d = self.doc()
             d["sourcePath"] = src
             with mock.patch.object(resolve_export, "_load_pack", lambda: (FakePack, FakeTp)):
-                with self.assertRaises(resolve_export.ResolveExportError):
+                with self.assertRaises(_errors.ResolveExportError):
                     resolve_export.create_package(d, speaker_colors={"ぺこら": "#7EC2FE", "みこ": "#FF8FDF"})
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -238,7 +239,7 @@ class PackageTests(unittest.TestCase):
         for args, msg in (((self.doc(), "29.97"), "fps"), ((self.doc(), "30", "12x"), "解像度"),
                           ((self.doc(source=os.path.join(self.tmp, "none.mp4")),), "元の動画"),
                           ((self.doc(segments=[{"id": "a", "start": 1, "end": 2, "text": "x", "cutState": "cut"}]),), "残す行")):
-            with self.subTest(msg=msg), self.assertRaises(resolve_export.ResolveExportError) as cm:
+            with self.subTest(msg=msg), self.assertRaises(_errors.ResolveExportError) as cm:
                 resolve_export.create_package(*args)
             self.assertIn(msg, str(cm.exception))
         after = {n for n in os.listdir(tmp_root) if n.startswith("resolve-package-")}

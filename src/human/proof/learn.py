@@ -17,7 +17,7 @@ import re
 import threading
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, settings as _settings, workdata as _workdata  # noqa: E402
-from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c。呼ぶたびに replace.名前 で読む)
+from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements・wb_split・_bounded(RS6 a-1 に pipeline/transcribe/replace から)
 from pipeline.transcribe import roster as _roster  # noqa: E402   (名簿のファイルの場所 ROSTER の持ち主。RS3-0A に ed_state から)
 from ytt import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。D1-b)・YouTube の字幕の候補(suggest_for_doc の yt。案 A1)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
@@ -191,7 +191,7 @@ def _all_infos():
 
 def learned_candidates(min_count=1):
     settings = _settings.load_settings()
-    have = {(replace.wb_split(w)[0], r) for w, r in replace.parse_replacements(settings.get("replacements"))}
+    have = {(_dictfmt.wb_split(w)[0], r) for w, r in _dictfmt.parse_replacements(settings.get("replacements"))}
     ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
     counts, docs, ctxs, used, lines = {}, {}, {}, 0, 0
     for tid, info in _all_infos():
@@ -271,7 +271,7 @@ def _spans(text, w, r):
             k = text.find(r, k + 1)
     out, k = [], text.find(w)
     while k >= 0:
-        if not any(a <= k and k + len(w) <= b for a, b in rs) and replace._bounded(text, k, w):   # 単語の途中には当てない(トル→ポル が「トルコ」に当たらない)
+        if not any(a <= k and k + len(w) <= b for a, b in rs) and _dictfmt._bounded(text, k, w):   # 単語の途中には当てない(トル→ポル が「トルコ」に当たらない)
             out.append(k)
         k = text.find(w, k + 1)
     return out
@@ -280,7 +280,7 @@ def _spans(text, w, r):
 def learn_rules(settings=None):
     """全文字起こしの修正から、{(誤,正): {pos, docs, pctx, neg(そのまま残した例の前後), ctx}} を作る。settings = 読んである設定(無ければ読む)"""
     settings = settings if settings is not None else _settings.load_settings()
-    have = {(replace.wb_split(w)[0], r) for w, r in replace.parse_replacements(settings.get("replacements"))}
+    have = {(_dictfmt.wb_split(w)[0], r) for w, r in _dictfmt.parse_replacements(settings.get("replacements"))}
     ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
     infos = _all_infos()
     key = (tuple((t, _info_cache[t][0]) for t, _ in infos), tuple(sorted(have)), tuple(sorted(ignore)))

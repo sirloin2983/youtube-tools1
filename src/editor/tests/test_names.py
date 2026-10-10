@@ -566,6 +566,9 @@ class TestEdLearnNames(unittest.TestCase):
         for m in (replace, learn, metrics):
             self.assertIn(m, S._ED_MODULES, m.__name__)
         self.assertIs(S.apply_replacements, replace.apply_replacements)
+        from ytt import dictfmt
+        self.assertIn(dictfmt, S._ED_MODULES)
+        self.assertIs(S.parse_replacements, dictfmt.parse_replacements)   # RS6 a-1: 読み方は ytt へ
         self.assertIs(S.learn_rules, learn.learn_rules)
         self.assertIs(S.doc_metrics, metrics.doc_metrics)
         self.assertIs(S._groups, learn._groups)   # src/eval/tools/eval_asr・eval_alt が S._groups・S.split_nosub で読む
@@ -582,7 +585,7 @@ class TestEdLearnNames(unittest.TestCase):
         self.assertNotIn("MAX_LEV_CELLS", vars(S))
         from human.proof import learn
         with mock.patch.object(S, "_bounded", lambda text, k, w: False):
-            self.assertEqual(learn._spans("トル様", "トル", "ポル"), [])   # learn は呼ぶたびに replace._bounded を読む
+            self.assertEqual(learn._spans("トル様", "トル", "ポル"), [])   # learn は呼ぶたびに dictfmt._bounded を読む
         self.assertEqual(learn._spans("トル様", "トル", "ポル"), [0])
 
 

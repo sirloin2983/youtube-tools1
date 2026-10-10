@@ -24,14 +24,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from ytt import runtime as _runtime, schemas as _schemas
+from ytt import errors as _errors, runtime as _runtime, schemas as _schemas
 
 TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/pipeline_io も同じ値を持つ)
 _num = _schemas.num
-
-
-class ResolveExportError(ValueError):
-    pass
 
 
 def _safe_name(value: str, fallback: str = "resolve-package") -> str:
@@ -195,7 +191,7 @@ def _load_pack():
     try:
         from . import pack, resolve_textplus
     except ImportError as e:
-        raise ResolveExportError("パックの部品(pipeline.pack)を読み込めません: %s" % e)
+        raise _errors.ResolveExportError("パックの部品(pipeline.pack)を読み込めません: %s" % e)
     return pack, resolve_textplus
 
 
@@ -206,7 +202,7 @@ def _source_and_pack(doc):
     """文書の動画のパスと cut2resolve の部品 -> (動画, pack, resolve_textplus)。動画が無ければ ResolveExportError"""
     source = str(doc.get("sourcePath") or "")
     if not source or not os.path.isfile(source):
-        raise ResolveExportError("元の動画が見つかりません")
+        raise _errors.ResolveExportError("元の動画が見つかりません")
     return (source,) + tuple(_load_pack())
 
 
@@ -251,7 +247,7 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
     try:
         meta = cache.probe(Path(source))
     except pack.ToolError as e:
-        raise ResolveExportError(str(e))
+        raise _errors.ResolveExportError(str(e))
     fps, total = meta["fps"], meta["total"]
     dur = round(total * fps[1] / fps[0], 6)
     out = {"fps": [int(fps[0]), int(fps[1])], "durationSec": dur, "keepsSec": [[0.0, dur]], "base": "all", "warnings": []}
@@ -304,7 +300,7 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
         try:
             plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps), cache=cache)
         except pack.ToolError as e:
-            raise ResolveExportError(str(e))
+            raise _errors.ResolveExportError(str(e))
         sm = pack.summary(plan)
         subs = sm["subtitles"] or {}
         # 字幕の見本(最初の2つ)。改行は Text+ と同じ規則(resolve_textplus.wrap_caption。ここに規則を書かない)
@@ -355,7 +351,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
     try:
         target = tp.parse_target(fps_text, size_text)
     except ValueError as e:
-        raise ResolveExportError(str(e))
+        raise _errors.ResolveExportError(str(e))
     tmp_dir = tempfile.mkdtemp(prefix="resolve-package-")
     try:
         tpath = _write_transcript(doc, version, tmp_dir)
@@ -367,7 +363,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
             res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, backup=backup, plan_file=False, textplus_wrap=wrap,
                                   readme_file=False, textplus_color=color, speaker_colors=speaker_colors or None)
         except pack.ToolError as e:
-            raise ResolveExportError(str(e))
+            raise _errors.ResolveExportError(str(e))
         zip_path = os.path.join(tmp_dir, _safe_name(doc.get("title")) + "-resolve.zip")
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as z:
             for kind, p in res["files"]:   # zip を展開するとフォルダが1つできる(Text+ の登録は、そのフォルダの場所を覚える)

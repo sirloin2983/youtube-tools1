@@ -20,11 +20,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from pipeline.ingest import sources as _src  # noqa: E402  動画 ID の形・動画のページ(RS3-4 にスタジオの common から)
+from ytt import yturl as _yturl  # noqa: E402  動画 ID の形・動画のページ(RS3-4 にスタジオの common から)
 from ytt import apikey as _key, fsio as _fsio, studio_env as _env  # noqa: E402  (src は serve とスタジオの common が sys.path に足してある)
 from ytt.errors import ApiError, Cancelled  # noqa: E402
 
-API_BASE = _src.YT_API_BASE
+API_BASE = _yturl.YT_API_BASE
 NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
 CHID_RE = re.compile(r"^UC[\w-]{22}\Z", re.ASCII)
 HANDLE_RE = re.compile(r"^@[\w.\-]{3,60}\Z")
@@ -600,7 +600,7 @@ def run_search(job, spec):
             out.append({"id": a["id"], "name": a["name"], "channels": sum(1 for c in a["channels"] if c["status"] == "ok"), "unresolved": sum(1 for c in a["channels"] if c["status"] != "ok"),
                         "scanned": scanned[a["id"]], "matched": len(rows),
                         "items": [{"id": r["id"], "title": r["title"], "channel": r["channel"], "channelId": r["channelId"], "views": r["views"], "likes": r["likes"], "comments": r["comments"],
-                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": _src.watch_url(r["id"]), "thumb": r["thumb"]}
+                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": _yturl.watch_url(r["id"]), "thumb": r["thumb"]}
                                   for r in rows[:spec["top"]]]})
         job["result"] = {"agencies": out, "warnings": warns[:30], "unresolved": unresolved, "quota": _quota - q0, "videos": len(vids)}
         job["state"], job["phase"], job["progress"] = "done", "完了", 1.0
@@ -678,7 +678,7 @@ def _ms(dt):
 def live_row(it, now):
     """videos.list の1件 → 一覧の1行(配信中・24 時間以内の予定でなければ None)。外から来る文字は長さを切る"""
     vid = str(it.get("id") or "")
-    if not _src.VID_RE.match(vid):
+    if not _yturl.VID_RE.match(vid):
         return None
     sn, ld = it.get("snippet") or {}, it.get("liveStreamingDetails") or {}
     kind = sn.get("liveBroadcastContent")
@@ -708,7 +708,7 @@ def live_row(it, now):
         blocked = "age"
     return {"id": vid, "title": title, "channel": str(sn.get("channelTitle") or "")[:LIVE_NAME_MAX], "channelId": cid if CHID_RE.match(cid) else "",
             "state": "live" if kind == "live" else "upcoming", "start": _ms(start), "viewers": viewers, "thumb": thumb,
-            "url": _src.watch_url(vid), "blocked": blocked}
+            "url": _yturl.watch_url(vid), "blocked": blocked}
 
 
 def _live_fetch(ids):
