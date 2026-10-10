@@ -154,20 +154,39 @@ class TestEdSpeakersNames(unittest.TestCase):
 
     def test_old_ed_speakers_names_still_resolve(self):
         names = _old_names("data_ed_speakers_names.txt")
-        self.assertEqual(len(names), 125)
+        self.assertEqual(len(names), 124)   # RS6 a-4 で _autodiar_record を flow/diar の record_context に名前を変えて外した(125 → 124)
         missing = [n for n in names if not hasattr(S, n)]
         self.assertEqual(missing, [])
 
     def test_moved_owners(self):
         from eval.fake import fake_asr
+        from flow import diar
         from human.proof import speakers
         from pipeline.transcribe import diarize
-        for m in (diarize, speakers):
+        for m in (diarize, speakers, diar):
             self.assertIn(m, S._ED_MODULES, m.__name__)
         self.assertIs(S.diarize_fake, fake_asr.diarize_fake)
         self.assertIs(S.embed_fake, fake_asr.embed_fake)
         self.assertIs(S.run_diarize, speakers.run_diarize)
         self.assertIs(S.assign_speakers, diarize.assign_speakers)
+        for n in ("load_voices", "save_voices", "voices_dir", "voices_path", "_voices_lock", "_record_diar"):   # RS6 a-4: 覚えた声の置き場所と判別の記録を書くのは ②
+            self.assertIs(getattr(S, n), getattr(diar, n), n)
+            self.assertNotIn(n, vars(speakers), n)
+            self.assertNotIn(n, vars(diarize), n)
+        saved = diar.VOICES_DIR
+        try:
+            S.VOICES_DIR = os.path.join("v", "voices")   # テストの S.VOICES_DIR = … は ② に届く
+            self.assertEqual(diar.voices_dir(), os.path.join("v", "voices"))
+        finally:
+            S.VOICES_DIR = saved
+
+    def test_speakers_reads_no_pipeline(self):
+        """③ の speakers は ① を直に読まない(RS6 a-4。② flow/diar の動詞と ytt だけ)"""
+        import types
+        from human.proof import speakers
+        mods = {v.__name__ for v in vars(speakers).values() if isinstance(v, types.ModuleType)}
+        self.assertEqual(sorted(m for m in mods if m.startswith("pipeline")), [])
+        self.assertIn("flow.diar", mods)
 
     def test_patches_reach_owner(self):
         """S の差し替えは持ち主に届き、speakers は呼ぶたびに diarize.名前 を読む(テストの patch.object(S, "has_sherpa") などの形)"""

@@ -1,4 +1,5 @@
 # RS2-9(2026-10-10)の前に ed_speakers が持っていた名前(標準のモジュールと編集の兄弟の部品 ed_*・pipeline と ytt の部品を除く)。中身を pipeline/transcribe/diarize と human/proof/speakers へ分けても serve と ed_speakers の名前で読めることを test_names.py が確かめる
+# RS6 a-4(2026-10-10): _autodiar_record は ② flow/diar の record_context に名前を変えて移したので外した(③ から ② の私有名を読まないため)
 AUTODIAR_BY
 DEFAULT_SPK_NAME
 DIAR_CLUSTER_THRESHOLD
@@ -45,7 +46,6 @@ _GH
 _VOICE_EMPTY
 _apply_diarization
 _assign
-_autodiar_record
 _cos
 _diar_edit
 _diar_engine
