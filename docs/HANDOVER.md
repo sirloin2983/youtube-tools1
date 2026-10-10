@@ -1,4 +1,4 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-11。役割で組み直す計画 = RS7-1 束と口 は実装済み(本物の確認待ち)。次は R1 の確認と RS7-2)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-11。役割で組み直す計画 = RS7-1 束と口 は済み(本物の確認も済み)。次は RS7-2)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`
 
@@ -14,7 +14,7 @@
 1. ~~R1(RS7-1 の本物の確認)~~ **済み 10-11 1 時台**: ユーザーのまとめて実行 1 本(スマート アプリ コントロールが whisper-cli.exe を止めた → ユーザーがオフにして通った)・AI の CLI の submit と、文字起こしの最中の restart-self で新しい入口が続きから流した。WORKLOG の末尾
 2. **RS7-2 玄関とヘッドレス**(plan_order_v2.md の 2 節): 波 4 = G0 親の口(`flow/livehost.py` の Protocol)∥ G1a F-5 の規則を ① へ ∥ 1b B-1(case.json)∥ serverkit(余り)→ 波 5 = G1b スタジオなしの採用(StudioMarks / LocalMarks)∥ G5 `app/server.py --headless` → 波 6 = G2 ライブ係 `flow/livesession.py`(ライブの依頼も封筒 + 束・`GET /api/settings` をやめる)→ G3(余り)→ Z2(e2e 一式・文書・版 0.57.0・R2 = ライブ 1 本・配信後の作り直し 1 本・headless に CLI から submit 1 本)
 3. そのあと RS8(`plan/rs8-cases-ui.md`: 画面の形を紙で → B-2 → B-3 → O2 → URL も CLI → 新しい画面)・F1 の送るアプリの側(`plan/f1-friend-pc.md`。C#。RS7-2 のあと)
-- 後へ回したもの: S3 の一時の形(封筒の `legacy{mode, onFail, streamer}`・`run.pinned`・待ちの記録に欄の鍵も残す)は RS7-2 以降で封筒 + 束だけに / 配信者を `hints.people` の先頭にする決まりは submit で封筒に配信者が無いときだけ / スタジオの test_api の test_origin_on_writes は組の中だけで時々落ちる / AGENTS.md の analytics のテストの書き方(ImportError)/ O2 の行き先(機械の結果 + 人の層から組み立てる)に逆らわない(`plan/rs8-cases-ui.md`)
+- 後へ回したもの: CLI の結果でパックを鍵で飛ばすと packs が空(前のパックは残っている)/ S3 の一時の形(封筒の `legacy{mode, onFail, streamer}`・`run.pinned`・待ちの記録に欄の鍵も残す)は RS7-2 以降で封筒 + 束だけに / 配信者を `hints.people` の先頭にする決まりは submit で封筒に配信者が無いときだけ / スタジオの test_api の test_origin_on_writes は組の中だけで時々落ちる / AGENTS.md の analytics のテストの書き方(ImportError)/ O2 の行き先(機械の結果 + 人の層から組み立てる)に逆らわない(`plan/rs8-cases-ui.md`)
 
 ## 注意(引き継ぐこと)
 - **友人の前提**: 配る友人は 1 人・RTX 3060。友人の PC では送るアプリ(C#)が ② を画面なし・③ なしの子プロセスとして起こす(常駐しない)。② の口は 1 つ(ユーザーの入口・友人のアプリ・CLI)。D-13 は友人の PC に持たせない・届ける段も持たない(`plan/f1-friend-pc.md`)
@@ -29,4 +29,4 @@
 - 入口が起動中の間はコードを変えても古いまま動く。**配信中に入口を落とさない**
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画は RS7-1(束と口)まで実装済み(decisions 3-30・docs/design/rs7-survey-2026-10-10/plan_order_v2.md)。HANDOVER の『次』の 1(R1 の確認。ユーザーが起動し直したあと AI が CLI と待ちの続きを確かめる)→ 2 の RS7-2(玄関とヘッドレス)を、Fable と段の並びを見直し → 実装の順で。友人の PC の形は plan/f1-friend-pc.md・RS8 は plan/rs8-cases-ui.md。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。段ごとは unittest・lint・層だけ・e2e 一式と文書は RS の終わりに 1 回。重要な判断は Fable と相談。」
+「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画は RS7-1(束と口)まで済み(本物の確認 R1 も済み。decisions 3-30・docs/design/rs7-survey-2026-10-10/plan_order_v2.md)。HANDOVER の『次』の 2 の RS7-2(玄関とヘッドレス)を、Fable と段の並びの見直し → 一時の形でない物だけユーザーに確認 → 実装の順で。小さな直しとして、CLI の結果の JSON でパックを鍵で飛ばしたときに packs が空になる所も RS7-2 で。友人の PC の形は plan/f1-friend-pc.md・RS8 は plan/rs8-cases-ui.md。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。段ごとは unittest・lint・層だけ・e2e 一式と文書は RS の終わりに 1 回。重要な判断は Fable と相談。」
