@@ -94,14 +94,14 @@ DEFER_READ_MAX = 1024 * 1024
 DEFER_IMPORT_DAYS = 30                # 以前の依頼の取り込み(起動のあと1回): 終わってからこの日数以内
 DEFER_IMPORT_MAX = 20                  # 同じく、新しい順にこの本数まで
 # 友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05 ユーザーの要望。仮の決定 = まとめ役)。
-# 測る道具 dev/eval_marks.py --json の結果(スタジオの作業データ evals\marks\<日時>.json。入口の夜の自動測定が流す)の clipLength を読むだけ
+# 測る道具 src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ evals\marks\<日時>.json。入口の夜の自動測定が流す)の clipLength を読むだけ
 FRIEND_LENGTH_ENV = "YTT_FRIEND_LENGTH"   # off = 使わない(ホームの設定 autorun.friendLength が false でも使わない)
 FRIEND_LENGTH_MIN_SAMPLES = 20         # 友人の区間の見本の数(外れ値を除く)
 FRIEND_LENGTH_MIN_VIDEOS = 5           # その配信の数
 FRIEND_PRE_MIN_SAMPLES = 10            # 山の位置(preRatio)を使う見本の数
 FRIEND_LENGTH_MAX_AGE = 30 * 86400     # 結果のファイルの古さ(ファイル名の日時)
 FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(src/studio/analyze.py の validate_settings)
-EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/accuracy.py の RESULT_NAME_RE と同じ形
+EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/eval/drill/accuracy.py の RESULT_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
 # 入口の起動し直しで戻す(線 D の M5。2026-10-07)
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。runlog.RUNS_LOG の隣)
@@ -1028,7 +1028,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
             return False
 
     def _friend_length(self):
-        """友人の区間の長さの実績(dev/eval_marks.py --json の結果のうち、いちばん新しいもの)-> 解析の設定に重ねる {"length", "preRatio"?} と出どころ。
+        """友人の区間の長さの実績(src/eval/tools/eval_marks.py --json の結果のうち、いちばん新しいもの)-> 解析の設定に重ねる {"length", "preRatio"?} と出どころ。
         使わない(止めてある・ファイルが無い・古い・壊れている・見本が足りない)ときは None(ログに1行。依頼は今までどおりスタジオの設定で進む)"""
         if self._env_off(FRIEND_LENGTH_ENV):
             return None

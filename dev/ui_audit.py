@@ -68,7 +68,7 @@ SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "in
            "editor": ["index.html", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 # ホームの画面に文が出る .py(launch.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
-HOME_PY = ["autorun.py", "manage/cases/cases.py", "human/friend/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "accuracy.py", "manage/ops/health.py", "manage/keep/cleanup.py", "human/friend/deliver.py", "human/friend/intake.py", "manage/ops/restart.py"]
+HOME_PY = ["autorun.py", "manage/cases/cases.py", "human/friend/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "human/friend/deliver.py", "human/friend/intake.py", "manage/ops/restart.py"]
 # 用語集(docs/spec/ui-guidelines.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
 BANNED_TERMS = ["ストリーム", "トランスクリプト", "セグメント", "カットリスト", "編集点", "削除区間", "自動カット", "パッケージ", "再生成", "ポータル", "一括実行", "操作キー", "ショートカット",
                 "文字起こしツール", "Resolve パック", "Resolveパック", "Resolve のパック", "クリップ", "プリセット", "入口"]

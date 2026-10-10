@@ -7,7 +7,7 @@
   intake   … 友人からの依頼の受付(src/home/intake.py。docs/spec/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
              配信の長さと動画の大きさの上限・見る間隔・① 全自動のパックをまとめて届ける本数 deliverBatch(src/home/autorun.py。1 = 1 本ずつ)
   backup   … 作業データのバックアップ(src/manage/keep/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
-  accuracy … 精度の自動測定(src/home/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
+  accuracy … 精度の自動測定(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
@@ -150,7 +150,7 @@ def _clean_backup(v, cur):
 
 
 def _clean_accuracy(v, cur):
-    """精度の自動測定の設定(src/home/accuracy.py)。夜の窓は時(開始 0〜23・終わり 1〜24。0 → 24 は一日中)。開始と終わりが同じだと窓が無いので断る(日をまたぐ 22 → 6 は可)"""
+    """精度の自動測定の設定(src/eval/drill/accuracy.py)。夜の窓は時(開始 0〜23・終わり 1〜24。0 → 24 は一日中)。開始と終わりが同じだと窓が無いので断る(日をまたぐ 22 → 6 は可)"""
     out = dict(cur)
     if "enabled" in v:
         out["enabled"] = v["enabled"] is True

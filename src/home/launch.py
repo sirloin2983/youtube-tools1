@@ -22,7 +22,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
-  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/home/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
+  GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
@@ -81,7 +81,7 @@ import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバー�
 import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
-import accuracy as accuracy_mod  # noqa: E402  (src/home/accuracy.py: 精度の自動測定 = dev/eval_*.py を手が空いた夜に子プロセスで)
+from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
 from human.friend import deliver as deliver_mod  # noqa: E402  (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
 from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
@@ -544,7 +544,7 @@ ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 # GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/home/intake.py)
                  "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/manage/keep/backup.py)
-                 "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/home/accuracy.py)
+                 "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/eval/drill/accuracy.py)
                  "/api/autorun": "autorun"}     # まとめて実行の状態(src/home/autorun.py)
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
 POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("_post_case_auto", True),
@@ -1319,7 +1319,7 @@ def main(argv=None):
             log("まとめて実行を準備できませんでした: %r" % (e,))
         srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
         srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
-        srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、dev/eval_*.py を子プロセスで)
+        srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、src/eval/tools/eval_*.py を子プロセスで)
         srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
         if srv.analytics:
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)

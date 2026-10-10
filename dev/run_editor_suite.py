@@ -20,8 +20,8 @@ UNIT = [
     ("editor 単体", [PY, "-m", "unittest", "src/editor/tests/test_metrics.py", "src/editor/tests/test_resolve_export.py", "src/editor/tests/test_roster.py"], False),
     ("home test_mount", [PY, "-m", "unittest", "src/home/tests/test_mount.py"], False),
     ("契約テスト", [PY, "-m", "unittest", "dev/tests/test_resolve_pack_contract.py"], False),
-    ("eval_asr", [PY, "-m", "unittest", "dev/tests/test_eval_asr.py"], False),
-    ("eval_alt", [PY, "-m", "unittest", "dev/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt・YouTube の字幕 yt)
+    ("eval_asr", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_asr.py"], False),
+    ("eval_alt", [PY, "-m", "unittest", "src/eval/tools/tests/test_eval_alt.py"], False),   # 候補の当たり率(alt・YouTube の字幕 yt)
     ("ui-kit の写し", [PY, "-m", "unittest", "dev/tests/test_ui_kit_sync.py"], False),
 ]
 def find_node():
