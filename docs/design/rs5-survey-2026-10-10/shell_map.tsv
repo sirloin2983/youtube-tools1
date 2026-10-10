@@ -1,0 +1,131 @@
+殻	名前	持ち主	回数
+common	ApiError	ytt.errors	8
+common	CODE_DIR	(殻の中: common)	2
+common	VID_RE	pipeline.ingest.sources	2
+common	_env	ytt.apikey	1
+common	_media_cache	ytt.mediainfo	2
+common	atomic_write	?	2
+common	children	ytt.procs	7
+common	env_state	(殻の中: common)	1
+common	find_tool	ytt.studio_env	21
+common	get_out_dir	ytt.studio_env	16
+common	hard_kill	ytt.procs	2
+common	load_out_dir	ytt.studio_env	1
+common	log_failure	ytt.studio_env	1
+common	media_info	ytt.mediainfo	18
+common	media_info_known	ytt.mediainfo	3
+common	migrate_old_logs	(殻の中: common)	2
+common	old_log_name	ytt.studio_env	1
+common	p	ytt.studio_env	2
+common	py	?	21
+common	remember_media_info	ytt.mediainfo	2
+common	replace_file	?	1
+common	rotate_log	ytt.studio_env	2
+common	run_short	ytt.procs	2
+common	set_api_key	ytt.apikey	1
+common	set_home	ytt.studio_env	11
+common	set_out_dir	ytt.studio_env	2
+common	shutil	(殻の中: common)	2
+common	spawn	ytt.procs	2
+common	start_env_check	(殻の中: common)	1
+common	stop_children	ytt.procs	2
+common	ytdlp_out	pipeline.ingest.sources	3
+ed_alt	_MOVED	(殻の中: ed_alt)	1
+ed_alt	_add_moved	(殻の中: ed_alt)	1
+ed_alt	_alt_cache	human.proof.alt	2
+ed_alt	_alt_fake	eval.fake.fake_asr	2
+ed_alt	_alt_windows	human.proof.alt	1
+ed_alt	alt_diffs	human.proof.alt	3
+ed_alt	py	?	6
+ed_jobs	ACTIVE_STATES	ytt.jobs	2
+ed_jobs	END_TRIM	pipeline.transcribe.postproc	2
+ed_jobs	EXCLUSIVE	ytt.jobs	1
+ed_jobs	IN_WORKER	pipeline.transcribe.worker_client	3
+ed_jobs	JOIN_GAP	pipeline.transcribe.postproc	2
+ed_jobs	RS2_PROBE	?	3
+ed_jobs	SPK_FLAGS	pipeline.transcribe.txbase	1
+ed_jobs	WORKER	pipeline.transcribe.worker_client	3
+ed_jobs	_MOVED	(殻の中: ed_jobs)	7
+ed_jobs	__dict__	?	1
+ed_jobs	_add_moved	(殻の中: ed_jobs)	3
+ed_jobs	_chars_in	human.proof.doc_jobs	1
+ed_jobs	_jobs	ytt.jobs	38
+ed_jobs	_jobs_lock	ytt.jobs	6
+ed_jobs	_load_model_local	pipeline.transcribe.worker_client	4
+ed_jobs	_models	pipeline.transcribe.worker_client	2
+ed_jobs	_order	ytt.jobs	7
+ed_jobs	_queue	ytt.jobs	10
+ed_jobs	add_job	ytt.jobs	21
+ed_jobs	cancel_job	ytt.jobs	1
+ed_jobs	capture_raw	pipeline.transcribe.records	1
+ed_jobs	cpu_fallback	pipeline.transcribe.worker_client	1
+ed_jobs	cuda_compute	pipeline.transcribe.worker_client	3
+ed_jobs	dict_learned	human.proof.doc_jobs	2
+ed_jobs	dict_pairs	human.proof.doc_jobs	2
+ed_jobs	expand_segments	pipeline.transcribe.postproc	4
+ed_jobs	extract_audio	pipeline.transcribe.recognize	1
+ed_jobs	filter_kwargs	pipeline.transcribe.worker_client	1
+ed_jobs	head_stripper	human.proof.doc_jobs	2
+ed_jobs	public_job	human.proof.doc_jobs	9
+ed_jobs	py	?	6
+ed_jobs	quant_words_provider	?	1
+ed_jobs	read_asr	pipeline.transcribe.records	4
+ed_jobs	run_job	human.proof.doc_jobs	20
+ed_jobs	seg_to_dict	pipeline.transcribe.recognize	1
+ed_jobs	transcribe_fake	eval.fake.fake_asr	2
+ed_jobs	validate_job	human.proof.doc_jobs	31
+ed_jobs	whisper_kwargs	pipeline.transcribe.worker_client	1
+ed_jobs	write_asr	pipeline.transcribe.records	1
+ed_learn	_MOVED	(殻の中: ed_learn)	1
+ed_learn	_add_moved	(殻の中: ed_learn)	1
+ed_learn	_cc	?	1
+ed_learn	doc_metrics	eval.drill.metrics	1
+ed_learn	is_overlap_group	eval.drill.metrics	1
+ed_learn	learn_events	human.proof.learn	1
+ed_learn	learn_rules	human.proof.learn	1
+ed_learn	norm_cer	eval.drill.metrics	1
+ed_learn	py	?	10
+ed_misc	_MOVED	(殻の中: ed_misc)	1
+ed_misc	py	?	1
+ed_misc	scan_common	human.proof.batch	1
+ed_relink	FIND_MAX_DEPTH	manage.cases.relink	1
+ed_relink	_MOVED	(殻の中: ed_relink)	1
+ed_relink	_add_moved	(殻の中: ed_relink)	1
+ed_relink	_evalorg_lock	eval.drill.folders	1
+ed_relink	eval_organize	eval.drill.folders	2
+ed_relink	py	?	4
+ed_retime	_MOVED	(殻の中: ed_retime)	1
+ed_retime	py	?	7
+ed_retime	retime_doc	human.proof.retime	1
+ed_speakers	DIAR_DIR	pipeline.transcribe.diarize	4
+ed_speakers	_MOVED	(殻の中: ed_speakers)	1
+ed_speakers	_add_moved	(殻の中: ed_speakers)	1
+ed_speakers	_assign	pipeline.transcribe.diarize	1
+ed_speakers	apply_diarization	human.proof.speakers	1
+ed_speakers	diar_keep_row	human.proof.speakers	1
+ed_speakers	diar_threads	pipeline.transcribe.diarize	2
+ed_speakers	diarize_fake	eval.fake.fake_asr	2
+ed_speakers	py	?	5
+ed_speakers	run_diarize	human.proof.speakers	1
+ed_speakers	smooth_speakers	pipeline.transcribe.diarize	1
+ed_speakers	store	human.proof.speakers	1
+ed_store	PACK_CHECK_BUDGET	manage.cases.doclist	1
+ed_store	_MOVED	(殻の中: ed_store)	1
+ed_store	_add_moved	(殻の中: ed_store)	1
+ed_store	_tids	human.proof.store	2
+ed_store	doc_length	human.proof.store	1
+ed_store	find_doc_for_media	human.proof.store	2
+ed_store	list_history	human.proof.store	3
+ed_store	list_transcripts	manage.cases.doclist	1
+ed_store	open_video	human.proof.store	2
+ed_store	pack_readme	manage.cases.doclist	1
+ed_store	py	?	1
+ed_store	read_transcript	human.proof.store	47
+ed_store	restore_history	human.proof.store	2
+ed_store	sanitize_transcript	human.proof.store	4
+ed_store	save_transcript	human.proof.store	4
+ed_store	tx_path	human.proof.store	1
+ed_ytcap	YTCAP_TIMEOUT_SEC	human.proof.ytcap	1
+ed_ytcap	_MOVED	(殻の中: ed_ytcap)	1
+ed_ytcap	py	?	6
+ed_ytcap	ytcap_command	human.proof.ytcap	1
