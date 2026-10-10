@@ -655,10 +655,7 @@ class FfmpegTest(unittest.TestCase):
                         "[0:a][1:a]amix=inputs=2,volume='0.1+0.9*abs(sin(t*0.7))':eval=frame[o]", "-map", "[o]", wav],
                        check=True, creationflags=tools.no_window_flags())
         full, band = W.measure_levels(FF, wav, self.tmp)
-        studio = os.path.join(REPO, "studio")
-        if studio not in sys.path:
-            sys.path.append(studio)
-        import analyze   # スタジオの解析(読むのはテストだけ)
+        from pipeline.analyze import analyze   # スタジオの解析(RS3-5 で pipeline/analyze へ。読むのはテストだけ)
         job = {"cancel": False}
         a, b = analyze.audio_levels(job, wav, 14.0), analyze.audio_levels(job, wav, 14.0, hp=2000)
         self.assertEqual((len(full), len(band)), (len(a), len(b)))

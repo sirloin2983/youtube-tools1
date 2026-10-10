@@ -2261,12 +2261,13 @@ class TestDeferred(Base):
         """スタジオの解析の結果の反映(store.replace_auto)は、依頼の区間のマーク(手動・採用済み・書き出し済み)を残す。
         スタジオの部品は名前が重なるので、別のプロセスで本物の store を動かして確かめる"""
         import subprocess
-        studio = os.path.join(os.path.dirname(HERE), "studio")
+        src = os.path.dirname(HERE)   # RS3-5: store は human/review に移ったので src を渡す
         code = r'''
 import json, os, sys, tempfile
 sys.path.insert(0, sys.argv[1])
-import common, store
-d = tempfile.mkdtemp(); common.set_home(d)
+from human.review import store
+from ytt import studio_env
+d = tempfile.mkdtemp(); studio_env.set_home(d)
 st = store.Store(os.path.join(d, "data.json"))
 vid = "reqdefer001"
 st.ensure({"kind": "youtube", "videoId": vid, "name": vid}, "t", "c")
@@ -2283,7 +2284,7 @@ after = {x["id"]: (x["src"], x["status"], x["start"], x["end"]) for x in st.get(
 print(json.dumps({"rids": rids, "before": before, "after": after, "n": n, "analysis": bool(st.get(vid)[0].get("analysis"))}))
 '''
         env = dict(os.environ, YTT_DATA_DIR="inplace", PYTHONIOENCODING="utf-8")
-        p = subprocess.run([sys.executable, "-c", code, studio], capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
+        p = subprocess.run([sys.executable, "-c", code, src], capture_output=True, text=True, encoding="utf-8", env=env, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         got = json.loads(p.stdout.strip().splitlines()[-1])
         for rid in got["rids"]:
