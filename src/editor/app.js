@@ -1,5 +1,5 @@
 'use strict';
-const APP_VERSION = '0.69.0';
+const APP_VERSION = (document.querySelector('meta[name="ytt-version"]') || {}).content || '';   // 全体の版(ytt/version.py)。入口が画面を返すときに meta ytt-version へ入れる(JS に版の文字は書かない)。入口なしだと空 = 版の比べはしない
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
 const S = { tools: null, settings: {}, marker: { found: false, videos: [] }, jobs: [], list: [], doc: null, docId: null, dirty: false, saving: false,
@@ -1269,7 +1269,8 @@ async function boot(){
   applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(段7 E-17。サーバーに届かないときも)
   try {
     const ping = await api('/api/ping');
-    if (ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」(段9 9-3)
+    if (!APP_VERSION) $('#ver').textContent = 'v' + ping.version;
+    else if (ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」(段9 9-3)
       showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`, { plain: true });
   } catch (e){ return showErr(e.message + '。youtube-tools フォルダの start.bat で起動して、ホームから開いてください', { plain: true }); }
   try { S.tools = await api('/api/tools'); } catch {}

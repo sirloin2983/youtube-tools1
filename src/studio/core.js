@@ -2,7 +2,7 @@
    ヘッダー(タブ・他のツール・キー一覧・設定の引き出し)と、起動時の ?url= の受け取りもここで扱う。 */
 (() => {
 'use strict';
-const APP_VERSION = '0.26.0';   // serve.py の SERVER_VERSION と同じ値にする
+const APP_VERSION = (document.querySelector('meta[name="ytt-version"]') || {}).content || '';   // 全体の版(ytt/version.py)。入口が画面を返すときに meta ytt-version へ入れる(JS に版の文字は書かない)。入口なしだと空 = 版の比べはしない
 const $ = s => document.querySelector(s);
 const Studio = window.Studio = { version: APP_VERSION, state: null, review: null, ready: false, ports: null, params: {} };
 const STEPS = ['rank', 'review'];   // 0.24.0: 「2 解析」のタブを無くした(URL の欄と順番待ちは ① の先頭・解析の設定は ⚙ の「解析」。docs/spec/settings.md の 3)
@@ -308,7 +308,8 @@ const start = async () => {
   try {
     const p = await Studio.api('/api/ping');
     if (p.app !== 'clip-studio') throw new Error('このアドレスは切り抜きスタジオではありません');
-    if (p.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, p.version))   // 帯に「起動し直す」(段9 9-3)
+    if (!APP_VERSION) $('#ver').textContent = 'v' + p.version;
+    else if (p.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, p.version))   // 帯に「起動し直す」(段9 9-3)
       Studio.showErr('画面(v' + APP_VERSION + ')とサーバー(v' + p.version + ')の版が違います。黒い画面を閉じて起動し直してください');
     await Studio.refreshState();
   } catch (e){ Studio.showErr(e.message); paneError(e.message); return; }
