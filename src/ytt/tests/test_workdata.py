@@ -71,6 +71,10 @@ class TestStudiodata(_Saved):
         self.assertIsNone(studiodata.studio_stream("none"))
         workdata.STUDIO_DATA = b   # 無いファイル = 空(呼ぶたびに今の場所を読む)
         self.assertEqual(studiodata.studio_videos(), {})
+        with open(b, "w", encoding="utf-8") as f:   # 壊れた data.json も空として読む(編集の test_roster から移した。文脈は題名・フォルダから続く)
+            f.write("{壊れた")
+        self.assertEqual(studiodata.studio_videos(), {})
+        self.assertIsNone(studiodata.studio_stream("v1"))
 
 
 if __name__ == "__main__":

@@ -479,6 +479,10 @@ class TestRuntime(unittest.TestCase):
         self.put("transcribe", None, b'{"tool": "transcribe", "port": 8775, "x": "' + b"a" * 5000 + b'"}')
         self.assertIsNone(runtime.read_runtime_port(self.dir, "transcribe"))
 
+    def test_tool_ids_are_fixed(self):
+        """ツールの識別子(/api/ping の app・.clip.json の tool.name)は互換のため固定。各サーバーはこの表を読む(サーバー側の確かめは自分の APP_ID だけ)"""
+        self.assertEqual(runtime.TOOL_APPS, {"studio": "clip-studio", "transcribe": "transcribe-tool", "cut2resolve": "cut2resolve"})
+
     def test_valid_port(self):
         for ok in (1024, 8800, 65535):
             self.assertTrue(runtime.valid_port(ok))
@@ -847,6 +851,9 @@ class TestHttpsec(unittest.TestCase):
             with self.assertRaises(httpsec.BodyError) as cm:
                 httpsec.read_json_body(handler, 100)
             self.assertEqual((cm.exception.kind, cm.exception.status), (kind, status), handler.rfile.getvalue())
+        with self.assertRaises(httpsec.BodyError) as cm:   # 深すぎる JSON(読むと RecursionError)も「JSON として読めない」
+            httpsec.read_json_body(self.body_handler(b'{"a":' + b"[" * 100000 + b"]" * 100000 + b"}"), 300000)
+        self.assertEqual((cm.exception.kind, cm.exception.status), ("json", 400))
         self.assertEqual(httpsec.read_json_body(self.body_handler(b"", length=None), 100, empty_ok=True), {})   # 本文なし = {}
         nan = httpsec.read_json_body(self.body_handler(b'{"a": NaN}'), 100, allow_nan=True)["a"]
         self.assertNotEqual(nan, nan)                             # allow_nan=True なら NaN も通す(以前の入口と同じ)

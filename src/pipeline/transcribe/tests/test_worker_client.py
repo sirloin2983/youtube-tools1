@@ -144,6 +144,24 @@ class TestKwargs(unittest.TestCase):
             params = ("language", "beam_size")
         self.assertEqual(W.filter_kwargs(M(), kw), {"language": "ja", "beam_size": 5})
 
+    def test_prompt_hotwords_and_context_record(self):
+        """用語集 + 配信ごとの文脈 → initial_prompt・hotwords(編集のテスト test_roster から移した)。文書に残す文脈の記録は records.context_record"""
+        from pipeline.transcribe import records
+        spec = {"language": "ja", "beam": 5, "vadMode": "normal", "model": "large-v3", "glossary": ["ホロライブ"],
+                "context": {"members": [{"name": "兎田ぺこら", "from": ["channel"]}], "terms": ["兎田ぺこら", "ぺこら"]}}
+        kw = W.whisper_kwargs(spec)
+        self.assertEqual(kw["initial_prompt"], "用語: ホロライブ、兎田ぺこら、ぺこら")   # 用語集が先・文脈が後
+        self.assertEqual(kw["hotwords"], "ホロライブ, 兎田ぺこら, ぺこら")
+        self.assertNotIn("temperature", kw)
+        self.assertEqual(W.whisper_kwargs(dict(spec, temp0=True))["temperature"], 0.0)
+        long = dict(spec, glossary=["語%03d" % i for i in range(60)])
+        p = W.whisper_kwargs(long)["initial_prompt"]
+        self.assertLessEqual(len(p) - len("用語: "), 150)
+        self.assertTrue(p.endswith(tuple("語%03d" % i for i in range(60))))                # 語の途中で切らない
+        self.assertNotIn("initial_prompt", W.whisper_kwargs(dict(spec, glossary=[], context={})))
+        self.assertEqual(records.context_record(spec), {"members": [{"name": "兎田ぺこら", "from": ["channel"]}], "terms": 2})
+        self.assertIsNone(records.context_record({"context": {"members": []}}))
+
 
 if __name__ == "__main__":
     unittest.main()
