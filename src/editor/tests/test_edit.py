@@ -348,6 +348,29 @@ class TestEditHttp(unittest.TestCase):
         finally:
             self.call("PUT", "/api/settings", orig)
 
+    def test_settings_device_goes_to_machine_json(self):
+        """⚙ のデバイス(device)は machine.json(この PC の設定)に書かれ、GET /api/settings はその値を返す。settings.json の古い値は消さない(RS7-1 S6b)"""
+        def machine_files():
+            return [os.path.join(d, "machine.json") for d, _n, fs in os.walk(self.tmp) if "machine.json" in fs]
+        orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
+        try:
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)   # 丸ごとの保存
+            self.assertEqual(self.call("GET", "/api/settings").get("device"), "cpu")
+            files = machine_files()
+            self.assertEqual(len(files), 1)
+            with open(files[0], encoding="utf-8") as f:
+                self.assertEqual(json.load(f).get("device"), "cpu")
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"device": "vulkan", "quality": "fast"}})["_status"], 200)   # 差分の保存
+            st = self.call("GET", "/api/settings")
+            self.assertEqual((st.get("device"), st.get("quality")), ("vulkan", "fast"))
+            self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"device": "nope"}})["_status"], 400)
+            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")
+        finally:
+            self.call("PUT", "/api/settings", {"patch": {"device": None}})
+            self.call("PUT", "/api/settings", orig)
+            for f in machine_files():
+                os.remove(f)
+
     def test_settings_put_patch(self):
         """PUT /api/settings {"patch"}(段2 監査 11): 送ったキーだけ合わせる。2つの窓が別々のキーを保存しても消し合わない"""
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}

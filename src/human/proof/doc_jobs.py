@@ -30,6 +30,7 @@ from ytt import txbase as _txbase  # noqa: E402   ロガー・決まった値・
 from ytt import txtext as _txtext  # noqa: E402   行を分ける split_segment・句読点 strip_punct・印の文 SPARSE_FLAG・用語の区切り split_terms(RS6 a-3 に ① の postproc・roster から)
 from ytt import tools as _tools  # noqa: E402   元のファイルの検査と長さ(check_source・media_duration。RS3-0A まで txenv の口)
 from ytt import txwords  # noqa: E402   単語の時刻 read_words(RS6 a-5b に ① records から ytt へ)
+from flow import machine as _machine  # noqa: E402   この PC の設定(llmModel の検査。要求にあれば spec に通す。RS7-1 S6b)
 from flow import tx as _flowtx  # noqa: E402   ② 文字起こしの動詞(transcribe_clip・write_clip_records・dict_pairs・check_model・request_engine。RS6 a-3)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
@@ -77,6 +78,14 @@ def glossary_of(req, st=None):
     """要求の用語集(200 語まで)と、自動で足す語(autoGloss。よく直される正しい語)-> (用語集, 自動の語)。st = 読んである設定"""
     glossary = _txtext.split_terms(req.get("glossary"))[:200]
     return glossary, (learn.auto_glossary(glossary, settings=st) if req.get("autoGloss") is not False else [])
+
+
+def _llm_model_of(req):
+    """要求の llmModel(合う名前だけ。無い・合わない = None)"""
+    try:
+        return _machine.check("llmModel", req.get("llmModel"))
+    except ValueError:
+        return None
 
 
 def validate_job(req):
@@ -155,6 +164,7 @@ def validate_job(req):
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "clip": clip, "warnings": warnings,
             "learningVersion": str(req.get("learningVersion") or "")[:80],
+            "llmModel": _llm_model_of(req),   # LLM の後処理のモデル(要求にあれば。無ければ ② が machine.json の値を入れる = flow/tx。RS7-1 S6b)
             "title": title}
 
 

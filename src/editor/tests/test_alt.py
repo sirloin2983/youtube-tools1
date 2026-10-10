@@ -360,6 +360,10 @@ class TestAltJob(_AltStore):
         self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
         write_json(S.SETTINGS, {"altEngine": "llama.cpp"})
         self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])
+        base = {"sourcePath": self.video, "model": "small"}   # llmModel は要求にあれば通す(合う名前だけ。RS7-1 S6b)
+        self.assertIsNone(doc_jobs.validate_job(base)["llmModel"])
+        self.assertEqual(doc_jobs.validate_job(dict(base, llmModel="qwen3-8b"))["llmModel"], "qwen3-8b")
+        self.assertIsNone(doc_jobs.validate_job(dict(base, llmModel="../x y"))["llmModel"])
         # 始められなくても(同じエンジン)文字起こしは成功のまま・注意を出す
         job = {"warnings": []}
         with mock.patch.object(proof_alt, "alt_spec", side_effect=S.ApiError("same_engine", "同じ", 400)):

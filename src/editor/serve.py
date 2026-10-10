@@ -124,6 +124,7 @@ from human.proof import overrides as _overrides  # noqa: E402  (校正の上書�
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
 from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 a-5a)
+from flow import machine as _machine  # noqa: E402  (② この PC の設定 machine.json。⚙ のデバイスはここへ書く・読む。RS7-1 S6b)
 from flow import keys as _flowkeys  # noqa: E402  (② 成果物の鍵。文書の削除で鍵のファイルも消す。RS6 b-K1)
 from flow import diar as _flowdiar  # noqa: E402  (② 判別と声の段取り・判別の記録を書く・覚えた声の置き場所 VOICES_DIR・load_voices ほか。RS6 a-4 に speakers・diarize から)
 from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目。RS2-9)
@@ -339,6 +340,40 @@ POST_API = {
 }
 
 
+def _settings_read():
+    """GET /api/settings: 編集の設定 + この PC の設定(machine.json)のデバイス。画面の形は同じ(device の欄だけ machine の値)。
+    settings.json にも machine.json にも device が無ければ device は付けない(今と同じ)"""
+    d = _settings.load_settings()
+    if "device" in d or "device" in _machine.explicit():
+        d["device"] = _machine.get("device")
+    return d
+
+
+def _settings_split(obj):
+    """PUT /api/settings の本文から device(この PC の設定)を分ける -> (device の変更 {device: 値|None} または {}, 残りの本文)。
+    patch の形は patch の中の device、丸ごとの形は device。丸ごとのとき settings.json の古い device は消さず残す"""
+    if "patch" in obj:
+        p = obj.get("patch")
+        if isinstance(p, dict) and "device" in p:
+            return {"device": p["device"]}, dict(obj, patch={k: v for k, v in p.items() if k != "device"})
+        return {}, obj
+    if "device" in obj:
+        old = _settings.load_settings()
+        rest = {k: v for k, v in obj.items() if k != "device"}
+        if "device" in old:
+            rest["device"] = old["device"]
+        return {"device": obj["device"]}, rest
+    return {}, obj
+
+
+def _machine_save(change):
+    if change:
+        try:
+            _machine.save(change)
+        except ValueError as e:
+            raise _errors.ApiError("bad_request", str(e), 400)
+
+
 def _qid(u):
     """URL の ?id=(無ければ "")"""
     return (urllib.parse.parse_qs(u.query).get("id") or [""])[0]
@@ -478,12 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             if fn is not None:
                 return self._json(200, fn(arg))
             if u.path == "/api/settings":
-                try:
-                    with open(_workdata.SETTINGS, "rb") as f:
-                        raw = f.read()
-                    return self._send(200, raw[3:] if raw.startswith(b"\xef\xbb\xbf") else raw, "application/json")
-                except OSError:
-                    return self._json(200, {})
+                return self._json(200, _settings_read())
             if u.path == "/api/peaks":
                 return self._peaks(arg("id"))
             if u.path == "/media":
@@ -569,6 +599,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/settings":
                 if len(json.dumps(obj)) > 200000:
                     raise ed_state.ApiError("too_big", "設定が大きすぎます", 413)
+                change, obj = _settings_split(obj)   # device はこの PC の設定(machine.json)へ。RS7-1 S6b
+                _machine_save(change)
                 if "patch" in obj:   # 画面が最後に保存した内容との差のキーだけ(監査 11)。窓を2つ開いても別々の設定なら消し合わない
                     return self._json(200, _settings.merge_settings(obj))
                 return self._json(200, _settings.replace_settings(obj))   # 丸ごと(ほかの画面から直す項目はサーバーの値を残す)
