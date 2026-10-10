@@ -58,6 +58,7 @@ import time
 import urllib.parse
 
 from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools, version as _version
+from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3
 
 VERSION = _version.VERSION   # 全体の版(ytt/version.py)
@@ -1024,6 +1025,18 @@ class Exporter:
             mk = {}
         return (d.get("title") or mk.get("title") or "").strip() or video_id_of(d.get("url"), job["recording"]) or job["recording"]
 
+    @staticmethod
+    def _write_export_key(media, rc, rec, vid, clip, span, archive):
+        """export の鍵(RS6 b-K1)。媒体は録画(recorder・recording)。アーカイブから作った本番版は archive(videoId)で、区間はアーカイブの秒(F-1)。書けなくても書き出しは成功"""
+        try:
+            if archive:
+                mid, s, e = schemas.media_identity("archive", videoId=str(archive.get("videoId") or vid)), archive.get("start"), archive.get("end")
+            else:
+                mid, s, e = schemas.media_identity("recording", recorder=str(rc["id"]), recording=str(rec)), span[0], span[1]
+            _keys.write_export(media, mid, s, e, {k: v for k, v in (clip.get("export") or {}).items() if k != "from"})
+        except (KeyError, TypeError, ValueError):
+            pass
+
     def _finish(self, job, rc, rec, d, out, a, b, archive=None, message="書き出しました"):
         """archive: アーカイブから新しく作った(P4。src/flow/live_archive.py の欠けのマーク)ときの source.live.archive {videoId, start, end, offset, residual, at}"""
         base = self._base(d, a)
@@ -1053,6 +1066,7 @@ class Exporter:
             manifest = schemas.clip_path_for(media)
             os.makedirs(os.path.dirname(manifest), exist_ok=True)
             fsio.write_json(manifest, clip)
+            self._write_export_key(media, rc, rec, vid, clip, (a - base, b - base), archive)
         except OSError as e:
             manifest = ""
             warn.append("切り抜きの情報ファイル(.clip.json)を保存できませんでした(動画はそのまま使えます): %s" % tools.why(e))

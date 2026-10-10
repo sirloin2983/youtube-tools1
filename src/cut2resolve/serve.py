@@ -68,6 +68,7 @@ def _load_core():
 
 _load_core()
 from manage.cases import txindex as _txi  # noqa: E402
+from flow import keys as _flowkeys  # noqa: E402  成果物の鍵(RS6 b-K1)
 from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP, srt2resolve as S  # noqa: E402
 from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools  # noqa: E402
 
@@ -802,6 +803,8 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError) as e:
                 log("warn: パックの記録を書けません: %s" % e)
                 res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
+            _flowkeys.write_pack(res["out_dir"], str(plan.video), res["plan"],
+                                 {k: out[k] for k in ("render", "copyVideo", "textplus", "backup", "textplusWrap", "textplusColor", "loudness", "volume", "videoTracks")})   # <パック>/pack.key.json(書けなくてもログだけ。RS6 b-K1)
             files = [file_info(k, p) for k, p in res["files"]]
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
                  "warningLevels": classify_warnings(res["warnings"]),

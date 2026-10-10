@@ -84,6 +84,8 @@ class TestTranscribe(_Env):
             self.assertEqual(json.load(fp)["words"], [[0.0, 2.0, "テスト文1"]])
         self.assertTrue(os.path.isfile(os.path.join(self.tmp, "abc123def456.asr.json")))
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "abc123def456.llm.json")))   # LLM を使っていない
+        for stage in ("transcribe", "post"):   # 成果物の鍵(RS6 b-K1)。post は transcribe の hash を材料にする
+            self.assertTrue(os.path.isfile(os.path.join(self.tmp, "abc123def456.%s.key.json" % stage)), stage)
         path = tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
         with open(path, encoding="utf-8") as fp:
             doc = json.load(fp)

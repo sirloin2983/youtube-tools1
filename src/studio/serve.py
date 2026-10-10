@@ -26,7 +26,7 @@ import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/sib
 from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
-from flow import batch as batch_mod  # noqa: E402
+from flow import batch as batch_mod, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1)
 from pipeline.analyze import analyze  # noqa: E402
 from pipeline.export import exporter, manifest as _manifest  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
@@ -360,7 +360,12 @@ def _settings(o):
 
 def _export(o):
     spec = exporter.build_spec(STORE, o)
-    return exporter.job_public(exporter.start_job(spec, STORE.mark_exported))
+
+    def on_done(vid, mid, rel, start, end, path=None):
+        recorded = STORE.mark_exported(vid, mid, rel, start, end, path)
+        _flowkeys.write_studio_export(spec, path, start, end)   # 切り抜きの横に export の鍵(書けなくてもログだけ。RS6 b-K1)
+        return recorded
+    return exporter.job_public(exporter.start_job(spec, on_done))
 
 
 def _export_cancel(o):

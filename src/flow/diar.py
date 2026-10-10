@@ -23,6 +23,8 @@ import time
 from ytt import errors as _errors, fsio as _fsio, jobs as _slots, tools as _tools, txbase as _txbase, workdata as _workdata
 from pipeline.transcribe import backend as _backend, diarize as _calc, fill as _fill, recognize as _recognize, worker_client as _wc
 
+from . import keys as _keys
+
 
 # ---------- 部品と判別モデル ----------
 def models_ready(auto=False):
@@ -110,6 +112,7 @@ def record_run(tid, a, turns, offset, requested, emb, idmap, auto=None):
     """判別の 1 回の記録を <id>.diar.json に(機械の最初の結果 = 人が直す前)。a = assign の結果・idmap = {機械のラベル: 付けた話者の id}・
     auto = 自動の判別の印 {eval, contextName}。② が足すこと: 割り当ての結果を ① の記録の形(build_diar_run)へ渡し、書けなくても判別は失敗にしない"""
     _record_diar(tid, _calc.build_diar_run(a["segs"], a["raw"], turns, offset, requested, emb, idmap, auto, a["smoothed"], a["ratios"]))
+    _keys.write_diar(tid, {"requested": requested, "embedding": emb}, voices_path(emb))   # 成果物の鍵 <id>.diar.key.json(RS6 b-K1)
 
 
 def record_single(tid, segs, name):
@@ -119,6 +122,7 @@ def record_single(tid, segs, name):
                        "labelMap": {"0": "S1"}, "speakers": 1,
                        "rows": {str(sg.get("id")): {"label": 0, "speaker": "S1", "ratio": 1.0, "mixed": False, "weak": False} for sg in segs},
                        "voices": {"checked": False, "speakers": {"S1": {"label": 0, "decided": name, "by": "request", "reason": None}} if name else {}}})
+    _keys.write_diar(tid, {"requested": 1, "embedding": "single", "name": name or ""}, None)   # 成果物の鍵(RS6 b-K1)
 
 
 def latest_run(tid):

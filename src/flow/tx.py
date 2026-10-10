@@ -26,6 +26,8 @@ from ytt import tools as _tools, txbase as _txbase, txtext as _txtext, txwords a
 from pipeline.transcribe import backend as _backend, clipjob, llm, postproc, recognize, records, roster as _roster, tx_engines, worker_client
 from pipeline.transcribe import retime as _retime
 
+from . import keys as _keys
+
 
 # ---------- 学習データ(置換辞書と名簿)----------
 def dict_pairs(spec):
@@ -129,6 +131,7 @@ def write_clip_records(tid, clip, spec):
         _txbase.log.warning("生出力を保存できませんでした: %s %s", tid, e)
     if clip["llm_items"]:
         llm.llm_write(tid, clip["llm_rec"], clip["llm_items"])   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
+    _keys.write_after_transcribe(tid, spec, clip["fields"]["recognition"]["runs"][-1])   # 成果物の鍵 <id>.transcribe.key.json・<id>.post.key.json(書けなくてもログだけ。RS6 b-K1)
 
 
 def write_machine_doc(tid, fields, spec=None):

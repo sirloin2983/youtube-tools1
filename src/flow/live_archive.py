@@ -66,6 +66,7 @@ import time
 import urllib.parse
 
 from ytt import fsio, jobs, normalize, schemas, tools
+from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
 from . import live_export as LX
 
@@ -1468,8 +1469,22 @@ class Archiver:
             raise Later("動画を入れ替えられませんでした(ほかのソフトが使っているかもしれません)。あとの見回りでやり直します")
         return kept
 
+    @staticmethod
+    def _archive_key(media, meta):
+        """F-1: 速報版を本番版に入れ替えたので、export の鍵を媒体 = archive(videoId)・区間 = アーカイブの秒で書き直す。書けなければ古い鍵(録画のまま)を消す"""
+        kp = _keys.media_key_path(media, "export")
+        old = _keys.read(kp, "export")
+        settings = ((old or {}).get("inputs") or {}).get("settings") or {}
+        try:
+            ok = _keys.write_export(media, schemas.media_identity("archive", videoId=str(meta.get("videoId") or "")), meta["start"], meta["end"], settings)
+        except (KeyError, TypeError, ValueError):
+            ok = False
+        if not ok:
+            _keys.remove(kp)
+
     def _update_clip(self, media, out, meta):
         """.clip.json の source.live.archive・長さ・export.from を直す(range はそのまま = 録画の頭からの秒。文字起こし・カットの時刻は変わらない)"""
+        self._archive_key(media, meta)
         p = schemas.find_clip_path(media)
         if not p:
             return
