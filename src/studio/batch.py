@@ -7,7 +7,7 @@ import threading
 import uuid
 
 import analyze
-from ytt import jobs, procs as _procs, schemas, studio_env as _env  # src は serve(とスタジオの common)が sys.path に足してある
+from ytt import jobs, schemas, studio_env as _env  # src は serve(とスタジオの common)が sys.path に足してある
 from ytt.errors import ApiError
 
 MAX_ACTIVE = 10
