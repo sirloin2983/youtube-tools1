@@ -116,8 +116,9 @@ def alt_spec(tid, req=None):
 
 
 # ---------- ジョブ ----------
-def alt_path(tid):
-    return _docloc.doc_file(tid, ".alt.json")
+def alt_path(tid, for_write=False):
+    """<id>.alt.json のパス(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, ".alt.json", for_write=for_write)
 
 
 def read_alt(tid):
@@ -148,7 +149,7 @@ def run_alt(job):
         with store._save_lock:   # 認識の間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
             if not os.path.isfile(store.tx_path(tid)):
                 raise _errors.ApiError("not_found", "認識の間に文書が消されました", 404)
-            _fsio.atomic_write(alt_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
+            _fsio.atomic_write(alt_path(tid, for_write=True), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
         with _alt_cache_lock:
             _alt_cache.pop(tid, None)
         _heavy.job_done(job, tid, "完了(%d 行)" % len(rows))

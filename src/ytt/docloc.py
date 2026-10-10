@@ -4,7 +4,10 @@
 (workdata.TX_DIR)にある。案件のフォルダの 作業用 に置いた文書だけ、transcripts/<id>.loc.json(索引)がその場所を持つ。
 索引が無ければ今までどおり TX_DIR なので、`S.TX_DIR = …` で置き場所を差し替えるテストはそのまま動く。
 
-- 索引は文書ごとに 1 ファイル(壊れても、その 1 本が TX_DIR に戻るだけで済む)。書くのは place・消すのは unplace
+- 索引は文書ごとに 1 ファイル(壊れても、その 1 本が TX_DIR に戻るだけで済む)。書くのは place・消すのは unplace。
+  新しい文書を案件に置くのは place_new(本体を書いてから索引。だめなら TX_DIR。RS8 B2-2)
+- 書く側は for_write=True で引く: 索引があるのに使えない(ドライブが外れたなど)ときは TX_DIR に落とさず ApiError(doc_unseen・503)で断る
+  (TX_DIR に別の文書が生まれて枝分かれしないように)。読む側は TX_DIR に落ちる(無ければ呼び手が 404)。見えない数は unseen
 - 索引の場所は使う前に毎回確かめる: 絶対パス・ネットワーク上でない(UNC・割り当てたネットワークドライブ。存在を調べるだけで
   そのサーバーへ資格情報を送ってしまうため、触る前に断る)・フォルダの名前が 作業用・そこに <id>.json がある。
   どれかがだめなら TX_DIR に落とし、理由をログに 1 行(同じ文書・同じ理由は 1 回だけ)
@@ -16,6 +19,7 @@
 import logging
 import os
 
+from . import errors as _errors
 from . import fsio as _fsio
 from . import schemas as _schemas
 from . import workdata as _workdata
@@ -59,14 +63,23 @@ def _remote(p):
     return _fsio.is_network_path(p) or _fsio.is_remote_drive(p)
 
 
-def _folder_problem(tid, folder):
-    """置き場所に使えないなら理由の文字列、使えるなら None(ネットワークのパスは名前だけで断り、ファイルには触らない)"""
+def check_folder(folder):
+    """文書の置き場所(作業用)の形として使えないなら理由の文字列、使えるなら None: 絶対パス・ネットワーク上でない・名前が 作業用。
+    ネットワークのパスは名前だけで断り、ファイルには触らない(文書があるかは見ない = 新しい文書を置く前に place_new が使う)"""
     if not isinstance(folder, str) or not folder or not os.path.isabs(folder):
         return "絶対パスではない"
     if _remote(folder):
         return "ネットワーク上のパス"
     if os.path.basename(os.path.normpath(folder)) != _schemas.WORK_DIR:
         return "フォルダの名前が %s ではない" % _schemas.WORK_DIR
+    return None
+
+
+def _folder_problem(tid, folder):
+    """置き場所に使えないなら理由の文字列、使えるなら None(check_folder + そこに <id>.json がある)"""
+    why = check_folder(folder)
+    if why:
+        return why
     if not os.path.isfile(os.path.join(folder, tid + ".json")):
         return "文書が無い"
     return None
@@ -99,26 +112,37 @@ def placed(tid, data_dir=None):
     return got
 
 
-def doc_dir(tid, data_dir=None):
-    """文書のフォルダ: 索引が使えればその 作業用、無ければ根(TX_DIR か <data_dir>/transcripts)"""
-    return placed(tid, data_dir) or tx_root(data_dir)
+UNSEEN_CODE = "doc_unseen"   # 書きを断ったときの ApiError の code(索引はあるが置き場所が見えない)
 
 
-def doc_file(tid, suffix, data_dir=None):
-    """文書と横のファイルのパス(suffix は DOC_SUFFIXES のどれか。違えば ValueError)。文書ごとに同じフォルダ"""
+def doc_dir(tid, data_dir=None, for_write=False):
+    """文書のフォルダ: 索引が使えればその 作業用、無ければ根(TX_DIR か <data_dir>/transcripts)。
+    for_write=True(書く側): 索引があるのに使えない(ドライブが外れた・フォルダが消えた・索引が壊れた)ときは根に落とさず
+    ApiError(UNSEEN_CODE・503)で断る(TX_DIR に別の文書が生まれて枝分かれするのを防ぐ)。読む側(既定)は今までどおり根に落ちる"""
+    got, why = _loc_state(tid, data_dir)
+    if why:
+        if for_write:
+            raise _errors.ApiError(UNSEEN_CODE, "文書の置き場所(案件のフォルダ)が見えません(%s)。ドライブをつないでから、もう一度試してください" % why,
+                                   503, {"tid": tid, "reason": why})
+        _fall_back(tx_root(data_dir), tid, why)
+    return got or tx_root(data_dir)
+
+
+def doc_file(tid, suffix, data_dir=None, for_write=False):
+    """文書と横のファイルのパス(suffix は DOC_SUFFIXES のどれか。違えば ValueError)。文書ごとに同じフォルダ。for_write は doc_dir と同じ"""
     if suffix not in DOC_SUFFIXES:
         raise ValueError("文書の横のファイルの名前ではありません: %r" % (suffix,))
-    return os.path.join(doc_dir(tid, data_dir), tid + suffix)
+    return os.path.join(doc_dir(tid, data_dir, for_write), tid + suffix)
 
 
-def hist_dir(tid, data_dir=None):
-    """履歴のフォルダ <置き場所>/.hist/<id>"""
-    return os.path.join(doc_dir(tid, data_dir), HIST_DIR, tid)
+def hist_dir(tid, data_dir=None, for_write=False):
+    """履歴のフォルダ <置き場所>/.hist/<id>。for_write は doc_dir と同じ"""
+    return os.path.join(doc_dir(tid, data_dir, for_write), HIST_DIR, tid)
 
 
-def bak_dir(tid, data_dir=None):
-    """控えのフォルダ <置き場所>/.bak(同じ置き場所の文書で共有。中のファイル名が <id>. で始まる)"""
-    return os.path.join(doc_dir(tid, data_dir), BAK_DIR)
+def bak_dir(tid, data_dir=None, for_write=False):
+    """控えのフォルダ <置き場所>/.bak(同じ置き場所の文書で共有。中のファイル名が <id>. で始まる)。for_write は doc_dir と同じ"""
+    return os.path.join(doc_dir(tid, data_dir, for_write), BAK_DIR)
 
 
 def iter_tids(data_dir=None):
@@ -175,6 +199,45 @@ def place(tid, folder, data_dir=None):
     os.makedirs(root, exist_ok=True)
     _fsio.write_json(path, {"version": LOC_VERSION, "id": tid, "dir": os.path.normpath(os.path.abspath(folder))})
     _warned.difference_update({k for k in _warned if k[0] == root and k[1] == tid})
+    return path
+
+
+def place_new(tid, folder, write, data_dir=None):
+    """新しい文書を作るときの 1 か所(RS8 B2-2): folder(作業用。None なら今までどおり)に本体を書いてから索引を書く。
+    write(path) = <id>.json を原子的に書く呼び手の関数(中身は呼び手が持つ)。-> 書いた本体のパス。
+    - folder が None・形が使えない(check_folder)・案件の根(folder の親)が無い・この id が既に文書か索引を持つ → 今までどおり
+      doc_file(tid, ".json", for_write=True) に書く(作業用は作らない。根を作らない = 外れたドライブに新しいフォルダを作らない)
+    - 作業用 が無ければ作る → <作業用>/<id>.json を書く → place。書けない・place が落ちた(OSError・ValueError)ときは
+      作業用 の本体を消して根(TX_DIR)に書き直す(ログ 1 行。新しい文書は失わない)"""
+    _check_tid(tid)
+    root = tx_root(data_dir)
+    if folder is not None:
+        why = check_folder(folder)
+        if not why and not os.path.isdir(os.path.dirname(os.path.normpath(folder))):
+            why = "案件のフォルダが無い"
+        if not why and (os.path.exists(loc_path(tid, data_dir)) or os.path.exists(os.path.join(root, tid + ".json"))):
+            why = "この id の文書が既にある"
+        if why:
+            log.warning("新しい文書 %s を案件に置けません(%s)。transcripts に置きます: %s", tid, why, folder)
+            folder = None
+    if folder is None:
+        path = doc_file(tid, ".json", data_dir, for_write=True)
+        write(path)
+        return path
+    folder = os.path.normpath(os.path.abspath(folder))
+    path = os.path.join(folder, tid + ".json")
+    try:
+        os.makedirs(folder, exist_ok=True)
+        write(path)
+        place(tid, folder, data_dir)
+        return path
+    except (OSError, ValueError) as e:
+        _fsio.unlink_quiet(path)
+        log.warning("新しい文書 %s を案件に置けませんでした(%s %s)。transcripts に書き直します: %s", tid, e.__class__.__name__, str(e)[:150], folder)
+    _fsio.unlink_quiet(loc_path(tid, data_dir))
+    path = os.path.join(root, tid + ".json")
+    os.makedirs(root, exist_ok=True)
+    write(path)
     return path
 
 

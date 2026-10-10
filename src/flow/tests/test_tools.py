@@ -139,6 +139,27 @@ class TestLocalTranscribePack(unittest.TestCase):
         r3 = R.run(None, {"docId": tid}, spec=spec, tools=tools)
         self.assertEqual(r3.step("pack")["state"], "skip", r3.steps)
 
+    def test_case_video_doc_goes_to_work_dir(self):
+        """書き出し先の下の案件(作業用/.studio-id)の動画なら、CLI の文書もその 作業用 に置く(索引は TX_DIR。RS8 B2-2)"""
+        from flow import placement
+        from ytt import docloc, names, schemas
+        out = os.path.dirname(os.path.dirname(self.video))   # <tmp>/clip/切り抜き.mp4 の案件 = clip・書き出し先 = <tmp>
+        wd = os.path.join(os.path.dirname(self.video), schemas.WORK_DIR)
+        os.makedirs(wd)
+        with open(os.path.join(wd, names.OWNER_FILE), "w", encoding="utf-8") as f:
+            f.write("vid")
+        tools = T.LocalTools()
+        with mock.patch.object(placement._datadir, "studio_out_dir", return_value=out), \
+                mock.patch.object(placement._fsio, "is_fixed_drive", return_value=True):
+            r = R.run(None, {"path": self.video}, spec={"post": {"autoLlm": False}}, tools=tools)
+        self.assertEqual(r.step("transcribe")["state"], "done", r.steps)
+        tid = r.doc_id
+        for name in (tid + ".json", tid + ".asr.json", tid + ".transcribe.key.json"):
+            self.assertTrue(os.path.isfile(os.path.join(wd, name)), name)
+            self.assertFalse(os.path.exists(os.path.join(workdata.TX_DIR, name)), name)
+        self.assertEqual(docloc.placed(tid), os.path.normpath(wd))
+        self.assertEqual([d["id"] for d in tools.docs()], [tid])
+
     def test_learning_glossary_and_learned(self):
         """RS7-1 F-k: learning を渡すと用語は ユーザーの語 + 自動の語(glossAuto)・学習済みの置換は autoLearned のときだけ ① へ渡す。無ければ今まで"""
         class L:

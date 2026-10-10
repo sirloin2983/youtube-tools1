@@ -42,13 +42,14 @@ def media_key_path(media_path, stage="export"):
     return _schemas.key_path(media_path, stage)
 
 
-def doc_key_path(tid, stage):
-    """文書の鍵の場所(transcripts/<id>.<段>.key.json)。id の形が正しくなければ ValueError"""
+def doc_key_path(tid, stage, for_write=False):
+    """文書の鍵の場所(transcripts/<id>.<段>.key.json)。id の形が正しくなければ ValueError。
+    for_write = 書く所(索引があるのに置き場所が見えなければ ApiError で断る = docloc.doc_dir。鍵を書く口はそれを受けて書かずにログだけ)"""
     if not _schemas.TID_RE.match(str(tid or "")):
         raise ValueError("文書の id が正しくありません")
     if stage not in _schemas.KEY_STAGES:
         raise ValueError("段が正しくありません: %r" % (stage,))
-    return _docloc.doc_file(tid, "." + stage + _schemas.KEY_SUFFIX)
+    return _docloc.doc_file(tid, "." + stage + _schemas.KEY_SUFFIX, for_write=for_write)
 
 
 def pack_key_path(folder):
@@ -227,12 +228,12 @@ def write_after_transcribe(tid, spec, run):
                                run.get("language", ""), st.get("beam"), st.get("vadMode"), st.get("boost"), span)
         key = _schemas.make_key("transcribe", ti, _made_by())
         n = 0
-        if write("transcribe", doc_key_path(tid, "transcribe"), ti):
+        if write("transcribe", doc_key_path(tid, "transcribe", True), ti):
             n += 1
-        if write("post", doc_key_path(tid, "post"), post_inputs(key["hash"], run.get("post"), st.get("dict"), spec.get("learningVersion") or "")):
+        if write("post", doc_key_path(tid, "post", True), post_inputs(key["hash"], run.get("post"), st.get("dict"), spec.get("learningVersion") or "")):
             n += 1
         return n
-    except (TypeError, ValueError, KeyError) as e:
+    except (TypeError, ValueError, KeyError, _errors.ApiError) as e:   # ApiError = 文書の置き場所が見えない(docloc)
         log.warning("文字起こしの鍵を書けませんでした(%s): %s %s", tid, e.__class__.__name__, str(e)[:150])
         return 0
 
@@ -242,9 +243,9 @@ def write_diar(tid, people, voices_path=None):
     voices_path = 覚えた声のファイル(内容のハッシュを版にする。無ければ空)。-> 書けたか"""
     try:
         voices = _file_sha(voices_path) if voices_path and os.path.isfile(voices_path) else ""
-        return write("diar", doc_key_path(tid, "diar"),
+        return write("diar", doc_key_path(tid, "diar", True),
                      diar_inputs(key_hash(doc_key_path(tid, "transcribe"), "transcribe"), people, voices or ""))
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError, _errors.ApiError) as e:   # ApiError = 文書の置き場所が見えない(docloc)
         log.warning("判別の鍵を書けませんでした(%s): %s", tid, e)
         return False
 

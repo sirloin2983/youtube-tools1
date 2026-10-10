@@ -139,10 +139,11 @@ def write_clip_records(tid, clip, spec):
     _keys.write_after_transcribe(tid, spec, clip["fields"]["recognition"]["runs"][-1])   # 成果物の鍵 <id>.transcribe.key.json・<id>.post.key.json(書けなくてもログだけ。RS6 b-K1)
 
 
-def write_machine_doc(tid, fields, spec=None):
+def write_machine_doc(tid, fields, spec=None, folder=None):
     """③ なしで文書 transcripts/<id>.json の機械の分を書く最小の口(CLI 用。RS6 b の S1 が使う)。fields = transcribe_clip の "fields"。
     spec があれば題名・動画(title・sourcePath・sourceName)・clip・評価用の印も入れる。-> 書いたパス。
-    ② が足すこと = 置き場所(ytt/workdata の TX_DIR)と原子的な書き込み(ytt/fsio。③ の store.write_doc と同じ形の JSON)"""
+    folder = 新しい文書を置く 作業用(placement.doc_home が決める。None = 今までどおり。あれば docloc.place_new = 本体のあとに索引。RS8 B2-2)。
+    ② が足すこと = 置き場所(ytt/workdata の TX_DIR か案件の 作業用)と原子的な書き込み(ytt/fsio。③ の store.write_doc と同じ形の JSON)"""
     if not _yschemas.TID_RE.match(str(tid or "")):
         raise _errors.ApiError("bad_request", "文書の id が正しくありません", 400)
     doc = {"schema": "transcribe/v1", "id": tid}
@@ -154,8 +155,12 @@ def write_machine_doc(tid, fields, spec=None):
         doc["clip"] = spec["clip"]
     if spec and spec.get("evalSet"):
         doc["evalSet"] = True
-    path = _docloc.doc_file(tid, ".json")
-    _fsio.write_json(path, doc, indent=1, fsync_required=True)
+    def _write(path):
+        _fsio.write_json(path, doc, indent=1, fsync_required=True)
+    if folder:
+        return _docloc.place_new(tid, folder, _write)
+    path = _docloc.doc_file(tid, ".json", for_write=True)
+    _write(path)
     return path
 
 

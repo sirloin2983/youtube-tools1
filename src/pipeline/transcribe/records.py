@@ -150,8 +150,9 @@ ASR_SCHEMA = "youtube-tools-asr-raw/v1"
 MAX_ASR_BYTES = 64 * 1024 * 1024
 
 
-def asr_path(tid):
-    return _docloc.doc_file(tid, ".asr.json")
+def asr_path(tid, for_write=False):
+    """<id>.asr.json(生出力)のパス(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, ".asr.json", for_write=for_write)
 
 
 def capture_raw(gen, raw, shift=0.0):
@@ -170,5 +171,5 @@ def capture_raw(gen, raw, shift=0.0):
 def write_asr(tid, segments, run):
     """生出力を保存する(run = recognition.runs の1件 = モデル・設定・版)。書けなくても文字起こしは失敗にしない(呼び出し側)"""
     body = {"schema": ASR_SCHEMA, "run": run, "segments": segments, "updatedAt": int(time.time() * 1000)}
-    _fsio.atomic_write(asr_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
+    _fsio.atomic_write(asr_path(tid, for_write=True), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
 

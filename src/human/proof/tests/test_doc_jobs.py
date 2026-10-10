@@ -185,6 +185,34 @@ class TestCarryOverrides(unittest.TestCase):
         doc, _job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}])
         self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 前の文書が評価用でも当てない
 
+    def test_new_doc_goes_to_case_work_dir(self):
+        """新しい文書は ② placement.doc_home が返す 作業用 に置く(索引は TX_DIR)。引き継いだ人の行の控えも同じ場所(RS8 B2-2)"""
+        from ytt import docloc, schemas
+        wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
+        os.makedirs(os.path.dirname(wd))
+        self.put_old()
+        calls = []
+
+        def home(src, out_dir=None, eval_set=False):
+            calls.append((src, eval_set))
+            return wd
+        with mock.patch.object(doc_jobs._placement, "doc_home", home):
+            doc, job = self.run_new([{"id": "s1", "start": 2.5, "end": 4.0, "text": "まって", "speaker": "", "flag": ""}])
+        tid = job["tid"]
+        self.assertEqual(calls, [(self.src, False)])
+        self.assertTrue(os.path.isfile(os.path.join(wd, tid + ".json")))
+        self.assertFalse(os.path.exists(os.path.join(self.workdata.TX_DIR, tid + ".json")))
+        self.assertEqual(docloc.placed(tid), os.path.normpath(wd))
+        self.assertTrue(os.path.isfile(os.path.join(wd, tid + ".over.json")))   # 引き継いだので控えも案件へ
+        self.assertEqual(doc["segments"][0]["text"], "待って")
+
+    def test_eval_doc_asks_with_eval_flag(self):
+        calls = []
+        with mock.patch.object(doc_jobs._placement, "doc_home", lambda src, out_dir=None, eval_set=False: calls.append(eval_set)):
+            _doc, job = self.run_new([{"id": "s1", "start": 0.0, "end": 1.0, "text": "a", "speaker": "", "flag": ""}], {"evalSet": True})
+        self.assertEqual(calls, [True])
+        self.assertTrue(os.path.isfile(os.path.join(self.workdata.TX_DIR, job["tid"] + ".json")))   # None = TX_DIR
+
 
 if __name__ == "__main__":
     unittest.main()

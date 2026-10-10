@@ -290,8 +290,9 @@ MAX_DIAR_OVERLAPS = 5000
 _diar_lock = threading.Lock()
 
 
-def diar_path(tid):
-    return _docloc.doc_file(tid, ".diar.json")
+def diar_path(tid, for_write=False):
+    """<id>.diar.json のパス(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, ".diar.json", for_write=for_write)
 
 
 def read_diar(tid):
@@ -300,7 +301,7 @@ def read_diar(tid):
 
 
 def _diar_put(tid, d):
-    _fsio.atomic_write(diar_path(tid), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
+    _fsio.atomic_write(diar_path(tid, for_write=True), json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
 
 
 def write_diar(tid, run):

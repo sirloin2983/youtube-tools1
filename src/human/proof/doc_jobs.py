@@ -31,7 +31,8 @@ from ytt import txtext as _txtext  # noqa: E402   行を分ける split_segment�
 from ytt import tools as _tools  # noqa: E402   元のファイルの検査と長さ(check_source・media_duration。RS3-0A まで txenv の口)
 from ytt import txwords  # noqa: E402   単語の時刻 read_words(RS6 a-5b に ① records から ytt へ)
 from flow import machine as _machine  # noqa: E402   この PC の設定(llmModel の検査。要求にあれば spec に通す。RS7-1 S6b)
-from flow import tx as _flowtx  # noqa: E402   ② 文字起こしの動詞(transcribe_clip・write_clip_records・dict_pairs・check_model・request_engine。RS6 a-3)
+from flow import placement as _placement  # noqa: E402   新しい文書の置き場所 doc_home(RS8 B2-2)
+from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(transcribe_clip・write_clip_records・dict_pairs・check_model・request_engine。RS6 a-3)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
@@ -411,7 +412,8 @@ def run_job(job):
             if spec.get("evalSet"):
                 doc["evalSet"] = True
             carried = carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(RS6 b-O1。評価用には当てない)
-            store.write_doc(tid, doc)
+            # 書き出し先の案件の動画なら、その 作業用 に置く(② flow/placement.doc_home。評価用・案件でなければ今までどおり transcripts。RS8 B2-2)
+            store.write_doc(tid, doc, _placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
             if carried:
                 _overrides.save_after(tid, doc)
         _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)

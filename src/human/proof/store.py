@@ -17,6 +17,7 @@ import threading
 import uuid
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
+from flow import placement as _placement  # noqa: E402   新しい文書の置き場所 doc_home(RS8 B2-2)
 from flow import pack as _flowpack  # noqa: E402   カットのたたき台・見積もり(RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import docloc as _docloc, tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
@@ -25,10 +26,11 @@ from . import overrides as _overrides  # noqa: E402   校正の上書きの控�
 
 
 # ---------- 文字起こしの保存 ----------
-def _doc_file(tid, suffix):
-    """文書と横のファイルのパス(置き場所は ytt/docloc。索引が無ければ TX_DIR)。id の形が正しくない呼び手には今までどおり TX_DIR の下の名前を返す(検査は呼び手の側)"""
+def _doc_file(tid, suffix, for_write=False):
+    """文書と横のファイルのパス(置き場所は ytt/docloc。索引が無ければ TX_DIR)。id の形が正しくない呼び手には今までどおり TX_DIR の下の名前を返す(検査は呼び手の側)。
+    for_write=True(書く所): 索引があるのに置き場所が見えなければ ApiError(doc_unseen・503)で断る(docloc.doc_dir)"""
     try:
-        return _docloc.doc_file(tid, suffix)
+        return _docloc.doc_file(tid, suffix, for_write=for_write)
     except ValueError:
         return os.path.join(_workdata.TX_DIR, tid + suffix)
 
@@ -37,9 +39,18 @@ def tx_path(tid):
     return _doc_file(tid, ".json")
 
 
-def write_doc(tid, doc):
-    """文書を書く(読みやすい JSON。fsio.atomic_write の fsync_required = 書き出しを確かめてから置き換え。停電のあとに空の文書を残さない)。文書の書き込みはここを通す"""
-    _fsio.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
+def write_doc(tid, doc, folder=None):
+    """文書を書く(読みやすい JSON。fsio.atomic_write の fsync_required = 書き出しを確かめてから置き換え。停電のあとに空の文書を残さない)。文書の書き込みはここを通す。
+    folder = 新しく作る文書を置く 作業用(② flow/placement.doc_home が決める。None = 今までどおり)。あれば docloc.place_new が本体を書いてから索引を書く
+    (置けなければ TX_DIR。RS8 B2-2)。今ある文書の書き直しは folder を渡さない(索引があるのに置き場所が見えなければ断る = for_write)"""
+    body = json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8")
+
+    def _write(path):
+        _fsio.atomic_write(path, body, fsync_required=True)
+    if folder:
+        _docloc.place_new(tid, folder, _write)
+    else:
+        _write(_doc_file(tid, ".json", for_write=True))
 
 
 def snapshot(tid, force=True):
@@ -53,7 +64,7 @@ def snapshot(tid, force=True):
 def backup_doc(tid, kind):
     """機械が行を書き換える前の控え: .bak/<id>.pre-<kind>.json(直前の 1 世代)と履歴(「以前の版に戻す」で戻せる)"""
     try:
-        bak = _docloc.bak_dir(tid)
+        bak = _docloc.bak_dir(tid, for_write=True)
     except ValueError:
         bak = os.path.join(_workdata.TX_DIR, _docloc.BAK_DIR)
     os.makedirs(bak, exist_ok=True)
@@ -289,9 +300,9 @@ HIST_KEEP = 30          # 1本あたりの保持数(古いものから消す)
 _save_lock = threading.Lock()
 
 
-def _hist_dir(tid):
+def _hist_dir(tid, for_write=False):
     try:
-        return _docloc.hist_dir(tid)
+        return _docloc.hist_dir(tid, for_write=for_write)
     except ValueError:
         return os.path.join(_workdata.TX_DIR, _docloc.HIST_DIR, tid)
 
@@ -315,7 +326,7 @@ def hist_snapshot(tid, force=False):
     now = _yschemas.now_ms()
     if not force and stamps and now - stamps[-1] < HIST_INTERVAL * 1000:
         return None
-    d = _hist_dir(tid)
+    d = _hist_dir(tid, for_write=True)
     os.makedirs(d, exist_ok=True)
     ts = now if not stamps or now > stamps[-1] else stamps[-1] + 1
     shutil.copy2(src, os.path.join(d, "%d.json" % ts))
@@ -458,8 +469,9 @@ CUT_TOLERANCE_FRAMES = 0.75   # 行の時間のうち、残す区間に入るの
 _edit_cache = {}   # tid -> ((更新日時ns, 大きさ), 一覧用の要約)
 
 
-def edit_path(tid):
-    return _doc_file(tid, ".edit.json")
+def edit_path(tid, for_write=False):
+    """編集の内容 <id>.edit.json のパス(for_write は _doc_file と同じ = 書く所は True)"""
+    return _doc_file(tid, ".edit.json", for_write)
 
 
 _real = _yschemas.num   # JSON の数(真偽値・文字列・NaN・float にできない巨大な整数は数として扱わない)。-> float か None
@@ -711,7 +723,7 @@ def save_edit(tid, obj):
             raise _errors.ApiError("conflict", "別のタブか窓で、先にカットが保存されています。読み直すか、こちらの内容で上書きするか選んでください", 409, {"rev": rev})
         if broken:   # 壊れたファイルは上書きする前に1つだけ残す(調べられるように)
             try:
-                shutil.copy2(edit_path(tid), _doc_file(tid, ".edit.broken.json"))
+                shutil.copy2(edit_path(tid), _doc_file(tid, ".edit.broken.json", for_write=True))
             except OSError:
                 pass
         now = _yschemas.now_ms()
@@ -727,7 +739,7 @@ def save_edit(tid, obj):
         body = json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8")
         if len(body) > MAX_EDIT_BYTES:
             raise _errors.ApiError("too_big", "区間が多すぎて保存できません", 413)
-        _fsio.atomic_write(edit_path(tid), body, fsync_required=True)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
+        _fsio.atomic_write(edit_path(tid, for_write=True), body, fsync_required=True)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
         if apply_edit_cuts(tid, doc, d):
             write_doc(tid, doc)
         cut_rows = [s.get("id") for s in doc.get("segments") or [] if isinstance(s, dict) and s.get("cutState") == "cut"]
@@ -823,7 +835,7 @@ def record_pack(obj):
         if output is not None:
             pk["output"] = output
         d = dict(cur, packRev=rev, pack=pk)
-        _fsio.atomic_write(edit_path(tid), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
+        _fsio.atomic_write(edit_path(tid, for_write=True), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
         return {"ok": True, "packRev": rev, "at": now}
 
 
@@ -919,6 +931,6 @@ def open_video(req):
         if clip:
             doc["clip"] = clip
         with _save_lock:
-            write_doc(tid, doc)
+            write_doc(tid, doc, _placement.doc_home(src))   # 書き出し先の案件の動画なら、その 作業用 に置く(RS8 B2-2)
     _txbase.log.info("文字起こしせずに開く: %s", os.path.basename(src))
     return {"id": tid, "created": True, "warnings": [warn] if warn else []}

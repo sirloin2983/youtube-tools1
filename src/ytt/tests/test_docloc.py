@@ -219,6 +219,104 @@ class DoclocTest(unittest.TestCase):
         self.assertEqual(docloc.unseen()["count"], 2)
         self.assertEqual(docloc.unseen(os.path.join(self.tmp, "無い")), {"count": 0, "reasons": {}})
 
+    # ---------- 新しい文書を案件に置く(RS8 B2-2) ----------
+    @staticmethod
+    def _writer(body=b"{}"):
+        def write(path):
+            with open(path, "wb") as f:
+                f.write(body)
+        return write
+
+    def test_check_folder(self):
+        self.assertIsNone(docloc.check_folder(self.case))   # 文書が無くてもよい(形だけ)
+        self.assertIsNone(docloc.check_folder(os.path.join(self.tmp, "まだ無い", schemas.WORK_DIR)))
+        self.assertEqual(docloc.check_folder("rel/" + schemas.WORK_DIR), "絶対パスではない")
+        self.assertEqual(docloc.check_folder(None), "絶対パスではない")
+        self.assertEqual(docloc.check_folder("//srv/share/" + schemas.WORK_DIR), "ネットワーク上のパス")
+        self.assertIn("ではない", docloc.check_folder(os.path.join(self.tmp, "out")))
+
+    def test_place_new_into_case(self):
+        new = os.path.join(self.tmp, "out", "別の案件", schemas.WORK_DIR)
+        os.makedirs(os.path.dirname(new))   # 案件の根はある・作業用 はまだ無い
+        path = docloc.place_new(TID, new, self._writer())
+        self.assertEqual(path, os.path.join(os.path.normpath(new), TID + ".json"))
+        self.assertTrue(os.path.isfile(path))
+        self.assertEqual(docloc.placed(TID), os.path.normpath(new))
+        self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".json")))
+        self.assertEqual(docloc.doc_file(TID, ".asr.json", for_write=True), os.path.join(os.path.normpath(new), TID + ".asr.json"))   # 横のファイルも案件へ
+
+    def test_place_new_without_folder_is_tx_dir(self):
+        path = docloc.place_new(TID, None, self._writer())
+        self.assertEqual(path, os.path.join(self.tx, TID + ".json"))
+        self.assertTrue(os.path.isfile(path))
+        self.assertFalse(os.path.exists(docloc.loc_path(TID)))
+
+    def test_place_new_unusable_folder_is_tx_dir(self):
+        gone = os.path.join(self.tmp, "外れた", "案件", schemas.WORK_DIR)   # 案件の根が無い = 作らない
+        for folder in (gone, os.path.join(self.tmp, "out"), "//srv/share/" + schemas.WORK_DIR):
+            path = docloc.place_new(TID, folder, self._writer())
+            self.assertEqual(path, os.path.join(self.tx, TID + ".json"), folder)
+            self.assertFalse(os.path.exists(docloc.loc_path(TID)))
+            os.remove(path)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "外れた")))
+
+    def test_place_new_existing_id_is_not_forked(self):
+        self._doc(self.tx)   # この id の文書がもう TX_DIR にある
+        path = docloc.place_new(TID, self.case, self._writer(b'{"n": 2}'))
+        self.assertEqual(path, os.path.join(self.tx, TID + ".json"))
+        self.assertFalse(os.path.exists(os.path.join(self.case, TID + ".json")))
+
+    def test_place_new_falls_back_when_place_fails(self):
+        with mock.patch.object(docloc, "place", side_effect=OSError("disk")), mock.patch.object(docloc.log, "warning") as warn:
+            path = docloc.place_new(TID, self.case, self._writer())
+        self.assertEqual(path, os.path.join(self.tx, TID + ".json"))
+        self.assertTrue(os.path.isfile(path))
+        self.assertFalse(os.path.exists(os.path.join(self.case, TID + ".json")))   # 作業用 の本体は消す(索引の無い写しを残さない)
+        self.assertFalse(os.path.exists(docloc.loc_path(TID)))
+        self.assertEqual(warn.call_count, 1)
+        self.assertEqual(docloc.doc_dir(TID), self.tx)
+
+    def test_place_new_falls_back_when_write_fails(self):
+        calls = []
+
+        def write(path):
+            calls.append(path)
+            if len(calls) == 1:
+                raise OSError("書けない")
+            self._writer()(path)
+        path = docloc.place_new(TID, self.case, write)
+        self.assertEqual(calls, [os.path.join(os.path.normpath(self.case), TID + ".json"), os.path.join(self.tx, TID + ".json")])
+        self.assertEqual(path, os.path.join(self.tx, TID + ".json"))
+        self.assertFalse(os.path.exists(docloc.loc_path(TID)))
+
+    def test_place_new_bad_id(self):
+        with self.assertRaises(ValueError):
+            docloc.place_new("../x", self.case, self._writer())
+
+    # ---------- 索引があるのに使えないときは書きを断る(読みは TX_DIR に落ちる) ----------
+    def test_for_write_refuses_unusable_index(self):
+        from ytt import errors
+        gone = os.path.join(self.tmp, "外れた", schemas.WORK_DIR)
+        self._loc({"version": 1, "id": TID, "dir": gone})
+        self.assertEqual(docloc.doc_dir(TID), self.tx)   # 読みは今までどおり
+        self.assertEqual(docloc.doc_file(TID, ".json"), os.path.join(self.tx, TID + ".json"))
+        for call in (lambda: docloc.doc_dir(TID, for_write=True), lambda: docloc.doc_file(TID, ".json", for_write=True),
+                     lambda: docloc.doc_file(TID, ".words.json", for_write=True), lambda: docloc.hist_dir(TID, for_write=True),
+                     lambda: docloc.bak_dir(TID, for_write=True), lambda: docloc.place_new(TID, None, self._writer())):
+            with self.assertRaises(errors.ApiError) as cm:
+                call()
+            self.assertEqual((cm.exception.code, cm.exception.status, cm.exception.extra["reason"]), (docloc.UNSEEN_CODE, 503, "文書が無い"))
+        self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".json")))   # TX_DIR に別の文書を作らない
+        self._loc("{壊れた")
+        with self.assertRaises(errors.ApiError):
+            docloc.doc_file(TID, ".json", for_write=True)
+
+    def test_for_write_follows_usable_index_or_tx_dir(self):
+        self.assertEqual(docloc.doc_file(TID, ".json", for_write=True), os.path.join(self.tx, TID + ".json"))   # 索引なし = 今までどおり
+        self._doc(self.case)
+        docloc.place(TID, self.case)
+        self.assertEqual(docloc.doc_file(TID, ".edit.json", for_write=True), os.path.join(os.path.normpath(self.case), TID + ".edit.json"))
+
 
 if __name__ == "__main__":
     unittest.main()

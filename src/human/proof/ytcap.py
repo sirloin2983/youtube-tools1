@@ -454,8 +454,9 @@ def ytcap_diffs(rows, yt_rows):
 
 
 # ---------- ジョブ ----------
-def ytcap_path(tid):
-    return _docloc.doc_file(tid, ".ytcap.json")
+def ytcap_path(tid, for_write=False):
+    """<id>.ytcap.json のパス(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, ".ytcap.json", for_write=for_write)
 
 
 def read_ytcap(tid):
@@ -482,7 +483,7 @@ def run_ytcap(job):
             body = {"schema": YTCAP_SCHEMA, "id": tid, "source": "youtube", "kind": cache["kind"], "lang": cache.get("lang", ""), "videoId": rng["videoId"],
                     "at": _yschemas.now_ms(), "fetchedAt": cache["at"], "offset": rng["offset"], "streamRange": [rng["a"], rng["b"]],
                     "range": [rng["docStart"], rng["docEnd"]], "rows": rows}
-            _fsio.atomic_write(ytcap_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
+            _fsio.atomic_write(ytcap_path(tid, for_write=True), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
         with _ytcap_cache_lock:
             _ytcap_cache.pop(tid, None)
         job["segments"] = len(rows)

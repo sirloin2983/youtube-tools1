@@ -14,8 +14,9 @@ WORDS_SCHEMA = "youtube-tools-words/v1"
 MAX_WORDS_BYTES = 32 * 1024 * 1024
 
 
-def words_path(tid):
-    return _docloc.doc_file(tid, ".words.json")
+def words_path(tid, for_write=False):
+    """<id>.words.json のパス(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, ".words.json", for_write=for_write)
 
 
 def read_words(tid):
@@ -33,8 +34,8 @@ def read_words(tid):
 def write_words(tid, words, model=""):
     """単語の時刻を保存する(空なら消す)。書けなくても文字起こしは失敗にしない(呼び出し側で記録だけ)"""
     if not words:
-        _fsio.unlink_quiet(words_path(tid))
+        _fsio.unlink_quiet(words_path(tid, for_write=True))
         return
     body = {"schema": WORDS_SCHEMA, "model": str(model or ""), "updatedAt": int(time.time() * 1000),
             "words": sorted(words, key=lambda w: (w[0], w[1]))}
-    _fsio.atomic_write(words_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
+    _fsio.atomic_write(words_path(tid, for_write=True), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)

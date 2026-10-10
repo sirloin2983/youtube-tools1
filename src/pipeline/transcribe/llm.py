@@ -320,15 +320,16 @@ def llm_after_doc(job, spec, segs):
     return rec, out["items"]
 
 
-def llm_path(tid):
-    return _docloc.doc_file(tid, ".llm.json")
+def llm_path(tid, for_write=False):
+    """<id>.llm.json のパス(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, ".llm.json", for_write=for_write)
 
 
 def llm_write(tid, rec, items):
     """生の提案・採否を <id>.llm.json に(書けなくても文字起こしは失敗にしない)"""
     body = {"schema": LLM_SCHEMA, "id": tid, "engine": rec.get("engine"), "model": rec.get("model"), "at": int(time.time() * 1000), "items": items or []}
     try:
-        _fsio.atomic_write(llm_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
+        _fsio.atomic_write(llm_path(tid, for_write=True), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
     except OSError as e:
         _txbase.log.warning("LLM の提案を保存できませんでした: %s %s", tid, e)
 

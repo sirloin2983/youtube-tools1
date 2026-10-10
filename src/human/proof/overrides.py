@@ -229,9 +229,9 @@ def merge_speakers(speakers, over, rows):
 
 
 # ---------- <id>.over.json(派生の控え) ----------
-def over_path(tid):
-    """上書きの控え transcripts/<id>.over.json(文書を消すときは一緒に消す)"""
-    return _docloc.doc_file(tid, OVER_SUFFIX)
+def over_path(tid, for_write=False):
+    """上書きの控え transcripts/<id>.over.json(文書を消すときは一緒に消す)(for_write = 書く所。索引があるのに置き場所が見えなければ断る = docloc.doc_dir)"""
+    return _docloc.doc_file(tid, OVER_SUFFIX, for_write=for_write)
 
 
 def clip_key_of(source_path):
@@ -256,7 +256,7 @@ def write(tid, over, clip_key=None, at=None):
         raise ValueError("文書の id が正しくありません")
     body = {"schema": OVER_SCHEMA, "clipKey": clip_key, "rows": list((over or {}).get("rows") or []),
             "speakers": list((over or {}).get("speakers") or []), "at": at or _yschemas.now_ms()}
-    _fsio.atomic_write(over_path(tid), json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8"))
+    _fsio.atomic_write(over_path(tid, for_write=True), json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8"))
     return body
 
 

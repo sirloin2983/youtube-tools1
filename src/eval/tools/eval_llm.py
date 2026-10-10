@@ -28,7 +28,8 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存。src を sys.path に足す)
 from eval.tools import eval_asr as E  # noqa: E402  選び方と採点(score_doc・summarize・compare)
-from pipeline.transcribe import llm as ed_llm  # noqa: E402  本番の規則(別名 ed_llm のまま = main の中に局所の llm がある。2026-10-10 の RS2-9 に src/editor/ed_llm.py から pipeline/transcribe/llm.py へ移した。規則の部分は編集のほかの部品を読まない)
+from ytt import docloc  # noqa: E402  文書の置き場所(案件の 作業用 に置いた文書の横のファイルも引く。RS8 B2-2)
+from pipeline.transcribe import llm as ed_llm  # noqa: E402 本番の規則(別名 ed_llm のまま = main の中に局所の llm がある。2026-10-10 の RS2-9 に src/editor/ed_llm.py から pipeline/transcribe/llm.py へ移した。規則の部分は編集のほかの部品を読まない)
 
 LOW_PROB = 0.35          # whisper の語の確信度がこれ未満なら疑わしい(この道具だけ)
 fold = ed_llm.llm_fold
@@ -169,7 +170,7 @@ def main(argv=None):
     recs, rows_of = [], {}
     try:
         for n, d in enumerate(docs, 1):
-            asr = C.read_json(os.path.join(data, "transcripts", d["id"] + ".asr.json"), None, 64 * 1024 * 1024)
+            asr = C.read_json(docloc.doc_file(d["id"], ".asr.json", data), None, 64 * 1024 * 1024)   # 案件の 作業用 に置いた文書も(索引があれば)
             raw = asr.get("segments") if isinstance(asr, dict) and isinstance(asr.get("segments"), list) else []
             rows_of[d["id"]], rec = run_doc(d, raw, members, ask, args.limit, only)
             recs.append(rec)

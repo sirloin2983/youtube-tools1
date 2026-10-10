@@ -6,7 +6,8 @@ Runner(flow/run.py)の段は、ツールの仕事を self.tools.<動詞>(...) �
   LocalTools()      … 入口なしで動かす最小の形(あとで CLI が使う)。文字起こし = ② flow/tx の動詞を同じスレッドで(ジョブの表は通さない。
                       重い処理の枠 ytt.jobs.SLOTS は取る)・パック = ① pipeline/pack の plan_cut → build_pack を直に。
                       解析・採用・書き出し・話者分離・配信の読みは作っていない(呼ぶと「入口に頼んでください」の StepError)。
-                      文書は作業データ(ytt/workdata の TX_DIR。呼ぶ側が先に決める)に ② の write_machine_doc で書く。人のカット(edit.json)は読まない
+                      文書は作業データ(ytt/workdata の TX_DIR。呼ぶ側が先に決める)に ② の write_machine_doc で書く(書き出し先の案件の動画なら
+                      その 作業用 に置いて索引を TX_DIR に = placement.doc_home。RS8 B2-2)。人のカット(edit.json)は読まない
 HttpTools の動詞の名前と返す形が「段が道具に頼むこと」の一覧(LocalTools は同じ名前で同じ形を返す)。
 """
 import json
@@ -21,7 +22,7 @@ from ytt import colors as _colors, docloc as _docloc, errors as _errors, fsio as
 from ytt import txbase as _txbase, txtext as _txtext, workdata as _workdata
 
 from . import jobs as _jobs, keys as _keys, pack as _flowpack, tx as _tx
-from . import machine as _machine, spec as _spec
+from . import machine as _machine, placement as _placement, spec as _spec
 
 
 class HttpTools:
@@ -238,7 +239,8 @@ class LocalTools:
             learned = self.learning.learned() if self.learning is not None and spec.get("autoLearned") else None
             clip = _tx.transcribe_clip(job, spec, wav, _tx.dict_pairs(spec), learned)
             tid = uuid.uuid4().hex[:12]
-            _tx.write_machine_doc(tid, clip["fields"], spec)
+            # 書き出し先の案件の動画なら、その 作業用 に置く(評価用・案件でなければ今までどおり transcripts。RS8 B2-2)
+            _tx.write_machine_doc(tid, clip["fields"], spec, _placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
             _tx.write_clip_records(tid, clip, spec)
             _jobs.job_done(job, tid)
 

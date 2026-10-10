@@ -95,6 +95,20 @@ class TestTranscribe(_Env):
         with self.assertRaises(errors.ApiError):
             tx.write_machine_doc("../x", clip["fields"])
 
+    def test_machine_doc_into_case_folder(self):
+        """folder(placement.doc_home が決めた 作業用)を渡すと、本体を案件に書いてから索引を TX_DIR に(RS8 B2-2)"""
+        from ytt import docloc, schemas
+        _job, clip = self.clip()
+        wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
+        os.makedirs(os.path.dirname(wd))
+        path = tx.write_machine_doc("abc123def456", clip["fields"], SPEC, wd)
+        self.assertEqual(path, os.path.join(os.path.normpath(wd), "abc123def456.json"))
+        self.assertEqual(docloc.placed("abc123def456"), os.path.normpath(wd))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "abc123def456.json")))
+        tx.write_clip_records("abc123def456", clip, SPEC)   # 横のファイルは索引に従って案件へ
+        self.assertTrue(os.path.isfile(os.path.join(wd, "abc123def456.asr.json")))
+        self.assertTrue(os.path.isfile(os.path.join(wd, "abc123def456.transcribe.key.json")))
+
 
 class TestSmallVerbs(_Env):
     def test_check_model(self):
