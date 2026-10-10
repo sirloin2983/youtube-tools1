@@ -7,9 +7,8 @@ import threading
 import uuid
 
 import analyze
-import common
-from common import ApiError
-from ytt import jobs, schemas  # common が ytt_core を読めるようにしてある
+from ytt import jobs, procs as _procs, schemas, studio_env as _env  # src は serve(とスタジオの common)が sys.path に足してある
+from ytt.errors import ApiError
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
@@ -84,7 +83,7 @@ class Batch:
     def add(self, items, settings):
         if not isinstance(items, list) or not items:
             raise ApiError("bad_request", "解析する配信を指定してください", 400)
-        if not common.fake() and not common.find_tool("ffmpeg"):
+        if not _env.fake() and not _env.find_tool("ffmpeg"):
             raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
         settings = analyze.validate_settings(settings)
         added, rejected = [], []
@@ -95,7 +94,7 @@ class Batch:
                 label = (str(raw.get("path") if raw.get("kind") == "file" else (raw.get("url") or raw.get("videoId")) or "")[:200]) if isinstance(raw, dict) else ""
                 try:
                     src = analyze.validate_source(raw)
-                    if src["kind"] == "youtube" and not common.fake() and not common.find_tool("yt-dlp"):
+                    if src["kind"] == "youtube" and not _env.fake() and not _env.find_tool("yt-dlp"):
                         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
                 except ApiError as e:
                     rejected.append({"input": label, "reason": e.message})
@@ -183,7 +182,7 @@ class Batch:
 
     def shutdown(self, reason="終了のため中断しました"):
         """終了の流れ用(serve.shutdown_jobs): 待ちの配信を「中止」にして取り除き、実行中の解析に中止を伝える(待たない)。
-        子プロセスは common.stop_children がまとめて止める。中断した配信の名前の一覧を返す"""
+        子プロセスは procs.stop_children がまとめて止める。中断した配信の名前の一覧を返す"""
         out = []
         with self.cv:
             self.closing = True

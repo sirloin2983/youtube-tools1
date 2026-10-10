@@ -20,11 +20,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-import common
-from common import ApiError, Cancelled, atomic_write, get_api_key
-from ytt import fsio as _fsio  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from pipeline.ingest import sources as _src  # noqa: E402  動画 ID の形・動画のページ(RS3-4 にスタジオの common から)
+from ytt import apikey as _key, fsio as _fsio, studio_env as _env  # noqa: E402  (src は serve とスタジオの common が sys.path に足してある)
+from ytt.errors import ApiError, Cancelled  # noqa: E402
 
-API_BASE = common.YT_API_BASE
+API_BASE = _src.YT_API_BASE
 NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
 CHID_RE = re.compile(r"^UC[\w-]{22}\Z", re.ASCII)
 HANDLE_RE = re.compile(r"^@[\w.\-]{3,60}\Z")
@@ -34,7 +34,7 @@ MAX_AGENCIES, MAX_CHANNELS = 30, 400
 MAX_PAGES = 40            # 1チャンネルあたり、アップロード一覧を最大40ページ(=2000本)
 WORKERS = 4
 CACHE_TTL = 1800
-SEED = os.path.join(common.CODE_DIR, "seed.json")
+SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣。RS3-5 で動かすときも一緒に)
 FATAL = ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission")   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
 
 _quota = 0
@@ -45,7 +45,7 @@ _cache_lock = threading.Lock()
 
 
 def registry_path():
-    return common.p("registry.json")
+    return _env.p("registry.json")
 
 
 def quota():
@@ -57,9 +57,9 @@ def yt_get(path, params):
     global _quota
     with _quota_lock:
         _quota += 1
-    if common.fake():
+    if _env.fake():
         return fake_get(path, params)
-    key, _ = get_api_key()
+    key, _ = _key.get_api_key()
     if not key:
         raise ApiError("no_key", "API キーが未設定です(設定の「YouTube Data API キー」で入れてください)", 400)
     url = API_BASE + path + "?" + urllib.parse.urlencode({**params, "key": key})
@@ -280,7 +280,7 @@ def load_registry():
     except OSError as e:
         # 一時的に開けない(Windows のウイルス対策のロックなど)ときは退避も seed への切り替えもしない
         # (seed で続けると、解決・取り込みの保存で登録が上書きされるため)
-        common.log_failure("registry.json の読み込み", e)
+        _env.log_failure("registry.json の読み込み", e)
         raise ApiError("registry_read", "事務所の登録を読み込めませんでした。少し待ってからもう一度試してください", 500, {"detail": "registry.json: %s" % (e.strerror or e.__class__.__name__)})   # ファイル名は「元のメッセージ」へ(見直し S4)
     return sanitize_registry(_fsio.read_json_or(SEED, {}))   # 読めなければ事務所なし
 
@@ -291,13 +291,13 @@ def _quarantine_registry(path, error):
     try:
         if not os.path.exists(dst):
             os.replace(path, dst)
-        common.log_failure("registry.json が壊れていたため %s に退避しました" % os.path.basename(dst), error)
+        _env.log_failure("registry.json が壊れていたため %s に退避しました" % os.path.basename(dst), error)
     except OSError as e:
-        common.log_failure("壊れた registry.json を退避できませんでした", e)
+        _env.log_failure("壊れた registry.json を退避できませんでした", e)
 
 
 def save_registry(reg):
-    atomic_write(registry_path(), json.dumps(reg, ensure_ascii=False, indent=1).encode("utf-8"))
+    _fsio.atomic_write(registry_path(), json.dumps(reg, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
 def _soft(fn, default, on_err=None):
@@ -600,7 +600,7 @@ def run_search(job, spec):
             out.append({"id": a["id"], "name": a["name"], "channels": sum(1 for c in a["channels"] if c["status"] == "ok"), "unresolved": sum(1 for c in a["channels"] if c["status"] != "ok"),
                         "scanned": scanned[a["id"]], "matched": len(rows),
                         "items": [{"id": r["id"], "title": r["title"], "channel": r["channel"], "channelId": r["channelId"], "views": r["views"], "likes": r["likes"], "comments": r["comments"],
-                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": common.watch_url(r["id"]), "thumb": r["thumb"]}
+                                   "at": r["at"].astimezone(JST).strftime("%Y-%m-%d %H:%M"), "dur": r["dur"], "url": _src.watch_url(r["id"]), "thumb": r["thumb"]}
                                   for r in rows[:spec["top"]]]})
         job["result"] = {"agencies": out, "warnings": warns[:30], "unresolved": unresolved, "quota": _quota - q0, "videos": len(vids)}
         job["state"], job["phase"], job["progress"] = "done", "完了", 1.0
@@ -678,7 +678,7 @@ def _ms(dt):
 def live_row(it, now):
     """videos.list の1件 → 一覧の1行(配信中・24 時間以内の予定でなければ None)。外から来る文字は長さを切る"""
     vid = str(it.get("id") or "")
-    if not common.VID_RE.match(vid):
+    if not _src.VID_RE.match(vid):
         return None
     sn, ld = it.get("snippet") or {}, it.get("liveStreamingDetails") or {}
     kind = sn.get("liveBroadcastContent")
@@ -708,7 +708,7 @@ def live_row(it, now):
         blocked = "age"
     return {"id": vid, "title": title, "channel": str(sn.get("channelTitle") or "")[:LIVE_NAME_MAX], "channelId": cid if CHID_RE.match(cid) else "",
             "state": "live" if kind == "live" else "upcoming", "start": _ms(start), "viewers": viewers, "thumb": thumb,
-            "url": common.watch_url(vid), "blocked": blocked}
+            "url": _src.watch_url(vid), "blocked": blocked}
 
 
 def _live_fetch(ids):

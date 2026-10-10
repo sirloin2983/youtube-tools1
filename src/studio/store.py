@@ -19,9 +19,10 @@ import threading
 import time
 
 import analyze
-import common
-from common import ApiError, atomic_write
-from ytt import fsio as _fsio, schemas, settings as _settings  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from pipeline.ingest import sources as _src  # noqa: E402  入力の判定(RS3-4 にスタジオの common から)
+from ytt import fsio as _fsio, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402  (src は serve とスタジオの common が sys.path に足してある)
+from ytt.errors import ApiError  # noqa: E402
+from ytt.textutil import num  # noqa: E402  純粋な関数
 
 SCHEMA = "clip-studio/v1"
 ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
@@ -411,7 +412,7 @@ class SeriesCache(dict):
         if not p or val is None:
             return
         try:
-            atomic_write(p, json.dumps(val, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))   # フォルダは atomic_write が作る
+            _fsio.atomic_write(p, json.dumps(val, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))   # フォルダは atomic_write が作る
         except OSError:
             return   # 保存に失敗してもメモリには残る
         analyze.prune_cache(self.folder, "*.json", SERIES_KEEP)   # 古いものから消して SERIES_KEEP 本に
@@ -445,7 +446,7 @@ class Store:
         self.ui_path = os.path.join(os.path.dirname(path), "settings-ui.json")
         self.lock = threading.RLock()
         # 画面の設定(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり。S4 2026-10-09)
-        self.ui_file = _settings.SettingsFile(self.ui_path, max_bytes=UI_MAX_BYTES, writer=lambda p, b: atomic_write(p, b), indent=None, lock=self.lock)
+        self.ui_file = _settings.SettingsFile(self.ui_path, max_bytes=UI_MAX_BYTES, writer=lambda p, b: _fsio.atomic_write(p, b), indent=None, lock=self.lock)
         self.videos = {}
         self.groups = {}   # コラボグループ: グループID → {id, name, base, members, offsets, createdAt, updatedAt}
         self.series = SeriesCache(os.path.join(os.path.dirname(path), "cache", "series"))   # 動画ID → 盛り上がりグラフ(ファイルにも保存)
@@ -511,14 +512,14 @@ class Store:
         live = None
         if v["kind"] == "live":   # ライブの録画: id は録画の id と同じ。形が合わなければこの1件だけ読み飛ばす
             try:
-                live = common.check_live(v.get("live"))
+                live = _src.check_live(v.get("live"))
             except ApiError as e:
                 raise ValueError("live が正しくありません: %s" % e.message)
             if live["recording"] != vid:
                 raise ValueError("live の録画 ID が id と違います")
         an = v.get("analysis")
         out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
-               "duration": common.num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
+               "duration": num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
                "path": v["path"] if v["kind"] == "file" else "", "marks": _drop_archived(load_marks(v.get("marks")), v["kind"]),
                "analysis": an if isinstance(an, dict) else None, "rev": v["rev"] if _pos_int(v.get("rev")) else 1,
                "createdAt": _ms_or_now(v.get("createdAt")), "updatedAt": _ms_or_now(v.get("updatedAt"))}
@@ -560,9 +561,9 @@ class Store:
                     shutil.copyfile(self.path, self.path + ".bak")   # 1つ前の世代(できなくても保存は続ける)
                 except OSError:
                     pass
-            atomic_write(self.path, data)
+            _fsio.atomic_write(self.path, data)
         except OSError as e:
-            common.log_failure("動画・マークの保存", e)
+            _env.log_failure("動画・マークの保存", e)
             raise ApiError("save_failed", SAVE_ERR, 500)
         self.videos = videos
         self.groups = groups
@@ -643,8 +644,8 @@ class Store:
         vid = src["videoId"]
         dur = 0.0
         if src["kind"] == "file" and probe and not self.has(vid):
-            d = common.media_info(src["path"])[0]
-            if common.find_tool("ffmpeg") and d is None:
+            d = _media.media_info(src["path"])[0]
+            if _env.find_tool("ffmpeg") and d is None:
                 raise ApiError("bad_source", "動画・音声として読み取れないファイルです", 400)
             dur = float(d or 0)
         with self.lock:

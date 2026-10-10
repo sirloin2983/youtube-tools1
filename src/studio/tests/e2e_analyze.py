@@ -3,6 +3,7 @@
 import json, math, os, random, shutil, struct, sys, tempfile, wave
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
 import analyze, common
 
 DUR, LAG = 1500, 14

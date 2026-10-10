@@ -7,8 +7,7 @@
 """
 import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt_core.runtime も同じモジュールを使う)
 
-import common
-from ytt import fsio, runtime, schemas
+from ytt import fsio, runtime, schemas, studio_env as _env
 
 TOOL = {"name": runtime.TOOL_APPS["studio"], "version": ""}   # 版は serve.py が SERVER_VERSION を入れる(版の正は serve.py のまま)
 TOOL_APPS = runtime.TOOL_APPS
@@ -37,7 +36,7 @@ def write_clip_manifest(media_path, **kw):
 # ---------- 実行中のポートの共有(.runtime) ----------
 def runtime_dir():
     """<studio の1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)。"""
-    return runtime.runtime_dir(common.CODE_DIR)
+    return runtime.runtime_dir(_env.code_dir())
 
 
 def write_runtime(tool, port, version, path="/"):
@@ -47,7 +46,7 @@ def write_runtime(tool, port, version, path="/"):
         return None
     path = runtime.write_runtime(runtime_dir(), tool, port, version, path)
     if path is None:
-        common.log_failure(".runtime の書き込み", OSError("%s に書けません" % runtime_dir()))
+        _env.log_failure(".runtime の書き込み", OSError("%s に書けません" % runtime_dir()))
     return path
 
 

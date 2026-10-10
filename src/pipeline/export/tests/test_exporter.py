@@ -454,7 +454,7 @@ class TestBuildSpecIds(unittest.TestCase):
         class S:
             def internal(self, vid):
                 return {"id": "-o /tmp/x", "kind": "youtube", "marks": [{"id": "m1", "start": 0, "end": 1, "label": ""}], "title": "", "fileName": "", "path": ""}
-        with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(exporter, "find_tool", return_value="/bin/true"):
+        with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(common, "find_tool", return_value="/bin/true"):
             with self.assertRaises(common.ApiError) as cm:
                 exporter.build_spec(S(), {"id": "x", "markIds": ["m1"]})
         self.assertIn("配信の ID", cm.exception.message)   # 0.22.3: 配信の意味の「動画」は「配信」(見直し S5)
@@ -732,7 +732,7 @@ class TestLiveSection(unittest.TestCase):
         self.log = os.path.join(self.tmp, "ytdlp-args.jsonl")
         real = common.find_tool
         self.patches = [patch.dict(os.environ, {"STUDIO_FAKE": "0", "FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_PREROLL": ""}),
-                        patch.object(exporter, "find_tool", lambda n: "yt-dlp" if n == "yt-dlp" else real(n)),   # 本物の yt-dlp が無くても組み立てられる
+                        patch.object(common, "find_tool", lambda n: "yt-dlp" if n == "yt-dlp" else real(n)),   # 本物の yt-dlp が無くても組み立てられる
                         patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake])]
         for p in self.patches:
             p.start()

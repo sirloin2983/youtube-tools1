@@ -18,8 +18,7 @@ import threading
 import time
 import traceback
 
-from . import datadir as _datadir, errors, fsio as _fsio, layout as _layout, tools as _tools
-from .textutil import redact
+from . import datadir as _datadir, errors, fsio as _fsio, layout as _layout, textutil as _textutil, tools as _tools
 
 _code_dir = _layout.tool_dir("studio")   # スタジオのフォルダ(コード・静的ファイル)。スタジオの common.py が set_code_dir で正しい場所を入れる
 _home = _datadir.override("studio") or os.path.abspath(_code_dir)   # data.json などの置き場所
@@ -102,7 +101,7 @@ def log_failure(context, error):
             rotate_log(path, 1024 * 1024)
             with open(path, "a", encoding="utf-8") as f:
                 detail = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-                f.write("[%s] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), context, redact(detail)))
+                f.write("[%s] %s\n%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), context, _textutil.redact(detail)))
     except OSError:
         pass
 

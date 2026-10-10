@@ -18,14 +18,15 @@ import urllib.parse
 import urllib.request
 import uuid
 
-import common
-from common import ApiError, Cancelled, atomic_write, find_tool, get_api_key, num, redact, run_capture, tail_reason, fmt_ms
 from pipeline.analyze import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式)
-from ytt import fsio as _fsio  # noqa: E402
+from pipeline.ingest import sources as _src  # 入力の判定(RS3-4 にスタジオの common から)
+from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
+from ytt.errors import ApiError, Cancelled
+from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, redact, tail_reason   # 純粋な関数(差し替えない)
 from pipeline.analyze.excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
                              chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
 
-API_BASE = common.YT_API_BASE
+API_BASE = _src.YT_API_BASE
 CHAT_CACHE_KEEP = 30
 # チャットのキャッシュの合計の上限(2026-09-30。件数だけでは、実機で 30 件・2.0GB になっていた)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
 CHAT_CACHE_MAX_BYTES = 1024 ** 3
@@ -44,19 +45,19 @@ SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "he
 
 
 def work_dir():
-    return common.p("work")
+    return _env.p("work")
 
 
 def chat_cache_dir():
-    return common.p("cache", "chat")
+    return _env.p("cache", "chat")
 
 
 def sig_cache_dir():
-    return common.p("cache", "signals")   # 音量の解析結果(動画IDごと)。感度・長さ・重みを変えた再解析で使い回す
+    return _env.p("cache", "signals")   # 音量の解析結果(動画IDごと)。感度・長さ・重みを変えた再解析で使い回す
 
 
 def feedback_path():
-    return common.p("feedback.jsonl")
+    return _env.p("feedback.jsonl")
 
 
 # ---------- 入力の検査 ----------
@@ -65,7 +66,7 @@ LIVE_NO_ANALYZE = "ライブの録画は解析できません(配信が終わっ
 
 def validate_live(o):
     """POST /api/videos/open {kind:"live", recorder, recording, url, title} → store.ensure に渡す source 辞書(id = 録画の id)。不正は ApiError。"""
-    lv = common.check_live(o)
+    lv = _src.check_live(o)
     return {"kind": "live", "videoId": lv["recording"], "name": lv["recording"], "live": lv}
 
 
@@ -74,11 +75,11 @@ def validate_source(item):
     if not isinstance(item, dict):
         raise ApiError("bad_source", "入力が正しくありません", 400)
     if item.get("kind") == "file":
-        p = common.check_media_path(item.get("path"))
-        return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": common.file_video_id(p)}
-    if item.get("kind") == "live" or common.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
+        p = _src.check_media_path(item.get("path"))
+        return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": _src.file_video_id(p)}
+    if item.get("kind") == "live" or _src.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
         raise ApiError("bad_source", LIVE_NO_ANALYZE, 400)   # ライブの録画は、YouTube としても file としても解析へ進めない(yt-dlp を呼ばない)
-    vid = common.parse_video_id(item.get("url") or item.get("videoId"))
+    vid = _src.parse_video_id(item.get("url") or item.get("videoId"))
     if not vid:
         raise ApiError("bad_source", "YouTube の動画URLではありません(watch?v=… / youtu.be/… / live/…)", 400)
     return {"kind": "youtube", "videoId": vid, "name": vid}
@@ -121,7 +122,7 @@ def chat_public(c):
 def cancel_job(job):
     job["cancel"] = True
     for k in ("proc", "proc2", "proc3"):
-        common.terminate(job.get(k))
+        _procs.terminate(job.get(k))
 
 
 def skip_chat(job):
@@ -129,7 +130,7 @@ def skip_chat(job):
     c = job.get("chat")
     if c and c["state"] == "running":
         c["skip"] = True
-        common.terminate(job.get("proc2"))
+        _procs.terminate(job.get("proc2"))
         return True
     return False
 
@@ -176,7 +177,7 @@ def _feedback_write(row):
                 _move_feedback_to_old(path)
             _append_line(path, json.dumps(row, ensure_ascii=False) + "\n")
         except OSError as e:
-            common.log_failure("feedback.jsonl への記録", e)
+            _env.log_failure("feedback.jsonl への記録", e)
             return False
     return True
 
@@ -265,19 +266,19 @@ def _move_feedback_to_old(path):
 
 # ---------- 素材の取得(YouTube) ----------
 def download_audio(job, vid, wdir):
-    if common.fake():
-        return common.fake_media()
-    yt = find_tool("yt-dlp")
+    if _env.fake():
+        return _env.fake_media()
+    yt = _env.find_tool("yt-dlp")
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", find_tool("ffmpeg") or "", "-f", "ba/b", "-o", common.ytdlp_out(wdir, "audio.%(ext)s"),
-           "--", common.watch_url(vid)]
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _src.ytdlp_out(wdir, "audio.%(ext)s"),
+           "--", _src.watch_url(vid)]
 
     def on(line):
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
         if m:
             job["progress"] = 0.02 + 0.10 * float(m.group(1)) / 100
-    rc, err = run_capture(job, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
+    rc, err = _procs.run_capture(job, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
     files = [f for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
     if rc != 0 or not files:
         raise ApiError("download", "音声を取得できませんでした: " + (tail_reason(err) or "不明なエラー"), 502)
@@ -399,7 +400,7 @@ def load_sig(vid):
 def save_sig(vid, dur, full, band):
     try:
         data = {"v": 1, "dur": round(dur, 2), "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band]}
-        atomic_write(sig_path(vid), json.dumps(data, separators=(",", ":")).encode("utf-8"))   # 一時ファイル名を固定しない・Windows のロックは再試行
+        _fsio.atomic_write(sig_path(vid), json.dumps(data, separators=(",", ":")).encode("utf-8"))   # 一時ファイル名を固定しない・Windows のロックは再試行
         prune_cache(sig_cache_dir(), "*.json")
     except OSError:
         pass
@@ -409,7 +410,7 @@ def download_chat(job, vid, wdir, timeout):
     """チャットのリプレイ(live_chat)。取れなければ (None, 理由)。
     完走したものは cache/chat/<動画ID> に残す(途中で打ち切ったものは残さない)。"""
     c = job["chat"]
-    if common.fake():
+    if _env.fake():
         p = os.environ.get("STUDIO_FAKE_CHAT", "")
         return (p, "") if os.path.isfile(p) else (None, "疑似モード: チャットなし")
     cp = chat_cache_path(vid)
@@ -434,10 +435,10 @@ def download_chat(job, vid, wdir, timeout):
                 c["cached"] = c["prefetched"] = True
                 return cp, ""
             return None, pf["why"] or "チャットのリプレイを取得できませんでした"
-    yt = find_tool("yt-dlp")
+    yt = _env.find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", common.ytdlp_out(wdir, "chat.%(ext)s"), "--", common.watch_url(vid)]
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _src.ytdlp_out(wdir, "chat.%(ext)s"), "--", _src.watch_url(vid)]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)
@@ -449,7 +450,7 @@ def download_chat(job, vid, wdir, timeout):
     threading.Thread(target=watch, daemon=True).start()
     t0 = time.time()
     try:
-        rc, err = run_capture(job, cmd, None, timeout=timeout, slot="proc2")
+        rc, err = _procs.run_capture(job, cmd, None, timeout=timeout, slot="proc2")
     finally:
         stop.set()
     if c["skip"]:
@@ -466,7 +467,7 @@ def download_chat(job, vid, wdir, timeout):
             os.makedirs(chat_cache_dir(), exist_ok=True)
             tmp = cp + ".tmp"
             shutil.copyfile(files[0], tmp)
-            common.replace_file(tmp, cp)
+            _fsio.replace_retry(tmp, cp)
             prune_chat_cache()
         except OSError:
             pass
@@ -484,7 +485,7 @@ PREFETCH = {}   # 動画ID -> {"job", "done": Event, "why", "path"}
 
 def prefetch_chat(vid, timeout, on_done=None):
     """"started" / "full"(先読みの枠がいっぱい)/ "skip"(すでに取得済み・取得中、または使えない)。"""
-    if common.fake() or not isinstance(vid, str) or not common.VID_RE.match(vid):   # ASCII の 11 文字だけ(以前は全角の英字なども通っていた)
+    if _env.fake() or not isinstance(vid, str) or not _src.VID_RE.match(vid):   # ASCII の 11 文字だけ(以前は全角の英字なども通っていた)
         return "skip"
     with _pf_lock:
         if vid in PREFETCH:
@@ -493,7 +494,7 @@ def prefetch_chat(vid, timeout, on_done=None):
             return "full"
         if _usable_chat(chat_cache_path(vid)):
             return "skip"
-        if not find_tool("yt-dlp"):
+        if not _env.find_tool("yt-dlp"):
             return "skip"
         pjob = {"cancel": False, "proc": None, "proc2": None, "prefetch": True,
                 "chat": {"state": "running", "t0": time.time(), "t1": None, "bytes": 0, "skip": False, "cached": False}}
@@ -532,11 +533,11 @@ def cancel_prefetch(vid, kill=True):
         pf["job"]["cancel"] = True
         if kill:
             for k in ("proc", "proc2"):
-                common.terminate(pf["job"].get(k))
+                _procs.terminate(pf["job"].get(k))
 
 
 def cancel_all_prefetch():
-    """終了の流れ用: 先読みをすべて中止する(止める依頼だけ。子プロセスは common.stop_children がまとめて止める)。中止した数"""
+    """終了の流れ用: 先読みをすべて中止する(止める依頼だけ。子プロセスは procs.stop_children がまとめて止める)。中止した数"""
     with _pf_lock:
         vids = list(PREFETCH)
     for vid in vids:
@@ -569,14 +570,14 @@ TS_RE = re.compile(r"(?<![\d:])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)(?![\d:])")
 
 def fetch_comments(vid, dur, texts=None):
     """動画コメント欄から [(秒, いいね数)]。APIキーが無い・失敗のときは (None, 理由)。"""
-    if common.fake():
+    if _env.fake():
         p = os.environ.get("STUDIO_FAKE_COMMENTS", "")
         if not os.path.isfile(p):
             return None, "疑似モード: コメントなし"
         with open(p, encoding="utf-8") as f:
             threads = json.load(f)
         return stamps_from(threads, dur, texts), ""
-    key = get_api_key()[0]
+    key = _key.get_api_key()[0]
     if not key:
         return None, "APIキーが未設定のため、コメント欄は使っていません(任意)"
     items, token = [], None
@@ -629,7 +630,7 @@ def stamps_from(items, dur, texts=None):
 
 # ---------- 動画の付加情報(みんなが繰り返し見た場面・チャプター・カテゴリなど。記録用) ----------
 def meta_dir():
-    return common.p("cache", "meta")
+    return _env.p("cache", "meta")
 
 
 def slim_meta(d):
@@ -684,7 +685,7 @@ def load_meta(vid):
 
 def fetch_meta(job, vid):
     """(付加情報 or None, 理由)。失敗しても解析には影響しない。24時間以内に取得済みならそれを使う。"""
-    if common.fake():
+    if _env.fake():
         p = os.environ.get("STUDIO_FAKE_META", "")
         if not os.path.isfile(p):
             return None, "疑似モード: 付加情報なし"
@@ -693,12 +694,12 @@ def fetch_meta(job, vid):
     cached = load_meta(vid)
     if cached:
         return cached, ""
-    yt = find_tool("yt-dlp")
+    yt = _env.find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つかりません"
     buf = []
     try:
-        rc, err = run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", common.watch_url(vid)],
+        rc, err = _procs.run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _src.watch_url(vid)],
                               lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, slot="proc3", what="動画情報の取得")
     except ApiError as e:
         return None, e.message
@@ -710,7 +711,7 @@ def fetch_meta(job, vid):
         return None, "動画情報を読み取れませんでした"
     if m:
         try:
-            atomic_write(os.path.join(meta_dir(), vid + ".json"), json.dumps(m, ensure_ascii=False).encode("utf-8"))
+            _fsio.atomic_write(os.path.join(meta_dir(), vid + ".json"), json.dumps(m, ensure_ascii=False).encode("utf-8"))
             prune_cache(meta_dir(), "*.json", META_KEEP)
         except OSError:
             pass
@@ -739,7 +740,7 @@ ARCHIVE_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
 
 
 def archive_path(vid):
-    return common.p("archive", vid + ".json.gz") if isinstance(vid, str) and ARCHIVE_ID_RE.match(vid) else None
+    return _env.p("archive", vid + ".json.gz") if isinstance(vid, str) and ARCHIVE_ID_RE.match(vid) else None
 
 
 def load_archive(vid):
@@ -762,7 +763,7 @@ def save_archive(vid, payload, run, keep=ARCHIVE_KEEP):
     runs = [r for r in runs if isinstance(r, dict)] if isinstance(runs, list) else []   # 壊れた履歴で保存が毎回失敗し続けないように
     payload = dict(payload, v=1, videoId=vid, runs=runs[-4:] + [run])
     try:
-        atomic_write(p, gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 6))
+        _fsio.atomic_write(p, gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 6))
         fs = sorted((os.path.getmtime(q), q) for q in glob.glob(os.path.join(glob.escape(os.path.dirname(p)), "*.json.gz")))
         for _, q in fs[:-keep]:
             os.remove(q)
@@ -774,7 +775,7 @@ def save_archive(vid, payload, run, keep=ARCHIVE_KEEP):
 # ---------- 解析 ----------
 def audio_levels(job, path, dur, hp=None, p0=0.12, p1=0.42):
     """1秒ごとの音量(RMS, dB)を ffmpeg で求める。hp を指定すると、その周波数より上だけを測る。"""
-    ff = find_tool("ffmpeg")
+    ff = _env.find_tool("ffmpeg")
     if not ff:
         raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)")
     filt = "aresample=16000," + ("highpass=f=%d," % hp if hp else "") + "asetnsamples=n=16000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-"
@@ -790,7 +791,7 @@ def audio_levels(job, path, dur, hp=None, p0=0.12, p1=0.42):
             vals.append(-90.0 if x != x or x < -90 else x)
             if len(vals) % 60 == 0 and dur:
                 job["progress"] = p0 + (p1 - p0) * min(1.0, len(vals) / dur)
-    rc, err = run_capture(job, [ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path, "-vn", "-af", filt, "-f", "null", "-"], on, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析")
+    rc, err = _procs.run_capture(job, [ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path, "-vn", "-af", filt, "-f", "null", "-"], on, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析")
     if rc != 0 or not vals:
         raise ApiError("audio", "音声を解析できませんでした: " + (tail_reason(err) or "音声トラックがない可能性があります"), 400)
     return vals
@@ -849,11 +850,11 @@ def _levels(job, spec, src, wdir, warnings):
         warnings.append("音量の解析は前回の結果を再利用しました(最初からやり直すには、詳しい設定の「キャッシュを使わない」をオン)")
     else:
         media = src["path"] if src["kind"] == "file" else download_audio(job, src["videoId"], wdir)
-        dur, _v, has_audio, _l = common.media_info(media)   # 長さと音声の有無を1回で(ffmpeg が無ければ dur が None になり、下で止まる)
+        dur, _v, has_audio, _l = _media.media_info(media)   # 長さと音声の有無を1回で(ffmpeg が無ければ dur が None になり、下で止まる)
         if not dur or dur < 20:
             raise ApiError("bad_media", "動画の長さを読み取れません(または短すぎます)")
         if dur > MAX_DURATION:
-            raise ApiError("too_long", "長すぎます(この動画は %s。解析できるのは %d 時間まで)" % (common.fmt_ts(dur)[:8], MAX_DURATION // 3600))
+            raise ApiError("too_long", "長すぎます(この動画は %s。解析できるのは %d 時間まで)" % (fmt_ts(dur)[:8], MAX_DURATION // 3600))
         if not has_audio:
             raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
         n = int(math.ceil(dur))
@@ -955,12 +956,12 @@ def _stop_helpers(job, wdir, chat_vid):
     """後始末: 途中で失敗・中止したときに付加情報・チャットの取得を残さない。作業フォルダを消し、チャットのキャッシュの使用中を外す"""
     mj = job.get("meta")
     if mj and mj["thread"].is_alive():
-        common.terminate(job.get("proc3"))
+        _procs.terminate(job.get("proc3"))
         mj["thread"].join(5)
     c = job.get("chat")
     if c and c["state"] == "running":
         c["skip"] = True
-        common.terminate(job.get("proc2"))
+        _procs.terminate(job.get("proc2"))
         c["thread"].join(10)
     shutil.rmtree(wdir, ignore_errors=True)
     if chat_vid:
@@ -1015,10 +1016,10 @@ def run_analyze(job):
     except ApiError as e:
         job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
     except PermissionError as e:
-        common.log_failure("動画解析", e)
-        job["state"], job["error"], job["phase"] = "error", common.permission_message(e), "失敗"
+        _env.log_failure("動画解析", e)
+        job["state"], job["error"], job["phase"] = "error", permission_message(e), "失敗"
     except Exception as e:
-        common.log_failure("動画解析", e)
+        _env.log_failure("動画解析", e)
         job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
     finally:
         _stop_helpers(job, wdir, chat_vid)

@@ -21,16 +21,19 @@ from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import common  # noqa: E402  最初に読む: src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる(下の部品は src の ytt・pipeline を読む)
 import analyze  # noqa: E402
 import batch as batch_mod  # noqa: E402
-import common  # noqa: E402
 from pipeline.export import exporter  # noqa: E402  (common が src を sys.path に足してある)
 import handoff  # noqa: E402
 import rank  # noqa: E402
 import store as store_mod  # noqa: E402
 import txlink  # noqa: E402
-from common import ApiError, VID_RE, MEDIA_EXT, find_tool, redact  # noqa: E402
-from ytt import datadir, httpsec, runtime as ytt_runtime, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from pipeline.ingest import sources as _src  # noqa: E402
+from pipeline.ingest.sources import MEDIA_EXT, VID_RE  # noqa: E402  差し替えない定数
+from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt.errors import ApiError  # noqa: E402
+from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関数
 
 APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
 SERVER_VERSION = "0.26.0"  # core.js 側の APP_VERSION と揃える
@@ -55,9 +58,9 @@ def init(home=None):
     """データ置き場・ストア・キューを用意する(main と、テストから呼ぶ)。"""
     global STORE, BATCH
     if home:
-        common.set_home(home)
-    common.load_out_dir()
-    STORE = store_mod.Store(common.p("data.json"))
+        _env.set_home(home)
+    _env.load_out_dir()
+    STORE = store_mod.Store(_env.p("data.json"))
     BATCH = batch_mod.Batch(STORE)
     return STORE, BATCH
 
@@ -68,9 +71,9 @@ def busy():
 
 def fetch_title(vid):
     """oEmbed(公開エンドポイント・キー不要)でタイトルだけ取得する。失敗時は空文字。接続先は固定で、IDは検証済み。"""
-    if common.fake():
+    if _env.fake():
         return "疑似タイトル(%s)" % vid
-    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(common.watch_url(vid), safe="")
+    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(_src.watch_url(vid), safe="")
     try:
         with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=8) as r:
             return str(json.loads(r.read(200000).decode("utf-8", "replace")).get("title", ""))[:120]
@@ -79,10 +82,10 @@ def fetch_title(vid):
 
 
 def api_state():
-    key, source = common.get_api_key()
-    fk = common.fake()
-    d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(find_tool("ffmpeg")), "ytdlp": bool(find_tool("yt-dlp")) or fk,
-         "outDir": common.get_out_dir(), "defaultOutDir": common.default_out_dir(), "dataDir": common.home(), "quota": rank.quota(),
+    key, source = _key.get_api_key()
+    fk = _env.fake()
+    d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(_env.find_tool("ffmpeg")), "ytdlp": bool(_env.find_tool("yt-dlp")) or fk,
+         "outDir": _env.get_out_dir(), "defaultOutDir": _env.default_out_dir(), "dataDir": _env.home(), "quota": rank.quota(),
          "env": common.env_state()}   # 起動時の環境チェック(道具の版・古い yt-dlp・出力先の空き容量など)。warnings は画面にそのまま出せる文
     warning, backup = STORE.take_warning()   # 起動時の data.json の問題は、最初の1回だけ知らせる
     if warning:
@@ -147,8 +150,8 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as e:
             return self._err(e)
         except OSError as e:   # 何が起きたかを具体的に返す(パスはローカルの画面にだけ出る)。詳細は studio-errors.log
-            common.log_failure("API %s %s" % (self.command, self.path.split("?", 1)[0]), e)
-            msg = common.permission_message(e) if isinstance(e, PermissionError) else \
+            _env.log_failure("API %s %s" % (self.command, self.path.split("?", 1)[0]), e)
+            msg = permission_message(e) if isinstance(e, PermissionError) else \
                 "ファイルの読み書きに失敗しました(%s)。ディスクの空き・ドライブの接続を確認してください" % _tools.why(e)
             return self._json(500, {"error": "write", "message": msg})
         except Exception as e:   # 想定外でもサーバーは落とさない(詳細は伏せる)
@@ -257,7 +260,7 @@ def _open_video(o):
     if o.get("kind") == "file":
         src = analyze.validate_source({"kind": "file", "path": o.get("path")})
         return {"video": STORE.ensure(src, probe=True)}
-    if o.get("kind") == "live":   # ライブの録画(録画の部品で録っている配信)。値は全部 common.check_live で検査する
+    if o.get("kind") == "live":   # ライブの録画(録画の部品で録っている配信)。値は全部 sources.check_live で検査する
         src = analyze.validate_live(o)
         title, channel = o.get("title"), o.get("channel")
         if title is not None and not isinstance(title, str):
@@ -280,7 +283,7 @@ def _live_exported(o):
         raise ApiError("bad_request", "path は絶対パスで指定してください", 400)
     if os.path.splitext(raw)[1].lower() != ".mp4" or not os.path.isfile(raw):
         raise ApiError("bad_request", "path が見つかりません(書き出した .mp4 のパスを指定してください)", 400)
-    if not common.is_inside_out_dir(raw):
+    if not _env.is_inside_out_dir(raw):
         raise ApiError("bad_request", "path は書き出し先のフォルダの中だけ指定できます", 400)
     archived = o.get("archived")
     if archived is not None and not isinstance(archived, bool):
@@ -291,7 +294,7 @@ def _live_exported(o):
     m = next((x for x in v["marks"] if x["id"] == mid), None)
     if m is None:   # 書き出し中にマークが消された: mark_exported と同じく記録しない(動画はできている)
         return {"ok": False, "video": v}
-    real, root = os.path.realpath(raw), os.path.realpath(common.get_out_dir())
+    real, root = os.path.realpath(raw), os.path.realpath(_env.get_out_dir())
     rel = os.path.relpath(real, root).replace("\\", "/")
     recorded = STORE.mark_exported(vid, mid, rel, m["start"], m["end"], os.path.abspath(raw), archived)
     return {"ok": bool(recorded), "video": STORE.get(vid)[0]}
@@ -340,11 +343,11 @@ def _request_marks(o):
 
 
 def _outdir(o):
-    return {"ok": True, "outDir": common.set_out_dir(o.get("path"), busy), "defaultOutDir": common.default_out_dir()}
+    return {"ok": True, "outDir": _env.set_out_dir(o.get("path"), busy), "defaultOutDir": _env.default_out_dir()}
 
 
 def _config(o):
-    return {"ok": True, "hasKey": bool(common.set_api_key(o.get("apiKey")) or common.fake())}
+    return {"ok": True, "hasKey": bool(_key.set_api_key(o.get("apiKey")) or _env.fake())}
 
 
 def _settings(o):
@@ -466,8 +469,8 @@ def _log(msg):
     line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
     try:
         with _log_lock:
-            path = common.p("studio.log")
-            common.rotate_log(path, LOG_MAX)
+            path = _env.p("studio.log")
+            _env.rotate_log(path, LOG_MAX)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(line)
     except Exception:
@@ -481,8 +484,8 @@ def _setup_diagnostics():
     import signal
     import traceback
     try:
-        crash = common.p("studio.crash.log")
-        common.rotate_log(crash, LOG_MAX)   # 追記し続けて大きくならないよう、起動時に回す
+        crash = _env.p("studio.crash.log")
+        _env.rotate_log(crash, LOG_MAX)   # 追記し続けて大きくならないよう、起動時に回す
         faulthandler.enable(open(crash, "a", encoding="utf-8"), all_threads=True)   # 内部クラッシュ時のスタック
     except Exception:
         pass
@@ -540,7 +543,7 @@ def _keep_legacy_exports(r):
     if not os.path.isdir(old) or os.path.exists(settings):
         return
     try:
-        common.atomic_write(settings, json.dumps({"outDir": old}, ensure_ascii=False).encode("utf-8"))
+        _fsio.atomic_write(settings, json.dumps({"outDir": old}, ensure_ascii=False).encode("utf-8"))
     except OSError:
         pass
 
@@ -554,9 +557,9 @@ def prepare(port, base_path="/"):
     if not ALLOWED_HOSTS:
         ALLOWED_HOSTS = httpsec.allowed_hosts(port)
     # 置き場所を決めるのは、まだ既定(このフォルダ)のときだけ。テスト・入口が先に init(home) / STUDIO_HOME で決めていれば、それを使う
-    default = os.path.normcase(common.home()) == os.path.normcase(os.path.abspath(CODE_DIR))
+    default = os.path.normcase(_env.home()) == os.path.normcase(os.path.abspath(CODE_DIR))
     init(_data_home() if default else None)
-    datadir.register(TOOL_ID, common.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
+    datadir.register(TOOL_ID, _env.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
     common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
@@ -573,13 +576,13 @@ def _clean_leftovers():
         if n:
             _log("前回の書き出しの書きかけを %d 個消しました" % n)
     except Exception as e:
-        common.log_failure("書きかけの片付け", e)
+        _env.log_failure("書きかけの片付け", e)
     try:
         freed = analyze.prune_chat_cache()
         if freed:
             _log("チャットのキャッシュを %.0f MB 減らしました(上限 %d MB)" % (freed / 1024 ** 2, analyze.chat_cache_limit() // 1024 ** 2))
     except Exception as e:
-        common.log_failure("チャットのキャッシュの片付け", e)
+        _env.log_failure("チャットのキャッシュの片付け", e)
 
 
 SHUTDOWN_WAIT = 5.0   # 終了の流れで、中止した解析・書き出しが終わるのを待つ秒数の上限(入口の子として動くときは、入口が約8秒で強制終了する)
@@ -594,13 +597,13 @@ def shutdown_jobs(wait=SHUTDOWN_WAIT):
     names = BATCH.shutdown() if BATCH else []
     exports = exporter.cancel_all()
     pf = analyze.cancel_all_prefetch()
-    if not (names or exports or pf or common.children()):
+    if not (names or exports or pf or _procs.children()):
         return 0
-    killed = common.stop_children()
+    killed = _procs.stop_children()
     deadline = time.time() + wait
     while time.time() < deadline and ((BATCH and BATCH.running_now()) or exporter.is_busy() or analyze.PREFETCH):
         time.sleep(0.05)
-    killed += common.stop_children(1.0)   # 待つ間に次の段階が起動した子(中止を見る前に起動したもの)
+    killed += _procs.stop_children(1.0)   # 待つ間に次の段階が起動した子(中止を見る前に起動したもの)
     left = bool((BATCH and BATCH.running_now()) or exporter.is_busy())
     _log("終了のため中断しました: 解析 %d 本(%s)・書き出し %d 件・チャットの先読み %d 本・止めた子プロセス %d%s"
          % (len(names), " / ".join(names)[:300], len(exports), pf, killed, "(終わりきらないものがありました)" if left else ""))
@@ -643,9 +646,9 @@ def main():
     _setup_diagnostics()
     runtime = prepare(port)
     print("切り抜きスタジオ:", url, "(終了は Ctrl+C またはこの画面を閉じる)")
-    print("書き出し先:", common.get_out_dir())
-    print("ログ:", common.p("studio.log"))
-    if not find_tool("ffmpeg"):
+    print("書き出し先:", _env.get_out_dir())
+    print("ログ:", _env.p("studio.log"))
+    if not _env.find_tool("ffmpeg"):
         print("※ ffmpeg が見つかりません(README の準備手順を確認してください)")
     if "--no-open" not in sys.argv:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

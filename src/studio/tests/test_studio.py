@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import common
@@ -420,14 +421,10 @@ class TestPersistence(Base):
     def test_save_failure_leaves_memory_unchanged(self):
         self.auto((10, 40))
         before = self.video()
-        orig = store.atomic_write
-        store.atomic_write = lambda *a, **k: (_ for _ in ()).throw(OSError("disk full"))
-        try:
+        with patch.object(store._fsio, "atomic_write", side_effect=OSError("disk full")):   # 保存(ytt.fsio.atomic_write)を失敗させる
             with self.assertRaises(ApiError) as c:
                 self.put([])
             self.assertEqual(c.exception.status, 500)
-        finally:
-            store.atomic_write = orig
         self.assertEqual(self.video(), before)
         self.assertEqual(self.feedback(), [])   # 保存に失敗したら feedback も書かない
 

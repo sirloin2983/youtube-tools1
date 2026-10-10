@@ -15,11 +15,13 @@ from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
 import analyze
 import common
 from pipeline.export import exporter
 import rank
 import serve
+from ytt import fsio  # noqa: E402  置き換え(スタジオの common.replace_file は RS3-4 で ytt.fsio.replace_retry を直に使う形にした)
 from common import ApiError
 
 
@@ -142,7 +144,7 @@ class TestCaches(Home):
 
     def test_prefetch_refuses_non_ascii_video_id(self):
         """先読みの動画 ID の検査は common.VID_RE と同じ(ASCII だけ)。以前は [\\w-]{11} で全角の英字なども通っていた"""
-        with patch.object(common, "fake", return_value=False), patch.object(analyze, "find_tool", return_value="yt-dlp"), \
+        with patch.object(common, "fake", return_value=False), patch.object(common, "find_tool", return_value="yt-dlp"), \
                 patch.object(analyze, "download_chat", return_value=(None, "テスト")) as dl:
             for vid in ("ａｂｃｄｅｆｇｈｉｊｋ", "あいうえおかきくけこさ", "abcdefghijé", "abcdefghijk\n", None, ""):
                 self.assertEqual(analyze.prefetch_chat(vid, 60), "skip", repr(vid))
@@ -447,7 +449,7 @@ class TestMediaInfoCache(Home):
         info = common.media_info(self.path)
         dst = os.path.join(self.tmp, "b.mp4")
         known = common.media_info_known(self.path)
-        common.replace_file(self.path, dst)
+        fsio.replace_retry(self.path, dst)
         common.remember_media_info(dst, known)
         self.assertEqual(common.media_info(dst), info)
         self.assertEqual(len(self.calls), 1)
