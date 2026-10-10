@@ -40,14 +40,11 @@ DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segment
             "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
             "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488", "max": 40 * 1024 * 1024}
 _GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
-# 声の特徴を取り出すモデル(どれが日本語の音声に合うかは、実際の音声で比べないと分からないので、選べるようにしてある)
+# 声の特徴を取り出すモデル(表の形は残す。3D-Speaker の campplus・standard は 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で外した。
+# 知らない名前(古い設定・覚えた声の campplus など)は flow/diar.embedding が既定に読み替える)
 DIAR_EMBS = {
-    "voxceleb": {"file": "embedding-voxceleb.onnx", "member": None, "label": "VoxCeleb ResNet34(多言語の声で学習・おすすめ)", "mb": 27, "max": 80 * 1024 * 1024,
+    "voxceleb": {"file": "embedding-voxceleb.onnx", "member": None, "label": "VoxCeleb ResNet34(多言語の声で学習)", "mb": 27, "max": 80 * 1024 * 1024,
                  "url": _GH + "wespeaker_en_voxceleb_resnet34_LM.onnx", "sha256": "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012"},
-    "campplus": {"file": "embedding-campplus.onnx", "member": None, "label": "3D-Speaker CAM++(中国語+英語)", "mb": 28, "max": 80 * 1024 * 1024,
-                 "url": _GH + "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx", "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"},
-    "standard": {"file": "embedding.onnx", "member": None, "label": "3D-Speaker ERes2Net(中国語。v0.3 の標準)", "mb": 40, "max": 120 * 1024 * 1024,
-                 "url": _GH + "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx", "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"},
 }
 DIAR_EMB_DEFAULT = "voxceleb"
 MAX_DIAR_SEC = 3 * 3600

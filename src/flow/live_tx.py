@@ -27,10 +27,10 @@ WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 # whisper.cpp の置き場所(編集の tx_engines.WHISPER_CPP["version"]・wcpp_bin_dir・wcpp_model_dir・WCPP_MODELS と同じ値。入口は編集の部品を import しないので値を持つ。test_live_tx が同じことを確かめる)
 WCPP_VERSION = "v1.9.4"
 WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
-WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin", "large-v3-turbo": "ggml-large-v3-turbo.bin"}
+WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin"}   # large-v3-turbo は 0.58.0 で外した(保存値は cfg が既定に戻す)
 DEFAULT_MODEL = "large-v3"
 LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
-LIVE_DEVICES = ("vulkan", "cpu")      # whisper.cpp の機器(tx_engines.WhisperCpp と同じ)。既定 vulkan = GPU
+LIVE_DEVICES = ("vulkan",)           # whisper.cpp の機器 = GPU だけ(0.58.0。この PC の設定の cpu などは machine が vulkan に読み替える)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒)
 TX_TRIES = 2              # 同じ候補を試す回数

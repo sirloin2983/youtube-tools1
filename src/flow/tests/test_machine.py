@@ -52,11 +52,13 @@ class TestLoad(Base):
         self.assertEqual(set(m["sources"].values()), {"default"})
         self.assertFalse(os.path.exists(self.file))   # 読むだけでは書かない
 
-    def test_default_device_auto_when_editor_setting_missing_or_odd(self):
-        self.assertEqual(M.load(env=self.env)["device"], "auto")
-        self.write({"device": "gpu"}, self.settings)
-        m = M.load(env=self.env)
-        self.assertEqual((m["device"], m["engine"]), ("auto", "faster-whisper"))
+    def test_default_device_vulkan_when_editor_setting_missing_odd_or_old(self):
+        """0.58.0: 選べる機器は GPU(vulkan)だけ。編集の設定が無い・形が違う・旧い auto・cuda・cpu でも vulkan と whisper.cpp"""
+        self.assertEqual(M.load(env=self.env)["device"], "vulkan")
+        for old in ("gpu", "auto", "cuda", "cpu"):
+            self.write({"device": old}, self.settings)
+            m = M.load(env=self.env)
+            self.assertEqual((m["device"], m["engine"]), ("vulkan", "whisper.cpp"), old)
 
     def test_llm_default_matches_llm_py(self):
         self.assertEqual(M.LLM_MODEL, llm.LLM_MODEL)
@@ -71,8 +73,10 @@ class TestLoad(Base):
         self.assertEqual((m["diskMinGB"], m["sources"]["diskMinGB"]), (30, "env"))
         self.assertEqual((m["llmModel"], m["sources"]["llmModel"]), ("file-model", "file"))
         self.assertEqual(m["sources"]["caseRoot"], "default")
-        self.assertEqual(M.load(env=dict(self.env, YTT_MACHINE_DEVICE="cuda"))["device"], "cuda")
-        self.assertEqual(M.load(env=self.env)["device"], "cpu")
+        m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="cuda"))   # 旧い値は断らずに vulkan に読む(0.58.0)
+        self.assertEqual((m["device"], m["sources"]["device"]), ("vulkan", "env"))
+        m = M.load(env=self.env)   # ファイルの cpu も同じ
+        self.assertEqual((m["device"], m["sources"]["device"]), ("vulkan", "file"))
         self.assertEqual(M.get("diskMinGB", env=env), 30)
 
     def test_legacy_transcribe_device_env_ignored(self):
@@ -153,18 +157,14 @@ class TestOverlay(Base):
         self.assertEqual(S.tx_opts(out), S.tx_opts(b))
         self.assertNotIn("llmModel", S.tx_opts(out))
 
-    def test_device_and_derived_engine(self):
-        b = self.bundle()   # auto・faster-whisper(機器から決まるエンジン)
-        out = M.overlay(b, env=dict(self.env, YTT_MACHINE_DEVICE="vulkan"))
+    def test_old_device_and_engine_read_as_gpu(self):
+        """0.58.0: この PC の設定の旧い機器・エンジン(cpu・qwen3-asr など)は vulkan・whisper.cpp に読んで重ねる(断らない)"""
+        b = self.bundle(device="auto", engine="faster-whisper")   # 旧い束も merge が読み替える
+        self.assertEqual((b["transcribe"]["device"], b["transcribe"]["engine"]), ("vulkan", "whisper.cpp"))
+        out = M.overlay(b, env=dict(self.env, YTT_MACHINE_DEVICE="cpu", YTT_MACHINE_ENGINE="qwen3-asr"))
         self.assertEqual((out["transcribe"]["device"], out["transcribe"]["engine"]), ("vulkan", "whisper.cpp"))
         S.validate(out)
-        self.assertEqual(b["transcribe"]["device"], "auto")   # 元の束は変えない
         self.assertNotIn("engine", S.tx_opts(out))   # 本文は機器だけ(エンジンは機器から決まる)
-
-    def test_device_keeps_chosen_engine(self):
-        b = self.bundle(engine="qwen3-asr")
-        out = M.overlay(b, env=dict(self.env, YTT_MACHINE_DEVICE="cpu"))
-        self.assertEqual((out["transcribe"]["device"], out["transcribe"]["engine"]), ("cpu", "qwen3-asr"))
 
     def test_file_engine_and_llm(self):
         self.write({"engine": "whisper.cpp", "device": "vulkan", "llmModel": "qwen3-4b"})
@@ -208,12 +208,9 @@ class TestFirstLayer(Base):
             for k in ("YTT_MACHINE_DEVICE", "YTT_MACHINE_ENGINE", "TRANSCRIBE_DEVICE"):
                 os.environ.pop(k, None)
             self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "vulkan"})   # 何も決めていない = 今まで
-            self.write({"device": "cpu"})   # 機器だけ cpu = faster-whisper の CPU = 配信中は今までどおり
-            self.assertEqual(LT.LiveTx.machine()["device"], "vulkan")
-            self.write({"device": "cpu", "engine": "whisper.cpp"})
-            self.assertEqual(LT.LiveTx.machine()["device"], "cpu")
-            self.write({"device": "cuda", "engine": "whisper.cpp"})   # whisper.cpp の CUDA 版はまだ無い
-            self.assertEqual(LT.LiveTx.machine()["device"], "vulkan")
+            for old in ({"device": "cpu"}, {"device": "cpu", "engine": "whisper.cpp"}, {"device": "cuda", "engine": "whisper.cpp"}):
+                self.write(old)   # 0.58.0: 旧い機器は machine が vulkan に読む = 配信中も GPU だけ(whisper.cpp の CUDA 版はまだ無い)
+                self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "vulkan"}, old)
 
 
 if __name__ == "__main__":

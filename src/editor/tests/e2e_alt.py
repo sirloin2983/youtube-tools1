@@ -56,19 +56,10 @@ def main():
             wait_url_doc(pg)
             wait_js(pg, "S.docId === %s && document.querySelectorAll('#segs .seg').length === %d" % (json.dumps(tid), n_rows))
             pg.evaluate("document.querySelector('#fixDetails').open = true")
-            wait_js(pg, "document.querySelector('#altEngine').options.length === 3")
+            wait_js(pg, "document.querySelector('#altEngine').options.length === 1")   # 0.58.0: Qwen3-ASR 1.7B だけ(欄は残す)
             check(pg.input_value("#altEngine") == "llama.cpp", "2つ目のエンジンの既定は Qwen3-ASR(llama.cpp)")
             check("まだ別のエンジンで聞いていません" in pg.inner_text("#altMsg") and not pg.is_disabled("#altGo"), "まだ聞いていない: " + pg.inner_text("#altMsg"))
             check(pg.locator(".sg.tt-sg-alt").count() == 0, "聞く前は「別」の候補なし")
-
-            # ---- エンジンを変えると設定(altEngine)に残る ----
-            pg.select_option("#altEngine", "whisper.cpp")
-            for _ in range(50):
-                if srv.get("/api/settings").get("altEngine") == "whisper.cpp":
-                    break
-                time.sleep(0.1)
-            check(srv.get("/api/settings").get("altEngine") == "whisper.cpp", "選んだエンジンを設定 altEngine に保存(api/settings/patch)")
-            pg.select_option("#altEngine", "llama.cpp")
 
             # ---- 聞く → 候補が行に出る(聞いている間も編集できる = 行は止めない) ----
             pg.click("#altGo")

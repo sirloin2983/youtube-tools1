@@ -51,7 +51,7 @@ import uuid
 from ytt import colors
 from . import envelope as _envelope, keys as _keys, placement as _placement, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/home/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
-from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights)
+from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODELS, WEIGHT_KEYS, clean_ranges, clean_weights)
 
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
@@ -188,7 +188,7 @@ class Run:
         self.force = force is True   # 鍵が同じ・違っても作り直す(文字起こし = 新しい文書・パック = 上書き。束の run.force と同じ。RS6 b-K2)
         self.pool = clean_pool(pool)   # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta": {recorder, recording, phase}}(None = この実行の中で届ける)
         self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
-        self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
+        self.model = model if model in TX_MODELS else None   # 同じくモデル(None = 編集の設定のまま。0.58.0 から large-v3 だけ = 旧い名前は編集の設定に戻す)
         self.deliver_batch = deliver_batch if _envelope.batch_ok(deliver_batch) else None   # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
         self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
         self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
@@ -245,7 +245,7 @@ class Run:
         def put(sec, key, val, pin=None):
             if not _spec.key_ok(sec, key, val):
                 return False
-            a.setdefault(sec, {})[key] = copy.deepcopy(val)
+            a.setdefault(sec, {})[key] = copy.deepcopy(_spec.read_legacy_tx(key, val) if sec == "transcribe" else val)   # 旧い名前は今の値に(0.58.0)
             if pin:
                 pins.append(pin)
             return True

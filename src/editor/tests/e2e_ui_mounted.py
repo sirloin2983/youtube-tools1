@@ -154,6 +154,10 @@ def main():
     try:
         copy_dir(os.path.join(REPO, HOME), os.path.join(tmp, HOME))
         copy_dir(os.path.join(REPO, EDITOR), os.path.join(tmp, EDITOR))
+        # 0.58.0 から画面の処理方式は GPU(whisper.cpp)だけ = worker-fake のワーカーは偽の whisper-cli(tests/fake_whisper_cli.py。eval/fake/fake_worker が
+        # 編集のフォルダの tests から探す)を動かす。tests は写さない決まりなので、この 1 本だけ写す
+        os.makedirs(os.path.join(tmp, EDITOR, "tests"), exist_ok=True)
+        shutil.copy(os.path.join(REPO, EDITOR, "tests", "fake_whisper_cli.py"), os.path.join(tmp, EDITOR, "tests"))
         _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         # studio は写さない(--only なら Supervisor はそのツールの Tool を作らないので不要。home/launch.py 参照)。
         # cut2resolve も入口に取り込む(v0.15.0: 校正画面の「カットとパック」が同じ入口の /cut2resolve/api/... を呼ぶ。zip も pipeline/pack/pack.py で作る)

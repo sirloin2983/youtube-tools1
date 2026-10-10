@@ -286,10 +286,6 @@ class ReadyTest(LiveTxBase):
         self.assertEqual(self.tx.ready(), (False, "モデル ggml-large-v3.bin がありません(編集で GPU の文字起こしを 1 回すると取得されます)"))
         self.put_wcpp()
         self.assertEqual(self.tx.ready(), (True, ""))
-        self.prefs.patch("live", {"liveTx": {"model": "large-v3-turbo"}})   # モデルを変えたら、そのファイルを見る
-        self.assertEqual(self.tx.ready()[1], "モデル ggml-large-v3-turbo.bin がありません(編集で GPU の文字起こしを 1 回すると取得されます)")
-        self.put_wcpp(model="large-v3-turbo")
-        self.assertEqual(self.tx.ready(), (True, ""))
         bare = TX.LiveTx(self.live)   # ffmpeg を渡さなければ探す(YTT_FFMPEG → PATH)
         with mock.patch.object(TX.tools, "find_tool", lambda *a, **k: None):
             self.assertEqual(bare.ready(), (False, "ffmpeg がありません"))
@@ -307,7 +303,7 @@ class ReadyTest(LiveTxBase):
 
             def cfg(self):
                 return {"liveTx": self.v}
-        for v, want in (({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3-turbo"}),
+        for v, want in (({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3"}),   # 0.58.0 で外したモデルは既定
                         ("x", {"enabled": True, "model": "large-v3"}), (None, {"enabled": True, "model": "large-v3"}),
                         ({"enabled": "no", "model": "small"}, {"enabled": True, "model": "large-v3"}),   # 明示的に false のときだけオフ
                         ({"enabled": False, "model": ["large-v3"]}, {"enabled": False, "model": "large-v3"})):
@@ -676,12 +672,12 @@ class ConstantsTest(unittest.TestCase):
             root = None
 
             def cfg(self):
-                return {"liveTx": {"model": "large-v3-turbo"}}
+                return {"liveTx": {"model": "large-v3"}}
         tx = TX.LiveTx(FakeLive())
         tx.data_dir = lambda: d
         p = tx.paths()
         self.assertEqual((os.path.dirname(p["exe"]), os.path.basename(p["exe"])), (te.wcpp_bin_dir(d), te.WCPP_EXE))
-        self.assertEqual(p["model"], os.path.join(te.wcpp_model_dir(d), te.WCPP_MODELS["large-v3-turbo"]["file"]))
+        self.assertEqual(p["model"], os.path.join(te.wcpp_model_dir(d), te.WCPP_MODELS["large-v3"]["file"]))
 
     def test_portal_does_not_import_editor_engines(self):
         """入口のプロセスで tx_engines・numpy を import しない(認識は子プロセス live_tx_worker.py の中だけ)"""

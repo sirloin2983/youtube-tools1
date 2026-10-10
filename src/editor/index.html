@@ -1385,10 +1385,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 
     <details class="tt-sub ui-disclosure" id="recogDetails"><summary>認識の設定</summary>
       <div class="fld"><label for="optModel">モデル</label><select id="optModel"></select>
-        <span class="hint">初回だけモデルのダウンロード(数百MB〜数GB)があります。迷ったら「medium」か「kotoba-whisper」。</span></div>
+        <span class="hint">モデルは large-v3 です。初回だけモデルのダウンロード(約 3GB)があります。</span></div>
       <div class="row" style="margin-top:10px"><label class="lag">言語 <select id="optLang" style="width:auto"></select></label>
         <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
-        <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="auto">自動(GPUがあれば使う)</option><option value="cuda">GPU(NVIDIA)</option><option value="cpu">CPU</option></select></label></div>
+        <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="vulkan">GPU(whisper.cpp)</option></select></label></div>
       <p class="hint tt-dev-hint" id="optDevHint" role="status" hidden></p>
       <!-- 0.66.0: 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(docs/spec/settings.md の 6)。
            文字起こしの要求には保存した設定が付く(app-core.js の checksOf・readSubtitle が S.settings から読む) -->

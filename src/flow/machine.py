@@ -2,8 +2,8 @@
 """② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・plan/f1-friend-pc.md の決めたこと 8・9)。
 
 束(flow/spec.py)は「何を作るか」。ここは「この PC でどう動かすか」= 束に入れない機械の都合:
-  engine       文字起こしのエンジン(spec.TX_ENGINES)
-  device       認識の機器 auto・cuda・cpu・vulkan
+  engine       文字起こしのエンジン(spec.TX_ENGINES = whisper.cpp だけ。0.58.0。旧い faster-whisper などは読むときに whisper.cpp)
+  device       認識の機器(spec.TX_DEVICES = vulkan だけ。0.58.0。旧い auto・cuda・cpu は読むときに vulkan)
   llmModel     LLM の後処理のモデル(pipeline/transcribe/tx_engines の LLAMA_TEXT_MODELS の名前)
   caseRoot     案件の根(書き出し先 = 今はスタジオの outDir)
   diskMinGB    空き容量の下限(GB。下回ったら新しい録画と処理を始めない = F1 の決めたこと 7。読むのは後の段)
@@ -44,7 +44,7 @@ SCHEMA = "youtube-tools-machine/v1"
 FILE_ENV = "YTT_MACHINE_FILE"            # machine.json の場所を直に決める(テスト・別の置き場所)
 FILE_MAX = 64 * 1024
 FIELDS = ("engine", "device", "llmModel", "caseRoot", "diskMinGB", "learningDir")
-DEVICES = ("auto", "cuda", "cpu", "vulkan")   # spec.SCHEMA の transcribe.device と同じ
+DEVICES = _spec.TX_DEVICES               # spec.SCHEMA の transcribe.device と同じ(旧い値は check が spec.read_legacy_tx で読み替える)
 LLM_MODEL = "qwen3-8b"                   # pipeline/transcribe/llm.py の LLM_MODEL(入口のプロセスで llm を読まないので値を持つ。test_machine が同じことを確かめる)
 DISK_MIN_GB = 20
 DISK_MAX_GB = 100000
@@ -60,7 +60,10 @@ SOURCES = ("arg", "env", "file", "default")
 
 # ---------- 値の検査 ----------
 def check(field, value):
-    """1 項目の値を確かめる -> 整えた値。合わなければ理由つきの ValueError(知らない項目も)"""
+    """1 項目の値を確かめる -> 整えた値。合わなければ理由つきの ValueError(知らない項目も)。
+    engine・device の旧い値(0.57.0 までの faster-whisper・auto・cpu など)は断らずに今の値へ読み替える(spec.read_legacy_tx = 束と同じ決まり)"""
+    if field in ("engine", "device"):
+        value = _spec.read_legacy_tx(field, value)
     if field == "engine":
         if value in _spec.TX_ENGINES and isinstance(value, str):
             return value
@@ -142,11 +145,11 @@ def read_env(env=None):
 
 
 def _editor_device():
-    """編集の設定 settings.json の device(無い・合わなければ auto)。置き場所は workdata.SETTINGS(呼ぶたびに読む)、
-    まだ決まっていなければ(入口の外)編集の作業データの settings.json"""
+    """編集の設定 settings.json の device(旧い auto・cuda・cpu は vulkan に読む。無い・合わなければ vulkan = 0.58.0 から選べるのは GPU だけ)。
+    置き場所は workdata.SETTINGS(呼ぶたびに読む)、まだ決まっていなければ(入口の外)編集の作業データの settings.json"""
     p = _workdata.SETTINGS or os.path.join(_datadir.resolve("transcribe"), "settings.json")
-    v = _settings.SettingsFile(p).read().get("device")
-    return v if v in DEVICES and isinstance(v, str) else "auto"
+    v = _spec.read_legacy_tx("device", _settings.SettingsFile(p).read().get("device"))
+    return v if v in DEVICES and isinstance(v, str) else DEVICES[0]
 
 
 def _default(field, have, env):

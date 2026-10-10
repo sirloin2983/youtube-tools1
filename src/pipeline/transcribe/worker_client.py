@@ -565,7 +565,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
             if key in _models:
                 return _models[key], dev
             heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(SenseVoice = light)は主のモデルと一緒に持つ(0.60.0)
-            if heavy and not eng.light:   # 別の(重い)モデルは手放す(large-v3 と turbo を交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
+            if heavy and not eng.light:   # 別の(重い)モデルは手放す(別の重いモデルを交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
                 _txbase.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in heavy), _tools.memory_label())
                 for k in heavy:
                     _models.pop(k, None)
@@ -787,8 +787,6 @@ def whisper_kwargs(spec):
         kw["vad_parameters"] = {"min_silence_duration_ms": 500}
     if spec.get("wordSplit"):
         kw["word_timestamps"] = True   # 単語の時刻。長い行を分け、行の始まり・終わりを声のある所にそろえる(対応していない版では filter_kwargs が外す)
-    if "kotoba" in spec["model"].lower():
-        kw["chunk_length"] = 15   # kotoba-whisper が推奨する設定
     if spec.get("temp0"):
         kw["temperature"] = 0.0   # 温度のやり直し(乱数を使う)をしない。精度を比べる道具(src/eval/tools/eval_asr.py --temp0)だけが使う
     terms = _roster.prompt_terms(spec)

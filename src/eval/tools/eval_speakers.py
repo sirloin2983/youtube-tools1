@@ -1102,7 +1102,7 @@ def main(argv=None):
     g = p.add_argument_group("run(判別し直す)の設定。どれも「,」区切りで複数 → 全部の組み合わせ。指定しない項目は本番の既定の値")
     g.add_argument("--threshold", help="クラスタのしきい値(DIAR_CLUSTER_THRESHOLD。大きいほど人をまとめる)")
     g.add_argument("--num", help="人数(auto = 自動 か 1〜10)")
-    g.add_argument("--emb", help="声の特徴のモデル(voxceleb・campplus・standard。作業データに無いモデルは使えない)")
+    g.add_argument("--emb", help="声の特徴のモデル(voxceleb だけ。campplus・standard は 0.58.0 で消した。作業データに無いモデルは使えない)")
     g.add_argument("--min-on", dest="min_on", help="声の区間の最短(秒。DIAR_MIN_ON)")
     g.add_argument("--min-off", dest="min_off", help="すき間の最短(秒。DIAR_MIN_OFF)")
     p.add_argument("--smooth", help="話者の細切れをならす(S2)を比べる: off・on の「,」区切り(例 off,on)。stored は記録から計算・run は同じ判別の結果を両方で採点")

@@ -215,7 +215,7 @@ class LocalTools:
         dur = _ytools.media_duration(src)
         clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)
         title = os.path.splitext(os.path.basename(src))[0][:120]
-        model = _tx.check_model(str(req.get("model") or "small").strip())
+        model = _tx.check_model(str(req.get("model") or "large-v3").strip())
         lang = req.get("language") if req.get("language") in _txbase.LANGS else "ja"
         post = b["post"]
         glossary = _txtext.split_terms(req.get("glossary"))[:200]
@@ -227,7 +227,7 @@ class LocalTools:
                 "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
                 "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
                 "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
-                "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "redoLarge": req.get("redoLarge") is not False, "autoAlt": False, "autoYtcap": False,
+                "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "autoAlt": False, "autoYtcap": False,
                 "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "autoDiarize": False,
                 "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
                 "learningVersion": b["post"]["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip, "warnings": [clip_warn] if clip_warn else [], "title": title}

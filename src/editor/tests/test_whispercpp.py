@@ -54,7 +54,7 @@ class WhisperCppTest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def engine(self, device="vulkan"):
-        return E.WhisperCpp("large-v3-turbo", device, {"cmd": FAKE, "model": os.path.join(self.tmp, "m.bin")})
+        return E.WhisperCpp("large-v3", device, {"cmd": FAKE, "model": os.path.join(self.tmp, "m.bin")})
 
     def sent_args(self):
         with open(self.args_file, encoding="utf-8") as f:
@@ -64,7 +64,7 @@ class WhisperCppTest(unittest.TestCase):
         e = self.engine()
         prog = []
         e.hooks = {"progress": prog.append}
-        kw = S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3-turbo", "vadMode": "weak", "wordSplit": True,
+        kw = S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "vadMode": "weak", "wordSplit": True,
                                "glossary": ["白上フブキ", "さくらみこ"]})
         kw = S.filter_kwargs(e, kw)
         self.assertNotIn("hotwords", kw)                                   # whisper.cpp に無い引数は渡さない
@@ -175,7 +175,7 @@ class WhisperCppTest(unittest.TestCase):
         media = os.path.join(self.tmp, "v.wav")
         make_wav(media, 3)
         with mock.patch.object(S, "media_duration", lambda p: 3.0):
-            spec = S.validate_job({"sourcePath": media, "model": "large-v3-turbo", "engine": "whisper.cpp"})
+            spec = S.validate_job({"sourcePath": media, "model": "large-v3", "engine": "whisper.cpp"})
             self.assertEqual(spec["engine"], "whisper.cpp")
             self.assertEqual(S.validate_job({"sourcePath": media, "model": "small"})["engine"], "faster-whisper")
             for bad, code in (({"engine": "whisper.cpp", "model": "small"}, "bad_model"), ({"engine": "nope", "model": "small"}, "bad_engine")):
@@ -211,7 +211,7 @@ class WhisperCppTest(unittest.TestCase):
             spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "vulkan"})
             self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "auto"))
             with self.assertRaises(S.ApiError) as cm:
-                S.validate_job({"sourcePath": media, "model": "kotoba-tech/kotoba-whisper-v2.0-faster", "device": "vulkan"})
+                S.validate_job({"sourcePath": media, "model": "small", "device": "vulkan"})
             self.assertEqual(cm.exception.code, "bad_model")
             self.assertIn("large-v3", cm.exception.message)                 # 使えるモデルを案内する
             self.assertEqual(S.validate_job({"sourcePath": media, "model": "small", "device": "cuda"})["engine"], "faster-whisper")
@@ -342,7 +342,7 @@ class JoinRowsTest(unittest.TestCase):
 
     def test_expand_segments_joins_all_engines(self):
         rows = [row(0.0, 1.0, "あ"), row(1.4, 2.0, "い"), row(3.0, 4.0, "う")]
-        for eng in ("whisper.cpp", "faster-whisper", "qwen3-asr"):
+        for eng in ("whisper.cpp", "faster-whisper", "llama.cpp"):
             out = list(S.expand_segments(rows, {"wordSplit": False, "engine": eng}))
             self.assertEqual([r["end"] for r in out], [1.4, 2.0, 4.0], eng)
         with mock.patch.object(S, "JOIN_GAP", 0.0):                                       # TRANSCRIBE_JOIN_GAP=0 でやめる

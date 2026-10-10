@@ -20,7 +20,7 @@ class TestMoved(unittest.TestCase):
         self.assertEqual(spec.CUTS, ("none", "silence"))
         self.assertEqual(spec.LIVE_AUTO_CUT, "none")
         self.assertEqual(spec.WEIGHT_KEYS, ("wAudio", "wChat", "wComments"))
-        self.assertEqual(spec.TX_ENGINES, ("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp"))
+        self.assertEqual((spec.TX_ENGINES, spec.TX_MODELS, spec.TX_DEVICES), (("whisper.cpp",), ("large-v3",), ("vulkan",)))   # 0.58.0
         self.assertTrue(spec.TX_MODEL_RE.match("large-v3"))
         self.assertTrue(spec.TX_MODEL_RE.match("a" * 60))
         for bad in ("", "-x", "a" * 61, "a b", "../x", "x\n"):
@@ -202,8 +202,15 @@ class TestValidate(unittest.TestCase):
         spec.validate(spec.merge({"export": {"loudness": -18}}))
 
     def test_transcribe(self):
-        spec.validate(spec.merge({"transcribe": {"engine": "whisper.cpp", "model": "large-v3-turbo", "language": "auto", "quality": "fast", "device": "vulkan",
+        spec.validate(spec.merge({"transcribe": {"engine": "whisper.cpp", "model": "large-v3", "language": "auto", "quality": "fast", "device": "vulkan",
                                                  "vadMode": "off", "boost": True, "diarize": 10}}))
+        # 0.58.0: 旧い値は断らずに読み替える(エンジン → whisper.cpp・機器 → vulkan・large-v3 でないモデルの名前 → large-v3)・消した項目 redoLarge は捨てる
+        for eng, model, dev in (("faster-whisper", "small", "auto"), ("qwen3-asr", "qwen3-asr-0.6b", "cpu"), ("llama.cpp", "large-v3-turbo", "cuda"),
+                                ("faster-whisper", "kotoba-tech/kotoba-whisper-v2.0-faster", "cpu")):
+            b = spec.validate(spec.merge({"transcribe": {"engine": eng, "model": model, "device": dev}, "post": {"redoLarge": False}}))
+            self.assertEqual((b["transcribe"]["engine"], b["transcribe"]["model"], b["transcribe"]["device"]), ("whisper.cpp", "large-v3", "vulkan"))
+            self.assertNotIn("redoLarge", b["post"])
+        self.assertEqual(spec.read_legacy_tx("language", "auto"), "auto")   # transcribe の 3 つの項目だけ
         for kw in ({"engine": "x"}, {"engine": None}, {"model": ""}, {"model": "a b"}, {"model": 3}, {"language": "fr"}, {"quality": "normal"},
                    {"device": "gpu"}, {"vadMode": "strong"}, {"boost": "yes"}, {"diarize": 0}, {"diarize": 11}, {"diarize": True}):
             self.bad("transcribe", **kw)
@@ -274,12 +281,13 @@ class TestBodies(unittest.TestCase):
     def test_tx_opts(self):
         o = spec.tx_opts(spec.merge(None))
         self.assertEqual(set(o), set(spec.TX_TRANSCRIBE_KEYS + spec.TX_POST_KEYS))
-        self.assertEqual((o["model"], o["quality"], o["autoLearned"]), ("small", "best", False))
-        self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "whisper.cpp", "device": "vulkan"}})))   # 機器から決まる
-        self.assertEqual(spec.tx_opts(spec.merge({"transcribe": {"engine": "whisper.cpp"}}))["engine"], "whisper.cpp")
+        self.assertEqual((o["model"], o["device"], o["quality"], o["autoLearned"]), ("large-v3", "vulkan", "best", False))   # 0.58.0 の既定
+        self.assertNotIn("engine", o)   # エンジンは機器(vulkan)から決まる = 書かない
+        self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "faster-whisper", "device": "cpu"}})))   # 旧い値も GPU に読む
         self.assertNotIn("glossary", o)   # 用語集は書かない(編集の受付が自分の設定から読む。RS7-1 S4)
-        self.assertEqual(spec.implied_engine("vulkan"), "whisper.cpp")
-        self.assertEqual(spec.implied_engine("cpu"), "faster-whisper")
+        self.assertNotIn("redoLarge", o)   # 0.58.0 で消した
+        for dev in ("vulkan", "cpu", "auto", None):
+            self.assertEqual(spec.implied_engine(dev), "whisper.cpp")
 
     def test_pack_output(self):
         row_edge, out, cs = spec.pack_output(spec.merge(None))

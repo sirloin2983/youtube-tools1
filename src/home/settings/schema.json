@@ -43,8 +43,8 @@
       { "id": "live-after", "title": "書き出したあとの自動の流れ", "hint": "新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。", "items": [
         { "key": "live.auto.after", "type": "enum", "label": "書き出したあと(画面・API が指定しないとき)", "default": "check", "options": [["none", "何もしない"], ["check", "文字起こしまで"], ["auto", "文字起こし → パック"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.auto.cut", "type": "enum", "label": "パックのカット", "default": "", "options": [["", "ホームの設定のまま"], ["none", "カットしない"], ["silence", "無音で削る"]], "when": { "key": "live.enabled", "eq": true } },
-        { "key": "live.auto.engine", "type": "enum", "label": "文字起こしのエンジン", "default": "", "options": [["", "「編集」の設定のまま"], ["faster-whisper", "faster-whisper(CPU)"], ["whisper.cpp", "whisper.cpp(GPU)"], ["qwen3-asr", "Qwen3-ASR(CPU)"], ["llama.cpp", "Qwen3-ASR 1.7B(GPU)"]], "when": { "key": "live.enabled", "eq": true } },
-        { "key": "live.auto.model", "type": "text", "label": "モデル", "default": "", "placeholder": "空 = 「編集」の設定", "maxlength": 60, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$", "patternText": "英数字と . _ - で 60 文字まで", "when": { "key": "live.enabled", "eq": true } },
+        { "key": "live.auto.engine", "type": "enum", "label": "文字起こしのエンジン", "default": "", "options": [["", "「編集」の設定のまま"], ["whisper.cpp", "whisper.cpp(GPU)"]], "when": { "key": "live.enabled", "eq": true } },
+        { "key": "live.auto.model", "type": "enum", "label": "モデル", "default": "", "options": [["", "「編集」の設定のまま"], ["large-v3", "large-v3"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.auto.pad", "type": "number", "label": "自動の採用の前後の余白", "default": 2, "min": 0, "max": 5, "step": 0.5, "unit": "秒", "when": { "key": "live.enabled", "eq": true }, "hint": "配信中の候補の自動の採用と、アーカイブの自動の切り抜きの区間の前後に足します(人が採用した区間には足しません)。" },
         { "key": "live.autoAfterStream", "type": "bool", "label": "配信が終わったら、アーカイブの解析で自動で切り抜く(パックまで)", "default": false, "when": { "key": "live.enabled", "eq": true }, "hint": "アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、パックまで進めます(届けるのは人が確かめてから)。" },
         { "key": "live.afterStreamPerHour", "type": "int", "label": "1 時間あたり", "default": 6, "min": 1, "max": 30, "unit": "本", "when": { "key": "live.enabled", "eq": true } },
@@ -92,10 +92,10 @@
     ] },
     { "id": "editor", "title": "編集(文字起こし)", "store": "editor", "groups": [
       { "id": "recog", "title": "認識の設定", "hint": "次の文字起こしから使います。", "items": [
-        { "key": "model", "type": "enum", "label": "モデル", "default": "small", "options": [["small", "small(速い)"], ["medium", "medium"], ["large-v3", "large-v3(精度優先)"], ["large-v3-turbo", "large-v3-turbo"], ["kotoba-tech/kotoba-whisper-v2.0-faster", "kotoba-whisper v2.0(日本語)"]], "hint": "初回だけモデルのダウンロード(数百MB〜数GB)があります。迷ったら medium か kotoba-whisper。" },
+        { "key": "model", "type": "enum", "label": "モデル", "default": "large-v3", "options": [["large-v3", "large-v3"]], "hint": "初回だけモデルのダウンロード(約 3GB)があります。" },
         { "key": "language", "type": "enum", "label": "言語", "default": "ja", "options": [["ja", "日本語"], ["en", "英語"], ["ko", "韓国語"], ["zh", "中国語"], ["auto", "自動判定"]] },
         { "key": "quality", "type": "enum", "label": "品質", "default": "best", "options": [["best", "精度優先"], ["fast", "速度優先"]] },
-        { "key": "device", "type": "enum", "label": "処理方式", "default": "auto", "options": [["auto", "自動(GPU があれば使う)"], ["cuda", "GPU(NVIDIA)"], ["cpu", "CPU"], ["vulkan", "GPU(AMD など・whisper.cpp)"]], "hint": "whisper.cpp(Vulkan)は large-v3 系のモデルで使えます。用語集は渡りません。" },
+        { "key": "device", "type": "enum", "label": "処理方式", "default": "vulkan", "options": [["vulkan", "GPU(whisper.cpp)"]], "hint": "GPU の whisper.cpp(Vulkan)で文字起こしします(setup の build-whisper-vulkan.bat で作ります)。用語集は渡りません。" },
         { "key": "vadMode", "type": "enum", "label": "無音・BGM の扱い(声の検出)", "default": "weak", "options": [["weak", "弱め(声が抜けにくい・おすすめ)"], ["normal", "標準(BGM での誤認識が減る)"], ["off", "使わない"]], "hint": "「抜ける」ときは「弱め」か「使わない」、「無い文が出る」ときは「標準」を試します。" },
         { "key": "boost", "type": "bool", "label": "小さい声を持ち上げる(音量をそろえる)", "default": false },
         { "key": "wordSplit", "type": "bool", "label": "単語の時刻で、長い行を分ける・行の時刻を声のある所にそろえる", "default": true, "hint": "認識は少し遅くなります(数%〜2 割程度)。" },
@@ -111,12 +111,11 @@
         { "key": "autoContext", "type": "bool", "label": "配信に出る人の名前と呼び名を、認識のヒントに自動で足す(名簿から)", "default": false },
         { "key": "autoLearned", "type": "bool", "label": "学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)", "default": false },
         { "key": "autoRedo", "type": "bool", "label": "疑わしい所(長い区間に文字が少ない行)を自動で認識し直す", "default": false },
-        { "key": "redoLarge", "type": "bool", "label": "kotoba で文字起こししたときは、認識し直しに large-v3 を使う", "default": true },
         { "key": "autoFill", "type": "bool", "label": "文字の少ない行を別のエンジンの読みで埋め、名簿の呼び名に直す", "default": true, "hint": "初回は 163MB のモデルを取得します。評価用の文書には何もしません。" },
         { "key": "stripNames", "type": "bool", "label": "行の頭の話者名(「リリー:」のような形)を外す", "default": true, "hint": "whisper が字幕の形をまねて名前を付けることがあります。外した行は「別の読み」の札で戻せます。評価用の文書には何もしません。" },
         { "key": "autoLlm", "type": "bool", "label": "名前の聞き違いらしい所を手元の LLM で直す(GPU)", "default": true, "hint": "名簿の呼び名と 1 字違いの所だけ Qwen3-8B で直します。モデルは作業データの models/llm-gguf。" },
         { "key": "autoAlt", "type": "bool", "label": "別のエンジンでも聞いて、食い違う所に候補を出す(試験中)", "default": false },
-        { "key": "altEngine", "type": "enum", "label": "別のエンジン", "default": "llama.cpp", "options": [["llama.cpp", "Qwen3-ASR 1.7B(GPU)"], ["whisper.cpp", "whisper.cpp(GPU)"], ["faster-whisper", "faster-whisper(CPU)"]], "validated": true, "when": { "key": "autoAlt", "eq": true } },
+        { "key": "altEngine", "type": "enum", "label": "別のエンジン", "default": "llama.cpp", "options": [["llama.cpp", "Qwen3-ASR 1.7B(GPU)"]], "validated": true, "when": { "key": "autoAlt", "eq": true } },
         { "key": "autoYtcap", "type": "bool", "label": "元の配信の YouTube の字幕と比べて、食い違う所に候補を出す(試験中)", "default": false },
         { "key": "autoDiarize", "type": "bool", "label": "話者を自動で判別する", "default": false, "hint": "sherpa-onnx が要ります(setup/install-diarize.bat)。評価用の文書は常に判別します。" },
         { "key": "diarSmooth", "type": "bool", "label": "短い 1 行だけ別の人になるのをならす(試験中)", "default": false, "validated": true }

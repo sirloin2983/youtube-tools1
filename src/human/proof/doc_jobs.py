@@ -109,7 +109,7 @@ def validate_job(req):
     # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
     clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)   # (RS3-0A まで受け渡しの部品 pipeline_io を口から読んでいた)
     warnings = [clip_warn] if clip_warn else []
-    model = _flowtx.check_model(str(req.get("model") or "small").strip())
+    model = _flowtx.check_model(str(req.get("model") or "large-v3").strip())   # 要求に無ければ large-v3(主の文字起こしのモデル。0.58.0 まで small)
     lang = str(req.get("language") or "ja")
     if lang not in _txbase.LANGS:
         lang = "ja"
@@ -148,7 +148,7 @@ def validate_job(req):
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False and not ev, "wordSplit": req.get("wordSplit") is not False,
             "splitChars": split_chars_for(req, st),
-            "autoRedo": req.get("autoRedo") is True, "redoLarge": req.get("redoLarge") is not False,
+            "autoRedo": req.get("autoRedo") is True,
             # 終わったら 2つ目のエンジンでも聞く(D1-b)。要求に無ければ(まとめて実行・古い画面)保存した設定 autoAlt
             "autoAlt": pref("autoAlt") and not ev,
             # 終わったら元の配信の YouTube の字幕と比べる(案 A1)。要求に無ければ保存した設定 autoYtcap。元の配信が分からない文書は ytcap_after_transcribe が黙って飛ばす
@@ -423,7 +423,7 @@ def run_job(job):
         _heavy.job_done(job, tid)
         if spec.get("autoRedo") and any(_txtext.SPARSE_FLAG in g["flag"] for g in clip["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:
-                _heavy.add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": clip["sparseLp"]}), "redo")
+                _heavy.add_job(redo_spec(tid, {"oldLp": clip["sparseLp"]}), "redo")
             except _errors.ApiError as e:
                 _txbase.add_warning(job, "疑わしい所の認識し直しを始められませんでした: " + e.message)
         alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く。D1-b)
@@ -512,7 +512,7 @@ def redo_targets(doc, ids=None):
 
 
 def redo_spec(tid, req=None):
-    """疑わしい所を認識し直すジョブの指定。モデルは文字起こしと同じ(kotoba なら、redoLarge で large-v3)。VAD は普通の強さで短く区切る"""
+    """疑わしい所を認識し直すジョブの指定。モデルは文字起こしと同じ(kotoba のとき large-v3 にする設定 redoLarge は 0.58.0 で消した)。VAD は普通の強さで短く区切る"""
     req = req or {}
     doc = store.read_transcript(tid)
     if doc.get("evalSet") is True:
@@ -522,8 +522,6 @@ def redo_spec(tid, req=None):
     if not targets:
         raise _errors.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
     model = _flowtx.check_model(str(doc.get("model") or "large-v3"), fallback="large-v3")
-    if "kotoba" in model.lower() and req.get("redoLarge") is not False:
-        model = "large-v3"   # kotoba は聞き取りにくい音声が苦手なので、重いモデルで試す(設定)
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["redo"]):
         raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     pr = doc.get("params") if isinstance(doc.get("params"), dict) else {}

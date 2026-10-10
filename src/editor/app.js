@@ -288,7 +288,7 @@ $('#rsGo').addEventListener('click', resplitDoc);
 $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)
   if (!S.docId || lockJob() || !(await saveDone())) return;
   try {
-    await api('/api/redo', { body: { tid: S.docId, redoLarge: optCheck('redoLarge') } });   // 0.66.0: チェックは設定の画面へ
+    await api('/api/redo', { body: { tid: S.docId } });   // 0.58.0: kotoba のときの設定 redoLarge は消した
     $('#redoMsg').textContent = '認識し直しています(終わると読み込み直します)';
     kickJobs();
   } catch (e){ $('#redoMsg').textContent = ''; toast(e.message, 7000, 'err'); }
@@ -1278,9 +1278,7 @@ async function boot(){
   await loadRoster();
   if (S.tools){
     $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
-    if (S.tools.wcpp && S.tools.wcpp.ready && !$('#optDevice option[value="vulkan"]')){   // AMD などの GPU(whisper.cpp)は、作ってあるときだけ選べる(段2-2)
-      const o = document.createElement('option'); o.value = 'vulkan'; o.textContent = 'GPU(AMD など・whisper.cpp)'; $('#optDevice').append(o);
-    }
+    // 処理方式は GPU(whisper.cpp)だけ(0.58.0。index.html の #optDevice。まだ作っていない PC は文字起こしを始めたときにサーバーが理由を出す = 黙って CPU にしない)
     $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
   }
   await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない(監査 11)

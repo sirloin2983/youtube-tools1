@@ -354,12 +354,12 @@ class TestEditHttp(unittest.TestCase):
             return [os.path.join(d, "machine.json") for d, _n, fs in os.walk(self.tmp) if "machine.json" in fs]
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
         try:
-            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)   # 丸ごとの保存
-            self.assertEqual(self.call("GET", "/api/settings").get("device"), "cpu")
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, device="cpu"))["_status"], 200)   # 丸ごとの保存(旧い cpu は断らない)
+            self.assertEqual(self.call("GET", "/api/settings").get("device"), "vulkan")   # 0.58.0: 機器は GPU だけ = vulkan に読み替えて書く
             files = machine_files()
             self.assertEqual(len(files), 1)
             with open(files[0], encoding="utf-8") as f:
-                self.assertEqual(json.load(f).get("device"), "cpu")
+                self.assertEqual(json.load(f).get("device"), "vulkan")
             self.assertEqual(self.call("PUT", "/api/settings", {"patch": {"device": "vulkan", "quality": "fast"}})["_status"], 200)   # 差分の保存
             st = self.call("GET", "/api/settings")
             self.assertEqual((st.get("device"), st.get("quality")), ("vulkan", "fast"))

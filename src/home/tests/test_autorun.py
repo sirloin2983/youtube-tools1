@@ -357,7 +357,7 @@ class TestDocs(Base):
         self.assertEqual([s["state"] for s in b["steps"]], ["skip", "done"], b)          # 行がある文書は文字起こしを飛ばす
         tx = next(j for j in self.tools.tx_jobs.values())
         self.assertEqual(tx["body"]["intoDoc"], "aaaaaaaaaaa1")                           # 同じ文書に入れる
-        self.assertEqual(tx["body"]["model"], "small")                                     # 新規の設定で
+        self.assertEqual(tx["body"]["model"], "large-v3")                                  # 新規の設定で(設定の small は 0.58.0 から large-v3 に読む)
         bodies = self.tools.c2r["bodies"]
         self.assertEqual(sorted(b_["spec"]["video"] for b_ in bodies), sorted(self.media.values()))
         self.assertTrue(all(b_["spec"].get("mode") == "list" and "force" not in b_["output"] for b_ in bodies))   # 既定はカットしない(2026-10-01)
@@ -506,9 +506,9 @@ class TestModes(Base):
         self.assertEqual(self.tools.export_body, {"id": VID, "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": -16})
         tx = self.tools.tx_jobs["t1"]["body"]
         # 文字起こしの項目は束の値を全部(無い項目は編集の既定と同じ束の既定)。知らない設定(secret・goalHours)は渡さない
-        self.assertEqual(tx, {"model": "small", "language": "ja", "quality": "best", "device": "auto", "vadMode": "weak", "boost": True,
+        self.assertEqual(tx, {"model": "large-v3", "language": "ja", "quality": "best", "device": "vulkan", "vadMode": "weak", "boost": True,
                               "autoDict": True, "wordSplit": True, "stripPunct": True, "autoGloss": True, "autoLearned": False, "autoRedo": False,
-                              "redoLarge": True, "sourcePath": self.tools.clip_path("m1"), **NEW_TX_DEFAULTS})
+                              "sourcePath": self.tools.clip_path("m1"), **NEW_TX_DEFAULTS})
         self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
         self.assertIs(self.tools.c2r["body"]["spec"]["rowEdge"], True)   # 設定が無ければ束の既定 = cut2resolve の既定(端を広げる)
         self.assertTrue(self.tools.c2r["body"]["output"]["textplus"])
@@ -1320,7 +1320,7 @@ class TestRequests(Base):
         run = self.wait(self.r.start_file(media2, engine="openai", model="../x"))
         self.assertEqual((run["engine"], run["model"]), (None, None))
         body = list(self.tools.tx_jobs.values())[-1]["body"]
-        self.assertEqual(("engine" in body, body["model"]), (False, "small"))   # 編集の設定のモデル
+        self.assertEqual(("engine" in body, body["model"]), (False, "large-v3"))   # 編集の設定のモデル(small は 0.58.0 から large-v3 に読む)
 
     def live_clip(self, name, origin):
         """リアルタイム切り抜きの書き出し(src/flow/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
@@ -2210,7 +2210,7 @@ class TestMedia30fps(unittest.TestCase):
 # RS7-1 S4(決定 3-30 Q2)で、切り出しの精密・画質の上限・パックの fps は固定(精密・上限なし・30)・用語集は束の外(編集の受付が自分の設定から読む)にしたので、
 # その 4 つだけは固定の値・書かない形に直してある
 OLD_TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned",
-               "autoRedo", "redoLarge")
+               "autoRedo")   # redoLarge は 0.58.0 で消した
 
 
 def old_export_body(rv, vid, ids):
@@ -2225,7 +2225,9 @@ NEW_TX_DEFAULTS = {"autoFill": True, "stripNames": True, "autoLlm": True, "autoC
 
 
 def old_tx_opts(opts):
-    return dict(NEW_TX_DEFAULTS, **{k: opts[k] for k in OLD_TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))})
+    out = dict(NEW_TX_DEFAULTS, **{k: opts[k] for k in OLD_TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))})
+    out.update(model="large-v3", device="vulkan")   # 0.58.0: モデルと機器は large-v3・GPU だけ(保存した small・cpu なども読み替える)
+    return out
 
 
 def old_pack_settings(tx):
@@ -2276,12 +2278,12 @@ FULL_VARIANTS = [
 
 def _eff_tx(opts):
     """「編集」の受付(human/proof/doc_jobs.validate_job)がこの項目から決める値(無い項目の既定を当てたもの)"""
-    return {"model": opts.get("model") or "small", "language": opts.get("language") or "ja", "beam": 1 if opts.get("quality") == "fast" else 5,
+    return {"model": opts.get("model") or "large-v3", "language": opts.get("language") or "ja", "beam": 1 if opts.get("quality") == "fast" else 5,
             "device": opts.get("device") if opts.get("device") in ("cuda", "cpu") else "auto", "vulkan": opts.get("device") == "vulkan",
             "vadMode": opts.get("vadMode") if opts.get("vadMode") in ("weak", "normal", "off") else "weak", "boost": opts.get("boost") is True,
             "autoDict": opts.get("autoDict") is not False, "wordSplit": opts.get("wordSplit") is not False, "stripPunct": opts.get("stripPunct") is not False,
             "autoGloss": opts.get("autoGloss") is not False, "autoLearned": opts.get("autoLearned") is True, "autoRedo": opts.get("autoRedo") is True,
-            "redoLarge": opts.get("redoLarge") is not False, "glossary": opts.get("glossary") or "", "engine": opts.get("engine")}
+            "glossary": opts.get("glossary") or "", "engine": opts.get("engine")}
 
 
 def _eff_pack(row_edge, out, cut_silence):

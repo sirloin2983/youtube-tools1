@@ -2,10 +2,10 @@
 """文字起こしの認識エンジンの口(精度改善の計画 段2。plan/line-b-transcription.md(付録))。
 
 認識ワーカー(worker.py)が読み込むモデルは、ここのエンジンの1つとして作る。
-  faster-whisper … 今までのエンジン(CPU / NVIDIA の GPU)。段2-1
-  whisper.cpp    … whisper-cli.exe を子プロセスで動かす。AMD の GPU(Vulkan)で large-v3 などを動かす。段2-2
-  qwen3-asr      … Qwen3-ASR 0.6B を sherpa-onnx の CPU で動かす(時刻は区切りの中の目安)。段2-3
-  llama.cpp      … Qwen3-ASR 1.7B を llama-server(Vulkan)で動かす(同じ区切り方)。段2-3
+  faster-whisper … CPU の逃げ道(GPU が実行時に失敗したときの CPU・再認識・時刻の候補など内部の自動の使い道)。段2-1
+  whisper.cpp    … whisper-cli.exe を子プロセスで動かす。GPU(Vulkan)で large-v3 を動かす = 主の文字起こし。段2-2
+  llama.cpp      … Qwen3-ASR 1.7B を llama-server(Vulkan)で動かす(区切りの中の目安の時刻)= 2 つ目のエンジン。段2-3
+  (Qwen3-ASR 0.6B の qwen3-asr・large-v3-turbo は 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で消した)
 新しいエンジンは、同じ形のクラスをここに足し、ENGINES に登録する。
 
 エンジンの形(Engine):
@@ -185,9 +185,7 @@ _HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
 WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の ggerganov/whisper.cpp。大きさと SHA-256 は 2026-10-02 に API で確かめた)
     "large-v3": {"file": "ggml-large-v3.bin", "url": _HF + "ggml-large-v3.bin", "size": 3095033483,
                  "sha256": "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"},
-    "large-v3-turbo": {"file": "ggml-large-v3-turbo.bin", "url": _HF + "ggml-large-v3-turbo.bin", "size": 1624555275,
-                       "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"},
-}
+}   # large-v3-turbo は 0.58.0 で外した(主の文字起こしのモデルは large-v3 だけ)
 WCPP_VAD = {"file": "ggml-silero-v6.2.0.bin", "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", "size": 885098,
             "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"}   # 声の検出(Silero v6.2。計画の 3)
 # ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は 0.65.0(2026-10-09)で消した = 編集はもう取得しない。
@@ -515,16 +513,9 @@ def _write_wav(path, samples):
         w.writeframes(ints)
 
 
-# ---------------------------------------------------------------- Qwen3-ASR(段2-3)
-# 公開の比較で日本語に強い Qwen3-ASR を、入っている sherpa-onnx(1.13.8)の CPU で動かす(新しい依存は足さない)。
-# モデルは sherpa-onnx の公式の配布(0.6B・int8)を URL・大きさ・SHA-256 固定で取る(計画の 7)。1.7B は sherpa の形式の配布が無い。
-# 時刻を出さないモデルなので、音の小さい所で 12〜28 秒の区切りにして区切りごとに認識し、文の区切りで行にする(行の時刻は区切りの中で字数に比例させた目安)。
-QWEN3_MODELS = {   # 2026-10-02 に GitHub の API で大きさと SHA-256 を確かめた
-    "qwen3-asr-0.6b": {"dir": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25", "file": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
-                       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
-                       "size": 878702423, "sha256": "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
-                       "parts": ("conv_frontend.onnx", "encoder.int8.onnx", "decoder.int8.onnx", "tokenizer/vocab.json", "tokenizer/merges.txt")},
-}
+# ---------------------------------------------------------------- 区切りごとに読むエンジンの共通部分(段2-3)
+# 時刻を出さない Qwen3-ASR(llama.cpp の 1.7B)と SenseVoice は、音の小さい所で 12〜28 秒の区切りにして区切りごとに認識し、文の区切りで行にする
+# (行の時刻は区切りの中で字数に比例させた目安)。sherpa-onnx の CPU で動かす Qwen3-ASR 0.6B(qwen3-asr)は 0.58.0 で消した。
 Q3_FRAME = 0.05                 # 音の大きさを見る1コマ(秒)
 Q3_MIN, Q3_MAX = 12.0, 28.0     # 区切りの長さ(秒)。28 秒を超えると 1 回の出力の上限(トークン)に近づく
 Q3_SILENT = 0.003               # 区切りの中の最大の音の大きさ(RMS)がこれ未満なら認識しない(約 -50 dBFS。無音で文を作らせない)
@@ -533,10 +524,6 @@ Q3_TOKENS_PER_SEC, Q3_TOKENS_MIN = 12, 32   # 1 回の出力の上限(区切り�
 Q3_REPEAT_KEEP = 4              # 同じ並び(1〜10 字)が続くとき、残す回数(「OKOKOKOK」は人の行にもあるので 0 にはしない)
 Q3_LANG = {"ja": "Japanese", "en": "English", "zh": "Chinese", "ko": "Korean"}   # Qwen3-ASR の言語の名前。自動判定に任せると日本語の区切りが中国語になった
 _Q3_SPECIAL = re.compile(r"<\|")   # 特別なトークン(<|endoftext|> など)から先は捨てる(用語のヒントを区切りごとに渡すと、その先に関係ない英文が続いた)
-
-
-def q3_model_dir(data_dir):
-    return os.path.join(data_dir, "models", "qwen3asr")
 
 
 def q3_chunks(rms, frame=Q3_FRAME, lo=Q3_MIN, hi=Q3_MAX):
@@ -668,7 +655,7 @@ def _need_sherpa(setup):
 
 
 class _Qwen3Chunked(Engine):
-    """時刻を出さない(または区切りごとに読む)エンジンの共通部分(Qwen3-ASR の 2 つと SenseVoice): 音の小さい所で区切り(q3_chunks)、
+    """時刻を出さない(または区切りごとに読む)エンジンの共通部分(Qwen3-ASR 1.7B と SenseVoice): 音の小さい所で区切り(q3_chunks)、
     無音の区切りは読まず、区切りの中の行は _chunk_rows で作る(Qwen3 = _decode の文章 → q3_rows / SenseVoice = トークンの時刻 → sv_rows)。
     自信の度合いを出さないので avg_logprob は無い。温度は 0 相当(faster-whisper の温度のやり直しは使わない)"""
     PARAMS = ["hotwords", "language", "vad_filter", "vad_parameters", "word_timestamps"]   # language は区切りごとに指定・vad と単語の時刻は受け取るだけ
@@ -713,61 +700,6 @@ class _Qwen3Chunked(Engine):
                     yield types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
                                                 compression_ratio=len(raw) / len(zlib.compress(raw)))
         return gen(), info
-
-
-class Qwen3Asr(_Qwen3Chunked):
-    """Qwen3-ASR 0.6B(sherpa-onnx・CPU)。用語のヒント(hotwords)は認識器を作るときに渡す(区切りごとに渡すと崩れた)"""
-    id = "qwen3-asr"
-    package = "sherpa-onnx"
-    DEFAULT_MODEL = "qwen3-asr-0.6b"
-
-    @classmethod
-    def device_order(cls, pref, cuda_ok):
-        return ["cpu"]   # AMD の GPU は onnxruntime の対象外(sherpa-onnx の provider は cpu / cuda)
-
-    @classmethod
-    def valid_model(cls, name):
-        return name in QWEN3_MODELS
-
-    @classmethod
-    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
-        spec = QWEN3_MODELS.get(name)
-        if spec is None:
-            raise EngineError("bad_model", "Qwen3-ASR で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(QWEN3_MODELS)), 400)
-        _need_sherpa("install.bat")
-        mdir = _ensure_tar_model(spec, q3_model_dir(data_dir), log, hooks or {})
-        e = cls(name, device, {"dir": mdir, "rec": {}})
-        try:
-            e._recognizer("")   # 読み込めるかをここで確かめる
-        except RuntimeError as ex:   # 同じファイルでもまれに読み込みが失敗した(2026-10-02)ので1回だけやり直す。CPU を替えたあと(10-04)も、
-            # 一時的な失敗(ファイルのロック・ドライバ)への備えとして残す。本物の失敗は2回目でそのまま出る
-            if log:
-                log.warning("Qwen3-ASR の読み込みをやり直します: %s", str(ex)[:160])
-            e.model["rec"].clear()
-            e._recognizer("")
-        return e
-
-    def _recognizer(self, hotwords):
-        rec = self.model["rec"]
-        if hotwords not in rec:
-            import sherpa_onnx
-            rec.clear()   # ヒントの違う認識器は1つだけ持つ(メモリを積み上げない)
-            d = self.model["dir"]
-            rec[hotwords] = sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
-                conv_frontend=os.path.join(d, "conv_frontend.onnx"), encoder=os.path.join(d, "encoder.int8.onnx"),
-                decoder=os.path.join(d, "decoder.int8.onnx"), tokenizer=os.path.join(d, "tokenizer"),
-                num_threads=half_cpu(), max_new_tokens=512, max_total_len=1536, hotwords=hotwords)
-        return rec[hotwords]
-
-    def _decode(self, samples, lang, hot, max_tokens):
-        rec = self._recognizer(hot)
-        s = rec.create_stream()
-        if lang:
-            s.set_option("language", lang)   # 「language Japanese」をモデルへの指示に入れる(sherpa-onnx の Qwen3-ASR の実装)
-        s.set_option("max_new_tokens", str(max_tokens))
-        s.accept_waveform(16000, samples)
-        rec.decode_stream(s)
-        return s.result.text
 
 
 # ---- llama.cpp(Vulkan)で Qwen3-ASR 1.7B(段2-3。2026-10-02)
@@ -1184,7 +1116,7 @@ class LlamaText(LlamaQwen3):
         return self._retry(lambda: self._chat(payload))
 
 
-ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, Qwen3Asr.id: Qwen3Asr, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
+ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
            LlamaText.id: LlamaText}
 
 

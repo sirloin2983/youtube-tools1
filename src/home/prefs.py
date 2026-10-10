@@ -14,7 +14,7 @@
              配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/flow/live_archive.py。P4)・
              本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/manage/keep/live_cleanup.py。P4)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
-             engine: ""(編集の設定)|faster-whisper|whisper.cpp|qwen3-asr|llama.cpp・model: ""(編集の設定)|モデルの名前}(線 D の M2。入口 0.39.0)。
+             engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2。入口 0.39.0。選択肢は 0.58.0 で絞った)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
@@ -83,11 +83,13 @@ RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
 LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/flow/live_export.py の AFTERS と同じ名前)
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
-LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/pipeline/transcribe/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)
-LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
+# 認識エンジンとモデル("" = 編集の設定のまま)。0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で whisper.cpp・large-v3 だけに
+# (faster-whisper・qwen3-asr・llama.cpp と自由入力のモデルは外した。保存してある外れた値は読むときに "" = 編集の設定に戻る = _clean_keys)
+LIVE_ENGINES = ("", "whisper.cpp")   # flow/spec.py の TX_ENGINES と同じ名前(editor は読み込まない)
+LIVE_MODELS = ("", "large-v3")       # flow/spec.py の TX_MODELS と同じ名前
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
 LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/pipeline/analyze/excite.py の SENS の名前)
-LIVE_TX_MODELS = ("large-v3", "large-v3-turbo")   # 配信中の候補の文字起こしのモデル(編集の whisper.cpp の WCPP_MODELS と同じ名前)
+LIVE_TX_MODELS = ("large-v3",)   # 配信中の候補の文字起こしのモデル(編集の whisper.cpp の WCPP_MODELS と同じ名前。large-v3-turbo は 0.58.0 で外した = 保存値は既定に戻る)
 LIVE_PAD_SEC = (0, 5)                        # 自動・アーカイブの採用の区間の前後の余白(秒。M8。人の採用には足さない)
 LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、入口が候補を最初に見てから待つ分(終わり待ちの候補は採用しない)
 
@@ -289,7 +291,7 @@ def _clean_live_auto(v, cur, strict=True):
     checks = {"after": (lambda x: x in LIVE_AFTERS, "書き出したあと(after)は none・check・auto のどれかにしてください"),
               "cut": (lambda x: x in LIVE_CUTS, "カット(cut)は 空(ホームの設定)・none・silence のどれかにしてください"),
               "engine": (lambda x: x in LIVE_ENGINES, "認識エンジン(engine)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_ENGINES[1:])),
-              "model": (lambda x: isinstance(x, str) and (x == "" or bool(LIVE_MODEL_RE.match(x))), "モデル(model)は英数字と . _ - の 60 字までにしてください(空 = 編集の設定)"),
+              "model": (lambda x: x in LIVE_MODELS, "モデル(model)は 空(編集の設定)・%s のどれかにしてください" % "・".join(LIVE_MODELS[1:])),
               "pad": (lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and LIVE_PAD_SEC[0] <= x <= LIVE_PAD_SEC[1],
                       "前後の余白(pad)は %d〜%d 秒で指定してください" % LIVE_PAD_SEC)}
     return _clean_keys(v, cur, DEFAULTS["live"]["auto"], checks, strict)

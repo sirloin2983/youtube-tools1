@@ -368,8 +368,7 @@ def _scene_turn_on(cx):
     # エンジンの保存が終わる(「保存しました」)のを待ってから打つ。settingsForm は保存の応答で全部の欄を描き直すので、
     # 途中だとモデル名の入力が消えて change が出ない(続けて流したときだけ落ちていた M2 の原因。描き直しの側はツールの見直しで)
     wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.auto.engine\"] .ui-set-mark')||{}).textContent === '保存しました'", 8000)
-    pg.fill("#uiSet-live_auto_model", "large-v3")
-    pg.press("#uiSet-live_auto_model", "Tab")
+    pg.select_option("#uiSet-live_auto_model", "large-v3")   # 0.58.0 からモデルは選ぶ欄(「編集」の設定のまま・large-v3)
     check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),
           "M2 エンジン・モデルを選ぶと live.auto に入る: %s" % srv.prefs.get(["live"])["live"]["auto"])
     # M7: 配信後の全自動のスイッチと 1 時間あたりの数(既定オフ・6)

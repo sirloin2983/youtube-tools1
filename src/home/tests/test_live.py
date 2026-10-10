@@ -226,11 +226,20 @@ class PrefsLiveTest(unittest.TestCase):
         v = self.p.patch("live", {"auto": {"cut": "silence", "model": "large-v3"}})
         self.assertEqual(v["auto"], {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3", "pad": 2})
         for bad in ({"auto": "x"}, {"auto": {"after": "all"}}, {"auto": {"cut": "rows"}}, {"auto": {"engine": "openai"}},
-                    {"auto": {"model": "../x"}}, {"auto": {"model": "a" * 61}}, {"auto": {"engine": None}}):
+                    {"auto": {"model": "../x"}}, {"auto": {"model": "a" * 61}}, {"auto": {"engine": None}},
+                    {"auto": {"engine": "faster-whisper"}}, {"auto": {"engine": "qwen3-asr"}}, {"auto": {"model": "small"}}):   # 0.58.0 で外した選択肢
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
         self.assertEqual(self.p.patch("live", {"enabled": True})["auto"]["model"], "large-v3")   # ほかの鍵を直しても残る
         self.assertEqual(self.p.patch("live", {"auto": {"engine": "", "model": ""}})["auto"], {"after": "auto", "cut": "silence", "engine": "", "model": "", "pad": 2})
+        path = os.path.join(self.tmp, "prefs.json")   # 0.57.0 までに保存した外れた値は読むときに ""(編集の設定のまま)に戻る(断らない)
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        d["live"]["auto"].update(engine="llama.cpp", model="large-v3-turbo")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        v = P.Prefs(path, fsio.atomic_write).get(["live"])["live"]["auto"]
+        self.assertEqual((v["engine"], v["model"], v["cut"]), ("", "", "silence"))
 
     def test_auto_deliver_setting(self):
         """live.autoDeliver(0.48.1): 真偽だけ・壊れた保存値は既定(オン)に戻る"""
@@ -250,19 +259,20 @@ class PrefsLiveTest(unittest.TestCase):
         self.assertIs(P.Prefs(path, fsio.atomic_write).get(["live"])["live"]["autoDeliver"], True)
 
     def test_live_tx_settings(self):
-        """配信中の候補の文字起こし live.liveTx(D-11 案 b): 鍵ごとに直す・enabled は真偽・model は large-v3 / large-v3-turbo・壊れた保存値は既定に戻す"""
+        """配信中の候補の文字起こし live.liveTx(D-11 案 b): 鍵ごとに直す・enabled は真偽・model は large-v3 だけ(0.58.0)・壊れた保存値は既定に戻す"""
         self.assertEqual(self.p.patch("live", {"liveTx": {"enabled": False}})["liveTx"], {"enabled": False, "model": "large-v3"})
-        self.assertEqual(self.p.patch("live", {"liveTx": {"model": "large-v3-turbo"}})["liveTx"], {"enabled": False, "model": "large-v3-turbo"})   # 鍵ごと
-        self.assertEqual(self.p.patch("live", {"quality": "720p"})["liveTx"], {"enabled": False, "model": "large-v3-turbo"})   # ほかの鍵を直しても残る
+        self.assertEqual(self.p.patch("live", {"liveTx": {"model": "large-v3"}})["liveTx"], {"enabled": False, "model": "large-v3"})   # 鍵ごと
+        self.assertEqual(self.p.patch("live", {"quality": "720p"})["liveTx"], {"enabled": False, "model": "large-v3"})   # ほかの鍵を直しても残る
         for bad in ({"liveTx": "on"}, {"liveTx": []}, {"liveTx": {"enabled": "yes"}}, {"liveTx": {"enabled": 1}}, {"liveTx": {"enabled": None}},
-                    {"liveTx": {"model": "small"}}, {"liveTx": {"model": "../x"}}, {"liveTx": {"model": None}}):
+                    {"liveTx": {"model": "small"}}, {"liveTx": {"model": "large-v3-turbo"}}, {"liveTx": {"model": "../x"}}, {"liveTx": {"model": None}}):
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
-        self.assertEqual(self.p.get(["live"])["live"]["liveTx"], {"enabled": False, "model": "large-v3-turbo"})   # 断ったときは変えない
-        self.assertEqual(P.LIVE_TX_MODELS, ("large-v3", "large-v3-turbo"))
+        self.assertEqual(self.p.get(["live"])["live"]["liveTx"], {"enabled": False, "model": "large-v3"})   # 断ったときは変えない
+        self.assertEqual(P.LIVE_TX_MODELS, ("large-v3",))
         path = os.path.join(self.tmp, "prefs.json")
         for stored, want in (({"enabled": "yes", "model": "small"}, {"enabled": True, "model": "large-v3"}),   # 壊れた値は読むときに既定へ(断らない)
                              ({"enabled": False, "model": 3}, {"enabled": False, "model": "large-v3"}),          # 壊れた鍵だけ
+                             ({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3"}),   # 0.58.0 で外したモデル
                              ("x", {"enabled": True, "model": "large-v3"})):                                      # 節が dict でない
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"live": {"enabled": True, "folder": "E:\\Video\\live-rec", "liveTx": stored}}, f)
