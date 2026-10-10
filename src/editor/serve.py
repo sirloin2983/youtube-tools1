@@ -122,6 +122,7 @@ from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしの�
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
 from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 a-5a)
+from flow import keys as _flowkeys  # noqa: E402  (② 成果物の鍵。文書の削除で鍵のファイルも消す。RS6 b-K1)
 from flow import diar as _flowdiar  # noqa: E402  (② 判別と声の段取り・判別の記録を書く・覚えた声の置き場所 VOICES_DIR・load_voices ほか。RS6 a-4 に speakers・diarize から)
 from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目。RS2-9)
 from ytt import dictfmt as _dictfmt  # noqa: E402  (置換辞書の読み方 parse_replacements・wb_split・_bounded。RS6 a-1 に pipeline/transcribe/replace から ytt へ = S.parse_replacements・S._bounded はここへ届く)
@@ -596,7 +597,8 @@ class Handler(BaseHTTPRequestHandler):
                 os.unlink(_store.tx_path(tid))
                 for extra in (_store.edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"), _txwords.words_path(tid),
                               _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
-                              _alt.alt_path(tid), _ytcap.ytcap_path(tid), _txllm.llm_path(tid)):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案も一緒に
+                              _alt.alt_path(tid), _ytcap.ytcap_path(tid), _txllm.llm_path(tid),
+                              *(_flowkeys.doc_key_path(tid, st) for st in ("transcribe", "post", "diar"))):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案・成果物の鍵(RS6 b-K1)も一緒に
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:

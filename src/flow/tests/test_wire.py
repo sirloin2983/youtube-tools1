@@ -39,6 +39,7 @@ class TestInstall(unittest.TestCase):
         self.assertEqual(records.dict_version({"glossary": ["x"]}).get("glossary") is not None, True)
 
     def test_registers_only_given_kinds(self):
+        jobs.JOB_RUNNERS.clear()   # 同じプロセスで先に読んだ serve の登録を持ち越さない(後片付けで元に戻る)
         wire.install(bodies={"diarize": lambda job: "d", "alt": lambda job: "a"})
         self.assertEqual(jobs.JOB_RUNNERS["diarize"](None), "d")
         self.assertEqual((jobs.JOB_PRIORITY["diarize"], jobs.JOB_PRIORITY["alt"]), (0, 2))
