@@ -3379,3 +3379,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 次(RS5 の残り): ユーザーが入口を「すべて終了 → start.bat」で起動し直したあと、旧パスの起動用の転送(src/editor/tx_worker.py・src/home/live_*_worker.py 3 つ・src/recorder/recorder.py・dev/eval_*.py 13 本・src/ytt_core/)を消す → RS5 の終わりの文書と e2e。そのあと RS6
 - ユーザーの確認待ち: decisions 3-26(eval_marks が画面の meta から合言葉を読む)/ 送るアプリ 2.10.0 を友人に渡す(渡す前に本物の作業フォルダで `friend-apps\request-sender\build.bat` = 鍵 config.json 入りの zip。作業フォルダの zip は鍵なし)
 - 未コミット: なし(この記録と HANDOVER と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Opus まとめ役。実装 Sonnet 1 体(low))— 役割で組み直す RS5 の終わり(旧パスの転送を消した = 転送 0)
+- ユーザー: decisions 3-26 は「任せる」→ 推奨のとおり確定(47603fd)/「起動し直した」→ 動いている入口(13:47 起動・/api/ping 0.56.0)の子プロセスが新しいパス(pipeline/analyze/live_excite_worker.py・pipeline/ingest/recorder.py)で動いていることを確かめてから消した。AI のテストの残りの一時の serve.py 4 つ(Temp の ytt-mount-*)を止めた
+- **RS5-G**(Sonnet・low。6551ffc・840f90c): 旧パスの起動用の転送 19 本を消した = src/editor/tx_worker.py・src/home/live_excite_worker.py・live_align_worker.py・live_tx_worker.py・src/recorder/recorder.py・dev/eval_*.py 13 本・src/ytt_core/。test_worker の旧パスの検査・test_mount と layout の ytt_core・layer_map の FORWARDERS を空に。文書の「RS5 で消す」を「消した」に
+- テスト: 単体一式 1536 件(G の担当)・lint 0・層の検査 OK・test_mount(単独)OK。e2e の一式 31 本 = 27 本 OK + 前から落ちている 2 本(e2e_window の [7-1]・e2e_ui_handoff)+ 一式の中でだけ落ちた 2 本(e2e_live_studio の M2・e2e_live_archive の 9 段)= 単独で流し直して 2 本とも OK(HANDOVER の「続けて流したときだけ揺れる」)
+- data.js の RS5 を済みに・公開ページを出し直した
+- 次: RS6(① の新機能 = アーカイブと動画ファイルの自動採用・切り抜き単位の使い回し(鍵)・校正の上書きを鍵に付ける・① 単体の起動。app/server.py と live/autorun の分割もここ = decisions 3-25 の c・3-28)。計画 7・8 節と data.js の RS6。先に下調べ(Haiku・low)→ Fable と段の並び → ユーザーの確認(新機能 = 設計の変更)
+- 未コミット: なし(この記録と HANDOVER・data.js と一緒にコミット)
