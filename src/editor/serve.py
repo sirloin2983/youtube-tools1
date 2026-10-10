@@ -93,7 +93,8 @@ def _load_core():
 
 
 _load_core()
-from ytt import datadir as _datadir, httpsec, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
+from ytt import datadir as _datadir, httpsec, modfwd as _modfwd, runtime as _runtime  # noqa: E402
+from flow import placement as _placement  # noqa: E402  (② 置き場所の持ち主。スタジオの data.json の場所 = studio_data_path。RS6 b-B0)
 from flow import jobs as _heavy_jobs  # noqa: E402
 from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelled・check_cancel(① の部品も使う物。RS6 a-2 で flow/jobs と分けた)
 from flow import wire as _flowwire  # noqa: E402  ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
@@ -690,13 +691,12 @@ def set_data_dir(d):
 
 
 def studio_data_path():
-    """切り抜きスタジオの data.json(読むだけ)。置き場所の規則は ytt.datadir.resolve の1か所(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場)。
-    決めた場所に無く、登録も STUDIO_HOME も無ければ以前の場所(スタジオのフォルダ。移す前のデータ)"""
+    """切り抜きスタジオの data.json(読むだけ)。環境変数 TRANSCRIBE_STUDIO_DATA(テスト用)が無ければ、置き場所の持ち主 flow/placement の
+    studio_data(legacy=True)(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場。そこに無く、登録も STUDIO_HOME も無ければ
+    以前の場所 = スタジオのフォルダ。RS6 b-B0 でここから移した。値は同じ)"""
     if os.environ.get("TRANSCRIBE_STUDIO_DATA"):
         return os.environ["TRANSCRIBE_STUDIO_DATA"]
-    legacy = _layout.tool_dir("studio", os.path.dirname(_workdata.ROOT))
-    new = os.path.join(_datadir.resolve("studio", os.path.dirname(_workdata.ROOT), legacy_dir=legacy), "data.json")
-    return new if os.path.isfile(new) or _datadir.registered("studio") or _datadir.override("studio") else os.path.join(legacy, "data.json")
+    return _placement.studio_data(os.path.dirname(_workdata.ROOT), legacy=True)
 
 
 def choose_data_dir():

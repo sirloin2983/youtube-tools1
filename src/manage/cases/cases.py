@@ -49,6 +49,7 @@ from . import txindex   # 同じ manage/cases の兄弟
 from ytt import datadir, fsio, schemas, tools
 from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 from flow import live_failures   # 失敗の文は 1 か所。線 D の M3
+from flow import placement   # 置き場所の持ち主(スタジオの data.json。RS6 b-B0)
 
 SCHEMA = "youtube-tools-cases/v1"
 STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中・投稿済み・見送り
@@ -79,9 +80,10 @@ def _read_json(path, limit=MAX_JSON):
 def locations(repo_root, env=None):
     """{"studio": data.json, "transcripts": フォルダ, "cases": cases.json, "liveJobs": 線 D の書き出しのジョブ, "runs": まとめて実行の記録}。
     置き場所の規則は ytt.datadir.resolve の1か所
-    (起動したツールが登録した場所 → STUDIO_HOME などの環境変数 → YTT_DATA_DIR・既定の場所。env を渡したときは登録を見ない)"""
+    (起動したツールが登録した場所 → STUDIO_HOME などの環境変数 → YTT_DATA_DIR・既定の場所。env を渡したときは登録を見ない)。
+    スタジオの data.json は置き場所の持ち主 flow/placement の studio_data(RS6 b-B0。値は同じ)"""
     app = datadir.resolve("app", repo_root, env)
-    return {"studio": os.path.join(datadir.resolve("studio", repo_root, env), "data.json"), "transcripts": txindex.folder(repo_root, env),
+    return {"studio": placement.studio_data(repo_root, env), "transcripts": txindex.folder(repo_root, env),
             "cases": os.path.join(app, "cases.json"), "liveJobs": os.path.join(app, "live", "exports.json"),
             "runs": os.path.join(app, "logs", "autorun-runs.jsonl")}
 

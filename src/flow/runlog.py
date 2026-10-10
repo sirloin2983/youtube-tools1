@@ -6,6 +6,10 @@
 ライブの失敗の集約(live_failures。書き出しのジョブの runId で紐づける)が、同じ読み方を使う。
 autorun を読み込まずに記録を読めるようにして、① の部品(live_failures など)から app への向きの違反をなくすために出した。
 
+RS6 b-B0(2026-10-10): 1 行 = 1 件は**索引**になった。実行の結果の正本は案件の `作業用/runs/<実行id>.json`(結果の束。
+書くのは flow/placement.write_result)で、1 行の `resultPath` がその場所(書けなかった実行・それより前の行には無い)。
+束の形の名前 RESULT_SCHEMA と、索引の 1 行から束を読む read_result はここ(書く側と読む側で同じ名前を使う)。
+
 標準ライブラリだけ(ファイルは読むだけ。書き換えない)。
 """
 import json
@@ -13,6 +17,8 @@ import os
 
 RUNS_LOG = "autorun-runs.jsonl"   # 終わった実行の記録(入口の作業データの logs の中。段2 B-6)
 LOG_VERSION = 1                   # 記録の1行の形の版(v)
+RESULT_SCHEMA = "youtube-tools-run/v1"   # 結果の束(案件の 作業用/runs/<実行id>.json)の形の名前
+RESULT_MAX = 4 * 1024 * 1024             # 結果の束はこれより大きければ読まない
 
 
 def _parse_rec(raw):
@@ -63,3 +69,21 @@ def read_runs_log(path, max_bytes=None):
             if rec:
                 out.append(rec)
     return out
+
+
+def read_result(rec, max_bytes=RESULT_MAX):
+    """索引の 1 行(read_runs_log の 1 件)の resultPath にある結果の束 -> 辞書。無い・読めない・形が違う・別の実行の束なら None
+    (案件のフォルダは人が動かす・消すので、索引は「あれば読める」だけ)"""
+    path = rec.get("resultPath") if isinstance(rec, dict) else None
+    if not isinstance(path, str) or not os.path.isabs(path) or os.path.basename(path) != "%s.json" % rec.get("id"):
+        return None
+    try:
+        if os.path.getsize(path) > max_bytes:
+            return None
+        with open(path, "rb") as f:
+            obj = json.loads(f.read().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(obj, dict) or obj.get("schema") != RESULT_SCHEMA or obj.get("id") != rec.get("id"):
+        return None
+    return obj

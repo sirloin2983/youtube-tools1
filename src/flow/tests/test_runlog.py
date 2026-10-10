@@ -71,6 +71,30 @@ class TestRunlog(unittest.TestCase):
         self.assertEqual([r["id"] for r in runlog.read_runs_log(self.path, 10 ** 6)], ["r001", "r002", "r003", "r004"])
         self.assertEqual(runlog.read_runs_log(self.path, 0), [])
 
+    def test_result_path_is_the_index(self):
+        """1 行の resultPath(RS6 b-B0)= 案件の 作業用/runs/<id>.json の索引。行は読めて、束は read_result で読む"""
+        bundle_path = os.path.join(self.tmp, "case", "作業用", "runs", "r001.json")
+        os.makedirs(os.path.dirname(bundle_path))
+        bundle = {"schema": runlog.RESULT_SCHEMA, "id": "r001", "state": "done"}
+        with open(bundle_path, "w", encoding="utf-8") as f:
+            json.dump(bundle, f, ensure_ascii=False)
+        self.write(runlog.RUNS_LOG, line(rec(1, resultPath=bundle_path)) + line(rec(2)))
+        got = runlog.read_runs_log(self.path)
+        self.assertEqual([r.get("resultPath") for r in got], [bundle_path, None])
+        self.assertEqual(runlog.read_result(got[0]), bundle)
+        self.assertIsNone(runlog.read_result(got[1]))                                          # 索引の無い行(前の版)
+        self.assertIsNone(runlog.read_result(rec(9, resultPath=bundle_path)))                  # 別の実行の束
+        self.assertIsNone(runlog.read_result(rec(1, resultPath="case/作業用/runs/r001.json")))  # 相対のパス
+        self.assertIsNone(runlog.read_result(rec(1, resultPath=bundle_path + ".x")))
+        self.assertIsNone(runlog.read_result(rec(1, resultPath=bundle_path), max_bytes=5))     # 大きすぎる
+        self.assertIsNone(runlog.read_result(None))
+        for bad in ({"schema": "x", "id": "r001"}, {"schema": runlog.RESULT_SCHEMA, "id": "r002"}, [], "{"):
+            with open(bundle_path, "w", encoding="utf-8") as f:
+                f.write(bad if isinstance(bad, str) else json.dumps(bad))
+            self.assertIsNone(runlog.read_result(got[0]), bad)
+        os.remove(bundle_path)
+        self.assertIsNone(runlog.read_result(got[0]))   # 案件のフォルダを人が動かした・消した
+
     def test_autorun_is_not_needed(self):
         """autorun(app)を読み込まずに読める(ライブの失敗の集約が使う)。別のプロセスで読み込んで、読んだモジュールを調べる"""
         code = ("import sys; sys.path.insert(0, %r); from flow import runlog; "

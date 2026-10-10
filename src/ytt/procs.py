@@ -7,6 +7,7 @@
 - `run_short(cmd, timeout)`: すぐ終わる情報の読み取り(subprocess.run の代わり。spawn を通す)
 - `run_capture(job, cmd, …)`: 1 行ずつ読みながら実行し、job の cancel・時間切れ・出力が止まったときに止める(中止は errors.Cancelled・出力なしは ApiError("timeout"))
 - `terminate`(止める依頼。待たない)・`hard_kill`(孫ごと強制終了)・`idle_message`(出力が止まったときの文)
+- `pid_alive(pid)`: 自分の子でないプロセスが動いているか(flow/placement の .flow.lock の取り残しの見分け。RS6 b-B0)
 テストは `common.spawn` などの旧い名前でも読み書きできる(スタジオの common.py の転送。RS5 で消す)。読む側は `procs.名前` を呼ぶたびに読む。
 """
 import os
@@ -131,6 +132,36 @@ def terminate(proc, grace=None):
         except OSError:
             pass
     threading.Thread(target=escalate, daemon=True).start()
+
+
+def pid_alive(pid):
+    """プロセス pid が動いているか(自分の子でなくてよい)。pid が正の整数でなければ False。権限が無い・調べられないときは True
+    (動いているほうに倒す)。Windows では os.kill(pid, 0) がプロセスを終わらせるので使わない(OpenProcess と待ちの 0 秒で見る)"""
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except OSError:
+            return True
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        handle = k32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
+        if not handle:
+            return ctypes.get_last_error() == 5   # 5 = 権限が無い(動いている)。87 などは無い
+        try:
+            return k32.WaitForSingleObject(handle, 0) == 0x102   # WAIT_TIMEOUT = まだ終わっていない
+        finally:
+            k32.CloseHandle(handle)
+    except (OSError, AttributeError, ValueError):
+        return True
 
 
 def idle_message(what, sec):

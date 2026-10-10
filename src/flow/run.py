@@ -23,11 +23,12 @@ Run の欄(top・ranges・weights・cut・engine・model・video_tracks・speake
 """
 import os
 import re
+import sys
 import time
 import uuid
 
 from ytt import colors
-from . import spec as _spec, tools as _tools
+from . import placement as _placement, spec as _spec, tools as _tools
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, RANGE_PAD, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights,
                    pad_range)
 
@@ -155,6 +156,7 @@ class Run:
         self.spec = None           # 指定の束(run() が merge・validate して置く。段が読む = RS6 b-0。待ちの記録・public には出さない)
         self.screen = None         # 束に入れない画面の値(flow/spec.py の SCREEN。入口の AutoRunner が置く。None = 固定の値。残さない)
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
+        self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         keys = list(MODE_STEPS[mode])
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
@@ -254,7 +256,7 @@ class Run:
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
                 "message": self.message, "error": self.error, "created": int(self.created * 1000),
-                "finished": int(self.finished * 1000) if self.finished else None,
+                "finished": int(self.finished * 1000) if self.finished else None, "resultPath": self.result_path,
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
 
 
@@ -911,5 +913,8 @@ def run(client, input, spec=None, from_=None, hooks=None, tools=None):
     runner = hooks if hooks is not None else Runner(client, tools=tools)
     r = input if isinstance(input, Run) else Run.from_input(input, from_)
     r.spec = bundle
-    runner.execute(r)
+    try:
+        runner.execute(r)
+    finally:   # 終わったら(失敗・中止でも)結果の束を案件の 作業用/runs/ へ(書けなくても上げない。RS6 b-B0)
+        _placement.write_result(r, sys.exc_info()[1], runner)
     return r

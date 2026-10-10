@@ -76,6 +76,7 @@ ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt(リポジトリ直下)
     sys.path.append(ROOT)
 from manage.cases import txindex  # noqa: E402
+from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
@@ -1282,6 +1283,7 @@ def main(argv=None):
             op.open_start(url)
         return 0
     http_thread = None
+    flow_lock = placement.acquire(port)   # 1 つの作業データに ② は 1 つ(.flow.lock。ほかの ② が動いていれば LockBusy で起動しない。RS6 b-B0)
     try:
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
@@ -1325,6 +1327,7 @@ def main(argv=None):
         if http_thread is not None and http_thread.is_alive():
             srv.shutdown()
         runtime.remove_runtime(sup.rdir, TOOL_ID, port)   # 自分が書いた記録のときだけ消す(別の入口が書き直したものは残す)
+        placement.release(flow_lock)   # .flow.lock を返す(自分の印のときだけ消す)
         srv.server_close()
         log("ホームを終了しました")
         log.flush()

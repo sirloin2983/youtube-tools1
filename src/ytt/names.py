@@ -72,10 +72,8 @@ def write_owner(folder, owner):
         f.write(owner)
 
 
-def pick_folder(root, title, owner, fallback):
-    """動画ごとの保存先フォルダ(<root>/<名前>/)を決めて作る。-> (フォルダ名, パス)。100 通り試して作れなければ None。
-    名前は title から(空なら fallback)。作業用/.studio-id に owner を書き、同じ名前で持ち主の違うフォルダとは混ぜない(連番 _2 …)。
-    印の無いフォルダ(手で作られた)は、その owner のものとして使う。OSError(作れない)はそのまま上げる"""
+def _folder_candidates(root, title, fallback):
+    """pick_folder が順に試すフォルダ (名前, パス)(1 つ目は題名から・2 つ目からは連番 _2 …。99 通り)"""
     # 出力先が長いときは、フォルダ名を短くしてファイル名(BASE_ROOM + ラベル + SUFFIX_ROOM)の分を残す
     room = MAX_PATH_UNITS - path_units(root) - 1 - 3 - 1 - BASE_ROOM - SUFFIX_ROOM
     name = trim_units(safe_name(title, 60), max(8, min(60, room))) or fallback
@@ -83,7 +81,29 @@ def pick_folder(root, title, owner, fallback):
         name = "_" + name
     for i in range(1, 100):
         cand = name if i == 1 else "%s_%d" % (name, i)
-        path = os.path.join(root, cand)
+        yield cand, os.path.join(root, cand)
+
+
+def find_folder(root, title, owner, fallback):
+    """pick_folder が選ぶはずのフォルダが、もう owner の物としてあればそれ。-> (フォルダ名, パス) か None。
+    作らない・印も書かない(置き場所を引くだけの側 = flow/placement が使う)。印の無いフォルダは owner の物と決めない"""
+    for cand, path in _folder_candidates(root, title, fallback):
+        if not os.path.exists(path):
+            return None
+        if os.path.isdir(path):
+            got = read_owner(path)
+            if got == owner:
+                return cand, path
+            if got is None:   # pick_folder はここを owner の物にする(まだ owner の物ではない)
+                return None
+    return None
+
+
+def pick_folder(root, title, owner, fallback):
+    """動画ごとの保存先フォルダ(<root>/<名前>/)を決めて作る。-> (フォルダ名, パス)。100 通り試して作れなければ None。
+    名前は title から(空なら fallback)。作業用/.studio-id に owner を書き、同じ名前で持ち主の違うフォルダとは混ぜない(連番 _2 …)。
+    印の無いフォルダ(手で作られた)は、その owner のものとして使う。OSError(作れない)はそのまま上げる"""
+    for cand, path in _folder_candidates(root, title, fallback):
         if not os.path.exists(path):
             os.makedirs(path)
             write_owner(path, owner)
