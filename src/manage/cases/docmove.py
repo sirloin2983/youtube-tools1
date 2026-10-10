@@ -2,10 +2,11 @@
 """④ 文字起こしの文書を案件の 作業用 へ移す(RS8 B2-3。決定は plan/rs8-cases-ui.md の「B-2 の移し方」)。
 
 入口が起動のとき(.flow.lock を取った直後・待ち受けの前 = CLI・画面の書き込みとぶつからない)に run を 1 回呼ぶ。
+自動で呼ぶのはこの PC の設定(flow/machine.py)の docMove が true のときだけ(既定 false。入口の move_docs が見る)。下のコマンドはスイッチに関係なく使える。
 データを失わない向きにいつも倒す: コピー → 確かめる → 改名 → 索引(ytt/docloc の place)→ 元は transcripts/.migrated/ へ改名して残す。上書きしない。
 
 - 対象: transcripts/<id>.json のうち、元の動画(sourcePath)が書き出し先(スタジオの outDir)の下の案件にあり、その案件に
-  作業用/.studio-id か 作業用/case.json がある物(_doc_home。評価用・動画が無い・ネットワーク上・outDir の外・固定ディスクでない は残す)。
+  作業用/.studio-id か 作業用/case.json がある物(flow/placement.doc_home + 動画がある。評価用・動画が無い・ネットワーク上・outDir の外・固定ディスクでない は残す)。
   文書の clip.source.videoId と 作業用/.studio-id が食い違えば移さない(ログ)。clip の無い文書はパスの条件だけで通す
 - 1 本ずつ: 文書と横のファイル(docloc.DOC_SUFFIXES)・.hist/<id>/・.bak/<id>.* を <作業用>/<名前>.part-<pid> へコピー
   (別のドライブでもコピー)→ 大きさと中身を比べる・本体は JSON として読めるか → 本来の名前へ改名(本体はいちばん最後)→ docloc.place →
@@ -36,7 +37,7 @@ if _SRC not in sys.path:   # コマンドで単独に動かすときも ytt・fl
     sys.path.insert(0, _SRC)
 from flow import placement as _placement  # noqa: E402
 from manage.keep import backup as _backup  # noqa: E402
-from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, names as _names, schemas as _schemas, settings as _settings  # noqa: E402
+from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, names as _names, schemas as _schemas  # noqa: E402
 
 RESULT_NAME = ".docs-moved.json"   # <編集の作業データ>/.docs-moved.json
 RESULT_VERSION = 1
@@ -46,7 +47,6 @@ PART_RE = re.compile(r"\.part-\d+$")
 BUDGET_SEC = 20.0
 BUDGET_DOCS = 50
 DOC_MAX = 64 * 1024 * 1024         # 本体をこれより大きければ読まない(読めない扱い = 移さない)
-DRIVE_FIXED = 3                    # Windows の GetDriveType の固定ディスク
 # 残した理由(結果の kept の鍵)→ 画面とログの文
 REASONS = {"eval": "評価用", "noSource": "元の動画が分からない", "noHome": "案件のフォルダでない(書き出し先の外・動画が無い・評価用のフォルダなど)",
            "owner": "案件の持ち主が違う", "conflict": "作業用に違う中身の同じ名前がある", "unseen": "索引はあるが置き場所が見えない",
@@ -57,74 +57,13 @@ class _Conflict(Exception):
     """写す先に違う中身の同じ名前がある(上書きしない)"""
 
 
-# ---------------------------------------------------------------- 置き場所の判定(B2-2 が入ったら寄せる)
-def _fixed_drive(path):
-    """path のドライブが固定ディスクか(Windows の GetDriveType。それ以外の OS は真)。ネットワーク上のパスは偽"""
-    if os.name != "nt":
-        return True
-    if _fsio.is_network_path(path):
-        return False
-    drive = os.path.splitdrive(os.path.abspath(path))[0]
-    if not drive:
-        return False
-    try:
-        import ctypes
-        return ctypes.windll.kernel32.GetDriveTypeW(drive + os.sep) == DRIVE_FIXED
-    except (AttributeError, OSError, ValueError):
-        return False
-
-
-def _eval_dirs(data_dir):
-    """編集の設定 <data_dir>/settings.json の評価用のフォルダ(入口の起動のときは workdata.SETTINGS がまだ無いので直に読む)"""
-    v = _fsio.read_json_or(os.path.join(data_dir, "settings.json"), {}, kind=dict).get("evalDirs")
-    return [os.path.abspath(p) for p in v if isinstance(p, str) and os.path.isabs(p) and not _fsio.is_network_path(p)] if isinstance(v, list) else []
-
-
-def _doc_home(source_path, out_dir=None, eval_dirs=()):
-    """元の動画 → 文書を置く <案件>/作業用 か None(transcripts のまま)。
-    B2-2 が入ったら寄せる(flow/placement.doc_home と同じ規則の仮の写し): 動画がある・ネットワーク上でない・案件の根が書き出し先の下・
-    その案件に 作業用/.studio-id か 作業用/case.json がある・書き出し先が固定ディスク・評価用のフォルダの外"""
-    if not isinstance(source_path, str) or not os.path.isabs(source_path) or _fsio.is_network_path(source_path) or _fsio.is_remote_drive(source_path):
+# ---------------------------------------------------------------- 置き場所の判定
+def _doc_home(source_path, out_dir=None, eval_set=False):
+    """元の動画 → 文書を置く <案件>/作業用 か None(transcripts のまま)。規則は flow/placement.doc_home(新しい文書と同じ)に、
+    移すときだけの条件「元の動画がある」を足す(動画が無い文書は案件に寄せない = 決定の「残す: 動画が無い」)"""
+    if not isinstance(source_path, str) or not source_path or _fsio.is_network_path(source_path) or not os.path.isfile(source_path):
         return None
-    out_dir = out_dir or _datadir.studio_out_dir()
-    if not out_dir or not os.path.isdir(out_dir) or not _fixed_drive(out_dir) or not os.path.isfile(source_path):
-        return None
-    root = _placement.case_root({"kind": "file", "path": source_path})
-    if not root or not _fsio.is_inside(root, out_dir, strict=True):
-        return None
-    work = os.path.join(root, _schemas.WORK_DIR)
-    if not (os.path.isfile(os.path.join(work, _names.OWNER_FILE)) or os.path.isfile(_placement.case_path(root))):
-        return None
-    if _settings.in_eval_dir(source_path, list(eval_dirs)):
-        return None
-    return work
-
-
-def _unseen_why(folder):
-    if not isinstance(folder, str) or not os.path.isabs(folder):
-        return "索引が読めない"
-    if _fsio.is_network_path(folder) or _fsio.is_remote_drive(folder):
-        return "ネットワーク上のパス"
-    return "フォルダが見えない" if not os.path.isdir(folder) else "文書が無い"
-
-
-def _unseen(data_dir=None):
-    """索引はあるが見えない文書の数と理由 -> {"count", "reasons": {理由: 数}}。B2-2 が入ったら docloc.unseen に寄せる"""
-    root = _docloc.tx_root(data_dir)
-    out = {"count": 0, "reasons": {}}
-    try:
-        names = sorted(os.listdir(root)) if root else []
-    except OSError:
-        return out
-    for n in names:
-        tid = n[:-len(_docloc.LOC_SUFFIX)] if n.endswith(_docloc.LOC_SUFFIX) else ""
-        if not _schemas.TID_RE.match(tid) or _docloc.placed(tid, data_dir):
-            continue
-        d = _fsio.read_json_or(os.path.join(root, n), None, _docloc.LOC_MAX_BYTES, kind=dict)
-        why = _unseen_why(d.get("dir") if d else None)
-        out["count"] += 1
-        out["reasons"][why] = out["reasons"].get(why, 0) + 1
-    return out
+    return _placement.doc_home(source_path, out_dir, eval_set=eval_set)
 
 
 # ---------------------------------------------------------------- ファイルの小道具
@@ -300,7 +239,7 @@ def _move_one(ctx, tid):
         return "eval"
     if not isinstance(doc.get("sourcePath"), str) or not doc["sourcePath"]:
         return "noSource"
-    work = ctx["home"](doc["sourcePath"], ctx["out_dir"], ctx["eval_dirs"])
+    work = ctx["home"](doc["sourcePath"], ctx["out_dir"], eval_set=doc.get("evalSet") is True)
     if not work:
         return "noHome"
     if not _owner_ok(doc, work):
@@ -371,7 +310,7 @@ def run(data_dir, out_dir=None, backup_ok=False, log=None, budget_sec=BUDGET_SEC
     if not backup_ok:
         log("文書を案件のフォルダへ移すのは、バックアップが 1 回済んでからにします(今回は移しません。transcripts の文書 %d 本)" % len(tids))
         return {"state": "waitBackup", "moved": 0, "docs": len(tids)}
-    ctx = {"root": root, "data_dir": data_dir, "out_dir": out_dir or _datadir.studio_out_dir(), "eval_dirs": _eval_dirs(data_dir),
+    ctx = {"root": root, "data_dir": data_dir, "out_dir": out_dir or _datadir.studio_out_dir(),
            "pid": os.getpid(), "log": log, "home": home or _doc_home}
     t0, kept, moved, cleaned, remaining = clock(), {}, 0, 0, 0
     for i, tid in enumerate(tids):
@@ -402,13 +341,15 @@ def run(data_dir, out_dir=None, backup_ok=False, log=None, budget_sec=BUDGET_SEC
 
 
 def status(data_dir, last=None):
-    """入口の「調子」の 1 行の材料。何も無ければ None(行を出さない)"""
+    """入口の「調子」の 1 行の材料。last = 今回の起動の結果(state が off = スイッチ docMove がオフ・waitBackup ならそれを先に出す)。
+    何も無ければ None(行を出さない)"""
     d = read_result(data_dir)
-    unseen = _unseen(data_dir)
+    unseen = _docloc.unseen(data_dir)
     last = last if isinstance(last, dict) else {}
-    if not d and not unseen["count"] and last.get("state") != "waitBackup":
+    now = last.get("state") if last.get("state") in ("off", "waitBackup") else None
+    if not d and not unseen["count"] and not now:
         return None
-    state = "paused" if d.get("paused") else last.get("state") if last.get("state") == "waitBackup" else d.get("state") or "done"
+    state = now or ("paused" if d.get("paused") else d.get("state") or "done")
     return {"state": state, "moved": int(d.get("movedTotal") or 0), "movedNow": int(last.get("moved") or 0), "kept": dict(d.get("kept") or {}),
             "remaining": int(d.get("remaining") or 0), "at": d.get("at"), "unseen": unseen,
             "reasons": {k: REASONS[k] for k in REASONS}, "docs": last.get("docs")}

@@ -1369,10 +1369,18 @@ def emit_ready(out, port, token):
 def move_docs(srv, log):
     """起動のとき 1 回、transcripts の文書を案件の 作業用 へ移す(予算まで。src/manage/cases/docmove.py。RS8 B2-3)。
     .flow.lock を取ったあと・待ち受けの前に呼ぶ(CLI・画面の書き込みとぶつからない)。フォルダは workdata.TX_DIR(取り込む前はまだ無い)でなく txindex.folder。
-    作業データがツールの中(inplace = テスト)なら何もしない。バックアップが 1 回済んでいなければ移さない
+    作業データがツールの中(inplace = テスト)なら何もしない。この PC の設定 docMove(flow/machine.py。既定 false)が false なら移さない
+    (= {"state": "off"}。「調子」に止めていると出す。移す規則をユーザーが見てからオンにする)。バックアップが 1 回済んでいなければ移さない
     (画面なしはバックアップを動かさない = 記録が無ければ移さない)。-> 結果か None。失敗しても入口は起動する"""
     if datadir.data_root() is None:
         return None
+    try:
+        on = machine_mod.get("docMove") is True
+    except (OSError, ValueError) as e:
+        log("この PC の設定の docMove を読めませんでした(文書は移しません): %s" % (e,), console=False)
+        on = False
+    if not on:
+        return {"state": "off", "moved": 0}
     try:
         return docmove_mod.run(os.path.dirname(txindex.folder(srv.sup.root)), datadir.studio_out_dir(srv.sup.root),
                                backup_ok=docmove_mod.backup_done(srv.backup.last), log=log)

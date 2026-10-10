@@ -16,7 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # src
 from manage.cases import docmove as M  # noqa: E402
-from ytt import docloc, schemas  # noqa: E402
+from ytt import docloc, schemas, workdata  # noqa: E402
 
 TID = "0123456789ab"
 TID2 = "ba9876543210"
@@ -222,7 +222,9 @@ class KeepTest(Base):
     def test_eval_dir_from_settings(self):
         self.make_doc()
         write(os.path.join(self.data, "settings.json"), {"evalDirs": [self.case]})
-        self.assertEqual(self.kept(), {"noHome": 1})
+        # 入口の起動のとき = 編集の作業データがまだ決まっていない(workdata.SETTINGS が None)= doc_home が datadir の transcribe の設定を読む
+        with mock.patch.object(workdata, "SETTINGS", None), mock.patch.object(M._datadir, "resolve", return_value=self.data):
+            self.assertEqual(self.kept(), {"noHome": 1})
 
     def test_no_source(self):
         self.make_doc()
@@ -255,7 +257,7 @@ class KeepTest(Base):
 
     def test_not_fixed_drive(self):
         self.make_doc()
-        with mock.patch.object(M, "_fixed_drive", return_value=False):
+        with mock.patch.object(M._fsio, "is_fixed_drive", return_value=False):
             self.assertEqual(self.kept(), {"noHome": 1})
 
     def test_owner_mismatch(self):
@@ -278,7 +280,7 @@ class KeepTest(Base):
         write(docloc.loc_path(TID, self.data), {"version": 1, "id": TID, "dir": os.path.join(self.tmp, "外れた", schemas.WORK_DIR)})
         self.assertEqual(self.kept(), {"unseen": 1})
         u = M.status(self.data)["unseen"]
-        self.assertEqual((u["count"], u["reasons"]), (1, {"フォルダが見えない": 1}))
+        self.assertEqual((u["count"], sum(u["reasons"].values())), (1, 1))   # 理由の文は docloc.unseen の持ち物
 
 
 class BudgetTest(Base):
@@ -336,6 +338,13 @@ class BackTest(Base):
 class StatusAndCliTest(Base):
     def test_status_none_when_nothing(self):
         self.assertIsNone(M.status(self.data))
+
+    def test_status_off_switch(self):
+        """入口のスイッチ docMove がオフ(move_docs が {"state": "off"})= 移した記録が無くても「止めています」の行を出す"""
+        self.assertEqual(M.status(self.data, {"state": "off", "moved": 0})["state"], "off")
+        M.set_paused(self.data, True)
+        self.assertEqual(M.status(self.data, {"state": "off"})["state"], "off")
+        self.assertEqual(M.status(self.data)["state"], "paused")
 
     def test_status_after_move(self):
         self.make_doc()

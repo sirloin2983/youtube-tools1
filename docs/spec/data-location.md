@@ -77,6 +77,7 @@
 - 読み手: 入口の案件の一覧(`manage/cases` の snapshot)が各案件に `caseFile {id, createdAt}` として載せる(読むだけ。無い既存の案件は今までどおり・後付けでは書かない)。ファイルの索引は結果の束の `resultPath`
 
 ## 文書を案件の 作業用 へ移す(RS8 B2-3・2026-10-11。持ち主は `src/manage/cases/docmove.py`。決定は `plan/rs8-cases-ui.md` の「B-2 の移し方」)
+- スイッチ: この PC の設定(`flow/machine.py`。`machine.json` の `docMove`・環境変数 `YTT_MACHINE_DOC_MOVE`)が **true のときだけ**自動で移す。**既定 false**(移す規則をユーザーが見てからオンにする)。false のあいだは「調子」に「文書の移行は止めています(machine.json の docMove)」。下のコマンドはスイッチに関係なく使える
 - いつ: 入口の起動のとき 1 回(`.flow.lock` を取った後・待ち受けの前 = CLI・画面の書き込みとぶつからない)。**バックアップが 1 回済んでから**(`app\backup-state.json` の ok。済んでいなければ移さず、ログと「調子」の 1 行)。作業データがツールの中(inplace)・画面なしでバックアップの記録が無いときは移さない。1 回の起動で 20 秒か 50 本まで(続きは次の起動)
 - 何を: `transcribe\transcripts\<tid>.json` のうち、元の動画が書き出し先(outDir。固定ディスク)の下の案件にあり、その案件に `作業用\.studio-id` か `作業用\case.json` がある物。文書と横のファイル(`ytt/docloc` の `DOC_SUFFIXES`)・`.hist\<tid>\`・`.bak\<tid>.*` を `<案件>\作業用\` へ(名前は文書 id のまま)。残す: 評価用・動画が無い・ネットワーク上・outDir の外・持ち主の videoId が違う
 - 移し方: `<名前>.part-<pid>` へコピー → 大きさと中身を比べる・本体は JSON として読める → 改名(本体が最後)→ 索引 `transcripts\<tid>.loc.json` → 元は `transcripts\.migrated\` へ改名して残す。作業用に同じ名前があれば、同じ中身なら飛ばす・違えばその文書は移さない(上書きしない)。途中で落ちても次の起動で続き(残った `.part-` は消す・索引があって元が残っていれば、同じ中身なら `.migrated` へ)。2 回流しても同じ

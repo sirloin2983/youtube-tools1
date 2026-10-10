@@ -1623,11 +1623,12 @@
     var kept = dc.kept || {}, keptN = 0, subs = [], un = dc.unseen || { count: 0, reasons: {} };
     Object.keys(kept).forEach(function (k) { keptN += kept[k]; subs.push('残した理由: ' + ((dc.reasons || {})[k] || k) + ' ' + kept[k] + ' 本'); });
     Object.keys(un.reasons || {}).forEach(function (k) { subs.push('見えない理由: ' + k + ' ' + un.reasons[k] + ' 本'); });
-    var text = dc.state === 'waitBackup' ? 'バックアップが 1 回済むまで、文書を案件のフォルダへ移すのを待っています(設定のバックアップをオンに)'
+    var text = dc.state === 'off' ? '文書の移行は止めています(machine.json の docMove)'
+      : dc.state === 'waitBackup' ? 'バックアップが 1 回済むまで、文書を案件のフォルダへ移すのを待っています(設定のバックアップをオンに)'
       : dc.state === 'paused' ? '移すのを止めています(再開は py -3.10 src/manage/cases/docmove.py --resume)'
       : '案件のフォルダへ移した ' + (dc.moved || 0) + ' 本・transcripts に残した ' + keptN + ' 本' + (dc.remaining ? '・続きの ' + dc.remaining + ' 本は次の起動で' : '');
     if (un.count) text += '。見えない文書が ' + un.count + ' 本あります(案件のフォルダのドライブがつながっているか確かめてください。つながるまで、その文書は直せません)';
-    var row = healthRow(un.count || dc.state === 'waitBackup' ? 'warn' : 'ok', '文書の置き場所', text, subs);
+    var row = healthRow(un.count || dc.state === 'waitBackup' ? 'warn' : dc.state === 'off' ? 'info' : 'ok', '文書の置き場所', text, subs);
     row.id = 'docsHealth';
     return row;
   }

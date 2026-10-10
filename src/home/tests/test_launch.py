@@ -471,6 +471,11 @@ class HelpersTest(unittest.TestCase):
         self.assertIsNone(L.move_docs(srv, logs.append))   # inplace
         with mock.patch.object(L.datadir, "data_root", return_value=tmp), mock.patch.object(L.txindex, "folder", return_value=tx), \
                 mock.patch.object(L.datadir, "studio_out_dir", return_value=os.path.join(tmp, "exports")):
+            with mock.patch.object(L.machine_mod, "get", return_value=False):   # この PC の設定 docMove の既定 = オフ
+                self.assertEqual(L.move_docs(srv, logs.append), {"state": "off", "moved": 0})
+            on = mock.patch.object(L.machine_mod, "get", side_effect=lambda f: True if f == "docMove" else None)
+            on.start()
+            self.addCleanup(on.stop)
             self.assertEqual(L.move_docs(srv, logs.append)["state"], "waitBackup")
             self.assertTrue(os.path.isfile(os.path.join(tx, "0123456789ab.json")))
             srv.backup.last = {"ok": 1700000000.0}
@@ -1131,7 +1136,7 @@ class MainShutdownTest(unittest.TestCase):
 
         def spy(srv, log):
             calls.append(srv.backup.last)
-            with mock.patch.object(L.datadir, "data_root", return_value=self.tmp), \
+            with mock.patch.object(L.datadir, "data_root", return_value=self.tmp), mock.patch.object(L.machine_mod, "get", return_value=True), \
                     mock.patch.object(L.docmove_mod, "run", side_effect=lambda *a, **k: {"state": "waitBackup", "backup_ok": k["backup_ok"]}):
                 return real(srv, log)
         with mock.patch.object(L, "move_docs", spy):
