@@ -941,7 +941,7 @@ YTT_PREFS = """async (value) => {
 
 
 def _live_clip(out_dir, name, origin, video=None, **live):
-    """ライブの書き出し(src/pipeline/export/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない。
+    """ライブの書き出し(src/flow/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない。
     video = 写す本物の動画(続けて確認で再生するとき))"""
     media = os.path.join(out_dir, "e2e ライブ", name)
     os.makedirs(os.path.dirname(media), exist_ok=True)

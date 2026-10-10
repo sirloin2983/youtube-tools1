@@ -10,7 +10,9 @@ ed_state は読まない(置き場所と元のファイルの検査は ytt の w
 """
 import time
 
-from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
+from ytt import jobs as _slots  # noqa: E402
 from pipeline.transcribe import backend as _backend, postproc, records, recognize  # noqa: E402
 from pipeline.transcribe import roster as _roster, tx_engines, worker_client  # noqa: E402
 from ytt import txbase as _txbase  # noqa: E402
@@ -371,7 +373,7 @@ def run_redo(job):
         job["state"] = "running"
         t0, results, tried, timed_out = time.monotonic(), [], 0, False
         for n, (g, a, b) in enumerate(targets):
-            _heavy.check_cancel(job)
+            _slots.check_cancel(job)
             if time.monotonic() - t0 > REDO_MAX_SEC:
                 timed_out = True
                 break
@@ -383,7 +385,7 @@ def run_redo(job):
             if ok:
                 results.append((g["id"], g["text"], a, b, lines))
             job["progress"] = min(0.95, (n + 1) / len(targets))
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         n_rep = apply_redo(spec, results)
         job["segments"], job["unsure"] = n_rep, max(0, tried - n_rep)
         _heavy.job_done(job, spec["tid"], "完了(%d か所のうち %d か所を置き換えました%s)" % (tried, n_rep, "。時間の上限で残りはやめました" if timed_out else ""))
@@ -408,7 +410,7 @@ def run_retranscribe(job):
         if spec.get("mode") in ("range", "whole"):
             return _retranscribe_range(job, spec, doc, wav, start, whole)
         results = _retranscribe_each(job, spec, targets, wav, start)
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         job["segments"], job["unsure"] = apply_retranscribe(spec, results)
         _heavy.job_done(job, spec["tid"])
 
@@ -419,11 +421,11 @@ def _retranscribe_range(job, spec, doc, wav, start, whole):
     rec = recognize.RangeRecognizer(job, spec, wav, start)
     job["state"], job["phase"] = "running", "全体を認識中" if whole else "範囲を認識中"
     lines = recognize.whole_lines(job, spec, doc, rec) if whole else rec.main(a, b)
-    _heavy.check_cancel(job)
+    _slots.check_cancel(job)
     # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
     gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in plan_range(doc, spec, lines)["empty"]]
     loose = rec.loose(_yschemas.union_spans(gaps)) if gaps else []
-    _heavy.check_cancel(job)
+    _slots.check_cancel(job)
     if not lines and not loose:
         if whole:
             recognize.drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
@@ -455,7 +457,7 @@ def _each_real(job, spec, targets, wav, start):
     sep = "" if spec["language"] in ("ja", "zh", "ko") else " "
     terms = _roster.prompt_terms(spec)
     for n, t in enumerate(targets):
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         a, b = max(0.0, t["start"] - start - 0.3), t["end"] - start + 0.3   # 前後に少し余裕を持たせる(語頭・語尾が欠けにくい)
         r = cm.recognize(audio[int(a * 16000):int(b * 16000)], t, sep, terms, n == 0)
         if r:

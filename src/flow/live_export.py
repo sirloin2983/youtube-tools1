@@ -24,7 +24,7 @@
                  check = 文字起こしまで(mode file)・auto = 文字起こし → パック(mode file_auto)・none = 渡さない)。streamer(配信者の名前)があれば
                  照らし合わせて渡す(字幕の色。合わなければ色なしで進めて、ジョブの warning に出す)
   ジョブは live/exports.json に残す。入口を起動し直したら、途中だったジョブは「録画待ち」からやり直す(冪等: 書きかけは消し、名前は仕上げるときに決める)。
-  P4(アーカイブで本番版に作り直す。src/pipeline/ingest/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
+  P4(アーカイブで本番版に作り直す。src/flow/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
   作り直しの途中のマークを書き出し直させない busy・欠けのマークの名前を決める target・recBase(録画の頭の時刻)を受け持つ)。
 
 採用の出どころ origin(線 D の M1。入口 0.39.0): manual(人がマークした)・auto(配信中の検出が自動で採用。M11)・archive(配信後のアーカイブの解析で自動で採用。M7)。
@@ -32,14 +32,14 @@
 自動の採用は「良い」に数えない(live_feedback の human が false・verdict が null。スタジオの adopt_top と同じ決まり)。
 書き出しが済んだら、スタジオのマーク(ジョブの studio)を入口が自分で「書き出し済み」にする(POST /studio/api/live/exported。画面を閉じていても。M1)。
 書き出したあとの自動の流れの設定(ホームの設定 live.auto の cut・engine・model。M2)はジョブを作るときに auto に覚え、まとめて実行へ渡す。
-失敗の文は src/pipeline/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。
+失敗の文は src/flow/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。
 
 ディスクの見張り(線 D の M4。入口 0.40.0): 書き出し先(パックも切り抜きの隣 <名前>_pack に作る)と live/work(取ったセグメント・アーカイブの丸ごとの音)の
 空きを DISK_POLL(1 分)ごとに調べる(disk)。DISK_WARN(20 GB)未満で注意(「調子」)、DISK_LOW(5 GB)未満で**新しい書き出しと文字起こしを「空き待ち」**にする
 (録画待ちのジョブは録画元に問い合わせずに待ち、書き出しが済んだジョブはまとめて実行へ渡すのを待つ = handoffWait "disk")。空けば続ける。
 止めずに待つのは、書き込みの途中で失敗して書きかけが壊れるより戻しやすいため(計画の 5 の 3)。録画の部品は録画先を 1 GB で止め・20 GB で注意する(別)。
 用途つきの枠(M6): 書き出す録画がまだ録画中なら、重い処理の順番(ytt.jobs.SLOTS)の用途つきの枠も使う(acquire(reserved=True))。
-本番版を待ってから渡す(M7): holdFor "archive" のジョブ(配信後の全自動。src/pipeline/ingest/live_archive.py)は、書き出したあと まとめて実行へすぐ渡さず
+本番版を待ってから渡す(M7): holdFor "archive" のジョブ(配信後の全自動。src/flow/live_archive.py)は、書き出したあと まとめて実行へすぐ渡さず
 handoffWait "archive" で待ち、アーカイブで本番版に入れ替えてから(できなければ速報版のまま)Archiver が release_hold で渡す(パックが本番版になる)。
 
 .clip.json の source(pipeline.md の 2.1 に足す値): kind "live"。range は「録画の最初のセグメントの受信時刻」からの秒、
@@ -58,7 +58,7 @@ import time
 import urllib.parse
 
 from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools, version as _version
-from pipeline import live_failures   # 失敗の文は 1 か所。M3
+from . import live_failures   # 失敗の文は 1 か所。M3
 
 VERSION = _version.VERSION   # 全体の版(ytt/version.py)
 TOOL = {"name": "ytt-live", "version": VERSION}
@@ -94,7 +94,7 @@ DISK_WARN = 20 * GB        # 空きがこれ未満で注意(M4。録画の部品
 DISK_LOW = 5 * GB          # 空きがこれ未満で、新しい書き出し・文字起こしを「空き待ち」にする(M4。録画の部品は 1 GB で録画を止める)
 DISK_POLL = 60.0           # 空きを調べ直す間隔(秒)
 HOLDS = ("archive",)       # まとめて実行へ渡すのを待つ理由(holdFor。M7: 本番版にしてから)
-ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(src/pipeline/ingest/live_archive.py の RUN と同じ)の動いている段
+ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(src/flow/live_archive.py の RUN と同じ)の動いている段
 ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
 
 
@@ -191,7 +191,7 @@ def check_streamer(v):
 
 
 def deliver_pool(job, req):
-    """ライブの切り抜きを n 本の組で届けるときの溜めの指定(src/pipeline/run.py の Run.pool)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
+    """ライブの切り抜きを n 本の組で届けるときの溜めの指定(src/flow/run.py の Run.pool)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
     (配信中の live = 自動の採用・人のマーク / 配信後の追加 archive)ごと。10-09 ユーザー決定 = decisions 3-20"""
     phase = "archive" if job.get("origin") == "archive" else "live"
     who = "auto" if req.get("autoDeliver") is True else str(req.get("rid") or "")
@@ -413,7 +413,7 @@ class Exporter:
                 j.update(state="wait", progress=0, message="ホームを起動し直したので、やり直します")
             j.pop("diskWait", None)
             arc = j.get("archive")
-            if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # 本番版への作り直し(P4。src/pipeline/ingest/live_archive.py)の途中: 順番待ちに戻す
+            if isinstance(arc, dict) and arc.get("state") in ARCHIVE_RUN:   # 本番版への作り直し(P4。src/flow/live_archive.py)の途中: 順番待ちに戻す
                 j["archive"] = dict(arc, state="wait", label="待ち", progress=0, message="ホームを起動し直したので、続きから作り直します")
             j.pop("cancel", None)
             self.jobs.append(j)
@@ -930,7 +930,7 @@ class Exporter:
 
     def target(self, job, d, rec, a, b):
         """書き出す場所と名前(スタジオの書き出しと同じ規則)。-> (配信のフォルダ, 名前(拡張子なし), 題)。
-        アーカイブで新しく作る(P4。src/pipeline/ingest/live_archive.py の欠けのマーク)も同じ規則で決める"""
+        アーカイブで新しく作る(P4。src/flow/live_archive.py の欠けのマーク)も同じ規則で決める"""
         title = self._title(job, d)
         root = self.out_dir()
         if not root or not os.path.isabs(root):
@@ -1025,7 +1025,7 @@ class Exporter:
         return (d.get("title") or mk.get("title") or "").strip() or video_id_of(d.get("url"), job["recording"]) or job["recording"]
 
     def _finish(self, job, rc, rec, d, out, a, b, archive=None, message="書き出しました"):
-        """archive: アーカイブから新しく作った(P4。src/pipeline/ingest/live_archive.py の欠けのマーク)ときの source.live.archive {videoId, start, end, offset, residual, at}"""
+        """archive: アーカイブから新しく作った(P4。src/flow/live_archive.py の欠けのマーク)ときの source.live.archive {videoId, start, end, offset, residual, at}"""
         base = self._base(d, a)
         media = out["path"]
         vid = video_id_of(d.get("url"), rec)
@@ -1137,7 +1137,7 @@ class Exporter:
         return run_id
 
     def release_hold(self, job, note=""):
-        """本番版への作り直しを待っていた書き出し(handoffWait "archive"。M7)を まとめて実行へ渡す(src/pipeline/ingest/live_archive.py から。
+        """本番版への作り直しを待っていた書き出し(handoffWait "archive"。M7)を まとめて実行へ渡す(src/flow/live_archive.py から。
         入れ替えが済んだとき・作り直せなかったとき(note に理由 = 速報版のまま渡す))。-> run の id か ""(渡さなかった・空き待ち)"""
         with self.lock:
             if job.get("state") != "done" or job.get("handoffWait") != "archive":

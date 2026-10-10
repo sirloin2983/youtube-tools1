@@ -24,7 +24,8 @@ import os
 import random
 import threading
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state の別名で読んでいた)
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state の別名で読んでいた)
+from flow import jobs as _heavy  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
 from pipeline.transcribe import diarize as _diarize, roster as _roster  # noqa: E402   判別の記録 read_diar・名簿の呼び名と配信の文脈 stream_context・ロガー log

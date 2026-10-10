@@ -11,7 +11,7 @@ AI 向けの決まり。計画は `plan/line-d-live-clipping.md`(**0. 10-04 の�
 - ブラウザは録画の部品へ直接つながない(Origin・Sec-Fetch-Site がある要求は 403)。画面は入口の `/live/r/<録画元>/…` の中継を通す
   (同じオリジン・CSP `script-src 'self'`・入口の合言葉のまま。CORS は要らない)。入口とスタジオは「録画元の一覧」(設定 `live.recorders`)を通して読む
 - `rec_core.py` が録画の中身(セッション・再生リスト・繋ぎ直し・起動時の復旧)、`recorder.py` が HTTP と起動
-- P2(マークと書き出し)は入口の側(`src/pipeline/export/live_export.py`。マークの正本・書き出しのジョブ)。この部品は「区間の取得」
+- P2(マークと書き出し)は入口の側(`src/flow/live_export.py`。マークの正本・書き出しのジョブ)。この部品は「区間の取得」
   `GET /live/<id>/segments?start=&end=`(UTC の時刻。区間にかかるセグメント `{uri, session, pdt, dur}`・欠け `gaps`・`lastPdt`・`active`)と
   セグメント本体を返すだけ(書き出し・作り直しはしない = 2台のときもノート PC は録るだけ)。欠けの規則は `rec_core.pick_segments`(GAP_TOL 秒より空いたら欠け)
 

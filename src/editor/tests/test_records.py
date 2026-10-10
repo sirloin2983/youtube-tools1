@@ -25,7 +25,7 @@ from human.proof import doc_jobs  # noqa: E402
 from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
-from ytt import jobs  # noqa: E402
+from flow import jobs  # noqa: E402
 
 
 def _rd(tid=TID):

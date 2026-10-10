@@ -1,6 +1,6 @@
 """配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0。plan/line-d-live-clipping.md の 0-11。2026-10-08 ユーザー決定「b をやる」)。
 
-配信中の検出(src/pipeline/analyze/live_detect.py)の候補が確定するたびに、その区間の音を録画元から取り(書き出し src/pipeline/export/live_export.py と同じセグメント)、
+配信中の検出(src/flow/live_detect.py)の候補が確定するたびに、その区間の音を録画元から取り(書き出し src/flow/live_export.py と同じセグメント)、
 16kHz モノラルの wav にして子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の whisper.cpp・Vulkan = GPU)で認識し、
 live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の id: {"text", "rows", "sec", "gpu", "model", "at"} か {"error", "at", "tries"}}})。
 候補の API(GET /live/api/peaks。live_detect.Detector.api_get)が候補に text を足してスタジオの帯に出し、採用の記録(live_feedback.jsonl)にも text を残す(C2 の材料)。
@@ -20,9 +20,9 @@ import threading
 import time
 
 from ytt import datadir, fsio, jobs, tools
-from pipeline.export import live_export as LX
+from . import live_export as LX
 
-WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live_tx_worker.py")
+WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
 # whisper.cpp の置き場所(編集の tx_engines.WHISPER_CPP["version"]・wcpp_bin_dir・wcpp_model_dir・WCPP_MODELS と同じ値。入口は編集の部品を import しないので値を持つ。test_live_tx が同じことを確かめる)
 WCPP_VERSION = "v1.9.4"
 WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
@@ -139,7 +139,7 @@ class LiveTx:
             return {k: dict(v) for k, v in self._load(rc, rec).items() if v.get("text")}
 
     def items(self, rc, rec):
-        """候補の id -> 記録の全部(済み・文字が空・失敗 {"error", "tries"} も。配信ごとの記録 src/pipeline/live_report.py が成否を数える)"""
+        """候補の id -> 記録の全部(済み・文字が空・失敗 {"error", "tries"} も。配信ごとの記録 src/flow/live_report.py が成否を数える)"""
         with self.lock:
             return {k: dict(v) for k, v in self._load(rc, rec).items()}
 

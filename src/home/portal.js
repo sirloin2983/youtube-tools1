@@ -480,7 +480,7 @@
     else { s = el('span', 'pill info pt-ac-unseen', '未見'); s.title = 'まだ開いていません(「編集で開く」・採用・要らない のどれかで「見た」になります)'; }
     head.appendChild(s);
   }
-  /* 失敗の文(「調子」・スタジオの LIVE の帯と同じ文 = src/pipeline/live_failures.py の failure_of) */
+  /* 失敗の文(「調子」・スタジオの LIVE の帯と同じ文 = src/flow/live_failures.py の failure_of) */
   function autoFail(li, cl) {
     var f = (cl.review || {}).failure;
     if (!f) return;
@@ -1603,7 +1603,7 @@
       row.className = 'pt-live-disk';
       ul.appendChild(row);
     });
-    // リアルタイム切り抜きの失敗(M3。書き出し・まとめて実行へ渡す・文字起こし・パック。文はスタジオの LIVE の帯と同じ = src/pipeline/live_failures.py)
+    // リアルタイム切り抜きの失敗(M3。書き出し・まとめて実行へ渡す・文字起こし・パック。文はスタジオの LIVE の帯と同じ = src/flow/live_failures.py)
     if (h.live && h.live.failures) {
       var lf = h.live.failures;
       var row = healthRow(lf.length ? 'warn' : 'ok', 'リアルタイム切り抜きの失敗(7 日)', lf.length ? lf.length + ' 件(新しい順。スタジオの LIVE の帯にも同じ文)' : 'なし',

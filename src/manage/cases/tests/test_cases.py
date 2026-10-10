@@ -300,7 +300,7 @@ class TestAutoClips(Base):
         self.dl = deliver.Deliveries(lambda: self.box, txindex.is_pack_dir)
 
     def live_clip(self, name, origin, **live):
-        """ライブの書き出し(src/pipeline/export/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き"""
+        """ライブの書き出し(src/flow/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き"""
         media = self.touch(os.path.join(self.exports, name))
         clip = schemas.build_clip(media, 30.0, {"kind": "youtube", "videoId": "", "title": "ライブ"}, (10.0, 40.0),
                                   {"id": "lm-x", "label": "", "status": "exported", "src": "manual" if origin == "manual" else "auto"},

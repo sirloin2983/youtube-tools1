@@ -24,7 +24,7 @@ import shutil
 import threading
 import uuid
 
-from pipeline import run as run_mod   # 段の表 MODE_STEPS・段の失敗 StepError(① の経路)
+from flow import run as run_mod   # 段の表 MODE_STEPS・段の失敗 StepError(① の経路)
 from ytt import fsio, tools
 from . import deliver as deliver_mod   # パックを zip にして届ける・まとめ動画・名前の整え方
 from . import friend_feedback          # 届けた zip の中身の記録 deliveries.jsonl(友人の「要らない」が来たときに引く。2026-10-08)

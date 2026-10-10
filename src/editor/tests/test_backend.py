@@ -1049,14 +1049,14 @@ class TestHeavyJobLimit(unittest.TestCase):
         from ytt import jobs
         self.jobs = jobs
         self.tmp = tempfile.mkdtemp()
-        self.saved = (S.RUN_MARK, S._heavy.SLOTS, S.run_job)
+        self.saved = (S.RUN_MARK, jobs.SLOTS, S.run_job)
         S.RUN_MARK = os.path.join(self.tmp, ".running.json")
-        S._heavy.SLOTS = jobs.HeavySlots(1)
+        jobs.SLOTS = jobs.HeavySlots(1)
         self.ran = []
         S.run_job = lambda job: (self.ran.append(job["id"]), job.update(state="done"))
 
     def tearDown(self):
-        S.RUN_MARK, S._heavy.SLOTS, S.run_job = self.saved
+        S.RUN_MARK, self.jobs.SLOTS, S.run_job = self.saved
         for jid in ("hj1", "hj2"):
             S._jobs.pop(jid, None)
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -1067,7 +1067,7 @@ class TestHeavyJobLimit(unittest.TestCase):
         return j
 
     def test_waits_then_runs_or_cancels(self):
-        held = S._heavy.SLOTS.acquire("studio", "解析")
+        held = self.jobs.SLOTS.acquire("studio", "解析")
         j1 = self.job("hj1")
         t = threading.Thread(target=S.work_one, args=("hj1",))
         t.start()
@@ -1079,11 +1079,11 @@ class TestHeavyJobLimit(unittest.TestCase):
         j1["cancel"] = True
         t.join(5)
         self.assertEqual((j1["state"], self.ran), ("cancelled", []))
-        S._heavy.SLOTS.release(held)
+        self.jobs.SLOTS.release(held)
         self.job("hj2")
         S.work_one("hj2")
         self.assertEqual(self.ran, ["hj2"])
-        self.assertEqual(S._heavy.SLOTS.snapshot()["active"], [])
+        self.assertEqual(self.jobs.SLOTS.snapshot()["active"], [])
 
 
 if __name__ == "__main__":

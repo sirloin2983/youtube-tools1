@@ -8,7 +8,8 @@
 """
 import os
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
 from . import store as _store  # noqa: E402   文書の要約(summaries。呼ぶたびに _store.名前 で読む)
 from . import doc_jobs  # noqa: E402   文字起こしの受付 validate_job・画面に返すジョブの形 public_job(呼ぶたびに doc_jobs.名前 で読む)
 

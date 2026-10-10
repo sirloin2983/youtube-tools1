@@ -27,7 +27,7 @@ from human.proof import store  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
-from ytt import jobs  # noqa: E402
+from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))

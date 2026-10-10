@@ -5,7 +5,7 @@
   (旧い場所 src/home/live_tx_worker.py の転送は RS5-G で消した)
   編集の tx_engines.WhisperCpp(作業データの bin/whisper.cpp-<版>-vulkan/whisper-cli.exe・Vulkan = GPU)で認識し、出力 json に
   {"ok": true, "text", "rows": [{start, end, text}], "sec", "gpu", "model", "engine"} か {"ok": false, "reason"} を書く。終了コードは ok なら 0。
-  モデルとワーカー(whisper-cli)の場所は入口側(src/pipeline/transcribe/live_tx.py の LiveTx.ready)が先に確かめる(ここでは取りに行かない = 3GB を黙って取得しない)。
+  モデルとワーカー(whisper-cli)の場所は入口側(src/flow/live_tx.py の LiveTx.ready)が先に確かめる(ここでは取りに行かない = 3GB を黙って取得しない)。
   GPU を頼んで Vulkan で動かなければ、編集と同じく黙って CPU にせず失敗にする(WhisperCpp._check_gpu)。
 """
 import os

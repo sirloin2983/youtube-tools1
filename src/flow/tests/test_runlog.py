@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B で autorun.py から移した)のテスト。  py -3.10 -m unittest src/pipeline/tests/test_runlog.py -v
+"""pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B で autorun.py から移した)のテスト。  py -3.10 -m unittest src/flow/tests/test_runlog.py -v
 - 壊れた行・形の違う行は飛ばす(途中で切れた行・手で直した行)
 - .1(古い)→ 今のファイルの順(書いた順)・max_bytes は末尾からだけ読み、途中から読んだ最初の行は捨てる
 - autorun を読み込まずに読める(① の部品が app を読まない = 層の向き)
@@ -15,7 +15,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline import runlog  # noqa: E402
+from flow import runlog  # noqa: E402
 
 
 def rec(i, **kw):
@@ -73,7 +73,7 @@ class TestRunlog(unittest.TestCase):
 
     def test_autorun_is_not_needed(self):
         """autorun(app)を読み込まずに読める(ライブの失敗の集約が使う)。別のプロセスで読み込んで、読んだモジュールを調べる"""
-        code = ("import sys; sys.path.insert(0, %r); from pipeline import runlog; "
+        code = ("import sys; sys.path.insert(0, %r); from flow import runlog; "
                 "sys.exit(0 if not [m for m in sys.modules if m in ('autorun', 'launch', 'cases', 'prefs')] else 1)" % SRC)
         r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)

@@ -13,7 +13,8 @@ import shutil
 import tempfile
 import time
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, normalize as _vnorm, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 in_eval_dir・eval_name_guard(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・環境変数のスイッチ env_off・ジョブの注意 add_warning(RS3-E7 まで ed_state の別名で読んでいた)

@@ -8,7 +8,7 @@ import uuid
 
 from ytt import jobs, schemas, studio_env as _env
 
-from .analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
+from pipeline.analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
 from ytt.errors import ApiError
 
 MAX_ACTIVE = 10

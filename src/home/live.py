@@ -16,7 +16,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
   GET|POST /live/r/<録画元>/<残り>        録画元(src/pipeline/ingest/recorder.py)の /live/<残り> へ中継する(同じオリジンのまま。合言葉は入口が付ける)
                                           例: /live/r/local/<録画>/index.m3u8・…/status・…/stop・…/session_001/seg_000000.ts
                                           POST は <録画>/stop だけ(録画を消す …/delete・終わる quit などは中継しない = 入口の中の処理だけが呼ぶ。P4)
-  GET  /live/api/marks?recorder=&recording=   録画1本のマークの正本と書き出し(P2。中身は src/pipeline/export/live_export.py)
+  GET  /live/api/marks?recorder=&recording=   録画1本のマークの正本と書き出し(P2。中身は src/flow/live_export.py)
   POST /live/api/marks   {op: add|update|delete, recorder, recording, id?, start?, end?, label?, url?, title?}  マーク(押すたびに fsync。P2 の形)
   GET  /live/api/exports?recorder=&recording=  書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し。studio を含む)
   POST /live/api/export  {recorder, recording, title, url, transcribe, studio: {video, mark, n, label, start, end}}
@@ -29,22 +29,22 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
                                           start・end = 録画の最初のセグメントの受信時刻からの秒(数)か、絶対時刻(UTC の文字列)。origin = manual(既定)・auto・archive
                                           (ジョブ・.clip.json・live_feedback.jsonl に残す。自動の採用は「良い」に数えない)。after が無ければホームの設定 live.auto.after
                                           → {job, video, mark, origin, existing}(existing = 同じマークの書き出しが途中か済みなので、新しく作らなかった)
-  POST /live/api/archive  {recorder, recording}   アーカイブで本番版に作り直す(P4。中身は src/pipeline/ingest/live_archive.py)。対象の全部を順番に入れる → {ok, queued, message}。
+  POST /live/api/archive  {recorder, recording}   アーカイブで本番版に作り直す(P4。中身は src/flow/live_archive.py)。対象の全部を順番に入れる → {ok, queued, message}。
                                           対象が無い・アーカイブがまだ使えない → 409 と文(アーカイブの用意は yt-dlp で確かめる。10 分は前の結果を使う)
   POST /live/api/archive/cancel  {recorder, recording}  作り直しの取り消し → {ok, cancelled}(済んでいない分は速報版のまま)
   GET  /live/api/exports の各ジョブの failure {kind, kindLabel, text}(失敗したときだけ。書き出し・まとめて実行へ渡す・文字起こし・パック。M3。
-       文は src/pipeline/live_failures.py の failure_of だけが作り、「調子」の live.failures と同じ)・
+       文は src/flow/live_failures.py の failure_of だけが作り、「調子」の live.failures と同じ)・
   GET  /live/api/exports の各ジョブの archive {state, label, message, progress, offset, residual, at, auto, …}・
        ?recorder=&recording= を付けたときは応答に archiveInfo {ready: true|false|null, checkedAt, message}(その録画のアーカイブの用意)
   録画を自動で消す(P4。中身は src/manage/keep/live_cleanup.py。設定 live.autoDelete・既定オン): 見回り(tick)と、本番版への作り直しが1本済んだとき。
        消した録画のジョブには recordingDeleted(スタジオの画面が「録画は消しました」と出す)。録画元の …/delete は入口のこの処理だけが呼ぶ
   ディスクの見張り(線 D の M4。入口 0.40.0): 「調子」の live.disk {state: ok|warn|low, rows, message}(書き出し先・パック・live\\work の空き。
-       20 GB 未満で注意・5 GB 未満で新しい書き出し・文字起こしを「空き待ち」。中身は src/pipeline/export/live_export.py の Exporter.disk)
-  配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/pipeline/ingest/live_archive.py):
+       20 GB 未満で注意・5 GB 未満で新しい書き出し・文字起こしを「空き待ち」。中身は src/flow/live_export.py の Exporter.disk)
+  配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6。中身は src/flow/live_archive.py):
        録画が終わってアーカイブを使えるようになったら、アーカイブを解析して上位 N を M1 の採用(origin archive)→ 書き出し → 本番版 → 文字起こし → パック。
        進み具合は GET /live/api/exports?recorder=&recording= の archiveInfo.afterStream {state, label, message, at, n, jobs}・失敗は「調子」の live.failures
   GET  /live/api/peaks?recorder=&recording=&since=  ・ POST /live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}
-                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン(0.46.3 から)。中身と形は src/pipeline/analyze/live_detect.py)
+                                          配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン(0.46.3 から)。中身と形は src/flow/live_detect.py)
   POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
                      全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
                      {op: "stop", recorder, recording} → {ok: true, recording}(launch.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
@@ -74,15 +74,15 @@ import urllib.parse
 
 from manage.cases import txindex
 from ytt import datadir, fsio, layout, schemas, tools, version as _version
-from pipeline import runlog
-from pipeline.export import live_export   # マークと書き出し。P2
-from pipeline.ingest import live_archive   # アーカイブで本番版に作り直す。P4
+from flow import runlog
+from flow import live_export   # マークと書き出し。P2
+from flow import live_archive   # アーカイブで本番版に作り直す。P4
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
-from pipeline import live_failures   # 失敗の集約。M3・M7
-from pipeline.analyze import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
+from flow import live_failures   # 失敗の集約。M3・M7
+from flow import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
 from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
-from pipeline.transcribe import live_tx   # 配信中の候補の文字起こし。線 D の D-11 案 b
-from pipeline import live_report   # 配信ごとの結果の記録。線 D の D-12
+from flow import live_tx   # 配信中の候補の文字起こし。線 D の D-11 案 b
+from flow import live_report   # 配信ごとの結果の記録。線 D の D-12
 from human.friend import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
 from human.friend.intake import OUT_DIR  # noqa: E402  # lint: keep 別名(RS3-3。差し替えない定数)= (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
 
@@ -260,7 +260,7 @@ class Live:
         runner(): 文字起こしへ渡す まとめて実行(既定 入口の server.autorun。画面の要求が来たときに覚える)。
         audio(): 書き出しの音量の設定 {"volume", "loudness"}(既定 スタジオの書き出しの設定 = studio_audio)。
         server: 入口のサーバー(取り込んだスタジオの API を呼ぶ = P4 の作り直し。画面の要求が来る前の自動の作り直しでも使えるように、入口が渡す)。
-        archive_opts: src/pipeline/ingest/live_archive.py の Archiver へ渡す引数(テスト用: studio・probe・fetch・間隔)。
+        archive_opts: src/flow/live_archive.py の Archiver へ渡す引数(テスト用: studio・probe・fetch・間隔)。
         cleanup_opts: src/manage/keep/live_cleanup.py の Cleaner へ渡す引数(テスト用: 24 時間・7 日・見回りの間隔を縮める)"""
         self.prefs, self.root, self.logs_dir = prefs, root, logs_dir
         self.store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
@@ -354,7 +354,7 @@ class Live:
 
     @property
     def exporter(self):
-        """マークと書き出し(src/pipeline/export/live_export.py)。オンにして初めて使うときに作る(オフの間は作業データに何も作らない)"""
+        """マークと書き出し(src/flow/live_export.py)。オンにして初めて使うときに作る(オフの間は作業データに何も作らない)"""
         with self._ex_lock:
             if self._exporter is None:
                 self._exporter = live_export.Exporter(self, self.store_dir, lambda: self.out_dir(), runner=lambda: self.runner(), log=self.log, audio=lambda: self.audio(),
@@ -363,7 +363,7 @@ class Live:
 
     @property
     def archiver(self):
-        """アーカイブで本番版に作り直す(src/pipeline/ingest/live_archive.py。P4)。書き出しのジョブを単位にするので、書き出しと同じく初めて使うときに作る"""
+        """アーカイブで本番版に作り直す(src/flow/live_archive.py。P4)。書き出しのジョブを単位にするので、書き出しと同じく初めて使うときに作る"""
         ex = self.exporter
         with self._ex_lock:
             if self._archiver is None:
@@ -496,7 +496,7 @@ class Live:
                 return True
             h._send(200, body, TYPES[os.path.splitext(name)[1]])
             return True
-        if u.path == "/live/api/peaks":   # 配信中の候補(L2。src/pipeline/analyze/live_detect.py)
+        if u.path == "/live/api/peaks":   # 配信中の候補(L2。src/flow/live_detect.py)
             self._server = h.server
             try:
                 h._json(200, self.detector.api_get(urllib.parse.parse_qs(u.query)))
@@ -573,7 +573,7 @@ class Live:
                                                    after=after, streamer=streamer, origin=live_export.check_origin(body.get("origin")), auto=auto)})
             if path == "/live/api/adopt":   # サーバー側の「マーク + 書き出し」(M1)
                 return h._json(200, self.adopt(body))
-            if path == "/live/api/peaks":   # 配信中の候補の採用・見送り・戻す(L2。src/pipeline/analyze/live_detect.py)
+            if path == "/live/api/peaks":   # 配信中の候補の採用・見送り・戻す(L2。src/flow/live_detect.py)
                 return h._json(200, self.detector.api_post(body))
             if path == "/live/api/export/cancel":
                 return h._json(200, {"job": ex.cancel(body.get("id"))})

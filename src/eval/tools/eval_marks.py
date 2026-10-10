@@ -43,7 +43,7 @@
   線 D の録画(live/live_feedback.jsonl の人の「届けた」「要らない」)と、友人の返事(logs/friend_feedback.jsonl。配信は videoId → 実行記録の runId →
   切り抜きのフォルダの順にたどる)。採用率・見逃しなどの指標には混ぜない(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。入口の「調子」の
   「採用の記録 配信 10 本」は judgedAll を読む(src/eval/drill/accuracy.py の summarize_marks)
-- --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/pipeline/live_report.py が録画中に書き、
+- --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/flow/live_report.py が録画中に書き、
   終わったら締める)と採用の記録(live/live_feedback.jsonl)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
   要らない = 悪い。自動の採用だけ)・配信中の候補とアーカイブの候補の重なり(detect_compare の行 = 配信後の全自動 M7 が書く)・ワーカーの遅れとメモリの最大・
   配信中の文字起こしの成否・書き出しの待ち・空き を並べる。時期は記録の startedAt(行は at)で絞る。録画が 5 本未満なら「まだ少ない(参考)」。
@@ -81,7 +81,7 @@ RETRACT_EVENTS = ("unadopt", "delete_judged")
 FRIEND_FEW_RANGES = 20   # friendRanges: 解析済みの区間がこれより少ない・
 FRIEND_FEW_VIDEOS = 5    # 配信がこれより少ないときは「まだ少ない(参考)」
 HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区間の中、または重なりが候補の長さのこの割合以上
-FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/pipeline/spec.py の RANGE_PAD と同じ値。出どころ 2 で引く)
+FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/flow/spec.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
 PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/pipeline/analyze/excite.py)
 DEFAULT_PRE = excite.PRE_RATIO_DEFAULT   # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき)
@@ -908,7 +908,7 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
 
 
 def _live_period_ok(iso_at, since_ms, until_ms):
-    """入口の記録の時刻(UTC の ISO。末尾 Z。src/pipeline/export/live_export.py の now_iso)が時期の中か(分からなければ入れる)"""
+    """入口の記録の時刻(UTC の ISO。末尾 Z。src/flow/live_export.py の now_iso)が時期の中か(分からなければ入れる)"""
     t = None
     s = str(iso_at or "")
     if s.endswith("Z"):
@@ -922,7 +922,7 @@ def _live_period_ok(iso_at, since_ms, until_ms):
 
 
 def _live_row(d):
-    """配信ごとの記録 1 件(src/pipeline/live_report.py の形)-> 表の 1 行の土台"""
+    """配信ごとの記録 1 件(src/flow/live_report.py の形)-> 表の 1 行の土台"""
     s, dt, tx, ex, info = d.get("samples") or {}, d.get("detect") or {}, d.get("tx") or {}, d.get("exports") or {}, d.get("info") or {}
     return {"recorder": d.get("recorder"), "recording": d.get("recording"), "title": info.get("title") or "", "hours": info.get("hours"),
             "state": d.get("state"), "startedAt": d.get("startedAt"), "request": bool(d.get("request")),
@@ -1185,9 +1185,9 @@ def print_report(res):
 
 # ---------------------------------------------------------------- 未解析の友人の配信の解析をスタジオに頼む(--analyze-missing。RS4)
 
-ANALYZE_LIMIT = 10       # 一度に頼む本数の既定(スタジオの解析のキューの上限 src/pipeline/batch.py の MAX_ACTIVE と同じ)
+ANALYZE_LIMIT = 10       # 一度に頼む本数の既定(スタジオの解析のキューの上限 src/flow/batch.py の MAX_ACTIVE と同じ)
 WAIT_POLL = 5.0          # --wait でキューを見る間隔(秒)
-QUEUE_END = ("done", "error", "cancelled", "skipped")   # スタジオの解析のキューの終わった状態(src/pipeline/batch.py の FINISHED)
+QUEUE_END = ("done", "error", "cancelled", "skipped")   # スタジオの解析のキューの終わった状態(src/flow/batch.py の FINISHED)
 EXIT_NO_STUDIO = 2
 SKIP_LABELS = {"analyzed": "解析済み", "missing": "スタジオに無い", "queued": "すでに順番待ち", "full": "キューが満杯", "limit": "--limit を超えた分",
                "kind": "解析しない種類(ライブの録画など)"}
@@ -1206,7 +1206,7 @@ def missing_videos(data_dir=None):
 
 
 def _queue_item(v, video):
-    """スタジオの /api/queue/add に渡す 1 件(src/pipeline/run.py の _step_analyze と同じ形)。解析しない種類は None"""
+    """スタジオの /api/queue/add に渡す 1 件(src/flow/run.py の _step_analyze と同じ形)。解析しない種類は None"""
     kind = video.get("kind") or v.get("kind") or "youtube"
     if kind == "youtube":
         return {"kind": "youtube", "videoId": v["videoId"]}

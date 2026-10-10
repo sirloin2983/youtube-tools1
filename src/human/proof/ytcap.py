@@ -29,7 +29,9 @@ import sys
 import threading
 import time
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
+from ytt import jobs as _slots  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import txbase as _txbase  # noqa: E402   1 行の文字数の上限・ロガー・ジョブの注意(RS3-E6 に ed_state の別名から)
@@ -176,7 +178,7 @@ def _ytcap_run(job, cmd, work):
             while proc.poll() is None:
                 if job.get("cancel"):
                     _tools.kill_tree(proc)
-                    raise _heavy.Cancelled()
+                    raise _slots.Cancelled()
                 if time.monotonic() - t0 > YTCAP_TIMEOUT_SEC:
                     _tools.kill_tree(proc)
                     raise _errors.ApiError("timeout", "YouTube の字幕の取得が %d 秒を超えたのでやめました。しばらく時間をおいてから、もう一度試してください" % YTCAP_TIMEOUT_SEC, 504)
@@ -190,7 +192,7 @@ def _ytcap_run(job, cmd, work):
         f.seek(max(0, f.tell() - 16000))
         err = f.read().decode("utf-8", "replace")
     if job.get("cancel"):
-        raise _heavy.Cancelled()
+        raise _slots.Cancelled()
     return proc.returncode, out, err
 
 
@@ -471,7 +473,7 @@ def run_ytcap(job):
         job["state"], job["phase"] = "running", "YouTube の字幕を確かめ中"
         cache = ytcap_get(job, spec["videoId"])
         if job["cancel"]:
-            raise _heavy.Cancelled()
+            raise _slots.Cancelled()
         with store._save_lock:   # 取る間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
             if not os.path.isfile(store.tx_path(tid)):
                 raise _errors.ApiError("not_found", "字幕を取る間に文書が消されました", 404)

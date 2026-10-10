@@ -45,12 +45,12 @@ import threading
 import time
 
 from ytt import fsio, schemas, tools
-from pipeline import live_failures
-from pipeline.export import live_export as LX
-from . import excite
-from . import live_excite_worker as EW   # ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない
+from . import live_failures
+from . import live_export as LX
+from pipeline.analyze import excite
+from pipeline.analyze import live_excite_worker as EW   # ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない
 
-CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+CODE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "analyze")   # 子プロセスの道具は ① の置き場(pipeline/analyze)
 WORKER = os.path.join(CODE_DIR, "live_excite_worker.py")
 STALE_SEC = 120.0          # 心拍(worker.json)がこれだけ止まったら起動し直す
 SETTINGS_EVERY = 300.0     # スタジオの解析の設定を読み直す間隔
@@ -618,7 +618,7 @@ class Detector:
 
     # ---- 配信が終わったあと(0-10-6。L5 の材料。人の手は要らない)
     def compare(self, rc, rec, a, marks):
-        """配信後の全自動(M7。src/pipeline/ingest/live_archive.py)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、配信中にも
+        """配信後の全自動(M7。src/flow/live_archive.py)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、配信中にも
         候補(見送り以外)が出ていた割合と時刻の差を live_feedback.jsonl に 1 行({"event": "detect_compare"})。配信中の候補が無い録画は何もしない。
         a: afterStream の記録(t0・offset・first・last)。アーカイブの秒 s → 録画の頭からの秒 = t0 + s − offset − first(pick_candidates と同じ向き)-> 書いた行か None"""
         doc, peaks, _p = self.view(rc, rec)
@@ -683,7 +683,7 @@ class Detector:
                 "autoAdopt": dict(self.adopt_cfg(), maxPerRecording=AUTO_MAX_PER_REC, pauseUnconfirmed=UNCONFIRMED_PAUSE, paused=paused)}
 
     def failures(self, now=None):
-        """「調子」の失敗(kind detect。文は src/pipeline/live_failures.py の detect_failure)"""
+        """「調子」の失敗(kind detect。文は src/flow/live_failures.py の detect_failure)"""
         if not self.live.enabled():
             return []
         now = time.time() if now is None else now

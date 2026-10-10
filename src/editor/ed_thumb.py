@@ -13,7 +13,9 @@ import time
 
 import ed_state
 from human.proof import store  # noqa: E402
-from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools
+from ytt import fsio as _fsio, schemas as _yschemas, tools as _tools
+from flow import jobs as _heavy
+from ytt import jobs as _slots
 
 THUMB_CROPS = ("alt", "center", "right")
 THUMB_SUFFIX = "_thumb-ideas"
@@ -60,7 +62,7 @@ def run_thumb(job):
             thumb_ideas.make(spec["sourcePath"], doc, None, png, spec["crop"])
         except thumb_ideas.ThumbError as e:
             raise ed_state.ApiError("thumb_failed", "サムネの案を作れませんでした: " + e.message, 400, {"detail": e.detail}) from None
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         job["progress"] = 1.0
         _heavy.job_done(job, tid, "完了")
 

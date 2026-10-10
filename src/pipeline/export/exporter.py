@@ -37,7 +37,7 @@ TRUE_PEAK_CEIL = _loud.TRUE_PEAK_CEIL   # 上げたときに音が割れない�
 MAX_GAIN_DB = _loud.MAX_GAIN_DB         # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
 EDIT_HANDLE_SEC = 10.0
 # 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt/names.py の 1 か所
-# (入口のライブの書き出し src/pipeline/export/live_export.py と同じ規則。2026-10-09 見直し T8)。ここの名前はテストと他の部品が読むので残す
+# (入口のライブの書き出し src/flow/live_export.py と同じ規則。2026-10-09 見直し T8)。ここの名前はテストと他の部品が読むので残す
 MAX_PATH_UNITS, SUFFIX_ROOM, BASE_ROOM = _names.MAX_PATH_UNITS, _names.SUFFIX_ROOM, _names.BASE_ROOM
 compact_ts, safe_name, is_reserved, path_units, trim_units = _names.compact_ts, _names.safe_name, _names.is_reserved, _names.path_units, _names.trim_units
 unique_base, _read_owner, _write_owner = _names.unique_base, _names.read_owner, _names.write_owner

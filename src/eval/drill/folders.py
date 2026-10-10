@@ -13,7 +13,8 @@ import re
 import threading
 import unicodedata
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定と設定の読み load_settings(RS3-1 に ed_relink・ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所の今の値・動画と音声の拡張子)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)

@@ -4,7 +4,7 @@
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。
 どの段も「まだ無いものだけ」作る(済んだ段は飛ばす)。中止は Cancelled、続けられない失敗は StepError。
 
-import してよいのは標準ライブラリ・ytt・pipeline.spec だけ(層の決まり。dev/tests/test_layering.py)。案件・ホームの設定・届けることを知る所は
+import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py)。案件・ホームの設定・届けることを知る所は
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
 
@@ -13,7 +13,7 @@ src/home/autorun.py に残したもの(AutoRunner が Runner を継いで hook �
 HTTP の ToolClient。案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので、層の向きの上で ① に置けないため(RS3 で分ける)。
 autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
-将来 batch や live の流れを移すときは pipeline/run/ パッケージにせず兄弟モジュールにする(__init__ は import しない決まり)。
+将来 batch や live の流れを移すときは flow/run/ パッケージにせず兄弟モジュールにする(__init__ は import しない決まり)。
 """
 import os
 import re
@@ -62,8 +62,8 @@ RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
 
 FROM_MODE = {None: "full", "analyze": "full", "export": "adopted", "transcribe": DOC_MODE}   # run(from_=段) の配信の ID の入力 -> 実行の形
 
-_num = _spec.num_ok   # 扱ってよい大きさの数か(src/pipeline/spec.py)
-_row_edge_ok = _spec.row_edge_ok   # 「行から」の設定の形の検査(src/pipeline/spec.py)
+_num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
+_row_edge_ok = _spec.row_edge_ok   # 「行から」の設定の形の検査(src/flow/spec.py)
 
 
 def _media_is_30fps(path):

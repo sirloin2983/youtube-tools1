@@ -1,5 +1,5 @@
 """録画元との約束(線 D。2026-10-09 見直し T8): 録画元・録画・セグメントの id の形、時刻の書き方(UTC の "…Z")、YouTube の動画の id の読み方。
-録画の部品(src/pipeline/ingest/rec_core.py。入口と別のプロセス)・入口の書き出し(src/pipeline/export/live_export.py)・配信中の検出のワーカー
+録画の部品(src/pipeline/ingest/rec_core.py。入口と別のプロセス)・入口の書き出し(src/flow/live_export.py)・配信中の検出のワーカー
 (src/pipeline/analyze/live_excite_worker.py。別のプロセス)が同じ物を読む(以前は 3 か所に写しがあり、片方だけ直す事故をテストで見張っていた)。
 標準ライブラリだけ(ワーカーは numpy を読まない決まり)。
 """

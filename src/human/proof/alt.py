@@ -27,7 +27,9 @@ import os
 import threading
 import time
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
+from flow import jobs as _heavy  # noqa: E402
+from ytt import jobs as _slots  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from pipeline.transcribe import backend as _backend  # noqa: E402   疑似かどうか is_fake()・疑似の行 alt_rows・エンジンの確かめと版の口(RS3-E6 に ed_state.backend_name から。RS5-D)
@@ -174,7 +176,7 @@ def run_alt(job):
             rows.append({"start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2), "text": s["text"][:_txbase.MAX_TEXT]})
             job["segments"] = len(rows)
         if job["cancel"]:
-            raise _heavy.Cancelled()
+            raise _slots.Cancelled()
         body = {"schema": ALT_SCHEMA, "id": tid, "engine": spec["engine"], "engineVersion": alt_engine_version(spec), "model": spec["model"],
                 "device": job.get("device", ""), "at": _yschemas.now_ms(), "range": [spec["start"], spec["end"]],
                 "audioSec": round(float(total or 0), 2), "wallSec": round(time.monotonic() - t0, 2), "rows": rows,

@@ -28,7 +28,7 @@ from test_alt import make_video  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import learn  # noqa: E402
 from human.proof import store  # noqa: E402
-from ytt import jobs  # noqa: E402
+from flow import jobs  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/llm.py を直に読む。旧 ed_llm)
 import ed_state  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402

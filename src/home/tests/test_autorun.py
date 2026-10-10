@@ -23,7 +23,7 @@ from human.friend import deliver as deliver_mod  # noqa: E402  (届ける部品�
 from human.friend import delivery as DL  # noqa: E402
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
-from pipeline import runlog  # noqa: E402
+from flow import runlog  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 
@@ -1255,7 +1255,7 @@ class TestRequests(Base):
         self.assertEqual(("engine" in body, body["model"]), (False, "small"))   # 編集の設定のモデル
 
     def live_clip(self, name, origin):
-        """リアルタイム切り抜きの書き出し(src/pipeline/export/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
+        """リアルタイム切り抜きの書き出し(src/flow/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
         from ytt import schemas
         media = os.path.join(self.tmp, name)
         open(media, "wb").close()

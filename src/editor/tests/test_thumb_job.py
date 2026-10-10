@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
 from human.proof import doc_jobs  # noqa: E402
-from ytt import jobs  # noqa: E402
+from flow import jobs  # noqa: E402
 import ed_state  # noqa: E402
 import ed_thumb  # noqa: E402
 

@@ -148,8 +148,8 @@ def run(tmp, shots, force_chromium):
     import launch as L  # noqa: E402
     import mount  # noqa: E402
     import hls_fixture as F  # noqa: E402
-    from pipeline.export import live_export as LX  # noqa: E402
-    from pipeline.ingest import live_archive as LA  # noqa: E402
+    from flow import live_export as LX  # noqa: E402
+    from flow import live_archive as LA  # noqa: E402
     from ytt import fsio, normalize, schemas  # noqa: E402
     from test_launch import free_ports  # noqa: E402
 

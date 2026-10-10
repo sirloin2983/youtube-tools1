@@ -18,7 +18,9 @@ import threading
 import time
 import unicodedata
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
+from ytt import jobs as _slots  # noqa: E402
 from pipeline.transcribe import backend as _backend, diarize, recognize  # noqa: E402   本物と疑似の差し込み口・判別の計算(呼ぶたびに diarize.名前 で読む)・音声の取り出し
 from pipeline.transcribe import worker_client  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 疑似のワーカーの判定 worker_fake
 from ytt import txbase as _txbase  # noqa: E402
@@ -216,7 +218,7 @@ def _diarize_job_real(job, spec, wav):
     job["state"], job["phase"], job["progress"] = "running", "話者を判別中(CPU。長い音声は時間がかかります)", 0.0
     try:
         return diarize.diarize_real(job, wav, spec["numSpeakers"], spec["embedding"])
-    except (_heavy.Cancelled, _errors.ApiError):
+    except (_slots.Cancelled, _errors.ApiError):
         raise
     except Exception as e:
         raise _errors.ApiError("diar_failed", "話者の判別に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:150]), 500)
@@ -246,13 +248,13 @@ def run_diarize(job):
         recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end}, wav)
         total = _tools.media_duration(wav) or span
         turns = _backend.select().diarize(job, spec, wav, total, _diarize_job_real)   # 疑似は eval/fake/fake_asr の diarize_fake(RS2-9)
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
                 job["named"] = recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
-            except _heavy.Cancelled:
+            except _slots.Cancelled:
                 raise
             except Exception as e:
                 _txbase.log.warning("声の照らし合わせに失敗: %s %s", e.__class__.__name__, str(e)[:200])
@@ -880,7 +882,7 @@ def run_voice_learn(job):
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
         people = sorted(grp)
         vecs = diarize.embed_groups(job, wav, spec["embedding"], [grp[n][0] for n in people], start)
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         learned = []
         with _voices_lock:
             voices = load_voices(spec["embedding"])

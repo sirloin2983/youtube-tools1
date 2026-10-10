@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配信中の盛り上がりの検出のワーカー(線 D の L2。plan/line-d-detect.md・plan/line-d-live-clipping.md の 0-10)。入口(src/pipeline/analyze/live_detect.py)が起動する子プロセス。
+"""配信中の盛り上がりの検出のワーカー(線 D の L2。plan/line-d-detect.md・plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
 
     py -3.10 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
     (旧い場所 src/home/live_excite_worker.py の転送は RS5-G で消した)
@@ -294,7 +294,7 @@ _HINT_CACHE = {}
 
 
 def length_hint(root=None, env=None, now=None):
-    """**入口の側**(src/pipeline/analyze/live_detect.py の Detector.config が呼んで config.json の lengthHint に入れる): 人が選んだ区間の長さの目安
+    """**入口の側**(src/flow/live_detect.py の Detector.config が呼んで config.json の lengthHint に入れる): 人が選んだ区間の長さの目安
     -> {"length", "preRatio"(無ければ None), "samples", "videos", "enough", "file"} か None(止めてある・結果が無い・古い・壊れている)。
     読むのはスタジオの作業データ evals/marks/ のいちばん新しい src/eval/tools/eval_marks.py --json の結果の clipLength.suggest(置き場所は ytt.datadir の
     resolve = 入口のプロセスでスタジオが登録した場所)。同じファイルは読み直さない(名前と更新の時刻で覚える)。enough の判定はワーカーの clean_hint がする"""

@@ -134,7 +134,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   python -m unittest src/home/tests/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
   python -m unittest src/manage/cases/tests/test_cases.py -v (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
   python -m unittest src/home/tests/test_autorun.py -v     (まとめて実行の段取り。ツールは偽物)
-  python -m unittest src/pipeline/tests/test_run.py src/pipeline/tests/test_runlog.py -v (まとめて実行の段の中身・実行の記録の読み)
+  python -m unittest src/flow/tests/test_run.py src/flow/tests/test_runlog.py -v (まとめて実行の段の中身・実行の記録の読み)
   python -m unittest src/manage/keep/tests/test_cleanup.py src/manage/ops/tests/test_health.py src/manage/ops/tests/test_restart.py -v (片付け・調子・起動し直し)
   python -m unittest src/home/tests/test_intake.py -v      (友人からの依頼の受付。まとめて実行・ffprobe・yt-dlp は偽物)
   python -m unittest src/home/tests/test_deliver.py -v     (友人へ届ける: zip・n 本ごとの zip・まとめ動画(本物の ffmpeg))

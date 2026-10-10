@@ -27,7 +27,7 @@ from test_backend import S, TID, StoreDir, write_json  # noqa: F401,E402  (S = s
 from human.proof import alt as proof_alt  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
-from ytt import jobs  # noqa: E402
+from flow import jobs  # noqa: E402
 import ed_state  # noqa: E402
 from human.proof import ytcap as Y  # noqa: E402
 

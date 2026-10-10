@@ -6,7 +6,7 @@
   transcribe  文字起こしまで … 採用したマークの書き出し → 文字起こし(パックは校正してから人が作る)
 
 作り:
-- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/pipeline/run.py へ移した(役割で組み直す計画 plan/role-restructure.md の 5-1)。
+- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 plan/role-restructure.md の 5-1)。
   ここに残すのは、順番待ちと糸・受付・中止・記録・起動し直しで戻す・見積もり・ToolClient と、
   Runner の hook(案件・ホームの設定を読む所)の中身。移した名前は同じ名前で読み直している。
   届けることと組の溜めは RS3-3 で src/human/friend/delivery.py の Delivery(mixin)へ切り出した(AutoRunner が継ぐ)
@@ -53,25 +53,25 @@ import time
 
 from manage.cases import txindex
 from ytt import colors, fsio
-from pipeline import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
-from pipeline.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
+from flow import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
+from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
-from pipeline import runlog  # noqa: E402  (終わった実行の記録の形と読み方。RS3-0B で read_runs_log などをここへ出した)
-from pipeline import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
-from pipeline.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
+from flow import runlog  # noqa: E402  (終わった実行の記録の形と読み方。RS3-0B で read_runs_log などをここへ出した)
+from flow import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
+from flow.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
                           REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
                           TX_KEYS, Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, _row_edge_ok, clean_pool)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
 
-# RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/pipeline/spec.py へ、
-# MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/pipeline/run.py へ移した(上で読み直している)
+# RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/flow/spec.py へ、
+# MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/flow/run.py へ移した(上で読み直している)
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request"},
               "file": {"auto": "file_auto", "check": "file"}}
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
-# 終わった実行の記録のファイル名 RUNS_LOG と1行の形の版 LOG_VERSION・読み方 read_runs_log は src/pipeline/runlog.py(RS3-0B。入口の外の部品も読むため)
+# 終わった実行の記録のファイル名 RUNS_LOG と1行の形の版 LOG_VERSION・読み方 read_runs_log は src/flow/runlog.py(RS3-0B。入口の外の部品も読むため)
 LOG_MAX_BYTES = 1024 * 1024   # これを超えたら .1 に回す(1件 1〜2KB なので 500〜1000 件ぶん)
 LOG_READ_BYTES = 256 * 1024   # 起動時に読む末尾の大きさ(前回の結果 past を作る)
 PAST_MAX = 50          # snapshot の past(配信・文書ごとの前回の結果で、メモリに無いもの)の数
@@ -102,7 +102,7 @@ STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",
 # 書き出し(export)は入れない: 書き出し中は今までどおり断る
 REDO_STEPS = ("analyze", "transcribe", "diarize", "pack")
 TX_ACTIVE = ("queued", "loading", "extracting", "running")   # 「編集」のジョブの動いている状態(src/ytt/jobs.py の ACTIVE_STATES)
-QUEUE_ACTIVE = ("waiting", "running")                       # スタジオの解析のキューの動いている状態(src/pipeline/batch.py)
+QUEUE_ACTIVE = ("waiting", "running")                       # スタジオの解析のキューの動いている状態(src/flow/batch.py)
 
 
 TOOL_NAMES = {"studio": "切り抜きスタジオ", "transcribe": "編集", "cut2resolve": "cut2resolve(パックを作る部品)"}   # 知らせの文のツール名
@@ -163,7 +163,7 @@ def _doc_id_ok(v):
     return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
 
 
-_num = _spec.num_ok   # 扱ってよい大きさの数か(src/pipeline/spec.py。ここの検査もこれを使う)
+_num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py。ここの検査もこれを使う)
 
 
 def live_auto_origin(media):
@@ -174,7 +174,7 @@ def live_auto_origin(media):
     return bool(live) and live.get("origin") in cases.AUTO_ORIGINS
 
 
-_top_arg = _spec.top_arg   # 採用する数(src/pipeline/spec.py)
+_top_arg = _spec.top_arg   # 採用する数(src/flow/spec.py)
 
 
 def _busy_reason(active, same, what=""):
@@ -193,7 +193,7 @@ def _rec_key(rec):
 
 
 class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
-    """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す。段の中身は src/pipeline/run.py の Runner
+    """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す。段の中身は src/flow/run.py の Runner
     (ここでは hook を案件・ホームの設定で埋める)。友人へ届ける段と組の溜めは src/human/friend/delivery.py の Delivery(RS3-3)を継ぎ、
     そこが要る入口と案件の物(届ける本数の既定と範囲・案件に届けた印)は下の _deliver_batch_limits・_remember_delivered で渡す"""
 
@@ -321,7 +321,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
 
     @staticmethod
     def _marks_arg(marks):
-        """スタジオのマークの行から: このマークだけ進める(-> 重ならない id の組 / None = 配信の全部。検査は src/pipeline/spec.py の marks_arg)"""
+        """スタジオのマークの行から: このマークだけ進める(-> 重ならない id の組 / None = 配信の全部。検査は src/flow/spec.py の marks_arg)"""
         return _spec.marks_arg(marks)
 
     def _pref(self, key, default=None):
@@ -571,7 +571,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         if tool == "transcribe":   # 「編集」のジョブ(枠の名前は題名の頭。src/ytt/jobs.py の work_one)
             items = [j for j in client.ok(tool, "GET", "/api/jobs").get("jobs") or [] if isinstance(j, dict) and j.get("state") in TX_ACTIVE]
             key, name = "id", lambda j: str(j.get("title") or "")
-        elif tool == "studio":   # スタジオの解析のキュー(枠の名前は題名か配信の ID。src/pipeline/batch.py)
+        elif tool == "studio":   # スタジオの解析のキュー(枠の名前は題名か配信の ID。src/flow/batch.py)
             items = [i for i in client.ok(tool, "GET", "/api/queue").get("items") or [] if isinstance(i, dict) and i.get("status") in QUEUE_ACTIVE]
             key, name = "qid", lambda i: str(i.get("title") or i.get("videoId") or "")
         else:
@@ -717,10 +717,10 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         return cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}
 
     def _execute(self, run):
-        """1 回の実行(_loop の糸から)。段の中身は src/pipeline/run.py(hook = この AutoRunner)"""
+        """1 回の実行(_loop の糸から)。段の中身は src/flow/run.py(hook = この AutoRunner)"""
         return run_mod.run(self.client, run, hooks=self)
 
-    # hook(src/pipeline/run.py の Runner の既定を、案件・ホームの設定・届けることで埋める) ----------
+    # hook(src/flow/run.py の Runner の既定を、案件・ホームの設定・届けることで埋める) ----------
     def _checkpoint(self, run):
         """段の始まりと済んだとき: 待ちの記録に残す(M5。起動し直したらこの段から)"""
         self._save_active()

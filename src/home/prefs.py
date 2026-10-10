@@ -11,15 +11,15 @@
   live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
-             配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/pipeline/ingest/live_archive.py。P4)・
+             配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/flow/live_archive.py。P4)・
              本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/manage/keep/live_cleanup.py。P4)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|faster-whisper|whisper.cpp|qwen3-asr|llama.cpp・model: ""(編集の設定)|モデルの名前}(線 D の M2。入口 0.39.0)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
-             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/pipeline/ingest/live_archive.py)と
+             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
              配信中の盛り上がりの検出 detect {enabled(**既定オン**。10-08 ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
-             (線 D の L2。src/pipeline/analyze/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
+             (線 D の L2。src/flow/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
@@ -78,7 +78,7 @@ RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
 RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
-LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/pipeline/export/live_export.py の AFTERS と同じ名前)
+LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/flow/live_export.py の AFTERS と同じ名前)
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
 LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/pipeline/transcribe/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)

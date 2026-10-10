@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。src/pipeline/ingest/live_archive.py・src/pipeline/ingest/live_align_worker.py・src/home/live.py の API)のテスト。本物の YouTube には繋がない。
+"""アーカイブで本番版に作り直す(線 D の P4。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py・src/home/live.py の API)のテスト。本物の YouTube には繋がない。
 
     py -3.10 -m unittest src/home/tests/test_live_archive.py
 
@@ -39,8 +39,8 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)    # ytt(このファイルだけを流しても読めるように。2026-10-09)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-from pipeline.ingest import live_archive as A  # noqa: E402
-from pipeline.export import live_export as LX  # noqa: E402
+from flow import live_archive as A  # noqa: E402
+from flow import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
 from ytt import fsio, jobs, normalize, schemas, tools  # noqa: E402
 
@@ -544,7 +544,7 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(A.run_align(os.path.join(self.tmp, "none.wav"), win)["ok"], False)
 
     def test_no_numpy_in_portal(self):
-        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import pipeline.ingest.live_archive, pipeline.export.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
+        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import flow.live_archive, flow.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
 
@@ -845,7 +845,7 @@ class CleanupTest(unittest.TestCase):
 
 
 class AfterStreamTest(unittest.TestCase):
-    """線 D の M7(配信後の全自動。src/pipeline/ingest/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
+    """線 D の M7(配信後の全自動。src/flow/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
     → 本番版へ → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは src/home/tests/e2e_live_archive.py の 9)"""
     HOURS = 3.0
 

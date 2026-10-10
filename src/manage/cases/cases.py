@@ -48,7 +48,7 @@ import urllib.parse
 from . import txindex   # 同じ manage/cases の兄弟
 from ytt import datadir, fsio, schemas, tools
 from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
-from pipeline import live_failures   # 失敗の文は 1 か所。線 D の M3
+from flow import live_failures   # 失敗の文は 1 か所。線 D の M3
 
 SCHEMA = "youtube-tools-cases/v1"
 STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中・投稿済み・見送り
@@ -58,7 +58,7 @@ _lock = threading.Lock()
 # 次にやることの順(仕掛かりを先に終わらせる)と、作業の名前。ホームの「次にやること」(portal.js)も build() の todoOrder でこの順を使う(正はここ 1 か所)
 TODO_ORDER = ("proof", "pack", "transcribe", "export", "review")
 TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "文字起こし", "export": "書き出し", "review": "候補の確認"}
-# 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/pipeline/export/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
+# 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/flow/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
 AUTO_ORIGINS = {"auto": "配信中の候補", "archive": "配信後の解析"}
 AUTO_OPS = ("seen", "deliver", "discard")
 AUTO_KEEP = 2000                   # 案件 1 件で覚えておく確認の数(古いものから捨てる)
@@ -164,7 +164,7 @@ def _case_extras(c):
 # ---------------------------------------------------------------- 自動でできた切り抜き(線 D の M9)
 
 def clip_live(media_path):
-    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/pipeline/export/live_export.py の _finish が書く。source.kind は live)。
+    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/flow/live_export.py の _finish が書く。source.kind は live)。
     無い・読めない・ライブでない・ネットワーク上のパスなら (None, None)。まとめて実行の M8(src/home/autorun.py の live_auto_origin)も同じ読み方"""
     if not isinstance(media_path, str) or not media_path or fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない。txindex と同じ)
         return None, None
@@ -191,7 +191,7 @@ def auto_info(mark, media_path):
 def live_failures_by_mark(loc):
     """線 D の書き出しのジョブ(<作業データ>/app/live/exports.json)の失敗 -> {(スタジオの配信, マーク): {kind, kindLabel, text}}。
     同じマークのジョブが複数あれば新しいものだけ。文は live_failures.failure_of だけが作る(「調子」・LIVE の帯と同じ文)。読むだけ"""
-    from pipeline.export import live_export   # 入口のプロセスでは読み込み済み(ここで読むのは、ライブの配信が無ければ要らないため)
+    from flow import live_export   # 入口のプロセスでは読み込み済み(ここで読むのは、ライブの配信が無ければ要らないため)
     d = _read_json(loc["liveJobs"], 8 * 1024 * 1024)
     jobs_ = d.get("jobs") if isinstance(d, dict) and d.get("schema") == live_export.JOBS_SCHEMA else None
     latest = {}

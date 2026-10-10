@@ -28,7 +28,7 @@ from human.proof import alt as proof_alt  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
-from ytt import jobs  # noqa: E402
+from flow import jobs  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.10 -m unittest src/pipeline/tests/test_run.py -v
+"""pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.10 -m unittest src/flow/tests/test_run.py -v
 段の中身の細かい動きは src/home/tests/test_autorun.py(AutoRunner が Runner を継いだ形)で見る。ここは入口の関数・入力の形・hook の既定と、
 層の決まり(home を知らずに読める)だけ。
 """
@@ -12,7 +12,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline import run as R  # noqa: E402
+from flow import run as R  # noqa: E402
 
 
 class FakeClient:
@@ -41,7 +41,7 @@ class FakeClient:
 class TestImport(unittest.TestCase):
     def test_imports_without_home(self):
         """home(案件・設定・届ける部品)を sys.path に置かずに読める = 層の向き"""
-        code = ("import sys; sys.path.insert(0, %r); import pipeline.run as r; "
+        code = ("import sys; sys.path.insert(0, %r); import flow.run as r; "
                 "bad = [m for m in ('autorun', 'cases', 'prefs', 'deliver', 'friend_feedback', 'manage') if m in sys.modules]; "
                 "print(bad); sys.exit(1 if bad else 0)") % SRC
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)

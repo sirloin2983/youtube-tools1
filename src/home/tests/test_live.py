@@ -9,7 +9,7 @@
   - オン: 以前の録画の画面 /live/ はスタジオへ 302(P3)・hls.js の同梱・録画元の一覧(合言葉を出さない)・中継(合言葉 Bearer と Host を付ける・
     Sec-Fetch-Site と入口の合言葉の検査・知らない録画元・パスの検査・思わぬ種類の応答・録画元が止まっている)・「調子」の行
   - 見回り: 手元の録画の部品(src/pipeline/ingest/recorder.py)を切り離して起動する → 動いている → 古い版なら終わってもらって起動し直す
-  - P2 マークと書き出し(src/pipeline/export/live_export.py): マークの API(オフなら 404・検査・fsync した正本)・本物の録画の部品(--source direct)で
+  - P2 マークと書き出し(src/flow/live_export.py): マークの API(オフなら 404・検査・fsync した正本)・本物の録画の部品(--source direct)で
     録画中にマーク → 録画待ち → 届いたら取得 → 30fps(30/1・長さ)→ スタジオと同じ置き場所・名前・.clip.json(source.kind live)→
     文字起こしへ(偽のまとめて実行)・取り消し・録画が先に終わった(録れた所まで)・録画元が落ちた(失敗と理由)・欠け(要差し替え)・起動し直したらやり直す
   - P3 スタジオから: POST /live/api/begin(URL の検査・偽の yt-dlp で配信の状態・録画を始める・同じ配信は録画中のものを返す・画質の設定・
@@ -40,8 +40,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import live as LV  # noqa: E402
-from pipeline.export import live_export as LX  # noqa: E402
-from pipeline import live_failures as LF  # noqa: E402
+from flow import live_export as LX  # noqa: E402
+from flow import live_failures as LF  # noqa: E402
 from human.friend import live_requests as LR  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
@@ -1002,7 +1002,7 @@ class StopRecorderTest(unittest.TestCase):
 
 
 class FailuresTest(unittest.TestCase):
-    """M3: 失敗の集約(src/pipeline/live_failures.py)。書き出し・まとめて実行へ渡す・文字起こし・パックの失敗を 1 つの関数で文にして、
+    """M3: 失敗の集約(src/flow/live_failures.py)。書き出し・まとめて実行へ渡す・文字起こし・パックの失敗を 1 つの関数で文にして、
     LIVE の帯(GET /live/api/exports のジョブ)と「調子」(Live.health の failures)に同じ文で出す。exports.json と autorun-runs.jsonl を読むだけ"""
 
     def setUp(self):

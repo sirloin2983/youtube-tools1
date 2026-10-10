@@ -20,7 +20,9 @@ import os
 import time
 import uuid
 
-from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, schemas as _yschemas  # noqa: E402
+from flow import jobs as _heavy  # noqa: E402
+from ytt import jobs as _slots  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from ytt import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
@@ -348,14 +350,14 @@ def run_job(job):
         rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
         # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
         rows, fill_rec, fill_read = fill.fill_after_rows(job, spec, rows, wav, total)
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         out = _rows_to_doc(job, spec, rows, pairs, lrules, lfb)
         if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
             fill_rec["agree"] = fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
         llm_rec, llm_items = llm.llm_after_doc(job, spec, out["segs"])
-        _heavy.check_cancel(job)
+        _slots.check_cancel(job)
         fields = _doc_fields(job, spec, out, total, t_rec, pairs)
         if fill_rec:
             fields["recognition"]["runs"][-1]["fill"] = fill_rec   # 後処理の記録(読んだ窓・置き換えた行・捨てた行・直した呼び名)

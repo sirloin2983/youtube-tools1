@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.10 -m unittest src/pipeline/tests/test_spec.py -v
+"""pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.10 -m unittest src/flow/tests/test_spec.py -v
 - autorun.py から移した検査(clean_ranges・clean_weights・top_arg・marks_arg・row_edge_ok)は動きを変えていない(autorun の同じ名前も同じ物)
 - merge = 既定値に変えたい所だけ重ねる(知らない節・鍵は ValueError)・validate = 型と範囲(理由つきの ValueError)
 """
@@ -11,7 +11,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline import spec  # noqa: E402
+from flow import spec  # noqa: E402
 
 
 class TestMoved(unittest.TestCase):

@@ -26,7 +26,7 @@ import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/sib
 from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
-from pipeline import batch as batch_mod  # noqa: E402
+from flow import batch as batch_mod  # noqa: E402
 from pipeline.analyze import analyze  # noqa: E402
 from pipeline.export import exporter, manifest as _manifest  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
