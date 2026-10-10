@@ -14,15 +14,20 @@ HTTP の ToolClient。案件(cases・txindex)・ホームの設定(prefs)・届�
 autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
 将来 batch や live の流れを移すときは flow/run/ パッケージにせず兄弟モジュールにする(__init__ は import しない決まり)。
+
+RS6 b-0(2026-10-10): 段は指定の束(Run.spec。run() が merge・validate して置く)を読む。各ツールの GET /api/settings は読まない
+(入口の AutoRunner.build_spec が画面の設定から束を組む = ① は設定ファイルを読まない。束 → 本文は flow/spec.py の export_body・tx_opts・pack_output)。
+Run の欄(top・ranges・weights・cut・engine・model・video_tracks・speakers など友人や画面の指定)は今のまま、束に重ねて使う(欄があれば欄が勝つ)。
+束に入れない画面の値(精密・画質の上限・fps・用語集)は Run.screen(flow/spec.py の SCREEN)。
+ツールの仕事は self.tools(flow/tools.py の HttpTools(client) = 今の API の形・LocalTools = 入口なし)に頼む。
 """
 import os
 import re
 import time
-import urllib.parse
 import uuid
 
 from ytt import colors
-from . import spec as _spec
+from . import spec as _spec, tools as _tools
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, RANGE_PAD, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights,
                    pad_range)
 
@@ -52,8 +57,6 @@ NOTHING_MESSAGE = "やることがありませんでした"
 DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
-TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
-           "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
 # あとから解析(mode post_analyze。測るため)は RS4 で消した(代わりは src/eval/tools/eval_marks.py --analyze-missing)。
 # 以前の待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
@@ -63,7 +66,6 @@ RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
 FROM_MODE = {None: "full", "analyze": "full", "export": "adopted", "transcribe": DOC_MODE}   # run(from_=段) の配信の ID の入力 -> 実行の形
 
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
-_row_edge_ok = _spec.row_edge_ok   # 「行から」の設定の形の検査(src/flow/spec.py)
 
 
 def _media_is_30fps(path):
@@ -150,7 +152,8 @@ class Run:
         self.cancel = False
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
-        self.spec = None           # 指定の束(run() が置く。RS1-7 では読まない。待ちの記録・public には出さない)
+        self.spec = None           # 指定の束(run() が merge・validate して置く。段が読む = RS6 b-0。待ちの記録・public には出さない)
+        self.screen = None         # 束に入れない画面の値(flow/spec.py の SCREEN。入口の AutoRunner が置く。None = 固定の値。残さない)
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         keys = list(MODE_STEPS[mode])
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
@@ -258,11 +261,13 @@ class Run:
 class Runner:
     """① の経路: 段の中身(_step_*・_doc_*・_file_*)と、ツールの仕事を待つ骨組み(_check・_wait・_call_when_free・_poll)。
     client = ツールの API(call(ツール, メソッド, パス, body) -> (HTTP の番号, JSON)・ok(同じ) -> JSON か StepError)。
+    tools = 段が仕事を頼む先(flow/tools.py。既定は HttpTools(client) = 今の API の形)。
     hook の既定は「何も知らない」安全な値(入口の AutoRunner が案件・ホームの設定・届けることで埋める)"""
 
-    def __init__(self, client, env=None, poll=1.0, sleep=None, log=None, clock=None, find_pack=None):
+    def __init__(self, client, env=None, poll=1.0, sleep=None, log=None, clock=None, find_pack=None, tools=None):
         """poll = ツールの仕事を見に行く間隔(秒)。sleep・clock はテスト用。log = 1 行のログ。find_pack(動画のパス) = パックの有無(既定は「無い」)"""
         self.client, self.env, self.poll = client, env, poll
+        self.tools = tools if tools is not None else _tools.HttpTools(client)
         self.sleep = sleep or time.sleep
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
@@ -286,8 +291,8 @@ class Runner:
         return None
 
     def _docs(self):
-        """文字起こしの文書の一覧。既定は []"""
-        return []
+        """文字起こしの文書の一覧。既定は道具の一覧(HttpTools は [] = 何も知らない・LocalTools はその形で作った文書)"""
+        return self.tools.docs()
 
     def _pick_doc(self, docs, video_id, mark_id, path):
         """切り抜きの文書 1 つか None。既定は None(文字起こし済みとみなさない)"""
@@ -325,10 +330,16 @@ class Runner:
         self.sleep(self.poll if seconds is None else seconds)
         self._check(run)
 
-    def _call_when_free(self, run, st, tool, path, body, waiting):
-        """POST して、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)"""
+    def _bundle(self, run):
+        """この実行の束(run() が置いた物。置かれていなければ既定の束を置く)"""
+        if run.spec is None:
+            run.spec = _spec.merge(None)
+        return run.spec
+
+    def _call_when_free(self, run, st, send, waiting):
+        """send() で仕事を頼み、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)"""
         while True:
-            status, res = self.client.call(tool, "POST", path, body)
+            status, res = send()
             if not (status == 409 and res.get("error") == "busy"):
                 return status, res
             st["detail"] = waiting
@@ -356,7 +367,7 @@ class Runner:
             run.owned = None
 
     def _video(self, run):
-        st, obj = self.client.call("studio", "GET", "/api/video?id=" + run.video_id)
+        st, obj = self.tools.video(run.video_id)
         if st == 404 and run.fresh:   # ① 探す から: 解析のキューに入れるまではスタジオに無い(受け取った題名で進める)
             return {"kind": "youtube", "title": run.title}
         if st != 200:
@@ -437,16 +448,16 @@ class Runner:
 
     def _analyze_item(self, run, st, item, video_id):
         """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
-        # 解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze。段階7-1)。無ければスタジオの既定値
-        saved = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("analyze")
-        saved = saved if isinstance(saved, dict) else {}
+        # 解析の設定は束の analyze 節(入口はスタジオの画面で保存したもの = 段階7-1 から組む。RS6 b-0)
+        saved = dict(self._bundle(run)["analyze"])
+        own = saved != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定
         if run.weights:   # 友人が指定した重み(ほかの解析の設定はスタジオのまま)
             saved = dict(saved, **run.weights)
         fl = self._friend_length() if run.mode in REQUEST_URL_MODES else None
         if fl:   # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)
             saved = dict(saved, **{k: fl[k] for k in ("length", "preRatio") if k in fl})
             run.friend_length = fl
-        res = self.client.ok("studio", "POST", "/api/queue/add", {"items": [item], "settings": saved})
+        res = self.tools.analyze_add(item, saved)
         added = res.get("added") or []
         qid = added[0]["qid"] if added else None
         if not qid:
@@ -454,11 +465,11 @@ class Runner:
             if "すでにキュー" not in rej:
                 raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
         st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % tuple(run.weights[k] for k in WEIGHT_KEYS) if run.weights
-                                    else "スタジオで保存した解析の設定" if saved else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
+                                    else "スタジオで保存した解析の設定" if own else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
         st["detail"] += fl_note
         def read():
-            items = self.client.ok("studio", "GET", "/api/queue").get("items") or []
+            items = self.tools.analyze_items()
             it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
             if it is None:
                 raise StepError("解析の順番から外れました(スタジオで取り消したかもしれません)。もう一度実行してください")
@@ -477,10 +488,9 @@ class Runner:
         """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
         次の実行が同じ配信の解析をキューに入れられるように・重い処理の枠を空けてから進むため。失敗しても上げない(中止の途中)"""
         try:
-            self.client.call("studio", "POST", "/api/queue/cancel", {"qid": qid})
+            self.tools.analyze_cancel(qid)
             for _ in range(int(CANCEL_WAIT / self.poll) if self.poll > 0 else 30):
-                st, obj = self.client.call("studio", "GET", "/api/queue")
-                it = next((i for i in (obj.get("items") or []) if i.get("qid") == qid), None) if st == 200 else None
+                it = next((i for i in self.tools.analyze_items() if i.get("qid") == qid), None)
                 if it is None or it.get("status") not in ("waiting", "running"):
                     return
                 self.sleep(self.poll)
@@ -497,7 +507,7 @@ class Runner:
         body = {"id": run.video_id, "ranges": padded, "auto": auto}
         if run.fresh:
             body.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
-        res = self.client.ok("studio", "POST", "/api/video/request-marks", body)
+        res = self.tools.request_marks(body)
         rids, aids = res.get("rangeIds") or [], res.get("autoIds") or []
         run.marks = tuple(dict.fromkeys(rids + aids))
         if not run.marks:
@@ -512,7 +522,7 @@ class Runner:
     def _step_adopt(self, run, st, v):
         if run.mode in REQUEST_URL_MODES:
             return self._step_adopt_request(run, st, v)
-        res = self.client.ok("studio", "POST", "/api/video/adopt-top", {"id": run.video_id, "top": run.top})
+        res = self.tools.adopt_top(run.video_id, run.top)
         ids = res.get("adopted") or []
         marks = (res.get("video") or {}).get("marks") or []
         if ids:
@@ -526,14 +536,6 @@ class Runner:
         return "stop"
 
     # 書き出し ---------------------------------------------------
-    def _export_body(self, run, ids):
-        rv = (self.client.ok("studio", "GET", "/api/settings").get("settings") or {}).get("review") or {}
-        n = lambda x, lo, hi, d: x if isinstance(x, (int, float)) and not isinstance(x, bool) and lo <= x <= hi else d
-        loud = rv.get("exportLoudness", -14)
-        return {"id": run.video_id, "markIds": ids, "precision": "fast" if rv.get("precision") == "fast" else "accurate",
-                "maxHeight": rv.get("maxHeight") if rv.get("maxHeight") in (0, 720, 1080, 1440, 2160) else 1080,
-                "volume": int(n(rv.get("exportVolume"), 1, 200, 75)), "loudness": loud if loud in (-11, -14, -16, -18) else None}
-
     def _mine(self, run, v):
         """この実行で扱うマーク(マークを選んだ実行ならそれだけ)"""
         return [m for m in v.get("marks") or [] if not run.marks or m.get("id") in run.marks]
@@ -544,19 +546,20 @@ class Runner:
             done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
             return None if done else "stop"
-        status, res = self._call_when_free(run, st, "studio", "/api/export", self._export_body(run, ids[:50]), "別の書き出しが終わるのを待っています")
+        body = _spec.export_body(self._bundle(run), run.video_id, ids[:50], run.screen)
+        status, res = self._call_when_free(run, st, lambda: self.tools.export_start(body), "別の書き出しが終わるのを待っています")
         if status != 200:
             raise StepError("書き出しを始められませんでした: %s" % (res.get("message") or "HTTP %d" % status))
         jid = res.get("id")
 
         def read():
-            j = self.client.ok("studio", "GET", "/api/export?id=" + jid)
+            j = self.tools.export_job(jid)
             items = j.get("items") or []
             st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting")
                             else "%d / %d 本" % (sum(1 for i in items if i.get("status") == "done"), len(items)))
             return j if j.get("state") != "running" else None
         # 書き出しは自分の仕事にしない(owned なし = 書き出しの最中は起動し直しを断る。REDO_STEPS)
-        items = self._poll(run, None, read, lambda: self.client.call("studio", "POST", "/api/export/cancel", {"id": jid})).get("items") or []
+        items = self._poll(run, None, read, lambda: self.tools.export_cancel(jid)).get("items") or []
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")
@@ -581,17 +584,16 @@ class Runner:
         if not todo:
             st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips)
             return None
-        opts = self._tx_opts()
+        opts = self._tx_opts(run)
         jobs = []   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
 
         def submit():
             for m in todo:
                 self._check(run)
-                res = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=m["path"]))
-                jobs.append(res.get("id"))
+                jobs.append(self.tools.transcribe_start(dict(opts, sourcePath=m["path"]), bundle=self._bundle(run)))
 
         def read():
-            all_jobs = {j.get("id"): j for j in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or []}
+            all_jobs = {j.get("id"): j for j in self.tools.jobs()}
             mine = [all_jobs.get(j) or {"state": "error", "error": "文字起こしのジョブが見つかりません"} for j in jobs]
             fin = [j for j in mine if j.get("state") in ("done", "error", "cancelled")]
             cur = next((j for j in mine if j.get("state") not in ("done", "error", "cancelled", "queued")), None)
@@ -600,7 +602,7 @@ class Runner:
 
         def cancel():
             for j in jobs:
-                self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": j})
+                self.tools.transcribe_cancel(j)
         mine = self._poll(run, ("transcribe", jobs), read, cancel, start=submit)
         ok = [j for j in mine if j.get("state") == "done"]
         bad = [j for j in mine if j.get("state") != "done"]
@@ -616,7 +618,7 @@ class Runner:
     # パック -----------------------------------------------------
     def _edit_keeps(self, doc):
         """「編集」のカット(残す区間の秒。接している区間 = 分割しただけの所は1つに)と rev。無い・読めなければ (None, 0)"""
-        status, res = self.client.call("transcribe", "GET", "/api/edit?id=" + urllib.parse.quote(str(doc["id"])))
+        status, res = self.tools.edit(doc["id"])
         e = res.get("edit") if status == 200 and isinstance(res, dict) else None
         clips = e.get("clips") if isinstance(e, dict) else None
         if not clips:
@@ -630,44 +632,18 @@ class Runner:
                 out.append([a, b])
         return out, int(res.get("rev") or 0)
 
-    def _pack_settings(self):
-        """パックの作り方(編集の設定 = 3 パック のタブと同じ値。気が利く画面へ 段4 = 以前は fps・縦横・予備・話者の色を無視していた):
-        行から作るときの端の広げ方(rowEdge。形が変なら既定で作って知らせる)・Text+ の置き先(packFps・packSize)・1段の文字数(縦横に合わせる)・
-        話者の色・音量・予備(packBackup)・無音で削るときの値(cutSilence)。-> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
-        tx_settings = self.client.ok("transcribe", "GET", "/api/settings")
-        notes = []
-        row_edge = tx_settings.get("rowEdge")
-        if row_edge is not None and not _row_edge_ok(row_edge):
-            notes.append("「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から」で直せます)")
-            row_edge = None
-        size = tx_settings.get("packSize") if tx_settings.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
-        fps = str(tx_settings.get("packFps") or "30")
-        # 素材は 30fps にそろえる(2026-10-04 Q1)。素材がちょうど 30fps のときは、設定の packFps(60 など)に関係なく 30 にする
-        # (「編集」の 3 パック と同じ。30fps でない古い素材だけ設定の値を使う)。素材の fps は _source_fps が分かるときだけ
-        sub = tx_settings.get("subtitle") if isinstance(tx_settings.get("subtitle"), dict) else {}
-        wrap = (sub.get("wrapChars") or {}).get("horizontal" if size == "1920x1080" else "vertical") if isinstance(sub.get("wrapChars"), dict) else None
-        wrap_out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
-        wrap_out["textplusSize"] = size
-        if re.fullmatch(r"\d{1,3}(\.\d{1,3})?", fps):
-            wrap_out["textplusFps"] = fps
-        if tx_settings.get("packBackup") is True:
-            wrap_out["backup"] = True
-        wrap_out["speakerColors"] = tx_settings.get("speakerColors") is not False   # 話者の名前がメンバーと合えばその色(編集の設定と同じ。以前は無視して常にオン)
-        cs = tx_settings.get("cutSilence") if isinstance(tx_settings.get("cutSilence"), dict) else {}
-        cut_silence = {k: cs[k] for k in ("noise", "min", "pad") if isinstance(cs.get(k), (int, float)) and not isinstance(cs.get(k), bool)}
-        loud = tx_settings.get("packLoudness", 0)   # 聞こえ方の音量をそろえる目標(LUFS。編集の設定 = パックのタブと同じ値。0 = そろえない。既定は 0 = 音量 30%。2026-10-01)
-        if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
-            wrap_out["loudness"] = loud
-        else:   # LUFS でそろえないときは音量(%)。元 = 100
-            vol = tx_settings.get("packVolume", 30)
-            if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
-                wrap_out["volume"] = vol
-        return row_edge, wrap_out, cut_silence, notes
+    def _pack_settings(self, run):
+        """パックの作り方(束の pack 節 = 入口では編集の設定の 3 パック のタブと同じ値。気が利く画面へ 段4):
+        行から作るときの端の広げ方(rowEdge)・Text+ の置き先(fps・大きさ)・1段の文字数(縦横に合わせる)・話者の色・音量・予備・無音で削るときの値(cutSilence)。
+        fps は画面だけの値(Run.screen)。知らせ = 入口が設定を束にするときに直した所(行からの設定の形が変なら既定で作った、など)。
+        -> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
+        row_edge, wrap_out, cut_silence = _spec.pack_output(self._bundle(run), run.screen)
+        # 素材は 30fps にそろえる(2026-10-04 Q1)。素材がちょうど 30fps のときは、画面の packFps(60 など)に関係なく 30 にする(_pack_one)
+        return row_edge, wrap_out, cut_silence, _spec.clean_screen(run.screen)["packNotes"]
 
-    def _cut_method(self):
-        """カットを決めていない文書のカットの方法(ホームの設定 autorun.cut。読めなければ none)"""
-        m = self._pref("cut")
-        return m if m in ("rows", "none", "silence") else "none"   # 既定はカットしない(2026-10-01)
+    def _cut_method(self, run=None):
+        """カットを決めていない文書のカットの方法(束の pack.cut。入口はホームの設定 autorun.cut から。既定はカットしない = 2026-10-01)"""
+        return (self._bundle(run) if run is not None else _spec.DEFAULTS)["pack"]["cut"]
 
     @staticmethod
     def _speaker_styles(run):
@@ -690,13 +666,13 @@ class Runner:
         keeps, rev = self._edit_keeps(doc)
         if keeps:
             captions = _has_captions(doc)
-            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"}) if captions else {}
+            tr = self.tools.transcript_file(doc["id"]) if captions else {}
             spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
-            tr = self.client.ok("transcribe", "POST", "/api/export-file", {"id": doc["id"], "format": "transcript-v1"})
+            tr = self.tools.transcript_file(doc["id"])
             # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)。無ければ、自動の採用の切り抜きは区間の全体(M8)、ほかはホームの設定
-            method = run.cut or (LIVE_AUTO_CUT if run.source_path and self._live_auto_origin(media) else self._cut_method())
+            method = run.cut or (LIVE_AUTO_CUT if run.source_path and self._live_auto_origin(media) else self._cut_method(run))
             if method == "none":   # 動画全体(削る区間なし)。カット済の行の字幕も消さない
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
             elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
@@ -716,7 +692,7 @@ class Runner:
         styles = self._speaker_styles(run)
         if styles:   # 友人が指定した話者ごとの字幕の色(古い cut2resolve は知らない鍵を読み飛ばす。空なら鍵ごと付けない = 今までと同じ要求)
             body["output"]["speakerStyles"] = styles
-        status, res = self._call_when_free(run, st, "cut2resolve", "/api/build", body, prefix + "cut2resolve の別の処理が終わるのを待っています")
+        status, res = self._call_when_free(run, st, lambda: self.tools.pack_start(body), prefix + "cut2resolve の別の処理が終わるのを待っています")
         if status == 409 and res.get("error") == "exists":
             return "exists", False
         if status != 200:
@@ -724,13 +700,13 @@ class Runner:
         jid = (res.get("job") or {}).get("id")
 
         def read():
-            j = self.client.ok("cut2resolve", "GET", "/api/job?id=" + jid)
+            j = self.tools.pack_job(jid)
             if j.get("state") != "running":
                 return j
             if j.get("message"):
                 st["detail"] = prefix + j["message"]
             return None
-        j = self._poll(run, ("cut2resolve", [jid]), read, lambda: self.client.call("cut2resolve", "POST", "/api/job/cancel", {"id": jid}))
+        j = self._poll(run, ("cut2resolve", [jid]), read, lambda: self.tools.pack_cancel(jid))
         if j.get("state") != "done":
             err = j.get("error")
             raise StepError("パックを作れませんでした: %s" % ((err.get("message") if isinstance(err, dict) else err) or _job_why(j)))
@@ -742,8 +718,8 @@ class Runner:
             run.pack_hint = None
             self._after_pack(run, st, prefix)   # ① 全自動: n 本たまるごとに届ける(全部を待たない。AutoRunner)
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
-            self.client.call("transcribe", "POST", "/api/edit/pack", {"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
-                                                                      "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
+            self.tools.record_pack({"id": doc["id"], "rev": rev, "docUpdatedAt": int(doc.get("updatedAt") or 0),
+                                    "dir": r.get("outDir") or "", "files": [f.get("name") for f in r.get("files") or [] if isinstance(f, dict)]})
         return "made", bool(keeps)
 
     def _step_pack(self, run, st, v):
@@ -760,7 +736,7 @@ class Runner:
             st["state"], st["detail"] = "skip", ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
         skipped, failed, by_edit = [], [], 0
-        opts = self._pack_settings()
+        opts = self._pack_settings(run)
         self._auto_streamer(run, todo[0][1] if todo else None, v)
         for i, (m, doc) in enumerate(todo, 1):
             self._check(run)
@@ -807,29 +783,28 @@ class Runner:
             raise StepError("元の動画が見つかりません(移動・削除した可能性があります)")
         return d
 
-    def _tx_opts(self):
-        """文字起こしの設定(「編集」の設定のうち TX_KEYS。画面から文字起こしするときと同じ値)"""
-        opts = self.client.ok("transcribe", "GET", "/api/settings")
-        return {k: opts[k] for k in TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))}
+    def _tx_opts(self, run):
+        """文字起こしの要求の設定の部分(束から = flow/spec.py の tx_opts。入口では「編集」の設定のうち文字起こしの項目 = 画面から文字起こしするときと同じ値)"""
+        return _spec.tx_opts(self._bundle(run), run.screen)
 
     def _wait_job(self, run, jid, st=None, what="文字起こし"):
         """「編集」のジョブ 1 つが終わるまで待つ(st があれば進み具合を出す)。中止されたらジョブを取り消して上げる。-> 終わったジョブ"""
         def read():
-            j = next((x for x in self.client.ok("transcribe", "GET", "/api/jobs").get("jobs") or [] if x.get("id") == jid),
+            j = next((x for x in self.tools.jobs() if x.get("id") == jid),
                      {"state": "error", "error": "%sのジョブが見つかりません" % what})
             if j.get("state") in ("done", "error", "cancelled"):
                 return j
             if st is not None:
                 st["detail"] = "%s %d%%" % (j.get("phase") or "", round((j.get("progress") or 0) * 100))
             return None
-        return self._poll(run, ("transcribe", [jid]), read, lambda: self.client.call("transcribe", "POST", "/api/transcribe/cancel", {"id": jid}))
+        return self._poll(run, ("transcribe", [jid]), read, lambda: self.tools.transcribe_cancel(jid))
 
     def _doc_transcribe(self, run, st):
         doc = self._doc(run)
         if doc["count"]:
             st["state"], st["detail"] = "skip", "文字起こし済み"
             return None
-        jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(self._tx_opts(), sourcePath=doc["sourcePath"], intoDoc=doc["id"])).get("id")
+        jid = self.tools.transcribe_start(dict(self._tx_opts(run), sourcePath=doc["sourcePath"], intoDoc=doc["id"]), bundle=self._bundle(run))
         j = self._wait_job(run, jid, st)
         if j.get("state") != "done":
             raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
@@ -844,7 +819,7 @@ class Runner:
         if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
             st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
             return None
-        opts = self._pack_settings()
+        opts = self._pack_settings(run)
         res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=run.overwrite)
         if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
             st["state"], st["detail"] = "skip", "同じ名前のパックがあるので上書きしませんでした(「作り直す」を選ぶと上書きします)"
@@ -868,7 +843,7 @@ class Runner:
         for i, tid in enumerate(tids, 1):
             self._check(run)
             st["detail"] = "%d / %d 本" % (i - 1, len(tids))
-            status, res = self.client.call("transcribe", "POST", "/api/diarize", dict(body, tid=tid))
+            status, res = self.tools.diarize_start(dict(body, tid=tid))
             if status != 200:
                 bad.append(res.get("message") or "HTTP %d" % status)
                 continue
@@ -907,12 +882,12 @@ class Runner:
             st["state"], st["detail"] = "skip", "文字起こし済み"
             tid = doc["id"]
         else:
-            opts = self._tx_opts()
+            opts = self._tx_opts(run)
             if run.engine:   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)。無ければ編集の設定のまま
                 opts["engine"] = run.engine
             if run.model:
                 opts["model"] = run.model
-            jid = self.client.ok("transcribe", "POST", "/api/transcribe", dict(opts, sourcePath=run.source_path)).get("id")
+            jid = self.tools.transcribe_start(dict(opts, sourcePath=run.source_path), bundle=self._bundle(run))
             j = self._wait_job(run, jid, st)
             if j.get("state") != "done":
                 raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
@@ -928,12 +903,13 @@ class Runner:
         return None
 
 
-def run(client, input, spec=None, from_=None, hooks=None):
+def run(client, input, spec=None, from_=None, hooks=None, tools=None):
     """① の入口: 入力(Run か {"videoId"}・{"docId"}・{"path"}。Run.from_input)を段の順に進めて、その Run を返す(中止は Cancelled・失敗は StepError)。
-    hooks = hook を埋めた Runner(入口の AutoRunner)。None = 素の Runner。
-    RS1-7 では spec を読まない(ツールの設定のまま = 今と同じ)。RS6 で各段が読む。素の Runner の hook の既定は RS6 まで使わない"""
-    runner = hooks if hooks is not None else Runner(client)
+    spec = 指定の束(変えたい所だけ。None = 既定)。flow/spec.py の merge で既定に重ね validate で確かめて Run.spec に置く(形が違えば ValueError。段は始めない)。
+    hooks = hook を埋めた Runner(入口の AutoRunner)。None = 素の Runner(tools = 仕事を頼む先。None = HttpTools(client)。hooks があれば hooks の物)"""
+    bundle = _spec.validate(_spec.merge(spec))
+    runner = hooks if hooks is not None else Runner(client, tools=tools)
     r = input if isinstance(input, Run) else Run.from_input(input, from_)
-    r.spec = spec
+    r.spec = bundle
     runner.execute(r)
     return r

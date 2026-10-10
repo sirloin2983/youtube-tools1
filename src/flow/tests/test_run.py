@@ -13,22 +13,31 @@ import unittest
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
 from flow import run as R  # noqa: E402
+from flow import spec as SP, tools as T  # noqa: E402
 
 
 class FakeClient:
-    """「編集」の文字起こしの API の最小の真似(設定・ジョブを入れる・ジョブの一覧)"""
+    """「編集」の文字起こしと cut2resolve の API の最小の真似(ジョブを入れる・ジョブの一覧・受け渡しの JSON・パック)。設定(/api/settings)は持たない = 段は読まない"""
 
     def __init__(self):
         self.calls = []
+        self.bodies = {}
 
     def call(self, tool, method, path, body=None):
         self.calls.append((tool, method, path))
-        if path == "/api/settings":
-            return 200, {"model": "small", "unknown": "x"}
+        self.bodies[path.split("?")[0]] = body
         if path == "/api/transcribe":
             return 200, {"id": "j1"}
         if path == "/api/jobs":
             return 200, {"jobs": [{"id": "j1", "state": "done", "tid": "t1"}]}
+        if path.startswith("/api/edit?"):
+            return 200, {"edit": None, "rev": 0}
+        if path == "/api/export-file":
+            return 200, {"path": "/x/t1.transcript.json"}
+        if path == "/api/build":
+            return 200, {"job": {"id": "c1", "state": "running"}}
+        if path.startswith("/api/job?"):
+            return 200, {"id": "c1", "state": "done", "result": {"outDir": "/x/clip_pack", "files": []}}
         return 404, {}
 
     def ok(self, tool, method, path, body=None):
@@ -120,14 +129,60 @@ class TestRun(unittest.TestCase):
         self.addCleanup(os.remove, self.media)
 
     def test_file_transcribe(self):
-        """動画ファイル → 文字起こし(素の Runner。設定は「編集」のまま = TX_KEYS だけ渡す)"""
+        """動画ファイル → 文字起こし(素の Runner)。要求の設定は束から(RS6 b-0。GET /api/settings は読まない)"""
         c = FakeClient()
-        r = R.run(c, {"path": self.media}, spec={"x": 1}, hooks=R.Runner(c, poll=0, sleep=lambda s: None))
-        self.assertEqual(r.spec, {"x": 1})
+        r = R.run(c, {"path": self.media}, spec={"transcribe": {"model": "large-v3"}, "post": {"autoDict": False}},
+                  hooks=R.Runner(c, poll=0, sleep=lambda s: None))
+        self.assertEqual(r.spec, SP.validate(SP.merge({"transcribe": {"model": "large-v3"}, "post": {"autoDict": False}})))
         self.assertEqual((r.doc_id, r.docs, r.new_docs), ("t1", ["t1"], ["t1"]))
         self.assertEqual(r.step("transcribe")["state"], "done")
         self.assertEqual(r.message, "完了")
         self.assertIn(("transcribe", "POST", "/api/transcribe"), c.calls)
+        self.assertNotIn("/api/settings", [x[2] for x in c.calls])
+        self.assertEqual(c.bodies["/api/transcribe"], dict(SP.tx_opts(r.spec), sourcePath=self.media))
+        self.assertEqual((c.bodies["/api/transcribe"]["model"], c.bodies["/api/transcribe"]["autoDict"]), ("large-v3", False))
+        self.assertNotIn("engine", c.bodies["/api/transcribe"])   # 機器から決まるエンジンと同じなら書かない
+
+    def test_bad_spec_does_not_start(self):
+        """形の違う束は段を始めない(ValueError。ツールは呼ばない)"""
+        c = FakeClient()
+        for bad in ({"x": 1}, {"pack": {"size": "1x1"}}, {"transcribe": {"engine": "nai"}}):
+            with self.assertRaises(ValueError, msg=bad):
+                R.run(c, {"path": self.media}, spec=bad)
+        self.assertEqual(c.calls, [])
+
+    def test_doc_pack_reads_spec(self):
+        """文書 → パック: パックの作り方は束の pack 節(大きさ・1 段の文字数・音量・カットの方法と無音の値)。画面の値が無ければ fps は固定の 30"""
+        media = self.media
+
+        class Docs(R.Runner):
+            def _docs(self):
+                return [{"id": "d1", "title": "題", "count": 1, "sourcePath": media, "segments": [{"start": 0, "end": 1, "text": "あ"}]}]
+        c = FakeClient()
+        spec = {"pack": {"size": "1920x1080", "volume": 50, "cut": "silence", "cutSilence": {"noise": -40}, "wrapChars": {"horizontal": 12}}}
+        r = R.run(c, R.Run.from_input({"docId": "d1"}), spec=spec, hooks=Docs(c, poll=0, sleep=lambda s: None))
+        self.assertEqual(r.step("pack")["state"], "done", r.steps)
+        body = c.bodies["/api/build"]
+        self.assertEqual(body["spec"], {"video": media, "transcript": "/x/t1.transcript.json", "mode": "silence",
+                                        "silence": {"noise": -40, "min": 0.6, "pad": 0.15}})
+        self.assertEqual(body["output"], {"textplus": True, "textplusWrap": 12, "textplusSize": "1920x1080", "textplusFps": "30",
+                                          "speakerColors": True, "volume": 50})
+        self.assertEqual(r.packs, [os.path.normpath("/x/clip_pack")])
+
+    def test_tools_are_injected(self):
+        """段は self.tools に頼む(既定は HttpTools(client)。tools を渡せば client は使わない)"""
+        self.assertIsInstance(R.Runner(None).tools, T.HttpTools)
+        calls = []
+
+        class Tools(T.HttpTools):
+            def transcribe_start(self, req, bundle=None):
+                calls.append(("start", req["sourcePath"], bundle["transcribe"]["model"]))
+                return "j9"
+
+            def jobs(self):
+                return [{"id": "j9", "state": "done", "tid": "t9"}]
+        r = R.run(None, {"path": self.media}, tools=Tools(None))
+        self.assertEqual((calls, r.doc_id), ([("start", self.media, "small")], "t9"))
 
     def test_missing_file_default_runner(self):
         """hooks なし = 素の Runner。動画が無ければ StepError(ツールは呼ばない)"""

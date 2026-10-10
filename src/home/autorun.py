@@ -52,7 +52,7 @@ import threading
 import time
 
 from manage.cases import txindex
-from ytt import colors, fsio
+from ytt import colors, datadir, fsio, settings as _settings
 from flow import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
 from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
@@ -60,7 +60,7 @@ from flow import runlog  # noqa: E402  (終わった実行の記録の形と読�
 from flow import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from flow.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
                           REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
-                          TX_KEYS, Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, _row_edge_ok, clean_pool)
+                          Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, clean_pool)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
@@ -96,6 +96,11 @@ ACTIVE_VERSION = 1
 ACTIVE_READ_MAX = 4 * 1024 * 1024
 RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
 RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが動くまでこれだけ待つ(入口の起動の直後はまだ準備中のことがある)
+# 指定の束を画面の設定から組む(RS6 b-0。build_spec)。段は GET /api/settings を読まず、実行を始めるときに組んだ束を読む
+STUDIO_UI_FILE = "settings-ui.json"   # スタジオの画面の設定(スタジオの作業データ。human/review/store の ui_file と同じ名前)
+EDIT_SETTINGS_FILE = "settings.json"  # 編集の設定(編集の作業データ。ytt/workdata の SETTINGS と同じ名前)
+LUFS = (-11, -14, -16, -18)           # 聞こえ方をそろえる目標(スタジオの書き出し・編集のパックの選択肢)
+ROW_EDGE_NOTE = "「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から」で直せます)"
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
               "pack": ("transcribe", "cut2resolve"), "deliver": ()}
 # 画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)で、ツールの仕事を止めてよい段(起動し直したあとに頭からやり直す = M5)。
@@ -152,6 +157,61 @@ class ToolClient:
         if st != 200:
             raise StepError(obj.get("message") or "ツールがうまく応答しませんでした。少し待って、もう一度実行してください(済んだ段は飛ばします)")
         return obj
+
+
+def _lufs(v):
+    return v in LUFS and not isinstance(v, bool)
+
+
+def _settings_want(studio, editor, autorun):
+    """画面の設定 -> 束の節ごとの値(検査の前)と、束に入れない画面の値。読み方は RS6 b-0 の前に段が GET /api/settings から本文を作っていた書き方のまま"""
+    an = studio.get("analyze") if isinstance(studio.get("analyze"), dict) else {}
+    rv = studio.get("review") if isinstance(studio.get("review"), dict) else {}
+    tx = editor
+    sub = tx.get("subtitle") if isinstance(tx.get("subtitle"), dict) else {}
+    wrap = sub.get("wrapChars") if isinstance(sub.get("wrapChars"), dict) else {}
+    cs = tx.get("cutSilence") if isinstance(tx.get("cutSilence"), dict) else {}
+    vol, loud, pack_loud = rv.get("exportVolume"), rv.get("exportLoudness", -14), tx.get("packLoudness", 0)
+    post_keys = _spec.TX_POST_KEYS + ("autoFill", "stripNames", "autoLlm", "autoContext", "diarSmooth")
+    want = {
+        "analyze": {k: an[k] for k in _spec.DEFAULTS["analyze"] if k in an},   # スタジオの画面で保存した解析の設定(段階7-1)
+        "export": dict({"loudness": loud if _lufs(loud) else None},             # スタジオの ③ の書き出しの設定
+                       **({"volume": int(vol)} if _num(vol) and 1 <= vol <= 200 else {})),
+        "transcribe": dict({k: tx[k] for k in _spec.TX_TRANSCRIBE_KEYS if k in tx}, engine=_spec.implied_engine(tx.get("device"))),
+        "post": dict({k: tx[k] for k in post_keys if k in tx}, **({"splitChars": sub["splitChars"]} if "splitChars" in sub else {})),
+        "pack": {"size": tx.get("packSize"), "loudness": pack_loud if _lufs(pack_loud) else 0, "volume": tx.get("packVolume", 30),
+                 "backup": tx.get("packBackup") is True, "speakerColors": tx.get("speakerColors") is not False,
+                 "wrapChars": {k: wrap[k] for k in ("vertical", "horizontal") if k in wrap},
+                 "cutSilence": {k: cs[k] for k in ("noise", "min", "pad") if _num(cs.get(k))}, "cut": autorun.get("cut")},
+    }
+    notes = []
+    if tx.get("rowEdge") is not None:
+        if _spec.row_edge_ok(tx["rowEdge"]):
+            want["pack"]["rowEdge"] = tx["rowEdge"]
+        else:
+            notes.append(ROW_EDGE_NOTE)
+    fps = str(tx.get("packFps") or "30")
+    mh = rv.get("maxHeight")
+    screen = {"precision": "fast" if rv.get("precision") == "fast" else "accurate",
+              "maxHeight": mh if type(mh) is int and mh in _spec.MAX_HEIGHTS else 1080,
+              "packFps": fps if _spec.PACK_FPS_RE.match(fps) else None,
+              "glossary": tx["glossary"] if isinstance(tx.get("glossary"), str) else None, "packNotes": notes}
+    return want, screen
+
+
+def spec_from_settings(studio=None, editor=None, autorun=None):
+    """画面の設定から指定の束を組む(RS6 b-0。5-4 = ① は設定ファイルを読まず、app が画面の値から束を組む)。
+    studio = スタジオの画面の設定(settings-ui.json の analyze・review)・editor = 編集の設定(settings.json)・autorun = ホームの設定の autorun 節(cut)。
+    -> (束 = flow/spec.py の merge・validate を通した物, 画面だけの値 screen = flow/spec.py の SCREEN の鍵)。
+    合わない値・無い値は束の既定(= 各ツールの既定と同じ値)。束に入らない画面の値(精密・画質の上限・fps・用語集)と、直した所の知らせ(packNotes)は screen へ"""
+    want, screen = _settings_want(studio if isinstance(studio, dict) else {}, editor if isinstance(editor, dict) else {},
+                                  autorun if isinstance(autorun, dict) else {})
+    given = {}
+    for sec, items in want.items():
+        for k, v in items.items():
+            if _spec.key_ok(sec, k, v):
+                given.setdefault(sec, {})[k] = v
+    return _spec.validate(_spec.merge(given)), screen
 
 
 def _yt_id_ok(v):
@@ -717,8 +777,31 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         return cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}
 
     def _execute(self, run):
-        """1 回の実行(_loop の糸から)。段の中身は src/flow/run.py(hook = この AutoRunner)"""
-        return run_mod.run(self.client, run, hooks=self)
+        """1 回の実行(_loop の糸から)。段の中身は src/flow/run.py(hook = この AutoRunner)。始めるときに画面の設定から束を組んで渡す(RS6 b-0)"""
+        bundle, run.screen = self.build_spec()
+        return run_mod.run(self.client, run, spec=bundle, hooks=self)
+
+    def _tool_settings(self):
+        """スタジオの画面の設定(settings-ui.json)と編集の設定(settings.json)-> (スタジオ, 編集)。置き場所は各ツールの作業データ
+        (ytt.datadir。案件の画面と同じ規則)。無い・読めない・壊れていれば {}(束の既定 = 各ツールの既定)"""
+        out = []
+        for tool, name in (("studio", STUDIO_UI_FILE), ("transcribe", EDIT_SETTINGS_FILE)):
+            try:
+                path = os.path.join(datadir.resolve(tool, self.root, self.env), name)
+                out.append(_settings.SettingsFile(path, max_bytes=_settings.SETTINGS_MAX).read())
+            except (OSError, ValueError):
+                out.append({})
+        return out[0], out[1]
+
+    def build_spec(self):
+        """画面の設定(スタジオ・編集の設定ファイルとホームの設定 autorun)から指定の束と画面だけの値を組む -> (束, screen)。
+        実行を始めるたびに読む(段の途中で設定を変えても、その実行は始めたときの束のまま)"""
+        studio, editor = self._tool_settings()
+        try:
+            ar = (self.prefs.get(["autorun"])["autorun"] or {}) if self.prefs else {}
+        except (OSError, ValueError, KeyError):
+            ar = {}
+        return spec_from_settings(studio, editor, ar)
 
     # hook(src/flow/run.py の Runner の既定を、案件・ホームの設定・届けることで埋める) ----------
     def _checkpoint(self, run):

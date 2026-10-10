@@ -24,6 +24,7 @@ from human.friend import delivery as DL  # noqa: E402
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from flow import runlog  # noqa: E402
+from flow import spec as SP  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 
@@ -35,6 +36,30 @@ def _fake_preview(videos, out, labels=None, **kw):
     return True
 
 VID = "abcdefghijk"
+
+
+def AN(**kw):
+    """解析の要求の settings(束の analyze 節 = 既定の全部に、変えた所を重ねた物。RS6 b-0 から全部の項目を渡す)"""
+    return dict(SP.DEFAULTS["analyze"], **kw)
+
+
+_REAL_TOOL_SETTINGS = A.AutoRunner._tool_settings
+
+
+def _fake_tool_settings(runner):
+    """FakeTools のときは、その画面の設定(GET /api/settings の真似と同じ値)から束を組む。ほかは本物(作業データのファイル)"""
+    c = runner.client
+    if isinstance(c, FakeTools):
+        return c.h_studio_GET_api_settings("", None)[1]["settings"], c.h_transcribe_GET_api_settings("", None)[1]
+    return _REAL_TOOL_SETTINGS(runner)
+
+
+def setUpModule():
+    A.AutoRunner._tool_settings = _fake_tool_settings
+
+
+def tearDownModule():
+    A.AutoRunner._tool_settings = _REAL_TOOL_SETTINGS
 
 
 class FakeTools:
@@ -463,9 +488,12 @@ class TestModes(Base):
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})
         self.assertEqual(self.tools.export_body, {"id": VID, "markIds": ["m1"], "precision": "fast", "maxHeight": 720, "volume": 60, "loudness": -16})   # スタジオの設定を使う
         tx = self.tools.tx_jobs["t1"]["body"]
-        self.assertEqual(tx, {"model": "small", "language": "ja", "boost": True, "sourcePath": self.tools.clip_path("m1")})   # 知らない設定は渡さない
+        # 文字起こしの項目は束の値を全部(無い項目は編集の既定と同じ束の既定)。知らない設定(secret・goalHours)は渡さない
+        self.assertEqual(tx, {"model": "small", "language": "ja", "quality": "best", "device": "auto", "vadMode": "weak", "boost": True,
+                              "autoDict": True, "wordSplit": True, "stripPunct": True, "autoGloss": True, "autoLearned": False, "autoRedo": False,
+                              "redoLarge": True, "sourcePath": self.tools.clip_path("m1")})
         self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
-        self.assertNotIn("rowEdge", self.tools.c2r["body"]["spec"])   # 設定が無ければ cut2resolve の既定(端を広げる)
+        self.assertIs(self.tools.c2r["body"]["spec"]["rowEdge"], True)   # 設定が無ければ束の既定 = cut2resolve の既定(端を広げる)
         self.assertTrue(self.tools.c2r["body"]["output"]["textplus"])
         # もう一度押しても、作り直さない(まだ無いものだけ)
         n = len(self.tools.calls)
@@ -538,7 +566,7 @@ class TestFull(Base):
         self.assertEqual(self.states(run), {"analyze": "done", "adopt": "done", "export": "done", "transcribe": "done", "pack": "done"})
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 点数の高い2件(9.0・5.0)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": {}})   # 保存した設定が無ければ既定値
+        self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": AN()})   # 保存した設定が無ければ既定値(束の既定 = スタジオの既定)
 
     def test_full_mode_uses_saved_analysis_settings(self):
         """スタジオの画面で保存した解析の設定(settings.analyze)で解析する(段階7-1)"""
@@ -546,7 +574,7 @@ class TestFull(Base):
         run = self.run_one("full", top=2)
         self.assertEqual(run["state"], "done", run)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[0][3]["settings"], {"count": 5, "length": 30, "sensitivity": "high", "useChat": False})
+        self.assertEqual(add[0][3]["settings"], AN(count=5, length=30, sensitivity="high", useChat=False))
 
 
 class TestNew(Base):
@@ -1921,7 +1949,7 @@ class TestRequests(Base):
         run = self.wait(self.r.start_request([{"id": VID, "top": 1}], weights=w)["runs"][0])
         self.assertEqual(self.states(run)["analyze"], "done", run)
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
-        self.assertEqual(add[-1][3]["settings"], {"count": 12, "wAudio": 1.5, "wChat": 0.5, "wComments": 0.7})   # ほかの設定はスタジオのまま
+        self.assertEqual(add[-1][3]["settings"], AN(count=12, wAudio=1.5, wChat=0.5, wComments=0.7))   # ほかの設定はスタジオのまま
         self.tools.video["analysis"] = {"at": 3, "spec": dict(w, count=12)}
         run = self.wait(self.r.start_request([{"id": VID, "top": 1}], weights=dict(w))["runs"][0])
         self.assertEqual(self.states(run)["analyze"], "skip")
@@ -2040,7 +2068,7 @@ class TestFriendLength(Base):
         name = self.write_eval()
         run = self.run_request(weights={"wAudio": 1.5, "wChat": 1.0, "wComments": 1.0})
         self.assertEqual(run["state"], "done", run)
-        self.assertEqual(self.settings(), {"count": 12, "length": 38, "preRatio": 0.61, "wAudio": 1.5, "wChat": 1.0, "wComments": 1.0})
+        self.assertEqual(self.settings(), AN(count=12, length=38, preRatio=0.61, wAudio=1.5, wChat=1.0, wComments=1.0))
         self.assertEqual(run["friendLength"], {"length": 38, "preRatio": 0.61, "file": name, "samples": 20, "videos": 5})
         self.assertIn("長さ 38 秒・山の前 0.61(友人の区間の実績から)", next(s for s in run["steps"] if s["key"] == "analyze")["detail"])
 
@@ -2053,7 +2081,7 @@ class TestFriendLength(Base):
                 os.remove(os.path.join(self.folder, f))
             self.write_eval(n=n, videos=videos)
             run = self.run_request()
-            self.assertEqual((self.settings(), run["friendLength"]), ({"count": 12, "length": 45, "preRatio": 0.65}, None), (n, videos))
+            self.assertEqual((self.settings(), run["friendLength"]), (AN(count=12, length=45, preRatio=0.65), None), (n, videos))
         self.assertTrue(any("見本がまだ少ない" in x for x in self.logs), self.logs)
 
     def test_clamp_and_no_pre(self):
@@ -2086,7 +2114,7 @@ class TestFriendLength(Base):
         self.write_eval()
         self.tools.known = True
         run = self.run_one("full")
-        self.assertEqual((run["state"], self.settings()), ("done", {"count": 12, "length": 45, "preRatio": 0.65}))
+        self.assertEqual((run["state"], self.settings()), ("done", AN(count=12, length=45, preRatio=0.65)))
         self.assertIsNone(run["friendLength"])
         # 解析済み(スタジオの設定の長さで)の配信: 依頼でも解析し直さない
         self.tools.video["analysis"] = {"at": 5, "spec": {"length": 45}}
@@ -2130,6 +2158,199 @@ class TestMedia30fps(unittest.TestCase):
             self.assertFalse(A._media_is_30fps(os.path.join(d, "none.mp4")))
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+# ---------- RS6 b-0: 画面の設定 → 束 → 本文が、RS6 b-0 の前の「GET /api/settings → 本文」と同じ ----------
+# 前の書き方(src/flow/run.py の _export_body・_tx_opts・_pack_settings。b-0 で消した)をそのまま写した物。比べるための見本
+OLD_TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
+               "autoRedo", "redoLarge")
+
+
+def old_export_body(rv, vid, ids):
+    n = lambda x, lo, hi, d: x if isinstance(x, (int, float)) and not isinstance(x, bool) and lo <= x <= hi else d
+    loud = rv.get("exportLoudness", -14)
+    return {"id": vid, "markIds": ids, "precision": "fast" if rv.get("precision") == "fast" else "accurate",
+            "maxHeight": rv.get("maxHeight") if rv.get("maxHeight") in (0, 720, 1080, 1440, 2160) else 1080,
+            "volume": int(n(rv.get("exportVolume"), 1, 200, 75)), "loudness": loud if loud in (-11, -14, -16, -18) else None}
+
+
+def old_tx_opts(opts):
+    return {k: opts[k] for k in OLD_TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))}
+
+
+def old_pack_settings(tx):
+    notes = []
+    row_edge = tx.get("rowEdge")
+    if row_edge is not None and not SP.row_edge_ok(row_edge):
+        notes.append(A.ROW_EDGE_NOTE)
+        row_edge = None
+    size = tx.get("packSize") if tx.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
+    fps = str(tx.get("packFps") or "30")
+    sub = tx.get("subtitle") if isinstance(tx.get("subtitle"), dict) else {}
+    wrap = (sub.get("wrapChars") or {}).get("horizontal" if size == "1920x1080" else "vertical") if isinstance(sub.get("wrapChars"), dict) else None
+    out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
+    out["textplusSize"] = size
+    if re.fullmatch(r"\d{1,3}(\.\d{1,3})?", fps):
+        out["textplusFps"] = fps
+    if tx.get("packBackup") is True:
+        out["backup"] = True
+    out["speakerColors"] = tx.get("speakerColors") is not False
+    cs = tx.get("cutSilence") if isinstance(tx.get("cutSilence"), dict) else {}
+    cut_silence = {k: cs[k] for k in ("noise", "min", "pad") if isinstance(cs.get(k), (int, float)) and not isinstance(cs.get(k), bool)}
+    loud = tx.get("packLoudness", 0)
+    if loud in (-11, -14, -16, -18) and not isinstance(loud, bool):
+        out["loudness"] = loud
+    else:
+        vol = tx.get("packVolume", 30)
+        if isinstance(vol, int) and not isinstance(vol, bool) and 1 <= vol <= 200 and vol != 100:
+            out["volume"] = vol
+    return row_edge, out, cut_silence, notes
+
+
+# 画面が保存する形の設定(どの項目もある = 画面から保存した物)
+FULL_STUDIO = {"analyze": {"useAudio": True, "useChat": False, "useComments": True, "wAudio": 1.2, "wChat": 0.8, "wComments": 0.5, "sensitivity": "high",
+                           "count": 10, "length": 40, "preRatio": 0.6, "headSec": 120, "lagAuto": False, "lag": 5, "chatTimeout": 30},
+               "review": {"precision": "fast", "maxHeight": 720, "exportVolume": 60, "exportLoudness": -16, "volume": 100, "keymap": {}}}
+FULL_EDITOR = {"model": "large-v3", "language": "ja", "quality": "fast", "device": "cpu", "vadMode": "normal", "boost": True, "autoDict": False,
+               "wordSplit": True, "stripPunct": False, "autoGloss": True, "autoLearned": True, "glossary": "語1\n語2", "autoRedo": True, "redoLarge": False,
+               "rowEdge": {"after": 0.5, "before": 0.3}, "packSize": "1920x1080", "packFps": "60", "subtitle": {"wrapChars": {"vertical": 9, "horizontal": 12}},
+               "packBackup": True, "speakerColors": False, "cutSilence": {"noise": -40, "min": 0.8, "pad": 0.2}, "packLoudness": 0, "packVolume": 70,
+               "secret": "x", "goalHours": 3}
+FULL_VARIANTS = [
+    ({}, {}),
+    ({"review": {"exportLoudness": None, "maxHeight": 0}}, {"packLoudness": -14, "device": "vulkan", "packSize": "1080x1920", "rowEdge": False}),
+    ({"review": {"precision": "accurate", "exportVolume": 150}}, {"packVolume": 100, "subtitle": {"wrapChars": {"vertical": 0, "horizontal": 14}},
+                                                                   "rowEdge": {"on": "yes"}, "packFps": "50"}),
+]
+
+
+def _eff_tx(opts):
+    """「編集」の受付(human/proof/doc_jobs.validate_job)がこの項目から決める値(無い項目の既定を当てたもの)"""
+    return {"model": opts.get("model") or "small", "language": opts.get("language") or "ja", "beam": 1 if opts.get("quality") == "fast" else 5,
+            "device": opts.get("device") if opts.get("device") in ("cuda", "cpu") else "auto", "vulkan": opts.get("device") == "vulkan",
+            "vadMode": opts.get("vadMode") if opts.get("vadMode") in ("weak", "normal", "off") else "weak", "boost": opts.get("boost") is True,
+            "autoDict": opts.get("autoDict") is not False, "wordSplit": opts.get("wordSplit") is not False, "stripPunct": opts.get("stripPunct") is not False,
+            "autoGloss": opts.get("autoGloss") is not False, "autoLearned": opts.get("autoLearned") is True, "autoRedo": opts.get("autoRedo") is True,
+            "redoLarge": opts.get("redoLarge") is not False, "glossary": opts.get("glossary") or "", "engine": opts.get("engine")}
+
+
+def _eff_pack(row_edge, out, cut_silence):
+    """cut2resolve の受付がこの本文から決める値(無い項目の既定を当てたもの)"""
+    from pipeline.pack import cut2resolve_core as C, pack as PK, resolve_textplus as TP
+    target = TP.parse_target(out.get("textplusFps"), out.get("textplusSize"))
+    return {"rowEdge": PK.row_edge_from(row_edge), "wrap": out["textplusWrap"] if out.get("textplusWrap") is not None else TP.default_wrap(target),
+            "target": target, "silence": (cut_silence.get("noise", C.DEFAULT_NOISE_DB), cut_silence.get("min", C.DEFAULT_SILENCE_MIN),
+                                          cut_silence.get("pad", C.DEFAULT_SILENCE_PAD)),
+            "rest": {k: v for k, v in out.items() if k not in ("textplusWrap", "textplusFps", "textplusSize")}}
+
+
+class TestSpecSameBodies(unittest.TestCase):
+    """入口から動かしたときの各段の要求の中身は、RS6 b-0 の前と同じ(同じ画面の設定から)"""
+
+    def bodies(self, studio, editor, cut="rows"):
+        bundle, screen = A.spec_from_settings(studio, editor, {"cut": cut})
+        rv = studio.get("review") or {}
+        return {"export": (old_export_body(rv, VID, ["m1"]), SP.export_body(bundle, VID, ["m1"], screen)),
+                "tx": (old_tx_opts(editor), SP.tx_opts(bundle, screen)),
+                "pack": (old_pack_settings(editor), SP.pack_output(bundle, screen) + (SP.clean_screen(screen)["packNotes"],)),
+                "analyze": ((studio.get("analyze") or {}), SP.DEFAULTS["analyze"] if not studio.get("analyze") else bundle["analyze"]),
+                "cut": bundle["pack"]["cut"]}
+
+    def test_full_settings_give_the_same_bodies(self):
+        """画面から保存した設定(どの項目もある)なら、本文はそのまま同じ"""
+        b = self.bodies(FULL_STUDIO, FULL_EDITOR)
+        for k in ("export", "tx", "pack", "analyze"):
+            self.assertEqual(b[k][1], b[k][0], k)
+        self.assertEqual(b["cut"], "rows")
+
+    def test_variants_and_missing_settings_have_the_same_effect(self):
+        """項目が無い・形が違う設定は、束が既定の値を明示して渡す(無い項目はツールが既定を当てていた)= ツールが決める値は同じ"""
+        from pipeline.analyze import analyze as AZ
+        for st_over, ed_over in FULL_VARIANTS + [({"analyze": {"count": 5, "useChat": False}}, {"model": "small", "boost": True})]:
+            studio = {k: dict(v) for k, v in FULL_STUDIO.items()} if st_over or ed_over else {}
+            editor = dict(FULL_EDITOR) if st_over or ed_over else {}
+            for k, v in st_over.items():
+                studio[k] = dict(studio.get(k) or {}, **v) if k == "review" else v
+            editor.update(ed_over)
+            b = self.bodies(studio, editor)
+            msg = (st_over, ed_over)
+            self.assertEqual(b["export"][1], b["export"][0], msg)
+            self.assertEqual(_eff_tx(b["tx"][1]), _eff_tx(b["tx"][0]), msg)
+            old_pk, new_pk = b["pack"]
+            self.assertEqual(_eff_pack(*new_pk[:3]), _eff_pack(*old_pk[:3]), msg)
+            self.assertEqual(new_pk[3], old_pk[3], msg)
+            saved = (studio.get("analyze") or {})
+            self.assertEqual(AZ.validate_settings(b["analyze"][1] if saved else SP.DEFAULTS["analyze"]), AZ.validate_settings(saved), msg)
+
+    def test_empty_settings(self):
+        """設定が何も無い = 束の既定(① 単体と同じ)。書き出しの画質の上限だけは画面の既定 1080(固定の上限なしは画面から消すとき)"""
+        bundle, screen = A.spec_from_settings({}, {}, {})
+        self.assertEqual({k: v for k, v in bundle.items()}, SP.merge(None))
+        self.assertEqual((screen["precision"], screen["maxHeight"], screen["packFps"], screen["glossary"], screen["packNotes"]),
+                         ("accurate", 1080, "30", None, []))
+        self.assertEqual(SP.export_body(SP.merge(None), VID, ["m1"])["maxHeight"], 0)   # 画面の値が無い(① 単体)= 固定 = 上限なし
+
+    def test_run_sends_the_old_bodies_and_reads_no_settings(self):
+        """入口から動かす: 段は GET /api/settings を読まず、前と同じ本文を送る(画面から保存した設定)"""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tools = FakeTools(tmp, [{"id": "m1", "status": "adopted", "start": 1, "end": 5}])
+        tools.review = dict(FULL_STUDIO["review"])
+        tools.tx_extra = {k: v for k, v in FULL_EDITOR.items() if k not in ("rowEdge", "subtitle")}
+        tools.row_edge, tools.subtitle = FULL_EDITOR["rowEdge"], FULL_EDITOR["subtitle"]
+        r = A.AutoRunner(tools, os.path.join(tmp, "repo"), {"TRANSCRIBE_DATA_DIR": os.path.join(tmp, "txdata"), "YTT_DATA_DIR": os.path.join(tmp, "data")},
+                         poll=0, sleep=lambda s: None, find_pack=lambda p: None)
+        self.addCleanup(r.close)
+        import prefs as PR
+        p = PR.Prefs(os.path.join(tmp, "prefs.json"), fsio.atomic_write)
+        p.patch("autorun", {"cut": "rows"})
+        r.prefs = p
+        run = r.start(VID, "adopted")
+        end = time.time() + 10
+        while time.time() < end:
+            cur = next(x for x in r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                break
+            time.sleep(0.01)
+        self.assertEqual(cur["state"], "done", cur)
+        self.assertNotIn("/api/settings", [c[2] for c in tools.calls])
+        editor = tools.h_transcribe_GET_api_settings("", None)[1]
+        self.assertEqual(tools.export_body, old_export_body(tools.review, VID, ["m1"]))
+        self.assertEqual(tools.tx_jobs["t1"]["body"], dict(old_tx_opts(editor), sourcePath=tools.clip_path("m1")))
+        row_edge, out, _cs, _notes = old_pack_settings(editor)
+        body = tools.c2r["body"]
+        self.assertEqual(body["spec"]["rowEdge"], row_edge)
+        self.assertEqual({k: v for k, v in body["output"].items() if k not in ("textplus", "copyVideo")}, out)
+
+
+class TestToolSettingsFiles(Base):
+    """build_spec が読む画面の設定のファイル(スタジオの settings-ui.json・編集の settings.json。置き場所は ytt.datadir の規則)"""
+
+    def test_reads_the_files(self):
+        from ytt import datadir
+        self.assertEqual(_REAL_TOOL_SETTINGS(self.r), ({}, {}))   # 無ければ空 = 束の既定
+        sdir, tdir = datadir.resolve("studio", self.r.root, self.env), datadir.resolve("transcribe", self.r.root, self.env)
+        self.assertEqual(tdir, os.path.join(self.tmp, "txdata"))
+        for d, name, obj in ((sdir, "settings-ui.json", {"analyze": {"count": 5}, "review": {"maxHeight": 720}}),
+                             (tdir, "settings.json", {"model": "large-v3", "packSize": "1920x1080"})):
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, name), "wb") as f:
+                f.write(b"\xef\xbb\xbf" + json.dumps(obj).encode("utf-8"))   # BOM 付きでも読む
+        studio, editor = _REAL_TOOL_SETTINGS(self.r)
+        self.assertEqual((studio["analyze"], editor["model"]), ({"count": 5}, "large-v3"))
+        with mock.patch.object(A.AutoRunner, "_tool_settings", _REAL_TOOL_SETTINGS):
+            bundle, screen = self.r.build_spec()
+        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], screen["maxHeight"]),
+                         (5, "large-v3", "1920x1080", 720))
+
+    def test_build_spec_uses_home_cut(self):
+        import prefs as PR
+        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        p.patch("autorun", {"cut": "silence"})
+        self.r.prefs = p
+        self.assertEqual(self.r.build_spec()[0]["pack"]["cut"], "silence")
+        self.r.prefs = None
+        self.assertEqual(self.r.build_spec()[0]["pack"]["cut"], "none")
 
 
 if __name__ == "__main__":
