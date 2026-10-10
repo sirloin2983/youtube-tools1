@@ -77,6 +77,7 @@ class SpawnTest(unittest.TestCase):
         self.assertEqual(R.restart_args(8700), ["--port", "8700", "--wait-port", "--no-open"])
         self.assertEqual(R.restart_args(8701, ["studio", "transcribe"], True),
                          ["--port", "8701", "--wait-port", "--no-open", "--only", "studio,transcribe", "--no-mount"])
+        self.assertEqual(R.restart_args(8700, wait_pid=1234), ["--port", "8700", "--wait-port", "--no-open", "--wait-pid", "1234"])
         self.assertEqual(R.launcher_script(self.root), os.path.join(os.path.abspath(self.root), "home", "launch.py"))
 
     def test_spawns_launcher_with_same_python_env_and_cwd(self):
@@ -175,6 +176,49 @@ class WaitPortTest(unittest.TestCase):
         sleeps = []
         self.assertTrue(R.wait_port_free(port, timeout=5, sleep=sleeps.append))
         self.assertEqual(sleeps, [])
+
+
+class WaitOldLauncherTest(unittest.TestCase):
+    """RS7-1 1d: 古い入口の pid が終わるまで待ち、期限が来たら次の番号に逃げず読める文を返す"""
+
+    def setUp(self):
+        self.now = [0.0]
+
+    def clock(self):
+        return self.now[0]
+
+    def sleep(self, s):
+        self.now[0] += s
+
+    def test_waits_while_old_pid_alive(self):
+        calls = []
+
+        def alive(pid):
+            calls.append(pid)
+            return len(calls) <= 5   # 5 回目まで動いている
+
+        msg = R.wait_old_launcher(8700, 4321, alive=alive, port_wait=lambda p, t: True, clock=self.clock, sleep=self.sleep)
+        self.assertIsNone(msg)
+        self.assertEqual(len(calls), 6)
+        self.assertGreater(self.now[0], 0)
+
+    def test_pid_deadline_gives_message_and_skips_port_wait(self):
+        asked = []
+        msg = R.wait_old_launcher(8700, 4321, pid_timeout=3, alive=lambda pid: True,
+                                  port_wait=lambda p, t: asked.append(p) or True, clock=self.clock, sleep=self.sleep)
+        self.assertIn("4321", msg)
+        self.assertIn("次の番号では起動しません", msg)
+        self.assertIn("start.bat", msg)
+        self.assertEqual(asked, [], "pid が終わらないのにポートを待った")
+
+    def test_port_deadline_gives_message(self):
+        msg = R.wait_old_launcher(8700, 4321, alive=lambda pid: False, port_wait=lambda p, t: False)
+        self.assertIn("8700", msg)
+        self.assertIn("次の番号では起動しません", msg)
+
+    def test_without_pid_only_port_is_waited(self):
+        self.assertIsNone(R.wait_old_launcher(8700, None, port_wait=lambda p, t: True))
+        self.assertIn("次の番号では起動しません", R.wait_old_launcher(8700, None, port_wait=lambda p, t: False))
 
 
 class CanRestartTest(unittest.TestCase):

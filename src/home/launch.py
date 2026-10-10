@@ -937,7 +937,7 @@ class PortalServer(httpsec.ExclusiveServer):
         notice = restart_mod.RESUME_NOTICE % info["runs"] if info.get("runs") else ""
         only = [t.id for t in self.sup.tools] if len(self.sup.tools) < len(TOOLS) else ()
         try:
-            restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts),
+            restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts, wait_pid=os.getpid()),
                                            log=self.sup.log)
         except OSError as e:
             return 500, {"ok": False, "error": "spawn", "message": "ホームを起動し直せませんでした(新しいホームを起動できません): %s" % tools.why(e)}
@@ -1246,6 +1246,7 @@ def parse_args(argv):
     ap.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
     ap.add_argument("--only", default="", help="起動するツールを絞る(例: studio,transcribe)")
     ap.add_argument("--wait-port", action="store_true", help="「起動し直す」用: --port が空くまで(最大 30 秒)待ってから待ち受ける")
+    ap.add_argument("--wait-pid", type=int, default=0, help="「起動し直す」用: 前のホームの pid。これが終わるまで(最大 90 秒)待ってからポートを待つ")
     ap.add_argument("--open-path", default="/", help="最初に開く画面の場所(例: /transcribe/ = 編集)")
     ap.add_argument("--app-window", action="store_true", help="設定にかかわらず Edge のアプリの窓で開く(無ければいつものブラウザ)")
     ap.add_argument("--no-mount", action="store_true",
@@ -1271,8 +1272,13 @@ def main(argv=None):
     datadir.register("app", app_data_dir(ROOT))   # 同じプロセスの案件など(datadir.resolve)が同じ場所を読む
     log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
-    if opts.wait_port and not restart_mod.wait_port_free(opts.port):   # 「起動し直す」で起こされた: 古い入口がポートを離すまで待つ(段9 9-3)
-        log("前のホームがポート %d を離しませんでした。次の番号で起動します" % opts.port)
+    if opts.wait_port:   # 「起動し直す」で起こされた: 古い入口が終わり・ポートを離すまで待つ。期限が来ても次の番号には逃げない(RS7-1 1d)
+        stuck = restart_mod.wait_old_launcher(opts.port, opts.wait_pid or None)
+        if stuck:
+            log(stuck)
+            log.flush()
+            print(stuck, file=sys.stderr)
+            return 1
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d%s" % (port, opts.open_path)
     if srv is None:
@@ -1284,7 +1290,15 @@ def main(argv=None):
             op.open_start(url)
         return 0
     http_thread = None
-    flow_lock = placement.acquire(port)   # 1 つの作業データに ② は 1 つ(.flow.lock。ほかの ② が動いていれば LockBusy で起動しない。RS6 b-B0)
+    try:
+        flow_lock = placement.acquire(port)   # 1 つの作業データに ② は 1 つ(.flow.lock。ほかの ② が動いていれば LockBusy で起動しない。RS6 b-B0)
+    except placement.LockBusy as e:   # トレースバックにしない(読める文で非 0)。待ち受けたソケットだけ閉じる
+        msg = restart_mod.BUSY_LOCK_MESSAGE % (e.info.get("pid"), e.info.get("port") or "なし")
+        log(msg)
+        log.flush()
+        print(msg, file=sys.stderr)
+        srv.server_close()
+        return 1
     try:
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)

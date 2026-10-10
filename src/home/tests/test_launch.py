@@ -898,6 +898,53 @@ class MainShutdownTest(unittest.TestCase):
         self.assertTrue(srv.closing.is_set())
         self.assertTrue(srv._autorun.closed, "Ctrl+C の経路でまとめて実行を閉じていない")
 
+    def run_main_failing(self, argv, wait_result=None, lock_busy=None):
+        """RS7-1 1d: 待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる"""
+        logs, errs = [], io.StringIO()
+        made = []
+
+        def make_logger(path):
+            def log(msg):
+                logs.append(msg)
+            log.flush = lambda timeout=1.0: None
+            return log
+
+        def make_server(port, sup):
+            srv = mock.MagicMock()
+            made.append(srv)
+            return srv, port
+
+        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
+                   mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_logger", make_logger),
+                   mock.patch.object(L, "make_server", make_server), mock.patch.object(sys, "stderr", errs)]
+        if wait_result is not None:
+            patches.append(mock.patch.object(L.restart_mod, "wait_old_launcher", lambda port, pid=None: wait_result))
+        if lock_busy is not None:
+            patches.append(mock.patch.object(L.placement, "acquire", mock.Mock(side_effect=L.placement.LockBusy(lock_busy))))
+        for p in patches:
+            p.start()
+        try:
+            code = L.main(argv)
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        return code, logs, errs.getvalue(), made
+
+    def test_wait_port_deadline_exits_nonzero_without_next_port(self):
+        code, logs, err, made = self.run_main_failing(["--port", "8700", "--wait-port", "--wait-pid", "99", "--no-open", "--no-mount"],
+                                                       wait_result="前のホームが終わりません。start.bat で")
+        self.assertEqual(code, 1)
+        self.assertEqual(made, [], "期限が来たのに次の番号で起動しようとした")
+        self.assertIn("前のホームが終わりません", err)
+        self.assertTrue(any("前のホームが終わりません" in x for x in logs))
+
+    def test_lock_busy_exits_nonzero_with_message(self):
+        code, logs, err, made = self.run_main_failing(["--port", "0", "--no-open", "--no-mount"], lock_busy={"pid": 4242, "port": 8700})
+        self.assertEqual(code, 1)
+        self.assertIn("4242", err)
+        self.assertIn("すべて終了", err)
+        made[0].server_close.assert_called_once()
+
 
 def _copy_tool(src, dst):
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(

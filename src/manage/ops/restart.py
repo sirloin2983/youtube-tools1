@@ -31,6 +31,11 @@ from ytt import httpsec, layout   # 入口の launch.py が src を sys.path に
 
 WAIT_PORT_TIMEOUT = 30.0   # 新しい入口が、古い入口がポートを離すのを待つ最長(秒)。古い入口の後始末は子1つにつき最大 8 秒
 WAIT_PORT_POLL = 0.25
+WAIT_PID_TIMEOUT = 90.0    # 新しい入口が、古い入口のプロセスが終わるのを待つ最長(秒)。RS7-1 1d
+STUCK_MESSAGE = ("前のホーム(pid %s)が%s。1 つの作業データで動く管理は 1 つだけなので、次の番号では起動しません。"
+                 "「すべて終了」(終わらなければタスク マネージャーで前のホームを終了)してから、start.bat で起動してください")
+BUSY_LOCK_MESSAGE = ("ほかのホーム・管理の処理(pid %s・ポート %s)が同じ作業データで動いているため、起動できません。"
+                     "「すべて終了」してから、start.bat で起動してください")
 BUSY_MESSAGE = "実行中の処理があります%s。終わってから起動し直してください"   # %s = (何が動いているか)
 RESUME_NOTICE = "まとめて実行の待ち・実行中の %d 件は、起動し直したあとに続きから進めます"   # 起動し直す応答の notice(M5。入口 0.41.0)
 SW_SHOWMINNOACTIVE = 7     # 見えるコンソールで起動するとき: 最小化して、前に出さない(画面の操作を邪魔しない)
@@ -41,7 +46,7 @@ def launcher_script(root):
     return os.path.join(os.path.abspath(root), "home", "launch.py")
 
 
-def restart_args(port, only=(), no_mount=False):
+def restart_args(port, only=(), no_mount=False, wait_pid=None):
     """新しい入口に渡す引数。同じポートが空くのを待ち(--wait-port)、ブラウザは開かない(画面は開いたままで再読み込みする)。
     --only・--no-mount は今の入口と同じにする(起動し直して形が変わらないように)"""
     args = ["--port", str(int(port)), "--wait-port", "--no-open"]
@@ -50,6 +55,8 @@ def restart_args(port, only=(), no_mount=False):
         args += ["--only", ",".join(only)]
     if no_mount:
         args.append("--no-mount")
+    if wait_pid:   # 古い入口の pid。これが終わるまで待ってからポートを待つ(RS7-1 1d)
+        args += ["--wait-pid", str(int(wait_pid))]
     return args
 
 
@@ -124,6 +131,32 @@ def wait_port_free(port, timeout=WAIT_PORT_TIMEOUT, host="127.0.0.1", poll=WAIT_
         if clock() >= end:
             return False
         sleep(poll)
+
+
+def wait_pid_gone(pid, timeout=WAIT_PID_TIMEOUT, poll=WAIT_PORT_POLL, alive=None, clock=time.monotonic, sleep=time.sleep):
+    """pid のプロセスが終わるまで待つ。終わったら True、timeout 秒たっても動いていれば False"""
+    if alive is None:
+        from ytt import procs
+        alive = procs.pid_alive
+    end = clock() + max(0.0, float(timeout))
+    while alive(pid):
+        if clock() >= end:
+            return False
+        sleep(poll)
+    return True
+
+
+def wait_old_launcher(port, pid=None, pid_timeout=WAIT_PID_TIMEOUT, port_timeout=WAIT_PORT_TIMEOUT, alive=None, port_wait=None,
+                      clock=time.monotonic, sleep=time.sleep):
+    """「起動し直す」で起こされた新しい入口の待ち: 古い入口の pid が終わる(あれば)→ ポートが空く。
+    -> None(待ち受けてよい)か、期限が来たときの読める文(呼ぶ側は次の番号に逃げず、この文を出して非 0 で終わる)"""
+    if pid:
+        if not wait_pid_gone(pid, pid_timeout, alive=alive, clock=clock, sleep=sleep):
+            return STUCK_MESSAGE % (pid, "終わりませんでした(%d 秒待ちました)" % int(pid_timeout))
+    wait = port_wait or wait_port_free
+    if not wait(port, port_timeout):
+        return STUCK_MESSAGE % (pid or "不明", "ポート %d を離しませんでした(%d 秒待ちました)" % (port, int(port_timeout)))
+    return None
 
 
 def _redo_item(item, redo):
