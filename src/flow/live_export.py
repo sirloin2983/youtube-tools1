@@ -990,11 +990,8 @@ class Exporter:
         # 増やして映像が約 0.5 秒長くなる。2026-10-04 に確かめた)。入力の -t は読む量を抑えるだけ(少し長めに)
         head_args = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % ss, "-t", "%.3f" % (dur + 1.0)] + src + \
                     ["-t", "%.3f" % dur, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
-        enc = normalize.encode_args()
-        code, tail, why = self._run(job, head_args + enc + ["-progress", "pipe:1", "-nostats", tmp], dur, flags)
-        if code != 0 and why is None and normalize.is_fps_mode_error("\n".join(tail)):   # ffmpeg 5.1 より古い
-            fsio.unlink_quiet(tmp)
-            code, tail, why = self._run(job, head_args + normalize.legacy_args(enc) + ["-progress", "pipe:1", "-nostats", tmp], dur, flags)
+        code, tail, why = normalize.run_with_legacy(   # ffmpeg 5.1 より古ければ -vsync で 1 回だけやり直す
+            lambda enc: self._run(job, head_args + enc + ["-progress", "pipe:1", "-nostats", tmp], dur, flags), normalize.encode_args(), tmp)
         if why == "cancel":
             fsio.unlink_quiet(tmp)
             self._cancelled(job)

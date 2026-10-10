@@ -376,7 +376,20 @@ def cancel_all():
 def _pump(job, cmd, it, dur, span=(0.0, 1.0)):
     """コマンドを実行して出力を読み、進捗(0〜1)を更新する。失敗時は ExportError。
     EXPORT_IDLE 秒のあいだ出力がなければ止める。中止・時間切れでは子プロセスごと止める。
-    span: 2段で作るとき(YouTube の区間取得 → 切り出し)に、この段の進み具合を全体のどこに当てるか"""
+    span: 2段で作るとき(YouTube の区間取得 → 切り出し)に、この段の進み具合を全体のどこに当てるか。
+    ffmpeg が 5.1 より古くて -fps_mode を知らなければ、-vsync に替えて 1 回だけやり直す(ytt/normalize.run_with_legacy。OPT1)"""
+    code, tail, why = _norm.run_with_legacy(lambda c: _pump_once(job, c, it, dur, span), cmd, cancelled=lambda: job["cancel"])
+    if why == "cancel" or job["cancel"]:
+        raise ExportError("中止しました")
+    if why == "idle":
+        raise ExportError(_procs.idle_message("書き出し", EXPORT_IDLE))
+    if code != 0:
+        raise ExportError(reason(tail) or "終了コード %s" % code)
+    return tail
+
+
+def _pump_once(job, cmd, it, dur, span):
+    """_pump の 1 回分。-> (終了コード, 出力の最後の 30 行, 止めた理由 None|"cancel"|"idle")"""
     lo, hi = span
     proc = _procs.spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", bufsize=1)
     job["proc"] = proc
@@ -428,13 +441,7 @@ def _pump(job, cmd, it, dur, span=(0.0, 1.0)):
         _procs.forget(proc)
         if proc.poll() is not None:
             proc.stdout.close()
-    if job["cancel"]:
-        raise ExportError("中止しました")
-    if idle[0]:
-        raise ExportError(_procs.idle_message("書き出し", EXPORT_IDLE))
-    if proc.returncode != 0:
-        raise ExportError(reason(tail) or "終了コード %s" % proc.returncode)
-    return tail
+    return proc.returncode, tail, ("cancel" if job["cancel"] else "idle" if idle[0] else None)
 
 
 def _make(job, cmd, it, dur, out, what, log_cmd=None):

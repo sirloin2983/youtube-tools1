@@ -308,6 +308,32 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(self._files(job), [])
 
 
+class TestLegacyFfmpeg(unittest.TestCase):
+    def test_old_ffmpeg_retries_once_with_vsync(self):
+        """OPT1: ffmpeg 5.1 より古い(-fps_mode を知らない)ときは -vsync に替えて 1 回だけやり直す。ほかの失敗・中止ではやり直さない"""
+        old = (1, ["Unrecognized option 'fps_mode'.", "Error splitting the argument list: Option not found"], None)
+        cmd = ["ffmpeg", "-i", "a.mp4"] + exporter.ENC + ["out.mp4"]
+        calls = []
+
+        def fake(results):
+            def once(job, c, it, dur, span):
+                calls.append(c)
+                return results.pop(0)
+            return once
+        job, it = {"cancel": False}, {}
+        with patch.object(exporter, "_pump_once", fake([old, (0, ["ok"], None)])):
+            self.assertEqual(exporter._pump(job, cmd, it, 2.0), ["ok"])
+        self.assertEqual((len(calls), "-vsync" in calls[1], "-fps_mode" in calls[1]), (2, True, False))
+        calls.clear()
+        with patch.object(exporter, "_pump_once", fake([(1, ["Invalid data found"], None)])), self.assertRaises(exporter.ExportError):
+            exporter._pump(job, cmd, it, 2.0)
+        self.assertEqual(len(calls), 1)
+        calls.clear()
+        with patch.object(exporter, "_pump_once", fake([(1, list(old[1]), "cancel")])), self.assertRaises(exporter.ExportError) as cm:
+            exporter._pump({"cancel": True}, cmd, it, 2.0)
+        self.assertEqual((len(calls), str(cm.exception)), (1, "中止しました"))
+
+
 class TestPartialNames(unittest.TestCase):
     def test_names(self):
         p = os.path.join("d", "01_a.partial.mp4")
