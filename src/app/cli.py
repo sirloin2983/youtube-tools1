@@ -7,7 +7,10 @@
   作業データを決めたあと、この PC の設定(flow/machine.py。machine.json・環境変数で決めたエンジン・機器・LLM のモデル)を束に重ねる
 - 作業データ(--data-dir): 環境変数 YTT_DATA_DIR と同じ意味(<D>/transcribe など)。無ければ普段の作業データ
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock):
-  - 入口(start.bat の ②)が動いていれば、その入口に頼んで待つ(URL = まとめて実行の start-new か start・動画ファイル = 編集の文字起こし → まとめて実行の start-docs)。
+  - 入口(start.bat の ②)が動いていれば、その入口に頼んで待つ = ② の口 POST /api/flow/submit に封筒 + 束を 1 回(RS7-1 S4。--spec・--force・--from も
+    入口でそのまま効く = 入口なしで動かしたときと同じ束)。URL = 解析から(--from analyze か無し)か書き出しから(--from export)・動画ファイル = 文字起こし → パック
+    (--from pack = 文字起こし済みの文書でパックだけ。届けない)。submit の無い古い入口(404)には今までの形(URL = まとめて実行の start-new か start・
+    動画ファイル = 編集の文字起こし → まとめて実行の start-docs)で頼む。
     入口の場所は lock の port(無ければ .runtime/portal.json で、同じ作業データの入口だけ)。合言葉は入口の画面の HTML の meta から読む
   - 動いていなければ、動画ファイルは自分で lock を取って ① を直に動かす(flow/tools の LocalTools。③ の人の部品は、学習のもとの文書があるときだけ学習した置換・用語を読むために遅延で読む = 無ければ読まない。RS7-1 F-k)。
     URL は入口が要る(URL の流れは B-3 まで入口に頼む = 一時の形。コマンドの形は最終)
@@ -25,11 +28,12 @@ import os
 import re
 import sys
 import time
+import uuid
 
-SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> src
+SRC =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from flow import keys as _keys, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
+from flow import envelope as _envelope, keys as _keys, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.pack import pack as _pack  # noqa: E402
 from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
 from ytt import datadir as _datadir, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
@@ -376,8 +380,52 @@ def _started(res):
     return runs[0]["id"]
 
 
+def envelope_for(kind, target, title):
+    """入口に頼む封筒(flow/envelope.py の形。id は実行の id にもなる 10 桁の 16 進)。何を作るかは束(run.from = どこから)"""
+    eid = uuid.uuid4().hex[:10]
+    title = str(title or "")[:_envelope.TITLE_MAX]
+    if kind == "url":
+        return {"id": eid, "kind": "url", "input": {"videoId": target, "title": title, "fresh": {"title": title, "channel": ""}}, "legacy": {"mode": "full"}}
+    return {"id": eid, "kind": "file", "input": {"path": target, "title": title or os.path.basename(target)[:_envelope.TITLE_MAX]},
+            "legacy": {"mode": "file_auto"}}
+
+
+def _url_envelope(env, bundle):
+    """URL の封筒を束の run.from に合わせる(書き出しから = 採用後を全部・まだスタジオに無い配信の印 fresh は付けない)"""
+    if URL_FROM[bundle["run"]["from"]] != "start-new":
+        env = dict(env, input={k: v for k, v in env["input"].items() if k != "fresh"}, legacy={"mode": URL_FROM[bundle["run"]["from"]]})
+    return env
+
+
+def delegate(portal, kind, target, bundle, title, prog):
+    """入口に頼んで待つ -> (結果の辞書, 終了コード)。② の口 submit に封筒 + 束を 1 回(RS7-1 S4)。submit の無い古い入口(404)は今までの形"""
+    prog.line("入口(ポート %d)が動いているので、入口に頼みます" % portal.port)
+    env = envelope_for(kind, target, title)
+    if kind == "url":
+        env = _url_envelope(env, bundle)
+    st, res = portal.call("POST", "/api/flow/submit", {"envelope": env, "spec": bundle})
+    if st == 404:
+        prog.line("※ 入口の版が古いので、今までの形で頼みます(--spec の一部は入口の設定のまま)")
+        return _delegate_old(portal, kind, target, bundle, title, prog)
+    if st != 200:
+        raise PortalError("入口に断られました: %s" % (res.get("message") or "HTTP %d" % st))
+    rid = (res.get("run") or {}).get("id") if isinstance(res.get("run"), dict) else None
+    if not rid:
+        raise PortalError("入口が実行を受け付けませんでした(応答に実行の id がありません)")
+    return _portal_result(_wait_portal_run(portal, rid, prog))
+
+
+def _portal_result(pub):
+    """入口の実行の public -> (結果の辞書, 終了コード)"""
+    packs = pub.get("packs")   # 入口の実行が作ったパック(RS7-1 S3 の Run.public)。それより前の入口は文書の既定のパックのフォルダから
+    if not isinstance(packs, list):
+        packs = [p for p in (_pack_dir_of(t) for t in pub.get("docs") or []) if p]
+    out = dict(pub, via="portal", packs=packs)
+    return out, EXIT_OK if pub.get("state") == "done" else EXIT_FAIL
+
+
 def _portal_transcribe(portal, path, bundle, title, prog):
-    """入口の編集に文字起こしを頼んで待つ -> 文書の id"""
+    """入口の編集に文字起こしを頼んで待つ -> 文書の id(submit の無い古い入口のときだけ)"""
     body = dict(_spec.tx_opts(bundle), sourcePath=path, title=title)
     jid = portal.ok("POST", EDITOR + "api/transcribe", body).get("id")
     if not jid:
@@ -404,10 +452,9 @@ def _portal_transcribe(portal, path, bundle, title, prog):
     return j["tid"]
 
 
-def delegate(portal, kind, target, bundle, title, prog):
-    """入口に頼んで待つ -> (結果の辞書, 終了コード)"""
+def _delegate_old(portal, kind, target, bundle, title, prog):
+    """submit の無い古い入口(RS7-1 S4 より前)に今までの形で頼んで待つ(URL = start-new か start・動画ファイル = 編集の文字起こし → start-docs)"""
     force, frm = bundle["run"]["force"], bundle["run"]["from"]
-    prog.line("入口(ポート %d)が動いているので、入口に頼みます" % portal.port)
     if kind == "url":
         if URL_FROM[frm] == "start-new":
             if force:
@@ -421,12 +468,7 @@ def delegate(portal, kind, target, bundle, title, prog):
             raise PortalError("この動画の文字起こしの文書がありません(--from pack をやめて文字起こしから)")
         tid = doc["id"] if doc else _portal_transcribe(portal, target, bundle, title, prog)
         res = portal.ok("POST", "/api/autorun/start-docs", {"ids": [tid], "overwrite": force})
-    pub = _wait_portal_run(portal, _started(res), prog)
-    packs = pub.get("packs")   # 入口の実行が作ったパック(RS7-1 S3 の Run.public)。それより前の入口は文書の既定のパックのフォルダから
-    if not isinstance(packs, list):
-        packs = [p for p in (_pack_dir_of(t) for t in pub.get("docs") or []) if p]
-    out = dict(pub, via="portal", packs=packs)
-    return out, EXIT_OK if pub.get("state") == "done" else EXIT_FAIL
+    return _portal_result(_wait_portal_run(portal, _started(res), prog))
 
 
 def _pack_dir_of(tid):
