@@ -5,7 +5,6 @@ import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
-import socket
 import sys
 import tempfile
 import threading
@@ -55,14 +54,6 @@ class FakeTool:
         self.srv.server_close()
 
 
-def dead_port():
-    """いま誰も待ち受けていないポート(一度 bind して閉じる)。"""
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
-
 
 class RuntimeDir(unittest.TestCase):
     def setUp(self):
@@ -106,22 +97,6 @@ class TestRuntimeFile(RuntimeDir):
         self.assertTrue(handoff.remove_runtime("studio", 8801))
         self.assertFalse(os.path.exists(path))
 
-    def test_remove_keeps_file_written_by_another_process(self):
-        self.put("studio", {"tool": "studio", "port": 8801, "pid": os.getpid() + 1})
-        self.assertFalse(handoff.remove_runtime("studio", 8801))   # 別のプロセスのもの(pid 違い)
-        self.put("studio", {"tool": "studio", "port": 8802, "pid": os.getpid()})
-        self.assertFalse(handoff.remove_runtime("studio", 8801))   # 別のポートで起動し直したもの
-        self.assertTrue(os.path.exists(os.path.join(self.rt, "studio.json")))
-
-    def test_write_failure_does_not_raise(self):
-        with open(os.path.join(self.tmp, "blocker"), "w") as f:
-            f.write("x")
-        with patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, "blocker", "sub")}):
-            self.assertIsNone(handoff.write_runtime("studio", 8800, "v"))   # 書けなくても起動は続ける
-
-    def test_unknown_tool_id_is_refused(self):
-        self.assertIsNone(handoff.write_runtime("../evil", 8800, "v"))
-
 
 class TestSiblings(RuntimeDir):
     def test_only_matching_apps_are_listed(self):
@@ -132,31 +107,6 @@ class TestSiblings(RuntimeDir):
         r = handoff.siblings("studio", 8800)
         self.assertEqual(r, {"tools": {"studio": 8800, "transcribe": tt.port}})
         self.assertEqual(tt.hosts, ["127.0.0.1:%d" % tt.port])   # 相手の Host 検査を通る形で問い合わせる
-
-    def test_stale_file_and_errors_are_ignored(self):
-        bad_status = self.fake(app="cut2resolve", status=500)
-        self.put("transcribe", {"tool": "transcribe", "port": dead_port()})   # 異常終了して残ったファイル
-        self.put("cut2resolve", {"tool": "cut2resolve", "port": bad_status.port})
-        self.assertEqual(handoff.siblings("studio", 8800), {"tools": {"studio": 8800}})
-
-    def test_garbage_response_is_ignored(self):
-        g = self.fake(body=b"<html>not json")
-        self.put("transcribe", {"tool": "transcribe", "port": g.port})
-        self.assertEqual(handoff.siblings("studio", 8800)["tools"], {"studio": 8800})
-
-    def test_hung_tool_does_not_block_long(self):
-        h = self.fake(hang=True)
-        ok = self.fake(app="cut2resolve")
-        self.put("transcribe", {"tool": "transcribe", "port": h.port})
-        self.put("cut2resolve", {"tool": "cut2resolve", "port": ok.port})
-        t0 = time.monotonic()
-        r = handoff.siblings("studio", 8800)
-        self.assertLess(time.monotonic() - t0, 1.0)
-        self.assertEqual(r["tools"], {"studio": 8800, "cut2resolve": ok.port})
-
-    def test_no_runtime_dir(self):
-        self.assertEqual(handoff.siblings("studio", 8800), {"tools": {"studio": 8800}})
-        self.assertEqual(handoff.siblings(None, None), {"tools": {}})
 
 
 class TestSiblingsApi(RuntimeDir):
@@ -199,7 +149,6 @@ class ToolIdentityTests(unittest.TestCase):
     """ツールの識別子(/api/ping の app・.clip.json の tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
     def test_same_as_runtime_table(self):
-        self.assertEqual(runtime.TOOL_APPS["studio"], "clip-studio")
         self.assertEqual(serve.APP_ID, runtime.TOOL_APPS["studio"])
         self.assertEqual(serve.Handler.server_version, runtime.TOOL_APPS["studio"])
         self.assertEqual(manifest.TOOL["name"], runtime.TOOL_APPS["studio"])

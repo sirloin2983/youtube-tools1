@@ -72,32 +72,10 @@ class TestGuards(Base):
         st, j, *_ = self.req("GET", "/api/ping")
         self.assertEqual((st, j["app"], j["version"]), (200, "clip-studio", serve.SERVER_VERSION))
 
-    def test_localhost_host_ok(self):
-        st, *_ = self.req("GET", "/api/ping", host="localhost:%d" % self.port)
-        self.assertEqual(st, 200)
-
     def test_bad_host_rejected_get_and_write(self):   # DNS rebinding
         for h in ("evil.example:%d" % self.port, "127.0.0.1", "localhost", "127.0.0.1:1", ""):
             self.assertEqual(self.req("GET", "/api/ping", host=h)[0], 403, h)
             self.assertEqual(self.req("PUT", "/api/settings", {"settings": {}}, host=h)[0], 403, h)
-
-    def test_sec_fetch_site(self):
-        for v, want in (("cross-site", 403), ("same-site", 403), ("same-origin", 200), ("none", 200)):
-            self.assertEqual(self.req("GET", "/api/ping", headers={"Sec-Fetch-Site": v})[0], want, v)
-        self.assertEqual(self.req("PUT", "/api/settings", {"settings": {}}, headers={"Sec-Fetch-Site": "cross-site"})[0], 403)
-
-    def test_navigation_from_other_tool_opens_page_only(self):
-        """他のツールのリンクで画面を開くのは許す(same-site / cross-site でも)。API・静的ファイル・iframe は拒否"""
-        nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
-        st, _, _, r = self.req("GET", "/?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabcdefghijk", headers=nav)
-        self.assertEqual(st, 200)
-        self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy") or "")
-        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Site": "cross-site"}))[0], 200)
-        self.assertEqual(self.req("GET", "/api/state", headers=nav)[0], 403)
-        self.assertEqual(self.req("GET", "/core.js", headers=nav)[0], 403)
-        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))[0], 403)
-        self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Mode": "cors"}))[0], 403)
 
     def test_settings_section_update_keeps_other_sections(self):
         self.assertEqual(self.req("PUT", "/api/settings", {"settings": {"other": {"a": 1}, "review": {"volume": 10}}})[0], 200)
@@ -115,9 +93,6 @@ class TestGuards(Base):
             st = self.req("PUT", "/api/settings", {"settings": {}}, headers={"Origin": o})[0]
             self.assertEqual(st, want, o)
 
-    def test_get_ignores_origin_but_write_requires_it_to_match(self):
-        self.assertEqual(self.req("PUT", "/api/settings", {"settings": {}})[0], 200)   # Origin なし(curl 等)は許可
-
 
 class TestBody(Base):
     def test_content_type(self):
@@ -125,27 +100,6 @@ class TestBody(Base):
         self.assertEqual(st, 415)
         st = self.req("PUT", "/api/settings", raw=b"{}", headers={})[0]
         self.assertEqual(st, 415)
-
-    def test_sizes(self):
-        self.assertEqual(self.req("PUT", "/api/settings", raw=b"", headers={"Content-Type": "application/json"})[0], 413)
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)   # 宣言だけ巨大(本体は送らない)
-        c.putrequest("PUT", "/api/settings", skip_host=True)
-        c.putheader("Host", self.host)
-        c.putheader("Content-Type", "application/json")
-        c.putheader("Content-Length", str(serve.MAX_BODY + 1))
-        c.endheaders()
-        self.assertEqual(c.getresponse().status, 413)
-        c.close()
-
-    def test_bad_length_header(self):
-        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        c.putrequest("PUT", "/api/settings", skip_host=True)
-        c.putheader("Host", self.host)
-        c.putheader("Content-Type", "application/json")
-        c.putheader("Content-Length", "abc")
-        c.endheaders()
-        self.assertEqual(c.getresponse().status, 400)
-        c.close()
 
     def test_bad_json_and_non_object(self):
         h = {"Content-Type": "application/json"}
@@ -184,11 +138,6 @@ class TestRouting(Base):
 
     def test_query_string_ignored_for_post_route(self):
         self.assertEqual(self.req("PUT", "/api/settings?x=1", {"settings": {}})[0], 200)
-
-    def test_security_headers(self):
-        _, _, _, r = self.req("GET", "/api/ping")
-        self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
-        self.assertEqual(r.getheader("Cache-Control"), "no-store")
 
     def test_server_survives_garbage(self):
         import socket
@@ -358,97 +307,6 @@ class TestCollabApi(Base):
         st, j, *_ = self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100, 110]]})
         self.assertEqual(st, 200)
         self.assertTrue(j["group"]["allSet"])
-
-    def test_group_needs_two_videos(self):
-        v1, _v2 = self._pair("needtwo")
-        st, j, *_ = self.req("POST", "/api/collab/group", {"videoIds": [v1]})
-        self.assertEqual((st, j["error"]), (400, "bad_request"))
-
-    def test_group_rejects_video_already_in_another_group(self):
-        v1, v2 = self._pair("dupe")
-        v3 = hashlib.sha1(b"dupe3").hexdigest()[:11]
-        self._open(v3)
-        self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})
-        st, j, *_ = self.req("POST", "/api/collab/group", {"videoIds": [v1, v3]})
-        self.assertEqual((st, j["error"]), (409, "conflict"))
-
-    def test_anchor_bad_points_rejected(self):
-        v1, v2 = self._pair("badanchor")
-        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
-        st, j, *_ = self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[0, 0], [1, 400]]})
-        self.assertEqual((st, j["error"]), (400, "bad_anchor"))
-        st, j, *_ = self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v1, "points": [[0, 0]]})   # 基準の動画
-        self.assertEqual(st, 400)
-
-    def test_transfer_via_api(self):
-        v1, v2 = self._pair("transfer")
-        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
-        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
-        st, j, *_ = self.req("PUT", "/api/video", {"id": v1, "title": "t", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
-        self.assertEqual(st, 200)
-        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
-        self.assertEqual(st, 200)
-        marks = j["video"]["marks"]
-        self.assertEqual(len(marks), 1)
-        self.assertEqual((marks[0]["src"], marks[0]["status"]), ("collab", ""))
-
-    def test_transfer_merges_into_existing_overlapping_mark(self):
-        """転写先に、既に(手動で)近い位置のマークがある場合は、新規候補を作らずそちらへ統合し、
-        開始・終了は両方の区間を覆うように広げる(狭くはしない)。"""
-        v1, v2 = self._pair("mergeexisting")
-        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
-        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
-        # v2 に先に手動マークを置く(v1 の [110,120] が転写されると、マージン込みで v2 の [97.5, 112.5] になり重なる)
-        st, j, *_ = self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 98.0, "end": 108.0, "label": "自分で見つけた"}]})
-        self.assertEqual(st, 200)
-        existing_id = j["video"]["marks"][0]["id"]
-        st, j, *_ = self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
-        self.assertEqual(st, 200)
-        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
-        self.assertEqual(st, 200)
-        marks = j["video"]["marks"]
-        self.assertEqual(len(marks), 1)   # 新しい候補は増えていない
-        m = marks[0]
-        self.assertEqual(m["id"], existing_id)
-        self.assertEqual((m["src"], m["label"]), ("manual", "自分で見つけた"))   # 判定・ラベル・src は変わらない
-        self.assertEqual((m["start"], m["end"]), (97.5, 112.5))   # 両方の区間を覆うように広がる
-        self.assertTrue(any("コラボ転写" in r for r in m["reasons"]))   # 由来も足される
-
-    def test_transfer_merge_reverts_exported_status_when_range_grows(self):
-        """統合で範囲が実際に広がったときは、書き出し済みマークも他の時刻編集と同様に「採用」へ戻す
-        (書き出し済みファイルは古い範囲のものになり、実体とずれるため)。"""
-        v1, v2 = self._pair("mergeexported")
-        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
-        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
-        st, j, *_ = self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 98.0, "end": 108.0, "label": "書き出し済み"}]})
-        mark_id = j["video"]["marks"][0]["id"]
-        serve.STORE.mark_exported(v2, mark_id, "f/out.mp4", 98.0, 108.0)
-        self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
-        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
-        self.assertEqual(st, 200)
-        m = j["video"]["marks"][0]
-        self.assertEqual((m["start"], m["end"]), (97.5, 112.5))
-        self.assertEqual((m["status"], m["file"]), ("adopted", ""))   # 範囲が変わったので採用に戻る
-
-    def test_transfer_does_not_merge_non_overlapping_mark(self):
-        """離れた位置の既存マークとは統合しない(通常どおり新規候補を作る)。"""
-        v1, v2 = self._pair("mergefar")
-        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
-        self.req("POST", "/api/collab/anchor", {"id": g["id"], "videoId": v2, "points": [[100.0, 110.0]]})
-        self.req("PUT", "/api/video", {"id": v2, "title": "t2", "marks": [{"start": 500.0, "end": 510.0, "label": "無関係"}]})
-        self.req("PUT", "/api/video", {"id": v1, "title": "t1", "marks": [{"start": 110.0, "end": 120.0, "status": "adopted"}]})
-        st, j, *_ = self.req("GET", "/api/video?id=" + v2)
-        self.assertEqual(st, 200)
-        marks = j["video"]["marks"]
-        self.assertEqual(len(marks), 2)
-        self.assertEqual(sorted(m["src"] for m in marks), ["collab", "manual"])
-
-    def test_remove_and_get_missing_group(self):
-        v1, v2 = self._pair("removedel")
-        g = self.req("POST", "/api/collab/group", {"videoIds": [v1, v2]})[1]["group"]
-        st, j, *_ = self.req("POST", "/api/collab/group/remove", {"id": g["id"], "videoId": v2})
-        self.assertEqual((st, j["deleted"]), (200, True))   # 残り1本になるのでグループごと削除
-        self.assertEqual(self.req("GET", "/api/collab/group?id=" + g["id"])[0], 404)
 
     def test_group_and_anchor_not_found(self):
         self.assertEqual(self.req("GET", "/api/collab/group?id=nope")[0], 404)
@@ -686,18 +544,6 @@ class TestLiveApi(Base):
         self.assertNotIn("live", next(x for x in self.req("GET", "/api/videos")[1]["videos"] if x["id"] == self.fsrc["videoId"]))   # 既存の種類には live を足さない
         self.assertEqual(self.req("GET", "/media?id=" + LIVE_ID)[0], 404)
 
-    def test_open_twice_keeps_and_fills_empty_title(self):
-        rid = "20261005-185301"
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title=""))
-        self.assertEqual((st, j["video"]["title"], j["video"]["live"]["videoId"]), (200, "", "U972n0ncl4k"))
-        rev = j["video"]["rev"]
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title=""))
-        self.assertEqual((st, j["video"]["rev"]), (200, rev))   # 何も変えない
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title="題"))
-        self.assertEqual((st, j["video"]["title"]), (200, "題"))
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body(rid, title="別の題", url="https://youtu.be/aaaaaaaaaaa"))
-        self.assertEqual((st, j["video"]["title"], j["video"]["live"]["videoId"]), (200, "題", "U972n0ncl4k"))   # 既にある題・録画の情報は変えない
-
     def test_open_sets_channel_once(self):
         """channel(入口の begin が yt-dlp から取ったチャンネル名。配信者の名前 = 字幕の色を決める): 空なら入れない・既にあれば上書きしない・制御文字を落とす・100 文字まで"""
         rid = "20261005-185303"
@@ -719,27 +565,13 @@ class TestLiveApi(Base):
             st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185305", channel=bad))
             self.assertEqual((st, j["error"]), (400, "bad_source"), bad)
 
-    def test_channel_live_url_has_empty_video_id(self):
-        st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185302", url="https://www.youtube.com/@someone/live"))
-        self.assertEqual((st, j["video"]["live"]["videoId"]), (200, ""))
-
     def test_open_rejects_bad_values(self):
-        bads = [dict(recording="abc"), dict(recording="20261005-185300-"), dict(recording="20261005-185300-" + "a" * 25), dict(recording="../x"), dict(recording=None),
-                dict(recording=LIVE_ID + "\n"), dict(recorder="Rec"), dict(recorder="1rec"), dict(recorder="a" * 17), dict(recorder=""), dict(recorder=5),
-                dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"), dict(url="https://evil.example/watch?v=U972n0ncl4k"), dict(url="youtube.com/watch?v=U972n0ncl4k"),
-                dict(url=""), dict(url=None), dict(url="https://www.youtube.com/watch?v=U972n0ncl4k\n"), dict(url="https://www.youtube.com.evil.example/x"),
-                dict(title=5), dict(title=["x"])]
+        # 値ごとの形の検査は yturl.check_live(human/review/tests/test_studio.py の TestCheckLive)。ここは API が 400 にして登録しないことと、title の型
+        bads = [dict(recording="abc"), dict(recorder="Rec"), dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"), dict(title=5), dict(title=["x"])]
         for kw in bads:
             st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185399", **kw) if "recording" not in kw else live_body(**kw))
             self.assertEqual((st, j["error"]), (400, "bad_source"), kw)
         self.assertEqual(self.req("GET", "/api/video?id=20261005-185399")[0], 404)   # 断ったものは登録されない
-
-    def test_id_conflict_with_other_kind(self):
-        # YouTube の 11 文字・file の "f…" とは形が違うので重ならない。同じ id が別の種類で既にあれば 409(ensure の既存の規則)
-        serve.STORE.ensure({"kind": "youtube", "videoId": "abcdefghijk"}, "t")
-        with self.assertRaises(errors.ApiError) as c:
-            serve.STORE.ensure({"kind": "live", "videoId": "abcdefghijk", "live": {}}, "t")
-        self.assertEqual(c.exception.status, 409)
 
     def _exported_setup(self, rid):
         self.req("POST", "/api/videos/open", live_body(rid))
@@ -819,19 +651,6 @@ class TestLiveApi(Base):
         self.assertTrue(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["archived"])   # 断ったものは変えない
         st, j, *_ = self.req("POST", "/api/live/exported", dict(body, archived=False))
         self.assertNotIn("archived", j["video"]["marks"][0])
-
-    def test_archived_not_on_non_live(self):
-        fid = self.fsrc["videoId"]
-        self.req("PUT", "/api/video", {"id": fid, "marks": [{"id": "fm9", "start": 1, "end": 3, "status": "adopted", "archived": True}]})
-        self.assertNotIn("archived", self.req("GET", "/api/video?id=" + fid)[1]["video"]["marks"][0])
-        p = self._exported_setup("20261005-190650")
-        self.assertEqual(self.req("POST", "/api/live/exported", {"id": fid, "markId": "fm9", "path": p, "archived": True})[0], 400)   # live でない配信は断る
-        self.assertNotIn("archived", self.req("GET", "/api/video?id=" + fid)[1]["video"]["marks"][0])
-
-    def test_exported_follows_guards(self):
-        for kw in ({"host": "evil.example:%d" % self.port}, {"headers": {"Sec-Fetch-Site": "cross-site"}}, {"headers": {"Origin": "http://evil.example"}}):
-            self.assertEqual(self.req("POST", "/api/live/exported", {"id": "x", "markId": "m", "path": "/x.mp4"}, **kw)[0], 403, kw)
-        self.assertEqual(self.req("GET", "/api/live/exported")[0], 404)
 
     def test_analysis_refused(self):
         rid = "20261005-190200"

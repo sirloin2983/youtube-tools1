@@ -64,7 +64,7 @@ YT3 = "https://www.youtube.com/watch?v=TESTarch003"   # マークの無い録画
 YT4 = "https://www.youtube.com/watch?v=TESTarch004"   # 配信後の全自動(M7)の録画
 TITLE = "アーカイブのテスト<b>配信</b>"
 ARC_SEC = 420
-AUDIO = "0.4*sin(2*PI*t*(400+300*sin(2*PI*0.07*t)))*(0.6+0.4*sin(2*PI*1.3*t))+0.15*(2*random(0)-1)"   # src/home/tests/test_live_archive.py と同じ(照合できる音)
+AUDIO = "0.4*sin(2*PI*t*(400+300*sin(2*PI*0.07*t)))*(0.6+0.4*sin(2*PI*1.3*t))+0.15*(2*random(0)-1)"   # src/flow/tests/test_live_archive.py と同じ(照合できる音)
 START_SEGS = 30           # 配信中のふりの HLS で最初から見えている本数(録画はアーカイブの 27 秒あたりから始まる)
 FRAME_TOL = 0.034
 INIT_JS = r"""

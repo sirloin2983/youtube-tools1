@@ -711,6 +711,48 @@ class TestCollab(Base):
         self.assertEqual(len(st2.groups), 1)
         self.assertTrue(st2.take_warning()[0])
 
+    # ---- 転写先に近い位置のマークがあるとき(スタジオの API の試験から移した。API を通さず store を直に呼ぶ) ----
+    def _anchored(self):
+        g = self.group()
+        self.st.set_anchor(g["id"], YT2["videoId"], [[100.0, 110.0]])   # v2の100秒 = 基準の110秒
+
+    def test_transfer_merges_into_existing_overlapping_mark(self):
+        """転写先に、既に(手動で)近い位置のマークがある場合は、新規候補を作らずそちらへ統合し、
+        開始・終了は両方の区間を覆うように広げる(狭くはしない)。"""
+        self._anchored()
+        # v2 に先に手動マークを置く(v1 の [110,120] が転写されると、マージン込みで v2 の [97.5, 112.5] になり重なる)
+        self.putv(YT2["videoId"], [{"start": 98.0, "end": 108.0, "label": "自分で見つけた"}])
+        existing_id = self.vmarks(YT2["videoId"])[0]["id"]
+        self.putv(YT["videoId"], [{"start": 110.0, "end": 120.0, "status": "adopted"}])
+        marks = self.vmarks(YT2["videoId"])
+        self.assertEqual(len(marks), 1)   # 新しい候補は増えていない
+        m = marks[0]
+        self.assertEqual(m["id"], existing_id)
+        self.assertEqual((m["src"], m["label"]), ("manual", "自分で見つけた"))   # 判定・ラベル・src は変わらない
+        self.assertEqual((m["start"], m["end"]), (97.5, 112.5))   # 両方の区間を覆うように広がる
+        self.assertTrue(any("コラボ転写" in r for r in m["reasons"]))   # 由来も足される
+
+    def test_transfer_merge_reverts_exported_status_when_range_grows(self):
+        """統合で範囲が実際に広がったときは、書き出し済みマークも他の時刻編集と同様に「採用」へ戻す
+        (書き出し済みファイルは古い範囲のものになり、実体とずれるため)。"""
+        self._anchored()
+        self.putv(YT2["videoId"], [{"start": 98.0, "end": 108.0, "label": "書き出し済み"}])
+        mark_id = self.vmarks(YT2["videoId"])[0]["id"]
+        self.st.mark_exported(YT2["videoId"], mark_id, "f/out.mp4", 98.0, 108.0)
+        self.putv(YT["videoId"], [{"start": 110.0, "end": 120.0, "status": "adopted"}])
+        m = self.vmarks(YT2["videoId"])[0]
+        self.assertEqual((m["start"], m["end"]), (97.5, 112.5))
+        self.assertEqual((m["status"], m["file"]), ("adopted", ""))   # 範囲が変わったので採用に戻る
+
+    def test_transfer_does_not_merge_non_overlapping_mark(self):
+        """離れた位置の既存マークとは統合しない(通常どおり新規候補を作る)。"""
+        self._anchored()
+        self.putv(YT2["videoId"], [{"start": 500.0, "end": 510.0, "label": "無関係"}])
+        self.putv(YT["videoId"], [{"start": 110.0, "end": 120.0, "status": "adopted"}])
+        marks = self.vmarks(YT2["videoId"])
+        self.assertEqual(len(marks), 2)
+        self.assertEqual(sorted(m["src"] for m in marks), ["collab", "manual"])
+
 
 class TestEnsure(Base):
     def test_empty_title_does_not_erase(self):
@@ -888,6 +930,12 @@ class TestCheckLive(unittest.TestCase):
     def test_rejects(self):
         for kw in (dict(recorder="A"), dict(recorder="x" * 17), dict(recording="2026"), dict(recording="20261005-185300-"), dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"),
                    dict(url="https://example.com/watch?v=U972n0ncl4k"), dict(url="https://www.youtube.com/" + "a" * 300), dict(url=1)):
+            with self.assertRaises(ApiError, msg=kw):
+                yturl.check_live(dict(LIVE, **kw))
+        # 末尾の改行・形の違う値(スタジオの API の試験から移した。正規表現の $ が改行を通す穴を塞いでいる)
+        for kw in (dict(recording=LIVE["recording"] + "\n"), dict(recording="../x"), dict(recording=None), dict(recorder=""), dict(recorder=5),
+                   dict(url="https://evil.example/watch?v=U972n0ncl4k"), dict(url="youtube.com/watch?v=U972n0ncl4k"), dict(url=""), dict(url=None),
+                   dict(url="https://www.youtube.com/watch?v=U972n0ncl4k\n"), dict(url="https://www.youtube.com.evil.example/x")):
             with self.assertRaises(ApiError, msg=kw):
                 yturl.check_live(dict(LIVE, **kw))
         for x in (None, "x", [], {}):

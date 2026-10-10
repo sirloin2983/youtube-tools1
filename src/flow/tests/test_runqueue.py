@@ -240,7 +240,7 @@ class TestRestore(Base):
                "steps": [{"key": "transcribe", "state": "wait", "detail": ""}]}
         stale = dict(old, id="abcdef0123", sourcePath=self.media[1], created=now - Q.RESTORE_MAX_AGE - 60)
         with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
-            json.dump({"v": Q.ACTIVE_VERSION, "runs": [old, stale]}, f)
+            json.dump({"v": Q.ACTIVE_VERSION, "runs": [{"id": "../x", "mode": "file"}, old, {"id": "abcdefabcd", "mode": "nope"}, stale, "壊れた"]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす(入口の試験から移した)
         tools = Tools()
         q = self.queue(tools)
         _until(lambda: q.status()["idle"], "戻した 1 本が済む")

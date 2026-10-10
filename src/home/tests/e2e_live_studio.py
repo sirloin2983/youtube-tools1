@@ -891,7 +891,7 @@ def _scene_peaks(cx):
     """L2 + L3(線 D)配信中の候補: 本物の候補の API(入口の live_detect)と偽のワーカー(tests/fake_excite_worker.py = テストが置いた候補を本物と同じ形で
     peaks.json・worker.json に書き、decisions.json を本物と同じに当てる)で、帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](POST /live/api/peaks → M1 の adopt)・
     [見送り]・控えも見る・[戻す]・採用した候補の見送りは 409・p / z・見回りで作り直さない・⚙ の設定(live.detect / live.autoAdopt)・「調子」・375px。
-    音・チャット・ffmpeg は使わない(ワーカーの計算は src/home/tests/test_live_detect.py)"""
+    音・チャット・ffmpeg は使わない(ワーカーの計算は src/pipeline/analyze/tests/test_live_excite_worker.py)"""
     api, check, pg, rid, shots, studio_url, srv, live = cx.api, cx.check, cx.pg, cx.rid, cx.shots, cx.studio_url, cx.srv, cx.live
     det = live.detector
     det.worker, det.spawn_ok, det.python = os.path.join(TESTS, "fake_excite_worker.py"), True, sys.executable

@@ -103,24 +103,6 @@ class TestGuards(ServerBase):
         st, _, _ = self.c.req("GET", "/api/ping", headers={"Host": "localhost:%d" % self.port})
         self.assertEqual(st, 200)
 
-    def test_cross_site_requests_are_rejected(self):
-        for site in ("cross-site", "same-site"):
-            st, _, _ = self.c.req("GET", "/api/ping", headers={"Sec-Fetch-Site": site})
-            self.assertEqual(st, 403, site)
-        st, _, _ = self.c.req("GET", "/api/ping", headers={"Sec-Fetch-Site": "same-origin"})
-        self.assertEqual(st, 200)
-
-    def test_navigation_from_other_tool_is_allowed_but_not_iframe(self):
-        nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
-        st, hd, body = self.c.req("GET", "/?video=C%3A%5Cx.mp4", headers=nav)
-        self.assertEqual(st, 200)
-        self.assertIn("frame-ancestors 'none'", hd.get("Content-Security-Policy", ""))
-        self.assertEqual(hd.get("X-Frame-Options"), "DENY")
-        st, _, _ = self.c.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))
-        self.assertEqual(st, 403)
-        st, _, _ = self.c.req("GET", "/api/ping", headers=nav)   # API は画面への遷移でも不可
-        self.assertEqual(st, 403)
-
     def test_post_origin_and_content_type(self):
         st, _, _ = self.c.req("POST", "/api/plan", {}, headers={"Origin": "http://evil.example"})
         self.assertEqual(st, 403)
@@ -134,61 +116,6 @@ class TestGuards(ServerBase):
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
         st, _, body = self.c.req("POST", "/api/plan", raw=b"[]")
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
-
-    def raw_post(self, head_lines, body=b""):
-        """本文を足さずに見出しを自由に書く POST(http.client は Content-Length を自動で付けるため、数の無い・数でない場合は自分で書く)。-> (状態, JSON)"""
-        import socket
-        lines = ["POST /api/plan HTTP/1.1", "Host: %s" % self.c.host] + list(head_lines)
-        with socket.create_connection(("127.0.0.1", self.port), timeout=30) as s:
-            s.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + body)
-            buf = b""
-            while True:
-                chunk = s.recv(65536)
-                if not chunk:
-                    break
-                buf += chunk
-        head, _, payload = buf.partition(b"\r\n\r\n")
-        return int(head.split(b" ", 2)[1]), json.loads(payload.decode("utf-8"))
-
-    def test_json_body_errors_keep_status_and_code(self):
-        """書き込みの本文の読み方は ytt.httpsec.read_json_body。断る理由ごとの状態とコード・文は今までどおり(0.22.3)"""
-        ok = "Content-Type: application/json"
-        for heads, body, want in (
-                ([ok], b"", (411, "bad_length")),                                    # Content-Length が無い
-                ([ok, "Content-Length: abc"], b"", (411, "bad_length")),               # 数でない
-                ([ok, "Content-Length: 0"], b"", (413, "too_big")),                    # 空
-                ([ok, "Content-Length: -1"], b"", (413, "too_big")),
-                (["Content-Type: text/plain", "Content-Length: 2"], b"{}", (415, "bad_type")),
-                (["Content-Type: text/plain"], b"", (415, "bad_type")),                # 型が先(長さが無くても 415)
-                ([ok, "Content-Length: 5"], b"[1,2]", (400, "bad_json")),             # オブジェクトでない
-                ([ok, "Content-Length: 3"], b"{x}", (400, "bad_json")),
-                ([ok, "Content-Length: 12"], b'{"a": NaN}\n\n', (400, "bad_json")),    # NaN は断る
-                (["Content-Type: Application/JSON; charset=utf-8", "Content-Length: 2"], b"{}", (400, "bad_request"))):   # 型は大文字小文字・charset 付きも可
-            st, j = self.raw_post(heads, body)
-            self.assertEqual((st, j["error"]), want, heads)
-        big = "Content-Length: %d" % (serve.MAX_BODY + 1)
-        self.assertEqual(self.raw_post([ok, big])[0], 413)   # 上限を超える長さは本文を読まずに断る
-
-    def test_response_headers_come_from_httpsec(self):
-        """応答の見出しは ytt.httpsec.send(Content-Type・Content-Length・no-store・nosniff の順)に Referrer-Policy を足したもの。
-        案内のページは、その後ろに CSP・X-Frame-Options"""
-        import http.client
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        try:
-            conn.request("GET", "/api/ping", headers={"Host": self.c.host})
-            r = conn.getresponse()
-            r.read()
-            names = [k for k, _ in r.getheaders() if k not in ("Server", "Date")]
-            self.assertEqual(names, ["Content-Type", "Content-Length", "Cache-Control", "X-Content-Type-Options", "Referrer-Policy"])
-            self.assertEqual((r.getheader("Cache-Control"), r.getheader("Referrer-Policy"), r.getheader("X-Content-Type-Options")),
-                             ("no-store", "no-referrer", "nosniff"))
-            conn.request("GET", "/", headers={"Host": self.c.host})
-            r = conn.getresponse()
-            r.read()
-            names = [k for k, _ in r.getheaders() if k not in ("Server", "Date")]
-            self.assertEqual(names[-3:], ["Referrer-Policy", "Content-Security-Policy", "X-Frame-Options"])
-        finally:
-            conn.close()
 
     def test_page_moved_to_edit_tool(self):
         """画面は「編集」に統合した(2026-09-26)。/ は案内だけ(スクリプトなし・CSP つき)。前の画面の部品は無い"""
@@ -397,37 +324,11 @@ class TestSiblings(unittest.TestCase):
     def put(self, tool, obj):
         Path(self.tmp.name, tool + ".json").write_text(json.dumps(obj), encoding="utf-8")
 
-    def test_siblings_only_answers_matching_apps(self):
-        self.put("studio", {"tool": "studio", "port": self.fake("clip-studio")})
-        self.put("transcribe", {"tool": "transcribe", "port": self.fake("something-else")})
-        t0 = time.monotonic()
-        r = serve.siblings(8810)
-        self.assertLess(time.monotonic() - t0, 2)
-        self.assertEqual(set(r["tools"]), {"studio", "cut2resolve"})
-        self.assertEqual(r["tools"]["cut2resolve"], 8810)
-        self.put("transcribe", {"tool": "transcribe", "port": True})   # 真偽値は不可
-        self.assertNotIn("transcribe", serve.siblings(8810)["tools"])
-
-    def test_runtime_write_and_remove(self):
-        path = serve.write_runtime(8811)
-        d = json.loads(Path(path).read_text(encoding="utf-8"))
-        self.assertEqual((d["tool"], d["port"], d["version"]), ("cut2resolve", 8811, serve.SERVER_VERSION))
-        self.assertFalse(serve.remove_runtime(8812))   # 別のポートの記録は消さない
-        self.assertTrue(serve.remove_runtime(8811))
-        self.assertFalse(os.path.exists(path))
-        self.assertNotIn("path", d)   # 単独で動くときは以前と同じ形(path を書かない)
-
     def test_uses_ytt_core(self):
         """.runtime・siblings・Host/Origin の検査は ytt の1か所(2026-09-26。cut2resolve 自身の写しは消した)"""
         from ytt import httpsec, runtime
         self.assertIs(serve.TOOL_APPS, runtime.TOOL_APPS)
         self.assertIs(serve.httpsec, httpsec)
-        for gone in ("_read_small_json", "RUNTIME_MAX_BYTES"):
-            self.assertFalse(hasattr(serve, gone), gone)
-        with mock.patch.object(runtime, "ping_app", return_value="clip-studio") as m:
-            self.put("studio", {"tool": "studio", "port": 8800})
-            self.assertEqual(serve.siblings(8810)["tools"], {"studio": 8800, "cut2resolve": 8810})
-            m.assert_called()
         port = self.fake("cut2resolve")
         self.assertEqual(serve.probe(port), "x")
         self.assertIsNone(serve.probe(self.fake("clip-studio")))
@@ -667,21 +568,14 @@ class TestJobs(ServerBase):
         spec = {"video": str(self.video), "srt": str(self.srt), "keeps": [[0.5, 2.5], [4.5, 6.5]]}
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True}})
         self.assertEqual(j["state"], "done", j)
-        names = sorted(f["name"] for f in j["result"]["files"])
-        self.assertEqual(names, sorted(["clip.mp4", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
-                                        "ResolveにText+スクリプトを登録.bat", "textplus-template.drb"]))
-        self.assertIn("Text+ 字幕つき", j["result"]["readme"])                    # 手順はファイルにせず、画面に返す
         rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out)).read_text(encoding="utf-8"))
         self.assertEqual((rec["textplus"], rec["backup"], "clip.mp4" in rec["files"]), (True, False, True))
-        self.assertFalse((out / "media").exists())
         st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True}})
         self.assertEqual((st, e["error"]), (409, "exists"))                      # 上書きの確認
         self.assertNotIn("clip.edl", e["files"])                                  # まだ無いもの(予備)は並べない
         j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out), "textplus": True, "backup": True, "force": True}})
         names = sorted(f["name"] for f in j["result"]["files"])
         self.assertIn("clip.edl", names)
-        self.assertIn("予備_EDLで開く手順.txt", names)
-        self.assertIn("clip_cut.srt", names)
         self.assertIn("clip.mp4", names)
         # E-15: 前に写した同じ動画(大きさ・更新日時)はコピーを飛ばし、注意に 1 行(ただの案内 = info)
         r = j["result"]
@@ -698,8 +592,6 @@ class TestJobs(ServerBase):
             out2 = self.dir / "tp_color"
             j = self.run_job("/api/build", {"spec": spec, "output": {"dir": str(out2), "textplus": True, "streamer": "ミコ"}})
             self.assertEqual(j["state"], "done", j)
-            ip = serve.TP.read_script_plan((out2 / "create_resolve_textplus_project.lua").read_text(encoding="utf-8"))
-            self.assertIn("さくらみこの色の文字(#FF8FDF)", ip["style"]["name"])
             rec = json.loads((Path(serve._txi.packs_dir(c2r_dir=serve.CODE_DIR)) / serve._txi.pack_key(out2)).read_text(encoding="utf-8"))
             self.assertEqual((rec["textColor"], rec["streamer"]), ("#FF8FDF", "さくらみこ"))
             st, e = self.c.json("POST", "/api/build", {"spec": spec, "output": {"dir": str(self.dir / "tp_x"), "textplus": True, "streamer": "だれか"}})

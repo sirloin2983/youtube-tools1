@@ -77,7 +77,7 @@ RUN = LX.ARCHIVE_RUN
 ACTIVE = LX.ARCHIVE_ACTIVE
 LABELS = {"wait": "待ち", "probe": "アーカイブを確かめ中", "align": "照合中", "fetch": "取得中", "verify": "検証中",
           "done": "本番版", "error": "失敗", "cancelled": "取り消し"}
-# 確かさのしきい値(src/home/tests/test_live_archive.py の合成の音で決めた。2026-10-05):
+# 確かさのしきい値(src/flow/tests/test_live_archive.py の合成の音で決めた。2026-10-05):
 #   同じ音(AAC で作り直し・音量 60%・数十 ms ずらし)… score 0.99・ratio 17(60 秒の参照なら ratio は上限の 99)
 #   別の音(周波数の動きとノイズの違う合成の音)… score 0.18・ratio 1.3
 # 本物の配信はアーカイブ・速報版の両方で作り直しが重なり、BGM の繰り返しで 2 番目の山も高くなりやすいので、score は真ん中より下の 0.5、

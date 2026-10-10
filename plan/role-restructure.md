@@ -334,7 +334,7 @@ RS6 の決定(2026-10-10 夕。`plan/decisions.md` 3-29): ユーザーの案で�
 | B-1 | 案件フォルダに `case.json`(`flow/placement.ensure_case`。無いときだけ作る。案件の一覧は読むだけ) | 0 |
 | G2a | 封筒 kind live の input・束の adopt に `sens`・`afterStream`・`Queue.set_live_hook`(kind live は Run を作らず hook へ) | 0 |
 | G5a | 入口の `--headless`(ブラウザ・窓・③ なし・ready の 1 行・終了コード 3)・status に `live` と `idle`・`Queue.set_status_hook` | 0 |
-| G0 | ライブの親の口 `flow/livehost.py`(Protocol)・`Live.close` の順を縛るテスト | 0 |
+| G0 | ライブの親の口 `flow/livehost.py`(Protocol)・`Live.close` の順を縛るテスト(10-11 の片付けで子ごとの口 5 つを `LiveHost` 1 つにまとめた。満たす側が `LiveSession` 1 つだけのため。CLI の古い入口への 2 段の道も同じ日に消した = 下の「2 段」は当時の形) | 0 |
 | G1b | スタジオなしの採用 `flow/live_adopt.py`(`StudioMarks` と `LocalMarks`) | 0 |
 | G2b | ライブ係 `flow/livesession.py`(Live から app でない部分を抜き出す・`submit`・`live/bundles.json`・束から検出・解析・音量・書き出したあとの設定・受け渡しは `Queue.submit(kind file)`) | 0 |
 

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。入口の側 src/flow/live_tx.py と子プロセス src/pipeline/transcribe/live_tx_worker.py。
+"""配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
+子プロセス live_tx_worker.py の試験は src/pipeline/transcribe/tests/test_live_tx_worker.py、設定(prefs)との一致は src/home/tests/test_live_tx_prefs.py。
 
-    py -3.10 -m unittest src/home/tests/test_live_tx.py
+    py -3.10 -m unittest src/flow/tests/test_live_tx.py
 
 確かめること(本物の whisper.cpp・GPU・ffmpeg は使わない。録画元・ffmpeg・認識は偽物):
   - ready(): オフ / リアルタイム切り抜きがオフ / whisper-cli が無い / モデルが無い / ffmpeg が無い で理由。置き場所は編集の作業データ
@@ -12,16 +13,11 @@
     view / text_for / recent_ids。失敗は error と tries・続けて 3 回で pause_until。入口の終了で止めたときは失敗に数えない。
     裏のスレッド(tick → start → _loop)でも同じに付く
   - _run_worker(): 本物の子プロセス(live_tx_worker.py)の結果の json を読む・時間切れ・結果が無いときの理由(標準エラーの末尾か終了コード)
-  - live_tx_worker.py: 引数の数が違えば 2・知らないモデル・whisper-cli が無ければ ok false の json。偽の whisper-cli(編集の
-    tests/fake_whisper_cli.py)で text・rows・gpu・whisper-cli の引数(-l ja・-bs 5・-mc 0・-nfa)。GPU が無ければ ok false
-  - 値の一致: WCPP_VERSION・WCPP_EXE・WCPP_MODEL_FILES・置き場所が編集の tx_engines と同じ・prefs.LIVE_TX_MODELS が同じ名前
-  - 入口のプロセスで tx_engines・numpy を import しない(live_tx を読んでも)
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -35,31 +31,16 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
-SRC = os.path.dirname(HERE)
-EDITOR = os.path.join(SRC, "editor")
-sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-if SRC not in sys.path:   # 共通部品 ytt(launch.py と同じ)
-    sys.path.append(SRC)
-import live as LV  # noqa: E402
+import _livefix as LF  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_tx as TX  # noqa: E402
-from pipeline.transcribe import live_tx_worker as TW  # noqa: E402
-import prefs as P  # noqa: E402
 from ytt import datadir, fsio  # noqa: E402
 
 TOKEN = "x" * 40
 T0 = 1790000000.0
 REC = "20261008-200000-abcdefghijk"          # 録画中
 REC_ENDED = "20261008-180000-bbbbbbbbbbb"    # 終わった録画
-FAKE_WCPP = os.path.join(EDITOR, "tests", "fake_whisper_cli.py")
-
-
-def tx_engines():
-    """編集の認識エンジンの口(値を比べるため・偽の whisper-cli で子プロセスの道を通すため。テストのプロセスだけで読む)"""
-    from pipeline.transcribe import tx_engines as te   # SRC は上で sys.path に足してある
-    return te
 
 
 def write_wav(path, sec, rate=16000):
@@ -120,14 +101,7 @@ def read_jsonl(path):
         return []
 
 
-def wait_for(fn, timeout=20.0, step=0.1):
-    end = time.time() + timeout
-    while time.time() < end:
-        v = fn()
-        if v:
-            return v
-        time.sleep(step)
-    return fn()
+wait_for = LF.wait_for
 
 
 def peak(pid, start, state="frame", **kw):
@@ -213,7 +187,7 @@ class TxRecorder:
 
 
 class LiveTxBase(unittest.TestCase):
-    """入口の Live(偽の録画元・設定はテストの一時フォルダ)と、偽の ffmpeg・偽の認識(run)を渡した LiveTx"""
+    """ライブ係(偽の録画元・設定はテストの一時フォルダの辞書)と、偽の ffmpeg・偽の認識(run)を渡した LiveTx"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-livetx-")
@@ -223,11 +197,9 @@ class LiveTxBase(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         self.rec = TxRecorder()
-        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
-        self.prefs.patch("live", {"enabled": True, "recorders": [{"id": "fake", "name": "偽物", "url": self.rec.url, "token": TOKEN}]})
+        self.cfg = LF.recorder_cfg(self.rec.url, TOKEN)
         self.logs = []
-        self.live = LV.Live(self.prefs, self.tmp, os.path.join(self.tmp, "logs"), log=self.logs.append, spawn=False,
-                            store_dir=os.path.join(self.tmp, "live"), out_dir=lambda: os.path.join(self.tmp, "out"))
+        self.live = LF.new_session(self.tmp, self.cfg, log=self.logs.append)
         self.clock = Clock(T0 + 1000)
         self.calls = []
         self.answer = {"ok": True, "text": "ここで大きな声", "rows": [{"start": 0.5, "end": 2.0, "text": "ここで大きな声"}], "sec": 3.2,
@@ -291,9 +263,9 @@ class ReadyTest(LiveTxBase):
             self.assertEqual(bare.ready(), (False, "ffmpeg がありません"))
         with mock.patch.object(TX.tools, "find_tool", lambda *a, **k: "C:/ff/ffmpeg.exe"):
             self.assertEqual((bare.ready(), bare._ffmpeg()), ((True, ""), "C:/ff/ffmpeg.exe"))
-        self.prefs.patch("live", {"liveTx": {"enabled": False}})
+        LF.patch_cfg(self.cfg, {"liveTx": {"enabled": False}})
         self.assertEqual(self.tx.ready(), (False, "オフ(設定 live.liveTx)"))
-        self.prefs.patch("live", {"liveTx": {"enabled": True}, "enabled": False})
+        LF.patch_cfg(self.cfg, {"liveTx": {"enabled": True}, "enabled": False})
         self.assertEqual(self.tx.ready(), (False, "リアルタイム切り抜きがオフ"))
 
     def test_cfg_and_status(self):
@@ -365,9 +337,9 @@ class TickTest(LiveTxBase):
         self.assertEqual(self.tx.tick(), 0)
         self.assertIn("モデル ggml-large-v3.bin がありません", self.logs[-1])   # 理由が変わったらもう 1 回
         n = len(self.logs)
-        self.prefs.patch("live", {"liveTx": {"enabled": False}})
+        LF.patch_cfg(self.cfg, {"liveTx": {"enabled": False}})
         self.assertEqual(self.tx.tick(), 0)
-        self.prefs.patch("live", {"liveTx": {"enabled": True}, "enabled": False})
+        LF.patch_cfg(self.cfg, {"liveTx": {"enabled": True}, "enabled": False})
         self.assertEqual(self.tx.tick(), 0)
         self.assertEqual(self.logs[n:], [], "オフ・リアルタイム切り抜きがオフは記録しない")
         self.assertEqual(self.tx.queue, [])
@@ -587,104 +559,6 @@ class RunWorkerTest(LiveTxBase):
         self.assertTrue(missing._run_worker(self.edir, "large-v3", self.wav)["reason"].startswith("子プロセスを起動できませんでした"))
 
 
-class WorkerTest(unittest.TestCase):
-    """live_tx_worker.py(子プロセス)。本物の認識はしない"""
-
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-livetx-w-")
-        self.wav = os.path.join(self.tmp, "in.wav")
-        write_wav(self.wav, 10.0)
-        self.data = os.path.join(self.tmp, "editor")
-        self.out = os.path.join(self.tmp, "out.json")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def cli(self, *args):
-        p = subprocess.run([sys.executable, TX.WORKER] + list(args), stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
-        return p.returncode, p.stderr.decode("utf-8", "replace")
-
-    def result(self):
-        with open(self.out, encoding="utf-8") as f:
-            return json.load(f)
-
-    def test_command_line(self):
-        code, err = self.cli(self.data, "large-v3", self.wav)
-        self.assertEqual(code, 2)
-        self.assertIn("usage: live_tx_worker.py", err)
-        self.assertEqual(self.cli(self.data, "small", self.wav, self.out)[0], 1)
-        self.assertEqual(self.result(), {"ok": False, "reason": "whisper.cpp で使えないモデルです: small"})
-        self.assertEqual(self.cli(self.data, "large-v3", self.wav, self.out)[0], 1)
-        r = self.result()
-        self.assertEqual(r["ok"], False)
-        self.assertTrue(r["reason"].startswith("whisper.cpp かモデルがありません"), r)
-        touch(os.path.join(self.data, "bin", "whisper.cpp-%s-vulkan" % TX.WCPP_VERSION, TX.WCPP_EXE))   # 実行ファイルだけ(モデルが無い)
-        self.assertEqual(self.cli(self.data, "large-v3", self.wav, self.out)[0], 1)
-        self.assertIn("ggml-large-v3.bin", self.result()["reason"])
-        self.assertFalse(os.path.exists(self.out + ".part"))
-
-    def test_recognize_with_fake_whisper_cli(self):
-        """編集の WhisperCpp(本物の引数の作り方・-ojf の読み方・GPU の確かめ)を、偽の whisper-cli(編集の tests/fake_whisper_cli.py)で通す"""
-        te = tx_engines()
-        touch(os.path.join(te.wcpp_bin_dir(self.data), te.WCPP_EXE))
-        touch(os.path.join(te.wcpp_model_dir(self.data), te.WCPP_MODELS["large-v3"]["file"]))
-        real = te.WhisperCpp
-
-        class Fake(real):
-            def __init__(self, name, device, model):
-                super().__init__(name, device, dict(model, cmd=[sys.executable, FAKE_WCPP]))
-        saved = list(sys.path)
-        self.addCleanup(lambda: sys.path.__setitem__(slice(None), saved))   # recognize() が sys.path に編集のフォルダを足すので戻す
-        argf = os.path.join(self.tmp, "wcpp-args.json")
-        with mock.patch.object(te, "WhisperCpp", Fake), mock.patch.dict(os.environ, {"FAKE_WCPP_ARGS": argf}):
-            r = TW.recognize(self.data, "large-v3", self.wav)
-        self.assertEqual({k: r[k] for k in ("ok", "text", "gpu", "model", "engine")},
-                         {"ok": True, "text": "テスト文1テスト文2テスト文3", "gpu": "AMD Radeon RX 7800 XT", "model": "large-v3", "engine": "whisper.cpp"})
-        self.assertEqual(r["rows"], [{"start": 0.0, "end": 4.0, "text": "テスト文1"}, {"start": 4.0, "end": 8.0, "text": "テスト文2"},
-                                     {"start": 8.0, "end": 10.0, "text": "テスト文3"}])
-        self.assertIsInstance(r["sec"], float)
-        with open(argf, encoding="utf-8") as f:
-            a = json.load(f)
-        self.assertEqual([a[a.index(k) + 1] for k in ("-l", "-bs", "-mc")], ["ja", "5", "0"])
-        self.assertIn("-nfa", a)
-        self.assertNotIn("-ng", a)   # GPU(vulkan)
-        self.assertNotIn("--vad", a)
-        self.assertEqual(a[a.index("-m") + 1], os.path.join(te.wcpp_model_dir(self.data), "ggml-large-v3.bin"))
-        with mock.patch.object(te, "WhisperCpp", Fake), mock.patch.dict(os.environ, {"FAKE_WCPP_GPU": "none"}):   # GPU が無い: 黙って CPU にしない
-            self.assertEqual(TW.main(["live_tx_worker.py", self.data, "large-v3", self.wav, self.out]), 1)
-        r = self.result()
-        self.assertEqual(r["ok"], False)
-        self.assertTrue(r["reason"].startswith("EngineError: GPU(Vulkan)を使えませんでした"), r)
-
-
-class ConstantsTest(unittest.TestCase):
-    def test_same_values_as_editor(self):
-        """入口は編集の部品を import しないので値を持っている。編集の tx_engines・ホームの設定と同じであること"""
-        te = tx_engines()
-        self.assertEqual(TX.WCPP_VERSION, te.WHISPER_CPP["version"])
-        self.assertEqual(TX.WCPP_EXE, te.WCPP_EXE)
-        self.assertEqual(TX.WCPP_MODEL_FILES, {k: v["file"] for k, v in te.WCPP_MODELS.items()})
-        self.assertEqual(P.LIVE_TX_MODELS, tuple(te.WCPP_MODELS))
-        self.assertEqual((P.DEFAULTS["live"]["liveTx"]["model"], TX.DEFAULT_MODEL), ("large-v3", "large-v3"))
-        d = os.path.join(tempfile.gettempdir(), "ytt-livetx-x", "editor")
-
-        class FakeLive:
-            root = None
-
-            def cfg(self):
-                return {"liveTx": {"model": "large-v3"}}
-        tx = TX.LiveTx(FakeLive())
-        tx.data_dir = lambda: d
-        p = tx.paths()
-        self.assertEqual((os.path.dirname(p["exe"]), os.path.basename(p["exe"])), (te.wcpp_bin_dir(d), te.WCPP_EXE))
-        self.assertEqual(p["model"], os.path.join(te.wcpp_model_dir(d), te.WCPP_MODELS["large-v3"]["file"]))
-
-    def test_portal_does_not_import_editor_engines(self):
-        """入口のプロセスで tx_engines・numpy を import しない(認識は子プロセス live_tx_worker.py の中だけ)"""
-        code = ("import sys; sys.path[:0] = [%r, %r]; import live; import flow.live_tx, flow.live_detect; "
-                "print(sorted(m for m in ('tx_engines', 'pipeline.transcribe.tx_engines', 'numpy', 'faster_whisper') if m in sys.modules))") % (HERE, SRC)
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
-        self.assertEqual((p.returncode, p.stdout.decode().strip()), (0, "[]"), p.stderr.decode("utf-8", "replace")[-500:])
 
 
 if __name__ == "__main__":

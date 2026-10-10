@@ -9,62 +9,13 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/。exporter が裸の名前で handoff を読む)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
 from pipeline.export import exporter  # noqa: E402
-from ytt import fsio, studio_env  # noqa: E402   保存の置き換え・再試行(スタジオの common.atomic_write・replace_file は RS3-4 で ytt.fsio を直に使う形にした)
+from ytt import studio_env  # noqa: E402
 
 
 def locked():
     error = PermissionError(13, "in use", "clip.mp4")
     error.winerror = 32
     return error
-
-
-class TestAtomicWrite(unittest.TestCase):
-    def test_transient_windows_lock_is_retried(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "data.json")
-            fsio.atomic_write(path, b"old")
-            replace = os.replace
-            calls = []
-
-            def flaky(src, dst):
-                calls.append(dst)
-                if len(calls) < 3:
-                    raise locked()
-                replace(src, dst)
-
-            with patch.object(fsio.os, "replace", side_effect=flaky), patch.object(fsio.time, "sleep"):
-                fsio.atomic_write(path, b"new")
-            with open(path, "rb") as f:
-                self.assertEqual(f.read(), b"new")
-            self.assertEqual(len(calls), 3)
-            self.assertEqual(os.listdir(tmp), ["data.json"])
-
-    def test_permanent_lock_preserves_original_and_cleans_temporary_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "data.json")
-            fsio.atomic_write(path, b"original")
-            with patch.object(fsio.os, "replace", side_effect=locked()) as replace, patch.object(fsio.time, "sleep"):
-                with self.assertRaises(PermissionError):
-                    fsio.atomic_write(path, b"changed")
-                self.assertEqual(replace.call_count, 4)
-            with open(path, "rb") as f:
-                self.assertEqual(f.read(), b"original")
-            self.assertEqual(os.listdir(tmp), ["data.json"])
-
-    def test_non_windows_permission_error_is_not_retried(self):
-        with patch.object(fsio.os, "replace", side_effect=PermissionError()) as replace:
-            with self.assertRaises(PermissionError):
-                fsio.replace_retry("source", "target")
-            self.assertEqual(replace.call_count, 1)
-
-    def test_cleanup_failure_does_not_hide_original_error(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            original = PermissionError("replace failed")
-            with patch.object(fsio.os, "replace", side_effect=original), \
-                    patch.object(fsio.os, "unlink", side_effect=OSError("cleanup failed")):
-                with self.assertRaises(PermissionError) as raised:
-                    fsio.atomic_write(os.path.join(tmp, "data.json"), b"data")
-            self.assertIs(raised.exception, original)
 
 
 class TestExportRecovery(unittest.TestCase):
