@@ -20,8 +20,8 @@ FILES = {
     # ---- cut2resolve → pipeline/pack は RS1-2 で移した(pack・resolve_textplus・cut2resolve_core・cut2resolve(CLI)・srt2resolve・auto_cut。DIRS で読む)
     "src/cut2resolve/cut2resolve.py": ("app", "app", "転送(RS5 で消す)。cut2resolve.bat 用に pipeline/pack/cut2resolve.py を動かすだけ"),
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
-    # ---- studio: analyze・batch・store(+ 新しい feedback)・rank(+ seed.json)・txlink は RS3-5 で層へ移した(DIRS で読む)。残るのは serve・common(殻)・handoff = app
-    "src/studio/common.py": ("app", "app", "転送(RS5 で消す)。RS3-4 に中身を ytt(procs・studio_env・mediainfo・apikey・textutil・errors)と pipeline/ingest/sources へ。残るのは読み込みと serve の起動の小物(環境チェック)"),
+    # ---- studio: analyze・batch・store(+ 新しい feedback)・rank(+ seed.json)・txlink は RS3-5 で層へ移した(DIRS で読む)。残るのは serve・startup・handoff = app
+    "src/studio/startup.py": ("app", "app", "起動の小物(src を sys.path に足す・環境チェック・古いログの改名)。RS5-B で common.py の殻を消して残りをここへ"),
     "src/studio/serve.py": ("app", "app", "API の配線"),
     "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った"),
     # ---- editor
