@@ -16,7 +16,6 @@ live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の 
 """
 import os
 import shutil
-import subprocess
 import threading
 import time
 
@@ -33,6 +32,7 @@ LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジ�
 LIVE_DEVICES = ("vulkan",)           # whisper.cpp の機器 = GPU だけ(0.58.0。この PC の設定の cpu などは machine が vulkan に読み替える)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒)
+WAV_TIMEOUT = 120          # 候補の区間の wav を作る ffmpeg 1 本の上限(秒)
 TX_TRIES = 2              # 同じ候補を試す回数
 FAIL_PAUSE_AFTER = 3      # 続けてこの回数失敗したら休む
 PAUSE_SEC = 600.0         # 休む秒
@@ -307,13 +307,16 @@ class LiveTx:
             ss = max(0.0, a - s0) if s0 is not None else 0.0
             wav = os.path.join(wdir, "in.wav")
             cmd = wav_args(self._ffmpeg(), files[0][0], wav, ss, b - a)
-            try:
-                p = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120,
-                                   creationflags=tools.no_window_flags(priority="low"))
-            except (OSError, subprocess.TimeoutExpired) as e:   # ffmpeg が消えた・120 秒で終わらない
+            try:   # 入口の終了(_halt)で止まる・120 秒で止める(ytt/tools.run)
+                p = tools.run(cmd, timeout=WAV_TIMEOUT, cancelled=self._halt.is_set, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=20)
+            except OSError as e:   # ffmpeg が消えた
                 return self._after(rc, rec, pid, False, "wav を作れませんでした(%s)" % e.__class__.__name__)
-            if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
-                return self._after(rc, rec, pid, False, "wav を作れませんでした: %s" % p.stderr.decode("utf-8", "replace")[-200:].strip())
+            if p.why == "cancel":   # 入口の終了: 失敗に数えない(次の起動の見回りでやり直す)
+                return None
+            if p.why == "timeout":
+                return self._after(rc, rec, pid, False, "wav を作れませんでした(%d 秒で終わりませんでした)" % WAV_TIMEOUT)
+            if p.code != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
+                return self._after(rc, rec, pid, False, "wav を作れませんでした: %s" % " / ".join(p.err_lines(3))[-200:])
             res = self._run_in_slot(rec, wav)
             if self._halt.is_set():   # 入口の終了で子プロセスを止めた・待ちをやめた: 失敗に数えない(次の起動の見回りでやり直す)
                 return None

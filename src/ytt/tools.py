@@ -2,6 +2,7 @@
 
 - find_tool … 外部プログラムの場所(固有の環境変数 → YTT_ → PATH → winget。全部の部品がここで探す)。tool_version / tool_output … その版を調べる
 - no_window_flags … creationflags(窓を出さない・別グループ・優先度)。python_exe … 子プロセスに使う python.exe
+- start_logged … 常駐の子プロセスを、出力をログに足す形で起こす
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg の -progress を読みながら動かす(取り消し・無出力で止める)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
@@ -18,7 +19,7 @@ import sys
 import threading
 import time
 
-from . import errors as _errors
+from . import errors as _errors, fsio as _fsio
 
 PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS"}   # no_window_flags の priority
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
@@ -343,6 +344,28 @@ def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, p
         except OSError:
             pass
     return proc.returncode, list(lines), state["why"]
+
+
+def start_logged(cmd, log_path, cwd, flags, rotate=None):
+    """入口が起こす常駐の子プロセス(録画の部品・検出のワーカー)を、標準出力と標準エラーをログに足す形で起動する -> Popen。
+    見出しの行(起動の時刻)・PYTHONIOENCODING(無ければ)・PYTHONUNBUFFERED を付ける。rotate(バイト数)を渡すと、超えていたら起動の前に .old.log へ回す。
+    flags: creationflags か、その候補の並び(先頭から試し、起動できなければ次。最後もだめなら OSError)。
+    OPT1(2026-10-11)に flow/live_detect から移した(② の基盤の使い忘れ。子プロセスの起こし方はここ)"""
+    env = dict(os.environ)
+    env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
+    env["PYTHONUNBUFFERED"] = "1"
+    if rotate is not None:
+        _fsio.rotate(log_path, rotate)
+    tries = list(flags) if isinstance(flags, (list, tuple)) else [flags]
+    with open(log_path, "ab") as logf:
+        logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
+        logf.flush()
+        for i, f in enumerate(tries):
+            try:
+                return subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, creationflags=f)
+            except OSError:
+                if i == len(tries) - 1:
+                    raise
 
 
 def tool_output(path, args=("-version",), timeout=15):

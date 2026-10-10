@@ -43,7 +43,6 @@ import json
 import os
 import shutil
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -74,27 +73,6 @@ CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャ
 def _dump(obj):
     """入口が書く JSON(config.json・decisions.json・auto_failures.json)のバイト列"""
     return json.dumps(obj, ensure_ascii=False, indent=1).encode("utf-8")
-
-
-def start_logged(cmd, log_path, cwd, flags, rotate=None):
-    """入口が起こす常駐の子プロセス(録画の部品・検出のワーカー)を、標準出力と標準エラーをログに足す形で起動する -> Popen。
-    見出しの行(起動の時刻)・PYTHONIOENCODING(無ければ)・PYTHONUNBUFFERED を付ける。rotate(バイト数)を渡すと、超えていたら起動の前に .old.log へ回す。
-    flags: creationflags か、その候補の並び(先頭から試し、起動できなければ次。最後もだめなら OSError)"""
-    env = dict(os.environ)
-    env.setdefault("PYTHONIOENCODING", "utf-8:backslashreplace")
-    env["PYTHONUNBUFFERED"] = "1"
-    if rotate is not None:
-        fsio.rotate(log_path, rotate)
-    tries = list(flags) if isinstance(flags, (list, tuple)) else [flags]
-    with open(log_path, "ab") as logf:
-        logf.write(("\n==== %s ホームから起動 ====\n" % time.strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
-        logf.flush()
-        for i, f in enumerate(tries):
-            try:
-                return subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT, creationflags=f)
-            except OSError:
-                if i == len(tries) - 1:
-                    raise
 
 
 def clean_spec(an):
@@ -326,7 +304,7 @@ class Detector:
         os.makedirs(self.host.logs_dir, exist_ok=True)
         cmd = [self.python, "-u", self.worker, "--config", os.path.join(self.dir, "config.json"), "--parent", str(os.getpid())]
         try:   # 通常より下の優先度・別のプロセスグループ(_kill の CTRL_BREAK がワーカーだけに届く)
-            self.proc = start_logged(cmd, os.path.join(self.host.logs_dir, "excite.log"), CODE_DIR,
+            self.proc = tools.start_logged(cmd, os.path.join(self.host.logs_dir, "excite.log"), CODE_DIR,
                                      tools.no_window_flags(new_group=True, priority="low"), rotate=LOG_MAX)
         except OSError as e:
             self.host.note("盛り上がりの検出: ワーカーを起動できませんでした: %s" % tools.why(e))

@@ -483,6 +483,24 @@ class OneTest(LiveTxBase):
             self.assertEqual(json.load(f)["items"]["p4-52"]["error"], "録画元がありません")
         self.assertEqual(self.tx.failed, 6)
 
+    def test_wav_ffmpeg_stops_on_halt_and_timeout(self):
+        """OPT1: wav を作る ffmpeg は ytt/tools.run(入口の終了 _halt で止まる = 失敗に数えない・WAV_TIMEOUT 秒で止める)"""
+        seen = []
+
+        def fake_run(why):
+            def run(cmd, **kw):
+                seen.append((kw.get("timeout"), kw.get("cancelled")))
+                return TX.tools.RunResult(1, b"", b"", why)
+            return run
+        with mock.patch.object(TX.tools, "run", fake_run("cancel")):
+            self.assertIsNone(self.tx._one("fake", REC, peak("p0-12", 10), T0))
+        with mock.patch.object(TX.tools, "run", fake_run("timeout")):
+            self.tx._one("fake", REC, peak("p1-22", 20), T0)
+        self.assertEqual(seen, [(TX.WAV_TIMEOUT, self.tx._halt.is_set)] * 2)
+        got = {k: v.get("error") for k, v in self.items().items()}
+        self.assertEqual((got.get("p0-12"), got.get("p1-22")), (None, "wav を作れませんでした(%d 秒で終わりませんでした)" % TX.WAV_TIMEOUT))
+        self.assertEqual(self.calls, [])
+
     def test_one_failure_without_reason(self):
         self.answer = {"ok": False}   # 理由の無い失敗でも "None" にしない
         self.tx._one("fake", REC, peak("p0-12", 10), T0)

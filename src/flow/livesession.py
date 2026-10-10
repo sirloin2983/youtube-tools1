@@ -1035,7 +1035,7 @@ class LiveSession:
         flags = tools.no_window_flags(new_group=True, priority="high")
         os.makedirs(self.logs_dir, exist_ok=True)
         try:   # 入口がジョブ(閉じると子も消える)の中で動いていても、録画の部品は外へ出す。出られないジョブならそのまま
-            self.proc = live_detect.start_logged(cmd, os.path.join(self.logs_dir, "recorder.log"), os.path.dirname(script),
+            self.proc = tools.start_logged(cmd, os.path.join(self.logs_dir, "recorder.log"), os.path.dirname(script),
                                                  [flags | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0), flags])
         except OSError as e:
             self.log("録画の部品を起動できませんでした: %s" % tools.why(e))

@@ -1001,17 +1001,10 @@ class Exporter:
             raise LiveError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
         try:
             audio = self._adjust_audio(job, ff, tmp, dur, flags)
+            info = normalize.verify(tmp, dur, LEN_TOL, self.ffprobe, what="作り直した動画", ref="区間", got="動画", error=LiveError)   # 30fps・長さ
         except BaseException:   # 取り消し・入口の終了・失敗: 書きかけは残さない
             fsio.unlink_quiet(tmp)
             raise
-        info = normalize.probe(tmp, self.ffprobe)
-        if not normalize.is_30fps(info):
-            fsio.unlink_quiet(tmp)
-            raise LiveError("作り直した動画が 30fps になっていません(%s)" % ((info or {}).get("r_frame_rate") or "読めません"))
-        if info.get("duration") is None or abs(info["duration"] - dur) > LEN_TOL:
-            fsio.unlink_quiet(tmp)
-            raise LiveError("作り直した動画の長さが区間と違います(区間 %.2f 秒 / 動画 %s 秒)"
-                            % (dur, "不明" if info.get("duration") is None else "%.2f" % info["duration"]))
         final = os.path.join(folder, base + ".mp4")
         fsio.replace_retry(tmp, final)
         return dict(info, path=final, title=title, audio=audio), None
