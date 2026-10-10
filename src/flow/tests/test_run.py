@@ -207,7 +207,7 @@ class TestRun(unittest.TestCase):
             def jobs(self):
                 return [{"id": "j9", "state": "done", "tid": "t9"}]
         r = R.run(None, {"path": self.media}, tools=Tools(None))
-        self.assertEqual((calls, r.doc_id), ([("start", self.media, "small")], "t9"))
+        self.assertEqual((calls, r.doc_id), ([("start", self.media, "large-v3")], "t9"))   # 束の既定のモデル(0.58.0 から large-v3)
 
     def test_missing_file_default_runner(self):
         """hooks なし = 素の Runner。動画が無ければ StepError(ツールは呼ばない)"""
@@ -452,7 +452,7 @@ class TestFieldsToBundle(unittest.TestCase):
                             speakers={"count": 2, "names": ["A"], "styles": {"A": {"color": "#112233"}}}),
             "live_file": dict(video_id=None, title="ライブ", mode="file_auto", top=None, source_path=m, engine="whisper.cpp", model="large-v3",
                               cut="none", pool={"key": "k1", "rid": "x"}),
-            "engine_same": dict(video_id=None, title="動画", mode="file", top=None, source_path=m, engine="faster-whisper", model="small"),
+            "engine_same": dict(video_id=None, title="動画", mode="file", top=None, source_path=m, engine="whisper.cpp", model="large-v3"),
             "doc_overwrite": dict(video_id=None, title="文書", mode=R.DOC_MODE, top=None, doc_id="d1", overwrite=True),
             "adopted_force": dict(video_id=VID, title="配信", mode="adopted", top=5, force=True, marks=("m1",)),
         }
@@ -514,7 +514,7 @@ class TestFieldsToBundle(unittest.TestCase):
         self.assertEqual(lv["pack"]["spec"]["mode"], "list")   # 選んだカット none(画面の rows より強い)
         self.assertNotIn("videoTracks", lv["pack"]["output"])
         self.assertEqual(lv["diarize"], [])   # 話す人の指定が無い = 段が無い
-        self.assertEqual(got["engine_same"]["tx"]["engine"], "faster-whisper")   # 機器から決まるエンジンと同じでも書く
+        self.assertEqual(got["engine_same"]["tx"]["engine"], "whisper.cpp")   # 機器から決まるエンジンと同じでも書く
         self.assertEqual((got["doc_overwrite"]["force"], got["doc_overwrite"]["repack"]), (False, True))   # overwrite はパックだけ作り直す
         ad = got["adopted_force"]
         self.assertEqual((ad["force"], ad["repack"], ad["adopt"][0]["top"], ad["weightsDiffer"]), (True, True, 5, False))

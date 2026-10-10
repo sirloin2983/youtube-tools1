@@ -181,13 +181,15 @@ class TestAltSuggest(_AltStore):
         self.assertEqual(S.dict_version({"autoLearned": True}), v1)   # 別のエンジンの数は辞書の版を変えない
 
     def test_settings_alt_engine(self):
-        with self.assertRaises(S.ApiError):
-            S.patch_settings({"values": {"altEngine": "bad"}})
-        S.patch_settings({"values": {"altEngine": "whisper.cpp"}})
-        self.assertEqual(S.load_settings()["altEngine"], "whisper.cpp")
-        self.assertEqual(S.alt_engine_key({}), "whisper.cpp")
-        self.assertEqual(S.alt_engine_key({"engine": "faster-whisper"}), "faster-whisper")
-        self.assertEqual(S.alt_engine_key({"engine": "nope"}), "whisper.cpp")
+        for bad in ("bad", "whisper.cpp", "faster-whisper"):   # 0.58.0: 選べるのは Qwen3-ASR 1.7B(llama.cpp)だけ
+            with self.assertRaises(S.ApiError):
+                S.patch_settings({"values": {"altEngine": bad}})
+        S.patch_settings({"values": {"altEngine": "llama.cpp"}})
+        self.assertEqual(S.load_settings()["altEngine"], "llama.cpp")
+        write_json(S.SETTINGS, {"altEngine": "whisper.cpp"})   # 0.57.0 までに保存した外れた値は既定に読む
+        self.assertEqual(S.alt_engine_key({}), "llama.cpp")
+        self.assertEqual(S.alt_engine_key({"engine": "faster-whisper"}), "llama.cpp")
+        self.assertEqual(S.alt_engine_key({"engine": "nope"}), "llama.cpp")
         info = S.alt_info()
         self.assertEqual([e["key"] for e in info["engines"]], list(S.ALT_ENGINES))
         self.assertEqual(info["default"], "llama.cpp")
@@ -295,41 +297,30 @@ class TestAltJob(_AltStore):
         self.assertEqual([r["text"] for r in alt["rows"]], ["中の行"])
         self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True})   # 0.64.0 までは pullEnds も(0.65.0 で消した)
 
-    def test_job_whisper_cpp_does_not_join(self):
-        """whisper.cpp の候補も同じ整え方(0.64.0 までは音の谷へ寄せる levels を渡した = 0.65.0 で消した)"""
-        tid = self.transcribe()
-        job = self._take(jobs.add_job(S.alt_spec(tid, {"engine": "whisper.cpp"}), "alt"))
-        got = []
-
-        def spy(gen, spec, dur=None, join=True):
-            got.append((spec["engine"], join))
-            return iter(())
-        with mock.patch.object(postproc, "expand_segments", spy):
-            doc_jobs.run_job(job)
-        self.assertEqual(got, [("whisper.cpp", False)])   # 候補は続いている行をつながない(時刻を使わない。0.57.1 の join_rows)
-        self.assertEqual(S.read_alt(tid)["post"], {"clip": True, "mergeRepeats": True})
-
     def test_refusals(self):
         tid = self.transcribe()
         d = store.read_transcript(tid)
-        # 最初の認識と同じエンジンとモデル
+        first = dict(d["recognition"]["runs"][0])
+        # 最初の認識と同じエンジンとモデル(0.58.0 から 2 つ目のエンジンは Qwen3-ASR 1.7B だけ = 選び直せない)
         d["recognition"]["runs"][0].update(engine="llama.cpp", model="qwen3-asr-1.7b")
         write_json(S.tx_path(tid), d)
         with self.assertRaises(S.ApiError) as cm:
             S.alt_spec(tid, {})
         self.assertEqual(cm.exception.code, "same_engine")
-        self.assertEqual(S.alt_spec(tid, {"engine": "whisper.cpp"})["engine"], "whisper.cpp")   # 別のエンジンなら通る
+        d["recognition"]["runs"][0] = first
+        write_json(S.tx_path(tid), d)
+        self.assertEqual(S.alt_spec(tid, {})["engine"], "llama.cpp")   # 最初の認識と違えば通る
         # 実行中のものがあれば断る
-        self._take(jobs.add_job(S.alt_spec(tid, {"engine": "faster-whisper"}), "alt"))
+        self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
         with self.assertRaises(S.ApiError) as cm:
-            S.alt_spec(tid, {"engine": "faster-whisper"})
+            S.alt_spec(tid, {})
         self.assertEqual(cm.exception.code, "busy")
         # 評価用・文字の無い文書・動画の無い文書
         for over, code in (({"evalSet": True}, "eval_set"), ({"segments": []}, "empty"), ({"sourcePath": os.path.join(self.tmp, "none.mp4")}, "no_file")):
             with self.subTest(code=code):
                 write_json(S.tx_path(tid), dict(d, **over))
                 with self.assertRaises(S.ApiError) as cm:
-                    S.alt_spec(tid, {"engine": "whisper.cpp"})
+                    S.alt_spec(tid, {})
                 self.assertEqual(cm.exception.code, code)
 
     def test_doc_deleted_during_job(self):

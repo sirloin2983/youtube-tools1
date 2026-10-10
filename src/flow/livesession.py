@@ -206,7 +206,7 @@ def cfg_bundle(base, cfg):
     pins = list(b["run"]["pinned"])
     for sec, key, v in (("transcribe", "engine", auto.get("engine")), ("transcribe", "model", auto.get("model")), ("pack", "cut", auto.get("cut"))):
         if v and _spec.key_ok(sec, key, v) and (key != "cut" or v in _spec.CUTS):
-            b[sec][key] = v
+            b[sec][key] = _spec.read_legacy_tx(key, v) if sec == "transcribe" else v   # 旧い名前は key_ok と同じく今の値に読む(0.58.0)
             pins.append(key)
     b["run"]["pinned"] = list(dict.fromkeys(pins))
     return _spec.validate(b)

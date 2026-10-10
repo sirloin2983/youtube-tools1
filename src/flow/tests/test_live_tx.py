@@ -258,10 +258,6 @@ class ReadyTest(LiveTxBase):
         self.assertEqual(self.tx.ready(), (False, "モデル ggml-large-v3.bin がありません(編集で GPU の文字起こしを 1 回すると取得されます)"))
         self.put_wcpp()
         self.assertEqual(self.tx.ready(), (True, ""))
-        LF.patch_cfg(self.cfg, {"liveTx": {"model": "large-v3-turbo"}})   # モデルを変えたら、そのファイルを見る
-        self.assertEqual(self.tx.ready()[1], "モデル ggml-large-v3-turbo.bin がありません(編集で GPU の文字起こしを 1 回すると取得されます)")
-        self.put_wcpp(model="large-v3-turbo")
-        self.assertEqual(self.tx.ready(), (True, ""))
         bare = TX.LiveTx(self.live)   # ffmpeg を渡さなければ探す(YTT_FFMPEG → PATH)
         with mock.patch.object(TX.tools, "find_tool", lambda *a, **k: None):
             self.assertEqual(bare.ready(), (False, "ffmpeg がありません"))
@@ -279,7 +275,7 @@ class ReadyTest(LiveTxBase):
 
             def cfg(self):
                 return {"liveTx": self.v}
-        for v, want in (({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3-turbo"}),
+        for v, want in (({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3"}),   # 0.58.0 で外したモデルは既定
                         ("x", {"enabled": True, "model": "large-v3"}), (None, {"enabled": True, "model": "large-v3"}),
                         ({"enabled": "no", "model": "small"}, {"enabled": True, "model": "large-v3"}),   # 明示的に false のときだけオフ
                         ({"enabled": False, "model": ["large-v3"]}, {"enabled": False, "model": "large-v3"})):

@@ -387,7 +387,7 @@ async function reloadSettings(){
    0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(docs/spec/settings.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
-  ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false], ['redoLarge', 'optRedoLarge', true],
+  ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false],
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
   ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン。0.61.0 のサーバー・画面のチェックは 0.63.0)
   ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。0.67.0。欄は設定の画面だけ)
@@ -431,9 +431,10 @@ function renderOptSummary(){
 
 function applySettings(){
   const s = S.settings;
-  if (s.model && [...$('#optModel').options].some(o => o.value === s.model)) $('#optModel').value = s.model;
+  // 選択肢に無い保存値(0.58.0 で外した small・kotoba など・処理方式の auto・cuda・cpu)は最初の選択肢(large-v3・GPU(whisper.cpp))に読み替える = 次の保存で直る
+  { const m = $('#optModel'); if (m.options.length) m.value = [...m.options].some(o => o.value === s.model) ? s.model : m.options[0].value; }
   if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : 'auto'; { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
+  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : $('#optDevice').options[0].value; { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
   for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 0.66.0: 欄の無い鍵(設定の画面へ)は飛ばす
   $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
@@ -455,10 +456,9 @@ function renderSetup(){
   const hint = html => `<p class="hint" style="margin:0 0 10px">${html}</p>`;
   let gpu = '';
   if (t.backend !== 'fake' && !miss.length){
-    if (t.cuda) gpu = hint(`GPU${t.nvidia ? '(' + esc(t.nvidia) + ')' : ''}を使って処理します。`);
-    else if (t.nvidia) gpu = `<div class="notice"><b>${esc(t.nvidia)}</b> が見つかりましたが、GPU 用のライブラリが入っていないため CPU で処理します。<br>フォルダ内の <code>install-gpu.bat</code> を実行すると GPU が使えます(実行後に起動し直す)。</div>`;
-    else if (t.wcpp && t.wcpp.ready) gpu = hint('AMD などの GPU は、「認識の設定」の処理方式で「GPU(AMD など・whisper.cpp)」を選ぶと使えます(モデルは large-v3 か large-v3-turbo)。');
-    else gpu = hint('NVIDIA の GPU が見つからないため、CPU で処理します(AMD の GPU は setup フォルダの build-whisper-vulkan.bat で使えるようになります)。長い動画は時間がかかるため、「small」や「速度優先」がおすすめです。');
+    // 0.58.0: 文字起こしは GPU(whisper.cpp・large-v3)だけ。作っていなければ始める前に案内する(始めてもサーバーが同じ理由で断る = 黙って CPU にしない)
+    if (t.wcpp && t.wcpp.ready) gpu = hint('GPU(whisper.cpp)で文字起こしします(モデルは large-v3)。');
+    else gpu = `<div class="notice">GPU(whisper.cpp)がまだ用意されていないため、文字起こしできません。setup フォルダの <code>build-whisper-vulkan.bat</code> を実行してから起動し直してください。${t.wcpp && t.wcpp.why ? '<br>' + esc(t.wcpp.why) : ''}</div>`;
   }
   const env = (Array.isArray(t.envWarnings) ? t.envWarnings : []).slice(0, 8);   // サーバーの起動時の確認(ディスクの空き・OneDrive・部品の欠けなど)
   box.innerHTML = (t.backend === 'fake' ? banner('テスト用モード', '実際の文字起こしはしません。') : '')

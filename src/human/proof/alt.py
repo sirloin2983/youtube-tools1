@@ -38,11 +38,11 @@ from . import doc_jobs, store  # noqa: E402   行を分ける文字数 split_cha
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
-# 2つ目のエンジン(設定 altEngine の値 → エンジン・モデル・機器)。モデルはエンジンごとに決め打ち(ここ 1 か所)
+# 2つ目のエンジン(設定 altEngine の値 → エンジン・モデル・機器)。モデルはエンジンごとに決め打ち(ここ 1 か所)。
+# 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で Qwen3-ASR 1.7B だけに(whisper.cpp・faster-whisper は外した。
+# 保存した設定の外れた値は alt_engine_key が既定に戻す・古い alt.json のエンジンの名前は alt_suggest が「エンジン モデル」のまま出す)
 ALT_ENGINES = {
     "llama.cpp": {"engine": "llama.cpp", "model": "qwen3-asr-1.7b", "device": "auto", "label": "Qwen3-ASR 1.7B(GPU・llama.cpp)"},
-    "whisper.cpp": {"engine": "whisper.cpp", "model": "large-v3", "device": "auto", "label": "large-v3(GPU・whisper.cpp)"},
-    "faster-whisper": {"engine": "faster-whisper", "model": "large-v3", "device": "cpu", "label": "large-v3(CPU・faster-whisper)"},
 }
 ALT_DEFAULT = "llama.cpp"   # 既定 = Qwen3-ASR(Whisper と間違え方が違い、GPU でとても速い)
 # 設定 altEngine は api/settings/patch で直せる鍵。値の検査はこの表の持ち主のここで足す(ytt/settings は alt を読まない。RS3-1)

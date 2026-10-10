@@ -558,21 +558,21 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
     # ---- 認識エンジンの口(精度改善の計画 段2-1・2-2)
     def test_whispercpp_through_worker(self):
         """whisper.cpp のエンジンで文字起こし(サーバー → ワーカー → 偽の whisper-cli)。GPU(Vulkan)で動き、記録にエンジンと機器が残る"""
-        job = self.transcribe(model="large-v3-turbo", engine="whisper.cpp")
+        job = self.transcribe(model="large-v3", engine="whisper.cpp")
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(job["device"], "vulkan")
         d = self.doc(job["tid"])
         self.assertEqual([g["text"] for g in d["segments"]][:2], ["テスト文1", "テスト文2"])
         run = d["recognition"]["runs"][0]
-        self.assertEqual((run["engine"], run["engineVersion"], run["device"], run["model"]), ("whisper.cpp", "v1.9.4", "vulkan", "large-v3-turbo"))
+        self.assertEqual((run["engine"], run["engineVersion"], run["device"], run["model"]), ("whisper.cpp", "v1.9.4", "vulkan", "large-v3"))
         self.assertTrue(os.path.isfile(S.words_path(job["tid"])))            # トークンの時刻が単語の時刻になる
         with mock.patch.dict(os.environ, {"FAKE_WCPP_GPU": "none"}):
             S.WORKER.close()
             S.WORKER = S.WorkerClient()                                       # 環境変数をワーカーに渡すため起動し直す
-            job = self.transcribe(model="large-v3-turbo", engine="whisper.cpp")
+            job = self.transcribe(model="large-v3", engine="whisper.cpp")
         self.assertEqual(job["state"], "error")
         self.assertIn("GPU(Vulkan)を使えませんでした", job["error"])         # 黙って CPU にしない
-        self.assertEqual(self.transcribe(model="large-v3-turbo", engine="whisper.cpp", device="cpu")["state"], "done")
+        self.assertEqual(self.transcribe(model="large-v3", engine="whisper.cpp", device="cpu")["state"], "done")
 
     def test_engine_by_name_through_worker(self):
         """エンジンを名前で選べる(今は faster-whisper だけ)。知らない名前はワーカーが断り、ワーカーは落ちない"""

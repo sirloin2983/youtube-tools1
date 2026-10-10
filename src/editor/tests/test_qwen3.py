@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Qwen3-ASR のエンジン(tx_engines.Qwen3Asr = sherpa-onnx の 0.6B・LlamaQwen3 = llama.cpp の 1.7B。精度改善の計画 段2-3)のテスト。test_metrics から読み込まれる。
+"""Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B。sherpa-onnx の 0.6B Qwen3Asr は 0.58.0 で消した。精度改善の計画 段2-3)のテスト。test_metrics から読み込まれる。
 
 本物のモデルは使わない: 区切り・行の作り方・繰り返しの縮め方・答えの読み取り・圧縮ファイルの検査は関数を直に、
 llama.cpp は偽の llama-server(tests/fake_llama_server.py)を子プロセスで動かす(合言葉・言語の先書き・GPU の確認・落ちたら起動し直す)。
@@ -123,22 +123,22 @@ class Qwen3ArchiveTest(unittest.TestCase):
 
 class Qwen3EngineTest(unittest.TestCase):
     def test_registered_and_models(self):
-        self.assertTrue(E.valid("qwen3-asr"))
+        self.assertFalse(E.valid("qwen3-asr"))   # Qwen3-ASR 0.6B(sherpa-onnx)は 0.58.0 で消した
         self.assertTrue(E.valid("llama.cpp"))
-        self.assertTrue(E.get("qwen3-asr").valid_model("qwen3-asr-0.6b"))
-        self.assertFalse(E.get("qwen3-asr").valid_model("large-v3"))
         self.assertTrue(E.get("llama.cpp").valid_model("qwen3-asr-1.7b"))
+        self.assertFalse(E.get("llama.cpp").valid_model("qwen3-asr-0.6b"))
         self.assertFalse(E.get("llama.cpp").valid_model("../x"))
-        self.assertEqual(E.get("qwen3-asr").device_order("auto", True), ["cpu"])
         self.assertEqual(E.get("llama.cpp").device_order("auto", False), ["vulkan"])
         self.assertEqual(E.get("llama.cpp").device_order("cpu", False), ["cpu"])
-        for spec in [E.QWEN3_MODELS["qwen3-asr-0.6b"], E.LLAMA_CPP] + [v for m in E.LLAMA_MODELS.values() for v in m.values()]:
+        for spec in [E.LLAMA_CPP] + [v for m in E.LLAMA_MODELS.values() for v in m.values()]:
             self.assertTrue(spec["url"].startswith("https://"))
             self.assertRegex(spec["sha256"], r"^[0-9a-f]{64}$")
 
     def test_server_accepts_engine(self):
         self.assertEqual(S.req_engine({"engine": "llama.cpp"}, "qwen3-asr-1.7b"), "llama.cpp")
-        self.assertEqual(S.req_engine({"engine": "qwen3-asr"}, "qwen3-asr-0.6b"), "qwen3-asr")
+        with self.assertRaises(S.ApiError) as c:
+            S.req_engine({"engine": "qwen3-asr"}, "qwen3-asr-0.6b")
+        self.assertEqual(c.exception.code, "bad_engine")
         with self.assertRaises(S.ApiError) as c:
             S.req_engine({"engine": "llama.cpp"}, "large-v3")
         self.assertEqual(c.exception.code, "bad_model")

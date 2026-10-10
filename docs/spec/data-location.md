@@ -16,7 +16,7 @@
 | `cut2resolve\` | work\uploads\(画面にドロップしたファイルの一時置き場。起動のたびに消える)・work\serve.log | なし(一時的なものだけ) |
 | `app\` | logs\(入口の launcher.log と各ツールの出力・画面のエラーの記録 client-errors.jsonl(段階7-0))・cases.json(案件の状態・メモ。下の「案件ファイル」)・settings.json(`"window"`: 窓で開くか。段階7-3)・browser-profile\(窓(Edge のアプリモード)の専用のプロファイル。閲覧の記録・Cookie・キャッシュが入り、数十〜数百 MB になる。消すと窓の設定・ログインが初期に戻るだけ) | なし |
 | 各フォルダの `.migrated.json` | いつ・どこから・何を写したか | — |
-| 作業データの根の直下 `machine.json` | この PC の設定(RS7-1。`engine`・`device`・`llmModel`・`caseRoot`・`diskMinGB`・`learningDir`。`src/flow/machine.py`、環境変数 `YTT_MACHINE_FILE` で場所を変えられる。無ければ既定から組む。編集の ⚙ のデバイスはここへ書く。形は `docs/spec/pipeline.md` 2.8) | 左のうち、なし(バックアップは作業データの根の直下も写す) |
+| 作業データの根の直下 `machine.json` | この PC の設定(RS7-1。`engine`・`device`・`llmModel`・`caseRoot`・`diskMinGB`・`learningDir`。0.58.0 から `engine` は whisper.cpp・`device` は vulkan だけ(auto・cuda・cpu・faster-whisper などの旧い値は断らず読み替える)。`src/flow/machine.py`、環境変数 `YTT_MACHINE_FILE` で場所を変えられる。無ければ既定から組む。編集の ⚙ のデバイスはここへ書く。形は `docs/spec/pipeline.md` 2.8) | 左のうち、なし(バックアップは作業データの根の直下も写す) |
 
 - 切り抜きスタジオの書き出し先: 設定で決めていればそのまま。以前の既定(`clip-studio\exports`)を使っていた場合は、そこを使い続ける(動画が2か所に分かれないように)
 - パックの出力(cut2resolve の `<動画名>_pack`)・スタジオの書き出した動画は、これまでどおり動画の隣・指定したフォルダ(作業データではない)。

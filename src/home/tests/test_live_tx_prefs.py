@@ -46,12 +46,12 @@ class ConstantsTest(unittest.TestCase):
             root = None
 
             def cfg(self):
-                return {"liveTx": {"model": "large-v3-turbo"}}
+                return {"liveTx": {"model": "large-v3"}}
         tx = TX.LiveTx(FakeLive())
         tx.data_dir = lambda: d
         p = tx.paths()
         self.assertEqual((os.path.dirname(p["exe"]), os.path.basename(p["exe"])), (te.wcpp_bin_dir(d), te.WCPP_EXE))
-        self.assertEqual(p["model"], os.path.join(te.wcpp_model_dir(d), te.WCPP_MODELS["large-v3-turbo"]["file"]))
+        self.assertEqual(p["model"], os.path.join(te.wcpp_model_dir(d), te.WCPP_MODELS["large-v3"]["file"]))
 
     def test_portal_does_not_import_editor_engines(self):
         """入口のプロセスで tx_engines・numpy を import しない(認識は子プロセス live_tx_worker.py の中だけ)"""

@@ -103,3 +103,21 @@
 | 分析と日報 | URL・合言葉・オン・予定の本数・境目 | **残す** | 1 つの画面で「つながるか確かめる」と一組。設定の画面にはオン・本数・境目だけ |
 
 実装の順: スタジオ(0.25.0。済み)→ ホーム(0.54.0。済み)→ 編集(0.66.0)。テストは UI を外した分を設定の画面か prefs の API に置き換える。
+
+## 選べる値の絞り込み(全体の版 0.58.0。2026-10-11)
+
+ユーザー決定「普段よく使うモデル以外は要らない(欄は残す)」。欄(select)は残し、選べる値と既定を次にした。設定の画面の正は `src/home/settings/schema.json`、編集の画面は `index.html` と `ed_state.MODELS`。
+
+| 設定 | 選べる値 | 既定 | 前は |
+| --- | --- | --- | --- |
+| 編集 `model`(文字起こしのモデル) | large-v3 | large-v3 | small・medium・large-v3・large-v3-turbo・kotoba など。既定は small |
+| 編集 `device`(処理方式) | vulkan(GPU・whisper.cpp) | vulkan | 自動・CUDA・CPU・vulkan。既定は auto |
+| 編集 `altEngine`(2 つ目のエンジン) | llama.cpp(Qwen3-ASR 1.7B) | llama.cpp | whisper.cpp・faster-whisper もあった |
+| 編集 `diarEmb`(話者の声の特徴) | voxceleb | voxceleb | campplus・standard もあった |
+| 編集 `redoLarge` | (消した) | — | kotoba のとき認識し直しだけ large-v3。画面・設定・束・`/api/redo` から消した |
+| ホーム `live.auto.engine` | 「」(編集の設定のまま)・whisper.cpp | 「」 | (ほかのエンジンも書けた。範囲外の保存値は「」に) |
+| ホーム `live.auto.model` | 「」・large-v3(自由入力は廃止) | 「」 | 自由入力 |
+| ホーム `live.liveTx.model` | large-v3 | large-v3 | large-v3-turbo もあった |
+
+- **保存してあった値は断らずに読み替える**: 範囲の外の値(small・kotoba・auto/cuda/cpu・whisper.cpp の altEngine など)は、編集の画面では先頭の値(large-v3 / vulkan)として見え(`applySettings`)、束と `machine.json` は `spec.read_legacy_tx` が読み替え、`live.auto` の範囲外は `prefs._clean_keys` が「」にする。消えた鍵 `redoLarge` は束の取り込みで黙って捨てる(`spec.RETIRED_KEYS`)。
+- whisper.cpp が作られていなければ文字起こしは理由つきで断る(黙って CPU にしない)。faster-whisper は内部の CPU の逃げ道だけ。

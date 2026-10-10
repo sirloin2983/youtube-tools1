@@ -380,7 +380,7 @@ def transcribe_req_inputs(source_path, req):
     """文字起こしの要求 req(束の tx_opts + 段が決めた engine・model。「編集」の受付 validate_job と同じ読み方)で今 source_path を認識したら
     write_after_transcribe が書く transcribe の inputs。動画全体(段は範囲を指定しない)。使えないエンジン・モデルなら ApiError・ValueError"""
     from pipeline.transcribe import records as _records, worker_client as _wc   # 呼ぶときだけ(鍵を書くだけの所で認識の部品を読まない)
-    model = str(req.get("model") or "small").strip()
+    model = str(req.get("model") or "large-v3").strip()
     if not _wc.valid_model(model):
         raise ValueError("モデル名が正しくありません")
     spec = {"engine": _wc.req_engine(req, model), "model": model, "language": str(req.get("language") or "ja"),

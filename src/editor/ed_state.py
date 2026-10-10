@@ -51,12 +51,10 @@ MAX_SPAN_SEC = _txbase.MAX_SPAN_SEC
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = _yschemas.TID_RE   # lint: keep 別名(RS2-9)= 文書の id の形
 # モデル名の検査 valid_model・MODEL_RE は pipeline/transcribe/worker_client へ移した(RS3-0A。ワーカーの cwd = ROOT と対の決まり)
+# 画面のモデルの選択肢(欄は残す)。0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない」)で large-v3 だけにした
+# (small・medium・large-v3-turbo・kotoba は外した。保存済みの設定に残っていても、画面は選択肢に無い値を large-v3 に読み替える)
 MODELS = [
-    ("small", "small(軽い・精度はそこそこ)"),
-    ("medium", "medium(バランス型)"),
-    ("large-v3", "large-v3(高精度・重い。GPU推奨)"),
-    ("large-v3-turbo", "large-v3-turbo(large-v3に近い精度で、より速い)"),
-    ("kotoba-tech/kotoba-whisper-v2.0-faster", "kotoba-whisper v2.0(日本語特化・高速。聞き取りにくい音声は苦手なことも)"),
+    ("large-v3", "large-v3"),
 ]
 LANGS = _txbase.LANGS
 # 幻覚の決まり文句・要確認の印の文(正は ytt/txbase.py。RS2-1a)

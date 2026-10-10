@@ -185,7 +185,7 @@ class TestLocalTranscribePack(unittest.TestCase):
             return r
         tid = go({"path": self.video}).doc_id
         go({"path": self.video})                                                   # 同じ = 飛ばす
-        go({"path": self.video}, dict(spec, transcribe={"model": "large-v3"}))     # 設定が違う = 飛ばして印
+        go({"path": self.video}, dict(spec, transcribe={"quality": "fast"}))       # 設定が違う = 飛ばして印
         go({"docId": tid})                                                         # パックを作る(鍵を書く)
         go({"docId": tid})                                                         # 同じ = 飛ばす
         go({"docId": tid}, dict(spec, pack={"volume": 100, "wrapChars": {"vertical": 6}}))   # 設定が違う = 作り直す

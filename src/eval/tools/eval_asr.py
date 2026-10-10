@@ -1148,7 +1148,7 @@ def main(argv=None):
     p.add_argument("--boost", choices=("on", "off"))
     p.add_argument("--glossary", help="認識のヒントに渡す語(、か改行区切り)。指定しなければ設定の用語集")
     p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto", help="whisper.cpp では auto・cuda = GPU(Vulkan)")
-    p.add_argument("--engine", choices=("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp"), default="faster-whisper", help="認識エンジン(計画 段2。whisper.cpp は setup/build-whisper-vulkan.bat で作ってから。qwen3-asr = Qwen3-ASR 0.6B の CPU(初回にモデル 879MB)・llama.cpp = Qwen3-ASR 1.7B の GPU(初回に実行ファイル 33MB とモデル 2.5GB))")
+    p.add_argument("--engine", choices=("faster-whisper", "whisper.cpp", "llama.cpp"), default="faster-whisper", help="認識エンジン(計画 段2。whisper.cpp = 主の文字起こし(setup/build-whisper-vulkan.bat で作ってから)・llama.cpp = 2 つ目のエンジンの Qwen3-ASR 1.7B の GPU(初回に実行ファイル 33MB とモデル 2.5GB)・faster-whisper = CPU の逃げ道。Qwen3-ASR 0.6B の qwen3-asr は 0.58.0 で消した)")
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--repeat", type=int, default=1, help="run を N 回繰り返し、全体の CER が中央の回を代表にする(既定 1 = 1 回。温度のやり直しありの認識は回ごとにぶれる。計画は 3 回)")

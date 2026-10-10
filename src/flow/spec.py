@@ -25,8 +25,17 @@ RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC �
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
 PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)
-TX_ENGINES = ("faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 文字起こしのエンジンを実行ごとに選ぶとき(リアルタイム切り抜きの live.auto。M2)。editor の tx_engines の id
-TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # 同じくモデルの名前(src/home/prefs.py の LIVE_MODEL_RE と同じ形)
+# 文字起こしのエンジン・モデル・機器(束の transcribe 節・リアルタイム切り抜きの live.auto(M2)・この PC の設定 machine)。editor の tx_engines の id。
+# 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない・faster-whisper も CPU の逃げ道以外は消す」)で whisper.cpp・large-v3・vulkan だけに。
+# faster-whisper は ① の中の CPU の逃げ道(GPU が実行時に失敗したとき・再認識など)として残るが、束からは選ばない。
+TX_ENGINES = ("whisper.cpp",)
+TX_MODELS = ("large-v3",)
+TX_DEVICES = ("vulkan",)
+# 旧い値(0.57.0 まで束・machine.json・保存した設定に書けた物)。断らずに上の値へ読み替える(read_legacy_tx。merge と machine が使う)
+LEGACY_TX_ENGINES = ("faster-whisper", "qwen3-asr", "llama.cpp")
+LEGACY_TX_DEVICES = ("auto", "cuda", "cpu")
+LEGACY_TX_MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]{1,60}(/(?!\.)[A-Za-z0-9_.-]{1,60})?\Z")   # 以前のモデルの名前の形(small・kotoba-tech/… など。worker_client.MODEL_RE と同じ形)
+TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # モデルの名前の形(LLM の後処理のモデル llmModel の検査)
 WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
 MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書き出しの1回の上限と同じ)
 DEFAULT_TOP = 3
@@ -148,10 +157,10 @@ DEFAULTS = {
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
     },
-    "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求)・pipeline/transcribe/tx_engines.py の DEFAULT)
-        "engine": "faster-whisper", "model": "small", "language": "ja",
+    "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求))。0.58.0 から GPU の whisper.cpp + large-v3(0.57.0 まで faster-whisper・small・auto)
+        "engine": "whisper.cpp", "model": "large-v3", "language": "ja",
         "quality": "best",    # best か fast(fast は beam 1)
-        "device": "auto", "vadMode": "weak", "boost": False,
+        "device": "vulkan", "vadMode": "weak", "boost": False,
         "diarize": None,      # 話者判別の人数のヒント(1〜10)。None = しない(src/human/friend/intake.py の parse_speakers の範囲)
     },
     "post": {                 # 後処理(軽い。doc_jobs.py の validate_job と SUBTITLE_DEFAULT・各 auto は validate_job の pref() の既定)
@@ -160,7 +169,7 @@ DEFAULTS = {
         "maxChars": {"vertical": 16, "horizontal": 28},
         "splitChars": 24,
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
-        "autoRedo": False, "redoLarge": True,
+        "autoRedo": False,    # (kotoba のときの redoLarge は 0.58.0 で消した。旧い束にあれば merge が捨てる)
         "autoFill": True, "stripNames": True, "autoLlm": True,
         "llmModel": "qwen3-8b",   # LLM の後処理のモデル(src/pipeline/transcribe/llm.py の LLM_MODEL。この PC の設定 flow/machine.py が重ねる。RS7-1 S1)
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
@@ -190,7 +199,8 @@ DEFAULTS = {
 def merge(spec):
     """既定値(DEFAULTS)に spec(変えたい所だけの dict。None・{} = 何も変えない)を重ねた新しい束を返す。
     辞書の値(maxChars・wrapChars・cutSilence・learning)は鍵ごとに重ね、それ以外(一覧・数・文字・None)は置き換える。
-    知らない節・鍵は ValueError(綴りの間違いで黙って既定になるのを防ぐ)。値の検査はしない(validate)"""
+    知らない節・鍵は ValueError(綴りの間違いで黙って既定になるのを防ぐ)。値の検査はしない(validate)。
+    旧い値は断らずに読み替える(0.58.0): transcribe の engine・model・device の旧い値は read_legacy_tx・消した項目(RETIRED_KEYS)は捨てる"""
     if spec is None:
         spec = {}
     if not isinstance(spec, dict):
@@ -201,8 +211,25 @@ def merge(spec):
             raise ValueError("知らない節です: %s(使えるのは %s)" % (sec, "・".join(SECTIONS)))
         if not isinstance(given, dict):
             raise ValueError("%s は {項目: 値} の形にしてください" % sec)
+        given = {k: read_legacy_tx(k, v) if sec == "transcribe" else v for k, v in given.items() if k not in RETIRED_KEYS.get(sec, ())}
         _overlay(out[sec], given, sec)
     return out
+
+
+RETIRED_KEYS = {"post": ("redoLarge",)}   # 消した項目(0.58.0 = kotoba のときの redoLarge)。旧い束・保存した要求にあれば黙って捨てる
+
+
+def read_legacy_tx(field, value):
+    """transcribe 節の engine・model・device の旧い値(0.57.0 まで書けた物)を今の値に読み替える。
+    エンジン faster-whisper・qwen3-asr・llama.cpp → whisper.cpp / 機器 auto・cuda・cpu → vulkan / large-v3 でないモデルの名前(small・kotoba など)→ large-v3。
+    それ以外(今の値・形の違う値)はそのまま返す(検査は validate)。machine.check も同じ決まりで読む"""
+    if field == "engine" and isinstance(value, str) and value in LEGACY_TX_ENGINES:
+        return TX_ENGINES[0]
+    if field == "device" and isinstance(value, str) and value in LEGACY_TX_DEVICES:
+        return TX_DEVICES[0]
+    if field == "model" and isinstance(value, str) and value not in TX_MODELS and LEGACY_TX_MODEL_RE.match(value):
+        return TX_MODELS[0]
+    return value
 
 
 def _overlay(base, given, path):
@@ -321,10 +348,10 @@ SCHEMA = {
     "export": {"loudness": (_or_none(_one_of(*_LUFS)), "null か %s のどれか" % "・".join(map(str, _LUFS))),
                "volume": (_int_in(1, 200), "1〜200 の整数(%)")},
     "transcribe": {"engine": (_one_of(*TX_ENGINES), "%s のどれか" % "・".join(TX_ENGINES)),
-                   "model": (_model_ok, "英数字と . _ - の 60 字までの名前"),
+                   "model": (_one_of(*TX_MODELS), "%s のどれか" % "・".join(TX_MODELS)),
                    "language": (_one_of("ja", "en", "ko", "zh", "auto"), "ja・en・ko・zh・auto のどれか"),
                    "quality": (_one_of("best", "fast"), "best か fast"),
-                   "device": (_one_of("auto", "cuda", "cpu", "vulkan"), "auto・cuda・cpu・vulkan のどれか"),
+                   "device": (_one_of(*TX_DEVICES), "%s のどれか" % "・".join(TX_DEVICES)),
                    "vadMode": (_one_of("weak", "normal", "off"), "weak・normal・off のどれか"),
                    "boost": (_is_bool, "true か false"),
                    "diarize": (_or_none(_int_in(1, 10)), "null か 1〜10 の整数(人数)")},
@@ -333,7 +360,7 @@ SCHEMA = {
              "maxChars": (_dict_of(**_CHARS_ORIENT), "{vertical, horizontal}(どちらも 4〜80 の整数)"),
              "splitChars": (_int_in(8, 80), "8〜80 の整数"),
              "autoDict": (_is_bool, "true か false"), "autoGloss": (_is_bool, "true か false"), "autoContext": (_is_bool, "true か false"),
-             "autoLearned": (_is_bool, "true か false"), "autoRedo": (_is_bool, "true か false"), "redoLarge": (_is_bool, "true か false"),
+             "autoLearned": (_is_bool, "true か false"), "autoRedo": (_is_bool, "true か false"),
              "autoFill": (_is_bool, "true か false"), "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
              "llmModel": (_model_ok, "英数字と . _ - の 60 字までの名前"),
              "diarSmooth": (_is_bool, "true か false"),
@@ -390,7 +417,7 @@ def key_ok(sec, key, value):
 # ---------- 束 → 各ツールの API の本文(RS6 b-0) ----------
 # 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は FIXED の値(RS7-1 S4 で画面だけの値 screen の口を消した = 決定 3-30 Q2)
 TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
-TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo", "redoLarge",
+TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo",
                 "autoFill", "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 6 つは RS7-1 S2 で足した = 要求にあれば受付が settings.json でなく要求を使う)
 
 
@@ -417,8 +444,10 @@ def hint_people(bundle):
 
 
 def implied_engine(device):
-    """文字起こしの要求にエンジンを書かないときにツールが選ぶエンジン(GPU の vulkan なら whisper.cpp。worker_client.req_engine と同じ決まり)"""
-    return "whisper.cpp" if device == "vulkan" else TX_ENGINES[0]
+    """機器から決まるエンジン(文字起こしの要求にエンジンを書かないとき。vulkan なら whisper.cpp = worker_client.req_engine と同じ決まり)。
+    0.58.0 から束の機器は vulkan だけ(旧い auto・cuda・cpu も vulkan に読み替える)なので、どの機器でも whisper.cpp"""
+    del device   # 引数は呼ぶ側(machine・autorun・live_tx)の形のまま残す
+    return TX_ENGINES[0]
 
 
 def export_body(bundle, video_id, ids):

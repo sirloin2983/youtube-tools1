@@ -79,7 +79,7 @@ youtube-tools/
 
 ## 開発のルール
 - 実行時データ・個人データ・秘密情報はコミットしない(`.gitignore`: transcripts/ dataset/ models/ exports/ clips/ config.json など)。リポジトリは Public にする方針。push.bat はコミットの前に `dev/push_helper.py check` で調べ、キーの形・個人データの名前・動画・5MB 超があれば止める(誤検出なら検査を直す)
-- 版は**全体で 1 つ**: `src/ytt/version.py` の VERSION(今は仮に 0.57.0。正式な 1.0.0 は計画のあとのコードと UI の見直しのあと)。画面は入口が入れる `<meta name="ytt-version">` を読むので、JS に版の文字を書かない。版を上げるときは **`src/ytt/version.py` と直下 `README.txt` の見出し**を同時に上げる(食い違うと画面に赤い帯が出る)。各ツールの版の定数(SERVER_VERSION・APP_VERSION)は RS5 で廃止した
+- 版は**全体で 1 つ**: `src/ytt/version.py` の VERSION(今は仮に 0.58.0。正式な 1.0.0 は計画のあとのコードと UI の見直しのあと)。画面は入口が入れる `<meta name="ytt-version">` を読むので、JS に版の文字を書かない。版を上げるときは **`src/ytt/version.py` と直下 `README.txt` の見出し**を同時に上げる(食い違うと画面に赤い帯が出る)。各ツールの版の定数(SERVER_VERSION・APP_VERSION)は RS5 で廃止した
 - 各ツールの起動の約束(`serve.py [ポート] --no-open`・`.runtime/<ID>.json`・`/api/ping`・SIGTERM/SIGBREAK で後始末)は入口が使う。変えるときは `src/home/launch.py` と `test_launch.py` も
 - コミット: ユーザーの push.bat は `git add -A` でまとめてコミットし、メッセージは「update 日付 時刻」。**何をなぜ変えたかは WORKLOG に書く**。AI が自分でコミットするときは日本語で要約(`"[Claude] 要約"` / `"[GPT] 要約"`)
 - 重い処理は `src/ytt/jobs.py` の `SLOTS` を通す(新しく重い処理を足すときも)。データ移行はコピーのみ・元は残す・削除はユーザー確認後(`datadir.py`)
