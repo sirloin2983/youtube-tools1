@@ -125,6 +125,10 @@ from human.proof import ytcap as _ytcap  # noqa: E402  (元の配信の YouTube 
 from human.proof import retime as _proofretime  # noqa: E402  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補の API の包み。2026-10-05。RS3-E6 に ed_retime から移した。計算は _txretime)
 from human.proof import store as _store  # noqa: E402  (文書の読み書き・履歴・整形・手間・要約のキャッシュ・編集の内容・文字起こしせずに開く。RS3-E5a に ed_store から移した。ed_store は転送だけの殻)
 from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に ed_store から切り出した)
+from manage.cases import relink as _relink  # noqa: E402  (付け替え・まとめて付け替える・「参照…」・素材を 30fps にそろえる。RS3-E7 に ed_relink から移した。ed_relink は転送だけの殻)
+from eval.drill import folders as _evfolders  # noqa: E402  (評価用のフォルダの整理・仮置き・外からの取り込み。RS3-E7 に ed_relink から切り出した)
+from manage.cases import handoff_io as _handoff_io  # noqa: E402  (clip-marker との連携・受け渡しの API。RS3-E7 に ed_misc から移した。ed_misc は転送だけの殻)
+from human.proof import batch as _batch, progress as _progress  # noqa: E402  (フォルダの一括読み込みと文字起こし済みの範囲・進行度(D2 で消す予定)。RS3-E7 に ed_misc から切り出した)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -136,13 +140,14 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から�
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, ed_misc, ed_drill, ed_evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
+_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _batch, _progress, ed_drill, ed_evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
 _ED_MODULES += (_txretime, _proofretime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は包みより前)・文書を読む包みが human/proof/retime(RS3-E6。殻の ed_retime は並べない)
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 _ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
 # ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a。ed_store のあった所。殻の ed_store は ed_jobs の殻と名前が重なるので並べない)
+# ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理(RS3-E7。ed_relink のあった所)・_handoff_io・_batch・_progress = 受け渡し・フォルダの一括・進行度(RS3-E7。ed_misc のあった所)。殻の ed_relink・ed_misc も並べない
 
 
 # ---------- ジョブの種類の登録と、ジョブの表に渡す編集の値(役割で組み直す RS2-1b。表と待機列は ytt/jobs) ----------
@@ -159,7 +164,7 @@ _heavy_jobs.register("diarize", lambda job: _speakers.run_diarize(job), priority
 _heavy_jobs.register("voice-learn", lambda job: _speakers.run_voice_learn(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("retranscribe", lambda job: _rerun.run_retranscribe(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("redo", lambda job: _rerun.run_redo(job), exclusive=_DOC_LOCK, has_tid=True)
-_heavy_jobs.register("normalize", lambda job: ed_relink.run_normalize(job), has_tid=True)   # 動画を選び直したあとの 30fps の作り直し(Q1)
+_heavy_jobs.register("normalize", lambda job: _relink.run_normalize(job), has_tid=True)   # 動画を選び直したあとの 30fps の作り直し(Q1)
 _heavy_jobs.register("alt", lambda job: _alt.run_alt(job), priority=2, exclusive=("alt",), has_tid=True)   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
 _heavy_jobs.register("ytcap", lambda job: _ytcap.run_ytcap(job), priority=2, exclusive=("ytcap",), has_tid=True)   # 元の配信の YouTube の字幕(案 A1)
 _heavy_jobs.register("thumb", lambda job: ed_thumb.run_thumb(job), exclusive=("thumb",), has_tid=True)   # サムネの案を 1 枚に(文書は読むだけ。P5)
@@ -177,6 +182,7 @@ _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fak
 ed_jobs._add_moved(fake_asr)
 ed_alt._add_moved(fake_asr)   # 旧い名前 ed_alt._alt_fake は ④ の疑似へ(殻は eval を読まない。RS3-E6)
 ed_store._add_moved(_doclist)   # 旧い名前 ed_store.list_transcripts・pack_readme・PACK_CHECK_BUDGET を ③ の doclist へ(殻は層 human = manage を読まない。RS3-E5a)
+ed_relink._add_moved(_evfolders)   # 旧い名前 ed_relink.eval_organize・EVAL_STAGING・_evalorg_lock ほかを ④ の folders へ(殻は層 manage = eval を読まない。RS3-E7)
 # 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が learn・replace を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
 _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
@@ -185,11 +191,11 @@ _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")
 _txworker.FAKES_MODULE = fake_worker.__name__
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
 _txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
-# 文書の側(doc_jobs)が使う評価用の作り直し(eval の ed_evalbatch)と 30fps の作り直し(manage の ed_relink)。② から ③・④ を読まないための口。
+# 文書の側(doc_jobs)が使う評価用の作り直し(eval の ed_evalbatch)と 30fps の作り直し(manage の relink。RS3-E7 まで ed_relink)。② から ③・④ を読まないための口。
 # 評価用のフォルダの判定は RS3-1 から ytt/settings(doc_jobs が直に読む = 口は 5 → 3 本)。
 # 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)
 _docjobs.set_hooks(redo_skip=lambda job: ed_evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: ed_evalbatch.eb_redo_fill(job, spec, fields),
-                   norm_after=lambda job, spec, tid: ed_relink.norm_after_transcribe(job, spec, tid))
+                   norm_after=lambda job, spec, tid: _relink.norm_after_transcribe(job, spec, tid))
 _docjobs.check_hooks()
 # 話者の文書の側(human/proof/speakers)が使う評価用の文書の名前の候補(eval の ed_drill)。② から ④ を読まないための口(呼ぶたびに持ち主の属性を読む。RS2-9)
 _speakers.set_context_namer(lambda tid: ed_drill.drill_candidates(tid).get("suggest"))
@@ -250,29 +256,29 @@ def _transcript(tid):
 # GET の API: パス → 関数(a(名前, 既定) = URL の引数)→ 応答の JSON。部品の関数は lambda の中で ed_xxx.名前 と呼ぶたびに読む(テストの差し替えが効く)
 GET_API = {
     "/api/ping": lambda a: _ping(),
-    "/api/siblings": lambda a: pipeline_io.siblings(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
-    "/api/clip-info": lambda a: ed_misc.clip_info(a("path")),
-    "/api/transcript-v1": lambda a: ed_misc.transcript_v1(a("id")),
+    "/api/siblings": lambda a: pipeline_io.siblings(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
+    "/api/clip-info": lambda a: _handoff_io.clip_info(a("path")),
+    "/api/transcript-v1": lambda a: _handoff_io.transcript_v1(a("id")),
     "/api/roster": lambda a: _learn.load_roster(),
     "/api/tools": lambda a: _tools_info(),
-    "/api/marker": lambda a: ed_misc.read_marker(),
+    "/api/marker": lambda a: _handoff_io.read_marker(),
     "/api/voices": lambda a: {"voices": _speakers.voices_summary(), "match": _txdiarize.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
     "/api/overlap-drafts": lambda a: _speakers.ovdraft_for_doc(a("id"), a("kinds", None)),   # 重なりの所の空の行の候補(読むだけ。判別の記録 diar.json の声の区間から)
     "/api/voices/preview": lambda a: _speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
-    "/api/transcribed-ranges": lambda a: {"items": ed_misc.transcribed_ranges()},
+    "/api/transcribed-ranges": lambda a: {"items": _batch.transcribed_ranges()},
     "/api/jobs": lambda a: _jobs_list(),
     "/api/transcripts": lambda a: {"items": _doclist.list_transcripts()},
     "/api/learned": _learned,
     "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
     "/api/eval-baselines": lambda a: {"items": _evmetrics.read_baselines()},
-    "/api/progress": lambda a: ed_misc.progress_stats(),
+    "/api/progress": lambda a: _progress.progress_stats(),
     "/api/drill/status": lambda a: ed_drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: ed_drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
     "/api/drill/candidates": lambda a: ed_drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
     "/api/history": lambda a: {"items": _store.list_history(a("id"))},
     "/api/transcript": lambda a: _transcript(a("id")),
-    "/api/eval-folders": lambda a: ed_relink.eval_folders_info(),
+    "/api/eval-folders": lambda a: _evfolders.eval_folders_info(),
     "/api/eval-batch": lambda a: ed_evalbatch.eval_batch_status(),   # 評価用の動画のまとめての文字起こしの状態(Q4)
     "/api/edit": lambda a: _store.get_edit(a("id")),
     "/api/edit/draft": lambda a: _store.edit_draft(a("id"), a("rows") == "1"),
@@ -312,25 +318,25 @@ POST_API = {
     "/api/alt": lambda o: _job(_alt.alt_spec(_id_of(o), o), "alt"),   # 2つ目のエンジンで聞く(D1-b)。文書は書き換えないので、編集は止めない
     "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/ytcap": lambda o: _job(_ytcap.ytcap_spec(_id_of(o), o), "ytcap"),   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
-    "/api/scan-folder": lambda o: ed_misc.scan_folder(o.get("path"), o.get("recursive") is True),
-    "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
+    "/api/scan-folder": lambda o: _batch.scan_folder(o.get("path"), o.get("recursive") is True),
+    "/api/transcribe-batch": lambda o: _batch.add_batch(o),
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/eval-baseline": lambda o: _evmetrics.record_baseline(o.get("label")),
     "/api/restore": lambda o: {"ok": True, "updatedAt": _store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": _learn.record_feedback(o)},
-    "/api/export-file": lambda o: ed_misc.export_file(o),
+    "/api/export-file": lambda o: _handoff_io.export_file(o),
     "/api/open-video": lambda o: _store.open_video(o),
-    "/api/relink/check": lambda o: ed_relink.relink_check(o),
-    "/api/relink": lambda o: ed_relink.relink_doc(o),
-    "/api/relink/missing": lambda o: ed_relink.relink_missing(),
-    "/api/relink/find": lambda o: ed_relink.relink_find(o),
-    "/api/eval-folders/organize": lambda o: ed_relink.eval_organize("button"),
-    "/api/eval-folders/settle": lambda o: ed_relink.eval_settle(o),
+    "/api/relink/check": lambda o: _relink.relink_check(o),
+    "/api/relink": lambda o: _relink.relink_doc(o),
+    "/api/relink/missing": lambda o: _relink.relink_missing(),
+    "/api/relink/find": lambda o: _relink.relink_find(o),
+    "/api/eval-folders/organize": lambda o: _evfolders.eval_organize("button"),
+    "/api/eval-folders/settle": lambda o: _evfolders.eval_settle(o),
     "/api/eval-batch/start": lambda o: ed_evalbatch.eval_batch_start(o),
     "/api/eval-batch/stop": lambda o: ed_evalbatch.eval_batch_stop(o),
     "/api/eval-batch/redo": lambda o: ed_evalbatch.eval_batch_redo(o),   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
     "/api/eval-batch/redo-one": lambda o: ed_evalbatch.eval_batch_redo_one(o),   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
-    "/api/pick": lambda o: ed_relink.pick_path(o),
+    "/api/pick": lambda o: _relink.pick_path(o),
     "/api/resplit": lambda o: _docjobs.resplit_doc(o),
     "/api/retime": lambda o: _proofretime.retime_doc(o),   # 行の時刻を単語の時刻に合わせる候補(読むだけ。human/proof/retime)
     "/api/edit/pack": lambda o: _store.record_pack(o),
@@ -743,9 +749,9 @@ def prepare(port, base_path="/", hooks=False):
         ed_state.log.warning("前回の異常終了を検出: %s", msg)
     ed_state._run_state["started"] = int(time.time())
     ed_state.write_mark(None)
-    rt = pipeline_io.write_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニューがこのポートを知るため
+    rt = pipeline_io.write_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID, port, _workdata.SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニューがこのポートを知るため
     if rt is None:
-        ed_state.log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", ed_misc.runtime_path_dir())
+        ed_state.log.warning("実行中のポートの記録(.runtime)を書けませんでした: %s", ed_state.runtime_path_dir())
     ed_state.log.info("起動 v%s ポート%d%s メモリ %s python %s", _workdata.SERVER_VERSION, port, "" if base_path == "/" else " 場所" + base_path, ed_state._mem(), sys.version.split()[0])
     _env_warnings[:] = startup_checks()
     for w in _env_warnings:
@@ -756,7 +762,7 @@ def prepare(port, base_path="/", hooks=False):
     if not _started:
         _started.append(True)
         threading.Thread(target=_heavy_jobs.worker, daemon=True, name="tx-jobs").start()
-        t = threading.Timer(5.0, ed_relink._evalorg_startup)   # 評価用のフォルダの整理(起動時に1回。設定が無ければ何もしない)
+        t = threading.Timer(5.0, lambda: _evfolders._evalorg_startup())   # 評価用のフォルダの整理(起動時に1回。設定が無ければ何もしない)
         t.daemon = True
         t.start()
         ed_evalbatch.eb_start_background()   # 評価用の動画のまとめての文字起こし(ボタンでオンにしたときだけ動く。オフなら状態を読むだけ)
@@ -782,14 +788,14 @@ def finish():
             pass
     _txworker.WORKER.close()
     ed_state.log.info("終了(正常)")
-    pipeline_io.remove_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT)
+    pipeline_io.remove_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT)
     ed_state.clear_mark()
 
 
 def mounted_elsewhere():
     """入口(start.bat)の統合サーバーの中で文字起こしツールが動いていれば、その URL。
     同じ transcripts/ を2つのサーバーで書き合わない・認識ワーカーを2つ動かさないよう、serve.py を直接起動したときはそちらを開くだけにする。"""
-    info = _runtime.read_runtime(ed_misc.runtime_path_dir(), ed_state.TOOL_ID)
+    info = _runtime.read_runtime(ed_state.runtime_path_dir(), ed_state.TOOL_ID)
     if info and info["path"] != "/" and _runtime.ping_app(info["port"], 1, info["path"]) == ed_state.APP_ID:
         return "http://localhost:%d%s" % (info["port"], info["path"])
     return None
