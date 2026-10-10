@@ -37,6 +37,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
+from pipeline.transcribe.llm import llm_dist  # noqa: E402  編集距離(本番の LLM の後処理と同じ)
 
 SCHEMA = "youtube-tools-fill-eval/v1"
 LLM_SCHEMA = "youtube-tools-llm/v1"   # 編集の <id>.llm.json(src/pipeline/transcribe/llm.py の LLM_SCHEMA)
@@ -68,13 +69,7 @@ def edit_distance(a, b):
     """編集距離(どちらかが MAX_EDIT_CHARS を超えたら None)"""
     if len(a) > MAX_EDIT_CHARS or len(b) > MAX_EDIT_CHARS:
         return None
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        cur = [i]
-        for j, cb in enumerate(b, 1):
-            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
-        prev = cur
-    return prev[-1]
+    return llm_dist(a, b)
 
 
 def num(x):

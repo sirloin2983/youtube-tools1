@@ -152,16 +152,6 @@ write_runtime = runtime.write_runtime      # (rdir, ツールID, ポート, 版,
 remove_runtime = runtime.remove_runtime    # (rdir, ツールID, ポート) 正常終了時に消す。自分が書いたもの(同じポート・同じプロセス)のときだけ
 
 
-def read_runtime_entries(rdir):
-    """[(ツールID, ポート)]。知らないツールID・名前と中身が合わない・ポートが範囲外のものは捨てる。"""
-    out = []
-    for tool_id in RUNTIME_TOOLS:
-        port = runtime.read_runtime_port(rdir, tool_id)
-        if port is not None:
-            out.append((tool_id, port))
-    return out
-
-
 def ping(port, expect_app, timeout=SIBLING_TIMEOUT):
     """http://127.0.0.1:<port>/api/ping が応答し、app が expect_app なら True。"""
     return runtime.ping_app(port, timeout) == expect_app

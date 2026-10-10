@@ -6,6 +6,7 @@
 細かい決まり(記録の項目・辞書の版の中身)は編集のテスト(src/editor/tests/test_records.py・test_whispercpp.py。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて、置き場所と辞書の材料を持ち主(ytt/workdata・roster.ROSTER)・口(set_dict_inputs)か引数から読む」ことだけ。
 """
+import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
 import shutil
@@ -69,7 +70,8 @@ class TestFiles(_Env):
         rows = list(records.capture_raw(iter([{"start": 0.0, "end": 1.0, "text": "あ", "words": [(0.0, 1.0, "あ")], "wordProbs": [0.9]}]), raw, 10.0))
         self.assertEqual((len(rows), raw[0]["words"]), (1, [[10.0, 11.0, "あ", 0.9]]))
         records.write_asr("abc", raw, {"engine": "x"})
-        self.assertEqual(records.read_asr("abc")["segments"], raw)
+        with open(records.asr_path("abc"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["segments"], raw)
         txwords.write_words("abc", [])
         self.assertIsNone(txwords.read_words("abc"))
 

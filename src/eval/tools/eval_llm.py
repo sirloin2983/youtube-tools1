@@ -70,11 +70,6 @@ def pick_doc(doc, raw, members, limit=30):
     return picks[:limit]
 
 
-def apply_edits(rows, accepted):
-    """original の写しに直しを当てる(印は付けない)。accepted = [(行の番号, 案)] -> 新しい行の一覧(行の数・時刻は同じ)"""
-    return ed_llm.llm_apply([dict(r) for r in rows], accepted, mark=False)
-
-
 def judge_hit(doc, row, e):
     """当てた直しが人の最終と合うか: "hit"(置き換え後の文字が人の行にあり、前の文字が無い)・"miss"(前の文字が人の行に残る)・"other" """
     a, b = float(row["start"]), float(row["end"])

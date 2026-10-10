@@ -8,6 +8,7 @@
 - ジョブ(疑似の認識 TRANSCRIBE_BACKEND=fake + TRANSCRIBE_FAKE_FILL): 行が置き換わり fill と印が付く・記録 recognition.runs[].fill・設定 autoFill(既定オン・評価用はオフ)・保存で fill が残る
 - エンジン: SenseVoice の登録(light)・トークンの時刻からの行・偽(FAKE_TEXT)・小さいモデルは主のモデルを手放さない
 """
+import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import shutil
@@ -177,7 +178,7 @@ class TestFillJob(StoreDir):
         self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 2, "rows": 2, "added": 2, "dup": 0, "agree": 0})
         self.assertIs(doc["params"]["autoFill"], True)
         self.assertEqual([o["text"] for o in doc["original"]], [LONG, LONG, "テスト文3"])   # 機械の出力 = 後処理のあと(whisper の生の結果は asr.json)
-        self.assertEqual([a["text"] for a in records.read_asr(job["tid"])["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
+        self.assertEqual([a["text"] for a in json.load(open(records.asr_path(job["tid"]), encoding="utf-8"))["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
         # 保存しても fill は残る(画面の「別の読み」の札で戻せる)。形の違う fill は捨てる
         saved = store.sanitize_transcript(dict(doc, segments=[dict(segs[0]), dict(segs[2], fill="x")]), doc)
         self.assertEqual([g.get("fill") for g in saved["segments"]], [{"from": "テスト文1", "by": "sense-voice"}, None])

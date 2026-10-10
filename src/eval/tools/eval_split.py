@@ -30,6 +30,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(tools -> eval -> src。ツ
 if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_split.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [REPO] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(REPO))]
 from ytt import datadir, fsio, normalize  # noqa: E402
+from pipeline.transcribe.roster import fold  # noqa: E402,F401  照らし合わせ用(本番と同じ)
 
 SCHEMA = "youtube-tools-eval-split/v1"
 PLAN_NAME = "split-plan.json"
@@ -42,13 +43,6 @@ MAX_DOC_BYTES = 64 * 1024 * 1024        # 文字起こしの文書を読む大�
 _SEP = re.compile(r"[\s・･\-‐_＿.,、。'\"/|｜!！?？#＃【】\[\]()（）「」『』<>〈〉★☆♪~〜]+")
 _DATE = re.compile(r"\d{2}-\d{2,4}(?:-\d{2})?(?:,\d{2})*")
 _NOISE = re.compile(r"教師データ|ショート|\d+")
-
-
-def fold(s):
-    """照らし合わせ用(src/pipeline/transcribe/roster.py の fold と同じ): NFKC・小文字・カタカナ → ひらがな・空白と区切りを除く"""
-    t = unicodedata.normalize("NFKC", str(s or "")).lower()
-    t = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in t)
-    return _SEP.sub("", t)
 
 
 def roster_members(path=ROSTER):

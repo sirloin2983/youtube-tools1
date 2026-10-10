@@ -173,7 +173,3 @@ def write_asr(tid, segments, run):
     body = {"schema": ASR_SCHEMA, "run": run, "segments": segments, "updatedAt": int(time.time() * 1000)}
     _fsio.atomic_write(asr_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
 
-
-def read_asr(tid):
-    """生出力 {"schema", "run", "segments"}。無い・壊れていれば None"""
-    return _fsio.read_schema_json(asr_path(tid), MAX_ASR_BYTES, ASR_SCHEMA, "segments")

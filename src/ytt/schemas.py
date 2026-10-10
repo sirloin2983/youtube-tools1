@@ -391,12 +391,6 @@ def validate_key(obj):
     return json.loads(json.dumps(obj, ensure_ascii=False)), None
 
 
-def same_key(a, b):
-    """2 つの鍵が同じ成果物を指すか(どちらも正しく、段と hash が同じ)。作った日時・作った人は見ない"""
-    ka, kb = validate_key(a)[0], validate_key(b)[0]
-    return ka is not None and kb is not None and ka["stage"] == kb["stage"] and ka["hash"] == kb["hash"]
-
-
 def key_path(path, stage):
     """鍵を書く場所(作業用/ の中。動画_0012.mp4 + export → 作業用/動画_0012.export.key.json)。パスの計算だけで IO はしない"""
     if stage not in KEY_STAGES:

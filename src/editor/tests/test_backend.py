@@ -617,11 +617,12 @@ class TestRuntime(unittest.TestCase):
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "studio", "port": 8801})
         write_json(os.path.join(self.dir, "cut2resolve.json"), {"tool": "cut2resolve", "port": "8810"})     # 文字列
         write_json(os.path.join(self.dir, "evil.json"), {"tool": "evil", "port": 22})                         # 知らないツール
-        self.assertEqual(P.read_runtime_entries(self.dir), [("studio", 8801)])
+        entries = lambda: [(t, p) for t in P.RUNTIME_TOOLS for p in [P.runtime.read_runtime_port(self.dir, t)] if p is not None]   # noqa: E731
+        self.assertEqual(entries(), [("studio", 8801)])
         for bad in (0, 70000, True, 8.5, None, -1):
             self.assertFalse(P.valid_port(bad), bad)
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "cut2resolve", "port": 8801})              # 名前と中身が違う
-        self.assertEqual(P.read_runtime_entries(self.dir), [])
+        self.assertEqual(entries(), [])
 
 
 class _PingServer:

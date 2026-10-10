@@ -673,7 +673,6 @@ class TestArtifactKey(unittest.TestCase):
         a = schemas.make_key("export", {"x": 1, "y": {"p": 1, "q": 2}})
         b = schemas.make_key("export", {"y": {"q": 2, "p": 1}, "x": 1})
         self.assertEqual(a["hash"], b["hash"])
-        self.assertTrue(schemas.same_key(a, b))
         self.assertEqual(len(a["hash"]), 64)
         self.assertEqual((a["schema"], a["v"], a["stage"]), (schemas.KEY_SCHEMA, schemas.KEY_VERSION, "export"))
         self.assertNotEqual(a["hash"], schemas.make_key("analyze", {"x": 1, "y": {"p": 1, "q": 2}})["hash"])   # 段が違えば別の鍵
@@ -706,8 +705,7 @@ class TestArtifactKey(unittest.TestCase):
         self.assertEqual(a["madeBy"], {"name": "studio", "version": "1.0"})
         self.assertNotIn("madeBy", c)
         self.assertTrue(a["hash"] == b["hash"] == c["hash"])
-        self.assertTrue(schemas.same_key(a, b))
-        self.assertTrue(schemas.same_key(a, json.loads(json.dumps(c))))   # ファイルに書いて読み戻しても同じ
+        self.assertEqual(a["hash"], json.loads(json.dumps(c))["hash"])   # ファイルに書いて読み戻しても同じ
 
     def test_media_identity(self):
         self.assertEqual(schemas.media_identity("recording", recorder="rec1", recording="r-0012"), {"kind": "recording", "recorder": "rec1", "recording": "r-0012"})
@@ -715,7 +713,7 @@ class TestArtifactKey(unittest.TestCase):
         self.assertEqual(schemas.media_identity("file", sha256=self.SHA.upper()), {"kind": "file", "sha256": self.SHA})
         # 録画からの速報版とアーカイブからの本番版は同じ区間でも別の鍵(F-1)
         rec = schemas.make_key("export", dict(self.inputs(), media=schemas.media_identity("recording", recorder="rec1", recording="r-1")))
-        self.assertFalse(schemas.same_key(rec, schemas.make_key("export", self.inputs())))
+        self.assertNotEqual(rec["hash"], schemas.make_key("export", self.inputs())["hash"])
         bad = (("movie",), ("archive",), ("archive", {"videoId": ""}), ("archive", {"videoId": 5}), ("archive", {"videoId": "a", "x": "y"}),
                ("recording", {"recorder": "r"}), ("file", {"sha256": "zz"}), ("file", {"sha256": "ab" * 31}), ("file", {"path": "x.mp4"}))
         for args in bad:
@@ -731,15 +729,12 @@ class TestArtifactKey(unittest.TestCase):
         tampered = json.loads(json.dumps(k))
         tampered["inputs"]["fps"] = 60
         self.assertIn("合いません", schemas.validate_key(tampered)[1])
-        self.assertFalse(schemas.same_key(k, tampered))
         for patch in ({"stage": "nope"}, {"stage": None}, {"hash": "xyz"}, {"hash": "A" * 64}, {"v": 2}, {"v": True}, {"inputs": [1]}, {"inputs": {"t": float("nan")}}):
             self.assertIsNone(schemas.validate_key(dict(k, **patch))[0], patch)
         self.assertIn("未対応の版", schemas.validate_key(dict(k, schema="youtube-tools-key/v2"))[1])
         self.assertIsNone(schemas.validate_key(dict(k, schema="youtube-tools-clip/v1"))[0])
         for obj in (None, [], "x", 1):
             self.assertIsNone(schemas.validate_key(obj)[0])
-        self.assertFalse(schemas.same_key(k, None))
-        self.assertFalse(schemas.same_key(k, dict(k, stage="pack")))   # 段が違う(hash も合わない)
         with self.assertRaises(ValueError):
             schemas.make_key("bogus", {})
         self.assertIn("diar", schemas.KEY_STAGES)
@@ -1714,16 +1709,16 @@ class TestTxIndex(unittest.TestCase):
     def test_registered_dirs_are_read_by_other_tools(self):
         """起動したツールが登録した場所(datadir.register)を、同じプロセスの他のツールが読む(env を渡したテストは見ない)"""
         self.addCleanup(datadir.register, "transcribe", None)
-        self.addCleanup(txindex.use_packs_dir, None)
+        self.addCleanup(datadir.register, "cut2resolve", None)
         datadir.register("transcribe", "/tx")
-        txindex.use_packs_dir("/c2r/packs")
+        datadir.register("cut2resolve", os.path.abspath("/c2r"))
         self.assertEqual(datadir.registered("cut2resolve"), os.path.abspath("/c2r"))
         self.assertEqual(txindex.folder("/r"), os.path.join(os.path.abspath("/tx"), "transcripts"))
         self.assertEqual(txindex.packs_dir(), os.path.join(os.path.abspath("/c2r"), "packs"))
         self.assertEqual(txindex.packs_dir(c2r_dir="/other"), os.path.join(os.path.abspath("/c2r"), "packs"))   # 登録が先(以前と同じ)
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))
         self.assertEqual(txindex.packs_dir({"YTT_DATA_DIR": "inplace"}, "/other"), os.path.join(os.path.abspath("/other"), "packs"))
-        txindex.use_packs_dir(None)
+        datadir.register("cut2resolve", None)
         self.assertIsNone(datadir.registered("cut2resolve"))
 
 

@@ -153,14 +153,6 @@ def pack_dir(media_path):
     return os.path.join(os.path.dirname(media_path), os.path.splitext(os.path.basename(media_path))[0] + "_pack")
 
 
-def use_packs_dir(path):
-    """**非推奨(2026-10-09)。datadir.register("cut2resolve", <作業データ>) を使う**(datadir.prepare も同じ登録をするので、呼ばなくても読む場所は同じ。
-    呼ぶ側 src/cut2resolve/serve.py が外れたら消す)。
-    cut2resolve の serve.py が起動したときに、自分の記録のフォルダ(<作業データ>/packs)を知らせる(テストがツールを一時フォルダに写して
-    動かしても、書く場所と読む場所がずれないように)。cut2resolve の作業データのフォルダとして ytt.datadir に登録する(None で取り消す)"""
-    datadir.register("cut2resolve", os.path.dirname(os.path.abspath(path)) if path else None)
-
-
 def packs_dir(env=None, c2r_dir=None):
     """パックを作った記録のフォルダ(cut2resolve の作業データの packs。YTT_DATA_DIR=inplace なら cut2resolve のフォルダの中)。
     置き場所の規則は ytt.datadir.resolve の1か所(起動した cut2resolve が登録した場所。env を渡したときは使わない = テスト)。

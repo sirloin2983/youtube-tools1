@@ -289,10 +289,11 @@ class TestAsrRaw(StoreDir):
 
     def test_write_read_asr(self):
         records.write_asr("0123456789ab", [{"start": 0, "end": 1, "text": "x", "words": []}], {"model": "small"})
-        d = records.read_asr("0123456789ab")
+        with open(records.asr_path("0123456789ab"), encoding="utf-8") as f:
+            d = json.load(f)
         self.assertEqual(d["run"], {"model": "small"})
         self.assertEqual(len(d["segments"]), 1)
-        self.assertIsNone(records.read_asr("ffffffffffff"))
+        self.assertFalse(os.path.exists(records.asr_path("ffffffffffff")))
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
     def test_fake_job_writes_asr(self):
@@ -304,7 +305,8 @@ class TestAsrRaw(StoreDir):
             jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
             doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
-        d = records.read_asr(job["tid"])
+        with open(records.asr_path(job["tid"]), encoding="utf-8") as f:
+            d = json.load(f)
         self.assertTrue(d["segments"])
         self.assertEqual(d["segments"][0]["text"], "テスト文1")
         self.assertEqual(d["run"]["engine"], "fake")
