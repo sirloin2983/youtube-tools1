@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """評価用_仮置き の動画を、評価用(定点)と学習用に分ける道具(文字起こしの精度改善の計画 第2版 D0。plan/line-b-transcription.md の 3-1)。
 
-    python dev/eval_split.py plan  [--root 評価用のフォルダ] [--train 学習用のフォルダ] [--eval-min 30] [--seed 文字] [--data 文字起こしの作業データ]
-    python dev/eval_split.py show  [--root 評価用のフォルダ]
-    python dev/eval_split.py apply [--root 評価用のフォルダ] [--data 文字起こしの作業データ] [--force]
+    python src/eval/tools/eval_split.py plan  [--root 評価用のフォルダ] [--train 学習用のフォルダ] [--eval-min 30] [--seed 文字] [--data 文字起こしの作業データ]
+    python src/eval/tools/eval_split.py show  [--root 評価用のフォルダ]
+    python src/eval/tools/eval_split.py apply [--root 評価用のフォルダ] [--data 文字起こしの作業データ] [--force]
 
 - plan  … 分け方の一覧 <評価用のフォルダ>\\split-plan.json を作る(動画は動かさない)。すでに一覧があれば作り直さない(--redo で作り直す。移したあとは作り直せない)
 - show  … 一覧の要約(メンバーごとの本数と分)を出す
@@ -26,9 +26,9 @@ import sys
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(tools -> eval -> src。ツールと共通部品 ytt の置き場所)
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_split.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [REPO] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(REPO))]
 from ytt import datadir, fsio, normalize  # noqa: E402
 
 SCHEMA = "youtube-tools-eval-split/v1"

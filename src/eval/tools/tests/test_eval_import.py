@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""dev/eval_import.py(評価データの取り込みチェック。友人用簡易版の計画 L5)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_import.py(評価データの取り込みチェック。友人用簡易版の計画 L5)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_eval_import.py
+    py -3.10 -m unittest src/eval/tools/tests/test_eval_import.py
 
 すべて一時フォルダの中で作って確かめる(本物の置き場所 %LOCALAPPDATA%\\youtube-tools\\eval-intake は使わない)。
 """
@@ -15,11 +15,11 @@ import unittest
 import zipfile
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/
-REPO = os.path.dirname(HERE)   # リポジトリ直下
-sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(REPO, "src"))   # ytt_core
-import eval_import as I  # noqa: E402
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+SRC = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
+REPO = os.path.dirname(SRC)   # リポジトリ直下
+sys.path.insert(0, SRC)
+from eval.tools import eval_import as I  # noqa: E402
 from ytt_core import evaldata as ev  # noqa: E402
 
 WID = "0123456789ab"

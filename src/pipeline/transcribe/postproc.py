@@ -351,7 +351,7 @@ def machine_conf(s):
 
 
 def post_record():
-    """recognition.runs[].post: この認識の行の後処理の設定(0.57.1 から。測る道具 dev/eval_timing.py が「版ごと」に分ける。無い記録は 0.57.0 まで)。
+    """recognition.runs[].post: この認識の行の後処理の設定(0.57.1 から。測る道具 src/eval/tools/eval_timing.py が「版ごと」に分ける。無い記録は 0.57.0 まで)。
     version = 編集の版・endTrim = END_TRIM(whisper.cpp の続いている行の終わりを早める秒)・joinGap = JOIN_GAP(続いている行をつなぐすき間)。
     0.64.0 までは pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)も書いた(0.65.0 で部品ごと消した。古い記録の鍵は読むだけ)。
     同じく runs[].retimed(配り直しの数)も 0.65.0 から書かない"""

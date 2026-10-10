@@ -1519,7 +1519,7 @@ class WorkerRestTest(unittest.TestCase):
         w.close()
 
     def test_length_hint_from_human_records(self):
-        """M10: 入口が dev/eval_marks.py --json の結果(スタジオの作業データ evals/marks/)から目安を作る(length_hint)→ config.json の lengthHint →
+        """M10: 入口が src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ evals/marks/)から目安を作る(length_hint)→ config.json の lengthHint →
         見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに(lengthFrom human)、足りなければスタジオの設定(45 秒)"""
         env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         marks = os.path.join(self.tmp, "data", "studio", "evals", "marks")

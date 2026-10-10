@@ -1,6 +1,6 @@
-"""dev/eval_split.py(評価用_仮置き の動画を評価用と学習用に分ける道具)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_split.py(評価用_仮置き の動画を評価用と学習用に分ける道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_eval_split.py
+    py -3.10 -m unittest src/eval/tools/tests/test_eval_split.py
 
 動画・作業データは一時フォルダに作る(本物の作業データ・評価用のフォルダは読まない・書かない)。ffprobe は使わない(長さは差し替える)。
 """
@@ -13,11 +13,10 @@ import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
-sys.path.insert(0, HERE)
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
-import eval_split as E  # noqa: E402
+from eval.tools import eval_split as E  # noqa: E402
 
 ROSTER = E.load_roster()
 

@@ -67,7 +67,7 @@ class TestPlaces(_Patches):
         self.assertEqual(diarize.diar_models_dir(), os.path.join("a", "data", "models", "diar"))
         workdata.DATA_DIR = os.path.join("b", "data")   # 作業データの切り替え(set_data_dir)に呼ぶたびについていく
         self.assertEqual(diarize._diar_path(diarize.DIAR_SEG), os.path.join("b", "data", "models", "diar", diarize.DIAR_SEG["file"]))
-        saved, diarize.DIAR_DIR = diarize.DIAR_DIR, os.path.join("c", "diar")   # 上書き(dev/eval_speakers)
+        saved, diarize.DIAR_DIR = diarize.DIAR_DIR, os.path.join("c", "diar")   # 上書き(src/eval/tools/eval_speakers)
         try:
             self.assertEqual(diarize.diar_models_dir(), os.path.join("c", "diar"))
         finally:

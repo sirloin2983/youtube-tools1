@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(dev/eval_asr.py の採点)で測る道具
+"""クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
 (計画 B2 = E1 の「クラウドとの比較を 1 回」。plan/line-b-transcription.md の E1。2026-10-07)。
 
-    python dev/eval_cloud.py run --service openai --model gpt-4o-transcribe-diarize [--label 名前]
+    python src/eval/tools/eval_cloud.py run --service openai --model gpt-4o-transcribe-diarize [--label 名前]
         送らない(既定): 対象の文書・秒数・見積もり(USD)・先方の保持の扱いを出して終わる(送る前にユーザーへ見せる)
-    python dev/eval_cloud.py run --service openai --model gpt-4o-transcribe-diarize --send [--max-usd 1.0]
+    python src/eval/tools/eval_cloud.py run --service openai --model gpt-4o-transcribe-diarize --send [--max-usd 1.0]
         送って測る(ユーザーの確認のあとに --send を付ける。見積もりが --max-usd を超えたら送らない)
-    python dev/eval_cloud.py run --service elevenlabs --model scribe_v2 --send
-    python dev/eval_cloud.py list        保存してある応答(送り先・モデルごとの本数)
-    python dev/eval_cloud.py prices      この道具に書いてある単価の表(申し込みの前に公式の料金ページで確かめる)
+    python src/eval/tools/eval_cloud.py run --service elevenlabs --model scribe_v2 --send
+    python src/eval/tools/eval_cloud.py list        保存してある応答(送り先・モデルごとの本数)
+    python src/eval/tools/eval_cloud.py prices      この道具に書いてある単価の表(申し込みの前に公式の料金ページで確かめる)
 
   決まり(計画 E1「音声を外へ送る」: 送る前に毎回確認・秒数と見積もり・キーは環境変数・結果は保存して再送しない・終わったら先方の音声を消す):
   - キーは環境変数(OPENAI_API_KEY / ELEVENLABS_API_KEY)か、リポジトリの外の鍵のファイル(--key-file。既定 %USERPROFILE%/youtube-tools-keys.txt に NAME=value の行。
@@ -20,7 +20,7 @@
     ElevenLabs は既定で履歴に残る(Zero Retention は Enterprise だけ)ので、応答の transcription_id を DELETE で消す(--keep-remote で残す)。
     消せなかったときは応答を控えに残したうえで知らせる(結果の meta.cloud.remoteKept に数える)
   - 結果は eval_asr.py と同じ形(schema youtube-tools-asr-eval/v1)で <作業データ>/evals/asr/<日時>_<名前>.json に保存する
-    → `python dev/eval_asr.py compare 手元の結果.json クラウドの結果.json` がそのまま使える。行の後処理の印(meta.post)は手元と違うので compare が注意を出す(想定どおり)
+    → `python src/eval/tools/eval_asr.py compare 手元の結果.json クラウドの結果.json` がそのまま使える。行の後処理の印(meta.post)は手元と違うので compare が注意を出す(想定どおり)
   - 行の時刻: diarized_json(OpenAI の *-diarize)・verbose_json(whisper-1)は区間の時刻、ElevenLabs は単語の時刻から行を組む(話者が変わる・0.6 秒以上の間・12 秒で区切る)。
     時刻の無いモデル(gpt-4o-transcribe・gpt-4o-mini-transcribe・gpt-transcribe)は文書全体を 1 行にする = まとまりごとの内訳・重なりの数字は意味が無い。
     **時刻によらない CER(summary.docText)で比べる**(手元の表の「時刻によらない CER」の列)
@@ -41,10 +41,11 @@ import urllib.request
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存・editor の読み込み)
-import eval_asr as E  # noqa: E402  文書の選び方・採点・まとめ・表示(同じ物差しで測るため)
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_cloud.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存・editor の読み込み)
+from eval.tools import eval_asr as E  # noqa: E402  文書の選び方・採点・まとめ・表示(同じ物差しで測るため)
 from ytt import fsio  # noqa: E402
 
 # 単価(USD / 分。2026-10-07 に公式の料金ページで確認。申し込みの前にもう 1 度見る)

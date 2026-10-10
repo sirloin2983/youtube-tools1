@@ -12,7 +12,7 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 役割で組み直す RS2-9(2026-10-10)に src/editor/tx_worker.py から移した(旧い場所は起動用の転送だけ。RS5 で消す)。編集の serve を読まない:
 - 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
   スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
-  import したとき(テスト・dev/_evalcommon の _audio)は sys.path に触らない
+  import したとき(テスト・src/eval/tools/_evalcommon の _audio)は sys.path に触らない
 - 作業データの場所(ytt/workdata の DATA_DIR)はこのプロセスで入れる(_setup_env): 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
   無ければ以前の既定 = 編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので worker_client._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
   疑似のワーカーの判定 worker_client.worker_fake は環境変数 TRANSCRIBE_BACKEND(RS3-0A まではこのプロセスで txenv の口に登録していた)

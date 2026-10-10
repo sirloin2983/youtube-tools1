@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """校正にどれだけ手間(時間)がかかっているかを見る道具(マスタープラン Q2 の記録 = 文書の effort の見る手段。「校正を速くする」改善が効いたかを比べる物差し)。
 
-    python dev/eval_effort.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--no-eval] [--no-cer]
+    python src/eval/tools/eval_effort.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--no-eval] [--no-cer]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と <id>.diar.json・<id>.alt.json の有無)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals\\effort\\<日時>.json(schema youtube-tools-effort-eval/v1)に残す(置き場所は eval_asr.py(evals\\asr)・eval_speakers.py と同じ「ツールの作業データの下の evals\\<領域>」)。
@@ -39,12 +39,13 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
-from _evalcommon import dist, rate  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_effort.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
+from eval.tools._evalcommon import dist, rate  # noqa: E402
 from ytt.schemas import num, plain_int  # noqa: E402  num = 有限の数(bool は除く)なら float、それ以外は None / plain_int = bool 以外の整数か None
-import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
+from eval.tools import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
 
 SCHEMA = "youtube-tools-effort-eval/v1"
 FEW_DOCS = 10                  # 終わった文書がこれより少ないときは「まだ少ない(参考)」

@@ -1,6 +1,6 @@
-"""dev/eval_fetch.py(編集前の定点を配信から取得する道具)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_fetch.py(編集前の定点を配信から取得する道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_eval_fetch.py
+    py -3.10 -m unittest src/eval/tools/tests/test_eval_fetch.py
 
 評価用のフォルダは一時フォルダに作る。yt-dlp・ffmpeg は呼ばない(配信の一覧・取得・無音の判定は差し替える)。ネットワークは使わない。
 """
@@ -14,11 +14,10 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
-sys.path.insert(0, HERE)
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
-import eval_fetch as F  # noqa: E402
+from eval.tools import eval_fetch as F  # noqa: E402
 from ytt_core import schemas  # noqa: E402
 
 DAY = 86400

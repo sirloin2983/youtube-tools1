@@ -1,6 +1,6 @@
-"""dev/eval_llm.py(LLM の後処理 P18 を先に測る道具)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_llm.py(LLM の後処理 P18 を先に測る道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_eval_llm.py
+    py -3.10 -m unittest src/eval/tools/tests/test_eval_llm.py
 
 LLM・llama-server・作業データは使わない(問い合わせは偽の関数)。選ぶ・答えを読む・検査・当てる・当たりの判定だけを確かめる。
 """
@@ -10,9 +10,10 @@ import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-sys.path.insert(0, HERE)
-import eval_llm as L  # noqa: E402
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
+sys.path.insert(0, REPO)
+from eval.tools import eval_llm as L  # noqa: E402
 
 MEMBERS = [
     {"name": "雪花ラミィ", "aliases": ["ラミィ", "ラミィちゃん"], "common": []},

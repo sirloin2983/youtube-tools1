@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """編集前の定点(評価用)を、配信のアーカイブから取得する道具(文字起こしの精度改善の計画 第2版 D0-b。plan/line-b-transcription.md の 3-3)。
 
-    python dev/eval_fetch.py plan  [--root 評価用のフォルダ] [--minutes 40] [--clip-sec 40] [--since YYYY-MM-DD] [--seed 文字] [--redo]
-    python dev/eval_fetch.py show  [--root 評価用のフォルダ]
-    python dev/eval_fetch.py fetch [--root 評価用のフォルダ] [--limit N]
+    python src/eval/tools/eval_fetch.py plan  [--root 評価用のフォルダ] [--minutes 40] [--clip-sec 40] [--since YYYY-MM-DD] [--seed 文字] [--redo]
+    python src/eval/tools/eval_fetch.py show  [--root 評価用のフォルダ]
+    python src/eval/tools/eval_fetch.py fetch [--root 評価用のフォルダ] [--limit N]
 
 - plan  … メンバーのチャンネル(src/editor/hololive-roster.json の channel)の配信の一覧を yt-dlp で読み、どの配信のどこを取るかの一覧
            <評価用のフォルダ>\\fetch-plan.json を作る(動画は取らない)。乱数は使わない(seed と ID の SHA-1 で決める = 何度作っても同じ)
@@ -32,11 +32,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
-if REPO not in sys.path:
-    sys.path.insert(0, REPO)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(tools -> eval -> src。ツールと共通部品 ytt の置き場所)
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_fetch.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [REPO] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(REPO))]
 from ytt import fsio, normalize, schemas, tools  # noqa: E402
-import eval_split  # noqa: E402  (同じ dev/ の道具。評価用のフォルダの決め方・名簿の読み方を使う)
+from eval.tools import eval_split  # noqa: E402  (同じ tools/ の道具。評価用のフォルダの決め方・名簿の読み方を使う)
 
 SCHEMA = "youtube-tools-eval-fetch/v1"
 PLAN_NAME = "fetch-plan.json"

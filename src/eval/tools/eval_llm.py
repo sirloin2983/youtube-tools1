@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """LLM の後処理(提案 P18。pipeline/transcribe/llm.py(旧 src/editor/ed_llm.py)。plan/llm-postfix.md)を、確かめ済みの評価用の文書で測る道具。
 
-    python dev/eval_llm.py [--docs id,id] [--limit 30] [--only name,mis] [--dry] [--label 名前] [--no-save]
+    python src/eval/tools/eval_llm.py [--docs id,id] [--limit 30] [--only name,mis] [--dry] [--label 名前] [--no-save]
 
 - 作業データは**読むだけ**(文字起こしの transcripts/<id>.json・<id>.asr.json)。結果は 文字起こしの作業データの evals/asr/<日時>_llm-base.json と _llm-on.json
-  (dev/eval_asr.py compare でそのまま比べられる形)と、提案の中身 evals/llm/<日時>.json に残す(--no-save で残さない)
-- 対象: dev/eval_asr.py と同じ選び方(既定は評価用の確かめ済みだけ)。機械の出力 original(評価用には辞書・後処理が当たっていない)に LLM の直しを当てる前と後を、
+  (src/eval/tools/eval_asr.py compare でそのまま比べられる形)と、提案の中身 evals/llm/<日時>.json に残す(--no-save で残さない)
+- 対象: src/eval/tools/eval_asr.py と同じ選び方(既定は評価用の確かめ済みだけ)。機械の出力 original(評価用には辞書・後処理が当たっていない)に LLM の直しを当てる前と後を、
   eval_asr の採点(score_doc・summarize = 画面の精度の測定と同じ規則)で比べ、最後に compare の対の差(95% の範囲)を出す
 - 規則は pipeline/transcribe/llm.py をそのまま使う(選ぶ llm_pick・聞く llm_messages・読む llm_parse・検査 llm_guard・上限 llm_cap・当てる llm_apply = 本番と同じ)。
   この道具だけの選び方: (b) whisper の語の確信度(生の結果 asr.json の words)が LOW_PROB 未満の 2 字以上の語(同じ字の繰り返しは除く)。
@@ -23,12 +23,11 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存。src を sys.path に足す)
-import eval_asr as E  # noqa: E402  選び方と採点(score_doc・summarize・compare)
-if C.EDITOR not in sys.path:
-    sys.path.insert(0, C.EDITOR)
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_llm.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・保存。src を sys.path に足す)
+from eval.tools import eval_asr as E  # noqa: E402  選び方と採点(score_doc・summarize・compare)
 from pipeline.transcribe import llm as ed_llm  # noqa: E402  本番の規則(別名 ed_llm のまま = main の中に局所の llm がある。2026-10-10 の RS2-9 に src/editor/ed_llm.py から pipeline/transcribe/llm.py へ移した。規則の部分は編集のほかの部品を読まない)
 
 LOW_PROB = 0.35          # whisper の語の確信度がこれ未満なら疑わしい(この道具だけ)

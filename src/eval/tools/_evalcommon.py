@@ -4,7 +4,7 @@
 - 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt_core)・EDITOR(src/editor)。読み込むと REPO を sys.path に足す
 - 作業データの場所(ytt_core.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
   時期(--since / --until)・率と分布・git の rev・結果の保存(<ツールの作業データ>/evals/<領域>/<日時>.json。
-  入口の src/home/accuracy.py が、道具の最後の行「保存: <パス>」と名前の形 <日時>.json で読む = 形を変えない)
+  入口の src/eval/drill/accuracy.py が、道具の最後の行「保存: <パス>」と名前の形 <日時>.json で読む = 形を変えない)
 - editor の部品をこのプロセスの中で使うときの読み込み(load_serve。eval_asr・eval_speakers・eval_timing・eval_effort・eval_alt)
 """
 import atexit
@@ -18,9 +18,9 @@ import sys
 import tempfile
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-TOP = os.path.dirname(HERE)      # リポジトリ直下(git)
-REPO = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
+HERE = os.path.dirname(os.path.abspath(__file__))   # src/eval/tools
+REPO = os.path.dirname(os.path.dirname(HERE))      # src(ツールと共通部品 ytt の置き場所)
+TOP = os.path.dirname(REPO)                        # リポジトリ直下(git)
 EDITOR = os.path.join(REPO, "editor")
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
@@ -28,7 +28,7 @@ from ytt import datadir, fsio  # noqa: E402
 from ytt.fsio import read_json_or as read_json  # noqa: E402   read_json(path, default, limit) = JSON のファイル(BOM 可)。読めない・壊れている・NaN・limit バイト超は default
 
 DOC_BYTES = 64 * 1024 * 1024    # 文書・記録の JSON を読むときの上限(limit を渡さない呼び出しにも付ける。fsio の既定は 16MiB)
-SAVED_MARK = "保存: "            # 結果を残した最後の行の頭(入口の src/home/accuracy.py が SAVED_MARK として読む。形を変えない)
+SAVED_MARK = "保存: "            # 結果を残した最後の行の頭(入口の src/eval/drill/accuracy.py が SAVED_MARK として読む。形を変えない)
 
 
 # ---------------------------------------------------------------- 引数の定義(since / until / json / data-dir は全部の道具で同じ)

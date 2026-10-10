@@ -218,7 +218,7 @@ class Detector:
                 "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg()}   # 友人の依頼の録画(2-15)
 
     def _length_hint(self):
-        """M10: 人が選んだ区間の長さの目安(夜の自動測定 dev/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
+        """M10: 人が選んだ区間の長さの目安(夜の自動測定 src/eval/tools/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
         try:
             return EW.length_hint(self.live.root)
         except Exception as e:

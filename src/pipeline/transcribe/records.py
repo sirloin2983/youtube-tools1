@@ -58,7 +58,7 @@ def _engine_ids(spec):
 
 
 def _run_base(spec, pairs=None):
-    """recognition.runs の 1 件の共通の項目(最初の認識 recognition_run と再認識の記録 record_rerun で同じ。dev/eval_* が読む):
+    """recognition.runs の 1 件の共通の項目(最初の認識 recognition_run と再認識の記録 record_rerun で同じ。src/eval/tools/eval_* が読む):
     エンジンと版・モデル・言語・settings(beam・vadMode・boost・wordSplit・dict = 辞書の版)・at・post(行の後処理)。
     pairs = 作ってある置換辞書の組(dict_pairs。同じ設定を読み直さない)。エンジンの版が分からなくても記録は作る"""
     eid, ever = _backend.select().engine_ids(spec, _engine_ids)

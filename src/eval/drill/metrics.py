@@ -5,7 +5,7 @@
 役割で組み直す RS3-E5c(2026-10-10)に編集の ed_learn(段10 で editor/serve.py から分けた部品)から移した(中身は同じ)。
 機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm)は human/proof/learn、置換辞書は pipeline/transcribe/replace を呼ぶたびに読む
 (④ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics・/api/eval-baselines・/api/eval-baseline)は serve が直に呼び、
-dev/eval_asr.py・dev/eval_alt.py は serve の名前(S.norm_cer・S.lev_counts・S.doc_metrics など)で読む。
+src/eval/tools/eval_asr.py・src/eval/tools/eval_alt.py は serve の名前(S.norm_cer・S.lev_counts・S.doc_metrics など)で読む。
 旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。serve が _add_moved でここを足す = 殻は eval を読まない。RS5 で消す)と
 serve の受付がここへ回す(テストの S.MAX_LEV_CELLS = … もここに入る)。
 """

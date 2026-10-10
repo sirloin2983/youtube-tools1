@@ -1,6 +1,6 @@
-"""dev/eval_marks.py(盛り上がりの検出を、人の判定の記録で測る道具。線 C の土台)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_marks.py(盛り上がりの検出を、人の判定の記録で測る道具。線 C の土台)のテスト。リポジトリ直下で:
 
-    python -m unittest dev/tests/test_eval_marks.py
+    python -m unittest src/eval/tools/tests/test_eval_marks.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバーは動かさない。
 """
@@ -15,11 +15,10 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
-sys.path.insert(0, HERE)
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
-import eval_marks as M  # noqa: E402
+from eval.tools import eval_marks as M  # noqa: E402
 from ytt_core import txindex  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"

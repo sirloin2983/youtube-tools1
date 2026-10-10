@@ -7,7 +7,7 @@ GPU で失敗したら CPU でやり直す決まり(cpu_fallback)・wav をサ�
 役割で組み直す RS2-6(2026-10-10)に編集の ed_jobs(WavRef・WavSlice・read_wav_f32 は ed_speakers)から移した(中身は同じ)。
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・roster・tx_engines・txbase)だけを読む。
 **このモジュールは編集のサーバーのプロセスでも読む**ので、numpy・faster_whisper・ctranslate2・sherpa_onnx は IN_WORKER のときだけ通る関数の中で読む
-(src/editor/tests/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(dev/_evalcommon)が入れる。
+(src/editor/tests/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(src/eval/tools/_evalcommon)が入れる。
 ワーカーの本体は同じフォルダの worker.py(RS2-9 に編集の tx_worker.py から移した。WORKER_SCRIPT はテストの差し替え用)。記録 WORKER_LOG は
 app(編集の serve.py)が読み込みのときと作業データの切り替えで入れる(入っていなければ呼ぶたびに ytt/workdata の DATA_DIR から作る)。
 ワーカーへは作業データの場所(環境変数 TRANSCRIBE_DATA_DIR)を必ず渡し、worker-fake(テスト)のときだけ疑似の部品のモジュール名(FAKES_MODULE。app が入れる)を渡す。
@@ -786,7 +786,7 @@ def whisper_kwargs(spec):
     if "kotoba" in spec["model"].lower():
         kw["chunk_length"] = 15   # kotoba-whisper が推奨する設定
     if spec.get("temp0"):
-        kw["temperature"] = 0.0   # 温度のやり直し(乱数を使う)をしない。精度を比べる道具(dev/eval_asr.py --temp0)だけが使う
+        kw["temperature"] = 0.0   # 温度のやり直し(乱数を使う)をしない。精度を比べる道具(src/eval/tools/eval_asr.py --temp0)だけが使う
     terms = _roster.prompt_terms(spec)
     if terms:
         kw["initial_prompt"] = "用語: " + "、".join(terms)

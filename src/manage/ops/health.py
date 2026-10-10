@@ -265,7 +265,7 @@ class Health:
     def __init__(self, sup, logs_dir, repo_root=None, worker_probe=None, extra_dirs=None, clock=time.time, cache_sec=CACHE_SEC, crash_fn=None,
                  live_probe=None, accuracy_probe=None):
         """live_probe() = リアルタイム切り抜きの録画元ごとの状態と空き容量(src/home/live.py の Live.health)。オフなら None を返す = 「調子」に出さない。
-        accuracy_probe() = 精度の自動測定の状態と領域ごとの直近・前回(src/home/accuracy.py の Accuracy.snapshot。軽い。無ければ「調子」に出さない)"""
+        accuracy_probe() = 精度の自動測定の状態と領域ごとの直近・前回(src/eval/drill/accuracy.py の Accuracy.snapshot。軽い。無ければ「調子」に出さない)"""
         self.sup, self.logs_dir, self.repo_root = sup, logs_dir, repo_root
         self.live_probe = live_probe
         self.accuracy_probe = accuracy_probe

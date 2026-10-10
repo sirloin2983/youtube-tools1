@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """カットのたたき台(機械の最初の結果)と、人の最終の差を測る道具(マスタープラン Q3・I-3a: 無音のしきい値・行の後の余白の既定を見直す材料)。
 
-    python dev/eval_cut.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
+    python src/eval/tools/eval_cut.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.edit.json と <id>.json、cut2resolve の packs/ のパックを作った記録)。何も書き換えない。
   --json のときだけ、結果を文字起こしの作業データの evals\\cut\\<日時>.json に残す(evals の置き場所は eval_speakers.py・eval_marks.py・eval_asr.py と同じ規則)。
@@ -30,10 +30,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
-from _evalcommon import dist, rate, read_json  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_cut.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
+from eval.tools._evalcommon import dist, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-cut-eval/v1"

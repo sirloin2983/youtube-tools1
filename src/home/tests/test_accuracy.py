@@ -1,4 +1,4 @@
-"""精度の自動測定(src/home/accuracy.py)の単体テスト。一時フォルダと、dev/eval_*.py の代わりの偽の道具(小さな Python スクリプト)だけを使う。
+"""精度の自動測定(src/eval/drill/accuracy.py)の単体テスト。一時フォルダと、src/eval/tools/eval_*.py の代わりの偽の道具(小さな Python スクリプト)だけを使う。
 
 実行(リポジトリ直下から): py -3.10 -m unittest src/home/tests/test_accuracy.py -v
 """
@@ -20,7 +20,7 @@ for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import accuracy  # noqa: E402
+from eval.drill import accuracy  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from ytt_core import fsio, jobs  # noqa: E402
 import launch as L  # noqa: E402
@@ -308,19 +308,19 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual((r["asr"], r["marks"]), ("ok", "ok"))
 
     def test_missing_tool_is_skipped(self):
-        self.cut = False                                 # dev/eval_cut.py はまだ無い
+        self.cut = False                                 # eval/tools/eval_cut.py はまだ無い
         r = self.acc.tick()
         self.assertIsNone(r["cut"])
         by = {a["id"]: a for a in self.acc.snapshot()["areas"]}
         self.assertFalse(by["cut"]["available"])
         self.assertTrue(by["asr"]["available"])
         self.assertEqual(by["cut"]["error"], "")
-        # 実物の既定の呼び方: dev/ に道具があれば呼ぶ・無ければ None
+        # 実物の既定の呼び方: src/eval/tools/ に道具があれば呼ぶ・無ければ None
         real = accuracy.Accuracy(self.prefs, self.app, ROOT)
         got = {a["id"]: real.commands(a) for a in accuracy.AREAS}
         self.assertEqual(got["asr"][2:], ["stored", "--label", "auto"])
         self.assertEqual(os.path.basename(got["marks"][1]), "eval_marks.py")
-        self.assertEqual(got["cut"] is None, not os.path.isfile(os.path.join(os.path.dirname(ROOT), "dev", "eval_cut.py")))   # dev/ は src の1つ上
+        self.assertEqual(got["cut"] is None, not os.path.isfile(os.path.join(ROOT, "eval", "tools", "eval_cut.py")))   # ROOT = src
 
     def test_result_file_found_without_saved_line_but_not_outside(self):
         real_clock = accuracy.Accuracy(self.prefs, self.app, ROOT, busy=self.busy, commands=self.commands, evals_dir=self.edir, timeout=30, log=self.logs.append)
@@ -481,20 +481,20 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(accuracy.count_daily(os.path.join(self.tmp, "無い")), {"sec": 0.0, "docs": 0, "lines": 0})
 
     def test_goal_thresholds_match_the_tools(self):
-        """しきい値は accuracy.py の GOALS の 1 か所。道具の「まだ少ない」の値(dev/eval_*.py の定数)と食い違わない(道具は読むだけ。import しない)"""
+        """しきい値は accuracy.py の GOALS の 1 か所。道具の「まだ少ない」の値(src/eval/tools/eval_*.py の定数)と食い違わない(道具は読むだけ。import しない)"""
         import ast
-        dev = os.path.join(os.path.dirname(ROOT), "dev")
+        tools_dir = os.path.join(ROOT, "eval", "tools")
 
         def const(script, name):
-            path = os.path.join(dev, script)
+            path = os.path.join(tools_dir, script)
             if not os.path.isfile(path):
-                self.skipTest("dev/%s が無い" % script)
+                self.skipTest("eval/tools/%s が無い" % script)
             with open(path, encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             for node in tree.body:
                 if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
                     return eval(compile(ast.Expression(node.value), path, "eval"), {"__builtins__": {}})   # 定数の式(15 * 60 など)だけ
-            self.fail("dev/%s に %s が無い" % (script, name))
+            self.fail("eval/tools/%s に %s が無い" % (script, name))
         by = {g["id"]: g["target"] for g in accuracy.GOALS}
         gates = dict(const("eval_asr.py", "GATES"))
         self.assertEqual((by["g1"], by["g2fixed"]), (gates["G1"], gates["G2"]))

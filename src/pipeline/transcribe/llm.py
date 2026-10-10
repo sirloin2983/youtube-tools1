@@ -15,8 +15,8 @@
   - 選んだ所が無ければ LLM を読み込まない(モデルは 5GB)。読めない・失敗したら文字起こしを失敗にせず、警告を出して認識の結果のまま
   - 生の提案・採否・断った理由は <id>.llm.json(LLM_SCHEMA)、数は recognition.runs[].llm
   - 学習(ed_learn.learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)
-  - 測る道具は dev/eval_llm.py(この部品の規則をそのまま使う)。10-09 に確かめ済み 22 本で CER 13.5 → 13.4%・名前 28 → 34/53
-規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(dev/eval_llm.py が単独で読む)。組み込みの部分だけが、ytt/jobs・ytt/workdata・worker_client・roster・backend を呼ぶ。
+  - 測る道具は src/eval/tools/eval_llm.py(この部品の規則をそのまま使う)。10-09 に確かめ済み 22 本で CER 13.5 → 13.4%・名前 28 → 34/53
+規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(src/eval/tools/eval_llm.py が単独で読む)。組み込みの部分だけが、ytt/jobs・ytt/workdata・worker_client・roster・backend を呼ぶ。
 名前は llm_ / LLM_ で始める(read_llm のほか。serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
 役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_llm.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.llm_* は serve の名前の受付で読める)。
@@ -233,7 +233,7 @@ def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None)
         for e in llm_parse(ask(llm_messages(rows, i, mine, people))):
             why = llm_guard(rows[i]["text"], e, cands, names)
             rec["proposed"] += 1
-            rec["items"].append({"row": i, "start": rows[i].get("start"), "end": rows[i].get("end"), "text": rows[i]["text"][:200], **e, "rejected": why})   # 時刻 = あとで人の最終と突き合わせる(dev/eval_fill.py)
+            rec["items"].append({"row": i, "start": rows[i].get("start"), "end": rows[i].get("end"), "text": rows[i]["text"][:200], **e, "rejected": why})   # 時刻 = あとで人の最終と突き合わせる(src/eval/tools/eval_fill.py)
             if why:
                 rec["rejected"][why] = rec["rejected"].get(why, 0) + 1
             else:

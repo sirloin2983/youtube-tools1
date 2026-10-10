@@ -1,7 +1,7 @@
 """精度の自動測定(マスタープラン Q3。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))。
 
 人が直した最終の記録に対して、機械の出力がどれだけ当たっているかを、手が空いたときに自動で測って「調子」に出す。
-測る道具(dev/eval_asr.py・eval_marks.py・eval_speakers.py・eval_cut.py。無い道具は飛ばす)はそのまま使い、**子プロセス**で呼ぶ
+測る道具(src/eval/tools/eval_asr.py・eval_marks.py・eval_speakers.py・eval_cut.py。無い道具は飛ばす)はそのまま使い、**子プロセス**で呼ぶ
 (eval_asr.load_serve は serve.py を別名で読み環境変数を書き換えるので、入口の中では import できない。ほかの道具も形をそろえる)。
 
 - 測るもの: 軽い測定だけ = 保存してある機械の出力と人の最終を比べる(認識し直さない。文字起こしは `eval_asr.py stored`)。作業データは読むだけ。
@@ -32,7 +32,7 @@ import threading
 import time
 
 from manage.cases import txindex
-from ytt import datadir, fsio, layout, schemas, tools
+from ytt import datadir, fsio, schemas, tools
 
 STATE_FILE = "accuracy-state.json"
 FIRST_WAIT = 120           # 起動してから最初に見るまで(秒。ツールの起動とぶつけない)
@@ -42,7 +42,7 @@ QUIET_EDIT_SEC = 30 * 60   # 文字起こしの文書の最後の更新からこ
 TOOL_TIMEOUT = 20 * 60     # 道具1つあたりの時間切れ(秒)
 FEW_DOCS = 2               # これより少ない文書(配信)数のときは「まだ少ない」
 MAX_RESULT_BYTES = 64 * 1024 * 1024
-SAVED_MARK = "保存: "       # 道具が結果のファイルを書いたとき、最後に標準出力へ出す行の頭(dev/eval_*.py)
+SAVED_MARK = "保存: "       # 道具が結果のファイルを書いたとき、最後に標準出力へ出す行の頭(src/eval/tools/eval_*.py)
 ERR_TAIL = 200
 KEEP_FILES = 30            # 自動の測定が作った結果ファイルは、領域ごとに新しい分をこれだけ残して古いものを消す
 # 消してよい名前の形(道具の save の形: <日時>.json。asr は --label auto の <日時>_auto.json)。これに合わないファイルは数えもしない・消さない
@@ -53,7 +53,7 @@ MAX_DOC_BYTES = 64 * 1024 * 1024   # 普段の校正済みの秒を数えると�
 DOC_NAME_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")   # 文字起こしの文書(src/editor の TID_RE と同じ形)。edit.json・diar.json などは数えない
 
 # 入口の条件(plan/README.md の 7「入口の条件と今」)。今の値 / 目標 / あと を「調子」に 1 行ずつ出す。**しきい値はここだけ**
-# (道具の「まだ少ない」と同じ値: dev/eval_asr.py の GATES の G1・G2・eval_speakers.py の FEW_ROWS・eval_marks.py の FEW_VIDEOS・eval_cut.py の FEW_PACKS・
+# (道具の「まだ少ない」と同じ値: src/eval/tools/eval_asr.py の GATES の G1・G2・eval_speakers.py の FEW_ROWS・eval_marks.py の FEW_VIDEOS・eval_cut.py の FEW_PACKS・
 #  eval_alt.py の FEW_CANDS。test_accuracy が食い違いを検査する)。src = (領域の id, 直近の要約の鍵)。"daily" = 入口が数えた評価用以外の校正済みの秒。
 # unit: "sec" = 秒(画面は分・時間で出す)・それ以外 = 数の単位
 GOALS = (
@@ -129,7 +129,7 @@ def summarize_speakers(res):
 
 
 def summarize_cut(res):
-    """dev/eval_cut.py: たたき台のカットを人が直さなかった文書の割合(甘く出る = 人はたたき台につられる)と、端がそのままだった割合"""
+    """src/eval/tools/eval_cut.py: たたき台のカットを人が直さなかった文書の割合(甘く出る = 人はたたき台につられる)と、端がそのままだった割合"""
     t = res.get("total")
     if not isinstance(t, dict):
         return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
@@ -141,7 +141,7 @@ def summarize_cut(res):
 
 
 def summarize_alt(res):
-    """dev/eval_alt.py: 2つ目のエンジンとの食い違いの候補(札「別」)の当たり率。judged = 判定できた候補の数(入口の条件)"""
+    """src/eval/tools/eval_alt.py: 2つ目のエンジンとの食い違いの候補(札「別」)の当たり率。judged = 判定できた候補の数(入口の条件)"""
     m, t = res.get("meta"), res.get("total")
     if not isinstance(m, dict) or not isinstance(t, dict):
         raise ValueError("結果の形が想定と違います(meta・total が無い)")
@@ -166,12 +166,12 @@ def summarize_generic(res):
                     "lower" if a.get("better") == "lower" else "higher", a.get("lowData"), extra=extra)
 
 
-# 領域: script = dev/ の道具・args = 呼び方・tool/sub = 結果の置き場所(<ツールの作業データ>\evals\<sub>)・summarize = 結果 → 要約
+# 領域: script = src/eval/tools/ の道具・args = 呼び方・tool/sub = 結果の置き場所(<ツールの作業データ>\evals\<sub>)・summarize = 結果 → 要約
 AREAS = (
     {"id": "asr", "label": "文字起こし", "script": "eval_asr.py", "args": ("stored", "--label", "auto"), "tool": "transcribe", "sub": "asr", "summarize": summarize_asr},
     {"id": "marks", "label": "盛り上がり", "script": "eval_marks.py", "args": ("--json",), "tool": "studio", "sub": "marks", "summarize": summarize_marks},
     {"id": "speakers", "label": "話者", "script": "eval_speakers.py", "args": ("--json",), "tool": "transcribe", "sub": "speakers", "summarize": summarize_speakers},
-    {"id": "cut", "label": "カット", "script": "eval_cut.py", "args": ("--json",), "tool": "transcribe", "sub": "cut", "summarize": summarize_cut},   # dev/eval_cut.py(無ければ飛ばす)
+    {"id": "cut", "label": "カット", "script": "eval_cut.py", "args": ("--json",), "tool": "transcribe", "sub": "cut", "summarize": summarize_cut},   # src/eval/tools/eval_cut.py(無ければ飛ばす)
     {"id": "alt", "label": "「別」の候補", "script": "eval_alt.py", "args": ("--json",), "tool": "transcribe", "sub": "alt", "summarize": summarize_alt},   # 入口 0.38.0 から
 )
 
@@ -247,7 +247,7 @@ class Accuracy:
                  timeout=TOOL_TIMEOUT, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, heavy_enabled=False, keep=KEEP_FILES, transcripts_dir=None,
                  defaults=None):
         """prefs: src/home/prefs.py の Prefs(節 accuracy)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["accuracy"] を渡す。
-        prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。data_dir: ホームの作業データ(app。記録を置く)。repo_root: ツールの親のフォルダ(src。作業データの場所の既定。dev/ の道具はその1つ上)。
+        prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。data_dir: ホームの作業データ(app。記録を置く)。repo_root: ツールの親のフォルダ(src。作業データの場所の既定。測る道具は repo_root/eval/tools/)。
         busy() -> 手が空いていない理由の文(空・None = 空いている)。last_edit() -> 文字起こしの文書の最後の更新(エポック秒・None = 不明)。
         commands(area) -> 子プロセスの引数の一覧(None = その道具が無い)・evals_dir(area) -> 結果の置き場所: テストで偽の道具に差し替える。
         transcripts_dir() -> 文字起こしの文書のフォルダ(入口の条件の「普段」を数える。None = 数えない)"""
@@ -295,7 +295,7 @@ class Accuracy:
 
     # ---- 道具の呼び方
     def _default_commands(self, area):
-        script = os.path.join(layout.repo_root(self.repo_root), "dev", area["script"])   # dev/ はリポジトリ直下(src の1つ上)
+        script = os.path.join(self.repo_root, "eval", "tools", area["script"])   # 道具は src/eval/tools/(repo_root = src)
         return [tools.python_exe(), script] + list(area["args"]) if os.path.isfile(script) else None
 
     def _default_evals_dir(self, area):

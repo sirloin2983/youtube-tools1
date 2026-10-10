@@ -1,4 +1,4 @@
-"""評価データ(友人用 文字起こし簡易版の「送る用ファイル」)の形式と規則。受け取る側(dev/eval_import.py)が使う。
+"""評価データ(友人用 文字起こし簡易版の「送る用ファイル」)の形式と規則。受け取る側(src/eval/tools/eval_import.py)が使う。
 書き出す側(簡易版の editor/ed_lite.py。2026-10-04 に消した = git の cf617a8 までの履歴)の部品(RULES・scrub_paths・zip_name・safe_url・
 overlap・raw_links)は 2026-10-09 に消した(使う所が無かった。必要なら git の履歴)。標準ライブラリだけ・純粋な関数(ファイルを書くのは呼び出し側)。
 

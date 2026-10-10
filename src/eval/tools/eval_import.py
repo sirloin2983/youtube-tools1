@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """評価データの取り込みチェック(あなた側。友人用 文字起こし簡易版の計画 L5。git の履歴(679ff01 以前)の docs/plan/friend-lite-plan.md)。
 
-    py -3.10 dev/eval_import.py <zip か zip の入ったフォルダ> [...] [--dest フォルダ] [--force]
+    py -3.10 src/eval/tools/eval_import.py <zip か zip の入ったフォルダ> [...] [--dest フォルダ] [--force]
 
 友人が送った「送る用ファイル」(日付_配信者_作業ID.zip。中身は src/ytt_core/evaldata.py の FILES)を確かめて、作業データの外の置き場所へ展開する。
 弾く判定の最終版(git の履歴(679ff01 以前)の docs/design/briefs/friend-transcribe-lite/DESIGN_BRIEF.md の「文字起こしルールと評価データ」「セキュリティ」)。
@@ -30,10 +30,10 @@ import unicodedata
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)   # リポジトリ直下(「リポジトリの中には置けない」の判定に使う)
-SRC = os.path.join(REPO, "src")   # ツールと ytt_core の置き場所
-if SRC not in sys.path:
-    sys.path.insert(0, SRC)
+SRC = os.path.dirname(os.path.dirname(HERE))   # src(tools -> eval -> src。ツールと共通部品 ytt の置き場所)
+REPO = os.path.dirname(SRC)   # リポジトリ直下(「リポジトリの中には置けない」の判定に使う)
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_import.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import evaldata as ev  # noqa: E402
 from ytt import fsio  # noqa: E402
 from ytt.schemas import iso_now as _now  # noqa: E402

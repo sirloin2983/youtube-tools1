@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。plan/line-b-transcription.md(付録))。
 
-    python dev/eval_asr.py stored  [--scope eval|train|all] [--label 名前]
+    python src/eval/tools/eval_asr.py stored  [--scope eval|train|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
-    python dev/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--scope eval] [--label 名前]
+    python src/eval/tools/eval_asr.py run     [--model large-v3] [--vad normal] [--beam 5] [--glossary "トワ、スバル"] [--context none|auto] [--temp0] [--scope eval] [--label 名前]
         評価用の音声を、指定のモデル・設定で認識し直して比べる(指定しない項目は、文字起こしの今の設定 settings.json のまま)。
         --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
-    python dev/eval_asr.py compare 結果A.json 結果B.json
+    python src/eval/tools/eval_asr.py compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
         両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
-    python dev/eval_asr.py list
+    python src/eval/tools/eval_asr.py list
         今までの結果の一覧
 
   stored・run の結果と画面には、量の関門(G0 = 定点 5 分・G1 = 15 分・G2 = 30 分・G3 = 60 分。定点 = 確かめ済みの文書の長さの合計。summary.gate。
@@ -19,7 +19,7 @@
 
   どのモードでも(マスタープラン Q3。plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
     --source eval|daily|all|friend   測る文書の出どころ。eval = 評価用(既定。今までどおり)/ daily = 普段の校正済みの文書(評価用以外)/
-                                     friend = 友人の送る用 zip(dev/eval_import.py で eval-intake/works/ に取り込んだもの。--intake で場所を変える)/
+                                     friend = 友人の送る用 zip(src/eval/tools/eval_import.py で eval-intake/works/ に取り込んだもの。--intake で場所を変える)/
                                      all = 評価用 + 普段 + 友人。--scope(eval|train|all。all = 自分の文書だけ)は今までどおり使える
     --since YYYY-MM-DD --until YYYY-MM-DD   時期で分ける(その日を含む)。文書の時刻 = 校正済みの行の proofedAt(初めて校正済みにした時刻)の最大。
                                      無い文書は updatedAt(友人の zip は書き出した時刻)。どちらも無い文書は、時期を指定したときは数えない
@@ -72,10 +72,11 @@ import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
-from _evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_asr.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
+from eval.tools._evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
 from eval.tools import evaldata as ev  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
 from ytt import tools  # noqa: E402
 SCHEMA = "youtube-tools-asr-eval/v1"
@@ -160,8 +161,8 @@ def resolve_source(args):
 
 
 def default_intake():
-    """友人の zip の取り込み先(dev/eval_import.py と同じ場所)"""
-    import eval_import   # HERE(dev/)は冒頭で sys.path に足してある
+    """友人の zip の取り込み先(src/eval/tools/eval_import.py と同じ場所)"""
+    from eval.tools import eval_import
     return eval_import.default_dest()
 
 
@@ -180,7 +181,7 @@ def _iso_ms(text):
 
 
 def load_friend_docs(intake, only=None):
-    """友人の送る用 zip(dev/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は src/ytt_core/evaldata.py)を、
+    """友人の送る用 zip(src/eval/tools/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は src/ytt_core/evaldata.py)を、
     文字起こしの文書と同じ形にして返す(読むだけ)-> (文書の一覧, 数えなかった作業 [{"id", "why"}])。
     正解 = final.json の確認済みの行のうち check.json(無ければ evaldata.judge)が使える行だけ。形式違いの記号の行・未確認の行は校正済みにしない。
     [?] の行と [笑] だけの行は「聞き取れない」(unclear)にして数えない。[笑] は取り除く。機械の出力 = asr_raw.json の行。作業ごと外れたものは数えない。
@@ -1128,7 +1129,7 @@ def add_select_args(p, label_help="結果に付ける名前", no_save_help="結�
                         "only = 確かめ済みだけ(--source eval で --docs なしの既定。0 本なら今までの選び方に戻す)/ prefer = 確かめ済みは全体で・ほかも混ぜる(それ以外の既定)/ ignore = 印を見ない")
     p.add_argument("--since", help="この日(YYYY-MM-DD。含む)以降のデータだけ。文書の時刻 = 校正済みの行の proofedAt の最大(無ければ updatedAt)")
     p.add_argument("--until", help="この日(YYYY-MM-DD。含む)までのデータだけ")
-    p.add_argument("--intake", help="友人の zip の取り込み先(--source friend・all のとき。既定は dev/eval_import.py と同じ eval-intake)")
+    p.add_argument("--intake", help="友人の zip の取り込み先(--source friend・all のとき。既定は src/eval/tools/eval_import.py と同じ eval-intake)")
     p.add_argument("--docs", help="文書の id をカンマ区切りで(scope・source より優先。時期の指定は効く)")
     p.add_argument("--label", help=label_help)
     p.add_argument("--no-save", action="store_true", help=no_save_help)

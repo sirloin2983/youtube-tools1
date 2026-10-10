@@ -2,7 +2,7 @@
 """認識のあとの後処理(編集 0.60.0 の ed_fill。A 文字の少ない行を別の読みで埋める・D 名簿の呼び名の 1 字違いを直す・C 余分の掃除)を、
 人が残したか・直したか・戻したかで測る道具(計画の K1「後処理の様子見の物差し」。追加の校正は要らない = 普段の校正のついでに数が貯まる)。
 
-    python dev/eval_fill.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
+    python src/eval/tools/eval_fill.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(文字起こしの transcripts/<id>.json と、whisper の生の結果 <id>.asr.json)。何も書き換えない。
   --json のときだけ、結果を文字起こしの作業データの evals/fill/<日時>.json に残す(schema youtube-tools-fill-eval/v1。置き場所の規則は eval_alt.py と同じ)
@@ -32,10 +32,11 @@ import sys
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
-from _evalcommon import rate, read_json  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_fill.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
+from eval.tools._evalcommon import rate, read_json  # noqa: E402
 
 SCHEMA = "youtube-tools-fill-eval/v1"
 LLM_SCHEMA = "youtube-tools-llm/v1"   # 編集の <id>.llm.json(src/pipeline/transcribe/llm.py の LLM_SCHEMA)

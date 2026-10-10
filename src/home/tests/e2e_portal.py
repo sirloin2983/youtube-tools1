@@ -155,7 +155,7 @@ def seed_more_cases(studio_json, n=34, base_ts=None):
 
 
 def seed_accuracy(app_dir):
-    """精度の自動測定の記録(src/home/accuracy.py の accuracy-state.json)に、定点 950 秒・話者の行 120・普段 600 秒を置く(ほかの領域は未測定のまま)"""
+    """精度の自動測定の記録(src/eval/drill/accuracy.py の accuracy-state.json)に、定点 950 秒・話者の行 120・普段 600 秒を置く(ほかの領域は未測定のまま)"""
     os.makedirs(app_dir, exist_ok=True)
     at = int(time.time() * 1000) - 3600 * 1000
     st = {"day": "2000-01-01", "areas": {

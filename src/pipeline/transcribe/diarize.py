@@ -5,7 +5,7 @@
 自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、
 serve.名前 は serve の名前の受付がここへ回す(テストの S.名前 = …・patch.object(S, "has_sherpa") もここに届く)。
 - 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
-  (diar_models_dir。DIAR_DIR は上書き用 = dev/eval_speakers が本物の作業データの場所を入れる)
+  (diar_models_dir。DIAR_DIR は上書き用 = src/eval/tools/eval_speakers が本物の作業データの場所を入れる)
 - 判別: diarize_real(サーバーは認識ワーカーに頼む)→ ワーカーの中の _diarize_local(sherpa-onnx)。行への割り当て assign_speakers・細切れのならし smooth_labels
 - 判別の記録 transcripts/<id>.diar.json(build_diar_run・write_diar・read_diar・update_diar_voices)
 - 声の特徴: embed_groups(ワーカーの中の _embed_local)と照らし合わせ match_voices。本物と疑似は backend の口(疑似は eval/fake/fake_asr の diarize_fake・embed_fake)
@@ -32,7 +32,7 @@ from . import backend as _backend, tx_engines, txbase as _txbase, worker_client
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
 # 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。CPU で動く(PyTorch 不要)。
 # モデルの置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の models/diar(以前は読み込みのときに作り、serve の set_data_dir が直していた = 同じ場所。RS2-9)。
-# DIAR_DIR は上書き用(dev/eval_speakers が本物の作業データの models/diar を入れる)。None なら作業データの中
+# DIAR_DIR は上書き用(src/eval/tools/eval_speakers が本物の作業データの models/diar を入れる)。None なら作業データの中
 DIAR_DIR = None
 DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "label": "話者の切り替わり検出",
             "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
@@ -137,7 +137,7 @@ DIAR_TUNE = (("threshold", "threshold"), ("min_on", "minOn"), ("min_off", "minOf
 
 
 def diar_tune(threshold=None, min_on=None, min_off=None):
-    """判別の設定の任意の引数を確かめる -> {引数の名前: 値}(渡したものだけ。どれも 0 以上 10 未満の数)。dev/eval_speakers.py の run が使う"""
+    """判別の設定の任意の引数を確かめる -> {引数の名前: 値}(渡したものだけ。どれも 0 以上 10 未満の数)。src/eval/tools/eval_speakers.py の run が使う"""
     out = {}
     for (k, _w), v in zip(DIAR_TUNE, (threshold, min_on, min_off)):
         if v is None:
@@ -154,7 +154,7 @@ def diar_tune(threshold=None, min_on=None, min_off=None):
 
 def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=None, min_off=None):
     """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。
-    threshold・min_on・min_off は判別の設定を変えて測るとき(dev/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求も以前と同じ形"""
+    threshold・min_on・min_off は判別の設定を変えて測るとき(src/eval/tools/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求も以前と同じ形"""
     tune = diar_tune(threshold, min_on, min_off)
     if worker_client.IN_WORKER:
         return _diarize_local(job, wav, num, emb, **tune)

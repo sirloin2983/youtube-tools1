@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(精度改善の計画 第2版 D1-b の「印の当たり率」)。
 
-    python dev/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt|yt|both] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
+    python src/eval/tools/eval_alt.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--source alt|yt|both] [--include-eval] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json と、学習の記録 learn-feedback.json)。何も書き換えない。
   --json のときだけ、結果を文字起こしの作業データの evals\\alt\\<日時>.json に残す(schema youtube-tools-alt-eval/v1。evals の置き場所は eval_cut.py・eval_speakers.py と同じ規則)。
@@ -44,10 +44,11 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-if HERE not in sys.path:
-    sys.path.insert(0, HERE)
-import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
-from _evalcommon import rate, read_json  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
+if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_alt.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
+from eval.tools._evalcommon import rate, read_json  # noqa: E402
 
 SCHEMA = "youtube-tools-alt-eval/v1"
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
@@ -70,7 +71,7 @@ def get_serve():
     """editor の serve.py(部品の名前の受付)。eval_asr.py と同じ読み込み方。書き込みは一時フォルダ。1プロセスで1回だけ"""
     global _SERVE
     if _SERVE is None:
-        import eval_asr
+        from eval.tools import eval_asr
         _SERVE = eval_asr.load_serve()
     return _SERVE
 

@@ -10,7 +10,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 入口とは**ファイルだけ**で話す(stdin/stdout の常駐の約束は作らない。仮決め (bk)):
   config.json    入口が書く。{"v":1, "dir", "recorders": [{"id","url","token"}], "detect": {"sens","perHour"}, "spec": {"length","preRatio","lag","lagAuto",
                  "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
-                 lengthHint = M10 の人が選んだ長さの目安(入口が length_hint() で dev/eval_marks.py --json の結果から作る。enough のときだけ、新しく受け持つ
+                 lengthHint = M10 の人が選んだ長さの目安(入口が length_hint() で src/eval/tools/eval_marks.py --json の結果から作る。enough のときだけ、新しく受け持つ
                  録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)
   <録画元>/<録画>/ の state.json(続きから再開する状態)・series.jsonl(1 分 1 行)・peaks.json(候補の正本)・skipped.jsonl(飛ばした区間の測り直し)はここが書く。
   decisions.json(人の採用・見送り・自動の採用)は入口が書き、ここは読んで PeakBook に当てるだけ。worker.json(心拍)もここが書く
@@ -95,12 +95,12 @@ STATE_MAX = 64 * 1024 * 1024
 SPEC_DEFAULT = {"length": 45.0, "preRatio": excite.PRE_RATIO_DEFAULT, "lag": 8.0, "lagAuto": True, "wAudio": 1.0, "wChat": 1.0, "headSec": 180.0}
 MAX_ACTIVE = 2             # 同時に測る録画の数(0-10-4)。3 本目からは「順番待ち」(前の録画の検出が終わったら、古い順に始める)
 QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す間隔(文が変わったときはすぐ)
-# M10: 自動の候補の長さを人の記録から(plan/line-d-auto-pack.md の M10・6 の決定 4)。dev/eval_marks.py --json の結果(スタジオの作業データ
+# M10: 自動の候補の長さを人の記録から(plan/line-d-auto-pack.md の M10・6 の決定 4)。src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ
 # evals/marks/<日時>.json。入口の夜の自動測定 accuracy.py が流す)の clipLength.suggest を入口が読み(length_hint)、config.json の lengthHint に入れる。
 # ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま。dev/ は import しない(結果のファイルを読むだけ)
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"        # off = 使わない(スタジオの解析の設定の長さのまま)
 LENGTH_HINT_MAX_AGE = 30 * 86400           # 結果のファイルの古さ(ファイル名の日時。src/home/autorun.py の FRIEND_LENGTH_MAX_AGE と同じ)
-LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(dev/eval_marks.py の CL_ENOUGH_SAMPLES・CL_ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
+LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(src/eval/tools/eval_marks.py の CL_ENOUGH_SAMPLES・CL_ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
 # スタジオの解析の設定(spec)の範囲(src/studio/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
 SPEC_RANGES = {"length": (10.0, 120.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 EVAL_MARKS_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/autorun.py の EVAL_MARKS_NAME_RE と同じ形
@@ -296,7 +296,7 @@ _HINT_CACHE = {}
 def length_hint(root=None, env=None, now=None):
     """**入口の側**(src/pipeline/analyze/live_detect.py の Detector.config が呼んで config.json の lengthHint に入れる): 人が選んだ区間の長さの目安
     -> {"length", "preRatio"(無ければ None), "samples", "videos", "enough", "file"} か None(止めてある・結果が無い・古い・壊れている)。
-    読むのはスタジオの作業データ evals/marks/ のいちばん新しい dev/eval_marks.py --json の結果の clipLength.suggest(置き場所は ytt_core.datadir の
+    読むのはスタジオの作業データ evals/marks/ のいちばん新しい src/eval/tools/eval_marks.py --json の結果の clipLength.suggest(置き場所は ytt_core.datadir の
     resolve = 入口のプロセスでスタジオが登録した場所)。同じファイルは読み直さない(名前と更新の時刻で覚える)。enough の判定はワーカーの clean_hint がする"""
     e = os.environ if env is None else env
     if str(e.get(LENGTH_HINT_ENV) or "").strip().lower() in ("off", "0", "false", "no"):

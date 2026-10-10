@@ -2297,7 +2297,7 @@ print(json.dumps({"rids": rids, "before": before, "after": after, "n": n, "analy
 
 
 class TestFriendLength(Base):
-    """友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05): dev/eval_marks.py --json の結果の clipLength(友人の区間)を読み、
+    """友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05): src/eval/tools/eval_marks.py --json の結果の clipLength(友人の区間)を読み、
     依頼(URL)で足りない分を自動で埋めるために解析するときだけ、解析の設定 length・preRatio に重ねる"""
     marks = []
     analysis = False

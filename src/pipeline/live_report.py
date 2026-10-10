@@ -2,7 +2,7 @@
 """配信(録画)ごとの結果の記録(線 D の D-12。10-08 ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
 
 入口の見回り(src/home/live.py の Live.tick。30 秒ごと)から tick() が呼ばれ、録画ごとに 1 つの JSON を
-入口の作業データの live/reports/<録画元>__<録画の id>.json に置く(書き手はここだけ。読むのは dev/eval_marks.py --live と人)。
+入口の作業データの live/reports/<録画元>__<録画の id>.json に置く(書き手はここだけ。読むのは src/eval/tools/eval_marks.py --live と人)。
   録画中  … EVERY 秒ごとに書き直す(state "recording")。最大値(遅れ・メモリ・ワーカーの遅れ)は見回りのたびに取って残す(入口を起動し直しても前の最大値から続ける)
   終わり  … 録画が終わって、ワーカーが帳簿を締めた(peaks.json の ended)か FINISH_DELAY 秒たったら最後に 1 回書く(state "done")。
             終わって END_WINDOW 秒より古い録画は書かない(昔の録画を見回りのたびに読まない)
@@ -15,7 +15,7 @@
   disk       {state, rows: [{label, drive, freeGB}]}                           ← 空き(最後に見たとき)
   request    {rid, streamer} か None(友人のライブ配信の依頼の録画)
   state・startedAt・updatedAt・finishedAt
-dev/eval_marks.py --live はこの JSON と live_feedback.jsonl(採用・届けた・要らない・detect_compare)を合わせて、配信中とアーカイブの候補・採用率を並べる。
+src/eval/tools/eval_marks.py --live はこの JSON と live_feedback.jsonl(採用・届けた・要らない・detect_compare)を合わせて、配信中とアーカイブの候補・採用率を並べる。
 """
 import json
 import os
@@ -225,7 +225,7 @@ class Reporter:
                 pass
 
     def all(self):
-        """全部の記録(dev/eval_marks.py --live と同じ読み方。新しい順)"""
+        """全部の記録(src/eval/tools/eval_marks.py --live と同じ読み方。新しい順)"""
         out = []
         try:
             names = os.listdir(self.dir)

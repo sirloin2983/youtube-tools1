@@ -1,6 +1,6 @@
-"""dev/eval_asr.py(文字起こしの精度を測る道具。計画 段0-2)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_asr.py(文字起こしの精度を測る道具。計画 段0-2)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_eval_asr.py
+    py -3.10 -m unittest src/eval/tools/tests/test_eval_asr.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない)。run は偽の認識(TRANSCRIBE_BACKEND=fake)で流れだけ確かめる(ffmpeg が必要)。
 """
@@ -20,10 +20,11 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-sys.path.insert(0, HERE)
-import eval_asr as E  # noqa: E402
-import eval_import as EI  # noqa: E402
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
+sys.path.insert(0, REPO)
+from eval.tools import eval_asr as E  # noqa: E402
+from eval.tools import eval_import as EI  # noqa: E402
 
 
 def seg(i, a, b, text, proofed=True, tags=None, flag=""):
@@ -775,18 +776,14 @@ class EvalAsrReviewedTest(unittest.TestCase):
         self.assertEqual(res["meta"]["mismatch"], [])
 
     def test_accuracy_keys_unchanged(self):
-        """入口の自動の測定(src/home/accuracy.py の summarize_asr)が読む鍵: summary.overall(cer・refChars)・ci95・byDoc・lowData・proofedSec"""
+        """入口の自動の測定(src/eval/drill/accuracy.py の summarize_asr)が読む鍵: summary.overall(cer・refChars)・ci95・byDoc・lowData・proofedSec"""
         res = self.stored()
         s = res["summary"]
         for k in ("overall", "ci95", "byDoc", "lowData", "proofedSec"):
             self.assertIn(k, s)
         for k in ("cer", "refChars"):
             self.assertIn(k, s["overall"])
-        root = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所(src/home/accuracy.py を読む)
-        for p in (os.path.join(root, "home"), root):
-            if p not in sys.path:
-                sys.path.insert(0, p)
-        import accuracy
+        from eval.drill import accuracy
         out = accuracy.summarize_asr(res)
         self.assertEqual((out["chars"], out["proofedSec"]), (s["overall"]["refChars"], 60))
 
@@ -1067,7 +1064,7 @@ class EvalAsrOriginTest(unittest.TestCase):
         self.assertEqual((og["short"]["docs"], og["short"]["reviewedSec"], og["short"]["cer"]), (1, 120.0, 0.0))
         self.assertEqual((og["raw"]["sub"], og["raw"]["del"], og["raw"]["ins"], og["raw"]["refChars"]), (1, 0, 0, 5))
         self.assertIn("docText", og["raw"])                                                     # 時刻によらない CER も
-        # 全体の数字・既存の鍵はそのまま(src/home/accuracy.py が読む)
+        # 全体の数字・既存の鍵はそのまま(src/eval/drill/accuracy.py が読む)
         self.assertEqual(res["summary"]["overall"]["refChars"], 10)
         for k in ("overall", "ci95", "byDoc", "lowData", "proofedSec", "gate", "reviewed", "byKind"):
             self.assertIn(k, res["summary"])

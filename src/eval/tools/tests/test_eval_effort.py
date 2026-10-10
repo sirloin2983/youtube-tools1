@@ -1,6 +1,6 @@
-"""dev/eval_effort.py(校正の手間を見る道具)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_effort.py(校正の手間を見る道具)のテスト。リポジトリ直下で:
 
-    py -3.10 -m unittest dev/tests/test_eval_effort.py
+    py -3.10 -m unittest src/eval/tools/tests/test_eval_effort.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・ffmpeg は使わない
 (CER の 1 件だけ、eval_asr.load_serve("fake") で採点の関数を読む)。
@@ -15,11 +15,10 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/ (道具の置き場所)
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所
-sys.path.insert(0, HERE)
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
-import eval_effort as E  # noqa: E402
+from eval.tools import eval_effort as E  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
