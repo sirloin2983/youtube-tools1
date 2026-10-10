@@ -375,15 +375,6 @@ sys.path.insert(0, src)
 from pipeline.transcribe import backend
 from eval.fake import fake_asr
 backend.set_selector(lambda: fake_asr.FAKE)
-import flow
-m = types.ModuleType("flow.placement")
-class LockBusy(Exception):
-    pass
-m.LockBusy = LockBusy
-m.lock_info = lambda data_root=None: None
-m.acquire = lambda port=None, data_root=None: "h"
-m.release = lambda h: None
-sys.modules["flow.placement"] = flow.placement = m
 before = sorted(k for k in sys.modules if k.split(".")[0] == "human")
 from app import cli
 code = cli.main([video, "--data-dir", data], stdout=open(os.devnull, "w", encoding="utf-8"))
