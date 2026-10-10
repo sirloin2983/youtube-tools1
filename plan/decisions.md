@@ -466,7 +466,7 @@
 - RS0-m 仮: 文書の要約・削除は human/proof が基本を持ち、進行度(manage)・ドリル(eval)・付き物は登録の口で各層が足す
 - 共通の作法(仮): 下の層が上の層を呼んでいる所は (1) 読むだけならファイルを境目に下の層が読み手を持つ (2) 上の処理を挟むなら登録の口 (3) どちらでもなければ処理ごと上へ
 
-### 3-23 役割で組み直す RS2-8 の仮決め(2026-10-10 深夜〜早朝。ユーザー「仮で決定してよい・最後にまとめて確認・今から寝るから質問はなし」。下調べ Sonnet・設計の相談 Fable・実装 Opus。**まだ確認していない**)
+### 3-23 役割で組み直す RS2-8 の仮決め(2026-10-10 深夜〜早朝。ユーザー「仮で決定してよい・最後にまとめて確認・今から寝るから質問はなし」。下調べ Sonnet・設計の相談 Fable・実装 Opus。**ユーザー確認済み 2026-10-10 朝: 「任せる」= このとおり**)
 - RS2-8-a 仮: 8d の口は、関数ごとの lambda を 1 つの `doc_jobs.set_hooks`(5 本 = eval_guard・in_eval_dir・redo_skip・redo_fill・norm_after)にまとめる。登録されていなければ RuntimeError、serve は登録の直後に `check_hooks()`(何もしない既定にすると、評価用の作り直しや 30fps の作り直しを黙って飛ばすため採らない)
 - RS2-8-b 仮: 殻の `src/editor/ed_jobs.py` は層 human で `dev/layer_map.py` の FILES だけ(FORWARDERS には入れない)・serve の `_ED_MODULES` に残す(test_names が位置を見る)・serve 自身の参照は本物の持ち主へ。持つ名前は `_MOVED`・`_moved_owner`・`_add_moved` だけ(RS5 で消す)
 - RS2-8-c 仮: rerun の境目 = 受付(validate_retranscribe・redo_spec・redo_targets)は doc_jobs、本体と反映・record_rerun は rerun(run_job が autoRedo で redo_spec を呼ぶため。向きは rerun → doc_jobs の一方向)
@@ -475,7 +475,7 @@
 - RS2-8-f 仮: ついでの整理 = ed_thumb・ed_evalaudio は ytt/jobs を直に読む・ed_state の末尾の `import ed_jobs`(読み込みの順のためだけ)を外した・pipeline/spec.py のコメントの古い行番号を関数名に
 - RS2-8-g 仮: RS2 を済みにし、残り(ed_fill・ed_llm・ed_retime・tx_worker の移動・ed_speakers の分割)は RS2-9 として RS3 の前か一緒に行う
 
-### 3-24 役割で組み直す RS2-9 の仮決め(2026-10-10 早朝。ユーザー「仮で決定してよい・最後にまとめて確認・今から寝るから質問はなし・進められるところはすべて」。下調べ Sonnet 3 体・手順の見直し Fable・実装 Opus 2 体と Sonnet 1 体。**まだ確認していない**)
+### 3-24 役割で組み直す RS2-9 の仮決め(2026-10-10 早朝。ユーザー「仮で決定してよい・最後にまとめて確認・今から寝るから質問はなし・進められるところはすべて」。下調べ Sonnet 3 体・手順の見直し Fable・実装 Opus 2 体と Sonnet 1 体。**ユーザー確認済み 2026-10-10 朝: 「任せる」= このとおり**)
 - RS2-9-a 仮: 段の順 = X(下ごしらえ → ed_speakers の分割)→ Y(fill・llm・retime)と Z(認識ワーカー)を並列。ed_speakers の境目 = diarize(判別の計算・diar.json の読み書き・声の照合。`pipeline/transcribe/diarize.py`)/ speakers(文書・ジョブ・自動の判別・声の登録簿・下書き・字幕の色。`human/proof/speakers.py`)。voices・ovdraft は今は割らない。human の側が diar.json に書き足す所(`update_diar_voices`・`_autodiar_record`)は RS0-h と食い違うが RS6 で
 - RS2-9-b 仮: **不具合の直し(動きが変わる)**: 覚えた声の置き場所 `VOICES_DIR` を呼ぶたびに作業データの voices に(判別のモデルの置き場所も同じ形)。10-01 の serve の分割から、入口の起動では存在しない editor のフォルダの voices を見ていた = 覚えた声で名前が付かなかった。本物の作業データの voxceleb.json(09-30)が次の判別から使われる。旧い場所に声は無い = 移す物なし
 - RS2-9-c 仮: 疑似は口で差し込む = `Backend.diarize`・`embed`(本体は `eval/fake/fake_asr.py`)。認識ワーカーの疑似は `eval/fake/fake_worker.py` を serve が名前で渡す(`worker_client.FAKES_MODULE` に入れ、環境変数 `YTT_WORKER_FAKES` は worker-fake のときだけ。名前が無ければ `worker_env` が止まる)
@@ -498,3 +498,4 @@
 - RS3-k **確**: 道具のパスが `py -3.10 src/eval/tools/eval_asr.py …` に変わる(旧 dev/eval_*.py は RS5 まで転送で動く)。README の手打ちの 2 か所を直す
 - RS3-l **確**: 見積もりの直し = RS3 は 1 日 → 2〜2.5 日(編集 1.5〜2・ホームとスタジオ 1。並列込み)・RS4 は半日 → 1 日
 - RS3-m **確**: 入口を起動し直す時機(RS1・RS2 の本物の 1 本もまだ)。ライブの部品を移したあと(RS3-1)は、配信中に入口を落とさない
+- **ユーザーの答え(2026-10-10 朝)**: g =「使用していない」→ **消す**(設定の比較 A/B・修正データの書き出し・データの保管 = 画面のボタン・自動の保管・API・書き手。移す前の小さな段 D で消すと移す量も減る。作業データの `dataset/`(27 本・38MB)は消さない = 測る道具は今ある full.flac を元の動画が無いときの代わりに読み続ける。これから文字起こしする文書は元の動画で測る)/ h・i・j =「いつでもいい」→ AI が決めた: h(確認してから届ける)は RS5 で L1・L2(友人のアプリの更新と一緒に ① へ読み替え)・L3 は RS6 のあと、i(あとから解析)は RS4 で代わりの道具を作ってから、j(進行度)は段 D の次の小さな段 D2(画面を伴うので移動と混ぜない)/ c = 解説を求められた(チャットで説明。答えを待つ。0B で層の表は仮のまま)/ ほか(a・b・d・e・f・k・l・m と 3-23・3-24)=「任せる」→ 推奨のとおり確定。後片付け(作業フォルダ 6 つ)も「任せる」→ 中身が main にあることを確かめて消した
