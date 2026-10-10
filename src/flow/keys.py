@@ -307,6 +307,11 @@ def pack_dir_key_path(video):
     return pack_key_path(str(_pack.default_out_dir(video)))
 
 
+def pack_dir(video):
+    """動画の既定のパックのフォルダ(<名前>_pack)のパス。あるかどうかは見ない"""
+    return str(_pack.default_out_dir(video))
+
+
 def write_pack(out_dir, spec, output):
     """パックを作り終えたところで呼ぶ(cut2resolve の API・LocalTools): <パック>/pack.key.json。spec・output = パックの要求の本文(pack_body_inputs)。
     -> 書けたか(書けなくてもパックはできている = ログだけ)"""

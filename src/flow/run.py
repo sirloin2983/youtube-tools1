@@ -202,6 +202,7 @@ class Run:
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
         self.deliver_dir = deliver_dir   # ① 全自動: パックを zip にして置く所(Dropbox の 出力\)。失敗したら理由の .txt も
         self.packs = []                  # この実行で作ったパックのフォルダ
+        self.kept_packs = []             # 鍵で飛ばして作らなかった、前からあるパックのフォルダ(結果の packs には載せる。届ける対象にはしない = packs とは別)
         self.delivered = []              # 届けたパックのフォルダ(同じものを2回置かない)
         self.pack_marks = {}             # パックのフォルダ -> {"path": 切り抜きの動画, "markId": スタジオのマーク}。友人の「要らない」で片付ける相手(2026-10-08)
         self.pack_hint = None            # _step_pack が _pack_one の直前に置く {"path", "markId"}(_pack_one が pack_marks へ移す)
@@ -349,7 +350,7 @@ class Run:
                 "fresh": self.fresh, "onFail": self.on_fail, "sourcePath": self.source_path, "requestId": self.request_id, "deliverDir": self.deliver_dir,
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
-                "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
+                "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "keptPacks": list(self.kept_packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks), "force": self.force,
                 "friendPlan": copy.deepcopy(self.friend_plan), "notes": list(self.notes),   # 受付で決めた物(RS7-1 S4)
                 "created": self.created, "state": self.state, "message": self.message,
@@ -418,6 +419,7 @@ class Run:
         run.notes = strs("notes", 20)
         run.docs, run.new_docs = strs("docs"), strs("newDocs")
         run.packs, run.delivered = strs("packs"), strs("delivered")
+        run.kept_packs = strs("keptPacks")
         pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
         run.pack_marks = {str(k): {"path": str(v.get("path") or ""), "markId": str(v.get("markId") or "")} for k, v in pm.items() if isinstance(v, dict)}
         old = {x.get("key"): x for x in d.get("steps") or [] if isinstance(x, dict)}
@@ -456,6 +458,10 @@ class Run:
     def step(self, key):
         return next(s for s in self.steps if s["key"] == key)
 
+    def all_packs(self):
+        """結果に載せるパック = この実行で作った物 + 鍵で飛ばした前からある物(重ねない)"""
+        return list(dict.fromkeys(list(self.packs) + list(self.kept_packs)))
+
     def public(self):
         return {"id": self.id, "kind": "file" if self.source_path else "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
                 "force": self.force,
@@ -467,7 +473,7 @@ class Run:
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
-                "packs": list(self.packs[:PUBLIC_MAX]), "newDocs": list(self.new_docs[:PUBLIC_MAX]),   # 作ったパック・この実行で文字起こしした文書(RS7-1 S3)
+                "packs": self.all_packs()[:PUBLIC_MAX], "keptPacks": list(self.kept_packs[:PUBLIC_MAX]), "newDocs": list(self.new_docs[:PUBLIC_MAX]),   # 作ったパック・この実行で文字起こしした文書(RS7-1 S3)
                 "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "resultPath": self.result_path,
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
@@ -585,6 +591,15 @@ class Runner:
     def _tx_state(doc, path, opts):
         """切り抜き path の文書 doc の transcribe の鍵と、今の要求 opts で認識したときの材料を比べる(flow/keys)-> same | differ | none"""
         return _keys.transcribe_state(doc["id"], path, opts)
+
+    @staticmethod
+    def _keep_pack(run, media, doc=None):
+        """鍵・既存で飛ばした段の成果物(前からあるパックのフォルダ・文書)を結果に載せる。作った物(run.packs)ではないので別の欄"""
+        d = os.path.normpath(_keys.pack_dir(media))
+        if os.path.isdir(d) and d not in run.packs and d not in run.kept_packs:
+            run.kept_packs.append(d)
+        if doc and doc["id"] not in run.docs:
+            run.docs.append(doc["id"])
 
     def _pack_state(self, run, doc, media, pack_opts, v=None):
         """切り抜き media の既定のパックの鍵と、今作ったときの材料を比べる -> (same | differ | none, _pack_body の結果 か None)。
@@ -858,8 +873,10 @@ class Runner:
             elif self._force(run):
                 todo.append(m)
                 redo += 1
-            elif self._tx_state(doc, m["path"], opts) == "differ":
-                differ += 1
+            else:
+                if doc["id"] not in run.docs:
+                    run.docs.append(doc["id"])   # 飛ばした文書も結果に載せる
+                differ += self._tx_state(doc, m["path"], opts) == "differ"
         note = ("。うち %d 本は%s" % (differ, TX_DIFFER)) if differ else ""
         if not todo:
             st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips) + note
@@ -1024,6 +1041,8 @@ class Runner:
                 stale += state == "differ"
             elif state != "same" and not self.find_pack(m["path"]):
                 todo.append((m, doc, False, built))
+            else:
+                self._keep_pack(run, m["path"], doc)   # 飛ばした(パック済み)分も結果に載せる
         if not todo:
             st["state"], st["detail"] = "skip", ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
@@ -1113,6 +1132,7 @@ class Runner:
         force = self._repack(run)
         state, built = ("none", None) if force else self._pack_state(run, doc, doc["sourcePath"], opts)   # パックの鍵(RS6 b-K2。_step_pack と同じ)
         if state == "same" or (state == "none" and not force and self.find_pack(doc["sourcePath"])):
+            self._keep_pack(run, doc["sourcePath"])
             st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
             return None
         if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
@@ -1120,6 +1140,7 @@ class Runner:
             return None
         res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=force or state == "differ", built=built)
         if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
+            self._keep_pack(run, doc["sourcePath"])
             st["state"], st["detail"] = "skip", "同じ名前のパックがあるので上書きしませんでした(「作り直す」を選ぶと上書きします)"
             return None
         st["detail"] = "パックを作りました" + ("(「編集」のカットのとおり)" if cut else "(文字起こしの行から)") + \

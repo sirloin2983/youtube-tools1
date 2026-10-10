@@ -364,6 +364,24 @@ class TestKeys(unittest.TestCase):
         self.assertEqual(st["state"], "run")
         self.assertNotIn("force", c.bodies["/api/build"]["output"])
 
+    def test_skipped_by_key_still_lists_existing_outputs(self):
+        """鍵で飛ばした段でも、前のパックと文書を結果(public・結果の束)の packs・docs に載せる。作った物(run.packs)には混ぜない"""
+        pack = os.path.normpath(R._keys.pack_dir(self.media))
+        os.makedirs(pack)
+        self.addCleanup(os.rmdir, pack)
+        for pack_state, have in (("same", False), ("none", True)):
+            st, run = self.step(self.runner(FakeClient(), pack_state=pack_state, have_pack=have), "pack")
+            self.assertEqual(st["state"], "skip")
+            self.assertEqual(run.packs, [])
+            self.assertEqual(run.kept_packs, [pack])
+            self.assertEqual(run.public()["packs"], [pack])
+            self.assertEqual(run.docs, [self.doc["id"]])
+            self.assertEqual(R._placement.result(run)["packs"], [pack])
+            self.assertEqual(R.Run.restore(run.saved()).public()["packs"], [pack])
+        st, run = self.step(self.runner(FakeClient(), tx_state="same"), "transcribe")   # 文字起こしを飛ばしたときも文書を載せる
+        self.assertEqual((st["state"], run.docs), ("skip", [self.doc["id"]]))
+        self.assertEqual(run.new_docs, [])
+
     def test_force_saved_and_restored(self):
         run = R.Run.from_input({"videoId": "abcdefghijk", "force": True})
         self.assertTrue(run.force)

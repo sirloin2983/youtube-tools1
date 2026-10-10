@@ -138,7 +138,7 @@ def outputs(run, video=None):
     out = {"export": [{"path": p, "key": _existing(_keys.media_key_path(p, "export"))} for p in clips],
            "transcribe": [{"doc": t, "path": _doc_path(t), "key": _doc_key(t, "transcribe"), "post": _doc_key(t, "post")} for t in tids],
            "pack": [{"path": p, "key": _existing(_keys.pack_key_path(p)), "clip": (run.pack_marks.get(p) or {}).get("path") or None}
-                    for p in run.packs]}
+                    for p in run.all_packs()]}
     if any(s["key"] == "diarize" for s in run.steps):
         out["diarize"] = [{"doc": t, "key": _doc_key(t, "diar")} for t in dict.fromkeys(run.new_docs)]
     return out
@@ -170,7 +170,7 @@ def result(run, exc=None, video=None, at=None):
     env = run.envelope() if callable(getattr(run, "envelope", None)) else None   # 封筒(RS7-1 S3。足すだけ)
     return {"schema": _runlog.RESULT_SCHEMA, "id": run.id, "input": {k: pub.get(k) for k in INPUT_KEYS}, "envelope": env,
             "spec": run.spec, "state": state, "message": run.message, "error": why or run.error, "nothing": run.nothing,
-            "steps": steps, "outputs": outputs(run, video), "packs": list(run.packs), "failures": failures,
+            "steps": steps, "outputs": outputs(run, video), "packs": run.all_packs(), "failures": failures,
             "notes": list(getattr(run, "notes", None) or []),   # 受付で束を組んだときに直した所の知らせ(RS7-1 S4。以前の画面だけの値 packNotes)
             "created": pub["created"], "at": int((time.time() if at is None else at) * 1000),
             "madeBy": {"name": "flow", "version": _version.VERSION}}
