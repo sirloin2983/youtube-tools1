@@ -3514,3 +3514,21 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: unittest 24 組・3,361 件 OK(片付けのセッションの重複消しで減った)・lint 0・ui_audit static Must 0・e2e は画面に近い 5 本(e2e_ui_mounted・e2e_alt・e2e_settings・e2e_edit_tabs・e2e_live_studio)OK。片付けのセッションの c4849a4(read_asr を消した)で編集の test_names が 1 件落ちていた → そのセッションが直した
 - 次: RS8(`plan/rs8-cases-ui.md` の「RS8 を始めるときの条件」= ③④ の見直し ∥ B-2 の下調べ ∥ OPT1 の実装 → B-2 → …)。ユーザーはこのあとセッションを切り替える
 - 未コミット: なし(この記録と HANDOVER と一緒にコミット)
+
+## 2026-10-11 Claude Code(PC。Opus まとめ役。セッション「RS8」。読むだけ Sonnet 2 体・Opus 1 体・見直し Fable 1 体・実装 Opus 4 体・Sonnet 5 体(worktree で並列 → cherry-pick))— RS8 の始め: ③④ の見直し・B-2 の 0〜3・OPT1
+- きっかけ: セッション「並列実行可能なタスク」から RS8 を始める条件(`plan/rs8-cases-ui.md` の「RS8 を始めるときの条件」。ユーザー了承済み)= ③④ の見直し ∥ B-2 の下調べ ∥ OPT1 の実装 → B-2 …。途中でユーザー「寝るから確認事項は仮で決定して後で見直す・重要そうなら Fable と相談して決めて」
+- ③④ の見直し(86a92e0・`plan/opt-pipeline-flow.md` の「③ 人の操作」「④ データ」「③④ をまとめて」): ジョブの器は ② の 8 通り + ③ の `deliver.Deliveries`・`rank._jobs` = 10 通り(新しい画面は ② の status だけを見る = ② の口の形を決める段で載せ方を決める)/ 置き場所の規則が ④ に 5 か所・③ に 4 か所 / ④ に ① ② の仕事(relink の 30fps・cases の自動の確認とごみ箱)/ yt-dlp・ffmpeg を呼ぶ所が ③ にも(ytcap・intake・deliver)
+- B-2 の移し方(d1429e9・`plan/rs8-cases-ui.md` の「B-2 の移し方」): ユーザー「おすすめの組で」= outDir の下の案件だけ・元は `transcripts\.migrated\` へ・入口の起動時に自動・文書 ID のまま。下調べ(Opus)で見つけた既存の穴: バックアップが案件の `.hist`・`.bak` を写さない・写し戻しが cases を作業データの根へ写していた・片付けが `作業用\<tid>.edit.json` と `.studio-id` をごみ箱の候補に出す
+- B-2 の実装(main):
+  - B2-0 e95893b バックアップが案件の 作業用 の `.hist`・`.bak` も写す・cases を outDir へ写し戻す(上書きしない・dry-run・`--out-dir`)・片付けが tid の名前と `.studio-id` を候補に出さない
+  - B2-1a ae4ddde `ytt/docloc.py`(索引 `transcripts/<tid>.loc.json`。無ければ `workdata.TX_DIR` = 今と同じ)/ B2-1b・1c 3fd2ee6・40722de・7146762・34668c2・2b0bf31 文書のパスを組む所と一覧を作る所を docloc 経由に(store・alt・ytcap・overrides・relink・serve の削除・diarize・llm・records・txwords・flow の keys/placement/tx/tools・cli・txindex.doc_paths・launch・thumb_ideas・accuracy・測る道具 7 本)
+  - B2-2 000cefd・68aa203 新しい文書を案件の 作業用 に置く(`placement.doc_home`・`docloc.place_new`・書く口に folder)・索引の先が見えないときは書きを断る(503 `doc_unseen`)・`docloc.unseen`・`fsio.is_fixed_drive`・eval_llm の直読みの漏れ
+  - B2-3 9e3da0f・44b14cf 既存の文書を移す `src/manage/cases/docmove.py`(コピー → 1 バイトずつ確かめ → 改名 → 索引 → 元を .migrated へ。2 回目・衝突・予算 20 秒/50 本・`--back`/`--resume`/`--now`/`--purge-migrated`)・入口の起動時(`.flow.lock` の直後・HTTP の前)・調子の 1 行「文書の置き場所」。**自動の移行はスイッチ `machine.json` の `docMove`(既定オフ)で止めてある** = 寝ている間の仮決めで本物の文書を一括で動かさない
+  - Fable の見直し(B2-2・B2-3 の指示書): 横のファイルが先に書かれる心配は外れ(本体が先)・本当の穴は「本体が TX_DIR に書かれて place できない」→ 書く口に置き場所を渡す案 D / 移行を呼ぶ位置が起動の順番と合っていなかった / 外付けドライブが外れると枝分かれ → 書きを断る・固定ディスクだけ / headless はバックアップが動かない = 自動で移らない
+- OPT1(main。F1 の前に必ず = 済み): 46e5ff3 ffmpeg・ffprobe・yt-dlp の探し方を `ytt/tools.find_tool` の 1 つに(**winget だけの PC で解析・書き出し・録画が ffmpeg を見つけられない不具合を直した**)/ cc0b4ad スタジオの書き出しに古い ffmpeg への逃げ道 / 9634221 解析の音量を 1 回のデコードに(`pipeline/analyze/levels.py`。golden は変わらず)/ a7c4f07 start_logged・live_tx の tools.run・normalize.verify / df03a52 manifest.py を畳む / 98617c4 RecError を ApiError の形に / e144495 yt-dlp の調べ方を 1 つに / dad67fa・5fbd6d0 パックの書き込みと ② の JSON 保存を fsio へ・live_excite_worker の写し / b894126 空き容量 `fsio.disk_space` / 5931997 `pipeline/ingest/sources.py` を `ytt/yturl` へ畳む / c324af8 JSON 保存の残り
+- 仮決め: `plan/decisions.md` 3-36((r8a)〜(r8i))。**まだ確認していない**。特に (r8a) スイッチをオンにする前に (r8b)〜(r8g) を見てほしい
+- テスト: main で unittest をテストのフォルダごとに(② 300・① 506・CLI 22・測る道具 327・⑤ 26・④ 137・③ 227・ytt 203・入口 237 + test_mount 27・cut2resolve 37・パックの契約 35(単独)・dev 58・編集の一式 1165)すべて OK・lint 0・層 OK。e2e は画面を変えた入口の調子の近い 2 本(`e2e_portal`・`e2e_datadir`)OK。OPT1 の残り 3 コミットのあとにスタジオ 126・② 300・① 506・ytt と層 212・入口のライブ 33 も OK
+- 気づいたこと(直していない): バックアップが友人の依頼の動画の写し `app\intake\<日付>\*.mp4`(本物で約 2GB)も写している((r8h))/ `procs.run_capture` が子プロセスのパイプを閉じない(ResourceWarning)/ `flow/run._media_is_30fps` と exporter の `verify_output` は `normalize.verify` に寄せていない / スタジオのテストと test_mount を 1 回のコマンドで混ぜると名前が重なって落ちる(別々なら OK・前から)
+- 層ごとの本体の行数(src の .py・tests を除く。数え方が 10-11 の loc2.py と少し違う): pipeline 15,319・flow 10,947・human 8,519・manage 4,279(docmove が増えた)・eval 11,410・ytt 4,886(docloc が増えた)・home 3,700・app 559
+- 次: B2-4 = ユーザーが 3-36 を見て docMove をオン → 入口を起動し直して本物で移行 → 画面で本数を確かめ → `--purge-migrated`。そのあと B-3(スタジオの data.json の候補と採用・cases.json の状態とメモ・友人の依頼の写しの案件の共有の穴)
+- 未コミット: なし(この記録と decisions・data.js・AGENTS.md・HANDOVER を一緒にコミット)

@@ -1,4 +1,4 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-11。役割で組み直す計画 = RS7-2 玄関とヘッドレス は済み(AI の分の本物の確認 R2 も済み)・使わないモデルを消した(0.58.0)。次は RS8)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-11。役割で組み直す計画 = RS7-2 玄関とヘッドレス は済み(AI の分の本物の確認 R2 も済み)・使わないモデルを消した(0.58.0)。**RS8 を始めた: ③④ の見直し・B-2 の 0〜3・OPT1 は済み(10-11 早朝)。次は B2-4(仮決め 3-36 の確認 → docMove をオン → 本物で移行)→ B-3**)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`
 
@@ -13,6 +13,7 @@
 - テスト(10-11・8e7f901): unittest 23 組・3,417 件 OK(フォルダごとにまとめて 1 プロセス = 16 分)・lint 0・層 0・契約 35 件・**e2e 一式 31 本 OK**(e2e_autorun は case.json の置き場所を直したあと単独で OK)。0.58.0 のあと: unittest 24 組・3,361 件 OK・画面に近い e2e 5 本 OK
 
 ## 次
+0. **RS8 の今(10-11 早朝。WORKLOG の末尾)**: ③④ の見直しは `plan/opt-pipeline-flow.md` に足した。B-2 は 0〜3 が main に入った = バックアップの規則・文書の置き場所の口 `ytt/docloc.py`(索引 `transcripts/<id>.loc.json`)・付け替え・新しい文書を案件の 作業用 に置く・既存の文書を移す `src/manage/cases/docmove.py`。**既存の文書の自動の移行はスイッチ `machine.json` の `docMove`(既定オフ)で止めてある** = ユーザーが仮決め `plan/decisions.md` 3-36 を見てからオン → 入口を起動し直すと移る(1 回の起動で 50 本まで)→ 画面で本数を確かめ → `py -3.10 src/manage/cases/docmove.py --purge-migrated`(= B2-4)。OPT1 も済み(winget だけの PC の不具合を直した)。次は B-3(スタジオの data.json の候補と採用・cases.json の状態とメモ・友人の依頼の写しが 1 つの案件を共有する穴)
 1. **RS8**(`plan/rs8-cases-ui.md`。**始めるときの条件 = 同じ文書の「RS8 を始めるときの条件」**(10-11 ユーザー了承): ③④ の見直し(読むだけ)∥ B-2 の下調べ ∥ OPT1 の実装(`plan/opt-pipeline-flow.md`。別の worktree。F1 より前に必ず)→ B-2 → B-3 → O2 → URL も CLI で →(② の口の形を決める)→ 新しい画面。新しい画面の進み具合は ② の status から読む)。設計の材料は `docs/design/briefs/rs8-cases/`(DESIGN_BRIEF・見本)。RS8 で一緒にやる RS7-2 の残り: 自分の配信も束で(e2e_live_studio の「配信中に waitMin を変える」を b1 に合わせて書き直す)・G1a F-5 の規則を ① へ・G3 配信後の作り直しを run に寄せる・serverkit・`launch.py` → `app/server.py` の mv・headless の配信後の全自動が LocalMarks の採用の印を見ない(重なりうる)
 2. 優先の順(decisions 3-33): RS8 → V1 → F1(送るアプリの側。C#。`plan/f1-friend-pc.md`)→ RV 全体の見直し 1 周 → 1.0.0。本物の確認は AI の分で済みにして止めない(3-32)・ユーザーの分は data.js のやること R2(普段の配信のついでに後追い)
 - 後へ回したもの: 入口が立ち上がった直後(編集の取り込みが終わる前)に CLI が submit すると「編集が動いていない」で失敗する / S3 の一時の形(封筒の `legacy{mode, onFail, streamer}`・`run.pinned`・待ちの記録の欄の鍵)を封筒 + 束だけに / 配信者を `hints.people` の先頭にする決まりは submit で封筒に配信者が無いときだけ / 依頼も束も無い録画の受け渡しは onFail が "next" 固定・build_spec の知らせが封筒に乗らない(1 本だけなので実害は小さい)/ O2 の行き先(機械の結果 + 人の層から組み立てる)に逆らわない(`plan/rs8-cases-ui.md`)
@@ -30,4 +31,4 @@
 - 入口が起動中の間はコードを変えても古いまま動く。**配信中に入口を落とさない**
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画は RS7-2(玄関とヘッドレス)まで済み・使わないモデルの選択肢を消して版 0.58.0(決定 3-31 は確認済み)。次は RS8(plan/rs8-cases-ui.md)を、その文書の『RS8 を始めるときの条件』のとおり ③④ の見直し(読むだけ)∥ B-2 の下調べ ∥ OPT1 の実装(plan/opt-pipeline-flow.md。別の worktree)から始めて → B-2 → B-3 → O2 → URL も CLI → 新しい画面。画面の材料は docs/design/briefs/rs8-cases/。RS7-2 から送った残り(自分の配信も束で・G1a・G3・serverkit・launch.py → app/server.py)も RS8 で。優先の順は decisions 3-33(RS8 → V1 → F1 → RV → 1.0.0)・本物の確認で止めない(3-32)。設計の判断は Fable と相談・一時の形でない物だけユーザーに確認。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。段ごとは unittest・lint・層だけ(unittest はテストのフォルダごとにまとめて 1 プロセス)・e2e 一式と文書は RS の終わりに 1 回。別のセッション(片付け・計画)が並行しているので git add -A を使わない。」
+「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画は RS7-2(玄関とヘッドレス)まで済み・使わないモデルの選択肢を消して版 0.58.0(決定 3-31 は確認済み)。RS8(plan/rs8-cases-ui.md)は ③④ の見直し・B-2 の 0〜3・OPT1 まで済み(HANDOVER の「次」の 0)。仮決め decisions 3-36 をユーザーに確認してから docMove をオンにして B2-4、そのあと B-3 → O2 → URL も CLI → 新しい画面。画面の材料は docs/design/briefs/rs8-cases/。RS7-2 から送った残り(自分の配信も束で・G1a・G3・serverkit・launch.py → app/server.py)も RS8 で。優先の順は decisions 3-33(RS8 → V1 → F1 → RV → 1.0.0)・本物の確認で止めない(3-32)。設計の判断は Fable と相談・一時の形でない物だけユーザーに確認。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。段ごとは unittest・lint・層だけ(unittest はテストのフォルダごとにまとめて 1 プロセス)・e2e 一式と文書は RS の終わりに 1 回。別のセッション(片付け・計画)が並行しているので git add -A を使わない。」
