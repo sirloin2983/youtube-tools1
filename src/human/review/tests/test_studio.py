@@ -1,4 +1,5 @@
-"""store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行: python3 test_studio.py"""
+"""human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.10 -m unittest src/human/review/tests/test_studio.py
+RS3-5(2026-10-10)で studio/tests から移した。"""
 import glob
 import json
 import os
@@ -9,10 +10,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-import common
-import store
-from common import ApiError
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → review → human → src
+from human.review import store  # noqa: E402
+from pipeline.ingest import sources  # noqa: E402
+from ytt import studio_env  # noqa: E402
+from ytt.errors import ApiError  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
 YT2 = {"kind": "youtube", "videoId": "bbbbbbbbbbb", "name": "bbbbbbbbbbb"}
@@ -26,7 +28,7 @@ def cand(s, e, score=5.0):
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
         self.path = os.path.join(self.tmp, "data.json")
         self.st = store.Store(self.path)
         self.st.ensure(YT, "t", "c")
@@ -827,18 +829,18 @@ class TestLive(Base):
 
 class TestCheckLive(unittest.TestCase):
     def test_ok(self):
-        self.assertEqual(common.check_live(LIVE), LIVE)
-        self.assertEqual(common.check_live(dict(LIVE, url="https://youtu.be/U972n0ncl4k"))["videoId"], "U972n0ncl4k")
-        self.assertEqual(common.check_live(dict(LIVE, recording="20261005-185300", url="https://www.youtube.com/@x/live"))["videoId"], "")
+        self.assertEqual(sources.check_live(LIVE), LIVE)
+        self.assertEqual(sources.check_live(dict(LIVE, url="https://youtu.be/U972n0ncl4k"))["videoId"], "U972n0ncl4k")
+        self.assertEqual(sources.check_live(dict(LIVE, recording="20261005-185300", url="https://www.youtube.com/@x/live"))["videoId"], "")
 
     def test_rejects(self):
         for kw in (dict(recorder="A"), dict(recorder="x" * 17), dict(recording="2026"), dict(recording="20261005-185300-"), dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"),
                    dict(url="https://example.com/watch?v=U972n0ncl4k"), dict(url="https://www.youtube.com/" + "a" * 300), dict(url=1)):
             with self.assertRaises(ApiError, msg=kw):
-                common.check_live(dict(LIVE, **kw))
+                sources.check_live(dict(LIVE, **kw))
         for x in (None, "x", [], {}):
             with self.assertRaises(ApiError):
-                common.check_live(x)
+                sources.check_live(x)
 
 
 if __name__ == "__main__":

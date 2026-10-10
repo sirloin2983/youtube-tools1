@@ -18,12 +18,11 @@ from unittest.mock import Mock, patch
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests → export → pipeline → src
-HERE = os.path.join(SRC, "studio")   # exporter が裸の名前で読む common・handoff のあるフォルダ(studio/)
+HERE = os.path.join(SRC, "studio")   # テストが使うスタジオの殻 common のあるフォルダ(studio/。exporter 自身は common を読まない)
 sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
 import common
-import handoff
-from pipeline.export import exporter
+from pipeline.export import exporter, manifest
 from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
 
@@ -348,7 +347,7 @@ class TestManifestFailure(unittest.TestCase):
             with patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "apply_volume"), patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
-                    patch.object(handoff, "write_clip_manifest", side_effect=denied), patch.object(common, "log_failure") as log:
+                    patch.object(manifest, "write_clip_manifest", side_effect=denied), patch.object(common, "log_failure") as log:
                 exporter.run_job(job, spec, Mock(return_value=True))
             it = job["items"][0]
             self.assertEqual((job["state"], it["status"]), ("done", "done"))   # 書き出し自体は成功

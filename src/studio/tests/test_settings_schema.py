@@ -10,7 +10,7 @@ import unittest
 STUDIO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, STUDIO)
 sys.path.append(os.path.dirname(STUDIO))   # src(解析は ytt・pipeline を読む。RS3-4 から common を読まない)
-import analyze  # noqa: E402
+from pipeline.analyze import analyze  # noqa: E402
 
 SCHEMA_PATH = os.path.join(os.path.dirname(STUDIO), "home", "settings", "schema.json")
 

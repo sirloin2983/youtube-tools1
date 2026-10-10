@@ -18,9 +18,11 @@ import sys
 import threading
 import time
 
-import analyze
+from pipeline.analyze import analyze  # noqa: E402  解析(prune_cache・LIVE_NO_ANALYZE。RS3-5 でスタジオから pipeline へ)
 from pipeline.ingest import sources as _src  # noqa: E402  入力の判定(RS3-4 にスタジオの common から)
-from ytt import fsio as _fsio, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402  (src は serve とスタジオの common が sys.path に足してある)
+from ytt import fsio as _fsio, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402
+
+from . import feedback  # noqa: E402  判定の記録(RS3-5 に analyze から隣へ。呼ぶたびに feedback.名前 で読む)
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import num  # noqa: E402  純粋な関数
 
@@ -710,7 +712,7 @@ class Store:
             old_by = {m["id"]: m for m in v["marks"]}
             # 判定を記録: 採用 = よかった / 不採用 = ちがう / 候補のまま削除 = ちがう。
             # 自動マークは上の全部。手動マーク(自分で見つけた区間)は、採用・不採用にしたときだけ good / bad。
-            # それとは別に、人の最終の操作を記録する(Q2。verdict は miss / unmiss / retract。analyze.FB_EXTRA_EVENTS):
+            # それとは別に、人の最終の操作を記録する(Q2。verdict は miss / unmiss / retract。feedback.FB_EXTRA_EVENTS):
             # 手で足した = 自動の見逃し(その時いちばん近い自動マークの点数と距離つき)・手で足した候補を消した・採用を取り消した・判定済みを削除した。
             # まとめて実行(adopt_top・request_marks)は put_video を通らないので書かれない(人の判断ではないため)
             verdicts = []
@@ -734,7 +736,7 @@ class Store:
                     elif m["status"] == "rejected":
                         verdicts.append((m, "bad", "reject"))
                 if o is None and m["src"] == "manual":
-                    extras.append((m, "manual_add", analyze.nearest_auto(v["marks"], m["start"], m["end"])))
+                    extras.append((m, "manual_add", feedback.nearest_auto(v["marks"], m["start"], m["end"])))
                 elif o is not None and o["status"] in ("adopted", "exported") and m["status"] == "":
                     extras.append((m, "unadopt", {"prevStatus": o["status"]}))
             nv = copy.deepcopy(v)
@@ -744,11 +746,11 @@ class Store:
             self._bump(nv)   # 保存に成功したときだけ、feedback を書く
             snap = self._pub(nv)
         for m, verdict, event in verdicts:
-            analyze.feedback_for_mark(snap, m, verdict, event)
+            feedback.feedback_for_mark(snap, m, verdict, event)
             if event == "adopt":   # コラボグループに入っていれば、他の動画へ候補として転写する
                 self._transfer_collab(vid, m)
         for m, event, extra in extras:
-            analyze.feedback_event(snap, m, event, extra)
+            feedback.feedback_event(snap, m, event, extra)
         return snap
 
     def adopt_top(self, vid, top):
@@ -902,7 +904,7 @@ class Store:
             if first:   # 自動・手動どちらも、初めて書き出したときに「よかった」(最終の区間と、手で直した量つき)
                 fb = (self._pub(nv), dict(nm))
         if fb:
-            analyze.feedback_for_mark(fb[0], fb[1], "good", "export")
+            feedback.feedback_for_mark(fb[0], fb[1], "good", "export")
         return True
 
     # ---- コラボ動画のマーク転写(グループ) ----

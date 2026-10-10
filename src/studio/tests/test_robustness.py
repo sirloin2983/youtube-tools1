@@ -16,10 +16,11 @@ from unittest.mock import patch
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import analyze
 import common
+from human.find import rank
+from human.review import feedback
+from pipeline.analyze import analyze
 from pipeline.export import exporter
-import rank
 import serve
 from ytt import fsio  # noqa: E402  置き換え(スタジオの common.replace_file は RS3-4 で ytt.fsio.replace_retry を直に使う形にした)
 from common import ApiError
@@ -47,10 +48,10 @@ VIDEO = {"id": "abcdefghijk", "kind": "youtube", "duration": 100, "analysis": No
 class TestFeedbackFile(Home):
     def write(self, n, start=0):
         for i in range(start, start + n):
-            self.assertTrue(analyze.feedback_for_mark(VIDEO, {"start": i, "end": i + 1, "src": "manual"}, "good", "adopt"))
+            self.assertTrue(feedback.feedback_for_mark(VIDEO, {"start": i, "end": i + 1, "src": "manual"}, "good", "adopt"))
 
     def test_rotation_never_drops_rows(self):
-        with patch.object(analyze, "MAX_FEEDBACK_BYTES", 1000):
+        with patch.object(feedback, "MAX_FEEDBACK_BYTES", 1000):
             self.write(30)   # 何度も切り替わる量
         rows = [json.loads(l) for l in self.lines("feedback.jsonl.old") + self.lines("feedback.jsonl")]
         self.assertEqual(sorted(r["start"] for r in rows), list(range(30)))   # 以前は2回目の切り替えで古い行が消えていた
@@ -68,14 +69,14 @@ class TestFeedbackFile(Home):
     def test_old_file_without_trailing_newline(self):
         with open(os.path.join(self.tmp, "feedback.jsonl.old"), "w", encoding="utf-8") as f:
             f.write('{"start": -1}')
-        with patch.object(analyze, "MAX_FEEDBACK_BYTES", 10):
+        with patch.object(feedback, "MAX_FEEDBACK_BYTES", 10):
             self.write(3)
         old = self.lines("feedback.jsonl.old")
         self.assertEqual(json.loads(old[0])["start"], -1)
         self.assertTrue(all(json.loads(l) for l in old))
 
     def test_default_limit_is_large(self):
-        self.assertGreaterEqual(analyze.MAX_FEEDBACK_BYTES, 32 * 1024 * 1024)
+        self.assertGreaterEqual(feedback.MAX_FEEDBACK_BYTES, 32 * 1024 * 1024)
 
 
 class TestRegistry(Home):
@@ -270,7 +271,7 @@ class TestYtdlpTemplate(unittest.TestCase):
 
     def test_all_ytdlp_calls_use_the_escaped_template(self):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for fn in ("analyze.py", os.path.join("..", "pipeline", "export", "exporter.py")):   # exporter は RS1-4 で pipeline/export へ
+        for fn in (os.path.join("..", "pipeline", "analyze", "analyze.py"), os.path.join("..", "pipeline", "export", "exporter.py")):   # analyze は RS3-5 で pipeline/analyze へ・exporter は RS1-4 で pipeline/export へ
             with open(os.path.join(here, fn), encoding="utf-8") as f:
                 src = f.read()
             self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず common.ytdlp_out を通す

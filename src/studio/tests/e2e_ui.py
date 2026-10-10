@@ -38,8 +38,8 @@ sys.path.insert(0, HERE)   # ツールのフォルダ
 os.environ["STUDIO_FAKE"] = "1"
 
 import common  # noqa: E402
-import rank  # noqa: E402
 import serve  # noqa: E402
+from human.find import rank  # noqa: E402  (common が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 
 XSS_TITLE = '<img src=x onerror="window.__xss=1">配信<b>太字</b>'
 XSS_LABEL = '<script>window.__xss=2</script><img src=x onerror="window.__xss=3">'

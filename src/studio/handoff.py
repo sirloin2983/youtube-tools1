@@ -1,36 +1,15 @@
-"""ツール間の受け渡し(docs/spec/pipeline.md の 2.1・4・6)。
+"""ツール間の受け渡し(docs/spec/pipeline.md の 4)。
 
-- 切り抜き1本の素性 `youtube-tools-clip/v1`(書き出した mp4 の隣の `<名前>.clip.json`)を作って原子的に書く
 - 実行中のポートの共有: `<リポジトリ直下>/.runtime/studio.json` の読み書きと、`GET /api/siblings` の中身
-中身は共通部品 ytt_core(schemas・runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。
-スタジオ固有の値(ツール名・版)は TOOL に入れる。
+中身は共通部品 ytt(runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。
+切り抜き 1 本の素性(.clip.json)の組み立てと書き込みは RS3-5 で pipeline/export/manifest.py へ割った(書き出しが読む側)。
 """
 import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt_core.runtime も同じモジュールを使う)
 
-from ytt import fsio, runtime, schemas, studio_env as _env
+from ytt import runtime, studio_env as _env
 
-TOOL = {"name": runtime.TOOL_APPS["studio"], "version": ""}   # 版は serve.py が SERVER_VERSION を入れる(版の正は serve.py のまま)
 TOOL_APPS = runtime.TOOL_APPS
 PING_TIMEOUT = runtime.PING_TIMEOUT
-
-
-# ---------- youtube-tools-clip/v1 ----------
-def manifest_path(media_path):
-    """動画_0012.mp4 → 作業用/動画_0012.clip.json(途中のファイルは下のフォルダ。ytt_core.schemas.WORK_DIR)。"""
-    return schemas.clip_path_for(media_path)
-
-
-def clip_manifest(media_path, duration, source, rng, mark, export):
-    """1本ぶんの youtube-tools-clip/v1 を組み立てる(ytt_core.schemas.build_clip)。"""
-    return schemas.build_clip(media_path, duration, source, rng, mark, export, TOOL)
-
-
-def write_clip_manifest(media_path, **kw):
-    """mp4 の .clip.json を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。
-    UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない。ytt_core.fsio.write_json)"""
-    path = manifest_path(media_path)
-    fsio.write_json(path, clip_manifest(media_path, **kw))   # 作業用/ は atomic_write が作る
-    return path
 
 
 # ---------- 実行中のポートの共有(.runtime) ----------

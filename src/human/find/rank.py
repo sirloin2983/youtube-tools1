@@ -34,7 +34,7 @@ MAX_AGENCIES, MAX_CHANNELS = 30, 400
 MAX_PAGES = 40            # 1チャンネルあたり、アップロード一覧を最大40ページ(=2000本)
 WORKERS = 4
 CACHE_TTL = 1800
-SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣。RS3-5 で動かすときも一緒に)
+SEED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed.json")   # 事務所の初期の登録(このファイルの隣。RS3-5 で studio から一緒に動かした)
 FATAL = ("quota", "no_key", "key_invalid", "api_not_enabled", "api_permission")   # 1チャンネルの失敗として続けず、検索・取り込み全体を止める失敗
 
 _quota = 0

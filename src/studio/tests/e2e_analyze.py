@@ -4,7 +4,8 @@ import json, math, os, random, shutil, struct, sys, tempfile, wave
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import analyze, common
+import common
+from pipeline.analyze import analyze
 
 DUR, LAG = 1500, 14
 EVENTS = [200, 420, 640, 860, 1080, 1300]

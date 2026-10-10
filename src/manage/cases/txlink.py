@@ -5,8 +5,9 @@ GET /api/transcripts?id=<動画ID> → {"marks": {マークID: {...}}}。書き�
 """
 import os
 
-from manage.cases import txindex
 from ytt import studio_env as _env
+
+from . import txindex
 
 MAX_LINES = 3000   # 1本の切り抜きで返す行の上限(ショートなら数十行)
 

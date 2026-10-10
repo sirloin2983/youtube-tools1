@@ -1,13 +1,15 @@
-"""analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行: python3 test_analyze.py"""
+"""pipeline/analyze/analyze.py の判定ロジックのテスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.10 -m unittest src/pipeline/analyze/tests/test_analyze.py
+RS3-5(2026-10-10)で studio/tests から移した(判定の記録 feedback は human/review/feedback.py)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import random
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import analyze
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
+from human.review import feedback  # noqa: E402
+from pipeline.analyze import analyze  # noqa: E402
+from ytt import studio_env  # noqa: E402
 
 
 def synth(n=4000, lag=12, events=40, seed=1, chat_noise=1.0, related=True):
@@ -138,8 +140,8 @@ class TestSettings(unittest.TestCase):
         self.assertTrue(analyze.validate_settings({"lagAuto": "no"})["lagAuto"])   # False 以外は既定の「自動」
 
     def test_feedback_records_new_keys(self):
-        self.assertIn("lagAuto", analyze.FB_SETTING_KEYS)
-        self.assertIn("headSec", analyze.FB_SETTING_KEYS)
+        self.assertIn("lagAuto", feedback.FB_SETTING_KEYS)
+        self.assertIn("headSec", feedback.FB_SETTING_KEYS)
 
 
 class TestChatWarm(unittest.TestCase):
@@ -182,9 +184,8 @@ class TestMeta(unittest.TestCase):
 class TestArchive(unittest.TestCase):
     def setUp(self):
         import tempfile
-        import common
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
 
     def tearDown(self):
         import shutil

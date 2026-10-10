@@ -16,8 +16,8 @@ from unittest.mock import patch
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import common  # noqa: E402
-import rank  # noqa: E402
 import serve  # noqa: E402
+from human.find import rank  # noqa: E402
 
 CH_A, CH_B, CH_C = "UC" + "a" * 22, "UC" + "b" * 22, "UC" + "c" * 22
 NOW = 1_800_000_000.0   # 2027-01-15 08:00 UTC(固定の「今」)

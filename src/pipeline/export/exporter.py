@@ -16,12 +16,13 @@ import threading
 import time
 import uuid
 
-import handoff
 from pipeline.ingest import sources as _src
-from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools  # 裸の handoff は studio/ が sys.path にある前提(RS3-5 で分ける)
+from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools
 from ytt import mediainfo as _media, procs as _procs, studio_env as _env   # RS3-4 にスタジオの common から(呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError
 from ytt.textutil import fmt_ts, permission_message, redact   # 純粋な関数(差し替えない)
+
+from . import manifest as _manifest   # .clip.json の組み立てと書き込み(RS3-5 に studio/handoff から隣へ。呼ぶたびに持ち主から読む)
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -839,7 +840,7 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    it["manifest"] = handoff.write_clip_manifest(media, duration=dur, source=source, mark=mark,
+    it["manifest"] = _manifest.write_clip_manifest(media, duration=dur, source=source, mark=mark,
                                                  rng=(it["start"], end_of(it["end"], it.get("srcLen"))),
                                                  export=_clip_export_info(spec, it.get("method"), it.get("loudness")))
     if it.get("editPath") and it.get("editRange"):
@@ -847,7 +848,7 @@ def write_manifests(spec, it, mark_status):
         edur = _media.media_info(it["editPath"])[0]
         ex = _clip_export_info(spec, it.get("editMethod"), it.get("loudness"))
         ex.update(purpose="edit-handles", selection={"start": it["start"], "end": it["end"]})   # 切り抜き本体の範囲(元の配信の秒)
-        it["editManifest"] = handoff.write_clip_manifest(it["editPath"], duration=edur, source=source, mark=mark,
+        it["editManifest"] = _manifest.write_clip_manifest(it["editPath"], duration=edur, source=source, mark=mark,
                                                          rng=(es, end_of(ee, it.get("editSrcLen"))), export=ex)
 
 

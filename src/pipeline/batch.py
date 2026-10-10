@@ -6,8 +6,9 @@
 import threading
 import uuid
 
-import analyze
-from ytt import jobs, schemas, studio_env as _env  # src は serve(とスタジオの common)が sys.path に足してある
+from ytt import jobs, schemas, studio_env as _env
+
+from .analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
 from ytt.errors import ApiError
 
 MAX_ACTIVE = 10

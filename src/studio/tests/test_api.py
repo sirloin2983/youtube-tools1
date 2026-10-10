@@ -15,9 +15,10 @@ from unittest.mock import patch
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import analyze
 import common
 import serve
+from human.review import feedback
+from pipeline.analyze import analyze
 
 VID = "abcdefghijk"
 PORT0 = 0   # OS に空きポートを選ばせる(他のエージェント・テストと同時に走らせてもぶつからない。以前は 18800 固定)
@@ -593,7 +594,7 @@ class TestAdoptTop(Base):
         serve.STORE.ensure({"kind": "youtube", "videoId": vid}, "t")
         cands = [{"start": s, "end": s + 5, "peak": s + 1, "score": sc, "parts": {}, "reasons": []} for s, sc in ((10, 2.0), (30, 9.0), (50, 5.0))]
         serve.STORE.replace_auto(vid, cands, {"at": 1, "signals": {}, "counts": {}, "warnings": [], "spec": {}, "type": None}, 100.0, None)
-        fb = analyze.feedback_path() if hasattr(analyze, "feedback_path") else os.path.join(self.tmp, "feedback.jsonl")
+        fb = feedback.feedback_path() if hasattr(feedback, "feedback_path") else os.path.join(self.tmp, "feedback.jsonl")
         before = os.path.getsize(fb) if os.path.exists(fb) else 0
         st, j, *_ = self.req("POST", "/api/video/adopt-top", {"id": vid, "top": 2})
         self.assertEqual(st, 200, j)
@@ -630,7 +631,7 @@ class TestRequestMarks(Base):
         serve.STORE.ensure({"kind": "youtube", "videoId": vid}, "t")
         cands = [{"start": s, "end": s + 5, "peak": s + 1, "score": sc, "parts": {}, "reasons": []} for s, sc in ((10, 2.0), (30, 9.0), (50, 5.0), (70, 7.0))]
         serve.STORE.replace_auto(vid, cands, {"at": 1, "signals": {}, "counts": {}, "warnings": [], "spec": {}, "type": None}, 100.0, None)
-        fb = analyze.feedback_path()
+        fb = feedback.feedback_path()
         before = os.path.getsize(fb) if os.path.exists(fb) else 0
         st, j, *_ = self.req("POST", "/api/video/request-marks", {"id": vid, "ranges": [[28, 40]], "auto": 2})
         self.assertEqual(st, 200, j)
@@ -1008,7 +1009,7 @@ class TestRankSearch(Base):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        import rank
+        from human.find import rank
         cls.rank = rank
         rank.import_official_channels("hololive")
         rank.resolve("hololive")
