@@ -14,9 +14,7 @@ RANK = {name: i for i, name in enumerate(LAYERS)}
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)
 FILES = {
     # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
-    "src/ytt_core/__init__.py": ("ytt", "ytt", "転送(RS5 で消す)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
-    "src/recorder/recorder.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)"),
     # ---- cut2resolve → pipeline/pack は RS1-2 で移した(pack・resolve_textplus・cut2resolve_core・cut2resolve(CLI)・srt2resolve・auto_cut。DIRS で読む)
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
     # ---- studio: analyze・batch・store(+ 新しい feedback)・rank(+ seed.json)・txlink は RS3-5 で層へ移した(DIRS で読む)。残るのは serve・startup・handoff = app
@@ -24,7 +22,6 @@ FILES = {
     "src/studio/serve.py": ("app", "app", "API の配線"),
     "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った"),
     # ---- editor
-    "src/editor/tx_worker.py": ("pipeline", "pipeline/transcribe", "転送(RS5 で消す)。本体は RS2-9 で pipeline/transcribe/worker.py へ(疑似 install_fakes は eval/fake/fake_worker)。古い入口が旧い場所で起動するための runpy だけ"),
     # ---- ed_drill・ed_evalbatch は RS4-2 で eval/drill の drill・evalbatch へ移した(殻なし。決定 3-25 #7。DIRS で読む)
     # ---- resolve_export は RS3-E5b で pipeline/pack へ(受け渡しの JSON と SRT の組み立て build_* も一緒)・pipeline_io は manage/cases へ(読み・保存・.runtime)。どちらも DIRS で読む = 旧い場所の転送は無い
     "src/editor/ed_media.py": ("app", "app", "動画の配信"),
@@ -42,13 +39,10 @@ FILES = {
     # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
     #      live_archive と live_align_worker → pipeline/ingest(計画は pipeline/run だが run.py がファイルなので)・live_tx と live_tx_worker → pipeline/transcribe・
     #      live_failures → pipeline(計画は manage/ops。RS3-0B・仮決め #5)・live_report → pipeline(計画は eval/tools。決定 3-25 の c)・live_cleanup → manage/keep。
-    #      残るのは子プロセスのワーカーの旧い場所の起動用の転送だけ(起動中の古い入口が旧いパスで子を起こすため)
-    "src/home/live_excite_worker.py": ("pipeline", "pipeline/analyze", "転送(RS5 で消す)。本体は RS3-1 で pipeline/analyze/live_excite_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
-    "src/home/live_align_worker.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)。本体は RS3-1 で pipeline/ingest/live_align_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
-    "src/home/live_tx_worker.py": ("pipeline", "pipeline/transcribe", "転送(RS5 で消す)。本体は RS3-1 で pipeline/transcribe/live_tx_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
+    #      旧い場所の起動用の転送は RS5-G で消した
     # ---- 案件と友人の部品は RS3-3 で移した(DIRS で読む): cases → manage/cases(丸ごと。決定 3-25 の d)・intake・deliver・live_requests・
     #      friend_feedback → human/friend。AutoRunner の友人へ届ける段と組の溜めは human/friend/delivery.py の Delivery(mixin。autorun は app に残る)
-    # ---- 精度の自動測定 accuracy と測る道具(dev/eval_*.py 13 本・_evalcommon)は RS4-4 で eval/drill・eval/tools へ移した(DIRS で読む)。旧い dev/eval_*.py は runpy の転送だけ(RS5 で消す。dev/ は test_layering の外)
+    # ---- 精度の自動測定 accuracy と測る道具(dev/eval_*.py 13 本・_evalcommon)は RS4-4 で eval/drill・eval/tools へ移した(DIRS で読む)。旧い dev/eval_*.py の転送は RS5-G で消した(dev/ は test_layering の外)
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
     "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
@@ -62,13 +56,10 @@ FILES = {
 # 新しいフォルダ(RS1 以降に移した先)。フォルダ名 → 層。ここにある物は FILES に書かなくてよい
 DIRS = {"src/ytt": "ytt", "src/pipeline": "pipeline", "src/human": "human", "src/manage": "manage", "src/eval": "eval", "src/app": "app"}
 
-# 旧い名前の転送(移したあとも旧い名前の import を動かすためだけのファイル。RS5 で消す = これが空になったら転送の片付けは済み)。
+# 旧い名前の転送(移したあとも旧い名前の import を動かすためだけのファイル。RS5-G で消して空になった = 今は転送は無い。仕組みはテスト用に残す)。
 # 転送のファイル → {旧い名前の中の名前: 実体のパス, "*": 表に無い名前の実体のパスの型}。test_layering は転送を import する側としては
 # 検査せず、転送に落ちた import を実体へ付け替えて向きを見る(転送のせいで違反が「直った」と見えないように)
-FORWARDERS = {
-    "src/ytt_core/__init__.py": {"excite": "src/pipeline/analyze/excite.py", "evaldata": "src/eval/tools/evaldata.py",
-                                 "txindex": "src/manage/cases/txindex.py", "*": "src/ytt/{name}.py"},   # RS1-1
-}
+FORWARDERS = {}
 
 
 def layer_of(relpath):

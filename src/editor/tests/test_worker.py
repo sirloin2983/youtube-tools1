@@ -545,13 +545,6 @@ print(json.dumps({"states": [j["state"], r["state"], d["state"]],
         self.assertEqual(json.loads(p.stdout), {"cuda": False})
         self.assertNotIn("ctranslate2", sys.modules)
 
-    def test_old_path_forwards_to_worker(self):
-        """旧い場所 editor/tx_worker.py(起動中の古い入口が起動し直すとき用の転送。RS5 で消す)も同じワーカーを動かす"""
-        env = dict(os.environ, TRANSCRIBE_BACKEND="worker-fake", **{S.FAKES_ENV: S.FAKES_MODULE})
-        p = subprocess.run([sys.executable, os.path.join(HERE, "tx_worker.py"), "--probe"], capture_output=True, timeout=60, env=env, cwd=HERE)
-        self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertEqual(json.loads(p.stdout), {"cuda": False})
-
     def test_worker_env(self):
         """ワーカーへは作業データの場所を必ず渡し、疑似の部品の名前は worker-fake のときだけ(サーバーの環境に残っていても本物には渡さない。RS2-9)"""
         env = S.worker_env()

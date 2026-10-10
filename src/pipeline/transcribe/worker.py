@@ -9,7 +9,7 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
 その処理だけをこのプロセスで行い、落ちてもサーバー(入口に取り込んだときはスタジオ・cut2resolve も同じプロセス)は止まらないようにする。
 中身の処理は ① の部品の関数(worker_client._load_model_local・diarize._diarize_local・_embed_local)をそのまま使う(2か所に同じ処理を書かない)。
 
-役割で組み直す RS2-9(2026-10-10)に src/editor/tx_worker.py から移した(旧い場所は起動用の転送だけ。RS5 で消す)。編集の serve を読まない:
+役割で組み直す RS2-9(2026-10-10)に src/editor/tx_worker.py から移した(旧い場所の転送は RS5-G で消した)。編集の serve を読まない:
 - 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
   スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
   import したとき(テスト・src/eval/tools/_evalcommon の _audio)は sys.path に触らない

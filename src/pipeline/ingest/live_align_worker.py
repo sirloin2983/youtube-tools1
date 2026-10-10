@@ -3,7 +3,7 @@
 (入口では numpy を読み込まない決まり。src/pipeline/ingest/live_archive.py が `python live_align_worker.py <ref.wav> <window.wav>` で動かす)。
 
     py -3.10 src/pipeline/ingest/live_align_worker.py <ref.wav> <window.wav>
-    (旧い場所 src/home/live_align_worker.py は起動中の古い入口のための runpy の転送。RS5 で消す)
+    (旧い場所 src/home/live_align_worker.py の転送は RS5-G で消した)
 
 ref(速報版の音)が window(アーカイブの窓の音)のどこから始まるかを、正規化した相互相関の山で求める。
 入力は 8kHz・モノラル・16bit の WAV(wave モジュールで読む。ffmpeg で作る側が決まった形にそろえる)。

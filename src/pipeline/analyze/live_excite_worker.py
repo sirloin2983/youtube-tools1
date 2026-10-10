@@ -2,7 +2,7 @@
 """配信中の盛り上がりの検出のワーカー(線 D の L2。plan/line-d-detect.md・plan/line-d-live-clipping.md の 0-10)。入口(src/pipeline/analyze/live_detect.py)が起動する子プロセス。
 
     py -3.10 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
-    (旧い場所 src/home/live_excite_worker.py は起動中の古い入口のための runpy の転送。RS5 で消す)
+    (旧い場所 src/home/live_excite_worker.py の転送は RS5-G で消した)
 
 録画中の全部の録画を 1 つのワーカーで受け持つ(0-10-4)。**同時に測るのは MAX_ACTIVE(2)本まで**: 3 本目からは「順番待ち」(peaks.json の message・
 queued と worker.json の queued)で、受け持っている録画の検出が終わったら古い順に始める(そのときのライブ端 − SKIP_KEEP から。録画の途中から受け持った

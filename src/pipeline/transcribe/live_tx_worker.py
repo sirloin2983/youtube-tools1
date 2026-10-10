@@ -2,7 +2,7 @@
 (編集の tx_engines を読むため)。1 回の起動で 1 本の wav を認識して終わる(常駐しない = whisper-cli はモデルの読み込みが数秒で、候補は 1 時間に数本なので足りる)。
 
 使い方: python live_tx_worker.py <編集の作業データのフォルダ> <モデル名> <wav(16kHz モノラル)> <出力 json>
-  (旧い場所 src/home/live_tx_worker.py は起動中の古い入口のための runpy の転送。RS5 で消す)
+  (旧い場所 src/home/live_tx_worker.py の転送は RS5-G で消した)
   編集の tx_engines.WhisperCpp(作業データの bin/whisper.cpp-<版>-vulkan/whisper-cli.exe・Vulkan = GPU)で認識し、出力 json に
   {"ok": true, "text", "rows": [{start, end, text}], "sec", "gpu", "model", "engine"} か {"ok": false, "reason"} を書く。終了コードは ok なら 0。
   モデルとワーカー(whisper-cli)の場所は入口側(src/pipeline/transcribe/live_tx.py の LiveTx.ready)が先に確かめる(ここでは取りに行かない = 3GB を黙って取得しない)。

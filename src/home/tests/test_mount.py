@@ -48,7 +48,7 @@ class TestModuleNames(unittest.TestCase):
     def test_tools_do_not_share_module_names(self):
         """1つのプロセスに取り込むので、ツール間で同じ名前の部品を作らない(docs/design/integration-plan.md)"""
         seen = {}
-        for d in TOOL_DIRS + (layout.TOOL_DIRS["app"], "ytt_core"):   # 各フォルダの直下だけ(tests/ は取り込まないので対象外)
+        for d in TOOL_DIRS + (layout.TOOL_DIRS["app"],):   # 各フォルダの直下だけ(tests/ は取り込まないので対象外)
             path = os.path.join(REPO, d)
             if not os.path.isdir(path):
                 continue

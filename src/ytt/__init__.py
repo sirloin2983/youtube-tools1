@@ -1,7 +1,7 @@
 """ytt — 基盤(役割で組み直す計画 plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で ytt_core から移した。どの層からも読める)。
 
 Python 標準ライブラリだけで動く。読む側は src/ を sys.path に入れて `from ytt import fsio` のように読む(層のパッケージの中は兄弟を相対で)。
-旧い名前 `ytt_core` は転送(src/ytt_core/__init__.py。RS5 で消す)。excite は pipeline/analyze、evaldata は eval/tools、txindex は manage/cases に移した。
+旧い名前 `ytt_core` の転送は RS5-G で消した。excite は pipeline/analyze、evaldata は eval/tools、txindex は manage/cases に移した。
 この __init__ は説明と定数だけ(import しない。dev/tests/test_layering.py が検査)。
 
 - fsio      … 原子的な書き込み(Windows の一時的なロックはやり直す)・大きさの上限つきの JSON の読み込み(読めなければ既定値 read_json_or も)・
