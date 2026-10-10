@@ -632,8 +632,8 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
     got, detail = {}, {}
     if voices:
         doc = store.read_transcript(tid)
-        grp = _diar.voice_rows(doc.get("segments") or [], lambda g: "" if _yschemas.no_sub_row(g) or g.get("speaker") == _yschemas.OTHER_SPK_ID else (g.get("speaker") or ""))   # ゲーム音声など・字幕に出さない行は照らし合わせない
-        got, detail = _diar.match_known_voices(job, {"embedding": emb}, wav, grp, voices, {"start": offset})
+        key = lambda g: "" if _yschemas.no_sub_row(g) or g.get("speaker") == _yschemas.OTHER_SPK_ID else (g.get("speaker") or "")   # ゲーム音声など・字幕に出さない行は照らし合わせない
+        got, detail = _diar.match_known_voices(job, {"embedding": emb}, wav, doc.get("segments") or [], key, voices, {"start": offset})
 
     def record(doc, named):
         """diar.json の voices(話者ごとの経過 + 名前を付けた結果)。失敗しても名前付けには響かせない"""
@@ -699,24 +699,12 @@ def voice_learn_plan(doc):
             continue
         by_name.setdefault(n, []).append(sid)
     who = {sid: n for n, sids in by_name.items() for sid in sids}
-    skipped = {"unproofed": 0, "tagged": 0, "mixed": 0, "short": 0}
-    ok = []
-    for g in doc.get("segments") or []:
-        if not isinstance(g, dict) or g.get("speaker") not in who:
-            continue
-        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
+    def accept(g):
         tags = g.get("tags") if isinstance(g.get("tags"), list) else []
-        if a is None or b is None or b - a < _diar.voice_row_min():
-            skipped["short"] += 1
-        elif _txbase.MIXED_FLAG in str(g.get("flag") or ""):
-            skipped["mixed"] += 1
-        elif any(t in tags for t in VOICE_LEARN_TAGS):
-            skipped["tagged"] += 1
-        elif g.get("proofed") is not True:
-            skipped["unproofed"] += 1
-        else:
-            ok.append(g)
-    groups = _diar.voice_rows(ok, lambda g: who.get(g.get("speaker")) or "")
+        if any(t in tags for t in VOICE_LEARN_TAGS):
+            return "tagged"
+        return None if g.get("proofed") is True else "unproofed"
+    groups, skipped = _diar.voice_learn_rows(doc.get("segments") or [], who, accept)
     for n, sids in by_name.items():
         if n not in groups:
             refused[n] = {"name": n, "speakers": sids, "reason": "no_rows"}
@@ -797,7 +785,7 @@ def run_voice_learn(job):
                 if old and n not in same:   # 待っている間にほかで同じ名前を覚えた(確かめていない人の声には足さない)
                     _txbase.add_warning(job, "「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
                     continue
-                voices[n] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1])   # 前に覚えた声とは使った長さで重みを付けて混ぜる
+                voices[n] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"])   # 前に覚えた声とは使った長さで重みを付けて混ぜる
                 learned.append(n)
             if len(voices) > VOICE_MAX_PEOPLE:
                 raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % VOICE_MAX_PEOPLE, 400)

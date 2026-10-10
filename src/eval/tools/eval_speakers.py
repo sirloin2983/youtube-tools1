@@ -361,15 +361,32 @@ def majority_name(rows):
     return ranked[0][0]
 
 
-def voice_records(run, rows):
-    """最新の回の声の照合 -> [{"label", "info", "human"(人が付けた名前。行が無い・決められないなら None), "rows"}]。単独指定(by=request)は測らない"""
+def learned_names(voices_root, tid, run):
+    """その文書から覚えた声の名前(正規化)の集合。覚えた声のファイル(<作業データ>/voices/<判別モデル>.json)の各人の learnedFrom に tid があるもの。
+    learnedFrom が無い古い声は入らない(どの文書から覚えたか分からない = 外せない)。読めない・無いなら空"""
+    emb = ((run.get("engine") or {}).get("embedding") if isinstance(run.get("engine"), dict) else None) or ""
+    d = read_json(os.path.join(voices_root, "voices", str(emb) + ".json")) if emb else None
+    v = d.get("voices") if isinstance(d, dict) else None
+    if not isinstance(v, dict):
+        return set()
+    return {norm_name(n) for n, x in v.items()
+            if isinstance(x, dict) and any(isinstance(f, dict) and f.get("doc") == tid for f in x.get("learnedFrom") or [])}
+
+
+def voice_records(run, rows, leaked=None, drop_leaked=False):
+    """最新の回の声の照合 -> [{"label", "info", "human"(人が付けた名前。行が無い・決められないなら None), "rows", "leaked"}]。単独指定(by=request)は測らない。
+    leaked = その文書から覚えた声の名前の集合(learned_names)。照合で 1 位だった声(top)がそれなら leaked を立て、drop_leaked なら外す
+    (自分の文書から覚えた声で自分を当てるのは測れない)"""
     vs = (run.get("voices") or {}).get("speakers") if (run.get("voices") or {}).get("checked") else None
     out = []
     for sid, info in sorted((vs or {}).items()):
         if not isinstance(info, dict) or info.get("by") == "request":
             continue
+        own = bool(leaked) and norm_name(info.get("top") or info.get("decided") or "") in leaked
+        if own and drop_leaked:
+            continue
         mine = [r for r in rows if r["label"] == sid]
-        out.append({"label": sid, "info": info, "human": majority_name(mine), "rows": len(mine)})
+        out.append({"label": sid, "info": info, "human": majority_name(mine), "rows": len(mine), "leaked": own})
     return out
 
 
@@ -581,7 +598,7 @@ def stored_smooth_recs(S, doc, run):
     return off, on, {rids[i] for i in sm}
 
 
-def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None, smooth=None):
+def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None, smooth=None, exclude_learned=False):
     tdir_root = C.locate("transcribe", data_dir)
     S_ = load_serve() if smooth else None   # ならしの計算は本番の関数(editor の ed_speakers)を使う。--smooth のときだけ読む
     tdir = os.path.join(tdir_root, "transcripts")
@@ -594,7 +611,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
     loaded, sk = load_docs(tdir, include_eval, set(only) if only else None)
     picked, rinfo = pick_reviewed(loaded, mode)
     skipped = {"noDiar": 0, "single": 0, "noRows": 0, "evalSet": sk["evalSet"], "broken": sk["broken"], "notReviewed": rinfo["notReviewed"]}
-    totals = {"docs": 0, "drafts": 0, "noRecord": 0, "evalDocs": 0, "machineDraft": 0, "unverified": 0, "reviewedDocs": 0, "noSub": 0}
+    totals = {"docs": 0, "drafts": 0, "noRecord": 0, "evalDocs": 0, "machineDraft": 0, "unverified": 0, "reviewedDocs": 0, "noSub": 0, "ownVoices": 0}
     sm_agg = [Smooth(on) for on in smooth] if smooth else []
     for tid, doc, whole in picked:
         diar = read_diar(tdir, tid)
@@ -614,6 +631,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
             for a in sm_agg:
                 rr, _ = human_rows(doc, recs_on if a.on else recs_off, since_ms, until_ms, include_draft, conf)
                 a.add(rr, best_mapping(rr), sm_ids if a.on else set(), before)
+        leaked = learned_names(tdir_root, tid, run)
         ovl.add(overlap_rows(doc, runrows, run.get("overlaps"), since_ms, until_ms, whole))
         rows, cnt = human_rows(doc, runrows, since_ms, until_ms, include_draft, conf)
         for k in ("drafts", "noRecord", "machineDraft", "unverified"):
@@ -629,7 +647,10 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
         picks = {"all": rows, "proofed": [r for r in rows if r["proofed"]], "timeEdited": [r for r in rows if r["edited"] is True]}
         for k, sel in picks.items():
             add_counts(subs[k]["counts"], sel, mapping)
-            subs[k]["voices"].add(voice_records(run, sel))
+            vrecs = voice_records(run, sel, leaked, exclude_learned)
+            subs[k]["voices"].add(vrecs)
+            if k == "all":
+                totals["ownVoices"] += sum(1 for v in vrecs if v["leaked"])
         one = new_counts()
         add_counts(one, rows, mapping)
         m_cnt = num(run.get("speakers"))
@@ -665,6 +686,8 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
         notes.append("機械の下書きのままの行(名前も行も機械が付けて、その話者を人が 1 行も確かめていない)%d 行は測っていません" % totals["machineDraft"])
     if totals["unverified"]:
         notes.append("確かめられない行(人が名前を付けた・ほかの行を確かめた話者の、校正していない行)%d 行は測っていません" % totals["unverified"])
+    if totals["ownVoices"]:
+        notes.append("その文書自身から覚えた声で名前を付けた話者が %d 人います(%s)" % (totals["ownVoices"], "外しました" if exclude_learned else "測りに入っています。--exclude-learned で外す"))
     if totals["noRecord"]:
         notes.append("機械の記録が無い行(判別のあとに分けた・つないだ行)%d 行は測っていません" % totals["noRecord"])
     if totals["noSub"]:
@@ -677,7 +700,7 @@ def evaluate(data_dir=None, since=None, until=None, include_eval=True, include_d
             "git": C.git_rev(), "dataDir": tdir_root, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"], "rows": nrows, "few": few,
             "fewNote": "まだ少ない(参考): 話者つきの行が %d 行(%d 行未満)。これで既定値(しきい値 0.60・差 0.08 など)を決めない" % (nrows, FEW_ROWS) if few else "",
             "skipped": skipped, "draftRows": totals["drafts"], "noRecordRows": totals["noRecord"],
-            "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE, "reviewed": rinfo,
+            "machineDraftRows": totals["machineDraft"], "ownVoices": totals["ownVoices"], "excludeLearned": bool(exclude_learned), "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE, "reviewed": rinfo,
             "only": sorted(only) if only else None, "notes": notes}
     return {"meta": meta,
             "subsets": {k: dict(finish_counts(v["counts"]), voices=v["voices"].result()) for k, v in subs.items()},
@@ -1069,6 +1092,7 @@ def main(argv=None):
     C.add_period_args(p, "この日(YYYY-MM-DD)以後の行だけ(行の校正した時刻 proofedAt、無ければ文書の更新時刻)", "この日(YYYY-MM-DD。この日を含む)までの行だけ",
                       "同じ形の JSON を 文字起こしの作業データの evals/speakers/<日時>.json(run は <日時>-run.json)に残す")
     p.add_argument("--no-eval", action="store_true", help="評価用(evalSet)の文書を外す")
+    p.add_argument("--exclude-learned", action="store_true", help="stored: その文書自身から覚えた声(声のファイルの learnedFrom)で名前を付けた話者を声の照合の集計から外す(無ければ印だけ)")
     p.add_argument("--include-draft", action="store_true",
                    help="仮の名前(話者1…)・機械の下書きのまま・確かめられない行も測る(今までの数え方 = 人が確かめていないので甘く出る)")
     p.add_argument("--reviewed", choices=REVIEWED_MODES,
@@ -1089,7 +1113,7 @@ def main(argv=None):
     if args.mode == "stored":
         if any(v is not None for v in tune.values()):
             p.error("--threshold・--num・--emb・--min-on・--min-off は run のときだけ使えます")
-        res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth)
+        res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth, exclude_learned=args.exclude_learned)
         print_report(res)
     else:
         res = run_evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth=smooth, **tune)

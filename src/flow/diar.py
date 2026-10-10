@@ -8,7 +8,7 @@ human/proof/speakers.py(③)が ① の pipeline/transcribe(diarize・backend・
 動詞(③ が呼ぶ口。どれも ① を呼ぶ前後で ② が足すことを docstring の「② が足すこと」に書いた):
 - 部品と判別モデル: models_ready・default_embedding・embedding・embeddings
 - 判別: diarize(ジョブの音声 → 区間)・assign(区間 → 行の割り当て)・record_run・record_single(<id>.diar.json)・latest_run
-- 声: embed(声の特徴)・match_known_voices(覚えた声との照合)・voice_rows・voice_row_min・record_match・record_match_error・record_context・empty_voice
+- 声: embed(声の特徴)・match_known_voices(行 → 声の特徴 → 覚えた声との照合)・voice_learn_rows(声を覚える行の選び方)・record_match・record_match_error・record_context・empty_voice
 - 覚えた声の置き場所(作業データの voices/<判別モデル>.json): VOICES_DIR・voices_dir・voices_path・load_voices・save_voices・voices_edit・merge_voice
 計算(sherpa-onnx・numpy)は ① の中・認識ワーカーの中だけ(ここでは読み込まない = src/editor/tests/test_worker.py の検査)。
 ① の名前は呼ぶたびに `_calc.名前` で読む(テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") が ① に届く)。
@@ -20,7 +20,7 @@ import os
 import threading
 import time
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _slots, tools as _tools, txbase as _txbase, workdata as _workdata
+from ytt import schemas as _yschemas, errors as _errors, fsio as _fsio, jobs as _slots, tools as _tools, txbase as _txbase, workdata as _workdata
 from pipeline.transcribe import backend as _backend, diarize as _calc, fill as _fill, recognize as _recognize, worker_client as _wc
 
 from . import keys as _keys
@@ -132,16 +132,6 @@ def latest_run(tid):
 
 
 # ---------- 声の特徴と照合 ----------
-def voice_rows(segs, key):  # flow: alias ok  ① の行の選び方 voice_groups(声の特徴を取る行・1 人あたりの上限)を ③ の覚える計画に渡す(RS7 で割る)
-    """行 → {キー: ([(開始, 終了)...], 合計秒)}(① の voice_groups。短い行・声が混ざっている行は使わない)"""
-    return _calc.voice_groups(segs, key)
-
-
-def voice_row_min():
-    """声の特徴を取る行の最短(秒。① の VOICE_MIN_ROW)。③ の覚える計画が「短い行」を数えるため"""
-    return _calc.VOICE_MIN_ROW
-
-
 def embed(job, spec, wav, groups, hints):
     """声の特徴 -> [長さ 1 の特徴 or None](groups と同じ並び)。groups = [[(開始, 終了)…]](元の動画の秒)・spec["embedding"] = 判別モデル・
     hints = {"start": wav の頭の元の動画の秒, "sourcePath"?: 元の動画, "end"?}。sourcePath があれば(声を覚えるジョブ)音声を取り出してから・
@@ -157,16 +147,41 @@ def embed(job, spec, wav, groups, hints):
     return _calc.embed_groups(job, wav, spec["embedding"], groups, hints["start"])
 
 
-def match_known_voices(job, spec, wav, groups, voices, hints):
-    """判別の音声 wav の話者ごとの行(groups = {話者の id: ([(開始, 終了)...], 秒)})の声の特徴を取り、覚えている声(voices)と照らし合わせる
+def match_known_voices(job, spec, wav, segs, key, voices, hints):
+    """判別の音声 wav の行(segs)を key(行)(話者の id。空なら使わない)で分け、声の特徴を取り、覚えている声(voices)と照らし合わせる
     -> ({話者の id: (名前, 似ている度合い)}, {話者の id: 経過})(① の match_voices_explain の形)。話者が無ければ ({}, {})。
-    ② が足すこと: 状態の表示・声の特徴(ワーカー)と照合(①)の 2 段をつなぐ"""
+    ② が足すこと: 行の選び方(① voice_groups)・状態の表示・声の特徴(ワーカー)と照合(①)の 3 段をつなぐ"""
+    groups = _calc.voice_groups(segs, key)
     ids = list(groups)
     if not ids:
         return {}, {}
     job["phase"] = "覚えている声と照らし合わせ中"
     vecs = embed(job, spec, wav, [groups[i][0] for i in ids], hints)
     return _calc.match_voices_explain(dict(zip(ids, vecs)), voices)
+
+
+def voice_learn_rows(segs, who, accept):
+    """声を覚える行の選び方 -> ({名前: ([(開始, 終了)...], 秒)}, skipped)。who = {話者の id: 覚える名前}(無い話者の行は数えない)・
+    accept(行) = ③ の決まり(校正済みか・音のメモが無いか)で使えない理由 or None。
+    skipped = {"unproofed", "tagged", "mixed", "short"}(使わなかった行の数。理由は 1 秒未満 → 混ざる → accept の理由 の順に 1 つ)。
+    ② が足すこと: 短い行(① VOICE_MIN_ROW)と混声(① MIXED_FLAG)の数え、通った行を ① の voice_groups(1 人あたりの上限)へ渡す"""
+    skipped = {"unproofed": 0, "tagged": 0, "mixed": 0, "short": 0}
+    ok = []
+    for g in segs:
+        if not isinstance(g, dict) or g.get("speaker") not in who:
+            continue
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
+        if a is None or b is None or b - a < _calc.VOICE_MIN_ROW:
+            skipped["short"] += 1
+        elif _txbase.MIXED_FLAG in str(g.get("flag") or ""):
+            skipped["mixed"] += 1
+        else:
+            why = accept(g)
+            if why:
+                skipped[why] = skipped.get(why, 0) + 1
+            else:
+                ok.append(g)
+    return _calc.voice_groups(ok, lambda g: who.get(g.get("speaker")) or ""), skipped
 
 
 def empty_voice(**kw):
@@ -254,11 +269,19 @@ def voices_edit(emb):
             save_voices(emb, voices)
 
 
-def merge_voice(old, vec, rows, sec):
-    """覚える声の 1 人分 -> {"vec", "rows", "sec", "updatedAt"}。前に覚えた声 old(同じ次元のとき)とは、使った長さで重みを付けて混ぜる
-    (配信ごとの声の揺れをならす。前の重みは 1 時間まで)。② が足すこと: 登録簿の 1 人分の形と混ぜ方(長さ 1 にするのは ① の _unit)"""
+def merge_voice(old, vec, rows, sec, doc=None):
+    """覚える声の 1 人分 -> {"vec", "rows", "sec", "updatedAt", "learnedFrom"}。前に覚えた声 old(同じ次元のとき)とは、使った長さで重みを付けて混ぜる
+    (配信ごとの声の揺れをならす。前の重みは 1 時間まで)。doc = 覚えた文書の id(learnedFrom に {doc, at} を足す。同じ文書は重ねず at だけ新しくする。
+    古い形(learnedFrom が無い声)もそのまま読める)。② が足すこと: 登録簿の 1 人分の形と混ぜ方(長さ 1 にするのは ① の _unit)・どの文書から覚えたかの記録"""
+    now = int(time.time() * 1000)
+    src = [x for x in (old or {}).get("learnedFrom") or [] if isinstance(x, dict) and x.get("doc")]
+    if doc:
+        src = [x for x in src if x["doc"] != doc] + [{"doc": str(doc), "at": now}]
     if old and len(old["vec"]) == len(vec):
         w0 = min(float(old.get("sec") or 0.0), 3600.0)
         vec = _calc._unit([a * w0 + b * sec for a, b in zip(old["vec"], vec)]) or vec
         rows, sec = rows + int(old.get("rows") or 0), sec + w0
-    return {"vec": [round(x, 6) for x in vec], "rows": rows, "sec": round(sec, 1), "updatedAt": int(time.time() * 1000)}
+    out = {"vec": [round(x, 6) for x in vec], "rows": rows, "sec": round(sec, 1), "updatedAt": now}
+    if src:
+        out["learnedFrom"] = src
+    return out

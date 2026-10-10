@@ -222,6 +222,19 @@ class TestVoices(unittest.TestCase):
             "S5": vinfo("Z", 0.90, "Y", 0.10, decided="Z", by="elimination")}}
         self.env.doc("666666666666", {"S1": "A", "S2": "B", "S3": "D", "S4": "E"}, rows, diar={"voices": voices}, reviewed=True)
 
+    def test_exclude_voices_learned_from_the_same_doc(self):
+        self.make()
+        vdir = os.path.join(self.env.root, "transcribe", "voices")
+        os.makedirs(vdir)
+        with open(os.path.join(vdir, "voxceleb.json"), "w", encoding="utf-8") as f:
+            json.dump({"voices": {"A": {"vec": [1.0], "learnedFrom": [{"doc": "666666666666", "at": 1}]}, "C": {"vec": [1.0]}}}, f)   # C は古い形(learnedFrom 無し)
+        r = self.env.run()
+        self.assertEqual(r["meta"]["ownVoices"], 1)
+        self.assertEqual(r["subsets"]["all"]["voices"]["decided"], 2)   # 印だけ。外さない
+        r = self.env.run(exclude_learned=True)
+        self.assertEqual(r["subsets"]["all"]["voices"]["decided"], 1)   # A(自分から覚えた声)だけ外れ、C は残る
+        self.assertTrue(r["meta"]["excludeLearned"])
+
     def test_voice_correctness_reasons_and_missed(self):
         self.make()
         v = self.env.run()["subsets"]["all"]["voices"]
