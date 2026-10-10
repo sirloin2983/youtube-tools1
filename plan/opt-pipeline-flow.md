@@ -113,3 +113,13 @@
 - **`machine.py` の engine・device は選択肢が 1 つずつになった**(0.58.0 = whisper.cpp・vulkan だけ)。今は「旧い値を読み替える」「編集の settings.json の device から既定を決める `_editor_device`」が残っているだけ。友人の PC(RTX 3060)も whisper.cpp の Vulkan で始める(F1 の決めたこと 8)= 2 つ目の選択肢ができるまで、engine・device の欄と読み替えを畳める(読むときは固定の値)。旧い値の読み替えは古い machine.json・設定が無くなったら消す → OPT1 のあと(F1 で CUDA を足すなら残す = F1 の形が決まってから)
 - `diskMinGB` は「読むのは後の段」(ヘッドレスの録画は使う)。`learningDir` は既定 = 今の場所で、まだ読み手が 1 つ。使い道が増えるまでこのまま
 - `placement.py` の案件の根・`studio_data` は RS8 の B-2・B-3(案件フォルダへ移す)で形が変わる = そのときに見直す。`.flow.lock` の取り方・結果の束・`case.json` は形が良い → RS8
+
+### ②-3 段ごとの口 `flow/tools.py`・`tx.py`・`diar.py`・`batch.py`・`jobs.py`・`pack.py`・`ingest.py`・`wire.py`(1,672 行)
+- **待ち行列・ジョブの仕組みが 5 つある**: ② の `runqueue.Queue`(まとめて実行)・`jobs`(編集の文字起こし・話者などのジョブの表と待機列)・`batch.Batch`(スタジオの解析の待ち行列 最大 10 本)と、① の中の書き出しのジョブ(`exporter.start_job`)・パックの `Task`。どれも「積む・1 本ずつ動かす・状態・取り消し・やり直し・履歴」を自前で持つ。① の OPT2(ジョブの器を ② へ)と合わせて、② に 1 つのジョブの仕組み(種類を登録して動かす = 今の `jobs` の形が近い)にまとめる → OPT2 の後半〜RV(画面の進み具合の出し方が変わるので RS8 と相談)
+- `tools.py`(HttpTools・LocalTools)は ②-1 の 1(直に呼ぶ形)で HttpTools ごと要らなくなる。LocalTools のパックの組み立て(`_pack_request`・`_pack_args`・`_speaker_map`)は ① の OPT2「パックの指定を 1 つに」へ
+- `flow/pack.py`(65 行)は ① の `resolve_export` の編集の画面用の計算(たたき台・試算・受け渡し・付け替え)を ③④ に渡す口。① の 5 の「resolve_export の画面用の計算を ① の外へ」をやると、計算の置き場所と一緒に見直す(② に置くなら口は要らない)→ OPT2(RS8)
+- `tx.py`(25 の動詞)・`diar.py` は「③ は ① を直に読まない」ための口で、各動詞に「② が足すこと」が書いてあり形は良い。ほぼ素通しの数本(`check_model`・`each_lines`・`end_whole`・diar の定数の読み出し 3 本)は記録済み(OPT1 の小物)
+- `diar.py` の覚えた声の置き場所(`load_voices`・`save_voices`・`voices_edit`・`merge_voice`。約 50 行)は ② の段取りではなくデータの持ち主 = ④ `manage` の仕事に近い → RV(RS8 で案件・データの置き場所を見直すときに一緒に)
+- `batch.py` は説明文が古い形(「解析キュー(バッチ)」だけで層・RS の説明が無い)。中身は上の「5 つの仕組み」に含む
+- `ingest.py`(22 行・関数 1 つ)は小さいが ③ が ① を読まないための口 = 残す
+- `wire.py` は ③⑤ を引数で受ける登録の口で形は良い(テストの直呼び化 = 編集の serve の登録を install 1 つに、はここを使う)
