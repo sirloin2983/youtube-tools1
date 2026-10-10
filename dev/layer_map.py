@@ -28,6 +28,7 @@ ALLOWED = {
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)
 FILES = {
     # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
+    "src/ytt/docloc.py": ("ytt", "ytt", "文字起こしの文書の置き場所を引く口(RS8 B2-1a。索引 transcripts/<id>.loc.json が無ければ workdata.TX_DIR。標準ライブラリと ytt だけ)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
     # ---- cut2resolve → pipeline/pack は RS1-2 で移した(pack・resolve_textplus・cut2resolve_core・cut2resolve(CLI)・srt2resolve・auto_cut。DIRS で読む)
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
