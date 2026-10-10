@@ -596,9 +596,9 @@ class TestMountFallbacks(unittest.TestCase):
         self.assertIsNone(r)
 
     def test_mount_failure_falls_back_to_process(self):
-        fake = types.ModuleType("common")
-        fake.__file__ = os.path.join(REPO, "elsewhere", "common.py")
-        with mock.patch.dict(sys.modules, {"common": fake}):
+        fake = types.ModuleType("startup")
+        fake.__file__ = os.path.join(REPO, "elsewhere", "startup.py")
+        with mock.patch.dict(sys.modules, {"startup": fake}):
             self.sup.start("studio")
         self.sup.start_monitor()
         self.assertTrue(any("取り込めませんでした" in e for e in self.events), self.events)
