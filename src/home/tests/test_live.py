@@ -40,6 +40,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import live as LV  # noqa: E402
+from flow import live_adopt as LA  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_failures as LF  # noqa: E402
 from human.friend import live_requests as LR  # noqa: E402
@@ -1403,11 +1404,11 @@ class ExportTest(unittest.TestCase):
         """M8: 自動・アーカイブの採用の区間を前後 pad 秒だけ広げる。0 より前・録れている範囲(lastPdt)の外・1 つのマークの上限の外へは広げない"""
         first = 1_700_000_000.0
         st = lambda rel: {"lastPdt": LX.epoch_iso(first + rel)}
-        self.assertEqual(LV.Live._pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))
-        self.assertEqual(LV.Live._pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
-        self.assertEqual(LV.Live._pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
-        self.assertEqual(LV.Live._pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
-        self.assertEqual(LV.Live._pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(100), first), (8.0, 22.0))   # 本体は flow/live_adopt.py(RS7-2 G1b)
+        self.assertEqual(LA.pad_secs(1.0, 20.0, 2, st(21), first), (0.0, 21.0))      # 頭は 0 まで・後ろは録れている所まで
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 2, st(19), first), (8.0, 20.0))     # 終わりがまだ録れていない = 後ろは足さない
+        self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))     # lastPdt が無ければ両側に
+        self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
 
     def test_adopt_server_side(self):
         """M1: POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。

@@ -10,6 +10,7 @@
   P3(スタジオに統合。計画の 0-8)からは、スタジオのマーク(録画の頭からの秒)を書き出すときに入口が絶対時刻へ直して入れる(upsert。id は
   lm- + sha1(スタジオのマークの id) の頭 12 桁)。ジョブには studio {video, mark, start, end} を残す(スタジオの画面がどのマークの書き出しか分かる)。
   バックアップは作業データのバックアップ(src/manage/keep/backup.py。変わってから QUIET 秒で写す)に乗る。
+  スタジオなしの採用(RS7-2 G1b。flow/live_adopt.py の LocalMarks)は、正本のマークに採用の印(key・sec・status adopted|exported・src "local")を置く(MarkStore.adopt)。
 
 書き出しのジョブ(Exporter。計画の 6。1本ずつ順に):
   1. 録画待ち … マークの終わりの時刻まで録画が届くのを待つ(録画元の /live/<録画>/segments の lastPdt。届く前に録画が終われば、録れた所までで切る)
@@ -237,6 +238,30 @@ def check_studio(s):
     return {"video": s["video"], "mark": s["mark"], "n": n, "label": _text(s.get("label"), LABEL_MAX), "start": sec["start"], "end": sec["end"]}
 
 
+def _sec_pair(v):
+    """採用の印の sec [a, b](録画の頭からの秒)の形か"""
+    return isinstance(v, list) and len(v) == 2 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v)
+
+
+def studio_exported(call, job, media, archived=False):
+    """スタジオのマーク(ジョブの studio)を「書き出し済み」にする(M1: 画面を閉じていても。画面も同じ API を呼ぶ = 何度呼んでも同じ)。
+    call(method, path, body) -> (HTTP の番号か None, JSON)。-> 警告の文(できなかったとき)か ""。
+    スタジオが動いていない・call が無い(テスト・スタジオなし)ときは黙って飛ばす(画面が開いたときに突き合わせる)"""
+    st = job.get("studio") if isinstance(job.get("studio"), dict) else None
+    if not st or not st.get("video") or not st.get("mark") or call is None:
+        return ""
+    body = {"id": st["video"], "markId": st["mark"], "path": media}
+    if archived:
+        body["archived"] = True
+    try:
+        code, d = call("POST", "/api/live/exported", body)
+    except Exception as e:
+        return "スタジオのマークを「書き出し済み」にできませんでした(%s)" % e.__class__.__name__
+    if code is None or code == 200:
+        return ""
+    return "スタジオのマークを「書き出し済み」にできませんでした: %s" % str((d or {}).get("message") or "HTTP %s" % code)[:160]
+
+
 class MarkStore:
     """録画1本ごとのマーク。値の変更はロックの中で読み → 変える → fsync して置き換える"""
 
@@ -323,6 +348,51 @@ class MarkStore:
             self._save_or_raise(d)
             return dict(m)
 
+    def adopt(self, rc, rec, key, first, a, b, label="", tol=0.5, url=None, title=None):
+        """スタジオなしの採用の印(RS7-2 G1b。flow/live_adopt.py の LocalMarks)。a・b = 録画の頭からの秒・first = その 0 秒の時刻(epoch)。
+        同じ録画の採用の印(key のあるマーク)で区間の差が tol 秒以内のものがあれば使い回す(採用に戻す)。無ければ id = studio_mark_id(key) で足す。
+        マークに key・sec [a, b](頼まれた秒)・status adopted|exported・src "local" を持たせる。番号 n = 正本のマークを開始の順に並べた位置(スタジオと同じ決まり)。
+        -> (マーク, n)"""
+        if not STUDIO_ID_RE.match(key or ""):
+            raise LiveError("マークの指定が正しくありません")
+        with self.lock:
+            d = self.load(rc, rec)
+            marks = d["marks"]
+            hit = next((m for m in marks if m.get("key") and _sec_pair(m.get("sec")) and abs(m["sec"][0] - a) <= tol and abs(m["sec"][1] - b) <= tol), None)
+            if hit is not None and hit.get("status") in ("adopted", "exported"):
+                return dict(hit), self._order(marks, hit)
+            if hit is not None:
+                m = hit
+                m["status"] = "adopted"
+            else:
+                self._room(marks)
+                m = {"id": studio_mark_id(key), "key": key, "n": 0, "start": None, "end": None, "label": "", "created": now_iso(), "src": "local",
+                     "status": "adopted", "sec": [round(float(a), 3), round(float(b), 3)]}
+                self._set(m, {"start": epoch_iso(first + a), "end": epoch_iso(first + b), "label": label}, new=True)
+                marks.append(m)
+            self._touch(d, url, title)
+            m["n"] = self._order(marks, m)
+            m["updated"] = now_iso()
+            self._save_or_raise(d)
+            return dict(m), m["n"]
+
+    def mark_exported(self, rc, rec, mid, path):
+        """採用の印(adopt)を「書き出し済み」に(書き出しが済んだとき。Exporter の exported hook から)。-> 変えたか(そのマークが無ければ False)"""
+        with self.lock:
+            d = self.load(rc, rec)
+            m = next((x for x in d["marks"] if x["id"] == mid), None)
+            if m is None:
+                return False
+            m.update(status="exported", path=str(path or ""), updated=now_iso())
+            self._save_or_raise(d)
+            return True
+
+    @staticmethod
+    def _order(marks, m):
+        """マークの番号 n = 開始(同じなら終了)の順に並べた位置(1 から)"""
+        key = lambda x: (iso_epoch(x.get("start")) or 0, iso_epoch(x.get("end")) or 0)   # noqa: E731
+        return next((i + 1 for i, x in enumerate(sorted(marks, key=key)) if x["id"] == m["id"]), 0)
+
     @staticmethod
     def _touch(d, url, title):
         """録画の記録に配信の URL(まだ無いときだけ)と題名(空でなければ)を入れる(apply と upsert の共通)"""
@@ -372,14 +442,17 @@ class MarkStore:
 # ---------- 書き出しのジョブ ----------
 class Exporter:
     def __init__(self, host: "livehost.ExportHost", folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
-                 runs_log=None, disk_usage=None, disk_poll=DISK_POLL):
+                 runs_log=None, disk_usage=None, disk_poll=DISK_POLL, exported=None):
         """host: 親(flow/livehost.py の ExportHost。今は src/home/live.py の Live。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
         runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
         audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
         runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
-        disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 shutil.disk_usage。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)"""
+        disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 shutil.disk_usage。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)。
+        exported(job, media, archived) -> 警告の文か "": 書き出したらマークの置き場(flow/live_adopt.py の StudioMarks・LocalMarks)に「書き出し済み」を伝える(RS7-2 G1b)。
+        None なら親の studio_call があればスタジオへ(今までどおり)"""
         self.host, self.folder, self.out_dir, self.runner, self.audio = host, folder, out_dir, runner, audio
         self.disk_usage = disk_usage or _disk_usage
+        self.exported = exported
         self.disk_poll = disk_poll
         self._disk = None          # 前に調べた結果(disk)
         self._disk_at = 0.0
@@ -1170,22 +1243,14 @@ class Exporter:
         return len(todo)
 
     def _studio_exported(self, job, media, archived=False):
-        """スタジオのマーク(ジョブの studio)を「書き出し済み」にする(M1: 画面を閉じていても。画面も同じ API を呼ぶ = 何度呼んでも同じ)。
-        -> 警告の文(できなかったとき)か ""。スタジオが動いていない・入口のサーバーが無い(テスト)ときは黙って飛ばす(画面が開いたときに突き合わせる)"""
-        st = job.get("studio") if isinstance(job.get("studio"), dict) else None
-        call = getattr(self.host, "studio_call", None)
-        if not st or not st.get("video") or not st.get("mark") or call is None:
-            return ""
-        body = {"id": st["video"], "markId": st["mark"], "path": media}
-        if archived:
-            body["archived"] = True
+        """マークの置き場に「書き出し済み」を伝える(exported の hook。無ければ親の studio_call でスタジオのマークを = studio_exported)。
+        -> 警告の文(できなかったとき)か ""。置き場の不具合で書き出しを失敗にしない"""
+        if self.exported is None:
+            return studio_exported(getattr(self.host, "studio_call", None), job, media, archived)
         try:
-            code, d = call("POST", "/api/live/exported", body)
-        except Exception as e:
-            return "スタジオのマークを「書き出し済み」にできませんでした(%s)" % e.__class__.__name__
-        if code is None or code == 200:
-            return ""
-        return "スタジオのマークを「書き出し済み」にできませんでした: %s" % str((d or {}).get("message") or "HTTP %s" % code)[:160]
+            return self.exported(job, media, archived) or ""
+        except Exception as e:   # noqa: BLE001
+            return "マークを「書き出し済み」にできませんでした(%s)" % e.__class__.__name__
 
 
 def _disk_usage(path):

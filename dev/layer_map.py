@@ -63,6 +63,7 @@ FILES = {
     "src/flow/runqueue.py": ("flow", "flow", "② の待ち行列と実行の糸(RS7-1 S5。submit(封筒, 束)・status・cancel・snapshot・history・estimate・待ちの記録と終わった実行の記録。"
                           "Runner を継ぎ、入口の AutoRunner が受付と hook だけを足して継ぐ)"),
     "src/flow/livehost.py": ("flow", "flow", "ライブの親の口(RS7-2 G0。typing.Protocol だけ。Detector・LiveTx・Reporter・Exporter が親に求める物 = 今は app の Live が満たす)"),
+    "src/flow/live_adopt.py": ("flow", "flow", "ライブの採用 = マーク + 書き出し(M1。RS7-2 G1b。Live.adopt の本体。マークの置き場 StudioMarks(スタジオ)・LocalMarks(マークの正本。スタジオなし))"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
     "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),

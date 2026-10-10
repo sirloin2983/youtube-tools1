@@ -23,7 +23,8 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
                                           スタジオのマークから書き出す(start・end は録画の最初のセグメントの受信時刻からの秒。入口が録画元の status の
                                           firstPdt で絶対時刻にしてマークの正本へ入れる)。P2 の形 {recorder, recording, markId, transcribe} も残す
   POST /live/api/export/cancel  {id}     取り消し
-  POST /live/api/adopt  {recorder, recording, start, end, label?, origin?, after?, streamer?}   サーバー側の「マーク + 書き出し」(線 D の M1。入口 0.39.0)。
+  POST /live/api/adopt  {recorder, recording, start, end, label?, origin?, after?, streamer?}   サーバー側の「マーク + 書き出し」(線 D の M1。入口 0.39.0。
+                                          中身は src/flow/live_adopt.py の Adopter。マークの置き場はスタジオ = StudioMarks。RS7-2 G1b)。
                                           画面を閉じていても API だけで書き出しまで通る: スタジオの配信(kind live)を(無ければ)登録して採用のマークを足し
                                           (同じ区間 ±0.5 秒のマークがあれば使い回す)、マークの正本に入れて書き出しのジョブを作る。済んだら入口がスタジオのマークを「書き出し済み」にする。
                                           start・end = 録画の最初のセグメントの受信時刻からの秒(数)か、絶対時刻(UTC の文字列)。origin = manual(既定)・auto・archive
@@ -77,6 +78,7 @@ from ytt import datadir, fsio, layout, schemas, tools, version as _version
 from flow import runlog
 from flow import spec as _spec   # 採用の数・余白の既定は束の 1 か所(RS6 b-R1)
 from flow import live_export   # マークと書き出し。P2
+from flow import live_adopt   # 採用 = マーク + 書き出し(M1)の本体とマークの置き場(RS7-2 G1b。ここはスタジオの置き場 StudioMarks と友人へ届ける hook を渡すだけ)
 from flow import live_archive   # アーカイブで本番版に作り直す。P4
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from flow import live_failures   # 失敗の集約。M3・M7
@@ -115,7 +117,6 @@ STATUS_TIMEOUT = 1.5     # api/ytt/live の status: 録画元への問い合わ�
 STATUS_CACHE = 3.0       # 同じ結果を返す秒数
 RECENT_SEC = 600         # 終わった録画を札に出す秒数(10 分)
 STOP_TIMEOUT = 45.0      # 録画元の stop は録画のスレッドの終わりを 30 秒まで待つ
-ADOPT_SAME = 0.5         # POST /live/api/adopt: スタジオのマークを使い回す区間の差(秒。スタジオの DUP_TOL と同じ)
 QUIT_TIMEOUT = 3.0       # 入口の終了: 録画の部品の quit の応答を待つ秒
 QUIT_WAIT = 8.0          # quit を受けた録画の部品が終わるのを待つ秒(過ぎたら、この入口が起動したものだけ孫ごと止める)
 KEPT_NOTE = "録画中なので録画の部品は残しました(録画は続きます。部品も終わらせるときは、スタジオで録画を止めてからもう一度「すべて終了」)"
@@ -288,7 +289,6 @@ class Live:
         self.allow_local_urls = False     # begin で手元の URL も通す(テストの録画元 --source direct だけ。画面からは変えられない)
         self._recent = None               # api/ytt/live の status の結果 (時刻, 一覧)
         self._recent_lock = threading.Lock()
-        self._adopt_lock = threading.Lock()
         self._stop_lock = threading.Lock()
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
         # 子(Detector・LiveTx・Reporter・Exporter)は self を親 host として受ける = Live は flow/livehost.py の LiveHost を満たす(RS7-2 G0)
@@ -297,6 +297,10 @@ class Live:
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
         self.unconfirmed = None            # () -> ホームの「自動の切り抜き: 未確認」の数(入口 launch.py が cases の数を渡す。D-13 の休む判断)
+        self.auto_max = None               # (録画元, 録画) -> 1 録画の自動の採用の上限(D-13)。None = live_detect.AUTO_MAX_PER_REC(ユーザーの PC は今のまま)
+        # 採用(M1)のマークの置き場 = 取り込んだスタジオ(呼ぶときに self.studio_call を読む = テストの差し替えが効く)。友人の PC(スタジオなし)は LocalMarks(G2b)
+        self.marks = live_adopt.StudioMarks(lambda method, path, body=None: self.studio_call(method, path, body))
+        self.adopter = live_adopt.Adopter(self, deliver_for=self._auto_deliver_for)   # 採用の本体(RS7-2 G1b)
         self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
         self._expire_at = 0.0              # 見ていない自動の切り抜きの片付けを最後に見た時刻(EXPIRE_EVERY ごと)
         self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
@@ -360,7 +364,8 @@ class Live:
         with self._ex_lock:
             if self._exporter is None:
                 self._exporter = live_export.Exporter(self, self.store_dir, lambda: self.out_dir(), runner=lambda: self.runner(), log=self.log, audio=lambda: self.audio(),
-                                                      runs_log=os.path.join(self.logs_dir, runlog.RUNS_LOG))   # 失敗の集約(M3)が読む まとめて実行の記録
+                                                      runs_log=os.path.join(self.logs_dir, runlog.RUNS_LOG),   # 失敗の集約(M3)が読む まとめて実行の記録
+                                                      exported=lambda job, media, archived=False: self.marks.exported(job, media, archived))   # マークを「書き出し済み」に
             return self._exporter
 
     @property
@@ -739,14 +744,9 @@ class Live:
         return out
 
     def _request_for(self, rc_id, rec, origin, after, streamer):
-        """録画が友人のライブ配信の依頼に結びついていれば (依頼, after=auto, 配信者) を返す(2-15: 採用した切り抜きは全部 文字起こし → パック → 届ける)。
-        配信後のアーカイブからの追加(origin archive)は依頼の afterStream が真のときだけ。結びついていなければ (None, after, streamer) のまま"""
-        req = self.requests.get(rc_id, rec)
-        if req is None:
-            return self._auto_deliver_for(origin, after, streamer)
-        if origin == "archive" and req["settings"].get("afterStream") is not True:
-            return None, after, streamer
-        return req, "auto", streamer or req.get("streamer") or ""
+        """録画が友人のライブ配信の依頼に結びついていれば (依頼, after=auto, 配信者)・無ければ自分の配信を届けるか(_auto_deliver_for)。
+        本体は flow/live_adopt.py の Adopter.request_for(RS7-2 G1b)"""
+        return self.adopter.request_for(rc_id, rec, origin, after, streamer)
 
     def deliver_dir(self):
         """友人へ届ける所(依頼の受付の Dropbox のフォルダの 出力 の中)。決まっていなければ None"""
@@ -799,122 +799,10 @@ class Live:
                                         after=after, streamer=streamer, origin=origin, auto=auto, request=req)
 
     # --- M1: サーバー側の「マーク + 書き出し」(画面を閉じていても。自動の採用 M7・M11 もここを通る) ---
-    def _adopt_secs(self, body, first):
-        """POST /live/api/adopt の start・end -> 録画の頭からの秒 (a, b)。数 = 秒・文字列 = 絶対時刻(UTC)"""
-        out = []
-        for k in ("start", "end"):
-            v = body.get(k)
-            if isinstance(v, str):
-                e = live_export.iso_epoch(v)
-                if e is None:
-                    raise live_export.LiveError("%s の時刻が正しくありません(UTC の …Z か、録画の頭からの秒)" % k)
-                v = e - first
-            if not schemas.is_num(v):
-                raise live_export.LiveError("%s は録画の頭からの秒(数)か、絶対時刻(UTC の文字列)で指定してください" % k)
-            out.append(round(float(v), 3))
-        a, b = out
-        if not 0 <= a or b - a < 0.5:
-            raise live_export.LiveError("区間は 0 ≤ 開始 で、終了は開始より 0.5 秒以上あとにしてください")
-        if b - a > live_export.MAX_MARK_SEC:
-            raise live_export.LiveError("1つのマークは %d 分までです" % (live_export.MAX_MARK_SEC // 60))
-        return a, b
-
-    @staticmethod
-    def _pad_secs(a, b, pad, st, first):
-        """自動・アーカイブの採用の区間 (a, b) を前後 pad 秒だけ広げる(M8。plan/improvements.md の M8)。
-        0 より前と、録れている範囲(録画元の状態の lastPdt)の外へは広げない(終わりが録れていなければ後ろは足さない)。1 つのマークの上限も守る"""
-        pad = float(pad)
-        a2, b2 = max(0.0, a - pad), b + pad
-        last = live_export.iso_epoch(st.get("lastPdt")) if isinstance(st, dict) else None
-        if last is not None and first is not None:
-            b2 = min(b2, max(b, last - first))
-        b2 = min(b2, a2 + live_export.MAX_MARK_SEC)
-        return round(a2, 3), round(b2, 3)
-
-    def _studio_ok(self, method, path, body=None):
-        """取り込んだスタジオの API -> JSON。だめなら LiveError(スタジオが動いていない = 502)"""
-        code, d = self.studio_call(method, path, body)
-        if code is None:
-            raise live_export.LiveError("切り抜きスタジオにつながりません: %s" % ((d or {}).get("message") or ""), 502)
-        if code != 200 or not isinstance(d, dict):
-            raise live_export.LiveError("切り抜きスタジオが断りました: %s" % ((d or {}).get("message") or "HTTP %s" % code), code if code in (400, 404, 409) else 502)
-        return d
-
-    def _studio_adopt_mark(self, rc_id, rec, st, a, b, label):
-        """スタジオの配信(kind live。id = 録画の id)を(無ければ)登録し、採用のマーク [a, b] を足す(同じ区間 ±0.5 秒があれば使い回し、候補・不採用なら採用に)。
-        画面と同じ PUT /api/video(baseRev つき。画面の保存とぶつかったら読み直して 3 回まで)。-> (配信の id, マーク, 番号 n)"""
-        v = self._studio_ok("POST", "/api/videos/open", {"kind": "live", "recorder": rc_id, "recording": rec, "url": st.get("url") or "",
-                                                         "title": (st.get("title") or "")[:live_export.TITLE_MAX], "channel": ""}).get("video") or {}
-        vid = v.get("id")
-        if not isinstance(vid, str) or not vid:
-            raise live_export.LiveError("切り抜きスタジオに録画を登録できませんでした", 502)
-        for _try in range(3):
-            v = self._studio_ok("GET", "/api/video?id=" + urllib.parse.quote(vid)).get("video") or {}
-            marks = [m for m in v.get("marks") or [] if isinstance(m, dict)]
-            hit = next((m for m in marks if abs((m.get("start") or 0) - a) <= ADOPT_SAME and abs((m.get("end") or 0) - b) <= ADOPT_SAME), None)
-            if hit is not None and hit.get("status") in ("adopted", "exported"):
-                mark = hit
-                break
-            if hit is not None:
-                new = [dict(m, status="adopted") if m.get("id") == hit.get("id") else m for m in marks]
-            else:
-                new = marks + [{"start": a, "end": b, "label": label, "status": "adopted"}]
-            code, d = self.studio_call("PUT", "/api/video", {"id": vid, "marks": new, "baseRev": v.get("rev")})
-            if code == 409:   # 画面の保存・解析とぶつかった: 読み直してもう一度
-                continue
-            if code != 200 or not isinstance(d, dict):
-                raise live_export.LiveError("切り抜きスタジオにマークを足せませんでした: %s" % ((d or {}).get("message") or "HTTP %s" % code), 502)
-            v = d.get("video") or {}
-            old_ids = {m.get("id") for m in marks}
-            got = [m for m in v.get("marks") or [] if isinstance(m, dict)]
-            mark = next((m for m in got if m.get("id") == (hit or {}).get("id")), None) if hit is not None else \
-                next((m for m in got if m.get("id") not in old_ids and abs((m.get("start") or 0) - a) <= ADOPT_SAME), None)
-            if mark is None:
-                raise live_export.LiveError("切り抜きスタジオに足したマークが見つかりません", 502)
-            marks = got
-            break
-        else:
-            raise live_export.LiveError("切り抜きスタジオの配信が続けて書き換えられているので、マークを足せませんでした(少し待ってもう一度)", 409)
-        order = sorted(marks, key=lambda m: (m.get("start") or 0, m.get("end") or 0))
-        n = next((i + 1 for i, m in enumerate(order) if m.get("id") == mark.get("id")), 0)
-        return vid, mark, n
-
     def adopt(self, body, hold=None):
-        """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}。
+        """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}。本体は flow/live_adopt.py の Adopter.adopt(RS7-2 G1b。マークの置き場は self.marks)。
         hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
-        origin = live_export.check_origin(body.get("origin"))
-        auto = self.auto_cfg()
-        after, streamer = live_export.check_after(body, auto["after"]), live_export.check_streamer(body.get("streamer"))
-        label = live_export._text(body.get("label"), live_export.LABEL_MAX)
-        text = live_export._text(body.get("text"), live_tx.TEXT_MAX)   # 配信中の文字起こし(D-11 案 b)の文字(採用の記録に残す = C2 の材料。任意)
-        score = body.get("score") if schemas.is_num(body.get("score")) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
-        rc_id, rec = body.get("recorder"), body.get("recording")
-        rc = self._ids(rc_id, rec)
-        req, after, streamer = self._request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
-        pad = req["settings"]["pad"] if req and isinstance(req.get("settings"), dict) else auto["pad"]
-        st, first = self._rec_status(rc, rc_id, rec)
-        a, b = self._adopt_secs(body, first)
-        if origin != "manual" and pad > 0:   # M8: 自動・アーカイブの採用は前後に余白を足す(人が決めた区間はそのまま)
-            a, b = self._pad_secs(a, b, pad, st, first)
-        ex = self.exporter
-        with self._adopt_lock:   # 同じ区間を続けて頼まれても、スタジオのマーク・ジョブを二重に作らない
-            vid, mark, n = self._studio_adopt_mark(rc_id, rec, st, a, b, label)
-            mid = live_export.studio_mark_id(mark["id"])
-            prev = [j for j in ex.snapshot(rc_id, rec) if j.get("markId") == mid and (j.get("state") in live_export.ACTIVE or j.get("state") == "done")]
-            if mark.get("status") == "exported" or (prev and prev[0].get("state") in live_export.ACTIVE):   # 書き出しの途中か済み: 新しく作らない(同じ切り抜きを二重に作らない)
-                return {"job": prev[0] if prev else None, "video": vid, "mark": mark["id"], "origin": (prev[0].get("origin") if prev else None) or "manual",
-                        "existing": True}
-            studio = {"video": vid, "mark": mark["id"], "n": n, "label": mark.get("label") or label,
-                      "start": float(mark.get("start", a)), "end": float(mark.get("end", b))}   # スタジオが丸めた区間(画面の書き出しと同じ値で突き合わせる)
-            job = ex.add_studio(rc_id, rec, studio, first, after != "none", url=st.get("url") if isinstance(st.get("url"), str) else None,
-                                title=st.get("title") if isinstance(st.get("title"), str) else None, after=after, streamer=streamer, origin=origin, auto=auto,
-                                hold=hold if hold in live_export.HOLDS else None, score=score, request=req)
-        ex.feedback({"event": "adopt", "origin": origin, "human": origin == "manual", "verdict": "good" if origin == "manual" else None,
-                     "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
-                     "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"], **({"text": text} if text else {})})
-        self.log("リアルタイム切り抜き: %s のマークを採用して書き出しを頼みました(%s %.1f〜%.1f 秒)" % ({"manual": "人", "auto": "自動", "archive": "アーカイブ"}[origin], rec,
-                                                                                         studio["start"], studio["end"]))
-        return {"job": job, "video": vid, "mark": mark["id"], "origin": origin, "existing": False}
+        return self.adopter.adopt(body, hold)
 
     # --- 画面の共通の API api/ytt/live(launch.py の PortalServer.ytt_api から。全ツールのヘッダーの札) ---
     def ytt(self, body):

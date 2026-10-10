@@ -84,6 +84,8 @@ class FakeHost:
         self.requests = Book()
         self._halt = threading.Event()
         self.unconfirmed = None
+        self.auto_max = None
+        self.marks = None                # 採用(live_adopt)はこの偽の親では使わない(adopt は下の偽物)
         self.clock = clock
         self._cfg = {"enabled": True, "detect": {"enabled": True}, "autoAdopt": {"enabled": True, "waitMin": 1}, "liveTx": {"enabled": True}}
         self.detector = self.livetx = self.exporter = None   # 子は下で作る(子が親を持つ)
@@ -128,6 +130,13 @@ class FakeHost:
         if rc is None:
             raise LX.LiveError("その録画元はありません", 404)
         return rc
+
+    def auto_cfg(self):
+        return {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2.0}
+
+    def _rec_status(self, rc, rc_id, rec):
+        now = self.clock()
+        return {"url": URL, "title": "テスト配信", "firstPdt": iso(now - 1500.0), "lastPdt": iso(now)}, now - 1500.0
 
     def adopt(self, body, hold=None):
         self.adopted.append(dict(body))
@@ -235,6 +244,28 @@ class FakeHostTest(unittest.TestCase):
         self.assertEqual((h.detector.tick(), self.rep.tick(force=True), h.livetx.tick()), ("off", 0, 0))
         self.no_strays()
 
+    def test_auto_max_hook(self):
+        """D-13 の上限は親の auto_max(友人の PC = 束の adopt.top。RS7-2 G1b)。無い・None なら AUTO_MAX_PER_REC のまま"""
+        h = self.host
+        self.assertEqual(h.detector.auto_max("fake", REC), D.AUTO_MAX_PER_REC)   # 口の DetectHost には無い(OPTIONAL)= 今の上限
+        view = Strict(H.LiveHost, h)   # 親が auto_max を持つとき(LiveHost の名前は通す)
+        h.detector = det = D.Detector(view, spawn=False, clock=lambda: self.t[0])
+        det.stale_sec = 10 ** 9
+        self.assertEqual(det.auto_max("fake", REC), D.AUTO_MAX_PER_REC)   # None = 今の上限(ユーザーの PC)
+        h.auto_max = lambda rc, rec: 1
+        self.put_peaks([peak("p0-302", 272, "frame", 336), peak("p1-903", 870, "frame", 930)])
+        det.tick()
+        self.t[0] += 61
+        det.tick()
+        self.assertEqual([b["start"] for b in h.adopted], [272.0])   # 1 本で止まる(残りは人の採用に)
+        self.assertTrue(any("上限の 1 本" in m for m in h.logs), h.logs)
+        self.assertEqual([(r["auto"], r["autoCapped"]) for r in det.health()["recordings"]], [(1, True)])
+        h.auto_max = lambda rc, rec: "たくさん"   # 形が違えば今の上限
+        self.assertEqual(det.auto_max("fake", REC), D.AUTO_MAX_PER_REC)
+        self.assertEqual(view.bad, [])
+        det.stop()
+        self.no_strays()
+
     def test_exporter_without_live(self):
         h, ex = self.host, self.host.exporter
         mid = LX.studio_mark_id("mk1")
@@ -289,7 +320,7 @@ class LiveTest(unittest.TestCase):
         self.assertIsNone(lv._exporter)   # 名前を調べても書き出しの部品は作らない
         self.assertEqual(sorted(H.names(H.LiveHost)),
                          sorted(set(H.names(H.DetectHost)) | set(H.names(H.TxHost)) | set(H.names(H.ReportHost)) | set(H.names(H.ExportHost))
-                                | {"_halt", "unconfirmed"}))
+                                | set(H.names(H.AdoptHost)) | {"_halt", "unconfirmed", "auto_max"}))
 
     def test_children_hold_live_as_host(self):
         lv = self.live

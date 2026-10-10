@@ -34,6 +34,8 @@ API(src/home/live.py の handle_get / _api_post から。書き込みは入口�
 友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。ホームの「自動の切り抜き: 未確認」(src/manage/cases/cases.py の auto.unconfirmed。Live.unconfirmed)が
 UNCONFIRMED_PAUSE 本以上なら、依頼の無い録画の自動の採用を休む(人が見ていないのに増やさない。友人の依頼の録画は届けるのでそのまま)。休んでいる間は「調子」の
 detect の行(autoAdopt.paused)に理由を出す。
+上限の数は親の hook auto_max(rc, rec)で変えられる(RS7-2 G1b。flow/livehost.py の OPTIONAL。友人の PC = 束の adopt.top = live_adopt.top_of)。
+親が持たない・None(ユーザーの PC = Live)なら AUTO_MAX_PER_REC のまま。未確認の数で休むのは親の unconfirmed が None なら無い(友人の PC)。
 """
 import json
 import os
@@ -532,6 +534,18 @@ class Detector:
         self._unconf, self._unconf_at = max(0, n), now
         return self._unconf
 
+    def auto_max(self, rc, rec):
+        """D-13: その録画の自動の採用の上限(本数)。親の auto_max(rc, rec)(友人の PC = 束の adopt.top)があればその値、無い・None・形が違えば AUTO_MAX_PER_REC"""
+        fn = getattr(self.host, "auto_max", None)
+        if fn is None:
+            return AUTO_MAX_PER_REC
+        try:
+            v = fn(rc, rec)
+        except Exception as e:   # noqa: BLE001  (上限を読めない不具合で自動の採用を止めない = 今の上限で続ける)
+            self.host.note("盛り上がりの検出: 自動の採用の上限を読めませんでした(%s 本で続けます): %r" % (AUTO_MAX_PER_REC, e))
+            return AUTO_MAX_PER_REC
+        return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else AUTO_MAX_PER_REC
+
     def auto_count(self, rc, rec):
         """その録画で自動(origin auto)で採用した数(decisions.json。D-13 の上限の分母)"""
         return sum(1 for x in self._decisions(self.folder(rc, rec))["items"] if x.get("state") == "adopted" and x.get("origin") == "auto")
@@ -561,7 +575,7 @@ class Detector:
     def auto_tick(self):
         """M11: 録画中の録画の候補のうち、枠の中で入口が最初に見てから waitMin 分たったものを自動で採用する -> 採用した数。
         D-14: 録画が終わって END_GRACE_SEC 以内でワーカーが締めた録画の、待ち中だった候補も同じ待ちで採用する。
-        D-13: 1 録画 AUTO_MAX_PER_REC 本まで・未確認 UNCONFIRMED_PAUSE 本で依頼の無い録画は休む"""
+        D-13: 1 録画 auto_max 本まで(既定 AUTO_MAX_PER_REC)・未確認 UNCONFIRMED_PAUSE 本で依頼の無い録画は休む"""
         a = self.adopt_cfg()
         now = self.clock()
         for key in [k for k, t in self._seen_at.items() if now - t > SEEN_KEEP_SEC]:   # 採用した・録画が終わった候補の分は残さない(録画のたびに増え続けない)
@@ -588,7 +602,7 @@ class Detector:
             doc, peaks, _pending = self.view(rc, rec)
             if ended and not (doc or {}).get("ended"):   # 終わった録画は、ワーカーが帳簿を締めてから(終わり待ちの候補が確定する)
                 continue
-            used = self.auto_count(rc, rec)
+            used, cap = self.auto_count(rc, rec), self.auto_max(rc, rec)
             for pk in peaks:
                 key = (rc, rec, pk.get("id"))
                 if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(pk.get("confirmedAt"), (int, float)):
@@ -599,10 +613,10 @@ class Detector:
                 self._seen_at[key] = now
                 if now - first < wait_min * 60:
                     continue
-                if used >= AUTO_MAX_PER_REC:   # D-13: この録画はもう上限(候補は帯に残る = 人が採用できる)
+                if used >= cap:   # D-13: この録画はもう上限(候補は帯に残る = 人が採用できる)
                     if rec not in self._capped_said:
                         self._capped_said.add(rec)
-                        self.host.log("盛り上がりの検出: 録画 %s の自動の採用は上限の %d 本に達したので、残りの候補は人の採用に任せます" % (rec, AUTO_MAX_PER_REC))
+                        self.host.log("盛り上がりの検出: 録画 %s の自動の採用は上限の %d 本に達したので、残りの候補は人の採用に任せます" % (rec, cap))
                     break
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")
@@ -675,7 +689,7 @@ class Detector:
             auto_n = self.auto_count(x["recorder"], x["id"])
             recs.append({"recorder": x["recorder"], "id": x["id"], "peaks": sum(1 for p in peaks if p.get("state") in ("frame", "adopted")),
                          "lag": (doc or {}).get("lag"), "chat": ch, "behindSec": (doc or {}).get("behindSec"),
-                         "auto": auto_n, "autoCapped": auto_n >= AUTO_MAX_PER_REC})   # D-13: 自動で採用した数と上限に達したか
+                         "auto": auto_n, "autoCapped": auto_n >= self.auto_max(x["recorder"], x["id"])})   # D-13: 自動で採用した数と上限に達したか
         chat = next((c for c in CHAT_ORDER if c in chats), "off")
         paused = self._paused_said   # D-13: 休んでいる理由(auto_tick が決める。見回りの間の値 = ここで案件を数え直さない)
         return {"running": self.running(hb), "pid": hb.get("pid"), "behindSec": hb.get("behindSec"), "memMB": hb.get("memMB"),

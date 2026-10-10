@@ -6,8 +6,11 @@
 ここはその「親に何を求めるか」を typing.Protocol で並べた物(動きは持たない。子は self.host に親を持つ)。
 子ごとに要る分を小さく分けた: DetectHost・TxHost・ReportHost・ExportHost。全部をまとめた物が LiveHost(Live が満たす)。
 
+採用(flow/live_adopt.py の Adopter。RS7-2 G1b)が親に求める物は AdoptHost(マークの置き場 marks = MarkBook も)。
+
 親が持っていなくてもよい物(子が getattr で読み、無ければ飛ばす)は OPTIONAL に並べた:
-  Detector: _halt(入口の終了の途中ならワーカーを起こさない)・unconfirmed(D-13 の未確認の数。None なら休まない)
+  Detector: _halt(入口の終了の途中ならワーカーを起こさない)・unconfirmed(D-13 の未確認の数。None なら休まない)・
+            auto_max(D-13 の 1 録画の自動の採用の上限。None なら AUTO_MAX_PER_REC)
   Exporter: studio_call(スタジオのマークを「書き出し済み」にする。無ければ黙って飛ばす)
 Archiver(live_archive)・Cleaner(manage/keep/live_cleanup)は関数で受けるのでここには無い
 (ただし Archiver は Exporter の host.find を読む = ExportHost の find)。
@@ -101,13 +104,37 @@ class DetectHost(Protocol):
     def _ids(self, rc_id: str, rec: str) -> dict: ...
 
 
-class LiveHost(DetectHost, TxHost, ReportHost, ExportHost, Protocol):
-    """4 つの子の親(Live・G2b の livesession)。OPTIONAL の物も持つ"""
+class MarkBook(Protocol):
+    """マークの置き場(RS7-2 G1b。flow/live_adopt.py の StudioMarks = スタジオ・LocalMarks = マークの正本 live_export.MarkStore)"""
+
+    def adopt_mark(self, rc_id: str, rec: str, st: dict, first: float, a: float, b: float, label: str) -> Tuple[str, dict, int]: ...
+
+    def exported(self, job: dict, media: str, archived: bool = False) -> str: ...
+
+
+class AdoptHost(Protocol):
+    """Adopter(flow/live_adopt.py。採用 = マーク + 書き出し)が親に求める物"""
+    log: Callable[[str], None]
+    requests: RequestBook
+    exporter: "Exporter"
+    marks: MarkBook
+
+    def auto_cfg(self) -> dict: ...
+
+    def _ids(self, rc_id: str, rec: str) -> dict: ...
+
+    def _rec_status(self, rc: dict, rc_id: str, rec: str) -> Tuple[dict, float]: ...
+
+
+class LiveHost(DetectHost, TxHost, ReportHost, ExportHost, AdoptHost, Protocol):
+    """4 つの子と採用の親(Live・G2b の livesession)。OPTIONAL の物も持つ"""
     _halt: threading.Event
     unconfirmed: Optional[Callable[[], int]]
+    auto_max: Optional[Callable[[str, str], int]]
 
 
-OPTIONAL = {"Detector": ("_halt", "unconfirmed"), "Exporter": ("studio_call",)}
+# auto_max(rc, rec) -> 1 録画の自動の採用の上限(D-13。RS7-2 G1b)。None・無し = live_detect.AUTO_MAX_PER_REC(ユーザーの PC)。友人の PC は束の adopt.top
+OPTIONAL = {"Detector": ("_halt", "unconfirmed", "auto_max"), "Exporter": ("studio_call",)}
 
 
 def names(proto) -> List[str]:
