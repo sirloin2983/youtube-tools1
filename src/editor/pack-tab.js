@@ -12,15 +12,8 @@ function create(h){
   const $ = h.$, esc = h.esc;
   const P = { docId: null, pack: null, rev: 0, preview: null, previewKey: '', previewErr: '', pv: 'idle', pvErrKey: '', pvT: 0, pvSeq: 0, building: false, job: null, err: '', readme: '', lastRes: null,
     notes: [], focusOpen: false };   // notes = 作ったときの案内(info。知らせに積まず「前回のパック」に出す)・focusOpen = 作り終えたら「フォルダを開く」へフォーカス(段7 E-11)
-  /* 素材の fps(2 カット のタブが読んだ値。分からなければ 0)。素材は 30fps にそろえる(2026-10-04 ユーザー決定。マスタープラン Q1)ので、
-     素材がちょうど 30fps か分からないときは、プロジェクトの fps は 30 固定で選ばせない(保存してある packFps = 60 は使わない・消さない)。
-     30fps でない古い文書のときだけ、今までの選択(30/60・その他)と 60↔30 の注意を出す */
-  const srcFpsOf = () => { const f = h.CUT && h.CUT.fps ? h.CUT.fps() : null; return f && f[1] ? f[0] / f[1] : 0; };
-  const legacyFps = () => { const s = srcFpsOf(); return s > 0 && Math.abs(s - 30) > 0.01; };   // 29.97 は古い素材の扱い(30 のプロジェクトに置くと 10 分で十数コマずれ得る。新しい入口の素材はちょうど 30)
-  const fpsOf = () => {
-    if (!legacyFps()) return '30';
-    const o = $('#pkFpsOther').value; return o || (h.S.settings.packFps === '60' ? '60' : String(h.S.settings.packFps || '30'));
-  };
+  /* パックの fps は 30 固定(2026-10-11 RS7-1 S6a。素材は 30fps にそろえる = マスタープラン Q1。画面の欄は消した。設定に残っている packFps は読まない・消さない) */
+  const fpsOf = () => '30';
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
   /* 音量のそろえ方(LUFS。編集の設定 packLoudness。0 = そろえない(% で決める)。まとめて実行のパックも同じ値。既定は 0・音量 30%(2026-10-01 ユーザー決定)) */
   const loudOf = () => {
@@ -274,13 +267,7 @@ function create(h){
     off.hidden = !msg; off.textContent = msg;
     // 置き先
     const fps = fpsOf(), size = sizeOf();
-    document.querySelectorAll('#pkFps [data-v]').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === fps ? 'true' : 'false'));
     document.querySelectorAll('#pkSize [data-v]').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === size ? 'true' : 'false'));
-    const legacy = legacyFps(), srcFps = srcFpsOf();
-    $('#pkFpsFixedRow').hidden = legacy; $('#pkFpsRow').hidden = !legacy; $('#pkFpsOtherFld').hidden = !legacy;   // 30fps の素材は選択を出さない(1行の説明だけ)
-    const fw = $('#pkFpsWarn');
-    fw.hidden = !(legacy && srcFps > 45 && Number(fps) <= 30);
-    fw.textContent = `元の動画は ${srcFps.toFixed(2).replace(/\.?0+$/, '')}fps です。${fps}fps のプロジェクトに入れると、区間の端が Resolve で丸められて1フレームずれることがあります(実機で確かめてください)。`;
     // これから作るパック
     const sm = h.CUT && h.CUT.summary(), pv = P.preview, pvKey = previewKeyNow(), fresh = !!pv && P.previewKey === pvKey;
     const hasRows = d.segments.some(kept), o = outputNow(hasRows);
@@ -511,9 +498,7 @@ function create(h){
     requestAnimationFrame(() => { const sec = $('#edSetPack'); if (sec) sec.scrollIntoView({ block: 'start' }); });
   });
   function setOpt(key, v){ saveLoud({ [key]: v }); }   // パックの出力は「送ったキーだけ直す」API で(まとめて実行の欄と同じ値。段4)
-  $('#pkFps').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b){ $('#pkFpsOther').value = ''; setOpt('packFps', b.dataset.v); } });
   $('#pkSize').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) setOpt('packSize', b.dataset.v); });
-  $('#pkFpsOther').addEventListener('change', () => { if ($('#pkFpsOther').value) setOpt('packFps', $('#pkFpsOther').value); else render(); });
   /* 行の後の余白(段6 6-2・B-1): 設定 rowEdge.padAfter(規則は cut2resolve の pack.py row_edge_from。「行から」のたたき台・zip・まとめて実行に効く。変える入口はここ1か所) */
   let padT = 0;
   $('#pkPadAfter').addEventListener('change', () => { const raw = $('#pkPadAfter').value; clearTimeout(padT); padT = setTimeout(() => { padT = 0; savePad(raw); }, 800); });   // 打つたびに「行から」を作り直さない(無音の検出は重い)。値はそのとき読む(待つ間に render が欄を書き戻すため)
@@ -607,7 +592,7 @@ function create(h){
     shown(){   // 2 カット を開いたとき(帯の場面はカットのものなので触らない。0.62.0)
       if (h.S.doc){ render(); schedulePreview(0); }
       h.api('/api/settings').then(st => {   // パックの音量はほかの画面(まとめて実行の欄)でも変えられるので、開くたびに読み直す
-        const keys = ['packLoudness', 'packVolume', 'packFps', 'packSize', 'speakerColors', 'packBackup', 'packRender'];   // ほかの画面(まとめて実行の欄)でも変えられる値
+        const keys = ['packLoudness', 'packVolume', 'packSize', 'speakerColors', 'packBackup', 'packRender'];   // ほかの画面(まとめて実行の欄)でも変えられる値
         if (st && keys.some(k => st[k] !== h.S.settings[k])){ for (const k of keys) h.S.settings[k] = st[k]; if (h.S.doc) render(); h.onSpeakerColors(); }
       }, () => {});
     },

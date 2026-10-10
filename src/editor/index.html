@@ -1245,7 +1245,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
 .tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
 .tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
 .tt-pk-p{margin:8px 0 0;line-height:1.6}
-.tt-pk-fpswarn{margin:8px 0 0}
 .tt-pk-item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
 .tt-pk-item:first-of-type{border-top:0}
 .tt-pk-item b{display:block;font-weight:650}
@@ -1918,13 +1917,9 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   <h4 class="tt-set-sub">置き先のプロジェクト(Resolve で作るもの)</h4>
   <div class="tt-pk-row" id="pkFpsFixedRow"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。素材は 30fps にそろえてあるので、Resolve のプロジェクトも 30fps で作ります">フレームレート</abbr></span>
     <span id="pkFpsFixed">素材とプロジェクトは 30fps</span></div>
-  <div class="tt-pk-row" id="pkFpsRow" hidden><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。Resolve で手で作るプロジェクトと同じ値を選びます(カットの位置は元の動画の fps で数えます)">フレームレート</abbr></span>
-    <div class="ui-seg" id="pkFps" role="group" aria-label="フレームレート"><button type="button" data-v="30">30 fps</button><button type="button" data-v="60">60 fps</button></div></div>
   <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
     <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
   <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦に切り取る作業(クロップ)は Resolve で行います。</p>
-  <p class="notice tt-pk-fpswarn" id="pkFpsWarn" hidden></p>
-  <div class="fld" id="pkFpsOtherFld" hidden><label for="pkFpsOther">その他のフレームレート(置き先。30fps でない古い素材のとき)</label><select id="pkFpsOther"><option value="">上の 30 / 60 を使う</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="50">50 fps</option></select></div>
   <h4 class="tt-set-sub">パックに入れるもの</h4>
   <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b><abbr class="ui-term" title="DaVinci Resolve の文字のタイトル。パックに入るスクリプトが Resolve の中で字幕として作ります">Text+</abbr> 字幕とカット済みのタイムラインを作るスクリプト</b><span class="hint">Resolve の中で実行すると、開いているプロジェクトにタイムラインと Text+ 字幕を足します(字幕の雛形 .drb・登録用の .bat つき)</span></span></label>
   <label class="tt-pk-item"><input type="checkbox" checked disabled title="いつも入ります(外せません)"><span><b>元の動画のコピー</b><span class="hint">パックのフォルダの直下に入れます。スタジオの余白つき素材があればそれを使い、Resolve で区間の端を延ばせます。カットの記録はこのパソコンの作業データに残します(パックには入れません)</span></span></label>

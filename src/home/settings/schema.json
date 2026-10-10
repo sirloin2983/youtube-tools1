@@ -82,8 +82,6 @@
         { "key": "review.liveMode", "type": "enum", "label": "ライブ判定", "default": "auto", "options": [["auto", "自動(おすすめ)"], ["on", "常にライブとして扱う"], ["off", "常に通常の配信(アーカイブ)として扱う"]], "hint": "ライブなのにライブ用の帯が出ないときだけ「常にライブ」を選びます。" },
         { "key": "review.autoTx", "type": "bool", "label": "書き出しのあと自動で文字起こしを始める", "default": true, "hint": "② の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで文字起こしします。" },
         { "key": "review.exportTarget", "type": "enum", "label": "書き出す対象", "default": "adopted", "options": [["adopted", "採用のみ(おすすめ)"], ["pending", "採用 + 候補"], ["all", "不採用以外すべて(書き出し済みも)"]] },
-        { "key": "review.precision", "type": "enum", "label": "切り出し方式", "default": "accurate", "options": [["accurate", "精密(おすすめ)"], ["fast", "高速(ファイルが少し大きい)"]], "hint": "どちらも 30fps に作り直し、位置はちょうどです。高速は速い設定で作り直すので、ファイルが少し大きくなります。" },
-        { "key": "review.maxHeight", "type": "enum", "label": "最大画質(YouTube)", "default": 1080, "options": [[720, "720p"], [1080, "1080p"], [1440, "1440p"], [2160, "2160p"], [0, "制限なし"]] },
         { "key": "review.exportLoudness", "type": "enum", "label": "音量のそろえ方(LUFS)", "default": -14, "options": [[-14, "-14(YouTube の目安・おすすめ)"], [-11, "-11(大きめ)"], [-16, "-16(控えめ)"], [-18, "-18(小さめ)"], [0, "そろえない(音量 % で指定)"]] },
         { "key": "review.exportVolume", "type": "int", "label": "書き出しの音量(そろえないとき)", "default": 75, "min": 1, "max": 200, "unit": "%", "when": { "key": "review.exportLoudness", "eq": 0 } }
       ] },
@@ -130,7 +128,6 @@
     ] },
     { "id": "pack", "title": "パック(DaVinci Resolve へ渡す)・カット", "store": "editor", "hint": "パックを作るときの値。出力先・開始 TC・リール名・zip は作るたびに 2 カット の「これから作るパック」で。", "groups": [
       { "id": "pack-out", "title": "置き先のプロジェクト(Resolve で作るもの)", "items": [
-        { "key": "packFps", "type": "enum", "label": "フレームレート", "default": "30", "options": [["30", "30 fps(素材が 30fps ならこれ)"], ["60", "60 fps"], ["24", "24 fps"], ["25", "25 fps"], ["50", "50 fps"]], "validated": true, "hint": "Resolve で手で作るプロジェクトと同じ値。素材が 30fps のときは 30 に固定されます。" },
         { "key": "packSize", "type": "enum", "label": "画面の大きさ", "default": "1080x1920", "options": [["1080x1920", "縦 1080×1920(ショート)"], ["1920x1080", "横 1920×1080"]], "validated": true, "hint": "字幕の位置・大きさをこれに合わせます。縦に切り取る作業は Resolve で。" }
       ] },
       { "id": "pack-in", "title": "パックに入れるもの", "items": [

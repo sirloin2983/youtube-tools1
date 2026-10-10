@@ -344,7 +344,6 @@ def main():
             # パックを作る(置き先の fps・画面の大きさ)
             pg.click("#pkSettingsBtn")   # 段3(2026-09-27): 詳しい設定は「設定を変える」の右の欄
             pg.wait_for_selector("#uiSettingsDrawer:not([hidden])", state="visible")
-            pg.click("#pkFps [data-v='30']")
             pg.click("#pkSize [data-v='1920x1080']")
             wait_js(pg, "document.querySelector('#pkSize [data-v=\"1920x1080\"]').getAttribute('aria-pressed') === 'true'", 3000)
             check(True, "画面の大きさを選べる(横)")

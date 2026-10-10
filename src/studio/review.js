@@ -60,7 +60,7 @@ const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
 /* ライブの録画: 書き出したあと(入口の POST /live/api/export の after)。何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動) */
 const LIVE_AFTERS = ['none', 'check', 'auto'];
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', precision: 'accurate', maxHeight: 1080, exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -69,8 +69,6 @@ function sanitizeSettings(x){
     volume: n(x.volume, 0, 100, 100), muted: !!x.muted,
     quickSpans: DEFAULT_QUICK_SPANS.map((d, i) => { const v = Array.isArray(x.quickSpans) ? Number(x.quickSpans[i]) : NaN; return Number.isFinite(v) ? Math.min(600, Math.max(5, Math.round(v))) : d; }),
     liveMode: ['auto', 'on', 'off'].includes(x.liveMode) ? x.liveMode : 'auto',
-    precision: x.precision === 'fast' ? 'fast' : 'accurate',
-    maxHeight: [0, 720, 1080, 1440, 2160].includes(Number(x.maxHeight)) ? Number(x.maxHeight) : 1080,
     exportVolume: n(x.exportVolume, 1, 200, 75),
     exportLoudness: [0, -11, -14, -16, -18].includes(Number(x.exportLoudness)) ? Number(x.exportLoudness) : -14,   // 0 = そろえない(音量(%)を使う)
     keymap: sanitizeKeymap(x.keymap), theater: x.theater === true, graphLines: x.graphLines === true,
@@ -338,11 +336,6 @@ function exportDrawerHTML(){
             <div class="rv-expgrid">
               <div class="rv-fld"><label class="rv-fl" for="rvExpTarget">書き出す対象</label>
                 <select id="rvExpTarget"><option value="adopted">採用のみ(おすすめ)</option><option value="pending">採用 + 候補</option><option value="all">不採用以外すべて(書き出し済みも)</option></select></div>
-              <div class="rv-fld"><label class="rv-fl" for="rvPrecision">切り出し方式</label>
-                <select id="rvPrecision" title="どちらも 30fps に作り直し、位置はちょうどです。高速は速い設定で作り直すので、ファイルが少し大きくなります。"><option value="accurate">精密(おすすめ)</option><option value="fast">高速(ファイルが少し大きい)</option></select>
-                </div>
-              <div class="rv-fld" id="rvHeightBox"><label class="rv-fl" for="rvHeight">最大画質(YouTube)</label>
-                <select id="rvHeight"><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p</option><option value="0">制限なし</option></select></div>
               <div class="rv-fld"><label class="rv-fl" for="rvExpLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
                 <select id="rvExpLoud" title="切り抜きごとにバラバラな聞こえ方の音量(ラウドネス。単位 LUFS)を、書き出すときにそろえます。YouTube は再生時に約 -14 LUFS に下げます"><option value="-14">-14(YouTube の目安・おすすめ)</option><option value="-11">-11(大きめ)</option><option value="-16">-16(控えめ)</option><option value="-18">-18(小さめ)</option><option value="0">そろえない(音量 % で指定)</option></select></div>
               <div class="rv-fld" id="rvExpVolBox" role="group" aria-labelledby="rvExpVolL"><label class="rv-fl" id="rvExpVolL" for="rvExpVol">書き出しの音量(そろえないとき)</label>
@@ -1111,8 +1104,6 @@ async function loadSettings(){
    音量の数字(output)・押せない欄・「書き出しのあと自動で文字起こし」(settings.js の欄)は syncSettingsUI に別に書く */
 /* 0.25.0: volume・muted・lag・liveMode・autoPlay・autoNext の欄は設定の画面へ(ここには無い。値は S.settings のまま読み書き)。0.26.0: 音量と消音は LIVE の帯に(#rvLiveVol・#rvLiveMute。ライブの録画だけ) */
 const SET_UI = [
-  ['#rvHeight', 'maxHeight', 'value', () => expSetSummary()],
-  ['#rvPrecision', 'precision', 'value', () => expSetSummary()],
   ['#rvExpVol', 'exportVolume', 'value', () => { $('#rvExpVolOut').textContent = S.settings.exportVolume; expSetSummary(); }, 'input'],
   ['#rvExpLoud', 'exportLoudness', 'value', () => syncSettingsUI()],   // 書き出しの音量の欄を押せなくする・戻す
   ['#rvAutoExp', 'liveAutoExport', 'checked', () => renderLiveRec()],   // LIVE の帯(ライブの録画)
@@ -1137,9 +1128,8 @@ function syncSettingsUI(){
 /* 「書き出しの設定」を閉じていても、いまの設定が分かるように見出しの横に短く出す */
 function expSetSummary(){
   const el = $('#rvExpSetSum'); if (!el) return;
-  const s = S.settings, v = S.cur;
-  const parts = [{ adopted: '採用のみ', pending: '採用 + 候補', all: '不採用以外' }[s.exportTarget] || '', s.precision === 'fast' ? '高速' : '精密'];
-  if (!(v && (v.kind === 'file' || v.kind === 'live'))) parts.push(s.maxHeight ? s.maxHeight + 'p まで' : '画質の制限なし');
+  const s = S.settings;
+  const parts = [{ adopted: '採用のみ', pending: '採用 + 候補', all: '不採用以外' }[s.exportTarget] || ''];
   parts.push(s.exportLoudness ? s.exportLoudness + ' LUFS' : '音量 ' + s.exportVolume + '%');
   el.textContent = parts.filter(Boolean).join(' ・ ');
 }
@@ -2447,7 +2437,6 @@ function renderExpTools(v, st, live){
   if (st.ffmpeg === false) msg += 'ffmpeg が見つかりません(Windows: winget install Gyan.FFmpeg / Mac: brew install ffmpeg)。入れてから起動し直してください';
   if (v && v.kind === 'youtube' && st.ytdlp === false) msg += (msg ? '\n' : '') + 'yt-dlp が見つかりません(Windows: winget install yt-dlp.yt-dlp)';
   const ts = $('#rvToolStatus'); ts.textContent = msg; ts.hidden = !msg;
-  $('#rvHeightBox').hidden = !!(v && (v.kind === 'file' || live));   // 画質は YouTube から取るときだけ(録画は録ったときの画質)
   const j = S.lastJob; $('#rvOutDir').textContent = !live && j && j.folder && S.job && v && S.job.videoId === v.id ? jobDirText(j, st) : (st.outDir || '');
 }
 /* 「何件を書き出すか」の1文。書き出せないときは、どうすれば書き出せるかを出す。
@@ -2748,7 +2737,7 @@ async function startExportAll(){
   }
 }
 /* 書き出しの設定(方式・画質・音量)。POST /api/export の body に足す(1本ずつ・つなぐ・全部の配信で同じ) */
-function expOpts(){ const s = S.settings; return { precision: s.precision, maxHeight: s.maxHeight, volume: s.exportVolume, loudness: s.exportLoudness || null }; }
+function expOpts(){ const s = S.settings; return { precision: 'accurate', maxHeight: 0, volume: s.exportVolume, loudness: s.exportLoudness || null }; }
 async function resumeJob(){
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('clipstudio:rvjob') || 'null'); } catch {}

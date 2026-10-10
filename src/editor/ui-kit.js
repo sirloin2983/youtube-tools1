@@ -1984,7 +1984,7 @@
     return Promise.all([pr, tx]).then(function (x) {
       var a = x[0], t = x[1] || {};
       arState = { mode: a.mode || null, top: +a.top || 3, cut: AR_CUT[a.cut] ? a.cut : 'rows', overwrite: a.overwrite === true, onFail: a.onFail === 'stop' ? 'stop' : 'next',
-                  fps: String(t.packFps || '30'), size: t.packSize === '1920x1080' ? '1920x1080' : '1080x1920', spk: t.speakerColors !== false, backup: t.packBackup === true,
+                  size: t.packSize === '1920x1080' ? '1920x1080' : '1080x1920', spk: t.speakerColors !== false, backup: t.packBackup === true,
                   loud: loudNorm(t.packLoudness), vol: volNorm(t.packVolume), pack: !!u };
       return arState;
     });
@@ -1996,7 +1996,7 @@
     if (kind === 'new' || (kind === 'video' && st.mode === 'full')) bits.push('採用 ' + st.top);
     bits.push(AR_CUT[st.cut]);
     if (st.pack) {
-      bits.push(st.fps + 'fps ' + (st.size === '1920x1080' ? '横' : '縦'));
+      bits.push((st.size === '1920x1080' ? '横' : '縦'));
       bits.push(st.spk ? '話者の色あり' : '話者の色なし');
       bits.push(st.loud ? '音量 ' + st.loud + ' LUFS' : '音量 ' + st.vol + '%');
       if (st.backup) bits.push('予備あり');
@@ -2050,11 +2050,8 @@
     c.addEventListener('change', function () { arSave('prefs', { cut: c.value }); });
     box.appendChild(arField('カットの方法', c, 'カットを決めてある文書は、そのカットのとおり。細かい値は「編集」の 2 カット で'));
     if (st.pack) {
-      var fps = arSelect([['30', '30 fps'], ['60', '60 fps'], ['24', '24 fps'], ['25', '25 fps'], ['50', '50 fps']], st.fps);
-      fps.addEventListener('change', function () { arSave('tx', { packFps: fps.value }); });
       var size = arSelect([['1080x1920', '縦 1080×1920'], ['1920x1080', '横 1920×1080']], st.size);
       size.addEventListener('change', function () { arSave('tx', { packSize: size.value }); });
-      box.appendChild(arField('フレームレート', fps));   // v23: 「パックの置き先」になっていた(fps の欄。3 パック のタブと同じ言葉に。段9・ホームの見直し M4)
       box.appendChild(arField('画面の大きさ', size));
       var loud = arEl('select');
       var lf = arField('パックの音量', loud); box.appendChild(lf);
