@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)   # src(ツールの親 = ytt の置き場所。ytt.layout の src_root と同じ)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
-from ytt import datadir, tools  # noqa: E402
+from ytt import datadir, docloc, tools  # noqa: E402
 
 W, H = 540, 960                 # 1 案の大きさ(9:16)
 SAFE_H = W * 3 // 2             # チャンネルページで見える 2:3 の範囲の高さ
@@ -171,13 +171,20 @@ def scene_times(ff, video):
 def find_doc(video, doc_id=None, tdir=None):
     """文字起こしの文書(--doc の id か、動画のパスが同じ文書)-> 文書 | None(作業データは読むだけ)"""
     tdir = tdir or os.path.join(datadir.locate("transcribe"), "transcripts")
-    names = [doc_id + ".json"] if doc_id else (sorted(os.listdir(tdir)) if os.path.isdir(tdir) else [])
+    # 置き場所の索引(案件の 作業用)を見るのは、名前が transcripts のフォルダ(作業データの文書の根)のときだけ
+    data_dir = os.path.dirname(os.path.normpath(tdir)) if os.path.basename(os.path.normpath(tdir)) == "transcripts" else None
+    if data_dir:
+        tids = [doc_id] if doc_id else docloc.iter_tids(data_dir)
+        names = [t + ".json" for t in tids]
+    else:
+        names = [doc_id + ".json"] if doc_id else (sorted(os.listdir(tdir)) if os.path.isdir(tdir) else [])
     key = os.path.normcase(os.path.abspath(video))
     for name in names:
         if not DOC_RE.match(name):
             continue
         try:
-            with open(os.path.join(tdir, name), encoding="utf-8-sig") as f:
+            path = docloc.doc_file(name[:-5], ".json", data_dir) if data_dir else os.path.join(tdir, name)
+            with open(path, encoding="utf-8-sig") as f:
                 d = json.load(f)
         except (OSError, ValueError):
             continue

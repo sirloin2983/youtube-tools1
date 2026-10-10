@@ -36,6 +36,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import dist, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
+from ytt import docloc  # noqa: E402
 
 SCHEMA = "youtube-tools-cut-eval/v1"
 EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/human/proof/store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
@@ -277,12 +278,12 @@ def evaluate(data_dir=None, since=None, until=None):
     since_ms, until_ms = C.period(since, until)
     total, by_origin, by_sig, by_key, by_doc = Agg(), {}, {}, {}, []
     skipped = {"broken": 0, "noDraft": 0, "outOfRange": 0}
-    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
-        m = EDIT_RE.match(name)
-        if not m:
+    edit_tids = {m.group(1) for m in map(EDIT_RE.match, os.listdir(tdir) if os.path.isdir(tdir) else []) if m}
+    for tid in sorted(edit_tids | set(docloc.iter_tids(root))):   # 案件の 作業用 に置いた文書も(索引があれば)
+        ep = docloc.doc_file(tid, ".edit.json", root)
+        if not os.path.isfile(ep):
             continue
-        tid = m.group(1)
-        ed = read_edit(os.path.join(tdir, name))
+        ed = read_edit(ep)
         if ed is None:
             skipped["broken"] += 1
             continue
@@ -294,7 +295,7 @@ def evaluate(data_dir=None, since=None, until=None):
         if dr is None:
             skipped["noDraft"] += 1
             continue
-        doc = read_json(os.path.join(tdir, tid + ".json"), None, MAX_DOC_BYTES)
+        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
         rec = find_pack(doc, env)
         # 最終 = パックの記録(cutPlan)と保存したカット(clips)のうち新しい方(パックを作ったあとにカットを直したら、直した方が人の最終)
         use_pack = bool(rec) and (ms_of(rec.get("builtAt")) or 0) >= ed["updatedAt"]

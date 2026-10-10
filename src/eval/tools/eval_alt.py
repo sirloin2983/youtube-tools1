@@ -39,7 +39,6 @@ import argparse
 import bisect
 import difflib
 import os
-import re
 import sys
 import time
 
@@ -49,12 +48,12 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
+from ytt import docloc  # noqa: E402
 
 SCHEMA = "youtube-tools-alt-eval/v1"
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = C.DOC_BYTES
 MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを超えたら判定しない(比べる計算が重くなりすぎないように)
-DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 ENV0 = dict(os.environ)            # 作業データの場所を決めるための環境変数(serve.py を読み込むと TRANSCRIBE_DATA_DIR が一時フォルダになるので、その前の値)
 UNKNOWN_LABELS = {"removed": "人の行が消された", "notProofed": "校正済みでない", "tooLong": "まとまりが長すぎる", "misaligned": "位置が合わない"}
 STAT_KEYS = ("long", "cross", "mostly", "notation", "edge")
@@ -97,8 +96,8 @@ def name_checker(S):
 
 
 def read_alt(S, tdir, tid):
-    """<id>.alt.json(形が違えば None)。editor の read_alt は DATA_DIR(一時フォルダ)を見るので、ここで読む"""
-    d = read_json(os.path.join(tdir, tid + ".alt.json"), None, S.MAX_ALT_BYTES)
+    """<id>.alt.json(形が違えば None)。editor の read_alt は DATA_DIR(一時フォルダ)を見るので、ここで読む(tdir = 作業データ/transcripts)"""
+    d = read_json(docloc.doc_file(tid, ".alt.json", os.path.dirname(tdir)), None, S.MAX_ALT_BYTES)
     if not isinstance(d, dict) or d.get("schema") != S.ALT_SCHEMA or not isinstance(d.get("rows"), list):
         return None
     return d
@@ -388,14 +387,11 @@ def evaluate_one(S, root, source, since=None, until=None, include_eval=False):
         skipped.update(noClip=0, noCaptions=0)
     has_name = name_checker(S)
     no_alt = out_cands = 0
-    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
-        if not DOC_RE.match(name):
-            continue
-        tid = name[:-5]
-        if source == "alt" and not os.path.isfile(os.path.join(tdir, tid + ".alt.json")):
+    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
+        if source == "alt" and not os.path.isfile(docloc.doc_file(tid, ".alt.json", root)):
             no_alt += 1
             continue
-        doc = read_json(os.path.join(tdir, name), None, MAX_DOC_BYTES)
+        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
         alt = read_alt(S, tdir, tid) if source == "alt" else None
         if not isinstance(doc, dict) or (source == "alt" and alt is None):
             skipped["broken"] += 1

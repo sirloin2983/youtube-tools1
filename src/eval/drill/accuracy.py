@@ -182,11 +182,11 @@ def count_daily(folder):
     印が無い行の長さの合計。-> {"sec", "docs"(校正済みの行がある文書の数), "lines"}。フォルダが無ければ 0"""
     sec, docs, lines = 0.0, 0, 0
     try:
-        names = sorted(os.listdir(folder)) if folder and os.path.isdir(folder) else []
+        found = txindex.doc_paths(folder) if folder and os.path.isdir(folder) else {}   # 案件の 作業用 に置いた文書も数える
     except OSError:
-        names = []
-    for name in names:
-        p = os.path.join(folder, name)
+        found = {}
+    for name in sorted(found):
+        p = found[name]
         if not DOC_NAME_RE.match(name) or not os.path.isfile(p):
             continue
         try:

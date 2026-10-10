@@ -61,7 +61,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import dist, is_reviewed, pct, rate, read_json  # noqa: E402
-from ytt import fsio  # noqa: E402
+from ytt import docloc, fsio  # noqa: E402
 from human.proof import speakers as proof_speakers  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 
@@ -73,7 +73,6 @@ MAX_DIAR_BYTES = 32 * 1024 * 1024
 OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(src/ytt/schemas.py の OTHER_SPK_NAME と同じ)
 OTHER_VOICE_ID = "other"                   # 組み込みの話者の id(ed_state.OTHER_SPK_ID と同じ。名前より id で見分けるのが確実)
 DRAFT_NAME = re.compile(r"^話者\d+$")     # src/human/proof/speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
-DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 SUBSETS = (("all", "話者つきの行"), ("proofed", "校正済みの行だけ"), ("timeEdited", "人が時刻を直した行だけ"))
 SWEEP_MATCH = (0.40, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80)
 SWEEP_MARGIN = (0.0, 0.04, 0.08, 0.12)
@@ -93,7 +92,7 @@ LENGTHS = (("short", "60秒未満"), ("long", "60秒以上"))
 # ---------------------------------------------------------------- 読み込み(読むだけ)
 
 def read_diar(tdir, tid):
-    d = read_json(os.path.join(tdir, tid + ".diar.json"), None, MAX_DIAR_BYTES)
+    d = read_json(docloc.doc_file(tid, ".diar.json", os.path.dirname(tdir)), None, MAX_DIAR_BYTES)
     if not isinstance(d, dict) or d.get("schema") != DIAR_SCHEMA or not isinstance(d.get("latest"), dict):
         return None
     return d
@@ -458,13 +457,10 @@ def is_single(run):
 def load_docs(tdir, include_eval, only=None):
     """文書を読む(読むだけ)-> ([(id, 文書)], {"broken", "evalSet"})。only = 文書の id の集まり(--docs)"""
     out, skipped = [], {"broken": 0, "evalSet": 0}
-    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
-        if not DOC_RE.match(name):
-            continue
-        tid = name[:-5]
+    for tid in docloc.iter_tids(os.path.dirname(tdir)):   # 案件の 作業用 に置いた文書も(索引があれば)
         if only and tid not in only:
             continue
-        doc = read_json(os.path.join(tdir, name), None, C.DOC_BYTES)
+        doc = read_json(docloc.doc_file(tid, ".json", os.path.dirname(tdir)), None, C.DOC_BYTES)
         if not isinstance(doc, dict):
             skipped["broken"] += 1
             continue

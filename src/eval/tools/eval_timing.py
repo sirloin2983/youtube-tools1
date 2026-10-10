@@ -45,6 +45,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・git の rev・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
+from ytt import docloc  # noqa: E402
 from ytt.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
 from eval.tools import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
 
@@ -56,7 +57,6 @@ MATCH_CHARS = 3                # 「文字が合う」= 頭か末のこの文字
 FEW_ROWS = 100                 # 文字が合う行がこれより少ないときは「まだ少ない(参考)」
 REPRO_TOL = 0.011              # --apply の reproduced: 当て直した行と original の行の端がこの秒以内なら同じ(行の時刻は 0.01 秒で保存)
 MAX_BYTES = C.DOC_BYTES
-DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 KEYS = (("head", "①頭"), ("tail", "①末"), ("prev", "②前"), ("next", "②次"))
 POST_NONE = "後処理の記録なし(0.57.0 まで)"
 # --apply で当て直す後処理(editor の ed_jobs の値を一時的に差し替える)。0.57.1 の既定 = END_TRIM 0・JOIN_GAP 0.5
@@ -285,7 +285,7 @@ def apply_variants(docs, tdir, S=None):
     try:
         for doc in docs:
             tid = str(doc.get("id") or "")
-            asr = read_json(os.path.join(tdir, tid + ".asr.json"), None, MAX_BYTES)
+            asr = read_json(docloc.doc_file(tid, ".asr.json", os.path.dirname(tdir)), None, MAX_BYTES)
             if asr is None:
                 res["skipped"]["noAsr"] += 1
                 continue
@@ -328,10 +328,8 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
     since_ms, until_ms = C.period(since, until)
     skipped = {"broken": 0, "notReviewed": 0, "noOriginal": 0, "outOfRange": 0}
     recs, docs = [], []
-    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
-        if not DOC_RE.match(name):
-            continue
-        doc = read_json(os.path.join(tdir, name), None, MAX_BYTES)
+    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
+        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_BYTES)
         if not isinstance(doc, dict):
             skipped["broken"] += 1
             continue

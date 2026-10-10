@@ -44,6 +44,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import dist, rate  # noqa: E402
+from ytt import docloc  # noqa: E402
 from ytt.schemas import num, plain_int  # noqa: E402  num = 有限の数(bool は除く)なら float、それ以外は None / plain_int = bool 以外の整数か None
 from eval.tools import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_of)・採点(score_doc・total)は eval_asr.py と同じ決まりを使う
 
@@ -52,7 +53,6 @@ FEW_DOCS = 10                  # 終わった文書がこれより少ないと�
 TIME_TOL = 0.05                # original と行の端が一致したとみなす秒(eval_speakers.py の TIME_TOL と同じ)
 GROUP_SLACK = 0.05             # 時刻が重なるまとまり(src/human/proof/learn.py の _groups と同じ)
 MAX_BYTES = C.DOC_BYTES
-DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 MAX_EFFORT_SEC = 3600          # src/human/proof/store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
 BUCKETS = ((0.25, "〜25%"), (0.50, "25〜50%"), (0.75, "50〜75%"), (float("inf"), "75%〜"))
 GROUPS = (("engine", "最初の認識のエンジン・モデル"), ("origin", "出どころ"), ("eval", "評価用かどうか"),
@@ -319,25 +319,21 @@ def notes_for(res, skipped):
 
 def evaluate(data_dir=None, since=None, until=None, include_eval=True, cer=True):
     root = C.locate("transcribe", data_dir)
-    tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
     skipped = {"broken": 0, "noEffort": 0, "noDuration": 0, "noTime": 0, "evalSet": 0, "outOfRange": 0}
     recs, docs = [], {}
-    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
-        if not DOC_RE.match(name):
-            continue
-        tid = name[:-5]
-        doc = C.read_json(os.path.join(tdir, name), None, MAX_BYTES)
+    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
+        doc = C.read_json(docloc.doc_file(tid, ".json", root), None, MAX_BYTES)
         if not isinstance(doc, dict):
             skipped["broken"] += 1
             continue
         if doc.get("evalSet") is True and not include_eval:
             skipped["evalSet"] += 1
             continue
-        diar = C.read_json(os.path.join(tdir, tid + ".diar.json"), None, MAX_BYTES)
+        diar = C.read_json(docloc.doc_file(tid, ".diar.json", root), None, MAX_BYTES)
         latest = diar.get("latest") if isinstance(diar, dict) and isinstance(diar.get("latest"), dict) else None
         rows = latest.get("rows") if latest and isinstance(latest.get("rows"), dict) else None
-        rec, why = doc_record(doc, rows, os.path.exists(os.path.join(tdir, tid + ".alt.json")))
+        rec, why = doc_record(doc, rows, os.path.exists(docloc.doc_file(tid, ".alt.json", root)))
         if rec is None:
             skipped[why] += 1
             continue

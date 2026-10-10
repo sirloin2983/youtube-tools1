@@ -27,7 +27,6 @@
 """
 import argparse
 import os
-import re
 import sys
 import unicodedata
 
@@ -37,6 +36,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
+from ytt import docloc  # noqa: E402
 from pipeline.transcribe.llm import llm_dist  # noqa: E402  編集距離(本番の LLM の後処理と同じ)
 
 SCHEMA = "youtube-tools-fill-eval/v1"
@@ -45,7 +45,6 @@ FEW_ROWS = 30                      # 判定できた A の行がこれより少�
 MAX_DOC_BYTES = 64 * 1024 * 1024
 MAX_EDIT_CHARS = 400               # 編集距離を測る文字の上限(長い行は測らない)
 OVERLAP_SHARE = 0.5                # 機械の行の長さのこの割合以上重なる今の行を「同じ所」とみなす
-DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 NAME_FLAG = "名簿の呼び名に直した"   # src/pipeline/transcribe/fill.py の FILL_NAME_FLAG の頭(印の文はそちらが正)
 KINDS = ("kept", "edited", "reverted", "deleted", "unchecked")
 KIND_LABELS = {"kept": "残した", "edited": "直した", "reverted": "戻した", "deleted": "消した", "unchecked": "未確認"}
@@ -226,18 +225,13 @@ def judge_doc(doc, raw, since_ms=None, until_ms=None, llm_items=None):
 
 def iter_docs(tdir):
     """評価用でない・後処理を当てた文書 -> (id, 文書)"""
-    try:
-        names = sorted(os.listdir(tdir))
-    except OSError:
-        return
-    for name in names:
-        if not DOC_RE.match(name):
-            continue
-        doc = read_json(os.path.join(tdir, name), None, MAX_DOC_BYTES)
+    root = os.path.dirname(tdir)   # tdir = 作業データ/transcripts
+    for tid in docloc.iter_tids(root):   # 案件の 作業用 に置いた文書も(索引があれば)
+        doc = read_json(docloc.doc_file(tid, ".json", root), None, MAX_DOC_BYTES)
         params = doc.get("params") if isinstance(doc, dict) and isinstance(doc.get("params"), dict) else {}
         if not isinstance(doc, dict) or doc.get("evalSet") or not (params.get("autoFill") or params.get("autoLlm")):
             continue
-        yield name[:-5], doc
+        yield tid, doc
 
 
 def evaluate(data_dir=None, since=None, until=None):
@@ -250,9 +244,9 @@ def evaluate(data_dir=None, since=None, until=None):
     docs = rerun_docs = 0
     for tid, doc in iter_docs(tdir):
         docs += 1
-        asr = read_json(os.path.join(tdir, tid + ".asr.json"), None, MAX_DOC_BYTES)
+        asr = read_json(docloc.doc_file(tid, ".asr.json", root), None, MAX_DOC_BYTES)
         raw = rows_of(asr.get("segments")) if isinstance(asr, dict) else []
-        items = llm_applied(read_json(os.path.join(tdir, tid + ".llm.json"), None, MAX_DOC_BYTES))
+        items = llm_applied(read_json(docloc.doc_file(tid, ".llm.json", root), None, MAX_DOC_BYTES))
         r = judge_doc(doc, raw, since_ms, until_ms, items)
         rerun_docs += 1 if r["rerun"] else 0
         if r["e"]["rows"]:

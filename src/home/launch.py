@@ -94,7 +94,7 @@ from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
 from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b)
-from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
+from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
@@ -926,18 +926,26 @@ class PortalServer(httpsec.ExclusiveServer):
         """文字起こしの文書(transcripts の直下のファイル)の最後の更新(エポック秒。無ければ None)"""
         d = cases_mod.locations(self.sup.root)["transcripts"]
         newest = None
+        folders = [d]
         try:
-            with os.scandir(d) as it:
-                for e in it:
-                    try:
-                        if e.is_file():
-                            m = e.stat().st_mtime
-                            if newest is None or m > newest:
-                                newest = m
-                    except OSError:
-                        continue
-        except OSError:
-            return None
+            # 案件の 作業用 に置いた文書(索引があるもの)の置き場所も見る
+            folders += sorted({docloc.doc_dir(t, os.path.dirname(d)) for t in docloc.iter_tids(os.path.dirname(d))} - {d})
+        except (OSError, ValueError):
+            pass
+        for i, folder in enumerate(folders):
+            try:
+                with os.scandir(folder) as it:
+                    for e in it:
+                        try:
+                            if e.is_file():
+                                m = e.stat().st_mtime
+                                if newest is None or m > newest:
+                                    newest = m
+                        except OSError:
+                            continue
+            except OSError:
+                if i == 0:
+                    return None
         return newest
 
     def cleanup_candidates(self):

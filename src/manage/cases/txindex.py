@@ -16,7 +16,7 @@ cut2resolve の作業データ packs/ に「パックを作った記録」を残
 import hashlib
 import os
 
-from ytt import datadir, fsio, layout, schemas
+from ytt import datadir, docloc, fsio, layout, schemas
 
 NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えたときの relinks[].why(manage/cases/relink.py の NORM_WHY と同じ)
 
@@ -84,13 +84,36 @@ def _norm_paths(source, aliases):
     return frozenset(n for n in (norm(p) for p in [source, *aliases]) if n)
 
 
+def _docloc_root(dirpath):
+    """dirpath が docloc の根(今の TX_DIR か 作業データ/transcripts)なら (True, data_dir)。それ以外のフォルダは索引を見ない"""
+    def same(a, b):
+        return bool(a) and bool(b) and os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    if same(dirpath, docloc.tx_root()):
+        return True, None
+    if os.path.basename(os.path.normpath(dirpath)) == "transcripts":
+        return True, os.path.dirname(os.path.normpath(dirpath))
+    return False, None
+
+
+def doc_paths(dirpath):
+    """フォルダの中のファイル名 -> そのパス(OSError はそのまま投げる)。dirpath が文書の根なら、案件の 作業用 に置いた文書
+    (索引 .loc.json があるもの)の <id>.json は、その置き場所のパスにして足す。索引が無ければ listdir の名前をそのまま dirpath に付けただけ"""
+    out = {n: os.path.join(dirpath, n) for n in os.listdir(dirpath)}
+    ok, data_dir = _docloc_root(dirpath)
+    if ok:
+        for tid in docloc.iter_tids(data_dir):
+            out[tid + ".json"] = docloc.doc_file(tid, ".json", data_dir)
+    return out
+
+
 def load(dirpath):
     """フォルダの文書を全部(壊れたもの・形式の違うものは飛ばす)。-> [文書]。返した中身は書き換えないこと(キャッシュと共有)"""
     try:
-        names = sorted(n for n in os.listdir(dirpath) if n.endswith(".json") and len(n) == 17)   # <12文字の id>.json
+        found = doc_paths(dirpath)
     except OSError:
         return []
-    paths = [os.path.join(dirpath, n) for n in names]
+    names = sorted(n for n in found if n.endswith(".json") and len(n) == 17)   # <12文字の id>.json
+    paths = [found[n] for n in names]
     docs = [_cache.get(p, lambda p, n=n: _parse(fsio.read_json_or(p, None, MAX_DOC_BYTES), n[:-5])) for p, n in zip(paths, names)]
     _cache.prune(paths, dirpath)   # 消えた文書
     return [d for d in docs if d is not None]

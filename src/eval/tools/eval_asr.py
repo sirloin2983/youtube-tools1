@@ -78,7 +78,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import is_reviewed, load_serve, read_json  # noqa: E402  load_serve・is_reviewed は eval_alt・eval_effort・eval_timing・テストも eval_asr.名前 で使う
 from eval.tools import evaldata as ev  # noqa: E402  友人の送る用 zip の形と規則(記号 [?]・[笑]・作業ID)
-from ytt import tools  # noqa: E402
+from ytt import docloc, tools  # noqa: E402
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)
@@ -105,12 +105,9 @@ def real_data_dir(arg=None):
 
 def load_docs(data, scope, only=None):
     """校正済みの行がある文書(scope: eval = 評価用 / train = 評価用以外 / all)。読むだけ"""
-    tdir = os.path.join(data, "transcripts")
     out = []
-    for name in sorted(os.listdir(tdir)) if os.path.isdir(tdir) else []:
-        if not re.fullmatch(r"[0-9a-f]{12}\.json", name):
-            continue
-        d = read_json(os.path.join(tdir, name), None, C.DOC_BYTES)
+    for tid in docloc.iter_tids(data):   # 案件の 作業用 に置いた文書も(索引があれば)
+        d = read_json(docloc.doc_file(tid, ".json", data), None, C.DOC_BYTES)
         if not isinstance(d, dict):
             continue
         if only and d.get("id") not in only:
