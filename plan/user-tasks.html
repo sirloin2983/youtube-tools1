@@ -31,7 +31,7 @@
   </section>
 
   <section class="card" id="check"><h2><span class="n">2</span>実機で確かめること</h2>
-    <p class="lead">クラウドでは確かめられない。あなたの PC で。2026-10-06 に約 60 項目から棚卸しした(閉じた項目は入れていない)。結果は AI に伝える(ずれの大きさ・感想でよい)。10-03 の入れ直しで作業データが消えたので、解析済みの配信・以前の文書が前提の項目は、解析・文字起こしをし直してから。</p>
+    <p class="lead">クラウドでは確かめられない。あなたの PC で。結果は AI に伝える(感想でよい)。10-11 に整理した(画面と送るアプリは RS8・F1 で作り替えるので、細かい確かめはそのあとの形で作り直す)。</p>
     <h3>2-1 必ず(次の段の前提で、画面のテスト(e2e)では確かめられない。済んだものは畳んである)</h3>
     <div id="must"></div>
     <h3 id="restoreTitle"></h3>
@@ -97,9 +97,9 @@
     var must = U.must.map(function (m) { return g[m.id] || [0, 0]; }).reduce(function (a, b) { return [a[0] + b[0], a[1] + b[1]]; }, [0, 0]);
     var opt = g.optional || [0, 0], done = WORK.filter(function (o) { return o.state === "done"; }).length;
     $("#progress").innerHTML = [["あなたの作業", done + " / " + WORK.length + " 済み", Math.round(done / WORK.length * 100)],
-      ["必ず確かめること(" + U.must.map(function (m) { return m.id; }).join("・") + ")", must[0] + " / " + must[1] + " にチェック", must[1] ? Math.round(must[0] / must[1] * 100) : 0],
-      ["できれば", opt[0] + " / " + opt[1] + " にチェック", opt[1] ? Math.round(opt[0] / opt[1] * 100) : 0]
-    ].map(function (c) { return '<div class="c"><h4>' + esc(c[0]) + '</h4><div class="bar"><i style="width:' + c[2] + '%"></i></div><div class="small muted">' + esc(c[1]) + "</div></div>"; }).join("");
+      U.must.length ? ["必ず確かめること(" + U.must.map(function (m) { return m.id; }).join("・") + ")", must[0] + " / " + must[1] + " にチェック", must[1] ? Math.round(must[0] / must[1] * 100) : 0] : null,
+      U.optional.length ? ["できれば", opt[0] + " / " + opt[1] + " にチェック", opt[1] ? Math.round(opt[0] / opt[1] * 100) : 0] : null
+    ].filter(Boolean).map(function (c) { return '<div class="c"><h4>' + esc(c[0]) + '</h4><div class="bar"><i style="width:' + c[2] + '%"></i></div><div class="small muted">' + esc(c[1]) + "</div></div>"; }).join("");
   }
 
   $("#updated").textContent = P.updated;
@@ -142,10 +142,21 @@
     (m.groups || []).forEach(function (g, i) { checklist(document.querySelector('[data-list="' + m.id + "-g" + i + '"]'), g.items, m.id); });
   });
   $("#must").addEventListener("click", function (e) { var b = e.target.closest("[data-copy]"); if (!b) return; var t = $("#cmd-" + b.getAttribute("data-copy")).textContent; copyText(t, "コマンドをコピーしました"); });
-  $("#restoreTitle").textContent = "2-2 運用: " + U.restore.title; $("#restoreIntro").textContent = U.restore.intro;
-  $("#restore").innerHTML = U.restore.steps.map(function (s) { return "<li>" + UI.md(s) + "</li>"; }).join("");
+  if (U.restore) {
+    $("#restoreTitle").textContent = "2-2 運用: " + U.restore.title; $("#restoreIntro").textContent = U.restore.intro;
+    $("#restore").innerHTML = U.restore.steps.map(function (s) { return "<li>" + UI.md(s) + "</li>"; }).join("");
+  }
   checklist($("#optional"), U.optional, "optional");
   $("#watch").innerHTML = U.watch.map(function (w) { return "<li>" + UI.md(w) + "</li>"; }).join("");
+  /* 空の節は見出しごと隠す(10-11 にやることを整理して、済んだ・意味の無くなった物を消した) */
+  function hideWith(el, empty) { if (!empty) return; el.hidden = true; var h = el.previousElementSibling; while (h && !/^H3$/.test(h.tagName)) { h.hidden = true; h = h.previousElementSibling; } if (h) h.hidden = true; }
+  hideWith($("#must"), !U.must.length);
+  if (!U.restore) ["#restoreTitle", "#restoreIntro", "#restore"].forEach(function (s) { $(s).hidden = true; });
+  hideWith($("#optional"), !U.optional.length);
+  hideWith($("#watch"), !U.watch.length);
+  function hideSection(id, empty) { if (!empty) return; $("#" + id).hidden = true; var a = document.querySelector('nav.toc a[href="#' + id + '"]'); if (a) a.hidden = true; }
+  hideSection("check", !U.must.length && !U.restore && !U.optional.length && !U.watch.length);
+  hideSection("tidy", !(U.reinstall || []).length && !(U.afterReorg || []).length);
 
   // ---- 3-1 記入
   $("#inputsNote").textContent = U.inputsNote;
@@ -175,6 +186,8 @@
   $("#decidedBox").hidden = !decided.length;
   $("#decided").innerHTML = decided.map(function (d) { return "<li><b>" + UI.md(d[0].replace(/^済み(\([^)]*\))?:\s*/, "")) + "</b> — " + UI.md(d[1]) + "</li>"; }).join("");
   // ---- 3-3 好み(済みなら畳んで、選ぶ欄の代わりに前に選んだ答えだけ出す)
+  if (!U.prefs) U.prefs = { title: "", intro: "", items: [], done: true, none: true };
+  if (U.prefs.none) $("#prefsBox").hidden = true;
   $("#prefsTitle").textContent = "3-3 " + U.prefs.title; $("#prefsIntro").textContent = U.prefs.intro;
   var prefsDone = !!U.prefs.done;
   if (prefsDone) $("#prefs thead th:last-child").textContent = "前に選んだ答え"; else $("#prefsBox").open = true;
@@ -185,12 +198,13 @@
   UI.resp($("#prefs"));
   document.querySelectorAll("[data-pref]").forEach(function (s) { var k = "p:" + s.getAttribute("data-pref"); s.value = store[k] || ""; s.addEventListener("change", function () { store[k] = s.value; save(); }); });
   // ---- 3-4 ux(済みなら畳んで、選ぶ欄を隠す)
+  if (!U.ux) { U.ux = { title: "", lines: [], done: true }; $("#uxBox").hidden = true; }
   $("#uxTitle").textContent = "3-4 " + U.ux.title; $("#uxLines").innerHTML = U.ux.lines.map(function (l) { return "<li>" + UI.md(l) + "</li>"; }).join("");
   if (U.ux.done) $("#uxChoice").hidden = true; else $("#uxBox").open = true;
   document.querySelectorAll('input[name="ux"]').forEach(function (r) { r.checked = store["ux"] === r.value; r.addEventListener("change", function () { store["ux"] = r.value; save(); }); });
   // ---- 4 片付け
-  checklist($("#reinstall"), U.reinstall, "reinstall");
-  checklist($("#afterReorg"), U.afterReorg, "afterReorg");
+  checklist($("#reinstall"), U.reinstall || [], "reinstall");
+  checklist($("#afterReorg"), U.afterReorg || [], "afterReorg");
   counts();
 
   // まとめてコピー
