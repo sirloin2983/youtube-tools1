@@ -20,18 +20,16 @@ import traceback
 
 from . import datadir as _datadir, errors, fsio as _fsio, layout as _layout, textutil as _textutil, tools as _tools
 
-_code_dir = _layout.tool_dir("studio")   # スタジオのフォルダ(コード・静的ファイル)。スタジオの common.py が set_code_dir で正しい場所を入れる
-_home = _datadir.override("studio") or os.path.abspath(_code_dir)   # data.json などの置き場所
-_home_set = False   # set_home を呼んだか(呼んだあとは set_code_dir で置き場所を変えない)
+_code_dir = _layout.tool_dir("studio")   # スタジオのフォルダ(コード・静的ファイル)。スタジオの startup.py が set_code_dir で正しい場所を入れる
+_home = None   # data.json などの置き場所。None = 呼ばれたときに決める(home())。読み込みの時点で決めると、入口が置き場所の設定(YTT_DATA_DIR など)を
+#                済ませる前に読み込まれたとき(RS5-D で intake が読むようになった)古い置き場所で固まる
 _out_dir = None   # 書き出し先。None = 標準(<置き場所>/exports)
 
 
 def set_code_dir(d):
-    """スタジオのフォルダを知らせる(スタジオの common.py が読み込みのときに 1 回)。置き場所を決めていなければ、既定の置き場所もここにする"""
-    global _code_dir, _home
+    """スタジオのフォルダを知らせる(スタジオの startup.py が読み込みのときに 1 回)。置き場所を set_home で決めていなければ、既定の置き場所もここになる(home())"""
+    global _code_dir
     _code_dir = os.path.abspath(d)
-    if not _home_set and not _datadir.override("studio"):
-        _home = _code_dir
 
 
 def code_dir():
@@ -41,21 +39,22 @@ def code_dir():
 
 def set_home(d):
     """データの置き場所を変える(serve.init・テスト)。書き出し先は標準に戻す"""
-    global _home, _home_set
+    global _home
     _home = os.path.abspath(d)
-    _home_set = True
     os.makedirs(_home, exist_ok=True)
     reset_out_dir()
 
 
 def home():
     """データの置き場所"""
-    return _home
+    if _home is not None:
+        return _home
+    return _datadir.override("studio") or os.path.abspath(_code_dir)
 
 
 def p(*parts):
     """データ置き場の中のパス。"""
-    return os.path.join(_home, *parts)
+    return os.path.join(home(), *parts)
 
 
 def fake():
