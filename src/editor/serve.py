@@ -51,7 +51,7 @@
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
-  受け渡し(docs/spec/pipeline.md。本体は pipeline_io.py):
+  受け渡し(docs/spec/pipeline.md。読み・保存・.runtime は manage/cases/pipeline_io.py・JSON と SRT の組み立ては pipeline/pack/resolve_export.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
   GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
@@ -77,7 +77,7 @@ import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォルダから起動しても、隣の部品(pipeline_io.py・resolve_export.py)を読めるように
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォルダから起動しても、隣の部品(ed_*.py)を読めるように
 
 
 def _load_core():
@@ -98,7 +98,8 @@ from ytt import datadir as _datadir, httpsec, jobs as _heavy_jobs, layout as _la
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc  # noqa: E402,F401  (分けた部品。段10。評価用の音声 ed_evalaudio は 0.68.0 で消した)
-import pipeline_io  # noqa: E402  (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
+from manage.cases import pipeline_io  # noqa: E402  (受け渡しの読み・保存・.runtime。RS3-E5b に editor から manage/cases へ。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
+from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て。RS3-E5b に editor から pipeline/pack へ)
 import ed_drill  # noqa: E402,F401  (評価ドリルと定点の「あと何分」。マスタープラン Q4)
 import ed_evalbatch  # noqa: E402,F401  (評価用の動画のまとめての文字起こし。マスタープラン Q4)
 import ed_alt  # noqa: E402,F401  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
@@ -530,7 +531,6 @@ class Handler(BaseHTTPRequestHandler):
         self._fail(404, "not_found", "その操作はありません")
 
     def _resolve_package(self, obj):
-        import resolve_export
         tid = str(obj.get("tid") or "")
         if not ed_state.TID_RE.match(tid):
             raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
