@@ -53,7 +53,7 @@ FILES = {
     "src/home/mount.py": ("app", "app", ""),
     "src/home/appwindow.py": ("app", "app", ""),
     "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
-    "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は Runner の hook を案件・設定・友人の届けで埋める合成の役。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行だけ human/friend の mixin へ出す = RS3-3)"),
+    "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は Runner の hook を案件・設定で埋める合成の役。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で human/friend/delivery.py の Delivery(mixin)へ出して継ぐ)"),
     "src/home/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
     # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
     #      live_archive と live_align_worker → pipeline/ingest(計画は pipeline/run だが run.py がファイルなので)・live_tx と live_tx_worker → pipeline/transcribe・
@@ -62,11 +62,8 @@ FILES = {
     "src/home/live_excite_worker.py": ("pipeline", "pipeline/analyze", "転送(RS5 で消す)。本体は RS3-1 で pipeline/analyze/live_excite_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
     "src/home/live_align_worker.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)。本体は RS3-1 で pipeline/ingest/live_align_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
     "src/home/live_tx_worker.py": ("pipeline", "pipeline/transcribe", "転送(RS5 で消す)。本体は RS3-1 で pipeline/transcribe/live_tx_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
-    "src/home/intake.py": ("human", "human/friend", ""),
-    "src/home/deliver.py": ("human", "human/friend", ""),
-    "src/home/live_requests.py": ("human", "human/friend", ""),
-    "src/home/friend_feedback.py": ("human", "human/friend", ""),
-    "src/home/cases.py": ("manage", "manage/cases", ""),
+    # ---- 案件と友人の部品は RS3-3 で移した(DIRS で読む): cases → manage/cases(丸ごと。決定 3-25 の d)・intake・deliver・live_requests・
+    #      friend_feedback → human/friend。AutoRunner の友人へ届ける段と組の溜めは human/friend/delivery.py の Delivery(mixin。autorun は app に残る)
     "src/home/accuracy.py": ("eval", "eval/drill", "精度の自動測定"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),

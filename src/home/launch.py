@@ -79,12 +79,12 @@ from manage.cases import txindex  # noqa: E402
 from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
-import intake as intake_mod  # noqa: E402  (src/home/intake.py: 友人からの依頼の受付)
+from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 import accuracy as accuracy_mod  # noqa: E402  (src/home/accuracy.py: 精度の自動測定 = dev/eval_*.py を手が空いた夜に子プロセスで)
-import deliver as deliver_mod  # noqa: E402  (src/home/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
-import cases as cases_mod  # noqa: E402  (src/home/cases.py: 案件(配信1本)ごとの紐づけ)
-import friend_feedback as friend_feedback_mod  # noqa: E402  (src/home/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
+from human.friend import deliver as deliver_mod  # noqa: E402  (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
+from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
+from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
 import appwindow as appwindow_mod  # noqa: E402  (src/home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
 from manage.ops import health as health_mod  # noqa: E402  (src/manage/ops/health.py: 「調子」。段9 9-1)

@@ -80,11 +80,11 @@ from pipeline.ingest import live_archive   # アーカイブで本番版に作�
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from pipeline import live_failures   # 失敗の集約。M3・M7
 from pipeline.analyze import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
-import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
+from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
 from pipeline.transcribe import live_tx   # 配信中の候補の文字起こし。線 D の D-11 案 b
 from pipeline import live_report   # 配信ごとの結果の記録。線 D の D-12
-import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
-from intake import OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
+from human.friend import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
+from human.friend.intake import OUT_DIR  # noqa: E402  # lint: keep 別名(RS3-3。差し替えない定数)= (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
@@ -705,7 +705,7 @@ class Live:
         if srv is None or (not force and now - self._expire_at < EXPIRE_EVERY):
             return []
         self._expire_at = now
-        import cases as cases_mod   # 呼ぶときに読む(cases は入口の部品。live を読み込むテストを重くしない)
+        from manage.cases import cases as cases_mod   # 呼ぶときに読む(cases は入口の部品。live を読み込むテストを重くしない)
         prefs = getattr(srv, "prefs", None)
         done = cases_mod.expire_unseen(self.root, self.studio_call, self.exporter.feedback, getattr(srv, "cleanup", None),
                                        (lambda tid: prefs.hide("transcripts", [tid], True)) if prefs is not None else None, getattr(srv, "deliveries", None),
