@@ -30,7 +30,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio, jobs, normalize, tools
+from ytt import colors, fsio, jobs, normalize, studio_env, tools
 from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
 
@@ -149,7 +149,7 @@ def youtube_info(vid):
     配信の前(予約)は形式が無いので yt-dlp がエラーで終わる(「This live event will begin in …」)→ --ignore-no-formats-error で live_status is_upcoming を
     出させる(src/home/live.py の probe_live と同じ)。古い yt-dlp はそれでもエラーで返すので、その文があれば is_upcoming とみなす。
     2026-10-08 の友人のライブ依頼 2 件がここで None になり「状態を確かめられない → アーカイブから ①」に落ちて、配信前で解析が失敗していた(10-09)"""
-    if os.environ.get("STUDIO_FAKE") == "1":
+    if studio_env.fake():   # 疑似の旗の持ち主(STUDIO_FAKE=1。RS5-D)
         return {"duration": 600.0, "live": "not_live", "title": "疑似タイトル(%s)" % vid, "channel": ""}
     yd = tools.find_tool("yt-dlp")
     if not yd or not re.fullmatch(_ID, vid or ""):

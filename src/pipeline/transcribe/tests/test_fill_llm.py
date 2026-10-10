@@ -24,7 +24,16 @@ from ytt import errors, studiodata, workdata  # noqa: E402
 
 
 class _FakeBackend(backend.Backend):
+    """eval/fake/fake_asr の FakeBackend と同じ口 fill_reader・llm_ask(この層のテストは eval を読まない。RS5-D)"""
     name = "fake"
+
+    def fill_reader(self, job, spec, wav, real):
+        text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")
+        return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
+
+    def llm_ask(self, job, spec, real):
+        reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
+        return lambda messages: reply
 
 
 class _Base(unittest.TestCase):
@@ -56,7 +65,7 @@ class TestFill(_Base):
         self.assertEqual(fill.fill_aliases(), set())
 
     def test_reader_fake_follows_backend_select(self):
-        """疑似かどうかは backend.select().name。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に"""
+        """窓の読みは backend.select() の口 fill_reader(RS5-D)。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に"""
         backend.set_selector(lambda: _FakeBackend())
         with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": "別の読み"}):
             read = fill.fill_reader({}, {}, "w.wav")

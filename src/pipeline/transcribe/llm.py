@@ -21,7 +21,7 @@
 
 役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_llm.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.llm_* は serve の名前の受付で読める)。
 以前は組み込みの部分が関数の中で import していた(ed_state・roster・ytt/jobs・worker_client)。今は先頭で同じパッケージの兄弟(backend・roster・txbase・worker_client)と
-ytt(fsio・jobs・workdata)を読み、置き場所(workdata.TX_DIR・roster.ROSTER)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)、疑似かどうかは backend.select().name から読む(app の ed_state を読まない)。
+ytt(fsio・jobs・workdata)を読み、置き場所(workdata.TX_DIR・roster.ROSTER)は呼ぶたびに持ち主から(RS3-0A まで txenv の口)、疑似の問い合わせは backend の口 llm_ask から(RS5-D。app の ed_state を読まない)。
 標準ライブラリ・ytt・兄弟だけなので、ネイティブの部品は読み込まない。
 """
 import json
@@ -251,11 +251,13 @@ def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None)
 
 # ---------- run_job から呼ぶ入口(ここからは編集の部品を読む) ----------
 def llm_ask_fn(job, spec):
-    """問い合わせの関数 messages -> 答えの文字。疑似(TRANSCRIBE_BACKEND=fake)は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す。
-    本物は LLM(tx_engines.LlamaText)を認識ワーカーに読み込み(主のモデルは手放さない = light)、op complete で聞く"""
-    if _backend.select().name == "fake":
-        reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
-        return lambda messages: reply
+    """問い合わせの関数 messages -> 答えの文字。本物と疑似は backend の口 llm_ask(RS5-D。
+    疑似 = eval/fake/fake_asr は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す)"""
+    return _backend.select().llm_ask(job, spec, _llm_ask_real)
+
+
+def _llm_ask_real(job, spec):
+    """本物の問い合わせの関数: LLM(tx_engines.LlamaText)を認識ワーカーに読み込み(主のモデルは手放さない = light)、op complete で聞く"""
     phase = job.get("phase")
     model, dev = worker_client.load_model(LLM_MODEL, job, "auto", engine=LLM_ENGINE)
     job["phase"] = phase

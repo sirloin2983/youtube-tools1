@@ -517,7 +517,7 @@ def autodiar_enabled():
 def autodiar_ready():
     """判別の部品があるか(疑似のときは常に)。サーバー側では sherpa-onnx を読み込まない(has_sherpa はワーカー側で調べる)。
     テスト用の worker-fake(ワーカーの中だけ偽のモデル)では使わない(判別は本物の経路 = モデルの取得になるため)"""
-    if _backend.select().name == "fake":
+    if _backend.is_fake():
         return True
     return not worker_client.worker_fake() and diarize.has_sherpa()
 
@@ -868,7 +868,7 @@ def run_voice_learn(job):
         grp = {n: plan["groups"][n] for n in spec.get("names") or [] if n in plan["groups"]}
         if not grp:
             raise _errors.ApiError("no_names", "覚えられる話者の行がありません(待っている間に名前・校正済みの印が変わった可能性があります)", 400)
-        fake = _backend.select().name == "fake"
+        fake = _backend.is_fake()
         if not fake and not diarize.has_sherpa():
             raise _errors.ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"

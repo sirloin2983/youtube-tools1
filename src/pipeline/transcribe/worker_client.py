@@ -646,7 +646,7 @@ def _gpu_ready_local():
 
 # ---------- サーバーのプロセスでの GPU と部品の有無・ワーカーの Python・疑似のワーカー・モデル名の検査(RS3-0A に編集の ed_state から移した) ----------
 # 画面の表示(/api/tools)・文字起こしの受付(doc_jobs の valid_model)・エンジンの確かめ(check_engine)・話者判別の部品の有無(diarize.has_sherpa)が読む。
-# 疑似かどうかは backend.select().name(編集の serve が登録する selector = ed_state.backend_name を呼ぶたびに読む)。置き場所は ytt/workdata の ROOT
+# 疑似かどうかは backend.is_fake()(RS5-D。編集の serve が登録する selector = ed_state.backend_name を呼ぶたびに読む)。置き場所は ytt/workdata の ROOT
 _nv_cache = []
 
 
@@ -719,7 +719,7 @@ def gpu_ready():
         return _gpu_ready_local()
     if "v" in _gpu_cache:
         return _gpu_cache["v"]
-    if _backend.select().name == "fake" or worker_fake() or not has_faster_whisper():
+    if _backend.is_fake() or worker_fake() or not has_faster_whisper():
         _gpu_cache["v"] = False
         return False
     if not _gpu_cache.get("started"):

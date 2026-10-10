@@ -23,9 +23,8 @@
 
 役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_fill.py から移した(中身は同じ。旧い名前の殻は作らない = 読み手は全部直した。S.fill_* は serve の名前の受付で読める)。
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
-roster.ROSTER から(RS3-0A まで txenv の口)、話者判別の部品の有無は diarize.has_sherpa から、疑似かどうかは backend.select().name から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
+roster.ROSTER から(RS3-0A まで txenv の口)、話者判別の部品の有無は diarize.has_sherpa から、疑似の窓の読みは backend の口 fill_reader から(RS5-D。app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
-import os
 import re
 import unicodedata
 
@@ -292,11 +291,13 @@ def fill_agree(segs, others, aliases):
 
 # ---------- run_job から呼ぶ入口 ----------
 def fill_reader(job, spec, wav):
-    """窓を読む関数 read(s0, e0) -> [{start, end, text}](wav の秒)。疑似(TRANSCRIBE_BACKEND=fake)は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に(空 = 行なし)。
-    本物は SenseVoice を認識ワーカーに読み込み(主のモデルは手放さない = tx_engines.Engine.light)、窓のサンプルの範囲だけを渡す"""
-    if _backend.select().name == "fake":
-        text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")
-        return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
+    """窓を読む関数 read(s0, e0) -> [{start, end, text}](wav の秒)。本物と疑似は backend の口 fill_reader(RS5-D。
+    疑似 = eval/fake/fake_asr は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に(空 = 行なし))"""
+    return _backend.select().fill_reader(job, spec, wav, _fill_reader_real)
+
+
+def _fill_reader_real(job, spec, wav):
+    """本物の窓を読む関数: SenseVoice を認識ワーカーに読み込み(主のモデルは手放さない = tx_engines.Engine.light)、窓のサンプルの範囲だけを渡す"""
     if not diarize.has_sherpa():   # 話者判別の部品 sherpa-onnx の有無(呼ぶたびに読む。ネイティブの部品はここでは読み込まない)
         raise _errors.ApiError("no_sherpa", "別の読み(SenseVoice)の部品 sherpa-onnx が入っていません(setup\\install-diarize.bat を実行してください)", 400)
     phase = job.get("phase")

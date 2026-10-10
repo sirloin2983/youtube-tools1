@@ -79,7 +79,7 @@ def _have(item):
 
 
 def diar_info():
-    return {"ready": _backend.select().name == "fake" or has_sherpa(), "segReady": _have(DIAR_SEG), "default": DIAR_EMB_DEFAULT,
+    return {"ready": _backend.is_fake() or has_sherpa(), "segReady": _have(DIAR_SEG), "default": DIAR_EMB_DEFAULT,
             "embeddings": [{"key": k, "label": v["label"], "mb": v["mb"], "ready": _have(v)} for k, v in DIAR_EMBS.items()]}
 
 
@@ -340,8 +340,11 @@ def update_diar_voices(tid, voices):
 
 
 def _diar_engine(emb, requested):
-    if _backend.select().name == "fake":
-        return {"name": "fake", "requested": requested or "auto"}
+    """判別の記録の engine。本物と疑似は backend の口 diar_engine(RS5-D。疑似 = eval/fake/fake_asr は {"name": "fake", …})"""
+    return _backend.select().diar_engine(emb, requested, _diar_engine_real)
+
+
+def _diar_engine_real(emb, requested):
     return {"name": "sherpa-onnx", "segmentation": "pyannote-segmentation-3-0", "embedding": emb, "embeddingFile": DIAR_EMBS[emb]["file"],
             "requested": requested or "auto", "clusterThreshold": DIAR_CLUSTER_THRESHOLD, "minDurationOn": DIAR_MIN_ON, "minDurationOff": DIAR_MIN_OFF,
             "threads": diar_threads(), "nearGapSec": 1.5, "voiceMatch": VOICE_MATCH, "voiceMargin": VOICE_MARGIN}

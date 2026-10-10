@@ -17,7 +17,8 @@
 
 名前は serve.py からも見える(serve.py の _ED_MODULES。ほかの部品と重ならないよう、名前は alt_ / ALT_ / _alt_ で始める)。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
-疑似の認識(TRANSCRIBE_BACKEND=fake)は backend.select().alt_rows(本体は eval/fake/fake_asr)に任せ、② から ④ を読まない。
+疑似の認識(TRANSCRIBE_BACKEND=fake)は backend.select() の口 alt_rows・check_engine・engine_version(本体は eval/fake/fake_asr)に任せ、② から ④ を読まない。
+残る「疑似なら」(準備の表示・結果の印 fake)は backend.is_fake() の 1 行(RS5-D)。
 """
 import bisect
 import difflib
@@ -29,7 +30,7 @@ import time
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from pipeline.transcribe import backend as _backend  # noqa: E402   疑似かどうか select().name・疑似の行 alt_rows(RS3-E6 に ed_state.backend_name から)
+from pipeline.transcribe import backend as _backend  # noqa: E402   疑似かどうか is_fake()・疑似の行 alt_rows・エンジンの確かめと版の口(RS3-E6 に ed_state.backend_name から。RS5-D)
 from pipeline.transcribe import postproc, recognize, records, worker_client  # noqa: E402   行の後処理・音声の取り出しと認識・エンジンの版・エンジンの確かめ(RS3-E6 に ed_jobs の殻から持ち主へ)
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)・LANGS・MAX_TEXT・ロガー・ジョブの注意
@@ -67,7 +68,7 @@ def alt_engine_key(req=None):
 def alt_info():
     """/api/tools の alt: 選べるエンジンと準備(画面の select)"""
     out = []
-    fake = _backend.select().name == "fake"
+    fake = _backend.is_fake()
     for k, e in ALT_ENGINES.items():
         if fake:
             ok, why = True, ""
@@ -116,8 +117,8 @@ def alt_spec(tid, req=None):
             "beam": 5, "vadMode": "weak", "boost": False, "wordSplit": True, "splitChars": doc_jobs.split_chars_for({}), "stripPunct": True,
             "glossary": [], "glossAuto": [], "context": {"members": [], "terms": []}, "autoDict": False, "autoLearned": False,
             "title": "別のエンジンで聞く: " + (str(doc.get("title") or "") or "無題")[:100]}
-    if _backend.select().name != "fake":
-        worker_client.check_engine(spec)   # 実行ファイルが無い・faster-whisper が無い(理由を出して断る。GPU の有無は読み込みのときに分かる)
+    # 実行ファイルが無い・faster-whisper が無い(理由を出して断る。GPU の有無は読み込みのときに分かる)。疑似は確かめない(口 check_engine。RS5-D)
+    _backend.select().check_engine(spec, lambda sp: worker_client.check_engine(sp))
     return spec
 
 
@@ -141,8 +142,11 @@ def _alt_real(job, spec, wav, total):
 
 
 def alt_engine_version(spec):
-    if _backend.select().name == "fake":
-        return ""
+    """記録に入れる 2つ目のエンジンの版。疑似は ""(口 engine_version。RS5-D)"""
+    return _backend.select().engine_version(spec, _alt_engine_version_real)
+
+
+def _alt_engine_version_real(spec):
     try:
         return records.engine_version(tx_engines.get(spec["engine"]))
     except Exception:   # 記録のための値なので、分からなくても止めない
@@ -175,7 +179,7 @@ def run_alt(job):
                 "device": job.get("device", ""), "at": _yschemas.now_ms(), "range": [spec["start"], spec["end"]],
                 "audioSec": round(float(total or 0), 2), "wallSec": round(time.monotonic() - t0, 2), "rows": rows,
                 "post": {"clip": True, "mergeRepeats": True}}   # 行の後処理の印(0.52.1 より前の alt.json には無い。0.64.0 までは pullEnds も = 0.65.0 で音の谷へ寄せるのを消した)
-        if _backend.select().name == "fake":
+        if _backend.is_fake():
             body["fake"] = True
         with store._save_lock:   # 認識の間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
             if not os.path.isfile(store.tx_path(tid)):
