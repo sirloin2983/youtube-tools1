@@ -184,8 +184,7 @@ def register(kind, run, priority=1, exclusive=(), has_tid=False, retry=False):
         RETRY_KINDS += (kind,)
 
 
-class Cancelled(Exception):
-    pass
+Cancelled = errors.Cancelled   # lint: keep 別名(RS3-4)= 中止の例外(正は ytt/errors。スタジオの procs.run_capture と同じクラス。差し替えない)
 
 
 def check_cancel(job):
