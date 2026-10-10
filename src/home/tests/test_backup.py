@@ -278,6 +278,50 @@ class BackupTest(unittest.TestCase):
         self.assertFalse([n for n in names if n.startswith("transcribe/bin/") and "whisper.cpp-" not in n])
         self.assertFalse([n for n in names if "/models/" in n or n.startswith("studio/bin/")])
 
+    def make_cases(self):
+        out = os.path.join(self.tmp, "出力")   # 作業データの根の外
+        w = os.path.join(out, "題名A", "作業用")
+        put(os.path.join(w, "a.clip.json"), "{}")
+        put(os.path.join(w, "a.edit.json"), "{}")
+        put(os.path.join(w, "a.tx.key.json"), "{}")
+        put(os.path.join(w, ".studio-id"), "id1")
+        put(os.path.join(w, "runs", "r1.json"), "{}")
+        put(os.path.join(w, "a.wav"), "audio")                    # json 以外は写さない
+        put(os.path.join(w, "tmp", "x.json"), "{}")               # runs 以外の下は入らない
+        put(os.path.join(out, "題名A", "a.mp4"), "video")
+        put(os.path.join(out, "題名A", "a_edit.mp4"), "video")
+        put(os.path.join(out, "題名A", "a_pack", "p.json"), "{}")
+        put(os.path.join(out, "top.json"), "{}")
+        return out
+
+    def test_cases_work_dir_outside_data_root_is_copied(self):
+        out = self.make_cases()
+        r = backup.run_once(self.src, self.dst, out_dir=out)
+        cases = [f for f in self.files() if f.startswith("cases/")]
+        self.assertEqual(cases, ["cases/題名A/作業用/.studio-id", "cases/題名A/作業用/a.clip.json", "cases/題名A/作業用/a.edit.json",
+                                 "cases/題名A/作業用/a.tx.key.json", "cases/題名A/作業用/runs/r1.json"])
+        self.assertEqual((r["copied"], r["errors"]), (9 + 5, []))
+        self.assertEqual(backup.run_once(self.src, self.dst, out_dir=out)["copied"], 0)
+        self.assertEqual(backup.run_once(self.src, self.dst, out_dir=os.path.join(self.tmp, "無い"))["errors"], [])   # 無い outDir は何もしない
+        self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 0)
+
+    def test_cases_change_is_noticed_by_latest_change(self):
+        out = self.make_cases()
+        before = backup.latest_change(self.src)
+        put(os.path.join(out, "題名A", "作業用", "runs", "r2.json"), "{}")
+        os.utime(os.path.join(out, "題名A", "作業用", "runs", "r2.json"), (before + 500, before + 500))
+        self.assertEqual(backup.latest_change(self.src), before)
+        self.assertEqual(backup.latest_change(self.src, out), before + 500)
+
+    def test_backup_passes_out_dir_by_value_or_function(self):
+        out = self.make_cases()
+        b, _ = self.make(lambda: 1000.0)
+        self.assertIsNone(b._out_dir())
+        b.out_dir = lambda: out
+        self.assertEqual(b._out_dir(), out)
+        b.out_dir = "相対"
+        self.assertIsNone(b._out_dir())
+
     def test_restore_roundtrip(self):
         backup.run_once(self.src, self.dst)
         put(os.path.join(self.src, "studio", "data.json"), '{"v": 22}')

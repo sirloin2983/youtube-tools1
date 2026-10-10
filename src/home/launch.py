@@ -855,7 +855,8 @@ class PortalServer(httpsec.ExclusiveServer):
                                         live_begin=lambda url, ctx: self.live.begin_request(url, ctx),   # ライブ配信の依頼(2-15。live は下で作る)
                                         defaults=prefs_mod.DEFAULTS["intake"])   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
-        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"])
+        self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"],
+                                     out_dir=lambda: datadir.studio_out_dir(sup.root))
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
                                               last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])

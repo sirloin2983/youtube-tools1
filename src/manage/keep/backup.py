@@ -19,6 +19,7 @@
 """
 import argparse
 import datetime
+import itertools
 import os
 import shutil
 import sys
@@ -113,6 +114,28 @@ def plan(source):
     return _scan(source, _plan_enter, lambda name, mode: mode != "bin" and not skip(name, False))
 
 
+CASES_DIR = "cases"        # 写す先の下の、案件の 作業用 を置くフォルダ(<写す先>/youtube-tools-data/cases/<題名>/作業用/…)
+CASE_WORK = "作業用"
+CASE_STUDIO_ID = ".studio-id"
+
+
+def _cases_enter(r, name, mode):
+    """案件の根(outDir)の入り方: "" = outDir 直下 / "case" = 題名のフォルダ / "work" = 作業用(と runs)。動画・パック・その他は入らない"""
+    if mode == "":
+        return "case"
+    if mode == "case":
+        return "work" if name == CASE_WORK else None
+    return "work" if name.lower() == "runs" else None
+
+
+def plan_cases(out_dir):
+    """案件の根 <outDir>/<題名>/作業用/ の *.json(runs の結果の束・.clip.json・.edit.json・鍵を含む)と .studio-id だけを順に返す: (outDir からの相対パス, 大きさ, 更新時刻)。
+    動画・_edit.mp4・*_pack は写さない。outDir が無い・未設定なら何も返さない"""
+    if not out_dir or not os.path.isdir(out_dir):
+        return iter(())
+    return _scan(out_dir, _cases_enter, lambda name, mode: mode == "work" and not skip(name, False) and (name.lower().endswith(".json") or name == CASE_STUDIO_ID))
+
+
 def _excite_chat(rel):
     """<ツール>/live/excite/chat(配信中の検出の生のチャット)か"""
     return rel.replace(os.sep, "/").lower().endswith("live/excite/chat")
@@ -123,10 +146,10 @@ def _excite_noisy(rel):
     return "/live/excite/" in rel.replace(os.sep, "/").lower()
 
 
-def latest_change(source):
-    """写す対象のファイルの、いちばん新しい更新時刻(無ければ None)。NOISY の名前は数えない"""
+def latest_change(source, out_dir=None):
+    """写す対象のファイルの、いちばん新しい更新時刻(無ければ None)。NOISY の名前は数えない。out_dir = 案件の根(runs が変わったら写す)"""
     newest = None
-    for rel, _size, mtime in plan(source):
+    for rel, _size, mtime in itertools.chain(plan(source), plan_cases(out_dir)):
         if os.path.basename(rel).lower() in NOISY or _excite_noisy(rel):
             continue
         if newest is None or mtime > newest:
@@ -168,8 +191,8 @@ def copy_one(src, dst, day=None):
         fsio.unlink_quiet(tmp)   # 写しきれなかった一時ファイル(置き換えたあとは無い)
 
 
-def run_once(source, folder, day=None, stop=None, on_file=None):
-    """作業データ source を folder\\youtube-tools-data へ写す。-> {"copied", "same", "bytes", "errors": [..], "dest"}
+def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None):
+    """作業データ source を folder\\youtube-tools-data へ写す。out_dir(案件の根)があれば、その作業用の json を cases の下へも写す。-> {"copied", "same", "bytes", "errors": [..], "dest"}
     断るとき(場所が正しくない・ドライブが無い)は ValueError"""
     if not source or not os.path.isdir(source):
         raise ValueError("作業データのフォルダが見つかりません")
@@ -184,7 +207,10 @@ def run_once(source, folder, day=None, stop=None, on_file=None):
     os.makedirs(dest, exist_ok=True)
     day = day or datetime.date.today().isoformat()
     out = {"copied": 0, "same": 0, "bytes": 0, "errors": [], "dest": dest}
-    for rel, size, mtime in plan(source):
+    with_cases = bool(out_dir) and os.path.isdir(out_dir) and not _overlaps(out_dir, dest) and not _overlaps(dest, out_dir)
+    items = itertools.chain(((rel, source, rel, size, mtime) for rel, size, mtime in plan(source)),
+                            ((os.path.join(CASES_DIR, rel), out_dir, rel, size, mtime) for rel, size, mtime in plan_cases(out_dir)) if with_cases else ())
+    for rel, root, src_rel, size, mtime in items:
         if stop is not None and stop():
             break
         dst = os.path.join(dest, rel)
@@ -192,7 +218,7 @@ def run_once(source, folder, day=None, stop=None, on_file=None):
             out["same"] += 1
             continue
         try:
-            copy_one(os.path.join(source, rel), dst, day)
+            copy_one(os.path.join(root, src_rel), dst, day)
             out["copied"] += 1
             out["bytes"] += size
             if on_file:
@@ -204,12 +230,14 @@ def run_once(source, folder, day=None, stop=None, on_file=None):
 
 
 class Backup:
-    def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None):
+    def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None, out_dir=None):
         """prefs: src/home/prefs.py の Prefs(節 backup)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["backup"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。source: 作業データの親フォルダ(datadir.data_root()。None = inplace なので写さない)。
-        data_dir: ホームの作業データ(app。最後に写した時刻の記録を置く)"""
+        data_dir: ホームの作業データ(app。最後に写した時刻の記録を置く)。
+        out_dir: 案件の根(スタジオの書き出し先)。文字列か、呼ぶたびに返す関数(設定で変わるので)。None・無いフォルダ = 案件の 作業用 は写さない"""
         self.prefs, self.source, self.data_dir = prefs, source, data_dir
         self.defaults = defaults
+        self.out_dir = out_dir
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.first_wait, self.check_every = first_wait, check_every
@@ -231,6 +259,13 @@ class Backup:
             fsio.write_json(self.state_path, self.last, indent=None)
         except OSError as e:
             self.log("バックアップ: 記録を書けませんでした(%s)" % (tools.why(e)))
+
+    def _out_dir(self):
+        try:
+            v = self.out_dir() if callable(self.out_dir) else self.out_dir
+        except OSError:
+            return None
+        return v if isinstance(v, str) and os.path.isabs(v) else None
 
     def _cfg(self):
         try:
@@ -268,7 +303,7 @@ class Backup:
         base = self.last.get("started", self.last.get("ok"))
         if not isinstance(base, (int, float)) or self.last.get("folder") != cfg.get("folder"):
             return False
-        newest = latest_change(self.source)
+        newest = latest_change(self.source, self._out_dir())
         return newest is not None and newest > base and self.clock() - newest >= QUIET
 
     def due(self, cfg):
@@ -294,7 +329,7 @@ class Backup:
             self.state, self.message = "running", ""
             t0 = self.clock()
             try:
-                r = run_once(self.source, cfg.get("folder") or "", stop=lambda: self.closed)
+                r = run_once(self.source, cfg.get("folder") or "", stop=lambda: self.closed, out_dir=self._out_dir())
             except ValueError as e:
                 self.state, self.message = "error", str(e)
                 self.last = dict(self.last, tried=self.clock(), error=str(e))
