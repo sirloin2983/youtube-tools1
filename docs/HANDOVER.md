@@ -1,39 +1,29 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-10 夕。役割で組み直す計画 = RS0〜RS5 済み・向きの違反 0・転送 0。次は RS6)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-10 夜。役割で組み直す計画 = RS6 の実装は済み・本物の確認待ち。次は RS7)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`
 
 ## いまの状態
-- 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**(RS2〜RS4 のコミットはまだ push されていない)
-- **版**: 全体で 1 つ = `src/ytt/version.py` の **0.56.0**(仮。RS5-E。正式な 1.0.0 はこの計画のあとのコードと UI の見直しのあと = ユーザー)・ui-kit v25・送るアプリ **2.10.0**(友人にはまだ渡していない)
-- **役割で組み直す計画 `plan/role-restructure.md`**: 層 `src/ytt` ← `pipeline` ← `human` ← `manage` ← `eval`(`app` は全部を使ってよい)。向きは `dev/tests/test_layering.py`。**違反 0・`KNOWN_MAX = 0`**(`dev/layer_map.py`)= 新しい違反は 1 件でも落ちる
-- **RS3・RS4 済み(10-10 午後)**: 段の結果は計画 8 節と WORKLOG の最後。ファイルの今の場所は `dev/layer_map.py`(FILES・DIRS)と AGENTS.md の表
-  - **RS5 の前半(10-10 夕)で消した**: 編集の殻 9 本・studio/common.py・cut2resolve.py の転送・ytt_core の import(本体は残る)。起動の小物は `src/studio/startup.py`。疑似の旗は `pipeline/transcribe/backend.py` の `mode()`・`is_fake()` と Backend のメソッド。友人の依頼の L1(②③)は消した(L2 の check・L3 は残す)
-  - **RS5 の終わり(10-10 夕。ユーザーが入口を起動し直したあと)**: 旧パスの起動用の転送 19 本(tx_worker・live_*_worker 3 つ・recorder.py・dev/eval_* 13 本・ytt_core)も消した = **転送は 0**。layer_map の FORWARDERS は空
-  - app に残る物: editor の serve・ed_state・ed_media・ed_thumb・画面、home の launch・live・autorun・portal・prefs・mount・appwindow・settings、studio の serve・common(殻)・handoff・画面
-- serve が登録する口: `jobs.register/configure`・`backend.set_selector`・`records.set_dict_inputs`・`recognize.set_head_stripper`・`doc_jobs.set_hooks`(redo_skip・redo_fill・norm_after)+ `check_hooks`・`ytt.settings.register_patch_key`・`speakers.set_context_namer` + `check_context_namer`・`worker_client.FAKES_MODULE`・殻への `_add_moved`(ed_store ← doclist・ed_learn ← metrics・ed_alt ← fake_asr・ed_relink ← folders)
-- 測る道具は `src/eval/tools/`(`py -3.10 src/eval/tools/eval_asr.py stored` など。旧 `dev/eval_*.py` も動く)。eval_marks に `--analyze-missing [--wait] [--limit N]` = 未解析の友人の配信の解析を動いているスタジオに頼む(「あとから解析」の代わり)
-- 決定: `plan/decisions.md` 3-23〜3-25 は確認済み。**3-26(eval_marks が画面の HTML の meta から合言葉を読む)は仮で決めた = ユーザーの確認待ち**。一時的な案(後の段で直る形)は確認に出さず AI が決めてよい(ユーザー指示)
-- **進め方(ユーザー決定 10-10)**: 段ごとには unittest・lint・層の検査だけ・e2e は画面を変えた所の近い 1〜2 本・e2e の一式は RS の終わりに 1 回・文書(AGENTS・計画・data.js)は RS ごとに 1 回・コミットは少し大きめ
-- テスト(RS3・RS4 の終わり): 単体一式・契約・test_mount・lint 0・e2e の一式 31 本 OK(前から落ちている e2e_window・e2e_ui_handoff の 2 本を除く)
+- 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**(RS2 以降のコミットはまだ push されていない)
+- **版**: 全体で 1 つ = `src/ytt/version.py` の **0.56.0**(仮。正式な 1.0.0 はこの計画のあとのコードと UI の見直しのあと)・ui-kit v25・送るアプリ 2.10.0(友人にはまだ渡していない)
+- **層は 5 つ(RS6 で決めて組み替えた。decisions 3-29)**: ① 道具 `src/pipeline/`(入力 → 出力の加工だけ)・② 管理 `src/flow/`(① をいつ・どの順で・どこに置いて・飛ばすか。鍵・置き場所・ジョブと SLOTS・ワーカー・結果の束)・③ 人 `src/human/`・④ データ `src/manage/`・⑤ 検証 `src/eval/`・app は全部を読める。**③④ は ① を直に読まず ② を通す・⑤ は ① を直に読んでよい(本物の作業データへ書くときだけ ②)・② に変換のコードを書かない**。向きは `dev/layer_map.py` の `ALLOWED` と `dev/tests/test_layering.py`(違反 0・`test_flow_is_not_alias` = flow に ① の別名だけの関数を作ると落ちる。例外は `# flow: alias ok`。今 1 か所 = `flow/diar.voice_rows`)
+- **RS6 で入った物(10-10 夜)**: 段が束(spec)を読む(`flow/spec.py` の束 → 本文の関数・`AutoRunner.build_spec`・`Run.screen` は一時の口)/ Tools の継ぎ目 `flow/tools.py`(HttpTools = 入口の API・LocalTools = 文字起こしとパックを直に)/ 成果物の鍵 `flow/keys.py`(書くのは ② の段の終わり・切り抜きは `作業用\<名前>.export.key.json`・文書は `transcripts\<id>.{transcribe,post,diar}.key.json`・パックは `<pack>\pack.key.json`)と鍵で飛ばす判定(認識は違えば印・force で作り直す / パックは違えば作り直す / 鍵なしは今のまま)/ 校正の上書き O1 `human/proof/overrides.py`(`<id>.over.json`・作り直しで人の行を時刻の重なりで引き継ぐ・STALE の印・`TRANSCRIBE_CARRY_OVERRIDES=off` で止まる)/ 採用を F-5 の 1 つの規則に(`human/review/store.adopt_marks`)/ 置き場所の持ち主 `flow/placement.py`・結果の束 `<案件>\作業用\runs\<実行id>.json`(索引は autorun-runs.jsonl の resultPath)・`.flow.lock`(作業データの根)/ CLI `src/app/cli.py`(入口が動いていれば頼む・無ければ動画ファイルを ② + ① だけで)/ `flow/wire.py`(serve の登録をまとめた・③ なしで呼べる)。仕様は `docs/spec/pipeline.md` の 2.4〜2.7・`docs/spec/data-location.md`。段の表と計画と違えた所は `plan/role-restructure.md` 8 節
+- テスト(10-10 夜・e37f238): unittest 約 2,700 件・契約・test_mount・cut2resolve の test_serve(単独)OK・lint 0・層 OK・node 3 本 OK・e2e 30 本のうち 28 本 OK(前から落ちている `e2e_window` の [7-1]・`e2e_ui_handoff` だけ)。画面のテストのサーバーは既定で `TRANSCRIBE_CARRY_OVERRIDES=off`(同じ動画を何度も文字起こしするので)
 
 ## 次
-1. **RS6**(計画 7・8 節と data.js の RS6): ① の新機能 = アーカイブと動画ファイルの自動採用・切り抜き単位の使い回し(鍵 `ytt/schemas.make_key`)・校正の上書きを切り抜きの鍵に付ける(再認識で消えない)・① 単体の起動(URL か動画 → パック)。app/server.py と live/autorun の分割(decisions 3-25 の c・3-28)・L3(手で届ける)の扱い(3-25 の h)もここ。**新機能 = 設計の変更なので、下調べ(Haiku・low)→ Fable と段の並び → ユーザーに確認してから実装**
-2. ユーザーの確認(急がない): 起動し直した入口で校正の画面・話者判別(覚えた声)・まとめて実行で本物の 1 本 / `py -3.10 src/eval/tools/eval_marks.py --analyze-missing --wait` を 1 回 / 送るアプリ 2.10.0 を本物の作業フォルダの `friend-apps\request-sender\build.bat` で作り直して友人へ
-- 後へ回したもの(decisions 3-28): 設定 1 ファイル・スタジオの疑似の分岐(studio_env.fake 18 件)・serve 3 本の共通の骨組み → RS7
-- 別件(タスクの札にした): `worker_client._probe_gpu` の判定が常に偽(画面の GPU 表示だけ。AMD の PC では実害なし)
-- **サブエージェントのモデルとエフォート(ユーザー 10-10)**: 探す・置き換え・文書・テストを流して集める = Haiku・low / 規則の移動 = Sonnet・medium / 差し込み口・入口・広い部品 = Opus・high / 段の並び = Fable。正解表のような機械的な物はスクリプトで作ってサブエージェントに渡す
+1. **ユーザーの本物の確認(RS6)**: 入口を「すべて終了 → start.bat」で起動し直す → アーカイブ 1 本を まとめて実行(解析から全部)→ 鍵(`作業用\*.export.key.json`・文書の `.transcribe.key.json` など・`<pack>\pack.key.json`)と `作業用\runs\<id>.json` ができる → 編集で 1 行直して保存(`.over.json`)→ 同じ配信を再実行 = 認識は飛ぶ・パックだけ作り直る / 動画ファイル 1 本を CLI `py -3.10 src/app/cli.py <mp4> --spec spec.json --data-dir <一時> --out r.json`(spec は `{}` でも可。**ユーザーの外のシェルで** = AI のシェルの %LOCALAPPDATA% は MSIX の写し)
+2. **RS7**(data.js の RS7): 速度を測る → 速度かコード量 + **ライブとまとめて実行の玄関(Live・AutoRunner・launch)を割って 録画 → 検出 → 採用 を ② の run に**(友人もライブを使う = 完成までに必ず)・app/server.py・serve 3 本の骨組み・設定 1 ファイル・案件フォルダ B-1・入口の起動し直しと `.flow.lock`(古い入口がポートを離さないと新しい入口が起動を止める)の見直し・CLI の動画ファイルを入口に頼む口(今は 文字起こし → start-docs の 2 段)
+3. RS8(B-2・B-3・O2・URL も CLI だけで。UI の再考と一緒)・F1(友人の PC の RTX 3060 で CLI 1 本 = CUDA。この PC は AMD で確かめられない)
+- 後へ回したもの: バックアップが案件フォルダの `作業用\runs\` を写さない(索引で戻せる。B-2 の前に直す)・O1 は人が消した行を覚えない(作り直すと機械の行が戻る = O2)・`flow/diar.voice_rows` の別名(RS7)
 
 ## 注意(引き継ぐこと)
-- **移した名前を別の部品に `from x import y` で別名として残さない**(S.X の差し替えが別名に当たって本体に効かない)。例外は差し替えない定数・純粋な関数(`# lint: keep 別名`)。移した先のモジュールは serve の `_ED_MODULES` に旧い持ち主の位置(殻は並べない)。`modfwd.duplicates` 0 件
-- 読む側は `モジュール.名前` で呼ぶたびに読む。口に関数を値で登録しない(lambda の中で呼ぶたびに読む)。口は登録されていなければ RuntimeError + serve が登録の直後に check
-- 殻に新しい名前を書かない。`src/pipeline/transcribe/tests` に `__init__.py` は無い = discover ではなくファイルを並べて流す。test_names を単独で流すときは `PYTHONPATH=src/editor/tests`
+- **友人の前提(どのセッションも)**: 配る友人は 1 人・RTX 3060。最終的には友人の PC で ② + ① を動かすのがメイン(decisions 3-29・メモリ project-friend-pc-main)
+- **一時の形はユーザーに聞かない**(ユーザー「何度も言うように一時的な変更なら何でもよい。一通り完成したときに動けばよい」)。Fable や下調べが「確」に入れてきた物もまとめ役が選び直す。聞くのは機能・データを消す・使い方が変わる・最終の形を決める物だけ
+- 移した名前を別の部品に別名で残さない(S.X の差し替えが別名に当たる)。serve の `_ED_MODULES` に新しい持ち主を足す(RS6 で txtext・clipjob・flow/tx・flow/diar・flow/pack・dictfmt・txwords・slots_jobs を足した)。`modfwd.duplicates` 0 件
 - **サブエージェントの実装と e2e を同時に流すと待ちのあるテストが揺れる**。最後の一式はサブエージェントが止まってから
-- **前から落ちている**: `e2e_window`([7-1] = スタジオの ② から解析の設定の欄が無くなった)・`e2e_ui_handoff`(無くなった「3 パック」のタブ)。全体を続けて流したときだけ揺れる: `e2e_live_studio` の 1〜2 件・`test_live_archive` の 1 件(単独で OK)
-- **unittest に `PYTHONIOENCODING=utf-8` を付けない**。e2e には付けて 1 本ずつ。`test_mount`・契約テストは単独で
-- worktree のサブエージェント: 最初に `git merge --ff-only main`・「git mv だけ → 付け替え → 共有ファイル」の 3 コミット・まとめ役が cherry-pick(serve.py・layer_map・test_names の衝突はまとめ役が両方を合わせて解く)。main が進んだら SendMessage で知らせて rebase を頼む(先に終わって渡してくる体もいる)
-- **同じ作業フォルダを別のセッションも使う**。コミットの前に `git status`・`git diff --cached --stat` を見て、自分の変えたファイルだけを add する
-- ファイルは差分で直す(多くは CRLF。`sed -i` 禁止)。plan/data.js を直したら公開ページ(Artifact)も出し直す
-- 入口が起動中の間はコードを変えても古いまま動く。ユーザーに「すべて終了 → start.bat」を頼む。**ライブの部品を移したので配信中に入口を落とさない**(起動中の古い入口が子を起こしても旧パスの転送で動く)
+- worktree のサブエージェント: 最初に `git merge --ff-only main`・main が進んだら SendMessage で rebase を頼む・取り込みは ff か cherry-pick(serve.py・layer_map・run.py の衝突はまとめ役)
+- unittest に `PYTHONIOENCODING=utf-8` を付けない。e2e には付けて 1 本ずつ。`test_mount`・契約テスト・cut2resolve の test_serve は単独で
+- ファイルは差分で直す(多くは CRLF。`sed -i` 禁止)。plan/data.js を直したら公開ページも出し直す(読んでいない版だと断られる → 写しを全部読む → user-tasks も read → 3 回目で通る)
+- 入口が起動中の間はコードを変えても古いまま動く。**配信中に入口を落とさない**
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画(plan/role-restructure.md)は RS5 まで済み(向きの違反 0・転送 0)。HANDOVER の『次』のとおり RS6 を、下調べ → Fable と段の並び → ユーザーの確認 → 実装の順で。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。決めることが出たら decisions に並べて、一時的な案は聞かずに決めてよい。進め方は AGENTS.md の e2e と文書の決まり(段ごとは unittest・lint・層だけ・e2e 一式と文書は RS の終わりに 1 回)。重要な判断は Fable と相談。」
+「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画(plan/role-restructure.md)は RS6 まで実装済み(層は 5 つ = ① 道具 pipeline・② 管理 flow・③ 人・④ データ・⑤ 検証。違反 0)。ユーザーの本物の確認(HANDOVER の『次』の 1)が済んだら RS7 を、下調べ → Fable と段の並び → ユーザーの確認(一時の形は聞かない)→ 実装の順で。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。進め方は AGENTS.md の e2e と文書の決まり(段ごとは unittest・lint・層だけ・e2e 一式と文書は RS の終わりに 1 回)。重要な判断は Fable と相談。」

@@ -3395,3 +3395,12 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト(main・e717833): 編集の unittest 633 件 OK・層の検査 OK・lint 0
 - 動いている: a-5b(残り 2 件と serve の登録を flow/wire へ = 違反 0)・b-0(段が束を読む・Tools の継ぎ目 HttpTools / LocalTools)。そのあと b-K1・b-O1・b-B0・b-A・b-K2・b-S1・b-R1・b-Z(文書・e2e の一式・本物の確認)
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-10 夜 Claude Code(PC。Opus まとめ役。実装 Opus 5 体(high)・Sonnet 6 体(medium)・テストを流す Haiku 1 体(low)・設計の相談 Fable)— 役割で組み直す RS6 の残り(新機能)と終わり
+- 組み替えの残り: a-5b(KNOWN 2 → 0。`flow/wire.install`・`ytt/txwords`・`flow/tx.rerun_base`。3c87c2d)
+- 新機能: b-0 段が束を読む・Tools の継ぎ目(c97a60f・f617a36)/ b-K1 鍵を書く(e041dc9)/ b-O1 校正の上書き O1(640fd8d。評価用の確かめ済み 23 本・人の文字の行 296 行で 99.7% が対応)/ b-R1 採用の既定を束に(0c37065)/ b-S1 CLI(4ef123d)/ b-B0 置き場所 flow/placement・結果の束・.flow.lock(909eea9・bda2b6b)/ b-A 採用を F-5 に(446fedb)/ b-K2 鍵で飛ばす(585f925)。まとめ役の直し: 削除で鍵と over.json も消す・test_wire の持ち越し(e717833・40413e3・f9fce9e)
+- 文書: 番号を ①〜⑤ に付け替え(4f1a22b)・仕様(鍵・上書き・結果の束・.flow.lock・CLI)と計画の結果(f868dc4)・data.js(RS6 = 本物の確認待ち・RS7 に玄関の分割(友人もライブを使う)・RS8・F1)と decisions 3-29 の一時の形(301ec39)・公開ページ 87 版
+- テスト(サブエージェントが止まってから): unittest 約 2,700 件・単独 3 本・lint 0・層・node 3 本・e2e 30 本。新しく落ちた 6 本は「同じ動画を何度も文字起こしするので O1 が前の場面の直しを引き継いだ」と「パックに pack.key.json が増えた」= テストを直した(画面のテストのサーバーは既定で TRANSCRIBE_CARRY_OVERRIDES=off。e37f238)。残りは前から落ちている e2e_window の [7-1]・e2e_ui_handoff だけ
+- 動きの変化(ユーザーに伝えた): 人が 1 本採用した配信の再実行で上限まで自動で足す(F-5)/ 入口の起動し直しで古い入口がポートを離さないと新しい入口が .flow.lock で起動を止める(RS7 で見直す)
+- 次: ユーザーの本物の確認(入口を起動し直してアーカイブ 1 本・CLI で動画ファイル 1 本)→ RS7。HANDOVER を書き直した
+- 未コミット: なし(この記録と HANDOVER と一緒にコミット)
