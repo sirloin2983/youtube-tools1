@@ -38,7 +38,7 @@ function realNames() {
 
 /* 本物にあって、ここでは「何もしない関数」(Proxy)で足りる名前。本物に名前を足したら、ここか下の kit のどちらかに足す
    (test_uikit_stub.cjs が確かめる。Promise や値を返す部品なら kit に書く) */
-const FALLBACK = ['sound', 'theme', 'portal', 'streamer', 'appnav', 'drawer', 'keybar', 'settings', 'keymap', 'packLoud', 'restart', 'hide', 'liveBadge'];
+const FALLBACK = ['sound', 'theme', 'portal', 'streamer', 'appnav', 'drawer', 'keybar', 'settings', 'keymap', 'packLoud', 'restart', 'hide', 'liveBadge', 'settingsForm'];
 
 function makeUIKit(overrides = {}) {
   const calls = [], handlers = { leave: [], return: [] };

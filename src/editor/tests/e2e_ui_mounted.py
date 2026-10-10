@@ -189,6 +189,7 @@ def main():
 
         port = free_port()
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND="worker-fake", TRANSCRIBE_FAKE_DELAY="0.05", TRANSCRIBE_STUDIO_DATA=studio_data,
+                   TRANSCRIBE_CARRY_OVERRIDES="off",   # 校正の上書きの引き継ぎ(O1)は止める(同じ動画を何度も文字起こしするため)
                    TRANSCRIBE_NORMALIZE="off")   # 30fps の写し(H.264)は作らない(Q1): chromium で再生できる webm(24fps)のまま、どの fps でも動くパックの道(保険)を確かめる
         proc = subprocess.Popen([sys.executable, os.path.join(tmp, HOME, "launch.py"), "--port", str(port), "--no-open", "--only", "transcribe,cut2resolve"],
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

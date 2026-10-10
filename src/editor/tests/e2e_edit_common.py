@@ -86,7 +86,8 @@ class Server:
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND=backend, TRANSCRIBE_FAKE_DELAY="0.01",
                    TRANSCRIBE_STUDIO_DATA=os.path.join(self.tmp, "studio-data.json"),
                    YTT_HOLO_MEMBERS=os.path.join(os.path.dirname(REPO), "friend-apps", "holo-colors", "members.json"),   # 配信者の色の一覧(ytt を写しても、リポジトリの一覧を読む。REPO = src/、その1つ上がリポジトリ直下)
-                   TRANSCRIBE_NORMALIZE="" if normalize else "off")
+                   TRANSCRIBE_NORMALIZE="" if normalize else "off",
+                   TRANSCRIBE_CARRY_OVERRIDES="off")   # 校正の上書きの引き継ぎ(O1)は止める: 同じ動画を何度も文字起こしするので前の場面の直しが混ざる
         if mounted:
             for d in (_layout.TOOL_DIRS["app"], _layout.TOOL_DIRS["transcribe"], _layout.TOOL_DIRS["cut2resolve"]):
                 copy_tool(os.path.join(REPO, d), os.path.join(self.tmp, d))

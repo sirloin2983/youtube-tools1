@@ -33,6 +33,7 @@ class TestInstall(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def test_without_human_layer_and_twice(self):
+        backend._selector[0] = lambda: backend.REAL   # 同じプロセスで先に読んだ serve の選び方を持ち越さない(後片付けで元に戻る)
         wire.install()
         wire.install()
         self.assertTrue(callable(backend.select) and backend.select() is backend.REAL)

@@ -276,8 +276,8 @@ def _scene_streamer_build(cx):
     got = [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip.get("cuts", [])]
     names = sorted(os.path.relpath(os.path.join(r, n), packdir).replace(os.sep, "/") for r, _, ns in os.walk(packdir) for n in ns)
     check(names == sorted(["ResolveにText+スクリプトを登録.bat", "create_resolve_textplus_project.lua", "install_resolve_textplus_script.ps1",
-                           os.path.basename(v1), "textplus-template.drb"]),
-          "パックは最小限(動画は直下・Lua・雛形・登録用の ps1/bat。EDL・SRT・cut-plan.json・.json・友人へ.txt は入れない): %s" % names)
+                           os.path.basename(v1), "textplus-template.drb", "pack.key.json"]),
+          "パックは最小限(動画は直下・Lua・雛形・登録用の ps1/bat。EDL・SRT・cut-plan.json・.json・友人へ.txt は入れない。RS6 の鍵 pack.key.json だけ増えた): %s" % names)
     check(got == clips, "パックの区間 = カットのタブの区間(元の動画の 60fps のフレームのまま・短い区間も捨てない): %s" % got)
     check(ip.get("target") == {"fps": 30, "width": 1080, "height": 1920} and len(ip.get("captions", [])) == 3, "置き先 30fps・縦、字幕 3件: %s" % ip.get("target"))
     check("兎田ぺこらの色の文字(#65BAEA)" in ip.get("style", {}).get("name", ""), "パックの字幕の文字はメンバーカラー: %s" % ip.get("style", {}).get("name"))
@@ -502,7 +502,7 @@ def _scene_no_caption_30fps(cx):
     wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkJob').hidden && !document.querySelector('#pkBuild').disabled", 120000)
     pd2 = os.path.splitext(v2)[0] + "_pack"
     files = sorted(os.listdir(pd2))
-    check(files == sorted(["字幕なし.edl", "字幕なし.webm"]), "文字起こしの無い動画のパック: EDL・元の動画のコピー(Text+ なし。cut-plan.json・友人へ.txt は入れない): %s" % files)
+    check(files == sorted(["字幕なし.edl", "字幕なし.webm", "pack.key.json"]), "文字起こしの無い動画のパック: EDL・元の動画のコピー(Text+ なし。cut-plan.json・友人へ.txt は入れない): %s" % files)
     check(pg.is_disabled("#pkBackup") and pg.is_checked("#pkBackup"), "字幕が無いパックでは「予備も入れる」は選べない(EDL が本体)")
 
     # ---- Q1: 素材が 30fps なら、プロジェクトの fps は 30 固定で選択を出さない(保存してある packFps = 60 は使わない・消さない)
