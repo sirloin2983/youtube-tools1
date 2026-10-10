@@ -262,7 +262,7 @@ class TestPaths(ServerBase):
 
     def test_work_dir_matches_ytt_core(self):
         """途中のファイルの下のフォルダの名前は ytt と同じ(コマンドは ytt を読まないので cut2resolve_core にも持つ)"""
-        from ytt_core import schemas as ys
+        from ytt import schemas as ys
         self.assertEqual(serve.C.WORK_DIR, ys.WORK_DIR)
 
     def test_open_folder_only_for_pack_dirs(self):
@@ -331,7 +331,7 @@ class TestHeavyJobLimit(unittest.TestCase):
     (API を通した確かめは TestJobs.test_plan_with_detection_waits_for_heavy_slot)"""
 
     def test_build_waits_and_can_be_cancelled(self):
-        from ytt_core import jobs
+        from ytt import jobs
         slots = jobs.HeavySlots(1)
         held = slots.acquire("transcribe")
         with mock.patch.object(serve._heavy, "SLOTS", slots):
@@ -419,7 +419,7 @@ class TestSiblings(unittest.TestCase):
 
     def test_uses_ytt_core(self):
         """.runtime・siblings・Host/Origin の検査は ytt の1か所(2026-09-26。cut2resolve 自身の写しは消した)"""
-        from ytt_core import httpsec, runtime
+        from ytt import httpsec, runtime
         self.assertIs(serve.TOOL_APPS, runtime.TOOL_APPS)
         self.assertIs(serve.httpsec, httpsec)
         for gone in ("_read_small_json", "RUNTIME_MAX_BYTES"):
@@ -509,7 +509,7 @@ class TestJobs(ServerBase):
     def test_plan_with_detection_waits_for_heavy_slot(self):
         """無音の検出が要る試算(動画の音声を全部読む)は、パックの作成と同じく他のツールの重い処理と順番を待つ(ytt.jobs。0.22.3)。
         検出が要らない試算・検出結果が覚えてある試算は待たない。待っている間は取り消せる"""
-        from ytt_core import jobs
+        from ytt import jobs
         slots = jobs.HeavySlots(1)
         held = slots.acquire("transcribe")
         try:

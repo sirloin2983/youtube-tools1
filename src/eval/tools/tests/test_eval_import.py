@@ -20,7 +20,7 @@ SRC = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 yt
 REPO = os.path.dirname(SRC)   # リポジトリ直下
 sys.path.insert(0, SRC)
 from eval.tools import eval_import as I  # noqa: E402
-from ytt_core import evaldata as ev  # noqa: E402
+from eval.tools import evaldata as ev  # noqa: E402
 
 WID = "0123456789ab"
 

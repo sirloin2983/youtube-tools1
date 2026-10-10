@@ -17,7 +17,8 @@ if SRC not in sys.path:
 from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
 from human.friend import deliver  # noqa: E402
-from ytt_core import schemas, txindex  # noqa: E402
+from manage.cases import txindex  # noqa: E402
+from ytt import schemas  # noqa: E402
 
 VID = "abcdefghijk"
 REC = "20261007-120000"   # ライブの録画の id(スタジオの配信の id = 録画の id)

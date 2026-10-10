@@ -463,7 +463,7 @@ class TestHeavyJobLimit(unittest.TestCase):
     """書き出しは、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間は waiting、取り消せる"""
 
     def test_waits_and_cancels(self):
-        from ytt_core import jobs
+        from ytt import jobs
         slots = jobs.HeavySlots(1)
         held = slots.acquire("transcribe")
         job = {"id": "x", "videoId": "abcdefghijk", "state": "running", "cancel": False, "proc": None, "created": 0, "outDir": "",

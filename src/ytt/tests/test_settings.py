@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt_core import settings as S  # noqa: E402
+from ytt import settings as S  # noqa: E402
 
 
 class TestSettingsFile(unittest.TestCase):

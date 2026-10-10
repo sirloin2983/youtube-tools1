@@ -42,7 +42,7 @@ sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
-from ytt_core import layout, schemas  # noqa: E402
+from ytt import layout, schemas  # noqa: E402
 
 
 def wait_js(pg, expr, timeout=30000):
@@ -1290,7 +1290,7 @@ def main():
     try:
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
-        from ytt_core import layout as _layout
+        from ytt import layout as _layout
         _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
         os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]

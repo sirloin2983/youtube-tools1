@@ -21,7 +21,7 @@ for p in (HOME, ROOT):
 from human.friend import intake  # noqa: E402
 from human.friend import live_requests  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
-from ytt_core import fsio, normalize, tools  # noqa: E402
+from ytt import fsio, normalize, tools  # noqa: E402
 
 OK_30FPS = {"has_video": True, "has_audio": True, "vcodec": "h264", "bit_depth": 8, "pix_fmt": "yuv420p", "r_frame_rate": "30/1",
             "avg_fps": 30.0, "acodec": "aac"}   # normalize.probe の結果の形(作り直しが要らない動画)

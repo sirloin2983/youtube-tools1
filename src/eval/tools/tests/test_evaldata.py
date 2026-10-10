@@ -12,7 +12,7 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
-from ytt_core import evaldata as E  # noqa: E402
+from eval.tools import evaldata as E  # noqa: E402
 
 
 class Marks(unittest.TestCase):

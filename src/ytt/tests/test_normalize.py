@@ -12,7 +12,7 @@ from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
-from ytt_core import normalize, tools  # noqa: E402
+from ytt import normalize, tools  # noqa: E402
 
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 FP = tools.find_tool("ffprobe", "YTT_FFPROBE")

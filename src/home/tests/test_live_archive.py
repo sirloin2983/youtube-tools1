@@ -42,7 +42,7 @@ sys.path.insert(0, TESTS)
 from pipeline.ingest import live_archive as A  # noqa: E402
 from pipeline.export import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
-from ytt_core import fsio, jobs, normalize, schemas, tools  # noqa: E402
+from ytt import fsio, jobs, normalize, schemas, tools  # noqa: E402
 
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 RELEASE = 1790000000.0            # 配信の開始時刻(偽の yt-dlp の release_timestamp)

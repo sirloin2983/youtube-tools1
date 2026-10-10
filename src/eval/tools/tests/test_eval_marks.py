@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_marks as M  # noqa: E402
-from ytt_core import txindex  # noqa: E402
+from manage.cases import txindex  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"
 

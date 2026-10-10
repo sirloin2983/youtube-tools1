@@ -16,7 +16,7 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
-from ytt_core import excite  # noqa: E402
+from pipeline.analyze import excite  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GOLDEN = os.path.join(HERE, "data", "excite_golden.json")

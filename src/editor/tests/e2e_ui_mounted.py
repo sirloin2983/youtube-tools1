@@ -37,7 +37,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
 sys.path.append(REPO)   # ytt.layout(フォルダ名の対応表)を読むため
-from ytt_core import layout as _layout  # noqa: E402
+from ytt import layout as _layout  # noqa: E402
 HOME, EDITOR = _layout.TOOL_DIRS["app"], _layout.TOOL_DIRS["transcribe"]
 TP_LUA = "create_resolve_textplus_project.lua"
 
@@ -177,7 +177,7 @@ def main():
                        check=True, timeout=60)
         # 切り抜きスタジオが書き出した切り抜きのふり: 隣の .clip.json(元の配信)と、スタジオの data.json(配信者。文字起こしは読むだけ)
         sys.path.insert(0, tmp)
-        from ytt_core import schemas as yschemas  # noqa: E402
+        from ytt import schemas as yschemas  # noqa: E402
         clip = yschemas.build_clip(media, 20.0, {"kind": "youtube", "videoId": "vidE2E00001", "title": "【雑談】テストの配信"}, (600.0, 620.0),
                                    {"id": "m1", "label": "見どころ", "status": "exported", "src": "manual"}, {"mode": "precise"}, {"name": "clip-studio", "version": "e2e"})
         os.makedirs(os.path.dirname(yschemas.clip_path_for(media)), exist_ok=True)   # 途中のファイルは 作業用\(2026-09-27)

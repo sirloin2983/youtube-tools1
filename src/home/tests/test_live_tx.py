@@ -47,7 +47,7 @@ from pipeline.export import live_export as LX  # noqa: E402
 from pipeline.transcribe import live_tx as TX  # noqa: E402
 from pipeline.transcribe import live_tx_worker as TW  # noqa: E402
 import prefs as P  # noqa: E402
-from ytt_core import datadir, fsio  # noqa: E402
+from ytt import datadir, fsio  # noqa: E402
 
 TOKEN = "x" * 40
 T0 = 1790000000.0
@@ -419,7 +419,7 @@ class OneTest(LiveTxBase):
     def test_one_waits_for_heavy_slot(self):
         """D-14: 認識は重い処理の順番(SLOTS。tool live-tx)を通す。枠が埋まっていれば待ち(status の slotWait・記録)、空けば認識。
         待っている間に入口が終わったら認識しない・失敗に数えない"""
-        from ytt_core import jobs
+        from ytt import jobs
         self.tx.slots = jobs.HeavySlots(limit=1, reserved={})
         tok = self.tx.slots.acquire("transcribe", "ほか")
         th = threading.Thread(target=self.tx._one, args=("fake", REC, peak("p0-12", 10), T0), daemon=True)

@@ -261,7 +261,7 @@ class TestEditStore(StoreDir):
     def test_edit_file_is_not_a_document(self):
         S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         self.assertEqual(S._tids(), [TID])
-        from ytt_core import txindex
+        from manage.cases import txindex
         self.assertEqual([d["id"] for d in txindex.load(self.tmp)], [TID])                 # 入口の案件・スタジオのセリフも文書だけを読む
 
     @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
@@ -1022,7 +1022,7 @@ class TestRelinkFind(StoreDir):
         self.assertEqual((c.exception.code, c.exception.status), ("network_path", 400))
 
     def test_pick_path_maps_errors_and_kind(self):
-        from ytt_core import pick as _pick
+        from ytt import pick as _pick
         saved = _pick.pick
         calls = []
 
@@ -1507,7 +1507,7 @@ class TestToolIdentity(unittest.TestCase):
     """ツールの識別子(/api/ping の app・受け渡しの tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
     def test_same_as_runtime_table(self):
-        from ytt_core import runtime
+        from ytt import runtime
         import ed_state
         from manage.cases import pipeline_io
         self.assertEqual(runtime.TOOL_APPS["transcribe"], "transcribe-tool")

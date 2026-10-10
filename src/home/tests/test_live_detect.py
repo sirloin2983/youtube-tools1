@@ -54,7 +54,8 @@ import live as LV  # noqa: E402
 from pipeline.export import live_export as LX  # noqa: E402
 from pipeline import live_failures as LF  # noqa: E402
 import prefs as P  # noqa: E402
-from ytt_core import excite, fsio, tools  # noqa: E402
+from pipeline.analyze import excite  # noqa: E402
+from ytt import fsio, tools  # noqa: E402
 
 TOKEN = "k" * 40
 T0 = 1790000000.0
@@ -1777,7 +1778,7 @@ class SameAsExportTest(unittest.TestCase):
     4 節の 7・T8)。値そのものの検査は src/ytt/tests/test_ytt_core.py の RecprotoTest"""
 
     def test_same_objects(self):
-        from ytt_core import recproto
+        from ytt import recproto
         for w, lx, core in ((W.ID_RE, LX.ID_RE, recproto.RECORDER_ID_RE), (W.REC_RE, LX.REC_RE, recproto.REC_ID_RE),
                             (W.SEG_URI_RE, LX.SEG_URI_RE, recproto.SEG_URI_RE), (W.iso_epoch, LX.iso_epoch, recproto.iso_epoch),
                             (W.epoch_iso, LX.epoch_iso, recproto.epoch_iso), (W.video_id, LX.video_id_of, recproto.video_id_of)):

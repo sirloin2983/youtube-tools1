@@ -283,7 +283,7 @@ class PreviewTest(unittest.TestCase):
     """まとめ動画(ffmpeg が要る。無ければ skip)"""
 
     def setUp(self):
-        from ytt_core import tools
+        from ytt import tools
         self.ffmpeg, self.ffprobe = tools.find_tool("ffmpeg"), tools.find_tool("ffprobe")   # 本物(ほかのテストが環境変数で偽物に向けていても)
         if not self.ffmpeg or not self.ffprobe:
             self.skipTest("ffmpeg が無い")
@@ -304,7 +304,7 @@ class PreviewTest(unittest.TestCase):
         return p
 
     def test_two_clips_at_normal_speed_and_double_when_asked(self):
-        from ytt_core import normalize
+        from ytt import normalize
         a, b = self.clip("一本目_pack/一本目.mp4", 2), self.clip("二本目_pack/二本目.mp4", 2)
         out = os.path.join(self.tmp, "preview.mp4")
         self.assertTrue(deliver.make_preview([a, b], out, ["一本目", "二本目"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)
@@ -317,7 +317,7 @@ class PreviewTest(unittest.TestCase):
         self.assertAlmostEqual(normalize.probe(fast, ffprobe=self.ffprobe)["duration"], 2.0, delta=0.5)   # 定数を変えれば速くもできる
 
     def test_silent_clip_makes_a_silent_preview(self):
-        from ytt_core import normalize
+        from ytt import normalize
         a, b = self.clip("a_pack/a.mp4", 1), self.clip("b_pack/b.mp4", 1, audio=False)
         out = os.path.join(self.tmp, "preview.mp4")
         self.assertTrue(deliver.make_preview([a, b], out, ["A", "B"], ffmpeg=self.ffmpeg, ffprobe=self.ffprobe, log=self.logs.append), self.logs)

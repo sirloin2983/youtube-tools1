@@ -36,7 +36,7 @@ import launch as L  # noqa: E402
 import mount as M  # noqa: E402
 from e2e_portal import wait_js, open_advanced  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 APP_MODE = """(() => {   // Edge のアプリモードの窓のふり(display-mode: standalone)
   const real = window.matchMedia.bind(window);
@@ -123,7 +123,7 @@ def main():
     try:
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
-        from ytt_core import layout as _layout
+        from ytt import layout as _layout
         _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         ports = dict(zip(L.TOOL_IDS, free_ports(3)))
         sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=tuple(M.MOUNTS))

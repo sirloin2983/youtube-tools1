@@ -22,7 +22,7 @@ import appwindow as W  # noqa: E402
 import launch as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt を読むので先に)
 from manage.ops import clientlog as C  # noqa: E402
 import prefs as PR  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 

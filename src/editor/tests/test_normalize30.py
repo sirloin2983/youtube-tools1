@@ -23,7 +23,7 @@ from test_backend import S, StoreDir  # noqa: F401  (S = serve)
 import ed_jobs  # noqa: E402
 from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps(RS3-E7 に ed_relink から)
 import ed_store  # noqa: E402
-from ytt_core import normalize as N  # noqa: E402
+from ytt import normalize as N  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 

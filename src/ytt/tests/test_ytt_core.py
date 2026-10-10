@@ -18,7 +18,8 @@ from unittest import mock
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ytt/tests の2つ上 = src(ツールの親)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
-from ytt_core import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, tools, txindex  # noqa: E402
+from manage.cases import txindex  # noqa: E402
+from ytt import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, tools  # noqa: E402
 
 
 def locked(winerror=32):
@@ -1013,7 +1014,7 @@ class TestTools(unittest.TestCase):
             self.assertFalse(job.add(p))                    # 閉じたあとは入れない(上げない)
         finally:
             tools.kill_quiet(p)
-        code = ("import os, subprocess, sys; sys.path.insert(0, sys.argv[1]); from ytt_core import tools; job = tools.KillJob(); "
+        code = ("import os, subprocess, sys; sys.path.insert(0, sys.argv[1]); from ytt import tools; job = tools.KillJob(); "
                 "c = subprocess.Popen(%r, creationflags=tools.no_window_flags()); print(c.pid, job.add(c), flush=True); os._exit(3)" % (sleeper,))
         out = subprocess.run([sys.executable, "-c", code, REPO], capture_output=True, text=True, timeout=60, creationflags=tools.no_window_flags())
         pid, added = out.stdout.split()
@@ -1526,7 +1527,7 @@ class TestTxIndex(unittest.TestCase):
 
     def test_pack_info(self):
         """パックの有無の規則(入口の案件・文字起こしの一覧で共通): 切り抜きの隣の <名前>_pack に cut-plan.json があれば「あり」"""
-        from ytt_core import txindex
+        from manage.cases import txindex
         self.assertIsNone(txindex.pack_info(self.clip))
         self.assertIsNone(txindex.pack_info(""))
         d = os.path.join(os.path.dirname(self.clip), "01_a_pack")
@@ -1548,7 +1549,7 @@ class TestTxIndex(unittest.TestCase):
     def test_pack_record(self):
         """2026-09-26(④)から: パックに cut-plan.json を置かず、cut2resolve の作業データ packs/ の記録で「パック済み」を決める"""
         import json as _json
-        from ytt_core import txindex
+        from manage.cases import txindex
         env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         d = txindex.pack_dir(self.clip)
         os.makedirs(os.path.join(d, "media"))
@@ -1928,7 +1929,7 @@ class TestLoudness(unittest.TestCase):
     """ラウドネスの決まり(ytt/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
 
     def test_check_target_and_volume(self):
-        from ytt_core import loudness as L
+        from ytt import loudness as L
         self.assertEqual([L.check_target(v) for v in (None, "", 0, "0", -14, "-18")], [None, None, None, None, -14.0, -18.0])
         for bad in (-20, "x", True, -14.5):
             with self.assertRaises(ValueError):
@@ -1940,7 +1941,7 @@ class TestLoudness(unittest.TestCase):
         self.assertEqual((L.pct_to_db(50), L.pct_to_db(200)), (-6.02, 6.02))
 
     def test_parse_and_gain(self):
-        from ytt_core import loudness as L
+        from ytt import loudness as L
         text = 'x\n{\n "input_i" : "-18.80",\n "input_tp" : "-4.10",\n "input_lra" : "7.9"\n}'
         self.assertEqual(L.parse(text), (-18.8, -4.1))
         self.assertEqual(L.parse('{"input_i" : "-inf", "input_tp" : "-inf"}'), (None, None))   # 無音
@@ -1960,7 +1961,7 @@ class TestNames(unittest.TestCase):
     値は 2026-10-09 に一本化する前の両方の実装の出力(名前が 1 バイトでも変わると、前に書き出したフォルダと別になる)"""
 
     def setUp(self):
-        from ytt_core import names
+        from ytt import names
         self.N = names
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -2033,7 +2034,7 @@ class TestRecproto(unittest.TestCase):
     以前は 3 か所の写しの一致を test_live_detect の SameAsExportTest で確かめていた(その例をここへ移した)"""
 
     def setUp(self):
-        from ytt_core import recproto
+        from ytt import recproto
         self.R = recproto
 
     def test_ids(self):

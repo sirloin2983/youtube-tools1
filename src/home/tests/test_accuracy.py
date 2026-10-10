@@ -22,7 +22,7 @@ for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
 
 from eval.drill import accuracy  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
-from ytt_core import fsio, jobs  # noqa: E402
+from ytt import fsio, jobs  # noqa: E402
 import launch as L  # noqa: E402
 import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす道具を借りる。テストそのものは集めない)
 

@@ -936,7 +936,7 @@ class TestLiveSectionApi(Base):
         self.assertEqual((it["status"], it["path"], it["manifest"]), ("done", b["path"], None))
         self.assertTrue(os.path.isfile(b["path"]))
         self.assertAlmostEqual(common.media_info(b["path"])[0], 4.0, delta=0.3)
-        from ytt_core import normalize
+        from ytt import normalize
         probe = normalize.probe(b["path"])
         if probe:
             self.assertEqual(probe["r_frame_rate"], "30/1")

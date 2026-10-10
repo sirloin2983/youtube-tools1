@@ -128,7 +128,7 @@ def run(tmp, shots, force_chromium):
     import mount  # noqa: E402
     import hls_fixture as F  # noqa: E402
     from pipeline.export import live_export as LX  # noqa: E402
-    from ytt_core import normalize, schemas  # noqa: E402
+    from ytt import normalize, schemas  # noqa: E402
     from test_launch import free_ports  # noqa: E402
 
     ok = True

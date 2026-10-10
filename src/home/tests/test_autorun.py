@@ -24,7 +24,7 @@ from human.friend import delivery as DL  # noqa: E402
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from pipeline import runlog  # noqa: E402
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 
 def _fake_preview(videos, out, labels=None, **kw):
@@ -431,7 +431,7 @@ class TestModes(Base):
 
     def _prefs(self, **autorun):
         import prefs as PR
-        from ytt_core import fsio
+        from ytt import fsio
         p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         p.patch("autorun", autorun)
         self.r.prefs = p
@@ -701,7 +701,7 @@ class TestStage4(Base):
 
     def test_on_fail_stop(self):
         import prefs as PR
-        from ytt_core import fsio
+        from ytt import fsio
         p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         p.patch("autorun", {"onFail": "stop"})
         self.r.prefs = p
@@ -756,7 +756,7 @@ class TestStage5(Base):
 
     def test_remembered_name_wins(self):
         import prefs as PR
-        from ytt_core import fsio
+        from ytt import fsio
         p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         p.remember("videos", VID, "さくらみこ")
         self.r.prefs = p
@@ -1182,7 +1182,7 @@ class TestRequests(Base):
     def setUp(self):
         super().setUp()
         import prefs as P
-        from ytt_core import fsio
+        from ytt import fsio
         self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         self.r.prefs = self.prefs
         self.r.log_path = os.path.join(self.tmp, "logs", runlog.RUNS_LOG)
@@ -1256,7 +1256,7 @@ class TestRequests(Base):
 
     def live_clip(self, name, origin):
         """リアルタイム切り抜きの書き出し(src/pipeline/export/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
-        from ytt_core import schemas
+        from ytt import schemas
         media = os.path.join(self.tmp, name)
         open(media, "wb").close()
         clip = {"schema": schemas.CLIP_SCHEMA, "range": {"start": 1200.0, "end": 1245.0}, "mark": {"id": "m1", "status": "exported", "src": "auto"},

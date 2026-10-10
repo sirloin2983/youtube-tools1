@@ -1048,7 +1048,7 @@ class TestHeavyJobLimit(unittest.TestCase):
     """文字起こしのジョブも、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間に取り消せる"""
 
     def setUp(self):
-        from ytt_core import jobs
+        from ytt import jobs
         self.jobs = jobs
         self.tmp = tempfile.mkdtemp()
         self.saved = (S.RUN_MARK, S._heavy.SLOTS, S.run_job)

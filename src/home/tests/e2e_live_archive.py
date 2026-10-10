@@ -77,7 +77,7 @@ VIDEO = "document.querySelector('#rvHost video')"
 
 
 def ff(*args):
-    from ytt_core import tools
+    from ytt import tools
     exe = tools.find_tool("ffmpeg", "YTT_FFMPEG") or "ffmpeg"
     subprocess.run([exe, "-hide_banner", "-nostdin", "-y", "-v", "error"] + list(args), check=True, stdin=subprocess.DEVNULL, capture_output=True,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -149,7 +149,7 @@ def run(tmp, shots, force_chromium):
     import hls_fixture as F  # noqa: E402
     from pipeline.export import live_export as LX  # noqa: E402
     from pipeline.ingest import live_archive as LA  # noqa: E402
-    from ytt_core import fsio, normalize, schemas  # noqa: E402
+    from ytt import fsio, normalize, schemas  # noqa: E402
     from test_launch import free_ports  # noqa: E402
 
     ok = True

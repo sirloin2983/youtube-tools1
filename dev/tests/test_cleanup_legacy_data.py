@@ -16,7 +16,7 @@ TOP = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(TOP, "src")   # ツールと ytt の置き場所
 sys.path.insert(0, os.path.join(TOP, "setup"))
 sys.path.insert(0, ROOT)
-from ytt_core.layout import TOOL_DIRS  # noqa: E402
+from ytt.layout import TOOL_DIRS  # noqa: E402
 import cleanup_legacy_data as CL  # noqa: E402
 
 

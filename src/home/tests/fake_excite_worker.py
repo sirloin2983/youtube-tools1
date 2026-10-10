@@ -15,7 +15,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
-from ytt_core import fsio  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 
 def iso(now):
