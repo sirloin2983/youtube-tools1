@@ -16,8 +16,7 @@ import threading
 import time
 import uuid
 
-from pipeline.ingest import sources as _src
-from ytt import yturl as _yturl   # URL・動画 ID の形(RS6 a-1 に pipeline/ingest/sources から)
+from ytt import yturl as _yturl   # URL・動画 ID の形と入力の判定(sources.py を畳んだ)
 from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, runtime as _runtime, schemas, tools as _tools
 from ytt import mediainfo as _media, procs as _procs, studio_env as _env   # RS3-4 にスタジオの common から(呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError
@@ -556,7 +555,7 @@ def _ytdlp_sections(job, spec, it, base):
     ff = _env.find_tool("ffmpeg")
     cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
                           "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end)),
-                          "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", _src.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
+                          "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
                           "--", _yturl.watch_url(spec["videoId"])]
     tail = []
     try:

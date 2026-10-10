@@ -3,8 +3,11 @@
 ③ 人・④ データが ① を読まずに済むよう ytt に置く。読む側は `from ytt import yturl` の形で、別名で再公開しない。
 - 形: `VID_RE`(YouTube の動画 ID)・`YT_HOSTS`・`MEDIA_EXT`(動画・音声の拡張子)・`YT_API_BASE`(YouTube Data API)
 - 関数: `parse_video_id`(URL か 11 文字の ID → 動画 ID)・`watch_url`(動画 ID → 動画のページ)
+- 入力の判定と yt-dlp の -o: `check_media_path`(手元のファイルの検査)・`file_video_id`(手元のファイルの id)・`ytdlp_out`(sources.py を畳んだ)
 - ライブの録画(RS6 a-5a に sources から): `check_live`(録画 1 本の記述の検査)・`LIVE_ID_RE`・`LIVE_RECORDER_RE`・`LIVE_NO_ANALYZE`
 """
+import hashlib
+import os
 import re
 import urllib.parse
 
@@ -75,3 +78,24 @@ def check_live(o):
     if u.scheme != "https" or host not in YT_HOSTS:
         raise bad("配信の URL は YouTube の https の URL だけです")
     return {"recorder": rec, "recording": rid, "url": url.strip(), "videoId": parse_video_id(url.strip()) or ""}
+
+
+# ---- 入力の判定と yt-dlp に渡す形(RS6 後の整理で pipeline/ingest/sources から。不正な入力は ApiError 400 の code bad_source) ----
+def check_media_path(raw):
+    """手元の動画・音声ファイルのパスを検査して絶対パスを返す。"""
+    s = str(raw or "").strip().strip('"')
+    if not s or "\x00" in s or len(s) > 1000 or not os.path.isfile(s) or os.path.splitext(s)[1].lower() not in MEDIA_EXT:
+        raise errors.ApiError("bad_source", "ファイルが見つかりません(動画・音声ファイルのパスを指定してください)", 400)
+    return os.path.abspath(s)
+
+
+def file_video_id(path):
+    """file 動画の id: "f" + sha1(絶対パス) の先頭10桁(11文字)。"""
+    return "f" + hashlib.sha1(os.path.abspath(path).encode("utf-8", "surrogatepass")).hexdigest()[:10]
+
+
+def ytdlp_out(folder, name_tmpl):
+    """yt-dlp の -o(出力テンプレート)。テンプレートは % 書式なので、フォルダ側の % は %% にする
+    (出力先の設定では % を断っているが、既定の exports/ や work/ はこのフォルダの場所しだいで % を含みうる)。
+    name_tmpl はこちらで決めた名前(%(ext)s など)で、利用者の文字列は入れない(safe_name で % を除いている)。"""
+    return os.path.join(str(folder).replace("%", "%%"), name_tmpl)

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS5-B から common を読まない)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, fsio, mediainfo, procs, studio_env  # noqa: E402
-from pipeline.ingest import sources  # noqa: E402
+from ytt import yturl  # noqa: E402
 from human.find import rank
 from human.review import feedback
 from pipeline.analyze import analyze
@@ -267,15 +267,15 @@ class TestLogs(Home):
 
 class TestYtdlpTemplate(unittest.TestCase):
     def test_percent_in_folder_is_escaped(self):
-        self.assertEqual(sources.ytdlp_out(os.path.join("C:", "100%", "exports"), "a.%(ext)s"), os.path.join("C:", "100%%", "exports", "a.%(ext)s"))
-        self.assertEqual(sources.ytdlp_out("/plain", "chat.%(ext)s"), os.path.join("/plain", "chat.%(ext)s"))
+        self.assertEqual(yturl.ytdlp_out(os.path.join("C:", "100%", "exports"), "a.%(ext)s"), os.path.join("C:", "100%%", "exports", "a.%(ext)s"))
+        self.assertEqual(yturl.ytdlp_out("/plain", "chat.%(ext)s"), os.path.join("/plain", "chat.%(ext)s"))
 
     def test_all_ytdlp_calls_use_the_escaped_template(self):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for fn in (os.path.join("..", "pipeline", "analyze", "analyze.py"), os.path.join("..", "pipeline", "export", "exporter.py")):   # analyze は RS3-5 で pipeline/analyze へ・exporter は RS1-4 で pipeline/export へ
             with open(os.path.join(here, fn), encoding="utf-8") as f:
                 src = f.read()
-            self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず sources.ytdlp_out を通す
+            self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず yturl.ytdlp_out を通す
 
 
 class TestPorts(unittest.TestCase):

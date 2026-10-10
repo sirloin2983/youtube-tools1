@@ -20,8 +20,7 @@ import uuid
 
 from . import levels  # 1 秒ごとの音量の測り方(配信中の検出と同じ 1 か所。OPT1)
 from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式。隣のファイル)
-from pipeline.ingest import sources as _src  # 入力の判定(RS3-4 にスタジオの common から)
-from ytt import yturl as _yturl   # URL・動画 ID の形(RS6 a-1 に pipeline/ingest/sources から)
+from ytt import yturl as _yturl   # URL・動画 ID の形と入力の判定(sources.py を畳んだ)
 from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env, tools as _tools  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, redact, tail_reason   # 純粋な関数(差し替えない)
@@ -70,8 +69,8 @@ def validate_source(item):
     if not isinstance(item, dict):
         raise ApiError("bad_source", "入力が正しくありません", 400)
     if item.get("kind") == "file":
-        p = _src.check_media_path(item.get("path"))
-        return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": _src.file_video_id(p)}
+        p = _yturl.check_media_path(item.get("path"))
+        return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": _yturl.file_video_id(p)}
     if item.get("kind") == "live" or _yturl.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
         raise ApiError("bad_source", _yturl.LIVE_NO_ANALYZE, 400)   # ライブの録画は、YouTube としても file としても解析へ進めない(yt-dlp を呼ばない)
     vid = _yturl.parse_video_id(item.get("url") or item.get("videoId"))
@@ -137,7 +136,7 @@ def download_audio(job, vid, wdir):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)")
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _src.ytdlp_out(wdir, "audio.%(ext)s"),
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", _env.find_tool("ffmpeg") or "", "-f", "ba/b", "-o", _yturl.ytdlp_out(wdir, "audio.%(ext)s"),
            "--", _yturl.watch_url(vid)]
 
     def on(line):
@@ -295,7 +294,7 @@ def download_chat(job, vid, wdir, timeout):
     yt = _env.find_tool("yt-dlp")
     if not yt:
         return None, "yt-dlp が見つからないため、チャットは使えません"
-    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _src.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
+    cmd = [yt, "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", _yturl.ytdlp_out(wdir, "chat.%(ext)s"), "--", _yturl.watch_url(vid)]
     stop = threading.Event()
 
     def watch():   # 出力ファイルの大きさを見せる(yt-dlp は進捗を出さないため、動いている目安になる)
