@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RS8 画面の見本</title>
+<!-- 見本(静的・ダミーのデータ)。本物の ui-kit の見た目を相対パスで読む。実装ではない(docs/design/briefs/rs8-cases/DESIGN_BRIEF.md) -->
+<!-- ui-kit.css の写し(見本用に取り込んだ。正本は src/ui-kit/ui-kit.css) -->
+<style>
+/* ui-kit v6〜v23 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
+   v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
+   飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
+   新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
+   正本は src/ui-kit/ui-kit.css。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
+   テーマ: <html data-theme="light|dark">(theme.js が保存した選択(無ければ明るい)から決める)。
+   既存ツールの CSS 変数名(--bg --panel --ink --accent など)をそのまま提供するので、各ツールの CSS はこの上に重ねる。 */
+
+/* ---------- 1. トークン(ライト) ---------- */
+:root{
+  color-scheme:light;
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI","Meiryo",sans-serif;
+  --font-display:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Hiragino Sans","Yu Gothic UI","Meiryo UI",sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  --bg:#EEF2F8;--bg-2:#E4EAF3;
+  --panel:#FFFFFF;--panel-2:#F5F8FC;--panel-3:#E2E9F3;
+  --field:#FFFFFF;--field-hover:#F7F9FC;
+  --line:#C3CFE2;--line-2:#9DAECB;--line-strong:#7E93B5;
+  --ink:#0E1726;--ink-2:#334158;--ink-3:#55657E;--ink-4:#7A889E;
+  --accent:#1F5BFF;--accent-hover:#0040E6;--accent-ink:#FFFFFF;--accent-soft:rgba(31,91,255,.09);--accent-line:rgba(31,91,255,.45);
+  --ok:#0B7A4B;--ok-soft:rgba(11,122,75,.09);--warn:#8F5A00;--warn-soft:rgba(143,90,0,.1);--danger:#C42660;--danger-on:#FFFFFF;--danger-soft:rgba(196,38,96,.08);--info:#6B46D6;--info-soft:rgba(107,70,214,.09);
+  /* 状態の札(.pill)の文字色。薄い背景の上でも読める濃さ(明るいテーマで 5.5:1 以上。WCAG AA の 4.5:1 を満たす) */
+  --ok-ink:#0B7A4B;--warn-ink:#8F5A00;--danger-ink:#C42660;--info-ink:#6B46D6;--accent-ink2:#1748CC;
+  --c-audio:#2f62d6;--c-chat:#17875a;--c-com:#b8790f;--c-4:#b3389a;--c-5:#0f8f9a;--c-6:#6a50d8;
+  --shadow-1:0 1px 2px rgba(20,24,33,.06),0 1px 1px rgba(20,24,33,.04);
+  --shadow-2:0 4px 14px rgba(20,24,33,.08),0 1px 3px rgba(20,24,33,.06);
+  --shadow-3:0 18px 48px rgba(20,24,33,.16),0 4px 12px rgba(20,24,33,.08);
+  --header-bg:rgba(255,255,255,.94);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);
+  --scroll-thumb:#9DAECB;
+  /* v6: 映像の周り(プレーヤーの背景)は両テーマで暗い灰色(映像の色を見やすく)。再生位置(赤)・トースト(両テーマで暗い面)・
+     下の帯(キーの帯)の高さ・右の引き出しの幅 */
+  --stage-bg:#1b1d22;--stage-ink:#eef0f5;--playhead:#e5484d;
+  --toast-bg:#1b1e26;--toast-ink:#f2f4f8;
+  --keybar-h:24px;--drawer-w:380px;
+
+  --r-xs:1px;--r-sm:2px;--r:2px;--r-lg:2px;--r-xl:2px;--r-pill:999px;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;
+  --fs-xs:11.5px;--fs-sm:12.5px;--fs-md:14px;--fs-lg:16px;--fs-xl:20px;
+  --ctl-h:34px;--ctl-h-sm:28px;--header-h:52px;
+  --ease:cubic-bezier(.2,.7,.2,1);--dur:.16s;
+  --knob:#fff;
+}
+
+/* ---------- 2. トークン(ダーク) ---------- */
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#0A0E14;--bg-2:#070A0F;
+  --panel:#111824;--panel-2:#0D131D;--panel-3:#1A2436;
+  --field:#0A0E14;--field-hover:#0D131D;
+  --line:#22304A;--line-2:#2C3D5C;--line-strong:#3B5277;
+  --ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#8494AA;--ink-4:#5E6F87;
+  --accent:#19D3F3;--accent-hover:#5DE3F8;--accent-ink:#04222A;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);
+  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--danger:#FF5C93;--danger-on:#1A0610;--danger-soft:rgba(255,92,147,.12);--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);
+  --ok-ink:#3DDC97;--warn-ink:#FFC14D;--danger-ink:#FF7AA8;--info-ink:#A9C4FF;--accent-ink2:#5DE3F8;
+  --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);
+  --shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);
+  --shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
+  --header-bg:rgba(10,14,20,.92);
+  --scroll-thumb:#2C3D5C;
+  --stage-bg:#0a0b0e;--stage-ink:#eef0f5;--playhead:#ff6369;
+  --toast-bg:#242834;--toast-ink:#f2f4f8;
+  --keybar-h:24px;--drawer-w:380px;
+  --ring:0 0 0 2px var(--accent);--knob:#fff;
+}
+/* JS が動かないときの見た目(theme.js は <head> で同期に実行され、実行できたときは必ず data-theme を付ける。
+   v6: 保存が無いときの既定は明るいテーマ(JS が動く前提)。この節は JS が全く動かない極端な場合だけの保険として、OS の設定に従う */
+@media (prefers-color-scheme:dark){:root:not([data-theme]){
+  color-scheme:dark;
+  --bg:#0A0E14;--bg-2:#070A0F;--panel:#111824;--panel-2:#0D131D;--panel-3:#1A2436;--field:#0A0E14;--field-hover:#0D131D;
+  --line:#22304A;--line-2:#2C3D5C;--line-strong:#3B5277;--ink:#DCE7F5;--ink-2:#A9B7CA;--ink-3:#8494AA;--ink-4:#5E6F87;
+  --accent:#19D3F3;--accent-hover:#5DE3F8;--accent-ink:#04222A;--accent-soft:rgba(25,211,243,.12);--accent-line:rgba(25,211,243,.5);
+  --ok:#3DDC97;--ok-soft:rgba(61,220,151,.12);--warn:#FFC14D;--warn-soft:rgba(255,193,77,.12);--danger:#FF5C93;--danger-on:#1A0610;--danger-soft:rgba(255,92,147,.12);--info:#8FB3FF;--info-soft:rgba(143,179,255,.12);
+  --ok-ink:#3DDC97;--warn-ink:#FFC14D;--danger-ink:#FF7AA8;--info-ink:#A9C4FF;--accent-ink2:#5DE3F8;
+  --c-audio:#7ba3ff;--c-chat:#4cd08b;--c-com:#f0b54a;--c-4:#f07fd8;--c-5:#45d3dc;--c-6:#a797ff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 6px 18px rgba(0,0,0,.38),0 1px 3px rgba(0,0,0,.3);--shadow-3:0 24px 60px rgba(0,0,0,.55),0 6px 16px rgba(0,0,0,.35);
+  --header-bg:rgba(10,14,20,.92);--scroll-thumb:#2C3D5C;
+  --stage-bg:#0a0b0e;--stage-ink:#eef0f5;--playhead:#ff6369;--toast-bg:#242834;--toast-ink:#f2f4f8;--keybar-h:24px;--drawer-w:380px;
+}}
+
+/* ---------- 3. 土台 ---------- */
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:var(--fs-md)/1.55 var(--font);-webkit-font-smoothing:antialiased}
+body{min-width:0}
+button,input,select,textarea{font:inherit;color:inherit;letter-spacing:inherit}
+h1,h2,h3,h4{font-family:var(--font-display);line-height:1.3;text-wrap:balance}
+p,.hint,.notice{text-wrap:pretty}   /* v6(段3-2): 見出しは行の長さをそろえ、本文は最後の行が1文字だけにならないように。字間は変えない */
+a{color:var(--accent-ink2);text-underline-offset:2px}   /* v23: 文字の青は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1 と足りない。A-22) */
+a:hover{color:var(--accent-hover)}
+::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+code{font-family:var(--mono);font-size:.9em;background:var(--panel-2);border:1px solid var(--line);padding:0 5px;border-radius:var(--r-xs);overflow-wrap:anywhere}
+kbd,.kbd{display:inline-block;min-width:1.7em;padding:0 5px;border:1px solid var(--line-2);border-bottom-width:1px;border-radius:var(--r-xs);background:var(--panel);font:600 11px/1.6 var(--mono);text-align:center;color:var(--ink-2);white-space:nowrap}
+hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
+*{scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:10px;border:2px solid transparent;background-clip:padding-box}::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{font-size:var(--fs-sm);color:var(--ink-2)}
+.muted{color:var(--ink-3)}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sr-only{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.stack{display:flex;flex-direction:column;gap:var(--sp-2)}
+.grow{flex:1 1 auto;min-width:0}.spacer{flex:1 1 auto}
+
+/* ---------- 4. ヘッダー(全ツール共通) ---------- */
+.ui-header{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:6px 16px;min-height:var(--header-h);padding:6px 16px;flex-wrap:wrap;
+  background:var(--header-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line);box-shadow:none}
+.ui-brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font:650 15.5px/1 var(--font-display);white-space:nowrap}
+.ui-brand:hover{color:var(--ink)}
+.ui-brand-mark{width:26px;height:26px;border-radius:8px;display:inline-grid;place-items:center;color:#fff;flex:none;background:#8f6bff}
+.ui-brand-mark svg{width:15px;height:15px}
+.ui-brand-mark[data-tool=transcribe]{background:#2f8fe0}
+.ui-brand-mark[data-tool=cut2resolve]{background:#f0793a}
+.ui-brand-mark[data-tool=portal]{background:#5a46e0}
+.ui-ver{font:500 11px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px;white-space:nowrap}   /* v6: 等幅にしない(「ホーム」など、かなの字間が空いて見えた) */
+.ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.ui-header .ui-tabs{margin-left:8px}
+@media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
+
+/* ナビのタブ(ヘッダーの手順・画面切り替え) */
+.ui-tabs{display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-lg);overflow-x:auto;scrollbar-width:none}
+.ui-tabs::-webkit-scrollbar{display:none}
+.ui-tab{position:relative;display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--ink-2);padding:0 12px;min-height:30px;border-radius:9px;cursor:pointer;white-space:nowrap;font-weight:550;font-size:13.5px;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-tab:hover{color:var(--ink);background:color-mix(in srgb,var(--panel) 60%,transparent)}
+.ui-tab[aria-pressed=true],.ui-tab[aria-selected=true],.ui-tab[aria-current=page]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.ui-tab .ui-tab-n{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:6px;background:var(--panel-3);color:var(--ink-2);font:700 11px/1 var(--mono)}
+.ui-tab[aria-pressed=true] .ui-tab-n,.ui-tab[aria-selected=true] .ui-tab-n,.ui-tab[aria-current=page] .ui-tab-n{background:var(--accent);color:var(--accent-ink)}
+@media (max-width:720px){.ui-tab{flex:1 1 auto;justify-content:center;padding:0 8px}}
+
+/* 他のツールへのリンク(<details class="ui-menu">) */
+.ui-menu{position:relative}
+.ui-menu>summary{list-style:none;cursor:pointer}
+.ui-menu>summary::-webkit-details-marker{display:none}
+.ui-menu-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:240px;padding:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
+.ui-menu-pop a,.ui-menu-pop button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left}
+.ui-menu-pop a:hover,.ui-menu-pop button:hover{background:var(--panel-2);color:var(--ink)}
+.ui-menu-pop .ui-brand-mark{width:22px;height:22px;border-radius:7px}
+.ui-menu-pop small{display:block;color:var(--ink-3);font-size:var(--fs-xs)}
+.ui-menu-pop [aria-current=page]{background:var(--accent-soft)}
+@keyframes ui-pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+
+/* ---------- 5. ボタン ---------- */
+a.btn,a.btn:hover{text-decoration:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line-2);background:var(--panel);color:var(--ink);border-radius:var(--r);padding:0 12px;min-height:var(--ctl-h);cursor:pointer;white-space:nowrap;font-weight:500;font-size:13.5px;line-height:1.2;
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease),transform .06s}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--ink-2)}
+.btn.ghost:hover:not(:disabled){border-color:transparent;color:var(--ink)}
+.btn.soft{background:var(--accent-soft);border-color:transparent;color:var(--accent);box-shadow:none}
+.btn.soft:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:transparent}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover:not(:disabled){background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+.btn.danger.solid{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
+.btn.small,.btn.sm{min-height:var(--ctl-h-sm);padding:0 9px;font-size:12.5px}
+.btn.lg{min-height:40px;padding:0 18px;font-size:14.5px;border-radius:10px}
+.btn.icon{width:var(--ctl-h);padding:0}.btn.icon.small,.btn.icon.sm{width:var(--ctl-h-sm)}
+.btn svg{width:16px;height:16px;flex:none}
+.btn.primary[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.btn-group{display:inline-flex}
+.btn-group>.btn{border-radius:0;margin-left:-1px}
+.btn-group>.btn:first-child{margin-left:0}
+/* 触れたとき(:hover)・.primary・押した状態(aria-pressed)・小さいボタンとつながったボタンの角(v12 の形)は、末尾の v12 の節にある。
+   上の同じ詳細度の規則(.ghost・.soft・.danger・.armed・.btn-group>.btn など)より後ろにあることで効いているので、ここへ動かさない */
+
+/* 切り替えの並び(セグメント) */
+.ui-seg{display:inline-flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;max-width:100%;overflow-x:auto}
+.ui-seg>button{border:0;background:transparent;color:var(--ink-2);min-height:28px;padding:0 11px;border-radius:7px;cursor:pointer;white-space:nowrap;font-weight:550;font-size:13px;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.ui-seg>button:hover{color:var(--ink)}
+.ui-seg>button[aria-pressed=true],.ui-seg>button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.ui-seg.fill,.ui-tabs.fill{display:flex;width:100%}.ui-seg.fill>button,.ui-tabs.fill>.ui-tab{flex:1 1 0;justify-content:center;min-width:0}
+
+/* ---------- 6. 入力 ---------- */
+input[type=text],input[type=search],input[type=number],input[type=password],input[type=url],input[type=date],input[type=time],input:not([type]),select,textarea{
+  background:var(--field);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);padding:6px 10px;min-height:var(--ctl-h);max-width:100%;
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease),background var(--dur) var(--ease)}
+input[type=text]:hover,input[type=search]:hover,input[type=number]:hover,input[type=password]:hover,input[type=url]:hover,input:not([type]):hover,select:hover,textarea:hover{border-color:var(--line-strong)}
+input[type=text]:focus,input[type=search]:focus,input[type=number]:focus,input[type=password]:focus,input[type=url]:focus,input[type=date]:focus,input[type=time]:focus,input:not([type]):focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+input::placeholder,textarea::placeholder{color:var(--ink-4)}
+input:disabled,select:disabled,textarea:disabled{opacity:.55;cursor:not-allowed}
+input[readonly]{background:var(--panel-2)}
+textarea{line-height:1.5;resize:vertical}
+select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23858da0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center}
+select option{background:var(--panel);color:var(--ink)}
+/* ---------- 時刻の欄(v11。UIKit.timebox)---------- <span data-ui-time>。選んでいる所(時・分・秒)はアクセントで反転 */
+.ui-time{display:inline-flex;align-items:center;justify-content:center;min-width:96px;min-height:var(--ctl-h);padding:0 10px;box-sizing:border-box;
+  background:var(--field);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--r);font-family:var(--mono);font-variant-numeric:tabular-nums;
+  white-space:nowrap;cursor:text;user-select:none;-webkit-user-select:none;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.ui-time:hover{border-color:var(--line-strong)}
+.ui-time:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.ui-time.ui-time-empty{color:var(--ink-4)}
+.ui-time-seg{padding:1px;border-radius:var(--r-xs)}
+.ui-time:focus .ui-time-seg.on{background:var(--accent);color:var(--accent-ink)}
+.ui-time[aria-invalid=true]{border-color:var(--danger)}
+.ui-time[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+input[type=checkbox],input[type=radio]{width:16px;height:16px;accent-color:var(--accent);flex:none;cursor:pointer;margin:0}
+input[type=range]{accent-color:var(--accent);cursor:pointer}
+input[type=color]{border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--field);height:var(--ctl-h);padding:2px}
+/* スイッチ(<input type=checkbox class="ui-switch">) */
+input[type=checkbox].ui-switch{appearance:none;-webkit-appearance:none;position:relative;width:34px;height:20px;border-radius:var(--r-pill);background:var(--panel-3);border:1px solid var(--line-2);transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
+input[type=checkbox].ui-switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform var(--dur) var(--ease)}
+input[type=checkbox].ui-switch:checked{background:var(--accent);border-color:var(--accent)}
+input[type=checkbox].ui-switch:checked::after{transform:translateX(14px);background:var(--knob)}
+.fld{margin-top:10px;min-width:0}
+.fld>.l,.fld>label.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.fld>input[type=text],.fld>input[type=search],.fld>input[type=url],.fld>input[type=password],.fld>input:not([type]),.fld>textarea,.fld>select{width:100%}
+.lag{display:inline-flex;align-items:center;gap:6px;max-width:100%;cursor:pointer}
+/* 短いラベル + select などを1組で扱うとき: 狭い画面でラベルの文字が1文字ずつ縦に割れないように(折り返さない)。長い説明つきのスイッチには付けない */
+.lag.keep{white-space:nowrap;flex:none}
+
+/* ---------- 7. 面・カード ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;margin-bottom:12px;min-width:0;position:relative;box-shadow:none}
+.card.flat{box-shadow:none}
+.card.raised{box-shadow:var(--shadow-2)}
+.card-head{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:-2px 0 10px}
+.card-title{margin:0;font:650 14.5px/1.35 var(--font-display);letter-spacing:.03em}
+.card-sub{color:var(--ink-3);font-size:11.5px;font-family:var(--mono)}
+.card>summary,.ui-disclosure>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;min-height:28px;font-weight:600;user-select:none}   /* v23: 押せる部品は 28px 以上(A-21) */
+.card>summary::-webkit-details-marker,.ui-disclosure>summary::-webkit-details-marker{display:none}
+.card>summary::before,.ui-disclosure>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
+.card[open]>summary::before,.ui-disclosure[open]>summary::before{transform:rotate(45deg)}
+.card[open]>summary{margin-bottom:8px}
+.section-title{font:650 12px/1.3 var(--font);color:var(--ink-3);margin:0 0 8px}
+
+/* ---------- 8. 小さな表示 ---------- */
+/* 状態の札: 押せない表示だけのもの。ボタン(枠・角丸 8px)と見分けられるよう、枠なし・丸い端・押しても何も起きない */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;line-height:18px;padding:0 9px;border-radius:var(--r);background:transparent;color:var(--ink-2);border:1px solid currentColor;white-space:nowrap;cursor:default;user-select:none;font-family:var(--mono)}
+.pill.ok{background:var(--ok-soft);color:var(--ok-ink)}
+.pill.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.pill.err,.pill.danger{background:var(--danger-soft);color:var(--danger-ink)}
+.pill.info{background:var(--info-soft);color:var(--info-ink)}
+.pill.run,.pill.accent{background:var(--accent-soft);color:var(--accent-ink2)}
+/* v6: ずっと点滅させない(#8 美的でミニマル・「ずっと点滅する表示は作らない」)。実行中は静かな回転の輪だけにする */
+.pill.run::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}
+.pill.wait{color:var(--ink-2)}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r);background:var(--danger);color:var(--danger-on);font:700 11px/1 var(--font);font-variant-numeric:tabular-nums}
+:root[data-theme=dark] .badge{color:var(--bg-2)}   /* ダークの明るい赤に白字はコントラスト不足(2.7)のため暗い字に */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink-4);flex:none}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--danger)}.dot.run{background:var(--accent)}
+@keyframes ui-pulse{50%{opacity:.35}}
+
+/* お知らせ */
+.notice{display:block;background:var(--warn-soft);border:0;color:var(--ink);border-radius:0;padding:9px 12px;font-size:13px;margin:8px 0;overflow-wrap:anywhere;border-left:2px solid var(--warn)}
+.notice.info{border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.notice.ok{border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.notice.danger,.notice.err{border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+/* 種類ごとの地の色と左の線の色(v12)は末尾の v12 の節(info・ok・danger の 3 つの順番どおりに後ろで決める) */
+.notice code{background:var(--panel)}
+.errbar{margin:0;padding:9px 16px;background:var(--danger);color:var(--danger-on);font-size:13px;font-weight:550}
+.errbar a{color:var(--danger-on)}
+.errbar .ui-restart-btn{margin-left:10px;vertical-align:baseline}   /* v10: 版の帯の「起動し直す」(UIKit.restart) */
+
+/* 進み具合 */
+.bar{height:8px;background:repeating-linear-gradient(90deg,var(--line-2) 0 2px,transparent 2px 6px);border-radius:0;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;width:0}
+.bar.indeterminate>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
+@keyframes ui-indet{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+
+/* 空の状態・読み込み中 */
+.empty{color:var(--ink-3);padding:28px 20px;text-align:center;border:1px dashed var(--line-2);border-radius:var(--r-lg);background:color-mix(in srgb,var(--panel) 50%,transparent)}
+.empty b,.empty strong{display:block;color:var(--ink-2);font-size:14px;margin-bottom:4px}
+.ui-skel{background:linear-gradient(90deg,var(--panel-2) 25%,var(--panel-3) 37%,var(--panel-2) 63%);background-size:400% 100%;animation:ui-skel 1.4s ease infinite;border-radius:var(--r-sm);min-height:12px}
+@keyframes ui-skel{from{background-position:100% 50%}to{background-position:0 50%}}
+.ui-spin{display:inline-block;width:14px;height:14px;border:2px solid color-mix(in srgb,currentColor 25%,transparent);border-top-color:currentColor;border-radius:50%;animation:ui-rot .7s linear infinite;vertical-align:-2px}
+@keyframes ui-rot{to{transform:rotate(360deg)}}
+
+/* 通知(トースト) */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;max-width:min(560px,calc(100% - 32px));padding:10px 16px;border-radius:var(--r-lg);
+  background:#1b1e26;color:#f2f4f8;border:1px solid rgba(255,255,255,.08);box-shadow:var(--shadow-3);font-size:13px;overflow-wrap:anywhere;animation:ui-toast .2s var(--ease);display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+:root[data-theme=dark] .toast{background:#242834}
+.toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
+.toast.ok::before{background:#4cd08b}.toast.err::before{background:#ff6f6f}.toast.info::before{background:#5cc3ff}   /* トーストは両テーマで暗い面なので印は固定色 */
+.toast.err{border-color:rgba(255,111,111,.45)}
+@keyframes ui-toast{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+
+/* ダイアログ */
+dialog{border:1px solid var(--line-2);border-radius:var(--r-xl);background:var(--panel);color:var(--ink);box-shadow:var(--shadow-3);padding:20px 22px;max-width:min(560px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(8,10,14,.55);backdrop-filter:blur(3px)}
+dialog h2,dialog h3{margin-top:0}
+/* ダイアログの見出し・本文(見出しの右に閉じるボタン。<dialog> は padding:0 にして使う) */
+.ui-dlg-head{display:flex;align-items:center;gap:8px;padding:14px 16px 12px 20px;border-bottom:1px solid var(--line)}
+.ui-dlg-head h2{margin:0;flex:1;font:650 16px/1.3 var(--font-display)}
+.ui-dlg-body{padding:12px 20px 18px;overflow-y:auto}
+/* キー操作の一覧 */
+.ui-kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px 24px}
+.ui-kgroup{margin-top:12px}
+.ui-kgroup .section-title{margin:0 0 4px}
+.ui-krow{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:13px}
+.ui-krow>span:last-child:not(.ui-kkeys),.ui-krow>.ui-klabel{flex:1;min-width:0;color:var(--ink-2)}   /* キーが先でも後でも、説明の方が広がる */
+.ui-kkeys{display:inline-flex;gap:3px;align-items:center;flex:none;min-width:68px}
+/* v8(段6): キーの一覧 = キー配置(UIKit.keymap)。キーはボタン(押すと次のキーを待つ)・変えられないキーは錠。置き場の幅で 2 列 → 1 列 */
+.ui-km{container-type:inline-size}
+.ui-km-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+@container (max-width:600px){.ui-km-grid{grid-template-columns:minmax(0,1fr)}}
+.ui-km-intro{margin:0 0 4px}
+.ui-km-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 0 0;padding:6px 10px;border-radius:var(--r);background:var(--info-soft);color:var(--info-ink);font-size:13px}
+.ui-km-note:empty{display:none}
+.ui-km-note.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.ui-km-note.cap{background:var(--accent-soft);color:var(--ink)}
+.ui-km-note .btn{flex:none}
+.ui-km-key{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:64px;min-height:28px;padding:2px 8px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel);color:var(--ink);font:inherit;font-size:12px;cursor:pointer}
+.ui-km-key:hover{border-color:var(--line-strong)}
+.ui-km-key:focus-visible{outline:none;box-shadow:var(--ring);border-color:var(--accent)}
+.ui-km-key .ui-kbd{opacity:1;border-color:transparent;padding:0 2px}
+.ui-km-key.none{color:var(--ink-3)}
+.ui-km-key.cap{border-color:var(--accent);background:var(--accent-soft);color:var(--ink);font-weight:600}
+.ui-km-row .ui-klabel{display:flex;flex-direction:column;gap:1px}
+.ui-km-lost{color:var(--warn-ink);font-size:11.5px}
+.ui-km-def{flex:none;min-height:24px;padding:0 8px;font-size:12px}
+.ui-km-fixed .ui-klabel{color:var(--ink-3)}
+.ui-km-lock{flex:none;display:inline-flex;color:var(--ink-4)}
+.ui-km-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:12px}
+
+/* 表 */
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:11.5px;color:var(--ink-3);font-weight:500;white-space:nowrap;background:var(--panel);font-family:var(--mono)}
+tbody tr{transition:background var(--dur) var(--ease)}
+tbody tr:hover{background:var(--panel-2)}
+tr:last-child>td{border-bottom:0}
+td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ツールチップ(title の代わりに data-tip) */
+[data-tip]{position:relative}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:80;padding:5px 8px;border-radius:var(--r-sm);background:#1b1e26;color:#f2f4f8;font:500 12px/1.4 var(--font);white-space:nowrap;pointer-events:none;box-shadow:var(--shadow-2)}
+
+/* ドロップ受付(ファイルのドラッグ&ドロップ) */
+.ui-drop{border:1.5px dashed var(--line-strong);border-radius:var(--r-lg);padding:22px;text-align:center;color:var(--ink-2);background:color-mix(in srgb,var(--panel) 60%,transparent);transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.ui-drop.over,.ui-drop:focus-within{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+
+/* 動きを減らす設定 */
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+
+/* ---------- v3(2026-09-26): 画面の見直しで足した共通の部品 ---------- */
+.ui-menu-pop .ui-menu-sep{height:1px;background:var(--line);margin:4px 2px}
+
+/* 一覧の道具の行(検索・絞り込み・並び替え・件数)。検索欄は残りの幅いっぱいに伸びる */
+.ui-listbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 10px}
+.ui-listbar input[type=search]{flex:1 1 220px;min-width:0;width:auto}
+.ui-listbar select{width:auto}
+.ui-listbar .ui-count{color:var(--ink-3);font-size:var(--fs-sm);margin-left:auto;white-space:nowrap}
+/* 一覧のまとまり(配信者ごと・日付ごとなど)。<details class="ui-group"><summary>見出し <span class="ui-group-n">件数</span></summary>…</details> */
+.ui-group{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);margin:0 0 8px;overflow:hidden;flex:none}   /* flex:none: 高さに上限のある縦並びの中で縮んで中身が重ならないように */
+.ui-group>summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;padding:8px 12px;font-weight:650;font-size:13.5px;background:var(--panel-2)}
+.ui-group>summary::-webkit-details-marker{display:none}
+.ui-group>summary::before{content:"";width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);flex:none;margin:0 3px 0 1px}
+.ui-group[open]>summary::before{transform:rotate(45deg)}
+.ui-group-n{color:var(--ink-3);font-weight:550;font-size:var(--fs-sm)}
+.ui-group>summary .ui-group-side{margin-left:auto;display:flex;gap:6px;align-items:center}
+/* 言葉の説明(専門用語)。<abbr class="ui-term" title="説明">EDL</abbr>。点線の下線で「説明がある」と分かる */
+.ui-term{text-decoration:underline dotted color-mix(in srgb,var(--ink-3) 70%,transparent);text-underline-offset:3px;cursor:help}
+/* 配信者の名前(字幕の色)の欄(v5。UIKit.streamer): 色の見本と、合う人・候補の表示 */
+.ui-streamer-sw{display:inline-block;flex:none;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-2);vertical-align:middle}
+.ui-streamer-hint{display:block;flex-basis:100%;color:var(--ink-3);font-size:var(--fs-xs,12px);overflow-wrap:anywhere}
+/* 次にやること(一覧の1行に1つだけ出す短い案内) */
+.ui-next{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--accent-ink2);font-weight:600}
+.ui-next::before{content:"→"}
+
+/* ---------- v6(2026-09-27・画面の全面見直し 段階1): ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン ---------- */
+
+/* ホーム/スタジオ/編集(ヘッダーの左端)。中身は ui-kit.js の UIKit.appnav が作る(data-ui-appnav="studio|transcribe|portal") */
+.ui-appnav{display:flex;align-items:center;gap:2px;flex:none}
+.ui-appnav a{display:inline-flex;align-items:center;min-height:var(--ctl-h-sm);padding:0 10px;border:1px solid transparent;border-radius:var(--r);color:var(--ink-2);text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}
+.ui-appnav a:hover{background:var(--panel-2);color:var(--ink)}
+.ui-appnav a[aria-current=page]{background:var(--panel);border-color:var(--line);color:var(--ink)}
+
+/* 右から出る引き出し(設定・書き出し・パックの詳しい設定など。<aside class="ui-drawer" hidden> + .ui-drawer-head/-body)。
+   modal:true は裏に幕+inert、modal:false(docked)は裏も操作できる(UIKit.drawer.open/close) */
+.ui-drawer-scrim{position:fixed;inset:0;z-index:70;background:color-mix(in srgb,var(--bg-2) 55%,transparent);backdrop-filter:blur(2px)}
+.ui-drawer{position:fixed;top:0;right:0;bottom:0;z-index:75;width:var(--drawer-w);max-width:100%;display:flex;flex-direction:column;background:var(--bg);border-left:1px solid var(--line-2);box-shadow:var(--shadow-3);
+  transform:translateX(16px);opacity:0;transition:transform .2s var(--ease),opacity .2s var(--ease)}
+.ui-drawer.in{transform:none;opacity:1}
+.ui-drawer-head{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:12px 14px 12px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+.ui-drawer-title{margin:0;font:650 16px/1.3 var(--font-display);flex:1 1 auto;min-width:0}
+.ui-drawer-body{flex:1 1 auto;overflow-y:auto;padding:14px 16px 32px;overscroll-behavior:contain}
+/* v9: 設定の保存・読み込みの失敗(UIKit.settings.status)。⚙ ボタンに赤い印、引き出しの先頭に理由と再試行 */
+[data-ui-settings][data-ui-status=err]{position:relative}
+[data-ui-settings][data-ui-status=err]::after{content:"";position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--panel)}
+.ui-settings-status{margin:0 0 14px}
+.ui-settings-status .btn{margin-left:8px}
+/* v25: スキーマから描く設定の節(UIKit.settingsForm。入口の /settings) */
+.ui-set-group{margin:0 0 22px}
+.ui-set-group>h4{margin:0 0 4px;font:650 13px/1.3 var(--font);color:var(--ink)}
+.ui-set-ghint{margin:0 0 6px}
+.ui-set-off{margin:0 0 8px}
+.ui-set-item{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.ui-set-item:last-child{border-bottom:0}
+.ui-set-main{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;min-width:0;flex-wrap:wrap}
+.ui-set-label{color:var(--ink-2);font-size:13px}
+.ui-set-ctl{display:flex;align-items:center;gap:6px;flex:none;max-width:100%}
+.ui-set-ctl input[type=number]{width:7em}
+.ui-set-ctl input[type=text]{width:min(22em,70vw)}
+.ui-set-ctl input.ui-set-folder{width:min(30em,70vw);font-family:var(--mono);font-size:12.5px}
+.ui-set-ctl textarea{width:min(30em,70vw);min-height:4.5em;font-size:12.5px}
+.ui-set-side{display:flex;align-items:center;gap:6px;justify-content:flex-end;min-width:0}
+.ui-set-mark{font-size:12px;color:var(--ok-ink);white-space:nowrap}
+.ui-set-mark.err{color:var(--danger-ink);white-space:normal}
+.ui-set-hint{grid-column:1/-1;margin:0}
+.ui-set-nomatch{display:none}
+
+/* 確認・警告のダイアログ(<dialog class="ui-dialog">。showModal にフォーカスの閉じ込めと Esc を任せる。本文は .ui-dlg-body に textContent で入れる) */
+dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
+.ui-dialog .ui-dlg-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px 18px}
+
+/* ポップオーバー(<details class="ui-pop"><summary>…</summary><div class="ui-pop-body">…</div></details>)。ui-menu と同じ閉じ方(外のクリック・Esc) */
+.ui-pop{position:relative}
+.ui-pop>summary{list-style:none;cursor:pointer}
+.ui-pop>summary::-webkit-details-marker{display:none}
+.ui-pop-body{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:180px;padding:6px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-2);animation:ui-pop .14s var(--ease)}
+.ui-pop-body[data-align=left]{right:auto;left:0}
+.ui-pop-body a,.ui-pop-body button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:var(--r);color:var(--ink);text-decoration:none;border:0;background:none;cursor:pointer;text-align:left;font:inherit}
+.ui-pop-body a:hover,.ui-pop-body button:hover{background:var(--panel-2)}
+
+/* 一覧を1枚の紙に(v6。段3 の仕上げ): 枠は外側に1つ、行の間は細い線。行ごとに角丸のカードを隙間つきで積まない(ブリーフの「カードが並ぶダッシュボード」を避ける) */
+.ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
+.ui-sheet>*+*{border-top:1px solid var(--line)}
+
+/* 通知(重ねて最大2つ(v21。以前は3つ)。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
+.ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
+.ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
+.ui-toast::before{content:"";flex:none;width:8px;height:8px;margin-top:6px;border-radius:50%;background:#8f97a8}
+.ui-toast.ok::before{background:#4cd08b}.ui-toast.err::before{background:#ff6f6f}.ui-toast.info::before{background:#5cc3ff}
+.ui-toast.err{border-color:rgba(255,111,111,.45)}
+.ui-toast-msg{flex:1 1 auto;min-width:0}
+.ui-toast-detail{margin-top:4px;color:color-mix(in srgb,var(--toast-ink) 70%,transparent);cursor:auto}
+.ui-toast-detail>summary{cursor:pointer;font-size:12px}
+.ui-toast-detail>div{margin-top:4px;font:11.5px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+/* v7: 知らせのボタン(1つ)と閉じる。暗い帯の上なので、文字色は帯の文字の色・枠は薄い白 */
+.ui-toast-act{flex:none;align-self:center;padding:3px 12px;border-radius:var(--r);border:1px solid rgba(255,255,255,.45);background:transparent;color:var(--toast-ink);font:inherit;font-weight:600;cursor:pointer}
+.ui-toast-act:hover{background:rgba(255,255,255,.12)}
+.ui-toast-x{flex:none;align-self:flex-start;display:inline-grid;place-items:center;width:28px;height:28px;margin:-5px -11px 0 -3px;padding:0;border:0;border-radius:var(--r-sm);background:transparent;color:color-mix(in srgb,var(--toast-ink) 75%,transparent);font-size:16px;line-height:1;cursor:pointer}
+.ui-toast-x svg{width:14px;height:14px}   /* v23: × の文字をやめて SVG(A-10) */
+.ui-toast-x:hover{background:rgba(255,255,255,.12);color:var(--toast-ink)}
+.ui-toast-act:focus-visible,.ui-toast-x:focus-visible{outline:2px solid #5cc3ff;outline-offset:1px}
+/* v7: まとめて実行の部品(UIKit.autorun): 要約1行 +「設定を変える」(ポップオーバーの中は項目の並び) */
+.ui-autorun{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12.5px;color:var(--ink-2)}
+.ui-ar-sum{flex:1 1 auto;min-width:0}
+.ui-ar-body{width:min(360px,calc(100vw - 32px));max-height:min(70vh,560px);overflow:auto;padding:12px 14px}
+.ui-ar-form{display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--ink)}
+.ui-ar-f{display:flex;flex-direction:column;gap:3px}
+.ui-ar-l{font-weight:600;font-size:12px;color:var(--ink-2)}
+.ui-ar-h{font-size:11.5px;color:var(--ink-3)}
+.ui-ar-c{display:flex;gap:6px;align-items:flex-start;line-height:1.4}
+.ui-ar-c>input[type=checkbox]{flex:none;width:16px;min-width:16px;margin-top:2px}   /* v22: 置いた画面の input{width:100%}(スタジオ ③ のメニュー)で文字が 1 文字ずつ縦に割れていた */
+.ui-ar-f select,.ui-ar-f input[type=number]{max-width:100%}
+.ui-ar-body button{width:auto;display:inline-flex}
+.ui-streamer-badge{margin-left:6px;font-size:11px}   /* v7: 配信者の欄の「自動(チャンネル名から)」「前回」 */
+/* v7: 二度押しの確認(UIKit.confirmTwice)の1回目。戻せない操作なので危険の色 */
+.btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
+
+/* 画面の下の細い帯(いま使えるキー。UIKit.keybar)。既定は表示・設定「キーの帯を出す」で消せる(ytt:keybar=0) */
+.ui-keybar{position:fixed;left:0;right:0;bottom:0;z-index:50;height:calc(var(--keybar-h) + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);overflow-x:auto;white-space:nowrap;font-size:11px;line-height:1;color:var(--ink-3)}
+.ui-keybar-item{display:inline-flex;align-items:center;gap:5px;flex:none;transition:color var(--dur) var(--ease)}
+.ui-keybar-item.flash{color:var(--accent)}
+
+/* ボタンの中の小さなキーの手がかり(<kbd class="ui-kbd">I</kbd>。スタジオのマークのボタンなど) */
+.ui-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:1.6em;height:1.5em;padding:0 4px;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:4px;font:600 10.5px/1 var(--mono);opacity:.75}
+.btn .ui-kbd{margin-left:2px}
+.btn.primary .ui-kbd{border-color:rgba(255,255,255,.4)}
+
+/* 小さな進み具合の棒(64x4px。ホームの「次にやること」・ジョブの札)。.indet は進み具合が分からないとき */
+.ui-miniprogress{display:inline-block;position:relative;width:64px;height:4px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden;vertical-align:middle}
+.ui-miniprogress>i{display:block;height:100%;width:var(--p,0%);border-radius:inherit;background:var(--accent)}
+.ui-miniprogress.indet>i{width:35%!important;animation:ui-indet 1.2s var(--ease) infinite}
+
+/* ツールの設定・全体の設定(UIKit.settings.mount。ui-drawer の中に並べる節) */
+.ui-settings-sec{margin:0 0 22px}
+.ui-settings-sec:last-child{margin-bottom:0}
+.ui-settings-sec>h3{margin:0 0 10px;font:650 12px/1.3 var(--font);color:var(--ink-3)}
+.ui-settings-row{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
+.ui-settings-row:last-child{border-bottom:0}
+.ui-settings-row>span,.ui-settings-row>label:not(.lag){color:var(--ink-2);font-size:13px}   /* v23: 全体の節の名前は <label for> に(A-24) */
+/* ツールの節の .fld(名前 + select)も、全体の節と同じ1行の形に(同じ欄の中で形をそろえる。段3-3)。文字の欄(API キーなど)は今までどおり縦に */
+.ui-settings-sec .fld:has(>select){display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;padding:8px 0;border-bottom:1px solid var(--line)}
+.ui-settings-sec .fld:has(>select)>label,.ui-settings-sec .fld:has(>select)>.l{margin:0;font-weight:400;color:var(--ink-2);font-size:13px}
+.ui-settings-sec .fld:has(>select)>select{width:auto;flex:none}
+
+/* SVG の線のアイコン(UIKit.icon)。<span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill) */
+.ui-icon{display:inline-flex;width:1em;height:1em;flex:none}
+.ui-icon svg{width:100%;height:100%}
+
+/* 文字の大きさ「大きい」(設定。html[data-fs=lg]) */
+html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--fs-xl:21.5px}
+
+/* ================================================================ v12(2026-10-02): サイバー風 ― 計器盤(HUD)の形と配色
+   決めたこと: docs/design/briefs/cyber-theme/(見本 board.html・patterns.css。ユーザーが A 計器盤 と 配色4つ を選んだ)。
+   形: 角はほぼ直角(2px)・細い 1px の線・カードの左上と右下に角の括弧・タブと切り替えは下線・状態の札は枠だけ・
+       進み具合は目盛り・知らせは左の線。数字と札は等幅の文字。光らせない(情報が主役)。
+   色: 明るい = アイスライト(:root)・暗い = ネオンシアン(:root[data-theme=dark])。暗いときの配色は data-palette(UIKit.theme.palette)で
+       鋼の白(steel)・ターミナルグリーン(green)に替えられる。どれも文字/地 4.5:1 以上・状態の色どうしが紛れないように選んだ
+   v19(2026-10-07): 前の節と同じ selector で上書きしていた規則(28 組)のうち 15 組は、前の節の規則へまとめた(値は v12 のまま。トークン・.btn・.card・.pill・
+       .badge・.notice・.bar・th・kbd・.ui-header など)。ここに残したのは、配色の追加・新しい形(カードの角の括弧・下線のタブ)と、
+       前の節の同じ詳細度の規則より後ろにあることで効いている上書き(前へ動かすと見た目が変わる。全画面の computed style を前後で比べて確かめた) */
+:root[data-theme=dark][data-palette=steel]{
+  --bg:#0C0F13;--bg-2:#090B0E;--panel:#14181E;--panel-2:#101318;--panel-3:#1F252D;--field:#0C0F13;--field-hover:#101318;
+  --line:#2A313B;--line-2:#3A4350;--line-strong:#525D6C;--ink:#E8ECF1;--ink-2:#B4BCC7;--ink-3:#8D97A4;--ink-4:#636D7A;
+  --accent:#E8F1FF;--accent-hover:#FFFFFF;--accent-ink:#0C0F13;--accent-soft:rgba(232,241,255,.10);--accent-line:rgba(232,241,255,.45);--accent-ink2:#FFFFFF;
+  --ok:#5FD3A0;--ok-ink:#5FD3A0;--ok-soft:rgba(95,211,160,.11);--warn:#E8D06A;--warn-ink:#E8D06A;--warn-soft:rgba(232,208,106,.11);
+  --danger:#FF6378;--danger-ink:#FF8191;--danger-soft:rgba(255,99,120,.12);--info:#8FB8E8;--info-ink:#A9C8EE;--info-soft:rgba(143,184,232,.11);
+  --header-bg:rgba(12,15,19,.92);--scroll-thumb:#3A4350;--knob:#0C0F13}
+:root[data-theme=dark][data-palette=green]{
+  --bg:#060B08;--bg-2:#040805;--panel:#0C1510;--panel-2:#09110C;--panel-3:#14241A;--field:#060B08;--field-hover:#09110C;
+  --line:#1E3527;--line-2:#2A4A36;--line-strong:#3B6A4E;--ink:#D7F5E1;--ink-2:#A7C9B2;--ink-3:#7D9E89;--ink-4:#55705F;
+  --accent:#3DFF8B;--accent-hover:#7CFFB0;--accent-ink:#032611;--accent-soft:rgba(61,255,139,.11);--accent-line:rgba(61,255,139,.45);--accent-ink2:#7CFFB0;
+  --ok:#5CE1E6;--ok-ink:#5CE1E6;--ok-soft:rgba(92,225,230,.11);--warn:#FFC14D;--warn-ink:#FFC14D;--warn-soft:rgba(255,193,77,.12);
+  --danger:#FF5F6D;--danger-ink:#FF8A94;--danger-soft:rgba(255,95,109,.12);--info:#9DB8FF;--info-ink:#B6CAFF;--info-soft:rgba(157,184,255,.11);
+  --header-bg:rgba(6,11,8,.92);--scroll-thumb:#2A4A36;--knob:#032611}
+
+/* カード: 細い線 + 左上と右下の角の括弧 */
+.card::before,.card::after{content:"";position:absolute;width:14px;height:14px;pointer-events:none;border:0 solid var(--accent)}
+.card::before{top:-1px;left:-1px;border-top-width:2px;border-left-width:2px}
+.card::after{right:-1px;bottom:-1px;border-bottom-width:2px;border-right-width:2px}
+/* ボタン: 線だけ。触れるとアクセント(前の節の .ghost・.soft・.danger・.armed・.btn-group>.btn より後ろで決める) */
+.btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);background:var(--panel)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--accent-ink)}
+.btn.ghost:hover:not(:disabled){background:transparent}
+.btn.danger:hover:not(:disabled){color:var(--danger)}
+.btn[aria-pressed=true]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.btn.small,.btn.sm{border-radius:var(--r)}
+.btn-group>.btn:first-child{border-radius:var(--r) 0 0 var(--r)}.btn-group>.btn:last-child{border-radius:0 var(--r) var(--r) 0}
+/* 状態の札: 枠だけ・等幅 */
+.pill:not(.ok):not(.run):not(.accent):not(.warn):not(.err):not(.danger):not(.info){color:var(--ink-3)}
+.pill.ok,.pill.run,.pill.accent,.pill.warn,.pill.err,.pill.danger,.pill.info{background:transparent}
+/* タブと切り替え: 下線 */
+.ui-tabs,.ui-seg{background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:0;gap:0}
+.ui-tab,.ui-seg>button{border-radius:0;background:transparent;box-shadow:none;border-bottom:2px solid transparent;margin-bottom:-1px}
+.ui-tab[aria-pressed=true],.ui-tab[aria-selected=true],.ui-tab[aria-current=page],.ui-seg>button[aria-pressed=true],.ui-seg>button[aria-selected=true]{background:transparent;box-shadow:none;color:var(--accent);border-bottom-color:var(--accent)}
+.ui-tab-n{font-family:var(--mono);border-radius:var(--r-xs)}
+/* 進み具合: 目盛り(前の節の .ui-miniprogress>i より後ろで決める) */
+.bar>i{border-radius:0;background:repeating-linear-gradient(90deg,var(--accent) 0 2px,transparent 2px 6px)}
+/* 知らせ: 左の線 */
+.notice.info{background:var(--info-soft);border-left-color:var(--info)}
+.notice.ok{background:var(--ok-soft);border-left-color:var(--ok)}
+.notice.danger,.notice.err{background:var(--danger-soft);border-left-color:var(--danger)}
+/* v13: 非表示にした項目(UIKit.hide。「非表示 n件を表示」で出したとき)は薄く。札 .ui-hidden-tag で非表示だと分かるように */
+.ui-hidden-item{opacity:.55}
+.ui-hidden-item:hover,.ui-hidden-item:focus-within{opacity:.85}
+.ui-hidden-tag{font-size:11px;color:var(--ink-3);border:1px dashed var(--line-2);border-radius:var(--r-xs,3px);padding:0 5px;white-space:nowrap}
+/* v16: ヘッダーの「録画中」の札(UIKit.liveBadge)。録画があるときだけ JS が .ui-header-actions の先頭に作る。色だけに頼らず文字も出す(点は飾り) */
+.ui-live{position:relative;display:inline-flex;align-items:center}
+.ui-live[hidden],.ui-live-panel[hidden],.ui-live-row [hidden]{display:none}
+.ui-live-btn{gap:7px;color:var(--ink)}
+.ui-live-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--ink-3)}
+.ui-live-btn[data-state=recording] .ui-live-dot,.ui-live-btn[data-state=error] .ui-live-dot{background:var(--danger)}
+.ui-live-btn[data-state=reconnecting] .ui-live-dot{background:var(--warn)}
+.ui-live-btn[data-state=waiting] .ui-live-dot{background:var(--info)}
+.ui-live-btn[data-state=reconnecting]{color:var(--warn-ink)}
+.ui-live-btn[data-state=error]{color:var(--danger-ink)}
+.ui-live-btn[aria-expanded=true]{background:var(--panel-2)}
+.ui-live-panel{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(400px,calc(100vw - 20px));max-height:70vh;overflow-y:auto;padding:4px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-2);animation:ui-pop .14s var(--ease)}
+.ui-live-panel:focus{outline:none}
+.ui-live-panel:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* v23: キーボードで開いたときは輪を出す(A-07) */
+.ui-live-list{list-style:none;margin:0;padding:0}
+.ui-live-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;padding:8px 10px}
+.ui-live-row+.ui-live-row{border-top:1px solid var(--line)}
+.ui-live-title{grid-column:1;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ui-live-meta{grid-column:1;display:flex;gap:8px;align-items:baseline;font-size:var(--fs-xs,11.5px);color:var(--ink-3)}
+.ui-live-state{font-weight:600}
+.ui-live-row[data-state=recording] .ui-live-state,.ui-live-row[data-state=error] .ui-live-state{color:var(--danger-ink)}
+.ui-live-row[data-state=reconnecting] .ui-live-state{color:var(--warn-ink)}
+.ui-live-row[data-state=waiting] .ui-live-state{color:var(--info-ink)}
+.ui-live-acts{grid-column:2;grid-row:1 / span 2;display:flex;gap:6px;align-items:center}
+.ui-live-acts .btn{text-decoration:none}
+.ui-live-acts .btn.armed{background:var(--danger);border-color:var(--danger);color:var(--danger-on)}
+@media (max-width:560px){.ui-live-btn{padding:0 7px}}
+
+/* ---------- v21(2026-10-07・気が利く画面へ 段7) ---------- */
+/* 一覧の行の中の「次の一手」のボタン(.ui-next のボタン版。編集の履歴の「パックを作る →」・ホームの案件の「書き出し 2本 →」)。
+   ボタンは札(.pill)とほぼ同じ高さ(行の高さをそろえる)・アクセントの文字・押せる範囲は ::before で上下に広げて 28px(guidelines 6)。
+   .btn を付けない(<a> で行き先が無いなど)ときは、押せない案内の文字だけ */
+.ui-next-btn{flex:none;font-weight:600;color:var(--accent-ink2)}
+.ui-next-btn::after{content:"→";margin-left:2px}
+.btn.ui-next-btn{position:relative;min-height:22px;padding:0 8px;font-size:11.5px;color:var(--accent-ink2)}
+.btn.ui-next-btn::before{content:"";position:absolute;inset:-3px 0}
+/* 押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true]。押すと開かずに理由を知らせる = UIKit.menuOff)。.btn の summary は .btn[aria-disabled=true] の見た目 */
+.ui-menu>summary[aria-disabled=true],.ui-pop>summary[aria-disabled=true]{cursor:not-allowed}
+.ui-menu>summary[aria-disabled=true]:not(.btn),.ui-pop>summary[aria-disabled=true]:not(.btn){opacity:.55}
+
+/* ---------- v22(2026-10-07・気が利く画面へ 段9 見た目の確認) ----------
+   --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくかった)。
+   使う所: .errbar(赤い帯)・.badge・.btn.danger.solid・録画の停止の二度押し・編集の行の札「カット済」・スタジオの LIVE の札。新しく赤い面に文字を置くときもこれ */
+
+/* ---------- v23(2026-10-07・UI の見直しの基準 docs/spec/ui-review-criteria.md に合わせる) ----------
+   - 文字記号のアイコン(▾ ▸ × ☰ ⚙ ✂ ▶ ✓)をやめる(ブリーフの Anti-references・A-10)。メニューが開く印は .ui-caret(線で描く小さな山形。文字ではない)、ほかは UIKit.icon の SVG
+     使い方: <summary class="btn">まとめて <span class="ui-caret" aria-hidden="true"></span></summary>。右向き(「この後を ▸」のような)は .ui-caret.right
+   - --ink-4(薄い灰色)は、明るいテーマで面に対して 3.2〜3.6:1 しかない。placeholder・空の欄(--)・押せない物・飾りにだけ使い、情報の文字(時刻・件数・説明)には --ink-3 以上を使う(A-22。決定 P-4)
+   - 文字の青(a・.ui-next-btn)は --accent-ink2(明るいテーマの --accent は薄い面の上で 4.3:1)。押せる部品の高さは 28px 以上(.card>summary・.ui-disclosure>summary にも min-height) */
+.ui-caret{display:inline-block;width:7px;height:7px;margin:0 1px 3px 3px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg);opacity:.8;flex:none;vertical-align:middle}
+.ui-caret.right{transform:rotate(-45deg);margin:0 3px 0 1px}
+.ui-caret.up{transform:rotate(225deg);margin:3px 1px 0 3px}
+
+</style>
+<style>
+  body{min-height:100vh}
+  .mock-switch{position:fixed;right:12px;bottom:12px;z-index:90;display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line-2);padding:6px 8px;box-shadow:var(--shadow-3);font-size:12px}
+  .mock-switch b{color:var(--ink-3);font-weight:600;margin-right:4px}
+  .screen{display:none}.screen.on{display:block}
+  main{max-width:1280px;margin:0 auto;padding:16px}
+  .crumb{font-size:var(--fs-sm);color:var(--ink-3)}
+  .crumb a{color:var(--ink-3)}
+  h1.ttl{font-size:18px;margin:2px 0 0}
+
+  /* ホーム */
+  .live{display:flex;align-items:center;gap:12px;padding:8px 14px;margin-bottom:12px;background:var(--danger-soft);border-left:2px solid var(--danger)}
+  .live .dot{background:var(--danger)}
+  .home-top{display:grid;grid-template-columns:1fr 1.25fr;gap:12px}
+  @media (max-width:900px){.home-top{grid-template-columns:1fr}}
+  .q-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--line);cursor:pointer}
+  .q-row:first-of-type{border-top:0}
+  .q-row:hover{background:var(--panel-2)}
+  .q-row .n{font:700 18px/1 var(--mono);min-width:2.2em;text-align:right}
+  .q-row .lbl{flex:1}
+  .q-row .sub{font-size:var(--fs-xs);color:var(--ink-3)}
+  .check-hero{display:flex;gap:14px;align-items:flex-start}
+  .check-hero .big{font:650 16px/1.4 var(--font-display)}
+  .goal{font-size:var(--fs-sm);color:var(--ink-2);margin-top:4px}
+  .goalbar{height:6px;background:var(--panel-3);margin-top:6px;position:relative}
+  .goalbar>i{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+  .next-list{margin:10px 0 0;padding:0;list-style:none;font-size:var(--fs-sm);color:var(--ink-2)}
+  .next-list li{display:flex;gap:8px;padding:3px 0}
+  table.cases{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.cases th{font:600 12px/1.3 var(--font);color:var(--ink-3);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line-2)}
+  table.cases td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.cases tr.case{cursor:pointer}
+  table.cases tr.case:hover td{background:var(--panel-2)}
+  table.cases tr.pseudo td{color:var(--ink-2)}
+  .memo{color:var(--ink-3);font-size:var(--fs-sm)}
+  details.ops>summary{cursor:pointer;font-weight:600;color:var(--ink-2)}
+
+  /* 案件の画面 */
+  .case-head{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .case-wrap{display:grid;grid-template-columns:270px 1fr;gap:12px;align-items:start}
+  @media (max-width:900px){.case-wrap{grid-template-columns:1fr}}
+  .rail{background:var(--panel);border:1px solid var(--line);padding:6px}
+  .rail .it{display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-left:2px solid transparent}
+  .rail .it:hover{background:var(--panel-2)}
+  .rail .it.sel{background:var(--accent-soft);border-left-color:var(--accent)}
+  .rail .it .t{flex:1;min-width:0}
+  .rail .it .t .s{display:block;font-size:var(--fs-xs);color:var(--ink-3)}
+  .rail .sep{font:600 11.5px/1 var(--font);color:var(--ink-3);padding:10px 8px 4px}
+  .pane{background:var(--panel);border:1px solid var(--line);min-height:560px}
+  .pane-head{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .pane-body{padding:12px}
+  .stage{background:var(--stage-bg);color:var(--stage-ink);display:grid;place-items:center;font-size:12px}
+  .proof-grid{display:grid;grid-template-columns:1fr 240px;gap:12px}
+  .proof-grid.noplayer{grid-template-columns:1fr}
+  .mini{aspect-ratio:16/9}
+  .seg{display:grid;grid-template-columns:86px 92px 1fr auto;gap:8px;align-items:start;padding:8px 6px;border-top:1px solid var(--line)}
+  .seg:first-child{border-top:0}
+  .seg.cur{background:var(--accent-soft)}
+  .seg .tm{font:12px/1.5 var(--mono);color:var(--ink-3)}
+  .seg select,.seg .txt{border:1px solid var(--line-2);background:var(--field);padding:4px 6px;font-size:13.5px;width:100%}
+  .seg .txt{min-height:30px}
+  .seg .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+  .seg .acts{display:flex;gap:4px}
+  .timeline{height:64px;background:var(--panel-2);border:1px solid var(--line);position:relative;margin:10px 0}
+  .timeline .wave{position:absolute;left:0;right:0;top:20px;height:24px;background:repeating-linear-gradient(90deg,var(--line-2) 0 2px,transparent 2px 5px)}
+  .timeline .mk{position:absolute;top:6px;bottom:6px;background:color-mix(in srgb,var(--accent) 22%,transparent);border:1px solid var(--accent-line)}
+  .timeline .mk.ad{background:color-mix(in srgb,var(--ok) 25%,transparent);border-color:var(--ok)}
+  .marks .m{display:flex;align-items:center;gap:10px;padding:8px 4px;border-top:1px solid var(--line)}
+  .marks .m .sc{font:700 13px/1 var(--mono);width:3em;text-align:right}
+  .cutbar{height:44px;display:flex;border:1px solid var(--line);margin:10px 0}
+  .cutbar i{display:block;height:100%}
+  .foot-next{display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+
+  /* 確かめる */
+  .chk-band{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:var(--panel);border:1px solid var(--line);margin-bottom:12px}
+  .chk-wrap{display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start}
+  @media (max-width:900px){.chk-wrap{grid-template-columns:1fr}}
+  .chk-card{background:var(--panel);border:1px solid var(--line-2);padding:16px}
+  .chk-card .kind{font:600 12px/1 var(--font);color:var(--ink-3)}
+  .chk-card .q{font:650 17px/1.4 var(--font-display);margin:6px 0 12px}
+  .chk-media{display:flex;gap:14px;flex-wrap:wrap}
+  .vert{width:200px;aspect-ratio:9/16}
+  .chk-acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .alt-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .alt-pair .opt{border:1px solid var(--line-2);padding:10px;background:var(--panel-2)}
+  .alt-pair .opt .lb{font-size:var(--fs-xs);color:var(--ink-3)}
+  .queue li{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+  .queue li:first-child{border-top:0}
+  .queue{list-style:none;margin:0;padding:0}
+  .done-msg{display:none}
+</style>
+</head>
+<body>
+
+<!-- ======================= 1. ホーム ======================= -->
+<section class="screen on" id="s-home">
+  <header class="ui-header">
+    <a class="ui-brand" href="#" onclick="return false"><span class="ui-brand-mark" data-tool="portal">▶</span>youtube-tools</a>
+    <span class="ui-ver">0.x(見本)</span>
+    <div class="ui-header-actions"><a class="btn ghost small" href="#">設定</a><a class="btn ghost small" href="#">分析と日報</a></div>
+  </header>
+  <main>
+    <div class="live"><span class="dot"></span><b>録画中</b><span class="grow">【雑談】配信者 A の夜ふかし雑談 ・ 1:42:10 ・ 配信中の候補 3(自動採用 1)</span><button class="btn small" onclick="go('case')">この案件を開く</button></div>
+
+    <div class="home-top">
+      <div class="card">
+        <div class="card-head"><div class="card-title">やること</div></div>
+        <div class="q-row" onclick="go('case','cand')"><span class="n">2</span><span class="lbl">採用待ち<span class="sub"> ・ 候補を採るか決める配信</span></span><span class="sub">いちばん古い: 10-09</span><span>▶</span></div>
+        <div class="q-row" onclick="go('case','proof')"><span class="n">5</span><span class="lbl">校正待ち<span class="sub"> ・ 切り抜き 5 本(合わせて 4 分 10 秒)</span></span><span class="sub">2 案件</span><span>▶</span></div>
+        <div class="q-row" onclick="go('case','cut')"><span class="n">1</span><span class="lbl">パック待ち<span class="sub"> ・ 校正済みでパックが無い</span></span><span>▶</span></div>
+        <div class="q-row"><span class="n" style="color:var(--danger)">1</span><span class="lbl">失敗<span class="sub"> ・ 文字起こしが止まった(理由と直し方を見る)</span></span><span>▶</span></div>
+        <p class="hint" style="margin:8px 0 0">押すと、その作業のいちばん古い 1 件を開きます。案件の画面の [次へ] で同じ種類の次の 1 件へ続けられます。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">確かめる</div><span class="pill accent">今日 0 件</span></div>
+        <div class="check-hero">
+          <div class="grow">
+            <div class="big">自動の切り抜きを 4 本見る(70 点以上か)</div>
+            <div class="goal">検出の重みの決め直し(C1)まで: <b>判定のある配信 あと 2 本</b>(8 / 10)</div>
+            <div class="goalbar"><i style="width:80%"></i></div>
+          </div>
+          <button class="btn primary lg" onclick="go('check')">始める</button>
+        </div>
+        <ul class="next-list">
+          <li><span class="pill">次</span>「別」の候補の採否 12 件 ・ あと 23 件で 2 つ目のエンジンの採否が決まる(77 / 100)</li>
+          <li><span class="pill">次</span>後処理の札 8 行 ・ あと 9 行で残すかが決まる(21 / 30)</li>
+          <li><span class="pill">重い</span>定点の校正(G2)・ あと 18 分(12 / 30 分)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head row"><div class="card-title">案件</div><span class="spacer"></span><input class="fld" style="margin:0;min-height:30px;border:1px solid var(--line-2);padding:0 8px" placeholder="題名・配信者で探す"><button class="btn primary">+ 新しい案件(URL・探す)</button></div>
+      <table class="cases">
+        <thead><tr><th>配信</th><th>状態</th><th>切り抜き</th><th>校正</th><th>パック</th><th>メモ</th></tr></thead>
+        <tbody>
+          <tr class="case" onclick="go('case')"><td><b>【雑談】配信者 A の夜ふかし雑談</b><div class="memo">10-10 ・ 配信者 A</div></td><td><span class="pill run">録画中</span></td><td>3</td><td>1 / 3</td><td>0</td><td class="memo"></td></tr>
+          <tr class="case" onclick="go('case','cand')"><td><b>【ゲーム】配信者 B のホラー初見</b><div class="memo">10-09 ・ 配信者 B</div></td><td><span class="pill warn">採用待ち</span></td><td>0</td><td>—</td><td>—</td><td class="memo"></td></tr>
+          <tr class="case" onclick="go('case','proof')"><td><b>【コラボ】A と B の料理対決</b><div class="memo">10-08 ・ 配信者 A・B</div></td><td><span class="pill info">作業中</span></td><td>4</td><td>2 / 4</td><td>2</td><td class="memo">話者の名前を確かめる</td></tr>
+          <tr class="case"><td><b>【歌枠】配信者 C の 1 周年</b><div class="memo">10-05 ・ 配信者 C</div></td><td><span class="pill ok">投稿済み</span></td><td>2</td><td>2 / 2</td><td>2</td><td class="memo"></td></tr>
+          <tr class="case pseudo" onclick="go('case','eval')"><td><b>評価用</b><div class="memo">仮の案件 ・ 精度を測る定点の文書</div></td><td><span class="pill">定点</span></td><td>22</td><td>22 / 22</td><td>—</td><td class="memo">G2 はあと 18 分</td></tr>
+          <tr class="case pseudo"><td><b>案件の分からない文書</b><div class="memo">仮の案件 ・ 元の動画を辿れない文書</div></td><td><span class="pill">—</span></td><td>7</td><td>3 / 7</td><td>1</td><td class="memo"></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <details class="card ops"><summary>運用(依頼の受付・バックアップ・まとめて実行の記録・調子)</summary>
+      <p class="hint">毎日は見ない物をここに畳む。中身は今のホームの各カードのまま。</p>
+    </details>
+  </main>
+</section>
+
+<!-- ======================= 2. 案件の画面 ======================= -->
+<section class="screen" id="s-case">
+  <header class="ui-header">
+    <a class="ui-brand" href="#" onclick="go('home');return false"><span class="ui-brand-mark" data-tool="portal">▶</span>youtube-tools</a>
+    <div class="ui-header-actions"><button class="btn ghost small" onclick="go('home')">ホーム</button><button class="btn ghost small">設定</button></div>
+  </header>
+  <main>
+    <div class="case-head">
+      <div class="grow">
+        <div class="crumb"><a href="#" onclick="go('home');return false">ホーム</a> › 案件</div>
+        <h1 class="ttl" id="caseTitle">【コラボ】A と B の料理対決</h1>
+      </div>
+      <button class="btn soft small" onclick="go('check')">この案件で確かめると効く物 2 件</button>
+      <button class="btn small">フォルダを開く</button>
+    </div>
+
+    <div class="case-wrap">
+      <nav class="rail" id="rail"></nav>
+      <div class="pane">
+        <div class="pane-head">
+          <div class="ui-tabs" id="tabs"></div>
+          <span class="spacer"></span>
+          <span class="hint" id="paneHint"></span>
+        </div>
+        <div class="pane-body" id="paneBody"></div>
+        <div class="foot-next" id="footNext"></div>
+      </div>
+    </div>
+  </main>
+</section>
+
+<!-- ======================= 3. 確かめる ======================= -->
+<section class="screen" id="s-check">
+  <header class="ui-header">
+    <a class="ui-brand" href="#" onclick="go('home');return false"><span class="ui-brand-mark" data-tool="portal">▶</span>youtube-tools</a>
+    <div class="ui-header-actions"><button class="btn ghost small" onclick="go('home')">ホーム</button></div>
+  </header>
+  <main>
+    <div class="crumb"><a href="#" onclick="go('home');return false">ホーム</a> › 確かめる</div>
+    <h1 class="ttl" style="margin-bottom:10px">確かめる</h1>
+    <div class="chk-band">
+      <span>今日 <b id="cntToday">0</b> 件</span>
+      <span class="grow">この確認で決まる物: <b>検出の重みの決め直し(C1)</b> まで 判定のある配信 あと <b id="cntLeft">2</b> 本</span>
+      <span class="hint">順: 目標まであと少しの物 → 軽い物</span>
+    </div>
+    <div class="chk-wrap">
+      <div>
+        <div class="chk-card" id="card"></div>
+        <div class="chk-card done-msg" id="doneMsg"><div class="q">今日の分は終わりです</div><p class="hint">続けるなら次の種類(「別」の候補の採否)へ進めます。</p><button class="btn" onclick="go('home')">ホームへ</button></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:6px">このあと</div>
+        <ul class="queue" id="queue"></ul>
+        <p class="hint" style="margin:8px 0 0">[飛ばす] はその日は後ろへ回す。重い物は案件の画面で開き、終わったらここへ戻る。</p>
+      </div>
+    </div>
+  </main>
+</section>
+
+<div class="mock-switch"><b>見本</b>
+  <button class="btn small" onclick="go('home')">1 ホーム</button>
+  <button class="btn small" onclick="go('case')">2 案件</button>
+  <button class="btn small" onclick="go('check')">3 確かめる</button>
+  <button class="btn small ghost" onclick="toggleTheme()">明 / 暗</button>
+</div>
+
+<script>
+/* 見本の動き(ダミーのデータ)。本物ではこの部分を案件の API(B-1〜B-3・O2 のあと)で置き換える */
+const CASES = {
+  collab: {title:"【コラボ】A と B の料理対決", items:[
+    {id:"cand", kind:"cand", label:"候補(配信全体)", sub:"候補 8 ・ 採用 4"},
+    {id:"c1", kind:"clip", label:"01 00:12:40", sub:"52 秒", st:["ok","校正済み"], pack:true},
+    {id:"c2", kind:"clip", label:"02 00:38:05", sub:"47 秒", st:["ok","校正済み"], pack:true},
+    {id:"c3", kind:"clip", label:"03 01:02:51", sub:"58 秒", st:["accent","校正中"]},
+    {id:"c4", kind:"clip", label:"04 01:20:14", sub:"41 秒", st:["","未"]},
+  ]},
+  eval: {title:"評価用(仮の案件)", items:[
+    {id:"e1", kind:"clip", label:"評価 01", sub:"1 分 12 秒 ・ 確かめ済み", st:["ok","校正済み"]},
+    {id:"e2", kind:"clip", label:"評価 02", sub:"48 秒 ・ G2 の定点", st:["accent","校正中"]},
+    {id:"e3", kind:"clip", label:"評価 03", sub:"55 秒 ・ G2 の定点", st:["","未"]},
+  ]},
+};
+let cur = {caseKey:"collab", item:"c3", tab:"proof", player:true};
+
+function go(screen, sub){
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === "s-" + screen));
+  if (screen === "case"){
+    if (sub === "eval"){ cur = {caseKey:"eval", item:"e2", tab:"proof", player:false}; }
+    else {
+      cur.caseKey = "collab";
+      if (sub === "cand"){ cur.item = "cand"; cur.tab = "cand"; }
+      else if (sub === "cut"){ cur.item = "c3"; cur.tab = "cut"; }
+      else if (sub === "proof" || !cur.item.startsWith("c")){ cur.item = "c3"; cur.tab = "proof"; }
+    }
+    renderCase();
+  }
+  if (screen === "check"){ renderCard(); }
+  window.scrollTo(0, 0);
+}
+
+function renderCase(){
+  const c = CASES[cur.caseKey];
+  document.getElementById("caseTitle").textContent = c.title;
+  const rail = document.getElementById("rail");
+  rail.innerHTML = c.items.map((it, i) => {
+    const sep = (it.kind === "clip" && (i === 0 || c.items[i-1].kind !== "clip")) ? '<div class="sep">切り抜き</div>' : "";
+    const st = it.st ? '<span class="pill ' + it.st[0] + '">' + it.st[1] + '</span>' : "";
+    const pk = it.pack ? '<span class="pill ok" title="パック済み">パック</span>' : "";
+    return sep + '<div class="it' + (it.id === cur.item ? " sel" : "") + '" data-id="' + it.id + '"><span class="t"><b>' + it.label + '</b><span class="s">' + it.sub + '</span></span>' + st + pk + '</div>';
+  }).join("") + (cur.caseKey === "collab" ? '<div class="it" style="color:var(--ink-3)">+ 切り抜きを足す</div>' : "");
+  rail.querySelectorAll(".it[data-id]").forEach(el => el.onclick = () => {
+    cur.item = el.dataset.id;
+    const it = c.items.find(x => x.id === cur.item);
+    cur.tab = it.kind === "cand" ? "cand" : (cur.tab === "cand" ? "proof" : cur.tab);
+    renderCase();
+  });
+  const it = c.items.find(x => x.id === cur.item);
+  const tabs = it.kind === "cand" ? [["cand","候補",1]] : [["proof","校正",1],["cut","カット・パック",2]];
+  document.getElementById("tabs").innerHTML = tabs.map(t => '<button class="ui-tab" aria-selected="' + (t[0] === cur.tab) + '" data-t="' + t[0] + '"><span class="ui-tab-n">' + t[2] + '</span>' + t[1] + '</button>').join("");
+  document.querySelectorAll("#tabs .ui-tab").forEach(b => b.onclick = () => { cur.tab = b.dataset.t; renderCase(); });
+  const body = document.getElementById("paneBody"), hint = document.getElementById("paneHint"), foot = document.getElementById("footNext");
+  if (cur.tab === "cand"){
+    hint.textContent = "配信全体の候補 ・ 採用すると書き出して切り抜きの一覧に足す";
+    body.innerHTML = '<div class="stage" style="aspect-ratio:16/9;max-height:300px">配信のプレーヤー</div>' +
+      '<div class="timeline"><div class="wave"></div><div class="mk ad" style="left:8%;width:3%"></div><div class="mk ad" style="left:24%;width:3%"></div><div class="mk" style="left:41%;width:3%"></div><div class="mk ad" style="left:52%;width:3%"></div><div class="mk" style="left:70%;width:3%"></div><div class="mk ad" style="left:83%;width:3%"></div></div>' +
+      '<div class="marks">' + [["92","00:12:40","笑い・チャット","ok","採用"],["88","00:38:05","叫び","ok","採用"],["81","01:02:51","チャット","ok","採用"],["74","01:20:14","笑い","ok","採用"],["63","01:41:30","チャット","","候補"],["55","02:05:02","音","","候補"]].map(m =>
+        '<div class="m"><span class="sc">' + m[0] + '</span><span class="mono">' + m[1] + '</span><span class="pill">' + m[2] + '</span><span class="spacer"></span><span class="pill ' + m[3] + '">' + m[4] + '</span><div class="btn-group"><button class="btn small">採用</button><button class="btn small">不採用</button></div></div>').join("") + '</div>';
+    foot.innerHTML = '<button class="btn">採用した候補を書き出す(2 本)</button>';
+  } else if (cur.tab === "proof"){
+    hint.textContent = "Shift+↓ 次の未校正 ・ M つなぐ ・ Y 分ける";
+    const rows = [["00:00.0","00:03.4","A","はいどうも、今日は料理対決です",[],true],["00:03.4","00:06.9","B","負けないからね",[["info","別: まけないからね"]],false],
+      ["00:06.9","00:10.2","A","材料はこちらの3つ",[["warn","要確認: 文字"]],false],["00:10.2","00:13.8","B","え、それだけ?",[["accent","後処理: LLM で直した"]],false],["00:13.8","00:17.0","A","そう、それだけ",[["warn","機械の結果が変わりました"]],false]];
+    const list = rows.map((r, i) => '<div class="seg' + (i === 2 ? " cur" : "") + '"><div class="tm">' + r[0] + '<br>' + r[1] + '</div><select><option>' + (r[2] === "A" ? "配信者 A" : "配信者 B") + '</option></select><div><div class="txt">' + r[3] + '</div><div class="tags">' + r[4].map(t => '<span class="pill ' + t[0] + '">' + t[1] + '</span>').join("") + '</div></div><div class="acts"><button class="btn small ' + (r[5] ? "soft" : "") + '">' + (r[5] ? "✓ 校正済み" : "校正済み") + '</button></div></div>').join("");
+    const player = cur.player
+      ? '<div><div class="row" style="margin-bottom:6px"><span class="section-title" style="margin:0">配信(この切り抜きの前後)</span><span class="spacer"></span><button class="btn ghost small" id="plToggle">隠す</button></div><div class="stage mini">配信のプレーヤー(小)</div><p class="hint">切り抜きの外も前後 30 秒まで見られる</p><div class="stage" style="aspect-ratio:9/16;max-height:260px;margin-top:8px">切り抜き(縦)</div></div>'
+      : '';
+    body.innerHTML = '<div class="proof-grid' + (cur.player ? "" : " noplayer") + '"><div>' + (cur.player ? "" : '<div class="row" style="margin-bottom:6px"><span class="spacer"></span><button class="btn ghost small" id="plToggle">配信のプレーヤーを出す</button></div>') + list + '</div>' + player + '</div>';
+    document.getElementById("plToggle").onclick = () => { cur.player = !cur.player; renderCase(); };
+    foot.innerHTML = '<span class="hint grow" style="align-self:center">この切り抜き: 1 / 5 行が校正済み</span><button class="btn">カット・パックへ(Alt+2)</button><button class="btn primary">次の未校正の切り抜きへ</button>';
+  } else {
+    hint.textContent = "残す区間 ・ たたき台 3 種 ・ 末尾でパックを作る";
+    body.innerHTML = '<div class="stage" style="aspect-ratio:16/9;max-height:280px">切り抜きのプレーヤー</div>' +
+      '<div class="cutbar"><i style="width:22%;background:var(--ok-soft)"></i><i style="width:6%;background:var(--danger-soft)"></i><i style="width:40%;background:var(--ok-soft)"></i><i style="width:4%;background:var(--danger-soft)"></i><i style="width:28%;background:var(--ok-soft)"></i></div>' +
+      '<div class="row"><span class="section-title" style="margin:0">たたき台</span><div class="ui-seg"><button class="ui-tab" aria-selected="true">行から</button><button class="ui-tab">無音で</button><button class="ui-tab">切らない</button></div></div>' +
+      '<div class="card" style="margin-top:12px"><div class="card-title">パック</div><p class="hint">字幕(Text+)とカットを Resolve へ渡す。校正済み 5 / 5 行</p><div class="row"><button class="btn primary">パックを作る</button><button class="btn">フォルダを開く</button><button class="btn ghost">友人へ届ける</button></div></div>';
+    foot.innerHTML = '<button class="btn primary">次の未校正の切り抜きへ</button>';
+  }
+}
+
+/* 確かめるのカード */
+const CARDS = [
+  {kind:"自動の切り抜き(70 点以上か)", type:"auto", src:"【雑談】配信者 A の夜ふかし雑談 ・ 00:41:12 ・ 点数 84"},
+  {kind:"自動の切り抜き(70 点以上か)", type:"auto", src:"【雑談】配信者 A の夜ふかし雑談 ・ 01:05:30 ・ 点数 77"},
+  {kind:"「別」の候補の採否", type:"alt", src:"【コラボ】A と B の料理対決 ・ 02 00:38:05"},
+  {kind:"後処理の札(残す / 戻す)", type:"fill", src:"【コラボ】A と B の料理対決 ・ 03 01:02:51"},
+  {kind:"定点の校正(G2)", type:"heavy", src:"評価用 ・ 評価 03 ・ 55 秒"},
+];
+let ci = 0, today = 0, left = 2;
+function renderCard(){
+  const card = document.getElementById("card"), done = document.getElementById("doneMsg");
+  if (ci >= CARDS.length){ card.style.display = "none"; done.style.display = "block"; renderQueue(); return; }
+  card.style.display = ""; done.style.display = "none";
+  const c = CARDS[ci];
+  let inner = "";
+  if (c.type === "auto"){
+    inner = '<div class="q">友人へ送る出来か(70 点以上)?</div><div class="chk-media"><div class="stage vert">切り抜き(縦・自動で再生)</div><div class="grow"><p class="hint">' + c.src + '</p><p class="hint">送る = 70 点以上として数え、友人へ届ける。要らない = 未満(作った切り抜きは片付ける)。</p></div></div>' +
+      '<div class="chk-acts"><button class="btn primary lg" data-a="1">送る <span class="ui-kbd">A</span></button><button class="btn lg" data-a="1">要らない <span class="ui-kbd">X</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  } else if (c.type === "alt"){
+    inner = '<div class="q">どちらの読みが正しい?</div><p class="hint">' + c.src + ' ・ 前後 2 秒を再生</p><div class="alt-pair"><div class="opt"><div class="lb">今の字幕</div>負けないからね</div><div class="opt"><div class="lb">別の読み(2 つ目のエンジン)</div>まけないからね</div></div>' +
+      '<div class="chk-acts"><button class="btn lg" data-a="1">今のまま <span class="ui-kbd">1</span></button><button class="btn lg" data-a="1">別の読みにする <span class="ui-kbd">2</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  } else if (c.type === "fill"){
+    inner = '<div class="q">後処理の直しを残す?</div><p class="hint">' + c.src + ' ・ 行を再生</p><div class="alt-pair"><div class="opt"><div class="lb">後処理のあと(LLM)</div>え、それだけ?</div><div class="opt"><div class="lb">認識のまま</div>え それだけ</div></div>' +
+      '<div class="chk-acts"><button class="btn lg" data-a="1">残す <span class="ui-kbd">1</span></button><button class="btn lg" data-a="1">戻す <span class="ui-kbd">2</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  } else {
+    inner = '<div class="q">定点の校正(重い確認)</div><p class="hint">' + c.src + ' ・ 動画を全部聞いて直す。案件の画面(評価用)で開き、済んだらここへ戻る。</p>' +
+      '<div class="chk-acts"><button class="btn primary lg" onclick="go(\'case\',\'eval\')">案件の画面で開く</button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  }
+  card.innerHTML = '<div class="kind">' + c.kind + ' ・ ' + (ci + 1) + ' / ' + CARDS.length + '</div>' + inner;
+  card.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => {
+    if (b.dataset.a === "1"){ today++; if (c.type === "auto" && left > 0) left--; }
+    ci++; document.getElementById("cntToday").textContent = today; document.getElementById("cntLeft").textContent = left; renderCard();
+  });
+  renderQueue();
+}
+function renderQueue(){
+  document.getElementById("queue").innerHTML = CARDS.map((c, i) =>
+    '<li style="' + (i < ci ? "color:var(--ink-4);text-decoration:line-through" : (i === ci ? "font-weight:600" : "")) + '"><span class="pill ' + (c.type === "heavy" ? "warn" : "") + '">' + (c.type === "heavy" ? "重い" : "軽い") + '</span>' + c.kind + '</li>').join("");
+}
+function toggleTheme(){ const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; }
+document.addEventListener("keydown", e => {
+  if (!document.getElementById("s-check").classList.contains("on")) return;
+  const k = e.key.toLowerCase(), btns = [...document.querySelectorAll("#card button")];
+  const pick = t => btns.find(b => b.textContent.includes(t));
+  const b = k === "a" ? pick("送る") : k === "x" ? pick("要らない") : k === "n" ? pick("飛ばす") : k === "1" ? btns[0] : k === "2" ? btns[1] : null;
+  if (b) b.click();
+});
+renderCase();
+</script>
+</body>
+</html>

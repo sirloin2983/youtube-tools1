@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RS8 画面の見本</title>
+<!-- 見本(静的・ダミーのデータ)。本物の ui-kit の見た目を相対パスで読む。実装ではない(docs/design/briefs/rs8-cases/DESIGN_BRIEF.md) -->
+<link rel="stylesheet" href="../../../../../src/ui-kit/ui-kit.css">
+<style>
+  body{min-height:100vh}
+  .mock-switch{position:fixed;right:12px;bottom:12px;z-index:90;display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line-2);padding:6px 8px;box-shadow:var(--shadow-3);font-size:12px}
+  .mock-switch b{color:var(--ink-3);font-weight:600;margin-right:4px}
+  .screen{display:none}.screen.on{display:block}
+  main{max-width:1280px;margin:0 auto;padding:16px}
+  .crumb{font-size:var(--fs-sm);color:var(--ink-3)}
+  .crumb a{color:var(--ink-3)}
+  h1.ttl{font-size:18px;margin:2px 0 0}
+
+  /* ホーム */
+  .live{display:flex;align-items:center;gap:12px;padding:8px 14px;margin-bottom:12px;background:var(--danger-soft);border-left:2px solid var(--danger)}
+  .live .dot{background:var(--danger)}
+  .home-top{display:grid;grid-template-columns:1fr 1.25fr;gap:12px}
+  @media (max-width:900px){.home-top{grid-template-columns:1fr}}
+  .q-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--line);cursor:pointer}
+  .q-row:first-of-type{border-top:0}
+  .q-row:hover{background:var(--panel-2)}
+  .q-row .n{font:700 18px/1 var(--mono);min-width:2.2em;text-align:right}
+  .q-row .lbl{flex:1}
+  .q-row .sub{font-size:var(--fs-xs);color:var(--ink-3)}
+  .check-hero{display:flex;gap:14px;align-items:flex-start}
+  .check-hero .big{font:650 16px/1.4 var(--font-display)}
+  .goal{font-size:var(--fs-sm);color:var(--ink-2);margin-top:4px}
+  .goalbar{height:6px;background:var(--panel-3);margin-top:6px;position:relative}
+  .goalbar>i{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+  .next-list{margin:10px 0 0;padding:0;list-style:none;font-size:var(--fs-sm);color:var(--ink-2)}
+  .next-list li{display:flex;gap:8px;padding:3px 0}
+  table.cases{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.cases th{font:600 12px/1.3 var(--font);color:var(--ink-3);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line-2)}
+  table.cases td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.cases tr.case{cursor:pointer}
+  table.cases tr.case:hover td{background:var(--panel-2)}
+  table.cases tr.pseudo td{color:var(--ink-2)}
+  .memo{color:var(--ink-3);font-size:var(--fs-sm)}
+  details.ops>summary{cursor:pointer;font-weight:600;color:var(--ink-2)}
+
+  /* 案件の画面 */
+  .case-head{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .case-wrap{display:grid;grid-template-columns:270px 1fr;gap:12px;align-items:start}
+  @media (max-width:900px){.case-wrap{grid-template-columns:1fr}}
+  .rail{background:var(--panel);border:1px solid var(--line);padding:6px}
+  .rail .it{display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-left:2px solid transparent}
+  .rail .it:hover{background:var(--panel-2)}
+  .rail .it.sel{background:var(--accent-soft);border-left-color:var(--accent)}
+  .rail .it .t{flex:1;min-width:0}
+  .rail .it .t .s{display:block;font-size:var(--fs-xs);color:var(--ink-3)}
+  .rail .sep{font:600 11.5px/1 var(--font);color:var(--ink-3);padding:10px 8px 4px}
+  .pane{background:var(--panel);border:1px solid var(--line);min-height:560px}
+  .pane-head{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .pane-body{padding:12px}
+  .stage{background:var(--stage-bg);color:var(--stage-ink);display:grid;place-items:center;font-size:12px}
+  .proof-grid{display:grid;grid-template-columns:1fr 240px;gap:12px}
+  .proof-grid.noplayer{grid-template-columns:1fr}
+  .mini{aspect-ratio:16/9}
+  .seg{display:grid;grid-template-columns:86px 92px 1fr auto;gap:8px;align-items:start;padding:8px 6px;border-top:1px solid var(--line)}
+  .seg:first-child{border-top:0}
+  .seg.cur{background:var(--accent-soft)}
+  .seg .tm{font:12px/1.5 var(--mono);color:var(--ink-3)}
+  .seg select,.seg .txt{border:1px solid var(--line-2);background:var(--field);padding:4px 6px;font-size:13.5px;width:100%}
+  .seg .txt{min-height:30px}
+  .seg .tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+  .seg .acts{display:flex;gap:4px}
+  .timeline{height:64px;background:var(--panel-2);border:1px solid var(--line);position:relative;margin:10px 0}
+  .timeline .wave{position:absolute;left:0;right:0;top:20px;height:24px;background:repeating-linear-gradient(90deg,var(--line-2) 0 2px,transparent 2px 5px)}
+  .timeline .mk{position:absolute;top:6px;bottom:6px;background:color-mix(in srgb,var(--accent) 22%,transparent);border:1px solid var(--accent-line)}
+  .timeline .mk.ad{background:color-mix(in srgb,var(--ok) 25%,transparent);border-color:var(--ok)}
+  .marks .m{display:flex;align-items:center;gap:10px;padding:8px 4px;border-top:1px solid var(--line)}
+  .marks .m .sc{font:700 13px/1 var(--mono);width:3em;text-align:right}
+  .cutbar{height:44px;display:flex;border:1px solid var(--line);margin:10px 0}
+  .cutbar i{display:block;height:100%}
+  .foot-next{display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+
+  /* 確かめる */
+  .chk-band{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:var(--panel);border:1px solid var(--line);margin-bottom:12px}
+  .chk-wrap{display:grid;grid-template-columns:1fr 300px;gap:12px;align-items:start}
+  @media (max-width:900px){.chk-wrap{grid-template-columns:1fr}}
+  .chk-card{background:var(--panel);border:1px solid var(--line-2);padding:16px}
+  .chk-card .kind{font:600 12px/1 var(--font);color:var(--ink-3)}
+  .chk-card .q{font:650 17px/1.4 var(--font-display);margin:6px 0 12px}
+  .chk-media{display:flex;gap:14px;flex-wrap:wrap}
+  .vert{width:200px;aspect-ratio:9/16}
+  .chk-acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .alt-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .alt-pair .opt{border:1px solid var(--line-2);padding:10px;background:var(--panel-2)}
+  .alt-pair .opt .lb{font-size:var(--fs-xs);color:var(--ink-3)}
+  .queue li{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+  .queue li:first-child{border-top:0}
+  .queue{list-style:none;margin:0;padding:0}
+  .done-msg{display:none}
+</style>
+</head>
+<body>
+
+<!-- ======================= 1. ホーム ======================= -->
+<section class="screen on" id="s-home">
+  <header class="ui-header">
+    <a class="ui-brand" href="#" onclick="return false"><span class="ui-brand-mark" data-tool="portal">▶</span>youtube-tools</a>
+    <span class="ui-ver">0.x(見本)</span>
+    <div class="ui-header-actions"><a class="btn ghost small" href="#">設定</a><a class="btn ghost small" href="#">分析と日報</a></div>
+  </header>
+  <main>
+    <div class="live"><span class="dot"></span><b>録画中</b><span class="grow">【雑談】配信者 A の夜ふかし雑談 ・ 1:42:10 ・ 配信中の候補 3(自動採用 1)</span><button class="btn small" onclick="go('case')">この案件を開く</button></div>
+
+    <div class="home-top">
+      <div class="card">
+        <div class="card-head"><div class="card-title">やること</div></div>
+        <div class="q-row" onclick="go('case','cand')"><span class="n">2</span><span class="lbl">採用待ち<span class="sub"> ・ 候補を採るか決める配信</span></span><span class="sub">いちばん古い: 10-09</span><span>▶</span></div>
+        <div class="q-row" onclick="go('case','proof')"><span class="n">5</span><span class="lbl">校正待ち<span class="sub"> ・ 切り抜き 5 本(合わせて 4 分 10 秒)</span></span><span class="sub">2 案件</span><span>▶</span></div>
+        <div class="q-row" onclick="go('case','cut')"><span class="n">1</span><span class="lbl">パック待ち<span class="sub"> ・ 校正済みでパックが無い</span></span><span>▶</span></div>
+        <div class="q-row"><span class="n" style="color:var(--danger)">1</span><span class="lbl">失敗<span class="sub"> ・ 文字起こしが止まった(理由と直し方を見る)</span></span><span>▶</span></div>
+        <p class="hint" style="margin:8px 0 0">押すと、その作業のいちばん古い 1 件を開きます。案件の画面の [次へ] で同じ種類の次の 1 件へ続けられます。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">確かめる</div><span class="pill accent">今日 0 件</span></div>
+        <div class="check-hero">
+          <div class="grow">
+            <div class="big">自動の切り抜きを 4 本見る(70 点以上か)</div>
+            <div class="goal">検出の重みの決め直し(C1)まで: <b>判定のある配信 あと 2 本</b>(8 / 10)</div>
+            <div class="goalbar"><i style="width:80%"></i></div>
+          </div>
+          <button class="btn primary lg" onclick="go('check')">始める</button>
+        </div>
+        <ul class="next-list">
+          <li><span class="pill">次</span>「別」の候補の採否 12 件 ・ あと 23 件で 2 つ目のエンジンの採否が決まる(77 / 100)</li>
+          <li><span class="pill">次</span>後処理の札 8 行 ・ あと 9 行で残すかが決まる(21 / 30)</li>
+          <li><span class="pill">重い</span>定点の校正(G2)・ あと 18 分(12 / 30 分)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head row"><div class="card-title">案件</div><span class="spacer"></span><input class="fld" style="margin:0;min-height:30px;border:1px solid var(--line-2);padding:0 8px" placeholder="題名・配信者で探す"><button class="btn primary">+ 新しい案件(URL・探す)</button></div>
+      <table class="cases">
+        <thead><tr><th>配信</th><th>状態</th><th>切り抜き</th><th>校正</th><th>パック</th><th>メモ</th></tr></thead>
+        <tbody>
+          <tr class="case" onclick="go('case')"><td><b>【雑談】配信者 A の夜ふかし雑談</b><div class="memo">10-10 ・ 配信者 A</div></td><td><span class="pill run">録画中</span></td><td>3</td><td>1 / 3</td><td>0</td><td class="memo"></td></tr>
+          <tr class="case" onclick="go('case','cand')"><td><b>【ゲーム】配信者 B のホラー初見</b><div class="memo">10-09 ・ 配信者 B</div></td><td><span class="pill warn">採用待ち</span></td><td>0</td><td>—</td><td>—</td><td class="memo"></td></tr>
+          <tr class="case" onclick="go('case','proof')"><td><b>【コラボ】A と B の料理対決</b><div class="memo">10-08 ・ 配信者 A・B</div></td><td><span class="pill info">作業中</span></td><td>4</td><td>2 / 4</td><td>2</td><td class="memo">話者の名前を確かめる</td></tr>
+          <tr class="case"><td><b>【歌枠】配信者 C の 1 周年</b><div class="memo">10-05 ・ 配信者 C</div></td><td><span class="pill ok">投稿済み</span></td><td>2</td><td>2 / 2</td><td>2</td><td class="memo"></td></tr>
+          <tr class="case pseudo" onclick="go('case','eval')"><td><b>評価用</b><div class="memo">仮の案件 ・ 精度を測る定点の文書</div></td><td><span class="pill">定点</span></td><td>22</td><td>22 / 22</td><td>—</td><td class="memo">G2 はあと 18 分</td></tr>
+          <tr class="case pseudo"><td><b>案件の分からない文書</b><div class="memo">仮の案件 ・ 元の動画を辿れない文書</div></td><td><span class="pill">—</span></td><td>7</td><td>3 / 7</td><td>1</td><td class="memo"></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <details class="card ops"><summary>運用(依頼の受付・バックアップ・まとめて実行の記録・調子)</summary>
+      <p class="hint">毎日は見ない物をここに畳む。中身は今のホームの各カードのまま。</p>
+    </details>
+  </main>
+</section>
+
+<!-- ======================= 2. 案件の画面 ======================= -->
+<section class="screen" id="s-case">
+  <header class="ui-header">
+    <a class="ui-brand" href="#" onclick="go('home');return false"><span class="ui-brand-mark" data-tool="portal">▶</span>youtube-tools</a>
+    <div class="ui-header-actions"><button class="btn ghost small" onclick="go('home')">ホーム</button><button class="btn ghost small">設定</button></div>
+  </header>
+  <main>
+    <div class="case-head">
+      <div class="grow">
+        <div class="crumb"><a href="#" onclick="go('home');return false">ホーム</a> › 案件</div>
+        <h1 class="ttl" id="caseTitle">【コラボ】A と B の料理対決</h1>
+      </div>
+      <button class="btn soft small" onclick="go('check')">この案件で確かめると効く物 2 件</button>
+      <button class="btn small">フォルダを開く</button>
+    </div>
+
+    <div class="case-wrap">
+      <nav class="rail" id="rail"></nav>
+      <div class="pane">
+        <div class="pane-head">
+          <div class="ui-tabs" id="tabs"></div>
+          <span class="spacer"></span>
+          <span class="hint" id="paneHint"></span>
+        </div>
+        <div class="pane-body" id="paneBody"></div>
+        <div class="foot-next" id="footNext"></div>
+      </div>
+    </div>
+  </main>
+</section>
+
+<!-- ======================= 3. 確かめる ======================= -->
+<section class="screen" id="s-check">
+  <header class="ui-header">
+    <a class="ui-brand" href="#" onclick="go('home');return false"><span class="ui-brand-mark" data-tool="portal">▶</span>youtube-tools</a>
+    <div class="ui-header-actions"><button class="btn ghost small" onclick="go('home')">ホーム</button></div>
+  </header>
+  <main>
+    <div class="crumb"><a href="#" onclick="go('home');return false">ホーム</a> › 確かめる</div>
+    <h1 class="ttl" style="margin-bottom:10px">確かめる</h1>
+    <div class="chk-band">
+      <span>今日 <b id="cntToday">0</b> 件</span>
+      <span class="grow">この確認で決まる物: <b>検出の重みの決め直し(C1)</b> まで 判定のある配信 あと <b id="cntLeft">2</b> 本</span>
+      <span class="hint">順: 目標まであと少しの物 → 軽い物</span>
+    </div>
+    <div class="chk-wrap">
+      <div>
+        <div class="chk-card" id="card"></div>
+        <div class="chk-card done-msg" id="doneMsg"><div class="q">今日の分は終わりです</div><p class="hint">続けるなら次の種類(「別」の候補の採否)へ進めます。</p><button class="btn" onclick="go('home')">ホームへ</button></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:6px">このあと</div>
+        <ul class="queue" id="queue"></ul>
+        <p class="hint" style="margin:8px 0 0">[飛ばす] はその日は後ろへ回す。重い物は案件の画面で開き、終わったらここへ戻る。</p>
+      </div>
+    </div>
+  </main>
+</section>
+
+<div class="mock-switch"><b>見本</b>
+  <button class="btn small" onclick="go('home')">1 ホーム</button>
+  <button class="btn small" onclick="go('case')">2 案件</button>
+  <button class="btn small" onclick="go('check')">3 確かめる</button>
+  <button class="btn small ghost" onclick="toggleTheme()">明 / 暗</button>
+</div>
+
+<script>
+/* 見本の動き(ダミーのデータ)。本物ではこの部分を案件の API(B-1〜B-3・O2 のあと)で置き換える */
+const CASES = {
+  collab: {title:"【コラボ】A と B の料理対決", items:[
+    {id:"cand", kind:"cand", label:"候補(配信全体)", sub:"候補 8 ・ 採用 4"},
+    {id:"c1", kind:"clip", label:"01 00:12:40", sub:"52 秒", st:["ok","校正済み"], pack:true},
+    {id:"c2", kind:"clip", label:"02 00:38:05", sub:"47 秒", st:["ok","校正済み"], pack:true},
+    {id:"c3", kind:"clip", label:"03 01:02:51", sub:"58 秒", st:["accent","校正中"]},
+    {id:"c4", kind:"clip", label:"04 01:20:14", sub:"41 秒", st:["","未"]},
+  ]},
+  eval: {title:"評価用(仮の案件)", items:[
+    {id:"e1", kind:"clip", label:"評価 01", sub:"1 分 12 秒 ・ 確かめ済み", st:["ok","校正済み"]},
+    {id:"e2", kind:"clip", label:"評価 02", sub:"48 秒 ・ G2 の定点", st:["accent","校正中"]},
+    {id:"e3", kind:"clip", label:"評価 03", sub:"55 秒 ・ G2 の定点", st:["","未"]},
+  ]},
+};
+let cur = {caseKey:"collab", item:"c3", tab:"proof", player:true};
+
+function go(screen, sub){
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === "s-" + screen));
+  if (screen === "case"){
+    if (sub === "eval"){ cur = {caseKey:"eval", item:"e2", tab:"proof", player:false}; }
+    else {
+      cur.caseKey = "collab";
+      if (sub === "cand"){ cur.item = "cand"; cur.tab = "cand"; }
+      else if (sub === "cut"){ cur.item = "c3"; cur.tab = "cut"; }
+      else if (sub === "proof" || !cur.item.startsWith("c")){ cur.item = "c3"; cur.tab = "proof"; }
+    }
+    renderCase();
+  }
+  if (screen === "check"){ renderCard(); }
+  window.scrollTo(0, 0);
+}
+
+function renderCase(){
+  const c = CASES[cur.caseKey];
+  document.getElementById("caseTitle").textContent = c.title;
+  const rail = document.getElementById("rail");
+  rail.innerHTML = c.items.map((it, i) => {
+    const sep = (it.kind === "clip" && (i === 0 || c.items[i-1].kind !== "clip")) ? '<div class="sep">切り抜き</div>' : "";
+    const st = it.st ? '<span class="pill ' + it.st[0] + '">' + it.st[1] + '</span>' : "";
+    const pk = it.pack ? '<span class="pill ok" title="パック済み">パック</span>' : "";
+    return sep + '<div class="it' + (it.id === cur.item ? " sel" : "") + '" data-id="' + it.id + '"><span class="t"><b>' + it.label + '</b><span class="s">' + it.sub + '</span></span>' + st + pk + '</div>';
+  }).join("") + (cur.caseKey === "collab" ? '<div class="it" style="color:var(--ink-3)">+ 切り抜きを足す</div>' : "");
+  rail.querySelectorAll(".it[data-id]").forEach(el => el.onclick = () => {
+    cur.item = el.dataset.id;
+    const it = c.items.find(x => x.id === cur.item);
+    cur.tab = it.kind === "cand" ? "cand" : (cur.tab === "cand" ? "proof" : cur.tab);
+    renderCase();
+  });
+  const it = c.items.find(x => x.id === cur.item);
+  const tabs = it.kind === "cand" ? [["cand","候補",1]] : [["proof","校正",1],["cut","カット・パック",2]];
+  document.getElementById("tabs").innerHTML = tabs.map(t => '<button class="ui-tab" aria-selected="' + (t[0] === cur.tab) + '" data-t="' + t[0] + '"><span class="ui-tab-n">' + t[2] + '</span>' + t[1] + '</button>').join("");
+  document.querySelectorAll("#tabs .ui-tab").forEach(b => b.onclick = () => { cur.tab = b.dataset.t; renderCase(); });
+  const body = document.getElementById("paneBody"), hint = document.getElementById("paneHint"), foot = document.getElementById("footNext");
+  if (cur.tab === "cand"){
+    hint.textContent = "配信全体の候補 ・ 採用すると書き出して切り抜きの一覧に足す";
+    body.innerHTML = '<div class="stage" style="aspect-ratio:16/9;max-height:300px">配信のプレーヤー</div>' +
+      '<div class="timeline"><div class="wave"></div><div class="mk ad" style="left:8%;width:3%"></div><div class="mk ad" style="left:24%;width:3%"></div><div class="mk" style="left:41%;width:3%"></div><div class="mk ad" style="left:52%;width:3%"></div><div class="mk" style="left:70%;width:3%"></div><div class="mk ad" style="left:83%;width:3%"></div></div>' +
+      '<div class="marks">' + [["92","00:12:40","笑い・チャット","ok","採用"],["88","00:38:05","叫び","ok","採用"],["81","01:02:51","チャット","ok","採用"],["74","01:20:14","笑い","ok","採用"],["63","01:41:30","チャット","","候補"],["55","02:05:02","音","","候補"]].map(m =>
+        '<div class="m"><span class="sc">' + m[0] + '</span><span class="mono">' + m[1] + '</span><span class="pill">' + m[2] + '</span><span class="spacer"></span><span class="pill ' + m[3] + '">' + m[4] + '</span><div class="btn-group"><button class="btn small">採用</button><button class="btn small">不採用</button></div></div>').join("") + '</div>';
+    foot.innerHTML = '<button class="btn">採用した候補を書き出す(2 本)</button>';
+  } else if (cur.tab === "proof"){
+    hint.textContent = "Shift+↓ 次の未校正 ・ M つなぐ ・ Y 分ける";
+    const rows = [["00:00.0","00:03.4","A","はいどうも、今日は料理対決です",[],true],["00:03.4","00:06.9","B","負けないからね",[["info","別: まけないからね"]],false],
+      ["00:06.9","00:10.2","A","材料はこちらの3つ",[["warn","要確認: 文字"]],false],["00:10.2","00:13.8","B","え、それだけ?",[["accent","後処理: LLM で直した"]],false],["00:13.8","00:17.0","A","そう、それだけ",[["warn","機械の結果が変わりました"]],false]];
+    const list = rows.map((r, i) => '<div class="seg' + (i === 2 ? " cur" : "") + '"><div class="tm">' + r[0] + '<br>' + r[1] + '</div><select><option>' + (r[2] === "A" ? "配信者 A" : "配信者 B") + '</option></select><div><div class="txt">' + r[3] + '</div><div class="tags">' + r[4].map(t => '<span class="pill ' + t[0] + '">' + t[1] + '</span>').join("") + '</div></div><div class="acts"><button class="btn small ' + (r[5] ? "soft" : "") + '">' + (r[5] ? "✓ 校正済み" : "校正済み") + '</button></div></div>').join("");
+    const player = cur.player
+      ? '<div><div class="row" style="margin-bottom:6px"><span class="section-title" style="margin:0">配信(この切り抜きの前後)</span><span class="spacer"></span><button class="btn ghost small" id="plToggle">隠す</button></div><div class="stage mini">配信のプレーヤー(小)</div><p class="hint">切り抜きの外も前後 30 秒まで見られる</p><div class="stage" style="aspect-ratio:9/16;max-height:260px;margin-top:8px">切り抜き(縦)</div></div>'
+      : '';
+    body.innerHTML = '<div class="proof-grid' + (cur.player ? "" : " noplayer") + '"><div>' + (cur.player ? "" : '<div class="row" style="margin-bottom:6px"><span class="spacer"></span><button class="btn ghost small" id="plToggle">配信のプレーヤーを出す</button></div>') + list + '</div>' + player + '</div>';
+    document.getElementById("plToggle").onclick = () => { cur.player = !cur.player; renderCase(); };
+    foot.innerHTML = '<span class="hint grow" style="align-self:center">この切り抜き: 1 / 5 行が校正済み</span><button class="btn">カット・パックへ(Alt+2)</button><button class="btn primary">次の未校正の切り抜きへ</button>';
+  } else {
+    hint.textContent = "残す区間 ・ たたき台 3 種 ・ 末尾でパックを作る";
+    body.innerHTML = '<div class="stage" style="aspect-ratio:16/9;max-height:280px">切り抜きのプレーヤー</div>' +
+      '<div class="cutbar"><i style="width:22%;background:var(--ok-soft)"></i><i style="width:6%;background:var(--danger-soft)"></i><i style="width:40%;background:var(--ok-soft)"></i><i style="width:4%;background:var(--danger-soft)"></i><i style="width:28%;background:var(--ok-soft)"></i></div>' +
+      '<div class="row"><span class="section-title" style="margin:0">たたき台</span><div class="ui-seg"><button class="ui-tab" aria-selected="true">行から</button><button class="ui-tab">無音で</button><button class="ui-tab">切らない</button></div></div>' +
+      '<div class="card" style="margin-top:12px"><div class="card-title">パック</div><p class="hint">字幕(Text+)とカットを Resolve へ渡す。校正済み 5 / 5 行</p><div class="row"><button class="btn primary">パックを作る</button><button class="btn">フォルダを開く</button><button class="btn ghost">友人へ届ける</button></div></div>';
+    foot.innerHTML = '<button class="btn primary">次の未校正の切り抜きへ</button>';
+  }
+}
+
+/* 確かめるのカード */
+const CARDS = [
+  {kind:"自動の切り抜き(70 点以上か)", type:"auto", src:"【雑談】配信者 A の夜ふかし雑談 ・ 00:41:12 ・ 点数 84"},
+  {kind:"自動の切り抜き(70 点以上か)", type:"auto", src:"【雑談】配信者 A の夜ふかし雑談 ・ 01:05:30 ・ 点数 77"},
+  {kind:"「別」の候補の採否", type:"alt", src:"【コラボ】A と B の料理対決 ・ 02 00:38:05"},
+  {kind:"後処理の札(残す / 戻す)", type:"fill", src:"【コラボ】A と B の料理対決 ・ 03 01:02:51"},
+  {kind:"定点の校正(G2)", type:"heavy", src:"評価用 ・ 評価 03 ・ 55 秒"},
+];
+let ci = 0, today = 0, left = 2;
+function renderCard(){
+  const card = document.getElementById("card"), done = document.getElementById("doneMsg");
+  if (ci >= CARDS.length){ card.style.display = "none"; done.style.display = "block"; renderQueue(); return; }
+  card.style.display = ""; done.style.display = "none";
+  const c = CARDS[ci];
+  let inner = "";
+  if (c.type === "auto"){
+    inner = '<div class="q">友人へ送る出来か(70 点以上)?</div><div class="chk-media"><div class="stage vert">切り抜き(縦・自動で再生)</div><div class="grow"><p class="hint">' + c.src + '</p><p class="hint">送る = 70 点以上として数え、友人へ届ける。要らない = 未満(作った切り抜きは片付ける)。</p></div></div>' +
+      '<div class="chk-acts"><button class="btn primary lg" data-a="1">送る <span class="ui-kbd">A</span></button><button class="btn lg" data-a="1">要らない <span class="ui-kbd">X</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  } else if (c.type === "alt"){
+    inner = '<div class="q">どちらの読みが正しい?</div><p class="hint">' + c.src + ' ・ 前後 2 秒を再生</p><div class="alt-pair"><div class="opt"><div class="lb">今の字幕</div>負けないからね</div><div class="opt"><div class="lb">別の読み(2 つ目のエンジン)</div>まけないからね</div></div>' +
+      '<div class="chk-acts"><button class="btn lg" data-a="1">今のまま <span class="ui-kbd">1</span></button><button class="btn lg" data-a="1">別の読みにする <span class="ui-kbd">2</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  } else if (c.type === "fill"){
+    inner = '<div class="q">後処理の直しを残す?</div><p class="hint">' + c.src + ' ・ 行を再生</p><div class="alt-pair"><div class="opt"><div class="lb">後処理のあと(LLM)</div>え、それだけ?</div><div class="opt"><div class="lb">認識のまま</div>え それだけ</div></div>' +
+      '<div class="chk-acts"><button class="btn lg" data-a="1">残す <span class="ui-kbd">1</span></button><button class="btn lg" data-a="1">戻す <span class="ui-kbd">2</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  } else {
+    inner = '<div class="q">定点の校正(重い確認)</div><p class="hint">' + c.src + ' ・ 動画を全部聞いて直す。案件の画面(評価用)で開き、済んだらここへ戻る。</p>' +
+      '<div class="chk-acts"><button class="btn primary lg" onclick="go(\'case\',\'eval\')">案件の画面で開く</button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  }
+  card.innerHTML = '<div class="kind">' + c.kind + ' ・ ' + (ci + 1) + ' / ' + CARDS.length + '</div>' + inner;
+  card.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => {
+    if (b.dataset.a === "1"){ today++; if (c.type === "auto" && left > 0) left--; }
+    ci++; document.getElementById("cntToday").textContent = today; document.getElementById("cntLeft").textContent = left; renderCard();
+  });
+  renderQueue();
+}
+function renderQueue(){
+  document.getElementById("queue").innerHTML = CARDS.map((c, i) =>
+    '<li style="' + (i < ci ? "color:var(--ink-4);text-decoration:line-through" : (i === ci ? "font-weight:600" : "")) + '"><span class="pill ' + (c.type === "heavy" ? "warn" : "") + '">' + (c.type === "heavy" ? "重い" : "軽い") + '</span>' + c.kind + '</li>').join("");
+}
+function toggleTheme(){ const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; }
+document.addEventListener("keydown", e => {
+  if (!document.getElementById("s-check").classList.contains("on")) return;
+  const k = e.key.toLowerCase(), btns = [...document.querySelectorAll("#card button")];
+  const pick = t => btns.find(b => b.textContent.includes(t));
+  const b = k === "a" ? pick("送る") : k === "x" ? pick("要らない") : k === "n" ? pick("飛ばす") : k === "1" ? btns[0] : k === "2" ? btns[1] : null;
+  if (b) b.click();
+});
+renderCase();
+</script>
+</body>
+</html>

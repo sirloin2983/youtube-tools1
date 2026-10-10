@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rs8-mock",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3.10", "-m", "http.server", "8791", "--bind", "127.0.0.1", "--directory", "docs/design/briefs/rs8-cases/mock"],
+      "port": 8791
+    }
+  ]
+}
