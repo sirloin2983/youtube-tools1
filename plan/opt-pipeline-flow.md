@@ -38,3 +38,25 @@
 - **OPT2**: OPT1 のあと、F1 の前(友人の PC で動く ② を決まりどおりにしてから渡す)。RS8 がライブの書き出し・パックの口を触るならその前後で調整
 - **OPT3**: V1・G2 などで採点と字幕のデータがそろってから
 - 各段の終わりに層ごとの行数を WORKLOG に 1 行(数え方は 10-11 の WORKLOG)
+
+## 機能ごとの見直しメモ(① をユーザーと 1 つずつ見て見つけた候補。直すときはここから拾う)
+書き方: 候補・場所・何が良くなるか・いつ(OPT1〜3 / RV / RS8 など)。直したら行末に「済み(コミット)」
+
+### 1. 取り込み `pipeline/ingest/`(10-11)
+- ffmpeg の探し方が独自(`rec_core.py` の YTT_FFMPEG → PATH)。winget だけの PC で録画が始まらない → OPT1 の「探し方を 1 つに」に含む
+- `recorder.py`(370 行)は HTTP サーバー・合言葉・設定ファイル・起動の引数を持つ独立のアプリ = ① の道具ではなく入口。`rec_core` の中身だけ ① に残し、`recorder.py` は `src/app/` の側へ → RV(フォルダの形)
+- `RecError` が基盤の `ApiError` と同じこと(400・404・409 と画面に出す理由)を別に持つ(別プロセスで動くための写し)→ `ytt/errors` にそろえる。数行 → OPT1 の小物
+- `sources.py`(32 行・関数 3 つ)は中身の大半が `ytt/yturl.py` へ移った残り → `yturl` か使う側へ寄せてファイルを 1 つ減らす → OPT1 の小物
+- `live_align_worker.py`(音の照合)は「受け取る」工程ではなく配信後の作り直しの道具(使うのは `flow/live_archive.py` だけ)。置き場所の見直し → RV
+- 録画の中心 `rec_core.py` は重複も少なく形も素直 = 動かさない
+
+### 2. 解析(盛り上がり)`pipeline/analyze/`(10-11)
+- 盛り上がりの式 `excite.py`(852 行)は配信後と配信中の 1 か所・golden で縛る・標準ライブラリだけ = 形は良い。動かさない
+- `analyze.py`(881 行)の約半分(およそ 450 行)は「材料を取ってくる」仕事 = 音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄(YouTube API)・付加情報(yt-dlp -J)・それぞれのキャッシュと掃除(prune_chat_cache など)。点数の計算と分けて `pipeline/analyze/fetch.py`(か `pipeline/ingest/`)へ → 解析の本体が読みやすくなる・取得だけ使い回せる → OPT2
+- `analyze.py` の解析ジョブが辞書で state・phase・progress・cancel・proc を持つ = ② の仕事(ジョブの状態・取り消し)が ① に入っている。① は「入力 → 結果」の関数にして、ジョブの器は `flow/batch.py` 側へ → OPT2(RS8 と相談)
+- 音量を 2 回デコード(`audio_levels` を全帯域と高音域で 2 回)→ 配信中と同じ asplit の 1 回に → OPT1(上の表にある)
+- `live_excite_worker.py`(1,589 行)の小物の写し: `pid_alive`(`ytt/procs.pid_alive` と同じ)・`write_json`(`fsio.write_json` に NaN を断る選択を足せば同じ)・`append_jsonl`。もう ytt を読んでいるので写しは要らない → OPT1 の小物(約 20 行)
+- `live_excite_worker.length_hint`(約 40 行)は docstring に「入口の側が呼ぶ」= 呼ぶのは `flow/live_detect.py` だけ(人の採用の記録から長さの目安を作る)。② か ⑤ の仕事が ① のワーカーのファイルにある → `flow/live_detect.py` へ → OPT2
+- `live_excite_worker` の `Worker`(549 行)は「同時に 2 本まで・順番待ち・飛ばした区間の測り直し」の段取り = ② 寄りの仕事。子プロセスなので ② のファイルにはできないが、段取り(どれをいつ測るか)と計算(RecState)を分けると読みやすい → RV
+- `RecorderClient`(録画元の API を読む)は入口の `Live.request` と同じ形の写し(別プロセスのため)→ 録画元の小さな口を ytt に置けば 2 か所が 1 つに → OPT3(上の表の「録画元から取ってつなぐ所 2 つ」)
+- config.json の検査 `clean_*` 5 つ(約 50 行)は入口が書く設定の写しを検査し直している。入口の束(spec)の検査と同じ規則なら `flow/spec` の検査を読む形に → 調べてから(OPT2)
