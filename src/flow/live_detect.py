@@ -36,7 +36,7 @@ API(src/home/live.py の handle_get / _api_post から。書き込みは入口�
 友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。ホームの「自動の切り抜き: 未確認」(src/manage/cases/cases.py の auto.unconfirmed。Live.unconfirmed)が
 UNCONFIRMED_PAUSE 本以上なら、依頼の無い録画の自動の採用を休む(人が見ていないのに増やさない。友人の依頼の録画は届けるのでそのまま)。休んでいる間は「調子」の
 detect の行(autoAdopt.paused)に理由を出す。
-上限の数は親の hook auto_max(rc, rec)で変えられる(RS7-2 G1b。flow/livehost.py の OPTIONAL。友人の PC = 束の adopt.top = live_adopt.top_of)。
+上限の数は親の hook auto_max(rc, rec)で変えられる(RS7-2 G1b。flow/livehost.py の LiveHost。持っていなくてもよい。友人の PC = 束の adopt.top = live_adopt.top_of)。
 親が持たない・None(ユーザーの PC = Live)なら AUTO_MAX_PER_REC のまま。未確認の数で休むのは親の unconfirmed が None なら無い(友人の PC)。
 """
 import json
@@ -132,8 +132,8 @@ UNCONFIRMED_EVERY = 120.0  # 未確認の数を聞き直す間隔(案件の一�
 
 
 class Detector:
-    def __init__(self, host: "livehost.DetectHost", python=None, spawn=True, worker=WORKER, stale_sec=STALE_SEC, clock=time.time):
-        """host: 親(flow/livehost.py の DetectHost。flow/livesession.py の LiveSession。設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
+    def __init__(self, host: "livehost.LiveHost", python=None, spawn=True, worker=WORKER, stale_sec=STALE_SEC, clock=time.time):
+        """host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession。設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
         テストは spawn=False(ワーカーを起動しない)か、worker に偽のワーカーを渡す・stale_sec を縮める"""
         self.host = host
         self.python = python or sys.executable

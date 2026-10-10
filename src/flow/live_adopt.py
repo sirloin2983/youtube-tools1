@@ -162,11 +162,11 @@ class LocalMarks:
 
 
 class Adopter:
-    """採用(M1)の本体。host: 親(flow/livehost.py の AdoptHost。flow/livesession.py の LiveSession)= 録画元の検査 _ids・録画の状態 _rec_status・
+    """採用(M1)の本体。host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession)= 録画元の検査 _ids・録画の状態 _rec_status・
     書き出し exporter・マークの置き場 marks・友人の依頼 requests・書き出したあとの設定 auto_cfg・記録 log。
     deliver_for(origin, after, streamer) -> (届ける依頼の形か None, after, streamer): 友人の依頼の無い録画を確認なしで届けるか(app。無ければ届けない)"""
 
-    def __init__(self, host: "livehost.AdoptHost", deliver_for=None):
+    def __init__(self, host: "livehost.LiveHost", deliver_for=None):
         self.host = host
         self.deliver_for = deliver_for
         self.lock = threading.Lock()   # 同じ区間を続けて頼まれても、マーク・ジョブを二重に作らない

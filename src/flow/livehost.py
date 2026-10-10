@@ -4,17 +4,12 @@
 ② のライブの子 4 つ(live_detect.Detector・live_tx.LiveTx・live_report.Reporter・live_export.Exporter)は、
 親(flow/livesession.py の LiveSession = ライブ係。RS7-2 G2b。入口の src/home/live.py の Live はそれを継ぐ app の殻)を受け取って呼び返す。
 ここはその「親に何を求めるか」を typing.Protocol で並べた物(動きは持たない。子は self.host に親を持つ)。
-子ごとに要る分を小さく分けた: DetectHost・TxHost・ReportHost・ExportHost。全部をまとめた物が LiveHost(LiveSession が満たす)。
+親は 1 つ(LiveSession)なので口も LiveHost の 1 つにまとめた(採用 flow/live_adopt.py の Adopter。RS7-2 G1b も同じ口)。
+親とは別の物の口: 友人の依頼の結びつき RequestBook・マークの置き場 MarkBook(実装が 2 つ = live_adopt の StudioMarks・LocalMarks)。
 
-採用(flow/live_adopt.py の Adopter。RS7-2 G1b)が親に求める物は AdoptHost(マークの置き場 marks = MarkBook も)。
-
-親が持っていなくてもよい物(子が getattr で読み、無ければ飛ばす)は OPTIONAL に並べた:
-  Detector: _halt(入口の終了の途中ならワーカーを起こさない)・unconfirmed(D-13 の未確認の数。None なら休まない)・
-            auto_max(D-13 の 1 録画の自動の採用の上限。None なら AUTO_MAX_PER_REC)
-  Exporter: studio_call(スタジオのマークを「書き出し済み」にする。無ければ黙って飛ばす)
-  どちらも: bundles(録画ごとの封筒 + 束。無ければ束の無い録画と同じ = 今までの読み方)
-Archiver(live_archive)・Cleaner(manage/keep/live_cleanup)は関数で受けるのでここには無い
-(ただし Archiver は Exporter の host.find を読む = ExportHost の find)。
+親が持っていなくてもよい物(子が getattr で読み、無ければ飛ばす): _halt・unconfirmed・auto_max・bundles(Detector)、
+studio_call・bundles(Exporter)。Archiver(live_archive)・Cleaner(manage/keep/live_cleanup)は関数で受けるのでここには無い
+(ただし Archiver は Exporter の host.find を読む)。
 """
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
@@ -39,66 +34,45 @@ class RequestBook(Protocol):
     def prune(self) -> int: ...   # 古い結びつきを消す(ライブ係の見回り)
 
 
-class ExportHost(Protocol):
-    """Exporter(マークと書き出し)が親に求める物 = 録画元の一覧と要求"""
+class MarkBook(Protocol):
+    """マークの置き場(RS7-2 G1b。flow/live_adopt.py の StudioMarks = スタジオ・LocalMarks = マークの正本 live_export.MarkStore)"""
 
-    def find(self, rid: str) -> Optional[dict]: ...
+    def adopt_mark(self, rc_id: str, rec: str, st: dict, first: float, a: float, b: float, label: str) -> Tuple[str, dict, int]: ...
 
-    def recorders(self, cfg: Optional[dict] = None) -> List[dict]: ...
-
-    def call(self, rc: dict, method: str, path: str, body: Any = None, timeout: float = 3.0) -> Reply: ...
-
-    def request(self, rc: dict, method: str, path: str, body: Any = None, timeout: float = ...) -> Tuple[Any, Any]: ...
+    def exported(self, job: dict, media: str, archived: bool = False) -> str: ...
 
 
-class TxHost(Protocol):
-    """LiveTx(配信中の候補の文字起こし)が親に求める物"""
-    root: str
-    detector: "Detector"
-    exporter: "Exporter"
-
-    def cfg(self) -> dict: ...
-
-    def enabled(self) -> bool: ...
-
-    def find(self, rid: str) -> Optional[dict]: ...
-
-    def list_recordings(self) -> List[dict]: ...
-
-
-class ReportHost(Protocol):
-    """Reporter(配信ごとの結果の記録)が親に求める物"""
-    store_dir: str
-    log: Callable[[str], None]
-    requests: RequestBook
-    detector: "Detector"
-    livetx: "LiveTx"
-    exporter: "Exporter"
-
-    def enabled(self) -> bool: ...
-
-    def list_recordings(self) -> List[dict]: ...
-
-    def note(self, msg: str) -> None: ...
-
-
-class DetectHost(Protocol):
-    """Detector(盛り上がりの検出と自動の採用)が親に求める物"""
+class LiveHost(Protocol):
+    """ライブの親(flow/livesession.py の LiveSession。入口の Live はそれを継ぐ)。子 4 つと採用が求める物を全部"""
     root: str
     store_dir: str
     logs_dir: str
     log: Callable[[str], None]
     requests: RequestBook
+    marks: MarkBook
+    detector: "Detector"
     livetx: "LiveTx"
     exporter: "Exporter"
+    _halt: threading.Event                         # 入口の終了の途中ならワーカーを起こさない
+    unconfirmed: Optional[Callable[[], int]]       # D-13 の未確認の数。None なら休まない
+    auto_max: Optional[Callable[[str, str], int]]  # (rc, rec) -> 1 録画の自動の採用の上限(D-13)。None なら live_detect.AUTO_MAX_PER_REC。友人の PC は束の adopt.top
+    bundles: Any   # 録画ごとの封筒 + 束(flow/livesession.py の BundleBook。spec(rc, rec)・specs())。無い・束の無い録画は今までの読み方
 
     def cfg(self) -> dict: ...
+
+    def auto_cfg(self, rc: Optional[str] = None, rec: Optional[str] = None) -> dict: ...   # rc・rec = その録画の束から(無ければホームの設定)
 
     def enabled(self) -> bool: ...
 
     def recorders(self, cfg: Optional[dict] = None) -> List[dict]: ...
 
+    def find(self, rid: str) -> Optional[dict]: ...
+
     def list_recordings(self) -> List[dict]: ...
+
+    def call(self, rc: dict, method: str, path: str, body: Any = None, timeout: float = 3.0) -> Reply: ...
+
+    def request(self, rc: dict, method: str, path: str, body: Any = None, timeout: float = ...) -> Tuple[Any, Any]: ...
 
     def studio_call(self, method: str, path: str, body: Any = None) -> Reply: ...
 
@@ -108,50 +82,4 @@ class DetectHost(Protocol):
 
     def _ids(self, rc_id: str, rec: str) -> dict: ...
 
-
-class MarkBook(Protocol):
-    """マークの置き場(RS7-2 G1b。flow/live_adopt.py の StudioMarks = スタジオ・LocalMarks = マークの正本 live_export.MarkStore)"""
-
-    def adopt_mark(self, rc_id: str, rec: str, st: dict, first: float, a: float, b: float, label: str) -> Tuple[str, dict, int]: ...
-
-    def exported(self, job: dict, media: str, archived: bool = False) -> str: ...
-
-
-class AdoptHost(Protocol):
-    """Adopter(flow/live_adopt.py。採用 = マーク + 書き出し)が親に求める物"""
-    log: Callable[[str], None]
-    requests: RequestBook
-    exporter: "Exporter"
-    marks: MarkBook
-
-    def auto_cfg(self, rc: Optional[str] = None, rec: Optional[str] = None) -> dict: ...   # rc・rec = その録画の束から(RS7-2 G2b。無ければホームの設定)
-
-    def _ids(self, rc_id: str, rec: str) -> dict: ...
-
     def _rec_status(self, rc: dict, rc_id: str, rec: str) -> Tuple[dict, float]: ...
-
-
-class LiveHost(DetectHost, TxHost, ReportHost, ExportHost, AdoptHost, Protocol):
-    """4 つの子と採用の親(Live・G2b の livesession)。OPTIONAL の物も持つ"""
-    _halt: threading.Event
-    unconfirmed: Optional[Callable[[], int]]
-    auto_max: Optional[Callable[[str, str], int]]
-    bundles: Any   # 録画ごとの封筒 + 束(flow/livesession.py の BundleBook。spec(rc, rec)・specs()。RS7-2 G2b)
-
-
-# auto_max(rc, rec) -> 1 録画の自動の採用の上限(D-13。RS7-2 G1b)。None・無し = live_detect.AUTO_MAX_PER_REC(ユーザーの PC)。友人の PC は束の adopt.top
-# bundles = 録画ごとの封筒 + 束(flow/livesession.py の BundleBook。RS7-2 G2b)。Detector は録画ごとの解析・検出の設定、Exporter は書き出しの音量と
-# まとめて実行へ渡す束に使う。無い・束の無い録画は今までの読み方(スタジオの設定・audio())
-OPTIONAL = {"Detector": ("_halt", "unconfirmed", "auto_max", "bundles"), "Exporter": ("studio_call", "bundles")}
-
-
-def names(proto) -> List[str]:
-    """Protocol が並べた属性・メソッドの名前(継いだ分も。テストと調べもの用)"""
-    out = set()
-    for c in proto.__mro__:
-        if c in (object, Protocol) or not getattr(c, "_is_protocol", False):
-            continue
-        out.update(getattr(c, "__annotations__", {}))
-        out.update(k for k, v in vars(c).items() if callable(v) and not (k.startswith("__") and k.endswith("__")))
-    out.discard("_is_protocol")
-    return sorted(out)

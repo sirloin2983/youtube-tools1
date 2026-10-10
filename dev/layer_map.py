@@ -62,7 +62,7 @@ FILES = {
     "src/flow/envelope.py": ("flow", "flow", "依頼の封筒(RS7-1 S3。何を入れたか・どの依頼か・届け方 = 処理の中身でない物。中身は束 flow/spec.py)"),
     "src/flow/runqueue.py": ("flow", "flow", "② の待ち行列と実行の糸(RS7-1 S5。submit(封筒, 束)・status・cancel・snapshot・history・estimate・待ちの記録と終わった実行の記録。"
                           "Runner を継ぎ、入口の AutoRunner が受付と hook だけを足して継ぐ)"),
-    "src/flow/livehost.py": ("flow", "flow", "ライブの親の口(RS7-2 G0。typing.Protocol だけ。Detector・LiveTx・Reporter・Exporter が親に求める物 = 今は app の Live が満たす)"),
+    "src/flow/livehost.py": ("flow", "flow", "ライブの親の口(RS7-2 G0。typing.Protocol だけ。Detector・LiveTx・Reporter・Exporter・Adopter が親に求める物 = LiveHost 1 つ。flow/livesession の LiveSession が満たす)"),
     "src/flow/live_adopt.py": ("flow", "flow", "ライブの採用 = マーク + 書き出し(M1。RS7-2 G1b。Live.adopt の本体。マークの置き場 StudioMarks(スタジオ)・LocalMarks(マークの正本。スタジオなし))"),
     "src/flow/livesession.py": ("flow", "flow", "ライブ係(RS7-2 G2b。Live から app でない部分 = 録画元のクライアント・録画を始める・受付 submit(封筒 kind live + 束 → live/bundles.json)・"
                                 "見回り・子プロセス・調子・採用の口。入口の home/live.py の Live はこれを継ぐ app の殻)"),

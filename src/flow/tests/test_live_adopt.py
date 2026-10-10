@@ -3,7 +3,7 @@
 
 - スタジオなし(LocalMarks): 偽の親(Live を使わない・studio_call を持たない)で、採用 → マークの正本の採用の印 → 書き出しのジョブ →
   (書き出しが済んだ所から).clip.json → まとめて実行へ渡す → 印が「書き出し済み」まで。採用の id・ジョブ・.clip.json の形はスタジオのとき(StudioMarks)と同じ
-- 親には「口(livehost.AdoptHost・ExportHost)に並べた名前だけを通す」包みを渡す = 口と実際の使い方がずれない
+- 親には「口(livehost.LiveHost)に並べた名前だけを通す」包みを渡す = 口と実際の使い方がずれない
 - スタジオのとき(StudioMarks = 今のユーザーの PC)は src/home/tests/test_live.py の test_adopt_server_side などが縛る
 """
 import os
@@ -26,18 +26,17 @@ FIRST = 1790000000.0   # 録画の頭(最初のセグメントの受信時刻)
 
 
 class Strict:
-    """口(Protocol)に並べた名前だけを親から通す(口に無い名前は落として bad に残す。OPTIONAL は黙って無いことにする)"""
+    """口 LiveHost に並べた名前だけを親から通す(口に無い名前は落として bad に残す。口にあって親に無い名前は getattr の既定に落ちる)"""
 
-    def __init__(self, proto, target, optional=()):
-        object.__setattr__(self, "_ok", set(H.names(proto)))
-        object.__setattr__(self, "_opt", set(optional))
+    def __init__(self, target):
+        own = vars(H.LiveHost)
+        object.__setattr__(self, "_ok", set(own.get("__annotations__", {})) | {k for k, v in own.items() if callable(v) and not k.startswith("__")})
         object.__setattr__(self, "_t", target)
         object.__setattr__(self, "bad", [])
 
     def __getattr__(self, name):
         if name not in self._ok:
-            if name not in self._opt:
-                self.bad.append(name)
+            self.bad.append(name)
             raise AttributeError("口に無い名前: %s" % name)
         return getattr(self._t, name)
 
@@ -77,7 +76,7 @@ class Host:
         self.log = self.logs.append
         self.requests = Book()
         self.runner = Runner()
-        self.ex_view = Strict(H.ExportHost, self, H.OPTIONAL["Exporter"])
+        self.ex_view = Strict(self)
         self.exporter = LX.Exporter(self.ex_view, os.path.join(tmp, "live"), lambda: os.path.join(tmp, "out"), runner=lambda: self.runner, log=self.log,
                                     disk_usage=lambda p: (100 * LX.GB, 200 * LX.GB), exported=lambda job, media, archived=False: self.marks.exported(job, media, archived))
         self.exporter.start = lambda: None   # 書き出しは動かさない(ジョブは「録画待ち」のまま。済んだ所はテストが _finish を呼ぶ)
@@ -119,7 +118,7 @@ class LocalMarksTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-live-adopt-")
         self.host = Host(self.tmp)
-        self.view = Strict(H.AdoptHost, self.host)
+        self.view = Strict(self.host)
         self.ad = LA.Adopter(self.view)
 
     def tearDown(self):
