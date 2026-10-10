@@ -5,6 +5,7 @@ read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と�
 is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
 import json
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -301,3 +302,52 @@ def existing_parent(path):
             break
         probe = parent
     return probe
+
+
+def is_remote_drive(p):
+    """Windows のネットワークドライブ(net use で割り当てた Z: など)か。ドライブの種類を聞くだけで、ファイルには触らない
+    (RS3-1 に editor/ed_relink.py の _remote_drive から)"""
+    if os.name != "nt":
+        return False
+    drive = os.path.splitdrive(p)[0]
+    if len(drive) != 2 or drive[1] != ":":
+        return False
+    try:
+        import ctypes
+        return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4   # DRIVE_REMOTE
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def same_drive(a, b):
+    """2 つのパスが同じドライブか(大文字小文字は区別しない)"""
+    return os.path.splitdrive(os.path.abspath(a))[0].lower() == os.path.splitdrive(os.path.abspath(b))[0].lower()
+
+
+def move_file(a, b, log=None):
+    """ファイルを移す。同じドライブなら名前を変えるだけ。別のドライブ(C: → E: など。評価用のフォルダへ取り込むとき)は
+    コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せなければ(開いているなど)コピーを消して OSError(元のまま)。
+    log: 別のドライブへ移したときに 1 行書くロガー(省略で書かない)。RS3-1 に editor/ed_relink.py の _move から"""
+    try:
+        os.rename(a, b)
+        return
+    except OSError as e:
+        if same_drive(a, b) or os.path.exists(b):
+            raise
+        first = e
+    part = b + ".part"
+    try:
+        shutil.copy2(a, part)
+        if os.path.getsize(part) != os.path.getsize(a):
+            raise OSError("コピーの大きさが合いません: %s" % os.path.basename(a))
+        os.rename(part, b)
+        try:
+            os.remove(a)
+        except OSError:
+            os.remove(b)
+            raise
+    except BaseException:
+        unlink_quiet(part)
+        raise
+    if log is not None:
+        log.info("別のドライブへ移した: %s → %s(最初の名前の変更: %s)", a, b, first)

@@ -11,7 +11,7 @@ import unittest
 EDITOR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(EDITOR))   # 共通部品 ytt_core(src/)
 sys.path.insert(0, EDITOR)
-import ed_alt, ed_relink  # noqa: E402,F401  (鍵の検査の持ち主が読み込みのときに ytt/settings へ登録する = altEngine・evalDirs)
+import ed_alt  # noqa: E402,F401  (鍵の検査の持ち主が読み込みのときに ytt/settings へ登録する = altEngine)
 from ytt import settings as _settings  # noqa: E402  (編集の設定の鍵の検査。RS3-1 に ed_learn から)
 
 SCHEMA_PATH = os.path.join(os.path.dirname(EDITOR), "home", "settings", "schema.json")

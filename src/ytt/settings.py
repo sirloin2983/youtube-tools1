@@ -18,7 +18,8 @@
 編集の設定(settings.json)の読み書きと鍵の検査(load_settings・patch_settings・merge_settings・replace_settings・SETTINGS_PATCH_KEYS)も
 ここに置く(役割で組み直す RS3-1。2026-10-10 に editor/ed_learn.py から移した = どの層の部品も ed_learn を読まずに設定を読める)。
 置き場所は ytt/workdata の SETTINGS を呼ぶたびに読む(テストの S.SETTINGS = … が効く)。鍵の検査は持ち主の部品が register_patch_key で足す
-(2 つ目のエンジンの altEngine は ed_alt)。編集の部品・テストは serve の名前の受付(S.load_settings など)からも読める。
+(2 つ目のエンジンの altEngine は ed_alt)。
+評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard。設定 evalDirs を読む)もここ(RS0-f。RS3-1 に ed_relink から)。編集の部品・テストは serve の名前の受付(S.load_settings など)からも読める。
 """
 import json
 import os
@@ -194,7 +195,7 @@ def load_settings():
 
 
 # ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)。
-# 編集のほかの部品が持つ値で検査する鍵は、その持ち主が register_patch_key で足す(altEngine = ed_alt の ALT_ENGINES)
+# 編集のほかの部品が持つ値で検査する鍵は、その持ち主が register_patch_key で足す(altEngine = ed_alt の ALT_ENGINES)。evalDirs は下の評価用の節
 SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
                        "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
                        # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
@@ -283,3 +284,57 @@ def replace_settings(obj):
     except SettingsError as e:
         raise _settings_error(e)
     return {"ok": True}
+
+
+# ---------- 評価用のフォルダの判定(2026-10-01 ユーザー決定。docs/spec/eval-folder.md。RS3-1 に editor/ed_relink.py から移した = RS0-f)----------
+# 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こし・保存・付け替え・履歴から戻すときに評価用の印を付ける。
+# 判定はパスを比べるだけ(ネットワーク上のパスには触らない)。整理(名前をそろえる)と仮置きは editor/ed_relink に残る
+EVAL_DIRS_MAX = 10
+EVAL_NAME_WORD = "評価用"
+
+
+def _eval_dirs_ok(v):
+    """設定 evalDirs の形(10 個まで・ドライブから始まる・ネットワーク上でない・「:」の代替ストリームでない)"""
+    return (isinstance(v, list) and len(v) <= EVAL_DIRS_MAX
+            and all(isinstance(p, str) and 3 <= len(p) <= 1000 and os.path.isabs(p) and not fsio.is_network_path(p)
+                    and not any(ch in p for ch in "\x00\r\n") and ":" not in os.path.splitdrive(p)[1] for p in v))
+
+
+SETTINGS_PATCH_KEYS["evalDirs"] = lambda v: _eval_dirs_ok(v)   # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
+
+
+def eval_dirs():
+    """設定の評価用のフォルダ(あるものだけ)。ネットワーク上・作業データの中は使わない"""
+    v = load_settings().get("evalDirs")
+    if not _eval_dirs_ok(v):
+        return []
+    out = []
+    for p in v:
+        p = os.path.abspath(p)
+        try:
+            if not fsio.is_remote_drive(p) and os.path.isdir(p) and not fsio.is_inside(p, _workdata.DATA_DIR) and not fsio.is_inside(_workdata.DATA_DIR, p):
+                out.append(p)
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def in_eval_dir(path, dirs=None):
+    """動画のパスが評価用のフォルダの中か(パスを比べるだけ。ネットワーク上のパスには触らない)"""
+    s = str(path or "")
+    if not s or fsio.is_network_path(s) or not os.path.isabs(s):
+        return False
+    return any(fsio.is_inside(s, d) for d in (eval_dirs() if dirs is None else dirs))
+
+
+def eval_name_guard(path, is_eval=False, todo="文字起こししてください"):
+    """設定 evalDirs が空(未設定・消えた)なのに、動画のパスのフォルダ名のどこかに「評価用」が入っているときは止めて案内する
+    (設定が消えたまま文字起こしすると、評価用の動画が学習用の文書に混ざる。master-plan Q0)。設定があれば今までどおり(何もしない)。
+    is_eval: 評価用として始める(画面のチェック・評価用の文書)なら混ざらないので通す。パスの文字を調べるだけでファイルには触らない"""
+    if is_eval:
+        return
+    v = load_settings().get("evalDirs")
+    if _eval_dirs_ok(v) and v:
+        return
+    if any(EVAL_NAME_WORD in part for part in re.split(r"[\\/]+", os.path.dirname(str(path or "")))):
+        raise _errors.ApiError("eval_dir_unset", "評価用のフォルダの中の動画のようです。⚙ の『評価用のフォルダ』を設定してから%s(設定が無いと学習用に混ざります)" % todo, 400)

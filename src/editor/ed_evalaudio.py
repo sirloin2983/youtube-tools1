@@ -31,6 +31,7 @@ from ytt import fsio as _fsio, jobs as _heavy, tools as _tools  # noqa: E402,F40
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
+from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
 
 SCHEMA = "ytt-eval-audio/v1"
 DIR_NAME = "eval-audio"
@@ -99,7 +100,7 @@ def status():
     items = [i for i in idx["items"].values() if isinstance(i, dict)]
     made = [i for i in items if i.get("flac")]
     scan = idx.get("scan") if isinstance(idx.get("scan"), dict) else {}
-    return {"enabled": bool(ed_relink.eval_dirs()), "running": _pass_lock.locked(),
+    return {"enabled": bool(_settings.eval_dirs()), "running": _pass_lock.locked(),
             "total": scan.get("found"), "made": len(made), "remaining": scan.get("pending"),
             "gone": sum(1 for i in items if i.get("gone")), "failed": sum(1 for i in items if i.get("error") and not i.get("flac")),
             "bytes": sum(int(i.get("flacSize") or 0) for i in made), "seconds": round(sum(float(i.get("durationSec") or 0) for i in made), 1),
@@ -152,7 +153,7 @@ def _make(ff, src, dst):
 def scan_sources():
     """評価用のフォルダの下の動画 [(パス, 大きさ, 更新時刻)](仮置きも含む。作業用/ と _edit の動画は除く)"""
     out, seen = [], set()
-    for root in ed_relink.eval_dirs():
+    for root in _settings.eval_dirs():
         for folder, names in ed_relink._eval_videos(root, skip_staging=False).items():
             for n in names:
                 p = os.path.join(folder, n)
@@ -199,7 +200,7 @@ def _reconcile(idx, found):
             if it.get("error") and not it.get("flac") and _same(it, size, mtime) and int(it.get("fails") or 0) >= MAX_FAILS:
                 continue   # 同じ元で何度も失敗している(元が変わるまで試さない)
         todo.append((p, size, mtime))
-    if ed_relink.eval_dirs():   # 評価用のフォルダが見えているときだけ(ドライブを外していると全部消えたことになってしまう)
+    if _settings.eval_dirs():   # 評価用のフォルダが見えているときだけ(ドライブを外していると全部消えたことになってしまう)
         now = ed_state.now_ms()
         for k, it in items.items():
             if k not in keys and isinstance(it, dict) and not it.get("gone") and not os.path.exists(str(it.get("src") or "")):
@@ -212,7 +213,7 @@ def run_pass(why="manual", log=None):
     """1回まわる。-> {made, failed, adopted, found, pending, deferred(途中でやめた理由)} か {skipped: 理由}。
     評価用のフォルダが無い・ffmpeg が無い・別の処理が動いているときは何もしない(評価用のフォルダが空なら eval-audio/ も作らない)"""
     log = log or (lambda m: ed_state.log.info("評価用の音声: %s", m))
-    if not ed_relink.eval_dirs():
+    if not _settings.eval_dirs():
         return {"skipped": "no_eval_dirs"}
     ff = _tools.find_ffmpeg()
     if not ff:

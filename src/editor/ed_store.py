@@ -17,7 +17,6 @@ from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E40
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_drill  # noqa: E402,F401  (評価ドリルの要約 drill_doc_summary を、文書の要約と一緒に作る)
 import ed_jobs  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402   (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 # ---------- 文字起こしの保存 ----------
@@ -141,7 +140,7 @@ def sanitize_transcript(obj, base=None):
             out["evalSet"] = True
         else:
             out.pop("evalSet", None)
-    if ed_relink.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
+    if _settings.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
         out["evalSet"] = True
     # 「動画を全部聞いて確かめた」印(評価ドリル。ed_drill.drill_reviewed)は base から引き継ぐだけ(画面から送られた値は使わない = out は base の写し)。
     # 評価用を外したら一緒に外す(評価用でない間は一括置換・再認識などで機械が書き換えられるため、付け直すときは聞き直す)
@@ -438,7 +437,7 @@ def restore_history(tid, ts):
                 old["effort"] = cur["effort"]
             else:
                 old.pop("effort", None)
-            if ed_relink.in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
+            if _settings.in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
                 old["evalSet"] = True
             apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
             write_doc(tid, old)

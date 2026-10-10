@@ -147,6 +147,36 @@ class TestFsio(unittest.TestCase):
             self.assertFalse(fsio.create_new(q, b"2"))
         self.assertEqual(sorted(os.listdir(self.tmp)), ["a.srt", "b.srt"])
 
+    def test_move_file_across_drives(self):
+        """move_file(RS3-1 に editor/ed_relink の _move から): 名前の変更が効かない別のドライブはコピー → 元を消す。元を消せなければ元のまま"""
+        a, b = os.path.join(self.tmp, "a.bin"), os.path.join(self.tmp, "sub", "b.bin")
+        os.makedirs(os.path.dirname(b))
+        with open(a, "wb") as f:
+            f.write(b"video")
+        self.assertTrue(fsio.same_drive(a, b))
+        real = os.rename
+
+        def no_rename_across(x, y):   # 別のドライブのふり: .part → 本名 の同じフォルダの中だけ通す
+            if os.path.dirname(x) != os.path.dirname(y):
+                raise OSError(17, "別のドライブ")
+            return real(x, y)
+        logged = []
+        log = type("L", (), {"info": lambda self, *a: logged.append(a)})()
+        with mock.patch.object(fsio, "same_drive", lambda x, y: False), mock.patch.object(fsio.os, "rename", no_rename_across):
+            fsio.move_file(a, b, log=log)
+        self.assertFalse(os.path.exists(a))
+        with open(b, "rb") as f:
+            self.assertEqual(f.read(), b"video")
+        self.assertEqual(len(logged), 1)
+        real_remove = os.remove
+        with mock.patch.object(fsio, "same_drive", lambda x, y: False), mock.patch.object(fsio.os, "rename", no_rename_across), \
+                mock.patch.object(fsio.os, "remove", lambda x: (_ for _ in ()).throw(PermissionError(13, "使用中")) if x == b else real_remove(x)):
+            with self.assertRaises(OSError):
+                fsio.move_file(b, a)
+        self.assertTrue(os.path.isfile(b))
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["sub"])   # .part も残さない(a は消した = コピーを消して元のまま)
+        self.assertFalse(fsio.is_remote_drive(self.tmp))
+
     def test_read_json_file_limits(self):
         p = os.path.join(self.tmp, "a.json")
         with open(p, "wb") as f:

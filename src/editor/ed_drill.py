@@ -31,6 +31,7 @@ import ed_state  # noqa: E402,F401
 from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
 
 DRILL_RECENT_SEC = 600       # 直近これだけの間に更新した文書は選ばない(編集の画面で開いている可能性)
 DRILL_GOAL_SEC = 900         # 定点 = 確かめ済みの評価用の動画 15 分(マスタープラン Q4)
@@ -311,7 +312,7 @@ def _member_name(folder):
 
 def _own_member(path, dirs):
     """動画の入ったフォルダから評価用のフォルダまでさかのぼって、最初の「…数字_名前」のフォルダの名前(評価用のフォルダの中だけ)"""
-    if not path or not ed_relink.in_eval_dir(path, dirs):
+    if not path or not _settings.in_eval_dir(path, dirs):
         return ""
     roots = [ed_state.norm_path(d) for d in dirs]
     cur = os.path.dirname(os.path.abspath(path))
@@ -364,7 +365,7 @@ def _diar_voices(tid):
 def drill_candidates_for(tid, doc, dirs=None, voices=None):
     """[{"name", "from": voice|folder|stream, "near": この文書の手がかりか}](近いものから。一般的な名前は除く)"""
     out, seen = [], set()
-    dirs = ed_relink.eval_dirs() if dirs is None else dirs
+    dirs = _settings.eval_dirs() if dirs is None else dirs
 
     def add(name, src, near):
         nm = str(name or "").strip()[:30]

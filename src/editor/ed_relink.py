@@ -28,20 +28,6 @@ RELINK_TOL_RATIO = 0.005
 RELINK_RANGE_TOL = 0.5    # 範囲の文書: 新しい動画の長さ ≥ 範囲の終わり − これ
 
 
-def _remote_drive(p):
-    """Windows のネットワークドライブ(net use で割り当てた Z: など)か。ドライブの種類を聞くだけで、ファイルには触らない"""
-    if os.name != "nt":
-        return False
-    drive = os.path.splitdrive(p)[0]
-    if len(drive) != 2 or drive[1] != ":":
-        return False
-    try:
-        import ctypes
-        return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4   # DRIVE_REMOTE
-    except (AttributeError, OSError, ValueError):
-        return False
-
-
 def relink_path(raw):
     """付け替え先のパスの検査。ネットワーク上のパスは、ファイルに触る前に断る(存在を確かめるだけで資格情報を送るため)。
     ジャンクション・リンクを解いた先でも、もう一度 ネットワーク・「:」(NTFS の代替ストリーム)・拡張子・作業データの中 を確かめる。-> 実体のパス"""
@@ -59,7 +45,7 @@ def relink_path(raw):
                 p = os.path.realpath(p)
             except (OSError, ValueError):
                 raise ed_state.ApiError("no_file", "ファイルが見つかりません(パスを確認してください)", 400)
-        if _fsio.is_network_path(p) or _remote_drive(p):
+        if _fsio.is_network_path(p) or _fsio.is_remote_drive(p):
             raise ed_state.ApiError("network_path", "ネットワーク上のファイルは選べません(このパソコンにコピーしてから選んでください)", 400)
         if ":" in os.path.splitdrive(p)[1]:
             raise ed_state.ApiError("bad_path", "パスに「:」が入っています(ファイルそのもののパスを入れてください)", 400)
@@ -91,7 +77,7 @@ def relink_check(obj):
     tid = str(obj.get("id") or "")
     doc = ed_store.read_transcript(tid)
     p = relink_path(obj.get("path"))
-    eval_name_guard(p, doc.get("evalSet") is True, "付け替えてください")   # 評価用のフォルダの設定が消えているときは、評価用のフォルダへの付け替えを止める
+    _settings.eval_name_guard(p, doc.get("evalSet") is True, "付け替えてください")   # 評価用のフォルダの設定が消えているときは、評価用のフォルダへの付け替えを止める
     dur, has_v, has_a = _tools.probe_media(p)
     if not (has_v or has_a):
         raise ed_state.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
@@ -191,7 +177,7 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
         rec["why"] = why
     doc["relinks"] = (prev + [rec])[-RELINK_KEEP:]
     doc.update({"sourcePath": path, "sourceName": os.path.basename(path), "updatedAt": now})
-    if in_eval_dir(path):
+    if _settings.in_eval_dir(path):
         doc["evalSet"] = True
     ed_store.apply_edit_cuts(tid, doc)
     ed_store.write_doc(tid, doc)
@@ -242,7 +228,7 @@ def norm_plan(src):
     ext = os.path.splitext(src)[1].lower()
     if _tools.MEDIA_TYPES.get(ext, "").startswith("audio/"):   # 音声だけのファイル(カバー画像を映像と数えない)
         return None
-    if _fsio.is_network_path(src) or _remote_drive(src):
+    if _fsio.is_network_path(src) or _fsio.is_remote_drive(src):
         return {"src": src, "dst": None, "reuse": False, "why": [], "note": "ネットワーク上の動画は 30fps にそろえません(元の動画のまま使います)"}
     info = _vnorm.probe(src)
     if info is None:
@@ -334,7 +320,7 @@ def norm_run(job, tid, plan):
 def norm_after_transcribe(job, spec, tid):
     """文字起こしのジョブの続き(ed_jobs.run_job が文書を書いたあとで呼ぶ)。評価用は作り直さない。
     知らせは job["normNote"](付け替えなかったときは job["warnings"] にも)"""
-    if spec.get("evalSet") or in_eval_dir(spec.get("sourcePath")):
+    if spec.get("evalSet") or _settings.in_eval_dir(spec.get("sourcePath")):
         return
     try:
         plan = norm_plan(spec.get("sourcePath"))
@@ -363,7 +349,7 @@ def _norm_note(job, ok, note):
 def norm_start(tid, path, doc):
     """動画を選び直したあと: 30fps でなければ裏のジョブで作り直して付け替える。
     -> (始めたジョブの id か None, 知らせ(作らない理由。無ければ ""))。評価用・30fps なら (None, "")"""
-    if doc.get("evalSet") is True or in_eval_dir(path):
+    if doc.get("evalSet") is True or _settings.in_eval_dir(path):
         return None, ""
     plan = norm_plan(path)
     if not plan:
@@ -434,13 +420,13 @@ def relink_folder(raw):
     if not os.path.isabs(s):
         raise ed_state.ApiError("bad_path", "ドライブから始まるパス(例: D:\\動画)を入れてください", 400)
     p = os.path.abspath(s)
-    if _remote_drive(p):
+    if _fsio.is_remote_drive(p):
         raise net
     try:
         p = os.path.realpath(p)
     except (OSError, ValueError):
         raise ed_state.ApiError("no_dir", "フォルダが見つかりません", 400)
-    if _fsio.is_network_path(p) or _remote_drive(p):
+    if _fsio.is_network_path(p) or _fsio.is_remote_drive(p):
         raise net
     if ":" in os.path.splitdrive(p)[1]:
         raise ed_state.ApiError("bad_path", "パスに「:」が入っています", 400)
@@ -504,7 +490,8 @@ def pick_path(obj):
 # 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こしを始めたとき・保存・付け替え・履歴から戻したときに
 # 評価用の印(evalSet)を付け、画面からは外せない。「整理」は動画の名前を「フォルダ名_番号_状態」にそろえ、文書を付け替える
 # (入口の起動時に1回 + 画面のボタン)。状態 = 済(文字のある行がすべて校正済み)・未・未文字起こし
-EVAL_DIRS_MAX = 10
+# 判定(eval_dirs・in_eval_dir・eval_name_guard・設定の形 _eval_dirs_ok)は ytt/settings、別のドライブへ移す move_file・same_drive は ytt/fsio
+# (RS3-1 に移した。_settings.名前・_fsio.名前 で呼ぶたびに読む = S.in_eval_dir = …・patch.object(fsio, "same_drive") が届く)
 EVAL_STATES = ("済", "未", "未文字起こし")
 EVAL_WALK_DEPTH = 4         # 評価用のフォルダから下へ何段まで(評価用データ\1_JP\01_0期生\評価用データ01_ときのそら = 3段)
 EVAL_WALK_MAX = 20000       # 見るファイルとフォルダの数の上限
@@ -515,55 +502,6 @@ EVAL_STAGING = "評価用_仮置き"
 _EVAL_MEMBER_RE = re.compile(r"^.*?\d+_(.+)$")
 _evalorg_lock = threading.Lock()
 _evalorg_last = {}
-
-
-def _eval_dirs_ok(v):
-    return (isinstance(v, list) and len(v) <= EVAL_DIRS_MAX
-            and all(isinstance(p, str) and 3 <= len(p) <= 1000 and os.path.isabs(p) and not _fsio.is_network_path(p)
-                    and not any(ch in p for ch in "\x00\r\n") and ":" not in os.path.splitdrive(p)[1] for p in v))
-
-
-_settings.register_patch_key("evalDirs", lambda v: _eval_dirs_ok(v))   # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
-
-
-def eval_dirs():
-    """設定の評価用のフォルダ(あるものだけ)。ネットワーク上・作業データの中は使わない"""
-    v = _settings.load_settings().get("evalDirs")
-    if not _eval_dirs_ok(v):
-        return []
-    out = []
-    for p in v:
-        p = os.path.abspath(p)
-        try:
-            if not _remote_drive(p) and os.path.isdir(p) and not _fsio.is_inside(p, _workdata.DATA_DIR) and not _fsio.is_inside(_workdata.DATA_DIR, p):
-                out.append(p)
-        except (OSError, ValueError):
-            pass
-    return out
-
-
-def in_eval_dir(path, dirs=None):
-    """動画のパスが評価用のフォルダの中か(パスを比べるだけ。ネットワーク上のパスには触らない)"""
-    s = str(path or "")
-    if not s or _fsio.is_network_path(s) or not os.path.isabs(s):
-        return False
-    return any(_fsio.is_inside(s, d) for d in (eval_dirs() if dirs is None else dirs))
-
-
-EVAL_NAME_WORD = "評価用"
-
-
-def eval_name_guard(path, is_eval=False, todo="文字起こししてください"):
-    """設定 evalDirs が空(未設定・消えた)なのに、動画のパスのフォルダ名のどこかに「評価用」が入っているときは止めて案内する
-    (設定が消えたまま文字起こしすると、評価用の動画が学習用の文書に混ざる。master-plan Q0)。設定があれば今までどおり(何もしない)。
-    is_eval: 評価用として始める(画面のチェック・評価用の文書)なら混ざらないので通す。パスの文字を調べるだけでファイルには触らない"""
-    if is_eval:
-        return
-    v = _settings.load_settings().get("evalDirs")
-    if _eval_dirs_ok(v) and v:
-        return
-    if any(EVAL_NAME_WORD in part for part in re.split(r"[\\/]+", os.path.dirname(str(path or "")))):
-        raise ed_state.ApiError("eval_dir_unset", "評価用のフォルダの中の動画のようです。⚙ の『評価用のフォルダ』を設定してから%s(設定が無いと学習用に混ざります)" % todo, 400)
 
 
 def _eval_name_re(prefix):
@@ -608,37 +546,6 @@ def _path_busy(path):
         return any(j["state"] in ed_jobs.ACTIVE_STATES and os.path.normcase(str((j.get("spec") or {}).get("sourcePath") or "")) == key for j in ed_jobs._jobs.values())
 
 
-def _same_drive(a, b):
-    return os.path.splitdrive(os.path.abspath(a))[0].lower() == os.path.splitdrive(os.path.abspath(b))[0].lower()
-
-
-def _move(a, b):
-    """ファイルを移す。同じドライブなら名前を変えるだけ。別のドライブ(C: → E: など。評価用のフォルダへ取り込むとき)は
-    コピー(.part)→ 大きさを確かめる → 名前を付ける → 元を消す。元を消せなければ(開いているなど)コピーを消して OSError(元のまま)"""
-    try:
-        os.rename(a, b)
-        return
-    except OSError as e:
-        if _same_drive(a, b) or os.path.exists(b):
-            raise
-        first = e
-    part = b + ".part"
-    try:
-        shutil.copy2(a, part)
-        if os.path.getsize(part) != os.path.getsize(a):
-            raise OSError("コピーの大きさが合いません: %s" % os.path.basename(a))
-        os.rename(part, b)
-        try:
-            os.remove(a)
-        except OSError:
-            os.remove(b)
-            raise
-    except BaseException:
-        _fsio.unlink_quiet(part)
-        raise
-    ed_state.log.info("別のドライブへ移した: %s → %s(最初の名前の変更: %s)", a, b, first)
-
-
 def _rename_sidecars(old, new):
     """動画の途中のファイル(作業用/ と、以前の置き方の動画の隣)も動画に合わせて名前を変える・移す(仮置きから移すときは別のフォルダへ)。
     中身は書き換えない。-> [(古い, 新しい)]"""
@@ -649,7 +556,7 @@ def _rename_sidecars(old, new):
             a, b = os.path.join(src, ostem + suf), os.path.join(dst, nstem + suf)
             if os.path.isfile(a) and not os.path.exists(b):
                 os.makedirs(dst, exist_ok=True)
-                _move(a, b)
+                _fsio.move_file(a, b, log=ed_state.log)
                 done.append((a, b))
     return done
 
@@ -738,7 +645,7 @@ def _eval_copy_index(dirs):
     """仮置きのコピーの付け替え先の候補: 評価用のフォルダの外の動画を指す、行のある文書 {正規化したファイル名: [要約]}(2026-10-02 ユーザー決定)"""
     idx = {}
     for _tid, sm, sp in ed_store.summaries():
-        if not sp or not sm.get("rows") or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs):
+        if not sp or not sm.get("rows") or _fsio.is_network_path(sp) or not os.path.isabs(sp) or _settings.in_eval_dir(sp, dirs):
             continue
         idx.setdefault(os.path.normcase(os.path.basename(sp)), []).append(sm)
     return idx
@@ -817,7 +724,7 @@ def _eval_outside_docs(dirs, only=None):
     同じ動画を使う文書は印の無いものも入れる(断るかを決めるため)。only: この文書の動画だけ"""
     by_path, marked = {}, set()
     for _tid, sm, sp in ed_store.summaries():
-        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or in_eval_dir(sp, dirs) or _fsio.is_inside(sp, _workdata.DATA_DIR):
+        if not sp or _fsio.is_network_path(sp) or not os.path.isabs(sp) or _settings.in_eval_dir(sp, dirs) or _fsio.is_inside(sp, _workdata.DATA_DIR):
             continue
         key = ed_state.norm_path(sp)
         by_path.setdefault(key, (sp, []))[1].append(sm)
@@ -884,7 +791,7 @@ def eval_organize(trigger="button"):
     if not _evalorg_lock.acquire(blocking=False):
         raise ed_state.ApiError("busy", "評価用のフォルダの整理は、いま動いています", 409)
     try:
-        dirs = eval_dirs()
+        dirs = _settings.eval_dirs()
         res = {"at": ed_state.now_ms(), "trigger": trigger, "dirs": len(dirs), "videos": 0, "renamed": [], "marked": 0, "skipped": [],
                "moved": [], "staged": [], "intaken": []}
         if not dirs:
@@ -947,7 +854,7 @@ def _eval_docs_by_path(dirs):
     """評価用のフォルダの中の動画 → その動画を使う文書の要約の一覧"""
     by_path = {}
     for _tid, sm, sp in ed_store.summaries():
-        if sp and in_eval_dir(sp, dirs):
+        if sp and _settings.in_eval_dir(sp, dirs):
             by_path.setdefault(ed_state.norm_path(sp), []).append(sm)
     return by_path
 
@@ -957,9 +864,9 @@ def eval_settle(obj):
     -> {moved: {from, to, docs, member} | None, reason}(仮置きでない・整理が動いているときは moved なし)"""
     tid = str(obj.get("id") or "")
     doc = ed_store.read_transcript(tid)
-    dirs = eval_dirs()
+    dirs = _settings.eval_dirs()
     sp = str(doc.get("sourcePath") or "")
-    if dirs and sp and doc.get("evalSet") is True and not in_eval_dir(sp, dirs) and _eval_outside_docs(dirs, tid):
+    if dirs and sp and doc.get("evalSet") is True and not _settings.in_eval_dir(sp, dirs) and _eval_outside_docs(dirs, tid):
         # 評価用にした文書の動画が外にある: 評価用のフォルダへ取り込む(別のドライブへのコピーは時間がかかるので裏で。結果はログと整理の記録)
         if not _evalorg_lock.acquire(blocking=False):
             return {"moved": None, "reason": "整理が動いています"}
@@ -1003,7 +910,7 @@ def _eval_mark_docs(tids):
     for tid in tids:
         with ed_store._save_lock:
             doc = ed_store.read_transcript(tid)
-            if doc.get("evalSet") is True or not in_eval_dir(doc.get("sourcePath")):
+            if doc.get("evalSet") is True or not _settings.in_eval_dir(doc.get("sourcePath")):
                 continue
             ed_store.snapshot(tid)
             doc["evalSet"] = True
@@ -1016,7 +923,7 @@ def _eval_mark_docs(tids):
 def _eval_rename(old, new, tids, why="evalOrganize"):
     """動画と途中のファイルの名前を変えて(仮置きから移すとき・外から取り込むときは別のフォルダ・別のドライブへ)、その動画を使う文書を付け替える。
     付け替えに失敗したら名前を元に戻す"""
-    _move(old, new)
+    _fsio.move_file(old, new, log=ed_state.log)
     side, done = [], []
     try:
         side = _rename_sidecars(old, new)
@@ -1036,11 +943,11 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
                 ed_state.log.exception("評価用の整理: 文書を元の名前へ戻せませんでした %s", tid)
         for a, b in reversed(side):
             try:
-                _move(b, a)
+                _fsio.move_file(b, a, log=ed_state.log)
             except OSError:
                 pass
         try:
-            _move(new, old)
+            _fsio.move_file(new, old, log=ed_state.log)
         except OSError:
             ed_state.log.exception("評価用の整理: 名前を戻せませんでした %s", new)
         raise
@@ -1051,12 +958,12 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
 def eval_folders_info():
     """GET /api/eval-folders: 設定の値・使えるフォルダ・最後の整理の結果"""
     v = _settings.load_settings().get("evalDirs")
-    return {"dirs": v if _eval_dirs_ok(v) else [], "active": eval_dirs(), "running": _evalorg_lock.locked(), "last": dict(_evalorg_last) or None}
+    return {"dirs": v if _settings._eval_dirs_ok(v) else [], "active": _settings.eval_dirs(), "running": _evalorg_lock.locked(), "last": dict(_evalorg_last) or None}
 
 
 def _evalorg_startup():
     try:
-        if eval_dirs():
+        if _settings.eval_dirs():
             eval_organize("startup")
     except Exception:
         ed_state.log.exception("評価用のフォルダの整理(起動時)に失敗")

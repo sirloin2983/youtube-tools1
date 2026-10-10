@@ -203,6 +203,31 @@ class TestEditorSettings(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.st.register_patch_key("", lambda v: True)
 
+    def test_eval_dirs(self):
+        """評価用のフォルダの判定(RS3-1 に editor/ed_relink から)。設定 evalDirs を読む・あるフォルダだけ・作業データの中は使わない"""
+        from unittest import mock
+        from ytt import errors
+        ev = os.path.join(self.tmp, "評価用データ")
+        os.makedirs(ev)
+        self.assertTrue(self.st._eval_dirs_ok([ev]))
+        for bad in ("x", ["relative"], ["\\\\server\\share"], [ev] * 11):
+            self.assertFalse(self.st._eval_dirs_ok(bad), bad)
+        self.assertTrue(self.st.SETTINGS_PATCH_KEYS["evalDirs"]([ev]))
+        self.assertEqual(self.st.eval_dirs(), [])
+        with self.assertRaises(errors.ApiError) as cm:   # 設定が無いのに「評価用」のフォルダの動画 = 止める
+            self.st.eval_name_guard(os.path.join(ev, "a.mp4"))
+        self.assertEqual(cm.exception.code, "eval_dir_unset")
+        self.st.eval_name_guard(os.path.join(ev, "a.mp4"), is_eval=True)   # 評価用として始めるなら通す
+        self.st.patch_settings({"values": {"evalDirs": [ev, os.path.join(self.tmp, "無い")]}})
+        with mock.patch.object(self.wd, "DATA_DIR", os.path.join(self.tmp, "data")):
+            self.assertEqual(self.st.eval_dirs(), [os.path.abspath(ev)])   # 無いフォルダは除く
+            self.assertTrue(self.st.in_eval_dir(os.path.join(ev, "a.mp4")))
+            self.assertFalse(self.st.in_eval_dir(ev + "x" + os.sep + "a.mp4"))   # 名前が前で一致するだけの隣のフォルダは外
+            self.assertFalse(self.st.in_eval_dir("relative.mp4"))
+            self.st.eval_name_guard(os.path.join(ev, "a.mp4"))   # 設定があれば何もしない
+        with mock.patch.object(self.wd, "DATA_DIR", ev):
+            self.assertEqual(self.st.eval_dirs(), [])   # 作業データと重なるフォルダは使わない
+
     def test_too_big_is_413(self):
         from ytt import errors
         with self.assertRaises(errors.ApiError) as cm:

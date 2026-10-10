@@ -25,7 +25,6 @@ import threading
 import time
 
 import ed_jobs  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from pipeline.transcribe import worker_client  # noqa: E402   (faster-whisper の有無 has_faster_whisper。RS3-0A に ed_state から)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
@@ -98,7 +97,7 @@ def alt_spec(tid, req=None):
     if not ed_store.doc_has_rows(doc):
         raise ed_state.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
     src = _tools.check_source(doc.get("sourcePath"))
-    if ed_relink.in_eval_dir(src):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
+    if _settings.in_eval_dir(src):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
         raise ed_state.ApiError("eval_set", "評価用のフォルダの動画には、別のエンジンの候補を出しません", 400)
     key = alt_engine_key(req)
     e = ALT_ENGINES[key]

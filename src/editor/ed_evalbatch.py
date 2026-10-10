@@ -170,7 +170,7 @@ def eval_batch_status():
 
 def eb_require_ready():
     """まとめての文字起こしを動かせるか(評価用のフォルダが見えている・ffmpeg がある)。だめなら ApiError"""
-    if not ed_relink.eval_dirs():
+    if not _settings.eval_dirs():
         raise ed_state.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
     if not _tools.find_ffmpeg():
         raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
@@ -221,7 +221,7 @@ def eval_batch_stop(req=None):
 def eb_scan():
     """評価用のフォルダの下の「評価用_仮置き」と「…_NN_未文字起こし」の動画 [パス](並びは名前順)"""
     out, seen = [], set()
-    for root in ed_relink.eval_dirs():
+    for root in _settings.eval_dirs():
         stg = os.path.join(root, ed_relink.EVAL_STAGING)
         for folder, names in sorted(ed_relink._eval_videos(root, skip_staging=False).items()):
             staged = _fsio.is_inside(folder, stg)
@@ -398,7 +398,7 @@ def _eb_tick_locked(why, log):
             return {"skipped": "stopped"}
         before = json.dumps(st, sort_keys=True)
         _eb_absorb(st, [j for j in jobs if _eb_mine(j)])
-        if not ed_relink.eval_dirs():   # ドライブを外している間: 何もしない(終わったことにも、止めたことにもしない)
+        if not _settings.eval_dirs():   # ドライブを外している間: 何もしない(終わったことにも、止めたことにもしない)
             st["deferred"] = "評価用のフォルダが見つかりません(ドライブを確かめてください)"
             res = {"skipped": "no_eval_dirs"}
         elif others:

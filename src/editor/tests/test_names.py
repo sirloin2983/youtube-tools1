@@ -297,17 +297,22 @@ class TestEdJobsForwarding(unittest.TestCase):
 
 
 class TestSettingsMoved(unittest.TestCase):
-    """編集の設定の読み書きと鍵の検査を ed_learn から ytt/settings へ移した(RS3-1)。S.名前 で読め、差し替えは ytt/settings に届き、
-    ed_learn に別名が残っていない。鍵の検査は持ち主が登録する(altEngine = ed_alt・evalDirs)"""
+    """編集の設定の読み書きと鍵の検査を ed_learn から、評価用のフォルダの判定を ed_relink から ytt/settings へ移した(RS3-1)。S.名前 で読め、
+    差し替えは ytt/settings に届き、ed_learn・ed_relink に別名が残っていない。鍵の検査は持ち主が登録する(altEngine = ed_alt)"""
     MOVED = ("SETTINGS_MAX", "load_settings", "SETTINGS_PATCH_KEYS", "CUT_SILENCE_RANGE", "patch_settings", "merge_settings", "replace_settings",
-             "register_patch_key", "_settings_file", "_settings_lock", "_keymap_ok", "_cut_silence_ok", "_settings_error")
+             "register_patch_key", "_settings_file", "_settings_lock", "_keymap_ok", "_cut_silence_ok", "_settings_error",
+             "EVAL_DIRS_MAX", "EVAL_NAME_WORD", "_eval_dirs_ok", "eval_dirs", "in_eval_dir", "eval_name_guard")
 
     def test_owner_and_no_alias(self):
         import ed_learn
+        import ed_relink
         from ytt import settings
         for n in self.MOVED:
             self.assertIs(S._ed_owner(n), settings, n)
             self.assertNotIn(n, vars(ed_learn), n)
+            self.assertNotIn(n, vars(ed_relink), n)
+        for n in ("_remote_drive", "_same_drive", "_move"):   # ytt/fsio の is_remote_drive・same_drive・move_file へ
+            self.assertNotIn(n, vars(ed_relink), n)
 
     def test_patch_reaches_owner(self):
         import ed_learn  # noqa: F401
@@ -321,6 +326,16 @@ class TestSettingsMoved(unittest.TestCase):
         self.assertTrue(S.SETTINGS_PATCH_KEYS["altEngine"](S.ALT_DEFAULT))
         self.assertFalse(S.SETTINGS_PATCH_KEYS["altEngine"]("bad"))
         self.assertIn("evalDirs", S.SETTINGS_PATCH_KEYS)
+
+    def test_eval_dir_patch_reaches_readers(self):
+        import tempfile
+        import ed_store
+        ev = os.path.join(tempfile.gettempdir(), "rs3-eval-probe")
+        video = os.path.join(ev, "a.mp4")
+        with mock.patch.object(S, "eval_dirs", lambda: [ev]):
+            self.assertTrue(S.in_eval_dir(video))   # in_eval_dir は呼ぶたびに同じ部品の eval_dirs を読む
+            self.assertIs(ed_store.sanitize_transcript({"segments": []}, {"sourcePath": video}).get("evalSet"), True)   # 読み手(ed_store)も
+        self.assertIsNot(ed_store.sanitize_transcript({"segments": []}, {"sourcePath": video}).get("evalSet"), True)
 
 
 if __name__ == "__main__":

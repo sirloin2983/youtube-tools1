@@ -1464,8 +1464,8 @@ class TestEvalFolder(StoreDir):
         self.assertTrue(os.path.isfile(p))
 
     def test_intake_across_drives_and_rollback(self):
-        import ed_relink
         from unittest import mock
+        from ytt import fsio   # 別のドライブへ移す move_file・same_drive の持ち主(RS3-1 に ed_relink の _move・_same_drive から)
         real = os.rename
 
         def no_rename_across(a, b):   # 別のドライブ: 名前の変更ができない(WinError 17)。.part → 本名 の同じフォルダの中だけ通す
@@ -1473,7 +1473,7 @@ class TestEvalFolder(StoreDir):
                 raise OSError(17, "別のドライブ")
             return real(a, b)
         p = self.outside()
-        with mock.patch.object(ed_relink, "_same_drive", lambda a, b: False), mock.patch.object(ed_relink.os, "rename", no_rename_across):
+        with mock.patch.object(fsio, "same_drive", lambda a, b: False), mock.patch.object(fsio.os, "rename", no_rename_across):
             r = S.eval_organize("test")
         dst = os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4")
         self.assertEqual([x["to"] for x in r["intaken"]], [dst])
@@ -1485,8 +1485,8 @@ class TestEvalFolder(StoreDir):
         # 元を消せない(開いている): コピーを消して元のまま・文書も元のまま
         p2 = self.outside(name="開いている.mp4", tid="c" * len(TID))
         real_remove = os.remove
-        with mock.patch.object(ed_relink, "_same_drive", lambda a, b: False), mock.patch.object(ed_relink.os, "rename", no_rename_across), \
-                mock.patch.object(ed_relink.os, "remove", lambda x: (_ for _ in ()).throw(PermissionError(13, "使用中")) if x == p2 else real_remove(x)):
+        with mock.patch.object(fsio, "same_drive", lambda a, b: False), mock.patch.object(fsio.os, "rename", no_rename_across), \
+                mock.patch.object(fsio.os, "remove", lambda x: (_ for _ in ()).throw(PermissionError(13, "使用中")) if x == p2 else real_remove(x)):
             r = S.eval_organize("test")
         self.assertEqual(r["intaken"], [])
         self.assertTrue(os.path.isfile(p2))

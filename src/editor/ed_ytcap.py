@@ -30,11 +30,11 @@ import time
 
 import ed_alt  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
 
 YTCAP_SCHEMA = "youtube-tools-ytcap/v1"            # transcripts/<id>.ytcap.json(文書の範囲に切り出した字幕。形は alt.json に合わせる)
 YTCAP_VIDEO_SCHEMA = "youtube-tools-ytcap-video/v1"   # ytcaps/<videoId>.json(配信 1 本ぶんの字幕。使い回す)
@@ -109,7 +109,7 @@ def ytcap_spec(tid, req=None):
     if doc.get("evalSet") is True:
         raise ed_state.ApiError("eval_set", "評価用の文字起こしには、YouTube の字幕の候補を出しません(定点の正解が字幕に寄らないように)", 400)
     src = doc.get("sourcePath")
-    if src and ed_relink.in_eval_dir(os.path.abspath(str(src))):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
+    if src and _settings.in_eval_dir(os.path.abspath(str(src))):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
         raise ed_state.ApiError("eval_set", "評価用のフォルダの動画には、YouTube の字幕の候補を出しません", 400)
     if not ed_store.doc_has_rows(doc):
         raise ed_state.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
