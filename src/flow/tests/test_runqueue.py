@@ -281,5 +281,57 @@ class TestCancel(Base):
             q.cancel("ffffffffff")
 
 
+class TestStatusLive(Base):
+    """RS7-2 G5a: status() の live 欄(録画・検出の数は外から足す hook)。idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真"""
+
+    def test_without_hook_live_is_zero(self):
+        st = self.queue().status()
+        self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0}, True))
+        self.assertEqual(set(st) - {"live"}, {"queued", "running", "done", "idle", "closed", "runs"})   # 今までの欄はそのまま
+
+    def test_recording_or_detecting_makes_not_idle(self):
+        q = self.queue()
+        now = {"recording": 1, "detecting": 0}
+        q.set_status_hook(lambda: dict(now))
+        st = q.status()
+        self.assertEqual((st["live"], st["idle"], st["queued"], st["running"]), ({"recording": 1, "detecting": 0}, False, 0, 0))
+        now.update(recording=0, detecting=2)
+        self.assertFalse(q.status()["idle"])
+        now.update(detecting=0, exporting=1)   # 足した数の欄も idle に効く
+        st = q.status()
+        self.assertEqual((st["live"]["exporting"], st["idle"]), (1, False))
+        now.update(exporting=0)
+        self.assertTrue(q.status()["idle"])
+        q.set_status_hook(None)
+        self.assertEqual(q.status()["live"], {"recording": 0, "detecting": 0})
+
+    def test_running_run_and_idle_live_is_not_idle(self):
+        tools = Tools()
+        tools.gate.clear()
+        q = self.queue(tools)
+        q.set_status_hook(lambda: {"recording": 0, "detecting": 0})
+        q.submit(self.env_of(self.media[0]))
+        _until(lambda: q.status()["running"] == 1, "実行中")
+        self.assertFalse(q.status()["idle"])
+        tools.gate.set()
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+
+    def test_hook_failure_is_not_idle(self):
+        """hook が失敗した・おかしな値 = 閉じない側(idle は偽)。おかしな値の欄は捨てる"""
+        q = self.queue()
+
+        def boom():
+            raise OSError("録画元につながらない")
+        q.set_status_hook(boom)
+        st = q.status()
+        self.assertEqual((st["live"]["recording"], st["live"]["detecting"], st["idle"]), (None, None, False))
+        self.assertIn("OSError", st["live"]["error"])
+        q.set_status_hook(lambda: {"recording": True, "detecting": -1, "note": "x", "exporting": 0})
+        st = q.status()
+        self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))
+        q.set_status_hook(lambda: {"recording": None})   # 数が分からない = 閉じない側
+        self.assertFalse(q.status()["idle"])
+
+
 if __name__ == "__main__":
     unittest.main()

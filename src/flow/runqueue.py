@@ -382,18 +382,44 @@ class Queue(run_mod.Runner):
         self._save_active()   # 中止した実行は起動し直しても戻さない
         return out
 
+    _status_hook = None   # status() の live 欄を返す関数(set_status_hook。無ければ録画・検出は 0)
+
+    def set_status_hook(self, fn):
+        """status() の live 欄の出どころを外から足す(RS7-2 G5a)。Queue はライブ(録画・検出)を知らないので、入口が Live の状態を渡す。
+        fn() -> {"recording": 録画中の数, "detecting": 検出中の数, ほかの数の欄...}(どの欄も 0 でなければ idle は偽)。None で外す"""
+        self._status_hook = fn
+
+    def _live_status(self):
+        """status() の live 欄。hook が無ければ {recording: 0, detecting: 0}。hook が失敗したら数は None と error(idle は偽 = 閉じない側に倒す)"""
+        out = {"recording": 0, "detecting": 0}
+        fn = self._status_hook
+        if fn is None:
+            return out
+        try:
+            got = fn()
+        except Exception as e:   # noqa: BLE001  (ライブの状態を読めなくても status は返す)
+            return {"recording": None, "detecting": None, "error": "ライブの状態を読めませんでした(%s)" % e.__class__.__name__}
+        for k, v in (got or {}).items() if isinstance(got, dict) else ():
+            if isinstance(k, str) and (v is None or (isinstance(v, int) and not isinstance(v, bool) and v >= 0)):
+                out[k] = v
+        return out
+
     def status(self):
         """待ち・実行中が 0 か と進み具合(送るアプリの「終わったら閉じる」・CLI が聞く口。HTTP は入口の GET /api/flow/status)。
-        -> {"queued", "running", "done"(この起動で終わった数 = 済み・失敗・中止。メモリに残る MAX_KEEP 件まで), "idle"(待ち・実行中が 0),
-        "closed", "runs": [{id, kind, title, requestId, state, stateLabel, message, error, nothing, step(実行中の段), created, startedAt, finished,
+        -> {"queued", "running", "done"(この起動で終わった数 = 済み・失敗・中止。メモリに残る MAX_KEEP 件まで),
+        "idle"(待ち・実行中が 0 かつ live の数がどれも 0), "closed",
+        "live": {"recording", "detecting", ...}(set_status_hook の数。録画中・検出中。読めなければ None と error。RS7-2 G5a),
+        "runs": [{id, kind, title, requestId, state, stateLabel, message, error, nothing, step(実行中の段), created, startedAt, finished,
         resultPath, steps: [{key, label, state, detail, startedAt?, finishedAt?}]}](入れた順)}"""
         with self.cv:
             runs = [_status_of(r) for r in self.runs]
             closed = self.closed
+        live = self._live_status()   # hook は録画元に問い合わせることがあるので self.cv の外で
         n = collections.Counter(r["state"] for r in runs)
         queued, running = n["queued"], n["running"]
-        return {"queued": queued, "running": running, "done": len(runs) - queued - running, "idle": queued + running == 0,
-                "closed": closed, "runs": runs}
+        live_idle = all(v == 0 for k, v in live.items() if k != "error") and "error" not in live
+        return {"queued": queued, "running": running, "done": len(runs) - queued - running, "idle": queued + running == 0 and live_idle,
+                "closed": closed, "live": live, "runs": runs}
 
     def snapshot(self):
         """runs = メモリの実行(新しい順)・past = 配信・文書ごとの前回の結果のうちメモリに無いもの(記録のファイルから。新しい順・PAST_MAX 件まで)"""

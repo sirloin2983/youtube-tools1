@@ -2,6 +2,7 @@
 """入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
 
     python src/home/launch.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
+    python src/home/launch.py --headless [--port 8700]   画面なし(送るアプリが子プロセスとして起こす ②。RS7-2 G5a。下の「画面なし」)
 
 統合計画の段階1(docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
 `serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(docs/spec/pipeline.md)。
@@ -20,7 +21,9 @@
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   POST /api/flow/submit                   {envelope, spec?} ② の口(RS7-1 S4): 封筒(src/flow/envelope.py)+ 束(src/flow/spec.py)を待ち行列に積む → {run}。
                                           形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない
-  GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, runs}(src/flow/runqueue.py の status。CLI・送るアプリが聞く)
+  GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, live, runs}(src/flow/runqueue.py の status。CLI・送るアプリが聞く)。
+                                          live = {recording, detecting, exporting}(ライブの録画中・検出中・書き出しの途中の数。PortalServer.live_activity)。
+                                          idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(送るアプリの「終わったら閉じる」。RS7-2 G5a)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
@@ -57,6 +60,14 @@
 - すでに別の黒い画面で動いているツールは「別の画面で起動済み」として扱い、起動も停止もしない(二重起動で data.json を取り合わないため)
 - 止めるときは、Windows は Ctrl+Break(子を別のプロセスグループで起動しておく)、Mac/Linux は SIGTERM を送る。
   どちらも各ツールが .runtime を消してから終わる合図。一定時間で終わらなければ強制終了する
+
+画面なし(--headless。RS7-2 G5a・plan/f1-friend-pc.md の 2〜4)
+- 友人の送るアプリが ② を子プロセスとして起こす形。ブラウザ・窓を開かない。取り込み(3 ツール)と ②(まとめて実行 = flow の Queue・ライブ)は載せる。
+  ③④⑤ の常駐(依頼の受付の見張り・バックアップ・精度の自動測定・分析と日報・ごみ箱フォルダの片付け)は起こさない(部品は作るので API は今までどおり答える)。
+  「起動し直す」(api/ytt/restart-self)は 409 で断る(新しい入口は送るアプリの子にならないため。起こし直すのは送るアプリ)
+- 標準出力・標準エラーは UTF-8。標準出力は 1 行の JSON だけ: 待ち受けて ② を準備できたら {"event": "ready", "port", "token"(書き込み系の X-YTT-Token), "pid"}(HEADLESS_READY)。
+  黒い画面への記録・取り込んだツールの print は標準エラーへ
+- 入口がすでに動いている(そのポート範囲の入口・同じ作業データの .flow.lock)ときは、読める文を標準エラーへ出して EXIT_RUNNING で終わる(ブラウザは開かない)
 """
 import argparse
 import http.client
@@ -80,6 +91,7 @@ if ROOT not in sys.path:   # 共通部品 ytt(リポジトリ直下)
     sys.path.append(ROOT)
 from manage.cases import txindex  # noqa: E402
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
+from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
@@ -113,6 +125,10 @@ MAX_BODY = 4096
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
+HEADLESS_READY = "ready"   # 画面なしの入口が標準出力に出す 1 行の event(送るアプリ・CLI が読む)
+EXIT_RUNNING = 3           # 画面なし: 入口がすでに動いている(ポート・.flow.lock)ので起動しない
+HEADLESS_RUNNING = "ホームはすでに起動しています(ポート %d)。画面なしでは起動しません。動いているホームを「すべて終了」してから起動してください"
+HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起こしたアプリから起動し直してください)"
 
 def _spec(tid, name, sub, port, **kw):
     """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
@@ -853,6 +869,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.allowed_hosts = httpsec.allowed_hosts(p)
         self.closing = threading.Event()
         self.token = secrets.token_urlsafe(24)   # 書き込み系の API の合言葉(CSRF トークン)。起動ごとに変わる
+        self.headless = False   # 画面なし(--headless。main が決める。起動し直しを断る)
         self.mounts = {}
         self._autorun = None
         self._autorun_lock = threading.Lock()
@@ -942,6 +959,8 @@ class PortalServer(httpsec.ExclusiveServer):
         -> (HTTP の番号, JSON)"""
         if self.closing.is_set():
             return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
+        if self.headless:   # 新しい入口は送るアプリの子にならない(画面ありの形で起きてしまう)= 起こし直すのは起こしたアプリ
+            return 409, {"ok": False, "error": "headless", "message": HEADLESS_NO_RESTART}
         ar = self._autorun
         info = ar.restart_info() if ar is not None else {}
         busy = [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
@@ -1110,7 +1129,29 @@ class PortalServer(httpsec.ExclusiveServer):
                 self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs,
                                                        log_dir=self.sup.logs_dir,   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
                                                        log=self.sup.log)   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
+                self._autorun.set_status_hook(self.live_activity)   # GET /api/flow/status の live 欄と idle(Queue はライブを知らない。RS7-2 G5a)
             return self._autorun
+
+    def live_activity(self):
+        """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(送るアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
+        recording = 録画元の録画中の録画(Live.recent。数秒のキャッシュ)/ detecting = 盛り上がりの検出のワーカーが測っている録画(worker.json)/
+        exporting = 書き出しの途中・まとめて実行へ渡すのを待っている書き出し(作ってあるときだけ。オフの間は作業データに何も作らない)。
+        リアルタイム切り抜きがオフなら全部 0(録画元に問い合わせない)。G2b でライブが ② へ移ったら、そちらが持つ"""
+        live = self.live
+        out = {"recording": 0, "detecting": 0, "exporting": 0}
+        if not live.enabled():
+            return out
+        out["recording"] = sum(1 for r in live.recent() if r.get("active") is True)
+        det = live.detector
+        if det.enabled():
+            hb = det.heartbeat()
+            if det.running(hb):
+                out["detecting"] = sum(1 for x in (hb or {}).get("recordings") or [] if isinstance(x, dict))
+        ex = getattr(live, "_exporter", None)
+        if ex is not None:
+            with ex.lock:
+                out["exporting"] = sum(1 for j in ex.jobs if j.get("state") in live_export.ACTIVE or j.get("handoffWait") == "disk")   # Exporter.pending と同じ規則
+        return out
 
     def handler_for(self, path):
         if path and self.mounts:
@@ -1201,9 +1242,11 @@ def make_logger(path):
                 pass
     threading.Thread(target=printer, daemon=True, name="launcher-console").start()
 
-    def log(msg):
+    def log(msg, console=True):
+        """console=False: ファイルにだけ書く(同じ文を自分で標準エラーへ出すとき。画面なしで 2 回出さない)"""
         try:
-            q.put_nowait(msg)
+            if console:
+                q.put_nowait(msg)
         except queue.Full:   # 表示が長く止まっている。ファイルには残す
             pass
         with lock:
@@ -1265,7 +1308,12 @@ def parse_args(argv):
     ap.add_argument("--app-window", action="store_true", help="設定にかかわらず Edge のアプリの窓で開く(無ければいつものブラウザ)")
     ap.add_argument("--no-mount", action="store_true",
                     help="ツールを入口に取り込まず、以前と同じく別のプログラムとして起動する(取り込みで問題が出たときの戻し方)")
+    ap.add_argument("--headless", action="store_true",
+                    help="画面なし: ブラウザ・窓を開かず、依頼の受付・バックアップ・精度の自動測定などの見張りを起こさない。"
+                         "準備できたら標準出力に 1 行の JSON {event: ready, port, token, pid}(送るアプリが子プロセスとして起こす形)")
     a = ap.parse_args(argv)
+    if a.headless and a.app_window:
+        ap.error("--headless には --app-window を付けられません(画面を開かないため)")
     only = [x.strip() for x in a.only.split(",") if x.strip()]
     bad = [x for x in only if x not in TOOL_IDS]
     if bad:
@@ -1276,6 +1324,19 @@ def parse_args(argv):
     return a
 
 
+def say_error(log, msg, headless):
+    """起動しないときの読める文: launcher.log と標準エラーへ。画面なしは黒い画面への記録も標準エラーなので、表示は 1 回だけ"""
+    log(msg, console=not headless)
+    log.flush()
+    print(msg, file=sys.stderr)
+
+
+def emit_ready(out, port, token):
+    """画面なしの入口: 準備できたことを標準出力に 1 行の JSON で(送るアプリ・CLI が読む。ASCII だけ)"""
+    out.write(json.dumps({"event": HEADLESS_READY, "port": port, "token": token, "pid": os.getpid()}) + "\n")
+    out.flush()
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -1283,18 +1344,37 @@ def main(argv=None):
         except Exception:
             pass
     opts = parse_args(sys.argv[1:] if argv is None else argv)
+    if not opts.headless:
+        return _main(opts)
+    for stream in (sys.stdout, sys.stderr):   # 画面なし: 読む側(送るアプリ)が決めた文字コードで読めるように UTF-8 に固定(既定は cp932 になる)
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    out = sys.stdout   # 画面なし: 標準出力は ready の 1 行だけ。黒い画面への記録(make_logger の print)・取り込んだツールの print は標準エラーへ
+    sys.stdout = sys.stderr
+    try:
+        return _main(opts, ready_out=out)
+    finally:
+        sys.stdout = out
+
+
+def _main(opts, ready_out=None):
+    """起動の本体。ready_out: 画面なし(--headless)のとき ready の 1 行を書く先(元の標準出力)"""
+    headless = opts.headless
     datadir.register("app", app_data_dir(ROOT))   # 同じプロセスの案件など(datadir.resolve)が同じ場所を読む
     log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
     if opts.wait_port:   # 「起動し直す」で起こされた: 古い入口が終わり・ポートを離すまで待つ。期限が来ても次の番号には逃げない(RS7-1 1d)
         stuck = restart_mod.wait_old_launcher(opts.port, opts.wait_pid or None)
         if stuck:
-            log(stuck)
-            log.flush()
-            print(stuck, file=sys.stderr)
+            say_error(log, stuck, headless)
             return 1
     srv, port = make_server(opts.port, sup)
     url = "http://localhost:%d%s" % (port, opts.open_path)
+    if srv is None and headless:   # 画面を開かない・読める文で非 0(送るアプリが標準エラーを読む)
+        say_error(log, HEADLESS_RUNNING % port, headless)
+        return EXIT_RUNNING
     if srv is None:
         print("ホームはすでに起動しています。画面を開きます:", url)
         if not opts.no_open:
@@ -1308,15 +1388,14 @@ def main(argv=None):
         flow_lock = placement.acquire(port)   # 1 つの作業データに ② は 1 つ(.flow.lock。ほかの ② が動いていれば LockBusy で起動しない。RS6 b-B0)
     except placement.LockBusy as e:   # トレースバックにしない(読める文で非 0)。待ち受けたソケットだけ閉じる
         msg = restart_mod.BUSY_LOCK_MESSAGE % (e.info.get("pid"), e.info.get("port") or "なし")
-        log(msg)
-        log.flush()
-        print(msg, file=sys.stderr)
+        say_error(log, msg, headless)
         srv.server_close()
-        return 1
+        return EXIT_RUNNING if headless else 1
+    srv.headless = headless
     try:
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)
-        log("ホーム v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)" % (VERSION, url))
+        log("ホーム v%s: %s (終了は画面の「すべて終了」・Ctrl+C・この黒い画面を閉じる)%s" % (VERSION, url, "(画面なし)" if headless else ""))
         log("各ツールの出力: %s" % sup.logs_dir)
         sup.attach(srv)
         served = threading.Event()
@@ -1334,16 +1413,20 @@ def main(argv=None):
             srv.autorun
         except Exception as e:   # 作れなくても入口は動かす(画面から使うときにもう一度作る)
             log("まとめて実行を準備できませんでした: %r" % (e,))
-        srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
-        srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
-        srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、src/eval/tools/eval_*.py を子プロセスで)
-        srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす)
-        if srv.analytics:
+        if not headless:   # ③④⑤ の常駐の見張りは画面なしでは起こさない(RS7-2 G5a。部品は作ってあるので API は答える)
+            srv.intake.start()   # 友人からの依頼の受付(設定がオフなら何もしない。止まっていた間に届いた依頼もここで流れる)
+            srv.backup.start()   # 作業データのバックアップ(設定がオフなら何もしない。起動の少しあとに、時間が来ていれば写す)
+            srv.accuracy.start() # 精度の自動測定(設定がオフなら何もしない。夜の窓に手が空いていれば1日1回、src/eval/tools/eval_*.py を子プロセスで)
+        srv.live.start()     # リアルタイム切り抜きの見回り(設定がオフなら何もしない。オンなら録画の部品を起こす。G2b で ② へ移るまでは入口が載せる)
+        if srv.analytics and not headless:
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
-        threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
-        if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
+        if not headless:
+            threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
+        if headless:   # 待ち受けて ② を準備できた = 送るアプリに合言葉とポートを渡す(画面は開かない)
+            emit_ready(ready_out, port, srv.token)
+        elif opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"
-        if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
+        if not opts.no_open and not headless:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)
             threading.Timer(0.8, lambda: log("画面を開きました(%s)" % {"app": "窓", "browser": "ブラウザ"}[srv.window.open_start(url)])).start()
         while not served.wait(0.5):   # 待ち受けは別のスレッド。ここは Ctrl+C などの合図を受け取るために待つ
             pass

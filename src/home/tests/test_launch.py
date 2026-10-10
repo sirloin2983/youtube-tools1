@@ -148,6 +148,21 @@ def wait_for(fn, timeout=15.0, step=0.1):
     return fn()
 
 
+def _http(port, method, path, body=None, token=None):
+    """入口へ 1 回(画面と同じ Host・Origin・Sec-Fetch-Site。POST は合言葉つき)-> (HTTP の番号, 本文)"""
+    host = "127.0.0.1:%d" % port
+    h = {"Host": host}
+    if method == "POST":
+        h.update({"Content-Type": "application/json", "Origin": "http://" + host, "Sec-Fetch-Site": "same-origin", "X-YTT-Token": token or ""})
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        conn.request(method, path, body=body, headers=h)
+        r = conn.getresponse()
+        return r.status, r.read()
+    finally:
+        conn.close()
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-launch-")
@@ -435,6 +450,12 @@ class HelpersTest(unittest.TestCase):
         for bad in ("transcribe/", "/../x", "//evil.example/x", "/a b", "/a?x=1", "/" + "a" * 200):
             with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 L.parse_args(["--open-path", bad])
+        # 画面なし(RS7-2 G5a): 既定はオフ・--port と一緒に使える・画面を開く --app-window とは一緒にしない
+        self.assertFalse(L.parse_args([]).headless)
+        a = L.parse_args(["--headless", "--port", "8750", "--only", "transcribe"])
+        self.assertEqual((a.headless, a.port, a.only), (True, 8750, ["transcribe"]))
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            L.parse_args(["--headless", "--app-window"])
 
     def test_logger_does_not_block_when_console_is_stuck(self):
         # Windows の黒い画面で文字を選択している間は表示の書き込みが止まる。そのときも log() はすぐ戻り、ファイルには残る
@@ -657,6 +678,56 @@ class PortalHttpTest(Base):
             self.assertEqual(stops, [1])
         finally:
             R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart = saved
+
+    def test_restart_self_refused_when_headless(self):
+        """画面なしの入口(--headless)は起動し直さない(新しい入口が送るアプリの子にならない)= 409 で新しい入口を起こさない"""
+        from manage.ops import restart as R
+        calls = []
+        saved = R.spawn_new_launcher
+        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
+        self.srv.headless = True
+        try:
+            r, body = self.post("/api/ytt/restart-self")
+            self.assertEqual((r.status, json.loads(body)["error"]), (409, "headless"))
+            self.assertEqual(calls, [])
+        finally:
+            R.spawn_new_launcher = saved
+            self.srv.headless = False
+
+    def test_flow_status_live(self):
+        """RS7-2 G5a: GET /api/flow/status の live 欄 = ライブの録画中・検出中・書き出しの途中の数(PortalServer.live_activity)。
+        どれかが 0 でなければ idle は偽。リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない"""
+        r, body = self.req("GET", "/api/flow/status")
+        st = json.loads(body)
+        self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))   # 既定(オフ)
+        real = self.srv.live
+        fake = mock.MagicMock()
+        fake.enabled.return_value = True
+        fake.recent.return_value = [{"id": "a", "active": True}, {"id": "b", "active": False}]   # 終わって 10 分以内の録画は数えない
+        fake.detector.enabled.return_value = True
+        fake.detector.heartbeat.return_value = {"recordings": [{"recorder": "local", "id": "a"}, {"recorder": "local", "id": "c"}]}
+        fake.detector.running.return_value = True
+        fake._exporter.lock = threading.Lock()
+        fake._exporter.jobs = [{"state": "fetch"}, {"state": "done", "handoffWait": "disk"}, {"state": "done"}, {"state": "failed"}]
+        self.srv.live = fake
+        try:
+            st = json.loads(self.req("GET", "/api/flow/status")[1])
+            self.assertEqual((st["live"], st["idle"], st["queued"], st["running"]), ({"recording": 1, "detecting": 2, "exporting": 2}, False, 0, 0))
+            fake.recent.return_value = []
+            fake.detector.running.return_value = False   # ワーカーが止まっている = 測っていない
+            fake._exporter = None   # 書き出しを一度も使っていない
+            st = json.loads(self.req("GET", "/api/flow/status")[1])
+            self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))
+            fake.recent.side_effect = OSError("録画元につながらない")   # 読めない = 閉じない側
+            st = json.loads(self.req("GET", "/api/flow/status")[1])
+            self.assertEqual((st["live"]["recording"], st["idle"]), (None, False))
+            fake.enabled.return_value = False
+            fake.recent.reset_mock()
+            st = json.loads(self.req("GET", "/api/flow/status")[1])
+            self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))
+            fake.recent.assert_not_called()
+        finally:
+            self.srv.live = real
 
     def test_restart_self_keeps_autorun_runs(self):
         """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5。入口 0.41.0)。
@@ -895,7 +966,7 @@ class MainShutdownTest(unittest.TestCase):
             return got["srv"], p
 
         def make_logger(path):   # 黒い画面へは出さない
-            def log(msg):
+            def log(msg, console=True):
                 logs.append(msg)
             log.flush = lambda timeout=1.0: None
             return log
@@ -932,18 +1003,128 @@ class MainShutdownTest(unittest.TestCase):
         self.assertTrue(srv.closing.is_set())
         self.assertTrue(srv._autorun.closed, "Ctrl+C の経路でまとめて実行を閉じていない")
 
-    def run_main_failing(self, argv, wait_result=None, lock_busy=None):
-        """RS7-1 1d: 待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる"""
+    def run_headless(self, argv, on_ready):
+        """画面なしで main を本物のサーバー(ポート 0)で起こす。標準出力の ready の 1 行が出たら on_ready(srv, ready) を呼んでから「すべて終了」。
+        -> (終了コード, srv, 標準出力, 起こした常駐の名前, 画面を開いた回数)"""
+        got, started, opened = {}, [], []
+        out = io.StringIO()
+        real_make_server = L.make_server
+
+        def make_server(port, sup):
+            got["srv"], p = real_make_server(port, sup)
+            return got["srv"], p
+
+        def make_logger(path):
+            log = lambda msg, console=True: None
+            log.flush = lambda timeout=1.0: None
+            return log
+
+        def live_start(live):   # ready は Live.start のあとに出る = 裏で ready を待ってから終える(画面ありはすぐ終える)
+            started.append("live")
+            if "--headless" not in argv:
+                got["srv"].request_shutdown()
+                return
+
+            def wait_ready():
+                for _ in range(200):
+                    line = out.getvalue()
+                    if line.endswith("\n"):
+                        try:
+                            got["result"] = on_ready(got["srv"], json.loads(line))
+                        finally:
+                            got["srv"].request_shutdown()
+                        return
+                    time.sleep(0.05)
+                got["srv"].request_shutdown()
+            threading.Thread(target=wait_ready, daemon=True).start()
+
+        def rec(name):
+            return lambda *a, **k: started.append(name)
+
+        analytics = mock.MagicMock()
+        patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")}),
+                   mock.patch.object(L, "ROOT", self.root), mock.patch.object(L, "make_server", make_server),
+                   mock.patch.object(L, "make_logger", make_logger),
+                   mock.patch.object(L, "install_stop_signals"), mock.patch.object(L, "ignore_stop_signals"),
+                   mock.patch.object(L, "analytics_mod", analytics), mock.patch.object(L.Supervisor, "start_all"),
+                   mock.patch.object(L.Supervisor, "unmount_all", lambda sup: None),
+                   mock.patch.object(L.live_mod.Live, "start", live_start),
+                   mock.patch.object(L.intake_mod.Intake, "start", rec("intake")), mock.patch.object(L.backup_mod.Backup, "start", rec("backup")),
+                   mock.patch.object(L.accuracy_mod.Accuracy, "start", rec("accuracy")),
+                   mock.patch.object(L.PortalServer, "purge_trash", rec("trash")),
+                   mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url) or "browser"),
+                   mock.patch.object(sys, "stdout", out)]
+        for p in patches:
+            p.start()
+        try:
+            code = L.main(argv)
+            self.assertIs(sys.stdout, out, "標準出力を元に戻していない")
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        if analytics.Service.return_value.start.called:
+            started.append("analytics")
+        return code, got["srv"], out.getvalue(), started, opened, got.get("result")
+
+    def test_headless_ready_line_and_no_watchers(self):
+        """RS7-2 G5a: --headless は ③④⑤ の常駐(依頼の受付・バックアップ・精度の自動測定・分析と日報・ごみ箱の片付け)を起こさず、画面を開かない。
+        ②(まとめて実行 = Queue・ライブ)は載せる。標準出力は ready の 1 行の JSON だけ(合言葉とポートで ② の口が使える)"""
+        def on_ready(srv, ready):
+            st, body = _http(ready["port"], "GET", "/api/flow/status")
+            st2, body2 = _http(ready["port"], "POST", "/api/ytt/restart-self", b"{}", ready["token"])
+            return st, json.loads(body), st2, json.loads(body2)
+        code, srv, out, started, opened, res = self.run_headless(["--headless", "--port", "0", "--no-mount"], on_ready)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("\n"), 1, out)
+        ready = json.loads(out)
+        self.assertEqual(ready, {"event": "ready", "port": srv.server_address[1], "token": srv.token, "pid": os.getpid()})
+        self.assertEqual(started, ["live"], "画面なしで ③ の見張りを起こした")
+        self.assertEqual(opened, [])
+        self.assertTrue(srv.headless)
+        self.assertIsNotNone(srv._autorun, "② のまとめて実行を載せていない")
+        self.assertTrue(srv._autorun.closed)
+        st, status, st2, restart = res
+        self.assertEqual((st, status["idle"], status["live"]), (200, True, {"recording": 0, "detecting": 0, "exporting": 0}))
+        self.assertEqual((st2, restart["error"]), (409, "headless"))
+
+    def test_normal_start_still_starts_watchers(self):
+        """画面ありの起動は今までどおり(見張りを起こす・ready の行を出さない)"""
+        code, srv, out, started, opened, _ = self.run_headless(["--port", "0", "--no-mount", "--no-open"], lambda srv, ready: None)
+        self.assertEqual((code, out, srv.headless), (0, "", False))
+        wait_for(lambda: "trash" in started, 5)   # ごみ箱の片付けは裏のスレッド
+        self.assertEqual(sorted(started), ["accuracy", "analytics", "backup", "intake", "live", "trash"])
+
+    def test_headless_existing_launcher_exits_nonzero(self):
+        """画面なし: そのポートの範囲に入口がすでに動いている = 画面を開かず、読める文を標準エラーへ出して EXIT_RUNNING"""
+        opened = []
+        with mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url)):
+            code, logs, err, made = self.run_main_failing(["--headless", "--port", "8700"], existing=True)
+        self.assertEqual((code, opened), (L.EXIT_RUNNING, []))
+        self.assertIn("すでに起動しています", err)
+        self.assertIn("8700", err)
+        self.assertEqual(err.count("すでに起動しています"), 1, "標準エラーに 2 回出した")
+        self.assertTrue(any("すでに起動しています" in x for x in logs))   # launcher.log にも残す
+
+    def test_headless_lock_busy_exits_running(self):
+        code, logs, err, made = self.run_main_failing(["--headless", "--port", "0", "--no-mount"], lock_busy={"pid": 4242, "port": 8700})
+        self.assertEqual(code, L.EXIT_RUNNING)
+        self.assertIn("4242", err)
+        made[0].server_close.assert_called_once()
+
+    def run_main_failing(self, argv, wait_result=None, lock_busy=None, existing=False):
+        """RS7-1 1d: 待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる。existing: 入口がすでに動いている"""
         logs, errs = [], io.StringIO()
         made = []
 
         def make_logger(path):
-            def log(msg):
+            def log(msg, console=True):
                 logs.append(msg)
             log.flush = lambda timeout=1.0: None
             return log
 
         def make_server(port, sup):
+            if existing:
+                return None, port
             srv = mock.MagicMock()
             made.append(srv)
             return srv, port
