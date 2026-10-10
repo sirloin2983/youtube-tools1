@@ -2,7 +2,8 @@
 """① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
 
 役割で組み直す RS2-9(2026-10-10)に編集の src/editor/ed_speakers.py から移した(中身は同じ。文書へ反映する側・判別のジョブ・空の行の下書き・
-自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、
+自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。③ の speakers はここを直に読まず、② flow/diar.py(判別のジョブの段取り・
+判別の記録を書く _record_diar・覚えた声の置き場所。RS6 a-4)を通す。旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、
 serve.名前 は serve の名前の受付がここへ回す(テストの S.名前 = …・patch.object(S, "has_sherpa") もここに届く)。
 - 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
   (diar_models_dir。DIAR_DIR は上書き用 = src/eval/tools/eval_speakers が本物の作業データの場所を入れる)
@@ -284,7 +285,7 @@ def smooth_speakers(segs, res, ts, keep, ratios=None):
 # ---------- 判別の記録(transcripts/<id>.diar.json。Q2。plan/line-bc-master-plan.md) ----------
 # 機械の最初の結果を残す(行の speaker・名前は人が直すので、あとから「機械はこう割り当てた」を比べられるように)。判別・声の照合のたびに書き、
 # し直したら前の回は同じファイルの history に残す(最新を含めて DIAR_KEEP 回まで。付き物を1つのファイルにして、削除・付け替えの扱いを1か所で済ませるため)。
-# 埋め込みのベクトルそのものは書かない(大きい・個人を見分けられる情報)。書けなくても判別は失敗にしない(_record_diar)
+# 埋め込みのベクトルそのものは書かない(大きい・個人を見分けられる情報)。書けなくても判別は失敗にしない(② flow/diar の _record_diar。RS6 a-4 にここから移した)
 DIAR_SCHEMA = "youtube-tools-diar/v1"
 DIAR_KEEP = 5
 MAX_DIAR_BYTES = 32 * 1024 * 1024
@@ -385,14 +386,7 @@ def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None, s
             **({"smooth": {"on": True, "rows": len(smoothed), "short": DIAR_SMOOTH_SHORT, "gap": DIAR_SMOOTH_GAP, "ratio": DIAR_SMOOTH_RATIO}} if smoothed is not None else {})}
 
 
-def _record_diar(tid, run):
-    try:
-        write_diar(tid, run)
-    except Exception as e:   # 記録が書けなくても判別の結果は残す
-        _txbase.log.warning("判別の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
-
-
-# ---------- 声の特徴と、覚えた声との照らし合わせ(A-3。覚えた声の置き場所・覚えるジョブは human/proof/speakers) ----------
+# ---------- 声の特徴と、覚えた声との照らし合わせ(A-3。覚えた声の置き場所と段取りは flow/diar(RS6 a-4)・覚えるジョブは human/proof/speakers) ----------
 # 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を取り、覚えている声とコサイン類似度で比べる。
 # 計算(numpy・sherpa-onnx)は認識ワーカーの中だけ(_embed_local)。サーバーでは読み込まない
 VOICE_MATCH = 0.60       # 覚えている声とのコサイン類似度がこれ以上なら同じ人とみなす
