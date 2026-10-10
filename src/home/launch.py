@@ -18,6 +18,9 @@
   POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
+  POST /api/flow/submit                   {envelope, spec?} ② の口(RS7-1 S4): 封筒(src/flow/envelope.py)+ 束(src/flow/spec.py)を待ち行列に積む → {run}。
+                                          形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない
+  GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, runs}(src/flow/runqueue.py の status。CLI・送るアプリが聞く)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
@@ -542,7 +545,7 @@ GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付
 POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("_post_case_auto", True),
                "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
                "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
-               "/api/autorun/estimate": ("_post_autorun", True),
+               "/api/autorun/estimate": ("_post_autorun", True), "/api/flow/submit": ("_post_flow_submit", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
                "/api/cleanup": ("_post_cleanup", False), "/api/shutdown": ("_post_shutdown", False)}
@@ -666,6 +669,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": path})
         if u.path in GET_SNAPSHOTS:
             return self._json(200, getattr(self.server, GET_SNAPSHOTS[u.path]).snapshot())
+        if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・送るアプリの「終わったら閉じる」)
+            return self._json(200, self.server.autorun.status())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0)))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
@@ -739,6 +744,15 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, {"run": ar.cancel(body.get("runId"))})
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
+
+    def _post_flow_submit(self, path, body):
+        """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400"""
+        try:
+            return self._json(200, {"run": self.server.autorun.submit(body.get("envelope"), body.get("spec"))})
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        except (TypeError, KeyError, AttributeError) as e:   # 検査を抜けた形の違い(外から来る本文なので 500 にしない)
+            return self._fail(400, "bad_request", "封筒・束の形が正しくありません(%s)" % e.__class__.__name__)
 
     def _post_intake_scan(self, path, body):
         """今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)"""

@@ -10,6 +10,8 @@
   順番待ちと糸・中止・状態と記録・起動し直しで戻す・見積もりは RS7-1 S5 で src/flow/runqueue.py の Queue へ移した(② が画面なしでも動くように。
   AutoRunner は Queue を継ぐ)。ここに残すのは、受付(start*)・ToolClient・画面の設定から束を組む build_spec・起動し直すの確かめ restart_info と、
   Runner・Queue の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している。
+  RS7-1 S4: 受付で束を組む(_accept = build_spec + 友人の区間の長さ・配信者・届け方の n 本)。待ちの間に画面の設定を変えても、その実行の中身は変わらない。
+  切り出しの精密・画質の上限・パックの fps は固定(決定 3-30 Q2)・用語集は編集の受付が自分の設定から読む。
   届けることと組の溜めは RS3-3 で src/human/friend/delivery.py の Delivery(mixin)へ切り出した(AutoRunner が継ぐ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
@@ -27,7 +29,7 @@
   書くのは終わったとき(完了・失敗・中止)だけ(入口の終了で止まった実行は、次の起動で続けるので書かない = M5)。
   1MB を超えたら .1 に回す(1世代。画面のエラーの記録 clientlog.py と同じ形)。書けなくても実行は止めない
 - 自動で採用したマークは、人の判定ではないので学習の記録(スタジオの feedback)に入れない(スタジオの /api/video/adopt-top)。
-- 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(画質・音量のそろえ方)、
+- 解析の設定は既定値(解析の画面の設定はブラウザの中にしか無いため)。書き出しはスタジオの ③ の設定(音量のそろえ方。画質は上限なし・精密で固定 = RS7-1 S4)、
   文字起こしは「編集」(文字起こし)の設定(モデルなど)を使う。パックは、「編集」でカットを決めてあればそのとおり(cut2resolve の spec.keeps。
   作った記録も「編集」に残す = 作り直しの知らせ)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)。どちらも Text+(字幕の元の行が無ければ Text+ なし)。
   リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)の切り抜きは、カットを指定していなければ区間の全体
@@ -153,7 +155,8 @@ def _lufs(v):
 
 
 def _settings_want(studio, editor, autorun):
-    """画面の設定 -> 束の節ごとの値(検査の前)と、束に入れない画面の値。読み方は RS6 b-0 の前に段が GET /api/settings から本文を作っていた書き方のまま"""
+    """画面の設定 -> 束の節ごとの値(検査の前)と、直した所の知らせ。読み方は RS6 b-0 の前に段が GET /api/settings から本文を作っていた書き方のまま。
+    切り出しの精密・画質の上限・パックの fps は読まない(固定 = 決定 3-30 Q2。RS7-1 S4)・用語集も読まない(編集の受付が自分の設定から読む)"""
     an = studio.get("analyze") if isinstance(studio.get("analyze"), dict) else {}
     rv = studio.get("review") if isinstance(studio.get("review"), dict) else {}
     tx = editor
@@ -179,28 +182,22 @@ def _settings_want(studio, editor, autorun):
             want["pack"]["rowEdge"] = tx["rowEdge"]
         else:
             notes.append(ROW_EDGE_NOTE)
-    fps = str(tx.get("packFps") or "30")
-    mh = rv.get("maxHeight")
-    screen = {"precision": "fast" if rv.get("precision") == "fast" else "accurate",
-              "maxHeight": mh if type(mh) is int and mh in _spec.MAX_HEIGHTS else 1080,
-              "packFps": fps if _spec.PACK_FPS_RE.match(fps) else None,
-              "glossary": tx["glossary"] if isinstance(tx.get("glossary"), str) else None, "packNotes": notes}
-    return want, screen
+    return want, notes
 
 
 def spec_from_settings(studio=None, editor=None, autorun=None):
     """画面の設定から指定の束を組む(RS6 b-0。5-4 = ① は設定ファイルを読まず、app が画面の値から束を組む)。
     studio = スタジオの画面の設定(settings-ui.json の analyze・review)・editor = 編集の設定(settings.json)・autorun = ホームの設定の autorun 節(cut)。
-    -> (束 = flow/spec.py の merge・validate を通した物, 画面だけの値 screen = flow/spec.py の SCREEN の鍵)。
-    合わない値・無い値は束の既定(= 各ツールの既定と同じ値)。束に入らない画面の値(精密・画質の上限・fps・用語集)と、直した所の知らせ(packNotes)は screen へ"""
-    want, screen = _settings_want(studio if isinstance(studio, dict) else {}, editor if isinstance(editor, dict) else {},
-                                  autorun if isinstance(autorun, dict) else {})
+    -> (束 = flow/spec.py の merge・validate を通した物, 知らせ = 直した所の文のリスト(パックの段の文と結果の束に出す。Run.notes))。
+    合わない値・無い値は束の既定(= 各ツールの既定と同じ値)。精密・画質の上限・fps は固定(RS7-1 S4 で画面だけの値 screen を消した)"""
+    want, notes = _settings_want(studio if isinstance(studio, dict) else {}, editor if isinstance(editor, dict) else {},
+                                 autorun if isinstance(autorun, dict) else {})
     given = {}
     for sec, items in want.items():
         for k, v in items.items():
             if _spec.key_ok(sec, k, v):
                 given.setdefault(sec, {})[k] = v
-    return _spec.validate(_spec.merge(given)), screen
+    return _spec.validate(_spec.merge(given)), notes
 
 
 def _yt_id_ok(v):
@@ -274,17 +271,22 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         who, _hex = colors.resolve(name if isinstance(name, str) else "", env=self.env)
         return who
 
-    def _auto_streamer(self, run, doc=None, v=None):
-        """指定の無い実行の配信者を決める(1回だけ。段5): 覚えた名前(文書 → 配信 → チャンネル)→ チャンネル名から。決めた名前は進み具合に出す"""
-        if run.streamer is not None:
-            return
+    def _guess_streamer(self, run, doc=None, v=None):
+        """配信者の推定(段5): 覚えた名前(文書 → 配信 → チャンネル)→ チャンネル名から。-> prefs.guess_streamer の結果 {"name", "source"}"""
         clip = (doc or {}).get("clip") or {}
         vid = run.video_id or ((clip.get("source") or {}).get("videoId") if isinstance(clip.get("source"), dict) else None)
         ch = (v or {}).get("channel") or (run.fresh or {}).get("channel")
         if vid and not ch:
             ch = self._studio_video(vid).get("channel")
-        r = prefs_mod.guess_streamer(self.prefs, (doc or {}).get("id") or run.doc_id, vid, ch or None,
-                                     from_channel=lambda c: (colors.from_channel(c, env=self.env) or {}).get("name"))
+        return prefs_mod.guess_streamer(self.prefs, (doc or {}).get("id") or run.doc_id, vid, ch or None,
+                                        from_channel=lambda c: (colors.from_channel(c, env=self.env) or {}).get("name"))
+
+    def _auto_streamer(self, run, doc=None, v=None):
+        """指定の無い実行の配信者を決める(1回だけ。段5)。受付(_accept_streamer)で決まらなかった実行だけ、実行中にここで。
+        決まらなければ「色なし」。決めた名前は進み具合に出す"""
+        if run.streamer is not None:
+            return
+        r = self._guess_streamer(run, doc, v)
         run.streamer = r["name"] or ""
         run.streamer_from = r["source"] if r["name"] else None
 
@@ -311,13 +313,10 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         mk = self._marks_arg(marks)
         if mk and mode == "full":
             raise ValueError("マークを選んだまとめて実行は「採用後を全部」「文字起こしまで」だけです")
-        with self.cv:
-            why = _busy_reason(self._active_runs(), lambda r: r.video_id == video_id, "この配信は")
-            if why:
-                raise ValueError(why)
-            out = self._push(Run(video_id, "", mode, top, streamer=who, marks=mk, overwrite=overwrite, on_fail=self._pref("onFail", "next")))
-        self._save_active()
-        return out
+        self._push_accepted(lambda r: r.video_id == video_id, "この配信は", None)   # 先に断る物を断る(束を組む前)
+        run = Run(video_id, "", mode, top, streamer=who, marks=mk, overwrite=overwrite, on_fail=self._pref("onFail", "next"))
+        self._accept(run)   # 束は受けたときに組む(RS7-1 S4)
+        return self._push_accepted(lambda r: r.video_id == video_id, "この配信は", run)
 
     def start_new(self, items, top=None, streamer=None):
         """スタジオの ① 探す で選んだ配信を「解析から全部」で(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)。まだスタジオに無い配信でもよい。
@@ -327,6 +326,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             raise ValueError("配信は 1〜%d 本で選んでください" % MAX_NEW)
         top = _top_arg(top)
         who = self._streamer(streamer)
+        base, studio = self.build_spec(), self._studio_list()   # 受付で組む束(1 回の受付で 1 回だけ読む。RS7-1 S4)
 
         def make(it, active):
             it = it if isinstance(it, dict) else {}
@@ -337,7 +337,9 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             why = _busy_reason(active, lambda r: r.video_id == vid)   # 同じ要求の中の重なりも(作った実行は active に入る)
             if why:
                 return {"id": vid, "title": title, "reason": why}
-            return Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"))
+            run = Run(vid, title or vid, "full", top, streamer=who, fresh={"title": title, "channel": channel}, on_fail=self._pref("onFail", "next"))
+            self._accept(run, base=base, studio=studio)
+            return run
         return self._enqueue(items, make)
 
     def start_docs(self, ids, overwrite=False, streamer=None):
@@ -347,6 +349,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
         who = self._streamer(streamer)
         docs = {d["id"]: d for d in self._docs()}
+        base = self.build_spec()   # 受付で組む束(RS7-1 S4)
 
         def make(tid, active):
             d = docs.get(tid) if _doc_id_ok(tid) else None
@@ -355,7 +358,9 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             why = _busy_reason(active, lambda r: r.doc_id == tid)
             if why:
                 return {"id": tid, "title": d["title"], "reason": why}
-            return Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who, on_fail=self._pref("onFail", "next"))
+            run = Run(None, d["title"] or tid, DOC_MODE, None, doc_id=tid, overwrite=overwrite, streamer=who, on_fail=self._pref("onFail", "next"))
+            self._accept(run, base=base)
+            return run
         return self._enqueue(dict.fromkeys(i for i in ids if isinstance(i, str)), make)
 
     def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None,
@@ -368,6 +373,13 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             raise ValueError("配信は 1〜%d 本で指定してください" % MAX_NEW)
         mode = FLOW_MODES["url"].get(flow, "request")
         weights = clean_weights(weights)
+        base, studio, seen = self.build_spec(), self._studio_list(), {}   # 受付で組む束・スタジオの一覧(1 回の受付で 1 回だけ読む。RS7-1 S4)
+
+        def friend():
+            """友人の区間の長さの実績(解析の段がある実行が出たときに 1 回だけ読む)"""
+            if "fl" not in seen:
+                seen["fl"] = self._friend_length()
+            return seen["fl"]
 
         def make(it, active):
             it = it if isinstance(it, dict) else {}
@@ -383,10 +395,12 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
             if why:
                 return {"id": vid, "title": title, "reason": why}
             # ① の送り直しは、前のパックがあっても今回の設定(カット・映像トラック)で作り直して届ける(overwrite)
-            return Run(vid, title or vid, mode, top, fresh={"title": title, "channel": channel},
-                       on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                       video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto", streamer=streamer or None,
-                       duration=it.get("duration") if _num(it.get("duration")) else None, deliver_batch=deliver_batch)
+            run = Run(vid, title or vid, mode, top, fresh={"title": title, "channel": channel},
+                      on_fail=self._pref("onFail", "next"), request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
+                      video_tracks=video_tracks, ranges=ranges, cut=cut, weights=weights, overwrite=mode == "request_auto", streamer=streamer or None,
+                      duration=it.get("duration") if _num(it.get("duration")) else None, deliver_batch=deliver_batch)
+            self._accept(run, base=base, friend=friend, studio=studio)
+            return run
         return self._enqueue(items, make)
 
     def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
@@ -396,13 +410,22 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
             raise ValueError("動画が見つかりません")
+        self._push_accepted(lambda r: r.source_path == path, "この動画は", None)   # 先に断る物を断る(束を組む前)
+        run = Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
+                  on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
+                  video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch, pool=pool)
+        self._accept(run)   # 束は受けたときに組む(RS7-1 S4。ライブの書き出しの経路も欄から作った Run を、ここで束にする)
+        return self._push_accepted(lambda r: r.source_path == path, "この動画は", run)
+
+    def _push_accepted(self, same, what, run):
+        """1 本の受付: 同じ入力が待ち・実行中・待ちが多すぎれば理由つきの ValueError。run があれば積んで待ちの記録に残す -> run.public()(run が None = 確かめるだけ)"""
         with self.cv:
-            why = _busy_reason(self._active_runs(), lambda r: r.source_path == path, "この動画は")
+            why = _busy_reason(self._active_runs(), same, what)
             if why:
                 raise ValueError(why)
-            out = self._push(Run(None, str(title or os.path.basename(path))[:120], FLOW_MODES["file"].get(flow, "file"), None, streamer=streamer or None,
-                                 on_fail=self._pref("onFail", "next"), source_path=path, request_id=request_id, deliver_dir=deliver_dir, speakers=speakers,
-                                 video_tracks=video_tracks, cut=cut, engine=engine, model=model, deliver_batch=deliver_batch, pool=pool))
+            if run is None:
+                return None
+            out = self._push(run)
         self._save_active()
         return out
 
@@ -451,9 +474,13 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         """文字起こしの文書の一覧(txindex。更新時刻で覚えているので何度呼んでも読み直さない)"""
         return txindex.load(txindex.folder(self.root, self.env))
 
+    def _studio_list(self):
+        """スタジオの一覧 {配信の ID: 配信}(cases.read_studio。読めなければ {})"""
+        return cases.read_studio(cases.locations(self.root, self.env)["studio"])
+
     def _studio_video(self, vid):
         """スタジオの一覧の 1 本(cases.read_studio。無ければ {})"""
-        return cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}
+        return self._studio_list().get(vid) or {}
 
     def _tool_settings(self):
         """スタジオの画面の設定(settings-ui.json)と編集の設定(settings.json)-> (スタジオ, 編集)。置き場所は各ツールの作業データ
@@ -468,17 +495,68 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         return out[0], out[1]
 
     def build_spec(self):
-        """画面の設定(スタジオ・編集の設定ファイルとホームの設定 autorun)から指定の束と画面だけの値を組む -> (束, screen)。
-        Queue の hook: 束を持たない実行(画面の欄から作った Run)を始めるときに読む(段の途中で設定を変えても、その実行は始めたときの束のまま)。
-        受けたときに組むのは RS7-1 S4。
+        """画面の設定(スタジオ・編集の設定ファイルとホームの設定 autorun)から指定の束を組む -> (束, 知らせ)。
+        Queue の hook: 受付(_accept)で読む = 受けたときの束のまま流す(待ちの間・段の途中で設定を変えても、その実行の中身は変わらない。RS7-1 S4)。
         この PC の設定(flow/machine.py の machine.json・環境変数)で決めたエンジン・機器・LLM のモデルを重ねる(無ければ束は今と同じ。RS7-1 S1)"""
         studio, editor = self._tool_settings()
         try:
             ar = (self.prefs.get(["autorun"])["autorun"] or {}) if self.prefs else {}
         except (OSError, ValueError, KeyError):
             ar = {}
-        bundle, screen = spec_from_settings(studio, editor, ar)
-        return _machine.overlay(bundle, env=self.env), screen
+        bundle, notes = spec_from_settings(studio, editor, ar)
+        return _machine.overlay(bundle, env=self.env), notes
+
+    # ------------------------------------------------------------ 受付で決める(RS7-1 S4。Queue の hook)
+    def _accept(self, run, convert=False, base=None, friend=None, studio=None):
+        """受けたときに決める物を Run に置く(待ちの間に設定を変えても、その実行の中身は変わらない):
+        - 束(base = 組んである (束, 知らせ)。無ければ build_spec)と知らせ run.notes
+        - 友人の区間の長さ(依頼の URL で解析の段があるとき。_friend_length。friend = 1 回の受付で 1 回だけ読む関数)。束の analyze.length・preRatio に入れ、
+          run.friend_plan に出どころと重ねる前の値(解析の段が使った印 run.friend_length と文を出す)
+        - 配信者(指定が無いとき。覚えた名前 → チャンネル名から。決まらなければ実行中に _auto_streamer = 今までどおり)= 封筒の legacy.streamer
+        - 届け方の n 本(友人の依頼・ライブの組の溜めで指定が無いとき。ホームの設定 intake.deliverBatch)= 封筒の deliver.batch
+        convert = 版 1 の待ちの記録を戻すとき: 束が無ければ組む・まだ決めていない物だけ決める(始めていた実行の配信者は実行中に決めるまま)。
+        studio = スタジオの一覧(1 回の受付で 1 回だけ読む。None = ここで読む)"""
+        new = run.spec is None
+        if new:
+            bundle, notes = base if base is not None else self.build_spec()
+            run.spec = bundle
+            run.notes = list(notes)
+        pending = any(s["key"] == "analyze" and s["state"] not in DONE_STEPS for s in run.steps)
+        if run.friend_plan is None and run.mode in REQUEST_URL_MODES and pending:
+            fl = friend() if friend is not None else self._friend_length()
+            if fl:
+                keys = [k for k in ("length", "preRatio") if k in fl]
+                b = run.spec
+                run.friend_plan = dict(fl, base={k: b["analyze"][k] for k in keys})
+                run.spec = dict(b, analyze=dict(b["analyze"], **{k: fl[k] for k in keys}))
+        if run.streamer is None and (new or not convert):
+            self._accept_streamer(run, studio)
+        if run.deliver_batch is None and (run.deliver_dir or run.pool):
+            run.deliver_batch = self._batch_size(run)
+
+    def _accept_streamer(self, run, studio=None):
+        """受付で配信者を決める(_auto_streamer と同じ規則 = prefs.guess_streamer)。実行中と同じ答えになるときだけ決める:
+        文書単位 = その文書・動画ファイル = 前からある文書(作り直す force のときは新しい文書になるので見ない)・配信 = この実行で扱う書き出し済みの
+        切り抜きの文書(あれば)と配信・チャンネル。決まらなければ(覚えた名前もチャンネル名からも無い)None のまま = 実行中に決める"""
+        vid, doc, v = run.video_id, None, {}
+        if run.doc_id:
+            doc = next((d for d in self._docs() if d["id"] == run.doc_id), None)
+        elif run.source_path:
+            if run.force:
+                return
+            doc = self._pick_doc(self._docs(), None, None, run.source_path)
+            if not doc:
+                return   # 新しい文書の .clip.json から配信が分かる(実行中に決める)
+        elif vid:
+            v = (studio.get(vid) if studio is not None else self._studio_video(vid)) or {}
+            marks = [m for m in v.get("marks") or [] if isinstance(m, dict) and (not run.marks or m.get("id") in run.marks)
+                     and m.get("status") == "exported" and isinstance(m.get("path"), str) and m["path"]]
+            if marks:
+                docs = self._docs()
+                doc = next((d for d in (self._pick_doc(docs, vid, m.get("id"), m["path"]) for m in marks) if d), None)
+        r = self._guess_streamer(run, doc, v)
+        if r["name"] is not None:
+            run.streamer, run.streamer_from = r["name"], (r["source"] if r["name"] else None)
 
     # hook(src/flow/run.py の Runner・src/flow/runqueue.py の Queue の既定を、案件・ホームの設定・届けることで埋める) ----------
     def _on_error(self, run):

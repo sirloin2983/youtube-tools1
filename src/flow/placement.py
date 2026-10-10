@@ -171,6 +171,7 @@ def result(run, exc=None, video=None, at=None):
     return {"schema": _runlog.RESULT_SCHEMA, "id": run.id, "input": {k: pub.get(k) for k in INPUT_KEYS}, "envelope": env,
             "spec": run.spec, "state": state, "message": run.message, "error": why or run.error, "nothing": run.nothing,
             "steps": steps, "outputs": outputs(run, video), "packs": list(run.packs), "failures": failures,
+            "notes": list(getattr(run, "notes", None) or []),   # 受付で束を組んだときに直した所の知らせ(RS7-1 S4。以前の画面だけの値 packNotes)
             "created": pub["created"], "at": int((time.time() if at is None else at) * 1000),
             "madeBy": {"name": "flow", "version": _version.VERSION}}
 

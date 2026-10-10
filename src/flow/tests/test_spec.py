@@ -258,17 +258,14 @@ class TestBodies(unittest.TestCase):
             self.assertFalse(spec.key_ok(sec, k, v), (sec, k, v))
         self.assertTrue(spec.key_ok("analyze", "count", 5))
 
-    def test_clean_screen(self):
-        self.assertEqual(spec.clean_screen(None), {"precision": "accurate", "maxHeight": 0, "packFps": "30", "glossary": None, "packNotes": []})
-        sc = spec.clean_screen({"precision": "fast", "maxHeight": 720, "packFps": "60", "glossary": "語", "packNotes": ("知らせ",)})
-        self.assertEqual(sc, {"precision": "fast", "maxHeight": 720, "packFps": "60", "glossary": "語", "packNotes": ["知らせ"]})
-        bad = spec.clean_screen({"precision": "x", "maxHeight": True, "packFps": "6O", "glossary": 3, "packNotes": [1]})
-        self.assertEqual(bad, {"precision": None, "maxHeight": None, "packFps": None, "glossary": None, "packNotes": []})
+    def test_no_screen(self):
+        """画面だけの値 screen の口は消した(RS7-1 S4 = 決定 3-30 Q2。精密・上限なし・fps 30 は固定)"""
+        for name in ("SCREEN", "clean_screen", "MAX_HEIGHTS", "PACK_FPS_RE", "PRECISIONS"):
+            self.assertFalse(hasattr(spec, name), name)
 
     def test_export_body(self):
         b = spec.merge({"export": {"volume": 60, "loudness": None}})
         self.assertEqual(spec.export_body(b, "v", ("m1",)), {"id": "v", "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": None})
-        self.assertEqual(spec.export_body(spec.merge(None), "v", ["m1"], {"precision": "fast", "maxHeight": 1080})["maxHeight"], 1080)
 
     def test_tx_opts(self):
         o = spec.tx_opts(spec.merge(None))
@@ -276,7 +273,7 @@ class TestBodies(unittest.TestCase):
         self.assertEqual((o["model"], o["quality"], o["autoLearned"]), ("small", "best", False))
         self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "whisper.cpp", "device": "vulkan"}})))   # 機器から決まる
         self.assertEqual(spec.tx_opts(spec.merge({"transcribe": {"engine": "whisper.cpp"}}))["engine"], "whisper.cpp")
-        self.assertEqual(spec.tx_opts(spec.merge(None), {"glossary": "語1"})["glossary"], "語1")
+        self.assertNotIn("glossary", o)   # 用語集は書かない(編集の受付が自分の設定から読む。RS7-1 S4)
         self.assertEqual(spec.implied_engine("vulkan"), "whisper.cpp")
         self.assertEqual(spec.implied_engine("cpu"), "faster-whisper")
 
@@ -286,9 +283,9 @@ class TestBodies(unittest.TestCase):
         self.assertEqual(out, {"textplusWrap": 8, "textplusSize": "1080x1920", "textplusFps": "30", "speakerColors": True, "volume": 30})
         self.assertEqual(cs, {"noise": -35.0, "min": 0.6, "pad": 0.15})
         b = spec.merge({"pack": {"size": "1920x1080", "loudness": -14, "backup": True, "render": True, "videoTracks": 3, "speakerColors": False}})
-        _re, out, _cs = spec.pack_output(b, {"packFps": None})
-        self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "backup": True, "render": True, "speakerColors": False, "loudness": -14,
-                               "videoTracks": 3})
+        _re, out, _cs = spec.pack_output(b)
+        self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "textplusFps": "30", "backup": True, "render": True, "speakerColors": False,
+                               "loudness": -14, "videoTracks": 3})
         self.assertNotIn("volume", spec.pack_output(spec.merge({"pack": {"volume": 100}}))[1])   # 元の音量は書かない
 
     def test_defaults_match_the_tools(self):

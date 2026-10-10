@@ -1230,6 +1230,19 @@ class TestEvalFolder(StoreDir):
         write_json(S.SETTINGS, {"evalDirs": [os.path.join(self.ev, "無いフォルダ")]})
         self.assertEqual(S.eval_dirs(), [])
 
+    def test_glossary_from_settings_when_request_has_none(self):
+        """要求に用語集の鍵が無ければ(② のまとめて実行。RS7-1 S4 で用語集は束の外 = 学習データ)保存した設定の用語集。鍵があれば(空でも)要求のまま"""
+        other = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other, ignore_errors=True)
+        plain = os.path.join(other, "y.mp4")
+        with open(plain, "wb") as f:
+            f.write(b"x")
+        write_json(S.SETTINGS, {"evalDirs": [self.ev], "glossary": "用語1\n用語2"})
+        self.assertEqual(S.validate_job({"sourcePath": plain, "autoGloss": False})["glossary"], ["用語1", "用語2"])
+        self.assertEqual(S.validate_job({"sourcePath": plain, "autoGloss": False, "glossary": ""})["glossary"], [])
+        self.assertEqual(S.validate_job({"sourcePath": plain, "autoGloss": False, "glossary": "別"})["glossary"], ["別"])
+        self.assertEqual(S.validate_job({"sourcePath": self.video("a.mp4", 1000), "autoGloss": False})["glossary"], [])   # 評価用は渡さない
+
     def test_job_save_restore_force_eval(self):
         p = self.video("a.mp4", 1000)
         spec = S.validate_job({"sourcePath": p, "glossary": "用語"})

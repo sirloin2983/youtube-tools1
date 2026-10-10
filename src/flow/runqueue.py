@@ -9,12 +9,16 @@ docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S5・plan/f1-friend-pc.md
   受付(start*。画面の欄から Run を作って積む)と hook(案件・ホームの設定・友人へ届ける = ③④ の物)だけを埋める。
   hook を埋めなければ何もしない(素の Runner の既定 + 下の build_spec・_on_error の既定)= 画面なしの ② の形
 - 口: submit(封筒, 束)= 封筒 + 束を受けて Run.from_envelope で積む(束にこの PC の設定 flow/machine.py を重ねる = 受けたときに組んだ束のまま流す)/
-  status() = 待ち・実行中の数と進み具合(「終わったら閉じる」のため)/ cancel・snapshot・history・estimate・close
-- 糸 _loop: 待ちを 1 本ずつ _execute(Run がもう束を持っていればそれを使う。無ければ hook の build_spec で組む)
+  status() = 待ち・実行中の数と進み具合(「終わったら閉じる」のため)/ cancel・snapshot・history・estimate・close。
+  HTTP の口は入口の POST /api/flow/submit・GET /api/flow/status(src/home/launch.py。RS7-1 S4)
+- 束は受けたときに組む(RS7-1 S4): submit は受けた束、入口の受付(AutoRunner.start*)は hook の _accept(画面の設定 + この PC の設定 = build_spec と、
+  友人の区間の長さ・配信者・届け方の n 本)。待ちの間に設定を変えても、その実行の中身は変わらない
+- 糸 _loop: 待ちを 1 本ずつ _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)
 - 待ちの記録(起動し直しで戻す。線 D の M5): 待ち・実行中の実行を log_dir/autorun-active.json に Run.saved()(封筒 + 束 + 状態)で残し
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、作るときに読んで同じ id のまま「待ち」に戻す。
-  古い形(欄だけ・束なし)も Run.restore が読む。RESTORE_MAX_AGE より前に入れた実行は戻さず、記録に「中止」と書く。
-  入口の終了(close)で止まった実行は記録に「中止」と書かない(次の起動で続ける)
+  版 2(RS7-1 S4)= 束と受付で決めた物が入っている。版 1(それより前。欄だけ・束なしの形も Run.restore が読む)は 1 度だけ読んで変換する
+  (hook の _accept(convert=True) = 束が無ければ組む・まだ決めていない物だけ決める)。次に書くときは版 2。
+  RESTORE_MAX_AGE より前に入れた実行は戻さず、記録に「中止」と書く。入口の終了(close)で止まった実行は記録に「中止」と書かない(次の起動で続ける)
 - 終わった実行の記録: log_dir/autorun-runs.jsonl に 1 行ずつ(形と読み方は flow/runlog.py。1MB を超えたら .1 へ)。
   結果の束(<案件>/作業用/runs/<id>.json)は flow/run.py の run() の終わりに flow/placement.write_result が書く
 
@@ -28,7 +32,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt import fsio
+from ytt import colors as _colors, fsio, tools as _ytools
 from . import machine as _machine, run as run_mod, runlog, spec as _spec
 from .run import MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError
 
@@ -42,7 +46,8 @@ PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "st
              "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
 MAX_WAITING = 20       # 順番待ちの上限
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(log_dir の中。runlog.RUNS_LOG の隣)
-ACTIVE_VERSION = 1     # 中身は Run.saved()(RS7-1 S3 から封筒 + 束も入る。古い形も Run.restore が読むので版は据え置き)
+ACTIVE_VERSION = 2     # 中身は Run.saved()(封筒 + 束 + 状態)。2 = RS7-1 S4 から(束は受けたときに組んだ物・受付で決めた物も入る)
+ACTIVE_OLD_VERSIONS = (1,)   # 1 度だけ読んで変換する版(1 = RS7-1 S4 より前。束が無い・受付で決める物を実行中に決めていた)
 ACTIVE_READ_MAX = 4 * 1024 * 1024
 RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
 ACTIVE_STATES = ("queued", "running")
@@ -61,6 +66,26 @@ def busy_reason(active, same, what=""):
 def doc_id_ok(v):
     """文書の id の形(英数字と - _ の 40 字まで)"""
     return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
+
+
+def _check_media(path):
+    """② の口の動画ファイル: 実在する絶対パスで、拡張子が動画・音声(ytt/tools.MEDIA_TYPES)の物だけ。合わなければ理由つきの ValueError"""
+    if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
+        raise ValueError("封筒.input.path の動画が見つかりません(絶対パスで、ある動画を指してください)")
+    if os.path.splitext(path)[1].lower() not in _ytools.MEDIA_TYPES:
+        raise ValueError("封筒.input.path は動画・音声ファイルにしてください(対応: %s)" % " ".join(sorted(_ytools.MEDIA_TYPES)))
+
+
+def _people_streamer(bundle, env=None):
+    """束の hints.people の先頭 -> 照らし合わせた配信者の名前(ytt/colors.resolve)か None(出る人が無い・合わない = 実行中に決める)"""
+    people = _spec.hint_people(bundle)["people"]
+    if not people:
+        return None
+    try:
+        who, _hex = _colors.resolve(people[0]["name"], env=env)
+    except ValueError:
+        return None
+    return who
 
 
 def _rec_key(rec):
@@ -115,8 +140,16 @@ class Queue(run_mod.Runner):
 
     # ------------------------------------------------------------ hook(継ぐ側が埋める)
     def build_spec(self):
-        """束を持たない実行(画面の欄から作った Run)の束 -> (束, 画面だけの値 screen か None)。既定 = 束の既定 + この PC の設定(flow/machine.py)"""
-        return _machine.overlay(_spec.validate(_spec.merge(None)), env=self.env), None
+        """受付で組む束 -> (束, 知らせの文のリスト)。既定 = 束の既定 + この PC の設定(flow/machine.py)・知らせなし"""
+        return _machine.overlay(_spec.validate(_spec.merge(None)), env=self.env), []
+
+    def _accept(self, run, convert=False):
+        """受けたときに決める物を Run に置く(RS7-1 S4)。既定 = 束が無ければ build_spec で組む(知らせは run.notes)。
+        入口の AutoRunner は友人の区間の長さ・配信者・届け方の n 本も決める。convert = 版 1 の待ちの記録を戻すとき(まだ決めていない物だけ)"""
+        if run.spec is None:
+            bundle, notes = self.build_spec()
+            run.spec = bundle
+            run.notes = list(notes)
 
     def _on_error(self, run):
         """失敗で終わった実行(記録に書く前。入口は友人へ、できていたパックと失敗の理由を届ける)。既定は何もしない"""
@@ -153,7 +186,8 @@ class Queue(run_mod.Runner):
         except (OSError, ValueError) as e:
             self.log("まとめて実行: 前の起動の待ちの記録を読めませんでした(%s)。戻さずに続けます" % e.__class__.__name__)
             return []
-        items = d.get("runs") if isinstance(d, dict) and d.get("v") == ACTIVE_VERSION else None
+        ver = d.get("v") if isinstance(d, dict) else None
+        items = d.get("runs") if ver == ACTIVE_VERSION or ver in ACTIVE_OLD_VERSIONS else None
         out, seen = [], set()
         for x in items if isinstance(items, list) else []:
             run = Run.restore(x)
@@ -164,9 +198,16 @@ class Queue(run_mod.Runner):
                 run.state, run.message, run.finished = "cancelled", "ホームを起動し直したとき、%d 日より前に入れた実行だったので続けませんでした" % (RESTORE_MAX_AGE // 86400), time.time()
                 self._log(run)
                 continue
+            if ver in ACTIVE_OLD_VERSIONS or run.spec is None:   # 古い版(1 度だけ変換。次に書くときは今の版)・束の無い記録: 受付で決める物を今決める
+                try:
+                    self._accept(run, convert=True)
+                except (OSError, ValueError, TypeError, KeyError) as e:   # 決められなくても戻す(束の無い実行は _execute が組む)
+                    self.log("まとめて実行: 前の起動の待ちの記録を今の形にできませんでした(%s %s)" % (run.id, e.__class__.__name__))
             out.append(run)
         if out:
             self.log("まとめて実行: ホームを起動し直したので、待ち・実行中だった %d 件を続けます(%s)" % (len(out), "・".join(r.title or r.id for r in out[:5])))
+        if out and ver in ACTIVE_OLD_VERSIONS:
+            self.log("まとめて実行: 待ちの記録は版 %s の形だったので、今の形(版 %d)にしました" % (ver, ACTIVE_VERSION))
         return out
 
     # ------------------------------------------------------------ 積む
@@ -197,8 +238,15 @@ class Queue(run_mod.Runner):
     def submit(self, envelope, spec=None):
         """② の口: 封筒(flow/envelope.py)+ 束(flow/spec.py。変えたい所だけでもよい)を受けて待ち行列に積む -> run.public()。
         束にこの PC の設定(flow/machine.py)を重ねて Run に置く = 受けたときの束のまま流す(封筒の欄が決めた物 = run.pinned はそのまま)。
+        動画ファイルの封筒(kind file)は、実在する絶対パスで拡張子が動画・音声(ytt/tools.MEDIA_TYPES)の物だけ。届け先が無ければ届けない(既定)。
+        配信者: 封筒に無ければ(legacy.streamer が null)束の hints.people の先頭の名前を照らし合わせた名前(字幕の色。ytt/colors.resolve =
+        友人の受付と同じ。合わなければ決めない)。決まらなければ実行中に決める(入口は hook の _auto_streamer = チャンネル名などから)。
         封筒・束の形が違う・同じ入力(配信・文書・動画)か同じ id が待ち・実行中・待ちが多すぎれば理由つきの ValueError"""
         run = Run.from_envelope(envelope, spec)
+        if run.kind() == "file":
+            _check_media(run.source_path)
+        if run.streamer is None:
+            run.streamer = _people_streamer(run.spec, self.env)
         run.spec = _machine.overlay(run.spec, env=self.env)   # 欄から写した差分(run.asked)は置くときに重なる = 封筒の決めた物が勝つ
         with self.cv:
             active = self._active_runs()
@@ -319,7 +367,7 @@ class Queue(run_mod.Runner):
         return out
 
     def status(self):
-        """待ち・実行中が 0 か と進み具合(送るアプリの「終わったら閉じる」・CLI が聞く口。HTTP の口は RS7-1 S4)。
+        """待ち・実行中が 0 か と進み具合(送るアプリの「終わったら閉じる」・CLI が聞く口。HTTP は入口の GET /api/flow/status)。
         -> {"queued", "running", "done"(この起動で終わった数 = 済み・失敗・中止。メモリに残る MAX_KEEP 件まで), "idle"(待ち・実行中が 0),
         "closed", "runs": [{id, kind, title, requestId, state, stateLabel, message, error, nothing, step(実行中の段), created, startedAt, finished,
         resultPath, steps: [{key, label, state, detail, startedAt?, finishedAt?}]}](入れた順)}"""
@@ -439,11 +487,8 @@ class Queue(run_mod.Runner):
             self._save_active()   # 終わった実行を待ちの記録から外す(M5)
 
     def _execute(self, run):
-        """1 回の実行(_loop の糸から)。Run がもう束を持っていれば(submit・待ちの記録から戻した物)それを使い、無ければ hook の build_spec で組む。
-        束に入れない画面の値(Run.screen。RS7-1 S4 で無くす)は、まだ無ければ build_spec の物"""
-        bundle = None
-        if run.spec is None or run.screen is None:
-            bundle, screen = self.build_spec()
-            if run.screen is None:
-                run.screen = screen
-        return run_mod.run(self.client, run, spec=None if run.spec is not None else bundle, hooks=self)
+        """1 回の実行(_loop の糸から)。受けたときに組んだ束(Run.spec。RS7-1 S4)で流す。
+        束の無い Run(受付を通さずに直に積んだ物)だけ、ここで hook の _accept(= build_spec)で組む"""
+        if run.spec is None:
+            self._accept(run)
+        return run_mod.run(self.client, run, hooks=self)

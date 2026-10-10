@@ -425,6 +425,22 @@ class TestDocs(Base):
 
 
 class TestModes(Base):
+    def test_spec_is_built_at_accept(self):
+        """RS7-1 S4: 束は受けたときに組む = 待ちの間に画面の設定を変えても、その実行の中身は変わらない(意図した変化。以前は流し始めたときに組んだ)"""
+        self.tools.tx_extra = {"model": "large-v3"}
+        with mock.patch.object(self.r, "_wake", lambda: None):   # 糸を起こさない = 待ちのまま
+            run = self.r.start(VID, "adopted")
+        queued = next(r for r in self.r.runs if r.id == run["id"])
+        self.assertEqual((queued.state, queued.spec["transcribe"]["model"]), ("queued", "large-v3"))
+        self.tools.tx_extra = {"model": "small"}   # 待ちの間に設定を変えた
+        with self.r.cv:
+            self.r._wake()
+        end = time.time() + 10
+        while time.time() < end and queued.state in ("queued", "running"):
+            time.sleep(0.01)
+        self.assertEqual(queued.state, "done", queued.public())
+        self.assertEqual(self.tools.tx_jobs["t1"]["body"]["model"], "large-v3")
+
     def test_row_edge_setting_is_passed(self):
         """行から作るときの端の広げ方は「編集」の「行から」の設定(文字起こしの settings.rowEdge)を cut2resolve に渡す"""
         self.tools.row_edge = {"on": False, "after": 0.5, "before": 0.3}
@@ -486,7 +502,8 @@ class TestModes(Base):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})
-        self.assertEqual(self.tools.export_body, {"id": VID, "markIds": ["m1"], "precision": "fast", "maxHeight": 720, "volume": 60, "loudness": -16})   # スタジオの設定を使う
+        # 音量はスタジオの設定を使う。精密・画質の上限は固定(精密・上限なし。画面の値は読まない = RS7-1 S4・決定 3-30 Q2)
+        self.assertEqual(self.tools.export_body, {"id": VID, "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": -16})
         tx = self.tools.tx_jobs["t1"]["body"]
         # 文字起こしの項目は束の値を全部(無い項目は編集の既定と同じ束の既定)。知らない設定(secret・goalHours)は渡さない
         self.assertEqual(tx, {"model": "small", "language": "ja", "quality": "best", "device": "auto", "vadMode": "weak", "boost": True,
@@ -696,7 +713,8 @@ class TestStage4(Base):
         run = self.run_one("adopted")
         self.assertEqual(run["state"], "done", run)
         out = self.tools.c2r["body"]["output"]
-        self.assertEqual((out["textplusFps"], out["textplusSize"], out["backup"], out["textplusWrap"]), ("60", "1920x1080", True, 14))   # 横なら横の改行
+        # 横なら横の改行。fps は固定の 30(設定に残っている packFps は読まない = RS7-1 S4・決定 3-30 Q2)
+        self.assertEqual((out["textplusFps"], out["textplusSize"], out["backup"], out["textplusWrap"]), ("30", "1920x1080", True, 14))
 
     def test_bad_row_edge_is_reported_not_failed(self):
         self.tools.row_edge = {"on": "yes"}
@@ -791,6 +809,28 @@ class TestStage5(Base):
         self.tools.video["channel"] = "Pekora Ch. 兎田ぺこら"
         run = self.run_one("adopted")
         self.assertEqual((self.tools.c2r["body"]["output"].get("streamer"), run["streamerFrom"]), ("さくらみこ", "video"))
+
+    def test_decided_at_accept(self):
+        """RS7-1 S4: 覚えた名前で決まる配信者は受付で決める(待ちの間に覚えた名前を変えても変わらない)。決まらなければ実行中に(上の 2 つ)"""
+        import prefs as PR
+        from ytt import fsio
+        p = PR.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        p.remember("videos", VID, "さくらみこ")
+        self.r.prefs = p
+        with mock.patch.object(self.r, "_wake", lambda: None):
+            run = self.r.start(VID, "adopted")
+        self.assertEqual((run["streamer"], run["streamerFrom"]), ("さくらみこ", "video"))
+        p.remember("videos", VID, "兎田ぺこら")
+        with self.r.cv:
+            self.r._wake()
+        end = time.time() + 10
+        while time.time() < end:
+            cur = next(x for x in self.r.snapshot()["runs"] if x["id"] == run["id"])
+            if cur["state"] not in ("queued", "running"):
+                break
+            time.sleep(0.01)
+        self.assertEqual((cur["state"], self.tools.c2r["body"]["output"].get("streamer")), ("done", "さくらみこ"))
+        self.assertEqual(p.get(["streamer"])["streamer"]["docs"], {})   # 推定した名前は文書に覚えない(今までどおり)
 
 
 class TestRunLog(Base):
@@ -1681,10 +1721,10 @@ class TestRequests(Base):
                                              deliver_dir=out2, deliver_batch=2)["runs"][0])
         self.assertEqual((run["state"], self.real(run).deliver_batch), ("done", 2), run)
         self.assertEqual(sorted(n for n in os.listdir(out2) if n.endswith(".group.json")), ["20261002-120000-def456__%s 1-2.group.json" % run["title"]])
-        out3 = os.path.join(self.tmp, "Dropbox3", "出力")   # 指定が無ければ(None)ホームの設定のまま = 1 本ずつ
+        out3 = os.path.join(self.tmp, "Dropbox3", "出力")   # 指定が無ければ(None)ホームの設定のまま = 1 本ずつ(受付で決めて封筒の deliver.batch に入れる。RS7-1 S4)
         run = self.wait(self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id="20261003-120000-aaa111", flow="auto",
                                              deliver_dir=out3)["runs"][0])
-        self.assertEqual((run["state"], self.real(run).deliver_batch), ("done", None), run)
+        self.assertEqual((run["state"], self.real(run).deliver_batch), ("done", 1), run)
         self.assertFalse([n for n in os.listdir(out3) if n.endswith(".group.json")])
 
     def test_batch_size_priority_and_range(self):
@@ -1728,7 +1768,8 @@ class TestRequests(Base):
         media2 = os.path.join(self.tmp, "二本目.mp4")
         open(media2, "wb").close()
         run = self.wait(self.r.start_file(media2, title="二本目", request_id="rid2", flow="auto", deliver_dir=out, deliver_batch=99))
-        self.assertEqual(self.real(run).deliver_batch, None)
+        # 範囲の外は指定なし = 受付でホームの設定の n 本に決める(RS7-1 S4。以前は None のまま実行中にホームの設定を読んだ)
+        self.assertEqual(self.real(run).deliver_batch, self.r._batch_size(A.Run(None, "", "file_auto", None)))
         self.assertEqual(sorted(n for n in os.listdir(out) if n.endswith(".zip")), ["rid1__依頼.zip", "rid2__二本目.zip"])
 
     def test_file_auto_delivers_and_failure_note(self):
@@ -2165,16 +2206,17 @@ class TestMedia30fps(unittest.TestCase):
 
 
 # ---------- RS6 b-0: 画面の設定 → 束 → 本文が、RS6 b-0 の前の「GET /api/settings → 本文」と同じ ----------
-# 前の書き方(src/flow/run.py の _export_body・_tx_opts・_pack_settings。b-0 で消した)をそのまま写した物。比べるための見本
-OLD_TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
+# 前の書き方(src/flow/run.py の _export_body・_tx_opts・_pack_settings。b-0 で消した)をそのまま写した物。比べるための見本。
+# RS7-1 S4(決定 3-30 Q2)で、切り出しの精密・画質の上限・パックの fps は固定(精密・上限なし・30)・用語集は束の外(編集の受付が自分の設定から読む)にしたので、
+# その 4 つだけは固定の値・書かない形に直してある
+OLD_TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned",
                "autoRedo", "redoLarge")
 
 
 def old_export_body(rv, vid, ids):
     n = lambda x, lo, hi, d: x if isinstance(x, (int, float)) and not isinstance(x, bool) and lo <= x <= hi else d
     loud = rv.get("exportLoudness", -14)
-    return {"id": vid, "markIds": ids, "precision": "fast" if rv.get("precision") == "fast" else "accurate",
-            "maxHeight": rv.get("maxHeight") if rv.get("maxHeight") in (0, 720, 1080, 1440, 2160) else 1080,
+    return {"id": vid, "markIds": ids, "precision": "accurate", "maxHeight": 0,   # 固定(RS7-1 S4。以前は画面の precision・maxHeight(無ければ 1080))
             "volume": int(n(rv.get("exportVolume"), 1, 200, 75)), "loudness": loud if loud in (-11, -14, -16, -18) else None}
 
 
@@ -2193,7 +2235,7 @@ def old_pack_settings(tx):
         notes.append(A.ROW_EDGE_NOTE)
         row_edge = None
     size = tx.get("packSize") if tx.get("packSize") in ("1080x1920", "1920x1080") else "1080x1920"
-    fps = str(tx.get("packFps") or "30")
+    fps = "30"   # 固定(RS7-1 S4。以前は画面の packFps)
     sub = tx.get("subtitle") if isinstance(tx.get("subtitle"), dict) else {}
     wrap = (sub.get("wrapChars") or {}).get("horizontal" if size == "1920x1080" else "vertical") if isinstance(sub.get("wrapChars"), dict) else None
     out = {"textplusWrap": wrap} if isinstance(wrap, int) and not isinstance(wrap, bool) and 0 <= wrap <= 40 else {}
@@ -2256,11 +2298,11 @@ class TestSpecSameBodies(unittest.TestCase):
     """入口から動かしたときの各段の要求の中身は、RS6 b-0 の前と同じ(同じ画面の設定から)"""
 
     def bodies(self, studio, editor, cut="rows"):
-        bundle, screen = A.spec_from_settings(studio, editor, {"cut": cut})
+        bundle, notes = A.spec_from_settings(studio, editor, {"cut": cut})
         rv = studio.get("review") or {}
-        return {"export": (old_export_body(rv, VID, ["m1"]), SP.export_body(bundle, VID, ["m1"], screen)),
-                "tx": (old_tx_opts(editor), SP.tx_opts(bundle, screen)),
-                "pack": (old_pack_settings(editor), SP.pack_output(bundle, screen) + (SP.clean_screen(screen)["packNotes"],)),
+        return {"export": (old_export_body(rv, VID, ["m1"]), SP.export_body(bundle, VID, ["m1"])),
+                "tx": (old_tx_opts(editor), SP.tx_opts(bundle)),
+                "pack": (old_pack_settings(editor), SP.pack_output(bundle) + (notes,)),
                 "analyze": ((studio.get("analyze") or {}), SP.DEFAULTS["analyze"] if not studio.get("analyze") else bundle["analyze"]),
                 "cut": bundle["pack"]["cut"]}
 
@@ -2291,12 +2333,11 @@ class TestSpecSameBodies(unittest.TestCase):
             self.assertEqual(AZ.validate_settings(b["analyze"][1] if saved else SP.DEFAULTS["analyze"]), AZ.validate_settings(saved), msg)
 
     def test_empty_settings(self):
-        """設定が何も無い = 束の既定(① 単体と同じ)。書き出しの画質の上限だけは画面の既定 1080(固定の上限なしは画面から消すとき)"""
-        bundle, screen = A.spec_from_settings({}, {}, {})
+        """設定が何も無い = 束の既定(① 単体と同じ)。書き出しの画質の上限は固定の上限なし(RS7-1 S4 から。以前は画面の既定 1080)"""
+        bundle, notes = A.spec_from_settings({}, {}, {})
         self.assertEqual({k: v for k, v in bundle.items()}, SP.merge(None))
-        self.assertEqual((screen["precision"], screen["maxHeight"], screen["packFps"], screen["glossary"], screen["packNotes"]),
-                         ("accurate", 1080, "30", None, []))
-        self.assertEqual(SP.export_body(SP.merge(None), VID, ["m1"])["maxHeight"], 0)   # 画面の値が無い(① 単体)= 固定 = 上限なし
+        self.assertEqual(notes, [])
+        self.assertEqual(SP.export_body(bundle, VID, ["m1"])["maxHeight"], 0)   # 固定 = 上限なし
 
     def test_run_sends_the_old_bodies_and_reads_no_settings(self):
         """入口から動かす: 段は GET /api/settings を読まず、前と同じ本文を送る(画面から保存した設定)"""
@@ -2347,9 +2388,9 @@ class TestToolSettingsFiles(Base):
         studio, editor = _REAL_TOOL_SETTINGS(self.r)
         self.assertEqual((studio["analyze"], editor["model"]), ({"count": 5}, "large-v3"))
         with mock.patch.object(A.AutoRunner, "_tool_settings", _REAL_TOOL_SETTINGS):
-            bundle, screen = self.r.build_spec()
-        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], screen["maxHeight"]),
-                         (5, "large-v3", "1920x1080", 720))
+            bundle, notes = self.r.build_spec()
+        # 画質の上限(review.maxHeight)は読まない(固定 = 上限なし。RS7-1 S4)
+        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], notes), (5, "large-v3", "1920x1080", []))
 
     def test_build_spec_uses_home_cut(self):
         import prefs as PR

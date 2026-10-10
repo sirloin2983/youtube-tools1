@@ -132,6 +132,31 @@ class TestSubmit(Base):
         tools.gate.set()
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
 
+    def test_submit_file_must_be_media(self):
+        """動画ファイルの封筒は、実在する絶対パスで拡張子が動画・音声の物だけ(RS7-1 S4)"""
+        q = self.queue()
+        txt = os.path.join(self.tmp, "memo.txt")
+        with open(txt, "wb") as f:
+            f.write(b"x")
+        for path, why in ((os.path.join(self.tmp, "nai.mp4"), "見つかりません"), ("clip0.mp4", "見つかりません"), (txt, "動画・音声")):
+            with self.assertRaisesRegex(ValueError, why, msg=path):
+                q.submit(self.env_of(path))
+        self.assertEqual(q.status()["runs"], [])
+
+    def test_people_head_is_streamer(self):
+        """封筒に配信者が無ければ、束の hints.people の先頭を照らし合わせた名前(合わなければ決めない = 実行中に)。封筒にあれば封筒(RS7-1 S4)"""
+        tools = Tools()
+        tools.gate.clear()
+        q = self.queue(tools)
+        spec = {"hints": {"people": [{"name": "ぺこら"}, {"name": "ゲスト"}]}}
+        q.submit(self.env_of(self.media[0]), spec)
+        q.submit(self.env_of(self.media[1], "abcdef0123"), {"hints": {"people": [{"name": "だれでもない人"}]}})
+        q.submit(dict(self.env_of(self.media[2], "fedcba9876"), legacy={"mode": "file", "streamer": ""}), spec)
+        by = {r.id: r.streamer for r in q.runs}
+        self.assertEqual(by, {"0123456789": "兎田ぺこら", "abcdef0123": None, "fedcba9876": ""})
+        tools.gate.set()
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+
     def test_without_spec_uses_build_spec_hook(self):
         """束を持たない実行(画面の欄から作った Run)は hook の build_spec(既定 = 束の既定 + この PC の設定)"""
         tools = Tools()
@@ -183,6 +208,29 @@ class TestRestore(Base):
         self.assertEqual([p for p, _m, _l in tools.started], [self.media[0]])
         states = {r["id"]: r["state"] for r in q.history()["runs"]}
         self.assertEqual(states, {"0123456789": "done", "abcdef0123": "cancelled"})
+
+    def test_old_version_is_converted_once(self):
+        """版 1(RS7-1 S4 より前)の待ちの記録は 1 度だけ読んで今の形に(束が無ければ受付の hook で組む)。次に書くときは今の版"""
+        self.assertEqual(Q.ACTIVE_VERSION, 2)
+        now = time.time()
+        old = {"id": "0123456789", "mode": "file", "title": "版 1", "sourcePath": self.media[0], "created": now - 60,
+               "steps": [{"key": "transcribe", "state": "wait", "detail": ""}]}
+        with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "runs": [old]}, f)
+        tools = Tools()
+        tools.gate.clear()
+        q = self.queue(tools)
+        run = next(r for r in q.runs if r.id == "0123456789")
+        self.assertEqual(run.spec["transcribe"]["model"], SP.DEFAULTS["transcribe"]["model"])   # 戻すときに組んだ(build_spec の既定)
+        _until(lambda: q.status()["running"] == 1, "実行中")
+        self.assertEqual(self.active_file()["v"], 2)
+        self.assertEqual(self.active_file()["runs"][0]["spec"]["transcribe"]["model"], SP.DEFAULTS["transcribe"]["model"])
+        tools.gate.set()
+        _until(lambda: q.status()["idle"], "戻した 1 本が済む")
+        with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
+            json.dump({"v": 99, "runs": [old]}, f)   # 知らない版は戻さない
+        q2 = self.queue(Tools())
+        self.assertEqual(q2.runs, [])
 
 
 class TestCancel(Base):

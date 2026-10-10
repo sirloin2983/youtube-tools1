@@ -11,8 +11,8 @@
 末尾の「束 → 本文」(RS6 b-0)は、段(flow/run.py)が各ツールの API に渡す本文を束から作る純粋な関数:
   export_body(束, 配信, マーク)・tx_opts(束)・pack_output(束)。解析の設定は束の analyze 節をそのまま渡す。
 入口(src/home/autorun.py の build_spec)は画面の設定から束を組む = 段は設定ファイルも GET /api/settings も読まない(5-4)。
-画面の設定のうち束に入れない物(5-4 の固定 = 精密・画質の上限・fps と、学習データの用語集)は「画面だけの値」screen(SCREEN の鍵)で渡す。
-画面から消すまでの一時の口(無ければ固定の値 = ① 単体の動き)。
+5-4 の固定(切り出しの精密・画質の上限なし・パックの fps 30)は FIXED の値をいつも使う(RS7-1 S4 = 決定 3-30 Q2 で画面だけの値 screen の口を消した)。
+学習データの用語集は束に入れない(編集の受付が要求に無ければ自分の設定から読む = human/proof/doc_jobs.validate_job・CLI は flow/tools の Learning)。
 """
 import copy
 import re
@@ -121,7 +121,8 @@ FIXED = {
 DEFAULTS = {
     "hints": {
         "ranges": [],         # 必ず切り抜く区間 [[開始秒, 終了秒], …]。無し = なし(autorun.py の clean_ranges(None))
-        "people": [],         # 出る人 [{name, color?}](先頭 = 話者の分からない行の字幕の色にする人)か {count}。無し = ① が推定する
+        "people": [],         # 出る人 [{name, color?}](先頭 = 話者の分からない行の字幕の色にする人)か {count}。無し = ① が推定する。
+                              # ② の口 submit は、封筒に配信者(legacy.streamer)が無ければ先頭の名前を配信者(字幕の色)にする(RS7-1 S4。flow/runqueue.py)
     },
     "analyze": {              # スタジオの解析の設定(src/pipeline/analyze/analyze.py の validate_settings 90-96 行)
         "useAudio": True, "useChat": True, "useComments": True,
@@ -178,7 +179,8 @@ DEFAULTS = {
         "from": None,         # どの段からやり直すか(RUN_FROM)。None = 頭から
         "force": False,       # 同じ鍵でも作り直す
         "repack": False,      # パックがあれば作り直す(文字起こしは作り直さない。Run の旧い欄 overwrite。RS7-1 S3)
-        "pinned": [],         # 依頼が決めた項目(RUN_PINS。画面の既定・自動の決め方より強い。RS7-1 S3 の一時の形 = 束を受付で組むようになれば要らない)
+        "pinned": [],         # 依頼が決めた項目(RUN_PINS。画面の既定・自動の決め方より強い。RS7-1 S3 の一時の形。受付で束を組む S4 のあとも、
+                              # 「依頼が決めた重みなら解析し直す・ライブの自動の採用の既定より強い・1 でも要求に書く」の印として残る)
     },
 }
 
@@ -383,31 +385,10 @@ def key_ok(sec, key, value):
 
 
 # ---------- 束 → 各ツールの API の本文(RS6 b-0) ----------
-# 画面だけの値(束に入れない): 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は画面から消すまで今の値を使い、
-# 用語集(学習データ。束には場所と版だけ)は文字そのものを渡す。packNotes = 入口が画面の設定を束にするときに直した所の知らせ(パックの段に出す)。
-# 鍵が無ければ FIXED の値(① 単体)・鍵があって値が None なら「渡さない」(ツールの既定)
-SCREEN = {"precision": "accurate", "maxHeight": FIXED["maxHeight"], "packFps": str(FIXED["fps"]), "glossary": None, "packNotes": ()}
-PRECISIONS = ("accurate", "fast")
-MAX_HEIGHTS = (0, 720, 1080, 1440, 2160)   # 書き出しの画質の上限(スタジオの exporter._max_height と同じ。0 = 上限なし)
-PACK_FPS_RE = re.compile(r"\d{1,3}(\.\d{1,3})?\Z")   # パックの Text+ の fps の文字(cut2resolve の textplusFps)
+# 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は FIXED の値(RS7-1 S4 で画面だけの値 screen の口を消した = 決定 3-30 Q2)
 TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
 TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo", "redoLarge",
                 "autoFill", "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 6 つは RS7-1 S2 で足した = 要求にあれば受付が settings.json でなく要求を使う)
-
-
-def clean_screen(screen):
-    """画面だけの値を確かめる -> 全部の鍵がそろった dict(無い鍵 = SCREEN の値・形が違う値 = None = 渡さない)"""
-    sc = screen if isinstance(screen, dict) else {}
-    checks = {"precision": lambda v: v in PRECISIONS, "maxHeight": lambda v: type(v) is int and v in MAX_HEIGHTS,
-              "packFps": lambda v: isinstance(v, str) and PACK_FPS_RE.match(v) is not None,
-              "glossary": lambda v: isinstance(v, str),
-              "packNotes": lambda v: isinstance(v, (list, tuple)) and all(isinstance(x, str) for x in v)}
-    out = {}
-    for k, default in SCREEN.items():
-        v = sc.get(k, default)
-        out[k] = v if v is not None and checks[k](v) else None
-    out["packNotes"] = list(out["packNotes"] or ())
-    return out
 
 
 def hint_ranges(bundle, duration=None, pad=None):
@@ -437,18 +418,17 @@ def implied_engine(device):
     return "whisper.cpp" if device == "vulkan" else TX_ENGINES[0]
 
 
-def export_body(bundle, video_id, ids, screen=None):
-    """スタジオの書き出しの要求(POST /api/export)の本文。音量は束の export 節・精密と画質の上限は画面だけの値(無ければ固定 = 精密・上限なし)"""
-    sc = clean_screen(screen)
+def export_body(bundle, video_id, ids):
+    """スタジオの書き出しの要求(POST /api/export)の本文。音量は束の export 節・精密と画質の上限は固定(FIXED = 精密・上限なし)"""
     ex = bundle["export"]
-    return {"id": video_id, "markIds": list(ids), "precision": sc["precision"] or "accurate",
-            "maxHeight": sc["maxHeight"] if sc["maxHeight"] is not None else FIXED["maxHeight"], "volume": ex["volume"], "loudness": ex["loudness"]}
+    return {"id": video_id, "markIds": list(ids), "precision": "accurate" if FIXED["precise"] else "fast",
+            "maxHeight": FIXED["maxHeight"], "volume": ex["volume"], "loudness": ex["loudness"]}
 
 
-def tx_opts(bundle, screen=None):
+def tx_opts(bundle):
     """「編集」の文字起こしの要求(POST /api/transcribe)の設定の部分(動画のパスは段が足す)。
     エンジンは、機器から決まるエンジンと違うときだけ書く(入口の束は機器から決めるので書かない = 編集の画面から始めるときと同じ本文)。
-    LLM の後処理のモデル llmModel も既定と違うときだけ書く。用語集は画面だけの値(あれば)"""
+    LLM の後処理のモデル llmModel も既定と違うときだけ書く。用語集は書かない(学習データ = 編集の受付が自分の設定から読む。RS7-1 S4)"""
     t, p = bundle["transcribe"], bundle["post"]
     out = {k: t[k] for k in TX_TRANSCRIBE_KEYS}
     out.update({k: p[k] for k in TX_POST_KEYS})
@@ -458,22 +438,17 @@ def tx_opts(bundle, screen=None):
         out["learningVersion"] = p["learning"]["version"]   # 空(既定)のときは書かない = 鍵も今と同じ
     if p.get("llmModel", DEFAULTS["post"]["llmModel"]) != DEFAULTS["post"]["llmModel"]:   # LLM のモデルも既定と違うときだけ(既定の本文は今と同じ。RS7-1 S1)
         out["llmModel"] = p["llmModel"]
-    gl = clean_screen(screen)["glossary"]
-    if gl is not None:
-        out["glossary"] = gl
     return out
 
 
-def pack_output(bundle, screen=None):
+def pack_output(bundle):
     """パックの要求(cut2resolve の POST /api/build)の作り方 -> (行から作るときの端の広げ方 rowEdge, output に足す物, 無音で削る値 cutSilence)。
     1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)が 0 なら volume(% が 100 なら書かない)。予備・粗編集の動画・映像トラックは既定と違うときだけ書く。
-    fps は画面だけの値(無ければ固定の 30。素材がちょうど 30fps なら 30 にするのは段の _pack_one)"""
+    fps は固定の 30(FIXED。素材は 30fps にそろえる)"""
     p = bundle["pack"]
     size = p["size"]
-    out = {"textplusWrap": p["wrapChars"]["horizontal" if size == "1920x1080" else "vertical"], "textplusSize": size}
-    fps = clean_screen(screen)["packFps"]
-    if fps is not None:
-        out["textplusFps"] = fps
+    out = {"textplusWrap": p["wrapChars"]["horizontal" if size == "1920x1080" else "vertical"], "textplusSize": size,
+           "textplusFps": str(FIXED["fps"])}
     if p["backup"]:
         out["backup"] = True
     if p["render"]:

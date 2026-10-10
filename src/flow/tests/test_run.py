@@ -531,6 +531,30 @@ class TestFieldsToBundle(unittest.TestCase):
             with self.assertRaises(ValueError, msg=env):
                 R.Run.from_envelope(env)
 
+    def test_file_from_pack(self):
+        """束の run.from = pack(CLI の --from pack を入口に頼んだ形。RS7-1 S4): 文字起こし済みの文書でパックだけ(force でも文字起こしは作り直さない)。
+        文書が無ければ止める"""
+        doc = {"id": "t9", "title": "題", "count": 1, "sourcePath": self.media, "segments": [{"start": 0, "end": 1, "text": "あ"}]}
+
+        class Docs(R.Runner):
+            def _docs(self):
+                return list(self.have)
+        c = FakeClient()
+        rn = Docs(c, poll=0, sleep=lambda s: None)
+        rn.have = [doc]
+        env = {"id": "0123456789", "kind": "file", "input": {"path": self.media}}
+        r = R.Run.from_envelope(env, {"run": {"from": "pack", "force": True}})
+        st = {"state": "run", "detail": ""}
+        rn._file_transcribe(r, st)
+        self.assertEqual((st["state"], r.doc_id, "/api/transcribe" in c.bodies), ("skip", "t9", False))
+        rn.have = []
+        with self.assertRaisesRegex(R.StepError, "文字起こしの文書がありません"):
+            rn._file_transcribe(R.Run.from_envelope(env, {"run": {"from": "pack"}}), {"state": "run", "detail": ""})
+        r = R.Run.from_envelope(env, {"run": {"force": True}})   # from が無ければ今までどおり(force で作り直す)
+        rn.have = [doc]
+        rn._file_transcribe(r, {"state": "run", "detail": ""})
+        self.assertIn("/api/transcribe", c.bodies)
+
     def test_run_keeps_spec_of_envelope_run(self):
         """封筒 + 束で作った Run は、run(spec=None) でもその束のまま(既定に戻さない)"""
         c = FakeClient()
@@ -568,6 +592,26 @@ class TestStepsAndPublic(unittest.TestCase):
         saved = json.loads(json.dumps(r.saved()))
         back = R.Run.restore(saved)
         self.assertEqual(back.step("transcribe")["startedAt"], tx["startedAt"])
+
+    def test_accept_decisions_saved_and_used(self):
+        """RS7-1 S4: 受付で決めた友人の区間の長さ(friend_plan。束の analyze に入れてある)と知らせ(notes)は待ちの記録に残り、
+        解析の段は使った印 friend_length と文を出す・パックの段は知らせを文に出し、結果の束にも入る"""
+        plan = {"length": 38, "preRatio": 0.61, "file": "x.json", "samples": 20, "videos": 5, "base": {"length": 45, "preRatio": 0.65}}
+        r = R.Run(VID, "配信", "request", 3, ranges=[(10.0, 20.0)])
+        r.friend_plan, r.notes = plan, ["知らせ"]
+        r.spec = SP.merge({"analyze": {"length": 38, "preRatio": 0.61}})
+        back = R.Run.restore(json.loads(json.dumps(r.saved())))
+        self.assertEqual((back.friend_plan, back.notes), (plan, ["知らせ"]))
+        c = FakeClient()
+        tools = RecTools(c)
+        rn = R.Runner(c, poll=0, sleep=lambda s: None, tools=tools)
+        st = {"state": "run", "detail": ""}
+        rn._analyze_item(back, st, {"kind": "youtube", "videoId": VID}, VID)
+        self.assertEqual((tools.analyze[0][1]["length"], tools.analyze[0][1]["preRatio"]), (38, 0.61))
+        self.assertEqual(back.friend_length, {k: v for k, v in plan.items() if k != "base"})
+        self.assertIn("長さ 38 秒・山の前 0.61(友人の区間の実績から)", st["detail"])
+        self.assertEqual(rn._pack_settings(back)[3], ["知らせ"])
+        self.assertEqual(R._placement.result(back)["notes"], ["知らせ"])
 
 
 if __name__ == "__main__":

@@ -113,7 +113,9 @@ def validate_job(req):
     lang = str(req.get("language") or "ja")
     if lang not in _txbase.LANGS:
         lang = "ja"
-    st = _settings.load_settings()   # 保存した設定は 1 回だけ読む(自動の用語・下の 4 つの auto・行を分ける文字数)
+    st = _settings.load_settings()   # 保存した設定は 1 回だけ読む(自動の用語・下の 4 つの auto・行を分ける文字数・用語集)
+    if "glossary" not in req:   # 要求に用語集が無い(② のまとめて実行。RS7-1 S4 で用語集は束の外 = 学習データにした): 保存した設定の用語集
+        req = dict(req, glossary=st.get("glossary") if isinstance(st.get("glossary"), str) else None)   # (編集の画面から始めるときに送る値と同じ)
     glossary, gauto = glossary_of(req, st)
     ev = req.get("evalSet") is True   # 評価用として文字起こしする: 用語集・呼び名・置換辞書・学習した置換を使わない(git の履歴(679ff01 以前)の docs/archive/project/eval-set-procedure.md の 2)
     into = None

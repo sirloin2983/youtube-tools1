@@ -775,6 +775,40 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/autorun/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
 
+    def test_flow_submit_and_status(self):
+        """RS7-1 S4: ② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由)と GET /api/flow/status"""
+        r, body = self.req("GET", "/api/flow/status")
+        j = json.loads(body)
+        self.assertEqual((r.status, j["queued"], j["running"], j["idle"], j["runs"]), (200, 0, 0, True, []))
+        media = os.path.join(self.tmp, "切り抜き.mp4")
+        with open(media, "wb") as f:
+            f.write(b"x")
+        env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+        payload = json.dumps({"envelope": env, "spec": {"transcribe": {"model": "large-v3"}}}, ensure_ascii=False).encode("utf-8")
+        r, _ = self.post("/api/flow/submit", headers={"X-YTT-Token": "x"}, body=payload)   # 書き込み系 = 合言葉が要る
+        self.assertEqual(r.status, 403)
+        for bad, why in (({"envelope": dict(env, kind="nai")}, "封筒.kind"),
+                         ({"envelope": dict(env, input={"path": os.path.join(self.tmp, "nai.mp4")})}, "見つかりません"),
+                         ({"envelope": env, "spec": {"transcribe": {"engine": "nai"}}}, "transcribe.engine"),
+                         ({"envelope": "x"}, "封筒"), ({}, "封筒")):
+            r, body = self.post("/api/flow/submit", body=json.dumps(bad, ensure_ascii=False).encode("utf-8"))
+            self.assertEqual(r.status, 400, bad)
+            self.assertIn(why, json.loads(body)["message"], bad)
+        txt = os.path.join(self.tmp, "メモ.txt")
+        with open(txt, "wb") as f:
+            f.write(b"x")
+        r, body = self.post("/api/flow/submit", body=json.dumps({"envelope": dict(env, input={"path": txt})}).encode("utf-8"))
+        self.assertEqual((r.status, "動画・音声" in json.loads(body)["message"]), (400, True))   # 動画・音声の拡張子だけ
+        r, body = self.post("/api/flow/submit", body=payload)
+        j = json.loads(body)
+        self.assertEqual((r.status, j["run"]["id"], j["run"]["kind"], j["run"]["sourcePath"]), (200, "0123456789", "file", media))
+        r, body = self.req("GET", "/api/flow/status")
+        st = json.loads(body)
+        self.assertEqual([x["id"] for x in st["runs"]], ["0123456789"])
+        self.assertEqual(next(x for x in self.srv.autorun.runs if x.id == "0123456789").spec["transcribe"]["model"], "large-v3")   # 受けた束のまま
+        r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
+        self.assertEqual(r.status, 403)
+
     def test_intake_api(self):
         """友人からの依頼の受付(src/human/friend/intake.py): 状態・設定(api/ytt/prefs の節 intake)・今すぐ確認。受付の設定は作業データの prefs.json(一時フォルダ)"""
         r, body = self.req("GET", "/api/intake")

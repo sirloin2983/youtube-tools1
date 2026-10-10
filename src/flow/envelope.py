@@ -13,7 +13,8 @@ docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S3)。
    "requestId": 友人の依頼の id か None, "deliver": {"dir", "batch", "pool"}(届け先・n 本の組・ライブの組の溜め。どれも None = 届けない・既定),
    "note": メモ, "createdAt": 受けた時刻(ミリ秒), "specVersion": 束の形の版(SPEC_VERSION),
    "legacy": {"mode", "onFail", "streamer"}(一時。今の Run の欄で、まだ束に写せない物 = 段の並びの形・1 本が失敗したとき・字幕の色の配信者。
-             RS7-1 S4 で束(run.from・hints.people の先頭)か固定へ)}
+             配信者は受付で決めた名前(RS7-1 S4。"" = 色なし・null = 決めていない)。null のとき ② の口 submit は束の hints.people の先頭を照らし合わせて
+             配信者にする(flow/runqueue.py)。段の並びの形と onFail を束(run.from)か固定へ移すのは RS7-2 のあと)}
 知らない項目・知らない版・形の違う値は理由つきの ValueError(受け口では HTTP の 400 にする)。
 
 import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(run.py が読むので run を読まない)。

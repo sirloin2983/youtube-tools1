@@ -7,6 +7,7 @@ client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進
 import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py)。案件・ホームの設定・届けることを知る所は
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
+_friend_length は RS7-1 S4 から受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。
 
 順番待ちと実行の糸(_loop)・中止・状態と記録(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もりは
 RS7-1 S5 で flow/runqueue.py の Queue(Runner を継ぐ)へ。src/home/autorun.py に残したもの(AutoRunner が Queue を継いで hook を埋める):
@@ -17,7 +18,12 @@ autorun は移した名前を同じ名前で読み直している(テストと l
 
 RS6 b-0(2026-10-10): 段は指定の束(Run.spec。run() が merge・validate して置く)を読む。各ツールの GET /api/settings は読まない
 (入口の AutoRunner.build_spec が画面の設定から束を組む = ① は設定ファイルを読まない。束 → 本文は flow/spec.py の export_body・tx_opts・pack_output)。
-束に入れない画面の値(精密・画質の上限・fps・用語集)は Run.screen(flow/spec.py の SCREEN)。
+
+RS7-1 S4(2026-10-11): 束は受けたときに組む(入口の受付 start* と ② の口 submit。flow/runqueue.py の Queue._accept)= 待ちの間に画面の設定を変えても
+その実行の中身は変わらない。Run.screen(束に入れない画面の値)は消した(精密・画質の上限なし・fps 30 は固定 = 決定 3-30 Q2。用語集は編集の受付が
+自分の設定から読む)。受付で決めた物: 束・知らせ Run.notes(入口が画面の設定を束にするときに直した所。パックの段の文と結果の束に出す)・
+友人の区間の長さ Run.friend_plan(束の analyze.length・preRatio に入れ、解析したときに Run.friend_length = 使った印)・配信者(決まれば封筒の
+legacy.streamer。決まらなければ実行中に _auto_streamer)・届け方の n 本(封筒の deliver.batch)。
 
 RS7-1 S3(2026-10-10): 依頼 = 封筒(flow/envelope.py。何を入れたか・どの依頼か・届け方)+ 束(何を作るか)。段は束だけを読む。
 Run の中身の欄(top・ranges・weights・cut・video_tracks・speakers・engine・model・force・overwrite)は互換のため受けるが、
@@ -87,7 +93,8 @@ _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
 
 
 def _media_is_30fps(path):
-    """素材がちょうど 30fps か(ytt.normalize の probe。ffprobe が無い・読めないときは False = 設定の値を使う)。2026-10-04 Q1"""
+    """素材がちょうど 30fps か(ytt.normalize の probe。ffprobe が無い・読めないときは False)。2026-10-04 Q1。
+    パックの fps が固定の 30 になった RS7-1 S4 から段では使わない(src/home/autorun.py が同じ名前で読み直している)"""
     try:
         from ytt import normalize
         info = normalize.probe(path)
@@ -187,6 +194,8 @@ class Run:
         self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
         self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
         self.friend_length = None          # 解析に使った「友人の区間の実績からの長さ」{"length", "preRatio"?, "file", "samples", "videos"}(使ったときだけ)
+        self.friend_plan = None            # 受付で決めた友人の区間の長さ(friend_length の形 + "base" = 重ねる前の束の値。束の analyze に入れてある。RS7-1 S4)
+        self.notes = []                    # 受付で束を組んだときの知らせ(入口が画面の設定を直した所。パックの段の文と結果の束に出す。RS7-1 S4)
         self.duration = duration           # 受付のときに調べた配信の長さ(秒。スタジオにまだ無い配信の区間を端で切るのに使う)
         self.video_tracks = video_tracks   # 友人が選んだ Resolve の映像トラックの数(2〜5。① 全自動のパック。None = 編集の既定 = 1。2026-10-02)
         self.speakers = speakers         # 友人が入れた「配信者」{"count", "names", "styles"?: {名前: {"color": "#RRGGBB"}}}。あれば文字起こしのあとに話者分離(2026-10-01)。styles = 字幕の色(文書に覚え、パックにも渡す)
@@ -217,8 +226,7 @@ class Run:
         self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
         self.note = ""             # 封筒のメモ(RS7-1 S3。from_envelope が置く)
         self.asked = self._asked_spec()   # 欄から写した束の差分(RS7-1 S3。束を置くときに重ねる = 欄が勝つ)
-        self._spec = None          # 指定の束(run() が merge・validate して置く = Run.spec。段が読む = RS6 b-0。待ちの記録には入る・public には出さない)
-        self.screen = None        # 束に入れない画面の値(flow/spec.py の SCREEN。入口の AutoRunner が置く。None = 固定の値。残さない)
+        self._spec = None          # 指定の束(受付か run() が merge・validate して置く = Run.spec。段が読む = RS6 b-0。待ちの記録には入る・public には出さない)
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         keys = list(MODE_STEPS[mode])
@@ -343,6 +351,7 @@ class Run:
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
                 "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks), "force": self.force,
+                "friendPlan": copy.deepcopy(self.friend_plan), "notes": list(self.notes),   # 受付で決めた物(RS7-1 S4)
                 "created": self.created, "state": self.state, "message": self.message,
                 "steps": [_step_saved(s) for s in self.steps],
                 "envelope": self.envelope(), "spec": copy.deepcopy(self._spec)}   # 封筒 + 束(RS7-1 S3。起動し直しで束が消えない)
@@ -404,6 +413,9 @@ class Run:
         sf = d.get("streamerFrom")
         run.streamer_from = sf if isinstance(sf, str) and 0 < len(sf) <= 20 else None
         run.friend_length = d.get("friendLength") if isinstance(d.get("friendLength"), dict) else None
+        fp = d.get("friendPlan")
+        run.friend_plan = fp if isinstance(fp, dict) and _num(fp.get("length")) else None   # 受付で決めた友人の区間の長さ(RS7-1 S4。版 1 の記録には無い)
+        run.notes = strs("notes", 20)
         run.docs, run.new_docs = strs("docs"), strs("newDocs")
         run.packs, run.delivered = strs("packs"), strs("delivered")
         pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
@@ -490,7 +502,7 @@ class Runner:
         return {}
 
     def _friend_length(self):
-        """友人の区間の長さの実績(解析の設定に重ねる)。既定は None = 使わない"""
+        """友人の区間の長さの実績(解析の設定に重ねる)。既定は None = 使わない。読むのは受付(RS7-1 S4。段は Run.friend_plan を読む)"""
         return None
 
     def _docs(self):
@@ -709,10 +721,13 @@ class Runner:
         b = self._bundle(run)
         saved = dict(b["analyze"])
         weights = tuple(saved[k] for k in WEIGHT_KEYS) if "weights" in _pins(b) else None
-        own = saved != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定(重みの指定が無いときだけ文に出す)
-        fl = self._friend_length() if run.mode in REQUEST_URL_MODES else None
-        if fl:   # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)
-            saved = dict(saved, **{k: fl[k] for k in ("length", "preRatio") if k in fl})
+        # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)。
+        # 長さは受付で決めて束の analyze.length・preRatio に入れてある(RS7-1 S4。Run.friend_plan)。ここでは使った印と文だけ
+        fp = run.friend_plan if run.mode in REQUEST_URL_MODES and isinstance(run.friend_plan, dict) else None
+        fl = {k: v for k, v in fp.items() if k != "base"} if fp else None
+        base = dict(saved, **(fp.get("base") or {})) if fp and isinstance(fp.get("base"), dict) else saved
+        own = base != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定(重みの指定が無いときだけ文に出す。友人の長さを重ねる前の値で見る)
+        if fl:
             run.friend_length = fl
         res = self.tools.analyze_add(item, saved)
         added = res.get("added") or []
@@ -800,7 +815,7 @@ class Runner:
             done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
             return None if done else "stop"
-        body = _spec.export_body(self._bundle(run), run.video_id, ids[:50], run.screen)
+        body = _spec.export_body(self._bundle(run), run.video_id, ids[:50])
         status, res = self._call_when_free(run, st, lambda: self.tools.export_start(body), "別の書き出しが終わるのを待っています")
         if status != 200:
             raise StepError("書き出しを始められませんでした: %s" % (res.get("message") or "HTTP %d" % status))
@@ -900,11 +915,10 @@ class Runner:
     def _pack_settings(self, run):
         """パックの作り方(束の pack 節 = 入口では編集の設定の 3 パック のタブと同じ値。気が利く画面へ 段4):
         行から作るときの端の広げ方(rowEdge)・Text+ の置き先(fps・大きさ)・1段の文字数(縦横に合わせる)・話者の色・音量・予備・無音で削るときの値(cutSilence)。
-        fps は画面だけの値(Run.screen)。知らせ = 入口が設定を束にするときに直した所(行からの設定の形が変なら既定で作った、など)。
-        -> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
-        row_edge, wrap_out, cut_silence = _spec.pack_output(self._bundle(run), run.screen)
-        # 素材は 30fps にそろえる(2026-10-04 Q1)。素材がちょうど 30fps のときは、画面の packFps(60 など)に関係なく 30 にする(_pack_one)
-        return row_edge, wrap_out, cut_silence, _spec.clean_screen(run.screen)["packNotes"]
+        fps は固定の 30(素材は 30fps にそろえる = 2026-10-04 Q1・決定 3-30 Q2)。知らせ = 受付で入口が設定を束にするときに直した所(Run.notes。
+        行からの設定の形が変なら既定で作った、など)。-> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
+        row_edge, wrap_out, cut_silence = _spec.pack_output(self._bundle(run))
+        return row_edge, wrap_out, cut_silence, list(run.notes)
 
     def _cut_method(self, run=None):
         """カットを決めていない文書のカットの方法(束の pack.cut。入口はホームの設定 autorun.cut から。既定はカットしない = 2026-10-01)"""
@@ -923,9 +937,7 @@ class Runner:
     def _pack_body(self, run, doc, media, pack_opts):
         """1本のパックの要求の本文(cut2resolve の POST /api/build。上書き force は送る直前に足す)。「編集」でカットを決めてあればそのとおり
         (3 パック のタブのパックと同じ中身)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)など。-> (本文, 残す区間 か None, カットの rev)"""
-        row_edge, wrap_out, cut_silence = pack_opts[:3]
-        if wrap_out.get("textplusFps", "30") != "30" and _media_is_30fps(media):
-            wrap_out = dict(wrap_out, textplusFps="30")   # 素材がちょうど 30fps なら設定の packFps に関係なく 30(Q1。_pack_settings の説明)
+        row_edge, wrap_out, cut_silence = pack_opts[:3]   # fps は固定の 30(RS7-1 S4 で画面の packFps を読まなくなったので、素材の fps を見る分岐は消した)
         keeps, rev = self._edit_keeps(doc)
         if keeps:
             captions = _has_captions(doc)
@@ -1067,7 +1079,7 @@ class Runner:
 
     def _tx_opts(self, run):
         """文字起こしの要求の設定の部分(束から = flow/spec.py の tx_opts。入口では「編集」の設定のうち文字起こしの項目 = 画面から文字起こしするときと同じ値)"""
-        return _spec.tx_opts(self._bundle(run), run.screen)
+        return _spec.tx_opts(self._bundle(run))
 
     def _wait_job(self, run, jid, st=None, what="文字起こし"):
         """「編集」のジョブ 1 つが終わるまで待つ(st があれば進み具合を出す)。中止されたらジョブを取り消して上げる。-> 終わったジョブ"""
@@ -1171,7 +1183,10 @@ class Runner:
         for k in ("engine", "model"):   # 依頼が決めたときは、機器から決まるエンジンと同じでも要求に書く(今の要求の本文のまま)。無ければ編集の設定のまま
             if k in _pins(b):
                 opts[k] = b["transcribe"][k]
-        redo = bool(doc and doc.get("count") and self._force(run))   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
+        from_pack = b["run"]["from"] == "pack"   # 束の run.from = pack(CLI の --from pack): 文字起こし済みの文書でパックだけ(force でも文字起こしは作り直さない。RS7-1 S4)
+        if from_pack and not (doc and doc.get("count")):
+            raise StepError("この動画の文字起こしの文書がありません(パックからでなく、文字起こしから実行してください)")
+        redo = bool(doc and doc.get("count") and self._force(run) and not from_pack)   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
         if doc and doc.get("count") and not redo:
             differ = self._tx_state(doc, run.source_path, opts) == "differ"   # 違えば飛ばして印・同じ / 鍵なしは飛ばす
             st["state"], st["detail"] = "skip", "文字起こし済み" + ("(%s)" % TX_DIFFER if differ else "")
@@ -1188,7 +1203,9 @@ class Runner:
         if tid and tid not in run.docs:
             run.docs.append(tid)
         run.doc_id = tid or None   # ① 全自動: この文書でパックを作る
-        if tid and run.streamer and self._remember_doc_streamer(tid, run.streamer):   # 依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)
+        # 依頼で選んだ配信者を、この文書の配信者として覚える(パックのときの字幕の色。段5 の記憶と同じ)。
+        # 受付で推定した配信者(streamer_from あり。RS7-1 S4)は覚えない(今までどおり。推定は実行中に決めていたので、ここでは決まっていなかった)
+        if tid and run.streamer and not run.streamer_from and self._remember_doc_streamer(tid, run.streamer):
             st["detail"] += "。配信者: %s" % run.streamer
         return None
 
