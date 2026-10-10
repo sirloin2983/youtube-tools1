@@ -110,10 +110,10 @@ class TestCaseFile(Base):
         from flow import placement
         self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
         self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])   # 無い案件は今までどおり
-        self.assertFalse(os.path.exists(os.path.join(self.exports, "case.json")))        # 読むだけ(④ は書かない)
+        self.assertFalse(os.path.exists(os.path.join(self.exports, "作業用", "case.json")))        # 読むだけ(④ は書かない)
         made = placement.ensure_case({"kind": "file", "path": self.clip1})
         self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"], {"id": made["id"], "createdAt": made["createdAt"]})
-        self.touch(os.path.join(self.exports, "case.json"), "{壊れた")
+        self.touch(os.path.join(self.exports, "作業用", "case.json"), "{壊れた")
         self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])
 
 

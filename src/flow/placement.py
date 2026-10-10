@@ -11,7 +11,7 @@ docs/design/rs6-survey-2026-10-10/option_b.md の 2 節・7 節の B-0 = 案件�
   読む側 = 案件(manage/cases の locations)と編集(src/editor/serve.py の studio_data_path → ytt/workdata.STUDIO_DATA)。
   スタジオ自身の ytt/studio_env.p("data.json") と workdata.set_root の読み込み直後の既定は ytt の側で flow を読めない(層の向き)ので変えず、
   ここが同じ ytt の値(スタジオの serve が datadir.register する場所)を読む向きにした
-- 案件の身分証 `ensure_case(media)`: <案件>/case.json を無いときだけ作る(冪等。write_result が一緒に呼ぶ)。読むだけは `read_case(root)`
+- 案件の身分証 `ensure_case(media)`: <案件>/作業用/case.json を無いときだけ作る(冪等。write_result が一緒に呼ぶ)。読むだけは `read_case(root)`
 - 結果の束 `write_result(run)`: ② の 1 回の実行が終わったら <案件>/作業用/runs/<実行id>.json(形の名前 runlog.RESULT_SCHEMA)を原子的に書く。
   書けなくても実行は失敗にしない。入口の autorun-runs.jsonl の 1 行の resultPath(Run.public)が索引(読むのは runlog.read_result)
 - `.flow.lock`: 1 つの作業データに ② は 1 つ。置き場所は作業データの根(ytt.datadir.data_root。inplace なら .runtime)。
@@ -34,7 +34,7 @@ from . import keys as _keys, runlog as _runlog
 log = logging.getLogger("ytt.flow.placement")
 
 STUDIO_DATA_NAME = "data.json"   # スタジオの全配信の候補・採用(作業データの studio の中)
-CASE_NAME = "case.json"          # 案件の身分証(<案件>/case.json。ensure_case が無いときだけ作る)
+CASE_NAME = "case.json"          # 案件の身分証(<案件>/作業用/case.json。ensure_case が無いときだけ作る)
 CASE_SCHEMA = "youtube-tools-case/v1"
 CASE_MAX = 64 * 1024
 RUNS_DIR = "runs"                # 結果の束のフォルダ(<案件>/作業用/runs)
@@ -108,9 +108,14 @@ def _case_id(media, root):
     return "f-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
+def case_path(root):
+    """<案件>/作業用/case.json(途中のファイルと同じく 作業用 の中 = 案件の直下は元動画・パック・作業用 だけ)"""
+    return os.path.join(root, _schemas.WORK_DIR, CASE_NAME)
+
+
 def read_case(root):
-    """<案件>/case.json を読む(読むだけ。④ manage もこれで読む)。無い・壊れている・形が違えば None"""
-    d = _fsio.read_json_or(os.path.join(root, CASE_NAME), None, max_bytes=CASE_MAX, kind=dict) if root else None
+    """<案件>/作業用/case.json を読む(読むだけ。④ manage もこれで読む)。無い・壊れている・形が違えば None"""
+    d = _fsio.read_json_or(case_path(root), None, max_bytes=CASE_MAX, kind=dict) if root else None
     return d if d and d.get("schema") == CASE_SCHEMA and isinstance(d.get("id"), str) and d["id"] else None
 
 
@@ -122,7 +127,7 @@ def ensure_case(media, out_dir=None, channel="", root=None):
         root = root or case_root(media, out_dir)
         if not root:
             return None
-        path = os.path.join(root, CASE_NAME)
+        path = case_path(root)
         if os.path.exists(path):
             got = read_case(root)
             if got is None:
@@ -137,6 +142,7 @@ def ensure_case(media, out_dir=None, channel="", root=None):
         doc = {"schema": CASE_SCHEMA, "id": _case_id(media, root), "media": m, "title": str(title or "")[:120],
                "channel": str(channel or "")[:100], "createdAt": int(time.time() * 1000),
                "madeBy": {"name": "flow", "version": _version.VERSION}}
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         _fsio.write_json(path, doc)
         return doc
     except Exception as e:

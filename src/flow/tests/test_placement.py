@@ -302,7 +302,7 @@ class TestEnsureCase(_Tmp):
         super().setUp()
         self.video = _touch(os.path.join(self.tmp, "req", "依頼.mp4"))
         self.media = {"kind": "file", "path": self.video}
-        self.case = os.path.join(self.tmp, "req", "case.json")
+        self.case = os.path.join(self.tmp, "req", "作業用", "case.json")
 
     def test_creates_once_and_idempotent(self):
         a = placement.ensure_case(self.media, channel="ch")
@@ -335,7 +335,7 @@ class TestEnsureCase(_Tmp):
         _name, path = names.pick_folder(out, "配信の題名", "vid00000001", "vid00000001")   # .studio-id を書く
         c = placement.ensure_case(media, out)
         self.assertEqual((c["id"], c["title"], c["media"]), ("vid00000001", "配信の題名", {"kind": "video", "videoId": "vid00000001"}))
-        self.assertTrue(os.path.isfile(os.path.join(path, "case.json")))
+        self.assertTrue(os.path.isfile(os.path.join(path, "作業用", "case.json")))
         self.assertEqual(names.read_owner(path), "vid00000001")   # .studio-id は残る
 
     def test_write_result_makes_case(self):
