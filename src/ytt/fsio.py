@@ -95,10 +95,21 @@ def create_new(path, data):
             unlink_quiet(tmp)
 
 
-def write_json(path, obj, indent=2, mode=None):
+def write_json(path, obj, indent=2, mode=None, fsync_required=False, allow_nan=True, separators=None):
     """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。docs/spec/pipeline.md の 1)。
-    mode を渡すとそのファイルの権限(例 0o600 = 鍵のファイル。atomic_write と同じ)"""
-    atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=indent) + ("\n" if indent is not None else "")).encode("utf-8"), mode=mode)
+    mode を渡すとそのファイルの権限(例 0o600 = 鍵のファイル。atomic_write と同じ)。
+    fsync_required=True はディスクへの書き出しに失敗したら保存も失敗にする(失うと困る成果。atomic_write と同じ)。
+    allow_nan=False は NaN / Infinity を書かない(ValueError。JSON として読めないファイルを作らない)。
+    separators=(",", ":") で詰めて書く(末尾の改行は indent があるときだけ)"""
+    text = json.dumps(obj, ensure_ascii=False, indent=indent, allow_nan=allow_nan, separators=separators) + ("\n" if indent is not None else "")
+    atomic_write(path, text.encode("utf-8"), mode=mode, fsync_required=fsync_required)
+
+
+def append_jsonl(path, rows, separators=(",", ":")):
+    """1 行 1 JSON のファイル(series.jsonl など)に rows を足す(回さない。回すなら append_line)"""
+    with open(path, "a", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, separators=separators) + "\n")
 
 
 class TooLarge(ValueError):

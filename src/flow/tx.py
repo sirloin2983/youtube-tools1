@@ -155,7 +155,7 @@ def write_machine_doc(tid, fields, spec=None):
     if spec and spec.get("evalSet"):
         doc["evalSet"] = True
     path = os.path.join(_workdata.TX_DIR, tid + ".json")
-    _fsio.atomic_write(path, json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
+    _fsio.write_json(path, doc, indent=1, fsync_required=True)
     return path
 
 

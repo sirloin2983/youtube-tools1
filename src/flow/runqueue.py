@@ -170,7 +170,7 @@ class Queue(run_mod.Runner):
                     return
                 items = [r.saved() for r in self.runs if r.state in ACTIVE_STATES and not r.cancel]
             try:
-                fsio.atomic_write(self.active_path, json.dumps({"v": ACTIVE_VERSION, "runs": items}, ensure_ascii=False).encode("utf-8"))
+                fsio.write_json(self.active_path, {"v": ACTIVE_VERSION, "runs": items}, indent=None)
                 self.active_error = ""
             except (OSError, TypeError, ValueError) as e:
                 self.active_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")

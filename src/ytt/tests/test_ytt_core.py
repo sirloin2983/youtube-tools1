@@ -206,6 +206,27 @@ class TestFsio(unittest.TestCase):
         for p in ("C:\\x.mp4", "/home/x.mp4", "Z:/x.mp4", "", None):
             self.assertFalse(fsio.is_network_path(p), p)
 
+    def test_write_json_options_and_append_jsonl(self):
+        """詰めて書く・NaN を断る(元のファイルは壊さない)・fsync_required・1 行 1 JSON の追記・大きすぎる読みは TooLarge"""
+        p = os.path.join(self.tmp, "w.json")
+        fsio.write_json(p, {"a": [1, 2]}, indent=None, separators=(",", ":"), fsync_required=True)
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), b'{"a":[1,2]}')
+        with self.assertRaises(ValueError):
+            fsio.write_json(p, {"a": float("nan")}, indent=None, allow_nan=False)
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), b'{"a":[1,2]}')
+        fsio.write_json(p, {"a": 1})
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), b'{\n  "a": 1\n}\n')
+        j = os.path.join(self.tmp, "s.jsonl")
+        fsio.append_jsonl(j, [{"t": 1}])
+        fsio.append_jsonl(j, [{"t": 2}, {"t": 3}])
+        with open(j, encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"t":1}\n{"t":2}\n{"t":3}\n')
+        with self.assertRaises(fsio.TooLarge):
+            fsio.read_json_file(p, 3)
+
     def test_unlink_quiet(self):
         p = os.path.join(self.tmp, "a.txt")
         with open(p, "w") as f:

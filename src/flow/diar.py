@@ -255,7 +255,7 @@ def load_voices(emb):
 
 def save_voices(emb, voices):
     os.makedirs(voices_dir(), exist_ok=True)
-    _fsio.atomic_write(voices_path(emb), json.dumps({"schema": "ytt-voices/v1", "embedding": emb, "voices": voices}, ensure_ascii=False).encode("utf-8"), fsync_required=True)
+    _fsio.write_json(voices_path(emb), {"schema": "ytt-voices/v1", "embedding": emb, "voices": voices}, indent=None, fsync_required=True)
 
 
 @contextlib.contextmanager

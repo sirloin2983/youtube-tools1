@@ -284,7 +284,7 @@ class LocalTools:
         if not count:
             raise _step_error("パックに渡す文字のある行がありません")
         path = os.path.join(_workdata.TMP_DIR, tid + ".transcript.json")
-        _fsio.atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
+        _fsio.write_json(path, obj, indent=1)
         return {"path": path}
 
     def record_pack(self, body):

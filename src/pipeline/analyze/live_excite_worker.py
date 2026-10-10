@@ -42,6 +42,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 (src/pipeline/analyze/tests/test_live_excite_worker.py)。
 """
 import argparse
+import functools
 import glob
 import http.client
 import json
@@ -60,7 +61,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))   # analyze -> pipeline -> src(「
 if __name__ == "__main__":   # スクリプトとして起動したときだけ: このフォルダを外して src を先頭に(兄弟は絶対 import。層の決まりの例外)。import したとき(live_detect・テスト)は触らない
     sys.path[:] = [ROOT] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(ROOT))]
 from pipeline.analyze import excite  # noqa: E402
-from ytt import datadir, fsio, recproto, schemas, tools  # noqa: E402
+from ytt import datadir, fsio, procs, recproto, schemas, tools  # noqa: E402
 
 WORKER_VERSION = "1"
 POLL_SEC = 6.0             # 周期(5〜10 秒)
@@ -132,33 +133,7 @@ class RecorderDown(Exception):
 
 
 # ---------------------------------------------------------------- 小道具
-def pid_alive(pid):
-    """入口(親)がまだ動いているか。分からなければ True(勝手に終わらない)"""
-    if not pid:
-        return True
-    if os.name == "nt":
-        try:
-            import ctypes
-            from ctypes import wintypes
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            k.OpenProcess.restype = wintypes.HANDLE
-            k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-            h = k.OpenProcess(0x00100000, False, int(pid))   # SYNCHRONIZE
-            if not h:
-                return ctypes.get_last_error() == 5   # 権限が無い = 動いている
-            try:
-                return k.WaitForSingleObject(h, 0) == 0x102   # WAIT_TIMEOUT = まだ動いている
-            finally:
-                k.CloseHandle(h)
-        except Exception:
-            return True
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True
+write_json = functools.partial(fsio.write_json, indent=None, separators=(",", ":"), allow_nan=False)   # 詰めて書く・NaN と無限大は断る(JSON として読めないファイルを作らない)
 
 
 def take_lock(path):
@@ -177,18 +152,6 @@ def take_lock(path):
     except OSError:
         f.close()
         return None
-
-
-def write_json(path, obj):
-    """書きかけを残さずに JSON を書く。NaN・無限大は書かない(ValueError。JSON として読めないファイルを作らない)"""
-    fsio.atomic_write(path, json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
-
-
-def append_jsonl(path, rows):
-    """1 行 1 JSON のファイル(series.jsonl・skipped.jsonl)に足す"""
-    with open(path, "a", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, separators=(",", ":")) + "\n")
 
 
 def clean_requests(v):
@@ -979,7 +942,7 @@ class RecState:
     def save(self, now, peaks=True):
         os.makedirs(self.folder, exist_ok=True)
         if self.series_out:
-            append_jsonl(os.path.join(self.folder, "series.jsonl"), self.series_out)
+            fsio.append_jsonl(os.path.join(self.folder, "series.jsonl"), self.series_out)
             self.series_out = []
         write_json(os.path.join(self.folder, "state.json"), self.to_json())
         if peaks:
@@ -1114,7 +1077,7 @@ class Worker:
                     self.log("盛り上がりの検出: メモリが %d MB を超えたので、状態を保存して終わります(ホームが起動し直します)" % self.mem_limit_mb)
                     code = EXIT_MEM
                     break
-                if not pid_alive(self.parent):
+                if self.parent and not procs.pid_alive(self.parent):   # 親の pid が分からなければ勝手に終わらない
                     self.log("盛り上がりの検出: ホームが終わったので終わります")
                     break
                 self.sleep(max(0.5, self.poll_sec - (self.clock() - t0)))
@@ -1496,7 +1459,7 @@ class Worker:
                 row = {"t0": t0, "full": [round(v, 1) for v in full], "band": [round(v, 1) for v in band]}
             except (MeasureError, NoTool, RecorderDown) as e:
                 row = {"t0": t0, "error": str(e)[:160] or e.__class__.__name__}
-            append_jsonl(os.path.join(st.folder, "skipped.jsonl"), [row])
+            fsio.append_jsonl(os.path.join(st.folder, "skipped.jsonl"), [row])
             pos += len(cur)
             sk["pos"], sk["sec"] = pos, round(float(sk.get("sec") or 0.0) + sum(y["dur"] for y in cur), 1)
             self.heartbeat(self.clock(), force=True)   # 長い測り直しの間も心拍を止めない(入口が 120 秒で起動し直す)

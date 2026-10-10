@@ -130,7 +130,7 @@ class Reporter:
             return False
         try:
             os.makedirs(self.dir, exist_ok=True)
-            fsio.atomic_write(self.path(rc, rec), json.dumps(rep, ensure_ascii=False, indent=1).encode("utf-8"))
+            fsio.write_json(self.path(rc, rec), rep, indent=1)
         except OSError as e:
             self.host.note("リアルタイム切り抜き: 配信の記録を書けませんでした(%s): %s" % (rec, e.strerror or e.__class__.__name__))
             return False

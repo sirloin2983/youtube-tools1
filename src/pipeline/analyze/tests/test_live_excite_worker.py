@@ -44,7 +44,7 @@ if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。launch.py
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from flow import live_export as LX  # noqa: E402   (SameAsExportTest が flow の写しと比べる)
 from pipeline.analyze import excite  # noqa: E402
-from ytt import fsio, tools  # noqa: E402
+from ytt import fsio, procs, tools  # noqa: E402
 
 TOKEN = "k" * 40
 T0 = 1790000000.0
@@ -515,7 +515,7 @@ class ChatFeedTest(unittest.TestCase):
     def wait_dead(self, pid, timeout=10.0):
         end = time.time() + timeout
         while time.time() < end:
-            if not W.pid_alive(pid):
+            if not procs.pid_alive(pid):
                 return True
             time.sleep(0.1)
         return False
