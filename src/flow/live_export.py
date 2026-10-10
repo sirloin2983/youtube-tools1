@@ -289,8 +289,7 @@ class MarkStore:
 
     def _save(self, d):
         d["updated"] = now_iso()
-        fsio.atomic_write(self.path(d["recorder"], d["recording"]),
-                          json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
+        fsio.write_json(self.path(d["recorder"], d["recording"]), d, indent=1, fsync_required=True)
 
     def get(self, rc, rec, mid):
         m = next((x for x in self.load(rc, rec)["marks"] if x["id"] == mid), None)
@@ -511,11 +510,9 @@ class Exporter:
         shutil.rmtree(self.work, ignore_errors=True)   # 前回の取りかけ
 
     def _save(self):
-        with self.lock:
-            data = json.dumps({"schema": JOBS_SCHEMA, "jobs": [{k: v for k, v in j.items() if k != "cancel"} for j in self.jobs]},
-                              ensure_ascii=False, indent=1).encode("utf-8")
         try:
-            fsio.atomic_write(self.jobs_path, data)
+            with self.lock:
+                fsio.write_json(self.jobs_path, {"schema": JOBS_SCHEMA, "jobs": [{k: v for k, v in j.items() if k != "cancel"} for j in self.jobs]}, indent=1)
         except OSError as e:
             self.log("リアルタイム切り抜き: 書き出しの記録を書けませんでした: %s" % e)
 

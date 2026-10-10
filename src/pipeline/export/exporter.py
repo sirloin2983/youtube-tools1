@@ -815,7 +815,7 @@ def export_edit_media(job, spec, it, base, runner):
             "handleAfter": round(handle_after, 3), "sourceStart": edit_it["start"], "sourceEnd": edit_it["end"]}
     it["editPath"] = media_path   # 先に覚える(.edit.json が書けなかったときも、書きかけを呼び出し側が消せるように)
     it["editSidecar"] = sidecar
-    _fsio.atomic_write(sidecar, json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))   # Windows の一時的なロックは再試行
+    _fsio.write_json(sidecar, data, indent=2)   # Windows の一時的なロックは再試行
     it["editRange"] = (edit_it["start"], edit_it["end"])
     it["editMethod"] = edit_it.get("method")
     it["editSrcLen"] = edit_it.get("srcLen")

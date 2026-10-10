@@ -256,7 +256,7 @@ def load_sig(vid):
 def save_sig(vid, dur, full, band):
     try:
         data = {"v": 1, "dur": round(dur, 2), "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band]}
-        _fsio.atomic_write(sig_path(vid), json.dumps(data, separators=(",", ":")).encode("utf-8"))   # 一時ファイル名を固定しない・Windows のロックは再試行
+        _fsio.write_json(sig_path(vid), data, indent=None, separators=(",", ":"))   # 一時ファイル名を固定しない・Windows のロックは再試行
         _fsio.prune_cache(sig_cache_dir(), "*.json", CHAT_CACHE_KEEP)
     except OSError:
         pass
@@ -567,7 +567,7 @@ def fetch_meta(job, vid):
         return None, "動画情報を読み取れませんでした"
     if m:
         try:
-            _fsio.atomic_write(os.path.join(meta_dir(), vid + ".json"), json.dumps(m, ensure_ascii=False).encode("utf-8"))
+            _fsio.write_json(os.path.join(meta_dir(), vid + ".json"), m, indent=None)
             _fsio.prune_cache(meta_dir(), "*.json", META_KEEP)
         except OSError:
             pass

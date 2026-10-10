@@ -303,8 +303,7 @@ class Recording:
     # --- 記録 ---
     def save(self):
         with self.lock:
-            data = json.dumps(self.meta, ensure_ascii=False, indent=1).encode("utf-8")
-        fsio.atomic_write(os.path.join(self.dir, "recording.json"), data)
+            fsio.write_json(os.path.join(self.dir, "recording.json"), self.meta, indent=1)
 
     def set(self, **kw):
         with self.lock:

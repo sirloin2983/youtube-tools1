@@ -301,7 +301,7 @@ class BundleBook:
 
     def _save(self):
         try:
-            fsio.atomic_write(self._at, json.dumps(self._items, ensure_ascii=False).encode("utf-8"))
+            fsio.write_json(self._at, self._items, indent=None)
         except OSError as e:
             self.log("リアルタイム切り抜き: 録画の束を書けませんでした(%s)" % tools.why(e))
 

@@ -433,10 +433,9 @@ class Archiver:
         self.info = {k: v for k, v in (rs or {}).items() if isinstance(v, dict)} if isinstance(rs, dict) else {}
 
     def _save_info(self):
-        with self.lock:
-            data = json.dumps({"schema": SCHEMA, "recordings": self.info}, ensure_ascii=False, indent=1).encode("utf-8")
         try:
-            fsio.atomic_write(self.path, data)
+            with self.lock:
+                fsio.write_json(self.path, {"schema": SCHEMA, "recordings": self.info}, indent=1)
         except OSError as e:
             self.log("リアルタイム切り抜き: アーカイブの記録を書けませんでした: %s" % e)
 
