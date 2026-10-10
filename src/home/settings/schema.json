@@ -127,9 +127,7 @@
         { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "認識のヒントとして渡します。効き目は限定的なので、直らないものは置換辞書で直します。「ホロライブの名簿から追加」は編集の 1 文字起こし で。" },
         { "key": "replacements", "type": "textarea", "label": "置換辞書(1 行に「誤=>正」)", "default": "", "maxlength": 20000, "placeholder": "例:\nふぶき=>フブキ", "hint": "どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません。" }
       ] },
-      { "id": "archive", "title": "保管・目標", "items": [
-        { "key": "archiveAuto", "type": "bool", "label": "自動で保管する(10 分ごと・文字起こしを切り替えるとき・画面を離れるとき)", "default": true },
-        { "key": "archiveFull", "type": "bool", "label": "その範囲の全体の音声も保管する(3 時間で約 200MB)", "default": true },
+      { "id": "goal", "title": "目標", "items": [
         { "key": "goalHours", "type": "number", "label": "校正の目標(進行度の 100%)", "default": 5, "min": 0.5, "max": 200, "step": 0.5, "unit": "時間分" }
       ] }
     ] },

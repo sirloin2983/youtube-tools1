@@ -46,7 +46,7 @@ function saveDoc(){
         if (r.evalSet === true && !S.doc.evalSet){ S.doc.evalSet = true; syncEval(); }   // 評価用のフォルダの動画はサーバーが印を付ける
         if ('evalReviewed' in r && !!r.evalReviewed !== !!S.doc.evalReviewed){ S.doc.evalReviewed = r.evalReviewed || undefined; renderEvalReview(); renderDrillBar(); }   // 評価用を外すと確かめ済みの印も消える(サーバー)
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
-        scheduleLearn(); scheduleAcc(); scheduleProgress(); S.arcDirty = true; renderDataset();
+        scheduleLearn(); scheduleAcc(); scheduleProgress();
         syncListItem(); cpAfterSave(); ovdAfterSave();
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない
@@ -122,7 +122,6 @@ async function openDoc(id, keep){
   if (request !== docOpenSeq) return false;
   const previousDoc = S.doc, previousVersion = S.baseUpdatedAt;
   if (!keep && S.docId && S.docId !== id){
-    autoArchive(S.docId);   // 別の文字起こしに移るときに、それまでの分を保管する
     const prev = S.docId; setTimeout(() => evalSettle(prev), 1500);   // 評価用の仮置きの動画なら、条件を満たせばメンバーのフォルダへ(再生が切り替わってから)
   }
   const navId = keep ? navSnapshot() : null;   // keep=true(再認識・話者判別が終わっての読み直しなど)は、見ていた行を id で覚えておく
@@ -160,7 +159,7 @@ async function openDoc(id, keep){
   if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
-  renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
+  renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderTerms(); $('#hiList').innerHTML = ''; txKeybarScene();
   fillDiarNum(); rememberLast();   // 話者の人数はこの文書の値(段7 E-6)・前回の文書とタブを覚える(E-7)
   if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep){ window.scrollTo(0, scrollY); if ($('.tx-list')) $('.tx-list').scrollTop = listY; }

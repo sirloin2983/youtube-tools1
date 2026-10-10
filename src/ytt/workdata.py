@@ -20,7 +20,6 @@ ROOT = None             # 編集のフォルダ(serve.py・ed_state.py のある
 DATA_DIR = None         # 作業データ(起動時に serve が datadir で決める。読み込みの直後は環境変数 TRANSCRIBE_DATA_DIR か ROOT = テスト用)
 TX_DIR = None           # 文字起こしの文書 <DATA_DIR>/transcripts
 TMP_DIR = None          # 一時ファイル <TX_DIR>/.tmp
-DATASET_DIR = None      # 校正の成果と音声の保管(将来の学習・声紋登録用)<DATA_DIR>/dataset
 EVAL_BASE = None        # 精度の基準 <DATA_DIR>/eval-baselines.json
 SETTINGS = None         # 編集の設定 <DATA_DIR>/settings.json
 FEEDBACK = None         # 提案の採用・却下の記録 <DATA_DIR>/learn-feedback.json(設定ファイルとは別にして、画面側の保存と競合させない)
@@ -42,11 +41,10 @@ def set_root(root):
 def set_data_dir(d):
     """作業データの置き場所を d にして、その中のパスを作り直す(d はそのまま使う = 絶対パスにするのは呼ぶ側。
     serve.set_data_dir はログ・ワーカーの記録・環境変数・datadir の登録もする)"""
-    global DATA_DIR, TX_DIR, TMP_DIR, DATASET_DIR, EVAL_BASE, SETTINGS, FEEDBACK
+    global DATA_DIR, TX_DIR, TMP_DIR, EVAL_BASE, SETTINGS, FEEDBACK
     DATA_DIR = d
     TX_DIR = os.path.join(d, "transcripts")
     TMP_DIR = os.path.join(TX_DIR, ".tmp")
-    DATASET_DIR = os.path.join(d, "dataset")
     EVAL_BASE = os.path.join(d, "eval-baselines.json")
     SETTINGS = os.path.join(d, "settings.json")
     FEEDBACK = os.path.join(d, "learn-feedback.json")

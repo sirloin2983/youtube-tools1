@@ -391,7 +391,7 @@ const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', tru
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン。0.60.0)
   ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン。0.61.0 のサーバー・画面のチェックは 0.63.0)
   ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。0.67.0。欄は設定の画面だけ)
-const SET_CHECKS = OPT_CHECKS.concat([['archiveAuto', 'arcAuto', true], ['archiveFull', 'arcFull', true], ['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
+const SET_CHECKS = OPT_CHECKS.concat([['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
 /* 0.66.0: 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面へ移した)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */
 const checksOf = list => Object.fromEntries(list.map(([k, id, dv]) => {
   const el = $('#' + id);

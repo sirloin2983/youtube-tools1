@@ -216,7 +216,7 @@ def fake_job():
 
 
 def audio_span(S, doc, data, doc_id=None, boost=None):
-    """文書の音声の出どころ(元の動画 → 保管データの dataset/docs/<id>/full.flac)-> (extract_audio の spec, 行の時刻の基準の秒, "動画" か "保管の音声")。
+    """文書の音声の出どころ(元の動画 → 保管データの dataset/docs/<id>/full.flac。今ある保管データだけ。保管の書き手は 10-10 に消した)-> (extract_audio の spec, 行の時刻の基準の秒, "動画" か "保管の音声")。
     どちらも無ければ RuntimeError。ネットワーク上の動画は読まない(存在を確かめるだけで資格情報を送ってしまう。eval_speakers にあった決まりを全部の道具に)。
     boost = None なら spec に boost を入れない(extract_audio は spec.get("boost") で見る = 無ければ偽)"""
     src = str(doc.get("sourcePath") or "")

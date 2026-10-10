@@ -156,29 +156,6 @@ class TestJobs(unittest.TestCase):
             S.add_job({"title": "al2", "tid": "t1"}, "alt")
 
 
-class TestArchiveWithoutFfmpeg(StoreDir):
-    def test_existing_full_flac_without_ffmpeg(self):
-        """ffmpeg が無いのに前回の full.flac が残っていると、保管が TypeError で失敗していた。"""
-        old_ds, old_ff = S.DATASET_DIR, S.find_ffmpeg
-        S.DATASET_DIR = os.path.join(self.tmp, "dataset")
-        try:
-            src = os.path.join(self.tmp, "a.wav")
-            with open(src, "wb") as f:
-                f.write(b"x" * 2000)
-            self.put_doc({"id": TID, "sourcePath": src, "start": 0, "end": 4, "original": [{"start": 0, "end": 2, "text": "a"}],
-                          "segments": [{"id": "s1", "start": 0, "end": 2, "text": "a", "proofed": True}], "updatedAt": 1})
-            root = os.path.join(S.DATASET_DIR, "docs", TID)
-            os.makedirs(root)
-            with open(os.path.join(root, "full.flac"), "wb") as f:
-                f.write(b"fLaC" + b"0" * 500)
-            S.find_ffmpeg = lambda: None
-            man = S.archive_doc(TID)
-            self.assertEqual(man["newClips"], 0)
-            self.assertEqual(man["counts"]["positive"], 1)
-        finally:
-            S.DATASET_DIR, S.find_ffmpeg = old_ds, old_ff
-
-
 class TestPerformance(StoreDir):
     def test_audio_span(self):
         self.assertEqual(S.audio_span([{"start": 100, "end": 102}, {"start": 50, "end": 51}], 0, 3600), (50 - 0.3 - S.AUDIO_MARGIN, 102 + 0.3 + S.AUDIO_MARGIN))

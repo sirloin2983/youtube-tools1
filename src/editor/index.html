@@ -763,7 +763,6 @@ h2{margin:0;font-size:15px}
 .setup-banner>summary{cursor:pointer;padding:7px 10px;font-weight:600}.setup-body{border-top:1px solid color-mix(in srgb,var(--warn) 35%,transparent);padding:8px 10px}
 .setup-banner.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
 .src{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12.5px;margin:2px 0}.src .mono{min-width:0;overflow-wrap:anywhere;color:var(--ink-3)}
-.dsrow{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;border-bottom:1px solid var(--line);padding:4px 0}
 /* 元の配信(.clip.json)の表示 */
 .tt-clip{display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
 .tt-clip .ic{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-top:1px}
@@ -1483,12 +1482,6 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
     <div class="fld"><label for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
     <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button></details>
-  <details class="card side-pane" data-side-pane="data" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
-    <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「<abbr class="ui-term" title="「これは正解ではない」例。機械が出したが人が消した行(無音で出たでたらめな文など)">負例</abbr>」)、行ごとの音声(<abbr class="ui-term" title="音声を劣化させずに縮める形式。16kHz は1秒を1万6千回に分けて記録する細かさ(認識に十分な音質)">16kHz・FLAC</abbr>)が入ります。追加学習(<abbr class="ui-term" title="モデル全体ではなく、小さな追加部分だけを学習させる方法。少ない正解データ・家庭の PC でも試せる">LoRA</abbr>)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
-    <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
-    <label class="lag" style="margin-top:4px" title="元の動画・音声を消しても、別のモデルで認識し直せます。3時間で約200MBです"><input type="checkbox" id="arcFull" checked>その範囲の全体の音声も保管する(3時間で約200MB)</label>
-    <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="arcNow">開いている文字起こしを今すぐ保管</button><button type="button" class="btn small" id="arcAll">校正済みのある全部を保管</button></div>
-    <div id="arcOut"></div></details>
 </aside>
 
 <main class="editor" id="editor">
@@ -1614,7 +1607,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
             <span class="hint" id="cpSelHint">行の左端のチェックで選んだ行を、まとめて変えます</span></div></details>
         </div>
         <div class="tools tools2">
-          <span class="hint" id="sessStat"></span><span class="hint" id="arcStat" title="校正した成果と音声の保管(dataset フォルダ)の状況"></span>
+          <span class="hint" id="sessStat"></span>
         </div>
         <div class="terms" id="terms" hidden></div>
         <!-- 進み具合の帯のクリックはマウスの便利(キーでは S / W・↓ / ↑ で行を移動できる)。A-25 の例外 --><div class="stripbox" id="stripBox" data-ui-audit-allow="A-25" title="全体の進み具合。クリックでその位置へ移動します"><canvas id="strip"></canvas><i id="stripHead"></i></div>

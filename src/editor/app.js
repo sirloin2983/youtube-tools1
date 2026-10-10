@@ -461,20 +461,6 @@ $('#rosterAdd').addEventListener('click', () => {
 });
 $('#optGloss').addEventListener('input', renderGlossFit);
 
-/* ---------- 保存データ(dataset/)への保管 ---------- */
-const mb = n => n >= 1e9 ? (n / 1e9).toFixed(1) + 'GB' : Math.max(1, Math.round(n / 1e6)) + 'MB';
-const minStr = sec => sec < 90 ? Math.round(sec) + '秒' : (sec / 3600 >= 1 ? (sec / 3600).toFixed(1) + '時間' : Math.round(sec / 60) + '分');
-let arcPoll = null;
-S.arcDirty = false;
-$('#arcNow').addEventListener('click', async () => { if (!S.docId) return toast('先に文字起こしを開いてください'); await saveDoc(); archiveNow(S.docId); });
-$('#arcAll').addEventListener('click', async () => {
-  await saveDoc();
-  try { await api('/api/archive', { body: { full: $('#arcFull').checked } }); S.arcDirty = false; loadDataset(); toast('校正済みのある文字起こしを、すべて保管します'); } catch (e){ toast(e.message); }
-});
-setInterval(() => { if (S.docId && S.doc && !document.hidden) autoArchive(S.docId); }, 10 * 60 * 1000);
-/* 離れたら保存し、タブを離れた・閉じるときだけ保管する(保管は音声の切り出しがあるので、隣の窓へ移るたび('blur')には走らせない) */
-onLeave(reason => { if (S.docId && S.doc){ (async () => { await saveDoc(); if (reason !== 'blur') autoArchive(S.docId); })(); } });
-
 /* ---------- 編集画面 ---------- */
 const player = () => $('#player');
 const hhmm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
@@ -1310,7 +1296,7 @@ async function boot(){
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList());
-  await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDataset(), loadProgress(), loadBaselines()]);
+  await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadProgress(), loadBaselines()]);
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 boot();

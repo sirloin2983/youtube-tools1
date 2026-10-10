@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習・保管のテスト(editor/ed_learn.py。計画 plan/line-b-overlap.md の 2-1・6-2 の 5)。
+"""「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(editor/ed_learn.py。保管は 0.68.0 で消した。計画 plan/line-b-overlap.md の 2-1・6-2 の 5)。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_nosub_metrics -q          # これだけ(src/editor/tests で)
 
-- noSub の行(とその時間の機械の行)は、精度の測定の本体・学習・辞書の提案・保管の学習用の材料に入らない。noSub が無い文書は今までと同じ数
+- noSub の行(とその時間の機械の行)は、精度の測定の本体・学習・辞書の提案に入らない。noSub が無い文書は今までと同じ数
 - 重なりのまとまりの判定(違う話者で 0.3 秒以上)と、人の行の並べ方を入れ替えた小さい方の数え方
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import unittest
@@ -181,55 +180,6 @@ class TestLearningSkipsNoSub(StoreDir):
         info = S._doc_info("aaaaaaaaaaaa")
         self.assertEqual(info["texts"], ["あう"])
         self.assertEqual(info["lines"], 1)
-
-
-class TestArchiveNoSub(unittest.TestCase):
-    def doc(self, nosub=True):
-        orig = [mo(0, 3, "あい"), mo(5, 8, "ぽるか"), mo(9, 12, "おわり")]
-        segs = [sg(1, 0, 3, "あう", speaker="S1"), sg(2, 5, 8, "ホロ", speaker="S2", noSub=True) if nosub else sg(2, 5, 8, "ホロ", speaker="S2"), sg(3, 9, 12, "おわり", speaker="S1")]
-        return {"id": "aaaaaaaaaaaa", "original": orig, "segments": segs, "speakers": [{"id": "S1", "name": "トワ"}, {"id": "S2", "name": "ゲーム音声など"}]}
-
-    def test_nosub_row_is_kept_with_role_nosub(self):
-        e = S.archive_entries(self.doc())
-        self.assertEqual([x["role"] for x in e], ["positive", "nosub", "positive"])
-        ns = e[1]
-        self.assertTrue(ns["noSub"])
-        self.assertEqual((ns["text"], ns["original"], ns["speakerName"]), ("ホロ", "ぽるか", "ゲーム音声など"))
-        self.assertEqual([x["kind"] for x in e], ["line", "line", "line"])
-        self.assertNotIn("noSub", e[0])
-        self.assertEqual(len({x["key"] for x in e}), 3)
-
-    def test_nosub_machine_row_is_not_a_negative(self):
-        """noSub の行を人が書かずに機械の行だけが残っても(行と対応しない)、負例(人が消した行)にはしない"""
-        d = self.doc()
-        d["original"].append(mo(5.2, 6, "もうひとつ"))
-        e = S.archive_entries(d)
-        self.assertNotIn("negative", [x["role"] for x in e])
-
-    def test_doc_without_nosub_is_unchanged(self):
-        e = S.archive_entries(self.doc(nosub=False))
-        self.assertEqual([x["role"] for x in e], ["positive", "positive", "positive"])
-        self.assertTrue(all("noSub" not in x for x in e))
-
-    def test_index_rebuild_excludes_nosub(self):
-        import shutil
-        import tempfile
-        tmp = tempfile.mkdtemp()
-        old = S.DATASET_DIR
-        S.DATASET_DIR = tmp
-        try:
-            os.makedirs(os.path.join(tmp, "docs", "aaaaaaaaaaaa"))
-            with open(os.path.join(tmp, "docs", "aaaaaaaaaaaa", "lines.jsonl"), "w", encoding="utf-8") as f:
-                for e in S.archive_entries(self.doc()):
-                    e.pop("audioSig", None)
-                    f.write(json.dumps(e, ensure_ascii=False) + "\n")
-            S.archive_rebuild_index()
-            with open(os.path.join(tmp, "index.jsonl"), encoding="utf-8") as f:
-                roles = [json.loads(x)["role"] for x in f.read().splitlines()]
-            self.assertEqual(roles, ["positive", "positive"])
-        finally:
-            S.DATASET_DIR = old
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

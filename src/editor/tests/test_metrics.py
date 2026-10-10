@@ -698,7 +698,7 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/restore", {"id": "../x", "ts": ts}).get("_status"), 404)
         self.assertEqual(self.call("GET", "/api/history?id=../x").get("_status"), 404)
 
-    def test_tags_and_archive(self):
+    def test_tags(self):
         doc = self.make_doc()
         tid, segs = doc["id"], doc["segments"]
         self.assertGreaterEqual(len(segs), 6)
@@ -718,59 +718,9 @@ class TestHttp(unittest.TestCase):
         m = self.call("GET", "/api/metrics?id=" + tid)
         self.assertEqual(m["overall"]["groups"], 4)
 
-        self.assertEqual(self.call("GET", "/api/dataset")["totals"]["docs"], 0)
-        self.assertEqual(self.call("POST", "/api/archive", {"tid": "../x"}).get("_status"), 400)
-        self.assertEqual(self.call("POST", "/api/archive", {"tid": tid})["docs"], 1)
-        end = time.time() + 60
-        while time.time() < end and self.call("GET", "/api/dataset")["running"]:
-            time.sleep(0.1)
-        st = self.call("GET", "/api/dataset")
-        self.assertEqual(st["errors"], [])
-        t = st["totals"]
-        self.assertEqual((t["docs"], t["positive"], t["negative"], t["unclear"]), (1, 3, 1, 1))
-        self.assertEqual(st["speakers"], {"トワ": round(segs[0]["end"] - segs[0]["start"], 1), "(話者なし)": round(segs[2]["end"] - segs[2]["start"] + segs[3]["end"] - segs[3]["start"], 1)})
-        self.assertGreater(t["audioBytes"], 1000)
-        base = os.path.join(self.tmp, "dataset")
-        self.assertTrue(os.path.isfile(os.path.join(base, "README.txt")))
-        self.assertTrue(os.path.isfile(os.path.join(base, "settings-snapshot.json")))
-        rows = [json.loads(x) for x in open(os.path.join(base, "index.jsonl"), encoding="utf-8").read().splitlines()]
-        self.assertEqual(sorted((x["kind"], x["role"]) for x in rows), [("deleted", "negative"), ("line", "positive"), ("line", "positive"), ("line", "positive"), ("line", "unclear")])
-        neg = next(x for x in rows if x["kind"] == "deleted")
-        self.assertEqual((neg["text"], neg["original"]), ("", gone["text"]))
-        self.assertEqual(next(x for x in rows if x["role"] == "unclear")["tags"], ["unclear", "bgm"])
-        for x in rows:
-            self.assertTrue(os.path.isfile(os.path.join(base, x["audio"])), x)
-        self.assertTrue(os.path.isfile(os.path.join(base, "docs", tid, "full.flac")))
-        first = json.loads(open(os.path.join(base, "docs", tid, "lines.jsonl"), encoding="utf-8").readline())
-        self.assertEqual((first["text"], first["speakerName"], first["changed"]), ("トワ様のテスト", "トワ", True))
-        self.assertTrue(first["original"].startswith("テスト文"))
-        man = json.load(open(os.path.join(base, "docs", tid, "manifest.json"), encoding="utf-8"))
-        self.assertEqual(man["newClips"], 5)
-        # 2回目: 変わっていないので、音声は切り直さない。校正を外した行の音声は消える
-        segs[2].pop("proofed")
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": spk, "segments": segs})
-        self.call("POST", "/api/archive", {"tid": tid, "full": False})
-        end = time.time() + 60
-        while time.time() < end and self.call("GET", "/api/dataset")["running"]:
-            time.sleep(0.1)
-        man = json.load(open(os.path.join(base, "docs", tid, "manifest.json"), encoding="utf-8"))
-        self.assertEqual(man["newClips"], 0)
-        self.assertEqual(len(os.listdir(os.path.join(base, "docs", tid, "audio"))), 4)
-        self.assertTrue(man["fullAudio"])   # 一度保管した全体の音声は、full=False でも消さない
-        # 元のファイルが無くなっても、保管済みの音声は残り、エラーにならない
-        os.rename(self.wav, self.wav + ".moved")
-        try:
-            segs[2]["proofed"] = True
-            self.call("PUT", "/api/transcript?id=" + tid, {"title": doc["title"], "speakers": spk, "segments": segs})
-            self.call("POST", "/api/archive", {"tid": tid})
-            end = time.time() + 60
-            while time.time() < end and self.call("GET", "/api/dataset")["running"]:
-                time.sleep(0.1)
-            man = json.load(open(os.path.join(base, "docs", tid, "manifest.json"), encoding="utf-8"))
-            self.assertIn("元のファイルが見つからない", man["note"])
-            self.assertEqual(len(os.listdir(os.path.join(base, "docs", tid, "audio"))), 5)   # full.flac から切り出せた
-        finally:
-            os.rename(self.wav + ".moved", self.wav)
+        # データの保管(dataset/ の書き手)は 0.68.0 で消した
+        self.assertEqual(self.call("POST", "/api/archive", {"tid": tid}).get("_status"), 404)
+        self.assertEqual(self.call("GET", "/api/dataset").get("_status"), 404)
 
 
 class TestRangeAndStudio(unittest.TestCase):

@@ -86,7 +86,7 @@ def main():
             b.close()
         bad = [e for e in errors if "favicon" not in e and "ERR_ABORTED" not in e]
         check(not bad, "画面のエラーなし: %s" % bad[:3])
-        bad_http = [x for x in bad_http if "favicon" not in x and not ("404" in x and "/api/eval-batch" in x) and not ("409" in x and "/api/archive" in x)]
+        bad_http = [x for x in bad_http if "favicon" not in x and not ("404" in x and "/api/eval-batch" in x)]
         check(not bad_http, "読み込みの失敗なし: %s" % bad_http[:3])
     finally:
         srv.stop()

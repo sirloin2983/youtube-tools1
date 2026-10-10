@@ -229,7 +229,7 @@ def cache_dir(data, service, model):
 
 
 def audio_span(S, doc, data, boost):
-    """文書の音声の出どころ(eval_asr.recognize_doc と同じ順: 元の動画 → 保管の full.flac)-> (extract_audio の spec, 行の時刻の基準の秒, 出どころの名前)"""
+    """文書の音声の出どころ(eval_asr.recognize_doc と同じ順: 元の動画 → 保管の full.flac。今ある保管データだけ。保管の書き手は 10-10 に消した)-> (extract_audio の spec, 行の時刻の基準の秒, 出どころの名前)"""
     return C.audio_span(S, doc, data, boost=boost)
 
 

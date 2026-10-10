@@ -259,7 +259,6 @@ GET_API = {
     "/api/drill/status": lambda a: ed_drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: ed_drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
     "/api/drill/candidates": lambda a: ed_drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
-    "/api/dataset": lambda a: ed_learn.dataset_stats(),
     "/api/history": lambda a: {"items": ed_store.list_history(a("id"))},
     "/api/transcript": lambda a: _transcript(a("id")),
     "/api/eval-folders": lambda a: ed_relink.eval_folders_info(),
@@ -307,7 +306,6 @@ POST_API = {
     "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/eval-baseline": lambda o: ed_learn.record_baseline(o.get("label")),
-    "/api/archive": lambda o: {"ok": True, "docs": ed_learn.start_archive(o.get("tid") or None, o.get("full") is not False)},
     "/api/restore": lambda o: {"ok": True, "updatedAt": ed_store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": ed_learn.record_feedback(o)},
     "/api/export-file": lambda o: ed_misc.export_file(o),

@@ -112,18 +112,6 @@ def main():
         me = call(port, "GET", "/api/metrics?scope=eval")
         mt = call(port, "GET", "/api/metrics?scope=train")
         check(me["docs"] == 1 and mt["docs"] == 1 and me["byDoc"][0]["id"] == ev, "測定の対象(評価用のみ / 学習用のみ)")
-        # 保管
-        for t_ in (ev, tr):
-            call(port, "POST", "/api/archive", {"tid": t_, "full": False})
-            for _ in range(100):
-                ds = call(port, "GET", "/api/dataset")
-                if not ds["running"] and any(d_["tid"] == t_ for d_ in ds["docs"]):
-                    break
-                time.sleep(0.1)
-        lines = [json.loads(x) for x in open(os.path.join(tmp, "dataset", "docs", ev, "lines.jsonl"), encoding="utf-8") if x.strip()]
-        lines_t = [json.loads(x) for x in open(os.path.join(tmp, "dataset", "docs", tr, "lines.jsonl"), encoding="utf-8") if x.strip()]
-        check(lines and all(x["split"] == "eval" for x in lines) and all(x["split"] == "train" for x in lines_t), "保管データの各行に split(eval/train)が付く")
-        check(ds["totals"]["evalSec"] > 0 and ds["totals"]["positive"] == len([x for x in lines_t if x["role"] == "positive"]), "保管の量: 評価用は学習に使える量に入らない: %s" % ds["totals"])
         # 基準の記録
         b0 = call(port, "POST", "/api/eval-baseline", {"label": "基準"})
         check("cer" in b0 and call(port, "GET", "/api/eval-baselines")["items"][-1]["label"] == "基準", "基準を記録できる: CER %s" % b0.get("cer"))

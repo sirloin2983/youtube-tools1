@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校正画面のキー操作の通し確認(Playwright + 疑似モード): 集中モード・表示設定・左手だけのキー操作(Shift+キー)・タグ・保管・自動再生・進み具合の帯・用語挿入・
+"""校正画面のキー操作の通し確認(Playwright + 疑似モード): 集中モード・表示設定・左手だけのキー操作(Shift+キー)・タグ・自動再生・進み具合の帯・用語挿入・
 続きから・履歴・保存の競合・数千行での速さ。
 
     python3 src/editor/tests/e2e_proofread_keys.py [スクリーンショットの保存先フォルダ]
@@ -126,13 +126,13 @@ def main():
 
 
 def _scene_opt_checks(cx):
-    """設定のチェックは、変えたらすぐ保存する(表 SET_CHECKS のうち画面に残ったもの = 保管・書き出しの 4 つ)。
+    """設定のチェックは、変えたらすぐ保存する(表 SET_CHECKS のうち画面に残ったもの = 書き出しの 2 つ。保管の 2 つは 0.68.0 で消した)。
     0.66.0: 認識の設定の自動の後処理・声の検出・字幕の向きと最大文字数の欄は設定の画面へ(欄の無い鍵は保存した設定 S.settings から要求に付く)"""
     check, pg, port = cx.check, cx.pg, cx.port
     check(pg.locator("#optAutoContext, #optVad, #optAutoFill, #optSubOrient").count() == 0 and pg.locator("#recogDetails a[href$='settings#sec-editor']").count() == 1,
           "認識の設定に自動の後処理・声の検出・字幕の向きの欄は無く、設定の画面へのリンクがある")
     shown = pg.evaluate("SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).map(([k, id]) => id)")
-    check(set(shown) == {"arcAuto", "arcFull", "exSpk", "exTs"}, "画面に残るチェックは保管・書き出しの 4 つ: %s" % shown)
+    check(set(shown) == {"exSpk", "exTs"}, "画面に残るチェックは書き出しの 2 つ: %s" % shown)
     before = pg.evaluate("Object.fromEntries(SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).map(([k, id]) => [id, document.querySelector('#' + id).checked]))")
     # 表のチェックを 1 つずつ変え、その場で設定(S.settings)に入るか = 変えたら保存する待ち受けが漏れていないか
     missed = pg.evaluate("""SET_CHECKS.filter(([k, id]) => document.querySelector('#' + id)).filter(([k, id]) => { const c = document.querySelector('#' + id); c.checked = !c.checked;
@@ -412,26 +412,15 @@ def _scene_view(cx):
 
 
 def _scene_history_conflict(cx):
-    """タグと話者の保存・保管・以前の版・保存の競合・校正の手間・履歴から戻す"""
+    """タグと話者の保存・以前の版・保存の競合・校正の手間・履歴から戻す"""
     SPK, check, pg, port, tid, tmp = cx.SPK, cx.check, cx.pg, cx.port, cx.tid, cx.tmp
     # ---- 履歴と競合 ----
     pg.locator("#segs textarea").nth(4).fill("履歴用の編集")
     pg.wait_for_function("document.querySelector('#saveState').textContent.includes('保存しました')", timeout=8000)
     sv = call(port, "GET", "/api/transcript?id=" + tid)["segments"][3]
     check(sv.get("tags") == ["overlap"] and sv.get("speaker") == "S1", "タグと話者がサーバーに保存された: %s" % ({k: sv.get(k) for k in ("tags", "speaker")},))
-    # 保管(dataset/)。保管は左メニューの「学習」タブの中。メニューが閉じていれば開く
-    if pg.is_hidden("#menuPanel"):
-        pg.click("#btnMenu")
-    pg.click("[data-side-tab=data]")
-    pg.click("#arcNow")
-    pg.wait_for_function("document.querySelector('#arcOut').textContent.includes('保管した文字起こし 1件')", timeout=30000)
-    check("正解の行" in pg.inner_text("#arcOut") and "トワ" in pg.text_content("#arcOut"), "保管カードに、正解の量・話者ごとの量が出る")
-    check(os.path.isfile(os.path.join(tmp, "dataset", "index.jsonl")) and os.path.getsize(os.path.join(tmp, "dataset", "index.jsonl")) > 100, "dataset/index.jsonl ができている")
-    try:   # 保管の状況は、保管カードの結果より少し遅れて「保管中 1/1」→「済」になる
-        pg.wait_for_function("document.querySelector('#arcStat').textContent.includes('保管: 済')", timeout=10000)
-    except Exception:
-        pass
-    check("保管: 済" in pg.inner_text("#arcStat"), "保管の状況が出る: " + pg.inner_text("#arcStat"))
+    # 保管(dataset/)は 0.68.0 で消した(カードも自動の保管も無い)
+    check(pg.locator("#arcCard, #arcStat, #arcNow").count() == 0, "保管のカード・状況は無い")
     if pg.is_visible("#menuScrim"):
         pg.click("#menuScrim")   # B-7: 1600px 未満ではメニューを重ねて開くので、閉じてから本文を操作する
     pg.click("#btnSpk")   # v0.15.0: 「道具 ▾」→「以前の版に戻す」(自動バックアップ。旧「履歴」)

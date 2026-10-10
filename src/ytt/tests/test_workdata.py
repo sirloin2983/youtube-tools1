@@ -18,7 +18,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
 from ytt import layout, studiodata, workdata  # noqa: E402
 
-NAMES = ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "DATASET_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA", "SERVER_VERSION")
+NAMES = ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA", "SERVER_VERSION")
 
 
 class _Saved(unittest.TestCase):
@@ -52,7 +52,7 @@ class TestWorkdata(_Saved):
         d = os.path.join("e", "data")
         workdata.set_data_dir(d)
         want = {"DATA_DIR": d, "TX_DIR": os.path.join(d, "transcripts"), "TMP_DIR": os.path.join(d, "transcripts", ".tmp"),
-                "DATASET_DIR": os.path.join(d, "dataset"), "EVAL_BASE": os.path.join(d, "eval-baselines.json"),
+                "EVAL_BASE": os.path.join(d, "eval-baselines.json"),
                 "SETTINGS": os.path.join(d, "settings.json"), "FEEDBACK": os.path.join(d, "learn-feedback.json")}
         self.assertEqual({k: getattr(workdata, k) for k in want}, want)
 

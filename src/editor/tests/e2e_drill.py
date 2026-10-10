@@ -332,7 +332,6 @@ def main():
         bad = [e for e in errors if "favicon" not in e and "ERR_ABORTED" not in e]
         check(not bad, "画面のエラーなし: %s" % bad[:3])
         bad_http = [x for x in bad_http if "favicon" not in x and not ("404" in x and "/api/eval-batch" in x)   # まとめての文字起こしの状態(⚙)は、API が無ければ出さない作り
-                    and not ("409" in x and "/api/archive" in x)   # 文書を続けて切り替えると、前の文書の自動の保管が「別の保管の最中」で飛ばされる(黙って次の機会に)
                     and not ("409" in x and "/api/eval-batch/redo-one" in x)]   # 手を入れた文書の作り直し: まず 409 touched を受けて確認する作り
         check(not bad_http, "読み込みの失敗なし: %s" % bad_http[:3])
     finally:
