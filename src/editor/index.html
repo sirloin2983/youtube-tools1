@@ -632,15 +632,11 @@ h2{margin:0;font-size:15px}
 .ui-menu>summary.tt-hbtn,.pop>summary.tt-hbtn{display:inline-flex}
 #btnMenu .ic{display:inline-grid;place-items:center}
 .tt-hstat{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
-/* 処理中の件数・校正の進み具合(押すとメニューの該当する所を開く。押せるので .btn。進み具合は細い棒で) */
-.tt-hjob,.tt-hgoal{font-variant-numeric:tabular-nums;gap:7px}
+/* 処理中の件数(押すとメニューの「処理状況」を開く。押せるので .btn。校正の目標の札 .tt-hgoal は 0.69.0 で消した) */
+.tt-hjob{font-variant-numeric:tabular-nums;gap:7px}
 .tt-hjob{color:var(--accent-ink2)}
 .tt-hjob::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}   /* 0.59.3: 点滅をやめて .pill.run と同じ静かな回転の輪(docs/spec/ui-guidelines.md 2「実行中の札は点滅させない」。A-32) */
-.tt-hgoal{color:var(--ink-2)}
-.tt-hgoal-bar{display:inline-block;width:46px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
-.tt-hgoal-bar i{display:block;height:100%;background:var(--accent);border-radius:inherit;width:0}
 @media (max-width:1180px){.tt-hlabel{display:none}.tt-hbtn{width:var(--ctl-h-sm);padding:0;justify-content:center}#btnMenu{width:auto;padding:0 8px}}
-@media (max-width:900px){#goalPill{display:none}}
 @media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}.tt-hjob{padding:0 6px}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
 .errbar{position:sticky;top:var(--toph);z-index:39}
 /* 画面の赤い帯の次の一手と閉じる(段8 E-26。app-core.js の showErr)。版の違いの帯(UIKit.restart)はこの形にしない */
@@ -781,11 +777,6 @@ h2{margin:0;font-size:15px}
 .accmain{font-size:15px;margin-top:8px}.accmain b{font-variant-numeric:tabular-nums}
 .wl{font-size:12px;border-bottom:1px solid var(--line);padding:4px 0;word-break:break-all}
 .ln{border-bottom:1px solid var(--line);padding:7px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 7px;min-height:30px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
-.goalbar{position:relative;height:10px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden;margin-top:10px}
-.goalbar i{display:block;height:100%;background:var(--accent);border-radius:inherit;min-width:0}
-.goalbar b{position:absolute;top:0;bottom:0;width:2px;background:var(--panel);opacity:.9}
-#goalText b{font-variant-numeric:tabular-nums}
-#goalMs{margin-top:8px;display:grid;gap:3px;font-size:12.5px}#goalMs .ms{display:flex;gap:6px;align-items:baseline}#goalMs .ms.done{color:var(--ink-3)}#goalMs .ms .ck{width:1.2em;flex:none;color:var(--ok);font-weight:700}#goalMs .ms .ck svg{vertical-align:-1px}
 .sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:2px;flex:none}
 .sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
 .tt-sp-member{flex:none;width:34px;height:30px;border-radius:var(--r-sm);border:1px solid var(--line-2)}   /* 話者の名前がメンバーと合ったときの色(気が利く画面へ 段2) */
@@ -1322,11 +1313,10 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
   </nav>
   <div class="ui-header-actions">
     <span class="savest" id="saveState" role="status"></span>
-    <!-- 今の操作(処理中のジョブ・校正の進み具合)。押すとメニューの該当する所を開く -->
+    <!-- 今の操作(処理中のジョブ)。押すとメニューの「処理状況」を開く(校正の目標の札 #goalPill は 0.69.0 で消した) -->
     <div class="tt-hstat" role="status" aria-live="polite">
       <!-- 押せるものは .btn(状態の札 .pill は押せない表示だけ。docs/spec/ui-guidelines.md 3.) -->
       <button type="button" class="btn ghost small tt-hjob" id="jobBadge" hidden title="押すと、メニューの「処理状況」を開きます"></button>
-      <button type="button" class="btn ghost small tt-hgoal" id="goalPill" hidden title="校正済みの量と目標。押すと進行度を見ます"><span class="tt-hgoal-t" id="goalPillT"></span><span class="tt-hgoal-bar" aria-hidden="true"><i id="goalPillBar"></i></span></button>
     </div>
     <button type="button" class="btn ghost small tt-hbtn" id="btnKeys" title="キー操作の一覧(?)" aria-haspopup="dialog"><span class="ui-icon" data-icon="keyboard" aria-hidden="true"></span><span class="tt-hlabel">キー操作</span></button>
     <button type="button" class="btn ghost small tt-hbtn" data-ui-settings title="設定(表示・キーの帯・テーマなど)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span><span class="tt-hlabel">設定</span></button>
@@ -1420,20 +1410,15 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
       <button type="button" class="btn" id="btnOpenVideo" title="文字起こしをしないで、この動画を「編集」で開きます(カットのタブで手で切る・無音で切る。あとから文字起こしもできます)">文字起こしせずに開く</button></div>
   </details>
 
-  <details class="card side-pane" data-side-pane="quality" id="goalCard" open><summary>進行度(校正済みの量)</summary>
-    <div class="goalbar" id="goalBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-label="目標に対する校正済みの量"><i id="goalFill"></i></div>
-    <p id="goalText" style="margin:6px 0 0;font-size:14px"></p>
-    <p class="hint" id="goalToday" style="margin:2px 0 0"></p>
-    <div id="goalMs"></div>
-    <div id="evalStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>
-    <!-- 定点(確かめ済みの評価用の動画 15 分)の「あと何分」と条件(マスタープラン Q4。GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口 -->
-    <div id="drillStat" style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">
+  <!-- 評価ドリル(マスタープラン Q4)。定点(確かめ済みの評価用の動画 15 分)の「あと何分」と条件(GET api/drill/status。app-learn.js の renderDrillStat)と評価ドリルへの入口。
+       0.68.0 までは「進行度(校正済みの量)」のカード #goalCard の中にあった(校正の目標と進行度は 0.69.0(段 D2)で消した) -->
+  <details class="card side-pane" data-side-pane="quality" id="drillCard" open><summary>評価ドリル(定点)</summary>
+    <div id="drillStat" style="margin-top:6px">
       <div style="font-weight:600;font-size:13.5px">定点(全部聞いて確かめた評価用の動画 15 分)</div>
       <p id="drillLeft" style="margin:4px 0 0;font-size:13.5px"></p>
       <p class="hint" id="drillConds" style="margin:2px 0 0"></p>
       <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="drillGo" title="まだ確かめていない評価用の動画を 1 本ずつ(乱数で)開きます。全部聞いて直したら「済みにして次へ」">評価ドリルを始める →</button></div></div>
-    <div class="row" style="margin-top:8px"><label class="lag" title="この量に届くまでを、進行度の100%にします。評価用に取り分ける分は含めません">目標 <input id="goalHours" type="number" min="0.5" max="200" step="0.5" style="width:72px"> 時間分</label></div>
-    <p class="hint" style="margin:6px 0 0">「校正済み」の行(聞いて確認して、文字が正しいと判断した行。「聞き取れない」の印がある行は除く)の音声の長さの合計です。追加学習(<abbr class="ui-term" title="自分の配信の音声と正解で、モデルを少しだけ学習させ直すこと(LoRA)">LoRA</abbr>)の目安は、校正済みが2〜3時間分から。</p></details>
+    <p class="hint" style="margin:8px 0 0">評価用の動画を 1 本ずつ、すき間も含めて全部聞いて直すと「確かめ済み」になり、認識精度を測るときの正解(定点)に数えます。評価用の文字起こしは学習・辞書には使いません。</p></details>
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
   <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
     <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>

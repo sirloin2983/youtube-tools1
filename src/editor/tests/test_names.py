@@ -16,7 +16,7 @@
 - RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
   S.名前 と 殻の名前の両方で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
 - RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・eval/drill/folders と
-  manage/cases/handoff_io・human/proof/batch・progress に分けても S.名前 と殻の名前で読める
+  manage/cases/handoff_io・human/proof/batch に分けても S.名前 と殻の名前で読める(進行度 progress は 0.69.0 で消した)
 - RS4-2 の前に ed_drill・ed_evalbatch が持っていた名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は、eval/drill の drill・evalbatch へ
   殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
 """
@@ -246,7 +246,7 @@ class TestEdStoreShell(unittest.TestCase):
 
     def test_old_ed_store_names_still_resolve(self):
         names = _old_names("data_ed_store_names.txt")
-        self.assertEqual(len(names), 81)
+        self.assertEqual(len(names), 79)   # 0.69.0 で進行度の要約 _prog_of・_part を消した
         missing = [n for n in names if not hasattr(S, n) or not hasattr(ed_store, n)]
         self.assertEqual(missing, [])
 
@@ -418,19 +418,19 @@ class TestEdRelinkShell(unittest.TestCase):
 
 
 class TestEdMiscShell(unittest.TestCase):
-    """ed_misc を manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括・文字起こし済みの範囲)・
-    human/proof/progress(進行度)に分けた(RS3-E7)。.runtime の置き場所 runtime_path_dir は app の ed_state(serve の名前だけ)"""
+    """ed_misc を manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括・文字起こし済みの範囲)
+    に分けた(RS3-E7。進行度 human/proof/progress は 0.69.0 で消した)。.runtime の置き場所 runtime_path_dir は app の ed_state(serve の名前だけ)"""
 
     @staticmethod
     def owners():
-        from human.proof import batch, progress
+        from human.proof import batch
         from manage.cases import handoff_io
-        return handoff_io, batch, progress
+        return handoff_io, batch
 
     def test_old_ed_misc_names_still_resolve(self):
         import ed_misc
         names = _old_names("data_ed_misc_names.txt")
-        self.assertEqual(len(names), 18)
+        self.assertEqual(len(names), 17)
         self.assertEqual([n for n in names if not hasattr(S, n)], [])
         self.assertEqual([n for n in names if not hasattr(ed_misc, n)], ["runtime_path_dir"])   # app に残した名前は殻からは読まない
 
@@ -447,15 +447,15 @@ class TestEdMiscShell(unittest.TestCase):
         self.assertEqual(ed_misc._MOVED, owners)
         for m in owners:
             self.assertIn(m, S._ED_MODULES, m.__name__)
-        handoff_io, batch, progress = owners
+        handoff_io, batch = owners
         self.assertIs(S.clip_info, handoff_io.clip_info)
         self.assertIs(ed_misc.scan_common, batch.scan_common)
-        self.assertIs(S.progress_stats, progress.progress_stats)
+        self.assertFalse(hasattr(S, "progress_stats"))   # 0.69.0(段 D2)で消した
         self.assertIs(S.runtime_path_dir, ed_state.runtime_path_dir)
 
     def test_transcribed_ranges_patch_reaches_marker_and_batch(self):
         """S.transcribed_ranges の差し替え(test_backend・test_metrics の形)はフォルダの一括とマーカーの読みの両方に届く"""
-        handoff_io, batch, _progress = self.owners()
+        handoff_io, batch = self.owners()
         with mock.patch.object(S, "transcribed_ranges", lambda: [{"path": "k", "start": 0.0, "end": None, "whole": True, "tid": "t1"}]):
             self.assertEqual(batch._done_and_active()[0], {"k": "t1"})
             self.assertIn("transcribed_ranges", vars(batch))

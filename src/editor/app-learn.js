@@ -264,7 +264,7 @@ function renderAcc(m){
    評価用の動画 1 本(30〜40 秒)を、いつもの 1 文字起こし の校正で全部聞いて直す(結合・分割・行の追加・削除・時刻・話者・全行をこの人に がそのまま使える)。
    「済みにして次へ」= 編集中の内容を保存し終えてから api/drill/reviewed(印 evalReviewed と残りの行の校正済み)→ api/drill/next → openDoc で開く
    (画面の再読み込みはしない)。URL の ?drill=1(?doc= と並べる)で帯を出す。状態は app.js の DR(済ませた本数・飛ばした文書はこのタブの sessionStorage)。
-   定点(全部聞いて確かめた評価用の動画 15 分)の残りと条件は api/drill/status(進行度のカードと帯で同じ数字) */
+   定点(全部聞いて確かめた評価用の動画 15 分)の残りと条件は api/drill/status(「評価ドリル」のカード #drillCard と帯で同じ数字) */
 
 async function loadDrillStat(){
   try { DR.status = await api('/api/drill/status'); } catch { return; }   // 古いサーバー・つながらない: 前の表示のまま
@@ -373,7 +373,7 @@ async function markReviewed(via){
   }
   if (S.docId === id){ S.baseUpdatedAt = r.updatedAt; S.doc.evalReviewed = r.evalReviewed; }
   toast(`確かめ済みにしました${r.proofed ? `(残りの ${r.proofed} 行を校正済みに)` : ''}`, 4000, 'ok');
-  loadDrillStat(); scheduleProgress();
+  loadDrillStat();
   return true;
 }
 
@@ -390,7 +390,7 @@ async function unmarkReviewed(){
     return toast('取り消せませんでした: ' + e.message, 7000, 'err');
   }
   if (S.docId === id) await openDoc(id, true);   // 戻した行の校正済みを画面にも(見ていた行はそのまま)
-  toast('確かめ済みを取り消しました', 4000); loadDrillStat(); scheduleProgress(); syncListItem();
+  toast('確かめ済みを取り消しました', 4000); loadDrillStat(); syncListItem();
 }
 
 /* ドリルの外の「全部聞いて直したので済みにする」: 印を付けたら読み直す(校正済みにした行を画面にも。見ていた行はそのまま) */
@@ -444,7 +444,7 @@ async function redoOneHere(){
   } finally { REDO1.busy = false; renderRedoOne(); }
 }
 
-/* 始める(進行度のカードのボタン。URL の ?drill=1 で文書が無いときも)。続きの数(済ませた本数・飛ばした文書)は新しく数え直す */
+/* 始める(「評価ドリル」のカード #drillCard のボタン。URL の ?drill=1 で文書が無いときも)。続きの数(済ませた本数・飛ばした文書)は新しく数え直す */
 async function drillStart(fresh = true){
   DR.on = true; DR.none = '';
   if (fresh){ DR.done = 0; DR.skip = []; drillSave(); }

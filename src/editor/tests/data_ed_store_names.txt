@@ -1,4 +1,4 @@
-# RS3-E5a(2026-10-10)の前に ed_store が持っていた名前(標準のモジュールと編集の兄弟の部品 ed_*・ytt の部品を除く)。中身を human/proof/store と manage/cases/doclist へ分けても serve と ed_store の名前で読めることを test_names.py が確かめる
+# RS3-E5a(2026-10-10)の前に ed_store が持っていた名前(標準のモジュールと編集の兄弟の部品 ed_*・ytt の部品を除く。進行度の要約 _prog_of・_part は 0.69.0 で消したあと)。中身を human/proof/store と manage/cases/doclist へ分けても serve と ed_store の名前で読めることを test_names.py が確かめる
 CUT_TOLERANCE_FRAMES
 DIAR_NUM_MAX
 DRAFT_ORIGINS
@@ -27,8 +27,6 @@ _hist_dir
 _load_doc
 _open_lock
 _pack_text
-_part
-_prog_of
 _real
 _save_lock
 _sub_color

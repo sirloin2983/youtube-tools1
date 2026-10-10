@@ -170,7 +170,7 @@ def doc_length(d):
 
 
 # 文書ごとの要約のキャッシュは 1 つ(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
-# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・進行度(progress.progress_stats)・評価ドリル(eval/drill/drill.drill_docs)が同じ要約を使うので、
+# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・評価ドリル(eval/drill/drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
 _summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
@@ -178,7 +178,7 @@ _summary_lock = threading.Lock()
 
 
 def good_row(g):
-    """進行度・定点に数える行(校正済み・聞き取れない印なし)"""
+    """定点(評価ドリルの条件)に数える行(校正済み・聞き取れない印なし)"""
     return g.get("proofed") is True and "unclear" not in (g.get("tags") or [])
 
 
@@ -197,25 +197,8 @@ def _load_doc(path):
     return d if isinstance(d, dict) else None
 
 
-def _prog_of(segs, d):
-    """進行度(progress.progress_stats)に要る数: 評価用か・校正済みの行の秒と数・未校正の文字のある行の数・全体の秒と行の数"""
-    good = [g for g in segs if good_row(g)]
-    pend = sum(1 for g in segs if g.get("proofed") is not True and str(g.get("text", "")).strip() and "unclear" not in (g.get("tags") or []))
-    return {"eval": d.get("evalSet") is True, "sec": sum(row_dur(g) for g in good), "lines": len(good), "pend": pend,
-            "totalSec": sum(row_dur(g) for g in segs), "totalLines": len(segs)}
-
-
-def _part(name, fn, *args):
-    """要約の一部(進行度)を作る。形の崩れた文書で例外が出ても、一覧の要約は返す(その部分だけ None = 数えない)"""
-    try:
-        return fn(*args)
-    except Exception as e:   # 形の崩れた文書(手で書き換えたなど)でも一覧を止めない
-        _txbase.log.warning("文書の要約(%s)を作れませんでした: %s", name, e.__class__.__name__)
-        return None
-
-
 def transcript_summary(tid):
-    """文書1件の要約(一覧の1行 + 元ファイル・範囲 + 進行度 _prog)。評価ドリルの要約は eval/drill/drill.drill_docs が自前で足す(RS3-E5a。② が ④ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    """文書1件の要約(一覧の1行 + 元ファイル・範囲)。評価ドリルの要約は eval/drill/drill.drill_docs が自前で足す(RS3-E5a。② が ④ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
     path = tx_path(tid)
     st = _fsio.stamp(path)
     if st is None:
@@ -247,7 +230,7 @@ def transcript_summary(tid):
           "clipStart": _yschemas.num_or(rng.get("start")), "clipEnd": _yschemas.num_or(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
           "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole")),
           "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(Q1)
-          "_key": key, "_prog": _part("進行度", _prog_of, segs, d)}
+          "_key": key}
     with _summary_lock:
         _summary_cache[tid] = (key, sm)
     return sm

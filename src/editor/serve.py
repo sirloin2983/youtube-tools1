@@ -147,7 +147,7 @@ _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 か�
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 _ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
 # ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a。ed_store のあった所。殻の ed_store は ed_jobs の殻と名前が重なるので並べない)
-# ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理(RS3-E7。ed_relink のあった所)・_handoff_io・_batch・_progress = 受け渡し・フォルダの一括・進行度(RS3-E7。ed_misc のあった所)。殻の ed_relink・ed_misc も並べない
+# ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理(RS3-E7。ed_relink のあった所)・_handoff_io・_batch = 受け渡し・フォルダの一括(RS3-E7。ed_misc のあった所。進行度 _progress は 0.69.0 で消した)。殻の ed_relink・ed_misc も並べない
 
 
 # ---------- ジョブの種類の登録と、ジョブの表に渡す編集の値(役割で組み直す RS2-1b。表と待機列は ytt/jobs) ----------
@@ -209,7 +209,7 @@ _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 �
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/progress", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -272,7 +272,6 @@ GET_API = {
     "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
     "/api/eval-baselines": lambda a: {"items": _evmetrics.read_baselines()},
-    "/api/progress": lambda a: _progress.progress_stats(),
     "/api/drill/status": lambda a: _drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: _drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
     "/api/drill/candidates": lambda a: _drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)

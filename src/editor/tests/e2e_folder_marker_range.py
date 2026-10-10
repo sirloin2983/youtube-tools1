@@ -133,8 +133,8 @@ def main():
         # ---- 画面 ----
         call(port, "PUT", "/api/transcript?id=" + tid, {"title": "画面用", "speakers": [{"id": "S1", "name": "話者", "color": "#2f62d6"}],
                                                         "segments": [{"id": "z%d" % i, "start": i * 2.0, "end": i * 2.0 + 1.8, "text": "行%d" % i, "speaker": "", "flag": "", **({"proofed": True} if i < 5 else {}), **({"tags": ["unclear"]} if i == 4 else {})} for i in range(6)]})
-        pr = call(port, "GET", "/api/progress")
-        check(pr["proofedLines"] == 4 and abs(pr["proofedSec"] - 7.2) < 0.01, "進行度: 校正済みの秒数(聞き取れない行は除く): %s" % pr)
+        pr = call(port, "GET", "/api/progress", raw=True)
+        check(pr.get("status") == 404, "進行度の API は 0.69.0(段 D2)で消した: %s" % pr)
         with sync_playwright() as pw:
             br = pw.chromium.launch()
             pg = br.new_context(viewport={"width": 1400, "height": 900}).new_page()
@@ -156,12 +156,9 @@ def main():
             pg.click("#fdStudio")
             pg.wait_for_function("document.querySelectorAll('#fdList label').length === 3")
             check(pg.input_value("#fdPath") == fd and pg.is_checked("#fdRec"), "書き出し先を入れて、下のフォルダも探す")
-            pg.wait_for_function("!document.querySelector('#goalPill').hidden")
-            check("目標 7秒" in pg.inner_text("#goalPill") and "5時間" in pg.inner_text("#goalPill"), "上の帯に学習の目標の進行度が出る(UI の見直し S6): " + pg.inner_text("#goalPill"))
-            check("7秒" in pg.inner_text("#goalText") and "・4行" in pg.inner_text("#goalText"), "進行度カード: " + pg.inner_text("#goalText"))
-            check(pg.locator("#goalMs .ms").count() == 4, "節目が並ぶ(30分・1時間・3時間・目標)")
-            pg.fill("#goalHours", "1"); pg.dispatch_event("#goalHours", "change")
-            check("1時間" in pg.inner_text("#goalPill") and pg.locator("#goalMs .ms").count() == 2, "目標を1時間にすると、帯も節目も変わる(30分と目標の2つ)")
+            check(pg.locator("#goalPill, #goalCard, #goalHours").count() == 0, "校正の目標と進行度(上の札・カード・目標の欄)は 0.69.0 で消した")
+            pg.wait_for_function("document.querySelector('#drillLeft').textContent.length > 0")
+            check(pg.is_visible("#drillCard #drillGo") and "定点まであと" in pg.inner_text("#drillLeft"), "評価ドリルのカードは残る: " + pg.inner_text("#drillLeft"))
             # 折りたたみ
             check(pg.locator("aside details.card").count() >= 7, "左のカードがすべて折りたためる")
             pg.evaluate("document.querySelector('#txCard').open = false")

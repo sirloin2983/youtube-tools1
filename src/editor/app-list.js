@@ -10,7 +10,7 @@
 
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); renderMissing(); scheduleProgress(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
+  renderList(); renderMissing(); scheduleDrillStat(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
 }
 
 /* ---------- 前回の続き(段7 E-7) ----------

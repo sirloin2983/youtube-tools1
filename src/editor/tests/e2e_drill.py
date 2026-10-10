@@ -4,7 +4,7 @@
 
     PYTHONIOENCODING=utf-8 py -3.10 src/editor/tests/e2e_drill.py
 
-ドリル: 進行度のカードの「評価ドリルを始める →」→ 帯(定点まであと何分・条件)と ?doc=&drill=1 → 1 行直してすぐ「済みにして次へ」(未保存の変更も保存してから)
+ドリル: 「評価ドリル」のカードの「評価ドリルを始める →」→ 帯(定点まであと何分・条件)と ?doc=&drill=1 → 1 行直してすぐ「済みにして次へ」(未保存の変更も保存してから)
 → 次の文書が開く(画面の再読み込みなし)・定点の残りが減る → 飛ばす(Shift+N)→ 直してすぐ Shift+D → 再読み込みしても続く → 話者の無い行の確認(やめる / このまま)
 → 次が無い → ドリルを終える。行の結合・追加などは既存の e2e(e2e_row_editing ほか)で確かめ済みなので、ここでは 1 行直すだけ。
 ドリルの外: 評価用の文書を開くと「まだ確かめていない」と「全部聞いて直したので済みにする」→ 確かめ済み → 取り消す。全行をこの人に: 候補 → 確認 → 全行がその人に。
@@ -82,14 +82,15 @@ def main():
                 wait_js(pg, "S.docId && S.docId !== %s && !document.querySelector('#doc').hidden && !DR.busy && document.querySelectorAll('#segs .seg').length > 0" % json.dumps(prev), 15000)
                 return doc_id()
 
-            # ---- 進行度のカードから始める ----
+            # ---- 評価ドリルのカード(0.68.0 までは進行度のカードの中)から始める ----
             pg.goto(srv.base + "#tx")
             wait_js(pg, "document.querySelector('#ver').textContent.startsWith('v')")
             wait_js(pg, "document.querySelector('#drillLeft').textContent.includes('あと 15 分')", 10000)
             check("確かめ済み 1 本" in pg.inner_text("#drillLeft") and "まだ 5 本" in pg.inner_text("#drillLeft"),
-                  "進行度のカードに定点(確かめ済みの動画)のあと何分: " + pg.inner_text("#drillLeft"))
+                  "評価ドリルのカードに定点(確かめ済みの動画)のあと何分: " + pg.inner_text("#drillLeft"))
             check("話者" in pg.inner_text("#drillConds") and "呼び名" in pg.inner_text("#drillConds"), "条件(話者・配信・重なり・BGM・呼び名)")
-            check("目安" not in pg.inner_text("#evalStat") and "20分" not in pg.inner_text("#evalStat"), "以前の「目安 20 分」は出さない: " + pg.inner_text("#evalStat")[:80])
+            check(pg.locator("#goalCard, #evalStat, #goalHours").count() == 0 and "評価ドリル" in pg.inner_text("#drillCard summary"),
+                  "進行度のカード・評価用の行の数・目標の欄は 0.69.0 で消し、カードの見出しは「評価ドリル」: " + pg.inner_text("#drillCard summary"))
             pg.evaluate("window.__noReload = 1")   # ドリルの間に画面を読み直していないことの印
             pg.evaluate("setSideTab('quality')")
             pg.click("#drillGo")
@@ -217,7 +218,7 @@ def main():
             check(pg.is_disabled("#evrRedo") and "確かめ済みを取り消して" in (pg.get_attribute("#evrRedo", "title") or ""),
                   "確かめ済みの文書では「この動画を作り直す」を押せず、理由を出す: " + (pg.get_attribute("#evrRedo", "title") or ""))
             wait_js(pg, "document.querySelector('#drillLeft').textContent.includes('確かめ済み 4 本')", 10000)
-            check(True, "進行度のカードも増えた: " + pg.inner_text("#drillLeft"))
+            check(True, "評価ドリルのカードも増えた: " + pg.inner_text("#drillLeft"))
 
             # ---- ドリルの外: 評価用の文書の「全部聞いて直したので済みにする」と取り消し ----
             open_doc(pg, "さくらみこ 雑談")

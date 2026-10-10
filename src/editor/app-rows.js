@@ -46,7 +46,7 @@ function saveDoc(){
         if (r.evalSet === true && !S.doc.evalSet){ S.doc.evalSet = true; syncEval(); }   // 評価用のフォルダの動画はサーバーが印を付ける
         if ('evalReviewed' in r && !!r.evalReviewed !== !!S.doc.evalReviewed){ S.doc.evalReviewed = r.evalReviewed || undefined; renderEvalReview(); renderDrillBar(); }   // 評価用を外すと確かめ済みの印も消える(サーバー)
         if (S.dirty) setSaveState('未保存…', ''); else setSaveState('保存しました ' + hhmm(), 'ok');
-        scheduleLearn(); scheduleAcc(); scheduleProgress();
+        scheduleLearn(); scheduleAcc(); scheduleDrillStat();
         syncListItem(); cpAfterSave(); ovdAfterSave();
       } catch (e){
         if (S.docId !== id) return false;   // 保存を待つ間に文書が閉じられた(削除など)。閉じた文書の「未保存」を残さない

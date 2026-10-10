@@ -1,4 +1,4 @@
-/* app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・進行度(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+/* app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し(進行度は 0.69.0 で消した)(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は index.html の1か所) */
 'use strict';
@@ -466,46 +466,7 @@ function renderSetup(){
     + (miss.length ? banner(`準備が必要です(${miss.length}件)`, miss.join('<br>'), true) : '') + gpu;
 }
 
-/* ---------- 進行度 ---------- */
+/* ---------- 評価ドリルのカードの数の読み直し ----------
+   校正の目標(goalHours)と進行度(api/progress・ヘッダーの札・棒)は 0.69.0(段 D2)で消した。定点の数(確かめ済みの文書の行で数える条件)は保存・一覧の読み直しで変わるので、少し待ってまとめて読み直す */
 
-function goalSec(){ const h = Number(S.settings.goalHours); return (Number.isFinite(h) && h >= 0.5 && h <= 200 ? h : 5) * 3600; }
-
-function todayKey(){ const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
-
-function renderProgress(){
-  if (!PG) return;
-  const goal = goalSec(), cur = PG.proofedSec, pct = Math.min(100, cur / goal * 100);
-  $('#goalFill').style.width = pct + '%'; $('#goalBar').setAttribute('aria-valuenow', Math.round(pct));
-  const shown = pct < 10 ? pct.toFixed(1) : String(Math.round(pct));
-  $('#goalText').innerHTML = `<b>${fmtDur(cur)}</b> / ${fmtDur(goal)}(<b>${shown}%</b>)・${PG.proofedLines}行`;
-  const bar = $('#goalBar'); bar.querySelectorAll('b').forEach(x => x.remove());
-  const ms = MILESTONES.filter(m => m[0] < goal);
-  for (const [s] of ms){ const b = document.createElement('b'); b.style.left = (s / goal * 100) + '%'; bar.appendChild(b); }
-  const list = [...ms, [goal, '目標']];
-  const next = list.find(m => cur < m[0]);
-  $('#goalMs').innerHTML = list.map(([s, txt]) => `<div class="ms${cur >= s ? ' done' : ''}"><span class="ck">${cur >= s ? uiIcon('check', { size: 12 }) : '・'}</span><span>${fmtDur(s)}: ${esc(txt)}${next && next[0] === s ? `(あと ${fmtDur(s - cur)})` : ''}</span></div>`).join('');
-  let base = cur;
-  try { const o = JSON.parse(localStorage.getItem('tx.goalday') || 'null'); if (o && o.day === todayKey() && Number.isFinite(o.base)) base = o.base; else localStorage.setItem('tx.goalday', JSON.stringify({ day: todayKey(), base: cur })); } catch {}
-  const gain = Math.max(0, cur - base);
-  $('#goalToday').textContent = gain > 0 ? `今日は ${fmtDur(gain)} 進みました` : '今日はまだ進んでいません';
-  /* 評価用の本数と校正済みの行(学習用と分けて数える)。精度の目標は下の「定点」(全部聞いて確かめた動画 15 分。renderDrillStat)に一本化した(Q4。以前の「目安 20 分・全行を校正」はやめた) */
-  { const n = PG.evalDocs;
-    $('#evalStat').innerHTML = `<div style="font-weight:600;font-size:13.5px">評価用(学習に使わない・精度を測るためだけ)</div>` + (n ? `<p style="margin:4px 0 0;font-size:13.5px"><b>${n}</b>本 ・ 校正済みの行 ${PG.evalProofedLines}行(${fmtDur(PG.evalProofedSec)})</p>`
-      + `<p class="hint" style="margin:2px 0 0">精度の測定の正解(定点)に数えるのは、動画を全部聞いて「済み」にしたものだけです(下の評価ドリル)。</p>`
-      : `<p class="hint" style="margin:4px 0 0">まだ評価用の文字起こしはありません。設定の「評価用のフォルダ」から仮置きの動画をまとめて文字起こしするか、文字起こしを開いて「評価用にする」にチェックしてください(校正を始める前に決めてください)。</p>`); }
-  const p = $('#goalPill'); p.hidden = false;
-  $('#goalPillT').textContent = `目標 ${fmtDur(cur)} / ${fmtDur(goal)}`;   // 学習の目標(全部の文書の校正済みの長さ)。文書の「校正 n / m行」と分ける(UI の見直し S6)
-  $('#goalPillBar').style.width = pct + '%';
-  p.title = `学習の目標: 全部の文書で校正済みにした音声 ${fmtDur(cur)} / 目標 ${fmtDur(goal)}(${shown}%)。押すと進行度を見ます`;
-  if (document.activeElement !== $('#goalHours')) $('#goalHours').value = String(goal / 3600);
-  // 節目に届いたら、一度だけ知らせる
-  try {
-    const reached = list.filter(m => cur >= m[0]).length, seenN = Number(localStorage.getItem('tx.goalseen') || '-1');
-    if (seenN >= 0 && reached > seenN) toast(`節目に届きました: ${fmtDur(list[reached - 1][0])}(${list[reached - 1][1]})`, 6000);
-    if (reached !== seenN) localStorage.setItem('tx.goalseen', String(reached));
-  } catch {}
-}
-
-async function loadProgress(){ loadDrillStat(); try { PG = await api('/api/progress'); } catch { return; } renderProgress(); }   // 定点の「あと何分」(Q4)も一緒に
-
-function scheduleProgress(){ clearTimeout(scheduleProgress.t); scheduleProgress.t = setTimeout(loadProgress, 2500); }
+function scheduleDrillStat(){ clearTimeout(scheduleDrillStat.t); scheduleDrillStat.t = setTimeout(loadDrillStat, 2500); }

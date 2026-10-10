@@ -101,12 +101,8 @@ const onLeave = fn => UIKit.life.onLeave(fn);
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; sendSettings(true); } });
 UIKit.life.onReturn(() => { if (setFailed && !S.settingsLoadErr) sendSettings(); });   // 離れるときの送信が失敗していたら送り直す
 
-/* ---------- 進行度 ---------- */
-const MILESTONES = [[1800, '辞書・名簿・提案の効果を、数字で測れる'], [3600, '測る道具でエンジン・設定を比べて方針を決められる'], [10800, '追加学習(LoRA)を小さく試せる']];
-let PG = null;
+/* ---------- 時間の長さの表示(評価ドリルの定点の秒。0.69.0 で進行度を消したあとも使う) ---------- */
 const fmtDur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}時間${String(m).padStart(2, '0')}分` : m >= 1 ? `${m}分${String(s % 60).padStart(2, '0')}秒` : `${s}秒`; };
-$('#goalHours').addEventListener('change', e => { const h = Number(e.target.value); if (!(h >= 0.5 && h <= 200)){ toast('0.5〜200 時間の間で入力してください'); e.target.value = String(goalSec() / 3600); return; } S.settings.goalHours = h; saveSettings(); renderProgress(); });
-$('#goalPill').addEventListener('click', () => showInMenu($('#goalCard')));
 /* 左の各カードの開閉を覚える */
 document.querySelectorAll('aside details.card[id]').forEach(d => {
   try { const v = localStorage.getItem('tx.fold.' + d.id); if (v === '0') d.open = false; else if (v === '1') d.open = true; } catch {}
@@ -268,7 +264,7 @@ $('#diarGo').addEventListener('click', e => {
   const run = async () => { b.disabled = true; try { await startDiarize(); } catch (er){ toast(er.message); } finally { b.disabled = !(S.tools && S.tools.diarize && S.tools.diarize.ready); } };
   if (S.doc && (S.doc.speakers.length || S.doc.segments.some(s => s.speaker))) armDelete(b, run, 'もう一度押すと判別し直します(今の話者は置き換わります)'); else run();
 });
-/* 評価ドリル(帯のボタン・進行度のカードの「始める」)と、評価用の文書の「確かめ済み」(app-learn.js) */
+/* 評価ドリル(帯のボタン・「評価ドリル」のカードの「始める」)と、評価用の文書の「確かめ済み」(app-learn.js) */
 $('#drDone').addEventListener('click', () => drillDone());
 $('#drSkip').addEventListener('click', () => drillSkip());
 $('#drEnd').addEventListener('click', () => drillEnd());
@@ -1006,7 +1002,7 @@ $('#evalSet').addEventListener('change', e => {
   toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)。'
     + (S.evalDirsActive ? 'ほかの文書へ移ると、動画を評価用のフォルダへ移します(すべて校正済みならメンバーのフォルダ、それ以外は仮置き)' : '')
     : '評価用を外しました。この文字起こしは、学習用として扱われます', 7000);
-  setTimeout(() => { loadProgress(); loadLearned(); loadAcc(); }, 1500);
+  setTimeout(() => { loadDrillStat(); loadLearned(); loadAcc(); }, 1500);
 });
 $('#evSave').addEventListener('click', async () => {
   const dirs = $('#evDirs').value.split(/\r?\n/).map(x => x.trim().replace(/^"|"$/g, '').trim()).filter(Boolean);
@@ -1296,7 +1292,7 @@ async function boot(){
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList());
-  await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadProgress(), loadBaselines()]);
+  await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat(), loadBaselines()]);
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
 boot();

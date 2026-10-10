@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""評価用(evalSet)を守る仕組みの通し確認(疑似モード)。学習・辞書・書き出し・再認識・保管・進行度・測定・基準の記録・画面。"""
+"""評価用(evalSet)を守る仕組みの通し確認(疑似モード)。学習・辞書・書き出し・再認識・保管・測定・基準の記録・画面。"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -106,10 +106,8 @@ def main():
         e1 = call(port, "POST", "/api/retranscribe", {"tid": ev, "ids": [segs[0]["id"]], "model": "small"})
         check(e1.get("status") == 400 and "評価用" in json.dumps(e1, ensure_ascii=False), "評価用は再認識できない")
         tr = make(); fix(tr)
-        # 進行度・測定
-        pg_ = call(port, "GET", "/api/progress")
-        check(pg_["evalDocs"] == 1 and pg_["evalProofedLines"] == len(segs) and pg_["proofedLines"] == len(segs) and pg_["evalDocsDone"] == 1, "進行度: 学習用と評価用を分けて数える: %s" % pg_)
-        me = call(port, "GET", "/api/metrics?scope=eval")
+        # 測定(進行度は 0.69.0(段 D2)で消した)
+        me =call(port, "GET", "/api/metrics?scope=eval")
         mt = call(port, "GET", "/api/metrics?scope=train")
         check(me["docs"] == 1 and mt["docs"] == 1 and me["byDoc"][0]["id"] == ev, "測定の対象(評価用のみ / 学習用のみ)")
         # 基準の記録
@@ -129,7 +127,8 @@ def main():
             pg.goto("http://localhost:%d/" % port)
             pg.wait_for_selector("#txList .txi")
             check("評価用" in pg.inner_text("#txList"), "一覧に「評価用」の印")
-            check("評価用(学習に使わない" in pg.inner_text("#evalStat") and "1</b>本" in pg.inner_html("#evalStat"), "進行度カードに評価用の状況: " + pg.inner_text("#evalStat"))
+            pg.wait_for_function("document.querySelector('#drillLeft').textContent.length > 0")
+            check("まだ 1 本" in pg.inner_text("#drillLeft") and pg.locator("#evalStat").count() == 0, "評価ドリルのカードに評価用の状況(進行度の #evalStat は消した): " + pg.inner_text("#drillLeft"))
             pg.locator("#txList .txi").filter(has_text="評価用").locator(".t").first.click()
             pg.wait_for_selector("#segs .seg")
             check(pg.is_checked("#evalSet") and pg.is_visible("#evalBanner"), "開くと、チェックと帯が出る")

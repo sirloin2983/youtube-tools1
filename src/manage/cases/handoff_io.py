@@ -3,7 +3,7 @@
 (docs/spec/pipeline.md の 2・4・6。段10 で editor/serve.py から分けた ed_misc。役割で組み直す RS3-E7(2026-10-10)に manage/cases/handoff_io.py へ移した。
 旧い名前 ed_misc は転送だけの殻 = RS5 で消す)。
 
-- フォルダの一括読み込みと文字起こし済みの範囲(transcribed_ranges)は human/proof/batch.py・進行度は human/proof/progress.py
+- フォルダの一括読み込みと文字起こし済みの範囲(transcribed_ranges)は human/proof/batch.py(進行度 progress は編集 0.69.0 で消した)
 - .runtime の置き場所 runtime_path_dir は app(editor/ed_state.py)
 - 名前 handoff_io はスタジオの handoff(配信 → 編集の受け渡しの書き手)と重ねないため
 名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。

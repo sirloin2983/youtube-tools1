@@ -126,9 +126,6 @@
       { "id": "text", "title": "用語集・置換辞書", "items": [
         { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "認識のヒントとして渡します。効き目は限定的なので、直らないものは置換辞書で直します。「ホロライブの名簿から追加」は編集の 1 文字起こし で。" },
         { "key": "replacements", "type": "textarea", "label": "置換辞書(1 行に「誤=>正」)", "default": "", "maxlength": 20000, "placeholder": "例:\nふぶき=>フブキ", "hint": "どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません。" }
-      ] },
-      { "id": "goal", "title": "目標", "items": [
-        { "key": "goalHours", "type": "number", "label": "校正の目標(進行度の 100%)", "default": 5, "min": 0.5, "max": 200, "step": 0.5, "unit": "時間分" }
       ] }
     ] },
     { "id": "pack", "title": "パック(DaVinci Resolve へ渡す)・カット", "store": "editor", "hint": "パックを作るときの値。出力先・開始 TC・リール名・zip は作るたびに 2 カット の「これから作るパック」で。", "groups": [
