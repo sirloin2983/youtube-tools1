@@ -3,8 +3,13 @@
 
     python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
     python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)
+    python src/eval/tools/eval_marks.py --analyze-missing [--wait] [--limit N]     未解析の友人の配信の解析をスタジオに頼む(下の「--analyze-missing」)
 
-- 作業データは**読むだけ**(スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
+- --analyze-missing(役割で組み直す計画 RS4。入口の「あとから解析」の代わり): 作業データは読むだけ。**この口だけは、動いているスタジオに解析を頼む**
+  (書くのはスタジオ)。友人が区間を指定したのに解析していない配信(下の friendRanges の「未解析」)を区間の新しい順に N 本(既定 10 = スタジオの解析のキューの上限)、
+  スタジオの画面で保存した解析の設定で解析のキューに入れる(解析済み・スタジオに無い配信は飛ばす。友人の重み・区間の長さは使わない)。
+  スタジオの場所は src/.runtime/studio.json、書き込みの合言葉は画面の HTML から読む(src/eval/tools/_studioapi.py)。スタジオが動いていなければ終了コード 2
+- 作業データは**読むだけ**(どの口も。スタジオの data.json・feedback.jsonl(と .old)・archive/<動画ID>.json.gz・入口の logs/autorun-runs.jsonl・
   cut2resolve の packs/)。何も書き換えない。--json のときだけ、結果を スタジオの作業データの evals\\marks\\<日時>.json に残す(原則 3: 機械の最初の結果と人の最終を並べる)
 - feedback の行は markId(あれば)で突き合わせる。無い以前の行は区間(auto0)で突き合わせる。
 - 「自動マーク」の集まり = data.json の自動マーク(再解析で手動に変わったものも含む)+ archive の最後の解析の候補(消えたものを補う)+
@@ -52,11 +57,13 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # tools -> eval -> src
 if not __package__:   # スクリプトとして起動したとき(py -3.10 src/eval/tools/eval_marks.py)だけ。src を先頭に・この道具のフォルダは外す(兄弟は絶対 import で読む。見本 pipeline/transcribe/worker.py)
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+from eval.tools import _studioapi as API  # noqa: E402  スタジオの API を呼ぶ(--analyze-missing だけ)
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
@@ -636,7 +643,9 @@ def friend_ranges(studio, app, vmap, since_ms=None, until_ms=None, dvideos=None,
         rs = [judge_friend_range(r, cands, analyzed) for r in sorted(rgs, key=lambda x: (x["start"], x["end"]))]
         results += rs
         g = friend_group(rs)
+        ts = [r["t"] for r in rgs if r.get("t") is not None]
         g.update(videoId=vid, title=str(dv.get("title") or "")[:80], type=typ, analyzed=analyzed, candidates=len(cands),
+                 latest=max(ts) if ts else None,   # 区間のいちばん新しい時刻(ms。--analyze-missing が新しい順に並べる)
                  items=[{k: r[k] for k in ("source", "start", "end", "length", "hit", "rank", "score", "hits", "dStart", "dEnd", "nearDistance", "nearScore", "nearRank")} for r in rs])
         by_video.append(g)
     overall = friend_group(results)
@@ -1174,13 +1183,164 @@ def print_report(res):
     print_clip_length(res["clipLength"])
 
 
+# ---------------------------------------------------------------- 未解析の友人の配信の解析をスタジオに頼む(--analyze-missing。RS4)
+
+ANALYZE_LIMIT = 10       # 一度に頼む本数の既定(スタジオの解析のキューの上限 src/pipeline/batch.py の MAX_ACTIVE と同じ)
+WAIT_POLL = 5.0          # --wait でキューを見る間隔(秒)
+QUEUE_END = ("done", "error", "cancelled", "skipped")   # スタジオの解析のキューの終わった状態(src/pipeline/batch.py の FINISHED)
+EXIT_NO_STUDIO = 2
+SKIP_LABELS = {"analyzed": "解析済み", "missing": "スタジオに無い", "queued": "すでに順番待ち", "full": "キューが満杯", "limit": "--limit を超えた分",
+               "kind": "解析しない種類(ライブの録画など)"}
+
+
+def missing_videos(data_dir=None):
+    """友人が区間を指定したのに解析していない配信(friendRanges の analyzed が False)-> [{"videoId", "title", "latest", "kind", "path"}]。
+    区間の新しい順(時刻の無いものは最後)。kind・path はスタジオの data.json の値(動画ファイルの解析は元の場所を渡すため。読むだけ)"""
+    res = evaluate(data_dir)
+    dvideos = studio_videos(locate(data_dir)[1])
+    out = []
+    for v in sorted((v for v in res["friendRanges"]["byVideo"] if not v["analyzed"]), key=lambda v: -(v.get("latest") or 0)):
+        dv = dvideos.get(v["videoId"]) if isinstance(dvideos.get(v["videoId"]), dict) else {}
+        out.append({"videoId": v["videoId"], "title": v["title"], "latest": v.get("latest"), "kind": dv.get("kind"), "path": dv.get("path")})
+    return out
+
+
+def _queue_item(v, video):
+    """スタジオの /api/queue/add に渡す 1 件(src/pipeline/run.py の _step_analyze と同じ形)。解析しない種類は None"""
+    kind = video.get("kind") or v.get("kind") or "youtube"
+    if kind == "youtube":
+        return {"kind": "youtube", "videoId": v["videoId"]}
+    if kind == "file" and isinstance(v.get("path"), str) and v["path"]:
+        return {"kind": "file", "path": v["path"]}
+    return None
+
+
+def analyze_missing(data_dir=None, limit=ANALYZE_LIMIT, wait=False, ep=None, poll=WAIT_POLL, sleep=time.sleep, out=print):
+    """未解析の友人の配信の解析を、動いているスタジオに頼む(書くのはスタジオ。この道具は作業データを読むだけ)。
+    解析の設定はスタジオの画面で保存したもの(/api/settings の settings.analyze)だけ(友人の重み・友人の区間の長さは使わない =
+    消した「あとから解析」と同じ条件)。-> (終了コード, {"added", "skipped", "failed", "results"})。スタジオが動いていなければ終了コード 2"""
+    ep = ep or API.find_studio()
+    if not ep:
+        out("スタジオが動いていません。ホームを起動してから(start.bat)、もう一度実行してください")
+        return EXIT_NO_STUDIO, None
+    res = {"added": [], "skipped": [], "failed": [], "results": []}
+    todo = missing_videos(data_dir)
+    if not todo:
+        out("未解析の友人の配信はありません")
+        return 0, res
+    try:
+        st, obj = API.call(ep, "GET", "api/settings")
+    except API.StudioError as e:
+        out(str(e))
+        return EXIT_NO_STUDIO, None
+    saved = (obj.get("settings") or {}).get("analyze") if st == 200 and isinstance(obj.get("settings"), dict) else None
+    saved = saved if isinstance(saved, dict) else {}
+    for i, v in enumerate(todo):
+        def skip(why, v=v):
+            res["skipped"].append(dict(v, reason=why))
+        if len(res["added"]) >= limit:
+            skip("limit")
+            continue
+        try:
+            st, obj = API.call(ep, "GET", "api/video?id=" + urllib.parse.quote(v["videoId"], safe=""))
+            if st == 404:
+                skip("missing")
+                continue
+            if st != 200:
+                res["failed"].append(dict(v, reason=obj.get("message") or "HTTP %s" % st))
+                continue
+            video = obj.get("video") if isinstance(obj.get("video"), dict) else {}
+            if video.get("analysis"):
+                skip("analyzed")
+                continue
+            item = _queue_item(v, video)
+            if item is None:
+                skip("kind")
+                continue
+            st, obj = API.call(ep, "POST", "api/queue/add", {"items": [item], "settings": saved})
+        except API.StudioError as e:
+            res["failed"].append(dict(v, reason=str(e)))
+            break
+        added = obj.get("added") if st == 200 and isinstance(obj.get("added"), list) else []
+        if added and isinstance(added[0], dict) and added[0].get("qid"):
+            res["added"].append(dict(v, qid=added[0]["qid"]))
+            continue
+        rej = obj.get("rejected") if isinstance(obj.get("rejected"), list) and obj.get("rejected") else [{}]
+        why = str((rej[0] if isinstance(rej[0], dict) else {}).get("reason") or obj.get("message") or ("HTTP %s" % st if st != 200 else "理由不明"))
+        if "一度に入れられる" in why:   # キューが満杯(FULL_MSG): 残りも入らないので、ここで止める
+            for w in todo[i:]:
+                res["skipped"].append(dict(w, reason="full"))
+            break
+        if "すでに解析の順番待ち" in why:   # DUP_MSG
+            skip("queued")
+            continue
+        res["failed"].append(dict(v, reason=why))
+    print_analyze_missing(res, out)
+    if wait and res["added"]:
+        res["results"] = wait_queue(ep, res["added"], poll, sleep, out)
+    return (1 if res["failed"] else 0), res
+
+
+def wait_queue(ep, added, poll=WAIT_POLL, sleep=time.sleep, out=print):
+    """入れた解析が終わるまでキュー(/api/queue)を見る -> [{"videoId", "qid", "status", "marks", "error"}]"""
+    left = {a["qid"]: a for a in added}
+    results = []
+    out("解析が終わるのを待ちます(%g 秒ごとに見ます。Ctrl+C で待つのをやめても解析は続きます)" % poll)
+    while left:
+        try:
+            st, obj = API.call(ep, "GET", "api/queue")
+        except API.StudioError as e:
+            out(str(e))
+            break
+        items = obj.get("items") if st == 200 and isinstance(obj.get("items"), list) else []
+        by_q = {it.get("qid"): it for it in items if isinstance(it, dict)}
+        for qid in list(left):
+            it = by_q.get(qid)
+            if it is None or it.get("status") in QUEUE_END:
+                a = left.pop(qid)
+                r = {"videoId": a["videoId"], "qid": qid, "status": it.get("status") if it else "gone",
+                     "marks": it.get("marks") if it else None, "error": (it.get("error") if it else "") or ""}
+                results.append(r)
+                out("  %s %s%s" % (a["videoId"], {"done": "解析しました(候補 %s 件)" % r["marks"], "gone": "キューから消えました(スタジオで取り消したかもしれません)"}.get(
+                    r["status"], r["status"]), ": " + r["error"] if r["error"] else ""))
+        if left:
+            sleep(poll)
+    done = sum(1 for r in results if r["status"] == "done")
+    out("待ち終わり: 解析した %d 本・終わらなかった %d 本" % (done, len(results) - done))
+    return results
+
+
+def print_analyze_missing(res, out=print):
+    out("未解析の友人の配信: 解析を頼んだ %d 本・飛ばした %d 本・失敗 %d 本" % (len(res["added"]), len(res["skipped"]), len(res["failed"])))
+    for a in res["added"]:
+        out("  入れた   %s %s" % (a["videoId"], a["title"][:40]))
+    counts = {}
+    for s in res["skipped"]:
+        counts[s["reason"]] = counts.get(s["reason"], 0) + 1
+    for k, n in counts.items():
+        out("  飛ばした %s %d 本" % (SKIP_LABELS.get(k, k), n))
+    for f in res["failed"]:
+        out("  失敗     %s %s" % (f["videoId"], f["reason"][:200]))
+    if res["added"]:
+        out("解析が済んだら、もう一度この道具(--analyze-missing なし)で友人の区間と自動の候補を比べられます")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="盛り上がり検出の当たり具合を人の判定の記録で測る(作業データは読むだけ)")
     C.add_period_args(p, "この日(YYYY-MM-DD)以後のものだけ", "この日(YYYY-MM-DD。この日を含む)までのものだけ",
                       "同じ形の JSON を スタジオの作業データの evals/marks/<日時>.json に残す")
     p.add_argument("--status-fallback", action="store_true", help="行も実行記録も無い採用・書き出しの状態を、人の判定として数える")
     p.add_argument("--live", action="store_true", help="配信ごとの記録(入口の live/reports/ と live_feedback.jsonl。線 D の D-12)を並べる")
+    p.add_argument("--analyze-missing", action="store_true",
+                   help="友人が区間を指定したのに解析していない配信の解析を、動いているスタジオに頼む(書くのはスタジオ。ホームを起動しておく)")
+    p.add_argument("--wait", action="store_true", help="--analyze-missing で頼んだ解析が終わるまで待って結果を出す")
+    p.add_argument("--limit", type=int, default=ANALYZE_LIMIT, help="--analyze-missing で一度に頼む本数(既定 %d = スタジオの解析のキューの上限)" % ANALYZE_LIMIT)
     args = p.parse_args(argv)
+    if args.analyze_missing:
+        code, res = analyze_missing(args.data_dir, max(1, args.limit), args.wait)
+        if code:
+            sys.exit(code)
+        return res
     if args.live:
         res = evaluate_live(args.data_dir, args.since, args.until)
         print_live(res)

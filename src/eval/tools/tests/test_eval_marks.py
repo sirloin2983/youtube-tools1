@@ -927,5 +927,202 @@ class ClipLength(unittest.TestCase):
         self.assertEqual(sorted(saved["clipLength"]["suggest"]), sorted(["length", "preRatio", "samples", "videos", "enough", "p25", "p75", "kept", "preSamples", "current", "note"]))
 
 
+class FakeStudio:
+    """スタジオの API の偽物(ホームに取り込まれた形 = /studio/ の下・書き込みは合言葉が要る)。http.server をスレッドで立てる"""
+    TOKEN = "tok-123_abc"
+
+    def __init__(self, test, videos, base="/studio/", token=True):
+        import http.server
+        import threading
+        import urllib.parse as up
+        self.videos, self.base = videos, base   # {配信 ID: 公開の形の video}。無い ID は 404
+        self.saved = {"length": 45, "preRatio": 0.6}
+        self.added, self.gets, self.queue, self.reject = [], [], [], None
+        fake = self
+        need_token = token
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _send(self, code, obj=None, body=None, ctype="application/json"):
+                raw = body if body is not None else json.dumps(obj, ensure_ascii=False).encode("utf-8")
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                u = up.urlsplit(self.path)
+                if not u.path.startswith(fake.base):
+                    return self._send(404, {"message": "no"})
+                p = u.path[len(fake.base):]
+                if p in ("", "index.html"):
+                    meta = ('<meta name="ytt-token" content="%s">' % fake.TOKEN) if need_token else ""
+                    return self._send(200, body=("<html><head><title>s</title>%s</head><body></body></html>" % meta).encode("utf-8"), ctype="text/html")
+                if p == "api/ping":
+                    return self._send(200, {"app": "clip-studio", "version": "9.9.9"})
+                if p == "api/settings":
+                    return self._send(200, {"settings": {"analyze": fake.saved, "export": {}}})
+                if p == "api/video":
+                    vid = up.parse_qs(u.query).get("id", [""])[0]
+                    fake.gets.append(vid)
+                    if vid not in fake.videos:
+                        return self._send(404, {"message": "配信が見つかりません"})
+                    return self._send(200, {"video": fake.videos[vid], "series": None})
+                if p == "api/queue":
+                    items = [dict(it) for it in fake.queue]
+                    for it in fake.queue:   # 1 回見られるたびに進める(running → done)
+                        it["status"], it["marks"] = ("done", 3) if it["status"] == "running" else (it["status"], it["marks"])
+                    return self._send(200, {"items": items, "running": False, "max": 10})
+                return self._send(404, {"message": "no"})
+
+            def do_POST(self):
+                if self.path != fake.base + "api/queue/add":
+                    return self._send(404, {"message": "no"})
+                if need_token and self.headers.get("X-YTT-Token") != fake.TOKEN:
+                    return self._send(403, {"message": "合言葉が違います"})
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8"))
+                if fake.reject:
+                    return self._send(200, {"added": [], "rejected": [{"input": "x", "reason": fake.reject}]})
+                fake.added.append(body)
+                qid = "q%d" % len(fake.added)
+                fake.queue.append({"qid": qid, "videoId": body["items"][0].get("videoId"), "status": "running", "marks": 0, "error": ""})
+                return self._send(200, {"added": [{"qid": qid, "videoId": body["items"][0].get("videoId")}], "rejected": []})
+
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.port = self.srv.server_address[1]
+        th = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        th.start()
+        test.addCleanup(self.srv.server_close)
+        test.addCleanup(self.srv.shutdown)
+        rdir = tempfile.mkdtemp()
+        test.addCleanup(lambda: __import__("shutil").rmtree(rdir, ignore_errors=True))
+        info = {"tool": "studio", "port": self.port, "version": "9.9.9", "pid": 1}
+        if base != "/":
+            info["path"] = base
+        with open(os.path.join(rdir, "studio.json"), "w", encoding="utf-8") as f:
+            json.dump(info, f)
+        old = os.environ.get("YTT_RUNTIME_DIR")
+        os.environ["YTT_RUNTIME_DIR"] = rdir
+        test.addCleanup(lambda: os.environ.__setitem__("YTT_RUNTIME_DIR", old) if old is not None else os.environ.pop("YTT_RUNTIME_DIR", None))
+
+
+def unanalyzed(vid, title="u"):
+    return {"id": vid, "kind": "youtube", "title": title, "analysis": None, "duration": 3000.0, "marks": []}
+
+
+V3, V4 = "v3ccccccccc", "v4ddddddddd"
+
+
+class AnalyzeMissing(unittest.TestCase):
+    """--analyze-missing: 友人が区間を指定したのに解析していない配信の解析を、動いているスタジオに頼む(「あとから解析」の代わり。RS4)"""
+
+    def env4(self):
+        """V1 は解析済み・V2〜V4 は未解析(区間の新しい順は V3 → V4 → V2)"""
+        env = Env(self)
+        env.data({V1: video(V1, [mark("a", 100.0, 140.0, 5.0)]), V2: unanalyzed(V2), V3: unanalyzed(V3), V4: unanalyzed(V4)})
+        env.runs([run_row(V1, [[110, 130]], "2026-09-08"), run_row(V2, [[100, 140]], "2026-09-05"),
+                  run_row(V3, [[200, 240]], "2026-09-07"), run_row(V4, [[300, 340]], "2026-09-06")])
+        return env
+
+    def run_am(self, env, **kw):
+        lines = []
+        code, res = M.analyze_missing(env.root, out=lines.append, sleep=lambda s: None, poll=0, **kw)
+        return code, res, "\n".join(lines)
+
+    def test_missing_videos_newest_first(self):
+        env = self.env4()
+        self.assertEqual([v["videoId"] for v in M.missing_videos(env.root)], [V3, V4, V2])
+
+    def test_adds_only_unanalyzed_with_saved_settings_and_token(self):
+        env = self.env4()
+        # スタジオ側: V3 はもう解析済み(data.json を読んだあとに解析された)・V4 はスタジオに無い・V2 だけ入れる
+        st = FakeStudio(self, {V2: unanalyzed(V2), V3: video(V3, [])})
+        code, res, text = self.run_am(env)
+        self.assertEqual(code, 0)
+        self.assertEqual(st.gets, [V3, V4, V2])   # 新しい順に問い合わせる・V1(解析済み)は問い合わせない
+        self.assertEqual(st.added, [{"items": [{"kind": "youtube", "videoId": V2}], "settings": st.saved}])   # 保存した解析の設定だけ(友人の重みなし)
+        self.assertEqual([a["videoId"] for a in res["added"]], [V2])
+        self.assertEqual({s["videoId"]: s["reason"] for s in res["skipped"]}, {V3: "analyzed", V4: "missing"})
+        self.assertIn("解析を頼んだ 1 本", text)
+        self.assertIn("解析済み 1 本", text)
+        self.assertIn("スタジオに無い 1 本", text)
+
+    def test_token_is_needed(self):
+        env = self.env4()
+        st = FakeStudio(self, {V2: unanalyzed(V2)})
+        ep = M.API.find_studio()
+        self.assertEqual((ep["path"], ep["token"]), ("/studio/", FakeStudio.TOKEN))
+        self.assertEqual(M.API.call(dict(ep, token=None), "POST", "api/queue/add", {"items": []})[0], 403)   # 合言葉なしは通らない
+        code, res, _ = self.run_am(env, ep=ep)
+        self.assertEqual((code, len(st.added)), (0, 1))
+
+    def test_standalone_studio_without_token(self):
+        env = self.env4()
+        st = FakeStudio(self, {V2: unanalyzed(V2)}, base="/", token=False)
+        ep = M.API.find_studio()
+        self.assertEqual((ep["path"], ep["token"]), ("/", None))
+        code, res, _ = self.run_am(env)
+        self.assertEqual((code, [a["videoId"] for a in res["added"]]), (0, [V2]))
+        self.assertEqual(len(st.added), 1)
+
+    def test_limit(self):
+        env = self.env4()
+        st = FakeStudio(self, {V2: unanalyzed(V2), V3: unanalyzed(V3), V4: unanalyzed(V4)})
+        code, res, text = self.run_am(env, limit=2)
+        self.assertEqual([b["items"][0]["videoId"] for b in st.added], [V3, V4])
+        self.assertEqual([(s["videoId"], s["reason"]) for s in res["skipped"]], [(V2, "limit")])
+        self.assertIn("--limit を超えた分 1 本", text)
+
+    def test_queue_full_stops(self):
+        env = self.env4()
+        st = FakeStudio(self, {V2: unanalyzed(V2), V3: unanalyzed(V3), V4: unanalyzed(V4)})
+        st.reject = "一度に入れられるのは10本までです"
+        code, res, _ = self.run_am(env)
+        self.assertEqual((code, res["added"]), (0, []))
+        self.assertEqual([s["reason"] for s in res["skipped"]], ["full"] * 3)
+        self.assertEqual(st.gets, [V3])   # 満杯と分かったら残りは問い合わせない
+
+    def test_rejected_is_failure(self):
+        env = self.env4()
+        st = FakeStudio(self, {V2: unanalyzed(V2)})
+        st.reject = "yt-dlp が見つかりません"
+        code, res, text = self.run_am(env)
+        self.assertEqual(code, 1)
+        self.assertEqual([(f["videoId"], f["reason"]) for f in res["failed"]], [(V2, "yt-dlp が見つかりません")])
+
+    def test_wait_reports_results(self):
+        env = self.env4()
+        FakeStudio(self, {V2: unanalyzed(V2), V3: unanalyzed(V3)})
+        code, res, text = self.run_am(env, wait=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted((r["videoId"], r["status"], r["marks"]) for r in res["results"]), [(V2, "done", 3), (V3, "done", 3)])
+        self.assertIn("解析した 2 本", text)
+
+    def test_no_studio(self):
+        env = self.env4()
+        rdir = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(rdir, ignore_errors=True))
+        old = os.environ.get("YTT_RUNTIME_DIR")
+        os.environ["YTT_RUNTIME_DIR"] = rdir   # studio.json が無い
+        self.addCleanup(lambda: os.environ.__setitem__("YTT_RUNTIME_DIR", old) if old is not None else os.environ.pop("YTT_RUNTIME_DIR", None))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit) as cm:
+            M.main(["--analyze-missing", "--data-dir", env.root])
+        self.assertEqual(cm.exception.code, M.EXIT_NO_STUDIO)
+        self.assertIn("ホームを起動してから", buf.getvalue())
+
+    def test_nothing_to_do(self):
+        env = Env(self)
+        env.data({V1: video(V1, [mark("a", 100.0, 140.0, 5.0)])})
+        env.runs([run_row(V1, [[110, 130]])])
+        st = FakeStudio(self, {})
+        code, res, text = self.run_am(env)
+        self.assertEqual((code, res["added"], st.gets), (0, [], []))
+        self.assertIn("未解析の友人の配信はありません", text)
+
+
 if __name__ == "__main__":
     unittest.main()
