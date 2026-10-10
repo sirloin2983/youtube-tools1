@@ -11,13 +11,14 @@
 - テスト(10-11・a83c51b 以降): unittest 約 2,808 件・node 64・lint 0・ui_audit Must 0・**e2e 一式 31 本 OK**
 
 ## 次
-1. **R1(RS7-1 の本物の確認)**: ユーザーが配信の無い時間に入口を「すべて終了」→ start.bat。まとめて実行 1 本(画面から)と、入口の「起動し直す」で画面が戻ること。そのあと AI が CLI の submit 1 本(入口あり / なし)と「待ちの続き」(実行中に入口を落として起動し直すと続きから・鍵で飛ぶ)を確かめる(作業データへはパッケージの外のプロセスで。テストの物は D:/ytt-test/)
+1. ~~R1(RS7-1 の本物の確認)~~ **済み 10-11 1 時台**: ユーザーのまとめて実行 1 本(スマート アプリ コントロールが whisper-cli.exe を止めた → ユーザーがオフにして通った)・AI の CLI の submit と、文字起こしの最中の restart-self で新しい入口が続きから流した。WORKLOG の末尾
 2. **RS7-2 玄関とヘッドレス**(plan_order_v2.md の 2 節): 波 4 = G0 親の口(`flow/livehost.py` の Protocol)∥ G1a F-5 の規則を ① へ ∥ 1b B-1(case.json)∥ serverkit(余り)→ 波 5 = G1b スタジオなしの採用(StudioMarks / LocalMarks)∥ G5 `app/server.py --headless` → 波 6 = G2 ライブ係 `flow/livesession.py`(ライブの依頼も封筒 + 束・`GET /api/settings` をやめる)→ G3(余り)→ Z2(e2e 一式・文書・版 0.57.0・R2 = ライブ 1 本・配信後の作り直し 1 本・headless に CLI から submit 1 本)
 3. そのあと RS8(`plan/rs8-cases-ui.md`: 画面の形を紙で → B-2 → B-3 → O2 → URL も CLI → 新しい画面)・F1 の送るアプリの側(`plan/f1-friend-pc.md`。C#。RS7-2 のあと)
 - 後へ回したもの: S3 の一時の形(封筒の `legacy{mode, onFail, streamer}`・`run.pinned`・待ちの記録に欄の鍵も残す)は RS7-2 以降で封筒 + 束だけに / 配信者を `hints.people` の先頭にする決まりは submit で封筒に配信者が無いときだけ / スタジオの test_api の test_origin_on_writes は組の中だけで時々落ちる / AGENTS.md の analytics のテストの書き方(ImportError)/ O2 の行き先(機械の結果 + 人の層から組み立てる)に逆らわない(`plan/rs8-cases-ui.md`)
 
 ## 注意(引き継ぐこと)
 - **友人の前提**: 配る友人は 1 人・RTX 3060。友人の PC では送るアプリ(C#)が ② を画面なし・③ なしの子プロセスとして起こす(常駐しない)。② の口は 1 つ(ユーザーの入口・友人のアプリ・CLI)。D-13 は友人の PC に持たせない・届ける段も持たない(`plan/f1-friend-pc.md`)
+- **Windows のスマート アプリ コントロール**: この PC は 10-11 にオフにした(自分でビルドした署名の無い whisper.cpp・llama.cpp が止まるため。WinError 4551)。友人の PC でオンなら同じく止まる = F1 で確かめる
 - **一時の形はユーザーに聞かない**。聞くのは機能・データを消す・使い方が変わる・最終の形を決める物だけ
 - 移した名前を別の部品に別名で残さない。serve の `_ED_MODULES` に新しい持ち主を足す。`modfwd.duplicates` 0 件
 - **サブエージェントの実装と e2e を同時に流すと待ちのあるテストが揺れる**。最後の一式はサブエージェントが止まってから
