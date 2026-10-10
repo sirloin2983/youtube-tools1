@@ -28,7 +28,6 @@ import copy
 import http.client
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -163,11 +162,6 @@ def is_local_url(url):
         return (urllib.parse.urlsplit(url).hostname or "") in ("127.0.0.1", "localhost")
     except ValueError:
         return False
-
-
-def _disk_usage(path):
-    u = shutil.disk_usage(path)
-    return u.free, u.total
 
 
 # ---------- 束と封筒(RS7-2 G2b) ----------
@@ -421,7 +415,7 @@ class LiveSession:
         self.always_on = False            # 設定に関わらずオン(画面なし = 送るアプリの依頼で動く。use_headless)
         self.request_all = False          # どの封筒も友人の依頼の結びつきを作る(画面なし = 依頼の決まりで検出・採用・パックまで)
         self.disk_min_gb = None           # 空き容量の下限(GB。下回ったら新しい録画を始めない。画面なし = machine.json の diskMinGB。None = 見ない)
-        self.disk_usage = _disk_usage     # (空き, 全体)(テストは偽の小さな空きにする)
+        self.disk_usage = fsio.disk_space     # (空き, 全体)(テストは偽の小さな空きにする)
         # 子(Detector・LiveTx・Reporter・Exporter)は self を親 host として受ける = flow/livehost.py の LiveHost(RS7-2 G0)
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
         self.requests = requests if requests is not None else MemoryRequests()   # 友人のライブ配信の依頼と録画の結びつき(2-15)
@@ -700,9 +694,7 @@ class LiveSession:
             return
         need, low = gb * LX.GB, []
         for label, path in self.exporter.disk_paths():
-            probe = path
-            while probe and not os.path.exists(probe) and os.path.dirname(probe) != probe:   # まだ無いフォルダは、ある所まで上へ(Exporter.disk と同じ)
-                probe = os.path.dirname(probe)
+            probe = fsio.existing_parent(path)   # まだ無いフォルダは、ある所まで上へ(Exporter.disk と同じ)
             try:
                 free = int(self.disk_usage(probe)[0])
             except (OSError, ValueError, TypeError):

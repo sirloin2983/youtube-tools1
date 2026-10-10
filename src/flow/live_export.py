@@ -463,11 +463,11 @@ class Exporter:
         runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
         audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
         runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
-        disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 shutil.disk_usage。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)。
+        disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 fsio.disk_space。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)。
         exported(job, media, archived) -> 警告の文か "": 書き出したらマークの置き場(flow/live_adopt.py の StudioMarks・LocalMarks)に「書き出し済み」を伝える(RS7-2 G1b)。
         None なら親の studio_call があればスタジオへ(今までどおり)"""
         self.host, self.folder, self.out_dir, self.runner, self.audio = host, folder, out_dir, runner, audio
-        self.disk_usage = disk_usage or _disk_usage
+        self.disk_usage = disk_usage or fsio.disk_space
         self.exported = exported
         self.disk_poll = disk_poll
         self._disk = None          # 前に調べた結果(disk)
@@ -700,12 +700,7 @@ class Exporter:
                 return self._disk
         rows, by_drive = [], {}
         for label, path in self.disk_paths():
-            probe = path
-            while probe and not os.path.exists(probe):   # まだ無いフォルダは、ある所まで上へ(src/manage/ops/health.py の disk_free と同じ)
-                parent = os.path.dirname(probe)
-                if parent == probe:
-                    break
-                probe = parent
+            probe = fsio.existing_parent(path)   # まだ無いフォルダは、ある所まで上へ(src/manage/ops/health.py の disk_free と同じ)
             try:
                 free, total = self.disk_usage(probe)
                 free, total = int(free), int(total)
@@ -1276,7 +1271,3 @@ class Exporter:
             return "マークを「書き出し済み」にできませんでした(%s)" % e.__class__.__name__
 
 
-def _disk_usage(path):
-    """(空き, 全体) のバイト数(Exporter.disk の既定)"""
-    u = shutil.disk_usage(path)
-    return u.free, u.total

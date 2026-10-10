@@ -167,22 +167,16 @@ def folder_state(folder):
     if drive and not os.path.exists(drive + os.sep):
         out["message"] = "録画の置き場所 %s のドライブ %s が見つかりません。ドライブをつなぐか、ホームの「リアルタイム切り抜き」の画面で置き場所を変えてください" % (folder, drive)
         return out
-    probe = folder
-    while probe and not os.path.exists(probe):
-        parent = os.path.dirname(probe)
-        if parent == probe:
-            break
-        probe = parent
     try:
-        u = shutil.disk_usage(probe)
+        free, total = fsio.disk_space(folder)
     except OSError as e:
         out["message"] = "録画の置き場所を読めません(%s)" % (e.strerror or e.__class__.__name__)
         return out
-    out.update(ok=True, freeBytes=u.free, totalBytes=u.total)
-    if u.free < MIN_FREE:
-        out.update(ok=False, message="録画の置き場所の空きが %d MB しかありません。片付けるか、置き場所を変えてください" % (u.free // 2 ** 20))
-    elif u.free < LOW_FREE:
-        out["message"] = "空きが少なくなっています(%.1f GB。1時間あたり約 3〜4GB 使います)" % (u.free / 1024 ** 3)
+    out.update(ok=True, freeBytes=free, totalBytes=total)
+    if free < MIN_FREE:
+        out.update(ok=False, message="録画の置き場所の空きが %d MB しかありません。片付けるか、置き場所を変えてください" % (free // 2 ** 20))
+    elif free < LOW_FREE:
+        out["message"] = "空きが少なくなっています(%.1f GB。1時間あたり約 3〜4GB 使います)" % (free / 1024 ** 3)
     return out
 
 

@@ -325,6 +325,12 @@ def existing_parent(path):
     return probe
 
 
+def disk_space(path):
+    """path(まだ無いフォルダでもよい。ある所まで上へたどる)があるドライブの (空きバイト, 全体バイト)。読めなければ OSError"""
+    u = shutil.disk_usage(existing_parent(path))
+    return u.free, u.total
+
+
 def is_remote_drive(p):
     """Windows のネットワークドライブ(net use で割り当てた Z: など)か。ドライブの種類を聞くだけで、ファイルには触らない
     (RS3-1 に editor/ed_relink.py の _remote_drive から)"""
