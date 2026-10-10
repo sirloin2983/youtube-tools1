@@ -20,6 +20,11 @@ RS6 b-0(2026-10-10): 段は指定の束(Run.spec。run() が merge・validate �
 Run の欄(top・ranges・weights・cut・engine・model・video_tracks・speakers など友人や画面の指定)は今のまま、束に重ねて使う(欄があれば欄が勝つ)。
 束に入れない画面の値(精密・画質の上限・fps・用語集)は Run.screen(flow/spec.py の SCREEN)。
 ツールの仕事は self.tools(flow/tools.py の HttpTools(client) = 今の API の形・LocalTools = 入口なし)に頼む。
+
+RS6 b-A(2026-10-10): 採用は 1 つの段 _step_adopt(規則 F-5 はスタジオの store.adopt_marks の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで)。
+RS6 b-K2(2026-10-10): 文字起こし・パックは成果物の鍵(flow/keys)を読んで飛ばす。文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 TX_DIFFER /
+force(Run.force か束の run.force)なら作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは今のまま。
+素の Runner の文書の一覧(_docs・_pick_doc の既定)は tools の docs・doc(HttpTools = GET /api/transcripts・LocalTools = 作業データを直に)。
 """
 import os
 import re
@@ -28,7 +33,7 @@ import time
 import uuid
 
 from ytt import colors
-from . import placement as _placement, spec as _spec, tools as _tools
+from . import keys as _keys, placement as _placement, spec as _spec, tools as _tools
 from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights,
                    pad_range)
 
@@ -55,6 +60,8 @@ REQUEST_URL_MODES = ("request", "request_auto")
 STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "skip": "飛ばした", "warn": "一部失敗", "error": "失敗"}
 RUN_STATE_LABELS = {"queued": "待ち", "running": "実行中", "done": "済み", "error": "失敗", "cancelled": "中止", "nothing": "やることがありませんでした"}
 NOTHING_MESSAGE = "やることがありませんでした"
+TX_DIFFER = "設定が違う(force で作り直し)"   # 文字起こし済みの文書の鍵が今の設定と違うときの印(飛ばす。RS6 b-K2・決定 3-29 Q4)
+PACK_DIFFER = "字幕か設定が変わったので作り直しました"   # パックの鍵が今と違うときの知らせ(作り直す。同上)
 DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
@@ -115,8 +122,9 @@ class Run:
 
     def __init__(self, video_id, title, mode, top, doc_id=None, overwrite=False, streamer=None, marks=None, fresh=None, on_fail="next",
                  source_path=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, ranges=None, cut=None, weights=None, duration=None,
-                 engine=None, model=None, deliver_batch=None, pool=None):
+                 engine=None, model=None, deliver_batch=None, pool=None, force=False):
         self.id = uuid.uuid4().hex[:10]
+        self.force = force is True   # 鍵が同じ・違っても作り直す(文字起こし = 新しい文書・パック = 上書き。束の run.force と同じ。RS6 b-K2)
         self.pool = clean_pool(pool)   # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta": {recorder, recording, phase}}(None = この実行の中で届ける)
         self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
         self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
@@ -172,7 +180,7 @@ class Run:
                 "speakers": self.speakers, "videoTracks": self.video_tracks, "ranges": [list(r) for r in self.ranges], "cut": self.cut, "weights": self.weights,
                 "duration": self.duration, "engine": self.engine, "model": self.model, "friendLength": self.friend_length, "deliverBatch": self.deliver_batch,
                 "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
-                "packMarks": dict(self.pack_marks),
+                "packMarks": dict(self.pack_marks), "force": self.force,
                 "created": self.created, "state": self.state, "message": self.message,
                 "steps": [{"key": s["key"], "state": s["state"], "detail": s["detail"]} for s in self.steps]}
 
@@ -199,7 +207,7 @@ class Run:
                       speakers=d.get("speakers") if isinstance(d.get("speakers"), dict) else None,
                       video_tracks=vt if isinstance(vt, int) and not isinstance(vt, bool) else None, ranges=clean_ranges(d.get("ranges")),
                       cut=d.get("cut"), weights=clean_weights(d.get("weights")), duration=d.get("duration") if _num(d.get("duration")) else None,
-                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"))
+                      engine=d.get("engine"), model=d.get("model"), deliver_batch=d.get("deliverBatch"), pool=d.get("pool"), force=d.get("force") is True)
         except (TypeError, ValueError, KeyError):
             return None
         run.id = d["id"]
@@ -223,17 +231,18 @@ class Run:
     @classmethod
     def from_input(cls, input, from_=None):
         """run() の入力 -> 待ちの Run。{"videoId", "title"?, "top"?}(from_ で形を選ぶ = FROM_MODE)・{"docId", "title"?}(文書 → 文字起こし → パック)・
-        {"path", "title"?}(動画ファイル → 文字起こし)。形が違えば ValueError"""
+        {"path", "title"?}(動画ファイル → 文字起こし)。どれも "force"?: true = 鍵が同じ・違っても作り直す。形が違えば ValueError"""
         d = input if isinstance(input, dict) else {}
         title = str(d.get("title") or "")[:120]
+        force = d.get("force") is True
         if d.get("videoId"):
             if from_ not in FROM_MODE:
                 raise ValueError("from は %s のどれかです" % "・".join(k for k in FROM_MODE if k))
-            return cls(str(d["videoId"]), title, FROM_MODE[from_], _spec.top_arg(d.get("top")))
+            return cls(str(d["videoId"]), title, FROM_MODE[from_], _spec.top_arg(d.get("top")), force=force)
         if d.get("docId"):
-            return cls(None, title or str(d["docId"]), DOC_MODE, None, doc_id=str(d["docId"]))
+            return cls(None, title or str(d["docId"]), DOC_MODE, None, doc_id=str(d["docId"]), force=force)
         if d.get("path"):
-            return cls(None, title or os.path.basename(str(d["path"])), "file", None, source_path=str(d["path"]))
+            return cls(None, title or os.path.basename(str(d["path"])), "file", None, source_path=str(d["path"]), force=force)
         raise ValueError("入力は videoId・docId・path のどれかです")
 
     def key(self):
@@ -247,6 +256,7 @@ class Run:
 
     def public(self):
         return {"id": self.id, "kind": "file" if self.source_path else "doc" if self.doc_id else "video", "docId": self.doc_id, "overwrite": self.overwrite,
+                "force": self.force,
                 "sourcePath": self.source_path, "requestId": self.request_id, "ranges": [list(r) for r in self.ranges] or None, "cut": self.cut,
                 "engine": self.engine, "model": self.model,
                 "friendLength": dict(self.friend_length) if self.friend_length else None,
@@ -293,11 +303,33 @@ class Runner:
         return None
 
     def _docs(self):
-        """文字起こしの文書の一覧。既定は道具の一覧(HttpTools は [] = 何も知らない・LocalTools はその形で作った文書)"""
+        """文字起こしの文書の一覧。既定は道具の一覧(HttpTools = GET /api/transcripts の要約・LocalTools = 作業データの文書を直に。RS6 b-K2)"""
         return self.tools.docs()
 
+    def _full_doc(self, d):
+        """一覧の 1 行 -> 動画の場所と行を持つ形(要約だけの行は tools.doc で読む)か None"""
+        if d is None or "sourcePath" in d:
+            return d
+        return self.tools.doc(d["id"])
+
     def _pick_doc(self, docs, video_id, mark_id, path):
-        """切り抜きの文書 1 つか None。既定は None(文字起こし済みとみなさない)"""
+        """切り抜きの文書 1 つか None。既定は道具の一覧から: 動画の名前(か配信)で絞り、新しい順に中身を読んで、動画のパスが同じ・
+        か配信とマークが同じ物(manage/cases/txindex の紐づけと同じ考え。30fps の写しへの付け替えの前のパスは見ない)。RS6 b-K2"""
+        want = os.path.normcase(os.path.abspath(path)) if path else ""
+        name = os.path.basename(path or "")
+        cands = sorted((d for d in docs if (d.get("sourceName") or os.path.basename(d.get("sourcePath") or "")) == name
+                        or (video_id and d.get("videoId") == video_id)), key=lambda d: d.get("updatedAt") or 0, reverse=True)
+        for d in cands:
+            full = self._full_doc(d)
+            if not full:
+                continue
+            if want and full.get("sourcePath") and os.path.normcase(os.path.abspath(full["sourcePath"])) == want:
+                return full
+            clip = full.get("clip") or {}
+            src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
+            mk = clip.get("mark") if isinstance(clip.get("mark"), dict) else {}
+            if video_id and mark_id and src.get("videoId") == video_id and mk.get("id") == mark_id:
+                return full
         return None
 
     def _pref(self, key, default=None):
@@ -337,6 +369,26 @@ class Runner:
         if run.spec is None:
             run.spec = _spec.merge(None)
         return run.spec
+
+    def _force(self, run):
+        """鍵が同じ・違っても作り直すか(Run の force か束の run.force。RS6 b-K2)"""
+        return run.force or self._bundle(run)["run"]["force"] is True
+
+    @staticmethod
+    def _tx_state(doc, path, opts):
+        """切り抜き path の文書 doc の transcribe の鍵と、今の要求 opts で認識したときの材料を比べる(flow/keys)-> same | differ | none"""
+        return _keys.transcribe_state(doc["id"], path, opts)
+
+    def _pack_state(self, run, doc, media, pack_opts, v=None):
+        """切り抜き media の既定のパックの鍵と、今作ったときの材料を比べる -> (same | differ | none, _pack_body の結果 か None)。
+        鍵が無ければ本文を作らない(今のパックは今のまま)。本文を作れなければ (none, None)"""
+        def make():
+            self._auto_streamer(run, doc, v)
+            return self._pack_body(run, doc, media, pack_opts)
+        try:
+            return _keys.pack_state(media, make)
+        except StepError:
+            return "none", None
 
     def _call_when_free(self, run, st, send, waiting):
         """send() で仕事を頼み、ツールが 409 busy(別の処理の最中)なら BUSY_WAIT 秒ごとにやり直す(待つ間は st に waiting の文)。-> (HTTP の番号, 応答)"""
@@ -578,11 +630,21 @@ class Runner:
             st["state"], st["detail"] = "skip", "書き出した切り抜きがありません"
             return "stop"
         docs = self._docs()
-        todo = [m for m in clips if not self._pick_doc(docs, run.video_id, m.get("id"), m["path"])]
-        if not todo:
-            st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips)
-            return None
         opts = self._tx_opts(run)
+        todo, differ, redo = [], 0, 0
+        for m in clips:   # 文書のある切り抜きは鍵を見る(RS6 b-K2): 同じ・鍵なし = 飛ばす / 違う = 飛ばして印 / force = 作り直す(新しい文書。人の直しは引き継ぐ)
+            doc = self._pick_doc(docs, run.video_id, m.get("id"), m["path"])
+            if not doc:
+                todo.append(m)
+            elif self._force(run):
+                todo.append(m)
+                redo += 1
+            elif self._tx_state(doc, m["path"], opts) == "differ":
+                differ += 1
+        note = ("。うち %d 本は%s" % (differ, TX_DIFFER)) if differ else ""
+        if not todo:
+            st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips) + note
+            return None
         jobs = []   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
 
         def submit():
@@ -606,7 +668,8 @@ class Runner:
         bad = [j for j in mine if j.get("state") != "done"]
         run.docs += [j["tid"] for j in ok if j.get("tid") and j["tid"] not in run.docs]
         run.new_docs += [j["tid"] for j in ok if j.get("tid")]
-        st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + "。字幕の校正は「編集」の 1 文字起こしで"
+        st["detail"] = "%d 本を文字起こししました" % len(ok) + ("(%d 本失敗)" % len(bad) if bad else "") + \
+            ("。うち %d 本は作り直し(force)" % redo if redo else "") + note + "。字幕の校正は「編集」の 1 文字起こしで"
         if bad and (not ok or run.on_fail == "stop"):
             raise StepError("文字起こしに失敗しました(%d 本): %s" % (len(bad), _job_why(bad[0])))
         if bad:
@@ -655,9 +718,9 @@ class Runner:
                 out[name] = {"color": hx}
         return out
 
-    def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix=""):
-        """1本のパックを cut2resolve で作る。「編集」でカットを決めてあればそのとおり(3 パック のタブのパックと同じ中身)、
-        無ければ文字起こしの行だけを残す規則(preset transcript-rows)。-> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
+    def _pack_body(self, run, doc, media, pack_opts):
+        """1本のパックの要求の本文(cut2resolve の POST /api/build。上書き force は送る直前に足す)。「編集」でカットを決めてあればそのとおり
+        (3 パック のタブのパックと同じ中身)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)など。-> (本文, 残す区間 か None, カットの rev)"""
         row_edge, wrap_out, cut_silence = pack_opts[:3]
         if wrap_out.get("textplusFps", "30") != "30" and _media_is_30fps(media):
             wrap_out = dict(wrap_out, textplusFps="30")   # 素材がちょうど 30fps なら設定の packFps に関係なく 30(Q1。_pack_settings の説明)
@@ -680,8 +743,6 @@ class Runner:
                 if isinstance(row_edge, (bool, dict)):
                     spec["rowEdge"] = row_edge
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
-        if force:
-            body["output"]["force"] = True
         if run.video_tracks:   # 友人が選んだ映像トラックの数(字幕はその上のトラック)
             body["output"]["videoTracks"] = run.video_tracks
         self._auto_streamer(run, doc)
@@ -690,6 +751,14 @@ class Runner:
         styles = self._speaker_styles(run)
         if styles:   # 友人が指定した話者ごとの字幕の色(古い cut2resolve は知らない鍵を読み飛ばす。空なら鍵ごと付けない = 今までと同じ要求)
             body["output"]["speakerStyles"] = styles
+        return body, keeps, rev
+
+    def _pack_one(self, run, st, doc, media, pack_opts, force=False, prefix="", built=None):
+        """1本のパックを cut2resolve で作る(本文は _pack_body。built = 鍵を比べるときに作った本文があれば使い回す)。
+        -> ("made", カットのとおりか) か ("exists", False)(同じ名前のパックがあり force でない)"""
+        body, keeps, rev = built or self._pack_body(run, doc, media, pack_opts)
+        if force:
+            body["output"]["force"] = True
         status, res = self._call_when_free(run, st, lambda: self.tools.pack_start(body), prefix + "cut2resolve の別の処理が終わるのを待っています")
         if status == 409 and res.get("error") == "exists":
             return "exists", False
@@ -723,26 +792,32 @@ class Runner:
     def _step_pack(self, run, st, v):
         clips = self._clips(v, run)
         docs = self._docs()
-        todo, no_tx, made = [], 0, 0
-        for m in clips:
+        opts = self._pack_settings(run)
+        force_all = run.overwrite or self._force(run)
+        todo, no_tx, made, stale = [], 0, 0, 0
+        for m in clips:   # パックの鍵(RS6 b-K2): 違う(字幕が新しい・設定が違う)= 作り直す / 同じ = 飛ばす / 鍵なし = 今のまま(無ければ作る・あれば上書きのときだけ)
             doc = self._pick_doc(docs, run.video_id, m.get("id"), m["path"])
             if not doc:
                 no_tx += 1
-            elif run.overwrite or not self.find_pack(m["path"]):
-                todo.append((m, doc))
+                continue
+            state, built = ("none", None) if force_all else self._pack_state(run, doc, m["path"], opts, v)
+            if force_all or state == "differ":
+                todo.append((m, doc, True, built))
+                stale += state == "differ"
+            elif state != "same" and not self.find_pack(m["path"]):
+                todo.append((m, doc, False, built))
         if not todo:
             st["state"], st["detail"] = "skip", ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips and not no_tx else "文字起こしのある切り抜きがありません")
             return None
         skipped, failed, by_edit = [], [], 0
-        opts = self._pack_settings(run)
         self._auto_streamer(run, todo[0][1] if todo else None, v)
-        for i, (m, doc) in enumerate(todo, 1):
+        for i, (m, doc, force, built) in enumerate(todo, 1):
             self._check(run)
             prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
             st["detail"] = prefix.rstrip(" ・ ")
             try:
                 run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or "")}
-                res, cut = self._pack_one(run, st, doc, m["path"], opts, force=run.overwrite, prefix=prefix)
+                res, cut = self._pack_one(run, st, doc, m["path"], opts, force=force, prefix=prefix, built=built)
             except StepError as e:
                 if run.on_fail == "stop":
                     raise
@@ -758,7 +833,8 @@ class Runner:
         if failed and not made:
             raise StepError("パックを作れませんでした: %s" % failed[0])
         st["detail"] = "%d 本のパックを作りました" % made + ("(うち %d 本は「編集」のカットのとおり)" % by_edit if by_edit else "") + \
-            ("。前のパックを上書きしました" if run.overwrite and not run.request_id else "") + "。字幕を校正したら「編集」のパックのタブで作り直してください"
+            ("。前のパックを上書きしました" if force_all and not run.request_id else "") + \
+            ("。うち %d 本は%s" % (stale, PACK_DIFFER) if stale else "") + "。字幕を校正したら「編集」のパックのタブで作り直してください"
         if skipped:
             st["detail"] += "。同じ名前のパックがあるので上書きしなかったもの: %s" % "・".join(skipped[:5])
         if failed:
@@ -772,7 +848,7 @@ class Runner:
 
     # 文書単位の実行(⑦(b)) -------------------------------------
     def _doc(self, run):
-        d = next((x for x in self._docs() if x["id"] == run.doc_id), None)
+        d = self._full_doc(next((x for x in self._docs() if x["id"] == run.doc_id), None))
         if not d:
             raise StepError("文書が見つかりません(消した可能性があります)")
         run.title = d["title"] or run.title
@@ -811,19 +887,21 @@ class Runner:
 
     def _doc_pack(self, run, st):
         doc = self._doc(run)
-        if self.find_pack(doc["sourcePath"]) and not run.overwrite:
+        opts = self._pack_settings(run)
+        force = run.overwrite or self._force(run)
+        state, built = ("none", None) if force else self._pack_state(run, doc, doc["sourcePath"], opts)   # パックの鍵(RS6 b-K2。_step_pack と同じ)
+        if state == "same" or (state == "none" and not force and self.find_pack(doc["sourcePath"])):
             st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
             return None
         if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
             st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
             return None
-        opts = self._pack_settings(run)
-        res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=run.overwrite)
+        res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=force or state == "differ", built=built)
         if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など
             st["state"], st["detail"] = "skip", "同じ名前のパックがあるので上書きしませんでした(「作り直す」を選ぶと上書きします)"
             return None
         st["detail"] = "パックを作りました" + ("(「編集」のカットのとおり)" if cut else "(文字起こしの行から)") + \
-            ("。前のパックを上書きしました" if run.overwrite else "") + "".join("。" + n for n in opts[3])
+            ("。前のパックを上書きしました" if force else "。" + PACK_DIFFER if state == "differ" else "") + "".join("。" + n for n in opts[3])
         return None
 
     # 話者分離(友人の「話す人」) --------------------------------
@@ -876,15 +954,17 @@ class Runner:
         if not os.path.isfile(run.source_path):
             raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
         doc = self._pick_doc(self._docs(), None, None, run.source_path)
-        if doc and doc.get("count"):
-            st["state"], st["detail"] = "skip", "文字起こし済み"
+        opts = self._tx_opts(run)
+        if run.engine:   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)。無ければ編集の設定のまま
+            opts["engine"] = run.engine
+        if run.model:
+            opts["model"] = run.model
+        redo = bool(doc and doc.get("count") and self._force(run))   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
+        if doc and doc.get("count") and not redo:
+            differ = self._tx_state(doc, run.source_path, opts) == "differ"   # 違えば飛ばして印・同じ / 鍵なしは飛ばす
+            st["state"], st["detail"] = "skip", "文字起こし済み" + ("(%s)" % TX_DIFFER if differ else "")
             tid = doc["id"]
         else:
-            opts = self._tx_opts(run)
-            if run.engine:   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)。無ければ編集の設定のまま
-                opts["engine"] = run.engine
-            if run.model:
-                opts["model"] = run.model
             jid = self.tools.transcribe_start(dict(opts, sourcePath=run.source_path), bundle=self._bundle(run))
             j = self._wait_job(run, jid, st)
             if j.get("state") != "done":
@@ -892,7 +972,7 @@ class Runner:
             tid = j.get("tid")
             if tid:
                 run.new_docs.append(tid)
-            st["state"], st["detail"] = "done", "文字起こししました。字幕の校正は「編集」で"
+            st["state"], st["detail"] = "done", ("文字起こしし直しました(force)" if redo else "文字起こししました") + "。字幕の校正は「編集」で"
         if tid and tid not in run.docs:
             run.docs.append(tid)
         run.doc_id = tid or None   # ① 全自動: この文書でパックを作る

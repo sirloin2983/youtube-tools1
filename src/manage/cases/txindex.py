@@ -221,6 +221,19 @@ def pack_info(media_path, env=None):
     return {"dir": d, "textplus": textplus, "updatedAt": old[0]}
 
 
+def key_state(media, docs=None, env=None, video_id=None, mark_id=None):
+    """切り抜き media の成果物の鍵の状態(読むだけ。RS6 b-K2。案件の画面に出すのは後)-> {"transcribe": same|differ|none, "pack": same|differ|none}。
+    紐づいた文書(pick)の transcribe の鍵と、動画の既定のパックの鍵を、今の設定を知らずに分かる範囲で比べる(flow/keys.stored_state):
+    切り抜きを書き出し直した・文書を鍵より後に直した(字幕が新しい)= differ。鍵・文書が無ければ none。docs = load の結果(無ければ作業データから読む)"""
+    from flow import keys as _keys   # 呼ぶときだけ(紐づけだけを使う読み手に、鍵の部品を読ませない)
+    if not media:
+        return {"transcribe": "none", "pack": "none"}
+    if docs is None:
+        docs = load(folder(REPO_ROOT, env))
+    doc = pick(docs, video_id, mark_id, media)[0]
+    return _keys.stored_state(doc["id"] if doc else None, media, doc["updatedAt"] if doc else 0)
+
+
 def is_pack_dir(dirpath, env=None, c2r_dir=None):
     """cut2resolve が作ったパックのフォルダか(「フォルダを開く」・前回のパックの手順書を読むのを許すか)。
     パックを作った記録があるか、以前のパックなら中の cut-plan.json が cut2resolve の書いた youtube-tools-cut-plan"""

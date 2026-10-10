@@ -20,7 +20,7 @@ from pipeline.pack import cut2resolve_core as _core, pack as _pack, resolve_text
 from ytt import colors as _colors, errors as _errors, fsio as _fsio, jobs as _slots, loudness as _loud, schemas as _yschemas, tools as _ytools
 from ytt import txbase as _txbase, txtext as _txtext, workdata as _workdata
 
-from . import jobs as _jobs, pack as _flowpack, tx as _tx
+from . import jobs as _jobs, keys as _keys, pack as _flowpack, tx as _tx
 from . import spec as _spec
 
 
@@ -90,8 +90,17 @@ class HttpTools:
         self.client.call("transcribe", "POST", "/api/edit/pack", body)
 
     def docs(self):
-        """文書の一覧(素の Runner の既定 = 何も知らない。入口の AutoRunner は案件の txindex で埋める)"""
-        return []
+        """文書の一覧(GET /api/transcripts の要約。RS6 b-K2)-> [{"id", "title", "sourceName", "videoId", "updatedAt", "count"}]。
+        動画の場所と行は持たない(doc(tid) で読む。素の Runner の _pick_doc が名前で絞ってから読む。入口の AutoRunner は案件の txindex で引く)"""
+        items = self.client.ok("transcribe", "GET", "/api/transcripts").get("items") or []
+        return [{"id": str(it["id"]), "title": str(it.get("title") or ""), "sourceName": str(it.get("sourceName") or ""),
+                 "videoId": str(it.get("videoId") or ""), "updatedAt": it.get("updatedAt") or 0, "count": it.get("segments") or 0}
+                for it in items if isinstance(it, dict) and it.get("id")]
+
+    def doc(self, tid):
+        """文書 1 つ(GET /api/transcript)-> 一覧の 1 行の形(doc_row。動画の場所・行・clip を持つ)か None(無い・読めない)"""
+        st, obj = self.client.call("transcribe", "GET", "/api/transcript?id=" + urllib.parse.quote(str(tid)))
+        return doc_row(str(tid), obj) if st == 200 and isinstance(obj, dict) else None
 
     # パック(cut2resolve)
     def pack_start(self, body):
@@ -121,12 +130,23 @@ def _public(job):
     return {k: v for k, v in job.items() if k not in ("spec", "proc")}
 
 
+def doc_row(tid, d):
+    """文書(transcripts/<id>.json の中身)-> 段が読む一覧の 1 行(manage/cases/txindex の形にそろえる):
+    {"id", "title", "sourcePath", "sourceName", "videoId", "clip", "updatedAt", "count", "segments": [{start, end, text, cut}]}"""
+    segs = [{"start": g.get("start"), "end": g.get("end"), "text": str(g.get("text") or ""), "cut": g.get("cutState") == "cut"}
+            for g in d.get("segments") or [] if isinstance(g, dict)]
+    clip = d.get("clip") if isinstance(d.get("clip"), dict) else None
+    src = (clip or {}).get("source") if isinstance((clip or {}).get("source"), dict) else {}
+    path = d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else ""
+    return {"id": tid, "title": str(d.get("title") or tid), "sourcePath": path, "sourceName": str(d.get("sourceName") or os.path.basename(path)),
+            "videoId": str(src.get("videoId") or ""), "clip": clip, "updatedAt": d.get("updatedAt") or 0, "count": len(segs), "segments": segs}
+
+
 class LocalTools:
     """入口なしで動かす最小の形(HttpTools と同じ動詞・同じ返す形)。仕事はその場で終わらせ、ジョブの id を返す(段は終わった状態を読む)"""
 
     def __init__(self):
         self._jobs = {}    # 文字起こしのジョブの id -> ジョブ
-        self._docs = {}    # この形で作った文書の id -> 一覧の 1 行
         self._packs = {}   # パックの仕事の id -> {"id", "state", "result" / "error"}
 
     # 入口に頼む段
@@ -207,11 +227,8 @@ class LocalTools:
         with _jobs.job_temp_wav(job) as wav:
             clip = _tx.transcribe_clip(job, spec, wav, _tx.dict_pairs(spec))
             tid = uuid.uuid4().hex[:12]
-            path = _tx.write_machine_doc(tid, clip["fields"], spec)
+            _tx.write_machine_doc(tid, clip["fields"], spec)
             _tx.write_clip_records(tid, clip, spec)
-            doc = _read_doc(path)
-            self._docs[tid] = {"id": tid, "title": doc.get("title") or tid, "sourcePath": doc.get("sourcePath") or "", "updatedAt": doc.get("updatedAt") or 0,
-                               "count": len(doc.get("segments") or []), "segments": doc.get("segments") or []}
             _jobs.job_done(job, tid)
 
     def jobs(self):
@@ -223,8 +240,27 @@ class LocalTools:
             self._jobs[jid]["cancel"] = True
 
     def docs(self):
-        """この形で作った文書(段の文書単位・動画ファイルのパックが引く)"""
-        return [dict(d) for d in self._docs.values()]
+        """作業データ(ytt/workdata の TX_DIR)の文書を直に読んだ一覧(doc_row の形。RS6 b-K2。置き場所が決まっていなければ [])"""
+        try:
+            names = sorted(os.listdir(_workdata.TX_DIR)) if _workdata.TX_DIR else []
+        except OSError:
+            return []
+        out = []
+        for n in names:
+            tid, ext = os.path.splitext(n)
+            if ext == ".json" and _yschemas.TID_RE.match(tid):
+                row = self.doc(tid)
+                if row:
+                    out.append(row)
+        return out
+
+    def doc(self, tid):
+        """文書 1 つ(doc_row の形)か None(無い・読めない)"""
+        try:
+            d = _read_doc(os.path.join(_workdata.TX_DIR, str(tid) + ".json"))
+        except (_errors.ApiError, TypeError):
+            return None
+        return doc_row(str(tid), d) if d.get("segments") is not None else None
 
     def edit(self, tid):
         """人のカット(③ の edit.json)は読まない = カットなし"""
@@ -268,6 +304,7 @@ class LocalTools:
                 return 200, {"job": dict(job)}
             try:
                 job.update(state="done", result=_build(req, out_dir, out, o))
+                _keys.write_pack(job["result"]["outDir"], sp, o)   # <パック>/pack.key.json(cut2resolve の API と同じ。書けなくてもログだけ。RS6 b-K2)
             except (_core.ToolError, ValueError, OSError) as e:
                 job.update(state="error", error={"message": str(e)})
         return 200, {"job": dict(job)}

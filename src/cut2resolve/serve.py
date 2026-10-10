@@ -803,8 +803,7 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError) as e:
                 log("warn: パックの記録を書けません: %s" % e)
                 res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
-            _flowkeys.write_pack(res["out_dir"], str(plan.video), res["plan"],
-                                 {k: out[k] for k in ("render", "copyVideo", "textplus", "backup", "textplusWrap", "textplusColor", "loudness", "volume", "videoTracks")})   # <パック>/pack.key.json(書けなくてもログだけ。RS6 b-K1)
+            _flowkeys.write_pack(res["out_dir"], o.get("spec") or {}, o.get("output") or {})   # <パック>/pack.key.json(要求の本文から。書けなくてもログだけ。RS6 b-K1・K2)
             files = [file_info(k, p) for k, p in res["files"]]
             r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
                  "warningLevels": classify_warnings(res["warnings"]),

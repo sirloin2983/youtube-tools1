@@ -58,11 +58,17 @@ def _engine_ids(spec):
         return tx_engines.engine_of(spec), ""
 
 
+def run_engine(spec):
+    """記録に書くエンジンと版 -> (id, 版)(今の Backend の差し込み口を通す = 疑似の認識では疑似の値)。
+    最初の認識の記録(_run_base)と、② が「今の設定で認識したら何と書くか」を比べる所(flow/keys の transcribe の鍵)で同じ値にする"""
+    return _backend.select().engine_ids(spec, _engine_ids)
+
+
 def _run_base(spec, pairs=None):
     """recognition.runs の 1 件の共通の項目(最初の認識 recognition_run と再認識の記録 record_rerun で同じ。src/eval/tools/eval_* が読む):
     エンジンと版・モデル・言語・settings(beam・vadMode・boost・wordSplit・dict = 辞書の版)・at・post(行の後処理)。
     pairs = 作ってある置換辞書の組(dict_pairs。同じ設定を読み直さない)。エンジンの版が分からなくても記録は作る"""
-    eid, ever = _backend.select().engine_ids(spec, _engine_ids)
+    eid, ever = run_engine(spec)
     return {"engine": eid, "engineVersion": ever, "model": str(spec.get("model") or ""), "language": str(spec.get("language") or ""),
             "settings": {"beam": spec.get("beam"), "vadMode": spec.get("vadMode"), "boost": bool(spec.get("boost")), "wordSplit": bool(spec.get("wordSplit")),
                          "dict": dict_version(spec) if pairs is None else dict_version(spec, pairs)},

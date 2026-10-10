@@ -143,13 +143,89 @@ class TestStages(_Env):
         out = os.path.join(self.tmp, "pack")
         os.makedirs(out)
         keys.write_export(self.media, schemas.media_identity("archive", videoId="vid12345678"), 1, 9, {})
-        plan = {"keeps": [[0, 1.5]]}
-        self.assertTrue(keys.write_pack(out, self.media, plan, {"textplus": True}))
+        self.assertTrue(keys.write_pack(out, {"video": self.media, "keeps": [[0, 1.5]]}, {"textplus": True}))
         k = keys.read(keys.pack_key_path(out), "pack")
         self.assertEqual(k["inputs"]["clips"], [keys.key_hash(keys.media_key_path(self.media, "export"), "export")])
         h = k["hash"]
-        keys.write_pack(out, self.media, {"keeps": [[0, 2.5]]}, {"textplus": True})   # カット計画が変わる
+        keys.write_pack(out, {"video": self.media, "keeps": [[0, 2.5]]}, {"textplus": True})   # カットが変わる
         self.assertNotEqual(keys.key_hash(keys.pack_key_path(out), "pack"), h)
+        self.assertFalse(keys.write_pack(out, {"video": self.media}, {"textplusFps": "7"}))   # 形が違う = 書かない(ログだけ)
+
+
+class TestReadK2(_Env):
+    """鍵を読む(RS6 b-K2): 文字起こしは今の要求の材料と・パックは今の本文と比べる(same / differ / none)"""
+    REQ = {"model": "small", "language": "ja", "quality": "best", "vadMode": "weak", "boost": False, "device": "auto"}
+
+    def setUp(self):
+        super().setUp()
+        from pipeline.transcribe import backend
+        from eval.fake import fake_asr
+        saved = backend._selector[0]
+        backend.set_selector(lambda: fake_asr.FAKE)   # 記録に書くエンジンと版 = 疑似の ("fake", "")
+        self.addCleanup(backend.set_selector, saved)
+        p = mock.patch.object(workdata, "ROOT", self.tmp)   # モデル名の検査(worker_client.valid_model)が読む
+        p.start()
+        self.addCleanup(p.stop)
+
+    def write_tx(self, tid=TID, model="small"):
+        run = {"engine": "fake", "engineVersion": "", "model": model, "language": "ja", "settings": {"beam": 5, "vadMode": "weak", "boost": False}}
+        self.assertEqual(keys.write_after_transcribe(tid, {"sourcePath": self.media, "whole": True}, run), 2)
+
+    def test_transcribe_state(self):
+        self.assertEqual(keys.transcribe_state(TID, self.media, self.REQ), "none")   # 鍵なし
+        self.write_tx()
+        self.assertEqual(keys.transcribe_state(TID, self.media, self.REQ), "same")
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, model="large-v3")), "differ")   # 設定が違う
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, quality="fast")), "differ")
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, model="../x")), "none")   # 今の材料が分からない
+        keys.write_export(self.media, schemas.media_identity("archive", videoId="vid12345678"), 1, 9, {})   # 切り抜きを書き出し直した
+        self.assertEqual(keys.transcribe_state(TID, self.media, self.REQ), "differ")
+        self.assertEqual(keys.transcribe_state("bad id", self.media, self.REQ), "none")
+
+    def test_pack_state(self):
+        body = {"spec": {"video": self.media, "mode": "silence", "silence": {"noise": -35}}, "output": {"textplus": True, "textplusFps": "30"}}
+        calls = []
+
+        def make(b=body):
+            calls.append(1)
+            return b, None, 0
+        self.assertEqual(keys.pack_state(self.media, make), ("none", None))
+        self.assertEqual(calls, [])   # 鍵が無ければ本文を作らない
+        out = str(keys._pack.default_out_dir(self.media))
+        os.makedirs(out)
+        self.assertTrue(keys.write_pack(out, body["spec"], body["output"]))
+        self.assertEqual(keys.pack_state(self.media, make)[0], "same")
+        same = {"spec": dict(body["spec"]), "output": {"textplus": True, "volume": 100, "speakerColors": True}}   # 既定の値・省略の違いはそろえる
+        self.assertEqual(keys.pack_state(self.media, lambda: same)[0], "same")
+        other = {"spec": body["spec"], "output": dict(body["output"], textplusWrap=8)}
+        self.assertEqual(keys.pack_state(self.media, lambda: other)[0], "differ")   # 設定が違う
+        keys.write("pack", keys.pack_key_path(out), keys.pack_inputs(["x"], "plan-hash", {}))   # b-K1 の形の鍵(form なし)= 鍵なしと同じ
+        self.assertEqual(keys.pack_state(self.media, make)[0], "none")
+
+    def test_pack_state_sees_new_subtitles(self):
+        tr = os.path.join(self.tmp, "t.transcript.json")
+
+        def write_tr(text, at):
+            with open(tr, "w", encoding="utf-8") as f:
+                json.dump({"createdAt": at, "tool": {"version": at}, "segments": [{"start": 0, "end": 1, "text": text}]}, f)
+        write_tr("あ", "1")
+        body = {"spec": {"video": self.media, "transcript": tr, "preset": "transcript-rows"}, "output": {"textplus": True}}
+        out = str(keys._pack.default_out_dir(self.media))
+        keys.write_pack(out, body["spec"], body["output"])
+        write_tr("あ", "2")   # 作り直しただけ(作った日時が違う)= 同じ
+        self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "same")
+        write_tr("い", "3")   # 字幕が新しい
+        self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "differ")
+
+    def test_stored_state(self):
+        self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "none", "pack": "none"})
+        self.write_tx()
+        out = str(keys._pack.default_out_dir(self.media))
+        keys.write_pack(out, {"video": self.media, "keeps": [[0, 1]]}, {"textplus": True})
+        self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "same", "pack": "same"})
+        self.assertEqual(keys.stored_state(TID, self.media, doc_updated_at=4102444800000)["pack"], "differ")   # 文書が鍵より後に直された
+        keys.write_export(self.media, schemas.media_identity("archive", videoId="vid12345678"), 1, 9, {})
+        self.assertEqual(keys.stored_state(TID, self.media), {"transcribe": "differ", "pack": "differ"})
 
 
 class TestArchiveSwap(_Env):

@@ -1662,6 +1662,26 @@ class TestTxIndex(unittest.TestCase):
         self.assertEqual([(x["start"], x["end"], x["proofed"], x["cut"]) for x in ln], [(99.5, 101.0, True, False), (101.5, 102.5, False, True)])
         self.assertEqual(d["aaaaaaaaaaaa"]["segments"][0]["start"], 1.0)   # キャッシュの中身は変えない
 
+    def test_key_state(self):
+        """成果物の鍵の状態(読むだけ。RS6 b-K2): 文書の transcribe の鍵・既定のパックの鍵を、切り抜きの素性と文書の更新で比べる"""
+        from flow import keys
+        from ytt import workdata
+        tid = "aaaaaaaaaaaa"
+        with mock.patch.object(workdata, "TX_DIR", self.dir):
+            self.assertEqual(txindex.key_state(self.clip, docs=[]), {"transcribe": "none", "pack": "none"})
+            self.assertEqual(txindex.key_state("", docs=[]), {"transcribe": "none", "pack": "none"})
+            self.doc(tid, self.clip, updated=1)
+            docs = txindex.load(self.dir)
+            self.assertEqual(txindex.key_state(self.clip, docs), {"transcribe": "none", "pack": "none"})   # 鍵なし(今までの成果物)
+            run = {"engine": "faster-whisper", "engineVersion": "1", "model": "small", "language": "ja", "settings": {"beam": 5, "vadMode": "weak", "boost": False}}
+            keys.write_after_transcribe(tid, {"sourcePath": self.clip, "whole": True}, run)
+            keys.write_pack(str(keys._pack.default_out_dir(self.clip)), {"video": self.clip, "keeps": [[0, 1]]}, {"textplus": True})
+            self.assertEqual(txindex.key_state(self.clip, docs), {"transcribe": "same", "pack": "same"})
+            self.doc(tid, self.clip, updated=4102444800000)   # 文書をパックの後に直した = 字幕が新しい
+            self.assertEqual(txindex.key_state(self.clip, txindex.load(self.dir)), {"transcribe": "same", "pack": "differ"})
+            keys.write_export(self.clip, schemas.media_identity("archive", videoId=self.VID), 1, 9, {})   # 切り抜きを書き出し直した
+            self.assertEqual(txindex.key_state(self.clip, txindex.load(self.dir))["transcribe"], "differ")
+
     def test_folder_follows_transcribe_rules(self):
         self.assertEqual(txindex.folder("/r", {"TRANSCRIBE_DATA_DIR": "/d"}), os.path.join(os.path.abspath("/d"), "transcripts"))
         self.assertEqual(txindex.folder("/r", {"YTT_DATA_DIR": "inplace"}), os.path.join(os.path.abspath("/r/editor"), "transcripts"))

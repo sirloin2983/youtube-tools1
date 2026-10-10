@@ -4,14 +4,17 @@
 - LocalTools: 入口なしで 動画ファイル → 文字起こし → パック を 1 本(疑似のエンジン。疑似の差し込みはテストの側 = eval/fake/fake_asr の FAKE)
 - LocalTools に無い段(配信・解析・採用・書き出し・話者分離)は「入口に頼んでください」の StepError
 - HttpTools は今の API をそのまま呼ぶ(呼ぶ API と本文は src/home/tests/test_autorun.py が見る)
+- 鍵を読んで飛ばす(RS6 b-K2): 同じ・違う・force と、HttpTools(API の形)と LocalTools で同じ Run.public
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
@@ -44,9 +47,31 @@ class TestHttpTools(unittest.TestCase):
         self.assertEqual(t.jobs(), [{"id": "j1"}])
         self.assertEqual(t.analyze_items(), [{"qid": "q1"}])
         t.edit("a b")
-        self.assertEqual(t.docs(), [])
+        self.assertEqual(t.docs(), [])   # 文書の一覧(GET /api/transcripts。id の無い行は読まない)
         self.assertEqual(calls, [("transcribe", "POST", "/api/transcribe", {"model": "small"}), ("transcribe", "GET", "/api/jobs", None),
-                                 ("studio", "GET", "/api/queue", None), ("transcribe", "GET", "/api/edit?id=a%20b", None)])
+                                 ("studio", "GET", "/api/queue", None), ("transcribe", "GET", "/api/edit?id=a%20b", None),
+                                 ("transcribe", "GET", "/api/transcripts", None)])
+
+    def test_docs_and_doc(self):
+        """文書の一覧は要約(場所と行を持たない)・1 つは GET /api/transcript を段の形(doc_row)に"""
+        doc = {"id": "abcdef012345", "title": "題", "sourcePath": "/x/c.mp4", "updatedAt": 5, "clip": {"source": {"videoId": "v1"}},
+               "segments": [{"start": 0, "end": 1, "text": "あ", "cutState": "cut"}, {"start": 1, "end": 2, "text": "い"}]}
+
+        class C:
+            def call(self, tool, method, path, body=None):
+                if path == "/api/transcripts":
+                    return 200, {"items": [{"id": "abcdef012345", "title": "題", "sourceName": "c.mp4", "videoId": "v1", "updatedAt": 5, "segments": 2}]}
+                if path == "/api/transcript?id=abcdef012345":
+                    return 200, doc
+                return 404, {}
+
+            def ok(self, tool, method, path, body=None):
+                return self.call(tool, method, path, body)[1]
+        t = T.HttpTools(C())
+        self.assertEqual(t.docs(), [{"id": "abcdef012345", "title": "題", "sourceName": "c.mp4", "videoId": "v1", "updatedAt": 5, "count": 2}])
+        row = t.doc("abcdef012345")
+        self.assertEqual((row["sourcePath"], row["videoId"], row["count"], [g["cut"] for g in row["segments"]]), ("/x/c.mp4", "v1", 2, [True, False]))
+        self.assertIsNone(t.doc("nai"))
 
 
 class TestLocalRefuses(unittest.TestCase):
@@ -113,6 +138,81 @@ class TestLocalTranscribePack(unittest.TestCase):
         # もう一度: 同じ名前のパックがあるので上書きしない(409 exists = 段は飛ばす)
         r3 = R.run(None, {"docId": tid}, spec=spec, tools=tools)
         self.assertEqual(r3.step("pack")["state"], "skip", r3.steps)
+
+    def sequence(self, tools):
+        """鍵を読む段の一続き(RS6 b-K2) -> 各実行の (形, [(段, 状態, 詳しさ)]) と最後の文書の id"""
+        spec = {"post": {"autoLlm": False}, "pack": {"volume": 100}}
+        out = []
+
+        def go(inp, sp=spec):
+            r = R.run(None, inp, spec=sp, tools=tools)
+            out.append((r.mode, [(st["key"], st["state"], st["detail"]) for st in r.steps]))
+            return r
+        tid = go({"path": self.video}).doc_id
+        go({"path": self.video})                                                   # 同じ = 飛ばす
+        go({"path": self.video}, dict(spec, transcribe={"model": "large-v3"}))     # 設定が違う = 飛ばして印
+        go({"docId": tid})                                                         # パックを作る(鍵を書く)
+        go({"docId": tid})                                                         # 同じ = 飛ばす
+        go({"docId": tid}, dict(spec, pack={"volume": 100, "wrapChars": {"vertical": 6}}))   # 設定が違う = 作り直す
+        r = go({"path": self.video, "force": True})                                # force = 作り直す(新しい文書)
+        self.assertNotEqual(r.doc_id, tid)
+        return out
+
+    def test_keys_skip_and_force(self):
+        out = self.sequence(T.LocalTools())
+        states = [[x[1] for x in steps] for _mode, steps in out]
+        self.assertEqual(states, [["done"], ["skip"], ["skip"], ["skip", "done"], ["skip", "skip"], ["skip", "done"], ["done"]], out)
+        self.assertEqual(out[1][1][0][2], "文字起こし済み")
+        self.assertEqual(out[2][1][0][2], "文字起こし済み(%s)" % R.TX_DIFFER)
+        self.assertIn(R.PACK_DIFFER, out[5][1][1][2])
+        self.assertTrue(out[6][1][0][2].startswith("文字起こしし直しました(force)"))
+
+    def test_http_and_local_give_same_public(self):
+        """同じ一続きを HttpTools(API の形。中身は LocalTools へつなぐ)で通しても、段の状態と文は同じ"""
+        local = self.sequence(T.LocalTools())
+        shutil.rmtree(workdata.TX_DIR, True)
+        shutil.rmtree(os.path.dirname(self.video) + os.sep + "切り抜き_pack", True)
+        http = self.sequence(T.HttpTools(LocalClient(T.LocalTools(), {"post": {"autoLlm": False}})))
+        self.assertEqual(http, local)
+
+
+class LocalClient:
+    """HttpTools が呼ぶ「編集」と cut2resolve の API の形を、LocalTools の動詞へつなぐ(同じ段を HTTP の形で通すテスト用)"""
+
+    def __init__(self, lt, spec):
+        self.lt, self.bundle = lt, R._spec.merge(spec)
+
+    def call(self, tool, method, path, body=None):
+        p, _, q = path.partition("?")
+        arg = urllib.parse.unquote(q.split("=", 1)[1]) if q else None
+        if p == "/api/transcribe":
+            return 200, {"id": self.lt.transcribe_start(body, bundle=self.bundle)}
+        if p == "/api/jobs":
+            return 200, {"jobs": self.lt.jobs()}
+        if p == "/api/transcripts":
+            return 200, {"items": [{"id": d["id"], "title": d["title"], "sourceName": d["sourceName"], "videoId": d["videoId"],
+                                    "updatedAt": d["updatedAt"], "segments": d["count"]} for d in self.lt.docs()]}
+        if p == "/api/transcript":
+            f = os.path.join(workdata.TX_DIR, arg + ".json")
+            if not os.path.isfile(f):
+                return 404, {}
+            with open(f, encoding="utf-8") as fh:
+                return 200, json.load(fh)
+        if p == "/api/edit":
+            return self.lt.edit(arg)
+        if p == "/api/export-file":
+            return 200, self.lt.transcript_file(body["id"])
+        if p == "/api/build":
+            return self.lt.pack_start(body)
+        if p == "/api/job":
+            return 200, self.lt.pack_job(arg)
+        return 404, {}
+
+    def ok(self, tool, method, path, body=None):
+        st, obj = self.call(tool, method, path, body)
+        if st != 200:
+            raise R.StepError("HTTP %d" % st)
+        return obj
 
 
 if __name__ == "__main__":

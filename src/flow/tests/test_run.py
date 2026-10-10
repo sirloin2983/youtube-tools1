@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
@@ -19,15 +20,21 @@ from flow import spec as SP, tools as T  # noqa: E402
 class FakeClient:
     """「編集」の文字起こしと cut2resolve の API の最小の真似(ジョブを入れる・ジョブの一覧・受け渡しの JSON・パック)。設定(/api/settings)は持たない = 段は読まない"""
 
-    def __init__(self):
+    def __init__(self, docs=(), full=()):
         self.calls = []
         self.bodies = {}
+        self.docs, self.full = list(docs), list(full)   # GET /api/transcripts の要約・GET /api/transcript の中身
 
     def call(self, tool, method, path, body=None):
         self.calls.append((tool, method, path))
         self.bodies[path.split("?")[0]] = body
         if path == "/api/transcribe":
             return 200, {"id": "j1"}
+        if path == "/api/transcripts":
+            return 200, {"items": list(self.docs)}
+        if path.startswith("/api/transcript?"):
+            d = next((x for x in self.full if path.endswith("=" + x["id"])), None)
+            return (200, d) if d else (404, {})
         if path == "/api/jobs":
             return 200, {"jobs": [{"id": "j1", "state": "done", "tid": "t1"}]}
         if path.startswith("/api/edit?"):
@@ -100,7 +107,7 @@ class TestFromInput(unittest.TestCase):
 
 class TestHooks(unittest.TestCase):
     def test_defaults_know_nothing(self):
-        rn = R.Runner(None)
+        rn = R.Runner(FakeClient())
         run = R.Run.from_input({"docId": "d1"})
         run.resumed = True
         rn._await_tools(run)
@@ -175,6 +182,9 @@ class TestRun(unittest.TestCase):
         calls = []
 
         class Tools(T.HttpTools):
+            def docs(self):
+                return []
+
             def transcribe_start(self, req, bundle=None):
                 calls.append(("start", req["sourcePath"], bundle["transcribe"]["model"]))
                 return "j9"
@@ -261,6 +271,107 @@ class TestAdopt(unittest.TestCase):
     def test_top_from_bundle_when_run_has_none(self):
         _out, _st, _run, body = self.adopt({"autoIds": ["a1"], "added": ["a1"]}, top=None, spec={"adopt": {"top": 5}})
         self.assertEqual(body["top"], 5)
+
+
+class TestKeys(unittest.TestCase):
+    """鍵を読む段(RS6 b-K2): 文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 / force で作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは今のまま"""
+
+    def setUp(self):
+        fd, self.media = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        self.addCleanup(os.remove, self.media)
+        self.video = {"marks": [{"id": "m1", "status": "exported", "path": self.media}]}
+        self.doc = {"id": "abcdef012345", "title": "題", "sourcePath": self.media, "count": 2, "updatedAt": 1,
+                    "segments": [{"start": 0, "end": 1, "text": "あ"}]}
+
+    def runner(self, c, tx_state="same", pack_state="none", have_pack=False):
+        doc = self.doc
+
+        class Rn(R.Runner):
+            def _docs(self):
+                return [doc]
+
+            def _pick_doc(self, docs, video_id, mark_id, path):
+                return doc
+        rn = Rn(c, poll=0, sleep=lambda s: None, find_pack=lambda p: {"dir": "/p"} if have_pack else None)
+        patches = [mock.patch.object(R._keys, "transcribe_state", return_value=tx_state),
+                   mock.patch.object(R._keys, "pack_state", side_effect=lambda media, make: (pack_state, make() if pack_state != "none" else None))]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        return rn
+
+    def step(self, rn, key, force=False, spec=None):
+        run = R.Run("abcdefghijk", "配信", "adopted", 3, force=force)
+        run.spec = SP.validate(SP.merge(spec))
+        st = run.step(key)
+        st["state"] = "run"
+        getattr(rn, "_step_" + key)(run, st, self.video)
+        return st, run
+
+    def test_transcribe_same_and_none_skip(self):
+        for state in ("same", "none"):
+            c = FakeClient()
+            st, _run = self.step(self.runner(c, tx_state=state), "transcribe")
+            self.assertEqual((st["state"], st["detail"]), ("skip", "1 本とも文字起こし済み"), state)
+            self.assertNotIn(("transcribe", "POST", "/api/transcribe"), c.calls)
+
+    def test_transcribe_differ_marks_and_force_redoes(self):
+        c = FakeClient()
+        st, _run = self.step(self.runner(c, tx_state="differ"), "transcribe")
+        self.assertEqual((st["state"], st["detail"]), ("skip", "1 本とも文字起こし済み。うち 1 本は" + R.TX_DIFFER))
+        self.assertNotIn(("transcribe", "POST", "/api/transcribe"), c.calls)
+        for kw in ({"force": True}, {"spec": {"run": {"force": True}}}):   # Run の force・束の run.force
+            c = FakeClient()
+            st, run = self.step(self.runner(c, tx_state="differ"), "transcribe", **kw)
+            self.assertEqual(st["state"], "run", kw)
+            self.assertIn("作り直し(force)", st["detail"])
+            self.assertEqual(run.new_docs, ["t1"])
+
+    def test_pack_differ_rebuilds_with_force(self):
+        c = FakeClient()
+        st, run = self.step(self.runner(c, pack_state="differ", have_pack=True), "pack")
+        self.assertEqual(st["state"], "run", st)
+        self.assertIn(R.PACK_DIFFER, st["detail"])
+        self.assertIs(c.bodies["/api/build"]["output"]["force"], True)
+        self.assertEqual(run.packs, [os.path.normpath("/x/clip_pack")])
+
+    def test_pack_same_skips_and_none_keeps_today(self):
+        c = FakeClient()
+        st, _run = self.step(self.runner(c, pack_state="same"), "pack")   # パックの記録が無くても、鍵が同じなら飛ばす
+        self.assertEqual(st["state"], "skip")
+        self.assertNotIn("/api/build", c.bodies)
+        c = FakeClient()
+        st, _run = self.step(self.runner(c, pack_state="none", have_pack=True), "pack")   # 鍵なし + パックあり = 今のまま飛ばす
+        self.assertEqual(st["state"], "skip")
+        c = FakeClient()
+        st, _run = self.step(self.runner(c, pack_state="none"), "pack")   # 鍵なし + パックなし = 作る(上書きはしない)
+        self.assertEqual(st["state"], "run")
+        self.assertNotIn("force", c.bodies["/api/build"]["output"])
+
+    def test_force_saved_and_restored(self):
+        run = R.Run.from_input({"videoId": "abcdefghijk", "force": True})
+        self.assertTrue(run.force)
+        self.assertTrue(run.public()["force"])
+        self.assertTrue(R.Run.restore(run.saved()).force)
+        self.assertFalse(R.Run.from_input({"path": "/x.mp4"}).force)
+
+
+class TestDefaultDocs(unittest.TestCase):
+    """素の Runner の文書の一覧(RS6 b-K2): GET /api/transcripts の要約から名前で絞り、GET /api/transcript で動画のパスを確かめる"""
+
+    def test_pick_doc_by_path(self):
+        media = os.path.abspath("/x/clip.mp4")
+        full = {"id": "abcdef012345", "title": "題", "sourcePath": media, "updatedAt": 2, "segments": [{"start": 0, "end": 1, "text": "あ"}]}
+        other = dict(full, id="abcdef000000", sourcePath=os.path.abspath("/y/clip.mp4"), updatedAt=3)
+        items = [{"id": d["id"], "title": "題", "sourceName": "clip.mp4", "updatedAt": d["updatedAt"], "segments": 1} for d in (full, other)]
+        c = FakeClient(items, [full, other])
+        rn = R.Runner(c)
+        docs = rn._docs()
+        self.assertNotIn("sourcePath", docs[0])
+        got = rn._pick_doc(docs, None, None, media)
+        self.assertEqual((got["id"], got["count"], got["sourcePath"]), ("abcdef012345", 1, media))   # 新しい方(別の場所)ではなくパスが同じ物
+        self.assertIsNone(rn._pick_doc(docs, None, None, os.path.abspath("/z/nai.mp4")))
 
 
 if __name__ == "__main__":
