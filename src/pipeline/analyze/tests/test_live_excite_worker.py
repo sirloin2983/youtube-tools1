@@ -10,7 +10,7 @@
     配信が終わったら測り直す / チャットなしでも動く / 人の決定(decisions.json)を帳簿に当てる / 配信が終わったら締める
   - チャット: 偽の yt-dlp(fake_ytdlp_chat.py。本物のプロセス)で 読む・止まったら起動し直す・間隔・403 は最大の間隔から・64MB(小さくして)で回す・
     1 時間に何回もなら諦める・最初から「チャットが無い」
-  - 本物の ffmpeg: 音を測る関数が src/pipeline/analyze/analyze.py の audio_levels と同じ値(±0.1 dB)・hls_fixture の 1 秒セグメントを偽の録画元(HTTP。合言葉と Host)から測る
+  - 本物の ffmpeg: 音を測る関数(src/pipeline/analyze/levels.py の asplit で 1 回)がスタジオの analyze.audio_levels と同じ値・以前の 2 回のデコードと ±0.1 dB・hls_fixture の 1 秒セグメントを偽の録画元(HTTP。合言葉と Host)から測る
   - 入口のプロセスで numpy を import しない
   - 仮の候補が山から 60 秒以内に出て本番(同じ id・本番の候補は仮の候補なしと同じ)に置き換わる・同時に 2 本まで(3 本目は順番待ち →
     1 本目が終わったら次へ・順番待ちのうちに終わった録画は音だけで締める)・雰囲気の変わり目のあと 60 秒はしきい値 1.3 倍・M10 の長さの目安(length_hint・
@@ -43,7 +43,7 @@ if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。launch.py
     sys.path.append(SRC)
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from flow import live_export as LX  # noqa: E402   (SameAsExportTest が flow の写しと比べる)
-from pipeline.analyze import excite  # noqa: E402
+from pipeline.analyze import excite, levels  # noqa: E402
 from ytt import fsio, procs, tools  # noqa: E402
 
 TOKEN = "k" * 40
@@ -638,7 +638,8 @@ class FfmpegTest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_measure_matches_studio_audio_levels(self):
-        """同じ wav を、ワーカーの measure_levels(asplit で 1 回)とスタジオの analyze.audio_levels(2 回)で測って ±0.1 dB"""
+        """同じ wav を、ワーカーの measure_levels とスタジオの analyze.audio_levels(どちらも levels.py の asplit で 1 回)で測ると同じ値で、
+        以前のスタジオの測り方(同じフィルターを帯域ごとに 2 回のデコード)とも ±0.1 dB(OPT1 で 1 回にした)"""
         wav = os.path.join(self.tmp, "t.wav")
         subprocess.run([FF, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=14:c=pink:r=48000:a=0.3",
                         "-f", "lavfi", "-i", "sine=f=300:d=14:r=48000", "-filter_complex",
@@ -647,7 +648,15 @@ class FfmpegTest(unittest.TestCase):
         full, band = W.measure_levels(FF, wav, self.tmp)
         from pipeline.analyze import analyze   # スタジオの解析(RS3-5 で pipeline/analyze へ。読むのはテストだけ)
         job = {"cancel": False}
-        a, b = analyze.audio_levels(job, wav, 14.0), analyze.audio_levels(job, wav, 14.0, hp=2000)
+        self.assertEqual(analyze.audio_levels(job, wav, 14.0, self.tmp), (full, band))
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["t.wav"])   # 結果のファイルは読んだら消す
+
+        def two_pass(hp):   # 以前の analyze.audio_levels(帯域ごとに 1 回。標準出力に出す)
+            filt = "aresample=16000," + ("highpass=f=%d," % hp if hp else "") + levels.STATS + ":file=-"
+            out = subprocess.run([FF, "-hide_banner", "-nostdin", "-i", wav, "-vn", "-af", filt, "-f", "null", "-"], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True, creationflags=tools.no_window_flags()).stdout
+            return [levels.level(x.split("=", 1)[1]) for x in out.decode("utf-8", "replace").splitlines() if x.startswith(levels.LEVEL_KEY)]
+        a, b = two_pass(None), two_pass(levels.HIGHPASS)
         self.assertEqual((len(full), len(band)), (len(a), len(b)))
         self.assertEqual(len(full), 14)
         self.assertLessEqual(max(abs(x - y) for x, y in zip(full, a)), 0.1)
@@ -991,7 +1000,7 @@ class WorkerRestTest(unittest.TestCase):
         w.close()
 
     def test_bad_numbers(self):
-        self.assertEqual([W._level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, W.LEVEL_MAX, -12.5, -90.0, -90.0])
+        self.assertEqual([levels.level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, levels.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):
             W.write_json(os.path.join(self.tmp, "x.json"), {"a": float("nan")})
         self.assertEqual((tools.why(ValueError("nan")), tools.why(OSError(28, "空きがありません"))), ("ValueError", "空きがありません"))   # 書けなかった理由(ValueError には strerror が無い)

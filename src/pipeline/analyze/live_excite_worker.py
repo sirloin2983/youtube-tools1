@@ -20,7 +20,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 流れ(周期 POLL_SEC):
   1. 録画元の GET /live/list → 録画中(active)で firstPdt のある録画ごとに状態(state.json があれば続きから)
   2. GET /live/<録画>/status?since=N で新しいセグメント → 本体(GET /live/<録画>/<uri>。合言葉 Bearer)→ **3 本(約 12 秒)ずつ ffmpeg 1 回**で
-     1 秒の RMS(dB)を全帯域と 2kHz 超の 2 系列(src/pipeline/analyze/analyze.py の audio_levels と同じフィルター。asplit で 1 回に)
+     1 秒の RMS(dB)を全帯域と 2kHz 超の 2 系列(src/pipeline/analyze/levels.py。スタジオの analyze.audio_levels と同じ物。asplit で 1 回に)
   3. セグメントの受信時刻(pdt)で「録画の頭(firstPdt)からの秒」の 1 秒の箱へ(数で数えない)。欠けは音を直前の値で埋めて欠けとして覚える
   4. チャット(yt-dlp の live_chat。配信 1 本に 1 つ)を末尾から読み、timestampUsec(絶対時刻)で 1 秒の箱へ。重みは excite.message_weight
   5. 音とチャットがそろった秒から excite.Online → excite.PeakBook。欠け ±GAP_MARGIN 秒は帳簿に 0 を渡す(山を作らない)
@@ -46,7 +46,6 @@ import functools
 import glob
 import http.client
 import json
-import math
 import os
 import re
 import signal
@@ -60,7 +59,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))   # analyze -> pipeline -> src(「root」= src。datadir.resolve の inplace の根)
 if __name__ == "__main__":   # スクリプトとして起動したときだけ: このフォルダを外して src を先頭に(兄弟は絶対 import。層の決まりの例外)。import したとき(live_detect・テスト)は触らない
     sys.path[:] = [ROOT] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(ROOT))]
-from pipeline.analyze import excite  # noqa: E402
+from pipeline.analyze import excite, levels  # noqa: E402
 from ytt import datadir, fsio, procs, recproto, schemas, tools  # noqa: E402
 
 WORKER_VERSION = "1"
@@ -113,9 +112,6 @@ ID_RE, REC_RE, SEG_URI_RE = recproto.RECORDER_ID_RE, recproto.REC_ID_RE, recprot
 iso_epoch, epoch_iso, video_id = recproto.iso_epoch, recproto.epoch_iso, recproto.video_id_of
 PEAK_ID_RE = re.compile(r"^p(\d{1,7})-\d{1,8}\Z")    # 候補の id(excite.PeakBook の "p<通し番号>-<山の秒>"。入口の live_detect も同じ形で検査する)
 PEAK_AHEAD = 20            # まだ帳簿に無い候補の決定を待つのは、通し番号が今の番号からこれ未満先のときだけ(起動し直して最後の保存より後の候補がまだ出ていない)
-LEVEL_KEY = "lavfi.astats.Overall.RMS_level="
-LEVEL_MAX = 20.0           # RMS(dB)の上限(壊れた値で式が振り切れないように。ふつうは 0 以下)
-STATS = "asetnsamples=n=16000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level"
 NOCHAT_HINTS = ("There are no subtitles", "no subtitles for the requested", "Live chat is disabled", "members-only", "Join this channel", "Private video")
 BLOCK_HINTS = ("HTTP Error 403", "HTTP Error 429", "403: Forbidden", "429: Too Many")
 
@@ -199,56 +195,23 @@ def clean_detect(det):
     return {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal", "perHour": det["perHour"] if schemas.is_int(det.get("perHour")) else 6}
 
 
-def _level(v):
-    """ffmpeg の RMS の値(dB)-> -90〜LEVEL_MAX(読めない・NaN・無限大は -90。大きすぎる値は切る)"""
-    try:
-        x = float(v)
-    except ValueError:
-        return -90.0
-    if not math.isfinite(x) or x < -90:
-        return -90.0
-    return min(LEVEL_MAX, x)
-
-
-def _read_levels(path):
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return [_level(line.split("=", 1)[1]) for line in f if line.startswith(LEVEL_KEY)]
-    except OSError:
-        return []
-
-
 def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
     """ffmpeg 1 回で 1 秒ごとの RMS(dB)を全帯域と 2kHz 超の 2 系列 -> (full, band)。
-    フィルターは src/pipeline/analyze/analyze.py の audio_levels と同じ(aresample=16000・asetnsamples=n=16000:p=0・astats・ametadata)。asplit で 1 回にし、
-    結果は 2 つのファイル(作業用のフォルダの full.txt・band.txt。行が混ざらない)。値が無い・NaN・-90 未満は -90"""
+    フィルター・値の扱い(-90〜20 dB)・結果のファイルは src/pipeline/analyze/levels.py の 1 か所(スタジオの analyze.audio_levels と同じ物)"""
     if not ffmpeg:
         raise NoTool("ffmpeg が見つかりません(setup の install.bat で入れてください)")
-    outs = [os.path.join(wdir, n) for n in ("full.txt", "band.txt")]
-    for p in outs:
-        fsio.unlink_quiet(p)
-    fc = "[0:a]aresample=16000,asplit=2[a][b];[a]%s:file=full.txt[oa];[b]highpass=f=2000,%s:file=band.txt[ob]" % (STATS, STATS)
-    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-protocol_whitelist", "file,pipe", "-i", os.path.abspath(path),
-           "-filter_complex", fc, "-map", "[oa]", "-f", "null", "-", "-map", "[ob]", "-f", "null", "-"]
+    levels.clear(wdir)
+    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path)
     try:
-        proc = subprocess.Popen(cmd, cwd=wdir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=tools.no_window_flags(priority="low"))
+        r = tools.run(cmd, timeout=timeout, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=40, cwd=wdir,
+                      on_start=job.add if job is not None else None)
     except OSError as e:
         raise NoTool("ffmpeg を起動できませんでした: %s" % tools.why(e))
-    if job is not None:
-        job.add(proc)
-    try:
-        _out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        tools.kill_quiet(proc)
-        proc.communicate()
+    full, band = levels.collect(wdir)
+    if r.why == "timeout":
         raise MeasureError("ffmpeg が %d 秒で終わりませんでした" % int(timeout))
-    full, band = _read_levels(outs[0]), _read_levels(outs[1])
-    for p in outs:
-        fsio.unlink_quiet(p)
-    if proc.returncode != 0 or not full:
-        tail = (err or b"").decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
-        raise MeasureError("音を測れませんでした(ffmpeg %s: %s)" % (proc.returncode, tail[0][:160]))
-    band = (band + [band[-1] if band else -90.0] * len(full))[:len(full)]
+    if r.code != 0 or not full:
+        raise MeasureError("音を測れませんでした(ffmpeg %s: %s)" % (r.code, ((r.err_lines(1) or [""])[0])[:160]))
     return full, band
 
 

@@ -169,10 +169,11 @@ def idle_message(what, sec):
     return "%sが%s、出力がなかったため中止しました" % (what, ("%d分間" % max(1, round(sec / 60))) if sec >= 60 else ("%d秒間" % max(1, round(sec))))
 
 
-def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=None, what="処理"):
+def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=None, what="処理", cwd=None):
     """コマンドを実行し、標準出力を1行ずつ on_line に渡す。(終了コード, 標準エラーの末尾) を返す。中止に対応。
-    job は {"cancel": bool, <slot>: Popen} を持つ辞書。idle_timeout 秒のあいだ出力(標準出力・標準エラー)が無ければ止めて ApiError("timeout")。"""
-    p_ = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1)
+    job は {"cancel": bool, <slot>: Popen} を持つ辞書。idle_timeout 秒のあいだ出力(標準出力・標準エラー)が無ければ止めて ApiError("timeout")。
+    cwd: 子の作業フォルダ(None = このプロセスと同じ)"""
+    p_ = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=cwd)
     job[slot] = p_
     err = []
     last = [time.time()]

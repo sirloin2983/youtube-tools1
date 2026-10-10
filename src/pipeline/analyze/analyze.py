@@ -18,10 +18,11 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from . import levels  # 1 秒ごとの音量の測り方(配信中の検出と同じ 1 か所。OPT1)
 from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式。隣のファイル)
 from pipeline.ingest import sources as _src  # 入力の判定(RS3-4 にスタジオの common から)
 from ytt import yturl as _yturl   # URL・動画 ID の形(RS6 a-1 に pipeline/ingest/sources から)
-from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
+from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env, tools as _tools  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, redact, tail_reason   # 純粋な関数(差し替えない)
 from .excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
@@ -629,28 +630,27 @@ def save_archive(vid, payload, run, keep=ARCHIVE_KEEP):
 
 
 # ---------- 解析 ----------
-def audio_levels(job, path, dur, hp=None, p0=0.12, p1=0.42):
-    """1秒ごとの音量(RMS, dB)を ffmpeg で求める。hp を指定すると、その周波数より上だけを測る。"""
+def audio_levels(job, path, dur, wdir, p0=0.12, p1=0.48):
+    """1秒ごとの音量(RMS, dB)を ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に。-> (full, band)。
+    測り方・値の扱い(-90〜20 dB)は levels.py の 1 か所(配信中の検出 live_excite_worker.measure_levels と同じ物。OPT1)。
+    wdir = 結果のファイルを置く作業フォルダ。進み具合は job["progress"] の p0〜p1"""
     ff = _env.find_tool("ffmpeg")
     if not ff:
         raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)")
-    filt = "aresample=16000," + ("highpass=f=%d," % hp if hp else "") + "asetnsamples=n=16000:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-"
-    vals = []
 
     def on(line):
-        if line.startswith("lavfi.astats.Overall.RMS_level="):
-            v = line.split("=", 1)[1]
-            try:
-                x = float(v)
-            except ValueError:
-                x = -90.0
-            vals.append(-90.0 if x != x or x < -90 else x)
-            if len(vals) % 60 == 0 and dur:
-                job["progress"] = p0 + (p1 - p0) * min(1.0, len(vals) / dur)
-    rc, err = _procs.run_capture(job, [ff, "-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-i", path, "-vn", "-af", filt, "-f", "null", "-"], on, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析")
-    if rc != 0 or not vals:
+        m = _tools.OUT_TIME.match(line.strip())
+        if m and dur:
+            job["progress"] = p0 + (p1 - p0) * min(1.0, int(m.group(1)) / 1e6 / dur)
+    levels.clear(wdir)
+    cmd = [ff, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path) + ["-progress", "pipe:1", "-nostats"]
+    try:
+        rc, err = _procs.run_capture(job, cmd, on, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析", cwd=wdir)
+    finally:
+        full, band = levels.collect(wdir)
+    if rc != 0 or not full:
         raise ApiError("audio", "音声を解析できませんでした: " + (tail_reason(err) or "音声トラックがない可能性があります"), 400)
-    return vals
+    return full, band
 
 
 def parse_chat(path, n, extra=None):
@@ -714,10 +714,8 @@ def _levels(job, spec, src, wdir, warnings):
         if not has_audio:
             raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
         n = int(math.ceil(dur))
-        job["phase"] = "音量を解析中"
-        full = audio_levels(job, media, dur, None, 0.12, 0.30)
-        job["phase"] = "高音域(笑い声・叫び)を解析中"
-        band = audio_levels(job, media, dur, 2000, 0.30, 0.48)
+        job["phase"] = "音量(全体と高音域 = 笑い声・叫び)を解析中"
+        full, band = audio_levels(job, media, dur, wdir, 0.12, 0.48)
         full, band = [round(x, 1) for x in full], [round(x, 1) for x in band]   # 保存するのと同じ精度にそろえる(キャッシュの有無で結果が変わらないように)
         dur = round(dur, 2)
         if src["kind"] == "youtube":
