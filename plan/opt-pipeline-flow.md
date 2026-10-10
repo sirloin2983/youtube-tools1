@@ -68,3 +68,12 @@
 - `manifest.py`(26 行)は ytt/schemas を「スタジオ用の名前で呼ぶ」だけの薄い入口 → 呼ぶ側(exporter と ②)が `ytt/schemas` を直に読む → OPT1 の小物
 - `_pump`(進み具合つきの ffmpeg・OPT2 の 6 つの 1 つ)・`verify_output`(確かめ方 3 通り・OPT3)・古い ffmpeg への逃げ道が無い(OPT1)・音量とラウドネスの ffmpeg の引数(OPT2)は上の表に記録済み
 - YouTube の区間の取り方が 2 段(yt-dlp の --download-sections → だめなら直接 URL を ffmpeg に)= 仕様どおりの予備。動かさない
+
+### 4. 文字起こし `pipeline/transcribe/`(10-11)
+- **エンジンが 6 つ**(faster-whisper・whisper.cpp・Qwen3-ASR 0.6B・SenseVoice・Qwen3-ASR 1.7B の llama.cpp・文字の LLM)。使わない物は RS7-2 のセッションが「使わないモデル・エンジンの選択肢を消す」で今消している(10-11)= ここでは扱わない。入ったあとで `tx_engines.py`(1,200 行)の残りを見直す(Qwen3 の区切りの共通部分 `_Qwen3Chunked` が 1 つのエンジンだけになるなら畳む)→ OPT1 のあと
+- `worker_client.py`(881 行)に**ワーカーの中で動く物**(モデルの読み込み `_load_model_local`・使い回し `_models`・`release_idle_models`)と**サーバー側の物**(`WorkerClient` = 起動・要求・取り消し・強制終了、`RemoteModel` = 代理)が同居。名前が「client」なのに中身の半分はワーカー側 → ワーカー側を `worker.py` か `models.py` へ分ける(numpy などを読まない決まり = サーバー側に重い import を持ち込まない守りも分かりやすくなる)→ OPT2
+- **認識の入口が 4 つ**: 文書全体 `transcribe_real`/`transcribe_rows`(声の検出を緩めてやり直す `transcribe_vad_fallback` つき)・範囲の再認識 `RangeRecognizer`/`range_lines_real`/`finish_range_lines`・全体の再認識 `whole_lines`(区間に分けて続きから)・選んだ行の 1 行ずつ `recognize_chunk`。どれも「wav の区間 → 整えた行」で、時刻のずらし方・行の整え方が少しずつ違う → 「区間の一覧 → 整えた行」の 1 つの関数に寄せられるか調べる(結果の行が変わると校正済みの文書と合わなくなるので eval_asr・eval_timing で確かめる)→ OPT3
+- **配信中の候補の文字起こし `live_tx_worker.py`(71 行)は別の認識プロセス**(1 本ごとに起動して whisper-cli を 1 回)。編集の認識ワーカー(常駐)とは別の道。配信中は入口のプロセスから動かすため・候補は 1 時間に数本で足りるため(説明あり)。エンジンを whisper.cpp に絞ったあとなら、どちらも「whisper-cli を動かす」だけになる = 起動の仕方(引数・モデルの場所)を `tx_engines.WhisperCpp` の 1 か所から作っているか確かめる → OPT1 のあと
+- 後処理 4 つ(`fill` 378・`llm` 338・`postproc` 300・`retime` 267 = 1,283 行)は役目が別(行の整え・2 つ目のエンジンとの突き合わせ・LLM・時刻)で重なりは小さい。文字の寄せ方 7 つ(上の OPT1・OPT3)だけ
+- 説明文の古い呼び名: `fill.py`・`llm.py` の先頭が「「編集」のサーバーの部品」のまま(① に移った)→ 文書の小物(RV)
+- `backend.py`(本物と疑似の差し込み口・本物は素通し 13 個)は疑似のテストの土台 = 残す(10-11 の調べ)
