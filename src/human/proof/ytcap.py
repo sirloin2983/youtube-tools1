@@ -136,7 +136,7 @@ def ytcap_after_transcribe(job, spec, tid):
 
 # ---------- yt-dlp で字幕を取る ----------
 def ytcap_command():
-    """yt-dlp を動かすコマンドの先頭。場所はスタジオと同じ決め方(環境変数 TRANSCRIBE_YTDLP → PATH。ytt.tools.find_tool)。
+    """yt-dlp を動かすコマンドの先頭。場所はスタジオと同じ決め方(環境変数 TRANSCRIBE_YTDLP → YTT_YTDLP → PATH → winget。ytt.tools.find_tool)。
     TRANSCRIBE_YTDLP が .py なら、この Python で動かす(テストの偽の yt-dlp)"""
     p = _tools.find_tool("yt-dlp", "TRANSCRIBE_YTDLP")
     if not p:

@@ -651,7 +651,7 @@ class Recorder:
         self.folder = folder
         self.source = source if source in ("streamlink", "direct") else "streamlink"
         self.title_lookup = fetch_title if self.source == "streamlink" else None   # 名前なしの録画に題を付ける(テストは差し替える・None で聞かない)
-        self.ffmpeg = ffmpeg or ytools.find_tool("ffmpeg", "YTT_FFMPEG") or "ffmpeg"
+        self.ffmpeg = ffmpeg or ytools.find_tool("ffmpeg") or "ffmpeg"
         self.python = python or sys.executable
         self.hls_time = hls_time
         self.backoff = tuple(backoff) or BACKOFF

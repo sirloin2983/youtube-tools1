@@ -237,7 +237,7 @@ def fetch_full_audio(video_id, folder, cancelled=None, timeout=FETCH_TIMEOUT, re
     os.makedirs(folder, exist_ok=True)
     cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress",
            "-f", "ba", "-o", os.path.join(folder, "full.%(ext)s")]
-    ff = tools.find_tool("ffmpeg", "YTT_FFMPEG")
+    ff = tools.find_tool("ffmpeg")
     if ff:
         cmd += ["--ffmpeg-location", ff]
     cmd += ["--", "https://www.youtube.com/watch?v=" + video_id]
@@ -1261,7 +1261,7 @@ class Archiver:
 
     def _wav(self, src, dst, ss=None, t=None, job=None):
         """ffmpeg で 8kHz・モノラル・16bit の WAV にする(照合の子プロセスが読む形)"""
-        ff = self.ffmpeg or tools.find_tool("ffmpeg", "YTT_FFMPEG")
+        ff = self.ffmpeg or tools.find_tool("ffmpeg")
         if not ff:
             raise ArchiveError("ffmpeg が見つかりません")
         cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error"]

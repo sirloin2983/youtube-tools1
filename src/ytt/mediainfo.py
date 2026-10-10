@@ -5,7 +5,7 @@
 同じファイルに ffmpeg -i を何度もかけない(書き出し 1 本で約 11 回 → 5 回。2026-10-09 見直し T7)。
 鍵は (パス・更新日時 ns・大きさ)(ytt.fsio.StampCache)。書き出しは一時の名前に書いてから置き換えるので、中身が変われば鍵も変わる。
 時間では覚えない(テストが作り直した直後に測る)。ffmpeg を動かせなかったとき(例外)は覚えない。道具を差し替えたら全部忘れる。
-ffmpeg の場所はスタジオの決まり(studio_env.find_tool = 環境変数 STUDIO_FFMPEG → PATH)、動かすのは procs.run_short(終了の流れで止められる)。
+ffmpeg の場所はスタジオの決まり(studio_env.find_tool = 環境変数 STUDIO_FFMPEG → YTT_FFMPEG → PATH → winget)、動かすのは procs.run_short(終了の流れで止められる)。
 編集の動画・音声の小道具(ytt/tools の ffmpeg_info・probe_media)は別の決まり(TRANSCRIBE_FFMPEG・覚えない)なので、ここには寄せていない。
 """
 import re

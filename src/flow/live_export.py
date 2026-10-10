@@ -970,7 +970,7 @@ class Exporter:
         return files
 
     def _encode(self, job, rc, rec, d, segs, files, a, b, wdir):
-        ff = self.ffmpeg or tools.find_tool("ffmpeg", "YTT_FFMPEG")
+        ff = self.ffmpeg or tools.find_tool("ffmpeg")
         if not ff:
             raise LiveError("ffmpeg が見つかりません")
         first = iso_epoch(segs[0]["pdt"])

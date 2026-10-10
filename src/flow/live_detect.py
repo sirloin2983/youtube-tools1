@@ -138,8 +138,8 @@ class Detector:
         self.host = host
         self.python = python or sys.executable
         self.spawn_ok, self.worker, self.stale_sec, self.clock = spawn, worker, stale_sec, clock
-        self.ffmpeg = lambda: tools.find_tool("ffmpeg", "YTT_FFMPEG")
-        self.ytdlp = lambda: tools.find_tool("yt-dlp", "YTT_YTDLP")
+        self.ffmpeg = lambda: tools.find_tool("ffmpeg")
+        self.ytdlp = lambda: tools.find_tool("yt-dlp")
         self.chat_limit, self.chat_stall = EW.CHAT_LIMIT, EW.CHAT_STALL
         self.proc = None
         self.started_at = None

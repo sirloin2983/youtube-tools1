@@ -118,7 +118,7 @@ def probe(path, ffprobe=None, timeout=60):
     -> {"path", "duration", "width", "height", "vcodec", "pix_fmt", "bit_depth", "r_frame_rate", "avg_frame_rate",
         "fps"(r_frame_rate の値), "avg_fps", "cfr"(推定: r と avg がほぼ同じ), "acodec"(音声が無ければ None),
         "sample_rate", "has_video", "has_audio"}"""
-    fp = ffprobe or tools.find_tool("ffprobe", "YTT_FFPROBE")
+    fp = ffprobe or tools.find_tool("ffprobe")
     if not fp:
         return None
     cmd = [fp, "-v", "error", "-of", "json", "-show_entries",
@@ -244,7 +244,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
     - ffmpeg が 5.1 より古く -fps_mode を知らなければ、-vsync cfr に替えて1回だけやり直す(legacy_args)
     SLOTS(ytt.jobs)は呼ぶ側が持つ。"""
     cancelled = cancelled or (lambda: False)
-    ff = ffmpeg or tools.find_tool("ffmpeg", "YTT_FFMPEG")
+    ff = ffmpeg or tools.find_tool("ffmpeg")
     if not ff:
         raise NormalizeError("ffmpeg が見つかりません")
     info = probe(src, ffprobe)

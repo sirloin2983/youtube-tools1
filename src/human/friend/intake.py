@@ -135,7 +135,7 @@ def _accepted(items):
 def probe_video(path):
     """ffprobe で動画の形を確かめる -> {"ok", "duration" (秒 か None), "reason"}。ok = 音声がある(文字起こしに要る)。
     調べ方は ytt.normalize.probe(30fps の判定と同じ ffprobe の呼び方。YTT_FFPROBE も見る)"""
-    fp = tools.find_tool("ffprobe", "YTT_FFPROBE")
+    fp = tools.find_tool("ffprobe")
     if not fp:
         return {"ok": False, "duration": None, "reason": "ffprobe が見つからないので、動画を確かめられません"}
     info = normalize.probe(path, ffprobe=fp)

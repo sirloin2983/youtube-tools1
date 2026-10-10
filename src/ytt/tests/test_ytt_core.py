@@ -19,7 +19,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from manage.cases import txindex  # noqa: E402
-from ytt import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, tools  # noqa: E402
+from ytt import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, studio_env, tools  # noqa: E402
 
 
 def locked(winerror=32):
@@ -1016,7 +1016,7 @@ class TestTools(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp, True)
         empty = os.path.join(tmp, "empty")
         os.makedirs(empty)
-        env = {"LOCALAPPDATA": tmp, "PATH": empty, "TRANSCRIBE_FFMPEG": ""}
+        env = {"LOCALAPPDATA": tmp, "PATH": empty, "TRANSCRIBE_FFMPEG": "", "YTT_FFMPEG": "", "YTT_FFPROBE": ""}
         with mock.patch.dict(os.environ, env):
             self.assertEqual((tools.media_tool("ffmpeg"), tools.media_tool("ffprobe"), tools.find_ffmpeg()), ("ffmpeg", "ffprobe", None))
             bin_dir = os.path.join(tmp, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_x", "ffmpeg-9.0-full_build", "bin")
@@ -1080,19 +1080,51 @@ class TestTools(unittest.TestCase):
         self.assertTrue(gone, "親が落ちたのに子が残った")   # 親(このテストの子)が落ちてジョブが閉じた = 孫も終わる
 
     def test_find_tool_ytt_env(self):
-        """ytt=True は 固有の環境変数 → YTT_<名前> → PATH。既定(ytt=False)は今までどおり YTT_ を見ない"""
+        """OPT1: 固有の環境変数 → YTT_<名前> → PATH(どの部品も YTT_ を見る)"""
         with tempfile.TemporaryDirectory() as d:
             a, b = os.path.join(d, "a.exe"), os.path.join(d, "b.exe")
             for p in (a, b):
                 open(p, "wb").close()
             self.assertEqual(tools.ytt_env("yt-dlp"), "YTT_YTDLP")
             with mock.patch.dict(os.environ, {"YTT_YTDLP": a, "STUDIO_YTDLP": b}), mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
-                self.assertEqual(tools.find_tool("yt-dlp", ytt=True), a)
-                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP", ytt=True), b)     # 固有の名前が先(今までの指定が効く)
-                self.assertEqual(tools.find_tool("yt-dlp"), "/p/yt-dlp")                      # 既定は YTT_ を見ない
+                self.assertEqual(tools.find_tool("yt-dlp"), a)
+                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP"), b)     # 固有の名前が先(今までの指定が効く)
             with mock.patch.dict(os.environ, {"YTT_YTDLP": a + ".missing", "STUDIO_YTDLP": ""}), \
                     mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
-                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP", ytt=True), "/p/yt-dlp")   # 実在しなければ PATH
+                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP"), "/p/yt-dlp")   # 実在しなければ PATH
+
+    @unittest.skipUnless(os.name == "nt", "winget の場所は Windows だけ")
+    def test_find_tool_winget_for_every_caller(self):
+        """OPT1 の不具合: PATH に無く winget だけで入れた ffmpeg・ffprobe・yt-dlp を、スタジオ・録画・ライブの探し方でも見つける。
+        ffprobe は環境変数で決めた ffmpeg の隣が PATH より先"""
+        tmp = tempfile.mkdtemp(prefix="ytt_find_tool_")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        empty = os.path.join(tmp, "empty")
+        os.makedirs(empty)
+        env = {"LOCALAPPDATA": tmp, "PATH": empty}
+        for v in ("STUDIO_FFMPEG", "STUDIO_FFPROBE", "STUDIO_YTDLP", "YTT_FFMPEG", "YTT_FFPROBE", "YTT_YTDLP", "TRANSCRIBE_FFMPEG"):
+            env[v] = ""
+        with mock.patch.dict(os.environ, env):
+            self.assertIsNone(tools.find_tool("ffmpeg", "STUDIO_FFMPEG"))
+            pk = os.path.join(tmp, "Microsoft", "WinGet", "Packages")
+            bin_dir = os.path.join(pk, "Gyan.FFmpeg_x", "ffmpeg-9.0-full_build", "bin")
+            yd_dir = os.path.join(pk, "yt-dlp.yt-dlp_x")
+            for d, n in ((bin_dir, "ffmpeg.exe"), (bin_dir, "ffprobe.exe"), (yd_dir, "yt-dlp.exe")):
+                os.makedirs(d, exist_ok=True)
+                open(os.path.join(d, n), "wb").close()
+            same = lambda p, d, n: self.assertEqual(os.path.normcase(p or ""), os.path.normcase(os.path.join(d, n)))
+            same(studio_env.find_tool("ffmpeg"), bin_dir, "ffmpeg.exe")
+            same(studio_env.find_tool("ffprobe"), bin_dir, "ffprobe.exe")
+            same(tools.find_tool("ffmpeg"), bin_dir, "ffmpeg.exe")
+            same(tools.find_tool("yt-dlp"), yd_dir, "yt-dlp.exe")
+            other = os.path.join(tmp, "other")
+            os.makedirs(other)
+            for n in ("ffmpeg.exe", "ffprobe.exe"):
+                open(os.path.join(other, n), "wb").close()
+            with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(other, "ffmpeg.exe")}):
+                same(tools.find_tool("ffprobe"), other, "ffprobe.exe")
+            with mock.patch.dict(os.environ, {"STUDIO_FFMPEG": os.path.join(other, "ffmpeg.exe")}):
+                same(studio_env.find_tool("ffprobe"), other, "ffprobe.exe")
 
     def test_no_window_flags_priority(self):
         with self.assertRaises(ValueError):

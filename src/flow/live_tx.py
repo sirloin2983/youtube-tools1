@@ -119,7 +119,7 @@ class LiveTx:
         return True, ""
 
     def _ffmpeg(self):
-        return self.ffmpeg or tools.find_tool("ffmpeg", "YTT_FFMPEG")
+        return self.ffmpeg or tools.find_tool("ffmpeg")
 
     def status(self):
         ok, why = self.ready()

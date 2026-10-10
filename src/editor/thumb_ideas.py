@@ -10,7 +10,7 @@
   切り取りは中央と右寄り(アバターの矩形を覚える仕組みは画面に組み込むときに)。チャンネルページで見える 2:3 の範囲の枠線を描く。キャッチは規則で文字起こしから拾う(LLM の案は M で足す)
 - 出力: 2 列 × 3 行の PNG と、同じ名前の .json(案ごとの番号・型・時刻・文字・切り取り)。既定の置き場所は動画の隣の <名前>_thumb-ideas.png
 - 文字: けいふぉんと(入っていれば)→ 游ゴシック Bold → BIZ UD ゴシック Bold。白か黄色の太い文字 + 黒の縁(6-1 の他チャンネルの型)。配信者のメンバーカラーが分かれば帯の色に(ytt.colors)
-- 作業データ(文字起こし)は読むだけ。ffmpeg は ytt.tools.find_tool(環境変数 YTT_FFMPEG → PATH)
+- 作業データ(文字起こし)は読むだけ。ffmpeg は ytt.tools.find_tool(環境変数 YTT_FFMPEG → PATH → winget)
 """
 import argparse
 import array
@@ -130,7 +130,7 @@ def card_texts(layout, rows, t):
 # ---------------------------------------------------------------- 入力(動画・文字起こし)
 
 def ffmpeg_path():
-    p = tools.find_tool("ffmpeg", "YTT_FFMPEG")
+    p = tools.find_tool("ffmpeg")
     if not p:
         raise ThumbError("ffmpeg が見つかりません(winget の Gyan.FFmpeg か、環境変数 YTT_FFMPEG)")
     return p

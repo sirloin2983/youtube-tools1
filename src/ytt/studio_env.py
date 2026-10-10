@@ -6,7 +6,7 @@
 - スタジオのフォルダ: `code_dir()`。スタジオの common.py が読み込みのときに `set_code_dir(自分のフォルダ)` で知らせる
   (ここ ytt から見た `layout.tool_dir("studio")` は、テストが共通部品 YTT_CORE_DIR を別の場所から読むとずれるため。知らされるまでは layout の値)
 - 疑似の旗: `fake()`(STUDIO_FAKE=1)・`fake_media()`(STUDIO_FAKE_MEDIA)。登録の口への置き換えは RS5
-- 外部の道具: `find_tool(name)`(環境変数 STUDIO_<名前> → PATH)
+- 外部の道具: `find_tool(name)`(環境変数 STUDIO_<名前> → YTT_<名前> → PATH → winget。決め方は ytt/tools.find_tool)
 - 失敗の記録: `log_failure(context, error)`(<置き場所>/studio-errors.log)・`rotate_log`・`old_log_name`
 - 書き出し先(settings.json の outDir): `get_out_dir`・`default_out_dir`・`set_out_dir`・`load_out_dir`・`check_out_dir`・`is_inside_out_dir`・`_out_lock`
 読む側は `studio_env.名前` を呼ぶたびに読む(テストの `common.get_out_dir` などの差し替えは、スタジオの common.py の転送がここへ届ける。RS5 で消す)。
@@ -71,7 +71,7 @@ def fake_media():
 
 
 def find_tool(name):
-    """環境変数 STUDIO_<名前>(例 STUDIO_FFMPEG・STUDIO_YTDLP)があればそれ、無ければ PATH から。"""
+    """スタジオの外部の道具の場所: 環境変数 STUDIO_<名前>(例 STUDIO_FFMPEG・STUDIO_YTDLP)→ YTT_<名前> → PATH → winget(ytt/tools.find_tool)"""
     return _tools.find_tool(name, "STUDIO_" + name.upper().replace("-", ""))
 
 

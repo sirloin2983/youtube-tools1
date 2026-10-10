@@ -1,6 +1,6 @@
 """外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
 
-- find_tool … 外部プログラムの場所(環境変数 → PATH)。tool_version / tool_output … その版を調べる
+- find_tool … 外部プログラムの場所(固有の環境変数 → YTT_ → PATH → winget。全部の部品がここで探す)。tool_version / tool_output … その版を調べる
 - no_window_flags … creationflags(窓を出さない・別グループ・優先度)。python_exe … 子プロセスに使う python.exe
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg の -progress を読みながら動かす(取り消し・無出力で止める)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
@@ -30,16 +30,33 @@ def ytt_env(name):
     return "YTT_" + name.upper().replace("-", "")
 
 
-def find_tool(name, env_var=None, ytt=False):
-    """環境変数 env_var に実在するファイルが入っていればそれ、無ければ PATH から探す(見つからなければ None)。
-    環境変数は、PATH を通していない場所の ffmpeg を使うため・テストで偽物に差し替えるため。
-    ytt=True なら、env_var の次に共通の環境変数 ytt_env(name)(YTT_FFMPEG など)も見る(2026-10-09。ツール固有の名前
-    STUDIO_FFMPEG・TRANSCRIBE_FFMPEG などは互換として先に見る = 今までの指定がそのまま効く)。既定の False は今までと同じ"""
-    for var in (env_var, ytt_env(name) if ytt else None):
+def _env_file(names):
+    """環境変数の並び names のうち、実在するファイルが入っている最初の値(無ければ None)"""
+    for var in names:
         env = os.environ.get(var) if var else None
         if env and os.path.isfile(env):
             return env
-    return shutil.which(name)
+    return None
+
+
+def find_tool(name, env_var=None):
+    """外部プログラム(ffmpeg・ffprobe・yt-dlp など)の場所。すべての部品の探し方はこの 1 つ(OPT1。2026-10-11)。順:
+    1. ツール固有の環境変数 env_var(STUDIO_FFMPEG・TRANSCRIBE_FFMPEG・TRANSCRIBE_YTDLP など。互換のため先に見る = 今までの指定がそのまま効く)
+    2. 共通の環境変数 ytt_env(name)(YTT_FFMPEG・YTT_FFPROBE・YTT_YTDLP)
+    3. ffprobe だけ: 1・2 の ffmpeg の環境変数(名前の FFPROBE を FFMPEG にした物)で決めた ffmpeg の隣
+    4. PATH
+    5. winget の場所(_winget_dirs。PATH に通っていない PC = winget だけで入れた友人の PC でも見つかる)
+    環境変数は実在するファイルのときだけ効く(PATH を通していない場所の道具を使うため・テストで偽物に差し替えるため)。見つからなければ None"""
+    envs = [env_var, ytt_env(name)]
+    p = _env_file(envs)
+    if p:
+        return p
+    if name == "ffprobe":
+        ff = _env_file([v.replace("FFPROBE", "FFMPEG") for v in envs if v])
+        p = _in_dirs(name, [os.path.dirname(ff)]) if ff else None
+        if p:
+            return p
+    return shutil.which(name) or _in_dirs(name, _winget_dirs())
 
 
 # ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う。RS3-0A に編集の ed_state・ed_store から移した) ----------
@@ -53,12 +70,15 @@ MEDIA_TYPES = {   # 編集が受け付ける動画・音声の拡張子 → 配�
 
 
 def _winget_dirs():
-    """winget の Gyan.FFmpeg が入れる場所(PATH に通っていなくても使えるように。LOCALAPPDATA が無ければ [])"""
+    """winget が入れる場所(PATH に通っていなくても使えるように。LOCALAPPDATA が無ければ [])。
+    Links(winget の道具の入口)→ Gyan.FFmpeg の bin(新しい版が先)→ yt-dlp.yt-dlp の入れ物(Links を作れなかった PC 用)"""
     base = os.environ.get("LOCALAPPDATA")
     if not base:
         return []
     root = os.path.join(base, "Microsoft", "WinGet")
-    return [os.path.join(root, "Links")] + sorted(glob.glob(os.path.join(root, "Packages", "Gyan.FFmpeg*", "ffmpeg-*", "bin")), reverse=True)
+    pkgs = os.path.join(root, "Packages")
+    return ([os.path.join(root, "Links")] + sorted(glob.glob(os.path.join(pkgs, "Gyan.FFmpeg*", "ffmpeg-*", "bin")), reverse=True)
+            + sorted(glob.glob(os.path.join(pkgs, "yt-dlp.yt-dlp*")), reverse=True))
 
 
 def _in_dirs(name, dirs):
@@ -70,17 +90,15 @@ def _in_dirs(name, dirs):
 
 
 def find_ffmpeg():
-    """編集の ffmpeg: 環境変数 TRANSCRIBE_FFMPEG があればそれ、無ければ PATH から、無ければ winget の場所(RS7-1 F-k)。"""
-    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG") or _in_dirs("ffmpeg", _winget_dirs())
+    """編集の ffmpeg(find_tool の決め方。固有の環境変数は TRANSCRIBE_FFMPEG)。無ければ None"""
+    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
 
 
 def media_tool(name):
-    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。ffmpeg = find_ffmpeg。ffprobe = 決めた ffmpeg の隣 → PATH → winget。
+    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。find_tool の決め方で、固有の環境変数は TRANSCRIBE_<名前>
+    (ffprobe は TRANSCRIBE_FFMPEG で決めた ffmpeg の隣も見る)。
     どこにも無ければ名前のまま(呼ぶと FileNotFoundError = 呼ぶ側の「見つかりません」の案内)"""
-    ff = find_ffmpeg()
-    if name == "ffmpeg":
-        return ff or name
-    return (_in_dirs(name, [os.path.dirname(ff)]) if ff else None) or shutil.which(name) or _in_dirs(name, _winget_dirs()) or name
+    return find_tool(name, "TRANSCRIBE_" + name.upper().replace("-", "")) or name
 
 
 def ffmpeg_info(path, ff=None):
