@@ -26,7 +26,8 @@ import urllib.error
 import urllib.request
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, workdata as _workdata
-from . import backend as _backend, tx_engines, txbase as _txbase, worker_client
+from . import backend as _backend, tx_engines, worker_client
+from ytt import txbase as _txbase
 
 # ---------- 話者の自動判別(sherpa-onnx) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。

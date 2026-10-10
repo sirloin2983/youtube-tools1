@@ -27,7 +27,7 @@ from unittest import mock
 
 from test_backend import S  # noqa: F401  (S = serve)
 from human.proof import doc_jobs
-from pipeline.transcribe import txbase
+from ytt import txbase
 from ytt import modfwd
 
 _TESTS = os.path.dirname(os.path.abspath(__file__))

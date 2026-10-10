@@ -32,7 +32,8 @@ import time
 import wave
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, tools as _tools, workdata as _workdata
-from . import backend as _backend, roster as _roster, tx_engines, txbase as _txbase
+from . import backend as _backend, roster as _roster, tx_engines
+from ytt import txbase as _txbase
 
 
 # ---------- 読み込んだモデル ----------

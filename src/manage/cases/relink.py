@@ -16,7 +16,7 @@ import time
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 in_eval_dir・eval_name_guard(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー log・環境変数のスイッチ env_off・ジョブの注意 add_warning(RS3-E7 まで ed_state の別名で読んでいた)
+from ytt import txbase as _txbase  # noqa: E402   ロガー log・環境変数のスイッチ env_off・ジョブの注意 add_warning(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み書き・保存のロック・控え・要約(呼ぶたびに _store.名前 で読む)
 
 # ---------- 動画を選び直す(付け替え。全体の計画の段2 B-4・監査 19。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 1) ----------

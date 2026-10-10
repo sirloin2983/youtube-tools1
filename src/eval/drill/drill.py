@@ -27,7 +27,8 @@ import threading
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state の別名で読んでいた)
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
-from pipeline.transcribe import diarize as _diarize, roster as _roster, txbase as _txbase  # noqa: E402   判別の記録 read_diar・名簿の呼び名と配信の文脈 stream_context・ロガー log
+from pipeline.transcribe import diarize as _diarize, roster as _roster  # noqa: E402   判別の記録 read_diar・名簿の呼び名と配信の文脈 stream_context・ロガー log
+from ytt import txbase as _txbase  # noqa: E402
 from human.proof import speakers as _speakers, store as _store  # noqa: E402   話者の名前の小道具・声の登録簿・1 人指定 / 文書の読み書き・保存のロック・要約(呼ぶたびに 名前 で読む)
 from . import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・メンバーのフォルダの形(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
 

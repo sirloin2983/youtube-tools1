@@ -35,7 +35,8 @@ import threading
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   ApiError・書き込み・ジョブの表と待機列・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state・ed_jobs の別名で読んでいた)
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from pipeline.transcribe import diarize as _diarize, txbase as _txbase  # noqa: E402   判別の記録 read_diar・diar_path・ロガー log・スイッチ env_off
+from pipeline.transcribe import diarize as _diarize  # noqa: E402   判別の記録 read_diar・diar_path・ロガー log・スイッチ env_off
+from ytt import txbase as _txbase  # noqa: E402
 from human.proof import doc_jobs as _docjobs, rerun as _rerun, speakers as _speakers, store as _store  # noqa: E402   文字起こしの受付 validate_job・public_job / 再認識の記録 record_rerun / 自動の判別 autodiar_* / 文書の読み書き(呼ぶたびに 名前 で読む)
 from . import drill as _drill, folders as _evfolders  # noqa: E402   評価ドリルの要約・処理中の文書・動画の有無 / 評価用のフォルダの仮置き・動画の一覧・整理のロック(隣の部品 = 呼ぶたびに 名前 で読む)
 

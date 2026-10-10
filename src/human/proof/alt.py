@@ -33,7 +33,7 @@ from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き�
 from pipeline.transcribe import backend as _backend  # noqa: E402   疑似かどうか is_fake()・疑似の行 alt_rows・エンジンの確かめと版の口(RS3-E6 に ed_state.backend_name から。RS5-D)
 from pipeline.transcribe import postproc, recognize, records, worker_client  # noqa: E402   行の後処理・音声の取り出しと認識・エンジンの版・エンジンの確かめ(RS3-E6 に ed_jobs の殻から持ち主へ)
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)・LANGS・MAX_TEXT・ロガー・ジョブの注意
+from ytt import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)・LANGS・MAX_TEXT・ロガー・ジョブの注意
 from . import doc_jobs, store  # noqa: E402   行を分ける文字数 split_chars_for(doc_jobs ↔ alt は呼ぶときに読むので循環しても動く)・文書の読み書き(呼ぶたびに store.名前 で読む)
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
@@ -52,7 +52,7 @@ _settings.register_patch_key("altEngine", lambda v: isinstance(v, str) and v in 
 ALT_WINDOW_SEC = 90         # 行の時刻でこの長さごとの窓に区切ってそろえる(長い文書でも遅くならないように)
 ALT_WINDOW_SLACK = 20       # 窓の区切りは、目安の前後この秒の中で、行と行のすき間がいちばん長い所
 ALT_MAX_CHARS = 12          # wrong・right のどちらかがこれより長い食い違いは候補にしない
-ALT_MAX_ITEMS = 1000        # (そろえるときに無視する字 ALT_DROP_CHARS は寄せ方 alt_fold と一緒に pipeline/transcribe/txbase.py。RS2-9)
+ALT_MAX_ITEMS = 1000        # (そろえるときに無視する字 ALT_DROP_CHARS は寄せ方 alt_fold と一緒に ytt/txbase.py。RS2-9)
 
 
 # ---------- エンジンの選び方 ----------

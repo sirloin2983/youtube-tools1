@@ -16,7 +16,7 @@ import os
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from pipeline.pack import resolve_export  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b に pipeline_io から pipeline/pack へ)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
+from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み・編集の内容(呼ぶたびに _store.名前 で読む)
 from human.proof import batch as _batch  # noqa: E402   文字起こし済みの範囲 transcribed_ranges(フォルダの一括と同じ 1 か所)
 from . import pipeline_io  # noqa: E402   (受け渡しの読み・保存。RS3-E5b に editor から manage/cases へ)

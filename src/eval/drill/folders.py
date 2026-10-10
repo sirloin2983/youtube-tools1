@@ -16,7 +16,7 @@ import unicodedata
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定と設定の読み load_settings(RS3-1 に ed_relink・ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所の今の値・動画と音声の拡張子)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
+from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み書き・保存のロック・履歴・要約(呼ぶたびに _store.名前 で読む)
 from manage.cases import relink as _relink  # noqa: E402   付け替えの書き込み _relink_write・文書が処理中か _doc_busy(呼ぶたびに _relink.名前 で読む)
 

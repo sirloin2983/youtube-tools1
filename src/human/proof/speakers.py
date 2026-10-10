@@ -20,7 +20,8 @@ import unicodedata
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from pipeline.transcribe import backend as _backend, diarize, recognize  # noqa: E402   本物と疑似の差し込み口・判別の計算(呼ぶたびに diarize.名前 で読む)・音声の取り出し
-from pipeline.transcribe import txbase as _txbase, worker_client  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 疑似のワーカーの判定 worker_fake
+from pipeline.transcribe import worker_client  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 疑似のワーカーの判定 worker_fake
+from ytt import txbase as _txbase  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from pipeline.transcribe import fill  # noqa: E402   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0。呼ぶたびに fill.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)

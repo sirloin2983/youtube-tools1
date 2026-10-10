@@ -32,7 +32,7 @@ import bisect
 import unicodedata
 
 from ytt import schemas as _yschemas
-from . import txbase as _txbase
+from ytt import txbase as _txbase
 
 # ---------- 1. 読む速さ ----------
 SUBREAD_FAST_CPS = 10.0     # 1 秒あたりの字幕の文字がこれを超えたら「速い」(app-rows.js の READ_FAST_CPS と同じ値)

@@ -31,7 +31,8 @@ import time
 import unicodedata
 
 from ytt import fsio as _fsio, jobs as _heavy, workdata as _workdata   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)・書き込みと付き物の JSON の読み
-from . import backend as _backend, roster as _roster, txbase as _txbase, worker_client   # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)
+from . import backend as _backend, roster as _roster, worker_client  # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)
+from ytt import txbase as _txbase
 
 LLM_ENGINE, LLM_MODEL = "llama-text", "qwen3-8b"   # tx_engines.LlamaText と LLAMA_TEXT_MODELS の名前
 LLM_SCHEMA = "youtube-tools-llm/v1"

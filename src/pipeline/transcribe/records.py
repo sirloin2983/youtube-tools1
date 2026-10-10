@@ -16,7 +16,8 @@ import os
 import time
 
 from ytt import fsio as _fsio, workdata as _workdata
-from . import backend as _backend, postproc, roster as _roster, tx_engines, txbase as _txbase
+from . import backend as _backend, postproc, roster as _roster, tx_engines
+from ytt import txbase as _txbase
 
 _dict_inputs = {}
 

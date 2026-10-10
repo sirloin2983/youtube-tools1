@@ -20,7 +20,8 @@ import subprocess
 import time
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata
-from . import backend as _backend, postproc, records, roster as _roster, tx_engines, txbase as _txbase, worker_client
+from . import backend as _backend, postproc, records, roster as _roster, tx_engines, worker_client
+from ytt import txbase as _txbase
 
 _head_stripper = []
 

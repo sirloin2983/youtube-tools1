@@ -12,7 +12,8 @@ import time
 
 from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import backend as _backend, postproc, records, recognize  # noqa: E402
-from pipeline.transcribe import roster as _roster, tx_engines, txbase as _txbase, worker_client  # noqa: E402
+from pipeline.transcribe import roster as _roster, tx_engines, worker_client  # noqa: E402
+from ytt import txbase as _txbase  # noqa: E402
 from pipeline.transcribe import replace  # noqa: E402   置換辞書を当てる apply_replacements(RS3-E5c に ed_learn から)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import doc_jobs  # noqa: E402   受付の側の dict_pairs・_fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)

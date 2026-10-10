@@ -5,7 +5,7 @@
 文字起こしのジョブ(human/proof/doc_jobs)・再認識(human/proof/rerun)・学習(human/proof/learn)・精度の用語(eval/drill/metrics)が `replace.名前` で呼ぶたびに読む。
 旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。RS5 で消す)と serve の受付がここへ回す。
 """
-from . import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に ed_learn の _cc を移した)
+from ytt import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に ed_learn の _cc を移した)
 
 
 def parse_replacements(text):

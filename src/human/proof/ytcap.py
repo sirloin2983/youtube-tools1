@@ -32,7 +32,7 @@ import time
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   1 行の文字数の上限・ロガー・ジョブの注意(RS3-E6 に ed_state の別名から)
+from ytt import txbase as _txbase  # noqa: E402   1 行の文字数の上限・ロガー・ジョブの注意(RS3-E6 に ed_state の別名から)
 from . import alt, store  # noqa: E402   比べ方 alt_diffs ほか(呼ぶたびに alt.名前 で読む)・文書の読み書き(呼ぶたびに store.名前 で読む)
 
 YTCAP_SCHEMA = "youtube-tools-ytcap/v1"            # transcripts/<id>.ytcap.json(文書の範囲に切り出した字幕。形は alt.json に合わせる)

@@ -21,7 +21,7 @@ from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _ys
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from pipeline.pack import resolve_export  # noqa: E402   カットのたたき台・見積もり(RS3-E5b に editor から pipeline/pack へ。呼ぶたびに resolve_export.名前 で読む)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
+from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
 
 
 # ---------- 文字起こしの保存 ----------

@@ -29,7 +29,8 @@ import re
 import unicodedata
 
 from ytt import errors as _errors, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
-from . import backend as _backend, diarize, roster as _roster, tx_engines, txbase as _txbase, worker_client   # diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
+from . import backend as _backend, diarize, roster as _roster, tx_engines, worker_client  # diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
+from ytt import txbase as _txbase
 
 FILL_ENGINE, FILL_MODEL = "sense-voice", "sense-voice-small"   # 2 つ目の読み(tx_engines.SenseVoice)
 FILL_LANGS = ("ja", "en", "zh", "ko")   # SenseVoice に言語として渡せるもの(それ以外は auto)

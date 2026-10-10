@@ -15,7 +15,8 @@ import re
 import unicodedata
 
 from ytt import workdata as _workdata
-from . import roster as _roster, tx_engines, txbase as _txbase
+from . import roster as _roster, tx_engines
+from ytt import txbase as _txbase
 
 
 LATIN_MIN_LETTERS = 4   # 英字がこの数以上で、文字全体の LATIN_RATIO 以上を占め、

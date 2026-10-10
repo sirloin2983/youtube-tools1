@@ -13,7 +13,7 @@ import threading
 import unicodedata
 
 from ytt import studiodata as _studiodata
-from . import txbase as _txbase
+from ytt import txbase as _txbase
 
 ROSTER = None   # 名簿のファイル(編集のフォルダの hololive-roster.json)。app(編集の ed_state)が読み込みのときに入れる。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける。RS3-0A に ed_state から移した)
 

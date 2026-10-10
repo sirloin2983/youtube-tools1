@@ -14,7 +14,8 @@ import threading
 import time
 
 from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
-from pipeline.transcribe import roster as _txroster, txbase as _txbase  # noqa: E402
+from pipeline.transcribe import roster as _txroster  # noqa: E402
+from ytt import txbase as _txbase  # noqa: E402
 from pipeline.transcribe import backend as _txbackend  # noqa: E402   疑似の切り替えの環境変数の読み mode()(RS5-D)
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 
@@ -58,7 +59,7 @@ MODELS = [
     ("kotoba-tech/kotoba-whisper-v2.0-faster", "kotoba-whisper v2.0(日本語特化・高速。聞き取りにくい音声は苦手なことも)"),
 ]
 LANGS = _txbase.LANGS
-# 幻覚の決まり文句・要確認の印の文(正は pipeline/transcribe/txbase.py。RS2-1a)
+# 幻覚の決まり文句・要確認の印の文(正は ytt/txbase.py。RS2-1a)
 HALLUC, HALLUC_LINE, HALLUC_LINE_REST, MUSIC_ONLY = _txbase.HALLUC, _txbase.HALLUC_LINE, _txbase.HALLUC_LINE_REST, _txbase.MUSIC_ONLY
 LEAK_FLAG, LEAK_MAX_SEC, REP_MIN, REP_RE = _txbase.LEAK_FLAG, _txbase.LEAK_MAX_SEC, _txbase.REP_MIN, _txbase.REP_RE
 
