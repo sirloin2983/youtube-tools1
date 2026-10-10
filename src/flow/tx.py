@@ -22,7 +22,7 @@ import os
 import time
 
 from ytt import dictfmt as _dictfmt, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, settings as _settings
-from ytt import tools as _tools, txbase as _txbase, txtext as _txtext, workdata as _workdata
+from ytt import tools as _tools, txbase as _txbase, txtext as _txtext, txwords as _txwords, workdata as _workdata
 from pipeline.transcribe import backend as _backend, clipjob, llm, postproc, recognize, records, roster as _roster, tx_engines, worker_client
 from pipeline.transcribe import retime as _retime
 
@@ -41,6 +41,15 @@ def dict_pairs(spec):
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
         _txbase.log.warning("名簿の表記ゆれの表を作れませんでした: %s", e)
     return pairs
+
+
+def rerun_base(spec, pairs, kind):
+    """再認識の記録(recognition.runs の 1 件)の共通項目: ① records の共通項目(エンジンと版・モデル・設定・辞書の版・後処理)に kind・機器・autoDict を足したもの。
+    ② が足すこと = 再認識の記録だけの項目(どの機器で・辞書を使ったか)。range・replaced などは ③ の record_rerun が足す(RS6 a-5b に human/proof/rerun から)。
+    pairs = 作ってある dict_pairs(spec)(設定と名簿を読み直さない)"""
+    run = dict(records._run_base(spec, pairs), kind=kind, device=str(spec.get("device") or ""))
+    run["settings"]["autoDict"] = bool(spec.get("autoDict"))
+    return run
 
 
 def read_roster_file():
@@ -111,7 +120,7 @@ def write_clip_records(tid, clip, spec):
     """文字起こしの記録を文書の横に書く: 単語の時刻 <id>.words.json・生出力 <id>.asr.json・LLM の生の提案 <id>.llm.json(あれば)。
     ② が足すこと = ① の結果(transcribe_clip が返した clip)を、文書の id が決まったあとで記録として置く。書けなくても文書は残す(警告だけ)"""
     try:
-        records.write_words(tid, clip["words"], spec["model"])
+        _txwords.write_words(tid, clip["words"], spec["model"])
     except OSError as e:
         _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
     try:
@@ -307,7 +316,7 @@ def word_retime(tid, segments, rows, engine):
     -> {"items": 候補(① retime.retime_candidates), "checked": 調べた行の数(上限 RETIME_MAX_ROWS), "endEdge": 終わりの端も候補にしたか}。
     ② が足すこと = 認識の記録(words.json)を読む・行の数の上限・エンジンで終わりの端を使うかを決める(engine = 文書の最初の認識のエンジン)"""
     rows = list(rows)[:_retime.RETIME_MAX_ROWS]
-    words = records.read_words(tid)
+    words = _txwords.read_words(tid)
     if not words:
         return None
     end_ok = engine not in _retime.RETIME_END_SKIP

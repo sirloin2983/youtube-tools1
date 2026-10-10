@@ -8,7 +8,7 @@
 **役割で組み直す RS6 a-3(2026-10-10)から ① pipeline/transcribe を直に読まない**: 音声の取り出し(extract_span)・認識器とワーカーのモデル(redo_recognizer・
 each_lines・recognize_range)・全体の続きの記録の後始末(end_whole)・声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)は ② の `flow/tx`(`_flowtx.名前`)。
 疑わしい所の認識し直しの設定 redo_kwargs と本物の処理(_redo_real・_redo_finish・_each_real)もそこへ移した。句読点・文字数・印の文は ytt/txtext、
-置換辞書の当て方は ytt/dictfmt。認識の記録 records(_run_base・read_words・write_words)は ① のまま(KNOWN に残る。a-5 で決める)。
+置換辞書の当て方は ytt/dictfmt。再認識の記録の共通項目は ② flow/tx の rerun_base・単語の時刻は ytt/txwords(RS6 a-5b)。
 ed_state は読まない(置き場所と元のファイルの検査は ytt の workdata・tools・ジョブの表は ytt/jobs)。S.名前 は serve の受付がここへ回す
 (テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
 """
@@ -18,7 +18,7 @@ from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa
 from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
 from ytt import dictfmt as _dictfmt, txtext as _txtext  # noqa: E402   置換辞書を当てる apply_replacements・句読点 strip_punct・文字数 text_chars・印の文 SPARSE_FLAG(RS6 a-3 に ① から ytt へ)
-from pipeline.transcribe import records  # noqa: E402   再認識の記録の元 _run_base・単語の時刻(① のまま = KNOWN に残る)
+from ytt import txwords  # noqa: E402   単語の時刻の読み書き read_words・write_words(RS6 a-5b に ① records から ytt へ)
 from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・redo_recognizer・each_lines・recognize_range・end_whole・note_vad・dict_pairs。RS6 a-3)
 from ytt import txbase as _txbase  # noqa: E402
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
@@ -58,9 +58,7 @@ def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     # 再認識(each・range・whole)と疑わしい所の認識し直し(redo)は、どれも差し替える前にここを通る
     doc.pop("evalReviewed", None)
     rep = replaced[:MAX_REPLACED_ROWS]
-    run = dict(records._run_base(spec, pairs), kind=kind, device=str(spec.get("device") or ""),
-               range=[min(a for a, _ in spans), max(b for _, b in spans)], replaced=rep)
-    run["settings"]["autoDict"] = bool(spec.get("autoDict"))
+    run = dict(_flowtx.rerun_base(spec, pairs, kind), range=[min(a for a, _ in spans), max(b for _, b in spans)], replaced=rep)
     if len(spans) > 1:
         run["spans"] = spans[:MAX_REPLACED_ROWS]
     if len(replaced) > len(rep):
@@ -81,9 +79,9 @@ def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
 def replace_words(tid, a, b, new_words, model="", keep_spans=()):
     """範囲 [a, b] の単語を、認識し直した単語に差し替える(真ん中が範囲に入る単語を消す。keep_spans の区間の単語は残す)。
     以前の単語が無い文書は、新しい単語だけにしない(範囲の外の単語が無いまま一部だけあると、分け直すときに紛らわしいため、範囲の単語だけで作る)"""
-    old = records.read_words(tid) or []
+    old = txwords.read_words(tid) or []
     keep = [w for w in old if not (a - 1e-6 <= (w[0] + w[1]) / 2 <= b + 1e-6) or _in_spans((w[0] + w[1]) / 2, keep_spans)]
-    records.write_words(tid, keep + [list(w) for w in new_words], model)
+    txwords.write_words(tid, keep + [list(w) for w in new_words], model)
 
 
 # ---------- 選んだ行の再認識の反映(行ごと = each) ----------

@@ -17,7 +17,7 @@ from unittest import mock
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
 from pipeline.transcribe import records, roster as roster_mod  # noqa: E402
-from ytt import workdata  # noqa: E402
+from ytt import txwords, workdata  # noqa: E402
 
 
 class _Env(unittest.TestCase):
@@ -62,16 +62,16 @@ class TestDictVersion(_Env):
 
 class TestFiles(_Env):
     def test_words_and_asr_in_tx_dir(self):
-        records.write_words("abc", [[1.0, 1.5, "い"], [0.0, 0.5, "あ"]], "small")
-        self.assertEqual(records.words_path("abc"), os.path.join(self.tmp, "abc.words.json"))
-        self.assertEqual(records.read_words("abc"), [[0.0, 0.5, "あ"], [1.0, 1.5, "い"]])
+        txwords.write_words("abc", [[1.0, 1.5, "い"], [0.0, 0.5, "あ"]], "small")
+        self.assertEqual(txwords.words_path("abc"), os.path.join(self.tmp, "abc.words.json"))
+        self.assertEqual(txwords.read_words("abc"), [[0.0, 0.5, "あ"], [1.0, 1.5, "い"]])
         raw = []
         rows = list(records.capture_raw(iter([{"start": 0.0, "end": 1.0, "text": "あ", "words": [(0.0, 1.0, "あ")], "wordProbs": [0.9]}]), raw, 10.0))
         self.assertEqual((len(rows), raw[0]["words"]), (1, [[10.0, 11.0, "あ", 0.9]]))
         records.write_asr("abc", raw, {"engine": "x"})
         self.assertEqual(records.read_asr("abc")["segments"], raw)
-        records.write_words("abc", [])
-        self.assertIsNone(records.read_words("abc"))
+        txwords.write_words("abc", [])
+        self.assertIsNone(txwords.read_words("abc"))
 
 
 if __name__ == "__main__":

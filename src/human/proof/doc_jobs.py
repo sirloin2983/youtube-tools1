@@ -15,7 +15,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 **役割で組み直す RS6 a-3(2026-10-10)から ③ は ① pipeline/transcribe を直に読まない**: 文字起こしの機械の分(取り出し → 認識 → 後処理 fill・llm → 文書の行 = ① clipjob)と
 文書の機械の分 fields・記録の書き込み・置換辞書の組 dict_pairs・モデルとエンジンの確かめ・配信ごとの文脈は ② の `flow/tx`(`_flowtx.名前`)、
 行を分ける・句読点・印の文・用語の区切りは ytt/txtext、置換辞書の読み方と当て方は ytt/dictfmt。範囲・全体の再認識の行の頭の「名前:」を外す決まり head_stripper は ① fill.fill_head_stripper へ。
-単語の時刻の読み records.read_words は ① のまま(KNOWN に残る。records を flow へ移すか動詞にするかは a-5)。
+単語の時刻の読み read_words は ytt/txwords(RS6 a-5b)。
 """
 import bisect
 import json
@@ -29,7 +29,7 @@ from ytt import settings as _settings  # noqa: E402   編集の設定の読み�
 from ytt import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
 from ytt import txtext as _txtext  # noqa: E402   行を分ける split_segment・句読点 strip_punct・印の文 SPARSE_FLAG・用語の区切り split_terms(RS6 a-3 に ① の postproc・roster から)
 from ytt import tools as _tools  # noqa: E402   元のファイルの検査と長さ(check_source・media_duration。RS3-0A まで txenv の口)
-from pipeline.transcribe import records  # noqa: E402   単語の時刻 read_words(RS2-5。① のまま = KNOWN に残る)
+from ytt import txwords  # noqa: E402   単語の時刻 read_words(RS6 a-5b に ① records から ytt へ)
 from flow import tx as _flowtx  # noqa: E402   ② 文字起こしの動詞(transcribe_clip・write_clip_records・dict_pairs・check_model・request_engine。RS6 a-3)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
@@ -278,7 +278,7 @@ def resplit_doc(obj):
         base = obj.get("baseUpdatedAt")
         if isinstance(base, int) and not isinstance(base, bool) and base != int(doc.get("updatedAt") or 0):
             raise _errors.ApiError("conflict", "別の画面で先に保存されています。読み直してから、もう一度押してください", 409)
-        words = records.read_words(tid)
+        words = txwords.read_words(tid)
         if not words:
             raise _errors.ApiError("no_words", "この文字起こしには単語の時刻がありません(v0.17.0 より前の文字起こし・単語の時刻を使わない設定)。"
                                        "行を選んで「範囲を再認識」すると、その範囲の単語の時刻を取り直せます", 400)
