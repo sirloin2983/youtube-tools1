@@ -163,8 +163,8 @@ def main():
         sys.path.insert(0, os.path.join(tmp, HOME))
         import mount as tx_mount  # noqa: E402
         csp = tx_mount.MOUNTS["transcribe"]["csp"]
-        with open(os.path.join(tmp, EDITOR, "app.js"), encoding="utf-8") as f:
-            app_version = re.search(r"const APP_VERSION = '([^']+)'", f.read()).group(1)
+        with open(os.path.join(REPO, "ytt", "version.py"), encoding="utf-8") as f:   # 全体の版(RS5-E)
+            app_version = re.search(r'^VERSION = "([^"]+)"', f.read(), re.M).group(1)
 
         media = os.path.join(tmp, "テスト 用の 素材 動画.webm")   # 日本語・スペースを含む名前
         # Playwright の chromium(オープンソース版)は H.264 を再生できないので、VP9 + Opus の webm にする

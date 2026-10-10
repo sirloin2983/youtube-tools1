@@ -103,7 +103,7 @@ FAKE_SERVE = textwrap.dedent(r'''
         print("bye", flush=True)
 ''')
 
-VERSIONS = {"studio": "0.2.0", "transcribe": "0.10.0", "cut2resolve": "0.3.0"}
+VERSIONS = {"studio": "0.2.0", "transcribe": "0.2.0", "cut2resolve": "0.2.0"}   # 版は全体で 1 つ(RS5-E。ytt/version.py)なので全ツール同じ
 
 
 def free_ports(n):
@@ -125,11 +125,10 @@ def make_fake_root(tmp, versions=VERSIONS):
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "serve.py"), "w", encoding="utf-8") as f:
             f.write(FAKE_SERVE % {"tool": spec["id"], "app": spec["app"], "ver": versions[spec["id"]]})
-        vline = ('SERVER_VERSION = "%s"\n' if os.path.basename(spec["version_path"]) == "serve.py" else 'VERSION = "%s"\n') % versions[spec["id"]]
-        vpath = os.path.join(tmp, spec["version_path"])   # src/ からの相対(cut2resolve は pipeline/pack/cut2resolve_core.py)
-        os.makedirs(os.path.dirname(vpath), exist_ok=True)
-        with open(vpath, "a", encoding="utf-8") as f:
-            f.write("\n" + vline)
+    vpath = os.path.join(tmp, "ytt", "version.py")   # 期待する版(全体の版)はここから読む
+    os.makedirs(os.path.dirname(vpath), exist_ok=True)
+    with open(vpath, "w", encoding="utf-8") as f:
+        f.write('VERSION = "%s"\n' % next(iter(versions.values())))
     return tmp
 
 

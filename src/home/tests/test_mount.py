@@ -73,6 +73,13 @@ class TestHelpers(unittest.TestCase):
                          b'<html><head><title>x</title><meta name="ytt-token" content="abc"></head>')
         self.assertTrue(M.inject_token(b"<p>no head</p>", "t").startswith(b'<meta name="ytt-token"'))
 
+    def test_inject_version_meta(self):
+        """RS5-E: 版を渡すと meta ytt-version も入る(画面の APP_VERSION の元)。変な文字の版は入れない"""
+        self.assertEqual(M.inject_token(b"<head></head>", "abc", "0.56.0"),
+                         b'<head><meta name="ytt-token" content="abc"><meta name="ytt-version" content="0.56.0"></head>')
+        self.assertNotIn(b"ytt-version", M.inject_token(b"<head></head>", "abc", '"><script>'))
+        self.assertNotIn(b"ytt-version", M.inject_token(b"<head></head>", "abc"))
+
     def test_peek_path(self):
         a, b = socket.socketpair()
         try:

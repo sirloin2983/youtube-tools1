@@ -317,18 +317,16 @@ class TestStartupChecks(StoreDir):
                 f.write("<html></html>")
             S.APP_JS = os.path.join(self.tmp, "app.js")
             with open(S.APP_JS, "w", encoding="utf-8") as f:
-                f.write("const APP_VERSION = '%s';" % S.SERVER_VERSION)
+                f.write("// app")
             S.find_ffmpeg = lambda: "/usr/bin/ffmpeg"
             self.assertEqual(S.startup_checks(), [])
-            with open(S.APP_JS, "w", encoding="utf-8") as f:
-                f.write("const APP_VERSION = '0.0.1';")
             S.find_ffmpeg = lambda: None
             blocker = os.path.join(self.tmp, "file")
             with open(blocker, "w") as f:
                 f.write("x")
             S.TX_DIR = os.path.join(blocker, "transcripts")    # ファイルの下には作れない = 書き込めない保存先
             w = " / ".join(S.startup_checks())
-            for word in ("ffmpeg", "版が違います", "保存先に書き込めません"):
+            for word in ("ffmpeg", "保存先に書き込めません"):
                 self.assertIn(word, w)
             os.unlink(S.APP_JS)
             self.assertIn("app.js が見つかりません", " / ".join(S.startup_checks()))

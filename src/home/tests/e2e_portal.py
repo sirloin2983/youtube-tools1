@@ -173,8 +173,7 @@ def tool_version(rel, pattern):
         return re.search(pattern, f.read(), re.M).group(1)
 
 
-TX_VER = "v" + tool_version(layout.TOOL_DIRS["transcribe"] + "/app.js", r"const APP_VERSION = '([^']+)'")
-STUDIO_VER = "v" + tool_version(layout.TOOL_DIRS["studio"] + "/core.js", r"const APP_VERSION = '([^']+)'")
+TX_VER = STUDIO_VER = "v" + tool_version("ytt/version.py", r'^VERSION = "([^"]+)"')   # 全体の版は 1 つ(RS5-E)
 SHOWN = ("studio", "transcribe")   # ホームのカード(cut2resolve は「編集」の部品。動いている間はカードを出さない)
 
 

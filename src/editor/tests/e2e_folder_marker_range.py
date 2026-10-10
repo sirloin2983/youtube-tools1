@@ -20,10 +20,10 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 
 
 def app_version():
-    """画面の版(app.js の APP_VERSION)。版を上げるたびにテストを書き換えなくて済むように、固定の文字列ではなくここから読む"""
-    with open(os.path.join(HERE, "app.js"), encoding="utf-8") as f:
-        m = re.search(r"const APP_VERSION = '([^']+)'", f.read())
-    assert m, "app.js に APP_VERSION が見つからない"
+    """画面の版 = 全体の版(ytt/version.py)。入口なしの単体起動では meta が無く、画面は /api/ping の版を出す。版を上げるたびにテストを書き換えなくて済むように、固定の文字列ではなくここから読む"""
+    with open(os.path.join(HERE, "..", "ytt", "version.py"), encoding="utf-8") as f:
+        m = re.search(r'^VERSION = "([^"]+)"', f.read(), re.M)
+    assert m, "ytt/version.py に VERSION が見つからない"
     return "v" + m.group(1)
 
 
