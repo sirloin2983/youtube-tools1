@@ -584,9 +584,11 @@ class TestEdLearnNames(unittest.TestCase):
         from pipeline.transcribe import replace
         for m in (replace, learn, metrics):
             self.assertIn(m, S._ED_MODULES, m.__name__)
-        self.assertIs(S.apply_replacements, replace.apply_replacements)
         from ytt import dictfmt
         self.assertIn(dictfmt, S._ED_MODULES)
+        self.assertIs(S.apply_replacements, dictfmt.apply_replacements)   # RS6 a-3: 当て方も ytt へ(③ の再認識の反映が ① を読まない)
+        self.assertIs(S.auto_learned_replace, replace.auto_learned_replace)   # RS6 a-3: 確度「高」の学習済み置換を当てるのは ①(選び方は ③ の learn が渡す)
+        self.assertNotIn("auto_learned_replace", vars(learn))
         self.assertIs(S.parse_replacements, dictfmt.parse_replacements)   # RS6 a-1: 読み方は ytt へ
         self.assertIs(S.learn_rules, learn.learn_rules)
         self.assertIs(S.doc_metrics, metrics.doc_metrics)

@@ -123,7 +123,7 @@ class TestRosterRules(unittest.TestCase):
         kanji = {src for v in R.KANJI_VARIANTS.values() for src, _d in v}
         self.assertTrue(all(len(src) >= R.VARIANT_MIN for src, _d in pairs if src not in kanji))   # 長音の変種は 3 字以上(漢字の当て字は表のまま)
         self.assertEqual(pairs, sorted(pairs, key=lambda p: (-len(p[0]), p[0])))    # 長い綴りから先
-        from pipeline.transcribe.replace import apply_replacements
+        from ytt.dictfmt import apply_replacements   # RS6 a-3 に pipeline/transcribe/replace から
         text, n = apply_replacements("はーちゃまと吹雪が来た", pairs)
         self.assertEqual((text, n), ("はあちゃまとフブキが来た", 2))
 

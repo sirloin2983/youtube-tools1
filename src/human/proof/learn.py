@@ -18,7 +18,7 @@ import threading
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, settings as _settings, workdata as _workdata  # noqa: E402
 from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements・wb_split・_bounded(RS6 a-1 に pipeline/transcribe/replace から)
-from pipeline.transcribe import roster as _roster  # noqa: E402   (名簿のファイルの場所 ROSTER の持ち主。RS3-0A に ed_state から)
+from flow import tx as _flowtx  # noqa: E402   名簿のファイルを読む read_roster_file(置き場所 roster.ROSTER は ① の持ち主のまま。RS6 a-3)
 from ytt import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。D1-b)・YouTube の字幕の候補(suggest_for_doc の yt。案 A1)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import store  # noqa: E402   文書の一覧と読み(_tids・tx_path・read_transcript。RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
@@ -385,18 +385,14 @@ def suggest_for_doc(tid):
     return {"items": items, "rules": len(rules), "alt": alt_info, "yt": yt}
 
 
-def auto_learned_replace(text, rules, fb):
-    """確度が「高」の学習済み置換だけを適用する。(新しい文章, 置換した数)"""
-    sugs = find_suggestions(text, rules, fb, only_high=True)
-    for sg in reversed(sugs):
-        text = text[:sg["i"]] + sg["right"] + text[sg["i"] + len(sg["wrong"]):]
-    return text, len(sugs)
+# 確度「高」の学習済み置換を当てる auto_learned_replace は RS6 a-3 に ① pipeline/transcribe/replace へ(選び方 find_suggestions(only_high)は ここのまま。
+# 文字起こしのジョブ doc_jobs.learned_finder が包んで ① の clipjob に渡す)
 
 
 def load_roster():
     """同梱の名簿。読めない・形が違うときは空(画面では「名簿を読めません」と出す)。中身は文字列だけに整える。
     README で「直せます」と案内しているので、BOM 付きでも読む"""
-    d = _fsio.read_json_or(_roster.ROSTER, None, kind=dict)
+    d = _flowtx.read_roster_file()
     if d is None:
         return {"asOf": "", "note": "", "groups": []}
     groups = []

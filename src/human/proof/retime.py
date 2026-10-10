@@ -9,11 +9,11 @@ src/pipeline/transcribe/retime.py(① の層)へ切り出した。ここに残�
    候補を出すだけ(文書を書き換えない。採るのは画面の 1 押し)。単語の時刻が無ければ reasonCode "no_words"。
    終わりの端を候補にしないエンジンは retime.RETIME_END_SKIP(今は空)。細かい決まり・根拠の数字は retime.py の先頭。
 名前は serve.py からも見える(serve.py の _ED_MODULES。pipeline/transcribe の retime(計算)を、ここ(包み)より前に並べる)。ほかの部品と重ならないよう retime_ で始める。
-**この包み(human/proof/retime)と計算(pipeline/transcribe/retime)は同じ名前**: 計算は `from pipeline.transcribe import retime as _calc` の別名で読み、呼ぶたびに `_calc.名前` で読む(差し替えが効くように。
-別名・転送は置かない)。ほかの部品も `モジュール.名前` で呼ぶたびに読む。
+**この包み(human/proof/retime)と計算(pipeline/transcribe/retime)は同じ名前**。RS6 a-3(2026-10-10)から ③ は ① を直に読まず、
+② の flow/tx.word_retime(words.json を読む・行の数の上限・終わりの端の決まり → ① の計算)を呼ぶ。ほかの部品も `モジュール.名前` で呼ぶたびに読む。
 """
 from ytt import errors as _errors  # noqa: E402
-from pipeline.transcribe import records, retime as _calc  # noqa: E402   単語の時刻 read_words(RS2-8a)・計算(RS2-9。この包みと同じ名前なので別名で読む)
+from flow import tx as _flowtx  # noqa: E402   ② 単語の時刻を読んで ① の計算に渡す word_retime(RS6 a-3。それまでは records と計算 retime を直に読んでいた)
 from . import alt, store  # noqa: E402   最初の認識の記録の探し方 alt_first_run(1 か所)・保存済みの文書の読み込み
 
 
@@ -29,14 +29,11 @@ def retime_doc(obj):
     rows = obj.get("rows")
     if not isinstance(rows, list) or not rows or not all(isinstance(x, str) and x for x in rows):
         raise _errors.ApiError("bad_rows", "合わせる行(rows = 行の id の並び)を指定してください", 400)
-    rows = rows[:_calc.RETIME_MAX_ROWS]
     doc = store.read_transcript(tid)
     upd = int(doc.get("updatedAt") or 0)
-    words = records.read_words(tid)
-    if not words:
+    eng = retime_engine(doc)
+    got = _flowtx.word_retime(tid, doc.get("segments") or [], rows, eng)   # 行の数の上限(RETIME_MAX_ROWS)・words.json・終わりの端の決まりは ②・計算は ①
+    if got is None:
         return {"items": [], "checked": 0, "updatedAt": upd, "reasonCode": "no_words",
                 "reason": "この文字起こしには単語の時刻がありません(古い文字起こし・単語の時刻を使わない設定)。範囲を再認識すると取り直せます"}
-    eng = retime_engine(doc)
-    end_ok = eng not in _calc.RETIME_END_SKIP
-    items = _calc.retime_candidates(doc.get("segments") or [], words, rows, end_ok=end_ok)
-    return {"items": items, "checked": len(rows), "updatedAt": upd, "engine": eng, "endEdge": end_ok}
+    return {"items": got["items"], "checked": got["checked"], "updatedAt": upd, "engine": eng, "endEdge": got["endEdge"]}

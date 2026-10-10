@@ -9,10 +9,13 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 記録・単語の時刻)は RS2-4〜7 に pipeline/transcribe へ、ジョブの表は ytt/jobs へ移してある。
 旧い名前 ed_jobs.名前 は editor/ed_jobs.py(転送だけの殻。RS5 で消す)がここと移した先へ回す。名前は serve.py からも見える
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
-ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+ほかの部品の名前は `store.名前`・`_flowtx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 評価用のフォルダ(manage の relink・eval の folders)と評価用の作り直し(eval の evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
-2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
-後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
+2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。学習は隣の learn(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
+**役割で組み直す RS6 a-3(2026-10-10)から ③ は ① pipeline/transcribe を直に読まない**: 文字起こしの機械の分(取り出し → 認識 → 後処理 fill・llm → 文書の行 = ① clipjob)と
+文書の機械の分 fields・記録の書き込み・置換辞書の組 dict_pairs・モデルとエンジンの確かめ・配信ごとの文脈は ② の `flow/tx`(`_flowtx.名前`)、
+行を分ける・句読点・印の文・用語の区切りは ytt/txtext、置換辞書の読み方と当て方は ytt/dictfmt。範囲・全体の再認識の行の頭の「名前:」を外す決まり head_stripper は ① fill.fill_head_stripper へ。
+単語の時刻の読み records.read_words は ① のまま(KNOWN に残る。records を flow へ移すか動詞にするかは a-5)。
 """
 import bisect
 import json
@@ -22,19 +25,12 @@ import uuid
 
 from ytt import errors as _errors, schemas as _yschemas  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
-from ytt import jobs as _slots  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from ytt import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
+from ytt import txtext as _txtext  # noqa: E402   行を分ける split_segment・句読点 strip_punct・印の文 SPARSE_FLAG・用語の区切り split_terms(RS6 a-3 に ① の postproc・roster から)
 from ytt import tools as _tools  # noqa: E402   元のファイルの検査と長さ(check_source・media_duration。RS3-0A まで txenv の口)
-from pipeline.transcribe import postproc  # noqa: E402   行の後処理・要確認の印(RS2-4b。呼ぶたびに postproc.名前 で読む)
-from pipeline.transcribe import records  # noqa: E402   認識の記録・生出力・単語の時刻(RS2-5。呼ぶたびに records.名前 で読む)
-from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカーとのやり取り・モデル・wav を読まずに渡す形(RS2-6。呼ぶたびに worker_client.名前 で読む)
-from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。呼ぶたびに recognize.名前 で読む)
-from pipeline.transcribe import fill  # noqa: E402   認識のあとの後処理 A・B・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0。RS2-9 に ed_fill から移した)
-from pipeline.transcribe import llm  # noqa: E402   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0。RS2-9 に ed_llm から移した)
-from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c に ed_learn から。呼ぶたびに replace.名前 で読む)
-from ytt import dictfmt as _dictfmt  # noqa: E402   置換辞書の読み方 parse_replacements(RS6 a-1 に replace から)
+from pipeline.transcribe import records  # noqa: E402   単語の時刻 read_words(RS2-5。① のまま = KNOWN に残る)
+from flow import tx as _flowtx  # noqa: E402   ② 文字起こしの動詞(transcribe_clip・write_clip_records・dict_pairs・check_model・request_engine。RS6 a-3)
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
@@ -78,7 +74,7 @@ def _hook(name):
 
 def glossary_of(req, st=None):
     """要求の用語集(200 語まで)と、自動で足す語(autoGloss。よく直される正しい語)-> (用語集, 自動の語)。st = 読んである設定"""
-    glossary = _roster.split_terms(req.get("glossary"))[:200]
+    glossary = _txtext.split_terms(req.get("glossary"))[:200]
     return glossary, (learn.auto_glossary(glossary, settings=st) if req.get("autoGloss") is not False else [])
 
 
@@ -103,9 +99,7 @@ def validate_job(req):
     # 文書の時刻は「動画ファイルの先頭 = 0 秒」のままなので、元の配信の時刻は常に clip_offset(clip) + 行の時刻になる(範囲の開始で補正しない)
     clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)   # (RS3-0A まで受け渡しの部品 pipeline_io を口から読んでいた)
     warnings = [clip_warn] if clip_warn else []
-    model = str(req.get("model") or "small").strip()
-    if not worker_client.valid_model(model):
-        raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
+    model = _flowtx.check_model(str(req.get("model") or "small").strip())
     lang = str(req.get("language") or "ja")
     if lang not in _txbase.LANGS:
         lang = "ja"
@@ -129,7 +123,7 @@ def validate_job(req):
     if ev:
         glossary, gauto = [], []
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
-    ctx = _roster.stream_context({"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
+    engine, ctx = _flowtx.request_engine(req, model, {"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, req.get("autoContext") is True and not ev)
 
     def pref(key, default_on=False):
         """要求の真偽値があればそれ、無ければ(まとめて実行・古い画面)保存した設定。default_on = 設定に無いときもオン(明示の false だけオフ)"""
@@ -137,7 +131,7 @@ def validate_job(req):
             return req[key]
         return st.get(key) is not False if default_on else st.get(key) is True
     return {"sourcePath": src, "sourceName": os.path.basename(src), "start": round(start, 2), "end": round(end, 2) if end else None, "intoDoc": into,
-            "duration": dur, "whole": whole, "model": model, "engine": worker_client.req_engine(req, model), "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
+            "duration": dur, "whole": whole, "model": model, "engine": engine, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
             "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False and not ev, "wordSplit": req.get("wordSplit") is not False,
@@ -191,7 +185,7 @@ def public_job(j):
 
 # 字幕の文字数(12 ②。ユーザー決定 2026-09-26: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
 SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14},
-                    "splitChars": postproc.SPLIT_CHARS}   # splitChars = 文字起こしの行を分ける文字数(0.59.5 から maxChars とは別。既定 24 = 0.59.6。画面の欄はまだ無い = settings.json か環境変数 TRANSCRIBE_SPLIT_CHARS)
+                    "splitChars": _txtext.SPLIT_CHARS}   # splitChars = 文字起こしの行を分ける文字数(0.59.5 から maxChars とは別。既定 24 = 0.59.6。画面の欄はまだ無い = settings.json か環境変数 TRANSCRIBE_SPLIT_CHARS)
 ORIENTATIONS = ("vertical", "horizontal")
 
 
@@ -240,18 +234,18 @@ def split_chars_for(req=None, st=None):
     return subtitle_settings(st)["splitChars"]
 
 
-def dict_pairs(spec):
-    """置換辞書の組 [(誤, 正)](autoDict のときだけ。評価用の文書は autoDict が外れるので当たらない)= 設定の replacements + 名簿の呼び名の表記ゆれ(roster.variant_pairs。0.59.7。
-    はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = plan/line-b-transcription.md の「10-08 の実験ループ」B)。
-    設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ"""
-    if not spec.get("autoDict"):
-        return []
-    pairs = _dictfmt.parse_replacements(_settings.load_settings().get("replacements"))
-    try:
-        pairs += _roster.variant_pairs(_roster.load(_roster.ROSTER))
-    except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
-        _txbase.log.warning("名簿の表記ゆれの表を作れませんでした: %s", e)
-    return pairs
+# 置換辞書の組 dict_pairs(設定の辞書 + 名簿の表記ゆれ)は RS6 a-3 に ② flow/tx へ(学習データを読む = ② の責任。③ は _flowtx.dict_pairs)
+
+
+def learned_finder(lrules, lfb):
+    """① clipjob に渡す確度「高」の学習済み置換の選び方 find(文字) -> [{"i", "wrong", "right"}](規則が無ければ None = 当てない)。
+    規則と確度を決めるのは ③ の learn(find_suggestions の only_high)、当てるのは ① replace.auto_learned_replace(RS6 a-3)"""
+    if not lrules:
+        return None
+
+    def find(text):
+        return learn.find_suggestions(text, lrules, lfb, only_high=True)
+    return find
 
 
 def dict_learned():
@@ -294,29 +288,29 @@ def resplit_doc(obj):
         out, changed, added, skipped = [], 0, 0, 0
         for g in segs:
             text = str(g.get("text") or "")
-            if g.get("proofed") is True or len(postproc._squash(text)) <= max_chars + postproc.SPLIT_SLACK:
+            if g.get("proofed") is True or len(_txtext._squash(text)) <= max_chars + _txtext.SPLIT_SLACK:
                 out.append(g)
                 continue
             a, b = float(g.get("start") or 0), float(g.get("end") or 0)
             lo, hi = bisect.bisect_left(mids, a - 0.05), bisect.bisect_right(mids, b + 0.05)
             ws = [tuple(w) for w in words[lo:hi]]
             joined = "".join(t for _a, _b, t in ws)
-            if ws and postproc._squash(joined) == postproc._squash(text):
+            if ws and _txtext._squash(joined) == _txtext._squash(text):
                 strip = False
-            elif ws and postproc._squash(postproc.strip_punct(joined)) == postproc._squash(text):
+            elif ws and _txtext._squash(_txtext.strip_punct(joined)) == _txtext._squash(text):
                 strip = True        # 句読点を取り除いた行(stripPunct)
             else:
                 skipped += 1        # 人が直した行・辞書で置き換えた行・単語の無い行は分けない
                 out.append(g)
                 continue
-            parts = postproc.split_segment({"start": a, "end": b, "text": joined, "words": ws}, max_chars)
+            parts = _txtext.split_segment({"start": a, "end": b, "text": joined, "words": ws}, max_chars)
             if len(parts) < 2:
                 out.append(g)
                 continue
             changed += 1
             added += len(parts) - 1
             for k, p in enumerate(parts):
-                t = postproc.strip_punct(p["text"]) if strip else p["text"]
+                t = _txtext.strip_punct(p["text"]) if strip else p["text"]
                 base = str(g.get("id"))
                 sid = _fresh_id(used, lambda n: "%s-%d" % (base, n), k)[0] if k else base   # 2つめからは <元の id>-2, -3 …(ほかの行と重ならない番号)
                 out.append(dict(g, id=sid, start=round(p["start"], 2), end=round(p["end"], 2), text=t[:_txbase.MAX_TEXT]))
@@ -342,29 +336,12 @@ def run_job(job):
         return
     with _heavy.job_temp_wav(job) as wav:
         # 置換辞書の組と学習した置換は認識の前に 1 回だけ読む(F-8。RS2-8e までは音声の取り出しのあと・認識の行を読み始める前に読んでいた)
-        pairs = dict_pairs(spec)
+        pairs = _flowtx.dict_pairs(spec)
         lrules, lfb = (learn.learn_rules(), learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
-        # ① 音声を取り出して認識し、整えた行を受け取る(recognize.transcribe_rows。RS2-8e)。ここから下は文書への書き込み(② の文書づくり)
-        res = recognize.transcribe_rows(job, spec, wav)
-        rows, raw_asr, total, t_rec = res["rows"], res["raw"], res["total"], res["t_rec"]   # raw = 生出力(<id>.asr.json)・t_rec = 認識を始めた時刻(recognition.runs の wallSec)
-        rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames。0.67.0)
-        # 認識のあとの後処理(設定 autoFill。0.60.0): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
-        rows, fill_rec, fill_read = fill.fill_after_rows(job, spec, rows, wav, total)
-        _slots.check_cancel(job)
-        out = _rows_to_doc(job, spec, rows, pairs, lrules, lfb)
-        if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
-            fill_rec["agree"] = fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
-        _slots.check_cancel(job)
-        # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
-        llm_rec, llm_items = llm.llm_after_doc(job, spec, out["segs"])
-        _slots.check_cancel(job)
-        fields = _doc_fields(job, spec, out, total, t_rec, pairs)
-        if fill_rec:
-            fields["recognition"]["runs"][-1]["fill"] = fill_rec   # 後処理の記録(読んだ窓・置き換えた行・捨てた行・直した呼び名)
-        if names_n:
-            fields["recognition"]["runs"][-1]["names"] = names_n   # 話者名を外した行の数(B)
-        if llm_rec:
-            fields["recognition"]["runs"][-1]["llm"] = llm_rec   # LLM の後処理の記録(選んだ所・案・当てた数・断った理由)
+        # 機械の分(② flow/tx.transcribe_clip → ① clipjob = 取り出し → 認識 → 後処理 B・A・C → 文書の行 → D → LLM の E。② が fields を組む。RS6 a-3)。
+        # ここから下は ③ の分(文書の id・clip・評価用・入れる文書・評価用の作り直し・30fps・話者・続きのジョブ)
+        clip = _flowtx.transcribe_clip(job, spec, wav, pairs, learned_finder(lrules, lfb))
+        fields = clip["fields"]
         if spec.get("evalRedo"):
             # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認 2026-10-04)。
             # 認識の間に手が入っていたら書かない(新しい文書も作らない)
@@ -382,82 +359,20 @@ def run_job(job):
             if spec.get("evalSet"):
                 doc["evalSet"] = True
             store.write_doc(tid, doc)
-        try:
-            records.write_words(tid, out["words"], spec["model"])
-        except OSError as e:
-            _txbase.log.warning("単語の時刻を保存できませんでした: %s %s", tid, e)
-        try:
-            records.write_asr(tid, raw_asr, fields["recognition"]["runs"][-1])
-        except (OSError, TypeError, ValueError) as e:
-            _txbase.log.warning("生出力を保存できませんでした: %s %s", tid, e)
-        if llm_items:
-            llm.llm_write(tid, llm_rec, llm_items)   # LLM の生の提案・採否(<id>.llm.json。あとで「あり/なし」を測り直せる)
+        _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)
         _hook("norm_after")(job, spec, tid)
         # 話者の自動判別(評価用は常に・それ以外は設定 autoDiarize。v0.50.0)。「完了」にする前に足す = 判別の待ちの文書をドリルが開く間を作らない
         speakers.autodiar_after_transcribe(job, spec, tid)
         _heavy.job_done(job, tid)
-        if spec.get("autoRedo") and any(postproc.SPARSE_FLAG in g["flag"] for g in out["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
+        if spec.get("autoRedo") and any(_txtext.SPARSE_FLAG in g["flag"] for g in clip["segs"]):   # 疑わしい所を自動で認識し直す(設定。既定オフ。③-2)
             try:
-                _heavy.add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": out["sparseLp"]}), "redo")
+                _heavy.add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": clip["sparseLp"]}), "redo")
             except _errors.ApiError as e:
                 _txbase.add_warning(job, "疑わしい所の認識し直しを始められませんでした: " + e.message)
         alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く。D1-b)
         ytcap.ytcap_after_transcribe(job, spec, tid)   # 設定 autoYtcap: 元の配信の YouTube の字幕と比べて候補を出す(既定オフ・評価用と元の配信が分からない文書は黙って飛ばす。A1)
-
-
-def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
-    """整えた行 → 文書の行(要確認の印・学習した置換・置換辞書)・機械の出力 original・単語の時刻。
-    -> {"segs", "original", "words", "dictApplied", "learnApplied", "sparseLp"(「長い区間に文字が少ない」行の avg_logprob。認識し直したときに良くなったかを比べる。③-2)}"""
-    segs, prev, original, words, sparse_lp, dict_n, learn_n = [], [], [], [], {}, 0, 0
-    terms = _roster.prompt_terms(spec)
-    for s in rows:
-        if not s["text"]:
-            continue
-        seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
-               "text": s["text"][:_txbase.MAX_TEXT], "speaker": "", "flag": ""}
-        seg["flag"] = postproc.make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
-        if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
-            seg["fill"] = {"from": str(s["fill"].get("from") or "")[:_txbase.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
-            mark = fill.FILL_SPK_FLAG if seg["fill"]["by"] == fill.FILL_SPK_BY else fill.FILL_FLAG   # B は話者名を外した印
-            seg["flag"] = "、".join(x for x in (mark, seg["flag"]) if x)[:100]
-        prev.append(seg["text"])
-        if postproc.SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
-            sparse_lp[seg["id"]] = float(s["avg_logprob"])
-        if lrules:   # 確度が高い学習済みの置換は、機械の出力側にも反映する(そうしないと自分の置換を「人が直した」と数えて自己強化してしまう)
-            seg["text"], ln = learn.auto_learned_replace(seg["text"], lrules, lfb)
-            learn_n += ln
-        original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"], **postproc.machine_conf(s)})   # 機械の出力をそのまま残す(修正からの学習・精度の測定に使う)
-        words.extend(postproc.row_words(s, spec["start"]))
-        seg["text"], n = replace.apply_replacements(seg["text"], pairs)
-        dict_n += n
-        segs.append(seg)
-        job["segments"] = len(segs)
-    return {"segs": segs, "original": original, "words": words, "dictApplied": dict_n, "learnApplied": learn_n, "sparseLp": sparse_lp}
-
-
-def _doc_fields(job, spec, out, total, t_rec, pairs=None):
-    """新しい文字起こしの文書の中身(id・題名・動画・作った日・clip・評価用の印は除く)。recognition.runs の最初の記録・params(その時の辞書の版 dict。Q2)。
-    声の検出をやり直していれば、その知らせを spec の warnings と job の vadNote に"""
-    now = int(time.time() * 1000)
-    params = {"beam": spec["beam"], "vadMode": spec["vadMode"], "boost": spec["boost"], "device": job.get("device", ""), "glossary": spec["glossary"][:50],
-              "autoDict": bool(spec.get("autoDict")), "dictApplied": out["dictApplied"], "wordSplit": bool(spec.get("wordSplit")),
-              "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
-              "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
-              "context": records.context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm")),
-              "stripNames": bool(spec.get("stripNames"))}
-    fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
-              "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,
-              "recognition": {"runs": [records.recognition_run(spec, job, total, time.monotonic() - t_rec, pairs)]}}
-    params["dict"] = fields["recognition"]["runs"][0]["settings"]["dict"]
-    if job.get("vad"):
-        params["vadUsed"] = job["vad"].get("used")
-        note = recognize.vad_note(job["vad"])
-        if note:
-            _txbase.add_warning(spec, note)
-            job["vadNote"] = note
-    return fields
 
 
 # ---------- 選んだ行の再認識 ----------
@@ -475,13 +390,10 @@ def validate_retranscribe(req):
     mode = req.get("mode") if req.get("mode") in ("range", "whole") else "each"
     if not ids and mode != "whole":
         raise _errors.ApiError("empty", "再認識する行がありません", 400)
-    model = str(req.get("model") or "large-v3").strip()
-    if not worker_client.valid_model(model):
-        raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
+    model = _flowtx.check_model(str(req.get("model") or "large-v3").strip())
     lang = str(req.get("language") or doc.get("language") or "ja")
     st = _settings.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
     glossary, gauto = glossary_of(req, st)
-    ctx = _roster.stream_context(doc, req.get("autoContext") is True)
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["retranscribe"]):
         raise _errors.ApiError("busy", "この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です", 409)
     rng = None
@@ -502,7 +414,8 @@ def validate_retranscribe(req):
         if b - a > MAX_RANGE_SEC:
             raise _errors.ApiError("too_long", "範囲が長すぎます(最大%d分)。範囲を狭めてください" % (MAX_RANGE_SEC // 60), 400)
         rng = [a, b]
-    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "engine": worker_client.req_engine(req, model), "language": lang if lang in _txbase.LANGS else "ja", "beam": 5,
+    engine, ctx = _flowtx.request_engine(req, model, doc, req.get("autoContext") is True)   # (RS6 a-3 までは文脈を読んだのは busy の確かめの前。文脈は読むだけ = 順は動きに出ない)
+    return {"tid": tid, "ids": ids, "mode": mode, "range": rng, "model": model, "engine": engine, "language": lang if lang in _txbase.LANGS else "ja", "beam": 5,
             # 全体は画面の設定によらず「弱め」から(抜けを拾うのが目的。捨てすぎたら「なし」へ緩める)。明示の「なし」だけは尊重する
             "vadMode": ("off" if req.get("vadMode") == "off" else "weak") if mode == "whole"
             else req.get("vadMode") if mode == "range" and req.get("vadMode") in ("weak", "normal", "off") else "off",
@@ -529,7 +442,7 @@ def redo_targets(doc, ids=None):
     hi_doc = _yschemas.num_or(doc.get("end")) or (lo_doc + (_yschemas.num_or(doc.get("duration")) or 0.0)) or None
     out = []
     for k, g in enumerate(segs):
-        if (ids is not None and g["id"] not in ids) or postproc.SPARSE_FLAG not in str(g.get("flag") or "") or g.get("proofed") is True:
+        if (ids is not None and g["id"] not in ids) or _txtext.SPARSE_FLAG not in str(g.get("flag") or "") or g.get("proofed") is True:
             continue
         if machine and machine.get((round(float(g["start"]), 2), round(float(g["end"]), 2))) != g.get("text"):
             continue   # 機械の出力と違う(人・辞書が直した)。機械の出力が無い文書(文字起こしせずに開いた)は見分けない
@@ -553,9 +466,7 @@ def redo_spec(tid, req=None):
     targets = redo_targets(doc)
     if not targets:
         raise _errors.ApiError("empty", "認識し直す疑わしい行がありません(「長い区間に文字が少ない」の印があり、校正・手直ししていない行が対象です)", 400)
-    model = str(doc.get("model") or "large-v3")
-    if not worker_client.valid_model(model):
-        model = "large-v3"
+    model = _flowtx.check_model(str(doc.get("model") or "large-v3"), fallback="large-v3")
     if "kotoba" in model.lower() and req.get("redoLarge") is not False:
         model = "large-v3"   # kotoba は聞き取りにくい音声が苦手なので、重いモデルで試す(設定)
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["redo"]):
@@ -568,17 +479,3 @@ def redo_spec(tid, req=None):
             "device": "auto", "boost": pr.get("boost") is True, "autoDict": False, "glossary": [], "glossAuto": [],
             "oldLp": {k: float(v) for k, v in old_lp.items() if isinstance(v, (int, float)) and not isinstance(v, bool)},
             "title": _heavy.job_title("疑わしい所を認識し直す: ", doc)}
-
-
-def head_stripper(spec):
-    """範囲・全体の再認識と疑わしい所の認識し直しで、行の頭の「名前:」を外す決まり(fill の B。0.67.0)。recognize.finish_range_lines が使う
-    (① の recognize は fill を読まない。serve が recognize.set_head_stripper で登録する。RS2-7)。
-    -> None(設定 stripNames が明示のオフ・評価用)か、split(文字) -> (本文, 外したときの印 FILL_SPK_NOTE か None)"""
-    if spec.get("stripNames", True) is False or spec.get("evalSet"):
-        return None
-    names = fill.fill_spk_names(spec)
-
-    def split(text):
-        text, head = fill.fill_spk_split(text, names)
-        return text, (fill.FILL_SPK_NOTE if head else None)
-    return split

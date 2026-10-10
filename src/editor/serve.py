@@ -96,6 +96,9 @@ _load_core()
 from ytt import datadir as _datadir, httpsec, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
 from flow import jobs as _heavy_jobs  # noqa: E402
 from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelled・check_cancel(① の部品も使う物。RS6 a-2 で flow/jobs と分けた)
+from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。旧 ed_jobs の _doc_fields・dict_pairs・redo_kwargs と旧 ed_alt の alt_engine_version はここ)
+from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(RS6 a-3 に doc_jobs.run_job から。旧 ed_jobs の _rows_to_doc はここ)
+from ytt import txtext as _txtext  # noqa: E402  文字起こしの文字の語彙(RS6 a-3 に postproc・roster から。S.strip_punct・S.split_segment・S.SPARSE_FLAG・S.split_terms はここ)
 from ytt import version as _version  # noqa: E402
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
@@ -152,6 +155,7 @@ _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
 _ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
 _ED_MODULES += (_dictfmt,)   # 置換辞書の読み方(RS6 a-1。ytt へ移した。S.parse_replacements・S.wb_split・S._bounded の差し替えが届く)
 _ED_MODULES += (_flowdiar,)   # 判別と声の段取り(RS6 a-4。speakers の覚えた声の置き場所・diarize の _record_diar を ② へ。S.VOICES_DIR = … はここへ届く)
+_ED_MODULES += (_txtext, _txclipjob, _flowtx)   # RS6 a-3: 文字の語彙(ytt/txtext)・① の機械の文書の行(clipjob)・② 文字起こしの動詞(flow/tx)
 # ↑ _store・_doclist = 文書の置き場と一覧(RS3-E5a。ed_store のあった所。殻の ed_store は ed_jobs の殻と名前が重なるので並べない)
 # ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理(RS3-E7。ed_relink のあった所)・_handoff_io・_batch = 受け渡し・フォルダの一括(RS3-E7。ed_misc のあった所。進行度 _progress は 0.69.0 で消した)。殻の ed_relink・ed_misc も並べない
 
@@ -185,14 +189,14 @@ _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _
 # S.TX_DIR = …・patch.object(S, "check_source") は名前の受付が持ち主へ届ける)
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
-# 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が learn・replace を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
-_txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
+# 辞書の版(records.dict_version)の材料: 置換辞書の組は ② flow/tx(設定の辞書と名簿。RS6 a-3)・学習の記録は文書の側(doc_jobs が learn を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
+_txrecords.set_dict_inputs(pairs=lambda spec: _flowtx.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
 # 本体は worker_client と同じフォルダの pipeline/transcribe/worker.py(RS2-9。serve を読まない)。worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前
 _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")
 _txworker.FAKES_MODULE = fake_worker.__name__
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
-_txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
+_txrecognize.set_head_stripper(lambda spec: _txfill.fill_head_stripper(spec))
 # 文書の側(doc_jobs)が使う評価用の作り直し(eval の evalbatch。RS4-2 まで ed_evalbatch)と 30fps の作り直し(manage の relink。RS3-E7 まで ed_relink)。② から ③・④ を読まないための口。
 # 評価用のフォルダの判定は RS3-1 から ytt/settings(doc_jobs が直に読む = 口は 5 → 3 本)。
 # 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)

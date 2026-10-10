@@ -4,8 +4,12 @@
 
 役割で組み直す RS2-8c(2026-10-10)に human/proof/doc_jobs から割った(中身は同じ。元は編集の ed_jobs)。受付(validate_retranscribe・redo_spec)・
 疑わしい行の選び方(redo_targets)・辞書の組(dict_pairs)・新しい行の id(_fresh_id)は doc_jobs に残し、ここから `doc_jobs.名前` で呼ぶたびに読む
-(向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。認識そのものは pipeline/transcribe(recognize・worker_client・records・postproc)。
-ed_state は読まない(置き場所と元のファイルの検査は ytt の workdata・tools・ジョブの表は ytt/jobs)。旧い名前 ed_jobs.名前・S.名前 は editor/ed_jobs.py の殻と serve の受付がここへ回す
+(向きは rerun → doc_jobs だけ。doc_jobs はここを読まない)。
+**役割で組み直す RS6 a-3(2026-10-10)から ① pipeline/transcribe を直に読まない**: 音声の取り出し(extract_span)・認識器とワーカーのモデル(redo_recognizer・
+each_lines・recognize_range)・全体の続きの記録の後始末(end_whole)・声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)は ② の `flow/tx`(`_flowtx.名前`)。
+疑わしい所の認識し直しの設定 redo_kwargs と本物の処理(_redo_real・_redo_finish・_each_real)もそこへ移した。句読点・文字数・印の文は ytt/txtext、
+置換辞書の当て方は ytt/dictfmt。認識の記録 records(_run_base・read_words・write_words)は ① のまま(KNOWN に残る。a-5 で決める)。
+ed_state は読まない(置き場所と元のファイルの検査は ytt の workdata・tools・ジョブの表は ytt/jobs)。S.名前 は serve の受付がここへ回す
 (テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
 """
 import time
@@ -13,12 +17,12 @@ import time
 from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
-from pipeline.transcribe import backend as _backend, postproc, records, recognize  # noqa: E402
-from pipeline.transcribe import roster as _roster, tx_engines, worker_client  # noqa: E402
+from ytt import dictfmt as _dictfmt, txtext as _txtext  # noqa: E402   置換辞書を当てる apply_replacements・句読点 strip_punct・文字数 text_chars・印の文 SPARSE_FLAG(RS6 a-3 に ① から ytt へ)
+from pipeline.transcribe import records  # noqa: E402   再認識の記録の元 _run_base・単語の時刻(① のまま = KNOWN に残る)
+from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_span・redo_recognizer・each_lines・recognize_range・end_whole・note_vad・dict_pairs。RS6 a-3)
 from ytt import txbase as _txbase  # noqa: E402
-from pipeline.transcribe import replace  # noqa: E402   置換辞書を当てる apply_replacements(RS3-E5c に ed_learn から)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
-from . import doc_jobs  # noqa: E402   受付の側の dict_pairs・_fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
+from . import doc_jobs  # noqa: E402   受付の側の _fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
 
 
 # ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2。original を差し替える前の分を recognition.runs に残す) ----------
@@ -46,7 +50,7 @@ def record_rerun(doc, spec, kind, spans, replaced, pairs=None):
     """再認識で original を差し替える前に、差し替えられる機械の出力を recognition.runs に1件足す(文書を書くのは呼び出し側。_save_lock の中)。
     1件 = {"kind": "each" | "range" | "whole" | "redo", 新しい結果を出したエンジン・版・モデル・言語・設定(settings.dict = 辞書の版),
            "range": [最初, 最後], "spans"?: 行ごとの範囲(each・redo で2つ以上のとき), "replaced": [差し替えられた original の行], "at"}。
-    original の無い文書(文字起こしせずに開いた)でも、いつ・何で認識し直したかは残す(replaced は空)。pairs = 作ってある doc_jobs.dict_pairs(spec)"""
+    original の無い文書(文字起こしせずに開いた)でも、いつ・何で認識し直したかは残す(replaced は空)。pairs = 作ってある _flowtx.dict_pairs(spec)"""
     spans = [[round(float(a), 3), round(float(b), 3)] for a, b in spans]
     if not spans:
         return
@@ -95,7 +99,7 @@ def apply_retranscribe(spec, results):
 
 def _apply_retranscribe(spec, results):
     doc = store.read_transcript(spec["tid"])
-    pairs = doc_jobs.dict_pairs(spec)
+    pairs = _flowtx.dict_pairs(spec)
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
     spans = [(sg["start"], sg["end"]) for sg in doc.get("segments") or [] if results.get(sg["id"])]
@@ -107,7 +111,7 @@ def _apply_retranscribe(spec, results):
             continue
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
-        sg["text"], _ = replace.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
+        sg["text"], _ = _dictfmt.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
         sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
         sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
         sg["flag"] = "、".join(([flag] if flag else []) + keep)[:100]
@@ -177,7 +181,7 @@ def fit_lines(lines, protect, strip=True):
             y = dict(x, start=st, end=en, words=ws)
             if x.get("words"):
                 joined = "".join(w[2] for w in ws).strip()
-                y["raw"] = postproc.strip_punct(joined) if strip else joined
+                y["raw"] = _txtext.strip_punct(joined) if strip else joined
                 if not y["raw"]:
                     continue
             x = y
@@ -218,7 +222,7 @@ def apply_range(spec, lines, loose=()):
 def _apply_range(spec, lines, loose=()):
     a, b = spec["range"]
     doc = store.read_transcript(spec["tid"])
-    pairs = doc_jobs.dict_pairs(spec)
+    pairs = _flowtx.dict_pairs(spec)
     loose = [dict(x, flag="、".join(f for f in (LOOSE_FLAG, x.get("flag", "")) if f)) for x in loose]
     plan = plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
     empty_ids = {g["id"] for g in plan["empty"]}
@@ -239,7 +243,7 @@ def _apply_range(spec, lines, loose=()):
             ov = min(g["end"], x["end"]) - max(g["start"], x["start"])
             if ov > bo and g.get("speaker"):
                 best, bo = g["speaker"], ov
-        text, _ = replace.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
+        text, _ = _dictfmt.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
         sid, n = doc_jobs._fresh_id(used, "r%d".__mod__, n)
         new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": x.get("flag", "")[:100]})
         unsure += 1 if x.get("flag") else 0
@@ -264,16 +268,10 @@ def _apply_range(spec, lines, loose=()):
 
 # ---------- 疑わしい所だけ認識し直す(12 ③-2。ユーザー承認 2026-09-27: 設計どおり) ----------
 REDO_MAX_SEC = 600      # 時間の上限(秒)。超えたら残りの行はやめて、そこまでの結果で置き換える
-REDO_BAD_FLAGS = (postproc.SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
+REDO_BAD_FLAGS = (_txtext.SPARSE_FLAG, "よくある誤認識の文", "同じ文の繰り返し", "繰り返しの可能性", "音声でない可能性", _txbase.LEAK_FLAG)
 
 
-def redo_kwargs(spec):
-    """疑わしい所を認識し直すときの設定: VAD は普通の強さで、短い無音でも区切る(長い塊に単語1つ・途中を飛ばす、を減らす)"""
-    kw = worker_client.whisper_kwargs(spec)
-    kw["vad_filter"] = True
-    kw["vad_parameters"] = {"min_silence_duration_ms": 250, "speech_pad_ms": 200}
-    kw["chunk_length"] = 10
-    return kw
+# 疑わしい所を認識し直すときの設定 redo_kwargs は RS6 a-3 に ② flow/tx へ(ワーカーに渡す設定 = 認識器の準備と一緒)
 
 
 def redo_better(row, lines, old_lp=None):
@@ -281,7 +279,7 @@ def redo_better(row, lines, old_lp=None):
     avg_logprob が分かれば上がった。-> (良くなったか, 理由)"""
     if not lines:
         return False, "何も認識されない"
-    new_chars, old_chars = sum(postproc.text_chars(x["raw"]) for x in lines), postproc.text_chars(row.get("text"))
+    new_chars, old_chars = sum(_txtext.text_chars(x["raw"]) for x in lines), _txtext.text_chars(row.get("text"))
     if new_chars <= old_chars:
         return False, "文字が増えない"
     flags = "、".join(str(x.get("flag") or "") for x in lines)
@@ -338,22 +336,6 @@ def apply_redo(spec, results):
         return n_rep
 
 
-def _redo_real(job, spec, wav, start):
-    """run_redo の本物の認識の準備(エンジンを確かめてモデルと音声を読む)→ 行ごとに呼ぶ関数 f(sub, a, b) -> 行"""
-    worker_client.check_engine(spec)
-    job["state"] = "loading"
-    model, device = worker_client.load_model(spec["model"], job, spec["device"], engine=tx_engines.engine_of(spec))
-    job["device"] = device
-    audio = worker_client.read_wav_f32(wav)
-    kw = worker_client.filter_kwargs(model, redo_kwargs(spec))
-    return lambda sub, a, b: recognize.range_lines_real(job, model, kw, audio, sub, start)
-
-
-def _redo_finish(raw, sub, shift):
-    """疑わしい所の認識し直しの行の整え方(疑似の差し込み口が使う。文字を比べるだけなので続いている行をつながない)"""
-    return recognize.finish_range_lines(raw, sub, shift, join=False)
-
-
 def run_redo(job):
     """疑わしい所だけ認識し直す(12 ③-2)。行ごとに、前後の余白を足した範囲を今の範囲の再認識と同じ仕組みで認識し直し、良くなったものだけ最後にまとめて置き換える。
     中止したら何も置き換えない。時間の上限(REDO_MAX_SEC)を超えたら残りの行はやめる"""
@@ -366,11 +348,9 @@ def run_redo(job):
             job["segments"] = 0
             _heavy.job_done(job, spec["tid"], "完了(認識し直す行がありませんでした)")
             return
-        start, end = recognize.audio_span([{"start": a, "end": b} for _g, a, b in targets], _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end")))
-        job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
-        recognize_row = _backend.select().redo_recognizer(job, spec, wav, start, _redo_real, _redo_finish)
-        job["state"] = "running"
+        start = _flowtx.extract_span(job, src, [{"start": a, "end": b} for _g, a, b in targets], _yschemas.num_or(doc.get("start"), 0.0) or 0.0,
+                                     _yschemas.num_or(doc.get("end")), spec["boost"], wav)
+        recognize_row = _flowtx.redo_recognizer(job, spec, wav, start)   # 本物ならワーカーにモデルを読む(状態 loading → running)
         t0, results, tried, timed_out = time.monotonic(), [], 0, False
         for n, (g, a, b) in enumerate(targets):
             _slots.check_cancel(job)
@@ -404,9 +384,7 @@ def run_retranscribe(job):
         if not targets and not whole:
             raise _errors.ApiError("empty", "再認識する行が見つかりません(先に削除された可能性があります)", 400)
         span_src = targets + ([{"start": spec["range"][0], "end": spec["range"][1]}] if spec.get("mode") in ("range", "whole") else [])
-        start, end = recognize.audio_span(span_src, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
-        job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        recognize.extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
+        start = _flowtx.extract_span(job, src, span_src, start, end, spec["boost"], wav)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
         if spec.get("mode") in ("range", "whole"):
             return _retranscribe_range(job, spec, doc, wav, start, whole)
         results = _retranscribe_each(job, spec, targets, wav, start)
@@ -418,50 +396,23 @@ def run_retranscribe(job):
 def _retranscribe_range(job, spec, doc, wav, start, whole):
     """範囲・全体の再認識(run_retranscribe の続き。音声は取り出し済み。先頭 = 元の動画の start 秒)"""
     a, b = spec["range"]
-    rec = recognize.RangeRecognizer(job, spec, wav, start)
-    job["state"], job["phase"] = "running", "全体を認識中" if whole else "範囲を認識中"
-    lines = recognize.whole_lines(job, spec, doc, rec) if whole else rec.main(a, b)
+    rec, lines = _flowtx.recognize_range(job, spec, wav, start, doc)   # 全体は区間に分けて続きから(状態 running)
     _slots.check_cancel(job)
     # 新しい認識でほぼ空だった所(元の行があった所 = 声があった所)だけ、声の検出なし・捨てる判定なしで認識し直す(4-2 の 3)
     gaps = [(max(a, g["start"] - LOOSE_PAD), min(b, g["end"] + LOOSE_PAD)) for g in plan_range(doc, spec, lines)["empty"]]
     loose = rec.loose(_yschemas.union_spans(gaps)) if gaps else []
     _slots.check_cancel(job)
     if not lines and not loose:
-        if whole:
-            recognize.drop_resume(spec["tid"])   # 認識は終わった(続きから再開するものが無い)
+        _flowtx.end_whole(spec)   # 全体の認識は終わった(続きから再開するものが無い)
         raise _errors.ApiError("no_speech", "この%sからは、文字が認識されませんでした(元の行はそのままです)" % ("動画" if whole else "範囲"), 400)
     r = apply_range(spec, lines, loose)
-    if whole:
-        recognize.drop_resume(spec["tid"])
+    _flowtx.end_whole(spec)
     job["segments"], job["unsure"], job["kept"], job["emptyKept"], job["loose"] = r["lines"], r["unsure"], r["kept"], r["emptyKept"], r["loose"]
-    note = recognize.vad_note(rec.vad)
-    if note:
-        job["vadNote"] = note
-        _txbase.add_warning(job, note)
+    _flowtx.note_vad(job, rec.vad)   # 声の検出を緩めてやり直していれば知らせる
     _heavy.job_done(job, spec["tid"])
 
 
 def _retranscribe_each(job, spec, targets, wav, start):
-    """選んだ行を 1 行ずつ認識する(run_retranscribe の each。音声は取り出し済み)。-> {行の id: (文章, 要確認の理由)}"""
-    return _backend.select().each_lines(job, spec, targets, wav, start, _each_real)
-
-
-def _each_real(job, spec, targets, wav, start):
-    """_retranscribe_each の本物の認識"""
-    results = {}
-    worker_client.check_engine(spec)
-    job["state"] = "loading"
-    cm = recognize.ChunkModel(job, spec["model"], spec["device"], spec, tx_engines.engine_of(spec))
-    audio = worker_client.read_wav_f32(wav)
-    job["state"], job["phase"] = "running", "再認識中"
-    sep = "" if spec["language"] in ("ja", "zh", "ko") else " "
-    terms = _roster.prompt_terms(spec)
-    for n, t in enumerate(targets):
-        _slots.check_cancel(job)
-        a, b = max(0.0, t["start"] - start - 0.3), t["end"] - start + 0.3   # 前後に少し余裕を持たせる(語頭・語尾が欠けにくい)
-        r = cm.recognize(audio[int(a * 16000):int(b * 16000)], t, sep, terms, n == 0)
-        if r:
-            text, flag = r
-            results[t["id"]] = (postproc.strip_punct(text) if spec.get("stripPunct", True) else text, flag)
-        job["progress"] = min(0.99, (n + 1) / len(targets))
-    return results
+    """選んだ行を 1 行ずつ認識する(run_retranscribe の each。音声は取り出し済み)。-> {行の id: (文章, 要確認の理由)}。
+    本物と疑似の選び方・ワーカーでの行ごとの認識は ② flow/tx.each_lines(RS6 a-3。本物の処理 _each_real もそこ)"""
+    return _flowtx.each_lines(job, spec, targets, wav, start)
