@@ -455,6 +455,12 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     def _guard(self, write, path=""):
+        ok = self._guard_check(write, path)
+        if not ok and write:   # 断る書き込みの本文は読み捨てる(読まずに閉じると Windows では RST で 403 が届かないことがある。httpsec.drain_body)
+            httpsec.drain_body(self.headers, self.rfile)
+        return ok
+
+    def _guard_check(self, write, path):
         if not self._host_ok():
             self._fail(403, "forbidden", "このツールは http://localhost:%d%s から開いてください(Host が違います)" % (ed_state.PORT, ed_state.BASE_PATH))
             return False

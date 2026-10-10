@@ -661,6 +661,10 @@ class Handler(BaseHTTPRequestHandler):
         Host は DNS rebinding 対策。書き込みの Origin は "http://" + 許可した Host と完全一致だけ(CSRF 対策)。
         他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/spec/pipeline.md の 3)"""
         h, hosts = self.headers, self.ctx.allowed_hosts
+        bad = not httpsec.host_ok(h, hosts) or not (httpsec.fetch_site_ok(h) or (not write and httpsec.navigation_ok(h, path))) \
+            or (write and not httpsec.origin_ok(h, hosts))
+        if bad and write:   # 断る書き込みの本文は読み捨てる(読まずに閉じると Windows では RST で 403 が届かないことがある)
+            httpsec.drain_body(h, self.rfile)
         if not httpsec.host_ok(h, hosts):
             self._fail(403, "forbidden", "このツールは http://localhost:%d%s から開いてください(Host が違います)" % (self.ctx.port, BASE_PATH))
             return False

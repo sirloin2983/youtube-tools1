@@ -229,6 +229,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---------- POST / PUT ----------
     def _write_guard(self):
         if not (self._host_ok() and self._fetch_site_ok() and self._origin_ok()):
+            httpsec.drain_body(self.headers, self.rfile)   # 読まずに閉じると Windows では RST で 403 が届かないことがある
             self._send(403, b"forbidden")
             return False
         return True
@@ -239,6 +240,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         fn = routes.get(self.path.split("?", 1)[0])
         if fn is None:
+            httpsec.drain_body(self.headers, self.rfile)
             return self._send(404, b"not found")
         obj = self._read_json()
         if obj is None:
