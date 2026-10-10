@@ -365,7 +365,10 @@ def delegate(portal, kind, target, bundle, title, prog):
         tid = doc["id"] if doc else _portal_transcribe(portal, target, bundle, title, prog)
         res = portal.ok("POST", "/api/autorun/start-docs", {"ids": [tid], "overwrite": force})
     pub = _wait_portal_run(portal, _started(res), prog)
-    out = dict(pub, via="portal", packs=[p for p in (_pack_dir_of(t) for t in pub.get("docs") or []) if p])
+    packs = pub.get("packs")   # 入口の実行が作ったパック(RS7-1 S3 の Run.public)。それより前の入口は文書の既定のパックのフォルダから
+    if not isinstance(packs, list):
+        packs = [p for p in (_pack_dir_of(t) for t in pub.get("docs") or []) if p]
+    out = dict(pub, via="portal", packs=packs)
     return out, EXIT_OK if pub.get("state") == "done" else EXIT_FAIL
 
 
@@ -434,12 +437,10 @@ def run_local(target, bundle, title, root, prog):
         except (_run.Cancelled, KeyboardInterrupt):
             run.state, run.error, code = "cancelled", "中止しました", EXIT_INTERRUPT
         run.finished = time.time()
-        if run.doc_id and run.doc_id not in run.docs:   # 文書単位(文字起こし済み)の実行も、結果に文書を出す
-            run.docs.append(run.doc_id)
         run.message = run.error or _run.RUN_STATE_LABELS["nothing" if run.nothing else "done"]
         prog.steps(run.steps)
         result = _write_result(pl, run, prog)
-        return dict(run.public(), via="local", packs=list(run.packs), resultFile=result), code
+        return dict(run.public(), via="local", resultFile=result), code   # public に packs・newDocs・文書単位の docs も入る(RS7-1 S3)
     finally:
         _worker_client.WORKER.close()   # 認識ワーカー(別プロセス)を残さない
         pl.release(handle)

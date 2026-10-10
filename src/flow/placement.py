@@ -38,6 +38,7 @@ LOCK_MAX = 4096                  # 印はこれより大きければ読まない
 # 結果の束の input に写す Run.public の鍵(何を入れて始めた実行か)
 INPUT_KEYS = ("kind", "videoId", "docId", "sourcePath", "title", "mode", "top", "marks", "ranges", "cut", "engine", "model", "overwrite",
               "requestId", "streamer", "onFail")
+STEP_TIMES = ("startedAt", "finishedAt")   # 段の始まりと終わりの時刻(flow/run.py の _run_steps が置く。足すだけ = 読み手は無くても動く)
 
 
 # ---------------------------------------------------------------- スタジオの data.json
@@ -160,12 +161,14 @@ def result(run, exc=None, video=None, at=None):
     state, why = _outcome(run, exc)
     pub = run.public()
     open_state = {"error": "error", "stopped": "wait"}.get(state, "skip")   # 途中だった段の行き先(autorun._loop と同じ。続く実行は待ちに)
-    steps = [{"key": s["key"], "state": open_state if s["state"] == "run" else s["state"], "detail": s["detail"]} for s in run.steps]
+    steps = [dict({"key": s["key"], "state": open_state if s["state"] == "run" else s["state"], "detail": s["detail"]},
+                  **{k: s[k] for k in STEP_TIMES if k in s}) for s in run.steps]   # 段の時刻(ミリ秒。あれば。RS7-1 S3)
     failures = [{"step": s["key"], "state": s["state"], "detail": s["detail"]} for s in run.steps if s["state"] in ("error", "warn")]
     failures += [{"step": s["key"], "state": state, "detail": why or run.error} for s in run.steps if s["state"] == "run" and state in ("error", "stopped")]
     if state == "error" and not any(s["state"] == "run" for s in run.steps):
         failures.append({"step": None, "state": "error", "detail": why or run.error})
-    return {"schema": _runlog.RESULT_SCHEMA, "id": run.id, "input": {k: pub.get(k) for k in INPUT_KEYS},
+    env = run.envelope() if callable(getattr(run, "envelope", None)) else None   # 封筒(RS7-1 S3。足すだけ)
+    return {"schema": _runlog.RESULT_SCHEMA, "id": run.id, "input": {k: pub.get(k) for k in INPUT_KEYS}, "envelope": env,
             "spec": run.spec, "state": state, "message": run.message, "error": why or run.error, "nothing": run.nothing,
             "steps": steps, "outputs": outputs(run, video), "packs": list(run.packs), "failures": failures,
             "created": pub["created"], "at": int((time.time() if at is None else at) * 1000),

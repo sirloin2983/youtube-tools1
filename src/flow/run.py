@@ -17,8 +17,17 @@ autorun は移した名前を同じ名前で読み直している(テストと l
 
 RS6 b-0(2026-10-10): 段は指定の束(Run.spec。run() が merge・validate して置く)を読む。各ツールの GET /api/settings は読まない
 (入口の AutoRunner.build_spec が画面の設定から束を組む = ① は設定ファイルを読まない。束 → 本文は flow/spec.py の export_body・tx_opts・pack_output)。
-Run の欄(top・ranges・weights・cut・engine・model・video_tracks・speakers など友人や画面の指定)は今のまま、束に重ねて使う(欄があれば欄が勝つ)。
 束に入れない画面の値(精密・画質の上限・fps・用語集)は Run.screen(flow/spec.py の SCREEN)。
+
+RS7-1 S3(2026-10-10): 依頼 = 封筒(flow/envelope.py。何を入れたか・どの依頼か・届け方)+ 束(何を作るか)。段は束だけを読む。
+Run の中身の欄(top・ranges・weights・cut・video_tracks・speakers・engine・model・force・overwrite)は互換のため受けるが、
+作るときに束の差分 Run.asked へ写し(_asked_spec。下の表)、束を置くとき(Run.spec の setter)に重ねる = 束が正(欄があれば欄が勝つ、は今のまま)。
+  top → adopt.top / ranges → hints.ranges / weights → analyze.w* + run.pinned "weights" / cut → pack.cut + "cut" /
+  video_tracks → pack.videoTracks + "videoTracks" / speakers → transcribe.diarize(人数)+ hints.people(名前と色)/
+  engine・model → transcribe.engine・model + "engine"・"model" / force → run.force / overwrite → run.repack
+封筒の側の欄(video_id・doc_id・source_path・title・request_id・deliver_*・pool・fresh・duration・marks・mode・on_fail・streamer)は Run に残る
+(③ の hook が読む。Run.envelope() が封筒の形にする)。marks・streamer・doc_id は段と hook が実行中に書く状態でもある。
+待ちの記録(saved・restore)は封筒 + 束も入れる(古い形の欄だけの記録も読める)。段の始まりと終わりの時刻は steps[].startedAt・finishedAt(ミリ秒)。
 ツールの仕事は self.tools(flow/tools.py の HttpTools(client) = 今の API の形・LocalTools = 入口なし)に頼む。
 
 RS6 b-A(2026-10-10): 採用は 1 つの段 _step_adopt(規則 F-5 はスタジオの store.adopt_marks の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで)。
@@ -26,6 +35,7 @@ RS6 b-K2(2026-10-10): 文字起こし・パックは成果物の鍵(flow/keys)�
 force(Run.force か束の run.force)なら作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは今のまま。
 素の Runner の文書の一覧(_docs・_pick_doc の既定)は tools の docs・doc(HttpTools = GET /api/transcripts・LocalTools = 作業データを直に)。
 """
+import copy
 import os
 import re
 import sys
@@ -33,9 +43,9 @@ import time
 import uuid
 
 from ytt import colors
-from . import keys as _keys, placement as _placement, spec as _spec, tools as _tools
-from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights,
-                   pad_range)
+from . import envelope as _envelope, keys as _keys, placement as _placement, spec as _spec, tools as _tools
+from .envelope import clean_pool  # noqa: F401  (src/home/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
+from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights)
 
 
 MODES ={"full": "解析から全部", "adopted": "採用後を全部", "transcribe": "文字起こしまで"}
@@ -108,13 +118,57 @@ def _job_why(j):
     return str(j.get("error") or JOB_STATE_JA.get(j.get("state"), "理由は不明です"))
 
 
-def clean_pool(p):
-    """組の溜めの指定 {key, rid, title, meta: {recorder, recording, phase}} を検査した形か None(live_export._handoff が作る)"""
-    if not isinstance(p, dict) or not isinstance(p.get("key"), str) or not 0 < len(p["key"]) <= 200:
-        return None
-    meta = p.get("meta") if isinstance(p.get("meta"), dict) else {}
-    return {"key": p["key"], "rid": str(p.get("rid") or "")[:120], "title": str(p.get("title") or "")[:120],
-            "meta": {k: str(meta[k])[:120] for k in ("recorder", "recording", "phase") if isinstance(meta.get(k), str)}}
+KIND_MODES = {"url": ("full", "adopted", "transcribe", "request", "request_auto"), "docs": (DOC_MODE,), "file": ("file", "file_auto")}
+KIND_DEFAULT_MODE = {"url": "full", "docs": DOC_MODE, "file": "file_auto"}   # 封筒に段の並びの形(legacy.mode)が無いとき
+PUBLIC_MAX = 50        # public に出すパック・文書の数の上限(書き出しの 1 回の上限と同じ)
+PEOPLE_NAME_MAX = 40  # 束の hints.people の名前の長さ(flow/spec.py の検査と同じ。友人の受付は 60 字まで受けるので、長い名前はここで切る)
+
+
+def _people_of(speakers):
+    """友人の「話す人」{"count", "names", "styles"} -> 束の hints.people [{name, color?}](名前の順。色は 16 進 6 桁にそろえる)"""
+    styles = speakers.get("styles") if isinstance(speakers.get("styles"), dict) else {}
+    out, seen = [], set()
+    for n in speakers.get("names") or []:
+        name = n.strip()[:PEOPLE_NAME_MAX].strip() if isinstance(n, str) else ""
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        p = {"name": name}
+        sty = styles.get(n)
+        hx = colors.norm_hex(sty.get("color")) if isinstance(sty, dict) and isinstance(sty.get("color"), str) else None
+        if hx:
+            p["color"] = hx
+        out.append(p)
+    return out
+
+
+def _with_asked(bundle, asked):
+    """束に Run の欄から写した差分 asked を重ねた新しい束(欄が勝つ。run.pinned は足し合わせ・run.force・repack はどちらかが真なら真)。検査して返す"""
+    out = copy.deepcopy(bundle)
+    for sec, items in asked.items():
+        dst = out.setdefault(sec, {})
+        for k, v in items.items():
+            if k == "pinned":
+                dst[k] = list(dict.fromkeys(list(dst.get(k) or []) + list(v)))
+            elif k in ("force", "repack"):
+                dst[k] = dst.get(k) is True or v is True
+            else:
+                dst[k] = copy.deepcopy(v)
+    return _spec.validate(out)
+
+
+def _pins(bundle):
+    return bundle["run"]["pinned"]
+
+
+STEP_TIMES = ("startedAt", "finishedAt")   # 段の始まりと終わりの時刻(ミリ秒。_run_steps が置く。RS7-1 S3 = 速さを測るため。無くても読める)
+
+
+def _step_saved(s):
+    """待ちの記録・結果の束の段の 1 つ(鍵・状態・文と、あれば時刻)"""
+    out = {"key": s["key"], "state": s["state"], "detail": s["detail"]}
+    out.update({k: s[k] for k in STEP_TIMES if k in s})
+    return out
 
 
 class Run:
@@ -128,7 +182,7 @@ class Run:
         self.pool = clean_pool(pool)   # ライブの切り抜きの組の溜め {"key", "rid", "title", "meta": {recorder, recording, phase}}(None = この実行の中で届ける)
         self.engine = engine if engine in TX_ENGINES else None   # 文字起こしのエンジン(None = 編集の設定のまま。リアルタイム切り抜きの live.auto。M2)
         self.model = model if isinstance(model, str) and TX_MODEL_RE.match(model) else None   # 同じくモデル(None = 編集の設定のまま)
-        self.deliver_batch = deliver_batch if isinstance(deliver_batch, int) and not isinstance(deliver_batch, bool) and 1 <= deliver_batch <= 10 else None   # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
+        self.deliver_batch = deliver_batch if _envelope.batch_ok(deliver_batch) else None   # 友人の依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。None = ホームの設定 intake.deliverBatch。2-16)
         self.ranges = list(ranges or [])   # 友人が時刻で指定した区間 [(開始, 終了)](余白の前。URL の依頼 ①②。足りない分は自動で埋める)
         self.cut = cut if cut in CUTS else None   # 友人が選んだカットの方法(① のパック。None = ホームの設定)
         self.weights = weights             # 友人が指定した解析の重み(None = スタジオの設定のまま)
@@ -161,16 +215,124 @@ class Run:
         self.cancel = False
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
-        self.spec = None           # 指定の束(run() が merge・validate して置く。段が読む = RS6 b-0。待ちの記録・public には出さない)
-        self.screen = None         # 束に入れない画面の値(flow/spec.py の SCREEN。入口の AutoRunner が置く。None = 固定の値。残さない)
+        self.note = ""             # 封筒のメモ(RS7-1 S3。from_envelope が置く)
+        self.asked = self._asked_spec()   # 欄から写した束の差分(RS7-1 S3。束を置くときに重ねる = 欄が勝つ)
+        self._spec = None          # 指定の束(run() が merge・validate して置く = Run.spec。段が読む = RS6 b-0。待ちの記録には入る・public には出さない)
+        self.screen = None        # 束に入れない画面の値(flow/spec.py の SCREEN。入口の AutoRunner が置く。None = 固定の値。残さない)
         self.owned = None          # 今ツールで動かしている仕事 (ツールの ID, [ジョブ・キューの id])(「起動し直す」の確かめ = restart_info。残さない)
         self.result_path = None    # 結果の束 <案件>/作業用/runs/<id>.json(終わったら flow/placement.write_result が置く。記録の 1 行の resultPath = 索引。RS6 b-B0)
         keys = list(MODE_STEPS[mode])
         if mode in REQUEST_URL_MODES and self.ranges and len(self.ranges) >= (top or 0):
             keys.remove("analyze")   # 区間が切り抜く数に足りている: 解析なしで、その区間だけを取りに行く
-        if speakers and "transcribe" in keys:
+        if self.asked.get("transcribe", {}).get("diarize") and "transcribe" in keys:   # 話す人の人数がある(欄 speakers → 束の transcribe.diarize)
             keys.insert(keys.index("transcribe") + 1, "diarize")
         self.steps = [{"key": k, "label": STEP_LABELS[k], "state": "wait", "detail": ""} for k in keys]
+
+    # ------------------------------------------------------------ 欄 → 束(RS7-1 S3)
+    def _asked_spec(self):
+        """中身の欄 → 束の差分 {節: {項目: 値}}(検査に合う値だけ。合わない欄は写さない)。表は先頭の説明"""
+        a, pins = {}, []
+
+        def put(sec, key, val, pin=None):
+            if not _spec.key_ok(sec, key, val):
+                return False
+            a.setdefault(sec, {})[key] = copy.deepcopy(val)
+            if pin:
+                pins.append(pin)
+            return True
+        if self.top is not None:
+            put("adopt", "top", self.top)
+        if self.ranges:
+            put("hints", "ranges", [list(r) for r in self.ranges])
+        w = self.weights
+        if isinstance(w, dict) and w and all(_spec.key_ok("analyze", k, w.get(k)) for k in WEIGHT_KEYS):
+            for k in WEIGHT_KEYS:
+                put("analyze", k, w[k])
+            pins.append("weights")
+        if self.cut:
+            put("pack", "cut", self.cut, "cut")
+        if self.video_tracks:
+            put("pack", "videoTracks", self.video_tracks, "videoTracks")
+        sp = self.speakers if isinstance(self.speakers, dict) else None
+        if sp and put("transcribe", "diarize", sp.get("count")):
+            people = _people_of(sp)
+            if people:
+                put("hints", "people", people)
+        if self.engine:
+            put("transcribe", "engine", self.engine, "engine")
+        if self.model:
+            put("transcribe", "model", self.model, "model")
+        if self.force:
+            put("run", "force", True)
+        if self.overwrite:
+            put("run", "repack", True)
+        if pins:
+            a.setdefault("run", {})["pinned"] = pins
+        return a
+
+    @property
+    def spec(self):
+        """指定の束(欄から写した差分 asked を重ねた物。None = まだ置いていない)"""
+        return self._spec
+
+    @spec.setter
+    def spec(self, bundle):
+        self._spec = None if bundle is None else _with_asked(bundle, self.asked)
+
+    def kind(self):
+        """封筒の種類(url・file・docs)。動画ファイルの実行は文字起こしのあと doc_id も持つので mode で見る"""
+        if self.source_path or self.mode in KIND_MODES["file"]:
+            return "file"
+        return "docs" if self.doc_id or self.mode == DOC_MODE else "url"
+
+    def envelope(self):
+        """この実行の封筒(flow/envelope.py の形。RS7-1 S3)"""
+        kind = self.kind()
+        if kind == "url":
+            inp = {"videoId": self.video_id, "title": self.title, "duration": self.duration if _num(self.duration) and self.duration > 0 else None,
+                   "fresh": {"title": str(self.fresh.get("title") or ""), "channel": str(self.fresh.get("channel") or "")} if self.fresh else None,
+                   "marks": list(self.marks) if self.marks else None}
+        elif kind == "file":
+            inp = {"path": self.source_path, "title": self.title}
+        else:
+            inp = {"docId": self.doc_id, "title": self.title}
+        return {"id": self.id, "kind": kind, "input": inp, "requestId": self.request_id,
+                "deliver": {"dir": self.deliver_dir, "batch": self.deliver_batch, "pool": self.pool}, "note": self.note,
+                "createdAt": int(self.created * 1000), "specVersion": _envelope.SPEC_VERSION,
+                "legacy": {"mode": self.mode, "onFail": self.on_fail, "streamer": self.streamer}}
+
+    @classmethod
+    def from_envelope(cls, env, spec=None):
+        """封筒 + 束 -> 「待ち」の Run(RS7-1 S3。受け口・待ちの記録の新しい形から)。束の中身の欄は束から読み戻す(③ の hook と public のため)。
+        spec = 束(変えたい所だけでもよい。None = 既定)。形が違えば理由つきの ValueError"""
+        env = _envelope.check(env)
+        kind, inp, lg, dl = env["kind"], env["input"], env["legacy"], env["deliver"]
+        if kind == "live":
+            raise ValueError("ライブの依頼はまだ受けられません(RS7-2 のライブ係から)")
+        mode = lg["mode"] or KIND_DEFAULT_MODE[kind]
+        if mode not in KIND_MODES[kind]:
+            raise ValueError("封筒.legacy.mode は %s のどれかにしてください" % "・".join(KIND_MODES[kind]))
+        b = _spec.validate(_spec.merge(spec))
+        pins = _pins(b)
+        hp = _spec.hint_people(b)
+        dz = b["transcribe"]["diarize"]
+        speakers = {"count": dz, "names": [p["name"] for p in hp["people"]],
+                    "styles": {p["name"]: {"color": p["color"]} for p in hp["people"] if p.get("color")}} if dz else None
+        t, pk = b["transcribe"], b["pack"]
+        run = cls(inp.get("videoId"), inp["title"] or inp.get("videoId") or inp.get("docId") or os.path.basename(inp.get("path") or ""), mode,
+                  b["adopt"]["top"] if kind == "url" else None, doc_id=inp.get("docId"), overwrite=b["run"]["repack"], streamer=lg["streamer"],
+                  marks=tuple(inp["marks"]) if inp.get("marks") else None, fresh=inp.get("fresh"), on_fail=lg["onFail"] or "next",
+                  source_path=inp.get("path"), request_id=env["requestId"], deliver_dir=dl["dir"], speakers=speakers,
+                  video_tracks=pk["videoTracks"] if "videoTracks" in pins else None, ranges=[tuple(r) for r in b["hints"]["ranges"]],
+                  cut=pk["cut"] if "cut" in pins else None, weights={k: b["analyze"][k] for k in WEIGHT_KEYS} if "weights" in pins else None,
+                  duration=inp.get("duration"), engine=t["engine"] if "engine" in pins else None, model=t["model"] if "model" in pins else None,
+                  deliver_batch=dl["batch"], pool=dl["pool"], force=b["run"]["force"])
+        if RUN_ID_RE.match(env["id"]):
+            run.id = env["id"]
+        run.created = env["createdAt"] / 1000.0
+        run.note = env["note"]
+        run.spec = b
+        return run
 
     def saved(self):
         """待ちの記録(autorun-active.json)に残す形(M5)。restore で同じ実行に戻せるだけの値"""
@@ -182,12 +344,23 @@ class Run:
                 "pool": self.pool, "docs": list(self.docs), "newDocs": list(self.new_docs), "packs": list(self.packs), "delivered": list(self.delivered),
                 "packMarks": dict(self.pack_marks), "force": self.force,
                 "created": self.created, "state": self.state, "message": self.message,
-                "steps": [{"key": s["key"], "state": s["state"], "detail": s["detail"]} for s in self.steps]}
+                "steps": [_step_saved(s) for s in self.steps],
+                "envelope": self.envelope(), "spec": copy.deepcopy(self._spec)}   # 封筒 + 束(RS7-1 S3。起動し直しで束が消えない)
 
     @classmethod
     def restore(cls, d):
-        """saved() の形 -> 「待ち」の Run(同じ id。済んだ段はそのまま・途中の段は待ちに)。形が違えば None(手で直した・壊れた記録は読み飛ばす)"""
-        if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")) or d.get("mode") not in MODE_STEPS:
+        """saved() の形 -> 「待ち」の Run(同じ id。済んだ段はそのまま・途中の段は待ちに)。形が違えば None(手で直した・壊れた記録は読み飛ばす)。
+        欄の鍵(mode など)があれば欄から(古い形 = 束なしも読める)、無ければ封筒 + 束から(from_envelope)。束があれば Run.spec に置く(合わなければ置かない)"""
+        if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")):
+            return None
+        if "mode" not in d and isinstance(d.get("envelope"), dict):
+            try:
+                run = cls.from_envelope(d["envelope"], d.get("spec") if isinstance(d.get("spec"), dict) else None)
+            except (TypeError, ValueError, KeyError):
+                return None
+            run.id = d["id"]
+            return cls._restore_state(run, d)
+        if d.get("mode") not in MODE_STEPS:
             return None
 
         def s(k, n=1000):
@@ -211,9 +384,25 @@ class Run:
         except (TypeError, ValueError, KeyError):
             return None
         run.id = d["id"]
+        if isinstance(d.get("spec"), dict):   # 束(RS7-1 S3 から。合わない束は置かない = 入口が組み直す)
+            try:
+                run.spec = _spec.validate(_spec.merge(d["spec"]))
+            except (TypeError, ValueError):
+                run.spec = None
+        if isinstance(d.get("envelope"), dict) and isinstance(d["envelope"].get("note"), str):
+            run.note = d["envelope"]["note"][:_envelope.NOTE_MAX]
+        return cls._restore_state(run, d)
+
+    @staticmethod
+    def _restore_state(run, d):
+        """saved() の形のうち実行中に決まった状態(作った物・届けた物・段)を戻す"""
+        def strs(k, n=200):
+            v = d.get(k)
+            return [x for x in v if isinstance(x, str) and 0 < len(x) <= 1000][:n] if isinstance(v, list) else []
         if _num(d.get("created")) or (isinstance(d.get("created"), (int, float)) and not isinstance(d.get("created"), bool)):
             run.created = float(d["created"])
-        run.streamer_from = s("streamerFrom", 20)
+        sf = d.get("streamerFrom")
+        run.streamer_from = sf if isinstance(sf, str) and 0 < len(sf) <= 20 else None
         run.friend_length = d.get("friendLength") if isinstance(d.get("friendLength"), dict) else None
         run.docs, run.new_docs = strs("docs"), strs("newDocs")
         run.packs, run.delivered = strs("packs"), strs("delivered")
@@ -224,6 +413,7 @@ class Run:
             o = old.get(st["key"]) or {}
             if o.get("state") in DONE_STEPS:   # 済んだ段はそのまま(続きから)。途中だった段(run)・待ちは頭から
                 st["state"], st["detail"] = o["state"], str(o.get("detail") or "")[:500]
+                st.update({k: o[k] for k in STEP_TIMES if type(o.get(k)) is int})   # 段の時刻(RS7-1 S3)
         run.resumed = True
         run.message = "ホームを起動し直したので、続きから進めます"
         return run
@@ -265,6 +455,7 @@ class Run:
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
+                "packs": list(self.packs[:PUBLIC_MAX]), "newDocs": list(self.new_docs[:PUBLIC_MAX]),   # 作ったパック・この実行で文字起こしした文書(RS7-1 S3)
                 "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "resultPath": self.result_path,
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
@@ -365,14 +556,18 @@ class Runner:
         self._check(run)
 
     def _bundle(self, run):
-        """この実行の束(run() が置いた物。置かれていなければ既定の束を置く)"""
+        """この実行の束(run() が置いた物。置かれていなければ既定の束を置く。どちらも Run の欄から写した差分を重ねた物 = Run.spec)"""
         if run.spec is None:
             run.spec = _spec.merge(None)
         return run.spec
 
     def _force(self, run):
-        """鍵が同じ・違っても作り直すか(Run の force か束の run.force。RS6 b-K2)"""
-        return run.force or self._bundle(run)["run"]["force"] is True
+        """鍵が同じ・違っても作り直すか(束の run.force。Run の欄 force もここへ写っている。RS6 b-K2)"""
+        return self._bundle(run)["run"]["force"] is True
+
+    def _repack(self, run):
+        """パックがあれば作り直すか(束の run.repack か run.force。Run の欄 overwrite は run.repack へ写っている)"""
+        return self._bundle(run)["run"]["repack"] is True or self._force(run)
 
     @staticmethod
     def _tx_state(doc, path, opts):
@@ -453,9 +648,14 @@ class Runner:
             if st["state"] in DONE_STEPS:   # 戻した実行(M5)の済んだ段は飛ばす(続きから)
                 continue
             st["state"] = "run"
+            st["startedAt"] = int(self.clock() * 1000)   # 段の時刻(RS7-1 S3。速さを測るため)
+            st.pop("finishedAt", None)
             run.message = st["label"]
             self._checkpoint(run)   # どの段の途中か(M5。起動し直したらこの段から)
-            result = call(key, st)
+            try:
+                result = call(key, st)
+            finally:
+                st["finishedAt"] = int(self.clock() * 1000)
             if st["state"] == "run":
                 st["state"] = "done"
             self._checkpoint(run)   # 段が済んだ(M5)
@@ -478,12 +678,14 @@ class Runner:
 
     # 解析 -------------------------------------------------------
     def _weights_differ(self, run, v):
-        """友人が指定した解析の重みが、今の解析の結果の重みと違うか(違えば解析し直す。音量・チャットの取り込み済みのデータは使い回される)"""
-        if not run.weights:
+        """依頼が決めた解析の重み(束の analyze.w* と run.pinned の weights)が、今の解析の結果の重みと違うか
+        (違えば解析し直す。音量・チャットの取り込み済みのデータは使い回される)"""
+        b = self._bundle(run)
+        if "weights" not in _pins(b):
             return False
         spec = (v.get("analysis") or {}).get("spec") if isinstance(v.get("analysis"), dict) else None
         spec = spec if isinstance(spec, dict) else {}
-        return any(not _num(spec.get(k)) or round(float(spec[k]), 1) != run.weights[k] for k in WEIGHT_KEYS)
+        return any(not _num(spec.get(k)) or round(float(spec[k]), 1) != b["analyze"][k] for k in WEIGHT_KEYS)
 
     def _step_analyze(self, run, st, v):
         if v.get("analysis") and not self._weights_differ(run, v):
@@ -502,11 +704,12 @@ class Runner:
 
     def _analyze_item(self, run, st, item, video_id):
         """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
-        # 解析の設定は束の analyze 節(入口はスタジオの画面で保存したもの = 段階7-1 から組む。RS6 b-0)
-        saved = dict(self._bundle(run)["analyze"])
-        own = saved != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定
-        if run.weights:   # 友人が指定した重み(ほかの解析の設定はスタジオのまま)
-            saved = dict(saved, **run.weights)
+        # 解析の設定は束の analyze 節(入口はスタジオの画面で保存したもの = 段階7-1 から組む。RS6 b-0)。
+        # 友人が指定した重みも束の analyze.w* に写っている(run.pinned の weights。ほかの解析の設定はスタジオのまま)
+        b = self._bundle(run)
+        saved = dict(b["analyze"])
+        weights = tuple(saved[k] for k in WEIGHT_KEYS) if "weights" in _pins(b) else None
+        own = saved != _spec.DEFAULTS["analyze"]   # 既定と違う = スタジオの画面で変えた設定(重みの指定が無いときだけ文に出す)
         fl = self._friend_length() if run.mode in REQUEST_URL_MODES else None
         if fl:   # 友人の依頼の足りない分を自動で埋める: 自動の候補の長さを、友人が選んだ区間の長さの実績に合わせる(解析し直しの理由にはしない)
             saved = dict(saved, **{k: fl[k] for k in ("length", "preRatio") if k in fl})
@@ -518,7 +721,7 @@ class Runner:
             rej = (res.get("rejected") or [{}])[0].get("reason") or ""
             if "すでにキュー" not in rej:
                 raise StepError("解析を始められませんでした: %s" % (rej or "理由不明"))
-        st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % tuple(run.weights[k] for k in WEIGHT_KEYS) if run.weights
+        st["detail"] = "解析中(%s)" % ("依頼の重み(音声 %s・チャット %s・コメント %s)" % weights if weights
                                     else "スタジオで保存した解析の設定" if own else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
         st["detail"] += fl_note
@@ -557,10 +760,11 @@ class Runner:
         友人が時刻で指定した区間(前後に束の adopt.pad 秒の余白)∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 = Run の top か束の adopt.top までの残り)。
         不採用と、区間・人の採用に重なる自動マークは除く。人が採用済みの配信の再実行でも、上限までの残りを自動で足す。
         友人の依頼(URL)は、この実行で扱うマークをその集合にする(run.marks。同じ配信の送り直しでは、前に作った切り抜き・文字起こしを使い回す)"""
-        ad = self._bundle(run)["adopt"]
-        top = run.top if run.top is not None else ad["top"]
+        b = self._bundle(run)
+        ad = b["adopt"]
+        top = ad["top"]   # Run の欄 top は束の adopt.top へ写っている(RS7-1 S3)
         dur = v.get("duration") or run.duration
-        body = {"id": run.video_id, "ranges": [pad_range(s, e, dur, ad["pad"]) for s, e in run.ranges], "top": top}
+        body = {"id": run.video_id, "ranges": _spec.hint_ranges(b, dur), "top": top}   # 区間 = 束の hints.ranges + adopt.pad の余白
         if run.fresh:
             body.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
         res = self.tools.request_marks(body)
@@ -706,16 +910,14 @@ class Runner:
         """カットを決めていない文書のカットの方法(束の pack.cut。入口はホームの設定 autorun.cut から。既定はカットしない = 2026-10-01)"""
         return (self._bundle(run) if run is not None else _spec.DEFAULTS)["pack"]["cut"]
 
-    @staticmethod
-    def _speaker_styles(run):
-        """友人が指定した人ごとの字幕の見た目 -> {名前: {"color": "#RRGGBB"}}(無ければ {})。
-        色は画面・Lua に入るので、ここでも 16 進 6 桁だけにそろえ直す(intake の検査を通ってきたはずだが、実行の作り手がほかにも増えたときのため)"""
+    def _speaker_styles(self, run):
+        """友人が指定した人ごとの字幕の見た目(束の hints.people の色。Run の欄 speakers の styles もここへ写っている)-> {名前: {"color": "#RRGGBB"}}(無ければ {})。
+        色は画面・Lua に入るので、ここでも 16 進 6 桁だけにそろえ直す(束の検査を通ってきたはずだが、実行の作り手がほかにも増えたときのため)"""
         out = {}
-        raw = (run.speakers or {}).get("styles")
-        for name, sty in (raw.items() if isinstance(raw, dict) else []):
-            hx = colors.norm_hex(sty.get("color")) if isinstance(name, str) and name and isinstance(sty, dict) and isinstance(sty.get("color"), str) else None
-            if hx:
-                out[name] = {"color": hx}
+        for p in _spec.hint_people(self._bundle(run))["people"]:
+            hx = colors.norm_hex(p["color"]) if isinstance(p.get("color"), str) else None
+            if p["name"] and hx:
+                out[p["name"]] = {"color": hx}
         return out
 
     def _pack_body(self, run, doc, media, pack_opts):
@@ -732,8 +934,11 @@ class Runner:
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
             tr = self.tools.transcript_file(doc["id"])
-            # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)。無ければ、自動の採用の切り抜きは区間の全体(M8)、ほかはホームの設定
-            method = run.cut or (LIVE_AUTO_CUT if run.source_path and self._live_auto_origin(media) else self._cut_method(run))
+            # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)= 束の pack.cut + run.pinned の cut。
+            # 無ければ、自動の採用の切り抜きは区間の全体(M8)、ほかはホームの設定(束の pack.cut)
+            b = self._bundle(run)
+            method = (b["pack"]["cut"] if "cut" in _pins(b) else None) or \
+                (LIVE_AUTO_CUT if run.source_path and self._live_auto_origin(media) else self._cut_method(run))
             if method == "none":   # 動画全体(削る区間なし)。カット済の行の字幕も消さない
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
             elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
@@ -743,8 +948,9 @@ class Runner:
                 if isinstance(row_edge, (bool, dict)):
                     spec["rowEdge"] = row_edge
             body = {"spec": spec, "output": dict({"textplus": True}, **wrap_out)}
-        if run.video_tracks:   # 友人が選んだ映像トラックの数(字幕はその上のトラック)
-            body["output"]["videoTracks"] = run.video_tracks
+        b = self._bundle(run)
+        if "videoTracks" in _pins(b):   # 友人が選んだ映像トラックの数(字幕はその上のトラック。1 でも書く = 今の要求の本文のまま)
+            body["output"]["videoTracks"] = b["pack"]["videoTracks"]
         self._auto_streamer(run, doc)
         if run.streamer:   # 字幕の文字を配信者のメンバーカラーに(cut2resolve が同じ規則で照らし合わせる)
             body["output"]["streamer"] = run.streamer
@@ -793,7 +999,7 @@ class Runner:
         clips = self._clips(v, run)
         docs = self._docs()
         opts = self._pack_settings(run)
-        force_all = run.overwrite or self._force(run)
+        force_all = self._repack(run)
         todo, no_tx, made, stale = [], 0, 0, 0
         for m in clips:   # パックの鍵(RS6 b-K2): 違う(字幕が新しい・設定が違う)= 作り直す / 同じ = 飛ばす / 鍵なし = 今のまま(無ければ作る・あれば上書きのときだけ)
             doc = self._pick_doc(docs, run.video_id, m.get("id"), m["path"])
@@ -855,6 +1061,8 @@ class Runner:
         src = d.get("sourcePath") or ""
         if not src or not os.path.isfile(src):
             raise StepError("元の動画が見つかりません(移動・削除した可能性があります)")
+        if d["id"] not in run.docs:   # 文書単位の実行も結果に文書を出す(RS7-1 S3。入口に頼んだ CLI の packs・artifacts が空だった)
+            run.docs.append(d["id"])
         return d
 
     def _tx_opts(self, run):
@@ -882,13 +1090,15 @@ class Runner:
         j = self._wait_job(run, jid, st)
         if j.get("state") != "done":
             raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
+        if doc["id"] not in run.new_docs:
+            run.new_docs.append(doc["id"])   # この実行で文字起こしした文書(public の newDocs)
         st["detail"] = "文字起こししました。字幕の校正は「編集」の 1 文字起こしで"
         return None
 
     def _doc_pack(self, run, st):
         doc = self._doc(run)
         opts = self._pack_settings(run)
-        force = run.overwrite or self._force(run)
+        force = self._repack(run)
         state, built = ("none", None) if force else self._pack_state(run, doc, doc["sourcePath"], opts)   # パックの鍵(RS6 b-K2。_step_pack と同じ)
         if state == "same" or (state == "none" and not force and self.find_pack(doc["sourcePath"])):
             st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
@@ -912,8 +1122,10 @@ class Runner:
         if not tids:
             st["state"], st["detail"] = "skip", "新しく文字起こしした文書がありません"
             return None
-        sp = run.speakers or {}
-        body = {"numSpeakers": sp.get("count"), "names": list(sp.get("names") or []), "recognize": True}
+        b = self._bundle(run)   # 人数 = 束の transcribe.diarize・名前 = hints.people(Run の欄 speakers はここへ写っている。RS7-1 S3)
+        hp = _spec.hint_people(b)
+        sp = {"count": b["transcribe"]["diarize"] or hp["count"], "names": [p["name"] for p in hp["people"]]}
+        body = {"numSpeakers": sp["count"], "names": list(sp["names"]), "recognize": True}
         styles = self._speaker_styles(run)   # 友人が指定した字幕の色(あれば話者分離のあと、文書に覚える)
         bad, no_color = [], []
         for i, tid in enumerate(tids, 1):
@@ -955,10 +1167,10 @@ class Runner:
             raise StepError("依頼の動画が見つかりません(移動・削除した可能性があります)")
         doc = self._pick_doc(self._docs(), None, None, run.source_path)
         opts = self._tx_opts(run)
-        if run.engine:   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)。無ければ編集の設定のまま
-            opts["engine"] = run.engine
-        if run.model:
-            opts["model"] = run.model
+        b = self._bundle(run)   # 実行ごとに選んだエンジン・モデル(リアルタイム切り抜きの live.auto。M2)= 束の transcribe + run.pinned。
+        for k in ("engine", "model"):   # 依頼が決めたときは、機器から決まるエンジンと同じでも要求に書く(今の要求の本文のまま)。無ければ編集の設定のまま
+            if k in _pins(b):
+                opts[k] = b["transcribe"][k]
         redo = bool(doc and doc.get("count") and self._force(run))   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
         if doc and doc.get("count") and not redo:
             differ = self._tx_state(doc, run.source_path, opts) == "differ"   # 違えば飛ばして印・同じ / 鍵なしは飛ばす
@@ -984,10 +1196,13 @@ class Runner:
 def run(client, input, spec=None, from_=None, hooks=None, tools=None):
     """① の入口: 入力(Run か {"videoId"}・{"docId"}・{"path"}。Run.from_input)を段の順に進めて、その Run を返す(中止は Cancelled・失敗は StepError)。
     spec = 指定の束(変えたい所だけ。None = 既定)。flow/spec.py の merge で既定に重ね validate で確かめて Run.spec に置く(形が違えば ValueError。段は始めない)。
+    spec が None で、入力の Run がもう束を持っていれば(from_envelope・待ちの記録から戻した物。RS7-1 S3)その束のまま。
+    Run の欄から写した差分(Run.asked)は Run.spec に置くときに重なる(欄が勝つ)。
     hooks = hook を埋めた Runner(入口の AutoRunner)。None = 素の Runner(tools = 仕事を頼む先。None = HttpTools(client)。hooks があれば hooks の物)"""
-    bundle = _spec.validate(_spec.merge(spec))
+    r = input if isinstance(input, Run) else None
+    bundle = r.spec if spec is None and r is not None and r.spec is not None else _spec.validate(_spec.merge(spec))
     runner = hooks if hooks is not None else Runner(client, tools=tools)
-    r = input if isinstance(input, Run) else Run.from_input(input, from_)
+    r = r if r is not None else Run.from_input(input, from_)
     r.spec = bundle
     try:
         runner.execute(r)

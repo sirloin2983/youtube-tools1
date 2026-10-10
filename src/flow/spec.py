@@ -103,6 +103,10 @@ def row_edge_ok(v):
 # ---------- 束の形 ----------
 SECTIONS = ("hints", "analyze", "adopt", "export", "transcribe", "post", "pack", "run")
 RUN_FROM = ("analyze", "adopt", "export", "transcribe", "pack")   # run.from に書ける段(run.py の MODE_STEPS の段の名前)
+# run.pinned に書ける項目(依頼が決めた項目。RS7-1 S3 の一時の形): weights = analyze の重み 3 つ(解析済みでも重みが違えば解析し直す)・
+# cut = pack.cut(リアルタイム切り抜きの自動の採用の既定より強い)・videoTracks = pack.videoTracks(1 でも要求に書く)・
+# engine・model = transcribe の engine・model(機器から決まるエンジンと同じでも要求に書く)
+RUN_PINS = ("weights", "cut", "videoTracks", "engine", "model")
 
 # 束の鍵にしない固定の項目(5-4。ユーザー決定 2026-10-09 夜)。今の設定の画面から消す物。呼ぶ側は変えられない
 FIXED = {
@@ -173,6 +177,8 @@ DEFAULTS = {
     "run": {
         "from": None,         # どの段からやり直すか(RUN_FROM)。None = 頭から
         "force": False,       # 同じ鍵でも作り直す
+        "repack": False,      # パックがあれば作り直す(文字起こしは作り直さない。Run の旧い欄 overwrite。RS7-1 S3)
+        "pinned": [],         # 依頼が決めた項目(RUN_PINS。画面の既定・自動の決め方より強い。RS7-1 S3 の一時の形 = 束を受付で組むようになれば要らない)
     },
 }
 
@@ -267,6 +273,10 @@ def _people_ok(v):
     return len(set(names)) == len(names)
 
 
+def _pins_ok(v):
+    return isinstance(v, list) and all(isinstance(x, str) and x in RUN_PINS for x in v) and len(set(v)) == len(v)
+
+
 def _weight_ok(v):
     """重み 1 つ(clean_weights と同じ 0〜3)"""
     return clean_weights(dict.fromkeys(WEIGHT_KEYS, v)) is not None
@@ -334,7 +344,8 @@ SCHEMA = {
                             "{noise: -90〜0, min: 0.05〜60, pad: 0〜10}"),
              "videoTracks": (_int_in(1, 5), "1〜5 の整数")},
     "run": {"from": (_or_none(_one_of(*RUN_FROM)), "null か %s のどれか" % "・".join(RUN_FROM)),
-            "force": (_is_bool, "true か false")},
+            "force": (_is_bool, "true か false"), "repack": (_is_bool, "true か false"),
+            "pinned": (_pins_ok, "%s の並び(重ならない)" % "・".join(RUN_PINS))},
 }
 
 

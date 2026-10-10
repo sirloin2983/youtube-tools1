@@ -5,6 +5,7 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
+import json
 import subprocess
 import sys
 import tempfile
@@ -14,7 +15,7 @@ from unittest import mock
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
 from flow import run as R  # noqa: E402
-from flow import spec as SP, tools as T  # noqa: E402
+from flow import envelope as E, spec as SP, tools as T  # noqa: E402
 
 
 class FakeClient:
@@ -90,12 +91,26 @@ class TestFromInput(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 R.Run.from_input(bad)
 
-    def test_spec_not_saved(self):
-        """spec は run() が置くだけ(待ちの記録・public には出さない)"""
+    def test_spec_saved_not_public(self):
+        """束は待ちの記録に封筒と一緒に残る(RS7-1 S3。起動し直しで CLI の --spec が消えない)。public には出さない。
+        古い形(欄だけ・束なし)も読める・合わない束は置かない"""
         r = R.Run.from_input({"docId": "d1"})
         self.assertIsNone(r.spec)
-        self.assertNotIn("spec", r.saved())
+        self.assertIsNone(r.saved()["spec"])
         self.assertNotIn("spec", r.public())
+        r.spec = SP.merge({"pack": {"size": "1920x1080"}})
+        d = json.loads(json.dumps(r.saved()))
+        self.assertEqual(d["envelope"], json.loads(json.dumps(E.check(r.envelope()))))
+        back = R.Run.restore(d)
+        self.assertEqual((back.id, back.doc_id, back.spec), (r.id, "d1", r.spec))
+        old = {k: v for k, v in d.items() if k not in ("envelope", "spec")}   # RS7-1 より前の形
+        self.assertIsNone(R.Run.restore(old).spec)
+        self.assertEqual(R.Run.restore(old).doc_id, "d1")
+        self.assertIsNone(R.Run.restore(dict(d, spec={"pack": {"size": "1x1"}})).spec)
+        new_only = {k: d[k] for k in ("id", "envelope", "spec", "state", "steps", "created", "docs")}   # 欄の鍵の無い新しい形
+        back = R.Run.restore(new_only)
+        self.assertEqual((back.id, back.mode, back.doc_id, back.spec, back.resumed), (r.id, R.DOC_MODE, "d1", r.spec, True))
+        self.assertIsNone(R.Run.restore(dict(new_only, envelope=dict(d["envelope"], specVersion=99))))
 
     def test_restore_skips_removed_post_analyze(self):
         """消した「あとから解析」(mode post_analyze。RS4)が以前の待ちの記録に残っていても、落ちずに読み飛ばす(同じ形の full は戻る)"""
@@ -372,6 +387,187 @@ class TestDefaultDocs(unittest.TestCase):
         got = rn._pick_doc(docs, None, None, media)
         self.assertEqual((got["id"], got["count"], got["sourcePath"]), ("abcdef012345", 1, media))   # 新しい方(別の場所)ではなくパスが同じ物
         self.assertIsNone(rn._pick_doc(docs, None, None, os.path.abspath("/z/nai.mp4")))
+
+
+class RecTools(T.HttpTools):
+    """段の要求の本文を覚える道具(採用・解析・話者分離。ほかは FakeClient の HttpTools)"""
+
+    def __init__(self, client):
+        super().__init__(client)
+        self.adopt, self.analyze, self.diarize = [], [], []
+
+    def request_marks(self, body):
+        self.adopt.append(body)
+        return {"rangeIds": [], "humanIds": [], "autoIds": ["a1"], "added": ["a1"]}
+
+    def analyze_add(self, item, settings):
+        self.analyze.append((item, settings))
+        return {"added": [{"qid": "q1"}]}
+
+    def analyze_items(self):
+        return [{"qid": "q1", "status": "done", "marks": 1}]
+
+    def diarize_start(self, body):
+        self.diarize.append(body)
+        return 500, {"message": "覚えるだけ"}
+
+
+VID = "abcdefghijk"
+SCREEN = {"pack": {"cut": "rows", "videoTracks": 1}, "analyze": {"wAudio": 1.2}, "adopt": {"top": 6}, "transcribe": {"model": "small"}}
+
+
+class TestFieldsToBundle(unittest.TestCase):
+    """RS7-1 S3: Run の中身の欄は束へ写る(段は束を読む)。欄で作った Run と、その封筒 + 束で作った Run(from_envelope)の
+    段の要求の本文が同じ(golden)。本文は今までの欄から作った本文と同じ(下の期待値 = 今の決まり)"""
+
+    def setUp(self):
+        fd, self.media = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        self.addCleanup(os.remove, self.media)
+
+    def cases(self):
+        m = self.media
+        return {
+            "request": dict(video_id=VID, title="配信", mode="request_auto", top=4, ranges=[(100.0, 120.0)],
+                            weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, fresh={"title": "題", "channel": "ch"}, duration=1000.0,
+                            request_id="r1", deliver_dir="/out", deliver_batch=3, streamer="ぺこら", cut="silence", video_tracks=1,
+                            speakers={"count": 2, "names": ["A"], "styles": {"A": {"color": "#112233"}}}),
+            "live_file": dict(video_id=None, title="ライブ", mode="file_auto", top=None, source_path=m, engine="whisper.cpp", model="large-v3",
+                              cut="none", pool={"key": "k1", "rid": "x"}),
+            "engine_same": dict(video_id=None, title="動画", mode="file", top=None, source_path=m, engine="faster-whisper", model="small"),
+            "doc_overwrite": dict(video_id=None, title="文書", mode=R.DOC_MODE, top=None, doc_id="d1", overwrite=True),
+            "adopted_force": dict(video_id=VID, title="配信", mode="adopted", top=5, force=True, marks=("m1",)),
+        }
+
+    @staticmethod
+    def make(kw):
+        kw = dict(kw)
+        return R.Run(kw.pop("video_id"), kw.pop("title"), kw.pop("mode"), kw.pop("top"), **kw)
+
+    def bodies(self, run):
+        """段の要求の本文(採用・解析・パック・文字起こし・話者分離)"""
+        c = FakeClient()
+        tools = RecTools(c)
+        rn = R.Runner(c, poll=0, sleep=lambda s: None, tools=tools)
+        out = {"force": rn._force(run), "repack": rn._repack(run), "styles": rn._speaker_styles(run)}
+        if run.video_id:
+            st = {"state": "run", "detail": ""}
+            rn._step_adopt(run, st, {"duration": 1000})
+            rn._analyze_item(run, st, {"kind": "youtube", "videoId": VID}, VID)
+            out.update(adopt=tools.adopt, analyze=tools.analyze, weightsDiffer=rn._weights_differ(run, {"analysis": {"spec": {}}}))
+        doc = {"id": "t1", "title": "題", "count": 1, "sourcePath": self.media, "segments": [{"start": 0, "end": 1, "text": "あ"}]}
+        out["pack"] = rn._pack_body(run, doc, self.media, rn._pack_settings(run))[0]
+        if run.source_path:
+            st = {"state": "run", "detail": ""}
+            rn._file_transcribe(run, st)
+            out["tx"] = c.bodies["/api/transcribe"]
+        if any(s["key"] == "diarize" for s in run.steps):
+            run.new_docs = ["t1"]
+            rn._step_diarize(run, {"state": "run", "detail": ""})
+        out["diarize"] = tools.diarize
+        return out
+
+    def test_golden(self):
+        base = SP.validate(SP.merge(SCREEN))
+        got = {}
+        for name, kw in self.cases().items():
+            r1 = self.make(kw)
+            r1.spec = base
+            env, spec = json.loads(json.dumps(r1.envelope())), json.loads(json.dumps(r1.spec))
+            r2 = R.Run.from_envelope(env, spec)
+            self.assertEqual(r2.spec, r1.spec, name)
+            self.assertEqual([s["key"] for s in r2.steps], [s["key"] for s in r1.steps], name)
+            for f in ("id", "mode", "top", "ranges", "weights", "cut", "video_tracks", "speakers", "engine", "model", "overwrite", "force", "streamer",
+                      "request_id", "deliver_dir", "deliver_batch", "pool", "fresh", "duration", "marks", "source_path", "doc_id", "title", "on_fail"):
+                self.assertEqual(getattr(r2, f), getattr(r1, f), "%s.%s" % (name, f))
+            b1, b2 = self.bodies(r1), self.bodies(r2)
+            self.assertEqual(b2, b1, name)
+            got[name] = b1
+        rq = got["request"]   # 今の決まり: 欄が画面の束より勝つ
+        self.assertEqual(rq["adopt"], [{"id": VID, "ranges": [[98.0, 122.0]], "top": 4, "title": "題", "channel": "ch"}])
+        self.assertEqual({k: rq["analyze"][0][1][k] for k in SP.WEIGHT_KEYS}, {"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0})
+        self.assertTrue(rq["weightsDiffer"])
+        self.assertEqual((rq["pack"]["spec"]["mode"], rq["pack"]["output"]["videoTracks"]), ("silence", 1))   # 1 でも書く
+        self.assertEqual(rq["pack"]["output"]["speakerStyles"], {"A": {"color": "#112233"}})
+        self.assertEqual(rq["diarize"], [{"numSpeakers": 2, "names": ["A"], "recognize": True, "tid": "t1"}])
+        self.assertEqual((rq["force"], rq["repack"]), (False, False))
+        lv = got["live_file"]
+        self.assertEqual((lv["tx"]["engine"], lv["tx"]["model"]), ("whisper.cpp", "large-v3"))
+        self.assertEqual(lv["pack"]["spec"]["mode"], "list")   # 選んだカット none(画面の rows より強い)
+        self.assertNotIn("videoTracks", lv["pack"]["output"])
+        self.assertEqual(lv["diarize"], [])   # 話す人の指定が無い = 段が無い
+        self.assertEqual(got["engine_same"]["tx"]["engine"], "faster-whisper")   # 機器から決まるエンジンと同じでも書く
+        self.assertEqual((got["doc_overwrite"]["force"], got["doc_overwrite"]["repack"]), (False, True))   # overwrite はパックだけ作り直す
+        ad = got["adopted_force"]
+        self.assertEqual((ad["force"], ad["repack"], ad["adopt"][0]["top"], ad["weightsDiffer"]), (True, True, 5, False))
+        self.assertEqual(ad["pack"]["spec"]["preset"], "transcript-rows")   # カットの指定なし = 画面の rows
+
+    def test_no_fields_is_screen_bundle(self):
+        """欄の無い Run(画面のまとめて実行・CLI)は束がそのまま(写す物が無い)"""
+        base = SP.validate(SP.merge(SCREEN))
+        r = R.Run(VID, "", "full", None)
+        r.spec = base
+        self.assertEqual((r.asked, r.spec), ({}, base))
+
+    def test_long_name_is_cut_and_bad_fields_not_copied(self):
+        """束に入らない欄は写さない(壊れた記録など)・41 字以上の名前は束の上限 40 字で切る(友人の受付は 60 字まで)"""
+        r = R.Run(VID, "", "full", 99, video_tracks=9, weights={"wAudio": 1}, speakers={"count": 2, "names": ["あ" * 50]})
+        self.assertNotIn("adopt", r.asked)
+        self.assertNotIn("analyze", r.asked)
+        self.assertEqual(r.asked["hints"]["people"], [{"name": "あ" * 40}])
+        self.assertNotIn("pack", r.asked)
+        r.spec = SP.merge(None)
+        self.assertEqual(r.spec["adopt"]["top"], SP.DEFAULTS["adopt"]["top"])
+
+    def test_from_envelope_defaults_and_refusals(self):
+        r = R.Run.from_envelope({"id": "0123456789", "kind": "url", "input": {"url": "https://www.youtube.com/watch?v=abcdefghijk"}},
+                                {"adopt": {"top": 2}, "hints": {"ranges": [[10, 20]]}})
+        self.assertEqual((r.id, r.video_id, r.mode, r.top, r.ranges, r.title), ("0123456789", VID, "full", 2, [(10, 20)], VID))
+        r = R.Run.from_envelope({"id": "x-1", "kind": "file", "input": {"path": self.media}})
+        self.assertEqual((r.mode, r.source_path, len(r.id)), ("file_auto", self.media, 10))   # 10 桁の 16 進でない id は実行の id にしない
+        for env in ({"id": "a", "kind": "live", "input": {"videoId": VID}},
+                    {"id": "a", "kind": "docs", "input": {"docId": "d1"}, "legacy": {"mode": "full"}},
+                    {"id": "a", "kind": "docs", "input": {"docId": "d1"}, "extra": 1}):
+            with self.assertRaises(ValueError, msg=env):
+                R.Run.from_envelope(env)
+
+    def test_run_keeps_spec_of_envelope_run(self):
+        """封筒 + 束で作った Run は、run(spec=None) でもその束のまま(既定に戻さない)"""
+        c = FakeClient()
+        r = R.Run.from_envelope({"id": "a", "kind": "file", "input": {"path": self.media}, "legacy": {"mode": "file"}},
+                                {"transcribe": {"model": "large-v3"}})
+        R.run(c, r, hooks=R.Runner(c, poll=0, sleep=lambda s: None))
+        self.assertEqual(c.bodies["/api/transcribe"]["model"], "large-v3")
+
+
+class TestStepsAndPublic(unittest.TestCase):
+    """段の時刻(steps[].startedAt/finishedAt)・public の packs・newDocs・文書単位でも docs(RS7-1 S3)"""
+
+    def test_times_public_saved_restored(self):
+        fd, media = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        self.addCleanup(os.remove, media)
+
+        class Docs(R.Runner):
+            def _docs(self):
+                return [{"id": "d1", "title": "題", "count": 0, "sourcePath": media, "segments": []}]
+        c = FakeClient()
+        t = iter(range(1000, 100000, 500))
+        r = R.run(c, R.Run.from_input({"docId": "d1"}), hooks=Docs(c, poll=0, sleep=lambda s: None, clock=lambda: next(t)))
+        tx = r.step("transcribe")
+        self.assertEqual(tx["state"], "done")
+        self.assertTrue(isinstance(tx["startedAt"], int) and tx["finishedAt"] > tx["startedAt"], tx)
+        pub = r.public()
+        self.assertEqual((pub["docs"], pub["newDocs"]), (["d1"], ["d1"]))   # 文書単位の実行も文書を出す
+        self.assertIn("packs", pub)
+        self.assertEqual(pub["steps"][0]["startedAt"], tx["startedAt"])
+        self.assertEqual(R._placement.result(r)["steps"][0]["finishedAt"], tx["finishedAt"])
+        from flow import runlog
+        self.assertEqual(runlog.step_ms(pub["steps"][0]), tx["finishedAt"] - tx["startedAt"])
+        self.assertIsNone(runlog.step_ms({"key": "x"}))
+        saved = json.loads(json.dumps(r.saved()))
+        back = R.Run.restore(saved)
+        self.assertEqual(back.step("transcribe")["startedAt"], tx["startedAt"])
 
 
 if __name__ == "__main__":

@@ -160,7 +160,7 @@ class TestArgs(Base):
     def test_load_spec_overlays_run(self):
         b = cli.load_spec(self.spec({"pack": {"volume": 50}}), "pack", True)
         self.assertEqual((b["pack"]["volume"], b["run"]["from"], b["run"]["force"]), (50, "pack", True))
-        self.assertEqual(cli.load_spec(None)["run"], {"from": None, "force": False})
+        self.assertEqual(cli.load_spec(None)["run"], {"from": None, "force": False, "repack": False, "pinned": []})   # repack・pinned は RS7-1 S3
 
 
 class FakePortal:

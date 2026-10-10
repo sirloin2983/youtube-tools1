@@ -10,6 +10,10 @@ RS6 b-B0(2026-10-10): 1 行 = 1 件は**索引**になった。実行の結果�
 書くのは flow/placement.write_result)で、1 行の `resultPath` がその場所(書けなかった実行・それより前の行には無い)。
 束の形の名前 RESULT_SCHEMA と、索引の 1 行から束を読む read_result はここ(書く側と読む側で同じ名前を使う)。
 
+RS7-1 S3(2026-10-10): 1 行(Run.public)と結果の束の steps[] に段の時刻 startedAt・finishedAt(ミリ秒。段を始めた・終えた時)、
+1 行に packs・newDocs、結果の束に封筒 envelope を足した。足しただけなので LOG_VERSION・RESULT_SCHEMA は据え置き(無い行・束も今までどおり読める)。
+段の所要は step_ms で読む。
+
 標準ライブラリだけ(ファイルは読むだけ。書き換えない)。
 """
 import json
@@ -69,6 +73,14 @@ def read_runs_log(path, max_bytes=None):
             if rec:
                 out.append(rec)
     return out
+
+
+def step_ms(step):
+    """記録の段 1 つ -> 所要のミリ秒(時刻が無い・形が違えば None。RS7-1 S3 より前の行と、始めなかった段は None)"""
+    a, b = (step.get("startedAt"), step.get("finishedAt")) if isinstance(step, dict) else (None, None)
+    if type(a) is not int or type(b) is not int or b < a:
+        return None
+    return b - a
 
 
 def read_result(rec, max_bytes=RESULT_MAX):
