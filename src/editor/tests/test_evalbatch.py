@@ -25,7 +25,7 @@ sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
 import ed_evalbatch as EB  # noqa: E402
 import ed_jobs  # noqa: E402
-import ed_relink  # noqa: E402
+from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
 import ed_store  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
@@ -54,7 +54,7 @@ class TestEvalBatch(unittest.TestCase):
                                                 "TRANSCRIBE_EVAL_BATCH": "off",   # 裏のスレッドは動かさない(見回りはテストが呼ぶ)
                                                 "TRANSCRIBE_AUTO_DIARIZE": "off"})   # 文字起こしの続きの話者の自動判別・後追いは test_autodiar で(ここは文字起こしの数え方だけ)
         self.env.start()
-        self.stg = os.path.join(self.ev, ed_relink.EVAL_STAGING)
+        self.stg = os.path.join(self.ev, EF.EVAL_STAGING)
         self.mem = os.path.join(self.ev, "1_JP", MEMBER)
         os.makedirs(self.stg)
         os.makedirs(self.mem)
@@ -344,7 +344,7 @@ class TestEvalBatch(unittest.TestCase):
     def test_organizing_makes_it_wait(self):
         self.staged("a.mp4")
         EB.eval_batch_start()
-        with ed_relink._evalorg_lock:
+        with EF._evalorg_lock:
             r = EB.eb_tick("test")
         self.assertEqual(r["added"], 0)
         self.assertIn("整理", r["deferred"])

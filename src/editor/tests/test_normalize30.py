@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir  # noqa: F401  (S = serve)
 import ed_jobs  # noqa: E402
-import ed_relink  # noqa: E402
+from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps(RS3-E7 に ed_relink から)
 import ed_store  # noqa: E402
 from ytt_core import normalize as N  # noqa: E402
 
@@ -104,15 +104,15 @@ class TestTranscribeNormalize(_Base):
             return real(*a, **kw)
         spec = ed_jobs.validate_job({"sourcePath": src, "model": "small"})
         job = ed_jobs.add_job(spec)
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=spy):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=spy):
             self.run_job(job)
         dst = os.path.join(self.media, "配信 60_30fps.mp4")
-        self.assertEqual(seen, [("running", ed_relink.NORM_PHASE, job["tid"])])   # 進み具合は「30fps にそろえています… n%」・作り直しの間は文書を止める
+        self.assertEqual(seen, [("running", RL.NORM_PHASE, job["tid"])])   # 進み具合は「30fps にそろえています… n%」・作り直しの間は文書を止める
         self.assertEqual(job["progress"], 1.0)
         d = self.doc(job["tid"])
         self.assertEqual((os.path.normcase(d["sourcePath"]), d["sourceName"]), (os.path.normcase(dst), "配信 60_30fps.mp4"))
         self.assertEqual(len(d["segments"]), 2)
-        self.assertEqual(d["relinks"][-1]["why"], ed_relink.NORM_WHY)
+        self.assertEqual(d["relinks"][-1]["why"], RL.NORM_WHY)
         self.assertEqual(os.path.normcase(d["relinks"][-1]["from"]), os.path.normcase(src))
         self.assertTrue(os.path.isfile(src))   # 元は消さない
         self.assert_30(dst)
@@ -124,7 +124,7 @@ class TestTranscribeNormalize(_Base):
 
     def test_30fps_is_not_remade(self):
         src = self.copy(self.v30, "そのまま.mp4")
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
             job = self.transcribe(src)
         d = self.doc(job["tid"])
         self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
@@ -135,7 +135,7 @@ class TestTranscribeNormalize(_Base):
     def test_existing_30fps_copy_is_reused(self):
         src = self.copy(self.v60, "a.mp4")
         made = self.copy(self.v30, "a_30fps.mp4")   # 前に作った 30fps の写し(長さも同じ)
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
             job = self.transcribe(src)
         self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(made))
         self.assertIn("があったので", job["normNote"])
@@ -154,7 +154,7 @@ class TestTranscribeNormalize(_Base):
     def test_eval_is_not_remade(self):
         """評価用(evalSet)は作り直さない(パックを作らない・評価用のフォルダの整理が動画の数を数えるため)"""
         src = self.copy(self.v60, "評価.mp4")
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
             job = self.transcribe(src, evalSet=True)
         d = self.doc(job["tid"])
         self.assertTrue(d["evalSet"])
@@ -169,7 +169,7 @@ class TestTranscribeNormalize(_Base):
         shutil.copy(self.v60, src)
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
             json.dump({"evalDirs": [root]}, f)
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=AssertionError("作り直さない")):
             job = self.transcribe(src)
         self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
         self.assertEqual(os.listdir(os.path.join(root, "01_ときのそら")), ["x.mp4"])
@@ -177,7 +177,7 @@ class TestTranscribeNormalize(_Base):
     def test_failure_keeps_doc(self):
         """作り直しに失敗しても文書(文字起こしの結果)は残り、元の動画を指す。知らせに理由"""
         src = self.copy(self.v60, "c.mp4")
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=N.NormalizeError("こわれた")):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=N.NormalizeError("こわれた")):
             job = self.transcribe(src)
         d = self.doc(job["tid"])
         self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
@@ -204,7 +204,7 @@ class TestTranscribeNormalize(_Base):
         def cancel_then_run(*a, **kw):
             job["cancel"] = True   # 「中止」が押された
             return real(*a, **kw)
-        with mock.patch.object(ed_relink._vnorm, "normalize", side_effect=cancel_then_run):
+        with mock.patch.object(RL._vnorm, "normalize", side_effect=cancel_then_run):
             self.run_job(job)
         self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
         self.assertIn("取り消しました", job["normNote"])
@@ -213,7 +213,7 @@ class TestTranscribeNormalize(_Base):
     def test_no_room_keeps_doc(self):
         """空きが足りない・書き込めないときは作らずに知らせる"""
         src = self.copy(self.v60, "f.mp4")
-        with mock.patch.object(ed_relink.shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 1)):
+        with mock.patch.object(RL.shutil, "disk_usage", return_value=shutil._ntuple_diskusage(100, 99, 1)):
             job = self.transcribe(src)
         self.assertIn("空きが足りない", job["normNote"])
         self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src))
@@ -224,7 +224,7 @@ class TestTranscribeNormalize(_Base):
             if os.path.normcase(str(kw.get("dir") or "")) == os.path.normcase(self.media):
                 raise PermissionError("読み取り専用")
             return real(*a, **kw)
-        with mock.patch.object(ed_relink.tempfile, "mkstemp", side_effect=mkstemp):
+        with mock.patch.object(RL.tempfile, "mkstemp", side_effect=mkstemp):
             job = self.transcribe(src2)
         self.assertIn("書き込めない", job["normNote"])
         self.assertEqual(os.path.normcase(self.doc(job["tid"])["sourcePath"]), os.path.normcase(src2))
@@ -249,7 +249,7 @@ class TestTranscribeNormalize(_Base):
         tid = job["tid"]
         d = self.doc(tid)
         before = d["updatedAt"]
-        self.assertEqual(ed_relink.norm_swap(tid, src, os.path.join(self.media, "x.mp4")) is not None, True)
+        self.assertEqual(RL.norm_swap(tid, src, os.path.join(self.media, "x.mp4")) is not None, True)
         self.assertEqual(self.doc(tid)["updatedAt"], before)   # 付け替え(bump=False)は更新日時を変えない = 開いている画面の保存が 409 にならない
 
 
@@ -277,7 +277,7 @@ class TestRelinkNormalize(_Base):
         dst = os.path.join(self.media, "移した先_30fps.mp4")
         self.assertEqual(os.path.normcase(d2["sourcePath"]), os.path.normcase(dst))
         self.assertEqual(d2["updatedAt"], r["updatedAt"])
-        self.assertEqual(d2["relinks"][-1]["why"], ed_relink.NORM_WHY)
+        self.assertEqual(d2["relinks"][-1]["why"], RL.NORM_WHY)
         self.assertTrue(ed_jobs.public_job(job)["normOk"])
         self.assert_30(dst)
         self.assertTrue(os.path.isfile(moved))

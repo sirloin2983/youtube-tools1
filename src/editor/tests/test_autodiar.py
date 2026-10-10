@@ -27,7 +27,7 @@ import serve as S  # noqa: E402
 import ed_drill  # noqa: E402
 import ed_evalbatch as EB  # noqa: E402
 import ed_jobs  # noqa: E402
-import ed_relink  # noqa: E402
+from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
 import ed_speakers  # noqa: E402
 import ed_store  # noqa: E402
 from test_evalbatch import FFMPEG, MEMBER, _make_video  # noqa: E402
@@ -63,7 +63,7 @@ class TestAutoDiar(unittest.TestCase):
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
                                                 "TRANSCRIBE_EVAL_BATCH": "off", "TRANSCRIBE_AUTO_DIARIZE": ""})
         self.env.start()
-        self.stg = os.path.join(self.ev, ed_relink.EVAL_STAGING)
+        self.stg = os.path.join(self.ev, EF.EVAL_STAGING)
         self.mem = os.path.join(self.ev, "1_JP", MEMBER)   # メンバーのフォルダ「評価用データ01_ときのそら」= 名前の候補「ときのそら」
         os.makedirs(self.stg)
         os.makedirs(self.mem)

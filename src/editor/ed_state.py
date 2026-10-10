@@ -120,6 +120,11 @@ _crash_fp = None
 _mem = _tools.memory_label   # lint: keep 別名(RS2-1a)= 記録用のメモリの文字
 
 
+def runtime_path_dir():
+    """<editor の1つ上>/.runtime(環境変数 YTT_RUNTIME_DIR が優先)。pipeline_io.runtime_dir と同じ規則(RS3-E7 に ed_misc から。起動の約束 = app の物)"""
+    return _runtime.runtime_dir(_workdata.ROOT)
+
+
 def setup_logging(hooks=True):
     """ログとクラッシュ記録を有効にする(起動時に1回だけ)。ファイルが作れなくても動く。
     hooks=False(入口の統合サーバーに取り込まれたとき)は、プロセス全体の設定(未処理の例外の記録先・faulthandler)は変えない(入口のもの)。"""

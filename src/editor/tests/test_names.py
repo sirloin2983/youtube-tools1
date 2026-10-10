@@ -15,6 +15,8 @@
   S.名前 と ed_store.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
 - RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
   S.名前 と 殻の名前の両方で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
+- RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・eval/drill/folders と
+  manage/cases/handoff_io・human/proof/batch・progress に分けても S.名前 と殻の名前で読める
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -353,6 +355,109 @@ class TestEdAltYtcapRetimeShell(unittest.TestCase):
         self.assertEqual(list(backend.REAL.alt_rows({}, {}, "w", 1, lambda *a: iter([a]))), [({}, {}, "w", 1)])
         self.assertTrue(hasattr(fake_asr.FAKE, "alt_rows"))
         self.assertEqual(fake_asr.FAKE.name, "fake")
+
+
+class TestEdRelinkShell(unittest.TestCase):
+    """ed_relink を manage/cases/relink(付け替え・まとめて付け替える・30fps)と eval/drill/folders(評価用のフォルダの整理)に分けた(RS3-E7)。
+    旧い名前は殻と serve で読め、差し替えは持ち主に届き、folders は付け替えの書き込みを relink から呼ぶたびに読む(④ → ③)"""
+
+    @staticmethod
+    def owners():
+        from eval.drill import folders
+        from manage.cases import relink
+        return relink, folders
+
+    def test_old_ed_relink_names_still_resolve(self):
+        import ed_relink
+        names = _old_names("data_ed_relink_names.txt")
+        self.assertEqual(len(names), 68)
+        missing = [n for n in names if not hasattr(S, n) or not hasattr(ed_relink, n)]
+        self.assertEqual(missing, [])
+
+    def test_shell_owns_only_forwarding_names(self):
+        import ed_relink
+        own = sorted(k for k, v in vars(ed_relink).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["_MOVED", "_add_moved", "_moved_owner"])
+        self.assertNotIn(ed_relink, S._ED_MODULES)   # ed_jobs の殻と同じ 3 つの名前を持つので、serve の受付には並べない
+
+    def test_moved_owners(self):
+        import ed_relink
+        relink, folders = self.owners()
+        self.assertEqual(ed_relink._MOVED, (relink, folders))   # folders は serve が _add_moved で足す(殻は層 manage = eval を読まない)
+        for m in (relink, folders):
+            self.assertIn(m, S._ED_MODULES, m.__name__)
+        self.assertIs(S.relink_doc, relink.relink_doc)
+        self.assertIs(ed_relink.eval_organize, folders.eval_organize)
+        self.assertIs(ed_relink._evalorg_lock, folders._evalorg_lock)
+        for name in ("ed_state", "ed_jobs", "ed_store", "folders", "_evfolders"):
+            self.assertNotIn(name, vars(relink), name)   # relink は ④ と編集の app・殻を読まない
+
+    def test_patches_reach_owner(self):
+        import ed_relink
+        relink, folders = self.owners()
+        calls = []
+        with mock.patch.object(S, "_relink_write", lambda *a, **k: calls.append(a) or 1):
+            self.assertEqual(relink._relink_write("t", {}, "p", 0.0), 1)   # S の差し替えは relink に届き、folders は呼ぶたびに _relink._relink_write を読む
+        self.assertEqual(len(calls), 1)
+        saved = relink.FIND_MAX_DEPTH
+        try:
+            ed_relink.FIND_MAX_DEPTH = 2   # test_edit の形(S.FIND_MAX_DEPTH = 1)
+            self.assertEqual(relink.FIND_MAX_DEPTH, 2)
+        finally:
+            relink.FIND_MAX_DEPTH = saved
+        self.assertNotIn("FIND_MAX_DEPTH", vars(ed_relink))
+
+    def test_norm_after_hook_points_to_relink(self):
+        """doc_jobs の口 norm_after は relink.norm_after_transcribe を呼ぶたびに読む(S の差し替えが届く)"""
+        from human.proof import doc_jobs
+        doc_jobs.check_hooks()
+        with mock.patch.object(S, "norm_after_transcribe", lambda job, spec, tid: "norm:" + tid):
+            self.assertEqual(doc_jobs._hook("norm_after")({}, {}, "t1"), "norm:t1")
+
+
+class TestEdMiscShell(unittest.TestCase):
+    """ed_misc を manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括・文字起こし済みの範囲)・
+    human/proof/progress(進行度)に分けた(RS3-E7)。.runtime の置き場所 runtime_path_dir は app の ed_state(serve の名前だけ)"""
+
+    @staticmethod
+    def owners():
+        from human.proof import batch, progress
+        from manage.cases import handoff_io
+        return handoff_io, batch, progress
+
+    def test_old_ed_misc_names_still_resolve(self):
+        import ed_misc
+        names = _old_names("data_ed_misc_names.txt")
+        self.assertEqual(len(names), 18)
+        self.assertEqual([n for n in names if not hasattr(S, n)], [])
+        self.assertEqual([n for n in names if not hasattr(ed_misc, n)], ["runtime_path_dir"])   # app に残した名前は殻からは読まない
+
+    def test_shell_owns_only_forwarding_names(self):
+        import ed_misc
+        own = sorted(k for k, v in vars(ed_misc).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["_MOVED", "_add_moved", "_moved_owner"])
+        self.assertNotIn(ed_misc, S._ED_MODULES)
+
+    def test_moved_owners(self):
+        import ed_misc
+        import ed_state
+        owners = self.owners()
+        self.assertEqual(ed_misc._MOVED, owners)
+        for m in owners:
+            self.assertIn(m, S._ED_MODULES, m.__name__)
+        handoff_io, batch, progress = owners
+        self.assertIs(S.clip_info, handoff_io.clip_info)
+        self.assertIs(ed_misc.scan_common, batch.scan_common)
+        self.assertIs(S.progress_stats, progress.progress_stats)
+        self.assertIs(S.runtime_path_dir, ed_state.runtime_path_dir)
+
+    def test_transcribed_ranges_patch_reaches_marker_and_batch(self):
+        """S.transcribed_ranges の差し替え(test_backend・test_metrics の形)はフォルダの一括とマーカーの読みの両方に届く"""
+        handoff_io, batch, _progress = self.owners()
+        with mock.patch.object(S, "transcribed_ranges", lambda: [{"path": "k", "start": 0.0, "end": None, "whole": True, "tid": "t1"}]):
+            self.assertEqual(batch._done_and_active()[0], {"k": "t1"})
+            self.assertIn("transcribed_ranges", vars(batch))
+        self.assertNotIn("transcribed_ranges", vars(handoff_io))   # マーカーは _batch.transcribed_ranges を呼ぶたびに読む
 
 
 class TestEdStateNames(unittest.TestCase):

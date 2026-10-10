@@ -25,7 +25,7 @@ import threading
 
 from pipeline.transcribe import roster as _roster  # noqa: E402  (名簿の呼び名。隣の部品)
 import ed_jobs  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
+from eval.drill import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・メンバーのフォルダの形(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
@@ -68,8 +68,8 @@ def drill_stream_key(doc):
     if not path:
         return ""
     folder = os.path.basename(os.path.dirname(path))
-    m = ed_relink._EVAL_MEMBER_RE.match(folder) if folder != ed_relink.EVAL_STAGING else None
-    return ("m:" + ed_relink._norm_member(m.group(1))) if m else ("d:" + os.path.normcase(os.path.dirname(path)))
+    m = _evfolders._EVAL_MEMBER_RE.match(folder) if folder != _evfolders.EVAL_STAGING else None
+    return ("m:" + _evfolders._norm_member(m.group(1))) if m else ("d:" + os.path.normcase(os.path.dirname(path)))
 
 
 def _drill_text_rows(segs):
@@ -320,9 +320,9 @@ def drill_unreviewed(obj):
 # ---------- 話者の候補 ----------
 def _member_name(folder):
     b = os.path.basename(folder.rstrip("\\/"))
-    if b == ed_relink.EVAL_STAGING:
+    if b == _evfolders.EVAL_STAGING:
         return ""
-    m = ed_relink._EVAL_MEMBER_RE.match(b)
+    m = _evfolders._EVAL_MEMBER_RE.match(b)
     return m.group(1).strip() if m else ""
 
 
@@ -332,7 +332,7 @@ def _own_member(path, dirs):
         return ""
     roots = [ed_state.norm_path(d) for d in dirs]
     cur = os.path.dirname(os.path.abspath(path))
-    for _ in range(ed_relink.EVAL_WALK_DEPTH + 1):
+    for _ in range(_evfolders.EVAL_WALK_DEPTH + 1):
         if os.path.normcase(cur) in roots:
             return ""
         nm = _member_name(cur)
@@ -350,7 +350,7 @@ def _all_members(dirs):
     folders = []
     for d in dirs:
         try:
-            folders += list(ed_relink._eval_members(d).values())
+            folders += list(_evfolders._eval_members(d).values())
         except OSError:
             continue
     keys = [os.path.normcase(f).rstrip("\\/") + os.sep for f in folders]

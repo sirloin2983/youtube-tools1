@@ -15,7 +15,7 @@ import threading
 import time
 
 from ytt import jobs as _heavy  # noqa: E402
-import ed_misc  # noqa: E402,F401
+from manage.cases import handoff_io as _handoff_io  # noqa: E402   他のツールが書く JSON の読み _read_json_file(RS3-E7 に ed_misc から)
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
@@ -131,7 +131,7 @@ def get_peaks(tid):
         raise ed_state.ApiError("source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)", 404)
     sig = [os.path.normcase(path), st.st_size, st.st_mtime_ns, PEAKS_VERSION]
     _d, bin_p, meta_p = _peaks_files(path)
-    meta = ed_misc._read_json_file(meta_p)
+    meta = _handoff_io._read_json_file(meta_p)
     if isinstance(meta, dict) and meta.get("sig") == sig:
         try:
             with open(bin_p, "rb") as f:

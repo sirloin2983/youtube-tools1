@@ -7,7 +7,7 @@
 """
 from . import fsio as _fsio, workdata as _workdata
 
-STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(編集の ed_misc.OTHER_JSON_MAX と同じ値。これより大きい data.json は読めない扱い)
+STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(manage/cases/handoff_io の OTHER_JSON_MAX と同じ値。これより大きい data.json は読めない扱い)
 _studio_cache = _fsio.StampCache()   # スタジオの data.json のパス → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(更新日時と大きさでキャッシュ)
 
 

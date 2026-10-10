@@ -131,7 +131,7 @@ def blank_draft_row(g):
 WORK_DIR = "作業用"
 # 動画と同じ名前で持つ途中のファイルの名前の終わり(全部。2026-10-09 に一覧だけ置いた)。各ツールの一覧は目的ごとに少しずつ違うので、
 # まだここを読んでいない: 入口の片付け cleanup.SIDECARS(.studio-id 無し)・cleanup._media_stem(_edit.clip.json 無し)・
-# 編集の ed_relink.EVAL_SIDECARS(_edit.clip.json・.studio-id 無し)。寄せるときは、足りない名前を足してよいかを確かめてから
+# 評価用のフォルダの整理 eval/drill/folders の EVAL_SIDECARS(_edit.clip.json・.studio-id 無し)。寄せるときは、足りない名前を足してよいかを確かめてから
 SIDECAR_SUFFIXES = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json", ".studio-id")
 
 

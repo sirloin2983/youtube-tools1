@@ -170,7 +170,7 @@ def doc_length(d):
 
 
 # 文書ごとの要約のキャッシュは 1 つ(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
-# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・進行度(ed_misc.progress_stats)・評価ドリル(ed_drill.drill_docs)が同じ要約を使うので、
+# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・進行度(progress.progress_stats)・評価ドリル(ed_drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
 _summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
@@ -198,7 +198,7 @@ def _load_doc(path):
 
 
 def _prog_of(segs, d):
-    """進行度(ed_misc.progress_stats)に要る数: 評価用か・校正済みの行の秒と数・未校正の文字のある行の数・全体の秒と行の数"""
+    """進行度(progress.progress_stats)に要る数: 評価用か・校正済みの行の秒と数・未校正の文字のある行の数・全体の秒と行の数"""
     good = [g for g in segs if good_row(g)]
     pend = sum(1 for g in segs if g.get("proofed") is not True and str(g.get("text", "")).strip() and "unclear" not in (g.get("tags") or []))
     return {"eval": d.get("evalSet") is True, "sec": sum(row_dur(g) for g in good), "lines": len(good), "pend": pend,

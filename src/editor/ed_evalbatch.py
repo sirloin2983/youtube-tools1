@@ -34,7 +34,7 @@ from ytt import fsio as _fsio  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_drill  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
+from eval.drill import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・動画の一覧・整理のロック(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
@@ -96,7 +96,7 @@ EB_REDO_LABELS = {"proofed": "校正済みの行がある", "tags": "音のメ�
                   "pressedChanged": "押したあとに直されたため"}   # 1 本ずつの作り直し(eval_batch_redo_one)で、押したあとに文書が変わった
 EB_REDO_TOUCHED = ("proofed", "tags", "noSub", "noOriginal", "rows", "text", "time", "speaker")
 EB_REDO_MACHINE_BY = ("threshold", "elimination", "context")   # diar.json の voices の by のうち、機械が名前を付けたもの(request = 依頼の名前は人の入力)
-EB_UNTRANSCRIBED_RE = re.compile(r"_\d{2,4}_未文字起こし$")   # 評価用の整理の名前の規則(ed_relink._eval_name_re と同じ形)
+EB_UNTRANSCRIBED_RE = re.compile(r"_\d{2,4}_未文字起こし$")   # 評価用の整理の名前の規則(folders._eval_name_re と同じ形)
 _eb_state_lock = threading.RLock()   # 状態ファイルの読み書き・ジョブを足す瞬間(start / stop / 見回りが重ならない)
 _eb_pass_lock = threading.Lock()     # 見回りは同時に1つ
 _eb_one_lock = threading.Lock()      # 1 本ずつの作り直し: 確かめてからジョブを足すまで(同じ文書を2回押しても 1 本だけ)
@@ -257,8 +257,8 @@ def eb_scan():
     """評価用のフォルダの下の「評価用_仮置き」と「…_NN_未文字起こし」の動画 [パス](並びは名前順)"""
     out, seen = [], set()
     for root in _settings.eval_dirs():
-        stg = os.path.join(root, ed_relink.EVAL_STAGING)
-        for folder, names in sorted(ed_relink._eval_videos(root, skip_staging=False).items()):
+        stg = os.path.join(root, _evfolders.EVAL_STAGING)
+        for folder, names in sorted(_evfolders._eval_videos(root, skip_staging=False).items()):
             staged = _fsio.is_inside(folder, stg)
             for n in sorted(names):
                 if not (staged or EB_UNTRANSCRIBED_RE.search(os.path.splitext(n)[0])):
@@ -439,7 +439,7 @@ def _eb_tick_locked(why, log):
         elif others:
             st["deferred"] = "ほかのジョブが動いています(終わるまで待ちます)"
             res = {"added": 0, "remaining": st.get("remaining"), "deferred": st["deferred"]}
-        elif ed_relink._evalorg_lock.locked():
+        elif _evfolders._evalorg_lock.locked():
             st["deferred"] = "評価用のフォルダを整理中です"
             res = {"added": 0, "remaining": st.get("remaining"), "deferred": st["deferred"]}
         else:

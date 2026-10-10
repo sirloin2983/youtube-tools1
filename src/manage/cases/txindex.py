@@ -18,7 +18,7 @@ import os
 
 from ytt import datadir, fsio, layout, schemas
 
-NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えたときの relinks[].why(editor/ed_relink.py の NORM_WHY と同じ)
+NORM_WHY = "normalize30"   # 「編集」が 30fps の写しへ付け替えたときの relinks[].why(manage/cases/relink.py の NORM_WHY と同じ)
 
 MAX_DOC_BYTES = 32 * 1024 * 1024
 MAX_TEXT = 500
