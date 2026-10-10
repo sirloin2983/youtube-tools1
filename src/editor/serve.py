@@ -119,6 +119,7 @@ from pipeline.transcribe import worker_client as _txworker  # noqa: E402  (認�
 from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きからを ed_jobs から移した。RS2-7)
 from pipeline.transcribe import fill as _txfill, llm as _txllm, retime as _txretime  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E を ed_fill・ed_llm から、読む速さと時刻の候補の計算を ed_retime から移した。fill・llm の殻は作らない。RS2-9)
 from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・文書づくり・受付。RS2-8b に ed_jobs から移した。ed_jobs は転送だけの殻)
+from human.proof import overrides as _overrides  # noqa: E402  (校正の上書き over.json。文書の削除で一緒に消す。RS6 b-O1)
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
 from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 a-5a)
@@ -597,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.unlink(_store.tx_path(tid))
                 for extra in (_store.edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"), _txwords.words_path(tid),
                               _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
-                              _alt.alt_path(tid), _ytcap.ytcap_path(tid), _txllm.llm_path(tid),
+                              _alt.alt_path(tid), _ytcap.ytcap_path(tid), _txllm.llm_path(tid), _overrides.over_path(tid),
                               *(_flowkeys.doc_key_path(tid, st) for st in ("transcribe", "post", "diar"))):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案・成果物の鍵(RS6 b-K1)も一緒に
                     try:
                         os.unlink(extra)
