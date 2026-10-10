@@ -7,7 +7,12 @@
 固定の項目(FIXED)は束の鍵にしない。呼ぶ側(画面・友人の受付・CLI)は、変えたい所だけを渡す。
 
 前半は src/home/autorun.py から移した検査(RS1-6。動きは変えていない)。autorun は同じ名前で読み直している。
-後半の DEFAULTS は、今のコードにある既定値を写した物(出どころの場所を横に書いた)。今の本物のコードはまだこの表を読まない。
+後半の DEFAULTS は、今のコードにある既定値を写した物(出どころの場所を横に書いた)。
+末尾の「束 → 本文」(RS6 b-0)は、段(flow/run.py)が各ツールの API に渡す本文を束から作る純粋な関数:
+  export_body(束, 配信, マーク)・tx_opts(束)・pack_output(束)。解析の設定は束の analyze 節をそのまま渡す。
+入口(src/home/autorun.py の build_spec)は画面の設定から束を組む = 段は設定ファイルも GET /api/settings も読まない(5-4)。
+画面の設定のうち束に入れない物(5-4 の固定 = 精密・画質の上限・fps と、学習データの用語集)は「画面だけの値」screen(SCREEN の鍵)で渡す。
+画面から消すまでの一時の口(無ければ固定の値 = ① 単体の動き)。
 """
 import copy
 import re
@@ -278,7 +283,7 @@ def _model_ok(v):
 
 _LUFS = (-11, -14, -16, -18)   # 聞こえ方をそろえる目標(スタジオの書き出し・編集の設定と同じ)
 _CHARS_ORIENT = {"vertical": _int_in(4, 80), "horizontal": _int_in(4, 80)}
-_WRAP_ORIENT = {"vertical": _int_in(2, 40), "horizontal": _int_in(2, 40)}
+_WRAP_ORIENT = {"vertical": _int_in(0, 40), "horizontal": _int_in(0, 40)}   # 0 = 改行しない(cut2resolve の textplusWrap と同じ範囲)
 
 # 節 -> 項目 -> (検査, 直し方の言い方)。範囲は検査の元になったコードの値(出どころは DEFAULTS の横の注)
 SCHEMA = {
@@ -316,7 +321,7 @@ SCHEMA = {
              "loudness": (_one_of(0, *_LUFS), "0 か %s のどれか" % "・".join(map(str, _LUFS))),
              "volume": (_int_in(1, 200), "1〜200 の整数(%)"),
              "backup": (_is_bool, "true か false"), "render": (_is_bool, "true か false"), "speakerColors": (_is_bool, "true か false"),
-             "wrapChars": (_dict_of(**_WRAP_ORIENT), "{vertical, horizontal}(どちらも 2〜40 の整数)"),
+             "wrapChars": (_dict_of(**_WRAP_ORIENT), "{vertical, horizontal}(どちらも 0〜40 の整数。0 = 改行しない)"),
              "rowEdge": (row_edge_ok, "true か false か {on?, after?, before?}(0〜2 秒)"),
              "cut": (_one_of(*PACK_CUTS), "%s のどれか" % "・".join(PACK_CUTS)),
              "cutSilence": (_dict_of(noise=_num_in(-90, 0), min=_num_in(0.05, 60), pad=_num_in(0, 10)),
@@ -348,3 +353,92 @@ def validate(bundle):
             if not pred(given[k]):
                 raise ValueError("%s.%s は %s にしてください" % (sec, k, what))
     return bundle
+
+
+def key_ok(sec, key, value):
+    """束の 1 項目の値が検査に合うか(辞書の項目は既定に重ねてから見る = {"vertical": 9} だけでもよい)。
+    入口が画面の設定から束を組むとき、合わない値を既定に戻すのに使う(src/home/autorun.py の spec_from_settings)"""
+    try:
+        merged = merge({sec: {key: value}})[sec][key]
+    except ValueError:
+        return False
+    return SCHEMA[sec][key][0](merged)
+
+
+# ---------- 束 → 各ツールの API の本文(RS6 b-0) ----------
+# 画面だけの値(束に入れない): 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は画面から消すまで今の値を使い、
+# 用語集(学習データ。束には場所と版だけ)は文字そのものを渡す。packNotes = 入口が画面の設定を束にするときに直した所の知らせ(パックの段に出す)。
+# 鍵が無ければ FIXED の値(① 単体)・鍵があって値が None なら「渡さない」(ツールの既定)
+SCREEN = {"precision": "accurate", "maxHeight": FIXED["maxHeight"], "packFps": str(FIXED["fps"]), "glossary": None, "packNotes": ()}
+PRECISIONS = ("accurate", "fast")
+MAX_HEIGHTS = (0, 720, 1080, 1440, 2160)   # 書き出しの画質の上限(スタジオの exporter._max_height と同じ。0 = 上限なし)
+PACK_FPS_RE = re.compile(r"\d{1,3}(\.\d{1,3})?\Z")   # パックの Text+ の fps の文字(cut2resolve の textplusFps)
+TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
+TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo", "redoLarge")   # 同じく post 節(編集の画面から始めるときと同じ)
+
+
+def clean_screen(screen):
+    """画面だけの値を確かめる -> 全部の鍵がそろった dict(無い鍵 = SCREEN の値・形が違う値 = None = 渡さない)"""
+    sc = screen if isinstance(screen, dict) else {}
+    checks = {"precision": lambda v: v in PRECISIONS, "maxHeight": lambda v: type(v) is int and v in MAX_HEIGHTS,
+              "packFps": lambda v: isinstance(v, str) and PACK_FPS_RE.match(v) is not None,
+              "glossary": lambda v: isinstance(v, str),
+              "packNotes": lambda v: isinstance(v, (list, tuple)) and all(isinstance(x, str) for x in v)}
+    out = {}
+    for k, default in SCREEN.items():
+        v = sc.get(k, default)
+        out[k] = v if v is not None and checks[k](v) else None
+    out["packNotes"] = list(out["packNotes"] or ())
+    return out
+
+
+def implied_engine(device):
+    """文字起こしの要求にエンジンを書かないときにツールが選ぶエンジン(GPU の vulkan なら whisper.cpp。worker_client.req_engine と同じ決まり)"""
+    return "whisper.cpp" if device == "vulkan" else TX_ENGINES[0]
+
+
+def export_body(bundle, video_id, ids, screen=None):
+    """スタジオの書き出しの要求(POST /api/export)の本文。音量は束の export 節・精密と画質の上限は画面だけの値(無ければ固定 = 精密・上限なし)"""
+    sc = clean_screen(screen)
+    ex = bundle["export"]
+    return {"id": video_id, "markIds": list(ids), "precision": sc["precision"] or "accurate",
+            "maxHeight": sc["maxHeight"] if sc["maxHeight"] is not None else FIXED["maxHeight"], "volume": ex["volume"], "loudness": ex["loudness"]}
+
+
+def tx_opts(bundle, screen=None):
+    """「編集」の文字起こしの要求(POST /api/transcribe)の設定の部分(動画のパスは段が足す)。
+    エンジンは、機器から決まるエンジンと違うときだけ書く(入口の束は機器から決めるので書かない = 編集の画面から始めるときと同じ本文)。
+    用語集は画面だけの値(あれば)"""
+    t, p = bundle["transcribe"], bundle["post"]
+    out = {k: t[k] for k in TX_TRANSCRIBE_KEYS}
+    out.update({k: p[k] for k in TX_POST_KEYS})
+    if t["engine"] != implied_engine(t["device"]):
+        out["engine"] = t["engine"]
+    gl = clean_screen(screen)["glossary"]
+    if gl is not None:
+        out["glossary"] = gl
+    return out
+
+
+def pack_output(bundle, screen=None):
+    """パックの要求(cut2resolve の POST /api/build)の作り方 -> (行から作るときの端の広げ方 rowEdge, output に足す物, 無音で削る値 cutSilence)。
+    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)が 0 なら volume(% が 100 なら書かない)。予備・粗編集の動画・映像トラックは既定と違うときだけ書く。
+    fps は画面だけの値(無ければ固定の 30。素材がちょうど 30fps なら 30 にするのは段の _pack_one)"""
+    p = bundle["pack"]
+    size = p["size"]
+    out = {"textplusWrap": p["wrapChars"]["horizontal" if size == "1920x1080" else "vertical"], "textplusSize": size}
+    fps = clean_screen(screen)["packFps"]
+    if fps is not None:
+        out["textplusFps"] = fps
+    if p["backup"]:
+        out["backup"] = True
+    if p["render"]:
+        out["render"] = True
+    out["speakerColors"] = p["speakerColors"]
+    if p["loudness"]:
+        out["loudness"] = p["loudness"]
+    elif p["volume"] != 100:
+        out["volume"] = p["volume"]
+    if p["videoTracks"] != 1:
+        out["videoTracks"] = p["videoTracks"]
+    return copy.deepcopy(p["rowEdge"]), out, dict(p["cutSilence"])

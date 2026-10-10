@@ -84,7 +84,6 @@ class TestMoved(unittest.TestCase):
                      "clean_ranges", "clean_weights"):
             self.assertIs(getattr(A, name), getattr(spec, name), name)
         self.assertIs(A._top_arg, spec.top_arg)
-        self.assertIs(A._row_edge_ok, spec.row_edge_ok)
         self.assertIs(A._num, spec.num_ok)
         self.assertEqual(A.AutoRunner._marks_arg(["a", "a"]), ("a",))
         with self.assertRaises(ValueError):
@@ -219,7 +218,7 @@ class TestValidate(unittest.TestCase):
         spec.validate(spec.merge({"pack": {"cut": "rows"}}))   # 行から(ホームの設定 autorun.cut の選択肢)も束で表せる
         for kw in ({"size": "1280x720"}, {"loudness": -12}, {"loudness": None}, {"volume": 0}, {"backup": 1}, {"speakerColors": None},
                    {"rowEdge": {"after": 3}}, {"rowEdge": None}, {"cut": "words"}, {"cut": ""}, {"videoTracks": 0}, {"videoTracks": 6},
-                   {"wrapChars": {"vertical": 1, "horizontal": 14}}, {"cutSilence": {"noise": 1, "min": 0.6, "pad": 0.15}},
+                   {"wrapChars": {"vertical": 41, "horizontal": 14}}, {"cutSilence": {"noise": 1, "min": 0.6, "pad": 0.15}},
                    {"cutSilence": {"noise": -35, "min": 0.01, "pad": 0.15}}, {"cutSilence": {"noise": -35, "min": 0.6}}):
             self.bad("pack", **kw)
 
@@ -229,6 +228,64 @@ class TestValidate(unittest.TestCase):
             self.bad("run", **kw)
         for step in spec.RUN_FROM:
             spec.validate(spec.merge({"run": {"from": step}}))
+
+
+class TestBodies(unittest.TestCase):
+    """束 → 各ツールの API の本文(RS6 b-0)。同じ画面の設定から前と同じ本文になることは src/home/tests/test_autorun.py の TestSpecSameBodies"""
+
+    def test_key_ok(self):
+        self.assertTrue(spec.key_ok("pack", "wrapChars", {"vertical": 9}))   # 辞書は既定に重ねてから見る
+        self.assertTrue(spec.key_ok("pack", "wrapChars", {"vertical": 0}))   # 0 = 改行しない
+        for sec, k, v in (("pack", "wrapChars", {"vertical": 41}), ("pack", "nai", 1), ("nai", "x", 1), ("analyze", "count", 5.0),
+                          ("transcribe", "model", "../x"), ("pack", "rowEdge", {"on": "yes"})):
+            self.assertFalse(spec.key_ok(sec, k, v), (sec, k, v))
+        self.assertTrue(spec.key_ok("analyze", "count", 5))
+
+    def test_clean_screen(self):
+        self.assertEqual(spec.clean_screen(None), {"precision": "accurate", "maxHeight": 0, "packFps": "30", "glossary": None, "packNotes": []})
+        sc = spec.clean_screen({"precision": "fast", "maxHeight": 720, "packFps": "60", "glossary": "語", "packNotes": ("知らせ",)})
+        self.assertEqual(sc, {"precision": "fast", "maxHeight": 720, "packFps": "60", "glossary": "語", "packNotes": ["知らせ"]})
+        bad = spec.clean_screen({"precision": "x", "maxHeight": True, "packFps": "6O", "glossary": 3, "packNotes": [1]})
+        self.assertEqual(bad, {"precision": None, "maxHeight": None, "packFps": None, "glossary": None, "packNotes": []})
+
+    def test_export_body(self):
+        b = spec.merge({"export": {"volume": 60, "loudness": None}})
+        self.assertEqual(spec.export_body(b, "v", ("m1",)), {"id": "v", "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": None})
+        self.assertEqual(spec.export_body(spec.merge(None), "v", ["m1"], {"precision": "fast", "maxHeight": 1080})["maxHeight"], 1080)
+
+    def test_tx_opts(self):
+        o = spec.tx_opts(spec.merge(None))
+        self.assertEqual(set(o), set(spec.TX_TRANSCRIBE_KEYS + spec.TX_POST_KEYS))
+        self.assertEqual((o["model"], o["quality"], o["autoLearned"]), ("small", "best", False))
+        self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "whisper.cpp", "device": "vulkan"}})))   # 機器から決まる
+        self.assertEqual(spec.tx_opts(spec.merge({"transcribe": {"engine": "whisper.cpp"}}))["engine"], "whisper.cpp")
+        self.assertEqual(spec.tx_opts(spec.merge(None), {"glossary": "語1"})["glossary"], "語1")
+        self.assertEqual(spec.implied_engine("vulkan"), "whisper.cpp")
+        self.assertEqual(spec.implied_engine("cpu"), "faster-whisper")
+
+    def test_pack_output(self):
+        row_edge, out, cs = spec.pack_output(spec.merge(None))
+        self.assertIs(row_edge, True)
+        self.assertEqual(out, {"textplusWrap": 8, "textplusSize": "1080x1920", "textplusFps": "30", "speakerColors": True, "volume": 30})
+        self.assertEqual(cs, {"noise": -35.0, "min": 0.6, "pad": 0.15})
+        b = spec.merge({"pack": {"size": "1920x1080", "loudness": -14, "backup": True, "render": True, "videoTracks": 3, "speakerColors": False}})
+        _re, out, _cs = spec.pack_output(b, {"packFps": None})
+        self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "backup": True, "render": True, "speakerColors": False, "loudness": -14,
+                               "videoTracks": 3})
+        self.assertNotIn("volume", spec.pack_output(spec.merge({"pack": {"volume": 100}}))[1])   # 元の音量は書かない
+
+    def test_defaults_match_the_tools(self):
+        """束の既定 = 各ツールが項目の無い要求に当てる既定(入口の束が無い項目を既定で埋めても、ツールが決める値は前と同じ)"""
+        from pipeline.analyze import analyze
+        from pipeline.export import exporter
+        from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP
+        got = analyze.validate_settings({})
+        got.pop("noCache")
+        self.assertEqual(got, spec.DEFAULTS["analyze"])
+        self.assertEqual(spec.DEFAULTS["export"]["volume"], exporter.DEFAULT_EXPORT_VOLUME)
+        self.assertEqual(spec.DEFAULTS["pack"]["cutSilence"], {"noise": C.DEFAULT_NOISE_DB, "min": C.DEFAULT_SILENCE_MIN, "pad": C.DEFAULT_SILENCE_PAD})
+        self.assertEqual(spec.DEFAULTS["pack"]["wrapChars"], TP.WRAP_DEFAULT)
+        self.assertEqual(pack.row_edge_from(spec.DEFAULTS["pack"]["rowEdge"]), pack.row_edge_from(None))
 
 
 if __name__ == "__main__":
