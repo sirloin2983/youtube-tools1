@@ -47,7 +47,7 @@ import urllib.parse
 
 from manage.cases import txindex
 from ytt import datadir, fsio, schemas, tools
-import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
+from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 from pipeline import live_failures   # 失敗の文は 1 か所。線 D の M3
 
 SCHEMA = "youtube-tools-cases/v1"
@@ -536,7 +536,7 @@ def _deliver(repo_root, c, cl, deliveries, feedback, env):
 
 
 def _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env):
-    """要らない(M9): ① パック・切り抜きの mp4・.clip.json などの途中のファイルを ごみ箱フォルダ へ移す(片付け src/home/cleanup.py と同じ場所。
+    """要らない(M9): ① パック・切り抜きの mp4・.clip.json などの途中のファイルを ごみ箱フォルダ へ移す(片付け src/manage/keep/cleanup.py と同じ場所。
     片付けの TRASH_DAYS で起動時に消える。すぐには消さない)② スタジオのマークを不採用(rejected)に(画面と同じ PUT /api/video)③ live_feedback.jsonl に
     誤検出の記録(人の「悪い」= event reject)④ その文字起こしを一覧で非表示に(データは消さない)⑤ 案件に「要らない」を残す。
     ② ができなければ ① を元に戻す(パックだけ消えてマークが残る、を作らない)。-> {ok, moved, trash, studio}"""

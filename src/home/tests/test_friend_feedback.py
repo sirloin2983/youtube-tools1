@@ -19,7 +19,7 @@ for p in (HOME, ROOT):
         sys.path.insert(0, p)
 
 import cases  # noqa: E402
-import cleanup  # noqa: E402
+from manage.keep import cleanup  # noqa: E402
 import friend_feedback as F  # noqa: E402
 
 

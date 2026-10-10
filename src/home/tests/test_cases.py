@@ -17,7 +17,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
 import cases  # noqa: E402
-import cleanup  # noqa: E402
+from manage.keep import cleanup  # noqa: E402
 import deliver  # noqa: E402
 from ytt_core import schemas, txindex  # noqa: E402
 
