@@ -48,7 +48,7 @@ import urllib.parse
 from manage.cases import txindex
 from ytt import datadir, fsio, schemas, tools
 import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
-import live_failures  # noqa: E402  (失敗の文は 1 か所。線 D の M3)
+from pipeline import live_failures   # 失敗の文は 1 か所。線 D の M3
 
 SCHEMA = "youtube-tools-cases/v1"
 STATUSES = ("", "working", "posted", "skipped")        # 未設定・作業中・投稿済み・見送り
@@ -191,7 +191,7 @@ def auto_info(mark, media_path):
 def live_failures_by_mark(loc):
     """線 D の書き出しのジョブ(<作業データ>/app/live/exports.json)の失敗 -> {(スタジオの配信, マーク): {kind, kindLabel, text}}。
     同じマークのジョブが複数あれば新しいものだけ。文は live_failures.failure_of だけが作る(「調子」・LIVE の帯と同じ文)。読むだけ"""
-    import live_export   # 入口のプロセスでは読み込み済み(ここで読むのは、ライブの配信が無ければ要らないため)
+    from pipeline.export import live_export   # 入口のプロセスでは読み込み済み(ここで読むのは、ライブの配信が無ければ要らないため)
     d = _read_json(loc["liveJobs"], 8 * 1024 * 1024)
     jobs_ = d.get("jobs") if isinstance(d, dict) and d.get("schema") == live_export.JOBS_SCHEMA else None
     latest = {}

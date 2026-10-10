@@ -57,13 +57,13 @@ FILES = {
     "src/home/restart.py": ("manage", "manage/ops", ""),
     "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は Runner の hook を案件・設定・友人の届けで埋める合成の役。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行だけ human/friend の mixin へ出す = RS3-3)"),
     "src/home/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
-    "src/home/live_detect.py": ("pipeline", "pipeline/analyze", "配信中の検出"),
-    "src/home/live_excite_worker.py": ("pipeline", "pipeline/analyze", ""),
-    "src/home/live_align_worker.py": ("pipeline", "pipeline/analyze", "時刻合わせ"),
-    "src/home/live_export.py": ("pipeline", "pipeline/export", ""),
-    "src/home/live_tx.py": ("pipeline", "pipeline/transcribe", "配信中の文字起こし"),
-    "src/home/live_tx_worker.py": ("pipeline", "pipeline/transcribe", ""),
-    "src/home/live_archive.py": ("pipeline", "pipeline/run", "配信後の全自動"),
+    # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
+    #      live_archive と live_align_worker → pipeline/ingest(計画は pipeline/run だが run.py がファイルなので)・live_tx と live_tx_worker → pipeline/transcribe・
+    #      live_failures → pipeline(計画は manage/ops。RS3-0B・仮決め #5)・live_report → pipeline(計画は eval/tools。決定 3-25 の c)・live_cleanup → manage/keep。
+    #      残るのは子プロセスのワーカーの旧い場所の起動用の転送だけ(起動中の古い入口が旧いパスで子を起こすため)
+    "src/home/live_excite_worker.py": ("pipeline", "pipeline/analyze", "転送(RS5 で消す)。本体は RS3-1 で pipeline/analyze/live_excite_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
+    "src/home/live_align_worker.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)。本体は RS3-1 で pipeline/ingest/live_align_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
+    "src/home/live_tx_worker.py": ("pipeline", "pipeline/transcribe", "転送(RS5 で消す)。本体は RS3-1 で pipeline/transcribe/live_tx_worker.py へ。古い入口が旧い場所で起動するための runpy だけ"),
     "src/home/intake.py": ("human", "human/friend", ""),
     "src/home/deliver.py": ("human", "human/friend", ""),
     "src/home/live_requests.py": ("human", "human/friend", ""),
@@ -71,11 +71,8 @@ FILES = {
     "src/home/cases.py": ("manage", "manage/cases", ""),
     "src/home/backup.py": ("manage", "manage/keep", ""),
     "src/home/cleanup.py": ("manage", "manage/keep", ""),
-    "src/home/live_cleanup.py": ("manage", "manage/keep", ""),
     "src/home/health.py": ("manage", "manage/ops", ""),
-    "src/home/live_failures.py": ("pipeline", "pipeline", "計画 7 節は manage/ops だったが pipeline に置く(RS3-0B・仮決め #5。失敗の文を作るのは ① の live_export・live_detect・live_archive・live_cleanup で、ops は読むだけ)"),
     "src/home/clientlog.py": ("manage", "manage/ops", ""),
-    "src/home/live_report.py": ("eval", "eval/tools", "配信ごとの記録(読むのは eval_marks だけ)"),
     "src/home/accuracy.py": ("eval", "eval/drill", "精度の自動測定"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),

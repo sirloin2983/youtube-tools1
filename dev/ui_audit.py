@@ -67,8 +67,8 @@ SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "in
            "studio": ["index.html", "core.js", "rank.js", "queue.js", "review.js", "collab.js", "settings.js", "app.css", "review.css"],
            "editor": ["index.html", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
-# ホームの画面に文が出る .py(launch.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)
-HOME_PY = ["autorun.py", "cases.py", "live.py", "live_archive.py", "live_export.py", "live_failures.py", "accuracy.py", "health.py", "cleanup.py", "deliver.py", "intake.py", "restart.py"]
+# ホームの画面に文が出る .py(launch.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
+HOME_PY = ["autorun.py", "cases.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "accuracy.py", "health.py", "cleanup.py", "deliver.py", "intake.py", "restart.py"]
 # 用語集(docs/spec/ui-guidelines.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
 BANNED_TERMS = ["ストリーム", "トランスクリプト", "セグメント", "カットリスト", "編集点", "削除区間", "自動カット", "パッケージ", "再生成", "ポータル", "一括実行", "操作キー", "ショートカット",
                 "文字起こしツール", "Resolve パック", "Resolveパック", "Resolve のパック", "クリップ", "プリセット", "入口"]
@@ -342,7 +342,7 @@ def static_checks(out):
     for screen, path in screen_files((".js",)):
         static_js(screen, path, read(path), out)
     for name in HOME_PY:
-        path = os.path.join(SRC, "home", name)
+        path = os.path.join(SRC, *name.split("/")) if "/" in name else os.path.join(SRC, "home", name)
         if os.path.exists(path):
             check_terms(path, read(path), out, py_strings(path))
     for tool in ("studio", "editor", "cut2resolve"):
