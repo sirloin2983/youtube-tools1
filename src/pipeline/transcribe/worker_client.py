@@ -741,8 +741,9 @@ def _probe_gpu():
 
 def worker_fake():
     """テスト用: TRANSCRIBE_BACKEND=worker-fake のとき、サーバーは本物の経路(認識ワーカー)を使い、ワーカーの中だけ偽のモデルで動く。
-    faster-whisper を入れていない環境でも、ワーカーとのやり取り・異常終了からの立ち直りを確かめられるようにする。"""
-    return os.environ.get("TRANSCRIBE_BACKEND") == "worker-fake"
+    faster-whisper を入れていない環境でも、ワーカーとのやり取り・異常終了からの立ち直りを確かめられるようにする。
+    環境変数の読みは持ち主 backend.mode()(RS5-D)。テストは worker_client.worker_fake / S.worker_fake を差し替える(読む側は呼ぶたびにこの名前を読む)"""
+    return _backend.mode() == "worker-fake"
 
 
 MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]+(/(?!\.)[A-Za-z0-9_.-]+)?$")   # 「..」で始まる名前(親フォルダの指定)は受け付けない

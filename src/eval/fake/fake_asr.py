@@ -117,7 +117,7 @@ def embed_fake(groups):
 
 class FakeBackend(_fa_backend.Backend):
     """疑似の認識(本物の処理 real は呼ばない)"""
-    name = "fake"
+    name = _fa_backend.FAKE_NAME   # "fake"(backend.is_fake() はこの名前で見分ける)
 
     def engine_ids(self, spec, real):
         return "fake", ""
@@ -163,6 +163,24 @@ class FakeBackend(_fa_backend.Backend):
 
     def alt_rows(self, job, spec, wav, total, real):
         return _alt_fake(job, spec, wav, total)
+
+    # RS5-D: 下の層に直書きしていた「疑似なら」(human/proof/alt・pipeline/transcribe の diarize・fill・llm)をここへ
+    def diar_engine(self, emb, requested, real):
+        return {"name": "fake", "requested": requested or "auto"}
+
+    def check_engine(self, spec, real):
+        return None   # 疑似は実行ファイル・faster-whisper を確かめない
+
+    def engine_version(self, spec, real):
+        return ""
+
+    def fill_reader(self, job, spec, wav, real):
+        text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 空 = 行なし
+        return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
+
+    def llm_ask(self, job, spec, real):
+        reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
+        return lambda messages: reply
 
 
 FAKE = FakeBackend()

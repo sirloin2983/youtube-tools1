@@ -5,7 +5,24 @@
 本物の処理は呼ぶ側が real に渡す(本物の Backend = REAL はそれをそのまま呼ぶ)。疑似は ④ の `eval/fake/fake_asr.py` の FakeBackend が上書きする。
 どちらを使うかは app(編集の serve.py)が set_selector で登録する(呼ぶたびに決める = テストの `S.backend_name` の差し替えが効く)。
 この層(pipeline)は eval を読まない。登録が無ければ REAL。
+疑似かどうかの旗もここ 1 か所(RS5-D): 環境変数 TRANSCRIBE_BACKEND の読みは mode()(編集の ed_state.backend_name・worker_client.worker_fake はこれを呼ぶ)、
+今の Backend が疑似かは is_fake()(select() を読む = serve の登録とテストの差し替えに従う)。疑似だけ違う処理はなるべく Backend のメソッドにし、
+残る「疑似なら」は is_fake() の 1 行で書く(select().name を比べない)。
 """
+import os
+
+ENV = "TRANSCRIBE_BACKEND"   # 疑似の切り替えの環境変数: "fake" = サーバーの疑似(FakeBackend)・"worker-fake" = サーバーは本物の経路でワーカーの中だけ偽のモデル
+FAKE_NAME = "fake"           # 疑似の Backend の name(eval/fake/fake_asr の FakeBackend)
+
+
+def mode():
+    """環境変数 TRANSCRIBE_BACKEND の値(呼ぶたびに読む。無ければ "")。"fake"・"worker-fake" のほかは本物"""
+    return os.environ.get(ENV, "")
+
+
+def is_fake():
+    """今の Backend(select())が疑似か。serve の登録(ed_state.backend_name)とテストの set_selector の差し替えに従う"""
+    return select().name == FAKE_NAME
 
 
 class Backend:
@@ -47,11 +64,32 @@ class Backend:
         real(job, wav, emb, groups) = ワーカー(かワーカーの中)で特徴を取る(RS2-9)"""
         return real(job, wav, emb, groups)
 
+    def diar_engine(self, emb, requested, real):
+        """判別の記録(diar.json の engine)の辞書。real(emb, requested) = sherpa-onnx の設定(RS5-D。疑似は {"name": "fake", …})"""
+        return real(emb, requested)
 
     def alt_rows(self, job, spec, wav, total, real):
         """2つ目のエンジンの候補(human/proof/alt)の行の生成器(faster-whisper の行と同じ形の辞書)。real(job, spec, wav, total) = エンジンの確かめ → 読み込み → 認識
         (RS3-E6。疑似は eval/fake/fake_asr が主の疑似の行に TRANSCRIBE_FAKE_ALT の置き換えをかける)"""
         return real(job, spec, wav, total)
+
+    def check_engine(self, spec, real):
+        """ジョブの前にエンジンを確かめる(実行ファイルが無い・faster-whisper が無いなら ApiError)。real(spec)(RS5-D。疑似は確かめない)"""
+        return real(spec)
+
+    def engine_version(self, spec, real):
+        """記録に入れるエンジンの版の文字。real(spec)(RS5-D。疑似は "")"""
+        return real(spec)
+
+    def fill_reader(self, job, spec, wav, real):
+        """認識のあとの後処理 A の窓を読む関数 read(s0, e0) -> [{start, end, text}]。real(job, spec, wav) = SenseVoice をワーカーに読み込む
+        (RS5-D。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に)"""
+        return real(job, spec, wav)
+
+    def llm_ask(self, job, spec, real):
+        """LLM の後処理 E の問い合わせの関数 messages -> 答えの文字。real(job, spec) = LLM をワーカーに読み込む
+        (RS5-D。疑似は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す)"""
+        return real(job, spec)
 
 
 REAL = Backend()

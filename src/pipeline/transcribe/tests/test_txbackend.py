@@ -13,6 +13,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
@@ -36,6 +37,26 @@ class TestBackend(unittest.TestCase):
         # RS2-9: 話者判別の区間と声の特徴の口
         self.assertEqual(b.diarize("j", {"numSpeakers": 2}, "w", 3.0, lambda job, spec, wav: [(0.0, 1.0, spec["numSpeakers"])]), [(0.0, 1.0, 2)])
         self.assertEqual(b.embed("j", "w", "voxceleb", [[(0, 1)]], lambda job, wav, emb, groups: [emb, len(groups)]), ["voxceleb", 1])
+        # RS5-D: 下の層の「疑似なら」を寄せた口
+        self.assertEqual(b.diar_engine("voxceleb", "", lambda emb, req: {"name": "sherpa-onnx", "embedding": emb}), {"name": "sherpa-onnx", "embedding": "voxceleb"})
+        self.assertEqual(b.check_engine({"engine": "x"}, lambda spec: spec["engine"]), "x")
+        self.assertEqual(b.engine_version({"engine": "x"}, lambda spec: "1.0"), "1.0")
+        self.assertEqual(b.fill_reader("j", "s", "w", lambda job, spec, wav: (job, spec, wav)), ("j", "s", "w"))
+        self.assertEqual(b.llm_ask("j", "s", lambda job, spec: (job, spec)), ("j", "s"))
+
+    def test_flags_mode_and_is_fake(self):
+        """疑似の旗は backend の 1 か所: mode() は環境変数 TRANSCRIBE_BACKEND を呼ぶたびに読む・is_fake() は select() の Backend の名前(RS5-D)"""
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "worker-fake"}):
+            self.assertEqual(backend.mode(), "worker-fake")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TRANSCRIBE_BACKEND", None)
+            self.assertEqual(backend.mode(), "")
+        self.assertFalse(backend.is_fake())
+
+        class Fake(backend.Backend):
+            name = backend.FAKE_NAME
+        backend.set_selector(lambda: Fake())
+        self.assertTrue(backend.is_fake())
 
     def test_selector_reads_each_time(self):
         other = backend.Backend()

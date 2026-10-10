@@ -15,6 +15,7 @@ import time
 
 from ytt import errors as _errors, fsio as _fsio, runtime as _runtime, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from pipeline.transcribe import roster as _txroster, txbase as _txbase  # noqa: E402
+from pipeline.transcribe import backend as _txbackend  # noqa: E402   疑似の切り替えの環境変数の読み mode()(RS5-D)
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 
 
@@ -184,7 +185,8 @@ fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
 
 
 def backend_name():
-    return "fake" if os.environ.get("TRANSCRIBE_BACKEND") == "fake" else "faster-whisper"
+    """serve の selector が読む疑似かどうか(テストは S.backend_name を差し替える)。環境変数の読みは持ち主 backend.mode()(RS5-D)"""
+    return "fake" if _txbackend.mode() == "fake" else "faster-whisper"
 
 
 MIXED_FLAG, WEAK_FLAG, NONE_FLAG = _txbase.MIXED_FLAG, _txbase.WEAK_FLAG, _txbase.NONE_FLAG   # 別名(RS2-1a)
