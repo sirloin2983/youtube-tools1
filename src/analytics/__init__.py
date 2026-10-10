@@ -12,4 +12,4 @@ Apps Script の連携(gas/Code.gs)から合言葉付きで受け取る。分析�
 - bridge: Apps Script の連携との通信
 - service: 入口の中で動く見張り・画面と API
 """
-VERSION = "0.1.1"
+from ytt.version import VERSION  # noqa: E402,F401  全体の版(ytt/version.py)

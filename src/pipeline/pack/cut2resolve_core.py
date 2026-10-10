@@ -30,7 +30,7 @@ from pathlib import Path
 from . import srt2resolve as S
 
 ToolError = S.ToolError
-VERSION = "0.23.0"   # cut2resolve の版の正はここ1か所(CLI・serve.py はこれを使う。README の見出しもそろえる)
+VERSION = S.VERSION   # 全体の版(ytt/version.py の 1 か所。srt2resolve が読む。CLI・serve.py はこれを使う)
 CUT_EXTS = {".txt", ".csv"}
 JSON_EXTS = {".json"}
 TRANSCRIPT_SCHEMA = "youtube-tools-transcript/v1"

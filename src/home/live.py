@@ -73,7 +73,7 @@ import time
 import urllib.parse
 
 from manage.cases import txindex
-from ytt import datadir, fsio, layout, schemas, tools
+from ytt import datadir, fsio, layout, schemas, tools, version as _version
 from pipeline import runlog
 from pipeline.export import live_export   # マークと書き出し。P2
 from pipeline.ingest import live_archive   # アーカイブで本番版に作り直す。P4
@@ -101,7 +101,6 @@ PASS_TYPES = ("application/json", "application/vnd.apple.mpegurl", "video/mp2t")
 RELAY_TIMEOUT = 15.0
 WATCH_SEC = 30.0
 SPAWN_GAP = 30.0
-VERSION_RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
 QUALITIES = ("best", "1080p", "720p")     # src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前(src/home/prefs.py の LIVE_QUALITIES)
 DEFAULT_QUALITY = "1080p"
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/pipeline/ingest/rec_core.py の YT_HOSTS と同じ
@@ -433,12 +432,7 @@ class Live:
         return self._tokens.get(os.path.join(self.data_dir, "token.txt"), _read_token) or ""
 
     def expected_version(self):
-        try:
-            with open(os.path.join(self.root, layout.RECORDER_SCRIPT), "r", encoding="utf-8") as f:
-                m = VERSION_RE.search(f.read())
-            return m.group(1) if m else ""
-        except (OSError, UnicodeError):
-            return ""
+        return _version.on_disk(self.root)   # 全体の版(ytt/version.py をディスクから読み直した値)
 
     # --- 録画元への要求 ---
     def request(self, rc, method, path, body=None, timeout=RELAY_TIMEOUT):

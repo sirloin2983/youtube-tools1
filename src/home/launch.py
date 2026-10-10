@@ -76,7 +76,7 @@ ROOT = os.path.dirname(CODE_DIR)
 if ROOT not in sys.path:   # 共通部品 ytt(リポジトリ直下)
     sys.path.append(ROOT)
 from manage.cases import txindex  # noqa: E402
-from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools  # noqa: E402
+from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
@@ -98,7 +98,7 @@ except ImportError:
     analytics_mod = None
 
 APP_ID = "ytt-launcher"
-VERSION = "0.55.0"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = _version.VERSION   # 全体の版(ytt/version.py の 1 か所。RS5-E。画面は /api/status の version を表示する)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -110,15 +110,11 @@ PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(port
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
 
-SERVE_VERSION_RE = r'^SERVER_VERSION\s*=\s*"([^"]+)"'   # serve.py の版の行
-
-
-def _spec(tid, name, sub, port, version_path=None, version_re=SERVE_VERSION_RE, **kw):
+def _spec(tid, name, sub, port, **kw):
     """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
-    version_path: 版を読むファイル(root = src/ からの相対。既定はツールのフォルダの serve.py)"""
+    期待する版は全体の版(ytt/version.py。expected_version)なので、ツールごとの版のファイルは持たない"""
     d = layout.TOOL_DIRS[tid]
-    return dict({"id": tid, "app": runtime.TOOL_APPS[tid], "name": name, "sub": sub, "dir": d, "port": port,
-                 "version_path": version_path or os.path.join(d, "serve.py"), "version_re": version_re}, **kw)
+    return dict({"id": tid, "app": runtime.TOOL_APPS[tid], "name": name, "sub": sub, "dir": d, "port": port}, **kw)
 
 
 # 作業の順番どおり。port は各ツールの既定(使用中ならツール自身が次の番号を選ぶ)
@@ -126,8 +122,7 @@ TOOLS = (
     _spec("studio", "切り抜きスタジオ", "配信を探す・切り抜く区間を選ぶ・書き出す", 8800),
     _spec("transcribe", "編集", "文字起こし・カット・Resolve へのパック", 8775, venv=True),
     # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/design/edit-tool-design.md の 6)
-    _spec("cut2resolve", "cut2resolve", "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)", 8810,
-          version_path=layout.PACK_CORE, version_re=r'^VERSION\s*=\s*"([^"]+)"', hidden=True),
+    _spec("cut2resolve", "cut2resolve", "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)", 8810, hidden=True),
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
 
@@ -176,13 +171,9 @@ def tail(path, lines=200, max_bytes=256 * 1024):
 
 
 def expected_version(spec, root):
-    """フォルダの中のコードの版(読めなければ None)。別の画面で古い版が動いているのを見分けるため。"""
-    try:
-        with open(os.path.join(root, spec["version_path"]), "r", encoding="utf-8") as f:
-            m = re.search(spec["version_re"], f.read(), re.M)
-        return m.group(1) if m else None
-    except (OSError, UnicodeError):
-        return None
+    """フォルダの中のコードの版 = 全体の版(ytt/version.py をディスクから読み直した値。読めなければ None)。別の画面で古い版が動いているのを見分けるため。
+    spec は今は使わない(全ツール同じ版)が、呼び出しの形は残す"""
+    return _version.on_disk(root) or None
 
 
 def tool_python(tool_dir, spec):

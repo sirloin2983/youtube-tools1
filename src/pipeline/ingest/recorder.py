@@ -41,11 +41,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))   # src/(パスで起動する別プロセス。HERE = src/pipeline/ingest)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-from ytt import datadir, fsio, httpsec, layout, runtime  # noqa: E402
+from ytt import datadir, fsio, httpsec, layout, runtime, version as _version  # noqa: E402
 from pipeline.ingest import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
-VERSION = "0.3.3"         # 録画の部品の版の正はここ1か所(README.txt の見出しもそろえる。入口の「調子」が動いている版と比べる)
+VERSION = _version.VERSION   # 全体の版(ytt/version.py の 1 か所。入口の「調子」が動いている版と比べる)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024

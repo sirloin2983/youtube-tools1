@@ -32,11 +32,12 @@ from pipeline.export import exporter, manifest as _manifest  # noqa: E402
 from pipeline.ingest import sources as _src  # noqa: E402
 from pipeline.ingest.sources import MEDIA_EXT, VID_RE  # noqa: E402  差し替えない定数
 from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
+from ytt import version as _version  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関数
 
 APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
-SERVER_VERSION = "0.26.0"  # core.js 側の APP_VERSION と揃える
+SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。画面は入口が入れる meta ytt-version から読む)
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 _manifest.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = startup.CODE_DIR

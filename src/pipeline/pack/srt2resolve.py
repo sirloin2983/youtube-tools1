@@ -25,7 +25,11 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
-VERSION = "0.1.4"
+try:   # 全体の版(ytt/version.py の 1 か所)。単独のコマンドのときは src を足して読む
+    from ytt.version import VERSION
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from ytt.version import VERSION
 
 # 編集ソフトで一般的なフレームレート。動画の実測値をこれに丸める
 STD_FPS = [(24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1),

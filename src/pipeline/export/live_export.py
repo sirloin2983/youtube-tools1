@@ -57,10 +57,10 @@ import threading
 import time
 import urllib.parse
 
-from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools
+from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools, version as _version
 from pipeline import live_failures   # 失敗の文は 1 か所。M3
 
-VERSION = "0.1.0"
+VERSION = _version.VERSION   # 全体の版(ytt/version.py)
 TOOL = {"name": "ytt-live", "version": VERSION}
 MARKS_SCHEMA = "ytt-live-marks/v1"
 JOBS_SCHEMA = "ytt-live-exports/v1"

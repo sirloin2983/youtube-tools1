@@ -95,6 +95,7 @@ def _load_core():
 
 _load_core()
 from ytt import datadir as _datadir, httpsec, jobs as _heavy_jobs, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
+from ytt import version as _version  # noqa: E402
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品。段10。RS5-A で転送だけの殻 ed_store・ed_relink・ed_jobs・ed_speakers・ed_learn・ed_misc を消した。評価用の音声 ed_evalaudio は 0.68.0 で消した)
@@ -131,7 +132,7 @@ from eval.drill import evalbatch as _evalbatch  # noqa: E402  (評価用の動�
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
-SERVER_VERSION = "0.69.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ytt/workdata の SERVER_VERSION で読む)
+SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。画面は入口が入れる meta ytt-version から読む。部品は ytt/workdata の SERVER_VERSION で読む)
 ed_state.APP_ID = APP_ID
 _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から持ち主は ytt/workdata)
 
@@ -668,15 +669,8 @@ def startup_checks():
         pass
     if not os.path.exists(ed_state.INDEX):
         out.append("index.html が見つかりません。フォルダの中身をまとめて置き直してください")
-    try:
-        with open(ed_state.APP_JS, "r", encoding="utf-8") as f:   # 版番号は app.js 側にある(index.html はインラインの <script> を外したため)
-            m = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", f.read())
-        if m and m.group(1) != _workdata.SERVER_VERSION:
-            out.append("画面(app.js v%s)とサーバー(serve.py v%s)の版が違います。フォルダの中身をまとめて更新してください" % (m.group(1), _workdata.SERVER_VERSION))
-    except OSError:
+    if not os.path.exists(ed_state.APP_JS):   # 画面の版は全体の版 1 つ(ytt/version.py)なので食い違いは無い。ファイルの有無だけ見る
         out.append("app.js が見つかりません。フォルダの中身をまとめて置き直してください")
-    except UnicodeError:
-        out.append("app.js の文字コードが壊れています。フォルダの中身をまとめて置き直してください")
     return out
 
 

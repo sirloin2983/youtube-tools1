@@ -73,7 +73,7 @@ from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudn
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
-SERVER_VERSION = C.VERSION        # 版の正は cut2resolve_core.VERSION の1か所
+SERVER_VERSION = C.VERSION        # 全体の版(ytt/version.py。cut2resolve_core.VERSION が読む)
 DEFAULT_PORT = 8810
 WORK_DIR = os.path.join(CODE_DIR, "work")          # 起動時に作業データの置き場所(ytt.datadir)の中へ切り替える(_choose_work_dir)
 LOG_PATH = os.path.join(WORK_DIR, "serve.log")

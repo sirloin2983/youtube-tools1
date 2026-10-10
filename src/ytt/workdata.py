@@ -15,6 +15,7 @@
 import os
 
 from . import layout as _layout
+from . import version as _version
 
 ROOT = None             # 編集のフォルダ(serve.py・ed_state.py のある所)。名簿 hololive-roster.json・認識ワーカーの cwd・.venv の基準
 DATA_DIR = None         # 作業データ(起動時に serve が datadir で決める。読み込みの直後は環境変数 TRANSCRIBE_DATA_DIR か ROOT = テスト用)
@@ -25,7 +26,7 @@ SETTINGS = None         # 編集の設定 <DATA_DIR>/settings.json
 FEEDBACK = None         # 提案の採用・却下の記録 <DATA_DIR>/learn-feedback.json(設定ファイルとは別にして、画面側の保存と競合させない)
 MARKER_DATA = None      # clip-marker の data.json(読むだけ。環境変数 TRANSCRIBE_MARKER_DATA)
 STUDIO_DATA = None      # 切り抜きスタジオのマーク data.json(読むだけ。環境変数 TRANSCRIBE_STUDIO_DATA。起動時に serve の choose_data_dir が datadir の規則で入れ直す)
-SERVER_VERSION = None   # 編集の版(正は serve.py の SERVER_VERSION。入口がその行を読む。serve が読み込みのときに入れる)
+SERVER_VERSION = _version.VERSION   # 編集の版 = 全体の版(ytt/version.py。serve が読み込みのときに同じ値を入れる)
 
 
 def set_root(root):

@@ -24,7 +24,7 @@ if not __package__:   # パスで動かしたとき(python auto_cut.py)も兄弟
 from . import cut2resolve_core as C  # noqa: E402
 from . import srt2resolve as S  # noqa: E402
 
-VERSION = "0.2.0"
+VERSION = C.VERSION   # 全体の版(ytt/version.py)
 SCHEMA = C.CUT_PLAN_SCHEMA
 DEFAULT_HANDLES = 10.0   # スタジオの採用区間のような長い区間の既定(前後10秒の編集余白)
 
