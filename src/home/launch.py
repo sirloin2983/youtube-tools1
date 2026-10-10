@@ -8,17 +8,17 @@
 
   GET  /                                  入口の画面(portal.html)
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
-  GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(src/home/cases.py)
+  GET  /api/cases                         案件(配信1本)ごとの切り抜き・文字起こし・パック(src/manage/cases/cases.py)
   POST /api/cases/update                 {id, status?, memo?} 案件の状態・メモ
   POST /api/cases/auto                   {op: seen|deliver|discard, id, markId} 自動でできた切り抜き(線 D の M9・M12)を 見た・採用 = 友人へ届ける・
-                                          要らない = ごみ箱フォルダへ(src/home/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
+                                          要らない = ごみ箱フォルダへ(src/manage/cases/cases.py の auto_review。deliver の応答の job は api/ytt/deliver の status で聞き直す)
   GET  /api/autorun                       まとめて実行の状態(src/home/autorun.py)。runs = この起動の実行・past = 配信・文書ごとの前回の結果(記録のファイルから)
   GET  /api/autorun/history?limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200)
   POST /api/autorun/start                 {id, mode: full|adopted|transcribe, top?, streamer?, marks?, overwrite?} 配信1本ぶんを順に自動で(marks: そのマークだけ・overwrite: パックがあれば作り直す)
   POST /api/autorun/estimate              {id, mode, marks?, top?, overwrite?} か {ids, overwrite?} 実行と同じ規則の見積もり(段ごとの本数と飛ばす理由。書き込まない)
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
-  GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/home/intake.py。docs/spec/friend-intake.md)
+  GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
@@ -45,7 +45,7 @@
                                           archiveInfo.afterStream(配信後の全自動 = 設定 live.autoAfterStream)。まとめて実行の待ち・実行中は起動し直しで戻る
   POST api/ytt/live                       {op: "status"} → 録画中の録画(全ツールのヘッダーの札。オフなら {enabled: false})/ {op: "stop", recorder, recording}
   POST api/ytt/deliver                    {op: "start", dir, title} → {"job"} / {op: "status", job} → {"job"}。パックを友人へ届ける
-                                          (Dropbox の見張るフォルダの 出力 に zip で置く。src/home/deliver.py。2026-10-04)
+                                          (Dropbox の見張るフォルダの 出力 に zip で置く。src/human/friend/deliver.py。2026-10-04)
 
 設計の要点
 - 子プロセスの出力は <作業データ>/app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
@@ -73,7 +73,7 @@ from http.server import BaseHTTPRequestHandler
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(CODE_DIR)
-if ROOT not in sys.path:   # 共通部品 ytt_core(リポジトリ直下)
+if ROOT not in sys.path:   # 共通部品 ytt(リポジトリ直下)
     sys.path.append(ROOT)
 from manage.cases import txindex  # noqa: E402
 from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools  # noqa: E402
@@ -114,7 +114,7 @@ SERVE_VERSION_RE = r'^SERVER_VERSION\s*=\s*"([^"]+)"'   # serve.py の版の行
 
 
 def _spec(tid, name, sub, port, version_path=None, version_re=SERVE_VERSION_RE, **kw):
-    """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt_core の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
+    """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
     version_path: 版を読むファイル(root = src/ からの相対。既定はツールのフォルダの serve.py)"""
     d = layout.TOOL_DIRS[tid]
     return dict({"id": tid, "app": runtime.TOOL_APPS[tid], "name": name, "sub": sub, "dir": d, "port": port,
@@ -134,11 +134,11 @@ TOOL_IDS = tuple(t["id"] for t in TOOLS)
 
 # ---------- 小さな道具 ----------
 def runtime_dir(root):
-    """<リポジトリ直下>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(各ツールと同じ規則。ytt_core.runtime)。"""
+    """<リポジトリ直下>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(各ツールと同じ規則。ytt.runtime)。"""
     return runtime.runtime_dir(layout.tool_dir("app", root))
 
 
-# .runtime の読み書き・/api/ping・接続の確認は ytt_core.runtime(各ツールと同じ規則)
+# .runtime の読み書き・/api/ping・接続の確認は ytt.runtime(各ツールと同じ規則)
 valid_port = runtime.valid_port
 read_runtime = runtime.read_runtime     # (rdir, tool) → {"port", "version", "pid", "mtime"} / None。誰でも書けるファイルなので検証して読む
 
@@ -260,12 +260,12 @@ class Tool:
 # ---------- まとめて管理 ----------
 def app_data_dir(root):
     """入口の作業データの置き場所(%LOCALAPPDATA%\\youtube-tools\\app。inplace なら home フォルダ)。設定(settings.json)・窓の専用のプロファイル・記録。
-    入口自身が決める側なので、登録(datadir.register)は見ない(規則は ytt_core.datadir.locate の1か所。main() が登録し、案件などは resolve で読む)"""
+    入口自身が決める側なので、登録(datadir.register)は見ない(規則は ytt.datadir.locate の1か所。main() が登録し、案件などは resolve で読む)"""
     return datadir.locate("app", root)
 
 
 def logs_dir_for(root):
-    """入口とツールの出力の記録の置き場所: 作業データの置き場所(ytt_core.datadir。%LOCALAPPDATA%\\youtube-tools\\app\\logs)。
+    """入口とツールの出力の記録の置き場所: 作業データの置き場所(ytt.datadir。%LOCALAPPDATA%\\youtube-tools\\app\\logs)。
     YTT_DATA_DIR=inplace(テスト)なら src\\home\\logs。記録だけなので、以前の場所からは写さない"""
     return os.path.join(app_data_dir(root), "logs")
 
@@ -542,7 +542,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 # GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
-GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/home/intake.py)
+GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/human/friend/intake.py)
                  "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/manage/keep/backup.py)
                  "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/eval/drill/accuracy.py)
                  "/api/autorun": "autorun"}     # まとめて実行の状態(src/home/autorun.py)
@@ -574,7 +574,7 @@ TOKEN_FAIL = mount_mod.TOKEN_FAIL
 
 def read_json_body(h, limit=MAX_BODY):
     """要求 h の本文(JSON のオブジェクト)。-> (辞書, None) か (None, (HTTP の番号, エラーの JSON))。
-    読み方は ytt_core.httpsec.read_json_body(application/json だけ = 他サイトのフォームはこの形を作れない・断るときは本文を読み捨てる)。
+    読み方は ytt.httpsec.read_json_body(application/json だけ = 他サイトのフォームはこの形を作れない・断るときは本文を読み捨てる)。
     入口は前から空の本文を {} として読み、NaN も通している(empty_ok・allow_nan)"""
     try:
         return httpsec.read_json_body(h, limit, empty_ok=True, allow_nan=True), None
@@ -584,7 +584,7 @@ def read_json_body(h, limit=MAX_BODY):
 
 
 def site_ok(headers, allowed):
-    """書き込み系の要求の出どころ: Host(DNS rebinding 対策)・Origin・Sec-Fetch-Site(他サイトからの操作 = CSRF 対策)。規則は ytt_core.httpsec"""
+    """書き込み系の要求の出どころ: Host(DNS rebinding 対策)・Origin・Sec-Fetch-Site(他サイトからの操作 = CSRF 対策)。規則は ytt.httpsec"""
     return httpsec.host_ok(headers, allowed) and httpsec.origin_ok(headers, allowed) and httpsec.fetch_site_ok(headers)
 
 
@@ -619,7 +619,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         return httpsec.navigation_ok(self.headers, path, NAV_PAGES)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt_core の 1 か所(取り込んだツールと同じ)
+        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(取り込んだツールと同じ)
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
@@ -676,7 +676,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, getattr(self.server, GET_SNAPSHOTS[u.path]).snapshot())
         if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0)))
-        if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/home/cases.py)
+        if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
             try:
                 return self._json(200, cases_mod.snapshot(sup.root))
             except Exception as e:   # 読めないデータがあっても入口は落とさない
@@ -722,7 +722,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._fail(500, "write", "案件ファイルを書けませんでした: %s" % tools.why(e))
 
     def _post_case_auto(self, path, body):
-        """自動でできた切り抜きの確認(線 D の M9・M12): 見た・採用 = 友人へ届ける・要らない。中身は src/home/cases.py の auto_review"""
+        """自動でできた切り抜きの確認(線 D の M9・M12): 見た・採用 = 友人へ届ける・要らない。中身は src/manage/cases/cases.py の auto_review"""
         s = self.server
         return self._json(*cases_mod.auto_review(s.sup.root, body, deliveries=s.deliveries, studio=s.live.studio_call,
                                                  feedback=lambda row: s.live.exporter.feedback(row), trash=s.cleanup,
@@ -800,7 +800,7 @@ def _color_entry(e):
 
 def streamer_colors(body):
     """api/ytt/streamer-colors の中身: {q, all?} → 入れた名前に合う人・候補(all なら全員も)/ {names: [...]} → 名前ごとに合う人
-    (話者の名前をまとめて。画面が行ごとに通信しないように。気が利く画面へ 段2)。規則は src/ytt_core/colors.py"""
+    (話者の名前をまとめて。画面が行ごとに通信しないように。気が利く画面へ 段2)。規則は src/ytt/colors.py"""
     entries = colors_mod.load()
     if isinstance(body.get("names"), list):
         names = list(dict.fromkeys(n.strip()[:colors_mod.NAME_MAX] for n in body["names"][:60] if isinstance(n, str) and n.strip()))
@@ -1011,7 +1011,7 @@ class PortalServer(httpsec.ExclusiveServer):
                 return self.live.ytt(body)
             if sub == "prefs":   # ホームの設定(src/home/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
-            if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は src/ytt_core/colors.py)
+            if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は src/ytt/colors.py)
                 return 200, streamer_colors(body)
         except ValueError as e:
             return 400, {"error": "bad_request", "message": str(e)}

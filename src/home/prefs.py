@@ -4,28 +4,28 @@
   autorun  … まとめて実行の形・採用数・カットの方法・上書き・失敗したとき
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
-  intake   … 友人からの依頼の受付(src/home/intake.py。docs/spec/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
+  intake   … 友人からの依頼の受付(src/human/friend/intake.py。docs/spec/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
              配信の長さと動画の大きさの上限・見る間隔・① 全自動のパックをまとめて届ける本数 deliverBatch(src/home/autorun.py。1 = 1 本ずつ)
   backup   … 作業データのバックアップ(src/manage/keep/backup.py。docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
   accuracy … 精度の自動測定(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
-             配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/home/live_archive.py。P4)・
-             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/home/live_cleanup.py。P4)・
+             配信が終わったら自動で本番版に作り直す autoArchive(**既定オン**。src/pipeline/ingest/live_archive.py。P4)・
+             本番版に入れ替えたら録画を消す(マークの無い録画は 1 日で・退避した速報版は 7 日で)autoDelete(**既定オン**。src/manage/keep/live_cleanup.py。P4)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|faster-whisper|whisper.cpp|qwen3-asr|llama.cpp・model: ""(編集の設定)|モデルの名前}(線 D の M2。入口 0.39.0)。
              after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
-             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/home/live_archive.py)と
+             配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。入口 0.40.0。src/pipeline/ingest/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
              配信中の盛り上がりの検出 detect {enabled(**既定オン**。10-08 ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
-             (線 D の L2。src/home/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
+             (線 D の L2。src/pipeline/analyze/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {enabled(**既定オン**), waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目(2026-10-04): 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
              画面の UIKit.hide が op "hide" で1件ずつ足す・外す(節ごと送ると、窓を2つ並べたときに相手の分を消すため)。データは消さない(表示だけ)
 画面は api/ytt/prefs(入口の launch.py)で読み書きする。**節ごとに直す**(全体を上書きしない。窓を2つ並べたとき、後から送った側が他の節を消さないため)。
 値は許可した形だけ受け付け、知らないキーは捨てる。壊れたファイルは読まずに既定で動き、次に書くときに退避してから書き直す
-(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。スタジオ・編集の設定ファイルと同じ決まり。S4 2026-10-09)。
+(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。スタジオ・編集の設定ファイルと同じ決まり。S4 2026-10-09)。
 """
 import copy
 import os
@@ -78,12 +78,12 @@ RECORDER_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z")
 RECORDER_URL_RE = re.compile(r"^http://[A-Za-z0-9.\-]{1,100}:\d{2,5}\Z")   # 2台(P5)は LAN の http(合言葉つき)。パス・利用者名は付けさせない
 RECORDER_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 LIVE_QUALITIES = ("best", "1080p", "720p")   # 録画の画質(src/pipeline/ingest/rec_core.py の QUALITIES と同じ名前。既定 1080p = DEFAULT_QUALITY)
-LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/home/live_export.py の AFTERS と同じ名前)
+LIVE_AFTERS = ("none", "check", "auto")      # 書き出したあと(src/pipeline/export/live_export.py の AFTERS と同じ名前)
 LIVE_CUTS = ("", "none", "silence")          # 自動のパックのカット(src/home/autorun.py の CUTS。"" = ホームの autorun.cut)
 LIVE_ENGINES = ("", "faster-whisper", "whisper.cpp", "qwen3-asr", "llama.cpp")   # 認識エンジン(src/pipeline/transcribe/tx_engines.py の ENGINES の id。"" = 編集の設定。editor は読み込まない)
 LIVE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")   # モデルの名前(large-v3・small など。"" = 編集の設定)
 LIVE_PER_HOUR = (1, 30)                      # 配信後の全自動(M7)の 1 時間あたりの数(上限はスタジオの解析の候補の数の上限 30)
-LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/ytt_core/excite.py の SENS の名前)
+LIVE_SENS = ("high", "normal", "low")        # 配信中の検出の感度(src/pipeline/analyze/excite.py の SENS の名前)
 LIVE_TX_MODELS = ("large-v3", "large-v3-turbo")   # 配信中の候補の文字起こしのモデル(編集の whisper.cpp の WCPP_MODELS と同じ名前)
 LIVE_PAD_SEC = (0, 5)                        # 自動・アーカイブの採用の区間の前後の余白(秒。M8。人の採用には足さない)
 LIVE_WAIT_MIN = (1, 60)                      # 自動の採用(M11)の、入口が候補を最初に見てから待つ分(終わり待ちの候補は採用しない)
@@ -194,7 +194,7 @@ def _clean_live(v, cur):
         if not _int_in(v["afterStreamPerHour"], *LIVE_PER_HOUR):
             raise PrefsError("1 時間あたりの数は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)
         out["afterStreamPerHour"] = v["afterStreamPerHour"]
-    _put_bool(out, v, "autoDelete", "「録画を消す」")   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/home/live_cleanup.py)
+    _put_bool(out, v, "autoDelete", "「録画を消す」")   # 本番版に入れ替えたら録画を消す・マークの無い録画は 1 日で消す(P4。src/manage/keep/live_cleanup.py)
     if "recorders" in v:
         rs = v["recorders"]
         if not isinstance(rs, list) or len(rs) > RECORDERS_MAX:
@@ -395,7 +395,7 @@ def guess_streamer(prefs, doc_id=None, video_id=None, channel=None, from_channel
 
 class Prefs:
     def __init__(self, path, writer):
-        """writer(path, bytes): 原子的な書き込み(ytt_core.fsio.atomic_write)。読み書きは ytt_core.settings.SettingsFile(S4)"""
+        """writer(path, bytes): 原子的な書き込み(ytt.fsio.atomic_write)。読み書きは ytt.settings.SettingsFile(S4)"""
         self.path = path
         self.write = writer
         self.file = _settings.SettingsFile(path, max_bytes=MAX_BYTES, writer=writer)

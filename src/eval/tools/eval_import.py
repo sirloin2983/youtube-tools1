@@ -3,7 +3,7 @@
 
     py -3.10 src/eval/tools/eval_import.py <zip か zip の入ったフォルダ> [...] [--dest フォルダ] [--force]
 
-友人が送った「送る用ファイル」(日付_配信者_作業ID.zip。中身は src/ytt_core/evaldata.py の FILES)を確かめて、作業データの外の置き場所へ展開する。
+友人が送った「送る用ファイル」(日付_配信者_作業ID.zip。中身は src/eval/tools/evaldata.py の FILES)を確かめて、作業データの外の置き場所へ展開する。
 弾く判定の最終版(git の履歴(679ff01 以前)の docs/design/briefs/friend-transcribe-lite/DESIGN_BRIEF.md の「文字起こしルールと評価データ」「セキュリティ」)。
 
 - 置き場所(--dest。既定 %LOCALAPPDATA%\\youtube-tools\\eval-intake。Windows 以外は ~/.local/share/youtube-tools/eval-intake):

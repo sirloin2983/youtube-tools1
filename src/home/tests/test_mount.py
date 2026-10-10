@@ -9,7 +9,7 @@ serve.py の直接起動による二重起動を防ぐこと、ツール間で�
 import http.client
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import socket
 import subprocess
@@ -104,7 +104,7 @@ class TestStudioMounted(unittest.TestCase):
         cls.tmp = tempfile.mkdtemp(prefix="ytt-mount-")
         _copy_tool(os.path.join(REPO, STUDIO_DIR), os.path.join(cls.tmp, STUDIO_DIR))
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
         cls.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": cls.rdir, "STUDIO_FAKE": "1", "STUDIO_HOME": os.path.join(cls.tmp, "home")})
@@ -215,7 +215,7 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual((info["port"], info["path"]), (self.port, "/studio/"))
         r, body = self.req("GET", "/studio/api/siblings")
         self.assertEqual(json.loads(body), {"tools": {"studio": self.port}, "paths": {"studio": "/studio/"}})
-        from ytt_core import runtime   # 他のツールから見た siblings(文字起こしは ytt_core を使う)
+        from ytt_core import runtime   # 他のツールから見た siblings(文字起こしは ytt を使う)
         self.assertEqual(runtime.siblings(self.rdir, "transcribe", 8775)["paths"], {"studio": "/studio/"})
 
     def test_standalone_start_opens_the_mounted_one(self):
@@ -239,7 +239,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
         for d in (STUDIO_DIR, "cut2resolve"):
             _copy_tool(os.path.join(REPO, d), os.path.join(cls.tmp, d))
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         cls.c2r_dir = os.path.join(cls.tmp, "cut2resolve")
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
@@ -411,7 +411,7 @@ class TestTranscribeMounted(unittest.TestCase):
         for d in (STUDIO_DIR, TX_DIR):
             _copy_tool(os.path.join(REPO, d), os.path.join(cls.tmp, d))
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(cls.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         cls.tx_dir = os.path.join(cls.tmp, TX_DIR)
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
@@ -556,7 +556,7 @@ class TestMountFallbacks(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix="ytt-mount-fb-")
         _copy_tool(os.path.join(REPO, STUDIO_DIR), os.path.join(self.tmp, STUDIO_DIR))
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         self.rdir = os.path.join(self.tmp, ".runtime")
         self.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.rdir, "STUDIO_FAKE": "1", "STUDIO_HOME": os.path.join(self.tmp, "home")})
         self.env.start()

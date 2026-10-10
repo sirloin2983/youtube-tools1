@@ -81,7 +81,7 @@ def hex_rgba(hex_):
 def text_style(color=None, kind="default"):
     """字幕の見た目。color: {"hex": "#RRGGBB", "who": 配信者の名前}(配信者の名前を入れたとき。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)なら
     文字(塗りの要素)をその色にする。白いふち・外側の黒いふちは同じ。無ければ TEXT_STYLE のまま(黒い文字)。
-    名前 → 色の照らし合わせは ytt_core/colors.py(呼び出し側。ここは受け取った色を入れるだけ)"""
+    名前 → 色の照らし合わせは ytt/colors.py(呼び出し側。ここは受け取った色を入れるだけ)"""
     if kind not in TEXT_STYLES:
         raise ValueError("Text+ の字幕の見た目は %s のどれかにしてください: %r" % (" / ".join(TEXT_STYLES), kind))
     st = json.loads(json.dumps(TEXT_STYLES[kind]))

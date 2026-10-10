@@ -138,7 +138,7 @@ def _redo_item(item, redo):
 
 def can_restart(status, busy_tools=(), redo=None):
     """起動し直してよいか。よければ None、だめなら画面に出す理由の文。
-    status: Supervisor.status()(heavy = ytt_core.jobs.SLOTS.snapshot(): {"limit", "active": [{tool, label, seconds}], "waiting": [...]})
+    status: Supervisor.status()(heavy = ytt.jobs.SLOTS.snapshot(): {"limit", "active": [{tool, label, seconds}], "waiting": [...]})
     busy_tools: 取り込んだツールのうち busy() が真のもの。名前か (ツールの ID, 名前)(「すべて終了」の確認と同じ判定。任意)
     redo: まとめて実行の実行中の段がツールで動かしている仕事(AutoRunner.restart_info の redo。起動し直したあとに頭からやり直せる段だけで、
           書き出しの段は入らない = 書き出し中は今までどおり断る)。{"tool": ツールの ID, "labels": [仕事の名前] か None(そのツールの枠すべて),

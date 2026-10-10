@@ -8,7 +8,7 @@ docs/spec/friend-intake.md の 2-7。
   place_preview が zip の隣に <zip の名前>.preview.mp4 で置く
 - 名前: zip は <依頼 id>__<題>(delivery_name)。同じ名前があれば末尾に 4 文字足す(unique_zip)
 - Deliveries: 「友人へ届ける」(画面の api/ytt/deliver)の裏の仕事。数 GB の zip は時間がかかるので、画面は状態を聞き直す
-送れるのは cut2resolve が作ったパックのフォルダだけ(ytt_core.txindex.is_pack_dir。画面から任意のフォルダを Dropbox へ出させない)。
+送れるのは cut2resolve が作ったパックのフォルダだけ(manage.cases.txindex.is_pack_dir。画面から任意のフォルダを Dropbox へ出させない)。
 zip は動画を圧縮しない(ZIP_STORED)ので CPU はほとんど使わない → 重い処理の枠(jobs.SLOTS)は通さない(文字起こしの後ろで何時間も待たせないため)。
 同時に作るのは1本だけ(ディスクの取り合いを避ける)。
 """
@@ -322,7 +322,7 @@ class Deliveries:
 
     def start(self, d, title="", on_done=None):
         """-> 仕事の状態。断るときは ValueError(画面にそのまま出す文)。
-        on_done(仕事の状態): 置き終えたときに 1 回だけ呼ぶ(自動でできた切り抜きの「採用」が案件に「届けた」を残す。src/home/cases.py。線 D の M12)"""
+        on_done(仕事の状態): 置き終えたときに 1 回だけ呼ぶ(自動でできた切り抜きの「採用」が案件に「届けた」を残す。src/manage/cases/cases.py。線 D の M12)"""
         if not isinstance(d, str) or not d.strip() or len(d) > 1024:
             raise ValueError("パックのフォルダがありません")
         d = os.path.normpath(d.strip())
@@ -347,7 +347,7 @@ class Deliveries:
         return dict(job)
 
     def running(self, d):
-        """そのパックのフォルダを今 zip にしているか(届けている途中のパックを「要らない」で動かさない。src/home/cases.py)"""
+        """そのパックのフォルダを今 zip にしているか(届けている途中のパックを「要らない」で動かさない。src/manage/cases/cases.py)"""
         with self.lock:
             return self._running_locked(d)
 

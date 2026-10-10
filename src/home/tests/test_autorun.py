@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
@@ -1175,7 +1175,7 @@ class TestRestartInfo(Base):
 
 
 class TestRequests(Base):
-    """友人からの依頼(src/home/intake.py)の形: request = 解析 → 採用 → 書き出し → 文字起こし(パックなし)/ file = 動画を文字起こしだけ"""
+    """友人からの依頼(src/human/friend/intake.py)の形: request = 解析 → 採用 → 書き出し → 文字起こし(パックなし)/ file = 動画を文字起こしだけ"""
     marks = []
     analysis = False
 
@@ -1255,7 +1255,7 @@ class TestRequests(Base):
         self.assertEqual(("engine" in body, body["model"]), (False, "small"))   # 編集の設定のモデル
 
     def live_clip(self, name, origin):
-        """リアルタイム切り抜きの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
+        """リアルタイム切り抜きの書き出し(src/pipeline/export/live_export.py の _finish)と同じ形の .clip.json を置いた動画"""
         from ytt_core import schemas
         media = os.path.join(self.tmp, name)
         open(media, "wb").close()

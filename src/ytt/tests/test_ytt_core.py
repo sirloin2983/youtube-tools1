@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt_core のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v
+"""ytt のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v
 ネットワークは 127.0.0.1 の空きポートだけを使う。"""
 import ast
 import http.server
@@ -565,7 +565,7 @@ class TestRuntime(unittest.TestCase):
             self.assertNotIn("path", json.load(f))   # 直下のときは書かない(以前の形のまま)
 
     def test_cut2resolve_uses_ytt_core(self):
-        """cut2resolve も 2026-09-26 から ytt_core.runtime を使う(自分の写しを持たない)。TOOL_APPS を自分で書き直していないこと"""
+        """cut2resolve も 2026-09-26 から ytt.runtime を使う(自分の写しを持たない)。TOOL_APPS を自分で書き直していないこと"""
         path = os.path.join(REPO, "cut2resolve", "serve.py")
         if not os.path.isfile(path):
             self.skipTest("cut2resolve が無い")
@@ -1416,7 +1416,7 @@ class TestDatadir(unittest.TestCase):
 
 
 class TestLayout(unittest.TestCase):
-    """リポジトリの中のフォルダの並び(ytt_core/layout.py。段0・2026-10-07 の src/ と friend-apps/)"""
+    """リポジトリの中のフォルダの並び(ytt/layout.py。段0・2026-10-07 の src/ と friend-apps/)"""
 
     def test_tool_dirs(self):
         self.assertEqual(layout.src_root(), REPO)
@@ -1440,7 +1440,7 @@ class TestLayout(unittest.TestCase):
 
 
 class TestHeavySlots(unittest.TestCase):
-    """重い処理の同時実行数の上限(ytt_core.jobs)"""
+    """重い処理の同時実行数の上限(ytt.jobs)"""
 
     def test_limit_from_env(self):
         self.assertEqual(jobs.limit_from_env({}), 2)
@@ -1683,7 +1683,7 @@ class TestTxIndex(unittest.TestCase):
 
 
 class TestColors(unittest.TestCase):
-    """配信者の名前 → メンバーカラー(ytt_core/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)"""
+    """配信者の名前 → メンバーカラー(ytt/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-colors-")
@@ -1826,7 +1826,7 @@ class TestColors(unittest.TestCase):
 
 
 class TestPick(unittest.TestCase):
-    """参照…の窓(ytt_core/pick.py。2026-10-01)。subprocess.run を差し替えるので本物の窓は開かない"""
+    """参照…の窓(ytt/pick.py。2026-10-01)。subprocess.run を差し替えるので本物の窓は開かない"""
 
     def run_result(self, stdout=b"", returncode=0, stderr=b""):
         return mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
@@ -1925,7 +1925,7 @@ class TestPick(unittest.TestCase):
 
 
 class TestLoudness(unittest.TestCase):
-    """ラウドネスの決まり(ytt_core/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
+    """ラウドネスの決まり(ytt/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
 
     def test_check_target_and_volume(self):
         from ytt_core import loudness as L

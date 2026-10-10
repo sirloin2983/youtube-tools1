@@ -1,5 +1,5 @@
 """判定の記録(feedback.jsonl)。確認画面での人の結果(採用・不採用・削除・書き出し)と、人の最終の操作(手で足した・消した・採用の取り消し)を
-1 行ずつ残す。盛り上がりの式の見直し(dev/eval_marks.py など)の材料。パスは含めない。
+1 行ずつ残す。盛り上がりの式の見直し(src/eval/tools/eval_marks.py など)の材料。パスは含めない。
 
 RS3-5(2026-10-10)で studio/analyze.py から human/review へ割った(解析 = 機械の流れ(①)は人の判定を書かない。書き手は store = ②)。
 行の形・記録先(feedback_path)・大きくなったときの .old への移し方は前のまま。
@@ -52,7 +52,7 @@ def _feedback_row(video, mark, verdict, event):
 def _feedback_write(row):
     if row.get("kind") == "live":
         # ライブの録画(線 D の P3)は解析していない(自動マークが無い): 手で付けたマークが「自動の見逃し」(manual_add)や
-        # 手動の「よかった」として盛り上がりの学習・集計(dev/eval_marks.py など)に混ざって数字を変えないように、記録しない
+        # 手動の「よかった」として盛り上がりの学習・集計(src/eval/tools/eval_marks.py など)に混ざって数字を変えないように、記録しない
         return False
     path = feedback_path()
     with _fb_lock:

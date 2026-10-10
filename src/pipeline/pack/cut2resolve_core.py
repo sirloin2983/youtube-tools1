@@ -363,7 +363,7 @@ def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):
     return r
 
 
-def _unlink_quiet(path):   # lint: keep 単独のコマンドは ytt_core を読まない
+def _unlink_quiet(path):   # lint: keep 単独のコマンドは ytt を読まない
     """一時ファイルを消す(None・消せないときは何もしない)"""
     if path:
         try:
@@ -731,7 +731,7 @@ def loudness_mod():
 
 def measure_loudness(video, spans_sec=None, task=None, duration=None):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。spans_sec = 測る区間 [(開始秒, 終了秒)](残す区間だけ。None = 全体)。
-    無音・測れないときは (None, None)。読み方・区間の選び方は ytt_core/loudness.py の1か所(スタジオの書き出しと共通)"""
+    無音・測れないときは (None, None)。読み方・区間の選び方は ytt/loudness.py の1か所(スタジオの書き出しと共通)"""
     _loud = loudness_mod()
     sel = _loud.select_filter(spans_sec)
     r = _ffmpeg_script((sel + "," if sel else "") + "loudnorm=print_format=json", ("-filter_script:a", "-/af"),
@@ -917,7 +917,7 @@ def is_network_path(p):
     return str(p or "").replace("/", "\\").startswith("\\\\")
 
 
-WORK_DIR = "作業用"   # 途中のファイルの下のフォルダ(ytt_core.schemas.WORK_DIR と同じ名前。コマンドは ytt_core を読まないのでここにも持つ。test_serve が確かめる)
+WORK_DIR = "作業用"   # 途中のファイルの下のフォルダ(ytt.schemas.WORK_DIR と同じ名前。コマンドは ytt を読まないのでここにも持つ。test_serve が確かめる)
 EDIT_MEDIA_SCHEMA = "clip-studio/edit-media/v1"
 EDIT_MEDIA_SUFFIX = ".edit.json"
 MAX_EDIT_JSON_BYTES = 64 * 1024        # 中身は数百バイト

@@ -2,7 +2,7 @@
 
 アプリは届いたパックを受け取らずに消すとき、受付のフォルダ(Dropbox の 切り抜き依頼\\)の直下に <zip の名前(.zip 抜き)>.feedback.json を置く:
   {"v": 1, "kind": "feedback", "verdict": "reject", "zip": "<依頼 id>__<題> 1-5.zip", "requestId": "...", "title": "...", "sentAt": "..."}
-入口の受付(src/home/intake.py)がそれを読んで apply を呼ぶ。apply は、届けた記録 logs/deliveries.jsonl(まとめて実行が zip を置くたびに
+入口の受付(src/human/friend/intake.py)がそれを読んで apply を呼ぶ。apply は、届けた記録 logs/deliveries.jsonl(まとめて実行が zip を置くたびに
 record_delivery で 1 行: zip の名前・依頼・配信・入っていたパックとスタジオのマーク)からその zip の中身を引き、M9 の「要らない」と同じ道
 (cases.discard_clip。ただし mark_id は空)で切り抜きの動画・パック・途中のファイルを ごみ箱フォルダ へ(3 日で消える)。
 スタジオのマークは変えない(2026-10-08 ユーザー決定: こちらが友人へ送る基準と友人が実際に採用する基準は別。マークの採用の記録は

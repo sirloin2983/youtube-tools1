@@ -52,7 +52,7 @@ def same_path(a, b):
     return os.path.normcase(os.path.abspath(str(Path(a).resolve()))) == os.path.normcase(os.path.abspath(str(Path(b).resolve())))
 
 
-def _replace_retry(src, dst):   # lint: keep 単独のコマンドは ytt_core を読まない(規則は ytt_core/fsio.py の replace_retry と同じ)
+def _replace_retry(src, dst):   # lint: keep 単独のコマンドは ytt を読まない(規則は ytt/fsio.py の replace_retry と同じ)
     """os.replace。Windows ではウイルス対策・検索インデックスが一瞬ファイルを開いていて失敗することがあるので、
     一時的なロック(winerror 5・32・33)だけ、0.1 → 0.2 → 0.4 秒待って 4 回までやり直す。
     読み取り専用のフォルダなど、それ以外の PermissionError は待っても直らないのですぐに上げる"""

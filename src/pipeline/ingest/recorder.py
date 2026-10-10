@@ -55,7 +55,7 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,128}\Z")
 
 
 def data_dir(arg=None):
-    """作業データの置き場所(token・設定・記録)。ytt_core.datadir の規則(YTT_DATA_DIR=inplace なら recorder\\data)"""
+    """作業データの置き場所(token・設定・記録)。ytt.datadir の規則(YTT_DATA_DIR=inplace なら recorder\\data)"""
     if arg:
         return os.path.abspath(arg)
     return datadir.locate("recorder", legacy_dir=os.path.join(ROOT, layout.RECORDER_DIR, "data"))
@@ -145,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _head(self, code, ctype, size, cache):
-        """応答の見出し(ytt_core.httpsec.send_head)。-> 本文を送るか(HEAD なら送らない)"""
+        """応答の見出し(ytt.httpsec.send_head)。-> 本文を送るか(HEAD なら送らない)"""
         httpsec.send_head(self, code, ctype, size, cache=cache)
         return self.command != "HEAD"
 
@@ -229,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
     do_HEAD = do_GET
 
     def _body(self):
-        """書き込み系の要求の本文(JSON のオブジェクト。本文が空なら {})。読み方の規則は ytt_core.httpsec.read_json_body。
+        """書き込み系の要求の本文(JSON のオブジェクト。本文が空なら {})。読み方の規則は ytt.httpsec.read_json_body。
         断る理由ごとの状態・コード・文だけここで決める。-> dict か、応答済みの None"""
         try:
             return httpsec.read_json_body(self, BODY_MAX, empty_ok=True)

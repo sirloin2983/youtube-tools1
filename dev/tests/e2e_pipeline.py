@@ -8,7 +8,7 @@
 """
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import socket
 import signal
@@ -19,8 +19,8 @@ import time
 import urllib.parse
 import urllib.request
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # ツールと ytt_core の置き場所
-os.environ.setdefault("YTT_CORE_DIR", ROOT)   # 一時フォルダに写した文字起こしの serve.py が共通部品 ytt_core を見つけられるように
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # ツールと ytt の置き場所
+os.environ.setdefault("YTT_CORE_DIR", ROOT)   # 一時フォルダに写した文字起こしの serve.py が共通部品 ytt を見つけられるように
 
 
 def free_port():

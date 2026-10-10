@@ -15,7 +15,7 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "src")   # ツール・ytt_core・ui-kit の置き場所
+SRC = os.path.join(ROOT, "src")   # ツール・ytt・ui-kit の置き場所
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from ytt import fsio  # noqa: E402

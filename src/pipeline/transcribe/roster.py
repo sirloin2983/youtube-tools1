@@ -24,7 +24,7 @@ ALIASES_PER = 3
 DETECT_MIN = 3          # 題名・チャンネル名から呼び名で判定するときの最短の長さ(「ルイ」「トワ」のような短い形は別の語に紛れる)
 SOURCES = ("channel", "collab", "speaker", "title")   # 出る人を決めた材料(先の方が強い)
 _SEP = re.compile(r"[\s・･\-‐_＿.,、。'\"/|｜!！?？#＃【】\[\]()（）「」『』<>〈〉★☆♪~〜]+")
-_cache = []   # [ytt_core.fsio.StampCache](初めて読むときに作る。ytt_core は読む側が sys.path に足してから = このファイルだけを読むテストのため)
+_cache = []   # [ytt.fsio.StampCache](初めて読むときに作る。ytt は読む側が sys.path に足してから = このファイルだけを読むテストのため)
 _lock = threading.Lock()
 
 

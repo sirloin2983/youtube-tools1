@@ -1,6 +1,6 @@
 """ui-kit の写しが正本と一致しているか(python -m unittest dev/tests/test_ui_kit_sync.py)。"""
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import sys
 import unittest
 

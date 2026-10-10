@@ -32,7 +32,7 @@ import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
@@ -40,7 +40,7 @@ SRC = os.path.dirname(HERE)
 EDITOR = os.path.join(SRC, "editor")
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-if SRC not in sys.path:   # 共通部品 ytt_core(launch.py と同じ)
+if SRC not in sys.path:   # 共通部品 ytt(launch.py と同じ)
     sys.path.append(SRC)
 import live as LV  # noqa: E402
 from pipeline.export import live_export as LX  # noqa: E402

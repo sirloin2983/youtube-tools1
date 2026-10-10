@@ -22,7 +22,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 os.environ["TRANSCRIBE_FAKE_ALT"] = "文=>分"        # 2つ目のエンジン(疑似)は「テスト分n」と聞く
 YT_FILES = tempfile.mkdtemp(prefix="ytcap-e2e-")
 os.environ["TRANSCRIBE_YTDLP"] = os.path.join(HERE, "fake_ytdlp.py")   # 偽の yt-dlp(通信しない。字幕は FAKE_YTDLP_JSON3)

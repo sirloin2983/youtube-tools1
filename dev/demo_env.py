@@ -26,7 +26,7 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt_core の置き場所(入口の ROOT と同じ意味)
+REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt の置き場所(入口の ROOT と同じ意味)
 sys.path.insert(0, os.path.join(REPO, "home"))
 sys.path.insert(0, os.path.join(REPO, "home", "tests"))   # test_launch(_copy_tool)
 sys.path.insert(0, REPO)
@@ -136,7 +136,7 @@ def seed(tmp, rnd, streams, samples):
                               "language": "ja", "speakers": SPEAKERS if genre == "コラボ" else SPEAKERS[:1],
                               "segments": segments(rnd.randint(12, 30), 40.0, proof, 0.15 if proof > 0 else 0.0, genre == "コラボ"),
                               "createdAt": tcreated, "updatedAt": tcreated + int(rnd.uniform(0, 3) * 86400000), "clip": cj})
-                    if r > 0.6:   # パックも作った(中身は印だけ。パックの有無は中の cut-plan.json で判定する: src/ytt_core/txindex.pack_info)
+                    if r > 0.6:   # パックも作った(中身は印だけ。パックの有無は中の cut-plan.json で判定する: src/manage/cases/txindex.pack_info)
                         pd = txindex.pack_dir(clip)
                         os.makedirs(pd, exist_ok=True)
                         for n in ("cut-plan.json", "textplus-import.json"):
@@ -187,7 +187,7 @@ def main(argv=None):
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
     if fresh:
         from ytt import layout as _layout
-        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__", "tests"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__", "tests"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         samples = make_media(os.path.join(tmp, "media"))
         _, nv, nt = seed(tmp, random.Random(a.seed), a.streams, samples)
         print("見本のデータ: 配信 %d 本・文字起こし %d 件" % (nv, nt), flush=True)

@@ -653,7 +653,7 @@ class Live:
         raise live_export.LiveError("録画を始められませんでした: %s" % (msg or "HTTP %s" % code), code if code in (400, 409) else 502)
 
     def begin_request(self, url, ctx):
-        """友人のライブ配信の依頼(src/home/intake.py の _handle_live_request。docs/spec/friend-intake.md の 2-15): 録画を始めて(begin)、その録画を依頼に結びつける。
+        """友人のライブ配信の依頼(src/human/friend/intake.py の _handle_live_request。docs/spec/friend-intake.md の 2-15): 録画を始めて(begin)、その録画を依頼に結びつける。
         ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings}。-> {"recorder", "recording", "existing"}。だめなら LiveError"""
         if not self.enabled():
             raise live_export.LiveError("リアルタイム切り抜きがオフです", 409)
@@ -699,7 +699,7 @@ class Live:
         return ar.flush_pools(done)
 
     def expire_unseen(self, force=False):
-        """見ても届けてもいない自動の切り抜きを、作ってから cases.EXPIRE_SEC(3 日)で片付ける(src/home/cases.py の expire_unseen。EXPIRE_EVERY ごと)。
+        """見ても届けてもいない自動の切り抜きを、作ってから cases.EXPIRE_SEC(3 日)で片付ける(src/manage/cases/cases.py の expire_unseen。EXPIRE_EVERY ごと)。
         部品(ごみ箱フォルダ・届ける仕組み・非表示)は入口のサーバーから。入口から作られていないとき(テスト)は何もしない。-> 片付けた [(案件, マーク)]"""
         srv, now = self._server, time.time()
         if srv is None or (not force and now - self._expire_at < EXPIRE_EVERY):

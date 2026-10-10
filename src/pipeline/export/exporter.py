@@ -1,7 +1,7 @@
 """③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
 
 - file 動画は元ファイルを ffmpeg で切り出す。youtube 動画は yt-dlp(疑似モードでは STUDIO_FAKE_MEDIA を ffmpeg で切り出す)。
-- 書き出す動画はいつも 30fps(H.264・yuv420p・AAC。2026-10-04 Q1。作り直しの設定は ytt_core/normalize.py の1か所)。
+- 書き出す動画はいつも 30fps(H.264・yuv420p・AAC。2026-10-04 Q1。作り直しの設定は ytt/normalize.py の1か所)。
   「精密」= veryfast・「高速」= ultrafast で作り直す(どちらも crf 18・位置ちょうど。以前の「高速」= コピーは fps を変えられないのでやめた)。
 - 出力先は <出力先>/<動画名>/ (動画ごとのフォルダ)。1度に1ジョブ。
 - 各 item が成功した時点で on_done(video_id, mark_id, "フォルダ/ファイル.mp4", 開始, 終了) を呼ぶ(store がマークを exported にする)。
@@ -30,13 +30,13 @@ EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく�
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
 # ラウドネス(聞こえ方の音量。LUFS)をそろえる(2026-09-26。音量(%)の代わりに選べる)。YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする
-# 選べる値・ピークの上限・上げる量の上限と、測った結果の読み方は ytt_core/loudness.py の1か所(パック作りと共通。2026-09-29)
+# 選べる値・ピークの上限・上げる量の上限と、測った結果の読み方は ytt/loudness.py の1か所(パック作りと共通。2026-09-29)
 LOUDNESS_CHOICES = _loud.CHOICES
 TRUE_PEAK_CEIL = _loud.TRUE_PEAK_CEIL   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
 MAX_GAIN_DB = _loud.MAX_GAIN_DB         # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
 EDIT_HANDLE_SEC = 10.0
-# 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt_core/names.py の 1 か所
-# (入口のライブの書き出し src/home/live_export.py と同じ規則。2026-10-09 見直し T8)。ここの名前はテストと他の部品が読むので残す
+# 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt/names.py の 1 か所
+# (入口のライブの書き出し src/pipeline/export/live_export.py と同じ規則。2026-10-09 見直し T8)。ここの名前はテストと他の部品が読むので残す
 MAX_PATH_UNITS, SUFFIX_ROOM, BASE_ROOM = _names.MAX_PATH_UNITS, _names.SUFFIX_ROOM, _names.BASE_ROOM
 compact_ts, safe_name, is_reserved, path_units, trim_units = _names.compact_ts, _names.safe_name, _names.is_reserved, _names.path_units, _names.trim_units
 unique_base, _read_owner, _write_owner = _names.unique_base, _names.read_owner, _names.write_owner
@@ -97,7 +97,7 @@ def verify_output(path, expected, tail=None):
 
 def pick_folder(spec):
     """動画ごとの保存先フォルダ(<出力先>/<動画名>/)を決める。-> (フォルダ名, パス)。
-    フォルダ内の 作業用/.studio-id(以前はフォルダの直下)に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける(ytt_core.names.pick_folder)。"""
+    フォルダ内の 作業用/.studio-id(以前はフォルダの直下)に動画IDを記録し、同名の別動画とは混ざらないよう連番を付ける(ytt.names.pick_folder)。"""
     got = _names.pick_folder(_env.get_out_dir(), spec["title"], spec["videoId"], spec["videoId"])
     if got is None:
         raise ExportError("保存先フォルダを作れませんでした")
@@ -105,7 +105,7 @@ def pick_folder(spec):
 
 
 def promote(path):
-    """仕上がった書きかけのファイルを本当の名前へ置き換える(ytt_core.fsio.replace_retry。一時的な共有違反は再試行)。本当の名前を返す。"""
+    """仕上がった書きかけのファイルを本当の名前へ置き換える(ytt.fsio.replace_retry。一時的な共有違反は再試行)。本当の名前を返す。"""
     if not is_partial(path):
         return path
     final = final_path(path)
@@ -317,7 +317,7 @@ def job_public(job):
         done = it["status"] == "done"
         return {k: (it.get(k) if done else None) for k in PUBLIC_PATHS}
     return {"id": job["id"], "state": job["state"], "outDir": job.get("outDir", _env.get_out_dir()), "folder": job.get("folder", ""),
-            "waiting": bool(job.get("waiting")),   # 他のツールの重い処理が終わるのを待っている(ytt_core.jobs)
+            "waiting": bool(job.get("waiting")),   # 他のツールの重い処理が終わるのを待っている(ytt.jobs)
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
                        "warning": it.get("warning", ""), "loudness": it.get("loudness"), **paths(it)} for it in job["items"]],
             "combined": _combined_public(job.get("combined"))}
@@ -450,7 +450,7 @@ def _make(job, cmd, it, dur, out, what, log_cmd=None):
         raise
 
 
-# 書き出しの作り直しの設定は ytt_core/normalize.py の1か所(30fps・libx264 crf 18・yuv420p・AAC 192k・faststart。2026-10-04 Q1)
+# 書き出しの作り直しの設定は ytt/normalize.py の1か所(30fps・libx264 crf 18・yuv420p・AAC 192k・faststart。2026-10-04 Q1)
 PROGRESS = ["-progress", "pipe:1", "-nostats"]
 ENC = _norm.ENC_ARGS + PROGRESS              # 精密(veryfast)
 ENC_FAST = _norm.ENC_FAST_ARGS + PROGRESS    # 高速(ultrafast。画質の設定 crf は同じで、ファイルが大きくなる代わりに速い)
@@ -853,7 +853,7 @@ def write_manifests(spec, it, mark_status):
 
 
 def run_job(job, spec, on_done=None):
-    """重い処理の同時実行数の上限(ytt_core.jobs)の順番を待ってから書き出す。待っている間は job["waiting"] が真。
+    """重い処理の同時実行数の上限(ytt.jobs)の順番を待ってから書き出す。待っている間は job["waiting"] が真。
     想定外の例外でも、ジョブを「実行中」のまま残さない(残ると is_busy が真のままで、次の書き出し・出力先の変更・動画の削除が
     サーバーを起動し直すまで 409 になり、終了の流れも止まるのを待ち続ける)"""
     try:

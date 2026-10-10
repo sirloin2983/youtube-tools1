@@ -59,7 +59,7 @@ class SizesTest(unittest.TestCase):
 
 class ToolsTest(unittest.TestCase):
     def test_parse_version_line(self):
-        # 版は出力の 1 行目から抜く(見つからなければ先頭の 60 字)。中身は ytt_core.tools.tool_version(first_line=True)(2026-10-09 に移した)
+        # 版は出力の 1 行目から抜く(見つからなければ先頭の 60 字)。中身は ytt.tools.tool_version(first_line=True)(2026-10-09 に移した)
         from unittest import mock
         cases = [("ffmpeg version 6.1.1-full_build-www.gyan.dev Copyright (c) 2000-2023\nbuilt with gcc", "6.1.1-full_build-www.gyan.dev"),
                  ("2025.09.05\n", "2025.09.05"), ("", ""), ("x" * 80 + "\nversion 9", "x" * 60)]

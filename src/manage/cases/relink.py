@@ -187,13 +187,13 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
 
 # ---------- 素材を 30fps にそろえる(マスタープラン Q1。2026-10-04 ユーザー決定) ----------
 # 「編集」の単体の文字起こし(動画のパスを指定)と動画を選び直したとき、動画が 30fps(H.264・yuv420p・AAC)でなければ、
-# 元の動画の隣に <名前>_30fps.mp4 を作り、文書をそれに付け替える(元は消さない。作り直しは ytt_core/normalize.py)。
+# 元の動画の隣に <名前>_30fps.mp4 を作り、文書をそれに付け替える(元は消さない。作り直しは ytt/normalize.py)。
 # - 順番: 文字起こしは元の動画のまま(時刻は秒なので同じ)→ 同じジョブの続きで作り直す → できたら付け替える。
 #   作り直しに失敗・取り消し・隣に書けないときは、文書は元の動画のまま・ジョブの知らせ(normNote)に理由(文字起こしの結果は失わない)
 # - 選び直し: 付け替えはすぐに済ませ、作り直しは裏のジョブ(kind "normalize")→ できたら付け替える(付け替えの要求を待たせない。
 #   失敗しても付け替えは済んでいる)。まとめて付け替える(以前の文書の動画を移したとき)は作り直さない(normalize: false)
 # - 評価用(evalSet・評価用のフォルダの中)は作り直さない(パックを作らない・評価用のフォルダの整理が動画の数を数えるため)
-# - ジョブはすでに SLOTS(ytt_core.jobs)を持っている(ytt/jobs の work_one)。この中で取り直さない(上限 1 だと自分を待って止まる)
+# - ジョブはすでに SLOTS(ytt.jobs)を持っている(ytt/jobs の work_one)。この中で取り直さない(上限 1 だと自分を待って止まる)
 # - 付け替えは updatedAt を変えない(_relink_write の bump=False。開いている画面の次の保存を 409 にしない)
 NORM_SUFFIX = "_30fps"
 NORM_PHASE = "動画の 1 秒のコマ数を 30 にそろえています(30fps)…"   # 言葉の説明つき(2 周目 S10)   # 画面は「30fps にそろえています… n%」(ジョブの progress)
@@ -474,7 +474,7 @@ def relink_find(obj):
 
 
 def pick_path(obj):
-    """POST /api/pick {"kind": "file"|"dir", "hint"}: PC の標準の窓で動画かフォルダを選ぶ(ytt_core/pick.py)。
+    """POST /api/pick {"kind": "file"|"dir", "hint"}: PC の標準の窓で動画かフォルダを選ぶ(ytt/pick.py)。
     -> {path}(やめたら "")。選んだ動画の検査は、そのあとの /api/relink/check と /api/relink/find が行う"""
     from ytt import pick as _pick
     kind = "dir" if obj.get("kind") == "dir" else "file"

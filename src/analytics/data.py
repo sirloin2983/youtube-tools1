@@ -12,7 +12,7 @@ raw の形(既存の「Youtube日次」の Apps Script が Drive の raw/<日付
 - 本数は公開(VIDEO_PRIVACY_PUBLIC)の動画だけ。公開日時が読めない・1970 年(非公開の印)は数えない
 - ショートは short(Studio の isShortsRenderable)が真のもの
 - 収益の値は Studio の値 ÷ REV_DIVISOR(監査: 1/1000 して USD の前提。文書化されていないので、画面と見比べて確かめるまで「要確認」と出す)
-- 配信者は題名のハッシュタグのうち、メンバーの一覧(ytt_core.colors。ホロカラーの members.json)と名前が完全に合うもの。最初の 1 人が主
+- 配信者は題名のハッシュタグのうち、メンバーの一覧(ytt.colors。ホロカラーの members.json)と名前が完全に合うもの。最初の 1 人が主
 """
 import datetime
 import re
@@ -107,10 +107,10 @@ def _num(v):
 
 
 def member_matcher(entries):
-    """メンバーの一覧(ytt_core.colors.load の結果)→ 題名 → [メンバーの名前](出てきた順・重なりなし)"""
+    """メンバーの一覧(ytt.colors.load の結果)→ 題名 → [メンバーの名前](出てきた順・重なりなし)"""
     try:
         from ytt import colors
-    except ImportError:   # 単体で読むテスト(ytt_core が無い)では照らし合わせない
+    except ImportError:   # 単体で読むテスト(ytt が無い)では照らし合わせない
         return lambda title: []
     keys = {}
     for e in entries or []:

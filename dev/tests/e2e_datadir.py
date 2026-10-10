@@ -20,7 +20,7 @@ import tempfile
 import time
 import urllib.request
 
-REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # ツールと ytt_core の置き場所
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # ツールと ytt の置き場所
 IGNORE = shutil.ignore_patterns("__pycache__", ".git", "transcripts", "dataset", "models", "cache", "archive", "work", "exports",
                                 "data.json*", "feedback.jsonl*", "registry.json", "config.json", "settings*.json", "*.log",
                                 ".running.json", "node_modules", ".runtime", "0old", ".whisper_models", "resolve-ui-test", "logs", "tests")
@@ -52,7 +52,7 @@ def main():
             shutil.copytree(os.path.join(REPO, d), os.path.join(repo, d), ignore=IGNORE)
         sys.path.insert(0, REPO)
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(repo, ignore=IGNORE, root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS)
+        _layout.copy_shared_code(repo, ignore=IGNORE, root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS)
         # ---- 以前の場所のデータ
         st, tx = os.path.join(repo, "studio"), os.path.join(repo, "editor")
         os.makedirs(os.path.join(st, "cache", "meta"))

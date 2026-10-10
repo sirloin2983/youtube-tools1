@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 TOP = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # リポジトリ直下
-ROOT = os.path.join(TOP, "src")   # ツールと ytt_core の置き場所
+ROOT = os.path.join(TOP, "src")   # ツールと ytt の置き場所
 sys.path.insert(0, os.path.join(TOP, "setup"))
 sys.path.insert(0, ROOT)
 from ytt_core.layout import TOOL_DIRS  # noqa: E402

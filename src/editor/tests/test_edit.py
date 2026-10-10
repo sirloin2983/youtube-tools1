@@ -10,7 +10,7 @@ HTTP のものは疑似モード(TRANSCRIBE_BACKEND=fake)のサーバーを空�
 """
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys
@@ -610,7 +610,7 @@ class TestEditHttp(unittest.TestCase):
             plan = json.load(f)
         self.assertEqual([(g["start"], g["end"]) for g in plan["segments"]], [(0.5, 1.8), (2.0, 2.2), (3.0, 5.1)])
         # 前回のパックの手順書: 記録したフォルダが cut2resolve のパックのときだけ読む(cut2resolve の記録か、以前のパックなら cut2resolve の cut-plan.json。
-        # 記録で読めることは ytt_core の test_pack_record・cut2resolve の test_serve で確かめる)
+        # 記録で読めることは ytt の test_pack_record・cut2resolve の test_serve で確かめる)
         out = os.path.join(self.media_dir, "パック_pack")
         os.makedirs(out, exist_ok=True)
         self.call("POST", "/api/edit/pack", {"id": tid, "rev": 1, "docUpdatedAt": 0, "dir": out, "files": ["友人へ.txt"]})
@@ -1504,7 +1504,7 @@ class TestEvalFolder(StoreDir):
 
 
 class TestToolIdentity(unittest.TestCase):
-    """ツールの識別子(/api/ping の app・受け渡しの tool.name)は ytt_core.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
+    """ツールの識別子(/api/ping の app・受け渡しの tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
     def test_same_as_runtime_table(self):
         from ytt_core import runtime

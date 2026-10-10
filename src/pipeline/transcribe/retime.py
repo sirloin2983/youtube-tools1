@@ -3,7 +3,7 @@
 
 役割で組み直す RS2-9(2026-10-10)に、計算の部分(subread_*・retime_raw・retime_candidates ほか。純粋な関数 = ファイルを読まない・書かない)を
 編集の src/editor/ed_retime.py からここへ切り出した(中身は同じ)。文書と単語の時刻 words.json を読んで POST /api/retime に答える包み(retime_engine・retime_doc)は
-src/editor/ed_retime.py に残した(② の層)。標準ライブラリ・ytt(schemas)・同じパッケージの兄弟(txbase の alt_fold)だけを読む。ネイティブの部品は読み込まない。
+src/human/proof/retime.py に残した(② の層)。標準ライブラリ・ytt(schemas)・同じパッケージの兄弟(txbase の alt_fold)だけを読む。ネイティブの部品は読み込まない。
 名前は serve.py からも見える(serve.py の _ED_MODULES)。ほかの部品と重ならないよう subread_ / SUBREAD_ / retime_ / RETIME_ で始める。
 ed_retime には別名・転送を置かない(差し替えが別名に当たる)。呼ぶ側は retime.名前 を呼ぶたびに読む。
 

@@ -4,20 +4,20 @@
 
 マーク(MarkStore):
   録画1本(録画元 + 録画の id)ごとに、入口の作業データの live/marks/<録画元>__<録画の id>.json に置く(マークの正本)。
-  押すたびに、一時ファイルに書いて fsync してから置き換える(ytt_core.fsio.atomic_write(fsync_required=True))。
+  押すたびに、一時ファイルに書いて fsync してから置き換える(ytt.fsio.atomic_write(fsync_required=True))。
   時刻は絶対時刻(UTC。hls.js の playingDate = 録画元の受信時刻 PDT)で持つ。
   計画の 5 は「追記専用の JSONL」だが、ラベルの変更・終了の後付け・削除があるので、全体を原子的に置き換える形にした(壊れるのは「前の版のまま」だけ)。
   P3(スタジオに統合。計画の 0-8)からは、スタジオのマーク(録画の頭からの秒)を書き出すときに入口が絶対時刻へ直して入れる(upsert。id は
   lm- + sha1(スタジオのマークの id) の頭 12 桁)。ジョブには studio {video, mark, start, end} を残す(スタジオの画面がどのマークの書き出しか分かる)。
-  バックアップは作業データのバックアップ(src/home/backup.py。変わってから QUIET 秒で写す)に乗る。
+  バックアップは作業データのバックアップ(src/manage/keep/backup.py。変わってから QUIET 秒で写す)に乗る。
 
 書き出しのジョブ(Exporter。計画の 6。1本ずつ順に):
   1. 録画待ち … マークの終わりの時刻まで録画が届くのを待つ(録画元の /live/<録画>/segments の lastPdt。届く前に録画が終われば、録れた所までで切る)
   2. 取得     … 区間にかかるセグメント(4 秒ごとの .ts)だけを録画元から取る。録画元は 主 → 予備(同じ配信を録っている別の録画元。2台のとき)の順。
                  区間に欠け(繋ぎ直しの間など)があれば書き出さずに「要差し替え」(P4 のアーカイブで作り直す)
-  3. 作り直し … セッションごとにつないで(TS はそのままつなげる)、正確な区間に切って ytt_core.normalize と同じ設定で 30fps に(SLOTS を通す)
+  3. 作り直し … セッションごとにつないで(TS はそのままつなげる)、正確な区間に切って ytt.normalize と同じ設定で 30fps に(SLOTS を通す)
   3b. 音量    … スタジオの書き出しと同じ扱い(audio()。既定はスタジオの「書き出しの設定」= 音量 75% か、ラウドネスをそろえる -14 LUFS など)。
-                 ラウドネスは作り直した動画で測って(loudnorm)から、音声だけ作り直して(映像は無劣化)ゲインをかける(ytt_core.loudness)
+                 ラウドネスは作り直した動画で測って(loudnorm)から、音声だけ作り直して(映像は無劣化)ゲインをかける(ytt.loudness)
   4. 検証     … ffprobe で 30/1・長さ(区間 ±0.5 秒)を確かめてから本当の名前へ
   5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先/<配信の名前>/)・名前の規則・作業用/<名前>.clip.json。
                  書き出したあと(ジョブの after。スタジオの LIVE の帯の「書き出したあと」)は入口の「まとめて実行」の動画ファイルの形(autorun.start_file。
@@ -38,7 +38,7 @@
 空きを DISK_POLL(1 分)ごとに調べる(disk)。DISK_WARN(20 GB)未満で注意(「調子」)、DISK_LOW(5 GB)未満で**新しい書き出しと文字起こしを「空き待ち」**にする
 (録画待ちのジョブは録画元に問い合わせずに待ち、書き出しが済んだジョブはまとめて実行へ渡すのを待つ = handoffWait "disk")。空けば続ける。
 止めずに待つのは、書き込みの途中で失敗して書きかけが壊れるより戻しやすいため(計画の 5 の 3)。録画の部品は録画先を 1 GB で止め・20 GB で注意する(別)。
-用途つきの枠(M6): 書き出す録画がまだ録画中なら、重い処理の順番(ytt_core.jobs.SLOTS)の用途つきの枠も使う(acquire(reserved=True))。
+用途つきの枠(M6): 書き出す録画がまだ録画中なら、重い処理の順番(ytt.jobs.SLOTS)の用途つきの枠も使う(acquire(reserved=True))。
 本番版を待ってから渡す(M7): holdFor "archive" のジョブ(配信後の全自動。src/pipeline/ingest/live_archive.py)は、書き出したあと まとめて実行へすぐ渡さず
 handoffWait "archive" で待ち、アーカイブで本番版に入れ替えてから(できなければ速報版のまま)Archiver が release_hold で渡す(パックが本番版になる)。
 
@@ -64,7 +64,7 @@ VERSION = "0.1.0"
 TOOL = {"name": "ytt-live", "version": VERSION}
 MARKS_SCHEMA = "ytt-live-marks/v1"
 JOBS_SCHEMA = "ytt-live-exports/v1"
-# 録画元との約束(id の形・時刻の書き方・動画の id)は ytt_core/recproto.py の 1 か所(録画の部品・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
+# 録画元との約束(id の形・時刻の書き方・動画の id)は ytt/recproto.py の 1 か所(録画の部品・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
 ID_RE = recproto.RECORDER_ID_RE   # 録画元の id
 REC_RE = recproto.REC_ID_RE       # 録画の id
 MARK_RE = re.compile(r"^lm-[0-9a-f]{8,16}\Z")
@@ -113,13 +113,13 @@ class Halted(Exception):
     """入口の終了(ジョブは「録画待ち」に戻して、次の起動でやり直す)"""
 
 
-# ---------- 時刻・名前(ytt_core の 1 か所。テストと live_archive・live_cleanup などがここの名前で読む) ----------
+# ---------- 時刻・名前(ytt の 1 か所。テストと live_archive・live_cleanup などがここの名前で読む) ----------
 iso_epoch, epoch_iso, now_iso, video_id_of = recproto.iso_epoch, recproto.epoch_iso, recproto.now_iso, recproto.video_id_of
-compact_ts, safe_name, unique_base = names.compact_ts, names.safe_name, names.unique_base   # スタジオの書き出しと同じ規則(ytt_core/names.py)
+compact_ts, safe_name, unique_base = names.compact_ts, names.safe_name, names.unique_base   # スタジオの書き出しと同じ規則(ytt/names.py)
 
 
 def pick_folder(root, title, owner):
-    """<書き出し先>/<配信の名前>/(スタジオの pick_folder と同じ ytt_core.names.pick_folder: 作業用/.studio-id に持ち主を書き、
+    """<書き出し先>/<配信の名前>/(スタジオの pick_folder と同じ ytt.names.pick_folder: 作業用/.studio-id に持ち主を書き、
     同じ名前の別の配信とは混ぜない)。題が空なら持ち主の名前か live"""
     got = names.pick_folder(root, title, owner, safe_name(owner, 60) or "live")
     if got is None:
@@ -610,7 +610,7 @@ class Exporter:
         rows, by_drive = [], {}
         for label, path in self.disk_paths():
             probe = path
-            while probe and not os.path.exists(probe):   # まだ無いフォルダは、ある所まで上へ(src/home/health.py の disk_free と同じ)
+            while probe and not os.path.exists(probe):   # まだ無いフォルダは、ある所まで上へ(src/manage/ops/health.py の disk_free と同じ)
                 parent = os.path.dirname(probe)
                 if parent == probe:
                     break
@@ -960,7 +960,7 @@ class Exporter:
 
     def _adjust_audio(self, job, ff, path, dur, flags):
         """作り直した動画の音量を、スタジオの書き出しと同じ設定にそろえる(音声だけ作り直し。映像は -c:v copy で無劣化)。
-        ラウドネスのとき: 測って(loudnorm)・上げ下げの量は ytt_core.loudness.gain(音が割れない・上げすぎない範囲)。
+        ラウドネスのとき: 測って(loudnorm)・上げ下げの量は ytt.loudness.gain(音が割れない・上げすぎない範囲)。
         -> .clip.json の export に足す項目({"loudness": {...}} か {"volume": %}。スタジオの _clip_export_info と同じ形)"""
         vol, loud = self._audio_cfg()
         if not loud and vol == 100:
@@ -1002,7 +1002,7 @@ class Exporter:
 
     def _run(self, job, cmd, dur, flags):
         """ffmpeg を1回動かす(取り消し・入口の終了で止める)。-> (終了コード, エラーの行, None|"cancel")。
-        中身は ytt_core.tools.run_progress(-progress の進み具合を job["progress"] の 0.2〜1.0 に写す)"""
+        中身は ytt.tools.run_progress(-progress の進み具合を job["progress"] の 0.2〜1.0 に写す)"""
         def on_time(sec):
             if dur > 0:
                 job["progress"] = round(0.2 + 0.8 * min(0.99, sec / dur), 3)

@@ -21,7 +21,7 @@
   殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
 """
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import unittest
 from unittest import mock
 
@@ -210,7 +210,7 @@ class TestEdSpeakersShell(unittest.TestCase):
             self.assertEqual(speakers.autodiar_enqueue("0123456789ab"), {"skipped": "no_sherpa"})   # 同じモジュールの名前も差し替えが届く(test_autodiar の形)
         saved = diarize.DIAR_DIR
         try:
-            ed_speakers.DIAR_DIR = os.path.join("x", "diar")   # dev/eval_speakers の形(S.ed_speakers.DIAR_DIR = d)
+            ed_speakers.DIAR_DIR = os.path.join("x", "diar")   # src/eval/tools/eval_speakers の形(S.ed_speakers.DIAR_DIR = d)
             self.assertEqual(diarize.diar_models_dir(), os.path.join("x", "diar"))
         finally:
             ed_speakers.DIAR_DIR = saved
@@ -653,7 +653,7 @@ class TestEdLearnShell(unittest.TestCase):
         self.assertIs(S.apply_replacements, replace.apply_replacements)
         self.assertIs(ed_learn.learn_rules, learn.learn_rules)
         self.assertIs(ed_learn.doc_metrics, metrics.doc_metrics)
-        self.assertIs(S._groups, learn._groups)   # dev/eval_asr・eval_alt が S._groups・S.split_nosub で読む
+        self.assertIs(S._groups, learn._groups)   # src/eval/tools/eval_asr・eval_alt が S._groups・S.split_nosub で読む
         self.assertNotIn("metrics", vars(learn))   # learn は metrics を読まない
 
     def test_patches_reach_owner(self):

@@ -199,7 +199,7 @@ def alt_after_transcribe(job, spec, tid):
 
 
 # ---------- 食い違いから候補を作る(純粋な関数) ----------
-alt_fold = _txbase.alt_fold   # lint: keep 別名(RS2-9)= 比べるときだけの寄せ方(正は txbase。S.alt_fold・dev/eval_alt・retime・ytcap が読む。差し替えない)
+alt_fold = _txbase.alt_fold   # lint: keep 別名(RS2-9)= 比べるときだけの寄せ方(正は txbase。S.alt_fold・src/eval/tools/eval_alt・retime・ytcap が読む。差し替えない)
 
 
 def _alt_chars(text, tag):

@@ -337,7 +337,7 @@ class TestDefaultsInOnePlace(unittest.TestCase):
 
 
 class TestStagedWrite(unittest.TestCase):
-    """一時ファイルに書いて付け替える処理(srt2resolve.staged・_replace_retry)。付け替えのやり直しの規則は ytt_core/fsio.py の replace_retry と同じ"""
+    """一時ファイルに書いて付け替える処理(srt2resolve.staged・_replace_retry)。付け替えのやり直しの規則は ytt/fsio.py の replace_retry と同じ"""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

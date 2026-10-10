@@ -1,8 +1,8 @@
 """友人のライブ配信の依頼と録画の結びつき(docs/spec/friend-intake.md の 2-15。ホーム 0.47.0)。
 
-依頼の受付(src/home/intake.py)が配信中・配信前の URL の依頼を受け付けると、録画を始めて(src/home/live.py の Live.begin_request)ここに結びつけ、
-録画の候補の検出・自動の採用(src/home/live_detect.py・live_excite_worker.py)・採用した切り抜きの書き出しのあと(src/home/live_export.py の _handoff)・
-配信後のアーカイブからの追加(src/home/live_archive.py)が、この結びつきを見て友人の設定で動き、パックを友人へ届ける。
+依頼の受付(src/human/friend/intake.py)が配信中・配信前の URL の依頼を受け付けると、録画を始めて(src/home/live.py の Live.begin_request)ここに結びつけ、
+録画の候補の検出・自動の採用(src/pipeline/analyze/live_detect.py・live_excite_worker.py)・採用した切り抜きの書き出しのあと(src/pipeline/export/live_export.py の _handoff)・
+配信後のアーカイブからの追加(src/pipeline/ingest/live_archive.py)が、この結びつきを見て友人の設定で動き、パックを友人へ届ける。
 
 置き場所: 入口の作業データの live/requests.json
   {"v": 1, "items": {"<録画元の id>/<録画の id>": {"rid", "deliverDir", "url", "title", "streamer", "speakers", "videoTracks", "cut", "memo",

@@ -6,7 +6,7 @@
 import hashlib
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys
@@ -460,7 +460,7 @@ class TestBuildSpecIds(unittest.TestCase):
 
 
 class TestHeavyJobLimit(unittest.TestCase):
-    """書き出しは、他のツールの重い処理と順番を待つ(ytt_core.jobs)。待っている間は waiting、取り消せる"""
+    """書き出しは、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間は waiting、取り消せる"""
 
     def test_waits_and_cancels(self):
         from ytt_core import jobs

@@ -2,7 +2,7 @@
 同じ入力から cut2resolve と同じ中身になることは、リポジトリ直下の dev/tests/test_resolve_pack_contract.py が確かめる。"""
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys

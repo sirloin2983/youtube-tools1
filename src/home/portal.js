@@ -5,7 +5,7 @@
      から、この画面の中で組み立てる。確認前の候補・書き出し待ち・文字起こし待ちは案件の一覧の todo(cases.py。入口 0.42.0・S-6)
    - 画面の移り方(S-15): ツールの画面へのリンクは同じ窓で移る(target を付けない。新しい窓は Ctrl・中クリック = 窓の中なら UIKit.win)。
      「詳しく」のツールのカードの「開く」(サーバーの管理)だけは新しい窓
-   - 「単体の文字起こし」は、案件の一覧が返す unlinked(どの配信にも紐づかない文字起こし。src/ytt_core/txindex の規則そのまま)を、
+   - 「単体の文字起こし」は、案件の一覧が返す unlinked(どの配信にも紐づかない文字起こし。src/manage/cases/txindex の規則そのまま)を、
      「編集」の文書の一覧と id で突き合わせて、校正の進み具合・パックの有無まで見せる。読めないときは案件の一覧の項目だけで表示する
    ツール名・ログ・メッセージ・配信のタイトルなどはすべて textContent で入れる(HTML として解釈させない)。 */
 (function () {
@@ -448,7 +448,7 @@
      .clip.json の出どころが自動(配信中の候補・配信後の解析)の切り抜きに「自動」の札・出どころ・点数・控え・未見/見た・届けた・失敗の文と、
      [採用](= 友人へ届ける。パックがあって、依頼の受付の Dropbox のフォルダが決まっているときだけ押せる。全自動の流れでは届けない = 人が確かめてから)・
      [要らない](ごみ箱フォルダへ移す + スタジオのマークを不採用に + 誤検出として記録)を出す。どちらも二度押し(UIKit.confirmTwice)。
-     中身はサーバー(/api/cases/auto = src/home/cases.py の auto_review)。届けている途中の進み具合は api/ytt/deliver の status で聞き直す */
+     中身はサーバー(/api/cases/auto = src/manage/cases/cases.py の auto_review)。届けている途中の進み具合は api/ytt/deliver の status で聞き直す */
   var ORIGIN_TITLE = { auto: '配信中に盛り上がりを見つけて、自動で採用した候補から作った切り抜きです',
     archive: '配信のあとでアーカイブを解析して、自動で採用した候補から作った切り抜きです' };
   var AUTO_NONE = { total: 0, unconfirmed: 0 };   // 自動の切り抜きの数(一覧全体の casesData.auto・配信ごとの autoClips)が無いとき
@@ -480,7 +480,7 @@
     else { s = el('span', 'pill info pt-ac-unseen', '未見'); s.title = 'まだ開いていません(「編集で開く」・採用・要らない のどれかで「見た」になります)'; }
     head.appendChild(s);
   }
-  /* 失敗の文(「調子」・スタジオの LIVE の帯と同じ文 = src/home/live_failures.py の failure_of) */
+  /* 失敗の文(「調子」・スタジオの LIVE の帯と同じ文 = src/pipeline/live_failures.py の failure_of) */
   function autoFail(li, cl) {
     var f = (cl.review || {}).failure;
     if (!f) return;
@@ -1603,7 +1603,7 @@
       row.className = 'pt-live-disk';
       ul.appendChild(row);
     });
-    // リアルタイム切り抜きの失敗(M3。書き出し・まとめて実行へ渡す・文字起こし・パック。文はスタジオの LIVE の帯と同じ = src/home/live_failures.py)
+    // リアルタイム切り抜きの失敗(M3。書き出し・まとめて実行へ渡す・文字起こし・パック。文はスタジオの LIVE の帯と同じ = src/pipeline/live_failures.py)
     if (h.live && h.live.failures) {
       var lf = h.live.failures;
       var row = healthRow(lf.length ? 'warn' : 'ok', 'リアルタイム切り抜きの失敗(7 日)', lf.length ? lf.length + ' 件(新しい順。スタジオの LIVE の帯にも同じ文)' : 'なし',
@@ -1618,7 +1618,7 @@
     renderAccuracy(h.accuracy, ul);
   }
 
-  /* ---- 精度(Q3。src/home/accuracy.py): 領域ごとに「直近 x(前回 y)・日時・文書数」。手が空いた夜に 1 日 1 回測る。「今すぐ測る」はいつでも ---- */
+  /* ---- 精度(Q3。src/eval/drill/accuracy.py): 領域ごとに「直近 x(前回 y)・日時・文書数」。手が空いた夜に 1 日 1 回測る。「今すぐ測る」はいつでも ---- */
   var accTimer = 0;
   function accPct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
   function accuracyRow(a) {
@@ -2011,7 +2011,7 @@
     $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
   }
 
-  /* ================================================================ 作業データのバックアップ(src/home/backup.py。docs/spec/data-location.md の「バックアップ」) ================================================================ */
+  /* ================================================================ 作業データのバックアップ(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」) ================================================================ */
 
   var BACKUP_PILL = { off: 'wait', idle: 'ok', running: 'run', error: 'err' };
   var backupData = null, backupBusy = false, backupOpened = false, backupTimer = null, backupFastUntil = 0;

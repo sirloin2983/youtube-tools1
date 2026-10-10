@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""切り抜き依頼(request-sender)の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt_core の fsio だけ)。
+"""切り抜き依頼(request-sender)の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt の fsio だけ)。
 
     python dev/dropbox_auth.py <App key> [--out friend-apps/request-sender/config.json]
 

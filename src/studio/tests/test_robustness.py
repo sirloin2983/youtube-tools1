@@ -3,7 +3,7 @@
 import gzip
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import socket
 import subprocess
@@ -316,7 +316,7 @@ class TestPorts(unittest.TestCase):
 
 
 class TestDataHome(unittest.TestCase):
-    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt_core.datadir の場所。以前のデータはコピーし、元は残す"""
+    """作業データの置き場所(段階4): STUDIO_HOME が無ければ ytt.datadir の場所。以前のデータはコピーし、元は残す"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

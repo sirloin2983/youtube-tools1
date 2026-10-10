@@ -2,7 +2,7 @@
 """dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
 実行(リポジトリ直下): python -m unittest dev/tests/test_push_helper.py"""
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは動かさないが、全テストの決まりに合わせる(ytt_core のテストが検査)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは動かさないが、全テストの決まりに合わせる(ytt のテストが検査)
 import shutil
 import subprocess
 import sys

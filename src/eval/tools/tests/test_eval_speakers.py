@@ -525,7 +525,7 @@ class TestRun(unittest.TestCase):
 
 
 class TestDiarizeTune(unittest.TestCase):
-    """src/editor/ed_speakers.py の diarize_real: 判別の設定は任意。渡さなければワーカーへの要求は以前と同じ形"""
+    """src/pipeline/transcribe/diarize.py の diarize_real: 判別の設定は任意。渡さなければワーカーへの要求は以前と同じ形"""
 
     def test_worker_request_shape(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake"}):
@@ -553,7 +553,7 @@ class TestDiarizeTune(unittest.TestCase):
 
 
 class TestSmooth(unittest.TestCase):
-    """--smooth off,on(話者の細切れをならす S2。src/editor/ed_speakers.py の smooth_labels を読んで計算する)"""
+    """--smooth off,on(話者の細切れをならす S2。src/pipeline/transcribe/diarize.py の smooth_labels を読んで計算する)"""
 
     def setUp(self):
         self.env = Env()

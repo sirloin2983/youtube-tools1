@@ -1,6 +1,6 @@
 """文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
 
-入口の案件の画面(home/cases.py)と、スタジオのセリフの表示(studio/txlink.py)が、同じ紐づけの規則を使うためにここに置く:
+入口の案件の画面(src/manage/cases/cases.py)と、スタジオのセリフの表示(src/manage/cases/txlink.py)が、同じ紐づけの規則を使うためにここに置く:
   切り抜き(スタジオの書き出し済みのマーク)の文字起こし =
     ① 文書の sourcePath が、書き出した mp4 のパスと同じ(30fps にそろえて付け替えた文書は、付け替える前のパス = relinks の why "normalize30" の from も。2026-10-04 Q1)
     ② 無ければ、文書の clip(.clip.json の中身)の source.videoId・mark.id が、その配信・マークと同じ(動画を動かした後でも見つかる)

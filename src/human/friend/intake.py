@@ -13,7 +13,7 @@
 - 同期の途中を読まない: 大きさと更新時刻が SETTLE 秒以上変わらないファイルだけ。友人のプログラムの動画は JSON がそろってから
 - 受け付けた元のファイルは 受付済み/YYYY-MM-DD/ へ、断ったものは 失敗/ へ移し「<名前>.理由.txt」を添える(消さない)
 - 動画は作業データの intake/YYYY-MM-DD/ へコピーしてから文字起こしする(Dropbox の「オンラインのみ」や片付けで元が消えても、文書の元のパスが切れない)
-  コピーが 30fps(H.264・AAC)でなければ、コピーを ytt_core.normalize で作り直して置き換える(SLOTS を通す。元は触らない。失敗してもコピーのまま続ける)
+  コピーが 30fps(H.264・AAC)でなければ、コピーを ytt.normalize で作り直して置き換える(SLOTS を通す。元は触らない。失敗してもコピーのまま続ける)
 - 同じ動画・同じ配信も断らない(2026-10-02 ユーザー: 送り直せるように。配信は解析・切り抜き・文字起こしを使い回す。受け付けた配信は intake-state.json に覚えるだけ)
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)・解析の重み(weights)は、形を確かめてまとめて実行へ渡す(送るアプリ 2.0.0。friend-intake.md の 2-6)
 - 1 日の件数の上限は無い(件数では断らない・次の日に回さない。今日の件数は画面に出すだけ)
@@ -134,7 +134,7 @@ def _accepted(items):
 
 def probe_video(path):
     """ffprobe で動画の形を確かめる -> {"ok", "duration" (秒 か None), "reason"}。ok = 音声がある(文字起こしに要る)。
-    調べ方は ytt_core.normalize.probe(30fps の判定と同じ ffprobe の呼び方。YTT_FFPROBE も見る)"""
+    調べ方は ytt.normalize.probe(30fps の判定と同じ ffprobe の呼び方。YTT_FFPROBE も見る)"""
     fp = tools.find_tool("ffprobe", "YTT_FFPROBE")
     if not fp:
         return {"ok": False, "duration": None, "reason": "ffprobe が見つからないので、動画を確かめられません"}
@@ -195,7 +195,7 @@ def _speaker_name(x):
 
 # 字幕の見た目(people[].style)の許可の一覧: 鍵 -> 値を検査して整える関数(通らなければ None = その項目だけ捨てる)。
 # 鍵を増やすとき(font・size など)はここに足す。知らない鍵は黙って捨てる(新しいアプリ + 古い PC でも色までは効く)。
-# 色は外から来る文字で画面・Lua に入るので、必ず 16 進 6 桁だけにそろえる(src/ytt_core/colors.py の HEX_RE と同じ形。# は付けても付けなくてもよい)
+# 色は外から来る文字で画面・Lua に入るので、必ず 16 進 6 桁だけにそろえる(src/ytt/colors.py の HEX_RE と同じ形。# は付けても付けなくてもよい)
 STYLE_KEYS = {"color": lambda v: colors.norm_hex(v) if isinstance(v, str) else None}
 
 
@@ -327,7 +327,7 @@ class Intake:
                  norm_probe=None, norm_run=None, feedback=None, live_begin=None, defaults=None):
         """prefs: src/home/prefs.py の Prefs(節 intake)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["intake"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。runner: まとめて実行を返す関数(AutoRunner)。data_dir: ホームの作業データ(app)。
-        probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt_core.normalize)。
+        probe・info: 動画・配信を調べる関数(テストで差し替える)。norm_probe・norm_run: 30fps の判定・作り直し(既定は ytt.normalize)。
         feedback: 友人の「要らない」(friend_feedback.parse の dict)を片付ける関数 -> {"ok", "summary"/"reason"}(入口が friend_feedback.apply を渡す。None = 断る)。
         live_begin(url, ctx): ライブ配信の依頼で録画を始めて結びつける関数 -> {"recorder", "recording", "existing"}(入口が Live.begin_request を渡す。
         だめなら ValueError か live_export.LiveError。None = ライブ配信の依頼を断る)"""

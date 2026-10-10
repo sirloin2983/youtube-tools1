@@ -447,7 +447,7 @@ class Store:
         self.path = path
         self.ui_path = os.path.join(os.path.dirname(path), "settings-ui.json")
         self.lock = threading.RLock()
-        # 画面の設定(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり。S4 2026-10-09)
+        # 画面の設定(読む・書く・退避・大きさの上限は ytt.settings.SettingsFile。ホーム・編集の設定ファイルと同じ決まり。S4 2026-10-09)
         self.ui_file = _settings.SettingsFile(self.ui_path, max_bytes=UI_MAX_BYTES, writer=lambda p, b: _fsio.atomic_write(p, b), indent=None, lock=self.lock)
         self.videos = {}
         self.groups = {}   # コラボグループ: グループID → {id, name, base, members, offsets, createdAt, updatedAt}
@@ -1110,7 +1110,7 @@ class Store:
             nv["marks"] = sorted(nv["marks"] + [m], key=_BY_TIME)[:MAX_MARKS]
             self._bump(nv)
 
-    # ---- 画面の設定(不透明な辞書。self.ui_file = ytt_core.settings.SettingsFile) ----
+    # ---- 画面の設定(不透明な辞書。self.ui_file = ytt.settings.SettingsFile) ----
     def get_ui(self):
         return self.ui_file.read()   # 読めなければ空(呼ぶ側が書き換えるので {} は毎回作る)
 

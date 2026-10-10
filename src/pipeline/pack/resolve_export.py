@@ -243,7 +243,7 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
     残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・zip・入口のまとめて実行と同じ規則。ここに規則を書かない)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)。残す行が無ければ動画全体。
     rows=False: 「行から」を計算しない(カットが保存済みの文書を開いたとき。行の端の無音を調べる重い処理をしない)。
-    row_edge: 設定の rowEdge(pack.row_edge_from)。heavy(label): 重い処理の順番を待つ文脈(ytt_core.jobs.SLOTS.slot。真なら取れた)。
+    row_edge: 設定の rowEdge(pack.row_edge_from)。heavy(label): 重い処理の順番を待つ文脈(ytt.jobs.SLOTS.slot。真なら取れた)。
       行の端の無音をまだ調べていないときだけ使う。順番を取れなければ、無音を調べずに決まった余白で広げて注意を出す
     -> {"fps": [n, d], "durationSec", "keepsSec": [[開始, 終了], ...], "base": "rows" | "all", "warnings", "skipped"?}"""
     source, pack, _tp = _source_and_pack(doc)
@@ -327,7 +327,7 @@ _SUB_COLOR_RE = re.compile(r"#?([0-9A-Fa-f]{6})")
 
 def speaker_sub_colors(doc: dict) -> dict:
     """文書の話者の字幕の見た目(sub。2026-10-05)のうち色がある人 -> {話者の名前: "#RRGGBB"}。
-    組み込みの話者「ゲーム音声など」(builtin)は字幕に出さないので除く。保存のときに ed_store.sanitize_transcript が検査済みだが、
+    組み込みの話者「ゲーム音声など」(builtin)は字幕に出さないので除く。保存のときに human/proof/store.py の sanitize_transcript が検査済みだが、
     Lua に入る値なのでここでも 16 進 6 桁だけを通す"""
     out = {}
     for s in (doc or {}).get("speakers") or []:
@@ -348,7 +348,7 @@ def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None
     情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
     keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から
     (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)。color: 字幕の文字の色 {"hex", "who"}(配信者の名前を入れたとき)。
-    speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt_core/colors.speaker_colors で決める)。
+    speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt/colors.speaker_colors で決める)。
     文書の話者の字幕の色(sub.color。speaker_sub_colors)はこれより優先して足す(メンバーの色のスイッチを切っていても効く = 3 パック の speakerStyles と同じ)"""
     speaker_colors = dict(speaker_colors or {}, **speaker_sub_colors(doc))
     source, pack, tp = _source_and_pack(doc)

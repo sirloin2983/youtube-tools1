@@ -31,7 +31,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
@@ -655,7 +655,7 @@ class PortalLiveTest(unittest.TestCase):
 
     # ---------- 友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15) ----------
     def friend_ctx(self, **extra):
-        """src/home/intake.py の _handle_live_request が live_begin へ渡す ctx の形"""
+        """src/human/friend/intake.py の _handle_live_request が live_begin へ渡す ctx の形"""
         return dict({"rid": "20261008-200000-abc123", "deliverDir": os.path.join(self.tmp, "Dropbox", "切り抜き依頼", "出力"),
                      "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信の題", "streamer": "兎田ぺこら",
                      "speakers": {"count": 1, "names": ["兎田ぺこら"], "styles": {}}, "videoTracks": 2, "cut": "silence", "memo": "",
@@ -1866,7 +1866,7 @@ class ExportPiecesTest(unittest.TestCase):
         slots.release(held[1])
 
     def test_reserved_slots_rules(self):
-        """ytt_core.jobs の用途つきの枠(M6): 普通の枠が埋まっているときだけ・同じ用途の中では先に来た順・reserved を渡さない人は使えない・数は RESERVED"""
+        """ytt.jobs の用途つきの枠(M6): 普通の枠が埋まっているときだけ・同じ用途の中では先に来た順・reserved を渡さない人は使えない・数は RESERVED"""
         self.assertEqual(jobs.RESERVED, {"live": 1})
         s = jobs.HeavySlots(1)
         a = s.acquire("transcribe")
@@ -1926,7 +1926,7 @@ class ExportPiecesTest(unittest.TestCase):
 
 
 class LiveRequestsStoreTest(unittest.TestCase):
-    """友人のライブ配信の依頼と録画の結びつき(src/home/live_requests.py の Store。入口の作業データの live/requests.json。2-15)"""
+    """友人のライブ配信の依頼と録画の結びつき(src/human/friend/live_requests.py の Store。入口の作業データの live/requests.json。2-15)"""
     REC = "20261008-200000-abcdefghijk"
 
     def setUp(self):

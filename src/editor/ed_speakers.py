@@ -3,7 +3,7 @@
 
 中身は pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴と照らし合わせ)と human/proof/speakers(判別の結果を文書へ・
 判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目)。疑似の diarize_fake・embed_fake は eval/fake/fake_asr(serve が _add_moved で足す)。
-ed_speakers.名前 の読み・書き・削除(テストの差し替え・unittest.mock の patch.object・dev/eval_speakers の DIAR_DIR)を、下の _MOVED の持ち主へ回す(ytt/modfwd.py)。
+ed_speakers.名前 の読み・書き・削除(テストの差し替え・unittest.mock の patch.object・src/eval/tools/eval_speakers の DIAR_DIR)を、下の _MOVED の持ち主へ回す(ytt/modfwd.py)。
 新しい名前はここに書かない(持ち主の部品に書き、読む側は持ち主を `モジュール.名前` で呼ぶたびに読む)。
 この殻が持つ名前は _MOVED・_moved_owner・_add_moved だけ(ed_jobs の殻と同じ = serve の名前の受付 _ED_MODULES には並べない)。
 """

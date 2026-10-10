@@ -31,12 +31,12 @@ import unittest
 import uuid
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
 REPO = os.path.dirname(HERE)
-sys.path.insert(0, REPO)    # ytt_core(このファイルだけを流しても読めるように。2026-10-09)
+sys.path.insert(0, REPO)    # ytt(このファイルだけを流しても読めるように。2026-10-09)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 from pipeline.ingest import live_archive as A  # noqa: E402

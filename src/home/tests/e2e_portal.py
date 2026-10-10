@@ -22,7 +22,7 @@ import json
 import os
 import re
 import urllib.parse
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import signal
 import subprocess
@@ -120,7 +120,7 @@ def seed_cases(tmp, studio_home):
             "id": "e2eCase0001", "kind": "youtube", "title": CASE_TITLE, "channel": "ch", "duration": 100, "marks": [mark]}}}, f, ensure_ascii=False)
     tx = os.path.join(tmp, layout.TOOL_DIRS["transcribe"], "transcripts")
     os.makedirs(tx, exist_ok=True)
-    # 文字起こしの文書 id は src/editor/serve.py の TID_RE(12文字の16進)を満たす必要がある(ytt_core.txindex は緩いが、
+    # 文字起こしの文書 id は src/editor/serve.py の TID_RE(12文字の16進)を満たす必要がある(manage.cases.txindex は緩いが、
     # /transcribe/api/transcripts はこちらの規則で一覧する)
     with open(os.path.join(tx, "deadbeef0001.json"), "w", encoding="utf-8") as f:
         json.dump({"id": "deadbeef0001", "title": "案件の字幕", "sourcePath": clip, "updatedAt": 1,
@@ -942,7 +942,7 @@ YTT_PREFS = """async (value) => {
 
 
 def _live_clip(out_dir, name, origin, video=None, **live):
-    """ライブの書き出し(src/home/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない。
+    """ライブの書き出し(src/pipeline/export/live_export.py の _finish)と同じ形の .clip.json を 作業用 に置いた切り抜き(動画の中身は要らない。
     video = 写す本物の動画(続けて確認で再生するとき))"""
     media = os.path.join(out_dir, "e2e ライブ", name)
     os.makedirs(os.path.dirname(media), exist_ok=True)
@@ -1291,7 +1291,7 @@ def main():
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         env["STUDIO_HOME"] = os.path.join(tmp, "studio-home")
         os.environ["STUDIO_HOME"] = env["STUDIO_HOME"]
         seed_cases(tmp, env["STUDIO_HOME"])

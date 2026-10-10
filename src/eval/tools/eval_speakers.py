@@ -9,7 +9,7 @@
         判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
         モデルは作業データの models/diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
         元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ。保管の書き手は 10-10 に消した)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
-    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/editor/ed_speakers.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
+    --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/pipeline/transcribe/diarize.py の smooth_labels・smooth_speakers。本番と同じ関数を読む)を、
         ならさない/ならすで比べる。stored は保存してある判別の記録(rows の label・ratio・overlaps)と文書の今の行の時刻で「ならしたら」を計算するだけ(判別し直さない)。
         run は 1 回の判別の結果を両方で採点する。行の正しさ・ならした行の数・ならした行のうち人が確かめた行で合った/外れた数・直った/壊れた数(ならさないと比べて)
 
@@ -64,13 +64,13 @@ from eval.tools._evalcommon import dist, is_reviewed, pct, rate, read_json  # no
 from ytt import fsio  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
-DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/editor/ed_speakers.py の DIAR_SCHEMA と同じ(editor は読み込まない)
+DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/pipeline/transcribe/diarize.py の DIAR_SCHEMA と同じ(editor は読み込まない)
 FEW_ROWS = 200                            # 話者つきの行がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                           # original と行の端が一致したとみなす秒
 MAX_DIAR_BYTES = 32 * 1024 * 1024
-OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(src/editor/ed_state.py の OTHER_SPK_NAME と同じ)
+OTHER_VOICE_NAME = "ゲーム音声など"        # 組み込みの話者の名前(src/ytt/schemas.py の OTHER_SPK_NAME と同じ)
 OTHER_VOICE_ID = "other"                   # 組み込みの話者の id(ed_state.OTHER_SPK_ID と同じ。名前より id で見分けるのが確実)
-DRAFT_NAME = re.compile(r"^話者\d+$")     # src/editor/ed_speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
+DRAFT_NAME = re.compile(r"^話者\d+$")     # src/human/proof/speakers.py の DEFAULT_SPK_NAME(話者判別が付けた仮の名前)と同じ
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 SUBSETS = (("all", "話者つきの行"), ("proofed", "校正済みの行だけ"), ("timeEdited", "人が時刻を直した行だけ"))
 SWEEP_MATCH = (0.40, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80)
@@ -727,7 +727,7 @@ def _conv_num(x):
 
 def _conv_sec(x):
     v = float(x)
-    if not 0.0 <= v < 10.0:   # src/editor/ed_speakers.py の diar_tune と同じ範囲
+    if not 0.0 <= v < 10.0:   # src/pipeline/transcribe/diarize.py の diar_tune と同じ範囲
         raise ValueError(x)
     return v
 

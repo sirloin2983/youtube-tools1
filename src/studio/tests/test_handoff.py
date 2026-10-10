@@ -3,7 +3,7 @@
 import http.client
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import socket
 import sys
@@ -195,7 +195,7 @@ class TestSiblingsApi(RuntimeDir):
 
 
 class ToolIdentityTests(unittest.TestCase):
-    """ツールの識別子(/api/ping の app・.clip.json の tool.name)は ytt_core.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
+    """ツールの識別子(/api/ping の app・.clip.json の tool.name)は ytt.runtime.TOOL_APPS が正。写しが食い違っていない(値は互換のため固定)"""
 
     def test_same_as_runtime_table(self):
         self.assertEqual(runtime.TOOL_APPS["studio"], "clip-studio")

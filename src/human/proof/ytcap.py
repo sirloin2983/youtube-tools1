@@ -64,7 +64,7 @@ YTCAP_FILLER_RE = re.compile(r"^(?:えっと|あのう|あの|ええ|ああ|お�
 # ---------- 文書 → 配信の ID と範囲 ----------
 def ytcap_doc_range(doc):
     """文書の元の配信と、文書の範囲を配信の時刻に直したもの → {videoId, offset, a, b, docStart, docEnd}。
-    文書の行の時刻 t(切り抜きの動画の先頭 = 0 秒)は、配信では offset + t(offset = clip の export.actualStart → range.start。ytt_core.schemas.clip_offset)。
+    文書の行の時刻 t(切り抜きの動画の先頭 = 0 秒)は、配信では offset + t(offset = clip の export.actualStart → range.start。ytt.schemas.clip_offset)。
     使えない(clip が無い・壊れている・YouTube の配信でない・ID の形が違う)ときは ApiError no_clip"""
     clip = doc.get("clip") if isinstance(doc, dict) else None
     if not isinstance(clip, dict):
@@ -134,7 +134,7 @@ def ytcap_after_transcribe(job, spec, tid):
 
 # ---------- yt-dlp で字幕を取る ----------
 def ytcap_command():
-    """yt-dlp を動かすコマンドの先頭。場所はスタジオと同じ決め方(環境変数 TRANSCRIBE_YTDLP → PATH。ytt_core.tools.find_tool)。
+    """yt-dlp を動かすコマンドの先頭。場所はスタジオと同じ決め方(環境変数 TRANSCRIBE_YTDLP → PATH。ytt.tools.find_tool)。
     TRANSCRIBE_YTDLP が .py なら、この Python で動かす(テストの偽の yt-dlp)"""
     p = _tools.find_tool("yt-dlp", "TRANSCRIBE_YTDLP")
     if not p:
@@ -312,7 +312,7 @@ def ytcap_video_path(vid):
 
 
 def ytcap_valid_cache(d, vid=None):
-    """配信ごとの字幕の記録として使える形か(測る道具 dev/eval_alt.py も使う)"""
+    """配信ごとの字幕の記録として使える形か(測る道具 src/eval/tools/eval_alt.py も使う)"""
     return (isinstance(d, dict) and d.get("schema") == YTCAP_VIDEO_SCHEMA and d.get("kind") in ("manual", "auto", "none")
             and isinstance(d.get("cues"), list) and isinstance(d.get("at"), (int, float)) and (vid is None or d.get("videoId") == vid))
 

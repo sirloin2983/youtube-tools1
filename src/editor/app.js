@@ -282,7 +282,7 @@ $('#spAllGo').addEventListener('click', async e => {
 const SPK_FLAGS = ['声が混ざっている可能性', '話者が不確か', '話者を判別できなかった'];
 const RANGE_MAX = 900;
 /* 動画全体(docs/design/whole-retranscribe-design.md の 3-1): 範囲・残す行・差し替える行・かかる時間の目安。
-   目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 dev/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
+   目安は large-v3 の CPU で測った速さ(実時間の約 0.37 倍。2026-09-28 src/eval/tools/eval_asr.py)だけ。ほかのモデルは出さない(でたらめな数字を出さない) */
 const WHOLE_RTF = { 'large-v3': 0.37 };
 $('#rsGo').addEventListener('click', resplitDoc);
 $('#redoGo').addEventListener('click', async () => {   // 疑わしい所だけ認識し直す(12 ③-2)

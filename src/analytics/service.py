@@ -43,7 +43,7 @@ KIND_NAMES = {"daily": "日報", "weekly": "週報", "monthly": "月報"}
 
 
 def data_dir(legacy=None):
-    """作業データのフォルダ(ytt_core.datadir の規則。inplace なら src/analytics/data)"""
+    """作業データのフォルダ(ytt.datadir の規則。inplace なら src/analytics/data)"""
     from ytt import datadir
     legacy = legacy or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
     return datadir.tool_dir("analytics", legacy)
@@ -54,7 +54,7 @@ class Service:
                  check_every=CHECK_EVERY, first_wait=FIRST_WAIT, write=None, token=None):
         self.dir = base_dir or data_dir()
         self.log = log or (lambda msg: None)
-        self.members = members           # 題名 → [メンバー](無ければ最初に使うときに ytt_core.colors から作る)
+        self.members = members           # 題名 → [メンバー](無ければ最初に使うときに ytt.colors から作る)
         self.bridge_factory = bridge_factory or bridge_mod.Bridge
         self.clock = clock or time.time
         self.sims = sims
@@ -408,7 +408,7 @@ class Service:
 
 
 def _heavy(fn, label):
-    """見込みの計算(数秒〜十数秒)は、他のツールの重い処理と順番を待つ(ytt_core.jobs.SLOTS。AGENTS.md の決まり)"""
+    """見込みの計算(数秒〜十数秒)は、他のツールの重い処理と順番を待つ(ytt.jobs.SLOTS。AGENTS.md の決まり)"""
     try:
         from ytt import jobs
     except ImportError:

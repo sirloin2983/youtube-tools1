@@ -497,7 +497,7 @@ class EvalAsrSelectTest(unittest.TestCase):
         self.assertEqual((src["dddddddddd01"], src["eeeeeeeeee01"]), ("daily", "eval"))
 
     def make_zip(self, name, wid, rows, raw_segments, exported="2026-10-02T10:00:00+0900"):
-        """友人の送る用 zip(形は src/ytt_core/evaldata.py)を作って eval_import で取り込む"""
+        """友人の送る用 zip(形は src/eval/tools/evaldata.py)を作って eval_import で取り込む"""
         common = {"format": EI.ev.FORMAT, "formatVersion": EI.ev.FORMAT_VERSION, "workId": wid}
         parts = {"final.json": dict(common, rows=rows),
                  "asr_raw.json": dict(common, run=run_rec(), segments=raw_segments),

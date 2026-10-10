@@ -499,7 +499,7 @@
   });
 
   /* ---- 配信者の名前(字幕の色)の欄(v5)---- <input data-ui-streamer> に、名前の候補(datalist)・色の見本・合う人の表示を付ける。
-     名前 → メンバーカラーの照らし合わせは入口(api/ytt/streamer-colors → ytt_core/colors.py)の1か所。欄の値は名前のまま送り、
+     名前 → メンバーカラーの照らし合わせは入口(api/ytt/streamer-colors → ytt/colors.py)の1か所。欄の値は名前のまま送り、
      使う側(cut2resolve・まとめて実行)も同じ規則で照らし合わせる(画面に規則を書かない)。入口の外では使えないと知らせる。
      値を画面から入れ直したら UIKit.streamer.set(input, 名前)。合う人が決まるたびに input に 'ui-streamer' イベント(detail: 人 | null) */
   var streamerList = null;

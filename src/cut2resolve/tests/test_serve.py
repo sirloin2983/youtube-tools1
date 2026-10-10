@@ -5,7 +5,7 @@ python -m unittest src/cut2resolve/tests/test_serve.py(パックの部品のテ�
 import http.client
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import sys
 import tempfile
 import threading
@@ -151,7 +151,7 @@ class TestGuards(ServerBase):
         return int(head.split(b" ", 2)[1]), json.loads(payload.decode("utf-8"))
 
     def test_json_body_errors_keep_status_and_code(self):
-        """書き込みの本文の読み方は ytt_core.httpsec.read_json_body。断る理由ごとの状態とコード・文は今までどおり(0.22.3)"""
+        """書き込みの本文の読み方は ytt.httpsec.read_json_body。断る理由ごとの状態とコード・文は今までどおり(0.22.3)"""
         ok = "Content-Type: application/json"
         for heads, body, want in (
                 ([ok], b"", (411, "bad_length")),                                    # Content-Length が無い
@@ -170,7 +170,7 @@ class TestGuards(ServerBase):
         self.assertEqual(self.raw_post([ok, big])[0], 413)   # 上限を超える長さは本文を読まずに断る
 
     def test_response_headers_come_from_httpsec(self):
-        """応答の見出しは ytt_core.httpsec.send(Content-Type・Content-Length・no-store・nosniff の順)に Referrer-Policy を足したもの。
+        """応答の見出しは ytt.httpsec.send(Content-Type・Content-Length・no-store・nosniff の順)に Referrer-Policy を足したもの。
         案内のページは、その後ろに CSP・X-Frame-Options"""
         import http.client
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
@@ -261,7 +261,7 @@ class TestPaths(ServerBase):
                 serve.remove_runtime(8899)
 
     def test_work_dir_matches_ytt_core(self):
-        """途中のファイルの下のフォルダの名前は ytt_core と同じ(コマンドは ytt_core を読まないので cut2resolve_core にも持つ)"""
+        """途中のファイルの下のフォルダの名前は ytt と同じ(コマンドは ytt を読まないので cut2resolve_core にも持つ)"""
         from ytt_core import schemas as ys
         self.assertEqual(serve.C.WORK_DIR, ys.WORK_DIR)
 
@@ -327,7 +327,7 @@ class TestPaths(ServerBase):
 
 
 class TestHeavyJobLimit(unittest.TestCase):
-    """パックの作成は、他のツールの重い処理と順番を待つ(ytt_core.jobs)。試算は、無音の検出が要るとき(heavy が真)だけ待つ
+    """パックの作成は、他のツールの重い処理と順番を待つ(ytt.jobs)。試算は、無音の検出が要るとき(heavy が真)だけ待つ
     (API を通した確かめは TestJobs.test_plan_with_detection_waits_for_heavy_slot)"""
 
     def test_build_waits_and_can_be_cancelled(self):
@@ -418,7 +418,7 @@ class TestSiblings(unittest.TestCase):
         self.assertNotIn("path", d)   # 単独で動くときは以前と同じ形(path を書かない)
 
     def test_uses_ytt_core(self):
-        """.runtime・siblings・Host/Origin の検査は ytt_core の1か所(2026-09-26。cut2resolve 自身の写しは消した)"""
+        """.runtime・siblings・Host/Origin の検査は ytt の1か所(2026-09-26。cut2resolve 自身の写しは消した)"""
         from ytt_core import httpsec, runtime
         self.assertIs(serve.TOOL_APPS, runtime.TOOL_APPS)
         self.assertIs(serve.httpsec, httpsec)
@@ -507,7 +507,7 @@ class TestJobs(ServerBase):
         self.assertIn("範囲", j["error"]["message"])
 
     def test_plan_with_detection_waits_for_heavy_slot(self):
-        """無音の検出が要る試算(動画の音声を全部読む)は、パックの作成と同じく他のツールの重い処理と順番を待つ(ytt_core.jobs。0.22.3)。
+        """無音の検出が要る試算(動画の音声を全部読む)は、パックの作成と同じく他のツールの重い処理と順番を待つ(ytt.jobs。0.22.3)。
         検出が要らない試算・検出結果が覚えてある試算は待たない。待っている間は取り消せる"""
         from ytt_core import jobs
         slots = jobs.HeavySlots(1)
@@ -690,7 +690,7 @@ class TestJobs(ServerBase):
         self.assertEqual(r["warningLevels"][r["warnings"].index(skip)], "info")
         self.assertFalse((out / "textplus-import.json").exists())
         self.assertFalse((out / "cut-plan.json").exists())
-        # 配信者の名前 → 文字の色(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。照らし合わせは ytt_core/colors.py。見つからなければ 400
+        # 配信者の名前 → 文字の色(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。照らし合わせは ytt/colors.py。見つからなければ 400
         members = self.dir / "members.json"
         members.write_text(json.dumps({"groups": [{"name": "0期生", "members": [{"id": "sakura-miko", "name": "さくらみこ", "en": "Sakura Miko", "hex": "#FF8FDF"}]}]},
                                       ensure_ascii=False), encoding="utf-8")
@@ -895,7 +895,7 @@ class TestTextPlusTargetOption(unittest.TestCase):
 
 
 class SpeakerColorMapTest(unittest.TestCase):
-    """A-2: 話者の名前 → メンバーカラー。1人に決まる名前だけ(ytt_core/colors.py の規則)。話者の区間が無ければ空"""
+    """A-2: 話者の名前 → メンバーカラー。1人に決まる名前だけ(ytt/colors.py の規則)。話者の区間が無ければ空"""
 
     def test_map(self):
         with tempfile.TemporaryDirectory() as d:
@@ -937,7 +937,7 @@ class SpeakerStylesTest(unittest.TestCase):
         self.assertEqual(serve.output_from_spec({"speakerStyles": "bad"}, Path("x.mp4"))["speakerStyles"], {})
 
     def test_priority_over_member_colors(self):
-        """指定の色がメンバーカラーより先。名前は ytt_core.colors.normalize でそろえて同じなら合う(部分一致はしない)"""
+        """指定の色がメンバーカラーより先。名前は ytt.colors.normalize でそろえて同じなら合う(部分一致はしない)"""
         plan = mock.Mock(speaker_spans=[(0, 1, "さくら みこ"), (1, 2, "話者2"), (2, 3, "ぺこら"), (3, 4, "サクラミコ")])
         base = ({"さくら みこ": "#FF8FDF", "ぺこら": "#7EC2FE"}, [{"speaker": "さくら みこ", "name": "さくらみこ", "hex": "#FF8FDF"},
                                                               {"speaker": "ぺこら", "name": "兎田ぺこら", "hex": "#7EC2FE"}])

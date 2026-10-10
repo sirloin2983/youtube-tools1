@@ -7,7 +7,7 @@
 """
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import signal
 import socket
@@ -21,7 +21,7 @@ import urllib.request
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
-sys.path.append(REPO)   # ytt_core.layout(フォルダ名の対応表)を読むため
+sys.path.append(REPO)   # ytt.layout(フォルダ名の対応表)を読むため
 from ytt_core import layout as _layout  # noqa: E402
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
@@ -85,12 +85,12 @@ class Server:
         rt = os.path.join(self.tmp, ".runtime")
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND=backend, TRANSCRIBE_FAKE_DELAY="0.01",
                    TRANSCRIBE_STUDIO_DATA=os.path.join(self.tmp, "studio-data.json"),
-                   YTT_HOLO_MEMBERS=os.path.join(os.path.dirname(REPO), "friend-apps", "holo-colors", "members.json"),   # 配信者の色の一覧(ytt_core を写しても、リポジトリの一覧を読む。REPO = src/、その1つ上がリポジトリ直下)
+                   YTT_HOLO_MEMBERS=os.path.join(os.path.dirname(REPO), "friend-apps", "holo-colors", "members.json"),   # 配信者の色の一覧(ytt を写しても、リポジトリの一覧を読む。REPO = src/、その1つ上がリポジトリ直下)
                    TRANSCRIBE_NORMALIZE="" if normalize else "off")
         if mounted:
             for d in (_layout.TOOL_DIRS["app"], _layout.TOOL_DIRS["transcribe"], _layout.TOOL_DIRS["cut2resolve"]):
                 copy_tool(os.path.join(REPO, d), os.path.join(self.tmp, d))
-            _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+            _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
             self.base = "http://localhost:%d/transcribe/" % self.port
             self.api_prefix = "/transcribe"
             cmd = [sys.executable, os.path.join(self.tmp, _layout.TOOL_DIRS["app"], "launch.py"), "--port", str(self.port), "--no-open", "--only", "transcribe,cut2resolve"]

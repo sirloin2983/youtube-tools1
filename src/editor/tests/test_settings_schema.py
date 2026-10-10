@@ -4,12 +4,12 @@
 validated の鍵は api/settings/patch の検査(予定どおり通る・範囲の外は断る)、validated でない鍵は検査が無い(差分の PUT)ことを見る。"""
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import sys
 import unittest
 
 EDITOR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(EDITOR))   # 共通部品 ytt_core(src/)
+sys.path.insert(0, os.path.dirname(EDITOR))   # 共通部品 ytt(src/)
 sys.path.insert(0, EDITOR)
 import ed_alt  # noqa: E402,F401  (鍵の検査の持ち主が読み込みのときに ytt/settings へ登録する = altEngine)
 from ytt import settings as _settings  # noqa: E402  (編集の設定の鍵の検査。RS3-1 に ed_learn から)

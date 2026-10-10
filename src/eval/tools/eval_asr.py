@@ -39,7 +39,7 @@
 - 比べ方は文字起こしの画面の「認識精度の測定」と同じ(serve.py の _groups・norm_cer・lev_counts。句読点・空白・記号・全角半角は数えない)。
   機械の出力と人の行を時刻の重なりでまとめ、全部の行が校正済みのまとまりだけを数える。人が消した行 = 余分、人が足した行 = 抜け
 - 「字幕に出さない」行 noSub(ゲームのキャラ・NPC の声など。行の印 noSub: true)は正解に入れない。その時間(行の半分以上が noSub の行の時間に入る)に機械が書いた文字も本体の数え方から外し、
-  結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は src/editor/ed_learn.py の split_nosub)。
+  結果の summary.noSub = {docs, rows, sec, machineChars, byDoc} に別に出す(確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように。判定は src/human/proof/learn.py の split_nosub)。
   noSub の行も重なる行も無い文書の数は今までと同じ。
 - 同時にしゃべっている所(人の行どうしが、違う話者で 0.3 秒以上時刻が重なるまとまり = 重なりのまとまり。noSub は先に外す。音のメモ overlap は見ない。判定は ed_learn.is_overlap_group の 1 か所)は、
   主な数字(CER・抜け・余分)にはこれまでどおり入れたうえで、別にも出す: summary.overlap = {groups, sec, refChars, cer, miss} と summary.nonOverlap = {refChars, cer}(重なりを除いた本体と同じ数え方)。
@@ -99,7 +99,7 @@ LP_BINS = ((-1.0, "自信 低(< -1.0)"), (-0.5, "自信 中(-1.0〜-0.5)"), (99.
 # ---------------------------------------------------------------- 準備
 
 def real_data_dir(arg=None):
-    """--data(文字起こしの作業データのフォルダそのもの)。無ければ ytt_core.datadir の決め方"""
+    """--data(文字起こしの作業データのフォルダそのもの)。無ければ ytt.datadir の決め方"""
     return os.path.abspath(arg) if arg else C.datadir.tool_dir("transcribe", C.EDITOR)
 
 
@@ -135,7 +135,7 @@ def whole_video(d):
 
 
 def reviewed_sec(d):
-    """確かめ済みの文書の長さ(秒): 印の durationSec → 無ければ範囲(start〜end)→ 最後の行の終わり(ed_store.doc_length と同じ決め方)"""
+    """確かめ済みの文書の長さ(秒): 印の durationSec → 無ければ範囲(start〜end)→ 最後の行の終わり(human/proof/store.py の doc_length と同じ決め方)"""
     def num(x):
         return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
     rv = d.get("evalReviewed") if isinstance(d.get("evalReviewed"), dict) else {}
@@ -181,7 +181,7 @@ def _iso_ms(text):
 
 
 def load_friend_docs(intake, only=None):
-    """友人の送る用 zip(src/eval/tools/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は src/ytt_core/evaldata.py)を、
+    """友人の送る用 zip(src/eval/tools/eval_import.py が eval-intake/works/<作業ID>/ に展開したもの。形は src/eval/tools/evaldata.py)を、
     文字起こしの文書と同じ形にして返す(読むだけ)-> (文書の一覧, 数えなかった作業 [{"id", "why"}])。
     正解 = final.json の確認済みの行のうち check.json(無ければ evaldata.judge)が使える行だけ。形式違いの記号の行・未確認の行は校正済みにしない。
     [?] の行と [笑] だけの行は「聞き取れない」(unclear)にして数えない。[笑] は取り除く。機械の出力 = asr_raw.json の行。作業ごと外れたものは数えない。
@@ -248,7 +248,7 @@ def load_friend_docs(intake, only=None):
 def doc_time(d):
     """文書の時期の基準の時刻 -> (ミリ秒, 何から決めたか)。校正済みの行の proofedAt の最大 → 無ければ updatedAt。
     友人の zip は書き出した時刻(exportedAt。無ければ取り込みチェックの時刻)。どれも無ければ (None, "")。
-    proofedAt は初めて校正済みにした時刻(ed_store.sanitize_transcript)。それより前に校正した行は時刻が無い(= 分からない)ので数えない"""
+    proofedAt は初めて校正済みにした時刻(human/proof/store.py の sanitize_transcript)。それより前に校正した行は時刻が無い(= 分からない)ので数えない"""
     if d.get("_source") == "friend":
         return d.get("_basisAt"), d.get("_basisKind") or ""
     ats = [g["proofedAt"] for g in d.get("segments") or []
@@ -421,7 +421,7 @@ def fingerprint(docs):
 
 
 def peak_mem():
-    """このプロセスが使ったメモリの最大(MB。整数)。分からなければ None(測り方は ytt_core.tools.process_memory_mb)"""
+    """このプロセスが使ったメモリの最大(MB。整数)。分からなければ None(測り方は ytt.tools.process_memory_mb)"""
     mb = tools.process_memory_mb(peak=True)
     return None if mb is None else round(mb)
 

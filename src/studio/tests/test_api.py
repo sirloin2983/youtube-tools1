@@ -3,7 +3,7 @@ import hashlib
 import http.client
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import sys
 import tempfile
@@ -151,7 +151,7 @@ class TestBody(Base):
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"{oops", headers=h)[0], 400)
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"[1,2]", headers=h)[0], 400)
         self.assertEqual(self.req("PUT", "/api/settings", raw=b"\xff\xfe", headers=h)[0], 400)
-        # 本文の規則は ytt_core.httpsec.read_json_body(2026-10-09): UTF-8 の JSON だけ。BOM・UTF-16・NaN / Infinity は 400(以前の json.loads(bytes) は通していた)
+        # 本文の規則は ytt.httpsec.read_json_body(2026-10-09): UTF-8 の JSON だけ。BOM・UTF-16・NaN / Infinity は 400(以前の json.loads(bytes) は通していた)
         for raw in (b"\xef\xbb\xbf{}", '{"settings": {}}'.encode("utf-16"), b'{"settings": {"a": NaN}}', b'{"settings": {"a": -Infinity}}'):
             st, _j, data, _r = self.req("PUT", "/api/settings", raw=raw, headers=h)
             self.assertEqual((st, data), (400, b"invalid json"), raw)

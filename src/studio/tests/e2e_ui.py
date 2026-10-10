@@ -21,7 +21,7 @@ v0.22.0(気が利く画面へ 段 7〜8): ② 前回の場所(配信ごとの再
 import json
 import os
 import re
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys

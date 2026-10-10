@@ -238,7 +238,7 @@ class Batch:
                 self.running = it["qid"]
             self._kick_prefetch()
             try:
-                # 重い処理の同時実行数の上限(入口の中では文字起こし・書き出しと順番を待つ。ytt_core.jobs)
+                # 重い処理の同時実行数の上限(入口の中では文字起こし・書き出しと順番を待つ。ytt.jobs)
                 with jobs.SLOTS.slot("studio", it["title"] or it["videoId"], cancelled=lambda: job["cancel"],
                                      on_wait=lambda: job.update(phase=jobs.WAIT_MESSAGE)) as ok:
                     if ok:

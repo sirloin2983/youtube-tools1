@@ -1,4 +1,4 @@
-"""書き出しの名前の規則(スタジオの書き出し src/studio/exporter.py と、ライブの書き出し src/home/live_export.py が同じ規則を読む。
+"""書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/pipeline/export/live_export.py が同じ規則を読む。
 2026-10-09 見直し T8。以前は live_export が exporter の規則を写して持っていた = ツールをまたいで import しない決まりのため)。
 
 - 置き場所: <書き出し先>/<動画・配信の名前>/(pick_folder)。作業用/.studio-id に持ち主(動画の id など)を書き、同じ名前の別の動画とは混ぜない

@@ -45,7 +45,7 @@ import types
 import urllib.error
 import urllib.request
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)。main で一時フォルダにする
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)。main で一時フォルダにする
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))

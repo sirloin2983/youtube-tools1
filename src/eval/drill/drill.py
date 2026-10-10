@@ -44,7 +44,7 @@ _drill_cache_lock = threading.Lock()
 
 
 def drill_is_reviewed(doc):
-    """評価用で、動画を全部聞いて確かめた文書か(定点に数える判定。dev/eval_asr.py などの測る道具が「確かめ済みだけ」を選ぶときも、この条件で選ぶ)"""
+    """評価用で、動画を全部聞いて確かめた文書か(定点に数える判定。src/eval/tools/eval_asr.py などの測る道具が「確かめ済みだけ」を選ぶときも、この条件で選ぶ)"""
     return isinstance(doc, dict) and doc.get("evalSet") is True and isinstance(doc.get("evalReviewed"), dict)
 
 

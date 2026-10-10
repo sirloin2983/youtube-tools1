@@ -31,7 +31,7 @@ API(src/home/live.py の handle_get / _api_post から。書き込みは入口�
 配信の終わり(D-14。10-08 決定): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
 終わり待ちだった候補が締めで確定したもの)を同じ待ちで採用する(終わった瞬間に待ち中だった候補を取りこぼさない)。
 安全弁(D-13。10-08 決定。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
-友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。ホームの「自動の切り抜き: 未確認」(src/home/cases.py の auto.unconfirmed。Live.unconfirmed)が
+友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。ホームの「自動の切り抜き: 未確認」(src/manage/cases/cases.py の auto.unconfirmed。Live.unconfirmed)が
 UNCONFIRMED_PAUSE 本以上なら、依頼の無い録画の自動の採用を休む(人が見ていないのに増やさない。友人の依頼の録画は届けるのでそのまま)。休んでいる間は「調子」の
 detect の行(autoAdopt.paused)に理由を出す。
 """

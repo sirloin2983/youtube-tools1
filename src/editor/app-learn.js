@@ -77,7 +77,7 @@ function sugFeedback(action, xs){
   api('/api/suggest/feedback', { body: { tid, action, items: xs.map(x => ({ seg: x.seg, wrong: x.wrong, right: x.right, ...(x.tier === 'alt' || x.tier === 'yt' ? { tier: x.tier } : {}), ...(Array.isArray(x.also) && x.also.length ? { also: x.also } : {}) })) } }).catch(() => {});
 }
 
-/* ---------- 2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。サーバーは ed_alt.py) ---------- */
+/* ---------- 2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。サーバーは human/proof/alt.py) ---------- */
 
 function altJob(){ return S.doc ? S.jobs.find(j => j.kind === 'alt' && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
 
@@ -102,7 +102,7 @@ function renderAlt(){
   renderYtcap();   // 下の「YouTube の字幕の候補」も同じ時に描き直す(ジョブの進み・候補の読み直し・設定の読み直し)
 }
 
-/* ---------- 元の配信の YouTube の字幕の候補(案 A1。サーバーは ed_ytcap.py) ---------- */
+/* ---------- 元の配信の YouTube の字幕の候補(案 A1。サーバーは human/proof/ytcap.py) ---------- */
 
 function ytcapJob(){ return S.doc ? S.jobs.find(j => j.kind === 'ytcap' && j.tid === S.docId && ACTIVE.has(j.state)) : null; }
 
@@ -400,7 +400,7 @@ async function evalReviewHere(){
 }
 
 /* この動画だけを今の設定で作り直す(2026-10-05。評価ドリルで校正しながら、後処理の調整の効き目を 1 本ずつ確かめる)。
-   サーバーの ed_evalbatch.eval_batch_redo_one: 見回りを待たずにすぐ待機列へ・確かめ済みは断る・人が手を入れた文書は確認のあと force。
+   サーバーの eval/drill/evalbatch.py の eval_batch_redo_one: 見回りを待たずにすぐ待機列へ・確かめ済みは断る・人が手を入れた文書は確認のあと force。
    作り直しの間は編集を止める(lockJob が public_job の redoOne を見る)・終わると pollJobs が読み直す。キーは割り当てない(押し間違いで消さない) */
 function redoOneState(){   // -> [押せるか, 理由(ボタンの title)]
   const d = S.doc;

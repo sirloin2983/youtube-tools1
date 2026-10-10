@@ -111,7 +111,7 @@ function create(h){
 
   /* ---------- 配信者の名前(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)----------
      手で入れたときだけ(自動では入れない)。文書ごとにこのブラウザに覚える(tx.streamer.v1。{文書の id: 名前}・新しい 300 件まで)。
-     名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt_core/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
+     名前 → 色の照らし合わせは入口(ui-kit の UIKit.streamer → ytt/colors.py)。パックには名前のまま渡す(cut2resolve が同じ規則で照らし合わせる) */
   const WHO_KEY = 'tx.streamer.v1';
   const whoMap = () => { try { const m = JSON.parse(localStorage.getItem(WHO_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch { return {}; } };
   const whoFor = id => { const v = whoMap()[id]; return typeof v === 'string' ? v : ''; };
@@ -131,7 +131,7 @@ function create(h){
   });
 
   /* ---------- 話者ごとの字幕の色(A-2)。色を決めるのは app.js の speakerColor の1か所(気が利く画面へ 段2。照らし合わせは入口の
-     api/ytt/streamer-colors → ytt_core/colors.py)。パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ。
+     api/ytt/streamer-colors → ytt/colors.py)。パックを作るのは cut2resolve(output.speakerColors)で、ここは「どの話者が何色になるか」を見せるだけ。
      スイッチは編集の設定 speakerColors(1 文字起こし・カットのプレビュー・まとめて実行も同じ値。以前はこのブラウザの tx.pk.speakerColors) ---------- */
   const spkOn = () => h.S.settings.speakerColors !== false;
   $('#pkSpk').addEventListener('change', async () => { await saveLoud({ speakerColors: $('#pkSpk').checked }); h.onSpeakerColors(); });

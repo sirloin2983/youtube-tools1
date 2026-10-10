@@ -1,4 +1,4 @@
-"""盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/studio/analyze.py)と、配信中の検出(src/home/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。plan/line-d-detect.md)。
+"""盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。plan/line-d-detect.md)。
 
 決まり:
 - **一括の関数(smooth・local_baseline・robust_scale・audio_score・chat_z・estimate_lag・pick_clips …)は analyze.py から移しただけ**で、式・加算の順・丸めを変えていない。
@@ -616,7 +616,7 @@ class PeakBook:
         return {"total": {}, "audio": {}, "rising": None, "open": None, "block": -1}
 
     def fast_push(self, t, total, audio=0.0):
-        """音だけの先回りの計算(src/home/live_excite_worker.py。チャットを待たない Online)の確定した秒 t の合計と音の点数を足す -> 変更があった候補の id。
+        """音だけの先回りの計算(src/pipeline/analyze/live_excite_worker.py。チャットを待たない Online)の確定した秒 t の合計と音の点数を足す -> 変更があった候補の id。
         上り始め(smooth(5) が上り始めのしきい値以上・本番の確定した区間の外・仮の候補がまだ無い)で仮の候補を出し、音だけの山が確定したら区間を合わせ直す"""
         t = int(t)
         f = self.fast
@@ -716,7 +716,7 @@ class PeakBook:
 
     def finish(self):
         """配信が終わった(これ以上 push が来ない): 上り中の山を確定し、終わり待ちの候補を今の区間のまま確定する -> 変更があった候補の id の一覧。
-        配信中の検出のワーカー(src/home/live_excite_worker.py)が録画の終わりに 1 回だけ呼ぶ"""
+        配信中の検出のワーカー(src/pipeline/analyze/live_excite_worker.py)が録画の終わりに 1 回だけ呼ぶ"""
         changed = []
         if self.rising is not None:
             r, self.rising = self.rising, None

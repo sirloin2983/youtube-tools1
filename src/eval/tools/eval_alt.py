@@ -6,7 +6,7 @@
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json・<id>.alt.json と、学習の記録 learn-feedback.json)。何も書き換えない。
   --json のときだけ、結果を文字起こしの作業データの evals\\alt\\<日時>.json に残す(schema youtube-tools-alt-eval/v1。evals の置き場所は eval_cut.py・eval_speakers.py と同じ規則)。
 - 対象 = 評価用でない文書のうち、alt.json(2つ目のエンジンの認識結果)があるもの(評価用には候補を出さない決まり)。editor の部品は eval_asr.py と同じやり方で読み込む
-  (serve.py の alt_diffs・alt_fold・_groups を使う。作業データの場所はここで入口と同じ規則 ytt_core.datadir で決める。サーバーの DATA_DIR は一時フォルダ)。
+  (serve.py の alt_diffs・alt_fold・_groups を使う。作業データの場所はここで入口と同じ規則 ytt.datadir で決める。サーバーの DATA_DIR は一時フォルダ)。
 - 指標:
     採否の記録: 学習の記録の alt = {acc, rej}(画面で「別」の候補を採用・却下した数)→ 採用率。時期の指定は効かない(記録に時刻が無い)
     当たり率(候補 → 人の最終): 機械の最初の出力(文書の original。人が直す前の行)に対して alt_diffs で候補を出し直し(今の行ではなく、直す前の行)、
@@ -26,7 +26,7 @@
   その時間に出ていた候補の数と noSub の行の数だけ、結果の noSub に別に出す。noSub が無い文書の数は今までと同じ
 - 判定できた候補が 100 件未満のときは「まだ少ない(参考)」と出す(少ないデータでエンジンや既定を決めない)
 - 注意: original(機械の最初の出力)は、再認識(範囲・全体・疑わしい所)のあとは再認識後のものに替わる。alt.json は最初の文字起こしの範囲の音声に対するもの
-- --source(候補の出どころ。既定 alt = 今までどおり): yt = 元の配信の YouTube の字幕の候補(案 A1。行の札「YT」。src/editor/ed_ytcap.py)。
+- --source(候補の出どころ。既定 alt = 今までどおり): yt = 元の配信の YouTube の字幕の候補(案 A1。行の札「YT」。src/human/proof/ytcap.py)。
   保存してある配信ごとの字幕(作業データの ytcaps/<配信の ID>.json)を、文書の clip(スタジオの切り抜き)の範囲で切り出し(ytcap_doc_rows)、
   editor の ytcap_diffs(alt_diffs + 切り抜きの境目を出さない)で候補を出し直す。**道具は通信しない**(字幕が保存されていない文書は数えない = noYt)。
   エンジンごとの表は「youtube / auto(自動字幕)・manual(配信者の字幕)」。採否の記録は学習の記録の yt。
@@ -77,7 +77,7 @@ def get_serve():
 
 
 def locate(data_dir=None):
-    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt_core.datadir の1か所(data_dir はテスト用。そこを全ツールの作業データの親フォルダとして使う)"""
+    """-> 文字起こしの作業データのフォルダ。置き場所の規則は ytt.datadir の1か所(data_dir はテスト用。そこを全ツールの作業データの親フォルダとして使う)"""
     return C.locate("transcribe", data_dir, ENV0)
 
 

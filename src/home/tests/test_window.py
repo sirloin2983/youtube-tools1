@@ -7,7 +7,7 @@ Edge は起動しない(起動のコマンドは偽の popen で受け取って�
 import http.client
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import sys
 import tempfile
@@ -534,7 +534,7 @@ class TestPortalApi(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/ytt/streamer-guess", {}, {"X-YTT-Token": "wrong"})[0], 403)
 
     def test_streamer_colors(self):
-        """配信者の名前の欄の候補(api/ytt/streamer-colors。規則は src/ytt_core/colors.py)"""
+        """配信者の名前の欄の候補(api/ytt/streamer-colors。規則は src/ytt/colors.py)"""
         st, j = self.req("POST", "/api/ytt/streamer-colors", {"q": "ぺこら", "all": True})
         self.assertEqual(st, 200, j)
         self.assertEqual((j["match"]["name"], j["match"]["hex"]), ("兎田ぺこら", "#65BAEA"))   # リポジトリの friend-apps/holo-colors/members.json の subtitle(字幕の既定の色)

@@ -95,7 +95,7 @@ def worker_log():
 
 
 # Windows: 黒い画面を増やさない・Ctrl+C / Ctrl+Break がワーカーに直接届かないようにする(終わらせるのは親の役目)。
-# ed_state(GPU の有無・部品の有無を別プロセスで調べる)が呼ぶ名前だけを残す(写しではなく ytt_core.tools.no_window_flags そのもの。
+# ed_state(GPU の有無・部品の有無を別プロセスで調べる)が呼ぶ名前だけを残す(写しではなく ytt.tools.no_window_flags そのもの。
 # ed_state が _tools.no_window_flags(new_group=True) を直接呼ぶようになったら消す)
 
 

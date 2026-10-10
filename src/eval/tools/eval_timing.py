@@ -49,7 +49,7 @@ from ytt.schemas import num  # noqa: E402  有限の数(bool は除く)なら fl
 from eval.tools import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
 
 SCHEMA = "youtube-tools-timing-eval/v1"
-ASR_SCHEMA = "youtube-tools-asr-raw/v1"   # src/editor/ed_jobs.py の ASR_SCHEMA(editor は --apply のときだけ読み込む)
+ASR_SCHEMA = "youtube-tools-asr-raw/v1"   # src/pipeline/transcribe/records.py の ASR_SCHEMA(editor は --apply のときだけ読み込む)
 TOL = 0.1                      # 原則の測り方の余裕(秒)
 EPS = 1e-6                     # 浮動小数の誤差(0.1 秒ちょうどのずれは数えない)
 MATCH_CHARS = 3                # 「文字が合う」= 頭か末のこの文字数が同じ

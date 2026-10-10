@@ -11,9 +11,9 @@
   Runner の hook(案件・ホームの設定を読む所)の中身。移した名前は同じ名前で読み直している。
   届けることと組の溜めは RS3-3 で src/human/friend/delivery.py の Delivery(mixin)へ切り出した(AutoRunner が継ぐ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
-  ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt_core.jobs を含む)を通すため。
+  ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
 - どの段も「まだ無いものだけ」作る(書き出し済み・文字起こし済み・パック済みは飛ばす)。途中で止めても、もう一度押せば続きから進む。
-  文字起こしの有無は ytt_core.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
+  文字起こしの有無は manage.cases.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
 - スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は start_new で「解析から全部」に入れる。解析のキューに入れると
   スタジオに配信ができるので、それまでは受け取った題名で進める(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)。
 - 1本ずつ順に処理する(キュー)。同じ配信を2つ同時には入れない。
@@ -87,7 +87,7 @@ FRIEND_LENGTH_MIN_SAMPLES = 20         # 友人の区間の見本の数(外れ�
 FRIEND_LENGTH_MIN_VIDEOS = 5           # その配信の数
 FRIEND_PRE_MIN_SAMPLES = 10            # 山の位置(preRatio)を使う見本の数
 FRIEND_LENGTH_MAX_AGE = 30 * 86400     # 結果のファイルの古さ(ファイル名の日時)
-FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(src/studio/analyze.py の validate_settings)
+FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(src/pipeline/analyze/analyze.py の validate_settings)
 EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/eval/drill/accuracy.py の RESULT_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
 # 入口の起動し直しで戻す(線 D の M5。2026-10-07)
@@ -101,8 +101,8 @@ STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",
 # 画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)で、ツールの仕事を止めてよい段(起動し直したあとに頭からやり直す = M5)。
 # 書き出し(export)は入れない: 書き出し中は今までどおり断る
 REDO_STEPS = ("analyze", "transcribe", "diarize", "pack")
-TX_ACTIVE = ("queued", "loading", "extracting", "running")   # 「編集」のジョブの動いている状態(src/editor/ed_jobs.py の ACTIVE_STATES)
-QUEUE_ACTIVE = ("waiting", "running")                       # スタジオの解析のキューの動いている状態(src/studio/batch.py)
+TX_ACTIVE = ("queued", "loading", "extracting", "running")   # 「編集」のジョブの動いている状態(src/ytt/jobs.py の ACTIVE_STATES)
+QUEUE_ACTIVE = ("waiting", "running")                       # スタジオの解析のキューの動いている状態(src/pipeline/batch.py)
 
 
 TOOL_NAMES = {"studio": "切り抜きスタジオ", "transcribe": "編集", "cut2resolve": "cut2resolve(パックを作る部品)"}   # 知らせの文のツール名
@@ -168,7 +168,7 @@ _num = _spec.num_ok   # 扱ってよい大きさの数か(src/pipeline/spec.py�
 
 def live_auto_origin(media):
     """M8: 切り抜きが、リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)か。
-    .clip.json の読み方と自動の出どころの一覧は src/home/cases.py の clip_live・AUTO_ORIGINS(案件の画面の札と同じ)。
+    .clip.json の読み方と自動の出どころの一覧は src/manage/cases/cases.py の clip_live・AUTO_ORIGINS(案件の画面の札と同じ)。
     読めない・無い・人の採用(manual)・ライブでない → False"""
     live, _mark = cases.clip_live(media)
     return bool(live) and live.get("origin") in cases.AUTO_ORIGINS
@@ -415,7 +415,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
 
     def start_request(self, items, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None,
                       deliver_batch=None):
-        """友人からの依頼(配信の URL。src/home/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
+        """友人からの依頼(配信の URL。src/human/friend/intake.py)。items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
         配信ごとに1つの実行(mode request)。ranges = 時刻で指定した区間 [(開始, 終了)](③ では使わない)。top に足りない分は自動で埋める。
         cut = カットの方法(① のパック)・weights = 解析の重み。すでに実行中・順番待ちの配信は飛ばす。-> {"runs", "skipped"}(start_new と同じ形)。
         streamer = 照らし合わせ済みの配信者の名前か None(友人の 1 人目の名前。あれば字幕の色に使い、None・空ならチャンネル名などから自動 = _auto_streamer)"""
@@ -446,7 +446,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
 
     def start_file(self, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,
                    engine=None, model=None, deliver_batch=None, pool=None):
-        """友人が切り抜いた動画の依頼(src/home/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
+        """友人が切り抜いた動画の依頼(src/human/friend/intake.py が作業データへコピーしたもの)を文字起こしだけ(mode file)。
         streamer = 照らし合わせ済みの名前か None。文字起こしができたら、その文書の配信者として覚える(あとでパックを作るときの字幕の色)。
         engine・model = 文字起こしのエンジンとモデル(None = 編集の設定のまま。リアルタイム切り抜きの書き出しが live.auto から渡す。M2)"""
         if not isinstance(path, str) or not os.path.isabs(path) or not os.path.isfile(path):
@@ -568,10 +568,10 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         if tool == "cut2resolve":   # パックは 1 つずつ(別の処理の最中は断られる)。この実行のジョブが動いていれば、枠はそのジョブのもの
             j = client.ok(tool, "GET", "/api/job?id=" + urllib.parse.quote(str(ids[0] if ids else "")))
             return {"tool": tool, "labels": None, "others": []} if j.get("state") == "running" else None
-        if tool == "transcribe":   # 「編集」のジョブ(枠の名前は題名の頭。src/editor/ed_jobs.py の work_one)
+        if tool == "transcribe":   # 「編集」のジョブ(枠の名前は題名の頭。src/ytt/jobs.py の work_one)
             items = [j for j in client.ok(tool, "GET", "/api/jobs").get("jobs") or [] if isinstance(j, dict) and j.get("state") in TX_ACTIVE]
             key, name = "id", lambda j: str(j.get("title") or "")
-        elif tool == "studio":   # スタジオの解析のキュー(枠の名前は題名か配信の ID。src/studio/batch.py)
+        elif tool == "studio":   # スタジオの解析のキュー(枠の名前は題名か配信の ID。src/pipeline/batch.py)
             items = [i for i in client.ok(tool, "GET", "/api/queue").get("items") or [] if isinstance(i, dict) and i.get("status") in QUEUE_ACTIVE]
             key, name = "qid", lambda i: str(i.get("title") or i.get("videoId") or "")
         else:

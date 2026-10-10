@@ -307,8 +307,8 @@ function snapEdge(i, f, toward){
 /* ---------- 字幕の読む速さの印(T2。2026-10-05。表示だけ = 行は書き換えない。校正済みにする操作も止めない) ----------
    読む速さ = 字幕として数える文字(NFKC にして文字と数字だけ。記号・空白・句読点・〜 は数えない・ー は数える)÷ 行の長さ(秒)。
    印は「速い」(1 秒あたり READ_FAST_CPS 字を超える)と「短い」(READ_SHORT_SEC 秒未満)。どちらも READ_MIN_CHARS 字以上の行だけ。
-   対象外: 字幕に出さない行・空の下書き・文字の無い行・カット済の行。規則と値はサーバーの ed_retime.subread_mark と同じ(例は tests/subread_cases.json)。
-   値は設定の subtitle.read = {fastCps, shortSec} で変えられる(欄は無い)。根拠の数字は ed_retime.py の先頭 */
+   対象外: 字幕に出さない行・空の下書き・文字の無い行・カット済の行。規則と値はサーバーの pipeline/transcribe/retime.py の subread_mark と同じ(例は tests/subread_cases.json)。
+   値は設定の subtitle.read = {fastCps, shortSec} で変えられる(欄は無い)。根拠の数字は pipeline/transcribe/retime.py の先頭 */
 const READ_FAST_CPS = 10, READ_SHORT_SEC = 0.5, READ_MIN_CHARS = 2;
 const READ_CH = /[\p{L}\p{N}]/gu;
 function readChars(text){ return (String(text || '').normalize('NFKC').match(READ_CH) || []).length; }
@@ -375,7 +375,7 @@ function syncRead(fresh){
 function scheduleRead(){ clearTimeout(syncRead.t); syncRead.t = setTimeout(syncRead, 300); }
 
 /* ---------- 直した行の時刻を、単語の時刻(認識のときの words.json)から配り直す(T1 の簡易版。2026-10-05) ----------
-   **候補を見せて人が 1 押しで採る**(自動では書き換えない・行を分けた/つなげた直後にも動かさない)。サーバーの POST /api/retime(ed_retime。読むだけ)が
+   **候補を見せて人が 1 押しで採る**(自動では書き換えない・行を分けた/つなげた直後にも動かさない)。サーバーの POST /api/retime(human/proof/retime.py。読むだけ)が
    保存済みの文書で計算するので、押したら先に保存する(saveDoc のあと)。採った行は今の時刻の変更と同じ道(元に戻す 1 回・並べ直し・重なりの赤・保存で cutState を付け直す)。
    選んだ行(.seg.nav)の操作の欄(.adj)に「時刻を言葉に合わせる」(RT.el)。行を選んで少し止まると候補の有無を先に調べる(保存済みのときだけ。無ければ押せない) */
 const RT_SOON = 600;
@@ -759,7 +759,7 @@ function paintCaps(el, idxs, segs){
 
 /* ---------- 話者の色(気が利く画面へ 段2)----------
    色を決めるのはここ1つ: 行の左端の線・話者の欄・映像の上の字幕・カットのプレビュー・パックの見本(cut.js・pack-tab.js にも渡す)。
-   話者の名前がメンバーと合えばメンバーカラー(照らし合わせは入口の api/ytt/streamer-colors → ytt_core/colors.py。名前の一覧をまとめて1回)。
+   話者の名前がメンバーと合えばメンバーカラー(照らし合わせは入口の api/ytt/streamer-colors → ytt/colors.py。名前の一覧をまとめて1回)。
    合わなければ、行の線・話者の欄は今の自動の色、字幕は配信者の色(--tt-cap-color)。**文字起こしの行の文字の色は変えない**(明るい色は白い背景で読めない)。
    スイッチは編集の設定 speakerColors(パックのタブの「話者の名前がメンバーと合えば…」。まとめて実行も同じ値に従う。以前はこのブラウザの tx.pk.speakerColors) */
 

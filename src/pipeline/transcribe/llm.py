@@ -14,7 +14,7 @@
   - 設定 autoLlm(既定オン。文字起こしの指定 validate_job)。評価用の文書には当てない
   - 選んだ所が無ければ LLM を読み込まない(モデルは 5GB)。読めない・失敗したら文字起こしを失敗にせず、警告を出して認識の結果のまま
   - 生の提案・採否・断った理由は <id>.llm.json(LLM_SCHEMA)、数は recognition.runs[].llm
-  - 学習(ed_learn.learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)
+  - 学習(human/proof/learn.py の learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)
   - 測る道具は src/eval/tools/eval_llm.py(この部品の規則をそのまま使う)。10-09 に確かめ済み 22 本で CER 13.5 → 13.4%・名前 28 → 34/53
 規則の部分(llm_fold 〜 llm_cap)は編集のほかの部品を読まない(src/eval/tools/eval_llm.py が単独で読む)。組み込みの部分だけが、ytt/jobs・ytt/workdata・worker_client・roster・backend を呼ぶ。
 名前は llm_ / LLM_ で始める(read_llm のほか。serve.py の _ED_MODULES。ほかの部品と重ならないように)。

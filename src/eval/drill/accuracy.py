@@ -74,7 +74,7 @@ class ToolError(Exception):
 
 # ---------------------------------------------------------------- 結果の要約(道具ごとの形 → 画面が読む共通の形)
 
-_num = schemas.num   # 有限の数なら float・それ以外は None(ytt_core の共通の判定)
+_num = schemas.num   # 有限の数なら float・それ以外は None(ytt の共通の判定)
 
 
 def _int(x):

@@ -24,7 +24,7 @@ from . import pipeline_io  # noqa: E402   (受け渡しの読み・保存。RS3-
 
 # ---------- clip-marker との連携 ----------
 OTHER_JSON_MAX = 64 * 1024 * 1024   # 他のツールが書く JSON(スタジオの data.json・旧マーカー・波形の記録)を読む上限(これより大きいものは読めない扱い)
-# 他のツール(スタジオ・旧マーカー)が書くファイルを読む。BOM 付きでも読む。読めなければ None(ytt_core.fsio.read_json_or。名前はテストが呼ぶので残す)
+# 他のツール(スタジオ・旧マーカー)が書くファイルを読む。BOM 付きでも読む。読めなければ None(ytt.fsio.read_json_or。名前はテストが呼ぶので残す)
 _read_json_file = functools.partial(_fsio.read_json_or, default=None, max_bytes=OTHER_JSON_MAX)  # lint: keep 写しではなく別名(上限つき。名前はテストが呼ぶ)
 
 

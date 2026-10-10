@@ -10,7 +10,7 @@ ffmpeg が必要。
 """
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys
@@ -343,7 +343,7 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(len(self.doc(tid)["speakers"]), 2)
 
     def test_diarize_tune_through_worker(self):
-        """判別の設定(dev/eval_speakers.py の run 用。任意)がワーカーまで届く。偽の判別はしきい値 1.0 以上・人数 自動で 1 人にまとめる"""
+        """判別の設定(src/eval/tools/eval_speakers.py の run 用。任意)がワーカーまで届く。偽の判別はしきい値 1.0 以上・人数 自動で 1 人にまとめる"""
         os.makedirs(S.TMP_DIR, exist_ok=True)
         wav = os.path.join(S.TMP_DIR, "tune.wav")
         job = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}

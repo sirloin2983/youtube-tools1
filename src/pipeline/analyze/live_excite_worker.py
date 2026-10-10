@@ -18,7 +18,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 流れ(周期 POLL_SEC):
   1. 録画元の GET /live/list → 録画中(active)で firstPdt のある録画ごとに状態(state.json があれば続きから)
   2. GET /live/<録画>/status?since=N で新しいセグメント → 本体(GET /live/<録画>/<uri>。合言葉 Bearer)→ **3 本(約 12 秒)ずつ ffmpeg 1 回**で
-     1 秒の RMS(dB)を全帯域と 2kHz 超の 2 系列(src/studio/analyze.py の audio_levels と同じフィルター。asplit で 1 回に)
+     1 秒の RMS(dB)を全帯域と 2kHz 超の 2 系列(src/pipeline/analyze/analyze.py の audio_levels と同じフィルター。asplit で 1 回に)
   3. セグメントの受信時刻(pdt)で「録画の頭(firstPdt)からの秒」の 1 秒の箱へ(数で数えない)。欠けは音を直前の値で埋めて欠けとして覚える
   4. チャット(yt-dlp の live_chat。配信 1 本に 1 つ)を末尾から読み、timestampUsec(絶対時刻)で 1 秒の箱へ。重みは excite.message_weight
   5. 音とチャットがそろった秒から excite.Online → excite.PeakBook。欠け ±GAP_MARGIN 秒は帳簿に 0 を渡す(山を作らない)
@@ -101,11 +101,11 @@ QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"        # off = 使わない(スタジオの解析の設定の長さのまま)
 LENGTH_HINT_MAX_AGE = 30 * 86400           # 結果のファイルの古さ(ファイル名の日時。src/home/autorun.py の FRIEND_LENGTH_MAX_AGE と同じ)
 LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(src/eval/tools/eval_marks.py の CL_ENOUGH_SAMPLES・CL_ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
-# スタジオの解析の設定(spec)の範囲(src/studio/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
+# スタジオの解析の設定(spec)の範囲(src/pipeline/analyze/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
 SPEC_RANGES = {"length": (10.0, 120.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 EVAL_MARKS_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/home/autorun.py の EVAL_MARKS_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
-# 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt_core/recproto.py の 1 か所(入口の live_export と同じ物)
+# 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt/recproto.py の 1 か所(入口の live_export と同じ物)
 ID_RE, REC_RE, SEG_URI_RE = recproto.RECORDER_ID_RE, recproto.REC_ID_RE, recproto.SEG_URI_RE
 iso_epoch, epoch_iso, video_id = recproto.iso_epoch, recproto.epoch_iso, recproto.video_id_of
 PEAK_ID_RE = re.compile(r"^p(\d{1,7})-\d{1,8}\Z")    # 候補の id(excite.PeakBook の "p<通し番号>-<山の秒>"。入口の live_detect も同じ形で検査する)
@@ -230,7 +230,7 @@ def _read_levels(path):
 
 def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
     """ffmpeg 1 回で 1 秒ごとの RMS(dB)を全帯域と 2kHz 超の 2 系列 -> (full, band)。
-    フィルターは src/studio/analyze.py の audio_levels と同じ(aresample=16000・asetnsamples=n=16000:p=0・astats・ametadata)。asplit で 1 回にし、
+    フィルターは src/pipeline/analyze/analyze.py の audio_levels と同じ(aresample=16000・asetnsamples=n=16000:p=0・astats・ametadata)。asplit で 1 回にし、
     結果は 2 つのファイル(作業用のフォルダの full.txt・band.txt。行が混ざらない)。値が無い・NaN・-90 未満は -90"""
     if not ffmpeg:
         raise NoTool("ffmpeg が見つかりません(setup の install.bat で入れてください)")
@@ -296,7 +296,7 @@ _HINT_CACHE = {}
 def length_hint(root=None, env=None, now=None):
     """**入口の側**(src/pipeline/analyze/live_detect.py の Detector.config が呼んで config.json の lengthHint に入れる): 人が選んだ区間の長さの目安
     -> {"length", "preRatio"(無ければ None), "samples", "videos", "enough", "file"} か None(止めてある・結果が無い・古い・壊れている)。
-    読むのはスタジオの作業データ evals/marks/ のいちばん新しい src/eval/tools/eval_marks.py --json の結果の clipLength.suggest(置き場所は ytt_core.datadir の
+    読むのはスタジオの作業データ evals/marks/ のいちばん新しい src/eval/tools/eval_marks.py --json の結果の clipLength.suggest(置き場所は ytt.datadir の
     resolve = 入口のプロセスでスタジオが登録した場所)。同じファイルは読み直さない(名前と更新の時刻で覚える)。enough の判定はワーカーの clean_hint がする"""
     e = os.environ if env is None else env
     if str(e.get(LENGTH_HINT_ENV) or "").strip().lower() in ("off", "0", "false", "no"):

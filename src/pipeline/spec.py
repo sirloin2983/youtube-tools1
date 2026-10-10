@@ -114,7 +114,7 @@ DEFAULTS = {
         "ranges": [],         # 必ず切り抜く区間 [[開始秒, 終了秒], …]。無し = なし(autorun.py の clean_ranges(None))
         "people": [],         # 出る人 [{name, color?}](先頭 = 話者の分からない行の字幕の色にする人)か {count}。無し = ① が推定する
     },
-    "analyze": {              # スタジオの解析の設定(src/studio/analyze.py の validate_settings 90-96 行)
+    "analyze": {              # スタジオの解析の設定(src/pipeline/analyze/analyze.py の validate_settings 90-96 行)
         "useAudio": True, "useChat": True, "useComments": True,
         "wAudio": 1.0, "wChat": 1.0, "wComments": 0.7,
         "sensitivity": "normal",
@@ -140,7 +140,7 @@ DEFAULTS = {
         "engine": "faster-whisper", "model": "small", "language": "ja",
         "quality": "best",    # best か fast(fast は beam 1)
         "device": "auto", "vadMode": "weak", "boost": False,
-        "diarize": None,      # 話者判別の人数のヒント(1〜10)。None = しない(src/home/intake.py の parse_speakers の範囲)
+        "diarize": None,      # 話者判別の人数のヒント(1〜10)。None = しない(src/human/friend/intake.py の parse_speakers の範囲)
     },
     "post": {                 # 後処理(軽い。doc_jobs.py の validate_job と SUBTITLE_DEFAULT・各 auto は validate_job の pref() の既定)
         "wordSplit": True, "stripPunct": True,
@@ -162,7 +162,7 @@ DEFAULTS = {
         "rowEdge": True,      # 行から作るときの端の広げ方。True = 既定・False = 広げない・{on?, after?, before?}
         "cut": LIVE_AUTO_CUT,                              # カットの方法 rows・none・silence(run.py の _cut_method の既定 none)
         "cutSilence": {"noise": -35.0, "min": 0.6, "pad": 0.15},   # 無音で削る値(cut2resolve_core.py の DEFAULT_NOISE_DB・SILENCE_MIN・SILENCE_PAD)
-        "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。src/home/intake.py の VIDEO_TRACKS_DEFAULT・MAX)
+        "videoTracks": 1,     # Text+ の映像トラックの数(1〜5。src/human/friend/intake.py の VIDEO_TRACKS_DEFAULT・MAX)
     },
     "run": {
         "from": None,         # どの段からやり直すか(RUN_FROM)。None = 頭から

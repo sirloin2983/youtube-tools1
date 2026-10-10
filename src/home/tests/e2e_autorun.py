@@ -11,7 +11,7 @@
 """
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import subprocess
 import sys
@@ -63,14 +63,14 @@ def main():
     tmp = tempfile.mkdtemp(prefix="ytt-autorun-e2e-")
     env = {"YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1", "TRANSCRIBE_BACKEND": "fake",
            "STUDIO_HOME": os.path.join(tmp, "studio-home"),
-           "YTT_HOLO_MEMBERS": os.path.join(os.path.dirname(REPO), "friend-apps", "holo-colors", "members.json")}   # 配信者の色の一覧(ytt_core を写しても、リポジトリの一覧)
+           "YTT_HOLO_MEMBERS": os.path.join(os.path.dirname(REPO), "friend-apps", "holo-colors", "members.json")}   # 配信者の色の一覧(ytt を写しても、リポジトリの一覧)
     patch = mock.patch.dict(os.environ, env)
     patch.start()
     try:
         for s in L.TOOLS:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
         from ytt_core import layout as _layout
-        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         media_a = os.path.join(tmp, "media", "配信A.mp4")
         media_b = os.path.join(tmp, "media", "配信B.mp4")
         os.makedirs(os.path.dirname(media_a))
@@ -167,7 +167,7 @@ def main():
             clip = next(m for m in v["marks"] if m["id"] == "m1")
             check(clip["status"] == "exported" and os.path.isfile(clip["path"]), "書き出した mp4 がある")
             pack_dir = os.path.splitext(clip["path"])[0] + "_pack"
-            # パックは最小限(④): cut-plan.json は置かず、cut2resolve の作業データに記録(ytt_core.txindex.pack_info が読む)
+            # パックは最小限(④): cut-plan.json は置かず、cut2resolve の作業データに記録(manage.cases.txindex.pack_info が読む)
             check(os.path.isfile(os.path.join(pack_dir, "create_resolve_textplus_project.lua")) and not os.path.exists(os.path.join(pack_dir, "cut-plan.json")),
                   "Text+ パックができた: %s" % (os.listdir(pack_dir) if os.path.isdir(pack_dir) else "無い"))
             work = os.path.join(os.path.dirname(clip["path"]), "作業用")   # 途中のファイル(2026-09-27)

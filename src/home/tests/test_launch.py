@@ -10,7 +10,7 @@ import http.client
 import io
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import socket
 import sys
@@ -777,7 +777,7 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 403)
 
     def test_intake_api(self):
-        """友人からの依頼の受付(src/home/intake.py): 状態・設定(api/ytt/prefs の節 intake)・今すぐ確認。受付の設定は作業データの prefs.json(一時フォルダ)"""
+        """友人からの依頼の受付(src/human/friend/intake.py): 状態・設定(api/ytt/prefs の節 intake)・今すぐ確認。受付の設定は作業データの prefs.json(一時フォルダ)"""
         r, body = self.req("GET", "/api/intake")
         j = json.loads(body)
         self.assertEqual((r.status, j["enabled"], j["state"], j["requests"]), (200, False, "off", []))
@@ -919,7 +919,7 @@ class RealToolsTest(unittest.TestCase):
             for s in L.TOOLS:
                 _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))
             from ytt_core import layout as _layout
-            _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+            _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
             ports = dict(zip(L.TOOL_IDS, free_ports(3)))
             events = []
             with mock.patch.dict(os.environ, env):

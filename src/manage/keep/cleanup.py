@@ -5,7 +5,7 @@
 候補として出していないパスは move で受け付けない(API に好きなパスを渡しても消せない)。
 
 候補の種類:
-- export … スタジオの書き出しの元動画のうち、パックができていて、案件の状態が「投稿済み」「見送り」のもの(案件は src/home/cases.snapshot の cases)
+- export … スタジオの書き出しの元動画のうち、パックができていて、案件の状態が「投稿済み」「見送り」のもの(案件は src/manage/cases/cases.snapshot の cases)
 - work   … 動画の「作業用」フォルダの途中のファイルのうち、元の動画がもう無いもの(記録から辿れない)
 - cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
 - log    … 回したログ(*.old.log・*.log.old・*.1・*.old)
@@ -78,7 +78,7 @@ def _drive(p):
 
 
 def free_path(dest):
-    """同じ名前があれば (1) (2) … を付ける(ごみ箱フォルダへ移すとき。案件の「要らない」src/home/cases.py も同じ付け方)"""
+    """同じ名前があれば (1) (2) … を付ける(ごみ箱フォルダへ移すとき。案件の「要らない」src/manage/cases/cases.py も同じ付け方)"""
     k, (base, ext) = 1, os.path.splitext(dest)
     while os.path.lexists(dest):
         dest = "%s (%d)%s" % (base, k, ext)

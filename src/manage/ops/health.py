@@ -30,7 +30,7 @@ _EVT_NS = "{http://schemas.microsoft.com/win/2004/08/events/event}"
 DATA_TOOLS = (("app", "ホーム"), ("studio", "スタジオ"), ("transcribe", "編集"), ("cut2resolve", "cut2resolve"), ("holo-colors", "ホロカラー"))
 
 
-# ---------- フォルダの大きさ(数えるのは ytt_core.fsio.dir_size = (バイト数, ファイル数)。リンクはたどらない) ----------
+# ---------- フォルダの大きさ(数えるのは ytt.fsio.dir_size = (バイト数, ファイル数)。リンクはたどらない) ----------
 def top_items(path, limit=TOP_ITEMS):
     """フォルダ直下の項目を大きい順に [{name, bytes, files, dir}]"""
     out = []
@@ -85,7 +85,7 @@ def disk_free(paths):
 
 # ---------- 外部プログラム ----------
 def tool_version(name, env_var=None, args=("-version",), timeout=TOOL_TIMEOUT):
-    """{"path", "version"}(無ければ path None)。版は出力の 1 行目から抜く(見つからなければ先頭の 60 字。ytt_core.tools.tool_version)"""
+    """{"path", "version"}(無ければ path None)。版は出力の 1 行目から抜く(見つからなければ先頭の 60 字。ytt.tools.tool_version)"""
     path = ytools.find_tool(name, env_var)
     if not path:
         return {"path": None, "version": ""}
@@ -223,7 +223,7 @@ def crash_counts(now=None, runner=None):
     return {"windowSec": CRASH_WINDOW, "os": osc, "apps": apps}
 
 
-# このツール側: 「編集」の serve.log に、認識ワーカーの落ち・黙って強制終了したときの印(src/editor/ed_jobs.py の ed_state.log.error の文言)が残る。
+# このツール側: 「編集」の serve.log に、認識ワーカーの落ち・黙って強制終了したときの印(src/pipeline/transcribe/worker_client.py の _txbase.log.error の文言)が残る。
 # 行頭は "%(asctime)s " = "2026-10-04 12:34:56,789 "(src/editor/ed_state.py)。文言を変えるときはここも
 WORKER_CRASH_MARK = "認識ワーカーが異常終了しました"
 WORKER_HUNG_MARK = "なにも届かないため強制終了します"

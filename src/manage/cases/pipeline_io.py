@@ -40,7 +40,7 @@ class PipelineError(Exception):
         self.code, self.message, self.status = code, message, status
 
 
-# ---------- 共通(中身は ytt_core) ----------
+# ---------- 共通(中身は ytt) ----------
 read_json_file = fsio.read_json_file     # (path, max_bytes)。NaN・大きすぎるファイルは ValueError
 iso_now = schemas.iso_now
 is_network_path = fsio.is_network_path   # ネットワーク上のパスは、利用者が押したボタン以外では調べない(NTLM のハッシュを送らないため)
@@ -90,7 +90,7 @@ def resolve_clip_media(clip_json_path, clip, media_exts):
 _beside_lock = threading.Lock()
 
 
-# 書き込みの部品は ytt_core.fsio(Windows の一時的なロックのやり直し・一時ファイル → 置き換え・既存を上書きしない作成)
+# 書き込みの部品は ytt.fsio(Windows の一時的なロックのやり直し・一時ファイル → 置き換え・既存を上書きしない作成)
 _create_new = fsio.create_new
 
 
@@ -110,7 +110,7 @@ def _alt_name(stem, suffix, n):
 
 def save_beside(media_path, suffix, data, schema=None):
     """動画のフォルダの 作業用/ に <動画の名前(拡張子を除く)><suffix> で保存する(途中のファイルは出力先の直下に置かない。
-    2026-09-27。ytt_core.schemas.work_dir。動画がもう 作業用 の中ならそこ)。戻り値 (保存したパス, 上書きしたか)。
+    2026-09-27。ytt.schemas.work_dir。動画がもう 作業用 の中ならそこ)。戻り値 (保存したパス, 上書きしたか)。
     同名があるとき: schema を渡していて、それがこのツールが前に書いた同じ schema のファイルなら上書き。
     それ以外(SRT は常に)は「名前 (2).srt」「名前 (3).srt」… の順に、空いている名前(または前にこのツールが書いた同じ schema のもの)にする。
     書き込みは一時ファイル → 置き換え(書きかけのファイルを他のツールに読ませない)。"""
@@ -141,11 +141,11 @@ def save_beside(media_path, suffix, data, schema=None):
     raise PipelineError("no_name", "同じ名前のファイルが多すぎるため保存できません(%s)" % (stem + suffix))
 
 
-# ---------- 実行中のポートの共有(.runtime/<ツールID>.json)と /api/siblings(中身は ytt_core.runtime) ----------
+# ---------- 実行中のポートの共有(.runtime/<ツールID>.json)と /api/siblings(中身は ytt.runtime) ----------
 valid_port = runtime.valid_port
 
 
-# 中身は ytt_core.runtime(名前は今までどおり。呼ぶ側は位置で渡す):
+# 中身は ytt.runtime(名前は今までどおり。呼ぶ側は位置で渡す):
 runtime_dir = runtime.runtime_dir          # (ツールのフォルダ) → <1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)
 write_runtime = runtime.write_runtime      # (rdir, ツールID, ポート, 版, 画面の場所="/") 起動時に書く。書けなくても起動は続ける(None)。
                                            # 画面の場所は入口の統合サーバーに取り込まれたときは "/transcribe/"
@@ -169,5 +169,5 @@ def ping(port, expect_app, timeout=SIBLING_TIMEOUT):
 
 def siblings(rdir, self_id, self_port, timeout=SIBLING_TIMEOUT, self_path="/"):
     """{"tools": {ツールID: ポート}}。.runtime の記録のうち、応答した(app が一致した)ものだけ。自分自身は常に含める。
-    入口の統合サーバーに取り込まれたツールがあれば {"paths": {"studio": "/studio/"}} も付く(ytt_core.runtime.siblings)。"""
+    入口の統合サーバーに取り込まれたツールがあれば {"paths": {"studio": "/studio/"}} も付く(ytt.runtime.siblings)。"""
     return runtime.siblings(rdir, self_id, self_port, timeout, self_path)

@@ -35,7 +35,7 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"), "request_manual": ("analyze",),
               "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",)}
-# 友人からの依頼(src/home/intake.py。docs/spec/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
+# 友人からの依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
 # ③ 全部人が行う manual = 解析まで。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし", "request_manual": "依頼 ③: 解析まで",
@@ -67,7 +67,7 @@ _row_edge_ok = _spec.row_edge_ok   # 「行から」の設定の形の検査(src
 
 
 def _media_is_30fps(path):
-    """素材がちょうど 30fps か(ytt_core.normalize の probe。ffprobe が無い・読めないときは False = 設定の値を使う)。2026-10-04 Q1"""
+    """素材がちょうど 30fps か(ytt.normalize の probe。ffprobe が無い・読めないときは False = 設定の値を使う)。2026-10-04 Q1"""
     try:
         from ytt import normalize
         info = normalize.probe(path)
@@ -132,7 +132,7 @@ class Run:
         self.pack_marks = {}             # パックのフォルダ -> {"path": 切り抜きの動画, "markId": スタジオのマーク}。友人の「要らない」で片付ける相手(2026-10-08)
         self.pack_hint = None            # _step_pack が _pack_one の直前に置く {"path", "markId"}(_pack_one が pack_marks へ移す)
         self.source_path = source_path   # 依頼の動画(mode file。作業データへコピーしたもの)
-        self.request_id = request_id     # 友人からの依頼の id(src/home/intake.py)
+        self.request_id = request_id     # 友人からの依頼の id(src/human/friend/intake.py)
         self.video_id, self.title, self.mode, self.top = video_id, title, mode, top
         self.doc_id, self.overwrite = doc_id, bool(overwrite)   # overwrite = パックがあれば作り直す(文書単位も配信単位も。段4 S-12)
         self.on_fail = on_fail if on_fail in ("next", "stop") else "next"   # 切り抜きの1本が失敗したとき: next = 残りを続ける / stop = そこで止める

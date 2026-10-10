@@ -1295,7 +1295,7 @@ const ARCH_RUN = ['probe', 'align', 'fetch', 'verify'];
 const ARCH_ACTIVE = ['wait', ...ARCH_RUN];
 const ARCH_LABEL = { wait: '待ち', probe: 'アーカイブを確かめ中', align: '照合中', fetch: '取得中', verify: '検証中', done: '本番版', error: '失敗', cancelled: '取り消し' };
 const ARCH_TITLE = 'アーカイブから作り直して、速報版と入れ替えました';
-/* 配信後の全自動(線 D の M7)の afterStream.state のうち、もう進まないもの(入口の src/home/live_archive.py の AFTER_END と同じ) */
+/* 配信後の全自動(線 D の M7)の afterStream.state のうち、もう進まないもの(入口の src/pipeline/ingest/live_archive.py の AFTER_END と同じ) */
 const AFTER_END = ['done', 'none', 'error'];
 const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: false, wasActive: null, endedShown: false,
   jobs: [], jobsKnown: false, jobsSeq: 0, jobsAt: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false,

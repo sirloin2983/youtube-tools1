@@ -3,7 +3,7 @@
 
     python src/home/tests/e2e_intake_ui.py [--shots <フォルダ>]
 
-バックエンド(src/home/intake.py)には頼らない: api/intake・api/intake/scan・intake の設定の保存(api/ytt/prefs)・
+バックエンド(src/human/friend/intake.py)には頼らない: api/intake・api/intake/scan・intake の設定の保存(api/ytt/prefs)・
 api/autorun は page.route で偽物に差し替える。入口(launch.py)は e2e_portal.py と同じ形で動かすが、ツールは起動しない。
 確かめること: オフのときの表示(閉じている)/ 設定の保存が正しい patch を送る・サーバーのエラーを出す・範囲外を送らない /
 届いた依頼の一覧(受け付けた・断った・理由・項目ごとの結果)/ 「今すぐ確認」が scan を呼ぶ /
@@ -16,7 +16,7 @@ import tempfile
 import threading
 import time
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 from unittest import mock
 

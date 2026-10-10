@@ -14,7 +14,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 LONG = "これは別の読みで埋めた長い文です"           # 16 字 = 「テスト文n」(5 字)の 3 倍以上
 os.environ["TRANSCRIBE_FAKE_FILL"] = LONG
 from e2e_edit_common import Checks, Server, make_video, wait_js, wait_url_doc  # noqa: E402

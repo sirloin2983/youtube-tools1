@@ -1,8 +1,8 @@
 """dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_effort.py・eval_marks.py)の共通の部品
 (2026-10-07 ③ dev の見直しでまとめ、見直しの 2 周目で eval_asr・eval_speakers・eval_timing も使うようにした)。
 
-- 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt_core)・EDITOR(src/editor)。読み込むと REPO を sys.path に足す
-- 作業データの場所(ytt_core.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
+- 置き場所: TOP(リポジトリ直下 = git)・REPO(src = ツールと ytt)・EDITOR(src/editor)。読み込むと REPO を sys.path に足す
+- 作業データの場所(ytt.datadir の 1 か所。--data-dir は全ツールの作業データの親フォルダ = テスト用)・JSON の読み方・
   時期(--since / --until)・率と分布・git の rev・結果の保存(<ツールの作業データ>/evals/<領域>/<日時>.json。
   入口の src/eval/drill/accuracy.py が、道具の最後の行「保存: <パス>」と名前の形 <日時>.json で読む = 形を変えない)
 - editor の部品をこのプロセスの中で使うときの読み込み(load_serve。eval_asr・eval_speakers・eval_timing・eval_effort・eval_alt)
@@ -58,7 +58,7 @@ def data_env(data_dir, base=None):
 
 
 def locate(tool, data_dir=None, base=None):
-    """-> ツール(transcribe・studio・app)の作業データのフォルダ。置き場所の規則は ytt_core.datadir の 1 か所"""
+    """-> ツール(transcribe・studio・app)の作業データのフォルダ。置き場所の規則は ytt.datadir の 1 か所"""
     return datadir.locate(tool, REPO, data_env(data_dir, base))
 
 

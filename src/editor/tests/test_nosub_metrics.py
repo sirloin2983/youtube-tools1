@@ -8,7 +8,7 @@
 - 重なりのまとまりの判定(違う話者で 0.3 秒以上)と、人の行の並べ方を入れ替えた小さい方の数え方
 """
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import unittest
 
 from test_backend import S, StoreDir  # noqa: F401  (S = serve)

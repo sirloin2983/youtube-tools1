@@ -17,7 +17,7 @@
 import glob
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import re
 import shutil
 import signal
@@ -36,7 +36,7 @@ from playwright.sync_api import sync_playwright
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
-sys.path.append(REPO)   # ytt_core.layout(フォルダ名の対応表)を読むため
+sys.path.append(REPO)   # ytt.layout(フォルダ名の対応表)を読むため
 from ytt_core import layout as _layout  # noqa: E402
 HOME, EDITOR = _layout.TOOL_DIRS["app"], _layout.TOOL_DIRS["transcribe"]
 TP_LUA = "create_resolve_textplus_project.lua"
@@ -154,7 +154,7 @@ def main():
     try:
         copy_dir(os.path.join(REPO, HOME), os.path.join(tmp, HOME))
         copy_dir(os.path.join(REPO, EDITOR), os.path.join(tmp, EDITOR))
-        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt_core と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
+        _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
         # studio は写さない(--only なら Supervisor はそのツールの Tool を作らないので不要。home/launch.py 参照)。
         # cut2resolve も入口に取り込む(v0.15.0: 校正画面の「カットとパック」が同じ入口の /cut2resolve/api/... を呼ぶ。zip も pipeline/pack/pack.py で作る)
         copy_dir(os.path.join(REPO, "cut2resolve"), os.path.join(tmp, "cut2resolve"))

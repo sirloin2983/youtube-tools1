@@ -10,7 +10,7 @@
   2 dead-name     … モジュールの直下で定義した関数・クラスが、リポジトリのどこからも参照されていない
                     (名前がリポジトリ全体の .py/.js/.cjs/.html/.cs/.md に 1 回しか出ない。残すものは定義の行に `# lint: keep <理由>`)
   3 long-function … 本体が --long 行(テストは --long-test 行)を超える関数(残すものは def の行に `# lint: long <理由>`)
-  4 dup-helper    … ytt_core にある小道具の写し(_unlink / _no_window / KillJob の定義が ytt_core の外にある。残すなら `# lint: keep <理由>`)
+  4 dup-helper    … ytt にある小道具の写し(_unlink / _no_window / KillJob の定義が ytt の外にある。残すなら `# lint: keep <理由>`)
   5 js-dead       … JS のトップレベルの function が、同じツールの .js/.html のどこからも参照されていない(名前が 1 回だけ)
   6 dup-block     … 同じ行の並びが --dup 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)

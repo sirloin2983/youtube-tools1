@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt_core.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.10 -m unittest src/ytt/tests/test_normalize.py -v
+"""ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.10 -m unittest src/ytt/tests/test_normalize.py -v
 ffmpeg・ffprobe で数秒の合成動画を作って確かめる(無い環境ではスキップ)。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる

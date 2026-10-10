@@ -9,7 +9,7 @@
 """
 import json
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
 import socket
 import subprocess
@@ -24,7 +24,7 @@ import urllib.request
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
-os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt_core(リポジトリ直下)を見つけられるように
+os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt(リポジトリ直下)を見つけられるように
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
@@ -925,7 +925,7 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual((r["_status"], r["error"]), (400, "bad_json"))
         r = self.call("PUT", "/api/settings", b"{}", headers={"Content-Type": "text/plain"})
         self.assertEqual((r["_status"], r["error"]), (415, "bad_type"))
-        # 深すぎる JSON(読むと RecursionError)は「JSON として読めない」(0.60.1 から。本文の読み方を ytt_core.httpsec.read_json_body にした。
+        # 深すぎる JSON(読むと RecursionError)は「JSON として読めない」(0.60.1 から。本文の読み方を ytt.httpsec.read_json_body にした。
         # 以前は想定外の例外として 500 internal だった。想定外の例外の 500 は TestSafe で確かめる)
         deep = b'{"a":' + b"[" * 100000 + b"]" * 100000 + b"}"
         r = self.call("PUT", "/api/settings", deep)
@@ -939,7 +939,7 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual(self.call("PUT", "/api/settings", b"{}", headers={"Content-Type": "application/json; charset=utf-8"}), {"ok": True})
 
     def test_media_range_head_and_416(self):
-        """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt_core.httpsec.send_file(0.60.1。スタジオと同じ 1 か所)"""
+        """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt.httpsec.send_file(0.60.1。スタジオと同じ 1 か所)"""
         tid = self.call("POST", "/api/open-video", {"path": self.wav})["id"]
         with open(self.wav, "rb") as f:
             body = f.read()
@@ -1045,7 +1045,7 @@ class TestRuntimeCleanup(unittest.TestCase):
 
 
 class TestHeavyJobLimit(unittest.TestCase):
-    """文字起こしのジョブも、他のツールの重い処理と順番を待つ(ytt_core.jobs)。待っている間に取り消せる"""
+    """文字起こしのジョブも、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間に取り消せる"""
 
     def setUp(self):
         from ytt_core import jobs

@@ -10,7 +10,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 旧い名前 ed_jobs.名前 は editor/ed_jobs.py(転送だけの殻。RS5 で消す)がここと移した先へ回す。名前は serve.py からも見える
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
-評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
+評価用のフォルダ(manage の relink・eval の folders)と評価用の作り直し(eval の evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
 2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
 後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
 """
@@ -37,7 +37,7 @@ from . import learn  # noqa: E402   学習・提案・確度「高」の自動�
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
-# ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の evalbatch をここから読まない = ② から ③・④ を読まない) ----------
+# ---------- serve が登録する口(役割で組み直す RS2-8d。manage の relink・eval の evalbatch をここから読まない = ② から ③・④ を読まない) ----------
 # 評価用のフォルダの判定(eval_name_guard・in_eval_dir)は RS3-1 から ytt/settings を直に呼ぶたびに読む(口は 5 → 3 本)
 _HOOK_KEYS = ("redo_skip", "redo_fill", "norm_after")
 _hooks = {}
@@ -47,7 +47,7 @@ def set_hooks(**hooks):
     """編集の serve.py が読み込みのときに登録する口(どれも関数。serve は呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。
     redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(evalbatch.eb_redo_skip_at_start。run_job)
     redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。evalbatch.eb_redo_fill。run_job)
-    norm_after(job, spec, tid) -> None: 文字起こしのあとの 30fps の作り直しと付け替え(ed_relink.norm_after_transcribe。run_job)
+    norm_after(job, spec, tid) -> None: 文字起こしのあとの 30fps の作り直しと付け替え(manage/cases/relink.py の norm_after_transcribe。run_job)
     知らない鍵・関数でない値は TypeError"""
     bad = sorted(k for k in hooks if k not in _HOOK_KEYS)
     if bad:
@@ -180,7 +180,7 @@ def public_job(j):
         out["warnings"].append(j["voiceError"])
     out["warnings"] += [w for w in (j.get("warnings") or []) if w not in out["warnings"]]   # ジョブの中で足した注意(以前は画面に届いていなかった)
     out["vadNote"] = j.get("vadNote") or ""          # 声の検出を緩めてやり直した(4-2)
-    out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。ed_relink.norm_run)
+    out["normNote"] = j.get("normNote") or ""        # 30fps にそろえた・そろえられなかった理由(Q1。manage/cases/relink.py の norm_run)
     out["normOk"] = bool(j.get("normOk"))
     out["kept"], out["emptyKept"], out["loose"] = j.get("kept", 0), j.get("emptyKept", 0), j.get("loose", 0)   # 全体の再認識で残した行(3-4)
     return out

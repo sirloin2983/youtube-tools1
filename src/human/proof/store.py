@@ -54,7 +54,7 @@ def backup_doc(tid, kind):
 # 色を単独の値で持たず「字幕の見た目」のまとまりの 1 項目にする(あとでフォント・大きさなどを足しても形を変えない)。
 # 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形を確かめ、知らない鍵・形の違う値は黙って捨てる(画面・Lua に入るので必ずここを通す)
 def _sub_color(v):
-    """字幕の文字の色: 16 進 6 桁(# はあってもなくても)→ "#RRGGBB"(大文字)。違えば None(規則は ytt_core.colors.norm_hex の 1 か所。文字列だけ)"""
+    """字幕の文字の色: 16 進 6 桁(# はあってもなくても)→ "#RRGGBB"(大文字)。違えば None(規則は ytt.colors.norm_hex の 1 か所。文字列だけ)"""
     from ytt import colors as _colors
     return _colors.norm_hex(v) if isinstance(v, str) else None
 

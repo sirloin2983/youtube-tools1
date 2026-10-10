@@ -31,11 +31,11 @@ from pipeline.analyze import analyze  # noqa: E402
 from pipeline.export import exporter, manifest as _manifest  # noqa: E402
 from pipeline.ingest import sources as _src  # noqa: E402
 from pipeline.ingest.sources import MEDIA_EXT, VID_RE  # noqa: E402  差し替えない定数
-from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (common が ytt_core を読めるようにしてある)
+from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (common が ytt を読めるようにしてある)
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関数
 
-APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
+APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 SERVER_VERSION = "0.26.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 _manifest.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
@@ -97,7 +97,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = APP_ID
     timeout = SOCKET_TIMEOUT
 
-    # 安全検査の規則は ytt_core.httpsec に1か所(スタジオ・文字起こし・入口で共通)
+    # 安全検査の規則は ytt.httpsec に1か所(スタジオ・文字起こし・入口で共通)
     def _host_ok(self):          # DNS rebinding 対策
         return httpsec.host_ok(self.headers, ALLOWED_HOSTS)
 
@@ -115,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
         return httpsec.navigation_ok(self.headers, path)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt_core の 1 か所(動画の _media も同じ send_head)
+        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(動画の _media も同じ send_head)
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
@@ -224,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
         ext = os.path.splitext(real)[1].lower()
         if not real or ext not in MEDIA_EXT or not os.path.isfile(real):
             return self._send(404, b"not found")
-        httpsec.send_file(self, real, MEDIA_TYPES.get(ext, "application/octet-stream"))   # Range・416・HEAD・送信中の切断は ytt_core の 1 か所
+        httpsec.send_file(self, real, MEDIA_TYPES.get(ext, "application/octet-stream"))   # Range・416・HEAD・送信中の切断は ytt の 1 か所
 
     # ---------- POST / PUT ----------
     def _write_guard(self):
@@ -427,7 +427,7 @@ StudioServer = httpsec.ExclusiveServer   # 使用中のポートに bind しな�
 
 
 def probe(port):
-    """そのポートで動いているスタジオの版(スタジオでなければ None)。問い合わせは ytt_core.runtime.ping(127.0.0.1 に固定・プロキシを通さない)"""
+    """そのポートで動いているスタジオの版(スタジオでなければ None)。問い合わせは ytt.runtime.ping(127.0.0.1 に固定・プロキシを通さない)"""
     r = ytt_runtime.ping(port, 1)
     return r["version"] if r and r["app"] == APP_ID else None
 
@@ -513,14 +513,14 @@ def _setup_diagnostics():
     atexit.register(lambda: _log("プロセス終了"))
 
 
-# 以前の場所(このフォルダ)から新しい置き場へ写す名前(段階4。ytt_core.datadir)。ログ・作業用の work は写さない
+# 以前の場所(このフォルダ)から新しい置き場へ写す名前(段階4。ytt.datadir)。ログ・作業用の work は写さない
 DATA_ITEMS = ("data.json", "data.json.bak", "feedback.jsonl", "feedback.jsonl.old", "registry.json", "config.json",
               "settings.json", "settings-ui.json", "cache", "archive")
 DATA_STATE = None   # 起動時の datadir.prepare の結果(画面・入口に置き場所を出す用)
 
 
 def _data_home():
-    """データの置き場所。規則は ytt_core.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定。写さない)。
+    """データの置き場所。規則は ytt.datadir の1か所: 環境変数 STUDIO_HOME があればそれ(テスト用・以前からの指定。写さない)。
     無ければ %LOCALAPPDATA%\\youtube-tools\\studio(最初の起動で、このフォルダにある以前のデータをコピーする)。
     決めた場所は datadir.prepare が登録する(入口の中の案件・「編集」が datadir.resolve で同じ場所を読む)"""
     global DATA_STATE

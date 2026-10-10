@@ -9,7 +9,7 @@
     配信が終わったら測り直す / チャットなしでも動く / 人の決定(decisions.json)を帳簿に当てる / 配信が終わったら締める
   - チャット: 偽の yt-dlp(fake_ytdlp_chat.py。本物のプロセス)で 読む・止まったら起動し直す・間隔・403 は最大の間隔から・64MB(小さくして)で回す・
     1 時間に何回もなら諦める・最初から「チャットが無い」
-  - 本物の ffmpeg: 音を測る関数が src/studio/analyze.py の audio_levels と同じ値(±0.1 dB)・hls_fixture の 1 秒セグメントを偽の録画元(HTTP。合言葉と Host)から測る
+  - 本物の ffmpeg: 音を測る関数が src/pipeline/analyze/analyze.py の audio_levels と同じ値(±0.1 dB)・hls_fixture の 1 秒セグメントを偽の録画元(HTTP。合言葉と Host)から測る
   - 入口: GET /live/api/peaks(since の差分・series・重ねた決定・無い録画・形の悪い id)/ POST adopt(Live.adopt を通り、マークと decisions.json)・dismiss・restore /
     「調子」の detect の行と失敗(kind detect)/ ワーカーの起動・心拍が止まったら起動し直す・止める / 設定 detect・autoAdopt の検査
   - M11: 確定から waitMin 後に 1 回だけ採用(origin auto・after auto・live_feedback の human false)・見送り・控えは採用しない・スタジオ不通は 5 回で諦めて失敗の文
@@ -39,7 +39,7 @@ import unittest
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
@@ -1773,8 +1773,8 @@ class WorkerRestTest(unittest.TestCase):
 
 class SameAsExportTest(unittest.TestCase):
     """ワーカー(live_excite_worker。別のプロセス)と入口の live_export が、録画元との約束(id の形・時刻の書き方・動画の id)に
-    同じ物(ytt_core/recproto.py)を使う(以前は写しを持っていて、値の一致をここで確かめていた。docs/design/code-review-simplify-2026-10-08.md の
-    4 節の 7・T8)。値そのものの検査は src/ytt_core/tests/test_ytt_core.py の RecprotoTest"""
+    同じ物(ytt/recproto.py)を使う(以前は写しを持っていて、値の一致をここで確かめていた。docs/design/code-review-simplify-2026-10-08.md の
+    4 節の 7・T8)。値そのものの検査は src/ytt/tests/test_ytt_core.py の RecprotoTest"""
 
     def test_same_objects(self):
         from ytt_core import recproto

@@ -23,7 +23,7 @@
   採用・書き出しの status があるのに行も実行記録も無いものは「記録なし」として別に数える(--status-fallback を付けると人の判定として数える)
 - 指標(全体・配信の種類ごと・配信ごと):
     上位 N(5・10・20・全部)の採用率 = 良い ÷ 判定済み(判定なしは分母に入れず、数を別に出す。参考として 良い ÷ N 件 の採用率(全体)も出す)
-    書き出し率 = 書き出した ÷ 良い / パックになった率 = パックがある ÷ 書き出した(ytt_core.txindex.pack_info)/ 友人に届けた率 = 届けた ÷ 書き出した(入口の実行記録の deliver の段)
+    書き出し率 = 書き出した ÷ 良い / パックになった率 = パックがある ÷ 書き出した(manage.cases.txindex.pack_info)/ 友人に届けた率 = 届けた ÷ 書き出した(入口の実行記録の deliver の段)
     手で足したマーク(manual_add = 見逃し)= 数・割合(手で足した ÷ (手で足した + 良い自動マーク))・近くの自動マークの点数と距離の分布
     区間の端のずれ = 良い自動マークの dStart・dEnd(人が直した量。秒)の分布と、0.5 秒以上直した率 / 採用の取り消しの数
 - 友人が時刻で指定した区間(結果の `friendRanges`・表示の最後の節): 友人が依頼で入れた区間は「自動の候補を見ずに人が選んだ見どころ」で、
@@ -43,7 +43,7 @@
   線 D の録画(live/live_feedback.jsonl の人の「届けた」「要らない」)と、友人の返事(logs/friend_feedback.jsonl。配信は videoId → 実行記録の runId →
   切り抜きのフォルダの順にたどる)。採用率・見逃しなどの指標には混ぜない(友人が採る基準は送る基準と別 = 10-08 ユーザー決定)。入口の「調子」の
   「採用の記録 配信 10 本」は judgedAll を読む(src/eval/drill/accuracy.py の summarize_marks)
-- --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/home/live_report.py が録画中に書き、
+- --live(線 D の D-12。L5 の土台): 入口の配信ごとの記録(入口の作業データ live/reports/<録画元>__<録画>.json。src/pipeline/live_report.py が録画中に書き、
   終わったら締める)と採用の記録(live/live_feedback.jsonl)を読んで、録画ごとに 候補(枠・控え・見送り)・採用(自動・人)・人の判定(届けた = 良い /
   要らない = 悪い。自動の採用だけ)・配信中の候補とアーカイブの候補の重なり(detect_compare の行 = 配信後の全自動 M7 が書く)・ワーカーの遅れとメモリの最大・
   配信中の文字起こしの成否・書き出しの待ち・空き を並べる。時期は記録の startedAt(行は at)で絞る。録画が 5 本未満なら「まだ少ない(参考)」。
@@ -72,7 +72,7 @@ from pipeline.analyze import excite  # noqa: E402
 SCHEMA = "youtube-tools-marks-eval/v1"
 TOPS = (5, 10, 20)
 FEW_VIDEOS = 10          # これより少ない配信数のときは「まだ少ない(参考)」
-TOL = 0.6                # 同じ区間とみなす秒(src/studio/store.py の DUP_TOL 0.5 に少し余裕)
+TOL = 0.6                # 同じ区間とみなす秒(src/human/review/store.py の DUP_TOL 0.5 に少し余裕)
 EDIT_SEC = 0.5           # これ以上端を動かしたら「直した」
 NEAR_SEC = 15.0          # 手で足したマークの近くに自動マークがあったとみなす距離(秒)
 MAX_JSONL_BYTES = 256 * 1024 * 1024
@@ -83,7 +83,7 @@ FRIEND_FEW_VIDEOS = 5    # 配信がこれより少ないときは「まだ少�
 HIT_OVERLAP = 0.5        # friendRanges の当たり: 候補の真ん中が区間の中、または重なりが候補の長さのこの割合以上
 FRIEND_PAD = 2.0         # 依頼で自動で足される前後の余白(src/pipeline/spec.py の RANGE_PAD と同じ値。出どころ 2 で引く)
 FRIEND_SHORT, FRIEND_LONG = 30.0, 120.0   # 区間の長さの区切り(30 秒未満 / 30〜120 秒 / 120 秒以上)。端のずれは 120 秒未満の区間だけ
-PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/ytt_core/excite.py)
+PART_ON = excite.PART_ON              # 点数の内訳が「効いた」とみなす値(候補の理由の付け方と同じ 1 か所 = src/pipeline/analyze/excite.py)
 DEFAULT_PRE = excite.PRE_RATIO_DEFAULT   # clipLength: 山の位置の既定(解析の記録に preRatio が無いとき)
 CL_OUTLIER_MIN, CL_OUTLIER_MAX = 5.0, 600.0   # 人が選んだ区間の長さの外れ値(この外は数だけ別に出して、目安に入れない)
 CL_LENGTH_MIN, CL_LENGTH_MAX = 10, 120        # 目安の長さの範囲(スタジオの解析の設定 length の範囲)
@@ -115,7 +115,7 @@ def read_jsonl(path):
 
 
 def locate(data_dir=None):
-    """-> (env, studio のフォルダ, 入口(app)のフォルダ)。置き場所の規則は ytt_core.datadir の1か所。
+    """-> (env, studio のフォルダ, 入口(app)のフォルダ)。置き場所の規則は ytt.datadir の1か所。
     data_dir を渡したとき(テスト)は、そこを全ツールの作業データの親フォルダとして使う(cut2resolve の packs も同じ親の下)"""
     return C.data_env(data_dir), C.locate("studio", data_dir), C.locate("app", data_dir)
 
@@ -847,7 +847,7 @@ LIVE_FEW = 5             # 録画がこれより少ないときは「まだ少�
 LIVE_DIR = "live"
 REPORTS_DIR = "reports"
 LIVE_FEEDBACK = "live_feedback.jsonl"
-FRIEND_FEEDBACK = "friend_feedback.jsonl"   # 入口の logs/ の友人の「要らない」(src/home/friend_feedback.py の FEEDBACK_LOG)
+FRIEND_FEEDBACK = "friend_feedback.jsonl"   # 入口の logs/ の友人の「要らない」(src/human/friend/friend_feedback.py の FEEDBACK_LOG)
 
 
 def folder_videos(dvideos):
@@ -908,7 +908,7 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
 
 
 def _live_period_ok(iso_at, since_ms, until_ms):
-    """入口の記録の時刻(UTC の ISO。末尾 Z。src/home/live_export.py の now_iso)が時期の中か(分からなければ入れる)"""
+    """入口の記録の時刻(UTC の ISO。末尾 Z。src/pipeline/export/live_export.py の now_iso)が時期の中か(分からなければ入れる)"""
     t = None
     s = str(iso_at or "")
     if s.endswith("Z"):
@@ -922,7 +922,7 @@ def _live_period_ok(iso_at, since_ms, until_ms):
 
 
 def _live_row(d):
-    """配信ごとの記録 1 件(src/home/live_report.py の形)-> 表の 1 行の土台"""
+    """配信ごとの記録 1 件(src/pipeline/live_report.py の形)-> 表の 1 行の土台"""
     s, dt, tx, ex, info = d.get("samples") or {}, d.get("detect") or {}, d.get("tx") or {}, d.get("exports") or {}, d.get("info") or {}
     return {"recorder": d.get("recorder"), "recording": d.get("recording"), "title": info.get("title") or "", "hours": info.get("hours"),
             "state": d.get("state"), "startedAt": d.get("startedAt"), "request": bool(d.get("request")),

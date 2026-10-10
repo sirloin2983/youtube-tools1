@@ -367,7 +367,7 @@ class JoinRowsTest(unittest.TestCase):
         spec = {"engine": "whisper.cpp", "model": "large-v3", "beam": 5, "vadMode": "weak", "language": "ja", "glossary": []}
         with mock.patch.object(S, "prompt_terms", lambda s: []), mock.patch.object(S, "dict_version", lambda s: {}):
             run = S.recognition_run(spec, {"device": "vulkan"}, 40.0, 7.0)
-        self.assertEqual(run["post"], post)                                                  # recognition.runs[].post(dev/eval_timing.py が版ごとに分ける)
+        self.assertEqual(run["post"], post)                                                  # recognition.runs[].post(src/eval/tools/eval_timing.py が版ごとに分ける)
         self.assertNotIn("retimed", run)                                                     # 1 秒丸めの配り直しの記録も 0.65.0 から書かない
         doc = {"original": []}
         with mock.patch.object(S, "dict_version", lambda s: {}):

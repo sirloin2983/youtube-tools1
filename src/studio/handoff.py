@@ -4,7 +4,7 @@
 中身は共通部品 ytt(runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。
 切り抜き 1 本の素性(.clip.json)の組み立てと書き込みは RS3-5 で pipeline/export/manifest.py へ割った(書き出しが読む側)。
 """
-import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt_core.runtime も同じモジュールを使う)
+import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt.runtime も同じモジュールを使う)
 
 from ytt import runtime, studio_env as _env
 

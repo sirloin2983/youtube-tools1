@@ -17,7 +17,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 from e2e_edit_common import Checks, Server, make_video, open_doc, wait_js  # noqa: E402
 from ytt_core import layout as _layout  # noqa: E402  (e2e_edit_common がリポジトリ直下を sys.path に足している)
 from playwright.sync_api import sync_playwright  # noqa: E402

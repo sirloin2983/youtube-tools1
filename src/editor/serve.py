@@ -81,7 +81,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォ�
 
 
 def _load_core():
-    """共通部品 ytt_core(リポジトリ直下。統合計画の段階2)を読み込めるようにする。
+    """共通部品 ytt(リポジトリ直下。統合計画の段階2)を読み込めるようにする。
     探す場所: 環境変数 YTT_CORE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。sys.path の末尾に足す(隣の部品を隠さないため)。"""
     here = os.path.dirname(os.path.abspath(__file__))
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(here)):
@@ -131,7 +131,7 @@ from eval.drill import drill as _drill  # noqa: E402  (評価ドリルと定点�
 from eval.drill import evalbatch as _evalbatch  # noqa: E402  (評価用の動画のまとめての文字起こし。マスタープラン Q4。RS4-2 に ed_evalbatch から移した = 殻なし)
 
 
-APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
+APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 SERVER_VERSION = "0.69.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ytt/workdata の SERVER_VERSION で読む)
 ed_state.APP_ID = APP_ID
 _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から持ち主は ytt/workdata)
@@ -139,7 +139,7 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から�
 
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
-# (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
+# (テスト・認識ワーカー・src/eval/tools/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
 _ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _batch, _drill, _evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
 _ED_MODULES += (_txretime, _proofretime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は包みより前)・文書を読む包みが human/proof/retime(RS3-E6。殻の ed_retime は並べない)
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
@@ -376,7 +376,7 @@ class Handler(BaseHTTPRequestHandler):
         self._responded = True
         super().send_response(code, message)
 
-    # 安全検査の規則は ytt_core.httpsec に1か所(スタジオ・文字起こし・入口で共通)
+    # 安全検査の規則は ytt.httpsec に1か所(スタジオ・文字起こし・入口で共通)
     def _host_ok(self):
         return httpsec.host_ok(self.headers, ed_state.ALLOWED_HOSTS)
 
@@ -395,7 +395,7 @@ class Handler(BaseHTTPRequestHandler):
         return httpsec.navigation_ok(self.headers, path)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt_core の 1 か所(スタジオ・入口と同じ)
+        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(スタジオ・入口と同じ)
 
     def _send_path(self, path, ctype, extra=None):
         with open(path, "rb") as f:
@@ -418,7 +418,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json(code, {"error": error, "message": message})
 
     def _read_json(self):
-        """書き込み系の要求の本文(JSON のオブジェクト)。だめなら理由を返して None(読み方は ytt_core.httpsec.read_json_body。
+        """書き込み系の要求の本文(JSON のオブジェクト)。だめなら理由を返して None(読み方は ytt.httpsec.read_json_body。
         NaN / Infinity は受け付けない = 保存すると画面の JSON.parse が壊れる)。途中で切れた接続(read)には応答しない"""
         try:
             return httpsec.read_json_body(self, ed_state.MAX_BODY)
@@ -518,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
             path = _tools.check_source(d.get("sourcePath"))
         except ed_state.ApiError:
             return self._fail(404, "source_missing", "元の動画・音声が見つかりません(移動・削除した可能性があります)")
-        return httpsec.send_file(self, path, _tools.MEDIA_TYPES[os.path.splitext(path)[1].lower()])   # Range(シーク)・HEAD・416 は ytt_core の 1 か所
+        return httpsec.send_file(self, path, _tools.MEDIA_TYPES[os.path.splitext(path)[1].lower()])   # Range(シーク)・HEAD・416 は ytt の 1 か所
 
     def _post(self):
         if not self._guard(True):
@@ -543,7 +543,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
         tmp_dir = None
         try:
-            try:   # 配信者の名前 → 字幕の文字の色(ytt_core/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
+            try:   # 配信者の名前 → 字幕の文字の色(ytt/colors.py。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
                 from ytt import colors as _colors
                 who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
             except ValueError as e:
@@ -625,7 +625,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def probe(port):
-    """そのポートで動いている文字起こしツールの版(このツールでなければ None)。問い合わせは ytt_core.runtime.ping(プロキシを通さない)。"""
+    """そのポートで動いている文字起こしツールの版(このツールでなければ None)。問い合わせは ytt.runtime.ping(プロキシを通さない)。"""
     r = _runtime.ping(port, 1)
     return r["version"] if r and r["app"] == ed_state.APP_ID else None
 
@@ -703,11 +703,11 @@ def set_data_dir(d):
     ed_state.RUN_MARK = os.path.join(_workdata.DATA_DIR, ".running.json")
     _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")   # (判別のモデル models/diar と覚えた声 voices の置き場所は、話者の部品が呼ぶたびに ytt/workdata の DATA_DIR から作る。RS2-9)
     os.environ["TRANSCRIBE_DATA_DIR"] = _workdata.DATA_DIR
-    _datadir.register(ed_state.TOOL_ID, _workdata.DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt_core.datadir の1か所。2026-10-01)
+    _datadir.register(ed_state.TOOL_ID, _workdata.DATA_DIR)   # 同じプロセスの他のツール(入口の案件・txindex)が datadir.resolve で同じ場所を読む(置き場所の規則は ytt.datadir の1か所。2026-10-01)
 
 
 def studio_data_path():
-    """切り抜きスタジオの data.json(読むだけ)。置き場所の規則は ytt_core.datadir.resolve の1か所(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場)。
+    """切り抜きスタジオの data.json(読むだけ)。置き場所の規則は ytt.datadir.resolve の1か所(起動したスタジオが登録した場所 → STUDIO_HOME → 新しい置き場)。
     決めた場所に無く、登録も STUDIO_HOME も無ければ以前の場所(スタジオのフォルダ。移す前のデータ)"""
     if os.environ.get("TRANSCRIBE_STUDIO_DATA"):
         return os.environ["TRANSCRIBE_STUDIO_DATA"]
@@ -717,7 +717,7 @@ def studio_data_path():
 
 
 def choose_data_dir():
-    """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt_core.datadir(以前のデータがあれば新しい置き場へコピー)"""
+    """起動時: 環境変数 TRANSCRIBE_DATA_DIR があればそれ。無ければ ytt.datadir(以前のデータがあれば新しい置き場へコピー)"""
     _workdata.STUDIO_DATA = studio_data_path()
     if os.environ.get("TRANSCRIBE_DATA_DIR"):
         set_data_dir(os.environ["TRANSCRIBE_DATA_DIR"])

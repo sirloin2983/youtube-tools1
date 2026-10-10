@@ -24,7 +24,7 @@ import time
 import unittest
 from unittest import mock
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # src/pipeline/ingest(recorder.py のある所)
@@ -706,7 +706,7 @@ class TestHttp(unittest.TestCase):
             c.close()
 
     def test_1b_body_errors(self):
-        """書き込みの本文の読み方は ytt_core.httpsec.read_json_body(0.3.3)。断る理由ごとの状態とコードは今までどおり"""
+        """書き込みの本文の読み方は ytt.httpsec.read_json_body(0.3.3)。断る理由ごとの状態とコードは今までどおり"""
         self.assertEqual(self._post_raw(b"{}", "text/plain"), (415, "content_type"))
         self.assertEqual(self._post_raw(b"[1]"), (400, "json"))                               # オブジェクトでない
         self.assertEqual(self._post_raw(b"{x"), (400, "json"))

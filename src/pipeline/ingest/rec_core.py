@@ -17,7 +17,7 @@
 起動時の復旧(recover): 書きかけ(*.tmp)を消す → 読めない再生リストは「使えないセッション」→ 録画中だった物は前のセッションを
 「中断」にして、新しいセッションで録画を続ける。
 
-重い処理の同時実行の上限(ytt_core/jobs.py の SLOTS)は通さない: 録画は作り直さない写し(-c copy。CPU 数%)で軽く、
+重い処理の同時実行の上限(ytt/jobs.py の SLOTS)は通さない: 録画は作り直さない写し(-c copy。CPU 数%)で軽く、
 配信中は順番待ちで止められない(待つと欠ける)ため。代わりに録画のプロセスの優先度を「通常より上」にする(計画の 0-3)。
 """
 import contextlib
@@ -43,7 +43,7 @@ from ytt import fsio, recproto, tools as ytools  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
 DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(2026-10-04 ユーザー決定。ホームの設定で変えられる)
-# 録画の id・セッション・セグメントの形と時刻の書き方は ytt_core/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
+# 録画の id・セッション・セグメントの形と時刻の書き方は ytt/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
 REC_ID_RE, SESSION_RE, SEG_RE = recproto.REC_ID_RE, recproto.SESSION_RE, recproto.SEG_RE
 ACTIVE = ("waiting", "recording", "reconnecting")   # ほかの状態: stopped(手で止めた)・ended(配信が終わった)・error
 QUALITIES = {"best": "best", "1080p": "1080p60,1080p,best", "720p": "720p60,720p,best"}   # streamlink の画質(左から順に試す)

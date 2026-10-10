@@ -4,7 +4,7 @@
 紐づけは、各ツールが持っているデータを**読むたびに組み立て直す**(各ツールの記録と食い違わないように。2026-09-26 ユーザーと決定):
   - 切り抜き … スタジオの data.json の「書き出し済み」のマーク(書き出した mp4 の絶対パスを持つ)
   - 文字起こし … 文字起こしツールの transcripts/*.json(元の動画のパスが切り抜きと同じ。無ければ .clip.json の配信・マークが同じ。
-                規則は src/ytt_core/txindex.py にあり、スタジオのセリフの表示と共通)
+                規則は src/manage/cases/txindex.py にあり、スタジオのセリフの表示と共通)
   - パック … 切り抜きの隣の <名前>_pack フォルダ(cut2resolve の既定の出力先)
 案件ファイル(<作業データ>\\app\\cases.json)に持つのは、人が付ける状態・メモと、最後に見えた紐づけ(元のファイルを消しても履歴が残るように)。
 各ツールのデータは読むだけで、書き換えない。
@@ -29,9 +29,9 @@
     mark.score → スタジオのマークの score の順(今は書き手が無いことが多い。無ければ None = 画面に出さない)。
     bench = 1 時間の枠から外れた候補(「控え」。M13: 書き出し済みなら取り消さない。ワーカーが付けたら出すだけ)
   - clip["review"] = {seenAt, deliveredAt, delivered, failure, unconfirmed}: 人が見たか・届けたか(案件ファイルの auto)・失敗の文
-    (M3。src/home/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の書き出しのジョブをスタジオのマークで引く。読むだけ)。
+    (M3。src/pipeline/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の書き出しのジョブをスタジオのマークで引く。読むだけ)。
     unconfirmed = 見ても・届けてもいない(「自動の切り抜き: 未確認 n 件」の数)。案件の autoClips {total, unconfirmed}・一覧全体の auto も同じ数
-  - 操作は auto_review(POST /api/cases/auto): seen = 見た / deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/home/deliver.py。
+  - 操作は auto_review(POST /api/cases/auto): seen = 見た / deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/human/friend/deliver.py。
     全自動では届けない = 10-06 ユーザー決定)/ discard = 要らない = パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。
     片付けの TRASH_DAYS で起動時に消える)+ スタジオのマークを不採用に + live_feedback.jsonl に誤検出の記録 + その文字起こしを一覧で非表示に(データは消さない)
   - 案件ファイルには cases[配信]["auto"][スタジオのマーク] = {seenAt, deliveredAt, delivered, discardedAt, tx} を持つ(要らないにした文字起こし tx は
@@ -58,12 +58,12 @@ _lock = threading.Lock()
 # 次にやることの順(仕掛かりを先に終わらせる)と、作業の名前。ホームの「次にやること」(portal.js)も build() の todoOrder でこの順を使う(正はここ 1 か所)
 TODO_ORDER = ("proof", "pack", "transcribe", "export", "review")
 TODO_LABEL = {"proof": "校正", "pack": "パックを作る", "transcribe": "文字起こし", "export": "書き出し", "review": "候補の確認"}
-# 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/home/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
+# 自動でできた切り抜き(線 D の M9)。.clip.json の source.live.origin(src/pipeline/export/live_export.py の ORIGINS の auto・archive)→ 画面に出す出どころ
 AUTO_ORIGINS = {"auto": "配信中の候補", "archive": "配信後の解析"}
 AUTO_OPS = ("seen", "deliver", "discard")
 AUTO_KEEP = 2000                   # 案件 1 件で覚えておく確認の数(古いものから捨てる)
 DISCARD_KIND = "discard"           # ごみ箱/<日付>/ の下の種類の名前(片付けの export・work などと並ぶ)
-MARK_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # スタジオのマークの id(src/studio/store.py の ID_RE と同じ形)
+MARK_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)   # スタジオのマークの id(src/human/review/store.py の ID_RE と同じ形)
 STUDIO_TRIES = 3                   # スタジオの保存とぶつかったときに読み直す回数(src/home/live.py の採用と同じ)
 _busy, _busy_lock = set(), threading.Lock()   # 「要らない」の途中の (配信, マーク)(二度押し・窓を 2 つ並べたときに同じものを二重に動かさない)
 _readers = {}                      # まとめて実行の記録のパス → live_failures.Reader(変わったときだけ読み直す)
@@ -78,7 +78,7 @@ def _read_json(path, limit=MAX_JSON):
 
 def locations(repo_root, env=None):
     """{"studio": data.json, "transcripts": フォルダ, "cases": cases.json, "liveJobs": 線 D の書き出しのジョブ, "runs": まとめて実行の記録}。
-    置き場所の規則は ytt_core.datadir.resolve の1か所
+    置き場所の規則は ytt.datadir.resolve の1か所
     (起動したツールが登録した場所 → STUDIO_HOME などの環境変数 → YTT_DATA_DIR・既定の場所。env を渡したときは登録を見ない)"""
     app = datadir.resolve("app", repo_root, env)
     return {"studio": os.path.join(datadir.resolve("studio", repo_root, env), "data.json"), "transcripts": txindex.folder(repo_root, env),
@@ -95,13 +95,13 @@ def read_studio(path):
 
 
 def read_transcripts(folder):
-    """文字起こしの一覧(ytt_core.txindex。スタジオのセリフの表示と同じ読み方・紐づけの規則)"""
+    """文字起こしの一覧(manage.cases.txindex。スタジオのセリフの表示と同じ読み方・紐づけの規則)"""
     return txindex.load(folder)
 
 
 def find_pack(media_path):
     """切り抜きの隣の <名前>_pack(cut2resolve の既定の出力先)。-> {"dir", "textplus", "updatedAt"} か None。
-    規則は src/ytt_core/txindex.pack_info の1か所(文字起こしの一覧と同じ判定)"""
+    規則は src/manage/cases/txindex.pack_info の1か所(文字起こしの一覧と同じ判定)"""
     return txindex.pack_info(media_path)
 
 
@@ -164,7 +164,7 @@ def _case_extras(c):
 # ---------------------------------------------------------------- 自動でできた切り抜き(線 D の M9)
 
 def clip_live(media_path):
-    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/home/live_export.py の _finish が書く。source.kind は live)。
+    """切り抜きの .clip.json の (source.live, mark)(線 D の書き出し = src/pipeline/export/live_export.py の _finish が書く。source.kind は live)。
     無い・読めない・ライブでない・ネットワーク上のパスなら (None, None)。まとめて実行の M8(src/home/autorun.py の live_auto_origin)も同じ読み方"""
     if not isinstance(media_path, str) or not media_path or fsio.is_network_path(media_path):   # ネットワーク上のパスには触らない(資格情報を送らない。txindex と同じ)
         return None, None
@@ -573,7 +573,7 @@ def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
     """切り抜き 1 本ぶん(動画・パック・途中のファイル)を ごみ箱フォルダ へ移し、スタジオのマークを不採用に(画面と同じ PUT /api/video)。
     マークを不採用にできなければ移したものを元に戻す(パックだけ消えてマークが残る、を作らない)。mark_id が空(スタジオのマークが無い
     = 友人の動画の依頼のパック)なら移すだけ。-> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
-    M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/home/friend_feedback.py)は mark_id を空で呼んでマークを変えない
+    M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/human/friend/friend_feedback.py)は mark_id を空で呼んでマークを変えない
     (友人の採用の基準はこちらの送る基準と別。2026-10-08 ユーザー決定)"""
     pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
     moved, where = _to_trash(trash, media, pack)

@@ -5,10 +5,10 @@
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と <id>.diar.json・<id>.alt.json の有無)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals\\effort\\<日時>.json(schema youtube-tools-effort-eval/v1)に残す(置き場所は eval_asr.py(evals\\asr)・eval_speakers.py と同じ「ツールの作業データの下の evals\\<領域>」)。
-- 読むもの: 文書の effort = {activeSec, cutSec, sessions, proofedRows, unproofedRows, lastAt}(src/editor/ed_store.py の add_effort・effort_rows。画面は app-learn.js の effortTick)・
+- 読むもの: 文書の effort = {activeSec, cutSec, sessions, proofedRows, unproofedRows, lastAt}(src/human/proof/store.py の add_effort・effort_rows。画面は app-learn.js の effortTick)・
   segments(人の最終)・original(機械の出力)・recognition.runs・evalSet・evalReviewed・clip。<id>.diar.json の latest.rows[行 id].speaker(機械が付けた話者)。
   effort の無い文書・時間が 0 の文書・長さが分からない文書は飛ばす(数は skipped)。
-- 手間の倍率 = activeSec ÷ 動画の秒(「1 分の動画に何分かかったか」。×12.0 = 1 分の動画に 12 分)。動画の長さ = 文書の長さ(src/editor/ed_store.py の doc_length と同じ決まり:
+- 手間の倍率 = activeSec ÷ 動画の秒(「1 分の動画に何分かかったか」。×12.0 = 1 分の動画に 12 分)。動画の長さ = 文書の長さ(src/human/proof/store.py の doc_length と同じ決まり:
   範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わりまで)。校正の時間 = activeSec(1 文字起こし のタブ)、カットとパックの時間 = cutSec(2 カット・3 パック)。
 - 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。src/eval/drill/drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
   倍率の中央値・四分位・合計は**終わった文書だけ**で出す(途中の文書は、まだ直している途中で時間が短く出る = 倍率に入れると甘く出るので、数だけ別の欄に出す)
@@ -53,7 +53,7 @@ TIME_TOL = 0.05                # original と行の端が一致したとみな�
 GROUP_SLACK = 0.05             # 時刻が重なるまとまり(src/human/proof/learn.py の _groups と同じ)
 MAX_BYTES = C.DOC_BYTES
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
-MAX_EFFORT_SEC = 3600          # src/editor/ed_store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
+MAX_EFFORT_SEC = 3600          # src/human/proof/store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
 BUCKETS = ((0.25, "〜25%"), (0.50, "25〜50%"), (0.75, "50〜75%"), (float("inf"), "75%〜"))
 GROUPS = (("engine", "最初の認識のエンジン・モデル"), ("origin", "出どころ"), ("eval", "評価用かどうか"),
           ("via", "確かめ済みの付け方"), ("alt", "2つ目のエンジンの候補"), ("week", "週ごと(effort.lastAt)"))
@@ -66,7 +66,7 @@ EDIT_KEYS = (("text", "文字を直した行"), ("added", "人が足した行"),
 # ---------------------------------------------------------------- 1つの文書(純粋な関数)
 
 def doc_length(d):
-    """文書の長さ(秒)。src/editor/ed_store.py の doc_length と同じ決まり: 範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わり − 始まり"""
+    """文書の長さ(秒)。src/human/proof/store.py の doc_length と同じ決まり: 範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わり − 始まり"""
     segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
     a = num(d.get("start")) or 0.0
     b, dur = num(d.get("end")), num(d.get("duration"))
@@ -79,7 +79,7 @@ def doc_length(d):
 
 def doc_effort(doc):
     """文書の effort -> {"activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows", "lastAt"} か None(無い・形が違う)。
-    src/editor/ed_store.py の _effort_of と同じく、整数でない値は 0 として読む"""
+    src/human/proof/store.py の _effort_of と同じく、整数でない値は 0 として読む"""
     ef = doc.get("effort") if isinstance(doc, dict) else None
     if not isinstance(ef, dict):
         return None

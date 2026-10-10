@@ -9,7 +9,7 @@ live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の 
 設定(ホームの設定の節 live): liveTx {enabled(既定オン), model(既定 large-v3)}。動くのは リアルタイム切り抜きがオン・whisper.cpp(setup/build-whisper-vulkan.bat)と
 モデル(編集の作業データの models/whispercpp/)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
-認識(GPU)は重い処理の順番(ytt_core.jobs.SLOTS。tool "live-tx")を通す(D-14。10-08 決定): 書き出し・文字起こし・パックと同じ枠で順番を待つ
+認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14。10-08 決定): 書き出し・文字起こし・パックと同じ枠で順番を待つ
 (配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
 入口の見回り(Live.tick。30 秒ごと)が tick() で候補を見つけて列に入れ、裏のスレッドが 1 本ずつ処理する。
 """
@@ -48,7 +48,7 @@ class LiveTx:
     def __init__(self, live, log=None, clock=time.time, python=None, run=None, ffmpeg=None, slots=None):
         """live: src/home/live.py の Live(設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
         run(data_dir, model, wav) -> 子プロセスの結果の dict(テストは偽物に差し替える。既定 = live_tx_worker.py を子プロセスで)。ffmpeg: パス(既定は探す)。
-        slots: 重い処理の順番(既定 ytt_core.jobs.SLOTS。テストは小さな HeavySlots を渡す)"""
+        slots: 重い処理の順番(既定 ytt.jobs.SLOTS。テストは小さな HeavySlots を渡す)"""
         self.live = live
         self.log = log or (lambda m: None)
         self.clock = clock
@@ -81,7 +81,7 @@ class LiveTx:
         return {"enabled": v.get("enabled") is not False, "model": model}
 
     def data_dir(self):
-        """編集の作業データ(whisper.cpp とモデルの置き場所。ytt_core.datadir.resolve = txindex.folder と同じ決め方)"""
+        """編集の作業データ(whisper.cpp とモデルの置き場所。ytt.datadir.resolve = txindex.folder と同じ決め方)"""
         return datadir.resolve("transcribe", self.live.root)
 
     def paths(self):

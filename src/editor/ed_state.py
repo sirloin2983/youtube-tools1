@@ -18,10 +18,10 @@ from pipeline.transcribe import roster as _txroster, txbase as _txbase  # noqa: 
 from eval.fake import fake_asr as _fake_asr  # noqa: E402   (疑似の待ち fake_sleep の正。RS2-2)
 
 
-APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
+APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 # 版(SERVER_VERSION)・このフォルダ(ROOT)・作業データの置き場所(段階4。DATA_DIR・TX_DIR・TMP_DIR・EVAL_BASE・SETTINGS・FEEDBACK)・
 # スタジオと clip-marker の data.json(STUDIO_DATA・MARKER_DATA)の今の値の持ち主は ytt/workdata(RS3-0A。下の層の部品も同じ名前を直に読むため。
-# ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt_core.datadir で決めて
+# ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt.datadir で決めて
 # serve.set_data_dir() で切り替え、認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す。import した直後はこのフォルダ(テスト用)= 下の set_root
 _workdata.set_root(os.path.dirname(os.path.abspath(__file__)))
 INDEX = os.path.join(_workdata.ROOT, "index.html")
@@ -68,17 +68,17 @@ ApiError = _errors.ApiError   # 別名(正は ytt/errors.py。RS2-1a。同じク
 # ---------- ユーティリティ ----------
 def replace_retry(src, dst):
     """os.replace。Windows でウイルス対策ソフト・検索インデックスが一瞬ファイルを開いていて失敗したときは、少し待ってやり直す
-    (自動保存がたまに「保存できません」になるのを防ぐ。規則は ytt_core.fsio.replace_retry)。"""
+    (自動保存がたまに「保存できません」になるのを防ぐ。規則は ytt.fsio.replace_retry)。"""
     _fsio.replace_retry(src, dst)
 
 
 def atomic_write(path, data: bytes):
-    """一時ファイルに書き、ディスクへ確実に書き出して(fsync)から置き換える(ytt_core.fsio.atomic_write)。
+    """一時ファイルに書き、ディスクへ確実に書き出して(fsync)から置き換える(ytt.fsio.atomic_write)。
     fsync に失敗したら保存も失敗にする: 停電・強制終了のあとに「中身が空の文字起こし」が残るのを防ぐため(校正の成果を失わないことを優先)。"""
     _fsio.atomic_write(path, data, fsync_required=True)
 
 
-# 共通の小道具は ytt_core の物(2026-10-09。名前は今までどおり ed_state.名前 で呼べる = 呼ぶ側は変えない)
+# 共通の小道具は ytt の物(2026-10-09。名前は今までどおり ed_state.名前 で呼べる = 呼ぶ側は変えない)
 # (下の 4 つは写しではなく別名。lint の dup-helper には `lint: keep` で印を付けた)
 unlink_quiet = _fsio.unlink_quiet   # lint: keep 別名 = 消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)
 file_stamp = _fsio.stamp            # lint: keep 別名 = (更新日時ns, 大きさ)。無い・読めなければ None(読み直しを省くキャッシュの鍵)

@@ -33,7 +33,7 @@ import time
 import urllib.error
 import urllib.request
 
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 from unittest import mock
 
 from playwright.sync_api import sync_playwright

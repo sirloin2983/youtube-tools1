@@ -10,7 +10,7 @@
 - 人の最終 = パックの記録の cutPlan(パックにした最終)と edit.json の clips(保存したカット)のうち**新しい方**
   (パックの builtAt と edit.json の updatedAt(無ければファイルの更新時刻)を比べる。パックを作ったあとにカットを直したら、直した方が最終)。パックが無ければ clips。
   どちらを使ったかの内訳(パック / 保存したカット)を出す。
-  パックの記録は、文書の動画のパス(付け替える前のパスも)から ytt_core.txindex の規則(pack_dir・pack_key)で探す。
+  パックの記録は、文書の動画のパス(付け替える前のパスも)から manage.cases.txindex の規則(pack_dir・pack_key)で探す。
 - 区間の対応づけ: たたき台の区間と最終の区間を、重なり(0 秒より長い)でつなぎ、つながった塊ごとに見る
     1対1 … 端のずれを測る(開始・終了とも 0.5 コマ未満なら「そのまま」、超えれば「端を動かした」)
     たたき台だけの塊 = 消した区間 / 最終だけの塊 = 足した区間 / n対m(分けた・つないだ)= 形を変えた(外側の端のずれだけ測る)
@@ -38,7 +38,7 @@ from eval.tools._evalcommon import dist, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 
 SCHEMA = "youtube-tools-cut-eval/v1"
-EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/editor/ed_store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
+EDIT_SCHEMA = "youtube-tools-edit/v1"     # src/human/proof/store.py の EDIT_SCHEMA と同じ(editor は読み込まない)
 BASE_FPS = 30                              # 端のずれはまず 30fps のコマで数える(Q1: 素材は 30fps にそろえる)
 TOL_FRAMES = 0.5                           # 端のずれがこのコマ数未満なら「そのまま」(フレームの丸めと 0.001 秒の丸めの差を除く)
 BIG_FRAMES = 5                             # 「大きく動かした」とみなすコマ数
@@ -133,7 +133,7 @@ def pack_final(rec):
 
 
 def find_pack(doc, env):
-    """文書の動画のパス(付け替える前のパスも)から、パックを作った記録を探す(規則は ytt_core.txindex)。-> 記録 か None。
+    """文書の動画のパス(付け替える前のパスも)から、パックを作った記録を探す(規則は manage.cases.txindex)。-> 記録 か None。
     複数あれば builtAt が新しいもの。パックのフォルダの中身が消えていても、記録があれば最終として使う(読むだけの測定なので)"""
     if not isinstance(doc, dict):
         return None

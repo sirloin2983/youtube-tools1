@@ -12,7 +12,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, backup?, force}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
-                                  cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(ytt_core.txindex が読む。④)
+                                  cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(manage.cases.txindex が読む。④)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
                                   spec.rowEdge = 行から作るとき(preset transcript-rows・keepSource transcript)に端を広げるか(省略 = 既定・false = 広げない)
                                   output.textplusWrap = Text+ 字幕の1段の文字数(省略 = 縦 8・横 14 = 2段、0 = 改行しない)
@@ -55,7 +55,7 @@ sys.path.insert(0, CODE_DIR)
 
 
 def _load_core():
-    """共通部品 ytt_core(リポジトリ直下)を読み込めるようにする(文字起こし・スタジオの serve.py と同じ規則)。
+    """共通部品 ytt(リポジトリ直下)を読み込めるようにする(文字起こし・スタジオの serve.py と同じ規則)。
     探す場所: 環境変数 YTT_CORE_DIR(一時フォルダに写して動かすテスト用)→ このフォルダの1つ上。sys.path の末尾に足す(隣の部品を隠さないため)。"""
     for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(CODE_DIR)):
         if d and os.path.isfile(os.path.join(d, "ytt", "__init__.py")):
@@ -75,7 +75,7 @@ APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
 SERVER_VERSION = C.VERSION        # 版の正は cut2resolve_core.VERSION の1か所
 DEFAULT_PORT = 8810
-WORK_DIR = os.path.join(CODE_DIR, "work")          # 起動時に作業データの置き場所(ytt_core.datadir)の中へ切り替える(_choose_work_dir)
+WORK_DIR = os.path.join(CODE_DIR, "work")          # 起動時に作業データの置き場所(ytt.datadir)の中へ切り替える(_choose_work_dir)
 LOG_PATH = os.path.join(WORK_DIR, "serve.log")
 LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
@@ -96,7 +96,7 @@ QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
 _REQ = {f.name: f.default for f in dataclasses.fields(pack.Request)}
 DEFAULTS = {"noise": _REQ["noise"], "silenceMin": _REQ["silence_min"], "silencePad": _REQ["silence_pad"], "minLen": _REQ["min_len"],
             "recStart": _REQ["rec_start"], "reel": _REQ["reel"]}
-TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt_core.runtime が正)
+TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
 ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(home/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
@@ -128,7 +128,7 @@ def log(msg):
 
 
 # ---------------------------------------------------------------- 実行中のポートの共有(.runtime)と /api/siblings
-# 中身は ytt_core.runtime(スタジオ・文字起こし・入口と同じ1か所。2026-09-26 に cut2resolve 自身の写しをやめた)。
+# 中身は ytt.runtime(スタジオ・文字起こし・入口と同じ1か所。2026-09-26 に cut2resolve 自身の写しをやめた)。
 # ここは cut2resolve の ID・版・ログを付けるだけの薄い包み(呼び出し側・テストの名前はそのまま)
 
 def runtime_dir():
@@ -275,7 +275,7 @@ class AppState:
 
     def _run(self, job, fn, heavy=None):
         try:
-            # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt_core.jobs)
+            # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
             if job.kind == "build" or (heavy is not None and heavy()):
                 with _heavy.SLOTS.slot(TOOL_ID, "パックの作成" if job.kind == "build" else "試算(無音の検出)", cancelled=lambda: job.task.cancelled,
                                        on_wait=lambda: setattr(job, "message", _heavy.WAIT_MESSAGE)) as ok:
@@ -312,7 +312,7 @@ class AppState:
 
 def is_pack_dir(path):
     """cut2resolve が作ったパックのフォルダか(パックを作った記録があるか、以前のパックなら中の cut-plan.json が cut2resolve の書いたもの。
-    規則は ytt_core.txindex.is_pack_dir)。「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする"""
+    規則は manage.cases.txindex.is_pack_dir)。「編集」の前回のパックは、入口を起動し直したあとでも「フォルダを開く」で開けるようにする"""
     return _txi.is_pack_dir(str(path), c2r_dir=CODE_DIR)
 
 
@@ -321,7 +321,7 @@ MAX_PACK_RECORDS = 1000   # 記録がこれを超えたら、フォルダが無�
 
 def write_pack_record(res, plan, textplus, backup, color=None):
     """パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)。中身は以前パックに入れていた cut-plan.json と、フォルダ・動画・日時・中身のファイル。
-    「パック済み」「前回のパックのフォルダを開く・手順書を読む」はこれを見る(ytt_core.txindex)。隠しファイルにしてパックに置かないのは、
+    「パック済み」「前回のパックのフォルダを開く・手順書を読む」はこれを見る(manage.cases.txindex)。隠しファイルにしてパックに置かないのは、
     Windows で上書きに失敗することがあるため(ユーザー決定 2026-09-26)。書けなくてもパックはできているので、呼び出し側は注意を出すだけ"""
     out_dir = Path(res["out_dir"])
     d = _txi.packs_dir(c2r_dir=CODE_DIR)
@@ -493,7 +493,7 @@ def keeps_from_spec(v):
 
 
 def speaker_color_map(plan):
-    """文字起こしの話者の名前 -> メンバーカラー(A-2)。名前が1人に決まる話者だけ(規則は ytt_core/colors.py の lookup)。
+    """文字起こしの話者の名前 -> メンバーカラー(A-2)。名前が1人に決まる話者だけ(規則は ytt/colors.py の lookup)。
     -> ({名前: "#RRGGBB"}, [{"speaker", "name", "hex"}](画面に見せる))"""
     return _colors.speaker_colors(n for _s, _e, n in (plan.speaker_spans or []))
 
@@ -508,7 +508,7 @@ def _style_color(v):
 
 SPEAKER_STYLE_KEYS = {"color": _style_color}
 SPEAKER_STYLES_MAX = 50   # 人数の上限(超えた分は使わない)
-SPEAKER_NAME_MAX = 60     # 名前の長さの上限(ytt_core.colors.NAME_MAX・cut2resolve_core.read_transcript と同じ)
+SPEAKER_NAME_MAX = 60     # 名前の長さの上限(ytt.colors.NAME_MAX・cut2resolve_core.read_transcript と同じ)
 
 
 def speaker_styles_from(v):
@@ -536,7 +536,7 @@ def speaker_styles_from(v):
 
 def apply_speaker_styles(plan, styles, color_map, shown):
     """話者ごとの指定の色(speakerStyles)を、メンバーカラーの対応(speaker_color_map)より優先して重ねる。
-    名前の照らし合わせ: 文字起こしの話者の名前と指定の名前を ytt_core.colors.normalize(全角・半角・かな・空白など)でそろえて同じなら合う
+    名前の照らし合わせ: 文字起こしの話者の名前と指定の名前を ytt.colors.normalize(全角・半角・かな・空白など)でそろえて同じなら合う
     (部分一致はしない。指定は人が選んだ名前なので、別の人に色が付かないように)。
     -> (pack.build_pack の speaker_colors {文字起こしの話者の名前: "#RRGGBB"}, 画面に見せる一覧 [{"speaker", "name", "hex", "from"?}])"""
     want = {}
@@ -566,7 +566,7 @@ def output_from_spec(o, video):
         target = TP.parse_target(o.get("textplusFps"), o.get("textplusSize"))
     except ValueError as e:
         raise ApiError("bad_textplus", str(e))
-    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt_core/colors.py の1か所。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
+    # 配信者の名前 → Text+ の文字の色(メンバーカラー。手で入れたときだけ。照らし合わせは ytt/colors.py の1か所。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)
     try:
         who, hex_ = _colors.resolve(o.get("streamer") if isinstance(o.get("streamer"), str) else "")
     except ValueError as e:
@@ -656,7 +656,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- 検査
     def _guard(self, write, path=""):
-        """検査の規則は ytt_core.httpsec(全ツール・入口で1か所)。ここは許可する Host(単独 / 入口の中)を渡すだけ。
+        """検査の規則は ytt.httpsec(全ツール・入口で1か所)。ここは許可する Host(単独 / 入口の中)を渡すだけ。
         Host は DNS rebinding 対策。書き込みの Origin は "http://" + 許可した Host と完全一致だけ(CSRF 対策)。
         他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/spec/pipeline.md の 3)"""
         h, hosts = self.headers, self.ctx.allowed_hosts
@@ -698,7 +698,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
     def _read_json(self):
-        """書き込み系の要求の本文(JSON のオブジェクト)。読み方の規則は ytt_core.httpsec.read_json_body。ここは断る理由ごとの文と状態を決めるだけ
+        """書き込み系の要求の本文(JSON のオブジェクト)。読み方の規則は ytt.httpsec.read_json_body。ここは断る理由ごとの文と状態を決めるだけ
         (Content-Length が無いときは 411 = 数が読めないのと同じ)"""
         try:
             return httpsec.read_json_body(self, MAX_BODY)
@@ -830,7 +830,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class C2RServer(httpsec.ExclusiveServer):
-    """単独で動かすときのサーバー。Windows で使用中のポートに bind できてしまう問題の対策(SO_EXCLUSIVEADDRUSE)は ytt_core.httpsec.ExclusiveServer"""
+    """単独で動かすときのサーバー。Windows で使用中のポートに bind できてしまう問題の対策(SO_EXCLUSIVEADDRUSE)は ytt.httpsec.ExclusiveServer"""
 
 
 def probe(port):
@@ -929,7 +929,7 @@ def finish():
 def mounted_elsewhere():
     """入口(start.bat)の統合サーバーの中で cut2resolve が動いていれば、その URL。
     serve.py を直接起動したときは2つ目のサーバーを立てず、そちらを開くだけにする(出力フォルダの取り合い・混乱を避ける)。
-    記録の場所が無い・形が違うときは "/"(= 単独。以前の記録・他人が書いた値で、別の場所へ向けさせない。ytt_core.runtime.read_runtime)"""
+    記録の場所が無い・形が違うときは "/"(= 単独。以前の記録・他人が書いた値で、別の場所へ向けさせない。ytt.runtime.read_runtime)"""
     e = _runtime.read_runtime(runtime_dir(), TOOL_ID)
     if e and e["path"] != "/" and _runtime.ping_app(e["port"], 1, e["path"]) == APP_ID:
         return "http://localhost:%d%s" % (e["port"], e["path"])

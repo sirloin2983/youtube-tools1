@@ -662,7 +662,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
     textplus_style: 字幕の見た目の種類(resolve_textplus.TEXT_STYLES のキー。"default" = けいふぉんと / "lite" = 簡易版の MS ゴシック)。
     speaker_outlines: {話者の名前: "#RRGGBB"}(簡易版)。speaker_colors と同じ決め方で、字幕ごとのふちの色にする。
     video_tracks: Text+ のタイムラインの映像トラックの数(1〜5。V1 = 動画・V2〜 = 空)。字幕はその上のトラックに置く。
-    loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt_core/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
+    loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
     同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す(2026-09-29)。元の動画は書き換えない。
     volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
     prev_copy: 前にこのフォルダへ作ったパックの記録の videoCopy(serve.py が作業データの packs/ から読んで渡す。コマンドは渡さない = 毎回作り直す)。

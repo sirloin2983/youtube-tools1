@@ -710,7 +710,7 @@ class TestDeliverBatch(Base):
 
 
 class TestLiveSettings(unittest.TestCase):
-    """ライブ配信の依頼の設定(依頼の JSON の live。src/home/live_requests.py の clean_settings・settings_label)。範囲の外・形の違う値は既定"""
+    """ライブ配信の依頼の設定(依頼の JSON の live。src/human/friend/live_requests.py の clean_settings・settings_label)。範囲の外・形の違う値は既定"""
 
     def test_clean_settings_bounds(self):
         cs, dflt = live_requests.clean_settings, live_requests.SETTINGS_DEFAULT

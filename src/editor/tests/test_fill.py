@@ -9,7 +9,7 @@
 - エンジン: SenseVoice の登録(light)・トークンの時刻からの行・偽(FAKE_TEXT)・小さいモデルは主のモデルを手放さない
 """
 import os
-os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt_core.datadir)
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import shutil
 import sys
 import tempfile

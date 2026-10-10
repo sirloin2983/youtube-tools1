@@ -54,7 +54,7 @@ async function rlCheck(){
   finally { b.disabled = false; rlSync(); }
 }
 
-/* 「参照…」(2026-10-01): PC の標準の窓で選ぶ。窓はサーバーが開く(ブラウザからは実際のパスを知れないため。ytt_core/pick.py)。やめたら null */
+/* 「参照…」(2026-10-01): PC の標準の窓で選ぶ。窓はサーバーが開く(ブラウザからは実際のパスを知れないため。ytt/pick.py)。やめたら null */
 async function pickPath(kind, hint){
   try { const r = await api('/api/pick', { body: { kind, hint: hint || '' } }); return r.path || null; }
   catch (e){ toast(e.message, 6000, 'err'); return null; }
@@ -270,7 +270,7 @@ async function evalSettle(id){
   } catch {}   // 文書が消えた・入口が止まった: 次の整理で移す
 }
 
-/* 評価用の動画をまとめて文字起こし(⚙。サーバーの ed_evalbatch。始めるのはこのボタンだけ・止めるまで続く。待ちが 2 件までなので、ほかの操作が割り込める) */
+/* 評価用の動画をまとめて文字起こし(⚙。サーバーの eval/drill/evalbatch.py。始めるのはこのボタンだけ・止めるまで続く。待ちが 2 件までなので、ほかの操作が割り込める) */
 let evbTimer = 0;
 function evbRender(s){
   const note = $('#evbNote'), on = !!s.enabled;
@@ -303,7 +303,7 @@ async function evbStop(){
   try { evbRender(await api('/api/eval-batch/stop', { body: {} })); toast('まとめての文字起こしを止めました', 4000); }
   catch (e){ toast('止められませんでした: ' + e.message, 6000, 'err'); }
 }
-/* 未確認の評価用を作り直す(手を入れていないものだけ。サーバーの ed_evalbatch.eval_batch_redo)。まず数えて(dryRun)、確かめてから待ちに入れる */
+/* 未確認の評価用を作り直す(手を入れていないものだけ。サーバーの eval/drill/evalbatch.py の eval_batch_redo)。まず数えて(dryRun)、確かめてから待ちに入れる */
 async function evbRedo(){
   const btn = $('#evbRedo');
   btn.disabled = true;

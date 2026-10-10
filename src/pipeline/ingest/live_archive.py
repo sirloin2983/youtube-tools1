@@ -29,7 +29,7 @@
               → .clip.json の source.live.archive {videoId, start, end, offset, residual, at}。欠けのマークは新しい名前で書き出して job.state を done・path を入れる
               (スタジオの画面の今の突き合わせが「書き出し済み」にする。本番版の札は archive.state done を見て画面が付ける)
 
-重い処理の順番(ytt_core.jobs.SLOTS)を入口の側では取らない: 作り直し(いちばん重い)はスタジオの書き出しが自分で SLOTS を取る。入口がその間 SLOT を
+重い処理の順番(ytt.jobs.SLOTS)を入口の側では取らない: 作り直し(いちばん重い)はスタジオの書き出しが自分で SLOTS を取る。入口がその間 SLOT を
 持って待つと、上限 1(YTT_MAX_HEAVY_JOBS=1)では互いに待って止まり、上限 2 でも1つをむだに塞ぐ。入口の側の仕事は yt-dlp の取得(通信)・
 ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)だけで軽い。その代わり、自動で始めるのは SLOTS に実行中・順番待ちが無く、
 書き出しのジョブも無いときだけにする。
@@ -135,7 +135,7 @@ class Later(Exception):
 def run_proc(cmd, timeout, cancelled=None):
     """外のプログラムを1回(シェルを通さない・窓を出さない・通常より下の優先度)。取り消し・時間切れで止める。
     -> (終了コード, 標準出力, エラーの行の最後の数行)。取り消しは LX.Cancelled、時間切れ・起動できないは ArchiveError。
-    中身は ytt_core.tools.run(標準エラーは最後の 20 行だけ持つ)。名前はテストが差し替えるので残す"""
+    中身は ytt.tools.run(標準エラーは最後の 20 行だけ持つ)。名前はテストが差し替えるので残す"""
     try:
         r = tools.run(cmd, timeout=timeout, cancelled=cancelled, flags=tools.no_window_flags(priority="low"), err_tail=20)
     except OSError as e:
@@ -1338,7 +1338,7 @@ class Archiver:
         return vol, loud
 
     def _check_media(self, path, dur):
-        """作り直した本番版が 30fps で、長さが区間と LEN_TOL 以内か(ytt_core.normalize.verify)。-> probe の結果"""
+        """作り直した本番版が 30fps で、長さが区間と LEN_TOL 以内か(ytt.normalize.verify)。-> probe の結果"""
         return normalize.verify(path, dur, LX.LEN_TOL, self.ffprobe, what="作り直した本番版", ref="区間", got="動画", error=ArchiveError)
 
     def _build(self, job, vid, ast, dur, speed, tmp, wdir):

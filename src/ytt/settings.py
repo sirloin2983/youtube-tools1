@@ -1,6 +1,6 @@
 """設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。docs/spec/settings.md の 4)。
 
-ホームの prefs.json(src/home/prefs.py)・スタジオの settings-ui.json(src/studio/store.py)・編集の settings.json(src/editor/ed_learn.py)が
+ホームの prefs.json(src/home/prefs.py)・スタジオの settings-ui.json(src/human/review/store.py)・編集の settings.json(src/human/proof/learn.py)が
 同じ決まりで扱う: 読めない・形が違う・大きすぎるファイルは「壊れている」として既定({})で動き、次に書くときに `.broken-<日時>` に退避してから
 書き直す(中身を調べられるように消さない)。書き込みは原子的(fsio.atomic_write)で、大きさの上限を超えたら保存しない(SettingsTooLarge)。
 節(section)の名前の形と、節を差し替える・節の中の鍵を直す・最上位の鍵を直す、の 3 つの書き方もここで 1 つにする。
