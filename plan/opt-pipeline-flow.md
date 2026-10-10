@@ -1,4 +1,4 @@
-状態(2026-10-11): 調べは済み・実装はまだ(下の「いつやるか」の合図で始める)。① の機能を 1 つずつユーザーと見ていく途中で、見つけた物はここへ足す
+状態(2026-10-11): 調べは済み(①②③④)・実装は OPT1 から始めた(RS8 と並べて worktree で)。直す候補は機能ごとの見直しメモに足していく
 
 # OPT ① 道具・② 管理の最適化(工程をまたいだ同じ作業をまとめる)
 
@@ -138,3 +138,100 @@
 - 説明文(docstring・コメント)に計画の記号が多い: ② の flow だけで M○(線 D の自動の段取り)139・0-○-○(線 D の計画の節)77・D-○ 40・RS7-2 G○ 39・RS6 b-○/a-○ 45・決定 3-○ 24・F-○/B-○ 12 など。どれも `plan/` と `docs/design/` の文書の項目を指す「なぜこうなっているか」の出どころ。ライブ系は説明文が約 545 行
 - 困る所: 済んだ計画の段の名前(RS7-2 G2b・RS6 b-K1 など)はコードの今の形の説明にならない・記号の一覧が無い(どの文書かを知らないと引けない)・経緯(「以前は〜」「RS3 で〜から移した」)がコードの中に積もる
 - 候補: (1) 記号の早見表を 1 枚(`docs/ROADMAP.md` の近くに「記号 → 文書」)(2) コードの説明は「今どう動くか・なぜか」だけにし、どこから移したか・いつの段かは git と WORKLOG に任せる(3) 今も効く決まり(決定 3-○・仮決め (○○))の参照は残す → RV(資料の見直しと一緒に。消すと行数は数百行減るが、動きは変わらない)
+
+## ③ 人の操作の見直しメモ(10-11。RS8 の始め。読むだけ・Sonnet)
+
+### ③-1 校正の文書 `human/proof/store.py`・`doc_jobs.py`・`overrides.py`(約 1,740 行)
+- `store.py`(910 行)は「文書の置き場」(保存・履歴・整形・要約キャッシュ。〜440 行)と「カット/パックの編集の置き場」(`sanitize_edit`・`edit_draft`・`edit_preview`・`save_edit`・`record_pack`・`pack_stale`・`sanitize_pack_output`。約 450〜830 行)が同居。後半は空のまま残る `human/cut/`(`__init__.py` だけ)の仕事 → `human/cut/` へ割る(`edit_draft`/`edit_preview` は ① の `resolve_export` から来た画面用の計算で `flow/pack` 経由 = ②-3 の `flow/pack` と一緒に)→ RS8(新しいカット/パックの画面)
+- 文書の置き場そのもの(`tx_path`・`write_doc`・`snapshot`・履歴・`_open_lock`)は ④ のデータの持ち主の仕事で `workdata.TX_DIR` を直に読む。置き場所の解決を 1 か所に寄せ、store は「渡された場所に読み書き」だけに → RS8 の B-2(`ytt/docloc` の案)
+- `doc_jobs.py`(534 行)・`overrides.py`(293 行): O2 で `doc_jobs.run_job` の「文書づくり + `write_after_transcribe` + 上書きの引き継ぎ」を組み立て関数 1 つに寄せられる。上書きを正にして文書は派生に → O2
+- `doc_jobs`・`rerun` のジョブは ② の `flow/jobs` に登録して使う(自前の表は無い)= 決まりに合う。ただし画面は編集の `/api/jobs` を読む → 新しい画面は ② の status から(RS8 の新しい画面)
+- 説明文: 1 行目が「② 人の操作の層」「② 文書の置き場」など層の数がずれたまま(`proof/` 全ファイル。`overrides.py` だけ ③)・「転送だけの殻。RS5 で消す」(殻は消えた)→ RV の文書
+
+### ③-2 話者 `speakers.py`(869 行)・再認識 `rerun.py`(416 行)
+- `speakers.py` に 5 つの仕事: 判別の結果の反映・判別ジョブの受付・空の行の下書き(`ovdraft_*`)・自動の判別の判断(`autodiar_*`)・声の登録簿(`voice_*`・`recognize_voices`)。声の登録簿は ④ 寄り → 「声」だけ `human/proof/voices.py` へ(②-3 の `flow/diar` の声の置き場所と一緒に見る)→ OPT2
+- `diar_smooth_setting`・`autodiar_why_not`・`autodiar_name_by_context`・`recognize_voices`・`voice_learn_plan` は外から使うのは画面の API 経由だけ・`rerun.replace_original`・`replace_words` はファイルの中からだけ → 公開名を絞る → OPT1 の小物
+
+### ③-3 校正の補助 `alt.py`(378)・`ytcap.py`(532)・`learn.py`(419)・`retime.py`(39)・`batch.py`(107)
+- **yt-dlp を呼ぶ所が 4 つ**(`ytcap.ytcap_command`・`friend/intake.youtube_info`・`flow/livesession.probe_live`・`flow/live_archive`)→ ① に yt-dlp を呼ぶ口を 1 つ → OPT1(ffmpeg の探し方と同じ話)
+- 字幕の取得(yt-dlp)とキャッシュ(`_ytcap_cache_lock`・`ytcap_dir`)は ① の「材料を取ってくる」仕事 → 候補を作る処理だけ ③、取得は `pipeline/ingest` へ → OPT2
+- `alt.py` の `alt_engine_key`・`alt_notation_only` は文字の寄せ方(OPT3 の 7 つ)と重なる可能性 → OPT3
+- `retime.py`(39 行・呼ぶのは serve だけ)→ store か serve に寄せてファイルを減らす → OPT1 の小物
+- `learn._fb_lock` と `review/feedback._fb_lock` は「jsonl を足す + 大きくなったら .old へ」の写し → `ytt/fsio` に 1 つ → OPT1
+- `batch.transcribed_ranges` は ④ `handoff_io` が呼ぶ(④ が ③ を読む)。判定は文書の一覧だけで足りる → ④ の一覧に寄せる → RS8 の B-2・B-3
+
+### ③-4 友人 `human/friend/`(`intake.py` 883・`deliver.py` 387・`delivery.py` 347・`friend_feedback.py` 134・`live_requests.py` 125)
+- `intake.parse_ranges`・`parse_weights`・`parse_video_tracks` は `flow/spec.clean_ranges`・`clean_weights` と同じ規則を別の形で持つ(RANGE_MAX も別定義)→ 受付は「封筒 + 束に組む」だけ、検査は `flow/spec` に → OPT2
+- `intake.Intake`(Dropbox の見張り)の受付の状態 `_load_state/_save_state`・`_record` は ② の status と別の表 → 新しい画面で受付の様子を出すとき ② の status に載せる → RS8
+- `youtube_info`(yt-dlp)・`probe_video`(ffprobe)は ① の取り込みの仕事 → ① へ → OPT2
+- **`deliver.Deliveries` は自前のジョブ表**(`self.jobs`・糸・同時 1 本)。画面は `/api/ytt/deliver` の自前の状態を見る → 届ける段を ② の段にして status から読む → RS8 の新しい画面
+- `deliver.make_preview`(ffmpeg でまとめ動画)・`_preview_args`・`_atempo`・`_font_file` は ① の書き出しの仕事・`_run_ffmpeg` は ffmpeg の起動の写し → ① の `export` へ → OPT2
+- `delivery.py`(Runner の mixin)は ② の hook に ③ を渡す継ぎ → ②-1 の「ホストの口」でまとまれば消える → RV
+- `friend_feedback`・`live_requests` は小さく形が良い。動かさない
+
+### ③-5 採用・マーク `human/review/store.py`(1,130 行)・`feedback.py`(150)
+- `Store`(data.json)に 3 つ: マークの検査と整形(`_build_mark`・`validate_marks`)・動画の置き場(`ensure`・`put_video`・`delete`)・グループとアンカー(コラボ。約 200 行)→ コラボは別ファイル・マークの検査は純粋なので `review/marks.py` に → OPT2
+- 動画の置き場 `data.json` は ④ の「案件の動画の一覧」と二重 → Store は「案件の中のマーク」を扱う形に → RS8 の B-3
+- `feedback.feedback_path` はテストからだけ → OPT1 の小物
+
+### ③-6 検索 `human/find/rank.py`(830 行)
+- 説明文が「① 配信ランキング」のまま → RV
+- 4 つの仕事: 登録簿・YouTube Data API の呼び出し・疑似 API(`fake_*` 5 つ。約 110 行)・検索ジョブと配信中の一覧。疑似 API は `eval/fake/` へ → OPT2
+- **`rank._jobs` は自前のジョブの器**(最大 5 件・同時 1 本・取り消し・phase・progress)= ②-3 の「仕組みを 1 つに」に含める → OPT2・RS8(新しい画面は status から)
+- API の叩き方(`yt_get`・`parse_iso_dur`・`parse_dt`)は `analyze.py` のコメント欄・動画情報と同じ → ① の基盤に 1 か所 → OPT3
+
+### ③ 全体を見て(10-11)
+- 呼び手 0 の関数は無い。重なりは「外から使わない公開名」と他の層と同じ処理の写し
+- 直す順: (1) ジョブの器 `Deliveries`・`rank._jobs` を ② の status へ(新しい画面の前提。RS8)(2) 層の違う処理を出す(`intake` の検査 → `flow/spec`、yt-dlp・ffmpeg・ffprobe を呼ぶ所 → ① の口。OPT1・OPT2)(3) `proof/store.py`・`review/store.py` を割る(OPT2)(4) 置き場所の解決 4 か所(`proof/store`・`review/store`・`batch.transcribed_ranges`・`deliver`)は RS8 の中で
+- 大きなファイル: `review/store.py` 1,130・`proof/store.py` 910・`intake.py` 883・`speakers.py` 869・`rank.py` 830。`human/cut/` は空のフォルダ
+
+## ④ データの見直しメモ(10-11。RS8 の始め。読むだけ・Sonnet)
+
+### ④-1 案件 `manage/cases/cases.py`(681 行)
+- 仕事が 3 つ混ざっている: (a) 一覧の組み立て(`build`・`snapshot`・`_case_extras`・TODO_ORDER)、(b) 自動の切り抜きの確認(`auto_review`・`_deliver`・`_discard`・`expire_unseen`・`_remember`。約 250 行)、(c) ごみ箱への移動(`discard_clip`・`_to_trash`・`_put_back`・`_write_manifest`)。(b) は「見た・届けた・要らない」の操作で ③ の仕事(スタジオのマーク・feedback・Dropbox 配信を引数で受けて動かしている)。(c) は `keep/cleanup` のごみ箱(manifest・日付のフォルダ)と同じ規則を持つ → (b)(c) を `human/review` か `keep` へ、cases.py は一覧だけに → RS8 の新しい画面と一緒に
+- 説明文(先頭 50 行)が仕様書になっている。画面の項目の説明は docs/spec へ、コードは短く → RV
+- `live_failures_by_mark` は ② の `live_export.JOBS_SCHEMA` と exports.json を直に読み、結果の束も読む。ジョブの記録の読みは ② の口(`live_failures`)に 1 本あれば足りる → OPT2
+- 案件の根は今 cases.json(app/ の 1 ファイル)+ スタジオの data.json から読むたびに組み直し + `placement.read_case` で case.json を足している(`_case_file`)。**B-2・B-3 で変わる所**: `locations`(cases.json・studio・transcripts・liveJobs・runs の 5 つの置き場所)、`load_saved`/`_write`(状態・メモ・auto の置き場所 → 案件ごとの case.json へ)、`snapshot` の last(元ファイルを消しても履歴を残す写し → 案件フォルダがそのまま履歴になれば要らない)、`find_pack`(`txindex.pack_info` を呼ぶだけ・呼び手 15)
+- `remember_delivered`(呼び手は ③ の delivery 側 6 か所)は案件ファイルに書く → B-3 で案件の中へ
+
+### ④-2 紐づけ・パックの規則 `cases/txindex.py`(239 行)・`txlink.py`(36 行)
+- 紐づけ(`load`・`pick`・`offset`・`lines`)とパックの有無(`pack_dir`・`pack_key`・`read_pack_record`・`pack_info`・`is_pack_dir`)と鍵の状態(`key_state`)が 1 ファイル。パックは別ファイルにすると読みやすい(`pack_info` の呼び手は ③ ② ⑤ に広がっている)
+- **パックを作った記録を cut2resolve の作業データ `packs/<フォルダのハッシュ>.json` に持つ**(`packs_dir`・`pack_key`)。B-2 でパックが案件の中に入るなら記録は案件の作業用へ移り、`packs_dir` の `datadir.resolve("cut2resolve")`・`c2r_dir`・env の引数、`_old_cut_plan`(2026-09-26 までの cut-plan.json)も要らなくなる → B-2。**紐づけの規則(sourcePath → clip の videoId/markId、normalize30 の relinks)も、文書が案件の中にあれば「同じ案件フォルダの文書」で済む** → B-3
+- 呼び手がテストだけ: `matches`(本体 0・テスト 3)、`read_pack_record`(外から 0)、`txlink.tx_folder`(0)。`txlink.py` は `for_video` 1 つだけ(呼び手 1)→ スタジオの側か txindex に入れてファイルを減らす → OPT1
+- `NORM_WHY` を relink と txindex で二重に持つ → 1 つに → OPT1
+
+### ④-3 文書の一覧・付け替え `doclist.py`(108 行)・`relink.py`(488 行)
+- `doclist.pack_info` は txindex のラッパー(外からの呼び手 0)。`list_transcripts` は編集の serve だけが呼ぶ画面の一覧 = ③ の仕事 → RS8 で画面を作り直すときに ③ へ
+- **`relink.py` の 30fps まわり(`norm_*` 約 230 行)は ④ の仕事ではない**: 動画を 30fps に作り直す(ffmpeg・進み具合・取り消し・空き容量)は ① の変換 + ② の段取り。続き(`norm_after_transcribe`)は serve の登録の口経由。友人の受付(`human/friend/intake`)は `ytt.normalize` を別に呼ぶ = 30fps が 2 本の道 → `pipeline/` か `flow/` に 1 つ。付け替え(`relink_*`)だけが ④ → OPT2(RS8 の B-3 と同時に)
+- 先頭の説明文が「③ 文書と動画の紐づけ」「ed_relink は転送だけの殻 = RS5 で消す」(消えている)など古い。`doclist`・`handoff_io` の先頭も同じ → RV
+- **B-3 で文書が案件の中に入れば、動画を動かしても相対で追えるので `relink_*` の多くが要らなくなる可能性**(絶対パスの保持を決めるとき)
+
+### ④-4 受け渡し `handoff_io.py`(222 行)・`pipeline_io.py`(163 行)
+- `handoff_io.read_marker`・`marker_videos`・`clip_info` はスタジオの data.json の読み(`ytt/studiodata` と二重)。`OTHER_JSON_MAX`(64MB)は `studiodata.STUDIO_JSON_MAX` と別に持つ → 1 つに → OPT1
+- `pipeline_io.siblings`/`ping`(.runtime の他ツールの問い合わせ)は入口の仕事。呼び手 1 → `ytt/runtime` か app へ → OPT1。`save_beside`・`written_by_us`(動画の隣への保存)は B-3 の「横のファイル」(動画の隣 → 案件の作業用)で置き場所の規則が変わる中心
+- `handoff_io` が `human.proof.batch`・`store` を読むのは `transcribed_ranges` のためだけ
+
+### ④-5 バックアップ `keep/backup.py`(435 行)
+- 形は素直。B-0 で `plan_cases`(案件の根の作業用の *.json と .studio-id だけ)が入っている = **B-2・B-3 の規則はここが先に持っている**。変わる所: `CASE_WORK`(= `schemas.WORK_DIR` の二重定義)、`_cases_enter`(題名/作業用/runs の 3 段の決め打ち)、SKIP_DIRS(`work`・`cache`)と案件側の規則が 2 本。案件フォルダに文書・パックの記録が入るなら 1 本の「何を写すか」に → B-3
+- `_norm` は `fsio.norm_path` と同じ → OPT1
+
+### ④-6 片付け `keep/cleanup.py`(352 行)・`live_cleanup.py`(305 行)
+- 途中のファイルの名前を 3 か所が別々に持つ: `cleanup.SIDECARS`(7 種)・`_media_stem` の suffix(6 種。同じ一覧ではない)・`backup` の .json 限定。**横のファイルの種類を 1 つの表**(ytt/schemas か placement)に → OPT1。B-3 で「動画の隣 + 作業用」が「案件の作業用」に変わると `_sidecars`・`_work_orphans` は案件ごとの片付けに → B-3
+- `_exports` は案件の一覧を受けて「投稿済み/見送り + パック」で候補を出す。案件単位の片付け(案件フォルダごとごみ箱へ)になると規則が簡単になる → B-3・O2
+- `live_cleanup.Cleaner` は ② の `live_archive`・`live_export` の内部を読み、録画を消す = ② 寄り → RS8 では動かさず RV(録画の置き場所が決まってから)
+
+### ④-7 調子・記録・再起動 `ops/`
+- `health.count_worker_incidents` は ① のワーカーの log の文言を写して数える。文言を変えると黙って 0 になる → ワーカー側の定数を読むか記録を構造化 → OPT1。`tool_versions` は呼び手 0 → 消すか使うか
+- `clientlog.py`・`restart.py` は形が良い。動かさない
+- `health.data_sizes` の DATA_TOOLS は B-2 で「案件の中の分」が加わる → B-2
+
+### ④ 全体を見て(10-11)
+- **置き場所の規則が 5 か所**に散っている(cases.locations・txindex.packs_dir・schemas.WORK_DIR 系・backup.plan_cases・cleanup)。B-2・B-3 は、これを `flow/placement` の 1 か所から引く形にする機会 → RS8 の最初に表を作る
+- ④ に入っている ① ② の仕事: 30fps の作り直し(relink)・ライブの失敗のジョブ読み(cases)。逆に ④ に寄せる候補: `flow/diar.py` の覚えた声の置き場所(②-3)・`human/review/store` のスタジオの data.json(案件の中へ移す候補 → B-3)
+- 効く順: (1) 置き場所の規則を 1 か所に(B-2)(2) 30fps と cases の ③ 的な操作(auto_review・ごみ箱)を出して ④ を「読む・紐づける・片付ける」に絞る(OPT2)(3) 二重定義の掃除(OPT1)(4) 古い説明文(RV)
+- 動かさない: `clientlog`・`restart`・`backup` の本体・`txindex` の紐づけの中心
+
+## ③④ をまとめて(10-11)
+- **ジョブの器は合わせて 10 通り**: ② の見直しの 8 通り + ③ の `deliver.Deliveries`・`rank._jobs`。新しい画面は ② の status だけを見る(RS8 の条件 1)= ② の口の形を決める段でこの 10 通りの載せ方を決める
+- **置き場所の規則が散っている**: ④ の 5 か所(cases.locations・txindex.packs_dir・schemas.WORK_DIR 系・backup.plan_cases・cleanup)+ ③ の 4 か所 → B-2 で `ytt/docloc`(文書)と `flow/placement`(案件)から引く形に
+- **yt-dlp・ffmpeg・ffprobe を呼ぶ所が ③④ にもある**(ytcap・intake・deliver・relink の 30fps)→ OPT1・OPT2 の「① の口を 1 つ」に足す
