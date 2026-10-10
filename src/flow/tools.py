@@ -214,13 +214,13 @@ class LocalTools:
                                          post["autoContext"])
         return {"sourcePath": src, "sourceName": os.path.basename(src), "start": 0.0, "end": round(dur, 2) if dur else None, "intoDoc": None,
                 "duration": dur, "whole": True, "model": model, "engine": engine, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
-                "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto",
+                "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
                 "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
                 "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
-                "splitChars": post["splitChars"], "autoRedo": False, "redoLarge": req.get("redoLarge") is not False, "autoAlt": False, "autoYtcap": False,
+                "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "redoLarge": req.get("redoLarge") is not False, "autoAlt": False, "autoYtcap": False,
                 "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "autoDiarize": False,
                 "stripPunct": req.get("stripPunct") is not False, "glossary": _txtext.split_terms(req.get("glossary"))[:200], "glossAuto": [],
-                "context": ctx, "evalSet": False, "autoLearned": False, "clip": clip, "warnings": [clip_warn] if clip_warn else [], "title": title}
+                "learningVersion": b["post"]["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip, "warnings": [clip_warn] if clip_warn else [], "title": title}
 
     def _transcribe(self, job, spec):
         """認識 → 文書の機械の分と記録を書く → 一覧に足す(job_temp_wav が失敗・取り消しをジョブの状態にする)"""

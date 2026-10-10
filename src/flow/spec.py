@@ -156,7 +156,7 @@ DEFAULTS = {
         "autoRedo": False, "redoLarge": True,
         "autoFill": True, "stripNames": True, "autoLlm": True,
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
-        "learning": {"dir": None, "version": None},   # 学習データの場所と版(中身は入れない)。新しい項目で、今のコードに対応する設定は無い
+        "learning": {"version": ""},   # 学習データの版(中身も場所も束に入れない。場所は機械の設定 machine。決定 3-30 Q3)。"" = 指定なし。違えば後処理の鍵が変わる
     },
     "pack": {                 # パック(run.py の _pack_settings・_cut_method・src/cut2resolve/cut2resolve_core.py の DEFAULT_*)
         "size": "1080x1920",
@@ -227,8 +227,8 @@ def _or_none(pred):
     return lambda v: v is None or pred(v)
 
 
-def _str_or_none(v):
-    return v is None or isinstance(v, str)
+def _version_ok(v):
+    return isinstance(v, str) and len(v) <= 80
 
 
 def _dict_of(**preds):
@@ -252,14 +252,18 @@ def _people_ok(v):
         return set(v) == {"count"} and _int_in(1, 10)(v["count"])
     if not isinstance(v, list):
         return False
+    if len(v) > 10:
+        return False
+    names = []
     for p in v:
         if not isinstance(p, dict) or not set(p) <= {"name", "color"}:
             return False
+        names.append(str(p.get("name")).strip())
         if not isinstance(p.get("name"), str) or not 1 <= len(p["name"].strip()) <= 40:
             return False
         if "color" in p and p["color"] is not None and not (isinstance(p["color"], str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", p["color"])):
             return False
-    return True
+    return len(set(names)) == len(names)
 
 
 def _weight_ok(v):
@@ -316,7 +320,7 @@ SCHEMA = {
              "autoLearned": (_is_bool, "true か false"), "autoRedo": (_is_bool, "true か false"), "redoLarge": (_is_bool, "true か false"),
              "autoFill": (_is_bool, "true か false"), "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
              "diarSmooth": (_is_bool, "true か false"),
-             "learning": (_dict_of(dir=_str_or_none, version=_str_or_none), "{dir, version}(どちらも文字か null)")},
+             "learning": (_dict_of(version=_version_ok), "{version}(80 字までの文字。空 = 指定なし)")},
     "pack": {"size": (_one_of("1080x1920", "1920x1080"), "1080x1920 か 1920x1080"),
              "loudness": (_one_of(0, *_LUFS), "0 か %s のどれか" % "・".join(map(str, _LUFS))),
              "volume": (_int_in(1, 200), "1〜200 の整数(%)"),
@@ -374,7 +378,8 @@ PRECISIONS = ("accurate", "fast")
 MAX_HEIGHTS = (0, 720, 1080, 1440, 2160)   # 書き出しの画質の上限(スタジオの exporter._max_height と同じ。0 = 上限なし)
 PACK_FPS_RE = re.compile(r"\d{1,3}(\.\d{1,3})?\Z")   # パックの Text+ の fps の文字(cut2resolve の textplusFps)
 TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
-TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo", "redoLarge")   # 同じく post 節(編集の画面から始めるときと同じ)
+TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "autoRedo", "redoLarge",
+                "autoFill", "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 6 つは RS7-1 S2 で足した = 要求にあれば受付が settings.json でなく要求を使う)
 
 
 def clean_screen(screen):
@@ -390,6 +395,28 @@ def clean_screen(screen):
         out[k] = v if v is not None and checks[k](v) else None
     out["packNotes"] = list(out["packNotes"] or ())
     return out
+
+
+def hint_ranges(bundle, duration=None, pad=None):
+    """束の hints.ranges -> 余白(adopt.pad。pad で上書き)を足した区間 [[開始, 終了], …](秒。動画の長さの外は落とす)。
+    読む側(run.py)が使う純粋な関数。区間が無ければ []"""
+    p = bundle["adopt"]["pad"] if pad is None else pad
+    out = []
+    for s, e in clean_ranges(bundle["hints"]["ranges"]):
+        if duration and duration > 0 and s >= duration:
+            continue
+        out.append(pad_range(s, e, duration, p))
+    return out
+
+
+def hint_people(bundle):
+    """束の hints.people -> {"people": [{name, color}, …](名前を整えた順)・"count": 人数か None(指定なし)}。
+    {count} で来たときは people は []。[{name}…] で来たときは count = 人数"""
+    v = bundle["hints"]["people"]
+    if isinstance(v, dict):
+        return {"people": [], "count": v["count"]}
+    people = [{"name": p["name"].strip(), "color": p.get("color")} for p in v]
+    return {"people": people, "count": len(people) or None}
 
 
 def implied_engine(device):
@@ -414,6 +441,8 @@ def tx_opts(bundle, screen=None):
     out.update({k: p[k] for k in TX_POST_KEYS})
     if t["engine"] != implied_engine(t["device"]):
         out["engine"] = t["engine"]
+    if p["learning"]["version"]:
+        out["learningVersion"] = p["learning"]["version"]   # 空(既定)のときは書かない = 鍵も今と同じ
     gl = clean_screen(screen)["glossary"]
     if gl is not None:
         out["glossary"] = gl

@@ -150,8 +150,11 @@ def validate_job(req):
             "stripNames": pref("stripNames", default_on=True) and not ev,
             # 終わったら話者を自動で判別する(v0.50.0)。要求に無ければ保存した設定 autoDiarize。評価用はこの値によらず常に(speakers.autodiar_after_transcribe)
             "autoDiarize": pref("autoDiarize"),
+            # 自動の判別の「細切れをならす」(diarSmooth。既定オフ)。要求に無ければ None = 保存した設定(speakers.autodiar_enqueue)。RS7-1 S2
+            "diarSmooth": req["diarSmooth"] if isinstance(req.get("diarSmooth"), bool) else None,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto, "context": ctx, "evalSet": ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "clip": clip, "warnings": warnings,
+            "learningVersion": str(req.get("learningVersion") or "")[:80],
             "title": title}
 
 

@@ -206,10 +206,27 @@ class TestValidate(unittest.TestCase):
 
     def test_post(self):
         spec.validate(spec.merge({"post": {"orientation": "horizontal", "maxChars": {"horizontal": 40}, "splitChars": 8, "autoLlm": False,
-                                           "learning": {"dir": "D:/x", "version": "abc"}}}))
+                                           "learning": {"version": "abc"}}}))
         for kw in ({"orientation": "square"}, {"maxChars": {"vertical": 3, "horizontal": 28}}, {"maxChars": {"vertical": 16}}, {"splitChars": 7},
-                   {"splitChars": 81}, {"autoFill": 1}, {"learning": {"dir": 3, "version": None}}, {"learning": {"dir": None}}):
+                   {"splitChars": 81}, {"autoFill": 1}, {"learning": {"version": None}}, {"learning": {"dir": "D:/x"}}, {"learning": {"version": "x" * 81}}):
             self.bad("post", **kw)
+
+    def test_hint_readers(self):
+        b = spec.merge({"hints": {"ranges": [[10, 20], [500, 520]], "people": [{"name": " A ", "color": "#ff6699"}, {"name": "B"}]}})
+        self.assertEqual(spec.hint_ranges(b), [[8.0, 22.0], [498.0, 522.0]])
+        self.assertEqual(spec.hint_ranges(b, 100), [[8.0, 22.0]])   # 動画の外は落とす
+        self.assertEqual(spec.hint_ranges(b, 100, pad=0), [[10.0, 20.0]])
+        self.assertEqual(spec.hint_ranges(spec.merge(None)), [])
+        self.assertEqual(spec.hint_people(b), {"people": [{"name": "A", "color": "#ff6699"}, {"name": "B", "color": None}], "count": 2})
+        self.assertEqual(spec.hint_people(spec.merge({"hints": {"people": {"count": 3}}})), {"people": [], "count": 3})
+        self.assertEqual(spec.hint_people(spec.merge(None)), {"people": [], "count": None})
+        self.bad("hints", people=[{"name": "A"}, {"name": "A"}])
+        self.bad("hints", people=[{"name": str(i)} for i in range(11)])
+
+    def test_learning_version(self):
+        self.assertNotIn("learningVersion", spec.tx_opts(spec.merge(None)))   # 既定は書かない = 要求も鍵も今と同じ
+        o = spec.tx_opts(spec.merge({"post": {"learning": {"version": "v2"}}}))
+        self.assertEqual(o["learningVersion"], "v2")
 
     def test_pack(self):
         spec.validate(spec.merge({"pack": {"size": "1920x1080", "loudness": -16, "volume": 100, "backup": True, "render": True, "rowEdge": {"after": 1.0},

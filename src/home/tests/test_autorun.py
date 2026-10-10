@@ -491,7 +491,7 @@ class TestModes(Base):
         # 文字起こしの項目は束の値を全部(無い項目は編集の既定と同じ束の既定)。知らない設定(secret・goalHours)は渡さない
         self.assertEqual(tx, {"model": "small", "language": "ja", "quality": "best", "device": "auto", "vadMode": "weak", "boost": True,
                               "autoDict": True, "wordSplit": True, "stripPunct": True, "autoGloss": True, "autoLearned": False, "autoRedo": False,
-                              "redoLarge": True, "sourcePath": self.tools.clip_path("m1")})
+                              "redoLarge": True, "sourcePath": self.tools.clip_path("m1"), **NEW_TX_DEFAULTS})
         self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
         self.assertIs(self.tools.c2r["body"]["spec"]["rowEdge"], True)   # 設定が無ければ束の既定 = cut2resolve の既定(端を広げる)
         self.assertTrue(self.tools.c2r["body"]["output"]["textplus"])
@@ -2178,8 +2178,12 @@ def old_export_body(rv, vid, ids):
             "volume": int(n(rv.get("exportVolume"), 1, 200, 75)), "loudness": loud if loud in (-11, -14, -16, -18) else None}
 
 
+# RS7-1 S2 で要求に足した後処理の 6 項目(束の既定 = 編集の設定の既定。画面の設定に無ければ既定が入る)
+NEW_TX_DEFAULTS = {"autoFill": True, "stripNames": True, "autoLlm": True, "autoContext": False, "splitChars": 24, "diarSmooth": False}
+
+
 def old_tx_opts(opts):
-    return {k: opts[k] for k in OLD_TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))}
+    return dict(NEW_TX_DEFAULTS, **{k: opts[k] for k in OLD_TX_KEYS if k in opts and isinstance(opts[k], (str, bool, int, float))})
 
 
 def old_pack_settings(tx):

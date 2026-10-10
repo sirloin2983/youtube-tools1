@@ -124,8 +124,12 @@ def transcribe_inputs(export_hash, engine, engine_version, model, language, qual
     return out
 
 
-def post_inputs(transcribe_hash, post_settings, dict_version):
-    return {"transcribe": transcribe_hash, "post": post_settings, "dict": dict_version}
+def post_inputs(transcribe_hash, post_settings, dict_version, learning_version=""):
+    """learning_version = 束の post.learning.version。空(既定)のときは inputs に書かない = 今の鍵と同じ値"""
+    out = {"transcribe": transcribe_hash, "post": post_settings, "dict": dict_version}
+    if learning_version:
+        out["learning"] = learning_version
+    return out
 
 
 def diar_inputs(transcribe_hash, people, voices_version):
@@ -225,7 +229,7 @@ def write_after_transcribe(tid, spec, run):
         n = 0
         if write("transcribe", doc_key_path(tid, "transcribe"), ti):
             n += 1
-        if write("post", doc_key_path(tid, "post"), post_inputs(key["hash"], run.get("post"), st.get("dict"))):
+        if write("post", doc_key_path(tid, "post"), post_inputs(key["hash"], run.get("post"), st.get("dict"), spec.get("learningVersion") or "")):
             n += 1
         return n
     except (TypeError, ValueError, KeyError) as e:

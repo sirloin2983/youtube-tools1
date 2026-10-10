@@ -502,10 +502,11 @@ def autodiar_why_not(doc):
     return None
 
 
-def autodiar_enqueue(tid, batch=False):
+def autodiar_enqueue(tid, batch=False, smooth=None):
     """自動の判別のジョブを足す(人数 自動・覚えた声との照合あり)。評価用なら名前の候補(suggest)も渡す。
     -> {"job": ジョブ, "name": 名前の候補 or None} か {"skipped": 理由}。足せない(待機列がいっぱい・処理中など)は ApiError。
-    batch = 評価用のまとめての文字起こし(eval/drill/evalbatch)が入れた印(spec["evalBatch"]。そちらの待ちの数に入る)"""
+    batch = 評価用のまとめての文字起こし(eval/drill/evalbatch)が入れた印(spec["evalBatch"]。そちらの待ちの数に入る)。
+    smooth = 細切れをならすか(文字起こしの要求にあればその値。None = 保存した設定 diarSmooth。RS7-1 S2)"""
     if not autodiar_enabled():
         return {"skipped": "off"}
     if not autodiar_ready():
@@ -525,7 +526,7 @@ def autodiar_enqueue(tid, batch=False):
         if name and (DEFAULT_SPK_NAME.match(name) or is_generic_speaker_name(name)):
             name = None
     st = _settings.load_settings()   # 判別モデルと「細切れをならす」(diarSmooth)を 1 回で読む
-    spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": st.get("diarEmb"), "smooth": st.get("diarSmooth") is True})
+    spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": st.get("diarEmb"), "smooth": st.get("diarSmooth") is True if smooth is None else smooth})
     spec.update({"auto": True, "autoEval": ev, "contextName": name,
                  "title": _heavy.job_title("話者判別(自動): ", doc)})
     if batch:
@@ -539,7 +540,7 @@ def autodiar_after_transcribe(job, spec, tid):
     if not (spec.get("evalSet") or spec.get("autoDiarize")):
         return
     try:
-        r = autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")))
+        r = autodiar_enqueue(tid, batch=bool(spec.get("evalBatch")), smooth=spec.get("diarSmooth"))
         if r.get("skipped") == "no_sherpa" and not spec.get("evalSet"):   # 設定でオンにした人には知らせる(評価用は黙って飛ばす = 人が「全行をこの人に」)
             _txbase.add_warning(job, "話者の判別の部品(sherpa-onnx)が入っていないため、話者は自動で判別しませんでした")
     except _errors.ApiError as e:

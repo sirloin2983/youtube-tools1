@@ -107,6 +107,15 @@ class TestStages(_Env):
         self.assertEqual(t["inputs"]["export"]["media"]["kind"], "file")   # 書き出しの鍵が無ければ動画の識別
         self.assertNotIn("span", t["inputs"])
 
+    def test_post_key_learning_version(self):
+        """学習データの版(束の post.learning.version)は後処理の鍵に入る。空(既定)なら今の鍵と同じ inputs"""
+        self.assertEqual(keys.post_inputs("h", {"v": 2}, {"g": 1}), {"transcribe": "h", "post": {"v": 2}, "dict": {"g": 1}})
+        self.assertEqual(keys.post_inputs("h", {"v": 2}, {"g": 1}, "")["transcribe"], "h")
+        self.assertNotIn("learning", keys.post_inputs("h", {"v": 2}, {"g": 1}, ""))
+        spec = {"start": 0.0, "end": 4.0, "whole": True, "sourcePath": self.media, "learningVersion": "v7"}
+        self.assertEqual(keys.write_after_transcribe(TID, spec, self.RUN), 2)
+        self.assertEqual(keys.read(keys.doc_key_path(TID, "post"), "post")["inputs"]["learning"], "v7")
+
     def test_transcribe_uses_export_key_hash(self):
         keys.write_export(self.media, schemas.media_identity("archive", videoId="vid12345678"), 1, 9, {})
         spec = {"start": 2.0, "end": 4.0, "whole": False, "sourcePath": self.media}
