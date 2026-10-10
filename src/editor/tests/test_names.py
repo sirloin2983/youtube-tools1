@@ -11,6 +11,8 @@
   S.名前 と ed_speakers.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
 - RS3-0A の前に ed_state が持っていた名前(data_ed_state_names.txt)は、置き場所・動きのある関数を持ち主へ移しても S.名前 で読める
 - RS3-E5c の前に ed_learn が持っていた名前(data_ed_learn_names.txt)は、replace・learn・metrics に分けても S.名前 と ed_learn.名前(殻)で読める
+- RS3-E5a の前に ed_store が持っていた名前(data_ed_store_names.txt)は、human/proof/store と manage/cases/doclist に分けても
+  S.名前 と ed_store.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -20,6 +22,7 @@ from unittest import mock
 from test_backend import S  # noqa: F401  (S = serve)
 import ed_jobs
 import ed_speakers
+import ed_store
 from pipeline.transcribe import txbase
 from ytt import modfwd
 
@@ -220,6 +223,61 @@ class TestEdSpeakersShell(unittest.TestCase):
             self.assertEqual(S.diar_models_dir(), os.path.join("d", "data", "models", "diar"))
         finally:
             S.DATA_DIR, S.VOICES_DIR, S.DIAR_DIR = saved
+
+
+class TestEdStoreShell(unittest.TestCase):
+    """ed_store を human/proof/store(文書の置き場)と manage/cases/doclist(一覧と元の動画・パックの有無・前回のパックの手順)に分けた(RS3-E5a)。
+    旧い名前は殻と serve で読め、差し替えは持ち主に届く。store は編集の ed_state・評価の ed_drill・③ の txindex を読まない"""
+
+    @staticmethod
+    def owners():
+        from human.proof import store
+        from manage.cases import doclist
+        return store, doclist
+
+    def test_old_ed_store_names_still_resolve(self):
+        names = _old_names("data_ed_store_names.txt")
+        self.assertEqual(len(names), 81)
+        missing = [n for n in names if not hasattr(S, n) or not hasattr(ed_store, n)]
+        self.assertEqual(missing, [])
+
+    def test_shell_owns_only_forwarding_names(self):
+        own = sorted(k for k, v in vars(ed_store).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["_MOVED", "_add_moved", "_moved_owner"])
+        self.assertNotIn(ed_store, S._ED_MODULES)   # ed_jobs の殻と同じ 3 つの名前を持つので、serve の受付には並べない
+
+    def test_moved_owners(self):
+        store, doclist = self.owners()
+        self.assertEqual(ed_store._MOVED, (store, doclist))   # doclist は serve が _add_moved で足す(殻は層 human = manage を読まない)
+        for m in (store, doclist):
+            self.assertIn(m, S._ED_MODULES, m.__name__)
+        self.assertIs(S.list_transcripts, doclist.list_transcripts)
+        self.assertIs(ed_store.pack_readme, doclist.pack_readme)
+        self.assertIs(ed_store.read_transcript, store.read_transcript)
+        for name in ("ed_state", "ed_drill", "ed_jobs", "txindex", "_studiodata"):
+            self.assertNotIn(name, vars(store), name)
+
+    def test_patches_reach_owner(self):
+        store, doclist = self.owners()
+        with mock.patch.object(ed_store, "read_transcript", lambda tid: {"id": tid}):
+            self.assertEqual(store.read_transcript("a"), {"id": "a"})
+            self.assertEqual(S.read_transcript("b"), {"id": "b"})
+        self.assertNotIn("read_transcript", vars(ed_store))
+        saved = doclist.PACK_CHECK_BUDGET
+        try:
+            S.PACK_CHECK_BUDGET = -1   # test_backend の形
+            self.assertEqual(doclist.PACK_CHECK_BUDGET, -1)
+            ed_store.PACK_CHECK_BUDGET = 3
+            self.assertEqual(doclist.PACK_CHECK_BUDGET, 3)
+        finally:
+            doclist.PACK_CHECK_BUDGET = saved
+        self.assertNotIn("PACK_CHECK_BUDGET", vars(ed_store))
+
+    def test_summary_leaves_drill_to_ed_drill(self):
+        """文書の要約(②)に評価ドリルの要約を入れない。ドリルは ed_drill.drill_docs が自前で作る(決定 3-25 #8)"""
+        import inspect
+        store, _doclist = self.owners()
+        self.assertNotIn('"_drill"', inspect.getsource(store.transcript_summary))
 
 
 class TestEdStateNames(unittest.TestCase):

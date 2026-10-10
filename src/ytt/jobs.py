@@ -164,6 +164,12 @@ def configure(**kw):
     _conf.update(kw)
 
 
+def tool_slot(label, cancelled=None):
+    """SLOTS の札を configure の tool(使う側のツールの名前)で取る(with で使う)。ツールの ID を知らない下の層の部品が、
+    ジョブの外の重い処理(たたき台の無音の検出など)の順番を待つため(RS3-E5a。human/proof/store の「行から」)"""
+    return SLOTS.slot(_conf["tool"], label, cancelled=cancelled)
+
+
 def register(kind, run, priority=1, exclusive=(), has_tid=False, retry=False):
     """ジョブの種類を登録する(app が読み込みのときに)。run(job) = 本体(テストの差し替えが効くよう、呼ぶたびに読む lambda を渡す)。
     priority = 待機列の優先度・exclusive = 同じ文書に同時に入れない種類・has_tid = job["tid"] に文書の id を入れる・retry = [やり直す] で入れ直せる"""

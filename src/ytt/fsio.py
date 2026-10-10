@@ -124,6 +124,11 @@ def is_network_path(p):
     return str(p or "").replace("/", "\\").startswith("\\\\")
 
 
+def norm_path(p):
+    """同じ動画かを比べる鍵: 絶対パスにして大文字小文字・区切りをそろえる(normcase(abspath))。ファイルには触らない(RS3-E5a に編集の ed_state から)"""
+    return os.path.normcase(os.path.abspath(p))
+
+
 # ---------- 各ツールにあった小道具(2026-10-09) ----------
 READ_OR_MAX = 16 * 2**20   # read_json_or の既定の大きさの上限(設定・記録のファイル。これより大きいものは「読めない」扱い)
 

@@ -41,7 +41,7 @@ DRILL_MAX_CANDIDATES = 16
 DRILL_CONDS = (("speakers", "話者", 4, "人"), ("streams", "配信", 3, "本"), ("overlap", "声の重なり", 30, "秒"),
                ("bgm", "BGM", 30, "秒"), ("calls", "呼び名", 10, "行"))
 
-_drill_cache = {}            # tid -> ((文書の要約の鍵, 名簿の版), 要約)。文書そのものは ed_store の要約のキャッシュ(ここでは読まない)
+_drill_cache = {}            # tid -> ((文書の要約の鍵, 名簿の版), 要約, 名簿によらない要約 drill_doc_summary)。文書が変わったときだけ文書を読む
 _drill_cache_lock = threading.Lock()
 
 
@@ -77,7 +77,7 @@ def _drill_text_rows(segs):
 
 
 def drill_doc_summary(doc):
-    """文書 1 本のドリルの要約(評価用でなければ {"eval": False})。文書の要約(ed_store.transcript_summary の _drill)と一緒に作って覚える。
+    """文書 1 本のドリルの要約(評価用でなければ {"eval": False})。drill_docs が文書の要約(ed_store.transcript_summary)の鍵ごとに作って覚える。
     呼び名の行の数は名簿で変わるので、ここでは行の文字 callTexts だけを持ち、drill_docs が今の名簿で数える"""
     if doc.get("evalSet") is not True:
         return {"eval": False}
@@ -113,14 +113,27 @@ def _with_calls(s):
     return out
 
 
+def _drill_part(path):
+    """文書のファイル → ドリルの要約(drill_doc_summary)。読めない・形の崩れた文書は None(ドリルに数えない。一覧は止めない)"""
+    d = ed_store._load_doc(path)
+    if d is None:
+        return None
+    try:
+        return drill_doc_summary(d)
+    except Exception as e:   # 形の崩れた文書(手で書き換えたなど)でもドリルの一覧を止めない
+        ed_state.log.warning("文書の要約(ドリル)を作れませんでした: %s", e.__class__.__name__)
+        return None
+
+
 def drill_docs():
-    """[(tid, 要約)](評価用でない文書は {"eval": False})。文書は ed_store の要約のキャッシュから(読み直さない)。
+    """[(tid, 要約)](評価用でない文書は {"eval": False})。文書が変わったか(文書の要約 ed_store.transcript_summary の鍵 = パス・更新日時・大きさ)で決め、
+    変わったときだけ文書を読んでドリルの要約を作る(RS3-E5a まで文書の要約が _drill として一緒に作っていた = ② が ④ を読んでいた。決定 3-25 #8 で自前に)。
     呼び名の行の数は、文書の鍵と名簿の版が同じなら前の結果(_drill_cache)"""
     out, seen, rs = [], set(), ed_state.file_stamp(_roster.ROSTER)
     for tid in sorted(ed_store._tids()):
         seen.add(tid)
         sm = ed_store.transcript_summary(tid)
-        if not sm or sm.get("_drill") is None:
+        if not sm:
             continue
         key = (sm["_key"], rs)
         with _drill_cache_lock:
@@ -128,9 +141,12 @@ def drill_docs():
         if hit and hit[0] == key:
             out.append((tid, hit[1]))
             continue
-        s = _with_calls(sm["_drill"])
+        raw = hit[2] if hit and hit[0][0] == sm["_key"] else _drill_part(sm["_key"][0])   # 名簿だけ変わったときは文書を読み直さない
+        if raw is None:
+            continue
+        s = _with_calls(raw)
         with _drill_cache_lock:
-            _drill_cache[tid] = (key, s)
+            _drill_cache[tid] = (key, s, raw)
         out.append((tid, s))
     ed_store.prune_cache(_drill_cache, seen, _drill_cache_lock)
     return out

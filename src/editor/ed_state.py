@@ -33,8 +33,8 @@ PORT = 8775
 ALLOWED_HOSTS = set()
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(home/mount.py が prepare() で入れる)
 MAX_BODY = 32 * 1024 * 1024
-MAX_SEGMENTS = 20000
-TAGS = ("unclear", "overlap", "bgm")   # 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
+MAX_SEGMENTS = _yschemas.MAX_SEGMENTS   # 別名(RS3-E5a。正は ytt/schemas = 文書の置き場 human/proof/store が読む。差し替えない値)
+TAGS = _yschemas.ROW_TAGS   # 別名(RS3-E5a。正は ytt/schemas の ROW_TAGS)= 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
 MAX_TEXT = _txbase.MAX_TEXT   # 別名(RS2-1a。下の別名も同じ: 差し替えない名前なので、認識の部品が読む正へ移して同じ物を残した)
 # 組み込みの話者「ゲーム音声など」・行の印 noSub(字幕に出さない)・draft(機械の下書き)・文書の id の形の正は ytt/schemas.py(RS2-9 に移した。
 # 話者の部品(pipeline/transcribe/diarize・human/proof/speakers)が ed_state を読まずに済むように)。どれも差し替えない名前なので別名(同じ物)
@@ -91,9 +91,7 @@ union_spans = _yschemas.union_spans         # lint: keep 別名(RS2-1a)= 区間�
 add_warning = _txbase.add_warning           # lint: keep 別名(RS2-1a)= ジョブの注意を付け直す
 
 
-def norm_path(p):
-    """同じ動画かを比べる鍵: 絶対パスにして大文字小文字・区切りをそろえる(normcase(abspath))。ファイルには触らない"""
-    return os.path.normcase(os.path.abspath(p))
+norm_path = _fsio.norm_path   # lint: keep 別名(RS3-E5a。正は ytt/fsio)= 同じ動画かを比べる鍵(normcase(abspath))。ファイルには触らない
 
 
 def now_ms():

@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 文字起こしの保存・履歴(自動スナップショット)・編集の内容(残す区間)(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+"""② 文書の置き場: 文字起こしの保存・履歴(自動スナップショット)・整形・校正の手間・要約のキャッシュ・編集の内容(残す区間)・「文字起こしせずに開く」
+(段10 で editor/serve.py から分けた ed_store。役割で組み直す RS3-E5a(2026-10-10)に human/proof/store.py へ移した。旧い名前 ed_store は転送だけの殻 = RS5 で消す)。
 
-名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
-ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+- 一覧と元の動画・パックの有無(list_transcripts・pack_info)と前回のパックの手順(pack_readme)は manage/cases/doclist.py(txindex を読むのはそちら)
+- 評価ドリルの要約は持たない(ed_drill.drill_docs が自前で文書を読んで足す。決定 3-25 #8)
+- 編集の内容(edit.json)は文書と相互に呼ぶので割らない(文書の書き込みは必ず apply_edit_cuts を通す)
+名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
+ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
 """
 import bisect
 import json
@@ -13,20 +17,20 @@ import threading
 import time
 import uuid
 
-from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-import ed_drill  # noqa: E402,F401  (評価ドリルの要約 drill_doc_summary を、文書の要約と一緒に作る)
-import ed_jobs  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
-from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402   (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
+
+
 # ---------- 文字起こしの保存 ----------
 def tx_path(tid):
     return os.path.join(_workdata.TX_DIR, tid + ".json")
 
 
 def write_doc(tid, doc):
-    """文書を書く(読みやすい JSON。ed_state.atomic_write = 書き出しを確かめてから置き換え)。文書の書き込みはここを通す"""
-    ed_state.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"))
+    """文書を書く(読みやすい JSON。fsio.atomic_write の fsync_required = 書き出しを確かめてから置き換え。停電のあとに空の文書を残さない)。文書の書き込みはここを通す"""
+    _fsio.atomic_write(tx_path(tid), json.dumps(doc, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
 
 
 def snapshot(tid, force=True):
@@ -80,11 +84,11 @@ def sanitize_transcript(obj, base=None):
         sid = re.sub(r"[^\w-]", "", str(s.get("id", "")))[:12]
         if not sid or sid in seen:
             continue
-        if sid == ed_state.OTHER_SPK_ID:   # 組み込みの話者: 名前・色・印は決まった値(画面から名前を変えさせない)。字幕の見た目は持たない(字幕に出さない話者)
+        if sid == _yschemas.OTHER_SPK_ID:   # 組み込みの話者: 名前・色・印は決まった値(画面から名前を変えさせない)。字幕の見た目は持たない(字幕に出さない話者)
             seen.add(sid)
-            speakers.append({"id": sid, "name": ed_state.OTHER_SPK_NAME, "color": ed_state.OTHER_SPK_COLOR, "builtin": ed_state.OTHER_SPK_BUILTIN})
+            speakers.append({"id": sid, "name": _yschemas.OTHER_SPK_NAME, "color": _yschemas.OTHER_SPK_COLOR, "builtin": _yschemas.OTHER_SPK_BUILTIN})
             continue
-        if sum(1 for x in speakers if x.get("id") != ed_state.OTHER_SPK_ID) >= 20:
+        if sum(1 for x in speakers if x.get("id") != _yschemas.OTHER_SPK_ID) >= 20:
             continue
         seen.add(sid)
         one = {"id": sid, "name": str(s.get("name", ""))[:30] or sid, "color": re.sub(r"[^#\w]", "", str(s.get("color", "")))[:9]}
@@ -93,18 +97,18 @@ def sanitize_transcript(obj, base=None):
             one["sub"] = st
         speakers.append(one)
     segs, ids = [], set()
-    now = ed_state.now_ms()
+    now = _yschemas.now_ms()
     base_at = {}   # 保存済みの校正済みの行 id -> 校正した時刻(以前の文書で時刻が無ければ None = 分からないまま。今の時刻を作らない)
     for g in (base or {}).get("segments") or []:
         if isinstance(g, dict) and g.get("proofed") is True and isinstance(g.get("id"), str):
             at = g.get("proofedAt")
-            base_at[g["id"]] = at if (ed_state.plain_int(at) or 0) > 0 else None
+            base_at[g["id"]] = at if (_yschemas.plain_int(at) or 0) > 0 else None
     for i, sg in enumerate(obj.get("segments") or []):
-        if i >= ed_state.MAX_SEGMENTS:
-            raise ed_state.ApiError("too_many", "行数が多すぎます", 400)
+        if i >= _yschemas.MAX_SEGMENTS:
+            raise _errors.ApiError("too_many", "行数が多すぎます", 400)
         if not isinstance(sg, dict):
             continue
-        a, b = ed_state.num(sg.get("start")), ed_state.num(sg.get("end"))
+        a, b = _yschemas.num_or(sg.get("start")), _yschemas.num_or(sg.get("end"))
         if a is None or b is None or a < 0 or b < a:
             continue
         sid = re.sub(r"[^\w-]", "", str(sg.get("id", "")))[:16] or "s%d" % (i + 1)
@@ -112,9 +116,9 @@ def sanitize_transcript(obj, base=None):
             sid += "x"
         ids.add(sid)
         sp = str(sg.get("speaker", ""))
-        one = {"id": sid, "start": round(a, 2), "end": round(b, 2), "text": str(sg.get("text", ""))[:ed_state.MAX_TEXT],
+        one = {"id": sid, "start": round(a, 2), "end": round(b, 2), "text": str(sg.get("text", ""))[:_txbase.MAX_TEXT],
                "speaker": sp if sp in seen else "", "flag": str(sg.get("flag", ""))[:100]}
-        tg = [t for t in ed_state.TAGS if isinstance(sg.get("tags"), list) and t in sg["tags"]]   # 音の状態のメモ(聞き取れない・声が重なる・BGMが大きい)
+        tg = [t for t in _yschemas.ROW_TAGS if isinstance(sg.get("tags"), list) and t in sg["tags"]]   # 音の状態のメモ(聞き取れない・声が重なる・BGMが大きい)
         if tg:
             one["tags"] = tg
         if sg.get("proofed") is True:   # 校正済み(人が聞いて、この行の文字が正しいと確認した印)。学習・精度測定の正解データに使う
@@ -130,8 +134,8 @@ def sanitize_transcript(obj, base=None):
         if sg.get("noSub") is True:   # 字幕に出さない(ゲームの声など。真のときだけ持つ)。機械の出力 original は変えない
             one["noSub"] = True
         if isinstance(sg.get("fill"), dict) and isinstance(sg["fill"].get("from"), str):   # 別の読みで埋めた行の元の文字(ed_fill。画面の「別の読み」の札で戻す)
-            one["fill"] = {"from": sg["fill"]["from"][:ed_state.MAX_TEXT], "by": str(sg["fill"].get("by") or "")[:20]}
-        if sg.get("draft") in ed_state.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す。2026-10-05)
+            one["fill"] = {"from": sg["fill"]["from"][:_txbase.MAX_TEXT], "by": str(sg["fill"].get("by") or "")[:20]}
+        if sg.get("draft") in _yschemas.ROW_DRAFT_KINDS:   # 機械の下書き(重なりの所に置いた空の行など。決まった文字列のときだけ。文字を打ったら画面が外す。2026-10-05)
             one["draft"] = sg["draft"]
         segs.append(one)
     out = dict(base or {})
@@ -154,18 +158,18 @@ def sanitize_transcript(obj, base=None):
 def doc_length(d):
     """文書の長さ(秒): 範囲の終わり − 始まり → 動画の長さ − 始まり → 無ければ(古い文書・長さの記録が無い文書)最後の行の終わりまで"""
     segs = [s for s in (d.get("segments") or []) if isinstance(s, dict)]
-    a = ed_state.num(d.get("start"), 0.0) or 0.0
-    b = ed_state.num(d.get("end"))
-    dur = ed_state.num(d.get("duration"))
+    a = _yschemas.num_or(d.get("start"), 0.0) or 0.0
+    b = _yschemas.num_or(d.get("end"))
+    dur = _yschemas.num_or(d.get("duration"))
     if b is not None and b > a:
         return b - a
     if dur is not None and dur > a:
         return dur - a
-    return max(0.0, max([ed_state.num(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
+    return max(0.0, max([_yschemas.num_or(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
 
 
 # 文書ごとの要約のキャッシュは 1 つ(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
-# 一覧(list_transcripts)・文字起こし済みの判定・進行度(ed_misc.progress_stats)・評価ドリル(ed_drill.drill_docs)が同じ要約を使うので、
+# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・進行度(ed_misc.progress_stats)・評価ドリル(ed_drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
 _summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
@@ -179,7 +183,7 @@ def good_row(g):
 
 def row_dur(g):
     """行の長さ(秒。読めない時刻は 0)"""
-    return max(0.0, (ed_state.num(g.get("end"), 0.0) or 0.0) - (ed_state.num(g.get("start"), 0.0) or 0.0))
+    return max(0.0, (_yschemas.num_or(g.get("end"), 0.0) or 0.0) - (_yschemas.num_or(g.get("start"), 0.0) or 0.0))
 
 
 def _load_doc(path):
@@ -201,18 +205,18 @@ def _prog_of(segs, d):
 
 
 def _part(name, fn, *args):
-    """要約の一部(進行度・ドリル)を作る。形の崩れた文書で例外が出ても、一覧の要約は返す(その部分だけ None = 数えない)"""
+    """要約の一部(進行度)を作る。形の崩れた文書で例外が出ても、一覧の要約は返す(その部分だけ None = 数えない)"""
     try:
         return fn(*args)
     except Exception as e:   # 形の崩れた文書(手で書き換えたなど)でも一覧を止めない
-        ed_state.log.warning("文書の要約(%s)を作れませんでした: %s", name, e.__class__.__name__)
+        _txbase.log.warning("文書の要約(%s)を作れませんでした: %s", name, e.__class__.__name__)
         return None
 
 
 def transcript_summary(tid):
-    """文書1件の要約(一覧の1行 + 元ファイル・範囲 + 進行度 _prog + 評価ドリル _drill)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    """文書1件の要約(一覧の1行 + 元ファイル・範囲 + 進行度 _prog)。評価ドリルの要約は ed_drill.drill_docs が自前で足す(RS3-E5a。② が ④ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
     path = tx_path(tid)
-    st = ed_state.file_stamp(path)
+    st = _fsio.stamp(path)
     if st is None:
         return None
     key = (path,) + st
@@ -239,17 +243,17 @@ def transcript_summary(tid):
           "rows": text_rows, "proofed": proofed, "cut": sum(1 for s in segs if s.get("cutState") == "cut"),
           "flagged": sum(1 for s in segs if str(s.get("flag") or "").strip()), "durationSec": round(max(0.0, length), 1),
           "videoId": str(src.get("videoId") or "")[:40] if clip else "", "clipTitle": str(src.get("title") or "")[:200] if clip else "",
-          "clipStart": ed_state.num(rng.get("start")), "clipEnd": ed_state.num(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
+          "clipStart": _yschemas.num_or(rng.get("start")), "clipEnd": _yschemas.num_or(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
           "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole")),
           "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(Q1)
-          "_key": key, "_prog": _part("進行度", _prog_of, segs, d), "_drill": _part("ドリル", ed_drill.drill_doc_summary, d)}
+          "_key": key, "_prog": _part("進行度", _prog_of, segs, d)}
     with _summary_lock:
         _summary_cache[tid] = (key, sm)
     return sm
 
 
 def _tids():
-    return [n[:-5] for n in (os.listdir(_workdata.TX_DIR) if os.path.isdir(_workdata.TX_DIR) else []) if n.endswith(".json") and ed_state.TID_RE.match(n[:-5])]
+    return [n[:-5] for n in (os.listdir(_workdata.TX_DIR) if os.path.isdir(_workdata.TX_DIR) else []) if n.endswith(".json") and _yschemas.TID_RE.match(n[:-5])]
 
 
 def prune_cache(cache, keep, lock=None):
@@ -271,85 +275,16 @@ def summaries():
     prune_cache(_summary_cache, seen)
 
 
-# スタジオの data.json の読み口(_studio_parse・_studio_load・studio_videos・studio_stream)は ytt/studiodata へ移した
-# (RS3-0A。文字起こしの配信ごとの文脈 pipeline/transcribe/roster.stream_context も同じ物を読むため)
-
-
-PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
-
-
-def pack_info(media_path):
-    """動画の隣の <名前>_pack(cut2resolve の既定の出力先)。規則は ytt_core/txindex.pack_info の1か所(入口の案件の画面と同じ判定)。
-    -> {"textplus": bool, "updatedAt": ms} か None(一覧の API にフォルダのパスは出さない)"""
-    from manage.cases import txindex as _txi   # 一覧を作るときだけ使う(読み込みを軽く)
-    p = _txi.pack_info(media_path)
-    return {"textplus": p["textplus"], "updatedAt": p["updatedAt"]} if p else None
-
-
-def _files_state(items):
-    """一覧の各文書の、元の動画の有無(mediaOk)とパック(pack)。フォルダごとに1回だけ存在を確かめ、全体で PACK_CHECK_BUDGET 秒まで。
-    ネットワーク上のパス(\\\\サーバー\\…)は調べない(一覧を開くだけでそのサーバーへ資格情報を送らないため。clip_info と同じ考え)。
-    調べなかった・調べきれなかったものは mediaOk = None(不明)。"""
-    t0 = time.monotonic()
-    dirs = {}
-    for it in items:
-        sp = it.pop("_sp", "")
-        it["mediaOk"], it["pack"] = None, None
-        if not sp or not os.path.isabs(sp) or _fsio.is_network_path(sp):
-            if not sp:
-                it["mediaOk"] = False
-            continue
-        if time.monotonic() - t0 > PACK_CHECK_BUDGET:
-            continue
-        folder = os.path.dirname(sp)
-        if folder not in dirs:
-            try:
-                dirs[folder] = os.path.isdir(folder)
-            except (OSError, ValueError):
-                dirs[folder] = False
-        if not dirs[folder]:
-            it["mediaOk"] = False
-            continue
-        try:
-            it["mediaOk"] = os.path.isfile(sp)
-        except (OSError, ValueError):
-            it["mediaOk"] = False
-        it["pack"] = pack_info(sp)
-
-
-def list_transcripts():
-    """GET /api/transcripts の items。作った日が新しい順(画面で並べ替える)。
-    v0.15.0: 校正の進み具合(rows・proofed・cut・flagged)・長さ(durationSec)・元の配信(videoId・clipTitle・clipStart/End・markLabel)・
-    配信者(channel。スタジオの data.json から)・元の動画の有無(mediaOk)・パック(pack)も返す。"""
-    items, seen = [], set()
-    for tid in _tids():
-        seen.add(tid)
-        sm = transcript_summary(tid)
-        if sm:
-            it = dict({k: v for k, v in sm.items() if not k.startswith("_")}, _sp=sm["_sourcePath"])
-            it.update(edit_summary(tid))   # 「編集」: カットの有無・rev・パックを作った rev(履歴の「パック済み」「作り直しが要る」)
-            it["packStale"] = pack_stale(it)
-            it.pop("_packDocAt", None)
-            items.append(it)
-    prune_cache(_summary_cache, seen)   # 消した文書の分は捨てる
-    prune_cache(_edit_cache, seen)
-    studio = _studiodata.studio_videos()
-    for it in items:
-        sv = studio.get(it["videoId"]) if it["videoId"] else None
-        it["channel"] = sv["channel"] if sv else ""
-        if sv and sv["title"]:
-            it["streamTitle"] = sv["title"]   # スタジオで題名を直していれば、そちらを見出しに使う
-    _files_state(items)
-    items.sort(key=lambda x: x["createdAt"], reverse=True)
-    return items
+# 一覧と元の動画・パックの有無(PACK_CHECK_BUDGET・pack_info・_files_state・list_transcripts)と前回のパックの手順(pack_readme)は
+# manage/cases/doclist.py へ移した(RS3-E5a。txindex = ③ を読むのはそちら)
 
 
 def read_transcript(tid):
-    if not ed_state.TID_RE.match(tid or "") or not os.path.isfile(tx_path(tid)):
-        raise ed_state.ApiError("not_found", "文字起こしが見つかりません", 404)
+    if not _yschemas.TID_RE.match(tid or "") or not os.path.isfile(tx_path(tid)):
+        raise _errors.ApiError("not_found", "文字起こしが見つかりません", 404)
     d = _load_doc(tx_path(tid))
     if d is None:
-        raise ed_state.ApiError("broken", "文字起こしファイルを読み込めません", 500)
+        raise _errors.ApiError("broken", "文字起こしファイルを読み込めません", 500)
     return d
 
 
@@ -379,7 +314,7 @@ def hist_snapshot(tid, force=False):
     if not os.path.isfile(src):
         return None
     stamps = hist_stamps(tid)
-    now = ed_state.now_ms()
+    now = _yschemas.now_ms()
     if not force and stamps and now - stamps[-1] < HIST_INTERVAL * 1000:
         return None
     d = _hist_dir(tid)
@@ -388,7 +323,7 @@ def hist_snapshot(tid, force=False):
     shutil.copy2(src, os.path.join(d, "%d.json" % ts))
     stamps.append(ts)
     for old in stamps[:-HIST_KEEP]:
-        ed_state.unlink_quiet(os.path.join(d, "%d.json" % old))
+        _fsio.unlink_quiet(os.path.join(d, "%d.json" % old))
     return ts
 
 
@@ -411,7 +346,7 @@ def save_transcript(tid, obj):
         base = read_transcript(tid)
         b = obj.get("baseUpdatedAt")
         if b is not None and not obj.get("force") and base.get("updatedAt") and b != base.get("updatedAt"):
-            raise ed_state.ApiError("conflict", "別の場所で先に更新されています(別のタブ、再認識、話者分離など)。読み込み直すか、この内容で上書きするか選んでください", 409)
+            raise _errors.ApiError("conflict", "別の場所で先に更新されています(別のタブ、再認識、話者分離など)。読み込み直すか、この内容で上書きするか選んでください", 409)
         doc = sanitize_transcript(obj, base)
         effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
         apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
@@ -424,14 +359,14 @@ def restore_history(tid, ts):
     with _save_lock:
         read_transcript(tid)
         if not isinstance(ts, int) or ts not in hist_stamps(tid):
-            raise ed_state.ApiError("not_found", "その履歴は見つかりません", 404)
+            raise _errors.ApiError("not_found", "その履歴は見つかりません", 404)
         p = os.path.join(_hist_dir(tid), "%d.json" % ts)
         try:
             old = _load_doc(p)
             if old is None:
-                raise ed_state.ApiError("broken", "履歴を読み込めません", 500)
+                raise _errors.ApiError("broken", "履歴を読み込めません", 500)
             hist_snapshot(tid, force=True)      # 戻す前の状態も残す(戻したことを取り消せるように)
-            old["updatedAt"] = ed_state.now_ms()
+            old["updatedAt"] = _yschemas.now_ms()
             cur = read_transcript(tid)
             if isinstance(cur.get("effort"), dict):   # 校正の手間の累計は戻さない(戻すのは文字と行。マスタープラン Q2)
                 old["effort"] = cur["effort"]
@@ -442,7 +377,7 @@ def restore_history(tid, ts):
             apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
             write_doc(tid, old)
         except (OSError, ValueError):
-            raise ed_state.ApiError("broken", "履歴を読み込めません", 500)
+            raise _errors.ApiError("broken", "履歴を読み込めません", 500)
         return old
 
 
@@ -456,8 +391,8 @@ EFFORT_KEYS = ("activeSec", "cutSec", "sessions", "proofedRows", "unproofedRows"
 
 def _effort_of(doc):
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
-    out = {k: max(0, ed_state.plain_int(ef.get(k)) or 0) for k in EFFORT_KEYS}
-    if ed_state.plain_int(ef.get("lastAt")):
+    out = {k: max(0, _yschemas.plain_int(ef.get(k)) or 0) for k in EFFORT_KEYS}
+    if _yschemas.plain_int(ef.get("lastAt")):
         out["lastAt"] = ef["lastAt"]
     return out
 
@@ -472,7 +407,7 @@ def effort_rows(base, doc):
         ef = _effort_of(doc)
         ef["proofedRows"] += on
         ef["unproofedRows"] += off
-        ef["lastAt"] = doc.get("updatedAt") or ed_state.now_ms()
+        ef["lastAt"] = doc.get("updatedAt") or _yschemas.now_ms()
         doc["effort"] = ef
 
 
@@ -480,9 +415,9 @@ def add_effort(obj):
     """POST /api/effort {"id", "activeSec", "cutSec"?, "newSession"?} -> {"effort": 累計}。文書の effort の時間と回数に足す。
     **文書の updatedAt は変えない**。保存と同じロックの中で読み直して足す"""
     tid = str(obj.get("id") or "")
-    sec, cut = ed_state.plain_int(obj.get("activeSec", 0)), ed_state.plain_int(obj.get("cutSec", 0))
+    sec, cut = _yschemas.plain_int(obj.get("activeSec", 0)), _yschemas.plain_int(obj.get("cutSec", 0))
     if sec is None or cut is None or not 0 <= sec <= MAX_EFFORT_SEC or not 0 <= cut <= MAX_EFFORT_SEC:
-        raise ed_state.ApiError("bad_request", "activeSec・cutSec は 0〜%d 秒の整数にしてください" % MAX_EFFORT_SEC, 400)
+        raise _errors.ApiError("bad_request", "activeSec・cutSec は 0〜%d 秒の整数にしてください" % MAX_EFFORT_SEC, 400)
     with _save_lock:
         doc = read_transcript(tid)
         ef = _effort_of(doc)
@@ -491,7 +426,7 @@ def add_effort(obj):
         ef["activeSec"] += sec
         ef["cutSec"] += cut
         ef["sessions"] += 1 if obj.get("newSession") is True else 0
-        ef["lastAt"] = ed_state.now_ms()
+        ef["lastAt"] = _yschemas.now_ms()
         doc["effort"] = ef
         write_doc(tid, doc)
         return {"effort": ef}
@@ -503,7 +438,7 @@ def set_diar_num(obj):
     (人数を選んだだけで保存の競合 409・パックの「作り直しが要る」を起こさない。校正の手間 add_effort と同じ)。画面の保存(PUT)は前の値を残す"""
     n = obj.get("diarNum")
     if _yschemas.int_in(n, 0, DIAR_NUM_MAX) is None:
-        raise ed_state.ApiError("bad_request", "diarNum は 0〜%d の整数にしてください" % DIAR_NUM_MAX, 400)
+        raise _errors.ApiError("bad_request", "diarNum は 0〜%d の整数にしてください" % DIAR_NUM_MAX, 400)
     tid = str(obj.get("id") or "")
     with _save_lock:
         doc = read_transcript(tid)   # id の形もここで確かめる(TID_RE)
@@ -532,7 +467,7 @@ _real = _yschemas.num   # JSON の数(真偽値・文字列・NaN・float にで
 
 
 def _fps_pair(v):
-    if not isinstance(v, list) or len(v) != 2 or any(ed_state.plain_int(x) is None for x in v):
+    if not isinstance(v, list) or len(v) != 2 or any(_yschemas.plain_int(x) is None for x in v):
         return None
     n, d = v
     if not (1 <= n <= 1000000 and 1 <= d <= 1000000 and 1 <= n / d <= 300):
@@ -544,32 +479,32 @@ def sanitize_edit(obj):
     """画面から来た編集の内容を検査して、保存できる形にする(知らない項目は捨てる。rev・packRev はサーバーが付ける)。
     v1: 動画は文書の動画1本だけ(sources は1つ・clips の src は 0)。区間は元の動画の秒で、時刻の順・重ならない。区間が0個も受け付ける(全部削った状態)"""
     if not isinstance(obj, dict):
-        raise ed_state.ApiError("bad_edit", "編集の内容の形が正しくありません", 400)
+        raise _errors.ApiError("bad_edit", "編集の内容の形が正しくありません", 400)
     srcs = obj.get("sources")
     if not isinstance(srcs, list) or len(srcs) != 1 or not isinstance(srcs[0], dict):
-        raise ed_state.ApiError("bad_edit", "動画(sources)は1つだけにしてください(複数の切り抜きをつなぐのは、まだ使えません)", 400)
+        raise _errors.ApiError("bad_edit", "動画(sources)は1つだけにしてください(複数の切り抜きをつなぐのは、まだ使えません)", 400)
     fps, dur = _fps_pair(srcs[0].get("fps")), _real(srcs[0].get("duration"))
     if fps is None or dur is None or not 0 < dur <= MAX_MEDIA_SEC:
-        raise ed_state.ApiError("bad_edit", "動画の fps・長さが正しくありません", 400)
+        raise _errors.ApiError("bad_edit", "動画の fps・長さが正しくありません", 400)
     clips = obj.get("clips")
     if not isinstance(clips, list) or len(clips) > MAX_CLIPS:
-        raise ed_state.ApiError("bad_edit", "区間(clips)は %d 個までです" % MAX_CLIPS, 400)
+        raise _errors.ApiError("bad_edit", "区間(clips)は %d 個までです" % MAX_CLIPS, 400)
     limit = dur + fps[1] / fps[0] + 1e-6   # 長さ + 1フレームまで(フレームの境目に丸めた分)
     out, prev = [], 0.0
     for c in clips:
         if not isinstance(c, dict):
-            raise ed_state.ApiError("bad_edit", "区間の形が正しくありません", 400)
+            raise _errors.ApiError("bad_edit", "区間の形が正しくありません", 400)
         src = c.get("src", 0)
         if isinstance(src, bool) or src != 0:
-            raise ed_state.ApiError("bad_edit", "区間の動画(src)は 0 だけにしてください(複数の切り抜きをつなぐのは、まだ使えません)", 400)
+            raise _errors.ApiError("bad_edit", "区間の動画(src)は 0 だけにしてください(複数の切り抜きをつなぐのは、まだ使えません)", 400)
         a, b = _real(c.get("in")), _real(c.get("out"))
         if a is None or b is None or not 0 <= a < b <= limit:
-            raise ed_state.ApiError("bad_edit", "区間の時刻が正しくありません(0 ≤ 始まり < 終わり ≤ 動画の長さ)", 400)
+            raise _errors.ApiError("bad_edit", "区間の時刻が正しくありません(0 ≤ 始まり < 終わり ≤ 動画の長さ)", 400)
         if a < prev - 1e-6:
-            raise ed_state.ApiError("bad_edit", "区間は時刻の順に、重ならないように並べてください", 400)
+            raise _errors.ApiError("bad_edit", "区間は時刻の順に、重ならないように並べてください", 400)
         ra, rb = round(a, 3), round(b, 3)
         if rb <= ra:
-            raise ed_state.ApiError("bad_edit", "区間が短すぎます", 400)
+            raise _errors.ApiError("bad_edit", "区間が短すぎます", 400)
         out.append({"src": 0, "in": ra, "out": rb})
         prev = b
     return {"sources": [{"fps": fps, "duration": round(dur, 3)}], "clips": out,
@@ -606,7 +541,7 @@ def sanitize_draft(v):
             settings[k] = round(_real(x), 4)
     at = v.get("at")
     return {"origin": v["origin"], "settings": settings, "keepsSec": out_k,
-            "at": at if (ed_state.plain_int(at) or 0) > 0 else ed_state.now_ms()}
+            "at": at if (_yschemas.plain_int(at) or 0) > 0 else _yschemas.now_ms()}
 
 
 def read_edit(tid):
@@ -618,14 +553,14 @@ def read_edit(tid):
     except (OSError, ValueError):
         return None, True
     try:
-        if not isinstance(d, dict) or d.get("schema") != EDIT_SCHEMA or ed_state.plain_int(d.get("rev")) is None:
+        if not isinstance(d, dict) or d.get("schema") != EDIT_SCHEMA or _yschemas.plain_int(d.get("rev")) is None:
             return None, True
         out = sanitize_edit(d)
-    except (ValueError, ed_state.ApiError):
+    except (ValueError, _errors.ApiError):
         return None, True
     pr = d.get("packRev")
     out.update({"schema": EDIT_SCHEMA, "rev": max(0, d["rev"]), "updatedAt": d.get("updatedAt") if isinstance(d.get("updatedAt"), int) else 0,
-                "packRev": max(0, ed_state.plain_int(pr) or 0)})
+                "packRev": max(0, _yschemas.plain_int(pr) or 0)})
     if isinstance(d.get("pack"), dict):
         out["pack"] = d["pack"]
     draft = sanitize_draft(d.get("draft"))   # 初めてのたたき台の記録(Q2。以前の edit.json には無い)
@@ -644,7 +579,7 @@ def edit_cut_flags(segs, edit):
     starts = [c["in"] for c in clips]
     out = []
     for s in segs:
-        a, b = ed_state.num(s.get("start"), 0.0), ed_state.num(s.get("end"), 0.0)
+        a, b = _yschemas.num_or(s.get("start"), 0.0), _yschemas.num_or(s.get("end"), 0.0)
         i = max(0, bisect.bisect_right(starts, a) - 1)
         if b - a <= 2 * tol:
             mid = (a + b) / 2
@@ -683,7 +618,7 @@ DRAFT_SLOT_WAIT = 10.0   # 「行から」の行の端の無音を調べる順�
 
 def _draft_slot(label):
     deadline = time.monotonic() + DRAFT_SLOT_WAIT
-    return _heavy.SLOTS.slot(ed_state.TOOL_ID, label, cancelled=lambda: time.monotonic() > deadline)
+    return _heavy.tool_slot(label, cancelled=lambda: time.monotonic() > deadline)   # SLOTS の札の名前は ytt/jobs の configure(tool=)(編集の serve が入れる)
 
 
 def edit_draft(tid, rows=False):
@@ -719,19 +654,19 @@ def edit_draft(tid, rows=False):
 
 def edit_keeps_sec(edit):
     """編集の内容の残す区間(秒)。接している区間(分割しただけ)は1つにまとめる(パックと同じ)。
-    区間は sanitize_edit が 3 桁に丸めて時刻の順に並べてあるので、つなぎ方は ed_state.union_spans(接していればつなぐ)と同じ"""
-    return ed_state.union_spans((c["in"], c["out"]) for c in edit["clips"])
+    区間は sanitize_edit が 3 桁に丸めて時刻の順に並べてあるので、つなぎ方は _yschemas.union_spans(接していればつなぐ)と同じ"""
+    return _yschemas.union_spans((c["in"], c["out"]) for c in edit["clips"])
 
 
 def keeps_arg(v):
     """画面から来た残す区間 [[開始, 終了], ...](秒)の検査(cut2resolve の keeps_from_spec と同じ決まり)"""
     if not isinstance(v, list) or not 1 <= len(v) <= MAX_CLIPS:
-        raise ed_state.ApiError("bad_keeps", "残す区間は 1〜%d 個にしてください" % MAX_CLIPS, 400)
+        raise _errors.ApiError("bad_keeps", "残す区間は 1〜%d 個にしてください" % MAX_CLIPS, 400)
     out, prev = [], 0.0
     for x in v:
         a, b = (_real(x[0]), _real(x[1])) if isinstance(x, list) and len(x) == 2 else (None, None)
         if a is None or b is None or not 0 <= a < b <= MAX_MEDIA_SEC or a < prev:
-            raise ed_state.ApiError("bad_keeps", "残す区間は時刻の順に、重ならないように [開始, 終了] で指定してください", 400)
+            raise _errors.ApiError("bad_keeps", "残す区間は時刻の順に、重ならないように [開始, 終了] で指定してください", 400)
         out.append([a, b])
         prev = b
     return out
@@ -744,46 +679,20 @@ def edit_preview(obj):
     keeps = keeps_arg(obj.get("keeps"))
     src = str(doc.get("sourcePath") or "")
     if not src or _fsio.is_network_path(src) or not os.path.isfile(src):
-        raise ed_state.ApiError("no_media", "元の動画が見つかりません", 400)
+        raise _errors.ApiError("no_media", "元の動画が見つかりません", 400)
     try:
         return resolve_export.edit_preview(doc, keeps, _workdata.SERVER_VERSION, wrap_arg(obj.get("wrap")))
     except resolve_export.ResolveExportError as e:
-        raise ed_state.ApiError("preview_failed", str(e), 400)
+        raise _errors.ApiError("preview_failed", str(e), 400)
 
 
 def wrap_arg(v, size=None):
     """Text+ 字幕の1段の文字数(0〜40)。無ければ設定の subtitle.wrapChars(size が横 1920x1080 なら横、それ以外は縦)"""
     if _yschemas.is_num(v) and 0 <= v <= 40:
         return int(v)
-    sub = ed_jobs.subtitle_settings()
+    from . import doc_jobs   # 呼ぶときに読む(doc_jobs は読み込みのときにこの部品を読むので、循環を作らない)
+    sub = doc_jobs.subtitle_settings()
     return sub["wrapChars"]["horizontal" if str(size or "") == "1920x1080" else "vertical"]
-
-
-PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")   # 2026-09-27 より前のパック(今は手順書のファイルを入れない)
-
-
-def pack_readme(tid):
-    """GET /api/edit/pack-readme?id=: 前回のパックの Resolve での手順。記録したフォルダが cut2resolve のパック
-    (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。ytt_core.txindex.is_pack_dir)のときだけ読む。
-    今のパックは手順書のファイルが無いので、パックの Lua から作り直す(resolve_export.pack_instructions)。以前のパックはファイルを読む"""
-    from manage.cases import txindex as _txi
-    read_transcript(tid)
-    d, _ = read_edit(tid)
-    pk = (d or {}).get("pack") or {}
-    folder = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
-    if not folder or _fsio.is_network_path(folder) or not _txi.is_pack_dir(folder):
-        raise ed_state.ApiError("not_found", "前回のパックのフォルダが見つかりません(移動・削除した可能性があります)", 404)
-    import resolve_export
-    text = resolve_export.pack_instructions(folder)
-    if text:
-        return {"name": "", "text": text}
-    for n in PACK_README_NAMES:
-        try:
-            with open(os.path.join(folder, n), "rb") as f:
-                return {"name": n, "text": f.read(256 * 1024).decode("utf-8-sig", "replace")}
-        except OSError:
-            continue
-    raise ed_state.ApiError("not_found", "パックの中に Resolve での手順を作る材料(.lua)がありません", 404)
 
 
 def get_edit(tid):
@@ -802,21 +711,21 @@ def save_edit(tid, obj):
     文書の行の cutState も同じロックの中で合わせる(画面から2回に分けて送らない)。文書の updatedAt は変えない
     (cutState は編集の内容から決まる値なので、校正の保存の競合の検出(baseUpdatedAt)に巻き込まない)"""
     base = obj.get("baseRev")
-    if ed_state.plain_int(base) is None or base < 0:
-        raise ed_state.ApiError("bad_request", "baseRev(読み込んだときの rev)を付けてください", 400)
+    if _yschemas.plain_int(base) is None or base < 0:
+        raise _errors.ApiError("bad_request", "baseRev(読み込んだときの rev)を付けてください", 400)
     clean = sanitize_edit(obj.get("edit"))
     with _save_lock:
         doc = read_transcript(tid)
         cur, broken = read_edit(tid)
         rev = cur["rev"] if cur else 0
         if base != rev:
-            raise ed_state.ApiError("conflict", "別のタブか窓で、先にカットが保存されています。読み直すか、こちらの内容で上書きするか選んでください", 409, {"rev": rev})
+            raise _errors.ApiError("conflict", "別のタブか窓で、先にカットが保存されています。読み直すか、こちらの内容で上書きするか選んでください", 409, {"rev": rev})
         if broken:   # 壊れたファイルは上書きする前に1つだけ残す(調べられるように)
             try:
                 shutil.copy2(edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"))
             except OSError:
                 pass
-        now = ed_state.now_ms()
+        now = _yschemas.now_ms()
         d = dict(clean, schema=EDIT_SCHEMA, rev=rev + 1, updatedAt=now, packRev=cur["packRev"] if cur else 0)
         if cur and cur.get("pack"):
             d["pack"] = cur["pack"]
@@ -828,8 +737,8 @@ def save_edit(tid, obj):
                 d["draft"] = draft
         body = json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8")
         if len(body) > MAX_EDIT_BYTES:
-            raise ed_state.ApiError("too_big", "区間が多すぎて保存できません", 413)
-        ed_state.atomic_write(edit_path(tid), body)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
+            raise _errors.ApiError("too_big", "区間が多すぎて保存できません", 413)
+        _fsio.atomic_write(edit_path(tid), body, fsync_required=True)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
         if apply_edit_cuts(tid, doc, d):
             write_doc(tid, doc)
         cut_rows = [s.get("id") for s in doc.get("segments") or [] if isinstance(s, dict) and s.get("cutState") == "cut"]
@@ -906,32 +815,32 @@ def record_pack(obj):
     packRev = そのパックを作った編集の rev。rev ≠ packRev か、文書の updatedAt が docUpdatedAt より新しければ「作り直し」"""
     tid = str(obj.get("id") or "")
     rev, dua = obj.get("rev"), obj.get("docUpdatedAt")
-    if ed_state.plain_int(rev) is None or rev < 1 or ed_state.plain_int(dua) is None or dua < 0:
-        raise ed_state.ApiError("bad_request", "rev・docUpdatedAt が正しくありません", 400)
+    if _yschemas.plain_int(rev) is None or rev < 1 or _yschemas.plain_int(dua) is None or dua < 0:
+        raise _errors.ApiError("bad_request", "rev・docUpdatedAt が正しくありません", 400)
     out_dir = obj.get("dir")
     if not isinstance(out_dir, str) or not out_dir or len(out_dir) > 1000 or any(ch in out_dir for ch in "\x00\r\n") or not os.path.isabs(out_dir):
-        raise ed_state.ApiError("bad_request", "パックのフォルダ(dir)が正しくありません", 400)
+        raise _errors.ApiError("bad_request", "パックのフォルダ(dir)が正しくありません", 400)
     files = [os.path.basename(str(x))[:200] for x in (obj.get("files") or []) if isinstance(x, str)][:40] if isinstance(obj.get("files"), list) else []
     output = sanitize_pack_output(obj.get("output"))
     with _save_lock:
         read_transcript(tid)
         cur, _broken = read_edit(tid)
         if not cur:
-            raise ed_state.ApiError("no_edit", "カットがまだ保存されていません", 409)
+            raise _errors.ApiError("no_edit", "カットがまだ保存されていません", 409)
         if rev > cur["rev"]:
-            raise ed_state.ApiError("bad_request", "rev が保存済みのカットより新しくなっています", 400)
-        now = ed_state.now_ms()
+            raise _errors.ApiError("bad_request", "rev が保存済みのカットより新しくなっています", 400)
+        now = _yschemas.now_ms()
         pk = {"rev": rev, "at": now, "docUpdatedAt": dua, "dir": out_dir, "files": files}
         if output is not None:
             pk["output"] = output
         d = dict(cur, packRev=rev, pack=pk)
-        ed_state.atomic_write(edit_path(tid), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
+        _fsio.atomic_write(edit_path(tid), json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
         return {"ok": True, "packRev": rev, "at": now}
 
 
 def edit_summary(tid):
     """一覧の各文書の編集・パックの状態(ファイルの更新日時と大きさが同じなら前の結果)。"""
-    key = ed_state.file_stamp(edit_path(tid))
+    key = _fsio.stamp(edit_path(tid))
     if key is None:
         _edit_cache.pop(tid, None)
         return {"hasEdit": False, "editRev": 0, "packRev": 0, "_packDocAt": 0, "packAt": 0}
@@ -963,9 +872,9 @@ def fill_doc(spec, fields):
     with _save_lock:
         try:
             doc = read_transcript(tid)
-        except ed_state.ApiError:
+        except _errors.ApiError:
             doc = None
-        same = doc is not None and ed_state.norm_path(str(doc.get("sourcePath") or "")) == os.path.normcase(spec["sourcePath"])
+        same = doc is not None and _fsio.norm_path(str(doc.get("sourcePath") or "")) == os.path.normcase(spec["sourcePath"])
         if not same or doc_has_rows(doc):
             spec.setdefault("warnings", []).append("文字起こしを入れる文書が変わっていたため、新しい文字起こしとして保存しました")
             return None
@@ -988,10 +897,10 @@ def find_doc_for_media(path):
     p = str(path or "").strip().strip('"')
     if not p or "\x00" in p:
         return None
-    key = ed_state.norm_path(p)
+    key = _fsio.norm_path(p)
     best = None
     for tid, sm, _sp in summaries():
-        if not any(p and ed_state.norm_path(p) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
+        if not any(p and _fsio.norm_path(p) == key for p in [sm["_sourcePath"]] + list(sm.get("_aliases") or ())):
             continue
         rank = (sm["rows"] > 0, sm.get("updatedAt") or 0)
         if best is None or rank > best[0]:
@@ -1010,10 +919,10 @@ def open_video(req):
             return {"id": hit["id"], "created": False, "warnings": []}
         dur, has_v, has_a = _tools.probe_media(src)
         if not (has_v or has_a):
-            raise ed_state.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
+            raise _errors.ApiError("bad_media", "動画・音声として読めませんでした(壊れているか、対応していない形式です)", 400)
         clip, warn, _cp = _yschemas.find_clip(src, dur)
         tid = uuid.uuid4().hex[:12]
-        now = ed_state.now_ms()
+        now = _yschemas.now_ms()
         doc = {"schema": "transcribe/v1", "id": tid, "title": str(req.get("title") or "").strip()[:120] or os.path.splitext(os.path.basename(src))[0][:120],
                "sourcePath": src, "sourceName": os.path.basename(src), "start": 0, "end": round(dur, 2) if dur else None, "whole": True,
                "duration": dur, "model": "", "language": "", "params": {}, "speakers": [], "segments": [], "original": [],
@@ -1022,5 +931,5 @@ def open_video(req):
             doc["clip"] = clip
         with _save_lock:
             write_doc(tid, doc)
-    ed_state.log.info("文字起こしせずに開く: %s", os.path.basename(src))
+    _txbase.log.info("文字起こしせずに開く: %s", os.path.basename(src))
     return {"id": tid, "created": True, "warnings": [warn] if warn else []}
