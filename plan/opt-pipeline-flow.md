@@ -106,3 +106,10 @@
 - **見積もり `Queue.estimate`(47 行 + 文書 19 行)は実行と同じ規則を別に書いている**(説明に「ずれることがある」)。段の「飛ばすか」の判定を 1 つの関数にして実行と見積もりの両方から呼ぶ → OPT2
 - **継ぎ方が 3 段**: Runner ← Queue ← 入口の AutoRunner(hook を上書き。Runner の hook は 12 個)。hook の多くは「③④ の物を ② に渡す」ための口 = 層の決まりで要る。ただ継ぐより、hook をまとめた 1 つの物(ホストの口)を渡す形の方が追いやすい → RV
 - `spec.py`・`envelope.py`・`runlog.py` は純粋で小さく形は良い。動かさない(envelope の legacy は RV に記録済み)
+
+### ②-2 成果物と置き場所 `flow/keys.py`・`placement.py`・`machine.py`(1,008 行)
+- **鍵を書くのが ② の段ではなく各ツールのサーバー**: 説明は「② の段が終わったところで書く」だが、実際に `write_*` を呼ぶのはスタジオの serve(`write_studio_export`)・cut2resolve の serve と LocalTools(`write_pack`)・③ の `human/proof/doc_jobs`(`write_after_transcribe`)・ライブの書き出し。① をツールのサーバーの中で動かしているため(②-1 の 1 と同じ根)。② が ① を直に呼ぶ形になれば、鍵は ② の段の終わりの 1 か所で書ける → OPT2 の後半(②-1 の 1 と一緒に)
+- **鍵の材料を作るために各ツールの API の読み方を写している**: `studio_media`・`studio_export_settings`(スタジオの書き出しの spec)・`_pack_settings`・`pack_body_inputs`(「cut2resolve の API の受付と同じ読み方」)・`transcribe_req_inputs`(「編集の受付 validate_job と同じ読み方」)。API の本文から材料を読み直すのをやめ、束から材料を作れば写しが消える(約 80 行)→ ②-1 の 1 と一緒に
+- **`machine.py` の engine・device は選択肢が 1 つずつになった**(0.58.0 = whisper.cpp・vulkan だけ)。今は「旧い値を読み替える」「編集の settings.json の device から既定を決める `_editor_device`」が残っているだけ。友人の PC(RTX 3060)も whisper.cpp の Vulkan で始める(F1 の決めたこと 8)= 2 つ目の選択肢ができるまで、engine・device の欄と読み替えを畳める(読むときは固定の値)。旧い値の読み替えは古い machine.json・設定が無くなったら消す → OPT1 のあと(F1 で CUDA を足すなら残す = F1 の形が決まってから)
+- `diskMinGB` は「読むのは後の段」(ヘッドレスの録画は使う)。`learningDir` は既定 = 今の場所で、まだ読み手が 1 つ。使い道が増えるまでこのまま
+- `placement.py` の案件の根・`studio_data` は RS8 の B-2・B-3(案件フォルダへ移す)で形が変わる = そのときに見直す。`.flow.lock` の取り方・結果の束・`case.json` は形が良い → RS8
