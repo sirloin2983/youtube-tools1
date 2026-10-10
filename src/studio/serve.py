@@ -28,7 +28,7 @@ from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
 from flow import batch as batch_mod, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1)
 from pipeline.analyze import analyze  # noqa: E402
-from pipeline.export import exporter, manifest as _manifest  # noqa: E402
+from pipeline.export import exporter  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
 from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
 from ytt import version as _version  # noqa: E402
@@ -38,7 +38,7 @@ from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関�
 APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。画面は入口が入れる meta ytt-version から読む)
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
-_manifest.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
+exporter.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = startup.CODE_DIR
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js", "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}

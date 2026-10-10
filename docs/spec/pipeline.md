@@ -207,7 +207,7 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 | 行の `fill = {from, by}` | 認識のあとの後処理(`pipeline/transcribe/fill.py`)の印 | 人の行 `segments[]` の中に埋まる | | `store.sanitize_transcript` が残す。画面の「別の読み」で戻す |
 | `transcripts/<id>.diar.json` | `latest`(turns・overlaps・rows・labelMap)= `pipeline/transcribe/diarize.py` | `voices`(decided・by・context)を人の層が書き足す | | `diarize.update_diar_voices`・`human/proof/speakers.py` の `_autodiar_record` |
 | `transcripts/<id>.edit.json`(カット) | | カットの結果(残す区間) | | 書くのは `human/proof/store.py`(文書と相互に呼ぶので割らない。保存は `apply_edit_cuts` を通す)。読むのは `pipeline/pack/` のパックの入力を作る側 |
-| 切り抜きの `.clip.json`(作業用/) | 書き出し時の素性(`pipeline/export/manifest.py`) | | | 読むのは `manage/cases/txlink.py`・`txindex.py`・編集の `GET /api/clip-info` |
+| 切り抜きの `.clip.json`(作業用/) | 書き出し時の素性(`pipeline/export/exporter.py` の `write_clip`。形は `ytt/schemas.build_clip`) | | | 読むのは `manage/cases/txlink.py`・`txindex.py`・編集の `GET /api/clip-info` |
 | パックの記録 `cut2resolve/packs/` | パックを作ったときの `cutPlan`(`pipeline/pack/pack.py`) | | | 読むのは `manage/cases/txindex.py` の `pack_info`(パックの有無の判定はここだけ) |
 | スタジオ `data.json` | 候補の点数・series(`pipeline/analyze/analyze.py`・`pipeline/batch.py`) | `status`(adopted/rejected)・`adoptedBy`・`file`・手動マーク | | `human/review/store.py`(スレッドセーフ・原子的に書く)。分けるのは RS6 |
 | 友人の依頼の受付の記録 `intake-state.json` ほか | 取り込み・流す(`src/home/autorun.py` の AutoRunner) | 確認・届ける(`human/friend/intake.py`・`deliver.py`・`delivery.py`) | | `manage/cases/cases.py` が案件として束ねる |

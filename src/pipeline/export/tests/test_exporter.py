@@ -23,7 +23,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, mediainfo, studio_env  # noqa: E402
-from pipeline.export import exporter, manifest
+from pipeline.export import exporter
 from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
 
@@ -374,7 +374,7 @@ class TestManifestFailure(unittest.TestCase):
             with patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "apply_volume"), patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
-                    patch.object(manifest, "write_clip_manifest", side_effect=denied), patch.object(studio_env, "log_failure") as log:
+                    patch.object(exporter, "write_clip", side_effect=denied), patch.object(studio_env, "log_failure") as log:
                 exporter.run_job(job, spec, Mock(return_value=True))
             it = job["items"][0]
             self.assertEqual((job["state"], it["status"]), ("done", "done"))   # 書き出し自体は成功

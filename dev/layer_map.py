@@ -36,7 +36,7 @@ FILES = {
     # ---- studio: analyze・batch・store(+ 新しい feedback)・rank(+ seed.json)・txlink は RS3-5 で層へ移した(DIRS で読む)。残るのは serve・startup・handoff = app
     "src/studio/startup.py": ("app", "app", "起動の小物(src を sys.path に足す・環境チェック・古いログの改名)。RS5-B で common.py の殻を消して残りをここへ"),
     "src/studio/serve.py": ("app", "app", "API の配線"),
-    "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った"),
+    "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った(OPT1 で exporter.write_clip に畳んだ)"),
     # ---- editor
     # ---- ed_drill・ed_evalbatch は RS4-2 で eval/drill の drill・evalbatch へ移した(殻なし。決定 3-25 #7。DIRS で読む)
     # ---- resolve_export は RS3-E5b で pipeline/pack へ(受け渡しの JSON と SRT の組み立て build_* も一緒)・pipeline_io は manage/cases へ(読み・保存・.runtime)。どちらも DIRS で読む = 旧い場所の転送は無い

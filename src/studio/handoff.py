@@ -2,7 +2,7 @@
 
 - 実行中のポートの共有: `<リポジトリ直下>/.runtime/studio.json` の読み書きと、`GET /api/siblings` の中身
 中身は共通部品 ytt(runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。
-切り抜き 1 本の素性(.clip.json)の組み立てと書き込みは RS3-5 で pipeline/export/manifest.py へ割った(書き出しが読む側)。
+切り抜き 1 本の素性(.clip.json)の組み立てと書き込みは RS3-5 で pipeline/export/manifest.py へ割った(書き出しが読む側。OPT1 で exporter.write_clip に畳んだ)。
 """
 import http.client  # noqa: F401  テストが handoff.http.client.HTTPConnection を差し替える(ytt.runtime も同じモジュールを使う)
 

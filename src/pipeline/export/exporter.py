@@ -18,12 +18,11 @@ import uuid
 
 from pipeline.ingest import sources as _src
 from ytt import yturl as _yturl   # URL・動画 ID の形(RS6 a-1 に pipeline/ingest/sources から)
-from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, schemas, tools as _tools
+from ytt import fsio as _fsio, jobs, loudness as _loud, names as _names, normalize as _norm, runtime as _runtime, schemas, tools as _tools
 from ytt import mediainfo as _media, procs as _procs, studio_env as _env   # RS3-4 にスタジオの common から(呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError
 from ytt.textutil import fmt_ts, permission_message, redact   # 純粋な関数(差し替えない)
 
-from . import manifest as _manifest   # .clip.json の組み立てと書き込み(RS3-5 に studio/handoff から隣へ。呼ぶたびに持ち主から読む)
 
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
@@ -836,6 +835,18 @@ def _clip_export_info(spec, method, loudness=None):
     return info
 
 
+TOOL = {"name": _runtime.TOOL_APPS["studio"], "version": ""}   # .clip.json の tool(版は serve.py が SERVER_VERSION を入れる。OPT1 で manifest.py から)
+
+
+def write_clip(media_path, duration, source, rng, mark, export):
+    """mp4 の .clip.json(youtube-tools-clip/v1。ytt.schemas.build_clip)を 作業用/ に書いて、そのパスを返す。失敗したら OSError(呼び出し側で警告にする)。
+    UTF-8(BOM なし)で、一時ファイルに書いてから置き換える(書きかけを他のツールに読ませない。ytt.fsio.write_json。作業用/ も作る)。
+    OPT1(2026-10-11)に、ytt を呼び直すだけだった pipeline/export/manifest.py を畳んでここへ"""
+    path = schemas.clip_path_for(media_path)
+    _fsio.write_json(path, schemas.build_clip(media_path, duration, source, rng, mark, export, TOOL))
+    return path
+
+
 def write_manifests(spec, it, mark_status):
     """書き出した mp4(と編集用素材)の .clip.json を 作業用/ に書く。range は元の配信の秒(元の長さを超える分は切り詰める)。"""
     kind = spec.get("kind") or ("file" if spec.get("mode") == "file" else "youtube")
@@ -848,16 +859,14 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    it["manifest"] = _manifest.write_clip_manifest(media, duration=dur, source=source, mark=mark,
-                                                 rng=(it["start"], end_of(it["end"], it.get("srcLen"))),
-                                                 export=_clip_export_info(spec, it.get("method"), it.get("loudness")))
+    it["manifest"] = write_clip(media, dur, source, (it["start"], end_of(it["end"], it.get("srcLen"))), mark,
+                                _clip_export_info(spec, it.get("method"), it.get("loudness")))
     if it.get("editPath") and it.get("editRange"):
         es, ee = it["editRange"]
         edur = _media.media_info(it["editPath"])[0]
         ex = _clip_export_info(spec, it.get("editMethod"), it.get("loudness"))
         ex.update(purpose="edit-handles", selection={"start": it["start"], "end": it["end"]})   # 切り抜き本体の範囲(元の配信の秒)
-        it["editManifest"] = _manifest.write_clip_manifest(it["editPath"], duration=edur, source=source, mark=mark,
-                                                         rng=(es, end_of(ee, it.get("editSrcLen"))), export=ex)
+        it["editManifest"] = write_clip(it["editPath"], edur, source, (es, end_of(ee, it.get("editSrcLen"))), mark, ex)
 
 
 def run_job(job, spec, on_done=None):

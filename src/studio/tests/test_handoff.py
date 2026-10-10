@@ -19,7 +19,7 @@ import startup  # noqa: E402  (src を sys.path に足し、スタジオのフ�
 from ytt import studio_env  # noqa: E402
 import handoff
 import serve
-from pipeline.export import manifest  # noqa: E402  (common が src を sys.path に足してある。.clip.json の tool は serve が入れる)
+from pipeline.export import exporter  # noqa: E402  (common が src を sys.path に足してある。.clip.json の tool は serve が入れる)
 from ytt import runtime  # noqa: E402
 
 
@@ -151,7 +151,7 @@ class ToolIdentityTests(unittest.TestCase):
     def test_same_as_runtime_table(self):
         self.assertEqual(serve.APP_ID, runtime.TOOL_APPS["studio"])
         self.assertEqual(serve.Handler.server_version, runtime.TOOL_APPS["studio"])
-        self.assertEqual(manifest.TOOL["name"], runtime.TOOL_APPS["studio"])
+        self.assertEqual(exporter.TOOL["name"], runtime.TOOL_APPS["studio"])
 
 
 if __name__ == "__main__":
