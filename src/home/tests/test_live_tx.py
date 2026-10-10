@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。入口の側 src/home/live_tx.py と子プロセス src/home/live_tx_worker.py。
+"""配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。入口の側 src/pipeline/transcribe/live_tx.py と子プロセス src/pipeline/transcribe/live_tx_worker.py。
 
     py -3.10 -m unittest src/home/tests/test_live_tx.py
 
@@ -43,9 +43,9 @@ sys.path.insert(0, TESTS)
 if SRC not in sys.path:   # 共通部品 ytt_core(launch.py と同じ)
     sys.path.append(SRC)
 import live as LV  # noqa: E402
-import live_export as LX  # noqa: E402
-import live_tx as TX  # noqa: E402
-import live_tx_worker as TW  # noqa: E402
+from pipeline.export import live_export as LX  # noqa: E402
+from pipeline.transcribe import live_tx as TX  # noqa: E402
+from pipeline.transcribe import live_tx_worker as TW  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt_core import datadir, fsio  # noqa: E402
 
@@ -685,7 +685,7 @@ class ConstantsTest(unittest.TestCase):
 
     def test_portal_does_not_import_editor_engines(self):
         """入口のプロセスで tx_engines・numpy を import しない(認識は子プロセス live_tx_worker.py の中だけ)"""
-        code = ("import sys; sys.path[:0] = [%r, %r]; import live, live_tx, live_detect; "
+        code = ("import sys; sys.path[:0] = [%r, %r]; import live; import pipeline.transcribe.live_tx, pipeline.analyze.live_detect; "
                 "print(sorted(m for m in ('tx_engines', 'pipeline.transcribe.tx_engines', 'numpy', 'faster_whisper') if m in sys.modules))") % (HERE, SRC)
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual((p.returncode, p.stdout.decode().strip()), (0, "[]"), p.stderr.decode("utf-8", "replace")[-500:])

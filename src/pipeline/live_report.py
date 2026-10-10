@@ -22,8 +22,8 @@ import os
 import time
 
 from ytt import fsio
-import live_export as LX  # noqa: E402
-import live_failures  # noqa: E402
+from pipeline.export import live_export as LX
+from . import live_failures
 
 REPORT_DIR = "reports"
 EVERY = 60.0                 # 録画中に書き直す間隔

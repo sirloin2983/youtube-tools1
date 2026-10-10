@@ -127,7 +127,7 @@ def run(tmp, shots, force_chromium):
     import launch as L  # noqa: E402
     import mount  # noqa: E402
     import hls_fixture as F  # noqa: E402
-    import live_export as LX  # noqa: E402
+    from pipeline.export import live_export as LX  # noqa: E402
     from ytt_core import normalize, schemas  # noqa: E402
     from test_launch import free_ports  # noqa: E402
 
@@ -1079,7 +1079,7 @@ def _scene_peaks(cx):
 
 
 def _scene_peak_text(cx, row):
-    """D-11 案 b(src/home/live_tx.py): 入口が候補に文字を付けると、見回り(since の差分 = 最近文字が付いた候補)で行の [data-pf="tx"] に出る
+    """D-11 案 b(src/pipeline/transcribe/live_tx.py): 入口が候補に文字を付けると、見回り(since の差分 = 最近文字が付いた候補)で行の [data-pf="tx"] に出る
     (80 字で切る・title に全文)。whisper.cpp の無いテストの入口では準備が無いので、見出しに「文字起こしなし(理由)」"""
     check, pg, live, rid = cx.check, cx.pg, cx.live, cx.rid
     info = pg.text_content("#rvPeakInfo") or ""

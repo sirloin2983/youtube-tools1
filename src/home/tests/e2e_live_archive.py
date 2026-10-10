@@ -11,7 +11,7 @@
     手元の HTTP サーバーで配信中のように出す(hls_fixture.LiveServer。最初から 30 本見えている = 録画はアーカイブの途中から始まる = ずれは 0 でない)
   - 録画の部品(src/pipeline/ingest/recorder.py)は本物を --source direct で。入口 → 録画元の要求だけ、YouTube の形の URL を手元の HLS の URL に読み替える
   - yt-dlp の所だけ偽物(Live.archive_opts): 用意の確認 = was_live(手で post_live にもする)・開始時刻 = 録画の頭(firstPdt)・
-    窓の音 = アーカイブの mp4 から ffmpeg で切る。照合は本物(src/home/live_align_worker.py)
+    窓の音 = アーカイブの mp4 から ffmpeg で切る。照合は本物(src/pipeline/ingest/live_align_worker.py)
   - スタジオの section(POST /studio/api/live/section)は本物: 疑似モード(STUDIO_FAKE=1)で STUDIO_FAKE_MEDIA = アーカイブの mp4 を切る
     (入口 → スタジオの API の呼び方・409 busy の待ち・path の検査が本物で通る)
   - 時間は縮める: 自動の作り直し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)・退避した速報版(40 秒)
@@ -147,8 +147,8 @@ def run(tmp, shots, force_chromium):
     import launch as L  # noqa: E402
     import mount  # noqa: E402
     import hls_fixture as F  # noqa: E402
-    import live_export as LX  # noqa: E402
-    import live_archive as LA  # noqa: E402
+    from pipeline.export import live_export as LX  # noqa: E402
+    from pipeline.ingest import live_archive as LA  # noqa: E402
     from ytt_core import fsio, normalize, schemas  # noqa: E402
     from test_launch import free_ports  # noqa: E402
 

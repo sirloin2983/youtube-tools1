@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
-計算はワーカー(src/home/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
+計算はワーカー(src/pipeline/analyze/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
 src/home/live.py の Live が持ち(live.detector)、見回り(Live.tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
 設定(ホームの設定の節 live。src/home/prefs.py): detect {enabled(既定オン。10-08 ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
@@ -44,11 +44,11 @@ import sys
 import threading
 import time
 
-from pipeline.analyze import excite
 from ytt import fsio, schemas, tools
-import live_excite_worker as EW  # noqa: E402  (ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない)
-import live_export as LX  # noqa: E402
-import live_failures  # noqa: E402
+from pipeline import live_failures
+from pipeline.export import live_export as LX
+from . import excite
+from . import live_excite_worker as EW   # ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKER = os.path.join(CODE_DIR, "live_excite_worker.py")
@@ -337,7 +337,7 @@ class Detector:
         return os.path.join(self.dir, rc, rec)
 
     def forget(self, rc, rec):
-        """録画を消したとき(src/home/live_cleanup.py): その録画の検出の記録(state.json・series.jsonl・peaks.json・decisions.json)も消す"""
+        """録画を消したとき(src/manage/keep/live_cleanup.py): その録画の検出の記録(state.json・series.jsonl・peaks.json・decisions.json)も消す"""
         if _ids_ok(rc, rec):
             shutil.rmtree(self.folder(rc, rec), ignore_errors=True)
 
@@ -623,7 +623,7 @@ class Detector:
 
     # ---- 配信が終わったあと(0-10-6。L5 の材料。人の手は要らない)
     def compare(self, rc, rec, a, marks):
-        """配信後の全自動(M7。src/home/live_archive.py)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、配信中にも
+        """配信後の全自動(M7。src/pipeline/ingest/live_archive.py)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、配信中にも
         候補(見送り以外)が出ていた割合と時刻の差を live_feedback.jsonl に 1 行({"event": "detect_compare"})。配信中の候補が無い録画は何もしない。
         a: afterStream の記録(t0・offset・first・last)。アーカイブの秒 s → 録画の頭からの秒 = t0 + s − offset − first(pick_candidates と同じ向き)-> 書いた行か None"""
         doc, peaks, _p = self.view(rc, rec)
@@ -688,7 +688,7 @@ class Detector:
                 "autoAdopt": dict(self.adopt_cfg(), maxPerRecording=AUTO_MAX_PER_REC, pauseUnconfirmed=UNCONFIRMED_PAUSE, paused=paused)}
 
     def failures(self, now=None):
-        """「調子」の失敗(kind detect。文は src/home/live_failures.py の detect_failure)"""
+        """「調子」の失敗(kind detect。文は src/pipeline/live_failures.py の detect_failure)"""
         if not self.live.enabled():
             return []
         now = time.time() if now is None else now

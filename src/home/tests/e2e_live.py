@@ -46,7 +46,7 @@ sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
 import launch as L  # noqa: E402
 import hls_fixture as F  # noqa: E402
-import live_export as LX  # noqa: E402
+from pipeline.export import live_export as LX  # noqa: E402
 from ytt_core import normalize, schemas  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 

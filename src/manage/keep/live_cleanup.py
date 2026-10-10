@@ -3,9 +3,9 @@
 設定 live.autoDelete(既定オン。src/home/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
 
 消すのは戻せないので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
-  1. 本番版への入れ替えが全部済んだ録画(すぐ。src/home/live_archive.py の Archiver が1本終えるたびに check を呼ぶ・見回りでも)
+  1. 本番版への入れ替えが全部済んだ録画(すぐ。src/pipeline/ingest/live_archive.py の Archiver が1本終えるたびに check を呼ぶ・見回りでも)
      - 録画元の一覧(GET /live/list)で、その録画が終わっている(active でない)
-     - その録画の書き出しのジョブ(src/home/live_export.py)が1つ以上あり、マークごとの最新のジョブが全部 done で archive.state も done
+     - その録画の書き出しのジョブ(src/pipeline/export/live_export.py)が1つ以上あり、マークごとの最新のジョブが全部 done で archive.state も done
        (= 本番版に作り直す対象(P4 の決め方)が全部入れ替え済み。欠けで書き出せなかったマークも、本番版で作り直して done になっている)
      - 書き出しの途中・本番版への作り直しの途中(待ちを含む)・失敗・取り消しのマークが1つも無い
      - スタジオのその録画に「採用」のまま書き出していないマークが無い(GET /studio/api/video。スタジオが答えなければ消さない)
@@ -21,7 +21,7 @@
      終わって STALE_SEC(3 日)たったら消す。スタジオに「採用のまま書き出していないマーク」がある・スタジオに確かめられないときは消さない。
      消す 1 日前(WARN_SEC)から「調子」に予告(live_failures.delete_notice)。ほかの理由(書き出しの途中・作り直しの途中など)は今までどおり消さずに知らせる(keep_failure)
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
-配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/home/live_archive.py の after_stream_hold)。
+配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/pipeline/ingest/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
 """
 import os
@@ -30,10 +30,10 @@ import time
 import urllib.parse
 
 from ytt import schemas
-import live_archive as LA
-import live_export as LX
-import live_detect  # noqa: E402  (録画元・録画の id の形の検査 _ids_ok)
-import live_failures  # noqa: E402  (残っている録画の知らせの文。D-14)
+from pipeline import live_failures   # 残っている録画の知らせの文。D-14
+from pipeline.analyze import live_detect   # 録画元・録画の id の形の検査 _ids_ok
+from pipeline.export import live_export as LX
+from pipeline.ingest import live_archive as LA
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = docs/spec/data-location.md の保存の方針)
@@ -87,7 +87,7 @@ class Cleaner:
         return out
 
     def check(self, rc_id, rec):
-        """1本だけ確かめる(本番版への作り直しが1本終わったとき。src/home/live_archive.py の Archiver の after から)。-> 消したら True"""
+        """1本だけ確かめる(本番版への作り直しが1本終わったとき。src/pipeline/ingest/live_archive.py の Archiver の after から)。-> 消したら True"""
         if not self.enabled() or not live_detect._ids_ok(rc_id, rec):   # 録画元・録画の id の形(文字列でなければ False)
             return False
         rc = self.live.find(rc_id)

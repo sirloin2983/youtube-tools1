@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """リアルタイム切り抜き(線 D)の失敗の集約(M3。plan/line-d-auto-pack.md の 4)。
 
-書き出し(src/home/live_export.py のジョブ = 入口の作業データの live/exports.json)と、書き出したあとの文字起こし・パック
+書き出し(src/pipeline/export/live_export.py のジョブ = 入口の作業データの live/exports.json)と、書き出したあとの文字起こし・パック
 (まとめて実行 = logs/autorun-runs.jsonl。ジョブの runId で紐づける)の失敗を、**1 つの関数(failure_of)で 1 つの文にする**。
 同じ文を 3 か所に出す: 「調子」(Live.health の failures → ホームの画面)・スタジオの LIVE の帯(GET /live/api/exports のジョブの failure と、
 帯が今までどおり出す欄 = 書き出しの失敗は error・それ以外は warning)・確認の一覧(M9。これから)。
@@ -12,9 +12,9 @@
   handoff    書き出しはできたが、まとめて実行へ渡せなかった(ジョブの handoffError。入口 0.39.0 から記録する)
   transcribe 渡したまとめて実行が、文字起こし(話者分離を含む)で失敗した(記録の steps の error の段)
   pack       同じく、パック・届ける段で失敗した
-  afterStream 配信後の全自動(M7。src/home/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
-  detect     配信中の盛り上がりの検出(線 D の L2・M11。src/home/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
-  keep       終わって 3 日たっても本番版に置き換わらず、自動では消えない録画(D-14。src/home/live_cleanup.py の kept_failures。keep_failure)
+  afterStream 配信後の全自動(M7。src/pipeline/ingest/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
+  detect     配信中の盛り上がりの検出(線 D の L2・M11。src/pipeline/analyze/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
+  keep       終わって 3 日たっても本番版に置き換わらず、自動では消えない録画(D-14。src/manage/keep/live_cleanup.py の kept_failures。keep_failure)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
@@ -72,7 +72,7 @@ def failure_of(job, run=None):
 
 
 def after_stream_failure(info):
-    """録画ごとの記録(src/home/live_archive.py の archive.json の 1 件。afterStream を持つ)-> 失敗 {"kind", "kindLabel", "text"} か None。
+    """録画ごとの記録(src/pipeline/ingest/live_archive.py の archive.json の 1 件。afterStream を持つ)-> 失敗 {"kind", "kindLabel", "text"} か None。
     配信後の全自動(M7)が止まった理由の文はここだけで作る"""
     a = info.get("afterStream") if isinstance(info, dict) else None
     if not isinstance(a, dict) or a.get("state") != "error":
@@ -89,7 +89,7 @@ def _hms(t):
 
 
 def detect_failure(what, reason, recorder="", recording="", at="", span=None):
-    """配信中の盛り上がりの検出(src/home/live_detect.py)の失敗 -> collect と同じ形の 1 件。文はここだけで作る。
+    """配信中の盛り上がりの検出(src/pipeline/analyze/live_detect.py)の失敗 -> collect と同じ形の 1 件。文はここだけで作る。
     what: worker(ワーカーの不具合。reason = worker.json の error)・restarts(起動し直しが多い。reason = 「n 回」)・adopt(自動の採用を諦めた。span = (開始, 終了) 秒)"""
     why = _reason(reason) or "理由が分かりません"
     if what == "restarts":
@@ -105,7 +105,7 @@ def detect_failure(what, reason, recorder="", recording="", at="", span=None):
 
 
 def keep_failure(recording, days, why, title="", at=""):
-    """終わっても消せない録画(D-14。src/home/live_cleanup.py)-> collect と同じ形の 1 件。文はここだけで作る。
+    """終わっても消せない録画(D-14。src/manage/keep/live_cleanup.py)-> collect と同じ形の 1 件。文はここだけで作る。
     days: 終わってからの日数。why: 消せない理由(live_cleanup の _replaced_why などの文)"""
     name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
     text = ("%s: 終わって %d 日たちましたが、%sので録画は自動では消えません(本番版に作り直せない録画は置き場所に残り続けます。"
@@ -115,7 +115,7 @@ def keep_failure(recording, days, why, title="", at=""):
 
 
 def delete_notice(recording, hours_left, title="", at=""):
-    """本番版に置き換わらない録画を消す予告(10-09 ユーザー決定。src/home/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
+    """本番版に置き換わらない録画を消す予告(10-09 ユーザー決定。src/manage/keep/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
     name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
     text = ("%s: 終わってから本番版に作り直せていないマークがあるので、あと約 %d 時間で録画を自動で消します(書き出した切り抜きは残ります。"
             "録画を残したいときは、それまでに設定の「録画を自動で消す」をオフにしてください)") % (name, int(hours_left))
@@ -154,7 +154,7 @@ class Reader:
 def collect(jobs, runs, now=None, window=WINDOW_SEC, limit=MAX_LIST):
     """書き出しのジョブの一覧(exports.json の jobs)と まとめて実行の記録({id: 記録})-> 失敗の一覧(新しい順。window 秒より古いものは入れない)。
     各要素 {"jobId", "recorder", "recording", "markId", "runId", "kind", "kindLabel", "text", "at"(ISO)}"""
-    import live_export   # ここで読む(live_export がこのモジュールを読むので、循環を避ける)
+    from pipeline.export import live_export   # ここで読む(live_export がこのモジュールを読むので、循環を避ける)
     out = []
     for j in jobs or []:
         if not isinstance(j, dict):

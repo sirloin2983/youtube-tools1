@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)のテスト。ワーカー src/home/live_excite_worker.py・入口の側 src/home/live_detect.py。
+"""配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)のテスト。ワーカー src/pipeline/analyze/live_excite_worker.py・入口の側 src/pipeline/analyze/live_detect.py。
 
     py -3.10 -m unittest src/home/tests/test_live_detect.py
 
@@ -21,7 +21,7 @@
   - 友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く(config.json の detectAll・requests・
     画面の答えは録画ごと)・依頼の waitMin・pad で自動の採用(結びついていない録画は採用しない)・ワーカーは detectAll false なら依頼の録画だけ・
     感度・枠・長さは依頼の値(lengthFrom friend・起動し直しても)・clean_requests の検査
-  - 配信中の候補の文字起こし(D-11 案 b。src/home/live_tx.py。本体のテストは test_live_tx.py): 候補の text・textAt・最近付いた候補は since の差分に・
+  - 配信中の候補の文字起こし(D-11 案 b。src/pipeline/transcribe/live_tx.py。本体のテストは test_live_tx.py): 候補の text・textAt・最近付いた候補は since の差分に・
     応答の tx・採用(人・自動)の記録 live_feedback.jsonl の text
 本物の YouTube にはつながない。作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
@@ -46,11 +46,13 @@ HERE = os.path.dirname(TESTS)
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import live_excite_worker as W  # noqa: E402
-import live_detect as D  # noqa: E402
+if REPO not in sys.path:   # src(層のパッケージ pipeline・ytt。launch.py と同じく後ろに)
+    sys.path.append(REPO)
+from pipeline.analyze import live_excite_worker as W  # noqa: E402
+from pipeline.analyze import live_detect as D  # noqa: E402
 import live as LV  # noqa: E402
-import live_export as LX  # noqa: E402
-import live_failures as LF  # noqa: E402
+from pipeline.export import live_export as LX  # noqa: E402
+from pipeline import live_failures as LF  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt_core import excite, fsio, tools  # noqa: E402
 
@@ -734,7 +736,7 @@ class ListRecorder:
                 self.rfile.read(n)
                 if self.headers.get("Authorization") != "Bearer " + TOKEN:
                     return self._out(403, {"error": "token"})
-                if self.path == "/live/%s/delete" % REC:   # 録画を消す(src/home/live_cleanup.py)
+                if self.path == "/live/%s/delete" % REC:   # 録画を消す(src/manage/keep/live_cleanup.py)
                     owner.deleted = True
                     return self._out(200, {"ok": True, "deleted": REC})
                 return self._out(404, {"error": "not_found", "message": "なし"})
@@ -768,7 +770,7 @@ class Handler:
 
 
 class DetectApiTest(unittest.TestCase):
-    """入口の側(src/home/live_detect.py)。ワーカーは起動しない(peaks.json・worker.json はテストが置く)"""
+    """入口の側(src/pipeline/analyze/live_detect.py)。ワーカーは起動しない(peaks.json・worker.json はテストが置く)"""
 
     def setUp(self):
         from test_live import FakeStudio
@@ -992,9 +994,9 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(det2.auto_tick(), 0)   # 待ちが過ぎても試さない
 
     def test_live_tx_text_on_peaks_and_feedback(self):
-        """D-11 案 b(src/home/live_tx.py): 文字の付いた候補は GET の候補に text・textAt。付けてから RECENT_SEC の間は since の差分(changes)にも入る
+        """D-11 案 b(src/pipeline/transcribe/live_tx.py): 文字の付いた候補は GET の候補に text・textAt。付けてから RECENT_SEC の間は since の差分(changes)にも入る
         (画面の行に文字が出る)。応答に tx(LiveTx.status)。採用(人・自動)の記録 live_feedback.jsonl に text。失敗の記録は出さない"""
-        import live_tx as TX
+        from pipeline.transcribe import live_tx as TX
         tx = self.live.livetx
         t = [time.time()]
         tx.clock = lambda: t[0]
@@ -1160,8 +1162,8 @@ class DetectApiTest(unittest.TestCase):
             self.assertEqual(self.det.auto_tick(), 0)
 
     def test_report_d12(self):
-        """D-12: 配信ごとの結果の記録(src/home/live_report.py)。録画中は EVERY 秒ごとに書き直し(最大値を残す)、終わって締めたら最後に 1 回(state done)"""
-        import live_report as R
+        """D-12: 配信ごとの結果の記録(src/pipeline/live_report.py)。録画中は EVERY 秒ごとに書き直し(最大値を残す)、終わって締めたら最後に 1 回(state done)"""
+        from pipeline import live_report as R
         rp = self.live.reporter
         t = self.worker_alive()
         rp.clock = lambda: t[0]
@@ -1789,7 +1791,7 @@ class SameAsExportTest(unittest.TestCase):
 class NoNumpyTest(unittest.TestCase):
     def test_no_numpy_in_portal_or_worker(self):
         """入口のプロセス(live・live_detect)とワーカー(live_excite_worker)は numpy を読まない(0-10-2)"""
-        code = "import sys; sys.path[:0] = [%r, %r]; import live, live_detect, live_excite_worker, launch; print('numpy' in sys.modules)" % (HERE, REPO)
+        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import pipeline.analyze.live_detect, pipeline.analyze.live_excite_worker; print('numpy' in sys.modules)" % (HERE, REPO)
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
 

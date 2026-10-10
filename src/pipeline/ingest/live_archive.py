@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """アーカイブで本番版に作り直す(線 D の P4。plan/line-d-live-clipping.md の 0-9)の入口の側の中身。API は src/home/live.py(設定 live.enabled がオンのときだけ)。
 
-単位は入口の書き出しのジョブ(src/home/live_export.py の Exporter。live/exports.json)。ジョブに archive を足して残す(入口を起動し直しても続く):
+単位は入口の書き出しのジョブ(src/pipeline/export/live_export.py の Exporter。live/exports.json)。ジョブに archive を足して残す(入口を起動し直しても続く):
   archive {state: wait|probe|align|fetch|verify|done|error|cancelled, label(日本語), message(失敗のときは理由), progress(0〜1),
            offset(マークの絶対時刻 − 配信の開始時刻 の見当から、照合で求めたアーカイブの秒までの差), residual(本番版と速報版の音のずれ。秒),
            archiveStart・archiveEnd(アーカイブの秒), at(済んだ時刻), auto(自動で始めた), aligned(照合が済んだ = ほかのマークの見当に使える),
@@ -16,7 +16,7 @@
               live\\work\\audio-<videoId>\\ に置く(同じ配信のジョブで使い回す。その配信のジョブが無くなったら消す)。
               見当 = マークの絶対時刻 − 開始時刻。その前後の窓(最初は ±300 秒、確かさが低ければ ±900 秒で1回だけやり直す。2 本目からは前のずれの ±20 秒。
               だめなら広げる)を丸ごとの音から ffmpeg で切り(10 秒手前まで入力側の -ss、残りはデコードして切る = サンプル単位で正確。入力側だけだと AAC で 13ms ずれた)、速報版の音(頭の1秒ほどを除いた最大 60 秒)と相互相関
-              (8kHz・モノラル。numpy を使うので別プロセス src/home/live_align_worker.py = 入口のプロセスでは numpy を import しない。配信全体は相関にかけない = 窓だけ)
+              (8kHz・モノラル。numpy を使うので別プロセス src/pipeline/ingest/live_align_worker.py = 入口のプロセスでは numpy を import しない。配信全体は相関にかけない = 窓だけ)
               2 本目からの見当は、同じ録画のほか、同じ配信(videoId)の別の録画の照合も使う(同じ配信の 2 本の録画の差は 1 秒ほど = ±20 秒に収まる)。
               欠けのマーク(速報版が無い)は、同じ録画の照合できたマークのずれのうち、前にある・時刻が近いものを使う(1 本も無ければできない)。
               2026-10-05 に本物の配信で確かめて変えた: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれて
@@ -39,7 +39,7 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
 
 できないもの: アーカイブが残らない・メンバー限定・非公開・配信者がアーカイブを切り貼りして音が合わない区間 → 速報版のまま(理由を archive.message に出す)。
 
-空き容量(線 D の M4): 書き出し先・live\\work の空きが 5 GB 未満(src/home/live_export.py の DISK_LOW)なら、作り直しを始めずに待ちに戻す(Later)。
+空き容量(線 D の M4): 書き出し先・live\\work の空きが 5 GB 未満(src/pipeline/export/live_export.py の DISK_LOW)なら、作り直しを始めずに待ちに戻す(Later)。
 本番版を待っていた受け渡し(M7。ジョブの handoffWait "archive")は、入れ替えたら(作り直せなければ速報版のまま)Exporter.release_hold で まとめて実行へ渡す。
 
 配信後の全自動(線 D の M7。入口 0.40.0。設定 live.autoAfterStream 既定オフ・live.afterStreamPerHour 既定 6): 人が触らずにパックまで。
@@ -55,8 +55,8 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
              hold archive)を 1 本ずつ呼ぶ = スタジオの録画の配信に採用のマーク・live_feedback.jsonl(自動は「良い」に数えない)・書き出しのジョブ(速報版)
   export   … 書き出しが済んだ(・欠けで書き出せなかった)ジョブを本番版への作り直しに入れ(P4。設定 live.autoArchive がオフでも)、入れ替えたら
              まとめて実行へ渡す(文字起こし → パック)。全部が済む(渡した・失敗した)と done(n 本のうち渡した数・失敗の数)
-  done・none(採用する候補が無かった)・error(理由。「調子」の失敗に出す = src/home/live_failures.py の after_stream_failure)
-録画を自動で消す(src/home/live_cleanup.py)は、オンの間 afterStream が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
+  done・none(採用する候補が無かった)・error(理由。「調子」の失敗に出す = src/pipeline/live_failures.py の after_stream_failure)
+録画を自動で消す(src/manage/keep/live_cleanup.py)は、オンの間 afterStream が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
 """
 import json
 import os
@@ -66,8 +66,8 @@ import time
 import urllib.parse
 
 from ytt import fsio, jobs, normalize, schemas, tools
-import live_export as LX
-import live_failures  # noqa: E402  (失敗の文は 1 か所。M3・M7)
+from pipeline import live_failures   # 失敗の文は 1 か所。M3・M7
+from pipeline.export import live_export as LX
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKER = os.path.join(CODE_DIR, "live_align_worker.py")
@@ -261,7 +261,7 @@ def worker_python(python=None):
 
 
 def run_align(ref, win, python=None, timeout=WORKER_TIMEOUT):
-    """src/home/live_align_worker.py を子プロセスで動かす -> その JSON({ok, offset, score, ratio, …} か {ok: false, reason})"""
+    """src/pipeline/ingest/live_align_worker.py を子プロセスで動かす -> その JSON({ok, offset, score, ratio, …} か {ok: false, reason})"""
     code, out, tail = run_proc([worker_python(python), WORKER, ref, win], timeout)
     lines = [x for x in out.strip().splitlines() if x.startswith("{")]
     try:
@@ -293,7 +293,7 @@ def free_name(folder, name):
 def ended_at(r):
     """録画の一覧の行 r の「終わった時刻」(epoch 秒): endedAt、無ければ lastPdt(最後のセグメントの時刻)。分からなければ None。
     行の時刻の型は呼ぶ側で違う: after_tick は epoch(src/home/live.py の list_recordings)、after_stream_hold は録画の部品の生の行 = ISO の文字列
-    (src/home/live_cleanup.py)。どちらでも同じ値にする(3 か所で別々に求めていたのを 1 つに。2026-10-09)"""
+    (src/manage/keep/live_cleanup.py)。どちらでも同じ値にする(3 か所で別々に求めていたのを 1 つに。2026-10-09)"""
     for k in ("endedAt", "lastPdt"):
         v = r.get(k)
         t = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else LX.iso_epoch(v)
@@ -372,11 +372,11 @@ class Archiver:
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
                  pack_info=None):
-        """exporter: src/home/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
+        """exporter: src/pipeline/export/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
         probe(videoId) -> probe_archive の形。audio(videoId, folder, cancelled) -> 配信の丸ごとの音のファイル(fetch_full_audio)。align(ref.wav, window.wav) -> 照合の JSON。
-        after(録画元, 録画): 1本を終えたとき(済み・失敗・取り消し)に呼ぶ(src/home/live_cleanup.py の Cleaner.check = 全部入れ替わった録画を消す)。
+        after(録画元, 録画): 1本を終えたとき(済み・失敗・取り消し)に呼ぶ(src/manage/keep/live_cleanup.py の Cleaner.check = 全部入れ替わった録画を消す)。
         配信後の全自動(M7): after_stream() = 設定 live.autoAfterStream・per_hour() = live.afterStreamPerHour・
         recordings() -> 録画元の録画の一覧 [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch。src/home/live.py の list_recordings)・
         adopt(body, hold=) = M1 の採用(Live.adopt)。
@@ -392,7 +392,7 @@ class Archiver:
         self.recordings = recordings or (lambda: [])
         self.adopt = adopt
         self.after_max_age = after_max_age
-        self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/home/live_detect.py)
+        self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/pipeline/analyze/live_detect.py)
         self.pack_info = pack_info or (lambda path: None)
         self.enabled = enabled or (lambda: True)
         self.auto = auto or (lambda: True)
@@ -1050,7 +1050,7 @@ class Archiver:
         return True
 
     def after_stream_hold(self, rc, r):
-        """録画を自動で消すのを待つ理由(src/home/live_cleanup.py から。r = 録画元の一覧の 1 行)。待たなくてよければ ""。
+        """録画を自動で消すのを待つ理由(src/manage/keep/live_cleanup.py から。r = 録画元の一覧の 1 行)。待たなくてよければ ""。
         配信後の全自動がオン(友人の依頼の録画は依頼の afterStream。2-15)で、その録画がまだ済んでいない(終わって AFTER_MAX_AGE 以内・YouTube の動画が分かる)間は消さない"""
         if not self.enabled() or not isinstance(r, dict):
             return ""
@@ -1067,7 +1067,7 @@ class Archiver:
         return "配信後の自動の切り抜き(アーカイブの解析)がまだです"
 
     def after_failures(self, now=None):
-        """配信後の全自動の失敗(「調子」の失敗の一覧に足す。文は src/home/live_failures.py の after_stream_failure)"""
+        """配信後の全自動の失敗(「調子」の失敗の一覧に足す。文は src/pipeline/live_failures.py の after_stream_failure)"""
         now = time.time() if now is None else now
         with self.lock:
             items = [dict(i) for i in self.info.values()]

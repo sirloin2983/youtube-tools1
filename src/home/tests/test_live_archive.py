@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。src/home/live_archive.py・src/home/live_align_worker.py・src/home/live.py の API)のテスト。本物の YouTube には繋がない。
+"""アーカイブで本番版に作り直す(線 D の P4。src/pipeline/ingest/live_archive.py・src/pipeline/ingest/live_align_worker.py・src/home/live.py の API)のテスト。本物の YouTube には繋がない。
 
     py -3.10 -m unittest src/home/tests/test_live_archive.py
 
@@ -39,8 +39,9 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)    # ytt_core(このファイルだけを流しても読めるように。2026-10-09)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import live_archive as A  # noqa: E402
-import live_export as LX  # noqa: E402
+from pipeline.ingest import live_archive as A  # noqa: E402
+from pipeline.export import live_export as LX  # noqa: E402
+from manage.keep import live_cleanup as LC  # noqa: E402
 from ytt_core import fsio, jobs, normalize, schemas, tools  # noqa: E402
 
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
@@ -543,13 +544,13 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(A.run_align(os.path.join(self.tmp, "none.wav"), win)["ok"], False)
 
     def test_no_numpy_in_portal(self):
-        code = "import sys; sys.path[:0] = [%r, %r]; import live, live_archive, live_export, launch; print('numpy' in sys.modules)" % (HERE, REPO)
+        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import pipeline.ingest.live_archive, pipeline.export.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
 
 
 class CleanupLive:
-    """Cleaner(src/home/live_cleanup.py)が使う Live の代わり: 録画元の一覧と delete(呼ばれた順に覚える)・書き出しのジョブ(本物の Exporter)"""
+    """Cleaner(src/manage/keep/live_cleanup.py)が使う Live の代わり: 録画元の一覧と delete(呼ばれた順に覚える)・書き出しのジョブ(本物の Exporter)"""
 
     def __init__(self, store, out):
         self.rc = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:1", "token": ""}
@@ -592,7 +593,7 @@ class CleanupLive:
 
 
 class CleanupTest(unittest.TestCase):
-    """録画を自動で消す(src/home/live_cleanup.py。P4 の 0-9 の最後)。消すのは戻せないので、消えない場合を厚く確かめる"""
+    """録画を自動で消す(src/manage/keep/live_cleanup.py。P4 の 0-9 の最後)。消すのは戻せないので、消えない場合を厚く確かめる"""
     R1, R2, R3 = "20261005-120000-abcdefghijk", "20261005-130000-abcdefghijk", "20261005-140000-abcdefghijk"
 
     def setUp(self):
@@ -605,7 +606,7 @@ class CleanupTest(unittest.TestCase):
         self.studio_down = False
         self.studio_calls = []
         self.logs = []
-        self.cl = __import__("live_cleanup").Cleaner(self.live, enabled=lambda: self.on, studio=self.studio, log=self.logs.append,
+        self.cl = LC.Cleaner(self.live, enabled=lambda: self.on, studio=self.studio, log=self.logs.append,
                                                      no_mark_sec=2.0, keep_sec=2.0, interval=0)
 
     def tearDown(self):
@@ -647,7 +648,7 @@ class CleanupTest(unittest.TestCase):
         """D-14 と 10-09 のユーザー決定: 終わっているのに消せない録画は理由を覚える。理由が「本番版になっていないマークがある」だけなら
         終わって STALE_SEC で消し(スタジオに採用のまま書き出していないマークがあれば消さない)、WARN_SEC から「調子」に予告(delete_notice)。
         ほかの理由(書き出しの途中など)は STALE_SEC より古ければ「調子」の失敗(kind keep。keep_failure)に出し、消さない。録画中は出さない"""
-        C = __import__("live_cleanup")
+        C = LC
         R4, R5 = "20261005-150000-abcdefghijk", "20261005-160000-abcdefghijk"
         self.live.add(self.R1, ended_ago=C.STALE_SEC + 100)
         self.job(self.R1, 1, state="done", arc="error")     # 本番版になっていない・3 日たった → 消す
@@ -844,7 +845,7 @@ class CleanupTest(unittest.TestCase):
 
 
 class AfterStreamTest(unittest.TestCase):
-    """線 D の M7(配信後の全自動。src/home/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
+    """線 D の M7(配信後の全自動。src/pipeline/ingest/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
     → 本番版へ → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは src/home/tests/e2e_live_archive.py の 9)"""
     HOURS = 3.0
 

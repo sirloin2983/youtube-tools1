@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""偽の検出ワーカー(e2e 用)。本物の src/home/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、
+"""偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、
 テストが置いた指示 <excite>/fake_control.json の候補を、本物と同じ形で peaks.json・worker.json に書く(decisions.json も本物と同じに当てる)。
 音・チャット・録画元には触らない(候補の API・帯・採用の道を、ワーカーの計算抜きで通すため)。
 

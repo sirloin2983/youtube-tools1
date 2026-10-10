@@ -2,21 +2,25 @@
 (編集の tx_engines を読むため)。1 回の起動で 1 本の wav を認識して終わる(常駐しない = whisper-cli はモデルの読み込みが数秒で、候補は 1 時間に数本なので足りる)。
 
 使い方: python live_tx_worker.py <編集の作業データのフォルダ> <モデル名> <wav(16kHz モノラル)> <出力 json>
+  (旧い場所 src/home/live_tx_worker.py は起動中の古い入口のための runpy の転送。RS5 で消す)
   編集の tx_engines.WhisperCpp(作業データの bin/whisper.cpp-<版>-vulkan/whisper-cli.exe・Vulkan = GPU)で認識し、出力 json に
   {"ok": true, "text", "rows": [{start, end, text}], "sec", "gpu", "model", "engine"} か {"ok": false, "reason"} を書く。終了コードは ok なら 0。
-  モデルとワーカー(whisper-cli)の場所は入口側(src/home/live_tx.py の LiveTx.ready)が先に確かめる(ここでは取りに行かない = 3GB を黙って取得しない)。
+  モデルとワーカー(whisper-cli)の場所は入口側(src/pipeline/transcribe/live_tx.py の LiveTx.ready)が先に確かめる(ここでは取りに行かない = 3GB を黙って取得しない)。
   GPU を頼んで Vulkan で動かなければ、編集と同じく黙って CPU にせず失敗にする(WhisperCpp._check_gpu)。
 """
 import os
 import sys
 import time
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.dirname(os.path.dirname(HERE))   # transcribe -> pipeline -> src
+if __name__ == "__main__":   # スクリプトとして起動したときだけ: このフォルダを外して src を先頭に(兄弟は絶対 import。層の決まりの例外)
+    sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
+
 
 def _paths():
-    here = os.path.dirname(os.path.abspath(__file__))
-    src = os.path.dirname(here)
-    if src not in sys.path:   # pipeline.transcribe と ytt の置き場所
-        sys.path.insert(0, src)
+    if SRC not in sys.path:   # pipeline.transcribe と ytt の置き場所(import したとき = テスト)
+        sys.path.insert(0, SRC)
 
 
 def recognize(data_dir, model, wav):
