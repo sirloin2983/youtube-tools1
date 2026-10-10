@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""評価ドリルと定点の「あと何分」(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)。editor/ed_drill.py)のテスト。
+"""評価ドリルと定点の「あと何分」(マスタープラン Q4。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (c)。eval/drill/drill.py。RS4-2 まで editor/ed_drill.py)のテスト。
 2026-10-04 夜に作り直した形(動画 1 本ずつ・編集の画面で全部聞いて直す・文書の印 evalReviewed)。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 from test_backend import S, StoreDir, write_json  # noqa: F401  (S = serve)
 
-import ed_drill as DR  # noqa: E402  (serve を読み込んだあとなので、部品の場所は通っている)
+from eval.drill import drill as DR  # noqa: E402  (serve を読み込んだあとなので、部品の場所は通っている。RS4-2 に editor/ed_drill.py から)
 
 OLD = int(time.time() * 1000) - 3600 * 1000   # 1 時間前(直近 10 分ではない)
 

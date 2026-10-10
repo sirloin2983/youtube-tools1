@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""文字起こしのあとの話者の自動判別(v0.50.0。ed_speakers の autodiar_*・ed_evalbatch の後追い)のテスト。
+"""文字起こしのあとの話者の自動判別(v0.50.0。ed_speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py    # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest src/editor/tests/test_autodiar.py   # これだけ
@@ -24,8 +24,8 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-import ed_drill  # noqa: E402
-import ed_evalbatch as EB  # noqa: E402
+from eval.drill import drill as ed_drill  # noqa: E402   (RS4-2 に editor/ed_drill.py から)
+from eval.drill import evalbatch as EB  # noqa: E402
 import ed_jobs  # noqa: E402
 from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
 import ed_speakers  # noqa: E402

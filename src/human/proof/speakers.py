@@ -7,7 +7,7 @@ recognize_voices・voice_learn_plan・run_voice_learn)・話者ごとの字幕�
 判別の計算・判別の記録・声の特徴と照らし合わせは pipeline/transcribe/diarize.py へ分けた(ここからは `diarize.名前` で呼ぶたびに読む =
 テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") が届く)。
 旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、serve.名前 は serve の名前の受付がここへ回す。
-評価用の文書の名前の候補(eval の ed_drill.drill_candidates)は読まず、serve が set_context_namer で登録する口を呼ぶたびに引く(② から ④ を読まない)。
+評価用の文書の名前の候補(eval の drill.drill_candidates)は読まず、serve が set_context_namer で登録する口を呼ぶたびに引く(② から ④ を読まない)。
 editor の部品は裸の名前で読む(human の ed_learn は層の向きが許す)。文書の置き場は隣の store(RS3-E5a)。後処理 fill は pipeline/transcribe の部品を fill.名前 で呼ぶたびに読む(RS2-9)。
 """
 import bisect
@@ -25,12 +25,12 @@ from ytt import settings as _settings  # noqa: E402   編集の設定の読み�
 from pipeline.transcribe import fill  # noqa: E402   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0。呼ぶたびに fill.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 
-# ---------- serve が登録する口(RS2-9。eval の ed_drill を ② から読まない) ----------
+# ---------- serve が登録する口(RS2-9。eval の drill を ② から読まない) ----------
 _namer = {}
 
 
 def set_context_namer(fn):
-    """評価用の文書の「動画の手がかり」の名前の候補を返す関数 fn(tid) -> 名前 or None(eval の ed_drill.drill_candidates の suggest =
+    """評価用の文書の「動画の手がかり」の名前の候補を返す関数 fn(tid) -> 名前 or None(eval の drill.drill_candidates の suggest =
     覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)。編集の serve.py が読み込みのときに登録する
     (呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。関数でなければ TypeError"""
     if not callable(fn):
@@ -503,7 +503,7 @@ def ovdraft_for_doc(tid, kinds=None):
 # ---------- 文字起こしのあと、話者を自動で判別する(v0.50.0。評価用は常に・それ以外は設定 autoDiarize) ----------
 # 評価ドリルでは全行に話者が要る(評価用のフォルダの「メンバーのフォルダへ移す」条件)ので、評価用の文字起こしのあとは必ず判別のジョブを足し、
 # 覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に「動画の手がかり」の名前
-# (ed_drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
+# (drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
 # 人が付けたものは置き換えない: 文字のある行に1つでも話者があれば何もしない(足すときと、ジョブが動き出すときの両方で確かめる)。
 # 判別の部品(sherpa-onnx)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。名前は serve.py からも見える(autodiar_ / AUTODIAR_ で始める)
 AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで付けた。覚えた声 = threshold・消去法 = elimination・依頼 = request と並べる)
@@ -539,7 +539,7 @@ def autodiar_why_not(doc):
 def autodiar_enqueue(tid, batch=False):
     """自動の判別のジョブを足す(人数 自動・覚えた声との照合あり)。評価用なら名前の候補(suggest)も渡す。
     -> {"job": ジョブ, "name": 名前の候補 or None} か {"skipped": 理由}。足せない(待機列がいっぱい・処理中など)は ApiError。
-    batch = 評価用のまとめての文字起こし(ed_evalbatch)が入れた印(spec["evalBatch"]。そちらの待ちの数に入る)"""
+    batch = 評価用のまとめての文字起こし(eval/drill/evalbatch)が入れた印(spec["evalBatch"]。そちらの待ちの数に入る)"""
     if not autodiar_enabled():
         return {"skipped": "off"}
     if not autodiar_ready():
@@ -553,7 +553,7 @@ def autodiar_enqueue(tid, batch=False):
     name = None
     if ev:
         try:
-            name = str(_context_name(tid) or "").strip()[:30] or None   # serve が登録した口 = ed_drill.drill_candidates の suggest(RS2-9)
+            name = str(_context_name(tid) or "").strip()[:30] or None   # serve が登録した口 = drill.drill_candidates の suggest(RS2-9)
         except Exception as e:   # 名簿・ほかのツールのデータが読めなくても判別は始める(名前は付けない)
             _txbase.log.info("話者の名前の候補を決められませんでした: %s %s", tid, str(e)[:150])
         if name and (DEFAULT_SPK_NAME.match(name) or is_generic_speaker_name(name)):

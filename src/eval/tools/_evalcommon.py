@@ -94,7 +94,7 @@ def period_label(since, until):
 
 
 def is_reviewed(d):
-    """動画を全部聞いて確かめた文書か(src/editor/ed_drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
+    """動画を全部聞いて確かめた文書か(src/eval/drill/drill.py の drill_is_reviewed と同じ条件。ここで二重に持つのは、測る道具がサーバーを読まずに選ぶため)"""
     return isinstance(d, dict) and d.get("evalSet") is True and isinstance(d.get("evalReviewed"), dict)
 
 

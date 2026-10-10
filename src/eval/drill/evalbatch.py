@@ -10,19 +10,21 @@
   - ユーザーのジョブ(自分が入れたもの以外)が動いている・待っている間と、評価用のフォルダの整理の間は、自分の分を増やさない
   - 失敗したら 2 回までやり直し、それでもだめなら飛ばす(同じ動画を延々と入れ直さない)。取り消されたら飛ばす
   - ほかのプロセス(単独で動かした編集と入口)とは `eval-batch.lock`(`_file_lock`)で重ならない
-  - 話者の自動判別(v0.50.0): 文字起こしが終わると、その続きで判別のジョブが足される(ed_speakers.autodiar_after_transcribe。自分の印つき)。
+  - 話者の自動判別(v0.50.0): 文字起こしが終わると、その続きで判別のジョブが足される(_speakers.autodiar_after_transcribe。自分の印つき)。
     もう文字起こし済みで話者の無い評価用の文書(判別したことが無い = diar.json が無い)にも、見回りのたびに 1 本ずつ判別のジョブを足す(後追い)。
-    文書ごとに 1 回だけ(状態の diar に記録)・直近に人が直した文書(ed_drill.DRILL_RECENT_SEC)は後回し・待ちの数は文字起こしと合わせて EB_MAX_WAIT まで
+    文書ごとに 1 回だけ(状態の diar に記録)・直近に人が直した文書(_drill.DRILL_RECENT_SEC)は後回し・待ちの数は文字起こしと合わせて EB_MAX_WAIT まで
   - 未確認の評価用の作り直し(2026-10-04 ユーザー承認。whisper.cpp の時刻の 1 秒丸め・繰り返しを v0.51.0 で直す前に文字起こしした分):
     `POST api/eval-batch/redo {dryRun}`(eval_batch_redo)。「手つかず」(eb_redo_why が None)の評価用の文書を状態の redo.queue に入れ、
     見回り(_eb_redo_pass)が待ちの数の中で少しずつ、同じ文書 id のまま今の編集の設定で文字起こしし直す(spec の evalRedo・intoDoc。
-    ed_jobs.run_job が始める直前(eb_redo_skip_at_start)と書く直前(eb_redo_fill)にもう一度確かめ、手が入っていたら書かずに飛ばす)。
+    _docjobs.run_job が始める直前(eb_redo_skip_at_start)と書く直前(eb_redo_fill)にもう一度確かめ、手が入っていたら書かずに飛ばす)。
     前の状態は履歴(hist_snapshot)に・前の機械の出力は recognition.runs の kind "evalRedo" に残す。話者は消して、評価用の自動の判別をもう一度かける
   - 1 本ずつの作り直し(2026-10-05 ユーザー要望): `POST api/eval-batch/redo-one {id, baseUpdatedAt, force?}`(eval_batch_redo_one)。
     開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書は force のときだけ(押したあとに直されたら書かない)
 
+RS4-2(2026-10-10)に src/editor/ed_evalbatch.py から移した(殻なし。決定 3-25 #7)。
 名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
-ほかの部品は `ed_xxx.名前` で呼ぶたびに読む。
+ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
+作り直しで呼ぶ eb_redo_skip_at_start・eb_redo_fill と、見回りの裏のスレッド eb_start_background は serve が登録・起動する(② は ④ を読まない)。
 """
 import contextlib
 import json
@@ -30,15 +32,12 @@ import os
 import re
 import threading
 
-from ytt import fsio as _fsio  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   ApiError・書き込み・ジョブの表と待機列・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state・ed_jobs の別名で読んでいた)
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-import ed_drill  # noqa: E402,F401
-import ed_jobs  # noqa: E402,F401
-from eval.drill import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・動画の一覧・整理のロック(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
-import ed_speakers  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-import ed_store  # noqa: E402,F401
+from pipeline.transcribe import diarize as _diarize, txbase as _txbase  # noqa: E402   判別の記録 read_diar・diar_path・ロガー log・スイッチ env_off
+from human.proof import doc_jobs as _docjobs, rerun as _rerun, speakers as _speakers, store as _store  # noqa: E402   文字起こしの受付 validate_job・public_job / 再認識の記録 record_rerun / 自動の判別 autodiar_* / 文書の読み書き(呼ぶたびに 名前 で読む)
+from . import drill as _drill, folders as _evfolders  # noqa: E402   評価ドリルの要約・処理中の文書・動画の有無 / 評価用のフォルダの仮置き・動画の一覧・整理のロック(隣の部品 = 呼ぶたびに 名前 で読む)
 
 EB_SCHEMA = "ytt-eval-batch/v1"
 EB_FILE = "eval-batch.json"
@@ -117,7 +116,7 @@ def eb_lock_path():
 
 
 def eb_key(path):
-    return ed_state.norm_path(str(path))
+    return _fsio.norm_path(str(path))
 
 
 def _eb_empty():
@@ -142,11 +141,11 @@ def eb_read():
     if isinstance(d.get("items"), dict):
         out["items"] = {k: v for k, v in d["items"].items() if isinstance(v, dict)}
     if isinstance(d.get("diar"), dict):
-        out["diar"] = {k: v for k, v in d["diar"].items() if isinstance(v, dict) and ed_state.TID_RE.match(str(k))}
+        out["diar"] = {k: v for k, v in d["diar"].items() if isinstance(v, dict) and _yschemas.TID_RE.match(str(k))}
     rd = d.get("redo") if isinstance(d.get("redo"), dict) else {}
-    q = [t for t in rd.get("queue") or [] if isinstance(t, str) and ed_state.TID_RE.match(t)]
+    q = [t for t in rd.get("queue") or [] if isinstance(t, str) and _yschemas.TID_RE.match(t)]
     out["redo"] = {"queue": list(dict.fromkeys(q))[:EB_REDO_MAX_ITEMS],
-                   "items": {k: v for k, v in (rd.get("items") if isinstance(rd.get("items"), dict) else {}).items() if isinstance(v, dict) and ed_state.TID_RE.match(str(k))},
+                   "items": {k: v for k, v in (rd.get("items") if isinstance(rd.get("items"), dict) else {}).items() if isinstance(v, dict) and _yschemas.TID_RE.match(str(k))},
                    "requestedAt": rd.get("requestedAt"), "enqueued": int(rd.get("enqueued") or 0) if isinstance(rd.get("enqueued"), int) else 0}
     out["enabled"] = d.get("enabled") is True
     return out
@@ -154,14 +153,14 @@ def eb_read():
 
 def _eb_write(st):
     st["schema"] = EB_SCHEMA
-    st["updatedAt"] = ed_state.now_ms()
-    ed_state.atomic_write(eb_path(), json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8"))
+    st["updatedAt"] = _yschemas.now_ms()
+    _fsio.atomic_write(eb_path(), json.dumps(st, ensure_ascii=False, indent=1).encode("utf-8"), fsync_required=True)
 
 
 def _eb_jobs():
     """ジョブの表のコピー(表のロックは持ち続けない。add_job が同じロックを取る)"""
-    with ed_jobs._jobs_lock:
-        return list(ed_jobs._jobs.values())
+    with _heavy._jobs_lock:
+        return list(_heavy._jobs.values())
 
 
 def _eb_mine(j):
@@ -183,8 +182,8 @@ def eval_batch_status():
     st = eb_read()
     items = list(st["items"].values())
     jobs = _eb_jobs()
-    mine = [j for j in jobs if _eb_mine(j) and j.get("state") in ed_jobs.ACTIVE_STATES]
-    diar_active = sum(1 for j in jobs if _eb_auto_diar(j) and j.get("state") in ed_jobs.ACTIVE_STATES)
+    mine = [j for j in jobs if _eb_mine(j) and j.get("state") in _heavy.ACTIVE_STATES]
+    diar_active = sum(1 for j in jobs if _eb_auto_diar(j) and j.get("state") in _heavy.ACTIVE_STATES)
     diar_left = int(st.get("diarRemaining") or 0) if st["enabled"] else 0
     rd = st["redo"]
     redo_active = sum(1 for j in mine if (j.get("spec") or {}).get("evalRedo"))
@@ -206,9 +205,9 @@ def eval_batch_status():
 def eb_require_ready():
     """まとめての文字起こしを動かせるか(評価用のフォルダが見えている・ffmpeg がある)。だめなら ApiError"""
     if not _settings.eval_dirs():
-        raise ed_state.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
+        raise _errors.ApiError("no_eval_dirs", "評価用のフォルダが設定されていないか、見つかりません(⚙ の『評価用のフォルダ』を確かめてください)", 400)
     if not _tools.find_ffmpeg():
-        raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+        raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
 
 
 def eval_batch_start(req=None):
@@ -218,9 +217,9 @@ def eval_batch_start(req=None):
     with _eb_state_lock:
         st = eb_read()
         if not st["enabled"]:
-            st = dict(_eb_empty(), enabled=True, startedAt=ed_state.now_ms())
+            st = dict(_eb_empty(), enabled=True, startedAt=_yschemas.now_ms())
             _eb_write(st)
-            ed_state.log.info("評価用のまとめての文字起こしを始めました")
+            _txbase.log.info("評価用のまとめての文字起こしを始めました")
     eb_start_background()
     _eb_wake.set()
     return eval_batch_status()
@@ -231,7 +230,7 @@ def eval_batch_stop(req=None):
     動いている 1 本は(途中までの時間を捨てないよう)そのまま最後まで動かす"""
     with _eb_state_lock:
         st = eb_read()
-        now = ed_state.now_ms()
+        now = _yschemas.now_ms()
         q = st["redo"]["queue"]
         if st["enabled"] or q:
             for tid in q:   # 作り直しの待ちも止める(もう一度作り直すときは、ボタンでもう一度数え直す)
@@ -239,14 +238,14 @@ def eval_batch_stop(req=None):
             st["redo"]["queue"] = []
             if st["enabled"]:
                 st["enabled"], st["stoppedAt"], st["deferred"] = False, now, None
-                ed_state.log.info("評価用のまとめての文字起こしを止めました")
+                _txbase.log.info("評価用のまとめての文字起こしを止めました")
             _eb_write(st)
     for j in _eb_jobs():   # enabled を外したあとなので、見回りがこの先で足すことはない
         if _eb_mine(j) and j.get("state") == "queued":
             j["evalBatchStop"] = True   # 自分で取り消したもの(ユーザーの取り消しと区別する)
             try:
-                ed_jobs.cancel_job(j["id"])
-            except ed_state.ApiError:
+                _heavy.cancel_job(j["id"])
+            except _errors.ApiError:
                 pass
     return eval_batch_status()
 
@@ -278,7 +277,7 @@ def eb_candidates(items, busy_paths=()):
     paths = eb_scan()
     want = {eb_key(p) for p in paths}
     docs = {}
-    for _tid, sm, sp in ed_store.summaries():
+    for _tid, sm, sp in _store.summaries():
         if sp and eb_key(sp) in want:
             docs.setdefault(eb_key(sp), []).append(sm)
     out = []
@@ -298,18 +297,18 @@ def eb_diar_candidates(tried, busy=(), now=None):
     """話者の判別の後追いをする評価用の文書 -> ([文書の id](古く直した順), 直近に直したので後回しにした本数)。
     対象 = 評価用・文字のある行がある・確かめ済みでない・文字のある行に話者が 1 つも無い(人が付けたものを置き換えない)・
     判別したことが無い(diar.json が無い)・試していない(tried)・ジョブの最中でない(busy)・動画がある(ネットワーク上は調べずに除く)"""
-    now = now or ed_state.now_ms()
+    now = now or _yschemas.now_ms()
     ready, recent = [], 0
-    for tid, sm in ed_drill.drill_docs():
+    for tid, sm in _drill.drill_docs():
         if not sm.get("eval") or sm.get("reviewed") or not sm.get("rows") or sm.get("spkRows") or tid in tried or tid in busy:
             continue
-        if os.path.exists(ed_speakers.diar_path(tid)):
+        if os.path.exists(_diarize.diar_path(tid)):
             continue
         last = max(sm.get("updatedAt") or 0, sm.get("lastAt") or 0)
-        if now - last < ed_drill.DRILL_RECENT_SEC * 1000:   # 編集の画面で開いているかもしれない(判別は編集を止める)
+        if now - last < _drill.DRILL_RECENT_SEC * 1000:   # 編集の画面で開いているかもしれない(判別は編集を止める)
             recent += 1
             continue
-        if not ed_drill._media_ok(sm.get("sourcePath")):
+        if not _drill._media_ok(sm.get("sourcePath")):
             continue
         ready.append((last, tid))
     return [t for _a, t in sorted(ready)], recent
@@ -317,11 +316,11 @@ def eb_diar_candidates(tried, busy=(), now=None):
 
 def _eb_diar_pass(room, log):
     """後追いの判別を room 本まで(1 回の見回りで EB_DIAR_PER_TICK 本まで)入れる。-> (入れた本数, 残りの本数 or None = 調べなかった)"""
-    if room <= 0 or not ed_speakers.autodiar_enabled() or not ed_speakers.autodiar_ready():
+    if room <= 0 or not _speakers.autodiar_enabled() or not _speakers.autodiar_ready():
         return 0, None
     with _eb_state_lock:
         tried = set(eb_read().get("diar") or {})
-    ready, recent = eb_diar_candidates(tried, ed_drill._busy_tids())
+    ready, recent = eb_diar_candidates(tried, _drill._busy_tids())
     added = 0
     for tid in list(ready):
         if added >= min(room, EB_DIAR_PER_TICK):
@@ -330,10 +329,10 @@ def _eb_diar_pass(room, log):
             st = eb_read()
             if not st["enabled"]:
                 return added, None
-            rec = {"at": ed_state.now_ms(), "via": "backlog"}
+            rec = {"at": _yschemas.now_ms(), "via": "backlog"}
             try:
-                r = ed_speakers.autodiar_enqueue(tid, batch=True)
-            except ed_state.ApiError as e:
+                r = _speakers.autodiar_enqueue(tid, batch=True)
+            except _errors.ApiError as e:
                 if e.code == "busy":   # 待機列がいっぱい・処理が重なった: 次の見回りで(試したことにしない)
                     break
                 rec["error"] = e.message[:300]
@@ -365,11 +364,11 @@ def eb_request(path, into):
 
 def _eb_absorb(st, mine):
     """自分のジョブの結果を状態に写す(済んだ・失敗・取り消された)。同じジョブは1回だけ数える"""
-    now = ed_state.now_ms()
+    now = _yschemas.now_ms()
     for j in mine:
         if j.get("kind") == "diarize":   # 話者の判別(文字起こしの続き・後追い): 結果を写し、試した文書として覚える(もう入れない)
             tid = str((j.get("spec") or {}).get("tid") or "")
-            if tid and j.get("state") not in ed_jobs.ACTIVE_STATES:
+            if tid and j.get("state") not in _heavy.ACTIVE_STATES:
                 d = st.setdefault("diar", {}).setdefault(tid, {"at": now, "job": j.get("id"), "via": "transcribe"})
                 if d.get("job") == j.get("id") and not d.get("state"):
                     d["state"] = j.get("state")
@@ -379,7 +378,7 @@ def _eb_absorb(st, mine):
         if (j.get("spec") or {}).get("evalRedo"):   # 作り直し: 結果は redo.items へ(動画の items には数えない = 新しい文字起こしの候補・失敗の数に混ぜない)
             tid = str((j.get("spec") or {}).get("tid") or "")
             rec = st["redo"]["items"].get(tid)
-            if tid and j.get("state") not in ed_jobs.ACTIVE_STATES and isinstance(rec, dict) and rec.get("job") == j.get("id") and not rec.get("state"):
+            if tid and j.get("state") not in _heavy.ACTIVE_STATES and isinstance(rec, dict) and rec.get("job") == j.get("id") and not rec.get("state"):
                 rec["state"] = j.get("state")
                 if j.get("redoSkipped"):
                     rec["skipped"] = j["redoSkipped"]
@@ -388,7 +387,7 @@ def _eb_absorb(st, mine):
                     st["lastError"] = {"at": now, "src": os.path.basename(str(j["spec"].get("sourcePath") or "")), "message": rec["error"]}
             continue
         sp = (j.get("spec") or {}).get("sourcePath")
-        if not sp or j.get("state") in ed_jobs.ACTIVE_STATES:
+        if not sp or j.get("state") in _heavy.ACTIVE_STATES:
             continue
         it = st["items"].setdefault(eb_key(sp), {"src": sp, "tries": 0, "fails": 0, "failJobs": [], "done": False})
         if j.get("state") == "done":
@@ -407,7 +406,7 @@ def _eb_absorb(st, mine):
 def eb_tick(why="tick", log=None):
     """1回見回る。-> {added, remaining, deferred(増やさなかった理由)} か {skipped: 理由}。
     ユーザーのジョブが動いている・待っているときは増やさない。自分のジョブが EB_MAX_WAIT 件に満たなければ、その分だけ入れる"""
-    log = log or (lambda m: ed_state.log.info("評価用のまとめての文字起こし: %s", m))
+    log = log or (lambda m: _txbase.log.info("評価用のまとめての文字起こし: %s", m))
     if not eb_read()["enabled"]:
         return {"skipped": "stopped"}
     if not _eb_pass_lock.acquire(blocking=False):
@@ -423,7 +422,7 @@ def eb_tick(why="tick", log=None):
 
 def _eb_tick_locked(why, log):
     jobs = _eb_jobs()
-    active = [j for j in jobs if j.get("state") in ed_jobs.ACTIVE_STATES]
+    active = [j for j in jobs if j.get("state") in _heavy.ACTIVE_STATES]
     mine_active = [j for j in active if _eb_mine(j)]
     others = [j for j in active if not _eb_mine(j)]
     busy_paths = {eb_key(sp) for sp in ((j.get("spec") or {}).get("sourcePath") for j in active) if sp}
@@ -467,9 +466,9 @@ def _eb_tick_locked(why, log):
     while rest and added < room:
         path, into = rest[0]
         try:
-            spec = ed_jobs.validate_job(eb_request(path, into))
+            spec = _docjobs.validate_job(eb_request(path, into))
             err = None
-        except ed_state.ApiError as e:   # 6 時間を超える・動画が壊れている・文書が変わった など。この動画は飛ばして次へ
+        except _errors.ApiError as e:   # 6 時間を超える・動画が壊れている・文書が変わった など。この動画は飛ばして次へ
             spec, err = None, e
         with _eb_state_lock:
             st = eb_read()
@@ -478,21 +477,21 @@ def _eb_tick_locked(why, log):
             it = st["items"].setdefault(eb_key(path), {"src": path, "tries": 0, "fails": 0, "failJobs": [], "done": False})
             if err is not None:
                 it["fails"], it["error"] = EB_MAX_FAILS, err.message[:300]
-                st["lastError"] = {"at": ed_state.now_ms(), "src": os.path.basename(path), "message": err.message[:300]}
+                st["lastError"] = {"at": _yschemas.now_ms(), "src": os.path.basename(path), "message": err.message[:300]}
                 log("飛ばします %s: %s" % (os.path.basename(path), err.message))
                 rest.pop(0)
                 _eb_write(st)
                 continue
             spec["evalBatch"] = True   # 自分が入れたジョブの印(ユーザーのジョブと区別する)
             try:
-                ed_jobs.add_job(spec)
-            except ed_state.ApiError as e:   # 待機列がいっぱい(busy): 次の見回りで
+                _heavy.add_job(spec)
+            except _errors.ApiError as e:   # 待機列がいっぱい(busy): 次の見回りで
                 st["deferred"] = e.message
                 _eb_write(st)
                 return {"added": added, "remaining": len(rest), "deferred": e.message}
             it["tries"] = int(it.get("tries") or 0) + 1
             st["enqueued"] = int(st.get("enqueued") or 0) + 1
-            st["lastAddedAt"] = ed_state.now_ms()
+            st["lastAddedAt"] = _yschemas.now_ms()
             rest.pop(0)
             added += 1
             _eb_write(st)
@@ -504,7 +503,7 @@ def _eb_tick_locked(why, log):
         st["remaining"] = len(rest)
         if not rest and len(mine_active) + added + diar_added + redo_added == 0 and not diar_left and not redo_left and not st["redo"]["queue"]:
             # 残り(文字起こし・話者の判別・作り直し)がなく、動いているものもない: 終わり
-            st["enabled"], st["finishedAt"] = False, ed_state.now_ms()
+            st["enabled"], st["finishedAt"] = False, _yschemas.now_ms()
             log("終わりました(入れた %d 本・済 %d 本・飛ばした %d 本)" % (
                 st["enqueued"], sum(1 for i in st["items"].values() if i.get("done")),
                 sum(1 for i in st["items"].values() if not i.get("done") and int(i.get("fails") or 0) >= EB_MAX_FAILS)))
@@ -520,13 +519,13 @@ def _eb_speaker_why(tid, doc, segs):
     使っている話者の名前が仮の名前(話者n)か、機械(覚えた声・消去法・動画の手がかり)が付けた名前のときだけ手つかず。
     人が始めた判別・「全行をこの人に」(single)・依頼の名前は、迷うので手を入れた側(作り直さない)"""
     used = {str(g.get("speaker")) for g in segs if g.get("speaker")}
-    d = ed_speakers.read_diar(tid)
+    d = _diarize.read_diar(tid)
     latest = d.get("latest") if d else None
     if not used:
         # 全部空: 判別していない = 手つかず。ただし今の機械の出力より後の判別が今の行に話者を付けていたのに全部空 = 人が外した(手を入れた側)
         runs = [r for r in ((doc.get("recognition") or {}).get("runs") or []) if isinstance(r, dict) and not r.get("kind")] if isinstance(doc.get("recognition"), dict) else []
-        made = ed_state.num(runs[0].get("at"), 0) or 0 if runs else 0
-        if isinstance(latest, dict) and (ed_state.num(latest.get("at"), 0) or 0) > made:
+        made = _yschemas.num_or(runs[0].get("at"), 0) or 0 if runs else 0
+        if isinstance(latest, dict) and (_yschemas.num_or(latest.get("at"), 0) or 0) > made:
             ids = {str(g.get("id")) for g in segs}
             rows = latest.get("rows") if isinstance(latest.get("rows"), dict) else {}
             if any(isinstance(r, dict) and r.get("speaker") and k in ids for k, r in rows.items()):
@@ -546,7 +545,7 @@ def _eb_speaker_why(tid, doc, segs):
         if sid not in names:
             return "speaker"
         nm = names[sid]
-        if ed_speakers.DEFAULT_SPK_NAME.match(nm):
+        if _speakers.DEFAULT_SPK_NAME.match(nm):
             continue
         v = voices.get(sid) if isinstance(voices.get(sid), dict) else {}
         if v.get("decided") == nm and v.get("by") in EB_REDO_MACHINE_BY:
@@ -559,7 +558,7 @@ def eb_redo_why(tid, doc, busy=(), now=None, media=True, recent=True):
     """作り直してよい(「手つかず」)なら None、そうでなければ理由(EB_REDO_LABELS のキー。評価用でなければ "notEval")。
     手つかず = 評価用・確かめ済み(evalReviewed)でない・文字起こし済み(model がある)・校正済みの行と音のメモが無い・
     segments と original が同じ(行の数・各行の start/end が EB_REDO_TIME_TOL 以内・文字が同じ)・話者は機械が付けたものだけ(_eb_speaker_why)・
-    直近 ed_drill.DRILL_RECENT_SEC に更新・操作していない(updatedAt と effort.lastAt。recent=False で見ない = 1 本ずつの作り直しは開いている人が押す)・
+    直近 _drill.DRILL_RECENT_SEC に更新・操作していない(updatedAt と effort.lastAt。recent=False で見ない = 1 本ずつの作り直しは開いている人が押す)・
     ジョブの最中でない(busy)・動画がある(media)。迷うものは手を入れた側に倒す(作り直さない)"""
     if not isinstance(doc, dict) or doc.get("evalSet") is not True:
         return "notEval"
@@ -590,29 +589,29 @@ def eb_redo_why(tid, doc, busy=(), now=None, media=True, recent=True):
     why = _eb_speaker_why(tid, doc, segs)
     if why:
         return why
-    now = now or ed_state.now_ms()
+    now = now or _yschemas.now_ms()
     eff = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
-    last = max(ed_state.num(doc.get("updatedAt"), 0) or 0, ed_state.num(eff.get("lastAt"), 0) or 0)
-    if recent and now - last < ed_drill.DRILL_RECENT_SEC * 1000:
+    last = max(_yschemas.num_or(doc.get("updatedAt"), 0) or 0, _yschemas.num_or(eff.get("lastAt"), 0) or 0)
+    if recent and now - last < _drill.DRILL_RECENT_SEC * 1000:
         return "recent"
     if tid in busy:
         return "busy"
-    if media and not ed_drill._media_ok(doc.get("sourcePath")):
+    if media and not _drill._media_ok(doc.get("sourcePath")):
         return "noMedia"
     return None
 
 
 def eb_redo_scan(busy=None, queued=(), now=None):
     """評価用の文書を全部見て -> ([作り直す文書の id](短い順), {理由: 本数})。評価用でない文書は数えない"""
-    busy = ed_drill._busy_tids() if busy is None else busy
-    now = now or ed_state.now_ms()
+    busy = _drill._busy_tids() if busy is None else busy
+    now = now or _yschemas.now_ms()
     out, reasons = [], {}
-    for tid, sm, _sp in ed_store.summaries():
+    for tid, sm, _sp in _store.summaries():
         if not sm.get("evalSet"):   # 要約(キャッシュ)で評価用でないものを先に除く(全部の文書を読み直さない)
             continue
         try:
-            doc = ed_store.read_transcript(tid)
-        except ed_state.ApiError as e:
+            doc = _store.read_transcript(tid)
+        except _errors.ApiError as e:
             reasons[e.code] = reasons.get(e.code, 0) + 1
             continue
         why = "queued" if tid in queued else eb_redo_why(tid, doc, busy, now)
@@ -634,7 +633,7 @@ def eval_batch_redo(req=None):
     with _eb_state_lock:
         st = eb_read()
     queued = set(st["redo"]["queue"]) if st["enabled"] else set()
-    targets, reasons = eb_redo_scan(ed_drill._busy_tids(), queued)
+    targets, reasons = eb_redo_scan(_drill._busy_tids(), queued)
     res = {"dryRun": dry, "targets": len(targets), "touched": sum(reasons.get(k, 0) for k in EB_REDO_TOUCHED), "reasons": reasons,
            "labels": {k: EB_REDO_LABELS.get(k, k) for k in reasons}, "touchedKeys": list(EB_REDO_TOUCHED), "queued": len(queued), "added": 0}
     if dry:
@@ -644,17 +643,17 @@ def eval_batch_redo(req=None):
         with _eb_state_lock:
             st = eb_read()
             if not st["enabled"]:   # 止まっていれば始める(start と同じ。入れた数・失敗の記録は数え直す)
-                st = dict(_eb_empty(), enabled=True, startedAt=ed_state.now_ms())
-                ed_state.log.info("評価用のまとめての文字起こしを始めました(作り直し)")
+                st = dict(_eb_empty(), enabled=True, startedAt=_yschemas.now_ms())
+                _txbase.log.info("評価用のまとめての文字起こしを始めました(作り直し)")
             q = st["redo"]["queue"]
             new = [t for t in targets if t not in q][:max(0, EB_REDO_MAX_ITEMS - len(q))]
             q.extend(new)
             for t in new:
                 st["redo"]["items"].pop(t, None)   # 前の回の結果は消す(今回の結果を写す)
-            st["redo"]["requestedAt"] = ed_state.now_ms()
+            st["redo"]["requestedAt"] = _yschemas.now_ms()
             _eb_write(st)
         res["added"] = len(new)
-        ed_state.log.info("評価用の作り直しを待ちに入れました: %d 本(残した %d 本)", len(new), res["touched"])
+        _txbase.log.info("評価用の作り直しを待ちに入れました: %d 本(残した %d 本)", len(new), res["touched"])
         eb_start_background()
         _eb_wake.set()
     res["status"] = eval_batch_status()
@@ -666,9 +665,9 @@ def eb_redo_spec(tid, doc):
     同じ文書へ入れる(intoDoc)・spec の tid = その文書(処理中の文書として、ドリル・付け替え・作り直しの判定が避ける)"""
     req = eb_request(str(doc.get("sourcePath") or ""), None)
     if not doc.get("whole"):
-        req.update(start=ed_state.num(doc.get("start"), 0.0) or 0.0, end=ed_state.num(doc.get("end")))
-    spec = ed_jobs.validate_job(req)
-    spec.update(intoDoc=tid, tid=tid, evalSet=True, evalBatch=True, evalRedo={"queuedAt": ed_state.now_ms()},
+        req.update(start=_yschemas.num_or(doc.get("start"), 0.0) or 0.0, end=_yschemas.num_or(doc.get("end")))
+    spec = _docjobs.validate_job(req)
+    spec.update(intoDoc=tid, tid=tid, evalSet=True, evalBatch=True, evalRedo={"queuedAt": _yschemas.now_ms()},
                 title=(str(doc.get("title") or "") or spec["title"])[:120])
     return spec
 
@@ -684,23 +683,23 @@ def _eb_redo_pass(room, log):
             if not st["enabled"] or not q:
                 return added, len(q)
             tid = q[0]
-            rec = {"at": ed_state.now_ms()}
+            rec = {"at": _yschemas.now_ms()}
             try:
-                doc = ed_store.read_transcript(tid)
-                why = eb_redo_why(tid, doc, ed_drill._busy_tids())
-            except ed_state.ApiError as e:
+                doc = _store.read_transcript(tid)
+                why = eb_redo_why(tid, doc, _drill._busy_tids())
+            except _errors.ApiError as e:
                 doc, why = None, e.code
             spec = None
             if not why:
                 try:
                     spec = eb_redo_spec(tid, doc)
-                except ed_state.ApiError as e:   # 動画が壊れている・6 時間を超える など: この文書は飛ばす
+                except _errors.ApiError as e:   # 動画が壊れている・6 時間を超える など: この文書は飛ばす
                     rec["error"] = e.message[:300]
                     st["lastError"] = {"at": rec["at"], "src": os.path.basename(str(doc.get("sourcePath") or "")), "message": rec["error"]}
             if spec is not None:
                 try:
-                    job = ed_jobs.add_job(spec)
-                except ed_state.ApiError as e:   # 待機列がいっぱい(busy): 次の見回りで(待ちに残す)
+                    job = _heavy.add_job(spec)
+                except _errors.ApiError as e:   # 待機列がいっぱい(busy): 次の見回りで(待ちに残す)
                     st["deferred"] = e.message
                     _eb_write(st)
                     return added, len(q)
@@ -759,37 +758,37 @@ def eval_batch_redo_one(req=None):
     tid = str(req.get("id") or "")
     force = req.get("force") is True
     with _eb_one_lock:
-        doc = ed_store.read_transcript(tid)
+        doc = _store.read_transcript(tid)
         if doc.get("evalSet") is not True:
-            raise ed_state.ApiError("not_eval", "評価用の文字起こしではありません(1 本ずつの作り直しは評価用の動画だけです)", 400)
+            raise _errors.ApiError("not_eval", "評価用の文字起こしではありません(1 本ずつの作り直しは評価用の動画だけです)", 400)
         if isinstance(doc.get("evalReviewed"), dict):
-            raise ed_state.ApiError("reviewed", "確かめ済みの動画は作り直せません。先に確かめ済みを取り消してください", 400)
+            raise _errors.ApiError("reviewed", "確かめ済みの動画は作り直せません。先に確かめ済みを取り消してください", 400)
         if not doc.get("model"):
-            raise ed_state.ApiError("not_transcribed", "まだ文字起こししていません(作り直しは文字起こし済みの動画だけです)", 400)
+            raise _errors.ApiError("not_transcribed", "まだ文字起こししていません(作り直しは文字起こし済みの動画だけです)", 400)
         b = req.get("baseUpdatedAt")
-        if ed_state.plain_int(b) is None:
-            raise ed_state.ApiError("bad_request", "baseUpdatedAt(読み込んだときの版)を付けてください", 400)
+        if _yschemas.plain_int(b) is None:
+            raise _errors.ApiError("bad_request", "baseUpdatedAt(読み込んだときの版)を付けてください", 400)
         if b != doc.get("updatedAt"):
-            raise ed_state.ApiError("conflict", "この文字起こしは別の所(別の画面・再認識・話者判別など)で先に変わりました。読み込み直してから、もう一度押してください", 409)
-        if tid in ed_drill._busy_tids():
-            raise ed_state.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度押してください)", 409)
-        if not ed_drill._media_ok(doc.get("sourcePath")):
-            raise ed_state.ApiError("no_file", "動画が見つかりません(動画を選び直してから、もう一度押してください)", 400)
+            raise _errors.ApiError("conflict", "この文字起こしは別の所(別の画面・再認識・話者判別など)で先に変わりました。読み込み直してから、もう一度押してください", 409)
+        if tid in _drill._busy_tids():
+            raise _errors.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度押してください)", 409)
+        if not _drill._media_ok(doc.get("sourcePath")):
+            raise _errors.ApiError("no_file", "動画が見つかりません(動画を選び直してから、もう一度押してください)", 400)
         why = eb_redo_why(tid, doc, media=False, recent=False)
         if why and why not in EB_REDO_TOUCHED:
-            raise ed_state.ApiError(why, "作り直せません(%s)" % EB_REDO_LABELS.get(why, why), 400)
+            raise _errors.ApiError(why, "作り直せません(%s)" % EB_REDO_LABELS.get(why, why), 400)
         if why and not force:
-            raise ed_state.ApiError("touched", "この動画は人が手を入れています(%s)。作り直すと置き換わります" % EB_REDO_LABELS.get(why, why), 409,
+            raise _errors.ApiError("touched", "この動画は人が手を入れています(%s)。作り直すと置き換わります" % EB_REDO_LABELS.get(why, why), 409,
                                     {"why": why, "label": EB_REDO_LABELS.get(why, why), "rows": _eb_touched_rows(doc, why),
                                      "total": sum(1 for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip())})
         if not _tools.find_ffmpeg():
-            raise ed_state.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
+            raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
         spec = eb_redo_spec(tid, doc)
         spec.pop("evalBatch", None)
-        spec["evalRedo"] = {"queuedAt": ed_state.now_ms(), "one": True, "force": force, "base": doc.get("updatedAt"), "why": why}
-        job = ed_jobs.add_job(spec)
-    ed_state.log.info("評価用の動画 1 本を作り直します%s: %s", "(手を入れた分を置き換える: %s)" % why if why else "", tid)
-    return {"ok": True, "job": ed_jobs.public_job(job), "forced": bool(why)}
+        spec["evalRedo"] = {"queuedAt": _yschemas.now_ms(), "one": True, "force": force, "base": doc.get("updatedAt"), "why": why}
+        job = _heavy.add_job(spec)
+    _txbase.log.info("評価用の動画 1 本を作り直します%s: %s", "(手を入れた分を置き換える: %s)" % why if why else "", tid)
+    return {"ok": True, "job": _docjobs.public_job(job), "forced": bool(why)}
 
 
 def _eb_one_why(tid, doc, red, busy=(), media=True):
@@ -804,27 +803,27 @@ def _eb_one_why(tid, doc, red, busy=(), media=True):
 
 def _eb_redo_skipped(job, why):
     job["redoSkipped"] = why
-    ed_jobs.job_done(job, job["spec"].get("tid"), "作り直しませんでした(%s)" % EB_REDO_LABELS.get(why, why))
+    _heavy.job_done(job, job["spec"].get("tid"), "作り直しませんでした(%s)" % EB_REDO_LABELS.get(why, why))
 
 
 def eb_redo_skip_at_start(job):
-    """作り直しのジョブ(spec の evalRedo)が動き出すとき(ed_jobs.run_job の最初)にもう一度「手つかず」を確かめる。
+    """作り直しのジョブ(spec の evalRedo)が動き出すとき(_docjobs.run_job の最初)にもう一度「手つかず」を確かめる。
     手が入っていたら「完了(作り直しませんでした)」にして True。手つかずなら、書く直前の比べのために今の updatedAt を覚えて False。
     1 本ずつの作り直し(evalRedo.one)は押したときの updatedAt(base)のまま比べる(_eb_one_why)"""
     spec = job["spec"]
     tid = str(spec.get("tid") or "")
     red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
-    with ed_jobs._jobs_lock:
-        busy = {str((j.get("spec") or {}).get("tid") or j.get("tid") or "") for j in ed_jobs._jobs.values()
-                if j is not job and j.get("state") in ed_jobs.ACTIVE_STATES}
+    with _heavy._jobs_lock:
+        busy = {str((j.get("spec") or {}).get("tid") or j.get("tid") or "") for j in _heavy._jobs.values()
+                if j is not job and j.get("state") in _heavy.ACTIVE_STATES}
     try:
-        doc = ed_store.read_transcript(tid)
+        doc = _store.read_transcript(tid)
         why = _eb_one_why(tid, doc, red, busy) if red.get("one") else eb_redo_why(tid, doc, busy)
-    except ed_state.ApiError as e:
+    except _errors.ApiError as e:
         doc, why = None, e.code
     if why:
         _eb_redo_skipped(job, why)
-        ed_state.log.info("評価用の作り直しを飛ばしました(%s): %s", why, tid)
+        _txbase.log.info("評価用の作り直しを飛ばしました(%s): %s", why, tid)
         return True
     if not red.get("one"):
         spec["evalRedo"] = dict(red, base=doc.get("updatedAt"))
@@ -832,7 +831,7 @@ def eb_redo_skip_at_start(job):
 
 
 def eb_redo_fill(job, spec, fields):
-    """作り直しの結果を同じ文書に書く(ed_jobs.run_job が fill_doc の代わりに呼ぶ。保存のロックの中)。-> 文書の id か None(書かなかった)。
+    """作り直しの結果を同じ文書に書く(_docjobs.run_job が fill_doc の代わりに呼ぶ。保存のロックの中)。-> 文書の id か None(書かなかった)。
     書く直前にもう一度確かめる: 動画が同じ・始めたときから更新されていない(updatedAt)・まだ手つかず(認識の間に開いた = effort.lastAt も含む)。
     前の状態は履歴に(以前の版に戻すで戻せる)・前の機械の出力は recognition.runs の kind "evalRedo"(replaced = 前の original・replacedRun = 前の最初の認識の記録)。
     新しい最初の認識の記録を runs の先頭に(kind の無い記録 = 今の original を作った認識。D1-b・測る道具が読む)。
@@ -840,13 +839,13 @@ def eb_redo_fill(job, spec, fields):
     tid = str(spec.get("tid") or spec.get("intoDoc") or "")
     red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
     base = red.get("base")
-    with ed_store._save_lock:
+    with _store._save_lock:
         try:
-            doc = ed_store.read_transcript(tid)
-        except ed_state.ApiError as e:
+            doc = _store.read_transcript(tid)
+        except _errors.ApiError as e:
             _eb_redo_skipped(job, e.code)
             return None
-        if ed_state.norm_path(str(doc.get("sourcePath") or "")) != ed_state.norm_path(spec["sourcePath"]):
+        if _fsio.norm_path(str(doc.get("sourcePath") or "")) != _fsio.norm_path(spec["sourcePath"]):
             why = "moved"
         elif red.get("one"):   # 1 本ずつの作り直し: 押したときのまま(force なら手を入れた分も置き換える)
             why = _eb_one_why(tid, doc, red, media=False)
@@ -856,14 +855,14 @@ def eb_redo_fill(job, spec, fields):
             why = eb_redo_why(tid, doc, media=False)
         if why:
             _eb_redo_skipped(job, why)
-            ed_state.log.info("評価用の作り直しを書きませんでした(%s): %s", why, tid)
+            _txbase.log.info("評価用の作り直しを書きませんでした(%s): %s", why, tid)
             return None
-        ed_store.snapshot(tid)   # 作り直す前を「以前の版に戻す」に残す
+        _store.snapshot(tid)   # 作り直す前を「以前の版に戻す」に残す
         old_rec = doc.get("recognition") if isinstance(doc.get("recognition"), dict) else {}
         old_first = [r for r in old_rec.get("runs") or [] if isinstance(r, dict) and not r.get("kind")]
         a = float(spec.get("start") or 0)
-        b = ed_state.num(spec.get("end")) or ed_state.num(spec.get("duration")) or max([ed_state.num(o.get("end"), 0.0) or 0.0 for o in doc.get("original") or []] + [a + 0.01])
-        ed_jobs.record_rerun(doc, spec, "evalRedo", [[a, max(b, a + 0.01)]], [dict(o) for o in doc.get("original") or [] if isinstance(o, dict)])
+        b = _yschemas.num_or(spec.get("end")) or _yschemas.num_or(spec.get("duration")) or max([_yschemas.num_or(o.get("end"), 0.0) or 0.0 for o in doc.get("original") or []] + [a + 0.01])
+        _rerun.record_rerun(doc, spec, "evalRedo", [[a, max(b, a + 0.01)]], [dict(o) for o in doc.get("original") or [] if isinstance(o, dict)])
         runs = doc["recognition"]["runs"]
         if old_first and runs and runs[-1].get("kind") == "evalRedo":
             runs[-1]["replacedRun"] = old_first[0]
@@ -872,9 +871,9 @@ def eb_redo_fill(job, spec, fields):
         for k in ("diarization", "evalReviewed", "resplit"):
             doc.pop(k, None)
         doc["evalSet"] = True
-        ed_store.apply_edit_cuts(tid, doc)
-        ed_store.write_doc(tid, doc)
-    ed_state.log.info("評価用の文書を作り直しました: %s(%d 行)", tid, len(fields.get("segments") or []))
+        _store.apply_edit_cuts(tid, doc)
+        _store.write_doc(tid, doc)
+    _txbase.log.info("評価用の文書を作り直しました: %s(%d 行)", tid, len(fields.get("segments") or []))
     return tid
 
 
@@ -883,7 +882,7 @@ def eb_redo_fill(job, spec, fields):
 def eb_start_background(first_delay=EB_FIRST_DELAY_SEC, interval=EB_INTERVAL_SEC):
     """見回りの裏のスレッド(serve.py の prepare から1回。start でも確かめる)。enabled でなければ何もしない(30 秒ごとに状態を読むだけ)。
     start が起こすとすぐに見回る。環境変数 TRANSCRIBE_EVAL_BATCH=off で始めない"""
-    if ed_state.env_off("TRANSCRIBE_EVAL_BATCH") or any(t.is_alive() for t in _eb_threads):
+    if _txbase.env_off("TRANSCRIBE_EVAL_BATCH") or any(t.is_alive() for t in _eb_threads):
         return None
     _eb_halt.clear()
 
@@ -898,7 +897,7 @@ def eb_start_background(first_delay=EB_FIRST_DELAY_SEC, interval=EB_INTERVAL_SEC
                 if eb_read()["enabled"]:
                     eb_tick("background")
             except Exception:
-                ed_state.log.exception("評価用のまとめての文字起こしの見回りに失敗")
+                _txbase.log.exception("評価用のまとめての文字起こしの見回りに失敗")
             delay = interval
 
     t = threading.Thread(target=loop, daemon=True, name="eval-batch")

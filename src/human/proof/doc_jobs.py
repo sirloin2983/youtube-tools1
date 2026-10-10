@@ -10,7 +10,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 旧い名前 ed_jobs.名前 は editor/ed_jobs.py(転送だけの殻。RS5 で消す)がここと移した先へ回す。名前は serve.py からも見える
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
-評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
+評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
 2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
 後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
 """
@@ -37,7 +37,7 @@ from . import learn  # noqa: E402   学習・提案・確度「高」の自動�
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
-# ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の ed_evalbatch をここから読まない = ② から ③・④ を読まない) ----------
+# ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の evalbatch をここから読まない = ② から ③・④ を読まない) ----------
 # 評価用のフォルダの判定(eval_name_guard・in_eval_dir)は RS3-1 から ytt/settings を直に呼ぶたびに読む(口は 5 → 3 本)
 _HOOK_KEYS = ("redo_skip", "redo_fill", "norm_after")
 _hooks = {}
@@ -45,8 +45,8 @@ _hooks = {}
 
 def set_hooks(**hooks):
     """編集の serve.py が読み込みのときに登録する口(どれも関数。serve は呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。
-    redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(ed_evalbatch.eb_redo_skip_at_start。run_job)
-    redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。ed_evalbatch.eb_redo_fill。run_job)
+    redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(evalbatch.eb_redo_skip_at_start。run_job)
+    redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。evalbatch.eb_redo_fill。run_job)
     norm_after(job, spec, tid) -> None: 文字起こしのあとの 30fps の作り直しと付け替え(ed_relink.norm_after_transcribe。run_job)
     知らない鍵・関数でない値は TypeError"""
     bad = sorted(k for k in hooks if k not in _HOOK_KEYS)
@@ -173,7 +173,7 @@ def public_job(j):
     out["learned"] = list(j.get("learned") or [])   # A-3: 声を覚えた人の名前
     out["auto"] = bool(sp.get("auto"))   # 文字起こしのあとの自動の話者判別(v0.50.0)
     out["autoSkipped"] = j.get("autoSkipped") or ""   # 自動の判別を動き出すときにやめた理由(has_speakers・reviewed・empty)
-    out["redo"] = bool(sp.get("evalRedo"))   # 未確認の評価用の作り直し(ed_evalbatch)
+    out["redo"] = bool(sp.get("evalRedo"))   # 未確認の評価用の作り直し(eval/drill/evalbatch)
     out["redoOne"] = bool((sp.get("evalRedo") or {}).get("one"))   # 1 本ずつの作り直し(画面が押した。終わるまで編集を止める)
     out["redoSkipped"] = j.get("redoSkipped") or ""            # 手が入っていたので作り直さなかった理由
     if j.get("voiceError"):
@@ -334,7 +334,7 @@ def run_job(job):
     if kind not in (None, "transcribe"):
         return _heavy.JOB_RUNNERS[kind](job)
     spec = job["spec"]
-    # 未確認の評価用の作り直し(ed_evalbatch): 動き出す直前にもう一度「手つかず」を確かめる。手が入っていれば認識せずに「作り直しませんでした」
+    # 未確認の評価用の作り直し(eval/drill/evalbatch): 動き出す直前にもう一度「手つかず」を確かめる。手が入っていれば認識せずに「作り直しませんでした」
     if spec.get("evalRedo") and _hook("redo_skip")(job):
         return
     with _heavy.job_temp_wav(job) as wav:

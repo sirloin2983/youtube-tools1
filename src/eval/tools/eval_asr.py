@@ -26,7 +26,7 @@
     --group-by engine|model|origin   文書ごとの下書きのエンジン・設定・辞書の版(recognition.runs)で分けて集計する(途中で変わった前後を混ぜない)。
                                      engine = エンジン・モデル・版・beam・VAD・ヒント・辞書の版まで / model = エンジン・モデル・版だけ。途中で変わった文書は「混在」の組。
                                      origin = 出どころ(編集前 = clip がある文書 / ショート = 無い文書。計画 3-3)で分ける。出どころ別の小計は --group-by なしでも summary.origins にいつも入る
-    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。src/editor/ed_drill.py の drill_is_reviewed と同じ条件)の扱い。
+    --reviewed only|prefer|ignore    評価用の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。src/eval/drill/drill.py の drill_is_reviewed と同じ条件)の扱い。
                                      確かめ済みの文書は、校正した行の範囲ではなく**動画全体(0〜durationSec)**が正解 = 人の行の無い所に機械が出した文字は余分(幻覚)・
                                      人の行があるのに機械が出していない所は抜けとして数える。確かめ済みでない文書は今までどおり(校正済みの行の範囲だけ)。
                                      only = 確かめ済みの動画だけを測る(既定。ただし --source eval で --docs なしのとき。確かめ済みが 0 本なら今までどおりの選び方に戻して注意を出す)/

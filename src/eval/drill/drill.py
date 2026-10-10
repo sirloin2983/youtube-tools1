@@ -9,29 +9,27 @@
   POST /api/drill/unreviewed        {id, baseUpdatedAt} 印を外す(印を付けたときに校正済みにした行も戻す)
   GET  /api/drill/status            定点(確かめ済みの評価用の動画の長さ 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名。確かめ済みの動画の中で数える)
   GET  /api/drill/candidates?id=    話者の候補(この文書の覚えた声 → メンバーのフォルダ → 配信の文脈 → ほかの覚えた声・メンバー)。
-                                    話者のカードの「全行をこの人に」(既存の 1人指定 = ed_speakers.single_speaker)が使う
+                                    話者のカードの「全行をこの人に」(既存の 1人指定 = human/proof/speakers の single_speaker)が使う
 
 文書の印 `evalReviewed = {"at", "rows", "durationSec", "via"?}`(drill_is_reviewed で判定):
   - 付けるのは drill_reviewed だけ。画面の保存(sanitize_transcript)は base から引き継ぐだけで書き換えられない。評価用を外すと消える
-  - 行の文字・時刻・話者を人が後から直しても残す(直したのは人なので)。機械が行を書いたら外す(ed_jobs.record_rerun = 再認識・
-    疑わしい所の認識し直し、ed_store.fill_doc = 行の無い文書への文字起こし)。以前の版に戻すと、その版の印のまま
+  - 行の文字・時刻・話者を人が後から直しても残す(直したのは人なので)。機械が行を書いたら外す(human/proof/rerun の record_rerun = 再認識・
+    疑わしい所の認識し直し、human/proof/store の fill_doc = 行の無い文書への文字起こし)。以前の版に戻すと、その版の印のまま
 
-名前は serve.py からも見える(serve.py の _ED_MODULES の最後。ほかの部品と重ならないよう、名前は drill_ / DRILL_ で始める)。
-ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+RS4-2(2026-10-10)に src/editor/ed_drill.py から移した(殻なし。決定 3-25 #7)。名前は serve.py からも見える(serve.py の _ED_MODULES の最後。
+ほかの部品と重ならないよう、名前は drill_ / DRILL_ で始める)。ほかの部品の名前は `_store.名前` などモジュールの属性として呼ぶたびに読む
+(差し替えが効くように。from … import で名前を写さない)。編集(app)の部品は読まない。
 """
 import os
 import random
 import threading
 
-from pipeline.transcribe import roster as _roster  # noqa: E402  (名簿の呼び名。隣の部品)
-import ed_jobs  # noqa: E402,F401
-from eval.drill import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・メンバーのフォルダの形(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
-import ed_speakers  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
-from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
-import ed_store  # noqa: E402,F401
-from ytt import fsio as _fsio  # noqa: E402
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int(RS4-2 まで ed_state の別名で読んでいた)
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
+from ytt import tools as _tools  # noqa: E402   (動画と音声の小道具。RS3-0A に ed_state から移した)
+from pipeline.transcribe import diarize as _diarize, roster as _roster, txbase as _txbase  # noqa: E402   判別の記録 read_diar・名簿の呼び名と配信の文脈 stream_context・ロガー log
+from human.proof import speakers as _speakers, store as _store  # noqa: E402   話者の名前の小道具・声の登録簿・1 人指定 / 文書の読み書き・保存のロック・要約(呼ぶたびに 名前 で読む)
+from . import folders as _evfolders  # noqa: E402   評価用のフォルダの仮置き・メンバーのフォルダの形(RS3-E7 に ed_relink から。隣の部品 = 呼ぶたびに _evfolders.名前 で読む)
 
 DRILL_RECENT_SEC = 600       # 直近これだけの間に更新した文書は選ばない(編集の画面で開いている可能性)
 DRILL_GOAL_SEC = 900         # 定点 = 確かめ済みの評価用の動画 15 分(マスタープラン Q4)
@@ -53,8 +51,8 @@ def drill_is_reviewed(doc):
 def drill_reviewed_sec(doc):
     """確かめ済みの文書の長さ(秒)= 印を付けたときの動画の長さ(durationSec)。無ければ今の文書の長さ(範囲 → 動画 → 最後の行の終わり)"""
     rv = doc.get("evalReviewed") if isinstance(doc.get("evalReviewed"), dict) else {}
-    sec = ed_state.num(rv.get("durationSec"))
-    return sec if sec is not None and sec > 0 else ed_store.doc_length(doc)
+    sec = _yschemas.num_or(rv.get("durationSec"))
+    return sec if sec is not None and sec > 0 else _store.doc_length(doc)
 
 
 def drill_stream_key(doc):
@@ -77,7 +75,7 @@ def _drill_text_rows(segs):
 
 
 def drill_doc_summary(doc):
-    """文書 1 本のドリルの要約(評価用でなければ {"eval": False})。drill_docs が文書の要約(ed_store.transcript_summary)の鍵ごとに作って覚える。
+    """文書 1 本のドリルの要約(評価用でなければ {"eval": False})。drill_docs が文書の要約(_store.transcript_summary)の鍵ごとに作って覚える。
     呼び名の行の数は名簿で変わるので、ここでは行の文字 callTexts だけを持ち、drill_docs が今の名簿で数える"""
     if doc.get("evalSet") is not True:
         return {"eval": False}
@@ -85,19 +83,19 @@ def drill_doc_summary(doc):
     names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     rows = _drill_text_rows(segs)
     rv = drill_is_reviewed(doc)
-    good = [g for g in segs if ed_store.good_row(g)] if rv else []   # 条件は確かめ済みの文書の中だけで数える
+    good = [g for g in segs if _store.good_row(g)] if rv else []   # 条件は確かめ済みの文書の中だけで数える
     spk = {}
     for g in good:
         nm = names.get(g.get("speaker"), "").strip()
-        if nm and not ed_speakers.is_generic_speaker_name(nm):
-            spk.setdefault(ed_speakers._spk_name_key(nm), nm)
+        if nm and not _speakers.is_generic_speaker_name(nm):
+            spk.setdefault(_speakers._spk_name_key(nm), nm)
     ef = doc.get("effort") if isinstance(doc.get("effort"), dict) else {}
-    return {"eval": True, "updatedAt": ed_state.plain_int(doc.get("updatedAt")) or 0, "lastAt": ed_state.plain_int(ef.get("lastAt")) or 0,
+    return {"eval": True, "updatedAt": _yschemas.plain_int(doc.get("updatedAt")) or 0, "lastAt": _yschemas.plain_int(ef.get("lastAt")) or 0,
             "sourcePath": str(doc.get("sourcePath") or ""), "rows": len(rows),
             "spkRows": sum(1 for g in rows if g.get("speaker") and g.get("speaker") in names),   # 話者のある文字の行(自動の判別の後追い = ed_evalbatch が読む。v0.50.0)
             "reviewed": rv, "sec": round(drill_reviewed_sec(doc), 1) if rv else 0.0, "names": spk,
-            "overlapSec": sum(ed_store.row_dur(g) for g in good if "overlap" in (g.get("tags") or [])),
-            "bgmSec": sum(ed_store.row_dur(g) for g in good if "bgm" in (g.get("tags") or [])),
+            "overlapSec": sum(_store.row_dur(g) for g in good if "overlap" in (g.get("tags") or [])),
+            "bgmSec": sum(_store.row_dur(g) for g in good if "bgm" in (g.get("tags") or [])),
             "callTexts": [str(g.get("text") or "") for g in good],
             "stream": drill_stream_key(doc) if rv else ""}
 
@@ -115,24 +113,24 @@ def _with_calls(s):
 
 def _drill_part(path):
     """文書のファイル → ドリルの要約(drill_doc_summary)。読めない・形の崩れた文書は None(ドリルに数えない。一覧は止めない)"""
-    d = ed_store._load_doc(path)
+    d = _store._load_doc(path)
     if d is None:
         return None
     try:
         return drill_doc_summary(d)
     except Exception as e:   # 形の崩れた文書(手で書き換えたなど)でもドリルの一覧を止めない
-        ed_state.log.warning("文書の要約(ドリル)を作れませんでした: %s", e.__class__.__name__)
+        _txbase.log.warning("文書の要約(ドリル)を作れませんでした: %s", e.__class__.__name__)
         return None
 
 
 def drill_docs():
-    """[(tid, 要約)](評価用でない文書は {"eval": False})。文書が変わったか(文書の要約 ed_store.transcript_summary の鍵 = パス・更新日時・大きさ)で決め、
+    """[(tid, 要約)](評価用でない文書は {"eval": False})。文書が変わったか(文書の要約 _store.transcript_summary の鍵 = パス・更新日時・大きさ)で決め、
     変わったときだけ文書を読んでドリルの要約を作る(RS3-E5a まで文書の要約が _drill として一緒に作っていた = ② が ④ を読んでいた。決定 3-25 #8 で自前に)。
     呼び名の行の数は、文書の鍵と名簿の版が同じなら前の結果(_drill_cache)"""
-    out, seen, rs = [], set(), ed_state.file_stamp(_roster.ROSTER)
-    for tid in sorted(ed_store._tids()):
+    out, seen, rs = [], set(), _fsio.stamp(_roster.ROSTER)
+    for tid in sorted(_store._tids()):
         seen.add(tid)
-        sm = ed_store.transcript_summary(tid)
+        sm = _store.transcript_summary(tid)
         if not sm:
             continue
         key = (sm["_key"], rs)
@@ -148,7 +146,7 @@ def drill_docs():
         with _drill_cache_lock:
             _drill_cache[tid] = (key, s, raw)
         out.append((tid, s))
-    ed_store.prune_cache(_drill_cache, seen, _drill_cache_lock)
+    _store.prune_cache(_drill_cache, seen, _drill_cache_lock)
     return out
 
 
@@ -193,7 +191,7 @@ def drill_status():
 def _drill_skip_ids(skip):
     if isinstance(skip, str):
         skip = skip.split(",")
-    return {str(x).strip() for x in list(skip or [])[:DRILL_MAX_SKIP] if ed_state.TID_RE.match(str(x).strip())}
+    return {str(x).strip() for x in list(skip or [])[:DRILL_MAX_SKIP] if _yschemas.TID_RE.match(str(x).strip())}
 
 
 def drill_next(skip=(), seed=None):
@@ -202,7 +200,7 @@ def drill_next(skip=(), seed=None):
     処理中(話者判別など)でない・今回のドリルで飛ばしていない文書から、動画の単位で乱数で 1 本(自信の低いものを選ぶと数字が悪い側に偏るため)。
     動画の無い文書(ネットワーク上は調べずに除く)は聞けないので除く"""
     skip = _drill_skip_ids(skip)
-    now, busy = ed_state.now_ms(), _busy_tids()
+    now, busy = _yschemas.now_ms(), _busy_tids()
     n = {"eval": 0, "reviewed": 0, "untranscribed": 0, "skipped": 0, "recent": 0, "busy": 0, "noMedia": 0}
     pool = []
     for tid, s in drill_docs():
@@ -227,8 +225,8 @@ def drill_next(skip=(), seed=None):
             n["noMedia"] += 1
             continue
         try:
-            d = ed_store.read_transcript(tid)
-        except ed_state.ApiError:
+            d = _store.read_transcript(tid)
+        except _errors.ApiError:
             continue
         return {"id": tid, "title": str(d.get("title") or d.get("sourceName") or "")[:120], "counts": n}
     return {"id": None, "reason": _drill_why_none(n), "counts": n}
@@ -245,21 +243,21 @@ def _drill_why_none(n):
 # ---------- 確かめ済みの印 ----------
 def _drill_check(base, obj):
     if base.get("evalSet") is not True:
-        raise ed_state.ApiError("not_eval", "評価用の文字起こしではありません(確かめ済みの印は評価用の文字起こしだけに付けます)", 400)
+        raise _errors.ApiError("not_eval", "評価用の文字起こしではありません(確かめ済みの印は評価用の文字起こしだけに付けます)", 400)
     b = obj.get("baseUpdatedAt")
-    if ed_state.plain_int(b) is None:
-        raise ed_state.ApiError("bad_request", "baseUpdatedAt(読み込んだときの版)を付けてください", 400)
+    if _yschemas.plain_int(b) is None:
+        raise _errors.ApiError("bad_request", "baseUpdatedAt(読み込んだときの版)を付けてください", 400)
     if b != base.get("updatedAt"):
-        raise ed_state.ApiError("conflict", "この文字起こしは別の所(別の画面・再認識・話者判別など)で先に変わりました。読み込み直してから、もう一度押してください", 409)
+        raise _errors.ApiError("conflict", "この文字起こしは別の所(別の画面・再認識・話者判別など)で先に変わりました。読み込み直してから、もう一度押してください", 409)
 
 
 def _drill_write(tid, base, doc):
-    if (ed_state.plain_int(base.get("updatedAt")) or 0) >= doc["updatedAt"]:   # 必ず前より大きく(開いている編集の画面の次の保存を、既存の 409 の案内に乗せる)
-        doc["updatedAt"] = (ed_state.plain_int(base.get("updatedAt")) or 0) + 1
-    ed_store.effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
-    ed_store.apply_edit_cuts(tid, doc)
-    ed_store.snapshot(tid, False)   # 履歴が残せなくても保存は止めない
-    ed_store.write_doc(tid, doc)
+    if (_yschemas.plain_int(base.get("updatedAt")) or 0) >= doc["updatedAt"]:   # 必ず前より大きく(開いている編集の画面の次の保存を、既存の 409 の案内に乗せる)
+        doc["updatedAt"] = (_yschemas.plain_int(base.get("updatedAt")) or 0) + 1
+    _store.effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
+    _store.apply_edit_cuts(tid, doc)
+    _store.snapshot(tid, False)   # 履歴が残せなくても保存は止めない
+    _store.write_doc(tid, doc)
 
 
 def drill_reviewed(obj):
@@ -268,24 +266,24 @@ def drill_reviewed(obj):
     **画面は編集中の内容を保存し終えてから呼ぶ**(ここは保存済みの内容に印を付けるだけ)。保存のロックの中で読み、baseUpdatedAt が違えば 409・
     updatedAt を上げる・履歴を残す。行が 0 の動画(本当に無音)でも、文字起こし済みなら付けられる。もう付いていれば付け直す(時刻・長さを今に)"""
     tid = str(obj.get("id") or "")
-    with ed_store._save_lock:
-        base = ed_store.read_transcript(tid)
+    with _store._save_lock:
+        base = _store.read_transcript(tid)
         _drill_check(base, obj)
         if tid in _busy_tids():
-            raise ed_state.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度押してください)", 409)
+            raise _errors.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度押してください)", 409)
         segs = [dict(g) for g in base.get("segments") or [] if isinstance(g, dict)]
         if not base.get("model") and not _drill_text_rows(segs):
-            raise ed_state.ApiError("not_transcribed", "まだ文字起こししていません(文字起こししてから、全部聞いて確かめてください)", 400)
+            raise _errors.ApiError("not_transcribed", "まだ文字起こししていません(文字起こししてから、全部聞いて確かめてください)", 400)
         n = 0
         for g in _drill_text_rows(segs):
             if g.get("proofed") is not True:
                 g["proofed"] = True
                 n += 1
-        doc = ed_store.sanitize_transcript({"title": base.get("title", ""), "speakers": base.get("speakers") or [], "segments": segs}, base)
+        doc = _store.sanitize_transcript({"title": base.get("title", ""), "speakers": base.get("speakers") or [], "segments": segs}, base)
         rows = _drill_text_rows(doc["segments"])
         ids = {s["id"] for s in doc["speakers"]}
         # at = 校正済みにした行の proofedAt と同じ時刻(sanitize の「今」)。取り消しで、この印が校正済みにした行だけを戻すのに使う
-        rv = {"at": doc["updatedAt"], "rows": len(rows), "durationSec": round(ed_store.doc_length(doc), 1)}
+        rv = {"at": doc["updatedAt"], "rows": len(rows), "durationSec": round(_store.doc_length(doc), 1)}
         if obj.get("via") in ("drill", "editor"):
             rv["via"] = obj["via"]
         doc["evalReviewed"] = rv
@@ -298,20 +296,20 @@ def drill_unreviewed(obj):
     印を付けたときに校正済みにした行(proofedAt が印の時刻と同じ = その後に外して付け直していない行)は、校正済みも戻す。
     それより前から校正済みだった行はそのまま。印が無ければ何もしない"""
     tid = str(obj.get("id") or "")
-    with ed_store._save_lock:
-        base = ed_store.read_transcript(tid)
+    with _store._save_lock:
+        base = _store.read_transcript(tid)
         _drill_check(base, obj)
         rv = base.get("evalReviewed")
         if not isinstance(rv, dict):
             return {"ok": True, "updatedAt": base.get("updatedAt"), "unproofed": 0}
-        at = ed_state.plain_int(rv.get("at"))
+        at = _yschemas.plain_int(rv.get("at"))
         segs, n = [dict(g) for g in base.get("segments") or [] if isinstance(g, dict)], 0
         for g in segs:
             if at and g.get("proofed") is True and g.get("proofedAt") == at:
                 g.pop("proofed", None)
                 g.pop("proofedAt", None)
                 n += 1
-        doc = ed_store.sanitize_transcript({"title": base.get("title", ""), "speakers": base.get("speakers") or [], "segments": segs}, base)
+        doc = _store.sanitize_transcript({"title": base.get("title", ""), "speakers": base.get("speakers") or [], "segments": segs}, base)
         doc.pop("evalReviewed", None)
         _drill_write(tid, base, doc)
     return {"ok": True, "updatedAt": doc["updatedAt"], "unproofed": n}
@@ -330,7 +328,7 @@ def _own_member(path, dirs):
     """動画の入ったフォルダから評価用のフォルダまでさかのぼって、最初の「…数字_名前」のフォルダの名前(評価用のフォルダの中だけ)"""
     if not path or not _settings.in_eval_dir(path, dirs):
         return ""
-    roots = [ed_state.norm_path(d) for d in dirs]
+    roots = [_fsio.norm_path(d) for d in dirs]
     cur = os.path.dirname(os.path.abspath(path))
     for _ in range(_evfolders.EVAL_WALK_DEPTH + 1):
         if os.path.normcase(cur) in roots:
@@ -366,7 +364,7 @@ def _all_members(dirs):
 
 def _diar_voices(tid):
     """この文書の話者判別の記録で、覚えた声と近かった名前(付けた名前 → 点数の高い順)"""
-    d = ed_speakers.read_diar(tid) or {}
+    d = _diarize.read_diar(tid) or {}
     sp = (((d.get("latest") or {}).get("voices") or {}).get("speakers") or {}) if isinstance(d, dict) else {}
     items = [v for v in sp.values() if isinstance(v, dict)]
     items.sort(key=lambda v: (0 if v.get("decided") else 1, -(v.get("score") or 0)))
@@ -385,8 +383,8 @@ def drill_candidates_for(tid, doc, dirs=None, voices=None):
 
     def add(name, src, near):
         nm = str(name or "").strip()[:30]
-        k = ed_speakers._spk_name_key(nm)
-        if not nm or k in seen or ed_speakers.is_generic_speaker_name(nm) or len(out) >= DRILL_MAX_CANDIDATES:
+        k = _speakers._spk_name_key(nm)
+        if not nm or k in seen or _speakers.is_generic_speaker_name(nm) or len(out) >= DRILL_MAX_CANDIDATES:
             return
         seen.add(k)
         out.append({"name": nm, "from": src, "near": near})
@@ -395,9 +393,9 @@ def drill_candidates_for(tid, doc, dirs=None, voices=None):
         add(nm, "voice", True)
     add(_own_member(str(doc.get("sourcePath") or ""), dirs), "folder", True)   # 2 メンバーのフォルダ(動画の入ったフォルダ)
     try:
-        ctx = ed_jobs.stream_context(doc)                         # 3 配信の文脈(チャンネル名・コラボ相手・題名から名簿で)
+        ctx = _roster.stream_context(doc)                         # 3 配信の文脈(チャンネル名・コラボ相手・題名から名簿で)
     except Exception as e:   # 他のツールのデータ・名簿が読めなくても候補を出す
-        ed_state.log.info("配信の文脈を読めませんでした: %s", str(e)[:120])
+        _txbase.log.info("配信の文脈を読めませんでした: %s", str(e)[:120])
         ctx = {"members": []}
     for m in ctx.get("members") or []:
         add(m.get("name"), "stream", True)
@@ -410,7 +408,7 @@ def drill_candidates_for(tid, doc, dirs=None, voices=None):
 
 def _learned_voices():
     agg = {}
-    for xs in ed_speakers.voices_summary().values():
+    for xs in _speakers.voices_summary().values():
         for x in xs:
             if not x.get("generic"):
                 agg[x["name"]] = agg.get(x["name"], 0.0) + float(x.get("sec") or 0.0)
@@ -419,7 +417,7 @@ def _learned_voices():
 
 def drill_candidates(tid):
     """GET /api/drill/candidates?id= -> {"candidates", "eval", "rows", "noSpeaker", "suggest"}(読むだけ)"""
-    doc = ed_store.read_transcript(tid)
+    doc = _store.read_transcript(tid)
     ids = {s.get("id") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     rows = [g for g in doc.get("segments") or [] if isinstance(g, dict) and str(g.get("text") or "").strip()]
     cands = drill_candidates_for(tid, doc)
@@ -430,8 +428,8 @@ def drill_candidates(tid):
 
 # ---------- 処理中・動画 ----------
 def _busy_tids():
-    with ed_jobs._jobs_lock:
-        return {str((j.get("spec") or {}).get("tid") or j.get("tid") or "") for j in ed_jobs._jobs.values() if j.get("state") in ed_jobs.ACTIVE_STATES}
+    with _heavy._jobs_lock:
+        return {str((j.get("spec") or {}).get("tid") or j.get("tid") or "") for j in _heavy._jobs.values() if j.get("state") in _heavy.ACTIVE_STATES}
 
 
 def _media_ok(path):
@@ -440,5 +438,5 @@ def _media_ok(path):
     try:
         _tools.check_source(path)
         return True
-    except ed_state.ApiError:
+    except _errors.ApiError:
         return False

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(ed_evalbatch.py。マスタープラン Q4(b))のテスト。
+"""評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py。RS4-2 まで editor/ed_evalbatch.py。マスタープラン Q4(b))のテスト。
 
     py -3.10 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
     py -3.10 -m unittest src/editor/tests/test_evalbatch.py   # これだけ
@@ -23,7 +23,7 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-import ed_evalbatch as EB  # noqa: E402
+from eval.drill import evalbatch as EB  # noqa: E402   (RS4-2 に editor/ed_evalbatch.py から)
 import ed_jobs  # noqa: E402
 from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
 import ed_store  # noqa: E402

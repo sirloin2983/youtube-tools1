@@ -17,6 +17,8 @@
   S.名前 と 殻の名前の両方で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
 - RS3-E7 の前に ed_relink・ed_misc が持っていた名前(data_ed_relink_names.txt・data_ed_misc_names.txt)は、manage/cases/relink・eval/drill/folders と
   manage/cases/handoff_io・human/proof/batch・progress に分けても S.名前 と殻の名前で読める
+- RS4-2 の前に ed_drill・ed_evalbatch が持っていた名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は、eval/drill の drill・evalbatch へ
+  殻なしで移しても S.名前 で読め、差し替えが持ち主に届く
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -155,7 +157,7 @@ class TestOwnersFollowServePatches(unittest.TestCase):
 
 
 class TestDocJobsHooks(unittest.TestCase):
-    """serve が doc_jobs.set_hooks に登録した口(評価用の作り直し = ed_evalbatch・30fps = ed_relink。RS2-8d)は全部埋まっていて、
+    """serve が doc_jobs.set_hooks に登録した口(評価用の作り直し = eval/drill/evalbatch(RS4-2 まで ed_evalbatch)・30fps = manage/cases/relink。RS2-8d)は全部埋まっていて、
     呼ぶたびに持ち主の属性を読む(S.名前 の差し替えが届く)。評価用のフォルダの判定は RS3-1 から口でなく ytt/settings を直に読む"""
 
     def test_hooks_registered_and_follow_patches(self):
@@ -215,7 +217,7 @@ class TestEdSpeakersShell(unittest.TestCase):
         self.assertNotIn("DIAR_DIR", vars(ed_speakers))
 
     def test_context_namer_follows_patches(self):
-        """serve が set_context_namer に登録した口(eval の ed_drill.drill_candidates の suggest)は呼ぶたびに持ち主を読む"""
+        """serve が set_context_namer に登録した口(eval/drill/drill.drill_candidates の suggest)は呼ぶたびに持ち主を読む"""
         from human.proof import speakers
         speakers.check_context_namer()
         with mock.patch.object(S, "drill_candidates", lambda tid: {"suggest": "名前" + tid}):
@@ -280,8 +282,8 @@ class TestEdStoreShell(unittest.TestCase):
             doclist.PACK_CHECK_BUDGET = saved
         self.assertNotIn("PACK_CHECK_BUDGET", vars(ed_store))
 
-    def test_summary_leaves_drill_to_ed_drill(self):
-        """文書の要約(②)に評価ドリルの要約を入れない。ドリルは ed_drill.drill_docs が自前で作る(決定 3-25 #8)"""
+    def test_summary_leaves_drill_to_drill(self):
+        """文書の要約(②)に評価ドリルの要約を入れない。ドリルは eval/drill/drill.drill_docs が自前で作る(決定 3-25 #8)"""
         import inspect
         store, _doclist = self.owners()
         self.assertNotIn('"_drill"', inspect.getsource(store.transcript_summary))
@@ -494,6 +496,54 @@ class TestPipelineMovedWithoutShell(unittest.TestCase):
         for name in ("ed_fill", "ed_llm"):
             with self.assertRaises(ImportError):
                 __import__(name)
+
+
+class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
+    """RS4-2: ed_drill・ed_evalbatch は eval/drill の drill・evalbatch へ殻なしで移した(決定 3-25 #7)。
+    移す前の名前(data_ed_drill_names.txt・data_ed_evalbatch_names.txt)は S.名前 で読め(持ち主と同じ物)、S.名前 = … の差し替えが持ち主に届く。
+    持ち主は編集(app)の部品を読まない。serve が登録する口(set_hooks の redo_skip・redo_fill・set_context_namer)は新しい持ち主を呼ぶ"""
+
+    @staticmethod
+    def owners():
+        from eval.drill import drill, evalbatch
+        return drill, evalbatch
+
+    def test_old_names_read_through_serve(self):
+        drill, evalbatch = self.owners()
+        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 32), (evalbatch, "data_ed_evalbatch_names.txt", 58)):
+            names = _old_names(fname)
+            self.assertEqual(len(names), n, fname)
+            self.assertIn(mod, S._ED_MODULES, fname)
+            wrong = [k for k in names if getattr(S, k, None) is not getattr(mod, k)]
+            self.assertEqual(wrong, [], fname)
+
+    def test_old_shells_do_not_exist(self):
+        for name in ("ed_drill", "ed_evalbatch"):
+            with self.assertRaises(ImportError):
+                __import__(name)
+
+    def test_owners_do_not_read_editor_parts(self):
+        import types
+        for m in self.owners():
+            mods = {k for k, v in vars(m).items() if isinstance(v, types.ModuleType)}
+            self.assertEqual(sorted(k for k in mods if k.startswith("ed_") or k == "serve"), [], m.__name__)
+
+    def test_patches_reach_owner(self):
+        drill, evalbatch = self.owners()
+        with mock.patch.object(S, "DRILL_RECENT_SEC", 5), mock.patch.object(S, "EB_MAX_WAIT", 7):
+            self.assertEqual((drill.DRILL_RECENT_SEC, evalbatch.EB_MAX_WAIT), (5, 7))
+        self.assertEqual((drill.DRILL_RECENT_SEC, evalbatch.EB_MAX_WAIT), (600, 2))
+        with mock.patch.object(S, "_busy_tids", lambda: {"x"}):
+            self.assertEqual(drill._busy_tids(), {"x"})   # evalbatch は呼ぶたびに _drill._busy_tids を読む
+
+    def test_hooks_point_to_new_owners(self):
+        from human.proof import doc_jobs, speakers
+        doc_jobs.check_hooks()
+        speakers.check_context_namer()
+        with mock.patch.object(S, "eb_redo_fill", lambda job, spec, fields: "filled"):
+            self.assertEqual(doc_jobs._hook("redo_fill")({}, {}, {}), "filled")
+        with mock.patch.object(S, "drill_candidates", lambda tid: {"suggest": "n" + tid}):
+            self.assertEqual(speakers._context_name("t"), "nt")
 
 
 class TestEdJobsForwarding(unittest.TestCase):

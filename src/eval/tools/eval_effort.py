@@ -10,7 +10,7 @@
   effort の無い文書・時間が 0 の文書・長さが分からない文書は飛ばす(数は skipped)。
 - 手間の倍率 = activeSec ÷ 動画の秒(「1 分の動画に何分かかったか」。×12.0 = 1 分の動画に 12 分)。動画の長さ = 文書の長さ(src/editor/ed_store.py の doc_length と同じ決まり:
   範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わりまで)。校正の時間 = activeSec(1 文字起こし のタブ)、カットとパックの時間 = cutSec(2 カット・3 パック)。
-- 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。src/editor/ed_drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
+- 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。src/eval/drill/drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
   倍率の中央値・四分位・合計は**終わった文書だけ**で出す(途中の文書は、まだ直している途中で時間が短く出る = 倍率に入れると甘く出るので、数だけ別の欄に出す)
 - 直しの量(original と segments の比べ。original が無い文書は「分からない」。文字のある行だけで数える。original と segments を、時刻が重なるまとまり(src/human/proof/learn.py の _groups と同じ)に分ける):
     文字を直した行 = 機械の行と人の行が両方あるまとまりで、空白を除いた文字が違う(まとまりの人の行の数。分けた・つないだだけで文字が同じなら入れない)
@@ -201,7 +201,7 @@ def doc_record(doc, diar_rows=None, has_alt=False):
     proofed = sum(1 for g in rows if g.get("proofed") is True)
     ev = doc.get("evalSet") is True
     rv = doc.get("evalReviewed") if isinstance(doc.get("evalReviewed"), dict) else None
-    finished = eval_asr.is_reviewed(doc) if ev else bool(rows) and proofed == len(rows)   # 確かめ済み = src/editor/ed_drill.py の drill_is_reviewed と同じ条件
+    finished = eval_asr.is_reviewed(doc) if ev else bool(rows) and proofed == len(rows)   # 確かめ済み = src/eval/drill/drill.py の drill_is_reviewed と同じ条件
     t = ef["lastAt"] or plain_int(doc.get("updatedAt")) or None
     return {"id": str(doc.get("id") or ""), "title": str(doc.get("title") or "")[:40], "evalSet": ev, "finished": finished,
             "durationSec": round(dur, 2), "activeSec": ef["activeSec"], "cutSec": ef["cutSec"], "sessions": ef["sessions"],

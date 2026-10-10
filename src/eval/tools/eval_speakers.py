@@ -17,7 +17,7 @@
   文字起こしの作業データの evals/speakers/<日時>.json に残す(evals の置き場所は eval_asr.py(evals/asr)・eval_marks.py と同じ「ツールの作業データの下の evals/<領域>」)。
 - 人の最終 = 文書の行の speaker(id)→ speakers[].name。機械 = <id>.diar.json の latest(rows[行 id].speaker = その回の S1/S2…・voices = 声の照合)。
   行 id で突き合わせる(人が分けた・つないだ行は新しい id で、機械の記録が無い = 「記録なし」として別に数える)。
-- --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。src/editor/ed_drill.py の drill_is_reviewed と同じ条件。editor は読み込まない):
+- --reviewed(評価用の「確かめ済み」= evalSet が True かつ evalReviewed が dict。src/eval/drill/drill.py の drill_is_reviewed と同じ条件。editor は読み込まない):
     only = 評価用は確かめ済みの文書だけ(既定。--docs のときは prefer。確かめ済みが 0 本なら今までの選び方に戻して注意)/
     prefer = 確かめ済みでない評価用も混ぜる / ignore = 印を見ない。評価用でない文書は、どれでも今までどおり入る
 - **人が確かめた行だけを測る**(行ごとに決める。記録から確実に言える範囲。--include-draft で今までどおり全部を入れる = 甘く出る):

@@ -3,7 +3,7 @@
 (段10 で editor/serve.py から分けた ed_store。役割で組み直す RS3-E5a(2026-10-10)に human/proof/store.py へ移した。旧い名前 ed_store は転送だけの殻 = RS5 で消す)。
 
 - 一覧と元の動画・パックの有無(list_transcripts・pack_info)と前回のパックの手順(pack_readme)は manage/cases/doclist.py(txindex を読むのはそちら)
-- 評価ドリルの要約は持たない(ed_drill.drill_docs が自前で文書を読んで足す。決定 3-25 #8)
+- 評価ドリルの要約は持たない(eval/drill/drill.drill_docs が自前で文書を読んで足す。決定 3-25 #8)
 - 編集の内容(edit.json)は文書と相互に呼ぶので割らない(文書の書き込みは必ず apply_edit_cuts を通す)
 名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
@@ -147,7 +147,7 @@ def sanitize_transcript(obj, base=None):
             out.pop("evalSet", None)
     if _settings.in_eval_dir(out.get("sourcePath")):   # 評価用のフォルダの動画は外せない(2026-10-01 ユーザー決定)
         out["evalSet"] = True
-    # 「動画を全部聞いて確かめた」印(評価ドリル。ed_drill.drill_reviewed)は base から引き継ぐだけ(画面から送られた値は使わない = out は base の写し)。
+    # 「動画を全部聞いて確かめた」印(評価ドリル。eval/drill/drill.drill_reviewed)は base から引き継ぐだけ(画面から送られた値は使わない = out は base の写し)。
     # 評価用を外したら一緒に外す(評価用でない間は一括置換・再認識などで機械が書き換えられるため、付け直すときは聞き直す)
     if out.get("evalSet") is not True:
         out.pop("evalReviewed", None)
@@ -170,7 +170,7 @@ def doc_length(d):
 
 
 # 文書ごとの要約のキャッシュは 1 つ(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
-# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・進行度(progress.progress_stats)・評価ドリル(ed_drill.drill_docs)が同じ要約を使うので、
+# 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・進行度(progress.progress_stats)・評価ドリル(eval/drill/drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
 _summary_cache = {}   # tid -> (鍵, 要約)。名前はテストが clear するので変えない
@@ -215,7 +215,7 @@ def _part(name, fn, *args):
 
 
 def transcript_summary(tid):
-    """文書1件の要約(一覧の1行 + 元ファイル・範囲 + 進行度 _prog)。評価ドリルの要約は ed_drill.drill_docs が自前で足す(RS3-E5a。② が ④ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
+    """文書1件の要約(一覧の1行 + 元ファイル・範囲 + 進行度 _prog)。評価ドリルの要約は eval/drill/drill.drill_docs が自前で足す(RS3-E5a。② が ④ を読まない)。ファイルの更新日時と大きさが同じなら、前に読んだ結果を使う。読めなければ None。"""
     path = tx_path(tid)
     st = _fsio.stamp(path)
     if st is None:
