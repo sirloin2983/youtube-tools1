@@ -121,7 +121,7 @@ from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
-SERVER_VERSION = "0.67.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ytt/workdata の SERVER_VERSION で読む)
+SERVER_VERSION = "0.68.0"  # app.js 側の APP_VERSION と揃える(版の正はここ。入口 home/launch.py がこの行を読む。部品は ytt/workdata の SERVER_VERSION で読む)
 ed_state.APP_ID = APP_ID
 _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から持ち主は ytt/workdata)
 
