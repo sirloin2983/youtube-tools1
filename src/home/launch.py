@@ -20,14 +20,14 @@
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/home/intake.py。docs/spec/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
-  GET  /api/backup                        作業データのバックアップの状態・設定(src/home/backup.py。docs/spec/data-location.md の「バックアップ」)
+  GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
   GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/home/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
-  GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/home/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
-  GET  /api/cleanup                       片付けの候補(段9 9-2。src/home/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
+  GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
+  GET  /api/cleanup                       片付けの候補(段9 9-2。src/manage/keep/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
@@ -36,7 +36,7 @@
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補。2026-09-27)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。src/home/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
-  POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/home/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
+  POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/manage/ops/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
                                           まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか。0.41.0)
   GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/home/live.py)。**設定 live.enabled がオンのときだけ**(オフなら今までどおり 404):
                                           録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
@@ -80,16 +80,16 @@ from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runt
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
 import intake as intake_mod  # noqa: E402  (src/home/intake.py: 友人からの依頼の受付)
-import backup as backup_mod  # noqa: E402  (src/home/backup.py: 作業データのバックアップ)
+from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 import accuracy as accuracy_mod  # noqa: E402  (src/home/accuracy.py: 精度の自動測定 = dev/eval_*.py を手が空いた夜に子プロセスで)
 import deliver as deliver_mod  # noqa: E402  (src/home/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 import cases as cases_mod  # noqa: E402  (src/home/cases.py: 案件(配信1本)ごとの紐づけ)
 import friend_feedback as friend_feedback_mod  # noqa: E402  (src/home/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
 import appwindow as appwindow_mod  # noqa: E402  (src/home/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
-import clientlog as clientlog_mod  # noqa: E402  (src/home/clientlog.py: 画面のエラーの記録。段階7-0)
-import health as health_mod  # noqa: E402  (src/home/health.py: 「調子」。段9 9-1)
-import cleanup as cleanup_mod  # noqa: E402  (src/home/cleanup.py: 片付け。段9 9-2)
-import restart as restart_mod  # noqa: E402  (src/home/restart.py: 入口ごと起動し直す。段9 9-3)
+from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
+from manage.ops import health as health_mod  # noqa: E402  (src/manage/ops/health.py: 「調子」。段9 9-1)
+from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/cleanup.py: 片付け。段9 9-2)
+from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
 try:   # src/analytics: 分析と日報(/analytics/ を受け持つ。plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
@@ -543,7 +543,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 # GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/home/intake.py)
-                 "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/home/backup.py)
+                 "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/manage/keep/backup.py)
                  "/api/accuracy": "accuracy",   # 精度の自動測定の状態(src/home/accuracy.py)
                  "/api/autorun": "autorun"}     # まとめて実行の状態(src/home/autorun.py)
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる

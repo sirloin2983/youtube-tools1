@@ -53,7 +53,6 @@ FILES = {
     "src/home/mount.py": ("app", "app", ""),
     "src/home/appwindow.py": ("app", "app", ""),
     "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
-    "src/home/restart.py": ("manage", "manage/ops", ""),
     "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は Runner の hook を案件・設定・友人の届けで埋める合成の役。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行だけ human/friend の mixin へ出す = RS3-3)"),
     "src/home/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
     # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
@@ -68,10 +67,6 @@ FILES = {
     "src/home/live_requests.py": ("human", "human/friend", ""),
     "src/home/friend_feedback.py": ("human", "human/friend", ""),
     "src/home/cases.py": ("manage", "manage/cases", ""),
-    "src/home/backup.py": ("manage", "manage/keep", ""),
-    "src/home/cleanup.py": ("manage", "manage/keep", ""),
-    "src/home/health.py": ("manage", "manage/ops", ""),
-    "src/home/clientlog.py": ("manage", "manage/ops", ""),
     "src/home/accuracy.py": ("eval", "eval/drill", "精度の自動測定"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
