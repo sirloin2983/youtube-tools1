@@ -1318,7 +1318,7 @@
   ・更新するときは、リポジトリごと(git で)更新します。ファイルだけを部分的に上書きしないでください(serve.py と app.js の片方だけだと、画面の上に赤い帯が出ます。
     app.js・ui-kit.js が無いと画面が真っ白になります)。編集の部品は役割ごとに src\ の下へ分かれています
     (文書の読み書きは src\human\proof\、パックの部品 pipeline_io・resolve_export は src\manage\cases\・src\pipeline\pack\、測る道具は src\eval\tools\。
-    editor フォルダの ed_*.py には旧い名前の転送だけの殻が残っています)。
+    editor フォルダの転送だけの殻 ed_*.py は RS5 で消しました)。
   ・動画の隣に保存した .transcript.json / .srt / .cut-plan.json には、文字起こしの文章と元の動画のパスが入ります。
   ・他の人に作業データのフォルダを渡すときは、transcripts/ と settings.json と dataset/(v0.67.0 までに保管したものが残っていれば)を抜いてください(serve.log には動画名が入っています)。
 
