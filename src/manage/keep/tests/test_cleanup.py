@@ -57,10 +57,22 @@ class CleanupTest(unittest.TestCase):
         touch(os.path.join(v, "作業用", "a.transcript.json"))        # 元の動画がある → 候補にしない
         orphan = touch(os.path.join(v, "作業用", "gone.clip.json"))   # 元の動画が無い → 候補
         touch(os.path.join(v, "作業用", "memo.txt"))                  # 知らない形 → 候補にしない
+        # 作業用に置く文字起こしの文書とその付き物(RS8 B2。名前が文書の id)と持ち主の印は、動画の付き物ではない → 候補にしない
+        for n in ("0123456789ab.json", "0123456789ab.edit.json", "0123456789ab.words.json", "0123456789ab.transcript.json",
+                  "0123456789ab.srt", ".studio-id", "case.json"):
+            touch(os.path.join(v, "作業用", n))
+        touch(os.path.join(v, "作業用", ".hist", "0123456789ab", "1.json"))
+        touch(os.path.join(v, "作業用", ".bak", "0123456789ab.pre-fill.json"))
         r = self.cl.candidates([{"id": "1", "status": "", "clips": [{"path": a, "exists": True}]}])
         work = next(k for k in r["kinds"] if k["kind"] == "work")
         self.assertEqual([i["path"] for i in work["items"]], [orphan])
         self.assertIn("gone", work["items"][0]["note"])
+
+    def test_media_stem_ignores_transcript_docs(self):
+        self.assertEqual(C._media_stem("動画.edit.json"), "動画")
+        self.assertEqual(C._media_stem("abcdef012345x.edit.json"), "abcdef012345x")   # 13 文字は文書の id ではない
+        for n in ("0123456789ab.edit.json", "0123456789ab.clip.json", "0123456789ab.transcript.json", ".studio-id", "0123456789ab.json"):
+            self.assertIsNone(C._media_stem(n), n)
 
     def test_cache_logs_and_intake(self):
         peaks = os.path.join(self.tmp, "data", "transcribe", "cache", "peaks")

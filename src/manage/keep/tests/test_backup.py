@@ -286,8 +286,16 @@ class BackupTest(unittest.TestCase):
         put(os.path.join(w, "a.tx.key.json"), "{}")
         put(os.path.join(w, ".studio-id"), "id1")
         put(os.path.join(w, "runs", "r1.json"), "{}")
+        put(os.path.join(w, ".hist", "0123456789ab", "1700000000000.json"), "{}")   # 文書の履歴(RS8 B2-0)
+        put(os.path.join(w, ".bak", "0123456789ab.pre-fill.json"), "{}")            # 機械の書き換え前の控え
+        put(os.path.join(w, ".hist", "0123456789ab", "deep", "x.json"), "{}")       # .hist/<tid> の下には入らない
+        put(os.path.join(w, ".bak", "sub", "x.json"), "{}")                         # .bak の下には入らない
         put(os.path.join(w, "a.wav"), "audio")                    # json 以外は写さない
-        put(os.path.join(w, "tmp", "x.json"), "{}")               # runs 以外の下は入らない
+        put(os.path.join(w, "tmp", "x.json"), "{}")               # runs・.hist・.bak 以外の下は入らない
+        put(os.path.join(w, "速報版", "x.json"), "{}")
+        put(os.path.join(w, ".tmp", "x.json"), "{}")
+        put(os.path.join(w, ".resume", "x.json"), "{}")
+        put(os.path.join(w, "runs", "r1.json.part-1"), "{}")       # 途中のファイルは写さない
         put(os.path.join(out, "題名A", "a.mp4"), "video")
         put(os.path.join(out, "題名A", "a_edit.mp4"), "video")
         put(os.path.join(out, "題名A", "a_pack", "p.json"), "{}")
@@ -298,9 +306,10 @@ class BackupTest(unittest.TestCase):
         out = self.make_cases()
         r = backup.run_once(self.src, self.dst, out_dir=out)
         cases = [f for f in self.files() if f.startswith("cases/")]
-        self.assertEqual(cases, ["cases/題名A/作業用/.studio-id", "cases/題名A/作業用/a.clip.json", "cases/題名A/作業用/a.edit.json",
+        self.assertEqual(cases, ["cases/題名A/作業用/.bak/0123456789ab.pre-fill.json", "cases/題名A/作業用/.hist/0123456789ab/1700000000000.json",
+                                 "cases/題名A/作業用/.studio-id", "cases/題名A/作業用/a.clip.json", "cases/題名A/作業用/a.edit.json",
                                  "cases/題名A/作業用/a.tx.key.json", "cases/題名A/作業用/runs/r1.json"])
-        self.assertEqual((r["copied"], r["errors"]), (9 + 5, []))
+        self.assertEqual((r["copied"], r["errors"]), (9 + 7, []))
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=out)["copied"], 0)
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=os.path.join(self.tmp, "無い"))["errors"], [])   # 無い outDir は何もしない
         self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 0)
@@ -312,6 +321,66 @@ class BackupTest(unittest.TestCase):
         os.utime(os.path.join(out, "題名A", "作業用", "runs", "r2.json"), (before + 500, before + 500))
         self.assertEqual(backup.latest_change(self.src), before)
         self.assertEqual(backup.latest_change(self.src, out), before + 500)
+
+    def test_cases_hist_change_is_noticed(self):
+        out = self.make_cases()
+        before = backup.latest_change(self.src, out)
+        h = os.path.join(out, "題名A", "作業用", ".hist", "0123456789ab", "1700000000001.json")
+        put(h, "{}")
+        os.utime(h, (before + 900, before + 900))
+        self.assertEqual(backup.latest_change(self.src, out), before + 900)
+
+    def test_restore_cases_to_out_dir(self):
+        out = self.make_cases()
+        backup.run_once(self.src, self.dst, out_dir=out)
+        new_out = os.path.join(self.tmp, "新しい出力")
+        tgt = os.path.join(self.tmp, "restored")
+        r = backup.restore_once(self.dst, tgt, dry_run=True, out_dir=new_out)
+        self.assertEqual((r["casesCopied"], r["casesKept"], r["outDir"]), (7, 0, os.path.abspath(new_out)))
+        self.assertFalse(os.path.exists(new_out))                 # dry_run は書かない
+        r = backup.restore_once(self.dst, tgt, out_dir=new_out)
+        self.assertEqual((r["casesCopied"], r["errors"]), (7, []))
+        got = sorted(rel.replace("\\", "/") for rel, _, _ in backup.plan_cases(new_out))
+        self.assertEqual(got, sorted(rel.replace("\\", "/") for rel, _, _ in backup.plan_cases(out)))
+        self.assertFalse(os.path.exists(os.path.join(tgt, backup.CASES_DIR)))   # 作業データの根へは cases を戻さない
+        # 既にあるファイルは、中身が違っても(バックアップのほうが新しくても)上書きしない
+        e = os.path.join(new_out, "題名A", "作業用", "a.edit.json")
+        put(e, "人が直した")
+        os.utime(e, (1, 1))
+        r = backup.restore_once(self.dst, tgt, out_dir=new_out)
+        self.assertEqual((r["casesCopied"], r["casesKept"], r["casesSame"]), (0, 1, 6))
+        self.assertEqual(read(e), "人が直した")
+
+    def test_restore_without_out_dir_skips_cases(self):
+        out = self.make_cases()
+        backup.run_once(self.src, self.dst, out_dir=out)
+        tgt = os.path.join(self.tmp, "restored")
+        r = backup.restore_once(self.dst, tgt)
+        self.assertEqual((r["casesCopied"], r["casesSkipped"], r["outDir"]), (0, 7, None))
+        self.assertFalse(os.path.exists(os.path.join(tgt, backup.CASES_DIR)))
+        with self.assertRaises(ValueError):
+            backup.restore_once(self.dst, tgt, out_dir="相対")
+        with self.assertRaises(ValueError):                       # バックアップの中は断る
+            backup.restore_once(self.dst, tgt, out_dir=os.path.join(self.dst, backup.DEST_NAME, "cases"))
+
+    def test_restore_cli_cases(self):
+        out = self.make_cases()
+        backup.run_once(self.src, self.dst, out_dir=out)
+        buf = io.StringIO()
+        tgt = os.path.join(self.tmp, "restored")
+        new_out = os.path.join(self.tmp, "新しい出力")
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(backup.main(["--restore", self.dst, "--target", tgt, "--out-dir", new_out, "--yes"]), 0)
+        self.assertTrue(os.path.isfile(os.path.join(new_out, "題名A", "作業用", ".hist", "0123456789ab", "1700000000000.json")))
+        # 既定の案件の根 = 写し戻した先(無ければバックアップ)のスタジオの設定の outDir
+        put(os.path.join(self.src, "studio", "settings.json"), json.dumps({"outDir": os.path.join(self.tmp, "設定の出力")}))
+        backup.run_once(self.src, self.dst, out_dir=out)
+        tgt2 = os.path.join(self.tmp, "restored2")
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(backup.main(["--restore", self.dst, "--target", tgt2, "--yes"]), 0)
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "設定の出力", "題名A", "作業用", "a.edit.json")))
+        with contextlib.redirect_stdout(buf):                      # --out-dir の指定が正しくなければ断る
+            self.assertEqual(backup.main(["--restore", self.dst, "--target", tgt2, "--out-dir", "相対", "--yes"]), 2)
 
     def test_backup_passes_out_dir_by_value_or_function(self):
         out = self.make_cases()

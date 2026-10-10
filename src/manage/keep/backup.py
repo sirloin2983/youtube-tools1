@@ -14,7 +14,8 @@
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
 - 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)のほかに、**変わったらすぐ写す**: 写す対象のファイルが前回の写し始めより新しく更新され、
   最後の変更から QUIET 秒(保存が続いている間は待つ)たっていれば、間隔を待たずに写す(CHECK_EVERY ごとに見る)
-- 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は docs/spec/data-location.md の「写し戻しの手順」
+- 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は docs/spec/data-location.md の「写し戻しの手順」。
+  案件の 作業用 の写し(cases/)は作業データの根へは戻さず、案件の根(--out-dir。既定はスタジオの設定の書き出し先)へ戻す。既にあるファイルは上書きしない
 - 鍵(studio\\config.json の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有のフォルダ・クラウドに置かない)
 """
 import argparse
@@ -29,7 +30,7 @@ import time
 _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # keep -> manage -> src
 if _SRC not in sys.path:   # コマンドで単独に動かす(--restore)ときも ytt を読めるように(入口から読むときは入っている)
     sys.path.insert(0, _SRC)
-from ytt import fsio, tools  # noqa: E402
+from ytt import fsio, schemas, tools  # noqa: E402
 
 STATE_FILE = "backup-state.json"
 DEST_NAME = "youtube-tools-data"
@@ -47,15 +48,11 @@ STATE_MAX = 64 * 1024     # backup-state.json を読む上限(これより大き
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "running": "写しています…", "error": "止まっています"}
 
 
-def _norm(p):
-    return os.path.normcase(os.path.abspath(p))
-
-
 def _overlaps(child, parent):
     """child が parent の中か(同じも含む)。重なりを断る検査なので、見かけのパス(abspath)とリンクを解いたパス(fsio.is_inside)の
     どちらで見ても中なら真(片方だけにすると、ジャンクション越しに重なる指定・見かけだけ重なる指定のどちらかを通してしまう)。
     ネットワーク上のパスは is_inside が調べない(False)ので、見かけのパスだけで決まる"""
-    c, p = _norm(child), _norm(parent)
+    c, p = fsio.norm_path(child), fsio.norm_path(parent)
     return c == p or c.startswith(p.rstrip("\\/") + os.sep) or fsio.is_inside(child, parent)
 
 
@@ -115,25 +112,42 @@ def plan(source):
 
 
 CASES_DIR = "cases"        # 写す先の下の、案件の 作業用 を置くフォルダ(<写す先>/youtube-tools-data/cases/<題名>/作業用/…)
-CASE_WORK = "作業用"
+CASE_WORK = schemas.WORK_DIR
 CASE_STUDIO_ID = ".studio-id"
+# 作業用の下で入るフォルダ → 入り方(RS8 B2-0。文字起こしの文書を案件へ移す前に、文書の履歴 .hist と機械の書き換え前の控え .bak も写す)。
+# ここに無い名前(速報版・.tmp・.resume など)には入らない。.hist だけは <tid> のフォルダの 1 段下まで入る
+CASE_SUBDIRS = {"runs": "runs", ".hist": "hist", ".bak": "bak"}
 
 
 def _cases_enter(r, name, mode):
-    """案件の根(outDir)の入り方: "" = outDir 直下 / "case" = 題名のフォルダ / "work" = 作業用(と runs)。動画・パック・その他は入らない"""
+    """案件の根(outDir)の入り方: "" = outDir 直下 / "case" = 題名のフォルダ / "work" = 作業用 / "runs"・"bak" = その中(下には入らない) /
+    "hist" = .hist(下の <tid> のフォルダへは "histdoc" で入り、その下には入らない)。動画・パック・その他は入らない"""
     if mode == "":
         return "case"
     if mode == "case":
         return "work" if name == CASE_WORK else None
-    return "work" if name.lower() == "runs" else None
+    if mode == "work":
+        return CASE_SUBDIRS.get(name.lower())
+    if mode == "hist":
+        return None if skip(name, True) else "histdoc"
+    return None
+
+
+def _cases_keep(name, mode):
+    """案件の 作業用 の下で写すファイル: *.json(途中のファイル `.part-` を除く)と、作業用の直下の .studio-id"""
+    if mode in ("", "case") or skip(name, False):
+        return False
+    return name.lower().endswith(".json") or (mode == "work" and name == CASE_STUDIO_ID)
 
 
 def plan_cases(out_dir):
-    """案件の根 <outDir>/<題名>/作業用/ の *.json(runs の結果の束・.clip.json・.edit.json・鍵を含む)と .studio-id だけを順に返す: (outDir からの相対パス, 大きさ, 更新時刻)。
-    動画・_edit.mp4・*_pack は写さない。outDir が無い・未設定なら何も返さない"""
+    """案件の根 <outDir>/<題名>/作業用/ の *.json(runs の結果の束・.clip.json・.edit.json・鍵を含む)と .studio-id、
+    作業用の下の .hist/<tid>/*.json(文書の履歴)・.bak/*.json(機械の書き換え前の控え)を順に返す: (outDir からの相対パス, 大きさ, 更新時刻)。
+    動画・_edit.mp4・*_pack・速報版・.tmp・.resume は写さない。outDir が無い・未設定なら何も返さない。
+    写し戻し(restore_once の out_dir)も、バックアップの cases/ をこの決まりで歩く(cases/ の下は outDir と同じ形)"""
     if not out_dir or not os.path.isdir(out_dir):
         return iter(())
-    return _scan(out_dir, _cases_enter, lambda name, mode: mode == "work" and not skip(name, False) and (name.lower().endswith(".json") or name == CASE_STUDIO_ID))
+    return _scan(out_dir, _cases_enter, _cases_keep)
 
 
 def _excite_chat(rel):
@@ -358,14 +372,56 @@ class Backup:
 
 
 def _walk_backup(root):
-    """バックアップ側の (相対パス, 大きさ, 更新時刻)。`.prev`(1つ前の控え)と途中のファイルは数えない。シンボリックリンクはたどらない"""
-    return _scan(root, lambda r, name, mode: "", lambda name, mode: not name.lower().endswith(PREV_SUFFIX) and SKIP_MARK not in name.lower())
+    """バックアップ側の (相対パス, 大きさ, 更新時刻)。`.prev`(1つ前の控え)と途中のファイルは数えない。シンボリックリンクはたどらない。
+    直下の cases/(案件の 作業用 の写し)には入らない(作業データの根へ戻す物ではない。_restore_cases が outDir へ戻す)"""
+    return _scan(root, lambda r, name, mode: None if r.lower() == CASES_DIR else "",
+                 lambda name, mode: not name.lower().endswith(PREV_SUFFIX) and SKIP_MARK not in name.lower())
 
 
-def restore_once(folder, target, stop=None, dry_run=False):
+def _restore_cases(src_root, out_dir, out, stop=None, dry_run=False):
+    """バックアップの cases/<題名>/作業用/… を <out_dir>/<題名>/作業用/… へ写し戻す(RS8 B2-0)。
+    歩き方は plan_cases と同じ(写した物だけが戻る)。**既にあるファイルは、中身が違っても上書きしない**(案件の 作業用 は人が直した文書なので、
+    作業データの根と違い「バックアップのほうが新しい」でも上書きしない。数は kept)。out の cases* に数を足す"""
+    for rel, size, mtime in plan_cases(os.path.join(src_root, CASES_DIR)):
+        if stop is not None and stop():
+            break
+        dst = os.path.join(out_dir, rel)
+        try:
+            if same(dst, size, mtime):
+                out["casesSame"] += 1
+                continue
+            if os.path.lexists(dst):
+                out["casesKept"] += 1
+                continue
+            if not dry_run:
+                copy_one(os.path.join(src_root, CASES_DIR, rel), dst, None)
+            out["casesCopied"] += 1
+            out["bytes"] += size
+        except OSError as e:
+            if len(out["errors"]) < MAX_ERRORS:
+                out["errors"].append("%s: %s" % (os.path.join(CASES_DIR, rel), tools.why(e)))
+
+
+def _check_out_dir(out_dir, src_root):
+    """写し戻す案件の根を確かめる -> 絶対パス。正しくなければ ValueError(相対パス・ドライブが無い・バックアップと重なる)"""
+    if not os.path.isabs(out_dir):
+        raise ValueError("案件の根(outDir)を絶対パスで指定してください")
+    out_dir = os.path.abspath(out_dir)
+    drive = os.path.splitdrive(out_dir)[0]
+    if drive and not os.path.isdir(drive + os.sep):
+        raise ValueError("案件の根のドライブ(%s)が見つかりません" % drive)
+    if _overlaps(src_root, out_dir) or _overlaps(out_dir, src_root):
+        raise ValueError("バックアップと案件の根(outDir)が重なっています")
+    return out_dir
+
+
+def restore_once(folder, target, stop=None, dry_run=False, out_dir=None):
     """`<folder>\\youtube-tools-data\\` から target(作業データ)へ、無い・違うファイルを写し戻す。
-    -> {"copied", "same", "newer", "bytes", "errors": [..], "source"}。newer = target のほうが新しいので上書きしなかった数。
-    `.prev` は写さない・シンボリックリンクはたどらない・target のファイルは消さない。dry_run なら写さずに数だけ(copied = 写すことになる数)。
+    out_dir(案件の根。入口がスタジオの設定から渡す値と同じ)を渡すと、バックアップの cases/<題名>/作業用/ をそこへも写し戻す
+    (こちらは既にあるファイルを上書きしない)。渡さなければ cases/ は戻さず、数だけ casesSkipped に出す。
+    -> {"copied", "same", "newer", "bytes", "errors": [..], "source", "outDir", "casesCopied", "casesSame", "casesKept", "casesSkipped"}。
+    newer = target のほうが新しいので上書きしなかった数。casesKept = 案件の根に既にあるので上書きしなかった数。
+    `.prev` は写さない・シンボリックリンクはたどらない・target のファイルは消さない。dry_run なら写さずに数だけ(copied・casesCopied = 写すことになる数)。
     場所が正しくないときは ValueError"""
     if not folder or not os.path.isabs(folder):
         raise ValueError("バックアップのフォルダを絶対パスで指定してください")
@@ -377,7 +433,13 @@ def restore_once(folder, target, stop=None, dry_run=False):
     target = os.path.abspath(target)
     if _overlaps(src_root, target) or _overlaps(target, src_root):
         raise ValueError("バックアップと写し戻す先が重なっています")
-    out = {"copied": 0, "same": 0, "newer": 0, "bytes": 0, "errors": [], "source": src_root}
+    out_dir = _check_out_dir(out_dir, src_root) if out_dir else None
+    out = {"copied": 0, "same": 0, "newer": 0, "bytes": 0, "errors": [], "source": src_root, "outDir": out_dir,
+           "casesCopied": 0, "casesSame": 0, "casesKept": 0, "casesSkipped": 0}
+    if out_dir:
+        _restore_cases(src_root, out_dir, out, stop, dry_run)
+    else:
+        out["casesSkipped"] = sum(1 for _ in plan_cases(os.path.join(src_root, CASES_DIR)))
     for rel, size, mtime in _walk_backup(src_root):
         if stop is not None and stop():
             break
@@ -399,33 +461,59 @@ def restore_once(folder, target, stop=None, dry_run=False):
     return out
 
 
+def _studio_out_dir_from(*roots):
+    """写し戻すときの案件の根の既定: roots(写し戻す先・バックアップ)の順に studio/settings.json の outDir(空でない絶対パス)を探し、
+    無ければ <最初の root>/studio/exports(ytt/datadir.studio_out_dir と同じ決まり。あちらは今の作業データの場所しか読めないので、ここは root を受ける)"""
+    for root in roots:
+        st = fsio.read_json_or(os.path.join(root, "studio", "settings.json"), None, kind=dict)
+        v = st.get("outDir") if st else None
+        if isinstance(v, str) and v and os.path.isabs(v):
+            return v
+    return os.path.join(roots[0], "studio", "exports")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="作業データのバックアップの写し戻し(入口を止めてから。docs/spec/data-location.md)")
     ap.add_argument("--restore", metavar="FOLDER", required=True, help="バックアップ先のフォルダ(その下の youtube-tools-data から写し戻す)")
     ap.add_argument("--target", metavar="DIR", help="写し戻す先(既定: 作業データの本物の場所)")
+    ap.add_argument("--out-dir", metavar="DIR", help="案件の 作業用 を写し戻す案件の根(既定: スタジオの設定の書き出し先。既にあるファイルは上書きしない)")
     ap.add_argument("--yes", action="store_true", help="確認を聞かない")
     a = ap.parse_args(argv)
     target = a.target
     if not target:
         from ytt import datadir
         target = datadir.data_root()
+    out_dir = a.out_dir
+    if not out_dir and a.restore and os.path.isabs(a.restore):
+        out_dir = _studio_out_dir_from(os.path.abspath(target), os.path.join(os.path.abspath(a.restore), DEST_NAME))
+        try:
+            _check_out_dir(out_dir, os.path.join(os.path.abspath(a.restore), DEST_NAME))
+        except ValueError as e:   # 既定の場所が使えないときは案件だけ戻さない(作業データの根は戻す)。--out-dir で指定したときは断る
+            print("案件の 作業用 は写し戻しません: %s" % e)
+            out_dir = None
     try:
-        r = restore_once(a.restore, target, dry_run=True)
+        r = restore_once(a.restore, target, dry_run=True, out_dir=out_dir)
     except ValueError as e:
         print("できません: %s" % e)
         return 2
     print("写し戻し元: %s\n写し戻す先: %s" % (r["source"], os.path.abspath(target)))
-    print("写す %d 個(%.1f MB)・同じ %d 個・写す先のほうが新しいので上書きしない %d 個" % (r["copied"], r["bytes"] / 1048576.0, r["same"], r["newer"]))
+    print("写す %d 個・同じ %d 個・写す先のほうが新しいので上書きしない %d 個" % (r["copied"], r["same"], r["newer"]))
+    if r["outDir"]:
+        print("案件の 作業用(%s): 写す %d 個・同じ %d 個・既にあるので上書きしない %d 個" % (r["outDir"], r["casesCopied"], r["casesSame"], r["casesKept"]))
+    elif r["casesSkipped"]:
+        print("案件の 作業用 %d 個は写し戻しません(--out-dir で案件の根を指定すると戻します)" % r["casesSkipped"])
+    print("合わせて %.1f MB" % (r["bytes"] / 1048576.0))
     for m in r["errors"]:
         print("  読めない: " + m)
-    if not r["copied"]:
+    if not r["copied"] and not r["casesCopied"]:
         print("写すものはありません。")
         return 0
     if not a.yes and input("入口を止めてありますか。写し戻しますか? [y/N] ").strip().lower() not in ("y", "yes"):
         print("やめました。")
         return 1
-    r = restore_once(a.restore, target)
-    print("写し戻しました: %d 個(%.1f MB)・上書きしなかった %d 個・失敗 %d 個" % (r["copied"], r["bytes"] / 1048576.0, r["newer"], len(r["errors"])))
+    r = restore_once(a.restore, target, out_dir=out_dir)
+    print("写し戻しました: %d 個(%.1f MB)・上書きしなかった %d 個・失敗 %d 個" % (r["copied"] + r["casesCopied"], r["bytes"] / 1048576.0,
+                                                                     r["newer"] + r["casesKept"], len(r["errors"])))
     for m in r["errors"]:
         print("  失敗: " + m)
     return 0 if not r["errors"] else 3

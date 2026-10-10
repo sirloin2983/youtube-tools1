@@ -345,8 +345,12 @@ def _old_day_dirs(root, days, now):
 
 
 def _media_stem(name):
-    """作業用の途中のファイル名 → 元の動画の名前(拡張子なし)。知らない形なら None"""
+    """作業用の途中のファイル名 → 元の動画の名前(拡張子なし)。知らない形なら None。
+    名前が文字起こしの文書の id(schemas.TID_RE。`<tid>.edit.json` など)なら None: 作業用に置く文字起こしの文書とその付き物(RS8 B2)は
+    動画の付き物ではない(動画の名前と比べると、いつも「元の動画が無い」になって片付けの候補に出てしまう)。
+    名前が空(作業用/.studio-id = 案件の持ち主の印)も None"""
     for suffix in (".transcript.json", ".clip.json", ".edit.json", ".cut-plan.json", ".studio-id", "_edit.mp4", ".srt"):
         if name.endswith(suffix):
-            return name[:-len(suffix)]
+            stem = name[:-len(suffix)]
+            return None if not stem or schemas.TID_RE.match(stem) else stem
     return None
