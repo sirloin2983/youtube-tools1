@@ -8,7 +8,7 @@
 設定(settings.json)の読み書きは ytt/settings(RS3-1)。ed_state は読まない(文書の形の小道具は ytt/schemas・エラーは ytt/errors・書き込みは ytt/fsio)。
 旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。RS5 で消す)と serve の受付がここへ回す(テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`replace.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
-editor の部品は裸の名前で読む(human の ed_store・ed_alt・ed_ytcap は層の向きが許す)。
+editor の部品は裸の名前で読む(human の ed_alt・ed_ytcap は層の向きが許す)。文書の置き場は隣の store(RS3-E5a)。
 """
 import difflib
 import json
@@ -22,7 +22,7 @@ from pipeline.transcribe import roster as _roster  # noqa: E402   (名簿のフ�
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
 import ed_alt  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。D1-b)
 import ed_ytcap  # noqa: E402   YouTube の字幕の候補(suggest_for_doc の yt。案 A1)
-import ed_store  # noqa: E402   文書の一覧と読み(_tids・tx_path・read_transcript)
+from . import store  # noqa: E402   文書の一覧と読み(_tids・tx_path・read_transcript。RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 
 
 PUNCT_ONLY = re.compile(r"^[\s、。,.!?！？…・「」『』()（）ー〜~-]*$")
@@ -160,11 +160,11 @@ _info_cache = {}
 
 def _doc_info(tid):
     """文字起こし1件の学習用の情報(修正の一覧・各行の文章・修正した行数)。更新日時でキャッシュする。"""
-    mt = os.stat(ed_store.tx_path(tid)).st_mtime_ns
+    mt = os.stat(store.tx_path(tid)).st_mtime_ns
     hit = _info_cache.get(tid)
     if hit and hit[0] == mt:
         return hit[1]
-    with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
+    with open(store.tx_path(tid), "r", encoding="utf-8") as f:
         d = json.load(f)
     if d.get("evalSet") is True:
         info = None   # 評価用は、辞書・提案・用語の自動追加の元にしない(答えを見てから測ることになるため)
@@ -180,7 +180,7 @@ def _doc_info(tid):
 
 def _all_infos():
     out = []
-    for tid in sorted(ed_store._tids()):
+    for tid in sorted(store._tids()):
         try:
             info = _doc_info(tid)
         except (OSError, ValueError):
@@ -357,7 +357,7 @@ def find_suggestions(text, rules, fb, skip=(), only_high=False):
 def suggest_for_doc(tid):
     """行ごとの提案(学習の統計)+ 2つ目のエンジンとの食い違いの候補(tier "alt"。同じ行・同じ位置では学習の提案を優先。ed_alt.alt_suggest)。
     応答の alt = 2つ目のエンジンの結果の情報 {engine, model, label, at, count, skipped}(無い・評価用は null)"""
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     rules, fb = learn_rules(), load_feedback()
     dismissed = set(fb["dismissed"].get(tid, []))
     items = []

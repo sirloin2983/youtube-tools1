@@ -21,7 +21,7 @@ from ytt import errors as _errors, fsio as _fsio, settings as _settings, workdat
 from pipeline.transcribe import replace  # noqa: E402   置換辞書の「正」を用語に数える(parse_replacements)
 from pipeline.transcribe import roster as _roster  # noqa: E402   用語集の区切り split_terms(RS2-8a に ed_jobs から)
 from human.proof import learn  # noqa: E402   機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm。呼ぶたびに learn.名前 で読む)
-import ed_store  # noqa: E402   文書の一覧と読み(_tids・read_transcript)
+from human.proof import store  # noqa: E402   文書の一覧と読み(_tids・read_transcript。RS3-E5a に editor/ed_store から。呼ぶたびに store.名前 で読む)
 
 
 # ---------- 同時にしゃべっている所(重なり)と「字幕に出さない」行(noSub)の別集計 ----------
@@ -268,12 +268,12 @@ def config_key(d):
 
 def all_metrics(tid=None, legacy=False, scope="all"):
     terms = metric_terms()
-    tids = [tid] if tid else sorted(ed_store._tids())
+    tids = [tid] if tid else sorted(store._tids())
     total, by_cfg, rows = new_acc(), {}, []
     proofed_lines = docs_proofed = docs = 0
     for t in tids:
         try:
-            d = ed_store.read_transcript(t)
+            d = store.read_transcript(t)
         except _errors.ApiError:
             continue
         if not tid and ((scope == "eval") != (d.get("evalSet") is True)) and scope != "all":
