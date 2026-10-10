@@ -55,7 +55,7 @@ class ProbeTest(unittest.TestCase):
             f.write("import json, sys, time\njson.dump(sys.argv[1:], open(%r, 'w'))\ntime.sleep(%r)\n"
                     "sys.stdout.buffer.write(%r.encode('utf-8'))\nsys.stderr.buffer.write(%r.encode('utf-8'))\nsys.exit(%d)\n"
                     % (self.args, sleep, out, err, code))
-        real = subprocess.run
+        real = subprocess.Popen   # 起こすのは ytt/tools.run(OPT1)
 
         def run(cmd, *a, **kw):
             self.assertIsInstance(cmd, list)              # シェルを通さない(引数のリスト)
@@ -64,7 +64,7 @@ class ProbeTest(unittest.TestCase):
             return real([sys.executable, script] + cmd[1:], *a, **kw)
         stack = __import__("contextlib").ExitStack()
         stack.enter_context(mock.patch.object(LS.tools, "find_tool", lambda name, *a, **k: "FAKE-YT-DLP" if name == "yt-dlp" else None))
-        stack.enter_context(mock.patch.object(LS.subprocess, "run", run))
+        stack.enter_context(mock.patch.object(LS.tools.subprocess, "Popen", run))
         return stack
 
     def test_live_status_and_title(self):

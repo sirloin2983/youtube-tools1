@@ -346,6 +346,13 @@ def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, p
     return proc.returncode, list(lines), state["why"]
 
 
+def ytdlp_print_cmd(yd, url, template):
+    """yt-dlp で URL を 1 回調べる(ダウンロードしない)コマンド。template = --print の書式(項目はタブで区切る)。
+    配信の前(予約)は形式が無くてエラーになるが live_status は出してほしいので --ignore-no-formats-error。URL は -- の後(オプションとして読ませない)。
+    動かすのは呼ぶ側(run = シェルを通さない・窓を出さない・時間の上限)。配信中か(flow/livesession.probe_live)とアーカイブの状態(flow/live_archive)が使う(OPT1)"""
+    return [yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error", "--print", template, "--", url]
+
+
 def start_logged(cmd, log_path, cwd, flags, rotate=None):
     """入口が起こす常駐の子プロセス(録画の部品・検出のワーカー)を、標準出力と標準エラーをログに足す形で起動する -> Popen。
     見出しの行(起動の時刻)・PYTHONIOENCODING(無ければ)・PYTHONUNBUFFERED を付ける。rotate(バイト数)を渡すと、超えていたら起動の前に .old.log へ回す。

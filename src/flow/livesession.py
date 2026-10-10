@@ -109,23 +109,20 @@ def probe_live(url, timeout=PROBE_TIMEOUT):
     yd = tools.find_tool("yt-dlp")
     if not yd:
         return {"status": "unknown", "title": "", "channel": "", "message": "yt-dlp が見つからないので、配信中か調べられませんでした"}
-    try:   # --ignore-no-formats-error: 配信の前(予約)は形式が無いのでエラーになるが、live_status は出してほしい。
-        # 題は最後(題にタブが入っても崩れない)。%(channel,uploader)s = チャンネル名が無ければ投稿者(yt-dlp の書式の「代わり」)
-        r = subprocess.run([yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error",
-                            "--print", "%(live_status)s\t%(channel,uploader)s\t%(title)s", "--", url],
-                           stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, creationflags=tools.no_window_flags())
-    except subprocess.TimeoutExpired:
-        return {"status": "unknown", "title": "", "channel": "", "message": "配信の状態を %d 秒で調べられませんでした" % int(timeout)}
+    try:   # 題は最後(題にタブが入っても崩れない)。%(channel,uploader)s = チャンネル名が無ければ投稿者(yt-dlp の書式の「代わり」)
+        r = tools.run(tools.ytdlp_print_cmd(yd, url, "%(live_status)s\t%(channel,uploader)s\t%(title)s"), timeout=timeout, err_tail=40)
     except OSError as e:
         return {"status": "unknown", "title": "", "channel": "", "message": "yt-dlp を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
-    lines = r.stdout.decode("utf-8", "replace").strip().splitlines()
+    if r.why == "timeout":
+        return {"status": "unknown", "title": "", "channel": "", "message": "配信の状態を %d 秒で調べられませんでした" % int(timeout)}
+    lines = r.out.decode("utf-8", "replace").strip().splitlines()
     parts = (lines[-1] if lines else "").split("\t", 2)
     st = parts[0].strip()
     channel = _clean(parts[1], CHANNEL_MAX) if len(parts) > 2 else ""
     title = _clean(parts[-1], LX.TITLE_MAX) if len(parts) > 1 else ""
     if st in LIVE_STATUSES:
         return {"status": st, "title": title, "channel": channel, "message": ""}
-    err = r.stderr.decode("utf-8", "replace")
+    err = r.err.decode("utf-8", "replace")
     if "will begin" in err or "Premieres in" in err:   # 古い yt-dlp は配信の前をエラーで返す
         return {"status": "is_upcoming", "title": title, "channel": channel, "message": ""}
     last = (err.strip().splitlines() or [""])[-1][:160]

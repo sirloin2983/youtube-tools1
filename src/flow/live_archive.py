@@ -186,9 +186,8 @@ def _probe_once(video_id, timeout):
     yd = tools.find_tool("yt-dlp")
     if not yd:
         return {"status": "unknown", "message": "yt-dlp が見つからないので、アーカイブを確かめられませんでした", "final": True}
-    cmd = [yd, "--encoding", "utf-8", "--skip-download", "--no-warnings", "--no-playlist", "--ignore-no-formats-error",
-           "--print", "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s",
-           "--", "https://www.youtube.com/watch?v=" + video_id]
+    cmd = tools.ytdlp_print_cmd(yd, "https://www.youtube.com/watch?v=" + video_id,   # 調べ方は配信中か(livesession.probe_live)と同じ
+                                "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s")
     try:
         code, out, tail = run_proc(cmd, timeout)
     except ArchiveError as e:
