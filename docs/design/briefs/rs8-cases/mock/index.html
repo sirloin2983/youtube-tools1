@@ -202,7 +202,7 @@
     <div class="chk-band">
       <span>今日 <b id="cntToday">0</b> 件</span>
       <span class="grow">この確認で決まる物: <b>検出の重みの決め直し(C1)</b> まで 判定のある配信 あと <b id="cntLeft">2</b> 本</span>
-      <span class="hint">順: 目標まであと少しの物 → 軽い物</span>
+      <span class="hint">順: 目標まであと少しの物 → 軽い物 ・ Z で 1 つ前に戻す</span>
     </div>
     <div class="chk-wrap">
       <div>
@@ -308,52 +308,68 @@ function renderCase(){
   }
 }
 
-/* 確かめるのカード */
+/* 確かめるのカード(軽い 4 種類 + 重い 1 種類。DESIGN_BRIEF 2-3) */
 const CARDS = [
-  {kind:"自動の切り抜き(70 点以上か)", type:"auto", src:"【雑談】配信者 A の夜ふかし雑談 ・ 00:41:12 ・ 点数 84"},
-  {kind:"自動の切り抜き(70 点以上か)", type:"auto", src:"【雑談】配信者 A の夜ふかし雑談 ・ 01:05:30 ・ 点数 77"},
-  {kind:"「別」の候補の採否", type:"alt", src:"【コラボ】A と B の料理対決 ・ 02 00:38:05"},
-  {kind:"後処理の札(残す / 戻す)", type:"fill", src:"【コラボ】A と B の料理対決 ・ 03 01:02:51"},
-  {kind:"定点の校正(G2)", type:"heavy", src:"評価用 ・ 評価 03 ・ 55 秒"},
+  {kind:"切り抜く価値があるか", tag:"自動で採った", type:"value", src:"【雑談】配信者 A の夜ふかし雑談 ・ 00:41:12 ・ 点数 84", yes:"送る", no:"要らない", note:"送る = 70 点以上として数え、友人へ届ける。要らない = 未満。"},
+  {kind:"切り抜く価値があるか", tag:"候補のまま", type:"value", src:"【ゲーム】配信者 B のホラー初見 ・ 01:12:05 ・ 点数 58(自動は採らなかった)", yes:"採用", no:"不採用", note:"採用 = 書き出して案件の切り抜きに足す。取りこぼしとして数える。"},
+  {kind:"どちらの読みが正しいか", tag:"後処理", type:"read", src:"【コラボ】A と B の料理対決 ・ 03 01:02:51", a:["認識のまま","え それだけ"], b:["後処理のあと(LLM)","え、それだけ?"]},
+  {kind:"どちらの読みが正しいか", tag:"別のエンジン", type:"read", src:"【コラボ】A と B の料理対決 ・ 02 00:38:05", a:["今の字幕","負けないからね"], b:["2 つ目のエンジン","まけないからね"]},
+  {kind:"これは誰の声?", tag:"話者", type:"voice", src:"【コラボ】A と B の料理対決 ・ 04 01:20:14 ・ 2.4 秒", guess:"配信者 B", score:"0.58(2 位 配信者 A 0.55)", names:["配信者 A","配信者 B"]},
+  {kind:"行の時刻が合っているか", tag:"時刻", type:"time", src:"【コラボ】A と B の料理対決 ・ 01 00:12:40 ・ 文字は校正済み", text:"材料はこちらの3つ"},
+  {kind:"定点の校正(G2)", tag:"重い", type:"heavy", src:"評価用 ・ 評価 03 ・ 55 秒"},
 ];
-let ci = 0, today = 0, left = 2;
+let ci = 0, today = 0, left = 2, history = [];
+function btn(label, key, cls, a){ return '<button class="btn lg ' + (cls || "") + '" data-a="' + a + '" data-k="' + key + '">' + label + ' <span class="ui-kbd">' + key + '</span></button>'; }
 function renderCard(){
   const card = document.getElementById("card"), done = document.getElementById("doneMsg");
   if (ci >= CARDS.length){ card.style.display = "none"; done.style.display = "block"; renderQueue(); return; }
   card.style.display = ""; done.style.display = "none";
   const c = CARDS[ci];
   let inner = "";
-  if (c.type === "auto"){
-    inner = '<div class="q">友人へ送る出来か(70 点以上)?</div><div class="chk-media"><div class="stage vert">切り抜き(縦・自動で再生)</div><div class="grow"><p class="hint">' + c.src + '</p><p class="hint">送る = 70 点以上として数え、友人へ届ける。要らない = 未満(作った切り抜きは片付ける)。</p></div></div>' +
-      '<div class="chk-acts"><button class="btn primary lg" data-a="1">送る <span class="ui-kbd">A</span></button><button class="btn lg" data-a="1">要らない <span class="ui-kbd">X</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
-  } else if (c.type === "alt"){
-    inner = '<div class="q">どちらの読みが正しい?</div><p class="hint">' + c.src + ' ・ 前後 2 秒を再生</p><div class="alt-pair"><div class="opt"><div class="lb">今の字幕</div>負けないからね</div><div class="opt"><div class="lb">別の読み(2 つ目のエンジン)</div>まけないからね</div></div>' +
-      '<div class="chk-acts"><button class="btn lg" data-a="1">今のまま <span class="ui-kbd">1</span></button><button class="btn lg" data-a="1">別の読みにする <span class="ui-kbd">2</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
-  } else if (c.type === "fill"){
-    inner = '<div class="q">後処理の直しを残す?</div><p class="hint">' + c.src + ' ・ 行を再生</p><div class="alt-pair"><div class="opt"><div class="lb">後処理のあと(LLM)</div>え、それだけ?</div><div class="opt"><div class="lb">認識のまま</div>え それだけ</div></div>' +
-      '<div class="chk-acts"><button class="btn lg" data-a="1">残す <span class="ui-kbd">1</span></button><button class="btn lg" data-a="1">戻す <span class="ui-kbd">2</span></button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+  if (c.type === "value"){
+    inner = '<div class="q">切り抜く価値があるか(70 点以上か)?</div><div class="chk-media"><div class="stage vert">' + (c.tag === "候補のまま" ? "候補の区間(縦・自動で再生)" : "切り抜き(縦・自動で再生)") + '</div><div class="grow"><p class="hint">' + c.src + '</p><p class="hint">' + c.note + '</p></div></div>' +
+      '<div class="chk-acts">' + btn(c.yes, "A", "primary", 1) + btn(c.no, "X", "", 1) + btn("飛ばす", "N", "ghost", 0) + '</div>';
+  } else if (c.type === "read"){
+    inner = '<div class="q">どちらの読みが正しい?</div><p class="hint">' + c.src + ' ・ 行を前後 2 秒つきで再生 ・ <b>文字だけの判定</b>(校正済みにはしない・時刻の正解には使わない)</p><div class="alt-pair"><div class="opt"><div class="lb">1 ' + c.a[0] + '</div>' + c.a[1] + '</div><div class="opt"><div class="lb">2 ' + c.b[0] + '</div>' + c.b[1] + '</div></div>' +
+      '<div class="chk-acts">' + btn("1 が正しい", "1", "", 1) + btn("2 が正しい", "2", "", 1) + btn("どちらも違う(打つ)", "3", "", 1) + btn("飛ばす", "N", "ghost", 0) + '</div>';
+  } else if (c.type === "voice"){
+    inner = '<div class="q">これは誰の声?</div><p class="hint">' + c.src + ' ・ この行だけを再生</p>' +
+      '<div class="notice info" style="margin:8px 0">機械の予想: <b>' + c.guess + '</b> ・ 似ている度合い ' + c.score + '(再生が終わると Enter で予想どおりに答えられる)</div>' +
+      '<div class="chk-acts">' + c.names.map((n, i) => btn(n, String(i + 1), n === c.guess ? "primary" : "", 1)).join("") + btn("その他(ゲームの音など)", "O", "", 1) + btn("声が混ざっている", "M", "", 1) + btn("飛ばす", "N", "ghost", 0) + '</div>' +
+      '<p class="hint" style="margin-top:8px">名前を付けた行は声を覚える材料になる(1 人 30 秒分たまったら自動で覚え直す)。混ざっている・その他は覚えない。</p>';
+  } else if (c.type === "time"){
+    inner = '<div class="q">行の時刻が合っているか?</div><p class="hint">' + c.src + ' ・ 前後 2.5 秒の余分つきで再生</p>' +
+      '<div class="timeline" style="height:70px"><div class="wave"></div><div class="mk" style="left:22%;width:56%"></div></div>' +
+      '<div class="row" style="justify-content:space-between;font-size:12px;color:var(--ink-3)"><span>−2.5 秒</span><span>「' + c.text + '」</span><span>+2.5 秒</span></div>' +
+      '<div class="chk-acts">' + btn("ちょうどいい", "Enter", "primary", 1) + btn("頭がずれている", "H", "", 1) + btn("末がずれている", "E", "", 1) + btn("両方", "B", "", 1) + btn("飛ばす", "N", "ghost", 0) + '</div>' +
+      '<p class="hint" style="margin-top:8px">ずれているときは、波形の頭・末の印を ← → で小さく動かして直せる。</p>';
   } else {
     inner = '<div class="q">定点の校正(重い確認)</div><p class="hint">' + c.src + ' ・ 動画を全部聞いて直す。案件の画面(評価用)で開き、済んだらここへ戻る。</p>' +
-      '<div class="chk-acts"><button class="btn primary lg" onclick="go(\'case\',\'eval\')">案件の画面で開く</button><button class="btn ghost lg" data-a="0">飛ばす <span class="ui-kbd">N</span></button></div>';
+      '<div class="chk-acts"><button class="btn primary lg" onclick="go(\'case\',\'eval\')">案件の画面で開く</button>' + btn("飛ばす", "N", "ghost", 0) + '</div>';
   }
-  card.innerHTML = '<div class="kind">' + c.kind + ' ・ ' + (ci + 1) + ' / ' + CARDS.length + '</div>' + inner;
+  card.innerHTML = '<div class="kind">' + c.kind + ' <span class="pill">' + c.tag + '</span> ・ ' + (ci + 1) + ' / ' + CARDS.length + (history.length ? ' ・ <span class="muted">Z で 1 つ前に戻す</span>' : '') + '</div>' + inner;
   card.querySelectorAll("button[data-a]").forEach(b => b.onclick = () => {
-    if (b.dataset.a === "1"){ today++; if (c.type === "auto" && left > 0) left--; }
-    ci++; document.getElementById("cntToday").textContent = today; document.getElementById("cntLeft").textContent = left; renderCard();
+    history.push({ci, today, left});
+    if (b.dataset.a === "1"){ today++; if (c.type === "value" && left > 0) left--; }
+    ci++; showCounts(); renderCard();
   });
   renderQueue();
 }
+function undo(){ const h = history.pop(); if (!h) return; ci = h.ci; today = h.today; left = h.left; showCounts(); renderCard(); }
+function showCounts(){ document.getElementById("cntToday").textContent = today; document.getElementById("cntLeft").textContent = left; }
 function renderQueue(){
   document.getElementById("queue").innerHTML = CARDS.map((c, i) =>
-    '<li style="' + (i < ci ? "color:var(--ink-4);text-decoration:line-through" : (i === ci ? "font-weight:600" : "")) + '"><span class="pill ' + (c.type === "heavy" ? "warn" : "") + '">' + (c.type === "heavy" ? "重い" : "軽い") + '</span>' + c.kind + '</li>').join("");
+    '<li style="' + (i < ci ? "color:var(--ink-4);text-decoration:line-through" : (i === ci ? "font-weight:600" : "")) + '"><span class="pill ' + (c.type === "heavy" ? "warn" : "") + '">' + (c.type === "heavy" ? "重い" : "軽い") + '</span>' + c.kind + '(' + c.tag + ')</li>').join("");
 }
 function toggleTheme(){ const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; }
 document.addEventListener("keydown", e => {
   if (!document.getElementById("s-check").classList.contains("on")) return;
-  const k = e.key.toLowerCase(), btns = [...document.querySelectorAll("#card button")];
-  const pick = t => btns.find(b => b.textContent.includes(t));
-  const b = k === "a" ? pick("送る") : k === "x" ? pick("要らない") : k === "n" ? pick("飛ばす") : k === "1" ? btns[0] : k === "2" ? btns[1] : null;
-  if (b) b.click();
+  if (e.key === "z" || e.key === "Z"){ undo(); return; }
+  const k = e.key === "Enter" ? "Enter" : e.key.toUpperCase();
+  const c = CARDS[ci];
+  let b = [...document.querySelectorAll("#card button[data-k]")].find(x => x.dataset.k === k);
+  if (!b && k === "Enter" && c && c.type === "voice") b = [...document.querySelectorAll("#card button")].find(x => x.textContent.startsWith(c.guess));
+  if (b){ e.preventDefault(); b.click(); }
 });
 renderCase();
 </script>
