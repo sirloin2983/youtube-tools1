@@ -7,8 +7,9 @@
 
 作り:
 - ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 plan/role-restructure.md の 5-1)。
-  ここに残すのは、順番待ちと糸・受付・中止・記録・起動し直しで戻す・見積もり・ToolClient と、
-  Runner の hook(案件・ホームの設定を読む所)の中身。移した名前は同じ名前で読み直している。
+  順番待ちと糸・中止・状態と記録・起動し直しで戻す・見積もりは RS7-1 S5 で src/flow/runqueue.py の Queue へ移した(② が画面なしでも動くように。
+  AutoRunner は Queue を継ぐ)。ここに残すのは、受付(start*)・ToolClient・画面の設定から束を組む build_spec・起動し直すの確かめ restart_info と、
+  Runner・Queue の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している。
   届けることと組の溜めは RS3-3 で src/human/friend/delivery.py の Delivery(mixin)へ切り出した(AutoRunner が継ぐ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
   ツールの中の関数を直接呼ばないのは、画面から使うときと同じ検査・同じジョブ管理(重い処理の順番待ち ytt.jobs を含む)を通すため。
@@ -16,8 +17,8 @@
   文字起こしの有無は manage.cases.txindex(案件の画面・スタジオのセリフと同じ規則)、パックの有無は cases.find_pack で見る。
 - スタジオの ① 探す で選んだ配信(まだスタジオに無い YouTube の配信)は start_new で「解析から全部」に入れる。解析のキューに入れると
   スタジオに配信ができるので、それまでは受け取った題名で進める(git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 5)。
-- 1本ずつ順に処理する(キュー)。同じ配信を2つ同時には入れない。
-- 入口の起動し直しで、順番待ち・実行中の分を戻す(線 D の M5。入口 0.40.0): 待ち・実行中の実行を入口の作業データの logs/autorun-active.json に残し
+- 1本ずつ順に処理する(キュー。src/flow/runqueue.py)。同じ配信を2つ同時には入れない。
+- 入口の起動し直しで、順番待ち・実行中の分を戻す(線 D の M5。入口 0.40.0。src/flow/runqueue.py): 待ち・実行中の実行を入口の作業データの logs/autorun-active.json に残し
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、起動したときに読んで同じ id のまま「待ち」に戻す。
   済んだ段は飛ばし、途中だった段は頭からやり直す(どの段も「まだ無いものだけ」作るので、続きから進む)。入口の終了(「すべて終了」・黒い画面を閉じる・
   強制終了)で止まった実行は記録(autorun-runs.jsonl)に「中止」と書かない。起動し直してすぐはツールの準備を待つ(RESUME_WAIT 秒まで)。
@@ -42,13 +43,11 @@
   代わりは測る道具 `py -3.10 src/eval/tools/eval_marks.py --analyze-missing --wait`(未解析の友人の配信の解析をスタジオに頼む)。
   以前の一覧 logs/autorun-deferred.json は読まない(残っていても害はない)
 """
-import collections
 import http.client
 import json
 import os
 import re
 import urllib.parse
-import threading
 import time
 
 from manage.cases import txindex
@@ -56,12 +55,14 @@ from ytt import colors, datadir, fsio, settings as _settings
 from flow import spec as _spec  # noqa: E402  (指定の束の検査・既定値。RS1-6 で RANGE_MAX・clean_ranges・top_arg などをここへ移した。下で同じ名前で読み直す)
 from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
-from flow import runlog  # noqa: E402  (終わった実行の記録の形と読み方。RS3-0B で read_runs_log などをここへ出した)
 from flow import machine as _machine  # noqa: E402  (この PC の設定 = 束に重ねる機械の都合。RS7-1 S1)
 from flow import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from flow.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
                           REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
                           Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, clean_pool)
+from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列と糸 = AutoRunner が継ぐ Queue。RS7-1 S5 で移した。下で同じ名前で読み直す)
+from flow.runqueue import (ACTIVE_FILE, ACTIVE_VERSION, HISTORY_DEFAULT, HISTORY_MAX, LOG_MAX_BYTES, LOG_READ_BYTES, MAX_WAITING, PAST_MAX,  # noqa: E402,F401
+                        RESTORE_MAX_AGE, busy_reason as _busy_reason, doc_id_ok as _doc_id_ok)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
 import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範囲。読み書きは渡された Prefs で)
@@ -71,16 +72,7 @@ import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範�
 FLOW_MODES = {"url": {"auto": "request_auto", "check": "request"},
               "file": {"auto": "file_auto", "check": "file"}}
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
-MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
-# 終わった実行の記録のファイル名 RUNS_LOG と1行の形の版 LOG_VERSION・読み方 read_runs_log は src/flow/runlog.py(RS3-0B。入口の外の部品も読むため)
-LOG_MAX_BYTES = 1024 * 1024   # これを超えたら .1 に回す(1件 1〜2KB なので 500〜1000 件ぶん)
-LOG_READ_BYTES = 256 * 1024   # 起動時に読む末尾の大きさ(前回の結果 past を作る)
-PAST_MAX = 50          # snapshot の past(配信・文書ごとの前回の結果で、メモリに無いもの)の数
-PAST_KEEP = 500        # past の元として覚えておく配信・文書の数
-HISTORY_DEFAULT, HISTORY_MAX = 50, 200   # /api/autorun/history の limit の既定と上限
-PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "state", "stateLabel", "nothing", "message", "error",
-             "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
-MAX_WAITING = 20       # 順番待ちの上限
+# 待ち行列と記録の数(MAX_KEEP・LOG_*・PAST_*・HISTORY_*・MAX_WAITING)は src/flow/runqueue.py(RS7-1 S5。上で読み直している)
 # 友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05 ユーザーの要望。仮の決定 = まとめ役)。
 # 測る道具 src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ evals\marks\<日時>.json。入口の夜の自動測定が流す)の clipLength を読むだけ
 FRIEND_LENGTH_ENV = "YTT_FRIEND_LENGTH"   # off = 使わない(ホームの設定 autorun.friendLength が false でも使わない)
@@ -91,11 +83,7 @@ FRIEND_LENGTH_MAX_AGE = 30 * 86400     # 結果のファイルの古さ(ファ�
 FRIEND_LENGTH_RANGE, FRIEND_PRE_RANGE = (10, 120), (0.3, 0.9)   # スタジオの解析の設定 length・preRatio の範囲(src/pipeline/analyze/analyze.py の validate_settings)
 EVAL_MARKS_NAME_RE = re.compile(r"^(\d{8}-\d{6})(?:_auto)?\.json\Z")   # src/eval/drill/accuracy.py の RESULT_NAME_RE と同じ形
 EVAL_READ_MAX = 16 * 1024 * 1024
-# 入口の起動し直しで戻す(線 D の M5。2026-10-07)
-ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(入口の作業データの logs の中。runlog.RUNS_LOG の隣)
-ACTIVE_VERSION = 1
-ACTIVE_READ_MAX = 4 * 1024 * 1024
-RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
+# 入口の起動し直しで戻す(線 D の M5。2026-10-07)。待ちの記録 ACTIVE_FILE・RESTORE_MAX_AGE は src/flow/runqueue.py(RS7-1 S5)
 RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが動くまでこれだけ待つ(入口の起動の直後はまだ準備中のことがある)
 # 指定の束を画面の設定から組む(RS6 b-0。build_spec)。段は GET /api/settings を読まず、実行を始めるときに組んだ束を読む
 STUDIO_UI_FILE = "settings-ui.json"   # スタジオの画面の設定(スタジオの作業データ。human/review/store の ui_file と同じ名前)
@@ -220,10 +208,6 @@ def _yt_id_ok(v):
     return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
 
 
-def _doc_id_ok(v):
-    return isinstance(v, str) and 1 <= len(v) <= 40 and all(c.isalnum() or c in "-_" for c in v)
-
-
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py。ここの検査もこれを使う)
 
 
@@ -238,102 +222,26 @@ def live_auto_origin(media):
 _top_arg = _spec.top_arg   # 採用する数(src/flow/spec.py)
 
 
-def _busy_reason(active, same, what=""):
-    """順番待ちに入れられない理由(入れられれば None)。same(実行) = 同じ配信・文書・動画か。what = 理由の頭(「この配信は」など)"""
-    if any(same(r) for r in active):
-        return what + "すでに実行中・順番待ちです"
-    if len(active) >= MAX_WAITING:
-        return "順番待ちが多すぎます(%d本まで)" % MAX_WAITING
-    return None
-
-
-def _rec_key(rec):
-    if rec.get("kind") == "file":
-        return ("file", rec.get("sourcePath"))
-    return ("doc", rec.get("docId")) if rec.get("kind") == "doc" else ("video", rec.get("videoId"))
-
-
-class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
-    """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す。段の中身は src/flow/run.py の Runner
-    (ここでは hook を案件・ホームの設定で埋める)。友人へ届ける段と組の溜めは src/human/friend/delivery.py の Delivery(RS3-3)を継ぎ、
-    そこが要る入口と案件の物(届ける本数の既定と範囲・案件に届けた印)は下の _deliver_batch_limits・_remember_delivered で渡す"""
+class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
+    """入口のまとめて実行: 受付(start*。画面・友人の依頼の欄から Run を作って ② の待ち行列に積む)と hook(案件・ホームの設定・友人へ届ける)。
+    待ち行列・糸・中止・状態と記録・起動し直しで戻す・見積もりは src/flow/runqueue.py の Queue(RS7-1 S5)、段の中身は src/flow/run.py の Runner。
+    友人へ届ける段と組の溜めは src/human/friend/delivery.py の Delivery(RS3-3)を継ぎ、そこが要る入口と案件の物
+    (届ける本数の既定と範囲・案件に届けた印)は下の _deliver_batch_limits・_remember_delivered で渡す"""
 
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
                  clock=None, log=None):
         """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)。
         待ちと実行中の記録(M5)も log_dir に置く(None = 残せないので、起動し直しで戻さない)。clock はテスト用"""
-        # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner が持つ
-        super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack)
+        # hook が使う値は Queue の __init__ の前に置く(前の起動の待ちを戻すと、すぐに糸が段を進める)
         self.root = repo_root
-        self.log_path = os.path.join(log_dir, runlog.RUNS_LOG) if log_dir else None
-        self.active_path = os.path.join(log_dir, ACTIVE_FILE) if log_dir else None   # 待ち・実行中の記録(M5)
-        self.active_error = ""     # 最後に待ちの記録を書けなかった理由(書けたら空に戻す)
-        self._active_lock = threading.Lock()   # 待ちの記録のファイル(これを持ったまま self.cv を取る。逆の順では取らない)
-        self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/human/friend/delivery.py の Delivery)
-        self.log_max = log_max
-        self.log_error = ""        # 最後に記録を書けなかった理由(書けたら空に戻す)
-        self._log_lock = threading.Lock()   # 記録のファイルと past(self.cv とは別。self.cv を持ったまま _log を呼ばない)
-        self._past = collections.OrderedDict()   # (種類, id) -> 最後の記録(書いた順)
-        if self.log_path:
-            for rec in runlog.read_runs_log(self.log_path, LOG_READ_BYTES):
-                self._remember(rec)
         self.prefs = prefs   # ホームの設定(src/home/prefs.py)。カットの無い文書のカットの方法 autorun.cut
-        self.lock = threading.Lock()
-        self.cv = threading.Condition(self.lock)
-        self.runs = []
-        self.thread = None
-        restored = self._restore_active()   # 前の起動で待ち・実行中だった実行(M5)
-        if restored:
-            with self.cv:
-                self.runs.extend(restored)
-                self._wake()
-        if self.active_path and os.path.isfile(self.active_path):
-            self._save_active()   # 戻さなかった(古い・壊れた)分を記録から外す
+        self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/human/friend/delivery.py の Delivery)
+        # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
+        # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
+        super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack,
+                         log_dir=log_dir, log_max=log_max)
 
-    # ------------------------------------------------------------ 起動し直しで戻す(M5)
-    def _save_active(self):
-        """待ち・実行中の実行を autorun-active.json に残す(self.cv の外で呼ぶ)。入口の終了のあとは書かない
-        (止めた実行を「次の起動で続ける」形のまま残すため)。人が中止した実行は入れない。書けなくても実行は止めない"""
-        if not self.active_path:
-            return
-        with self._active_lock:
-            with self.cv:
-                if self.closed:
-                    return
-                items = [r.saved() for r in self.runs if r.state in ("queued", "running") and not r.cancel]
-            try:
-                fsio.atomic_write(self.active_path, json.dumps({"v": ACTIVE_VERSION, "runs": items}, ensure_ascii=False).encode("utf-8"))
-                self.active_error = ""
-            except (OSError, TypeError, ValueError) as e:
-                self.active_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")
-
-    def _restore_active(self):
-        """前の起動の待ちの記録 -> 戻す Run のリスト(先に入れた順)。古すぎるものは記録に「中止」と書いて戻さない"""
-        if not self.active_path:
-            return []
-        try:
-            d = fsio.read_json_file(self.active_path, ACTIVE_READ_MAX)
-        except FileNotFoundError:
-            return []
-        except (OSError, ValueError) as e:
-            self.log("まとめて実行: 前の起動の待ちの記録を読めませんでした(%s)。戻さずに続けます" % e.__class__.__name__)
-            return []
-        items = d.get("runs") if isinstance(d, dict) and d.get("v") == ACTIVE_VERSION else None
-        out, seen = [], set()
-        for x in items if isinstance(items, list) else []:
-            run = Run.restore(x)
-            if run is None or run.id in seen:
-                continue
-            seen.add(run.id)
-            if time.time() - run.created > RESTORE_MAX_AGE:
-                run.state, run.message, run.finished = "cancelled", "ホームを起動し直したとき、%d 日より前に入れた実行だったので続けませんでした" % (RESTORE_MAX_AGE // 86400), time.time()
-                self._log(run)
-                continue
-            out.append(run)
-        if out:
-            self.log("まとめて実行: ホームを起動し直したので、待ち・実行中だった %d 件を続けます(%s)" % (len(out), "・".join(r.title or r.id for r in out[:5])))
-        return out
-
+    # ------------------------------------------------------------ 起動し直しで戻す(M5。ツールの準備を待つ hook)
     def _await_tools(self, run):
         """戻した実行(M5): 残りの段で使うツールが動くまで待つ(RESUME_WAIT 秒まで。過ぎたらそのまま進めて、動いていなければ段の失敗になる)"""
         run.resumed = False
@@ -392,30 +300,6 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         except (OSError, ValueError, KeyError):
             v = None
         return default if v is None else v
-
-    def _push(self, run):
-        """順番待ちに入れる(呼ぶのは self.cv を持っている間)。-> run.public()"""
-        self.runs.append(run)
-        self._trim()
-        self._wake()
-        return run.public()
-
-    def _enqueue(self, items, make):
-        """items を 1 つずつ make(item, 順番待ち・実行中の一覧) -> Run(入れる)か飛ばした理由 {"id", "title", "reason"}。
-        -> {"runs": [作った実行], "skipped": [飛ばしたもの]}"""
-        made, skipped = [], []
-        with self.cv:
-            active = self._active_runs()
-            for it in items:
-                r = make(it, active)
-                if isinstance(r, Run):
-                    active.append(r)
-                    made.append(self._push(r))
-                else:
-                    skipped.append(r)
-        if made:
-            self._save_active()
-        return {"runs": made, "skipped": skipped}
 
     def start(self, video_id, mode, top=None, streamer=None, marks=None, overwrite=False):
         if not isinstance(video_id, str) or not (1 <= len(video_id) <= 64) or not all(c.isalnum() or c in "-_" for c in video_id):
@@ -522,88 +406,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         self._save_active()
         return out
 
-    # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
-    def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False):
-        """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。実行は実行したときの状態で決めるので、ずれることがある。
-        -> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}], "total": 分かっている本数の合計, "nothing": bool, "reason"}"""
-        docs = self._docs()
-        if doc_ids is not None:   # 文書単位(文字起こし → パック)
-            if not isinstance(doc_ids, list) or not doc_ids or len(doc_ids) > MAX_WAITING:
-                raise ValueError("文書は 1〜%d 本で選んでください" % MAX_WAITING)
-            by = {d["id"]: d for d in docs}
-            tx, pk, notes = 0, 0, []
-            for tid in dict.fromkeys(i for i in doc_ids if isinstance(i, str)):
-                d = by.get(tid) if _doc_id_ok(tid) else None
-                if not d:
-                    notes.append("見つからない文書があります")
-                    continue
-                if not d["count"]:
-                    tx += 1
-                    pk += 1
-                elif overwrite or not self.find_pack(d.get("sourcePath") or ""):
-                    pk += 1
-            steps = [{"key": "transcribe", "label": STEP_LABELS["transcribe"], "count": tx, "note": "" if tx else "文字起こし済み"},
-                     {"key": "pack", "label": STEP_LABELS["pack"], "count": pk, "note": "" if pk else "パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)"}]
-            return self._estimate_out(steps, notes)
-        if mode not in MODES:
-            raise ValueError("実行の形が正しくありません")
-        st, obj = self.client.call("studio", "GET", "/api/video?id=" + urllib.parse.quote(str(video_id or "")))
-        v = (obj.get("video") or {}) if st == 200 and isinstance(obj, dict) else {}
-        run = Run(video_id, "", mode, top or DEFAULT_TOP, marks=self._marks_arg(marks))
-        mine = self._mine(run, v)
-        adopted = [m for m in mine if m.get("status") == "adopted"]
-        clips = self._clips(v, run)
-        no_tx = [m for m in clips if not txindex.pick(docs, video_id, m.get("id"), m["path"])[0]]
-        packable = [m for m in clips if m not in no_tx and (overwrite or not self.find_pack(m["path"]))]
-        steps = []
-        pending = False   # 前の段の結果しだい(解析・採用のあとで本数が決まる)
-        for key in MODE_STEPS[mode]:
-            label, count, note = STEP_LABELS[key], 0, ""
-            if key == "analyze":
-                count, note = (0, "解析済み") if v.get("analysis") else (1, "")
-                pending = pending or count > 0
-            elif key == "adopt":
-                if any(m.get("status") in ("adopted", "exported") for m in mine):
-                    note = "採用・書き出し済みのマークを使います"
-                elif pending:
-                    count, note = None, "解析のあとで、点数の高い %d 件" % (top or DEFAULT_TOP)
-                else:
-                    cands = [m for m in mine if not m.get("status")]
-                    count = min(len(cands), top or DEFAULT_TOP)
-                    note = "" if count else "採用できる候補がありません"
-                pending = pending or count is None or bool(count)
-            elif key == "export":
-                count = None if pending and not adopted else len(adopted)
-                note = "" if count else ("採用のあとで決まります" if count is None else "採用したマークがありません" if not clips else "書き出し済み %d 本" % len(clips))
-                pending = pending or bool(count)
-            elif key == "transcribe":
-                count = None if pending else len(no_tx)
-                note = "書き出しのあとで決まります" if count is None else ("" if count else ("%d 本とも文字起こし済み" % len(clips) if clips else "書き出した切り抜きがありません"))
-                pending = pending or bool(count)
-            elif key == "pack":
-                count = None if pending else len(packable)
-                note = "文字起こしのあとで決まります" if count is None else ("" if count else ("パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)" if clips else "文字起こしのある切り抜きがありません"))
-            steps.append({"key": key, "label": label, "count": count, "note": note})
-        return self._estimate_out(steps, [] if st == 200 else ["配信がスタジオに見つかりません"])
-
-    @staticmethod
-    def _estimate_out(steps, notes):
-        known = [s["count"] for s in steps if s["count"] is not None]
-        nothing = all(s["count"] == 0 for s in steps)
-        reason = "・".join([s["note"] for s in steps if s["note"]] + notes) if nothing else ""
-        return {"steps": steps, "total": sum(known), "nothing": nothing, "reason": reason, "notes": notes}
-
-    def _active_runs(self):
-        """順番待ち・実行中の実行(呼ぶのは self.cv を持っている間)"""
-        return [r for r in self.runs if r.state in ("queued", "running")]
-
-    def _wake(self):
-        """順番待ちを動かす(呼ぶのは self.cv を持っている間)"""
-        self.cv.notify_all()
-        if self.thread is None or not self.thread.is_alive():
-            self.thread = threading.Thread(target=self._loop, name="autorun", daemon=True)
-            self.thread.start()
-
+    # ------------------------------------------------------------ 起動し直す(画面の「起動し直す」の確かめ。ToolClient を使うので入口に残す)
     def restart_info(self, timeout=5):
         """画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)が断るかを決める材料。待ち・実行中は起動し直したあとに戻る(M5)ので、それだけでは断らない。
         -> {"runs": 待ち・実行中の数, "redo": restart.can_restart の redo か None}。
@@ -639,134 +442,9 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
             return None
         return {"tool": tool, "labels": [name(i) for i in items if i.get(key) in ids], "others": [name(i) for i in items if i.get(key) not in ids]}
 
-    def cancel(self, run_id):
-        ended = False
-        with self.cv:
-            run = next((r for r in self.runs if r.id == run_id), None)
-            if run is None:
-                raise ValueError("その実行はありません")
-            if run.state == "queued":
-                run.state, run.message, run.finished = "cancelled", "中止しました", time.time()
-                ended = True
-            elif run.state == "running":
-                run.cancel = True
-                run.message = "中止しています…"
-            out = run.public()
-        if ended:   # 順番待ちの中止はここで終わる(実行中の分は _loop の終わりで書く)
-            self._log(run)
-        self._save_active()   # 中止した実行は起動し直しても戻さない
-        return out
-
-    def snapshot(self):
-        """runs = メモリの実行(新しい順)・past = 配信・文書ごとの前回の結果のうちメモリに無いもの(記録のファイルから。新しい順・PAST_MAX 件まで)"""
-        with self.cv:
-            runs = [r.public() for r in reversed(self.runs)]
-            keys = {r.key() for r in self.runs}
-        with self._log_lock:
-            past = [{k: rec.get(k) for k in PAST_KEYS} for key, rec in reversed(self._past.items()) if key not in keys][:PAST_MAX]
-        return {"runs": runs, "past": past, "modes": MODES}
-
-    def history(self, limit=None, offset=0):
-        """終わった実行の記録(今のファイルと .1。新しい順)。-> {"runs", "total", "more", "offset"}。limit・offset は範囲に丸める"""
-        limit = HISTORY_DEFAULT if not isinstance(limit, int) or isinstance(limit, bool) else min(HISTORY_MAX, max(1, limit))
-        offset = 0 if not isinstance(offset, int) or isinstance(offset, bool) else max(0, offset)
-        if not self.log_path:
-            return {"runs": [], "total": 0, "more": False, "offset": offset}
-        with self._log_lock:   # 書き込み(.1 へ回す)と重ねない
-            recs = runlog.read_runs_log(self.log_path)
-        recs.reverse()
-        return {"runs": recs[offset:offset + limit], "total": len(recs), "more": offset + limit < len(recs), "offset": offset}
-
-    def _remember(self, rec):
-        """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)。
-        以前の記録に残っている消した「あとから解析」(mode post_analyze。RS4 で消した)は入れない(案件の行の「前回」は、依頼・まとめて実行の結果のまま。history には残る)"""
-        if rec.get("mode") == "post_analyze":
-            return
-        k = _rec_key(rec)
-        self._past.pop(k, None)
-        self._past[k] = rec
-        while len(self._past) > PAST_KEEP:
-            self._past.popitem(last=False)
-
-    def _log(self, run):
-        """終わった実行を記録のファイルに1行で書く(B-6)。1つの実行は1回だけ(run.logged)。self.cv の外で呼ぶ。
-        書けなくても実行は止めない(clientlog._write と同じ)。1行 = Run.public() + v"""
-        with self._log_lock:
-            if run.logged:
-                return
-            run.logged = True
-            rec = dict(run.public(), v=runlog.LOG_VERSION)
-            self._remember(rec)
-            if not self.log_path:
-                return
-            try:
-                fsio.append_line(self.log_path, json.dumps(rec, ensure_ascii=False) + "\n", self.log_max)   # 記録のファイルに 1 行ずつ書く形は 1 か所(ytt/fsio)
-                self.log_error = ""
-            except (OSError, TypeError, ValueError) as e:
-                self.log_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")
-
-    def close(self):
-        """入口の終了: 実行中の段を止める(self.closed で _check が止める。ツールの側のジョブも取り消す)。
-        順番待ち・実行中の実行は、待ちの記録(autorun-active.json)に最後に書いた形のまま残り、次の起動で続く(M5)。記録(autorun-runs.jsonl)には書かない"""
-        with self._active_lock:   # 書いている途中の待ちの記録を書き終えてから閉じる(このあとは書かない)
-            with self.cv:
-                self.closed = True
-                for r in self.runs:
-                    if r.state == "queued":
-                        r.message = "ホームを終了したので、次の起動で続けます"
-                self.cv.notify_all()
-
-    def _trim(self):
-        done = [r for r in self.runs if r.state not in ("queued", "running")]
-        for r in done[:-MAX_KEEP] if len(done) > MAX_KEEP else []:
-            self.runs.remove(r)
-
     def _env_off(self, name):
         """環境変数 name が off・0・false・no か(テストが渡す env と、本物の環境変数の両方を見る)"""
         return any(str(e.get(name) or "").strip().lower() in ("off", "0", "false", "no") for e in (self.env or {}, os.environ))
-
-    def _loop(self):
-        while True:
-            with self.cv:
-                while not self.closed and not any(r.state == "queued" for r in self.runs):
-                    self.cv.wait()
-                if self.closed:
-                    return
-                run = next(r for r in self.runs if r.state == "queued")
-                run.state, run.message = "running", ""
-            self._save_active()   # 実行中になった(M5)
-            try:
-                self._execute(run)
-                run.state = "cancelled" if run.cancel else "done"
-                run.message = "中止しました" if run.cancel else (run.message or "完了")
-            except Cancelled:
-                run.state, run.message = "cancelled", "中止しました"
-            except StepError as e:
-                run.state, run.error, run.message = "error", str(e), "止まりました"
-            except Exception as e:   # 想定外でも、次の配信の処理は続ける
-                self.log("まとめて実行: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))   # 例外の名前・原文はログへ(UI の見直し M9)
-                run.state, run.error, run.message = "error", "ホームの想定外の不具合で止まりました。もう一度「実行」を押してください(済んだ段は飛ばします)。続くときは、詳しくの「ログ」を見てください", "止まりました"
-            if self.closed and not run.cancel and run.state != "done":
-                # 入口の終了で止まった(M5): 記録には「中止」と書かず、待ちの記録(最後に書いた段の形)のまま次の起動で続ける
-                run.state, run.error, run.message = "queued", "", "ホームを終了したので、次の起動で続けます"
-                for s in run.steps:
-                    if s["state"] == "run":
-                        s["state"] = "wait"
-                with self.cv:
-                    self.cv.notify_all()
-                continue
-            run.finished = time.time()
-            for s in run.steps:
-                if s["state"] == "run":
-                    s["state"] = "error" if run.state == "error" else "skip"
-            if run.deliver_dir and run.state == "error":   # ① 全自動: できていたパックを届けてから、友人の「受け取る」に失敗の理由を出す
-                self._deliver_rest_quietly(run)
-                self._deliver_failure(run)
-            self._log(run)   # 記録のファイルへ(self.cv の外。B-6)
-            with self.cv:
-                self._trim()
-                self.cv.notify_all()
-            self._save_active()   # 終わった実行を待ちの記録から外す(M5)
 
     # ------------------------------------------------------------ 実行
     def _docs(self):
@@ -776,11 +454,6 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
     def _studio_video(self, vid):
         """スタジオの一覧の 1 本(cases.read_studio。無ければ {})"""
         return cases.read_studio(cases.locations(self.root, self.env)["studio"]).get(vid) or {}
-
-    def _execute(self, run):
-        """1 回の実行(_loop の糸から)。段の中身は src/flow/run.py(hook = この AutoRunner)。始めるときに画面の設定から束を組んで渡す(RS6 b-0)"""
-        bundle, run.screen = self.build_spec()
-        return run_mod.run(self.client, run, spec=bundle, hooks=self)
 
     def _tool_settings(self):
         """スタジオの画面の設定(settings-ui.json)と編集の設定(settings.json)-> (スタジオ, 編集)。置き場所は各ツールの作業データ
@@ -796,7 +469,8 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
 
     def build_spec(self):
         """画面の設定(スタジオ・編集の設定ファイルとホームの設定 autorun)から指定の束と画面だけの値を組む -> (束, screen)。
-        実行を始めるたびに読む(段の途中で設定を変えても、その実行は始めたときの束のまま)。
+        Queue の hook: 束を持たない実行(画面の欄から作った Run)を始めるときに読む(段の途中で設定を変えても、その実行は始めたときの束のまま)。
+        受けたときに組むのは RS7-1 S4。
         この PC の設定(flow/machine.py の machine.json・環境変数)で決めたエンジン・機器・LLM のモデルを重ねる(無ければ束は今と同じ。RS7-1 S1)"""
         studio, editor = self._tool_settings()
         try:
@@ -806,10 +480,12 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         bundle, screen = spec_from_settings(studio, editor, ar)
         return _machine.overlay(bundle, env=self.env), screen
 
-    # hook(src/flow/run.py の Runner の既定を、案件・ホームの設定・届けることで埋める) ----------
-    def _checkpoint(self, run):
-        """段の始まりと済んだとき: 待ちの記録に残す(M5。起動し直したらこの段から)"""
-        self._save_active()
+    # hook(src/flow/run.py の Runner・src/flow/runqueue.py の Queue の既定を、案件・ホームの設定・届けることで埋める) ----------
+    def _on_error(self, run):
+        """失敗で終わった実行(Queue の hook): ① 全自動なら、できていたパックを届けてから、友人の「受け取る」に失敗の理由を出す"""
+        if run.deliver_dir:
+            self._deliver_rest_quietly(run)
+            self._deliver_failure(run)
 
     def _pick_doc(self, docs, video_id, mark_id, path):
         """切り抜きの文書(txindex.pick。案件の画面・スタジオのセリフと同じ規則)か None"""

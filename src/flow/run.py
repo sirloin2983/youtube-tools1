@@ -8,9 +8,9 @@ import してよいのは標準ライブラリ・ytt・同じ flow の spec だ�
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
 
-src/home/autorun.py に残したもの(AutoRunner が Runner を継いで hook を埋める): 順番待ちと実行の糸(_loop)・受付(start*)・中止・状態と記録
-(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もり・restart_info・Dropbox へ届けることと組の溜め・
-HTTP の ToolClient。案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので、層の向きの上で ① に置けないため(RS3 で分ける)。
+順番待ちと実行の糸(_loop)・中止・状態と記録(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もりは
+RS7-1 S5 で flow/runqueue.py の Queue(Runner を継ぐ)へ。src/home/autorun.py に残したもの(AutoRunner が Queue を継いで hook を埋める):
+受付(start*)・restart_info・Dropbox へ届けることと組の溜め・HTTP の ToolClient(案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので)。
 autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
 将来 batch や live の流れを移すときは flow/run/ パッケージにせず兄弟モジュールにする(__init__ は import しない決まり)。

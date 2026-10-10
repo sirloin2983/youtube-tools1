@@ -48,7 +48,7 @@ FILES = {
     "src/home/mount.py": ("app", "app", ""),
     "src/home/appwindow.py": ("app", "app", ""),
     "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
-    "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は Runner の hook を案件・設定で埋める合成の役。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で human/friend/delivery.py の Delivery(mixin)へ出して継ぐ)"),
+    "src/home/autorun.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。AutoRunner は受付と、Runner・Queue の hook を案件・設定で埋める合成の役(待ち行列と糸は RS7-1 S5 で flow/runqueue.py へ)。① の経路は RS1-7 で pipeline/run.py へ済み。友人の届け約 275 行は RS3-3 で human/friend/delivery.py の Delivery(mixin)へ出して継ぐ)"),
     "src/home/live.py": ("app", "app", "計画 7 節は pipeline/run だったが app に残す(RS3-0B・仮決め #4。Live は録画元・中継・友人・片付け・見回り _tick を束ねる玄関 = 合成の役。葉の live_* だけ層へ移す = RS3-1)"),
     # ---- ライブの葉は RS3-1 で移した(DIRS で読む): live_export → pipeline/export・live_detect と live_excite_worker → pipeline/analyze・
     #      live_archive と live_align_worker → pipeline/ingest(計画は pipeline/run だが run.py がファイルなので)・live_tx と live_tx_worker → pipeline/transcribe・
@@ -60,6 +60,8 @@ FILES = {
     # ---- flow(② 管理)は DIRS で読む。RS7-1 で足した物も明示しておく
     "src/flow/machine.py": ("flow", "flow", "この PC の設定(machine.json・環境変数・既定。束に重ねる overlay。RS7-1 S1)"),
     "src/flow/envelope.py": ("flow", "flow", "依頼の封筒(RS7-1 S3。何を入れたか・どの依頼か・届け方 = 処理の中身でない物。中身は束 flow/spec.py)"),
+    "src/flow/runqueue.py": ("flow", "flow", "② の待ち行列と実行の糸(RS7-1 S5。submit(封筒, 束)・status・cancel・snapshot・history・estimate・待ちの記録と終わった実行の記録。"
+                          "Runner を継ぎ、入口の AutoRunner が受付と hook だけを足して継ぐ)"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
     "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
