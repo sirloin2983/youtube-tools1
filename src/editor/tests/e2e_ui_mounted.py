@@ -318,7 +318,7 @@ def main():
             wait_js(pg, "S.docId === %s && document.querySelector('[data-edtab=tx]').getAttribute('aria-selected') === 'true'" % json.dumps(tid1), 20000)
             check(True, "「前回の続き」で前の文書とタブが開く")
 
-            # ==================== 3c) パック(「編集」E4: 3 パック のタブ。区間は 2 カット のタブのとおり = cut2resolve の spec.keeps) ====================
+            # ==================== 3c) パック(「編集」E4: 2 カット の末尾の「パック」(0.62.0 で 3 パック のタブを無くした)。区間は 2 カット のとおり = cut2resolve の spec.keeps) ====================
             pg.click("[data-edtab=cut]")
             pk_is = lambda cnt, ln, caps: "document.querySelector('#pkCount').textContent === '%s' && document.querySelector('#pkLen').textContent === '%s' && document.querySelector('#pkCaps').textContent === '%s'" % (cnt, ln, caps)   # noqa: E731
             wait_js(pg, pk_is(1, "0:20.00", 5), 30000)
@@ -329,7 +329,7 @@ def main():
                                                         call(port, "GET", "/api/jobs")[1]))
                 raise
             check(pg.is_hidden("#pkOff") and pg.is_enabled("#pkBuild") and pg.inner_text("#pkBuild") == "パックを作る",
-                  "3 パック のタブは入口の中では使える・これから作るパック(1区間・カット後 0:20.00・Text+ 字幕 5)")
+                  "パックは入口の中では使える・これから作るパック(1区間・カット後 0:20.00・Text+ 字幕 5)")
             tr_beside = os.path.splitext(media)[0] + ".transcript.json"
             tr_work = os.path.join(os.path.dirname(media), "作業用", os.path.splitext(os.path.basename(media))[0] + ".transcript.json")
             time.sleep(1.0)
@@ -406,7 +406,7 @@ def main():
             wait_js(pg, "/パック済み/.test(document.querySelector('#txList .txi.cur').textContent)", 10000)
             check(True, "履歴の一覧の行に「パック済み」が出る")
             pg.keyboard.press("Escape")
-            # 段7 E-13: パックのあとに行を直すと、履歴の行に押せる「作り直す」(以前は押せない札)→ 押すと開いて 3 パック のタブへ
+            # 段7 E-13: パックのあとに行を直すと、履歴の行に押せる「作り直す」(以前は押せない札)→ 押すと開いて 2 カット のパックへ
             pg.click("[data-edtab=tx]")
             time.sleep(2.2)   # 一覧の判定は「パックの時刻より 2 秒以上あとに文書を直した」
             pg.locator("#segs textarea").nth(0).fill("直した文1(パックのあと)")

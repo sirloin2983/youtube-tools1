@@ -237,7 +237,7 @@ def main():
             check(tpath in pg.inner_text("#handoffOut"), "保存したパスが表示される")
             pg.evaluate("window.__slowput = false")
             check(pg.locator("#openC2R").count() == 0 and "3 パック" in pg.inner_text("#handoffOut"),
-                  "「編集」E5: 書き出しの結果に「cut2resolve で開く」は出さず、パックは 3 パック のタブと案内する")
+                  "「編集」E5: 書き出しの結果に「cut2resolve で開く」は出さず、パックは 3 パック のタブと案内する(画面の文は 0.62.0 の名残 = ツール側の見直しで直す。直したらここも)")
             pg.click("[data-beside=srt]")
             pg.wait_for_function("document.querySelector('#handoffOut').textContent.includes('.srt')", timeout=10000)
             check(os.path.isfile(os.path.join(vids, "作業用", "clip_0012.srt")), "字幕(.srt)も作業用フォルダに保存できる")
@@ -360,9 +360,9 @@ def main():
             # ==================== 9) v0.15.0 の見直し(単体で開いたとき): カットとパック・キー操作・履歴の一覧・狭い画面の引き出し ====================
             check(pg.inner_text("#btnKeys").strip() == "キー操作" and pg.locator('[data-ui-appnav-item="portal"]').count() == 0,
                   "ヘッダーのボタン名は「キー操作」・ホーム(入口)への項目は入口の外では出ない")
-            pg.click("[data-edtab=pack]")   # 「編集」E4: パックは 3 パック のタブ(この文書は音声だけ(wav)なので、カットとパックには使えない)
+            pg.click("[data-edtab=cut]")   # パックは 2 カット の末尾 #packArea(0.62.0 で 3 パック のタブを無くした。この文書は音声だけ(wav)なので、カットとパックには使えない)
             pg.wait_for_function("!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('音声だけ')", timeout=15000)
-            check(pg.is_disabled("#pkBuild"), "音声だけのファイルは、パックのタブに理由を出して作れなくする: " + pg.inner_text("#pkOff"))
+            check(pg.is_disabled("#pkBuild"), "音声だけのファイルは、パックの欄に理由を出して作れなくする: " + pg.inner_text("#pkOff"))
             pg.click("[data-edtab=tx]")
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
             pg.click("#moreTools summary")   # 「編集」E2: 選んだ行のカット/残すは 1 文字起こし のタブの「まとめて ▾」の中
@@ -377,9 +377,9 @@ def main():
             check(True, "「選んだ行を残す」で戻る")
             pg.evaluate("document.querySelectorAll('#segs .seg .sel')[0].click()")
             open_doc("動画のない文書")
-            pg.click("[data-edtab=pack]")
+            pg.click("[data-edtab=cut]")
             pg.wait_for_function("!document.querySelector('#pkOff').hidden && document.querySelector('#pkOff').textContent.includes('見つかりません')", timeout=10000)
-            check(pg.is_disabled("#pkBuild"), "動画が見つからない文書では、パックのタブに理由を出す: " + pg.inner_text("#pkOff"))
+            check(pg.is_disabled("#pkBuild"), "動画が見つからない文書では、パックの欄に理由を出す: " + pg.inner_text("#pkOff"))
             pg.click("[data-edtab=tx]")
             pg.click("[data-side-tab=files]")
             pg.fill("#txSearch", "動画のない文書")

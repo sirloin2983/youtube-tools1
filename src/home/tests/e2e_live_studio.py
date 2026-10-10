@@ -359,6 +359,9 @@ def _scene_turn_on(cx):
     # M2: オンにすると「書き出したあとの自動の流れ」(live.auto)の欄が出て、選ぶと設定に入る
     check(wait_js(pg, "!document.querySelector('[data-ui-set-key=\"live.auto.after\"]').hidden", 5000), "M2 オンにすると「書き出したあと」の欄が出る")
     pg.select_option("#uiSet-live_auto_engine", "whisper.cpp")
+    # エンジンの保存が終わる(「保存しました」)のを待ってから打つ。settingsForm は保存の応答で全部の欄を描き直すので、
+    # 途中だとモデル名の入力が消えて change が出ない(続けて流したときだけ落ちていた M2 の原因。描き直しの側はツールの見直しで)
+    wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.auto.engine\"] .ui-set-mark')||{}).textContent === '保存しました'", 8000)
     pg.fill("#uiSet-live_auto_model", "large-v3")
     pg.press("#uiSet-live_auto_model", "Tab")
     check(wait_for(lambda: (lambda a: a["engine"] == "whisper.cpp" and a["model"] == "large-v3" and a)(srv.prefs.get(["live"])["live"]["auto"]), 8),

@@ -4,7 +4,7 @@
     python src/home/tests/e2e_window.py
 
   7-0 画面のエラーの記録: スタジオ・文字起こしの画面で起きたエラー(throw・Promise の失敗)が client-errors.jsonl に1行ずつ残る
-  7-1 解析の設定: 以前のブラウザの保存(localStorage)がサーバーへ1回だけ引き継がれ、以後はサーバーの値が勝つ。変えた直後に離れても送られる
+  (7-1 解析の設定の引き継ぎ(localStorage → サーバー)は、欄を設定の画面へ移し引き継ぎの仕組みも消えたので 2026-10-10 に外した)
   7-2 離れた・戻った: 別の窓へ移った(blur)で「離れた」、埋め込み(iframe)にフォーカスがあるときは離れたことにしない、戻った(focus)
   7-3 窓: 入口の「窓で開く」の切り替え(2026-09-27 から既定で窓)。窓(display-mode: standalone)の中の「開く」は入口に頼んで Edge のアプリモードで開き
       (Edge の代わりに引数を記録する偽のプログラム。YTT_APP_BROWSER)、外のサイトはいつものブラウザ(偽の記録)で開く。
@@ -146,8 +146,6 @@ def main():
             try:
                 errors = []
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
-                # 以前のブラウザの保存(解析の設定)。ページを開くたびに入れ直す(サーバーに保存した後は無視されることも確かめる)
-                ctx.add_init_script("try { localStorage.setItem('clipstudio:queue:opts', JSON.stringify({count: '12', sens: 'low', useChat: false})); } catch (e) {}")
                 pg = ctx.new_page()
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base)
@@ -247,25 +245,11 @@ def main():
                 check(wait_js(pg, "document.querySelector('#toast').textContent.indexOf('いつものブラウザ') >= 0", 10000) and W.read_mode(srv.window.settings_path) == "browser",
                       "[7-3] オフに戻せる")
 
-                # ---- 7-1 解析の設定 ----
+                # ---- 7-2 離れた・戻った(スタジオの画面で) ----
                 st = ctx.new_page()
                 st.on("pageerror", lambda e: errors.append(str(e)))
                 st.goto(base + "studio/")
-                check(wait_js(st, "!!document.getElementById('count')", 30000), "[7-1] スタジオの ② の設定")
-                saved = wait_until(lambda: studio_settings().get("analyze"))
-                check(saved and saved.get("count") == 12 and saved.get("sensitivity") == "low" and saved.get("useChat") is False and "noCache" not in saved,
-                      "[7-1] 以前のブラウザの保存を1回だけサーバーへ引き継いだ: %s" % saved)
-                check(st.evaluate("document.getElementById('count').value") == "12" and st.evaluate("document.getElementById('sens').value") == "low",
-                      "[7-1] 欄にも入った")
-                st.evaluate("() => { const e = document.getElementById('count'); e.value = '5'; e.dispatchEvent(new Event('change')); }")
-                st.evaluate("() => { document.hasFocus = () => false; window.dispatchEvent(new Event('blur')); }")   # すぐ別の窓へ(0.4秒待たずに送る)
-                check(wait_until(lambda: studio_settings().get("analyze", {}).get("count") == 5, 3), "[7-1][7-2] 変えた直後に窓を離れても保存された")
-                st.reload()
-                check(wait_js(st, "document.getElementById('count') && document.getElementById('count').value === '5'", 20000),
-                      "[7-1] 読み込み直すとサーバーの値(localStorage の古い値 12 ではない): %s" % st.evaluate("document.getElementById('count') && document.getElementById('count').value"))
-                check(studio_settings()["analyze"]["count"] == 5, "[7-1] 引き継ぎは1回だけ(サーバーの値を上書きしない)")
-
-                # ---- 7-2 離れた・戻った ----
+                check(wait_js(st, "!!window.UIKit && !!UIKit.life", 30000), "[7-2] スタジオの画面")
                 st.evaluate("""() => { window.__ev = []; UIKit.life.onLeave(r => __ev.push('leave:' + r)); UIKit.life.onReturn(r => __ev.push('back:' + r));
                                        document.hasFocus = () => true; }""")
                 st.evaluate("() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); }")
