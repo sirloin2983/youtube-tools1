@@ -341,7 +341,7 @@ def _ffmpeg_stream(cmd, timeout, task, duration):
                 pipe.close()
             except OSError:
                 pass
-    if why and why[0] == "cancel":
+    if (why and why[0] == "cancel") or (not why and task.cancelled):   # 見張りが気づく前(0.2 秒)に ffmpeg が書き終えても、取り消しは取り消し
         raise Cancelled()
     if why:
         raise ToolError("ffmpeg の処理が時間内に終わりませんでした。")
