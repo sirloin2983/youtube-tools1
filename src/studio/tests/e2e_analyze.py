@@ -4,13 +4,14 @@ import json, math, os, random, shutil, struct, sys, tempfile, wave
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import common
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import studio_env  # noqa: E402
 from pipeline.analyze import analyze
 
 DUR, LAG = 1500, 14
 EVENTS = [200, 420, 640, 860, 1080, 1300]
 tmp = tempfile.mkdtemp()
-common.set_home(tmp)
+studio_env.set_home(tmp)
 rnd = random.Random(3)
 # 音声: 小さな雑音 + イベントで大きな音(笑い声のような高い周波数を含む)
 sr = 8000

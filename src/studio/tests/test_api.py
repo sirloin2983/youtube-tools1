@@ -15,7 +15,8 @@ from unittest.mock import patch
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import common
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import errors, mediainfo, studio_env  # noqa: E402
 import serve
 from human.review import feedback
 from pipeline.analyze import analyze
@@ -252,7 +253,7 @@ class TestMedia(Base):
         # 登録後に差し替えられた場合を想定して、ストアへ直接入れる(validate_source が弾く場合はそれも防御として可)
         try:
             src = analyze.validate_source({"kind": "file", "path": link})
-        except common.ApiError:
+        except errors.ApiError:
             return
         serve.STORE.ensure(src)
         st, _, data, _ = self.get(vid=src["videoId"])
@@ -478,8 +479,8 @@ class TestStateEnv(Base):
             self.assertIn(k, j)
 
     def test_old_ytdlp_and_low_disk_warn(self):
-        with patch.dict(common._env, {"checked": True, "tools": {"ytdlp": {"found": True, "version": "2020.01.01", "ageDays": 2000}}}), \
-                patch.object(common.shutil, "disk_usage", return_value=common.shutil._ntuple_diskusage(10, 9, 1024)):
+        with patch.dict(startup._env, {"checked": True, "tools": {"ytdlp": {"found": True, "version": "2020.01.01", "ageDays": 2000}}}), \
+                patch.object(startup.shutil, "disk_usage", return_value=startup.shutil._ntuple_diskusage(10, 9, 1024)):
             env = self.req("GET", "/api/state")[1]["env"]
         self.assertTrue(any("yt-dlp -U" in w for w in env["warnings"]), env["warnings"])
         self.assertTrue(any("空きが少なく" in w for w in env["warnings"]), env["warnings"])
@@ -489,13 +490,13 @@ class TestStateEnv(Base):
 class TestErrorMessages(Base):
     def test_os_errors_say_what_happened(self):
         denied = PermissionError(13, "Permission denied", os.path.join(self.tmp, "settings-ui.json"))
-        with patch.object(serve.STORE, "set_ui", side_effect=denied), patch.object(common, "log_failure") as log:
+        with patch.object(serve.STORE, "set_ui", side_effect=denied), patch.object(studio_env, "log_failure") as log:
             st, j, *_ = self.req("PUT", "/api/settings", {"settings": {}})
         self.assertEqual(st, 500)
         self.assertIn("アクセスが拒否", j["message"])
         self.assertIn("settings-ui.json", j["message"])
         log.assert_called_once()
-        with patch.object(serve.STORE, "set_ui", side_effect=OSError(28, "No space left on device")), patch.object(common, "log_failure"):
+        with patch.object(serve.STORE, "set_ui", side_effect=OSError(28, "No space left on device")), patch.object(studio_env, "log_failure"):
             j = self.req("PUT", "/api/settings", {"settings": {}})[1]
         self.assertIn("No space left", j["message"])
 
@@ -517,12 +518,12 @@ class TestExportValidation(Base):
             self.assertEqual(j["error"], "bad_request")
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestExportApi(Base):
     """POST /api/export → GET /api/export?id= の各ファイルに path(mp4)と manifest(.clip.json)が入る(docs/spec/pipeline.md の 6)。"""
     def test_export_reports_media_and_manifest_paths(self):
         src = os.path.join(self.tmp, "real.mp4")
-        ff = common.find_tool("ffmpeg")
+        ff = studio_env.find_tool("ffmpeg")
         import subprocess
         subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=8",
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
@@ -733,7 +734,7 @@ class TestLiveApi(Base):
     def test_id_conflict_with_other_kind(self):
         # YouTube の 11 文字・file の "f…" とは形が違うので重ならない。同じ id が別の種類で既にあれば 409(ensure の既存の規則)
         serve.STORE.ensure({"kind": "youtube", "videoId": "abcdefghijk"}, "t")
-        with self.assertRaises(common.ApiError) as c:
+        with self.assertRaises(errors.ApiError) as c:
             serve.STORE.ensure({"kind": "live", "videoId": "abcdefghijk", "live": {}}, "t")
         self.assertEqual(c.exception.status, 409)
 
@@ -741,7 +742,7 @@ class TestLiveApi(Base):
         self.req("POST", "/api/videos/open", live_body(rid))
         st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [{"id": "m1", "start": 10, "end": 40, "label": "L", "status": "adopted"}]})
         self.assertEqual(st, 200, j)
-        d = os.path.join(common.get_out_dir(), "配信中_" + rid)
+        d = os.path.join(studio_env.get_out_dir(), "配信中_" + rid)
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, "clip.mp4")
         with open(p, "wb") as f:
@@ -768,12 +769,12 @@ class TestLiveApi(Base):
         outside = os.path.join(self.tmp, "outside.mp4")
         with open(outside, "wb") as f:
             f.write(b"x")
-        sneaky = os.path.join(common.get_out_dir(), "..", "outside.mp4")   # 書き出し先の外へ ..
+        sneaky = os.path.join(studio_env.get_out_dir(), "..", "outside.mp4")   # 書き出し先の外へ ..
         txt = os.path.join(os.path.dirname(p), "a.txt")
         with open(txt, "wb") as f:
             f.write(b"x")
         for bad in ({"path": outside}, {"path": sneaky}, {"path": os.path.join(os.path.dirname(p), "none.mp4")}, {"path": txt}, {"path": "clip.mp4"}, {"path": ""},
-                    {"path": None}, {"path": os.path.dirname(p)}, {"path": common.get_out_dir()}, {"markId": 3}, {"markId": ""}, {"id": 3}):
+                    {"path": None}, {"path": os.path.dirname(p)}, {"path": studio_env.get_out_dir()}, {"markId": 3}, {"markId": ""}, {"id": 3}):
             st, j, *_ = self.req("POST", "/api/live/exported", dict(ok, **bad))
             self.assertEqual(st, 400, bad)
         self.assertEqual(self.req("GET", "/api/video?id=" + rid)[1]["video"]["marks"][0]["status"], "adopted")   # 断ったものは記録されない
@@ -884,7 +885,7 @@ class TestLiveApi(Base):
         self.assertEqual(self.req("POST", "/api/video/delete", {"id": rid})[0], 200)   # グループからも外れる
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestLiveSectionApi(Base):
     """POST /api/live/section(線 D の P4): YouTube の区間を、書き出し先の中の指定の path へ(疑似モード。STUDIO_FAKE_MEDIA を切り出す)。マーク・配信のデータは変えない"""
 
@@ -893,7 +894,7 @@ class TestLiveSectionApi(Base):
         super().setUpClass()
         cls.fake_media = os.path.join(cls.tmp, "fake_src.mp4")
         import subprocess
-        subprocess.run([common.find_tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=12",
+        subprocess.run([studio_env.find_tool("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=12",
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
                         "-c:a", "aac", "-shortest", cls.fake_media], check=True, stdin=subprocess.DEVNULL)
 
@@ -901,7 +902,7 @@ class TestLiveSectionApi(Base):
         p = patch.dict(os.environ, {"STUDIO_FAKE_MEDIA": self.fake_media})
         p.start()
         self.addCleanup(p.stop)
-        self.folder = os.path.join(common.get_out_dir(), "配信フォルダ_" + self._testMethodName)   # テストごとに別のフォルダ
+        self.folder = os.path.join(studio_env.get_out_dir(), "配信フォルダ_" + self._testMethodName)   # テストごとに別のフォルダ
         os.makedirs(self.folder, exist_ok=True)
 
     def body(self, name="01_本番版.mp4", **kw):
@@ -918,7 +919,7 @@ class TestLiveSectionApi(Base):
     def snapshot(self):
         with open(serve.STORE.path, "rb") as f:
             data = f.read()
-        fb = common.p("feedback.jsonl")
+        fb = studio_env.p("feedback.jsonl")
         return (data, self.req("GET", "/api/videos")[2], os.path.getsize(fb) if os.path.exists(fb) else None)
 
     def test_makes_exactly_the_path_and_changes_no_data(self):
@@ -935,7 +936,7 @@ class TestLiveSectionApi(Base):
         it = job["items"][0]
         self.assertEqual((it["status"], it["path"], it["manifest"]), ("done", b["path"], None))
         self.assertTrue(os.path.isfile(b["path"]))
-        self.assertAlmostEqual(common.media_info(b["path"])[0], 4.0, delta=0.3)
+        self.assertAlmostEqual(mediainfo.media_info(b["path"])[0], 4.0, delta=0.3)
         from ytt import normalize
         probe = normalize.probe(b["path"])
         if probe:
@@ -961,8 +962,8 @@ class TestLiveSectionApi(Base):
         with open(existing, "wb") as f:
             f.write(b"keep")
         bads = [dict(videoId="bad"), dict(videoId="zzzzzzzzzz\n"), dict(videoId=None), dict(start=-1), dict(start=6), dict(start="2"), dict(end=0), dict(end=None),
-                dict(start=0, end=3601), dict(path=outside), dict(path=os.path.join(common.get_out_dir(), "..", "outside.mp4")), dict(path=existing),
-                dict(path=os.path.join(common.get_out_dir(), "nodir", "a.mp4")), dict(path=os.path.join(self.folder, "a.txt")), dict(path="rel.mp4"), dict(path=None)]
+                dict(start=0, end=3601), dict(path=outside), dict(path=os.path.join(studio_env.get_out_dir(), "..", "outside.mp4")), dict(path=existing),
+                dict(path=os.path.join(studio_env.get_out_dir(), "nodir", "a.mp4")), dict(path=os.path.join(self.folder, "a.txt")), dict(path="rel.mp4"), dict(path=None)]
         with patch.object(serve.exporter, "start_job") as sj:
             for kw in bads:
                 st, j, *_ = self.req("POST", "/api/live/section", self.body("bad.mp4", **kw))

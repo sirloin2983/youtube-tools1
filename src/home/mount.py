@@ -5,7 +5,7 @@
 同じポートの /studio/ などで画面と API を受け持つ。ファイルは動かさない。取り込めないときは入口が serve.py を子プロセスとして起動する(各ツールの start.bat による単独起動は 09-26 に廃止)。
 
 - 読み込み: ツールのフォルダの serve.py を "ytt_tool_<ID>" という名前で読み込む(3つとも serve.py なので、名前をそろえると取り違える)。
-  ツールの中の部品(common.py・store.py など)は、そのツールのフォルダから名前で読み込まれる。
+  ツールの中の部品(startup.py・store.py など)は、そのツールのフォルダから名前で読み込まれる。
   別のツールの同じ名前の部品がすでに読み込まれていたら、取り違えを避けるため取り込まない(MountError)
 - 受け持ち: /studio/... への要求は、先頭の /studio を外してツールの Handler にそのまま渡す(ツールの API・安全検査はそのまま動く)
 - 同じアドレス(オリジン)になる分の安全対策(AGENTS.md の「統合作業のリスク」):
@@ -84,7 +84,7 @@ def load_serve(root, tool_id):
         raise MountError("%s が見つかりません" % path)
     check_no_collision(d)
     if d not in sys.path:
-        sys.path.insert(0, d)   # ツールの部品(common.py など)を名前で読み込めるように(serve.py 自身も同じことをする)
+        sys.path.insert(0, d)   # ツールの部品(startup.py など)を名前で読み込めるように(serve.py 自身も同じことをする)
     ms = importlib.util.spec_from_file_location(spec["alias"], path)
     mod = importlib.util.module_from_spec(ms)
     sys.modules[spec["alias"]] = mod

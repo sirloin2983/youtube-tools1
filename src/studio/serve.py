@@ -21,9 +21,9 @@ from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import common  # noqa: E402  最初に読む: src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる(下の部品は src の ytt・pipeline を読む)
+import startup  # noqa: E402  最初に読む: src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる(下の部品は src の ytt・pipeline を読む)
 import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/siblings)。スタジオに残る
-from human.find import rank  # noqa: E402  (common が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
+from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
 from pipeline import batch as batch_mod  # noqa: E402
@@ -31,7 +31,7 @@ from pipeline.analyze import analyze  # noqa: E402
 from pipeline.export import exporter, manifest as _manifest  # noqa: E402
 from pipeline.ingest import sources as _src  # noqa: E402
 from pipeline.ingest.sources import MEDIA_EXT, VID_RE  # noqa: E402  差し替えない定数
-from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (common が ytt を読めるようにしてある)
+from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関数
 
@@ -39,7 +39,7 @@ APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のた�
 SERVER_VERSION = "0.26.0"  # core.js 側の APP_VERSION と揃える
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 _manifest.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
-CODE_DIR = common.CODE_DIR
+CODE_DIR = startup.CODE_DIR
 STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js", "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 PORT = 8800
@@ -86,7 +86,7 @@ def api_state():
     fk = _env.fake()
     d = {"hasKey": bool(key) or fk, "keySource": source, "fake": fk, "ffmpeg": bool(_env.find_tool("ffmpeg")), "ytdlp": bool(_env.find_tool("yt-dlp")) or fk,
          "outDir": _env.get_out_dir(), "defaultOutDir": _env.default_out_dir(), "dataDir": _env.home(), "quota": rank.quota(),
-         "env": common.env_state()}   # 起動時の環境チェック(道具の版・古い yt-dlp・出力先の空き容量など)。warnings は画面にそのまま出せる文
+         "env": startup.env_state()}   # 起動時の環境チェック(道具の版・古い yt-dlp・出力先の空き容量など)。warnings は画面にそのまま出せる文
     warning, backup = STORE.take_warning()   # 起動時の data.json の問題は、最初の1回だけ知らせる
     if warning:
         d["dataWarning"], d["corruptBackup"] = warning, backup
@@ -560,11 +560,11 @@ def prepare(port, base_path="/"):
     default = os.path.normcase(_env.home()) == os.path.normcase(os.path.abspath(CODE_DIR))
     init(_data_home() if default else None)
     datadir.register(TOOL_ID, _env.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
-    common.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
+    startup.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
     runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
-    common.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
+    startup.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
     threading.Thread(target=_clean_leftovers, daemon=True, name="clean-partials").start()   # 出力先がネットワークドライブでも起動を待たせない
     return runtime
 

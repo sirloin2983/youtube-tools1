@@ -21,14 +21,15 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests → exp
 HERE = os.path.join(SRC, "studio")   # テストが使うスタジオの殻 common のあるフォルダ(studio/。exporter 自身は common を読まない)
 sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
-import common
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import errors, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter, manifest
 from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
 
 def _make_clip(path, sec=2.0):
     """テスト用の短い合成動画(映像+無音の音声)を作る。ffmpeg が無ければテストをスキップする。"""
-    ff = common.find_tool("ffmpeg")
+    ff = studio_env.find_tool("ffmpeg")
     if not ff:
         return False
     cmd = [ff, "-hide_banner", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=%.1f" % sec,
@@ -38,7 +39,7 @@ def _make_clip(path, sec=2.0):
     return r.returncode == 0 and os.path.isfile(path)
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestApplyVolume(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -64,7 +65,7 @@ class TestApplyVolume(unittest.TestCase):
         """既定値75では実際に ffmpeg が動き、映像は無劣化(長さが変わらない)のまま音量だけ変わる。"""
         job, it = self._job_it()
         exporter.apply_volume(job, {"outDir": self.tmp, "volume": 75}, it, os.path.basename(self.clip))
-        dur, has_v, has_a, _ = common.media_info(self.clip)
+        dur, has_v, has_a, _ = mediainfo.media_info(self.clip)
         self.assertTrue(has_v)
         self.assertTrue(has_a)
         self.assertAlmostEqual(dur, 2.0, delta=0.3)
@@ -82,7 +83,7 @@ class TestApplyVolume(unittest.TestCase):
         """build_spec は 1〜200 の範囲外を bad_request で断る(ffmpeg は呼ばない)。"""
         store = self._fake_store()
         for bad in (0, 201, -5, "abc"):
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(errors.ApiError):
                 exporter.build_spec(store, {"id": "v1", "markIds": ["m1"], "volume": bad})
 
     def test_volume_missing_defaults_to_75(self):
@@ -97,7 +98,7 @@ class TestExportCompletion(unittest.TestCase):
             item = {"id": "m1", "start": 10.0, "end": 15.0, "label": "", "status": "queued"}
             job = {"items": [item], "cancel": False}
             done = Mock(return_value=False)   # マークが変更されていても、出力ファイル自体は成功
-            with patch.object(common, "get_out_dir", return_value=tmp), \
+            with patch.object(studio_env, "get_out_dir", return_value=tmp), \
                     patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "apply_volume"):
@@ -109,7 +110,7 @@ class TestExportCompletion(unittest.TestCase):
 def _make_source(path, sec=30, gop=300, rate=60, video=None):
     """キーフレームが5秒ごと(60fps・gop=300)の合成動画(映像+音声)。配信の録画によくある 60fps(書き出しで 30fps に作り直される。2026-10-04 Q1)。
     video: 映像の lavfi の指定を差し替える(明るさで時刻が分かる映像など)"""
-    ff = common.find_tool("ffmpeg")
+    ff = studio_env.find_tool("ffmpeg")
     cmd = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", video or "testsrc=size=64x64:rate=%d:duration=%d" % (rate, sec),
            "-f", "lavfi", "-i", "sine=frequency=440:duration=%d" % sec, "-c:v", "libx264", "-preset", "veryfast", "-g", str(gop),
            "-keyint_min", str(gop), "-sc_threshold", "0", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path]
@@ -137,7 +138,7 @@ def _fps(path):
     return i and i["r_frame_rate"]
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestClipManifestExport(unittest.TestCase):
     """書き出した mp4 ごとに .clip.json(youtube-tools-clip/v1)が隣にできること(docs/spec/pipeline.md の 2.1)。"""
     @classmethod
@@ -153,14 +154,14 @@ class TestClipManifestExport(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def export(self, clips, fast=False, recorded=True):
         spec = _spec(self.src, clips, fast)
-        job = _job(clips, common.get_out_dir())
+        job = _job(clips, studio_env.get_out_dir())
         calls = []
 
         def on_done(*a):
@@ -185,7 +186,7 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(d["source"], {"kind": "file", "videoId": "f0123456789", "url": None, "title": "テスト 配信", "path": self.src})
         self.assertEqual(d["mark"], {"id": "m1", "label": "見どころ", "status": "exported", "src": "manual"})
         self.assertEqual(d["export"], {"mode": "precise", "volume": 75})   # 精度優先は actualStart なし(= range.start)
-        if common.find_tool("ffprobe"):   # 60fps の元から、切り抜きも編集用素材も 30fps に作り直される(Q1)
+        if studio_env.find_tool("ffprobe"):   # 60fps の元から、切り抜きも編集用素材も 30fps に作り直される(Q1)
             self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
         # 前後10秒の編集用素材にも、その範囲の .clip.json が付く
         e = _read(it["editManifest"])
@@ -239,24 +240,24 @@ class TestClipManifestExport(unittest.TestCase):
         cut = [c for c in cmds if "-preset" in c]
         self.assertTrue(cut and all(c[c.index("-preset") + 1] == "ultrafast" and c[c.index("-crf") + 1] == "18" for c in cut))
         self.assertFalse(any("copy" == c[c.index("-c") + 1] for c in cmds if "-c" in c))   # コピーはもう使わない
-        if common.find_tool("ffprobe"):
+        if studio_env.find_tool("ffprobe"):
             self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
 
     def test_combine_is_30fps(self):
         clips = [{"id": "a", "start": 2.0, "end": 4.0, "title": "a", "label": "a", "src": "manual", "markStatus": ""},
                  {"id": "b", "start": 10.0, "end": 12.0, "title": "b", "label": "b", "src": "manual", "markStatus": ""}]
         spec = dict(_spec(self.src, clips), combine=True)
-        job = dict(_job(clips, common.get_out_dir()), combined=None)
+        job = dict(_job(clips, studio_env.get_out_dir()), combined=None)
         exporter.run_job(job, spec)
         c = job["combined"]
         self.assertEqual((job["state"], c["status"]), ("done", "done"), c.get("error"))
-        self.assertAlmostEqual(common.media_info(c["path"])[0], 4.0, delta=0.3)
-        if common.find_tool("ffprobe"):
+        self.assertAlmostEqual(mediainfo.media_info(c["path"])[0], 4.0, delta=0.3)
+        if studio_env.find_tool("ffprobe"):
             self.assertEqual(_fps(c["path"]), "30/1")
 
     # ---- 書きかけの名前(<base>.partial.mp4)に書いて、仕上がったら置き換える(2026-09-30。設計レビュー studio の 4) ----
     def _files(self, job):
-        folder = os.path.join(common.get_out_dir(), job["folder"])
+        folder = os.path.join(studio_env.get_out_dir(), job["folder"])
         out = []
         for d in (folder, os.path.join(folder, schemas.WORK_DIR)):
             if os.path.isdir(d):
@@ -339,7 +340,7 @@ class TestPartialNames(unittest.TestCase):
 class TestManifestFailure(unittest.TestCase):
     def test_manifest_write_failure_is_only_a_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
-            common.set_home(tmp)
+            studio_env.set_home(tmp)
             item = {"id": "m1", "start": 0.0, "end": 5.0, "label": "", "title": "t", "src": "manual", "markStatus": ""}
             job = _job([item], tmp)
             spec = {"videoId": "abcdefghijk", "mode": "file", "kind": "youtube", "title": "t"}
@@ -347,7 +348,7 @@ class TestManifestFailure(unittest.TestCase):
             with patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "apply_volume"), patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
-                    patch.object(manifest, "write_clip_manifest", side_effect=denied), patch.object(common, "log_failure") as log:
+                    patch.object(manifest, "write_clip_manifest", side_effect=denied), patch.object(studio_env, "log_failure") as log:
                 exporter.run_job(job, spec, Mock(return_value=True))
             it = job["items"][0]
             self.assertEqual((job["state"], it["status"]), ("done", "done"))   # 書き出し自体は成功
@@ -387,7 +388,7 @@ class TestNames(unittest.TestCase):
 
     def test_folder_owner_marker_in_work_dir(self):
         """フォルダの持ち主の印 .studio-id も 作業用/ に(2026-09-27)。以前の置き方(直下)の印も読む・書き換えない"""
-        with patch.object(common, "get_out_dir", return_value=self.tmp):
+        with patch.object(studio_env, "get_out_dir", return_value=self.tmp):
             folder, path = exporter.pick_folder({"title": "配信", "videoId": "abcdefghijk"})
             self.assertEqual(os.listdir(path), [schemas.WORK_DIR])
             with open(os.path.join(path, schemas.WORK_DIR, ".studio-id"), encoding="utf-8") as f:
@@ -407,7 +408,7 @@ class TestNames(unittest.TestCase):
             self.assertTrue(exporter.is_reserved(name), name)
         for name in ("CONSOLE", "COM0", "COM10", "動画", "PRN_2"):
             self.assertFalse(exporter.is_reserved(name), name)
-        with patch.object(common, "get_out_dir", return_value=self.tmp):
+        with patch.object(studio_env, "get_out_dir", return_value=self.tmp):
             folder, _ = exporter.pick_folder({"title": "com²", "videoId": "abcdefghijk"})
         self.assertEqual(folder, "_com²")
 
@@ -415,7 +416,7 @@ class TestNames(unittest.TestCase):
         root = os.path.join(self.tmp, "d" * max(1, 170 - exporter.path_units(self.tmp)))
         os.makedirs(root)
         title = "とても長い配信タイトル" * 10 + "😀"
-        with patch.object(common, "get_out_dir", return_value=root):
+        with patch.object(studio_env, "get_out_dir", return_value=root):
             folder, path = exporter.pick_folder({"title": title, "videoId": "abcdefghijk"})
             self.assertLess(len(folder), 60)
             spec = {"videoId": "abcdefghijk", "mode": "file", "folder": folder, "outDir": path}
@@ -439,7 +440,7 @@ class TestNames(unittest.TestCase):
 
 class TestExportLog(unittest.TestCase):
     def test_log_is_rotated_not_deleted(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(common, "get_out_dir", return_value=tmp), patch.object(exporter, "LOG_MAX", 100):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(studio_env, "get_out_dir", return_value=tmp), patch.object(exporter, "LOG_MAX", 100):
             exporter.log_export("first " + "x" * 200, ["ffmpeg"], [])
             exporter.log_export("second", ["ffmpeg"], [])
             with open(os.path.join(tmp, "export-log.old.txt"), encoding="utf-8") as f:
@@ -453,8 +454,8 @@ class TestBuildSpecIds(unittest.TestCase):
         class S:
             def internal(self, vid):
                 return {"id": "-o /tmp/x", "kind": "youtube", "marks": [{"id": "m1", "start": 0, "end": 1, "label": ""}], "title": "", "fileName": "", "path": ""}
-        with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(common, "find_tool", return_value="/bin/true"):
-            with self.assertRaises(common.ApiError) as cm:
+        with patch.dict(os.environ, {"STUDIO_FAKE": ""}), patch.object(studio_env, "find_tool", return_value="/bin/true"):
+            with self.assertRaises(errors.ApiError) as cm:
                 exporter.build_spec(S(), {"id": "x", "markIds": ["m1"]})
         self.assertIn("配信の ID", cm.exception.message)   # 0.22.3: 配信の意味の「動画」は「配信」(見直し S5)
 
@@ -486,7 +487,7 @@ class TestHeavyJobLimit(unittest.TestCase):
             body.assert_called_once()
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestLoudness(unittest.TestCase):
     """ラウドネス(聞こえ方の音量)をそろえる書き出し(2026-09-26)。切り抜きと編集用素材に同じ量だけかける"""
     @classmethod
@@ -502,7 +503,7 @@ class TestLoudness(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -520,13 +521,13 @@ class TestLoudness(unittest.TestCase):
         self.assertEqual(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": -14})["loudness"], -14.0)
         self.assertIsNone(exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": 0})["loudness"])
         for bad in (-13, -40, "x", [1]):
-            with self.subTest(bad=bad), self.assertRaises(common.ApiError):
+            with self.subTest(bad=bad), self.assertRaises(errors.ApiError):
                 exporter.build_spec(Store(), {"id": "v1", "markIds": ["m1"], "loudness": bad})
 
     def test_clip_and_edit_media_reach_target_with_same_gain(self):
         clips = [{"id": "m1", "start": 12.0, "end": 18.0, "title": "t", "label": "t", "src": "manual", "markStatus": "adopted"}]
         spec = dict(_spec(self.src, clips), loudness=-14.0)
-        job = _job(clips, common.get_out_dir())
+        job = _job(clips, studio_env.get_out_dir())
         exporter.run_job(job, spec, lambda *a: True)
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
@@ -550,7 +551,7 @@ class TestLoudness(unittest.TestCase):
 
     def test_gain_is_limited_by_true_peak(self):
         loud = os.path.join(self.tmp, "loud.mp4")
-        ff = common.find_tool("ffmpeg")
+        ff = studio_env.find_tool("ffmpeg")
         subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10:duration=4",
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=4,volume=7", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
                         "-shortest", loud], check=True, stdin=subprocess.DEVNULL)   # ほぼ 0dBFS のピーク
@@ -606,14 +607,14 @@ sys.exit(r.returncode)
 
 def _y_avg(path):
     """最初のコマの明るさの平均(signalstats の YAVG)"""
-    r = subprocess.run([common.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+    r = subprocess.run([studio_env.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG",
                         "-frames:v", "1", "-f", "null", "-"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
     import re
     m = re.search(r"YAVG=([\d.]+)", r.stdout)
     return float(m.group(1)) if m else None
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg") and common.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg") and studio_env.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
 class TestYoutubeTwoStage(unittest.TestCase):
     """YouTube の区間取得は2段(2026-10-04 Q1): yt-dlp で区間をそのまま取る(前後に余裕・作り直さない)→ ffmpeg の ENC で正確な区間に切って 30fps に"""
     @classmethod
@@ -634,7 +635,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
         self.log = os.path.join(self.tmp, "ytdlp-args.jsonl")
 
     def tearDown(self):
@@ -643,7 +644,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
     def export(self, clip, fast=False, preroll=False):
         spec = dict(_spec(None, [clip], fast), kind="youtube", videoId="abcdefghijk", sourceFile=None, mode="url")
         spec.pop("sourcePath")
-        job = _job([clip], common.get_out_dir())
+        job = _job([clip], studio_env.get_out_dir())
         env = {"FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_PREROLL": "1" if preroll else ""}
         with patch.dict(os.environ, env), patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake]):
             exporter.run_job(job, spec, lambda *a: True)
@@ -661,7 +662,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertEqual(sections, ["*00:00:05.000-00:00:14.000", "*00:00:00.000-00:00:24.000"])
         self.assertFalse(any("--force-keyframes-at-cuts" in c for c in calls))
         # 2段目: 正確な区間・30fps・crf 18
-        self.assertAlmostEqual(common.media_info(it["path"])[0], 5.0, delta=0.2)
+        self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.2)
         self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
         self.assertAlmostEqual(_y_avg(it["path"]), 56, delta=3)      # 最初のコマ = 元の 7 秒(余裕の 2 秒ぶんずれていない)
         self.assertAlmostEqual(_y_avg(it["editPath"]), 0, delta=3)   # 編集用素材は 0 秒から
@@ -697,13 +698,13 @@ class TestYoutubeTwoStage(unittest.TestCase):
         self.assertEqual(it["status"], "error")
         self.assertIn("開始の位置", it["error"])
         self.assertIn("-g", calls[-1])   # 方法2 を試した
-        folder = os.path.join(common.get_out_dir(), job["folder"])
+        folder = os.path.join(studio_env.get_out_dir(), job["folder"])
         left = [n for dd in (folder, os.path.join(folder, schemas.WORK_DIR)) if os.path.isdir(dd) for n in os.listdir(dd)
                 if os.path.isfile(os.path.join(dd, n)) and n != ".studio-id"]
         self.assertEqual(left, [])
 
 
-@unittest.skipUnless(common.find_tool("ffmpeg") and common.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
+@unittest.skipUnless(studio_env.find_tool("ffmpeg") and studio_env.find_tool("ffprobe"), "ffmpeg・ffprobe が無い環境ではスキップ")
 class TestLiveSection(unittest.TestCase):
     """POST /api/live/section の中身(線 D の P4): YouTube の videoId の区間を、今の YouTube の書き出しと同じ中身で、ちょうど指定の path へ。
     マーク・.clip.json・編集用素材は作らない"""
@@ -724,14 +725,14 @@ class TestLiveSection(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
-        self.folder = os.path.join(common.get_out_dir(), "配信フォルダ")
+        studio_env.set_home(self.tmp)
+        self.folder = os.path.join(studio_env.get_out_dir(), "配信フォルダ")
         os.makedirs(self.folder)
         self.final = os.path.join(self.folder, "01_速報版を作り直す.mp4")
         self.log = os.path.join(self.tmp, "ytdlp-args.jsonl")
-        real = common.find_tool
+        real = studio_env.find_tool
         self.patches = [patch.dict(os.environ, {"STUDIO_FAKE": "0", "FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_PREROLL": ""}),
-                        patch.object(common, "find_tool", lambda n: "yt-dlp" if n == "yt-dlp" else real(n)),   # 本物の yt-dlp が無くても組み立てられる
+                        patch.object(studio_env, "find_tool", lambda n: "yt-dlp" if n == "yt-dlp" else real(n)),   # 本物の yt-dlp が無くても組み立てられる
                         patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake])]
         for p in self.patches:
             p.start()
@@ -762,7 +763,7 @@ class TestLiveSection(unittest.TestCase):
         pub = exporter.job_public(job)["items"][0]
         self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["status"]), (self.final, None, None, "done"))
         self.assertEqual(pub["file"], "配信フォルダ/" + os.path.basename(self.final))
-        self.assertAlmostEqual(common.media_info(self.final)[0], 5.0, delta=0.2)
+        self.assertAlmostEqual(mediainfo.media_info(self.final)[0], 5.0, delta=0.2)
         self.assertEqual(_fps(self.final), "30/1")
         self.assertAlmostEqual(_y_avg(self.final), 56, delta=3)   # 最初のコマ = 元の 7 秒
         with open(self.log, encoding="utf-8") as f:
@@ -806,7 +807,7 @@ class TestLiveSection(unittest.TestCase):
                 time.sleep(0.05)
         with patch.object(exporter, "run_ytdlp", side_effect=slow):
             job = exporter.start_job(exporter.build_section_spec(self.req()))
-            with self.assertRaises(common.ApiError) as c:   # 今の書き出しと同じ: 実行中は別のジョブを始められない(409)
+            with self.assertRaises(errors.ApiError) as c:   # 今の書き出しと同じ: 実行中は別のジョブを始められない(409)
                 exporter.start_job(exporter.build_section_spec(self.req(path=os.path.join(self.folder, "b.mp4"))))
             self.assertEqual((c.exception.status, c.exception.code), (409, "busy"))
             exporter.cancel(job["id"])
@@ -824,12 +825,12 @@ class TestLiveSection(unittest.TestCase):
             job = self.run_section()
         self.assertEqual(job["items"][0]["status"], "done", job["items"][0].get("error"))
         self.assertEqual(_fps(self.final), "30/1")
-        with patch.dict(os.environ, {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": ""}), self.assertRaises(common.ApiError) as c:
+        with patch.dict(os.environ, {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": ""}), self.assertRaises(errors.ApiError) as c:
             exporter.build_section_spec(self.req(path=os.path.join(self.folder, "c.mp4")))
         self.assertEqual(c.exception.status, 500)
 
     def test_bad_requests(self):
-        out = common.get_out_dir()
+        out = studio_env.get_out_dir()
         os.makedirs(os.path.join(out, "x"), exist_ok=True)
         with open(os.path.join(self.folder, "exists.mp4"), "wb") as f:
             f.write(b"x")
@@ -843,7 +844,7 @@ class TestLiveSection(unittest.TestCase):
                 dict(path=os.path.join(out, "x")), dict(path="a\x00.mp4"),
                 dict(volume=0), dict(volume=201), dict(volume="abc"), dict(loudness=-13), dict(loudness="x"), dict(precision="turbo")]
         for kw in bads:
-            with self.subTest(kw=kw), self.assertRaises(common.ApiError) as c:
+            with self.subTest(kw=kw), self.assertRaises(errors.ApiError) as c:
                 exporter.build_section_spec(self.req(**kw))
             self.assertEqual((c.exception.status, c.exception.code), (400, "bad_request"), kw)
         # 正しい形は通る(マークも配信の登録も要らない)・path の親が書き出し先そのもの(直下)でもよい

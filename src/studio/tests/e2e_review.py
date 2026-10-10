@@ -14,12 +14,13 @@ import tempfile
 from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-import common
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import studio_env  # noqa: E402
 import serve
 
 
 def main():
-    ffmpeg = common.find_tool("ffmpeg")
+    ffmpeg = studio_env.find_tool("ffmpeg")
     if not ffmpeg:
         raise SystemExit("ffmpeg が必要です(STUDIO_FFMPEG でも指定できます)")
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8895

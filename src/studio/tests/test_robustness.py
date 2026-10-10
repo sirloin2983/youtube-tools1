@@ -15,21 +15,22 @@ from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS3-4 から common を読まない)
-import common
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS5-B から common を読まない)
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import errors, fsio, mediainfo, procs, studio_env  # noqa: E402
+from pipeline.ingest import sources  # noqa: E402
 from human.find import rank
 from human.review import feedback
 from pipeline.analyze import analyze
 from pipeline.export import exporter
 import serve
-from ytt import fsio  # noqa: E402  置き換え(スタジオの common.replace_file は RS3-4 で ytt.fsio.replace_retry を直に使う形にした)
-from common import ApiError
+from ytt.errors import ApiError
 
 
 class Home(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -144,8 +145,8 @@ class TestCaches(Home):
         self.assertEqual(analyze.load_archive("abcdefghijk")["runs"], [{"at": 1}])
 
     def test_prefetch_refuses_non_ascii_video_id(self):
-        """先読みの動画 ID の検査は common.VID_RE と同じ(ASCII だけ)。以前は [\\w-]{11} で全角の英字なども通っていた"""
-        with patch.object(common, "fake", return_value=False), patch.object(common, "find_tool", return_value="yt-dlp"), \
+        """先読みの動画 ID の検査は sources.VID_RE と同じ(ASCII だけ)。以前は [\\w-]{11} で全角の英字なども通っていた"""
+        with patch.object(studio_env, "fake", return_value=False), patch.object(studio_env, "find_tool", return_value="yt-dlp"), \
                 patch.object(analyze, "download_chat", return_value=(None, "テスト")) as dl:
             for vid in ("ａｂｃｄｅｆｇｈｉｊｋ", "あいうえおかきくけこさ", "abcdefghijé", "abcdefghijk\n", None, ""):
                 self.assertEqual(analyze.prefetch_chat(vid, 60), "skip", repr(vid))
@@ -233,25 +234,25 @@ class TestChatCacheSize(Home):
 class TestLogs(Home):
     def test_rotated_logs_keep_log_extension(self):
         # *.log のまま回す(.gitignore の *.log に掛かる。以前の studio.log.old は掛からず公開リポジトリに載るおそれがあった)
-        self.assertEqual(common.old_log_name(os.path.join("d", "studio.log")), os.path.join("d", "studio.old.log"))
+        self.assertEqual(studio_env.old_log_name(os.path.join("d", "studio.log")), os.path.join("d", "studio.old.log"))
         p = os.path.join(self.tmp, "studio.log")
         with open(p, "w") as f:
             f.write("x" * 100)
-        common.rotate_log(p, 50)
+        studio_env.rotate_log(p, 50)
         self.assertEqual(sorted(os.listdir(self.tmp)), ["studio.old.log"])
-        common.rotate_log(p, 50)   # 無いファイルは何もしない
+        studio_env.rotate_log(p, 50)   # 無いファイルは何もしない
 
     def test_old_names_are_migrated(self):
         for n in ("studio.log.old", "studio-errors.log.old"):
             with open(os.path.join(self.tmp, n), "w") as f:
                 f.write(n)
-        common.migrate_old_logs()
+        startup.migrate_old_logs()
         self.assertEqual(sorted(os.listdir(self.tmp)), ["studio-errors.old.log", "studio.old.log"])
 
     def test_error_log_rotation_name(self):
         with open(os.path.join(self.tmp, "studio-errors.log"), "w") as f:
             f.write("x" * (1024 * 1024 + 10))
-        common.log_failure("テスト", ValueError("boom"))
+        studio_env.log_failure("テスト", ValueError("boom"))
         self.assertIn("studio-errors.old.log", os.listdir(self.tmp))
         self.assertIn("boom", "\n".join(self.lines("studio-errors.log")))
 
@@ -266,15 +267,15 @@ class TestLogs(Home):
 
 class TestYtdlpTemplate(unittest.TestCase):
     def test_percent_in_folder_is_escaped(self):
-        self.assertEqual(common.ytdlp_out(os.path.join("C:", "100%", "exports"), "a.%(ext)s"), os.path.join("C:", "100%%", "exports", "a.%(ext)s"))
-        self.assertEqual(common.ytdlp_out("/plain", "chat.%(ext)s"), os.path.join("/plain", "chat.%(ext)s"))
+        self.assertEqual(sources.ytdlp_out(os.path.join("C:", "100%", "exports"), "a.%(ext)s"), os.path.join("C:", "100%%", "exports", "a.%(ext)s"))
+        self.assertEqual(sources.ytdlp_out("/plain", "chat.%(ext)s"), os.path.join("/plain", "chat.%(ext)s"))
 
     def test_all_ytdlp_calls_use_the_escaped_template(self):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         for fn in (os.path.join("..", "pipeline", "analyze", "analyze.py"), os.path.join("..", "pipeline", "export", "exporter.py")):   # analyze は RS3-5 で pipeline/analyze へ・exporter は RS1-4 で pipeline/export へ
             with open(os.path.join(here, fn), encoding="utf-8") as f:
                 src = f.read()
-            self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず common.ytdlp_out を通す
+            self.assertNotIn('"-o", os.path.join(', src, fn)   # yt-dlp の -o は必ず sources.ytdlp_out を通す
 
 
 class TestPorts(unittest.TestCase):
@@ -349,9 +350,9 @@ class TestDataHome(unittest.TestCase):
     def test_legacy_exports_stay_the_output_folder(self):
         os.makedirs(os.path.join(self.legacy, "exports"))
         home = serve._data_home()
-        common.set_home(home)
-        common.load_out_dir()
-        self.assertEqual(common.get_out_dir(), os.path.join(self.legacy, "exports"))
+        studio_env.set_home(home)
+        studio_env.load_out_dir()
+        self.assertEqual(studio_env.get_out_dir(), os.path.join(self.legacy, "exports"))
 
     def test_studio_home_wins(self):
         with patch.dict(os.environ, {"STUDIO_HOME": os.path.join(self.tmp, "h")}):
@@ -396,11 +397,11 @@ FAKE_INFO = "  Duration: 00:00:05.00, start: 0\n  Stream #0:0: Video: h264, 64x6
 
 
 class TestMediaInfoCache(Home):
-    """common.media_info は (パス・更新日時・大きさ) が同じあいだ ffmpeg -i を動かし直さない(2026-10-09 見直し T7。書き出し 1 本で 11 回 → 5 回)"""
+    """mediainfo.media_info は (パス・更新日時・大きさ) が同じあいだ ffmpeg -i を動かし直さない(2026-10-09 見直し T7。書き出し 1 本で 11 回 → 5 回)"""
 
     def setUp(self):
         super().setUp()
-        common._media_cache.clear()
+        mediainfo._media_cache.clear()
         self.calls = []
 
         def fake_run(cmd, timeout, merge_stderr=False):
@@ -409,7 +410,7 @@ class TestMediaInfoCache(Home):
                 raise subprocess.TimeoutExpired(cmd, timeout)
             return subprocess.CompletedProcess(cmd, 0, FAKE_INFO, "")
         self.fail = False
-        self.patches = [patch.object(common, "find_tool", return_value="ffmpeg-fake"), patch.object(common, "run_short", side_effect=fake_run)]
+        self.patches = [patch.object(studio_env, "find_tool", return_value="ffmpeg-fake"), patch.object(procs, "run_short", side_effect=fake_run)]
         for p in self.patches:
             p.start()
         self.path = os.path.join(self.tmp, "a.mp4")
@@ -419,48 +420,48 @@ class TestMediaInfoCache(Home):
     def tearDown(self):
         for p in self.patches:
             p.stop()
-        common._media_cache.clear()
+        mediainfo._media_cache.clear()
         super().tearDown()
 
     def test_same_file_is_probed_once(self):
         want = (5.0, True, True, "Stream #0:0: Video: h264, 64x64")
-        self.assertEqual(common.media_info(self.path), want)
-        self.assertEqual(common.media_info(self.path), want)
+        self.assertEqual(mediainfo.media_info(self.path), want)
+        self.assertEqual(mediainfo.media_info(self.path), want)
         self.assertEqual(len(self.calls), 1)
-        self.assertEqual(common.media_info_known(self.path), want)
+        self.assertEqual(mediainfo.media_info_known(self.path), want)
 
     def test_changed_file_is_probed_again(self):
-        common.media_info(self.path)
+        mediainfo.media_info(self.path)
         with open(self.path, "wb") as f:
             f.write(b"y" * 20)   # 大きさが変わった = 書き直された
-        common.media_info(self.path)
+        mediainfo.media_info(self.path)
         self.assertEqual(len(self.calls), 2)
 
     def test_missing_file_and_failures_are_not_remembered(self):
-        self.assertEqual(common.media_info(os.path.join(self.tmp, "none.mp4")), (None, False, False, ""))
+        self.assertEqual(mediainfo.media_info(os.path.join(self.tmp, "none.mp4")), (None, False, False, ""))
         self.assertEqual(self.calls, [])   # 無いファイルには ffmpeg を動かさない
         self.fail = True
-        self.assertEqual(common.media_info(self.path), (None, False, False, ""))
+        self.assertEqual(mediainfo.media_info(self.path), (None, False, False, ""))
         self.fail = False
-        self.assertEqual(common.media_info(self.path)[0], 5.0)   # 時間切れは覚えない(次は測り直す)
+        self.assertEqual(mediainfo.media_info(self.path)[0], 5.0)   # 時間切れは覚えない(次は測り直す)
         self.assertEqual(len(self.calls), 2)
 
     def test_renamed_file_keeps_the_result(self):
         """書き出しの置き換え(一時の名前 → 本当の名前)では、移す前の結果を覚えさせる(exporter.promote・_reencode_audio)"""
-        info = common.media_info(self.path)
+        info = mediainfo.media_info(self.path)
         dst = os.path.join(self.tmp, "b.mp4")
-        known = common.media_info_known(self.path)
+        known = mediainfo.media_info_known(self.path)
         fsio.replace_retry(self.path, dst)
-        common.remember_media_info(dst, known)
-        self.assertEqual(common.media_info(dst), info)
+        mediainfo.remember_media_info(dst, known)
+        self.assertEqual(mediainfo.media_info(dst), info)
         self.assertEqual(len(self.calls), 1)
-        self.assertIsNone(common.media_info_known(os.path.join(self.tmp, "c.mp4")))
-        common.remember_media_info(dst, None)   # None なら何もしない
+        self.assertIsNone(mediainfo.media_info_known(os.path.join(self.tmp, "c.mp4")))
+        mediainfo.remember_media_info(dst, None)   # None なら何もしない
 
     def test_other_ffmpeg_forgets(self):
-        common.media_info(self.path)
-        with patch.object(common, "find_tool", return_value="ffmpeg-other"):
-            common.media_info(self.path)
+        mediainfo.media_info(self.path)
+        with patch.object(studio_env, "find_tool", return_value="ffmpeg-other"):
+            mediainfo.media_info(self.path)
         self.assertEqual(len(self.calls), 2)
 
 
@@ -468,37 +469,37 @@ class TestStopChildren(Home):
     """終了の流れで、実行中の子プロセス(ffmpeg・yt-dlp の代わりに長く動く python)を孫ごと止める(2026-09-30 の設計レビューの 1)。"""
 
     def tearDown(self):
-        for p in common.children():
-            common.hard_kill(p)
+        for p in procs.children():
+            procs.hard_kill(p)
         super().tearDown()
 
     def test_no_children_returns_at_once(self):
         t0 = time.time()
-        self.assertEqual(common.stop_children(), 0)
+        self.assertEqual(procs.stop_children(), 0)
         self.assertLess(time.time() - t0, 0.2)   # 子が無いときの終了を遅くしない
 
     def test_stops_child_and_grandchild(self):
         beat = os.path.join(self.tmp, "grandchild.beat")
-        proc = common.spawn([sys.executable, "-c", PARENT, BEAT, beat], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.assertIn(proc, common.children())
+        proc = procs.spawn([sys.executable, "-c", PARENT, BEAT, beat], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertIn(proc, procs.children())
         self.assertTrue(_wait_file(beat), "孫が起動しなかった")
         self.assertTrue(_alive(beat))
         t0 = time.time()
-        self.assertEqual(common.stop_children(2.0), 1)
+        self.assertEqual(procs.stop_children(2.0), 1)
         self.assertLess(time.time() - t0, 8)
         self.assertIsNotNone(proc.poll())
-        self.assertEqual(common.children(), [])
+        self.assertEqual(procs.children(), [])
         self.assertFalse(_alive(beat), "孫(yt-dlp が起動した ffmpeg に当たる)が残っている")
 
     def test_run_short_is_forgotten(self):
-        r = common.run_short([sys.executable, "-c", "print('ok')"], timeout=30)
+        r = procs.run_short([sys.executable, "-c", "print('ok')"], timeout=30)
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "ok"))
-        self.assertEqual(common.children(), [])
+        self.assertEqual(procs.children(), [])
 
     def test_run_short_timeout_kills(self):
         with self.assertRaises(subprocess.TimeoutExpired):
-            common.run_short([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.5)
-        self.assertEqual(common.children(), [])
+            procs.run_short([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.5)
+        self.assertEqual(procs.children(), [])
 
 
 class TestShutdownJobs(Home):
@@ -509,8 +510,8 @@ class TestShutdownJobs(Home):
         serve.init(self.tmp)
 
     def tearDown(self):
-        for p in common.children():
-            common.hard_kill(p)
+        for p in procs.children():
+            procs.hard_kill(p)
         for j in list(exporter._jobs.values()):
             j["cancel"] = True
         super().tearDown()
@@ -551,7 +552,7 @@ class TestShutdownJobs(Home):
         self.assertTrue(job.get("interrupted"))
         self.assertEqual([i["status"] for i in job["items"]], ["cancelled", "cancelled"])   # 2本目は始めない
         self.assertFalse(exporter.is_busy())
-        self.assertEqual(common.children(), [])
+        self.assertEqual(procs.children(), [])
         self.assertFalse(_alive(beat))
         self.assertIn("終了のため中断しました: 解析 0 本", self._log())
 

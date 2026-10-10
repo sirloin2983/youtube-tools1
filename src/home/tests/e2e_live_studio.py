@@ -122,7 +122,8 @@ def main():
 
 
 def run(tmp, shots, force_chromium):
-    import common  # noqa: E402  (studio)
+    import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+    from ytt import studio_env  # noqa: E402
     import serve   # noqa: E402  (studio)
     import launch as L  # noqa: E402
     import mount  # noqa: E402
@@ -148,7 +149,7 @@ def run(tmp, shots, force_chromium):
     out_dir = os.path.join(tmp, "out")
     os.makedirs(out_dir)
     serve.init(os.path.join(tmp, "studio-home"))
-    common.set_out_dir(out_dir, lambda: False)
+    studio_env.set_out_dir(out_dir, lambda: False)
     sys.modules[mount.MOUNTS["studio"]["alias"]] = serve   # init した serve をそのまま取り込ませる(e2e_ui.py の --mounted と同じ)
     sup = L.Supervisor(REPO, only=["studio"], mounts=("studio",), log=lambda m: None, ports=dict(zip(["studio"], free_ports(1))))
     srv, port = L.make_server(0, sup)

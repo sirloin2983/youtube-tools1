@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-import common
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import studio_env  # noqa: E402
 import handoff
 import serve
 from pipeline.export import manifest  # noqa: E402  (common が src を sys.path に足してある。.clip.json の tool は serve が入れる)
@@ -69,7 +70,7 @@ class RuntimeDir(unittest.TestCase):
         self.rt = os.path.join(self.tmp, ".runtime")
         self.env = patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.rt})
         self.env.start()
-        common.set_home(os.path.join(self.tmp, "home"))
+        studio_env.set_home(os.path.join(self.tmp, "home"))
         self.fakes = []
 
     def tearDown(self):
@@ -92,7 +93,7 @@ class RuntimeDir(unittest.TestCase):
 class TestRuntimeFile(RuntimeDir):
     def test_runtime_dir_default_is_parent_of_tool_folder(self):
         with patch.dict(os.environ, {"YTT_RUNTIME_DIR": ""}):
-            self.assertEqual(handoff.runtime_dir(), os.path.join(os.path.dirname(common.CODE_DIR), ".runtime"))
+            self.assertEqual(handoff.runtime_dir(), os.path.join(os.path.dirname(startup.CODE_DIR), ".runtime"))
         self.assertEqual(handoff.runtime_dir(), os.path.abspath(self.rt))   # 環境変数が優先
 
     def test_write_and_remove_own_file(self):

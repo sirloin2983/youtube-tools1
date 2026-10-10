@@ -37,7 +37,8 @@ HERE = os.path.dirname(TESTS)   # ツールのフォルダ(studio/)
 sys.path.insert(0, HERE)   # ツールのフォルダ
 os.environ["STUDIO_FAKE"] = "1"
 
-import common  # noqa: E402
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import apikey, mediainfo, studio_env  # noqa: E402
 import serve  # noqa: E402
 from human.find import rank  # noqa: E402  (common が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 
@@ -47,7 +48,7 @@ YT_ID = "ytE2Etest01"
 
 
 def make_media(home):
-    ffmpeg = common.find_tool("ffmpeg")
+    ffmpeg = studio_env.find_tool("ffmpeg")
     if not ffmpeg:
         raise SystemExit("ffmpeg が必要です(STUDIO_FFMPEG でも指定できます)")
     # webm(VP8/Opus): Playwright の chromium は H.264 を再生できないため(実際の Chrome / Edge は mp4 も再生できる)。書き出しは精密方式で mp4 になる
@@ -85,8 +86,8 @@ def fixture(home):
     for ag in ("hololive", "nijisanji"):
         rank.import_official_channels(ag)
         rank.resolve(ag)
-    common.set_api_key("AIzaTESTKEY0123456789abcdefghij")   # 空欄で「保存」を押しても消えないことの確認用
-    return {"media": media, "a": a, "b": b, "yt": YT_ID, "config": common.p("config.json")}
+    apikey.set_api_key("AIzaTESTKEY0123456789abcdefghij")   # 空欄で「保存」を押しても消えないことの確認用
+    return {"media": media, "a": a, "b": b, "yt": YT_ID, "config": studio_env.p("config.json")}
 
 
 def tab_away_and_back(pg):
@@ -688,7 +689,7 @@ def check_review_moment_join(t):
     href = pg.evaluate("() => { const r = [...document.querySelectorAll('#rvExpList .rv-ejob.st-ok')].find(r => (r.textContent || '').includes('つないだ1本')); const a = r && r.querySelector(\"a[href*='?media=']\"); return a ? a.getAttribute('href') : ''; }")
     jpath = urllib.parse.unquote(href.split("?media=", 1)[1]) if "?media=" in href else ""
     want = sum(m["end"] - m["start"] for m in pick2)
-    got = common.media_info(jpath)[0] if jpath and os.path.isfile(jpath) else None
+    got = mediainfo.media_info(jpath)[0] if jpath and os.path.isfile(jpath) else None
     c.ok(got is not None and abs(got - want) < 1.0 and "つなぎ_" in os.path.basename(jpath), "つないだ mp4 の長さ = 選んだマークの合計(%s 秒 / %s 秒): %s" % (got, round(want, 1), jpath))
     work = os.path.join(os.path.dirname(jpath), "作業用") if jpath else ""
     c.ok(jpath and not [n for n in (os.listdir(work) if os.path.isdir(work) else []) if n.startswith("つなぐ_")] and not os.path.exists(os.path.splitext(jpath)[0] + ".clip.json"),

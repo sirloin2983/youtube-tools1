@@ -15,7 +15,8 @@ from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-import common  # noqa: E402
+import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
+from ytt import studio_env  # noqa: E402
 import serve  # noqa: E402
 from human.find import rank  # noqa: E402
 
@@ -66,7 +67,7 @@ class FakeYT:
 class TestLiveList(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        common.set_home(self.tmp)
+        studio_env.set_home(self.tmp)
         rank.put_registry({"agencies": [
             {"id": "aaa", "name": "事務所A", "channels": [{"ref": CH_A}, {"ref": CH_B}, {"ref": "@notyet"}]},
             {"id": "bbb", "name": "事務所B", "channels": [{"ref": CH_C}]},
@@ -193,7 +194,7 @@ class TestFakeMode(unittest.TestCase):
     def test_fake_has_live(self):
         tmp = tempfile.mkdtemp()
         try:
-            common.set_home(tmp)
+            studio_env.set_home(tmp)
             rank._cache.clear()
             rank._live_none.clear()
             rank.put_registry({"agencies": [{"id": "f", "name": "疑似", "channels": [{"ref": "UC" + ("%022d" % i)} for i in range(30)]}]})
