@@ -17,10 +17,10 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.9.0";
+        public const string Version = "2.10.0";
     }
 
-    // ---- PC でどこまでやるか(1回の「送る」ごとに選ぶ。動画と URL の両方にかかる。起動したときはいつも auto) ----
+    // ---- PC でどこまでやるか。2.10.0 から画面で選ぶ欄は無く、いつも auto(② check・③ manual は古い形の読み書きのために残す。PC は ②③ を送られても ① として扱う) ----
     public static class Flow
     {
         public const string Auto = "auto", Check = "check", Manual = "manual";

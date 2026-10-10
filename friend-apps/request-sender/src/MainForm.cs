@@ -57,7 +57,6 @@ namespace RequestSender
 
         // 右: 仕上げ方・話す人・メモ
         readonly VStack right = new VStack { OnPanel = true, Border = true };
-        readonly Radio[] flowRadios = Flow.All.Select(f => new Radio(Flow.Label(f)) { Tag = f }).ToArray();
         readonly Lbl flowExplain = new Lbl("", Tone.Muted);
         readonly Lbl lCut = new Lbl("カット", Tone.Text), lTracks = new Lbl("映像トラックの数", Tone.Text), tracksHint = new Lbl("", Tone.Muted);
         readonly Lbl lDeliver = new Lbl("届け方", Tone.Muted);   // 2.8.0。「02 仕上げ方」の見出しの行の右(右の列の高さを増やさない)
@@ -96,8 +95,6 @@ namespace RequestSender
         bool built, justSent;
         enum LeftMode { Url, Video, Live }
         LeftMode leftMode;
-        bool liveLocked;              // ライブ配信の URL が入っている間は ① に固定(外したら前の仕上げ方に戻す)
-        string flowBeforeLive = Flow.Auto;
         Thread worker;
         volatile bool cancel;
         int arrived;
@@ -259,15 +256,8 @@ namespace RequestSender
                 headFlow.SetBounds(0, (head02.Height - headFlow.Height) / 2, Math.Max(Ui.S(60), lDeliver.Left - Ui.S(8)), headFlow.Height);
             };
             right.Add(head02, 0, true);
-            for (int i = 0; i < flowRadios.Length; i++)
-            {
-                var r = flowRadios[i];
-                r.CheckedChanged += (s, e) => { if (((Radio)s).Checked) { UpdateFlow(); UpdateAll(); } };
-                right.Add(r, i == 0 ? 8 : 2, false);
-            }
-            flowRadios[0].Checked = true;   // 起動したときはいつも ①(覚えない)
             flowExplain.Font = Theme.Small;
-            right.Add(flowExplain, 4, true);
+            right.Add(flowExplain, 8, true);
 
             cutNone.Click += (s, e) => SetCut(Cut.None);
             cutSilence.Click += (s, e) => SetCut(Cut.Silence);
@@ -657,7 +647,6 @@ namespace RequestSender
             cards.Add(c);
             cardList.Insert(cardList.IndexOf(addCard), c, cards.Count == 1 ? 0 : 8, true);
             Theme.Apply(c);
-            c.SetManual(SelectedFlow == Flow.Manual);
             if (!string.IsNullOrEmpty(url)) c.SetUrlLines(url);
             addCard.Enabled = cards.Count < MaxCards;
             return c;
@@ -676,42 +665,21 @@ namespace RequestSender
         }
 
         // ---------------------------------------------------------------- 仕上げ方
-        string SelectedFlow
-        {
-            get
-            {
-                var r = flowRadios.FirstOrDefault(x => x.Checked);
-                return r != null ? (string)r.Tag : Flow.Auto;
-            }
-        }
+        // 2.10.0 から選ぶ欄は無い(② 軽く確認・③ 全部人が行う をやめた)。いつも ① 全自動
+        string SelectedFlow { get { return Flow.Auto; } }
 
         void UpdateFlow()
         {
             if (!built) return;   // 組み立ての途中(① を選んだとき)は、組み立て終わりにまとめて
-            LockFlowForLive();
             string f = SelectedFlow;
             bool live = LiveOn;
             bool auto = f == Flow.Auto;   // ②③ はパックを PC で作らないので、カットとトラック・届け方は使わない
             flowExplain.Text = live ? DeliverBatch.LiveHint(deliver.Value) : auto ? DeliverBatch.Hint(deliver.Value) : Flow.Explain(f);
             cutRow.Enabled = tracksRow.Enabled = tracksHint.Enabled = auto;
             lDeliver.Enabled = deliver.Enabled = auto && !Busy;   // ライブ配信も届け方を選べる(2.9.0)
-            for (int i = 1; i < flowRadios.Length; i++) flowRadios[i].Enabled = !live && !Busy;
             weightsOn.Enabled = !live && !Busy;   // ライブ配信は見どころの重みを使わない(配信中の検出)
             UpdateWeights();
-            foreach (var c in cards) c.SetManual(f == Flow.Manual);
             right.Arrange();
-        }
-
-        // ライブ配信の URL を入れたら ① に切り替え、消したら前の仕上げ方に戻す
-        void LockFlowForLive()
-        {
-            bool live = LiveOn;
-            if (live == liveLocked) return;
-            liveLocked = live;
-            string to = live ? Flow.Auto : flowBeforeLive;
-            if (live) flowBeforeLive = SelectedFlow;
-            var r = flowRadios.FirstOrDefault(x => (string)x.Tag == to);
-            if (r != null && !r.Checked) r.Checked = true;
         }
 
         void SetCut(string value)
@@ -1148,7 +1116,6 @@ namespace RequestSender
             foreach (var c in speakerColors) c.ReadOnly = busy;
             speakerCount.Enabled = tracks.Enabled = deliver.Enabled = !busy;
             cutNone.Enabled = cutSilence.Enabled = weightsOn.Enabled = !busy;
-            foreach (var r in flowRadios) r.Enabled = !busy;
             if (!busy) { UpdateFlow(); UpdateWeights(); }
             else foreach (var s in weightSteps) s.Enabled = false;
             LayoutAll();
@@ -1268,11 +1235,10 @@ namespace RequestSender
         }
 
         // 窓の中身を画像に保存する
-        // 見本の状態(--state): ③ を選んだ・重みを指定して配信者 10 人・配信者 8 人・配信者の欄の誤り・送ろうとして誤りが出た・送っている途中・送り終えた
+        // 見本の状態(--state): 重みを指定して配信者 10 人・配信者 8 人・配信者の欄の誤り・送ろうとして誤りが出た・送っている途中・送り終えた
         public void ApplyState(string name)
         {
-            if (name == "manual") flowRadios[2].Checked = true;
-            else if (name == "many")
+            if (name == "many")
             {
                 speakerCount.Value = 8;
                 for (int i = 0; i < 8; i++) speakerNames[i].Text = i < memberNames.Count ? memberNames[i] : "配信者 " + (i + 1);

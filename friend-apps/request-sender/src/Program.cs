@@ -4,7 +4,7 @@
 //   RequestSender.exe --screenshot <png> [--theme A|B|C|D] [--tab send|video|live|receive] [--sample] [--size 900x620] [--select <行>]
 //   RequestSender.exe --probe-preview <mp4> <out.txt> [--theme A|B|C|D]   … まとめ動画の小窓で再生が進むかを確かめて out に書く(画面の外。2.7.0)
 //                                      環境変数 REQUEST_SENDER_PROBE_GROUP=1 で組の小窓(1 本ずつの一覧つき・2 本目の頭から。2.8.0)
-//                                      [--state manual|weights|many|speakers|strict|busy|done|focus|receiving(受け取るのタブ: すべて受け取るの途中)]
+//                                      [--state weights|many|speakers|strict|busy|done|focus|receiving(受け取るのタブ: すべて受け取るの途中)]
 //                                      … 窓を画像に保存して終わる(見た目の確認用。通信しない・設定を書かない・「送る」のショートカットを触らない)
 //                                        環境変数 REQUEST_SENDER_SHOT_MANY=1 で「受け取る」の見本を 15 件に。--select = 「受け取る」で選ぶ行(0 から)
 using System;

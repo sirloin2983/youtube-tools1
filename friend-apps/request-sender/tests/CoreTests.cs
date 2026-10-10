@@ -1477,17 +1477,15 @@ static class CoreTests
             {
                 var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
                 var live = FindAll(f).OfType<LiveCard>().Single();
-                var radios = FindAll(f).OfType<Radio>().ToList();
+                True(!FindAll(f).OfType<Radio>().Any(), "2.10.0: 仕上げ方の選ぶ欄は無い(① 固定)");
                 var deliver = (Stepper)typeof(MainForm).GetField("deliver", flags).GetValue(f);
                 var weights = FindAll(f).OfType<Check>().Single(c => c.Text.StartsWith("見どころの重み"));
                 Func<string> summary = () => ((Lbl)typeof(MainForm).GetField("summary", flags).GetValue(f)).Text;
                 Func<string> status = () => ((Lbl)typeof(MainForm).GetField("status", flags).GetValue(f)).Text;
                 True(FindAll(f).OfType<Btn>().Any(b => b.Text == "ライブ配信"), "送るものに「ライブ配信」");
                 True(deliver.Enabled && deliver.Value == 1, "届け方は ① なら選べる(既定は 1 本ずつ)");
-                radios[1].Checked = true;
-                True(!deliver.Enabled, "② では届け方は使わない");
                 live.Url.Text = "https://www.youtube.com/live/dQw4w9WgXcQ";
-                True(radios[0].Checked && !radios[1].Enabled && !radios[2].Enabled, "ライブ配信の URL を入れると ① に固定");
+                True(deliver.Enabled, "ライブ配信の URL を入れても ①");
                 True(!weights.Enabled && deliver.Enabled, "ライブ配信でも届け方は選べる(2.9.0)・重みは使わない");
                 True(summary().StartsWith("ライブ配信(配信中に自動で切り抜き)") && summary().Contains("感度 普通") && summary().Contains("カットしない") && summary().Contains("1 本ずつ"), "要約: " + summary());
                 deliver.Value = 4;
@@ -1506,8 +1504,6 @@ static class CoreTests
                 f.ApplyState("strict");
                 True(status().Contains("直す所") && FindAll(f).OfType<Field>().Any(x => x.Error), "YouTube の形でない URL は欄を赤く: " + status());
                 live.Url.Text = "";
-                True(radios[1].Checked && radios[1].Enabled && radios[2].Enabled, "消したら前の仕上げ方(②)に戻る");
-                radios[0].Checked = true;
                 deliver.Value = 5;
                 True(!summary().StartsWith("ライブ配信("), "ライブ配信の要約は消える: " + summary());
                 card.Url.Text = Norm;
