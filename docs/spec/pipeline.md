@@ -136,7 +136,7 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 
 ### 2.6 ② の結果の束 `<案件>\作業用\runs\<実行id>.json`(RS6 b-B0。`src/flow/placement.py`・`src/flow/runlog.py`)
 ② の 1 回の実行が終わったところ(`flow/run.run` の最後)で原子的に書く。**書けなくても実行は失敗にしない**。形の名前は `runlog.RESULT_SCHEMA` = `youtube-tools-run/v1`。
-- 中身: `id`・`input`(何を入れて始めたか = `kind`・`videoId`・`docId`・`sourcePath`・`title`・`mode`・`top`・`marks`・`ranges`・`cut`・`engine`・`model`・`overwrite`・`requestId`・`streamer`・`onFail`)・`spec`(その実行の束)・`state`(`done` / `error` / `cancelled` / `stopped` = 入口の終了で止まった = 次の起動で続く)・`message`・`error`・`nothing`・`steps`(段・状態・詳細)・`outputs`(段ごとの成果物のパスと鍵のパス。`export` / `transcribe`(`post` の鍵も)/ `pack` / `diarize`)・`packs`・`failures`・`created`・`at`・`madeBy`
+- 中身: `id`・`input`(何を入れて始めたか = `kind`・`videoId`・`docId`・`sourcePath`・`title`・`mode`・`top`・`marks`・`ranges`・`cut`・`engine`・`model`・`overwrite`・`requestId`・`streamer`・`onFail`)・`spec`(その実行の束)・`state`(`done` / `error` / `cancelled` / `stopped` = 入口の終了で止まった = 次の起動で続く)・`message`・`error`・`nothing`・`steps`(段・状態・詳細)・`outputs`(段ごとの成果物のパスと鍵のパス。`export` / `transcribe`(`post` の鍵も)/ `pack` / `diarize`)・`packs`・`notes`(RS7-1 S4。友人の依頼のメモ)・`failures`・`created`・`at`・`madeBy`。`steps[]` の各段に `startedAt`・`finishedAt`(ミリ秒。RS7-1 S3。索引の 1 行の `steps` にも入る)
 - 置き場所は案件の `作業用\runs\`(案件の根の求め方は `data-location.md`)。案件が分からない(まだ無い)ときは書かない
 - 入口の `logs/autorun-runs.jsonl` の 1 行(1 実行 = 1 行)は**索引**: 1 行の `resultPath` が束の場所(書けなかった実行・RS6 より前の行には無い)。読む側は `runlog.read_result(rec)`(`resultPath` が絶対パスで名前が `<id>.json`・schema と id が一致するときだけ。案件のフォルダは人が動かす・消すので「あれば読める」だけ)。CLI(`src/app/cli.py`)は同じ形に段ごとの成果物と鍵を足して標準出力・`--out` へ返す
 
@@ -144,7 +144,17 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 - 置き場所は**作業データの根**(`ytt.datadir.data_root`。`YTT_DATA_DIR=inplace` のテストでは `.runtime/`)の直下の `.flow.lock`。中身は `{pid, port, at, token}`(`port` = ② の HTTP のポート。CLI など無ければ null)
 - 入口(start.bat)は起動で取り(`acquire`)、終わるとき返す(`release`)。CLI は動いている ② があればそのポートへ頼み、無ければ自分で取る。**同じ作業データで ② が 2 つ動かない**ので、別々のプロセスが同じ文書・パックを同時に書かない
 - **取り残し**: 持ち主の pid が動いていなければ無いのと同じ(`lock_info` は None・`acquire` は消して取り直す)。ポートを書いた印は、そのポートが開いていることも見る(pid の使い回しを取り違えない)。返すのは自分の `token` の印だけ(別の ② が取り直した物は消さない)
-- 入口を起動し直すとき、古い入口がポートを離さないうちに新しい入口が起動すると `.flow.lock` が残っていて起動を止める(古い入口が終わるのを待って、やり直す)
+- 入口を起動し直すとき、古い入口がポートを離さないうちに新しい入口が起動すると `.flow.lock` が残っていて起動を止める(RS7-1 1d: 新しい入口は古い入口の pid の終了を最大 90 秒待つ。期限が来ても `.flow.lock` の先客でも次の番号のポートには逃げず、読める文を出して非 0 で終わる)
+
+### 2.8 封筒 + 束と ② の口(RS7-1。`src/flow/envelope.py`・`src/flow/spec.py`・`src/flow/runqueue.py`・`src/flow/machine.py`)
+依頼 = **封筒**(処理の中身でない物)+ **束**(何を作るか)。② の段は束だけを読み、封筒は記録と届け方に使う。
+- **封筒** `{id, kind: url|file|docs|live, input, requestId, deliver: {dir, batch, pool}, note, createdAt, specVersion}`(+ 一時の `legacy` = 段の並びの形 `mode`・1 本が失敗したとき `onFail`・字幕の色の配信者 `streamer`)。`input` は kind ごと(url = videoId か url・title・duration・fresh・marks / file = path・title / docs = docId・title / live は形だけで RS7-2)。知らない項目・版・形の違う値は理由つきの ValueError(受け口では 400)
+- **束** `post` に後処理 6 項目(`autoFill`・`stripNames`・`autoLlm`・`autoContext`・`splitChars`・`diarSmooth`)と `llmModel`。`post.learning` は `{version}` だけ(後処理の鍵に入る。学習データの場所は束でなく machine の `learningDir`)。`hints` は検査と読み口(`hint_ranges`・`hint_people`)つき。`run.repack`(パックの作り直し)・`run.pinned`。**`SCREEN`・`Run.screen` は消えた**: 切り出しは精密・画質の上限なし・パックの fps 30 を固定(`FIXED`。画面の欄 3 つも消した)。用語集は束に入れず、編集の受付が設定から(CLI は `flow/tools` の `Learning` が learningDir から)読む
+- **束は受けたときに組む**: 入口の受付(`AutoRunner._accept`)が画面の設定 + この PC の設定で束を組み、友人の区間の長さ・配信者・届け方の n 本もそこで決める。待ちの間に設定を変えても、その実行の中身は変わらない
+- **この PC の設定** `machine.json`(作業データの根。`data-location.md`): `engine`・`device`・`llmModel`・`caseRoot`・`diskMinGB`・`learningDir`。強さは 引数 > 環境変数 `YTT_MACHINE_*`(`TRANSCRIBE_DEVICE` は device の旧い名前)> ファイル > 既定。`overlay(束)` は**引数・環境変数・ファイルで決めた値だけ**を束に重ねる(既定から来た値は重ねない = 何も決めていない PC では束・鍵が今と同じ)。編集の ⚙ のデバイスは `machine.json` に書く(GET/PUT `/api/settings` の中で振り分け。合わない値は 400)
+- **口**: `POST /api/flow/submit`(合言葉。`{envelope, spec?}` → `{run}`)・`GET /api/flow/status`(`{queued, running, done, idle, closed, runs}`)。CLI は入口に頼むとき submit 1 回。submit の無い古い入口(404)には今までの 2 段
+- **待ちの記録** `app\logs\autorun-active.json` は**版 2** = 各実行が封筒 + 束 + 状態(`Run.saved()`)。版 1(欄だけ・束なし)は 1 度だけ読んで変換し、次に書くときは版 2。古すぎる実行は戻さず記録に「中止」。待ち行列・糸・記録は `Queue`(`runqueue.py`)が持ち、入口の AutoRunner は受付と hook だけ
+- `Run.public` に `packs`・`newDocs`(文書単位の実行でも `docs`)
 
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
