@@ -163,7 +163,6 @@ post_record
 prompt_terms
 public_job
 range_lines_real
-read_asr
 read_resume
 read_words
 recognition_run
