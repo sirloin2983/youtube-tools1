@@ -3463,3 +3463,29 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 残した: U7 普段の使用・R2 ライブの後追い(next)・IN-1 呼び名・G2・FT の校正・B2 キー(任意)・U5 写し戻し(RS8 のあとへ。手順のパスを src/manage/keep/backup.py に直した。tasks の U5 も pre RS8)・記入 IN-1・IN-2・IN-4(★1 に)
 - plan/user-tasks.html: 空の節(必ず・できれば・様子見・片付け・好み・ux)は見出しごと隠す・進み具合のカードも空なら出さない・2 の前書きを今に。組み立てた 1 枚をブラウザで開いて表示とエラー 0 を確かめた。公開ページ 93 版
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-11 Claude Code(PC。Opus まとめ役。段の並び Fable 1 体(high)・実装 Opus 4 体(high)・Sonnet 3 体(medium)・確認 Sonnet 1 体(high)・文書 Sonnet 1 体(medium))— 役割で組み直す RS7-2(玄関とヘッドレス)
+- 段の並び: Fable が第 2 版を今のコードで見直した = `docs/design/rs7-survey-2026-10-10/plan_order_v3.md`。友人の依頼の経路がもう ② にほぼある → ライブ係は「新しく書く」でなく Live から抜き出す。G1a(F-5 を ①)・G3(配信後の作り直し)・serverkit・launch.py の mv は RS8 の B-3 と一緒へ送った
+- 仮決定(ユーザーは寝ていた。`plan/decisions.md` 3-31。**まだ確認していない**): b1 ライブの検出・採用の設定は録画を始めたときの束に固定(配信中に変えても効かない)/ b2 書き出しの音量も同じ / b3 ホームの `live.auto.engine/model` の欄は消さない。どれも戻しやすい。途中で別のセッションから決定 3-32(R2 で止めない)・3-33(優先の順 RS7-2 → RS8 → V1 → F1 → RV。他人の配信の AI の録画は後回し)が届いた
+- 実装(worktree で並列 → cherry-pick。main に入った):
+  - P0 fd0e8d0: 鍵で飛ばした段でも結果の packs に前のパック(`Run.kept_packs`・`all_packs()`・public の `keptPacks`。届ける対象の `run.packs` には混ぜない = 二重に届けない)。飛ばした文書も docs に
+  - B-1 aca7ea0: 案件の `case.json`(`flow/placement.ensure_case`。`youtube-tools-case/v1`・無いときだけ・結果の束を書くときに)。案件の一覧は読むだけ
+  - G2a 9f4bf1e: 封筒 kind live の input・束の adopt に `sens`・`afterStream`・`Queue.set_live_hook`(kind live は Run を作らず hook へ)。鍵は束の adopt を材料にしていない(確かめた)
+  - G5a 7f9aa94: 入口の `--headless`(ブラウザ・窓・③ の見張りなし・ready の 1 行・既に動いていれば終了コード 3・restart-self は 409)・status に `live{recording, detecting, exporting}` と idle
+  - G0 92cb39a: ライブの親の口 `flow/livehost.py`(Protocol)・`Live.close` の順を縛るテスト
+  - G1b 56e78cb: 採用 `flow/live_adopt.py`(StudioMarks / LocalMarks)
+  - G2b 3399b6d: ライブ係 `flow/livesession.py`(Live から app でない部分を抜き出した・submit(封筒 kind live + 束)・`live/bundles.json`・束から検出・解析・音量・書き出したあとの受け渡しは Queue.submit(kind file))。**自分の配信(スタジオの URL の欄)は束を組まず今の読み方のまま**(時間の上限で切った。束にすると e2e_live_studio の「配信中に waitMin を変える」と正反対になる。RS8 で)
+  - 8e7f901: case.json を案件の直下でなく `作業用\case.json` に(e2e_autorun の「出力先の直下は元動画・パック・作業用だけ」が止めた。09-27 からの決まりに合わせた。0.57.0 の入口で直下に作られた case.json があっても読まないだけ = 害は無い)
+  - 文書と版 fab9dfd: AGENTS・spec/pipeline 2.8・data-location・role-restructure 8 節「RS7-2 の結果」・ROADMAP。**版 0.56.0 → 0.57.0**
+- 本物の確認 R2(AI の分。3-32・3-33 のとおりユーザーの分は後追い):
+  - (1)(2) headless を別の作業データ・疑似の文字起こしで起こす → 2.4 秒で ready → CLI の submit が入口経由で済み → もう一度流すと鍵で飛ばして packs と keptPacks に前のパック → 二重に起こすと終了コード 3 → shutdown で `.flow.lock` が消える
+  - (4) headless に封筒 kind live(偽の配信元・本物の録画の部品)→ 録画 → 検出 → LocalMarks で採用 → 書き出し → submit(kind file)→ 文字起こし → パック(約 70 秒)・status の live と idle が期待どおり。本物の検出ワーカー(音とチャットの計算)は偽物に差し替えた
+  - (5) 画面ありの入口で CLI の submit の文字起こしの最中に restart-self → 新しい入口が 26 秒で続きから → CLI 終了コード 0・パック 1 本
+  - ユーザーの入口(8700)と録画の部品(8730)には触れていない
+- テストを流して見つけて直した物:
+  - a0f419e パックの書き出しの取り消し: 見張り(0.2 秒ごと)が気づく前に ffmpeg が書き終えると、取り消したのに Cancelled が出ず書き出しが残った → 最後に取り消しの印を見直す(重い組で `test_cancel_during_render` が揺れた原因)
+  - cfea645 スタジオ・編集・cut2resolve: 書き込み系を 403・404 で断るとき本文を読まずに閉じていた → Windows では RST で応答が届かないことがある(スタジオの `test_origin_on_writes` が組の中だけで揺れていた原因。前から HANDOVER の「後へ回したもの」にあった)。`httpsec.drain_body` を呼ぶ形にそろえた(入口の取り込み・mount はもとから呼んでいた)
+- テスト: unittest はテストのフォルダごとにまとめて 1 プロセス(単独が要る contract・test_mount・cut2resolve の test_serve は別)= 23 組・3,417 件 OK(16 分。ユーザー「テストの数が多いのでまとめて」)・lint 0・層 0・契約 35 件(単独)・e2e 一式 31 本(16 分 17 秒): 30 本 OK・e2e_autorun が 1 件 = 上の 8e7f901 で直して単独で OK
+- 気づいたこと(直していない): 入口が立ち上がった直後(編集の取り込みが終わる前)に CLI が submit すると「編集が動いていない」で失敗する(`/api/flow/status` は先に答える。headless は ready の 1 行が全部載ってから出るので起きない)/ unittest を 1 プロセスに `-m unittest` で流すとき analytics は標準入力を閉じないと止まる
+- 次: RS8(`plan/rs8-cases-ui.md`: 画面の形を紙で → B-2 → B-3 → O2 → URL も CLI → 新しい画面)。RS8 で一緒に: 自分の配信も束で・G1a・G3・serverkit・launch.py → app/server.py・headless の配信後の全自動が LocalMarks の採用の印を見ない
+- 未コミット: なし(この記録と HANDOVER・data.js と一緒にコミット)
