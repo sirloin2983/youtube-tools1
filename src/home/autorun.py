@@ -67,8 +67,8 @@ import prefs as prefs_mod  # noqa: E402  (ホームの設定の既定値と範�
 
 # RANGE_MAX・RANGE_MAX_SEC・RANGE_PAD・pad_range・CUTS・TX_ENGINES・TX_MODEL_RE・WEIGHT_KEYS は src/pipeline/spec.py へ、
 # MODES・MODE_STEPS・STEP_LABELS・Run・StepError など ① の経路は src/pipeline/run.py へ移した(上で読み直している)
-FLOW_MODES = {"url": {"auto": "request_auto", "check": "request", "manual": "request_manual"},
-              "file": {"auto": "file_auto", "check": "file", "manual": "file_manual"}}
+FLOW_MODES = {"url": {"auto": "request_auto", "check": "request"},
+              "file": {"auto": "file_auto", "check": "file"}}
 MAX_NEW = 10           # ① 探す から一度に入れられる配信の数(① 探す で選べる最大と同じ)
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
 # 終わった実行の記録のファイル名 RUNS_LOG と1行の形の版 LOG_VERSION・読み方 read_runs_log は src/pipeline/runlog.py(RS3-0B。入口の外の部品も読むため)

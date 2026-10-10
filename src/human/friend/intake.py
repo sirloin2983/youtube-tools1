@@ -38,7 +38,7 @@ VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
 REQ_SUFFIX = ".request.json"
 DONE_DIR, FAIL_DIR, OUT_DIR = "受付済み", "失敗", "出力"   # 出力\ = ① 全自動のパック(友人のアプリの「受け取る」が読む)
-FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認", "manual": "③ 全部人が行う"}   # 友人が送るときに選ぶ(2026-10-01)。無ければ ②
+FLOW_LABELS = {"auto": "① 全自動", "check": "② 軽く確認", "manual": "③ 全部人が行う"}   # 友人が送るときに選ぶ(2026-10-01)。友人の依頼は RS5-F(2026-10-10)から常に ①(②③ は古い記録の表示名)
 REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信。2-15。2.8.0 のアプリ)
 NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
 BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')   # ファイル名に使えない文字(_ に置き換える。届ける側 deliver.py も使う)
@@ -514,10 +514,11 @@ class Intake:
             self._record(folder, "url", "app", n, [n], "", "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が正しくありません"}], rid=rid)
             return {n}
         memo = str(d.get("memo") or "")[:MEMO_MAX]
-        flow = d.get("flow") if d.get("flow") in FLOW_LABELS else "check"   # 1.0.0 のアプリは flow を送らない = 今までどおり ②
+        flow = "auto"   # RS5-F: 友人の依頼は全部 ① 全自動。古いアプリの ②③(check・manual)や flow の無い依頼も断らず ① として扱う
+        flow_orig = d.get("flow") if d.get("flow") in FLOW_LABELS else ""   # 元の値は受付の記録に残す(後で分かるように)
         speakers = parse_speakers(d.get("speakers"))   # 話す人(1.3.0 のアプリ。無ければ話者分離しない)
-        tracks = parse_video_tracks(d.get("videoTracks")) if flow == "auto" else None   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
-        cut = parse_cut(d.get("cut")) if flow == "auto" else None   # カットの方法(パックを作る ① だけ。無ければホームの設定)
+        tracks = parse_video_tracks(d.get("videoTracks"))   # 映像トラックの数 1〜5・既定 1(パックを作る ① だけ)
+        cut = parse_cut(d.get("cut"))   # カットの方法(パックを作る ① だけ。無ければホームの設定)
         batch = parse_deliver_batch(d.get("deliverBatch"))   # 届け方(2.8.0。無ければホームの設定)
         if d["kind"] == "live":   # ライブ配信(2-15): 配信中・配信前なら録画を始めて結びつける。終わっていれば ① 全自動
             self._handle_live_request(folder, n, d, rid, cfg, memo, speakers, parse_video_tracks(d.get("videoTracks")), parse_cut(d.get("cut")))
@@ -526,10 +527,10 @@ class Intake:
             raw = [it for it in (d.get("items") if isinstance(d.get("items"), list) else [])[:MAX_URLS] if isinstance(it, dict)]
             lines = "\n".join("%s %s" % (str(it.get("url") or "")[:300], it.get("top", cfg["top"])) for it in raw)
             # 時刻で指定した区間(配信の ID ごと。③ = 解析までの依頼では使わない)
-            ranges = {youtube_id(str(it.get("url") or "")[:300]): parse_ranges(it.get("ranges")) for it in raw} if flow != "manual" else {}
+            ranges = {youtube_id(str(it.get("url") or "")[:300]): parse_ranges(it.get("ranges")) for it in raw}
             who, note = _streamer(d.get("streamer"))   # 2.1.0 のアプリは URL の依頼にも 1 人目の名前を付ける。無い・合わない = 今までどおりチャンネル名から
             self._process_urls(folder, n, [n], lines, cfg, "app", memo, rid, flow, speakers, tracks, ranges=ranges, cut=cut,
-                               weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note, deliver_batch=batch)
+                               weights=parse_weights(d.get("weights")), streamer=who, streamer_note=note, deliver_batch=batch, flow_orig=flow_orig)
             return {n}
         names = d.get("files") if isinstance(d.get("files"), list) else []
         names = [x for x in names if _safe_name(x)][:20]
@@ -551,7 +552,7 @@ class Intake:
             runs += [res["runId"]] if res.get("runId") else []
         if note:
             results.append({"label": "配信者", "state": "accepted", "reason": note})
-        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut)
+        self._record(folder, "video", "app", results[0]["label"], [n] + names, who or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, flow_orig=flow_orig)
         return {n} | set(names)
 
     def _handle_live_request(self, folder, n, d, rid, cfg, memo, speakers, tracks, cut):
@@ -653,7 +654,7 @@ class Intake:
         self._process_urls(folder, n, [n], text, cfg, "manual", "", None, "check")
 
     def _process_urls(self, folder, title, moved, text, cfg, source, memo, rid, flow="check", speakers=None, tracks=None, ranges=None, cut=None, weights=None,
-                      streamer=None, streamer_note="", deliver_batch=None, notes=None):
+                      streamer=None, streamer_note="", deliver_batch=None, notes=None, flow_orig=""):
         """ranges = {配信の ID: (区間の一覧, 断った理由)}(友人が時刻で指定した区間)。同じ配信を前に受け付けていても断らない(解析などは使い回す)。
         streamer = 照らし合わせ済みの配信者の名前か None(None = まとめて実行がチャンネル名などから決める)・streamer_note = 合わなかったときの知らせ。
         deliver_batch = 依頼ごとの届け方(2-16。None = ホームの設定)・notes = 一覧に添える知らせの行(NOTE_LABELS の label。数には入れない)"""
@@ -719,7 +720,7 @@ class Intake:
             results.append({"label": "配信者", "state": "accepted", "reason": streamer_note})
         if notes and _accepted(results):   # 受け付けたときだけ(断ったのに「切り抜きます」と出さない)
             results.extend(notes)
-        self._record(folder, "url", source, first, moved, streamer or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights,
+        self._record(folder, "url", source, first, moved, streamer or "", memo, runs, results, flow, speakers, rid=rid, tracks=tracks, cut=cut, weights=weights, flow_orig=flow_orig,
                      ranges_label="区間: %s" % "・".join(["%s〜%s" % (hms(s), hms(e)) for it in todo for s, e in it["ranges"]][:3]) +
                      (" ほか %d" % (n_ranges - 3) if n_ranges > 3 else "") if n_ranges else "")
 
@@ -814,13 +815,14 @@ class Intake:
 
     # ------------------------------------------------------------ 後始末と記録
     def _record(self, folder, kind, source, title, moved, streamer, memo, runs, items, flow="check", speakers=None, rid=None, tracks=None, cut=None,
-                weights=None, ranges_label=""):
+                weights=None, ranges_label="", flow_orig=""):
         accepted = _accepted(items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
         rec = {"id": uuid.uuid4().hex[:10], "kind": kind, "source": source, "title": str(title)[:200], "streamer": streamer or "",
                "memo": memo or "", "received": int(self.clock() * 1000), "state": state, "stateLabel": REQ_LABELS[state], "reason": reason,
                "flow": flow, "flowLabel": FLOW_LABELS.get(flow, ""),
+               **({"flowOrig": flow_orig} if flow_orig and flow_orig != flow else {}),   # 古いアプリの ②③ を ① に読み替えたとき(RS5-F)
                "speakersLabel": ("配信者: %d人" % speakers["count"] + ("(%s)" % "・".join(speakers["names"]) if speakers["names"] else "") +
                                  ("・色の指定 %d人" % len(speakers["styles"]) if speakers.get("styles") else "")) if speakers else "",
                "tracksLabel": "映像トラック: %d本" % tracks if tracks else "",

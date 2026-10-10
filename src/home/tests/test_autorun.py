@@ -1867,23 +1867,6 @@ class TestRequests(Base):
             self.assertEqual(self.tools.c2r["body"]["output"]["streamer"], "兎田ぺこら")
             self.assertNotIn("speakerStyles", self.tools.c2r["body"]["output"])
 
-    def test_file_manual_analyzes_in_studio(self):
-        """③ 全部人が行う(動画): スタジオの解析のキューに入れて解析まで"""
-        media = os.path.join(self.tmp, "長い.mp4")
-        open(media, "wb").close()
-        run = self.wait(self.r.start_file(media, title="長い", flow="manual"))
-        self.assertEqual((run["state"], run["mode"], list(self.states(run))), ("done", "file_manual", ["analyze"]), run)
-        add = next(c for c in self.tools.calls if c[2] == "/api/queue/add")
-        self.assertEqual(add[3]["items"], [{"kind": "file", "path": media, "title": "長い"}])
-        self.assertEqual(self.tools.tx_jobs, {}, "文字起こしはしない")
-
-    def test_request_manual(self):
-        self.tools.known = False
-        run = self.wait(self.r.start_request([{"id": VID, "top": 3, "ranges": [(10, 20)]}], flow="manual")["runs"][0])
-        self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze"]))
-        self.assertFalse(any(c[2] in ("/api/video/adopt-top", "/api/video/request-marks") for c in self.tools.calls))   # ③ は解析だけ(区間も使わない)
-        self.assertIsNone(run["ranges"])
-
     def test_request_ranges_only_skips_analysis(self):
         """区間が切り抜く数に足りている: 解析なしで、区間(前後に 2 秒の余白)だけを書き出し → 文字起こし"""
         self.tools.known = False
@@ -2099,19 +2082,12 @@ class TestFriendLength(Base):
         self.assertEqual((run["state"], self.settings()["length"]), ("done", 45))
 
     def test_only_for_requests(self):
-        """ユーザー自身のまとめて実行・依頼 ③ には効かない。解析済みなら使い回す(長さが違っても解析し直さない)"""
+        """ユーザー自身のまとめて実行には効かない。解析済みなら使い回す(長さが違っても解析し直さない)"""
         self.write_eval()
         self.tools.known = True
         run = self.run_one("full")
         self.assertEqual((run["state"], self.settings()), ("done", {"count": 12, "length": 45, "preRatio": 0.65}))
         self.assertIsNone(run["friendLength"])
-        self.tools.video["analysis"] = None
-        self.tools.calls.clear()
-        res = self.r.start_request([{"id": VID, "top": 3}], flow="manual")["runs"][0]
-        end = time.time() + 10
-        while time.time() < end and next(x for x in self.r.snapshot()["runs"] if x["id"] == res["id"])["state"] in ("queued", "running"):
-            time.sleep(0.01)
-        self.assertEqual(self.settings()["length"], 45)
         # 解析済み(スタジオの設定の長さで)の配信: 依頼でも解析し直さない
         self.tools.video["analysis"] = {"at": 5, "spec": {"length": 45}}
         self.tools.calls.clear()

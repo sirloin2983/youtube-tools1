@@ -302,7 +302,7 @@ class TestVideo(Base):
                                                      "streamer": "さくらみこ", "memo": "最後のところ", "sentAt": ""}, ensure_ascii=False))
         self.scan2()
         f, = self.runner.files
-        self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "check"))   # flow の無い 1.0.0 のアプリ = ②
+        self.assertEqual((f["title"], f["streamer"], f["rid"], f["flow"]), ("にぇの叫び", "さくらみこ", rid, "auto"))   # flow の無い 1.0.0 のアプリ = ① (RS5-F。②③ をやめた)
         r = self.it.snapshot()["requests"][0]
         self.assertEqual((r["source"], r["memo"], r["state"]), ("app", "最後のところ", "accepted"))
         self.assertTrue(os.path.isfile(self.done(rid + ".request.json")))
@@ -369,7 +369,9 @@ class TestVideo(Base):
         self.assertEqual(len(self.runner.requests), 2)
         labels = {r["title"]: r["flowLabel"] for r in self.it.snapshot()["requests"]}
         self.assertEqual(labels["clip.mp4"], "① 全自動")
-        self.assertEqual(sorted(labels.values()), ["① 全自動", "② 軽く確認", "③ 全部人が行う"])   # 知らない形は ②
+        self.assertEqual(sorted(labels.values()), ["① 全自動"] * 3)   # RS5-F: ③ manual も知らない形も ① (断らない)
+        origs = {r["title"]: r.get("flowOrig") for r in self.it.snapshot()["requests"]}
+        self.assertEqual(sorted(str(v) for v in origs.values()), ["None", "None", "manual"])   # 元の値は記録に残す(① と知らない形は残さない)
 
     def test_app_request_url(self):
         rid = "20261001-120000-abc126"
@@ -457,12 +459,12 @@ class TestVideo(Base):
         self.scan2()
         self.assertEqual(self.runner.last["tracks"], 3)
         self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "映像トラック: 3本")
-        rid = "20261001-120000-abc132"
+        rid = "20261001-120000-abc132"                                   # 古いアプリの ② も ① として扱う(RS5-F)= トラックも渡す
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "videoTracks": 3,
                                                      "items": [{"url": "https://youtu.be/bbbbbbbbbbb", "top": 2}]}))
         self.scan2()
-        self.assertIsNone(self.runner.last["tracks"])
-        self.assertEqual(self.it.snapshot()["requests"][0]["tracksLabel"], "")
+        self.assertEqual(self.runner.last["tracks"], 3)
+        self.assertEqual(self.it.snapshot()["requests"][0]["flowOrig"], "check")
         rid = "20261001-120000-abc133"                                   # ① で指定が無い(1.3.0 までのアプリ)= 1
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "auto",
                                                      "items": [{"url": "https://youtu.be/ccccccccccc", "top": 2}]}))
@@ -507,18 +509,18 @@ class TestVideo(Base):
         note = [n for n in os.listdir(os.path.join(self.folder, "出力")) if n.startswith(rid)]
         self.assertEqual(len(note), 1)
 
-        # ②: 区間は渡す・カットは渡さない / ③: 区間も渡さない / 動画の ①: カットを渡す
+        # 古いアプリの ② ③ も ① として扱う(RS5-F): 区間もカットも渡す / 動画の ①: カットを渡す
         rid = "20261002-120000-abc202"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "cut": "silence",
                                                      "items": [{"url": "https://youtu.be/ddddddddddd", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
         self.scan2()
-        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.last["cut"], self.runner.last["weights"]), ([(1, 9)], None, None))
-        self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "")
+        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.last["cut"], self.runner.last["weights"]), ([(1, 9)], "silence", None))
+        self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "カット: 無音で削る")
         rid = "20261002-120000-abc203"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "manual",
                                                      "items": [{"url": "https://youtu.be/eeeeeeeeeee", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
         self.scan2()
-        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.requests[-1][0][0]["top"]), ([], 3))
+        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.requests[-1][0][0]["top"]), ([(1, 9)], 3))
         rid = "20261002-120000-abc204"
         self.put(rid + "__a.mp4", b"v")
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "flow": "auto", "files": [rid + "__a.mp4"], "cut": "silence"}))
