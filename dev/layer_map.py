@@ -57,6 +57,8 @@ FILES = {
     # ---- 案件と友人の部品は RS3-3 で移した(DIRS で読む): cases → manage/cases(丸ごと。決定 3-25 の d)・intake・deliver・live_requests・
     #      friend_feedback → human/friend。AutoRunner の友人へ届ける段と組の溜めは human/friend/delivery.py の Delivery(mixin。autorun は app に残る)
     # ---- 精度の自動測定 accuracy と測る道具(dev/eval_*.py 13 本・_evalcommon)は RS4-4 で eval/drill・eval/tools へ移した(DIRS で読む)。旧い dev/eval_*.py の転送は RS5-G で消した(dev/ は test_layering の外)
+    # ---- flow(② 管理)は DIRS で読む。RS7-1 で足した物も明示しておく
+    "src/flow/machine.py": ("flow", "flow", "この PC の設定(machine.json・環境変数・既定。束に重ねる overlay。RS7-1 S1)"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
     "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),

@@ -57,6 +57,7 @@ from flow import spec as _spec  # noqa: E402  (指定の束の検査・既定値
 from flow.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MAX, RANGE_MAX_SEC, RANGE_PAD, TX_ENGINES, TX_MODEL_RE,  # noqa: E402,F401
                            WEIGHT_KEYS, clean_ranges, clean_weights, pad_range)
 from flow import runlog  # noqa: E402  (終わった実行の記録の形と読み方。RS3-0B で read_runs_log などをここへ出した)
+from flow import machine as _machine  # noqa: E402  (この PC の設定 = 束に重ねる機械の都合。RS7-1 S1)
 from flow import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from flow.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
                           REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
@@ -795,13 +796,15 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
 
     def build_spec(self):
         """画面の設定(スタジオ・編集の設定ファイルとホームの設定 autorun)から指定の束と画面だけの値を組む -> (束, screen)。
-        実行を始めるたびに読む(段の途中で設定を変えても、その実行は始めたときの束のまま)"""
+        実行を始めるたびに読む(段の途中で設定を変えても、その実行は始めたときの束のまま)。
+        この PC の設定(flow/machine.py の machine.json・環境変数)で決めたエンジン・機器・LLM のモデルを重ねる(無ければ束は今と同じ。RS7-1 S1)"""
         studio, editor = self._tool_settings()
         try:
             ar = (self.prefs.get(["autorun"])["autorun"] or {}) if self.prefs else {}
         except (OSError, ValueError, KeyError):
             ar = {}
-        return spec_from_settings(studio, editor, ar)
+        bundle, screen = spec_from_settings(studio, editor, ar)
+        return _machine.overlay(bundle, env=self.env), screen
 
     # hook(src/flow/run.py の Runner の既定を、案件・ホームの設定・届けることで埋める) ----------
     def _checkpoint(self, run):

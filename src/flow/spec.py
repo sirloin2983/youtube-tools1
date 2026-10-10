@@ -155,6 +155,7 @@ DEFAULTS = {
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
         "autoRedo": False, "redoLarge": True,
         "autoFill": True, "stripNames": True, "autoLlm": True,
+        "llmModel": "qwen3-8b",   # LLM の後処理のモデル(src/pipeline/transcribe/llm.py の LLM_MODEL。この PC の設定 flow/machine.py が重ねる。RS7-1 S1)
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
         "learning": {"version": ""},   # 学習データの版(中身も場所も束に入れない。場所は機械の設定 machine。決定 3-30 Q3)。"" = 指定なし。違えば後処理の鍵が変わる
     },
@@ -319,6 +320,7 @@ SCHEMA = {
              "autoDict": (_is_bool, "true か false"), "autoGloss": (_is_bool, "true か false"), "autoContext": (_is_bool, "true か false"),
              "autoLearned": (_is_bool, "true か false"), "autoRedo": (_is_bool, "true か false"), "redoLarge": (_is_bool, "true か false"),
              "autoFill": (_is_bool, "true か false"), "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
+             "llmModel": (_model_ok, "英数字と . _ - の 60 字までの名前"),
              "diarSmooth": (_is_bool, "true か false"),
              "learning": (_dict_of(version=_version_ok), "{version}(80 字までの文字。空 = 指定なし)")},
     "pack": {"size": (_one_of("1080x1920", "1920x1080"), "1080x1920 か 1920x1080"),
@@ -435,7 +437,7 @@ def export_body(bundle, video_id, ids, screen=None):
 def tx_opts(bundle, screen=None):
     """「編集」の文字起こしの要求(POST /api/transcribe)の設定の部分(動画のパスは段が足す)。
     エンジンは、機器から決まるエンジンと違うときだけ書く(入口の束は機器から決めるので書かない = 編集の画面から始めるときと同じ本文)。
-    用語集は画面だけの値(あれば)"""
+    LLM の後処理のモデル llmModel も既定と違うときだけ書く。用語集は画面だけの値(あれば)"""
     t, p = bundle["transcribe"], bundle["post"]
     out = {k: t[k] for k in TX_TRANSCRIBE_KEYS}
     out.update({k: p[k] for k in TX_POST_KEYS})
@@ -443,6 +445,8 @@ def tx_opts(bundle, screen=None):
         out["engine"] = t["engine"]
     if p["learning"]["version"]:
         out["learningVersion"] = p["learning"]["version"]   # 空(既定)のときは書かない = 鍵も今と同じ
+    if p.get("llmModel", DEFAULTS["post"]["llmModel"]) != DEFAULTS["post"]["llmModel"]:   # LLM のモデルも既定と違うときだけ(既定の本文は今と同じ。RS7-1 S1)
+        out["llmModel"] = p["llmModel"]
     gl = clean_screen(screen)["glossary"]
     if gl is not None:
         out["glossary"] = gl

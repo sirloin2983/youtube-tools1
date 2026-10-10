@@ -8,6 +8,7 @@ live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の 
 
 設定(ホームの設定の節 live): liveTx {enabled(既定オン), model(既定 large-v3)}。動くのは リアルタイム切り抜きがオン・whisper.cpp(setup/build-whisper-vulkan.bat)と
 モデル(編集の作業データの models/whispercpp/)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
+機械の都合(エンジン・機器)はこの PC の設定 flow/machine.py から(LiveTx.machine。RS7-1 S1。決めていなければ今までどおり whisper.cpp の Vulkan)。
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
 認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14。10-08 決定): 書き出し・文字起こし・パックと同じ枠で順番を待つ
 (配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
@@ -20,7 +21,7 @@ import threading
 import time
 
 from ytt import datadir, fsio, jobs, tools
-from . import live_export as LX
+from . import live_export as LX, machine as _machine, spec as _spec
 
 WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
 # whisper.cpp の置き場所(編集の tx_engines.WHISPER_CPP["version"]・wcpp_bin_dir・wcpp_model_dir・WCPP_MODELS と同じ値。入口は編集の部品を import しないので値を持つ。test_live_tx が同じことを確かめる)
@@ -28,6 +29,8 @@ WCPP_VERSION = "v1.9.4"
 WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
 WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin", "large-v3-turbo": "ggml-large-v3-turbo.bin"}
 DEFAULT_MODEL = "large-v3"
+LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
+LIVE_DEVICES = ("vulkan", "cpu")      # whisper.cpp の機器(tx_engines.WhisperCpp と同じ)。既定 vulkan = GPU
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒)
 TX_TRIES = 2              # 同じ候補を試す回数
@@ -79,6 +82,16 @@ class LiveTx:
         v = v if isinstance(v, dict) else {}
         model = v.get("model") if isinstance(v.get("model"), str) and v.get("model") in WCPP_MODEL_FILES else DEFAULT_MODEL   # 形の違う値(list など)でも落ちない
         return {"enabled": v.get("enabled") is not False, "model": model}
+
+    @staticmethod
+    def machine():
+        """機械の都合(エンジン・機器)はこの PC の設定(flow/machine.py。RS7-1 S1)から -> {"engine", "device"}。
+        この PC の設定で決めたエンジンが whisper.cpp(エンジンを決めていなければ機器から決まるエンジン)で、機器が LIVE_DEVICES のときだけその機器。
+        それ以外(machine.json も環境変数も無い今の PC を含む)は今までどおり whisper.cpp の Vulkan(GPU)"""
+        m = _machine.explicit()
+        dev = m.get("device")
+        eng = m.get("engine") or (_spec.implied_engine(dev) if dev else LIVE_ENGINE)
+        return {"engine": LIVE_ENGINE, "device": dev if eng == LIVE_ENGINE and dev in LIVE_DEVICES else LIVE_DEVICES[0]}
 
     def data_dir(self):
         """編集の作業データ(whisper.cpp とモデルの置き場所。ytt.datadir.resolve = txindex.folder と同じ決め方)"""
@@ -332,6 +345,9 @@ class LiveTx:
         """子プロセス(live_tx_worker.py)を動かして結果の json を読む"""
         out = wav + ".json"
         cmd = [tools.python_exe(self.python), WORKER, data_dir, model, wav, out]   # 窓の無い pythonw は隣の python.exe(標準出力を返せないことがある)
+        dev = self.machine()["device"]
+        if dev != LIVE_DEVICES[0]:   # 機器は既定(vulkan)と違うときだけ渡す(既定の引数は今と同じ。RS7-1 S1)
+            cmd.append(dev)
         try:   # 起動した子は close() が止める(on_start で覚える)
             r = tools.run(cmd, timeout=TX_TIMEOUT, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=lambda p: setattr(self, "proc", p))
         except OSError as e:

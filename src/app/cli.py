@@ -3,7 +3,8 @@
 
     py -3.10 src/app/cli.py <動画のパス | URL> [--spec spec.json] [--from 段] [--force] [--data-dir D] [--out result.json] [--title T]
 
-- 束(--spec): 変えたい所だけの JSON(無ければ既定)。flow/spec.py の merge → validate に通す。API キーは束に書かない(環境変数 YOUTUBE_API_KEY。書いてあれば断る)
+- 束(--spec): 変えたい所だけの JSON(無ければ既定)。flow/spec.py の merge → validate に通す。API キーは束に書かない(環境変数 YOUTUBE_API_KEY。書いてあれば断る)。
+  作業データを決めたあと、この PC の設定(flow/machine.py。machine.json・環境変数で決めたエンジン・機器・LLM のモデル)を束に重ねる
 - 作業データ(--data-dir): 環境変数 YTT_DATA_DIR と同じ意味(<D>/transcribe など)。無ければ普段の作業データ
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock):
   - 入口(start.bat の ②)が動いていれば、その入口に頼んで待つ(URL = まとめて実行の start-new か start・動画ファイル = 編集の文字起こし → まとめて実行の start-docs)。
@@ -28,7 +29,7 @@ import time
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from flow import keys as _keys, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
+from flow import keys as _keys, machine as _machine, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.pack import pack as _pack  # noqa: E402
 from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
 from ytt import datadir as _datadir, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
@@ -515,6 +516,7 @@ def main(argv=None, stdout=None, stderr=None):
         prog.line("エラー: %s" % e)
         return EXIT_USAGE
     root = use_data_dir(args.data_dir)
+    bundle = _machine.overlay(bundle)   # この PC の設定(作業データの根の machine.json・環境変数)を重ねる(無ければ束はそのまま。RS7-1 S1)
     _runtime.install_stop_signals(_interrupt)   # 黒い画面を閉じた・Ctrl+Break でも後始末をしてから終わる
     try:
         result, code = dispatch(kind, target, bundle, args.title, root, prog)

@@ -21,7 +21,7 @@ from ytt import colors as _colors, errors as _errors, fsio as _fsio, jobs as _sl
 from ytt import txbase as _txbase, txtext as _txtext, workdata as _workdata
 
 from . import jobs as _jobs, keys as _keys, pack as _flowpack, tx as _tx
-from . import spec as _spec
+from . import machine as _machine, spec as _spec
 
 
 class HttpTools:
@@ -180,8 +180,9 @@ class LocalTools:
     # 文字起こし
     def transcribe_start(self, req, bundle=None):
         """動画 1 本を文字起こしして文書を書く(同じスレッドで終わらせる)-> ジョブの id。req = 束の tx_opts + sourcePath(+ 段が決めた engine・model)。
-        bundle = 後処理の値(行を分ける文字数・後処理の 3 つ・文脈)。② が足すこと = ジョブの状態・枠 SLOTS・一時の wav・文書と記録を書く"""
-        b = bundle if bundle is not None else _spec.merge(None)
+        bundle = 後処理の値(行を分ける文字数・後処理の 3 つ・文脈)。② が足すこと = ジョブの状態・枠 SLOTS・一時の wav・文書と記録を書く・
+        この PC の設定(flow/machine.py。決めた値だけ)を束に重ねて LLM の後処理のモデルを指定に入れる(RS7-1 S1。重ねても同じ束なら何も変わらない)"""
+        b = _machine.overlay(bundle if bundle is not None else _spec.merge(None))
         jid = uuid.uuid4().hex[:12]
         job = {"id": jid, "kind": "transcribe", "state": "queued", "phase": "待機中", "progress": 0.0, "cancel": False, "segments": 0,
                "error": "", "tid": None, "createdAt": int(time.time() * 1000)}
@@ -191,6 +192,8 @@ class LocalTools:
             return jid
         with _jobs.job_errors(job):
             job["spec"] = spec = self._tx_spec(req, b)
+            if b["post"].get("llmModel", _spec.DEFAULTS["post"]["llmModel"]) != _spec.DEFAULTS["post"]["llmModel"]:   # 既定のモデルなら入れない(指定は今と同じ)
+                spec["llmModel"] = b["post"]["llmModel"]
             job["title"] = spec["title"]
             with _slots.SLOTS.slot("flow", spec["title"], cancelled=lambda: job["cancel"], on_wait=lambda: job.update(phase=_slots.WAIT_MESSAGE)) as ok:
                 if not ok:

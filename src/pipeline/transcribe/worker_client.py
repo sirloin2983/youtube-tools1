@@ -546,10 +546,12 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
         eng = tx_engines.get(engine)
     except ValueError as e:
         raise _errors.ApiError("bad_engine", str(e), 400)
+    # 機器は要求の本文(pref)が先(② がこの PC の設定 flow/machine.py から入れて渡す。RS7-1 S1)。環境変数 TRANSCRIBE_DEVICE は本文が auto のときだけ
+    # (② を通らない呼び出し = 再認識・LLM などの互換。machine の環境変数の層でも同じ名前を device として読む)
     env = os.environ.get("TRANSCRIBE_DEVICE")
     if force_cpu:
         pref = "cpu"
-    elif env in ("cuda", "cpu"):
+    elif pref in (None, "", "auto") and env in ("cuda", "cpu"):
         pref = env
     # 試す機器の順はエンジンが決める(faster-whisper = CUDA → CPU、whisper.cpp = Vulkan だけ・CPU は明示のときだけ)。CUDA の有無を調べるのは faster-whisper のときだけ
     order = eng.device_order(pref, eng is tx_engines.FasterWhisper and pref == "auto" and gpu_ready())

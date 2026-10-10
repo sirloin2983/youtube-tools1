@@ -24,6 +24,7 @@ src/cut2resolve/packs/
 **/config.json
 **/settings.json
 **/settings-ui.json
+**/machine.json
 **/registry.json
 **/data.json
 **/data.json.bak

@@ -26,7 +26,7 @@ from ytt import tools as _tools, txbase as _txbase, txtext as _txtext, txwords a
 from pipeline.transcribe import backend as _backend, clipjob, llm, postproc, recognize, records, roster as _roster, tx_engines, worker_client
 from pipeline.transcribe import retime as _retime
 
-from . import keys as _keys
+from . import keys as _keys, machine as _machine
 
 
 # ---------- 学習データ(置換辞書と名簿)----------
@@ -82,7 +82,12 @@ def request_engine(req, model, ctx_doc, auto_context):
 def transcribe_clip(job, spec, wav, pairs, learned=None):
     """文字起こしのジョブの機械の分(wav = 呼ぶ側の一時ファイル)。① clipjob.make_doc_rows の結果に "fields"(文書の機械の分)を足して返す。
     ② が足すこと = 文書の機械の分 fields(original・recognition.runs の最初の記録・params・辞書の版)と、後処理の記録(fill・names・llm)を runs に入れる・
-    声の検出をやり直した知らせ(spec の warnings・job の vadNote)。ファイルは書かない(③ が文書の id を決めてから write_clip_records)"""
+    声の検出をやり直した知らせ(spec の warnings・job の vadNote)・LLM の後処理のモデル(要求に無ければこの PC の設定 flow/machine.py で決めた値。RS7-1 S1)。
+    ファイルは書かない(③ が文書の id を決めてから write_clip_records)"""
+    if not spec.get("llmModel"):
+        m = _machine.explicit().get("llmModel")   # 既定(= llm.LLM_MODEL)から来た値は入れない = machine.json が無ければ今と同じ指定
+        if m:
+            spec["llmModel"] = m
     res = clipjob.make_doc_rows(job, spec, wav, pairs, learned)
     fields = _doc_fields(job, spec, res, res["total"], res["t_rec"], pairs)
     run = fields["recognition"]["runs"][-1]

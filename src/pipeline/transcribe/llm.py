@@ -31,10 +31,10 @@ import time
 import unicodedata
 
 from ytt import fsio as _fsio, jobs as _heavy, workdata as _workdata   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)・書き込みと付き物の JSON の読み
-from . import backend as _backend, roster as _roster, worker_client  # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)
+from . import backend as _backend, roster as _roster, tx_engines, worker_client  # 認識ワーカーとモデル(RS2-8a。持ち主から直に読む)・LLM のモデルの一覧(RS7-1 S1)
 from ytt import txbase as _txbase
 
-LLM_ENGINE, LLM_MODEL = "llama-text", "qwen3-8b"   # tx_engines.LlamaText と LLAMA_TEXT_MODELS の名前
+LLM_ENGINE, LLM_MODEL = "llama-text", "qwen3-8b"   # tx_engines.LlamaText と LLAMA_TEXT_MODELS の名前。LLM_MODEL は既定 = 要求の llmModel(llm_model)が無いとき
 LLM_SCHEMA = "youtube-tools-llm/v1"
 LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
 LLM_MIN_ALIAS = 3        # 近い所を探す呼び名の最小の文字数(かなに寄せたあと)
@@ -251,6 +251,18 @@ def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None)
 
 
 # ---------- run_job から呼ぶ入口(ここからは編集の部品を読む) ----------
+def llm_model(spec):
+    """使う LLM のモデル: 要求(文字起こしの指定 spec)の llmModel が tx_engines の LLAMA_TEXT_MODELS にあればそれ、無い・知らない名前なら LLM_MODEL
+    (② がこの PC の設定 flow/machine.py から入れて渡す。RS7-1 S1。知らない名前は警告だけで既定に)"""
+    name = spec.get("llmModel") if isinstance(spec, dict) else None
+    if not name:
+        return LLM_MODEL
+    if name in tx_engines.LLAMA_TEXT_MODELS:
+        return name
+    _txbase.log.warning("LLM のモデル %s は使えないので %s で直します", str(name)[:60], LLM_MODEL)
+    return LLM_MODEL
+
+
 def llm_ask_fn(job, spec):
     """問い合わせの関数 messages -> 答えの文字。本物と疑似は backend の口 llm_ask(RS5-D。
     疑似 = eval/fake/fake_asr は環境変数 TRANSCRIBE_FAKE_LLM の文字をそのまま返す)"""
@@ -260,11 +272,12 @@ def llm_ask_fn(job, spec):
 def _llm_ask_real(job, spec):
     """本物の問い合わせの関数: LLM(tx_engines.LlamaText)を認識ワーカーに読み込み(主のモデルは手放さない = light)、op complete で聞く"""
     phase = job.get("phase")
-    model, dev = worker_client.load_model(LLM_MODEL, job, "auto", engine=LLM_ENGINE)
+    name = llm_model(spec)
+    model, dev = worker_client.load_model(name, job, "auto", engine=LLM_ENGINE)
     job["phase"] = phase
     if worker_client.IN_WORKER:   # 測る道具(このプロセスの中でモデルを読む)
         return lambda messages: model.complete(messages, LLM_MAX_TOKENS)
-    args = {"name": LLM_MODEL, "device": dev, "engine": LLM_ENGINE, "max_tokens": LLM_MAX_TOKENS}
+    args = {"name": name, "device": dev, "engine": LLM_ENGINE, "max_tokens": LLM_MAX_TOKENS}
     return lambda messages: str((worker_client.WORKER.call("complete", dict(args, messages=messages), job) or {}).get("content") or "")
 
 
@@ -273,7 +286,7 @@ def llm_after_doc(job, spec, segs):
     -> 記録(recognition.runs[].llm に入れる。設定オフなら None)と、<id>.llm.json に書く中身(記録の items)の組"""
     if not spec.get("autoLlm"):
         return None, None
-    rec = {"engine": LLM_ENGINE, "model": LLM_MODEL, "picked": 0, "proposed": 0, "applied": 0, "rejected": {}}
+    rec = {"engine": LLM_ENGINE, "model": llm_model(spec), "picked": 0, "proposed": 0, "applied": 0, "rejected": {}}
     try:
         members = list(_roster.load(_roster.ROSTER)["members"].values())
     except (OSError, ValueError, TypeError, KeyError) as e:
