@@ -52,7 +52,7 @@ class TestHttpTools(unittest.TestCase):
 class TestLocalRefuses(unittest.TestCase):
     def test_steps_that_need_the_portal(self):
         t = T.LocalTools()
-        for f in (lambda: t.video("abcdefghijk"), lambda: t.analyze_add({}, {}), lambda: t.adopt_top("v", 1), lambda: t.export_start({}),
+        for f in (lambda: t.video("abcdefghijk"), lambda: t.analyze_add({}, {}), lambda: t.request_marks({"id": "v", "ranges": [], "top": 1}), lambda: t.export_start({}),
                   lambda: t.diarize_start({})):
             with self.assertRaisesRegex(R.StepError, "入口"):
                 f()

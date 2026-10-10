@@ -207,5 +207,61 @@ class TestRun(unittest.TestCase):
         self.assertEqual(r.title, "題")
 
 
+class AdoptTools(T.HttpTools):
+    """採用の段だけを見る道具(スタジオの採用の答えを決めて返す。本文を覚える)"""
+
+    def __init__(self, res):
+        super().__init__(None)
+        self.res, self.bodies = res, []
+
+    def request_marks(self, body):
+        self.bodies.append(body)
+        return self.res
+
+
+class TestAdopt(unittest.TestCase):
+    """採用の段(F-5。RS6 b-A): 規則はスタジオの 1 つ(request_marks の先)。段は数と余白を束 + Run の欄から渡し、答えを進み具合の文と run.marks にする"""
+
+    def adopt(self, res, mode="full", top=3, ranges=None, spec=None, fresh=None):
+        run = R.Run("abcdefghijk", "配信", mode, top, ranges=ranges, fresh=fresh)
+        run.spec = SP.validate(SP.merge(spec))
+        tools = AdoptTools(res)
+        rn = R.Runner(None, tools=tools)
+        st = run.step("adopt")
+        st["state"] = "run"
+        out = rn._step_adopt(run, st, {"duration": 1000})
+        return out, st, run, tools.bodies[0]
+
+    def test_human_adoption_counts_and_rest_is_filled(self):
+        """人が 1 本採用した配信の再実行: 上限までの残り 2 本を自動で足す(以前は「人が採用済みなら自動は 0」で飛ばした)"""
+        out, st, run, body = self.adopt({"rangeIds": [], "humanIds": ["h1"], "autoIds": ["a2", "a3"], "added": ["a2", "a3"]})
+        self.assertEqual((out, st["state"], body), (None, "run", {"id": "abcdefghijk", "ranges": [], "top": 3}))
+        self.assertEqual(st["detail"], "人が採用した 1 本・自動で 2 本を足しました(点数の高い順)")
+        self.assertIsNone(run.marks)   # 配信の全部(区間の依頼でなければ扱う範囲は変えない)
+
+    def test_nothing_new_is_skip(self):
+        out, st, _run, _body = self.adopt({"rangeIds": [], "humanIds": ["h1", "h2", "h3"], "autoIds": [], "added": []})
+        self.assertEqual((out, st["state"]), (None, "skip"))
+        self.assertIn("人が採用した 3 本", st["detail"])
+        self.assertIn("新しく採用したものはありません", st["detail"])
+
+    def test_no_candidates_stops(self):
+        out, st, run, _body = self.adopt({"rangeIds": [], "humanIds": [], "autoIds": [], "added": []})
+        self.assertEqual((out, st["state"], run.message), ("stop", "skip", "採用できる候補がありませんでした"))
+
+    def test_request_ranges_use_bundle_pad_and_set_marks(self):
+        """友人の依頼(URL): 区間に束の adopt.pad の余白・扱うマークは区間 ∪ 人の採用 ∪ 自動・足りなければ知らせる"""
+        res = {"rangeIds": ["r1"], "humanIds": ["h1"], "autoIds": ["a1"], "added": ["r1", "a1"]}
+        out, st, run, body = self.adopt(res, mode="request", top=4, ranges=[(100.0, 120.0)], spec={"adopt": {"pad": 5.0}},
+                                        fresh={"title": "題", "channel": "ch"})
+        self.assertEqual(body, {"id": "abcdefghijk", "ranges": [[95.0, 125.0]], "top": 4, "title": "題", "channel": "ch"})
+        self.assertEqual((out, st["state"], run.marks), (None, "run", ("r1", "h1", "a1")))
+        self.assertEqual(st["detail"], "指定の区間 1 個(前後に 5 秒の余白)・人が採用した 1 本・自動で 1 本を足しました(点数の高い順)。候補が足りず 1 本は選べませんでした")
+
+    def test_top_from_bundle_when_run_has_none(self):
+        _out, _st, _run, body = self.adopt({"autoIds": ["a1"], "added": ["a1"]}, top=None, spec={"adopt": {"top": 5}})
+        self.assertEqual(body["top"], 5)
+
+
 if __name__ == "__main__":
     unittest.main()

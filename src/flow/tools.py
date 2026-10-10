@@ -47,12 +47,9 @@ class HttpTools:
         self.client.call("studio", "POST", "/api/queue/cancel", {"qid": qid})
 
     def request_marks(self, body):
-        """友人の依頼の区間を採用済みのマークに + 足りない分を自動の上位で -> {"rangeIds", "autoIds"}"""
+        """採用(F-5。body = {"id", "ranges", "top", "title"?, "channel"?}): 区間を採用済みのマークに・人の採用を数に入れ・上限までの残りを自動の上位で
+        -> {"rangeIds", "humanIds", "autoIds", "added", "video"}"""
         return self.client.ok("studio", "POST", "/api/video/request-marks", body)
-
-    def adopt_top(self, vid, top):
-        """自動マークの点数の高い top 本を採用 -> {"adopted", "video"}"""
-        return self.client.ok("studio", "POST", "/api/video/adopt-top", {"id": vid, "top": top})
 
     def export_start(self, body):
         """書き出しを始める -> (HTTP の番号, 応答)(409 busy は段が待ってやり直す)"""
@@ -146,9 +143,6 @@ class LocalTools:
         """取り消す解析は無い(analyze_add が断る)"""
 
     def request_marks(self, body):
-        raise _refuse("採用")
-
-    def adopt_top(self, vid, top):
         raise _refuse("採用")
 
     def export_start(self, body):

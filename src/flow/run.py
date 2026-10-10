@@ -29,7 +29,7 @@ import uuid
 
 from ytt import colors
 from . import placement as _placement, spec as _spec, tools as _tools
-from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, RANGE_PAD, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights,
+from .spec import (CUTS, LIVE_AUTO_CUT, MAX_MARKS, TX_ENGINES, TX_MODEL_RE, WEIGHT_KEYS, clean_ranges, clean_weights,
                    pad_range)
 
 
@@ -500,42 +500,38 @@ class Runner:
             return
 
     # 採用 -------------------------------------------------------
-    def _step_adopt_request(self, run, st, v):
-        """友人からの依頼(URL): 時刻で指定した区間(前後に余白)を採用済みのマークにし、切り抜く数に足りない分を自動の上位で埋める。
-        この実行で扱うのは、その区間と自動の分だけ(run.marks)。同じ配信の送り直しでは、前に作った切り抜き・文字起こしを使い回す"""
+    def _step_adopt(self, run, st, v):
+        """採用(F-5。規則はスタジオの 1 つ = tools.request_marks の先の store.adopt_marks。RS6 b-A):
+        友人が時刻で指定した区間(前後に束の adopt.pad 秒の余白)∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 = Run の top か束の adopt.top までの残り)。
+        不採用と、区間・人の採用に重なる自動マークは除く。人が採用済みの配信の再実行でも、上限までの残りを自動で足す。
+        友人の依頼(URL)は、この実行で扱うマークをその集合にする(run.marks。同じ配信の送り直しでは、前に作った切り抜き・文字起こしを使い回す)"""
+        ad = self._bundle(run)["adopt"]
+        top = run.top if run.top is not None else ad["top"]
         dur = v.get("duration") or run.duration
-        padded = [pad_range(s, e, dur) for s, e in run.ranges]
-        auto = max(0, run.top - len(padded))
-        body = {"id": run.video_id, "ranges": padded, "auto": auto}
+        body = {"id": run.video_id, "ranges": [pad_range(s, e, dur, ad["pad"]) for s, e in run.ranges], "top": top}
         if run.fresh:
             body.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
         res = self.tools.request_marks(body)
-        rids, aids = res.get("rangeIds") or [], res.get("autoIds") or []
-        run.marks = tuple(dict.fromkeys(rids + aids))
-        if not run.marks:
+        rids, hids, aids = res.get("rangeIds") or [], res.get("humanIds") or [], res.get("autoIds") or []
+        added = set(res.get("added") or [])
+        chosen = tuple(dict.fromkeys(rids + hids + aids))
+        if run.mode in REQUEST_URL_MODES:
+            run.marks = chosen
+        if not chosen:
             st["state"], st["detail"] = "skip", "採用できる候補がありません"
             run.message = "採用できる候補がありませんでした"
             return "stop"
-        parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), RANGE_PAD)] if rids else []) + \
-            (["自動で %d 個(点数の高い順)" % len(aids) + ("。候補が足りず %d 個は選べませんでした" % (auto - len(aids)) if len(aids) < auto else "")] if auto else [])
-        st["detail"] = "・".join(parts)
+        new_auto = sum(1 for i in aids if i in added)
+        short = top - len(rids) - len(hids) - len(aids)
+        parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), ad["pad"])] if rids else []) + \
+            (["人が採用した %d 本" % len(hids)] if hids else []) + \
+            (["前に自動で採用した %d 本" % (len(aids) - new_auto)] if len(aids) > new_auto else []) + \
+            (["自動で %d 本を足しました(点数の高い順)" % new_auto] if new_auto else [])
+        st["detail"] = "・".join(parts) + ("。候補が足りず %d 本は選べませんでした" % short if short > 0 else "")
+        if not added and run.mode not in REQUEST_URL_MODES:   # 新しく採用したものが無い(前の採用をそのまま使う)
+            st["state"] = "skip"
+            st["detail"] += "(新しく採用したものはありません)"
         return None
-
-    def _step_adopt(self, run, st, v):
-        if run.mode in REQUEST_URL_MODES:
-            return self._step_adopt_request(run, st, v)
-        res = self.tools.adopt_top(run.video_id, run.top)
-        ids = res.get("adopted") or []
-        marks = (res.get("video") or {}).get("marks") or []
-        if ids:
-            st["detail"] = "点数の高い %d 件を採用しました" % len(ids)
-            return None
-        if any(m.get("status") in ("adopted", "exported") for m in marks):
-            st["state"], st["detail"] = "skip", "採用・書き出し済みのマークがあるので、それを使います"
-            return None
-        st["state"], st["detail"] = "skip", "採用できる候補がありません"
-        run.message = "採用できる候補がありませんでした"
-        return "stop"
 
     # 書き出し ---------------------------------------------------
     def _mine(self, run, v):

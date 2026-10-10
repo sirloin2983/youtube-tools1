@@ -52,9 +52,9 @@ def clean_ranges(v):
     return out
 
 
-def pad_range(s, e, duration=None):
-    """友人が入れた区間の前後に余白を足す(0 より前・動画の長さより後には出さない。長さの上限を超えるときは余白を減らす)"""
-    pad = min(RANGE_PAD, max(0.0, (RANGE_MAX_SEC - (e - s)) / 2))
+def pad_range(s, e, duration=None, pad=RANGE_PAD):
+    """友人が入れた区間の前後に余白 pad 秒(束の adopt.pad)を足す(0 より前・動画の長さより後には出さない。長さの上限を超えるときは余白を減らす)"""
+    pad = min(pad, max(0.0, (RANGE_MAX_SEC - (e - s)) / 2))
     a, b = max(0.0, s - pad), e + pad
     if duration and duration > 0:
         b = min(b, float(duration))

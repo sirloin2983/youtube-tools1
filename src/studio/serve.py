@@ -331,15 +331,19 @@ def _adopt_top(o):
 
 
 def _request_marks(o):
-    """友人からの依頼(入口のまとめて実行)から: 配信を(無ければ)登録し、時刻で指定した区間を採用済みのマークに、足りない分を自動の上位で埋める。
-    解析していない配信でも区間だけなら使える(その区間だけを書き出しのときに取りに行く)"""
+    """まとめて実行・友人からの依頼から: 配信を(無ければ)登録し、採用の規則(F-5。store.adopt_marks)で採用する = 時刻で指定した区間を採用済みのマークに・
+    人が採用したマークを数に入れ・上限 top までの残りを自動の上位で埋める。解析していない配信でも区間だけなら使える(その区間だけを書き出しのときに取りに行く)。
+    top が無い古い本文は auto(自動で埋める数)から top = 区間の数 + auto と読む"""
     vid = str(o.get("id") or "")
     if not STORE.has(vid):
         src = analyze.validate_source({"kind": "youtube", "videoId": vid})   # YouTube の ID の形だけ受け付ける
         STORE.ensure(src, o.get("title") if isinstance(o.get("title"), str) else "", o.get("channel") if isinstance(o.get("channel"), str) else "")
         vid = src["videoId"]
-    rids, aids, v = STORE.request_marks(vid, o.get("ranges"), o.get("auto"))
-    return {"ok": True, "rangeIds": rids, "autoIds": aids, "video": v}
+    ranges, top = o.get("ranges"), o.get("top")
+    if "top" not in o and isinstance(o.get("auto"), int) and not isinstance(o.get("auto"), bool):
+        top = min(30, o["auto"] + (len(ranges) if isinstance(ranges, list) else 0)) if 0 <= o["auto"] <= 30 else o["auto"]   # 範囲の外は store が断る
+    r = STORE.adopt_marks(vid, ranges, top)
+    return {"ok": True, "rangeIds": r["rangeIds"], "humanIds": r["humanIds"], "autoIds": r["autoIds"], "added": r["added"], "video": r["video"]}
 
 
 def _outdir(o):

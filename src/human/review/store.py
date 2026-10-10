@@ -752,39 +752,26 @@ class Store:
         return snap
 
     def adopt_top(self, vid, top):
-        """「まとめて実行(解析から全部)」用: 自動マークの候補(判定前)を点数の高い順に top 件だけ採用にする。
-        人の判定ではないので、学習の記録(feedback.jsonl の「よかった」)は書かない・コラボへの転写もしない。
-        すでに採用・書き出し済みのマークがあれば何もしない(人が選んだものを優先)。-> (採用にしたマークの id, 公開用の動画)"""
+        """スタジオの「上位 n 本を採用」・まとめて実行用: 採用の規則 adopt_marks(F-5)を区間なし(ranges = [])で呼ぶ。
+        人が採用したマークは数に入れ、上限 top までの残りを自動マークの点数の高い順で足す(RS6 b-A。以前は「人が採用済みなら自動は 0」)。
+        -> (この呼び出しで採用にしたマークの id(点数の高い順), 公開用の動画)"""
         if schemas.int_in(top, 1, 30) is None:
             raise ApiError("bad_request", "採用する数は1〜30です", 400)
-        with self.lock:
-            v = self._need(vid)
-            if v["kind"] == "live":
-                raise ApiError("bad_request", _yturl.LIVE_NO_ANALYZE, 400)   # 解析していない録画に自動マークは無い
-            if any(m["status"] in ("adopted", "exported") for m in v["marks"]):
-                return [], self._pub(v)
-            cands = sorted((m for m in v["marks"] if m["src"] == "auto" and m["status"] == ""), key=_BY_SCORE)[:top]
-            if not cands:
-                return [], self._pub(v)
-            ids = {m["id"] for m in cands}
-            nv = copy.deepcopy(v)
-            for m in nv["marks"]:
-                if m["id"] in ids:
-                    m["status"], m["adoptedBy"] = "adopted", "auto"
-            self._bump(nv)
-            return [m["id"] for m in cands], self._pub(nv)
+        r = self.adopt_marks(vid, [], top)
+        return r["added"], r["video"]
 
-    def request_marks(self, vid, ranges, auto):
-        """友人からの依頼(入口の home/autorun.py)用: 時刻で指定した区間を手動マーク(採用)にし、足りない分を自動マークの上位で埋める。
-        ranges = [[開始, 終了], …](秒)。同じ区間(±0.5 秒)のマークがあれば、それを使い回す(候補・不採用なら採用に戻す)。無ければ足す。
-        auto = 自動で埋める数。自動マーク(不採用でない・ranges と重ならない)を点数の高い順に auto 個選び、候補のものは採用にする。
-        採用・書き出し済みのものも数に入れる(同じ配信の送り直しで、前の分を使い回す)。
-        人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない(adopt_top と同じ)。
-        -> (区間のマークの id(ranges の順), 自動のマークの id(点数の高い順), 公開用の動画)"""
+    def adopt_marks(self, vid, ranges, top):
+        """採用の規則(F-5。plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ):
+        採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
+        ranges = [[開始, 終了], …](秒)。同じ区間(±0.5 秒)のマークがあれば、それを使い回す(候補・不採用なら採用に戻す)。無ければ足す(区間は上限を超えても全部)。
+        人が採用したマーク = 採用・書き出し済みで、機械が採用した印(adoptedBy)が無いもの。
+        自動の分は、前に機械が採用・書き出したもの(同じ配信の送り直し・再実行)も点数の順に数に入れ、候補(判定前)のものを採用にする。
+        人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない。
+        -> {"rangeIds"(ranges の順), "humanIds"(時刻の順), "autoIds"(点数の高い順), "added"(この呼び出しで採用にした id), "video"(公開用の動画)}"""
         if not isinstance(ranges, list) or len(ranges) > MAX_REQUEST_RANGES:
             raise ApiError("bad_request", "区間は%d個までです" % MAX_REQUEST_RANGES, 400)
-        if schemas.int_in(auto, 0, 30) is None:
-            raise ApiError("bad_request", "自動で選ぶ数は0〜30です", 400)
+        if schemas.int_in(top, 0, 30) is None:
+            raise ApiError("bad_request", "採用する数は0〜30です", 400)
         want = []
         for r in ranges:
             if not isinstance(r, (list, tuple)) or len(r) != 2:
@@ -795,10 +782,10 @@ class Store:
                 raise ApiError("bad_request", "区間が正しくありません: %s" % e, 400)
         with self.lock:
             v = self._need(vid)
-            if v["kind"] == "live":   # 依頼(時刻指定)は YouTube の配信が対象。録画の時刻は別の基準(録画の頭からの秒)
+            if v["kind"] == "live":   # 解析していない録画に自動マークは無い・依頼(時刻指定)は YouTube の配信が対象(録画の時刻は録画の頭からの秒)
                 raise ApiError("bad_request", _yturl.LIVE_NO_ANALYZE, 400)
             nv = copy.deepcopy(v)
-            range_ids, changed = [], False
+            range_ids, added = [], []
             for s, e in want:
                 e = _clamp_end(nv["duration"], s, e)
                 if e is None:
@@ -810,23 +797,27 @@ class Store:
                     m = _new_mark("r", s, e, "adopted")
                     m["adoptedBy"] = "request"
                     nv["marks"].append(m)
-                    changed = True
+                    added.append(m["id"])
                 elif m["status"] in ("", "rejected"):
                     m["status"], m["adoptedBy"] = "adopted", "request"
-                    changed = True
+                    added.append(m["id"])
                 if m["id"] not in range_ids:
                     range_ids.append(m["id"])
-            picked = [(m["start"], m["end"]) for m in nv["marks"] if m["id"] in range_ids]
-            autos = sorted((m for m in nv["marks"] if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in range_ids
-                            and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_BY_SCORE)[:auto]
+            human_ids = [m["id"] for m in sorted(nv["marks"], key=_BY_TIME)
+                         if m["status"] in ("adopted", "exported") and not m.get("adoptedBy") and m["id"] not in range_ids]
+            taken = set(range_ids) | set(human_ids)
+            picked = [(m["start"], m["end"]) for m in nv["marks"] if m["id"] in taken]
+            room = max(0, top - len(taken))
+            autos = sorted((m for m in nv["marks"] if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken
+                            and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_BY_SCORE)[:room]
             for m in autos:
                 if m["status"] == "":
                     m["status"], m["adoptedBy"] = "adopted", "auto"
-                    changed = True
-            if changed:
+                    added.append(m["id"])
+            if added:
                 nv["marks"] = sorted(nv["marks"], key=_BY_TIME)
                 self._bump(nv)
-            return range_ids, [m["id"] for m in autos], self._pub(nv)
+            return {"rangeIds": range_ids, "humanIds": human_ids, "autoIds": [m["id"] for m in autos], "added": added, "video": self._pub(nv)}
 
     def replace_auto(self, vid, cands, analysis, duration, series):
         """解析結果を反映する。手を入れていない・書き出していない自動マークだけを置き換える。

@@ -139,33 +139,33 @@ class FakeTools:
                                         for i, s in ((1, 2.0), (2, 9.0), (3, 5.0))]
         return 200, {"items": self.queue}
 
-    def h_studio_POST_api_video_adopt_top(self, path, body):
-        if any(m["status"] in ("adopted", "exported") for m in self.video["marks"]):
-            return 200, {"adopted": [], "video": self.video}
-        c = sorted((m for m in self.video["marks"] if m.get("src") == "auto" and m["status"] == ""), key=lambda m: -m["score"])[:body["top"]]
-        for m in c:
-            m["status"] = "adopted"
-        return 200, {"adopted": [m["id"] for m in c], "video": self.video}
-
     def h_studio_POST_api_video_request_marks(self, path, body):
-        """友人からの依頼: 区間を採用済みの手動マークに(同じ区間は使い回す)+ 自動の上位(区間と重ならないもの)で埋める"""
+        """採用(F-5。スタジオの store.adopt_marks の真似): 区間を採用済みの手動マークに(同じ区間は使い回す)・人の採用(adoptedBy なし)を数に入れ・
+        上限 top までの残りを自動の上位(不採用でない・区間と人の採用に重ならないもの)で埋める"""
         self.known = True
         self.request_marks = body
-        rids = []
+        rids, added = [], []
         for s, e in body["ranges"]:
             m = next((x for x in self.video["marks"] if abs(x["start"] - s) <= 0.5 and abs(x["end"] - e) <= 0.5), None)
             if m is None:
-                m = {"id": "r%d" % (len(self.video["marks"]) + 1), "src": "manual", "status": "adopted", "score": None, "start": s, "end": e}
+                m = {"id": "r%d" % (len(self.video["marks"]) + 1), "src": "manual", "status": "adopted", "score": None, "start": s, "end": e,
+                     "adoptedBy": "request"}
                 self.video["marks"].append(m)
+                added.append(m["id"])
             elif m["status"] in ("", "rejected"):
-                m["status"] = "adopted"
+                m["status"], m["adoptedBy"] = "adopted", "request"
+                added.append(m["id"])
             rids.append(m["id"])
-        autos = sorted((m for m in self.video["marks"] if m.get("src") == "auto" and m["status"] != "rejected" and m["id"] not in rids
-                        and not any(m["start"] < e and s < m["end"] for s, e in body["ranges"])), key=lambda m: -m["score"])[:body["auto"]]
+        hids = [m["id"] for m in self.video["marks"] if m["status"] in ("adopted", "exported") and not m.get("adoptedBy") and m["id"] not in rids]
+        taken = [m for m in self.video["marks"] if m["id"] in rids or m["id"] in hids]
+        autos = sorted((m for m in self.video["marks"] if m.get("src") == "auto" and m["status"] != "rejected" and m not in taken
+                        and not any(m["start"] < t["end"] and t["start"] < m["end"] for t in taken)),
+                       key=lambda m: -m["score"])[:max(0, body["top"] - len(taken))]
         for m in autos:
             if m["status"] == "":
-                m["status"] = "adopted"
-        return 200, {"ok": True, "rangeIds": rids, "autoIds": [m["id"] for m in autos], "video": self.video}
+                m["status"], m["adoptedBy"] = "adopted", "auto"
+                added.append(m["id"])
+        return 200, {"ok": True, "rangeIds": rids, "humanIds": hids, "autoIds": [m["id"] for m in autos], "added": added, "video": self.video}
 
     def h_studio_POST_api_export(self, path, body):
         if self.export_busy:
@@ -1241,7 +1241,7 @@ class TestRequests(Base):
         self.assertEqual((run["state"], run["mode"], run["modeLabel"], run["requestId"]), ("done", "request", "依頼 ② 軽く確認: 解析 → 文字起こし", "20261001-120000-abc123"))
         self.assertEqual(list(self.states(run)), ["analyze", "adopt", "export", "transcribe"])
         self.assertEqual(sorted(self.tools.export_body["markIds"]), ["a2", "a3"])   # 上位 2 個
-        self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [], "auto": 2, "title": "配信", "channel": "ch"})   # 区間なし = 自動だけ
+        self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [], "top": 2, "title": "配信", "channel": "ch"})   # 区間なし = 自動だけ
         self.assertFalse(any(c[2] == "/api/video/adopt-top" for c in self.tools.calls))
         self.assertNotIn("body", self.tools.c2r, "パックは作らない")
         with self.assertRaisesRegex(ValueError, "1〜"):
@@ -1902,23 +1902,27 @@ class TestRequests(Base):
         run = self.wait(res["runs"][0])
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["adopt", "export", "transcribe"]), run)
         self.assertFalse(any(c[2] == "/api/queue/add" for c in self.tools.calls), "解析しない")
-        self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [[98.0, 191.0], [0.0, 32.0]], "auto": 0, "title": "配信", "channel": "ch"})   # 余白は 0 と配信の長さで切る
+        self.assertEqual(self.tools.request_marks, {"id": VID, "ranges": [[98.0, 191.0], [0.0, 32.0]], "top": 2, "title": "配信", "channel": "ch"})   # 余白は 0 と配信の長さで切る
         self.assertEqual(len(self.tools.export_body["markIds"]), 2)
         self.assertEqual(run["ranges"], [[100.0, 190.0], [1.0, 30.0]])
         self.assertIn("指定の区間 2 個", next(s for s in run["steps"] if s["key"] == "adopt")["detail"])
 
     def test_request_ranges_filled_with_auto(self):
-        """区間が切り抜く数に足りない: 解析して、足りない分だけ自動の上位(区間と重ならないもの)で埋める。この実行はその分だけを扱う"""
+        """区間が切り抜く数に足りない: 解析して、足りない分だけ自動の上位(区間と重ならないもの)で埋める。この実行はその分だけを扱う。
+        前からある人の採用は数に入れる(採用の規則 F-5。RS6 b-A)"""
         self.tools.known = False
-        self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある採用済みのマークは扱わない
+        self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある人の採用
         run = self.wait(self.r.start_request([{"id": VID, "top": 3, "ranges": [(18, 23)]}], request_id="rid")["runs"][0])
         self.assertEqual((run["state"], list(self.states(run))), ("done", ["analyze", "adopt", "export", "transcribe"]), run)
-        self.assertEqual((self.tools.request_marks["ranges"], self.tools.request_marks["auto"]), ([[16.0, 25.0]], 2))
+        self.assertEqual((self.tools.request_marks["ranges"], self.tools.request_marks["top"]), ([[16.0, 25.0]], 3))
         by = {m["id"]: m for m in self.tools.video["marks"]}
         got = sorted(self.tools.export_body["markIds"])
-        self.assertEqual(sorted((by[i]["start"], by[i]["src"]) for i in got), [(10, "auto"), (16.0, "manual"), (30, "auto")])   # 20〜25 秒の候補(a2)は区間と重なるので飛ばす
-        self.assertNotIn("old", got)
+        self.assertEqual(sorted((by[i]["start"], by[i]["src"]) for i in got), [(16.0, "manual"), (30, "auto"), (500, "manual")])   # 20〜25 秒の候補(a2)は区間と重なるので飛ばす
+        self.assertIn("old", got)
         self.assertEqual(len(self.tools.tx_jobs), 3)
+        detail = next(s for s in run["steps"] if s["key"] == "adopt")["detail"]
+        self.assertIn("人が採用した 1 本", detail)
+        self.assertIn("自動で 1 本を足しました", detail)
 
     def test_request_cut_and_resend_rebuilds_pack(self):
         """① 全自動: 友人が選んだカット(無音を削る)でパック。同じ配信・同じ区間の送り直しは、切り抜き・文字起こしを使い回してパックだけ作り直して届ける"""
@@ -1993,7 +1997,7 @@ d = tempfile.mkdtemp(); studio_env.set_home(d)
 st = store.Store(os.path.join(d, "data.json"))
 vid = "reqdefer001"
 st.ensure({"kind": "youtube", "videoId": vid, "name": vid}, "t", "c")
-rids, _aids, _v = st.request_marks(vid, [[98.0, 192.0], [10.0, 20.0], [300.0, 330.0]], 0)
+rids = st.adopt_marks(vid, [[98.0, 192.0], [10.0, 20.0], [300.0, 330.0]], 0)["rangeIds"]
 v = st.get(vid)[0]
 os.makedirs(os.path.join(d, "out"), exist_ok=True)
 clip = os.path.join(d, "out", "c.mp4"); open(clip, "wb").close()

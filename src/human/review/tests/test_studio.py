@@ -191,6 +191,58 @@ class TestStatus(Base):
         self.assertEqual(self.marks(), [])
 
 
+class TestAdoptRule(Base):
+    """採用の規則 F-5(store.adopt_marks。RS6 b-A): 区間 ∪ 人の採用 ∪ 自動マークの点数の高い順(上限までの残り)。不採用と重なりは除く。adopt_top は区間なしの同じ規則"""
+    def setUp(self):
+        super().setUp()
+        self.st.replace_auto(YT["videoId"], [cand(10, 40, 2.0), cand(100, 130, 9.0), cand(200, 230, 5.0), cand(300, 330, 7.0)], {"spec": {}}, 600, {"t": [0]})
+
+    def starts(self, ids):
+        by = {m["id"]: m["start"] for m in self.marks()}
+        return [by[i] for i in ids]
+
+    def set_status(self, start, status):
+        self.put([dict(m, status=status) if m["start"] == start else m for m in self.marks()])
+
+    def test_top_by_score(self):
+        ids, v = self.st.adopt_top(YT["videoId"], 2)
+        self.assertEqual(self.starts(ids), [100, 300])
+        self.assertEqual({m["start"]: m.get("adoptedBy") for m in v["marks"] if m["status"] == "adopted"}, {100: "auto", 300: "auto"})
+        r = self.st.adopt_marks(YT["videoId"], [], 2)   # 再実行: 前に機械が採用した分を数に入れる(増やさない)
+        self.assertEqual((self.starts(r["autoIds"]), r["humanIds"], r["added"]), ([100, 300], [], []))
+
+    def test_human_adoption_counts_and_rest_is_filled(self):
+        """人が 1 本採用した配信の再実行: 人の分を数に入れ、上限までの残りを自動で足す(以前の adopt_top は「人が採用済みなら自動は 0」)"""
+        self.set_status(10, "adopted")
+        ids, _ = self.st.adopt_top(YT["videoId"], 3)
+        self.assertEqual(self.starts(ids), [100, 300])
+        r = self.st.adopt_marks(YT["videoId"], [], 3)
+        self.assertEqual((self.starts(r["humanIds"]), self.starts(r["autoIds"]), r["added"]), ([10], [100, 300], []))
+        self.assertEqual(self.st.adopt_top(YT["videoId"], 1)[0], [])   # 人の分だけで上限
+        self.assertEqual(self.st.adopt_marks(YT["videoId"], [], 1)["autoIds"], [])
+
+    def test_rejected_and_overlaps_are_skipped(self):
+        """不採用の候補と、区間・人の採用に重なる候補は選ばない"""
+        self.set_status(100, "rejected")
+        self.set_status(10, "adopted")
+        r = self.st.adopt_marks(YT["videoId"], [[305, 320]], 3)
+        self.assertEqual(self.starts(r["rangeIds"]), [305])
+        self.assertEqual((self.starts(r["humanIds"]), self.starts(r["autoIds"])), ([10], [200]))   # 300 は区間に重なる・100 は不採用
+        self.assertEqual(sorted(self.starts(r["added"])), [200, 305])
+
+    def test_ranges_beyond_top_are_all_taken(self):
+        r = self.st.adopt_marks(YT["videoId"], [[400, 420], [500, 520]], 1)
+        self.assertEqual((self.starts(r["rangeIds"]), r["autoIds"]), ([400, 500], []))
+
+    def test_bad_top(self):
+        for bad in (-1, 31, "1", None, True):
+            with self.assertRaises(ApiError, msg=bad):
+                self.st.adopt_marks(YT["videoId"], [], bad)
+        for bad in (0, 31):
+            with self.assertRaises(ApiError, msg=bad):
+                self.st.adopt_top(YT["videoId"], bad)
+
+
 class TestFeedback(Base):
     def setUp(self):
         super().setUp()
@@ -289,7 +341,7 @@ class TestFeedback(Base):
         ids, _ = self.st.adopt_top(YT["videoId"], 2)
         self.assertEqual(len(ids), 2)
         self.assertEqual(self.feedback(), [])
-        self.st.request_marks(YT["videoId"], [[400, 420]], 1)
+        self.st.adopt_marks(YT["videoId"], [[400, 420]], 3)
         self.assertEqual(self.feedback(), [])
 
     def test_machine_adoption_is_marked_and_cleared_by_human(self):
@@ -297,7 +349,7 @@ class TestFeedback(Base):
         ids, _ = self.st.adopt_top(YT["videoId"], 2)
         by = {m["id"]: m for m in self.marks()}
         self.assertEqual({by[i].get("adoptedBy") for i in ids}, {"auto"})
-        rids, _, _ = self.st.request_marks(YT["videoId"], [[400, 420]], 0)
+        rids = self.st.adopt_marks(YT["videoId"], [[400, 420]], 0)["rangeIds"]
         self.assertEqual({m["id"]: m for m in self.marks()}[rids[0]].get("adoptedBy"), "request")
         m0 = by[ids[0]]
         self.st.mark_exported(YT["videoId"], m0["id"], "f/x.mp4", m0["start"], m0["end"])
@@ -727,7 +779,7 @@ class TestLive(Base):
             self.st.adopt_top(LIVE["recording"], 3)
         self.assertEqual(c.exception.status, 400)
         with self.assertRaises(ApiError) as c:
-            self.st.request_marks(LIVE["recording"], [[1, 5]], 0)
+            self.st.adopt_marks(LIVE["recording"], [[1, 5]], 0)
         self.assertEqual(c.exception.status, 400)
         self.assertIsNone(self.st.replace_auto(LIVE["recording"], [cand(1, 9)], {"spec": {}}, 100, {}))
         self.assertEqual(self.st.get(LIVE["recording"])[0]["marks"], [])
