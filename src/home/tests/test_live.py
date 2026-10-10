@@ -41,6 +41,8 @@ sys.path.insert(0, TESTS)
 import launch as L  # noqa: E402
 import live as LV  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
+from flow import livesession as LS  # noqa: E402
+from flow import run as RunMod  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_failures as LF  # noqa: E402
 from human.friend import live_requests as LR  # noqa: E402
@@ -349,10 +351,10 @@ class PortalLiveTest(unittest.TestCase):
         self.enable()
         self.fake.routes[("POST", "/live/quit")] = lambda b: (409, {"error": "busy", "message": "録画中なので終わりません(録画を止めてから)"})
         code, d = self.jreq("POST", "/api/shutdown", {})                     # 偽物の /live/list は録画中 1 本
-        self.assertEqual((code, d.get("recorderKept"), d.get("notice")), (200, True, LV.KEPT_NOTE))
+        self.assertEqual((code, d.get("recorderKept"), d.get("notice")), (200, True, LS.KEPT_NOTE))
         self.assertTrue(wait_for(lambda: self.srv.live._stopped is not None, 20))
         self.assertEqual(self.srv.live._stopped, "kept")
-        self.assertTrue(any(LV.KEPT_NOTE in m for m in logs), logs)
+        self.assertTrue(any(LS.KEPT_NOTE in m for m in logs), logs)
         self.assertTrue(self.srv.live.ping(self.srv.live.find("fake")))      # 録画の部品は動いたまま
 
     def test_off_is_unchanged(self):
@@ -526,7 +528,7 @@ class PortalLiveTest(unittest.TestCase):
         # チャンネル名の掃除(制御文字を落とす・長さを切る)・分からなければ空
         self.probe_as("is_live", channel="ch\x07\n名" + "x" * 300)
         d = self.jreq("POST", "/live/api/begin", {"url": rec["url"]})[1]
-        self.assertEqual(d["recording"]["channel"], ("ch名" + "x" * 300)[:LV.CHANNEL_MAX])
+        self.assertEqual(d["recording"]["channel"], ("ch名" + "x" * 300)[:LS.CHANNEL_MAX])
         self.probe_as("is_live", channel=None)
         self.assertEqual(self.jreq("POST", "/live/api/begin", {"url": rec["url"]})[1]["recording"]["channel"], "")
         self.probe_as("is_live")
@@ -842,7 +844,7 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual((d["recordings"][0]["seconds"], d["recordings"][0]["title"], d["recordings"][1]["endedAt"]), (12.5, "配信中", recs[1]["endedAt"]))
         self.assertEqual(self.jreq("POST", "/api/ytt/live", {"op": "status"})[1], d)   # 3 秒は覚えた結果(録画元に聞かない)
         self.assertEqual(len(lists), 1)
-        self.srv.live._recent = (time.time() - LV.STATUS_CACHE - 0.1, [])
+        self.srv.live._recent = (time.time() - LS.STATUS_CACHE - 0.1, [])
         self.jreq("POST", "/api/ytt/live", {"op": "status"})
         self.assertEqual(len(lists), 2)
         # 停止
@@ -895,13 +897,13 @@ class ProbeTest(unittest.TestCase):
             self.assertEqual(cmd[0], "FAKE-YT-DLP")
             return real([sys.executable, script] + cmd[1:], *a, **kw)
         stack = __import__("contextlib").ExitStack()
-        stack.enter_context(mock.patch.object(LV.tools, "find_tool", lambda name, *a, **k: "FAKE-YT-DLP" if name == "yt-dlp" else None))
-        stack.enter_context(mock.patch.object(LV.subprocess, "run", run))
+        stack.enter_context(mock.patch.object(LS.tools, "find_tool", lambda name, *a, **k: "FAKE-YT-DLP" if name == "yt-dlp" else None))
+        stack.enter_context(mock.patch.object(LS.subprocess, "run", run))
         return stack
 
     def test_live_status_and_title(self):
         with self.fake(out="is_live\tPekora Ch. 兎田ぺこら\x07\t【雑談】配信の題\tつづき\x07\n"):
-            r = LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
+            r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
         self.assertEqual(r, {"status": "is_live", "title": "【雑談】配信の題つづき", "channel": "Pekora Ch. 兎田ぺこら", "message": ""})   # 題のタブは崩さない
         with open(self.args, encoding="utf-8") as f:
             args = json.load(f)
@@ -912,29 +914,29 @@ class ProbeTest(unittest.TestCase):
 
     def test_other_states(self):
         with self.fake(out="was_live\tNA\tNA\n"):
-            self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk"), {"status": "was_live", "title": "", "channel": "", "message": ""})
+            self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk"), {"status": "was_live", "title": "", "channel": "", "message": ""})
         with self.fake(out="", err="ERROR: [youtube] x: This live event will begin in 3 hours.\n", code=1):
-            self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "is_upcoming")
+            self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "is_upcoming")
         with self.fake(out="", err="ERROR: Video unavailable\n", code=1):
-            r = LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
+            r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
         self.assertEqual(r["status"], "unknown")
         self.assertIn("Video unavailable", r["message"])
         with self.fake(out="NA\tNA\tNA\n"):
-            self.assertEqual(LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "unknown")
+            self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "unknown")
         with self.fake(out="is_live\tc\tx\n", sleep=3):
-            r = LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk", timeout=0.5)
+            r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk", timeout=0.5)
         self.assertEqual(r["status"], "unknown")
         self.assertIn("秒で調べられませんでした", r["message"])
-        with mock.patch.object(LV.tools, "find_tool", lambda *a, **k: None):
-            self.assertIn("yt-dlp が見つからない", LV.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["message"])
+        with mock.patch.object(LS.tools, "find_tool", lambda *a, **k: None):
+            self.assertIn("yt-dlp が見つからない", LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["message"])
 
     def test_validate_url(self):
-        self.assertEqual(LV.validate_url(" https://youtu.be/abcdefghijk "), "https://www.youtube.com/watch?v=abcdefghijk")
-        self.assertEqual(LV.validate_url("https://m.youtube.com/watch?v=abcdefghijk&t=1"), "https://www.youtube.com/watch?v=abcdefghijk")
-        self.assertEqual(LV.validate_url("https://www.youtube.com/@channel/live"), "https://www.youtube.com/@channel/live")   # id の無い形はそのまま
+        self.assertEqual(LS.validate_url(" https://youtu.be/abcdefghijk "), "https://www.youtube.com/watch?v=abcdefghijk")
+        self.assertEqual(LS.validate_url("https://m.youtube.com/watch?v=abcdefghijk&t=1"), "https://www.youtube.com/watch?v=abcdefghijk")
+        self.assertEqual(LS.validate_url("https://www.youtube.com/@channel/live"), "https://www.youtube.com/@channel/live")   # id の無い形はそのまま
         for bad in ("https://www.youtube.com:8443/x", "https://user:pw@www.youtube.com/x", "ftp://www.youtube.com/x", "https://www.youtube.com/\x00"):
             with self.assertRaises(LX.LiveError, msg=bad):
-                LV.validate_url(bad)
+                LS.validate_url(bad)
 
 
 class StopRecorderTest(unittest.TestCase):
@@ -988,7 +990,7 @@ class StopRecorderTest(unittest.TestCase):
         lv = self.live()
         lv.proc = self.sleeper()
         self.fake.routes[("POST", "/live/quit")] = lambda b: (200, {"ok": True})
-        with mock.patch.object(LV, "QUIT_WAIT", 0.6):
+        with mock.patch.object(LS, "QUIT_WAIT", 0.6):
             self.assertEqual(lv.stop_recorder(), "killed")
         self.assertIsNotNone(lv.proc.poll())
 
@@ -1185,12 +1187,28 @@ class AutoDeliverTest(unittest.TestCase):
         self.assertEqual((req2, after2), (None, "check"))
 
 
+def handed(env, spec):
+    """② の口 submit に渡った封筒 + 束 -> 以前の start_file の引数の形 (動画, 題, flow, 配信者, kw)(RS7-2 G2b: 書き出しの受け渡しは submit に。中身は同じ実行)"""
+    run = RunMod.Run.from_envelope(env, spec)
+    kw = {k: getattr(run, k) for k in ("cut", "engine", "model") if getattr(run, k)}
+    if run.request_id:
+        kw.update(request_id=run.request_id, deliver_dir=run.deliver_dir, speakers=run.speakers, video_tracks=run.video_tracks,
+                  deliver_batch=run.deliver_batch, pool=run.pool)
+    return run.source_path, run.title, "auto" if run.mode == "file_auto" else "check", run.streamer, kw
+
+
 class FakeRunner:
     """まとめて実行の代わり(文字起こしへ渡した動画を覚える)"""
 
     def __init__(self):
         self.files = []
-        self.streamers = []   # start_file に渡った配信者の名前(files と同じ順)
+        self.streamers = []   # submit に渡った配信者の名前(files と同じ順)
+        self.accepts = []     # submit の accept(受付と同じ決め方 = 以前の start_file)
+
+    def submit(self, env, spec=None, accept=False):
+        self.accepts.append(accept)
+        path, title, flow, streamer, kw = handed(env, spec)
+        return self.start_file(path, title, flow, streamer, **kw)
 
     def start_file(self, path, title="", flow="check", streamer=None, **kw):
         if getattr(self, "fail", None):

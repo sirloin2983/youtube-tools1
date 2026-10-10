@@ -63,7 +63,7 @@ def key_of(rc, rec):
 
 class Reporter:
     def __init__(self, host: "livehost.ReportHost", clock=time.time, every=EVERY, end_window=END_WINDOW, finish_delay=FINISH_DELAY):
-        """host: 親(flow/livehost.py の ReportHost。今は src/home/live.py の Live。list_recordings・detector・livetx・exporter・requests・store_dir)。時間はテストで縮める"""
+        """host: 親(flow/livehost.py の ReportHost。flow/livesession.py の LiveSession。list_recordings・detector・livetx・exporter・requests・store_dir)。時間はテストで縮める"""
         self.host = host
         self.clock, self.every, self.end_window, self.finish_delay = clock, every, end_window, finish_delay
         self._last = -1e18

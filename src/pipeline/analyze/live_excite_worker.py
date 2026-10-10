@@ -12,6 +12,8 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
                  "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
                  lengthHint = M10 の人が選んだ長さの目安(入口が length_hint() で src/eval/tools/eval_marks.py --json の結果から作る。enough のときだけ、新しく受け持つ
                  録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)
+                 bundles?(RS7-2 G2b)= 束のある録画ごとの {"<録画元>/<録画>": {spec, sens, perHour}}(録画を始めたときの束。新しく受け持つ録画の spec と
+                 感度・枠に使う。友人の依頼の録画は requests の感度・枠・長さが先)
   <録画元>/<録画>/ の state.json(続きから再開する状態)・series.jsonl(1 分 1 行)・peaks.json(候補の正本)・skipped.jsonl(飛ばした区間の測り直し)はここが書く。
   decisions.json(人の採用・見送り・自動の採用)は入口が書き、ここは読んで PeakBook に当てるだけ。worker.json(心拍)もここが書く
 
@@ -199,6 +201,31 @@ def clean_requests(v):
         llo, lhi = SPEC_RANGES["length"]
         length = float(s.get("length")) if schemas.is_num(s.get("length")) and llo <= s["length"] <= lhi else None
         out[k] = {"sens": det["sens"], "perHour": det["perHour"], "length": length}
+    return out
+
+
+def clean_spec_doc(src):
+    """config.json の spec(入口が書く解析の設定)-> 検査済みの spec(SPEC_DEFAULT の鍵だけ。真偽は真偽・ほかは数。合わなければ既定)"""
+    src = src if isinstance(src, dict) else {}
+    spec = dict(SPEC_DEFAULT)
+    for k, dv in SPEC_DEFAULT.items():
+        v = src.get(k)
+        if isinstance(dv, bool):
+            if isinstance(v, bool):
+                spec[k] = v
+        elif schemas.is_num(v):
+            spec[k] = float(v)
+    return spec
+
+
+def clean_bundles(v):
+    """config.json の bundles(束のある録画ごとの設定。RS7-2 G2b)-> {"<録画元>/<録画>": {"spec", "sens", "perHour"}}(読めない鍵は飛ばす)"""
+    out = {}
+    for k, s in (v or {}).items() if isinstance(v, dict) else []:
+        if not isinstance(k, str) or "/" not in k or not isinstance(s, dict):
+            continue
+        det = clean_detect(s)
+        out[k] = {"spec": clean_spec_doc(s.get("spec")), "sens": det["sens"], "perHour": det["perHour"]}
     return out
 
 
@@ -1053,21 +1080,15 @@ class Worker:
         d = fsio.read_json_or(self.config_path, None, 1024 * 1024, kind=dict) or {}
         self.cfg_key = key
         rcs = [r for r in d.get("recorders") or [] if isinstance(r, dict) and ID_RE.match(str(r.get("id") or "")) and isinstance(r.get("url"), str)]
-        spec, src = dict(SPEC_DEFAULT), d.get("spec") if isinstance(d.get("spec"), dict) else {}
-        for k, dv in SPEC_DEFAULT.items():
-            v = src.get(k)
-            if isinstance(dv, bool):
-                if isinstance(v, bool):
-                    spec[k] = v
-            elif schemas.is_num(v):
-                spec[k] = float(v)
+        spec = clean_spec_doc(d.get("spec"))
         self.cfg = {"dir": d.get("dir") if isinstance(d.get("dir"), str) and d.get("dir") else os.path.dirname(self.config_path), "recorders": rcs,
                     "detect": clean_detect(d.get("detect")), "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,
                     "chatLimitBytes": int(d.get("chatLimitBytes") or CHAT_LIMIT), "chatStallSec": float(d.get("chatStallSec") or CHAT_STALL),
                     "lengthHint": clean_hint(d.get("lengthHint")),         # M10(入口が書く。無ければスタジオの設定の長さ)
                     "provisional": d.get("provisional") is not False,      # 仮の候補(既定オン。false = 本番の候補だけ)
                     "detectAll": d.get("detectAll") is not False,         # false = 友人の依頼の録画(requests)だけ測る(ホームの検出がオフのとき。2-15)
-                    "requests": clean_requests(d.get("requests"))}        # 友人の依頼の録画ごとの設定(感度・枠・長さ)
+                    "requests": clean_requests(d.get("requests")),       # 友人の依頼の録画ごとの設定(感度・枠・長さ)
+                    "bundles": clean_bundles(d.get("bundles"))}         # 束のある録画ごとの解析の設定・感度・枠(RS7-2 G2b。無ければ {})
         for st in self.recs.values():
             st.set_detect(self._detect_for(st.rc, st.rec))
         return True
@@ -1267,9 +1288,13 @@ class Worker:
         """友人のライブ配信の依頼の録画なら、その設定(2-15)。無ければ None"""
         return self.cfg.get("requests", {}).get("%s/%s" % (rc_id, rec))
 
+    def _bundle_for(self, rc_id, rec):
+        """束のある録画なら、その録画の設定 {spec, sens, perHour}(RS7-2 G2b)。無ければ None"""
+        return self.cfg.get("bundles", {}).get("%s/%s" % (rc_id, rec))
+
     def _detect_for(self, rc_id, rec):
-        """録画ごとの感度と枠: 友人の依頼の録画はその設定、ほかはホームの設定"""
-        req = self._request_for(rc_id, rec)
+        """録画ごとの感度と枠: 友人の依頼の録画はその設定、束のある録画は束の設定、ほかはホームの設定"""
+        req = self._request_for(rc_id, rec) or self._bundle_for(rc_id, rec)
         return {"sens": req["sens"], "perHour": req["perHour"]} if req else self.cfg["detect"]
 
     def _allowed(self, rc_id, rec):
@@ -1344,7 +1369,8 @@ class Worker:
                 return None
             ytdlp = self.cfg["ytdlp"]
             url = str(r.get("url") or "")
-            spec = spec_with_hint(self.cfg["spec"], self.cfg.get("lengthHint"))   # M10: 人が選んだ長さの目安(足りなければスタジオの設定)
+            bun = self._bundle_for(rc["id"], r["id"])   # 束のある録画は録画を始めたときの解析の設定(RS7-2 G2b)
+            spec = spec_with_hint(bun["spec"] if bun else self.cfg["spec"], self.cfg.get("lengthHint"))   # M10: 人が選んだ長さの目安(足りなければスタジオの設定)
             req = self._request_for(rc["id"], r["id"])
             if req and req.get("length"):   # 友人の依頼の録画: 長さは依頼の設定(2-15)
                 spec = dict(spec, length=req["length"], lengthFrom="friend", lengthNote="友人の依頼の設定")

@@ -207,6 +207,12 @@ def run(tmp, shots, force_chromium):
     handed, handed_who, handed_kw = [], [], []
 
     class FakeRunner:   # 文字起こしへは偽のまとめて実行(渡った flow と配信者の名前を覚える。全自動の分は「パックの段を実行中」と答える)
+        def submit(self, env, spec=None, accept=False):   # ② の口(RS7-2 G2b: 書き出しの受け渡しは封筒 kind file + 束)= 以前の start_file の形で覚える
+            from flow import run as run_mod
+            run = run_mod.Run.from_envelope(env, spec)
+            kw = {k: getattr(run, k) for k in ("cut", "engine", "model") if getattr(run, k)}
+            return self.start_file(run.source_path, run.title, "auto" if run.mode == "file_auto" else "check", streamer=run.streamer, **kw)
+
         def start_file(self, path, title="", flow="check", streamer=None, **kw):
             handed.append((path, flow))
             handed_who.append(streamer)

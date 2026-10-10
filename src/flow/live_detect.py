@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
 計算はワーカー(src/pipeline/analyze/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
-src/home/live.py の Live が持ち(live.detector)、見回り(Live.tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
+ライブ係 src/flow/livesession.py の LiveSession(入口の Live はそれを継ぐ)が持ち(live.detector)、見回り(tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
 設定(ホームの設定の節 live。src/home/prefs.py): detect {enabled(既定オン。10-08 ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
 autoAdopt {enabled(既定オン), waitMin: 1〜60(既定 5)}。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
+束のある録画(親の bundles = live/bundles.json。RS7-2 G2b)は、録画を始めたときの束の解析の設定(analyze)・感度・枠(adopt.sens・perHour)を
+config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(決定 3-31 の仮 b1)。束の無い録画は上の設定とスタジオの解析の設定のまま。
 
 ファイル(入口の作業データ live/excite/。書き手は 1 ファイルに 1 つ = 仮決め (bj)):
   config.json       ここが書く(変わったときだけ)。ワーカーが 30 秒ごとに読み直す: 録画元(合言葉つき)・感度・1 時間の本数・スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)・
@@ -131,7 +133,7 @@ UNCONFIRMED_EVERY = 120.0  # 未確認の数を聞き直す間隔(案件の一�
 
 class Detector:
     def __init__(self, host: "livehost.DetectHost", python=None, spawn=True, worker=WORKER, stale_sec=STALE_SEC, clock=time.time):
-        """host: 親(flow/livehost.py の DetectHost。今は src/home/live.py の Live。設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
+        """host: 親(flow/livehost.py の DetectHost。flow/livesession.py の LiveSession。設定・録画元・adopt・list_recordings・studio_call・store_dir・logs_dir)。
         テストは spawn=False(ワーカーを起動しない)か、worker に偽のワーカーを渡す・stale_sec を縮める"""
         self.host = host
         self.python = python or sys.executable
@@ -181,11 +183,13 @@ class Detector:
         # settings は live_requests.Store が検査済み(無い鍵・範囲の外は既定 = live_requests.SETTINGS_DEFAULT。読み直した項目も)
         return {k: {x: v["settings"][x] for x in ("sens", "perHour", "length")} for k, v in self.host.requests.all().items()}
 
-    def adopt_for(self, req):
+    def adopt_for(self, req, rc=None, rec=None):
         """録画ごとの自動の採用 {"enabled", "waitMin"}: 友人の依頼の録画(req = live.requests.get の項目)は常にオンで待ちは依頼の waitMin(2-15)、
-        ほかはホームの設定(adopt_cfg)"""
+        ほかはホームの設定(adopt_cfg)。録画(rc・rec)に束があれば待ちは束の adopt.waitMin(録画を始めたときの値。RS7-2 G2b)"""
         if req is None:
-            return self.adopt_cfg()
+            a = self.adopt_cfg()
+            b = self._bundle(rc, rec)
+            return dict(a, waitMin=b["adopt"]["waitMin"]) if b is not None else a
         return {"enabled": True, "waitMin": req["settings"]["waitMin"]}   # Store が検査済み(1〜60 の整数)
 
     def wake(self):
@@ -194,6 +198,29 @@ class Detector:
             self.tick()
         except Exception as e:   # noqa: BLE001  (起こせなくても見回りが拾う)
             self.host.note("盛り上がりの検出: 友人の依頼で起こせませんでした: %r" % (e,))
+
+    def _bundles(self):
+        """親の録画ごとの束 {"<録画元>/<録画>": 束}(flow/livesession.py の BundleBook。RS7-2 G2b)。親が持たない・読めなければ {}"""
+        bk = getattr(self.host, "bundles", None)
+        try:
+            out = bk.specs() if bk is not None else {}
+        except Exception:   # noqa: BLE001  (束を読めなければ束なしと同じ = スタジオの設定・ホームの設定)
+            out = {}
+        return out if isinstance(out, dict) else {}
+
+    def _bundle(self, rc, rec):
+        """その録画の束か None"""
+        bk = getattr(self.host, "bundles", None)
+        try:
+            b = bk.spec(rc, rec) if bk is not None and rc and rec else None
+        except Exception:   # noqa: BLE001
+            b = None
+        return b if isinstance(b, dict) else None
+
+    def bundles_cfg(self):
+        """config.json の bundles: 束のある録画ごとの解析の設定(spec)・感度・枠(録画を始めたときの束 = 決定 3-31 の仮 b1。ワーカーは友人の依頼の設定 > 束 > ホームの設定の順)"""
+        return {k: {"spec": clean_spec(b.get("analyze")), "sens": b["adopt"]["sens"], "perHour": b["adopt"]["perHour"]}
+                for k, b in self._bundles().items() if isinstance(b, dict) and isinstance(b.get("adopt"), dict)}
 
     def spec(self):
         """スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)。SETTINGS_EVERY ごとにスタジオに聞く。つながらなければ前の値か既定"""
@@ -211,10 +238,12 @@ class Detector:
         return self._spec
 
     def config(self):
+        bc = self.bundles_cfg()
         return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.host.recorders()],
                 "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
                 "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint(),
-                "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg()}   # 友人の依頼の録画(2-15)
+                "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg(),   # 友人の依頼の録画(2-15)
+                **({"bundles": bc} if bc else {})}   # 束のある録画(RS7-2 G2b。無ければ書かない = 今までの config.json のまま)
 
     def _length_hint(self):
         """M10: 人が選んだ区間の長さの目安(夜の自動測定 src/eval/tools/eval_marks.py --json の結果。enough のときだけワーカーが使う)。読めなければ None"""
@@ -414,7 +443,7 @@ class Detector:
         out = {"ok": True, "enabled": self.enabled() and (det.get("enabled") is True or req is not None), "recorder": rc, "recording": rec, "seq": seq,
                "worker": self.worker_view(doc),
                "hour": {"perHour": (doc or {}).get("perHour") or det.get("perHour") or DETECT_DEFAULT["perHour"], "counts": (doc or {}).get("counts") or {}},
-               "autoAdopt": self.adopt_for(req), "changes": [], "tx": self.host.livetx.status()}
+               "autoAdopt": self.adopt_for(req, rc, rec), "changes": [], "tx": self.host.livetx.status()}
         chs = [c for c in (doc or {}).get("changes") or [] if isinstance(c, dict) and isinstance(c.get("seq"), int)]
         if since is None or since > seq or (chs and since < chs[0]["seq"] - 1):
             out["peaks"] = peaks
@@ -598,7 +627,7 @@ class Detector:
             req = self.host.requests.get(rc, rec)   # 友人のライブ配信の依頼の録画は、自動採用のスイッチがオフでも採用する(待ちは依頼の設定。2-15)
             if req is None and (not home or paused):
                 continue
-            wait_min = self.adopt_for(req)["waitMin"]
+            wait_min = self.adopt_for(req, rc, rec)["waitMin"]
             doc, peaks, _pending = self.view(rc, rec)
             if ended and not (doc or {}).get("ended"):   # 終わった録画は、ワーカーが帳簿を締めてから(終わり待ちの候補が確定する)
                 continue

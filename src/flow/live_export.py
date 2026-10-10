@@ -21,7 +21,7 @@
                  ラウドネスは作り直した動画で測って(loudnorm)から、音声だけ作り直して(映像は無劣化)ゲインをかける(ytt.loudness)
   4. 検証     … ffprobe で 30/1・長さ(区間 ±0.5 秒)を確かめてから本当の名前へ
   5. 完了     … スタジオの書き出しと同じ置き場所(スタジオの書き出し先/<配信の名前>/)・名前の規則・作業用/<名前>.clip.json。
-                 書き出したあと(ジョブの after。スタジオの LIVE の帯の「書き出したあと」)は入口の「まとめて実行」の動画ファイルの形(autorun.start_file。
+                 書き出したあと(ジョブの after。スタジオの LIVE の帯の「書き出したあと」)は「まとめて実行」の動画ファイルの形(② の口 Queue.submit に封筒 kind file + 録画の束。RS7-2 G2b。
                  check = 文字起こしまで(mode file)・auto = 文字起こし → パック(mode file_auto)・none = 渡さない)。streamer(配信者の名前)があれば
                  照らし合わせて渡す(字幕の色。合わなければ色なしで進めて、ジョブの warning に出す)
   ジョブは live/exports.json に残す。入口を起動し直したら、途中だったジョブは「録画待ち」からやり直す(冪等: 書きかけは消し、名前は仕上げるときに決める)。
@@ -439,11 +439,27 @@ class MarkStore:
         m["start"], m["end"] = start, end
 
 
+FILE_MODES = {"check": "file", "auto": "file_auto"}   # 書き出したあと → 動画ファイルの実行の形(flow/run.py の KIND_MODES の file)
+
+
+def file_order(media, title, after, streamer, base, **kw):
+    """書き出した切り抜き 1 本 -> まとめて実行の口 Queue.submit へ渡す (封筒 kind file, 束)(RS7-2 G2b)。
+    欄 kw(cut・engine・model・request_id・deliver_dir・speakers・video_tracks・deliver_batch・pool)は flow/run.py の Run の欄と同じ写し方で
+    封筒と束(run.pinned)へ = 以前の start_file と同じ実行になる。base = 録画の束(None = 欄の差分だけ。Queue.submit が既定に重ねる)
+    """
+    from . import run as _run   # 呼ぶときに読む(run は文字起こしの部品まで読む = 入口のライブの部品を軽く。test_live_tx の import の検査)
+    run = _run.Run(None, str(title or "")[:120], FILE_MODES.get(after, "file"), None, streamer=streamer, source_path=media, **kw)   # 題は封筒の上限まで(start_file と同じ)
+    if base is None:
+        return run.envelope(), run.asked
+    run.spec = base   # 欄から写した差分が束に勝つ
+    return run.envelope(), run.spec
+
+
 # ---------- 書き出しのジョブ ----------
 class Exporter:
     def __init__(self, host: "livehost.ExportHost", folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
                  runs_log=None, disk_usage=None, disk_poll=DISK_POLL, exported=None):
-        """host: 親(flow/livehost.py の ExportHost。今は src/home/live.py の Live。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
+        """host: 親(flow/livehost.py の ExportHost。flow/livesession.py の LiveSession。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
         runner(): まとめて実行(src/home/autorun.py の AutoRunner。文字起こしへ渡す)か None。
         audio(): 書き出しの音量 {"volume": 1〜200(%), "loudness": LUFS か None}(src/home/live.py の studio_audio)。None なら音量を変えない。
         runs_log: まとめて実行の記録 autorun-runs.jsonl(失敗の集約。M3)。
@@ -1016,10 +1032,21 @@ class Exporter:
         base = self._base(d, a)
         return folder, names.clip_base(folder, job.get("n") or 0, a - base, b - base, job.get("label"), unique=unique_base), title
 
-    def _audio_cfg(self):
-        """-> (音量(%。100 = 変えない), ラウドネスの目標 LUFS か None)。形が正しくなければ「変えない」"""
+    def _bundle_of(self, job):
+        """ジョブの録画の束(親の bundles。録画を始めたときに受けた物。RS7-2 G2b)か None(束の無い録画・親が持たない)"""
+        bk = getattr(self.host, "bundles", None) if isinstance(job, dict) else None
         try:
-            a = self.audio() if self.audio else None
+            b = bk.spec(job.get("recorder"), job.get("recording")) if bk is not None else None
+        except Exception:   # noqa: BLE001  (束を読めなければ束なしと同じ = 今までどおり)
+            b = None
+        return b if isinstance(b, dict) else None
+
+    def _audio_cfg(self, job=None):
+        """-> (音量(%。100 = 変えない), ラウドネスの目標 LUFS か None)。ジョブの録画に束があれば束の export(録画を始めたときの値 = 決定 3-31 の仮 b2)、
+        無ければ audio()(スタジオの書き出しの設定)。形が正しくなければ「変えない」"""
+        b = self._bundle_of(job)
+        try:
+            a = {"volume": b["export"]["volume"], "loudness": b["export"]["loudness"]} if b else self.audio() if self.audio else None
         except Exception:
             a = None
         a = a if isinstance(a, dict) else {}
@@ -1037,7 +1064,7 @@ class Exporter:
         """作り直した動画の音量を、スタジオの書き出しと同じ設定にそろえる(音声だけ作り直し。映像は -c:v copy で無劣化)。
         ラウドネスのとき: 測って(loudnorm)・上げ下げの量は ytt.loudness.gain(音が割れない・上げすぎない範囲)。
         -> .clip.json の export に足す項目({"loudness": {...}} か {"volume": %}。スタジオの _clip_export_info と同じ形)"""
-        vol, loud = self._audio_cfg()
+        vol, loud = self._audio_cfg(job)
         if not loud and vol == 100:
             return {"volume": 100}
         info = normalize.probe(path, self.ffprobe)
@@ -1176,7 +1203,9 @@ class Exporter:
         return ""
 
     def _handoff(self, job, media, after):
-        """まとめて実行へ渡す(動画ファイルの形 start_file)。-> (run の id, 渡せなかった理由(handoffError), 警告の文のリスト)"""
+        """まとめて実行へ渡す(② の口 Queue.submit に封筒 kind file + 束。RS7-2 G2b。以前の start_file と同じ実行になる = file_order)。
+        束 = ジョブの録画の束(録画を始めたときの物)。束の無い録画はまとめて実行の build_spec(今の画面の設定)。
+        -> (run の id, 渡せなかった理由(handoffError), 警告の文のリスト)"""
         warn, run_id, handoff = [], "", ""
         who = None
         if job.get("streamer"):   # 配信者の名前(字幕の色)。照らし合わせられなければ色なしで進める(書き出しは止めない)
@@ -1196,7 +1225,11 @@ class Exporter:
                           deliver_batch=req.get("deliverBatch"), pool=deliver_pool(job, req))   # 届け方は依頼の指定(無ければホームの設定)・n 本の組は録画をまたいで溜める
                 if req.get("cut"):
                     kw["cut"] = req["cut"]
-            run_id = (r.start_file(media, title=os.path.splitext(os.path.basename(media))[0], streamer=who, flow=after, **kw) or {}).get("id") or ""
+            base = self._bundle_of(job)
+            if base is None and hasattr(r, "build_spec"):   # 束の無い録画(古い録画・手元のテストの録画元): 今の画面の設定から(以前の start_file と同じ)
+                base = r.build_spec()[0]
+            env, spec = file_order(media, os.path.splitext(os.path.basename(media))[0], after, who, base, **kw)
+            run_id = (r.submit(env, spec, accept=True) or {}).get("id") or ""
         except Exception as e:   # 失敗の集約(M3)は handoffError から文を作る(warning に重ねない)
             handoff = ("パックへ" if after == "auto" else "文字起こしへ") + "渡せませんでした: %s" % str(e)[:160]
         return run_id, handoff, warn

@@ -85,6 +85,7 @@ class FakeHost:
         self._halt = threading.Event()
         self.unconfirmed = None
         self.auto_max = None
+        self.bundles = None              # 録画の束(RS7-2 G2b)はこの偽の親では使わない = 束の無い録画と同じ
         self.marks = None                # 採用(live_adopt)はこの偽の親では使わない(adopt は下の偽物)
         self.clock = clock
         self._cfg = {"enabled": True, "detect": {"enabled": True}, "autoAdopt": {"enabled": True, "waitMin": 1}, "liveTx": {"enabled": True}}
@@ -320,7 +321,7 @@ class LiveTest(unittest.TestCase):
         self.assertIsNone(lv._exporter)   # 名前を調べても書き出しの部品は作らない
         self.assertEqual(sorted(H.names(H.LiveHost)),
                          sorted(set(H.names(H.DetectHost)) | set(H.names(H.TxHost)) | set(H.names(H.ReportHost)) | set(H.names(H.ExportHost))
-                                | set(H.names(H.AdoptHost)) | {"_halt", "unconfirmed", "auto_max"}))
+                                | set(H.names(H.AdoptHost)) | {"_halt", "unconfirmed", "auto_max", "bundles"}))
 
     def test_children_hold_live_as_host(self):
         lv = self.live

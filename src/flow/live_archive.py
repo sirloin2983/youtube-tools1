@@ -372,7 +372,7 @@ class Archiver:
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
-                 pack_info=None):
+                 pack_info=None, settings_for=None):
         """exporter: src/flow/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -383,6 +383,8 @@ class Archiver:
         adopt(body, hold=) = M1 の採用(Live.adopt)。
         pack_info(動画のパス) -> その動画の Resolve パックの情報か None(速報版を本番版にしたとき、前に作ったパックが速報版のままだと知らせるため。
         パックの有無の規則は manage/cases/txindex.pack_info だけが持つので、入口(Live)が渡す。None = 知らせない)。
+        settings_for(録画元, 録画) -> 配信後の全自動のアーカイブの解析の設定(録画の束の analyze 節。flow/livesession.py。RS7-2 G2b)か None
+        (束の無い録画 = 今までどおりスタジオの GET /api/settings)。
         テストは probe・audio・studio を偽物に、間隔を短くする(本物の YouTube へ繋がない)"""
         self.ex, self.studio = exporter, studio
         self.after = after
@@ -395,6 +397,7 @@ class Archiver:
         self.after_max_age = after_max_age
         self.compare = compare   # compare(録画元, 録画, afterStream, アーカイブの候補): 配信中の候補と比べて記録する(0-10-6。src/flow/live_detect.py)
         self.pack_info = pack_info or (lambda path: None)
+        self.settings_for = settings_for or (lambda rc, rec: None)
         self.enabled = enabled or (lambda: True)
         self.auto = auto or (lambda: True)
         self.recording_state = recording_state or (lambda rc, rec: None)
@@ -864,8 +867,10 @@ class Archiver:
         if v is not None and v.get("analysis"):   # 人がもう解析した: それを使う
             a = self._after_set(rc, rec, state="analyze", qid=None, message="スタジオで解析済みの結果を使います", **base)
             return self._after_adopt(rc, rec, a)
-        code, d = self.studio("GET", "/api/settings", None)
-        saved = ((d or {}).get("settings") or {}).get("analyze") if code == 200 and isinstance(d, dict) else None
+        saved = self.settings_for(rc, rec)   # 録画の束の解析の設定(録画を始めたときの値。決定 3-31 の仮 b1)
+        if not isinstance(saved, dict):   # 束の無い録画: スタジオの画面の解析の設定
+            code, d = self.studio("GET", "/api/settings", None)
+            saved = ((d or {}).get("settings") or {}).get("analyze") if code == 200 and isinstance(d, dict) else None
         saved = dict(saved) if isinstance(saved, dict) else {}
         cnt = saved.get("count") if isinstance(saved.get("count"), int) and not isinstance(saved.get("count"), bool) else 8
         saved["count"] = max(1, min(AFTER_TOP_MAX, max(cnt, n * 2)))   # 録画の外・人のマークと重なる候補を飛ばす分の余り
@@ -1324,9 +1329,9 @@ class Archiver:
             why = r.get("reason") if not r.get("ok") else "確かさ %.2f・%.1f 倍" % (r.get("score") or 0, r.get("ratio") or 0)
         return None, None, why
 
-    def _audio(self, speed):
+    def _audio(self, speed, job=None):
         """スタジオに頼む音量(速報版と同じ扱い): 速報版の .clip.json の export に残した値 → 無ければ今の書き出しの設定(studio_audio)"""
-        vol, loud = self.ex._audio_cfg()
+        vol, loud = self.ex._audio_cfg(job)   # 速報版のジョブの録画に束があれば束の音量(RS7-2 G2b)
         if speed:
             p = schemas.find_clip_path(speed)
             c, _w = schemas.load_clip_file(p) if p else (None, None)
@@ -1348,7 +1353,7 @@ class Archiver:
         if speed:
             h = self._probe_speed(speed).get("height")
             height = h if h in HEIGHTS else 0   # 速報版と同じ高さ(文字起こし・カット・パックの見た目を変えない)
-        vol, loud = self._audio(speed)
+        vol, loud = self._audio(speed, job)
         for attempt in (0, 1):
             self._stop(job)
             fsio.unlink_quiet(tmp)

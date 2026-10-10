@@ -236,8 +236,10 @@ class Queue(run_mod.Runner):
             self._save_active()
         return {"runs": made, "skipped": skipped}
 
-    def submit(self, envelope, spec=None):
+    def submit(self, envelope, spec=None, accept=False):
         """② の口: 封筒(flow/envelope.py)+ 束(flow/spec.py。変えたい所だけでもよい)を受けて待ち行列に積む -> run.public()。
+        accept = 受けたときに決める物(配信者・届け方の n 本)を入口の受付と同じ hook の _accept で決める(ライブの書き出しの受け渡し live_export._handoff。
+        以前の start_file と同じ決め方 = 束の hints.people の先頭は見ない。RS7-2 G2b)。
         束にこの PC の設定(flow/machine.py)を重ねて Run に置く = 受けたときの束のまま流す(封筒の欄が決めた物 = run.pinned はそのまま)。
         動画ファイルの封筒(kind file)は、実在する絶対パスで拡張子が動画・音声(ytt/tools.MEDIA_TYPES)の物だけ。届け先が無ければ届けない(既定)。
         配信者: 封筒に無ければ(legacy.streamer が null)束の hints.people の先頭の名前を照らし合わせた名前(字幕の色。ytt/colors.resolve =
@@ -248,9 +250,11 @@ class Queue(run_mod.Runner):
         run = Run.from_envelope(envelope, spec)
         if run.kind() == "file":
             _check_media(run.source_path)
-        if run.streamer is None:
+        if run.streamer is None and not accept:
             run.streamer = _people_streamer(run.spec, self.env)
         run.spec = _machine.overlay(run.spec, env=self.env)   # 欄から写した差分(run.asked)は置くときに重なる = 封筒の決めた物が勝つ
+        if accept:
+            self._accept(run)
         with self.cv:
             active = self._active_runs()
             if any(r.id == run.id for r in active):

@@ -184,6 +184,19 @@ class TestSubmit(Base):
         tools.gate.set()
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
 
+    def test_accept_uses_accept_hook(self):
+        """accept=True(ライブの書き出しの受け渡し。RS7-2 G2b)は束の hints.people の先頭を見ず、受付と同じ hook の _accept で決める(以前の start_file と同じ)"""
+        tools = Tools()
+        tools.gate.clear()
+        q = self.queue(tools)
+        seen = []
+        q._accept = lambda run, convert=False: seen.append((run.id, run.spec is not None, convert))
+        q.submit(self.env_of(self.media[0]), {"hints": {"people": [{"name": "ぺこら"}]}}, accept=True)
+        self.assertEqual(seen, [("0123456789", True, False)])
+        self.assertIsNone(q.runs[0].streamer)
+        tools.gate.set()
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+
     def test_without_spec_uses_build_spec_hook(self):
         """束を持たない実行(画面の欄から作った Run)は hook の build_spec(既定 = 束の既定 + この PC の設定)"""
         tools = Tools()

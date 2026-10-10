@@ -8,7 +8,7 @@ POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信
   StudioMarks  今の動き(ユーザーの PC)。取り込んだスタジオの API で kind live の配信(id = 録画の id)を(無ければ)登録し、採用のマークを足す
                (同じ区間 ±SAME 秒のマークがあれば使い回し、候補・不採用なら採用に)。番号 n = スタジオの配信のマークを開始の順に並べた位置。
                書き出したら「書き出し済み」(POST /api/live/exported)
-  LocalMarks   スタジオなし(友人の PC・headless。G2b のライブ係が使う。今はどこからも選ばれない)。マークの正本 live_export.MarkStore
+  LocalMarks   スタジオなし(友人の PC・headless。ライブ係 flow/livesession.py の既定・入口の Live.use_headless)。マークの正本 live_export.MarkStore
                (live/marks/<録画元>__<録画>.json)に採用の印を置く(MarkStore.adopt。配信の登録はしない)。
                採用の印の形: マークに key(スタジオのマークの id の代わり = "a" + 16 進 12 桁)・status(adopted → 書き出したら exported)・src "local"。
                マークの id は studio_mark_id(key)(スタジオのマークと同じ規則)= 書き出しのジョブ・.clip.json の studio {video: 録画の id, mark: key} も同じ形。
@@ -162,7 +162,7 @@ class LocalMarks:
 
 
 class Adopter:
-    """採用(M1)の本体。host: 親(flow/livehost.py の AdoptHost。今は src/home/live.py の Live)= 録画元の検査 _ids・録画の状態 _rec_status・
+    """採用(M1)の本体。host: 親(flow/livehost.py の AdoptHost。flow/livesession.py の LiveSession)= 録画元の検査 _ids・録画の状態 _rec_status・
     書き出し exporter・マークの置き場 marks・友人の依頼 requests・書き出したあとの設定 auto_cfg・記録 log。
     deliver_for(origin, after, streamer) -> (届ける依頼の形か None, after, streamer): 友人の依頼の無い録画を確認なしで届けるか(app。無ければ届けない)"""
 
@@ -186,12 +186,12 @@ class Adopter:
         hold: "archive" = 書き出したあと、本番版に入れ替えてから まとめて実行へ渡す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
         host = self.host
         origin = LX.check_origin(body.get("origin"))
-        auto = host.auto_cfg()
+        rc_id, rec = body.get("recorder"), body.get("recording")
+        auto = host.auto_cfg(rc_id, rec)   # その録画の束があれば束から(RS7-2 G2b)
         after, streamer = LX.check_after(body, auto["after"]), LX.check_streamer(body.get("streamer"))
         label = LX._text(body.get("label"), LX.LABEL_MAX)
         text = LX._text(body.get("text"), live_tx.TEXT_MAX)   # 配信中の文字起こし(D-11 案 b)の文字(採用の記録に残す = C2 の材料。任意)
         score = body.get("score") if schemas.is_num(body.get("score")) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
-        rc_id, rec = body.get("recorder"), body.get("recording")
         rc = host._ids(rc_id, rec)
         req, after, streamer = self.request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
         pad = req["settings"]["pad"] if req and isinstance(req.get("settings"), dict) else auto["pad"]

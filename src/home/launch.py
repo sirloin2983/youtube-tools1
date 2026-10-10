@@ -92,6 +92,8 @@ if ROOT not in sys.path:   # 共通部品 ytt(リポジトリ直下)
 from manage.cases import txindex  # noqa: E402
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
+from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
+from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b)
 from ytt import colors as colors_mod, datadir, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
@@ -809,7 +811,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         out = {"ok": True}
         try:   # 録画中なら録画の部品は止めずに残す(src/home/live.py の stop_recorder)。画面の「すべて終了しました」に知らせる
             if self.server.live.local_recording() is True:
-                out.update(recorderKept=True, notice=live_mod.KEPT_NOTE)
+                out.update(recorderKept=True, notice=livesession.KEPT_NOTE)
         except Exception:
             pass
         self._json(200, out)
@@ -883,7 +885,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
                                         feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log,
                                                                                       discard=cases_mod.discard_clip),   # 片付ける部品は入口が渡す(friend_feedback は cases を読まない)
-                                        live_begin=lambda url, ctx: self.live.begin_request(url, ctx),   # ライブ配信の依頼(2-15。live は下で作る)
+                                        live_begin=lambda url, ctx: self.live.submit_request(url, ctx),   # ライブ配信の依頼(2-15。封筒 + 束でライブ係の submit へ = RS7-2 G2b。live は下で作る)
                                         defaults=prefs_mod.DEFAULTS["intake"])   # 設定が読めないときの既定は入口が渡す(intake は prefs を読まない)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"],
@@ -1130,6 +1132,7 @@ class PortalServer(httpsec.ExclusiveServer):
                                                        log_dir=self.sup.logs_dir,   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
                                                        log=self.sup.log)   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
                 self._autorun.set_status_hook(self.live_activity)   # GET /api/flow/status の live 欄と idle(Queue はライブを知らない。RS7-2 G5a)
+                self._autorun.set_live_hook(lambda env, spec: self.live.submit(env, spec))   # 封筒 kind live はライブ係が受ける(録画を始めて録画の束を残す。画面なしでも。RS7-2 G2b)
             return self._autorun
 
     def live_activity(self):
@@ -1324,6 +1327,15 @@ def parse_args(argv):
     return a
 
 
+def headless_disk_min(log):
+    """画面なしの空き容量の下限(GB。この PC の設定 machine.json の diskMinGB。読めなければ既定 = flow/machine.py の DISK_MIN_GB。RS7-2 G2b)"""
+    try:
+        return machine_mod.get("diskMinGB")
+    except (OSError, ValueError) as e:
+        log("この PC の設定の diskMinGB を読めませんでした(既定の %s GB で続けます): %s" % (machine_mod.DISK_MIN_GB, e), console=False)
+        return machine_mod.DISK_MIN_GB
+
+
 def say_error(log, msg, headless):
     """起動しないときの読める文: launcher.log と標準エラーへ。画面なしは黒い画面への記録も標準エラーなので、表示は 1 回だけ"""
     log(msg, console=not headless)
@@ -1392,6 +1404,8 @@ def _main(opts, ready_out=None):
         srv.server_close()
         return EXIT_RUNNING if headless else 1
     srv.headless = headless
+    if headless:   # ライブ係を友人の PC の形に(スタジオなしの採用・届けない・D-13 なし・束の adopt.top・空き容量の下限。RS7-2 G2b)
+        srv.live.use_headless(headless_disk_min(log))
     try:
         install_stop_signals()
         runtime.write_runtime(sup.rdir, TOOL_ID, port, VERSION)   # 書けなくても続ける(使う人はまだいない)

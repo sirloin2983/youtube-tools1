@@ -16,7 +16,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from flow import live_adopt as LA, live_export as LX, livehost as H, spec as S  # noqa: E402
+from flow import live_adopt as LA, live_export as LX, livehost as H, run as R, spec as S  # noqa: E402
 from ytt import schemas  # noqa: E402
 
 VID = "abcdefghijk"
@@ -56,13 +56,16 @@ class Book:
 
 
 class Runner:
-    """まとめて実行の代わり(start_file だけ)"""
+    """まとめて実行の代わり(submit だけ)"""
 
     def __init__(self):
         self.files = []
 
-    def start_file(self, media, title=None, streamer=None, flow=None, **kw):
-        self.files.append((media, flow, kw))
+    def submit(self, env, spec=None, accept=False):
+        """② の口(RS7-2 G2b: 書き出しの受け渡しは封筒 kind file + 束)。覚えるのは (動画, flow, 欄) = 以前の start_file の形"""
+        run = R.Run.from_envelope(env, spec)
+        kw = {k: getattr(run, k) for k in ("cut", "engine", "model") if getattr(run, k)}
+        self.files.append((run.source_path, "auto" if run.mode == "file_auto" else "check", kw))
         return {"id": "run-%d" % len(self.files)}
 
 
@@ -80,7 +83,7 @@ class Host:
         self.exporter.start = lambda: None   # 書き出しは動かさない(ジョブは「録画待ち」のまま。済んだ所はテストが _finish を呼ぶ)
         self.marks = LA.LocalMarks(lambda: self.exporter)
 
-    def auto_cfg(self):
+    def auto_cfg(self, rc=None, rec=None):
         return {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2.0}
 
     def recorders(self, cfg=None):

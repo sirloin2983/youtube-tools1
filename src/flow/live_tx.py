@@ -49,7 +49,7 @@ def wav_args(ffmpeg, src, dst, ss, dur):
 
 class LiveTx:
     def __init__(self, host: "livehost.TxHost", log=None, clock=time.time, python=None, run=None, ffmpeg=None, slots=None):
-        """host: 親(flow/livehost.py の TxHost。今は src/home/live.py の Live。設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
+        """host: 親(flow/livehost.py の TxHost。flow/livesession.py の LiveSession。設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
         run(data_dir, model, wav) -> 子プロセスの結果の dict(テストは偽物に差し替える。既定 = live_tx_worker.py を子プロセスで)。ffmpeg: パス(既定は探す)。
         slots: 重い処理の順番(既定 ytt.jobs.SLOTS。テストは小さな HeavySlots を渡す)"""
         self.host = host

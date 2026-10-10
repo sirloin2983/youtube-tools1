@@ -1752,6 +1752,33 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual(sorted(w.recs), [("fake", REC_B)])
         w.close()
 
+    def test_worker_bundles(self):
+        """RS7-2 G2b: 束のある録画(config.json の bundles)は録画を始めたときの束の解析の設定(spec)・感度・枠で受け持つ。
+        友人の依頼の録画は依頼の感度・枠が先・束の無い録画はホームの設定とスタジオの設定のまま"""
+        clock = Clock(T0)
+        a = SimRecorder(clock)
+        b = SimRecorder(clock, first=T0 + 60, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
+        sim = MultiSim([a, b])
+        home = {"sens": "low", "perHour": 5}
+        bundles = {"fake/" + REC: {"spec": dict(W.SPEC_DEFAULT, length=30.0, lagAuto=False), "sens": "high", "perHour": 2}}
+        cfg = write_config(self.dir, detect=home, bundles=bundles)
+        w = make_worker(cfg, clock, sim)
+        run_until(w, clock, sim, T0 + 300)
+        sa, sb = w.recs[("fake", REC)], w.recs[("fake", REC_B)]
+        self.assertEqual((sa.book.thr, sa.book.per_hour, sa.book.length, sa.spec["lagAuto"]), (excite.SENS["high"], 2, 30.0, False))
+        self.assertEqual((sb.book.thr, sb.book.per_hour, sb.book.length, sb.spec["lagAuto"]), (excite.SENS["low"], 5, 45.0, True))
+        write_config(self.dir, detect=home, bundles=bundles, requests={"fake/" + REC: {"sens": "normal", "perHour": 4, "length": 60}})
+        w.cfg_checked = -1e18
+        clock.t += 6
+        w.tick()
+        self.assertEqual((sa.book.thr, sa.book.per_hour), (excite.SENS["normal"], 4))   # 友人の依頼の設定が先
+        w.close()
+        k = "fake/" + REC
+        self.assertEqual(W.clean_bundles({k: {"spec": {"length": 50, "lagAuto": "x"}, "sens": "nope", "perHour": "3"}}),
+                         {k: {"spec": dict(W.SPEC_DEFAULT, length=50.0), "sens": "normal", "perHour": 6}})
+        for bad in (None, [], "x", {"noslash": {}}, {5: {}}, {k: "x"}, {k: None}):
+            self.assertEqual(W.clean_bundles(bad), {}, bad)
+
     def test_clean_requests(self):
         """config.json の requests の検査: 鍵は「録画元/録画」の文字列・中身は辞書だけ。感度・枠は clean_detect と同じ、長さは 10〜120 秒(外は None = スタジオの長さ)"""
         k = "fake/" + REC

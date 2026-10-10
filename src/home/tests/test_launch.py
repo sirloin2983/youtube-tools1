@@ -880,6 +880,20 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
 
+    def test_flow_submit_live_goes_to_live(self):
+        """RS7-2 G2b: 封筒 kind live は ② の口からライブ係(Live.submit)へ(入口が Queue.set_live_hook で登録)。リアルタイム切り抜きがオフなら 400 と理由
+        (録画元・yt-dlp に聞かない)。オンなら Live.submit が受けた封筒 + 束で録画を始める"""
+        env = {"id": "live000001", "kind": "live", "input": {"videoId": "abcdefghijk", "title": "配信"}}
+        self.srv.live.probe = lambda url: self.fail("オフなら配信の状態を調べない")
+        r, body = self.post("/api/flow/submit", body=json.dumps({"envelope": env}).encode("utf-8"))
+        self.assertEqual((r.status, "オフ" in json.loads(body)["message"]), (400, True))
+        seen = []
+        with mock.patch.object(self.srv.live, "submit", lambda e, s: seen.append((e, s)) or {"id": e["id"], "live": True}):
+            r, body = self.post("/api/flow/submit", body=json.dumps({"envelope": env, "spec": {"adopt": {"top": 10}}}).encode("utf-8"))
+        self.assertEqual((r.status, json.loads(body)["run"]), (200, {"id": "live000001", "live": True}))
+        self.assertEqual((seen[0][0]["kind"], seen[0][1]["adopt"]["top"]), ("live", 10))
+        self.assertEqual(self.srv.autorun.status()["runs"], [], "kind live は待ち行列に積まない")
+
     def test_intake_api(self):
         """友人からの依頼の受付(src/human/friend/intake.py): 状態・設定(api/ytt/prefs の節 intake)・今すぐ確認。受付の設定は作業データの prefs.json(一時フォルダ)"""
         r, body = self.req("GET", "/api/intake")

@@ -64,6 +64,8 @@ FILES = {
                           "Runner を継ぎ、入口の AutoRunner が受付と hook だけを足して継ぐ)"),
     "src/flow/livehost.py": ("flow", "flow", "ライブの親の口(RS7-2 G0。typing.Protocol だけ。Detector・LiveTx・Reporter・Exporter が親に求める物 = 今は app の Live が満たす)"),
     "src/flow/live_adopt.py": ("flow", "flow", "ライブの採用 = マーク + 書き出し(M1。RS7-2 G1b。Live.adopt の本体。マークの置き場 StudioMarks(スタジオ)・LocalMarks(マークの正本。スタジオなし))"),
+    "src/flow/livesession.py": ("flow", "flow", "ライブ係(RS7-2 G2b。Live から app でない部分 = 録画元のクライアント・録画を始める・受付 submit(封筒 kind live + 束 → live/bundles.json)・"
+                                "見回り・子プロセス・調子・採用の口。入口の home/live.py の Live はこれを継ぐ app の殻)"),
     # ---- analytics → manage/ops/analytics(別件。中身は変えない)
     "src/analytics/__init__.py": ("manage", "manage/ops/analytics", ""),
     "src/analytics/bridge.py": ("manage", "manage/ops/analytics", ""),
