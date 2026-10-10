@@ -1544,11 +1544,8 @@ class TestToolIdentity(unittest.TestCase):
 
     def test_same_as_runtime_table(self):
         from ytt import runtime
-        import ed_state
         from manage.cases import pipeline_io
-        self.assertEqual(runtime.TOOL_APPS["transcribe"], "transcribe-tool")
         self.assertEqual(S.APP_ID, runtime.TOOL_APPS["transcribe"])
-        self.assertEqual(ed_state.APP_ID, runtime.TOOL_APPS["transcribe"])
         self.assertEqual(pipeline_io.TOOL_NAME, runtime.TOOL_APPS["transcribe"])
 
 

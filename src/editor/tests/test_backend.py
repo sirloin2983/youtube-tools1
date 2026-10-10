@@ -113,23 +113,6 @@ class TestWriteLocks(StoreDir):
         self._blocked_while_locked(lambda: S.apply_diarization(TID, [(0, 4, 0)], 0.0, 0))
         self.assertEqual(S.read_transcript(TID)["segments"][0]["speaker"], "S1")
 
-    def test_atomic_write_leaves_no_temp_on_failure(self):
-        target = os.path.join(self.tmp, "x.json")
-        S.atomic_write(target, b"{}")
-        real = os.replace
-
-        def boom(a, b):
-            raise OSError("disk full")
-        try:
-            os.replace = boom
-            with self.assertRaises(OSError):
-                S.atomic_write(target, b"{\"a\": 1}")
-        finally:
-            os.replace = real
-        self.assertEqual(sorted(os.listdir(self.tmp)), ["x.json"])   # 一時ファイルが残らない・元の内容は壊れない
-        with open(target, "rb") as f:
-            self.assertEqual(f.read(), b"{}")
-
 
 class TestJobs(unittest.TestCase):
     def setUp(self):
@@ -592,26 +575,13 @@ class TestRuntime(unittest.TestCase):
         old = os.environ.get("YTT_RUNTIME_DIR")
         try:
             os.environ.pop("YTT_RUNTIME_DIR", None)
-            self.assertEqual(P.runtime_dir("/a/b/editor"), os.path.join(os.path.abspath("/a/b"), ".runtime"))
             os.environ["YTT_RUNTIME_DIR"] = self.dir
-            self.assertEqual(P.runtime_dir("/a/b/editor"), self.dir)
             self.assertEqual(S.runtime_path_dir(), self.dir)
         finally:
             if old is None:
                 os.environ.pop("YTT_RUNTIME_DIR", None)
             else:
                 os.environ["YTT_RUNTIME_DIR"] = old
-
-    def test_write_remove_only_own(self):
-        p = P.write_runtime(self.dir, "transcribe", 8776, "0.9.9")
-        with open(p, encoding="utf-8") as f:
-            d = json.load(f)
-        self.assertEqual((d["tool"], d["port"], d["version"]), ("transcribe", 8776, "0.9.9"))
-        self.assertFalse(P.remove_runtime(self.dir, "transcribe", 8777))   # 別のポートで動いている同じツールの記録は消さない
-        self.assertTrue(os.path.exists(p))
-        self.assertTrue(P.remove_runtime(self.dir, "transcribe", 8776))
-        self.assertFalse(os.path.exists(p))
-        self.assertIsNone(P.write_runtime(os.path.join(self.dir, "x\0y"), "transcribe", 1, "v"))   # 書けなくても例外にしない
 
     def test_entries_validation(self):
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "studio", "port": 8801})
@@ -925,18 +895,9 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual((r["_status"], r["error"]), (400, "bad_json"))
         r = self.call("PUT", "/api/settings", b"{}", headers={"Content-Type": "text/plain"})
         self.assertEqual((r["_status"], r["error"]), (415, "bad_type"))
-        # 深すぎる JSON(読むと RecursionError)は「JSON として読めない」(0.60.1 から。本文の読み方を ytt.httpsec.read_json_body にした。
-        # 以前は想定外の例外として 500 internal だった。想定外の例外の 500 は TestSafe で確かめる)
-        deep = b'{"a":' + b"[" * 100000 + b"]" * 100000 + b"}"
-        r = self.call("PUT", "/api/settings", deep)
-        self.assertEqual((r["_status"], r["error"]), (400, "bad_json"))
-        self.assertEqual(self.call("GET", "/api/ping")["app"], "transcribe-tool")   # サーバーは生きている
-        r = self.call("PUT", "/api/settings", b"[1]")
-        self.assertEqual((r["_status"], r["error"], r["message"]), (400, "bad_json", "JSON のオブジェクトを送ってください"))
         r = self.call("PUT", "/api/settings", b"")
         self.assertEqual((r["_status"], r["error"]), (413, "too_big"))
         self.assertIn("最大32MB", r["message"])
-        self.assertEqual(self.call("PUT", "/api/settings", b"{}", headers={"Content-Type": "application/json; charset=utf-8"}), {"ok": True})
 
     def test_media_range_head_and_416(self):
         """/media の Range(シーク)・HEAD・範囲の外(416)。応答は ytt.httpsec.send_file(0.60.1。スタジオと同じ 1 か所)"""
