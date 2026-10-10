@@ -37,6 +37,9 @@ _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC not in sys.path:   # 入口から読むときは入っている。テストが単独で読むときのため
     sys.path.insert(0, _SRC)
 from ytt import settings as _settings  # noqa: E402  (設定ファイルの読み書きの決まり。S4)
+from flow import spec as _spec  # noqa: E402  (採用の数・余白・待ちの既定は束の 1 か所。RS6 b-R1)
+
+_ADOPT = _spec.DEFAULTS["adopt"]
 
 MAX_BYTES = 1024 * 1024   # 2026-10-04 に 256KB から(非表示の一覧の分)
 MAX_REMEMBER = 2000        # 配信者の記憶は種類ごとにこの件数まで(古い順に捨てる)
@@ -64,8 +67,8 @@ DEFAULTS = {"autorun": {"mode": None, "top": 3, "cut": "none", "friendLength": T
             "backup": {"enabled": False, "folder": "", "everyHours": 1},
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p", "autoArchive": True, "autoDelete": True,
-                     "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": 2}, "autoAfterStream": False, "afterStreamPerHour": 6,
-                     "detect": {"enabled": True, "sens": "normal", "perHour": 6}, "autoAdopt": {"enabled": True, "waitMin": 5},
+                     "auto": {"after": "check", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
+                     "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"enabled": True, "waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
                      "autoDeliver": True},   # 自分の配信の自動の切り抜き(配信中の自動採用・配信後の追加)を確認なしで友人へ 1 本ずつ届ける(10-08 ユーザー決定。10-06 の「スイッチを作らない」を変えた)
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}

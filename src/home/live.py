@@ -75,6 +75,7 @@ import urllib.parse
 from manage.cases import txindex
 from ytt import datadir, fsio, layout, schemas, tools, version as _version
 from flow import runlog
+from flow import spec as _spec   # 採用の数・余白の既定は束の 1 か所(RS6 b-R1)
 from flow import live_export   # マークと書き出し。P2
 from flow import live_archive   # アーカイブで本番版に作り直す。P4
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
@@ -350,7 +351,7 @@ class Live:
         pad = a.get("pad")
         return {"after": a.get("after") if a.get("after") in live_export.AFTERS else "check",
                 "cut": a.get("cut") or "", "engine": a.get("engine") or "", "model": a.get("model") or "",
-                "pad": float(pad) if schemas.is_num(pad) and 0 <= pad <= 5 else 2.0}
+                "pad": float(pad) if schemas.is_num(pad) and 0 <= pad <= 5 else float(_spec.DEFAULTS["adopt"]["pad"])}
 
     @property
     def exporter(self):
@@ -371,7 +372,7 @@ class Live:
                            "recording_state": self.recording_state, "python": self.python, "log": self.log,
                            "after": lambda rc, rec: self.cleaner.check(rc, rec),   # 1本終えたら: 全部入れ替わった録画を消す
                            "after_stream": lambda: self.cfg().get("autoAfterStream") is True,   # 配信後の全自動(M7)
-                           "per_hour": lambda: self.cfg().get("afterStreamPerHour") or 6,
+                           "per_hour": lambda: self.cfg().get("afterStreamPerHour") or _spec.DEFAULTS["adopt"]["perHour"],
                            "recordings": self.list_recordings, "adopt": self.adopt, "request": self.requests.get,   # 友人の依頼の録画は afterStream の設定で(2-15)
                            "compare": self.detector.compare,   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
                            "pack_info": lambda path: txindex.pack_info(path)},   # パックの有無の規則は txindex だけ(live_archive は読まない)

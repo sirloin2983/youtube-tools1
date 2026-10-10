@@ -45,6 +45,7 @@ import threading
 import time
 
 from ytt import fsio, schemas, tools
+from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所(RS6 b-R1)
 from . import live_failures
 from . import live_export as LX
 from pipeline.analyze import excite
@@ -60,8 +61,8 @@ LOG_MAX = 2 * 1024 * 1024  # logs/excite.log がこれを超えていたら、�
 OPS = ("adopt", "dismiss", "restore")
 DECISIONS_MAX = 5000
 PEAKS_MAX = 16 * 1024 * 1024
-DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": 6}
-ADOPT_DEFAULT = {"enabled": True, "waitMin": 5}
+DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": _spec.DEFAULTS["adopt"]["perHour"]}
+ADOPT_DEFAULT = {"enabled": True, "waitMin": _spec.DEFAULTS["adopt"]["waitMin"]}
 CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャットの状態(悪い順)
 
 
@@ -166,7 +167,7 @@ class Detector:
 
     def adopt_cfg(self):
         a = self._sub("autoAdopt", ADOPT_DEFAULT)
-        return {"enabled": a.get("enabled") is True, "waitMin": a.get("waitMin") if isinstance(a.get("waitMin"), int) else 5}
+        return {"enabled": a.get("enabled") is True, "waitMin": a.get("waitMin") if isinstance(a.get("waitMin"), int) else ADOPT_DEFAULT["waitMin"]}
 
     def enabled(self):
         """検出を動かすか: リアルタイム切り抜きがオンで、検出のスイッチがオンか、友人のライブ配信の依頼の録画がある(2-15: 友人の録画は常に動かす)"""
@@ -409,7 +410,7 @@ class Detector:
         seq = int((doc or {}).get("seq") or 0)
         out = {"ok": True, "enabled": self.enabled() and (det.get("enabled") is True or req is not None), "recorder": rc, "recording": rec, "seq": seq,
                "worker": self.worker_view(doc),
-               "hour": {"perHour": (doc or {}).get("perHour") or det.get("perHour") or 6, "counts": (doc or {}).get("counts") or {}},
+               "hour": {"perHour": (doc or {}).get("perHour") or det.get("perHour") or DETECT_DEFAULT["perHour"], "counts": (doc or {}).get("counts") or {}},
                "autoAdopt": self.adopt_for(req), "changes": [], "tx": self.live.livetx.status()}
         chs = [c for c in (doc or {}).get("changes") or [] if isinstance(c, dict) and isinstance(c.get("seq"), int)]
         if since is None or since > seq or (chs and since < chs[0]["seq"] - 1):
