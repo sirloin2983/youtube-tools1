@@ -1,6 +1,6 @@
 # 役割で組み直す(ツール全体のコードの役割分担。2026-10-09)
 
-> 状態(2026-10-10): **RS0・RS1・RS2 済み(RS1 は入口を起動し直して本物の 1 本の確認待ち。RS2 の分も同じ確認が要る)。RS2 は 10-10 に RS2-0〜9 まで済み: RS2-8 で `ed_jobs` を `human/proof` の `doc_jobs`・`rerun` に移して転送の殻(35 行)にし(違反 66 → 59)、RS2-9(早朝)で `ed_speakers` を判別 `pipeline/transcribe/diarize.py` と文書の側 `human/proof/speakers.py` に割り(殻 25 行)・`ed_fill`・`ed_llm`・`ed_retime` の計算・認識ワーカー `tx_worker` を `pipeline/transcribe` へ移した(違反 59 → **49**。仮決めは `plan/decisions.md` 3-24 = 未確認)。次は RS3・RS4 = 10-10 朝に下調べ済み・手順の案と決めてほしいこと(`plan/decisions.md` 3-25)は 8 節の下・下ごしらえ 0A・0B は仮で実施して済み = 違反 49 → 25**。RS1 の結果は 8 節の下。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
+> 状態(2026-10-10): **RS0〜RS4 済み・向きの違反 0(`KNOWN_MAX` 0)。次は RS5(転送だけの殻と旧パスの転送を消す・app を薄く・文書を新しい形に)。RS3・RS4 の結果は 8 節の下(段の表と、計画と違えた所)。RS1〜RS4 の分は入口を起動し直して本物の 1 本の確認が要る。以下は RS3・RS4 に入る前までの状態の記録: RS0・RS1・RS2 済み(RS1 は入口を起動し直して本物の 1 本の確認待ち。RS2 の分も同じ確認が要る)。RS2 は 10-10 に RS2-0〜9 まで済み: RS2-8 で `ed_jobs` を `human/proof` の `doc_jobs`・`rerun` に移して転送の殻(35 行)にし(違反 66 → 59)、RS2-9(早朝)で `ed_speakers` を判別 `pipeline/transcribe/diarize.py` と文書の側 `human/proof/speakers.py` に割り(殻 25 行)・`ed_fill`・`ed_llm`・`ed_retime` の計算・認識ワーカー `tx_worker` を `pipeline/transcribe` へ移した(違反 59 → **49**。仮決めは `plan/decisions.md` 3-24 = 未確認)。次は RS3・RS4 = 10-10 朝に下調べ済み・手順の案と決めてほしいこと(`plan/decisions.md` 3-25)は 8 節の下・下ごしらえ 0A・0B は仮で実施して済み = 違反 49 → 25**。RS1 の結果は 8 節の下。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
 
 ## 1. なぜ組み直すか(ユーザーの言葉)
 - 「もともと 1 個ずつ開発して合体したからいびつになっている。今の形を完全に変えてもいいから最適な形を考えて」
@@ -149,6 +149,8 @@ dev/           リポジトリの道具だけ残す(lint・ui_audit・push_helpe
 - (B) が先(コードを触らず、配った友人の環境でも効く)。(A) は (B) で届かない所。(B) で正解が増えるほど (A) の測定が確かになる(今は 22 本で 95% の幅が広い)
 
 ## 7. 今のファイルの行き先(移すときの表。行番号つきの根拠は inventory の文書)
+> RS3・RS4(10-10)で移したあとの実際の行き先は `dev/layer_map.py`(FILES・DIRS)が正。この表から変えた行は 8 節の「RS3・RS4 の結果」の「計画と違えた所」に並べた。
+
 | 今 | 行き先 | 備考 |
 | --- | --- | --- |
 | `ytt_core/*`(excite・evaldata を除く) | `ytt/` | `txindex` は `manage/cases/`。`datadir` は `ytt/`(置き場所の規則)だが管理の操作は `manage/keep/` |
@@ -192,11 +194,11 @@ dev/           リポジトリの道具だけ残す(lint・ui_audit・push_helpe
 
 | 段 | 中身 | 通すもの | 目安 |
 | --- | --- | --- | --- |
-| RS0 | 全ファイルの行き先の表(7 節を各ファイル・各関数まで)・パッケージの骨組み(空の `src/{ytt,pipeline,human,manage,eval,app}`)・**向きの検査のテスト**(今ある違反の一覧つき)・版 1 つの準備 | 検査のテストが「違反 n 件(一覧と一致)」で通る | 半日 |
-| RS1 | ① の骨組み: `ytt_core` → `ytt`(excite を `pipeline/analyze` へ)・`cut2resolve` → `pipeline/pack`・`recorder` → `pipeline/ingest`・`exporter` → `pipeline/export`。`spec.py` と `run.py`(まとめて実行の ① の経路を移して 1 本に)。鍵の JSON の形 | 全 unittest・`test_resolve_pack_contract`(単独)・`e2e_pipeline`・`e2e_live*` | 1 日 |
-| RS2 | ① の文字起こし: `ed_jobs` を認識(`pipeline/transcribe`)と文書(`human/proof`)に分割・認識と後処理の段を分ける・エンジンの登録の口・疑似モードを `eval/fake` から差し込む | 編集の unittest と e2e 全部・`test_worker`(サーバー側で numpy を import しない) | 1〜2 日(**いちばん重い。校正の画面が一時的に壊れやすい = 別のセッションで慎重に**) |
-| RS3 | ② と ③: home の友人・案件・片付け・調子・ライブを行き先へ、スタジオの検索と手動マーク・採用を `human/review`・`human/find` へ、編集の校正の補助と学習を `human/proof` へ。上書きの置き場を決める | home の unittest と e2e 全部・スタジオの unittest と e2e | 1 日 |
-| RS4 | ④: ドリル・評価用フォルダ・A/B・精度の自動測定を `eval/drill`・`dev/eval_*` を `eval/tools`。① の記録と ② の記録を分ける | `eval/` のテスト・`dev/tests/test_eval_*` | 半日 |
+| RS0(済み) | 全ファイルの行き先の表(7 節を各ファイル・各関数まで)・パッケージの骨組み(空の `src/{ytt,pipeline,human,manage,eval,app}`)・**向きの検査のテスト**(今ある違反の一覧つき)・版 1 つの準備 | 検査のテストが「違反 n 件(一覧と一致)」で通る | 半日 |
+| RS1(済み) | ① の骨組み: `ytt_core` → `ytt`(excite を `pipeline/analyze` へ)・`cut2resolve` → `pipeline/pack`・`recorder` → `pipeline/ingest`・`exporter` → `pipeline/export`。`spec.py` と `run.py`(まとめて実行の ① の経路を移して 1 本に)。鍵の JSON の形 | 全 unittest・`test_resolve_pack_contract`(単独)・`e2e_pipeline`・`e2e_live*` | 1 日 |
+| RS2(済み) | ① の文字起こし: `ed_jobs` を認識(`pipeline/transcribe`)と文書(`human/proof`)に分割・認識と後処理の段を分ける・エンジンの登録の口・疑似モードを `eval/fake` から差し込む | 編集の unittest と e2e 全部・`test_worker`(サーバー側で numpy を import しない) | 1〜2 日(**いちばん重い。校正の画面が一時的に壊れやすい = 別のセッションで慎重に**) |
+| RS3(済み) | ② と ③: home の友人・案件・片付け・調子・ライブを行き先へ、スタジオの検索と手動マーク・採用を `human/review`・`human/find` へ、編集の校正の補助と学習を `human/proof` へ。上書きの置き場を決める | home の unittest と e2e 全部・スタジオの unittest と e2e | 1 日 |
+| RS4(済み) | ④: ドリル・評価用フォルダ・A/B・精度の自動測定を `eval/drill`・`dev/eval_*` を `eval/tools`。① の記録と ② の記録を分ける | `eval/` のテスト・`dev/tests/test_eval_*` | 半日 |
 | RS5 | `app/` を薄く(配線だけ)・旧い URL の転送・版 1 つ・設定 1 ファイル(旧ファイルを読み込む)・向きの違反 0・転送の別名を消す・文書(AGENTS・README・spec)を新しい形に | 全テスト・lint 0・ui_audit Must 0・`start.bat` で起動して本物の 1 本 | 半日〜1 日 |
 | RS6 | ① の新機能: アーカイブと動画ファイルの**自動採用**(今はライブだけ)・切り抜き単位の使い回し(鍵)・校正の上書きを切り抜きの鍵に付ける・① 単体の起動(URL か動画 → パック) | 新しいテスト + 本物のアーカイブ 1 本と動画ファイル 1 本 | 1 日 |
 | RS7 | 整理と最適化(ユーザー決定 10-10 "速度に寄せたい。効果が小さければコード量"): **先に測る** = 鍵で使い回すと飛ばせる段の時間(同じ切り抜きの再実行・字幕を直したあとのパックだけ・辞書更新後の後処理だけ・評価の流し直し)を実測 → 効果が大きければ速度(鍵の再利用の徹底・重い段の待ちを削る)・小さければコード量(重複の統合・転送とテストの付け替え・残った設定と版) | 動きは変えない。1 つずつ測って効かなければ戻す。全テスト・lint 0 | 1〜2 日 |
@@ -222,9 +224,42 @@ RS3・RS4 の手順の案(10-10 朝。下調べ Sonnet 3 体 → Fable が突き
 - 下調べどうしの食い違いの答え: ed_learn・ed_relink・ed_misc の分割は RS3 が eval/ まで運ぶ(同じファイルを 2 回割らない)。txenv に鍵を足さず workdata に置き換える
 - **0A と 0B は 10-10 朝に仮のまま実施して済み**(ファイルを動かさない・動きを変えない・どの順でも必ず最初に要る)。0B = 層の表の 3 行・継ぎ目(accuracy・backup・intake の `defaults=`・friend_feedback の `discard=`・live_archive の `pack_info=`・`ytt/fsio.append_line`・`pipeline/runlog.py`・`ytt/schemas.now_ms`)・死んだフック 2 つ(違反 49 → 26)/ 0A = txenv を消して `ytt/workdata.py`(置き場所と版の変数)・`ytt/tools`(動画・音声の小道具)・`worker_client`(GPU・worker_fake・valid_model)・`ytt/studiodata.py`(スタジオの data.json の読み口)・`roster.ROSTER`・pio の廃止(find_clip は ytt/schemas)・ed_store の使っていない import を消して 26 → **25**。波 1 以降(ファイルの移動)はユーザーの確認(3-25)のあと
 
+**RS3・RS4 の結果(10-10。ユーザー確認 = `plan/decisions.md` 3-25。下調べ Sonnet 3 体 → Fable が突き合わせ → 実装は Opus・Sonnet のサブエージェントを別の作業フォルダで並列に作りまとめ役が取り込んだ。報告そのものと表は `docs/design/rs3-rs4-survey-2026-10-10/`)**: 向きの違反 49 → 25(下ごしらえ 0A・0B)→ **0**。コミット約 60 本。**進め方の変更(上の「進め方の変更」)に従い、段ごとは unittest・lint・層の検査だけ、e2e の一式は RS の終わりに 1 回、文書は RS ごとに 1 回**。
+
+| 段 | 中身 | 違反 |
+| --- | --- | --- |
+| 下ごしらえ 0A・0B | 編集の一時の口 `txenv` を消し `ytt/workdata.py`・`ytt/tools`・`ytt/studiodata.py`・`worker_client` に置き換え / ホームの層の表の 3 行と小さな継ぎ目(`append_line`・`runlog`・`now_ms`・`defaults=`) | 49 → 25 |
+| 段 D(編集 0.68.0) | 設定の比較 A/B・修正データの書き出し・データの保管・`ed_evalaudio` を消した(移す量が減る。ユーザー「使用していない」→ 消す) | |
+| RS3-E5a・E5c | `ed_store` → `human/proof/store.py`(一覧とパックの有無は `manage/cases/doclist.py`)/ `ed_learn` を `pipeline/transcribe/replace.py`(置換辞書)・`human/proof/learn.py`(学習と提案)・`eval/drill/metrics.py`(精度)に割る | 25 → 18 → 15 |
+| RS3-1 | 入口のライブの葉 10 ファイルを `pipeline/export`・`analyze`・`ingest`・`transcribe`・`manage/keep` へ。子プロセスの旧い場所に runpy の転送 3 つ | |
+| RS3-2 | `backup`・`cleanup`・`live_cleanup` → `manage/keep`、`health`・`clientlog`・`restart` → `manage/ops` | |
+| RS3-3 | `cases` → `manage/cases`、`intake`・`deliver`・`live_requests`・`friend_feedback` → `human/friend`。AutoRunner の友人へ届ける段は `human/friend/delivery.py` の mixin | |
+| RS3-4 | スタジオの `common.py` を `ytt`(procs・studio_env・mediainfo・apikey・textutil・errors の `Cancelled`)と `pipeline/ingest/sources.py` に分解し転送だけの殻に | → 8 |
+| RS3-E5b | `resolve_export` → `pipeline/pack`(受け渡しの JSON と SRT の組み立て `build_*` も)・`pipeline_io` → `manage/cases`(殻なし) | → 7 |
+| RS3-E6 | `ed_alt`・`ed_ytcap`・`ed_retime` → `human/proof/alt.py`・`ytcap.py`・`retime.py`(殻 3 つ)。疑似の 2 つ目のエンジンの行は口 `Backend.alt_rows`(本体 `eval/fake/fake_asr.py`) | → 5 |
+| RS3-5 | スタジオの部品: `analyze` → `pipeline/analyze/analyze.py`・`batch` → `pipeline/batch.py`・`store` と `feedback` → `human/review/`・`rank` と `seed.json` → `human/find/`・`txlink` → `manage/cases/txlink.py`。`handoff` は割って `.clip.json` の組み立てを `pipeline/export/manifest.py` へ(`handoff.py` は実行中のポートの共有だけで app に残る) | → 4 |
+| RS3-E7 | `ed_relink` → `manage/cases/relink.py`(付け替え・まとめて付け替える・30fps)と `eval/drill/folders.py`(評価用のフォルダの整理)/ `ed_misc` → `manage/cases/handoff_io.py`(clip-marker と受け渡し)・`human/proof/batch.py`(フォルダの一括)。殻 2 つ | → 2 |
+| RS4-2 | `ed_drill` → `eval/drill/drill.py`・`ed_evalbatch` → `evalbatch.py`(どちらも殻なし)。`ed_state` の読みを持ち主へ・doc_jobs の口を付け替え | → **0** |
+| RS4-4 | 精度の自動測定 `accuracy` → `eval/drill/accuracy.py`・測る道具 `dev/eval_*.py` 13 本と `_evalcommon` とテスト 14 本 → `src/eval/tools/`(旧 `dev/eval_*.py` は runpy の転送) | |
+| 段 D2(編集 0.69.0) | 進行度・校正の目標 `goalHours`・`/api/progress`・画面の棒を消した(評価ドリルの欄は「精度」タブの `#drillCard` へ。`ed_misc.progress_stats` 廃止) | |
+| RS4 の最後(入口 0.55.0) | 測る道具 `eval_marks.py` に `--analyze-missing [--wait] [--limit N]`(未解析の友人の配信の解析を動いているスタジオに頼む)を足したうえで「あとから解析(測るため)」(autorun の deferred・POST_MODE・portal の札・`YTT_DEFER_ANALYZE`)を消した | |
+
+**計画(上の 7 節の表)と違えた所**:
+- `live.py`・`autorun.py` は `pipeline/run`・`human/friend` に割らず **app に残した**(友人へ届ける段だけ `human/friend/delivery.py` の mixin)= 本物の配信が動く玄関を割らない。RS6 で分ける(3-25 c)
+- `live_failures`・`live_report` は `manage/ops`・`eval/tools` ではなく **`pipeline/`**(失敗の文と配信の記録を書くのは ① の側。読む `eval_marks --live` は ④)
+- `demo_env` は `eval/tools` ではなく **`dev/` に残した**(入口を読むため)
+- スタジオの `analyze` は `pipeline/analyze/analyze.py`、`batch` は `pipeline/batch.py`、`handoff` は割った(`.clip.json` は `pipeline/export/manifest.py`)。`common` は 7 つに分けて殻を残した
+- `accuracy`(精度の自動測定)は `eval/drill/accuracy.py`
+- 殻は `ed_*` と `common` に残した(RS5 で消す)。`ed_drill`・`ed_evalbatch`・`resolve_export`・`pipeline_io` は殻なし。旧パスの runpy の転送は `live_*_worker` 3 つ・`tx_worker`・`dev/eval_*.py` 13 本
+- 「あとから解析」を消す代わりの道具 = `eval_marks --analyze-missing`。合言葉は画面の HTML の meta から読む(仮で決めたこと = `plan/decisions.md`)
+- 消した物が計画より増えた: 設定の比較 A/B・修正データの書き出し・データの保管(`dataset/` の作業データは消さない)・進行度
+
+**次(RS5)**: 転送だけの殻(`ed_jobs`・`ed_speakers`・`ed_store`・`ed_learn`・`ed_alt`・`ed_ytcap`・`ed_retime`・`ed_relink`・`ed_misc`・`studio/common.py`)と旧パスの転送(`tx_worker.py`・`live_*_worker.py` 3 つ・`dev/eval_*.py` 13 本・`ytt_core` の転送)を消し、読み手を持ち主へ付け替える。app を薄く・旧い URL の転送・版 1 つ・設定 1 ファイル。そのとき入口を起動し直して本物の 1 本を確かめる。
+
 RS0〜RS1 は操作が変わらない。RS2 以降も画面の操作は変えない(画面の作りは後で)。合計の目安は AI の作業で 5〜7 日分(並列にできる段は RS3 と RS4)。
 
 ## 9. 実装が終わったら消す物・要確認
+> 済み(10-10): 「あとから解析(測るため)」(入口 0.55.0)・`ed_evalaudio.py`(`eval-audio/` の実データは残す)・死んだフック 2 つ(`STUDIO_FAKE_CHAT_DELAY`・`YTT_RECORDER_SOURCE`)・設定の比較 A/B・修正データの書き出し・データの保管(段 D。`dataset/` の実データは残す)・進行度(段 D2)。残りは RS5 以降。
 - 消す(決定済み): 友人の依頼の「確認してから届ける」の経路(止めて待つ形)・4 ツール別の版と赤い帯の検査・設定の 4 ファイル(読み込んだあと)・「あとから解析(測るため)」・`ed_evalaudio.py` と `eval-audio/`・疑似モードの `if`(登録の口に置き換え)・`runs[].replaced`・`trim_ends`・死んだフック(`TRANSCRIBE_FAKE_REDO`・`STUDIO_FAKE_CHAT_DELAY`・`YTT_RECORDER_SOURCE`)・`ui-kit` の写しと `sync_ui_kit`(`app/ui/` に 1 つ)
 - 要確認(小さい。移すときに聞く): `srt2resolve.py`(旧い単独 CLI)・`auto_cut.py` の CLI・設定の比較 A/B・修正データの書き出し・データの保管(`dataset/`)・エンジンの選択肢「Qwen3-ASR(CPU)」・スタジオの `export-log.txt`・友人の区間の長さと配信中の長さの目安を dev の測定結果から決めている作り(学習データとして ③ に置く形に直す)
 

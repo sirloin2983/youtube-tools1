@@ -1,7 +1,7 @@
 # ツール間の受け渡し(パイプラインの約束)v1
 
-状態(2026-10-07): **規則(今も有効)**。2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。この約束のおかげで、2026-09-25〜27 に **1 つのアプリ(入口 `http://localhost:8700/` の 1 プロセス。`/studio/`・`/transcribe/`(編集)・`/cut2resolve/`(パックを作る API))に統合できた**(`docs/design/integration-plan.md`)。統合しやすい書き方の約束は 5 に残す。
-受け渡しの一括実行(パイプライン)は、入口の「まとめて実行」(`src/home/autorun.py`)が行う。
+状態(2026-10-10): **規則(今も有効)**。役割で組み直す計画の RS3・RS4 が済み、ファイルの場所は役割の層(`src/ytt`・`pipeline`・`human`・`manage`・`eval`)に移った(7 に「記録の持ち主の表」)。2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。この約束のおかげで、2026-09-25〜27 に **1 つのアプリ(入口 `http://localhost:8700/` の 1 プロセス。`/studio/`・`/transcribe/`(編集)・`/cut2resolve/`(パックを作る API))に統合できた**(`docs/design/integration-plan.md`)。統合しやすい書き方の約束は 5 に残す。
+受け渡しの一括実行(パイプライン)は、入口の「まとめて実行」(`src/home/autorun.py`。① の段の中身は `src/pipeline/run.py`)が行う。
 
 ```
 入口(ホーム)http://localhost:8700/ が、1 つのプロセスの中に 3 つのツールを取り込んで動かす
@@ -20,7 +20,7 @@
 - **途中のファイルの置き場所(2026-09-27)**: 動画のフォルダの直下に並べるのはパック(`<名前>_pack`)と元動画(書き出した切り抜きの mp4)だけ。
   それ以外の受け渡しのファイル(`.clip.json`・`.edit.json`・`_edit.mp4`・`.transcript.json`・`.srt`・`.cut-plan.json`・スタジオの `.studio-id`)は
   **動画のフォルダの下の `作業用` フォルダ**に書く(動画がもう `作業用` の中なら、そのフォルダ)。読む側は `作業用\` → 動画の隣(以前の置き方)の順に探す。
-  以前の置き方のファイルは動かさない。規則は `src/ytt_core/schemas.py`(`WORK_DIR`・`work_dir`・`sidecar_path`・`find_sidecar`)の1か所
+  以前の置き方のファイルは動かさない。規則は `src/ytt/schemas.py`(`WORK_DIR`・`work_dir`・`sidecar_path`・`find_sidecar`)の1か所
   (cut2resolve は `cut2resolve_core.WORK_DIR` に同じ名前を持つ)
 - 知らない項目は無視する(前方互換)。互換の無い変更をするときだけ版(`/v2`)を上げる。読む側は自分の知らない版を「未対応の版」として拒否する
 - 書き込みは一時ファイルに書いてから置き換える(書きかけのファイルを他のツールに読ませない)
@@ -73,7 +73,7 @@
   同名のファイルがあるときは、それが `youtube-tools-transcript/v1` のとき(=このツールが前に書いたもの)だけ上書きし、それ以外は別名にする
 
 ### 2.3 `youtube-tools-cut-plan/v1` — 残す区間の指定(誰でも書ける・cut2resolve が読む)
-GPT が `src/cut2resolve/auto_cut.py` で決めた形。スタジオの採用マーク・文字起こしの「残す」行から作れる。
+GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用マーク・文字起こしの「残す」行から作れる。
 ```json
 {
   "schema": "youtube-tools-cut-plan/v1",
@@ -84,7 +84,7 @@ GPT が `src/cut2resolve/auto_cut.py` で決めた形。スタジオの採用マ
 - `status` が `adopted`(省略時も adopted)の区間だけを使う。`media` は任意(無ければ画面・引数で動画を指定)
 - cut2resolve の詳細版(同じ schema。保持・削除区間・fps など)は、コマンド(cut2resolve.py)では出力フォルダの `cut-plan.json`。
   画面・API(「編集」・まとめて実行)のパックでは出力フォルダに置かず、cut2resolve の作業データ `packs/` の「パックを作った記録」の `cutPlan` に入れる
-  (2026-09-26 ④。読むのは `src/ytt_core/txindex`。`docs/design/edit-tool-design.md` の 12 ④)
+  (2026-09-26 ④。読むのは `src/manage/cases/txindex.py`。`docs/design/edit-tool-design.md` の 12 ④)
 
 ### 2.4 `youtube-tools-key/v1` — 成果物の鍵(役割で組み直す計画の RS1-5。**RS1 では形と純粋な関数だけ。書くのは RS6**)
 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う(`plan/role-restructure.md` 4 の 4・5-2)。
@@ -130,7 +130,7 @@ GPT が `src/cut2resolve/auto_cut.py` で決めた形。スタジオの採用マ
 - 見た目は共通の ui-kit(`src/ui-kit/`。色・文字・部品・ダーク/ライト)を使う。正本は1つで、`dev/sync_ui_kit.py` で各ツールに写す。ずれは `dev/tests/test_ui_kit_sync.py` で検出する
 - 新しく作るツール固有の CSS クラスには接頭辞を付ける(スタジオ `cs-`・文字起こし `tt-`・cut2resolve `c2r-`)。既存のクラス名は、テストが依存しているため今回は変えない
 - 設定・データの置き場所は `%LOCALAPPDATA%\youtube-tools\<ツールID>\`(2026-09-26 から。段階4。`docs/spec/data-location.md`)。以前の各ツールのフォルダの中からは、最初の起動でコピーする
-- ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `src/ytt_core/` に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve も 2026-09-26 から `.runtime`・`/api/siblings`・Host/Origin の検査は ytt_core を使う)
+- ツールに依らない処理(clip/v1 の組み立て・検証、原子的な書き込み、`.runtime` と `/api/ping`・`/api/siblings`、Host/Origin の検査)は共通部品 `src/ytt/`(旧 `src/ytt_core/`。2026-10-09 に改名)に1つだけ置く(2026-09-24、統合計画の段階2。cut2resolve も 2026-09-26 から `.runtime`・`/api/siblings`・Host/Origin の検査は ytt を使う)
 
 ## 6. 受け渡しに使う API(各ツール)
 | ツール | API | 中身 |
@@ -142,3 +142,25 @@ GPT が `src/cut2resolve/auto_cut.py` で決めた形。スタジオの採用マ
 | 文字起こし | `POST /api/export-file` `{"id", "format": "transcript-v1" \| "srt" \| "cut-plan-v1"}` | 動画のフォルダの `作業用` に保存して `{"path", "overwritten"}`。動画のパスが無い・書けないときは 400 |
 | 文字起こし | `GET/PUT /api/edit?id=`・`POST /api/edit/pack` など | 「編集」のカット(`transcripts/<id>.edit.json`。youtube-tools-edit/v1)。`docs/design/edit-tool-design.md` の 4・5 |
 | cut2resolve | `POST /api/plan`・`/api/build`(spec の `keeps` = 「編集」のカット・`preset` = transcript-rows)など | cut2resolve の README を参照(画面は無い) |
+
+## 7. 記録の持ち主の表(役割で組み直す計画の RS4-1。2026-10-10。**今の持ち主の整理で、データの形は変えていない**。RS6 の入力)
+作業データの記録ファイルを「① 自動の流れ」「② 人の操作」「④ 検証」のどれが書き、誰が読むかを、今のモジュールで並べる。1 つのファイルに複数の層の物が混ざっている所は RS6 で入れ物を分ける(下の「RS6 に送る」)。置き場所は `docs/spec/data-location.md`。
+
+| 記録 | ① 自動(書き手) | ② 人 | ④ 検証 | 書く・触るモジュール(例) |
+| --- | --- | --- | --- | --- |
+| 文書 `transcripts/<id>.json` | `original`・`model`・`params`・`recognition.runs`(最初の認識 + 再認識)・`diarization.auto` | `segments` の人の直し(`text`・`proofed`・`proofedAt`・`tags`・`cutState`・`noSub`)・`speakers[].name/color/sub`・`effort`・`relinks`・`diarNum` | `evalSet`・`evalReviewed`・`spec.evalRedo` による runs | `src/human/proof/doc_jobs.py` の `_rows_to_doc`・`_doc_fields` が ① の結果と ② の文書を 1 関数で作る。`rerun.record_rerun` は ② の直しの前に ① の runs を書き足し `evalReviewed` を外す。文書の読み書きの口は `human/proof/store.py`(`write_doc`・`sanitize_transcript`・`fill_doc`) |
+| 行の `fill = {from, by}` | 認識のあとの後処理(`pipeline/transcribe/fill.py`)の印 | 人の行 `segments[]` の中に埋まる | | `store.sanitize_transcript` が残す。画面の「別の読み」で戻す |
+| `transcripts/<id>.diar.json` | `latest`(turns・overlaps・rows・labelMap)= `pipeline/transcribe/diarize.py` | `voices`(decided・by・context)を人の層が書き足す | | `diarize.update_diar_voices`・`human/proof/speakers.py` の `_autodiar_record` |
+| `transcripts/<id>.edit.json`(カット) | | カットの結果(残す区間) | | 書くのは `human/proof/store.py`(文書と相互に呼ぶので割らない。保存は `apply_edit_cuts` を通す)。読むのは `pipeline/pack/` のパックの入力を作る側 |
+| 切り抜きの `.clip.json`(作業用/) | 書き出し時の素性(`pipeline/export/manifest.py`) | | | 読むのは `manage/cases/txlink.py`・`txindex.py`・編集の `GET /api/clip-info` |
+| パックの記録 `cut2resolve/packs/` | パックを作ったときの `cutPlan`(`pipeline/pack/pack.py`) | | | 読むのは `manage/cases/txindex.py` の `pack_info`(パックの有無の判定はここだけ) |
+| スタジオ `data.json` | 候補の点数・series(`pipeline/analyze/analyze.py`・`pipeline/batch.py`) | `status`(adopted/rejected)・`adoptedBy`・`file`・手動マーク | | `human/review/store.py`(スレッドセーフ・原子的に書く)。分けるのは RS6 |
+| 友人の依頼の受付の記録 `intake-state.json` ほか | 取り込み・流す(`src/home/autorun.py` の AutoRunner) | 確認・届ける(`human/friend/intake.py`・`deliver.py`・`delivery.py`) | | `manage/cases/cases.py` が案件として束ねる |
+| 実行の記録 `autorun-runs.jsonl` | 書くのは `src/home/autorun.py` の AutoRunner | | | 読むのは `pipeline/runlog.py`(`read_runs_log`)。履歴の画面・autorun・ライブの失敗の集約 `pipeline/live_failures.py` |
+| `live/reports/*.json`(配信ごとの記録) | `samples`(遅れ・メモリ・再起動)・`detect`(候補数)・`tx`・`exports`・`disk`(`pipeline/live_report.py`) | `detect.adoptedAuto/Manual`(`_decisions` の origin)・`request {rid, streamer}`(友人) | 読むのは `src/eval/tools/eval_marks.py --live` | `live_detect`(`pipeline/analyze/live_detect.py`)は ① の `peaks.json` + ② の `decisions.json` の重ね合わせで、望む形の見本 |
+| `learn-feedback.json` | | 提案の採用・却下 | | 書くのは `human/proof/learn.py` の `record_feedback`、① の `doc_jobs` が `autoLearned` のとき読む(計画 6(B) のとおり) |
+| `evals/<領域>/<日時>.json` | | | 測る道具の結果(`src/eval/tools/_evalcommon.py` が書く) | ① の 3 か所が読む: `src/home/autorun.py`・`pipeline/analyze/live_detect.py`・`pipeline/analyze/live_excite_worker.py`(`evals/marks` の `clipLength.suggest`) |
+
+**④ が ② の文書に書く入口は 3 つに限り、全部 `human/proof/store.py` の `write_doc` + `_save_lock` を通す**: `eval/drill/drill.py` の `drill_reviewed`・`drill_unreviewed`(「校正済み・見直し」の印)・`eval/drill/evalbatch.py` の `eb_redo_fill`(後処理の作り直し)・`eval/drill/folders.py` の `_eval_mark_docs`(評価用の印)。`evalReviewed` の鍵を知る ② のコード(`store.py`・`rerun.py`・`speakers.py`)は ④ の印と知って触る。
+
+**RS6 に送る**(データの形を変える): 文書の ① 部分(`original`・`recognition`・`diarization.auto`・`fill`)と ② 部分(`segments` の人の直し)を別の入れ物にする(`plan/role-restructure.md` の 5-3 の上書き)。スタジオ `data.json` の ① の候補と ② の採用の分離。
