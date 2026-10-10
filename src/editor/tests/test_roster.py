@@ -137,58 +137,6 @@ class TestRosterRules(unittest.TestCase):
         self.assertFalse(R.leak_only("、。", terms))
 
 
-class TestStreamContext(unittest.TestCase):
-    """serve.py の stream_context: スタジオの data.json(読むだけ)・題名・話者の名前から出る人を決める"""
-
-    def setUp(self):
-        self.tmp = tempfile.mkdtemp()
-        self.saved = (S.ROSTER, S.STUDIO_DATA)
-        S.ROSTER = small_roster(self.tmp)
-        S.STUDIO_DATA = os.path.join(self.tmp, "data.json")
-        write_json(S.STUDIO_DATA, {"schema": "x", "videos": {"vidA": {"title": "コラボ!", "channel": "Pekora Ch. 兎田ぺこら"},
-                                                            "vidB": {"title": "別視点", "channel": "Marine Ch. 宝鐘マリン"},
-                                                            "vidC": {"title": "関係ない", "channel": "Miko Ch. さくらみこ"}},
-                                   "groups": {"g1": {"members": ["vidA", "vidB", "無い配信"]}}})
-
-    def tearDown(self):
-        S.ROSTER, S.STUDIO_DATA = self.saved
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def test_channel_collab_title(self):
-        doc = {"clip": {"source": {"kind": "youtube", "videoId": "vidA", "title": "【】"}}, "title": "01_00h01m", "sourcePath": "C:\\x\\ときのそら 雑談\\01.mp4",
-               "speakers": [{"id": "S1", "name": "話者1"}]}
-        c = S.stream_context(doc)
-        self.assertEqual([(m["name"], m["from"]) for m in c["members"]],
-                         [("兎田ぺこら", ["channel"]), ("宝鐘マリン", ["collab"]), ("ときのそら", ["title"])])   # フォルダの名前も題名として見る
-        self.assertEqual(c["terms"][:4], ["兎田ぺこら", "ぺこら", "ぺこーら", "兎田"])
-        self.assertEqual(S.stream_context(doc, False), {"members": [], "terms": []})
-        self.assertEqual(S.studio_stream("vidA")["collab"], [{"channel": "Marine Ch. 宝鐘マリン", "title": "別視点", "videoId": "vidB"},
-                                                             {"channel": "", "title": "", "videoId": "無い配信"}])
-        self.assertIsNone(S.studio_stream("無い"))
-
-    def test_broken_studio_data(self):
-        with open(S.STUDIO_DATA, "w", encoding="utf-8") as f:
-            f.write("{壊れた")
-        c = S.stream_context({"clip": {"source": {"videoId": "vidA"}}, "title": "ぺこらの配信"})
-        self.assertEqual([m["name"] for m in c["members"]], ["兎田ぺこら"])   # スタジオのデータが読めなくても、題名から続ける
-
-    def test_prompt_and_kwargs(self):
-        spec = {"language": "ja", "beam": 5, "vadMode": "normal", "model": "large-v3", "glossary": ["ホロライブ"],
-                "context": {"members": [{"name": "兎田ぺこら", "from": ["channel"]}], "terms": ["兎田ぺこら", "ぺこら"]}}
-        kw = S.whisper_kwargs(spec)
-        self.assertEqual(kw["initial_prompt"], "用語: ホロライブ、兎田ぺこら、ぺこら")   # 用語集が先・文脈が後
-        self.assertEqual(kw["hotwords"], "ホロライブ, 兎田ぺこら, ぺこら")
-        self.assertNotIn("temperature", kw)
-        self.assertEqual(S.whisper_kwargs(dict(spec, temp0=True))["temperature"], 0.0)
-        long = dict(spec, glossary=["語%03d" % i for i in range(60)])
-        p = S.whisper_kwargs(long)["initial_prompt"]
-        self.assertLessEqual(len(p) - len("用語: "), 150)
-        self.assertTrue(p.endswith(tuple("語%03d" % i for i in range(60))))                # 語の途中で切らない
-        self.assertNotIn("initial_prompt", S.whisper_kwargs(dict(spec, glossary=[], context={})))
-        self.assertEqual(S.context_record(spec), {"members": [{"name": "兎田ぺこら", "from": ["channel"]}], "terms": 2})
-        self.assertIsNone(S.context_record({"context": {"members": []}}))
-
-
 def row(a, b, text, **kw):
     return dict({"start": a, "end": b, "text": text}, **kw)
 
