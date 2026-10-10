@@ -3500,3 +3500,17 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: 各段で触ったテストを worktree で 1 組ずつ(flow 289 件・CLI 22・home の live 系・editor 733・studio・cut2resolve 単独・ytt など)と取り込んだあとの待ち行列・ytt・スタジオ層 264 件・test_autorun 102 件・編集 107 件 OK・lint 0・層 OK。e2e は流していない(画面に触らず・本体の動きは unittest で縛る・e2e が使う偽物のパスは grep で確かめた)
 - RS7-2 のセッションと: 4 ファイルの片付けは RS7-2 を閉じてから・e2e の間は main の src を触らず worktree で、と申し合わせた。向こうは今「使わないモデル・エンジンの選択肢を消す」を worktree で実装中(テストはこちらが先に main に入れ、向こうが移った先に合わせる)
 - 未コミット: なし(この記録と文書の直しを一緒にコミット)
+
+## 2026-10-11 Claude Code(PC。Opus まとめ役。下調べ Sonnet 1 体(読むだけ)・実装 Opus 1 体(high。文書は配下の Sonnet))— 決定 3-31 の確認と、使わないモデル・エンジンの選択肢を消す(0.58.0)
+- 決定 3-31 をユーザーが確認(8e32583): b1・b2「これでいい」/ b3「欄は残す・普段よく使っているモデル以外は要らない・精度の調査でも必要なモデル以外は消していい」→ 範囲を聞いて「faster-whisper も CPU の逃げ道以外は消す」・作業データのモデルのファイルは「消す」
+- 実装(b74e86d = worktree のブランチのマージ。7d1df3e コード・ad79ed9 文書と版):
+  - 残した物: whisper.cpp(Vulkan)+ large-v3(普段)/ faster-whisper は内部の CPU の逃げ道だけ(GPU の実行時の失敗・retime など)/ SenseVoice-small(fill)/ Qwen3-8B(LLM の後処理)/ Qwen3-ASR 1.7B(2 つ目のエンジン)/ 話者の区切りのモデル + voxceleb
+  - 消した物: Qwen3-ASR 0.6B のエンジン(`qwen3-asr`)/ 主のモデルの small・medium・large-v3-turbo・kotoba(kotoba 専用の chunk_length・`redoLarge` も)/ 処理方式の auto・cuda・cpu(画面は GPU だけ)/ ホームの `live.auto` の engine は「編集の設定のまま」と whisper.cpp・model は「編集の設定のまま」と large-v3 の選択に / 2 つ目のエンジンは llama.cpp だけ / 声の特徴は voxceleb だけ / `eval_asr --engine qwen3-asr`・`eval_speakers --emb` の campplus・standard。欄はどれも残した
+  - 読み替え(断らない): `flow/spec.read_legacy_tx` = 保存済みの設定・machine.json・束の engine(faster-whisper・qwen3-asr・llama.cpp → whisper.cpp)・device(auto・cuda・cpu → vulkan)・model(large-v3 以外 → large-v3)。束の `post.redoLarge` は黙って捨てる(`spec.RETIRED_KEYS`)
+  - 束の既定: faster-whisper・small・auto → **whisper.cpp・large-v3・vulkan**。本物の設定はもとから vulkan + large-v3 = 普段の鍵は変わらない(古い既定で流した物だけ「設定が違う」の印)
+  - 画面の `/api/transcribe` は device の無い要求を今も faster-whisper で受ける(テストと測る道具のため。選択肢だけ消した)・whisper.cpp の無い PC は今までどおり `engine_missing` で理由を出す
+  - **版 0.57.0 → 0.58.0**(編集の README に「■ v0.58.0 の変更」)
+- 作業データのモデルのファイル: 本物の場所(パッケージの外のプロセスで dir)を見ると、消す対象で実際にあるのは faster-whisper の small の HF キャッシュ(`%USERPROFILE%\.cache\huggingface\hub\models--Systran--faster-whisper-small`・464MB)だけ。Qwen3-ASR 0.6B・whisper.cpp の turbo・kotoba・話者の campplus・standard は取得されていなかった。**取り返しのつかない消去なので AI は消さず、ユーザーに消すコマンドを渡した**
+- テスト: unittest 24 組・3,361 件 OK(片付けのセッションの重複消しで減った)・lint 0・ui_audit static Must 0・e2e は画面に近い 5 本(e2e_ui_mounted・e2e_alt・e2e_settings・e2e_edit_tabs・e2e_live_studio)OK。片付けのセッションの c4849a4(read_asr を消した)で編集の test_names が 1 件落ちていた → そのセッションが直した
+- 次: RS8(`plan/rs8-cases-ui.md` の「RS8 を始めるときの条件」= ③④ の見直し ∥ B-2 の下調べ ∥ OPT1 の実装 → B-2 → …)。ユーザーはこのあとセッションを切り替える
+- 未コミット: なし(この記録と HANDOVER と一緒にコミット)
