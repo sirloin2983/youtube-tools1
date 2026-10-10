@@ -18,9 +18,7 @@ import sys
 import threading
 import time
 
-from pipeline.analyze import analyze  # noqa: E402  解析(prune_cache・LIVE_NO_ANALYZE。RS3-5 でスタジオから pipeline へ)
-from pipeline.ingest import sources as _src  # noqa: E402  入力の判定(RS3-4 にスタジオの common から)
-from ytt import fsio as _fsio, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402
+from ytt import fsio as _fsio, mediainfo as _media, schemas, settings as _settings, studio_env as _env, yturl as _yturl  # noqa: E402  (check_live・LIVE_NO_ANALYZE は RS6 a-5a で ytt/yturl へ・prune_cache は ytt/fsio へ)
 
 from . import feedback  # noqa: E402  判定の記録(RS3-5 に analyze から隣へ。呼ぶたびに feedback.名前 で読む)
 from ytt.errors import ApiError  # noqa: E402
@@ -417,7 +415,7 @@ class SeriesCache(dict):
             _fsio.atomic_write(p, json.dumps(val, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))   # フォルダは atomic_write が作る
         except OSError:
             return   # 保存に失敗してもメモリには残る
-        analyze.prune_cache(self.folder, "*.json", SERIES_KEEP)   # 古いものから消して SERIES_KEEP 本に
+        _fsio.prune_cache(self.folder, "*.json", SERIES_KEEP)   # 古いものから消して SERIES_KEEP 本に
 
     def get(self, vid, default=None):
         if super().__contains__(vid):
@@ -514,7 +512,7 @@ class Store:
         live = None
         if v["kind"] == "live":   # ライブの録画: id は録画の id と同じ。形が合わなければこの1件だけ読み飛ばす
             try:
-                live = _src.check_live(v.get("live"))
+                live = _yturl.check_live(v.get("live"))
             except ApiError as e:
                 raise ValueError("live が正しくありません: %s" % e.message)
             if live["recording"] != vid:
@@ -642,7 +640,7 @@ class Store:
 
     # ---- 登録・削除 ----
     def ensure(self, src, title="", channel="", probe=False):
-        """動画を(なければ作って)返す。src は analyze.validate_source の結果。probe=True でファイルの長さを確認(読めなければ 400)。"""
+        """動画を(なければ作って)返す。src は flow.ingest.probe(analyze.validate_source)の結果。probe=True でファイルの長さを確認(読めなければ 400)。"""
         vid = src["videoId"]
         dur = 0.0
         if src["kind"] == "file" and probe and not self.has(vid):
@@ -762,7 +760,7 @@ class Store:
         with self.lock:
             v = self._need(vid)
             if v["kind"] == "live":
-                raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)   # 解析していない録画に自動マークは無い
+                raise ApiError("bad_request", _yturl.LIVE_NO_ANALYZE, 400)   # 解析していない録画に自動マークは無い
             if any(m["status"] in ("adopted", "exported") for m in v["marks"]):
                 return [], self._pub(v)
             cands = sorted((m for m in v["marks"] if m["src"] == "auto" and m["status"] == ""), key=_BY_SCORE)[:top]
@@ -798,7 +796,7 @@ class Store:
         with self.lock:
             v = self._need(vid)
             if v["kind"] == "live":   # 依頼(時刻指定)は YouTube の配信が対象。録画の時刻は別の基準(録画の頭からの秒)
-                raise ApiError("bad_request", analyze.LIVE_NO_ANALYZE, 400)
+                raise ApiError("bad_request", _yturl.LIVE_NO_ANALYZE, 400)
             nv = copy.deepcopy(v)
             range_ids, changed = [], False
             for s, e in want:

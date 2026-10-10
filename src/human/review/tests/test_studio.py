@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → review → human → src
 from human.review import store  # noqa: E402
-from pipeline.ingest import sources  # noqa: E402
+from ytt import yturl  # noqa: E402
 from ytt import studio_env  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 
@@ -829,18 +829,18 @@ class TestLive(Base):
 
 class TestCheckLive(unittest.TestCase):
     def test_ok(self):
-        self.assertEqual(sources.check_live(LIVE), LIVE)
-        self.assertEqual(sources.check_live(dict(LIVE, url="https://youtu.be/U972n0ncl4k"))["videoId"], "U972n0ncl4k")
-        self.assertEqual(sources.check_live(dict(LIVE, recording="20261005-185300", url="https://www.youtube.com/@x/live"))["videoId"], "")
+        self.assertEqual(yturl.check_live(LIVE), LIVE)
+        self.assertEqual(yturl.check_live(dict(LIVE, url="https://youtu.be/U972n0ncl4k"))["videoId"], "U972n0ncl4k")
+        self.assertEqual(yturl.check_live(dict(LIVE, recording="20261005-185300", url="https://www.youtube.com/@x/live"))["videoId"], "")
 
     def test_rejects(self):
         for kw in (dict(recorder="A"), dict(recorder="x" * 17), dict(recording="2026"), dict(recording="20261005-185300-"), dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"),
                    dict(url="https://example.com/watch?v=U972n0ncl4k"), dict(url="https://www.youtube.com/" + "a" * 300), dict(url=1)):
             with self.assertRaises(ApiError, msg=kw):
-                sources.check_live(dict(LIVE, **kw))
+                yturl.check_live(dict(LIVE, **kw))
         for x in (None, "x", [], {}):
             with self.assertRaises(ApiError):
-                sources.check_live(x)
+                yturl.check_live(x)
 
 
 if __name__ == "__main__":

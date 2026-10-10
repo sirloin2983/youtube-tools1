@@ -14,14 +14,12 @@ import os
 import re
 import shutil
 import threading
-import time
 import uuid
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
-from flow import jobs as _heavy  # noqa: E402
+from flow import pack as _flowpack  # noqa: E402   カットのたたき台・見積もり(RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from pipeline.pack import resolve_export  # noqa: E402   カットのたたき台・見積もり(RS3-E5b に editor から pipeline/pack へ。呼ぶたびに resolve_export.名前 で読む)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
 
 
@@ -598,18 +596,10 @@ def apply_edit_cuts(tid, doc, edit=None):
     return changed
 
 
-DRAFT_SLOT_WAIT = 10.0   # 「行から」の行の端の無音を調べる順番(SLOTS)を待つ上限(秒)。過ぎたら無音を調べずに決まった余白で広げる
-
-
-def _draft_slot(label):
-    deadline = time.monotonic() + DRAFT_SLOT_WAIT
-    return _heavy.tool_slot(label, cancelled=lambda: time.monotonic() > deadline)   # SLOTS の札の名前は ytt/jobs の configure(tool=)(編集の serve が入れる)
-
-
 def edit_draft(tid, rows=False):
-    """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(resolve_export.edit_draft)。
+    """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(flow.pack.cut_draft)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
-    行の端を広げるかは設定の rowEdge(docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
+    行の端を広げるかは設定の rowEdge(docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
     ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
@@ -626,7 +616,7 @@ def edit_draft(tid, rows=False):
         return unavailable("source_missing", "元の動画が見つかりません(移動・削除した可能性があります)")
     try:
         need = bool(rows) or not read_edit(tid)[0]
-        out = resolve_export.edit_draft(doc, _workdata.SERVER_VERSION, rows=need, row_edge=_settings.load_settings().get("rowEdge"), heavy=_draft_slot)
+        out = _flowpack.cut_draft(doc, rows=need, row_edge=_settings.load_settings().get("rowEdge"))
     except _errors.ResolveExportError as e:
         msg = str(e)
         if "動画ストリーム" in msg:
@@ -664,7 +654,7 @@ def edit_preview(obj):
     if not src or _fsio.is_network_path(src) or not os.path.isfile(src):
         raise _errors.ApiError("no_media", "元の動画が見つかりません", 400)
     try:
-        return resolve_export.edit_preview(doc, keeps, _workdata.SERVER_VERSION, wrap_arg(obj.get("wrap")))
+        return _flowpack.cut_preview(doc, keeps, wrap_arg(obj.get("wrap")))
     except _errors.ResolveExportError as e:
         raise _errors.ApiError("preview_failed", str(e), 400)
 

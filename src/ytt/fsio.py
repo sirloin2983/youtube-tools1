@@ -3,6 +3,7 @@
 ほかに、各ツールが自前で書いていた小道具(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の A・G10):
 read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
 is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
+import glob
 import json
 import os
 import shutil
@@ -356,3 +357,13 @@ def move_file(a, b, log=None):
         raise
     if log is not None:
         log.info("別のドライブへ移した: %s → %s(最初の名前の変更: %s)", a, b, first)
+
+
+def prune_cache(d, pattern, keep):
+    """フォルダ d の中の pattern に合うファイルを、古いものから消して keep 本にする(キャッシュの整理。失敗は黙って諦める。RS6 a-5a に analyze から)"""
+    try:
+        fs = sorted((os.path.getmtime(p), p) for p in glob.glob(os.path.join(glob.escape(d), pattern)))
+        for _, p in fs[:-keep]:
+            os.remove(p)
+    except OSError:
+        pass

@@ -3,44 +3,14 @@
 標準ライブラリと ytt(errors・yturl)だけ。状態を持たない(定数と純粋な関数)。
 URL・動画 ID の形(`VID_RE`・`YT_HOSTS`・`MEDIA_EXT`・`YT_API_BASE`・`parse_video_id`・`watch_url`)は RS6 a-1 で `ytt/yturl.py` へ移した(読む側は `from ytt import yturl`。ここでは再公開しない)。
 - `ytdlp_out`(yt-dlp の -o)
-- `check_live`(録画の部品で録っている配信の記述の検査)・`check_media_path`(手元のファイルの検査)・`file_video_id`(手元のファイルの id)
-- 形: `LIVE_ID_RE`(録画の id)・`LIVE_RECORDER_RE`(録画元の名前)
+- `check_media_path`(手元のファイルの検査)・`file_video_id`(手元のファイルの id)
+- ライブの録画の検査 `check_live` と形 `LIVE_ID_RE`・`LIVE_RECORDER_RE` は RS6 a-5a で `ytt/yturl.py` へ移した
 不正な入力は ApiError 400(code "bad_source")。
 """
 import hashlib
 import os
-import re
-import urllib.parse
 
 from ytt import errors, yturl
-
-# ライブの録画(kind "live")。録画の部品(pipeline/ingest/recorder.py)の録画 id の形。YouTube の 11 文字・file の "f…" とは重ならない
-LIVE_ID_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?\Z", re.ASCII)
-LIVE_RECORDER_RE = re.compile(r"^[a-z][a-z0-9-]{0,15}\Z", re.ASCII)
-
-
-def check_live(o):
-    """録画1本の記述({recorder, recording, url}) → {recorder, recording, url, videoId}。不正は ApiError 400。
-    url は YouTube の https だけ(チャンネルの /live など動画の ID が取れない URL も可。そのとき videoId は "")。"""
-    bad = lambda m: errors.ApiError("bad_source", m, 400)
-    if not isinstance(o, dict):
-        raise bad("入力が正しくありません")
-    rec, rid, url = o.get("recorder"), o.get("recording"), o.get("url")
-    if not isinstance(rec, str) or not LIVE_RECORDER_RE.match(rec):
-        raise bad("録画元(recorder)の形が正しくありません")
-    if not isinstance(rid, str) or not LIVE_ID_RE.match(rid):
-        raise bad("録画の ID(recording)の形が正しくありません")
-    if not isinstance(url, str) or not url or len(url) > 300 or any(ord(c) < 32 or ord(c) == 127 for c in url):
-        raise bad("配信の URL が正しくありません")
-    try:
-        u = urllib.parse.urlsplit(url.strip())
-        host = (u.hostname or "").lower()
-    except ValueError:
-        raise bad("配信の URL が正しくありません")
-    if u.scheme != "https" or host not in yturl.YT_HOSTS:
-        raise bad("配信の URL は YouTube の https の URL だけです")
-    return {"recorder": rec, "recording": rid, "url": url.strip(), "videoId": yturl.parse_video_id(url.strip()) or ""}
-
 
 def check_media_path(raw):
     """手元の動画・音声ファイルのパスを検査して絶対パスを返す。"""

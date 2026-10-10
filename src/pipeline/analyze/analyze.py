@@ -56,12 +56,11 @@ def sig_cache_dir():
 
 
 # ---------- 入力の検査 ----------
-LIVE_NO_ANALYZE = "ライブの録画は解析できません(配信が終わってから、アーカイブのURLを入れてください)"
 
 
 def validate_live(o):
     """POST /api/videos/open {kind:"live", recorder, recording, url, title} → store.ensure に渡す source 辞書(id = 録画の id)。不正は ApiError。"""
-    lv = _src.check_live(o)
+    lv = _yturl.check_live(o)
     return {"kind": "live", "videoId": lv["recording"], "name": lv["recording"], "live": lv}
 
 
@@ -72,8 +71,8 @@ def validate_source(item):
     if item.get("kind") == "file":
         p = _src.check_media_path(item.get("path"))
         return {"kind": "file", "path": p, "name": os.path.basename(p), "videoId": _src.file_video_id(p)}
-    if item.get("kind") == "live" or _src.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
-        raise ApiError("bad_source", LIVE_NO_ANALYZE, 400)   # ライブの録画は、YouTube としても file としても解析へ進めない(yt-dlp を呼ばない)
+    if item.get("kind") == "live" or _yturl.LIVE_ID_RE.match(str(item.get("videoId") or item.get("id") or "")):
+        raise ApiError("bad_source", _yturl.LIVE_NO_ANALYZE, 400)   # ライブの録画は、YouTube としても file としても解析へ進めない(yt-dlp を呼ばない)
     vid = _yturl.parse_video_id(item.get("url") or item.get("videoId"))
     if not vid:
         raise ApiError("bad_source", "YouTube の動画URLではありません(watch?v=… / youtu.be/… / live/…)", 400)
@@ -158,15 +157,6 @@ def chat_cache_path(vid):
 def _usable_chat(path):
     """取得済みのチャット(空でなく、大きすぎない)があるか"""
     return os.path.isfile(path) and 0 < os.path.getsize(path) <= MAX_CHAT_BYTES
-
-
-def prune_cache(d, pattern, keep=CHAT_CACHE_KEEP):
-    try:
-        fs = sorted((os.path.getmtime(p), p) for p in glob.glob(os.path.join(glob.escape(d), pattern)))
-        for _, p in fs[:-keep]:
-            os.remove(p)
-    except OSError:
-        pass
 
 
 def chat_cache_limit():
@@ -267,7 +257,7 @@ def save_sig(vid, dur, full, band):
     try:
         data = {"v": 1, "dur": round(dur, 2), "full": [round(x, 1) for x in full], "band": [round(x, 1) for x in band]}
         _fsio.atomic_write(sig_path(vid), json.dumps(data, separators=(",", ":")).encode("utf-8"))   # 一時ファイル名を固定しない・Windows のロックは再試行
-        prune_cache(sig_cache_dir(), "*.json")
+        _fsio.prune_cache(sig_cache_dir(), "*.json", CHAT_CACHE_KEEP)
     except OSError:
         pass
 
@@ -578,7 +568,7 @@ def fetch_meta(job, vid):
     if m:
         try:
             _fsio.atomic_write(os.path.join(meta_dir(), vid + ".json"), json.dumps(m, ensure_ascii=False).encode("utf-8"))
-            prune_cache(meta_dir(), "*.json", META_KEEP)
+            _fsio.prune_cache(meta_dir(), "*.json", META_KEEP)
         except OSError:
             pass
     return m, ""

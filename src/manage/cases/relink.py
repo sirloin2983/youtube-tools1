@@ -74,8 +74,8 @@ def _relink_ref(doc):
 def relink_check(obj):
     """POST /api/relink/check {"id", "path"}: 付け替える前の確認(書き込まない)。
     -> {path, name, durationSec, fps, hasVideo, docDuration, diffSec, mismatch, sameAsNow, usedBy: [{id, title}], rowsAfterEnd, warnings}。
-    fps・長さはカットのタブと同じ測り方(resolve_export.edit_draft。音声だけのファイルは ffmpeg の長さ)"""
-    from pipeline.pack import resolve_export   # 呼ぶときに読む(RS3-E5b に editor から pipeline/pack へ)
+    fps・長さはカットのタブと同じ測り方(flow.pack.media_plan。音声だけのファイルは ffmpeg の長さ)"""
+    from flow import pack as flowpack   # 呼ぶときに読む(RS6 a-5a に pipeline/pack/resolve_export から)
     tid = str(obj.get("id") or "")
     doc = _store.read_transcript(tid)
     p = relink_path(obj.get("path"))
@@ -86,7 +86,7 @@ def relink_check(obj):
     fps, warnings = None, []
     if has_v:
         try:
-            dr = resolve_export.edit_draft(dict(doc, sourcePath=p), _workdata.SERVER_VERSION, rows=False)
+            dr = flowpack.media_plan(doc, p)
             fps, dur = dr["fps"], dr["durationSec"]
         except _errors.ResolveExportError as e:
             warnings.append("fps を調べられませんでした(%s)。カットのタブで使えない可能性があります" % str(e)[:200])

@@ -15,7 +15,7 @@ import os
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-from pipeline.pack import resolve_export  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b に pipeline_io から pipeline/pack へ)
+from flow import pack as _flowpack  # noqa: E402   (受け渡しの JSON と SRT の組み立て。RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み・編集の内容(呼ぶたびに _store.名前 で読む)
 from human.proof import batch as _batch  # noqa: E402   文字起こし済みの範囲 transcribed_ranges(フォルダの一括と同じ 1 か所)
@@ -168,7 +168,7 @@ def clip_info(path):
 
 
 def transcript_v1(tid):
-    return resolve_export.build_transcript_v1(_store.read_transcript(tid), _workdata.SERVER_VERSION)
+    return _flowpack.handoff_files(_store.read_transcript(tid), "transcript-v1")[0]
 
 
 def export_file(req):
@@ -191,18 +191,16 @@ def export_file(req):
         raise _errors.ApiError("no_media", "元の動画が見つかりません(移動・削除した可能性があります): %s" % src, 400)
     suffix = pm.EXPORT_FORMATS[fmt]
     if fmt == "transcript-v1":
-        obj = resolve_export.build_transcript_v1(doc, _workdata.SERVER_VERSION)
-        count, schema = len(obj["segments"]), pm.TRANSCRIPT_SCHEMA
+        obj, count = _flowpack.handoff_files(doc, fmt)
+        schema = pm.TRANSCRIPT_SCHEMA
         if not count:
             raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
         data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     elif fmt == "cut-plan-v1":
-        obj = resolve_export.build_cut_plan_v1(doc, _workdata.SERVER_VERSION)
         ed, _broken = _store.read_edit(tid)
-        if ed:   # 「編集」のカットがあれば、残す区間はそのとおり(行の区間ではなく)
-            obj["segments"] = [{"id": "segment-%03d" % i, "start": a, "end": b, "status": "adopted", "label": ""}
-                               for i, (a, b) in enumerate(_store.edit_keeps_sec(ed), 1)]
-        count, schema = len(obj["segments"]), pm.CUT_PLAN_SCHEMA
+        # 「編集」のカットがあれば、残す区間はそのとおり(行の区間ではなく)
+        obj, count = _flowpack.handoff_files(doc, fmt, keeps=_store.edit_keeps_sec(ed) if ed else None)
+        schema = pm.CUT_PLAN_SCHEMA
         if not count:
             raise _errors.ApiError("empty", "残す区間がありません(すべての行が「カット済」か、文字のある行がありません)", 400)
         data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
@@ -211,7 +209,7 @@ def export_file(req):
             wrap = max(0, min(200, int(req.get("wrap") or 0)))
         except (TypeError, ValueError):
             wrap = 0
-        text, count = resolve_export.build_srt(doc, wrap, req.get("speakerNames") is True)
+        text, count = _flowpack.handoff_files(doc, fmt, wrap, req.get("speakerNames") is True)
         schema = None   # SRT は中身で「前にこのツールが書いたか」を判断できないので、同名があれば常に別名にする
         if not count:
             raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)

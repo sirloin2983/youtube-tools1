@@ -12,7 +12,7 @@ import time
 
 from ytt import errors as _errors, fsio as _fsio, studiodata as _studiodata  # noqa: E402
 from human.proof import store  # noqa: E402   文書の要約・編集の内容(呼ぶたびに store.名前 で読む)
-from pipeline.pack import resolve_export  # noqa: E402   パックの手順の作り直し(RS3-E5b に editor から pipeline/pack へ。呼ぶたびに resolve_export.名前 で読む)
+from flow import pack as _flowpack  # noqa: E402   パックの手順の作り直し(RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from . import txindex  # noqa: E402   パックの有無・パックのフォルダかの判定(規則の 1 か所)
 
 PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
@@ -89,14 +89,14 @@ PACK_README_NAMES = ("友人へ.txt", "予備_EDLで開く手順.txt")   # 2026-
 def pack_readme(tid):
     """GET /api/edit/pack-readme?id=: 前回のパックの Resolve での手順。記録したフォルダが cut2resolve のパック
     (cut2resolve のパックを作った記録があるか、以前のパックなら中に cut-plan.json。txindex.is_pack_dir)のときだけ読む。
-    今のパックは手順書のファイルが無いので、パックの Lua から作り直す(resolve_export.pack_instructions)。以前のパックはファイルを読む"""
+    今のパックは手順書のファイルが無いので、パックの Lua から作り直す(flow.pack.instructions)。以前のパックはファイルを読む"""
     store.read_transcript(tid)
     d, _ = store.read_edit(tid)
     pk = (d or {}).get("pack") or {}
     folder = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
     if not folder or _fsio.is_network_path(folder) or not txindex.is_pack_dir(folder):
         raise _errors.ApiError("not_found", "前回のパックのフォルダが見つかりません(移動・削除した可能性があります)", 404)
-    text = resolve_export.pack_instructions(folder)
+    text = _flowpack.instructions(folder)
     if text:
         return {"name": "", "text": text}
     for n in PACK_README_NAMES:
