@@ -3438,3 +3438,13 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 見本を見るための静的サーバー `.claude/launch.json` の `rs8-mock`(http://localhost:8791/preview.html。`preview.html` は ui-kit.css を取り込んだ 1 枚)
 - 気づいたこと(記録だけ): 定点の目標がドリルの帯 15 分 / 入口の G2 30 分で食い違う → 30 分にそろえる(DESIGN_BRIEF の AI が決めたこと)/ 後処理の札が「あと何本」の表に無い / `src/home/README.txt` の accuracy の場所が古い
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-10 深夜〜10-11 Claude Code(PC。Opus まとめ役。下調べ Haiku 1 体(low)・Sonnet 4 体(medium/high)・段の並び Fable 1 体(high・2 版)・実装 Opus 4 体(high)・Sonnet 7 体(medium)・テストを流す Haiku 1 体(low)・文書 Sonnet 1 体)— 役割で組み直す RS7-1(束と口)
+- 下調べ 5 本(`docs/design/rs7-survey-2026-10-10/`: speed・live_split・server_settings・small_items・code_volume)→ Fable の段の並び(plan_order.md → F1 の決定を受けて plan_order_v2.md)。**先に測った結果**: 鍵で飛ばせる時間は実績で小さい(104 件のうち文字起こしを飛ばしたのは 2 件)= RS7 は形の整理に寄せ、速度は段ごとの時刻の記録だけ
+- 別のセッション「完了内容と今後の計画」が F1(`plan/f1-friend-pc.md`)と RS8(`plan/rs8-cases-ui.md`)をユーザーと決めた → RS7 を **RS7-1 束と口 / RS7-2 玄関とヘッドレス**に割った。ユーザーの答え(decisions 3-30): machine.json を ② が読む・画面の欄 3 つ(精密・画質の上限・パックの fps)を RS7-1 で消す・束には学習データの版だけ。友人の PC の Q1・Q2・Q4 は F1 のセッションで答え済み
+- 実装(main に入った。worktree で並列 → cherry-pick): 1f バックアップが案件の 作業用 を cases へ / 1d 起動し直しで古い入口の pid を最大 90 秒待ち、次の番号に逃げず読める文で非 0 / S6a 画面の欄 3 つを消す / S2 束を広げる(hints の読み口・後処理 6 項目・post.learning.version・LocalTools が vulkan を丸めない)/ 1e 声の別名を消す・learnedFrom・eval_speakers --exclude-learned / S1 `flow/machine.py`(machine.json・YTT_MACHINE_*・overlay は明示した値だけ)/ S3 `flow/envelope.py`・Run の欄を束へ写す・待ちの記録に封筒 + 束・public に packs/newDocs・段の時刻 / S6b 編集の ⚙ のデバイスを machine.json へ / F-k CLI の小物(スタジオの文脈・ffmpeg を winget も・学習データを learningDir から)/ S5 `flow/runqueue.py`(待ち行列と糸を ② へ・submit・status。AutoRunner は受付と hook)/ S4 受付で束を組む・Run.screen と spec.SCREEN を消す・POST /api/flow/submit・GET /api/flow/status・CLI は submit 1 回・待ちの記録 版 2
+- 意図した動きの変化: 待ちの間に設定を変えても中身が変わらない / 書き出しの画質の上限の既定 1080 → 上限なし / CLI が入口経由でも自分の束を使う / 編集の設定のデバイスの合わない値は 400 / 文書単位の実行でも docs に入る(画面に「校正を始める」が出る)
+- 文書(4a2badd): AGENTS.md・spec/pipeline.md 2.8・data-location・settings・role-restructure 8 節「RS7-1 の結果」と計画と違えた所。data.js(RS7 → RS7-1・RS7-2、RS8・F1・V1 の行に別のセッションの文書)・公開ページ 89 版
+- テスト(サブエージェントが止まってから): unittest 約 2,808 件 OK・node 64・lint 0・ui_audit Must 0・**e2e 一式 31 本 OK(16 分 58 秒)**。気づいた物(直していない): スタジオの test_api の test_origin_on_writes は組の中だけで時々接続切れ(単独は OK)/ AGENTS.md の analytics のテストの書き方(`-m unittest src/analytics/tests/test_analytics.py`)は ImportError(テストのフォルダで `py -3.10 test_analytics.py` なら 27 件 OK)
+- 次: ユーザーの本物の確認 R1(配信の無い時間に入口を起動し直して、まとめて実行 1 本・入口の「起動し直す」で画面が戻ること)と、AI が CLI の submit と待ちの続き(入口を落として起動し直すと続きから)を確かめる → RS7-2。HANDOVER を書き直した
+- 未コミット: なし(この記録と HANDOVER と一緒にコミット)
