@@ -3362,3 +3362,20 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 次: RS5(app を薄く・殻 10 本と旧パスの転送を消す・版 1 つ・設定 1 ファイル・「確認してから届ける」L1・L2 を消す・疑似の if を口に)。ユーザーの確認: 3-26(合言葉の読み方)・入口を「すべて終了 → start.bat」で起動し直して校正の画面・話者判別(覚えた声)・まとめて実行で本物の 1 本・`py -3.10 src/eval/tools/eval_marks.py --analyze-missing --wait` を 1 回(未解析の友人の配信の解析がスタジオの順番待ちに入るか)
 - 注意: 殻(ed_jobs・ed_speakers・ed_store・ed_learn・ed_alt・ed_ytcap・ed_retime・ed_relink・ed_misc・studio/common)に新しい名前を書かない。旧パスの転送(tx_worker・live_*_worker 3 つ・dev/eval_* 13 本)は起動中の古い入口用 = RS5 で消す。**ライブの部品を移したので、配信中に入口を落とさない・起動し直しは配信の無い時に**。worktree のサブエージェントは古いコミットから始まることがある(今回は全員 main から始まった)・rebase を頼んでも先に終わって渡してくる体がいる = まとめ役が cherry-pick で解く
 - 未コミット: なし(この記録と HANDOVER と一緒にコミット)
+
+## 2026-10-10 Claude Code(PC。Opus まとめ役。下調べ Haiku 4 体(low)・段の並び Fable(high)・実装 Sonnet 4 体(medium)・Opus 1 体(high)・Haiku 2 体(low))— 役割で組み直す RS5 の前半(殻と転送・疑似の旗・版 1 つ・L1 と送るアプリ 2.10.0)
+- ユーザー: 「そのまま進めて。単純作業は Haiku を有効活用してトークン数を減らして。サブエージェントのエフォート設定も見直して」→ 探す・置き換え・文書は Haiku・low、規則の移動は Sonnet・medium、差し込み口は Opus・high、段の並びは Fable・high に振り分けた(メモリ feedback-subagents-haiku に記録)。殻の付け替えの正解表 `docs/design/rs5-survey-2026-10-10/shell_map.tsv` はサブエージェントを使わずスクリプトで作った
+- 下調べ(Haiku 4 体)と段の並び(Fable): `docs/design/rs5-survey-2026-10-10/`(shells・versions_settings・fake_and_deliver・app・shell_map.tsv)。決定は `plan/decisions.md` 3-28(ユーザーの答え: L2 の check は**今は残す**・版は「この計画のあとのコードと UI の見直しのあと 1.0.0。それまでは適当でいい」= 仮に全体 0.56.0・送るアプリの更新も RS5 で・設定 1 ファイルは RS7)
+- **C**(Haiku): 旧名 ytt_core の import を ytt に(39 ファイル。excite・evaldata・txindex は pipeline.analyze・eval.tools・manage.cases の実体へ)。src/ytt_core/ の転送の本体は残す
+- **F**(Sonnet): 友人の依頼の ②③(確認してから届ける = L1)をやめて全部 ①。古いアプリの ②③ も断らず ① で扱い受付の記録の `flowOrig` に元の値。③ の流れ(request_manual・file_manual)を autorun の FLOW_MODES と run.py から消した。L2(自分の配信の check)と L3 は残す。**送るアプリ 2.9.0 → 2.10.0**(仕上げ方の ②③ の欄を外した・build.bat の 47 件 OK)。docs/spec/friend-intake.md の 2-2
+- **B**(Sonnet): スタジオの src/studio/common.py を消した。読み手(テスト 10 ファイル・serve)を持ち主(ytt の studio_env・procs・mediainfo・apikey・errors と pipeline/ingest/sources)へ、起動の小物は新しい src/studio/startup.py へ
+- **D**(Opus): 疑似の旗の口 = `pipeline/transcribe/backend.py` の `mode()`・`is_fake()` と Backend のメソッド(diar_engine・check_engine・engine_version・fill_reader・llm_ask。本体は eval/fake/fake_asr.py)。分岐 12 か所(5 か所は if を無くした)・intake の STUDIO_FAKE は studio_env.fake()。スタジオの studio_env.fake の 18 件は RS7
+- **A**(Sonnet): 編集の転送だけの殻 9 本(ed_jobs・ed_speakers・ed_store・ed_learn・ed_alt・ed_ytcap・ed_retime・ed_relink・ed_misc)と src/cut2resolve/cut2resolve.py を消した(cut2resolve.bat は pipeline/pack/cut2resolve.py)。テスト 25 本・ed_media・ed_thumb・dev の道具を持ち主へ。test_names は殻の検査を S.名前 の検査に(data_ed_*_names.txt は残す)
+- **E**(Sonnet): 版を全体で 1 つに = `src/ytt/version.py` の VERSION = **0.56.0**(仮)。各ツールの版の定数・launch の期待する版・録画の比べはそこから読む。mount が `<meta name="ytt-version">` を入れ、画面の APP_VERSION はそれを読む(JS に版の文字なし・入口なしは /api/ping の版を出すだけ)。赤い帯は「起動し直し忘れ」の検出として残る。lint の版の検査は「1 か所・直書きなし」に
+- **まとめ役の直し**: (1) RS5-D で入口の intake が `ytt.studio_env` を早く読むようになり、`studio_env._home` が読み込みの時点で古い置き場所に固まって e2e_portal の案件の一覧が空になった(コミットごとに e2e_portal を流して D と特定)→ 置き場所を呼ばれたときに決める形に(9cba0f7)/(2) 別のセッションのコミット bbc4194 で plan/data.js の RS7 の行のカンマが抜け、data.js が構文エラー(計画のページが表示できない)→ 直した(aa63f9d)
+- 文書(Haiku): AGENTS.md・src/editor/AGENTS.md・README(editor・studio)・plan/role-restructure.md の状態と 8 節(a653db4)。data.js は RS5 を doing・版を全体 0.56.0 と送るアプリ 2.10.0 に・公開ページを出し直した(版 85)
+- テスト(サブエージェントが止まってから): 単体 = 編集 630・層(transcribe・human/proof・human/friend・ytt・eval/tools・pipeline)601・スタジオ 313 + ytt 480・lint 0・層の検査 OK・test_mount(単独)OK。e2e の一式 31 本 = 29 本 OK(前から落ちている e2e_window の [7-1]・e2e_ui_handoff の 2 本だけ)
+- トークン: 下調べの Haiku は 1 体 約 10〜13 万・実装の Sonnet・medium は 13〜32 万(殻の付け替えの A がいちばん重い)・Opus・high の D は 27 万
+- 次(RS5 の残り): ユーザーが入口を「すべて終了 → start.bat」で起動し直したあと、旧パスの起動用の転送(src/editor/tx_worker.py・src/home/live_*_worker.py 3 つ・src/recorder/recorder.py・dev/eval_*.py 13 本・src/ytt_core/)を消す → RS5 の終わりの文書と e2e。そのあと RS6
+- ユーザーの確認待ち: decisions 3-26(eval_marks が画面の meta から合言葉を読む)/ 送るアプリ 2.10.0 を友人に渡す(渡す前に本物の作業フォルダで `friend-apps\request-sender\build.bat` = 鍵 config.json 入りの zip。作業フォルダの zip は鍵なし)
+- 未コミット: なし(この記録と HANDOVER と一緒にコミット)
