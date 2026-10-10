@@ -26,7 +26,7 @@ HOLO_COLORS_DIR = os.path.join(FRIEND_APPS_DIR, "holo-colors")          # リポ
 REQUEST_SENDER_DIR = os.path.join(FRIEND_APPS_DIR, "request-sender")    # 同上
 # src/ の中の共通のコード(ツールのフォルダではない物)。役割で組み直す計画(plan/role-restructure.md)の層のパッケージと、
 # (旧い名前の転送 ytt_core は RS5-G で消した)。ツールを一時フォルダに写すテストは、ツールと一緒にこれを全部写す(copy_shared_code)
-SHARED_CODE_DIRS = ("ytt", "pipeline", "human", "manage", "eval", "app")
+SHARED_CODE_DIRS = ("ytt", "pipeline", "flow", "human", "manage", "eval", "app")   # flow = ② 管理(RS6 a-0)
 
 
 def src_root():
