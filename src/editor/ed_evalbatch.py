@@ -9,7 +9,7 @@
     処理方式・モデル・言語などは編集の設定(settings.json)のまま
   - ユーザーのジョブ(自分が入れたもの以外)が動いている・待っている間と、評価用のフォルダの整理の間は、自分の分を増やさない
   - 失敗したら 2 回までやり直し、それでもだめなら飛ばす(同じ動画を延々と入れ直さない)。取り消されたら飛ばす
-  - ほかのプロセス(単独で動かした編集と入口)とは `eval-batch.lock`(ed_evalaudio の `_file_lock`)で重ならない
+  - ほかのプロセス(単独で動かした編集と入口)とは `eval-batch.lock`(`_file_lock`)で重ならない
   - 話者の自動判別(v0.50.0): 文字起こしが終わると、その続きで判別のジョブが足される(ed_speakers.autodiar_after_transcribe。自分の印つき)。
     もう文字起こし済みで話者の無い評価用の文書(判別したことが無い = diar.json が無い)にも、見回りのたびに 1 本ずつ判別のジョブを足す(後追い)。
     文書ごとに 1 回だけ(状態の diar に記録)・直近に人が直した文書(ed_drill.DRILL_RECENT_SEC)は後回し・待ちの数は文字起こしと合わせて EB_MAX_WAIT まで
@@ -24,6 +24,7 @@
 名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
 ほかの部品は `ed_xxx.名前` で呼ぶたびに読む。
 """
+import contextlib
 import json
 import os
 import re
@@ -32,7 +33,6 @@ import threading
 from ytt import fsio as _fsio  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_drill  # noqa: E402,F401
-import ed_evalaudio  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
@@ -43,6 +43,41 @@ import ed_store  # noqa: E402,F401
 EB_SCHEMA = "ytt-eval-batch/v1"
 EB_FILE = "eval-batch.json"
 EB_LOCK = "eval-batch.lock"
+
+
+@contextlib.contextmanager
+def _file_lock(path):
+    """別のプロセス(単独で動かした編集と入口)が同時に見回らないための印。ファイルの先頭の 1 バイトを取る(プロセスが終われば自然に外れる)。
+    -> 取れたら True、先に誰かが持っていれば False。0.68.0 で評価用の音声(ed_evalaudio)を消したときに、そこから移した"""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    f = open(path, "a+b")
+    got = False
+    try:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            got = True
+        except OSError:
+            got = False
+        yield got
+    finally:
+        if got:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    f.seek(0)
+                    msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        f.close()
 EB_MAX_WAIT = 2                  # 自分のジョブで、待っている・動いているものの上限(これを超えて入れない)
 EB_FIRST_DELAY_SEC = 60          # 起動してから最初に見るまで(起動直後は文字起こしの準備・整理が重なるので待つ)
 EB_INTERVAL_SEC = 30             # 見回る間隔(1 本の文字起こしは数分かかる。待ちが 1 件に減ったら補う)
@@ -378,7 +413,7 @@ def eb_tick(why="tick", log=None):
     if not _eb_pass_lock.acquire(blocking=False):
         return {"skipped": "running"}
     try:
-        with ed_evalaudio._file_lock(eb_lock_path()) as got:
+        with _file_lock(eb_lock_path()) as got:
             if not got:
                 return {"skipped": "running"}
             return _eb_tick_locked(why, log)

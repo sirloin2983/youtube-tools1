@@ -1146,11 +1146,9 @@ class TestRelinkHttp(unittest.TestCase):
         self.assertEqual(r["_status"], 200, r)
         self.assertLess(self.call("GET", "/api/transcript?id=" + tid)["relinks"][-1]["diffSec"], -2)
 
-    def test_eval_audio_status_api(self):
-        """GET /api/eval-audio: 評価用のフォルダが無ければ何も作らず、状態だけ返す"""
-        r = self.call("GET", "/api/eval-audio")
-        self.assertEqual(r["_status"], 200, r)
-        self.assertEqual((r["enabled"], r["made"], r["gone"], r["failed"], r["lastError"]), (False, 0, 0, 0, None))
+    def test_eval_audio_api_is_gone(self):
+        """評価用の音声(ed_evalaudio)は 0.68.0 で消した(作業データの eval-audio/ は残る)"""
+        self.assertEqual(self.call("GET", "/api/eval-audio")["_status"], 404)
 
     def test_rejects(self):
         tid, src = self.make_doc("断る.mkv")

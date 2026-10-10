@@ -23,7 +23,6 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-import ed_evalaudio  # noqa: E402
 import ed_evalbatch as EB  # noqa: E402
 import ed_jobs  # noqa: E402
 import ed_relink  # noqa: E402
@@ -334,8 +333,10 @@ class TestEvalBatch(unittest.TestCase):
     def test_other_process_holding_lock_skips(self):
         self.staged("a.mp4")
         EB.eval_batch_start()
-        with ed_evalaudio._file_lock(EB.eb_lock_path()) as got:   # 別のプロセスが見回り中のつもり
+        with EB._file_lock(EB.eb_lock_path()) as got:   # 別のプロセスが見回り中のつもり
             self.assertTrue(got)
+            with EB._file_lock(EB.eb_lock_path()) as got2:   # 同じ印は二重に取れない
+                self.assertFalse(got2)
             self.assertEqual(EB.eb_tick("test"), {"skipped": "running"})
         self.assertEqual(self.mine(), [])
         self.assertEqual(EB.eb_tick("test")["added"], 1)

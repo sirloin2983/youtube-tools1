@@ -802,7 +802,6 @@ from test_voices import *  # noqa: E402,F401,F403   話者の声を覚える(A-3
 from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・open-video・peaks・intoDoc)
 from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信ごとの文脈(計画 段1)
 from test_normalize30 import *  # noqa: E402,F401,F403   素材を 30fps にそろえる(マスタープラン Q1。文字起こし・選び直し)
-from test_evalaudio import *  # noqa: E402,F401,F403   評価用の音声 flac(マスタープラン Q0)
 from test_evalbatch import *  # noqa: E402,F401,F403   評価用の動画の手が空いたときのまとめての文字起こし(マスタープラン Q4(b))
 from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
 from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(sherpa-onnx・llama.cpp。精度改善 段2-3)
