@@ -102,18 +102,10 @@ def main():
             call(port, "DELETE", "/api/transcript?id=" + t_)
         lr3 = call(port, "GET", "/api/learned?min=1")
         check(lr3["docs"] == 0 and not lr3["items"], "評価用の修正だけでは、学習の候補が出ない: %s" % lr3)
-        # 再認識・書き出しの拒否
+        # 再認識の拒否(修正データの書き出しは 0.68.0 で消した)
         e1 = call(port, "POST", "/api/retranscribe", {"tid": ev, "ids": [segs[0]["id"]], "model": "small"})
         check(e1.get("status") == 400 and "評価用" in json.dumps(e1, ensure_ascii=False), "評価用は再認識できない")
-        e2 = call(port, "POST", "/api/export-corrections", {"tid": ev, "audio": False, "scope": "proofed"})
-        check(e2.get("status") == 400 and "評価用" in json.dumps(e2, ensure_ascii=False), "評価用は修正データとして書き出せない(個別指定)")
         tr = make(); fix(tr)
-        req = urllib.request.Request("http://127.0.0.1:%d/api/export-corrections" % port, method="POST", data=json.dumps({"audio": False, "scope": "proofed"}).encode(), headers={"Content-Type": "application/json"})
-        import io, zipfile
-        with urllib.request.urlopen(req, timeout=60) as r:
-            z = zipfile.ZipFile(io.BytesIO(r.read()))
-        rows = [json.loads(x) for x in z.read("corrections.jsonl").decode().splitlines() if x.strip()]
-        check(rows and all(r_["doc"] == tr for r_ in rows), "全体の書き出しに、評価用の行は入らない(%d行)" % len(rows))
         # 進行度・測定
         pg_ = call(port, "GET", "/api/progress")
         check(pg_["evalDocs"] == 1 and pg_["evalProofedLines"] == len(segs) and pg_["proofedLines"] == len(segs) and pg_["evalDocsDone"] == 1, "進行度: 学習用と評価用を分けて数える: %s" % pg_)

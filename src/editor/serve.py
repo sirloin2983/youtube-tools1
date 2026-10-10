@@ -31,7 +31,6 @@
                              食い違う所が GET /api/suggest に tier "alt" の候補として出る。評価用・最初の認識と同じエンジンとモデルは断る。D1-b。本体は ed_alt.py)
   POST /api/ytcap            {"id"} 元の配信の YouTube の字幕(配信者の字幕 → 自動字幕)を取って比べるジョブ(字幕だけ・配信ごとに ytcaps/ で使い回す・結果は transcripts/<id>.ytcap.json。
                              文書は書き換えない。食い違う所が GET /api/suggest に tier "yt" の候補として出る。評価用・元の配信が分からない文書は断る。案 A1。本体は ed_ytcap.py)
-  POST /api/export-corrections  修正データ(音声の範囲+直した文章)をzipで書き出す(scope=proofed で校正済みの行すべて)
   GET  /api/metrics?id=&legacy=1  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
@@ -292,7 +291,7 @@ def _cancel(o):
     return {"ok": True}
 
 
-# POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON(zip を返す 2 つは Handler の _export_corrections・_resolve_package)
+# POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON(zip を返す /api/resolve-package は Handler の _resolve_package)
 POST_API = {
     "/api/transcribe": lambda o: _job(_docjobs.validate_job(o)),
     "/api/diarize": lambda o: _job(_speakers.validate_diarize(o), "diarize"),
@@ -519,27 +518,11 @@ class Handler(BaseHTTPRequestHandler):
             fn = POST_API.get(path)
             if fn is not None:
                 return self._json(200, fn(obj))
-            if path == "/api/export-corrections":
-                return self._export_corrections(obj)
             if path == "/api/resolve-package":
                 return self._resolve_package(obj)
         except ed_state.ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "その操作はありません")
-
-    def _export_corrections(self, obj):
-        tid = obj.get("tid")
-        if tid is not None and not ed_state.TID_RE.match(str(tid)):
-            raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
-        zp, n, na, skipped = ed_learn.export_corrections(str(tid) if tid else None, obj.get("audio") is not False, "proofed" if obj.get("scope") == "proofed" else "changed")
-        try:
-            if n == 0:
-                raise ed_state.ApiError("empty", "書き出せる修正がありません(修正した行が無いか、修正前の出力が残っていない文字起こしです)", 400)
-            self._send_zip(zp, "corrections.zip", {"X-Clips": "%d,%d,%d" % (n, na, skipped), "Access-Control-Expose-Headers": "X-Clips"})
-        except (BrokenPipeError, ConnectionError):
-            pass
-        finally:
-            ed_state.unlink_quiet(zp)
 
     def _resolve_package(self, obj):
         import resolve_export

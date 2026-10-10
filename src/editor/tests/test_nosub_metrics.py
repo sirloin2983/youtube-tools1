@@ -4,14 +4,13 @@
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_nosub_metrics -q          # これだけ(src/editor/tests で)
 
-- noSub の行(とその時間の機械の行)は、精度の測定の本体・学習・辞書の提案・修正データの書き出し・保管の学習用の材料に入らない。noSub が無い文書は今までと同じ数
+- noSub の行(とその時間の機械の行)は、精度の測定の本体・学習・辞書の提案・保管の学習用の材料に入らない。noSub が無い文書は今までと同じ数
 - 重なりのまとまりの判定(違う話者で 0.3 秒以上)と、人の行の並べ方を入れ替えた小さい方の数え方
 """
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import unittest
-import zipfile
 
 from test_backend import S, StoreDir  # noqa: F401  (S = serve)
 
@@ -170,13 +169,11 @@ class TestLearningSkipsNoSub(StoreDir):
         ev2 = [(w, r) for w, r, _c, _l, _r in S.learn_events({"original": orig, "segments": segs2})]
         self.assertTrue([e for e in ev2 if "ポルカ" in e[0]])
 
-    def test_learn_groups_both_scopes_skip_nosub(self):
+    def test_learn_groups_skip_nosub(self):
         orig = [mo(0, 3, "あい"), mo(10, 13, "ぽるか")]
         segs = [sg(1, 0, 3, "あう"), sg(2, 10, 13, "ホロ", noSub=True)]
         doc = {"original": orig, "segments": segs}
         self.assertEqual([g["text"] for g in S.learn_groups(doc)], ["あう"])
-        self.assertEqual([g["text"] for g in S.learn_groups(doc, "proofed")], ["あう"])
-        self.assertEqual([g["text"] for g in S.learn_groups({"segments": segs}, "proofed")], ["あう"])   # original が無い文書
 
     def test_doc_info_texts_skip_nosub(self):
         doc = {"id": "aaaaaaaaaaaa", "original": [mo(0, 2, "あい"), mo(5, 7, "NPC")], "segments": [sg(1, 0, 2, "あう"), sg(2, 5, 7, "NPCのセリフ", noSub=True)]}
@@ -184,20 +181,6 @@ class TestLearningSkipsNoSub(StoreDir):
         info = S._doc_info("aaaaaaaaaaaa")
         self.assertEqual(info["texts"], ["あう"])
         self.assertEqual(info["lines"], 1)
-
-    def test_export_corrections_skips_nosub(self):
-        doc = {"id": "aaaaaaaaaaaa", "original": [mo(0, 3, "あい"), mo(5, 8, "ぽるか")],
-               "segments": [sg(1, 0, 3, "あう"), sg(2, 5, 8, "ホロ", noSub=True)]}
-        self.put_doc(doc, "aaaaaaaaaaaa")
-        for scope in ("changed", "proofed"):
-            path, n, _na, _sk = S.export_corrections("aaaaaaaaaaaa", audio=False, scope=scope)
-            try:
-                with zipfile.ZipFile(path) as z:
-                    rows = [json.loads(x) for x in z.read("corrections.jsonl").decode("utf-8").splitlines()]
-            finally:
-                os.unlink(path)
-            self.assertEqual([r["text"] for r in rows], ["あう"], scope)
-            self.assertEqual(n, 1)
 
 
 class TestArchiveNoSub(unittest.TestCase):

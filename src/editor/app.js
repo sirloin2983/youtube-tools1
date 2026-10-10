@@ -310,18 +310,6 @@ $('#rtModel').addEventListener('change', updateRt);   // 動画全体の目安�
 /* ---------- 修正から学習した候補 ---------- */
 let learned = { items: [], docs: 0 };
 let learnedShowAll = false;
-$('#lnExport').addEventListener('click', async () => {
-  const b = $('#lnExport'), scope = $('#lnExScope').value;
-  if (scope === 'doc' && !S.docId) return toast('先に文字起こしを開いてください');
-  if (S.dirty) await saveDoc();
-  await busy(b, async () => { try {
-    const r = await apiBlob('/api/export-corrections', { audio: $('#lnExAudio').checked, tid: scope === 'doc' ? S.docId : null, scope: $('#lnExKind').value });
-    const [n, na, sk] = (r.headers.get('X-Clips') || '0,0,0').split(',').map(Number), blob = await r.blob();
-    const d = new Date(), z = v => String(v).padStart(2, '0');
-    download(blob, `corrections-${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}.zip`);
-    toast(`${n}行を書き出しました(音声つき${na}行${sk ? ' ・ 上限のため' + sk + '行はとばしました' : ''})。ダウンロードフォルダを確認してください`, 5000, 'ok');
-  } catch (er){ toast('書き出せませんでした: ' + er.message, 6000, 'err'); } }, '書き出し中…(音声つきは数分かかることがあります)');
-});
 const lnKey = x => `${x.wrong}=>${x.right}`;
 const lnDraft = {};   // 候補ごとの、編集中の文字(一覧を更新しても消えないように残す)
 $('#lnList').addEventListener('input', e => {

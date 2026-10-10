@@ -5,7 +5,6 @@
 
 実際の音声認識は使わない(疑似モード TRANSCRIBE_BACKEND=fake)。
 """
-import io
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -21,7 +20,6 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 import urllib.request
-import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
@@ -230,15 +228,11 @@ class TestPure(unittest.TestCase):
         m2 = S.doc_metrics({"original": orig2, "segments": segs2}, terms=["ホロライブ"])
         self.assertEqual((m2["termRef"], m2["termHit"], m2["termExtra"]), (0, 0, 1))
 
-    def test_learn_groups_proofed_scope(self):
+    def test_learn_groups_changed_only(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様"}, {"start": 2, "end": 4, "text": "そのまま"}]
         segs = [seg(1, 0, 2, "トワ様", True), seg(2, 2, 4, "そのまま", True), seg(3, 4, 6, "未確認", False)]
-        gs = S.learn_groups({"original": orig, "segments": segs}, "proofed")
-        self.assertEqual([(g["text"], g["changed"]) for g in gs], [("トワ様", True), ("そのまま", False)])
-        self.assertEqual([g["text"] for g in S.learn_groups({"original": orig, "segments": segs})], ["トワ様"])       # 既定は従来どおり(直した行だけ)
-        # 機械の出力が無い文字起こしでも、校正済みの行は使える
-        gs2 = S.learn_groups({"segments": segs}, "proofed")
-        self.assertEqual([(g["original"], g["text"]) for g in gs2], [("", "トワ様"), ("", "そのまま")])
+        self.assertEqual([g["text"] for g in S.learn_groups({"original": orig, "segments": segs})], ["トワ様"])       # 直した行だけ
+        self.assertEqual(S.learn_groups({"segments": segs}), [])   # 機械の出力が無い文字起こしは材料にならない
 
 
 class TestStore(unittest.TestCase):
@@ -666,15 +660,8 @@ class TestHttp(unittest.TestCase):
         names = {n for g in r["groups"] for n in g["names"]}
         self.assertTrue({"兎田ぺこら", "宝鐘マリン", "AZKi", "熱千めら"} <= names)
         self.assertRegex(r["asOf"], r"^\d{4}-\d\d-\d\d$")
-        # 書き出し: 校正済みの行すべて(直していない行も入る) / 従来どおり直した行だけ
-        z = zipfile.ZipFile(io.BytesIO(self.call("POST", "/api/export-corrections", {"tid": tid, "audio": False, "scope": "proofed"}, raw=True)))
-        rows = [json.loads(x) for x in z.read("corrections.jsonl").decode().splitlines()]
-        self.assertEqual([(r["changed"], r["proofed"]) for r in rows], [(True, True), (False, True), (False, True)])
-        self.assertEqual(rows[0]["text"], "トワ様のテスト")
-        z = zipfile.ZipFile(io.BytesIO(self.call("POST", "/api/export-corrections", {"tid": tid, "audio": False}, raw=True)))
-        rows = [json.loads(x) for x in z.read("corrections.jsonl").decode().splitlines()]
-        self.assertEqual(len(rows), 1)
-        self.assertNotIn("changed", rows[0])
+        # 修正データの書き出し(zip)は 0.68.0 で消した
+        self.assertEqual(self.call("POST", "/api/export-corrections", {"tid": tid, "audio": False}).get("_status"), 404)
 
     def test_fake_flags_unchanged(self):
         """疑似の文字起こし(「テスト文N」)には、英字の要確認が付かない(誤検出しない)。"""

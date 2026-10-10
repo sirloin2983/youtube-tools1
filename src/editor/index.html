@@ -1482,12 +1482,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div class="row" style="margin-top:8px"><label class="lag">回数 <select id="lnMin" style="width:auto"><option value="1">1回以上</option><option value="2" selected>2回以上</option><option value="3">3回以上</option></select></label>
       <button type="button" class="btn small" id="lnRefresh">更新</button><label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
     <div class="fld"><label for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
-    <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button>
-    <div class="fld" style="margin-top:12px"><span class="l">修正データの書き出し(将来の追加学習・精度の測定用)</span>
-      <div class="row"><select id="lnExScope" style="width:auto"><option value="all">すべての文字起こし</option><option value="doc">開いている文字起こしだけ</option></select>
-        <select id="lnExKind" style="width:auto" title="校正済みの行すべては、直していない行も含みます(追加学習では、正しく認識できた行も必要です)"><option value="changed">直した行だけ</option><option value="proofed">校正済みの行すべて(学習用)</option></select>
-        <label class="lag"><input type="checkbox" id="lnExAudio" checked>音声も含める</label><button type="button" class="btn small" id="lnExport">書き出す(zip)</button></div>
-      <span class="hint">直した行ごとに「音声の範囲・機械の出力・直した文章」をまとめます(最大400行。音声は1行20秒まで)。話者の声や会話の内容が含まれるので、他人に渡すときは相手の同意を得てください。</span></div></details>
+    <div id="lnList"></div><button type="button" class="btn small list-more" id="lnMore" hidden></button></details>
   <details class="card side-pane" data-side-pane="data" id="arcCard" open><summary>保存データ(将来の学習用)</summary>
     <p class="hint" style="margin:6px 0 0">校正した成果を、元の動画に頼らずに使い回せる形で、このフォルダの <b>dataset/</b> に自動で残します。校正済みの行(文章・話者・音の状態のメモ・機械の出力との対応)、人が消した行(幻覚などの「<abbr class="ui-term" title="「これは正解ではない」例。機械が出したが人が消した行(無音で出たでたらめな文など)">負例</abbr>」)、行ごとの音声(<abbr class="ui-term" title="音声を劣化させずに縮める形式。16kHz は1秒を1万6千回に分けて記録する細かさ(認識に十分な音質)">16kHz・FLAC</abbr>)が入ります。追加学習(<abbr class="ui-term" title="モデル全体ではなく、小さな追加部分だけを学習させる方法。少ない正解データ・家庭の PC でも試せる">LoRA</abbr>)・声紋登録・別モデルでの再認識に、あとからそのまま使えます。</p>
     <label class="lag" style="margin-top:8px"><input type="checkbox" id="arcAuto" checked>自動で保管する(10分ごと・文字起こしを切り替えるとき・画面を離れるとき)</label>
@@ -1583,7 +1578,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     </section>
     <aside class="tx-stage" aria-label="映像と道具">
     <div class="pbox">
-      <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・修正データの書き出し・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
+      <div class="tt-docmeta"><label class="lag" title="精度を測るためだけに取っておく文字起こし。辞書・提案・用語の自動追加・追加学習に使わず、再認識もできません。校正を始める前に決めてください"><input type="checkbox" id="evalSet">評価用にする(学習・辞書に使わない)</label></div>
       <div id="docClip" class="tt-clip" hidden></div>
       <div id="evalBanner" class="notice" hidden><b>評価用の文字起こしです。</b>辞書・提案・追加学習の元にはなりません。再認識はできません。一括置換と提案の採用は使えません(正解が機械で書き換わってしまうため)。</div>
       <!-- 評価用の文書の「確かめ済み」(動画を全部聞いて直した印 evalReviewed。定点に数えるのはこれだけ)。ドリルの間は上の帯に出すので隠す。app-learn.js の renderEvalReview -->

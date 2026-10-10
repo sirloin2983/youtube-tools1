@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 置換辞書・修正からの学習・提案・認識精度の測定・評価用の基準・修正データの書き出し・データの保管(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+"""「編集」のサーバーの部品: 置換辞書・修正からの学習・提案・認識精度の測定・評価用の基準・データの保管(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
 
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
@@ -248,29 +248,11 @@ def learn_events(doc):
     return out
 
 
-def learn_groups(doc, scope="changed"):
-    """人が直した行(まとまり)を [{start,end,original,text}] で返す(修正データの書き出し用)。
-    scope="proofed" のときは、直した行に限らず、校正済みの行すべてを返す(直していない行は changed=False。original が無い文字起こしは original="")。
-    noSub(字幕に出さない)の行とその時間の機械の行は返さない(修正データの書き出しにも入らない)。"""
+def learn_groups(doc):
+    """人が直した行(まとまり)を [{start,end,original,text}] で返す(学習の材料の行の数え方)。
+    noSub(字幕に出さない)の行とその時間の機械の行は返さない。校正済みの行すべてを返す scope="proofed"(修正データの書き出し用)は 0.68.0 で書き出しと一緒に消した"""
     orig, segs = _prep_main(doc)
     out = []
-    if scope == "proofed":
-        if not segs:
-            return out
-        if not orig:
-            for g in segs:
-                b = re.sub(r"\s+", "", str(g.get("text", "")))
-                if g.get("proofed") and b and "unclear" not in (g.get("tags") or []):
-                    out.append({"start": g["start"], "end": g["end"], "original": "", "text": b, "changed": True, "proofed": True})
-            return out
-        for go, ge in _groups(orig, segs):
-            if not go or not ge or not all(segs[i].get("proofed") and "unclear" not in (segs[i].get("tags") or []) for i in ge):
-                continue
-            a, b = _norm(orig, go), _norm(segs, ge)
-            if not b:
-                continue
-            out.append({"start": min(segs[i]["start"] for i in ge), "end": max(segs[i]["end"] for i in ge), "original": a, "text": b, "changed": a != b, "proofed": True})
-        return out
     if not orig or not segs:
         return out
     for go, ge in _groups(orig, segs):
@@ -296,7 +278,7 @@ def _doc_info(tid):
     with open(ed_store.tx_path(tid), "r", encoding="utf-8") as f:
         d = json.load(f)
     if d.get("evalSet") is True:
-        info = None   # 評価用は、辞書・提案・用語の自動追加・修正データの書き出しの元にしない(答えを見てから測ることになるため)
+        info = None   # 評価用は、辞書・提案・用語の自動追加の元にしない(答えを見てから測ることになるため)
     elif d.get("original"):
         ev = learn_events(d)
         info = {"events": ev, "lines": len(learn_groups(d)),
@@ -791,97 +773,6 @@ def record_baseline(label):
         items.append(rec)
         ed_state.atomic_write(_workdata.EVAL_BASE, json.dumps(items[-100:], ensure_ascii=False, indent=1).encode("utf-8"))
     return rec
-
-
-# ---------- 修正データの書き出し(音声の範囲 + 直した文章) ----------
-MAX_EXPORT_CLIPS = 400
-MAX_CLIP_SEC = 20
-_export_lock = threading.Lock()
-EXPORT_README = """修正データ(文字起こしツールが書き出したもの)
-corrections.jsonl … 1行に1件。 doc=文字起こしのID / source=元ファイル名 / start,end=元の動画の中の秒 /
-  original=機械の出力(空白なし) / text=人が直した文章(空白なし) / audio=音声ファイル(audio/ の中。無い場合は null)
-audio/*.wav       … その範囲の音声(16kHz・モノラル)。音声を含めない設定のときは無い。
-校正済みの行すべてを書き出した場合(scope=proofed)は、直していない行も入ります(changed=false。original と text が同じ)。
-  original が空の行は、機械の出力が残っていない古い文字起こしの行です(text は人が確認した文章)。
-用途: 認識精度の測定(original と text の差)や、将来の追加学習用データとして。
-注意: 話者の声・会話の内容が含まれます。他人に渡すときは、相手の同意を得てください。
-"""
-
-
-def export_corrections(tid=None, audio=True, scope="changed"):
-    """修正した行(scope="proofed" なら校正済みの行すべて)を zip にまとめ、(パス, 件数, 音声つきの件数, とばした件数) を返す。呼び出し側が消す。"""
-    if not _export_lock.acquire(blocking=False):
-        raise ed_state.ApiError("busy", "別の書き出しの最中です", 409)
-    try:
-        ff = _tools.find_ffmpeg() if audio else None
-        if scope == "proofed":
-            docs = [tid] if tid else sorted(ed_store._tids())
-        else:
-            docs = [tid] if tid else [t for t, _ in _all_infos()]
-        os.makedirs(_workdata.TMP_DIR, exist_ok=True)
-        path = os.path.join(_workdata.TMP_DIR, "export-%s.zip" % uuid.uuid4().hex[:8])
-        try:
-            return _export_corrections_zip(path, docs, tid, ff, scope)
-        except BaseException:   # 途中で失敗したら(評価用の指定・ディスク不足など)、作りかけの zip を残さない
-            _fsio.unlink_quiet(path)
-            raise
-    finally:
-        _export_lock.release()
-
-
-def _export_corrections_zip(path, docs, tid, ff, scope):
-    n = na = skipped = 0
-    import zipfile
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        lines = []
-        for t in docs:
-            if n >= MAX_EXPORT_CLIPS:
-                break
-            try:
-                d = ed_store.read_transcript(t)
-            except ed_state.ApiError:
-                continue
-            if d.get("evalSet") is True:
-                if tid:
-                    raise ed_state.ApiError("eval_set", "評価用の文字起こしは、学習用のデータとして書き出しません(評価用を外すと書き出せますが、その時点から評価には使えなくなります)", 400)
-                continue
-            groups = learn_groups(d, "proofed") if scope == "proofed" else (learn_groups(d) if d.get("original") else [])
-            if not groups:
-                continue
-            try:
-                src = _tools.check_source(d.get("sourcePath")) if ff else None
-            except ed_state.ApiError:
-                src = None
-            for g in groups:
-                if n >= MAX_EXPORT_CLIPS:
-                    skipped += 1
-                    continue
-                if g["end"] - g["start"] < 0.3:
-                    continue
-                n += 1
-                name = None
-                if ff and src:
-                    name = "audio/%s_%07d.wav" % (t, int(g["start"] * 100))
-                    tmp = os.path.join(_workdata.TMP_DIR, "clip-%s.wav" % uuid.uuid4().hex[:8])
-                    try:
-                        r = subprocess.run([ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file", "-ss", "%.3f" % max(0, g["start"] - 0.2), "-i", src,
-                                            "-t", "%.3f" % min(MAX_CLIP_SEC, g["end"] - g["start"] + 0.4), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", tmp],
-                                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-                        if r.returncode == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 1000:
-                            z.write(tmp, name)
-                            na += 1
-                        else:
-                            name = None
-                    except (OSError, subprocess.SubprocessError):
-                        name = None
-                    finally:
-                        _fsio.unlink_quiet(tmp)
-                lines.append(json.dumps({"doc": t, "source": d.get("sourceName", ""), "start": g["start"], "end": g["end"],
-                                         "original": g["original"], "text": g["text"], "audio": name,
-                                         **({"changed": g["changed"], "proofed": True} if scope == "proofed" else {})}, ensure_ascii=False))
-        z.writestr("corrections.jsonl", "\n".join(lines) + ("\n" if lines else ""))
-        z.writestr("README.txt", EXPORT_README)
-    return path, n, na, skipped
 
 
 # ---------- データの保管(将来の学習・声紋登録・再解析に使えるように、校正の成果と音声を残す) ----------

@@ -156,18 +156,6 @@ class TestJobs(unittest.TestCase):
             S.add_job({"title": "al2", "tid": "t1"}, "alt")
 
 
-class TestExportCleanup(StoreDir):
-    def test_failed_export_removes_partial_zip(self):
-        """評価用の文字起こしを指定した書き出しは断る。そのとき作りかけの zip を .tmp に残さない。"""
-        doc = {"id": TID, "evalSet": True, "original": [{"start": 0, "end": 2, "text": "a"}],
-               "segments": [{"id": "s1", "start": 0, "end": 2, "text": "b", "proofed": True}]}
-        self.put_doc(doc)
-        with self.assertRaises(S.ApiError) as cm:
-            S.export_corrections(TID, audio=False)
-        self.assertEqual(cm.exception.code, "eval_set")
-        self.assertEqual([n for n in os.listdir(S.TMP_DIR) if n.endswith(".zip")], [])
-
-
 class TestArchiveWithoutFfmpeg(StoreDir):
     def test_existing_full_flac_without_ffmpeg(self):
         """ffmpeg が無いのに前回の full.flac が残っていると、保管が TypeError で失敗していた。"""

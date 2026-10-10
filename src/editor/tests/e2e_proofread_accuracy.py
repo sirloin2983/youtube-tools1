@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校正画面の通し確認(Playwright + 疑似モード)。校正済みボタン・絞り込み・精度カード・書き出し種別(設定の比較 A/B は 0.68.0 で消した)。
+"""校正画面の通し確認(Playwright + 疑似モード)。校正済みボタン・絞り込み・精度カード(設定の比較 A/B・修正データの書き出しは 0.68.0 で消した)。
 
     python3 src/editor/tests/e2e_proofread_accuracy.py [スクリーンショットの保存先フォルダ]
 """
@@ -179,8 +179,7 @@ def main():
             pg.evaluate("[...document.querySelectorAll('#lnList .ln')].find(r => r.querySelector('.lw').value === 'テスト').querySelector('[data-act=lnadd]').click()")
             pg.wait_for_function("document.querySelector('#repDict').value.includes('|テスト|=>テスタ')", timeout=10000)
             check(True, "学習候補「テスト→テスタ」(語の全体)を登録すると |テスト|=>テスタ になる")
-            # 書き出し種別
-            check(pg.locator("#lnExKind option").count() == 2, "書き出し種別(直した行だけ/校正済みすべて)")
+            check(pg.locator("#lnExport").count() == 0, "修正データの書き出しのボタンは無い(0.68.0 で消した)")
             if SHOTS:
                 os.makedirs(SHOTS, exist_ok=True)
                 pg.screenshot(path=os.path.join(SHOTS, "ui_editor.png"), full_page=False)
