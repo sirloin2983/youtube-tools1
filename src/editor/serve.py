@@ -104,7 +104,7 @@ from ytt import txwords as _txwords  # noqa: E402  単語の時刻 words.json �
 from ytt import txtext as _txtext  # noqa: E402  文字起こしの文字の語彙(RS6 a-3 に postproc・roster から。S.strip_punct・S.split_segment・S.SPARSE_FLAG・S.split_terms はここ)
 from ytt import version as _version  # noqa: E402
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
-from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
+from ytt import docloc as _docloc, studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品。段10。RS5-A で転送だけの殻 ed_store・ed_relink・ed_jobs・ed_speakers・ed_learn・ed_misc を消した。評価用の音声 ed_evalaudio は 0.68.0 で消した)
 from manage.cases import pipeline_io  # noqa: E402  (受け渡しの読み・保存・.runtime。RS3-E5b に editor から manage/cases へ。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
 from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て。RS3-E5b に editor から pipeline/pack へ)
@@ -634,17 +634,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with _store._save_lock:   # 話者判別・再認識の書き込みと重ならないように(読み直しのあとに消すと、書き込みで生き返っていた)
                 _store.read_transcript(tid)
-                os.unlink(_store.tx_path(tid))
-                for extra in (_store.edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"), _txwords.words_path(tid),
-                              _txrecords.asr_path(tid), _txdiarize.diar_path(tid),
-                              _alt.alt_path(tid), _ytcap.ytcap_path(tid), _txllm.llm_path(tid), _overrides.over_path(tid),
-                              *(_flowkeys.doc_key_path(tid, st) for st in ("transcribe", "post", "diar"))):   # 編集の内容(カット)・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案・成果物の鍵(RS6 b-K1)も一緒に
+                main = _store.tx_path(tid)
+                extras = [_docloc.doc_file(tid, sfx) for sfx in _docloc.DOC_SUFFIXES[1:]]   # 横のファイル(編集の内容・単語の時刻・話者判別の記録・2つ目のエンジンと YouTube の字幕・LLM の提案・上書き・成果物の鍵)も一緒に。置き場所は文書を消す前に引く(消すと索引が使えなくなる)
+                os.unlink(main)
+                for extra in extras:
                     try:
                         os.unlink(extra)
                     except FileNotFoundError:
                         pass
                     except OSError as e:
                         ed_state.log.warning("編集の内容を消せませんでした: %s %s", os.path.basename(extra), e)
+                _docloc.unplace(tid)   # 案件の 作業用 に置いた文書の索引も消す
                 _store._edit_cache.pop(tid, None)
         except ed_state.ApiError as e:
             return self._err(e)

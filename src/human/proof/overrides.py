@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-from ytt import fsio as _fsio, schemas as _yschemas, txbase as _txbase, workdata as _workdata  # noqa: E402
+from ytt import docloc as _docloc, fsio as _fsio, schemas as _yschemas, txbase as _txbase, workdata as _workdata  # noqa: E402
 
 OVER_SCHEMA = "youtube-tools-over/v1"
 OVER_SUFFIX = ".over.json"
@@ -231,7 +231,7 @@ def merge_speakers(speakers, over, rows):
 # ---------- <id>.over.json(派生の控え) ----------
 def over_path(tid):
     """上書きの控え transcripts/<id>.over.json(文書を消すときは一緒に消す)"""
-    return os.path.join(_workdata.TX_DIR, tid + OVER_SUFFIX)
+    return _docloc.doc_file(tid, OVER_SUFFIX)
 
 
 def clip_key_of(source_path):

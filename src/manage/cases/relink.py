@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import time
 
-from ytt import errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 in_eval_dir・eval_name_guard(RS3-1 に ed_relink から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
@@ -171,7 +171,7 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     保存 save_transcript は sourcePath を画面から受け取らないので、画面の古い版で上書きされても付け替えは消えない)"""
     _store.backup_doc(tid, "relink")   # 直前の状態を1世代だけ(話者判別の pre-diarize と同じ)・「以前の版に戻す」で元のパスへ戻せる
     if os.path.isfile(_store.edit_path(tid)):
-        shutil.copy2(_store.edit_path(tid), os.path.join(_workdata.TX_DIR, ".bak", tid + ".edit.pre-relink.json"))
+        shutil.copy2(_store.edit_path(tid), os.path.join(_docloc.bak_dir(tid), tid + ".edit.pre-relink.json"))
     now = max(_yschemas.now_ms(), int(doc.get("updatedAt") or 0) + 1) if bump or not doc.get("updatedAt") else int(doc["updatedAt"])
     prev = [r for r in doc.get("relinks") or [] if isinstance(r, dict)]
     rec = {"from": str(doc.get("sourcePath") or ""), "at": max(now, _yschemas.now_ms()), "diffSec": diff}

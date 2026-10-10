@@ -29,7 +29,7 @@ import sys
 import threading
 import time
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
@@ -455,7 +455,7 @@ def ytcap_diffs(rows, yt_rows):
 
 # ---------- ジョブ ----------
 def ytcap_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".ytcap.json")
+    return _docloc.doc_file(tid, ".ytcap.json")
 
 
 def read_ytcap(tid):

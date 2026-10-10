@@ -19,14 +19,22 @@ import uuid
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
 from flow import pack as _flowpack  # noqa: E402   カットのたたき台・見積もり(RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import docloc as _docloc, tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
 from . import overrides as _overrides  # noqa: E402   校正の上書きの控え <id>.over.json(RS6 b-O1。保存のたびに save_after)
 
 
 # ---------- 文字起こしの保存 ----------
+def _doc_file(tid, suffix):
+    """文書と横のファイルのパス(置き場所は ytt/docloc。索引が無ければ TX_DIR)。id の形が正しくない呼び手には今までどおり TX_DIR の下の名前を返す(検査は呼び手の側)"""
+    try:
+        return _docloc.doc_file(tid, suffix)
+    except ValueError:
+        return os.path.join(_workdata.TX_DIR, tid + suffix)
+
+
 def tx_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".json")
+    return _doc_file(tid, ".json")
 
 
 def write_doc(tid, doc):
@@ -44,7 +52,10 @@ def snapshot(tid, force=True):
 
 def backup_doc(tid, kind):
     """機械が行を書き換える前の控え: .bak/<id>.pre-<kind>.json(直前の 1 世代)と履歴(「以前の版に戻す」で戻せる)"""
-    bak = os.path.join(_workdata.TX_DIR, ".bak")
+    try:
+        bak = _docloc.bak_dir(tid)
+    except ValueError:
+        bak = os.path.join(_workdata.TX_DIR, _docloc.BAK_DIR)
     os.makedirs(bak, exist_ok=True)
     shutil.copy2(tx_path(tid), os.path.join(bak, "%s.pre-%s.json" % (tid, kind)))
     snapshot(tid)
@@ -237,7 +248,7 @@ def transcript_summary(tid):
 
 
 def _tids():
-    return [n[:-5] for n in (os.listdir(_workdata.TX_DIR) if os.path.isdir(_workdata.TX_DIR) else []) if n.endswith(".json") and _yschemas.TID_RE.match(n[:-5])]
+    return _docloc.iter_tids()
 
 
 def prune_cache(cache, keep, lock=None):
@@ -279,7 +290,10 @@ _save_lock = threading.Lock()
 
 
 def _hist_dir(tid):
-    return os.path.join(_workdata.TX_DIR, ".hist", tid)
+    try:
+        return _docloc.hist_dir(tid)
+    except ValueError:
+        return os.path.join(_workdata.TX_DIR, _docloc.HIST_DIR, tid)
 
 
 def hist_stamps(tid):
@@ -445,7 +459,7 @@ _edit_cache = {}   # tid -> ((更新日時ns, 大きさ), 一覧用の要約)
 
 
 def edit_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".edit.json")
+    return _doc_file(tid, ".edit.json")
 
 
 _real = _yschemas.num   # JSON の数(真偽値・文字列・NaN・float にできない巨大な整数は数として扱わない)。-> float か None
@@ -697,7 +711,7 @@ def save_edit(tid, obj):
             raise _errors.ApiError("conflict", "別のタブか窓で、先にカットが保存されています。読み直すか、こちらの内容で上書きするか選んでください", 409, {"rev": rev})
         if broken:   # 壊れたファイルは上書きする前に1つだけ残す(調べられるように)
             try:
-                shutil.copy2(edit_path(tid), os.path.join(_workdata.TX_DIR, tid + ".edit.broken.json"))
+                shutil.copy2(edit_path(tid), _doc_file(tid, ".edit.broken.json"))
             except OSError:
                 pass
         now = _yschemas.now_ms()

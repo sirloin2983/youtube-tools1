@@ -28,7 +28,7 @@ import json
 import os
 import threading
 
-from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
 from flow import jobs as _heavy  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
@@ -117,7 +117,7 @@ def alt_spec(tid, req=None):
 
 # ---------- ジョブ ----------
 def alt_path(tid):
-    return os.path.join(_workdata.TX_DIR, tid + ".alt.json")
+    return _docloc.doc_file(tid, ".alt.json")
 
 
 def read_alt(tid):
