@@ -12,7 +12,7 @@
   範囲の終わり − 始まり → 動画の長さ − 始まり → 最後の行の終わりまで)。校正の時間 = activeSec(1 文字起こし のタブ)、カットとパックの時間 = cutSec(2 カット・3 パック)。
 - 「終わった文書」= 評価用(evalSet)は確かめ済み(evalReviewed がある。src/editor/ed_drill.py の drill_is_reviewed と同じ条件)・それ以外は文字のある行が全部校正済み。
   倍率の中央値・四分位・合計は**終わった文書だけ**で出す(途中の文書は、まだ直している途中で時間が短く出る = 倍率に入れると甘く出るので、数だけ別の欄に出す)
-- 直しの量(original と segments の比べ。original が無い文書は「分からない」。文字のある行だけで数える。original と segments を、時刻が重なるまとまり(src/editor/ed_learn.py の _groups と同じ)に分ける):
+- 直しの量(original と segments の比べ。original が無い文書は「分からない」。文字のある行だけで数える。original と segments を、時刻が重なるまとまり(src/human/proof/learn.py の _groups と同じ)に分ける):
     文字を直した行 = 機械の行と人の行が両方あるまとまりで、空白を除いた文字が違う(まとまりの人の行の数。分けた・つないだだけで文字が同じなら入れない)
     人が足した行 = 人の行だけのまとまり / 人が消した行 = 機械の行だけのまとまり(機械の行の数)
     時刻を直した行 = original のどの行とも始まり・終わりが 0.05 秒以内で合わない行(eval_speakers.py の time_edited_flags と同じ考え方。足した行は「足した行」に数えるのでここには入れない)
@@ -49,7 +49,7 @@ import eval_asr  # noqa: E402  出どころ(origin_of)・最初の認識(draft_o
 SCHEMA = "youtube-tools-effort-eval/v1"
 FEW_DOCS = 10                  # 終わった文書がこれより少ないときは「まだ少ない(参考)」
 TIME_TOL = 0.05                # original と行の端が一致したとみなす秒(eval_speakers.py の TIME_TOL と同じ)
-GROUP_SLACK = 0.05             # 時刻が重なるまとまり(src/editor/ed_learn.py の _groups と同じ)
+GROUP_SLACK = 0.05             # 時刻が重なるまとまり(src/human/proof/learn.py の _groups と同じ)
 MAX_BYTES = C.DOC_BYTES
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 MAX_EFFORT_SEC = 3600          # src/editor/ed_store.py の MAX_EFFORT_SEC(1回に足せる秒)。説明の数字(editor は読み込まない)
@@ -101,7 +101,7 @@ def text_rows(items):
 
 
 def pair_groups(orig, segs):
-    """機械の行(orig)と人の行(segs)を、時刻が重なるまとまりに分ける -> [([orig の添字], [segs の添字])]。src/editor/ed_learn.py の _groups と同じ"""
+    """機械の行(orig)と人の行(segs)を、時刻が重なるまとまりに分ける -> [([orig の添字], [segs の添字])]。src/human/proof/learn.py の _groups と同じ"""
     items = sorted([(o["start"], o["end"], 0, i) for i, o in enumerate(orig)] + [(g["start"], g["end"], 1, i) for i, g in enumerate(segs)])
     groups, cur, cur_end = [], None, -1.0
     for a, b, k, i in items:

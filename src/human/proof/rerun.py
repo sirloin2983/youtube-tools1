@@ -13,7 +13,7 @@ import time
 from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
 from pipeline.transcribe import backend as _backend, postproc, records, recognize  # noqa: E402
 from pipeline.transcribe import roster as _roster, tx_engines, txbase as _txbase, worker_client  # noqa: E402
-import ed_learn  # noqa: E402   置換辞書を当てる apply_replacements
+from pipeline.transcribe import replace  # noqa: E402   置換辞書を当てる apply_replacements(RS3-E5c に ed_learn から)
 import ed_store  # noqa: E402   文書の読み書き・保存のロック・控え
 from . import doc_jobs  # noqa: E402   受付の側の dict_pairs・_fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
 
@@ -104,7 +104,7 @@ def _apply_retranscribe(spec, results):
             continue
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
-        sg["text"], _ = ed_learn.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
+        sg["text"], _ = replace.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
         sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
         sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
         sg["flag"] = "、".join(([flag] if flag else []) + keep)[:100]
@@ -236,7 +236,7 @@ def _apply_range(spec, lines, loose=()):
             ov = min(g["end"], x["end"]) - max(g["start"], x["start"])
             if ov > bo and g.get("speaker"):
                 best, bo = g["speaker"], ov
-        text, _ = ed_learn.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
+        text, _ = replace.apply_replacements(x["raw"][:_txbase.MAX_TEXT], pairs)
         sid, n = doc_jobs._fresh_id(used, "r%d".__mod__, n)
         new.append({"id": sid, "start": round(x["start"], 2), "end": round(x["end"], 2), "text": text, "speaker": best, "flag": x.get("flag", "")[:100]})
         unsure += 1 if x.get("flag") else 0

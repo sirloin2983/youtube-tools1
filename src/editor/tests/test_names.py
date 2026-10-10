@@ -10,6 +10,7 @@
 - RS2-9 の前に ed_speakers が持っていた名前(data_ed_speakers_names.txt)は、pipeline/transcribe/diarize と human/proof/speakers に分けても
   S.名前 と ed_speakers.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
 - RS3-0A の前に ed_state が持っていた名前(data_ed_state_names.txt)は、置き場所・動きのある関数を持ち主へ移しても S.名前 で読める
+- RS3-E5c の前に ed_learn が持っていた名前(data_ed_learn_names.txt)は、replace・learn・metrics に分けても S.名前 と ed_learn.名前(殻)で読める
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -339,6 +340,53 @@ class TestSettingsMoved(unittest.TestCase):
             self.assertTrue(S.in_eval_dir(video))   # in_eval_dir は呼ぶたびに同じ部品の eval_dirs を読む
             self.assertIs(ed_store.sanitize_transcript({"segments": []}, {"sourcePath": video}).get("evalSet"), True)   # 読み手(ed_store)も
         self.assertIsNot(ed_store.sanitize_transcript({"segments": []}, {"sourcePath": video}).get("evalSet"), True)
+
+
+class TestEdLearnShell(unittest.TestCase):
+    """ed_learn の残りを pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度と基準)に分けた(RS3-E5c)。
+    旧い名前は殻と serve で読め、差し替えは持ち主に届き、learn は metrics を読まない(② から ④ を読まない)"""
+
+    def test_old_ed_learn_names_still_resolve(self):
+        import ed_learn
+        names = _old_names("data_ed_learn_names.txt")
+        self.assertEqual(len(names), 60)
+        missing = [n for n in names if not hasattr(S, n) or not hasattr(ed_learn, n)]
+        self.assertEqual(missing, [])
+
+    def test_shell_owns_only_forwarding_names(self):
+        import ed_learn
+        own = sorted(k for k, v in vars(ed_learn).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["_MOVED", "_add_moved", "_moved_owner"])
+        self.assertNotIn(ed_learn, S._ED_MODULES)   # ed_jobs の殻と同じ 3 つの名前を持つので、serve の受付には並べない
+
+    def test_moved_owners(self):
+        import ed_learn
+        from eval.drill import metrics
+        from human.proof import learn
+        from pipeline.transcribe import replace
+        self.assertEqual(ed_learn._MOVED, (replace, learn, metrics))   # metrics は serve が _add_moved で足す(殻は eval を読まない)
+        for m in (replace, learn, metrics):
+            self.assertIn(m, S._ED_MODULES, m.__name__)
+        self.assertIs(S.apply_replacements, replace.apply_replacements)
+        self.assertIs(ed_learn.learn_rules, learn.learn_rules)
+        self.assertIs(ed_learn.doc_metrics, metrics.doc_metrics)
+        self.assertIs(S._groups, learn._groups)   # dev/eval_asr・eval_alt が S._groups・S.split_nosub で読む
+        self.assertNotIn("metrics", vars(learn))   # learn は metrics を読まない
+
+    def test_patches_reach_owner(self):
+        import ed_learn
+        from eval.drill import metrics
+        saved = metrics.MAX_LEV_CELLS
+        try:
+            S.MAX_LEV_CELLS = 10   # test_metrics の形
+            self.assertEqual(metrics.MAX_LEV_CELLS, 10)
+        finally:
+            S.MAX_LEV_CELLS = saved
+        self.assertNotIn("MAX_LEV_CELLS", vars(S))
+        from human.proof import learn
+        with mock.patch.object(ed_learn, "_bounded", lambda text, k, w: False):
+            self.assertEqual(learn._spans("トル様", "トル", "ポル"), [])   # learn は呼ぶたびに replace._bounded を読む
+        self.assertEqual(learn._spans("トル様", "トル", "ポル"), [0])
 
 
 if __name__ == "__main__":

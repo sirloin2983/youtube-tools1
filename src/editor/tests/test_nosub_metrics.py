@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(editor/ed_learn.py。保管は 0.68.0 で消した。計画 plan/line-b-overlap.md の 2-1・6-2 の 5)。
+"""「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py。RS3-E5c まで editor/ed_learn.py。保管は 0.68.0 で消した。計画 plan/line-b-overlap.md の 2-1・6-2 の 5)。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_nosub_metrics -q          # これだけ(src/editor/tests で)

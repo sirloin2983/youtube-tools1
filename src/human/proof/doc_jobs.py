@@ -11,7 +11,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
-editor の部品は裸の名前で読む(human の ed_store・ed_learn・ed_alt・ed_ytcap は層の向きが許す)。話者の部品は隣の speakers(RS2-9)。
+editor の部品は裸の名前で読む(human の ed_store・ed_alt・ed_ytcap は層の向きが許す)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)。
 後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
 """
 import bisect
@@ -31,10 +31,11 @@ from pipeline.transcribe import worker_client  # noqa: E402   認識ワーカー
 from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し・認識・範囲の行・全体の再認識の続きから(RS2-7。呼ぶたびに recognize.名前 で読む)
 from pipeline.transcribe import fill  # noqa: E402   認識のあとの後処理 A・B・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0。RS2-9 に ed_fill から移した)
 from pipeline.transcribe import llm  # noqa: E402   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0。RS2-9 に ed_llm から移した)
+from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c に ed_learn から。呼ぶたびに replace.名前 で読む)
 import ed_alt  # noqa: E402,F401
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
-import ed_learn  # noqa: E402,F401
 import ed_store  # noqa: E402,F401
+from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
 # ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の ed_evalbatch をここから読まない = ② から ③・④ を読まない) ----------
@@ -76,7 +77,7 @@ def _hook(name):
 def glossary_of(req, st=None):
     """要求の用語集(200 語まで)と、自動で足す語(autoGloss。よく直される正しい語)-> (用語集, 自動の語)。st = 読んである設定"""
     glossary = _roster.split_terms(req.get("glossary"))[:200]
-    return glossary, (ed_learn.auto_glossary(glossary, settings=st) if req.get("autoGloss") is not False else [])
+    return glossary, (learn.auto_glossary(glossary, settings=st) if req.get("autoGloss") is not False else [])
 
 
 def validate_job(req):
@@ -243,7 +244,7 @@ def dict_pairs(spec):
     設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ"""
     if not spec.get("autoDict"):
         return []
-    pairs = ed_learn.parse_replacements(_settings.load_settings().get("replacements"))
+    pairs = replace.parse_replacements(_settings.load_settings().get("replacements"))
     try:
         pairs += _roster.variant_pairs(_roster.load(_roster.ROSTER))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
@@ -253,9 +254,9 @@ def dict_pairs(spec):
 
 def dict_learned():
     """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
-    学習(ed_learn)を読むのは文書の側のここだけ(① の records は ed_learn を読まない。serve が records.set_dict_inputs で登録する。RS2-5)"""
-    rules = ed_learn.learn_rules()
-    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in ed_learn.load_feedback().items() if k not in ("alt", "yt")}},
+    学習(learn)を読むのは文書の側のここだけ(① の records は learn を読まない。serve が records.set_dict_inputs で登録する。RS2-5)"""
+    rules = learn.learn_rules()
+    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in learn.load_feedback().items() if k not in ("alt", "yt")}},
                       ensure_ascii=False, sort_keys=True)
 
 
@@ -340,7 +341,7 @@ def run_job(job):
     with _heavy.job_temp_wav(job) as wav:
         # 置換辞書の組と学習した置換は認識の前に 1 回だけ読む(F-8。RS2-8e までは音声の取り出しのあと・認識の行を読み始める前に読んでいた)
         pairs = dict_pairs(spec)
-        lrules, lfb = (ed_learn.learn_rules(), ed_learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
+        lrules, lfb = (learn.learn_rules(), learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
         # ① 音声を取り出して認識し、整えた行を受け取る(recognize.transcribe_rows。RS2-8e)。ここから下は文書への書き込み(② の文書づくり)
         res = recognize.transcribe_rows(job, spec, wav)
         rows, raw_asr, total, t_rec = res["rows"], res["raw"], res["total"], res["t_rec"]   # raw = 生出力(<id>.asr.json)・t_rec = 認識を始めた時刻(recognition.runs の wallSec)
@@ -423,11 +424,11 @@ def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
         if postproc.SPARSE_FLAG in seg["flag"] and s.get("avg_logprob") is not None:
             sparse_lp[seg["id"]] = float(s["avg_logprob"])
         if lrules:   # 確度が高い学習済みの置換は、機械の出力側にも反映する(そうしないと自分の置換を「人が直した」と数えて自己強化してしまう)
-            seg["text"], ln = ed_learn.auto_learned_replace(seg["text"], lrules, lfb)
+            seg["text"], ln = learn.auto_learned_replace(seg["text"], lrules, lfb)
             learn_n += ln
         original.append({"start": seg["start"], "end": seg["end"], "text": seg["text"], **postproc.machine_conf(s)})   # 機械の出力をそのまま残す(修正からの学習・精度の測定に使う)
         words.extend(postproc.row_words(s, spec["start"]))
-        seg["text"], n = ed_learn.apply_replacements(seg["text"], pairs)
+        seg["text"], n = replace.apply_replacements(seg["text"], pairs)
         dict_n += n
         segs.append(seg)
         job["segments"] = len(segs)

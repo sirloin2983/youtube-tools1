@@ -813,7 +813,7 @@ from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18�
 from test_thumb_job import *  # noqa: E402,F401,F403   サムネの案のジョブ(提案 P5。ed_thumb.py → thumb_ideas.py。0.64.0)
 from test_ytcap import *  # noqa: E402,F401,F403   元の配信の YouTube の字幕との食い違いの候補(案 A1。ed_ytcap.py)
 from test_autodiar import *  # noqa: E402,F401,F403   文字起こしのあとの話者の自動判別(評価用は常に・設定 autoDiarize。v0.50.0)
-from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習・保管(ed_learn.py)
+from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習(eval/drill/metrics・human/proof/learn。RS3-E5c まで ed_learn.py)
 from test_ovdraft import *  # noqa: E402,F401,F403   重なりの所の空の行の下書き(ed_speakers の ovdraft_・GET /api/overlap-drafts・行の印 draft)
 from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)
 from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
