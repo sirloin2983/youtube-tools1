@@ -77,3 +77,17 @@
 - 後処理 4 つ(`fill` 378・`llm` 338・`postproc` 300・`retime` 267 = 1,283 行)は役目が別(行の整え・2 つ目のエンジンとの突き合わせ・LLM・時刻)で重なりは小さい。文字の寄せ方 7 つ(上の OPT1・OPT3)だけ
 - 説明文の古い呼び名: `fill.py`・`llm.py` の先頭が「「編集」のサーバーの部品」のまま(① に移った)→ 文書の小物(RV)
 - `backend.py`(本物と疑似の差し込み口・本物は素通し 13 個)は疑似のテストの土台 = 残す(10-11 の調べ)
+
+### 5. パック `pipeline/pack/`(10-11)
+- 中心は `pack.py`(plan_cut = 残す区間を決める・build_pack = 書く)で、「パックを作るのは pack.py だけ」の決まりどおり。`dev/tests/test_resolve_pack_contract.py` が縛る = 形は良い
+- **`pack.Request` を組む所が 3 つ**: コマンド `cut2resolve.build_request`(引数から)・cut2resolve の serve の `request_from_spec`/`output_from_spec`(画面・API から)・`flow/tools.py` の `_pack_request`(serve の写し)。上の OPT2「パックの指定の組み立て」に CLI の分も入れて `pipeline/pack` に 1 つ → OPT2
+- **FCPXML は単独のコマンドからしか作られない**: 画面・② はいつも fcpxml=False(`normalize_outputs`)。FCPXML(`srt2resolve.fcpxml_skeleton`・`build_fcpxml`・`auto_cut.build_cut_fcpxml`)と単独のコマンド 2 つ(`srt2resolve.py` の run/main・`auto_cut.py` の run)は README で「残す」と決めた物(cut2resolve の README 156 行)。Resolve Free では Text+ の Lua が本流 = 今も要るかを RV の「使っていない機能を消すか」で聞く(消せば数百行)→ RV
+- **`srt2resolve.py`(613 行)は「単独のコマンド」と「パック全体の土台」(probe・ms_to_frames・parse_subs・時刻の書式)が同居**。pack・core・textplus・auto_cut がみな `srt2resolve as S` を読む = 名前から役目が分からない。土台を `pipeline/pack/media.py`(調べる)・`timecode.py`(時刻)などに分け、コマンドは薄く → OPT2(FCPXML を消すかが決まってから)
+- **`resolve_export.py`(378 行)に編集の画面用の物**: `edit_draft`(カットのたたき台)・`edit_preview`(これから作るパックの試算)・`build_transcript_v1`(文書 → 受け渡しの形)・`kept_spans`/「残す行」の規則。パックを作るのではなく編集の画面のための計算 = ③ か ② の仕事。`create_package`(zip にする)だけが ① → OPT2(RS8 で編集の画面を作り直すときに一緒に)
+- `cut2resolve_core.Task`(進み具合・取り消し)はジョブの器の一種(書き出しの job 辞書・解析の job 辞書と同じ役目が 3 通り)→ OPT2 の「ジョブの器を ② へ」と一緒に。`pack.Cache`(試算と作成で ffprobe・無音の検出を使い回す)は画面のための物だが ① にあっても困らない = 動かさない
+- 小物: 説明文の版(`cut2resolve v0.4.0`・`共通部 v0.2.0`・`srt2resolve v0.1.4`・`auto_cut v0.2.0`)は版を全体で 1 つにした今は意味がない(RV の文書)/ 手順書の文章 `resolve_textplus.instructions`(116 行)・`cut2resolve_core.build_readme`(57 行)は文章がコードの中 = 雛形のファイルに出すかは RV(行は減らない)
+- 自前の書き込み・JSON 読み(OPT1)・`_ffmpeg_stream`(OPT2)・ffprobe 3 つ(OPT1)・SRT の時刻・`_sec`・区間をつなぐ 3 つ(OPT1)・文字の種類の判定(OPT3)・音量の引数(OPT2)は上の表に記録済み
+
+### ① 全体を見て(10-11)
+- 5 つの工程の本体(録画の中心・盛り上がりの式・切り出し・認識・pack)はどれも 1 か所にまとまっている。散らばっているのは**周り**: ffmpeg の扱い・ジョブの器(状態・取り消し・進み具合が解析・書き出し・パックで 3 通り)・画面の依頼の検査(書き出し・パックの組み立て)・画面のための計算(resolve_export)
+- 大きく効く順: (1) ジョブの器と画面の依頼を ① から出す = ① は「指定 → 結果」の関数だけに(OPT2・RS8 と相談)(2) ffmpeg の扱いを 1 つに(OPT1・OPT2)(3) 使っていない出力(FCPXML・単独のコマンド)を消すか(RV)
