@@ -150,7 +150,7 @@ DEFAULTS = {
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
         "autoRedo": False, "redoLarge": True,
         "autoFill": True, "stripNames": True, "autoLlm": True,
-        "diarSmooth": False,  # 試験中・既定オフ(src/editor/ed_learn.py の SETTINGS_PATCH_KEYS の説明)
+        "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
         "learning": {"dir": None, "version": None},   # 学習データの場所と版(中身は入れない)。新しい項目で、今のコードに対応する設定は無い
     },
     "pack": {                 # パック(run.py の _pack_settings・_cut_method・src/cut2resolve/cut2resolve_core.py の DEFAULT_*)

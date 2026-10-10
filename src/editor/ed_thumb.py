@@ -4,7 +4,7 @@
   文書は読むだけ(書き換えない・updatedAt も動かさない)ので、編集を止めるジョブ(LOCK_KINDS)にしない。同じ文書で 1 つだけ(ytt/jobs の EXCLUSIVE。serve が登録する)
 - 置き場所: 動画のフォルダの 作業用/<名前>_thumb-ideas.png と同じ名前の .json(ytt_core.schemas.work_dir。パックのフォルダには入れない =
   友人へ届ける zip に混ざらないように)。作り直すと上書き
-- 切り取り crop: alt(中央と右下を交互。既定)/ center / right。画面が選んだ値は編集の設定 thumbCrop(ed_learn.SETTINGS_PATCH_KEYS)に覚える
+- 切り取り crop: alt(中央と右下を交互。既定)/ center / right。画面が選んだ値は編集の設定 thumbCrop(ytt/settings の SETTINGS_PATCH_KEYS)に覚える
 - 結果は `GET /api/thumb-ideas?id=`(thumb_info = 有無・作った時刻・案ごとの型と文字)・画像は `GET /api/thumb-ideas/image?id=`(パスは文書の動画から作る = 画面から受け取らない)
 - 名前は serve.py が部品から集めるので `thumb_`・`THUMB_` で始める(ほかの部品と重ねない)
 """

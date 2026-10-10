@@ -13,8 +13,8 @@ import time
 import unicodedata
 
 from ytt import fsio as _fsio, normalize as _vnorm, schemas as _yschemas  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_jobs  # noqa: E402,F401
-import ed_learn  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
@@ -523,9 +523,12 @@ def _eval_dirs_ok(v):
                     and not any(ch in p for ch in "\x00\r\n") and ":" not in os.path.splitdrive(p)[1] for p in v))
 
 
+_settings.register_patch_key("evalDirs", lambda v: _eval_dirs_ok(v))   # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
+
+
 def eval_dirs():
     """設定の評価用のフォルダ(あるものだけ)。ネットワーク上・作業データの中は使わない"""
-    v = ed_learn.load_settings().get("evalDirs")
+    v = _settings.load_settings().get("evalDirs")
     if not _eval_dirs_ok(v):
         return []
     out = []
@@ -556,7 +559,7 @@ def eval_name_guard(path, is_eval=False, todo="文字起こししてください
     is_eval: 評価用として始める(画面のチェック・評価用の文書)なら混ざらないので通す。パスの文字を調べるだけでファイルには触らない"""
     if is_eval:
         return
-    v = ed_learn.load_settings().get("evalDirs")
+    v = _settings.load_settings().get("evalDirs")
     if _eval_dirs_ok(v) and v:
         return
     if any(EVAL_NAME_WORD in part for part in re.split(r"[\\/]+", os.path.dirname(str(path or "")))):
@@ -1047,7 +1050,7 @@ def _eval_rename(old, new, tids, why="evalOrganize"):
 
 def eval_folders_info():
     """GET /api/eval-folders: 設定の値・使えるフォルダ・最後の整理の結果"""
-    v = ed_learn.load_settings().get("evalDirs")
+    v = _settings.load_settings().get("evalDirs")
     return {"dirs": v if _eval_dirs_ok(v) else [], "active": eval_dirs(), "running": _evalorg_lock.locked(), "last": dict(_evalorg_last) or None}
 
 

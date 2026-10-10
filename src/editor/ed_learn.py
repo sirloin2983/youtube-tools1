@@ -19,115 +19,13 @@ import uuid
 import ed_alt  # noqa: E402,F401
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(suggest_for_doc の yt。案 A1)
 import ed_jobs  # noqa: E402,F401
-import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from pipeline.transcribe import roster as _roster  # noqa: E402   (名簿のファイルの場所 ROSTER の持ち主。RS3-0A に ed_state から)
 import ed_store  # noqa: E402,F401
 from ytt import fsio as _fsio, settings as _settings  # noqa: E402
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
-# ---------- 設定(settings.json)----------
-SETTINGS_MAX = 400000   # settings.json の大きさの上限(バイト)。読むときも書くときも同じ
-_settings_lock = threading.RLock()   # 設定の読み→書きを 1 つにする(SettingsFile に渡す)
-
-
-def _settings_file():
-    """編集の設定ファイル(読む・書く・退避・大きさの上限は ytt_core.settings.SettingsFile。ホーム・スタジオと同じ決まり。S4 2026-10-09)。
-    _workdata.SETTINGS はテストが差し替えるので、呼ぶたびに作る(軽い)"""
-    return _settings.SettingsFile(_workdata.SETTINGS, max_bytes=SETTINGS_MAX, writer=ed_state.atomic_write, indent=1, lock=_settings_lock)
-
-
-def load_settings():
-    """編集の設定(settings.json)。無い・壊れている・dict でなければ {}(毎回新しい dict = 呼ぶ側が書き換えてよい)。
-    BOM 付きも読む(メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように)。1 回の要求で何度も使うときは、頭で 1 回読んで渡す"""
-    return _settings_file().read()
-
-
-# ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)
-SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
-                       "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
-                       # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
-                       "packFps": lambda v: v in ("24", "25", "30", "50", "60"),
-                       "packSize": lambda v: v in ("1080x1920", "1920x1080"),
-                       "speakerColors": lambda v: isinstance(v, bool),
-                       "packBackup": lambda v: isinstance(v, bool),
-                       "packRender": lambda v: isinstance(v, bool),   # 粗編集の動画つき(段4 4-2: 覚える)
-                       # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
-                       "keymap": lambda v: _keymap_ok(v),
-                       # 評価用のフォルダ(この中の動画は評価用。整理で名前をそろえる。2026-10-01)
-                       "evalDirs": lambda v: ed_relink._eval_dirs_ok(v),
-                       # 2つ目のエンジン(食い違いの候補。D1-b。ed_alt.ALT_ENGINES の名前)
-                       "altEngine": lambda v: isinstance(v, str) and v in ed_alt.ALT_ENGINES,
-                       # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。ed_speakers の smooth_)
-                       "diarSmooth": lambda v: isinstance(v, bool),
-                       # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(pipeline/run.py の _pack_settings)も同じ鍵を読む
-                       "cutSilence": lambda v: _cut_silence_ok(v),
-                       # サムネの案の切り取り(パックの所の「サムネの案」。alt = 中央と右下を交互。P5。ed_thumb.THUMB_CROPS)
-                       "thumbCrop": lambda v: v in ("alt", "center", "right")}
-# 無音で削るときの値の範囲(cut2resolve の serve.py の spec_to_request と同じ。範囲の外は cut2resolve が 400 にする)
-CUT_SILENCE_RANGE = {"noise": (-90, 0), "min": (0.05, 60), "pad": (0, 10)}
-_KM_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
-_KM_COMBO_RE = re.compile(r"^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$")   # UIKit.keys.comboOf の表記(home/prefs.py と同じ)
-
-
-def _cut_silence_ok(v):
-    """{"noise", "min", "pad"} の 3 つがそろい、どれも範囲の中の数(bool・NaN・無限は断る)"""
-    return (isinstance(v, dict) and set(v) == set(CUT_SILENCE_RANGE)
-            and all(isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and CUT_SILENCE_RANGE[k][0] <= x <= CUT_SILENCE_RANGE[k][1] for k, x in v.items()))
-
-
-def _keymap_ok(v):
-    return (isinstance(v, dict) and len(v) <= 60
-            and all(isinstance(k, str) and _KM_ID_RE.fullmatch(k) and isinstance(c, str) and (c == "" or _KM_COMBO_RE.fullmatch(c)) for k, c in v.items()))
-
-
-def _settings_error(e):
-    """SettingsFile のエラーを API のエラーに(大きすぎる = 413。ほかは 400)"""
-    if isinstance(e, _settings.SettingsTooLarge):
-        return ed_state.ApiError("too_big", "設定が大きすぎます", 413)
-    return ed_state.ApiError("bad_request", str(e), 400)
-
-
-def patch_settings(obj):
-    """POST /api/settings/patch {"values": {鍵: 値}}: SETTINGS_PATCH_KEYS の項目だけを、値を検査して直す(送った鍵だけ)"""
-    try:
-        out = _settings_file().update_keys(obj.get("values"), SETTINGS_PATCH_KEYS)
-    except _settings.SettingsError as e:
-        raise _settings_error(e)
-    return {"ok": True, "values": out}
-
-
-def merge_settings(obj):
-    """PUT /api/settings {"patch": {キー: 値 | null}}: 最上位のキーだけを、ロックの中で今のファイルに合わせる(null = そのキーを消す)。
-    api/settings/patch で直す項目(SETTINGS_PATCH_KEYS)は、丸ごとの保存と同じくここでは変えない(値の検査があるそちらの API だけで直す)。
-    案の比較: 版(rev)で 409 にする案は競合を確実に見つけるが、設定の画面に「読み直す/上書き」の選択を作ることになる
-    → キー単位の合わせで十分(同じキーを2つの窓で同時に変えたときだけ後勝ち。git の履歴(679ff01 以前)の docs/plan/phase2-data-safety.md の 6)"""
-    p = obj.get("patch")
-    if set(obj) != {"patch"} or not isinstance(p, dict):
-        raise ed_state.ApiError("bad_request", "設定の直し方(patch)の形が正しくありません", 400)
-    try:
-        _settings_file().merge_top(p, skip=SETTINGS_PATCH_KEYS)
-    except _settings.SettingsError as e:
-        raise _settings_error(e)
-    return {"ok": True}
-
-
-def replace_settings(obj):
-    """PUT /api/settings(patch 無し = 丸ごと): 画面の設定で置き換える。ほかの画面から api/settings/patch で直す項目(SETTINGS_PATCH_KEYS)は
-    サーバーの値を残す(古い画面が戻さないように)"""
-    if not isinstance(obj, dict):
-        raise ed_state.ApiError("bad_request", "設定は辞書で指定してください", 400)
-
-    def put(d):
-        keep = {k: d[k] for k in SETTINGS_PATCH_KEYS if k in d}
-        d.clear()
-        d.update({k: v for k, v in obj.items() if k not in SETTINGS_PATCH_KEYS})
-        d.update(keep)
-    try:
-        _settings_file().update(put)
-    except _settings.SettingsError as e:
-        raise _settings_error(e)
-    return {"ok": True}
+# 設定(settings.json)の読み書きと鍵の検査は ytt/settings(RS3-1 に移した。_settings.load_settings() で呼ぶたびに読む)
 
 
 def parse_replacements(text):
@@ -422,7 +320,7 @@ def _all_infos():
 
 
 def learned_candidates(min_count=1):
-    settings = load_settings()
+    settings = _settings.load_settings()
     have = {(wb_split(w)[0], r) for w, r in parse_replacements(settings.get("replacements"))}
     ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
     counts, docs, ctxs, used, lines = {}, {}, {}, 0, 0
@@ -511,7 +409,7 @@ def _spans(text, w, r):
 
 def learn_rules(settings=None):
     """全文字起こしの修正から、{(誤,正): {pos, docs, pctx, neg(そのまま残した例の前後), ctx}} を作る。settings = 読んである設定(無ければ読む)"""
-    settings = settings if settings is not None else load_settings()
+    settings = settings if settings is not None else _settings.load_settings()
     have = {(wb_split(w)[0], r) for w, r in parse_replacements(settings.get("replacements"))}
     ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
     infos = _all_infos()
@@ -719,7 +617,7 @@ def lev_counts(ref, hyp):
 
 def metric_terms(settings=None):
     """「用語が正しく出たか」を数えるための用語(用語集 + 置換辞書の「正」)。正規化済み・2文字以上。"""
-    st = settings if settings is not None else load_settings()
+    st = settings if settings is not None else _settings.load_settings()
     raw = ed_jobs.split_terms(st.get("glossary"))
     raw += [r for _w, r in parse_replacements(st.get("replacements")) if r]
     out = []
@@ -884,7 +782,7 @@ def record_baseline(label):
         raise ed_state.ApiError("no_eval", "評価用の文字起こしがありません(画面の「評価用にする」で印を付けてください)", 400)
     if not o.get("groups"):
         raise ed_state.ApiError("no_proofed", "評価用に校正済みの行がまだありません", 400)
-    st = load_settings()
+    st = _settings.load_settings()
     rec = {"at": int(time.time() * 1000), "label": str(label or "")[:80], "docs": m["docs"], "cer": o["cer"], "refChars": o["refChars"], "sub": o["sub"], "del": o["del"], "ins": o["ins"],
            "configs": [{"config": c["config"], "cer": c["cer"], "refChars": c["refChars"]} for c in m["byConfig"]][:6],
            "dict": len(parse_replacements(st.get("replacements"))), "glossaryChars": len(str(st.get("glossary") or ""))}
@@ -1209,7 +1107,7 @@ def archive_rebuild_index():
             continue
     ed_state.atomic_write(os.path.join(_workdata.DATASET_DIR, "index.jsonl"), ("\n".join(rows) + ("\n" if rows else "")).encode("utf-8"))
     ed_state.atomic_write(os.path.join(_workdata.DATASET_DIR, "README.txt"), ARCH_README.encode("utf-8"))
-    st = load_settings()
+    st = _settings.load_settings()
     snap = {k: st.get(k) for k in ("glossary", "replacements", "learnIgnore", "model", "language", "vadMode") if k in st}
     snap["savedAt"] = int(time.time() * 1000)
     ed_state.atomic_write(os.path.join(_workdata.DATASET_DIR, "settings-snapshot.json"), json.dumps(snap, ensure_ascii=False, indent=1).encode("utf-8"))

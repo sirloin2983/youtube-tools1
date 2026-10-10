@@ -21,7 +21,6 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
 import ed_jobs  # noqa: E402
-import ed_learn  # noqa: E402
 import ed_state  # noqa: E402
 import ed_thumb  # noqa: E402
 
@@ -107,10 +106,10 @@ class TestThumbJob(StoreDir):
             S.thumb_spec(TID, {})
 
     def test_settings_patch_thumb_crop(self):
-        self.assertTrue(ed_learn.patch_settings({"values": {"thumbCrop": "right"}})["ok"])
-        self.assertEqual(ed_learn.load_settings()["thumbCrop"], "right")
+        self.assertTrue(S.patch_settings({"values": {"thumbCrop": "right"}})["ok"])
+        self.assertEqual(S.load_settings()["thumbCrop"], "right")
         with self.assertRaises(ed_state.ApiError):
-            ed_learn.patch_settings({"values": {"thumbCrop": "zoom"}})
+            S.patch_settings({"values": {"thumbCrop": "zoom"}})
 
 
 if __name__ == "__main__":

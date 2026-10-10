@@ -30,10 +30,10 @@ import re
 import threading
 
 from ytt import fsio as _fsio  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_drill  # noqa: E402,F401
 import ed_evalaudio  # noqa: E402,F401
 import ed_jobs  # noqa: E402,F401
-import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_speakers  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
@@ -319,7 +319,7 @@ def _eb_diar_pass(room, log):
 
 def eb_request(path, into):
     """validate_job に渡す要求: 編集の設定そのまま + 動画全体 + 評価用の印。ヒントは評価用の規則(validate_job の ev)で外れる"""
-    req = dict(ed_learn.load_settings(), sourcePath=path, title="", start=0, end=None, evalSet=True)
+    req = dict(_settings.load_settings(), sourcePath=path, title="", start=0, end=None, evalSet=True)
     req.pop("intoDoc", None)
     if into:
         req["intoDoc"] = into

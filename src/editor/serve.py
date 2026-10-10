@@ -98,6 +98,7 @@ def _load_core():
 
 _load_core()
 from ytt import datadir as _datadir, httpsec, jobs as _heavy_jobs, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
+from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
 import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc, ed_evalaudio  # noqa: E402,F401  (分けた部品。段10。ed_evalaudio = 評価用の音声)
 import pipeline_io  # noqa: E402  (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
@@ -136,6 +137,7 @@ _ED_MODULES += (_txretime, ed_retime)   # 読む速さ・時刻の候補(2026-10
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
 _ED_MODULES += (ed_thumb,)   # サムネの案(2026-10-09。0.64.0)
+_ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(RS3-1 に ed_learn・ed_relink から ytt/settings へ)
 
 
 # ---------- ジョブの種類の登録と、ジョブの表に渡す編集の値(役割で組み直す RS2-1b。表と待機列は ytt/jobs) ----------
@@ -309,7 +311,7 @@ POST_API = {
     "/api/ytcap": lambda o: _job(ed_ytcap.ytcap_spec(_id_of(o), o), "ytcap"),   # 元の配信の YouTube の字幕を取って比べる(案 A1)。文書は書き換えないので、編集は止めない
     "/api/scan-folder": lambda o: ed_misc.scan_folder(o.get("path"), o.get("recursive") is True),
     "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
-    "/api/settings/patch": lambda o: ed_learn.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
+    "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/eval-baseline": lambda o: ed_learn.record_baseline(o.get("label")),
     "/api/abtest": lambda o: _job(ed_misc.validate_abtest(o), "abtest"),
     "/api/archive": lambda o: {"ok": True, "docs": ed_learn.start_archive(o.get("tid") or None, o.get("full") is not False)},
@@ -563,7 +565,7 @@ class Handler(BaseHTTPRequestHandler):
             ed, _broken = ed_store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
             zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, _workdata.SERVER_VERSION,
                                                               keeps=ed_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
-                                                              row_edge=ed_learn.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
+                                                              row_edge=_settings.load_settings().get("rowEdge"), backup=obj.get("backup") is True,
                                                               wrap=ed_store.wrap_arg(obj.get("wrap"), obj.get("size")),
                                                               color={"hex": hex_, "who": who} if hex_ else None, speaker_colors=spk_map)
             self._send_zip(zp, "resolve-package.zip", {"X-Resolve-Cuts": str(info["cuts"]), "X-Resolve-Captions": str(info["captions"]),
@@ -589,8 +591,8 @@ class Handler(BaseHTTPRequestHandler):
                 if len(json.dumps(obj)) > 200000:
                     raise ed_state.ApiError("too_big", "設定が大きすぎます", 413)
                 if "patch" in obj:   # 画面が最後に保存した内容との差のキーだけ(監査 11)。窓を2つ開いても別々の設定なら消し合わない
-                    return self._json(200, ed_learn.merge_settings(obj))
-                return self._json(200, ed_learn.replace_settings(obj))   # 丸ごと(ほかの画面から直す項目はサーバーの値を残す)
+                    return self._json(200, _settings.merge_settings(obj))
+                return self._json(200, _settings.replace_settings(obj))   # 丸ごと(ほかの画面から直す項目はサーバーの値を残す)
             if u.path == "/api/transcript":
                 doc = ed_store.save_transcript(_qid(u), obj)
                 return self._json(200, {"ok": True, "updatedAt": doc["updatedAt"], "evalSet": doc.get("evalSet") is True,

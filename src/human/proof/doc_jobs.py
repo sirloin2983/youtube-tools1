@@ -21,6 +21,7 @@ import time
 import uuid
 
 from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from pipeline.transcribe import roster as _roster  # noqa: E402,F401
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー・決まった値・印の文(RS2-1a。ed_state から移した)
 from ytt import tools as _tools  # noqa: E402   元のファイルの検査と長さ(check_source・media_duration。RS3-0A まで txenv の口)
@@ -106,7 +107,7 @@ def validate_job(req):
     lang = str(req.get("language") or "ja")
     if lang not in _txbase.LANGS:
         lang = "ja"
-    st = ed_learn.load_settings()   # 保存した設定は 1 回だけ読む(自動の用語・下の 4 つの auto・行を分ける文字数)
+    st = _settings.load_settings()   # 保存した設定は 1 回だけ読む(自動の用語・下の 4 つの auto・行を分ける文字数)
     glossary, gauto = glossary_of(req, st)
     ev = req.get("evalSet") is True   # 評価用として文字起こしする: 用語集・呼び名・置換辞書・学習した置換を使わない(git の履歴(679ff01 以前)の docs/archive/project/eval-set-procedure.md の 2)
     into = None
@@ -200,7 +201,7 @@ def _chars_in(v, lo, hi, default=None):
 
 def subtitle_settings(st=None):
     """設定の subtitle(字幕の向き・1つの字幕の最大文字数・パックの字幕の改行の文字数)を、範囲を確かめて返す(無い・おかしい値は既定)"""
-    v = (st if st is not None else ed_learn.load_settings()).get("subtitle")
+    v = (st if st is not None else _settings.load_settings()).get("subtitle")
     v = v if isinstance(v, dict) else {}
     out = {"orientation": v.get("orientation") if v.get("orientation") in ORIENTATIONS else SUBTITLE_DEFAULT["orientation"]}
     for key, lo, hi in (("maxChars", 4, 80), ("wrapChars", 2, 40)):
@@ -243,7 +244,7 @@ def dict_pairs(spec):
     設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ"""
     if not spec.get("autoDict"):
         return []
-    pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))
+    pairs = ed_learn.parse_replacements(_settings.load_settings().get("replacements"))
     try:
         pairs += _roster.variant_pairs(_roster.load(_roster.ROSTER))
     except (OSError, ValueError, TypeError, KeyError) as e:   # 名簿の表は補助なので、作れなくても認識は止めない
@@ -476,7 +477,7 @@ def validate_retranscribe(req):
     if not worker_client.valid_model(model):
         raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
     lang = str(req.get("language") or doc.get("language") or "ja")
-    st = ed_learn.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
+    st = _settings.load_settings()   # 自動の用語と行を分ける文字数で 1 回だけ読む
     glossary, gauto = glossary_of(req, st)
     ctx = _roster.stream_context(doc, req.get("autoContext") is True)
     if _heavy.tid_busy(tid, _heavy.EXCLUSIVE["retranscribe"]):

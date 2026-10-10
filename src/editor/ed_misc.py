@@ -9,6 +9,7 @@ import json
 import os
 
 from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_jobs  # noqa: E402,F401
 import ed_learn  # noqa: E402,F401
 import pipeline_io  # noqa: E402   (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード)
@@ -88,7 +89,7 @@ def run_abtest(job):
             if not worker_client.has_faster_whisper():
                 raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
             audio = worker_client.read_wav_f32(wav)
-        pairs = ed_learn.parse_replacements(ed_learn.load_settings().get("replacements"))
+        pairs = ed_learn.parse_replacements(_settings.load_settings().get("replacements"))
         all_terms = list(spec["glossary"]) + [t for v in spec["variants"] for t in v.get("terms", [])]
         terms = list(dict.fromkeys(ed_learn.metric_terms() + [x for x in (ed_learn.norm_cer(g) for g in all_terms) if len(x) >= 2]))
         sep = "" if spec["language"] in ("ja", "zh", "ko") else " "

@@ -25,7 +25,6 @@ import threading
 import time
 
 import ed_jobs  # noqa: E402,F401
-import ed_learn  # noqa: E402,F401
 import ed_relink  # noqa: E402,F401
 import ed_state  # noqa: E402,F401
 from pipeline.transcribe import worker_client  # noqa: E402   (faster-whisper の有無 has_faster_whisper。RS3-0A に ed_state から)
@@ -33,6 +32,7 @@ from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き�
 import ed_store  # noqa: E402,F401
 from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
@@ -43,6 +43,8 @@ ALT_ENGINES = {
     "faster-whisper": {"engine": "faster-whisper", "model": "large-v3", "device": "cpu", "label": "large-v3(CPU・faster-whisper)"},
 }
 ALT_DEFAULT = "llama.cpp"   # 既定 = Qwen3-ASR(Whisper と間違え方が違い、GPU でとても速い)
+# 設定 altEngine は api/settings/patch で直せる鍵。値の検査はこの表の持ち主のここで足す(ytt/settings は ed_alt を読まない。RS3-1)
+_settings.register_patch_key("altEngine", lambda v: isinstance(v, str) and v in ALT_ENGINES)
 
 # 食い違いの候補の決まり(alt_diffs)
 ALT_WINDOW_SEC = 90         # 行の時刻でこの長さごとの窓に区切ってそろえる(長い文書でも遅くならないように)
@@ -57,7 +59,7 @@ def alt_engine_key(req=None):
     k = str((req or {}).get("engine") or "")
     if k in ALT_ENGINES:
         return k
-    k = str(ed_learn.load_settings().get("altEngine") or "")
+    k = str(_settings.load_settings().get("altEngine") or "")
     return k if k in ALT_ENGINES else ALT_DEFAULT
 
 

@@ -308,7 +308,7 @@ function create(h){
     finally { M.draftBusy = false; renderTools(); }
   }
   /* 「無音 ▾」の値(サーバーの設定 cutSilence = まとめて実行の「無音で削る」も同じ値。気が利く画面へ 段7 E-5)。
-     範囲は cut2resolve の spec の検査と同じ(サーバーの ed_learn.CUT_SILENCE_RANGE も同じ)。[鍵, 欄, 既定, 下限, 上限, 欄の名前] */
+     範囲は cut2resolve の spec の検査と同じ(サーバーの ytt/settings の CUT_SILENCE_RANGE も同じ)。[鍵, 欄, 既定, 下限, 上限, 欄の名前] */
   const SIL_FIELDS = [['noise', '#cutNoise', -35, -90, 0, '無音とみなす音量(dB)'], ['min', '#cutSilMin', 0.6, 0.05, 60, '無音の長さ(秒)'], ['pad', '#cutSilPad', 0.15, 0, 10, '話の前後に残す秒数']];
   function silSetting(){
     const v = (h.S.settings || {}).cutSilence, o = v && typeof v === 'object' ? v : {};

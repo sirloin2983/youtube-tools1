@@ -1,4 +1,4 @@
-"""設定の画面のスキーマ(src/home/settings/schema.json。S5)の編集の分(store editor)が、ed_learn の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE)と
+"""設定の画面のスキーマ(src/home/settings/schema.json。S5)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE。RS3-1 まで ed_learn)と
 食い違っていないか。リポジトリ直下で:
     python -m unittest src/editor/tests/test_settings_schema.py
 validated の鍵は api/settings/patch の検査(予定どおり通る・範囲の外は断る)、validated でない鍵は検査が無い(差分の PUT)ことを見る。"""
@@ -11,7 +11,8 @@ import unittest
 EDITOR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(EDITOR))   # 共通部品 ytt_core(src/)
 sys.path.insert(0, EDITOR)
-import ed_learn  # noqa: E402
+import ed_alt, ed_relink  # noqa: E402,F401  (鍵の検査の持ち主が読み込みのときに ytt/settings へ登録する = altEngine・evalDirs)
+from ytt import settings as _settings  # noqa: E402  (編集の設定の鍵の検査。RS3-1 に ed_learn から)
 
 SCHEMA_PATH = os.path.join(os.path.dirname(EDITOR), "home", "settings", "schema.json")
 
@@ -44,13 +45,13 @@ class TestEditorSchema(unittest.TestCase):
             if it["type"] == "link":
                 continue
             top = it["key"].split(".")[0]
-            self.assertEqual(bool(it.get("validated")), top in ed_learn.SETTINGS_PATCH_KEYS, "validated の印が検査の有無と違う: %s" % it["key"])
+            self.assertEqual(bool(it.get("validated")), top in _settings.SETTINGS_PATCH_KEYS, "validated の印が検査の有無と違う: %s" % it["key"])
 
     def test_validated_values(self):
         for it in self.items:
             if not it.get("validated"):
                 continue
-            parts = it["key"].split("."); top = parts[0]; chk = ed_learn.SETTINGS_PATCH_KEYS[top]
+            parts = it["key"].split("."); top = parts[0]; chk = _settings.SETTINGS_PATCH_KEYS[top]
             if len(parts) > 1:
                 k = parts[1]
                 ok = lambda v: chk(self.whole(top, k, v))   # noqa: E731
@@ -70,7 +71,7 @@ class TestEditorSchema(unittest.TestCase):
                 self.assertFalse(ok("x"), it["key"])
 
     def test_cut_silence_range(self):
-        for k, (lo, hi) in ed_learn.CUT_SILENCE_RANGE.items():
+        for k, (lo, hi) in _settings.CUT_SILENCE_RANGE.items():
             it = self.by_key["cutSilence." + k]
             self.assertEqual((it["min"], it["max"]), (lo, hi), k)
 

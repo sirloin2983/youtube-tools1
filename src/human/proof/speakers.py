@@ -21,8 +21,8 @@ import unicodedata
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata  # noqa: E402
 from pipeline.transcribe import backend as _backend, diarize, recognize  # noqa: E402   本物と疑似の差し込み口・判別の計算(呼ぶたびに diarize.名前 で読む)・音声の取り出し
 from pipeline.transcribe import txbase as _txbase, worker_client  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 疑似のワーカーの判定 worker_fake
+from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from pipeline.transcribe import fill  # noqa: E402   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0。呼ぶたびに fill.名前 で読む)
-import ed_learn  # noqa: E402,F401   設定(diarSmooth・diarEmb)
 import ed_store  # noqa: E402,F401   文書の読み書き・保存のロック・控え
 
 # ---------- serve が登録する口(RS2-9。eval の ed_drill を ② から読まない) ----------
@@ -57,7 +57,7 @@ SPK_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", 
 
 def diar_smooth_setting():
     """設定 diarSmooth(既定オフ)"""
-    return ed_learn.load_settings().get("diarSmooth") is True
+    return _settings.load_settings().get("diarSmooth") is True
 
 
 def apply_diarization(tid, turns, offset, requested, emb=diarize.DIAR_EMB_DEFAULT, auto=None, smooth=False):
@@ -558,7 +558,7 @@ def autodiar_enqueue(tid, batch=False):
             _txbase.log.info("話者の名前の候補を決められませんでした: %s %s", tid, str(e)[:150])
         if name and (DEFAULT_SPK_NAME.match(name) or is_generic_speaker_name(name)):
             name = None
-    st = ed_learn.load_settings()   # 判別モデルと「細切れをならす」(diarSmooth)を 1 回で読む
+    st = _settings.load_settings()   # 判別モデルと「細切れをならす」(diarSmooth)を 1 回で読む
     spec = validate_diarize({"tid": tid, "numSpeakers": 0, "recognize": True, "embedding": st.get("diarEmb"), "smooth": st.get("diarSmooth") is True})
     spec.update({"auto": True, "autoEval": ev, "contextName": name,
                  "title": _heavy.job_title("話者判別(自動): ", doc)})

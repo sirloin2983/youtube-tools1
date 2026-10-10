@@ -296,5 +296,32 @@ class TestEdJobsForwarding(unittest.TestCase):
             del self.part._add_moved
 
 
+class TestSettingsMoved(unittest.TestCase):
+    """編集の設定の読み書きと鍵の検査を ed_learn から ytt/settings へ移した(RS3-1)。S.名前 で読め、差し替えは ytt/settings に届き、
+    ed_learn に別名が残っていない。鍵の検査は持ち主が登録する(altEngine = ed_alt・evalDirs)"""
+    MOVED = ("SETTINGS_MAX", "load_settings", "SETTINGS_PATCH_KEYS", "CUT_SILENCE_RANGE", "patch_settings", "merge_settings", "replace_settings",
+             "register_patch_key", "_settings_file", "_settings_lock", "_keymap_ok", "_cut_silence_ok", "_settings_error")
+
+    def test_owner_and_no_alias(self):
+        import ed_learn
+        from ytt import settings
+        for n in self.MOVED:
+            self.assertIs(S._ed_owner(n), settings, n)
+            self.assertNotIn(n, vars(ed_learn), n)
+
+    def test_patch_reaches_owner(self):
+        import ed_learn  # noqa: F401
+        from ytt import settings
+        with mock.patch.object(S, "load_settings", lambda: {"diarSmooth": True}):
+            self.assertEqual(settings.load_settings(), {"diarSmooth": True})
+            from human.proof import speakers
+            self.assertTrue(speakers.diar_smooth_setting())   # 読み手は呼ぶたびに ytt/settings の名前を読む
+
+    def test_owner_registered_keys(self):
+        self.assertTrue(S.SETTINGS_PATCH_KEYS["altEngine"](S.ALT_DEFAULT))
+        self.assertFalse(S.SETTINGS_PATCH_KEYS["altEngine"]("bad"))
+        self.assertIn("evalDirs", S.SETTINGS_PATCH_KEYS)
+
+
 if __name__ == "__main__":
     unittest.main()

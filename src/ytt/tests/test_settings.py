@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データを本物の置き場所に書かない(ytt/datadir。編集の設定の節は workdata を一時フォルダに差し替える)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))
@@ -158,6 +159,55 @@ class TestSettingsFile(unittest.TestCase):
         sf.set_section("a", {"x": 1})
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0][1], b'{"a": {"x": 1}}', "indent=None は 1 行")
+
+
+class TestEditorSettings(unittest.TestCase):
+    """編集の設定の読み書き(RS3-1 に editor/ed_learn.py から移した)。置き場所は ytt/workdata.SETTINGS を呼ぶたびに読む・serve なしで動く"""
+
+    def setUp(self):
+        from unittest import mock
+        from ytt import settings, workdata
+        self.st, self.wd = settings, workdata
+        self.tmp = tempfile.mkdtemp(prefix="ytt-edsettings-")
+        self.path = os.path.join(self.tmp, "settings.json")
+        p = mock.patch.object(workdata, "SETTINGS", self.path)
+        p.start()
+        self.addCleanup(p.stop)
+        keys = dict(settings.SETTINGS_PATCH_KEYS)
+        self.addCleanup(lambda: (settings.SETTINGS_PATCH_KEYS.clear(), settings.SETTINGS_PATCH_KEYS.update(keys)))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_follows_workdata_and_patch_keys(self):
+        from ytt import errors
+        self.assertEqual(self.st.load_settings(), {})
+        self.assertEqual(self.st.patch_settings({"values": {"packFps": "30"}}), {"ok": True, "values": {"packFps": "30"}})
+        with self.assertRaises(errors.ApiError) as cm:
+            self.st.patch_settings({"values": {"packFps": "31"}})
+        self.assertEqual(cm.exception.status, 400)
+        self.st.merge_settings({"patch": {"glossary": "みこ", "packFps": "60"}})   # 検査のある鍵は merge では変えない
+        self.assertEqual(self.st.load_settings(), {"packFps": "30", "glossary": "みこ"})
+        self.st.replace_settings({"other": 1, "packFps": "24"})                   # 丸ごとでも検査のある鍵はサーバーの値
+        self.assertEqual(self.st.load_settings(), {"other": 1, "packFps": "30"})
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"other": 1, "packFps": "30"})
+
+    def test_register_patch_key(self):
+        from ytt import errors
+        with self.assertRaises(errors.ApiError):
+            self.st.patch_settings({"values": {"zzKey": 1}})   # 登録していない鍵は直せない
+        self.st.register_patch_key("zzKey", lambda v: v == 1)
+        self.assertEqual(self.st.patch_settings({"values": {"zzKey": 1}})["values"], {"zzKey": 1})
+        with self.assertRaises(ValueError):
+            self.st.register_patch_key("", lambda v: True)
+
+    def test_too_big_is_413(self):
+        from ytt import errors
+        with self.assertRaises(errors.ApiError) as cm:
+            self.st.merge_settings({"patch": {"big": "x" * (self.st.SETTINGS_MAX + 10)}})
+        self.assertEqual(cm.exception.status, 413)
 
 
 if __name__ == "__main__":
