@@ -702,6 +702,32 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
         self.assertFalse(os.path.exists(wp))
 
+    def test_delete_placed_doc(self):
+        """索引(.loc.json)で案件の 作業用 に置いた文書を消すと、本体・横のファイル・索引が消える。transcripts の同じ名前の別物には触らない"""
+        video = os.path.join(self.media_dir, "置いて消す.mkv")
+        shutil.copy(self.video, video)
+        tid = self.open_video(video)["id"]
+        tx = os.path.join(self.tmp, "transcripts")
+        case = os.path.join(self.tmp, "案件", "作業用")
+        os.makedirs(case)
+        names = (".json", ".edit.json", ".words.json", ".over.json", ".transcribe.key.json")
+        for sfx in names:   # 本体は今の文書を作業用へ動かす・横のファイルは両方に置く(transcripts 側は別物)
+            src = os.path.join(tx, tid + sfx)
+            dst = os.path.join(case, tid + sfx)
+            if sfx == ".json":
+                shutil.move(src, dst)
+            else:
+                write_json(dst, {"side": "case"})
+                write_json(src, {"side": "tx"})
+        write_json(os.path.join(tx, tid + ".loc.json"), {"version": 1, "id": tid, "dir": case})
+        self.assertEqual(self.call("GET", "/api/transcript?id=" + tid)["_status"], 200)   # 索引の先から読める
+        self.assertEqual(self.call("DELETE", "/api/transcript?id=" + tid)["_status"], 200)
+        for sfx in names:
+            self.assertFalse(os.path.exists(os.path.join(case, tid + sfx)), sfx)
+        self.assertFalse(os.path.exists(os.path.join(tx, tid + ".loc.json")))
+        for sfx in names[1:]:
+            self.assertTrue(os.path.isfile(os.path.join(tx, tid + sfx)), sfx)   # transcripts の同じ名前の別物は残る
+
     def test_redo_suspicious_rows(self):
         """疑わしい所だけ認識し直す(12 ③-2)の HTTP: 良くなった行だけ置き換える・校正済みは触らない・前の版は履歴・対象が無ければ 400"""
         video = os.path.join(self.media_dir, "認識し直し.wav")
