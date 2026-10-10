@@ -20,8 +20,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
-import ed_retime as R  # noqa: E402  (文書を読む包み = retime_engine・retime_doc)
-from pipeline.transcribe import retime  # noqa: E402  (計算 = subread_*・retime_candidates。RS2-9 から持ち主を直に読む。ed_retime に別名・転送は無い)
+from human.proof import retime as R  # noqa: E402  (文書を読む包み = retime_engine・retime_doc)
+from pipeline.transcribe import retime  # noqa: E402  (計算 = subread_*・retime_candidates)
 import ed_state  # noqa: E402
 
 with open(os.path.join(TESTS, "subread_cases.json"), encoding="utf-8") as _f:

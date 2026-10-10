@@ -97,10 +97,9 @@ _load_core()
 from ytt import datadir as _datadir, httpsec, jobs as _heavy_jobs, layout as _layout, modfwd as _modfwd, runtime as _runtime  # noqa: E402
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定。RS3-1 に ed_learn・ed_relink から移した = S.load_settings・S.in_eval_dir はここへ届く)
 from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
-import ed_state, ed_store, ed_relink, ed_media, ed_jobs, ed_speakers, ed_learn, ed_misc  # noqa: E402,F401  (分けた部品。段10。評価用の音声 ed_evalaudio は 0.68.0 で消した)
+import ed_state, ed_media  # noqa: E402,F401  (分けた部品。段10。RS5-A で転送だけの殻 ed_store・ed_relink・ed_jobs・ed_speakers・ed_learn・ed_misc を消した。評価用の音声 ed_evalaudio は 0.68.0 で消した)
 from manage.cases import pipeline_io  # noqa: E402  (受け渡しの読み・保存・.runtime。RS3-E5b に editor から manage/cases へ。RS3-0A まで ed_state.pio() の遅延ロード = serve.py だけ差し替えたときの備えはやめた)
 from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て。RS3-E5b に editor から pipeline/pack へ)
-import ed_alt, ed_ytcap, ed_retime  # noqa: E402,F401  (旧い名前の転送だけの殻。RS5 で消す。本体は human/proof の alt・ytcap・retime。RS3-E6)
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5。0.64.0)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
@@ -140,7 +139,7 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から�
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・src/eval/tools/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _batch, _drill, _evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
+_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _batch, _drill, _evalbatch, _alt, _ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
 _ED_MODULES += (_txretime, _proofretime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は包みより前)・文書を読む包みが human/proof/retime(RS3-E6。殻の ed_retime は並べない)
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
@@ -179,10 +178,6 @@ _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _
 # S.TX_DIR = …・patch.object(S, "check_source") は名前の受付が持ち主へ届ける)
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
-ed_jobs._add_moved(fake_asr)
-ed_alt._add_moved(fake_asr)   # 旧い名前 ed_alt._alt_fake は ④ の疑似へ(殻は eval を読まない。RS3-E6)
-ed_store._add_moved(_doclist)   # 旧い名前 ed_store.list_transcripts・pack_readme・PACK_CHECK_BUDGET を ③ の doclist へ(殻は層 human = manage を読まない。RS3-E5a)
-ed_relink._add_moved(_evfolders)   # 旧い名前 ed_relink.eval_organize・EVAL_STAGING・_evalorg_lock ほかを ④ の folders へ(殻は層 manage = eval を読まない。RS3-E7)
 # 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が learn・replace を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
 _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
@@ -200,8 +195,6 @@ _docjobs.check_hooks()
 # 話者の文書の側(human/proof/speakers)が使う評価用の文書の名前の候補(eval の drill。RS4-2 まで ed_drill)。② から ④ を読まないための口(呼ぶたびに持ち主の属性を読む。RS2-9)
 _speakers.set_context_namer(lambda tid: _drill.drill_candidates(tid).get("suggest"))
 _speakers.check_context_namer()
-ed_speakers._add_moved(fake_asr)   # 旧い名前 ed_speakers.diarize_fake・embed_fake は ④ の疑似へ(殻は eval を読まない。RS2-9)
-ed_learn._add_moved(_evmetrics)   # 旧い名前 ed_learn.norm_cer・doc_metrics・all_metrics ほかは ④ の精度へ(殻は eval を読まない。RS3-E5c)
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、

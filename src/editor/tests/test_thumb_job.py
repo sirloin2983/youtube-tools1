@@ -20,7 +20,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
-import ed_jobs  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from ytt import jobs  # noqa: E402
 import ed_state  # noqa: E402
 import ed_thumb  # noqa: E402
 
@@ -29,19 +30,19 @@ HAVE_FF = bool(shutil.which("ffmpeg"))
 
 def _drop_jobs(match):
     """このテストのジョブを表と待機列から外す(ほかのテストの run_job に拾われないように)"""
-    with ed_jobs._jobs_lock:
-        for k in [k for k, j in ed_jobs._jobs.items() if match(j)]:
-            ed_jobs._jobs.pop(k, None)
+    with jobs._jobs_lock:
+        for k in [k for k, j in jobs._jobs.items() if match(j)]:
+            jobs._jobs.pop(k, None)
         keep = []
         while True:
             try:
-                it = ed_jobs._queue.get_nowait()
+                it = jobs._queue.get_nowait()
             except Exception:
                 break
-            if it[2] in ed_jobs._jobs:
+            if it[2] in jobs._jobs:
                 keep.append(it)
         for it in keep:
-            ed_jobs._queue.put(it)
+            jobs._queue.put(it)
 
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg が必要")
@@ -71,9 +72,9 @@ class TestThumbJob(StoreDir):
     def test_job_writes_png_and_json_without_touching_doc(self):
         spec = S.thumb_spec(TID, {"crop": "center"})
         self.assertEqual((spec["crop"], spec["sourcePath"]), ("center", self.video))
-        job = ed_jobs.add_job(spec, "thumb")
+        job = jobs.add_job(spec, "thumb")
         self.assertEqual(job["tid"], TID)
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         png, js = ed_thumb.thumb_paths(self.video)
         self.assertEqual(os.path.dirname(png), os.path.join(self.src_dir, "作業用"))
@@ -93,7 +94,7 @@ class TestThumbJob(StoreDir):
         with self.assertRaises(ed_state.ApiError) as cm:
             S.thumb_spec(TID, {"crop": "zoom"})
         self.assertEqual(cm.exception.status, 400)
-        ed_jobs.add_job(S.thumb_spec(TID, {}), "thumb")   # 待っている間にもう一度 → 409
+        jobs.add_job(S.thumb_spec(TID, {}), "thumb")   # 待っている間にもう一度 → 409
         with self.assertRaises(ed_state.ApiError) as cm:
             S.thumb_spec(TID, {})
         self.assertEqual(cm.exception.status, 409)

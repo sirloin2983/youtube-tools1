@@ -24,11 +24,12 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir, write_json  # noqa: F401,E402  (S = serve)
-import ed_alt  # noqa: E402
-import ed_jobs  # noqa: E402
+from human.proof import alt as proof_alt  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import store  # noqa: E402
+from ytt import jobs  # noqa: E402
 import ed_state  # noqa: E402
-import ed_store  # noqa: E402
-import ed_ytcap as Y  # noqa: E402
+from human.proof import ytcap as Y  # noqa: E402
 
 __all__ = ["TestYtcapPure", "TestYtcapSuggest", "TestYtcapJob"]   # test_metrics の import * で、テストの小道具(seg・doc など)が test_metrics の同じ名前を隠さないように
 FAKE = os.path.join(TESTS, "fake_ytdlp.py")
@@ -119,7 +120,7 @@ class TestYtcapPure(unittest.TestCase):
         yt, _rng = Y.ytcap_doc_rows(doc(), {"cues": Y.ytcap_parse_json3(JSON3)})
         items, st = Y.ytcap_diffs(rows, yt)
         self.assertEqual(items, [{"seg": "s1", "i": 6, "wrong": "上", "right": "神", "tier": "yt", "pos": 0, "neg": 0}])
-        self.assertEqual(items[0]["wrong"], ed_alt.alt_diffs(rows, yt)[0][0]["wrong"])   # 比べ方は alt_diffs そのもの
+        self.assertEqual(items[0]["wrong"], proof_alt.alt_diffs(rows, yt)[0][0]["wrong"])   # 比べ方は alt_diffs そのもの
         self.assertEqual(set(st), {"long", "cross", "mostly", "notation", "edge", "clipEdge", "filler"})
         # 句読点・カタカナ/ひらがな・全角/半角の違いは出さない
         items, _st = Y.ytcap_diffs([seg(1, 0, 3, "ＯＫです、ふぶきちゃん")], [{"start": 0, "end": 3, "text": "OKです。フブキちゃん"}])
@@ -147,7 +148,7 @@ class TestYtcapPure(unittest.TestCase):
               {"start": 6, "end": 9, "text": "よろしくお願いしますね"}]
         items, st = Y.ytcap_diffs(rows, yt)
         self.assertEqual((items, st["clipEdge"]), ([], 2))
-        self.assertEqual(len(ed_alt.alt_diffs(rows, yt)[0]), 2)   # alt_diffs だけなら出る
+        self.assertEqual(len(proof_alt.alt_diffs(rows, yt)[0]), 2)   # alt_diffs だけなら出る
         # 真ん中の行の頭・終わりは出す
         yt[1] = {"start": 3, "end": 6, "text": "今日もマイクラをやります"}
         items, _st = Y.ytcap_diffs(rows, yt)
@@ -161,7 +162,7 @@ class _YtStore(StoreDir):
         self.fb.start()
         self.capdir = mock.patch.object(Y, "YTCAP_DIR", os.path.join(self.tmp, "ytcaps"))
         self.capdir.start()
-        ed_alt._alt_cache.clear()
+        proof_alt._alt_cache.clear()
         Y._ytcap_cache.clear()
 
     def tearDown(self):
@@ -255,9 +256,9 @@ class TestYtcapJob(_YtStore):
 
     def tearDown(self):
         self.env.stop()
-        with ed_jobs._jobs_lock:
+        with jobs._jobs_lock:
             for k in list(self.mine):
-                ed_jobs._jobs.pop(k, None)
+                jobs._jobs.pop(k, None)
         import shutil
         shutil.rmtree(self.files, ignore_errors=True)
         super().tearDown()
@@ -269,26 +270,26 @@ class TestYtcapJob(_YtStore):
             return [json.loads(l) for l in f if l.strip()]
 
     def job(self, tid=TID):
-        j = ed_jobs.add_job(Y.ytcap_spec(tid, {}), "ytcap")
+        j = jobs.add_job(Y.ytcap_spec(tid, {}), "ytcap")
         self.mine.add(j["id"])
         return j
 
     def run_job(self, tid=TID, state="done"):
         j = self.job(tid)
-        ed_jobs.run_job(j)
+        doc_jobs.run_job(j)
         self.assertEqual(j["state"], state, j.get("error"))
         return j
 
     def test_job_writes_ytcap_and_keeps_doc(self):
         self.put_doc(doc())
-        before = ed_store.read_transcript(TID)
+        before = store.read_transcript(TID)
         j = self.run_job()
         self.assertEqual((j["tid"], j["kind"], j["segments"]), (TID, "ytcap", 3))
         y = Y.read_ytcap(TID)
         self.assertEqual((y["schema"], y["source"], y["kind"], y["lang"], y["videoId"], y["streamRange"], y["range"], y["offset"]),
                          (Y.YTCAP_SCHEMA, "youtube", "auto", "ja-orig", VID, [100.0, 109.0], [0.0, 9.0], 100.0))
         self.assertEqual([r["text"] for r in y["rows"]], ["こんばんは白神フブキです", "今日はマイクラをやります", "よろしくお願いします"])
-        self.assertEqual(ed_store.read_transcript(TID), before)   # 文書は書き換えない(updatedAt も)
+        self.assertEqual(store.read_transcript(TID), before)   # 文書は書き換えない(updatedAt も)
         # 引数: 字幕だけ・設定とクッキーを使わない・URL は ID から作る
         args = self.calls()[0]
         for a in ("--skip-download", "--ignore-config", "--no-cookies", "--write-subs", "--write-auto-subs", "json3"):
@@ -364,7 +365,7 @@ class TestYtcapJob(_YtStore):
         j = self.job()
         threading.Timer(0.8, lambda: j.update(cancel=True)).start()
         t0 = time.monotonic()
-        ed_jobs.run_job(j)
+        doc_jobs.run_job(j)
         self.assertEqual(j["state"], "cancelled")
         self.assertLess(time.monotonic() - t0, 6)
         with mock.patch.object(Y, "YTCAP_TIMEOUT_SEC", 0.5):
@@ -389,7 +390,7 @@ class TestYtcapJob(_YtStore):
         self.put_doc(doc())
         j = self.job()
         os.unlink(S.tx_path(TID))
-        ed_jobs.run_job(j)
+        doc_jobs.run_job(j)
         self.assertEqual(j["state"], "error")
         self.assertFalse(os.path.exists(Y.ytcap_path(TID)))
 
@@ -399,9 +400,9 @@ class TestYtcapJob(_YtStore):
         job = {"warnings": []}
         Y.ytcap_after_transcribe(job, {"autoYtcap": False}, TID)
         Y.ytcap_after_transcribe(job, {"autoYtcap": True, "evalSet": True}, TID)
-        self.assertEqual([j for j in ed_jobs._jobs.values() if j.get("kind") == "ytcap" and j.get("tid") == TID], [])
+        self.assertEqual([j for j in jobs._jobs.values() if j.get("kind") == "ytcap" and j.get("tid") == TID], [])
         Y.ytcap_after_transcribe(job, {"autoYtcap": True}, TID)
-        q = [j for j in ed_jobs._jobs.values() if j.get("kind") == "ytcap" and j.get("tid") == TID and j["state"] == "queued"]
+        q = [j for j in jobs._jobs.values() if j.get("kind") == "ytcap" and j.get("tid") == TID and j["state"] == "queued"]
         self.mine.update(j["id"] for j in q)
         self.assertEqual((len(q), job["warnings"]), (1, []))
         self.assertEqual(q[0]["spec"]["videoId"], VID)
@@ -421,11 +422,11 @@ class TestYtcapJob(_YtStore):
             w.setsampwidth(2)
             w.setframerate(16000)
             w.writeframes(b"\0\0" * 16000 * 2)
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": src, "model": "small"})["autoYtcap"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": src, "model": "small"})["autoYtcap"])
         write_json(S.SETTINGS, {"autoYtcap": True})
-        self.assertTrue(ed_jobs.validate_job({"sourcePath": src, "model": "small"})["autoYtcap"])
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": src, "model": "small", "autoYtcap": False})["autoYtcap"])
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": src, "model": "small", "evalSet": True})["autoYtcap"])
+        self.assertTrue(doc_jobs.validate_job({"sourcePath": src, "model": "small"})["autoYtcap"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": src, "model": "small", "autoYtcap": False})["autoYtcap"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": src, "model": "small", "evalSet": True})["autoYtcap"])
 
 
 if __name__ == "__main__":

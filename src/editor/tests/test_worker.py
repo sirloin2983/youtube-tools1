@@ -26,6 +26,7 @@ HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
@@ -776,7 +777,7 @@ class JobHelperTest(unittest.TestCase):
 
     def test_numbers(self):
         from pipeline.transcribe import tx_engines
-        c = S.ed_jobs._chars_in
+        c = doc_jobs._chars_in
         self.assertEqual([c(v, 4, 80) for v in (16, 16.9, 4, 80, 3, 81, True, float("nan"), float("inf"), 10 ** 400, "16", None)],
                          [16, 16, 4, 80, None, None, None, None, None, None, None, None])
         for env, want in (("", 7), ("12", 12), (" 3 ", 3), ("x", 7), ("-5", 0), ("999", 64)):

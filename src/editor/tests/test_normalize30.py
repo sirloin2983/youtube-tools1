@@ -20,9 +20,10 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir  # noqa: F401  (S = serve)
-import ed_jobs  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import store  # noqa: E402
+from ytt import jobs  # noqa: E402
 from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps(RS3-E7 に ed_relink から)
-import ed_store  # noqa: E402
 from ytt import normalize as N  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -59,10 +60,10 @@ class _Base(StoreDir):
 
     def tearDown(self):
         self.env.stop()
-        with ed_jobs._jobs_lock:   # このテストのジョブを残さない(ほかのテストの _doc_busy に掛からないように)
-            for k in [k for k, j in ed_jobs._jobs.items() if str((j.get("spec") or {}).get("sourcePath") or "").startswith(self.tmp)
+        with jobs._jobs_lock:   # このテストのジョブを残さない(ほかのテストの _doc_busy に掛からないように)
+            for k in [k for k, j in jobs._jobs.items() if str((j.get("spec") or {}).get("sourcePath") or "").startswith(self.tmp)
                       or (j.get("spec") or {}).get("tid") in self.tids()]:
-                ed_jobs._jobs.pop(k, None)
+                jobs._jobs.pop(k, None)
         super().tearDown()
 
     def tids(self):
@@ -74,17 +75,17 @@ class _Base(StoreDir):
         return p
 
     def run_job(self, job):
-        ed_jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
-        ed_jobs.run_job(job)
+        jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
     def transcribe(self, path, **req):
-        spec = ed_jobs.validate_job(dict({"sourcePath": path, "model": "small"}, **req))
-        return self.run_job(ed_jobs.add_job(spec))
+        spec = doc_jobs.validate_job(dict({"sourcePath": path, "model": "small"}, **req))
+        return self.run_job(jobs.add_job(spec))
 
     def doc(self, tid):
-        return ed_store.read_transcript(tid)
+        return store.read_transcript(tid)
 
     def assert_30(self, path):
         info = N.probe(path)
@@ -102,8 +103,8 @@ class TestTranscribeNormalize(_Base):
         def spy(*a, **kw):
             seen.append((job["state"], job["phase"], job.get("tid")))
             return real(*a, **kw)
-        spec = ed_jobs.validate_job({"sourcePath": src, "model": "small"})
-        job = ed_jobs.add_job(spec)
+        spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
+        job = jobs.add_job(spec)
         with mock.patch.object(RL._vnorm, "normalize", side_effect=spy):
             self.run_job(job)
         dst = os.path.join(self.media, "配信 60_30fps.mp4")
@@ -116,11 +117,11 @@ class TestTranscribeNormalize(_Base):
         self.assertEqual(os.path.normcase(d["relinks"][-1]["from"]), os.path.normcase(src))
         self.assertTrue(os.path.isfile(src))   # 元は消さない
         self.assert_30(dst)
-        self.assertTrue(ed_jobs.public_job(job)["normOk"])
-        self.assertIn("30fps", ed_jobs.public_job(job)["normNote"])
+        self.assertTrue(doc_jobs.public_job(job)["normOk"])
+        self.assertIn("30fps", doc_jobs.public_job(job)["normNote"])
         self.assertEqual([n for n in os.listdir(self.media) if N.PART in n], [])
-        self.assertEqual(ed_store.find_doc_for_media(src)["id"], job["tid"])   # 付け替える前のパスからも見つかる(?media=・スタジオから開く)
-        self.assertEqual(ed_store.find_doc_for_media(dst)["id"], job["tid"])
+        self.assertEqual(store.find_doc_for_media(src)["id"], job["tid"])   # 付け替える前のパスからも見つかる(?media=・スタジオから開く)
+        self.assertEqual(store.find_doc_for_media(dst)["id"], job["tid"])
 
     def test_30fps_is_not_remade(self):
         src = self.copy(self.v30, "そのまま.mp4")
@@ -130,7 +131,7 @@ class TestTranscribeNormalize(_Base):
         self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
         self.assertNotIn("relinks", d)
         self.assertEqual(sorted(os.listdir(self.media)), ["そのまま.mp4"])
-        self.assertEqual(ed_jobs.public_job(job)["normNote"], "")
+        self.assertEqual(doc_jobs.public_job(job)["normNote"], "")
 
     def test_existing_30fps_copy_is_reused(self):
         src = self.copy(self.v60, "a.mp4")
@@ -182,7 +183,7 @@ class TestTranscribeNormalize(_Base):
         d = self.doc(job["tid"])
         self.assertEqual(os.path.normcase(d["sourcePath"]), os.path.normcase(src))
         self.assertEqual(len(d["segments"]), 2)
-        pj = ed_jobs.public_job(job)
+        pj = doc_jobs.public_job(job)
         self.assertFalse(pj["normOk"])
         self.assertIn("こわれた", pj["normNote"])
         self.assertTrue(any("こわれた" in w for w in pj["warnings"]))
@@ -197,8 +198,8 @@ class TestTranscribeNormalize(_Base):
 
     def test_cancel_during_normalize_keeps_doc(self):
         src = self.copy(self.v60, "e.mp4")
-        spec = ed_jobs.validate_job({"sourcePath": src, "model": "small"})
-        job = ed_jobs.add_job(spec)
+        spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
+        job = jobs.add_job(spec)
         real = N.normalize
 
         def cancel_then_run(*a, **kw):
@@ -255,7 +256,7 @@ class TestTranscribeNormalize(_Base):
 
 class TestRelinkNormalize(_Base):
     def make_doc(self, path):
-        tid = ed_store.open_video({"path": path})["id"]
+        tid = store.open_video({"path": path})["id"]
         return tid, self.doc(tid)
 
     def test_relink_then_background_job(self):
@@ -267,7 +268,7 @@ class TestRelinkNormalize(_Base):
         r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True})
         self.assertTrue(r["normalizing"])
         self.assertEqual(os.path.normcase(self.doc(tid)["sourcePath"]), os.path.normcase(moved))   # 付け替えは済んでいる
-        job = ed_jobs._jobs[r["normalizing"]]
+        job = jobs._jobs[r["normalizing"]]
         self.assertEqual((job["kind"], job["tid"]), ("normalize", tid))
         with self.assertRaises(S.ApiError) as cm:   # 作り直しの間は、この文書を選び直せない
             S.relink_doc({"id": tid, "path": old, "baseUpdatedAt": r["updatedAt"]})
@@ -278,7 +279,7 @@ class TestRelinkNormalize(_Base):
         self.assertEqual(os.path.normcase(d2["sourcePath"]), os.path.normcase(dst))
         self.assertEqual(d2["updatedAt"], r["updatedAt"])
         self.assertEqual(d2["relinks"][-1]["why"], RL.NORM_WHY)
-        self.assertTrue(ed_jobs.public_job(job)["normOk"])
+        self.assertTrue(doc_jobs.public_job(job)["normOk"])
         self.assert_30(dst)
         self.assertTrue(os.path.isfile(moved))
 
@@ -308,7 +309,7 @@ class TestRelinkNormalize(_Base):
         S.atomic_write(S.tx_path(tid), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
         moved = self.copy(self.v60, "先5.mp4")
         r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": doc["updatedAt"], "acceptDiff": True})
-        job = ed_jobs._jobs[r["normalizing"]]
+        job = jobs._jobs[r["normalizing"]]
         self.run_job(job)
         dst = os.path.join(self.media, "先5_30fps.mp4")
         self.assertEqual(os.path.normcase(self.doc(tid)["sourcePath"]), os.path.normcase(dst))

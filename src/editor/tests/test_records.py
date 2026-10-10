@@ -21,6 +21,11 @@ from unittest.mock import patch
 
 from test_backend import S, TID, StoreDir  # noqa: F401  (S = serve)
 from test_edit import doc_obj, edit_obj
+from human.proof import doc_jobs  # noqa: E402
+from pipeline.transcribe import recognize  # noqa: E402
+from pipeline.transcribe import records  # noqa: E402
+from pipeline.transcribe import worker_client  # noqa: E402
+from ytt import jobs  # noqa: E402
 
 
 def _rd(tid=TID):
@@ -247,12 +252,12 @@ class TestEffort(StoreDir):
 class TestCudaCompute(unittest.TestCase):
     def test_cuda_compute_env(self):
         with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "int8_float16"}):
-            self.assertEqual(S.ed_jobs.cuda_compute(), "int8_float16")
+            self.assertEqual(worker_client.cuda_compute(), "int8_float16")
         with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "rm -rf"}):
-            self.assertEqual(S.ed_jobs.cuda_compute(), "float16")
+            self.assertEqual(worker_client.cuda_compute(), "float16")
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TRANSCRIBE_CUDA_COMPUTE", None)
-            self.assertEqual(S.ed_jobs.cuda_compute(), "float16")   # 既定は今までどおり
+            self.assertEqual(worker_client.cuda_compute(), "float16")   # 既定は今までどおり
 
 
 class TestAsrRaw(StoreDir):
@@ -263,7 +268,7 @@ class TestAsrRaw(StoreDir):
                  "wordProbs": [0.5, 0.98]},
                 {"start": 2.0, "end": 3.0, "text": "テスト"}]
         raw = []
-        out = list(S.ed_jobs.capture_raw(iter(segs), raw, shift=10.0))
+        out = list(records.capture_raw(iter(segs), raw, shift=10.0))
         self.assertEqual(out, segs)   # 流れはそのまま
         self.assertEqual(raw[0]["start"], 10.0)
         self.assertEqual(raw[0]["words"], [[10.0, 10.4, "えー", 0.5], [10.5, 11.5, "こんにちは", 0.98]])
@@ -278,28 +283,28 @@ class TestAsrRaw(StoreDir):
         class Sg:
             start, end, text = 0.0, 1.0, " あ い "
             words = [W(0.0, 0.5, "あ", 0.9), W(0.5, 1.0, "い", None)]
-        d = S.ed_jobs.seg_to_dict(Sg())
+        d = recognize.seg_to_dict(Sg())
         self.assertEqual(d["words"], [(0.0, 0.5, "あ"), (0.5, 1.0, "い")])   # 3つ組は変えない
         self.assertEqual(d["wordProbs"], [0.9, None])
 
     def test_write_read_asr(self):
-        S.ed_jobs.write_asr("0123456789ab", [{"start": 0, "end": 1, "text": "x", "words": []}], {"model": "small"})
-        d = S.ed_jobs.read_asr("0123456789ab")
+        records.write_asr("0123456789ab", [{"start": 0, "end": 1, "text": "x", "words": []}], {"model": "small"})
+        d = records.read_asr("0123456789ab")
         self.assertEqual(d["run"], {"model": "small"})
         self.assertEqual(len(d["segments"]), 1)
-        self.assertIsNone(S.ed_jobs.read_asr("ffffffffffff"))
+        self.assertIsNone(records.read_asr("ffffffffffff"))
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
     def test_fake_job_writes_asr(self):
         src = os.path.join(self.tmp, "a.wav")
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=9", "-ar", "16000", src], check=True)
-        spec = S.ed_jobs.validate_job({"sourcePath": src, "model": "small"})
+        spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
         with patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"}):
-            job = S.ed_jobs.add_job(spec)
-            S.ed_jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
-            S.ed_jobs.run_job(job)
+            job = jobs.add_job(spec)
+            jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
+            doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
-        d = S.ed_jobs.read_asr(job["tid"])
+        d = records.read_asr(job["tid"])
         self.assertTrue(d["segments"])
         self.assertEqual(d["segments"][0]["text"], "テスト文1")
         self.assertEqual(d["run"]["engine"], "fake")

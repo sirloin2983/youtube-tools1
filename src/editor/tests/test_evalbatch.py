@@ -24,9 +24,10 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
 from eval.drill import evalbatch as EB  # noqa: E402   (RS4-2 に editor/ed_evalbatch.py から)
-import ed_jobs  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import store  # noqa: E402
+from ytt import jobs as ytt_jobs  # noqa: E402
 from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
-import ed_store  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 MEMBER = "評価用データ01_ときのそら"
@@ -46,9 +47,9 @@ class TestEvalBatch(unittest.TestCase):
         self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
         os.makedirs(S.TX_DIR)
-        self.old_jobs = (dict(ed_jobs._jobs), list(ed_jobs._order))
-        ed_jobs._jobs.clear()
-        ed_jobs._order.clear()
+        self.old_jobs = (dict(ytt_jobs._jobs), list(ytt_jobs._order))
+        ytt_jobs._jobs.clear()
+        ytt_jobs._order.clear()
         self.drain()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
                                                 "TRANSCRIBE_EVAL_BATCH": "off",   # 裏のスレッドは動かさない(見回りはテストが呼ぶ)
@@ -64,17 +65,17 @@ class TestEvalBatch(unittest.TestCase):
         EB.eb_shutdown()
         self.env.stop()
         self.drain()
-        ed_jobs._jobs.clear()
-        ed_jobs._jobs.update(self.old_jobs[0])
-        ed_jobs._order[:] = self.old_jobs[1]
+        ytt_jobs._jobs.clear()
+        ytt_jobs._jobs.update(self.old_jobs[0])
+        ytt_jobs._order[:] = self.old_jobs[1]
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
         shutil.rmtree(self.tmp, ignore_errors=True)
         shutil.rmtree(self.ev, ignore_errors=True)
 
     # -- 道具
     def drain(self):
-        while not ed_jobs._queue.empty():
-            ed_jobs._queue.get_nowait()
+        while not ytt_jobs._queue.empty():
+            ytt_jobs._queue.get_nowait()
 
     def settings(self, d):
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
@@ -89,14 +90,14 @@ class TestEvalBatch(unittest.TestCase):
         return [self.video(self.stg, n) for n in names]
 
     def mine(self, *states):
-        return [j for j in ed_jobs._jobs.values() if (j.get("spec") or {}).get("evalBatch") and (not states or j["state"] in states)]
+        return [j for j in ytt_jobs._jobs.values() if (j.get("spec") or {}).get("evalBatch") and (not states or j["state"] in states)]
 
     def waiting(self):
-        return len([j for j in ed_jobs._jobs.values() if j["state"] in ed_jobs.ACTIVE_STATES])
+        return len([j for j in ytt_jobs._jobs.values() if j["state"] in ytt_jobs.ACTIVE_STATES])
 
     def finish(self, job):
         """偽のワーカー: 待機列のジョブを疑似の認識でその場で動かして終わらせる"""
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
@@ -163,15 +164,15 @@ class TestEvalBatch(unittest.TestCase):
             self.assertEqual((sp["model"], sp["language"], sp["beam"], sp["device"], sp["vadMode"]), ("base", "ja", 1, "cpu", "off"))   # 編集の設定のまま
             self.assertTrue(sp["whole"])
         done = self.finish(jobs[0])
-        self.assertIs(ed_store.read_transcript(done["tid"]).get("evalSet"), True)
+        self.assertIs(store.read_transcript(done["tid"]).get("evalSet"), True)
 
     def test_does_not_enqueue_transcribed_or_active(self):
         a, b, c = self.staged("a.mp4", "b.mp4", "c.mp4")
-        ed_jobs.add_job(ed_jobs.validate_job({"sourcePath": a, "model": "small"}))   # a: ユーザーが待ちに入れた(別の人のジョブ)
-        job_a = next(iter(ed_jobs._jobs.values()))
+        ytt_jobs.add_job(doc_jobs.validate_job({"sourcePath": a, "model": "small"}))   # a: ユーザーが待ちに入れた(別の人のジョブ)
+        job_a = next(iter(ytt_jobs._jobs.values()))
         self.finish(job_a)   # a は済(文書ができた)
-        spec_b = ed_jobs.validate_job({"sourcePath": b, "model": "small", "evalSet": True})
-        self.finish(ed_jobs.add_job(spec_b))   # b も済
+        spec_b = doc_jobs.validate_job({"sourcePath": b, "model": "small", "evalSet": True})
+        self.finish(ytt_jobs.add_job(spec_b))   # b も済
         EB.eval_batch_start()
         r = EB.eb_tick("test")
         self.assertEqual(r["added"], 1, r)
@@ -181,7 +182,7 @@ class TestEvalBatch(unittest.TestCase):
     def test_rowless_doc_gets_into_doc(self):
         """文字起こしせずに開いた動画(行の無い文書)は、その文書へ入れる(文書が2つにならない)"""
         (a,) = self.staged("a.mp4")
-        tid = ed_store.open_video({"path": a})["id"]
+        tid = store.open_video({"path": a})["id"]
         EB.eval_batch_start()
         EB.eb_tick("test")
         (j,) = self.mine()
@@ -193,7 +194,7 @@ class TestEvalBatch(unittest.TestCase):
         """ユーザーのジョブが動いている・待っているときは自分の分を増やさない。終われば再開する"""
         (a,) = self.staged("a.mp4")
         other = self.video(self.mem, "ユーザーの動画.mp4")
-        user = ed_jobs.add_job(ed_jobs.validate_job({"sourcePath": other, "model": "small"}))
+        user = ytt_jobs.add_job(doc_jobs.validate_job({"sourcePath": other, "model": "small"}))
         EB.eval_batch_start()
         r = EB.eb_tick("test")
         self.assertEqual(r["added"], 0)
@@ -211,7 +212,7 @@ class TestEvalBatch(unittest.TestCase):
         EB.eb_tick("test")
         self.assertEqual(len(self.mine()), 2)
         other = self.video(self.mem, "ユーザーの動画.mp4")
-        user = ed_jobs.add_job(ed_jobs.validate_job({"sourcePath": other, "model": "small"}))   # ユーザーの操作が割り込めた
+        user = ytt_jobs.add_job(doc_jobs.validate_job({"sourcePath": other, "model": "small"}))   # ユーザーの操作が割り込めた
         self.finish(self.mine("queued")[0])
         r = EB.eb_tick("test")
         self.assertEqual(r["added"], 0, r)   # ユーザーのジョブが待っている間は増やさない
@@ -245,15 +246,15 @@ class TestEvalBatch(unittest.TestCase):
         with open(EB.eb_path(), encoding="utf-8") as f:
             self.assertIs(json.load(f)["enabled"], True)
         # 起動し直し: ジョブの表・待機列は空(プロセスが入れ替わった)。状態ファイルの enabled で続く
-        ed_jobs._jobs.clear()
-        ed_jobs._order.clear()
+        ytt_jobs._jobs.clear()
+        ytt_jobs._order.clear()
         self.drain()
         self.assertTrue(EB.eval_batch_status()["enabled"])
         r = EB.eb_tick("after-restart")
         self.assertEqual(r["added"], 2, r)
         self.assertEqual(len(self.mine()), 2)
         # 裏のスレッドも状態ファイルを見て動く(start を呼ばなくても)
-        ed_jobs._jobs.clear()
+        ytt_jobs._jobs.clear()
         self.drain()
         with mock.patch.dict(os.environ, {"TRANSCRIBE_EVAL_BATCH": ""}):
             self.assertIsNotNone(EB.eb_start_background(first_delay=0.05, interval=0.05))
@@ -289,21 +290,21 @@ class TestEvalBatch(unittest.TestCase):
         EB.eval_batch_start()
         EB.eb_tick("test")
         a = next(j for j in self.mine() if j["spec"]["sourceName"] == "a.mp4")
-        ed_jobs.cancel_job(a["id"])   # ユーザーが処理状況から取り消した
+        ytt_jobs.cancel_job(a["id"])   # ユーザーが処理状況から取り消した
         self.finish(next(j for j in self.mine("queued")))
         EB.eb_tick("test")
         self.assertEqual(self.paths_of(self.mine()), ["a.mp4", "b.mp4"])   # a は入れ直さない
 
     def test_unreadable_video_is_skipped_and_next_goes_in(self):
         a, b = self.staged("a.mp4", "b.mp4")
-        real = ed_jobs.validate_job
+        real = doc_jobs.validate_job
 
         def fake(req):
             if req["sourcePath"] == a:
                 raise S.ApiError("too_long", "1回に処理できるのは6時間までです", 400)
             return real(req)
         EB.eval_batch_start()
-        with mock.patch.object(ed_jobs, "validate_job", side_effect=fake):
+        with mock.patch.object(doc_jobs, "validate_job", side_effect=fake):
             r = EB.eb_tick("test")
             r2 = EB.eb_tick("test")
         self.assertEqual((r["added"], r2["added"]), (1, 0), (r, r2))
@@ -368,18 +369,18 @@ class TestEvalBatch(unittest.TestCase):
         """評価用として文字起こし済みの文書(人の手が入っていない)。old = 更新を 1 時間前にずらす(直近 10 分の除外に当たらない)"""
         p = os.path.join(self.stg, name)
         _make_video(p, 9)   # 疑似の認識は 4 秒ごとに 1 行 = 3 行
-        job = self.finish(ed_jobs.add_job(ed_jobs.validate_job({"sourcePath": p, "model": "small", "evalSet": True})))
+        job = self.finish(ytt_jobs.add_job(doc_jobs.validate_job({"sourcePath": p, "model": "small", "evalSet": True})))
         if old:
             self.edit_doc(job["tid"], lambda d: None)
         return job["tid"]
 
     def edit_doc(self, tid, fn, old=True):
         """文書をじかに書き換える(fn(doc))。old = updatedAt を 1 時間前に"""
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         fn(d)
         if old:
             d["updatedAt"] = int(time.time() * 1000) - 3600 * 1000
-        with open(ed_store.tx_path(tid), "w", encoding="utf-8") as f:
+        with open(store.tx_path(tid), "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False)
         return d
 
@@ -399,7 +400,7 @@ class TestEvalBatch(unittest.TestCase):
 
     def test_redo_untouched_rules(self):
         tid = self.eval_doc("a.mp4")
-        doc = ed_store.read_transcript(tid)
+        doc = store.read_transcript(tid)
         why = lambda d, **kw: EB.eb_redo_why(tid, d, **kw)   # noqa: E731
         cp = lambda: json.loads(json.dumps(doc))   # noqa: E731
         self.assertIsNone(why(doc))   # 手つかず
@@ -431,21 +432,21 @@ class TestEvalBatch(unittest.TestCase):
         self.assertEqual(why(d), "speaker")
         # 自動の判別のまま(仮の名前・覚えた声/動画の手がかりで付いた名前)は手つかず
         self.auto_speakers(tid)
-        self.assertIsNone(why(ed_store.read_transcript(tid)))
+        self.assertIsNone(why(store.read_transcript(tid)))
         self.auto_speakers(tid, "ときのそら", by="context")
-        self.assertIsNone(why(ed_store.read_transcript(tid)))
-        d = ed_store.read_transcript(tid); d["segments"][1]["speaker"] = ""
+        self.assertIsNone(why(store.read_transcript(tid)))
+        d = store.read_transcript(tid); d["segments"][1]["speaker"] = ""
         self.assertEqual(why(d), "speaker")   # 人が行の話者を選び直した(外した)
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         for g in d["segments"]:
             g["speaker"] = ""
         self.assertEqual(why(d), "speaker")   # 判別のあとで人が全部の話者を外した
-        d = ed_store.read_transcript(tid); d["speakers"][0]["name"] = "AZKi"
+        d = store.read_transcript(tid); d["speakers"][0]["name"] = "AZKi"
         self.assertEqual(why(d), "speaker")   # 人が名前を変えた
         self.auto_speakers(tid, "ときのそら", by="request")
-        self.assertEqual(why(ed_store.read_transcript(tid)), "speaker")   # 依頼の名前(人の入力)は迷うので手を入れた側
+        self.assertEqual(why(store.read_transcript(tid)), "speaker")   # 依頼の名前(人の入力)は迷うので手を入れた側
         S.write_diar(tid, dict(S.read_diar(tid)["latest"], auto=None))
-        self.assertEqual(why(ed_store.read_transcript(tid)), "speaker")   # 人が始めた判別
+        self.assertEqual(why(store.read_transcript(tid)), "speaker")   # 人が始めた判別
 
     def test_redo_dry_run_counts_and_does_nothing(self):
         a = self.eval_doc("a.mp4")
@@ -453,14 +454,14 @@ class TestEvalBatch(unittest.TestCase):
         c = self.eval_doc("c.mp4")
         self.edit_doc(b, lambda d: d["segments"][0].update(proofed=True))
         self.edit_doc(c, lambda d: d.update(evalReviewed={"at": 1, "rows": 1, "durationSec": 2}))
-        before = ed_store.read_transcript(a)
+        before = store.read_transcript(a)
         r = EB.eval_batch_redo({"dryRun": True})
         self.assertEqual((r["targets"], r["touched"], r["reasons"]), (1, 1, {"proofed": 1, "reviewed": 1}), r)
         self.assertEqual(r["labels"]["proofed"], "校正済みの行がある")
         self.assertEqual(EB.eval_batch_redo({})["dryRun"], True)   # 既定は数えるだけ
         self.assertFalse(EB.eval_batch_status()["enabled"])
         self.assertEqual(self.mine(), [])
-        self.assertEqual(ed_store.read_transcript(a), before)
+        self.assertEqual(store.read_transcript(a), before)
 
     def test_redo_replaces_in_place_keeps_history_and_record(self):
         tid = self.eval_doc("a.mp4")
@@ -469,7 +470,7 @@ class TestEvalBatch(unittest.TestCase):
             for g, o in zip(d["segments"], d["original"]):
                 g["text"] = o["text"] = "古い文"
         self.edit_doc(tid, old_output)
-        n_docs = len(ed_store._tids())
+        n_docs = len(store._tids())
         self.settings({"evalDirs": [self.ev], "model": "base"})   # 今の編集の設定
         r = EB.eval_batch_redo({"dryRun": False})
         self.assertEqual((r["targets"], r["added"]), (1, 1), r)
@@ -483,8 +484,8 @@ class TestEvalBatch(unittest.TestCase):
         self.assertIn(tid, S._busy_tids())   # 待っている間は処理中(ドリルが出さない)
         self.finish(job)
         self.assertEqual((job["tid"], job.get("redoSkipped")), (tid, None))
-        self.assertEqual(len(ed_store._tids()), n_docs)   # 新しい文書は作らない
-        d = ed_store.read_transcript(tid)
+        self.assertEqual(len(store._tids()), n_docs)   # 新しい文書は作らない
+        d = store.read_transcript(tid)
         self.assertEqual(d["model"], "base")
         self.assertTrue(d["segments"] and all(g["text"].startswith("テスト文") for g in d["segments"]))
         self.assertEqual([o["text"] for o in d["original"]], [g["text"] for g in d["segments"]])
@@ -498,9 +499,9 @@ class TestEvalBatch(unittest.TestCase):
         self.assertEqual(rec[0]["replacedRun"]["model"], "small")
         self.assertIsNone(EB.eb_redo_why(tid, dict(d, updatedAt=1)))   # 作り直した結果も手つかず(また作り直せる)
         # 以前の版に戻す で戻せる
-        hist = ed_store.list_history(tid)
+        hist = store.list_history(tid)
         self.assertTrue(hist)
-        old = ed_store.restore_history(tid, hist[0]["ts"])
+        old = store.restore_history(tid, hist[0]["ts"])
         self.assertEqual({g["text"] for g in old["segments"]}, {"古い文"})
         # 見回りが結果を写す・残りが無ければ終わる
         EB.eb_tick("test")
@@ -515,16 +516,16 @@ class TestEvalBatch(unittest.TestCase):
             EB.eb_tick("test")
             (job,) = self.redo_jobs()
             self.finish(job)
-            d = ed_store.read_transcript(tid)
+            d = store.read_transcript(tid)
             self.assertEqual(d["speakers"], [])   # 話者は消した
             self.assertNotIn("diarization", d)
             self.assertFalse(any(g.get("speaker") for g in d["segments"]))
-            dj = [j for j in ed_jobs._jobs.values() if j.get("kind") == "diarize" and j["spec"].get("tid") == tid and j["state"] == "queued"]
+            dj = [j for j in ytt_jobs._jobs.values() if j.get("kind") == "diarize" and j["spec"].get("tid") == tid and j["state"] == "queued"]
             self.assertEqual(len(dj), 1)   # 評価用の自動の判別をもう一度
             self.assertTrue(dj[0]["spec"]["auto"] and dj[0]["spec"]["evalBatch"])
-            ed_jobs.run_job(dj[0])
+            doc_jobs.run_job(dj[0])
             self.assertEqual(dj[0]["state"], "done", dj[0].get("error"))
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         self.assertTrue(d["speakers"] and any(g.get("speaker") for g in d["segments"]))
         self.assertTrue(d["diarization"].get("auto"))
 
@@ -533,13 +534,13 @@ class TestEvalBatch(unittest.TestCase):
         EB.eval_batch_redo({"dryRun": False})
         EB.eb_tick("test")
         (job,) = self.redo_jobs()
-        doc = ed_store.read_transcript(tid)   # 待っている間に人が校正した
+        doc = store.read_transcript(tid)   # 待っている間に人が校正した
         doc["segments"][0]["proofed"] = True
-        ed_store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
-        ed_jobs.run_job(job)
+        store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
+        doc_jobs.run_job(job)
         self.assertEqual((job["state"], job["redoSkipped"]), ("done", "proofed"))
         self.assertIn("作り直しませんでした", job["phase"])
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         self.assertTrue(d["segments"][0].get("proofed"))   # 書いていない
         self.assertFalse(any(x.get("kind") for x in d["recognition"]["runs"]))
         EB.eb_tick("test")
@@ -554,14 +555,14 @@ class TestEvalBatch(unittest.TestCase):
 
         def start_then_edit(j):   # 動き出したあと(認識の間)に人が画面で直して保存した
             r = real(j)
-            doc = ed_store.read_transcript(tid)
+            doc = store.read_transcript(tid)
             doc["segments"][0]["text"] = "人が直した"
-            ed_store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
+            store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
             return r
         with mock.patch.object(EB, "eb_redo_skip_at_start", side_effect=start_then_edit):
-            ed_jobs.run_job(job)
+            doc_jobs.run_job(job)
         self.assertEqual((job["state"], job["redoSkipped"]), ("done", "changed"))
-        self.assertEqual(ed_store.read_transcript(tid)["segments"][0]["text"], "人が直した")   # 人の直しは消さない
+        self.assertEqual(store.read_transcript(tid)["segments"][0]["text"], "人が直した")   # 人の直しは消さない
 
     def test_redo_waits_at_most_two_and_stop_clears(self):
         tids = [self.eval_doc(n) for n in ("a.mp4", "b.mp4", "c.mp4")]
@@ -576,11 +577,11 @@ class TestEvalBatch(unittest.TestCase):
         self.assertEqual(self.redo_jobs("queued"), [])
         self.assertEqual(EB.eb_tick("test"), {"skipped": "stopped"})
         for t in tids:
-            self.assertTrue(all(g["text"].startswith("テスト文") for g in ed_store.read_transcript(t)["segments"]))
+            self.assertTrue(all(g["text"].startswith("テスト文") for g in store.read_transcript(t)["segments"]))
 
     # -- 1 本ずつの作り直し(eval_batch_redo_one。2026-10-05 ユーザー要望)
     def one(self, tid, force=None, base=None):
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         req = {"id": tid, "baseUpdatedAt": d["updatedAt"] if base is None else base}
         if force is not None:
             req["force"] = force
@@ -592,7 +593,7 @@ class TestEvalBatch(unittest.TestCase):
         return cm.exception
 
     def one_jobs(self, *states):
-        return [j for j in ed_jobs._jobs.values() if ((j.get("spec") or {}).get("evalRedo") or {}).get("one") and (not states or j["state"] in states)]
+        return [j for j in ytt_jobs._jobs.values() if ((j.get("spec") or {}).get("evalRedo") or {}).get("one") and (not states or j["state"] in states)]
 
     def test_redo_one_untouched_runs_now_with_current_settings(self):
         tid = self.eval_doc("a.mp4")
@@ -614,10 +615,10 @@ class TestEvalBatch(unittest.TestCase):
         self.assertEqual(len(self.one_jobs()), 1)
         self.finish(job)
         self.assertEqual((job["tid"], job.get("redoSkipped")), (tid, None))
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         self.assertEqual(d["model"], "base")
         self.assertEqual([x.get("kind") for x in d["recognition"]["runs"]].count("evalRedo"), 1)
-        self.assertTrue(ed_store.list_history(tid))   # 前の版は「以前の版に戻す」に
+        self.assertTrue(store.list_history(tid))   # 前の版は「以前の版に戻す」に
 
     def test_redo_one_refuses(self):
         tid = self.eval_doc("a.mp4")
@@ -651,9 +652,9 @@ class TestEvalBatch(unittest.TestCase):
         self.assertTrue(job["spec"]["evalRedo"]["force"])
         self.finish(job)
         self.assertIsNone(job.get("redoSkipped"))
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         self.assertTrue(all(g["text"].startswith("テスト文") and not g.get("proofed") for g in d["segments"]))   # 置き換わった
-        old = ed_store.restore_history(tid, ed_store.list_history(tid)[0]["ts"])   # 以前の版に戻すで戻せる
+        old = store.restore_history(tid, store.list_history(tid)[0]["ts"])   # 以前の版に戻すで戻せる
         self.assertEqual(old["segments"][1]["text"], "人が直した")
 
     def test_redo_one_not_written_when_changed_after_press(self):
@@ -661,13 +662,13 @@ class TestEvalBatch(unittest.TestCase):
         self.edit_doc(tid, lambda d: d["segments"][0].update(proofed=True))
         self.one(tid, force=True)
         (job,) = self.one_jobs("queued")
-        doc = ed_store.read_transcript(tid)   # 押したあと(待っている間)に直した
+        doc = store.read_transcript(tid)   # 押したあと(待っている間)に直した
         doc["segments"][1]["text"] = "押したあとに直した"
-        ed_store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
-        ed_jobs.run_job(job)
+        store.save_transcript(tid, dict(doc, baseUpdatedAt=doc["updatedAt"]))
+        doc_jobs.run_job(job)
         self.assertEqual((job["state"], job["redoSkipped"]), ("done", "pressedChanged"))
         self.assertIn("作り直しませんでした(押したあとに直されたため)", job["phase"])
-        self.assertEqual(ed_store.read_transcript(tid)["segments"][1]["text"], "押したあとに直した")
+        self.assertEqual(store.read_transcript(tid)["segments"][1]["text"], "押したあとに直した")
         # 認識の間に直した(書く直前の確かめ)
         self.one(tid, force=True)
         (job,) = self.one_jobs("queued")
@@ -675,14 +676,14 @@ class TestEvalBatch(unittest.TestCase):
 
         def start_then_edit(j):
             r = real(j)
-            d = ed_store.read_transcript(tid)
+            d = store.read_transcript(tid)
             d["segments"][2]["text"] = "認識の間に直した"
-            ed_store.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
+            store.save_transcript(tid, dict(d, baseUpdatedAt=d["updatedAt"]))
             return r
         with mock.patch.object(EB, "eb_redo_skip_at_start", side_effect=start_then_edit):
-            ed_jobs.run_job(job)
+            doc_jobs.run_job(job)
         self.assertEqual((job["state"], job["redoSkipped"]), ("done", "pressedChanged"))
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         self.assertEqual((d["segments"][1]["text"], d["segments"][2]["text"]), ("押したあとに直した", "認識の間に直した"))
         self.assertFalse(any(x.get("kind") == "evalRedo" for x in d["recognition"]["runs"]))
 

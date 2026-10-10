@@ -97,12 +97,12 @@ class TestLength(unittest.TestCase):
         sys.path.insert(0, os.path.join(REPO, "editor"))
         try:
             import ed_state  # noqa: F401
-            import ed_store
+            from human.proof import store
         except Exception:
             self.skipTest("editor の部品を読み込めない")
         for d in ({"start": 10, "end": 70, "duration": 500, "segments": []}, {"start": 10, "duration": 100, "segments": []},
                   {"start": 3, "segments": [{"end": 9}]}, {"segments": [{"end": 4.5}, {"end": 2}]}, {"end": 0, "duration": 0, "segments": []}):
-            self.assertAlmostEqual(E.doc_length(d), ed_store.doc_length(d))
+            self.assertAlmostEqual(E.doc_length(d), store.doc_length(d))
 
 
 class TestRatioAndFinished(unittest.TestCase):

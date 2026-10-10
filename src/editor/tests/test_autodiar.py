@@ -26,10 +26,11 @@ sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
 from eval.drill import drill as ed_drill  # noqa: E402   (RS4-2 に editor/ed_drill.py から)
 from eval.drill import evalbatch as EB  # noqa: E402
-import ed_jobs  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import speakers as proof_speakers  # noqa: E402
+from human.proof import store  # noqa: E402
+from ytt import jobs  # noqa: E402
 from eval.drill import folders as EF  # noqa: E402   評価用のフォルダの整理(RS3-E7 に ed_relink から)
-import ed_speakers  # noqa: E402
-import ed_store  # noqa: E402
 from test_evalbatch import FFMPEG, MEMBER, _make_video  # noqa: E402
 
 OLD = 1000   # 10 分より前に直した、の updatedAt(ミリ秒)
@@ -56,9 +57,9 @@ class TestAutoDiar(unittest.TestCase):
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
         S.VOICES_DIR = os.path.join(self.tmp, "voices")
         os.makedirs(S.TX_DIR)
-        self.old_jobs = (dict(ed_jobs._jobs), list(ed_jobs._order))
-        ed_jobs._jobs.clear()
-        ed_jobs._order.clear()
+        self.old_jobs = (dict(jobs._jobs), list(jobs._order))
+        jobs._jobs.clear()
+        jobs._order.clear()
         self.drain()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
                                                 "TRANSCRIBE_EVAL_BATCH": "off", "TRANSCRIBE_AUTO_DIARIZE": ""})
@@ -74,9 +75,9 @@ class TestAutoDiar(unittest.TestCase):
         EB.eb_shutdown()
         self.env.stop()
         self.drain()
-        ed_jobs._jobs.clear()
-        ed_jobs._jobs.update(self.old_jobs[0])
-        ed_jobs._order[:] = self.old_jobs[1]
+        jobs._jobs.clear()
+        jobs._jobs.update(self.old_jobs[0])
+        jobs._order[:] = self.old_jobs[1]
         S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.VOICES_DIR = self.saved
         ed_drill._drill_cache.clear()
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -84,8 +85,8 @@ class TestAutoDiar(unittest.TestCase):
 
     # -- 道具
     def drain(self):
-        while not ed_jobs._queue.empty():
-            ed_jobs._queue.get_nowait()
+        while not jobs._queue.empty():
+            jobs._queue.get_nowait()
 
     def settings(self, d):
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
@@ -97,19 +98,19 @@ class TestAutoDiar(unittest.TestCase):
         return p
 
     def run_one(self, job):   # 偽のワーカー
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
     def transcribe(self, path, **req):
-        job = self.run_one(ed_jobs.add_job(ed_jobs.validate_job(dict({"sourcePath": path, "model": "small"}, **req))))
+        job = self.run_one(jobs.add_job(doc_jobs.validate_job(dict({"sourcePath": path, "model": "small"}, **req))))
         return job["tid"], job
 
-    def diar_jobs(self, tid=None, states=ed_jobs.ACTIVE_STATES):
-        return [j for j in ed_jobs._jobs.values() if j.get("kind") == "diarize" and (tid is None or j.get("tid") == tid) and j["state"] in states]
+    def diar_jobs(self, tid=None, states=jobs.ACTIVE_STATES):
+        return [j for j in jobs._jobs.values() if j.get("kind") == "diarize" and (tid is None or j.get("tid") == tid) and j["state"] in states]
 
     def doc(self, tid):
-        return ed_store.read_transcript(tid)
+        return store.read_transcript(tid)
 
     def names(self, tid):
         return {s["id"]: s["name"] for s in self.doc(tid).get("speakers") or []}
@@ -139,7 +140,7 @@ class TestAutoDiar(unittest.TestCase):
         sp = dj["spec"]
         self.assertEqual((sp["auto"], sp["autoEval"], sp["contextName"], sp["numSpeakers"], sp["recognize"]), (True, True, "ときのそら", 0, True))
         self.assertFalse(tj.get("warnings"))
-        self.assertTrue(ed_jobs.public_job(dj)["auto"])
+        self.assertTrue(doc_jobs.public_job(dj)["auto"])
         self.run_one(dj)
         self.assertEqual(self.names(tid), {"S1": "ときのそら"})   # 1 人だけ → その人に
         self.assertTrue(all(g["speaker"] == "S1" for g in self.text_rows(tid)))
@@ -231,11 +232,11 @@ class TestAutoDiar(unittest.TestCase):
         self.assertNotIn("evalSet", self.doc(tid2))
         tid3, _ = self.transcribe(other, autoDiarize=False)   # 要求が優先
         self.assertEqual(self.diar_jobs(tid3), [])
-        self.assertIs(ed_jobs.validate_job({"sourcePath": other, "model": "small"})["autoDiarize"], True)
+        self.assertIs(doc_jobs.validate_job({"sourcePath": other, "model": "small"})["autoDiarize"], True)
         os.unlink(other)
 
     def test_no_sherpa_skips_silently_for_eval(self):
-        with mock.patch.object(ed_speakers, "autodiar_ready", return_value=False):
+        with mock.patch.object(proof_speakers, "autodiar_ready", return_value=False):
             tid, tj = self.transcribe(self.put(self.mem, "j.mp4"))
             self.assertEqual(self.diar_jobs(tid), [])
             self.assertFalse(tj.get("warnings"))   # 評価用: 黙って飛ばす(人が「全行をこの人に」)
@@ -247,10 +248,10 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(self.doc(tid).get("evalSet"), True)
 
     def test_enqueue_failure_keeps_transcription(self):
-        with mock.patch.object(ed_speakers, "autodiar_enqueue", side_effect=S.ApiError("busy", "待機中のジョブが多すぎます", 429)):
+        with mock.patch.object(proof_speakers, "autodiar_enqueue", side_effect=S.ApiError("busy", "待機中のジョブが多すぎます", 429)):
             tid, tj = self.transcribe(self.put(self.mem, "k.mp4"))
         self.assertEqual(tj["state"], "done")   # 文字起こしは成功のまま・注意だけ
-        self.assertTrue(any("話者の自動判別を始められませんでした" in w for w in ed_jobs.public_job(tj)["warnings"]))
+        self.assertTrue(any("話者の自動判別を始められませんでした" in w for w in doc_jobs.public_job(tj)["warnings"]))
         self.assertTrue(self.text_rows(tid))
 
     # -- ドリル
@@ -269,7 +270,7 @@ class TestAutoDiar(unittest.TestCase):
         self.put(self.stg, "m.mp4")
         EB.eval_batch_start()
         EB.eb_tick("test")
-        (tj,) = [j for j in ed_jobs._jobs.values() if j.get("kind") == "transcribe"]
+        (tj,) = [j for j in jobs._jobs.values() if j.get("kind") == "transcribe"]
         self.run_one(tj)
         (dj,) = self.diar_jobs(tj["tid"])
         self.assertTrue(dj["spec"]["evalBatch"])   # 自分の印つき = 待ちの数に入る・ほかのジョブとして止まらない
@@ -344,7 +345,7 @@ class TestAutoDiar(unittest.TestCase):
         tid = self._old_doc_without_diar("r.mp4")
         self.age(tid)
         EB.eval_batch_start()
-        with mock.patch.object(ed_speakers, "autodiar_ready", return_value=False):
+        with mock.patch.object(proof_speakers, "autodiar_ready", return_value=False):
             r = EB.eb_tick("test")
         self.assertEqual(r.get("diarAdded"), 0, r)
         self.assertEqual(self.diar_jobs(tid), [])

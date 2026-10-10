@@ -14,6 +14,8 @@ import unittest
 import unittest.mock
 
 from test_backend import S, TID, StoreDir  # noqa: F401  (S = serve)
+from human.proof import speakers as proof_speakers  # noqa: E402
+from pipeline.transcribe import recognize  # noqa: E402
 
 
 def _r(a, b, label, ratio=0.3, skip=False):
@@ -163,14 +165,14 @@ class TestSmoothApply(StoreDir):
         """疑似の判別(10 秒ごとの入れ替わり)でも、ジョブの spec の smooth が apply_diarization まで届く"""
         self.put()
         seen = []
-        real = S.ed_speakers.apply_diarization
+        real = proof_speakers.apply_diarization
 
         def spy(*a, **k):
             seen.append(a[6] if len(a) > 6 else k.get("smooth"))
             return real(*a, **k)
-        with unittest.mock.patch.object(S.ed_speakers, "apply_diarization", spy), \
+        with unittest.mock.patch.object(proof_speakers, "apply_diarization", spy), \
                 unittest.mock.patch.object(S, "check_source", lambda p: p), \
-                unittest.mock.patch.object(S.ed_jobs, "extract_audio", lambda job, spec, wav: None), \
+                unittest.mock.patch.object(recognize, "extract_audio", lambda job, spec, wav: None), \
                 unittest.mock.patch.object(S, "media_duration", lambda p: 12.0), \
                 unittest.mock.patch.object(S.ed_state, "backend_name", lambda: "fake"):
             spec = S.validate_diarize({"tid": TID, "smooth": True, "recognize": False})

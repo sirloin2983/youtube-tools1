@@ -25,11 +25,12 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
-import ed_jobs  # noqa: E402
-import ed_learn  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import learn  # noqa: E402
+from human.proof import store  # noqa: E402
+from ytt import jobs  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/llm.py を直に読む。旧 ed_llm)
 import ed_state  # noqa: E402
-import ed_store  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 from pipeline.transcribe import worker as W  # noqa: E402  (認識ワーカーの受け口。RS2-9 から pipeline/transcribe/worker.py。旧 tx_worker)
 
@@ -106,7 +107,7 @@ class TestLlmLearn(unittest.TestCase):
         doc = {"original": [{"start": 0, "end": 2, "text": "ラミーちゃん来た"}, {"start": 3, "end": 5, "text": "トーイ様"}],
                "segments": [_seg(0, "ラミィちゃん来た", end=2, fill={"from": "ラミーちゃん来た", "by": "llm"}, proofed=True),
                             _seg(3, "トワ様", end=5, proofed=True)]}
-        ev = ed_learn.learn_events(doc)
+        ev = learn.learn_events(doc)
         self.assertTrue(ev and all("ラミ" not in w and "ラミ" not in r for w, r, *_ in ev), ev)   # LLM が直した行は覚えない
         self.assertTrue(any("ト" in w for w, *_ in ev), ev)                                     # 人が直した行は今までどおり
 
@@ -138,22 +139,22 @@ class TestLlmJob(StoreDir):
     def tearDown(self):
         self.roster.stop()
         self.env.stop()
-        with ed_jobs._jobs_lock:
-            for k in list(ed_jobs._jobs):
-                if k in self.mine or (ed_jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
-                    ed_jobs._jobs.pop(k, None)
+        with jobs._jobs_lock:
+            for k in list(jobs._jobs):
+                if k in self.mine or (jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
+                    jobs._jobs.pop(k, None)
         super().tearDown()
 
     def transcribe(self, **req):
-        job = ed_jobs.add_job(ed_jobs.validate_job(dict({"sourcePath": self.video, "model": "small", "autoFill": False}, **req)))
+        job = jobs.add_job(doc_jobs.validate_job(dict({"sourcePath": self.video, "model": "small", "autoFill": False}, **req)))
         self.mine.add(job["id"])
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
     def test_job_fixes_names_and_records(self):
         job = self.transcribe()
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         segs = doc["segments"]
         self.assertEqual(segs[0]["text"], "テスト分1")   # 3 行のうち 15% = 1 行まで
         self.assertEqual(segs[0]["fill"], {"from": "テスト文1", "by": "llm"})
@@ -166,7 +167,7 @@ class TestLlmJob(StoreDir):
         raw = llm.read_llm(job["tid"])
         self.assertEqual([it["rejected"] for it in raw["items"]], [None, "cap", "cap"])
         # 保存しても fill は残る・文書を消すと llm.json も消える
-        saved = ed_store.sanitize_transcript(dict(doc), doc)
+        saved = store.sanitize_transcript(dict(doc), doc)
         self.assertEqual(saved["segments"][0]["fill"], {"from": "テスト文1", "by": "llm"})
         self.assertTrue(os.path.exists(llm.llm_path(job["tid"])))
 
@@ -176,7 +177,7 @@ class TestLlmJob(StoreDir):
         called = []
         with mock.patch.object(S, "ROSTER", other), mock.patch.object(llm, "llm_ask_fn", side_effect=lambda job, spec: called.append(1)):
             job = self.transcribe()
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         self.assertEqual((doc["recognition"]["runs"][0]["llm"]["picked"], called), (0, []))   # 名簿の人が出ない文書 = 選んだ所なし = LLM を読み込まない
         self.assertFalse(os.path.exists(llm.llm_path(job["tid"])))
 
@@ -185,20 +186,20 @@ class TestLlmJob(StoreDir):
             raise ed_state.ApiError("engine_failed", "llama-server が起動の途中で止まりました", 500)
         with mock.patch.object(llm, "llm_ask_fn", side_effect=boom):
             job = self.transcribe()
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         self.assertEqual([g["text"] for g in doc["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
         self.assertIn("llama-server", doc["recognition"]["runs"][0]["llm"]["error"])
         self.assertTrue(any("LLM" in w for w in job.get("warnings") or []), job.get("warnings"))
 
     def test_setting_and_eval_set(self):
         job = self.transcribe(autoLlm=False)
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         self.assertEqual((doc["segments"][0]["text"], doc["params"]["autoLlm"]), ("テスト文1", False))
         self.assertNotIn("llm", doc["recognition"]["runs"][0])
-        self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoLlm"])
+        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoLlm"])
         write_json(S.SETTINGS, {"autoLlm": False})
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoLlm"])
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoLlm": True, "evalSet": True})["autoLlm"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoLlm"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoLlm": True, "evalSet": True})["autoLlm"])
 
 
 class TestLlamaTextEngine(unittest.TestCase):

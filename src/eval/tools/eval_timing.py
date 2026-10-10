@@ -276,9 +276,9 @@ def apply_variants(docs, tdir, S=None):
     """--apply: 文書ごとに生出力へ VARIANTS の後処理を当て直して測る。S = 読み込んだ serve(テストで渡す。無ければ eval_asr.load_serve("fake"))
     -> {"variants": [{"key", "label", "settings", "overall", "byDoc": [{"id", "n", "head"…, "reproduced"?}]}], "docs", "skipped": {"noAsr", "badAsr"}}"""
     S = S or eval_asr.load_serve("fake")
-    # 値は持ち主の部品(ed_jobs)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)。
-    # "splitChars" だけは ed_jobs の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
-    J = getattr(S, "ed_jobs", S)
+    # 値は持ち主の部品(pipeline/transcribe/postproc)に直接入れる(load_serve は serve を登録して読むので S.名前 = … でも届くが、登録せずに読んだ serve を渡されても効くように)。
+    # "splitChars" だけは postproc の値ではなく後処理の spec に入れる(行を分ける文字数。0.59.5)
+    from pipeline.transcribe import postproc as J  # noqa: E402
     saved = {k: getattr(J, k) for _key, _label, st in VARIANTS for k in st if k != "splitChars"}
     res = {"variants": [{"key": key, "label": label, "settings": dict(st), "rows": [], "bnd": [], "byDoc": []} for key, label, st in VARIANTS],
            "docs": 0, "skipped": {"noAsr": 0, "badAsr": 0}}

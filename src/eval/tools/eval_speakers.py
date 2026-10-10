@@ -62,6 +62,8 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・git の rev・保存・editor の読み込み。src を sys.path に足す)
 from eval.tools._evalcommon import dist, is_reviewed, pct, rate, read_json  # noqa: E402
 from ytt import fsio  # noqa: E402
+from human.proof import speakers as proof_speakers  # noqa: E402
+from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 
 SCHEMA = "youtube-tools-speakers-eval/v1"
 DIAR_SCHEMA = "youtube-tools-diar/v1"     # src/pipeline/transcribe/diarize.py の DIAR_SCHEMA と同じ(editor は読み込まない)
@@ -554,7 +556,7 @@ def stored_smooth_recs(S, doc, run):
     """保存してある判別の記録で「ならしたら」を計算する(判別し直さない)-> (ならさない recs, ならした recs, ならした行 id の集まり)。
     行の時刻は文書の今の行(人が直したあと)・ラベルと割合は記録の rows(記録の無い行はラベル無し = 前後に数えるが、ならせない)。
     記録が「ならした回」なら、ならさない側は label(元のラベル)から labelMap で話者に戻す"""
-    E = S.ed_speakers
+    E = S
     recs = run.get("rows") if isinstance(run.get("rows"), dict) else {}
     lmap = {str(k): v for k, v in (run.get("labelMap") or {}).items()} if isinstance(run.get("labelMap"), dict) else {}
     ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
@@ -763,7 +765,7 @@ def check_models(S, root, grid):
         import sherpa_onnx  # noqa: F401  (道具のプロセスで読む。サーバーではない)
     except ImportError:
         raise SystemExit("話者判別の部品(sherpa-onnx)が入っていません(setup の install-diarize.bat)。py -3.10 で動かしているか確かめてください")
-    S.ed_speakers.DIAR_DIR = d
+    transcribe_diarize.DIAR_DIR = d
 
 
 def doc_audio(S, tid, doc, root, wav, job):
@@ -796,7 +798,7 @@ def score_turns(S, doc, turns, offset, since_ms, until_ms, include_draft, conf, 
         before = row_ok(r_off, best_mapping(r_off))
         ids = {str(s.get("id")) for s in doc.get("speakers") or [] if isinstance(s, dict) and s.get("id")}
         ts = sorted((a + offset, b + offset, s) for a, b, s in turns)
-        sm = S.ed_speakers.smooth_speakers(plain, res, ts, [S.ed_speakers.diar_keep_row(sg, ids) for sg in segs])
+        sm = transcribe_diarize.smooth_speakers(plain, res, ts, [proof_speakers.diar_keep_row(sg, ids) for sg in segs])
         recs = dict(recs)
         for i, lb in sm.items():
             rid = str(segs[i].get("id"))

@@ -25,6 +25,8 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 y
 sys.path.insert(0, REPO)
 from eval.tools import eval_asr as E  # noqa: E402
 from eval.tools import eval_import as EI  # noqa: E402
+from eval.fake import fake_asr  # noqa: E402
+from pipeline.transcribe import postproc  # noqa: E402
 
 
 def seg(i, a, b, text, proofed=True, tags=None, flag=""):
@@ -163,7 +165,7 @@ class EvalAsrTest(unittest.TestCase):
         """load_serve は serve を sys.modules に登録して読む = 「S.名前 = …」が持ち主の部品(ed_jobs・ed_state)に届く。
         2026-10-07 まで届いていなかった(認識は認識ワーカーで動き・--context auto はスタジオの data.json を読めず・差し替えた END_TRIM などは後処理に効かない)"""
         S = E.load_serve("fake")
-        J = S.ed_jobs
+        J = S
         self.assertIs(sys.modules[E.C.SERVE_NAME], S)
         self.assertTrue(J.IN_WORKER)                                         # 認識はこのプロセスの中で(認識ワーカーを起動しない)
         self.assertEqual(S.STUDIO_DATA, S.studio_data_path())      # スタジオの data.json は起動したツールと同じ決め方
@@ -204,8 +206,8 @@ class EvalAsrTest(unittest.TestCase):
 
         S = E.load_serve("fake")
         S2 = E.load_serve("fake")   # 何回読んでも包むのは 1 回(部品は同じもの)
-        J = S.ed_jobs
-        self.assertIs(J, S2.ed_jobs)
+        J = S
+        self.assertIs(J._load_model_local, S2._load_model_local)   # 持ち主(worker_client)は同じ
         fw = J.tx_engines.FasterWhisper.id
         job = {"cancel": False, "phase": ""}
         with mock.patch.dict(J._models, {("small", "cpu", fw): Model()}, clear=True), mock.patch.object(S, "gpu_ready", lambda: False), \
@@ -245,7 +247,7 @@ class EvalAsrTest(unittest.TestCase):
 
         def no_worker(*a, **k):
             raise AssertionError("認識ワーカーを起動した(IN_WORKER が ed_jobs に届いていない)")
-        J = E.load_serve().ed_jobs   # main も同じ部品を使う
+        J = E.load_serve()   # main も同じ部品を使う
         with mock.patch.dict(os.environ), mock.patch.object(J, "_load_model_local", lambda *a, **k: (Model(), "cpu")), \
                 mock.patch.object(J, "check_engine", lambda spec: None), mock.patch.object(J.WORKER, "call", no_worker), mock.patch.object(J.WORKER, "stream", no_worker):
             os.environ.pop("TRANSCRIBE_BACKEND", None)
@@ -284,8 +286,7 @@ class EvalAsrTest(unittest.TestCase):
             src = os.path.join(self.tmp, "clip.wav")
             silence_wav(src, 8.0)
             doc = {"id": "eeeeeeeeeee5", "sourcePath": src, "start": 0, "end": 8}
-            ed_jobs = S.ed_jobs
-            real = ed_jobs.expand_segments
+            real = postproc.expand_segments
             calls = []
 
             def spy(gen, spec, dur=None, join=True):
@@ -299,7 +300,7 @@ class EvalAsrTest(unittest.TestCase):
             def spec_of(engine):
                 a = types.SimpleNamespace(glossary=None, beam=0, model="small", engine=engine, vad=None, boost=None, device="auto", temp0=False)
                 return dict(E.run_spec(S, a, {}, True), context={"members": []})
-            with mock.patch.object(ed_jobs, "expand_segments", spy), mock.patch.object(ed_jobs, "transcribe_fake", fake):
+            with mock.patch.object(postproc, "expand_segments", spy), mock.patch.object(fake_asr, "transcribe_fake", fake):
                 rows, audio_sec, _w, _where, _dev = E.recognize_doc(S, doc, spec_of("faster-whisper"), self.data)
                 self.assertEqual([r["text"] for r in rows], ["中の行"])
                 self.assertAlmostEqual(calls[-1][0], audio_sec)

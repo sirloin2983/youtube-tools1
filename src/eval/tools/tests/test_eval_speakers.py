@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_speakers as E  # noqa: E402
+from pipeline.transcribe import worker_client  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -536,15 +537,15 @@ class TestDiarizeTune(unittest.TestCase):
             def call(self, op, args, job=None):
                 calls.append((op, dict(args)))
                 return [[0.0, 1.0, 0]]
-        saved = (S.ed_jobs.IN_WORKER, S.ed_jobs.WORKER)
-        S.ed_jobs.IN_WORKER, S.ed_jobs.WORKER = False, W()
+        saved = (worker_client.IN_WORKER, worker_client.WORKER)
+        worker_client.IN_WORKER, worker_client.WORKER = False, W()
         try:
             self.assertEqual(S.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.0, 0)])
             S.diarize_real({}, "a.wav", 2, "voxceleb", threshold=0.7, min_off=0.5)
             with self.assertRaises(S.ApiError):
                 S.diarize_real({}, "a.wav", 0, "voxceleb", threshold=-1)
         finally:
-            S.ed_jobs.IN_WORKER, S.ed_jobs.WORKER = saved
+            worker_client.IN_WORKER, worker_client.WORKER = saved
         self.assertEqual(calls[0], ("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"}))
         self.assertEqual(calls[1], ("diarize", {"wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}))
         self.assertEqual(len(calls), 2)

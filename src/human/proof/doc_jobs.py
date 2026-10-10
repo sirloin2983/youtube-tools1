@@ -329,7 +329,7 @@ def resplit_doc(obj):
 
 
 def run_job(job):
-    """文字起こし(kind transcribe)のジョブの本体。ほかの種類は登録した本体へ回す(ytt/jobs の JOB_RUNNERS。テストが ed_jobs.run_job で直に動かす)"""
+    """文字起こし(kind transcribe)のジョブの本体。ほかの種類は登録した本体へ回す(ytt/jobs の JOB_RUNNERS。テストが doc_jobs.run_job で直に動かす)"""
     kind = job.get("kind")
     if kind not in (None, "transcribe"):
         return _heavy.JOB_RUNNERS[kind](job)

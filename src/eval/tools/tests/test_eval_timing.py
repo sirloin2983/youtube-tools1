@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_timing as T  # noqa: E402
+from pipeline.transcribe import postproc  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):
@@ -219,9 +220,9 @@ class ApplyTest(unittest.TestCase):
                      [orig(10.0, 10.9, "こんにちは"), orig(11.2, 12.0, "元気ですか")], run=run, start=10.0)   # original = 0.57.0 の後処理(終わりを 0.1 秒早めた)
         self.env.write("aaaaaaaaaaaa.asr.json", {"schema": T.ASR_SCHEMA, "run": run, "segments": raw})
         self.env.doc("bbbbbbbbbbbb", FIVE_SEGS, FIVE_ORIG)                                      # 生出力が無い文書は --apply では数えない
-        before = (self.S.ed_jobs.END_TRIM, self.S.ed_jobs.JOIN_GAP)
+        before = (postproc.END_TRIM, postproc.JOIN_GAP)
         res = T.evaluate(self.env.root, apply=True, serve=self.S)
-        self.assertEqual((self.S.ed_jobs.END_TRIM, self.S.ed_jobs.JOIN_GAP), before)          # 差し替えた値は戻す
+        self.assertEqual((postproc.END_TRIM, postproc.JOIN_GAP), before)          # 差し替えた値は戻す
         ap = res["apply"]
         self.assertEqual((ap["docs"], ap["skipped"]), (1, {"noAsr": 1, "badAsr": 0}))
         by = {v["key"]: v for v in ap["variants"]}

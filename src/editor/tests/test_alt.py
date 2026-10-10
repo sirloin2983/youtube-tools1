@@ -23,10 +23,12 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import S, TID, StoreDir, write_json  # noqa: F401,E402  (S = serve)
-import ed_alt  # noqa: E402
-import ed_jobs  # noqa: E402
-import ed_learn  # noqa: E402
-import ed_store  # noqa: E402
+from eval.fake import fake_asr  # noqa: E402
+from human.proof import alt as proof_alt  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import store  # noqa: E402
+from pipeline.transcribe import postproc  # noqa: E402
+from ytt import jobs  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 
@@ -90,7 +92,7 @@ class TestAltDiffs(unittest.TestCase):
             t = "第%d番目の行です" % i
             rows.append(_row(i, i * 3.0, i * 3.0 + 2.5, t))
             alts.append(_alt(i * 3.0 + 0.4, i * 3.0 + 2.9, t.replace("行", "業") if i in (5, 250, 399) else t))
-        self.assertGreater(len(ed_alt._alt_windows(sorted([dict(r, n=k) for k, r in enumerate(rows)], key=lambda r: r["start"]))), 5)
+        self.assertGreater(len(proof_alt._alt_windows(sorted([dict(r, n=k) for k, r in enumerate(rows)], key=lambda r: r["start"]))), 5)
         items, st = S.alt_diffs(rows, alts)
         self.assertEqual([(x["seg"], x["wrong"], x["right"]) for x in items], [("s5", "行", "業"), ("s250", "行", "業"), ("s399", "行", "業")])
         self.assertEqual(st["cross"], 0)
@@ -107,7 +109,7 @@ class _AltStore(StoreDir):
         super().setUp()
         self.fb = mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
         self.fb.start()
-        ed_alt._alt_cache.clear()
+        proof_alt._alt_cache.clear()
 
     def tearDown(self):
         self.fb.stop()
@@ -218,20 +220,20 @@ class TestAltJob(_AltStore):
 
     def tearDown(self):
         self.env.stop()
-        with ed_jobs._jobs_lock:   # このテストのジョブを残さない(待機列の分も)
-            for k in list(ed_jobs._jobs):
-                if k in self.mine or (ed_jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
-                    ed_jobs._jobs.pop(k, None)
+        with jobs._jobs_lock:   # このテストのジョブを残さない(待機列の分も)
+            for k in list(jobs._jobs):
+                if k in self.mine or (jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
+                    jobs._jobs.pop(k, None)
             keep = []
             while True:
                 try:
-                    it = ed_jobs._queue.get_nowait()
+                    it = jobs._queue.get_nowait()
                 except Exception:
                     break
-                if it[2] in ed_jobs._jobs:
+                if it[2] in jobs._jobs:
                     keep.append(it)
             for it in keep:
-                ed_jobs._queue.put(it)
+                jobs._queue.put(it)
         super().tearDown()
 
     def _take(self, job):
@@ -240,21 +242,21 @@ class TestAltJob(_AltStore):
 
     def run_one(self, job):
         self._take(job)
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
     def transcribe(self, **req):
-        job = self.run_one(ed_jobs.add_job(ed_jobs.validate_job(dict({"sourcePath": self.video, "model": "small"}, **req))))
+        job = self.run_one(jobs.add_job(doc_jobs.validate_job(dict({"sourcePath": self.video, "model": "small"}, **req))))
         return job["tid"]
 
     def queued(self, kind, tid):
-        return [j for j in ed_jobs._jobs.values() if j.get("kind") == kind and j.get("tid") == tid and j["state"] == "queued"]
+        return [j for j in jobs._jobs.values() if j.get("kind") == kind and j.get("tid") == tid and j["state"] == "queued"]
 
     def test_job_writes_alt_and_keeps_doc(self):
         tid = self.transcribe()
-        before = ed_store.read_transcript(tid)
-        job = self.run_one(ed_jobs.add_job(S.alt_spec(tid, {}), "alt"))
+        before = store.read_transcript(tid)
+        job = self.run_one(jobs.add_job(S.alt_spec(tid, {}), "alt"))
         self.assertEqual((job["tid"], job["kind"]), (tid, "alt"))
         alt = S.read_alt(tid)
         self.assertEqual((alt["schema"], alt["id"], alt["engine"], alt["model"]), ("youtube-tools-alt/v1", tid, "llama.cpp", "qwen3-asr-1.7b"))
@@ -262,7 +264,7 @@ class TestAltJob(_AltStore):
         self.assertEqual([r["text"] for r in alt["rows"]], [g["text"].replace("文", "分") for g in before["segments"]])
         for k in ("at", "audioSec", "wallSec", "engineVersion", "device"):
             self.assertIn(k, alt)
-        after = ed_store.read_transcript(tid)
+        after = store.read_transcript(tid)
         self.assertEqual(after, before)   # 文書は書き換えない(updatedAt も)
         r = S.suggest_for_doc(tid)
         alts = [x for x in r["items"] if x["tier"] == "alt"]
@@ -272,9 +274,9 @@ class TestAltJob(_AltStore):
     def test_job_applies_row_post_processing(self):
         """主の文字起こしと同じ行の後処理(長さより後ろの行を捨てる)を通し、alt.json に印を残す(v0.52.1。音の谷へ寄せる pullEnds は 0.65.0 で消した)"""
         tid = self.transcribe()
-        job = self._take(ed_jobs.add_job(S.alt_spec(tid, {}), "alt"))
+        job = self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
         calls = []
-        real = ed_jobs.expand_segments
+        real = postproc.expand_segments
 
         def spy(gen, spec, dur=None, join=True):
             calls.append((dur, join))
@@ -283,8 +285,8 @@ class TestAltJob(_AltStore):
         def fake(job, spec, wav, total):   # 9 秒の動画に、長さの外(100 秒)の行
             yield {"start": 0.0, "end": 4.0, "text": "中の行"}
             yield {"start": 100.0, "end": 104.0, "text": "外の行"}
-        with mock.patch.object(ed_jobs, "expand_segments", spy), mock.patch.object(ed_jobs, "transcribe_fake", fake):
-            ed_jobs.run_job(job)
+        with mock.patch.object(postproc, "expand_segments", spy), mock.patch.object(fake_asr, "transcribe_fake", fake):
+            doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(len(calls), 1)
         self.assertAlmostEqual(calls[0][0], 9.0, delta=0.5)   # dur = 音声の長さ
@@ -296,20 +298,20 @@ class TestAltJob(_AltStore):
     def test_job_whisper_cpp_does_not_join(self):
         """whisper.cpp の候補も同じ整え方(0.64.0 までは音の谷へ寄せる levels を渡した = 0.65.0 で消した)"""
         tid = self.transcribe()
-        job = self._take(ed_jobs.add_job(S.alt_spec(tid, {"engine": "whisper.cpp"}), "alt"))
+        job = self._take(jobs.add_job(S.alt_spec(tid, {"engine": "whisper.cpp"}), "alt"))
         got = []
 
         def spy(gen, spec, dur=None, join=True):
             got.append((spec["engine"], join))
             return iter(())
-        with mock.patch.object(ed_jobs, "expand_segments", spy):
-            ed_jobs.run_job(job)
+        with mock.patch.object(postproc, "expand_segments", spy):
+            doc_jobs.run_job(job)
         self.assertEqual(got, [("whisper.cpp", False)])   # 候補は続いている行をつながない(時刻を使わない。0.57.1 の join_rows)
         self.assertEqual(S.read_alt(tid)["post"], {"clip": True, "mergeRepeats": True})
 
     def test_refusals(self):
         tid = self.transcribe()
-        d = ed_store.read_transcript(tid)
+        d = store.read_transcript(tid)
         # 最初の認識と同じエンジンとモデル
         d["recognition"]["runs"][0].update(engine="llama.cpp", model="qwen3-asr-1.7b")
         write_json(S.tx_path(tid), d)
@@ -318,7 +320,7 @@ class TestAltJob(_AltStore):
         self.assertEqual(cm.exception.code, "same_engine")
         self.assertEqual(S.alt_spec(tid, {"engine": "whisper.cpp"})["engine"], "whisper.cpp")   # 別のエンジンなら通る
         # 実行中のものがあれば断る
-        self._take(ed_jobs.add_job(S.alt_spec(tid, {"engine": "faster-whisper"}), "alt"))
+        self._take(jobs.add_job(S.alt_spec(tid, {"engine": "faster-whisper"}), "alt"))
         with self.assertRaises(S.ApiError) as cm:
             S.alt_spec(tid, {"engine": "faster-whisper"})
         self.assertEqual(cm.exception.code, "busy")
@@ -332,9 +334,9 @@ class TestAltJob(_AltStore):
 
     def test_doc_deleted_during_job(self):
         tid = self.transcribe()
-        job = self._take(ed_jobs.add_job(S.alt_spec(tid, {}), "alt"))
+        job = self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
         os.unlink(S.tx_path(tid))
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "error")
         self.assertFalse(os.path.exists(S.alt_path(tid)))
 
@@ -355,12 +357,12 @@ class TestAltJob(_AltStore):
         d4 = self.queued("diarize", tid4)   # 評価用は代わりに話者の自動判別が足される(v0.50.0)。このテストのジョブとして片付ける
         self.assertEqual(len(d4), 1)
         self.mine.update(j["id"] for j in d4)
-        self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
+        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
         write_json(S.SETTINGS, {"altEngine": "llama.cpp"})
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])
         # 始められなくても(同じエンジン)文字起こしは成功のまま・注意を出す
         job = {"warnings": []}
-        with mock.patch.object(ed_alt, "alt_spec", side_effect=S.ApiError("same_engine", "同じ", 400)):
+        with mock.patch.object(proof_alt, "alt_spec", side_effect=S.ApiError("same_engine", "同じ", 400)):
             S.alt_after_transcribe(job, {"autoAlt": True}, tid)
         self.assertEqual(len(job["warnings"]), 1)
 

@@ -18,6 +18,7 @@ import urllib.request
 from unittest import mock
 
 from test_backend import S, TID, StoreDir, free_port, start_server, write_json
+from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 
 
 def unit(*xs):
@@ -88,7 +89,7 @@ class TestVoiceRules(unittest.TestCase):
             for _k in range(rnd.randint(0, 30)):
                 a = rnd.uniform(0.0, max(1.0, t + 5))
                 segs.append({"start": a, "end": a + rnd.choice((0.0, 0.3, 1.5, 6.0))})
-            full = S.ed_speakers._assign(segs, ts)
+            full = transcribe_diarize._assign(segs, ts)
             self.assertEqual([r[:3] for r in full], S.assign_speakers(segs, ts, 0.0))
             for sg, (sp, _m, _w, ratio) in zip(segs, full):
                 self.assertEqual(ratio, S.label_ratio(sg["start"], sg["end"], sp, ts), (sg, sp))

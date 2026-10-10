@@ -27,6 +27,7 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
+from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 
 
 def lev(a, b):
@@ -834,11 +835,10 @@ class TestThreadDefaults(unittest.TestCase):
         self.assertEqual(tx_engines.FasterWhisper.thread_kw("cuda"), {})
 
     def test_diar_threads(self):
-        import ed_speakers
         with mock.patch.dict(os.environ, {"TRANSCRIBE_DIAR_THREADS": ""}), mock.patch("os.cpu_count", return_value=24):
-            self.assertEqual(ed_speakers.diar_threads(), 8)
+            self.assertEqual(transcribe_diarize.diar_threads(), 8)
         with mock.patch.dict(os.environ, {"TRANSCRIBE_DIAR_THREADS": "12"}):
-            self.assertEqual(ed_speakers.diar_threads(), 12)
+            self.assertEqual(transcribe_diarize.diar_threads(), 12)
 
 
 if __name__ == "__main__":

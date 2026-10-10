@@ -18,23 +18,13 @@ FILES = {
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
     "src/recorder/recorder.py": ("pipeline", "pipeline/ingest", "転送(RS5 で消す)"),
     # ---- cut2resolve → pipeline/pack は RS1-2 で移した(pack・resolve_textplus・cut2resolve_core・cut2resolve(CLI)・srt2resolve・auto_cut。DIRS で読む)
-    "src/cut2resolve/cut2resolve.py": ("app", "app", "転送(RS5 で消す)。cut2resolve.bat 用に pipeline/pack/cut2resolve.py を動かすだけ"),
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
     # ---- studio: analyze・batch・store(+ 新しい feedback)・rank(+ seed.json)・txlink は RS3-5 で層へ移した(DIRS で読む)。残るのは serve・startup・handoff = app
     "src/studio/startup.py": ("app", "app", "起動の小物(src を sys.path に足す・環境チェック・古いログの改名)。RS5-B で common.py の殻を消して残りをここへ"),
     "src/studio/serve.py": ("app", "app", "API の配線"),
     "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った"),
     # ---- editor
-    "src/editor/ed_jobs.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/doc_jobs・rerun と pipeline/transcribe"),
     "src/editor/tx_worker.py": ("pipeline", "pipeline/transcribe", "転送(RS5 で消す)。本体は RS2-9 で pipeline/transcribe/worker.py へ(疑似 install_fakes は eval/fake/fake_worker)。古い入口が旧い場所で起動するための runpy だけ"),
-    "src/editor/ed_retime.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/retime(行の時刻の候補の API の包み。計算は pipeline/transcribe/retime.py)"),
-    "src/editor/ed_speakers.py": ("human", "human/proof", "転送(RS5 で消す)。中身は pipeline/transcribe/diarize(判別の計算)と human/proof/speakers(文書の側・声の登録)"),
-    "src/editor/ed_store.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/store(文書 = 上書きの置き場)と manage/cases/doclist(一覧とパックの有無。serve が _add_moved で足す)"),
-    "src/editor/ed_alt.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/alt(2 つ目のエンジンとの食い違い = 校正の補助。疑似の行 _alt_fake は eval/fake/fake_asr。serve が _add_moved で足す)"),
-    "src/editor/ed_ytcap.py": ("human", "human/proof", "転送(RS5 で消す)。中身は human/proof/ytcap(YouTube の字幕 = 校正の補助)"),
-    "src/editor/ed_learn.py": ("human", "human/proof", "転送(RS5 で消す)。中身は pipeline/transcribe/replace(置換辞書)・human/proof/learn(学習と提案)・eval/drill/metrics(精度と基準。serve が _add_moved で足す)"),
-    "src/editor/ed_relink.py": ("manage", "manage/cases", "転送(RS5 で消す)。中身は manage/cases/relink(付け替え・まとめて付け替える・30fps)と eval/drill/folders(評価用のフォルダの整理。serve が _add_moved で足す)"),
-    "src/editor/ed_misc.py": ("manage", "manage/cases", "転送(RS5 で消す)。中身は manage/cases/handoff_io(clip-marker・受け渡し)・human/proof/batch(フォルダの一括)。進行度 human/proof/progress は 0.69.0(段 D2)で消した。runtime_path_dir は app の ed_state(A/B は 0.68.0 で消した)"),
     # ---- ed_drill・ed_evalbatch は RS4-2 で eval/drill の drill・evalbatch へ移した(殻なし。決定 3-25 #7。DIRS で読む)
     # ---- resolve_export は RS3-E5b で pipeline/pack へ(受け渡しの JSON と SRT の組み立て build_* も一緒)・pipeline_io は manage/cases へ(読み・保存・.runtime)。どちらも DIRS で読む = 旧い場所の転送は無い
     "src/editor/ed_media.py": ("app", "app", "動画の配信"),

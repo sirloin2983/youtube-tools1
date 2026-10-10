@@ -252,9 +252,9 @@ class InProcessModel:
 
 
 def in_process_models(S):
-    """ed_jobs._load_model_local(このプロセスの中でモデルを読む本体)が返すモデルを InProcessModel で包む。
-    部品(ed_jobs)は load_serve を何回呼んでも同じもの(普通の import)なので、包むのは 1 回だけ"""
-    J = S.ed_jobs
+    """worker_client._load_model_local(このプロセスの中でモデルを読む本体。S._load_model_local で読み書きする)が返すモデルを InProcessModel で包む。
+    持ち主の部品(worker_client)は load_serve を何回呼んでも同じもの(普通の import)なので、包むのは 1 回だけ"""
+    J = S
     if getattr(J._load_model_local, "in_process", False):
         return
     from pipeline.transcribe import worker as txw  # noqa: E402  認識ワーカーの受け口(読み込むだけでは何も起動しない。RS2-9 に editor/tx_worker から移した)

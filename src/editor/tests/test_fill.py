@@ -22,8 +22,12 @@ sys.path.insert(0, TESTS)
 from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from test_alt import make_video  # noqa: E402
 from pipeline.transcribe import fill  # noqa: E402  (RS2-9 から持ち主 pipeline/transcribe/fill.py を直に読む。旧 ed_fill)
-import ed_jobs  # noqa: E402
-import ed_store  # noqa: E402
+from human.proof import doc_jobs  # noqa: E402
+from human.proof import store  # noqa: E402
+from pipeline.transcribe import postproc  # noqa: E402
+from pipeline.transcribe import records  # noqa: E402
+from pipeline.transcribe import worker_client  # noqa: E402
+from ytt import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
@@ -148,22 +152,22 @@ class TestFillJob(StoreDir):
 
     def tearDown(self):
         self.env.stop()
-        with ed_jobs._jobs_lock:
-            for k in list(ed_jobs._jobs):
-                if k in self.mine or (ed_jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
-                    ed_jobs._jobs.pop(k, None)
+        with jobs._jobs_lock:
+            for k in list(jobs._jobs):
+                if k in self.mine or (jobs._jobs[k].get("spec") or {}).get("sourcePath") == self.video:
+                    jobs._jobs.pop(k, None)
         super().tearDown()
 
     def transcribe(self, **req):
-        job = ed_jobs.add_job(ed_jobs.validate_job(dict({"sourcePath": self.video, "model": "small"}, **req)))
+        job = jobs.add_job(doc_jobs.validate_job(dict({"sourcePath": self.video, "model": "small"}, **req)))
         self.mine.add(job["id"])
-        ed_jobs.run_job(job)
+        doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job
 
     def test_job_fills_sparse_rows_and_records(self):
         job = self.transcribe()
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         segs = doc["segments"]
         self.assertEqual([(g["start"], g["end"], g["text"]) for g in segs], [(0.0, 4.5, LONG), (3.5, 8.5, LONG), (8.0, 9.0, "テスト文3")])   # 窓 = 前後 0.5 秒
         self.assertEqual([g.get("fill") for g in segs], [{"from": "テスト文1", "by": "sense-voice"}, {"from": "テスト文2", "by": "sense-voice"}, None])
@@ -173,40 +177,40 @@ class TestFillJob(StoreDir):
         self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 2, "rows": 2, "added": 2, "dup": 0, "agree": 0})
         self.assertIs(doc["params"]["autoFill"], True)
         self.assertEqual([o["text"] for o in doc["original"]], [LONG, LONG, "テスト文3"])   # 機械の出力 = 後処理のあと(whisper の生の結果は asr.json)
-        self.assertEqual([a["text"] for a in ed_jobs.read_asr(job["tid"])["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
+        self.assertEqual([a["text"] for a in records.read_asr(job["tid"])["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
         # 保存しても fill は残る(画面の「別の読み」の札で戻せる)。形の違う fill は捨てる
-        saved = ed_store.sanitize_transcript(dict(doc, segments=[dict(segs[0]), dict(segs[2], fill="x")]), doc)
+        saved = store.sanitize_transcript(dict(doc, segments=[dict(segs[0]), dict(segs[2], fill="x")]), doc)
         self.assertEqual([g.get("fill") for g in saved["segments"]], [{"from": "テスト文1", "by": "sense-voice"}, None])
 
     def test_no_reading_keeps_rows(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
             job = self.transcribe()
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         self.assertEqual([g["text"] for g in doc["segments"]], ["テスト文1", "テスト文2", "テスト文3"])
         self.assertEqual(doc["recognition"]["runs"][0]["fill"], {"engine": "sense-voice", "windows": 2, "rows": 0, "added": 0, "dup": 0, "agree": 0})
 
     def test_setting_and_eval_set(self):
         """設定 autoFill(既定オン): 要求が優先・保存した設定・評価用はオフ"""
         job = self.transcribe(autoFill=False)
-        doc = ed_store.read_transcript(job["tid"])
+        doc = store.read_transcript(job["tid"])
         self.assertEqual(([g["text"] for g in doc["segments"]][0], doc["params"]["autoFill"]), ("テスト文1", False))
         self.assertNotIn("fill", doc["recognition"]["runs"][0])
-        self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
+        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
         write_json(S.SETTINGS, {"autoFill": False})
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
-        self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True})["autoFill"])
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True, "evalSet": True})["autoFill"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoFill"])
+        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True})["autoFill"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoFill": True, "evalSet": True})["autoFill"])
 
     def test_job_strips_speaker_names(self):
         """B のジョブ: 「名前:」を外し、fill(by name)と印・記録 runs[].names・params.stripNames。設定でオフ・評価用はオフ"""
-        orig = ed_jobs.expand_segments
+        orig = postproc.expand_segments
 
         def named(gen, spec, *a, **kw):
             for i, r in enumerate(orig(gen, spec, *a, **kw)):
                 yield dict(r, text="リリー:" + r["text"]) if i == 0 else r
-        with mock.patch.object(ed_jobs, "expand_segments", named), mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
-            doc = ed_store.read_transcript(self.transcribe()["tid"])
-            off = ed_store.read_transcript(self.transcribe(stripNames=False)["tid"])
+        with mock.patch.object(postproc, "expand_segments", named), mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": ""}):
+            doc = store.read_transcript(self.transcribe()["tid"])
+            off = store.read_transcript(self.transcribe(stripNames=False)["tid"])
         g = doc["segments"][0]
         self.assertEqual((g["text"], g["fill"]), ("テスト文1", {"from": "リリー:テスト文1", "by": "name"}))
         self.assertTrue(g["flag"].startswith(fill.FILL_SPK_FLAG), g["flag"])
@@ -214,8 +218,8 @@ class TestFillJob(StoreDir):
         self.assertEqual((doc["recognition"]["runs"][0]["names"], doc["params"]["stripNames"]), (1, True))
         self.assertEqual((off["segments"][0]["text"], off["params"]["stripNames"]), ("リリー:テスト文1", False))
         self.assertNotIn("names", off["recognition"]["runs"][0])
-        self.assertTrue(ed_jobs.validate_job({"sourcePath": self.video, "model": "small"})["stripNames"])
-        self.assertFalse(ed_jobs.validate_job({"sourcePath": self.video, "model": "small", "evalSet": True})["stripNames"])
+        self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["stripNames"])
+        self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "evalSet": True})["stripNames"])
 
 
 class TestSenseVoiceEngine(unittest.TestCase):
@@ -253,10 +257,10 @@ class TestSenseVoiceEngine(unittest.TestCase):
     def test_light_model_keeps_heavy_one(self):
         """小さいモデル(SenseVoice)を読んでも、主のモデル(faster-whisper など)は手放さない(文字起こしのたびに読み直さない)"""
         heavy = ("large-v3", "cpu", "faster-whisper")
-        with mock.patch.dict(ed_jobs._models, {heavy: object()}, clear=True), mock.patch.object(E.SenseVoice, "FAKE_TEXT", "x"):
-            m, dev = ed_jobs._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")
-            self.assertEqual((dev, set(ed_jobs._models)), ("cpu", {heavy, ("sense-voice-small", "cpu", "sense-voice")}))
-            self.assertIs(ed_jobs._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")[0], m)   # 2 回目は使い回す
+        with mock.patch.dict(worker_client._models, {heavy: object()}, clear=True), mock.patch.object(E.SenseVoice, "FAKE_TEXT", "x"):
+            m, dev = worker_client._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")
+            self.assertEqual((dev, set(worker_client._models)), ("cpu", {heavy, ("sense-voice-small", "cpu", "sense-voice")}))
+            self.assertIs(worker_client._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")[0], m)   # 2 回目は使い回す
 
 
 if __name__ == "__main__":

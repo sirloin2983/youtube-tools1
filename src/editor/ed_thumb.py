@@ -12,7 +12,7 @@ import os
 import time
 
 import ed_state
-import ed_store
+from human.proof import store  # noqa: E402
 from ytt import fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools
 
 THUMB_CROPS = ("alt", "center", "right")
@@ -28,7 +28,7 @@ def thumb_paths(src):
 
 def _thumb_doc_src(tid):
     """文書と動画のパス(動画が無ければ ApiError)"""
-    doc = ed_store.read_transcript(str(tid or ""))
+    doc = store.read_transcript(str(tid or ""))
     return doc, _tools.check_source(doc.get("sourcePath"))
 
 
@@ -54,7 +54,7 @@ def run_thumb(job):
     tid = spec["tid"]
     with _heavy.job_errors(job, log="サムネの案で例外"):
         job["state"], job["phase"] = "running", "サムネの案を作っています"
-        doc = ed_store.read_transcript(tid)
+        doc = store.read_transcript(tid)
         png, _js = thumb_paths(spec["sourcePath"])
         try:
             thumb_ideas.make(spec["sourcePath"], doc, None, png, spec["crop"])

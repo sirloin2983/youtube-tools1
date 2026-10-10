@@ -297,7 +297,7 @@ class RowTidyTest(unittest.TestCase):
         out = list(S.expand_segments([seg2], fw, 5.0))
         self.assertEqual(out[0]["end"], 2.0)                                               # つなぐのは全エンジン
         for name in ("PULL_ENDS_ON", "row_levels", "pull_ends", "WavLevels", "quant_retime", "QUANT_ON"):
-            self.assertFalse(hasattr(S.ed_jobs, name), name)                               # 0.65.0 で消した部品
+            self.assertFalse(hasattr(S, name), name)                               # 0.65.0 で消した部品
 
     def test_trim_ends(self):
         rows = [row(0.0, 1.0, "a"), row(1.1, 2.0, "b"), row(3.0, 3.25, "c"), row(3.3, 4.0, "d")]

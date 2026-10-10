@@ -78,8 +78,8 @@ class TestImportWithoutServe(unittest.TestCase):
     def test_import_without_serve(self):
         """doc_jobs は編集の serve を読まずに import できる(口は空のまま = 使う前に serve が登録する)"""
         code = ("import os, sys; os.environ.setdefault('YTT_DATA_DIR', 'inplace'); sys.path[:0] = [%r, %r]; "
-                "from human.proof import doc_jobs; import ed_jobs; "
-                "ok = 'serve' not in sys.modules and doc_jobs._hooks == {} and ed_jobs.public_job is doc_jobs.public_job; "
+                "from human.proof import doc_jobs; "
+                "ok = 'serve' not in sys.modules and doc_jobs._hooks == {}; "
                 "print(sorted(m for m in sys.modules if m == 'serve')); sys.exit(0 if ok else 1)") % (SRC, EDITOR)
         p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)

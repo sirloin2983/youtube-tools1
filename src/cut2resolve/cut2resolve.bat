@@ -4,9 +4,9 @@ rem Auto silence cut + rough-cut video are ON here. Use cut2resolve.py directly 
 chcp 65001 >nul
 where py >nul 2>nul
 if %errorlevel%==0 (
-  py -3 "%~dp0cut2resolve.py" %* --silence --render
+  py -3 "%~dp0..\pipeline\pack\cut2resolve.py" %* --silence --render
 ) else (
-  python "%~dp0cut2resolve.py" %* --silence --render
+  python "%~dp0..\pipeline\pack\cut2resolve.py" %* --silence --render
 )
 echo.
 pause
