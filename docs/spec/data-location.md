@@ -70,6 +70,12 @@
 - スタジオの data.json の場所 `placement.studio_data()`: 規則は `ytt/datadir` の 1 か所(上の「置き場所の求め方」)。読む側(案件の `manage/cases`・編集の `workdata.STUDIO_DATA`)はここを呼ぶ
 - **案件ごとのフォルダ**(`docs/design/rs6-survey-2026-10-10/option_b.md`): RS6 は **B-0**(置き場所の持ち主と結果の束・lock)まで。成果物を案件のフォルダへ寄せる B-1 は RS7、B-2・B-3(文書・設定も案件へ・URL の流れ)は画面の作りの見直しと一緒。段ごとに寄せるので、文書(`transcripts\`)・設定・案件ファイルは当面今の場所のまま
 
+## 案件の身分証 `case.json`(RS7-2 B-1・2026-10-11。持ち主は `src/flow/placement.py` の `ensure_case`)
+- 置き場所: `<案件>\case.json`(案件の根の直下。`作業用\` の外)。**無いときだけ**原子的に作る(冪等。あれば読むだけ・上書きしない。壊れていても作り直さずログだけ)。結果の束を書くとき(`write_result`)に一緒に作る = 実行のたびに案件ができる
+- 形: `{"schema": "youtube-tools-case/v1", "id", "media": {"kind": "video", "videoId"} か {"kind": "file", "path"}, "title", "channel", "createdAt"(ミリ秒), "madeBy": {"name": "flow", "version"}}`
+- id: `作業用\.studio-id`(持ち主の印)があればそれ -> 配信なら videoId -> 動画ファイルならパス(正規化)の sha1 の先頭 16 桁に `f-` を付けた物。`.studio-id` は残す(消さない)
+- 読み手: 入口の案件の一覧(`manage/cases` の snapshot)が各案件に `caseFile {id, createdAt}` として載せる(読むだけ。無い既存の案件は今までどおり・後付けでは書かない)。ファイルの索引は結果の束の `resultPath`
+
 ## 以前の場所のデータの片付け(`setup/cleanup_legacy_data.py`・`setup\cleanup_legacy_data.bat`)
 - 新しい場所で使えることを確かめてから、ユーザーが実行する(Cowork は PC のファイルを消せない)。消すものの一覧と大きさを見せ、y で**ごみ箱へ**移す(戻せる)
 - 消すのは、確かめられたものだけ: 新しい場所に `.migrated.json` があり、写した元がこのリポジトリのフォルダで、写した一覧にあり、新しい場所にも同じ名前があるもの。

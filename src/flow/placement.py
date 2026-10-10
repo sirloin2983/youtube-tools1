@@ -11,6 +11,7 @@ docs/design/rs6-survey-2026-10-10/option_b.md の 2 節・7 節の B-0 = 案件�
   読む側 = 案件(manage/cases の locations)と編集(src/editor/serve.py の studio_data_path → ytt/workdata.STUDIO_DATA)。
   スタジオ自身の ytt/studio_env.p("data.json") と workdata.set_root の読み込み直後の既定は ytt の側で flow を読めない(層の向き)ので変えず、
   ここが同じ ytt の値(スタジオの serve が datadir.register する場所)を読む向きにした
+- 案件の身分証 `ensure_case(media)`: <案件>/case.json を無いときだけ作る(冪等。write_result が一緒に呼ぶ)。読むだけは `read_case(root)`
 - 結果の束 `write_result(run)`: ② の 1 回の実行が終わったら <案件>/作業用/runs/<実行id>.json(形の名前 runlog.RESULT_SCHEMA)を原子的に書く。
   書けなくても実行は失敗にしない。入口の autorun-runs.jsonl の 1 行の resultPath(Run.public)が索引(読むのは runlog.read_result)
 - `.flow.lock`: 1 つの作業データに ② は 1 つ。置き場所は作業データの根(ytt.datadir.data_root。inplace なら .runtime)。
@@ -19,6 +20,7 @@ docs/design/rs6-survey-2026-10-10/option_b.md の 2 節・7 節の B-0 = 案件�
 
 media(案件を引く手がかり。media_of(run))= {"kind": "video", "videoId", "title", "clips": [切り抜きのパス]} か {"kind": "file", "path": 動画のパス}。
 """
+import hashlib
 import json
 import logging
 import os
@@ -32,6 +34,9 @@ from . import keys as _keys, runlog as _runlog
 log = logging.getLogger("ytt.flow.placement")
 
 STUDIO_DATA_NAME = "data.json"   # スタジオの全配信の候補・採用(作業データの studio の中)
+CASE_NAME = "case.json"          # 案件の身分証(<案件>/case.json。ensure_case が無いときだけ作る)
+CASE_SCHEMA = "youtube-tools-case/v1"
+CASE_MAX = 64 * 1024
 RUNS_DIR = "runs"                # 結果の束のフォルダ(<案件>/作業用/runs)
 LOCK_NAME = ".flow.lock"         # ② が 1 つだけ動く印(作業データの根)
 LOCK_MAX = 4096                  # 印はこれより大きければ読まない(壊れた物として扱う)
@@ -89,6 +94,54 @@ def runs_dir(media, out_dir=None):
     """<案件>/作業用/runs(② の結果の束)。案件が分からなければ None"""
     wd = work_dir(media, out_dir)
     return os.path.join(wd, RUNS_DIR) if wd else None
+
+
+# ---------------------------------------------------------------- case.json(案件の身分証。RS7-2 B-1)
+def _case_id(media, root):
+    """案件の id = 安定した物。作業用/.studio-id(持ち主の印)があればそれ -> 配信なら videoId -> 動画ファイルならそのパス(正規化)の sha1 の先頭 16 桁に f- を付けた物"""
+    owner = _names.read_owner(root)
+    if owner:
+        return owner[:64]
+    if media.get("kind") == "video" and media.get("videoId"):
+        return str(media["videoId"])[:64]
+    key = _fsio.norm_path(str(media.get("path") or root))
+    return "f-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+
+
+def read_case(root):
+    """<案件>/case.json を読む(読むだけ。④ manage もこれで読む)。無い・壊れている・形が違えば None"""
+    d = _fsio.read_json_or(os.path.join(root, CASE_NAME), None, max_bytes=CASE_MAX, kind=dict) if root else None
+    return d if d and d.get("schema") == CASE_SCHEMA and isinstance(d.get("id"), str) and d["id"] else None
+
+
+def ensure_case(media, out_dir=None, channel="", root=None):
+    """案件のフォルダに case.json(youtube-tools-case/v1)を**無いときだけ**原子的に作る。-> 中身(dict)か None(案件が分からない・書けない)。
+    既にあれば読んで返すだけ(上書きしない)。あるのに壊れていれば作り直さずログだけ(人が直せるように残す)。何があっても上げない。
+    形 {schema, id, media: {kind, videoId | path}, title, channel, createdAt(ミリ秒), madeBy}。id の決め方は _case_id"""
+    try:
+        root = root or case_root(media, out_dir)
+        if not root:
+            return None
+        path = os.path.join(root, CASE_NAME)
+        if os.path.exists(path):
+            got = read_case(root)
+            if got is None:
+                log.warning("case.json が読めません(上書きしません): %s", path)
+            return got
+        if media.get("kind") == "video":
+            m = {"kind": "video", "videoId": str(media.get("videoId") or "")}
+            title = media.get("title") or m["videoId"]
+        else:
+            m = {"kind": "file", "path": str(media.get("path") or "")}
+            title = os.path.splitext(os.path.basename(m["path"]))[0]
+        doc = {"schema": CASE_SCHEMA, "id": _case_id(media, root), "media": m, "title": str(title or "")[:120],
+               "channel": str(channel or "")[:100], "createdAt": int(time.time() * 1000),
+               "madeBy": {"name": "flow", "version": _version.VERSION}}
+        _fsio.write_json(path, doc)
+        return doc
+    except Exception as e:
+        log.warning("case.json を作れませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+        return None
 
 
 def _clip_paths(run, video=None):
@@ -203,6 +256,8 @@ def write_result(run, exc=None, runner=None, out_dir=None):
         if not d:
             log.info("結果の束を置く案件が分かりません(実行 %s)", run.id)
             return None
+        media = media_of(run, docs, video)
+        ensure_case(media, out_dir, getattr(run, "streamer", "") or "", root=os.path.dirname(os.path.dirname(d)))   # 実行のたびに案件ができる(無いときだけ)
         path = os.path.join(d, run.id + ".json")
         _fsio.write_json(path, result(run, exc, video))
         run.result_path = path

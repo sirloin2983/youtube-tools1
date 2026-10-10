@@ -297,6 +297,56 @@ def _dead_pid():
     return p.pid
 
 
+class TestEnsureCase(_Tmp):
+    def setUp(self):
+        super().setUp()
+        self.video = _touch(os.path.join(self.tmp, "req", "依頼.mp4"))
+        self.media = {"kind": "file", "path": self.video}
+        self.case = os.path.join(self.tmp, "req", "case.json")
+
+    def test_creates_once_and_idempotent(self):
+        a = placement.ensure_case(self.media, channel="ch")
+        self.assertTrue(os.path.isfile(self.case))
+        self.assertEqual((a["schema"], a["title"], a["channel"], a["media"]), ("youtube-tools-case/v1", "依頼", "ch", {"kind": "file", "path": self.video}))
+        self.assertTrue(a["id"].startswith("f-") and a["madeBy"]["name"] == "flow" and isinstance(a["createdAt"], int))
+        with open(self.case, "rb") as f:
+            before = f.read()
+        b = placement.ensure_case(self.media, channel="別")   # 2 回目は読むだけ(上書きしない)
+        self.assertEqual(b, a)
+        with open(self.case, "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertEqual(placement.read_case(os.path.join(self.tmp, "req")), a)
+
+    def test_broken_not_overwritten(self):
+        _touch(self.case, "{壊れた".encode("utf-8"))
+        self.assertIsNone(placement.ensure_case(self.media))
+        with open(self.case, "rb") as f:
+            self.assertEqual(f.read(), "{壊れた".encode("utf-8"))
+        self.assertIsNone(placement.read_case(os.path.join(self.tmp, "req")))
+
+    def test_unknown_case_is_none_and_nothing_made(self):
+        self.assertIsNone(placement.ensure_case({"kind": "file", "path": os.path.join(self.tmp, "nai", "v.mp4")}))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "nai")))
+
+    def test_video_id_from_studio_id_or_video_id(self):
+        out = os.path.join(self.tmp, "exports")
+        os.makedirs(out)
+        media = {"kind": "video", "videoId": "vid00000001", "title": "配信の題名"}
+        _name, path = names.pick_folder(out, "配信の題名", "vid00000001", "vid00000001")   # .studio-id を書く
+        c = placement.ensure_case(media, out)
+        self.assertEqual((c["id"], c["title"], c["media"]), ("vid00000001", "配信の題名", {"kind": "video", "videoId": "vid00000001"}))
+        self.assertTrue(os.path.isfile(os.path.join(path, "case.json")))
+        self.assertEqual(names.read_owner(path), "vid00000001")   # .studio-id は残る
+
+    def test_write_result_makes_case(self):
+        tx = os.path.join(self.tmp, "transcripts")
+        os.makedirs(tx)
+        with mock.patch.object(workdata, "TX_DIR", tx):
+            run_mod.run(None, {"path": self.video}, hooks=_Runner(lambda run: None))
+        self.assertTrue(os.path.isfile(self.case))
+        self.assertEqual(placement.read_case(os.path.join(self.tmp, "req"))["media"]["path"], self.video)
+
+
 class TestLock(_Tmp):
     def path(self):
         return os.path.join(self.tmp, placement.LOCK_NAME)

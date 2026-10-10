@@ -105,6 +105,18 @@ class TestBuild(Base):
         self.assertEqual(cases.snapshot(self.root, self.env)["cases"], [])
 
 
+class TestCaseFile(Base):
+    def test_snapshot_reads_case_json_but_never_writes(self):
+        from flow import placement
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
+        self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])   # 無い案件は今までどおり
+        self.assertFalse(os.path.exists(os.path.join(self.exports, "case.json")))        # 読むだけ(④ は書かない)
+        made = placement.ensure_case({"kind": "file", "path": self.clip1})
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"], {"id": made["id"], "createdAt": made["createdAt"]})
+        self.touch(os.path.join(self.exports, "case.json"), "{壊れた")
+        self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])
+
+
 class TestListExtras(Base):
     """一覧(1件1行)が使う合計・「次にやること」・配信日の目安(2026-09-26 画面の見直しで追加)"""
 

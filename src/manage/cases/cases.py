@@ -298,6 +298,15 @@ def _write(path, saved):
     fsio.write_json(path, {"schema": SCHEMA, "cases": saved})
 
 
+def _case_file(c):
+    """案件の case.json の要点 {id, createdAt} か None(書き出した切り抜きのフォルダから引く。無い・壊れていれば None)"""
+    for cl in c.get("clips") or ():
+        if cl.get("exists") and cl.get("path"):
+            got = placement.read_case(placement.case_root({"kind": "file", "path": cl["path"]}))
+            return {"id": got["id"], "createdAt": got.get("createdAt") or 0} if got else None
+    return None
+
+
 def snapshot(repo_root, env=None):
     """画面用の一覧。最後に見えた紐づけ(状態・メモを付けた案件だけ)を案件ファイルに残す"""
     loc = locations(repo_root, env)
@@ -320,6 +329,8 @@ def snapshot(repo_root, env=None):
                 _write(loc["cases"], saved)
             except OSError:
                 pass
+    for c in res["cases"]:   # 案件のフォルダの case.json(読むだけ。無い案件は今までどおり。書くのは flow/placement.ensure_case だけ)
+        c["caseFile"] = _case_file(c)
     res["casesFile"] = loc["cases"]
     return res
 
