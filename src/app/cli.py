@@ -178,12 +178,12 @@ class Learning:
         self.ld = ld
 
     def _tx_dir(self):
-        return os.path.join(self.ld, "transcripts") if self.ld else _workdata.TX_DIR
+        return _docloc.tx_root(self.ld)
 
     def _human(self):
         """(learn, doc_jobs) か None(学習のもとの文書が無い・③ を読めない)"""
         try:
-            if not any(n.endswith(".json") and not n.endswith((".edit.json", ".key.json")) for n in os.listdir(self._tx_dir())):
+            if not _docloc.iter_tids(self.ld):
                 return None
             from human.proof import doc_jobs, learn
         except (OSError, TypeError, ImportError):

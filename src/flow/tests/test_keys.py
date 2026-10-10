@@ -96,6 +96,20 @@ class TestWriteReadStale(_Env):
         self.assertFalse(os.path.exists(kp))
         self.assertTrue(keys.remove(kp))   # 無くても真
 
+    def test_doc_key_follows_index(self):
+        """索引で 作業用 に置いた文書の鍵は、その 作業用 に書かれて読める"""
+        from ytt import docloc
+        work = os.path.join(self.tmp, "案件", "作業用")
+        os.makedirs(work)
+        with open(os.path.join(work, TID + ".json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        docloc.place(TID, work)
+        kp = keys.doc_key_path(TID, "post")
+        self.assertEqual(kp, os.path.join(os.path.normpath(work), TID + ".post.key.json"))
+        keys.write("post", kp, {"a": 1})
+        self.assertTrue(os.path.isfile(kp))
+        self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".post.key.json")))
+
     def test_doc_key_path_checks_id(self):
         with self.assertRaises(ValueError):
             keys.doc_key_path("../x", "post")
