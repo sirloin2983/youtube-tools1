@@ -8,7 +8,7 @@ recognize_voices・voice_learn_plan・run_voice_learn)・話者ごとの字幕�
 テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") が届く)。
 旧い名前 ed_speakers.名前 は editor/ed_speakers.py(転送だけの殻。RS5 で消す)が、serve.名前 は serve の名前の受付がここへ回す。
 評価用の文書の名前の候補(eval の ed_drill.drill_candidates)は読まず、serve が set_context_namer で登録する口を呼ぶたびに引く(② から ④ を読まない)。
-editor の部品は裸の名前で読む(human の ed_store・ed_learn は層の向きが許す)。後処理 fill は pipeline/transcribe の部品を fill.名前 で呼ぶたびに読む(RS2-9)。
+editor の部品は裸の名前で読む(human の ed_learn は層の向きが許す)。文書の置き場は隣の store(RS3-E5a)。後処理 fill は pipeline/transcribe の部品を fill.名前 で呼ぶたびに読む(RS2-9)。
 """
 import bisect
 import json
@@ -23,7 +23,7 @@ from pipeline.transcribe import backend as _backend, diarize, recognize  # noqa:
 from pipeline.transcribe import txbase as _txbase, worker_client  # noqa: E402   印・ロガー・ジョブの注意・環境変数のスイッチ / 疑似のワーカーの判定 worker_fake
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from pipeline.transcribe import fill  # noqa: E402   判別のあと、定型の幻覚で声の無い行を捨てる fill_clean_turns(0.60.0。呼ぶたびに fill.名前 で読む)
-import ed_store  # noqa: E402,F401   文書の読み書き・保存のロック・控え
+from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 
 # ---------- serve が登録する口(RS2-9。eval の ed_drill を ② から読まない) ----------
 _namer = {}
@@ -65,7 +65,7 @@ def apply_diarization(tid, turns, offset, requested, emb=diarize.DIAR_EMB_DEFAUL
     読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。
     auto(文字起こしのあとの自動の判別。v0.50.0)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)。
     smooth = 短い 1 行だけ別の人になるのをならす(S2。smooth_speakers。行の話者だけ。turns・overlaps はそのまま記録する)"""
-    with ed_store._save_lock:
+    with store._save_lock:
         return _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
 
 
@@ -110,7 +110,7 @@ def _diar_kept_speakers(doc, segs, keep, taken):
 
 
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     dropped = fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ。0.60.0)
     segs = doc.get("segments") or []
     ids = _spk_ids(doc)
@@ -142,19 +142,19 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
             parts.append(mark)
             unsure += 1
         sg["flag"] = "、".join(parts)[:100]
-    ed_store.backup_doc(tid, "diarize")   # 直前の状態を1世代だけ残す・履歴にも残す(画面の「履歴」から戻せる)
+    store.backup_doc(tid, "diarize")   # 直前の状態を1世代だけ残す・履歴にも残す(画面の「履歴」から戻せる)
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
                                     **({"fillDropped": dropped} if dropped else {}))})
-    ed_store.write_doc(tid, doc)
+    store.write_doc(tid, doc)
     diarize._record_diar(tid, diarize.build_diar_run(segs, raw, turns, offset, requested, emb, idmap, auto, smoothed, ratios))   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure
 
 
 def validate_diarize(req):
     tid = str(req.get("tid") or "")
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     if not doc.get("segments"):
         raise _errors.ApiError("empty", "行がないため、話者を判別できません", 400)
     _tools.check_source(doc.get("sourcePath"))
@@ -178,8 +178,8 @@ def validate_diarize(req):
 def single_speaker(tid, name):
     """話す人が1人: 判別せずに全部の行をその人に(名前が無ければ「話者1」)。-> 行の数。
     手で決めた行(diar_keep_row = 字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない(2026-10-05)"""
-    with ed_store._save_lock:
-        doc = ed_store.read_transcript(tid)
+    with store._save_lock:
+        doc = store.read_transcript(tid)
         segs = doc.get("segments") or []
         ids = _spk_ids(doc)
         keep = [diar_keep_row(g, ids) for g in segs]
@@ -195,10 +195,10 @@ def single_speaker(tid, name):
                 continue
             sg["speaker"] = "S1"
             sg["flag"] = "、".join(x for x in str(sg.get("flag", "")).split("、") if x and x not in _txbase.SPK_FLAGS)[:100]
-        ed_store.backup_doc(tid, "diarize")
+        store.backup_doc(tid, "diarize")
         doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}] + kept_sps, "segments": segs, "updatedAt": int(time.time() * 1000),
                     "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
-        ed_store.write_doc(tid, doc)
+        store.write_doc(tid, doc)
         diarize._record_diar(tid, {"at": int(time.time() * 1000), "engine": {"name": "single", "requested": 1}, "offset": 0.0, "turns": [], "overlaps": [],
                                    "labelMap": {"0": "S1"}, "speakers": 1,
                                    "rows": {str(sg.get("id")): {"label": 0, "speaker": "S1", "ratio": 1.0, "mixed": False, "weak": False} for sg in segs},
@@ -235,7 +235,7 @@ def run_diarize(job):
             job["state"], job["error"], job["phase"] = "error", "話者を付けられませんでした: %s %s" % (e.__class__.__name__, str(e)[:150]), "失敗"
         return
     with _heavy.job_temp_wav(job) as wav:
-        doc = ed_store.read_transcript(spec["tid"])
+        doc = store.read_transcript(spec["tid"])
         src = _tools.check_source(doc.get("sourcePath"))
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         span = (end if end else (_tools.media_duration(src) or 0.0)) - start
@@ -491,7 +491,7 @@ def ovdraft_for_doc(tid, kinds=None):
     """GET /api/overlap-drafts?id=&kinds= : 保存済みの文書と判別の記録で候補を数える(読むだけ)。文書が無ければ 404。
     kinds = 「,」区切りのまとまり(overlap・missing。無い・空なら全部。知らない名前は捨てる)。
     -> ovdraft_candidates の結果 + "diarAt"(判別の時刻。記録が無ければ None)"""
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     d = diarize.read_diar(tid)
     latest = d["latest"] if d else None
     ks = None if kinds is None or not str(kinds).strip() else [k.strip() for k in str(kinds)[:100].split(",")]
@@ -545,7 +545,7 @@ def autodiar_enqueue(tid, batch=False):
     if not autodiar_ready():
         _txbase.log.info("話者の自動判別を飛ばしました(判別の部品 sherpa-onnx が無い): %s", tid)
         return {"skipped": "no_sherpa"}
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     why = autodiar_why_not(doc)
     if why:
         return {"skipped": why}
@@ -587,7 +587,7 @@ def autodiar_skip_at_start(job):
     判別しないなら「完了(判別しませんでした)」にして True"""
     spec = job["spec"]
     try:
-        why = autodiar_why_not(ed_store.read_transcript(spec["tid"]))
+        why = autodiar_why_not(store.read_transcript(spec["tid"]))
     except _errors.ApiError as e:
         why = e.code
     if not why:
@@ -604,8 +604,8 @@ def autodiar_name_by_context(tid, name):
     nm = str(name or "").strip()[:30]
     key = _spk_name_key(nm)
     hit, reason = None, None
-    with ed_store._save_lock:
-        doc = ed_store.read_transcript(tid)
+    with store._save_lock:
+        doc = store.read_transcript(tid)
         sps = [s for s in doc.get("speakers") or [] if isinstance(s, dict)]
         spent = {}
         for g in doc.get("segments") or []:
@@ -626,7 +626,7 @@ def autodiar_name_by_context(tid, name):
             if isinstance(doc.get("diarization"), dict):
                 doc["diarization"]["contextName"] = nm
             doc["updatedAt"] = int(time.time() * 1000)
-            ed_store.write_doc(tid, doc)
+            store.write_doc(tid, doc)
     _autodiar_record(tid, nm, hit, reason)
     return hit
 
@@ -711,7 +711,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
     voices = {n: v for n, v in all_voices.items() if n in names} if names else all_voices
     got, detail = {}, {}
     if voices:
-        doc = ed_store.read_transcript(tid)
+        doc = store.read_transcript(tid)
         grp = diarize.voice_groups(doc.get("segments") or [], lambda g: "" if _yschemas.no_sub_row(g) or g.get("speaker") == _yschemas.OTHER_SPK_ID else (g.get("speaker") or ""))   # ゲーム音声など・字幕に出さない行は照らし合わせない
         ids = list(grp)
         if ids:
@@ -740,11 +740,11 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
             _txbase.log.warning("声の照合の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
     if not got and not names:
-        record(ed_store.read_transcript(tid), [])
+        record(store.read_transcript(tid), [])
         return []
     named = []
-    with ed_store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(話者判別の書き込みと同じ)
-        doc = ed_store.read_transcript(tid)
+    with store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(話者判別の書き込みと同じ)
+        doc = store.read_transcript(tid)
         taken = {str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
         for s in doc.get("speakers") or []:
             hit = got.get(s.get("id")) if isinstance(s, dict) else None
@@ -760,7 +760,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
                 named.append({"speaker": left[0]["id"], "name": unused[0], "score": None, "by": "elimination"})
         if named:
             doc["updatedAt"] = int(time.time() * 1000)
-            ed_store.write_doc(tid, doc)
+            store.write_doc(tid, doc)
     record(doc, named)
     return named
 
@@ -816,7 +816,7 @@ def _voice_emb(req, doc):
 
 def voice_preview(tid, emb):
     """覚える前の確認(GET /api/voices/preview。読むだけ・ジョブを作らない。監査17・18)"""
-    doc = ed_store.read_transcript(str(tid or ""))
+    doc = store.read_transcript(str(tid or ""))
     emb = _voice_emb({"embedding": emb}, doc)
     plan = voice_learn_plan(doc)
     voices = load_voices(emb)
@@ -831,7 +831,7 @@ def voice_preview(tid, emb):
 
 def validate_voice_learn(req):
     tid = str(req.get("tid") or "")
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     if doc.get("evalSet") is True:   # 監査02: 評価用の声を覚えると、評価用のデータがほかの文書の名前付けに使われる
         raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
     want = req.get("names")
@@ -859,7 +859,7 @@ def validate_voice_learn(req):
 def run_voice_learn(job):
     spec = job["spec"]
     with _heavy.job_temp_wav(job) as wav:
-        doc = ed_store.read_transcript(spec["tid"])
+        doc = store.read_transcript(spec["tid"])
         if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
             raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
         src = _tools.check_source(doc.get("sourcePath"))
@@ -960,14 +960,14 @@ def speakers_sub_apply(obj):
     for name, st in styles.items():
         if not isinstance(name, str) or not isinstance(st, dict) or len(name) > 200 or any(ord(ch) < 32 for ch in name):
             raise _errors.ApiError("bad_request", "styles の名前・中身の形が正しくありません", 400)
-        if "color" in st and ed_store._sub_color(st["color"]) is None:
+        if "color" in st and store._sub_color(st["color"]) is None:
             raise _errors.ApiError("bad_request", "字幕の色は 16 進 6 桁(#RRGGBB)で送ってください: %s" % str(st["color"])[:20], 400)
-        one = ed_store.sanitize_sub_style(st)   # 知らない鍵は黙って捨てる(新しい入口が古い編集へ送っても、色までは効く)
+        one = store.sanitize_sub_style(st)   # 知らない鍵は黙って捨てる(新しい入口が古い編集へ送っても、色までは効く)
         key = _spksub_key(name)
         if one and key:
             want[key] = one
-    with ed_store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)
-        doc = ed_store.read_transcript(tid)
+    with store._save_lock:   # 読み直し〜書き込みは保存と同じロックの中(recognize_voices と同じ)
+        doc = store.read_transcript(tid)
         if _spksub_busy(tid):
             raise _errors.ApiError("busy", "この文字起こしは処理中です(話者判別などが終わってから、もう一度送ってください)", 409)
         applied = []
@@ -976,9 +976,9 @@ def speakers_sub_apply(obj):
                 continue
             one = want.get(_spksub_key(s.get("name")))
             if one:
-                s["sub"] = dict(ed_store.sanitize_sub_style(s.get("sub")) or {}, **one)
+                s["sub"] = dict(store.sanitize_sub_style(s.get("sub")) or {}, **one)
                 applied.append(str(s.get("name") or ""))
         if applied:
             doc["updatedAt"] = max(int(time.time() * 1000), int(_yschemas.num_or(doc.get("updatedAt"), 0) or 0) + 1)
-            ed_store.write_doc(tid, doc)
+            store.write_doc(tid, doc)
     return {"ok": True, "applied": applied}

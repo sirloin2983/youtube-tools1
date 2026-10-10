@@ -323,7 +323,7 @@ class TestOvdraftMissing(unittest.TestCase):
     def test_kinds_query(self):
         d = _doc([_row(1, 0, 10, "a", "S1"), _row(2, 12, 30, "b", "S1")])
         lt = _latest([(0, 30, 0), (20, 23, 2)], {0: "S1", 2: "S2"})
-        with mock.patch.object(S.ed_speakers.ed_store, "read_transcript", return_value=d), mock.patch.object(S.ed_speakers, "read_diar", return_value={"latest": lt}):
+        with mock.patch.object(S.ed_speakers.store, "read_transcript", return_value=d), mock.patch.object(S.ed_speakers, "read_diar", return_value={"latest": lt}):
             whys = lambda k: [x["why"] for x in S.ovdraft_for_doc(TID, k)["items"]]   # noqa: E731
             self.assertEqual(whys(None), ["missing", "overlap"])
             self.assertEqual(whys(""), ["missing", "overlap"])

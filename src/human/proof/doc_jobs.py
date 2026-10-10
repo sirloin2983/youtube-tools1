@@ -11,7 +11,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
-editor の部品は裸の名前で読む(human の ed_store・ed_alt・ed_ytcap は層の向きが許す)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)。
+editor の部品は裸の名前で読む(human の ed_alt・ed_ytcap は層の向きが許す)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
 後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
 """
 import bisect
@@ -34,8 +34,8 @@ from pipeline.transcribe import llm  # noqa: E402   LLM の後処理 E(名簿の
 from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c に ed_learn から。呼ぶたびに replace.名前 で読む)
 import ed_alt  # noqa: E402,F401
 import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
-import ed_store  # noqa: E402,F401
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
+from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
 # ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の ed_evalbatch をここから読まない = ② から ③・④ を読まない) ----------
@@ -114,10 +114,10 @@ def validate_job(req):
     if req.get("intoDoc") not in (None, ""):
         # 「編集」の文字起こしの無い文書(文字起こしせずに開いた動画)に行を入れる。id・題名・作った日・clip・編集の内容はそのまま
         into = str(req.get("intoDoc"))
-        target = ed_store.read_transcript(into)
+        target = store.read_transcript(into)
         if os.path.normcase(os.path.abspath(str(target.get("sourcePath") or ""))) != os.path.normcase(src):
             raise _errors.ApiError("bad_request", "文字起こしを入れる文書の動画と、選んだ動画が違います", 400)
-        if ed_store.doc_has_rows(target):
+        if store.doc_has_rows(target):
             raise _errors.ApiError("not_empty", "この文書にはもう行があります(新しい文字起こしとして作ってください)", 409)
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
@@ -277,8 +277,8 @@ def resplit_doc(obj):
     tid = str(obj.get("id") or "")
     o = obj.get("orientation")
     max_chars = subtitle_max_chars({"subtitleOrientation": o, "splitChars": obj.get("splitChars")})   # 分け直しは字幕の最大文字数(向きごと)で。文字起こしの分ける文字数(40)ではない
-    with ed_store._save_lock:
-        doc = ed_store.read_transcript(tid)
+    with store._save_lock:
+        doc = store.read_transcript(tid)
         base = obj.get("baseUpdatedAt")
         if isinstance(base, int) and not isinstance(base, bool) and base != int(doc.get("updatedAt") or 0):
             raise _errors.ApiError("conflict", "別の画面で先に保存されています。読み直してから、もう一度押してください", 409)
@@ -320,12 +320,12 @@ def resplit_doc(obj):
                 out.append(dict(g, id=sid, start=round(p["start"], 2), end=round(p["end"], 2), text=t[:_txbase.MAX_TEXT]))
         if not changed:
             return {"changed": 0, "added": 0, "skipped": skipped, "rows": len(segs), "updatedAt": int(doc.get("updatedAt") or 0)}
-        ed_store.snapshot(tid)   # 分ける前を「以前の版に戻す」に残す
+        store.snapshot(tid)   # 分ける前を「以前の版に戻す」に残す
         doc["segments"] = sorted(out, key=lambda g: (g["start"], g["end"]))
         doc["updatedAt"] = int(time.time() * 1000)
         doc["resplit"] = {"maxChars": max_chars, "rows": changed, "at": doc["updatedAt"]}
-        ed_store.apply_edit_cuts(tid, doc)
-        ed_store.write_doc(tid, doc)
+        store.apply_edit_cuts(tid, doc)
+        store.write_doc(tid, doc)
         return {"changed": changed, "added": added, "skipped": skipped, "rows": len(doc["segments"]), "updatedAt": doc["updatedAt"]}
 
 
@@ -370,7 +370,7 @@ def run_job(job):
             if tid is None:
                 return
         else:
-            tid = ed_store.fill_doc(spec, fields) if spec.get("intoDoc") else None
+            tid = store.fill_doc(spec, fields) if spec.get("intoDoc") else None
         if tid is None:
             tid = uuid.uuid4().hex[:12]
             doc = dict({"schema": "transcribe/v1", "id": tid, "title": spec["title"], "sourcePath": spec["sourcePath"], "sourceName": spec["sourceName"]},
@@ -379,7 +379,7 @@ def run_job(job):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
             if spec.get("evalSet"):
                 doc["evalSet"] = True
-            ed_store.write_doc(tid, doc)
+            store.write_doc(tid, doc)
         try:
             records.write_words(tid, out["words"], spec["model"])
         except OSError as e:
@@ -464,7 +464,7 @@ MAX_RANGE_SEC = 900
 
 def validate_retranscribe(req):
     tid = str(req.get("tid") or "")
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     if doc.get("evalSet") is True:
         raise _errors.ApiError("eval_set", "評価用の文字起こしは再認識できません(機械の出力=比べる基準が書き換わるため)。評価用を外してから行ってください", 400)
     src = _tools.check_source(doc.get("sourcePath"))
@@ -544,7 +544,7 @@ def redo_targets(doc, ids=None):
 def redo_spec(tid, req=None):
     """疑わしい所を認識し直すジョブの指定。モデルは文字起こしと同じ(kotoba なら、redoLarge で large-v3)。VAD は普通の強さで短く区切る"""
     req = req or {}
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     if doc.get("evalSet") is True:
         raise _errors.ApiError("eval_set", "評価用の文字起こしは認識し直せません(機械の出力=比べる基準が書き換わるため)", 400)
     _tools.check_source(doc.get("sourcePath"))

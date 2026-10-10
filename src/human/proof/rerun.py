@@ -14,7 +14,7 @@ from ytt import errors as _errors, jobs as _heavy, schemas as _yschemas, tools a
 from pipeline.transcribe import backend as _backend, postproc, records, recognize  # noqa: E402
 from pipeline.transcribe import roster as _roster, tx_engines, txbase as _txbase, worker_client  # noqa: E402
 from pipeline.transcribe import replace  # noqa: E402   置換辞書を当てる apply_replacements(RS3-E5c に ed_learn から)
-import ed_store  # noqa: E402   文書の読み書き・保存のロック・控え
+from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import doc_jobs  # noqa: E402   受付の側の dict_pairs・_fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
 
 
@@ -86,12 +86,12 @@ def replace_original(orig, a, b, text):
 
 
 def apply_retranscribe(spec, results):
-    with ed_store._save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
+    with store._save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
         return _apply_retranscribe(spec, results)
 
 
 def _apply_retranscribe(spec, results):
-    doc = ed_store.read_transcript(spec["tid"])
+    doc = store.read_transcript(spec["tid"])
     pairs = doc_jobs.dict_pairs(spec)
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
@@ -114,11 +114,11 @@ def _apply_retranscribe(spec, results):
             orig = replace_original(orig, sg["start"], sg["end"], raw)
     if have_orig:
         doc["original"] = orig
-    ed_store.backup_doc(spec["tid"], "retranscribe")
+    store.backup_doc(spec["tid"], "retranscribe")
     doc["retranscribed"] = {"model": spec["model"], "lines": done, "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
-    ed_store.apply_edit_cuts(spec["tid"], doc)
-    ed_store.write_doc(spec["tid"], doc)
+    store.apply_edit_cuts(spec["tid"], doc)
+    store.write_doc(spec["tid"], doc)
     return done, unsure
 
 
@@ -208,13 +208,13 @@ def apply_range(spec, lines, loose=()):
     lines=[{start,end,raw,flag,words?,conf?}]、loose = ほぼ空だった所を緩い条件で認識した行(印を付けて入れる)。
     差し替えない行(spec["ids"] に無い行。全体の再認識では校正済み)にかかる新しい行は避け、新しい認識でほぼ空だった元の行は残す(4-2・3-4)。
     -> {"lines": 入れた新しい行の数, "unsure", "kept": 守った行の数, "emptyKept": 元のまま残した行の数, "loose": 緩い条件の行の数}"""
-    with ed_store._save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
+    with store._save_lock:   # 保存と同じロック(apply_diarization と同じ理由)
         return _apply_range(spec, lines, loose)
 
 
 def _apply_range(spec, lines, loose=()):
     a, b = spec["range"]
-    doc = ed_store.read_transcript(spec["tid"])
+    doc = store.read_transcript(spec["tid"])
     pairs = doc_jobs.dict_pairs(spec)
     loose = [dict(x, flag="、".join(f for f in (LOOSE_FLAG, x.get("flag", "")) if f)) for x in loose]
     plan = plan_range(doc, spec, sorted(list(lines) + loose, key=lambda x: x["start"]))
@@ -245,13 +245,13 @@ def _apply_range(spec, lines, loose=()):
                  replaced_rows(doc.get("original") if isinstance(doc.get("original"), list) else [], [(a, b)], keep_spans), pairs)   # 差し替える前の機械の出力を残す(Q2)
     if isinstance(doc.get("original"), list):   # 守った行・元のまま残した行の機械の出力は古いまま(人が直した行との対応を壊さない)
         doc["original"] = replace_original_multi(doc["original"], a, b, new_lines, keep_spans)
-    ed_store.backup_doc(spec["tid"], "retranscribe")
+    store.backup_doc(spec["tid"], "retranscribe")
     n_loose = sum(1 for x in new_lines if LOOSE_FLAG in str(x.get("flag") or ""))
     doc["retranscribed"] = {"model": spec["model"], "lines": len(new), "range": [a, b], "whole": spec.get("mode") == "whole",
                             "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose, "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
-    ed_store.apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
-    ed_store.write_doc(spec["tid"], doc)
+    store.apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
+    store.write_doc(spec["tid"], doc)
     try:   # 単語の時刻も範囲の分を差し替える(守った行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
         replace_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
     except OSError as e:
@@ -295,9 +295,9 @@ def apply_redo(spec, results):
     途中で人が直した・校正した行は置き換えない。-> 置き換えた行の数"""
     if not results:
         return 0
-    with ed_store._save_lock:
+    with store._save_lock:
         tid = spec["tid"]
-        doc = ed_store.read_transcript(tid)
+        doc = store.read_transcript(tid)
         segs = [g for g in doc.get("segments") or [] if isinstance(g, dict)]
         by_id = {g["id"]: g for g in segs}
         used = {g["id"] for g in segs}
@@ -321,12 +321,12 @@ def apply_redo(spec, results):
         if not n_rep:
             return 0
         record_rerun(doc, spec, "redo", spans, replaced)
-        ed_store.snapshot(tid)
+        store.snapshot(tid)
         doc["segments"] = sorted((g for g in segs if g["id"] not in drop), key=lambda g: (g["start"], g["end"]))
         doc["updatedAt"] = int(time.time() * 1000)
         doc["redo"] = {"model": spec["model"], "rows": n_rep, "at": doc["updatedAt"]}
-        ed_store.apply_edit_cuts(tid, doc)
-        ed_store.write_doc(tid, doc)
+        store.apply_edit_cuts(tid, doc)
+        store.write_doc(tid, doc)
         for a, b, ws in new_words:
             try:
                 replace_words(tid, a, b, ws, spec["model"])
@@ -356,7 +356,7 @@ def run_redo(job):
     中止したら何も置き換えない。時間の上限(REDO_MAX_SEC)を超えたら残りの行はやめる"""
     spec = job["spec"]
     with _heavy.job_temp_wav(job, "中止しました(何も置き換えていません)", "疑わしい所の認識し直しで例外") as wav:
-        doc = ed_store.read_transcript(spec["tid"])
+        doc = store.read_transcript(spec["tid"])
         src = _tools.check_source(doc.get("sourcePath"))
         targets = doc_jobs.redo_targets(doc, set(spec["ids"]))
         if not targets:
@@ -392,7 +392,7 @@ def run_redo(job):
 def run_retranscribe(job):
     spec = job["spec"]
     with _heavy.job_temp_wav(job) as wav:
-        doc = ed_store.read_transcript(spec["tid"])
+        doc = store.read_transcript(spec["tid"])
         src = _tools.check_source(doc.get("sourcePath"))
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         by_id = {g["id"]: g for g in doc.get("segments") or []}
