@@ -562,3 +562,9 @@
 - 実装はまだ(OPT と同じく合図で)。RS8 で編集の画面(パックのタブ)を作り直すときに欄ごと消す。束の `pack.backup` は受け付けて読み捨てる形にしてから外す(古い束・待ちの記録で落ちない)
 - 決めていない(RV で聞く): 単独のコマンド `cut2resolve.py` は EDL が本来の出力 / FCPXML と単独のコマンド `srt2resolve.py`・`auto_cut.py`(画面・② からは使っていない)。予備を消しても EDL を作る部品(`cut2resolve_core.build_edl`)はコマンドが使う間は残る
 - 記録: `plan/opt-pipeline-flow.md` の 5 パック
+
+### 3-35 音量のそろえ方は「音量(%)」だけにする = ラウドネス(LUFS)をやめる(2026-10-11 ユーザー「音量だけでいい」)
+- 消す物: ラウドネスに合わせる選択(書き出し・ライブの書き出し・パックの `loudness`。`ytt/loudness.py`・`exporter.measure_loudness`/`apply_loudness`・`cut2resolve_core.measure_loudness`/`_gain_copy_opts` の測る側・`pack._pack_gain` のラウドネスの分・`flow/live_export` の `_audio_cfg`/`_adjust_audio` の測る側・束と鍵の `loudness`・スタジオと編集の画面の欄)。Python で約 270 行。OPT2 の「音量とラウドネスの ffmpeg を ① の 1 つに」は音量だけになって小さくなる
+- **動きが変わる**: 今の書き出しの既定はラウドネス −14 LUFS(切り抜きごとに測って同じ大きさに聞こえるようにそろえる)。やめると既定は音量 75%(測らない)になり、静かな切り抜きは静かなまま・大きい切り抜きは大きいまま出る。消す前に、既定の % を書き出し 75・パック 30 のままでよいかを 1 回確かめる(実装のとき AI から聞く)
+- 束・待ちの記録・設定に残った `loudness` は受け付けて読み捨てる形にしてから外す(古い束で落ちない)
+- 実装はまだ(OPT と同じく合図で。OPT2 の音量の引数をまとめる段と一緒に)
