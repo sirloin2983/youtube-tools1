@@ -522,7 +522,7 @@ class TestEditHttp(unittest.TestCase):
     def test_draft_waits_for_heavy_slot_then_falls_back(self):
         """行の端の無音をまだ調べていないときだけ SLOTS の順番を待つ。取れなければ決まった余白で広げて知らせる"""
         import contextlib
-        import resolve_export
+        from pipeline.pack import resolve_export
         video = os.path.join(self.media_dir, "順番.mkv")
         shutil.copy(self.video, video)
         doc = {"sourcePath": video, "whole": True, "segments": [{"id": "a", "start": 0.5, "end": 1.2, "text": "一"}]}
@@ -625,7 +625,7 @@ class TestEditHttp(unittest.TestCase):
         r = self.call("GET", "/api/edit/pack-readme?id=" + tid)
         self.assertEqual((r["name"], r["text"]), ("友人へ.txt", "Resolve で開く手順"))                # 2026-09-27 より前のパック
         # 今のパック(手順書のファイルが無い): パックの Lua に埋め込んだ計画から手順を作り直す
-        import resolve_export
+        from pipeline.pack import resolve_export
         _pk, tp = resolve_export._load_pack()
         plan = {"schema": tp.SCHEMA, "title": "パック", "fps": "30/1", "nominalFps": 30, "mediaFps": 30.0,
                 "target": {"fps": 30, "width": 1080, "height": 1920},
@@ -1509,7 +1509,7 @@ class TestToolIdentity(unittest.TestCase):
     def test_same_as_runtime_table(self):
         from ytt_core import runtime
         import ed_state
-        import pipeline_io
+        from manage.cases import pipeline_io
         self.assertEqual(runtime.TOOL_APPS["transcribe"], "transcribe-tool")
         self.assertEqual(S.APP_ID, runtime.TOOL_APPS["transcribe"])
         self.assertEqual(ed_state.APP_ID, runtime.TOOL_APPS["transcribe"])

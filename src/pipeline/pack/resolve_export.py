@@ -8,8 +8,10 @@
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
 同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。
 
-このファイルに残しているもの: 「残す行」の規則(is_kept / kept_spans)と SRT の書式。pipeline_io(cut-plan/v1・SRT の保存)も使う。
-パックの部品(pipeline.pack)は create_package を呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
+このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・SRT の書式・受け渡しの JSON の組み立て
+(transcript/v1・cut-plan/v1・SRT = build_*。RS3-E5b で編集の pipeline_io から移した。パックが読む形を作る側がここなので、
+manage/cases の pipeline_io は読み・保存・.runtime だけになり、pipeline → manage の向きの違反が無くなった)。
+パックの部品(同じフォルダの pack・resolve_textplus)は create_package などを呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
 """
 from __future__ import annotations
 
@@ -18,10 +20,14 @@ import math
 import os
 import re
 import shutil
-import sys
 import tempfile
 import zipfile
 from pathlib import Path
+
+from ytt import runtime as _runtime, schemas as _schemas
+
+TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/pipeline_io も同じ値を持つ)
+_num = _schemas.num
 
 
 class ResolveExportError(ValueError):
@@ -76,7 +82,98 @@ def kept_spans(segments: list[dict]) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- パック(pipeline/pack の pack.py で作る)
+# ---------------------------------------------------------------- 受け渡しの JSON と SRT の組み立て(RS3-E5b で pipeline_io から移した)
+
+def tool_info(version):
+    return {"name": TOOL_NAME, "version": str(version)}
+
+
+def sorted_segments(doc):
+    """文書の行を開始時刻の順に(画面の sortSegs と同じ、開始時刻だけの安定ソート)。時刻が壊れた行は除く。"""
+    out = []
+    for g in doc.get("segments") or []:
+        if not isinstance(g, dict):
+            continue
+        a, b = _num(g.get("start")), _num(g.get("end"))
+        if a is None or b is None or b < a:
+            continue
+        out.append(g)
+    return sorted(out, key=lambda g: float(g["start"]))
+
+
+def _media_of(doc):
+    """受け渡しの JSON の media(動画のパス・名前・長さ。transcript/v1 と cut-plan/v1 で同じ)"""
+    return {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
+            "durationSec": _num(doc.get("duration"))}
+
+
+def build_transcript_v1(doc, version):
+    """文書 → youtube-tools-transcript/v1。時刻は「動画ファイルの先頭 = 0 秒」(文書の保存形式のまま。範囲指定の文字起こしでも同じ)。
+    機械の出力(original)・学習用の情報(params・flag・tags・dismissed など)は入れない(受け渡しに不要で、個人データを増やさないため)。
+    文字が空の行は入れない(画面の書き出しと同じ)。speaker は speakers の並び順の番号(話者なしは null)。"""
+    speakers, index = [], {}
+    for s in doc.get("speakers") or []:
+        if isinstance(s, dict) and s.get("id") not in (None, "") and s.get("id") not in index:
+            index[s["id"]] = len(speakers)
+            speakers.append({"id": len(speakers), "name": str(s.get("name") or s["id"])[:60]})
+    segs = []
+    for g in sorted_segments(doc):
+        text = str(g.get("text") or "").strip()
+        if not text:
+            continue
+        one = {"id": str(g.get("id") or ""), "start": round(float(g["start"]), 3), "end": round(float(g["end"]), 3), "text": text,
+               "speaker": index.get(g.get("speaker")), "proofed": g.get("proofed") is True, "cut": g.get("cutState") == "cut"}
+        if g.get("noSub") is True:   # 字幕に出さない行(ゲームの声など。2026-10-05)。パックはこの行の字幕を作らず、残す区間には数える(cut2resolve の側)
+            one["noSub"] = True
+        segs.append(one)
+    out = {"schema": _schemas.TRANSCRIPT_SCHEMA, "tool": tool_info(version), "createdAt": _schemas.iso_now(), "media": _media_of(doc)}
+    if isinstance(doc.get("clip"), dict):
+        out["clip"] = doc["clip"]
+    out.update({"title": str(doc.get("title") or ""), "language": str(doc.get("language") or ""), "speakers": speakers, "segments": segs})
+    if doc.get("whole") is False:   # 範囲を指定して文字起こしした文書は、その範囲も示す(約束に無い項目。読む側は無視してよい)
+        out["transcribedRange"] = {"start": _num(doc.get("start")) or 0.0, "end": _num(doc.get("end"))}
+    return out
+
+
+def build_cut_plan_v1(doc, version):
+    """文書 → youtube-tools-cut-plan/v1。区間 = kept_spans(「カット済」でない・文字のある行を、重なる・接するものでまとめる)。
+    行と行の間のすき間は残さない(Resolve パッケージと同じ)。時刻は動画ファイルの先頭基準の秒(フレームへの変換は受け取る側)。"""
+    spans = kept_spans(sorted_segments(doc))
+    segs = []
+    for i, sp in enumerate(spans, 1):
+        label = "".join(str(g.get("text") or "").strip() for g in sp["segments"])
+        segs.append({"id": "segment-%03d" % i, "start": round(sp["start"], 3), "end": round(sp["end"], 3), "status": "adopted",
+                     "label": label[:40] + ("…" if len(label) > 40 else ""), "lines": [str(g.get("id") or "") for g in sp["segments"]]})
+    return {"schema": _schemas.CUT_PLAN_SCHEMA, "tool": tool_info(version), "createdAt": _schemas.iso_now(), "media": _media_of(doc),
+            "title": str(doc.get("title") or ""), "segments": segs}
+
+
+def wrap_text(text, n):
+    """n 文字ごとに改行(画面の wrapText と同じ。文字はコードポイント単位で数える)。n=0 は折り返さない。"""
+    if not n:
+        return text
+    return "\n".join(text[i:i + n] for i in range(0, len(text), n))
+
+
+def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
+    """画面の SRT 書き出し(index.html の exportRows / buildExport)と同じ規則:
+    文字が空の行は出さない・終わりが基準より前の行は出さない・開始は 0 未満にしない・話者名は「[名前] 」を頭に付ける。
+    動画の隣に保存する SRT は、その動画の先頭を 0 秒にする(base=0。範囲指定の文書でも動画の時刻のまま)。
+    カット済の行も出す(字幕は動画全体に対するもの。カットは cut-plan と一緒に cut2resolve が適用する)。
+    字幕に出さない行(noSub。ゲームの声など)は出さない。"""
+    names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
+    cues = []
+    for g in sorted_segments(doc):
+        text = str(g.get("text") or "").strip()
+        a, b = float(g["start"]) - base, float(g["end"]) - base
+        if not text or b <= 0 or g.get("noSub") is True:
+            continue
+        name = names.get(g.get("speaker"), "") if speaker_names and g.get("speaker") else ""
+        cues.append((max(0.0, a), b, ("[%s] " % name if name else "") + wrap_text(text, wrap)))
+    return srt_text(cues), len(cues)
+
+
+# ---------------------------------------------------------------- パック(同じフォルダの pack.py で作る)
 
 def pack_instructions(folder):
     """パックのフォルダ -> Resolve での手順(画面の「手順を見る」)。手順書のファイルは入れない(2026-09-27)ので、
@@ -92,21 +189,13 @@ def pack_instructions(folder):
 
 
 def _load_pack():
-    """パックの部品 pipeline.pack の pack と resolve_textplus(役割で組み直す RS1-2 で cut2resolve から移した)。
-    src はふつう serve.py の _load_core が sys.path に足している(入口の中でも同じ。cut2resolve の API と同じモジュールを使う)。
-    このファイルだけを読んだとき(テスト・道具)は、serve.py と同じ規則(YTT_CORE_DIR → このフォルダの1つ上)で src を末尾に足す。"""
+    """パックの部品(同じフォルダの pack と resolve_textplus。役割で組み直す RS1-2 で cut2resolve から移した)。
+    呼ばれたときに初めて読む(重い部品なので、残す行の規則・SRT・受け渡しの JSON だけ使うときは読まない)。
+    RS3-E5b で resolve_export 自体が pipeline/pack に入ったので、以前の sys.path の探し方(YTT_CORE_DIR)は要らなくなった"""
     try:
-        from pipeline.pack import pack, resolve_textplus
-    except ImportError:
-        for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
-            if d and os.path.isfile(os.path.join(d, "pipeline", "pack", "pack.py")):
-                if d not in sys.path:
-                    sys.path.append(d)
-                break
-        try:
-            from pipeline.pack import pack, resolve_textplus
-        except ImportError as e:
-            raise ResolveExportError("パックの部品(pipeline.pack)を読み込めません: %s" % e)
+        from . import pack, resolve_textplus
+    except ImportError as e:
+        raise ResolveExportError("パックの部品(pipeline.pack)を読み込めません: %s" % e)
     return pack, resolve_textplus
 
 
@@ -130,10 +219,9 @@ def _draft_cache(pack):
 
 def _write_transcript(doc, version, folder):
     """文書 → 一時フォルダの transcript/v1(pack に渡す。開いただけで動画の隣にファイルを増やさない)-> パス"""
-    import pipeline_io   # pipeline_io も resolve_export を読み込むので、使うときに読む(循環を避ける)
     tpath = os.path.join(folder, "input.transcript.json")
     with open(tpath, "w", encoding="utf-8") as f:
-        json.dump(pipeline_io.build_transcript_v1(doc, version), f, ensure_ascii=False)
+        json.dump(build_transcript_v1(doc, version), f, ensure_ascii=False)
     return tpath
 
 

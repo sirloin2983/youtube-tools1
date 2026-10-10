@@ -52,8 +52,8 @@ for d in (ROOT / "editor", ROOT):
 from pipeline.pack import pack  # noqa: E402  パックの部品(RS1-2 で cut2resolve から移した)
 from pipeline.pack import resolve_textplus as TP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-import pipeline_io  # noqa: E402  editor
-import resolve_export  # noqa: E402  editor
+from manage.cases import pipeline_io  # noqa: E402,F401  manage/cases(RS3-E5b。build_* は resolve_export へ移った)
+from pipeline.pack import resolve_export  # noqa: E402  pipeline/pack(RS3-E5b に editor から移した)
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS_RATE = {"24": "24", "25": "25", "29.97": "30000/1001", "30": "30", "50": "50", "59.94": "60000/1001", "60": "60"}
@@ -182,7 +182,7 @@ class ResolvePackContract(unittest.TestCase):
 
     def write_v1(self, doc):
         tp = Path(self.tmp) / (Path(doc["sourcePath"]).stem + ".transcript.json")
-        tp.write_text(json.dumps(pipeline_io.build_transcript_v1(doc, "contract"), ensure_ascii=False), encoding="utf-8")
+        tp.write_text(json.dumps(resolve_export.build_transcript_v1(doc, "contract"), ensure_ascii=False), encoding="utf-8")
         return tp
 
     # ---- 今の文字起こしツールの経路(create_package と同じ: 文書 → transcript/v1 → pack.plan_cut(TRANSCRIPT_ROWS))

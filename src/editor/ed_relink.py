@@ -73,7 +73,7 @@ def relink_check(obj):
     """POST /api/relink/check {"id", "path"}: 付け替える前の確認(書き込まない)。
     -> {path, name, durationSec, fps, hasVideo, docDuration, diffSec, mismatch, sameAsNow, usedBy: [{id, title}], rowsAfterEnd, warnings}。
     fps・長さはカットのタブと同じ測り方(resolve_export.edit_draft。音声だけのファイルは ffmpeg の長さ)"""
-    import resolve_export
+    from pipeline.pack import resolve_export   # 呼ぶときに読む(RS3-E5b に editor から pipeline/pack へ)
     tid = str(obj.get("id") or "")
     doc = ed_store.read_transcript(tid)
     p = relink_path(obj.get("path"))

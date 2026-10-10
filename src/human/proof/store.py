@@ -20,6 +20,7 @@ import uuid
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from pipeline.pack import resolve_export  # noqa: E402   カットのたたき台・見積もり(RS3-E5b に editor から pipeline/pack へ。呼ぶたびに resolve_export.名前 で読む)
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
 
 
@@ -628,7 +629,6 @@ def edit_draft(tid, rows=False):
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
     ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
-    import resolve_export
     doc = read_transcript(tid)
     src = str(doc.get("sourcePath") or "")
 
@@ -674,7 +674,6 @@ def keeps_arg(v):
 
 def edit_preview(obj):
     """POST /api/edit/preview {"id", "keeps"}: カットのとおりに作ったときのパックの見積もり(区間の数・カット後の長さ・Text+ 字幕の数・注意)。ファイルは作らない"""
-    import resolve_export
     doc = read_transcript(str(obj.get("id") or ""))
     keeps = keeps_arg(obj.get("keeps"))
     src = str(doc.get("sourcePath") or "")

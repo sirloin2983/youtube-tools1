@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -14,8 +15,9 @@ import zipfile
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が src(ytt・pipeline.pack)を見つけられるように
+sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層)。RS3-E5b から resolve_export は pipeline/pack
 
-import resolve_export  # noqa: E402
+from pipeline.pack import resolve_export  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
@@ -72,15 +74,14 @@ class NoSubTests(unittest.TestCase):
         self.assertTrue(resolve_export.is_kept(self.SEGS[1]))
 
     def test_transcript_v1_carries_nosub_and_srt_skips(self):
-        import pipeline_io
-        v1 = pipeline_io.build_transcript_v1(self.doc(), "test")
+        v1 = resolve_export.build_transcript_v1(self.doc(), "test")
         self.assertEqual([(g["id"], g.get("noSub")) for g in v1["segments"]], [("a", None), ("b", True), ("c", True), ("d", True)])
         self.assertEqual([s["name"] for s in v1["speakers"]], ["ぺこら", "ゲーム音声など"])
-        text, n = pipeline_io.build_srt(self.doc())
+        text, n = resolve_export.build_srt(self.doc())
         self.assertEqual(n, 1)
         self.assertIn("配信者", text)
         self.assertNotIn("NPC", text)
-        plan = pipeline_io.build_cut_plan_v1(self.doc(), "test")   # 残す区間(cut-plan/v1)は今までどおり
+        plan = resolve_export.build_cut_plan_v1(self.doc(), "test")   # 残す区間(cut-plan/v1)は今までどおり
         self.assertEqual([(s["start"], s["end"]) for s in plan["segments"]], [(0.0, 4.0), (6.0, 7.0)])
 
     def test_speaker_sub_colors_for_zip(self):

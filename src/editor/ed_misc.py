@@ -11,7 +11,8 @@ import os
 
 from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
 import ed_jobs  # noqa: E402,F401
-import pipeline_io  # noqa: E402   (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード)
+from manage.cases import pipeline_io  # noqa: E402   (受け渡しの読み・保存・.runtime。RS3-E5b に editor から manage/cases へ。RS3-0A まで ed_state.pio() の遅延ロード)
+from pipeline.pack import resolve_export  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b に pipeline_io から pipeline/pack へ)
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
@@ -281,7 +282,7 @@ def clip_info(path):
 
 
 def transcript_v1(tid):
-    return pipeline_io.build_transcript_v1(ed_store.read_transcript(tid), _workdata.SERVER_VERSION)
+    return resolve_export.build_transcript_v1(ed_store.read_transcript(tid), _workdata.SERVER_VERSION)
 
 
 def export_file(req):
@@ -304,13 +305,13 @@ def export_file(req):
         raise ed_state.ApiError("no_media", "元の動画が見つかりません(移動・削除した可能性があります): %s" % src, 400)
     suffix = pm.EXPORT_FORMATS[fmt]
     if fmt == "transcript-v1":
-        obj = pm.build_transcript_v1(doc, _workdata.SERVER_VERSION)
+        obj = resolve_export.build_transcript_v1(doc, _workdata.SERVER_VERSION)
         count, schema = len(obj["segments"]), pm.TRANSCRIPT_SCHEMA
         if not count:
             raise ed_state.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
         data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     elif fmt == "cut-plan-v1":
-        obj = pm.build_cut_plan_v1(doc, _workdata.SERVER_VERSION)
+        obj = resolve_export.build_cut_plan_v1(doc, _workdata.SERVER_VERSION)
         ed, _broken = ed_store.read_edit(tid)
         if ed:   # 「編集」のカットがあれば、残す区間はそのとおり(行の区間ではなく)
             obj["segments"] = [{"id": "segment-%03d" % i, "start": a, "end": b, "status": "adopted", "label": ""}
@@ -324,7 +325,7 @@ def export_file(req):
             wrap = max(0, min(200, int(req.get("wrap") or 0)))
         except (TypeError, ValueError):
             wrap = 0
-        text, count = pm.build_srt(doc, wrap, req.get("speakerNames") is True)
+        text, count = resolve_export.build_srt(doc, wrap, req.get("speakerNames") is True)
         schema = None   # SRT は中身で「前にこのツールが書いたか」を判断できないので、同名があれば常に別名にする
         if not count:
             raise ed_state.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)

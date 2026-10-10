@@ -12,6 +12,7 @@ import time
 
 from ytt import errors as _errors, fsio as _fsio, studiodata as _studiodata  # noqa: E402
 from human.proof import store  # noqa: E402   文書の要約・編集の内容(呼ぶたびに store.名前 で読む)
+from pipeline.pack import resolve_export  # noqa: E402   パックの手順の作り直し(RS3-E5b に editor から pipeline/pack へ。呼ぶたびに resolve_export.名前 で読む)
 from . import txindex  # noqa: E402   パックの有無・パックのフォルダかの判定(規則の 1 か所)
 
 PACK_CHECK_BUDGET = 2.0   # 秒。一覧1回でパック・動画の有無を調べる時間の上限(外付けの取り外し・つながらないネットワークドライブで一覧が止まらないように)
@@ -95,7 +96,6 @@ def pack_readme(tid):
     folder = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
     if not folder or _fsio.is_network_path(folder) or not txindex.is_pack_dir(folder):
         raise _errors.ApiError("not_found", "前回のパックのフォルダが見つかりません(移動・削除した可能性があります)", 404)
-    import resolve_export   # 呼ぶときに読む(編集の部品。serve が編集のフォルダを sys.path に入れている)
     text = resolve_export.pack_instructions(folder)
     if text:
         return {"name": "", "text": text}

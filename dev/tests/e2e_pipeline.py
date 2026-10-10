@@ -89,7 +89,7 @@ def main():
         # ---- ② 文字起こし(一時フォルダに写して動かす: transcripts/ などを本物と混ぜない)
         tt = os.path.join(tmp, "editor")
         os.makedirs(tt)
-        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
             shutil.copy(os.path.join(ROOT, "editor", n), tt)
         procs.append(subprocess.Popen([sys.executable, os.path.join(tt, "serve.py"), str(pt), "--no-open"], env=env, cwd=tt,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NEW_GROUP))

@@ -1,34 +1,19 @@
-"""ツール間の受け渡し(docs/spec/pipeline.md の約束 v1)を扱う部品。serve.py から呼ぶ。Python 標準ライブラリだけで動く。
+"""ツール間の受け渡し(docs/spec/pipeline.md の約束 v1)のうち、読み・保存・.runtime を扱う部品(層 manage)。serve.py から呼ぶ。Python 標準ライブラリだけで動く。
 
 - youtube-tools-clip/v1       … 切り抜きスタジオが mp4 の隣に置く .clip.json を探す・読む・検証する
-- youtube-tools-transcript/v1 … 文字起こしの文書(transcribe/v1)から、受け渡し用の JSON を作る
-- youtube-tools-cut-plan/v1   … 「カット済」でない行(残す区間)から、cut2resolve 用の JSON を作る
-- SRT                         … 字幕(画面の書き出しと同じ規則)
 - 動画の隣への保存            … 同名のファイルがあるときの「上書き / 別名」の規則と、原子的な書き込み
 - .runtime/<ツールID>.json    … 実行中のポートの共有と、他のツールの問い合わせ(/api/siblings)
 
+受け渡しの JSON(transcript/v1・cut-plan/v1)と SRT を組み立てる部分(build_*)は、RS3-E5b で pipeline/pack/resolve_export へ移した
+(パックが読む形を作る側なので ① に置く。manage から ① を読む向きは正しい)。呼ぶ側は resolve_export.build_transcript_v1 などと読む。
+
 serve.py(17万文字)に直接足さず、ここに分けたのは、将来1つのアプリに統合するときに、この部品ごと移せるようにするため。
-ツールに依らない部分(clip/v1 の検証・原子的な書き込み・.runtime)は共通部品 ytt_core(統合計画の段階2)に移し、ここからはそれを呼ぶ。
-どの行を「残す」かの規則は resolve_export.is_kept / kept_spans に1か所だけ持ち、ここではそれを使う(規則を二重に持たない)。
+ツールに依らない部分(clip/v1 の検証・原子的な書き込み・.runtime)は共通部品 ytt(統合計画の段階2)に移し、ここからはそれを呼ぶ。
 """
 import os
-import sys
 import threading
 
-
-def _load_core():
-    """共通部品 ytt_core を読み込めるようにする(serve.py の _load_core と同じ規則。pipeline_io だけを読み込むテスト・道具のため)。"""
-    here = os.path.dirname(os.path.abspath(__file__))
-    for d in (os.environ.get("YTT_CORE_DIR"), os.path.dirname(here)):
-        if d and os.path.isfile(os.path.join(d, "ytt", "__init__.py")):
-            if d not in sys.path:
-                sys.path.append(d)
-            return
-
-
-_load_core()
-import resolve_export  # noqa: E402
-from ytt import fsio, runtime, schemas  # noqa: E402
+from ytt import fsio, runtime, schemas
 
 TOOL_NAME = runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない)
 CLIP_SCHEMA = schemas.CLIP_SCHEMA
@@ -58,12 +43,7 @@ class PipelineError(Exception):
 # ---------- 共通(中身は ytt_core) ----------
 read_json_file = fsio.read_json_file     # (path, max_bytes)。NaN・大きすぎるファイルは ValueError
 iso_now = schemas.iso_now
-_num = schemas.num
 is_network_path = fsio.is_network_path   # ネットワーク上のパスは、利用者が押したボタン以外では調べない(NTLM のハッシュを送らないため)
-
-
-def tool_info(version):
-    return {"name": TOOL_NAME, "version": str(version)}
 
 
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
@@ -104,94 +84,6 @@ def resolve_clip_media(clip_json_path, clip, media_exts):
         except (OSError, ValueError):
             continue
     return None
-
-
-# ---------- youtube-tools-transcript/v1 ----------
-def sorted_segments(doc):
-    """文書の行を開始時刻の順に(画面の sortSegs と同じ、開始時刻だけの安定ソート)。時刻が壊れた行は除く。"""
-    out = []
-    for g in doc.get("segments") or []:
-        if not isinstance(g, dict):
-            continue
-        a, b = _num(g.get("start")), _num(g.get("end"))
-        if a is None or b is None or b < a:
-            continue
-        out.append(g)
-    return sorted(out, key=lambda g: float(g["start"]))
-
-
-def build_transcript_v1(doc, version):
-    """文書 → youtube-tools-transcript/v1。時刻は「動画ファイルの先頭 = 0 秒」(文書の保存形式のまま。範囲指定の文字起こしでも同じ)。
-    機械の出力(original)・学習用の情報(params・flag・tags・dismissed など)は入れない(受け渡しに不要で、個人データを増やさないため)。
-    文字が空の行は入れない(画面の書き出しと同じ)。speaker は speakers の並び順の番号(話者なしは null)。"""
-    speakers, index = [], {}
-    for s in doc.get("speakers") or []:
-        if isinstance(s, dict) and s.get("id") not in (None, "") and s.get("id") not in index:
-            index[s["id"]] = len(speakers)
-            speakers.append({"id": len(speakers), "name": str(s.get("name") or s["id"])[:60]})
-    segs = []
-    for g in sorted_segments(doc):
-        text = str(g.get("text") or "").strip()
-        if not text:
-            continue
-        one = {"id": str(g.get("id") or ""), "start": round(float(g["start"]), 3), "end": round(float(g["end"]), 3), "text": text,
-               "speaker": index.get(g.get("speaker")), "proofed": g.get("proofed") is True, "cut": g.get("cutState") == "cut"}
-        if g.get("noSub") is True:   # 字幕に出さない行(ゲームの声など。2026-10-05)。パックはこの行の字幕を作らず、残す区間には数える(cut2resolve の側)
-            one["noSub"] = True
-        segs.append(one)
-    out = {"schema": TRANSCRIPT_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(), "media": _media_of(doc)}
-    if isinstance(doc.get("clip"), dict):
-        out["clip"] = doc["clip"]
-    out.update({"title": str(doc.get("title") or ""), "language": str(doc.get("language") or ""), "speakers": speakers, "segments": segs})
-    if doc.get("whole") is False:   # 範囲を指定して文字起こしした文書は、その範囲も示す(約束に無い項目。読む側は無視してよい)
-        out["transcribedRange"] = {"start": _num(doc.get("start")) or 0.0, "end": _num(doc.get("end"))}
-    return out
-
-
-def _media_of(doc):
-    """受け渡しの JSON の media(動画のパス・名前・長さ。transcript/v1 と cut-plan/v1 で同じ)"""
-    return {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
-            "durationSec": _num(doc.get("duration"))}
-
-
-# ---------- youtube-tools-cut-plan/v1 ----------
-def build_cut_plan_v1(doc, version):
-    """文書 → youtube-tools-cut-plan/v1。区間 = resolve_export.kept_spans(「カット済」でない・文字のある行を、重なる・接するものでまとめる)。
-    行と行の間のすき間は残さない(Resolve パッケージと同じ)。時刻は動画ファイルの先頭基準の秒(フレームへの変換は受け取る側)。"""
-    spans = resolve_export.kept_spans(sorted_segments(doc))
-    segs = []
-    for i, sp in enumerate(spans, 1):
-        label = "".join(str(g.get("text") or "").strip() for g in sp["segments"])
-        segs.append({"id": "segment-%03d" % i, "start": round(sp["start"], 3), "end": round(sp["end"], 3), "status": "adopted",
-                     "label": label[:40] + ("…" if len(label) > 40 else ""), "lines": [str(g.get("id") or "") for g in sp["segments"]]})
-    return {"schema": CUT_PLAN_SCHEMA, "tool": tool_info(version), "createdAt": iso_now(), "media": _media_of(doc),
-            "title": str(doc.get("title") or ""), "segments": segs}
-
-
-# ---------- SRT ----------
-def wrap_text(text, n):
-    """n 文字ごとに改行(画面の wrapText と同じ。文字はコードポイント単位で数える)。n=0 は折り返さない。"""
-    if not n:
-        return text
-    return "\n".join(text[i:i + n] for i in range(0, len(text), n))
-
-
-def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
-    """画面の SRT 書き出し(index.html の exportRows / buildExport)と同じ規則:
-    文字が空の行は出さない・終わりが基準より前の行は出さない・開始は 0 未満にしない・話者名は「[名前] 」を頭に付ける。
-    動画の隣に保存する SRT は、その動画の先頭を 0 秒にする(base=0。範囲指定の文書でも動画の時刻のまま)。
-    カット済の行も出す(字幕は動画全体に対するもの。カットは cut-plan と一緒に cut2resolve が適用する)。
-    字幕に出さない行(noSub。ゲームの声など)は出さない。"""
-    names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
-    cues = []
-    for g in sorted_segments(doc):
-        text = str(g.get("text") or "").strip()
-        a, b = float(g["start"]) - base, float(g["end"]) - base
-        if not text or b <= 0 or g.get("noSub") is True:
-            continue
-        name = names.get(g.get("speaker"), "") if speaker_names and g.get("speaker") else ""
-        cues.append((max(0.0, a), b, ("[%s] " % name if name else "") + wrap_text(text, wrap)))
-    return resolve_export.srt_text(cues), len(cues)
 
 
 # ---------- 動画の隣への保存 ----------

@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from unittest import mock
 
-from test_backend import S, P, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve・P = pipeline_io)
+from test_backend import S, P, RE, TID, StoreDir, free_port, start_server, write_json  # noqa: F401  (S = serve・P = pipeline_io)
 
 
 def _row(i, a, b, text="x", speaker="", **kw):
@@ -160,9 +160,9 @@ class TestOvdraftRows(StoreDir):
     def test_blank_draft_not_in_subtitles_or_cut(self):
         d = _doc([_row(1, 0, 5, "a", "S1"), _draft(2, 2, 4, "S2")])
         d.update({"sourcePath": "C:\\x\\clip.mp4", "title": "t"})
-        v1 = P.build_transcript_v1(d, "x")
+        v1 = RE.build_transcript_v1(d, "x")
         self.assertEqual([g["id"] for g in v1["segments"]], ["s1"])   # パック・cut2resolve へ渡す形に入らない
-        import resolve_export
+        from pipeline.pack import resolve_export
         self.assertFalse(resolve_export.is_kept(_draft(2, 2, 4)))       # カットの「残す」・cut-plan に数えない
 
     def test_diar_keep_row_keeps_blank_draft(self):
@@ -341,7 +341,7 @@ class TestOvdraftMissing(unittest.TestCase):
         self.assertTrue(S.diar_keep_row(_miss(1, 0, 1, ""), {"S1"}))
         d = _doc([_row(1, 0, 5, "a", "S1"), _miss(2, 5, 7, "S1")])
         d.update({"sourcePath": "C:\\x\\clip.mp4", "title": "t"})
-        self.assertEqual([g["id"] for g in P.build_transcript_v1(d, "x")["segments"]], ["s1"])
+        self.assertEqual([g["id"] for g in RE.build_transcript_v1(d, "x")["segments"]], ["s1"])
         base = {"original": [_row(1, 0.0, 4.0, "こんにちは")], "segments": [_row(1, 0.0, 4.0, "こんにちわ", "S1", proofed=True)]}
         self.assertEqual(S.doc_metrics(dict(base, segments=base["segments"] + [_miss(2, 4.0, 5.0, "S1")])), S.doc_metrics(base))
 

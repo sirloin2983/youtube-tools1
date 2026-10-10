@@ -28,7 +28,8 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
-import pipeline_io as P  # noqa: E402
+from manage.cases import pipeline_io as P  # noqa: E402   (読み・保存・.runtime)
+from pipeline.pack import resolve_export as RE  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b)
 
 TID = "0123456789ab"
 
@@ -472,7 +473,7 @@ class TestFormats(unittest.TestCase):
     def test_transcript_v1(self):
         d = sample_doc("/x/動画.mp4")
         d["clip"] = clip_obj()
-        t = P.build_transcript_v1(d, "9.9.9")
+        t = RE.build_transcript_v1(d, "9.9.9")
         self.assertEqual(t["schema"], "youtube-tools-transcript/v1")
         self.assertEqual(t["tool"], {"name": "transcribe-tool", "version": "9.9.9"})
         self.assertRegex(t["createdAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
@@ -487,10 +488,10 @@ class TestFormats(unittest.TestCase):
             self.assertNotIn(secret, blob)                  # 機械の出力・学習用の情報は入れない
         self.assertNotIn("transcribedRange", t)
         d.update({"whole": False, "start": 100.0, "end": 160.0})
-        self.assertEqual(P.build_transcript_v1(d, "1")["transcribedRange"], {"start": 100.0, "end": 160.0})
+        self.assertEqual(RE.build_transcript_v1(d, "1")["transcribedRange"], {"start": 100.0, "end": 160.0})
 
     def test_cut_plan_v1_uses_resolve_rule(self):
-        t = P.build_cut_plan_v1(sample_doc("/x/動画.mp4"), "1")
+        t = RE.build_cut_plan_v1(sample_doc("/x/動画.mp4"), "1")
         self.assertEqual(t["schema"], "youtube-tools-cut-plan/v1")
         self.assertEqual([(g["start"], g["end"], g["status"], g["lines"]) for g in t["segments"]],
                          [(0.5, 4.0, "adopted", ["s1", "s2"]), (9.5, 11.0, "adopted", ["s5"])])   # カット済(s3)・空(s4)は除き、接する行はまとめる
@@ -498,11 +499,11 @@ class TestFormats(unittest.TestCase):
         self.assertEqual(t["media"]["path"], "/x/動画.mp4")
 
     def test_srt_matches_screen_rules(self):
-        text, n = P.build_srt(sample_doc("/x/a.mp4"))
+        text, n = RE.build_srt(sample_doc("/x/a.mp4"))
         self.assertEqual(n, 4)
         self.assertEqual(text, "1\n00:00:00,500 --> 00:00:02,000\n一行目\n\n2\n00:00:02,000 --> 00:00:04,000\n二行目\n\n"
                                "3\n00:00:06,000 --> 00:00:08,000\n三行目\n\n4\n00:00:09,500 --> 00:00:11,000\nとても長い行なので折り返されます\n")
-        text, _ = P.build_srt(sample_doc("/x/a.mp4"), wrap=8, speaker_names=True)
+        text, _ = RE.build_srt(sample_doc("/x/a.mp4"), wrap=8, speaker_names=True)
         self.assertIn("[ぺこら] 一行目\n", text)
         self.assertIn("[トワ] とても長い行なの\nで折り返されます\n", text)   # 8文字ごと(名前は数えない)
         self.assertIn("\n2\n00:00:02,000 --> 00:00:04,000\n二行目\n", text)   # 話者なしの行は名前を付けない
@@ -659,7 +660,7 @@ class _PingServer:
 
 
 def start_server(tmp, port, runtime):
-    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json", "pipeline_io.py", "resolve_export.py") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
         shutil.copy(os.path.join(HERE, n), tmp)
     env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.005", YTT_RUNTIME_DIR=runtime)
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env,
