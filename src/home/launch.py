@@ -98,7 +98,7 @@ except ImportError:
     analytics_mod = None
 
 APP_ID = "ytt-launcher"
-VERSION = "0.54.1"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
+VERSION = "0.55.0"        # ホームの版の正はここ1か所(画面は /api/status の version を表示する。README.txt の見出しもそろえる)
 TOOL_ID = "portal"         # .runtime/portal.json。各ツールの /api/siblings は3つのツールIDしか読まないので影響しない
 DEFAULT_PORT = 8700        # 8700〜8719。文字起こし(8775〜8794)・スタジオ(8800〜)・cut2resolve(8810〜)の範囲と重ならない
 PORT_RANGE = 20
@@ -936,11 +936,6 @@ class PortalServer(httpsec.ExclusiveServer):
         if self.closing.is_set():
             return 409, {"ok": False, "error": "closing", "message": "終了の途中です"}
         ar = self._autorun
-        runs = ar.snapshot().get("runs") if ar is not None else None
-        if runs and any(r.get("mode") == autorun_mod.POST_MODE and r.get("state") == "running" for r in runs):
-            # あとから解析(測るため)が動いている: 止めて(スタジオの解析と重い処理の枠も空く。一覧に残り、次の起動で続く)から確かめる
-            if not ar.stop_deferred():
-                return 409, {"ok": False, "error": "busy", "message": "あとから解析(測るため)を止めています。少し待ってからもう一度押してください"}
         info = ar.restart_info() if ar is not None else {}
         busy = [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
         why = restart_mod.can_restart(self.sup.status(), busy, info.get("redo"))
@@ -1313,7 +1308,7 @@ def main(argv=None):
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
         sup.start_all()
         sup.start_monitor()
-        try:   # まとめて実行を起動のときに作る: 前の起動で残った「あとから解析」の一覧を、ホームを開かなくても続ける(待ちが無くなってから 60 秒後)
+        try:   # まとめて実行を起動のときに作る: 前の起動で待ち・実行中だった実行(M5)を、ホームを開かなくても続ける
             srv.autorun
         except Exception as e:   # 作れなくても入口は動かす(画面から使うときにもう一度作る)
             log("まとめて実行を準備できませんでした: %r" % (e,))

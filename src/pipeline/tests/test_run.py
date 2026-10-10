@@ -81,6 +81,13 @@ class TestFromInput(unittest.TestCase):
         self.assertNotIn("spec", r.saved())
         self.assertNotIn("spec", r.public())
 
+    def test_restore_skips_removed_post_analyze(self):
+        """消した「あとから解析」(mode post_analyze。RS4)が以前の待ちの記録に残っていても、落ちずに読み飛ばす(同じ形の full は戻る)"""
+        d = R.Run.from_input({"videoId": "abcdefghijk"}).saved()
+        self.assertIsNotNone(R.Run.restore(d))
+        self.assertNotIn("post_analyze", R.MODE_STEPS)
+        self.assertIsNone(R.Run.restore(dict(d, mode="post_analyze", steps=[{"key": "analyze", "state": "run", "detail": ""}])))
+
 
 class TestHooks(unittest.TestCase):
     def test_defaults_know_nothing(self):

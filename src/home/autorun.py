@@ -7,7 +7,7 @@
 
 作り:
 - ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/pipeline/run.py へ移した(役割で組み直す計画 plan/role-restructure.md の 5-1)。
-  ここに残すのは、順番待ちと糸・受付・中止・記録・起動し直しで戻す・見積もり・あとから解析・ToolClient と、
+  ここに残すのは、順番待ちと糸・受付・中止・記録・起動し直しで戻す・見積もり・ToolClient と、
   Runner の hook(案件・ホームの設定を読む所)の中身。移した名前は同じ名前で読み直している。
   届けることと組の溜めは RS3-3 で src/human/friend/delivery.py の Delivery(mixin)へ切り出した(AutoRunner が継ぐ)
 - 各ツールの**公開している API を HTTP で呼ぶ**(入口と同じ 127.0.0.1。取り込んだツールは入口のポートの /studio/ など、子プロセスのツールはそのポート)。
@@ -21,7 +21,7 @@
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、起動したときに読んで同じ id のまま「待ち」に戻す。
   済んだ段は飛ばし、途中だった段は頭からやり直す(どの段も「まだ無いものだけ」作るので、続きから進む)。入口の終了(「すべて終了」・黒い画面を閉じる・
   強制終了)で止まった実行は記録(autorun-runs.jsonl)に「中止」と書かない。起動し直してすぐはツールの準備を待つ(RESUME_WAIT 秒まで)。
-  RESTORE_MAX_AGE(3 日)より前に入れた実行は戻さず、記録に「中止」と書く。あとから解析(post_analyze)は今までどおり一覧(autorun-deferred.json)で続く
+  RESTORE_MAX_AGE(3 日)より前に入れた実行は戻さず、記録に「中止」と書く
 - 終わった実行は、入口の作業データの logs/autorun-runs.jsonl に1行ずつ残す(段2 B-6。入口を起動し直しても、ホームで前回の結果と止まった理由を見られる)。
   書くのは終わったとき(完了・失敗・中止)だけ(入口の終了で止まった実行は、次の起動で続けるので書かない = M5)。
   1MB を超えたら .1 に回す(1世代。画面のエラーの記録 clientlog.py と同じ形)。書けなくても実行は止めない
@@ -38,11 +38,9 @@
   ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
   n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/home/live.py が見回りで呼ぶ)。
   溜めは logs/deliver-pool.json に残す(起動し直しても続く)。10-09 ユーザー決定 = decisions 3-20
-- あとから解析(測るため。2026-10-05 ユーザー決定): 友人の依頼(URL)が区間だけ(解析の段を外した形)で終わったら、その配信を「あとから解析する一覧」
-  (入口の作業データの logs/autorun-deferred.json。起動し直しても続く)に足す。まとめて実行の待ち・実行中が無くなったら、一覧から1本ずつ
-  スタジオの保存した設定で解析する(mode post_analyze)。友人の区間(人が自動の候補を見ずに選んだ見どころ)と自動の候補を比べて検出の見逃しを測るためだけで、
-  友人には何も届けない・依頼の受付の記録も変えない。新しい実行が入ったら、すぐ止めて(スタジオの解析も取り消す)一覧に戻し、新しい実行を先にする。
-  3 日たったもの・3 回失敗したものは捨てる(理由は一覧のファイルの dropped に残す)。環境変数 YTT_DEFER_ANALYZE=off で止める(足さない・始めない)
+- 「あとから解析(測るため)」(友人の依頼が区間だけで終わった配信を、手が空いたときに解析する mode post_analyze)は RS4 で消した(入口 0.55.0)。
+  代わりは測る道具 `py -3.10 src/eval/tools/eval_marks.py --analyze-missing --wait`(未解析の友人の配信の解析をスタジオに頼む)。
+  以前の一覧 logs/autorun-deferred.json は読まない(残っていても害はない)
 """
 import collections
 import http.client
@@ -61,7 +59,7 @@ from pipeline.spec import (CUTS, DEFAULT_TOP, LIVE_AUTO_CUT, MAX_MARKS, RANGE_MA
 from pipeline import runlog  # noqa: E402  (終わった実行の記録の形と読み方。RS3-0B で read_runs_log などをここへ出した)
 from pipeline import run as run_mod  # noqa: E402  (① の経路 = Run・Runner・段の表。RS1-7 で移した。AutoRunner は Runner を継いで hook を埋める。下で同じ名前で読み直す)
 from pipeline.run import (BUSY_WAIT, CANCEL_WAIT, DOC_LABEL, DOC_MODE, DONE_STEPS, JOB_STATE_JA, MODE_STEPS, MODES, NOTHING_MESSAGE,  # noqa: E402,F401
-                          OTHER_MODES, POST_MODE, REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
+                          REQUEST_MODES, REQUEST_URL_MODES, RUN_ID_RE, RUN_STATE_LABELS, STEP_LABELS, STEP_STATE_LABELS,
                           TX_KEYS, Cancelled, Run, StepError, _has_captions, _job_why, _media_is_30fps, _row_edge_ok, clean_pool)
 from manage.cases import cases  # noqa: E402  (src/manage/cases/cases.py: パックの有無・.clip.json の読み方・スタジオの一覧を案件の画面とそろえる。friend_feedback も先頭で読む = 循環しない)
 from human.friend import delivery as delivery_mod  # noqa: E402  (友人へ届ける段と組の溜め = AutoRunner が継ぐ Delivery。RS3-3 で切り出した)
@@ -82,17 +80,6 @@ HISTORY_DEFAULT, HISTORY_MAX = 50, 200   # /api/autorun/history の limit の既
 PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "state", "stateLabel", "nothing", "message", "error",
              "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
 MAX_WAITING = 20       # 順番待ちの上限
-DEFER_FILE = "autorun-deferred.json"   # あとから解析する配信の一覧(入口の作業データの logs の中。実行の記録 runlog.RUNS_LOG の隣)
-DEFER_VERSION = 1
-DEFER_ENV = "YTT_DEFER_ANALYZE"        # off = 一覧に足さない・始めない(テスト・困ったとき用)
-DEFER_KEEP_SEC = 3 * 24 * 3600         # 足してからこれだけたったら捨てる
-DEFER_MAX_TRIES = 3                    # これだけ失敗したら捨てる
-DEFER_RETRY_SEC = 30 * 60              # 失敗したあと、次に試すまで(すぐ3回失敗して捨てないため)
-DEFER_IDLE_SEC = 60.0                  # 待ち・実行中が無くなってから始めるまで(画面で続けて押している途中に始めて、すぐ止めることを減らす)
-DEFER_DROPPED_KEEP = 50                # 捨てたものの記録(理由)を残す数
-DEFER_READ_MAX = 1024 * 1024
-DEFER_IMPORT_DAYS = 30                # 以前の依頼の取り込み(起動のあと1回): 終わってからこの日数以内
-DEFER_IMPORT_MAX = 20                  # 同じく、新しい順にこの本数まで
 # 友人の区間の長さを、依頼の自動の候補の長さに使う(2026-10-05 ユーザーの要望。仮の決定 = まとめ役)。
 # 測る道具 src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ evals\marks\<日時>.json。入口の夜の自動測定が流す)の clipLength を読むだけ
 FRIEND_LENGTH_ENV = "YTT_FRIEND_LENGTH"   # off = 使わない(ホームの設定 autorun.friendLength が false でも使わない)
@@ -179,11 +166,6 @@ def _doc_id_ok(v):
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/pipeline/spec.py。ここの検査もこれを使う)
 
 
-def _ms_ok(v):
-    """エポックのミリ秒の時刻(_num は 1e7 までなので使えない)"""
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 < v < 1e14
-
-
 def live_auto_origin(media):
     """M8: 切り抜きが、リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)か。
     .clip.json の読み方と自動の出どころの一覧は src/home/cases.py の clip_live・AUTO_ORIGINS(案件の画面の札と同じ)。
@@ -204,14 +186,6 @@ def _busy_reason(active, same, what=""):
     return None
 
 
-def _defer_eligible(rec):
-    """区間だけで終わった依頼(URL)か = あとから解析の一覧に足す条件。rec は記録の行(Run.public() の形)。
-    依頼(URL)・区間あり・配信の ID が正しい・解析の段なし・区間のマークを作った(採用が done か warn)・終わった(done か error。中止は足さない)"""
-    keys = {s.get("key"): s.get("state") for s in rec.get("steps") or [] if isinstance(s, dict)}
-    return (rec.get("mode") in REQUEST_URL_MODES and bool(rec.get("ranges")) and _yt_id_ok(rec.get("videoId")) and "analyze" not in keys
-            and rec.get("state") in ("done", "error") and keys.get("adopt") in ("done", "warn"))
-
-
 def _rec_key(rec):
     if rec.get("kind") == "file":
         return ("file", rec.get("sourcePath"))
@@ -219,15 +193,14 @@ def _rec_key(rec):
 
 
 class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
-    """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す・あとから解析。段の中身は src/pipeline/run.py の Runner
+    """入口のまとめて実行: 順番待ち・糸・受付・記録・起動し直しで戻す。段の中身は src/pipeline/run.py の Runner
     (ここでは hook を案件・ホームの設定で埋める)。友人へ届ける段と組の溜めは src/human/friend/delivery.py の Delivery(RS3-3)を継ぎ、
     そこが要る入口と案件の物(届ける本数の既定と範囲・案件に届けた印)は下の _deliver_batch_limits・_remember_delivered で渡す"""
 
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
-                 defer_idle=DEFER_IDLE_SEC, defer_retry=DEFER_RETRY_SEC, clock=None, log=None):
+                 clock=None, log=None):
         """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)。
-        あとから解析の一覧・待ちと実行中の記録(M5)も log_dir に置く(None = 残せないので、あとから解析はしない・起動し直しで戻さない)。
-        defer_idle・defer_retry・clock はテスト用"""
+        待ちと実行中の記録(M5)も log_dir に置く(None = 残せないので、起動し直しで戻さない)。clock はテスト用"""
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner が持つ
         super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack)
         self.root = repo_root
@@ -235,15 +208,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         self.active_path = os.path.join(log_dir, ACTIVE_FILE) if log_dir else None   # 待ち・実行中の記録(M5)
         self.active_error = ""     # 最後に待ちの記録を書けなかった理由(書けたら空に戻す)
         self._active_lock = threading.Lock()   # 待ちの記録のファイル(これを持ったまま self.cv を取る。逆の順では取らない)
-        self.defer_path = os.path.join(log_dir, DEFER_FILE) if log_dir else None
         self._delivery_init(log_dir)   # ライブの切り抜きの組の溜めの置き場所とロック(src/human/friend/delivery.py の Delivery)
-        self.defer_idle, self.defer_retry = defer_idle, defer_retry
-        self.defer_error = ""      # 最後に一覧を書けなかった理由(書けたら空に戻す)
-        self._defer_lock = threading.Lock()   # 一覧(self.cv の中から取ってよい。逆に、これを持ったまま self.cv を取らない)
-        self._defer = self._defer_read()      # {"items": [...], "dropped": [...]}
-        self._defer_running = None            # いま解析している配信の ID(一覧には残したまま。入口が強制終了されても失わない)
-        self._idle_since = self.clock()       # 待ち・実行中が無くなった時刻(起動したときも、少し待ってから始める)
-        self._defer_hold_until = 0            # この時刻までは始めない(stop_deferred = 起動し直す前)
         self.log_max = log_max
         self.log_error = ""        # 最後に記録を書けなかった理由(書けたら空に戻す)
         self._log_lock = threading.Lock()   # 記録のファイルと past(self.cv とは別。self.cv を持ったまま _log を呼ばない)
@@ -256,7 +221,6 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         self.cv = threading.Condition(self.lock)
         self.runs = []
         self.thread = None
-        self._defer_import()   # この機能が入る前の依頼(1回だけ)
         restored = self._restore_active()   # 前の起動で待ち・実行中だった実行(M5)
         if restored:
             with self.cv:
@@ -264,21 +228,18 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
                 self._wake()
         if self.active_path and os.path.isfile(self.active_path):
             self._save_active()   # 戻さなかった(古い・壊れた)分を記録から外す
-        if self._defer["items"] and self._defer_on():   # 前の起動で残った一覧: 手が空いたら続ける
-            with self.cv:
-                self._wake()
 
     # ------------------------------------------------------------ 起動し直しで戻す(M5)
     def _save_active(self):
         """待ち・実行中の実行を autorun-active.json に残す(self.cv の外で呼ぶ)。入口の終了のあとは書かない
-        (止めた実行を「次の起動で続ける」形のまま残すため)。あとから解析・人が中止した実行は入れない。書けなくても実行は止めない"""
+        (止めた実行を「次の起動で続ける」形のまま残すため)。人が中止した実行は入れない。書けなくても実行は止めない"""
         if not self.active_path:
             return
         with self._active_lock:
             with self.cv:
                 if self.closed:
                     return
-                items = [r.saved() for r in self.runs if r.state in ("queued", "running") and r.mode != POST_MODE and not r.cancel]
+                items = [r.saved() for r in self.runs if r.state in ("queued", "running") and not r.cancel]
             try:
                 fsio.atomic_write(self.active_path, json.dumps({"v": ACTIVE_VERSION, "runs": items}, ensure_ascii=False).encode("utf-8"))
                 self.active_error = ""
@@ -572,37 +533,19 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         return {"steps": steps, "total": sum(known), "nothing": nothing, "reason": reason, "notes": notes}
 
     def _active_runs(self):
-        """順番待ち・実行中の実行(あとから解析は数えない = 新しい実行を断る理由にしない。入ると止める。呼ぶのは self.cv を持っている間)"""
-        return [r for r in self.runs if r.state in ("queued", "running") and r.mode != POST_MODE]
+        """順番待ち・実行中の実行(呼ぶのは self.cv を持っている間)"""
+        return [r for r in self.runs if r.state in ("queued", "running")]
 
     def _wake(self):
-        """順番待ちを動かす(呼ぶのは self.cv を持っている間)。あとから解析の最中に新しい実行が入ったら、それを止めて新しい実行を先にする
-        (止めた配信は一覧に残っているので、待ちが無くなったらまた始める。試した回数は増やさない)"""
-        if any(r.state == "queued" for r in self.runs):
-            self._preempt_deferred("新しい実行を先にするため")
+        """順番待ちを動かす(呼ぶのは self.cv を持っている間)"""
         self.cv.notify_all()
         if self.thread is None or not self.thread.is_alive():
             self.thread = threading.Thread(target=self._loop, name="autorun", daemon=True)
             self.thread.start()
 
-    def _preempt_deferred(self, reason):
-        """動いているあとから解析に止める印を付ける(呼ぶのは self.cv を持っている間)。一覧には残り、試した回数は増やさない(preempted)"""
-        for r in self.runs:
-            if r.mode == POST_MODE and r.state == "running" and not r.cancel:
-                r.cancel, r.preempted = True, reason
-                r.message = "%s止めています(あとで続けます)" % reason
-
-    def stop_deferred(self, reason="起動し直すため", wait=CANCEL_WAIT + 5, hold=DEFER_IDLE_SEC * 2):
-        """動いているあとから解析を止めて(スタジオの解析も取り消す)、止まるまで待つ(「起動し直す」の前。launch.py の restart_self)。
-        一覧には残り、試した回数は増やさない。hold 秒は次のあとから解析を始めない。-> 止まったか(動いていなければ True)"""
-        with self.cv:
-            self._defer_hold_until = self.clock() + hold
-            self._preempt_deferred(reason)
-            return self.cv.wait_for(lambda: not any(r.mode == POST_MODE and r.state == "running" for r in self.runs), wait)
-
     def restart_info(self, timeout=5):
         """画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)が断るかを決める材料。待ち・実行中は起動し直したあとに戻る(M5)ので、それだけでは断らない。
-        -> {"runs": 待ち・実行中の数(あとから解析は数えない), "redo": restart.can_restart の redo か None}。
+        -> {"runs": 待ち・実行中の数, "redo": restart.can_restart の redo か None}。
         redo は、実行中の段が REDO_STEPS で、その段がツールで動かしている仕事を、ツールの一覧(timeout 秒で読む)で確かめられたときだけ"""
         with self.cv:
             active = self._active_runs()
@@ -657,7 +600,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         """runs = メモリの実行(新しい順)・past = 配信・文書ごとの前回の結果のうちメモリに無いもの(記録のファイルから。新しい順・PAST_MAX 件まで)"""
         with self.cv:
             runs = [r.public() for r in reversed(self.runs)]
-            keys = {r.key() for r in self.runs if r.mode != POST_MODE}   # あとから解析がメモリにあっても、案件の行の「前回」は消さない
+            keys = {r.key() for r in self.runs}
         with self._log_lock:
             past = [{k: rec.get(k) for k in PAST_KEYS} for key, rec in reversed(self._past.items()) if key not in keys][:PAST_MAX]
         return {"runs": runs, "past": past, "modes": MODES}
@@ -675,8 +618,8 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
 
     def _remember(self, rec):
         """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)。
-        あとから解析は入れない(案件の行の「前回」は、依頼・まとめて実行の結果のまま。記録のファイル・history には残る)"""
-        if rec.get("mode") == POST_MODE:
+        以前の記録に残っている消した「あとから解析」(mode post_analyze。RS4 で消した)は入れない(案件の行の「前回」は、依頼・まとめて実行の結果のまま。history には残る)"""
+        if rec.get("mode") == "post_analyze":
             return
         k = _rec_key(rec)
         self._past.pop(k, None)
@@ -708,7 +651,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
             with self.cv:
                 self.closed = True
                 for r in self.runs:
-                    if r.state == "queued" and r.mode != POST_MODE:
+                    if r.state == "queued":
                         r.message = "ホームを終了したので、次の起動で続けます"
                 self.cv.notify_all()
 
@@ -717,235 +660,19 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
         for r in done[:-MAX_KEEP] if len(done) > MAX_KEEP else []:
             self.runs.remove(r)
 
-    # ------------------------------------------------------------ あとから解析(測るため。2026-10-05)
-    # 一覧のファイル(logs/autorun-deferred.json): {"v": 1, "items": [{"videoId", "title", "added", "tries", "reason", "lastTry", "requestId"}],
-    #   "dropped": [{…items と同じ…, "dropped": 捨てた時刻, "reason": 捨てた理由}]}。時刻はエポックのミリ秒(実行の記録の created と同じ)
-    def _defer_on(self):
-        """あとから解析をするか(一覧を置く場所があり、環境変数 YTT_DEFER_ANALYZE が off でない)"""
-        return bool(self.defer_path) and not self._env_off(DEFER_ENV)
-
     def _env_off(self, name):
         """環境変数 name が off・0・false・no か(テストが渡す env と、本物の環境変数の両方を見る)"""
         return any(str(e.get(name) or "").strip().lower() in ("off", "0", "false", "no") for e in (self.env or {}, os.environ))
 
-    def _now_ms(self):
-        return int(self.clock() * 1000)
-
-    def _defer_clean(self, it):
-        """一覧の1件を整える(手で直した・壊れたファイルでも、決まった形だけを持つ)"""
-        ms = lambda x: int(x) if _ms_ok(x) else None
-        tries = it.get("tries")
-        return {"videoId": it["videoId"], "title": str(it.get("title") or "")[:120], "added": ms(it.get("added")) or self._now_ms(),
-                "tries": tries if isinstance(tries, int) and not isinstance(tries, bool) and tries >= 0 else 0,
-                "reason": str(it.get("reason") or "")[:300], "lastTry": ms(it.get("lastTry")),
-                "requestId": str(it["requestId"])[:80] if isinstance(it.get("requestId"), str) and it["requestId"] else None}
-
-    def _defer_read(self):
-        out = {"items": [], "dropped": [], "imported": None}
-        if not self.defer_path:
-            return out
-        try:
-            obj = fsio.read_json_file(self.defer_path, DEFER_READ_MAX)
-        except FileNotFoundError:
-            return out
-        except (OSError, ValueError) as e:   # 壊れた・読めない: 空から始める(次に書くときに置き換わる)
-            self.defer_error = "一覧を読めませんでした: %s" % e.__class__.__name__
-            return out
-        if not isinstance(obj, dict) or obj.get("v") != DEFER_VERSION:
-            return out
-        seen = set()
-        for it in obj.get("items") if isinstance(obj.get("items"), list) else []:
-            if isinstance(it, dict) and _yt_id_ok(it.get("videoId")) and it["videoId"] not in seen:
-                seen.add(it["videoId"])
-                out["items"].append(self._defer_clean(it))
-        out["dropped"] = [d for d in (obj.get("dropped") if isinstance(obj.get("dropped"), list) else []) if isinstance(d, dict)][-DEFER_DROPPED_KEEP:]
-        out["imported"] = int(obj["imported"]) if _ms_ok(obj.get("imported")) else None
-        return out
-
-    def _defer_import(self):
-        """この機能が入る前に区間だけで終わった依頼を、実行の記録(今のファイルと .1)から一覧に足す(1回だけ。済んだら一覧のファイルの imported に時刻)。
-        対象 = 依頼(URL)・区間あり・解析の段なし・区間のマークを作ったあとに終わった(成功・一部失敗)・終わってから 30 日以内。新しい順に 20 本まで。
-        スタジオで解析済み・スタジオから消えた配信は、始めるときの確かめで外れる"""
-        if not self.log_path or not self._defer_on() or self._defer["imported"]:
-            return
-        if not os.path.exists(self.log_path) and not os.path.exists(self.log_path + ".1"):
-            # 記録がまだ無い = 取り込むものも無い。印はメモリだけ(ファイルは次に一覧を書くときに一緒に書く。ここで空のファイルを作らない)
-            self._defer["imported"] = self._now_ms()
-            return
-        now = self._now_ms()
-        try:
-            recs = runlog.read_runs_log(self.log_path)
-        except Exception:   # 読めなくても入口は動かす(次の起動でまた試す)
-            return
-        picked = []
-        for rec in reversed(recs):   # 新しい順
-            vid, fin = rec.get("videoId"), rec.get("finished")
-            if (not _defer_eligible(rec) or not _ms_ok(fin) or now - fin > DEFER_IMPORT_DAYS * 86400 * 1000
-                    or vid in [p["videoId"] for p in picked]):
-                continue
-            picked.append({"videoId": vid, "title": str(rec.get("title") or "")[:120], "added": now, "tries": 0, "reason": "",
-                           "lastTry": None, "requestId": rec.get("requestId") if isinstance(rec.get("requestId"), str) else None})
-            if len(picked) >= DEFER_IMPORT_MAX:
-                break
-        with self._defer_lock:
-            for it in picked:
-                if not self._defer_find(it["videoId"]):
-                    self._defer["items"].append(self._defer_clean(it))
-            self._defer["imported"] = now
-            self._defer_write()
-
-    def _defer_write(self):
-        """一覧をファイルへ(原子的に。呼ぶのは self._defer_lock を持っている間)。書けなくても実行は止めない"""
-        if not self.defer_path:
-            return
-        try:
-            data = {"v": DEFER_VERSION, "items": self._defer["items"], "dropped": self._defer["dropped"][-DEFER_DROPPED_KEEP:],
-                    "imported": self._defer.get("imported")}
-            fsio.atomic_write(self.defer_path, (json.dumps(data, ensure_ascii=False, indent=1) + "\n").encode("utf-8"))
-            self.defer_error = ""
-        except (OSError, TypeError, ValueError) as e:
-            self.defer_error = "%s %s" % (e.__class__.__name__, getattr(e, "strerror", "") or "")
-
-    def _defer_find(self, vid):
-        return next((it for it in self._defer["items"] if it["videoId"] == vid), None)
-
-    def _defer_drop(self, it, reason):
-        """一覧から外し、理由を dropped に残す(呼ぶのは self._defer_lock を持っている間)"""
-        if it in self._defer["items"]:
-            self._defer["items"].remove(it)
-        self._defer["dropped"] = (self._defer["dropped"] + [dict(it, dropped=self._now_ms(), reason=str(reason)[:300])])[-DEFER_DROPPED_KEEP:]
-
-    def _defer_prune(self):
-        """DEFER_KEEP_SEC(3 日)たったもの・3 回失敗したものを捨てる(呼ぶのは self._defer_lock を持っている間)。-> 変えたか"""
-        now, changed = self._now_ms(), False
-        for it in list(self._defer["items"]):
-            if it["videoId"] == self._defer_running:
-                continue
-            if now - it["added"] > DEFER_KEEP_SEC * 1000:
-                self._defer_drop(it, "足してから %d 日たったので捨てました" % (DEFER_KEEP_SEC // 86400) + ("(最後: %s)" % it["reason"] if it["reason"] else ""))
-                changed = True
-            elif it["tries"] >= DEFER_MAX_TRIES:
-                self._defer_drop(it, "%d 回失敗したので捨てました(最後: %s)" % (it["tries"], it["reason"] or "理由不明"))
-                changed = True
-        return changed
-
-    def deferred(self):
-        """あとから解析する配信の一覧(写し。{"on", "items", "dropped", "error"})。テストと、あとで画面に出すとき用"""
-        with self._defer_lock:
-            return {"on": self._defer_on(), "items": [dict(x) for x in self._defer["items"]], "dropped": [dict(x) for x in self._defer["dropped"]],
-                    "running": self._defer_running, "error": self.defer_error}
-
-    def _defer_candidate(self):
-        """待ちが無いときに始める、あとから解析の1件(古い順)。-> (一覧の1件の写し か None, 次に見るまでの秒)。呼ぶのは self.cv を持っている間"""
-        if not self._defer_on():
-            return None, 5
-        now = self.clock()
-        if self.defer_idle and now - self._idle_since < self.defer_idle:   # 待ちが無くなってすぐは始めない
-            return None, max(0.05, min(5.0, self.defer_idle - (now - self._idle_since)))
-        if now < self._defer_hold_until:
-            return None, max(0.05, min(5.0, self._defer_hold_until - now))
-        with self._defer_lock:
-            if self._defer_prune():
-                self._defer_write()
-            ready = [it for it in self._defer["items"] if not it["lastTry"] or now * 1000 - it["lastTry"] >= self.defer_retry * 1000]
-            best = min(ready, key=lambda it: it["added"]) if ready else None
-            return (dict(best) if best else None), 5
-
-    def _start_deferred(self, cand):
-        """あとから解析を始める(実行を作って実行中にする)。スタジオでもう解析済み・スタジオに無い配信は、始めずに一覧から外す。
-        始める直前に新しい実行が入っていたら始めない(新しい実行が先)。-> Run か None"""
-        vid = cand["videoId"]
-        try:
-            st, obj = self.client.call("studio", "GET", "/api/video?id=" + urllib.parse.quote(vid))
-            err = ""
-        except StepError as e:
-            st, obj, err = None, {}, str(e)
-        v = (obj.get("video") or {}) if st == 200 else {}
-        with self._defer_lock:
-            it = self._defer_find(vid)
-            if it is None:
-                return None
-            if st is None or (st != 200 and st != 404):   # スタジオが動いていない・つながらない: 回数は増やさずに、少し待ってから
-                it.update(lastTry=self._now_ms(), reason=(err or obj.get("message") or "HTTP %s" % st)[:300])
-                self._defer_write()
-                return None
-            if st == 404:
-                self._defer_drop(it, "スタジオに配信がありません(消した可能性があります)")
-                self._defer_write()
-                return None
-            if v.get("analysis"):   # 人・ほかの実行が解析した: 何もせず外す
-                self._defer_drop(it, "スタジオで解析済みだったので、解析せずに外しました")
-                self._defer_write()
-                return None
-        with self.cv:
-            if self.closed or any(r.state == "queued" for r in self.runs) or not self._defer_on():
-                return None
-            run = Run(vid, str(v.get("title") or cand.get("title") or vid)[:120], POST_MODE, None)
-            run.state = "running"
-            self.runs.append(run)
-            self._trim()
-            self._defer_running = vid
-        return run
-
-    def _defer_after(self, run):
-        """実行が終わったとき(self.cv の外): 区間だけで終わった依頼(URL)は一覧に足す。あとから解析が終わったら外す・失敗を数える"""
-        if run.mode == POST_MODE:
-            return self._defer_post_done(run)
-        if not _defer_eligible(run.public()) or not self._defer_on():   # 記録の行と同じ形で、取り込み(_defer_import)と同じ条件
-            return None
-        with self._defer_lock:
-            it = self._defer_find(run.video_id)
-            if it:   # 同じ配信の依頼がまた来た: 1つのまま(足した時刻・回数はそのまま)
-                it.update(title=(run.title or it["title"])[:120], requestId=run.request_id or it["requestId"])
-            else:
-                self._defer["items"].append({"videoId": run.video_id, "title": str(run.title or "")[:120], "added": self._now_ms(), "tries": 0,
-                                             "reason": "", "lastTry": None, "requestId": run.request_id})
-            self._defer_write()
-        return None
-
-    def _defer_post_done(self, run):
-        vid = run.video_id
-        with self._defer_lock:
-            self._defer_running = None
-            it = self._defer_find(vid)
-            if run.state == "cancelled" and (run.preempted or self.closed):   # 新しい実行を先に・起動し直す・入口の終了: 一覧に残したまま(回数は増やさない)
-                run.message = "%s止めました(あとで続けます)" % run.preempted if run.preempted else "ホームを終了しました(次に起動したときに続けます)"
-                return None
-            if it is None:
-                return None
-            if run.state == "done":
-                self._defer["items"].remove(it)
-                if not run.nothing:
-                    run.message = "解析しました(依頼の区間と比べるためだけ。友人には何も届けません)"
-            else:   # 失敗・人が中止した: 回数を数えて、少し待ってから試し直す
-                why = run.error or run.message or "中止しました"
-                it.update(tries=it["tries"] + 1, lastTry=self._now_ms(), reason=why[:300])
-                if it["tries"] >= DEFER_MAX_TRIES:
-                    self._defer_drop(it, "%d 回失敗したので捨てました(最後: %s)" % (it["tries"], why))
-                    run.message += "(%d 回目なので、この配信はもう解析しません)" % it["tries"]
-                else:
-                    run.message += "(あとでもう一度試します。%d / %d 回目)" % (it["tries"], DEFER_MAX_TRIES)
-            self._defer_write()
-        return None
-
     def _loop(self):
         while True:
-            run = cand = None
             with self.cv:
                 while not self.closed and not any(r.state == "queued" for r in self.runs):
-                    cand, wait = self._defer_candidate()   # 待ちが無い: あとから解析する配信があれば始める
-                    if cand:
-                        break
-                    self.cv.wait(wait)
+                    self.cv.wait()
                 if self.closed:
                     return
-                if not cand:
-                    run = next(r for r in self.runs if r.state == "queued")
-                    run.state, run.message = "running", ""
-            if run is None:
-                run = self._start_deferred(cand)
-                if run is None:
-                    continue
+                run = next(r for r in self.runs if r.state == "queued")
+                run.state, run.message = "running", ""
             self._save_active()   # 実行中になった(M5)
             try:
                 self._execute(run)
@@ -958,7 +685,7 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
             except Exception as e:   # 想定外でも、次の配信の処理は続ける
                 self.log("まとめて実行: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))   # 例外の名前・原文はログへ(UI の見直し M9)
                 run.state, run.error, run.message = "error", "ホームの想定外の不具合で止まりました。もう一度「実行」を押してください(済んだ段は飛ばします)。続くときは、詳しくの「ログ」を見てください", "止まりました"
-            if self.closed and not run.cancel and run.mode != POST_MODE and run.state != "done":
+            if self.closed and not run.cancel and run.state != "done":
                 # 入口の終了で止まった(M5): 記録には「中止」と書かず、待ちの記録(最後に書いた段の形)のまま次の起動で続ける
                 run.state, run.error, run.message = "queued", "", "ホームを終了したので、次の起動で続けます"
                 for s in run.steps:
@@ -974,13 +701,10 @@ class AutoRunner(delivery_mod.Delivery, run_mod.Runner):
             if run.deliver_dir and run.state == "error":   # ① 全自動: できていたパックを届けてから、友人の「受け取る」に失敗の理由を出す
                 self._deliver_rest_quietly(run)
                 self._deliver_failure(run)
-            self._defer_after(run)   # あとから解析の一覧(依頼が区間だけで終わった = 足す・あとから解析が終わった = 外す・回数を数える)
             self._log(run)   # 記録のファイルへ(self.cv の外。B-6)
             with self.cv:
                 self._trim()
-                if not any(r.state in ("queued", "running") for r in self.runs):
-                    self._idle_since = self.clock()
-                self.cv.notify_all()   # stop_deferred が止まるのを待っている
+                self.cv.notify_all()
             self._save_active()   # 終わった実行を待ちの記録から外す(M5)
 
     # ------------------------------------------------------------ 実行

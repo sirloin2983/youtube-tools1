@@ -659,45 +659,6 @@ class PortalHttpTest(Base):
         finally:
             R.spawn_new_launcher, self.srv.request_shutdown, R.can_restart = saved
 
-    def test_restart_self_stops_deferred_analysis(self):
-        """あとから解析(測るため)だけが動いているときは、止めてから起動し直す(2026-10-05)。止まらなければ 409"""
-        from manage.ops import restart as R
-
-        class Stub:
-            def __init__(self, ok):
-                self.ok, self.stopped = ok, 0
-
-            def snapshot(self):
-                return {"runs": [] if self.stopped and self.ok else [{"state": "running", "mode": "post_analyze"}, {"state": "done"}]}
-
-            def stop_deferred(self):
-                self.stopped += 1
-                return self.ok
-
-            def restart_info(self):
-                return {"runs": 0, "redo": None}
-
-            def close(self):
-                pass
-        calls, stops = [], []
-        saved = (R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun)
-        R.spawn_new_launcher = lambda root, args=(), log=None, **kw: calls.append(list(args))
-        self.srv.request_shutdown = lambda: stops.append(1)
-        try:
-            self.srv._autorun = Stub(False)
-            r, body = self.post("/api/ytt/restart-self")
-            self.assertEqual((r.status, self.srv._autorun.stopped, calls), (409, 1, []))
-            self.assertIn("あとから解析", json.loads(body)["message"])
-            self.srv._autorun = Stub(True)
-            r, body = self.post("/api/ytt/restart-self")
-            self.assertEqual((r.status, self.srv._autorun.stopped, len(calls)), (200, 1, 1), body)
-            for _ in range(30):
-                if stops:
-                    break
-                time.sleep(0.05)
-        finally:
-            R.spawn_new_launcher, self.srv.request_shutdown, self.srv._autorun = saved
-
     def test_restart_self_keeps_autorun_runs(self):
         """まとめて実行の待ち・実行中は断らずに起動し直し、何件が続くかを notice で知らせる(M5。入口 0.41.0)。
         実行中の段の仕事でも、同じツールに人が始めた仕事があれば(others)今までどおり断る"""

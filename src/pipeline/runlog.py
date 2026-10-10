@@ -2,7 +2,7 @@
 """まとめて実行の「終わった実行の記録」の形と読み方(役割で組み直す RS3-0B。入口 src/home/autorun.py から移した。動きは変えていない)。
 
 記録は入口の作業データの logs/autorun-runs.jsonl(と、上限を超えて回した .1)に 1 行 = 1 件の JSON で残る(書くのは AutoRunner。
-書き足しは ytt/fsio.append_line)。この部品は**読む側**: 入口の起動時に前回の結果を作る・履歴の画面・あとから解析の取り込み(autorun)と、
+書き足しは ytt/fsio.append_line)。この部品は**読む側**: 入口の起動時に前回の結果を作る・履歴の画面(autorun)と、
 ライブの失敗の集約(live_failures。書き出しのジョブの runId で紐づける)が、同じ読み方を使う。
 autorun を読み込まずに記録を読めるようにして、① の部品(live_failures など)から app への向きの違反をなくすために出した。
 

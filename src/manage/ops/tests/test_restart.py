@@ -226,7 +226,7 @@ class CanRestartTest(unittest.TestCase):
         c2r = self.status(active=[{"tool": "cut2resolve", "label": "パックの作成"}])
         self.assertIsNone(R.can_restart(c2r, [("cut2resolve", "cut2resolve")], {"tool": "cut2resolve", "labels": None, "others": []}))
         self.assertIn("パックの作成", R.can_restart(c2r, (), {"tool": "transcribe", "labels": None, "others": []}))
-        # あとから解析(測るため)は、呼ぶ側が先に止めるので can_restart には来ない(2026-10-05)。止まっていれば何も数えない
+        # 重い処理が何も無ければ何も数えない
         self.assertIsNone(R.can_restart(self.status(), busy_tools=()))
 
     def test_message_lists_at_most_three(self):

@@ -144,8 +144,7 @@ def can_restart(status, busy_tools=(), redo=None):
           書き出しの段は入らない = 書き出し中は今までどおり断る)。{"tool": ツールの ID, "labels": [仕事の名前] か None(そのツールの枠すべて),
           "others": [同じツールのほかの仕事の名前]}。others が空のとき(人が始めた仕事が同じツールに無いと確かめられたとき)だけ、
           その仕事の重い処理の枠と、そのツールの busy を数えない。
-    まとめて実行の待ち・実行中そのものは数えない(線 D の M5 で起動し直したあとに続きから進むため。入口 0.41.0。呼ぶ側が RESUME_NOTICE で知らせる)。
-    あとから解析(mode post_analyze)がスタジオで持っている重い処理の枠は、呼ぶ側(launch.py の restart_self)が先に止めてから status を取る"""
+    まとめて実行の待ち・実行中そのものは数えない(線 D の M5 で起動し直したあとに続きから進むため。入口 0.41.0。呼ぶ側が RESUME_NOTICE で知らせる)"""
     heavy = (status or {}).get("heavy") or {}
     items = list(heavy.get("active") or []) + list(heavy.get("waiting") or [])
     mine = redo if isinstance(redo, dict) and redo.get("tool") and redo.get("others") == [] else None

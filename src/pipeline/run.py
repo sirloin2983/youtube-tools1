@@ -9,7 +9,7 @@ Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_d
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
 
 src/home/autorun.py に残したもの(AutoRunner が Runner を継いで hook を埋める): 順番待ちと実行の糸(_loop)・受付(start*)・中止・状態と記録
-(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もり・restart_info・あとから解析・Dropbox へ届けることと組の溜め・
+(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もり・restart_info・Dropbox へ届けることと組の溜め・
 HTTP の ToolClient。案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので、層の向きの上で ① に置けないため(RS3 で分ける)。
 autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
@@ -34,7 +34,7 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
               "transcribe": ("export", "transcribe"), "doc": ("transcribe", "pack"),
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"), "request_manual": ("analyze",),
-              "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",), "post_analyze": ("analyze",)}
+              "file_auto": ("transcribe", "pack", "deliver"), "file_manual": ("analyze",)}
 # 友人からの依頼(src/home/intake.py。docs/spec/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
 # ③ 全部人が行う manual = 解析まで。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
@@ -54,9 +54,8 @@ DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
 TX_KEYS = ("model", "language", "quality", "device", "vadMode", "boost", "autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned", "glossary",
            "autoRedo", "redoLarge")   # autoRedo・redoLarge = 疑わしい所を自動で認識し直す(12 ③-2)
-# あとから解析(測るため。2026-10-05)。画面の選択肢・依頼の形とは別(MODES・REQUEST_MODES に入れない = API からは始められない)
-POST_MODE = "post_analyze"
-OTHER_MODES = {POST_MODE: "あとから解析(測るため)"}
+# あとから解析(mode post_analyze。測るため)は RS4 で消した(代わりは src/eval/tools/eval_marks.py --analyze-missing)。
+# 以前の待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
@@ -149,7 +148,6 @@ class Run:
         self.created = time.time()
         self.finished = None
         self.cancel = False
-        self.preempted = False     # あとから解析を、新しい実行を先にするために止めた(人の中止・失敗と分ける = 試した回数を増やさない)
         self.logged = False        # 記録のファイルに書いた(1つの実行は1回だけ書く。B-6)
         self.resumed = False       # 入口を起動し直して戻した実行(M5。始める前にツールの準備を待つ)
         self.spec = None           # 指定の束(run() が置く。RS1-7 では読まない。待ちの記録・public には出さない)
@@ -176,7 +174,7 @@ class Run:
     @classmethod
     def restore(cls, d):
         """saved() の形 -> 「待ち」の Run(同じ id。済んだ段はそのまま・途中の段は待ちに)。形が違えば None(手で直した・壊れた記録は読み飛ばす)"""
-        if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")) or d.get("mode") not in MODE_STEPS or d.get("mode") == POST_MODE:
+        if not isinstance(d, dict) or not RUN_ID_RE.match(str(d.get("id") or "")) or d.get("mode") not in MODE_STEPS:
             return None
 
         def s(k, n=1000):
@@ -248,7 +246,7 @@ class Run:
                 "engine": self.engine, "model": self.model,
                 "friendLength": dict(self.friend_length) if self.friend_length else None,
                 "videoId": self.video_id, "title": self.title, "mode": self.mode,
-                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or OTHER_MODES.get(self.mode, DOC_LABEL)) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
+                "modeLabel": (MODES.get(self.mode) or REQUEST_MODES.get(self.mode) or DOC_LABEL) +("(%d本)" % len(self.marks) if self.marks and self.mode not in REQUEST_URL_MODES else ""), "top": self.top,
                 "streamer": self.streamer, "streamerFrom": self.streamer_from, "marks": list(self.marks) if self.marks else None, "fromSearch": bool(self.fresh),
                 "state": self.state, "stateLabel": RUN_STATE_LABELS["nothing" if self.nothing and self.state == "done" else self.state],
                 "nothing": self.nothing, "onFail": self.on_fail, "docs": list(self.docs[:20]),
@@ -435,8 +433,6 @@ class Runner:
                 raise StepError("元の動画ファイルの場所が分かりません")
             item = {"kind": "file", "path": path}
         self._analyze_item(run, st, item, run.video_id)
-        if run.mode == POST_MODE:
-            st["detail"] += "。依頼の区間と比べるためだけの解析です(友人には何も届けません)"
         return None
 
     def _analyze_item(self, run, st, item, video_id):
