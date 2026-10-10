@@ -27,6 +27,7 @@ import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
+from ytt import fsio
 from . import srt2resolve as S
 
 ToolError = S.ToolError
@@ -361,15 +362,6 @@ def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):
             if r.returncode == 0 or ("nrecognized option" not in err and "not found" not in err):
                 break
     return r
-
-
-def _unlink_quiet(path):   # lint: keep 単独のコマンドは ytt を読まない
-    """一時ファイルを消す(None・消せないときは何もしない)"""
-    if path:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
 
 
 def check_silence_params(noise_db, min_sec, pad_sec):
@@ -862,24 +854,17 @@ def copy_video(video, out_dir, task=None, dst=None, final=None):
 
 # ---------------------------------------------------------------- 受け渡しの JSON(docs/spec/pipeline.md)
 
-def _reject_constant(name):
-    raise ValueError(f"NaN / Infinity は使えません: {name}")
-
-
 def read_json_file(path, what="JSON", max_bytes=MAX_JSON_BYTES):
-    """UTF-8(BOM があっても可)の JSON を読む。大きすぎる・壊れている・NaN を含むものは ToolError"""
-    p = Path(path)
+    """UTF-8(BOM があっても可)の JSON を読む(fsio.read_json_file の ToolError 版)。大きすぎる・壊れている・NaN を含むものは ToolError"""
+    name = Path(path).name
     try:
-        with open(p, "rb") as f:
-            raw = f.read(max_bytes + 1)
+        return fsio.read_json_file(path, max_bytes)
     except OSError as e:
-        raise ToolError(f"{what}を読めません: {p.name}({e.strerror or e.__class__.__name__})")
-    if len(raw) > max_bytes:
-        raise ToolError(f"{what}が大きすぎます(上限 {max_bytes // 1024 // 1024}MB): {p.name}")
-    try:
-        return json.loads(raw.decode("utf-8-sig"), parse_constant=_reject_constant)
-    except (UnicodeDecodeError, ValueError):
-        raise ToolError(f"{what}を読めません(JSON の形式が正しくありません): {p.name}")
+        raise ToolError(f"{what}を読めません: {name}({e.strerror or e.__class__.__name__})")
+    except fsio.TooLarge:
+        raise ToolError(f"{what}が大きすぎます(上限 {max_bytes // 1024 // 1024}MB): {name}")
+    except ValueError:   # UnicodeDecodeError も含む
+        raise ToolError(f"{what}を読めません(JSON の形式が正しくありません): {name}")
 
 
 def check_schema(d, schema, what):

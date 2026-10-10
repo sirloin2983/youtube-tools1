@@ -20,7 +20,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
@@ -30,6 +29,7 @@ try:   # 全体の版(ytt/version.py の 1 か所)。単独のコマンドのと
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from ytt.version import VERSION
+from ytt import fsio
 from ytt import tools as _ytools   # ffmpeg / ffprobe の場所(PATH → winget。RS7-1 F-k)
 
 # 編集ソフトで一般的なフレームレート。動画の実測値をこれに丸める
@@ -57,20 +57,6 @@ def same_path(a, b):
     return os.path.normcase(os.path.abspath(str(Path(a).resolve()))) == os.path.normcase(os.path.abspath(str(Path(b).resolve())))
 
 
-def _replace_retry(src, dst):   # lint: keep 単独のコマンドは ytt を読まない(規則は ytt/fsio.py の replace_retry と同じ)
-    """os.replace。Windows ではウイルス対策・検索インデックスが一瞬ファイルを開いていて失敗することがあるので、
-    一時的なロック(winerror 5・32・33)だけ、0.1 → 0.2 → 0.4 秒待って 4 回までやり直す。
-    読み取り専用のフォルダなど、それ以外の PermissionError は待っても直らないのですぐに上げる"""
-    for attempt in range(4):
-        try:
-            os.replace(src, dst)
-            return
-        except PermissionError as e:
-            if getattr(e, "winerror", None) not in (5, 32, 33) or attempt == 3:
-                raise
-            time.sleep(0.1 * 2 ** attempt)
-
-
 @contextlib.contextmanager
 def staged(dst, suffix=".part"):
     """dst の隣に作った一時ファイルのパスを渡す。with の中で書き終えて(ffmpeg の出力先にしてもよい)普通に抜けたら dst へ付け替える。
@@ -79,21 +65,9 @@ def staged(dst, suffix=".part"):
     os.close(fd)
     try:
         yield tmp
-        _replace_retry(tmp, str(dst))
+        fsio.replace_retry(tmp, str(dst))
     finally:
-        try:
-            os.unlink(tmp)   # 付け替えたあとは無い(OSError)
-        except OSError:
-            pass
-
-
-def write_bytes_atomic(path, data):
-    """一時ファイルに書いてから置き換える(書きかけのファイルを Resolve・他のツールに読ませない。docs/spec/pipeline.md の 1)"""
-    with staged(path) as tmp:
-        with open(tmp, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
+        fsio.unlink_quiet(tmp)   # 付け替えたあとは無い
 
 
 def write_text_atomic(path, text, encoding="utf-8", newline="\n"):
@@ -102,7 +76,7 @@ def write_text_atomic(path, text, encoding="utf-8", newline="\n"):
         newline = os.linesep
     if newline not in ("", "\n"):
         text = text.replace("\n", newline)
-    write_bytes_atomic(path, text.encode(encoding))
+    fsio.atomic_write(path, text.encode(encoding), fsync_required=True)   # 書きかけを Resolve・他のツールに読ませない(docs/spec/pipeline.md の 1)
 
 
 def tool(name):

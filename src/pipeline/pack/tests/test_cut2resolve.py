@@ -337,7 +337,7 @@ class TestDefaultsInOnePlace(unittest.TestCase):
 
 
 class TestStagedWrite(unittest.TestCase):
-    """一時ファイルに書いて付け替える処理(srt2resolve.staged・_replace_retry)。付け替えのやり直しの規則は ytt/fsio.py の replace_retry と同じ"""
+    """一時ファイルに書いて付け替える処理(srt2resolve.staged。付け替えのやり直しは ytt/fsio.py の replace_retry で、そのテストは test_ytt_core)"""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -362,38 +362,8 @@ class TestStagedWrite(unittest.TestCase):
                 raise RuntimeError("途中で失敗")
         self.assertEqual(dst.read_bytes(), b"new")   # 失敗したら元のまま・書きかけを残さない
         self.assertEqual([p.name for p in self.dir.iterdir()], ["out.bin"])
-        S.write_bytes_atomic(self.dir / "w.bin", b"x")
+        S.write_text_atomic(self.dir / "w.bin", "x")
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["out.bin", "w.bin"])
-
-    def test_replace_retry_waits_only_for_temporary_locks(self):
-        import os
-        from unittest import mock
-        calls = []
-
-        def locked(winerror, ok_after):
-            def fake(src, dst):
-                calls.append(1)
-                if len(calls) <= ok_after:
-                    e = PermissionError(13, "denied")
-                    e.winerror = winerror
-                    raise e
-            return fake
-        with mock.patch.object(S.time, "sleep") as sleep:
-            with mock.patch.object(os, "replace", locked(32, 2)):   # 共有違反 = 一時的なロック: 待ってやり直す
-                S._replace_retry("a", "b")
-            self.assertEqual((len(calls), [c.args[0] for c in sleep.call_args_list]), (3, [0.1, 0.2]))
-            calls.clear()
-            sleep.reset_mock()
-            with mock.patch.object(os, "replace", locked(32, 99)):   # ロックが続けば 4 回で諦める
-                with self.assertRaises(PermissionError):
-                    S._replace_retry("a", "b")
-            self.assertEqual(len(calls), 4)
-            calls.clear()
-            sleep.reset_mock()
-            with mock.patch.object(os, "replace", locked(None, 99)):   # 読み取り専用のフォルダなど(winerror が 5・32・33 でない): 待たずにすぐ上げる
-                with self.assertRaises(PermissionError):
-                    S._replace_retry("a", "b")
-            self.assertEqual((len(calls), sleep.call_count), (1, 0))
 
 
 class TestCodecWarnings(unittest.TestCase):

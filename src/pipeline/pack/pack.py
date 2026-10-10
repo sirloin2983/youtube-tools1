@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
+from ytt import fsio
 from . import auto_cut as AC
 from . import cut2resolve_core as C
 from . import srt2resolve as S
@@ -750,7 +751,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
             files["plan"] = paths["plan"]
         while staged:
             tmp, final, kind = staged[0]
-            S._replace_retry(str(tmp), str(final))
+            fsio.replace_retry(str(tmp), str(final))
             files[kind] = final
             staged.pop(0)
         if textplus:
@@ -765,7 +766,7 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, fcpxml=False,
                                         video_tracks=video_tracks, order=order))
     finally:
         for tmp, _, _ in staged:
-            C._unlink_quiet(tmp)
+            fsio.unlink_quiet(tmp)
     if copy_video and "video" not in files:
         files["video"] = paths["video"]
     # 付け替えたあとの置き場所の動画を記録に(次に同じ条件なら作り直さない)。量の決め方は人が読む用

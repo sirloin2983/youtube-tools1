@@ -101,6 +101,10 @@ def write_json(path, obj, indent=2, mode=None):
     atomic_write(path, (json.dumps(obj, ensure_ascii=False, indent=indent) + ("\n" if indent is not None else "")).encode("utf-8"), mode=mode)
 
 
+class TooLarge(ValueError):
+    """read_json_file が max_bytes を超えたファイルを断ったときの ValueError(呼び手が「大きすぎる」と「壊れている」を言い分けられるように)"""
+
+
 def _reject_constant(name):
     raise ValueError("NaN / Infinity は JSON として受け付けません: %s" % name)
 
@@ -112,7 +116,7 @@ def read_json_file(path, max_bytes, allow_nan=False):
     with open(path, "rb") as f:
         raw = f.read(max_bytes + 1)
     if len(raw) > max_bytes:
-        raise ValueError("ファイルが大きすぎます")
+        raise TooLarge("ファイルが大きすぎます")
     if allow_nan:
         return json.loads(raw.decode("utf-8-sig"))
     return json.loads(raw.decode("utf-8-sig"), parse_constant=_reject_constant)
