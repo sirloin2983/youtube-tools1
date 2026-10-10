@@ -3387,3 +3387,11 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - data.js の RS5 を済みに・公開ページを出し直した
 - 次: RS6(① の新機能 = アーカイブと動画ファイルの自動採用・切り抜き単位の使い回し(鍵)・校正の上書きを鍵に付ける・① 単体の起動。app/server.py と live/autorun の分割もここ = decisions 3-25 の c・3-28)。計画 7・8 節と data.js の RS6。先に下調べ(Haiku・low)→ Fable と段の並び → ユーザーの確認(新機能 = 設計の変更)
 - 未コミット: なし(この記録と HANDOVER・data.js と一緒にコミット)
+
+## 2026-10-10 夜 Claude Code(PC。Opus まとめ役。下調べ Haiku 7 体(low)・設計の相談 Fable 4 体(high)・実装 Opus 3 体(high)・Sonnet 4 体(medium))— 役割で組み直す RS6 の途中(層を 5 つに・組み替え a-0〜a-5a)
+- ユーザーとの問答で RS6 の形を決めた(`plan/decisions.md` 3-29。下調べと Fable の検討は `docs/design/rs6-survey-2026-10-10/`): **層を 5 つ** = ① 道具 `pipeline/`・② 管理 新 `flow/`(① をいつ・どの順で・どこに置いて・飛ばすか)・③ 人 `human/`・④ データ `manage/`・⑤ 検証 `eval/`(番号は RS の終わりに文書ごと付け替える)/ 字幕は ① に clipjob(O2 はしない)/ **③④ は ① を直に読まず全部 ② を通す・⑤ は直に読んでよい** / 採用は F-5 に統一 / 鍵が違えば認識は印・パックは作り直す / 置き場所は案件ごとのフォルダ(RS6 は B-0 だけ)/ CLI は ② + ①(URL は B-3 まで入口に頼む)/ ライブの玄関の分割は RS7(友人もライブを使う = 完成までに必ず)/ RS6 は分けない
+- **友人への配布の前提**(ユーザー): 友人は 1 人・RTX 3060・最終的には友人の PC で ② + ① がメイン
+- 実装(main に入った): a-0 層の表(`ALLOWED` の表・`test_flow_is_not_alias`。20eb268)/ a-1 語彙を ytt へ(txbase・yturl・dictfmt・errors・ids_ok。f03ea5d)/ a-2 段取りを flow へ(run・spec・batch・runlog・live_*・live_detect。ytt/jobs をジョブの表 flow/jobs と枠に分けた。ab5973f)/ a-4 話者の判別の半分を flow/diar へ(0ce2ff3)/ a-5a flow/pack・flow/ingest(9417ec1)/ a-3 clipjob と flow/tx(17 本の動詞・ytt/txtext。389fcef)/ serve の名前の受付に flow/pack(e717833)。③④ → ① の違反 54 → 2
+- テスト(main・e717833): 編集の unittest 633 件 OK・層の検査 OK・lint 0
+- 動いている: a-5b(残り 2 件と serve の登録を flow/wire へ = 違反 0)・b-0(段が束を読む・Tools の継ぎ目 HttpTools / LocalTools)。そのあと b-K1・b-O1・b-B0・b-A・b-K2・b-S1・b-R1・b-Z(文書・e2e の一式・本物の確認)
+- 未コミット: なし(この記録と一緒にコミット)
