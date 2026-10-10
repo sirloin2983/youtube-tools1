@@ -11,7 +11,7 @@ AI 向けの決まり。計画は `plan/line-d-live-clipping.md`(**0. 10-04 の�
 - ブラウザは録画の部品へ直接つながない(Origin・Sec-Fetch-Site がある要求は 403)。画面は入口の `/live/r/<録画元>/…` の中継を通す
   (同じオリジン・CSP `script-src 'self'`・入口の合言葉のまま。CORS は要らない)。入口とスタジオは「録画元の一覧」(設定 `live.recorders`)を通して読む
 - `rec_core.py` が録画の中身(セッション・再生リスト・繋ぎ直し・起動時の復旧)、`recorder.py` が HTTP と起動
-- P2(マークと書き出し)は入口の側(`src/home/live_export.py`。マークの正本・書き出しのジョブ)。この部品は「区間の取得」
+- P2(マークと書き出し)は入口の側(`src/pipeline/export/live_export.py`。マークの正本・書き出しのジョブ)。この部品は「区間の取得」
   `GET /live/<id>/segments?start=&end=`(UTC の時刻。区間にかかるセグメント `{uri, session, pdt, dur}`・欠け `gaps`・`lastPdt`・`active`)と
   セグメント本体を返すだけ(書き出し・作り直しはしない = 2台のときもノート PC は録るだけ)。欠けの規則は `rec_core.pick_segments`(GAP_TOL 秒より空いたら欠け)
 
@@ -21,7 +21,7 @@ AI 向けの決まり。計画は `plan/line-d-live-clipping.md`(**0. 10-04 の�
 - 子は Windows のジョブ(閉じると子も消える)に入れる: 部品が落ちたときに子が残って書き続けない
 - 配信の終わりの見分け: streamlink は切断でも終了コード 0 で終わる。記録に `No new segments`・`Reloading failed` が無い 0 だけを「終わり」とする(8.6.1 で確かめた)。
   `--stream-types hls` で、終わった配信(アーカイブ)を取りに行かない。それでも実際の時間の 3 倍より速く取れたらアーカイブとみなして止める
-- 置き場所のドライブが無いときは作業データの中へ逃がさない(画面で案内)。空きが 1GB を切ったら録画を止める。録画の部品は自分では消さない(消すのは入口の `src/home/live_cleanup.py` が `POST /live/<id>/delete` で頼んだときだけ = 本番版に入れ替え終わった録画・マークの無い録画。2026-10-05 ユーザー決定。`plan/line-d-live-clipping.md` の 0-9)
+- 置き場所のドライブが無いときは作業データの中へ逃がさない(画面で案内)。空きが 1GB を切ったら録画を止める。録画の部品は自分では消さない(消すのは入口の `src/manage/keep/live_cleanup.py` が `POST /live/<id>/delete` で頼んだときだけ = 本番版に入れ替え終わった録画・マークの無い録画。2026-10-05 ユーザー決定。`plan/line-d-live-clipping.md` の 0-9)
 - 名前なしで始めた録画には、配信の題を付ける(`rec_core.fetch_title` = YouTube の oEmbed。録画とは別のスレッド・取れなくても録画は続く・付けた名前は上書きしない・direct(テスト)では聞かない。2026-10-05)
 - 画面はスタジオの中(P3。2026-10-05。`home/live.html` は消した)。スタジオの画面が入口の `../live/…` を呼ぶ(`plan/line-d-live-clipping.md` の 0-8)
 - API を足したら版を上げる(入口の見回りが、録画中でなければ新しい版で起動し直す。古い版のままだと新しい API が 404 になる)

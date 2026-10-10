@@ -10,7 +10,7 @@ cut2resolve v0.23.0(「編集」の部品・コマンド)
 ■ 準備
   - Python 3(https://www.python.org/downloads/ 。インストール時に「Add python.exe to PATH」にチェック)
   - ffmpeg / ffprobe(文字起こしツール・切り抜きスタジオと同じもの)
-  - serve.py(API)はリポジトリのフォルダのまま使う(隣の ytt_core フォルダの共通部品を使う。コマンドの cut2resolve.py は単体でも動く)
+  - serve.py(API)はリポジトリのフォルダのまま使う(src の ytt フォルダ(旧 ytt_core)の共通部品を使う。コマンドの cut2resolve.py は単体でも動く)
 
 
 ■ 画面は「編集」に統合しました(v0.11.0・2026-09-26)
@@ -50,13 +50,13 @@ cut2resolve v0.23.0(「編集」の部品・コマンド)
     見積もり(summary)に captionLanes・captionsStacked・captionsTrimmed。SRT・EDL は重なったまま。字幕ごとの話者は、字幕を作った行から直接たどる(重なる行でも正しい人の色)
   - 字幕に出さない行(v0.21.0): 文字起こしの行の noSub: true は、時間は残す区間に数え、字幕は作らない(pack.row_has_caption)。段分けは noSub を外したあとで数える。見積もりに noSubRows
   - output.speakerStyles(v0.21.0): {"話者の名前": {"color": "#RRGGBB" か "RRGGBB"}} = 話者ごとの字幕の見た目(今は色だけ。検査は serve.SPEAKER_STYLE_KEYS の許可の一覧。知らない鍵は捨てる)。
-    色の決まり方: 指定の色 → メンバーカラー(speakerColors が真のとき)→ 配信者の色 → 黒。指定は speakerColors が false でも効く。名前は ytt_core.colors.normalize でそろえて同じときだけ
+    色の決まり方: 指定の色 → メンバーカラー(speakerColors が真のとき)→ 配信者の色 → 黒。指定は speakerColors が false でも効く。名前は ytt.colors.normalize でそろえて同じときだけ
   - / と /index.html は「画面は「編集」に統合しました」の案内だけを返す(スクリプトなし)
   - パックは最小限(v0.12.0・v0.13.0): Text+ パックは動画(フォルダの直下)・create_resolve_textplus_project.lua・textplus-template.drb・登録用の .ps1 と .bat だけ。
     手順書(友人へ.txt)は API では書かず、結果の readme(画面の「Resolve での手順を見る」)で返す。コマンドは今までどおり 友人へ.txt も書く。
     output.backup = true のときだけ予備(EDL・予備_EDLで開く手順.txt・カット後の SRT)も。Text+ の計画の .json(textplus-import.json)は出さない(Lua に埋め込み済み)。
     cut-plan.json はフォルダに置かず、作業データの packs\<ハッシュ>.json(パックを作った記録。%LOCALAPPDATA%\youtube-tools\cut2resolve\packs)に残す。
-    「パック済み」「フォルダを開く」はこの記録か、以前のパックの cut-plan.json で決める(ytt_core/txindex.py)
+    「パック済み」「フォルダを開く」はこの記録か、以前のパックの cut-plan.json で決める(src/manage/cases/txindex.py)
   - コマンド(cut2resolve.py)は今までどおり、EDL・SRT・友人へ.txt・cut-plan.json をフォルダに書く(Text+ の .json だけは出さない)
 
 

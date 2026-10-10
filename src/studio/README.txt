@@ -13,6 +13,13 @@
   ※ 合成動画・チャット・疑似のYouTube応答でテストしています。Windowsではローカル動画の書き出し・音量調整、
     ブラウザ上での保存失敗と復旧も確認しています。実際のYouTube(取得・埋め込み・ライブ配信)は未検証です。
 
+【コードの場所】(2026-10-10・役割で組み直す RS3 で移した。動きは同じ。版は 0.26.0 のまま)
+  このフォルダに残るのは serve.py(API の配線)・handoff.py(実行中のポートの共有)・common.py(転送だけ。消す予定)・画面(index.html・js・css)です。
+  解析 analyze と盛り上がりの式 excite → src/pipeline/analyze/・まとめて解析 batch → src/pipeline/batch.py・書き出し exporter と .clip.json の組み立て manifest → src/pipeline/export/・
+  マークの保存 store と判定の記録 feedback → src/human/review/・探す rank と seed.json → src/human/find/・文字起こしとの紐づけ txlink → src/manage/cases/txlink.py。
+  common.py に入っていた共通の道具(子プロセス・ffprobe・API キーなど)は src/ytt/ と src/pipeline/ingest/sources.py へ。
+  テスト: src/human/review/tests/test_studio.py・src/pipeline/analyze/tests/test_analyze.py・src/pipeline/export/tests/test_exporter.py(画面と API のテストはこのフォルダの tests/)
+
 【v0.24.1 の変更(2026-10-09・内部の整理。動きは同じ)】
   - ツールの識別子(clip-studio)の写し(serve.py の APP_ID・server_version・handoff の tool.name)を ytt_core.runtime の表から読むようにしました(値は同じ)。
 

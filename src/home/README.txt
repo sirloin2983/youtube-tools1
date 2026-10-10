@@ -100,6 +100,16 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   app\logs\                            以前のログ(v0.5.0 から %LOCALAPPDATA%\youtube-tools\app\logs。消してよい)
   src\home\tests\test_launch.py / e2e_portal.py   テスト
   .runtime\portal.json                 ホームのポート(各ツールの .runtime と同じ置き場。各ツールの動きには影響しない)
+  役割で組み直した(2026-10-10・RS3〜RS4。動きは同じ)ので、ホームの部品の多くは src\ の役割の層へ移りました。今の src\home\ に残るのは、
+  launch.py・mount.py・autorun.py(まとめて実行)・live.py(ライブ)・prefs.py(設定)・appwindow.py と画面(portal.*・settings\)です。移った先:
+    友人の依頼の受付・届ける・友人の返事    src\human\friend\(intake.py・deliver.py・delivery.py・friend_feedback.py・live_requests.py)
+    案件(cases.py)・文字起こしの紐づけ      src\manage\cases\(cases.py・txindex.py・txlink.py ほか)
+    バックアップ・片付け・録画の片付け       src\manage\keep\(backup.py・cleanup.py・live_cleanup.py)
+    調子・画面のエラーの記録・起動し直し     src\manage\ops\(health.py・clientlog.py・restart.py)
+    配信中の候補・書き出し・本番版への作り直し・文字起こし   src\pipeline\analyze\(live_detect.py)・export\(live_export.py)・ingest\(live_archive.py)・transcribe\(live_tx.py)と、それぞれの子プロセスのワーカー
+    まとめて実行の段の中身・実行の記録の読み・ライブの失敗の集約・配信ごとの記録   src\pipeline\(run.py・runlog.py・live_failures.py・live_report.py)
+    精度の自動測定                           src\eval\drill\accuracy.py
+  src\home\ の live_excite_worker.py・live_align_worker.py・live_tx_worker.py は、起動中の古いホームのための転送だけです(消す予定)
 
 ■ コマンド(上級者向け)
   python src\home\launch.py [--no-open] [--port 8700] [--only studio,transcribe]
@@ -111,6 +121,10 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   各ツールは、それぞれのフォルダで「serve.py <既定のポート> --no-open」として起動します(ホームと同じ Python)。
   Mac / Linux の文字起こしツールは、src/editor/.venv があればその Python を使います。
 
+  その他のコマンド(リポジトリ直下から。この PC では python を py -3.10 と読み替える):
+    py -3.10 src\manage\keep\backup.py --restore <写す先>   バックアップから作業データへ写し戻す(ホームを止めてから。手順は docs/spec/data-location.md の「写し戻しの手順」)
+    py -3.10 src\eval\tools\eval_marks.py --analyze-missing [--wait] [--limit N]   未解析の友人の配信の解析をスタジオに頼む(測るとき。v0.55.0 の「あとから解析」の代わり)
+
 ■ 安全のための決まり
   - ホームのサーバーは 127.0.0.1(この PC)だけで待ち受けます。他の PC からは開けません
   - 起動・停止などの操作は、ホームの画面からだけ受け付けます(他のサイトからの操作・埋め込みを拒否)
@@ -118,10 +132,13 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 
 ■ テスト
   python -m unittest src/home/tests/test_launch.py -v      (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
-  python -m unittest src/home/tests/test_cases.py -v       (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
+  python -m unittest src/manage/cases/tests/test_cases.py -v (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
   python -m unittest src/home/tests/test_autorun.py -v     (まとめて実行の段取り。ツールは偽物)
+  python -m unittest src/pipeline/tests/test_run.py src/pipeline/tests/test_runlog.py -v (まとめて実行の段の中身・実行の記録の読み)
+  python -m unittest src/manage/keep/tests/test_cleanup.py src/manage/ops/tests/test_health.py src/manage/ops/tests/test_restart.py -v (片付け・調子・起動し直し)
   python -m unittest src/home/tests/test_intake.py -v      (友人からの依頼の受付。まとめて実行・ffprobe・yt-dlp は偽物)
   python -m unittest src/home/tests/test_deliver.py -v     (友人へ届ける: zip・n 本ごとの zip・まとめ動画(本物の ffmpeg))
+  python -m unittest src/human/friend/tests/test_friend_feedback.py -v (友人の「要らない」の返事)
   python -m unittest src/home/tests/test_live_detect.py -v (配信中の候補のワーカーと入口: 偽の録画元で 12 時間の早送り・候補の API・自動の採用)
   python src/home/tests/e2e_live_studio.py                 (リアルタイム切り抜きの通し: 録画 → マーク → 候補の帯 → 採用。偽の録画元と偽のワーカー)
   python src/home/tests/e2e_intake_ui.py                   (依頼の受付の画面。API は偽物)
