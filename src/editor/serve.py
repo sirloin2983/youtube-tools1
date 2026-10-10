@@ -179,10 +179,10 @@ _txworker.WORKER_LOG = os.path.join(_workdata.DATA_DIR, "worker.log")
 _txworker.FAKES_MODULE = fake_worker.__name__
 # 範囲・全体の再認識と疑わしい所の行の頭の「名前:」を外す決まり(fill の B を ① の recognize へ。呼ぶたびに読む。RS2-7)
 _txrecognize.set_head_stripper(lambda spec: _docjobs.head_stripper(spec))
-# 文書の側(doc_jobs)が使う評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)。② から ③・④ を読まないための口。
+# 文書の側(doc_jobs)が使う評価用の作り直し(eval の ed_evalbatch)と 30fps の作り直し(manage の ed_relink)。② から ③・④ を読まないための口。
+# 評価用のフォルダの判定は RS3-1 から ytt/settings(doc_jobs が直に読む = 口は 5 → 3 本)。
 # 呼ぶたびに持ち主のモジュールの属性を読む(test_evalbatch の patch.object(EB, "eb_redo_skip_at_start") が届く)。呼ぶ順は run_job のまま(RS2-8d)
-_docjobs.set_hooks(eval_guard=lambda path, is_eval: _settings.eval_name_guard(path, is_eval), in_eval_dir=lambda path: _settings.in_eval_dir(path),
-                   redo_skip=lambda job: ed_evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: ed_evalbatch.eb_redo_fill(job, spec, fields),
+_docjobs.set_hooks(redo_skip=lambda job: ed_evalbatch.eb_redo_skip_at_start(job), redo_fill=lambda job, spec, fields: ed_evalbatch.eb_redo_fill(job, spec, fields),
                    norm_after=lambda job, spec, tid: ed_relink.norm_after_transcribe(job, spec, tid))
 _docjobs.check_hooks()
 # 話者の文書の側(human/proof/speakers)が使う評価用の文書の名前の候補(eval の ed_drill)。② から ④ を読まないための口(呼ぶたびに持ち主の属性を読む。RS2-9)

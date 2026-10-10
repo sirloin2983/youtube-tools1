@@ -144,14 +144,17 @@ class TestOwnersFollowServePatches(unittest.TestCase):
 
 
 class TestDocJobsHooks(unittest.TestCase):
-    """serve が doc_jobs.set_hooks に登録した口(評価用のフォルダ = ed_relink・評価用の作り直し = ed_evalbatch。RS2-8d)は全部埋まっていて、
-    呼ぶたびに持ち主の属性を読む(S.名前 の差し替え・patch.object(ed_relink, …) が届く)"""
+    """serve が doc_jobs.set_hooks に登録した口(評価用の作り直し = ed_evalbatch・30fps = ed_relink。RS2-8d)は全部埋まっていて、
+    呼ぶたびに持ち主の属性を読む(S.名前 の差し替えが届く)。評価用のフォルダの判定は RS3-1 から口でなく ytt/settings を直に読む"""
 
     def test_hooks_registered_and_follow_patches(self):
         from human.proof import doc_jobs
         doc_jobs.check_hooks()
-        with mock.patch.object(S, "in_eval_dir", lambda path, dirs=None: "patched"):
-            self.assertEqual(doc_jobs._hook("in_eval_dir")("x.mp4"), "patched")
+        src = os.path.abspath(__file__)
+        with mock.patch.object(S, "in_eval_dir", lambda path, dirs=None: True), mock.patch.object(S, "check_source", lambda p: src), \
+                mock.patch.object(S, "media_duration", lambda p: 10.0):
+            spec = doc_jobs.validate_job({"sourcePath": src})
+            self.assertIs(spec.get("evalSet"), True)   # 差し替えは ytt/settings に届き、validate_job が呼ぶたびに読む
         with mock.patch.object(S, "eb_redo_skip_at_start", lambda job: "skip"):
             self.assertEqual(doc_jobs._hook("redo_skip")({}), "skip")
 

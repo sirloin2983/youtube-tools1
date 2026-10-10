@@ -36,14 +36,14 @@ class TestHooks(unittest.TestCase):
         self.assertIn("serve.py", str(cm.exception))
 
     def test_check_hooks_names_missing_keys(self):
-        doc_jobs.set_hooks(eval_guard=lambda path, is_eval: None, in_eval_dir=lambda path: False)
+        doc_jobs.set_hooks(redo_skip=lambda job: False)
         with self.assertRaises(RuntimeError) as cm:
             doc_jobs.check_hooks()
         msg = str(cm.exception)
-        for k in ("redo_skip", "redo_fill", "norm_after"):
+        for k in ("redo_fill", "norm_after"):
             self.assertIn(k, msg)
-        self.assertNotIn("eval_guard", msg)
-        doc_jobs.check_hooks(("eval_guard", "in_eval_dir"))   # 登録した鍵だけなら通る
+        self.assertNotIn("redo_skip", msg)
+        doc_jobs.check_hooks(("redo_skip",))   # 登録した鍵だけなら通る
 
     def test_set_hooks_rejects_unknown_and_non_callable(self):
         with self.assertRaises(TypeError):
@@ -59,9 +59,14 @@ class TestHooks(unittest.TestCase):
         doc_jobs.set_hooks(norm_after=lambda job, spec, tid: calls.append(("b", tid)))   # 登録し直すと次の呼び出しから新しい方
         doc_jobs._hook("norm_after")({}, {}, "t2")
         self.assertEqual(calls, [("a", "t1"), ("b", "t2")])
-        doc_jobs.set_hooks(eval_guard=lambda p, e: None, in_eval_dir=lambda p: False, redo_skip=lambda j: False,
-                           redo_fill=lambda j, s, f: None)
+        doc_jobs.set_hooks(redo_skip=lambda j: False, redo_fill=lambda j, s, f: None)
         doc_jobs.check_hooks()
+
+    def test_eval_dir_hooks_are_gone(self):
+        """評価用のフォルダの判定は口でなく ytt/settings を直に読む(RS3-1。口は redo_skip・redo_fill・norm_after の 3 本)"""
+        self.assertEqual(doc_jobs._HOOK_KEYS, ("redo_skip", "redo_fill", "norm_after"))
+        with self.assertRaises(TypeError):
+            doc_jobs.set_hooks(in_eval_dir=lambda path: False)
 
     def test_does_not_import_manage_or_eval_parts(self):
         """評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)はモジュールとして持たない(口を通す)"""

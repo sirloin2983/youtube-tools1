@@ -38,14 +38,13 @@ import ed_store  # noqa: E402,F401
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
 # ---------- serve が登録する口(役割で組み直す RS2-8d。manage の ed_relink・eval の ed_evalbatch をここから読まない = ② から ③・④ を読まない) ----------
-_HOOK_KEYS = ("eval_guard", "in_eval_dir", "redo_skip", "redo_fill", "norm_after")
+# 評価用のフォルダの判定(eval_name_guard・in_eval_dir)は RS3-1 から ytt/settings を直に呼ぶたびに読む(口は 5 → 3 本)
+_HOOK_KEYS = ("redo_skip", "redo_fill", "norm_after")
 _hooks = {}
 
 
 def set_hooks(**hooks):
     """編集の serve.py が読み込みのときに登録する口(どれも関数。serve は呼ぶたびに持ち主のモジュールの属性を読む lambda を渡す = テストの差し替えが届く)。
-    eval_guard(path, is_eval) -> None: 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら ApiError(ed_relink.eval_name_guard。validate_job)
-    in_eval_dir(path) -> bool: 評価用のフォルダの中の動画か(ed_relink.in_eval_dir。validate_job)
     redo_skip(job) -> bool: 未確認の評価用の作り直しを動き出す直前に確かめ直し、手が入っていれば True = 認識しない(ed_evalbatch.eb_redo_skip_at_start。run_job)
     redo_fill(job, spec, fields) -> 文書の id か None: 評価用の作り直しの書き込み(None = 書かなかった。ed_evalbatch.eb_redo_fill。run_job)
     norm_after(job, spec, tid) -> None: 文字起こしのあとの 30fps の作り直しと付け替え(ed_relink.norm_after_transcribe。run_job)
@@ -122,8 +121,8 @@ def validate_job(req):
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
         ev = ev or target.get("evalSet") is True
-    _hook("eval_guard")(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。master-plan Q0)
-    ev = ev or _hook("in_eval_dir")(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用(2026-10-01)
+    _settings.eval_name_guard(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。master-plan Q0)
+    ev = ev or _settings.in_eval_dir(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用(2026-10-01)
     if ev:
         glossary, gauto = [], []
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
