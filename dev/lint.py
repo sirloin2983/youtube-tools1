@@ -14,7 +14,7 @@
   5 js-dead       … JS のトップレベルの function が、同じツールの .js/.html のどこからも参照されていない(名前が 1 回だけ)
   6 dup-block     … 同じ行の並びが --dup 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)
-  8 version       … ツールの版の 3 か所(serve.py の SERVER_VERSION・画面の APP_VERSION・README の見出し)の食い違い
+  8 version       … 版は全体で 1 つ(ytt/version.py)。そこが正しい形か、各ツールの定数・画面に版の数字を直に書いていないか
 対象: src/ と dev/ と setup/。friend-apps/ の C# は見ない(csc の警告 /warn:4 で代える)。
 """
 import argparse
@@ -43,14 +43,16 @@ DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_qui
                "plain_int": "schemas.plain_int", "_num_sec": "schemas.num", "drain_body": "httpsec.drain_body"}
 IDENT = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 JS_FUNC = re.compile(r"^(?:\s*)function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", re.M)
-# 版の 3 か所(ツールごと)
-VERSIONS = {
-    "studio": [("src/studio/serve.py", r'^SERVER_VERSION\s*=\s*"([^"]+)"'), ("src/studio/core.js", r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]"), ("src/studio/README.txt", r"v(\d+\.\d+\.\d+)")],
-    "editor": [("src/editor/serve.py", r'^SERVER_VERSION\s*=\s*"([^"]+)"'), ("src/editor/app.js", r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]"), ("src/editor/README.txt", r"v(\d+\.\d+\.\d+)")],
-    "cut2resolve": [("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/cut2resolve/README.txt", r"v(\d+\.\d+\.\d+)")],
-    "home": [("src/home/launch.py", r'^(?:LAUNCHER_VERSION|VERSION|SERVER_VERSION)\s*=\s*"([^"]+)"'), ("src/home/README.txt", r"v(\d+\.\d+\.\d+)")],
-    "recorder": [("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"([^"]+)"'), ("src/recorder/README.txt", r"v(\d+\.\d+\.\d+)")],
-}
+# 版は全体で 1 つ(RS5-E。ytt/version.py)。正の VERSION が正しい形で、ほかに版の文字そのものを書いた所が無いこと
+VERSION_FILE = ("src/ytt/version.py", r'^VERSION\s*=\s*"(\d+\.\d+\.\d+)"')
+VERSION_LITERALS = [   # 版の数字そのものを書いてはいけない所(version.py から読む)
+    ("src/studio/serve.py", r'^SERVER_VERSION\s*=\s*"(\d[^"]*)"'), ("src/editor/serve.py", r'^SERVER_VERSION\s*=\s*"(\d[^"]*)"'),
+    ("src/studio/core.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"), ("src/editor/app.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"),
+    ("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/home/launch.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
+    ("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/analytics/__init__.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
+    ("src/pipeline/pack/srt2resolve.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/pipeline/pack/auto_cut.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
+    ("src/pipeline/export/live_export.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
+]
 
 
 def walk(root, exts):
@@ -234,15 +236,14 @@ def missing_docstrings(path, tree):
 
 def version_mismatch():
     out = []
-    for tool, spots in VERSIONS.items():
-        found = []
-        for relpath, pat in spots:
-            text = read(os.path.join(REPO, relpath))
-            m = re.search(pat, text, re.M)
-            found.append((relpath, m.group(1) if m else None))
-        vals = {v for _, v in found}
-        if len(vals) != 1 or None in vals:
-            out.append((tool, found))
+    rel, pat = VERSION_FILE
+    m = re.search(pat, read(os.path.join(REPO, rel)), re.M)
+    if not m:
+        out.append(("version.py", [(rel, None)]))
+    for relpath, pat in VERSION_LITERALS:
+        m = re.search(pat, read(os.path.join(REPO, relpath)), re.M)
+        if m:
+            out.append(("版の数字を直に書いている(ytt/version.py から読む)", [(relpath, m.group(1))]))
     return out
 
 
