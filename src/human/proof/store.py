@@ -21,6 +21,7 @@ from flow import pack as _flowpack  # noqa: E402   カットのたたき台・�
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
+from . import overrides as _overrides  # noqa: E402   校正の上書きの控え <id>.over.json(RS6 b-O1。保存のたびに save_after)
 
 
 # ---------- 文字起こしの保存 ----------
@@ -335,6 +336,7 @@ def save_transcript(tid, obj):
         apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
         snapshot(tid, False)   # 履歴が残せなくても保存は止めない
         write_doc(tid, doc)
+        _overrides.save_after(tid, doc)   # 人の行の控え <id>.over.json(派生。書けなくても保存は成功。RS6 b-O1)
         return doc
 
 

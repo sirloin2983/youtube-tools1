@@ -34,6 +34,7 @@ from flow import tx as _flowtx  # noqa: E402   ② 文字起こしの動詞(tran
 from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
+from . import overrides as _overrides  # noqa: E402   校正の上書き(人の行を新しい文書へ引き継ぐ・<id>.over.json。RS6 b-O1)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
 
 # ---------- serve が登録する口(役割で組み直す RS2-8d。manage の relink・eval の evalbatch をここから読まない = ② から ③・④ を読まない) ----------
@@ -325,6 +326,42 @@ def resplit_doc(obj):
         return {"changed": changed, "added": added, "skipped": skipped, "rows": len(doc["segments"]), "updatedAt": doc["updatedAt"]}
 
 
+def carry_overrides(job, spec, doc):
+    """新しく作る文書 doc に、同じ動画の既存の文書(store.find_doc_for_media = 行のある・新しいもの)の人の行(上書き)を重ねる(RS6 b-O1。F-3)。
+    force の再文字起こし・エンジンを変えた再実行などで人の直しが消えないように。評価用(作る側・元の側)と評価用の作り直しには当てない。
+    環境変数 TRANSCRIBE_CARRY_OVERRIDES=off で止める(前の文書はそのまま残る = 引き継がなくても直しは失わない)。
+    doc の segments・speakers を書き換え、recognition.runs[-1] に override = 数(元の文書の id from)を入れる -> 数か None(重ねなかった)"""
+    if spec.get("evalSet") or spec.get("evalRedo") or _txbase.env_off("TRANSCRIBE_CARRY_OVERRIDES"):   # 止めるスイッチ(困ったとき用)
+        return None
+    hit = store.find_doc_for_media(spec["sourcePath"])
+    if not hit or not hit.get("rows"):
+        return None
+    try:
+        prev = store.read_transcript(hit["id"])
+    except _errors.ApiError:
+        return None
+    if prev.get("evalSet") is True:
+        return None
+    over = _overrides.current(hit["id"], prev)
+    if not over.get("rows"):
+        return None
+    rows, stats = _overrides.apply(doc.get("segments") or [], over, (spec.get("start") or 0.0, spec.get("end")))
+    if not stats["total"]:
+        return None
+    stats["from"] = hit["id"]
+    doc["segments"] = rows
+    doc["speakers"] = _overrides.merge_speakers(doc.get("speakers"), over, rows)
+    runs = list((doc.get("recognition") or {}).get("runs") or [])
+    if runs:
+        runs[-1] = dict(runs[-1], override=stats)   # 写しに入れる(生出力 asr.json に書く記録は機械の分のまま)
+        doc["recognition"] = dict(doc["recognition"], runs=runs)
+    msg = "同じ動画の前の文字起こしから、人の直し %d 行を引き継ぎました" % stats["matched"]
+    if stats["stale"]:
+        msg += "(対応する行が無い %d 行は印「古い認識を元にした直し」を付けて残しました)" % stats["stale"]
+    _txbase.add_warning(job, msg)
+    return stats
+
+
 def run_job(job):
     """文字起こし(kind transcribe)のジョブの本体。ほかの種類は登録した本体へ回す(ytt/jobs の JOB_RUNNERS。テストが doc_jobs.run_job で直に動かす)"""
     kind = job.get("kind")
@@ -358,7 +395,10 @@ def run_job(job):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
             if spec.get("evalSet"):
                 doc["evalSet"] = True
+            carried = carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(RS6 b-O1。評価用には当てない)
             store.write_doc(tid, doc)
+            if carried:
+                _overrides.save_after(tid, doc)
         _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)
         # 30fps でなければ、同じジョブの続きで <名前>_30fps.mp4 を作って付け替える(Q1。SLOTS はこのジョブが持っている。
         # 文書はもう書いてあるので、失敗・取り消しでも元の動画のまま残る = 文字起こしの結果は失わない。評価用は作らない)

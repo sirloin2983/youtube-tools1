@@ -672,6 +672,7 @@ class TestHttp(unittest.TestCase):
     def test_history_and_conflict(self):
         doc = self.make_doc()
         tid, segs = doc["id"], doc["segments"]
+        first = segs[0]["text"]   # 同じ動画の前のテストの直しが引き継がれていることがある(RS6 b-O1)
         put = lambda body: self.call("PUT", "/api/transcript?id=" + tid, dict({"title": doc["title"], "speakers": [], "segments": segs}, **body))
         self.assertEqual(self.call("GET", "/api/history?id=" + tid)["items"], [])
         base0 = doc["updatedAt"]
@@ -693,7 +694,7 @@ class TestHttp(unittest.TestCase):
         ts = h[0]["ts"]
         r = self.call("POST", "/api/restore", {"id": tid, "ts": ts})
         self.assertTrue(r["ok"])
-        self.assertEqual(self.call("GET", "/api/transcript?id=" + tid)["segments"][0]["text"], "テスト文1")
+        self.assertEqual(self.call("GET", "/api/transcript?id=" + tid)["segments"][0]["text"], first)
         self.assertEqual(len(self.call("GET", "/api/history?id=" + tid)["items"]), 2)
         self.assertEqual(self.call("POST", "/api/restore", {"id": tid, "ts": 123}).get("_status"), 404)
         self.assertEqual(self.call("POST", "/api/restore", {"id": "../x", "ts": ts}).get("_status"), 404)
