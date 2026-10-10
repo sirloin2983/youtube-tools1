@@ -22,7 +22,7 @@ import uuid
 import zipfile
 
 from ytt import fsio, normalize, tools
-from intake import BAD_NAME_CHARS, OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む。フォルダの名前は受付の 1 か所)
+from .intake import BAD_NAME_CHARS, OUT_DIR  # noqa: E402  (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む。フォルダの名前は受付の 1 か所)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".wav", ".m4a")   # 圧縮しても小さくならない物は ZIP_STORED
 CLIP_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")                     # パックの中の切り抜きの動画

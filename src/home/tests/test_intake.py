@@ -1,4 +1,4 @@
-"""友人からの依頼の受付(src/home/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
+"""友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 
 実行(リポジトリ直下から): python -m unittest src/home/tests/test_intake.py -v
 """
@@ -18,8 +18,8 @@ for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import intake  # noqa: E402
-import live_requests  # noqa: E402
+from human.friend import intake  # noqa: E402
+from human.friend import live_requests  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from ytt_core import fsio, normalize, tools  # noqa: E402
 

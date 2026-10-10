@@ -1,4 +1,4 @@
-"""パックを友人へ届ける(src/home/deliver.py・入口の api/ytt/deliver)の単体テスト。一時フォルダだけを使う。
+"""パックを友人へ届ける(src/human/friend/deliver.py・入口の api/ytt/deliver)の単体テスト。一時フォルダだけを使う。
 
 実行(リポジトリ直下から): python -m unittest src/home/tests/test_deliver.py -v
 """
@@ -21,7 +21,7 @@ for p in (HOME, ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-import deliver  # noqa: E402
+from human.friend import deliver  # noqa: E402
 
 
 def put(path, data=b"x"):

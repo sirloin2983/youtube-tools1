@@ -1,7 +1,7 @@
-"""友人の「要らない」を PC 側に戻す(src/home/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
+"""友人の「要らない」を PC 側に戻す(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 スタジオは呼ばない(マークは変えない。2026-10-08 ユーザー決定)。
 
-実行(リポジトリ直下から): python -m unittest src/home/tests/test_friend_feedback.py -v
+実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_friend_feedback.py -v
 """
 import json
 import os
@@ -12,15 +12,13 @@ import types
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-ROOT = os.path.dirname(HOME)
-for p in (HOME, ROOT):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
 
-import cases  # noqa: E402
+from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
-import friend_feedback as F  # noqa: E402
+from human.friend import friend_feedback as F  # noqa: E402
 
 
 def put(path, data=b"x"):

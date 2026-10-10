@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""案件(配信1本)ごとの紐づけ(src/home/cases.py)と、入口の /api/cases のテスト。本物の作業データは使わない。
-実行(リポジトリ直下): python -m unittest src/home/tests/test_cases.py"""
+"""案件(配信1本)ごとの紐づけ(src/manage/cases/cases.py)と、入口の /api/cases のテスト。本物の作業データは使わない。
+実行(リポジトリ直下): python -m unittest src/manage/cases/tests/test_cases.py"""
 import json
 import os
 import shutil
@@ -11,14 +11,12 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
-sys.path.insert(0, HERE)
-sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.dirname(HERE))
-import cases  # noqa: E402
+SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> cases -> manage -> src
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
+from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
-import deliver  # noqa: E402
+from human.friend import deliver  # noqa: E402
 from ytt_core import schemas, txindex  # noqa: E402
 
 VID = "abcdefghijk"

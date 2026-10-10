@@ -578,7 +578,7 @@ class AccuracyApiTest(TL.Base):
 
     def test_last_edit_probe(self):
         self.assertIsNone(self.srv._accuracy_last_edit())      # 文書のフォルダが無い
-        import cases as cases_mod
+        from manage.cases import cases as cases_mod
         d = cases_mod.locations(self.sup.root)["transcripts"]
         os.makedirs(d, exist_ok=True)
         for name, t in (("a.json", 1000.0), ("b.edit.json", 3000.0), ("c.diar.json", 2000.0)):

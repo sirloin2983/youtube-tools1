@@ -45,7 +45,7 @@ import threading
 import time
 import urllib.parse
 
-from manage.cases import txindex
+from . import txindex   # 同じ manage/cases の兄弟
 from ytt import datadir, fsio, schemas, tools
 from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 from pipeline import live_failures   # 失敗の文は 1 か所。線 D の M3

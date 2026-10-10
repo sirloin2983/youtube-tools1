@@ -1,7 +1,7 @@
 """友人からの依頼の受付(docs/spec/friend-intake.md。2026-09-30)。
 
 友人のプログラム(friend-apps/request-sender/)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
-まとめて実行(src/home/autorun.py)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
+まとめて実行(入口の src/home/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
 
 届くもの(見張るフォルダの直下だけ。受付済み/・失敗/ などの下のフォルダは見ない):
   <id>.request.json   友人のプログラムが最後に送る依頼(kind video = 同じ id の動画を文字起こし / url = 配信を解析 → 上位 N 個 → 書き出し → 文字起こし)
@@ -31,8 +31,8 @@ import time
 import uuid
 
 from ytt import colors, fsio, jobs, normalize, tools
-import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
-import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
+from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
+from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")

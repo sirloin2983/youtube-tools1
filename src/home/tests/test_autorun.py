@@ -19,7 +19,9 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
 import autorun as A  # noqa: E402
-import friend_feedback  # noqa: E402
+from human.friend import deliver as deliver_mod  # noqa: E402  (届ける部品。RS3-3 で AutoRunner の届けは human/friend/delivery.py の Delivery へ)
+from human.friend import delivery as DL  # noqa: E402
+from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from pipeline import runlog  # noqa: E402
 from ytt_core import fsio  # noqa: E402
@@ -237,11 +239,11 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.addCleanup(setattr, A.deliver_mod, "make_preview", A.deliver_mod.make_preview)
-        A.deliver_mod.make_preview = _fake_preview
+        self.addCleanup(setattr, deliver_mod, "make_preview", deliver_mod.make_preview)
+        deliver_mod.make_preview = _fake_preview
         self.tools = FakeTools(self.tmp, json.loads(json.dumps(self.marks)), self.analysis)
         self.env = {"TRANSCRIBE_DATA_DIR": os.path.join(self.tmp, "txdata"), "YTT_DATA_DIR": os.path.join(self.tmp, "data")}
-        import cases
+        from manage.cases import cases
         self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack)
 
     def tearDown(self):
@@ -773,7 +775,7 @@ class TestRunLog(Base):
         self.r = self.runner()
 
     def runner(self, **kw):
-        import cases
+        from manage.cases import cases
         return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack,
                             log_dir=kw.pop("log_dir", self.logs), **kw)
 
@@ -981,7 +983,7 @@ class TestRestore(Base):
         self.r = self.runner()
 
     def runner(self):
-        import cases
+        from manage.cases import cases
         return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack, log_dir=self.logs)
 
     def snap(self, rid):
@@ -1089,7 +1091,7 @@ class TestRestore(Base):
             json.dump({"v": A.ACTIVE_VERSION, "runs": [run.saved()]}, f)
         with mock.patch.object(A, "RESUME_WAIT", 30):
             self.r = A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: time.sleep(0.01),
-                                  find_pack=__import__("cases").find_pack, log_dir=self.logs)
+                                  find_pack=A.cases.find_pack, log_dir=self.logs)
             self.until(lambda: "ツールの準備を待っています(studio)" in ((self.snap(run.id) or {}).get("message") or ""))
             self.assertFalse(any(c[0] == "studio" for c in self.tools.calls))
             ready["studio"] = True
@@ -1305,15 +1307,15 @@ class TestRequests(Base):
 
     def fake_seconds(self, *secs):
         """各パックの切り抜きの長さ(ffprobe の結果)を決めた値にする。偽の動画は読めないので、そのままだと長さは None"""
-        self.addCleanup(setattr, A.deliver_mod, "clip_seconds", A.deliver_mod.clip_seconds)
-        A.deliver_mod.clip_seconds = lambda dirs, ffprobe=None: list(secs)[:len(dirs)]
+        self.addCleanup(setattr, deliver_mod, "clip_seconds", deliver_mod.clip_seconds)
+        deliver_mod.clip_seconds = lambda dirs, ffprobe=None: list(secs)[:len(dirs)]
 
     def record_places(self, out):
         """置く順の見張り: zip を作る直前・一覧を書く直前に、そのとき 出力\\ にあるものを控える(友人の同期で欠けないように ① まとめ動画 → ② zip → ③ 一覧)"""
         events = []
-        orig_zip, orig_json = A.deliver_mod.zip_packs, A.deliver_mod.write_group_json
-        self.addCleanup(setattr, A.deliver_mod, "zip_packs", orig_zip)
-        self.addCleanup(setattr, A.deliver_mod, "write_group_json", orig_json)
+        orig_zip, orig_json = deliver_mod.zip_packs, deliver_mod.write_group_json
+        self.addCleanup(setattr, deliver_mod, "zip_packs", orig_zip)
+        self.addCleanup(setattr, deliver_mod, "write_group_json", orig_json)
 
         def zip_packs(dirs, *a, **k):
             events.append(("zip", sorted(os.listdir(out)) if os.path.isdir(out) else []))
@@ -1322,7 +1324,7 @@ class TestRequests(Base):
         def write_group_json(path, *a, **k):
             events.append(("group", sorted(os.listdir(out))))
             return orig_json(path, *a, **k)
-        A.deliver_mod.zip_packs, A.deliver_mod.write_group_json = zip_packs, write_group_json
+        deliver_mod.zip_packs, deliver_mod.write_group_json = zip_packs, write_group_json
         return events
 
     def test_request_auto_delivers_packs(self):
@@ -1345,7 +1347,7 @@ class TestRequests(Base):
         self.assertIn("a3_pack/cut-plan.json", got[z3])
         self.assertEqual([n for n in got[z2] if not n.startswith("a2_pack/")] + [n for n in got[z3] if not n.startswith("a3_pack/")], [], "1 本の zip に 1 本だけ")
         for z in (z2, z3):
-            self.assertNotIn(A.deliver_mod.PREVIEW_NAME, got[z], "まとめ動画は zip の隣だけ(受け取ったあとは要らない。2026-10-08)")
+            self.assertNotIn(deliver_mod.PREVIEW_NAME, got[z], "まとめ動画は zip の隣だけ(受け取ったあとは要らない。2026-10-08)")
         with open(os.path.join(out, pre + " 1-2.preview.mp4"), "rb") as f:
             self.assertEqual(f.read(), b"PREVIEW")   # 組のまとめ動画(偽物)がそのまま置かれる
         doc = self.group_json(out, pre + " 1-2.group.json")
@@ -1388,7 +1390,7 @@ class TestRequests(Base):
         録画がもう作らない(is_done)・最後に預けてから POOL_IDLE_SEC たったら残りを届ける(1 本なら 1 本の形)。溜めは logs/deliver-pool.json に残る"""
         self.tools.known = False
         out = os.path.join(self.tmp, "Dropbox", "出力")
-        self.r.pool_path = os.path.join(self.tmp, "logs", A.POOL_FILE)   # この組み立ては log_dir なし(log_path だけ)なので、溜めの置き場所も足す
+        self.r.pool_path = os.path.join(self.tmp, "logs", DL.POOL_FILE)   # この組み立ては log_dir なし(log_path だけ)なので、溜めの置き場所も足す
         pool = {"key": "live|%s|local/rec1" % self.RID, "rid": self.RID, "title": "配信", "meta": {"recorder": "local", "recording": "rec1", "phase": "live"}}
         for i in range(3):
             media = self.live_clip("l%d.mp4" % i, "auto")
@@ -1404,7 +1406,7 @@ class TestRequests(Base):
                 self.assertEqual(len(names), 4)   # 3 本目は溜めるだけ
         self.assertEqual(self.r.pools()[pool["key"]]["waiting"], 1)
         self.assertTrue(os.path.isfile(self.r.pool_path))   # 起動し直しても続く
-        later = self.r.clock() + A.POOL_IDLE_SEC + 1
+        later = self.r.clock() + DL.POOL_IDLE_SEC + 1
         self.assertEqual(self.r.flush_pools(lambda meta: False, now=later), 0)   # 録画がまだ作るかもしれない間は待つ
         self.assertEqual(self.r.flush_pools(lambda meta: meta.get("recording") == "rec1", now=later), 1)
         self.assertIn("%s__l2.zip" % self.RID, os.listdir(out))
@@ -1423,7 +1425,7 @@ class TestRequests(Base):
         z2, z3 = "%s__a2.zip" % self.RID, "%s__a3.zip" % self.RID
         self.assertEqual(sorted(os.listdir(out)), sorted(["%s__a2.preview.mp4" % self.RID, z2, "%s__a3.preview.mp4" % self.RID, z3]))
         self.assertIn("a2_pack/cut-plan.json", got[z2])
-        self.assertNotIn(A.deliver_mod.PREVIEW_NAME, got[z2])
+        self.assertNotIn(deliver_mod.PREVIEW_NAME, got[z2])
         self.assertEqual([k for k, _n in events], ["zip", "zip"], "組の一覧は書かない")
         self.assertIn("%s__a2.preview.mp4" % self.RID, events[0][1], "まとめ動画は zip より先に置く")
         self.assertIn("%s__a3.preview.mp4" % self.RID, events[1][1])
@@ -1455,8 +1457,8 @@ class TestRequests(Base):
     def test_group_without_preview_still_delivers_zips_and_list(self):
         """まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と一覧は届ける(一覧の preview は null)"""
         self.tools.known = False
-        self.addCleanup(setattr, A.deliver_mod, "make_preview", A.deliver_mod.make_preview)
-        A.deliver_mod.make_preview = lambda *a, **k: False
+        self.addCleanup(setattr, deliver_mod, "make_preview", deliver_mod.make_preview)
+        deliver_mod.make_preview = lambda *a, **k: False
         out = os.path.join(self.tmp, "Dropbox", "出力")
         run = self.wait(self.r.start_request([{"id": VID, "top": 2, "title": "配信", "channel": ""}], request_id=self.RID, flow="auto", deliver_dir=out)["runs"][0])
         self.assertEqual(run["state"], "done", run)
@@ -1511,16 +1513,16 @@ class TestRequests(Base):
 
     def fail_zips_after(self, n):
         """zip を作る関数の n 回目より後を「ディスクがいっぱい」(OSError)にする。-> 呼ばれた回数の入れ物"""
-        orig = A.deliver_mod.zip_packs
+        orig = deliver_mod.zip_packs
         calls = {"n": 0}
-        self.addCleanup(setattr, A.deliver_mod, "zip_packs", orig)
+        self.addCleanup(setattr, deliver_mod, "zip_packs", orig)
 
         def zip_packs(*a, **k):
             calls["n"] += 1
             if calls["n"] > n:
                 raise OSError(28, "No space left on device")
             return orig(*a, **k)
-        A.deliver_mod.zip_packs = zip_packs
+        deliver_mod.zip_packs = zip_packs
         return calls
 
     def logs_dir(self):
@@ -1986,7 +1988,7 @@ class TestDeferred(Base):
         super().tearDown()
 
     def runner(self, **kw):
-        import cases
+        from manage.cases import cases
         kw.setdefault("defer_idle", 0)
         kw.setdefault("defer_retry", 0)
         return A.AutoRunner(self.tools, os.path.join(self.tmp, "repo"), self.env, poll=0, sleep=lambda s: None, find_pack=cases.find_pack,
@@ -2309,7 +2311,7 @@ class TestFriendLength(Base):
         self.r.log = self.logs.append
         self.tools.analyze = {"count": 12, "length": 45, "preRatio": 0.65}
         self.tools.known = False
-        import cases
+        from manage.cases import cases
         self.folder = os.path.join(os.path.dirname(cases.locations(self.r.root, self.env)["studio"]), "evals", "marks")
 
     def tearDown(self):

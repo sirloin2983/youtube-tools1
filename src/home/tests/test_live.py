@@ -42,7 +42,7 @@ import launch as L  # noqa: E402
 import live as LV  # noqa: E402
 from pipeline.export import live_export as LX  # noqa: E402
 from pipeline import live_failures as LF  # noqa: E402
-import live_requests as LR  # noqa: E402
+from human.friend import live_requests as LR  # noqa: E402
 import prefs as P  # noqa: E402
 from ytt_core import fsio, jobs, loudness, normalize, schemas, tools  # noqa: E402
 sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
