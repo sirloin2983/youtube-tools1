@@ -104,7 +104,7 @@ class TestOwnersFollowServePatches(unittest.TestCase):
     """RS3-0A: 一時の口 txenv を消し、置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・
     名簿のファイル(roster)・スタジオの配信の情報(ytt/studiodata)は、下の層の部品が持ち主を呼ぶたびに直に読む。
     S.名前 = …・patch.object(S, …) は持ち主へ届き、ed_state・ed_store に同じ名前は残っていない(残すと差し替えが別名に当たって届かない)"""
-    MOVED = (("workdata", ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "DATASET_DIR", "EVAL_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")),
+    MOVED = (("workdata", ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "DATASET_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA")),
              ("tools", ("MEDIA_TYPES", "find_ffmpeg", "ffmpeg_info", "duration_in", "media_duration", "check_source", "probe_media")),
              ("worker_client", ("nvidia_gpu", "has_faster_whisper", "worker_python", "worker_has", "gpu_ready", "worker_fake", "valid_model", "MODEL_RE")),
              ("studiodata", ("studio_videos", "studio_stream")),

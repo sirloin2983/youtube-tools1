@@ -443,7 +443,7 @@ function applySettings(){
 
 /* ---------- 準備状況 ---------- */
 
-// 処理の機器の表示(ジョブ・設定の比較・文書の認識の設定)。vulkan = AMD などの GPU で whisper.cpp(精度改善の計画 段2-2)
+// 処理の機器の表示(ジョブ・文書の認識の設定)。vulkan = AMD などの GPU で whisper.cpp(精度改善の計画 段2-2)
 function devLabel(d){ return d === 'cuda' ? 'GPU' : d === 'vulkan' ? 'GPU(whisper.cpp)' : 'CPU'; }
 
 function renderSetup(){

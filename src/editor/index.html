@@ -777,11 +777,10 @@ h2{margin:0;font-size:15px}
 /* ---------- 精度・学習・保管のカードの中 ---------- */
 .acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
 .acct th,.acct td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;background:transparent}
-.acct th:first-child,.acct td:first-child{text-align:left}.acct tr.best td{font-weight:650;color:var(--ok)}
+.acct th:first-child,.acct td:first-child{text-align:left}
 .acct tbody tr:hover,.acct tr:hover{background:transparent}
 .accmain{font-size:15px;margin-top:8px}.accmain b{font-variant-numeric:tabular-nums}
 .wl{font-size:12px;border-bottom:1px solid var(--line);padding:4px 0;word-break:break-all}
-.abres{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
 .ln{border-bottom:1px solid var(--line);padding:7px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 7px;min-height:30px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
 .goalbar{position:relative;height:10px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden;margin-top:10px}
 .goalbar i{display:block;height:100%;background:var(--accent);border-radius:inherit;min-width:0}
@@ -1476,12 +1475,7 @@ html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは�
     <div class="fld" style="margin-top:10px"><span class="l">評価用の基準の記録</span>
       <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
       <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)" style="flex:1;min-width:160px"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
-      <div id="blOut"></div></div>
-    <div class="fld" style="margin-top:12px"><span class="l">設定の比較(<abbr class="ui-term" title="同じ音声を2つ以上の設定で認識し直して、どちらが正確かを数字で比べること">A/B</abbr>)</span>
-      <span class="hint">開いている文字起こしの「校正済み」の行の音声を、下の設定それぞれで認識し直し、正解との差を比べます(文字起こしは書き換えません)。モデルや「用語集」の有無で、どれが良いかを数字で選べます。重いモデルほど時間がかかります(処理状況に出ます)。</span>
-      <div id="abRows"></div>
-      <div class="row" style="margin-top:6px"><button type="button" class="btn small" id="abAdd">＋設定を追加</button><button type="button" class="btn small primary" id="abGo">比較を実行</button><span class="hint" id="abHint"></span></div>
-      <div id="abOut"></div></div></details>
+      <div id="blOut"></div></div></details>
   <details class="card side-pane" data-side-pane="data" id="learnCard" open><summary>修正から学習した候補</summary>
     <p class="hint" style="margin:6px 0 0">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
     <p class="hint" id="lnStat" style="margin:4px 0 0"></p>

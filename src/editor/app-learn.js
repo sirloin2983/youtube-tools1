@@ -167,7 +167,7 @@ function updatePfStat(){
   $('#btnProofAll').textContent = t && n === t ? '校正済みを全解除' : '全行を校正済みに';
   $('#btnProofSel').disabled = !S.sel.size; $('#btnProofSel').title = S.sel.size ? '左端のチェックで選んだ行を校正済みにします' : '行の左端のチェックで行を選ぶと押せます';   // 押せない理由(S16)
   $('#btnNextUn').classList.toggle('primary', S.doc.segments.some(isUnproofed));   // 未校正がある間は次の一手(S3)
-  renderAbHint(); updateSess(); drawStripSoon();
+  updateSess(); drawStripSoon();
 }
 
 function updateSess(){
@@ -227,7 +227,7 @@ function moveStripHead(){
   hd.style.left = Math.min(100, Math.max(0, (player().currentTime - r[0]) / (r[1] - r[0]) * 100)) + '%';
 }
 
-/* ---------- 認識精度の測定・設定の比較(A/B) ---------- */
+/* ---------- 認識精度の測定 ---------- */
 
 async function loadBaselines(){
   let items = []; try { items = (await api('/api/eval-baselines')).items; } catch { return; }
@@ -510,9 +510,6 @@ function glossFit(terms){   // 先頭から何語がヒントに収まるか
   for (const t of terms){ const add = (n ? 1 : 0) + t.length; if (len + add > GLOSS_PROMPT) break; len += add; n++; }
   return { fit: n, len: terms.join('、').length };
 }
-/* 設定の比較の行ごとの用語集の欄の下の 1 行(空なら '') */
-function glossFitText(t){ if (!t.length) return ''; const f = glossFit(t); return f.fit >= t.length ? t.length + '語' : t.length + '語のうち先頭' + f.fit + '語だけ効きます'; }
-
 function renderGlossFit(){
   const t = glossTerms($('#optGloss').value), f = glossFit(t);
   $('#glossFit').textContent = !t.length ? '' : f.fit >= t.length ? `${t.length}語(認識のヒントに全部入ります)` : `${t.length}語のうち、認識のヒントに入るのは先頭の${f.fit}語まで(${GLOSS_PROMPT}字まで)。後ろの語は効きません。今回の動画に出る人だけに絞ってください`;
@@ -530,38 +527,6 @@ async function loadRoster(){
   if (!r || !r.groups.length){ box.textContent = '名簿を読めません(hololive-roster.json が無いか壊れています)'; $('#rosterAdd').disabled = true; return; }
   box.innerHTML = r.groups.map(g => `<label class="lag" style="display:inline-block;margin:0 10px 3px 0"><input type="checkbox" class="rg" value="${esc(g.id)}">${esc(g.label)}(${g.names.length})</label>`).join('');
   $('#rosterNote').textContent = `${r.asOf} 時点`; $('#rosterBox').title = r.note;
-}
-
-function renderAbHint(){
-  const pf = S.doc ? S.doc.segments.filter(s => s.proofed && s.text.trim()) : [], n = pf.length, sec = pf.reduce((a, s) => a + (s.end - s.start), 0);
-  $('#abHint').textContent = !S.doc ? '文字起こしを開いてください' : n ? `対象: 校正済み${Math.min(n, 300)}行(音声 約${approxLen(sec)})` : '校正済みの行がありません';
-  $('#abGo').disabled = !n;
-}
-
-function renderAb(){
-  if (!S.tools) return;
-  if (!abVariants){ const m = $('#optModel').value; abVariants = [{ model: m, glossary: true }, { model: m, glossary: false }]; }
-  $('#abRows').innerHTML = abVariants.map((v, i) => `<div class="row" data-i="${i}" style="margin-top:4px;flex-wrap:nowrap">
-    <select class="abm" style="min-width:0;flex:1" aria-label="モデル">${S.tools.models.map(([val, l]) => `<option value="${esc(val)}"${val === v.model ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-    <label class="lag"><input type="checkbox" class="abg"${v.glossary ? ' checked' : ''}>用語集</label>${abVariants.length > 1 ? '<button type="button" class="btn small icon" data-act="abdel" aria-label="この設定を外す" title="この設定を外す">' + uiIcon('close', { size: 14 }) + '</button>' : ''}</div>
-    ${v.glossary ? `<textarea class="abt" rows="2" style="width:100%;margin:2px 0 0" placeholder="空欄=上の共通の用語集を使う。書くと、この設定だけその語を使います(改行かカンマ区切り)" aria-label="この設定だけの用語集">${esc(v.terms || '')}</textarea>
-    <div class="row" style="margin:2px 0 0"><select class="abr" aria-label="名簿から足す" style="min-width:0"><option value="">名簿から足す…</option>${((S.roster && S.roster.groups) || []).map(g => `<option value="${esc(g.id)}">${esc(g.label)}</option>`).join('')}</select><span class="hint">${glossFitText(glossTerms(v.terms))}</span></div>` : ''}`).join('');
-  $('#abAdd').disabled = abVariants.length >= 4;
-  renderAbHint();
-}
-
-async function loadEvals(){
-  const id = S.docId; if (!id) { $('#abOut').innerHTML = ''; return; }
-  let r; try { r = await api('/api/evals?id=' + encodeURIComponent(id)); } catch { return; }
-  if (S.docId !== id) return;
-  $('#abOut').innerHTML = r.items.slice(0, 3).map(x => {
-    const best = Math.min(...x.variants.map(v => v.cer == null ? Infinity : v.cer));
-    return `<div class="abres"><div class="hint">${esc(new Date(x.at).toLocaleString())} ・ ${x.lines}行${x.device ? ' ・ ' + devLabel(x.device) : ''}</div>
-      <table class="acct"><tr><th>設定</th><th>CER</th><th>辞書後</th><th>置換/脱落/挿入</th><th>用語の誤挿入</th><th>用語ヒット</th></tr>
-      ${x.variants.map(v => `<tr${v.cer === best ? ' class="best"' : ''}><td>${esc(v.label)}</td><td>${pct(v.cer)}</td><td>${pct(v.cerDict)}</td><td>${v.sub}/${v.del}/${v.ins}</td><td>${v.termExtra}</td><td>${v.termRef ? v.termHit + '/' + v.termRef : '—'}</td></tr>`).join('')}</table>
-      <p class="hint" style="margin:3px 0 0">「辞書後」= 置換辞書を当てたあとのCER。「用語の誤挿入」= 正解に無いのに用語(用語集・辞書の正)が出た回数。</p>
-      <details><summary class="hint">誤りが多い行</summary>${x.variants.map(v => `<div class="hint" style="margin-top:4px"><b>${esc(v.label)}</b></div>` + v.worst.slice(0, 5).map(w => `<div class="wl"><span class="mono">${fmtT(w.start)}</span> 正: ${esc(w.ref)}<br>機: ${esc(w.hyp) || '(認識なし)'}</div>`).join('')).join('')}</details></div>`;
-  }).join('');
 }
 
 /* ---------- 保存データ(dataset/)への保管 ---------- */

@@ -652,37 +652,9 @@ class TestHttp(unittest.TestCase):
         # 不正なID
         self.assertEqual(self.call("GET", "/api/metrics?id=../x").get("_status"), 404)
 
-        # A/B 比較: 用語集あり(疑似では完全一致+ときどき用語が余計に出る)と、なし(最後の1文字が抜ける)
-        v = [{"model": "small", "glossary": True}, {"model": "small", "glossary": False}]
-        j = self.call("POST", "/api/abtest", {"tid": tid, "variants": v, "language": "ja", "glossary": "ホロライブ"})
-        self.assertEqual(j["kind"], "abtest")
-        self.assertIsNone(j["tid"])
-        j = self.wait_job(j["id"])
-        self.assertEqual(j["state"], "done", j)
-        ev = self.call("GET", "/api/evals?id=" + tid)["items"]
-        self.assertEqual(len(ev), 1)
-        va, vb = ev[0]["variants"]
-        self.assertEqual((va["label"], vb["label"]), ("small / 用語集あり", "small / 用語集なし"))
-        self.assertEqual(ev[0]["lines"], 3)
-        # 疑似の出力: 用語集あり=完全一致+3行目に用語「ホロライブ」を余計に出す / なし=各行の最後の1文字が抜ける
-        self.assertEqual((va["sub"], va["del"], va["ins"]), (0, 0, len("ホロライブ")))
-        self.assertEqual((vb["sub"], vb["del"], vb["ins"]), (0, 3, 0))
-        self.assertEqual((va["termExtra"], vb["termExtra"]), (1, 0))
-        self.assertGreater(va["cer"], 0)
-        self.assertGreaterEqual(va["cerDict"], 0)
-        self.assertEqual(self.call("GET", "/api/eval?id=" + ev[0]["id"])["id"], ev[0]["id"])
-        # 設定別の用語集: 空欄=共通 / 書くとその設定だけその語(自動追加なし) / なし
-        v3 = [{"model": "small", "glossary": True}, {"model": "small", "glossary": True, "terms": "ぺこら、マリン\nルイ"},
-              {"model": "small", "glossary": True, "terms": "ぺこら,マリン,ルイ"}, {"model": "small", "glossary": False, "terms": "無視される"}]
-        j = self.wait_job(self.call("POST", "/api/abtest", {"tid": tid, "variants": v3, "language": "ja", "glossary": "ホロライブ"})["id"])
-        self.assertEqual(j["state"], "done", j)
-        ev3 = self.call("GET", "/api/evals?id=" + tid)["items"][0]["variants"]
-        self.assertEqual(len(ev3), 3)   # 同じ内容の設定は1つにまとめる
-        self.assertEqual(ev3[0]["label"], "small / 用語集あり")
-        self.assertEqual(ev3[1]["label"], "small / 用語集独自3語(ぺこら、マリン…)")
-        self.assertEqual(ev3[1]["terms"], ["ぺこら", "マリン", "ルイ"])
-        self.assertEqual((ev3[0]["ins"], ev3[1]["ins"]), (len("ホロライブ"), len("ぺこら")))
-        self.assertEqual((ev3[2]["label"], ev3[2]["terms"], ev3[2]["del"]), ("small / 用語集なし", [], 3))
+        # 設定の比較(A/B)は 0.68.0 で消した(API も無い)
+        self.assertEqual(self.call("POST", "/api/abtest", {"tid": tid}).get("_status"), 404)
+        self.assertEqual(self.call("GET", "/api/evals?id=" + tid).get("_status"), 404)
         # ホロライブの名簿: 読める・重複や空が無い・所属IDが一意
         r = self.call("GET", "/api/roster")
         ids = [g["id"] for g in r["groups"]]
@@ -694,12 +666,6 @@ class TestHttp(unittest.TestCase):
         names = {n for g in r["groups"] for n in g["names"]}
         self.assertTrue({"兎田ぺこら", "宝鐘マリン", "AZKi", "熱千めら"} <= names)
         self.assertRegex(r["asOf"], r"^\d{4}-\d\d-\d\d$")
-        # 校正済みの行が無い文書には比較できない
-        other = self.make_doc()
-        self.assertEqual(self.call("POST", "/api/abtest", {"tid": other["id"], "variants": v}).get("error"), "empty")
-        self.assertEqual(self.call("POST", "/api/abtest", {"tid": tid, "variants": []}).get("error"), "empty")
-        self.assertEqual(self.call("POST", "/api/abtest", {"tid": tid, "variants": [{"model": "../x"}]}).get("error"), "bad_model")
-
         # 書き出し: 校正済みの行すべて(直していない行も入る) / 従来どおり直した行だけ
         z = zipfile.ZipFile(io.BytesIO(self.call("POST", "/api/export-corrections", {"tid": tid, "audio": False, "scope": "proofed"}, raw=True)))
         rows = [json.loads(x) for x in z.read("corrections.jsonl").decode().splitlines()]

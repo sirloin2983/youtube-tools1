@@ -193,10 +193,10 @@ function startPolling(){ if (!S.pollT) S.pollT = setInterval(pollJobs, 1000); }
 async function pollJobs(){
   let j; try { j = await api('/api/jobs'); } catch { return; }
   S.jobs = j.jobs.slice().reverse();
-  let doneNew = false, diar = null, abDone = null, txDone = [], failed = null, voiceDone = null, normDone = [], altDone = [], ytDone = [];
+  let doneNew = false, diar = null, txDone = [], failed = null, voiceDone = null, normDone = [], altDone = [], ytDone = [];
   for (const x of S.jobs){
     if (S.seen.has(x.id)) continue;
-    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'abtest') abDone = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.kind === 'normalize') normDone.push(x); else if (x.kind === 'alt') altDone.push(x); else if (x.kind === 'ytcap') ytDone.push(x); else if (x.tid) txDone.push(x); }
+    if (x.state === 'done'){ S.seen.add(x.id); doneNew = true; if (LOCK_KINDS.includes(x.kind)) diar = x; else if (x.kind === 'voice-learn') voiceDone = x; else if (x.kind === 'normalize') normDone.push(x); else if (x.kind === 'alt') altDone.push(x); else if (x.kind === 'ytcap') ytDone.push(x); else if (x.tid) txDone.push(x); }
     else if (x.state === 'error'){ S.seen.add(x.id); failed = x; }   // 失敗も一度だけ知らせる(メニューを閉じていると気づけないため)
   }
   renderJobs(); applyLock();
@@ -207,7 +207,6 @@ async function pollJobs(){
   for (const x of txDone.concat(normDone)) if (x.normNote) toast(`「${x.title || '無題'}」: ${x.normNote}`, 9000, x.normOk ? 'ok' : undefined);   // 30fps にそろえた・そろえられなかった(Q1)
   if (failed) toast(jobFailText(failed), { ms: 15000, kind: 'err', detail: failed.errorDetail || undefined,
     action: failed.canRetry ? { label: 'やり直す', fn: () => retryJob(failed.id) } : undefined });   // 原文は「詳しく」の中だけ・[やり直す](M9)
-  if (abDone){ loadEvals(); toast('設定の比較が終わりました。左の「認識精度の測定」に結果が出ます'); }
   if (altDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`別のエンジンで聞き終えました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'alt').length} 件出しました(行の「別」)`, 6000, 'ok'); }   // D1-b: 文書は書き換えないので、候補だけ読み直す
   if (ytDone.some(x => x.tid === S.docId)){ await loadSuggest(); toast(`YouTube の字幕と比べました。食い違う所に候補を ${S.sug.filter(x => x.tier === 'yt' || (x.also || []).includes('yt')).length} 件出しました(行の「YT」)`, 6000, 'ok'); }   // A1: 同じく候補だけ読み直す
   if (voiceDone){ toast(`声を覚えました: ${(voiceDone.learned || []).join('・')}。次からの話者判別で、この声の話者に名前を付けます`, 6000, 'ok'); loadVoices(); }
@@ -274,7 +273,7 @@ function renderIntoState(){
 }
 
 /* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */
-const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', ytcap: 'YouTube の字幕との比較', normalize: '30fps にそろえる処理', abtest: '設定の比較' };
+const JOB_KIND_NAME = { transcribe: '文字起こし', diarize: '話者の判別', retranscribe: '再認識', redo: '疑わしい所の認識し直し', 'voice-learn': '声を覚える処理', alt: '別のエンジンでの聞き直し', ytcap: 'YouTube の字幕との比較', normalize: '30fps にそろえる処理' };
 /* 進み具合の文: 「n% か状態」(札・文字起こし中の 1 行)と「段階 + n%」(カード・別のエンジンの欄) */
 const jobProg = j => j.state === 'running' ? pctOf(j) + '%' : STATE_LABEL[j.state] || '';
 const jobPhase = j => (j.phase || '') + (j.state === 'running' ? ' ' + pctOf(j) + '%' : '');
@@ -303,7 +302,6 @@ function renderJobs(){
     ${ACTIVE.has(j.state) ? `<div class="bar${j.state === 'running' ? '' : ' indeterminate'}"><i style="width:${pctOf(j)}%"></i></div><div class="row" style="justify-content:space-between;margin-top:3px"><span class="hint">${esc(jobPhase(j))}${j.device ? '(' + devLabel(j.device) + ')' : ''}</span><button type="button" class="btn small" data-act="cancel">中止</button></div>` : ''}
     ${j.error ? `<div class="hint tt-jerr">${esc(j.internal ? (JOB_KIND_NAME[j.kind] || '処理') + 'が途中で止まりました。もう一度始めてください' : j.error)}</div>${j.errorDetail ? `<details class="tt-jerr-detail"><summary>詳しく</summary><span class="mono">${esc(j.errorDetail)}</span></details>` : ''}${j.canRetry ? '<div class="row" style="margin-top:4px"><button type="button" class="btn small" data-act="retry">やり直す</button></div>' : ''}` : ''}
     ${(Array.isArray(j.warnings) ? j.warnings : []).slice(0, 3).map(w => `<div class="notice tt-jwarn">${esc(w)}</div>`).join('')}
-    ${j.state === 'done' && j.kind === 'abtest' ? `<div class="row" style="margin-top:3px"><span class="hint">${j.segments}行で比較</span><button type="button" class="btn small" data-act="evalview">結果を見る</button></div>` : ''}
     ${j.state === 'done' && j.tid ? `<div class="row" style="margin-top:3px"><span class="hint">${jobDoneText(j)}</span><button type="button" class="btn small" data-act="open" data-tid="${esc(j.tid)}">開く</button></div>` : ''}
   </div>`).join('');
 }

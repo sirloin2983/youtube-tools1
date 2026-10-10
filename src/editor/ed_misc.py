@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 設定の比較(A/B)・clip-marker との連携・進行度・フォルダの一括読み込み・受け渡しの API(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+"""「編集」のサーバーの部品: clip-marker との連携・進行度・フォルダの一括読み込み・受け渡しの API(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+設定の比較(A/B。run_abtest・/api/abtest・/api/evals)は 0.68.0(2026-10-10。ユーザー決定「使っていない」)で消した(戻すときは git の履歴)。
 
 名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
@@ -9,157 +10,11 @@ import json
 import os
 
 from ytt import fsio as _fsio, runtime as _runtime, schemas as _yschemas  # noqa: E402
-from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 import ed_jobs  # noqa: E402,F401
-import ed_learn  # noqa: E402,F401
 import pipeline_io  # noqa: E402   (受け渡しの部品。RS3-0A まで ed_state.pio() の遅延ロード)
-from pipeline.transcribe import worker_client  # noqa: E402   wav を読まずに渡す形 read_wav_f32(RS2-6)
 import ed_state  # noqa: E402,F401
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 import ed_store  # noqa: E402,F401
-# ---------- 設定の比較(A/B): 校正済みの行の音声を複数の設定で認識し直し、正解との差を比べる(文字起こしは書き換えない) ----------
-MAX_AB_LINES = 300
-MAX_AB_VARIANTS = 4
-KEEP_EVALS = 60
-
-
-def ab_label(v):
-    own = v.get("terms") or []
-    g = ("独自%d語(%s…)" % (len(own), "、".join(own[:2])) if own else "あり") if v["glossary"] else "なし"
-    return "%s / 用語集%s" % (str(v["model"]).split("/")[-1], g)
-
-
-def validate_abtest(req):
-    tid = str(req.get("tid") or "")
-    doc = ed_store.read_transcript(tid)
-    _tools.check_source(doc.get("sourcePath"))
-    ids = [g["id"] for g in doc.get("segments") or [] if isinstance(g, dict) and g.get("proofed") and "unclear" not in (g.get("tags") or []) and str(g.get("text", "")).strip()][:MAX_AB_LINES]
-    if not ids:
-        raise ed_state.ApiError("empty", "校正済みの行がありません(正しく直した行に「校正済み」を付けてから比べてください)", 400)
-    variants = []
-    for v in (req.get("variants") or [])[:MAX_AB_VARIANTS]:
-        if not isinstance(v, dict):
-            continue
-        m = str(v.get("model") or "").strip()
-        if not worker_client.valid_model(m):
-            raise ed_state.ApiError("bad_model", "モデル名が正しくありません", 400)
-        one = {"model": m, "glossary": v.get("glossary") is not False}
-        # 設定ごとの用語集: 空なら共通の用語集(+自動追加)を使う。書いてあればその設定だけ、その語だけを使う(自動追加はしない)
-        own = list(dict.fromkeys(ed_jobs.split_terms(v.get("terms"))))[:200]
-        if one["glossary"] and own:
-            one["terms"] = own
-        if one not in variants:
-            variants.append(one)
-    if not variants:
-        raise ed_state.ApiError("empty", "比べる設定がありません", 400)
-    lang = str(req.get("language") or doc.get("language") or "ja")
-    glossary, gauto = ed_jobs.glossary_of(req)
-    if ed_jobs.tid_busy(tid, ("abtest",)):
-        raise ed_state.ApiError("busy", "この文字起こしは、すでに比較の最中です", 409)
-    return {"tid": tid, "ids": ids, "variants": variants, "language": lang if lang in ed_state.LANGS else "ja", "beam": 5, "vadMode": "off",
-            "device": req.get("device") if req.get("device") in ("cuda", "cpu") else "auto", "boost": req.get("boost") is True,
-            "glossary": glossary + gauto, "title": "設定の比較: " + (str(doc.get("title") or "") or "無題")[:100]}
-
-
-def _fake_hyp(text, glossary, n):
-    """テスト用の疑似出力。用語集ありは完全一致(ときどき用語を余計に出す)、なしは最後の1文字が抜ける。"""
-    if glossary:
-        return text + (glossary[0] if n % 3 == 2 else "")
-    return text[:-1] if len(text) > 1 else text
-
-
-def run_abtest(job):
-    spec = job["spec"]
-    wav = os.path.join(_workdata.TMP_DIR, job["id"] + ".wav")
-    with ed_jobs.job_errors(job, wav):
-        os.makedirs(_workdata.TMP_DIR, exist_ok=True)
-        doc = ed_store.read_transcript(spec["tid"])
-        src = _tools.check_source(doc.get("sourcePath"))
-        start, end = ed_state.num(doc.get("start"), 0.0) or 0.0, ed_state.num(doc.get("end"))
-        by_id = {g["id"]: g for g in doc.get("segments") or []}
-        targets = sorted((by_id[i] for i in spec["ids"] if i in by_id), key=lambda g: g["start"])
-        if not targets:
-            raise ed_state.ApiError("empty", "比べる校正済みの行が見つかりません", 400)
-        start, end = ed_jobs.audio_span(targets, start, end)   # 以下の start は「取り出した音声の先頭が、元の動画の何秒か」
-        job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        ed_jobs.extract_audio(job, {"sourcePath": src, "start": start, "end": end, "boost": spec["boost"]}, wav)
-        fake = ed_state.backend_name() == "fake"
-        audio = None
-        if not fake:
-            if not worker_client.has_faster_whisper():
-                raise ed_state.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
-            audio = worker_client.read_wav_f32(wav)
-        pairs = ed_learn.parse_replacements(_settings.load_settings().get("replacements"))
-        all_terms = list(spec["glossary"]) + [t for v in spec["variants"] for t in v.get("terms", [])]
-        terms = list(dict.fromkeys(ed_learn.metric_terms() + [x for x in (ed_learn.norm_cer(g) for g in all_terms) if len(x) >= 2]))
-        sep = "" if spec["language"] in ("ja", "zh", "ko") else " "
-        steps, n_done, out, nv = max(1, len(spec["variants"]) * len(targets)), 0, [], len(spec["variants"])
-        for vi, v in enumerate(spec["variants"]):
-            glossary = (v.get("terms") or spec["glossary"]) if v["glossary"] else []
-            acc, acc_d, cm = ed_learn.new_acc(), ed_learn.new_acc(), None
-            if not fake:
-                job["state"], job["phase"] = "loading", "モデルを読み込み中(%d/%d)" % (vi + 1, nv)
-                cm = ed_jobs.ChunkModel(job, v["model"], spec["device"], {**spec, "model": v["model"], "glossary": glossary})
-            job["state"], job["phase"] = "running", "比較中(%d/%d)%s" % (vi + 1, nv, ab_label(v))
-            for n, t in enumerate(targets):
-                if job["cancel"]:
-                    raise ed_jobs.Cancelled()
-                if fake:
-                    raw = _fake_hyp(str(t["text"]), glossary, n)
-                    ed_state.fake_sleep()
-                else:
-                    a, b = max(0.0, t["start"] - start - 0.3), t["end"] - start + 0.3
-                    r = cm.recognize(audio[int(a * 16000):int(b * 16000)], t, sep, glossary, n == 0)
-                    raw = r[0] if r else ""
-                ref = ed_learn.norm_cer(t["text"])
-                ed_learn.acc_line(acc, ref, ed_learn.norm_cer(raw), terms, {"id": t["id"], "start": t["start"], "end": t["end"], "ref": str(t["text"])[:120], "hyp": raw[:120]})
-                ed_learn.acc_line(acc_d, ref, ed_learn.norm_cer(ed_learn.apply_replacements(raw, pairs)[0]), terms)
-                n_done += 1
-                job["progress"] = min(0.99, n_done / steps)
-            fin, fin_d = ed_learn.acc_finish(acc), ed_learn.acc_finish(acc_d)
-            out.append({"model": v["model"], "glossary": v["glossary"], "terms": v.get("terms", []), "label": ab_label(v), "cer": fin["cer"], "cerDict": fin_d["cer"],
-                        "sub": fin["sub"], "del": fin["del"], "ins": fin["ins"], "refChars": fin["refChars"], "lines": fin["groups"],
-                        "termRef": fin["termRef"], "termHit": fin["termHit"], "termExtra": fin["termExtra"], "worst": fin["worst"]})
-        if job["cancel"]:
-            raise ed_jobs.Cancelled()
-        result = {"id": job["id"], "tid": spec["tid"], "title": str(doc.get("title") or "")[:100], "at": ed_state.now_ms(), "lines": len(targets),
-                  "language": spec["language"], "device": job.get("device", ""), "variants": out}
-        os.makedirs(_workdata.EVAL_DIR, exist_ok=True)
-        ed_state.atomic_write(os.path.join(_workdata.EVAL_DIR, job["id"] + ".json"), json.dumps(result, ensure_ascii=False, indent=1).encode("utf-8"))
-        old = sorted((os.path.join(_workdata.EVAL_DIR, n) for n in os.listdir(_workdata.EVAL_DIR) if n.endswith(".json")), key=os.path.getmtime)
-        for p in old[:-KEEP_EVALS]:
-            ed_state.unlink_quiet(p)
-        job["segments"], job["progress"], job["state"], job["phase"] = len(targets), 1.0, "done", "完了"
-
-
-def read_eval(eid):
-    if not ed_state.TID_RE.match(eid or "") or not os.path.isfile(os.path.join(_workdata.EVAL_DIR, eid + ".json")):
-        raise ed_state.ApiError("not_found", "比較の結果が見つかりません", 404)
-    d = _fsio.read_json_or(os.path.join(_workdata.EVAL_DIR, eid + ".json"), _BROKEN)
-    if d is _BROKEN:
-        raise ed_state.ApiError("broken", "比較の結果を読み込めません", 500)
-    return d
-
-
-_BROKEN = object()   # read_eval: 読めなかった
-
-
-def list_evals(tid=None, limit=20):
-    out = []
-    if os.path.isdir(_workdata.EVAL_DIR):
-        for n in os.listdir(_workdata.EVAL_DIR):
-            if not n.endswith(".json") or not ed_state.TID_RE.match(n[:-5]):
-                continue
-            try:
-                d = read_eval(n[:-5])
-            except ed_state.ApiError:
-                continue
-            if tid is None or d.get("tid") == tid:
-                out.append(d)
-    out.sort(key=lambda d: -int(d.get("at") or 0))
-    return out[:limit]
-
-
 # ---------- clip-marker との連携 ----------
 OTHER_JSON_MAX = 64 * 1024 * 1024   # 他のツールが書く JSON(スタジオの data.json・旧マーカー・波形の記録)を読む上限(これより大きいものは読めない扱い)
 # 他のツール(スタジオ・旧マーカー)が書くファイルを読む。BOM 付きでも読む。読めなければ None(ytt_core.fsio.read_json_or。名前はテストが呼ぶので残す)

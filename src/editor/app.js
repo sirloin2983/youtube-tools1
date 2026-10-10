@@ -102,7 +102,7 @@ onLeave(() => { if (setT){ clearTimeout(setT); setT = null; sendSettings(true); 
 UIKit.life.onReturn(() => { if (setFailed && !S.settingsLoadErr) sendSettings(); });   // 離れるときの送信が失敗していたら送り直す
 
 /* ---------- 進行度 ---------- */
-const MILESTONES = [[1800, '辞書・名簿・提案の効果を、数字で測れる'], [3600, '設定の比較(A/B)で方針を決められる'], [10800, '追加学習(LoRA)を小さく試せる']];
+const MILESTONES = [[1800, '辞書・名簿・提案の効果を、数字で測れる'], [3600, '測る道具でエンジン・設定を比べて方針を決められる'], [10800, '追加学習(LoRA)を小さく試せる']];
 let PG = null;
 const fmtDur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}時間${String(m).padStart(2, '0')}分` : m >= 1 ? `${m}分${String(s % 60).padStart(2, '0')}秒` : `${s}秒`; };
 $('#goalHours').addEventListener('change', e => { const h = Number(e.target.value); if (!(h >= 0.5 && h <= 200)){ toast('0.5〜200 時間の間で入力してください'); e.target.value = String(goalSec() / 3600); return; } S.settings.goalHours = h; saveSettings(); renderProgress(); });
@@ -449,7 +449,7 @@ $('#btnProofSel').addEventListener('click', () => {
   if (!proofNext(before)) toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);   // 未校正が 0 になったら [2 カットへ](段7 S-17)
 });
 
-/* ---------- 認識精度の測定・設定の比較(A/B) ---------- */
+/* ---------- 認識精度の測定 ---------- */
 const pct = v => v == null ? '—' : (v * 100).toFixed(1) + '%';
 let accT = null;
 $('#blGo').addEventListener('click', e => busy(e.currentTarget, async () => {
@@ -472,38 +472,6 @@ $('#rosterAdd').addEventListener('click', () => {
   toast(fresh.length ? `${fresh.length}語を用語集に追加しました` : 'すべて登録済みです');
 });
 $('#optGloss').addEventListener('input', renderGlossFit);
-
-let abVariants = null;
-$('#abRows').addEventListener('change', e => {
-  if (e.target.classList.contains('abr')){
-    const row = e.target.parentElement.previousElementSibling.previousElementSibling, v = row && abVariants[Number(row.dataset.i)];
-    if (v && e.target.value){ v.terms = glossTerms(v.terms).concat(rosterNames([e.target.value]).filter(n => !glossTerms(v.terms).includes(n))).join('\n'); renderAb(); }
-    return;
-  }
-  const row = e.target.closest('[data-i]'), v = row && abVariants[Number(row.dataset.i)]; if (!v) return;
-  const was = v.glossary;
-  v.model = row.querySelector('.abm').value; v.glossary = row.querySelector('.abg').checked;
-  if (was !== v.glossary) renderAb();
-});
-$('#abRows').addEventListener('input', e => {
-  const v = e.target.classList.contains('abt') ? abVariants[Number(e.target.previousElementSibling.dataset.i)] : null;
-  if (v){ v.terms = e.target.value; e.target.nextElementSibling.querySelector('.hint').textContent = glossFitText(glossTerms(v.terms)); }
-});
-$('#abRows').addEventListener('click', e => {
-  const b = e.target.closest('[data-act=abdel]'); if (!b) return;
-  abVariants.splice(Number(b.closest('[data-i]').dataset.i), 1); renderAb();
-});
-$('#abAdd').addEventListener('click', () => { if (abVariants.length < 4){ abVariants.push({ model: abVariants[abVariants.length - 1].model, glossary: true }); renderAb(); } });
-$('#abGo').addEventListener('click', async () => {
-  if (!S.doc) return;
-  const b = $('#abGo'); b.disabled = true;
-  try {
-    if (!(await saveFirst())) return;
-    await api('/api/abtest', { body: { tid: S.docId, variants: abVariants, language: $('#optLang').value, device: $('#optDevice').value, boost: optCheck('boost'),
-      glossary: $('#optGloss').value, autoGloss: optCheck('autoGloss') } });
-    await kickJobs(); toast('設定の比較を待機列に追加しました。終わると、ここに結果が出ます');
-  } catch (er){ toast(er.message); } finally { renderAbHint(); }
-});
 
 /* ---------- 保存データ(dataset/)への保管 ---------- */
 const mb = n => n >= 1e9 ? (n / 1e9).toFixed(1) + 'GB' : Math.max(1, Math.round(n / 1e6)) + 'MB';
@@ -1229,7 +1197,6 @@ $('#txRuns').addEventListener('click', async e => {
 $('#jobs').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   if (b.dataset.act === 'open') openDoc(b.dataset.tid);
-  else if (b.dataset.act === 'evalview'){ showInMenu($('#accCard')); loadEvals(); }   // 「精度」タブに切り替えてから見せる(別のタブのままだと隠れていて何も起きなかった)
   else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
   else if (b.dataset.act === 'retry') retryJob(b.closest('.job').dataset.id);   // 失敗した文字起こしをもう一度(M9)
 });

@@ -3,7 +3,7 @@
 
 faster-whisper を入れていない環境でも動くよう、TRANSCRIBE_BACKEND=worker-fake で動かす:
 サーバー側(serve.py)は本物の経路(ワーカーとのやり取り・RemoteModel)を通り、ワーカーの中だけ偽のモデル(eval/fake/fake_worker.install)を使う。
-確かめること: 文字起こし・再認識(行ごと / 範囲)・設定の比較・話者判別がワーカー経由で動く / 取り消し /
+確かめること: 文字起こし・再認識(行ごと / 範囲)・話者判別がワーカー経由で動く / 取り消し /
 ワーカーが落ちてもサーバーは止まらず、そのジョブだけ失敗し、次のジョブで起動し直す / 取り消しに応じなければ強制終了 /
 しばらく使わなければワーカーを終わらせる / サーバーがいなくなればワーカーも終わる / 標準出力への余計な出力がやり取りを壊さない。
 ffmpeg が必要。
@@ -54,10 +54,10 @@ class WorkerTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="tx-worker-store-")
-        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.EVAL_DIR, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT)
+        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT)
         S.RUN_MARK = os.path.join(self.tmp, ".running.json")   # 起動中の印もリポジトリのフォルダに書かない
         S.TX_DIR, S.TMP_DIR = self.tmp, os.path.join(self.tmp, ".tmp")
-        S.SETTINGS, S.EVAL_DIR = os.path.join(self.tmp, "settings.json"), os.path.join(self.tmp, "evals")
+        S.SETTINGS = os.path.join(self.tmp, "settings.json")
         S.WORKER_LOG = os.path.join(self.tmp, "worker.log")
         S.WORKER = S.WorkerClient()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "worker-fake", "TRANSCRIBE_FAKE_DELAY": "0.01"})
@@ -67,7 +67,7 @@ class WorkerTest(unittest.TestCase):
     def tearDown(self):
         S.WORKER.close()
         self.env.stop()
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.EVAL_DIR, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT = self.saved
+        S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.WORKER, S.WORKER_LOG, S.WORKER_CANCEL_GRACE, S.RUN_MARK, S.WORKER_SILENCE_TIMEOUT = self.saved
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---- 手伝い
@@ -321,7 +321,7 @@ class WorkerTest(unittest.TestCase):
         self.assertNotIn("_words", segs[0])
         self.assertEqual(segs[0]["text"], "テスト文1")   # 単語をつなげた文と行の文が一致(単語が正しく届いている)
 
-    def test_retranscribe_each_and_range_and_abtest(self):
+    def test_retranscribe_each_and_range(self):
         tid = self.transcribe()["tid"]
         spec = S.validate_retranscribe({"tid": tid, "ids": ["s2", "s3"], "model": "small"})
         job = S.add_job(spec, "retranscribe")
@@ -330,14 +330,6 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(os.listdir(S.TMP_DIR), [])                # 一時ファイル(音声・範囲の配列)は残らない
         spec = S.validate_retranscribe({"tid": tid, "ids": ["s2", "s3"], "model": "small", "mode": "range"})
         job = S.add_job(spec, "retranscribe")
-        S.work_one(job["id"])
-        self.assertEqual(job["state"], "done", job.get("error"))
-        d = self.doc(tid)
-        for g in d["segments"]:
-            g["proofed"] = True
-        S.save_transcript(tid, d)
-        spec = S.validate_abtest({"tid": tid, "variants": [{"model": "small"}, {"model": "medium", "glossary": False}]})
-        job = S.add_job(spec, "abtest")
         S.work_one(job["id"])
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(os.listdir(S.TMP_DIR), [])

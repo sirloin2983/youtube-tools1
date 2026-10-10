@@ -160,7 +160,7 @@ async function openDoc(id, keep){
   if (CUT){ if (!keep || !sameDoc) CUT.load(id); else CUT.docChanged(); }
   if (PACK && (!keep || !sameDoc)) PACK.load(id);   // 前回のパック(編集の内容の pack)を読む   // カット(編集の内容)を読む。話者判別・再認識のあとの読み直しでは、行の印だけ付け直す
   lookupSpeakerNames((d.speakers || []).map(s => s.name));   // 話者の色: 名前をまとめて1回で照らし合わせる(行ごとに通信しない。段2)
-  renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderAb(); loadEvals(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
+  renderDocBar(); renderDoc(); renderList(); updateUndo(); applyLock(); loadSuggest(); renderTerms(); renderDataset(); $('#hiList').innerHTML = ''; txKeybarScene();
   fillDiarNum(); rememberLast();   // 話者の人数はこの文書の値(段7 E-6)・前回の文書とタブを覚える(E-7)
   if (!keep || !sameDoc){ renderDocAuto(PICK.lastRuns || []); $('#docAuto').open = false; UIKit.streamer.autoFill($('#docAutoWho'), { docId: id }); }   // 覚えた名前 → チャンネル名から(段5)   // 題名の行のまとめて実行の札は、開いた文書のもの
   if (keep){ window.scrollTo(0, scrollY); if ($('.tx-list')) $('.tx-list').scrollTop = listY; }

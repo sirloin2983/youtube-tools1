@@ -151,9 +151,9 @@ class TestJobs(unittest.TestCase):
             S.add_job({"title": "r", "tid": "t1"}, "retranscribe")
         self.assertEqual(cm.exception.status, 409)
         S.add_job({"title": "d2", "tid": "t2"}, "diarize")        # 別の文字起こしなら入る
-        S.add_job({"title": "ab", "tid": "t1"}, "abtest")          # 比較は話者判別と同時でもよい(文書を書き換えない)
+        S.add_job({"title": "al", "tid": "t1"}, "alt")             # 2つ目のエンジンは話者判別と同時でもよい(文書を書き換えない)
         with self.assertRaises(S.ApiError):
-            S.add_job({"title": "ab2", "tid": "t1"}, "abtest")
+            S.add_job({"title": "al2", "tid": "t1"}, "alt")
 
 
 class TestExportCleanup(StoreDir):
@@ -239,29 +239,6 @@ class TestPerformance(StoreDir):
         self.assertLess(b - a, 30)
         doc = S.read_transcript(TID)
         self.assertEqual(doc["segments"][100]["text"], "行100(再)")
-
-    def test_abtest_extracts_only_needed_span(self):
-        self._long_doc()
-        segs = S.read_transcript(TID)["segments"]
-        for g in segs:
-            g.pop("proofed", None)
-        for i in (200, 203):
-            segs[i]["proofed"] = True
-        d = S.read_transcript(TID)
-        d["segments"] = segs
-        self.put_doc(d)
-        spec = {"tid": TID, "ids": ["s200", "s203"], "variants": [{"model": "small", "glossary": False}], "language": "ja", "beam": 5, "vadMode": "off",
-                "device": "auto", "boost": False, "glossary": [], "title": "t"}
-        old_eval = S.EVAL_DIR
-        S.EVAL_DIR = os.path.join(self.tmp, "evals")
-        try:
-            job = {"id": "ab" + "0" * 10, "spec": spec, "cancel": False, "state": "queued", "progress": 0, "phase": "", "proc": None}
-            seen = self._run_capturing(S.run_abtest, job)
-        finally:
-            S.EVAL_DIR = old_eval
-        self.assertEqual(job["state"], "done", job.get("error"))
-        a, b = seen[0]
-        self.assertTrue(a <= 2000 - 0.3 and b >= 2035 + 0.3 and b - a < 60, seen)
 
     def test_idle_model_release(self):
         """認識ワーカーの中(IN_WORKER)でのモデルの手放し。サーバー側(ワーカーごと終わらせる)は test_worker.py"""

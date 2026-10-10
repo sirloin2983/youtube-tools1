@@ -33,8 +33,6 @@
                              文書は書き換えない。食い違う所が GET /api/suggest に tier "yt" の候補として出る。評価用・元の配信が分からない文書は断る。案 A1。本体は ed_ytcap.py)
   POST /api/export-corrections  修正データ(音声の範囲+直した文章)をzipで書き出す(scope=proofed で校正済みの行すべて)
   GET  /api/metrics?id=&legacy=1  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
-  POST /api/abtest           校正済みの行の音声を複数の設定で認識し直し、正解との差を比べるジョブ(文字起こしは書き換えない)
-  GET  /api/evals?id=        比較の結果の一覧(id=文字起こし。省略で全件) / GET /api/eval?id= で1件
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
@@ -145,7 +143,7 @@ _ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(lo
 # 同じ文字起こしに同時に入れない組み合わせ(exclusive)は、入口の検査(validate_*・redo_spec の tid_busy)と登録(add_job)の両方がこの表を使う(正はここ 1 つ。
 # 10-09: 声を覚える(voice-learn)は入口だけが再認識・疑わしい所の最中を断り、判別・再認識は入口と登録で見る組が違っていたのをそろえた。
 # 0.65.0(10-09): 表を対称に(a が b を断るなら b も a を断る)= 再認識・疑わしい所も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、覚える区間がずれる)。
-# ほかの種類(abtest・alt・ytcap・thumb)は同じ種類どうしだけ(thumb は文書を読むだけ = ほかと同時でよい)。test_voices.TestExclusive が対称を確かめる)
+# ほかの種類(alt・ytcap・thumb)は同じ種類どうしだけ(thumb は文書を読むだけ = ほかと同時でよい)。test_voices.TestExclusive が対称を確かめる)
 # 優先度は数値が小さいほど先(話者判別 0 = 待っている文字起こしを追い越す・alt と ytcap 2 = 普通の文字起こしより後。D1-b)。
 # retry = [やり直す] で同じ指定のまま入れ直せる(文書を書き換える処理は、文書の画面のボタンから始め直す)
 _DOC_LOCK = ("diarize", "retranscribe", "redo", "voice-learn")
@@ -154,7 +152,6 @@ _heavy_jobs.register("diarize", lambda job: _speakers.run_diarize(job), priority
 _heavy_jobs.register("voice-learn", lambda job: _speakers.run_voice_learn(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("retranscribe", lambda job: _rerun.run_retranscribe(job), exclusive=_DOC_LOCK, has_tid=True)
 _heavy_jobs.register("redo", lambda job: _rerun.run_redo(job), exclusive=_DOC_LOCK, has_tid=True)
-_heavy_jobs.register("abtest", lambda job: ed_misc.run_abtest(job), exclusive=("abtest",))
 _heavy_jobs.register("normalize", lambda job: ed_relink.run_normalize(job), has_tid=True)   # 動画を選び直したあとの 30fps の作り直し(Q1)
 _heavy_jobs.register("alt", lambda job: ed_alt.run_alt(job), priority=2, exclusive=("alt",), has_tid=True)   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
 _heavy_jobs.register("ytcap", lambda job: ed_ytcap.run_ytcap(job), priority=2, exclusive=("ytcap",), has_tid=True)   # 元の配信の YouTube の字幕(案 A1)
@@ -259,8 +256,6 @@ GET_API = {
     "/api/suggest": lambda a: ed_learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
     "/api/eval-baselines": lambda a: {"items": ed_learn.read_baselines()},
-    "/api/evals": lambda a: {"items": ed_misc.list_evals(_tid_arg(a("id"), False) or None)},
-    "/api/eval": lambda a: ed_misc.read_eval(a("id")),
     "/api/progress": lambda a: ed_misc.progress_stats(),
     "/api/drill/status": lambda a: ed_drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: ed_drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
@@ -313,7 +308,6 @@ POST_API = {
     "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/eval-baseline": lambda o: ed_learn.record_baseline(o.get("label")),
-    "/api/abtest": lambda o: _job(ed_misc.validate_abtest(o), "abtest"),
     "/api/archive": lambda o: {"ok": True, "docs": ed_learn.start_archive(o.get("tid") or None, o.get("full") is not False)},
     "/api/restore": lambda o: {"ok": True, "updatedAt": ed_store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": ed_learn.record_feedback(o)},

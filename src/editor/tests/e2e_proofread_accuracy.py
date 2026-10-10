@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""校正画面の通し確認(Playwright + 疑似モード)。校正済みボタン・絞り込み・精度カード・設定の比較・書き出し種別。
+"""校正画面の通し確認(Playwright + 疑似モード)。校正済みボタン・絞り込み・精度カード・書き出し種別(設定の比較 A/B は 0.68.0 で消した)。
 
     python3 src/editor/tests/e2e_proofread_accuracy.py [スクリーンショットの保存先フォルダ]
 """
@@ -158,23 +158,6 @@ def main():
             pg.evaluate("['gen0','gen1','gamers','gen2','gen4','holox','regloss','flowglow','en_advent','en_justice','id1','id2','id3'].forEach(v => document.querySelector('#rosterGroups .rg[value='+v+']').checked=true); document.querySelector('#rosterAdd').click()")
             check("後ろの語は効きません" in pg.evaluate("document.querySelector('#glossFit').textContent"), "長すぎると、効く語数の警告が出る")
             pg.evaluate("document.querySelector('#optGloss').value=''; document.querySelector('#optGloss').dispatchEvent(new Event('input'))")
-            # 設定の比較(A/B)
-            pg.wait_for_function("document.querySelector('#abGo').disabled === false")
-            check(pg.locator("#abRows [data-i]").count() == 2, "比較の設定が2行(用語集あり・なし)")
-            pg.click("#abAdd")
-            check(pg.locator("#abRows [data-i]").count() == 3, "設定を追加できる")
-            check(pg.locator("#abRows textarea.abt").count() == 2, "用語集ありの設定だけ、設定別の用語集欄が出る")
-            pg.locator("#abRows select.abr").nth(0).select_option("gen3")   # 名簿から足す
-            check(pg.locator("#abRows textarea.abt").nth(0).input_value().split("\n") == ["兎田ぺこら", "不知火フレア", "白銀ノエル", "宝鐘マリン"], "設定別の用語集に名簿の所属を足せる")
-            pg.locator("#abRows textarea.abt").nth(0).fill("")
-            pg.locator("#abRows textarea.abt").nth(1).fill("ぺこら、マリン")
-            pg.locator("#abRows [data-i]").nth(1).locator(".abg").check(); pg.locator("#abRows [data-i]").nth(1).locator(".abg").uncheck()   # 再描画しても他の設定の入力は残る
-            check(pg.locator("#abRows textarea.abt").nth(1).input_value() == "ぺこら、マリン", "設定別の用語集の入力が残る")
-            pg.click("#abGo")
-            pg.wait_for_function("document.querySelector('#abOut').textContent.includes('用語の誤挿入')", timeout=20000)
-            check(pg.locator("#abOut table tr").count() == 4, "比較の結果: 3設定の表")
-            check("用語集独自2語" in pg.inner_text("#abOut"), "設定別の用語集の設定名が出る")
-            check("small / 用語集あり" in pg.inner_text("#abOut") and "small / 用語集なし" in pg.inner_text("#abOut"), "設定名が出る")
             # 辞書 |語| は単語の途中に当てない(画面側の一括適用)
             ta = pg.locator("#segs .seg textarea").nth(0)
             ta.fill("トルコとトル様")

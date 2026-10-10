@@ -223,7 +223,7 @@ def recognize_chunk(model, kw, chunk, seg, sep, terms=()):
 
 
 class ChunkModel:
-    """選んだ行を 1 行ずつ認識するモデル(再認識の each・設定の比較 ed_misc.run_abtest)。kw_spec = whisper_kwargs に渡す指定。
+    """選んだ行を 1 行ずつ認識するモデル(再認識の each)。kw_spec = whisper_kwargs に渡す指定。
     自動のとき、最初の行で GPU が実行時に失敗(CUDA のライブラリ不足など)したら、CPU で読み直してやり直す"""
 
     def __init__(self, job, name, pref, kw_spec, engine=tx_engines.DEFAULT):
