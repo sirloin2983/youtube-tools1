@@ -20,7 +20,7 @@ from unittest import mock
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import run as R, tools as T  # noqa: E402
-from pipeline.transcribe import backend, roster  # noqa: E402
+from pipeline.transcribe import backend, records, roster  # noqa: E402
 from ytt import workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402  (疑似の認識。flow は eval を読めないので、テストの側で差し込む)
 
@@ -138,6 +138,41 @@ class TestLocalTranscribePack(unittest.TestCase):
         # もう一度: 同じ名前のパックがあるので上書きしない(409 exists = 段は飛ばす)
         r3 = R.run(None, {"docId": tid}, spec=spec, tools=tools)
         self.assertEqual(r3.step("pack")["state"], "skip", r3.steps)
+
+    def test_learning_glossary_and_learned(self):
+        """RS7-1 F-k: learning を渡すと用語は ユーザーの語 + 自動の語(glossAuto)・学習済みの置換は autoLearned のときだけ ① へ渡す。無ければ今まで"""
+        class L:
+            def __init__(self):
+                self.calls = []
+
+            def glossary(self, terms):
+                self.calls.append(("glossary", list(terms)))
+                return ["自動語"]
+
+            def learned(self):
+                self.calls.append(("learned",))
+                return lambda text: []
+        saved = dict(records._dict_inputs)   # 辞書の版の材料の口(CLI は wire.install が入れる。ここでは空で)
+        records.set_dict_inputs(pairs=lambda spec: [], learned=lambda: "")
+        self.addCleanup(lambda: (records._dict_inputs.clear(), records._dict_inputs.update(saved)))
+        seen = []
+        real = T._tx.transcribe_clip
+        self.addCleanup(setattr, T._tx, "transcribe_clip", real)
+        T._tx.transcribe_clip = lambda job, spec, wav, pairs, learned=None: (seen.append((spec, learned)), real(job, spec, wav, pairs, learned))[1]
+        for auto_learned in (False, True):
+            lg, seen[:] = L(), []
+            tools = T.LocalTools(learning=lg)
+            jid = tools.transcribe_start({"sourcePath": self.video, "glossary": "ユーザー語"}, T._spec.merge({"post": {"autoLlm": False, "autoLearned": auto_learned}}))
+            self.assertEqual(tools.jobs()[0]["state"], "done", tools.jobs())
+            spec, learned = seen[0]
+            self.assertEqual((spec["glossary"], spec["glossAuto"]), (["ユーザー語", "自動語"], ["自動語"]))
+            self.assertEqual(lg.calls[0], ("glossary", ["ユーザー語"]))
+            self.assertEqual(("learned",) in lg.calls, auto_learned)
+            self.assertEqual(callable(learned), auto_learned)
+        seen[:] = []
+        tools = T.LocalTools()
+        tools.transcribe_start({"sourcePath": self.video, "glossary": "ユーザー語"}, T._spec.merge({"post": {"autoLlm": False, "autoLearned": True}}))
+        self.assertEqual((seen[0][0]["glossary"], seen[0][0]["glossAuto"], seen[0][1]), (["ユーザー語"], [], None))   # learning なし = 今まで
 
     def sequence(self, tools):
         """鍵を読む段の一続き(RS6 b-K2) -> 各実行の (形, [(段, 状態, 詳しさ)]) と最後の文書の id"""

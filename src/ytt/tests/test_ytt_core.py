@@ -986,6 +986,30 @@ class TestTools(unittest.TestCase):
         finally:
             os.unlink(fake)
 
+    @unittest.skipUnless(os.name == "nt", "winget の場所は Windows だけ")
+    def test_media_tool_finds_winget_and_sibling_ffprobe(self):
+        """RS7-1 F-k: パックの ffmpeg / ffprobe は PATH に無くても winget の場所から(ffprobe は決めた ffmpeg の隣が先)。どこにも無ければ名前のまま"""
+        tmp = tempfile.mkdtemp(prefix="ytt_media_tool_")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        empty = os.path.join(tmp, "empty")
+        os.makedirs(empty)
+        env = {"LOCALAPPDATA": tmp, "PATH": empty, "TRANSCRIBE_FFMPEG": ""}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual((tools.media_tool("ffmpeg"), tools.media_tool("ffprobe"), tools.find_ffmpeg()), ("ffmpeg", "ffprobe", None))
+            bin_dir = os.path.join(tmp, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_x", "ffmpeg-9.0-full_build", "bin")
+            os.makedirs(bin_dir)
+            for n in ("ffmpeg.exe", "ffprobe.exe"):
+                open(os.path.join(bin_dir, n), "wb").close()
+            self.assertEqual(os.path.normcase(tools.media_tool("ffmpeg")), os.path.normcase(os.path.join(bin_dir, "ffmpeg.exe")))
+            self.assertEqual(os.path.normcase(tools.media_tool("ffprobe")), os.path.normcase(os.path.join(bin_dir, "ffprobe.exe")))
+            self.assertEqual(os.path.normcase(tools.find_ffmpeg()), os.path.normcase(os.path.join(bin_dir, "ffmpeg.exe")))
+            other = os.path.join(tmp, "other")
+            os.makedirs(other)
+            for n in ("ffmpeg.exe", "ffprobe.exe"):
+                open(os.path.join(other, n), "wb").close()
+            with mock.patch.dict(os.environ, {"TRANSCRIBE_FFMPEG": os.path.join(other, "ffmpeg.exe")}):   # 環境変数で決めた ffmpeg の隣の ffprobe
+                self.assertEqual(os.path.normcase(tools.media_tool("ffprobe")), os.path.normcase(os.path.join(other, "ffprobe.exe")))
+
     def test_subprocess_helpers(self):
         if os.name == "nt":
             self.assertEqual(tools.no_window_flags(), subprocess.CREATE_NO_WINDOW)

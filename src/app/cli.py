@@ -9,7 +9,7 @@
 - 1 つの作業データに ② は 1 つ(flow/placement の .flow.lock):
   - 入口(start.bat の ②)が動いていれば、その入口に頼んで待つ(URL = まとめて実行の start-new か start・動画ファイル = 編集の文字起こし → まとめて実行の start-docs)。
     入口の場所は lock の port(無ければ .runtime/portal.json で、同じ作業データの入口だけ)。合言葉は入口の画面の HTML の meta から読む
-  - 動いていなければ、動画ファイルは自分で lock を取って ① を直に動かす(flow/tools の LocalTools・③ の人の部品は読まない)。
+  - 動いていなければ、動画ファイルは自分で lock を取って ① を直に動かす(flow/tools の LocalTools。③ の人の部品は、学習のもとの文書があるときだけ学習した置換・用語を読むために遅延で読む = 無ければ読まない。RS7-1 F-k)。
     URL は入口が要る(URL の流れは B-3 まで入口に頼む = 一時の形。コマンドの形は最終)
 - 動画ファイルは丸ごと 1 本(決定 3-29 の Q2)。文字起こし済みの文書があれば文字起こしは飛ばす(--force で作り直す・--from pack はその文書でパックだけ)
 - 結果: Run.public() に、段ごとの成果物と鍵のパス・結果の束のパス(あれば)を足した JSON を標準出力と --out へ。進み具合は標準エラーに 1 行ずつ
@@ -29,7 +29,7 @@ import time
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from flow import keys as _keys, machine as _machine, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
+from flow import keys as _keys, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.pack import pack as _pack  # noqa: E402
 from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
 from ytt import datadir as _datadir, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
@@ -151,7 +151,64 @@ def use_data_dir(data_dir=None):
     _workdata.set_root(editor)
     _workdata.set_data_dir(os.path.abspath(_datadir.locate("transcribe")))
     _roster.ROSTER = os.path.join(editor, "hololive-roster.json")
+    if not os.environ.get("TRANSCRIBE_STUDIO_DATA"):   # 配信の文脈はこの作業データのスタジオの data.json(無ければ文脈なし。リポジトリの中の src/studio は読まない。RS7-1 F-k)
+        _workdata.STUDIO_DATA = _flow_placement.studio_data()
+    ld = learning_dir()
+    if ld:   # 学習データが別の場所のとき: 置換辞書(settings.json)と採用の記録はそこから読む
+        _workdata.SETTINGS = os.path.join(ld, "settings.json")
+        _workdata.FEEDBACK = os.path.join(ld, "learn-feedback.json")
     return _datadir.data_root()
+
+
+def learning_dir():
+    """machine の learningDir が既定(作業データの根)と違うときの、その下の編集の作業データのフォルダ。既定なら None(今の置き場所のまま)"""
+    ld = _machine.get("learningDir")
+    if os.path.normcase(os.path.normpath(ld)) == os.path.normcase(os.path.normpath(_machine.root())):
+        return None
+    return _datadir.locate("transcribe", env=dict(os.environ, YTT_DATA_DIR=ld))
+
+
+class Learning:
+    """LocalTools に貸す学習データの読み手(入口の経路で編集が読むのと同じ物 = ③ の learn。用語は doc_jobs.glossary_of と同じ learn.auto_glossary、
+    学習済みの置換は doc_jobs.learned_finder)。置き場所が既定と違うとき(machine の learningDir)は、読む間だけ文書の置き場所 TX_DIR をそちらへ向ける。
+    ③ は友人の PC の ② + ① には無いことがあるので、学習のもとになる文書が 1 つも無いとき・③ を読めないときは読まずに「学習なし」にする(遅延 import)"""
+
+    def __init__(self, ld=None):
+        self.ld = ld
+
+    def _tx_dir(self):
+        return os.path.join(self.ld, "transcripts") if self.ld else _workdata.TX_DIR
+
+    def _human(self):
+        """(learn, doc_jobs) か None(学習のもとの文書が無い・③ を読めない)"""
+        try:
+            if not any(n.endswith(".json") and not n.endswith((".edit.json", ".key.json")) for n in os.listdir(self._tx_dir())):
+                return None
+            from human.proof import doc_jobs, learn
+        except (OSError, TypeError, ImportError):
+            return None
+        return learn, doc_jobs
+
+    def _scoped(self, fn):
+        keep = _workdata.TX_DIR
+        _workdata.TX_DIR = self._tx_dir()
+        try:
+            return fn()
+        finally:
+            _workdata.TX_DIR = keep
+
+    def glossary(self, terms):
+        h = self._human()
+        return self._scoped(lambda: h[0].auto_glossary(terms)) if h else []
+
+    def dict_learned(self):
+        """辞書の版(records.dict_version)の learned の元の文字(学習の記録が変われば作り直す鍵になる)。学習なしは空"""
+        h = self._human()
+        return self._scoped(h[1].dict_learned) if h else ""
+
+    def learned(self):
+        h = self._human()
+        return self._scoped(lambda: h[1].learned_finder(h[0].learn_rules(), h[0].load_feedback())) if h else None
 
 
 def _read_doc(path):
@@ -384,8 +441,8 @@ def _pack_dir_of(tid):
 class CliRunner(_run.Runner):
     """素の Runner + 進み具合を標準エラーへ・文字起こし済みの文書(find_doc)を一覧に足す。人の部品(③)は読まない"""
 
-    def __init__(self, prog, extra=()):
-        super().__init__(None, poll=0.5, tools=_tools.LocalTools())
+    def __init__(self, prog, extra=(), learning=None):
+        super().__init__(None, poll=0.5, tools=_tools.LocalTools(learning=learning or Learning(learning_dir())))
         self.prog, self.extra = prog, list(extra)
 
     def _checkpoint(self, run):
@@ -418,11 +475,12 @@ def run_local(target, bundle, title, root, prog):
     force, frm = bundle["run"]["force"], bundle["run"]["from"]
     run, code = None, EXIT_FAIL
     try:
-        _wire.install(tool="cli", tmp_dir=lambda: _workdata.TMP_DIR)   # ③ なし(登録の口は既定のまま)
+        learning = Learning(learning_dir())
+        _wire.install(tool="cli", tmp_dir=lambda: _workdata.TMP_DIR, dict_learned=learning.dict_learned)   # 辞書の版の学習の記録は ③ があれば Learning から
         doc = find_doc(target) if (frm == "pack" or not force) else None
         if frm == "pack" and not doc:
             return _failed("この動画の文字起こしの文書がありません(--from pack をやめて文字起こしから)", prog), EXIT_FAIL
-        runner = CliRunner(prog, [doc] if doc else ())
+        runner = CliRunner(prog, [doc] if doc else (), learning)
         if doc:   # 文字起こし済み: 文書 → パック(文字起こしの段は飛ばす)
             run = _run.Run(None, title or doc["title"], _run.DOC_MODE, None, doc_id=doc["id"], overwrite=force)
         else:

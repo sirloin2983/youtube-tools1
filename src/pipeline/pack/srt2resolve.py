@@ -30,6 +30,7 @@ try:   # 全体の版(ytt/version.py の 1 か所)。単独のコマンドのと
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from ytt.version import VERSION
+from ytt import tools as _ytools   # ffmpeg / ffprobe の場所(PATH → winget。RS7-1 F-k)
 
 # 編集ソフトで一般的なフレームレート。動画の実測値をこれに丸める
 STD_FPS = [(24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1),
@@ -102,6 +103,11 @@ def write_text_atomic(path, text, encoding="utf-8", newline="\n"):
     if newline not in ("", "\n"):
         text = text.replace("\n", newline)
     write_bytes_atomic(path, text.encode(encoding))
+
+
+def tool(name):
+    """ffmpeg / ffprobe の実行ファイルのパス(ytt/tools.media_tool。見つからなければ名前のまま = 呼ぶと FileNotFoundError)"""
+    return _ytools.media_tool(name)
 
 
 def arg_path(p):
@@ -221,7 +227,7 @@ def _exact_frames(video, v):
     if isinstance(nb, str) and nb.isdigit() and int(nb) > 0:
         return int(nb)
     print("フレーム数を数えています…(長い動画は少し時間がかかります)", flush=True)
-    cmd = ["ffprobe", "-v", "error", "-select_streams", str(v["index"]), "-count_packets",
+    cmd = [tool("ffprobe"), "-v", "error", "-select_streams", str(v["index"]), "-count_packets",
            "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", arg_path(video)]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
@@ -233,7 +239,7 @@ def _exact_frames(video, v):
 
 
 def probe(video, fps_override=None, frames_override=None):
-    cmd = ["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", arg_path(video)]
+    cmd = [tool("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", "-show_format", arg_path(video)]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=60, stdin=subprocess.DEVNULL)

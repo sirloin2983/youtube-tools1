@@ -8,6 +8,7 @@
 - MEDIA_TYPES・find_ffmpeg・ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・長さ・元のファイルの検査・映像と音声の有無。RS3-0A に編集の ed_state・ed_store から)
 """
 import collections
+import glob
 import os
 import re
 import shutil
@@ -51,9 +52,35 @@ MEDIA_TYPES = {   # 編集が受け付ける動画・音声の拡張子 → 配�
 }
 
 
+def _winget_dirs():
+    """winget の Gyan.FFmpeg が入れる場所(PATH に通っていなくても使えるように。LOCALAPPDATA が無ければ [])"""
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        return []
+    root = os.path.join(base, "Microsoft", "WinGet")
+    return [os.path.join(root, "Links")] + sorted(glob.glob(os.path.join(root, "Packages", "Gyan.FFmpeg*", "ffmpeg-*", "bin")), reverse=True)
+
+
+def _in_dirs(name, dirs):
+    for d in dirs:
+        p = shutil.which(name, path=d)
+        if p:
+            return p
+    return None
+
+
 def find_ffmpeg():
-    """編集の ffmpeg: 環境変数 TRANSCRIBE_FFMPEG があればそれ、無ければ PATH から。"""
-    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
+    """編集の ffmpeg: 環境変数 TRANSCRIBE_FFMPEG があればそれ、無ければ PATH から、無ければ winget の場所(RS7-1 F-k)。"""
+    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG") or _in_dirs("ffmpeg", _winget_dirs())
+
+
+def media_tool(name):
+    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。ffmpeg = find_ffmpeg。ffprobe = 決めた ffmpeg の隣 → PATH → winget。
+    どこにも無ければ名前のまま(呼ぶと FileNotFoundError = 呼ぶ側の「見つかりません」の案内)"""
+    ff = find_ffmpeg()
+    if name == "ffmpeg":
+        return ff or name
+    return (_in_dirs(name, [os.path.dirname(ff)]) if ff else None) or shutil.which(name) or _in_dirs(name, _winget_dirs()) or name
 
 
 def ffmpeg_info(path, ff=None):

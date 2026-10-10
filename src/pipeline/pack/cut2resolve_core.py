@@ -391,7 +391,7 @@ def detect_silence(video, fps, total, noise_db=DEFAULT_NOISE_DB, min_sec=DEFAULT
     """無音区間 -> 削る区間[(開始f, 終了f)]。話の前後に pad_sec だけ残す。
     音声は最初の音声トラック(粗編集の書き出しと同じ)。複数の音声トラックがある録画でも、どちらを調べたか食い違わないように"""
     check_silence_params(noise_db, min_sec, pad_sec)
-    cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-nostats", "-i", S.arg_path(video), "-map", "0:a:0", "-vn", "-sn", "-dn",
+    cmd = [S.tool("ffmpeg"), "-hide_banner", "-nostdin", "-nostats", "-i", S.arg_path(video), "-map", "0:a:0", "-vn", "-sn", "-dn",
            "-af", f"silencedetect=noise={noise_db}dB:d={min_sec}", "-f", "null", "-"]
     total_sec = frames_to_sec(total, fps)
     r = _ffmpeg_run(cmd, 3600, task, total_sec)
@@ -444,7 +444,7 @@ def read_start_tc(video, meta=None):
     meta(srt2resolve.probe の結果)を渡すと、そこで読んだ値を使う(ffprobe をもう一度呼ばない。読み方は srt2resolve.start_tc_from の1か所)"""
     if meta is not None and "start_tc" in meta:
         return meta["start_tc"]
-    r = _ffmpeg_run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format",
+    r = _ffmpeg_run([S.tool("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", "-show_format",
                      S.arg_path(video)], 60)
     try:
         info = json.loads(r.stdout or "{}")
@@ -560,7 +560,7 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, ta
             out_opts += ["-c:a", "aac", "-b:a", "192k"]
         out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
         r = _ffmpeg_script(";\n".join(chains), ("-filter_complex_script", "-/filter_complex"),
-                           lambda opt, sp: ["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
+                           lambda opt, sp: [S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
                            7200, task, kept_sec)
         if r.returncode != 0:
             raise ToolError("粗編集の動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
@@ -735,7 +735,7 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
     _loud = loudness_mod()
     sel = _loud.select_filter(spans_sec)
     r = _ffmpeg_script((sel + "," if sel else "") + "loudnorm=print_format=json", ("-filter_script:a", "-/af"),
-                       lambda opt, sp: ["ffmpeg", "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
+                       lambda opt, sp: [S.tool("ffmpeg"), "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
                        3600, task, duration)
     if r.returncode != 0:
         raise ToolError("音量を測れませんでした: " + (r.stderr or "").strip()[-300:])
@@ -760,7 +760,7 @@ def copy_video_gain(video, dst, gain_db, task=None, duration=None, meta=None):
     ext = dst.suffix.lower()
     opts = _gain_copy_opts(video, ext, gain_db, meta)
     with S.staged(dst, ext or ".mp4") as tmp:
-        r = _ffmpeg_run(["ffmpeg", "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], 7200, task, duration)
+        r = _ffmpeg_run([S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video)] + opts + [tmp], 7200, task, duration)
         if r.returncode != 0:
             raise ToolError("音量をそろえた動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
     return dst

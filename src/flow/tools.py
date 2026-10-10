@@ -145,7 +145,11 @@ def doc_row(tid, d):
 class LocalTools:
     """入口なしで動かす最小の形(HttpTools と同じ動詞・同じ返す形)。仕事はその場で終わらせ、ジョブの id を返す(段は終わった状態を読む)"""
 
-    def __init__(self):
+    def __init__(self, learning=None):
+        """learning = 学習データを読む人(無ければ置換辞書と名簿の表だけ = 今まで)。呼ぶ側(app の CLI)が ③ の学習から作って渡す
+        (② は ③ を読まない)。持つ口は 2 つ: glossary(ユーザーの用語) -> 自動で足す用語・learned() -> 確度「高」の学習済み置換の選び方か None。
+        置き場所(machine の learningDir)は渡す側が決める(束には入れない = 決定 3-30)"""
+        self.learning = learning
         self._jobs = {}    # 文字起こしのジョブの id -> ジョブ
         self._packs = {}   # パックの仕事の id -> {"id", "state", "result" / "error"}
 
@@ -191,7 +195,7 @@ class LocalTools:
             job.update(state="error", phase="失敗", error="作業データの置き場所が決まっていません(呼ぶ側が ytt.workdata の set_root・set_data_dir で決めてください)")
             return jid
         with _jobs.job_errors(job):
-            job["spec"] = spec = self._tx_spec(req, b)
+            job["spec"] = spec = self._tx_spec(req, b, self.learning)
             if b["post"].get("llmModel", _spec.DEFAULTS["post"]["llmModel"]) != _spec.DEFAULTS["post"]["llmModel"]:   # 既定のモデルなら入れない(指定は今と同じ)
                 spec["llmModel"] = b["post"]["llmModel"]
             job["title"] = spec["title"]
@@ -203,9 +207,10 @@ class LocalTools:
         return jid
 
     @staticmethod
-    def _tx_spec(req, b):
+    def _tx_spec(req, b, learning=None):
         """要求と束 -> 文字起こしのジョブの指定(「編集」の受付 validate_job と同じ形。評価用・入れる文書・2 つ目のエンジン・YouTube の字幕・
-        話者の自動の判別・学習した置換・疑わしい所の認識し直しは ③ の物なので使わない)"""
+        話者の自動の判別・疑わしい所の認識し直しは ③ の物なので使わない。学習した用語・置換は learning があるときだけ = 入口の経路と同じ優先:
+        ユーザーの用語が先・自動の用語はその後ろ。RS7-1 F-k)"""
         src = _ytools.check_source(req.get("sourcePath"))
         dur = _ytools.media_duration(src)
         clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)
@@ -213,6 +218,8 @@ class LocalTools:
         model = _tx.check_model(str(req.get("model") or "small").strip())
         lang = req.get("language") if req.get("language") in _txbase.LANGS else "ja"
         post = b["post"]
+        glossary = _txtext.split_terms(req.get("glossary"))[:200]
+        gauto = list(learning.glossary(glossary)) if learning is not None and post.get("autoGloss") is not False else []
         engine, ctx = _tx.request_engine(req, model, {"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src},
                                          post["autoContext"])
         return {"sourcePath": src, "sourceName": os.path.basename(src), "start": 0.0, "end": round(dur, 2) if dur else None, "intoDoc": None,
@@ -222,13 +229,14 @@ class LocalTools:
                 "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
                 "splitChars": post["splitChars"], "autoRedo": post["autoRedo"], "redoLarge": req.get("redoLarge") is not False, "autoAlt": False, "autoYtcap": False,
                 "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "autoDiarize": False,
-                "stripPunct": req.get("stripPunct") is not False, "glossary": _txtext.split_terms(req.get("glossary"))[:200], "glossAuto": [],
+                "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
                 "learningVersion": b["post"]["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip, "warnings": [clip_warn] if clip_warn else [], "title": title}
 
     def _transcribe(self, job, spec):
         """認識 → 文書の機械の分と記録を書く → 一覧に足す(job_temp_wav が失敗・取り消しをジョブの状態にする)"""
         with _jobs.job_temp_wav(job) as wav:
-            clip = _tx.transcribe_clip(job, spec, wav, _tx.dict_pairs(spec))
+            learned = self.learning.learned() if self.learning is not None and spec.get("autoLearned") else None
+            clip = _tx.transcribe_clip(job, spec, wav, _tx.dict_pairs(spec), learned)
             tid = uuid.uuid4().hex[:12]
             _tx.write_machine_doc(tid, clip["fields"], spec)
             _tx.write_clip_records(tid, clip, spec)

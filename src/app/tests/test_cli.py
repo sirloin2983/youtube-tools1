@@ -163,6 +163,35 @@ class TestArgs(Base):
         self.assertEqual(cli.load_spec(None)["run"], {"from": None, "force": False, "repack": False, "pinned": []})   # repack・pinned は RS7-1 S3
 
 
+class TestLearningPlaces(Base):
+    """RS7-1 F-k: CLI の学習データ・スタジオの文脈は作業データの根から読む(リポジトリの中の src/studio は読まない)"""
+
+    def test_studio_data_under_data_root(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("TRANSCRIBE_STUDIO_DATA", None)
+            cli.use_data_dir(self.data)
+            self.assertEqual(workdata.STUDIO_DATA, os.path.join(os.path.abspath(self.data), "studio", "data.json"))
+            self.assertIsNone(cli.learning_dir())     # 既定(作業データの根)= 今の置き場所のまま
+            self.assertEqual(workdata.SETTINGS, os.path.join(workdata.DATA_DIR, "settings.json"))
+
+    def test_learning_dir_from_machine(self):
+        other = os.path.join(self.tmp, "learn")
+        with mock.patch.dict(os.environ, {"YTT_MACHINE_LEARNING_DIR": other}):
+            cli.use_data_dir(self.data)
+            ld = cli.learning_dir()
+            self.assertEqual(ld, os.path.join(os.path.abspath(other), "transcribe"))
+            self.assertEqual((workdata.SETTINGS, workdata.FEEDBACK), (os.path.join(ld, "settings.json"), os.path.join(ld, "learn-feedback.json")))
+            self.assertEqual(workdata.TX_DIR, os.path.join(os.path.abspath(self.data), "transcribe", "transcripts"))   # 出力の文書はそのまま作業データへ
+
+    def test_learning_reader_skips_without_docs(self):
+        """学習のもとの文書が無ければ ③ を読まずに「学習なし」(友人の PC の ② + ① だけの形)"""
+        empty = os.path.join(self.tmp, "ld")
+        os.makedirs(os.path.join(empty, "transcripts"))
+        lr = cli.Learning(empty)
+        self.assertEqual((lr.glossary(["あ"]), lr.learned()), ([], None))
+        self.assertEqual(cli.Learning(os.path.join(self.tmp, "none")).glossary([]), [])
+
+
 class FakePortal:
     """入口の HTTP の偽物: 頼まれたことを並べ、GET /api/autorun は 1 回目は実行中・2 回目から済み"""
 
