@@ -21,7 +21,7 @@
 - パックの出力(cut2resolve の `<動画名>_pack`)・スタジオの書き出した動画は、これまでどおり動画の隣・指定したフォルダ(作業データではない)。
   受け渡しの途中のファイル(`.clip.json`・`.transcript.json`・`_edit.mp4` など)は、動画のフォルダの下の `作業用` フォルダ(2026-09-27。`docs/spec/pipeline.md` の 1)
 
-## 仕組み(`src/ytt/datadir.py`。旧い名前 `ytt_core` は転送で動く = RS5 で消す)
+## 仕組み(`src/ytt/datadir.py`。旧い名前 `ytt_core` の転送は RS5-G で消した)
 - `data_root()`: 環境変数 `YTT_DATA_DIR` → Windows は `%LOCALAPPDATA%\youtube-tools`(macOS `~/Library/Application Support/youtube-tools`、それ以外 `$XDG_DATA_HOME/youtube-tools`)。
   `YTT_DATA_DIR=inplace` は以前と同じ「各ツールのフォルダの中」(テスト・元に戻したいとき用)
 - `prepare(ツールID, 以前の場所, 写す名前)`: 各ツールが起動時に1回呼ぶ

@@ -23,7 +23,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   版は `pkg_version`(dist-info を読むだけ。サーバー側で faster_whisper を import しない)
 - 単語ごとの確率はまだ残していない(単語は `(開始, 終了, 文字)` の3つ組で多くの所が分解しているため。要るときに words.json の形ごと考える)
 - モデルは手元のファイルだけで先に読む(`tx_engines.FasterWhisper.create` の `local_files_only=True`。無ければネットワーク)
-- 測る道具 `../eval/tools/eval_asr.py`(RS4-4 で `dev/` から `src/eval/tools/` へ移した。旧い `dev/eval_*.py` 13 本は起動用の転送だけ = RS5 で消す。この文書の `eval_xxx.py` は `src/eval/tools/` のもの。使い方は `py -3.10 src/eval/tools/eval_asr.py …`)(`stored` = 保存してある出力 / `run` = 認識し直す / `compare` / `list`)。作業データは読むだけ、結果は作業データの `evals/asr/`。
+- 測る道具 `../eval/tools/eval_asr.py`(RS4-4 で `dev/` から `src/eval/tools/` へ移した。旧い `dev/eval_*.py` 13 本の転送は RS5-G で消した。この文書の `eval_xxx.py` は `src/eval/tools/` のもの。使い方は `py -3.10 src/eval/tools/eval_asr.py …`)(`stored` = 保存してある出力 / `run` = 認識し直す / `compare` / `list`)。作業データは読むだけ、結果は作業データの `evals/asr/`。
   採点は編集の serve.py を読み込み、その名前の受付 `S` から `_groups`(`human/proof/learn`)・`norm_cer`・`lev_counts`(`eval/drill/metrics`)を使い、`doc_metrics`(画面の測定)と同じ数になることを `stored` のたびに照らし合わせる(ずれたら注意を出す)。
   `run` は文字起こしのジョブと同じ整え方(`expand_segments`・`make_flags`)。元の動画が無ければ、今ある保管データの `dataset/docs/<id>/full.flac`(保管の書き手は 0.68.0 で消した = 新しい文書には無い)。テスト: リポジトリ直下で `python -m unittest src/eval/tools/tests/test_eval_asr.py`
   2026-10-04(Q3): `--since/--until`(行の proofedAt の最大 → updatedAt)・`--source eval|daily|all|friend`(普段の文書・友人の zip `eval-intake`)・`--group-by engine|model`・下書きのエンジン(runs の最初の認識の記録)と同じときの注意・評価用以外はヒントなしで認識し直す・15 分未満は「まだ少ない」
@@ -378,7 +378,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   保存は `transcripts/<id>.json`(`segments` = 人が直した行、`original` = 機械の出力。精度測定・修正からの学習は、この2つを時刻の重なりで対応づける)
 - `index.html` … 画面(CSS・HTML)。将来の統合(入口の `/transcribe/` に取り込む)に備えて CSP(`script-src 'self'`)に対応させたため、
   JS はインラインではなく `app.js`(このツールの画面ロジック)・`ui-kit.js`(共通の見た目。下記)を `<script src=...>` で読む。CSS は引き続き `<style>` に埋め込み(CSP はインラインの style を許可)
-- 認識ワーカー(別プロセス。統合計画の段階3-3。**2026-10-10 の RS2-9d から本体は `src/pipeline/transcribe/worker.py`**。旧い場所の `src/editor/tx_worker.py` は起動用の転送だけ = 18 行・`runpy` で worker.py を `__main__` として動かす。起動中の古い入口がワーカーを起動し直したとき用で RS5 で消す)。
+- 認識ワーカー(別プロセス。統合計画の段階3-3。**2026-10-10 の RS2-9d から本体は `src/pipeline/transcribe/worker.py`**。旧い場所の `src/editor/tx_worker.py` は RS5-G で消した(以前は転送だけの 18 行・`runpy` で worker.py を `__main__` として動かす。起動中の古い入口用だった)。
   worker.py は**編集の serve を読まない**: スクリプトのパスで起動のまま(相対 import が使えない)、スクリプトとして動いたときだけ `sys.path` を src 先頭に直して兄弟を絶対 import(層の決まりの例外。import したとき = テストや `src/eval/tools/_evalcommon` の `_audio` では sys.path に触らない)・置き場所はワーカーが自分のプロセスで `workdata.set_data_dir`(`DATA_DIR` = 環境変数 `TRANSCRIBE_DATA_DIR` か以前の既定。serve の `worker_env` が必ず渡す。RS3-0A で一時の口 `txenv` の登録をやめた。`gpu_ready` は `IN_WORKER` のとき `_gpu_ready_local`・`worker_fake` は環境変数 `TRANSCRIBE_BACKEND` を持ち主 `worker_client` が読む)・要求の処理は `handle(m, out, cancels)`。
   疑似のワーカー(`TRANSCRIBE_BACKEND=worker-fake`)は `src/eval/fake/fake_worker.py` の `install()`(旧 `install_fakes`): serve が `worker_client.FAKES_MODULE` に名前を入れ、`worker_env` が worker-fake のときだけ環境変数 `YTT_WORKER_FAKES` で渡す(名前が無ければ worker_env が止まる)。GPU の調べ(`setup_cuda_paths`・`cuda_count`・`cuda_libs_ok`・`_gpu_ready_local`)は ed_state から `worker_client` へ移した。やり取りの形(op の名前・イベント)は同じ。
   faster-whisper・sherpa-onnx(ネイティブコード)は**このプロセスの中だけ**で読み込む。
