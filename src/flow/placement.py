@@ -28,7 +28,7 @@ import secrets
 import time
 
 from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, names as _names, procs as _procs, runtime as _runtime, \
-    schemas as _schemas, version as _version, workdata as _workdata
+    schemas as _schemas, settings as _settings, version as _version, workdata as _workdata
 from . import keys as _keys, runlog as _runlog
 
 log = logging.getLogger("ytt.flow.placement")
@@ -82,6 +82,44 @@ def case_root(media, out_dir=None):
     vid = str(media["videoId"])
     got = _names.find_folder(out_dir or _datadir.studio_out_dir(), media.get("title") or vid, vid, vid)
     return got[1] if got else None
+
+
+def _eval_dirs_of_data():
+    """編集の作業データがまだ決まっていない(workdata.SETTINGS が None = 入口の起動の途中・移行)ときの評価用のフォルダ:
+    編集の作業データ(ytt.datadir の transcribe)の settings.json の evalDirs(絶対パスの文字列だけ。パスを比べるだけに使う)"""
+    st = _fsio.read_json_or(os.path.join(_datadir.resolve("transcribe"), "settings.json"), None, kind=dict) or {}
+    v = st.get("evalDirs")
+    return [os.path.abspath(p) for p in v if isinstance(p, str) and p and os.path.isabs(p)] if isinstance(v, list) else []
+
+
+def doc_home(source_path, out_dir=None, eval_set=False):
+    """新しく作る文字起こしの文書を置く 作業用 のパスか None(= 今までどおり作業データの transcripts。RS8 B2-2)。
+    作業用 を返すのは次の全部を満たすときだけ(どれか 1 つでも確かめられなければ None):
+    元の動画が絶対パスでネットワーク上でない・その案件の根(case_root の file。今ある物だけ)が書き出し先 out_dir
+    (None = スタジオの設定 = ytt.datadir.studio_out_dir)の下(書き出し先そのものは除く)・案件に 作業用/.studio-id か 作業用/case.json がある・
+    書き出し先のドライブが固定ディスク・評価用でない(eval_set = 評価用として作る文書・または元の動画が設定の評価用のフォルダの中)。
+    フォルダを作らない・書かない(読むだけ)。案件の移行(manage/cases/docmove)も同じ規則でこれを呼ぶ"""
+    try:
+        if eval_set or not isinstance(source_path, str) or not source_path or not os.path.isabs(source_path):
+            return None
+        if _fsio.is_network_path(source_path) or _fsio.is_remote_drive(source_path):
+            return None
+        out = out_dir or _datadir.studio_out_dir()
+        if not isinstance(out, str) or not os.path.isabs(out) or _fsio.is_network_path(out) or _fsio.is_remote_drive(out) \
+                or not _fsio.is_fixed_drive(out):
+            return None
+        root = case_root({"kind": "file", "path": source_path})
+        if not root or not _fsio.is_inside(root, out, strict=True):
+            return None
+        wd = os.path.join(root, _schemas.WORK_DIR)
+        if not (os.path.isfile(os.path.join(wd, _names.OWNER_FILE)) or os.path.isfile(case_path(root))):
+            return None
+        if _settings.in_eval_dir(source_path, None if _workdata.SETTINGS else _eval_dirs_of_data()):
+            return None
+        return os.path.normpath(wd)
+    except Exception as e:   # 設定が読めない・パスが変 など = 決められないなら今までどおり transcripts(新しい文書の書き込みは止めない)
+        log.info("文書の置き場所を決められませんでした(transcripts に置きます): %s %s", e.__class__.__name__, str(e)[:150])
+        return None
 
 
 def work_dir(media, out_dir=None):

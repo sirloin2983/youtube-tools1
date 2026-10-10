@@ -340,6 +340,23 @@ def is_remote_drive(p):
         return False
 
 
+def is_fixed_drive(p):
+    """固定ディスク(内蔵のディスク)の上か。Windows はドライブの種類を聞くだけ(GetDriveType == 3 = DRIVE_FIXED。ファイルには触らない)。
+    外付け(USB)・ネットワーク・光学ドライブ・ドライブ文字の無いパスは False。Windows 以外は True(RS8 B2-2 の文書の置き場所の条件)"""
+    if os.name != "nt":
+        return True
+    if is_network_path(p):
+        return False
+    drive = os.path.splitdrive(os.path.abspath(str(p or "")))[0]
+    if len(drive) != 2 or drive[1] != ":":
+        return False
+    try:
+        import ctypes
+        return ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 3   # DRIVE_FIXED
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def same_drive(a, b):
     """2 つのパスが同じドライブか(大文字小文字は区別しない)"""
     return os.path.splitdrive(os.path.abspath(a))[0].lower() == os.path.splitdrive(os.path.abspath(b))[0].lower()

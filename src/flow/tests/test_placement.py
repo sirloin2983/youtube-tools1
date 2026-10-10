@@ -347,6 +347,88 @@ class TestEnsureCase(_Tmp):
         self.assertEqual(placement.read_case(os.path.join(self.tmp, "req"))["media"]["path"], self.video)
 
 
+class TestDocHome(_Tmp):
+    """新しい文書の置き場所(RS8 B2-2): 書き出し先の下の案件(印のある)・固定ディスク・評価用でない → 作業用。それ以外は None"""
+
+    def setUp(self):
+        super().setUp()
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
+        workdata.set_data_dir(os.path.join(self.tmp, "data"))
+        os.makedirs(workdata.DATA_DIR)
+        self.out = os.path.join(self.tmp, "out")
+        self.case = os.path.join(self.out, "題名")
+        self.video = _touch(os.path.join(self.case, "題名_01.mp4"))
+        self.wd = os.path.join(self.case, schemas.WORK_DIR)
+        fixed = mock.patch.object(placement._fsio, "is_fixed_drive", return_value=True)
+        fixed.start()
+        self.addCleanup(fixed.stop)
+
+    def test_owner_mark_or_case_json(self):
+        self.assertIsNone(placement.doc_home(self.video, self.out))   # 印が無い = 案件と分からない
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        self.assertEqual(placement.doc_home(self.video, self.out), os.path.normpath(self.wd))
+        os.remove(os.path.join(self.wd, names.OWNER_FILE))
+        _touch(placement.case_path(self.case), b"{}")
+        self.assertEqual(placement.doc_home(self.video, self.out), os.path.normpath(self.wd))
+        # 作業用 の中の途中のファイル(<名前>_edit.mp4)も同じ案件
+        self.assertEqual(placement.doc_home(_touch(os.path.join(self.wd, "x_edit.mp4")), self.out), os.path.normpath(self.wd))
+
+    def test_out_dir_default_is_studio_setting(self):
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        with mock.patch.object(placement._datadir, "studio_out_dir", return_value=self.out):
+            self.assertEqual(placement.doc_home(self.video), os.path.normpath(self.wd))
+        with mock.patch.object(placement._datadir, "studio_out_dir", return_value=os.path.join(self.tmp, "else")):
+            self.assertIsNone(placement.doc_home(self.video))
+
+    def test_not_a_case(self):
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        self.assertIsNone(placement.doc_home(self.video, os.path.join(self.tmp, "other")))   # 書き出し先の外
+        top = _touch(os.path.join(self.out, "直下.mp4"))
+        _touch(os.path.join(self.out, schemas.WORK_DIR, names.OWNER_FILE), b"vid")
+        self.assertIsNone(placement.doc_home(top, self.out))   # 書き出し先そのものは案件でない
+        self.assertIsNone(placement.doc_home(os.path.join(self.tmp, "out", "無い", "a.mp4"), self.out))   # 根が無い
+        self.assertIsNone(placement.doc_home("rel/a.mp4", self.out))
+        self.assertIsNone(placement.doc_home("", self.out))
+        self.assertIsNone(placement.doc_home(None, self.out))
+        self.assertIsNone(placement.doc_home("//server/share/a.mp4", self.out))
+        self.assertIsNone(placement.doc_home(self.video, "//server/share/out"))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "out", "無い")))   # 何も作らない
+
+    def test_not_fixed_drive(self):
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        with mock.patch.object(placement._fsio, "is_fixed_drive", return_value=False):
+            self.assertIsNone(placement.doc_home(self.video, self.out))
+
+    def test_eval(self):
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        self.assertIsNone(placement.doc_home(self.video, self.out, eval_set=True))
+        with open(workdata.SETTINGS, "w", encoding="utf-8") as f:
+            json.dump({"evalDirs": [self.out]}, f)
+        self.assertIsNone(placement.doc_home(self.video, self.out))   # 設定の評価用のフォルダの中
+        with open(workdata.SETTINGS, "w", encoding="utf-8") as f:
+            json.dump({"evalDirs": [os.path.join(self.tmp, "ev")]}, f)
+        os.makedirs(os.path.join(self.tmp, "ev"))
+        self.assertEqual(placement.doc_home(self.video, self.out), os.path.normpath(self.wd))
+
+    def test_eval_dirs_before_workdata(self):
+        """編集の作業データがまだ決まっていない(入口の起動の途中)ときは、編集の作業データの settings.json の evalDirs を見る"""
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        workdata.SETTINGS = None
+        tdir = os.path.join(self.tmp, "tx")
+        os.makedirs(tdir)
+        with mock.patch.object(placement._datadir, "resolve", return_value=tdir):
+            self.assertEqual(placement.doc_home(self.video, self.out), os.path.normpath(self.wd))
+            with open(os.path.join(tdir, "settings.json"), "w", encoding="utf-8") as f:
+                json.dump({"evalDirs": [self.case]}, f)
+            self.assertIsNone(placement.doc_home(self.video, self.out))
+
+    def test_never_raises(self):
+        _touch(os.path.join(self.wd, names.OWNER_FILE), b"vid")
+        with mock.patch.object(placement._settings, "in_eval_dir", side_effect=OSError("x")):
+            self.assertIsNone(placement.doc_home(self.video, self.out))
+
+
 class TestLock(_Tmp):
     def path(self):
         return os.path.join(self.tmp, placement.LOCK_NAME)

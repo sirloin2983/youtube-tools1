@@ -201,6 +201,24 @@ class DoclocTest(unittest.TestCase):
         self.assertEqual(docloc.doc_dir(TID2), self.tx)   # 今の TX_DIR には索引が無い
         self.assertTrue(docloc.unplace(TID2, data_dir=other))
 
+    def test_unseen(self):
+        """索引はあるが使えない文書の数と理由(使える索引・索引の無い文書は数えない・ログは書かない)"""
+        self.assertEqual(docloc.unseen(), {"count": 0, "reasons": {}})
+        self._doc(self.case)
+        docloc.place(TID, self.case)
+        self._doc(self.tx, TID2)   # 索引の無い文書
+        self.assertEqual(docloc.unseen()["count"], 0)
+        self._loc({"version": 1, "id": TID2, "dir": os.path.join(self.tmp, "消えた", schemas.WORK_DIR)}, TID2)
+        tid3 = "cccccccccccc"
+        self._loc("{壊れた", tid3)
+        with mock.patch.object(docloc.log, "warning") as warn:
+            got = docloc.unseen()
+        warn.assert_not_called()
+        self.assertEqual(got, {"count": 2, "reasons": {"文書が無い": 1, "索引が読めない": 1}})
+        self._loc("{}", "not-a-tid")   # id でない名前は数えない
+        self.assertEqual(docloc.unseen()["count"], 2)
+        self.assertEqual(docloc.unseen(os.path.join(self.tmp, "無い")), {"count": 0, "reasons": {}})
+
 
 if __name__ == "__main__":
     unittest.main()

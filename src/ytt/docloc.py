@@ -79,20 +79,24 @@ def _fall_back(root, tid, why):
         log.warning("文書 %s の索引を使わず transcripts から読みます(%s)", tid, why)
 
 
-def placed(tid, data_dir=None):
-    """索引が指す 作業用 のフォルダ(確かめて使えるときだけ)か None(索引が無い・壊れている・使えない)"""
+def _loc_state(tid, data_dir=None):
+    """索引の状態 -> (使える 作業用 のフォルダか None, 使えない理由か None)。索引が無ければ (None, None)(ログは書かない)"""
     path = loc_path(tid, data_dir)
     if not os.path.isfile(path):
-        return None
+        return None, None
     d = _fsio.read_json_or(path, None, LOC_MAX_BYTES, kind=dict)
     if d is None or d.get("version") != LOC_VERSION or d.get("id") != tid:
-        _fall_back(tx_root(data_dir), tid, "索引が読めない")
-        return None
+        return None, "索引が読めない"
     why = _folder_problem(tid, d.get("dir"))
+    return (None, why) if why else (os.path.normpath(d["dir"]), None)
+
+
+def placed(tid, data_dir=None):
+    """索引が指す 作業用 のフォルダ(確かめて使えるときだけ)か None(索引が無い・壊れている・使えない)"""
+    got, why = _loc_state(tid, data_dir)
     if why:
         _fall_back(tx_root(data_dir), tid, why)
-        return None
-    return os.path.normpath(d["dir"])
+    return got
 
 
 def doc_dir(tid, data_dir=None):
@@ -134,6 +138,25 @@ def iter_tids(data_dir=None):
         elif n.endswith(".json") and _schemas.TID_RE.match(n[:-5]):
             out.add(n[:-5])
     return sorted(out)
+
+
+def unseen(data_dir=None):
+    """索引はあるが使えない(ドライブが外れている・フォルダが消えた・索引が壊れている など)文書の数と理由
+    -> {"count": 本数, "reasons": {理由: 本数}}(入口の調子の 1 行に出す。数えるだけ = ログは書かない・ファイルは読むだけ)"""
+    root = tx_root(data_dir)
+    try:
+        names = os.listdir(root) if root else []
+    except OSError:
+        names = []
+    reasons = {}
+    for n in names:
+        tid = n[:-len(LOC_SUFFIX)] if n.endswith(LOC_SUFFIX) else ""
+        if not _schemas.TID_RE.match(tid):
+            continue
+        why = _loc_state(tid, data_dir)[1]
+        if why:
+            reasons[why] = reasons.get(why, 0) + 1
+    return {"count": sum(reasons.values()), "reasons": reasons}
 
 
 def place(tid, folder, data_dir=None):
