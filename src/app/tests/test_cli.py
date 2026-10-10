@@ -215,12 +215,6 @@ class FakePortal:
             state = "running" if self.polls == 1 else self.final
             step = {"key": "pack", "label": "パック", "state": "run" if state == "running" else "done", "detail": ""}
             return 200, {"runs": [{"id": "other", "state": "running"}, {"id": "r1", "state": state, "steps": [step], "docs": ["0123456789ab"]}]}
-        if path.endswith("api/transcribe"):
-            return 200, {"id": "j1"}
-        if path.endswith("api/jobs"):
-            return 200, {"jobs": [{"id": "j1", "state": "done", "tid": "0123456789ab"}]}
-        if path.startswith("/api/autorun/start"):
-            return 200, {"runs": [{"id": "r1"}], "skipped": []} if path != "/api/autorun/start" else {"run": {"id": "r1"}}
         return 200, {}
 
     def ok(self, method, path, body=None):
@@ -290,32 +284,16 @@ class TestPortal(Base):
         self.assertEqual((code, res["state"]), (1, "error"))
         self.assertIn("すでに実行中", err)
 
-    def test_old_portal_url_start_new(self):
-        """submit の無い古い入口(404)には今までの形"""
-        portal = FakePortal(old=True)
-        self.use_portal(portal)
-        code, res, err = self.main("https://www.youtube.com/watch?v=abcdefghijk", "--spec", self.spec({"adopt": {"top": 2}}), "--title", "題")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(portal.posts()[1:], [("/api/autorun/start-new", {"items": [{"id": "abcdefghijk", "title": "題", "channel": ""}], "top": 2})])
-        self.assertEqual((res["via"], res["state"], res["id"]), ("portal", "done", "r1"))
-
-    def test_old_portal_url_from_export_and_failure(self):
-        portal = FakePortal(final="error", old=True)
-        self.use_portal(portal)
-        code, res, err = self.main("abcdefghijk", "--from", "export", "--force")
-        self.assertEqual(code, 1)
-        self.assertEqual(portal.posts()[1:], [("/api/autorun/start", {"id": "abcdefghijk", "mode": "adopted", "top": 3, "overwrite": True})])
-
-    def test_old_portal_file_transcribe_then_start_docs(self):
-        portal = FakePortal(old=True)
-        self.use_portal(portal)
-        video = self.dummy()
-        code, res, err = self.main(video, "--spec", self.spec({"transcribe": {"model": "large-v3"}}))
-        self.assertEqual(code, 0, err)
-        (p0, _b0), (p1, b1), (p2, b2) = portal.posts()
-        self.assertEqual(p0, "/api/flow/submit")
-        self.assertEqual((p1, b1["sourcePath"], b1["model"]), ("/transcribe/api/transcribe", video, "large-v3"))
-        self.assertEqual((p2, b2), ("/api/autorun/start-docs", {"ids": ["0123456789ab"], "overwrite": False}))
+    def test_old_portal_fails(self):
+        """submit の無い古い入口(404)には頼まない = 起動し直しを促して終了コード 1(2 段で頼む今までの形は消した)"""
+        for target in ("https://www.youtube.com/watch?v=abcdefghijk", self.dummy()):
+            portal = FakePortal(old=True)
+            self.use_portal(portal)
+            code, res, err = self.main(target)
+            self.assertEqual((code, res["state"]), (1, "error"), target)
+            self.assertIn("start.bat", res["error"])
+            self.assertEqual([p for p, _b in portal.posts()], ["/api/flow/submit"])
+            self.assertEqual((self.pl.acquired, portal.polls), ([], 0))
 
     def test_ctrl_c_cancels_portal_run(self):
         portal = FakePortal(interrupt=True)
@@ -380,11 +358,11 @@ class TestPortalHttp(unittest.TestCase):
         self.addCleanup(srv.shutdown)
         p = cli.Portal(srv.server_address[1], timeout=5)
         self.assertEqual(p.ok("GET", "/api/autorun"), {"runs": []})
-        self.assertEqual(p.ok("POST", "/api/autorun/start-new", {"items": []}), {"runs": [{"id": "r9"}]})
+        self.assertEqual(p.ok("POST", "/api/flow/submit", {"items": []}), {"runs": [{"id": "r9"}]})
         get_api = [s for s in _Handler.seen if s[:2] == ("GET", "/api/autorun")][0]
         self.assertIsNone(get_api[2], "GET には合言葉を付けない")
         self.assertEqual(get_api[3], "127.0.0.1:%d" % srv.server_address[1])
-        self.assertEqual(_Handler.seen[-1], ("POST", "/api/autorun/start-new", "tok_123", {"items": []}))
+        self.assertEqual(_Handler.seen[-1], ("POST", "/api/flow/submit", "tok_123", {"items": []}))
         with self.assertRaises(cli.PortalError):
             cli.Portal(1, timeout=1).ok("GET", "/api/autorun")   # つながらない
 

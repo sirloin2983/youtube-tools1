@@ -21,8 +21,8 @@
   machine.json も環境変数も無い今の PC では束・鍵・要求の本文が今と同じ。一時の形: 編集の ⚙ のエンジン・デバイスがここへ書くようになったら(S6b)
   ファイルの値として重なる)。device だけを決めたときは、束のエンジンが機器から決まるエンジン(spec.implied_engine)だったときだけエンジンも合わせる。
 
-環境変数の整理(S1): 機械の都合の物は下の ENV(TRANSCRIBE_DEVICE は device の旧い名前としてここで読む)。① の認識ワーカー(worker_client)は要求の本文の
-  機器を先にする(本文が auto のときだけ TRANSCRIBE_DEVICE を見る = ② を通らない呼び出しの互換)。
+環境変数の整理(S1): 機械の都合の物は下の ENV(device は YTT_MACHINE_DEVICE だけ。旧い名前 TRANSCRIBE_DEVICE は ② では読まない)。
+  ① の認識ワーカー(worker_client)は要求の本文の機器を先にする(本文が auto のときだけ TRANSCRIBE_DEVICE を見る = ② を通らない呼び出しの互換)。
   ① の調整の環境変数(TRANSCRIBE_CUDA_COMPUTE・TRANSCRIBE_CPU_THREADS・TRANSCRIBE_LLAMA_THREADS・TRANSCRIBE_DIAR_THREADS・TRANSCRIBE_ENGINE_DIR・
   TRANSCRIBE_MODEL_IDLE_SEC・TRANSCRIBE_WORKER_PRIORITY)は machine の項目ではない(認識ワーカーのプロセスが自分で読む。今のまま)。
   テスト・疑似の旗(TRANSCRIBE_BACKEND・TRANSCRIBE_FAKE_* など)は触らない。
@@ -48,9 +48,9 @@ DEVICES = ("auto", "cuda", "cpu", "vulkan")   # spec.SCHEMA の transcribe.devic
 LLM_MODEL = "qwen3-8b"                   # pipeline/transcribe/llm.py の LLM_MODEL(入口のプロセスで llm を読まないので値を持つ。test_machine が同じことを確かめる)
 DISK_MIN_GB = 20
 DISK_MAX_GB = 100000
-# 項目 -> 環境変数の名前(前にある物が先)。TRANSCRIBE_DEVICE は以前からの名前(認識ワーカーが cuda・cpu だけを見ていた)
+# 項目 -> 環境変数の名前(前にある物が先)
 ENV = {"engine": ("YTT_MACHINE_ENGINE",),
-       "device": ("YTT_MACHINE_DEVICE", "TRANSCRIBE_DEVICE"),
+       "device": ("YTT_MACHINE_DEVICE",),
        "llmModel": ("YTT_MACHINE_LLM_MODEL",),
        "caseRoot": ("YTT_MACHINE_CASE_ROOT",),
        "diskMinGB": ("YTT_MACHINE_DISK_MIN_GB",),

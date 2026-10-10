@@ -16,8 +16,8 @@ docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S5・plan/f1-friend-pc.md
 - 糸 _loop: 待ちを 1 本ずつ _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)
 - 待ちの記録(起動し直しで戻す。線 D の M5): 待ち・実行中の実行を log_dir/autorun-active.json に Run.saved()(封筒 + 束 + 状態)で残し
   (入れたとき・始めたとき・段が済むたび・終わったとき。一時ファイルから置き換える)、作るときに読んで同じ id のまま「待ち」に戻す。
-  版 2(RS7-1 S4)= 束と受付で決めた物が入っている。版 1(それより前。欄だけ・束なしの形も Run.restore が読む)は 1 度だけ読んで変換する
-  (hook の _accept(convert=True) = 束が無ければ組む・まだ決めていない物だけ決める)。次に書くときは版 2。
+  版 2(RS7-1 S4)= 束と受付で決めた物が入っている。それより前の版(1)の記録は読まずに捨てる(戻さない。知らせを 1 行)。
+  束の無い記録(直に積んだ物)は戻すときに hook の _accept(convert=True) で束を組む(まだ決めていない物だけ決める)。
   RESTORE_MAX_AGE より前に入れた実行は戻さず、記録に「中止」と書く。入口の終了(close)で止まった実行は記録に「中止」と書かない(次の起動で続ける)
 - 終わった実行の記録: log_dir/autorun-runs.jsonl に 1 行ずつ(形と読み方は flow/runlog.py。1MB を超えたら .1 へ)。
   結果の束(<案件>/作業用/runs/<id>.json)は flow/run.py の run() の終わりに flow/placement.write_result が書く
@@ -47,7 +47,6 @@ PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "st
 MAX_WAITING = 20       # 順番待ちの上限
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(log_dir の中。runlog.RUNS_LOG の隣)
 ACTIVE_VERSION = 2     # 中身は Run.saved()(封筒 + 束 + 状態)。2 = RS7-1 S4 から(束は受けたときに組んだ物・受付で決めた物も入る)
-ACTIVE_OLD_VERSIONS = (1,)   # 1 度だけ読んで変換する版(1 = RS7-1 S4 より前。束が無い・受付で決める物を実行中に決めていた)
 ACTIVE_READ_MAX = 4 * 1024 * 1024
 RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
 ACTIVE_STATES = ("queued", "running")
@@ -146,7 +145,7 @@ class Queue(run_mod.Runner):
 
     def _accept(self, run, convert=False):
         """受けたときに決める物を Run に置く(RS7-1 S4)。既定 = 束が無ければ build_spec で組む(知らせは run.notes)。
-        入口の AutoRunner は友人の区間の長さ・配信者・届け方の n 本も決める。convert = 版 1 の待ちの記録を戻すとき(まだ決めていない物だけ)"""
+        入口の AutoRunner は友人の区間の長さ・配信者・届け方の n 本も決める。convert = 束の無い待ちの記録を戻すとき(まだ決めていない物だけ)"""
         if run.spec is None:
             bundle, notes = self.build_spec()
             run.spec = bundle
@@ -188,7 +187,9 @@ class Queue(run_mod.Runner):
             self.log("まとめて実行: 前の起動の待ちの記録を読めませんでした(%s)。戻さずに続けます" % e.__class__.__name__)
             return []
         ver = d.get("v") if isinstance(d, dict) else None
-        items = d.get("runs") if ver == ACTIVE_VERSION or ver in ACTIVE_OLD_VERSIONS else None
+        items = d.get("runs") if ver == ACTIVE_VERSION else None
+        if ver != ACTIVE_VERSION:
+            self.log("まとめて実行: 前の起動の待ちの記録は古い形(版 %s)だったので、戻さずに捨てました" % (ver,))
         out, seen = [], set()
         for x in items if isinstance(items, list) else []:
             run = Run.restore(x)
@@ -199,7 +200,7 @@ class Queue(run_mod.Runner):
                 run.state, run.message, run.finished = "cancelled", "ホームを起動し直したとき、%d 日より前に入れた実行だったので続けませんでした" % (RESTORE_MAX_AGE // 86400), time.time()
                 self._log(run)
                 continue
-            if ver in ACTIVE_OLD_VERSIONS or run.spec is None:   # 古い版(1 度だけ変換。次に書くときは今の版)・束の無い記録: 受付で決める物を今決める
+            if run.spec is None:   # 束の無い記録: 受付で決める物を今決める
                 try:
                     self._accept(run, convert=True)
                 except (OSError, ValueError, TypeError, KeyError) as e:   # 決められなくても戻す(束の無い実行は _execute が組む)
@@ -207,8 +208,6 @@ class Queue(run_mod.Runner):
             out.append(run)
         if out:
             self.log("まとめて実行: ホームを起動し直したので、待ち・実行中だった %d 件を続けます(%s)" % (len(out), "・".join(r.title or r.id for r in out[:5])))
-        if out and ver in ACTIVE_OLD_VERSIONS:
-            self.log("まとめて実行: 待ちの記録は版 %s の形だったので、今の形(版 %d)にしました" % (ver, ACTIVE_VERSION))
         return out
 
     # ------------------------------------------------------------ 積む

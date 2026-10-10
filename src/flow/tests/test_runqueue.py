@@ -249,28 +249,21 @@ class TestRestore(Base):
         states = {r["id"]: r["state"] for r in q.history()["runs"]}
         self.assertEqual(states, {"0123456789": "done", "abcdef0123": "cancelled"})
 
-    def test_old_version_is_converted_once(self):
-        """版 1(RS7-1 S4 より前)の待ちの記録は 1 度だけ読んで今の形に(束が無ければ受付の hook で組む)。次に書くときは今の版"""
+    def test_old_version_is_dropped(self):
+        """版 1(RS7-1 S4 より前)・知らない版の待ちの記録は読まずに捨てる(知らせを 1 行。次に書くときは今の版の空)"""
         self.assertEqual(Q.ACTIVE_VERSION, 2)
-        now = time.time()
-        old = {"id": "0123456789", "mode": "file", "title": "版 1", "sourcePath": self.media[0], "created": now - 60,
+        old = {"id": "0123456789", "mode": "file", "title": "版 1", "sourcePath": self.media[0], "created": time.time() - 60,
                "steps": [{"key": "transcribe", "state": "wait", "detail": ""}]}
-        with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "runs": [old]}, f)
-        tools = Tools()
-        tools.gate.clear()
-        q = self.queue(tools)
-        run = next(r for r in q.runs if r.id == "0123456789")
-        self.assertEqual(run.spec["transcribe"]["model"], SP.DEFAULTS["transcribe"]["model"])   # 戻すときに組んだ(build_spec の既定)
-        _until(lambda: q.status()["running"] == 1, "実行中")
-        self.assertEqual(self.active_file()["v"], 2)
-        self.assertEqual(self.active_file()["runs"][0]["spec"]["transcribe"]["model"], SP.DEFAULTS["transcribe"]["model"])
-        tools.gate.set()
-        _until(lambda: q.status()["idle"], "戻した 1 本が済む")
-        with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
-            json.dump({"v": 99, "runs": [old]}, f)   # 知らない版は戻さない
-        q2 = self.queue(Tools())
-        self.assertEqual(q2.runs, [])
+        for ver in (1, 99):
+            with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
+                json.dump({"v": ver, "runs": [old]}, f)
+            logs, tools = [], Tools()
+            q = Q.Queue(None, env=self.env, poll=0.01, tools=tools, log_dir=self.logs, log=logs.append)
+            self.addCleanup(q.close)
+            self.assertEqual(q.runs, [], ver)
+            self.assertTrue(any("古い形(版 %d)" % ver in m for m in logs), logs)
+            self.assertEqual(self.active_file(), {"v": Q.ACTIVE_VERSION, "runs": []})
+            self.assertEqual(tools.started, [])
 
 
 class TestCancel(Base):

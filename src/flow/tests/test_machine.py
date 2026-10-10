@@ -75,9 +75,10 @@ class TestLoad(Base):
         self.assertEqual(M.load(env=self.env)["device"], "cpu")
         self.assertEqual(M.get("diskMinGB", env=env), 30)
 
-    def test_legacy_transcribe_device_env(self):
-        self.assertEqual(M.load(env=dict(self.env, TRANSCRIBE_DEVICE="cpu"))["device"], "cpu")
-        self.assertEqual(M.load(env=dict(self.env, TRANSCRIBE_DEVICE="cpu", YTT_MACHINE_DEVICE="cuda"))["device"], "cuda")   # 新しい名前が先
+    def test_legacy_transcribe_device_env_ignored(self):
+        """旧い名前 TRANSCRIBE_DEVICE は ② では読まない(① の認識ワーカーが本文 auto のときだけ見る)"""
+        m = M.load(env=dict(self.env, TRANSCRIBE_DEVICE="cuda"))
+        self.assertEqual((m["device"], m["sources"]["device"]), (M.load(env=self.env)["device"], M.load(env=self.env)["sources"]["device"]))
 
     def test_bad_values_fall_through(self):
         self.write({"device": "gpu", "diskMinGB": -1, "unknown": 1, "caseRoot": "relative/dir", "engine": "whisper.cpp"})
@@ -162,7 +163,7 @@ class TestOverlay(Base):
 
     def test_device_keeps_chosen_engine(self):
         b = self.bundle(engine="qwen3-asr")
-        out = M.overlay(b, env=dict(self.env, TRANSCRIBE_DEVICE="cpu"))
+        out = M.overlay(b, env=dict(self.env, YTT_MACHINE_DEVICE="cpu"))
         self.assertEqual((out["transcribe"]["device"], out["transcribe"]["engine"]), ("cpu", "qwen3-asr"))
 
     def test_file_engine_and_llm(self):
