@@ -29,7 +29,7 @@ AI 向けの決まり。計画は `plan/line-d-live-clipping.md`(**0. 10-04 の�
 ## テストの実行(リポジトリ直下から)
 - `py -3.10 -m unittest src/pipeline/ingest/tests/test_recorder.py`(ffmpeg の lavfi で作った HLS を手元の HTTP サーバーで配信中のように出し、
   `--source direct` と streamlink の `hls://` で録る。本物の YouTube には繋がない。streamlink が無ければその分は skip)
-- 入口の側を変えたら `py -3.10 -m unittest src/home/tests/test_live.py` と `PYTHONIOENCODING=utf-8 py -3.10 src/home/tests/e2e_live.py`
+- 入口の側を変えたら `py -3.10 -m unittest src/flow/tests/test_live_recorder.py src/flow/tests/test_livesession.py src/home/tests/test_live.py` と `PYTHONIOENCODING=utf-8 py -3.10 src/home/tests/e2e_live.py`
   (Edge があれば H.264 の再生・シークまで確かめる。Playwright 同梱の chromium は読み込みまで)
 - テストの先頭で `os.environ.setdefault("YTT_DATA_DIR", "inplace")`。inplace の作業データは `src/recorder/data/`(`.gitignore` 済み)
 

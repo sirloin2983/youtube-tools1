@@ -4,7 +4,7 @@
 - スタジオなし(LocalMarks): 偽の親(Live を使わない・studio_call を持たない)で、採用 → マークの正本の採用の印 → 書き出しのジョブ →
   (書き出しが済んだ所から).clip.json → まとめて実行へ渡す → 印が「書き出し済み」まで。採用の id・ジョブ・.clip.json の形はスタジオのとき(StudioMarks)と同じ
 - 親には「口(livehost.LiveHost)に並べた名前だけを通す」包みを渡す = 口と実際の使い方がずれない
-- スタジオのとき(StudioMarks = 今のユーザーの PC)は src/home/tests/test_live.py の test_adopt_server_side などが縛る
+- スタジオのとき(StudioMarks = 今のユーザーの PC)は src/flow/tests/test_live_export.py の test_adopt_server_side などが縛る
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)

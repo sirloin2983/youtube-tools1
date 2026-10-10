@@ -39,7 +39,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 重い処理の順番(SLOTS)は取らない(短い ffmpeg 1 回ずつ。0-10-4)。1 本の録画・チャットの思わぬ例外は、その録画の message と心拍の error に出して
 ほかは進める(同じエラーのログは 1 回だけ。ログのファイルが LOG_LIMIT を超えたらそれより先は書かない)。
 テストは「音を測る」(measure_batch)・「録画元から取る」(client_factory)・「時計」(clock)・yt-dlp の起動(launcher)を差し替えて、12 時間を早送りで回す
-(src/home/tests/test_live_detect.py)。
+(src/pipeline/analyze/tests/test_live_excite_worker.py)。
 """
 import argparse
 import glob
