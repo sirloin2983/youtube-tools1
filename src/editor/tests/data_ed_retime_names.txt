@@ -1,0 +1,3 @@
+# RS3-E6(2026-10-10)の前に ed_retime が持っていた名前(標準のモジュールと編集の兄弟の部品 ed_*・ytt の部品を除く)。中身を human/proof/retime へ移しても serve と ed_retime の名前で読めることを test_names.py が確かめる
+retime_doc
+retime_engine

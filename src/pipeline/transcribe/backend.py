@@ -48,6 +48,12 @@ class Backend:
         return real(job, wav, emb, groups)
 
 
+    def alt_rows(self, job, spec, wav, total, real):
+        """2つ目のエンジンの候補(human/proof/alt)の行の生成器(faster-whisper の行と同じ形の辞書)。real(job, spec, wav, total) = エンジンの確かめ → 読み込み → 認識
+        (RS3-E6。疑似は eval/fake/fake_asr が主の疑似の行に TRANSCRIBE_FAKE_ALT の置き換えをかける)"""
+        return real(job, spec, wav, total)
+
+
 REAL = Backend()
 _selector = [lambda: REAL]
 

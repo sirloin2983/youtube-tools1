@@ -8,7 +8,7 @@
 設定(settings.json)の読み書きは ytt/settings(RS3-1)。ed_state は読まない(文書の形の小道具は ytt/schemas・エラーは ytt/errors・書き込みは ytt/fsio)。
 旧い名前 ed_learn.名前・S.名前 は editor/ed_learn.py(転送だけの殻。RS5 で消す)と serve の受付がここへ回す(テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`replace.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
-editor の部品は裸の名前で読む(human の ed_alt・ed_ytcap は層の向きが許す)。文書の置き場は隣の store(RS3-E5a)。
+2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。文書の置き場は隣の store(RS3-E5a)。
 """
 import difflib
 import json
@@ -20,8 +20,7 @@ from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, settings
 from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c。呼ぶたびに replace.名前 で読む)
 from pipeline.transcribe import roster as _roster  # noqa: E402   (名簿のファイルの場所 ROSTER の持ち主。RS3-0A に ed_state から)
 from pipeline.transcribe import txbase as _txbase  # noqa: E402   文字の種類 char_class(RS2-4b に _cc を移した)
-import ed_alt  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。D1-b)
-import ed_ytcap  # noqa: E402   YouTube の字幕の候補(suggest_for_doc の yt。案 A1)
+from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(suggest_for_doc の alt。D1-b)・YouTube の字幕の候補(suggest_for_doc の yt。案 A1)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import store  # noqa: E402   文書の一覧と読み(_tids・tx_path・read_transcript。RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 
 
@@ -355,7 +354,7 @@ def find_suggestions(text, rules, fb, skip=(), only_high=False):
 
 
 def suggest_for_doc(tid):
-    """行ごとの提案(学習の統計)+ 2つ目のエンジンとの食い違いの候補(tier "alt"。同じ行・同じ位置では学習の提案を優先。ed_alt.alt_suggest)。
+    """行ごとの提案(学習の統計)+ 2つ目のエンジンとの食い違いの候補(tier "alt"。同じ行・同じ位置では学習の提案を優先。alt.alt_suggest)。
     応答の alt = 2つ目のエンジンの結果の情報 {engine, model, label, at, count, skipped}(無い・評価用は null)"""
     doc = store.read_transcript(tid)
     rules, fb = learn_rules(), load_feedback()
@@ -371,19 +370,19 @@ def suggest_for_doc(tid):
             items.append(sug)
             if len(items) >= 1000:
                 break
-    alt_items, alt = ed_alt.alt_suggest(tid, doc, dismissed, items)
+    alt_items, alt_info = alt.alt_suggest(tid, doc, dismissed, items)
     alt_items = alt_items[:max(0, 1000 - len(items))]
     learned = list(items)
     items += alt_items
-    if alt:
-        alt["count"] = len(alt_items)
-    # YouTube の字幕の候補(tier "yt"。案 A1): 学習 → alt → yt の順に優先。alt と同じ直しは alt の項目に also: ["yt"] を付けてまとめる(ed_ytcap.ytcap_suggest)
-    yt_items, yt = ed_ytcap.ytcap_suggest(tid, doc, dismissed, learned, alt_items)
+    if alt_info:
+        alt_info["count"] = len(alt_items)
+    # YouTube の字幕の候補(tier "yt"。案 A1): 学習 → alt → yt の順に優先。alt と同じ直しは alt の項目に also: ["yt"] を付けてまとめる(ytcap.ytcap_suggest)
+    yt_items, yt = ytcap.ytcap_suggest(tid, doc, dismissed, learned, alt_items)
     yt_items = yt_items[:max(0, 1000 - len(items))]
     items += yt_items
     if yt:
         yt["count"] = len(yt_items) + yt["agree"]
-    return {"items": items, "rules": len(rules), "alt": alt, "yt": yt}
+    return {"items": items, "rules": len(rules), "alt": alt_info, "yt": yt}
 
 
 def auto_learned_replace(text, rules, fb):

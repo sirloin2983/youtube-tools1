@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 元の配信の YouTube の字幕を、校正の候補に出す(案 A1。ユーザー承認 2026-10-05。2つ目のエンジンの候補 ed_alt と同じ形)。
+"""② 人の操作の層 human/proof: 元の配信の YouTube の字幕を、校正の候補に出す(案 A1。ユーザー承認 2026-10-05。2つ目のエンジンの候補 alt と同じ形)。
+役割で組み直す RS3-E6(2026-10-10)に編集の src/editor/ed_ytcap.py から human/proof へ移した(中身は同じ)。旧い名前 ed_ytcap.名前 は editor/ed_ytcap.py(転送だけの殻。RS5 で消す)が回す。
 
 ねらい: 校正を速くする。スタジオで書き出した切り抜き(文書の clip = youtube-tools-clip/v1 に配信の ID と範囲がある)なら、
 元の配信に YouTube が付けた字幕(配信者が付けた字幕があればそれ、無ければ自動字幕)の同じ範囲を、今の行と比べ、
 食い違う所を行の「候補」(tier = "yt"。札「YT」)として出す。人が 1 押しで採る。**自動では書き換えない**。
   POST /api/ytcap {id}   ジョブ(kind "ytcap")を足す。配信の字幕を取り(配信ごとに作業データの ytcaps/<videoId>.json に置いて使い回す)、
                          文書の範囲を切り出して transcripts/<id>.ytcap.json に書く
-  GET  /api/suggest?id=  学習の提案・alt の候補に yt の候補を足す(ed_learn.suggest_for_doc → ytcap_suggest)
+  GET  /api/suggest?id=  学習の提案・alt の候補に yt の候補を足す(learn.suggest_for_doc → ytcap_suggest)
 
 決まり:
   - 取得は yt-dlp で**字幕だけ**(--skip-download。動画・音声は取らない)。こちらからは配信の ID を問い合わせるだけで、動画・音声を外へ送らない。
     yt-dlp の設定ファイル・クッキーは使わない(--ignore-config・--no-cookies)= 誰でも見られる配信だけ。非公開・限定公開・メンバー限定は断る
   - 配信の ID は 11 文字の決まった形だけ(スタジオの VID_RE と同じ)。URL は ID から自分で作る(文書の中の URL をそのまま渡さない)
-  - **候補にだけ使う**。正解・学習・辞書の材料にしない。評価用の文書には出さない(ed_alt の評価用を断る決まりと同じ)
+  - **候補にだけ使う**。正解・学習・辞書の材料にしない。評価用の文書には出さない(alt の評価用を断る決まりと同じ)
   - 文書(<id>.json)は書き換えない・updatedAt を動かさないので、編集を止めるジョブにしない
-  - 比べ方は ed_alt の alt_diffs をそのまま使う(二重に書かない)。切り抜きの頭と終わりの食い違いは出さない(字幕の時刻で切るので、境目の言葉がずれる)
+  - 比べ方は alt の alt_diffs をそのまま使う(二重に書かない)。切り抜きの頭と終わりの食い違いは出さない(字幕の時刻で切るので、境目の言葉がずれる)
 
-名前は serve.py からも見える(serve.py の _ED_MODULES の最後。ほかの部品と重ならないよう、名前は ytcap_ / YTCAP_ / _ytcap_ で始める)。
-ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+名前は serve.py からも見える(serve.py の _ED_MODULES。ほかの部品と重ならないよう、名前は ytcap_ / YTCAP_ / _ytcap_ で始める)。
+ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
 """
 import json
 import os
@@ -28,13 +29,11 @@ import sys
 import threading
 import time
 
-import ed_alt  # noqa: E402,F401
-import ed_jobs  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402   (置き場所と版の今の値。RS3-0A に ed_state から移した)
-import ed_store  # noqa: E402,F401
-from ytt import fsio as _fsio, schemas as _yschemas, tools as _tools  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定 eval_dirs・in_eval_dir(RS3-1 に ed_relink から ytt/settings へ)
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   1 行の文字数の上限・ロガー・ジョブの注意(RS3-E6 に ed_state の別名から)
+from . import alt, store  # noqa: E402   比べ方 alt_diffs ほか(呼ぶたびに alt.名前 で読む)・文書の読み書き(呼ぶたびに store.名前 で読む)
 
 YTCAP_SCHEMA = "youtube-tools-ytcap/v1"            # transcripts/<id>.ytcap.json(文書の範囲に切り出した字幕。形は alt.json に合わせる)
 YTCAP_VIDEO_SCHEMA = "youtube-tools-ytcap-video/v1"   # ytcaps/<videoId>.json(配信 1 本ぶんの字幕。使い回す)
@@ -69,26 +68,26 @@ def ytcap_doc_range(doc):
     使えない(clip が無い・壊れている・YouTube の配信でない・ID の形が違う)ときは ApiError no_clip"""
     clip = doc.get("clip") if isinstance(doc, dict) else None
     if not isinstance(clip, dict):
-        raise ed_state.ApiError("no_clip", "元の配信が分からない文書です(スタジオで書き出した切り抜きだけ、YouTube の字幕と比べられます)", 400)
+        raise _errors.ApiError("no_clip", "元の配信が分からない文書です(スタジオで書き出した切り抜きだけ、YouTube の字幕と比べられます)", 400)
     c, why = _yschemas.validate_clip(clip)
     if c is None:
-        raise ed_state.ApiError("no_clip", "元の配信の情報が読めません。スタジオで書き出し直すと直ります", 400, {"detail": ".clip.json: %s" % why})   # 内部の名前は detail(S12)
+        raise _errors.ApiError("no_clip", "元の配信の情報が読めません。スタジオで書き出し直すと直ります", 400, {"detail": ".clip.json: %s" % why})   # 内部の名前は detail(S12)
     src = c.get("source") if isinstance(c.get("source"), dict) else {}
     if src.get("kind") != "youtube":
-        raise ed_state.ApiError("no_clip", "元の動画が YouTube の配信ではありません(手元のファイル・リアルタイム切り抜きは、YouTube の字幕と時刻が合いません)", 400)
+        raise _errors.ApiError("no_clip", "元の動画が YouTube の配信ではありません(手元のファイル・リアルタイム切り抜きは、YouTube の字幕と時刻が合いません)", 400)
     vid = str(src.get("videoId") or "")
     if not YTCAP_VID_RE.match(vid):
-        raise ed_state.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
+        raise _errors.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
     off = float(_yschemas.clip_offset(c))
-    ds = max(0.0, ed_state.num(doc.get("start"), 0.0) or 0.0)
-    de = ed_state.num(doc.get("end"))
+    ds = max(0.0, _yschemas.num_or(doc.get("start"), 0.0) or 0.0)
+    de = _yschemas.num_or(doc.get("end"))
     if de is None:   # 文書が動画の最後まで: 切り抜きの長さ(元の配信の範囲)
         de = float(c["range"]["end"]) - off
-        md = ed_state.num((c.get("media") or {}).get("durationSec")) if isinstance(c.get("media"), dict) else None
+        md = _yschemas.num_or((c.get("media") or {}).get("durationSec")) if isinstance(c.get("media"), dict) else None
         if de <= ds and md:
             de = md
     if de <= ds:
-        raise ed_state.ApiError("no_clip", "元の配信の範囲が正しくありません", 400)
+        raise _errors.ApiError("no_clip", "元の配信の範囲が正しくありません", 400)
     return {"videoId": vid, "offset": round(off, 3), "a": round(off + ds, 3), "b": round(off + de, 3), "docStart": round(ds, 3), "docEnd": round(de, 3)}
 
 
@@ -98,24 +97,24 @@ def ytcap_info():
     try:
         ytcap_command()
         return {"ready": True, "why": ""}
-    except ed_state.ApiError as e:
+    except _errors.ApiError as e:
         return {"ready": False, "why": e.message}
 
 
 def ytcap_spec(tid, req=None):
     """YouTube の字幕を取って比べるジョブの指定。断る: 評価用・文字の無い文書・元の配信が分からない・同じ文書で実行中"""
     tid = str(tid or "")
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     if doc.get("evalSet") is True:
-        raise ed_state.ApiError("eval_set", "評価用の文字起こしには、YouTube の字幕の候補を出しません(定点の正解が字幕に寄らないように)", 400)
+        raise _errors.ApiError("eval_set", "評価用の文字起こしには、YouTube の字幕の候補を出しません(定点の正解が字幕に寄らないように)", 400)
     src = doc.get("sourcePath")
     if src and _settings.in_eval_dir(os.path.abspath(str(src))):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
-        raise ed_state.ApiError("eval_set", "評価用のフォルダの動画には、YouTube の字幕の候補を出しません", 400)
-    if not ed_store.doc_has_rows(doc):
-        raise ed_state.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
+        raise _errors.ApiError("eval_set", "評価用のフォルダの動画には、YouTube の字幕の候補を出しません", 400)
+    if not store.doc_has_rows(doc):
+        raise _errors.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
     rng = ytcap_doc_range(doc)
-    if ed_jobs.tid_busy(tid, ("ytcap",)):
-        raise ed_state.ApiError("busy", "この文書は、もう YouTube の字幕を取っている最中です", 409)
+    if _heavy.tid_busy(tid, ("ytcap",)):
+        raise _errors.ApiError("busy", "この文書は、もう YouTube の字幕を取っている最中です", 409)
     return dict(rng, tid=tid, title="YouTube の字幕と比べる: " + (str(doc.get("title") or "") or "無題")[:100])
 
 
@@ -125,12 +124,12 @@ def ytcap_after_transcribe(job, spec, tid):
     if not spec.get("autoYtcap") or spec.get("evalSet"):
         return
     try:
-        ed_jobs.add_job(ytcap_spec(tid, {}), "ytcap")
-    except ed_state.ApiError as e:
+        _heavy.add_job(ytcap_spec(tid, {}), "ytcap")
+    except _errors.ApiError as e:
         if e.code not in ("no_clip", "eval_set"):
-            ed_state.add_warning(job, "YouTube の字幕を取るのを始められませんでした: " + e.message)
+            _txbase.add_warning(job, "YouTube の字幕を取るのを始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
-        ed_state.log.warning("YouTube の字幕を取るのを始められませんでした: %s %s", tid, e)
+        _txbase.log.warning("YouTube の字幕を取るのを始められませんでした: %s %s", tid, e)
 
 
 # ---------- yt-dlp で字幕を取る ----------
@@ -139,7 +138,7 @@ def ytcap_command():
     TRANSCRIBE_YTDLP が .py なら、この Python で動かす(テストの偽の yt-dlp)"""
     p = _tools.find_tool("yt-dlp", "TRANSCRIBE_YTDLP")
     if not p:
-        raise ed_state.ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
+        raise _errors.ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
     return [sys.executable, p] if p.lower().endswith(".py") else [p]
 
 
@@ -148,21 +147,21 @@ def ytcap_classify(err, rc):
     t = str(err or "")
     low = t.lower()
     if "private video" in low:
-        return ed_state.ApiError("not_public", "非公開の配信です(公開の配信だけ、字幕を取れます)", 400)
+        return _errors.ApiError("not_public", "非公開の配信です(公開の配信だけ、字幕を取れます)", 400)
     if "members-only" in low or "members only" in low or "join this channel" in low:
-        return ed_state.ApiError("not_public", "メンバー限定の配信です(公開の配信だけ、字幕を取れます)", 400)
+        return _errors.ApiError("not_public", "メンバー限定の配信です(公開の配信だけ、字幕を取れます)", 400)
     if "confirm you" in low and "bot" in low:
-        return ed_state.ApiError("bot_check", "YouTube にボットの確認を求められました。しばらく時間をおいてから、もう一度試してください", 503)
+        return _errors.ApiError("bot_check", "YouTube にボットの確認を求められました。しばらく時間をおいてから、もう一度試してください", 503)
     if "confirm your age" in low or "age-restricted" in low or "age restricted" in low:
-        return ed_state.ApiError("not_public", "年齢制限のある配信です(ログインが要るため、字幕を取れません)", 400)
+        return _errors.ApiError("not_public", "年齢制限のある配信です(ログインが要るため、字幕を取れません)", 400)
     if "http error 429" in low or "too many requests" in low:
-        return ed_state.ApiError("too_many", "YouTube から「要求が多すぎる」と断られました。しばらく時間をおいてから、もう一度試してください", 503)
+        return _errors.ApiError("too_many", "YouTube から「要求が多すぎる」と断られました。しばらく時間をおいてから、もう一度試してください", 503)
     if "video unavailable" in low or "has been removed" in low or "no longer available" in low or "not available" in low or "does not exist" in low:
-        return ed_state.ApiError("unavailable", "配信が見つかりません(削除・非公開になった可能性があります)", 404)
+        return _errors.ApiError("unavailable", "配信が見つかりません(削除・非公開になった可能性があります)", 404)
     if "will begin" in low or "premieres in" in low or "is live" in low:
-        return ed_state.ApiError("live", "配信中・配信予定の動画です(アーカイブになってから取ってください)", 400)
+        return _errors.ApiError("live", "配信中・配信予定の動画です(アーカイブになってから取ってください)", 400)
     line = next((l.strip() for l in reversed(t.splitlines()) if l.strip().startswith("ERROR")), "") or next((l.strip() for l in reversed(t.splitlines()) if l.strip()), "")
-    return ed_state.ApiError("fetch_failed", "YouTube の字幕を取れませんでした" + (": " + line[:200] if line else "(終了コード %s)" % rc), 502)
+    return _errors.ApiError("fetch_failed", "YouTube の字幕を取れませんでした" + (": " + line[:200] if line else "(終了コード %s)" % rc), 502)
 
 
 def _ytcap_run(job, cmd, work):
@@ -177,10 +176,10 @@ def _ytcap_run(job, cmd, work):
             while proc.poll() is None:
                 if job.get("cancel"):
                     _tools.kill_tree(proc)
-                    raise ed_jobs.Cancelled()
+                    raise _heavy.Cancelled()
                 if time.monotonic() - t0 > YTCAP_TIMEOUT_SEC:
                     _tools.kill_tree(proc)
-                    raise ed_state.ApiError("timeout", "YouTube の字幕の取得が %d 秒を超えたのでやめました。しばらく時間をおいてから、もう一度試してください" % YTCAP_TIMEOUT_SEC, 504)
+                    raise _errors.ApiError("timeout", "YouTube の字幕の取得が %d 秒を超えたのでやめました。しばらく時間をおいてから、もう一度試してください" % YTCAP_TIMEOUT_SEC, 504)
                 time.sleep(0.2)
         finally:
             job["proc"] = None
@@ -191,7 +190,7 @@ def _ytcap_run(job, cmd, work):
         f.seek(max(0, f.tell() - 16000))
         err = f.read().decode("utf-8", "replace")
     if job.get("cancel"):
-        raise ed_jobs.Cancelled()
+        raise _heavy.Cancelled()
     return proc.returncode, out, err
 
 
@@ -213,7 +212,7 @@ def ytcap_parse_print(out):
 def ytcap_fetch(job, vid):
     """配信 1 本の字幕を yt-dlp で取る → 字幕の記録(YTCAP_VIDEO_SCHEMA。kind = manual / auto / none)。失敗は ApiError(覚えない)"""
     if not YTCAP_VID_RE.match(str(vid or "")):   # 引数に入るので、形を確かめてから(呼ぶ側でも確かめている)
-        raise ed_state.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
+        raise _errors.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
     cmd0 = ytcap_command()
     work = os.path.join(_workdata.TMP_DIR, job["id"] + "-ytcap")
     shutil.rmtree(work, ignore_errors=True)
@@ -230,9 +229,9 @@ def ytcap_fetch(job, vid):
         info = ytcap_parse_print(out)
         avail, live, manual = info if info else ("", "", set())
         if avail in YTCAP_NOT_PUBLIC:
-            raise ed_state.ApiError("not_public", "%sの配信です(公開の配信だけ、字幕を取れます)" % YTCAP_NOT_PUBLIC[avail], 400)
+            raise _errors.ApiError("not_public", "%sの配信です(公開の配信だけ、字幕を取れます)" % YTCAP_NOT_PUBLIC[avail], 400)
         if live in ("is_live", "is_upcoming"):
-            raise ed_state.ApiError("live", "配信中・配信予定の動画です(アーカイブになってから取ってください)", 400)
+            raise _errors.ApiError("live", "配信中・配信予定の動画です(アーカイブになってから取ってください)", 400)
         pick = None
         for lang in YTCAP_MANUAL_LANGS:   # 配信者が付けた字幕を優先
             p = os.path.join(work, "cap.%s.json3" % lang)
@@ -241,17 +240,17 @@ def ytcap_fetch(job, vid):
                 break
         if pick is None and os.path.isfile(os.path.join(work, "cap.%s.json3" % YTCAP_AUTO_LANG)):
             pick = ("auto", YTCAP_AUTO_LANG, os.path.join(work, "cap.%s.json3" % YTCAP_AUTO_LANG))
-        now = ed_state.now_ms()
+        now = _yschemas.now_ms()
         if pick is None:
             if rc != 0 or info is None:   # 取れなかった(非公開・削除・ボットの確認など)
                 raise ytcap_classify(err, rc)
             return {"schema": YTCAP_VIDEO_SCHEMA, "videoId": vid, "kind": "none", "lang": "", "at": now, "availability": avail, "cues": []}
         if os.path.getsize(pick[2]) > YTCAP_MAX_JSON3_BYTES:
-            raise ed_state.ApiError("too_big", "字幕のファイルが大きすぎます", 400)
+            raise _errors.ApiError("too_big", "字幕のファイルが大きすぎます", 400)
         try:
             raw = _fsio.read_json_file(pick[2], YTCAP_MAX_JSON3_BYTES)
         except (OSError, UnicodeError, ValueError) as e:
-            raise ed_state.ApiError("fetch_failed", "YouTube の字幕を読めませんでした(%s)" % e.__class__.__name__, 502)
+            raise _errors.ApiError("fetch_failed", "YouTube の字幕を読めませんでした(%s)" % e.__class__.__name__, 502)
         cues = ytcap_parse_json3(raw)
         return {"schema": YTCAP_VIDEO_SCHEMA, "videoId": vid, "kind": pick[0], "lang": pick[1], "at": now, "availability": avail, "cues": cues}
     finally:
@@ -267,7 +266,7 @@ def ytcap_parse_json3(obj):
     for e in evs if isinstance(evs, list) else []:
         if not isinstance(e, dict) or not isinstance(e.get("segs"), list):
             continue
-        t0 = ed_state.num(e.get("tStartMs"))
+        t0 = _yschemas.num_or(e.get("tStartMs"))
         if t0 is None or t0 < 0:
             continue
         ws = []
@@ -275,7 +274,7 @@ def ytcap_parse_json3(obj):
             if not isinstance(s, dict) or not isinstance(s.get("utf8"), str):
                 continue
             txt = _YTCAP_NOTE_RE.sub("", s["utf8"].replace("\n", " "))
-            off = ed_state.num(s.get("tOffsetMs"), 0.0) or 0.0
+            off = _yschemas.num_or(s.get("tOffsetMs"), 0.0) or 0.0
             if txt.strip():
                 ws.append([int(t0 + max(0.0, off)), txt])
         if ws:
@@ -297,7 +296,7 @@ def ytcap_parse_json3(obj):
         cues.append(cue)
         total += len(cue)
         if total > YTCAP_MAX_PIECES:
-            raise ed_state.ApiError("too_big", "字幕が長すぎます(言葉が %d を超えました)" % YTCAP_MAX_PIECES, 400)
+            raise _errors.ApiError("too_big", "字幕が長すぎます(言葉が %d を超えました)" % YTCAP_MAX_PIECES, 400)
     return cues
 
 
@@ -308,7 +307,7 @@ def ytcap_dir():
 
 def ytcap_video_path(vid):
     if not YTCAP_VID_RE.match(str(vid or "")):   # ファイル名に使うので、決まった形だけ
-        raise ed_state.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
+        raise _errors.ApiError("no_clip", "元の配信の ID の形が正しくありません", 400)
     return os.path.join(ytcap_dir(), vid + ".json")
 
 
@@ -322,14 +321,14 @@ def ytcap_load(vid):
     """ytcaps/<videoId>.json(形が違えば None)"""
     try:
         d = _fsio.read_json_file(ytcap_video_path(vid), YTCAP_MAX_CACHE_BYTES)
-    except (OSError, UnicodeError, ValueError, ed_state.ApiError):
+    except (OSError, UnicodeError, ValueError, _errors.ApiError):
         return None
     return d if ytcap_valid_cache(d, vid) else None
 
 
 def ytcap_fresh(d, now_ms=None):
     """取り直さなくてよいか(字幕は 30 日・「字幕が無い」は 1 日)"""
-    now_ms = ed_state.now_ms() if now_ms is None else now_ms
+    now_ms = _yschemas.now_ms() if now_ms is None else now_ms
     ttl = YTCAP_NONE_TTL_SEC if d.get("kind") == "none" else YTCAP_TTL_SEC
     return 0 <= now_ms - d["at"] < ttl * 1000
 
@@ -363,12 +362,12 @@ def ytcap_get(job, vid):
             d = ytcap_fetch(job, vid)
             data = json.dumps(d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(data) > YTCAP_MAX_CACHE_BYTES:
-                raise ed_state.ApiError("too_big", "字幕が大きすぎます", 400)
+                raise _errors.ApiError("too_big", "字幕が大きすぎます", 400)
             os.makedirs(ytcap_dir(), exist_ok=True)
-            ed_state.atomic_write(ytcap_video_path(vid), data)
+            _fsio.atomic_write(ytcap_video_path(vid), data, fsync_required=True)
             _ytcap_prune()
     if d["kind"] == "none":
-        raise ed_state.ApiError("no_captions", "この配信には日本語の字幕がありません(配信者が付けた字幕も、自動字幕も無い)", 400)
+        raise _errors.ApiError("no_captions", "この配信には日本語の字幕がありません(配信者が付けた字幕も、自動字幕も無い)", 400)
     return d
 
 
@@ -403,7 +402,7 @@ def ytcap_cut(cues, a, b, offset):
                     t_last = c0 + step
         text = "".join(txt).strip()
         if text and t_first is not None:
-            rows.append({"start": round(t_first / 1000.0 - offset, 2), "end": round(max(t_last, t_first + 1) / 1000.0 - offset, 2), "text": text[:ed_state.MAX_TEXT]})
+            rows.append({"start": round(t_first / 1000.0 - offset, 2), "end": round(max(t_last, t_first + 1) / 1000.0 - offset, 2), "text": text[:_txbase.MAX_TEXT]})
     rows.sort(key=lambda r: r["start"])
     return rows
 
@@ -423,26 +422,26 @@ def ytcap_filler_only(wrong, right):
         extra = right[:len(right) - len(wrong)]
     else:
         return False
-    return bool(_YTCAP_SEP_RE.search(extra)) and bool(YTCAP_FILLER_RE.match(ed_alt.alt_fold(extra)))
+    return bool(_YTCAP_SEP_RE.search(extra)) and bool(YTCAP_FILLER_RE.match(alt.alt_fold(extra)))
 
 
 def ytcap_diffs(rows, yt_rows):
-    """今の行と YouTube の字幕の食い違い → (候補 [{… tier: "yt"}], 数えた理由)。比べ方は ed_alt.alt_diffs そのまま(二重に書かない)。
+    """今の行と YouTube の字幕の食い違い → (候補 [{… tier: "yt"}], 数えた理由)。比べ方は alt.alt_diffs そのまま(二重に書かない)。
     加えて、切り抜きの頭と終わりの食い違い(最初の行の頭・最後の行の終わりにかかる候補)は出さない(clipEdge。字幕の時刻で切るので、境目の言葉がずれる)。
     言いよどみだけを足す・消す候補も出さない(filler。YTCAP_FILLER_RE)"""
-    items, stats = ed_alt.alt_diffs(rows, yt_rows)
+    items, stats = alt.alt_diffs(rows, yt_rows)
     stats = dict(stats, clipEdge=0, filler=0)
-    texts = [g for g in rows or [] if isinstance(g, dict) and str(g.get("text") or "").strip() and ed_state.num(g.get("start")) is not None]
+    texts = [g for g in rows or [] if isinstance(g, dict) and str(g.get("text") or "").strip() and _yschemas.num_or(g.get("start")) is not None]
     if not texts:
         return [], stats
-    first = min(texts, key=lambda g: ed_state.num(g.get("start")))
-    last = max(texts, key=lambda g: (ed_state.num(g.get("end"), 0.0) or 0.0, ed_state.num(g.get("start"))))
+    first = min(texts, key=lambda g: _yschemas.num_or(g.get("start")))
+    last = max(texts, key=lambda g: (_yschemas.num_or(g.get("end"), 0.0) or 0.0, _yschemas.num_or(g.get("start"))))
     out = []
     for x in items:
-        if first.get("id") == x["seg"] and not ed_alt.alt_fold(str(first["text"])[:x["i"]]):
+        if first.get("id") == x["seg"] and not alt.alt_fold(str(first["text"])[:x["i"]]):
             stats["clipEdge"] += 1
             continue
-        if last.get("id") == x["seg"] and not ed_alt.alt_fold(str(last["text"])[x["i"] + len(x["wrong"]):]):
+        if last.get("id") == x["seg"] and not alt.alt_fold(str(last["text"])[x["i"] + len(x["wrong"]):]):
             stats["clipEdge"] += 1
             continue
         if ytcap_filler_only(x["wrong"], x["right"]):
@@ -459,33 +458,33 @@ def ytcap_path(tid):
 
 def read_ytcap(tid):
     """<id>.ytcap.json(形が違えば None)"""
-    if not ed_state.TID_RE.match(str(tid or "")):
+    if not _yschemas.TID_RE.match(str(tid or "")):
         return None
-    return ed_state.read_schema_json(ytcap_path(tid), YTCAP_MAX_BYTES, YTCAP_SCHEMA, "rows")
+    return _fsio.read_schema_json(ytcap_path(tid), YTCAP_MAX_BYTES, YTCAP_SCHEMA, "rows")
 
 
 def run_ytcap(job):
     """配信の字幕を取り(使い回し)、文書の範囲を切り出して <id>.ytcap.json に書く。文書は書き換えない(updatedAt も動かさない)"""
     spec = job["spec"]
     tid = spec["tid"]
-    with ed_jobs.job_errors(job, log="YouTube の字幕の取得で例外"):
+    with _heavy.job_errors(job, log="YouTube の字幕の取得で例外"):
         job["state"], job["phase"] = "running", "YouTube の字幕を確かめ中"
         cache = ytcap_get(job, spec["videoId"])
         if job["cancel"]:
-            raise ed_jobs.Cancelled()
-        with ed_store._save_lock:   # 取る間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
-            if not os.path.isfile(ed_store.tx_path(tid)):
-                raise ed_state.ApiError("not_found", "字幕を取る間に文書が消されました", 404)
-            doc = ed_store.read_transcript(tid)
+            raise _heavy.Cancelled()
+        with store._save_lock:   # 取る間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
+            if not os.path.isfile(store.tx_path(tid)):
+                raise _errors.ApiError("not_found", "字幕を取る間に文書が消されました", 404)
+            doc = store.read_transcript(tid)
             rows, rng = ytcap_doc_rows(doc, cache)   # 取る間に文書の範囲が変わっていても、今の範囲で切る
             body = {"schema": YTCAP_SCHEMA, "id": tid, "source": "youtube", "kind": cache["kind"], "lang": cache.get("lang", ""), "videoId": rng["videoId"],
-                    "at": ed_state.now_ms(), "fetchedAt": cache["at"], "offset": rng["offset"], "streamRange": [rng["a"], rng["b"]],
+                    "at": _yschemas.now_ms(), "fetchedAt": cache["at"], "offset": rng["offset"], "streamRange": [rng["a"], rng["b"]],
                     "range": [rng["docStart"], rng["docEnd"]], "rows": rows}
-            ed_state.atomic_write(ytcap_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            _fsio.atomic_write(ytcap_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
         with _ytcap_cache_lock:
             _ytcap_cache.pop(tid, None)
         job["segments"] = len(rows)
-        ed_jobs.job_done(job, tid, "完了(%s・%d 行%s)" % ("配信者の字幕" if cache["kind"] == "manual" else "自動字幕", len(rows), "・取ってあった字幕" if job.get("ytcapReused") else ""))
+        _heavy.job_done(job, tid, "完了(%s・%d 行%s)" % ("配信者の字幕" if cache["kind"] == "manual" else "自動字幕", len(rows), "・取ってあった字幕" if job.get("ytcapReused") else ""))
 
 
 # ---------- 提案(GET /api/suggest)に足す ----------
@@ -500,21 +499,21 @@ def ytcap_suggest(tid, doc, dismissed, taken, alt_items):
     同じ位置で違う直しなら alt を優先(yt は出さない)"""
     if doc.get("evalSet") is True:
         return [], None
-    stamp = ed_state.file_stamp(ytcap_path(tid))
+    stamp = _fsio.stamp(ytcap_path(tid))
     if stamp is None:
         return [], None
     yt = read_ytcap(tid)
     if not yt:
         return [], None
-    items, stats = ed_alt.alt_cached(_ytcap_cache, _ytcap_cache_lock, tid, (stamp, doc.get("updatedAt"), len(doc.get("segments") or [])),
+    items, stats = alt.alt_cached(_ytcap_cache, _ytcap_cache_lock, tid, (stamp, doc.get("updatedAt"), len(doc.get("segments") or [])),
                                      lambda: ytcap_diffs(doc.get("segments") or [], yt.get("rows") or []))
-    spans = ed_alt.alt_spans_of(taken)
+    spans = alt.alt_spans_of(taken)
     alts = {}
     for x in alt_items:
         alts.setdefault(x.get("seg"), []).append(x)
     out, agree = [], 0
     for x in items:
-        if ed_alt.alt_skip(x, dismissed, spans):
+        if alt.alt_skip(x, dismissed, spans):
             continue   # 却下した・学習の提案を優先
         same = next((y for y in alts.get(x["seg"], []) if y["i"] == x["i"] and y["wrong"] == x["wrong"] and y["right"] == x["right"]), None)
         if same is not None:   # 2つ目のエンジンと一致: 1 つにまとめ、両方の札を出す

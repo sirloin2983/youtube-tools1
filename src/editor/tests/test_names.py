@@ -13,6 +13,8 @@
 - RS3-E5c の前に ed_learn が持っていた名前(data_ed_learn_names.txt)は、replace・learn・metrics に分けても S.名前 と ed_learn.名前(殻)で読める
 - RS3-E5a の前に ed_store が持っていた名前(data_ed_store_names.txt)は、human/proof/store と manage/cases/doclist に分けても
   S.名前 と ed_store.名前(転送だけの殻)の両方で読め、差し替えが持ち主に届く
+- RS3-E6 の前に ed_alt・ed_ytcap・ed_retime が持っていた名前(data_ed_alt_names.txt ほか)は、human/proof の alt・ytcap・retime へ移しても
+  S.名前 と 殻の名前の両方で読め、差し替えが持ち主に届く(疑似の行 _alt_fake は eval/fake/fake_asr)
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt_core.datadir)
@@ -20,9 +22,12 @@ import unittest
 from unittest import mock
 
 from test_backend import S  # noqa: F401  (S = serve)
+import ed_alt
 import ed_jobs
+import ed_retime
 import ed_speakers
 import ed_store
+import ed_ytcap
 from pipeline.transcribe import txbase
 from ytt import modfwd
 
@@ -280,6 +285,76 @@ class TestEdStoreShell(unittest.TestCase):
         self.assertNotIn('"_drill"', inspect.getsource(store.transcript_summary))
 
 
+class TestEdAltYtcapRetimeShell(unittest.TestCase):
+    """ed_alt・ed_ytcap・ed_retime を human/proof の alt・ytcap・retime へ移した(RS3-E6)。旧い名前は殻と serve で読め、差し替えは持ち主に届く。
+    alt・ytcap・retime は編集の ed_state・ed_jobs・ed_store・ed_relink・ed_learn を読まない(疑似の行は Backend.alt_rows)"""
+
+    @staticmethod
+    def owners():
+        from human.proof import alt, retime, ytcap
+        return alt, ytcap, retime
+
+    def test_old_names_still_resolve(self):
+        for shell, fname, n in ((ed_alt, "data_ed_alt_names.txt", 31), (ed_ytcap, "data_ed_ytcap_names.txt", 51), (ed_retime, "data_ed_retime_names.txt", 2)):
+            names = _old_names(fname)
+            self.assertEqual(len(names), n, fname)
+            missing = [k for k in names if not hasattr(S, k) or not hasattr(shell, k)]
+            self.assertEqual(missing, [], fname)
+
+    def test_shells_own_only_forwarding_names(self):
+        for shell, extra in ((ed_alt, ["_add_moved"]), (ed_ytcap, []), (ed_retime, [])):
+            own = sorted(k for k, v in vars(shell).items() if not k.startswith("__") and not isinstance(v, type(os)))
+            self.assertEqual(own, sorted(["_MOVED", "_moved_owner"] + extra), shell.__name__)
+            self.assertNotIn(shell, S._ED_MODULES)   # ed_jobs の殻と同じ名前を持つので、serve の受付には並べない
+
+    def test_moved_owners(self):
+        alt, ytcap, retime = self.owners()
+        from eval.fake import fake_asr
+        self.assertEqual(ed_alt._MOVED, (alt, fake_asr))   # fake_asr は serve が _add_moved で足す(殻は層 human = eval を読まない)
+        self.assertEqual(ed_ytcap._MOVED, (ytcap,))
+        self.assertEqual(ed_retime._MOVED, (retime,))
+        for m in (alt, ytcap, retime):
+            self.assertIn(m, S._ED_MODULES, m.__name__)
+        self.assertIs(ed_alt.alt_diffs, alt.alt_diffs)
+        self.assertIs(ed_alt._alt_fake, fake_asr._alt_fake)
+        self.assertIs(S.ytcap_diffs, ytcap.ytcap_diffs)
+        self.assertIs(S.retime_doc, retime.retime_doc)
+
+    def test_owners_do_not_read_editor_parts(self):
+        for m in self.owners():
+            for name in ("ed_state", "ed_jobs", "ed_store", "ed_relink", "ed_learn", "ed_alt"):
+                self.assertNotIn(name, vars(m), "%s.%s" % (m.__name__, name))
+
+    def test_retime_wrapper_keeps_only_the_wrapper(self):
+        _alt, _ytcap, retime = self.owners()
+        own = sorted(k for k, v in vars(retime).items() if not k.startswith("__") and not isinstance(v, type(os)))
+        self.assertEqual(own, ["retime_doc", "retime_engine"])
+
+    def test_patches_reach_owner(self):
+        alt, ytcap, _retime = self.owners()
+        with mock.patch.object(ed_alt, "alt_spec", lambda tid, req=None: {"tid": tid}):
+            self.assertEqual(alt.alt_spec("a"), {"tid": "a"})
+            self.assertEqual(S.alt_spec("b"), {"tid": "b"})
+        self.assertNotIn("alt_spec", vars(ed_alt))
+        saved = ytcap.YTCAP_TIMEOUT_SEC
+        try:
+            ed_ytcap.YTCAP_TIMEOUT_SEC = 7
+            self.assertEqual(ytcap.YTCAP_TIMEOUT_SEC, 7)
+            S.YTCAP_TIMEOUT_SEC = 8
+            self.assertEqual(ytcap.YTCAP_TIMEOUT_SEC, 8)
+        finally:
+            ytcap.YTCAP_TIMEOUT_SEC = saved
+        self.assertNotIn("YTCAP_TIMEOUT_SEC", vars(ed_ytcap))
+
+    def test_fake_rows_come_from_the_backend_slot(self):
+        """疑似の行は Backend.alt_rows(疑似は eval/fake/fake_asr)。本物の Backend は real をそのまま呼ぶ"""
+        from eval.fake import fake_asr
+        from pipeline.transcribe import backend
+        self.assertEqual(list(backend.REAL.alt_rows({}, {}, "w", 1, lambda *a: iter([a]))), [({}, {}, "w", 1)])
+        self.assertTrue(hasattr(fake_asr.FAKE, "alt_rows"))
+        self.assertEqual(fake_asr.FAKE.name, "fake")
+
+
 class TestEdStateNames(unittest.TestCase):
     """RS3-0A: ed_state の置き場所(ytt/workdata)と動きのある関数(ytt/tools・worker_client・ytt/studiodata・roster)を持ち主へ移しても、
     旧い名前は S で読める(ed_state に殻は置かない = 読むのは serve の名前の受付だけ)"""
@@ -293,7 +368,7 @@ class TestEdStateNames(unittest.TestCase):
 
 class TestPipelineMovedWithoutShell(unittest.TestCase):
     """RS2-9c: ed_fill・ed_llm は pipeline/transcribe の fill・llm へ、ed_retime の計算は retime へ移した(殻・別名なし)。
-    S.名前 で読め、S.名前 = … の差し替えが持ち主に届き、ed_retime には文書を読む包みの 2 つの名前だけが残る"""
+    S.名前 で読め、S.名前 = … の差し替えが持ち主に届く(ed_retime の包みは RS3-E6 から human/proof/retime。殻の検査は TestEdAltYtcapRetimeShell)"""
 
     def test_moved_names_read_through_serve(self):
         from pipeline.transcribe import fill, llm, retime
@@ -302,18 +377,13 @@ class TestPipelineMovedWithoutShell(unittest.TestCase):
                            (retime, ("subread_mark", "SUBREAD_FAST_CPS", "retime_candidates", "RETIME_PAD"))):
             for n in names:
                 self.assertIs(getattr(S, n), getattr(mod, n), n)
-        self.assertIs(S.retime_doc, __import__("ed_retime").retime_doc)
+        self.assertIs(S.retime_doc, ed_retime.retime_doc)
 
     def test_patch_reaches_owner(self):
         from pipeline.transcribe import llm, retime
         with mock.patch.object(S, "LLM_MIN_CONF", 0.9), mock.patch.object(S, "RETIME_PAD", 0.5):
             self.assertEqual((llm.LLM_MIN_CONF, retime.RETIME_PAD), (0.9, 0.5))
         self.assertEqual((llm.LLM_MIN_CONF, retime.RETIME_PAD), (0.5, 1.5))
-
-    def test_ed_retime_keeps_only_the_wrapper(self):
-        import ed_retime
-        own = sorted(k for k, v in vars(ed_retime).items() if not k.startswith("__") and not isinstance(v, type(os)))
-        self.assertEqual(own, ["retime_doc", "retime_engine"])
 
     def test_old_shells_do_not_exist(self):
         for name in ("ed_fill", "ed_llm"):
@@ -360,7 +430,7 @@ class TestEdJobsForwarding(unittest.TestCase):
 
 class TestSettingsMoved(unittest.TestCase):
     """編集の設定の読み書きと鍵の検査を ed_learn から、評価用のフォルダの判定を ed_relink から ytt/settings へ移した(RS3-1)。S.名前 で読め、
-    差し替えは ytt/settings に届き、ed_learn・ed_relink に別名が残っていない。鍵の検査は持ち主が登録する(altEngine = ed_alt)"""
+    差し替えは ytt/settings に届き、ed_learn・ed_relink に別名が残っていない。鍵の検査は持ち主が登録する(altEngine = human/proof/alt)"""
     MOVED = ("SETTINGS_MAX", "load_settings", "SETTINGS_PATCH_KEYS", "CUT_SILENCE_RANGE", "patch_settings", "merge_settings", "replace_settings",
              "register_patch_key", "_settings_file", "_settings_lock", "_keymap_ok", "_cut_silence_ok", "_settings_error",
              "EVAL_DIRS_MAX", "EVAL_NAME_WORD", "_eval_dirs_ok", "eval_dirs", "in_eval_dir", "eval_name_guard")

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。plan/line-b-transcription.md)。
+"""② 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。plan/line-b-transcription.md)。
+役割で組み直す RS3-E6(2026-10-10)に編集の src/editor/ed_alt.py から human/proof へ移した(中身は同じ)。旧い名前 ed_alt.名前 は editor/ed_alt.py(転送だけの殻。RS5 で消す)が回す。
 
 ねらい: 校正を速くする。主のエンジンの文字起こしとは別に、2つ目のエンジンで同じ音声を認識し、2つの結果が食い違う所を
 行の「候補」(学習の提案と同じ形。tier = "alt")として出す。人が 1 押しで採る。**自動では書き換えない**。
   POST /api/alt {id, engine?}   ジョブ(kind "alt")を足す。文書の範囲の音声を 2つ目のエンジンで認識して transcripts/<id>.alt.json に書く
-  GET  /api/suggest?id=          学習の提案に alt の候補を足す(ed_learn.suggest_for_doc → alt_suggest)
+  GET  /api/suggest?id=          学習の提案に alt の候補を足す(learn.suggest_for_doc → alt_suggest)
 
 決まり:
   - 文書(<id>.json)は書き換えない・updatedAt を動かさない(開いている画面の保存を 409 にしない)ので、編集を止めるジョブにしない
@@ -14,8 +15,9 @@
   - エンジンが使えない(実行ファイルが無い・GPU が無い)ときは、今のエンジンの仕組みどおり理由を出して失敗(黙って CPU にしない)
   - 候補は**今の行の文字**に対して毎回計算する(人が直した・採用した所は自然に消える)。校正済みの行には出さない
 
-名前は serve.py からも見える(serve.py の _ED_MODULES の最後。ほかの部品と重ならないよう、名前は alt_ / ALT_ / _alt_ で始める)。
-ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
+名前は serve.py からも見える(serve.py の _ED_MODULES。ほかの部品と重ならないよう、名前は alt_ / ALT_ / _alt_ で始める)。
+ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(app = 上の層)。
+疑似の認識(TRANSCRIBE_BACKEND=fake)は backend.select().alt_rows(本体は eval/fake/fake_asr)に任せ、② から ④ を読まない。
 """
 import bisect
 import difflib
@@ -24,14 +26,14 @@ import os
 import threading
 import time
 
-import ed_jobs  # noqa: E402,F401
-import ed_state  # noqa: E402,F401
-from pipeline.transcribe import worker_client  # noqa: E402   (faster-whisper の有無 has_faster_whisper。RS3-0A に ed_state から)
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
-import ed_store  # noqa: E402,F401
-from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
-from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)
+from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas  # noqa: E402   エラー・書き込み・ジョブの表と待機列・文書の形の小道具
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from pipeline.transcribe import backend as _backend  # noqa: E402   疑似かどうか select().name・疑似の行 alt_rows(RS3-E6 に ed_state.backend_name から)
+from pipeline.transcribe import postproc, recognize, records, worker_client  # noqa: E402   行の後処理・音声の取り出しと認識・エンジンの版・エンジンの確かめ(RS3-E6 に ed_jobs の殻から持ち主へ)
+from pipeline.transcribe import tx_engines  # noqa: E402,F401   名前と版だけ(ネイティブの部品は読み込まない)
+from pipeline.transcribe import txbase as _txbase  # noqa: E402   比べるときの寄せ方 alt_fold の正(RS2-9)・LANGS・MAX_TEXT・ロガー・ジョブの注意
+from . import doc_jobs, store  # noqa: E402   行を分ける文字数 split_chars_for(doc_jobs ↔ alt は呼ぶときに読むので循環しても動く)・文書の読み書き(呼ぶたびに store.名前 で読む)
 
 ALT_SCHEMA = "youtube-tools-alt/v1"
 MAX_ALT_BYTES = 32 * 1024 * 1024
@@ -42,7 +44,7 @@ ALT_ENGINES = {
     "faster-whisper": {"engine": "faster-whisper", "model": "large-v3", "device": "cpu", "label": "large-v3(CPU・faster-whisper)"},
 }
 ALT_DEFAULT = "llama.cpp"   # 既定 = Qwen3-ASR(Whisper と間違え方が違い、GPU でとても速い)
-# 設定 altEngine は api/settings/patch で直せる鍵。値の検査はこの表の持ち主のここで足す(ytt/settings は ed_alt を読まない。RS3-1)
+# 設定 altEngine は api/settings/patch で直せる鍵。値の検査はこの表の持ち主のここで足す(ytt/settings は alt を読まない。RS3-1)
 _settings.register_patch_key("altEngine", lambda v: isinstance(v, str) and v in ALT_ENGINES)
 
 # 食い違いの候補の決まり(alt_diffs)
@@ -65,7 +67,7 @@ def alt_engine_key(req=None):
 def alt_info():
     """/api/tools の alt: 選べるエンジンと準備(画面の select)"""
     out = []
-    fake = ed_state.backend_name() == "fake"
+    fake = _backend.select().name == "fake"
     for k, e in ALT_ENGINES.items():
         if fake:
             ok, why = True, ""
@@ -73,7 +75,7 @@ def alt_info():
             ok = worker_client.has_faster_whisper()
             why = "" if ok else "faster-whisper が入っていません"
         else:
-            ok, why = tx_engines.get(e["engine"]).ready(ed_jobs.engine_home())
+            ok, why = tx_engines.get(e["engine"]).ready(tx_engines.engine_home())
         out.append({"key": k, "label": e["label"], "ready": bool(ok), "why": why})
     return {"engines": out, "default": ALT_DEFAULT}
 
@@ -91,31 +93,31 @@ def alt_spec(tid, req=None):
     """2つ目のエンジンで聞くジョブの指定。断る: 評価用・文字の無い文書・動画が無い・最初の認識と同じエンジンとモデル・同じ文書で実行中"""
     req = req or {}
     tid = str(tid or "")
-    doc = ed_store.read_transcript(tid)
+    doc = store.read_transcript(tid)
     if doc.get("evalSet") is True:
-        raise ed_state.ApiError("eval_set", "評価用の文字起こしには、別のエンジンの候補を出しません(定点の正解が2つのエンジンに寄らないように)", 400)
-    if not ed_store.doc_has_rows(doc):
-        raise ed_state.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
+        raise _errors.ApiError("eval_set", "評価用の文字起こしには、別のエンジンの候補を出しません(定点の正解が2つのエンジンに寄らないように)", 400)
+    if not store.doc_has_rows(doc):
+        raise _errors.ApiError("empty", "文字の無い文書です(先に文字起こしをしてください)", 400)
     src = _tools.check_source(doc.get("sourcePath"))
     if _settings.in_eval_dir(src):   # 印が無くても評価用のフォルダの動画は評価用(文字起こしと同じ扱い)
-        raise ed_state.ApiError("eval_set", "評価用のフォルダの動画には、別のエンジンの候補を出しません", 400)
+        raise _errors.ApiError("eval_set", "評価用のフォルダの動画には、別のエンジンの候補を出しません", 400)
     key = alt_engine_key(req)
     e = ALT_ENGINES[key]
     first = alt_first_run(doc)
     if first and str(first.get("engine") or "") == e["engine"] and str(first.get("model") or "") == e["model"]:
-        raise ed_state.ApiError("same_engine", "この文書の最初の文字起こしと同じエンジン・モデル(%s)です。「別のエンジンの候補」のエンジンを、別のものに変えてください" % e["label"], 400)
-    if ed_jobs.tid_busy(tid, ("alt",)):
-        raise ed_state.ApiError("busy", "この文書は、もう別のエンジンで聞いている最中です", 409)
-    start = ed_state.num(doc.get("start"), 0.0) or 0.0
-    end = ed_state.num(doc.get("end"))
+        raise _errors.ApiError("same_engine", "この文書の最初の文字起こしと同じエンジン・モデル(%s)です。「別のエンジンの候補」のエンジンを、別のものに変えてください" % e["label"], 400)
+    if _heavy.tid_busy(tid, ("alt",)):
+        raise _errors.ApiError("busy", "この文書は、もう別のエンジンで聞いている最中です", 409)
+    start = _yschemas.num_or(doc.get("start"), 0.0) or 0.0
+    end = _yschemas.num_or(doc.get("end"))
     spec = {"tid": tid, "sourcePath": src, "start": round(start, 2), "end": round(end, 2) if end else None, "altKey": key,
             "engine": e["engine"], "model": e["model"], "device": e["device"],
-            "language": doc.get("language") if doc.get("language") in ed_state.LANGS and doc.get("language") != "auto" else "ja",
-            "beam": 5, "vadMode": "weak", "boost": False, "wordSplit": True, "splitChars": ed_jobs.split_chars_for({}), "stripPunct": True,
+            "language": doc.get("language") if doc.get("language") in _txbase.LANGS and doc.get("language") != "auto" else "ja",
+            "beam": 5, "vadMode": "weak", "boost": False, "wordSplit": True, "splitChars": doc_jobs.split_chars_for({}), "stripPunct": True,
             "glossary": [], "glossAuto": [], "context": {"members": [], "terms": []}, "autoDict": False, "autoLearned": False,
             "title": "別のエンジンで聞く: " + (str(doc.get("title") or "") or "無題")[:100]}
-    if ed_state.backend_name() != "fake":
-        ed_jobs.check_engine(spec)   # 実行ファイルが無い・faster-whisper が無い(理由を出して断る。GPU の有無は読み込みのときに分かる)
+    if _backend.select().name != "fake":
+        worker_client.check_engine(spec)   # 実行ファイルが無い・faster-whisper が無い(理由を出して断る。GPU の有無は読み込みのときに分かる)
     return spec
 
 
@@ -126,31 +128,23 @@ def alt_path(tid):
 
 def read_alt(tid):
     """<id>.alt.json(形が違えば None)"""
-    if not ed_state.TID_RE.match(str(tid or "")):
+    if not _yschemas.TID_RE.match(str(tid or "")):
         return None
-    return ed_state.read_schema_json(alt_path(tid), MAX_ALT_BYTES, ALT_SCHEMA, "rows")
+    return _fsio.read_schema_json(alt_path(tid), MAX_ALT_BYTES, ALT_SCHEMA, "rows")
 
 
-def _alt_fake(job, spec, wav, total):
-    """疑似の認識(TRANSCRIBE_BACKEND=fake)。主の疑似と同じ行に、TRANSCRIBE_FAKE_ALT = "誤=>正,…" の置き換えをかける(テスト用)"""
-    pairs = []
-    for part in os.environ.get("TRANSCRIBE_FAKE_ALT", "").split(","):
-        if "=>" in part:
-            a, b = part.split("=>", 1)
-            if a:
-                pairs.append((a, b))
-    for s in ed_jobs.transcribe_fake(job, spec, wav, total):
-        t = s["text"]
-        for a, b in pairs:
-            t = t.replace(a, b)
-        yield dict(s, text=t)
+def _alt_real(job, spec, wav, total):
+    """本物の認識(行の生成器): エンジンを確かめ(実行ファイルが無い・faster-whisper が無い)→ 読み込み(loading)→ 認識。疑似は Backend.alt_rows(eval/fake/fake_asr)"""
+    worker_client.check_engine(spec)
+    job["state"] = "loading"
+    return recognize.transcribe_real(job, spec, wav, total)
 
 
 def alt_engine_version(spec):
-    if ed_state.backend_name() == "fake":
+    if _backend.select().name == "fake":
         return ""
     try:
-        return ed_jobs.engine_version(tx_engines.get(spec["engine"]))
+        return records.engine_version(tx_engines.get(spec["engine"]))
     except Exception:   # 記録のための値なので、分からなくても止めない
         return ""
 
@@ -160,41 +154,36 @@ def run_alt(job):
     spec = job["spec"]
     tid = spec["tid"]
     wav = os.path.join(_workdata.TMP_DIR, job["id"] + ".wav")
-    with ed_jobs.job_errors(job, wav, log="別のエンジンでの認識で例外"):
+    with _heavy.job_errors(job, wav, log="別のエンジンでの認識で例外"):
         os.makedirs(_workdata.TMP_DIR, exist_ok=True)
         job["state"], job["phase"] = "extracting", "音声を取り出し中"
-        ed_jobs.extract_audio(job, {"sourcePath": spec["sourcePath"], "start": spec["start"], "end": spec["end"], "boost": False}, wav)
+        recognize.extract_audio(job, {"sourcePath": spec["sourcePath"], "start": spec["start"], "end": spec["end"], "boost": False}, wav)
         total = _tools.media_duration(wav) or ((spec["end"] or 0) - spec["start"])
         t0 = time.monotonic()
-        if ed_state.backend_name() == "fake":
-            gen = _alt_fake(job, spec, wav, total)
-        else:
-            ed_jobs.check_engine(spec)
-            job["state"] = "loading"
-            gen = ed_jobs.transcribe_real(job, spec, wav, total)
+        gen = _backend.select().alt_rows(job, spec, wav, total, _alt_real)   # 疑似は主の疑似の行に TRANSCRIBE_FAKE_ALT の置き換えをかけた行
         rows = []
         # 文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方・長さより後ろを捨てる・繰り返しをまとめる)。置換・学習はかけない。
         # 続いている行をつなぐ join_rows(0.57.1)はかけない(候補は文字を比べるだけで行の時刻を使わない。plan/line-b-row-timing.md の 7-2)
-        for s in ed_jobs.expand_segments(gen, spec, total, join=False):
+        for s in postproc.expand_segments(gen, spec, total, join=False):
             if not s["text"]:
                 continue
-            rows.append({"start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2), "text": s["text"][:ed_state.MAX_TEXT]})
+            rows.append({"start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2), "text": s["text"][:_txbase.MAX_TEXT]})
             job["segments"] = len(rows)
         if job["cancel"]:
-            raise ed_jobs.Cancelled()
+            raise _heavy.Cancelled()
         body = {"schema": ALT_SCHEMA, "id": tid, "engine": spec["engine"], "engineVersion": alt_engine_version(spec), "model": spec["model"],
-                "device": job.get("device", ""), "at": ed_state.now_ms(), "range": [spec["start"], spec["end"]],
+                "device": job.get("device", ""), "at": _yschemas.now_ms(), "range": [spec["start"], spec["end"]],
                 "audioSec": round(float(total or 0), 2), "wallSec": round(time.monotonic() - t0, 2), "rows": rows,
                 "post": {"clip": True, "mergeRepeats": True}}   # 行の後処理の印(0.52.1 より前の alt.json には無い。0.64.0 までは pullEnds も = 0.65.0 で音の谷へ寄せるのを消した)
-        if ed_state.backend_name() == "fake":
+        if _backend.select().name == "fake":
             body["fake"] = True
-        with ed_store._save_lock:   # 認識の間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
-            if not os.path.isfile(ed_store.tx_path(tid)):
-                raise ed_state.ApiError("not_found", "認識の間に文書が消されました", 404)
-            ed_state.atomic_write(alt_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        with store._save_lock:   # 認識の間に文書が消えていたら書かない(削除と同じロック。消したあとに付き物だけが生き返らないように)
+            if not os.path.isfile(store.tx_path(tid)):
+                raise _errors.ApiError("not_found", "認識の間に文書が消されました", 404)
+            _fsio.atomic_write(alt_path(tid), json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), fsync_required=True)
         with _alt_cache_lock:
             _alt_cache.pop(tid, None)
-        ed_jobs.job_done(job, tid, "完了(%d 行)" % len(rows))
+        _heavy.job_done(job, tid, "完了(%d 行)" % len(rows))
 
 
 def alt_after_transcribe(job, spec, tid):
@@ -202,15 +191,15 @@ def alt_after_transcribe(job, spec, tid):
     if not spec.get("autoAlt") or spec.get("evalSet"):
         return
     try:
-        ed_jobs.add_job(alt_spec(tid, {}), "alt")
-    except ed_state.ApiError as e:
-        ed_state.add_warning(job, "別のエンジンで聞くのを始められませんでした: " + e.message)
+        _heavy.add_job(alt_spec(tid, {}), "alt")
+    except _errors.ApiError as e:
+        _txbase.add_warning(job, "別のエンジンで聞くのを始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
-        ed_state.log.warning("別のエンジンで聞くのを始められませんでした: %s %s", tid, e)
+        _txbase.log.warning("別のエンジンで聞くのを始められませんでした: %s %s", tid, e)
 
 
 # ---------- 食い違いから候補を作る(純粋な関数) ----------
-alt_fold = _txbase.alt_fold   # lint: keep 別名(RS2-9)= 比べるときだけの寄せ方(正は txbase。S.alt_fold・dev/eval_alt・ed_retime・ed_ytcap が読む。差し替えない)
+alt_fold = _txbase.alt_fold   # lint: keep 別名(RS2-9)= 比べるときだけの寄せ方(正は txbase。S.alt_fold・dev/eval_alt・retime・ytcap が読む。差し替えない)
 
 
 def _alt_chars(text, tag):
@@ -267,7 +256,7 @@ def alt_diffs(rows, alt_rows):
     for n, g in enumerate(rows or []):
         if not isinstance(g, dict) or not str(g.get("text") or "").strip():
             continue
-        a, b = ed_state.num(g.get("start")), ed_state.num(g.get("end"))
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
         if a is None or b is None:
             continue
         segs.append({"n": n, "id": str(g.get("id") or ""), "start": a, "end": max(a, b), "text": str(g["text"]), "proofed": bool(g.get("proofed"))})
@@ -275,7 +264,7 @@ def alt_diffs(rows, alt_rows):
     alts = []
     for r in alt_rows or []:
         if isinstance(r, dict) and str(r.get("text") or "").strip():
-            a, b = ed_state.num(r.get("start")), ed_state.num(r.get("end"))
+            a, b = _yschemas.num_or(r.get("start")), _yschemas.num_or(r.get("end"))
             if a is not None and b is not None:
                 alts.append(((a + max(a, b)) / 2, str(r["text"])))
     alts.sort(key=lambda x: x[0])
@@ -399,7 +388,7 @@ def alt_suggest(tid, doc, dismissed, taken):
     評価用の文書・alt.json が無い文書は ([], None)。却下した候補(dismissed = {"seg|誤=>正"})・学習の提案(taken)と重なる位置は出さない"""
     if doc.get("evalSet") is True:
         return [], None
-    stamp = ed_state.file_stamp(alt_path(tid))
+    stamp = _fsio.stamp(alt_path(tid))
     if stamp is None:
         return [], None
     alt = read_alt(tid)

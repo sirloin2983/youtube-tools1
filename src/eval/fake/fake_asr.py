@@ -36,6 +36,21 @@ def transcribe_fake(job, spec, wav, total):
         t = e
 
 
+def _alt_fake(job, spec, wav, total):
+    """2つ目のエンジンの候補の疑似の認識(human/proof/alt。RS3-E6 に ed_alt から)。主の疑似と同じ行に、TRANSCRIBE_FAKE_ALT = "誤=>正,…" の置き換えをかける(テスト用)"""
+    pairs = []
+    for part in os.environ.get("TRANSCRIBE_FAKE_ALT", "").split(","):
+        if "=>" in part:
+            a, b = part.split("=>", 1)
+            if a:
+                pairs.append((a, b))
+    for s in transcribe_fake(job, spec, wav, total):   # 呼ぶたびにこのモジュールの名前を読む(テストの差し替え)
+        t = s["text"]
+        for a, b in pairs:
+            t = t.replace(a, b)
+        yield dict(s, text=t)
+
+
 def _fake_spans(name):
     """テスト用: 環境変数 name = "a-b,c-d"(秒)の区間の一覧"""
     out = []
@@ -145,6 +160,9 @@ class FakeBackend(_fa_backend.Backend):
 
     def embed(self, job, wav, emb, groups, real):
         return embed_fake(groups)
+
+    def alt_rows(self, job, spec, wav, total, real):
+        return _alt_fake(job, spec, wav, total)
 
 
 FAKE = FakeBackend()

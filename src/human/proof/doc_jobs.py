@@ -11,7 +11,7 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 (serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前`・`postproc.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 評価用のフォルダ(manage の ed_relink)と評価用の作り直し(eval の ed_evalbatch)は読まず、serve が set_hooks で登録する口を呼ぶたびに引く(RS2-8d)。
-editor の部品は裸の名前で読む(human の ed_alt・ed_ytcap は層の向きが許す)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
+2つ目のエンジンの候補 alt・YouTube の字幕の候補 ytcap は隣(RS3-E6 に editor の ed_alt・ed_ytcap から)。学習は隣の learn・置換辞書は pipeline/transcribe/replace(RS3-E5c に ed_learn から)。話者の部品は隣の speakers(RS2-9)・文書の置き場は隣の store(RS3-E5a)。
 後処理 fill・llm は RS2-9 から pipeline/transcribe の部品を `fill.名前`・`llm.名前` で呼ぶたびに読む(ed_fill・ed_llm の殻は無い)。
 """
 import bisect
@@ -32,8 +32,7 @@ from pipeline.transcribe import recognize  # noqa: E402   音声の取り出し�
 from pipeline.transcribe import fill  # noqa: E402   認識のあとの後処理 A・B・C・D(文字の少ない行を別の読みで埋める。10-08 の実験ループ。0.60.0。RS2-9 に ed_fill から移した)
 from pipeline.transcribe import llm  # noqa: E402   LLM の後処理 E(名簿の呼び名の聞き違いらしい所だけ。P18。0.61.0。RS2-9 に ed_llm から移した)
 from pipeline.transcribe import replace  # noqa: E402   置換辞書の読み方と当て方(RS3-E5c に ed_learn から。呼ぶたびに replace.名前 で読む)
-import ed_alt  # noqa: E402,F401
-import ed_ytcap  # noqa: E402,F401   YouTube の字幕の候補(run_job の ytcap・autoYtcap)
+from . import alt, ytcap  # noqa: E402   2つ目のエンジンの候補(run_job の autoAlt)・YouTube の字幕の候補(run_job の autoYtcap)(RS3-E6 に editor/ed_alt・ed_ytcap から隣へ。呼ぶたびに alt.名前・ytcap.名前 で読む)
 from . import learn  # noqa: E402   学習・提案・確度「高」の自動置換・用語の自動追加(RS3-E5c に editor/ed_learn から隣へ。呼ぶたびに learn.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import speakers  # noqa: E402   話者の自動判別 autodiar_after_transcribe(RS2-9 に editor/ed_speakers から隣へ。呼ぶたびに speakers.名前 で読む)
@@ -401,8 +400,8 @@ def run_job(job):
                 _heavy.add_job(redo_spec(tid, {"redoLarge": spec.get("redoLarge", True), "oldLp": out["sparseLp"]}), "redo")
             except _errors.ApiError as e:
                 _txbase.add_warning(job, "疑わしい所の認識し直しを始められませんでした: " + e.message)
-        ed_alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く。D1-b)
-        ed_ytcap.ytcap_after_transcribe(job, spec, tid)   # 設定 autoYtcap: 元の配信の YouTube の字幕と比べて候補を出す(既定オフ・評価用と元の配信が分からない文書は黙って飛ばす。A1)
+        alt.alt_after_transcribe(job, spec, tid)   # 設定 autoAlt: 2つ目のエンジンでも聞いて、食い違う所に候補を出す(既定オフ・評価用は除く。D1-b)
+        ytcap.ytcap_after_transcribe(job, spec, tid)   # 設定 autoYtcap: 元の配信の YouTube の字幕と比べて候補を出す(既定オフ・評価用と元の配信が分からない文書は黙って飛ばす。A1)
 
 
 def _rows_to_doc(job, spec, rows, pairs, lrules, lfb):
