@@ -31,11 +31,12 @@
   3. リポジトリ直下の setup フォルダの install.bat をダブルクリック(Mac は setup の install.command)
        → 文字起こしのエンジン(faster-whisper)が入ります。数分かかります
 
-  4. (NVIDIA の GPU がある人だけ) setup フォルダの install-gpu.bat をダブルクリック
-       → GPU を使えるようになり、処理がかなり速くなります(RTX 3060 など)
-       ※ 対応するのは NVIDIA(GeForce / RTX)だけです。AMD(Radeon)・Intel の GPU と、
-         Mac の GPU は使えず、CPU で処理します。
-       ※ 入れたあとは、ツールを起動し直してください。画面の左上に、GPU を使えるかどうかが出ます。
+  4. (v0.58.0 から必要) setup フォルダの build-whisper-vulkan.bat を一度実行(whisper.cpp を GPU 用に作ります)
+       → 文字起こしは GPU(whisper.cpp・large-v3)だけで行います。作っていないと文字起こしは始まらず、理由が出ます
+       ※ Git・Visual Studio 2022 の C++・Vulkan SDK が先に要ります(Vulkan SDK は winget install --id KhronosGroup.VulkanSDK -e)。
+       ※ 以前の「NVIDIA の GPU がある人だけ install-gpu.bat」は、内部の faster-whisper の処理(疑わしい所の認識し直しなど)を NVIDIA の GPU で速くする用になりました。
+         普段は要りません。
+       ※ 入れたあとは、ツールを起動し直してください。
 
   5. (話者の自動判別を使う人だけ) setup フォルダの install-diarize.bat をダブルクリック(Mac は setup の install-diarize.command)
        → 判別に使う部品(sherpa-onnx)が入ります。GPU は不要で、どのパソコンでも CPU で動きます。
@@ -242,7 +243,7 @@
       元の動画が無い文書・候補が2つ以上あるときは付け替えません(「動画を選び直す」で選んでください)
 
   ■ v0.38.0 の変更(2026-10-02・精度改善の計画 段2-3: Qwen3-ASR を試した)
-    - 認識のエンジンに Qwen3-ASR を2つ足しました。今は精度を測る道具(dev/eval_asr.py run --engine qwen3-asr / llama.cpp)からだけ使えます。
+    - 認識のエンジンに Qwen3-ASR を2つ足しました(うち 0.6B の qwen3-asr は v0.58.0 で消しました)。今は精度を測る道具(dev/eval_asr.py run --engine qwen3-asr / llama.cpp)からだけ使えます。
       画面の選択肢には出していません(今の faster-whisper より精度が低かったため)
         qwen3-asr … 0.6B を CPU で(入っている sherpa-onnx を使う。初回にモデル 879MB を取る)
         llama.cpp … 1.7B を GPU(Vulkan)で(初回に llama.cpp の公式の配布 33MB とモデル 2.5GB を取る。どれも大きさと SHA-256 を確かめる)
@@ -251,6 +252,22 @@
       whisper.cpp large-v3(GPU)18.7%・130 秒 / Qwen3-ASR 1.7B(GPU)27.2%・32 秒 / Qwen3-ASR 0.6B(CPU)32.9%・169 秒。
       1.7B はとても速いが、ゲームの音の多い場面で崩れやすい。出る人の名前をヒントに渡すと、名前が関係ない所に出て悪くなった
     - 精度を測る道具に「時刻によらない CER」(文書の文字を通しで比べる)を足しました
+
+  ■ v0.58.0 の変更(2026-10-11・全体の版。使うモデルを普段使う物だけにした)
+    - 「普段使うモデル以外は要らない(欄は残す)」という方針で、選べるものを絞りました。戻すときは git の履歴から:
+        文字起こしのモデル … large-v3 だけ(small・medium・large-v3-turbo・kotoba-whisper は選べません。既定も large-v3 になりました)
+        処理方式 … GPU(whisper.cpp)だけ(「自動」「CUDA(NVIDIA)」「CPU」は選べません)
+        2つ目のエンジン … Qwen3-ASR 1.7B(llama.cpp)だけ(whisper.cpp・faster-whisper の候補は出ません)
+        話者判別のモデル … VoxCeleb だけ(CAM++・標準は選べません)
+        Qwen3-ASR 0.6B(CPU)のエンジン … 消しました
+    - 「kotoba のときだけ、疑わしい所の認識し直しに large-v3 を使う」設定(redoLarge)は無くなりました。
+      認識し直しは、いつも文書のモデル(large-v3)で行います
+    - GPU(whisper.cpp)がまだ用意されていないと、文字起こしは始まらず、理由が出ます。setup\build-whisper-vulkan.bat を一度実行してください
+      (Git・Visual Studio 2022 の C++・Vulkan SDK が要ります)。黙って CPU で動かすことはしません
+    - 保存してあった設定(small・kotoba・自動・CPU などを選んでいたもの)は、断らずに自動で読み替えます(large-v3・GPU)。何もしなくて大丈夫です。
+      設定の画面でも、選べない値が入っていれば先頭の値(large-v3)で見えます
+    - faster-whisper は、疑わしい所の認識し直し・選んだ行の再認識・時刻の候補など、内部の CPU の処理としてだけ残っています(選ぶ欄はありません)。
+      精度を測る道具(src\eval\tools\eval_asr.py)は、これまでどおり faster-whisper も選べます(Qwen3-ASR 0.6B の qwen3-asr だけ消えました)
 
   ■ v0.69.0 の変更点(2026-10-10・校正の目標と進行度を消した)
     - 次のものを消しました(要らないため。戻すときは git の履歴から):
@@ -745,6 +762,7 @@
     - 「認識の設定」の処理方式に「GPU(AMD など・whisper.cpp)」が出ます(whisper.cpp を作ってあるときだけ)。
       選ぶと、新しい文字起こし・再認識を whisper.cpp で GPU を使って行います。モデルは large-v3 か large-v3-turbo を選んでください
       (ほかのモデルを選んでいると、始めるときに案内が出ます)。既定は今までどおり「自動」(faster-whisper)です
+      (v0.58.0 から、処理方式はこの GPU(whisper.cpp)だけ・モデルは large-v3 だけになりました。上の v0.58.0 の変更を見てください)
     - 測った結果(評価用 18 本・1,229 秒・アプリで普段使う設定): faster-whisper large-v3(CPU)CER 21.1%・561 秒 /
       whisper.cpp large-v3(GPU)21.6%・130 秒。精度は同じくらいで約 4 倍速い。間違え方は違い、GPU は抜けが少なく、繰り返しなどの余分な文字が多め
     - GPU を選んだのに GPU で動かなかったときは、CPU に切り替えずに理由を出して止めます
@@ -754,7 +772,7 @@
       (dev/eval_asr.py run --engine whisper.cpp)からだけ使えます。画面から選べるのは、比べて決めてからです
     - 使うには一度だけ setup\build-whisper-vulkan.bat を実行します(Git・Visual Studio 2022 の C++・Vulkan SDK が要ります。
       Vulkan SDK は winget install --id KhronosGroup.VulkanSDK -e)。公式のソースを決まった版で取り、この PC で作ります
-    - モデル(large-v3 3.1GB・large-v3-turbo 1.6GB)は初めて使うときに取得します(大きさと SHA-256 を確かめ、違えば使いません)
+    - モデル(large-v3 3.1GB。v0.58.0 までは large-v3-turbo 1.6GB も)は初めて使うときに取得します(大きさと SHA-256 を確かめ、違えば使いません)
     - 測った結果(評価用 18 本・1,229 秒・温度 0): faster-whisper large-v3(CPU)CER 21.7%・900 秒 /
       whisper.cpp large-v3(GPU)27.0%・180 秒 / large-v3-turbo(GPU)36.4%・86 秒。GPU は 5 倍速く抜けは半分だが、
       声の無い所の余分な文字が多い。whisper.cpp の声の検出は文字が大きく抜けたので使っていません
@@ -1252,17 +1270,13 @@
 ----------------------------------------------------------
  ④ モデルの選び方・速さについて
 ----------------------------------------------------------
-  ・GPU(NVIDIA)がなくても動きますが、CPU だけだと遅くなります。
-    長い動画は、動画の長さ以上の時間がかかることもあります。
-    まずは短い範囲で試して、時間を確かめてください。
-  ・「処理方式」は「自動」のままで大丈夫です(GPU が使えれば GPU、だめなら CPU)。
+  ・v0.58.0 から、文字起こしは GPU(whisper.cpp)の large-v3 だけです(選ぶ欄は残してあります)。
+    GPU(AMD など)で動かすには、一度だけ setup\build-whisper-vulkan.bat を実行して whisper.cpp を作っておきます。
+    作っていないと文字起こしは始まらず、理由が出ます(黙って CPU で動かすことはしません)。
+  ・「処理方式」は「GPU(whisper.cpp)」のままで大丈夫です(GPU で動かなかったときは、CPU に切り替えずに理由を出して止めます)。
     処理中の表示に、実際に使っている方式(GPU / CPU)が出ます。
-  ・small … 軽い。精度はそこそこ
-  ・medium … バランス型(迷ったらこれ)
-  ・large-v3 … 高精度。重いので GPU 推奨
-  ・large-v3-turbo … large-v3 に近い精度で、より速い(迷ったらこれも候補)
-  ・kotoba-whisper … 日本語向けの高速モデル。速い代わりに、声が重なる・BGM が大きい
-    ・聞き取りにくい音声では、抜けや誤変換が増えることがあります
+  ・large-v3 … 高精度。重いので GPU 前提です(モデルの取得は初回だけ・約 3.1GB)
+  ・以前あった small・medium・large-v3-turbo・kotoba-whisper は選べません(保存してあった設定は large-v3 に読み替えます)。
   ・「品質」を「速度優先」にすると速くなりますが、精度は少し下がります
   ・初回のダウンロードは数百MB〜数GB。以降はインターネットなしで使えます
 
@@ -1272,7 +1286,7 @@
 ----------------------------------------------------------
   まず、1〜2分の短い範囲だけで、設定を変えて比べてください
   (「範囲」を入れて何回か実行すると、結果が別々に保存されます)。
-  ・全体的に間違いが多い → モデルを large-v3 か large-v3-turbo にする
+  ・全体的に間違いが多い → 範囲を短くして試す・用語集に名前を入れる(モデルは large-v3 だけです)
   ・声が抜ける・途中がまるごとない → 「無音・BGMの扱い」を「弱め」か「使わない」に
   ・話していない文(「ご視聴ありがとうございました」など)が出る → 「標準」に
   ・声が小さい・人によって音量が違う → 「小さい声を持ち上げる」をオンに
@@ -1327,8 +1341,9 @@
  ⑦ 困ったとき
 ----------------------------------------------------------
   ・「準備が必要です」と出る → 表示された内容(ffmpeg / faster-whisper)を実行
-  ・NVIDIA の GPU があるのに CPU で動く → setup\install-gpu.bat を実行して、ツールを起動し直す。
-    それでも GPU にならない場合は、NVIDIA のドライバを最新にしてください
+  ・「GPU(whisper.cpp)がまだ用意されていないため、文字起こしできません」と出る → setup\build-whisper-vulkan.bat を実行して、ツールを起動し直す。
+    それでも GPU にならない場合は、GPU のドライバを最新にしてください
+    (自前でビルドした whisper.cpp が Windows の「スマート アプリ コントロール」で止まる PC では、それをオフにします)
   ・「話者判別の部品(sherpa-onnx)が入っていません」と出る → setup\install-diarize.bat を実行して、
     ツールを起動し直す。入らないときは、Python のバージョンが新しすぎる可能性があります
     (Python 3.10 にしてください。部品の版を 3.10 で固定しています)
