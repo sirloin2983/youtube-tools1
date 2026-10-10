@@ -118,6 +118,9 @@ from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしの�
 from human.proof import rerun as _rerun  # noqa: E402  (再認識と疑わしい所の認識し直しの本体・反映・記録。RS2-8c に doc_jobs から割った)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9 に ed_speakers から分けた。ed_speakers は転送だけの殻)
 from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・空の行の下書き・自動の判別・声を覚える・字幕の見た目。RS2-9)
+from pipeline.transcribe import replace as _txreplace  # noqa: E402  (置換辞書の読み方と当て方。RS3-E5c に ed_learn から移した。ed_learn は転送だけの殻)
+from human.proof import learn as _learn  # noqa: E402  (人が直した内容からの学習・提案・採用と却下の記録・名簿。RS3-E5c に ed_learn から)
+from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測定・noSub と重なりの数え方・評価用の基準の記録。RS3-E5c に ed_learn から)
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt_core.runtime.TOOL_APPS)
@@ -129,7 +132,7 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(RS3-0A から�
 # ---------- 分けた部品(段10。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md) ----------
 # serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
 # (テスト・認識ワーカー・dev/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, ed_learn, ed_misc, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)
+_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, ed_store, ed_relink, ed_media, _heavy_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txrecognize, _docjobs, _rerun, ed_jobs, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, ed_misc, ed_drill, ed_evalbatch, ed_alt, ed_ytcap)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state・ed_store から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。ed_store から移した。RS3-0A)・_heavy_jobs = ytt/jobs(ed_jobs から移したジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b。ed_jobs は転送だけの殻 = 名前を持たない)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は ed_jobs より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所。殻の ed_speakers は ed_jobs の殻と名前が重なるので並べない)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c。ed_learn のあった所。殻の ed_learn も並べない)
 _ED_MODULES += (_txretime, ed_retime)   # 読む速さ・時刻の候補(2026-10-05。足すときは上の行を書き換えずにこの形で)。計算は pipeline/transcribe/retime.py(RS2-9。移した先は ed_retime より前)・文書を読む包みが ed_retime
 _ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(2026-10-08。0.60.0。RS2-9 から pipeline/transcribe/fill.py。ed_fill は無い)
 _ED_MODULES += (_txllm,)   # LLM の後処理 E(2026-10-09。0.61.0。RS2-9 から pipeline/transcribe/llm.py。ed_llm は無い)
@@ -167,7 +170,7 @@ _heavy_jobs.configure(tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _
 # 本物と疑似: 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。ed_jobs.transcribe_fake などの旧い名前は fake_asr へ転送
 _txbackend.set_selector(lambda: fake_asr.FAKE if ed_state.backend_name() == "fake" else _txbackend.REAL)
 ed_jobs._add_moved(fake_asr)
-# 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が ed_learn を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
+# 辞書の版(records.dict_version)の材料: 置換辞書の組と学習の記録は文書の側(doc_jobs が learn・replace を読む)から。呼ぶたびに読む(S.dict_pairs の差し替えが効く。RS2-5)
 _txrecords.set_dict_inputs(pairs=lambda spec: _docjobs.dict_pairs(spec), learned=lambda: _docjobs.dict_learned())
 # 認識ワーカーの記録のパス(以前は ed_jobs の読み込みのときに ed_state から作っていた。set_data_dir が記録を入れ直す。RS2-6)。
 # 本体は worker_client と同じフォルダの pipeline/transcribe/worker.py(RS2-9。serve を読まない)。worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前
@@ -185,6 +188,7 @@ _docjobs.check_hooks()
 _speakers.set_context_namer(lambda tid: ed_drill.drill_candidates(tid).get("suggest"))
 _speakers.check_context_namer()
 ed_speakers._add_moved(fake_asr)   # 旧い名前 ed_speakers.diarize_fake・embed_fake は ④ の疑似へ(殻は eval を読まない。RS2-9)
+ed_learn._add_moved(_evmetrics)   # 旧い名前 ed_learn.norm_cer・doc_metrics・all_metrics ほかは ④ の精度へ(殻は eval を読まない。RS3-E5c)
 
 
 _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
@@ -223,12 +227,12 @@ def _jobs_list():
 
 def _learned(a):
     mc = a("min", "1")
-    return ed_learn.learned_candidates(max(1, min(20, int(mc))) if mc.isdigit() else 1)
+    return _learn.learned_candidates(max(1, min(20, int(mc))) if mc.isdigit() else 1)
 
 
 def _metrics(a):
     sc = a("scope", "all")
-    return ed_learn.all_metrics(_tid_arg(a("id"), False) or None, a("legacy", "0") == "1", sc if sc in ("all", "eval", "train") else "all")
+    return _evmetrics.all_metrics(_tid_arg(a("id"), False) or None, a("legacy", "0") == "1", sc if sc in ("all", "eval", "train") else "all")
 
 
 def _transcript(tid):
@@ -242,7 +246,7 @@ GET_API = {
     "/api/siblings": lambda a: pipeline_io.siblings(ed_misc.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
     "/api/clip-info": lambda a: ed_misc.clip_info(a("path")),
     "/api/transcript-v1": lambda a: ed_misc.transcript_v1(a("id")),
-    "/api/roster": lambda a: ed_learn.load_roster(),
+    "/api/roster": lambda a: _learn.load_roster(),
     "/api/tools": lambda a: _tools_info(),
     "/api/marker": lambda a: ed_misc.read_marker(),
     "/api/voices": lambda a: {"voices": _speakers.voices_summary(), "match": _txdiarize.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
@@ -252,9 +256,9 @@ GET_API = {
     "/api/jobs": lambda a: _jobs_list(),
     "/api/transcripts": lambda a: {"items": ed_store.list_transcripts()},
     "/api/learned": _learned,
-    "/api/suggest": lambda a: ed_learn.suggest_for_doc(_tid_arg(a("id"))),
+    "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
-    "/api/eval-baselines": lambda a: {"items": ed_learn.read_baselines()},
+    "/api/eval-baselines": lambda a: {"items": _evmetrics.read_baselines()},
     "/api/progress": lambda a: ed_misc.progress_stats(),
     "/api/drill/status": lambda a: ed_drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
     "/api/drill/next": lambda a: ed_drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
@@ -304,9 +308,9 @@ POST_API = {
     "/api/scan-folder": lambda o: ed_misc.scan_folder(o.get("path"), o.get("recursive") is True),
     "/api/transcribe-batch": lambda o: ed_misc.add_batch(o),
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
-    "/api/eval-baseline": lambda o: ed_learn.record_baseline(o.get("label")),
+    "/api/eval-baseline": lambda o: _evmetrics.record_baseline(o.get("label")),
     "/api/restore": lambda o: {"ok": True, "updatedAt": ed_store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
-    "/api/suggest/feedback": lambda o: {"ok": True, "n": ed_learn.record_feedback(o)},
+    "/api/suggest/feedback": lambda o: {"ok": True, "n": _learn.record_feedback(o)},
     "/api/export-file": lambda o: ed_misc.export_file(o),
     "/api/open-video": lambda o: ed_store.open_video(o),
     "/api/relink/check": lambda o: ed_relink.relink_check(o),
