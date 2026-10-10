@@ -1,6 +1,6 @@
 # ツール間の受け渡し(パイプラインの約束)v1
 
-状態(2026-10-10): **規則(今も有効)**。役割で組み直す計画の RS3・RS4 が済み、ファイルの場所は役割の層(`src/ytt`・`pipeline`・`human`・`manage`・`eval`)に移った(7 に「記録の持ち主の表」)。2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。この約束のおかげで、2026-09-25〜27 に **1 つのアプリ(入口 `http://localhost:8700/` の 1 プロセス。`/studio/`・`/transcribe/`(編集)・`/cut2resolve/`(パックを作る API))に統合できた**(`docs/design/integration-plan.md`)。統合しやすい書き方の約束は 5 に残す。
+状態(2026-10-10 夜): **規則(今も有効)**。RS6 で成果物の鍵・校正の上書き・結果の束・`.flow.lock` を足した(2.4〜2.7)。役割で組み直す計画の RS3・RS4 が済み、ファイルの場所は役割の層(`src/ytt`・`pipeline`・`human`・`manage`・`eval`)に移った(7 に「記録の持ち主の表」)。2026-09-24 決定(ユーザー): **各ツールは独立して動かし、受け渡しの形式だけを統一する**。この約束のおかげで、2026-09-25〜27 に **1 つのアプリ(入口 `http://localhost:8700/` の 1 プロセス。`/studio/`・`/transcribe/`(編集)・`/cut2resolve/`(パックを作る API))に統合できた**(`docs/design/integration-plan.md`)。統合しやすい書き方の約束は 5 に残す。
 受け渡しの一括実行(パイプライン)は、入口の「まとめて実行」(`src/home/autorun.py`。① の段の中身は `src/pipeline/run.py`)が行う。
 
 ```
@@ -86,9 +86,9 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
   画面・API(「編集」・まとめて実行)のパックでは出力フォルダに置かず、cut2resolve の作業データ `packs/` の「パックを作った記録」の `cutPlan` に入れる
   (2026-09-26 ④。読むのは `src/manage/cases/txindex.py`。`docs/design/edit-tool-design.md` の 12 ④)
 
-### 2.4 `youtube-tools-key/v1` — 成果物の鍵(役割で組み直す計画の RS1-5。**RS1 では形と純粋な関数だけ。書くのは RS6**)
+### 2.4 `youtube-tools-key/v1` — 成果物の鍵(形は RS1-5。**RS6 b-K1・K2 で書く・読むようにした**。コードは `src/flow/keys.py`)
 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う(`plan/role-restructure.md` 4 の 4・5-2)。
-今はどこにも書いていない。形と関数は `src/ytt/schemas.py`(`make_key`・`validate_key`・`same_key`・`key_path`・`media_identity`・`file_digest`・`canon`・`sec_ms`)。
+形と関数は `src/ytt/schemas.py`(`make_key`・`validate_key`・`same_key`・`key_path`・`media_identity`・`file_digest`・`canon`・`sec_ms`)。
 ```json
 {
   "schema": "youtube-tools-key/v1", "v": 1, "stage": "export",
@@ -103,6 +103,48 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 - **元の媒体の識別(F-1)**: `media_identity` が `{"kind":"recording","recorder","recording"}`・`{"kind":"archive","videoId"}`・`{"kind":"file","sha256"}`(中身のハッシュ。`file_digest` が 1MB ずつ読んで出す。名前や更新日時は入れない)を作る。配信中の録画からの速報版とアーカイブからの本番版が同じ鍵にならない
 - `validate_key` は schema・段・`hash` の形を調べ、`inputs` からハッシュを計算し直して一致を確かめる(書き換えられた鍵は使わない)。`same_key` は両方が正しく、段と `hash` が同じときだけ True
 - 置き場所は `key_path(path, stage)` = 作業用/ の中の `<名前>.<段>.key.json`(パスの計算だけ)
+
+#### 2.4.1 鍵の置き場所と inputs(RS6 b-K1。`src/flow/keys.py`。書くのは ② の段が終わったところ。① は鍵を知らない)
+| 段 | 鍵の場所 | `inputs` の中身 |
+| --- | --- | --- |
+| `export` | 切り抜き(動画)の横 `作業用/<名前>.export.key.json`(`key_path`) | `media`(`media_identity`)・`start`・`end`(ms の整数)・`settings`(出来上がりに効く設定) |
+| `transcribe` | `transcripts/<id>.transcribe.key.json` | `export`(切り抜きの鍵の hash。無ければ `{media}`)・`engine`・`engineVersion`・`model`・`language`・`quality`(beam)・`vadMode`・`boost`・`span`(媒体の一部を認識したときだけ) |
+| `post` | `transcripts/<id>.post.key.json` | `transcribe`(transcribe の hash)・`post`(後処理の設定)・`dict`(辞書の版) |
+| `diar` | `transcripts/<id>.diar.key.json` | `transcribe`(同上)・`people`(出る人)・`voices`(覚えた声ファイルの内容のハッシュ) |
+| `pack` | パックのフォルダの `pack.key.json` | `clips`(切り抜きの鍵の hash の並び)・`doc`(カットの指定と字幕のファイルの中身の版)・`settings`(パックの設定)・`form`(= 2。要求の本文から作った鍵) |
+- **hash の作り方**: 2.4 の `make_key`(`sha256(canon({stage, v, inputs}))`)。パックは**作る前に分かる材料だけ**で組む(`pack_body_inputs` = cut2resolve の POST /api/build の本文 spec・output から)ので、段が「今の要求」と「書いてある鍵」を比べられる。`form` が 2 でない鍵(b-K1 の形)は鍵なしと同じに扱う(一度の作り直しをしない)
+- 鍵が書けなくても段は失敗にしない(ログだけ)。文書を消すときは `transcribe`・`post`・`diar` の鍵も `over.json`(2.5)も一緒に消す
+- **鍵が違うときの扱い**(`src/flow/run.py`。決定 `plan/decisions.md` 3-29 Q4): 今の材料から作った hash と書いてある鍵の hash を比べて `same`(同じ)・`differ`(違う)・`none`(鍵なし・壊れている・材料が分からない)に分ける
+  - **文字起こし**: `same`・`none` は飛ばす(文書があれば。`none` = 今まで通り)。`differ` も**飛ばして印を付ける**(結果の文に「設定が違う(force で作り直し)」。人の校正を黙って捨てない)。作り直すのは force のときだけ
+  - **パック**: `same` は飛ばす。`differ` は**作り直す**(パックは機械の物なので上書き)。`none` は今まで通り(同じ名前のパックがあれば飛ばし、無ければ作る)
+  - **force**(`Run.force`・束の `run.force`・CLI の `--force`): **鍵が同じでも違っても作り直す**(鍵によらない)。文字起こしは新しい文書を作り、校正の上書き(2.5)で人の直しを引き継ぐ。パックは上書き
+  - 鍵を読む段が無い成果物(export・post・diar)は今のまま。鍵は「何から作ったか」の記録として書くだけ
+
+### 2.5 校正の上書き `transcripts/<id>.over.json`(RS6 b-O1。`src/human/proof/overrides.py`。③ の物。② は見ない)
+文書を作り直しても人の直しを失わないための**派生の控え**(文書 `<id>.json` が正。控えは作り直しの引き継ぎのときに読む)。
+```json
+{"schema": "youtube-tools-over/v1", "clipKey": {…export の鍵 か null…},
+ "rows": [{"start": 12.3, "end": 15.0, "text": "…", "proofed": true, "proofedAt": 1700000000000, "speaker": "…", "noSub": true, "tags": ["…"]}],
+ "speakers": ["行が使う話者"], "at": 1700000000000}
+```
+- **人の行** = 校正済み(`proofed`)・文字が機械の出力 `original` の同じ時刻の行と違う・話者・`noSub`・`tags` のどれかを持つ行。`text` を持つのは「人の文字の行」(校正済みか文字が機械と違う)だけ。後処理が埋めた行(印 `fill`)は校正済みでなければ人の直しに数えない。空の下書き行は入れない
+- **いつ書くか**: 文書を保存するたびに(`store.save_transcript` が保存のロックの中で `save_after`。書けなくても保存は成功のまま)。`at` = 元にした文書の `updatedAt`。控えが文書より古い(`at` < `updatedAt`)ときは文書から取り出し直す(`current`)
+- **作り直しのとき引き継ぐ**: 同じ動画の文書を作り直す(force の再文字起こし・エンジンを変えた再実行)と、`doc_jobs.carry_overrides` が新しい機械の行へ人の行を**時刻の重なり**で重ねる(`match` = 片方の中心が相手の区間に入る、か、重なりが短い方の 1/2 以上)。人の行が長さの 1/2 以上を覆う、または機械の文字の 1/2 以上が人の行に現れる機械の行は人の行に置き換え、人が触っていない行だけ新しくなる
+- **STALE の印**: 新しい文書のどの行とも対応づかない人の文字の行は、印 `STALE_FLAG`(「古い認識を元にした直し(作り直した文字起こしに対応する行がありません)」)を付けて行として残す
+- **当てないもの**: 評価用(`evalSet`・`evalRedo`)の作り直し・再認識(each・range。校正済みの守りは従来のまま)
+- **止めるスイッチ**: 環境変数 `TRANSCRIBE_CARRY_OVERRIDES=off`(前の文書はそのまま残るので直しは失われない)
+
+### 2.6 ② の結果の束 `<案件>\作業用\runs\<実行id>.json`(RS6 b-B0。`src/flow/placement.py`・`src/flow/runlog.py`)
+② の 1 回の実行が終わったところ(`flow/run.run` の最後)で原子的に書く。**書けなくても実行は失敗にしない**。形の名前は `runlog.RESULT_SCHEMA` = `youtube-tools-run/v1`。
+- 中身: `id`・`input`(何を入れて始めたか = `kind`・`videoId`・`docId`・`sourcePath`・`title`・`mode`・`top`・`marks`・`ranges`・`cut`・`engine`・`model`・`overwrite`・`requestId`・`streamer`・`onFail`)・`spec`(その実行の束)・`state`(`done` / `error` / `cancelled` / `stopped` = 入口の終了で止まった = 次の起動で続く)・`message`・`error`・`nothing`・`steps`(段・状態・詳細)・`outputs`(段ごとの成果物のパスと鍵のパス。`export` / `transcribe`(`post` の鍵も)/ `pack` / `diarize`)・`packs`・`failures`・`created`・`at`・`madeBy`
+- 置き場所は案件の `作業用\runs\`(案件の根の求め方は `data-location.md`)。案件が分からない(まだ無い)ときは書かない
+- 入口の `logs/autorun-runs.jsonl` の 1 行(1 実行 = 1 行)は**索引**: 1 行の `resultPath` が束の場所(書けなかった実行・RS6 より前の行には無い)。読む側は `runlog.read_result(rec)`(`resultPath` が絶対パスで名前が `<id>.json`・schema と id が一致するときだけ。案件のフォルダは人が動かす・消すので「あれば読める」だけ)。CLI(`src/app/cli.py`)は同じ形に段ごとの成果物と鍵を足して標準出力・`--out` へ返す
+
+### 2.7 `.flow.lock` — 1 つの作業データに ② は 1 つ(RS6 b-B0・b-S1。`src/flow/placement.py`)
+- 置き場所は**作業データの根**(`ytt.datadir.data_root`。`YTT_DATA_DIR=inplace` のテストでは `.runtime/`)の直下の `.flow.lock`。中身は `{pid, port, at, token}`(`port` = ② の HTTP のポート。CLI など無ければ null)
+- 入口(start.bat)は起動で取り(`acquire`)、終わるとき返す(`release`)。CLI は動いている ② があればそのポートへ頼み、無ければ自分で取る。**同じ作業データで ② が 2 つ動かない**ので、別々のプロセスが同じ文書・パックを同時に書かない
+- **取り残し**: 持ち主の pid が動いていなければ無いのと同じ(`lock_info` は None・`acquire` は消して取り直す)。ポートを書いた印は、そのポートが開いていることも見る(pid の使い回しを取り違えない)。返すのは自分の `token` の印だけ(別の ② が取り直した物は消さない)
+- 入口を起動し直すとき、古い入口がポートを離さないうちに新しい入口が起動すると `.flow.lock` が残っていて起動を止める(古い入口が終わるのを待って、やり直す)
 
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。

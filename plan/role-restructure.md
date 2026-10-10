@@ -1,6 +1,6 @@
 # 役割で組み直す(ツール全体のコードの役割分担。2026-10-09)
 
-> 状態(2026-10-10): **RS6 の途中。層を 5 つに組み替え済み(決定 3-29。① 道具 `pipeline/`・② 管理 `flow/`(新)・③ 人 `human/`・④ データ `manage/`・⑤ 検証 `eval/`)。import の向きは `ytt ← pipeline ← flow ← human ← manage ← eval`(`dev/layer_map.py` の ALLOWED。③④ は ① を直に読まず ② を通す・⑤ は ① を直に読んでよい・② に変換のコードを書かない)・違反 0(`KNOWN_MAX` 0)。新機能(鍵・校正の上書き・採用の統一・① 単体の CLI など)を実装中。詳しくは `plan/decisions.md` 3-29 と `docs/design/rs6-survey-2026-10-10/`(plan_order_v2.md・layer5_review.md・option_b.md)。3〜7 節は新しい番号に付け替えた。8 節の表と下の経緯(RS0〜RS5 の記録)は当時の番号(① 自動の流れ・② 人・③ データ・④ 検証・`pipeline/run.py` など)のまま。** 以下は 10-10 午後までの状態の記録: **RS0〜RS4 済み・向きの違反 0(`KNOWN_MAX` 0)。RS5 の前半(10-10 午後)済み: 殻 10 本を消した・旧い名前 `ytt_core` の import を `ytt` に・疑似の旗の口・版 1 つ(0.56.0 仮)・友人の依頼の ②③ をやめた(L1)と送るアプリ 2.10.0。次は RS5 の残り(入口を起動し直したあとに旧パスの転送を消す・app を薄く・文書を新しい形に)。RS3・RS4 の結果は 8 節の下(段の表と、計画と違えた所)。RS1〜RS4 の分は入口を起動し直して本物の 1 本の確認が要る。以下は RS3・RS4 に入る前までの状態の記録: RS0・RS1・RS2 済み(RS1 は入口を起動し直して本物の 1 本の確認待ち。RS2 の分も同じ確認が要る)。RS2 は 10-10 に RS2-0〜9 まで済み: RS2-8 で `ed_jobs` を `human/proof` の `doc_jobs`・`rerun` に移して転送の殻(35 行)にし(違反 66 → 59)、RS2-9(早朝)で `ed_speakers` を判別 `pipeline/transcribe/diarize.py` と文書の側 `human/proof/speakers.py` に割り(殻 25 行)・`ed_fill`・`ed_llm`・`ed_retime` の計算・認識ワーカー `tx_worker` を `pipeline/transcribe` へ移した(違反 59 → **49**。仮決めは `plan/decisions.md` 3-24 = 未確認)。次は RS3・RS4 = 10-10 朝に下調べ済み・手順の案と決めてほしいこと(`plan/decisions.md` 3-25)は 8 節の下・下ごしらえ 0A・0B は仮で実施して済み = 違反 49 → 25**。RS1 の結果は 8 節の下。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
+> 状態(2026-10-10 夜): **RS6 の実装は済み・本物の確認待ち(入口を起動し直して本物の 1 本・CLI の 1 本。結果は 8 節の「RS6 の結果」)。層を 5 つに組み替え済み(決定 3-29。① 道具 `pipeline/`・② 管理 `flow/`(新)・③ 人 `human/`・④ データ `manage/`・⑤ 検証 `eval/`)。import の向きは `ytt ← pipeline ← flow ← human ← manage ← eval`(`dev/layer_map.py` の ALLOWED。③④ は ① を直に読まず ② を通す・⑤ は ① を直に読んでよい・② に変換のコードを書かない)・違反 0(`KNOWN_MAX` 0)。新機能(鍵・校正の上書き・採用の統一・結果の束・.flow.lock・CLI)は入った。詳しくは `plan/decisions.md` 3-29 と `docs/design/rs6-survey-2026-10-10/`(plan_order_v2.md・layer5_review.md・option_b.md)。3〜7 節は新しい番号に付け替えた。8 節の表と下の経緯(RS0〜RS5 の記録)は当時の番号(① 自動の流れ・② 人・③ データ・④ 検証・`pipeline/run.py` など)のまま。** 以下は 10-10 午後までの状態の記録: **RS0〜RS4 済み・向きの違反 0(`KNOWN_MAX` 0)。RS5 の前半(10-10 午後)済み: 殻 10 本を消した・旧い名前 `ytt_core` の import を `ytt` に・疑似の旗の口・版 1 つ(0.56.0 仮)・友人の依頼の ②③ をやめた(L1)と送るアプリ 2.10.0。次は RS5 の残り(入口を起動し直したあとに旧パスの転送を消す・app を薄く・文書を新しい形に)。RS3・RS4 の結果は 8 節の下(段の表と、計画と違えた所)。RS1〜RS4 の分は入口を起動し直して本物の 1 本の確認が要る。以下は RS3・RS4 に入る前までの状態の記録: RS0・RS1・RS2 済み(RS1 は入口を起動し直して本物の 1 本の確認待ち。RS2 の分も同じ確認が要る)。RS2 は 10-10 に RS2-0〜9 まで済み: RS2-8 で `ed_jobs` を `human/proof` の `doc_jobs`・`rerun` に移して転送の殻(35 行)にし(違反 66 → 59)、RS2-9(早朝)で `ed_speakers` を判別 `pipeline/transcribe/diarize.py` と文書の側 `human/proof/speakers.py` に割り(殻 25 行)・`ed_fill`・`ed_llm`・`ed_retime` の計算・認識ワーカー `tx_worker` を `pipeline/transcribe` へ移した(違反 59 → **49**。仮決めは `plan/decisions.md` 3-24 = 未確認)。次は RS3・RS4 = 10-10 朝に下調べ済み・手順の案と決めてほしいこと(`plan/decisions.md` 3-25)は 8 節の下・下ごしらえ 0A・0B は仮で実施して済み = 違反 49 → 25**。RS1 の結果は 8 節の下。RS0 = 層のフォルダ(空)`src/{ytt,pipeline,human,manage,eval,app}`・ファイルの行き先の表 `dev/layer_map.py`・向きの検査 `dev/tests/test_layering.py`(今ある違反 69 件を KNOWN に。減らすだけ)・関数ごとの行き先 `docs/design/role-restructure-map-2026-10-09.md`。10-09 の議論(セッション「ツール全体のコードの役割分担」)で形まで決めた(`plan/data.js` の RS0〜RS6)。前の案 `plan/code-separation.md`(fake.py・measure.py で中だけ分ける)はこの計画に置き換えた。棚卸しの行番号つきの表 `docs/design/code-separation-inventory-2026-10-09.md` は行き先を決める根拠として使う。
 
 ## 1. なぜ組み直すか(ユーザーの言葉)
 - 「もともと 1 個ずつ開発して合体したからいびつになっている。今の形を完全に変えてもいいから最適な形を考えて」
@@ -266,6 +266,39 @@ RS0〜RS1 は操作が変わらない。RS2 以降も画面の操作は変えな
 RS5 の前半(10-10 午後): 殻 10 本を消した(編集の `ed_*` 9 本と `src/cut2resolve/cut2resolve.py`・スタジオの `common.py`)。読み手は持ち主を直に読む。旧い名前 `ytt_core` の import は `ytt` に置き換えた(転送の本体は残る)。疑似の旗の口を backend に。版は全体で 1 つ(`ytt/version.py` の 0.56.0 は仮)。友人の依頼の ②③ をやめて全部 ① に(L1)・送るアプリは 2.10.0。残り = 入口を起動し直したあとに旧パスの転送を消す。
 
 RS6 の決定(2026-10-10 夕。`plan/decisions.md` 3-29): ユーザーの案で「① はデータを加工する道具に徹し、① を管理する ② を新しく作る」。番号は全部付け替え = ① 道具 `pipeline/`・② 管理 `flow/`・③ 人 `human/`・④ データ `manage/`・⑤ 検証 `eval/`(3〜7 節は付け替えずみ。この 8 節の表と経緯は当時の番号のまま)。向きは ③④ が ① を直に読まず ② を通す・⑤ は ① を直に読んでよい。RS6 は分けず 1 つ(中の順は a 組み替え → b 新機能)。友人は 1 人で RTX 3060 の PC で動かすのがメイン(= ② + ① は ③④⑤ と画面に頼らず動くことを第一の目標にする)。Q2 の動画ファイルは今のまま(丸ごと 1 本)・Q3 は F-5 に統一・Q4 は認識は印、パックは作り直す。詳しくは decisions 3-29 と `docs/design/rs6-survey-2026-10-10/`(plan_order_v2.md・layer5_review.md・option_b.md)。
+
+**RS6 の結果(10-10 夜。決定 `plan/decisions.md` 3-29。下調べと順番は `docs/design/rs6-survey-2026-10-10/`(plan_order_v2.md・option_b.md))**: 層を 5 つにして(① 道具・② 管理 `flow/`・③ 人・④ データ・⑤ 検証)組み替え、鍵・校正の上書き・採用の統一・結果の束・`.flow.lock`・CLI を入れた。向きの違反は **54 → 0**(`KNOWN_MAX` 0)。仕様は `docs/spec/pipeline.md` 2.4〜2.7・`docs/spec/data-location.md`。
+
+| 段 | 中身 | 違反 |
+| --- | --- | --- |
+| a-0 | 層 `flow` を足し、向きの検査を許される相手の表 `ALLOWED` に(`dev/layer_map.py`) | 54 |
+| a-1 | 語彙を `ytt` へ下ろす(`txbase`・`yturl`・`dictfmt`・`ResolveExportError` → errors・`ids_ok` → schemas) | |
+| a-2 | 段取り(run・spec・batch・runlog・live_*)を `src/flow/` へ `git mv`。`ytt/jobs` を枠(SLOTS・Cancelled)と `flow/jobs`(ジョブの表)に分ける | |
+| a-3 | ① `clipjob` と ② `flow/tx` を足す・文字の語彙を `ytt/txtext` へ。③ の校正の部品を ② と `ytt` 経由に | |
+| a-4 | 話者の判別の半分を ② `flow/diar` へ(判別のジョブの段取り・割り当て・声の特徴と照合・覚えた声の置き場所)。`speakers` は ① を読まない | |
+| a-5a | `flow/pack`・`flow/ingest` を足し、`resolve_export` の読みを付け替え。`check_live`・`prune_cache` を `ytt` へ | |
+| a-5b | 配線を `flow/wire.install` にまとめ、単語の時刻を `ytt/txwords`・再認識の記録の共通項目を `flow/tx.rerun_base` へ | → **0** |
+| b-0 | 段が束(`Run.spec`)を読み `GET /api/settings` をやめる・① の本文の純粋な関数(`spec.export_body` など)・道具の継ぎ目 `flow/tools`(HttpTools・LocalTools)・`AutoRunner.build_spec` | 0 |
+| b-K1 | 成果物の鍵を書く(`flow/keys`。export・transcribe・post・diar・pack と F-1 の書き直し)。文書を消すとき鍵も消す | 0 |
+| b-O1 | 校正の上書きの第 1 版(`<id>.over.json`。人の行を時刻の重なりで作り直した文書へ引き継ぐ・STALE の印・評価用には当てない・`TRANSCRIBE_CARRY_OVERRIDES=off`)。文書を消すとき一緒に消す | 0 |
+| b-R1 | 採用の数・余白・待ちの既定を束(`flow/spec.py` の `adopt`)の 1 か所から読む | 0 |
+| b-B0 | 置き場所の持ち主 `flow/placement`・結果の束を案件の `作業用\runs\` へ・`.flow.lock`。CLI のテストの `flow.placement` の差し替えをやめた | 0 |
+| b-S1 | ② + ① で動く CLI `src/app/cli.py`(入口が動いていれば頼む・無ければ動画ファイルを LocalTools で・lock・ワーカーの後始末) | 0 |
+| b-A | 採用を F-5 の規則 1 つに(区間 ∪ 人の採用 ∪ 自動の上位で上限まで)・採用の段を 1 本に | 0 |
+| b-K2 | 鍵を読んで段を飛ばす(文字起こしは違えば印・force で作り直す / パックは違えば作り直す) | 0 |
+
+**計画と違えた所(RS6)**:
+- `records`(認識の記録)は ② に移さず **① に残した**
+- `live_detect` は ① の `analyze` でなく **`flow/` へ**(配信中の検出は段取りを持つため)
+- `tool_slot` は **`flow/jobs`**(重い処理の枠は ② の持ち物)
+- `LocalTools`(入口なしで ① を直に動かす道具)は**文字起こしとパックだけ**(解析・採用・書き出しは URL の流れで入口が要る = B-3 まで)
+- CLI で動画ファイルを**入口に頼む**ときは 文字起こし → `start-docs` の **2 段**(入口に動画ファイルから始める `start-file` の口が無い。RS7 で玄関 `live.py`・`autorun.py` を分けるときに直す)
+- **force は鍵によらず作り直す**(鍵が同じでも違っても。鍵が違うだけなら文字起こしは飛ばして印)
+- 入口の起動し直しで古い入口がポートを離さないと、新しい入口が `.flow.lock` で起動を止める(仕様。古い入口が終わるのを待つ)
+- 案件ごとのフォルダは **B-0 だけ**(B-1 は RS7・B-2・B-3 は画面の作りの再考と一緒)
+- 番号は全部付け替え(① 道具・② 管理・③ 人・④ データ・⑤ 検証。3〜7 節は付け替え済み。8 節の上の表と経緯は当時の番号のまま)
+
+**次**: 入口を「すべて終了」→ start.bat で起動し直して本物の 1 本(RS1〜RS6 の分)・CLI の 1 本(`py -3.10 src/app/cli.py <動画> --out result.json`)。そのあと RS7(整理と最適化。10 節)。
 
 ## 9. 実装が終わったら消す物・要確認
 > 済み(10-10): 「あとから解析(測るため)」(入口 0.55.0)・`ed_evalaudio.py`(`eval-audio/` の実データは残す)・死んだフック 2 つ(`STUDIO_FAKE_CHAT_DELAY`・`YTT_RECORDER_SOURCE`)・設定の比較 A/B・修正データの書き出し・データの保管(段 D。`dataset/` の実データは残す)・進行度(段 D2)。残りは RS5 以降。
