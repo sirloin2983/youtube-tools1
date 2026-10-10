@@ -60,3 +60,11 @@
 - `live_excite_worker` の `Worker`(549 行)は「同時に 2 本まで・順番待ち・飛ばした区間の測り直し」の段取り = ② 寄りの仕事。子プロセスなので ② のファイルにはできないが、段取り(どれをいつ測るか)と計算(RecState)を分けると読みやすい → RV
 - `RecorderClient`(録画元の API を読む)は入口の `Live.request` と同じ形の写し(別プロセスのため)→ 録画元の小さな口を ytt に置けば 2 か所が 1 つに → OPT3(上の表の「録画元から取ってつなぐ所 2 つ」)
 - config.json の検査 `clean_*` 5 つ(約 50 行)は入口が書く設定の写しを検査し直している。入口の束(spec)の検査と同じ規則なら `flow/spec` の検査を読む形に → 調べてから(OPT2)
+
+### 3. 書き出し `pipeline/export/`(10-11)
+- `exporter.py`(997 行)に 3 つの層の仕事が混ざっている: (a) 画面の依頼の検査と組み立て(`build_spec` は store を引いてマークから組む・`build_section_spec`・`check_section_path`・`_parse_opts`・`job_public` = API の応答の形)= app / ③ の仕事、(b) ジョブの器(`start_job`・`get_job`・`cancel`・`cancel_all`・`is_busy`・糸・`run_job` の SLOTS 待ち・`_settle`)= ② の仕事、(c) 切り出し・音量・ラウドネス・つなぐ・編集用素材・.clip.json = ① の本体。① には (c) だけを「spec → 出来たファイル」の関数で残し、(a) はスタジオの serve か `human/review`、(b) は `flow` へ → OPT2(RS8 と相談。スタジオの書き出しの API の形は変えない)
+- **書き出しが 2 つある**: ① の `exporter`(手元のファイル・YouTube)と ② の `flow/live_export`(録画の HLS の細切れをつなぐ)。② 側は ffmpeg の組み立てまで自前(上の OPT2「② に残る ① の仕事」)。① の書き出しに「取り元 = 録画の細切れ」を足して、切り出し → 30fps → 音量 → ラウドネス → .clip.json の流れを 1 本にする → OPT2
+- **② が ① をスタジオの HTTP 越しに呼んでいる**: 配信後の作り直し(`flow/live_archive.py` の fetch)は `POST /studio/api/live/section` を呼んで待つ(409 busy・切断の待ちのループつき)。書き出しが ① に移った今は ② から直に呼べる(スタジオが動いていない headless でも作り直せる・待ちのループが消える)→ OPT2
+- `manifest.py`(26 行)は ytt/schemas を「スタジオ用の名前で呼ぶ」だけの薄い入口 → 呼ぶ側(exporter と ②)が `ytt/schemas` を直に読む → OPT1 の小物
+- `_pump`(進み具合つきの ffmpeg・OPT2 の 6 つの 1 つ)・`verify_output`(確かめ方 3 通り・OPT3)・古い ffmpeg への逃げ道が無い(OPT1)・音量とラウドネスの ffmpeg の引数(OPT2)は上の表に記録済み
+- YouTube の区間の取り方が 2 段(yt-dlp の --download-sections → だめなら直接 URL を ffmpeg に)= 仕様どおりの予備。動かさない
