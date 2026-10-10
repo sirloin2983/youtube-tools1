@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py・src/home/live.py の API)のテスト。本物の YouTube には繋がない。
+"""アーカイブで本番版に作り直す(線 D の P4。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。入口を通す API の分は src/home/tests/test_live_archive_api.py。本物の YouTube には繋がない。
 
-    py -3.10 -m unittest src/home/tests/test_live_archive.py
+    py -3.10 -m unittest src/flow/tests/test_live_archive.py
 
 作るもの(ffmpeg の lavfi): 「アーカイブ」= 映像 testsrc2 の 60fps + 時間で変わる音(周波数が動く sine + ノイズ)。
 「速報版」= その途中の区間を別の符号化(AAC の作り直し・音量 60%・頭を数十 ms ずらした所から)で 30fps に切り出したもの。
@@ -16,29 +16,23 @@
   - 取り消し(スタジオの書き出しも取り消す)・使用中で動かせない → 待ちに戻して、作った本番版で後から入れ替える
   - 自動の見回り(時間を縮めて): 録画が終わって少したってから・用意ができたら・重い処理があれば待つ・7 日(縮めた)でやめる
   - 起動し直しで続く(途中の段 → 待ち)・スタジオが 409 busy なら待ってやり直す
-  - worker 単体(ずれの正しさ・無音)・入口のプロセスで numpy を import しない・API(オフなら 404・409 の文・archiveInfo・取り消し)
+  - worker 単体(ずれの正しさ・無音)
   - 配信後の全自動(M7)と友人のライブ配信の依頼(2-15): 依頼の afterStream が真ならホームの M7 がオフでも進める(本数は依頼の perHour)・
     偽ならホームの M7 がオンでも動かさない・録画を消すのを待つか(after_stream_hold)も同じ決め方
 """
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
-import uuid
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
-REPO = os.path.dirname(HERE)
-sys.path.insert(0, REPO)    # ytt(このファイルだけを流しても読めるように。2026-10-09)
-sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
+import _livefix as LF  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import fsio, jobs, normalize, schemas, tools  # noqa: E402
@@ -53,69 +47,9 @@ REC = "20261005-120000-abcdefghijk"
 VID = "abcdefghijk"
 
 
-def ff(*args):
-    subprocess.run([FF, "-hide_banner", "-nostdin", "-y", "-v", "error"] + list(args), check=True,
-                   stdin=subprocess.DEVNULL, capture_output=True)
-
-
-def wait_for(fn, timeout=60.0, step=0.1):
-    end = time.time() + timeout
-    while time.time() < end:
-        v = fn()
-        if v:
-            return v
-        time.sleep(step)
-    return fn()
-
-
-class FakeStudio:
-    """スタジオの POST /api/live/section・GET /api/export・POST /api/export/cancel の代わり(アーカイブから ffmpeg で 30fps に切る)"""
-
-    def __init__(self, archive, shifts=(), block=False, busy=0):
-        self.archive, self.shifts, self.block, self.busy = archive, list(shifts), block, busy
-        self.calls, self.jobs, self.cancelled = [], {}, []
-
-    def __call__(self, method, path, body):
-        if method == "POST" and path == "/api/live/section":
-            if self.busy > 0:   # ほかの書き出しが動いている(スタジオは同時に 1 本だけ)
-                self.busy -= 1
-                return 409, {"error": "busy", "message": "ほかの書き出しが動いています"}
-            p = body["path"]
-            assert os.path.isabs(p) and p.endswith(".mp4") and not p.endswith(".partial.mp4") and not os.path.exists(p), p
-            assert os.path.isdir(os.path.dirname(p)), p
-            self.calls.append(dict(body))
-            jid = uuid.uuid4().hex[:12]
-            job = {"id": jid, "state": "running", "items": [{"status": "running", "progress": 0, "error": None, "path": None}], "cancel": False}
-            self.jobs[jid] = job
-            start = body["start"] + (self.shifts[len(self.calls) - 1] if len(self.calls) <= len(self.shifts) else 0.0)   # shifts: n 回目の書き出しを頼まれた区間からずらして作る
-            threading.Thread(target=self._run, args=(job, start, body["end"] - body["start"], p), daemon=True).start()
-            return 200, {"id": jid, "state": "running", "items": job["items"]}
-        if method == "GET" and path.startswith("/api/export?id="):
-            j = self.jobs.get(path.split("=", 1)[1])
-            return (404, {"error": "not_found"}) if j is None else (200, {"id": j["id"], "state": j["state"], "items": j["items"]})
-        if method == "POST" and path == "/api/export/cancel":
-            self.cancelled.append(body["id"])
-            j = self.jobs.get(body["id"])
-            if j:
-                j["cancel"] = True
-            return 200, {"ok": True}
-        return 404, {"error": "not_found"}
-
-    def _run(self, job, start, dur, path):
-        it = job["items"][0]
-        if self.block:
-            while not job["cancel"]:
-                time.sleep(0.05)
-            it["status"], job["state"] = "cancelled", "cancelled"
-            return
-        try:
-            ff("-ss", "%.3f" % start, "-i", self.archive, "-t", "%.3f" % dur, "-map", "0:v:0", "-map", "0:a:0",
-               *normalize.encode_args("ultrafast"), path)
-            it.update(status="done", progress=1.0, path=path)
-            job["state"] = "done"
-        except subprocess.CalledProcessError as e:
-            it.update(status="error", error=e.stderr.decode("utf-8", "replace")[-200:])
-            job["state"] = "error"
+ff = LF.ff
+wait_for = LF.wait_for
+FakeStudio = LF.ArchiveStudio
 
 
 class FakeExLive:
@@ -542,11 +476,6 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(r["ok"], False)   # 窓の方が短い
         self.assertEqual(A.run_align(os.path.join(self.tmp, "none.wav"), win)["ok"], False)
 
-    def test_no_numpy_in_portal(self):
-        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import flow.live_archive, flow.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
-        r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
-        self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
-
 
 class AfterStreamTest(unittest.TestCase):
     """線 D の M7(配信後の全自動。src/flow/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
@@ -898,79 +827,6 @@ class YtdlpRetryTest(unittest.TestCase):
     def test_thresholds(self):
         self.assertEqual((A.MIN_SCORE, A.MIN_RATIO), (0.5, 3.0))   # 本物の配信: 合わない区間で ratio 1.58 が出た・正しい区間は 4.7〜58
         self.assertEqual((A.WINDOWS_FIRST[0], A.WINDOWS_NEXT[0]), (300.0, 20.0))
-
-
-class ApiTest(unittest.TestCase):
-    """POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(入口の launch.py を通して)"""
-
-    def setUp(self):
-        import launch as L
-        import test_live as TL
-        self.TL = TL
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-arc-api-")
-        self.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(self.tmp, ".runtime")})
-        self.env.start()
-        self.sup = L.Supervisor(self.tmp, only=[], log=lambda m: None, mounts=())
-        self.srv, self.port = L.make_server(0, self.sup)
-        self.sup.attach(self.srv)
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
-        self.srv.live.store_dir = os.path.join(self.tmp, "live")
-        self.srv.live.out_dir = lambda: os.path.join(self.tmp, "out")
-        self.status = "post_live"
-        self.studio = FakeStudio("unused", block=True)
-        self.srv.live.archive_opts = {"probe": lambda vid: {"status": self.status, "release": RELEASE}, "studio": self.studio,
-                                      "audio": lambda *a, **k: (_ for _ in ()).throw(A.ArchiveError("偽: 取らない")), "poll": 0.1}
-        self.fake = TL.FakeRecorder()
-
-    def tearDown(self):
-        self.srv.live.close()
-        self.srv.shutdown()
-        self.srv.server_close()
-        self.fake.close()
-        self.env.stop()
-        shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def jreq(self, method, path, body=None):
-        return self.TL.PortalLiveTest.jreq(self, method, path, body)
-
-    def req(self, *a, **kw):
-        return self.TL.PortalLiveTest.req(self, *a, **kw)
-
-    def test_api(self):
-        rec = "20261004-000000-a"
-        q = "/live/api/exports?recorder=fake&recording=" + rec
-        base_post = self.jreq("POST", "/api/no-such", {})
-        self.assertEqual(self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": rec}), base_post)   # オフ: 今までどおりの 404
-        code, d = self.jreq("POST", "/api/ytt/prefs", {"op": "patch", "section": "live", "value": {
-            "enabled": True, "recorders": [{"id": "fake", "name": "偽物", "url": self.fake.url, "token": self.TL.TOKEN}]}})
-        self.assertEqual(code, 200, d)
-        self.assertTrue(d["value"]["autoArchive"])
-        self.assertEqual(self.req("POST", "/live/api/archive", {"recorder": "fake", "recording": rec}, token=False)[0], 403)   # 合言葉
-        self.assertEqual(self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": "../x"})[0], 400)
-        self.assertEqual(self.jreq("POST", "/live/api/archive", {"recorder": "nope", "recording": rec})[0], 404)
-        code, d = self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": rec})
-        self.assertEqual((code, d.get("error")), (409, "conflict"), d)
-        self.assertIn("作り直すものがありません", d["message"])
-        ex = self.srv.live.exporter
-        ex.marks.upsert("fake", rec, "lm-0000000000aa", 1, LX.epoch_iso(RELEASE), LX.epoch_iso(RELEASE + 5), url="https://www.youtube.com/watch?v=" + VID)
-        ex.jobs.append({"id": "lx-00000000aa", "recorder": "fake", "recording": rec, "markId": "lm-0000000000aa", "n": 1, "label": "",
-                        "start": LX.epoch_iso(RELEASE), "end": LX.epoch_iso(RELEASE + 5), "state": "error", "needsArchive": True,
-                        "created": LX.now_iso(), "updated": LX.now_iso(), "path": "", "error": "欠け"})
-        code, d = self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": rec})
-        self.assertEqual(code, 409)
-        self.assertIn("処理中", d["message"])   # 用意がまだ
-        code, d = self.jreq("GET", q)
-        self.assertEqual(d["archiveInfo"]["ready"], False)
-        self.assertTrue(d["archiveInfo"]["checkedAt"])
-        self.assertNotIn("archiveInfo", self.jreq("GET", "/live/api/exports")[1])   # 録画を指定したときだけ
-        self.status = "was_live"
-        code, d = self.jreq("POST", "/live/api/archive", {"recorder": "fake", "recording": rec})
-        self.assertEqual((code, d["ok"], d["queued"]), (200, True, 1), d)
-        code, d = self.jreq("POST", "/live/api/archive/cancel", {"recorder": "fake", "recording": rec})
-        self.assertEqual((code, d["ok"]), (200, True), d)
-        job = wait_for(lambda: next((j for j in self.jreq("GET", q)[1]["jobs"] if j["archive"]["state"] in ("cancelled", "error")), None), 30)
-        self.assertTrue(job, self.jreq("GET", q)[1])
-        self.assertTrue(self.jreq("GET", q)[1]["archiveInfo"]["ready"])
 
 
 if __name__ == "__main__":
