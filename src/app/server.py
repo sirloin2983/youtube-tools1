@@ -20,12 +20,19 @@
   POST /api/autorun/cancel                {runId}
   POST /api/autorun/start-docs            {ids: [文書の id], overwrite?} 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック(12 ⑦(b))
   POST /api/flow/submit                   {envelope, spec?} ② の口(RS7-1 S4): 封筒(src/flow/envelope.py)+ 束(src/flow/spec.py)を待ち行列に積む → {run}。
-                                          形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない
+                                          形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない。
+                                          F1 F0-1: 束の版(封筒.specVersion)が違えば 400 error spec_version・束に知らない節・項目・合わない値があれば 400 error bad_spec
+                                          (送るアプリは「更新してください」)。ほかの理由は今までどおり bad_request
   GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, live, runs}(src/flow/runqueue.py の status。CLI・送るアプリが聞く)。
                                           live = {recording, detecting, exporting}(ライブの録画中・検出中・書き出しの途中の数。PortalServer.live_activity)。
                                           idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(送るアプリの「終わったら閉じる」。RS7-2 G5a)。
                                           RS8: + rev(変わるたびに増える)・jobs(掲示板 src/flow/board.py の Job。待ち・実行中 + 終わった直近 30 件・入れた順)・
                                           cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。docs/spec/pipeline.md 2.9
+                                          F1 F0-1: + blocked(null か {reason: "disk", freeGB, minGB} = 空き容量が下限を切って次の実行を始めていない)・
+                                          machine({engine, device, llmModel, gpu: {name, vramGB, ...} か null}。src/flow/runqueue.py の machine_status)
+  GET  /api/flow/machine                  この PC の設定(src/flow/machine.py の load。{engine, device, llmModel, caseRoot, diskMinGB, learningDir, docMove, markMove, sources})
+  PUT  /api/flow/machine                  {device?, llmModel?, caseRoot?, diskMinGB?, learningDir?}(null = 既定へ戻す)を machine.json に書く(合言葉が要る)→
+                                          {machine: 書いたあとの load, file: ファイルの中身}。知らない項目・合わない値は 400 bad_request と理由(F1 F0-1)
   POST /api/flow/cancel                   {id} 掲示板の id(「頭:id」)のジョブを止める → {job}。無い id は 404・止められない物は 409 cannot_cancel・形が違えば 400
   POST /api/flow/retry                    {id} 失敗・中止したジョブを同じ指定で入れ直す → {job}(新しい id)。無い id は 404・できない物は 409 cannot_retry
   GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(/api/autorun/history と同じ中身。case = 結果の束の案件で絞る)
@@ -80,6 +87,9 @@
 - 標準出力・標準エラーは UTF-8。標準出力は 1 行の JSON だけ: 待ち受けて ② を準備できたら {"event": "ready", "port", "token"(書き込み系の X-YTT-Token), "pid"}(HEADLESS_READY)。
   黒い画面への記録・取り込んだツールの print は標準エラーへ
 - 入口がすでに動いている(そのポート範囲の入口・同じ作業データの .flow.lock)ときは、読める文を標準エラーへ出して EXIT_RUNNING で終わる(ブラウザは開かない)
+- 親の見張り(--parent-pid <pid>。F1 F0-1・docs/design/f1-build.md (f1j)): 起こしたアプリのプロセスが終わるか、標準入力が閉じられたら(EOF)、
+  「すべて終了」と同じ後始末で終わる(終了コード 0。実行中・待ちの実行は autorun-active.json に残り、次の起動で続く)。
+  標準入力を見るのは --parent-pid を付けたときだけ(付けないときは今までどおり)
 """
 import argparse
 import http.client
@@ -109,7 +119,8 @@ from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
-from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b)
+from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b・GET/PUT /api/flow/machine。F1 F0-1)
+from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
@@ -155,6 +166,8 @@ HEADLESS_READY = "ready"   # 画面なしの入口が標準出力に出す 1 行
 EXIT_RUNNING = 3           # 画面なし: 入口がすでに動いている(ポート・.flow.lock)ので起動しない
 HEADLESS_RUNNING = "ホームはすでに起動しています(ポート %d)。画面なしでは起動しません。動いているホームを「すべて終了」してから起動してください"
 HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起こしたアプリから起動し直してください)"
+PARENT_POLL = 2.0          # 親の見張り: Windows 以外で親の生死を見る間隔(秒。Windows は WaitForSingleObject で待つ)
+MACHINE_PUT_FIELDS = ("device", "llmModel", "caseRoot", "diskMinGB", "learningDir")   # PUT /api/flow/machine で変えられる項目(F1 の 1-2 の口)
 
 def _spec(tid, name, sub, port, **kw):
     """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
@@ -767,6 +780,11 @@ class PortalHandler(BaseHTTPRequestHandler):
         case = (q.get("case") or [None])[0] if u.path in ("/api/flow/status", "/api/flow/history") else None   # 案件の根の絶対パス(RS8)
         if case is not None and board_mod.norm_case(case) is None:
             return self._fail(400, "bad_request", "case は案件のフォルダの絶対パスにしてください")
+        if u.path == "/api/flow/machine":   # この PC の設定(F1 F0-1。送るアプリの設定の画面が読む)
+            try:
+                return self._json(200, machine_mod.load())
+            except (OSError, ValueError) as e:
+                return self._fail(500, "machine", "この PC の設定を読めませんでした: %s" % e.__class__.__name__)
         if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・送るアプリの「終わったら閉じる」)+ 掲示板(RS8)
             st = self.server.autorun.status()   # autorun を作る = 掲示板に Run を載せる(PortalServer.autorun)
             st.update(self.server.board.snapshot(case=case))
@@ -823,6 +841,38 @@ class PortalHandler(BaseHTTPRequestHandler):
         if route[1] and self.server.closing.is_set():
             return self._fail(409, "closing", "終了の途中です")
         return getattr(self, route[0])(u.path, body)
+
+    def do_PUT(self):
+        """書き込み系の PUT(今は PUT /api/flow/machine だけ。F1 F0-1)。出どころ・合言葉・本文の検査は do_POST と同じ"""
+        u = urllib.parse.urlsplit(self.path)
+        if not site_ok(self.headers, self.server.allowed_hosts):
+            httpsec.drain_body(self.headers, self.rfile)
+            return self._send(403, b"forbidden")
+        body = guarded_body(self, self.server.token, MAX_BODY)
+        if body is None:
+            return
+        if u.path != "/api/flow/machine":
+            return self._fail(404, "not_found", "その操作はありません")
+        if self.server.closing.is_set():
+            return self._fail(409, "closing", "終了の途中です")
+        return self._put_machine(body)
+
+    def _put_machine(self, body):
+        """この PC の設定を machine.json に書く(flow/machine.py の save。変えられるのは MACHINE_PUT_FIELDS だけ・null = 既定へ戻す)。
+        画面なしなら、録画の開始の空き容量の下限も新しい diskMinGB にそろえる(処理の開始は Queue が始めるたびに読む)"""
+        bad = [k for k in body if k not in MACHINE_PUT_FIELDS]
+        if bad:
+            return self._fail(400, "bad_request", "知らない項目です: %s(使えるのは %s)" % ("・".join(map(str, bad)), "・".join(MACHINE_PUT_FIELDS)))
+        try:
+            saved = machine_mod.save(body)
+            now = machine_mod.load()
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        except OSError as e:
+            return self._fail(500, "write", "この PC の設定を書けませんでした: %s" % tools.why(e))
+        if self.server.headless and "diskMinGB" in body:
+            self.server.live.disk_min_gb = now["diskMinGB"]
+        return self._json(200, {"machine": now, "file": saved})
 
     def _post_case(self, path, body):
         """案件の状態・メモ(案件ファイルに書く。各ツールのデータは触らない)"""
@@ -895,6 +945,10 @@ class PortalHandler(BaseHTTPRequestHandler):
         """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400"""
         try:
             return self._json(200, {"run": self.server.autorun.submit(body.get("envelope"), body.get("spec"))})
+        except queue_mod.SpecVersionError as e:   # 送る側と ② の束の版が違う(アプリは「更新してください」。F1 F0-1)
+            return self._fail(400, "spec_version", str(e))
+        except queue_mod.BadSpecError as e:   # 束に知らない節・項目・合わない値
+            return self._fail(400, "bad_spec", str(e))
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
         except (TypeError, KeyError, AttributeError) as e:   # 検査を抜けた形の違い(外から来る本文なので 500 にしない)
@@ -1500,7 +1554,13 @@ def parse_args(argv):
     ap.add_argument("--headless", action="store_true",
                     help="画面なし: ブラウザ・窓を開かず、依頼の受付・バックアップ・精度の自動測定などの見張りを起こさない。"
                          "準備できたら標準出力に 1 行の JSON {event: ready, port, token, pid}(送るアプリが子プロセスとして起こす形)")
+    ap.add_argument("--parent-pid", type=int, default=0,
+                    help="画面なしだけ: 起こしたアプリの pid。そのプロセスが終わるか標準入力が閉じられたら、後始末をして終わる(F1 F0-1)")
     a = ap.parse_args(argv)
+    if a.parent_pid and not a.headless:
+        ap.error("--parent-pid は --headless と一緒に使ってください")
+    if a.parent_pid < 0:
+        ap.error("--parent-pid は正の数にしてください")
     if a.headless and a.app_window:
         ap.error("--headless には --app-window を付けられません(画面を開かないため)")
     only = [x.strip() for x in a.only.split(",") if x.strip()]
@@ -1533,6 +1593,73 @@ def emit_ready(out, port, token):
     """画面なしの入口: 準備できたことを標準出力に 1 行の JSON で(送るアプリ・CLI が読む。ASCII だけ)"""
     out.write(json.dumps({"event": HEADLESS_READY, "port": port, "token": token, "pid": os.getpid()}) + "\n")
     out.flush()
+
+
+def _wait_pid_windows(pid):
+    """Windows: pid のプロセスが終わるまで待つ(OpenProcess(SYNCHRONIZE) + WaitForSingleObject。psutil は使わない)。
+    開けない(もう無い・別の利用者の物)ときはすぐ戻る = 親はもういないと見る"""
+    import ctypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+    k32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    h = k32.OpenProcess(0x00100000, 0, pid)   # SYNCHRONIZE
+    if not h:
+        return
+    try:
+        k32.WaitForSingleObject(h, 0xFFFFFFFF)   # INFINITE
+    finally:
+        k32.CloseHandle(h)
+
+
+def _wait_pid_poll(pid, poll=PARENT_POLL):
+    """Windows 以外: poll 秒ごとに pid の生死を見て、いなくなったら戻る"""
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        except OSError:   # 権限が無いだけ = まだいる
+            pass
+        time.sleep(poll)
+
+
+def _wait_eof(stream):
+    """標準入力が閉じられる(EOF)まで読み捨てる。読めなくなったときも戻る"""
+    raw = getattr(stream, "buffer", stream)
+    try:
+        while raw.read(1):
+            pass
+    except (OSError, ValueError):
+        pass
+
+
+def watch_parent(pid, stdin, on_gone, log=None):
+    """親の見張り(--parent-pid。F1 F0-1・docs/design/f1-build.md (f1j)): 親のプロセスが終わるか、標準入力が閉じられたら on_gone(理由の文) を 1 回呼ぶ。
+    糸を 2 本(親の待ち・標準入力)起こす(どちらも daemon)。stdin が None なら標準入力は見ない。-> 起こした糸のリスト"""
+    fired = threading.Lock()
+
+    def fire(why):
+        if not fired.acquire(blocking=False):
+            return
+        if log:
+            log(why)
+        on_gone(why)
+
+    def parent():
+        (_wait_pid_windows if os.name == "nt" else _wait_pid_poll)(pid)
+        fire("起こしたアプリ(pid %d)が終わったので、ホームも終了します" % pid)
+
+    def eof():
+        _wait_eof(stdin)
+        fire("標準入力が閉じられたので、ホームを終了します")
+    threads = [threading.Thread(target=parent, daemon=True, name="parent-watch")]
+    if stdin is not None:
+        threads.append(threading.Thread(target=eof, daemon=True, name="stdin-watch"))
+    for t in threads:
+        t.start()
+    return threads
 
 
 def move_docs(srv, log):
@@ -1678,6 +1805,8 @@ def _main(opts, ready_out=None):
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         if not headless:
             threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
+        if opts.parent_pid:   # 親の見張り(F1 F0-1): 親が終わる・標準入力が閉じられたら「すべて終了」と同じ後始末(待ちは次の起動で続く)
+            watch_parent(opts.parent_pid, sys.stdin, lambda why: threading.Thread(target=srv.request_shutdown, daemon=True).start(), log)
         if headless:   # 待ち受けて ② を準備できた = 送るアプリに合言葉とポートを渡す(画面は開かない)
             emit_ready(ready_out, port, srv.token)
         elif opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)

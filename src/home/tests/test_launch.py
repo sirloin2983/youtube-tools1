@@ -458,6 +458,11 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual((a.headless, a.port, a.only), (True, 8750, ["transcribe"]))
         with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
             L.parse_args(["--headless", "--app-window"])
+        # 親の見張り(F1 F0-1): 画面なしだけ・正の数
+        self.assertEqual((L.parse_args([]).parent_pid, L.parse_args(["--headless", "--parent-pid", "123"]).parent_pid), (0, 123))
+        for bad in (["--parent-pid", "123"], ["--headless", "--parent-pid", "-1"], ["--headless", "--parent-pid", "x"]):
+            with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                L.parse_args(bad)
 
     def test_move_docs_on_start(self):
         """RS8 B2-3: 起動のときの文書の移行。inplace(テスト)は何もしない・バックアップが済んでいなければ移さない・失敗しても上げない"""
@@ -968,6 +973,46 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
 
+    def test_flow_submit_spec_errors(self):
+        """F1 F0-1: 束の版の違いは 400 spec_version・束の知らない節・項目は 400 bad_spec(送るアプリは「更新してください」)・封筒の形は今までどおり bad_request"""
+        media = os.path.join(self.tmp, "切り抜き.mp4")
+        with open(media, "wb") as f:
+            f.write(b"x")
+        env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+        for bad, code in (({"envelope": dict(env, specVersion=2)}, "spec_version"), ({"envelope": env, "spec": {"nai": {}}}, "bad_spec"),
+                          ({"envelope": env, "spec": {"transcribe": {"nai": 1}}}, "bad_spec"), ({"envelope": dict(env, kind="nai")}, "bad_request")):
+            r, body = self.post("/api/flow/submit", body=json.dumps(bad, ensure_ascii=False).encode("utf-8"))
+            self.assertEqual((r.status, json.loads(body)["error"]), (400, code), bad)
+        self.assertEqual(self.srv.autorun.status()["runs"], [])
+
+    def test_flow_machine_get_put(self):
+        """F1 F0-1: GET /api/flow/machine = この PC の設定・PUT は合言葉つきで machine.json に書く(変えられる項目だけ・合わない値は 400)"""
+        mfile = os.path.join(self.tmp, "m", "machine.json")
+        with mock.patch.dict(os.environ, {"YTT_MACHINE_FILE": mfile}):
+            r, body = self.req("GET", "/api/flow/machine")
+            j = json.loads(body)
+            self.assertEqual((r.status, j["diskMinGB"], j["sources"]["diskMinGB"]), (200, L.machine_mod.DISK_MIN_GB, "default"))
+
+            def put(obj, token=None, path="/api/flow/machine"):
+                h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin",
+                     "X-YTT-Token": self.srv.token if token is None else token}
+                r, body = self.req("PUT", path, json.dumps(obj).encode("utf-8"), h)
+                return r.status, json.loads(body) if body.startswith(b"{") else body
+            self.assertEqual(put({"diskMinGB": 50}, token="x")[0], 403)
+            self.assertFalse(os.path.exists(mfile))
+            st, j = put({"diskMinGB": 50, "llmModel": "qwen3-4b"})
+            self.assertEqual((st, j["machine"]["diskMinGB"], j["machine"]["sources"]["diskMinGB"], j["file"]["llmModel"]), (200, 50, "file", "qwen3-4b"))
+            with open(mfile, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["diskMinGB"], 50)
+            for bad in ({"engine": "whisper.cpp"}, {"docMove": True}, {"diskMinGB": -1}, {"caseRoot": "relative"}):
+                st, j = put(bad)
+                self.assertEqual((st, j["error"]), (400, "bad_request"), bad)
+            st, j = put({"diskMinGB": None})   # null = 既定へ戻す
+            self.assertEqual((st, j["machine"]["diskMinGB"], "diskMinGB" in j["file"]), (200, L.machine_mod.DISK_MIN_GB, False))
+            self.assertEqual(put({}, path="/api/flow/nai")[0], 404)
+            r, _ = self.req("PUT", "/api/flow/machine", b"{}", {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token})
+            self.assertEqual(r.status, 403)
+
     def test_flow_board_api(self):
         """RS8 の ② の口 S3: status に rev・jobs・cases を足す(今の項目はそのまま)・?case= の検査と絞り込み・POST /api/flow/cancel・retry
         (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate(旧い名前と同じ口)"""
@@ -1237,6 +1282,56 @@ class MainShutdownTest(unittest.TestCase):
         st, status, st2, restart = res
         self.assertEqual((st, status["idle"], status["live"]), (200, True, {"recording": 0, "detecting": 0, "exporting": 0}))
         self.assertEqual((st2, restart["error"]), (409, "headless"))
+
+    def test_headless_parent_gone_shuts_down(self):
+        """F1 F0-1: --parent-pid の親が終わったら 3 秒以内に「すべて終了」と同じ後始末(終了コード 0・まとめて実行を閉じる = 待ちは次の起動で続く)"""
+        import subprocess
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.addCleanup(child.kill)
+        r, w = os.pipe()
+        stdin = open(r, "rb")
+
+        def on_ready(srv, ready):
+            self.assertFalse(srv.closing.is_set())
+            t0 = time.time()
+            child.kill()
+            child.wait()
+            return wait_for(srv.closing.is_set, 5, 0.05), time.time() - t0
+        try:
+            with mock.patch.object(sys, "stdin", stdin):
+                code, srv, out, started, opened, res = self.run_headless(["--headless", "--port", "0", "--no-mount", "--parent-pid", str(child.pid)], on_ready)
+        finally:   # 書く側を先に閉じる(読んでいる糸が EOF で戻る。先に読む側を閉じると読み終わりを待って止まる)
+            os.close(w)
+            time.sleep(0.2)
+            stdin.close()
+        self.assertEqual(code, 0)
+        self.assertTrue(res[0], "親が終わっても止まらない")
+        self.assertLess(res[1], 3.0)
+        self.assertTrue(srv._autorun.closed)
+
+    def test_headless_stdin_eof_shuts_down(self):
+        """F1 F0-1: --parent-pid のとき標準入力が閉じられたら(EOF)終わる(親がまだいても)"""
+        r, w = os.pipe()
+
+        def on_ready(srv, ready):
+            self.assertFalse(srv.closing.is_set())
+            os.close(w)
+            return wait_for(srv.closing.is_set, 5, 0.05)
+        stdin = open(r, "rb")
+        try:
+            with mock.patch.object(sys, "stdin", stdin):
+                code, srv, out, started, opened, res = self.run_headless(["--headless", "--port", "0", "--no-mount", "--parent-pid", str(os.getpid())], on_ready)
+        finally:
+            stdin.close()
+        self.assertEqual((code, res), (0, True))
+
+    def test_watch_parent_fires_once(self):
+        """親の見張り: 親がもういない(開けない pid)ときはすぐ・標準入力の EOF と重なっても on_gone は 1 回だけ"""
+        got = []
+        threads = L.watch_parent(0x7FFFFFF0, io.BytesIO(b""), got.append)
+        for t in threads:
+            t.join(5)
+        self.assertEqual(len(got), 1)
 
     def test_headless_does_not_move_docs_without_backup(self):
         """RS8 B2-3: 画面なしも同じ位置で移行を呼ぶが、バックアップが動かない = 記録が無ければ移さない(backup_ok が偽)"""

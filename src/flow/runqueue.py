@@ -53,6 +53,59 @@ ACTIVE_READ_MAX = 4 * 1024 * 1024
 RESTORE_MAX_AGE = 3 * 86400          # これより前に入れた実行は戻さない(記録に「中止」と書く)
 ACTIVE_STATES = ("queued", "running")
 STATUS_STEP_KEYS = ("key", "label", "state", "detail", "startedAt", "finishedAt")
+GB = 1024 ** 3
+DISK_RETRY = 30.0      # 空き容量が下限を切って実行を始めない間、見直す間隔(秒。submit・中止でもすぐ見直す。F1 F0-1)
+MACHINE_KEYS = ("engine", "device", "llmModel")   # status の machine 欄に出すこの PC の設定(flow/machine.py)
+GPU_FUNCS = ("info", "detect", "probe", "get")    # ytt/gpuinfo(F1 の F0-2)の GPU を調べる関数の名前の候補(先にある物を使う)
+
+
+class SpecVersionError(ValueError):
+    """submit の封筒の束の版(specVersion)がこの ② と違う(送る側か ② を新しくする)= 入口は 400 spec_version"""
+
+
+class BadSpecError(ValueError):
+    """submit の束に知らない節・項目・合わない値がある = 入口は 400 bad_spec"""
+
+
+def check_spec(envelope, spec):
+    """submit の前に束の版と形を確かめる(F1 F0-1。アプリが「更新してください」と出せるように、ほかの理由と分ける)。
+    版の違い -> SpecVersionError・束の知らない項目・合わない値 -> BadSpecError。封筒そのものの形は Run.from_envelope が確かめる"""
+    if isinstance(envelope, dict) and "specVersion" in envelope:
+        ver = envelope["specVersion"]
+        if ver != _envelope.SPEC_VERSION or isinstance(ver, bool):
+            raise SpecVersionError("知らない束の版です: %r(この ② は %d。送る側か ② を新しくしてください)" % (ver, _envelope.SPEC_VERSION))
+    try:
+        _spec.validate(_spec.merge(spec))
+    except ValueError as e:
+        raise BadSpecError(str(e))
+
+
+def disk_blocked(case_root, min_gb, usage=None):
+    """空き容量の下限: case_root(まだ無ければある所まで上へ)のドライブの空きが min_gb(GB)より少なければ {"reason": "disk", "freeGB", "minGB"}、
+    足りていれば・測れなければ・下限が 0 以下なら None(測れないときは止めない = 止める側に倒すと何も流れなくなる)"""
+    if not _schemas.is_num(min_gb) or min_gb <= 0 or not case_root:
+        return None
+    try:
+        free = int((usage or fsio.disk_space)(case_root)[0])
+    except (OSError, ValueError, TypeError):
+        return None
+    if free >= min_gb * GB:
+        return None
+    return {"reason": "disk", "freeGB": round(free / GB, 1), "minGB": min_gb}
+
+
+def gpu_info():
+    """GPU の情報(ytt/gpuinfo。F1 の F0-2 が作る)-> {name, vramGB, ...} か None(まだ無い・読めない・調べに失敗)"""
+    try:
+        from ytt import gpuinfo   # 遅い import(無ければ None。F0-2 の前でも動く)
+    except ImportError:
+        return None
+    fn = next((getattr(gpuinfo, n) for n in GPU_FUNCS if callable(getattr(gpuinfo, n, None))), None)
+    try:
+        got = fn() if fn else None
+    except Exception:   # noqa: BLE001  (GPU を調べられなくても status は返す)
+        return None
+    return dict(got) if isinstance(got, dict) else None
 
 
 def busy_reason(active, same, what=""):
@@ -165,6 +218,10 @@ class Queue(run_mod.Runner):
         self.runs = []
         self.live_hook = None   # ライブの封筒の受け口(set_live_hook)
         self.thread = None
+        self.blocked = None     # 空き容量が下限を切って次の実行を始めていない理由(disk_blocked の形。F1 F0-1)
+        self._gpu_lock = threading.Lock()
+        self._gpu_thread = None   # GPU を調べる糸(status の machine.gpu。初めて聞かれたときに 1 回)
+        self._gpu_value = None
         restored = self._restore_active()   # 前の起動で待ち・実行中だった実行(M5)
         if restored:
             with self.cv:
@@ -279,6 +336,7 @@ class Queue(run_mod.Runner):
         配信者: 封筒に無ければ(legacy.streamer が null)束の hints.people の先頭の名前を照らし合わせた名前(字幕の色。ytt/colors.resolve =
         友人の受付と同じ。合わなければ決めない)。決まらなければ実行中に決める(入口は hook の _auto_streamer = チャンネル名などから)。
         封筒・束の形が違う・同じ入力(配信・文書・動画)か同じ id が待ち・実行中・待ちが多すぎれば理由つきの ValueError"""
+        check_spec(envelope, spec)   # 版の違い・束の形を先に(SpecVersionError・BadSpecError。どちらも ValueError)
         if isinstance(envelope, dict) and envelope.get("kind") == "live":
             return self._submit_live(envelope, spec)
         run = Run.from_envelope(envelope, spec)
@@ -478,7 +536,36 @@ class Queue(run_mod.Runner):
         queued, running = n["queued"], n["running"]
         live_idle = all(v == 0 for k, v in live.items() if k != "error") and "error" not in live
         return {"queued": queued, "running": running, "done": len(runs) - queued - running, "idle": queued + running == 0 and live_idle,
-                "closed": closed, "live": live, "runs": runs}
+                "closed": closed, "live": live, "runs": runs, "blocked": self.blocked, "machine": self.machine_status()}
+
+    def machine_status(self):
+        """status の machine 欄: {engine, device, llmModel, gpu}(この PC の設定 flow/machine.py と GPU の情報。F1 F0-1)。
+        設定を読めなければ値は None。gpu は初めて聞かれたときに裏で 1 回調べ、済むまで・調べられなければ None"""
+        try:
+            m = _machine.load(env=self.env)
+        except (OSError, ValueError):
+            m = {}
+        out = {k: m.get(k) for k in MACHINE_KEYS}
+        with self._gpu_lock:
+            if self._gpu_thread is None:
+                self._gpu_thread = threading.Thread(target=self._probe_gpu, name="gpuinfo", daemon=True)
+                self._gpu_thread.start()
+            out["gpu"] = self._gpu_value
+        return out
+
+    def _probe_gpu(self):
+        got = gpu_info()
+        with self._gpu_lock:
+            self._gpu_value = got
+
+    def disk_check(self):
+        """次の実行を始める前の空き容量の下限(machine の caseRoot のドライブと diskMinGB)-> disk_blocked の形か None。
+        設定を読めなければ None(止めない)。テストは差し替える"""
+        try:
+            m = _machine.load(env=self.env)
+        except (OSError, ValueError):
+            return None
+        return disk_blocked(m.get("caseRoot"), m.get("diskMinGB"))
 
     def snapshot(self):
         """runs = メモリの実行(新しい順)・past = 配信・文書ごとの前回の結果のうちメモリに無いもの(記録のファイルから。新しい順・PAST_MAX 件まで)"""
@@ -600,10 +687,24 @@ class Queue(run_mod.Runner):
         while True:
             with self.cv:
                 while not self.closed and not any(r.state == "queued" for r in self.runs):
+                    self.blocked = None   # 待ちが無い = 止めている物も無い
                     self.cv.wait()
                 if self.closed:
                     return
-                run = next(r for r in self.runs if r.state == "queued")
+            blocked = self.disk_check()   # 空き容量の下限(F1 の決めたこと 7・F0-1。録画の開始と同じ数)。ファイルを読むので self.cv の外で
+            with self.cv:
+                changed = (blocked is None) != (self.blocked is None)
+                self.blocked = blocked
+                if blocked is not None:   # 始めない(待ちのまま)。間をおいて・submit・中止・終了で見直す
+                    if changed:
+                        self.log("まとめて実行: 空き容量が %s GB(下限 %s GB)なので、新しい実行を始めずに待ちます" % (blocked["freeGB"], blocked["minGB"]))
+                    self.cv.wait(DISK_RETRY)
+                    continue
+                if self.closed:
+                    return
+                run = next((r for r in self.runs if r.state == "queued"), None)
+                if run is None:   # 見ている間に中止された
+                    continue
                 run.state, run.message = "running", ""
             self._save_active()   # 実行中になった(M5)
             try:
