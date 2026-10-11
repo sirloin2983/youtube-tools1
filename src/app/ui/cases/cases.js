@@ -87,13 +87,19 @@
   }
 
   /* ---- URL ---- */
+  /* 引数なしで開いたとき(ヘッダーの「案件」= RS8 C4)は、前に開いていた案件を開く(この PC のこのブラウザだけの覚え。読めなければ空の状態)*/
+  var LAST_KEY = 'ytt-cases-last';
+  function lastCase() { try { var v = localStorage.getItem(LAST_KEY) || ''; return /^[\w:.-]{1,80}$/.test(v) ? v : ''; } catch (e) { return ''; } }
+  function rememberCase(id) { try { if (id) localStorage.setItem(LAST_KEY, id); else localStorage.removeItem(LAST_KEY); } catch (e) { /* 覚えられなくてよい */ } }
   function readUrl() {
     var q = new URLSearchParams(location.search), h = location.hash.replace(/^#/, '');
-    return { c: q.get('c') || '', d: q.get('d') || '', m: q.get('m') || '', tab: HASH_ALIAS[h] || (TABS[h] ? h : '') };
+    var w = { c: q.get('c') || '', d: q.get('d') || '', m: q.get('m') || '', tab: HASH_ALIAS[h] || (TABS[h] ? h : '') };
+    if (!w.c && !w.d) { w.c = lastCase(); w.last = !!w.c; }
+    return w;
   }
   function writeUrl() {
     var q = new URLSearchParams(), it = curItem();
-    if (S.kase) q.set('c', S.kase.id);
+    if (S.kase) { q.set('c', S.kase.id); rememberCase(S.kase.id); }
     if (it && it.docId) q.set('d', it.docId);
     else if (it && it.markId) q.set('m', it.markId);
     var qs = q.toString(), url = location.pathname + (qs ? '?' + qs : '') + (S.tab ? '#' + S.tab : '');
@@ -380,6 +386,12 @@
       S.loading = false;
       S.data = j;
       var c = pickCase(allCases(j), w);
+      if (!c && w.last) {   // 覚えていた案件が無くなった = 引数なしで開いたのと同じ(覚えを捨てる)
+        rememberCase(''); S.want = { c: '', d: '', m: '', tab: '' };
+        S.kase = null;
+        renderHead();
+        return showEmpty(emptyBox('案件が選ばれていません', 'ホームの案件の一覧から開くと、ここに候補と切り抜きが出ます。', HOME_BTN));
+      }
       if (!c) {
         S.kase = null;
         renderHead();
