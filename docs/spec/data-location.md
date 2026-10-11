@@ -76,6 +76,12 @@
 - id: `作業用\.studio-id`(持ち主の印)があればそれ -> 配信なら videoId -> 動画ファイルならパス(正規化)の sha1 の先頭 16 桁に `f-` を付けた物。`.studio-id` は残す(消さない)
 - 読み手: 入口の案件の一覧(`manage/cases` の snapshot)が各案件に `caseFile {id, createdAt}` として載せる(読むだけ。無い既存の案件は今までどおり・後付けでは書かない)。ファイルの索引は結果の束の `resultPath`
 
+## 案件の候補と採用 `候補.json`・`採用.json`(RS8 B3-4b・2026-10-11。書く持ち主はスタジオの `src/human/review/store.py`(分け方・書きは `src/flow/casebook.py`・読み・重ね方は `src/ytt/casefiles.py`)。決定 3-37 の (r8j)〜(r8q))
+- 置き場所: `<案件>\作業用\候補.json`(① の機械の候補・解析・長さ)と `<案件>\作業用\採用.json`(③ の人の採用・消した候補の印・書き出しの結果(path は案件の根からの相対)・配信の題など。1 つの案件に配信 2 本(録画 + アーカイブ)を `sources` で持つ)。採用.json だけ `.bak` 1 世代(読めない物は `.broken-<日時>` へ退ける)
+- いつ: スタジオで**初めて書き出したとき**(それまで書き出したマークが無い配信。案件の根は `casebook.case_of` = 書き出したマークの path の親で `.studio-id` の持ち主が一致・書き出し先の下・固定ディスク)。スイッチなし。それより前からある配信(書き出したマークがある物)は B3-8 の一括の移行(`machine.json` の `markMove`)まで data.json のまま
+- スタジオの `data.json` には索引の行 `{id, kind, title, channel, live?, rev, createdAt, updatedAt, case}` だけが残る(マーク・解析は案件の 2 つのファイルが正。`rev` は 採用.json が正・data.json は写し)。読む側(スタジオの API・`ytt/studiodata`)は 2 つを重ねて今までと同じ形で返す。案件が見えない(ドライブが外れた・フォルダを動かした)ときは一覧に `caseUnseen`・読み書きは 503(`case_unseen`)
+- 写し戻し: 2 つとも `作業用\*.json` なのでバックアップの `cases\<題名>\作業用\` に入り、`backup.py --restore` で `<outDir>\<題名>\作業用\` へ戻る(既にあるファイルは上書きしない)。data.json の索引の行と組で戻すこと(索引の行だけ戻ると一覧は `caseUnseen`)
+
 ## 文書を案件の 作業用 へ移す(RS8 B2-3・2026-10-11。持ち主は `src/manage/cases/docmove.py`。決定は `plan/rs8-cases-ui.md` の「B-2 の移し方」)
 - スイッチ: この PC の設定(`flow/machine.py`。`machine.json` の `docMove`・環境変数 `YTT_MACHINE_DOC_MOVE`)が **true のときだけ**自動で移す。**既定 false**(移す規則をユーザーが見てからオンにする)。false のあいだは「調子」に「文書の移行は止めています(machine.json の docMove)」。下のコマンドはスイッチに関係なく使える
 - いつ: 入口の起動のとき 1 回(`.flow.lock` を取った後・待ち受けの前 = CLI・画面の書き込みとぶつからない)。**バックアップが 1 回済んでから**(`app\backup-state.json` の ok。済んでいなければ移さず、ログと「調子」の 1 行)。作業データがツールの中(inplace)・画面なしでバックアップの記録が無いときは移さない。1 回の起動で 20 秒か 50 本まで(続きは次の起動)

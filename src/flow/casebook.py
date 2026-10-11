@@ -3,7 +3,7 @@
 
 **読む側・形・重ね方・ロックは ytt/casefiles(B3-4a で下ろした。ytt/studiodata が data.json の行の case から読むため)。ここは分ける split・案件の引き方 case_of・書く write**。
 スタジオの配信 1 本(data.json の videos の 1 つの形)を、案件のフォルダの 2 つのファイルに分けて持つための読み書きと、分ける・重ねるの関数。
-読む側は ytt/casefiles(B3-4a)・保存の経路に入れるのは B3-4b。
+読む側は ytt/casefiles(B3-4a)・保存の経路(スタジオの human/review/store.Store)に入ったのは B3-4b(初めて書き出したときに案件にする)。
 
 - `<案件>/作業用/候補.json`(CANDIDATES_SCHEMA。① の機械の候補): {schema, sources: {<スタジオの id>: {analysis, duration, auto: [手つかずの自動マーク]}}}
 - `<案件>/作業用/採用.json`(ADOPTIONS_SCHEMA。③ の人の採用): {schema, sources: {<スタジオの id>: {kind, title, channel, fileName, path, rev,
@@ -172,3 +172,5 @@ def write(root, candidates=None, adoptions=None):
         except OSError as e:
             log.warning("案件のファイルを書けませんでした: %s %s", root, e)
             raise _errors.ApiError("save_failed", "案件のファイルを保存できませんでした(ディスクの空きなど)", 500, {"dir": root})
+        finally:
+            _cf.forget(root)   # 読み口のキャッシュ(更新日時と大きさ)を捨てる = 同じ刻みで同じ大きさに書いても古い中身を返さない

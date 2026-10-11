@@ -228,6 +228,14 @@ def read_doc(path, parse):
 
 
 
+def forget(root):
+    """この案件のファイルの覚えた中身を捨てる(書く側 flow/casebook.write が書いたあと lock(root) の中で呼ぶ。
+    同じ時刻の刻みで同じ大きさに書き直したとき、更新日時と大きさのキャッシュが古い中身を返し続けないため)"""
+    folder = os.path.dirname(work_path(root, CANDIDATES_NAME))
+    _cand_cache.prune((), folder)
+    _adopt_cache.prune((), folder)
+
+
 def _read_doc_cached(path, parse, cache):
     """_read_doc の StampCache つき(更新日時と大きさが同じなら読み直さない)。無いファイルは (None, False)"""
     if not os.path.exists(path):

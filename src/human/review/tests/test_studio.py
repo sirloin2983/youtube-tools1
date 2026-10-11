@@ -14,6 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
 from human.review import store  # noqa: E402
 from ytt import yturl  # noqa: E402
 from ytt import studio_env  # noqa: E402
+from ytt import casefiles, names, schemas  # noqa: E402
+from flow import casebook  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
@@ -941,6 +943,179 @@ class TestCheckLive(unittest.TestCase):
         for x in (None, "x", [], {}):
             with self.assertRaises(ApiError):
                 yturl.check_live(x)
+
+
+class TestCaseFiles(Base):
+    """案件にした配信(RS8 B3-4b): 初めて書き出したら案件の 候補.json・採用.json が正になり、data.json は索引の行だけを持つ"""
+    ARC = {"kind": "youtube", "videoId": LIVE["videoId"], "name": LIVE["videoId"]}   # 録画のあとのアーカイブ(同じ案件に入る)
+
+    def setUp(self):
+        super().setUp()
+        self.out = os.path.join(self.tmp, "out")
+        self.root = os.path.join(self.out, "題")
+        os.makedirs(os.path.join(self.root, schemas.WORK_DIR))
+        for p in (patch.object(studio_env, "get_out_dir", return_value=self.out),
+                  patch.object(casebook._fsio, "is_fixed_drive", return_value=True)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def export(self, vid, mid, name):
+        m = next(x for x in self.st.get(vid)[0]["marks"] if x["id"] == mid)
+        path = os.path.join(self.root, name)
+        with open(path, "wb") as f:
+            f.write(b"x")
+        return self.st.mark_exported(vid, mid, "題/" + name, m["start"], m["end"], path)
+
+    def row(self, vid):
+        with open(self.path, encoding="utf-8") as f:
+            return json.load(f)["videos"][vid]
+
+    def put_marks(self, vid, marks, title="t"):
+        return self.st.put_video(vid, title, marks, self.st.get(vid)[0]["rev"])
+
+    def ids(self, vid):
+        return [m["id"] for m in self.st.get(vid)[0]["marks"]]
+
+    def yt_case(self):
+        """YT を案件にする(自動の候補 2 つ + 採用 1 つを書き出す)"""
+        names.write_owner(self.root, YT["videoId"])
+        self.auto((10, 40), (100, 130))
+        marks = self.marks() + [{"id": "m1", "start": 200, "end": 230, "status": "adopted"}]
+        self.put_marks(YT["videoId"], marks)
+        self.assertTrue(self.export(YT["videoId"], "m1", "01.mp4"))
+
+    def test_first_export_makes_case(self):
+        self.yt_case()
+        vid = YT["videoId"]
+        row = self.row(vid)
+        self.assertEqual(row["case"], os.path.normpath(self.root))
+        self.assertNotIn("marks", row)
+        self.assertNotIn("analysis", row)
+        v = self.st.get(vid)[0]
+        m1 = next(m for m in v["marks"] if m["id"] == "m1")
+        self.assertEqual((m1["status"], m1["file"]), ("exported", "題/01.mp4"))
+        self.assertEqual(row["rev"], v["rev"])
+        cands, adopts = casefiles.read(self.root)
+        self.assertEqual(len(cands["sources"][vid]["auto"]), 2)
+        self.assertEqual([m["id"] for m in adopts["marks"]], ["m1"])
+        self.assertEqual(adopts["marks"][0]["path"], "01.mp4")   # 根からの相対
+        self.assertEqual(store.Store(self.path).get(vid)[0], v)   # 起動し直しても同じ
+        listed = next(x for x in self.st.list() if x["id"] == vid)
+        self.assertEqual((listed["marks"], listed["exported"], listed["candidates"]), (3, 1, 2))
+        # 人の保存は 候補.json を書き換えず、消した候補は 採用.json の消した印に
+        cp = casefiles.work_path(self.root, casefiles.CANDIDATES_NAME)
+        with open(cp, "rb") as f:
+            before = f.read()
+        gone = v["marks"][0]
+        self.put_marks(vid, [m for m in v["marks"] if m["id"] != gone["id"]])
+        with open(cp, "rb") as f:
+            self.assertEqual(f.read(), before)
+        self.assertEqual([r["id"] for r in casefiles.read(self.root)[1]["rejected"]], [gone["id"]])
+        # 再解析(同じ候補)でも消した候補は出ない・書き出したマークは残る
+        self.auto((10, 40), (100, 130))
+        self.assertEqual(len(self.marks()), 2)
+        self.assertNotIn(gone["start"], [m["start"] for m in self.marks()])
+        self.assertEqual(next(m for m in self.marks() if m["id"] == "m1")["status"], "exported")
+        self.assertNotIn("marks", self.row(vid))
+
+    def test_old_video_with_exports_stays_in_data_json(self):
+        """それまでに書き出したマークがある配信は案件にしない(既存は B3-8 の移行まで data.json のまま)"""
+        names.write_owner(self.root, YT["videoId"])
+        self.put_marks(YT["videoId"], [{"id": "m1", "start": 1, "end": 9, "status": "adopted"}, {"id": "m2", "start": 20, "end": 30, "status": "adopted"}])
+        with patch.object(casebook, "case_of", return_value=None):
+            self.export(YT["videoId"], "m1", "01.mp4")
+        self.export(YT["videoId"], "m2", "02.mp4")
+        self.assertNotIn("case", self.row(YT["videoId"]))
+        self.assertEqual(len(self.row(YT["videoId"])["marks"]), 2)
+
+    def test_recording_and_archive_share_case(self):
+        """録画 + アーカイブの 2 本が同じ案件で交互に保存しても片方が消えない"""
+        names.write_owner(self.root, LIVE["videoId"])
+        rec, arc = LIVE["recording"], self.ARC["videoId"]
+        self.st.ensure(LIVE_SRC, "配信")
+        self.put_marks(rec, [{"id": "l1", "start": 5, "end": 20, "status": "adopted"}])
+        self.assertTrue(self.export(rec, "l1", "01.mp4"))
+        self.st.ensure(self.ARC, "アーカイブ")
+        self.put_marks(arc, [{"id": "y1", "start": 50, "end": 80, "status": "adopted"}, {"id": "y2", "start": 90, "end": 100}])
+        self.assertTrue(self.export(arc, "y1", "02.mp4"))
+        self.assertEqual(self.row(rec)["case"], self.row(arc)["case"])
+        for i in range(3):   # 交互に保存する
+            ms = self.st.get(rec)[0]["marks"] + [{"id": "l%d" % (i + 2), "start": 100 + i * 50, "end": 120 + i * 50}]
+            self.put_marks(rec, ms, "配信")
+            ms = self.st.get(arc)[0]["marks"]
+            ms[-1] = dict(ms[-1], label="直した%d" % i)
+            self.put_marks(arc, ms, "アーカイブ")
+        self.assertEqual(self.ids(rec), ["l1", "l2", "l3", "l4"])
+        self.assertEqual(self.ids(arc), ["y1", "y2"])
+        self.assertEqual(self.st.get(arc)[0]["marks"][1]["label"], "直した2")
+        adopts = casefiles.read(self.root)[1]
+        self.assertEqual(set(adopts["sources"]), {rec, arc})
+        st2 = store.Store(self.path)
+        self.assertEqual(st2.get(rec)[0], self.st.get(rec)[0])
+        self.assertEqual(st2.get(arc)[0], self.st.get(arc)[0])
+
+    def test_if_no_marks_uses_merged_marks(self):
+        """ライブの片付けの ifNoMarks は重ねたマークで決める(data.json の索引の行にはマークが無い)。削除は索引の行だけ"""
+        names.write_owner(self.root, LIVE["videoId"])
+        rec = LIVE["recording"]
+        self.st.ensure(LIVE_SRC, "配信")
+        self.put_marks(rec, [{"id": "l1", "start": 5, "end": 20, "status": "adopted"}])
+        self.export(rec, "l1", "01.mp4")
+        self.assertNotIn("marks", self.row(rec))
+        self.assertEqual([m["status"] for m in self.st.get(rec)[0]["marks"]], ["exported"])   # GET /api/video は重ねた形
+        with self.assertRaises(ApiError) as c:
+            self.st.delete(rec, if_no_marks=True)
+        self.assertEqual((c.exception.status, c.exception.code), (409, "has_marks"))
+        self.assertTrue(self.st.delete(rec))
+        self.assertFalse(self.st.has(rec))
+        self.assertIn(rec, casefiles.read(self.root)[1]["sources"])   # 案件のファイルは触らない
+
+    def test_unseen_case(self):
+        """案件が見えない: 一覧の行は出す・読み書きは 503・解析の反映とコラボの転写はログだけで反映しない"""
+        self.yt_case()
+        vid = YT["videoId"]
+        before = self.row(vid)
+        moved = self.root + "_動かした"
+        os.rename(self.root, moved)
+        listed = next(x for x in self.st.list() if x["id"] == vid)
+        self.assertTrue(listed["caseUnseen"])
+        self.assertEqual(listed["marks"], 0)
+        for call in (lambda: self.st.get(vid), lambda: self.st.put_video(vid, "t", []), lambda: self.st.adopt_marks(vid, [[1, 9]], 1),
+                     lambda: self.st.mark_exported(vid, "m1", "題/01.mp4", 200, 230, os.path.join(self.root, "01.mp4")),
+                     lambda: self.st.delete(vid, if_no_marks=True), lambda: self.st.internal(vid)):
+            with self.assertRaises(ApiError) as c:
+                call()
+            self.assertEqual((c.exception.status, c.exception.code), (503, casefiles.UNSEEN_CODE))
+        self.assertIsNone(self.st.replace_auto(vid, [cand(300, 330)], {"spec": {}}, 600, {}))
+        self.st._add_collab_candidate(vid, YT2["videoId"], "mx", 400, 420)   # 上げない
+        self.assertIsNone(self.st.media_path(vid))
+        self.assertEqual(self.row(vid), before)
+        self.assertFalse(os.path.exists(self.root))   # 見えない置き場所にフォルダを作らない
+        os.rename(moved, self.root)
+        self.assertEqual(len(self.marks()), 3)
+
+    def test_case_written_but_data_json_failed_heals_on_next_export(self):
+        """① 案件のファイルを書いたあと ② data.json が落ちた: data.json は全部の形のまま・次の書き出しで同じ根に上書きされて直る"""
+        names.write_owner(self.root, YT["videoId"])
+        vid = YT["videoId"]
+        self.put_marks(vid, [{"id": "m1", "start": 1, "end": 9, "status": "adopted"}, {"id": "m2", "start": 20, "end": 30, "status": "adopted"}])
+        real = store._fsio.atomic_write
+
+        def fail_data_json(p, *a, **k):
+            if os.path.abspath(p) == os.path.abspath(self.path):
+                raise OSError("disk full")
+            return real(p, *a, **k)
+        with patch.object(store._fsio, "atomic_write", side_effect=fail_data_json):
+            with self.assertRaises(ApiError) as c:
+                self.export(vid, "m1", "01.mp4")
+        self.assertEqual(c.exception.code, "save_failed")
+        self.assertIn(vid, casefiles.read(self.root)[1]["sources"])   # ① は書けた
+        self.assertNotIn("case", self.row(vid))                       # ② は前のまま(全部の形)
+        self.assertEqual([m["status"] for m in self.marks()], ["adopted", "adopted"])
+        self.assertTrue(self.export(vid, "m2", "02.mp4"))
+        self.assertEqual(self.row(vid)["case"], os.path.normpath(self.root))
+        self.assertEqual([m["status"] for m in self.marks()], ["adopted", "exported"])
+        self.assertEqual(sorted(m["id"] for m in casefiles.read(self.root)[1]["marks"]), ["m1", "m2"])   # 重ならない
 
 
 if __name__ == "__main__":
