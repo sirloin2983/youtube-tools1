@@ -138,6 +138,33 @@ class TestTranscribe(_Env):
         self.assertEqual(self.read("abc123def456.json")["segments"][0]["text"], "新しい")   # off は層を見ずに文書を書く
         self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)   # 機械の層は書かない
 
+    def test_machine_layer_primary(self):
+        """層が正(primary。RS8 O2-3): 人の層が無ければ 機械の層 → 写し(composedFrom = 機械の層の rev)。人の層があれば機械の層だけ。
+        新しい文書(folder)は 写し → 機械の層。機械の層を書けなければ写しに版を付けない"""
+        from ytt import schemas
+        _job, clip = self.clip()
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"}):
+            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+            self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 1, "hum": None})
+            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+            self.assertEqual(self.read("abc123def456.json")[schemas.COMPOSED_FROM], {"mach": 2, "hum": None})
+            self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)
+            with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
+                json.dump({"schema": schemas.HUM_SCHEMA, "rev": 1, "rows": []}, fp)
+            before = self.read("abc123def456.json")
+            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+            self.assertEqual(self.read("abc123def456.json"), before)   # 写しは ③ が組み立て直す
+            self.assertEqual(self.read("abc123def456.mach.json")["rev"], 3)
+            wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
+            os.makedirs(os.path.dirname(wd))
+            path = tx.write_machine_doc("bbb123def456", clip["fields"], SPEC, wd)
+            with open(path, encoding="utf-8") as fp:
+                self.assertEqual(json.load(fp)[schemas.COMPOSED_FROM], {"mach": 1, "hum": None})
+            self.assertTrue(os.path.isfile(os.path.join(wd, "bbb123def456.mach.json")))
+            with mock.patch.object(tx._yschemas, "make_mach", side_effect=OSError("disk")), self.assertLogs("tx", level="WARNING"):
+                tx.write_machine_doc("ccc123def456", clip["fields"], SPEC)
+            self.assertNotIn(schemas.COMPOSED_FROM, self.read("ccc123def456.json"))
+
     def test_machine_layer_failure_keeps_doc(self):
         _job, clip = self.clip()
         with mock.patch.object(tx._yschemas, "make_mach", side_effect=OSError("disk")), self.assertLogs("tx", level="WARNING"):

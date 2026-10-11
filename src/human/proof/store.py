@@ -77,10 +77,11 @@ def _read_layer(tid, suffix, schema):
     return d if d is not None and d.get("schema") == schema else None
 
 
-def _shadow_prepare(tid, doc, why, given):
+def _shadow_prepare(tid, doc, why, given, hum=None):
     """影のモード(RS8 O2-2)の下ごしらえ = 書く前の文書と層を読んで、新しい機械の層・人の層と、組み立てた文書が doc と合うかを決める(ファイルは書かない)。
-    -> {"mach", "hum", "writeMach", "reasons"}。機械の層が無い文書は、操作の前の文書(無ければ doc)から layers.mach_from_doc で作る(移行もここで)。
-    人の操作は機械の層をそのまま・機械の操作は機械の層を進めてから(FULL_WHYS は文書の行・ほかは layers.advance_mach)人の層を作る"""
+    -> {"mach", "hum", "writeMach", "reasons", "copy"}。機械の層が無い文書は、操作の前の文書(無ければ doc)から layers.mach_from_doc で作る(移行もここで)。
+    人の操作は機械の層をそのまま・機械の操作は機械の層を進めてから(FULL_WHYS は文書の行・ほかは layers.advance_mach)人の層を作る。
+    hum = 呼び手が決めた人の層(層が正のときだけ。O2-3): 差分を取らずにそれを使い(rev は前の人の層の次)、copy = 組み立てた文書。渡さなければ copy は None"""
     prev_mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
     prev_hum = _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA)
     rev = (_yschemas.plain_int(prev_mach.get("rev")) or 0) + 1 if prev_mach else 1
@@ -95,8 +96,11 @@ def _shadow_prepare(tid, doc, why, given):
         if why in MACHINE_WHYS and old is not None:
             mach, changed = _layers.advance_mach(mach, old, doc, speakers=why in DIAR_WHYS)
             moved = moved or changed
+    if hum is not None:
+        hum = dict(hum, schema=_yschemas.HUM_SCHEMA, rev=(_yschemas.plain_int((prev_hum or {}).get("rev")) or 0) + 1)
+        return {"mach": mach, "hum": hum, "writeMach": moved, "reasons": [], "copy": _layers.compose(mach, hum, _layers.split_meta(doc))}
     hum, reasons = _layers.roundtrip(mach, doc, prev_hum, loose=True)   # 行の話者・印の欄が無いのと空は同じ(読み手は空として読む)
-    return {"mach": mach, "hum": hum, "writeMach": moved, "reasons": reasons}
+    return {"mach": mach, "hum": hum, "writeMach": moved, "reasons": reasons, "copy": None}
 
 
 def _shadow_write(tid, why, sh):
@@ -104,6 +108,8 @@ def _shadow_write(tid, why, sh):
     if sh["reasons"]:
         _txbase.log.warning("影の層の組み立てが文書と合いません %s why=%s: %s", tid, why,
                             "・".join("%s(%s)" % (_layers.REASONS.get(c, c), str(x)[:40]) for c, x in sh["reasons"]))
+    for sfx in (_yschemas.HUM_SUFFIX, _yschemas.MACH_SUFFIX):   # 層の rev の控え(fresh_copy)を捨てる
+        _layer_rev_cache.pop((tid, sfx), None)
     _fsio.write_json(_doc_file(tid, _yschemas.HUM_SUFFIX, for_write=True), sh["hum"], indent=1)
     if sh["writeMach"]:
         _fsio.write_json(_doc_file(tid, _yschemas.MACH_SUFFIX, for_write=True), sh["mach"], indent=1)
@@ -113,14 +119,18 @@ def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
     """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。文書は write_doc と同じ書き方で書き、ログに 1 行残す。
     **影のモード(RS8 O2-2。スイッチ TRANSCRIBE_LAYERS。既定 shadow・off で書かない)**: 文書を書いたあと、横に人の層 <id>.hum.json → 機械の層 <id>.mach.json を書き、
     layers.compose(機械, 人) が文書と合わなければ警告をログに。**正は文書のまま**(読み手は文書を読む)。影の層を作れない・書けないときもログだけで保存は成功のまま。
-    文書を先に書くのは、新しい文書の置き場所(folder = 案件の 作業用)が決まってから層を同じ所に置くため・文書が書けなかったときに層だけ進まないため
-    (O2-3 で層を正にするときは 人の層 → 機械の層 → 組み立て済みの写し の順に変える)。
-    mach = 機械の層(呼び手が機械の行を知っているとき。今は whole の新しい文書だけ = 引き継いだ人の行を機械に入れない)。hum は O2-3 から。
+    文書を先に書くのは、新しい文書の置き場所(folder = 案件の 作業用)が決まってから層を同じ所に置くため・文書が書けなかったときに層だけ進まないため。
+    **層が正(TRANSCRIBE_LAYERS=primary。RS8 O2-3)**: _commit_primary(人の層 → 機械の層 → 組み立て済みの写し)。shadow・off では文書から composedFrom を外す(文書が正)。
+    mach = 機械の層(呼び手が機械の行を知っているとき。whole の新しい文書 = 引き継いだ人の行を機械に入れない・再認識と話者の判別の層が正の道 = O2-5)。
+    hum = 人の層(層が正のときだけ。差分を取らずにそれを使い、写しは組み立てた文書。3 択の口・O2-5)。-> 書いた文書(層が正で hum を渡したときは組み立てた写し)。
     呼び手の _save_lock・履歴・バックアップはこれまでどおり呼び手の側"""
     if why not in HUMAN_WHYS and why not in MACHINE_WHYS:
         raise ValueError("commit: unknown why " + repr(why))
-    if hum is not None:   # 人の層を呼び手が渡すのは O2-3(層が正になってから)
-        raise NotImplementedError("commit: hum は O2-3 から")
+    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:
+        return _commit_primary(tid, doc, why, mach, hum, folder)
+    if hum is not None:   # 人の層を呼び手が渡すのは層が正のときだけ
+        raise ValueError("commit: hum は層が正のとき(TRANSCRIBE_LAYERS=primary)だけ")
+    doc.pop(_yschemas.COMPOSED_FROM, None)   # 文書が正: 組み立てた版の印は持たない(層が正に戻したとき、古い印で組み立て直さない)
     sh = None
     if _txbase.layers_on():
         try:   # 書く前の文書と層を読む(文書を書いたあとでは前の文書が読めない)
@@ -134,6 +144,109 @@ def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
             _shadow_write(tid, why, sh)
         except Exception as e:   # 書けなくても保存は成功のまま(ログだけ)
             _txbase.log.warning("影の層を書けませんでした %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
+    return doc
+
+
+def _commit_primary(tid, doc, why, given_mach, given_hum, folder):
+    """層が正(RS8 O2-3。決定 3-37 の (r8t))の commit。書く順は 人の層 → 機械の層 → 組み立て済みの写し(写しの欄 composedFrom = 組み立てた層の rev)。
+    新しい文書(folder)は置き場所が決まってから層を同じ所に置くので 写し → 層(層が無い間の写しはそのまま読まれる = 同じ中身)。
+    写し = hum を渡したときは組み立てた文書・渡さないときは doc(差分の往復が合わなければ警告して doc のまま = 人の保存を失わない)。
+    守り: 層を作れない・書けないときは composedFrom の無い写しを書く(= 開いても組み立て直さない・次の commit が写しから層を作り直す)"""
+    try:
+        sh = _shadow_prepare(tid, doc, why, given_mach, given_hum)
+    except Exception as e:
+        if given_hum is not None:   # 呼び手の人の層を組み立てられない = その操作は書かない
+            raise
+        _txbase.log.warning("層を作れませんでした(写しだけ書きます) %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
+        sh = None
+    copy = sh["copy"] if sh and sh["copy"] is not None else doc
+    copy.pop(_yschemas.COMPOSED_FROM, None)
+    by = "human" if why in HUMAN_WHYS else "machine"
+    if sh is None:
+        write_doc(tid, copy, folder)
+        _txbase.log.info("commit %s why=%s by=%s layers=none", tid, why, by)
+        return copy
+    if sh["reasons"]:
+        _txbase.log.warning("層の組み立てが文書と合いません(写しは保存した文書のまま) %s why=%s: %s", tid, why,
+                            "・".join("%s(%s)" % (_layers.REASONS.get(c, c), str(x)[:40]) for c, x in sh["reasons"]))
+    stamp = _yschemas.composed_from(sh["mach"].get("rev"), sh["hum"].get("rev"))
+    if folder:   # 新しい文書: 写し → 層
+        copy[_yschemas.COMPOSED_FROM] = stamp
+        write_doc(tid, copy, folder)
+    try:
+        _shadow_write(tid, why, dict(sh, reasons=[]))
+    except Exception as e:
+        _txbase.log.warning("層を書けませんでした(写しから版を外します) %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
+        copy.pop(_yschemas.COMPOSED_FROM, None)
+        write_doc(tid, copy)
+        _txbase.log.info("commit %s why=%s by=%s layers=failed", tid, why, by)
+        return copy
+    if not folder:
+        copy[_yschemas.COMPOSED_FROM] = stamp
+        write_doc(tid, copy)
+    _txbase.log.info("commit %s why=%s by=%s layers=primary", tid, why, by)
+    return copy
+
+
+# ---------- 層が正のときの読み(RS8 O2-3): 写しが古ければ組み立て直す ----------
+_layer_rev_cache = {}   # (tid, suffix) -> (パスと stamp, rev か _BROKEN)
+_BROKEN = object()
+_compose_lock = threading.Lock()   # 組み立て直しは保存のロック(_save_lock)と別(read_transcript は _save_lock の中からも呼ばれる)
+
+
+def _layer_rev(tid, suffix, schema):
+    """層のファイルの rev -> (有るか, rev)。無ければ (False, None)・読めない・形が違えば (True, _BROKEN)。ファイルの stamp が同じなら前に読んだ値"""
+    path = _doc_file(tid, suffix)
+    st = _fsio.stamp(path)
+    if st is None:
+        return False, None
+    key = (path,) + st
+    hit = _layer_rev_cache.get((tid, suffix))
+    if hit and hit[0] == key:
+        return True, hit[1]
+    d = _read_layer(tid, suffix, schema)
+    rev = _yschemas.plain_int(d.get("rev")) if d is not None else _BROKEN
+    _layer_rev_cache[(tid, suffix)] = (key, rev)
+    return True, rev
+
+
+def fresh_copy(tid, d):
+    """層が正のとき、読んだ写し d が層より古ければ組み立て直して書き、新しい写しを返す(古くなければ d のまま)。
+    古い = 写しに composedFrom があって、今の層の rev と違う(composedFrom の無い写し = 文書が正だったころ・層の書けなかった写しは組み立て直さない)。
+    守り: 機械の層が無い・層が読めない・組み立てられないときは写しのまま読み、ログを出す。行・話者の表が変わったときだけ updatedAt を進める
+    (開いている画面の古い文書で上書きされないよう 409 にする)。書けなくても組み立てた文書を返す"""
+    cf = d.get(_yschemas.COMPOSED_FROM)
+    if not isinstance(cf, dict):
+        return d
+    has_m, mrev = _layer_rev(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
+    has_h, hrev = _layer_rev(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA)
+    if mrev is _BROKEN or hrev is _BROKEN or not has_m:
+        _txbase.log.warning("層が読めないため写しのまま読みます %s(機械の層 %s・人の層 %s)", tid,
+                            "壊れている" if mrev is _BROKEN else "有り" if has_m else "無い", "壊れている" if hrev is _BROKEN else "有り" if has_h else "無い")
+        return d
+    now = _yschemas.composed_from(mrev, hrev)
+    if cf == now:
+        return d
+    with _compose_lock:
+        try:
+            mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
+            hum = _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA) if has_h else None
+            if mach is None or (has_h and hum is None):
+                raise ValueError("層を読み直せません")
+            new = _layers.compose(mach, hum, _layers.split_meta(d))
+            apply_edit_cuts(tid, new)   # 機械の新しい行の「カット済」も編集の内容に合わせる
+        except Exception as e:
+            _txbase.log.warning("組み立て直せないため写しのまま読みます %s: %s %s", tid, e.__class__.__name__, str(e)[:200])
+            return d
+        new[_yschemas.COMPOSED_FROM] = _yschemas.composed_from(mach.get("rev"), (hum or {}).get("rev"))
+        if new.get("segments") != d.get("segments") or new.get("speakers") != d.get("speakers"):
+            new["updatedAt"] = max(_yschemas.now_ms(), (_yschemas.plain_int(d.get("updatedAt")) or 0) + 1)
+        try:
+            write_doc(tid, new)
+            _txbase.log.info("写しを組み立て直しました %s(%s → %s)", tid, cf, new[_yschemas.COMPOSED_FROM])
+        except (OSError, _errors.ApiError) as e:
+            _txbase.log.warning("組み立て直した写しを書けませんでした %s: %s %s", tid, e.__class__.__name__, str(e)[:200])
+        return new
 
 
 def snapshot(tid, force=True):
@@ -374,6 +487,8 @@ def read_transcript(tid):
     d = _load_doc(tx_path(tid))
     if d is None:
         raise _errors.ApiError("broken", "文字起こしファイルを読み込めません", 500)
+    if _txbase.layers_mode() == _txbase.LAYERS_PRIMARY:   # 層が正: 写しが古ければ組み立て直す(RS8 O2-3)
+        d = fresh_copy(tid, d)
     return d
 
 

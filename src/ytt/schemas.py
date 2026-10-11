@@ -130,6 +130,12 @@ HUM_SCHEMA = "youtube-tools-hum/v1"
 MACH_SUFFIX = ".mach.json"
 HUM_SUFFIX = ".hum.json"
 MACH_ROW_KEYS = ("id", "start", "end", "text", "flag", "speaker", "fill")   # 機械の行の欄(文書の行のうち機械が決める物)
+COMPOSED_FROM = "composedFrom"   # 組み立て済みの写しの欄(RS8 O2-3。層が正のとき): どの版の層から組み立てたか {"mach": 機械の層の rev, "hum": 人の層の rev}(無い層は None)
+
+
+def composed_from(mach_rev, hum_rev):
+    """写しの composedFrom の値(無い層・rev の読めない層は None)"""
+    return {"mach": plain_int(mach_rev), "hum": plain_int(hum_rev)}
 
 
 def mach_row(g):

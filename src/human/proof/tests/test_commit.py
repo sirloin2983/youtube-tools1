@@ -48,8 +48,8 @@ class CommitTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             store.commit(TID, {"id": TID}, why="nope")
 
-    def test_hum_not_yet(self):
-        with self.assertRaises(NotImplementedError):
+    def test_hum_only_when_primary(self):
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""}), self.assertRaises(ValueError):
             store.commit(TID, {"id": TID}, why="save", hum={})
 
     def test_whys_do_not_overlap(self):
@@ -78,7 +78,7 @@ class CommitTest(unittest.TestCase):
                     for i, ln in enumerate(f, 1):
                         if pat.search(ln) and not ln.lstrip().startswith(("#", "def write_doc")):
                             bad.append((os.path.relpath(path, SRC), i))
-        self.assertEqual([b[0] for b in bad], [os.path.join("human", "proof", "store.py")], bad)
+        self.assertEqual(sorted({b[0] for b in bad}), [os.path.join("human", "proof", "store.py")], bad)   # store.py の中は commit・組み立て直し(fresh_copy)だけ
 
 
 def _row(i, a, text, **kw):
@@ -219,11 +219,153 @@ class ShadowTest(unittest.TestCase):
         self.commit(doc, "whole")
         self.commit(doc, "save")
 
+    def test_shadow_drops_composed_from(self):
+        """文書が正(shadow)では写しの版の印 composedFrom を持たない(層が正に戻したとき古い印で組み立て直さない。RS8 O2-3)"""
+        doc = dict(_doc([_row(1, 0.0, "あ")]), composedFrom={"mach": 1, "hum": 1})
+        self.commit(doc, "whole")
+        self.assertNotIn("composedFrom", store.read_transcript(TID))
+
     def test_layer_suffixes_go_with_the_doc(self):
         """移動・削除・バックアップの一覧(docloc.DOC_SUFFIXES)に機械の層・人の層が入る"""
         from ytt import docloc, schemas
         self.assertIn(schemas.MACH_SUFFIX, docloc.DOC_SUFFIXES)
         self.assertIn(schemas.HUM_SUFFIX, docloc.DOC_SUFFIXES)
+
+
+class PrimaryTest(ShadowTest.__base__):
+    """層が正(TRANSCRIBE_LAYERS=primary。RS8 O2-3): 人の層 → 機械の層 → 写し(composedFrom)。開いたときに写しが古ければ組み立て直す"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="primary-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
+        workdata.set_data_dir(os.path.join(self.tmp, "data"))
+        os.makedirs(workdata.TX_DIR)
+        p = mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def path(self, sfx):
+        return os.path.join(workdata.TX_DIR, TID + sfx)
+
+    def load(self, sfx):
+        with open(self.path(sfx), encoding="utf-8") as f:
+            return json.load(f)
+
+    def put(self, sfx, obj):
+        with open(self.path(sfx), "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+
+    def test_switch_values(self):
+        from ytt import txbase
+        for v, want in (("", "shadow"), ("shadow", "shadow"), ("off", "off"), ("0", "off"), ("primary", "primary"), (" Primary ", "primary"), ("x", "shadow")):
+            with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": v}):
+                self.assertEqual(txbase.layers_mode(), want, v)
+                self.assertEqual(txbase.layers_on(), want != "off", v)
+
+    def test_order_and_composed_from(self):
+        order = []
+        real_json, real_atomic = store._fsio.write_json, store._fsio.atomic_write
+        with mock.patch.object(store._fsio, "write_json", side_effect=lambda p, *a, **k: (order.append(os.path.basename(p)), real_json(p, *a, **k))), \
+                mock.patch.object(store._fsio, "atomic_write", side_effect=lambda p, *a, **k: (order.append(os.path.basename(p)), real_atomic(p, *a, **k))):
+            out = store.commit(TID, _doc([_row(1, 0.0, "あ"), _row(2, 2.0, "い")]), why="whole")
+        order = [x for i, x in enumerate(order) if i == 0 or order[i - 1] != x]   # write_json の中の atomic_write を 1 回に
+        self.assertEqual(order, [TID + ".hum.json", TID + ".mach.json", TID + ".json"])   # 人の層 → 機械の層 → 写し
+        self.assertEqual(out["composedFrom"], {"mach": 1, "hum": 1})
+        self.assertEqual(self.load(".json")["composedFrom"], {"mach": 1, "hum": 1})
+        d = store.read_transcript(TID)
+        d["segments"][0]["text"] = "あー"
+        d["segments"][0]["proofed"] = True
+        store.commit(TID, d, why="save")
+        self.assertEqual(self.load(".json")["composedFrom"], {"mach": 1, "hum": 2})
+        self.assertEqual(self.load(".hum.json")["rows"][0]["text"], "あー")
+
+    def test_machine_layer_changed_by_flow_is_composed_on_open(self):
+        """② が機械の層だけを書いた(人の層あり)→ ③ が開くと組み立て直す: 人の直しは残して印 MACH_CHANGED・触っていない行は新しい機械・updatedAt が進む"""
+        store.commit(TID, _doc([_row(1, 0.0, "あ"), _row(2, 2.0, "い"), _row(3, 4.0, "う")]), why="whole")
+        d = store.read_transcript(TID)
+        d["segments"][0].update(text="あー", proofed=True)
+        store.commit(TID, d, why="save")
+        before = self.load(".json")
+        mach = self.load(".mach.json")
+        mach["rev"] = 2
+        mach["rows"][0]["text"] = "ああ"   # 人が直した行の機械が変わった
+        mach["rows"][1]["text"] = "いい"   # 触っていない行の機械が変わった
+        self.put(".mach.json", mach)
+        self.assertEqual(store._load_doc(store.tx_path(TID)), before)   # 写しは ③ が開くまで古いまま
+        with self.assertLogs("tx", level="INFO") as cm:
+            got = store.read_transcript(TID)
+        self.assertTrue(any("組み立て直しました" in m for m in cm.output), cm.output)
+        self.assertEqual([g["text"] for g in got["segments"]], ["あー", "いい", "う"])
+        self.assertIn(layers.MACH_CHANGED, got["segments"][0]["flag"])
+        self.assertGreater(got["updatedAt"], before["updatedAt"])
+        self.assertEqual(got["composedFrom"], {"mach": 2, "hum": 2})
+        self.assertEqual(self.load(".json"), got)   # 写しも書き直した
+        with mock.patch.object(store._layers, "compose", side_effect=AssertionError("組み立て直さない")):
+            store.read_transcript(TID)   # もう新しい
+
+    def test_broken_layer_reads_copy(self):
+        store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="whole")
+        copy = self.load(".json")
+        with open(self.path(".hum.json"), "w", encoding="utf-8") as f:
+            f.write("{壊れた")
+        with self.assertLogs("tx", level="WARNING") as cm:
+            self.assertEqual(store.read_transcript(TID), copy)
+        self.assertTrue(any("写しのまま" in m for m in cm.output), cm.output)
+        os.remove(self.path(".mach.json"))   # 機械の層が無い: 組み立てられない = 写しのまま
+        os.remove(self.path(".hum.json"))
+        with self.assertLogs("tx", level="WARNING"):
+            self.assertEqual(store.read_transcript(TID), copy)
+
+    def test_copy_without_composed_from_is_not_recomposed(self):
+        """composedFrom の無い写し(文書が正だったころの文書)は組み立て直さない = 次の commit が写しから層を作る"""
+        orig = [{"start": 0.0, "end": 1.0, "text": "あ"}]
+        store.write_doc(TID, _doc([_row(1, 0.0, "あ直し")], orig))
+        self.put(".mach.json", layers._ys.make_mach([_row(1, 0.0, "ぜんぜん違う")], rev=9))
+        self.assertEqual(store.read_transcript(TID)["segments"][0]["text"], "あ直し")
+        self.put(".mach.json", {"schema": "x"})   # 形の違う層は無いのと同じ = 写しの original から作る(移行)
+        out = store.commit(TID, store.read_transcript(TID), why="save")
+        self.assertEqual(out["composedFrom"], {"mach": 1, "hum": 1})
+        self.assertEqual([r["text"] for r in self.load(".mach.json")["rows"]], ["あ"])
+        self.assertEqual([h.get("text") for h in self.load(".hum.json")["rows"]], ["あ直し"])
+
+    def test_layer_write_failure_drops_composed_from(self):
+        store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="whole")
+        with mock.patch.object(store, "_shadow_write", side_effect=OSError("disk")), self.assertLogs("tx", level="WARNING"):
+            out = store.commit(TID, _doc([_row(1, 0.0, "い")]), why="save")
+        self.assertNotIn("composedFrom", out)
+        self.assertEqual(store.read_transcript(TID)["segments"][0]["text"], "い")
+        with mock.patch.object(store._layers, "roundtrip", side_effect=RuntimeError("boom")), self.assertLogs("tx", level="WARNING"):
+            out = store.commit(TID, _doc([_row(1, 0.0, "う")]), why="save")
+        self.assertNotIn("composedFrom", out)
+        self.assertEqual(store.read_transcript(TID)["segments"][0]["text"], "う")
+
+    def test_mismatch_writes_the_saved_doc(self):
+        with mock.patch.object(store._layers, "roundtrip", return_value=({"schema": layers.HUM_SCHEMA, "rev": 5, "rows": []}, [("text", "s1")])), \
+                self.assertLogs("tx", level="WARNING") as cm:
+            out = store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="whole")
+        self.assertTrue(any("合いません" in m for m in cm.output), cm.output)
+        self.assertEqual(out["segments"][0]["text"], "あ")
+        self.assertEqual(out["composedFrom"], {"mach": 1, "hum": 5})
+
+    def test_given_hum_composes_the_copy(self):
+        store.commit(TID, _doc([_row(1, 0.0, "あ"), _row(2, 2.0, "い")]), why="whole")
+        mach = self.load(".mach.json")
+        hum = layers.diff(mach, _doc([_row(1, 0.0, "あ"), _row(2, 2.0, "いい")]))
+        out = store.commit(TID, _doc([]), why="save", hum=hum)   # 文書の行は使わない(欄だけ)
+        self.assertEqual([g["text"] for g in out["segments"]], ["あ", "いい"])
+        self.assertEqual(out["composedFrom"], {"mach": 1, "hum": 2})
+        self.assertEqual(store.read_transcript(TID)["segments"][1]["text"], "いい")
+
+    def test_new_doc_in_folder_copy_then_layers(self):
+        wd = os.path.join(self.tmp, "out", "題名", "作業用")
+        os.makedirs(os.path.dirname(wd))
+        out = store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="open_video", folder=wd)
+        self.assertEqual(out["composedFrom"], {"mach": 1, "hum": 1})
+        for sfx in (".json", ".hum.json", ".mach.json"):
+            self.assertTrue(os.path.isfile(os.path.join(wd, TID + sfx)), sfx)
+        self.assertEqual(store.read_transcript(TID)["segments"][0]["text"], "あ")
 
 
 if __name__ == "__main__":

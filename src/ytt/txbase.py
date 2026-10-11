@@ -79,8 +79,16 @@ def env_off(name):
 
 
 LAYERS_ENV = "TRANSCRIBE_LAYERS"   # 文書の機械の層・人の層(RS8 O2-2): 既定 shadow = 文書を書くたびに影の層も書いて比べる(正は文書のまま)・off = 書かない
+LAYERS_PRIMARY = "primary"          # RS8 O2-3: 層が正(文書 <id>.json は組み立て済みの写し。開いたときに古ければ組み立て直す)
 
 
 def layers_on():
     """文書の機械の層・人の層を書くか(環境変数 TRANSCRIBE_LAYERS が off・0・no・false でなければ書く。既定 shadow)。呼ぶたびに読む"""
     return not env_off(LAYERS_ENV)
+
+
+def layers_mode():
+    """層のモード -> "off" | "shadow" | "primary"(TRANSCRIBE_LAYERS。off・0・no・false = off・primary = 層が正・それ以外と空 = shadow。呼ぶたびに読む。RS8 O2-3)"""
+    if env_off(LAYERS_ENV):
+        return "off"
+    return LAYERS_PRIMARY if os.environ.get(LAYERS_ENV, "").strip().lower() == LAYERS_PRIMARY else "shadow"
