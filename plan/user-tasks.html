@@ -44,6 +44,9 @@
   </section>
 
   <section class="card" id="decide"><h2><span class="n">3</span>決める・記入すること</h2>
+    <h3 id="provTitle">3-0 まだ確認していない仮決め <span class="count" id="provCount"></span></h3>
+    <p class="small muted">AI が作業を止めずに仮で決めて入れた物(正本は plan/decisions.md の 3-xx)。「これでいい / 変える / 保留」を選んで、変えるならメモを書く。選んだ答えはこのブラウザに残る。「AI に渡す文をコピー」でチャットに貼ると、AI が確認済みにして反映する。</p>
+    <div class="wrap"><table id="prov"><thead><tr><th class="id">番号</th><th>仮で決めたこと</th><th>あなたへの影響</th><th style="width:220px">あなたの答え</th></tr></thead><tbody></tbody></table></div>
     <h3>3-1 記入してほしい(★ が多いほど効果が大きい見込み)</h3>
     <p class="small muted">わかる所だけ・箇条書きでよい。書いたらこのブラウザに残る。「AI に渡す文をコピー」でチャットに貼れば、AI が名簿(src/editor/hololive-roster.json)などに反映する。<span id="inputsNote"></span></p>
     <div id="inputs"></div>
@@ -158,6 +161,21 @@
   hideSection("check", !U.must.length && !U.restore && !U.optional.length && !U.watch.length);
   hideSection("tidy", !(U.reinstall || []).length && !(U.afterReorg || []).length);
 
+  // ---- 3-0 まだ確認していない仮決め(答えの鍵は「節 + 番号」= 行を並べ替えても別の行に付かない)
+  var PROV = U.provisional || [];
+  function provKey(p) { return "pv:" + p.sec + p.id; }
+  var provChoices = ["", "これでいい", "変える", "保留"];
+  $("#prov tbody").innerHTML = PROV.map(function (p, i) {
+    return '<tr><td class="id">' + esc(p.id) + '<div class="small muted">' + esc(p.sec + "・" + p.date) + '</div></td><td class="head">' + UI.md(p.what) + "</td><td>" + UI.md(p.impact) +
+      '</td><td><select class="btn" data-prov="' + i + '" aria-label="答え: ' + esc(p.id) + '">' + provChoices.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c || "未定") + "</option>"; }).join("") +
+      '</select><input class="inp" data-provnote="' + i + '" placeholder="変えるならどう" aria-label="メモ: ' + esc(p.id) + '" style="margin-top:4px"></td></tr>';
+  }).join("") || '<tr><td colspan="4" class="muted">今はなし</td></tr>';
+  UI.resp($("#prov"));
+  function provCount() { var n = PROV.filter(function (p) { return store[provKey(p)]; }).length; $("#provCount").textContent = PROV.length ? n + " / " + PROV.length + " 件に答えた" : ""; }
+  document.querySelectorAll("[data-prov]").forEach(function (s) { var p = PROV[+s.getAttribute("data-prov")], k = provKey(p); s.value = store[k] || ""; s.addEventListener("change", function () { store[k] = s.value; save(); provCount(); }); });
+  document.querySelectorAll("[data-provnote]").forEach(function (inp) { var k = provKey(PROV[+inp.getAttribute("data-provnote")]) + ":note"; inp.value = store[k] || ""; inp.addEventListener("input", function () { store[k] = inp.value; save(); }); });
+  provCount();
+
   // ---- 3-1 記入
   $("#inputsNote").textContent = U.inputsNote;
   $("#inputs").innerHTML = U.inputs.map(function (i) {
@@ -213,6 +231,9 @@
     var on = ALL_CHECKS.filter(function (c) { return store["c:" + c[0]]; });
     out.push("■ 済みにした項目: " + (on.length ? "" : "なし"));
     on.forEach(function (c) { out.push("- " + c[0] + " " + c[1]); });
+    var provAns = PROV.filter(function (p) { return store[provKey(p)] || (store[provKey(p) + ":note"] || "").trim(); });
+    if (provAns.length) out.push("■ 仮決めの確認:");
+    provAns.forEach(function (p) { var note = (store[provKey(p) + ":note"] || "").trim(); out.push("- " + p.sec + " " + p.id + " " + (store[provKey(p)] || "未定") + (note ? "(" + note + ")" : "") + " … " + p.what); });
     U.inputs.forEach(function (i) { var v = (store["t:" + i.id] || "").trim(); if (v) out.push("■ " + i.title + "\n" + v); });
     U.decisions.forEach(function (d) { var v = (store[decKey(d)] || "").trim(); if (v) out.push("■ 決めたこと: " + d[0] + " → " + v); });
     legacyDec.forEach(function (k) { out.push("■ 決めたこと(以前の答え。どの行か分からない): " + String(store[k]).trim()); });
