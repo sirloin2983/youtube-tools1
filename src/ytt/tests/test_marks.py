@@ -127,5 +127,34 @@ class TestSameTouched(unittest.TestCase):
         self.assertEqual([M.order_of(ms, x) for x in ("c", "a", "b", "z")], [1, 2, 3, 0])   # 開始の順・同じなら終了の順・無ければ 0
 
 
+class TestReplaceAndExported(unittest.TestCase):
+    """解析の反映 replace_auto と書き出し済みにする exported_mark(スタジオの Store と flow/studiobook で同じ 1 つ。RS8 の「URL も CLI で」)"""
+
+    def test_replace_auto(self):
+        keep = dict(auto_mark(10, 40, label="手"), id="k")   # 手を入れた自動 = 手動として残す(auto0 は auto0Orig へ)
+        drop = dict(auto_mark(100, 130), id="d")              # 手つかずの自動 = 置き換える
+        man = M.build_mark({"id": "m", "start": 200, "end": 230}, None)
+        cands = [{"start": 10.2, "end": 40.1, "score": 9}, {"start": 300, "end": 330, "score": 3, "reasons": ["音量"]}, {"start": "x", "end": 1}]
+        out, n = M.replace_auto([keep, drop, man], cands)
+        self.assertEqual(n, 1)   # 同じ区間(±0.5 秒)・形の違う候補は作らない
+        self.assertEqual([(m["src"], m["start"]) for m in out], [("manual", 10.0), ("manual", 200.0), ("auto", 300.0)])
+        self.assertEqual((out[0]["auto0Orig"], "auto0" in out[0]), ([10.0, 40.0], False))
+        self.assertEqual((out[2]["auto0"], out[2]["score"], out[2]["reasons"]), ([300.0, 330.0], 3.0, ["音量"]))
+        self.assertEqual(drop["src"], "auto", "元の一覧は変えない")
+        out2, n2 = M.replace_auto([], cands, hide=lambda autos: [a for a in autos if a["start"] != 300.0])
+        self.assertEqual((n2, [m["start"] for m in out2]), (1, [10.2]))
+
+    def test_exported_mark(self):
+        m = dict(auto_mark(10, 40, status="adopted"), id="x")
+        nm = M.exported_mark(m, "題/01.mp4", "C:/out/題/01.mp4" if os.name == "nt" else "/out/題/01.mp4")
+        self.assertEqual((nm["status"], nm["file"], m["status"]), ("exported", "題/01.mp4", "adopted"))
+        self.assertTrue(os.path.isabs(nm["path"]))
+        self.assertNotIn("path", M.exported_mark(m, "題/01.mp4", "rel/01.mp4"))   # 絶対パスでなければ持たない
+        arch = dict(nm, archived=True)
+        self.assertTrue(M.exported_mark(arch, nm["file"], nm["path"], None, live=True).get("archived"))   # 同じファイル = 印のまま
+        self.assertNotIn("archived", M.exported_mark(arch, "題/02.mp4", nm["path"], None, live=True))   # 違うファイル = 外す
+        self.assertNotIn("archived", M.exported_mark(arch, nm["file"], nm["path"], True, live=False))   # live でなければ立てない
+
+
 if __name__ == "__main__":
     unittest.main()

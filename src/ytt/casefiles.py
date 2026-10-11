@@ -105,6 +105,39 @@ def empty_adoptions():
     return {"schema": ADOPTIONS_SCHEMA, "sources": {}, "marks": [], "rejected": [], "status": "", "memo": ""}
 
 
+# data.json の索引の行(案件にした配信。RS8 B3-4b)。スタジオの Store と、スタジオなしの台帳 flow/studiobook が同じ形で書く(「URL も CLI で」で Store から下ろした)
+INDEX_KEYS = ("id", "kind", "title", "channel", "rev", "createdAt", "updatedAt")   # 索引の行に写す欄(と live・case)
+NOT_STORED = ("case", "caseUnseen")   # メモリの全部の形にだけ付ける印(案件のファイルには書かない)
+
+
+def index_row(v, root):
+    """全部の形の配信 -> data.json の索引の行(マーク・解析・長さ・パスは持たない = 案件の 採用.json・候補.json が正)"""
+    row = {k: v[k] for k in INDEX_KEYS}
+    if v["kind"] == "live":
+        row["live"] = v["live"]
+    row["case"] = root
+    return row
+
+
+def stored(v):
+    """メモリの全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)"""
+    return {k: x for k, x in v.items() if k not in NOT_STORED}
+
+
+def fill(full, row, root):
+    """重ねた形(merge)の欠けを索引の行で埋めて印 case を付ける(採用.json を外から直されても一覧・画面が落ちない)。full を変えて返す"""
+    for k in INDEX_KEYS:
+        if k not in full:
+            full[k] = row[k]
+    for k in ("title", "channel", "fileName", "path"):
+        if not isinstance(full.get(k), str):
+            full[k] = ""
+    if not _marks.pos_int(full.get("rev")):
+        full["rev"] = row["rev"]
+    full["case"] = root
+    return full
+
+
 def _sid_ok(sid):
     return isinstance(sid, str) and bool(_marks.ID_RE.match(sid))
 

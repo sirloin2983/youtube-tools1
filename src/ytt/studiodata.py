@@ -7,12 +7,56 @@
 """
 import logging
 
-from . import casefiles as _casefiles, errors as _errors, fsio as _fsio, workdata as _workdata
+import os
+
+from . import casefiles as _casefiles, errors as _errors, fsio as _fsio, marks as _marks, workdata as _workdata, yturl as _yturl
+from .textutil import num as _num
 
 _log = logging.getLogger("ytt.studiodata")
 
 STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(スタジオの data.json・旧マーカーなど他のツールが書く JSON の上限の 1 か所。これより大きいものは読めない扱い)
 SCHEMA = "clip-studio/v1"
+
+
+# ---------------------------------------------------------------- data.json の行 1 つの読み方(書く側も同じ形で読む)
+# スタジオの Store(③)と、スタジオなしの台帳 flow/studiobook(②。RS8 の「URL も CLI で」)が同じ 1 つを使う(Store から下ろした)
+def load_live(vid, v):
+    """ライブの録画の live(id は録画の id と同じ)。形が合わなければ ValueError(この1件だけ読み飛ばす)"""
+    try:
+        live = _yturl.check_live(v.get("live"))
+    except _errors.ApiError as e:
+        raise ValueError("live が正しくありません: %s" % e.message)
+    if live["recording"] != vid:
+        raise ValueError("live の録画 ID が id と違います")
+    return live
+
+
+def load_video(vid, v):
+    """data.json の videos の 1 行 -> メモリの形(全部の形か、案件にした配信の索引の行)。形が合わなければ ValueError(この1件だけ読み飛ばす)"""
+    if not isinstance(v, dict) or v.get("id") != vid or v.get("kind") not in ("youtube", "file", "live"):
+        raise ValueError("id/kind が正しくありません")
+    if "case" in v:   # 案件にした配信の索引の行(B3-4b)
+        root = v["case"]
+        if not isinstance(root, str) or not root or len(root) > 1000 or not os.path.isabs(root):
+            raise ValueError("case が正しくありません")
+        out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
+               "rev": v["rev"] if _marks.pos_int(v.get("rev")) else 1,
+               "createdAt": _marks.ms_or_now(v.get("createdAt")), "updatedAt": _marks.ms_or_now(v.get("updatedAt")), "case": root}
+        if v["kind"] == "live":
+            out["live"] = load_live(vid, v)
+        return out
+    if v["kind"] == "file" and not isinstance(v.get("path"), str):
+        raise ValueError("path がありません")
+    live = load_live(vid, v) if v["kind"] == "live" else None
+    an = v.get("analysis")
+    out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
+           "duration": _num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
+           "path": v["path"] if v["kind"] == "file" else "", "marks": _marks.drop_archived(_marks.load_marks(v.get("marks")), v["kind"]),
+           "analysis": an if isinstance(an, dict) else None, "rev": v["rev"] if _marks.pos_int(v.get("rev")) else 1,
+           "createdAt": _marks.ms_or_now(v.get("createdAt")), "updatedAt": _marks.ms_or_now(v.get("updatedAt"))}
+    if live:
+        out["live"] = live   # live のときだけ持つキー(youtube・file の記録の形は変えない)
+    return out
 
 
 def _case_row(vid, row):

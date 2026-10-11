@@ -265,3 +265,58 @@ def touched(m):
     """ユーザーが手を入れた自動マークか(採用・不採用・書き出し済み / ラベルあり / 時刻を動かした)。"""
     a0 = m.get("auto0")
     return (m["status"] != "" or bool(m["label"]) or not a0 or abs(m["start"] - a0[0]) > EDIT_TOL or abs(m["end"] - a0[1]) > EDIT_TOL)
+
+
+def replace_auto(marks, cands, hide=None):
+    """解析の候補を配信のマークに入れる(スタジオの再解析 human/review/store と、スタジオなしの解析 flow/studiobook で同じ 1 つ。RS8 の「URL も CLI で」で下ろした)。
+    手を入れていない・書き出していない自動マークだけを置き換える。手を入れた自動マーク(touched)は手動マークとして残す(点数・理由は保持。
+    auto0 は auto0Orig へ = 機械の最初の結果を残す)。新しい自動マークは、残したマークと同じ区間(same)なら作らない。
+    hide(新しい自動マークの並び) -> 出す物の並び(案件の人が消した候補の印に当たる物を除く。None = 除かない)。
+    -> (新しい一覧(時刻の順・MAX_MARKS まで。残したマークを優先し、自動を点数の高い順で減らす), 新しい自動マークの数)。marks・cands は変えない"""
+    kept = []
+    for m in marks:
+        if m["src"] != "auto":
+            kept.append(m)
+        elif touched(m):
+            k = dict(m, src="manual")
+            a0 = k.pop("auto0", None)
+            if a0:
+                k["auto0Orig"] = a0
+            kept.append(k)
+    autos = []
+    for c in cands:
+        try:
+            s, e = check_times(c["start"], c["end"])   # 手動と同じ規則(長さの上限など)
+        except (BadMark, KeyError, TypeError):
+            continue
+        m = new_mark("a", s, e)
+        m.update({"src": "auto", "score": fnum(c.get("score")), "reasons": clean_reasons(c.get("reasons")), "peak": fnum(c.get("peak")),
+                  "parts": clean_parts(c.get("parts")), "auto0": [s, e]})
+        if any(same(m, o) for o in kept + autos):
+            continue
+        autos.append(m)
+    if hide is not None:
+        autos = list(hide(autos))
+    if len(kept) + len(autos) > MAX_MARKS:   # 残したマークを優先し、自動を減らす
+        autos = sorted(autos, key=by_score)[:max(0, MAX_MARKS - len(kept))]
+    return sorted(kept + autos, key=by_time)[:MAX_MARKS], len(autos)
+
+
+def exported_mark(m, relfile, abspath=None, archived=None, live=False):
+    """マーク m を「書き出し済み」にした新しいマーク(m は変えない。スタジオの Store.mark_exported と flow/studiobook で同じ 1 つ)。
+    relfile = 書き出し先からの相対(区切り /)・abspath = 書き出した mp4 の絶対パス(あれば)。
+    archived(live の配信だけ = live が真。線 D の P4): True = 本番版に入れ替え済みの印を立てる / False = 外す /
+    None = ファイルが同じ(file・path が同じ)なら今の印のまま、違うファイルになったら外す"""
+    nm = dict(m)
+    old_file, old_path = m.get("file") if m["status"] == "exported" else None, m.get("path")
+    nm["status"], nm["file"] = "exported", str(relfile)[:300]
+    if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):
+        nm["path"] = abspath
+    else:
+        nm.pop("path", None)
+    same_file = old_file == nm["file"] and old_path == nm.get("path")
+    if live and (archived is True or (archived is None and same_file and m.get("archived"))):
+        nm["archived"] = True
+    else:
+        nm.pop("archived", None)
+    return nm

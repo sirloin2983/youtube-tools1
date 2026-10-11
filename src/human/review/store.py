@@ -28,16 +28,16 @@ import sys
 import threading
 import time
 
-from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, settings as _settings, studio_env as _env, yturl as _yturl  # noqa: E402  (check_live・LIVE_NO_ANALYZE は RS6 a-5a で ytt/yturl へ・prune_cache は ytt/fsio へ)
+from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, settings as _settings, studio_env as _env  # noqa: E402  (prune_cache は RS6 a-5a で ytt/fsio へ。録画の live の検査は ytt/studiodata.load_live)
 # マークの純粋な語彙(検査・整形・同じ区間・手を入れたか)は RS8 B3-2 で ytt/marks へ下ろした。下の名前は今までどおり store からも読める
 from ytt.marks import BadMark, EDIT_TOL, ID_RE, MAX_MARKS, check_times, load_marks  # noqa: E402,F401
 
 from ytt import casefiles as _casefiles  # noqa: E402  案件の 候補.json・採用.json の読み・重ね方・ロック(RS8 B3-4a)
+from ytt import studiodata as _studiodata  # noqa: E402  data.json の行の読み方(load_video。「URL も CLI で」で flow/studiobook と共有するため下ろした)
 from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt。RS8 B3-2 の G1a)
 from flow import casebook as _casebook  # noqa: E402  案件の分け方・引き方・書き(RS8 B3-4b)
 from . import feedback  # noqa: E402  判定の記録(RS3-5 に analyze から隣へ。呼ぶたびに feedback.名前 で読む)
 from ytt.errors import ApiError  # noqa: E402
-from ytt.textutil import num  # noqa: E402  純粋な関数
 
 SCHEMA = "clip-studio/v1"
 # 作業データが壊れていたときの戻し方(画面の帯に出す。退避したファイルの名前・フォルダは画面の「詳しく」に出す。見直し M8)
@@ -54,8 +54,8 @@ ANCHOR_A_MIN, ANCHOR_A_MAX = 0.5, 1.5   # アンカー点から求めた傾き(�
 MIN_ANCHOR_GAP = 20.0   # 2点指定のとき、この動画の時刻でこれ以上離れていることを要求する(近すぎると傾きが不安定)
 
 # ---- 案件にした配信(RS8 B3-4b) ----
-INDEX_KEYS = ("id", "kind", "title", "channel", "rev", "createdAt", "updatedAt")   # data.json の索引の行に写す欄(と live・case)
-_NOT_STORED = ("case", "caseUnseen")   # メモリの全部の形にだけ付ける印(案件のファイルには書かない)
+INDEX_KEYS = _casefiles.INDEX_KEYS     # data.json の索引の行に写す欄(と live・case。形の持ち主は ytt/casefiles = flow/studiobook と同じ 1 つ)
+_NOT_STORED = _casefiles.NOT_STORED    # メモリの全部の形にだけ付ける印(案件のファイルには書かない)
 _CASE_SKIP = (_casefiles.UNSEEN_CODE, _casefiles.BROKEN_CODE)   # 反映しない(ログだけ)で済ませる案件の読めなさ
 
 
@@ -68,18 +68,8 @@ def _unseen(root, why):
                     503, {"dir": str(root or ""), "reason": why})
 
 
-def _index_row(v, root):
-    """全部の形の配信 -> data.json の索引の行(マーク・解析・長さ・パスは持たない = 案件の 採用.json・候補.json が正)"""
-    row = {k: v[k] for k in INDEX_KEYS}
-    if v["kind"] == "live":
-        row["live"] = v["live"]
-    row["case"] = root
-    return row
-
-
-def _stored(v):
-    """メモリの全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)"""
-    return {k: x for k, x in v.items() if k not in _NOT_STORED}
+_index_row = _casefiles.index_row   # 全部の形 -> data.json の索引の行(ytt/casefiles。manage/cases/markmove もこの名前で読む)
+_stored = _casefiles.stored         # 全部の形 -> 案件のファイルに分ける形(印 case・caseUnseen を外す)
 
 
 def validate_marks(raw, old_marks):
@@ -336,43 +326,8 @@ class Store:
             self.warning = "作業データ(マークの記録)の一部(%s)が壊れていたので、読み飛ばしました。" % "・".join(parts) + (RESTORE_STEPS if name else "")
             _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
-    @staticmethod
-    def _load_live(vid, v):
-        """ライブの録画の live(id は録画の id と同じ)。形が合わなければ ValueError(この1件だけ読み飛ばす)"""
-        try:
-            live = _yturl.check_live(v.get("live"))
-        except ApiError as e:
-            raise ValueError("live が正しくありません: %s" % e.message)
-        if live["recording"] != vid:
-            raise ValueError("live の録画 ID が id と違います")
-        return live
-
-    @staticmethod
-    def _load_video(vid, v):
-        if not isinstance(v, dict) or v.get("id") != vid or v.get("kind") not in ("youtube", "file", "live"):
-            raise ValueError("id/kind が正しくありません")
-        if "case" in v:   # 案件にした配信の索引の行(B3-4b)
-            root = v["case"]
-            if not isinstance(root, str) or not root or len(root) > 1000 or not os.path.isabs(root):
-                raise ValueError("case が正しくありません")
-            out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
-                   "rev": v["rev"] if _marks.pos_int(v.get("rev")) else 1,
-                   "createdAt": _marks.ms_or_now(v.get("createdAt")), "updatedAt": _marks.ms_or_now(v.get("updatedAt")), "case": root}
-            if v["kind"] == "live":
-                out["live"] = Store._load_live(vid, v)
-            return out
-        if v["kind"] == "file" and not isinstance(v.get("path"), str):
-            raise ValueError("path がありません")
-        live = Store._load_live(vid, v) if v["kind"] == "live" else None
-        an = v.get("analysis")
-        out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
-               "duration": num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
-               "path": v["path"] if v["kind"] == "file" else "", "marks": _marks.drop_archived(load_marks(v.get("marks")), v["kind"]),
-               "analysis": an if isinstance(an, dict) else None, "rev": v["rev"] if _marks.pos_int(v.get("rev")) else 1,
-               "createdAt": _marks.ms_or_now(v.get("createdAt")), "updatedAt": _marks.ms_or_now(v.get("updatedAt"))}
-        if live:
-            out["live"] = live   # live のときだけ持つキー(youtube・file の記録の形は変えない)
-        return out
+    _load_live = staticmethod(_studiodata.load_live)     # 録画の live の検査(ytt/studiodata。flow/studiobook と同じ 1 つ)
+    _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(manage/cases/markmove もこの名前で読む)
 
     @staticmethod
     def _load_group(gid, g):
@@ -457,19 +412,7 @@ class Store:
             return dict(v, duration=0.0, fileName="", path="", marks=[], analysis=None, caseUnseen=True)
         return self._fill(full, v, root)
 
-    @staticmethod
-    def _fill(full, row, root):
-        """重ねた形の欠けを索引の行で埋めて印 case を付ける(採用.json を外から直されても一覧・画面が落ちない)"""
-        for k in INDEX_KEYS:
-            if k not in full:
-                full[k] = row[k]
-        for k in ("title", "channel", "fileName", "path"):
-            if not isinstance(full.get(k), str):
-                full[k] = ""
-        if not _marks.pos_int(full.get("rev")):
-            full["rev"] = row["rev"]
-        full["case"] = root
-        return full
+    _fill = staticmethod(_casefiles.fill)   # 重ねた形の欠けを索引の行で埋めて印 case を付ける(ytt/casefiles)
 
     @contextlib.contextmanager
     def _writing(self, row):
@@ -796,44 +739,19 @@ class Store:
     def _replace_auto(self, v, prev, cands, analysis, duration, series):
         """replace_auto の本体(self.lock と、案件なら案件のロックを取っていること)"""
         vid = v["id"]
-        kept = []
-        for m in v["marks"]:
-            if m["src"] != "auto":
-                kept.append(m)
-            elif _marks.touched(m):
-                k = dict(m, src="manual")
-                a0 = k.pop("auto0", None)
-                if a0:
-                    # 手動に変わると auto0 が消えて「機械の最初の結果」が失われるので、マークの側に残す。
-                    # マークの側にした理由: 後の採用・書き出しの feedback の行も auto0 と手で直した量(dStart/dEnd)を持てる・
-                    # data.json とアーカイブにマークと一緒に残る(feedback の「消えた」行だと、後の行と区間で突き合わせる必要がある)
-                    k["auto0Orig"] = a0
-                kept.append(k)
-        autos = []
-        for c in cands:
-            try:
-                s, e = check_times(c["start"], c["end"])   # 手動と同じ規則(長さの上限など)
-            except (BadMark, KeyError, TypeError):
-                continue
-            m = _marks.new_mark("a", s, e)
-            m.update({"src": "auto", "score": _marks.fnum(c.get("score")), "reasons": _marks.clean_reasons(c.get("reasons")), "peak": _marks.fnum(c.get("peak")),
-                      "parts": _marks.clean_parts(c.get("parts")), "auto0": [s, e]})
-            if any(_marks.same(m, o) for o in kept + autos):
-                continue
-            autos.append(m)
+        hide = None
         if prev is not None:   # 案件: 人が消した候補の印(id か ±5 秒の重なり)に当たる新しい候補は出さない((r8l)。印は 採用.json に残る)
             gone = [r for r in prev[1]["rejected"] if r.get("source") == vid]
-            autos = _casefiles.visible(autos, [], gone)
-        if len(kept) + len(autos) > MAX_MARKS:   # 残したマークを優先し、自動を減らす
-            autos = sorted(autos, key=_marks.by_score)[:max(0, MAX_MARKS - len(kept))]
+            hide = lambda autos: _casefiles.visible(autos, [], gone)   # noqa: E731
+        marks, n = _marks.replace_auto(v["marks"], cands, hide)   # 手を入れた自動マークは手動として残す・同じ区間は作らない(ytt/marks。flow/studiobook と同じ 1 つ)
         nv = copy.deepcopy(v)
-        nv["marks"] = sorted(kept + autos, key=_marks.by_time)[:MAX_MARKS]
+        nv["marks"] = marks
         nv["analysis"] = analysis
         if duration and duration > 0:
             nv["duration"] = round(float(duration), 2)
         self._bump(nv, prev, keep=False)   # 案件は 候補.json を作り直す
         self.series[vid] = series
-        return len(autos)
+        return n
 
     def mark_exported(self, vid, mark_id, relfile, expected_start, expected_end, abspath=None, archived=None):
         """書き出した区間が今のマークと一致するときだけ、exported にして保存する。abspath: 書き出した mp4 の絶対パス(あれば)。
@@ -863,18 +781,8 @@ class Store:
             return None   # 書き出し中の編集を保持する。古い区間の動画は関連付けない
         first = m["status"] != "exported"
         nv = copy.deepcopy(v)
-        nm = next(x for x in nv["marks"] if x["id"] == mark_id)
-        old_file, old_path = m.get("file") if m["status"] == "exported" else None, m.get("path")
-        nm["status"], nm["file"] = "exported", str(relfile)[:300]
-        if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):
-            nm["path"] = abspath
-        else:
-            nm.pop("path", None)
-        same_file = old_file == nm["file"] and old_path == nm.get("path")
-        if v["kind"] == "live" and (archived is True or (archived is None and same_file and m.get("archived"))):
-            nm["archived"] = True
-        else:
-            nm.pop("archived", None)
+        nm = _marks.exported_mark(m, relfile, abspath, archived, live=v["kind"] == "live")   # 状態・ファイル・本番版の印(ytt/marks。flow/studiobook と同じ 1 つ)
+        nv["marks"] = [copy.deepcopy(nm) if x["id"] == mark_id else x for x in nv["marks"]]
         root = None
         if prev is None and not any(x["status"] == "exported" for x in v["marks"]):   # 初めて書き出した配信だけ案件にする(既存は B3-8 の移行まで)
             root = _casebook.case_of(nv, out_dir=_env.get_out_dir())
