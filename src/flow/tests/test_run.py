@@ -632,5 +632,25 @@ class TestStepsAndPublic(unittest.TestCase):
         self.assertEqual(R._placement.result(back)["notes"], ["知らせ"])
 
 
+class VerdictTest(unittest.TestCase):
+    """段の「飛ばすか」の判定(実行と見積もりが同じ関数を呼ぶ。RS8 OPT2)"""
+
+    def test_analyze(self):
+        self.assertEqual([R.analyze_verdict(a, w) for a, w in ((False, False), (True, False), (True, True), (False, True))], ["make", "skip", "make", "make"])
+
+    def test_adopted_ids(self):
+        self.assertEqual(R.adopted_ids([{"id": "a", "status": "adopted"}, {"id": "b", "status": "exported"}, {"id": "c"}]), ["a"])
+
+    def test_transcribe(self):
+        self.assertEqual([R.tx_verdict(h, f) for h, f in ((False, False), (False, True), (True, False), (True, True))], ["make", "make", "skip", "redo"])
+
+    def test_pack(self):
+        self.assertEqual(R.pack_verdict(True, "same", True), "remake")        # force は鍵も既存も見ない
+        self.assertEqual(R.pack_verdict(False, "differ", True), "remake")     # 鍵が違えば作り直す
+        self.assertEqual(R.pack_verdict(False, "same", False), "skip")        # 鍵が同じなら(パックが見つからなくても)飛ばす
+        self.assertEqual(R.pack_verdict(False, "none", False), "make")        # 鍵なしでパックが無い
+        self.assertEqual(R.pack_verdict(False, "none", True), "skip")         # 鍵なしで既にある
+
+
 if __name__ == "__main__":
     unittest.main()

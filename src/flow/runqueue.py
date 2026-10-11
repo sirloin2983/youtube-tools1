@@ -34,7 +34,8 @@ import urllib.parse
 
 from ytt import colors as _colors, fsio, tools as _ytools
 from . import envelope as _envelope, machine as _machine, run as run_mod, runlog, spec as _spec
-from .run import MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError
+from .run import (DOC_MODE, MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
+                  adopted_ids, analyze_verdict, pack_verdict, tx_verdict)
 
 MAX_KEEP = 30          # 終わった記録を残す数(メモリ。ファイルの記録は runlog.RUNS_LOG)
 LOG_MAX_BYTES = 1024 * 1024   # これを超えたら .1 に回す(1件 1〜2KB なので 500〜1000 件ぶん)
@@ -280,7 +281,9 @@ class Queue(run_mod.Runner):
 
     # ------------------------------------------------------------ 見積もり(気が利く画面へ 段4)
     def estimate(self, video_id=None, mode=None, marks=None, top=None, doc_ids=None, overwrite=False):
-        """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。実行は実行したときの状態で決めるので、ずれることがある。
+        """実行と同じ規則で、段ごとの本数と飛ばす理由を返す(何も書き込まない)。「飛ばすか」の判定は flow/run.py の
+        analyze_verdict・adopted_ids・tx_verdict・pack_verdict で、実行の段と同じ関数(鍵の比べも同じ _pack_state)。実行は実行したときの状態で決めるので、
+        前の段の結果しだいの本数は None(分からない)で返す。
         文書の一覧と紐づけは hook の _docs・_pick_doc。-> {"steps": [{"key", "label", "count" (None = 前の段の結果しだい), "note"}],
         "total": 分かっている本数の合計, "nothing": bool, "reason"}"""
         docs = self._docs()
@@ -290,18 +293,20 @@ class Queue(run_mod.Runner):
             raise ValueError("実行の形が正しくありません")
         st, obj = self.tools.video(urllib.parse.quote(str(video_id or "")))
         v = (obj.get("video") or {}) if st == 200 and isinstance(obj, dict) else {}
-        run = Run(video_id, "", mode, top or _spec.DEFAULT_TOP, marks=_spec.marks_arg(marks))
+        run = Run(video_id, "", mode, top or _spec.DEFAULT_TOP, marks=_spec.marks_arg(marks), overwrite=overwrite)
         mine = self._mine(run, v)
-        adopted = [m for m in mine if m.get("status") == "adopted"]
+        adopted = adopted_ids(mine)
         clips = self._clips(v, run)
-        no_tx = [m for m in clips if not self._pick_doc(docs, video_id, m.get("id"), m["path"])]
-        packable = [m for m in clips if m not in no_tx and (overwrite or not self.find_pack(m["path"]))]
+        picked = [(m, self._pick_doc(docs, video_id, m.get("id"), m["path"])) for m in clips]
+        no_tx = [m for m, d in picked if tx_verdict(bool(d), self._force(run)) != "skip"]
+        opts = self._pack_settings(run)
+        packable = [m for m, d in picked if d and self._pack_verdict(run, d, m["path"], opts, v) != "skip"]
         steps = []
         pending = False   # 前の段の結果しだい(解析・採用のあとで本数が決まる)
         for key in MODE_STEPS[mode]:
             label, count, note = STEP_LABELS[key], 0, ""
             if key == "analyze":
-                count, note = (0, "解析済み") if v.get("analysis") else (1, "")
+                count, note = (0, "解析済み") if analyze_verdict(bool(v.get("analysis")), self._weights_differ(run, v)) == "skip" else (1, "")
                 pending = pending or count > 0
             elif key == "adopt":
                 if any(m.get("status") in ("adopted", "exported") for m in mine):
@@ -338,14 +343,31 @@ class Queue(run_mod.Runner):
             if not d:
                 notes.append("見つからない文書があります")
                 continue
-            if not d.get("count"):
+            if tx_verdict(bool(d.get("count")), False) != "skip":   # 文書単位は force でも作り直さない
                 tx += 1
                 pk += 1
-            elif overwrite or not self.find_pack(d.get("sourcePath") or ""):
+                continue
+            run = Run(None, "", DOC_MODE, _spec.DEFAULT_TOP, doc_id=tid, overwrite=overwrite)
+            if pack_verdict(self._repack(run), *self._pack_probe(run, d, d.get("sourcePath") or "", self._pack_settings(run))) != "skip":
                 pk += 1
         steps = [{"key": "transcribe", "label": STEP_LABELS["transcribe"], "count": tx, "note": "" if tx else "文字起こし済み"},
                  {"key": "pack", "label": STEP_LABELS["pack"], "count": pk, "note": "" if pk else "パック済み(「パックがあれば作り直す(上書き)」を選ぶと作り直します)"}]
         return self._estimate_out(steps, notes)
+
+    def _pack_probe(self, run, doc, media, opts, v=None):
+        """パックの判定に渡す (鍵の比べ, 既定のパックがあるか)。実行と同じ _pack_state(force のときは比べない)。見積もりは失敗しない"""
+        if self._repack(run):
+            return "none", False
+        try:
+            full = self._full_doc(doc)
+            state = self._pack_state(run, full, media, opts, v)[0] if full else "none"
+        except Exception:   # 見積もりの途中の読み損ない(実行の側は段の失敗として扱う)
+            state = "none"
+        return state, bool(self.find_pack(media))
+
+    def _pack_verdict(self, run, doc, media, opts, v=None):
+        """切り抜き 1 本のパックの判定(pack_verdict。実行の _step_pack と同じ材料)"""
+        return pack_verdict(self._repack(run), *self._pack_probe(run, doc, media, opts, v))
 
     @staticmethod
     def _estimate_out(steps, notes):

@@ -774,6 +774,17 @@ class TestStage4(Base):
         with self.assertRaises(ValueError):
             self.r.estimate(VID, "nope")
 
+    def test_estimate_follows_pack_key(self):
+        """見積もりも実行と同じ判定(pack_verdict)で、鍵が違うパックは作り直す数に入れる(以前は「パック済み」で 0 本だった。RS8 OPT2)"""
+        self.run_one("adopted")
+        self.assertEqual(self.r.estimate(VID, "adopted")["total"], 0)
+        with mock.patch.object(self.r, "_pack_state", return_value=("differ", None)):
+            e = self.r.estimate(VID, "adopted")
+        self.assertEqual([s["count"] for s in e["steps"]], [0, 0, 2])
+        with mock.patch.object(self.r, "_pack_state", return_value=("same", None)), mock.patch.object(self.r, "find_pack", return_value=None):
+            e = self.r.estimate(VID, "adopted")   # 鍵が同じなら、パックの置き場所が見つからなくても飛ばす(実行と同じ)
+        self.assertEqual([s["count"] for s in e["steps"]], [0, 0, 0])
+
 
 def A_VID():
     return VID

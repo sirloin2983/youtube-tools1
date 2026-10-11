@@ -177,6 +177,33 @@ def _step_saved(s):
     out.update({k: s[k] for k in STEP_TIMES if k in s})
     return out
 
+# 段の「飛ばすか」の判定(実行 = Runner の各段と見積もり = Queue.estimate が同じ関数を呼ぶ。RS8 OPT2。ここだけが規則の持ち主)
+def analyze_verdict(has_analysis, weights_differ):
+    """解析: make = 解析する / skip = 解析済みの結果を使う(依頼の重みが違えば解析し直す)"""
+    return "skip" if has_analysis and not weights_differ else "make"
+
+
+def adopted_ids(marks):
+    """書き出す(採用したままの)マークの id の並び。空なら書き出しの段は飛ばす(書き出し済みがあれば先へ・無ければ止める)"""
+    return [m["id"] for m in marks if m.get("status") == "adopted"]
+
+
+def tx_verdict(has_text, force):
+    """文字起こし(切り抜き・動画 1 つ): make = 文書が無いので作る / redo = force で作り直す / skip = 文書がある(鍵が違っても飛ばして印だけ。RS6 b-K2)"""
+    if not has_text:
+        return "make"
+    return "redo" if force else "skip"
+
+
+def pack_verdict(force, state, pack_exists):
+    """パック(切り抜き・動画 1 つ): remake = force か鍵が違うので作り直す / make = 鍵なしでパックが無いので作る / skip = 鍵が同じ・鍵なしで既にある。
+    state = 鍵の比べ(same | differ | none。force のときは見ない)。pack_exists = 既定の名前のパックが既にあるか"""
+    if force or state == "differ":
+        return "remake"
+    if state != "same" and not pack_exists:
+        return "make"
+    return "skip"
+
 
 class Run:
     """1 回の実行(配信・文書・動画ファイル 1 つぶん)の状態。段の並びは MODE_STEPS[mode]"""
@@ -715,7 +742,7 @@ class Runner:
         return any(not _num(spec.get(k)) or round(float(spec[k]), 1) != b["analyze"][k] for k in WEIGHT_KEYS)
 
     def _step_analyze(self, run, st, v):
-        if v.get("analysis") and not self._weights_differ(run, v):
+        if analyze_verdict(bool(v.get("analysis")), self._weights_differ(run, v)) == "skip":
             st["state"], st["detail"] = "skip", "解析済み(前の結果を使います)" if run.request_id else "解析済み"
             return None
         item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
@@ -825,7 +852,7 @@ class Runner:
         return [m for m in v.get("marks") or [] if not run.marks or m.get("id") in run.marks]
 
     def _step_export(self, run, st, v):
-        ids = [m["id"] for m in self._mine(run, v) if m.get("status") == "adopted"]
+        ids = adopted_ids(self._mine(run, v))
         if not ids:
             done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
@@ -868,9 +895,10 @@ class Runner:
         todo, differ, redo = [], 0, 0
         for m in clips:   # 文書のある切り抜きは鍵を見る(RS6 b-K2): 同じ・鍵なし = 飛ばす / 違う = 飛ばして印 / force = 作り直す(新しい文書。人の直しは引き継ぐ)
             doc = self._pick_doc(docs, run.video_id, m.get("id"), m["path"])
-            if not doc:
+            verdict = tx_verdict(bool(doc), self._force(run))
+            if verdict == "make":
                 todo.append(m)
-            elif self._force(run):
+            elif verdict == "redo":
                 todo.append(m)
                 redo += 1
             else:
@@ -1036,10 +1064,11 @@ class Runner:
                 no_tx += 1
                 continue
             state, built = ("none", None) if force_all else self._pack_state(run, doc, m["path"], opts, v)
-            if force_all or state == "differ":
+            verdict = pack_verdict(force_all, state, bool(self.find_pack(m["path"])))
+            if verdict == "remake":
                 todo.append((m, doc, True, built))
                 stale += state == "differ"
-            elif state != "same" and not self.find_pack(m["path"]):
+            elif verdict == "make":
                 todo.append((m, doc, False, built))
             else:
                 self._keep_pack(run, m["path"], doc)   # 飛ばした(パック済み)分も結果に載せる
@@ -1114,7 +1143,7 @@ class Runner:
 
     def _doc_transcribe(self, run, st):
         doc = self._doc(run)
-        if doc["count"]:
+        if tx_verdict(bool(doc["count"]), False) == "skip":   # 文書単位は force でも作り直さない
             st["state"], st["detail"] = "skip", "文字起こし済み"
             return None
         jid = self.tools.transcribe_start(dict(self._tx_opts(run), sourcePath=doc["sourcePath"], intoDoc=doc["id"]), bundle=self._bundle(run))
@@ -1131,7 +1160,7 @@ class Runner:
         opts = self._pack_settings(run)
         force = self._repack(run)
         state, built = ("none", None) if force else self._pack_state(run, doc, doc["sourcePath"], opts)   # パックの鍵(RS6 b-K2。_step_pack と同じ)
-        if state == "same" or (state == "none" and not force and self.find_pack(doc["sourcePath"])):
+        if pack_verdict(force, state, bool(self.find_pack(doc["sourcePath"]))) == "skip":
             self._keep_pack(run, doc["sourcePath"])
             st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
             return None
@@ -1207,8 +1236,9 @@ class Runner:
         from_pack = b["run"]["from"] == "pack"   # 束の run.from = pack(CLI の --from pack): 文字起こし済みの文書でパックだけ(force でも文字起こしは作り直さない。RS7-1 S4)
         if from_pack and not (doc and doc.get("count")):
             raise StepError("この動画の文字起こしの文書がありません(パックからでなく、文字起こしから実行してください)")
-        redo = bool(doc and doc.get("count") and self._force(run) and not from_pack)   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
-        if doc and doc.get("count") and not redo:
+        verdict = tx_verdict(bool(doc and doc.get("count")), self._force(run) and not from_pack)   # 鍵(RS6 b-K2): force なら作り直す(新しい文書。人の直しは引き継ぐ)
+        redo = verdict == "redo"
+        if verdict == "skip":
             differ = self._tx_state(doc, run.source_path, opts) == "differ"   # 違えば飛ばして印・同じ / 鍵なしは飛ばす
             st["state"], st["detail"] = "skip", "文字起こし済み" + ("(%s)" % TX_DIFFER if differ else "")
             tid = doc["id"]
