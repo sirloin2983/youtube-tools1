@@ -103,17 +103,14 @@ _model_used
 _models
 _modfwd
 _one_char
-_order
 _ov
 _prob
-_queue
 _retranscribe_each
 _retranscribe_range
 _roster
 _roster_hashes
 _rows_to_doc
 _run_base
-_seq_counter
 _squash
 _squash_row
 _strip_punct_re

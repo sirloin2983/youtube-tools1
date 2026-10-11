@@ -18,10 +18,9 @@ from flow import board as B, jobs  # noqa: E402
 
 class TestJobsBoard(unittest.TestCase):
     def setUp(self):
-        saved = (dict(jobs._jobs), list(jobs._order), tuple(jobs.RETRY_KINDS))
+        saved = (dict(jobs._jobs), tuple(jobs.RETRY_KINDS))
         self.addCleanup(self._restore, saved)
         jobs._jobs.clear()
-        jobs._order[:] = []
         jobs.RETRY_KINDS = ("transcribe",)
         self.board = B.Board()
         jobs.attach_board(self.board)
@@ -30,8 +29,7 @@ class TestJobsBoard(unittest.TestCase):
     def _restore(saved):
         jobs._jobs.clear()
         jobs._jobs.update(saved[0])
-        jobs._order[:] = saved[1]
-        jobs.RETRY_KINDS = saved[2]
+        jobs.RETRY_KINDS = saved[1]
 
     def test_state_changes_reach_board(self):
         job = jobs.add_job({"title": "配信 A", "tid": "t1"}, "transcribe")

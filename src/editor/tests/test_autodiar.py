@@ -57,10 +57,8 @@ class TestAutoDiar(unittest.TestCase):
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
         S.VOICES_DIR = os.path.join(self.tmp, "voices")
         os.makedirs(S.TX_DIR)
-        self.old_jobs = (dict(jobs._jobs), list(jobs._order))
+        self.old_jobs = dict(jobs._jobs)
         jobs._jobs.clear()
-        jobs._order.clear()
-        self.drain()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
                                                 "TRANSCRIBE_EVAL_BATCH": "off", "TRANSCRIBE_AUTO_DIARIZE": ""})
         self.env.start()
@@ -74,20 +72,14 @@ class TestAutoDiar(unittest.TestCase):
     def tearDown(self):
         EB.eb_shutdown()
         self.env.stop()
-        self.drain()
         jobs._jobs.clear()
-        jobs._jobs.update(self.old_jobs[0])
-        jobs._order[:] = self.old_jobs[1]
+        jobs._jobs.update(self.old_jobs)
         S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.VOICES_DIR = self.saved
         ed_drill._drill_cache.clear()
         shutil.rmtree(self.tmp, ignore_errors=True)
         shutil.rmtree(self.ev, ignore_errors=True)
 
     # -- 道具
-    def drain(self):
-        while not jobs._queue.empty():
-            jobs._queue.get_nowait()
-
     def settings(self, d):
         with open(S.SETTINGS, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False)

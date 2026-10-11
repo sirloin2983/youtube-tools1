@@ -75,7 +75,6 @@ class _Base(StoreDir):
         return p
 
     def run_job(self, job):
-        jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
         doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         return job

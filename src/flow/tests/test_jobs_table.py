@@ -201,5 +201,31 @@ class TestTable(unittest.TestCase):
         self.assertTrue(wait(lambda: not t.busy()))
 
 
+    def test_j8_priority_manual_lane_and_runner_owned_state(self):
+        """編集 tx の形(J8): 入れただけでは動かない・priority の小さい順(同じなら入れた順)・走らせる本体が終わりの状態を入れる・旗 cancel も取り消し"""
+        ran = []
+
+        def run(rec, ctl):
+            ran.append(rec["id"])
+            rec["state"] = "loading"
+            rec["state"] = "done"
+
+        t = Table("tx", "t", run=run, kinds=(), autostart=False, run_state=None, active_states=("queued", "loading", "running"),
+                  priority=lambda rec: rec["spec"].get("pr", 1), keep=2,
+                  before=lambda rec: ("cancelled", None, "中止しました") if rec.get("cancel") else None)
+        a, b, c = t.add({"pr": 1}, "x"), t.add({"pr": 0}, "x"), t.add({"pr": 1}, "x")
+        time.sleep(0.05)
+        self.assertEqual([r["state"] for r in (a, b, c)], ["queued"] * 3)
+        self.assertEqual([r["id"] for r in t.queue_order()], [b["id"], a["id"], c["id"]])
+        self.assertTrue(t.run_one(b["id"]))
+        self.assertEqual((b["state"], b["fseq"] > 0, b["finishedAt"] is not None), ("done", True, True))
+        a["cancel"] = True   # 旗だけ立てた待ち(before が終える)
+        self.assertFalse(t.run_one(a["id"]))
+        self.assertEqual(a["state"], "cancelled")
+        t.run_one(c["id"])
+        self.assertEqual(ran, [b["id"], c["id"]])
+        self.assertEqual(len(t.list()), 2)   # keep=2: 古い終わった記録から消える
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -232,7 +232,7 @@ def _tools_info():
 
 def _jobs_list():
     with _heavy_jobs._jobs_lock:
-        return {"jobs": [_docjobs.public_job(_heavy_jobs._jobs[i]) for i in _heavy_jobs._order if i in _heavy_jobs._jobs]}
+        return {"jobs": [_docjobs.public_job(j) for j in _heavy_jobs._jobs.values()]}
 
 
 def _learned(a):

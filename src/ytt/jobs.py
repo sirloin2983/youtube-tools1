@@ -134,8 +134,10 @@ Cancelled = errors.Cancelled   # lint: keep 別名(RS3-4)= 中止の例外(正�
 
 
 def check_cancel(job):
-    """取り消されていれば Cancelled を上げる(ジョブの本体の区切りごとの確かめ。① の認識・判別・後処理が使う)"""
-    if job.get("cancel"):
+    """取り消されていれば Cancelled を上げる(ジョブの本体の区切りごとの確かめ。① の認識・判別・後処理が使う)。
+    旗 job["cancel"] のほか、ジョブに ctl(器が付ける Ctl。OPT2 の J8)があればその取り消しも見る"""
+    ctl = job.get("ctl")
+    if job.get("cancel") or (ctl is not None and ctl.is_cancelled()):
         raise Cancelled()
 
 

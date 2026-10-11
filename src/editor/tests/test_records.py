@@ -315,7 +315,6 @@ class TestAsrRaw(StoreDir):
         spec = doc_jobs.validate_job({"sourcePath": src, "model": "small"})
         with patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0"}):
             job = jobs.add_job(spec)
-            jobs._queue.get_nowait()   # 待機列のワーカーに取られないように、ここで直接動かす
             doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
         with open(records.asr_path(job["tid"]), encoding="utf-8") as f:

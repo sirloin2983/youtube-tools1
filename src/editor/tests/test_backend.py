@@ -117,17 +117,12 @@ class TestWriteLocks(StoreDir):
 
 class TestJobs(unittest.TestCase):
     def setUp(self):
-        self.old = (dict(S._jobs), list(S._order))
+        self.old = dict(S._jobs)
         S._jobs.clear()
-        S._order.clear()
 
     def tearDown(self):
-        while not S._queue.empty():
-            S._queue.get_nowait()
         S._jobs.clear()
-        S._jobs.update(self.old[0])
-        S._order.clear()
-        S._order.extend(self.old[1])
+        S._jobs.update(self.old)
 
     def test_exclusive_checked_inside_add_job(self):
         """同じ文字起こしへの話者判別・再認識は、待機列に入れるときにも重ねない(確認と登録の間の割り込み対策)。"""
