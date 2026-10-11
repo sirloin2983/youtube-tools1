@@ -3607,4 +3607,5 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 ## 2026-10-11 深夜 Claude Code(PC。Opus)— 友人の PC で「処理の部品が途中で終わりました(終了コード 1)」
 - 送るアプリが ② (python server.py --headless)を起こしたが ready の前に終了コード 1 で終わった = Python の例外。この PC では配る zip の python・src をそのまま(空の作業データ・日本語と空白の入ったパス・--parent-pid・tools なし)で起こしても ready まで行き再現しない。原因は友人の PC の %LOCALAPPDATA%/youtube-tools/app/logs/headless-stderr.log の末尾待ち
 - 直した: Backend.cs が標準エラーの最後の 3 行を覚え、起動で終わったときの文に「最後の記録: …」として添える(友人が記録のファイルを開かなくても原因が見える)。CoreTests 65 件 OK
+- 原因(友人の headless-stderr.log): アプリが E:、作業データが C:。入口の Tool.snapshot の os.path.relpath(記録のパス, src) がドライブ違いで ValueError → start_all で落ちる。server.py に rel_or_abs(違うドライブなら絶対パス)を足して 3 か所を通す。E: に置いた埋め込み Python + 直した src + C: の作業データで ready まで行くのを確かめた。test_launch 66 OK・lint 0
 - 未コミット: なし

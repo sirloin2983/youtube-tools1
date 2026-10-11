@@ -261,6 +261,14 @@ def tool_python(tool_dir, spec):
     return sys.executable
 
 
+def rel_or_abs(path, root):
+    """root からの相対(表示用)。別のドライブ(アプリは E:・作業データは C: など)で相対にできなければ絶対パスのまま"""
+    try:
+        return os.path.relpath(path, root)
+    except ValueError:
+        return os.path.abspath(path)
+
+
 def signal_stop(proc):
     """終わってほしい合図を送る(強制終了はしない)。Windows は子のプロセスグループへの Ctrl+Break(SIGBREAK)、
     それ以外は SIGTERM。どちらも各ツールが .runtime を消してから終わる処理につながっている。"""
@@ -319,7 +327,7 @@ class Tool:
                 "since": round(self.since, 3), "port": self.port, "version": self.version, "expectedVersion": self.expected,
                 "managed": self.managed, "exitCode": self.exit_code, "starts": self.starts, "mounted": self.mounted, "path": self.path,
                 "hidden": bool(self.spec.get("hidden")),
-                "log": os.path.relpath(self.log_path, self.root), "hasLog": os.path.exists(self.log_path),
+                "log": rel_or_abs(self.log_path, self.root), "hasLog": os.path.exists(self.log_path),
             }
 
 
@@ -390,7 +398,7 @@ class Supervisor:
             t.expected = expected_version(t.spec, self.root)
             if not os.path.isfile(t.script):
                 t.proc, t.managed, t.port = None, False, None
-                t.set_state("missing", "%s が見つかりません" % os.path.relpath(t.script, self.root))
+                t.set_state("missing", "%s が見つかりません" % rel_or_abs(t.script, self.root))
                 self.log("× %s: %s" % (t.spec["name"], t.message))
                 return t.snapshot()
             ext = self._find_external(t)
@@ -574,7 +582,7 @@ class Supervisor:
             return
         self._finish(t, code, "crashed", "異常終了しました(終了コード %s)。下のログを確認して、「起動」で起動し直せます" % code)
         last = tail(t.log_path, 5) or []
-        self.log("× %s が異常終了しました(終了コード %s)。ログ: %s" % (t.spec["name"], code, os.path.relpath(t.log_path, self.root))
+        self.log("× %s が異常終了しました(終了コード %s)。ログ: %s" % (t.spec["name"], code, rel_or_abs(t.log_path, self.root))
                  + "".join("\n    " + ln for ln in last))
 
     def _monitor(self):
