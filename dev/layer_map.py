@@ -29,6 +29,7 @@ ALLOWED = {
 FILES = {
     # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
     "src/ytt/docloc.py": ("ytt", "ytt", "文字起こしの文書の置き場所を引く口(RS8 B2-1a。索引 transcripts/<id>.loc.json が無ければ workdata.TX_DIR。標準ライブラリと ytt だけ)"),
+    "src/ytt/marks.py": ("ytt", "ytt", "マークの純粋な語彙(RS8 B3-2。検査・整形 build_mark・読み込み load_marks・同じ区間 same/near・手を入れたか touched。human/review/store から下ろした。ファイルにもロックにも触らない)"),
     "src/manage/cases/docmove.py": ("manage", "manage/cases", "文書を案件の 作業用 へ移す・戻す(RS8 B2-3。入口の起動のときと、コマンド --back・--resume・--now・--purge-migrated。ytt・flow/placement・manage/keep を読む)"),
     "src/human/proof/layers.py": ("human", "human/proof", "文書を機械の層 + 人の層から組み立てる純粋な関数(RS8 O2-1。compose・diff・案 A の印・話者の対応表。ファイルを触らない。ytt だけを読む)"),
     "src/eval/tools/eval_layers.py": ("eval", "eval/tools", "機械の層 + 人の層の往復を作業データで確かめる道具(RS8 O2-1。読むだけ。human/proof/layers を読む)"),

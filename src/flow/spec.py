@@ -17,11 +17,11 @@
 import copy
 import re
 
-from ytt import schemas
+from ytt import marks as _marks, schemas
 
 # ---------- 区間・マーク・採用数・重みの検査(autorun.py から移した) ----------
-RANGE_MAX = 10           # 1本の配信の区間の数(スタジオの MAX_REQUEST_RANGES と同じ)
-RANGE_MAX_SEC = 3600     # 1つの区間の長さ(スタジオの MAX_MARK_SEC と同じ)
+RANGE_MAX = _marks.MAX_REQUEST_RANGES   # 1本の配信の区間の数(スタジオと同じ = ytt/marks)
+RANGE_MAX_SEC = _marks.MAX_MARK_SEC     # 1つの区間の長さ(スタジオと同じ = ytt/marks)
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
 PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)

@@ -58,7 +58,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt import colors, fsio, jobs, loudness, names, normalize, recproto, schemas, tools, version as _version
+from ytt import colors, fsio, jobs, loudness, marks as _marks, names, normalize, recproto, schemas, tools, version as _version
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3
 from . import livehost   # 親の口の型(RS7-2 G0)
@@ -76,7 +76,7 @@ SEG_URI_RE = recproto.SEG_URI_RE
 YT_ID_RE = recproto.YT_VID_RE
 STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジオの配信・マークの id(P3。POST /live/api/export の studio)
 MAX_MARKS = 300            # 録画1本のマークの数
-MAX_MARK_SEC = 3600        # 1つのマークの長さ(スタジオの MAX_MARK_SEC と同じ)
+MAX_MARK_SEC = _marks.MAX_MARK_SEC   # 1つのマークの長さ(スタジオと同じ = ytt/marks)
 LABEL_MAX = 80
 AFTERS = ("none", "check", "auto")   # 書き出したあと: 何もしない / 文字起こしまで(まとめて実行の ② 軽く確認)/ 全自動(文字起こし → パック。① 全自動)
 ORIGINS = ("manual", "auto", "archive")   # 採用の出どころ(M1): 人 / 配信中の検出(M11)/ 配信後のアーカイブの解析(M7)
@@ -347,7 +347,7 @@ class MarkStore:
             self._save_or_raise(d)
             return dict(m)
 
-    def adopt(self, rc, rec, key, first, a, b, label="", tol=0.5, url=None, title=None):
+    def adopt(self, rc, rec, key, first, a, b, label="", tol=_marks.DUP_TOL, url=None, title=None):
         """スタジオなしの採用の印(RS7-2 G1b。flow/live_adopt.py の LocalMarks)。a・b = 録画の頭からの秒・first = その 0 秒の時刻(epoch)。
         同じ録画の採用の印(key のあるマーク)で区間の差が tol 秒以内のものがあれば使い回す(採用に戻す)。無ければ id = studio_mark_id(key) で足す。
         マークに key・sec [a, b](頼まれた秒)・status adopted|exported・src "local" を持たせる。番号 n = 正本のマークを開始の順に並べた位置(スタジオと同じ決まり)。
@@ -357,7 +357,7 @@ class MarkStore:
         with self.lock:
             d = self.load(rc, rec)
             marks = d["marks"]
-            hit = next((m for m in marks if m.get("key") and _sec_pair(m.get("sec")) and abs(m["sec"][0] - a) <= tol and abs(m["sec"][1] - b) <= tol), None)
+            hit = next((m for m in marks if m.get("key") and _sec_pair(m.get("sec")) and _marks.near(m["sec"][0], m["sec"][1], a, b, tol)), None)
             if hit is not None and hit.get("status") in ("adopted", "exported"):
                 return dict(hit), self._order(marks, hit)
             if hit is not None:

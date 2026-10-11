@@ -10,33 +10,24 @@
 import copy
 import json
 import math
-import operator
 import os
-import re
 import shutil
 import sys
 import threading
 import time
 
-from ytt import fsio as _fsio, mediainfo as _media, schemas, settings as _settings, studio_env as _env, yturl as _yturl  # noqa: E402  (check_live・LIVE_NO_ANALYZE は RS6 a-5a で ytt/yturl へ・prune_cache は ytt/fsio へ)
+from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, settings as _settings, studio_env as _env, yturl as _yturl  # noqa: E402  (check_live・LIVE_NO_ANALYZE は RS6 a-5a で ytt/yturl へ・prune_cache は ytt/fsio へ)
+# マークの純粋な語彙(検査・整形・同じ区間・手を入れたか)は RS8 B3-2 で ytt/marks へ下ろした。下の名前は今までどおり store からも読める
+from ytt.marks import BadMark, EDIT_TOL, ID_RE, MAX_MARKS, MAX_REQUEST_RANGES, check_times, load_marks  # noqa: E402,F401
 
 from . import feedback  # noqa: E402  判定の記録(RS3-5 に analyze から隣へ。呼ぶたびに feedback.名前 で読む)
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import num  # noqa: E402  純粋な関数
 
 SCHEMA = "clip-studio/v1"
-ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)
-MAX_MARKS = 500
-MAX_MARK_SEC = 3600
-MAX_REQUEST_RANGES = 10  # 友人の依頼で1本の配信に指定できる区間の数(request_marks)
-MAX_TIME = 1e7          # 秒。これを超える値は不正(巨大な数値対策)
-PART_KEYS = ("audio", "chat", "comments")
 # 作業データが壊れていたときの戻し方(画面の帯に出す。退避したファイルの名前・フォルダは画面の「詳しく」に出す。見直し M8)
 RESTORE_STEPS = "前のデータは退避してあります。戻すには: ホームで「すべて終了」→ 退避したファイルの名前を元に戻す(下の「詳しく」)→ start.bat で起動し直す"
-STATUS_CLIENT = ("", "adopted", "rejected")   # クライアントが設定できる状態(exported はサーバーだけ)
 SERIES_KEEP = 60
-DUP_TOL = 0.5           # 自動マークが既存マークとこれ以内のずれなら「同じ区間」
-EDIT_TOL = 0.05         # 書き出し済みマークの時刻がこれより動いたら「書き出し済み」を外す
 SAVE_ERR = "保存に失敗しました(ディスクの空きなど)"
 UI_MAX_BYTES = 32 * 1024   # 画面の設定 settings-ui.json の大きさの上限
 
@@ -48,189 +39,8 @@ ANCHOR_A_MIN, ANCHOR_A_MAX = 0.5, 1.5   # アンカー点から求めた傾き(�
 MIN_ANCHOR_GAP = 20.0   # 2点指定のとき、この動画の時刻でこれ以上離れていることを要求する(近すぎると傾きが不安定)
 
 
-def _pos_int(x):
-    return schemas.is_int(x) and x > 0
-
-
-_BY_SCORE = lambda m: -(m["score"] or 0)            # noqa: E731  点数の高い順
-_BY_TIME = operator.itemgetter("start", "end")      # 時刻の順
-
-
-def _ms_or_now(x):
-    """保存された時刻(ミリ秒の正の整数)。壊れていれば今の時刻"""
-    return x if _pos_int(x) else schemas.now_ms()
-
-
 def _warn(msg):
     sys.stderr.write("[store] " + msg + "\n")
-
-
-class BadMark(Exception):
-    pass
-
-
-def _f(v):
-    if isinstance(v, bool):
-        return None
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        return None
-    return x if math.isfinite(x) else None
-
-
-def _num_strict(v):
-    """JSON の数値(int/float)だけを受け付ける。文字列・真偽値・NaN・Infinity・巨大な値は None。"""
-    x = schemas.num(v)
-    return x if x is not None and abs(x) <= MAX_TIME else None
-
-
-def _clean_reasons(v):
-    """理由の文(6 件・40 字まで)。リストでなければ []"""
-    return [str(r)[:40] for r in v[:6]] if isinstance(v, list) else []
-
-
-def _clean_parts(v):
-    """材料ごとの点数 {audio, chat, comments}(数のものだけ・小数 2 桁)。辞書でなければ {}"""
-    parts = {}
-    if isinstance(v, dict):
-        for k in PART_KEYS:
-            x = _f(v.get(k))
-            if x is not None:
-                parts[k] = round(x, 2)
-    return parts
-
-
-def _clamp_end(dur, s, e):
-    """終わりを配信の長さ dur(秒。0・None なら切らない)で切る。開始より後でなくなれば None"""
-    if dur and dur > 0:
-        e = min(e, round(float(dur), 1))
-    return e if e > s else None
-
-
-def check_times(s_raw, e_raw):
-    """開始・終了(秒)を検査して、小数1桁に丸めた (start, end) を返す。不正なら BadMark(理由)。"""
-    s, e = _num_strict(s_raw), _num_strict(e_raw)
-    if s is None or e is None:
-        raise BadMark("開始・終了が数値ではありません(または大きすぎます)")
-    if s < 0:
-        raise BadMark("開始が0秒より前です")
-    s, e = round(s, 1), round(e, 1)
-    if e <= s:
-        raise BadMark("終了が開始より後になっていません")
-    if e - s > MAX_MARK_SEC:
-        raise BadMark("長さが%d秒を超えています" % MAX_MARK_SEC)
-    return s, e
-
-
-def _auto0(v):
-    if isinstance(v, (list, tuple)) and len(v) == 2:
-        a, b = _f(v[0]), _f(v[1])
-        if a is not None and b is not None:
-            return [round(a, 1), round(b, 1)]
-    return None
-
-
-def _collab_from(v):
-    """コラボ転写マークの由来({videoId, markId})を検査する。不正なら None。"""
-    if isinstance(v, dict):
-        vid, mid = v.get("videoId"), v.get("markId")
-        if isinstance(vid, str) and ID_RE.match(vid) and isinstance(mid, str) and ID_RE.match(mid):
-            return {"videoId": vid, "markId": mid}
-    return None
-
-
-def _clean_server(d):
-    """サーバーだけが決める項目(src, 点数, 理由, 書き出し状態, auto0, collabFrom)を、型を整えて取り出す。"""
-    st = d.get("status") if d.get("status") in ("", "adopted", "rejected", "exported") else ""
-    f = str(d.get("file") or "")[:300] if st == "exported" and isinstance(d.get("file"), str) else ""
-    # 書き出した mp4 の絶対パス(サーバーだけが決める。画面のマークの行から他のツールへ渡すリンクに使う。出力先を後で変えても元の場所が分かる)
-    fp = d.get("path") if st == "exported" and f and isinstance(d.get("path"), str) and len(d.get("path")) <= 600 and "\x00" not in d.get("path") else ""
-    score, peak = _f(d.get("score")), _f(d.get("peak"))
-    reasons, parts = _clean_reasons(d.get("reasons")), _clean_parts(d.get("parts"))
-    src = d.get("src") if d.get("src") in ("auto", "collab") else "manual"
-    return {"src": src, "score": None if score is None else round(score, 2), "reasons": reasons, "parts": parts,
-            "peak": None if peak is None else round(peak, 1), "status": st, "file": f if st == "exported" else "", "path": fp,
-            # 本番版(アーカイブで作り直した版)に入れ替え済みの印(線 D の P4。サーバーだけが決める。live の配信のマークだけ = _load_video で他は外す)
-            "archived": d.get("archived") is True and st == "exported" and bool(f),
-            "createdAt": _ms_or_now(d.get("createdAt")),
-            "auto0": _auto0(d.get("auto0")) if src in ("auto", "collab") else None,
-            "auto0Orig": _auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
-            "collabFrom": _collab_from(d.get("collabFrom")) if src == "collab" else None,
-            # 人ではなく機械が採用にした印(Q2。adopt_top = "auto"・request_marks の区間 = "request")。人が状態を変えたら外れる(_build_mark)
-            "adoptedBy": d.get("adoptedBy") if d.get("adoptedBy") in ("auto", "request") and st in ("adopted", "exported") else None}
-
-
-def _build_mark(m, old, trusted=False):
-    """1件のマークを検査して整形する。不正なら BadMark。old: 同じ id の既存マーク(サーバー由来の値を引き継ぐ)。id は呼び出し側で検査済み。"""
-    s, e = check_times(m.get("start"), m.get("end"))
-    if old is not None:
-        srv = _clean_server(old)
-        cs = m.get("status") if m.get("status") in STATUS_CLIENT else None   # クライアントが決められる状態(exported・未指定は無視)
-        moved = abs(s - old["start"]) > EDIT_TOL or abs(e - old["end"]) > EDIT_TOL
-        if srv["status"] == "exported":
-            # 書き出し済みのマークの開始・終了を動かしたら、書き出し済みの扱いを外す(ファイルは別物になるため)。採用済みだった扱いに戻す
-            if cs is not None:
-                srv["status"], srv["file"] = cs, ""
-            elif moved:
-                srv["status"], srv["file"] = "adopted", ""
-        elif cs is not None:
-            srv["status"] = cs
-        if cs is not None and cs != old.get("status"):
-            srv["adoptedBy"] = None   # 人が状態を変えた = 人の判断になった
-    elif trusted:
-        srv = _clean_server(m)
-    else:
-        srv = _clean_server({})   # クライアントが作る新しいマークは、必ず手動・未書き出し(状態は 候補/採用/不採用 だけ指定できる)
-        if m.get("status") in STATUS_CLIENT:
-            srv["status"] = m["status"]
-        if _pos_int(m.get("createdAt")):
-            srv["createdAt"] = m["createdAt"]
-    label = m.get("label")
-    d = {"id": m["id"], "start": s, "end": e, "label": label.strip()[:120] if isinstance(label, str) else "", "src": srv["src"], "score": srv["score"],
-         "reasons": srv["reasons"], "parts": srv["parts"], "peak": srv["peak"], "live": bool(m.get("live")), "status": srv["status"], "file": srv["file"],
-         "createdAt": srv["createdAt"]}
-    if srv["file"] and srv.get("path"):   # file を外したとき(範囲の変更・状態の変更)は path も外れる
-        d["path"] = srv["path"]
-    if srv["file"] and srv.get("archived"):   # path と同じ扱い: 書き出し済みでなくなる(時刻を変えた・状態を変えた)と一緒に消える
-        d["archived"] = True
-    for k in ("auto0", "auto0Orig", "collabFrom"):
-        if srv.get(k):
-            d[k] = srv[k]
-    if srv.get("adoptedBy") and d["status"] in ("adopted", "exported"):
-        d["adoptedBy"] = srv["adoptedBy"]
-    return d
-
-
-def _new_mark(prefix, s, e, status=""):
-    """サーバーが作る新しいマーク(手動・ラベルなしで整形する。src などは呼び出し側が上書きする)。id は prefix + 乱数"""
-    return _build_mark({"id": prefix + os.urandom(5).hex(), "start": s, "end": e, "label": "", "live": False, "status": status, "createdAt": schemas.now_ms()}, None)
-
-
-def load_marks(raw):
-    """保存済み(信頼できる)マークの読み込み。壊れた1件は読み飛ばす(ログに残す)。"""
-    out, seen = [], set()
-    for m in raw if isinstance(raw, list) else []:
-        try:
-            if not isinstance(m, dict) or not isinstance(m.get("id"), str) or not ID_RE.match(m["id"]) or m["id"] in seen:
-                raise BadMark("id")
-            c = _build_mark(m, None, True)
-        except Exception as e:
-            _warn("壊れたマークを読み飛ばしました: %s" % str(e)[:80])
-            continue
-        seen.add(c["id"])
-        out.append(c)
-        if len(out) >= MAX_MARKS:
-            break
-    return out
-
-
-def _drop_archived(marks, kind):
-    """archived(本番版の印)は live の配信のマークだけ。data.json を手で直されても、他の種類には付けない"""
-    if kind != "live":
-        for m in marks:
-            m.pop("archived", None)
-    return marks
 
 
 def validate_marks(raw, old_marks):
@@ -256,28 +66,12 @@ def validate_marks(raw, old_marks):
         if mid in seen:
             raise ApiError("bad_marks", "%s(id: %s)は id が重複しています" % (where, mid), 400)
         try:
-            c = _build_mark(m, old.get(mid))
+            c = _marks.build_mark(m, old.get(mid))
         except BadMark as e:
             raise ApiError("bad_marks", "%s(id: %s)が正しくありません: %s" % (where, mid, e), 400)
         seen.add(mid)
         out.append(c)
     return out
-
-
-def _same(a, b):
-    return abs(a["start"] - b["start"]) <= DUP_TOL and abs(a["end"] - b["end"]) <= DUP_TOL
-
-
-def _overlaps(a_s, a_e, b_s, b_e):
-    """2つの区間が少しでも重なっているか。コラボ転写で「既に同じような部分にマークがある」の判定に使う
-    (_same の完全一致・±0.5秒より緩い基準。転写側は COLLAB_MARGIN で前後に広げてあるので、単純な重なりで十分)。"""
-    return a_s < b_e and b_s < a_e
-
-
-def _touched(m):
-    """ユーザーが手を入れた自動マークか(採用・不採用・書き出し済み / ラベルあり / 時刻を動かした)。"""
-    a0 = m.get("auto0")
-    return (m["status"] != "" or bool(m["label"]) or not a0 or abs(m["start"] - a0[0]) > EDIT_TOL or abs(m["end"] - a0[1]) > EDIT_TOL)
 
 
 # ---- コラボグループの時刻対応(t_ref = a * t_this + b。区分的な配列を持てるが、v0 は要素1つだけ作る) ----
@@ -289,10 +83,10 @@ def _load_pieces(raw):
     for pc in raw[:20]:
         if not isinstance(pc, dict):
             continue
-        a, b = _f(pc.get("a")), _f(pc.get("b"))
+        a, b = _marks.fnum(pc.get("a")), _marks.fnum(pc.get("b"))
         if a is None or b is None or a == 0:
             continue
-        ts, te = _f(pc.get("tStart")), _f(pc.get("tEnd"))
+        ts, te = _marks.fnum(pc.get("tStart")), _marks.fnum(pc.get("tEnd"))
         out.append({"a": round(a, 6), "b": round(b, 3), "tStart": ts, "tEnd": te})
     return out
 
@@ -305,7 +99,7 @@ def offset_from_anchors(points):
     for p in points:
         if not (isinstance(p, (list, tuple)) and len(p) == 2):
             raise BadMark("アンカーの形式が正しくありません")
-        t_this, t_ref = _num_strict(p[0]), _num_strict(p[1])
+        t_this, t_ref = _marks.num_strict(p[0]), _marks.num_strict(p[1])
         if t_this is None or t_ref is None or t_this < 0 or t_ref < 0:
             raise BadMark("アンカーの時刻が正しくありません")
         pts.append((t_this, t_ref))
@@ -520,9 +314,9 @@ class Store:
         an = v.get("analysis")
         out = {"id": vid, "kind": v["kind"], "title": str(v.get("title") or "")[:120], "channel": str(v.get("channel") or "")[:100],
                "duration": num(v.get("duration"), 0, 1e6, 0.0), "fileName": str(v.get("fileName") or "")[:200] if v["kind"] == "file" else "",
-               "path": v["path"] if v["kind"] == "file" else "", "marks": _drop_archived(load_marks(v.get("marks")), v["kind"]),
-               "analysis": an if isinstance(an, dict) else None, "rev": v["rev"] if _pos_int(v.get("rev")) else 1,
-               "createdAt": _ms_or_now(v.get("createdAt")), "updatedAt": _ms_or_now(v.get("updatedAt"))}
+               "path": v["path"] if v["kind"] == "file" else "", "marks": _marks.drop_archived(load_marks(v.get("marks")), v["kind"]),
+               "analysis": an if isinstance(an, dict) else None, "rev": v["rev"] if _marks.pos_int(v.get("rev")) else 1,
+               "createdAt": _marks.ms_or_now(v.get("createdAt")), "updatedAt": _marks.ms_or_now(v.get("updatedAt"))}
         if live:
             out["live"] = live   # live のときだけ持つキー(youtube・file の記録の形は変えない)
         return out
@@ -543,7 +337,7 @@ class Store:
         offsets_raw = g.get("offsets") if isinstance(g.get("offsets"), dict) else {}
         offsets = {vid: _load_pieces(offsets_raw.get(vid)) for vid in members if vid != base}
         return {"id": gid, "name": str(g.get("name") or "")[:120], "base": base, "members": members, "offsets": offsets,
-                "createdAt": _ms_or_now(g.get("createdAt")), "updatedAt": _ms_or_now(g.get("updatedAt"))}
+                "createdAt": _marks.ms_or_now(g.get("createdAt")), "updatedAt": _marks.ms_or_now(g.get("updatedAt"))}
 
     def take_warning(self):
         """起動時の問題を1度だけ返す((メッセージ, 退避ファイル名) / ("", ""))。"""
@@ -787,14 +581,14 @@ class Store:
             nv = copy.deepcopy(v)
             range_ids, added = [], []
             for s, e in want:
-                e = _clamp_end(nv["duration"], s, e)
+                e = _marks.clamp_end(nv["duration"], s, e)
                 if e is None:
                     raise ApiError("bad_request", "区間が配信の長さの外です(%s 秒から)" % s, 400)
-                m = next((x for x in nv["marks"] if _same(x, {"start": s, "end": e})), None)
+                m = next((x for x in nv["marks"] if _marks.same(x, {"start": s, "end": e})), None)
                 if m is None:
                     if len(nv["marks"]) >= MAX_MARKS:
                         raise ApiError("bad_request", "マークは%d件までです" % MAX_MARKS, 400)
-                    m = _new_mark("r", s, e, "adopted")
+                    m = _marks.new_mark("r", s, e, "adopted")
                     m["adoptedBy"] = "request"
                     nv["marks"].append(m)
                     added.append(m["id"])
@@ -803,19 +597,19 @@ class Store:
                     added.append(m["id"])
                 if m["id"] not in range_ids:
                     range_ids.append(m["id"])
-            human_ids = [m["id"] for m in sorted(nv["marks"], key=_BY_TIME)
+            human_ids = [m["id"] for m in sorted(nv["marks"], key=_marks.by_time)
                          if m["status"] in ("adopted", "exported") and not m.get("adoptedBy") and m["id"] not in range_ids]
             taken = set(range_ids) | set(human_ids)
             picked = [(m["start"], m["end"]) for m in nv["marks"] if m["id"] in taken]
             room = max(0, top - len(taken))
             autos = sorted((m for m in nv["marks"] if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken
-                            and not any(_overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_BY_SCORE)[:room]
+                            and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score)[:room]
             for m in autos:
                 if m["status"] == "":
                     m["status"], m["adoptedBy"] = "adopted", "auto"
                     added.append(m["id"])
             if added:
-                nv["marks"] = sorted(nv["marks"], key=_BY_TIME)
+                nv["marks"] = sorted(nv["marks"], key=_marks.by_time)
                 self._bump(nv)
             return {"rangeIds": range_ids, "humanIds": human_ids, "autoIds": [m["id"] for m in autos], "added": added, "video": self._pub(nv)}
 
@@ -831,7 +625,7 @@ class Store:
             for m in v["marks"]:
                 if m["src"] != "auto":
                     kept.append(m)
-                elif _touched(m):
+                elif _marks.touched(m):
                     k = dict(m, src="manual")
                     a0 = k.pop("auto0", None)
                     if a0:
@@ -846,16 +640,16 @@ class Store:
                     s, e = check_times(c["start"], c["end"])   # 手動と同じ規則(長さの上限など)
                 except (BadMark, KeyError, TypeError):
                     continue
-                m = _new_mark("a", s, e)
-                m.update({"src": "auto", "score": _f(c.get("score")), "reasons": _clean_reasons(c.get("reasons")), "peak": _f(c.get("peak")),
-                          "parts": _clean_parts(c.get("parts")), "auto0": [s, e]})
-                if any(_same(m, o) for o in kept + autos):
+                m = _marks.new_mark("a", s, e)
+                m.update({"src": "auto", "score": _marks.fnum(c.get("score")), "reasons": _marks.clean_reasons(c.get("reasons")), "peak": _marks.fnum(c.get("peak")),
+                          "parts": _marks.clean_parts(c.get("parts")), "auto0": [s, e]})
+                if any(_marks.same(m, o) for o in kept + autos):
                     continue
                 autos.append(m)
             if len(kept) + len(autos) > MAX_MARKS:   # 残したマークを優先し、自動を減らす
-                autos = sorted(autos, key=_BY_SCORE)[:max(0, MAX_MARKS - len(kept))]
+                autos = sorted(autos, key=_marks.by_score)[:max(0, MAX_MARKS - len(kept))]
             nv = copy.deepcopy(v)
-            nv["marks"] = sorted(kept + autos, key=_BY_TIME)[:MAX_MARKS]
+            nv["marks"] = sorted(kept + autos, key=_marks.by_time)[:MAX_MARKS]
             nv["analysis"] = analysis
             if duration and duration > 0:
                 nv["duration"] = round(float(duration), 2)
@@ -1060,7 +854,7 @@ class Store:
             v = self.videos.get(vid)
             if not v:
                 return
-            origin = {"videoId": from_vid, "markId": from_mark_id}   # collabFrom は必ずこの 2 つの鍵だけ(_collab_from)
+            origin = {"videoId": from_vid, "markId": from_mark_id}   # collabFrom は必ずこの 2 つの鍵だけ(ytt/marks の collab_from)
             already = any(m.get("collabFrom") == origin for m in v["marks"])
             if already:
                 return
@@ -1068,12 +862,12 @@ class Store:
                 s, e = check_times(max(0.0, s_raw), e_raw)
             except BadMark:
                 return
-            e = _clamp_end(v["duration"], s, e)
+            e = _marks.clamp_end(v["duration"], s, e)
             if e is None:
                 return
             from_title = (self.videos.get(from_vid) or {}).get("title") or from_vid
             note = ("コラボ転写(元: %s)" % from_title)[:40]
-            similar = next((x for x in v["marks"] if _overlaps(s, e, x["start"], x["end"])), None)
+            similar = next((x for x in v["marks"] if _marks.overlaps(s, e, x["start"], x["end"])), None)
             if similar is not None:
                 try:
                     new_s, new_e = check_times(min(similar["start"], s), max(similar["end"], e))
@@ -1093,10 +887,10 @@ class Store:
                 return
             if len(v["marks"]) >= MAX_MARKS:
                 return
-            m = _new_mark("c", s, e)
+            m = _marks.new_mark("c", s, e)
             m.update({"src": "collab", "reasons": [note], "collabFrom": {"videoId": from_vid, "markId": from_mark_id}, "auto0": [s, e]})
             nv = copy.deepcopy(v)
-            nv["marks"] = sorted(nv["marks"] + [m], key=_BY_TIME)[:MAX_MARKS]
+            nv["marks"] = sorted(nv["marks"] + [m], key=_marks.by_time)[:MAX_MARKS]
             self._bump(nv)
 
     # ---- 画面の設定(不透明な辞書。self.ui_file = ytt.settings.SettingsFile) ----

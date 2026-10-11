@@ -23,13 +23,13 @@ import secrets
 import threading
 import urllib.parse
 
-from ytt import schemas
+from ytt import marks as _marks, schemas
 from . import live_export as LX
 from . import live_tx
 from . import livehost   # 親の口の型(RS7-2 G0・G1b)
 from . import spec as _spec
 
-SAME = 0.5         # マークを使い回す区間の差(秒。スタジオの DUP_TOL と同じ。もとは live.ADOPT_SAME)
+SAME = _marks.DUP_TOL   # マークを使い回す区間の差(秒。スタジオの同じ区間 = ytt/marks の DUP_TOL。もとは live.ADOPT_SAME)
 TRIES = 3          # スタジオの配信の保存が画面の保存とぶつかったときに読み直す回数
 WHO = {"manual": "人", "auto": "自動", "archive": "アーカイブ"}
 
@@ -103,7 +103,7 @@ class StudioMarks:
         for _try in range(TRIES):
             v = self._ok("GET", "/api/video?id=" + urllib.parse.quote(vid)).get("video") or {}
             marks = [m for m in v.get("marks") or [] if isinstance(m, dict)]
-            hit = next((m for m in marks if abs((m.get("start") or 0) - a) <= SAME and abs((m.get("end") or 0) - b) <= SAME), None)
+            hit = next((m for m in marks if _marks.near(m.get("start") or 0, m.get("end") or 0, a, b, SAME)), None)
             if hit is not None and hit.get("status") in ("adopted", "exported"):
                 mark = hit
                 break
