@@ -689,11 +689,19 @@ function ensureVisible(row, at){
   if (!row || row.hidden) return;
   const box = listScroller(row), r = row.getBoundingClientRect(), b = box ? box.getBoundingClientRect() : null;
   const margin = parseFloat(getComputedStyle(row).scrollMarginTop) || 0;
-  const top = box ? b.top + margin : margin, bot = (box ? Math.min(b.bottom, window.innerHeight) : window.innerHeight) - 24;
+  const top = box ? b.top + margin : margin, bot = (box ? Math.min(b.bottom, window.innerHeight) : window.innerHeight) - (24 + 8);   // 下の帯(--keybar-h = 24px)の上に少しあけて
   if (r.top >= top && r.bottom <= bot) return;
   const goal = top + Math.max(0, (bot - top - Math.min(r.height, bot - top)) * (at === undefined ? 0.35 : at));
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  (box || window).scrollBy({ top: r.top - goal, behavior: reduce ? 'auto' : 'smooth' });
+  const behavior = reduce ? 'auto' : 'smooth';
+  if (!box){ window.scrollBy({ top: r.top - goal, behavior }); return; }
+  /* 一覧の箱は上の道具の下に置かれて窓の下へはみ出すことがある(案件の画面では箱の上に殻の見出し・題名の行がある)。箱が動かせる分だけ動かし、
+     それでも行が窓の下に出るときだけ(一覧の最後の行など)窓を足りない分だけ動かす */
+  const want = r.top - goal, room = Math.max(0, box.scrollHeight - box.clientHeight - box.scrollTop);
+  const used = want > 0 ? Math.min(want, room) : want;
+  box.scrollBy({ top: used, behavior });
+  const rest = r.bottom - used - bot;
+  if (want > 0 && rest > 0) window.scrollBy({ top: rest, behavior });
 }
 
 function setNav(i){

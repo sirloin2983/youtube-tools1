@@ -43,6 +43,10 @@
 .cs-pf-stage{aspect-ratio:16/9;max-height:240px;background:var(--stage-bg);border-radius:var(--r);overflow:hidden}
 .cs-pf-stage iframe{display:block;width:100%;height:100%;border:0}
 
+/* 2 列の行の一覧(.tx-list)は、編集の proof.css では編集の上の帯(--toph)の下に固定する。案件の画面ではその帯が無く(--toph = 0)、殻の見出し(--cs-head)と
+   下の帯(--keybar-h)の分だけ下へはみ出して、再生の追いかけの最後の行が窓の外に出た。殻の高さで固定し直す */
+@container editor (min-width:781px){#csPane .tx-list{top:calc(var(--cs-head, var(--header-h, 52px)) + 8px);max-height:calc(100dvh - var(--cs-head, var(--header-h, 52px)) - var(--keybar-h, 24px) - 24px)}}
+
 /* 編集の proof.css は video・html.vid-audio video に効く(編集の 1 枚の画面だったため)。候補のパネル(panels/cand.css の .rv-host)には効かせない */
 .rv-host video{max-height:none;border-radius:0}
 html.vid-audio .rv-host video{height:100%;max-height:none}

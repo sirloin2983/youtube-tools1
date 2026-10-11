@@ -704,7 +704,7 @@ let zArm = null;
    ↓/↑・Shift+↓/↑ も残す(固定の別の手段)。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない)。
    キー配置(2026-09-27): 割り当ては ⚙ 設定の「キー配置」で変えられる。保存は S.settings.keymap(サーバーの config.json。どのブラウザ・窓でも同じ)。
    共通の再生キー(UIKit.keys.PLAYBACK_ACTIONS)も同じ keymap に入れ、1 文字起こし・2 カット の両方の共通キーに渡す */
-const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
+const TX_ACTIONS_ALL = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
   ['rowNext', 's', '次の行', 'move'], ['rowPrev', 'w', '前の行', 'move'], ['unNext', 'd', '次の未校正', 'move'], ['unPrev', 'a', '前の未校正', 'move'], ['flagNext', 'f', '次の要確認', 'move'],
   ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
   ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
@@ -715,7 +715,12 @@ const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), �
   /* 評価ドリル(?drill=1 の帯が出ているときだけ働く)。単体キーにしない(押し間違いで「全部聞いた」にならないように Shift つき) */
   ['drillDone', 'Shift+d', '評価ドリル: 済みにして次へ', 'drill'], ['drillSkip', 'Shift+n', '評価ドリル: 飛ばして次へ', 'drill']
 ];
-const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面'], ['drill', '評価ドリル(帯が出ているときだけ)']];
+/* 案件の画面(EDIT_HOST)では、左のメニュー(G)も評価ドリルの帯(Shift+D・Shift+N)も無い = 一覧・キー配置に載せない。
+   Shift+N は殻の「次の案件へ」・Alt+1/2 は殻のタブなので、割り当てさせない(KEY_SHELL。RS8 の小さな直し) */
+const HOST_NO_KEY = new Set(['menu', 'drillDone', 'drillSkip']);
+const TX_ACTIONS = EDIT_HOST ? TX_ACTIONS_ALL.filter(a => !HOST_NO_KEY.has(a[0])) : TX_ACTIONS_ALL;
+const KEY_SHELL = EDIT_HOST ? { 'Shift+n': '次の案件へ(案件の画面)', 'Shift+N': '次の案件へ(案件の画面)', 'Alt+1': 'タブの切り替え(案件の画面)', 'Alt+2': 'タブの切り替え(案件の画面)' } : {};
+const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面'], ['drill', '評価ドリル(帯が出ているときだけ)']].filter(g => !(EDIT_HOST && g[0] === 'drill'));
 const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: 'Shift+↑' };   // 固定の別の手段(一覧・帯に並べて出す)
 /* 割り当てられないキー(固定の意味がある)。値は使い道(「X は『使い道』に使っているので割り当てられません」) */
 const KEY_FIXED = { ArrowDown: '次の行(固定)', ArrowUp: '前の行(固定)', 'Shift+ArrowDown': '次の未校正(固定)', 'Shift+ArrowUp': '前の未校正(固定)',
@@ -729,13 +734,13 @@ const keyText = k => UIKit.keys.keyText(k);
 const KM = UIKit.keymap.create({
   groups: KEY_GROUPS,
   actions: TX_ACTIONS.map(a => ({ id: a[0], def: a[1], label: a[2], group: a[3], alt: KEY_ALT[a[0]] })),
-  refuse: combo => KEY_FIXED[combo] || CUT_FIXED[combo] || (/^[0-9]$/.test(combo) ? '話者の番号(1〜9・0)' : ''),
+  refuse: combo => KEY_FIXED[combo] || KEY_SHELL[combo] || CUT_FIXED[combo] || (/^[0-9]$/.test(combo) ? '話者の番号(1〜9・0)' : ''),
   intro: 'キーのボタンを押してから、割り当てたいキーを押します(Esc = 取り消し・Delete = 外す)。すでに使っているキーを選ぶと、そちらの割り当てが外れます(すぐ下の「戻す」で戻せます)。文字を入力している間は効きません(Esc で入力欄から抜ける)。',
   playbackNote: '(スタジオ・編集で同じ。1 文字起こし・2 カット のタブで効きます)',
   fixed: [
     { group: 'listen', why: '入力欄の出入りに使うキー', rows: [['Tab', '選んだ行の入力欄へ'], ['Esc / Tab', '入力欄から抜ける']] },
     { group: 'memo', why: 'Ctrl つきのキー', rows: [['Ctrl+Z', '元に戻す']] },
-    { group: 'screen', rows: [['Alt+1 / Alt+2', 'タブ(文字起こし・カット)を切り替える', 'Alt つきのキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
+    { group: 'screen', rows: [['Alt+1 / Alt+2', EDIT_HOST ? 'タブ(校正・カット・パック)を切り替える' : 'タブ(文字起こし・カット)を切り替える', 'Alt つきのキー'], ...(EDIT_HOST ? [['Shift+N', '次の案件へ', '案件の画面のキー']] : []), ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
     { title: '話者', why: '数字は話者の番号', rows: [['1…9', 'この行の話者を n 番目に'], ['0', '話者なし']] },
     { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者'], ['Shift+右クリック', '行のメニュー(普通の右クリックはコピー・貼り付け)']] },
     { title: '2 カット のタブ', note: '(共通の再生キーに加えて)', why: '2 カット のタブの操作', rows: CUT_KEY_ROWS }
@@ -771,18 +776,32 @@ window.addEventListener('keydown', e => {
 });
 /* 共通の再生キー(ui-kit.js の UIKit.keys.playback。既定は Space・J/K/L・← →(Shift で5秒)・, .・I/O。割り当ては keymap())。
    1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
+/* 案件の画面(EDIT_HOST)では CUT が無い = fps を CUT から読めない。文書ごとに 1 回、カット(edit.json)か下書きの fps を引いて控える(引けるまでは 1/30 秒) */
+let HOST_FPS = { id: '', f: null };
+function hostFps(){
+  if (!EDIT_HOST || !S.docId) return null;
+  if (HOST_FPS.id !== S.docId){
+    const id = S.docId, q = '?id=' + encodeURIComponent(id);
+    HOST_FPS = { id, f: null };
+    api('/api/edit' + q).then(r => (r && r.edit && r.edit.sources && r.edit.sources[0] && r.edit.sources[0].fps) || api('/api/edit/draft' + q).then(d => d && d.fps))
+      .then(f => { if (HOST_FPS.id === id && Array.isArray(f) && f[0] > 0 && f[1] > 0) HOST_FPS.f = f; }).catch(() => {});
+  }
+  return HOST_FPS.f;
+}
 const editPlaybackKeys = UIKit.keys.playback({
   media: () => player(), keymap: () => keymap(),
   /* 1コマ = 素材の fps(2 カット と同じ。段3 3-4 監査 15)。フレームの境目にそろえて動かす(押し続けても浮動小数のずれが溜まらない)。
      fps が分からない文書・開いた直後(カットの読み込み中)は ui-kit の既定(1/30 秒) */
-  fps: () => { const f = CUT && CUT.fps(); return f ? f[0] / f[1] : 30; },
+  fps: () => { const f = CUT ? CUT.fps() : hostFps(); return f ? f[0] / f[1] : 30; },
   onFrame: dir => {
-    const p = player(), t = CUT && CUT.frameStep ? CUT.frameStep(p.currentTime || 0, dir) : null;
+    const p = player();
+    let t = CUT && CUT.frameStep ? CUT.frameStep(p.currentTime || 0, dir) : null;
+    if (!CUT){ const f = hostFps(); if (f) t = Math.max(0, (Math.floor((p.currentTime || 0) * f[0] / f[1] + 0.5) + dir) * f[1] / f[0]) + 0.0005; }   // 案件の画面: フレームの境目にそろえて動かす(cut.js の frameStep と同じ)
     if (t === null) return false;
     p.pause(); p.currentTime = t;   // 2 カット の stepFrames と同じく止めてから(再生中の1コマは意味がない)
     return true;
   },
-  enabled: () => !wideTab() && !!S.doc && !modalOpen() && !menuHasKeys(document.activeElement)
+  enabled: () => { hostFps(); return !wideTab() && !!S.doc && !modalOpen() && !menuHasKeys(document.activeElement); }   // hostFps(): 案件の画面では fps を先に引いておく
 });
 window.addEventListener('keydown', e => {
   /* #edTabs(タブの並び)の ← → など、他の場所ですでに処理済み(preventDefault 済み)のキーには重ねて反応しない。

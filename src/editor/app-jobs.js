@@ -269,7 +269,7 @@ function renderIntoState(){
   $('#btnTxInto').disabled = !!j || !S.doc.sourcePath;
   const again = $('#btnTxAgain'); if (again) again.disabled = !!j || !S.doc.sourcePath;
   $('#txIntoHint').textContent = j ? `文字起こし中 ${jobProg(j)}(終わると、ここに行が出ます)`
-    : S.doc.sourcePath ? '認識の設定は、メニューの「新規」のものを使います' : 'この文書には動画のパスが無いため、文字起こしできません';
+    : S.doc.sourcePath ? (EDIT_HOST ? '認識の設定は、ホームの「新規」で決めたものを使います' : '認識の設定は、メニューの「新規」のものを使います') : 'この文書には動画のパスが無いため、文字起こしできません';
 }
 
 /* 失敗の文(M9): 想定外の失敗(errorDetail がある)は決まった文 + 次の一手。原文は知らせ・カードの「詳しく」の中だけ */

@@ -15,8 +15,8 @@ from app import redirects  # noqa: E402
 TID = "0123456789ab"
 
 
-def t(path, qs="", doc_for=None):
-    return redirects.target(path, urllib.parse.parse_qs(qs), doc_for)
+def t(path, qs="", doc_for=None, media_of=None):
+    return redirects.target(path, urllib.parse.parse_qs(qs), doc_for, media_of)
 
 
 class TestTarget(unittest.TestCase):
@@ -59,6 +59,20 @@ class TestTarget(unittest.TestCase):
         self.assertEqual(seen, ["C:/a b/x.mp4"])
         self.assertEqual(t("/transcribe/", "clip=C%3A%2Fz.mp4", lambda p: ""), "/#new?media=C%3A%2Fz.mp4")   # 文書が無ければ新しい案件の欄へ
         self.assertEqual(t("/transcribe/", "media=C%3A%2Fz.mp4"), "/#new?media=C%3A%2Fz.mp4")
+
+    def test_clip_json_resolves_to_video(self):
+        """?clip= は .clip.json のパス。動画に直してから文書を探す(.clip.json のパスを動画として扱わない)"""
+        seen = []
+
+        def found(p):
+            seen.append(p)
+            return TID if p == "C:/v/x.mp4" else ""
+        clip = urllib.parse.quote("C:/v/x.clip.json", safe="")
+        self.assertEqual(t("/transcribe/", "clip=" + clip, found, lambda p: "C:/v/x.mp4"), "/cases?d=%s#proof" % TID)
+        self.assertEqual(seen, ["C:/v/x.mp4"])
+        self.assertEqual(t("/transcribe/", "clip=" + clip, lambda p: "", lambda p: "C:/v/y.mp4"), "/#new?media=" + urllib.parse.quote("C:/v/y.mp4", safe=""))
+        self.assertEqual(t("/transcribe/", "clip=" + clip, found, lambda p: ""), "/")   # 動画が分からない = 動画の欄は空のまま
+        self.assertEqual(t("/transcribe/", "clip=" + clip, found), "/")
 
     def test_cut2resolve_video_goes_once(self):
         """以前の cut2resolve の画面の ?video= は、編集の ?media= と同じ行き先へ 1 回で(RS8 C4)。引数なしは取り込みの案内のまま"""

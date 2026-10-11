@@ -150,6 +150,11 @@ def _scene_keys_and_save(ck, pg, srv, t1):
     ck(wait_js(pg, "document.querySelector('#saveState').dataset.state === 'ok'", 8000), "自動で保存: %r" % pg.text_content("#saveState"))
     pg.keyboard.press("?")
     ck(wait_js(pg, "document.querySelector('#keys').open"), "? でキー操作の一覧")
+    kt = pg.text_content("#keys")
+    ck("評価ドリル" not in kt and "左のメニューを開く" not in kt, "一覧に案件の画面で効かないキー(メニューの G・評価ドリル)を載せない")
+    ck("校正・カット・パック" in kt and "Shift+N" in kt, "Alt+1/2 の説明は今のタブの名前・Shift+N は次の案件へ")
+    ck("2 カット のタブ" in kt and "区間" in kt, "校正から先に開いても 2 カット の表が空でない")
+    ck(pg.evaluate("typeof KEY_SHELL !== 'undefined' && !!KEY_SHELL['Shift+n'] && !!KEY_SHELL['Alt+2']"), "殻のキー(Shift+N・Alt+1/2)は割り当てを断る表にある")
     pg.keyboard.press("Escape")
     ck(wait_js(pg, "!document.querySelector('#keys').open"), "Esc で閉じる")
     # 文字を直して、すぐ窓を離れる(UIKit.life の blur)= 0.7 秒の待ちを待たずに保存
@@ -609,15 +614,20 @@ def _scene_follow_scroll(ck, pg, base, tid):
     s = pg.evaluate("(() => { const b = %s, cs = getComputedStyle(b); return {ov: cs.overflowY, pos: cs.position, sh: b.scrollHeight, ch: b.clientHeight}; })()" % lst)
     ck(s["ov"] in ("auto", "scroll") and s["pos"] == "sticky" and s["sh"] > s["ch"], "2 列では行の一覧が自分でスクロールする箱: %s" % s)
     y0 = pg.evaluate("window.scrollY")
-    for frac in (0.5, 0.9):   # 最後の行(1.0)は案件の画面では一覧の下が窓の外に出たまま = 不具合として報告(RS8 C4)
+    for frac in (0.5, 0.9, 1.0):   # 最後の行(1.0)も一覧の見える所・窓の中(一覧の固定を殻の見出しと下の帯の分だけ下げた。RS8 の小さな直し)
         pg.evaluate("(f => { const g = S.doc.segments, i = Math.min(g.length - 1, Math.floor(g.length * f)), v = document.querySelector('#player'); "
                     "v.currentTime = g[i].start + 0.1; v.dispatchEvent(new Event('timeupdate')); })(%s)" % frac)
         time.sleep(0.9)
         r = pg.evaluate("({y: window.scrollY, ly: %s.scrollTop, cur: (() => { const c = document.querySelector('#segs .seg.cur'); if (!c) return null; const a = c.getBoundingClientRect(), "
                         "b = %s.getBoundingClientRect(); return {top: a.top, bottom: a.bottom, bt: b.top, bb: Math.min(b.bottom, innerHeight)}; })()})" % (lst, lst))
         c = r["cur"]
-        ck(r["y"] == y0 and r["ly"] > 0, "%d%% の所: 窓は動かず(scrollY %s)一覧の列だけが動く(scrollTop %s)" % (frac * 100, r["y"], r["ly"]))
-        ck(c is not None and c["top"] >= c["bt"] - 1 and c["bottom"] <= c["bb"] + 1, "%d%% の所: 今の行は一覧の見える所にある: %s" % (frac * 100, c))
+        if frac < 1.0:
+            ck(r["y"] == y0 and r["ly"] > 0, "%d%% の所: 窓は動かず(scrollY %s)一覧の列だけが動く(scrollTop %s)" % (frac * 100, r["y"], r["ly"]))
+            ck(c is not None and c["top"] >= c["bt"] - 1 and c["bottom"] <= c["bb"] + 1, "%d%% の所: 今の行は一覧の見える所にある: %s" % (frac * 100, c))
+        if frac == 1.0:
+            kb = pg.evaluate("(() => { const k = document.querySelector('.ui-keybar'); return k ? k.getBoundingClientRect().top : innerHeight; })()")
+            ck(c is not None and c["bottom"] <= kb + 1 and c["top"] >= 0, "最後の行は窓の中・下の帯の上にある(足りない分だけ窓も動く。bottom %s・帯の上端 %s)" % (c and c["bottom"], kb))
+    y0 = pg.evaluate("window.scrollY")   # 最後の行で足りない分だけ窓が動いた後の位置
     pg.evaluate("document.activeElement && document.activeElement.blur()")
     for _ in range(5):
         pg.keyboard.press("w")

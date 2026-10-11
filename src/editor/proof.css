@@ -228,7 +228,7 @@ h2{margin:0;font-size:15px}
 .tt-docmeta{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
 #docClip{margin:0 0 8px}
 video{width:100%;max-height:var(--vh);background:var(--stage-bg);border-radius:var(--r);display:block}   /* 映像の周りは両テーマで暗い灰色(ブリーフの舞台) */
-html.vid-audio video{height:54px;max-height:none}
+html.vid-audio #player{height:54px;max-height:none}   /* 校正の映像だけ(カット・候補の映像には効かせない) */
 #playerMsg{margin:6px 0 0;color:var(--danger);overflow-wrap:anywhere}
 #playerMsg .btn{margin-left:6px;vertical-align:baseline}
 #diarBanner{margin:8px 0 0}
@@ -278,7 +278,7 @@ html.vid-audio video{height:54px;max-height:none}
 .tt-player{position:relative}
 /* 映像の上に重ねる今の行の字幕(段2。1 文字起こし のタブ)。飾り扱い(aria-hidden。同じ情報は一覧から読める) */
 .tt-vbox{position:relative}
-html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54px)は重ねない */
+html.vid-audio #playerCaption{display:none}   /* 音声だけのとき(映像が 54px)は重ねない */
 .tt-caption{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:clamp(14px,2.4vw,26px);line-height:1.3;pointer-events:none;white-space:pre-wrap;word-break:break-word;z-index:1}
 dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-height:min(60vh,520px)}   /* UIKit.dialog の本文の改行を残す(上書きするファイルの一覧・声を覚える人の一覧。M3) */
 /* 動画を選び直す(段2 B-4) */

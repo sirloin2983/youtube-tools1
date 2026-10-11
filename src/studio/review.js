@@ -2416,7 +2416,7 @@ function handoffHTML(j, it){
 function editorHref(path){ return path ? Studio.toolUrl('transcribe', '/?media=' + enc(path)) : ''; }
 /* 「編集」を開く(行のリンク・知らせのボタンで同じ開き方。窓の決まり S-15): 窓(Edge のアプリの窓)で開いているときはホームに頼んで窓で(UIKit.win)、
    ブラウザのタブならいつもの新しいタブで。スタジオの画面はそのまま残す(配信を見ながら隣の窓で字幕を直す流れ。v0.20.2 の音を下げる仕組みもこの形が前提)。
-   ホームへのリンク(案件で見る・案件の一覧)は data-ui-portal(ホームが開いていれば前に出す) */
+   ホームへのリンク(案件の一覧)は data-ui-portal(ホームが開いていれば前に出す) */
 function openEditor(href){
   if (!href) return;
   const w = UIKit.win;
@@ -3578,7 +3578,7 @@ async function pollAuto(){
   const steps = r.steps.map(s => `${esc(s.label)}: ${esc(UIKit.autorun.stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
     (active ? '<button type="button" class="btn small" data-act="autocancel" title="まとめて実行を止めます(済んだ段は残ります。もう一度始めると、残りから進めます)">中止</button>' : '') +
-    `<a class="btn small ghost" href="../#cases" data-ui-portal title="ホームの案件の一覧で見ます(ホームがほかの窓で開いていれば、その窓を前に出します)">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
+    `<a class="btn small ghost" href="../cases?c=${encodeURIComponent(vid)}#cand" target="_blank" rel="noopener" title="この配信の案件の画面を、新しいタブで開きます(スタジオの画面はそのまま残ります)">案件で見る</a><span class="rv-autosteps hint">${steps}${r.error ? ' ・ ' + esc(r.error) : ''}</span>`;
   bar.dataset.run = r.id;
   bar.hidden = false;
   // 終わった: 書き出し済みなどのマークの状態を読み直す。loadVideo だとプレーヤーが再読み込みされ、再生位置が 0:00 に戻ってしまうため、
