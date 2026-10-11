@@ -4,14 +4,29 @@
    このファイルは「つなぎ」だけ(panels/cand.js と同じ作り): 2 本のスクリプトは window.Studio(core.js)に頼って書かれているので、
    そのうち使う分だけの代わり(下の Studio)を渡して読み込み、パネルの箱の中に ① の器(#paneRank)を作る。
    古い画面との違い(パネルの中だけ): 「確認する」「録画を ② で開く」は案件の画面(/cases?c=<配信 id>#cand)へ移る・
-     事務所の登録・API キー・解析の設定はスタジオの設定の画面(/settings#sec-studio)へ移る・ヘッダーの件数の札は出さない・コラボの部品は無い。
-   口: window.NewCasePanel = { create() -> { mount(el, opts), update(opts), setVisible(on), unmount(), focus() } }。opts = { url, media }(?url= で受けた配信の URL・?media= で受けた動画のパス。欄に入れるだけ)。
+     解析の設定・出力先・ライブの録画は設定の画面(/settings のスタジオ・リアルタイム切り抜きの節)へ・ヘッダーの件数の札は出さない。
+   RS8 C4(スタジオの画面を消した)から、スタジオの ⚙ にあった「YouTube Data API キー」「事務所の登録」「コラボ」と ffmpeg・yt-dlp が無いときの案内は
+     このパネルの末尾の「探す設定」(#nwSet)に置く。事務所の登録は rank.js の mountRegistry・コラボは studio/collab.js(開いたときに初めて読む)= 古い画面と同じコード。
+   口: window.NewCasePanel = { create() -> { mount(el, opts), update(opts), setVisible(on), unmount(), focus(), openSettings(which) } }(which = setKey | setReg | setCollab)。opts = { url, media }(?url= で受けた配信の URL・?media= で受けた動画のパス。欄に入れるだけ)。
    (案件の画面の殻が CasesPanels を持っているときは、同じ create を 'new' の名前でも登録する = V1 の確かめるが同じ口で開ける)
    パネルの箱の中の要素は、rank.js・queue.js が文書全体から id で引くので、その id はホームの id と重ならないこと(test_cases_page が検査)。CSS は panels/new.css(.nw-panel の下だけ)。CSP script-src 'self' のまま(スクリプトは相対パスで 1 回だけ読む)。 */
 (function () {
   'use strict';
-  var RANK_JS = 'studio/rank.js', QUEUE_JS = 'studio/queue.js';
-  var loadP = null;
+  var RANK_JS = 'studio/rank.js', QUEUE_JS = 'studio/queue.js', COLLAB_JS = 'studio/collab.js';
+  var loadP = null, collabP = null;
+
+  /* 探す設定(RS8 C4。スタジオの ⚙ の 3 つの節を移した)。id は nwSet で始める(ホームの id と重ねない) */
+  var SET_HTML = '<div class="notice" id="nwToolNotice" role="alert" hidden></div>' +
+    '<details class="card nw-set" id="nwSet"><summary><span class="set-title">探す設定</span><span class="set-sub">YouTube Data API キー・事務所の登録・コラボ</span><span class="pill" id="nwKeyState"></span></summary><div class="body">' +
+    '<section class="nw-set-sec" id="nwSetKey" aria-labelledby="nwKeyH"><h3 class="nw-set-h" id="nwKeyH">YouTube Data API キー</h3>' +
+      '<p class="hint">Google Cloud で「YouTube Data API v3」を有効にして作った API キーを入れます(配信を探すのに必要。コメント欄の時刻の解析にも使います)。キーはこのパソコンの中にだけ保存し、画面には出しません(作業データの config.json。環境変数 YOUTUBE_API_KEY があればそちらが優先)。</p>' +
+      '<div class="fld"><label class="l" for="nwKeyIn">API キー</label><input type="password" id="nwKeyIn" placeholder="AIza..." autocomplete="off" spellcheck="false"></div>' +
+      '<div class="row set-actions"><button type="button" class="btn small primary" id="nwKeySave">保存</button><button type="button" class="btn small danger" id="nwKeyDel">キーを削除</button></div>' +
+      '<p class="msg hint" id="nwKeyMsg" role="status"></p></section>' +
+    '<details class="nw-set-sec reg" id="nwSetReg"><summary><span class="set-title">事務所の登録</span><span class="set-sub">事務所ごとの所属チャンネル(配信を探す対象)</span></summary><div class="body" id="nwRegHost"></div></details>' +
+    '<details class="nw-set-sec" id="nwSetCollab"><summary><span class="set-title">コラボ</span><span class="set-sub">複数人のコラボ配信をグループにまとめ、採用したマークを転写</span></summary><div class="body" id="nwCollabHost"></div></details>' +
+    '</div></details>';
+  var SET_SECS = { setKey: '#nwSetKey', setReg: '#nwSetReg', setCollab: '#nwSetCollab' };
 
   function loadScript(src) {
     return new Promise(function (resolve, reject) {
@@ -68,8 +83,11 @@
         b.hidden = !w;
         if (w && !b.childElementCount) b.innerHTML = '<div><b>スタジオの作業データの読み込みで問題がありました</b><br>' + esc(w) + '</div>';
       },
-      /* 事務所の登録・API キー・解析の設定は設定の画面(スタジオの節)で変える */
-      openSettings: function () { location.assign(UIKit.homeUrl('settings') + '#sec-studio'); },
+      /* API キー・事務所の登録・コラボはこのパネルの「探す設定」を開く(RS8 C4)。ほか(解析・出力先・ライブの録画)は設定の画面 */
+      openSettings: function (which) {
+        if (box && SET_SECS[which]) { openSet(which); return; }
+        location.assign(UIKit.homeUrl('settings') + (which === 'setLive' ? '#sec-live' : '#sec-studio'));
+      },
       /* 録画した配信・解析を終えた配信は案件の画面の候補で開く(古い画面の ② の代わり) */
       openReview: function (id) { location.assign(UIKit.homeUrl('cases') + '?c=' + encodeURIComponent(id) + '#cand'); return Promise.resolve(); },
       /* ライブの録画(入口の ../live/…。core.js と同じ。機能がオフなら 404 → 使えない) */
@@ -120,6 +138,81 @@
         }
       }
     };
+
+    /* ---- 探す設定(API キー・事務所の登録・コラボ。RS8 C4)---- */
+    var regMounted = false;
+    function q(sel) { return box ? box.querySelector(sel) : null; }
+    function paintSet() {
+      var t = Studio.state || {}, k = q('#nwKeyState'), n = q('#nwToolNotice'), miss = [];
+      if (!k) return;
+      var ks = '未設定', kc = 'warn';
+      if (t.fake && !t.keySource) { ks = '疑似モード(キー不要)'; kc = 'info'; } else if (t.keySource === 'env') { ks = 'キー: 環境変数'; kc = 'ok'; } else if (t.hasKey) { ks = 'キー: 設定済み'; kc = 'ok'; }
+      k.textContent = ks; k.className = 'pill ' + kc;
+      if (t.ffmpeg === false) miss.push('<b>ffmpeg</b> が見つかりません(解析・書き出しに必要)。黒い画面で <code>winget install Gyan.FFmpeg</code> を実行し、start.bat で起動し直してください');
+      if (t.ytdlp === false) miss.push('<b>yt-dlp</b> が見つかりません(YouTube の解析・書き出しに必要)。黒い画面で <code>winget install yt-dlp.yt-dlp</code>。手元のファイルだけなら要りません');
+      if (n) { n.innerHTML = miss.length ? '<div><b>準備が必要です</b><br>' + miss.join('<br>') + '</div>' : ''; n.hidden = !miss.length; }
+    }
+    function mountReg() {
+      var d = q('#nwSetReg'), host = q('#nwRegHost');
+      if (regMounted || !d || !d.open || !host) return;
+      if (Studio.rank && Studio.rank.mountRegistry) { regMounted = true; Studio.rank.mountRegistry(host); } else host.innerHTML = '<p class="hint">事務所の登録を読み込めませんでした(rank.js)。もう一度開いてください。</p>';
+    }
+    function mountCollab() {
+      var d = q('#nwSetCollab'), host = q('#nwCollabHost');
+      if (!d || !d.open || !host) return;
+      if (!collabP) {
+        var prev = window.Studio;
+        window.Studio = Studio;   // collab.js も読み込みの時点で window.Studio を取る(rank.js と同じ)
+        collabP = loadScript(COLLAB_JS).then(function () {
+          if (prev === undefined) delete window.Studio; else window.Studio = prev;
+        }, function (e) { if (prev === undefined) delete window.Studio; else window.Studio = prev; collabP = null; throw e; });
+      }
+      collabP.then(function () {
+        if (dead || !q('#nwCollabHost')) return;
+        if (Studio.collab && Studio.collab.mount) Studio.collab.mount(host); else host.innerHTML = '<p class="hint">コラボの部品を読み込めませんでした。画面を読み込み直してください。</p>';
+      }, function (e) { if (!dead) host.innerHTML = '<p class="hint">' + esc(e.message) + '</p>'; });
+    }
+    function openSet(which) {
+      var d = q('#nwSet'), sec = q(SET_SECS[which]);
+      if (!d || !sec) return;
+      d.open = true;
+      if (sec.tagName === 'DETAILS') sec.open = true;
+      if (which === 'setReg') mountReg();
+      if (which === 'setCollab') mountCollab();
+      requestAnimationFrame(function () {
+        sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        if (which === 'setKey') { var f = q('#nwKeyIn'); if (f) f.focus({ preventScroll: true }); }
+      });
+    }
+    function saveKey(v, btn) {
+      var m = q('#nwKeyMsg');
+      if (!m || btn.disabled) return;
+      m.textContent = '';
+      if (btn.id === 'nwKeySave' && !v) { m.textContent = 'キーを入力してください'; return; }   // 空の保存 = 削除にしない(削除は「キーを削除」だけ)
+      if (btn.id === 'nwKeyDel' && !(Studio.state && Studio.state.hasKey)) { m.textContent = 'キーは設定されていません'; return; }
+      btn.disabled = true;
+      Studio.api('/api/config', { method: 'PUT', body: { apiKey: v } }).then(function () {
+        var inp = q('#nwKeyIn'); if (inp) inp.value = '';
+        return Studio.refreshState();
+      }).then(function () {
+        var env = Studio.state && Studio.state.keySource === 'env';
+        if (q('#nwKeyMsg')) q('#nwKeyMsg').textContent = (v ? '保存しました' : '削除しました') + (env ? '(環境変数のキーがあるので、そちらが使われます)' : '');
+        UIKit.toast(v ? 'API キーを保存しました' : 'API キーを削除しました', { ms: 3000, kind: 'ok' });
+      }, function (e) { if (q('#nwKeyMsg')) q('#nwKeyMsg').textContent = e.message; }).then(function () { btn.disabled = false; });
+    }
+    function wireSet() {
+      q('#nwKeySave').addEventListener('click', function () { saveKey(q('#nwKeyIn').value.trim(), q('#nwKeySave')); });
+      q('#nwKeyIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); q('#nwKeySave').click(); } });
+      q('#nwKeyDel').addEventListener('click', function () {
+        var b = q('#nwKeyDel');
+        if (!(Studio.state && Studio.state.hasKey)) { saveKey('', b); return; }
+        /* キーを削除は取り消せない(もう一度貼り付けが要る)ので確かめる */
+        UIKit.dialog.confirm({ title: 'API キーを削除しますか?', body: '保存してある YouTube Data API キーを消します。配信を探すにはキーをもう一度貼り付けます。', ok: '削除する', danger: true }).then(function (ok) { if (ok) saveKey('', b); });
+      });
+      q('#nwSetReg').addEventListener('toggle', mountReg);
+      q('#nwSetCollab').addEventListener('toggle', mountCollab);
+      Studio.on('state', paintSet);
+    }
 
     /* パネルが見えている間だけ step = 'rank'(rank.js・queue.js の見回りは「見えている間」だけ動く)*/
     function setStep(step) { Studio.step = step; emit('step', step); }
@@ -176,8 +269,9 @@
       mount: function (el, opts) {
         box = document.createElement('div');
         box.className = 'nw-panel';
-        box.innerHTML = '<section id="paneRank" aria-label="新しい案件(配信を探す・URL から入れる)"><div class="cs-loading" aria-busy="true"><div class="ui-skel" style="height:18px;width:30%"></div><div class="ui-skel" style="height:120px;margin-top:14px"></div><div class="ui-skel" style="height:60px;margin-top:12px"></div></div></section>';
+        box.innerHTML = '<section id="paneRank" aria-label="新しい案件(配信を探す・URL から入れる)"><div class="cs-loading" aria-busy="true"><div class="ui-skel" style="height:18px;width:30%"></div><div class="ui-skel" style="height:120px;margin-top:14px"></div><div class="ui-skel" style="height:60px;margin-top:12px"></div></div></section>' + SET_HTML;
         el.appendChild(box);
+        wireSet();
         params.url = opts && opts.url ? String(opts.url).slice(0, 2000) : '';   // queue.js が起動時に欄へ入れる
         params.media = opts && opts.media ? String(opts.media) : '';
         begin();
@@ -189,6 +283,7 @@
       },
       setVisible: function (on) { visible = !!on; if (started) setStep(visible ? 'rank' : ''); },
       focus: function () { var ta = box && box.querySelector('#qUrls'); if (ta) ta.focus({ preventScroll: true }); },
+      openSettings: function (which) { Studio.openSettings(which); },
       whenReady: function () { return loadP || Promise.resolve(); },
       unmount: function () { dead = true; visible = false; if (started) setStep(''); if (box) box.remove(); box = null; }
     };

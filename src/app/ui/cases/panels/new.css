@@ -1,5 +1,5 @@
 /* 新しい案件のパネル(ホームの引き出し #newDrawer の中身 = panels/new.js)。スタジオ ① の見た目(src/studio/app.css の ① 探す・解析の節)を、
-   ホームの他の部分に影響しないように .nw-panel の下だけに写した物(古いスタジオの画面は C4 まで凍結なので写し。C4 で app.css の ① の節を消す)。
+   ホームの他の部分に影響しないように .nw-panel の下だけに写した物(スタジオの画面と app.css は RS8 C4 で消した = 今はここが正)。
    色・部品は ui-kit のまま(配信中の札の赤だけは元の写し) */
 #newDrawer{--drawer-w:min(1120px,100%);--cs-head:0px}
 #newDrawer .ui-drawer-body{container-type:inline-size}
@@ -174,3 +174,82 @@
 .nw-panel .q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
 .nw-panel .q-item.st-err{background:var(--danger-soft);margin:0 -16px;padding-left:16px;padding-right:16px}
 .nw-panel .cs-emptyacts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
+
+/* ---- 探す設定(RS8 C4。スタジオの ⚙ にあった API キー・事務所の登録・コラボ = panels/new.js の #nwSet)。
+   事務所の登録とコラボの見た目は、消したスタジオの app.css の節を .nw-panel の下に写した物 ---- */
+.nw-panel .nw-set{margin-top:16px}
+.nw-panel .nw-set>summary{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;cursor:pointer;min-height:32px}
+.nw-panel .nw-set .set-title{font:650 14px/1.35 var(--font-display)}
+.nw-panel .nw-set .set-sub{font-weight:400;color:var(--ink-3);font-size:12.5px;min-width:0;flex:1 1 160px}
+.nw-panel .nw-set-sec{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.nw-panel .nw-set-sec>summary{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;cursor:pointer;min-height:32px}
+.nw-panel .nw-set-h{margin:0 0 6px;font:650 14px/1.35 var(--font-display)}
+.nw-panel .set-actions{margin-top:10px}
+.nw-panel #nwToolNotice{margin-top:12px}
+@container (max-width:720px){.nw-panel .cl-grid{grid-template-columns:minmax(0,1fr)}}
+.nw-panel .reg .ag{border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);margin-top:10px;padding:8px 12px}
+.nw-panel .reg .ag[open]{background:var(--panel)}
+.nw-panel .reg .ag>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;font-weight:600}
+.nw-panel .reg .ag>summary::-webkit-details-marker{display:none}
+.nw-panel .reg .ag>summary::before{content:"";width:6px;height:6px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform var(--dur) var(--ease);margin-right:4px}
+.nw-panel .reg .ag[open]>summary::before{transform:rotate(45deg)}
+.nw-panel .ag-name{margin-right:4px}
+.nw-panel .ag-body{padding:4px 0 6px}
+.nw-panel .ag-body .fld>label.l>input,.nw-panel .ag-body .fld>label.l>textarea{display:block;width:100%;margin-top:4px;font-weight:400}
+.nw-panel .ag-acts{margin-top:6px;gap:6px}
+.nw-panel .ag-acts .spacer{flex:1 1 auto}
+.nw-panel .ch-list{margin-top:10px;border-top:1px solid var(--line)}
+.nw-panel .reg .ch{display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
+.nw-panel .reg .ch .st{width:52px;font-size:11.5px;font-weight:600;flex:none}
+.nw-panel .st.ok{color:var(--ok)}.nw-panel .st.error{color:var(--danger)}.nw-panel .st.pending{color:var(--warn)}
+.nw-panel .ch-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.nw-panel .reg .ch .rf{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);overflow-wrap:anywhere;max-width:40%}
+.nw-panel .ch-empty{margin:6px 0 0}
+.nw-panel .ag-new{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line-2)}
+.nw-panel .ag-new input{flex:1 1 200px;max-width:320px}
+.nw-panel .cl-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:start}
+.nw-panel .cl-sub{margin:0 0 4px}
+.nw-panel .cl-name{grid-column:span 1}
+.nw-panel .cl-bar{margin-top:10px}
+/* 配信の一覧は、どの幅でも枠の中だけでスクロールする(狭い画面で延々と続かないように) */
+.nw-panel .cl-vlist{display:flex;flex-direction:column;gap:0;max-height:min(460px,calc(100dvh - 300px));min-height:120px;overflow-y:auto;padding:6px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);overscroll-behavior:contain}
+.nw-panel .cl-vlist>*{flex:none}   /* 枠の高さが足りないときに、まとまりが縮んで中身が重ならないように */
+.nw-panel .cl-vlist>.empty{border:0;background:none;padding:18px 10px}
+.nw-panel .cl-vg{margin:0 0 6px}
+.nw-panel .cl-vg:last-child{margin-bottom:0}
+.nw-panel .cl-vg-body{display:flex;flex-direction:column;gap:4px;padding:6px}
+.nw-panel .cl-video{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;min-height:44px;transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease)}
+.nw-panel .cl-video:hover{border-color:var(--line-strong)}
+.nw-panel .cl-video.is-checked{border-color:var(--accent-line);background:var(--accent-soft)}
+.nw-panel .cl-video.is-grouped{cursor:default;opacity:.7}
+.nw-panel .cl-vmain{flex:1;min-width:0;display:flex;flex-direction:column}
+.nw-panel .cl-vtitle{font-weight:600;overflow-wrap:anywhere;line-height:1.4}
+.nw-panel .cl-vmeta{font-size:12px;color:var(--ink-3);overflow-wrap:anywhere}
+.nw-panel .cl-acts{margin-top:12px}
+.nw-panel .cl-picked{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:10px}
+.nw-panel .cl-picked>.l{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.nw-panel .cl-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:0 2px 0 10px;border:1px solid var(--accent-line);background:var(--accent-soft);border-radius:var(--r-pill);font-size:12.5px;min-height:30px}
+.nw-panel .cl-chip-t{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:22em}
+.nw-panel .cl-chip .muted{font-size:11.5px;white-space:nowrap}
+.nw-panel .cl-next{margin:8px 0 0}
+.nw-panel .cl-group{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel-2);padding:10px 12px;margin-top:10px}
+.nw-panel .cl-group:first-child{margin-top:0}
+.nw-panel .cl-ghead{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}
+.nw-panel .cl-gname{font:650 14.5px/1.35 var(--font-display)}
+.nw-panel .cl-members{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.nw-panel .cl-member{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px}
+.nw-panel .cl-member.is-base{border-left:3px solid var(--accent)}
+.nw-panel .cl-member.is-open{border-color:var(--accent-line);box-shadow:var(--ring)}
+.nw-panel .cl-mh{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap}
+.nw-panel .cl-mname{display:flex;flex-direction:column;min-width:0;flex:0 1 auto}
+.nw-panel .cl-mtitle{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.nw-panel .cl-mmeta{font-size:12px;color:var(--ink-3);font-weight:400}
+.nw-panel .cl-anchor{margin-top:8px;padding-top:10px;border-top:1px dashed var(--line-2)}
+.nw-panel .cl-anchor>.hint:first-child{margin-top:0}
+.nw-panel .cl-apoints{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:8px 12px;align-items:end;margin-top:8px}
+.nw-panel .cl-plabel{font:700 12px/1 var(--mono);color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:6px 8px;margin-bottom:6px}
+.nw-panel .cl-apoints input{font-family:var(--mono)}
+.nw-panel .cl-apoints .ui-time{width:100%;justify-content:flex-start}   /* 合わせる時刻の欄(UIKit.timebox) */
+.nw-panel .cl-apoints .cs-opt>.l{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nw-panel .cl-a2{margin-top:10px}
+.nw-panel .cl-amsg{color:var(--danger)}

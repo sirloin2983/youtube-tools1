@@ -87,7 +87,7 @@
       ] },
       { "id": "studio-other", "title": "出力先・API キー", "items": [
         { "key": "outDir", "type": "folder", "label": "書き出した切り抜き(mp4)の保存先", "default": "", "placeholder": "空 = 標準(作業データの exports)", "maxlength": 400, "hint": "フルパス。ドライブの直下は選べません。何かを処理している間は変えられません。次の書き出しから使います。" },
-        { "key": "apiKey", "type": "link", "label": "YouTube Data API キー(① 探す・コメントの解析に使う)", "hint": "キーはこのパソコンの中にだけ保存し、画面には出しません。スタジオの ⚙ で入れます。", "link": { "href": "studio/?settings=setKey", "label": "スタジオの ⚙ を開く" } }
+        { "key": "apiKey", "type": "link", "label": "YouTube Data API キー(① 探す・コメントの解析に使う)", "hint": "キーはこのパソコンの中にだけ保存し、画面には出しません。ホームの「新しい案件」の末尾の「探す設定」で入れます(事務所の登録・コラボも同じ所)。", "link": { "href": "./#new?set=key", "label": "探す設定を開く" } }
       ] }
     ] },
     { "id": "editor", "title": "編集(文字起こし)", "store": "editor", "groups": [
@@ -159,10 +159,10 @@
         { "key": "connect", "type": "link", "label": "ウェブアプリの URL・合言葉・つながるか確かめる", "link": { "href": "analytics/", "label": "分析と日報を開く" } }
       ] }
     ] },
-    { "id": "keys", "title": "キー配置", "kind": "links", "hint": "キーの割り当ては、それぞれの画面の「?」(キーの一覧)で変えます。再生のキーは 3 つの画面で共通(ホームの設定に保存)。", "groups": [
+    { "id": "keys", "title": "キー配置", "kind": "links", "hint": "キーの割り当ては、案件の画面の「?」(キーの一覧)で変えます。再生のキーは候補・校正・カットで共通(ホームの設定に保存)。", "groups": [
       { "id": "keys-links", "title": "", "items": [
-        { "key": "keys.studio", "type": "link", "label": "スタジオ(② 確認・書き出し のキー)", "link": { "href": "studio/?step=review", "label": "スタジオを開く" } },
-        { "key": "keys.editor", "type": "link", "label": "編集(校正のキー・再生のキー)", "link": { "href": "transcribe/", "label": "編集を開く" } }
+        { "key": "keys.studio", "type": "link", "label": "案件の画面の候補(確認・書き出し のキー)", "link": { "href": "cases#cand", "label": "候補を開く" } },
+        { "key": "keys.editor", "type": "link", "label": "案件の画面の校正(校正のキー・再生のキー)", "link": { "href": "cases#proof", "label": "校正を開く" } }
       ] }
     ] }
   ]

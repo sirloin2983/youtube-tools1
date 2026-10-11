@@ -2207,11 +2207,13 @@
 
   /* ================================================================ 新しい案件(RS8 C3。引き出し #newDrawer) ================================================================
      配信を探す・URL や動画ファイルから入れる・解析の順番待ち = スタジオ ① の部品(rank.js・queue.js)を、つなぎ cases-panels/new.js が載せる。
-     引き出しを初めて開いたときに css と js を読む(ホームを開くたびには読まない)。URL: /#new(?url=<配信の URL>・?media=<動画のパス> は欄に入れるだけ。解析は押すまで始めない) */
+     引き出しを初めて開いたときに css と js を読む(ホームを開くたびには読まない)。URL: /#new(?url=<配信の URL>・?media=<動画のパス> は欄に入れるだけ。解析は押すまで始めない。
+     ?set=key|reg|collab = 末尾の「探す設定」の API キー・事務所の登録・コラボを開く(設定の画面のリンク。RS8 C4 でスタジオの ⚙ から移した)) */
+  var NEW_SET = { key: 'setKey', reg: 'setReg', collab: 'setCollab' };
   var newPanel = null, newLoad = null;
   function newCaseArgs() {
     var q = new URLSearchParams(location.search), h = location.hash, i = h.indexOf('?'), hq = i >= 0 ? new URLSearchParams(h.slice(i + 1)) : new URLSearchParams();
-    return { url: (q.get('url') || hq.get('url') || '').trim(), media: (q.get('media') || hq.get('media') || '').trim() };
+    return { url: (q.get('url') || hq.get('url') || '').trim(), media: (q.get('media') || hq.get('media') || '').trim(), set: NEW_SET[hq.get('set') || ''] || '' };
   }
   function loadNewPanel() {
     if (newLoad) return newLoad;
@@ -2236,6 +2238,7 @@
       if (!newPanel) { newPanel = window.NewCasePanel.create(); newPanel.mount($('#newBody'), opts); }
       else newPanel.update(opts);
       newPanel.setVisible(UIKit.drawer.isOpen(d));
+      if (opts.set) { var p = newPanel; p.whenReady().then(function () { p.openSettings(opts.set); }, function () { /* 読めなければ案内はパネルが出す */ }); }
     }, function (e) {
       $('#newBody').textContent = '';
       var box = el('div', 'empty pt-empty');
