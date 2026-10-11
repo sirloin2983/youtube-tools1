@@ -20,7 +20,14 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 from flow import live_tx as LT, machine as M, spec as S  # noqa: E402
 from pipeline.transcribe import llm, tx_engines  # noqa: E402
-from ytt import workdata  # noqa: E402
+from ytt import gpuinfo, workdata  # noqa: E402
+
+
+def setUpModule():
+    """GPU の調べは「分からない」に固定(VRAM で決まる llmModel の既定 = 今の qwen3-8b。どの PC で流しても同じ。VRAM の決まりは TestLlmByVram)"""
+    p = mock.patch.object(gpuinfo, "info", return_value=None)
+    p.start()
+    unittest.addModuleCleanup(p.stop)
 
 
 class Base(unittest.TestCase):
@@ -73,8 +80,10 @@ class TestLoad(Base):
         self.assertEqual((m["diskMinGB"], m["sources"]["diskMinGB"]), (30, "env"))
         self.assertEqual((m["llmModel"], m["sources"]["llmModel"]), ("file-model", "file"))
         self.assertEqual(m["sources"]["caseRoot"], "default")
-        m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="cuda"))   # 旧い値は断らずに vulkan に読む(0.58.0)
+        m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="auto"))   # 旧い値は断らずに vulkan に読む(0.58.0)
         self.assertEqual((m["device"], m["sources"]["device"]), ("vulkan", "env"))
+        m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="cuda"))   # F1 F0-2: cuda は whisper.cpp の CUDA 版(今の値)
+        self.assertEqual((m["device"], m["engine"], m["sources"]["device"]), ("cuda", "whisper.cpp", "env"))
         m = M.load(env=self.env)   # ファイルの cpu も同じ
         self.assertEqual((m["device"], m["sources"]["device"]), ("vulkan", "file"))
         self.assertEqual(M.get("diskMinGB", env=env), 30)
@@ -234,9 +243,50 @@ class TestFirstLayer(Base):
             for k in ("YTT_MACHINE_DEVICE", "YTT_MACHINE_ENGINE", "TRANSCRIBE_DEVICE"):
                 os.environ.pop(k, None)
             self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "vulkan"})   # 何も決めていない = 今まで
-            for old in ({"device": "cpu"}, {"device": "cpu", "engine": "whisper.cpp"}, {"device": "cuda", "engine": "whisper.cpp"}):
-                self.write(old)   # 0.58.0: 旧い機器は machine が vulkan に読む = 配信中も GPU だけ(whisper.cpp の CUDA 版はまだ無い)
+            for old in ({"device": "cpu"}, {"device": "cpu", "engine": "whisper.cpp"}, {"device": "auto", "engine": "whisper.cpp"}):
+                self.write(old)   # 0.58.0: 旧い機器は machine が vulkan に読む = 配信中も GPU だけ
                 self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "vulkan"}, old)
+            self.write({"device": "cuda"})   # F1 F0-2: CUDA 版を決めた PC は配信中も cuda(実行ファイルは bin/whisper.cpp-<版>-cuda)
+            self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "cuda"})
+
+
+class TestLlmByVram(Base):
+    """F1 の仮決め f1b: llmModel の既定を VRAM で(10GB 以上 qwen3-8b・6〜10GB qwen3-4b・6GB 未満 none・不明 = 今の qwen3-8b)"""
+
+    def test_rule(self):
+        for vram, want in ((None, "qwen3-8b"), (16.0, "qwen3-8b"), (12.0, "qwen3-8b"), (10.0, "qwen3-8b"), (8.0, "qwen3-4b"), (6.0, "qwen3-4b"),
+                           (5.9, "none"), (2.0, "none")):
+            self.assertEqual(M.llm_for_vram(vram), want, vram)
+        self.assertEqual(M.LLM_NONE, llm.LLM_NONE)
+        for _lo, name in M.LLM_BY_VRAM:
+            self.assertIn(name, tx_engines.LLAMA_TEXT_MODELS)
+        q = tx_engines.LLAMA_TEXT_MODELS["qwen3-4b"]["model"]
+        self.assertTrue(q["url"].startswith("https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/") and len(q["sha256"]) == 64)
+
+    def gpu(self, vram):
+        return mock.patch.object(gpuinfo, "info", return_value=None if vram is None else {"name": "GPU", "vramGB": vram, "vendor": "nvidia"})
+
+    def test_default_and_overlay(self):
+        bundle = S.merge(None)
+        with self.gpu(8.0):
+            m = M.load(env=self.env)
+            self.assertEqual((m["llmModel"], m["sources"]["llmModel"]), ("qwen3-4b", "default"))
+            out = M.overlay(bundle, env=self.env)   # 既定から来た値でも今の既定と違えば重ねる
+            self.assertEqual(out["post"]["llmModel"], "qwen3-4b")
+            self.assertEqual(S.tx_opts(out)["llmModel"], "qwen3-4b")
+            self.write({"llmModel": "qwen3-8b"})   # machine.json で決めれば上書き
+            self.assertEqual(M.overlay(bundle, env=self.env)["post"]["llmModel"], "qwen3-8b")
+        os.remove(self.file)
+        with self.gpu(4.0):
+            self.assertEqual(M.overlay(bundle, env=self.env)["post"]["llmModel"], "none")
+            self.assertEqual(M.overlay_llm(env=self.env), "none")
+        for vram in (None, 16.0):   # 分からない・10GB 以上 = 今のまま(束も本文も同じ)
+            with self.gpu(vram):
+                self.assertEqual(M.overlay(bundle, env=self.env), bundle)
+                self.assertIsNone(M.overlay_llm(env=self.env))
+
+    def test_none_skips_llm(self):
+        self.assertEqual(llm.llm_after_doc({}, {"autoLlm": True, "llmModel": "none"}, []), (None, None))
 
 
 if __name__ == "__main__":

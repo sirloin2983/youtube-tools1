@@ -30,10 +30,10 @@ PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 
 # faster-whisper は ① の中の CPU の逃げ道(GPU が実行時に失敗したとき・再認識など)として残るが、束からは選ばない。
 TX_ENGINES = ("whisper.cpp",)
 TX_MODELS = ("large-v3",)
-TX_DEVICES = ("vulkan",)
+TX_DEVICES = ("vulkan", "cuda")   # cuda = whisper.cpp の CUDA 版(F1 F0-2。友人の PC の NVIDIA。エンジンは同じ whisper.cpp = implied_engine)
 # 旧い値(0.57.0 まで束・machine.json・保存した設定に書けた物)。断らずに上の値へ読み替える(read_legacy_tx。merge と machine が使う)
 LEGACY_TX_ENGINES = ("faster-whisper", "qwen3-asr", "llama.cpp")
-LEGACY_TX_DEVICES = ("auto", "cuda", "cpu")
+LEGACY_TX_DEVICES = ("auto", "cpu")   # cuda は F1 F0-2 から今の値(旧いエンジンと組で来た cuda = faster-whisper の CUDA だけ vulkan に読む = merge)
 LEGACY_TX_MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]{1,60}(/(?!\.)[A-Za-z0-9_.-]{1,60})?\Z")   # 以前のモデルの名前の形(small・kotoba-tech/… など。worker_client.MODEL_RE と同じ形)
 TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # モデルの名前の形(LLM の後処理のモデル llmModel の検査)
 WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
@@ -211,6 +211,8 @@ def merge(spec):
             raise ValueError("知らない節です: %s(使えるのは %s)" % (sec, "・".join(SECTIONS)))
         if not isinstance(given, dict):
             raise ValueError("%s は {項目: 値} の形にしてください" % sec)
+        if sec == "transcribe" and given.get("engine") in LEGACY_TX_ENGINES and given.get("device") == "cuda":
+            given = dict(given, device=TX_DEVICES[0])   # 旧いエンジンと組の cuda = 0.57.0 までの faster-whisper の CUDA(whisper.cpp の CUDA 版ではない)
         given = {k: read_legacy_tx(k, v) if sec == "transcribe" else v for k, v in given.items() if k not in RETIRED_KEYS.get(sec, ())}
         _overlay(out[sec], given, sec)
     return out
@@ -221,7 +223,7 @@ RETIRED_KEYS = {"post": ("redoLarge",)}   # 消した項目(0.58.0 = kotoba の�
 
 def read_legacy_tx(field, value):
     """transcribe 節の engine・model・device の旧い値(0.57.0 まで書けた物)を今の値に読み替える。
-    エンジン faster-whisper・qwen3-asr・llama.cpp → whisper.cpp / 機器 auto・cuda・cpu → vulkan / large-v3 でないモデルの名前(small・kotoba など)→ large-v3。
+    エンジン faster-whisper・qwen3-asr・llama.cpp → whisper.cpp / 機器 auto・cpu → vulkan(cuda は F1 F0-2 から今の値)/ large-v3 でないモデルの名前(small・kotoba など)→ large-v3。
     それ以外(今の値・形の違う値)はそのまま返す(検査は validate)。machine.check も同じ決まりで読む"""
     if field == "engine" and isinstance(value, str) and value in LEGACY_TX_ENGINES:
         return TX_ENGINES[0]
@@ -445,7 +447,7 @@ def hint_people(bundle):
 
 def implied_engine(device):
     """機器から決まるエンジン(文字起こしの要求にエンジンを書かないとき。vulkan なら whisper.cpp = worker_client.req_engine と同じ決まり)。
-    0.58.0 から束の機器は vulkan だけ(旧い auto・cuda・cpu も vulkan に読み替える)なので、どの機器でも whisper.cpp"""
+    束の機器は vulkan か cuda(F1 F0-2。旧い auto・cpu は vulkan に読み替える)で、どちらも whisper.cpp(cuda は CUDA 版)"""
     del device   # 引数は呼ぶ側(machine・autorun・live_tx)の形のまま残す
     return TX_ENGINES[0]
 

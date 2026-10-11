@@ -136,7 +136,7 @@ class WhisperCppTest(unittest.TestCase):
 
     def test_device_order_never_falls_back(self):
         self.assertEqual(E.WhisperCpp.device_order("auto", False), ["vulkan"])
-        self.assertEqual(E.WhisperCpp.device_order("cuda", True), ["vulkan"])
+        self.assertEqual(E.WhisperCpp.device_order("cuda", True), ["cuda"])   # F1 F0-2: CUDA 版(黙って CPU にしない)
         self.assertEqual(E.WhisperCpp.device_order("cpu", True), ["cpu"])
         self.assertEqual(E.FasterWhisper.device_order("auto", True), ["cuda", "cpu"])   # faster-whisper は今までどおり
 
@@ -214,7 +214,9 @@ class WhisperCppTest(unittest.TestCase):
                 S.validate_job({"sourcePath": media, "model": "small", "device": "vulkan"})
             self.assertEqual(cm.exception.code, "bad_model")
             self.assertIn("large-v3", cm.exception.message)                 # 使えるモデルを案内する
-            self.assertEqual(S.validate_job({"sourcePath": media, "model": "small", "device": "cuda"})["engine"], "faster-whisper")
+            spec = S.validate_job({"sourcePath": media, "model": "large-v3", "device": "cuda"})   # F1 F0-2: cuda も whisper.cpp(CUDA 版)
+            self.assertEqual((spec["engine"], spec["device"]), ("whisper.cpp", "cuda"))
+            self.assertEqual(S.validate_job({"sourcePath": media, "model": "small", "device": "cuda", "engine": "faster-whisper"})["engine"], "faster-whisper")
 
 
     def test_flash_attn_env(self):
@@ -373,6 +375,68 @@ class JoinRowsTest(unittest.TestCase):
         with mock.patch.object(S, "dict_version", lambda s: {}):
             S.record_rerun(doc, spec, "range", [[1.0, 2.0]], [])
         self.assertEqual(doc["recognition"]["runs"][-1]["post"]["joinGap"], 0.5)
+
+
+class CudaFlavorTest(unittest.TestCase):
+    """F1 F0-2: whisper.cpp の CUDA 版 = bin/whisper.cpp-<版>-cuda(置き場所の決まりは ytt/txbase の 1 か所)・取るのは SHA-256 を確かめた表だけ"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="wcpp-cuda-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_bin_dir_by_device(self):
+        from ytt import txbase
+        v = E.WHISPER_CPP["version"]
+        self.assertEqual(v, txbase.WCPP_VERSION)
+        for dev, flavor in (("vulkan", "vulkan"), ("auto", "vulkan"), ("cpu", "vulkan"), (None, "vulkan"), ("cuda", "cuda")):
+            self.assertEqual(E.wcpp_bin_dir(self.tmp, dev), os.path.join(self.tmp, "bin", "whisper.cpp-%s-%s" % (v, flavor)), dev)
+        self.assertEqual(E.wcpp_bin_dir(self.tmp), os.path.join(self.tmp, "bin", "whisper.cpp-%s-vulkan" % v))   # 既定は今まで
+        self.assertEqual(E.WCPP_MODELS["large-v3"]["file"], txbase.WCPP_MODEL_FILES["large-v3"])
+
+    def test_ready_and_refuse_unverified(self):
+        self.assertTrue(E.wcpp_binary_ok("cuda"))   # 表は GitHub の API の size・digest で確かめた値
+        self.assertEqual(E.WhisperCpp.ready(self.tmp, "cuda"), (True, ""))   # 無くても取得先が確かめてあれば(読み込みのときに取る)
+        self.assertFalse(E.WhisperCpp.ready(self.tmp, "vulkan")[0])          # Vulkan 版は作るまで断る(今まで)
+        with mock.patch.dict(E.WCPP_BINARIES, {"cuda": dict(E.WCPP_BINARIES["cuda"], sha256="")}):
+            self.assertFalse(E.wcpp_binary_ok("cuda"))
+            ok, why = E.WhisperCpp.ready(self.tmp, "cuda")
+            self.assertFalse(ok)
+            self.assertIn("確かめていません", why)
+            with self.assertRaises(E.EngineError) as cm:
+                E.fetch_wcpp_binary("cuda", self.tmp)
+            self.assertEqual(cm.exception.code, "engine_missing")
+
+    def test_fetch_places_exe_dir_and_manifest(self):
+        import zipfile
+        z = os.path.join(self.tmp, "w.zip")
+        with zipfile.ZipFile(z, "w") as f:   # 公式の zip の中のフォルダの形は分からないので、一段下にあっても探す
+            f.writestr("Release/" + E.WCPP_EXE, b"exe")
+            f.writestr("Release/cublas64_12.dll", b"dll")
+        bdir = E.wcpp_bin_dir(self.tmp, "cuda")
+        with mock.patch.object(E, "fetch_file", lambda spec, folder, *a: z):
+            self.assertEqual(E.fetch_wcpp_binary("cuda", self.tmp), bdir)
+        self.assertTrue(os.path.isfile(os.path.join(bdir, E.WCPP_EXE)) and os.path.isfile(os.path.join(bdir, "cublas64_12.dll")))
+        self.assertEqual(E.WhisperCpp.manifest(self.tmp, "cuda")["commit"], E.WHISPER_CPP["commit"])
+        self.assertFalse(os.path.exists(bdir + ".part") or os.path.exists(z))
+        self.assertEqual(E.WhisperCpp.ready(self.tmp, "cuda"), (True, ""))
+        with zipfile.ZipFile(z, "w") as f:
+            f.writestr("readme.txt", b"x")
+        with mock.patch.object(E, "fetch_file", lambda spec, folder, *a: z), self.assertRaises(E.EngineError):
+            E.fetch_wcpp_binary("cuda", self.tmp)   # 中に whisper-cli が無い
+
+    def test_check_gpu_cuda(self):
+        e = E.WhisperCpp("large-v3", "cuda", {})
+        e.gpu_name = ""
+        e._check_gpu(["ggml_cuda_init: found 1 CUDA devices:", "  Device 0: NVIDIA GeForce RTX 3060, compute capability 8.6, VMM: yes",
+                      "whisper_backend_init_gpu: using CUDA0 backend"])
+        self.assertEqual(e.gpu_name, "NVIDIA GeForce RTX 3060")
+        with self.assertRaises(E.EngineError) as cm:
+            e._check_gpu(["whisper_backend_init_gpu: no GPU found"])
+        self.assertEqual(cm.exception.code, "gpu_failed")
+
+    def test_cuda_request_means_whispercpp(self):
+        self.assertEqual(S.req_engine({"device": "cuda"}, "large-v3"), "whisper.cpp")
+        self.assertEqual(S.req_engine({}, "small"), "faster-whisper")   # 機器なしの要求は今まで(測る道具・テスト)
 
 
 if __name__ == "__main__":

@@ -92,3 +92,27 @@ def layers_mode():
     if env_off(LAYERS_ENV):
         return "off"
     return LAYERS_PRIMARY if os.environ.get(LAYERS_ENV, "").strip().lower() == LAYERS_PRIMARY else "shadow"
+
+# ---------- whisper.cpp の置き場所の決まり(F1 F0-2。① tx_engines・② flow/live_tx・① live_tx_worker が読む 1 か所) ----------
+WCPP_VERSION = "v1.9.4"   # whisper.cpp の版(tx_engines.WHISPER_CPP の version。コミットと取得の表は tx_engines)
+WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
+WCPP_BIN_FLAVORS = ("vulkan", "cuda")   # 実行ファイルの種類 = bin のフォルダの末尾(vulkan = この PC で作る・cuda = 公式の CUDA 版を取る)
+WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin"}   # モデルの名前 -> ggml のファイル(取得の URL・SHA は tx_engines.WCPP_MODELS)
+
+
+def wcpp_flavor(device):
+    """機器 -> 実行ファイルの種類。cuda は cuda・それ以外(vulkan・cpu・auto・空)は vulkan(CPU で動かすときも作った Vulkan 版の -ng で動かす = 今のまま)"""
+    return "cuda" if device == "cuda" else "vulkan"
+
+
+def wcpp_bin_dir(data_dir, device="vulkan"):
+    """whisper.cpp の実行ファイルのフォルダ = <作業データ>/bin/whisper.cpp-<版>-<種類>(種類は wcpp_flavor(device))"""
+    return os.path.join(data_dir, "bin", "whisper.cpp-%s-%s" % (WCPP_VERSION, wcpp_flavor(device)))
+
+
+def wcpp_exe(data_dir, device="vulkan"):
+    return os.path.join(wcpp_bin_dir(data_dir, device), WCPP_EXE)
+
+
+def wcpp_model_dir(data_dir):
+    return os.path.join(data_dir, "models", "whispercpp")

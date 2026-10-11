@@ -85,7 +85,7 @@ def transcribe_clip(job, spec, wav, pairs, learned=None):
     声の検出をやり直した知らせ(spec の warnings・job の vadNote)・LLM の後処理のモデル(要求に無ければこの PC の設定 flow/machine.py で決めた値。RS7-1 S1)。
     ファイルは書かない(③ が文書の id を決めてから write_clip_records)"""
     if not spec.get("llmModel"):
-        m = _machine.explicit().get("llmModel")   # 既定(= llm.LLM_MODEL)から来た値は入れない = machine.json が無ければ今と同じ指定
+        m = _machine.overlay_llm()   # 決めた値か VRAM で決まる既定が今の既定(llm.LLM_MODEL)と違うときだけ = machine.json が無く VRAM 10GB 以上・不明なら今と同じ指定(F1 F0-2)
         if m:
             spec["llmModel"] = m
     res = clipjob.make_doc_rows(job, spec, wav, pairs, learned)
@@ -315,7 +315,7 @@ def engine_ready(engine):
     ② が足すこと = 本物と疑似の選び方と、エンジンごとの確かめ方の振り分け(/api/tools の alt の表示)"""
     if _backend.is_fake():
         return True, ""
-    if engine == tx_engines.DEFAULT:
+    if engine == tx_engines.FasterWhisper.id:
         ok = worker_client.has_faster_whisper()
         return ok, ("" if ok else "faster-whisper が入っていません")
     return tx_engines.get(engine).ready(tx_engines.engine_home())

@@ -20,7 +20,7 @@ class TestMoved(unittest.TestCase):
         self.assertEqual(spec.CUTS, ("none", "silence"))
         self.assertEqual(spec.LIVE_AUTO_CUT, "none")
         self.assertEqual(spec.WEIGHT_KEYS, ("wAudio", "wChat", "wComments"))
-        self.assertEqual((spec.TX_ENGINES, spec.TX_MODELS, spec.TX_DEVICES), (("whisper.cpp",), ("large-v3",), ("vulkan",)))   # 0.58.0
+        self.assertEqual((spec.TX_ENGINES, spec.TX_MODELS, spec.TX_DEVICES), (("whisper.cpp",), ("large-v3",), ("vulkan", "cuda")))   # 0.58.0・cuda は F1 F0-2
         self.assertTrue(spec.TX_MODEL_RE.match("large-v3"))
         self.assertTrue(spec.TX_MODEL_RE.match("a" * 60))
         for bad in ("", "-x", "a" * 61, "a b", "../x", "x\n"):
@@ -211,6 +211,12 @@ class TestValidate(unittest.TestCase):
             self.assertEqual((b["transcribe"]["engine"], b["transcribe"]["model"], b["transcribe"]["device"]), ("whisper.cpp", "large-v3", "vulkan"))
             self.assertNotIn("redoLarge", b["post"])
         self.assertEqual(spec.read_legacy_tx("language", "auto"), "auto")   # transcribe の 3 つの項目だけ
+        # F1 F0-2: cuda = whisper.cpp の CUDA 版(エンジンは同じ whisper.cpp)。旧いエンジンと組の cuda だけ旧い意味(faster-whisper の CUDA)で vulkan に読む
+        b = spec.validate(spec.merge({"transcribe": {"device": "cuda"}}))
+        self.assertEqual((b["transcribe"]["engine"], b["transcribe"]["device"]), ("whisper.cpp", "cuda"))
+        self.assertEqual(spec.read_legacy_tx("device", "cuda"), "cuda")
+        b = spec.validate(spec.merge({"transcribe": {"engine": "faster-whisper", "device": "cuda"}}))
+        self.assertEqual((b["transcribe"]["engine"], b["transcribe"]["device"]), ("whisper.cpp", "vulkan"))
         for kw in ({"engine": "x"}, {"engine": None}, {"model": ""}, {"model": "a b"}, {"model": 3}, {"language": "fr"}, {"quality": "normal"},
                    {"device": "gpu"}, {"vadMode": "strong"}, {"boost": "yes"}, {"diarize": 0}, {"diarize": 11}, {"diarize": True}):
             self.bad("transcribe", **kw)
@@ -286,8 +292,10 @@ class TestBodies(unittest.TestCase):
         self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "faster-whisper", "device": "cpu"}})))   # 旧い値も GPU に読む
         self.assertNotIn("glossary", o)   # 用語集は書かない(編集の受付が自分の設定から読む。RS7-1 S4)
         self.assertNotIn("redoLarge", o)   # 0.58.0 で消した
-        for dev in ("vulkan", "cpu", "auto", None):
+        for dev in ("vulkan", "cuda", "cpu", "auto", None):
             self.assertEqual(spec.implied_engine(dev), "whisper.cpp")
+        o = spec.tx_opts(spec.merge({"transcribe": {"device": "cuda"}}))   # F1 F0-2: 機器 cuda は本文に残り、エンジンは書かない(受付が whisper.cpp に決める)
+        self.assertEqual((o["device"], "engine" in o), ("cuda", False))
 
     def test_pack_output(self):
         row_edge, out, cs = spec.pack_output(spec.merge(None))

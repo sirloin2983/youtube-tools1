@@ -20,17 +20,17 @@ import threading
 import time
 
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
-from ytt import datadir, fsio, jobs, tools
+from ytt import datadir, fsio, jobs, tools, txbase as _txbase
 from . import live_export as LX, livehost, machine as _machine, spec as _spec
 
 WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
-# whisper.cpp の置き場所(編集の tx_engines.WHISPER_CPP["version"]・wcpp_bin_dir・wcpp_model_dir・WCPP_MODELS と同じ値。入口は編集の部品を import しないので値を持つ。test_live_tx が同じことを確かめる)
-WCPP_VERSION = "v1.9.4"
-WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
-WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin"}   # large-v3-turbo は 0.58.0 で外した(保存値は cfg が既定に戻す)
+# whisper.cpp の置き場所の決まり(版・実行ファイル・モデルのファイル)は ytt/txbase の 1 か所(F1 F0-2。編集の tx_engines も同じ物を読む)
+WCPP_VERSION = _txbase.WCPP_VERSION
+WCPP_EXE = _txbase.WCPP_EXE
+WCPP_MODEL_FILES = _txbase.WCPP_MODEL_FILES   # large-v3-turbo は 0.58.0 で外した(保存値は cfg が既定に戻す)
 DEFAULT_MODEL = "large-v3"
 LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
-LIVE_DEVICES = ("vulkan",)           # whisper.cpp の機器 = GPU だけ(0.58.0。この PC の設定の cpu などは machine が vulkan に読み替える)
+LIVE_DEVICES = ("vulkan", "cuda")    # whisper.cpp の機器 = GPU だけ(0.58.0。cuda は F1 F0-2 の CUDA 版。この PC の設定の cpu などは machine が vulkan に読み替える)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒)
 WAV_TIMEOUT = 120          # 候補の区間の wav を作る ffmpeg 1 本の上限(秒)
@@ -100,8 +100,8 @@ class LiveTx(LX.Patrol):
     def paths(self):
         d = self.data_dir()
         model = self.cfg()["model"]
-        return {"exe": os.path.join(d, "bin", "whisper.cpp-%s-vulkan" % WCPP_VERSION, WCPP_EXE),
-                "model": os.path.join(d, "models", "whispercpp", WCPP_MODEL_FILES[model]), "dataDir": d}
+        return {"exe": _txbase.wcpp_exe(d, self.machine()["device"]),
+                "model": os.path.join(_txbase.wcpp_model_dir(d), WCPP_MODEL_FILES[model]), "dataDir": d}
 
     def ready(self):
         """(使えるか, 使えない理由)。オフ・リアルタイム切り抜きがオフ・whisper.cpp が無い・モデルが無い・ffmpeg が無い"""
@@ -111,6 +111,8 @@ class LiveTx(LX.Patrol):
             return False, "リアルタイム切り抜きがオフ"
         p = self.paths()
         if not os.path.isfile(p["exe"]):
+            if self.machine()["device"] == "cuda":   # CUDA 版は本番の文字起こしが最初に読み込むときに取る(ここでは取りに行かない)
+                return False, "whisper.cpp の CUDA 版がありません(文字起こしを 1 回すると取得されます)"
             return False, "whisper.cpp がありません(setup\\build-whisper-vulkan.bat で作ります)"
         if not os.path.isfile(p["model"]):
             return False, "モデル %s がありません(編集で GPU の文字起こしを 1 回すると取得されます)" % os.path.basename(p["model"])

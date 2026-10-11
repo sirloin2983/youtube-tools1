@@ -3,8 +3,9 @@
 
 束(flow/spec.py)は「何を作るか」。ここは「この PC でどう動かすか」= 束に入れない機械の都合:
   engine       文字起こしのエンジン(spec.TX_ENGINES = whisper.cpp だけ。0.58.0。旧い faster-whisper などは読むときに whisper.cpp)
-  device       認識の機器(spec.TX_DEVICES = vulkan だけ。0.58.0。旧い auto・cuda・cpu は読むときに vulkan)
-  llmModel     LLM の後処理のモデル(pipeline/transcribe/tx_engines の LLAMA_TEXT_MODELS の名前)
+  device       認識の機器(spec.TX_DEVICES = vulkan・cuda。cuda は F1 F0-2 = whisper.cpp の CUDA 版。旧い auto・cpu は読むときに vulkan)
+  llmModel     LLM の後処理のモデル(pipeline/transcribe/tx_engines の LLAMA_TEXT_MODELS の名前か "none" = 後処理を飛ばす)。
+               既定は VRAM で決める(F1 の仮決め f1b。ytt/gpuinfo): 10GB 以上 qwen3-8b・6〜10GB qwen3-4b・6GB 未満 none・不明 qwen3-8b(= 今)
   caseRoot     案件の根(書き出し先 = 今はスタジオの outDir)
   diskMinGB    空き容量の下限(GB。下回ったら新しい録画と処理を始めない = F1 の決めたこと 7。読むのは後の段)
   learningDir  学習データの場所(既定 = 作業データの根 = 今の場所。データは動かさない。決定 3-30 の Q3)
@@ -15,14 +16,15 @@
 
 読む順の強さ: 引数 > 環境変数(ENV)> ファイル(作業データの根の machine.json)> 既定(DEFAULT の説明)。
   既定 = 今の値: engine・device は編集の設定 settings.json(ytt/settings・workdata.SETTINGS)の device とそこから決まるエンジン・
-  llmModel = qwen3-8b(llm.py の LLM_MODEL と同じ。test_machine が確かめる)・caseRoot = スタジオの outDir(datadir.studio_out_dir)・
+  llmModel = VRAM で決める(上。不明・10GB 以上は qwen3-8b = llm.py の LLM_MODEL と同じ。test_machine が確かめる)・caseRoot = スタジオの outDir(datadir.studio_out_dir)・
   diskMinGB = 20・learningDir = 作業データの根・docMove = false・markMove = false。
   machine.json が無ければ読むときに既定から組む(書くのは save を呼んだときだけ)。ファイル・環境変数の合わない値は使わずに次の層へ(ログに 1 行)。
   置き場所: 環境変数 YTT_MACHINE_FILE があればそれ。無ければ作業データの根(datadir.data_root。YTT_DATA_DIR=inplace のときは src = 各ツールのフォルダの親)。
 
 束に重ねる overlay(束): 受けた束の transcribe.engine・device と post.llmModel を、この PC の設定で上書きした新しい束を返す(F1 の決めたこと 9 =
   処理する PC の ② が自分の機械の設定を重ねて流す)。**重ねるのは引数・環境変数・ファイルで決めた値だけ**(既定から来た値は重ねない =
-  machine.json も環境変数も無い今の PC では束・鍵・要求の本文が今と同じ。一時の形: 編集の ⚙ のエンジン・デバイスがここへ書くようになったら(S6b)
+  machine.json も環境変数も無い今の PC では束・鍵・要求の本文が今と同じ。例外は llmModel の VRAM の既定が今の既定 qwen3-8b と違うとき
+  = VRAM 10GB 未満と分かった PC だけ重ねる(overlay_llm。F1 F0-2)。一時の形: 編集の ⚙ のエンジン・デバイスがここへ書くようになったら(S6b)
   ファイルの値として重なる)。device だけを決めたときは、束のエンジンが機器から決まるエンジン(spec.implied_engine)だったときだけエンジンも合わせる。
 
 環境変数の整理(S1): 機械の都合の物は下の ENV(device は YTT_MACHINE_DEVICE だけ。旧い名前 TRANSCRIBE_DEVICE は ② では読まない)。
@@ -38,7 +40,7 @@ import copy
 import logging
 import os
 
-from ytt import datadir as _datadir, layout as _layout, settings as _settings, workdata as _workdata
+from ytt import datadir as _datadir, gpuinfo as _gpuinfo, layout as _layout, settings as _settings, workdata as _workdata
 from . import spec as _spec
 
 log = logging.getLogger("ytt.flow.machine")
@@ -51,6 +53,9 @@ FIELDS = ("engine", "device", "llmModel", "caseRoot", "diskMinGB", "learningDir"
 SWITCHES = ("docMove", "markMove")       # 真偽のスイッチ(既定 false)
 DEVICES = _spec.TX_DEVICES               # spec.SCHEMA の transcribe.device と同じ(旧い値は check が spec.read_legacy_tx で読み替える)
 LLM_MODEL = "qwen3-8b"                   # pipeline/transcribe/llm.py の LLM_MODEL(入口のプロセスで llm を読まないので値を持つ。test_machine が同じことを確かめる)
+LLM_NONE = "none"                        # LLM の後処理を飛ばす(llm.py の LLM_NONE と同じ)
+# VRAM(GB)-> LLM の後処理のモデルの既定(F1 の仮決め f1b)。上から順に「この GB 以上ならこのモデル」。どれにも当たらなければ LLM_NONE。VRAM が不明なら LLM_MODEL
+LLM_BY_VRAM = ((10, "qwen3-8b"), (6, "qwen3-4b"))
 DISK_MIN_GB = 20
 DISK_MAX_GB = 100000
 # 項目 -> 環境変数の名前(前にある物が先)
@@ -160,10 +165,37 @@ def read_env(env=None):
 
 def _editor_device():
     """編集の設定 settings.json の device(旧い auto・cuda・cpu は vulkan に読む。無い・合わなければ vulkan = 0.58.0 から選べるのは GPU だけ)。
+    編集の画面の cuda は 0.57.0 までの faster-whisper の CUDA なので、束で cuda を選べるようになった(F1 F0-2)あとも vulkan に読む
+    (CUDA 版の whisper.cpp を使うのは machine.json・環境変数で決めた PC だけ)。
     置き場所は workdata.SETTINGS(呼ぶたびに読む)、まだ決まっていなければ(入口の外)編集の作業データの settings.json"""
     p = _workdata.SETTINGS or os.path.join(_datadir.resolve("transcribe"), "settings.json")
     v = _spec.read_legacy_tx("device", _settings.SettingsFile(p).read().get("device"))
-    return v if v in DEVICES and isinstance(v, str) else DEVICES[0]
+    return v if v in DEVICES and isinstance(v, str) and v != "cuda" else DEVICES[0]
+
+
+def llm_for_vram(vram_gb):
+    """VRAM(GB。None = 分からない)-> LLM の後処理のモデルの既定(LLM_BY_VRAM。不明は今の LLM_MODEL = この PC の挙動を変えない)"""
+    if vram_gb is None:
+        return LLM_MODEL
+    for lo, name in LLM_BY_VRAM:
+        if vram_gb >= lo:
+            return name
+    return LLM_NONE
+
+
+def auto_llm():
+    """この PC の GPU(ytt/gpuinfo。プロセスの中で 1 回だけ調べる)の VRAM で決まる llmModel の既定"""
+    g = _gpuinfo.info()
+    return llm_for_vram(g.get("vramGB") if g else None)
+
+
+def overlay_llm(args=None, env=None, p=None):
+    """束・要求に重ねる llmModel -> 名前か None(重ねない)。引数・環境変数・ファイルで決めた値、無ければ VRAM の既定が今の既定 LLM_MODEL と違うときだけ"""
+    m = explicit(args, env, p)
+    if "llmModel" in m:
+        return m["llmModel"]
+    a = auto_llm()
+    return a if a != LLM_MODEL else None
 
 
 def _default(field, have, env):
@@ -173,7 +205,7 @@ def _default(field, have, env):
     if field == "engine":
         return _spec.implied_engine(have["device"])
     if field == "llmModel":
-        return LLM_MODEL
+        return auto_llm()
     if field == "caseRoot":
         return _datadir.studio_out_dir(env=None if env is os.environ else env)
     if field == "diskMinGB":
@@ -264,9 +296,13 @@ def _ok(field, value):
 # ---------- 束に重ねる ----------
 def overlay(bundle, args=None, env=None, p=None):
     """受けた束(flow/spec.py の束)に、この PC の設定(引数・環境変数・ファイルで決めた値だけ)を重ねた新しい束を返す。
-    重ねるのは transcribe.engine・transcribe.device・post.llmModel。束は検査しない(呼ぶ側の検査済みの束に、検査済みの値を入れるだけ)"""
+    重ねるのは transcribe.engine・transcribe.device・post.llmModel(llmModel は overlay_llm = VRAM の既定が今と違うときも)。
+    束は検査しない(呼ぶ側の検査済みの束に、検査済みの値を入れるだけ)"""
     out = copy.deepcopy(bundle)
     m = explicit(args, env, p)
+    llm = overlay_llm(args, env, p)
+    if llm is not None:
+        m["llmModel"] = llm
     t = out.get("transcribe")
     if isinstance(t, dict):
         if "device" in m:
