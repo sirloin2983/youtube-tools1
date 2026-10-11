@@ -3560,3 +3560,16 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 答え(decisions 3-39): r8z・(fw)(fx)・候補の枠 = これでいい / サムネ = 中央多めでよいが 9 月以降の実物を見て決める(P5 の行へ)/ 続けて確認 = これでいい + 「今あるものは未定のまま・次回以降の動画から対象」→ cases.REVIEW_SINCE(10-11 13:00)より前の未確認の自動の切り抜きは review.pending(未確認に数えない = D-13 の休む数・続けて確認・3 日の片付けの対象外。一覧には出る)。portal.js の続けて確認は pending を除く
 - テスト: test_cases 32 件・lint 0・層 OK・e2e_portal OK
 - 未コミット: なし(この記録と一緒にコミット)
+
+## 2026-10-11 昼 Claude Code(PC。Opus まとめ役。セッション「RS8」の続き。ユーザー「8 の続きを実装」。設計 Fable 1 回・実装 Opus 4 体・Sonnet 4 体(worktree で並列 → cherry-pick))— RS8 の O2-3〜5・URL も CLI で・入口の本体の移動・② の口(掲示板)S1〜S3
+- 始めに本物の作業データを見た: 文書の移行(docMove)は済み(索引 52 本)・入口は 0.58.0・影の層のログに食い違いは出ていない(保存はまだ少ない)
+- O2(main): aa251d7 O2-3 層を正にする切り替え = `TRANSCRIBE_LAYERS=primary`(書く順 人 → 機械 → 写し・写しに `composedFrom`・③ が開くとき古ければ組み立て直す・② は機械の層だけ(人の層が無いときだけ写しも)。作業データの写し 221 本で primary の保存・開き直し・機械の層の付け替えが全部一致)/ 1b3438f O2-4 3 択の口 `GET /api/mach-changes`・`POST /api/mach-changes/pick`(`human/proof/machpick.py`。画面はまだ)/ e21b39d O2-5 primary のときの再認識 each で校正済みを機械で置き換えない(印 MACH_CHANGED)・判別し直しで人の話者の表を保つ(spkMap は重なり時間で当てる・当たらなければ新しい H と SPK_CHANGED)/ bf0b1b9 編集のテスト 6 本を shadow と primary の両方に(どちらのモードでも編集 626・校正 109 件 OK)
+- **O2 の既定は shadow のまま**: 別のセッション経由で「今 primary に」の答えが届いたが、このセッションでユーザーに直接聞いて「まだ shadow のまま」(新しい画面の 3 択ができるまで)= decisions 3-39 の末尾に追記(aee2877)
+- URL も CLI で(main): 75eddb5・f2d1205・b98e861 入口が無くても CLI が URL を 解析 → 採用 → 書き出し → 文字起こし → パックまで(② のスタジオなしの台帳 `flow/studiobook.py` = Store と同じ形で data.json の索引の行と案件の 候補.json・採用.json を書く・解析の反映などの純粋な部分は `ytt/marks`・`ytt/casefiles`・`ytt/studiodata` へ下ろして Store と共有・③ は読まない)。終了コード 3 は欠番
+- 入口の本体の移動(main): 3fe53c8(git mv だけ)・586922a 参照の直し 55 ファイル = `src/home/launch.py` → `src/app/server.py`。旧パスは runpy の転送を残す(start.bat・restart は新しい場所)/ 598537f e2e_settings の直し漏れ
+- ② の口(main): 設計案 `docs/design/rs8-flow-api.md`(Fable。ユーザー確認済み (r8aj))/ b5186b3 S1 掲示板 `flow/board.py` / e7af9ac S3 入口の口 `GET /api/flow/status` に rev・jobs・cases・`?case=`・`POST /api/flow/cancel`・`retry`・`GET /api/flow/history`・`POST /api/flow/estimate`(仕様 `docs/spec/pipeline.md` 2.9)/ S2 = 器を包んで載せる: 9cec613 解析 an・書き出し ex・届ける dl・検索 se / a935a83 編集 tx・パック pk / 81c78cc ライブ lx・la・lt。器の本体・今の API・古い画面は変えていない。retry があるのは run・tx・an・se だけ(書き出し・届けるは後始末が再現できないので無し)
+- 仮決め: decisions 3-38 (r8ae)〜(r8aj)。(r8aj) はユーザー確認済み・(r8ae) は上のとおり shadow のまま
+- テスト: main で unittest をフォルダごとに ②・CLI・スタジオ(+ test_board_s2)・入口の組・test_mount(単独)・cut2resolve・パック 296・契約・編集 + 校正・ytt・層 全部 OK・lint 0。e2e 一式 31 本 OK(S2 の前・入口の移動のあと。e2e_settings は直して単独で OK)
+- 気づいたこと(直していない): サブエージェントの worktree の中でだけ test_mount の standalone_start 3 本が cp932 の UnicodeDecodeError(main では 27 件 OK)/ 書き出し ex を親の run に繋ぐ `board.link` はまだ(書き出しを頼む側が呼ぶ)/ 配信中の候補の文字起こし lt は case が空
+- 次: 新しい画面(案件の画面。`docs/design/briefs/rs8-cases/`・status の掲示板を読む・3 択の画面もここ)→ primary へ切り替え → V1。OPT2 の後半(器を本当に 1 つに)は新しい画面の直後
+- 未コミット: なし(この記録と HANDOVER・data.js・AGENTS を一緒にコミット)
