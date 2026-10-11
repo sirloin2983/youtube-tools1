@@ -87,6 +87,7 @@
 | `docs/design/rs3-rs4-survey-2026-10-10/` | 役割で組み直す RS3・RS4 の下調べ(読むだけの報告 `survey_rs3_editor.md`・`survey_rs3_home_studio.md`・`survey_rs4.md` と、それを突き合わせた段の並びとユーザーに決めてもらうこと `plan_order.md`。2026-10-10 朝。済んだ設計・調査の記録。実際の段は `plan/role-restructure.md` と WORKLOG) |
 | `docs/design/rs7-survey-2026-10-10/` | 役割で組み直す RS7 の下調べ(`speed.md`・`code_volume.md`・`live_split.md`・`server_settings.md`・`small_items.md`)と段の並び(`plan_order.md` → `plan_order_v2.md` → 第 3 版 `plan_order_v3.md`。RS7-2 の段と RS8 へ送った物。2026-10-10〜11。済んだ設計の記録。実際の段は `plan/role-restructure.md` と WORKLOG) |
 | `docs/design/f1-build.md` | F1(友人の PC で ② + ① を動かす形)の作り方: 段・② の口・仮決め (f1a)〜(f1m)(2026-10-11。実装済み 0.61.0・友人の PC での確かめ待ち。何を作るかは `plan/f1-friend-pc.md`) |
+| `plan/f1-friend-requirements.md` | 友人用の送るアプリが満たすべき要件の見直し(友人の指摘・画面の文字と動きの突き合わせ・置き場所。2026-10-11 深夜。案・ユーザーの確認待ち) |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |
