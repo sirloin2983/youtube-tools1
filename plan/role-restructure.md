@@ -339,10 +339,10 @@ RS6 の決定(2026-10-10 夕。`plan/decisions.md` 3-29): ユーザーの案で�
 | G2b | ライブ係 `flow/livesession.py`(Live から app でない部分を抜き出す・`submit`・`live/bundles.json`・束から検出・解析・音量・書き出したあとの設定・受け渡しは `Queue.submit(kind file)`) | 0 |
 
 **計画と違えた所(RS7-2)**:
-- G1a(F-5 を ①)・G3(配信後の作り直しの統合)・`serverkit`・`launch.py` → `app/server.py` の mv・自分の配信も束で・headless の配信後の全自動が `LocalMarks` の採用の印を見ること、は **RS8 へ送った**(`plan_order_v3.md`)
+- G1a(F-5 を ①)・G3(配信後の作り直しの統合)・`serverkit`・`launch.py` → `app/server.py` の mv・自分の配信も束で・headless の配信後の全自動が `LocalMarks` の採用の印を見ること、は **RS8 へ送った**(10-11: G1a = `pipeline/analyze/adopt.py` と ② の口 `flow/adopt.py`・自分の配信も束で = `livesession.begin_own` は済み)(`plan_order_v3.md`)
 - headless の `restart-self` は 409(error `headless`)
 - status に `live.exporting` も足した(録画・検出・書き出し)
-- 自分の配信(スタジオの URL の欄)は**束にしなかった**(今の読み方のまま。時間の上限で切った。RS8 で)
+- 自分の配信(スタジオの URL の欄)は**束にしなかった**(今の読み方のまま。時間の上限で切った。RS8 で)→ 10-11 に RS8 で束にした(`livesession.own_bundle`)
 - `live/bundles.json` を**新しく作った**(第 2 版の「新しい保存を作らない」を覆した。録画の途中で設定が変わっても、始めたときの値で最後まで動かすため)
 
 **次**: 入口を「すべて終了」→ start.bat で起動し直して本物の 1 本(RS1〜RS6 の分)・CLI の 1 本(`py -3.10 src/app/cli.py <動画> --out result.json`)。そのあと RS7(整理と最適化。10 節)。
