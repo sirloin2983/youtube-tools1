@@ -23,7 +23,7 @@
 - ffmpeg を進み具合・取り消しつきで動かす部品 6 つ(`tools.run_progress`・`exporter._pump`・`cut2resolve_core._ffmpeg_stream`/`_ffmpeg_run`・`procs.run_capture`・`recognize.extract_audio`・`live_excite_worker.measure_levels`)→ `run_progress` に時間の上限・標準エラーを全部持つ選択・spawn の一覧に載せる選択を足して 1 つに。窓を出さない・優先度「低」を全部に。約 120 行 → **済み(da6cdda。tools.run_progress 1 つ)**
 - ② に残る ① の仕事を ① へ: 音量とラウドネスの ffmpeg(`flow/live_export` と `exporter` → `pipeline/export/audio.py`)・ライブの切り出しのエンコード(`normalize` に区間・concat 版)・wav の取り出しの引数(`flow/live_tx`・`flow/live_archive._wav`。精密な切り方は残す)・パックの指定の組み立て(`flow/tools.py` の _pack_request など = cut2resolve の serve の写し → `pipeline/pack` に 1 つ。エラーの厳しさをどちらに合わせるか決める) → **パックの指定は済み(53f78bb。pipeline/pack/request.py。CLI の build_request は形が違うので別のまま)**
 - ライブの見回りの糸の骨組み 3 つ(書き出し・取り込み・配信中の文字起こし)を小さな基底に・`Cancelled` / `Halted` を 1 組に → **済み(79b8393。flow/live_patrol.Patrol・行は横ばい)**
-- `ffmpeg -i` の読み 2 つ(カバー画像の扱い)・音量の ffmpeg の引数を `ytt/loudness` へ(パックの写しが 1 回作り直し)
+- `ffmpeg -i` の読み 2 つ(カバー画像の扱い)・音量の ffmpeg の引数を `ytt/loudness` へ(パックの写しが 1 回作り直し) → **音量の引数は済み(972530e8。ytt/loudness の measure_args・reencode_args・volume_filter・gain_filter)**。`ffmpeg -i` の読み 2 つは残り
 - 字幕の時刻が数 ms 動く所(wav の切り方をそろえる)は `src/eval/tools/eval_timing.py` で確かめてから
 
 ## OPT3 データを見てから
@@ -53,7 +53,7 @@
 ### 2. 解析(盛り上がり)`pipeline/analyze/`(10-11)
 - 盛り上がりの式 `excite.py`(852 行)は配信後と配信中の 1 か所・golden で縛る・標準ライブラリだけ = 形は良い。動かさない
 - `analyze.py`(881 行)の約半分(およそ 450 行)は「材料を取ってくる」仕事 = 音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄(YouTube API)・付加情報(yt-dlp -J)・それぞれのキャッシュと掃除(prune_chat_cache など)。点数の計算と分けて `pipeline/analyze/fetch.py`(か `pipeline/ingest/`)へ → 解析の本体が読みやすくなる・取得だけ使い回せる → OPT2 → **済み(cbc33c1。pipeline/analyze/fetch.py。877 → 428 行)**
-- `analyze.py` の解析ジョブが辞書で state・phase・progress・cancel・proc を持つ = ② の仕事(ジョブの状態・取り消し)が ① に入っている。① は「入力 → 結果」の関数にして、ジョブの器は `flow/batch.py` 側へ → OPT2(RS8 と相談)
+- `analyze.py` の解析ジョブが辞書で state・phase・progress・cancel・proc を持つ = ② の仕事(ジョブの状態・取り消し)が ① に入っている。① は「入力 → 結果」の関数にして、ジョブの器は `flow/batch.py` 側へ → OPT2(RS8 と相談) → **済み(OPT2 後半 J1・J4。analyze.run(spec, ctl)。docs/design/opt2-jobs-plan.md)**
 - 音量を 2 回デコード(`audio_levels` を全帯域と高音域で 2 回)→ 配信中と同じ asplit の 1 回に → OPT1(上の表にある)
 - `live_excite_worker.py`(1,589 行)の小物の写し: `pid_alive`(`ytt/procs.pid_alive` と同じ)・`write_json`(`fsio.write_json` に NaN を断る選択を足せば同じ)・`append_jsonl`。もう ytt を読んでいるので写しは要らない → OPT1 の小物(約 20 行)
 - `live_excite_worker.length_hint`(約 40 行)は docstring に「入口の側が呼ぶ」= 呼ぶのは `flow/live_detect.py` だけ(人の採用の記録から長さの目安を作る)。② か ⑤ の仕事が ① のワーカーのファイルにある → `flow/live_detect.py` へ → OPT2
@@ -99,7 +99,7 @@
 ## ② 管理の見直しメモ(10-11。① と同じく機能ごとにユーザーと見る)
 
 ### ②-1 流れの中心 `flow/run.py`・`runqueue.py`・`spec.py`・`envelope.py`・`runlog.py`(2,521 行)
-- **② が ① を「各ツールの HTTP の API を呼んで、終わるまで待つ」形で動かしている**(`Runner._poll`・`_call_when_free`・`_wait_job` と `flow/tools.py` の HttpTools)。入口の外の CLI だけは LocalTools で ① を直に呼ぶ = **道が 2 本**。① のジョブの器(状態・取り消し・SLOTS 待ち)が各ツールのサーバーの中にあるため HTTP 越しになっている。① を「指定 → 結果」の関数にしたら(① の OPT2)、② はいつも直に呼べる = HttpTools・待ちの骨組み・束 → API の本文(`spec.export_body`・`tx_opts`・`pack_output`)が要らなくなる。画面の進み具合は ② の status から出す → **② でいちばん効く候補**(OPT2 の後半・RS8 と相談。画面が今の API で進み具合を見ている所を作り直すとき)
+- **② が ① を「各ツールの HTTP の API を呼んで、終わるまで待つ」形で動かしている**(`Runner._poll`・`_call_when_free`・`_wait_job` と `flow/tools.py` の HttpTools)。入口の外の CLI だけは LocalTools で ① を直に呼ぶ = **道が 2 本**。① のジョブの器(状態・取り消し・SLOTS 待ち)が各ツールのサーバーの中にあるため HTTP 越しになっている。① を「指定 → 結果」の関数にしたら(① の OPT2)、② はいつも直に呼べる = HttpTools・待ちの骨組み・束 → API の本文(`spec.export_body`・`tx_opts`・`pack_output`)が要らなくなる。画面の進み具合は ② の status から出す → **② でいちばん効く候補**(OPT2 の後半・RS8 と相談。画面が今の API で進み具合を見ている所を作り直すとき) → **解析・書き出し・パックは済み(J7。flow/tools.FlowTools が同じプロセスの器を直に呼ぶ・無ければ HTTP)。③ の動詞と文字起こしは HTTP のまま(RV)**
 - **段の中身が入力の種類ごとに 3 組**: 配信 `_step_*`・文書 `_doc_*`・動画ファイル `_file_*`(文字起こし 3 つ・パック 3 つ・話者 2 つ)。中身は「どの文書を対象にするか」が違うだけの所が多い → 「対象の文書の一覧 → 段」の 1 組に寄せられるか調べる → OPT2
 - **流れの種類 `MODE_STEPS` が 8 つ**(full・adopted・transcribe・doc・request・file・request_auto・file_auto)。中身は段の並びの違いだけ。束の `run`(どこまで進めるか・届けるか)で表せれば種類は要らない = 封筒の `legacy.mode` を消すのと同じ話 → RV(上の RV の観点「一時の欄を正式な欄に」)
 - **実行の状態が 2 つの形**: Run の欄(画面の受付から来た mode・onFail・streamer・pins など)と束。`_asked_spec`・`_with_asked`・`_pins` で欄 → 束へ写している = 受付を submit(封筒 + 束)1 つにすれば写しが消える → RV(「受付を submit 1 つに」)
@@ -115,7 +115,7 @@
 - `placement.py` の案件の根・`studio_data` は RS8 の B-2・B-3(案件フォルダへ移す)で形が変わる = そのときに見直す。`.flow.lock` の取り方・結果の束・`case.json` は形が良い → RS8
 
 ### ②-3 段ごとの口 `flow/tools.py`・`tx.py`・`diar.py`・`batch.py`・`jobs.py`・`pack.py`・`ingest.py`・`wire.py`(1,672 行)
-- **待ち行列・ジョブの仕組みが 5 つある**: ② の `runqueue.Queue`(まとめて実行)・`jobs`(編集の文字起こし・話者などのジョブの表と待機列)・`batch.Batch`(スタジオの解析の待ち行列 最大 10 本)と、① の中の書き出しのジョブ(`exporter.start_job`)・パックの `Task`。どれも「積む・1 本ずつ動かす・状態・取り消し・やり直し・履歴」を自前で持つ。① の OPT2(ジョブの器を ② へ)と合わせて、② に 1 つのジョブの仕組み(種類を登録して動かす = 今の `jobs` の形が近い)にまとめる → OPT2 の後半〜RV(画面の進み具合の出し方が変わるので RS8 と相談)
+- **待ち行列・ジョブの仕組みが 5 つある**: ② の `runqueue.Queue`(まとめて実行)・`jobs`(編集の文字起こし・話者などのジョブの表と待機列)・`batch.Batch`(スタジオの解析の待ち行列 最大 10 本)と、① の中の書き出しのジョブ(`exporter.start_job`)・パックの `Task`。どれも「積む・1 本ずつ動かす・状態・取り消し・やり直し・履歴」を自前で持つ。① の OPT2(ジョブの器を ② へ)と合わせて、② に 1 つのジョブの仕組み(種類を登録して動かす = 今の `jobs` の形が近い)にまとめる → OPT2 の後半〜RV(画面の進み具合の出し方が変わるので RS8 と相談) → **済み(J6・J8。flow/jobs.Table 1 つの上に 解析 batch・書き出し flow/export・パック flow/packjobs・編集の tx)**
 - `tools.py`(HttpTools・LocalTools)は ②-1 の 1(直に呼ぶ形)で HttpTools ごと要らなくなる。LocalTools のパックの組み立て(`_pack_request`・`_pack_args`・`_speaker_map`)は ① の OPT2「パックの指定を 1 つに」へ
 - `flow/pack.py`(65 行)は ① の `resolve_export` の編集の画面用の計算(たたき台・試算・受け渡し・付け替え)を ③④ に渡す口。① の 5 の「resolve_export の画面用の計算を ① の外へ」をやると、計算の置き場所と一緒に見直す(② に置くなら口は要らない)→ OPT2(RS8)
 - `tx.py`(25 の動詞)・`diar.py` は「③ は ① を直に読まない」ための口で、各動詞に「② が足すこと」が書いてあり形は良い。ほぼ素通しの数本(`check_model`・`each_lines`・`end_whole`・diar の定数の読み出し 3 本)は記録済み(OPT1 の小物)

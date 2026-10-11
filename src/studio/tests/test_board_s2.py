@@ -119,7 +119,8 @@ class TestWiring(unittest.TestCase):
         serve.init()
         b = B.Board()
         serve.attach_board(b)
-        self.assertEqual(b.snapshot()["jobs"], [])
+        jobs = b.snapshot()["jobs"]   # 器はプロセスに 1 つ(OPT2 の J2・J6)= 同じプロセスの前のテストの終わった物が残ってよい
+        self.assertTrue(all(j["id"].split(":")[0] in ("an", "ex", "se") and j["state"] not in ("queued", "running") for j in jobs), jobs)
 
 
 if __name__ == "__main__":
