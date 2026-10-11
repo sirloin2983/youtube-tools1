@@ -585,15 +585,15 @@ def _scene_join_split_z(ck, pg, srv, base, tid):
 
 
 def _scene_proof_all(ck, pg, srv, base, tid):
-    """「まとめて」の全行を校正済みに → 知らせの「2 カットへ」で殻のカット・パックのタブへ(旧 e2e_proofread_accuracy の 127-137。EditHost.tab の橋渡し)"""
+    """「まとめて」の全行を校正済みに → 知らせの「カット・パックへ」(RS8 C4 でタブの名前に)で殻のカット・パックのタブへ(旧 e2e_proofread_accuracy の 127-137。EditHost.tab の橋渡し)"""
     ck(_open(pg, base, tid), "行の道具の文書を開く")
     pg.click("#moreTools summary")
     pg.click("#btnProofAll")
     if wait_js(pg, "!!document.querySelector('dialog.ui-dialog[open]')", 1500):
         pg.click("dialog.ui-dialog[open] .btn.primary")
     ck(wait_js(pg, "S.doc.segments.every(g => g.proofed || !String(g.text || '').trim())", 5000), "全行が校正済み")
-    ck(wait_js(pg, "[...document.querySelectorAll('.ui-toast-act')].some(b => b.textContent.includes('カットへ'))", 5000), "知らせに次の一手「カットへ」: %s" % pg.evaluate(TOASTS)[-80:])
-    pg.evaluate("[...document.querySelectorAll('.ui-toast-act')].find(b => b.textContent.includes('カットへ')).click()")
+    ck(wait_js(pg, "[...document.querySelectorAll('.ui-toast-act')].some(b => b.textContent.includes('カット・パックへ'))", 5000), "知らせに次の一手「カット・パックへ」: %s" % pg.evaluate(TOASTS)[-80:])
+    pg.evaluate("[...document.querySelectorAll('.ui-toast-act')].find(b => b.textContent.includes('カット・パックへ')).click()")
     ck(wait_js(pg, "CasesShell.state().tab === 'cut'", 10000), "押すとカット・パックのタブへ(殻のタブ)")
     ck(all(g.get("proofed") for g in srv.get("/api/transcript?id=" + tid)["segments"] if g["text"].strip()), "サーバーにも校正済み")
     pg.keyboard.press("Alt+1")

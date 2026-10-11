@@ -30,8 +30,8 @@ SUITE = [
     # 案件の画面 /cases(src/app/tests/。RS8)
     ("cases", "src/app/tests/e2e_cases.py", [], "案件の画面の殻: 一覧・タブ・URL・キー・② の問い合わせ・引数なしで前の案件・appnav(7 秒)"),
     ("cases", "src/app/tests/e2e_cases_cand.py", [], "候補のパネル: 再生・グラフ・採用・キー・書き出し・時刻の欄・引き出し・まとめて実行・一瞬とつなげる・再生できない配信・片付け(52 秒)"),
-    ("cases", "src/app/tests/e2e_cases_proof.py", [], "校正のパネル: 編集の行・キー・保存・切り替え・競合・行の道具・評価用・2 つ目のエンジン・別の読み・声・配信のプレーヤー・3 択(層が正)"),
-    ("cases", "src/app/tests/e2e_cases_cut.py", [], "カット・パックのパネル: 区間・保存・キー・パックの設定・パックを作る・作り直し・zip・2 つの窓の 409・切り替え"),
+    ("cases", "src/app/tests/e2e_cases_proof.py", [], "校正のパネル: 編集の行・キー・保存・切り替え・競合・行の道具・評価用・2 つ目のエンジン・別の読み・声・配信のプレーヤー・3 択(層が正)(約 75 秒)"),
+    ("cases", "src/app/tests/e2e_cases_cut.py", [], "カット・パックのパネル: 区間・保存・キー・パックの設定・パックを作る・作り直し・zip・2 つの窓の 409・切り替え・区間があるときの校正の行のカット(約 45 秒)"),
     # 3 ツールの通し・作業データの置き場所(dev/tests/)
     ("dev", "dev/tests/e2e_pipeline.py", [], "スタジオ → 編集 → cut2resolve の API の通し(Playwright なし)(20 秒)"),
     ("dev", "dev/tests/e2e_datadir.py", [], "作業データを外へ写す(入口を本物で起動)(10 秒)"),
