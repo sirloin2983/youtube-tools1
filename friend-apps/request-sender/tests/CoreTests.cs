@@ -78,6 +78,9 @@ static class CoreTests
         Run("設定: API キーの確かめ(返事 → 使えます / 理由の文)・keys.json の読み書き(ほかの項目を消さない)", SettingsKey);
         Run("設定: machine の返事の読み・PUT の本文・404 は更新が要る・空き容量の欄・説明のリンク・窓が作れる", SettingsMachine);
         Run("動画にした: made_video の記録(要らないと同じ形で verdict だけ違う)", MadeVideoJson);
+        Run("初回の取得: fetch.json の読み(危ない dest・https でない URL・SHA の形違いは断る)", FetchPlanRead);
+        Run("初回の取得: 続きから・SHA が違えば消して 1 回やり直す・失敗した物だけ次の回・zip / tar.bz2 / member の置き場所・取り消し", FetchRun);
+        Run("更新: new\\ に展開・manifest と違えば断る・外へ出る名前は断る・update.cmd の入れ替え(config.json などは触らない)", UpdateFlow);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -2095,5 +2098,229 @@ static class CoreTests
         Eq(FeedbackJson.Reject(e, now).Replace("\"verdict\":\"reject\"", "\"verdict\":\"made_video\""), made, "要らないと verdict だけ違う");
         True(made.Contains("\"kind\":\"feedback\"") && made.Contains("\"requestId\":\"20261011-120000-abc123\""), "形");
         Eq("/20261011-120000-abc123__題 1-5.feedback.json", FeedbackJson.PathFor(e), "置き場所は同じ");
+    }
+
+    // ---------------------------------------------------------------- F4b 初回の取得と更新(Setup.cs。通信しない)
+    class FakeHttp : IDownloader
+    {
+        public Dictionary<string, byte[]> Blobs = new Dictionary<string, byte[]>();
+        public List<long> Starts = new List<long>();
+        public List<string> Urls = new List<string>();
+
+        public void Get(string url, string part, long expect, Action<long> progress, Func<bool> canceled)
+        {
+            Urls.Add(url);
+            byte[] b = Blobs[url];
+            long have = File.Exists(part) ? new FileInfo(part).Length : 0;
+            Starts.Add(have);
+            Directory.CreateDirectory(Path.GetDirectoryName(part));
+            using (var fs = new FileStream(part, FileMode.Append, FileAccess.Write))
+            {
+                fs.Write(b, (int)have, b.Length - (int)have);
+                if (progress != null) progress(b.Length);
+            }
+        }
+    }
+
+    class FakeTar : ITarTool
+    {
+        public string[] Parts;
+        public FakeTar(params string[] parts) { Parts = parts; }
+
+        public void ExtractAll(string archive, string destDir, string top)
+        {
+            foreach (string p in Parts)
+            {
+                string f = Path.Combine(destDir, top, p);
+                Directory.CreateDirectory(Path.GetDirectoryName(f));
+                File.WriteAllText(f, "x");
+            }
+        }
+
+        public void ExtractMember(string archive, string member, string outFile, long maxBytes)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(outFile));
+            File.WriteAllText(outFile, "member:" + member);
+        }
+    }
+
+
+    static byte[] ZipBytes(params string[] nameAndText)
+    {
+        var ms = new MemoryStream();
+        using (var z = new ZipArchive(ms, ZipArchiveMode.Create, true))
+            for (int i = 0; i < nameAndText.Length; i += 2)
+                using (var w = new StreamWriter(z.CreateEntry(nameAndText[i]).Open(), new UTF8Encoding(false))) w.Write(nameAndText[i + 1]);
+        return ms.ToArray();
+    }
+
+    static string FetchJson(string name, string file, string url, byte[] blob, string extra)
+    {
+        return "{\"name\":\"" + name + "\",\"file\":\"" + file + "\",\"url\":\"" + url + "\",\"sha256\":\"" + Sha(blob) + "\"," + extra + "}";
+    }
+
+    static void FetchPlanRead()
+    {
+        var blob = Encoding.UTF8.GetBytes("0123456789");
+        string ok = "{\"version\":\"1.2.3\",\"items\":[" +
+            FetchJson("m", "model.bin", "https://h/model.bin", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/x\",\"unzip\":null") + "," +
+            FetchJson("sv", "sv.tar.bz2", "https://h/sv.tar.bz2", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/sv\",\"unzip\":\"tar.bz2\",\"top\":\"sv\",\"parts\":[\"model.int8.onnx\",\"tokens.txt\"]") + "," +
+            FetchJson("seg", "segmentation.onnx", "https://h/p/seg.tar.bz2?x=1", blob, "\"size\":null,\"maxBytes\":1000,\"base\":\"data\",\"dest\":\"transcribe/models/diar\",\"unzip\":\"tar.bz2-member\",\"member\":\"d/model.onnx\"") +
+            "]}";
+        var plan = FetchPlan.Parse(Json.Parse(ok));
+        Eq(3, plan.Items.Count, "3 行");
+        Eq("1.2.3", plan.Version, "版");
+        Eq(-1L, plan.Items[2].Size, "size: null = -1");
+        Eq(1000L, plan.Items[2].Expect, "size が無ければ maxBytes");
+        Eq("seg.tar.bz2", plan.Items[2].ArchiveName, "member の取る名前は URL の最後(? の前まで)");
+        Eq("sv.tar.bz2", plan.Items[1].ArchiveName, "tar.bz2 は file");
+        Eq(2, plan.Items[1].Parts.Count, "parts");
+
+        string[] bad = {
+            FetchJson("a", "f", "http://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"../x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"C:/x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"/x\""),
+            FetchJson("a", "a/f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"web\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"base\":\"data\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"x\",\"unzip\":\"rar\""),
+            "{\"name\":\"a\",\"file\":\"f\",\"url\":\"https://h/f\",\"sha256\":\"zz\",\"size\":10,\"base\":\"data\",\"dest\":\"x\"}",
+        };
+        foreach (string b in bad)
+        {
+            try { FetchPlan.Parse(Json.Parse("{\"items\":[" + b + "]}")); True(false, "断られるはず: " + b); }
+            catch (FormatException) { }
+        }
+        True(FetchPlan.SafeRelative("a/b") && FetchPlan.SafeRelative("") && !FetchPlan.SafeRelative("a/../b") && !FetchPlan.SafeRelative("a//b"), "SafeRelative");
+        Eq("\"C:\\a b\\\\\"", PythonTar.Quote("C:\\a b\\"), "末尾の \\ は 2 つに");
+    }
+
+    static void FetchRun()
+    {
+        string data = TempDir(), app = TempDir();
+        var a = Encoding.UTF8.GetBytes("0123456789");
+        var z = ZipBytes("bin/tool.exe", "exe");
+        var tarBlob = Encoding.UTF8.GetBytes("TARBALL");
+        var segBlob = Encoding.UTF8.GetBytes("SEGTAR");
+        var wrong = Encoding.UTF8.GetBytes("WRONGBYTES");
+        var http = new FakeHttp();
+        http.Blobs["https://h/model.bin"] = a;
+        http.Blobs["https://h/bad.bin"] = wrong;
+        http.Blobs["https://h/deno.zip"] = z;
+        http.Blobs["https://h/sv.tar.bz2"] = tarBlob;
+        http.Blobs["https://h/seg.tar.bz2"] = segBlob;
+        string json = "{\"items\":[" +
+            FetchJson("model", "model.bin", "https://h/model.bin", a, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/x\",\"unzip\":null") + "," +
+            FetchJson("bad", "bad.bin", "https://h/bad.bin", a, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/x\",\"unzip\":null") + "," +
+            FetchJson("deno", "deno.zip", "https://h/deno.zip", z, "\"size\":" + z.Length + ",\"base\":\"app\",\"dest\":\"tools/deno\",\"unzip\":\"zip\",\"pinnedBy\":\"build\"") + "," +
+            FetchJson("sv", "sv.tar.bz2", "https://h/sv.tar.bz2", tarBlob, "\"size\":" + tarBlob.Length + ",\"base\":\"data\",\"dest\":\"transcribe/models/sv\",\"unzip\":\"tar.bz2\",\"top\":\"sv\",\"parts\":[\"model.int8.onnx\"]") + "," +
+            FetchJson("seg", "segmentation.onnx", "https://h/seg.tar.bz2", segBlob, "\"size\":null,\"maxBytes\":100,\"base\":\"data\",\"dest\":\"transcribe/models/diar\",\"unzip\":\"tar.bz2-member\",\"member\":\"d/model.onnx\"") +
+            "]}";
+        var plan = FetchPlan.Parse(Json.Parse(json));
+        Eq(5, plan.Missing(data, app).Count, "最初は全部足りない");
+
+        // 途中まで取ってあれば続きから(model.bin の先頭 4 バイト)
+        string modelDir = Path.Combine(data, "transcribe", "models", "x");
+        Directory.CreateDirectory(modelDir);
+        File.WriteAllBytes(Path.Combine(modelDir, "model.bin.part"), a.Take(4).ToArray());
+
+        var steps = new List<FetchProgress>(); var phases = new List<string>();
+        var f = new Fetcher(http, new FakeTar("model.int8.onnx"), data, app) { Progress = x => { steps.Add(x); phases.Add(x.Phase); } };
+        var res = f.Run(plan.Items);
+        Eq(4, res.Done.Count, "4 つ取れた");
+        Eq(1, res.Failed.Count, "SHA-256 の違う 1 つは失敗");
+        Eq("bad", res.Failed[0].Key, "失敗した名前");
+        True(res.Failed[0].Value.Contains("想定と違います"), "失敗の理由: " + res.Failed[0].Value);
+        Eq(4L, http.Starts[0], "model.bin は 4 バイト目から");
+        Eq("0123456789", File.ReadAllText(Path.Combine(modelDir, "model.bin")), "続きから取った中身");
+        True(!File.Exists(Path.Combine(modelDir, "model.bin.part")), ".part は残らない");
+        int badCalls = http.Urls.Count(u => u == "https://h/bad.bin");
+        Eq(2, badCalls, "違えば消して 1 回だけやり直す");
+        True(http.Starts.Skip(1).Take(2).All(s => s == 0) && !File.Exists(Path.Combine(modelDir, "bad.bin")) && !File.Exists(Path.Combine(modelDir, "bad.bin.part")), "違う物は残さない・続きから取らない");
+        True(File.Exists(Path.Combine(app, "tools", "deno", "bin", "tool.exe")), "zip は app の下に展開");
+        True(!File.Exists(Path.Combine(app, "tools", "deno", "deno.zip")), "展開した zip は消す");
+        True(File.Exists(Path.Combine(data, "transcribe", "models", "sv", "sv", "model.int8.onnx")), "tar.bz2 は top の下");
+        string seg = Path.Combine(data, "transcribe", "models", "diar");
+        True(File.Exists(Path.Combine(seg, "segmentation.onnx")) && !File.Exists(Path.Combine(seg, "seg.tar.bz2")), "member は file の名前で置き、tar は消す");
+        True(steps.Count > 0, "進み具合が来る"); True(steps.Last().Fraction > 0.99, "最後は 100%: " + steps.Last().Fraction + " " + steps.Last().OverallDone + "/" + steps.Last().OverallTotal); True(phases.Contains("展開しています"), "展開の段もある");
+
+        var miss = plan.Missing(data, app);
+        Eq(1, miss.Count, "足りないのは失敗した 1 つだけ");
+        Eq("bad", miss[0].Name, "失敗した物が次の回に出る");
+
+        // 次の回: 取れた物はもう取りに行かない
+        http.Urls.Clear();
+        http.Blobs["https://h/bad.bin"] = a;
+        var res2 = new Fetcher(http, new FakeTar("model.int8.onnx"), data, app).Run(miss);
+        True(res2.Ok && http.Urls.Count == 1 && plan.Missing(data, app).Count == 0, "失敗した物だけやり直してそろう");
+
+        // 取り消し
+        var http2 = new FakeHttp();
+        var canceled = new Fetcher(new CancelHttp(), new FakeTar(), TempDir(), TempDir()) { Canceled = () => true };
+        var cr = canceled.Run(FetchPlan.Parse(Json.Parse("{\"items\":[" + FetchJson("c", "c.bin", "https://h/c", a, "\"size\":10,\"base\":\"data\",\"dest\":\"x\"") + "]}")).Items);
+        True(cr.Canceled && !cr.Ok, "取り消しは結果に出る");
+    }
+
+    class CancelHttp : IDownloader
+    {
+        public void Get(string url, string part, long expect, Action<long> progress, Func<bool> canceled) { throw new CanceledException(); }
+    }
+
+    static void UpdateFlow()
+    {
+        string tmp = TempDir();
+        var exe = Encoding.UTF8.GetBytes("exe-new");
+        var py = Encoding.UTF8.GetBytes("print('new')");
+        string manifest = "{\"version\":\"9.9.9\",\"files\":{\"RequestSender.exe\":\"" + Sha(exe) + "\",\"src/a.py\":\"" + Sha(py) + "\"}}";
+        string zip = Path.Combine(tmp, "RequestSender-9.9.9.zip");
+        File.WriteAllBytes(zip, ZipBytes("RequestSender.exe", "exe-new", "src/a.py", "print('new')", "config.json", "FROM-ZIP", "manifest.json", manifest));
+
+        string app = Path.Combine(tmp, "app");
+        Directory.CreateDirectory(Path.Combine(app, "src"));
+        Directory.CreateDirectory(Path.Combine(app, "learning"));
+        File.WriteAllText(Path.Combine(app, "config.json"), "KEEP-CONFIG");
+        File.WriteAllText(Path.Combine(app, "keys.json"), "KEEP-KEYS");
+        File.WriteAllText(Path.Combine(app, "settings.json"), "KEEP-SETTINGS");
+        File.WriteAllText(Path.Combine(app, "src", "a.py"), "print('old')");
+        File.WriteAllText(Path.Combine(app, "learning", "v1.txt"), "KEEP-LEARNING");
+
+        True(Setup.UpdateFile.IsMatch("RequestSender-0.58.0.zip") && !Setup.UpdateFile.IsMatch("..\\RequestSender-0.58.0.zip") && !Setup.UpdateFile.IsMatch("RequestSender-0.58.0-first.zip"), "更新の zip の名前の形");
+
+        // 壊れた物は入れ替えに進まない(manifest と中身が違う・名前が外へ出る)
+        string badZip = Path.Combine(tmp, "bad.zip");
+        File.WriteAllBytes(badZip, ZipBytes("RequestSender.exe", "tampered", "manifest.json", manifest));
+        try { Setup.PrepareUpdate(badZip, app, 1, false); True(false, "manifest と違えば断る"); }
+        catch (InvalidDataException) { }
+        True(!Directory.Exists(Path.Combine(app, "new")) && !File.Exists(Path.Combine(app, "update.cmd")), "断ったら new\\ も update.cmd も残さない");
+        string slipZip = Path.Combine(tmp, "slip.zip");
+        File.WriteAllBytes(slipZip, ZipBytes("RequestSender.exe", "x", "../evil.txt", "x"));
+        try { Setup.PrepareUpdate(slipZip, app, 1, false); True(false, "外へ出る名前は断る"); }
+        catch (InvalidDataException) { }
+        True(!File.Exists(Path.Combine(tmp, "evil.txt")), "外へは書かない");
+
+        // 入れ替え(本物の update.cmd を、もう終わっている pid で流す)
+        var dead = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c exit") { UseShellExecute = false, CreateNoWindow = true });
+        dead.WaitForExit();
+        string cmd = Setup.PrepareUpdate(zip, app, dead.Id, false);
+        string text = File.ReadAllText(cmd);
+        True(text.Contains("robocopy") && text.Contains(" /E ") && text.Contains("/XF config.json keys.json settings.json"), "robocopy /E と /XF: " + text);
+        True(Directory.Exists(Path.Combine(app, "new")) && File.Exists(Path.Combine(app, "new", "RequestSender.exe")), "new\\ に展開");
+        True(!text.Contains("start \"\""), "起こし直さない指定のときは start を書かない");
+        var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c \"\"" + cmd + "\"\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = app };
+        using (var p = System.Diagnostics.Process.Start(psi)) True(p.WaitForExit(60000), "update.cmd が終わる");
+        for (int i = 0; i < 50 && File.Exists(cmd); i++) System.Threading.Thread.Sleep(100);
+        Eq("exe-new", File.ReadAllText(Path.Combine(app, "RequestSender.exe")), "exe が新しくなる");
+        Eq("print('new')", File.ReadAllText(Path.Combine(app, "src", "a.py")), "src が新しくなる");
+        Eq("KEEP-CONFIG", File.ReadAllText(Path.Combine(app, "config.json")), "config.json は触らない(zip に入っていても)");
+        Eq("KEEP-KEYS", File.ReadAllText(Path.Combine(app, "keys.json")), "keys.json は触らない");
+        Eq("KEEP-SETTINGS", File.ReadAllText(Path.Combine(app, "settings.json")), "settings.json は触らない");
+        Eq("KEEP-LEARNING", File.ReadAllText(Path.Combine(app, "learning", "v1.txt")), "zip に無い物(learning\\)は残る");
+        True(!Directory.Exists(Path.Combine(app, "new")), "new\\ は片付く");
+        True(!File.Exists(cmd), "update.cmd は自分を消す");
+
+        // 起こし直す行(既定)
+        True(Setup.UpdateCmd(app, Path.Combine(app, "new"), 7, true).Contains("start \"\" \"%APP%\\RequestSender.exe\""), "既定は起こし直す");
+        True(Setup.UpdateCmd(app, Path.Combine(app, "new"), 7, true).Contains("set \"PID=7\""), "待つ pid");
     }
 }

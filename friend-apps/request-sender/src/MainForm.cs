@@ -156,6 +156,7 @@ namespace RequestSender
                 poll.Start();
                 PollArrivals();
                 StartBackendAsync();   // この PC で処理できる形なら ② を裏で起こす(前の起動の待ちも続きから)
+                Setup.OfferFetch(this, exeDir);   // 初回に取る部品が足りなければ小窓(F4b。fetch.json が無ければ何もしない)
             };
             FormClosing += OnClosing;
             Disposed += (s, e) => { Theme.Changed -= ApplyTheme; poll.Dispose(); flowTimer.Dispose(); tips.Dispose(); };
