@@ -252,9 +252,10 @@ class Opener:
         exe = self.exe()
         if not exe:
             raise Unavailable("窓で開くのに使う Microsoft Edge が見つかりません")
-        flags = 0
-        if os.name == "nt":   # 入口の黒い画面の Ctrl+C・Ctrl+Break(終了の合図)を Edge に伝えない
-            flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        # 入口の黒い画面の Ctrl+C・Ctrl+Break(終了の合図)を Edge に伝えない = 見えない別のコンソール + 別のグループ。
+        # DETACHED_PROCESS(コンソールなし)にしない: 起こした物がコンソールの子を起こすと、その子に見える新しい窓が開いて画面を取る
+        # (テストの偽のブラウザ .bat → Python で黒い窓が出ていた。10-11)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)   # 標準ライブラリだけで読む部品なので tools.no_window_flags を使わない
         os.makedirs(self.profile, exist_ok=True)
         self._popen(app_command(exe, url, self.profile), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL, close_fds=True, creationflags=flags)
