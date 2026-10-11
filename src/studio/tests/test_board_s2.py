@@ -11,9 +11,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 import serve  # noqa: E402
-from flow import batch as batch_mod, board as B  # noqa: E402
+from flow import batch as batch_mod, board as B, export as flow_export  # noqa: E402
 from human.find import rank  # noqa: E402
-from pipeline.export import exporter  # noqa: E402
 
 
 class Store:
@@ -63,16 +62,16 @@ class TestAnalyze(unittest.TestCase):
 
 class TestExport(unittest.TestCase):
     def setUp(self):
-        self.addCleanup(exporter._jobs.clear)
-        exporter._jobs.clear()
+        self.ex = flow_export.ExportJobs()   # 書き出しの器(② の flow/export。OPT2 の J2)
         self.b = B.Board()
-        self.b.register("ex", source=exporter.board_jobs, cancel=exporter.board_cancel)
+        self.ex.attach_board(self.b)
 
     def job(self, state="running"):
-        j = {"id": "e1", "videoId": "abcdefghijk", "state": state, "cancel": False, "proc": None, "created": time.time(),
-             "items": [{"id": "m1", "status": "running", "progress": 0.5, "path": None, "error": None}]}
-        exporter._jobs["e1"] = j
-        return j
+        res = {"videoId": "abcdefghijk", "state": state, "folder": "", "combined": None,
+               "items": [{"id": "m1", "status": "running", "progress": 0.5, "path": None, "error": None}]}
+        self.ex._jobs["e1"] = {"id": "e1", "videoId": "abcdefghijk", "created": time.time(), "outDir": "", "res": res,
+                               "ctl": flow_export._jobs.Ctl(), "waiting": False, "finishedAt": None, "interrupted": False}
+        return res
 
     def test_states_on_board(self):
         j = self.job()
@@ -86,7 +85,7 @@ class TestExport(unittest.TestCase):
     def test_cancel_by_board_id(self):
         j = self.job()
         self.b.cancel("ex:e1")
-        self.assertTrue(j["cancel"])
+        self.assertTrue(self.ex.get("e1")["ctl"].cancelled)
         j["state"] = "cancelled"
         with self.assertRaises(B.Refused):
             self.b.cancel("ex:e1")

@@ -22,7 +22,7 @@ HERE = os.path.join(SRC, "studio")   # テストが使うスタジオの殻 comm
 sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
-from ytt import errors, mediainfo, studio_env  # noqa: E402
+from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter
 from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
 
@@ -48,7 +48,7 @@ class TestApplyVolume(unittest.TestCase):
             self.skipTest("テスト用動画を作れなかった(ffmpeg のビルドを確認してください)")
 
     def _job_it(self):
-        return {"cancel": False, "proc": None}, {"start": 0.0, "end": 2.0, "progress": 0.0}
+        return jobs.Ctl(), {"start": 0.0, "end": 2.0, "progress": 0.0}
 
     def test_volume_100_is_a_noop(self):
         """既定の100(調整なし)では、ffmpeg を呼び直さずファイルはそのまま(バイト列が変わらない)。"""
@@ -96,13 +96,13 @@ class TestExportCompletion(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             spec = {"videoId": "abcdefghijk", "mode": "file"}
             item = {"id": "m1", "start": 10.0, "end": 15.0, "label": "", "status": "queued"}
-            job = {"items": [item], "cancel": False}
+            job = {"items": [item], "state": "running"}
             done = Mock(return_value=False)   # マークが変更されていても、出力ファイル自体は成功
             with patch.object(studio_env, "get_out_dir", return_value=tmp), \
                     patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "apply_volume"):
-                exporter.run_job(job, spec, done)
+                _run(job, spec, done)
             done.assert_called_once_with("abcdefghijk", "m1", "video/clip.mp4", 10.0, 15.0, os.path.join(tmp, "clip.mp4"))   # 最後は書き出した mp4 の絶対パス(マークに残す)
             self.assertEqual((job["state"], item["status"], item["file"]), ("done", "done", "video/clip.mp4"))
 
@@ -118,8 +118,14 @@ def _make_source(path, sec=30, gop=300, rate=60, video=None):
 
 
 def _job(clips, out_dir):
-    return {"id": "j1", "state": "running", "cancel": False, "proc": None, "outDir": out_dir,
-            "items": [dict(c, status="queued", progress=0.0, file=None, error=None) for c in clips]}
+    """① の結果の辞書(exporter.new_result と同じ形)。out_dir は今の呼び手との互換で受けるだけ"""
+    return exporter.new_result({"videoId": "j1", "clips": clips})
+
+
+def _run(res, spec, on_done=None, ctl=None):
+    """① の run を同じ糸で動かす(OPT2 の J2。器 = ② の flow/export は通さない)"""
+    exporter.run(spec, res, ctl or jobs.Ctl(), on_done)
+    return res
 
 
 def _spec(src, clips, fast=False, volume=75):
@@ -167,7 +173,7 @@ class TestClipManifestExport(unittest.TestCase):
         def on_done(*a):
             calls.append(a)
             return recorded
-        exporter.run_job(job, spec, on_done)
+        _run(job, spec, on_done)
         return job, calls
 
     def test_precise_export_writes_manifest_next_to_each_mp4(self):
@@ -199,7 +205,7 @@ class TestClipManifestExport(unittest.TestCase):
         self.assertEqual(e["range"], {"start": 0.0, "end": 22.0})
         self.assertEqual((e["export"]["purpose"], e["export"]["selection"]), ("edit-handles", {"start": 7.0, "end": 12.0}))
         # GET /api/export の形
-        pub = exporter.job_public(job)["items"][0]
+        pub = exporter.result_public(job)["items"][0]
         self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["editManifest"]), (it["path"], it["manifest"], it["editPath"], it["editManifest"]))
         self.assertEqual(pub["file"], job["folder"] + "/" + os.path.basename(it["path"]))
         self.assertEqual(len(calls), 1)
@@ -247,8 +253,8 @@ class TestClipManifestExport(unittest.TestCase):
         clips = [{"id": "a", "start": 2.0, "end": 4.0, "title": "a", "label": "a", "src": "manual", "markStatus": ""},
                  {"id": "b", "start": 10.0, "end": 12.0, "title": "b", "label": "b", "src": "manual", "markStatus": ""}]
         spec = dict(_spec(self.src, clips), combine=True)
-        job = dict(_job(clips, studio_env.get_out_dir()), combined=None)
-        exporter.run_job(job, spec)
+        job = _job(clips, studio_env.get_out_dir())
+        _run(job, spec)
         c = job["combined"]
         self.assertEqual((job["state"], c["status"]), ("done", "done"), c.get("error"))
         self.assertAlmostEqual(mediainfo.media_info(c["path"])[0], 4.0, delta=0.3)
@@ -299,7 +305,7 @@ class TestClipManifestExport(unittest.TestCase):
         def cancel_on_second(job, spec, it, rel):   # 1回目 = 本体、2回目 = 編集用素材 の音量の調整で「中止」
             state["n"] += 1
             if state["n"] == 2:
-                job["cancel"] = True
+                job.cancel()   # job = ① に渡る Ctl
                 raise exporter.ExportError("中止しました")
             return real(job, spec, it, rel)
         with patch.object(exporter, "apply_volume", side_effect=cancel_on_second):
@@ -320,7 +326,7 @@ class TestLegacyFfmpeg(unittest.TestCase):
                 calls.append(c)
                 return results.pop(0)
             return once
-        job, it = {"cancel": False}, {}
+        job, it = jobs.Ctl(), {}
         with patch.object(exporter, "_pump_once", fake([old, (0, ["ok"], None)])):
             self.assertEqual(exporter._pump(job, cmd, it, 2.0), ["ok"])
         self.assertEqual((len(calls), "-vsync" in calls[1], "-fps_mode" in calls[1]), (2, True, False))
@@ -330,7 +336,9 @@ class TestLegacyFfmpeg(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         calls.clear()
         with patch.object(exporter, "_pump_once", fake([(1, list(old[1]), "cancel")])), self.assertRaises(exporter.ExportError) as cm:
-            exporter._pump({"cancel": True}, cmd, it, 2.0)
+            stop = jobs.Ctl()
+            stop.cancel()
+            exporter._pump(stop, cmd, it, 2.0)
         self.assertEqual((len(calls), str(cm.exception)), (1, "中止しました"))
 
 
@@ -357,10 +365,10 @@ class TestPartialNames(unittest.TestCase):
             self.assertEqual(exporter.clean_partials(root), len(gone))
             self.assertEqual([f for f in keep if os.path.exists(f)], keep)
             self.assertEqual([f for f in gone if os.path.exists(f)], [])
-            with patch.object(exporter, "is_busy", return_value=True):   # 書き出しが始まっていたら消さない
-                open(gone[0], "wb").close()
-                self.assertEqual(exporter.clean_partials(root), 0)
-                self.assertTrue(os.path.exists(gone[0]))
+            # 書き出しが始まっていたら消さない(busy = 器 flow/export の is_busy を呼び手が渡す)
+            open(gone[0], "wb").close()
+            self.assertEqual(exporter.clean_partials(root, busy=lambda: True), 0)
+            self.assertTrue(os.path.exists(gone[0]))
 
 
 class TestManifestFailure(unittest.TestCase):
@@ -375,19 +383,19 @@ class TestManifestFailure(unittest.TestCase):
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "apply_volume"), patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
                     patch.object(exporter, "write_clip", side_effect=denied), patch.object(studio_env, "log_failure") as log:
-                exporter.run_job(job, spec, Mock(return_value=True))
+                _run(job, spec, Mock(return_value=True))
             it = job["items"][0]
             self.assertEqual((job["state"], it["status"]), ("done", "done"))   # 書き出し自体は成功
             self.assertIn(".clip.json", it["warning"])
             self.assertIn("clip.clip.json", it["warning"])   # どのファイルか分かる
-            pub = exporter.job_public(job)["items"][0]
+            pub = exporter.result_public(job)["items"][0]
             self.assertEqual((pub["path"], pub["manifest"]), (os.path.join(tmp, "clip.mp4"), None))
             log.assert_called_once()
 
     def test_paths_are_public_only_when_done(self):
         job = {"id": "j", "state": "error", "items": [{"id": "m", "start": 0, "end": 1, "title": "", "status": "error", "progress": 0, "file": "v/a.mp4",
                                                         "error": "x", "path": "/o/a.mp4", "manifest": "/o/a.clip.json"}]}
-        pub = exporter.job_public(job)["items"][0]
+        pub = exporter.result_public(job)["items"][0]
         self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["editManifest"]), (None, None, None, None))
 
 
@@ -453,7 +461,7 @@ class TestNames(unittest.TestCase):
                 seen.append(os.path.join(spec["outDir"], base))
                 raise exporter.ExportError("止める")
             with patch.object(exporter, "pick_folder", return_value=(folder, path)), patch.object(exporter, "run_ffmpeg", side_effect=runner):
-                exporter.run_job(_job([item], root), spec)
+                _run(_job([item], root), spec)
         longest = os.path.join(os.path.dirname(seen[0]), schemas.WORK_DIR, os.path.basename(seen[0]) + "_edit.clip.json")   # 作業用/ の中が一番長い
         self.assertLessEqual(exporter.path_units(longest), exporter.MAX_PATH_UNITS)
         self.assertLessEqual(exporter.path_units(seen[0]) + exporter.SUFFIX_ROOM, exporter.MAX_PATH_UNITS)
@@ -486,33 +494,6 @@ class TestBuildSpecIds(unittest.TestCase):
         self.assertIn("配信の ID", cm.exception.message)   # 0.22.3: 配信の意味の「動画」は「配信」(見直し S5)
 
 
-class TestHeavyJobLimit(unittest.TestCase):
-    """書き出しは、他のツールの重い処理と順番を待つ(ytt.jobs)。待っている間は waiting、取り消せる"""
-
-    def test_waits_and_cancels(self):
-        from ytt import jobs
-        slots = jobs.HeavySlots(1)
-        held = slots.acquire("transcribe")
-        job = {"id": "x", "videoId": "abcdefghijk", "state": "running", "cancel": False, "proc": None, "created": 0, "outDir": "",
-               "items": [{"id": "m1", "start": 0, "end": 1, "title": "a", "status": "queued", "progress": 0.0, "file": None, "error": None}]}
-        with patch.object(exporter.jobs, "SLOTS", slots), patch.object(exporter, "_run_job") as body:
-            t = threading.Thread(target=exporter.run_job, args=(job, {}, None))
-            t.start()
-            for _ in range(100):
-                if job.get("waiting"):
-                    break
-                time.sleep(0.02)
-            self.assertTrue(exporter.job_public(job)["waiting"])
-            job["cancel"] = True
-            t.join(5)
-            body.assert_not_called()
-            self.assertEqual((job["state"], job["items"][0]["status"], exporter.job_public(job)["waiting"]), ("cancelled", "cancelled", False))
-            slots.release(held)
-            job2 = dict(job, cancel=False, state="running")
-            exporter.run_job(job2, {}, None)
-            body.assert_called_once()
-
-
 @unittest.skipUnless(studio_env.find_tool("ffmpeg"), "ffmpeg が無い環境ではスキップ")
 class TestLoudness(unittest.TestCase):
     """ラウドネス(聞こえ方の音量)をそろえる書き出し(2026-09-26)。切り抜きと編集用素材に同じ量だけかける"""
@@ -535,7 +516,7 @@ class TestLoudness(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def measure(self, path):
-        return exporter.measure_loudness({"cancel": False, "proc": None}, {"start": 0.0, "end": 1.0, "progress": 0.0}, path)
+        return exporter.measure_loudness(jobs.Ctl(), {"start": 0.0, "end": 1.0, "progress": 0.0}, path)
 
     def test_build_spec_choices(self):
         src = self.src
@@ -554,7 +535,7 @@ class TestLoudness(unittest.TestCase):
         clips = [{"id": "m1", "start": 12.0, "end": 18.0, "title": "t", "label": "t", "src": "manual", "markStatus": "adopted"}]
         spec = dict(_spec(self.src, clips), loudness=-14.0)
         job = _job(clips, studio_env.get_out_dir())
-        exporter.run_job(job, spec, lambda *a: True)
+        _run(job, spec, lambda *a: True)
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
         before, _ = self.measure(self.src)
@@ -571,7 +552,7 @@ class TestLoudness(unittest.TestCase):
             ex = _read(m)["export"]
             self.assertEqual(ex["loudness"], lo)
             self.assertNotIn("volume", ex)   # 音量(%)は使っていない
-        self.assertEqual(exporter.job_public(job)["items"][0]["loudness"], lo)
+        self.assertEqual(exporter.result_public(job)["items"][0]["loudness"], lo)
         leftovers = [n for n in os.listdir(os.path.dirname(it["path"])) if n.endswith(".vol.mp4")]
         self.assertEqual(leftovers, [])
 
@@ -582,7 +563,7 @@ class TestLoudness(unittest.TestCase):
                         "-f", "lavfi", "-i", "sine=frequency=440:duration=4,volume=7", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
                         "-shortest", loud], check=True, stdin=subprocess.DEVNULL)   # ほぼ 0dBFS のピーク
         it = {"start": 0.0, "end": 4.0, "progress": 0.0, "path": loud}
-        exporter.apply_loudness({"cancel": False, "proc": None}, {"loudness": -11.0}, it)
+        exporter.apply_loudness(jobs.Ctl(), {"loudness": -11.0}, it)
         _i, tp = self.measure(loud)
         self.assertLessEqual(tp, exporter.TRUE_PEAK_CEIL + 0.5)   # 目標まで上げると割れるときは、ピークの手前で止める
 
@@ -593,13 +574,13 @@ class TestLoudness(unittest.TestCase):
         with open(clip, "rb") as f:
             before = hashlib.sha1(f.read()).hexdigest()
         it = {"start": 0.0, "end": 2.0, "progress": 0.0, "path": clip}
-        exporter.apply_loudness({"cancel": False, "proc": None}, {"loudness": -14.0}, it)
+        exporter.apply_loudness(jobs.Ctl(), {"loudness": -14.0}, it)
         self.assertIn("skipped", it["loudness"])
         with open(clip, "rb") as f:
             self.assertEqual(hashlib.sha1(f.read()).hexdigest(), before)   # 無音は触らない
 
     def test_volume_is_not_applied_when_loudness_is_on(self):
-        job = {"cancel": False, "proc": None}
+        job = jobs.Ctl()
         with patch.object(exporter, "_reencode_audio") as re_:
             exporter.apply_volume(job, {"outDir": self.tmp, "volume": 75, "loudness": -14.0}, {"start": 0, "end": 1}, "x.mp4")
         re_.assert_not_called()
@@ -673,7 +654,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         job = _job([clip], studio_env.get_out_dir())
         env = {"FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_PREROLL": "1" if preroll else ""}
         with patch.dict(os.environ, env), patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake]):
-            exporter.run_job(job, spec, lambda *a: True)
+            _run(job, spec, lambda *a: True)
         with open(self.log, encoding="utf-8") as f:
             calls = [json.loads(l) for l in f]
         return job, calls
@@ -772,12 +753,8 @@ class TestLiveSection(unittest.TestCase):
         return dict({"videoId": "abcdefghijk", "start": 7, "end": 12, "path": self.final}, **kw)
 
     def run_section(self, **kw):
-        job = exporter.start_job(exporter.build_section_spec(self.req(**kw)))
-        for _ in range(600):
-            if job["state"] != "running":
-                break
-            time.sleep(0.1)
-        return job
+        spec = exporter.build_section_spec(self.req(**kw))
+        return _run(exporter.new_result(spec), spec)
 
     def tree(self):
         return sorted(os.path.relpath(os.path.join(d, n), self.folder) for d, _ds, ns in os.walk(self.folder) for n in ns)
@@ -786,7 +763,7 @@ class TestLiveSection(unittest.TestCase):
         job = self.run_section()
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
-        pub = exporter.job_public(job)["items"][0]
+        pub = exporter.result_public(job)["items"][0]
         self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["status"]), (self.final, None, None, "done"))
         self.assertEqual(pub["file"], "配信フォルダ/" + os.path.basename(self.final))
         self.assertAlmostEqual(mediainfo.media_info(self.final)[0], 5.0, delta=0.2)
@@ -826,21 +803,19 @@ class TestLiveSection(unittest.TestCase):
         self.assertEqual(self.tree(), [os.path.basename(self.final)])   # 書きかけは消える
 
     def test_cancel(self):
-        def slow(job, *a, **kw):
+        def slow(ctl, *a, **kw):
             for _ in range(200):
-                if job["cancel"]:
+                if ctl.cancelled:
                     raise exporter.ExportError("中止しました")
                 time.sleep(0.05)
         with patch.object(exporter, "run_ytdlp", side_effect=slow):
-            job = exporter.start_job(exporter.build_section_spec(self.req()))
-            with self.assertRaises(errors.ApiError) as c:   # 今の書き出しと同じ: 実行中は別のジョブを始められない(409)
-                exporter.start_job(exporter.build_section_spec(self.req(path=os.path.join(self.folder, "b.mp4"))))
-            self.assertEqual((c.exception.status, c.exception.code), (409, "busy"))
-            exporter.cancel(job["id"])
-            for _ in range(100):
-                if job["state"] != "running":
-                    break
-                time.sleep(0.05)
+            spec = exporter.build_section_spec(self.req())
+            job, ctl = exporter.new_result(spec), jobs.Ctl()   # 同時 1 本(409)は器 = ② の flow/export の側(src/flow/tests/test_export_jobs.py)
+            t = threading.Thread(target=_run, args=(job, spec, None, ctl))
+            t.start()
+            time.sleep(0.2)
+            ctl.cancel()
+            t.join(10)
         self.assertEqual((job["state"], job["items"][0]["status"]), ("cancelled", "cancelled"))
         self.assertFalse(os.path.exists(self.final))
 

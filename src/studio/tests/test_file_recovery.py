@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/。exporter が裸の名前で handoff を読む)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
 from pipeline.export import exporter  # noqa: E402
-from ytt import studio_env  # noqa: E402
+from ytt import jobs, studio_env  # noqa: E402
 
 
 def locked():
@@ -22,7 +22,7 @@ class TestExportRecovery(unittest.TestCase):
     def run_export(self, callback=None, name_error=None, volume_error=None):
         spec = {"videoId": "abcdefghijk", "mode": "file"}
         item = {"id": "m1", "start": 0, "end": 5, "label": "", "status": "queued"}
-        job = {"items": [item], "cancel": False}
+        job = {"items": [item], "state": "running"}   # ① の結果の辞書(exporter.new_result の形)
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(studio_env, "get_out_dir", return_value=tmp), \
                 patch.object(studio_env, "log_failure") as log, \
@@ -30,7 +30,7 @@ class TestExportRecovery(unittest.TestCase):
                 patch.object(exporter, "unique_base", side_effect=name_error, return_value="clip"), \
                 patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                 patch.object(exporter, "apply_volume", side_effect=volume_error):
-            exporter.run_job(job, spec, callback)
+            exporter.run(spec, job, jobs.Ctl(), callback)
         return job, item, log
 
     def test_mark_save_failure_is_visible_without_reexporting_successful_file(self):
