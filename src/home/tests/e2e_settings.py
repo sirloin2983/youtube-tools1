@@ -18,6 +18,7 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.dirname(os.path.dirname(HERE)))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 
