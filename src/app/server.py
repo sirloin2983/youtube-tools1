@@ -98,6 +98,7 @@ if ROOT not in sys.path:   # 役割の層・共通部品 ytt(src)
 if CODE_DIR not in sys.path:   # home の部品を裸の名前で読む(import mount など。画面と同じ場所)
     sys.path.insert(0, CODE_DIR)
 from manage.cases import txindex  # noqa: E402
+from app import redirects as redirects_mod  # noqa: E402  (今の URL -> /cases の転送の表。スイッチ YTT_CASES_REDIRECT が off の間は何もしない。RS8 C0)
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
@@ -652,6 +653,14 @@ class PortalHandler(BaseHTTPRequestHandler):
     def _fail(self, code, err, message):
         self._json(code, {"error": err, "message": message})
 
+    def _doc_for_media(self, path):
+        """動画のパス -> その文書の id(無ければ "")。?media=・?clip= の転送用(文書の一覧を読んでパスを比べるだけ)"""
+        try:
+            hit = txindex.pick(txindex.load(cases_mod.locations(self.server.sup.root)["transcripts"]), "", "", path)[0]
+        except Exception:   # 読めなくても転送は止めない(新しい案件の欄へ)
+            return ""
+        return hit["id"] if hit else ""
+
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and (self._site_ok() or self._navigation_ok(u.path))):
@@ -660,8 +669,12 @@ class PortalHandler(BaseHTTPRequestHandler):
             return
         if (u.path == "/analytics" or u.path.startswith("/analytics/")) and self.server.analytics and self.server.analytics.handle_get(self, u):
             return
+        if redirects_mod.enabled():   # 今の画面の URL を案件の画面へ(C4 まで off。表は src/app/redirects.py)
+            loc = redirects_mod.target(u.path, urllib.parse.parse_qs(u.query), self._doc_for_media)
+            if loc:
+                return self._send(302, b"", "text/plain; charset=utf-8", {"Location": loc})
         if u.path == "/cases.html":   # 案件の一覧はホーム(/)にまとめた(段階5)。以前のリンク・ブックマークはホームの案件の一覧へ
-            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/#cases"})
+            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/" if redirects_mod.enabled() else "/#cases"})
         if u.path in ("/settings/", "/settings/index.html"):   # 設定の画面は /settings(入口の直下。相対パスが入口の API を指すように)
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/settings"})
         if u.path in STATIC:
@@ -710,6 +723,14 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0),
                                                                case=case))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
+            if "doc" in q:   # 文書 1 本から案件を引く(案件の画面が d だけの URL を開いたとき。無ければ 404)
+                try:
+                    got = cases_mod.find_doc(sup.root, q["doc"][0])
+                except ValueError as e:
+                    return self._fail(400, "bad_request", str(e))
+                except Exception as e:
+                    return self._fail(500, "cases", "案件を引けませんでした: %s" % e.__class__.__name__)
+                return self._json(200, got) if got else self._fail(404, "not_found", "その文書の案件はありません")
             try:
                 return self._json(200, cases_mod.snapshot(sup.root))
             except Exception as e:   # 読めないデータがあっても入口は落とさない
@@ -1219,6 +1240,8 @@ class PortalServer(httpsec.ExclusiveServer):
     def handler_for(self, path):
         if path and self.mounts:
             p = urllib.parse.urlsplit(path).path
+            if redirects_mod.enabled() and redirects_mod.target(p, {}) is not None:   # 転送する画面の URL は入口が返す(取り込んだツールの Handler に渡さない)
+                return PortalHandler
             for prefix, handler in self.mounts.items():
                 if p == prefix or p.startswith(prefix + "/"):
                     return handler

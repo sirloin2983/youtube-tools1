@@ -161,9 +161,33 @@ def _case_extras(c):
                    "proofed": sum(t["proofed"] for t in with_tx)},
             "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
             "next": nxt, "todo": todo,
+            # ホームの「やること」(種類ごとの件数。C0)。adopt = 候補の確認・proof = 校正待ち・pack = パックを作れる(校正済みでパックがまだ)・failed = 失敗のある切り抜き
+            "todoSum": {"adopt": review, "proof": proofing, "pack": ready_pack,
+                        "failed": sum(1 for cl in clips if (cl.get("review") or {}).get("failure"))},
             "remaining": (1 if review else 0) + to_export + missing_tx + proofing + missing_pack,
             "autoClips": {"total": len(autos), "unconfirmed": sum(1 for cl in autos if (cl.get("review") or {}).get("unconfirmed"))},
             "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
+
+
+def clip_state(tx, pack):
+    """切り抜き 1 本の進み具合(案件の画面の左の一覧の札。C0)-> {"state", "ratio"}。
+    state: none(文字起こしがまだ)/ proofing(校正中 = 校正済みの行が足りない)/ proofed(校正済み)/ packed(パック済み)。ratio = 校正済みの行の割合(0〜1)。
+    文字起こしがあっても行が 0 本なら none。パックがあれば校正の途中でも packed"""
+    segs = (tx or {}).get("segments", 0)
+    done = (tx or {}).get("proofed", 0)
+    ratio = round(min(1.0, done / segs), 3) if segs > 0 else 0.0
+    if pack:
+        return {"state": "packed", "ratio": ratio}
+    if not tx or segs <= 0:
+        return {"state": "none", "ratio": 0.0}
+    return {"state": "proofed" if done >= segs else "proofing", "ratio": ratio}
+
+
+def _apply_state(cases):
+    """全部の切り抜きに state・ratio を足す(スタジオから消えた配信の最後に見えた内容にも)"""
+    for c in cases:
+        for cl in c.get("clips") or []:
+            cl.update(clip_state(cl.get("transcript"), cl.get("pack")))
 
 
 # ---------------------------------------------------------------- 自動でできた切り抜き(線 D の M9)
@@ -256,7 +280,96 @@ def _apply_review(cases, saved, failures):
 
 # ---------------------------------------------------------------- 組み立て
 
-def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None):
+def _file_case(path):
+    """文書の元の動画のパス -> (案件の根, case.json の id)。動画ファイルの案件(case.json の media.kind が file)でなければ ("", "")。読むだけ"""
+    try:
+        if not isinstance(path, str) or not path or not os.path.isabs(path) or fsio.is_network_path(path):
+            return "", ""
+        root = placement.case_root({"kind": "file", "path": path})
+        got = placement.read_case(root) if root else None
+        if got and (got.get("media") or {}).get("kind") == "file":
+            _check_case_id(got["id"])
+            return root, got["id"]
+    except (OSError, ValueError):
+        pass
+    return "", ""
+
+
+def virtual_cases(docs, taken, pack_finder=find_pack, case_finder=_file_case):
+    """配信の案件に紐づかなかった文書 docs(txindex の文書)-> 案件の行の一覧(C0。brief 3-3・3-4)。
+    動画ファイルの案件 = 元の動画のフォルダの case.json が file の物(id は case.json の id。取った id taken とぶつかれば orphan)/ eval = 評価用の文書(evalSet)/
+    orphan = どれにも当たらない文書。eval・orphan は文書が無くても必ず 1 行ずつ(最後に)。行の形は配信の案件と同じ(clips は文書 1 本 = 1 行)"""
+    groups, order = {}, []
+    ev, orphan = [], []
+    folders = {}
+    for d in sorted(docs, key=lambda d: -d["updatedAt"]):
+        if d.get("evalSet"):
+            ev.append(d)
+            continue
+        src = d.get("sourcePath") or ""
+        fold = os.path.dirname(os.path.abspath(src)) if src else ""
+        if fold not in folders:
+            folders[fold] = case_finder(src)
+        root, cid = folders[fold]
+        if cid and cid not in taken and cid not in ("eval", "orphan"):
+            if cid not in groups:
+                groups[cid] = (root, [])
+                order.append(cid)
+            groups[cid][1].append(d)
+        else:
+            orphan.append(d)
+    rows = [_virtual_row(cid, "file", groups[cid][1], groups[cid][0], pack_finder) for cid in order]
+    rows.append(_virtual_row("eval", "eval", ev, "", pack_finder))
+    rows.append(_virtual_row("orphan", "orphan", orphan, "", pack_finder))
+    return rows
+
+
+def _virtual_row(cid, kind, docs, root, pack_finder):
+    clips = []
+    for d in docs:
+        path = d.get("sourcePath") or ""
+        clips.append({"markId": "", "label": d["title"][:80], "start": None, "end": None, "file": os.path.basename(path), "path": path,
+                      "exists": bool(path) and os.path.isfile(path), "transcript": txindex.summary(d), "transcripts": 1, "transcriptIds": [d["id"]],
+                      "pack": pack_finder(path) if path else None, "auto": None})
+    titles = {"eval": "評価用", "orphan": "どの案件にも入らない文字起こし"}
+    title = titles.get(cid) or (docs[0]["title"] if docs else cid)
+    row = {"id": cid, "kind": "", "caseKind": kind, "root": root, "title": str(title)[:120], "channel": "", "duration": 0,
+           "marks": {"total": 0, "adopted": 0, "exported": len(clips), "candidates": 0}, "clips": clips, "status": "", "memo": "", "statusUpdatedAt": 0,
+           "updatedAt": max([d["updatedAt"] for d in docs] or [0]), "gone": False, "caseFile": None}
+    row["streamedAt"] = row["updatedAt"]
+    _apply_state([row])
+    row.update(_case_extras(row))
+    return row
+
+
+def _todo_totals(cases):
+    """案件の todoSum の合計 {adopt, proof, pack, failed}(ホームの「やること」。画面で数えない)"""
+    return {k: sum(c.get("todoSum", {}).get(k, 0) for c in cases if not c.get("gone")) for k in ("adopt", "proof", "pack", "failed")}
+
+
+def _clip_doc(cl):
+    t = cl.get("transcript")
+    return t["id"] if t else ""
+
+
+def _todo_first(cases):
+    """種類ごとに、いちばん古い(配信日の早い)案件と、その中の最初の切り抜きの文書 -> {種類: {"case", "doc"}}(残りが無い種類は入れない)。
+    ホームの「やること」を押したときの行き先"""
+    out = {}
+    for k in ("adopt", "proof", "pack", "failed"):
+        hit = [c for c in cases if not c.get("gone") and c.get("todoSum", {}).get(k, 0) > 0]
+        if not hit:
+            continue
+        c = min(hit, key=lambda c: (c.get("streamedAt") or 0, c["id"]))
+        pick = {"proof": lambda cl: cl.get("state") == "proofing",
+                "pack": lambda cl: cl.get("state") == "proofed",
+                "failed": lambda cl: bool((cl.get("review") or {}).get("failure"))}.get(k)
+        doc = next((_clip_doc(cl) for cl in c["clips"] if pick and pick(cl) and _clip_doc(cl)), "")
+        out[k] = {"case": c["id"], "doc": doc}
+    return out
+
+
+def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None, case_finder=_file_case):
     """-> {"cases": [...], "unlinked": [文字起こし], "todoOrder", "auto": {total, unconfirmed}}。saved: cases.json の中身(状態・メモ・最後に見えた紐づけ・
     自動でできた切り抜きの確認)。failures: live_failures_by_mark の結果(線 D の書き出し・文字起こし・パックの失敗の文)"""
     saved = saved or {}
@@ -273,10 +386,10 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None)
             used.update(ids)
             clips.append({"markId": str(m.get("id") or ""), "label": str(m.get("label") or "")[:80], "start": m.get("start"), "end": m.get("end"),
                           "file": str(m.get("file") or ""), "path": path, "exists": bool(path) and os.path.isfile(path),
-                          "transcript": txindex.summary(tx) if tx else None, "transcripts": n, "pack": pack_finder(path) if path else None,
+                          "transcript": txindex.summary(tx) if tx else None, "transcripts": n, "transcriptIds": ids, "pack": pack_finder(path) if path else None,
                           "auto": auto_info(m, path) if v.get("kind") == "live" else None})   # 自動でできた切り抜き(線 D の M9。ライブの録画だけ)
         s = saved.get(vid) if isinstance(saved.get(vid), dict) else {}
-        cases.append({"id": vid, "kind": v.get("kind") or "", "title": str(v.get("title") or v.get("fileName") or vid)[:120],
+        cases.append({"id": vid, "kind": v.get("kind") or "", "caseKind": "file" if v.get("kind") == "file" else "stream", "root": "", "title": str(v.get("title") or v.get("fileName") or vid)[:120],
                       "channel": str(v.get("channel") or "")[:100], "duration": v.get("duration") or 0,
                       "marks": {"total": len(marks), "adopted": sum(1 for m in marks if m.get("status") == "adopted"),
                                 "exported": len(clips), "candidates": sum(1 for m in marks if not m.get("status"))},
@@ -290,6 +403,7 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None)
                         memo=str(s.get("memo") or "")[:MAX_MEMO], gone=True)
             cases.append(last)
     _apply_review(cases, saved, failures or {})
+    _apply_state(cases)
     for c in cases:
         c.update(_case_extras(c))
     cases.sort(key=lambda c: -(c.get("updatedAt") or 0))
@@ -297,8 +411,12 @@ def build(videos, transcripts, saved=None, pack_finder=find_pack, failures=None)
     dropped = {r.get("tx") for s in saved.values() for r in _auto_records(s).values() if isinstance(r, dict) and r.get("discardedAt") and r.get("tx")}
     unlinked = [dict(txindex.summary(t), sourcePath=t["sourcePath"]) for t in transcripts if t["id"] not in used and t["id"] not in dropped]
     unlinked.sort(key=lambda t: -t["updatedAt"])
+    virtual = virtual_cases([t for t in transcripts if t["id"] not in used and t["id"] not in dropped], {c["id"] for c in cases}, pack_finder, case_finder)
+    real = cases + [c for c in virtual if c["caseKind"] == "file"]
     return {"cases": cases, "unlinked": unlinked, "todoOrder": list(TODO_ORDER),
-            "auto": {k: sum(c["autoClips"][k] for c in cases) for k in ("total", "unconfirmed")}}
+            "auto": {k: sum(c["autoClips"][k] for c in cases) for k in ("total", "unconfirmed")},
+            # 案件の画面(C0): 配信の案件に紐づかなかった文書の入れ物 = 動画ファイルの案件(case.json のある物)・eval・orphan。cases には混ぜない(今の画面の数を変えない)
+            "virtual": virtual, "todo": _todo_totals(real), "todoFirst": _todo_first(real)}
 
 
 # ---------------------------------------------------------------- 案件ファイル
@@ -441,8 +559,22 @@ def snapshot(repo_root, env=None):
                 pass
     for c in res["cases"]:   # 案件のフォルダの case.json(読むだけ。無い案件は今までどおり。書くのは flow/placement.ensure_case だけ)
         c["caseFile"] = _case_file(c)
+        c["root"] = roots.get(c["id"], "")   # ② の status?case= の鍵(案件にした配信だけ。無ければ "")。URL には出さない
     res["casesFile"] = loc["cases"]
     return res
+
+
+def find_doc(repo_root, tid, env=None):
+    """文書 tid を持つ案件の 1 件 -> {"case": 案件の行, "docId", "markId"} か None(GET /api/cases?doc=<tid>。案件の画面が d だけの URL から案件を聞く)。
+    配信の案件を先に、無ければ動画ファイルの案件・eval・orphan の順"""
+    if not isinstance(tid, str) or not schemas.TID_RE.match(tid):
+        raise ValueError("文書の指定が正しくありません")
+    res = snapshot(repo_root, env)
+    for c in res["cases"] + res["virtual"]:
+        for cl in c["clips"]:
+            if tid in (cl.get("transcriptIds") or ()) or (cl.get("transcript") or {}).get("id") == tid:
+                return {"case": c, "docId": tid, "markId": cl.get("markId") or ""}
+    return None
 
 
 def _check_case_id(case_id):

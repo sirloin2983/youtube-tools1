@@ -118,6 +118,82 @@ class TestCaseFile(Base):
         self.assertIsNone(cases.snapshot(self.root, self.env)["cases"][0]["caseFile"])
 
 
+class TestCasesC0(Base):
+    """案件の画面の下ごしらえ(RS8 C0): root・caseKind・切り抜きごとの状態・仮の案件(file・eval・orphan)・todo の集計・文書から案件を引く"""
+
+    def raw_doc(self, tid, source, evalset=False, proofed=0, total=2):
+        d = {"id": tid, "title": "文書" + tid, "sourcePath": source, "updatedAt": 5, "evalSet": evalset,
+             "segments": [{"id": "s%d" % i, "start": i * 2.0, "end": i * 2.0 + 1.5, "text": "t", "proofed": i < proofed} for i in range(total)]}
+        p = os.path.join(self.data, "transcribe", "transcripts", tid + ".json")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+
+    def test_clip_state(self):
+        tx = lambda s, p: {"segments": s, "proofed": p}
+        self.assertEqual(cases.clip_state(None, None), {"state": "none", "ratio": 0.0})
+        self.assertEqual(cases.clip_state(tx(0, 0), None)["state"], "none")
+        self.assertEqual(cases.clip_state(tx(4, 1), None), {"state": "proofing", "ratio": 0.25})
+        self.assertEqual(cases.clip_state(tx(4, 4), None), {"state": "proofed", "ratio": 1.0})
+        self.assertEqual(cases.clip_state(tx(4, 1), {"dir": "x"})["state"], "packed")   # パックがあれば校正の途中でも packed
+
+    def test_stream_case_fields_and_todo(self):
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "updatedAt": 5,
+                           "marks": [mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2, 50, 80)]}})
+        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=1, total=3)
+        self.transcript("bbbbbbbbbbbb", self.clip2, proofed=3, total=3)
+        res = cases.snapshot(self.root, self.env)
+        c = res["cases"][0]
+        self.assertEqual((c["caseKind"], c["root"], c["kind"]), ("stream", "", "youtube"))   # 案件にしていない配信は root が空・kind は今までどおり
+        self.assertEqual([(cl["state"], cl["transcriptIds"]) for cl in c["clips"]], [("proofing", ["aaaaaaaaaaaa"]), ("proofed", ["bbbbbbbbbbbb"])])
+        self.assertEqual(c["todoSum"], {"adopt": 0, "proof": 1, "pack": 1, "failed": 0})
+        self.assertEqual(res["todo"], {"adopt": 0, "proof": 1, "pack": 1, "failed": 0})
+        self.assertEqual(res["todoFirst"], {"proof": {"case": VID, "doc": "aaaaaaaaaaaa"}, "pack": {"case": VID, "doc": "bbbbbbbbbbbb"}})
+        self.assertEqual(c["todo"]["proof"], 1)   # 今の todo は変わらない
+
+    def test_root_of_case_stream(self):
+        root = os.path.join(self.tmp, "case1")
+        os.makedirs(root)
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "case": root, "marks": []}})
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["root"], root)
+
+    def test_virtual_rows_always_exist_and_do_not_touch_cases(self):
+        res = cases.snapshot(self.root, self.env)
+        self.assertEqual(res["cases"], [])
+        self.assertEqual([(c["id"], c["caseKind"], c["clips"]) for c in res["virtual"]], [("eval", "eval", []), ("orphan", "orphan", [])])
+        self.assertEqual(res["todo"], {"adopt": 0, "proof": 0, "pack": 0, "failed": 0})
+
+    def test_virtual_eval_orphan_and_file_case(self):
+        from flow import placement
+        made = placement.ensure_case({"kind": "file", "path": self.clip1})   # exports/作業用/case.json(動画ファイルの案件)
+        self.raw_doc("aaaaaaaaaaaa", self.clip1, proofed=1)                  # 動画ファイルの案件
+        self.raw_doc("bbbbbbbbbbbb", os.path.join(self.tmp, "x", "e.mp4"), evalset=True, proofed=2)   # 評価用
+        self.raw_doc("cccccccccccc", os.path.join(self.tmp, "y", "o.mp4"))   # どこにも当たらない
+        res = cases.snapshot(self.root, self.env)
+        self.assertEqual(res["cases"], [])
+        rows = {c["id"]: c for c in res["virtual"]}
+        self.assertEqual([c["id"] for c in res["virtual"]], [made["id"], "eval", "orphan"])
+        self.assertEqual((rows[made["id"]]["caseKind"], rows[made["id"]]["root"]), ("file", self.exports))
+        self.assertEqual([cl["transcriptIds"] for cl in rows["eval"]["clips"]], [["bbbbbbbbbbbb"]])
+        self.assertEqual(rows["eval"]["clips"][0]["state"], "proofed")
+        self.assertEqual([cl["transcriptIds"] for cl in rows["orphan"]["clips"]], [["cccccccccccc"]])
+        self.assertEqual(len(res["unlinked"]), 3)   # 今の unlinked は変えない(3 本とも入る)
+        self.assertEqual(res["todo"]["proof"], 1)   # 集計は動画ファイルの案件だけ(eval・orphan は数えない)
+        self.assertEqual(res["todoFirst"]["proof"], {"case": made["id"], "doc": "aaaaaaaaaaaa"})
+
+    def test_find_doc(self):
+        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
+        self.transcript("aaaaaaaaaaaa", self.clip1)
+        self.raw_doc("cccccccccccc", os.path.join(self.tmp, "y", "o.mp4"))
+        got = cases.find_doc(self.root, "aaaaaaaaaaaa", self.env)
+        self.assertEqual((got["case"]["id"], got["markId"], got["docId"]), (VID, "m1", "aaaaaaaaaaaa"))
+        got = cases.find_doc(self.root, "cccccccccccc", self.env)
+        self.assertEqual((got["case"]["id"], got["markId"]), ("orphan", ""))
+        self.assertIsNone(cases.find_doc(self.root, "ffffffffffff", self.env))
+        with self.assertRaises(ValueError):
+            cases.find_doc(self.root, "../x", self.env)
+
+
 class TestListExtras(Base):
     """一覧(1件1行)が使う合計・「次にやること」・配信日の目安(2026-09-26 画面の見直しで追加)"""
 

@@ -595,6 +595,33 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/server.py")   # コードや他のファイルは配らない
         self.assertEqual(r.status, 404)
 
+    def test_cases_redirects_switch_and_doc_lookup(self):
+        """RS8 C0: 今の URL -> /cases の転送は YTT_CASES_REDIRECT が on のときだけ(既定 off)。/api/cases の足した欄と ?doc="""
+        env = {k: v for k, v in os.environ.items() if k != "YTT_CASES_REDIRECT"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            r, _ = self.req("GET", "/studio/?video=abc")
+            self.assertNotEqual(r.status, 302)   # off: 今のページのまま(ここでは取り込みが無いので 404)
+            r, _ = self.req("GET", "/cases.html")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/#cases"))
+        with mock.patch.dict(os.environ, dict(env, YTT_CASES_REDIRECT="1"), clear=True):
+            r, _ = self.req("GET", "/studio/?video=abc")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=abc#cand"))
+            r, _ = self.req("GET", "/transcribe/?drill=1")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=eval#proof"))
+            r, _ = self.req("GET", "/cases.html")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/"))
+            r, _ = self.req("GET", "/transcribe/api/jobs")   # API は転送しない
+            self.assertNotEqual(r.status, 302)
+        r, body = self.req("GET", "/api/cases")
+        self.assertEqual(r.status, 200)
+        d = json.loads(body)
+        self.assertEqual([c["id"] for c in d["virtual"]], ["eval", "orphan"])
+        self.assertEqual(set(d["todo"]), {"adopt", "proof", "pack", "failed"})
+        r, body = self.req("GET", "/api/cases?doc=ffffffffffff")
+        self.assertEqual(r.status, 404)
+        r, body = self.req("GET", "/api/cases?doc=zz")
+        self.assertEqual(r.status, 400)
+
     def test_host_check(self):
         r, _ = self.req("GET", "/api/status", headers={"Host": "evil.example:%d" % self.port})
         self.assertEqual(r.status, 403)

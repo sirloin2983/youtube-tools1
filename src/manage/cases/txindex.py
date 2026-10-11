@@ -74,7 +74,7 @@ def _parse(d, fallback_id):
     src = d.get("sourcePath") if isinstance(d.get("sourcePath"), str) else ""
     return {"id": str(d.get("id") or fallback_id)[:40], "title": str(d.get("title") or "")[:120],
             "sourcePath": src, "aliases": aliases, "_paths": _norm_paths(src, aliases),
-            "clip": clip, "segments": segs, "updatedAt": _ms(d.get("updatedAt")),
+            "clip": clip, "segments": segs, "updatedAt": _ms(d.get("updatedAt")), "evalSet": d.get("evalSet") is True,
             "count": len(segs), "proofed": sum(1 for s in segs if s["proofed"]), "cut": sum(1 for s in segs if s["cut"])}
 
 
