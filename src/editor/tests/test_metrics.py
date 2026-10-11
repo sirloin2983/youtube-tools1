@@ -248,6 +248,7 @@ class TestStore(unittest.TestCase):
         S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
     def test_retranscribe_clears_proofed(self):
         tid = "0123456789ab"
         doc = {"id": tid, "original": [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}],
@@ -259,6 +260,24 @@ class TestStore(unittest.TestCase):
         self.assertNotIn("proofed", d["segments"][0])   # 機械が書き換えた行は外れる
         self.assertTrue(d["segments"][1].get("proofed"))  # 触っていない行はそのまま
         self.assertEqual(d["segments"][0]["text"], "A")
+
+    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
+    def test_retranscribe_keeps_proofed_primary(self):
+        """層が正: 校正済みの行は機械で置き換えず、印 MACH_CHANGED を付ける(RS8 O2-5 の (r8s))"""
+        from human.proof import layers
+        tid = "0123456789ab"
+        doc = {"id": tid, "original": [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}],
+               "segments": [seg(1, 0, 2, "a", True), seg(2, 2, 4, "b", True)]}
+        with open(S.tx_path(tid), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        S.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
+        d = S.read_transcript(tid)
+        self.assertTrue(d["segments"][0].get("proofed"))   # 校正済みはそのまま
+        self.assertEqual(d["segments"][0]["text"], "a")
+        self.assertIn(layers.MACH_CHANGED, d["segments"][0]["flag"])
+        self.assertNotIn(layers.MACH_CHANGED, d["segments"][1].get("flag", ""))
+        self.assertTrue(d["segments"][1].get("proofed"))
+        self.assertEqual(d["retranscribed"]["keptProofed"], 1)
 
     def test_hist_snapshot_interval_and_cap(self):
         tid = "0123456789ab"

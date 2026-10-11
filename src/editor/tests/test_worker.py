@@ -356,8 +356,8 @@ class WorkerTest(unittest.TestCase):
         finally:
             os.unlink(wav)
 
-    def test_voice_learn_and_recognize_through_worker(self):
-        """A-3: 名前を付けた話者の声を覚え(ワーカーで声の特徴)、もう一度判別すると、覚えた声の話者に名前が付く"""
+    def _voice_learn_and_rediarize(self):
+        """名前を付けた話者の声を覚え、もう一度判別する -> (判別し直したジョブ, 文書の読み出し, tid)"""
         saved = S.VOICES_DIR
         S.VOICES_DIR = os.path.join(self.tmp, "voices")
         try:
@@ -376,11 +376,24 @@ class WorkerTest(unittest.TestCase):
             j3 = S.add_job(S.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")   # 判別し直すと名前は「話者n」に戻る → 声で付け直す
             S.work_one(j3["id"])
             self.assertEqual(j3["state"], "done", j3.get("error"))
-            self.assertEqual([n["name"] for n in j3.get("named") or []], ["兎田ぺこら"])
-            self.assertEqual([s["name"] for s in self.doc(tid)["speakers"]], ["兎田ぺこら", "話者2"])
             self.assertEqual(os.listdir(S.TMP_DIR), [])
+            return j3, self.doc(tid), tid
         finally:
             S.VOICES_DIR = saved
+
+    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
+    def test_voice_learn_and_recognize_through_worker(self):
+        """A-3: 名前を付けた話者の声を覚え(ワーカーで声の特徴)、もう一度判別すると、覚えた声の話者に名前が付く"""
+        j3, d, _tid = self._voice_learn_and_rediarize()
+        self.assertEqual([n["name"] for n in j3.get("named") or []], ["兎田ぺこら"])
+        self.assertEqual([s["name"] for s in d["speakers"]], ["兎田ぺこら", "話者2"])
+
+    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
+    def test_voice_learn_and_recognize_through_worker_primary(self):
+        """層が正: 判別し直すと人の層の話者の表が残るので、名前は「話者n」に戻らず、覚えた声で付け直すこともしない"""
+        j3, d, _tid = self._voice_learn_and_rediarize()
+        self.assertEqual(j3.get("named") or [], [])   # 名前は人の層が持っているので、声で付け直す対象(仮の名前)が無い
+        self.assertEqual([(s["id"], s["name"]) for s in d["speakers"]], [("S1", "兎田ぺこら"), ("S2", "話者2")])
 
     # ---- 取り消し
     def test_cancel_running_job(self):

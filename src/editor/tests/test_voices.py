@@ -476,15 +476,19 @@ class TestOtherVoice(StoreDir):
         self.assertNotIn("ゲーム音声など", plan["groups"])
         self.assertFalse(any(r["name"] == "ゲーム音声など" for r in plan["refused"]))   # 断った扱いにもしない(一覧に出さない)
 
-    def test_rediarize_keeps_manual_rows(self):
-        """判別のやり直しは、字幕に出さない行・ゲーム音声などの行・重なりのメモつきで話者のある行の話者を変えない"""
+    def _rediarize_manual(self):
         self.put_doc(self.manual_doc())
         with mock.patch.object(S, "check_source", lambda p: p), mock.patch.object(S, "extract_audio", lambda *a: None), \
                 mock.patch.object(S, "backend_name", lambda: "fake"), mock.patch.object(S, "embed_groups", lambda job, wav, emb, groups, off: [unit(1, 0, 0) for _ in groups]):
             j = self.job(S.validate_diarize({"tid": TID, "numSpeakers": 2}))
             S.run_diarize(j)
         self.assertEqual(j["state"], "done", j.get("error"))
-        d = self.read()
+        return self.read()
+
+    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
+    def test_rediarize_keeps_manual_rows(self):
+        """判別のやり直しは、字幕に出さない行・ゲーム音声などの行・重なりのメモつきで話者のある行の話者を変えない"""
+        d = self._rediarize_manual()
         g = {x["id"]: x for x in d["segments"]}
         names = {s["id"]: s["name"] for s in d["speakers"]}
         self.assertEqual((g["s2"]["speaker"], g["s2"]["noSub"], g["s2"]["flag"]), ("other", True, "要確認"))   # 印もそのまま
@@ -494,6 +498,17 @@ class TestOtherVoice(StoreDir):
         self.assertIn(g["s1"]["speaker"], ("S1", "S2"))                            # 守らない行は判別のとおり
         self.assertEqual(d["speakers"][-1]["id"], "other")                         # 組み込みは最後(Alt+数字の番号に入らない)
         self.assertEqual(len({s["id"] for s in d["speakers"]}), len(d["speakers"]))
+
+    @mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
+    def test_rediarize_keeps_manual_rows_primary(self):
+        """層が正: 判別し直しても人の話者の表(id と名前)はそのまま。手で決めた行の話者も印も変わらない(付け替えの S2p は起きない)"""
+        d = self._rediarize_manual()
+        g = {x["id"]: x for x in d["segments"]}
+        self.assertEqual((g["s2"]["speaker"], g["s2"]["noSub"], g["s2"]["flag"]), ("other", True, "要確認"))
+        self.assertEqual((g["s3"]["speaker"], g["s3"]["noSub"]), ("", True))
+        self.assertEqual(g["s4"]["speaker"], "S2")                                  # 重なる行の話者は同じ人・同じ id のまま
+        self.assertEqual([(s["id"], s["name"]) for s in d["speakers"]], [("S1", "話者1"), ("S2", "ぺこら"), ("other", "ゲーム音声など")])
+        self.assertEqual(g["s1"]["speaker"], "S1")                                  # 判別の話者は重なり時間で人の話者に当たる
 
     def test_single_speaker_keeps_manual_rows(self):
         """「全行をこの人に」(1人指定)も同じ。同じ名前の守った話者は 1 人にまとめる"""

@@ -21,6 +21,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+from unittest.mock import patch
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
@@ -173,7 +174,7 @@ class TestPerformance(StoreDir):
                 os.environ["TRANSCRIBE_BACKEND"] = old_env
         return seen
 
-    def test_retranscribe_extracts_only_needed_span(self):
+    def _extracts_only_needed_span(self):
         """1時間の文書の2行だけを再認識するとき、1時間分ではなく、その行の前後だけを取り出す。"""
         self._long_doc()
         spec = {"tid": TID, "ids": ["s100", "s101"], "mode": "each", "range": None, "model": "small", "language": "ja", "beam": 5, "vadMode": "off",
@@ -186,8 +187,21 @@ class TestPerformance(StoreDir):
         self.assertLessEqual(a, 1000 - 0.3)
         self.assertGreaterEqual(b, 1015 + 0.3)
         self.assertLess(b - a, 30)
-        doc = S.read_transcript(TID)
+        return S.read_transcript(TID)
+
+    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
+    def test_retranscribe_extracts_only_needed_span(self):
+        doc = self._extracts_only_needed_span()
         self.assertEqual(doc["segments"][100]["text"], "行100(再)")
+
+    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
+    def test_retranscribe_extracts_only_needed_span_primary(self):
+        """層が正: 取り出す範囲は同じ。行は校正済みなので機械の文字で置き換わらず、印 MACH_CHANGED が付く"""
+        from human.proof import layers
+        doc = self._extracts_only_needed_span()
+        g = doc["segments"][100]
+        self.assertEqual((g["text"], g.get("proofed")), ("行100", True))
+        self.assertIn(layers.MACH_CHANGED, g["flag"])
 
     def test_idle_model_release(self):
         """認識ワーカーの中(IN_WORKER)でのモデルの手放し。サーバー側(ワーカーごと終わらせる)は test_worker.py"""

@@ -196,6 +196,7 @@ class TestDrillReviewed(DrillBase):
         self.assertGreater(d2["updatedAt"], d["updatedAt"])
         self.assertEqual(DR.drill_unreviewed({"id": tid_of(1), "baseUpdatedAt": d2["updatedAt"]})["unproofed"], 0)   # 印が無ければ何もしない
 
+    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "shadow"})   # 層のスイッチを固定(primary の対は *_primary)
     def test_rerecognition_removes_mark(self):
         self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い")])
         self.review(1)
@@ -211,6 +212,19 @@ class TestDrillReviewed(DrillBase):
         self.assertEqual(S.fill_doc({"intoDoc": tid_of(2), "sourcePath": os.path.normcase(os.path.abspath(self.video))},
                                     {"segments": [_seg(1, 0, 1, "機械")], "model": "small"}), tid_of(2))
         self.assertNotIn("evalReviewed", self.rd(2))
+
+    @patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "primary"})
+    def test_rerecognition_removes_mark_primary(self):
+        """層が正: 機械が再認識しても確かめ済みの印は外れる。校正済みの行は置き換わらず印 MACH_CHANGED が付く"""
+        from human.proof import layers
+        self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い")])
+        self.review(1)
+        S.apply_retranscribe({"tid": tid_of(1), "model": "m", "autoDict": False}, {"s1": ("A", "")})
+        d = self.rd(1)
+        self.assertNotIn("evalReviewed", d)
+        g = d["segments"][0]
+        self.assertEqual((g["text"], g.get("proofed")), ("あ", True))
+        self.assertIn(layers.MACH_CHANGED, g["flag"])
 
 
 class TestDrillStatus(DrillBase):
