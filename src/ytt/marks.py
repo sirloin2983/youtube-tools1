@@ -7,7 +7,8 @@ MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上�
 
 - マークの形: id・start・end(秒。小数 1 桁)・label・src(auto|manual|collab)・score・reasons・parts・peak・live・
   status(""|adopted|rejected|exported)・file・path・archived・createdAt・auto0・auto0Orig・collabFrom・adoptedBy
-- 同じ区間 = 開始・終了の差がどちらも DUP_TOL(0.5 秒)以内(same・near)。少しでも重なる = overlaps
+- 同じ区間 = 開始・終了の差がどちらも DUP_TOL(0.5 秒)以内(same・near)。少しでも重なる = overlaps。
+  同じ場所 = ±SPOT_TOL(5 秒)以内で重なりが短いほうの半分以上(similar。人が消した候補の印の当て方。B3-3)
 - 手を入れた自動マーク = 判定した・ラベルあり・時刻を EDIT_TOL より動かした(touched。再解析で残す境目)
 """
 import math
@@ -27,6 +28,8 @@ PART_KEYS = ("audio", "chat", "comments")
 STATUS_CLIENT = ("", "adopted", "rejected")   # クライアントが設定できる状態(exported はサーバーだけ)
 DUP_TOL = 0.5           # 自動マークが既存マークとこれ以内のずれなら「同じ区間」
 EDIT_TOL = 0.05         # 書き出し済みマークの時刻がこれより動いたら「書き出し済み」を外す
+SPOT_TOL = 5.0          # 「同じ場所」(similar)の開始・終了の差の上限(秒。人が消した候補の印を再解析のずれにも当てる)
+SPOT_RATIO = 0.5        # 「同じ場所」の重なりの率の下限(重なり / 短いほうの長さ)
 
 
 def pos_int(x):
@@ -225,6 +228,18 @@ def near(a_s, a_e, b_s, b_e, tol=DUP_TOL):
 def same(a, b):
     """2 つのマーク(start・end を持つ辞書)が同じ区間か(±DUP_TOL 秒)"""
     return near(a["start"], a["end"], b["start"], b["end"])
+
+
+def similar(a, b, tol=SPOT_TOL, ratio=SPOT_RATIO):
+    """2 つのマーク(start・end を持つ辞書)が「同じ場所」か(same より緩い。RS8 B3-3・決定 3-37 の (r8l))。
+    開始・終了の差がどちらも tol 秒(5 秒)以内で、重なりが短いほうの長さの ratio(半分)以上。
+    人が消した候補の印(採用.json の rejected)を、再解析で時刻が少しずれた新しい候補にも当てるのに使う(flow/casebook)。
+    重なりの率も見るのは、短い区間どうしが ±5 秒でほとんど重ならないのに同じとみなさないため"""
+    if not near(a["start"], a["end"], b["start"], b["end"], tol):
+        return False
+    inter = min(a["end"], b["end"]) - max(a["start"], b["start"])
+    short = min(a["end"] - a["start"], b["end"] - b["start"])
+    return short > 0 and inter >= short * ratio
 
 
 def overlaps(a_s, a_e, b_s, b_e):

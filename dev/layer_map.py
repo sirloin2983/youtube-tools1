@@ -35,6 +35,8 @@ FILES = {
     "src/manage/cases/docmove.py": ("manage", "manage/cases", "文書を案件の 作業用 へ移す・戻す(RS8 B2-3。入口の起動のときと、コマンド --back・--resume・--now・--purge-migrated。ytt・flow/placement・manage/keep を読む)"),
     "src/human/proof/layers.py": ("human", "human/proof", "文書を機械の層 + 人の層から組み立てる純粋な関数(RS8 O2-1。compose・diff・案 A の印・話者の対応表。ファイルを触らない。ytt だけを読む)"),
     "src/eval/tools/eval_layers.py": ("eval", "eval/tools", "機械の層 + 人の層の往復を作業データで確かめる道具(RS8 O2-1。読むだけ。human/proof/layers を読む)"),
+    "src/flow/casebook.py": ("flow", "flow", "案件の候補と採用のファイル(RS8 B3-3。作業用/候補.json = ① の機械の候補・作業用/採用.json = ③ の人の採用。分ける split・重ねる merge・案件の引き方 case_of・読み書きとパスごとのロック。ytt だけを読む。保存の経路に入れるのは B3-4)"),
+    "src/eval/tools/eval_casebook.py": ("eval", "eval/tools", "スタジオの配信を候補 + 採用に分けて重ね直す往復を作業データで確かめる道具(RS8 B3-3。読むだけ。flow/casebook と human/review/store の読み込みを読む)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
     "src/pipeline/analyze/fetch.py": ("pipeline", "pipeline/analyze", "解析の材料を取ってくる仕事(音声のダウンロード・チャットの取得と先読み・コメント欄・付加情報)とそのキャッシュの掃除(OPT2。analyze.py から分けた)"),
     "src/pipeline/pack/request.py": ("pipeline", "pipeline/pack", "パックの指定(spec・output)-> pack.Request と build_pack の引数の 1 か所(OPT2。cut2resolve の API と flow/tools の LocalTools が呼ぶ。検査は API の厳しさ)"),

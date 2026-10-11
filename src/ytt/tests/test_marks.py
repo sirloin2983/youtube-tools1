@@ -99,6 +99,13 @@ class TestSameTouched(unittest.TestCase):
         self.assertFalse(M.same({"start": 10, "end": 40}, {"start": 10.6, "end": 40}))
         self.assertTrue(M.near(10, 40, 10.9, 40, tol=1.0))
 
+    def test_similar(self):
+        a = {"start": 100.0, "end": 140.0}
+        self.assertTrue(M.similar(a, {"start": 104.9, "end": 144.9}))    # ±5 秒の中
+        self.assertFalse(M.similar(a, {"start": 105.1, "end": 140.0}))   # 開始が 5 秒を超えてずれた
+        self.assertFalse(M.similar({"start": 0.0, "end": 6.0}, {"start": 4.0, "end": 10.0}))   # 短い区間どうしで重なりが半分未満
+        self.assertTrue(M.similar({"start": 0.0, "end": 6.0}, {"start": 3.0, "end": 9.0}))     # ちょうど半分
+
     def test_overlaps(self):
         self.assertTrue(M.overlaps(10, 40, 39, 50))
         self.assertFalse(M.overlaps(10, 40, 40, 50))   # 端が接するだけは重ならない
