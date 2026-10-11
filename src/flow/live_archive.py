@@ -367,7 +367,9 @@ def after_text(a, p):
 
 
 # ---------- 本体 ----------
-class Archiver:
+class Archiver(LX.Patrol):
+    NAME, LOOP_ERROR = "live-archive", "リアルタイム切り抜き: 本番版の見回りでエラー: %r"
+
     def __init__(self, exporter, studio, enabled=None, auto=None, recording_state=None, probe=None, audio=None, align=None,
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
@@ -386,6 +388,7 @@ class Archiver:
         settings_for(録画元, 録画) -> 配信後の全自動のアーカイブの解析の設定(録画の束の analyze 節。flow/livesession.py。RS7-2 G2b)か None
         (束の無い録画 = 今までどおりスタジオの GET /api/settings)。
         テストは probe・audio・studio を偽物に、間隔を短くする(本物の YouTube へ繋がない)"""
+        super().__init__()
         self.ex, self.studio = exporter, studio
         self.after = after
         self.after_stream = after_stream or (lambda: False)
@@ -413,9 +416,6 @@ class Archiver:
         self.poll, self.retry_sec, self.step = poll, retry_sec, step
         self.path = os.path.join(exporter.folder, "archive.json")
         self.lock = threading.RLock()
-        self.wake = threading.Event()
-        self._halt = threading.Event()
-        self._thread = None
         self._cancel = set()      # 取り消しを頼まれたジョブの id(動いている途中のもの)
         self.info = {}
         self._load()
@@ -569,38 +569,19 @@ class Archiver:
             return i
         return self.check(rc, rec)
 
-    # --- 動かす ---
-    def start(self):
-        with self.lock:
-            if self._thread is None or not self._thread.is_alive():
-                self._halt.clear()
-                self._thread = threading.Thread(target=self._loop, daemon=True, name="live-archive")
-                self._thread.start()
-
-    def close(self):
-        self._halt.set()
-        self.wake.set()
-        t = self._thread
-        if t is not None:
-            t.join(15)
-
-    def _loop(self):
-        while not self._halt.is_set():
-            try:
-                job = self._next()
-                if job is not None:
-                    self._process(job)
-                    self._clean_audio()
-                    if self.after and (job.get("archive") or {}).get("state") == "done" and not self._next_of(job):
-                        self.after(job["recorder"], job["recording"])   # その録画の最後の1本が済んだ: 全部入れ替わっていれば録画を消す(P4)
-                    continue
-                self._clean_audio()
-                self.auto_tick()
-                self.after_tick()   # 配信後の全自動(M7。設定 live.autoAfterStream)
-            except Exception as e:   # 見回りは止めない
-                self.log("リアルタイム切り抜き: 本番版の見回りでエラー: %r" % (e,))
-            self.wake.wait(self.poll)
-            self.wake.clear()
+    # --- 動かす(糸の start・close・見回りは flow/live_patrol の Patrol) ---
+    def _step(self):
+        job = self._next()
+        if job is not None:
+            self._process(job)
+            self._clean_audio()
+            if self.after and (job.get("archive") or {}).get("state") == "done" and not self._next_of(job):
+                self.after(job["recorder"], job["recording"])   # その録画の最後の1本が済んだ: 全部入れ替わっていれば録画を消す(P4)
+            return True
+        self._clean_audio()
+        self.auto_tick()
+        self.after_tick()   # 配信後の全自動(M7。設定 live.autoAfterStream)
+        return False
 
     def _next(self):
         """順番待ちのうち次の1本: 録画ごとに、速報版のある(照合できる)ものを先に・時刻の順(欠けのマークは照合のずれを使うので後)"""
@@ -646,7 +627,7 @@ class Archiver:
             pass
         shutil.rmtree(d, ignore_errors=True)
         self._aset(job, message="配信の音を取っています(yt-dlp)")
-        p = self.audio(vid, d, lambda: job["id"] in self._cancel or self._halt.is_set())
+        p = self.audio(vid, d, self._stopper(job))
         if not p or not os.path.isfile(p):
             raise ArchiveError("アーカイブの音を取れませんでした")
         if os.path.normcase(os.path.dirname(os.path.abspath(p))) == os.path.normcase(os.path.abspath(d)):   # 作業用に取ったものだけ使い回す印を付ける
@@ -1087,11 +1068,8 @@ class Archiver:
         return out
 
     # --- 1本 ---
-    def _stop(self, job):
-        if self._halt.is_set():
-            raise LX.Halted()
-        if job["id"] in self._cancel:
-            raise LX.Cancelled()
+    def _job_cancelled(self, job):
+        return job["id"] in self._cancel
 
     def _process(self, job):
         rc, rec = job["recorder"], job["recording"]
@@ -1267,7 +1245,7 @@ class Archiver:
         # 引数を組むのは ① の recognize.wav_args(OPT2)
         cmd = _recognize.wav_args(ff, src, dst, ss, t or None, rate=8000, opts=("-nostdin", "-y", "-v", "error"), pre_seek=PRE_SEEK,
                                   drop=("-vn", "-sn", "-dn"), fmt="wav")
-        code, _o, tail = run_proc(cmd, FFMPEG_TIMEOUT, (lambda: job["id"] in self._cancel or self._halt.is_set()) if job else None)
+        code, _o, tail = run_proc(cmd, FFMPEG_TIMEOUT, self._stopper(job) if job else None)
         if code != 0 or not os.path.isfile(dst):
             raise ArchiveError("音を取り出せませんでした(%s)" % (" / ".join(tail) or "終了コード %s" % code))
         return dst
@@ -1305,12 +1283,12 @@ class Archiver:
         -> (窓の頭の秒, 窓の終わりの秒, 照合の結果)。どの窓でも合わなければ (None, None, 最後の理由の文)"""
         why = ""
         for n, w in enumerate(windows):
-            self._stop(job)
+            self._check(job)
             w0, w1 = max(0.0, center - w), center + span + w
             if talk:
                 self._aset(job, message="アーカイブの音を切り出しています(見当の前後 %d 秒)" % int(w), progress=0.05 + 0.05 * n)
             win = self._wav(full, os.path.join(wdir, "window.wav"), w0, w1 - w0, job=job)   # 手前まで入力側の -ss・残りはデコードして切る(_wav。サンプル単位で正確)
-            self._stop(job)
+            self._check(job)
             if talk:
                 self._aset(job, message="照合しています(見当の前後 %d 秒)" % int(w))
             r = self.align(ref, win) or {}
@@ -1346,7 +1324,7 @@ class Archiver:
             height = h if h in HEIGHTS else 0   # 速報版と同じ高さ(文字起こし・カット・パックの見た目を変えない)
         vol, loud = self._audio(speed, job)
         for attempt in (0, 1):
-            self._stop(job)
+            self._check(job)
             fsio.unlink_quiet(tmp)
             self._aset(job, state="fetch", message="アーカイブから取って 30fps に作り直しています(スタジオの書き出し)", progress=0.15, archiveStart=round(ast, 3))
             item = self._section(job, vid, ast, ast + dur, tmp, height, vol, loud)
@@ -1387,7 +1365,7 @@ class Archiver:
                 "maxHeight": height, "precision": "accurate"}
         down = None
         while True:   # スタジオの書き出しは同時に 1 本だけ: ほかが動いていれば 409 busy → 失敗にせず、待ってやり直す
-            self._stop(job)
+            self._check(job)
             code, d = self.studio("POST", "/api/live/section", body)
             if code == 409 and isinstance(d, dict) and d.get("error") == "busy":
                 self._aset(job, save=False, message="スタジオの書き出しが終わるのを待っています")
@@ -1406,7 +1384,7 @@ class Archiver:
         sid, down = d["id"], None
         while True:
             try:
-                self._stop(job)
+                self._check(job)
             except (LX.Cancelled, LX.Halted):
                 try:
                     self.studio("POST", "/api/export/cancel", {"id": sid})

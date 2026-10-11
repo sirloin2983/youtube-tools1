@@ -42,11 +42,14 @@ TEXT_MAX = 2000
 DOC_MAX = 2 * 1024 * 1024
 
 
-class LiveTx:
+class LiveTx(LX.Patrol):
+    NAME, LOOP_ERROR, JOIN = "live-tx", "配信中の文字起こし: 見回りでエラー: %r", 0   # close は待たない(子プロセスを止めるだけ)
+
     def __init__(self, host: "livehost.LiveHost", log=None, clock=time.time, python=None, run=None, ffmpeg=None, slots=None):
         """host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession。設定・録画元・exporter(セグメントの取得)・detector(候補)・root)。
         run(data_dir, model, wav) -> 子プロセスの結果の dict(テストは偽物に差し替える。既定 = live_tx_worker.py を子プロセスで)。ffmpeg: パス(既定は探す)。
         slots: 重い処理の順番(既定 ytt.jobs.SLOTS。テストは小さな HeavySlots を渡す)"""
+        super().__init__()
         self.host = host
         self.log = log or (lambda m: None)
         self.clock = clock
@@ -59,9 +62,6 @@ class LiveTx:
         self.queue = []            # [(rc, rec, 候補の dict, first(録画の頭の epoch))]
         self.queued = set()        # (rc, rec, id)
         self.tries = {}            # (rc, rec, id) -> 試した回数(メモリ。tx.json の tries と合わせる)
-        self.wake = threading.Event()
-        self._halt = threading.Event()
-        self.thread = None
         self.proc = None
         self.busy = None           # 処理中の (rc, rec, id)
         self.fails = 0             # 続けて失敗した数
@@ -226,39 +226,30 @@ class LiveTx:
             self.wake.set()
         return added
 
-    def start(self):
-        if self.thread is None or not self.thread.is_alive():
-            self._halt.clear()
-            self.thread = threading.Thread(target=self._loop, name="live-tx", daemon=True)
-            self.thread.start()
-
-    def close(self):
-        self._halt.set()
-        self.wake.set()
+    # 糸の start・close・見回り(列が空なら 30 秒か wake まで待つ)は flow/live_patrol の Patrol
+    def _on_close(self):
         p = self.proc
         if p is not None:
             tools.kill_quiet(p)
 
-    def _loop(self):
-        while not self._halt.is_set():
+    def _step(self):
+        with self.lock:
+            item = self.queue.pop(0) if self.queue else None
+            if item:
+                self.busy = (item[0], item[1], item[2]["id"])
+                self.queued.discard(self.busy)
+        if item is None:
+            return False
+        rc, rec, pk, first = item
+        try:
+            self._one(rc, rec, pk, first)
+        except Exception as e:   # noqa: BLE001  (1 本の不具合で止めない)
+            self.log("配信中の文字起こし: %s の %s でエラー: %r" % (rec, pk.get("id"), e))
+            self._after(rc, rec, pk["id"], False, "内部エラー: %s" % e.__class__.__name__)
+        finally:
             with self.lock:
-                item = self.queue.pop(0) if self.queue else None
-                if item:
-                    self.busy = (item[0], item[1], item[2]["id"])
-                    self.queued.discard(self.busy)
-            if item is None:
-                self.wake.wait(30.0)
-                self.wake.clear()
-                continue
-            rc, rec, pk, first = item
-            try:
-                self._one(rc, rec, pk, first)
-            except Exception as e:   # noqa: BLE001  (1 本の不具合で止めない)
-                self.log("配信中の文字起こし: %s の %s でエラー: %r" % (rec, pk.get("id"), e))
-                self._after(rc, rec, pk["id"], False, "内部エラー: %s" % e.__class__.__name__)
-            finally:
-                with self.lock:
-                    self.busy = None
+                self.busy = None
+        return True
 
     def _after(self, rc, rec, pid, ok, why=""):
         if ok:

@@ -62,6 +62,7 @@ from ytt import colors, fsio, jobs, loudness, marks as _marks, names, normalize,
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3
 from . import livehost   # 親の口の型(RS7-2 G0)
+from .live_patrol import Cancelled, Halted, Patrol   # 見回りの糸の骨組みと中止の例外 1 組(OPT2。live_archive・live_tx は LX.Cancelled・LX.Halted で読む)
 
 VERSION = _version.VERSION   # 全体の版(ytt/version.py)
 TOOL = {"name": "ytt-live", "version": VERSION}
@@ -106,14 +107,6 @@ class LiveError(ValueError):
     def __init__(self, message, code=400):
         super().__init__(message)
         self.code = code
-
-
-class Cancelled(Exception):
-    pass
-
-
-class Halted(Exception):
-    """入口の終了(ジョブは「録画待ち」に戻して、次の起動でやり直す)"""
 
 
 # ---------- 時刻・名前(ytt の 1 か所。テストと live_archive・live_cleanup などがここの名前で読む) ----------
@@ -455,7 +448,9 @@ def file_order(media, title, after, streamer, base, **kw):
 
 
 # ---------- 書き出しのジョブ ----------
-class Exporter:
+class Exporter(Patrol):
+    NAME, LOOP_ERROR = "live-export", "リアルタイム切り抜き: 書き出しの見回りでエラー: %r"
+
     def __init__(self, host: "livehost.LiveHost", folder, out_dir, runner=None, log=None, slots=None, poll=POLL, down_sec=DOWN_SEC, ffmpeg=None, ffprobe=None, audio=None,
                  runs_log=None, disk_usage=None, disk_poll=DISK_POLL, exported=None):
         """host: 親(flow/livehost.py の LiveHost。flow/livesession.py の LiveSession。録画元の一覧と要求。studio_call は無くてよい)。folder: 入口の作業データの live\\。out_dir(): 書き出し先(スタジオの書き出し先)。
@@ -465,6 +460,7 @@ class Exporter:
         disk_usage(path) -> (空きのバイト数, 全体のバイト数)(M4。既定 fsio.disk_space。テストは偽の小さな空きにする)・disk_poll: 調べ直す間隔(秒)。
         exported(job, media, archived) -> 警告の文か "": 書き出したらマークの置き場(flow/live_adopt.py の StudioMarks・LocalMarks)に「書き出し済み」を伝える(RS7-2 G1b)。
         None なら親の studio_call があればスタジオへ(今までどおり)"""
+        super().__init__()
         self.host, self.folder, self.out_dir, self.runner, self.audio = host, folder, out_dir, runner, audio
         self.disk_usage = disk_usage or fsio.disk_space
         self.exported = exported
@@ -483,9 +479,6 @@ class Exporter:
         self.work = os.path.join(folder, "work")       # 取ったセグメントの一時の置き場所(作業データのバックアップは work を写さない)
         self.jobs_path = os.path.join(folder, "exports.json")
         self.lock = threading.RLock()
-        self.wake = threading.Event()
-        self._halt = threading.Event()
-        self._thread = None
         self.jobs = []
         self._load()
 
@@ -732,33 +725,13 @@ class Exporter:
         except Exception:
             return False
 
-    # --- 動かす ---
-    def start(self):
-        with self.lock:
-            if self._thread is None or not self._thread.is_alive():
-                self._halt.clear()
-                self._thread = threading.Thread(target=self._loop, daemon=True, name="live-export")
-                self._thread.start()
-
-    def close(self):
-        self._halt.set()
-        self.wake.set()
-        t = self._thread
-        if t is not None:
-            t.join(15)
-
-    def _loop(self):
-        while not self._halt.is_set():
-            try:
-                self._retry_handoffs()   # 空きを待っていた まとめて実行への受け渡し(M4)
-                job = self._next_ready()
-                if job is not None:
-                    self._process(job)
-                    continue
-            except Exception as e:   # 見回りは止めない
-                self.log("リアルタイム切り抜き: 書き出しの見回りでエラー: %r" % (e,))
-            self.wake.wait(self.poll)
-            self.wake.clear()
+    # --- 動かす(糸の start・close・見回りは Patrol) ---
+    def _step(self):
+        self._retry_handoffs()   # 空きを待っていた まとめて実行への受け渡し(M4)
+        job = self._next_ready()
+        if job is not None:
+            self._process(job)
+        return job is not None
 
     def _next_ready(self):
         """録画待ちのジョブを順に見て、録画が届いた最初の1本を返す(録画元への問い合わせは、同じ録画は1回だけ)。
@@ -861,11 +834,8 @@ class Exporter:
         return False
 
     # --- 1本を書き出す ---
-    def _cancelled(self, job):
-        if self._halt.is_set():
-            raise Halted()
-        if job.get("cancel"):
-            raise Cancelled()
+    def _job_cancelled(self, job):
+        return job.get("cancel")
 
     def _process(self, job):
         a, b = iso_epoch(job["start"]), iso_epoch(job["end"])
@@ -875,7 +845,7 @@ class Exporter:
         try:
             got, why = None, []
             for rc, rec, d in self._sources(job, a, b):
-                self._cancelled(job)
+                self._check(job)
                 if not job.get("recBase") and iso_epoch(d.get("firstPdt")) is not None:   # 録画の頭の時刻(P4 で欠けのマークをアーカイブから作るときの名前・range に使う)
                     job["recBase"] = epoch_iso(iso_epoch(d["firstPdt"]))
                 name = (rc or {}).get("name") or "?"
@@ -903,12 +873,10 @@ class Exporter:
             rc, rec, d, segs, files = got
             self._set(job, source=rc["id"], message="取得しました(%d 個)。作り直しの順番を待っています" % len(segs))
             with self.slots.slot("live", "リアルタイム切り抜き %s" % (job.get("label") or job["id"]),
-                                 cancelled=lambda: bool(job.get("cancel")) or self._halt.is_set(),
+                                 cancelled=self._stopper(job),
                                  on_wait=lambda: self._set(job, message="ほかの重い処理が終わるのを待っています"),
                                  reserved=bool(d.get("active"))) as ok:   # 録画中は用途つきの枠も使う(M6。文字起こしで上限が埋まっていても待たない)
-                self._cancelled(job)
-                if not ok:
-                    raise Cancelled()
+                self._check(job, stopped=not ok)
                 self._set(job, state="encode", message="30fps に作り直しています")
                 out, tmp = self._encode(job, rc, rec, d, segs, files, a, b, wdir)
             tmp = None
@@ -936,7 +904,7 @@ class Exporter:
         files, cur, f = [], None, None
         try:
             for i, s in enumerate(segs):
-                self._cancelled(job)
+                self._check(job)
                 if s["session"] != cur:
                     if f:
                         f.close()
@@ -974,8 +942,7 @@ class Exporter:
         code, tail, why = normalize.encode_section(ff, [p for p, _ in files], ss, dur, tmp, lambda cmd: self._run(job, cmd, dur, flags))
         if why == "cancel":
             fsio.unlink_quiet(tmp)
-            self._cancelled(job)
-            raise Cancelled()
+            self._check(job, stopped=True)
         if code != 0:
             fsio.unlink_quiet(tmp)
             raise LiveError("作り直しに失敗しました: %s" % (" / ".join(tail[-3:]) or "終了コード %s" % code))
@@ -1046,8 +1013,7 @@ class Exporter:
                    "-progress", "pipe:1", "-nostats"]
             code, tail, why = self._run(job, cmd, dur, flags)
             if why == "cancel":
-                self._cancelled(job)
-                raise Cancelled()
+                self._check(job, stopped=True)
             i, tp = loudness.parse(" ".join(tail)) if code == 0 else (None, None)
             if i is None:   # 無音・測れない: 音量は変えない(スタジオと同じ)
                 return {"loudness": {"target": loud, "skipped": "音声が無いか、無音のため測れませんでした"}}
@@ -1066,8 +1032,7 @@ class Exporter:
         if why == "cancel" or code != 0:
             fsio.unlink_quiet(out)
             if why == "cancel":
-                self._cancelled(job)
-                raise Cancelled()
+                self._check(job, stopped=True)
             raise LiveError("%sに失敗しました: %s" % (what, " / ".join(tail[-3:]) or "終了コード %s" % code))
         fsio.replace_retry(out, path)
         return res
@@ -1079,7 +1044,7 @@ class Exporter:
             if dur > 0:
                 job["progress"] = round(0.2 + 0.8 * min(0.99, sec / dur), 3)
         try:
-            return tools.run_progress(cmd, flags=flags, cancelled=lambda: job.get("cancel") or self._halt.is_set(), on_time=on_time)
+            return tools.run_progress(cmd, flags=flags, cancelled=self._stopper(job), on_time=on_time)
         except OSError as e:
             raise LiveError("ffmpeg を起動できませんでした: %s" % e)
 
