@@ -572,6 +572,8 @@ STATIC["/cases-panels/cand.css"] = (os.path.join("panels", "cand.css"), CASES_DI
 STATIC["/cases-panels/new.js"] = (os.path.join("panels", "new.js"), CASES_DIR)
 STATIC["/cases-panels/new.css"] = (os.path.join("panels", "new.css"), CASES_DIR)
 STATIC["/portal-edit.js"] = ("portal-edit.js", CODE_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
+STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), CASES_DIR),   # 校正のパネル(C2b): 見た目・3 択の部品・編集を載せる台(編集の app-*.js は transcribe/ から読む)
+               "/cases-panels/machpick.js": (os.path.join("panels", "machpick.js"), CASES_DIR), "/cases-edhost.js": ("edhost.js", CASES_DIR)})
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
 NAV_PAGES = httpsec.PAGES + ("/settings", "/cases")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "

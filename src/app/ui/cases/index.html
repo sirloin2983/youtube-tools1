@@ -5,18 +5,22 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>動画編集ツール — 案件</title>
 <!-- 案件の画面(/cases。入口の直下の 1 枚。RS8 C1 = 殻。docs/design/rs8-cases-build.md)。部品は相対パスで読む(api/… = 入口・studio/api/… = 取り込んだスタジオ)。
-     CSP の下で動く: インラインの script・on〇〇= は書かない。cases.js が先(パネルの登録の口 CasesPanels を作る)→ パネル 3 本(DOMContentLoaded で殻が起きる) -->
+     CSP の下で動く: インラインの script・on〇〇= は書かない。cases.js が先(パネルの登録の口 CasesPanels を作る)→ パネル 3 本(DOMContentLoaded で殻が起きる)。
+     校正のパネルは編集の app-*.js を transcribe/ から読んで載せる(cases-edhost.js。編集の app.js が .top(ヘッダー)の高さを見るので class に top) -->
 <script src="ui-kit.js"></script>
 <link rel="stylesheet" href="ui-kit.css">
 <link rel="stylesheet" href="cases.css">
 <link rel="stylesheet" href="cases-panels/cand.css">
+<link rel="stylesheet" href="cases-panels/proof.css">
 <script src="cases.js" defer></script>
 <script src="cases-panels/cand.js" defer></script>
+<script src="cases-edhost.js" defer></script>
+<script src="cases-panels/machpick.js" defer></script>
 <script src="cases-panels/proof.js" defer></script>
 <script src="cases-panels/cut.js" defer></script>
 </head>
 <body>
-<header class="ui-header">
+<header class="ui-header top">
   <nav class="ui-appnav" data-ui-appnav="cases" aria-label="ホーム/スタジオ/編集"></nav>
   <span class="ui-ver" id="ver"></span>
   <div class="ui-header-actions">

@@ -134,7 +134,8 @@ def main():
                 check(pill("d:a0000000000a") == "パック済み" and pill("d:a0000000000b").startswith("校正中") and pill("d:a0000000000c") == "未校正" and pill("m:m4") == "文字起こし前",
                       "札: %s / %s / %s / %s" % (pill("d:a0000000000a"), pill("d:a0000000000b"), pill("d:a0000000000c"), pill("m:m4")))
                 check(pg.evaluate("document.querySelector('#csRail [aria-current=\"true\"]').dataset.csKey") == "d:a0000000000b", "選んだ行に aria-current")
-                check(pg.get_attribute("[data-cs-stub=proof] a.btn", "href") == "transcribe/?doc=a0000000000b#tx", "空のパネルから今の編集へ(相対パス)")
+                # 校正のパネル(C2b)は編集の部品を transcribe/ から読む。この入口は編集を取り込まないので、何が / 次に + もう一度(中身の確かめは e2e_cases_proof.py)
+                check(wait_js(pg, "!!document.querySelector('#csPane [data-pf-fail] [data-pf-retry]')") and "取り込まれていません" in pg.text_content("#csPane [data-pf-fail]"), "校正のパネル: 編集が無いときは案内ともう一度")
                 check(wait_js(pg, "['Alt+1', 'Alt+2', 'Shift+N'].every(k => !!document.querySelector('.ui-keybar [data-k=\"' + k + '\"]'))"), "下の帯に殻のキー")
 
                 # 3. キー: Alt+2 / Alt+1 / Shift+N(入力中は効かない)
@@ -174,7 +175,6 @@ def main():
                 check(wait_js(pg, "((document.querySelector('#csRail [data-cs-key=\"d:a0000000000c\"] .pill')||{}).textContent||'').includes('40%')", 20000), "動いているジョブの札: %r" % pill("d:a0000000000c"))
                 check(not pill("d:a0000000000b").startswith("文字起こし"), "ほかの案件のジョブは載らない: %r" % pill("d:a0000000000b"))
                 check(wait_js(pg, "document.body.dataset.csPoll === '2000'"), "動いている間は 2 秒ごと: %s" % pg.evaluate("document.body.dataset.csPoll"))
-                check("文字起こし" in pg.text_content("[data-cs-stub=proof]"), "パネルの ctx.status.jobs にも載る")
                 srv.board.upsert(dict(job, state="done", progress=1.0, canCancel=False, finishedAt=int(time.time() * 1000)))
                 check(wait_js(pg, "document.body.dataset.csPoll === '15000'", 10000), "終わったら 15 秒へ戻る")
                 check(pill("d:a0000000000c") == "未校正", "終わったら進み具合の札へ戻る: %r" % pill("d:a0000000000c"))

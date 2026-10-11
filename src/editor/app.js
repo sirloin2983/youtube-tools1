@@ -1,4 +1,7 @@
 'use strict';
+/* 案件の画面(/cases)の校正のパネルに載せたとき(RS8 C2b)の口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
+   古い編集の画面(/transcribe/)では null で、動きは今までどおり。載せたときは URL・左のメニュー・タブ・カットとパック(panels/cut.js が持つ)を殻に任せる */
+const EDIT_HOST = window.EditHost || null;
 const APP_VERSION = (document.querySelector('meta[name="ytt-version"]') || {}).content || '';   // 全体の版(ytt/version.py)。入口が画面を返すときに meta ytt-version へ入れる(JS に版の文字は書かない)。入口なしだと空 = 版の比べはしない
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は ''。0.60.1 まで自前で 'null' になっていた)
@@ -21,7 +24,7 @@ window.addEventListener('unhandledrejection', e => showErr(String(e.reason && e.
 /* サーバーの API・動画の URL は、必ずこの apiUrl() を通して作る(将来1つのアプリに統合するとき、
    ベースのパスをここ1か所で変えられるように)。画面の場所から求める(絶対パス "/xxx" は直接書かない。
    "" または入口に取り込まれたときの "/transcribe" になる) */
-const BASE = location.pathname.replace(/\/[^/]*$/, '');
+const BASE = EDIT_HOST ? EDIT_HOST.base : location.pathname.replace(/\/[^/]*$/, '');
 const apiUrl = path => BASE + path;
 /* 入口の統合サーバーに取り込まれたときの合言葉(CSRF トークン。入口が <meta name="ytt-token"> で画面に入れる)。
    書き込み系(GET/HEAD 以外)の要求にだけ付ける */
@@ -43,7 +46,7 @@ const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
 const ED_TABS = ['tx', 'cut'];
 const EDT = { tab: 'tx', overlay: false };
 const wideTab = () => EDT.tab !== 'tx';
-const menuOpen = () => wideTab() ? EDT.overlay : V.menu;
+const menuOpen = () => !EDIT_HOST && (wideTab() ? EDT.overlay : V.menu);   // 案件の画面では左のメニューを出さない(隠したメニューがキーを持たないように)
 /* 画面の色: v6 からは設定の引き出し(UIKit.settings。全体の節)に一本化(以前の #vTheme はなくした)。ここは帯の色の描き直しだけ */
 UIKit.theme.onChange(() => { if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定・設定の引き出しで変わったとき(帯の色も描き直す)
 /* v0.15.0: 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
@@ -65,7 +68,7 @@ const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-wi
     e.preventDefault(); const i = ED_TABS.indexOf(EDT.tab);
     setEditTab(ED_TABS[(i + (e.key === 'ArrowRight' ? 1 : ED_TABS.length - 1)) % ED_TABS.length], { focus: true });
   });
-  window.addEventListener('hashchange', () => { const t = tabFromHash(); if (t && t !== EDT.tab) setEditTab(t, { hash: false }); });
+  window.addEventListener('hashchange', () => { if (EDIT_HOST) return; const t = tabFromHash(); if (t && t !== EDT.tab) setEditTab(t, { hash: false }); });
   document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => openKeys());
   $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
@@ -1231,7 +1234,8 @@ $('#btnOpenVideo').addEventListener('click', openVideoNoTx);
 $('#mcOpen').addEventListener('click', openVideoNoTx);
 $('#mcTx').addEventListener('click', () => { $('#mediaChoice').hidden = true; onStart(); });
 $('#btnTxInto').addEventListener('click', () => transcribeInto($('#btnTxInto')));
-[$('#handoffOut'), $('#cpPlanOut')].forEach(el => el.addEventListener('click', async e => {
+/* #cpPlanOut は 2 カット の欄(案件の画面ではカット・パックのパネルが持つ = 無い) */
+[$('#handoffOut'), $('#cpPlanOut')].filter(Boolean).forEach(el => el.addEventListener('click', async e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
   const v = S.handoff[b.dataset.k]; if (v) copyPath(v);
 }));
@@ -1255,21 +1259,21 @@ applyKeyHint();
 if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
 
 /* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
-const CUT = window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
+const CUT = !EDIT_HOST && window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
   c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, imeKey, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto, keepCutHTML, toPack: () => setEditTab('pack', { focus: true }), onCutSave: (text, kind) => { S.cutSaveSt = { text, kind }; paintSaveState(); } }) : null;
 
 /* ---------- 3 パック(pack-tab.js) ---------- */
-const PACK = window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiBlob, apiUrl, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
+const PACK = !EDIT_HOST && window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiBlob, apiUrl, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
   c2rApi, c2rWait, c2rBase, cpExport, copyPath, savedAll, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
 
 /* ---------- 起動 ---------- */
 async function boot(){
-  $('#ver').textContent = 'v' + APP_VERSION;
+  if (!EDIT_HOST) $('#ver').textContent = 'v' + APP_VERSION;   // 案件の画面の版は殻が出す
   loadView(); setEditTab(tabFromHash() || 'tx', { hash: !!tabFromHash() });
   applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(段7 E-17。サーバーに届かないときも)
   try {
     const ping = await api('/api/ping');
-    if (!APP_VERSION) $('#ver').textContent = 'v' + ping.version;
+    if (!APP_VERSION){ if (!EDIT_HOST) $('#ver').textContent = 'v' + ping.version; }
     else if (ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」(段9 9-3)
       showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`, { plain: true });
   } catch (e){ return showErr(e.message + '。youtube-tools フォルダの start.bat で起動して、ホームから開いてください', { plain: true }); }
@@ -1287,11 +1291,11 @@ async function boot(){
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}
   }
   applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
-  takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
+  if (!EDIT_HOST) takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   UIKit.hide.onChange(l => { if (!l || l === 'transcripts') renderList(); }); UIKit.hide.load().then(() => renderList());
-  await Promise.all([loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat(), loadBaselines()]);
+  await Promise.all(EDIT_HOST ? [loadList(), pollJobs()] : [loadList(), loadMarker(), pollJobs(), loadLearned(), loadAcc(), loadDrillStat(), loadBaselines()]);   // 案件の画面ではメニューの中身(マーク・学習・精度・ドリル)を読まない
   if (S.jobs.some(j => ACTIVE.has(j.state))) startPolling();
 }
-boot();
+const BOOTED = boot();   // 案件の画面(src/app/ui/cases/edhost.js)が起動し終えるのを待つ

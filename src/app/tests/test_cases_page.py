@@ -83,7 +83,7 @@ class CasesPageHttpTest(unittest.TestCase):
         self.assertIn(b'name="ytt-token"', body)
 
     def test_parts_are_served(self):
-        for path in ["/cases.js", "/cases.css", "/cases-panels/cand.css"] + ["/cases-panels/%s.js" % n for n in PANELS]:
+        for path in ["/cases.js", "/cases.css", "/cases-panels/cand.css", "/cases-panels/proof.css", "/cases-panels/machpick.js", "/cases-edhost.js"] + ["/cases-panels/%s.js" % n for n in PANELS]:
             r, body = self.req(path)
             self.assertEqual(r.status, 200, path)
             self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff", path)
@@ -151,6 +151,22 @@ class CasesPageFilesTest(unittest.TestCase):
             self.assertNotRegex(js, r"document\.(getElementById|querySelector(All)?)\(",
                                 "%s: パネルの中は root.querySelector で引く(殻・ほかのパネルの id とぶつけない)" % n)
             self.assertNotRegex(js, r"addEventListener\(\s*['\"]visibilitychange", "UIKit.life を使う")
+
+    def test_proof_panel_parts(self):
+        """校正のパネル(C2b): 3 択の部品もパネルと同じ決まり・編集の部品は transcribe/ の相対パスで読む・殻より後・パネルより前に読む"""
+        js = read(os.path.join(UI, "panels", "machpick.js"))
+        self.assertNotRegex(js, r"document\.(getElementById|querySelector(All)?)\(")
+        host = read(os.path.join(UI, "edhost.js"))
+        self.assertIn("'transcribe/' + n", host)
+        self.assertNotRegex(host, r"['\"]/(api|transcribe)/", "相対パスで読む")
+        self.assertIn("window.EditHost", host)
+        html = read(os.path.join(UI, "index.html"))
+        self.assertLess(html.index('src="cases.js"'), html.index('src="cases-edhost.js"'))
+        self.assertLess(html.index('src="cases-edhost.js"'), html.index('src="cases-panels/proof.js"'))
+        self.assertLess(html.index('src="cases-panels/machpick.js"'), html.index('src="cases-panels/proof.js"'))
+        self.assertIn('class="ui-header top"', html, "編集の app.js が .top の高さを見る")
+        for name in ("app.js", "app-core.js", "app-rows.js"):   # 古い編集の画面の動きは変えない口(window.EditHost が無ければ今までどおり)
+            self.assertIn("EDIT_HOST", read(os.path.join(SRC, "editor", name)), name)
 
     def test_shell_uses_life_and_one_keydown(self):
         js = read(os.path.join(UI, "cases.js"))

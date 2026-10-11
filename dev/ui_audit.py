@@ -331,11 +331,17 @@ def static_js(screen, path, text, out):
     for i, line in enumerate(lines, 1):
         if screen != "ui-kit" and "visibilitychange" in line and not allowed(olines[i - 1], "A-05") and not re.search(r"UIKit\.life|if \(life\)", "\n".join(lines[max(0, i - 3):i])):
             out.add("A-05", f"{rel(path)}:{i}", "visibilitychange を直接使っている: " + line.strip()[:100])
-    if screen in MOUNTED:
-        each_line(code, r"""(?:fetch|open|EventSource|WebSocket|URL)\s*\(\s*["`']/(?!/)|(?:href|src|location(?:\.href)?)\s*=\s*["`']/(?!/)""", "A-01", path, out, "絶対パス", orig=text)
+    if screen in MOUNTED:   # ホームへの a[data-ui-portal] は HTML と同じく可(HTML のテンプレート = 編集の app-tpl.js)
+        portal_ok = "\n".join("" if "data-ui-portal" in ln else ln for ln in code.split("\n"))
+        each_line(portal_ok, r"""(?:fetch|open|EventSource|WebSocket|URL)\s*\(\s*["`']/(?!/)|(?:href|src|location(?:\.href)?)\s*=\s*["`']/(?!/)""", "A-01", path, out, "絶対パス", orig=text)
     if screen != "ui-kit":
         each_line(code, r"""(?:style\.[a-zA-Z]+|color|background[a-zA-Z]*|fill|stroke)\s*=\s*["'](?:#[0-9a-fA-F]{3,8}|rgba?\(|white|black)""", "A-08", path, out, "JS の固定の色", orig=text)
-    texts = [(line_of(code, pos), s) for pos, s in strings if re.search(r"[ぁ-んァ-ン一-龥]", s) or any(ch in TEXT_ICONS for ch in s)]
+    texts = []
+    for pos, s in strings:
+        if re.search(r"<[a-z][^>]*>", s):   # HTML のテンプレートの文字列(編集の app-tpl.js)は HTML と同じ読み方(コメントを除き、属性と文だけ)
+            texts += [(line_of(code, pos) + s.count("\n", 0, p), t) for p, t in html_texts(s)]
+        elif re.search(r"[ぁ-んァ-ン一-龥]", s) or any(ch in TEXT_ICONS for ch in s):
+            texts.append((line_of(code, pos), s))
     check_terms(path, text, out, texts)
 
 

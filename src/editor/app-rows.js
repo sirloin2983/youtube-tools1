@@ -114,6 +114,7 @@ async function resplitDoc(){
 }
 
 async function openDoc(id, keep){
+  if (EDIT_HOST && id !== S.docId && !EDIT_HOST.opening) return EDIT_HOST.open(id);   // 案件の画面: 別の文書は殻の一覧から開く(一覧の選択と開いている文書をそろえる)
   const request = ++docOpenSeq;
   if (!(await saveDoc()) || request !== docOpenSeq) return false;
   if (CUT && S.docId && S.docId !== id && !(await CUT.flush())){   // 前の文書のカットを保存してから切り替える

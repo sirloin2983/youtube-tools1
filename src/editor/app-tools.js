@@ -329,7 +329,7 @@ function evbInit(){   // $ と api は app.js が先に読まれたあとで使�
   $('#evbRedo').addEventListener('click', evbRedo);
   loadEvalBatch();
 }
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', evbInit); else evbInit();
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', evbInit); else if (window.EditHost) window.EditHost.later(evbInit); else evbInit();   // 案件の画面は app.js を読んだあとに(edhost.js)
 
 function renderSpNames(){
   let dl = document.getElementById('spNames');

@@ -297,7 +297,8 @@ function create(h){
       el.hidden = !bits.length; el.textContent = bits.join(' ・ '); }
     { /* 読みにくい字幕(速い・短い。2026-10-05): 残す行のうち読む速さの印が付く行の数(画面の側で数える。パックは変えない。0 なら出さない)。
          readMark は app-rows.js(この画面の後に読む。描くときには読み終わっている) */
-      const el = $('#pkRead'), n = typeof readMark === 'function' ? d.segments.filter(g => kept(g) && readMark(g)).length : 0;
+      /* readMark は古い編集の画面の app-rows.js の関数。案件の画面(h.root)では校正のパネルが同じページに編集の app-*.js を読むので、その名前を見ない(状態が別) */
+      const el = $('#pkRead'), n = !h.root && typeof readMark === 'function' ? d.segments.filter(g => kept(g) && readMark(g)).length : 0;
       if (el){ el.hidden = !n; el.textContent = n ? `読みにくい字幕: ${n} 行(1 秒あたりの文字が多い・表示が短い。${N.txName} の絞り込み「読みにくい行だけ」で確かめられます)` : ''; } }
     const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : keptSegs.map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
     // 見本の色(4-5。監査 12): 見積もりができたら、パックと同じ規則の話者(pack.py の cue_speakers → sampleSpeakers。名前)。古い間は行の話者から。規則は同じなので通常は同じ色

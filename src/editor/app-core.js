@@ -121,6 +121,7 @@ function copyPath(text){   // 動画の隣に保存した結果・前回のパ�
 }
 /* URL の引数を 1 つ直す(replaceState。v が空・null なら消す)。タブの # とほかの引数はそのまま */
 function setUrlParam(key, v){
+  if (EDIT_HOST) return;   // 案件の画面では URL は殻(cases.js)だけが書く
   try {
     const q = new URLSearchParams(location.search);
     if (v) q.set(key, v); else q.delete(key);
@@ -176,6 +177,7 @@ function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } 
 function tabFromHash(){ const h = String(location.hash || '').replace(/^#/, ''); return h === 'pack' || ED_TABS.includes(h) ? h : null; }   // 'pack'(旧 3 パック)は setEditTab が 2 カット のパックへ読み替える(0.62.0)
 
 function setEditTab(t, opt = {}){
+  if (EDIT_HOST && !opt.host && (t === 'pack' ? 'cut' : t) !== EDT.tab){ EDIT_HOST.tab(t); return; }   // 案件の画面ではタブは殻のもの(「2 カットへ」= 殻のカット・パックのタブへ)
   let toPack = false;
   if (t === 'pack'){ t = 'cut'; toPack = true; }   // 0.62.0: 旧「3 パック」(URL の #pack・履歴の「パックを作る」・前回のタブ)は 2 カット の末尾のパックへ
   if (!ED_TABS.includes(t)) t = 'tx';
@@ -194,7 +196,7 @@ function setEditTab(t, opt = {}){
   { const g = $('#uiSettingsDrawer'); if (was !== t && g && !g.hidden){ closedDrawer = true; UIKit.drawer.close(g); } }
   document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
   document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
-  if (opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
+  if (!EDIT_HOST && opt.hash !== false && location.hash !== '#' + t){ try { history.replaceState(history.state, '', location.pathname + location.search + '#' + t); } catch {} }
   applyView();
   if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(段7 E-7。文書を開いていなければ何もしない)
   if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
@@ -232,16 +234,19 @@ function onEditTab(from, to){
 /* 画面の下の帯(UIKit.keybar。段2)。1 文字起こし のタブだけ、2つの場面(行を選んでいる/文字を直している)で置き換える */
 function txKeybarScene(){
   if (wideTab()) return;
-  if (!S.doc){ UIKit.keybar.clear(); return; }
+  if (!S.doc){ keybarSet(null); return; }
   const editing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#segs textarea');
-  if (editing) UIKit.keybar.set([{ k: 'Esc', l: '抜ける' }, { k: 'Alt+Enter', l: '校正済みで次へ' }]);
+  if (editing) keybarSet([{ k: 'Esc', l: '抜ける' }, { k: 'Alt+Enter', l: '校正済みで次へ' }]);
   else {   // 割り当て(⚙ 設定の「キー配置」)のとおりに出す
     const km = keymap(), k = id => km[id] ? keyText(km[id]) : '';
-    UIKit.keybar.set([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
+    keybarSet([{ k: keyWithAlt('rowNext'), l: '次の行' }, { k: keyWithAlt('rowPrev'), l: '前の行' }, { k: k('unNext'), l: '次の未校正' }, { k: k('proof'), l: '校正済みで次へ' },
       { k: k('replay'), l: '聞く' }, { k: k('edit'), l: '直す' },   // 「3秒戻る・進む」は ? の一覧に(帯は 7 個まで。UI の見直し S17)
       ...(DR.on ? [{ k: k('drillDone'), l: '済みにして次へ' }] : []), { k: '?', l: 'キー操作' }].filter(x => x.k));   // 評価ドリルの間は「済みにして次へ」も
   }
 }
+
+/* 下の帯に出す(案件の画面では殻の帯に混ぜてもらう = EDIT_HOST.keybar。null = 消す) */
+function keybarSet(items){ if (EDIT_HOST) EDIT_HOST.keybar(items); else if (items) UIKit.keybar.set(items); else UIKit.keybar.clear(); }
 
 function applySideTab(){
   if (!['start', 'files', 'quality', 'data'].includes(V.sideTab)) V.sideTab = 'start';

@@ -53,6 +53,7 @@ SUITE = [
     ("home", "src/home/tests/e2e_settings.py", [], "設定の画面 /settings(5 秒)"),
     ("home", "src/app/tests/e2e_cases.py", [], "案件の画面 /cases の殻: 一覧・タブ・URL・キー・② の問い合わせ(RS8 C1)(6 秒)"),
     ("home", "src/app/tests/e2e_cases_cand.py", [], "案件の画面の候補のパネル: 再生・グラフ・採用・キー・書き出し・片付け(RS8 C2a)(30 秒)"),
+    ("home", "src/app/tests/e2e_cases_proof.py", [], "案件の画面 /cases の校正のパネル: 編集の行・キー・保存・切り替え・競合・配信のプレーヤー・3 択(層が正)(RS8 C2b)(40 秒)"),
     ("home", "src/app/tests/e2e_cases_cut.py", [], "案件の画面 /cases のカット・パックのパネル: 区間・保存・キー・パックの設定・パックを作る・切り替え(RS8 C2c)(15 秒)"),
     ("home", "src/home/tests/e2e_intake_ui.py", [], "依頼の受付の画面(3 秒)"),
     ("home", "src/home/tests/e2e_backup_ui.py", [], "バックアップの画面(本物のバックアップ)(6 秒)"),
