@@ -28,6 +28,7 @@ from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
 from flow import batch as batch_mod, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1)
 from pipeline.analyze import analyze  # noqa: E402
+from pipeline.analyze import fetch  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
 from ytt import apikey as _key, datadir, fsio as _fsio, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
@@ -573,7 +574,7 @@ def prepare(port, base_path="/"):
     datadir.register(TOOL_ID, _env.home())   # テスト・入口が先に決めていたときも、実際に使う場所を同じプロセスの他のツールへ知らせる
     startup.migrate_old_logs()   # 以前の studio.log.old などは .gitignore に掛からないので、*.log の名前に直す(公開リポジトリに載せない)
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
-    shutil.rmtree(analyze.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
+    shutil.rmtree(fetch.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
     runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
     startup.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
     threading.Thread(target=_clean_leftovers, daemon=True, name="clean-partials").start()   # 出力先がネットワークドライブでも起動を待たせない
@@ -589,9 +590,9 @@ def _clean_leftovers():
     except Exception as e:
         _env.log_failure("書きかけの片付け", e)
     try:
-        freed = analyze.prune_chat_cache()
+        freed = fetch.prune_chat_cache()
         if freed:
-            _log("チャットのキャッシュを %.0f MB 減らしました(上限 %d MB)" % (freed / 1024 ** 2, analyze.chat_cache_limit() // 1024 ** 2))
+            _log("チャットのキャッシュを %.0f MB 減らしました(上限 %d MB)" % (freed / 1024 ** 2, fetch.chat_cache_limit() // 1024 ** 2))
     except Exception as e:
         _env.log_failure("チャットのキャッシュの片付け", e)
 
@@ -607,12 +608,12 @@ def shutdown_jobs(wait=SHUTDOWN_WAIT):
     中断したものは studio.log に残す(待ち行列・書き出しのジョブはメモリだけなので、起動し直すと画面からは消える)"""
     names = BATCH.shutdown() if BATCH else []
     exports = exporter.cancel_all()
-    pf = analyze.cancel_all_prefetch()
+    pf = fetch.cancel_all_prefetch()
     if not (names or exports or pf or _procs.children()):
         return 0
     killed = _procs.stop_children()
     deadline = time.time() + wait
-    while time.time() < deadline and ((BATCH and BATCH.running_now()) or exporter.is_busy() or analyze.PREFETCH):
+    while time.time() < deadline and ((BATCH and BATCH.running_now()) or exporter.is_busy() or fetch.PREFETCH):
         time.sleep(0.05)
     killed += _procs.stop_children(1.0)   # 待つ間に次の段階が起動した子(中止を見る前に起動したもの)
     left = bool((BATCH and BATCH.running_now()) or exporter.is_busy())

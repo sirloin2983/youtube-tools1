@@ -21,7 +21,7 @@ from ytt import errors, fsio, mediainfo, procs, studio_env  # noqa: E402
 from ytt import yturl  # noqa: E402
 from human.find import rank
 from human.review import feedback
-from pipeline.analyze import analyze
+from pipeline.analyze import analyze, fetch
 from pipeline.export import exporter
 import serve
 from ytt.errors import ApiError
@@ -125,16 +125,16 @@ class TestRegistry(Home):
 
 class TestCaches(Home):
     def test_bad_meta_cache_is_ignored(self):
-        os.makedirs(analyze.meta_dir())
+        os.makedirs(fetch.meta_dir())
         for bad in ({"title": "t", "tags": 5, "fetchedAt": time.time()}, {"title": 1, "fetchedAt": time.time()},
                     {"tags": ["a", 3], "fetchedAt": time.time()}, {"heatmap": "x", "fetchedAt": time.time()}, [1]):
-            with open(os.path.join(analyze.meta_dir(), "abcdefghijk.json"), "w", encoding="utf-8") as f:
+            with open(os.path.join(fetch.meta_dir(), "abcdefghijk.json"), "w", encoding="utf-8") as f:
                 json.dump(bad, f)
-            self.assertIsNone(analyze.load_meta("abcdefghijk"), bad)
+            self.assertIsNone(fetch.load_meta("abcdefghijk"), bad)
         good = {"title": "【歌枠】", "tags": ["x"], "categories": ["Music"], "heatmap": [], "chapters": [], "fetchedAt": time.time()}
-        with open(os.path.join(analyze.meta_dir(), "abcdefghijk.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(fetch.meta_dir(), "abcdefghijk.json"), "w", encoding="utf-8") as f:
             json.dump(good, f)
-        self.assertEqual(analyze.load_meta("abcdefghijk")["title"], "【歌枠】")
+        self.assertEqual(fetch.load_meta("abcdefghijk")["title"], "【歌枠】")
 
     def test_archive_with_broken_runs_is_still_saved(self):
         p = analyze.archive_path("abcdefghijk")
@@ -147,16 +147,16 @@ class TestCaches(Home):
     def test_prefetch_refuses_non_ascii_video_id(self):
         """先読みの動画 ID の検査は sources.VID_RE と同じ(ASCII だけ)。以前は [\\w-]{11} で全角の英字なども通っていた"""
         with patch.object(studio_env, "fake", return_value=False), patch.object(studio_env, "find_tool", return_value="yt-dlp"), \
-                patch.object(analyze, "download_chat", return_value=(None, "テスト")) as dl:
+                patch.object(fetch, "download_chat", return_value=(None, "テスト")) as dl:
             for vid in ("ａｂｃｄｅｆｇｈｉｊｋ", "あいうえおかきくけこさ", "abcdefghijé", "abcdefghijk\n", None, ""):
-                self.assertEqual(analyze.prefetch_chat(vid, 60), "skip", repr(vid))
+                self.assertEqual(fetch.prefetch_chat(vid, 60), "skip", repr(vid))
             dl.assert_not_called()
-            self.assertEqual(analyze.prefetch_chat("abcdefghijk", 60), "started")   # 正しい ID は先読みする
+            self.assertEqual(fetch.prefetch_chat("abcdefghijk", 60), "started")   # 正しい ID は先読みする
             for _ in range(100):
-                if not analyze.PREFETCH:
+                if not fetch.PREFETCH:
                     break
                 time.sleep(0.05)
-            self.assertEqual(analyze.PREFETCH, {})
+            self.assertEqual(fetch.PREFETCH, {})
             dl.assert_called_once()
 
     def test_sig_cache_write_leaves_no_temp_files(self):
@@ -169,7 +169,7 @@ class TestChatCacheSize(Home):
     """チャットのキャッシュは件数だけでなく合計の大きさでも古いものから消す(設計レビュー studio の 7。実機で 30 件・2.0GB だった)。"""
 
     def make(self, vid, size, age):
-        d = analyze.chat_cache_dir()
+        d = fetch.chat_cache_dir()
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, vid + ".live_chat.json")
         with open(p, "wb") as f:
@@ -179,20 +179,20 @@ class TestChatCacheSize(Home):
         return p
 
     def left(self):
-        d = analyze.chat_cache_dir()
+        d = fetch.chat_cache_dir()
         return sorted(n.split(".", 1)[0] for n in os.listdir(d)) if os.path.isdir(d) else []
 
     def test_total_size_limit_removes_oldest_first(self):
         for i, age in enumerate((500, 400, 300, 200, 100)):
             self.make("v%010d" % i, 1000, age)
-        freed = analyze.prune_chat_cache(limit=2500)
+        freed = fetch.prune_chat_cache(limit=2500)
         self.assertEqual(freed, 3000)
         self.assertEqual(self.left(), ["v0000000003", "v0000000004"])   # 新しい2つ(合計 2000 ≤ 2500)
 
     def test_count_limit_still_applies(self):
         for i in range(5):
             self.make("c%010d" % i, 10, 100 - i)
-        analyze.prune_chat_cache(limit=10 ** 9, keep=3)
+        fetch.prune_chat_cache(limit=10 ** 9, keep=3)
         self.assertEqual(self.left(), ["c0000000002", "c0000000003", "c0000000004"])
 
     def test_in_use_and_prefetch_and_newest_are_kept(self):
@@ -200,33 +200,33 @@ class TestChatCacheSize(Home):
         self.make("bbbbbbbbbbb", 1000, 400)   # 先読みが取得中
         self.make("ccccccccccc", 1000, 300)
         self.make("ddddddddddd", 5000, 100)   # いちばん新しい(1つで上限を超えていても残す)
-        with open(os.path.join(analyze.chat_cache_dir(), "eeeeeeeeeee.live_chat.json.tmp"), "wb") as f:
+        with open(os.path.join(fetch.chat_cache_dir(), "eeeeeeeeeee.live_chat.json.tmp"), "wb") as f:
             f.write(b"t" * 10)   # 途中で止まった写し
-        analyze.use_chat_cache("aaaaaaaaaaa", +1)
-        with analyze._pf_lock:
-            analyze.PREFETCH["bbbbbbbbbbb"] = {"job": {}, "done": None, "why": "", "path": None}
+        fetch.use_chat_cache("aaaaaaaaaaa", +1)
+        with fetch._pf_lock:
+            fetch.PREFETCH["bbbbbbbbbbb"] = {"job": {}, "done": None, "why": "", "path": None}
         try:
-            analyze.prune_chat_cache(limit=100)
+            fetch.prune_chat_cache(limit=100)
         finally:
-            analyze.use_chat_cache("aaaaaaaaaaa", -1)
-            with analyze._pf_lock:
-                analyze.PREFETCH.pop("bbbbbbbbbbb", None)
+            fetch.use_chat_cache("aaaaaaaaaaa", -1)
+            with fetch._pf_lock:
+                fetch.PREFETCH.pop("bbbbbbbbbbb", None)
         self.assertEqual(self.left(), ["aaaaaaaaaaa", "bbbbbbbbbbb", "ddddddddddd"])
-        self.assertEqual(analyze._chat_in_use, {})
-        analyze.prune_chat_cache(limit=100)   # 使い終わったら次の機会に消える
+        self.assertEqual(fetch._chat_in_use, {})
+        fetch.prune_chat_cache(limit=100)   # 使い終わったら次の機会に消える
         self.assertEqual(self.left(), ["ddddddddddd"])
 
     def test_limit_from_env(self):
         with patch.dict(os.environ, {"STUDIO_CHAT_CACHE_MB": "300"}):
-            self.assertEqual(analyze.chat_cache_limit(), 300 * 1024 * 1024)
+            self.assertEqual(fetch.chat_cache_limit(), 300 * 1024 * 1024)
         for bad in ("", "0", "-5", "abc"):
             with patch.dict(os.environ, {"STUDIO_CHAT_CACHE_MB": bad}):
-                self.assertEqual(analyze.chat_cache_limit(), 1024 ** 3)
+                self.assertEqual(fetch.chat_cache_limit(), 1024 ** 3)
 
     def test_startup_cleanup_prunes(self):
         for i in range(3):
             self.make("s%010d" % i, 1000, 100 - i)
-        with patch.object(analyze, "chat_cache_limit", return_value=1500):
+        with patch.object(fetch, "chat_cache_limit", return_value=1500):
             serve._clean_leftovers()
         self.assertEqual(self.left(), ["s0000000002"])
 

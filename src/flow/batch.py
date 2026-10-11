@@ -8,6 +8,7 @@ import uuid
 
 from ytt import jobs, schemas, studio_env as _env
 
+from pipeline.analyze import fetch   # 解析の材料の取得と先読み(OPT2)
 from pipeline.analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
 from ytt.errors import ApiError
 
@@ -54,7 +55,7 @@ class Batch:
         self._fseq += 1
         it["status"], it["error"], it["fseq"], it["finishedAt"] = status, error, self._fseq, schemas.now_ms()
         if status in ("skipped", "cancelled"):
-            analyze.cancel_prefetch(it["videoId"])   # 先読み中なら止める
+            fetch.cancel_prefetch(it["videoId"])   # 先読み中なら止める
         it["phase"] = phase or {"done": "完了", "error": "失敗", "cancelled": "中止しました", "skipped": "取り除きました"}[status]
         it["progress"] = 1.0 if status == "done" else it["progress"]
         fin = sorted((i for i in self.items if i["status"] in FINISHED), key=lambda i: i["fseq"])
@@ -216,7 +217,7 @@ class Batch:
             for i in self.items:
                 if i["status"] != "waiting" or i["src"]["kind"] != "youtube" or not i["settings"].get("useChat"):
                     continue
-                r = analyze.prefetch_chat(i["videoId"], i["settings"]["chatTimeout"] * 60, self._kick_prefetch)
+                r = fetch.prefetch_chat(i["videoId"], i["settings"]["chatTimeout"] * 60, self._kick_prefetch)
                 if r != "skip":
                     break
 

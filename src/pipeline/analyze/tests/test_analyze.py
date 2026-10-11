@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
 from human.review import feedback  # noqa: E402
-from pipeline.analyze import analyze  # noqa: E402
+from pipeline.analyze import analyze, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
 
 
@@ -105,22 +105,22 @@ class TestHeadRamp(unittest.TestCase):
 class TestComments(unittest.TestCase):
     def test_chapter_list_downweighted(self):
         chapters = "0:30 始まり\n10:00 雑談\n25:10 ゲーム\n40:00 終わり\n55:00 おまけ"
-        st = analyze.stamps_from([{"text": chapters, "likes": 500}], 4000)
+        st = fetch.stamps_from([{"text": chapters, "likes": 500}], 4000)
         self.assertEqual(len(st), 5)
         self.assertTrue(all(abs(w - 0.2) < 1e-9 for _, _, w in st))
 
     def test_single_and_pair_comments_full_weight(self):
-        st = analyze.stamps_from([{"text": "12:34 ここ最高", "likes": 3}, {"text": "1:00 と 2:00 が好き", "likes": 0}], 4000)
+        st = fetch.stamps_from([{"text": "12:34 ここ最高", "likes": 3}, {"text": "1:00 と 2:00 が好き", "likes": 0}], 4000)
         self.assertEqual([w for *_, w in st], [1.0, 1.0, 1.0])
 
     def test_out_of_range_ignored(self):
-        st = analyze.stamps_from([{"text": "99:00 と 0:00", "likes": 1}], 300)
+        st = fetch.stamps_from([{"text": "99:00 と 0:00", "likes": 1}], 300)
         self.assertEqual(st, [])
 
     def test_score_much_lower_for_list_than_for_individual_comments(self):
         n = 3000
-        lst = analyze.stamps_from([{"text": "5:00 a\n20:00 b\n30:00 c\n40:00 d", "likes": 200}], n)
-        ind = analyze.stamps_from([{"text": "20:00 ここ", "likes": 200}], n)
+        lst = fetch.stamps_from([{"text": "5:00 a\n20:00 b\n30:00 c\n40:00 d", "likes": 200}], n)
+        ind = fetch.stamps_from([{"text": "20:00 ここ", "likes": 200}], n)
         self.assertLess(max(analyze.comment_score(lst, n)), 0.3 * max(analyze.comment_score(ind, n)))
 
     def test_comment_score_accepts_legacy_pairs(self):
@@ -168,16 +168,16 @@ HEAT = {"title": "【R.E.P.O.】深夜の突発PEPO", "channel": "Ch", "categori
 
 class TestMeta(unittest.TestCase):
     def test_slim_keeps_only_needed_and_skips_bad_rows(self):
-        m = analyze.slim_meta(HEAT)
+        m = fetch.slim_meta(HEAT)
         self.assertEqual(m["heatmap"], [[0.0, 78.5, 1.0], [78.5, 157.0, 0.42]])
         self.assertEqual(m["chapters"], [[0.0, 100.0, "開始"]])
         self.assertEqual((m["views"], m["likes"], m["followers"], m["liveStatus"]), (12345, 999, 1000000, "was_live"))
         self.assertNotIn("formats", m)
-        self.assertIsNone(analyze.slim_meta([1]))
-        self.assertIsNone(analyze.slim_meta(None))
+        self.assertIsNone(fetch.slim_meta([1]))
+        self.assertIsNone(fetch.slim_meta(None))
 
     def test_slim_tolerates_garbage_types(self):
-        m = analyze.slim_meta({"view_count": "x", "tags": "notalist", "heatmap": "no", "chapters": [1, None], "title": 5})
+        m = fetch.slim_meta({"view_count": "x", "tags": "notalist", "heatmap": "no", "chapters": [1, None], "title": 5})
         self.assertEqual((m["views"], m["tags"], m["heatmap"], m["chapters"]), (None, [], [], []))
 
 
@@ -243,7 +243,7 @@ class TestChatExtra(unittest.TestCase):
 class TestCommentTexts(unittest.TestCase):
     def test_texts_parallel_to_stamps(self):
         texts = []
-        st = analyze.stamps_from([{"text": "12:34 ここ最高\n二行目", "likes": 1}, {"text": "1:00 a 2:00 b 3:00 c", "likes": 0}], 4000, texts)
+        st = fetch.stamps_from([{"text": "12:34 ここ最高\n二行目", "likes": 1}, {"text": "1:00 a 2:00 b 3:00 c", "likes": 0}], 4000, texts)
         self.assertEqual(len(st), len(texts))
         self.assertTrue(texts[0].startswith("12:34 ここ最高 二行目"))
         self.assertTrue(all(len(t) <= 60 for t in texts))
