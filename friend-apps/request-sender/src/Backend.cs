@@ -374,6 +374,11 @@ namespace RequestSender
             return Call("POST", path, body, 30000);
         }
 
+        public FlowReply Put(string path, object body)
+        {
+            return Call("PUT", path, body, 30000);
+        }
+
         FlowReply Call(string method, string path, object body, int timeoutMs)
         {
             int port;

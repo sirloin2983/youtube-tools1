@@ -190,6 +190,7 @@ namespace RequestSender
             BuildFlowSection();
             BuildSpeakerSection();
             BuildPcRow();
+            BuildSyncRow();   // Sync.cs: 学習・送り返し・更新の確認(10 分ごとのタイマー 1 つ + 帯 1 行)
             BuildBottomBand();
             sendPage.Controls.AddRange(new Control[] { leftPane, right, bottom });
             SetCut(cut);

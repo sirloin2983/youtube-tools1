@@ -72,6 +72,9 @@ static class CoreTests
         Run("② の口: ready の 1 行・起動の引数・.flow.lock のポート・合言葉の meta・Python が無ければ Dropbox だけ・子の環境変数", BackendPieces);
         Run("② の状態: status の読み(段・進み具合・blocked・1 行)・問い合わせの間隔・× の 3 択を出すか", FlowStatusRead);
         Run("この PC で処理: submit を 1 件ずつ・断られたら理由(版の違いは更新を促す)・受け付けた分は残す", FlowSubmit);
+        Run("同期: 版の比較・パスの形・束の中の安全・古い版を消す", SyncVersionsAndPaths);
+        Run("同期: 学習の束(hash 検査・壊れた版は置かない・machine へ向ける)", SyncLearning);
+        Run("同期: 送り返し(失敗は次で再送)・更新の確認", SyncReturnsAndUpdate);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -1864,5 +1867,147 @@ static class CoreTests
         True(FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "bad_spec", "message", "y") }).Contains("更新"), "bad_spec");
         Eq("受け付けられませんでした: 同じ入力が待ち・実行中です", FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "bad_request", "message", "同じ入力が待ち・実行中です") }), "ほかの断り");
         True(FlowErrors.Submit(new FlowReply { Status = 0, Error = "処理の部品につながりませんでした(WebException)" }).Contains("つながりません"), "つながらない");
+    }
+
+    // ---- F3c Sync.cs ----
+    class FakeIo : ISyncIo
+    {
+        public Dictionary<string, byte[]> Remote = new Dictionary<string, byte[]>();
+        public List<string> Uploaded = new List<string>();
+        public HashSet<string> FailUpload = new HashSet<string>();
+
+        public byte[] ReadSmall(string path) { byte[] b; return Remote.TryGetValue(path, out b) ? b : null; }
+
+        public bool Download(string path, string localPath)
+        {
+            byte[] b;
+            if (!Remote.TryGetValue(path, out b)) return false;
+            File.WriteAllBytes(localPath, b);
+            return true;
+        }
+
+        public void Upload(string localPath, string path)
+        {
+            if (FailUpload.Contains(Path.GetFileName(localPath))) throw new IOException("offline");
+            Uploaded.Add(path);
+        }
+    }
+
+    class OutboxFlow : IFlowClient
+    {
+        public List<string> Ids = new List<string>();
+        public List<string> Done = new List<string>();
+        public FlowReply Get(string path)
+        {
+            return new FlowReply { Status = 200, Body = D("files", Ids.Select(i => (object)D("id", i)).ToList()) };
+        }
+        public FlowReply Post(string path, object body)
+        {
+            Done.Add(((IDictionary<string, object>)body)["id"].ToString());
+            return new FlowReply { Status = 200 };
+        }
+    }
+
+    static string Sha(byte[] b)
+    {
+        using (var h = System.Security.Cryptography.SHA256.Create()) return string.Concat(h.ComputeHash(b).Select(x => x.ToString("x2")));
+    }
+
+    static void SyncVersionsAndPaths()
+    {
+        Eq(-1, Sync.CompareVersion("0.58.0", "0.59.0"), "版: 小さい");
+        Eq(1, Sync.CompareVersion("0.60.0", "0.59.9"), "版: 大きい");
+        Eq(1, Sync.CompareVersion("0.10.0", "0.9.0"), "版: 数として比べる(文字ではなく)");
+        Eq(0, Sync.CompareVersion("1.0", "1.0.0"), "版: 足りない桁は 0");
+        Eq("/学習/latest.json", SyncPaths.LearningLatest, "パス: 学習");
+        Eq("/更新/latest.json", SyncPaths.UpdateLatest, "パス: 更新");
+        Eq("/送り返し/a__b.zip", SyncPaths.ReturnFile("a__b.zip"), "パス: 送り返し");
+        Eq("/学習/20261011-101010-abcdef01/voices/x.json", SyncPaths.LearningFile("20261011-101010-abcdef01", "voices/x.json"), "パス: 束の中");
+        True(Sync.SafeRel("voices/x.json") && !Sync.SafeRel("../x") && !Sync.SafeRel("a/../b") && !Sync.SafeRel("C:/x") && !Sync.SafeRel("/x") && !Sync.SafeRel("a\\b"), "束の中のパスの安全");
+        var prune = Sync.ToPrune(new[] { "20260101-000000-aaaaaaaa", "20260105-000000-bbbbbbbb", "20260103-000000-cccccccc", "20260104-000000-dddddddd", "current", "x.part" }, 3);
+        Eq(1, prune.Count, "直近 3 版を残す");
+        Eq("20260101-000000-aaaaaaaa", prune[0], "いちばん古い版を消す(版でない名前は触らない)");
+    }
+
+    static void SyncLearning()
+    {
+        string root = Path.Combine(TempDir(), "learning");
+        var io = new FakeIo();
+        string v = "20261011-101010-abcdef01";
+        byte[] a = Encoding.UTF8.GetBytes("{\"x\":1}"), b = Encoding.UTF8.GetBytes("{\"voices\":{}}");
+        string pack = "{\"schema\":\"ytt-learning/v1\",\"version\":\"" + v + "\",\"files\":[" +
+                      "{\"path\":\"settings.json\",\"sha256\":\"" + Sha(a) + "\",\"size\":" + a.Length + "}," +
+                      "{\"path\":\"voices/m.json\",\"sha256\":\"" + Sha(b) + "\",\"size\":" + b.Length + "}]}";
+        Eq<string>(null, Sync.FetchLearning(io, root, s => { }), "Dropbox に latest.json が無ければ何もしない");
+        io.Remote["/学習/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"" + v + "\",\"dir\":\"" + v + "\"}");
+        io.Remote["/学習/" + v + "/learning.json"] = Encoding.UTF8.GetBytes(pack);
+        io.Remote["/学習/" + v + "/settings.json"] = a;
+        io.Remote["/学習/" + v + "/voices/m.json"] = b;
+        Eq(v, Sync.FetchLearning(io, root, s => { }), "新しい版を取る");
+        True(File.Exists(Path.Combine(root, v, "settings.json")) && File.Exists(Path.Combine(root, v, "voices", "m.json")) && File.Exists(Path.Combine(root, v, "learning.json")), "ファイルがそろった");
+        True(!Directory.Exists(Path.Combine(root, v + ".part")), "作業のフォルダは残らない");
+        io.Remote.Remove("/学習/" + v + "/settings.json");
+        Eq(v, Sync.FetchLearning(io, root, s => { }), "取り済みなら取り直さない(ネットが無くても通る)");
+
+        // 壊れた版: hash が合わない -> 例外・何も残らない
+        string v2 = "20261012-101010-abcdef02";
+        io.Remote["/学習/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"" + v2 + "\"}");
+        io.Remote["/学習/" + v2 + "/learning.json"] = Encoding.UTF8.GetBytes(pack.Replace(Sha(a), new string('0', 64)));
+        io.Remote["/学習/" + v2 + "/settings.json"] = a;
+        io.Remote["/学習/" + v2 + "/voices/m.json"] = b;
+        try { Sync.FetchLearning(io, root, s => { }); True(false, "hash が違えば例外"); }
+        catch (InvalidDataException ex) { True(ex.Message.Contains("hash"), "hash の理由: " + ex.Message); }
+        True(!Directory.Exists(Path.Combine(root, v2)) && !Directory.Exists(Path.Combine(root, v2 + ".part")), "壊れた版は置かない");
+        // 安全でないパス
+        io.Remote["/学習/" + v2 + "/learning.json"] = Encoding.UTF8.GetBytes("{\"files\":[{\"path\":\"../evil.json\",\"sha256\":\"x\",\"size\":1}]}");
+        try { Sync.FetchLearning(io, root, s => { }); True(false, "安全でないパスは例外"); }
+        catch (InvalidDataException) { True(true, "安全でないパス"); }
+
+        // machine へ向ける: 動いていなければ記録だけ・次の回で向ける
+        var puts = new List<string>();
+        Func<string, object, FlowReply> okPut = (p, body) => { puts.Add(p + " " + ((IDictionary<string, object>)body)["learningDir"]); return new FlowReply { Status = 200 }; };
+        True(!Sync.ApplyLearning(root, v, null, s => { }), "② が動いていない = 記録だけ");
+        Eq(0, puts.Count, "PUT しない");
+        True(Sync.ApplyLearning(root, v, okPut, s => { }), "次の回で向ける");
+        Eq("/api/flow/machine " + Path.Combine(root, v), puts[0], "learningDir は版のフォルダ");
+        True(Sync.ApplyLearning(root, v, okPut, s => { }) && puts.Count == 1, "向け済みなら PUT しない");
+        True(!Sync.ApplyLearning(root, "20261013-000000-abcdef03", (p, bd) => new FlowReply { Status = 400 }, s => { }), "断られたら向けていない印のまま");
+    }
+
+    static void SyncReturnsAndUpdate()
+    {
+        string data = TempDir();
+        string outbox = Path.Combine(data, "app", "outbox");
+        Directory.CreateDirectory(outbox);
+        File.WriteAllText(Path.Combine(outbox, "r1__run1.zip"), "z1");
+        File.WriteAllText(Path.Combine(outbox, "r2__run2.zip"), "z2");
+        File.WriteAllText(Path.Combine(outbox, "r1__pack1.verdict.json"), "{\"verdict\":\"keep\"}");
+        File.WriteAllText(Path.Combine(outbox, "notes.txt"), "x");
+        var io = new FakeIo();
+        var flow = new OutboxFlow();
+        flow.Ids.AddRange(new[] { "r1__run1.zip", "r2__run2.zip", "../evil.zip" });
+        io.FailUpload.Add("r2__run2.zip");
+        int failed;
+        int ok = Sync.SendReturns(io, flow, outbox, s => { }, out failed);
+        Eq(2, ok, "上げた数(zip 1 + verdict 1)");
+        Eq(1, failed, "失敗は 1 本");
+        Eq("r1__run1.zip", string.Join(",", flow.Done), "上がった物だけ done(失敗と不正な名前は送らない)");
+        True(io.Uploaded.Contains("/送り返し/r1__run1.zip") && io.Uploaded.Contains("/送り返し/r1__pack1.verdict.json"), "送り先のパス");
+        True(!File.Exists(Path.Combine(outbox, "r1__pack1.verdict.json")) && File.Exists(Path.Combine(outbox, "済み", "r1__pack1.verdict.json")), "上げた verdict は 済み へ");
+        io.FailUpload.Clear();
+        ok = Sync.SendReturns(io, flow, outbox, s => { }, out failed);
+        True(failed == 0 && flow.Done.Contains("r2__run2.zip"), "失敗した物は次の回で再送");
+
+        Eq<UpdateInfo>(null, Sync.CheckUpdate(io, "0.58.0"), "更新の置き場が無ければ無し");
+        io.Remote["/更新/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"0.59.0\",\"file\":\"RequestSender-0.59.0.zip\",\"size\":10,\"sha256\":\"ab\",\"notes\":\"n\"}");
+        var u = Sync.CheckUpdate(io, "0.58.0");
+        True(u != null && u.Version == "0.59.0" && u.File == "RequestSender-0.59.0.zip" && u.Size == 10, "新しい版を知らせる");
+        Eq<UpdateInfo>(null, Sync.CheckUpdate(io, "0.59.0"), "同じ版は出さない");
+        Eq<UpdateInfo>(null, Sync.CheckUpdate(io, "0.60.0"), "古い版は出さない");
+
+        // 全体: 1 つが失敗してもほかは進む
+        var all = Sync.RunAll(io, flow, null, data, "0.58.0", s => { });
+        True(all.Update != null && all.Update.Version == "0.59.0", "RunAll: 更新の確認は学習が無くても動く");
+        Eq(0, all.Problems.Count, "RunAll: 問題なし");
     }
 }
