@@ -181,7 +181,10 @@
 
   /* ================================================================ ツールの起動状態(旧・入口。「詳しく」の中) ================================================================ */
 
+  /* ホームに取り込んだツールの画面のページは RS8 C4 で消した = 「開く」は今その仕事をする画面へ(スタジオ = 新しい案件・編集 = 案件の画面) */
+  var MOUNTED_OPEN = { studio: '/#new', transcribe: '/cases' };
   function toolUrl(t) {
+    if (t.mounted) return 'http://' + location.hostname + ':' + t.port + (MOUNTED_OPEN[t.id] || '/');
     var path = /^\/(?:[a-z0-9][a-z0-9-]{0,31}\/)?$/.test(t.path || '') ? t.path : '/';
     return 'http://' + location.hostname + ':' + t.port + path;
   }

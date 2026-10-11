@@ -33,7 +33,7 @@
     ] },
     { "id": "live", "title": "リアルタイム切り抜き", "store": "home", "hint": "配信中の録画 → 盛り上がりの検出 → 自動の採用 → 書き出し → 文字起こし → パック(線 D)。ここが 1 か所の置き場所です(スタジオの ⚙ の「ライブの録画」も同じ値を直します)。", "groups": [
       { "id": "live-main", "title": "録画", "items": [
-        { "key": "live.enabled", "type": "bool", "label": "リアルタイム切り抜きを使う", "default": false, "hint": "オンにすると、スタジオの URL の欄に配信中の URL を入れるだけで録画します。オフの間は画面にも出ず、裏でも動きません。" },
+        { "key": "live.enabled", "type": "bool", "label": "リアルタイム切り抜きを使う", "default": false, "hint": "オンにすると、ホームの「新しい案件」の URL の欄に配信中の URL を入れるだけで録画します。オフの間は画面にも出ず、裏でも動きません。" },
         { "key": "live.folder", "type": "folder", "label": "録画の置き場所", "default": "", "placeholder": "空 = 標準(E:\\Video\\live-rec か録画の部品の前回の設定)", "maxlength": 260, "when": { "key": "live.enabled", "eq": true }, "hint": "録画中は変えられません。変えると次に始める録画から使います。1 時間で 3〜4GB 使います。" },
         { "key": "live.quality", "type": "enum", "label": "画質", "default": "1080p", "options": [["best", "いちばん良い画質"], ["1080p", "1080p(おすすめ)"], ["720p", "720p(容量を抑える)"]], "when": { "key": "live.enabled", "eq": true }, "hint": "次に始める録画から使います。" },
         { "key": "live.autoArchive", "type": "bool", "label": "配信が終わったら、自動で本番版に作り直す", "default": true, "when": { "key": "live.enabled", "eq": true }, "hint": "アーカイブが用意できてから、録画から作った速報版を本番版に入れ替えます(翌日になることもあります)。" },

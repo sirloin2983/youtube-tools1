@@ -126,6 +126,9 @@
     if (!c) return '';
     var k = c.caseKind || '';
     if (k === 'stream' && c.kind === 'live') return 'live';
+    /* スタジオに動画ファイルとして開いた配信(スタジオの kind file)は解析・マークがある = 候補のタブを出す(RS8 C4。古いスタジオの画面の代わり)。
+       候補の無い「動画ファイル 1 本」の案件は、スタジオに無い案件(④ の case.json。kind が空)だけ */
+    if (k === 'file' && c.kind === 'file') return 'stream';
     return k || (c.kind === 'live' ? 'live' : c.kind === 'file' ? 'file' : PSEUDO[c.id] ? c.id : 'stream');
   }
   function clipState(cl) {

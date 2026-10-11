@@ -9,12 +9,14 @@
   'use strict';
 
   var SCRIPTS = ['transcribe/cut.js', 'transcribe/pack-tab.js'];
+  var LOADED_AS = { 'transcribe/cut.js': 'EditCut', 'transcribe/pack-tab.js': 'EditPack' };
   var scriptsP = null;
   function loadScripts() {
     if (window.EditCut && window.EditPack) return Promise.resolve();
     if (scriptsP) return scriptsP;
     scriptsP = SCRIPTS.reduce(function (p, src) {
       return p.then(function () {
+        if (window[LOADED_AS[src]]) return null;   // 校正の台(edhost.js)が先に読んだ cut.js は読み直さない
         return new Promise(function (resolve, reject) {
           var s = document.createElement('script');
           s.src = src;

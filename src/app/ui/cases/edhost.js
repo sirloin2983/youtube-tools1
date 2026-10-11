@@ -96,7 +96,10 @@
     }).then(function () {
       build(); built = true;
       if (!guardOn) { document.addEventListener('keydown', guard); guardOn = true; }
-      return ED_SCRIPTS.reduce(function (p, n) { return p.then(function () { return loadScript('transcribe/' + n); }); }, Promise.resolve());
+      /* cut.js を先に(app.js が読み込みの時点で EditCut.KEY_ROWS・FIXED_KEYS を写す = ? の一覧の「2 カット のタブ」の節とキー配置の検査。RS8 C4。
+         カット・パックのパネルが先に読んでいれば読まない) */
+      var first = window.EditCut ? Promise.resolve() : loadScript('transcribe/cut.js');
+      return ED_SCRIPTS.reduce(function (p, n) { return p.then(function () { return loadScript('transcribe/' + n); }); }, first);
     }).then(function () {
       later.splice(0).forEach(function (fn) { fn(); });   // 編集の部品が「app.js のあとで」と頼んだ初期化(app-tools.js の evbInit)
       return BOOTED;   // app.js の起動(boot())の約束(app.js の最後の行)

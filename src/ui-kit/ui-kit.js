@@ -2583,7 +2583,7 @@
       row.el.setAttribute('data-state', r.state);
       liveSet(row.time, liveTimeText(r)); row.time.hidden = !row.time.textContent;
       var href = liveStudioHref(r); if (row.open.getAttribute('href') !== href) row.open.setAttribute('href', href);
-      row.open.setAttribute('aria-label', '「' + t + '」をスタジオで開く');
+      row.open.setAttribute('aria-label', '「' + t + '」を案件の画面で開く');
       row.stop.setAttribute('aria-label', '「' + t + '」の録画を停止'); row.stop.hidden = !r.active;
       var want = prevEl ? prevEl.nextSibling : els.list.firstChild;
       if (want !== row.el) els.list.insertBefore(row.el, want);   // 順番が変わったときだけ動かす(押そうとしているボタンを巻き込まない)
