@@ -427,7 +427,7 @@ namespace RequestSender
         void LayoutFlowLine(int top, int m)
         {
             int left = tabRecv.Right + m;
-            int right_ = (flowLbl.Text.Length > 0 ? lTheme.Left - Ui.S(16) : brand.Left - m);
+            int right_ = (flowLbl.Text.Length > 0 ? settingsBtn.Left - Ui.S(16) : brand.Left - m);
             if (flowLbl.Text.Length > 0) brand.Visible = false;
             flowLbl.SetBounds(left, 0, Math.Max(0, right_ - left), top);
             flowLbl.Visible = flowLbl.Text.Length > 0 && flowLbl.Width > Ui.S(80);

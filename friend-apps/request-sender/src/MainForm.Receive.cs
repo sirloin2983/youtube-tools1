@@ -32,7 +32,7 @@ namespace RequestSender
         Field detailField;
         readonly Btn refreshBtn = new Btn("更新", BtnKind.Normal), receiveBtn = new Btn("受け取る", BtnKind.Primary), receiveAllBtn = new Btn("すべて受け取る", BtnKind.Normal),
                      cancelRecvBtn = new Btn("やめる", BtnKind.Normal), previewBtn = new Btn("まとめ動画を見る", BtnKind.Normal), deleteBtn = new Btn("消す", BtnKind.Normal),
-                     openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
+                     openFolderBtn = new Btn("フォルダを開く", BtnKind.Normal), madeVideoBtn = new Btn("動画にした", BtnKind.Normal), changeDirBtn = new Btn("変える…", BtnKind.Normal);
         readonly Lbl recvHint = new Lbl("「① 全自動」で送ったものは、できあがるとここに届きます(1 本ずつ・何本かの組で)。「まとめ動画を見る」で中身を先に見て、1 本ずつ「受け取る」(保存先にフォルダとして展開)か「要らない」を決めます。", Tone.Muted);
         readonly Lbl recvStatus = new Lbl("", Tone.Muted), lDir = new Lbl("保存先", Tone.Muted), dirLabel = new Lbl("", Tone.Text);
         readonly Bar recvBar = new Bar();
@@ -88,11 +88,13 @@ namespace RequestSender
             previewBtn.Click += (s, e) => StartPreview();
             openFolderBtn.Click += (s, e) => OpenFolder();
             deleteBtn.Click += (s, e) => StartDelete();
+            madeVideoBtn.AccessibleName = "このパックを動画にしたと知らせる";
+            madeVideoBtn.Click += (s, e) => StartMadeVideo();
             recvStatus.AutoSize = false;
             recvStatus.AutoEllipsis = true;
 
             recvPane.Controls.AddRange(new Control[] { headRecv, refreshBtn, recvHint, listFrame, detailField, lDir, dirLabel, changeDirBtn,
-                                                       receiveBtn, receiveAllBtn, cancelRecvBtn, previewBtn, openFolderBtn, deleteBtn, recvBar, recvStatus });
+                                                       receiveBtn, receiveAllBtn, cancelRecvBtn, previewBtn, openFolderBtn, madeVideoBtn, deleteBtn, recvBar, recvStatus });
             recvPage.Controls.Add(recvPane);
 
             downloadDir = state.LoadDownloadDir();
@@ -127,7 +129,8 @@ namespace RequestSender
             if (cancelRecvBtn.Visible) x = cancelRecvBtn.Right + Ui.S(8);
             previewBtn.Location = new Point(x, y + Ui.S(6));
             openFolderBtn.Location = new Point(previewBtn.Right + Ui.S(6), y + Ui.S(6));
-            deleteBtn.Location = new Point(openFolderBtn.Right + Ui.S(6), y + Ui.S(6));
+            madeVideoBtn.Location = new Point(openFolderBtn.Right + Ui.S(6), y + Ui.S(6));
+            deleteBtn.Location = new Point(madeVideoBtn.Right + Ui.S(6), y + Ui.S(6));
             recvStatus.SetBounds(deleteBtn.Right + Ui.S(14), y + Ui.S(10), Math.Max(Ui.S(60), w - m - deleteBtn.Right - Ui.S(14)), Ui.S(20));
             y += Ui.S(48);
             recvBar.SetBounds(m, y, iw, Ui.S(3));
@@ -230,6 +233,7 @@ namespace RequestSender
             deleteBtn.Text = DeleteLabel(e);
             deleteBtn.FitWidth();
             deleteBtn.Enabled = !busy && CanDelete(e);
+            madeVideoBtn.Enabled = !busy && IsPack(e);
             cancelRecvBtn.Visible = busy && recvDownloading;
             cancelRecvBtn.Enabled = !recvCancel;
             LayoutReceive();   // 「やめる」の出し入れ・「すべて受け取る(n 本)」と「要らない / 消す」の幅で、右のボタンの位置が変わる
@@ -690,6 +694,23 @@ namespace RequestSender
                 SaveSettings();   // 音量のつまみを動かした値を覚える(2.8.1。settings.json の previewVolume)
                 return f.Choice;
             }
+        }
+
+        // 「動画にした」: 送り先の人に知らせる印(<zip>.feedback.json, verdict made_video)を置く。パックは消さない・受け取りも変えない
+        void StartMadeVideo()
+        {
+            var e = SelectedEntry;
+            if (RecvBusy || !IsPack(e)) return;
+            Config config = RecvConfig();
+            if (config == null) return;
+            SetRecvStatus("知らせています…", false);
+            Log.Write("made_video: " + e.Name);
+            var receiving = NewReceiving(config);
+            RunRecv(() =>
+            {
+                bool placed = receiving.MarkMadeVideo(e, DateTimeOffset.Now);
+                OnUi(() => SetRecvStatus(placed ? "動画にしたことを送り先の人に知らせました" : "知らせを送れませんでした。通信を確かめて、もう一度押してください", !placed));
+            });
         }
 
         // 失敗の知らせ(読み終えた)か、要らないパック(受け取らずに)を Dropbox から消す

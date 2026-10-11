@@ -394,6 +394,21 @@ namespace RequestSender
             return recorded;
         }
 
+        // 「動画にした」の印だけを置く(Dropbox のパックは消さない)。置けたか
+        public bool MarkMadeVideo(OutputEntry e, DateTimeOffset now)
+        {
+            try
+            {
+                client.UploadBytes(new UTF8Encoding(false).GetBytes(FeedbackJson.MadeVideo(e, now)), FeedbackJson.PathFor(e));
+                return true;
+            }
+            catch (DropboxException ex)
+            {
+                client.Log("made_video: feedback not placed " + e.Name + ": " + ex.Message);
+                return false;
+            }
+        }
+
         // 何本かをまとめて「要らない」にする(組の行の「要らない」・まとめ動画の小窓の「残りは要らない」。2.8.0)。1 本ずつ Discard と同じ(記録を置いてから消す)。
         // 通信・鍵の問題・やめたときはそこで止める(Error)。Done = 消したもの(一覧から外す)
         public DiscardAllResult DiscardAll(IEnumerable<OutputEntry> packs, DateTimeOffset now)

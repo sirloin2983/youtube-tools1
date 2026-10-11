@@ -75,6 +75,9 @@ static class CoreTests
         Run("同期: 版の比較・パスの形・束の中の安全・古い版を消す", SyncVersionsAndPaths);
         Run("同期: 学習の束(hash 検査・壊れた版は置かない・machine へ向ける)", SyncLearning);
         Run("同期: 送り返し(失敗は次で再送)・更新の確認", SyncReturnsAndUpdate);
+        Run("設定: API キーの確かめ(返事 → 使えます / 理由の文)・keys.json の読み書き(ほかの項目を消さない)", SettingsKey);
+        Run("設定: machine の返事の読み・PUT の本文・404 は更新が要る・空き容量の欄・説明のリンク・窓が作れる", SettingsMachine);
+        Run("動画にした: made_video の記録(要らないと同じ形で verdict だけ違う)", MadeVideoJson);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -2009,5 +2012,88 @@ static class CoreTests
         var all = Sync.RunAll(io, flow, null, data, "0.58.0", s => { });
         True(all.Update != null && all.Update.Version == "0.59.0", "RunAll: 更新の確認は学習が無くても動く");
         Eq(0, all.Problems.Count, "RunAll: 問題なし");
+    }
+
+    static void SettingsKey()
+    {
+        string m;
+        const string Key = "AIzaSyA-0123456789abcdefghijklmnopqrs";
+        True(YtKeyCheck.LooksLikeKey(Key) && !YtKeyCheck.LooksLikeKey("short") && !YtKeyCheck.LooksLikeKey(Key + "!"), "キーの形");
+        Eq(Key, YtKeyCheck.Clean("  \"" + Key + "\"\r\n"), "前後の空白・引用符を落とす");
+        True(YtKeyCheck.Url(Key).StartsWith("https://www.googleapis.com/youtube/v3/videos?part=id&id=") && YtKeyCheck.Url(Key).EndsWith("&key=" + Key), "videos.list の URL");
+        True(YtKeyCheck.Judge(200, "{}", out m) && m == "使えます", "200 = 使えます");
+        True(!YtKeyCheck.Judge(400, "{\"error\":{\"code\":400,\"message\":\"API key not valid. Please pass a valid API key.\",\"errors\":[{\"reason\":\"badRequest\"}],\"status\":\"INVALID_ARGUMENT\"}}", out m) && m.Contains("キーが違います"), "偽のキー = 理由が出る");
+        True(!YtKeyCheck.Judge(403, "{\"error\":{\"message\":\"x\",\"errors\":[{\"reason\":\"accessNotConfigured\"}]}}", out m) && m.Contains("有効になっていません"), "API が無効");
+        True(!YtKeyCheck.Judge(403, "{\"error\":{\"errors\":[{\"reason\":\"quotaExceeded\"}]}}", out m) && m.Contains("上限"), "上限");
+        True(!YtKeyCheck.Judge(403, "{\"error\":{\"status\":\"PERMISSION_DENIED\"}}", out m) && m.Contains("制限"), "場所の制限");
+        True(!YtKeyCheck.Judge(500, "not json", out m) && m.Contains("HTTP 500"), "読めない返事");
+        True(!YtKeyCheck.Judge(0, "Timeout", out m) && m.Contains("つながりませんでした"), "つながらない");
+        int calls = 0;
+        True(YtKeyCheck.Check(Key, u => { calls++; return new KeyValuePair<int, string>(200, "{}"); }, out m) && calls == 1, "貼ったら 1 回だけ呼ぶ");
+        True(!YtKeyCheck.Check("bad", u => { calls++; return new KeyValuePair<int, string>(200, "{}"); }, out m) && calls == 1, "形が違えば呼ばない");
+
+        string dir = Path.Combine(Path.GetTempPath(), "rs-keys-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Eq("", KeyStore.Load(dir), "無ければ空");
+            Directory.CreateDirectory(Path.Combine(dir, "app"));
+            File.WriteAllText(KeyStore.PathFor(dir), "{\"other\":\"keep\"}");
+            KeyStore.Save(dir, Key);
+            Eq(Key, KeyStore.Load(dir), "書いて読める");
+            True(File.ReadAllText(KeyStore.PathFor(dir)).Contains("\"other\":\"keep\""), "ほかの項目を消さない");
+            KeyStore.Save(dir, "");
+            Eq("", KeyStore.Load(dir), "空で消す");
+            True(File.ReadAllText(KeyStore.PathFor(dir)).Contains("other"), "消してもほかの項目は残る");
+            True(!File.Exists(KeyStore.PathFor(dir) + ".tmp"), "一時ファイルを残さない");
+            var env = Backend.ChildEnv(new BackendPaths { Python = "p", Src = "s" }, "");
+            True(!env.ContainsKey("YTT_YT_API_KEY"), "ChildEnv は鍵を持たない(起こすときに keys.json から)");
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
+    static void SettingsMachine()
+    {
+        var v = MachineView.Parse(Json.Parse("{\"machine\":{\"device\":\"cuda\",\"caseRoot\":\"C:\\\\Videos\",\"diskMinGB\":20,\"gpu\":{\"name\":\"RTX 3060\",\"vramGB\":12}}}"));
+        Eq("cuda", v.Device, "device");
+        Eq(20.0, v.DiskMinGB, "diskMinGB");
+        Eq("GPU: RTX 3060(12 GB)", v.GpuText, "GPU の表示");
+        var flat = MachineView.Parse(Json.Parse("{\"device\":\"vulkan\",\"diskMinGB\":12.5}"));
+        Eq('A', MachineApi.EngineOf(flat.Device), "vulkan = A");
+        Eq('C', MachineApi.EngineOf(v.Device), "cuda = C");
+        Eq("GPU: 調べられていません", flat.GpuText, "GPU が分からない");
+        Eq("cuda", MachineApi.DeviceOf('C'), "C → cuda");
+        Eq("vulkan", MachineApi.DeviceOf('A'), "A → vulkan");
+        Eq("{\"device\":\"cuda\"}", Ser(MachineApi.Body("cuda", null, null)), "指定した項目だけ送る");
+        Eq("{\"caseRoot\":\"D:\\\\x\",\"diskMinGB\":30}", Ser(MachineApi.Body(null, "D:\\x", 30.0)), "案件の根と下限");
+        string m;
+        Eq(25.0, MachineApi.ParseDisk(" 25 ", out m), "空き容量");
+        True(MachineApi.ParseDisk("abc", out m) == null && m.Contains("数"), "数でない");
+        True(MachineApi.ParseDisk("-1", out m) == null && m.Contains("0〜"), "範囲の外");
+        True(MachineApi.Problem(new FlowReply { Status = 200 }) == null, "成功は問題なし");
+        True(MachineApi.Problem(new FlowReply { Status = 404 }).Contains("アプリを更新"), "404 = 更新が要る");
+        True(MachineApi.Problem(new FlowReply { Status = 400, Body = D("message", "device は vulkan のどれかにしてください") }).Contains("device は vulkan"), "400 は理由");
+        True(MachineApi.Problem(new FlowReply { Status = 0, Error = "つながりません" }).Contains("つながりません"), "つながらない");
+        True(SettingsForm.GuideUrl("C:\\app\\guide.html").EndsWith("guide.html#%E8%A8%AD%E5%AE%9A"), "説明は guide.html#設定");
+        string tmp = Path.Combine(Path.GetTempPath(), "rs-settings-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using (var f = new SettingsForm(null, tmp, tmp))
+            {
+                Eq(false, f.MachineEnabled, "部品が動いていなければ machine の欄は触れない");
+                Eq("", f.KeyText, "窓が作れる");
+            }
+            True(!Directory.Exists(tmp), "開いただけでは何も書かない");
+        }
+        finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
+    }
+
+    static void MadeVideoJson()
+    {
+        var e = new OutputEntry { Name = "20261011-120000-abc123__題 1-5.zip", RequestId = "20261011-120000-abc123", Title = "題" };
+        var now = new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.FromHours(9));
+        string made = FeedbackJson.MadeVideo(e, now);
+        Eq(FeedbackJson.Reject(e, now).Replace("\"verdict\":\"reject\"", "\"verdict\":\"made_video\""), made, "要らないと verdict だけ違う");
+        True(made.Contains("\"kind\":\"feedback\"") && made.Contains("\"requestId\":\"20261011-120000-abc123\""), "形");
+        Eq("/20261011-120000-abc123__題 1-5.feedback.json", FeedbackJson.PathFor(e), "置き場所は同じ");
     }
 }

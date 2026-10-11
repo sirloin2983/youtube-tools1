@@ -462,7 +462,18 @@ namespace RequestSender
 
         public static string Reject(OutputEntry e, DateTimeOffset now)
         {
-            return "{\"v\":1,\"kind\":\"feedback\",\"verdict\":\"reject\",\"zip\":" + JsonText.Quote(e.Name, false) +
+            return Verdict(e, "reject", now);
+        }
+
+        // 「動画にした」(F3b): 受け取ったパックを実際に動画にした印。Reject と同じ形で verdict だけ違う
+        public static string MadeVideo(OutputEntry e, DateTimeOffset now)
+        {
+            return Verdict(e, "made_video", now);
+        }
+
+        public static string Verdict(OutputEntry e, string verdict, DateTimeOffset now)
+        {
+            return "{\"v\":1,\"kind\":\"feedback\",\"verdict\":" + JsonText.Quote(verdict, false) + ",\"zip\":" + JsonText.Quote(e.Name, false) +
                    ",\"requestId\":" + JsonText.Quote(e.RequestId ?? "", false) + ",\"title\":" + JsonText.Quote(e.Title ?? "", false) +
                    ",\"sentAt\":" + JsonText.Quote(now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture), false) + "}";
         }

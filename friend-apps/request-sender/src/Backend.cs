@@ -174,6 +174,7 @@ namespace RequestSender
             };
             foreach (var kv in ChildEnv(paths, Environment.GetEnvironmentVariable("PATH"))) psi.EnvironmentVariables[kv.Key] = kv.Value;
             if (!string.IsNullOrEmpty(dataRoot)) psi.EnvironmentVariables["YTT_DATA_DIR"] = dataRoot;
+            string ytKey = KeyStore.Load(dataRoot); if (ytKey.Length > 0) psi.EnvironmentVariables["YTT_YT_API_KEY"] = ytKey;   // F3b: 設定で貼った YouTube の API キー(keys.json)。束・ログには入れない
             OpenErrLog();
             var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
             p.ErrorDataReceived += (s, e) => WriteErr(e.Data);

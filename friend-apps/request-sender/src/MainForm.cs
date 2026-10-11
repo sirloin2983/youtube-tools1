@@ -172,6 +172,7 @@ namespace RequestSender
             brand.Font = Theme.MonoSmall;
             lTheme.Font = Theme.Small;
             topBar.Controls.AddRange(new Control[] { tabSend, tabRecv, brand, lTheme });
+            InitSettingsButton();
             foreach (var p in Theme.All)
             {
                 var sw = new Swatch(p);
@@ -397,7 +398,8 @@ namespace RequestSender
                 x -= Ui.S(4);
             }
             lTheme.Location = new Point(x - Ui.S(2) - lTheme.Width, (top - lTheme.Height) / 2);
-            x = lTheme.Left;
+            settingsBtn.Location = new Point(lTheme.Left - Ui.S(14) - settingsBtn.Width, (top - settingsBtn.Height) / 2);
+            x = settingsBtn.Left;
             brand.Location = new Point(x - Ui.S(16) - brand.Width, (top - brand.Height) / 2);
             brand.Visible = brand.Left > tabRecv.Right + m;
             LayoutFlowLine(top, m);
