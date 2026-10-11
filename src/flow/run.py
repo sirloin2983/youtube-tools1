@@ -92,18 +92,6 @@ FROM_MODE = {None: "full", "analyze": "full", "export": "adopted", "transcribe":
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
 
 
-def _media_is_30fps(path):
-    """素材がちょうど 30fps か(ytt.normalize の probe。ffprobe が無い・読めないときは False)。2026-10-04 Q1。
-    パックの fps が固定の 30 になった RS7-1 S4 から段では使わない(src/home/autorun.py が同じ名前で読み直している)"""
-    try:
-        from ytt import normalize
-        info = normalize.probe(path)
-    except Exception:
-        return False
-    fps = (info or {}).get("fps")
-    return isinstance(fps, (int, float)) and abs(fps - 30) <= 0.01
-
-
 def _has_captions(doc):
     """文書に残す字幕の行(文字があってカットしていない行)があるか"""
     return any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
@@ -650,7 +638,7 @@ class Runner:
 
     def _poll(self, run, owned, read, cancel=None, start=None):
         """ツールの仕事が終わるまで待つ骨組み(解析・書き出し・文字起こし・パック・「編集」のジョブで共通)。-> read() の結果
-        owned: 起動し直すときに止めてよいツールの仕事(run.owned。None = 書き出しのように自分の仕事にしない)。終わったら外す。
+        owned: 起動し直すときに止めてよいツールの仕事(run.owned。("export", [id]) = 書き出し = 掲示板の親子の印だけ・起動し直しでは止めない)。終わったら外す。
         start(): 待つ前の投入(中止されたら、投入済みの分も cancel で取り消す)。read(): 終わったら None 以外、まだなら None(進み具合は read の中で st へ)。
         中止(Cancelled)なら cancel()(ツールの仕事を取り消す)を呼んでから上げ直す"""
         run.owned = owned
@@ -869,8 +857,8 @@ class Runner:
             st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting")
                             else "%d / %d 本" % (sum(1 for i in items if i.get("status") == "done"), len(items)))
             return j if j.get("state") != "running" else None
-        # 書き出しは自分の仕事にしない(owned なし = 書き出しの最中は起動し直しを断る。REDO_STEPS)
-        items = self._poll(run, None, read, lambda: self.tools.export_cancel(jid)).get("items") or []
+        # owned の "export" は掲示板の親子の印だけ(ex:<jid> を親の run の下に畳む)。起動し直しは段が REDO_STEPS に無いので今までどおり断る
+        items = self._poll(run, ("export", [jid]), read, lambda: self.tools.export_cancel(jid)).get("items") or []
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")

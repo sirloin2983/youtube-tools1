@@ -1148,6 +1148,9 @@ class TestRestartInfo(Base):
         self.r.start("zzzzzzzzzzz", "adopted")
         self.until(lambda: self.step_state("export") == "run")
         self.assertEqual(self.r.restart_info(), {"runs": 2, "redo": None})   # 書き出しの段は redo にしない(書き出し中は今までどおり断る)
+        owned = next(r.owned for r in self.r.runs if r.state == "running")
+        self.assertEqual(owned[0], "export")   # 掲示板の親子の印(ex:<jid> を親の run の下に)
+        self.assertEqual(len(owned[1]), 1)
 
     def test_transcribe_jobs_and_others(self):
         media = os.path.join(self.tmp, "ライブ.mp4")
@@ -2142,25 +2145,6 @@ class TestFriendLength(Base):
         self.assertIsNone(self.r._friend_length())
         self.r.prefs = P(True)
         self.assertEqual(self.r._friend_length()["length"], 38)
-
-
-class TestMedia30fps(unittest.TestCase):
-    """2026-10-04 Q1: 素材がちょうど 30fps なら、まとめて実行のパックは設定の packFps に関係なく 30"""
-
-    def test_media_is_30fps(self):
-        import shutil, subprocess, tempfile
-        if not shutil.which("ffmpeg"):
-            self.skipTest("ffmpeg が無い")
-        d = tempfile.mkdtemp()
-        try:
-            for fps, want in (("30", True), ("60", False), ("30000/1001", False)):
-                p = os.path.join(d, "v%s.mp4" % fps.replace("/", "_"))
-                subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=%s:duration=1" % fps,
-                                "-c:v", "libx264", "-pix_fmt", "yuv420p", p], check=True, timeout=60)
-                self.assertEqual(A._media_is_30fps(p), want, fps)
-            self.assertFalse(A._media_is_30fps(os.path.join(d, "none.mp4")))
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
 
 
 # RS7-1 S2 で要求に足した後処理の 6 項目(束の既定 = 編集の設定の既定。画面の設定に無ければ既定が入る)

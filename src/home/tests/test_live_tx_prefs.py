@@ -33,7 +33,7 @@ def tx_engines():
 
 class ConstantsTest(unittest.TestCase):
     def test_same_values_as_editor(self):
-        """入口は編集の部品を import しないので値を持っている。編集の tx_engines・ホームの設定と同じであること"""
+        """値は ① の tx_engines から読む。ホームの設定(prefs)の選択肢とも同じであること"""
         te = tx_engines()
         self.assertEqual(TX.WCPP_VERSION, te.WHISPER_CPP["version"])
         self.assertEqual(TX.WCPP_EXE, te.WCPP_EXE)

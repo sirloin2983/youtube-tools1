@@ -996,6 +996,21 @@ class TestHttpsec(unittest.TestCase):
         finally:
             s.close()
 
+    def test_exclusive_server_quiet_on_disconnect(self):
+        """相手が先に切った(ConnectionAbortedError など)は黒い画面に出さない・ほかの例外は今までどおり出す"""
+        srv = httpsec.ExclusiveServer(("127.0.0.1", 0), http.server.BaseHTTPRequestHandler)
+        try:
+            for exc, shown in ((ConnectionAbortedError(10053, "x"), False), (ConnectionResetError(), False),
+                               (BrokenPipeError(), False), (socket.timeout(), False), (ValueError("x"), True)):
+                with mock.patch("socketserver.BaseServer.handle_error") as base:
+                    try:
+                        raise exc
+                    except Exception:   # noqa: BLE001
+                        srv.handle_error(None, ("127.0.0.1", 1))
+                self.assertEqual(base.called, shown, exc)
+        finally:
+            srv.server_close()
+
 
 class TestTools(unittest.TestCase):
     def test_find_tool_env_override(self):

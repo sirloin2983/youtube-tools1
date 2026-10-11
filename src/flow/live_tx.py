@@ -20,14 +20,15 @@ import threading
 import time
 
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
+from pipeline.transcribe import tx_engines as _te   # whisper.cpp の版・実行ファイル・モデルの名前の持ち主(標準ライブラリだけ)
 from ytt import datadir, fsio, jobs, tools
 from . import live_export as LX, livehost, machine as _machine, spec as _spec
 
 WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
-# whisper.cpp の置き場所(編集の tx_engines.WHISPER_CPP["version"]・wcpp_bin_dir・wcpp_model_dir・WCPP_MODELS と同じ値。入口は編集の部品を import しないので値を持つ。test_live_tx が同じことを確かめる)
-WCPP_VERSION = "v1.9.4"
-WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
-WCPP_MODEL_FILES = {"large-v3": "ggml-large-v3.bin"}   # large-v3-turbo は 0.58.0 で外した(保存値は cfg が既定に戻す)
+# whisper.cpp の置き場所(版・実行ファイル・モデルのファイルは ① の tx_engines が持ち主。ここは読むだけ)
+WCPP_VERSION = _te.WHISPER_CPP["version"]
+WCPP_EXE = _te.WCPP_EXE
+WCPP_MODEL_FILES = {k: v["file"] for k, v in _te.WCPP_MODELS.items()}
 DEFAULT_MODEL = "large-v3"
 LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
 LIVE_DEVICES = ("vulkan",)           # whisper.cpp の機器 = GPU だけ(0.58.0。この PC の設定の cpu などは machine が vulkan に読み替える)
@@ -310,11 +311,18 @@ class LiveTx(LX.Patrol):
         end = state not in ("queued", "running")
         phase = {"queued": "順番待ち", "running": "重い処理の順番待ち" if self.slot_wait else "認識中", "done": "文字を付けました",
                  "error": "文字を付けられませんでした", "cancelled": "取り消しました"}.get(state, "")
-        return {"id": self.board_id(key), "kind": "live_tx", "case": None, "target": {"recording": rec},
+        return {"id": self.board_id(key), "kind": "live_tx", "case": self._case(rc, rec), "target": {"recording": rec},
                 "title": "配信中の候補の文字起こし: %s %s" % (rec, span), "state": state, "phase": phase,
                 "waiting": state == "running" and self.slot_wait, "createdAt": m.get("createdAt"),
                 "finishedAt": int(self.clock() * 1000) if end else None, "error": (why or "失敗しました") if state == "error" else None,
                 "canCancel": state == "queued", "canRetry": False}
+
+    def _case(self, rc, rec):
+        """録画の案件の根(lx と同じ = マークの正本の case。初めて書き出すまでは None)。引けなくても載せる"""
+        try:
+            return self.host.exporter.case_of(rc, rec)
+        except Exception:   # noqa: BLE001  (案件が分からなくても掲示板には載せる)
+            return None
 
     def _publish(self, key, state, why=""):
         b = self.board

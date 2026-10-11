@@ -366,8 +366,11 @@ class BoardTest(LiveTxBase):
         self.assertEqual(b.cancel(other)["state"], "cancelled")
         self.assertEqual(self.tx.tick(), 0)   # 取り消した候補は入れ直さない
         self.assertEqual([q[2]["id"] for q in self.tx.queue], ["p0-12"])
+        self.assertIsNone(got["case"])   # 初めて書き出すまでは案件が無い
+        root = os.path.abspath(os.path.join(self.tmp, "案件"))
+        self.live.exporter.case_of = lambda rc, rec: root if (rc, rec) == ("fake", REC) else None   # 書き出したあと = マークの正本の case
         self.assertTrue(self.tx._step())
-        self.assertEqual(b.get(jid)["state"], "done")
+        self.assertEqual((b.get(jid)["state"], b.get(jid)["case"]), ("done", Board.norm_case(root)))
         self.assertEqual(self.tx.text_for("fake", REC, "p0-12"), "ここで大きな声")
         with self.assertRaises(Board.Refused):
             b.cancel(jid)   # 終わった物は止められない(掲示板の canCancel が偽)

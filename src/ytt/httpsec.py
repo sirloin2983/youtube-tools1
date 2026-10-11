@@ -21,6 +21,7 @@ import json
 import os
 import re
 import socket
+import sys
 from http.server import ThreadingHTTPServer
 
 PAGES = ("/", "/index.html")
@@ -218,3 +219,10 @@ class ExclusiveServer(ThreadingHTTPServer):
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
+
+    def handle_error(self, request, client_address):
+        """相手が先に切った(タブを閉じた・再読み込み。Windows の 10053・10054・BrokenPipe・時間切れ)ときは黙る。
+        既定は traceback を標準エラー = 入口の黒い画面に出す。ほかの例外は今までどおり出す"""
+        if isinstance(sys.exc_info()[1], (ConnectionError, socket.timeout)):
+            return
+        super().handle_error(request, client_address)
