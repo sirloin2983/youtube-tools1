@@ -41,9 +41,10 @@ def find_node():
 NODE = find_node()
 if NODE:
     UNIT.append(("node 保存と切り替え", [NODE, "--test", "src/editor/tests/test_document_save.cjs"], False))
-E2E = ["e2e_proofread_accuracy", "e2e_proofread_keys", "e2e_folder_marker_range", "e2e_eval_set", "e2e_row_editing", "e2e_ui_handoff",
-       "e2e_edit_tabs", "e2e_edit_cut", "e2e_edit_voices", "e2e_edit_pack", "e2e_ui_mounted", "e2e_drill", "e2e_alt", "e2e_fill", "e2e_follow_scroll"]   # 一式の正は dev/run_e2e.py(test_run_e2e が一致を確かめる)
-SUITE = UNIT + [(n, [PY, "src/editor/tests/%s.py" % n], True) for n in E2E] + [("通し確認 e2e_pipeline", [PY, "dev/tests/e2e_pipeline.py"], True)]
+E2E = []   # src/editor/tests/ の e2e(一式の正は dev/run_e2e.py の組 editor。test_run_e2e が一致を確かめる)。RS8 C4 で古い編集の画面と一緒に 15 本を消した
+CASES_E2E = ["e2e_cases_proof", "e2e_cases_cut"]   # 編集の部品(校正・カット・パック)を載せた案件の画面の e2e(src/app/tests/)
+SUITE = (UNIT + [(n, [PY, "src/editor/tests/%s.py" % n], True) for n in E2E] + [(n, [PY, "src/app/tests/%s.py" % n], True) for n in CASES_E2E]
+         + [("通し確認 e2e_pipeline", [PY, "dev/tests/e2e_pipeline.py"], True)])
 
 
 def summary(out):

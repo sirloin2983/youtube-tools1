@@ -455,30 +455,18 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
 すべてリポジトリ直下から流す(テストは `src/editor/tests/`。2026-09-30 に `editor/tests/` へ、2026-10-07 にコードを `src/` の下へ移した)。
 ```
 python -m unittest src/editor/tests/test_metrics.py src/editor/tests/test_resolve_export.py src/editor/tests/test_roster.py   # サーバー側(test_backend.py・test_worker.py・test_edit.py・test_voices.py も test_metrics から読み込まれる。`test_edit` の2件は Windows のパス前提で、Windows 以外では飛ばす(段1。`home/tests/test_window.py` の窓の API の3件も同じ)。一覧の項目は test_backend の test_list_fields_for_history)
-node --test src/editor/tests/test_document_save.cjs   # 保存・切り替えの競合(9件)
+node --test src/editor/tests/test_document_save.cjs   # 保存・切り替えの競合(10件。読む順番は案件の画面の edhost.js の ED_SCRIPTS)
 python -m unittest dev/tests/test_layering.py   # import の向き(層の検査。ファイルを移す・足す・import を変えたら必ず。違反は 0 = KNOWN_MAX 0)
 python -m unittest src/human/proof/tests/test_doc_jobs.py   # RS2-8 で移した文書の側のジョブ(serve なしで読める)
 python -m unittest src/eval/tools/tests/test_eval_asr.py src/eval/tools/tests/test_eval_alt.py src/eval/tools/tests/test_eval_timing.py src/eval/tools/tests/test_evalcommon.py   # RS4-4 で dev/tests から移した測る道具のテスト(15 本は src/eval/tools/tests/ の test_*.py)
 python -m unittest src/ytt/tests/test_workdata.py src/pipeline/transcribe/tests/test_txbackend.py   # RS3-0A: 置き場所と版 `ytt/workdata`・スタジオの読み口 `studiodata`・疑似の差し込み口 backend(旧 test_txenv.py)。serve なしで読める。名前の受付(S で読める・差し替えが持ち主に届く)は test_names.py(test_metrics から)
 python -m unittest src/pipeline/transcribe/tests/test_diarize.py src/pipeline/transcribe/tests/test_fill_llm.py   # RS2-9 で editor から移した部品(判別の計算・後処理 fill・LLM)のテスト。serve なしで読める。話者の文書の側は test_voices・test_ovdraft・test_autodiar(上の test_metrics から)
-python src/editor/tests/e2e_proofread_accuracy.py    # 校正済み・精度・用語集・辞書(旧 e2e_ui_v07。設定の比較(A/B)の場面は 0.68.0 で消した)
-python src/editor/tests/e2e_proofread_keys.py        # 認識の設定のチェックの保存・左手のキー・表示の設定・保存の競合・4000行(旧 e2e_ui_v08。保管の場面は 0.68.0 で消した)
-python src/editor/tests/e2e_folder_marker_range.py   # フォルダ一括・スタジオのマーク・範囲の再認識・進み具合(旧 e2e_ui_v09)
-python src/editor/tests/e2e_eval_set.py              # 評価用(旧 e2e_eval_v093)
-python src/editor/tests/e2e_row_editing.py           # メニュー・行の追加・重なり・Z・画面幅(旧 e2e_ui_v098)
-python src/editor/tests/e2e_ui_handoff.py
-python src/editor/tests/e2e_edit_tabs.py            # 「編集」E2: 3つのタブ・Alt+1/2/3・URL の #・メニューの帯・題名の行・文字起こしせずに開く(共通部分は e2e_edit_common.py)
-python src/editor/tests/e2e_edit_cut.py             # 「編集」E3: カットのタブ(入口に取り込んだ形。ドラッグ・吸着・分割・削る/戻す・I/O/X・元に戻す・保存・409・カット後の再生・無音のたたき台)
-python src/editor/tests/e2e_edit_voices.py          # 話者の声を覚える(A-3。名前を付ける → 覚える → 判別し直すと名前が付く → 忘れる)
-python src/editor/tests/e2e_edit_pack.py            # 「編集」E4: パックのタブ(入口に取り込んだ形。カットのとおりのパック・短い区間と 60fps の注意・前回のパック・中止・Text+ なし)
-python src/editor/tests/e2e_ui_mounted.py           # 入口(app/server.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
-                                              # 履歴の一覧(配信ごと・配信者)・パックのタブ(cut2resolve の API・上書きの確認・zip)
-python src/editor/tests/e2e_drill.py               # 評価ドリル(編集の画面の ?drill=1 の帯・確かめ済みの印)と「全行をこの人に」・話者の自動判別(入口に取り込んだ形。サーバー側は test_drill.py・test_autodiar.py = test_metrics から読む)
-python src/editor/tests/e2e_alt.py                 # 2つ目のエンジンの候補(D1-b。聞く → 行に「別」の候補 → 採用・却下 → autoAlt → 削除で alt.json も。入口に取り込んだ形。サーバー側は test_alt.py = test_metrics から読む)
-python src/editor/tests/e2e_fill.py                # 認識のあとの後処理(0.60.0。文字の少ない行が別の読みに置き換わる → 「別の読み」の札で戻す → 保存 → 元に戻す → autoFill の設定。入口に取り込んだ形。サーバー側は test_fill.py = test_metrics から読む)
-python src/editor/tests/e2e_follow_scroll.py      # 再生の追いかけ・行の移動で窓が動かず、2列では行の一覧の列だけが動く(v0.56.1)
-python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に埋め込んだ ui-kit の CSS が正本とずれていないか
+python src/app/tests/e2e_cases_proof.py   # 画面(校正)= 案件の画面 /cases の校正のパネル(編集の app-*.js・app.js をそのまま載せる)。キー・行の道具・保存と 409・評価用・2 つ目のエンジン・別の読み・声・追いかけ
+python src/app/tests/e2e_cases_cut.py     # 画面(カット・パック)= 案件の画面のカット・パックのパネル(cut.js・pack-tab.js)。区間・端・保存・409・パックの作り直し・zip
 ```
+- **RS8 C4(2026-10-11)で古い編集の画面(index.html)と一緒に、編集の旧 e2e 15 本(e2e_ui_mounted・edit_tabs・edit_cut・edit_pack・row_editing・proofread_keys・proofread_accuracy・folder_marker_range・eval_set・ui_handoff・edit_voices・drill・alt・fill・follow_scroll)を消した**。
+  画面の要点は案件の画面の e2e 2 本(上)の場面に、API だけで確かめられる物は unittest(`tests/test_proof_api.py` ほか。test_metrics から読む)に移した。左メニュー・履歴の一覧・タブ・URL の受け渡しの画面など古い画面だけの物は捨てた。
+  共通部品 `tests/e2e_edit_common.py`(Server・make_video・read_pack_plan)は案件の画面の e2e が使うので残っている。以下の「e2e」の説明は旧 e2e の当時の物(残っている決まり = 疑似モード・webm・CSP の待ち方 は今の 2 本にも当てはまる)
 - e2e は serve.py を疑似モード(環境変数 `TRANSCRIBE_BACKEND=fake`)で起動して試す。ffmpeg と Playwright の chromium が必要(Playwright の入れ方: `py -3.10 -m pip install -r setup\requirements-dev.txt` → `py -3.10 -m playwright install chromium`)。この PC では `python` を `py -3.10` と読み替える(`python` は Microsoft Store の別名に当たることがある)。
   Windows のコンソールでは `PYTHONIOENCODING=utf-8` を付けて流す(付けないと ▶ などを表示できずに途中で止まる)。`e2e_ui_mounted.py` は Windows でも動く(ワーカーは PowerShell で数え、入口は Ctrl+Break で止める)
 - 「編集」の e2e(`e2e_edit_*.py`)は `e2e_edit_common.py` の `Server` で起動する(ツールのファイルを拡張子でまとめて写すので、新しい .js の写し忘れが起きない。`mounted=True` で入口に取り込んだ形)
@@ -491,15 +479,11 @@ python -m unittest dev/tests/test_ui_kit_sync.py  # ui-kit.js・index.html に�
   共通部品 `../ytt/`(旧 ytt_core)と役割の層(パックの部品 `../pipeline/pack/` も)は、単体で動かすときは写さず(入口に取り込む形では `layout.copy_shared_code` が `SHARED_CODE_DIRS` を写す)、環境変数 `YTT_CORE_DIR`(ツールの親のフォルダ = `src/`。`ytt/layout.py` の src_root)で見つける
   (各スクリプトの先頭で設定している。新しいテストで serve.py を写すときも同じ1行を入れる)。`.runtime/` も `YTT_RUNTIME_DIR` で一時フォルダの中に置く
   (他のテストが同時に動いていても、「他のツール」の問い合わせ(/api/siblings)が混ざらないように)
-- `e2e_ui_handoff.py` … 受け渡し(?media= / ?clip=・元の配信・動画の隣に保存・409)、テーマの保存の1本化、
-  他のツールのメニュー、2026-09-24 の見直しで直した画面の不具合、v0.15.0 の見直し(単体でのカットとパックの案内・選んだ行のカット・動画なし・キー操作の手がかり・? ・390px の引き出し)
 - e2e は全部通ること(以前あった「版 v0.9.4 の判定は想定内の失敗」は 2026-09-26 に app.js の版を読む形に直り、もう無い)
-- `e2e_proofread_keys.py` の「4000行での Alt+Enter → 次の行 0.5 秒」は、マシンの負荷で時々超える(タイミング依存)
-- 長い e2e(`e2e_proofread_keys`・`e2e_row_editing`・`e2e_edit_tabs`・`e2e_edit_cut`・`e2e_edit_pack`)は場面ごとの関数 `_scene_*(cx)` に分けてある(0.58.2。`docs/spec/code-quality.md` の基準 3 = テストの関数は 400 行以下)。
+- 長い e2e(今は `src/app/tests/e2e_cases_proof.py`・`e2e_cases_cut.py`)は場面ごとの関数 `_scene_*` に分けてある(0.58.2。`docs/spec/code-quality.md` の基準 3 = テストの関数は 400 行以下)。
   `main` はサーバーと画面の準備・場面を呼ぶ順・後片付けだけ。場面へは `cx = types.SimpleNamespace(**locals())` で main の値を渡し、場面で作ってあとの場面で使う値は場面の最後で `cx` に戻す。
   確かめを足すときは合う場面に足すか、新しい場面を作って main から呼ぶ(場面の頭で使う値を `cx` から取り出す)
-- 設定のチェックは `app-core.js` の表に足すだけで、読み込み・保存・変えたら保存する配線(`app.js`)まで効く(「認識の設定」は `OPT_CHECKS` = 文字起こしの要求にも付く。書き出しのチェックは `SET_CHECKS` の残り(保管のチェック `archiveAuto`・`archiveFull` は 0.68.0 で消した))。`e2e_proofread_keys` の `_scene_opt_checks` が、表のどのチェックも変えたらすぐ設定に入ることを確かめる
-- e2e の各スクリプトは、メニューのタブで隠れるカードも操作できるように、テスト用のスタイルで全部のタブを表示している(タブ自体の確認は e2e_row_editing.py の最後)
+- 設定のチェックは `app-core.js` の表に足すだけで、読み込み・保存・変えたら保存する配線(`app.js`)まで効く(「認識の設定」は `OPT_CHECKS` = 文字起こしの要求にも付く。書き出しのチェックは `SET_CHECKS` の残り(保管のチェック `archiveAuto`・`archiveFull` は 0.68.0 で消した))。表のどのチェックも変えたらすぐ設定に入ることを確かめていた旧 `e2e_proofread_keys` の `_scene_opt_checks` は RS8 C4 で消えた(書き出しの 2 つ = 画面の確かめは今は無い)
 - 見た目は共通の ui-kit(`../ui-kit/`)。`ui-kit.js` は studio と同じく `python dev/sync_ui_kit.py` で写したファイル(**手で直さない**)。
   CSS だけは画面が1ファイルの名残で index.html に埋め込み(`/* ui-kit:css:begin */…end */` の中。同じく sync_ui_kit.py で写す・手で直さない)。
   このツール固有の CSS はその後ろ(色は必ず ui-kit の変数。新しいクラスは `tt-` を付ける)

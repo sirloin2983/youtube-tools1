@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""「編集」(docs/design/edit-tool-design.md)の画面のテスト(e2e_edit_*.py)の共通部分。
+"""「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。RS8 C4 で古い編集の画面と旧 e2e(e2e_edit_*.py など 15 本)は消え、
+今は案件の画面の e2e(src/app/tests/e2e_cases_proof.py・e2e_cases_cut.py)が使う。
 
 - ツールのフォルダの直下のファイルはまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
-- 単体(serve.py の疑似モード)と、入口に取り込んだ形(app/server.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)の両方を起動できる
+- 入口に取り込んだ形(app/server.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)で起動する。mounted=False は serve.py 単体(画面は無い・API だけ)
 - テスト用の動画は webm(VP9 + Opus)。Playwright の chromium は H.264 を再生できない
 """
 import json
@@ -113,9 +114,9 @@ class Server:
             raise RuntimeError("サーバーが起動しません")
         if mounted:   # 書き込み系の API の合言葉(入口が画面に入れる <meta name="ytt-token">)
             html = ""
-            for i in range(100):   # /api/ping が答えても、画面(/transcribe/)の取り込みがまだのことがある(Linux で 1 回目が 404 だった)。出るまで待つ
+            for i in range(100):   # /api/ping が答えても、画面の取り込みがまだのことがある(Linux で 1 回目が 404 だった)。出るまで待つ。合言葉はホームの画面から(編集の画面は C4 で消えた)
                 try:
-                    html = urllib.request.urlopen(self.base, timeout=10).read().decode("utf-8")
+                    html = urllib.request.urlopen("http://localhost:%d/" % self.port, timeout=10).read().decode("utf-8")
                     break
                 except urllib.error.HTTPError as e:
                     if e.code != 404 or i == 99:
@@ -181,29 +182,3 @@ def wait_js(pg, expr, timeout=15000):
         time.sleep(0.05)
     raise TimeoutError(expr)
 
-
-def wait_url_doc(pg):
-    """再読み込みのあと、URL の ?doc= の文書(開いていた文書。監査 06)が開き終わるのを待つ(開く途中でメニューが閉じ、クリックが外れるため)"""
-    wait_js(pg, "!new URLSearchParams(location.search).has('doc') || (!document.querySelector('#doc').hidden && !!document.querySelector('#docTitle').value)", 15000)
-
-
-def open_doc(pg, title):
-    """左のメニューの「履歴」から題名で開く(カット・パックのタブでは細い帯の「履歴」から)"""
-    wait_url_doc(pg)
-    cls = pg.get_attribute(".app", "class") or ""
-    if "tab-wide" in cls:
-        if "menu-overlay" not in cls:
-            pg.click("[data-strip=files]")
-    else:
-        if "menu-closed" in cls:
-            pg.click("#btnMenu")
-        pg.click("[data-side-tab=files]")
-    pg.fill("#txSearch", title)   # 検索すると、閉じているまとまりの中の文書も出る
-    for _ in range(300):
-        if pg.locator("#txList .txi").filter(has_text=title).count():
-            break
-        pg.evaluate("document.querySelectorAll('#txList details.ui-group:not([open])').forEach(d => { d.open = true; })")
-        time.sleep(0.1)
-    pg.locator("#txList .txi").filter(has_text=title).locator(".t").first.click()
-    wait_js(pg, "document.querySelector('#docTitle').value === %s" % json.dumps(title), 15000)
-    pg.evaluate("(() => { const q = document.querySelector('#txSearch'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); })()")

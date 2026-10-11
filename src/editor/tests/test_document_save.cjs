@@ -10,11 +10,13 @@ const { test } = require('node:test');
 // vm の context にはいつも withUIKit(context) を通す(context.UIKit と、harness の window に window.UIKit)。呼ばれた部品は h.context.UIKit.called('toast') などで読める
 const { withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
 
-// CSP 対応(script-src 'self')でアプリの JS は index.html から app.js へ外出しした。段10 で関数の定義は app-*.js に分けた。
-// テストは index.html が読む順番(app-*.js → app.js)にファイルをつなげて読み、使う関数・状態を名前で取り出す
+// CSP 対応(script-src 'self')でアプリの JS は app.js へ外出しした。段10 で関数の定義は app-*.js に分けた。
+// RS8 C4 で古い編集の画面(index.html)は消えた = 今は案件の画面の校正の台(src/app/ui/cases/edhost.js の ED_SCRIPTS)が読む順番(app-*.js → app.js)。
+// テストはその順番にファイルをつなげて読み、使う関数・状態を名前で取り出す
 const editorDir = path.join(__dirname, '..');
-const appFiles = [...fs.readFileSync(path.join(editorDir, 'index.html'), 'utf8').matchAll(/<script src="(app[\w-]*\.js)"><\/script>/g)].map(m => m[1]);
-assert.ok(appFiles.includes('app.js'), 'index.html must load app.js');
+const edhost = fs.readFileSync(path.join(editorDir, '..', 'app', 'ui', 'cases', 'edhost.js'), 'utf8');
+const appFiles = [...(edhost.match(/var ED_SCRIPTS = \[([^\]]*)\]/) || ['', ''])[1].matchAll(/'(app[\w-]*\.js)'/g)].map(m => m[1]);
+assert.ok(appFiles.includes('app.js'), 'edhost.js must load app.js');
 const appJs = appFiles.map(f => fs.readFileSync(path.join(editorDir, f), 'utf8').replace(/\r\n/g, '\n')).join('\n');
 function fnSource(name) {   // トップレベルの function / async function name(…) の宣言(1行のものも、次の行頭の } までのものも)
   const lines = appJs.split('\n'), re = new RegExp('^(async )?function ' + name.replace(/\$/g, '\\$') + '\\s*\\(');
@@ -185,16 +187,16 @@ test('out-of-order responses honor the most recent navigation request', async ()
   assert.equal(h.S.docId, 'C');
 });
 
-test('app.js and ui-kit.js parse successfully (CSP: index.html has no inline <script>)', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+test('app.js and ui-kit.js parse successfully (CSP: the cases page has no inline <script>)', () => {
+  const html = fs.readFileSync(path.join(editorDir, '..', 'app', 'ui', 'cases', 'index.html'), 'utf8');   // 編集の欄を載せる案件の画面(RS8 C4)
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
   assert.ok(scripts.length > 0);
   for (const [, attrs, source] of scripts) {
-    assert.ok(/\bsrc=/.test(attrs), 'index.html の <script> は src 付き(外部ファイル)であること');
+    assert.ok(/\bsrc=/.test(attrs), '案件の画面の <script> は src 付き(外部ファイル)であること');
     assert.equal(source.trim(), '');
   }
-  for (const f of appFiles) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
-  new vm.Script(fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8'));
+  for (const f of appFiles.concat(['app-tpl.js', 'cut.js', 'pack-tab.js'])) new vm.Script(fs.readFileSync(path.join(editorDir, f), 'utf8'), { filename: f });   // 1つずつ(画面と同じく別のスクリプト)
+  new vm.Script(fs.readFileSync(path.join(editorDir, '..', 'ui-kit', 'ui-kit.js'), 'utf8'));   // 共通の見た目の正本(編集の写しは C4 で消した)
 });
 
 // 字幕の読む速さの印(2026-10-05): 画面の readMark とサーバーの ed_retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
