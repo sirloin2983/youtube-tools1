@@ -391,6 +391,16 @@ def _scene_rows_to_proof(cx):
     check(len(srv.get("/api/transcript?id=" + tid)["segments"]) == n + 1, "分けた行は閉じる前に保存された")
     time.sleep(0.5)
     check(pg.evaluate("document.querySelector('#conflictBar').hidden"), "保存の競合(409)の案内が出ない")
+    # 区間(edit.json)が決まっている文書で、校正の行の「カット」を押すと、印だけ変えて黙って消える代わりにカット・パックのタブへ案内する(RS8 C4)
+    check(srv.get("/api/edit?id=" + tid).get("edit") is not None, "(前提)カットの区間が保存されている")
+    i = pg.evaluate("S.doc.segments.findIndex(g => g.cutState !== 'cut' && String(g.text || '').trim())")
+    before = srv.get("/api/transcript?id=" + tid)["segments"][i].get("cutState")
+    pg.evaluate("i => document.querySelector('#segs .seg[data-i=\"' + i + '\"]').scrollIntoView({block: 'center'})", i)
+    pg.click("#segs .seg[data-i='%d'] [data-act=cut]" % i)
+    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => /カット・パック」のタブで変えます/.test(t.textContent))", 5000), "区間があるときは校正で印を変えずにカット・パックへ案内する")
+    time.sleep(1.2)
+    check(pg.evaluate("i => S.doc.segments[i].cutState !== 'cut'", i) and srv.get("/api/transcript?id=" + tid)["segments"][i].get("cutState") == before,
+          "画面の印もサーバーの印も変わらない(黙って消える印を付けない)")
 
 
 if __name__ == "__main__":

@@ -544,6 +544,7 @@ $('#segs').addEventListener('click', e => {
     case 'keep': case 'cut': {   // 2 択の「残す」「カット」(M1): 押した側の状態にする(今と同じなら何もしない)
       const want = b.dataset.act === 'cut'; if ((s.cutState === 'cut') === want) break;
       if (CUT && CUT.active()){ CUT.rowsCut([i], want); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
+      if (EDIT_HOST){ hostRowsCut([i], want); break; }   // 案件の画面: 区間が決まっていればカット・パックのタブへ(app-tools.js)
       pushUndo();
       setCut(s, want);
       paintCut(row, s.cutState === 'cut');

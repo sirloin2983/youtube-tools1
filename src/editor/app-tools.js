@@ -647,6 +647,23 @@ function renderCutPackNow(){
 /* 文書を保存したあと: 3 パック のタブの見積もり(字幕の数など)を出し直す */
 function cpAfterSave(){ if (S.doc && PACK) PACK.changed(); }
 
+/* 案件の画面(EDIT_HOST。RS8 C4)では、カットの欄(EditCut)は別のパネルにあって校正の中には無い。カットの区間(edit.json)が決まっている文書で行の印だけを
+   変えると、保存のときにサーバーが区間から印を付け直して黙って消える(区間は変わらない)。区間があるときは何も変えずにカット・パックのタブへ案内し、
+   まだ無いとき(行の印がカットの正)だけ今までどおり印を変える。idx = 行の番号の並び */
+async function hostRowsCut(idx, cut){
+  const id = S.docId;
+  let edit = null;
+  try { edit = (await api('/api/edit?id=' + encodeURIComponent(id))).edit; } catch (e){ return toast('カットの区間を確かめられませんでした: ' + e.message, 4000, 'err'); }
+  if (S.docId !== id || !S.doc) return;
+  if (edit){
+    return toast('この切り抜きはカットの区間が決まっているので、残す・カットは「カット・パック」のタブで変えます(行の印はそのまま)',
+      { ms: 7000, kind: 'info', action: { label: 'カット・パックへ', fn: () => EDIT_HOST.tab('cut') } });
+  }
+  pushUndo(); let n = 0;
+  for (const i of idx){ const g = S.doc.segments[i]; if (g){ setCut(g, cut); n++; } }
+  renderDoc(); markDirty(); renderCutPack();
+  toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
+}
 /* 選んだ行をまとめてカット済に/残す(1行ずつは、行の右の「残す / カット」。同じ印を変える入口は、この2つだけ) */
 function bulkCut(cut){
   if (!S.doc || !S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
@@ -656,6 +673,7 @@ function bulkCut(cut){
     CUT.rowsCut(idx, cut);
     return toast(`${idx.length}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);   // 1 行ずつの経路と同じ言葉(S8)
   }
+  if (EDIT_HOST) return hostRowsCut(S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0), cut);
   pushUndo(); let n = 0;
   for (const g of S.doc.segments) if (S.sel.has(g.id)){ setCut(g, cut); n++; }
   renderDoc(); markDirty(); toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);

@@ -38,15 +38,15 @@ class TestSuiteList(unittest.TestCase):
     def test_no_duplicates_and_known_groups(self):
         names = [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE]
         self.assertEqual(len(names), len(set(names)))
-        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"editor", "home", "studio", "dev", "ui-kit"})
+        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "studio", "dev", "ui-kit"})
 
     def test_only_filters_by_group_or_name(self):
-        editor = run_e2e.selected(["editor"])
-        self.assertTrue(editor and all(r[0] == "editor" for r in editor))
+        cases = run_e2e.selected(["cases"])
+        self.assertTrue(cases and all(r[0] == "cases" for r in cases))
         live = run_e2e.selected(["live_"])
         self.assertEqual(sorted(r[4] for r in live), ["e2e_live_archive", "e2e_live_studio"])
-        both = run_e2e.selected(["dev", "e2e_fill"])
-        self.assertEqual({r[0] for r in both}, {"dev", "editor"})
+        both = run_e2e.selected(["dev", "e2e_cases_cut"])
+        self.assertEqual({r[0] for r in both}, {"dev", "cases"})
         self.assertEqual(len(run_e2e.selected([])), len(run_e2e.SUITE))
         no_live = run_e2e.selected([], ["live_"])
         self.assertEqual(len(no_live), len(run_e2e.SUITE) - 2)
@@ -57,10 +57,11 @@ class TestSuiteList(unittest.TestCase):
         self.assertEqual(run_e2e.summary("OK   a\nOK   b\nFAIL c\nNG   d\n"), "OK 2 / FAIL 2")
 
     def test_editor_suite_runner_agrees(self):
-        """dev/run_editor_suite.py の編集の e2e の一覧は、一式の editor の組と同じ"""
+        """dev/run_editor_suite.py が流す e2e(編集の部品を載せた案件の画面の 2 本)は、一式の cases の組にある。編集だけの e2e は RS8 C4 で無くなった"""
         import run_editor_suite
-        mine = sorted(run_e2e.label(s, a) for g, s, a, _w in run_e2e.SUITE if g == "editor")
-        self.assertEqual(sorted(run_editor_suite.E2E), mine)
+        cases = {run_e2e.label(s, a) for g, s, a, _w in run_e2e.SUITE if g == "cases"}
+        self.assertEqual(run_editor_suite.E2E, [])
+        self.assertTrue(set(run_editor_suite.CASES_E2E) <= cases, run_editor_suite.CASES_E2E)
 
 
 if __name__ == "__main__":

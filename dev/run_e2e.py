@@ -2,14 +2,14 @@
 """画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
 
     py -3.10 dev/run_e2e.py                      # 一式(大きな区切りに 1 回。AGENTS.md の「e2e は少なめに」)
-    py -3.10 dev/run_e2e.py --only editor        # 組(editor / home / studio / dev / ui-kit)か、名前の一部で絞る
-    py -3.10 dev/run_e2e.py --only live_studio --only edit_cut
+    py -3.10 dev/run_e2e.py --only cases         # 組(cases / home / studio / dev / ui-kit)か、名前の一部で絞る
+    py -3.10 dev/run_e2e.py --only live_studio --only cases_cut
     py -3.10 dev/run_e2e.py --skip live_          # ライブを触っていないときは重い 2 本(約 7 分)を飛ばす
     py -3.10 dev/run_e2e.py --list               # 一覧だけ
     py -3.10 dev/run_e2e.py --out 結果.json
 
 リポジトリ直下から流す。各テストは別のプロセス・PYTHONIOENCODING=utf-8・同時に流さない(待ちのあるテストが揺れる)。
-一式に入れないもの: src/studio/tests/e2e_review.py(手で見る見本サーバー)・chrome-ext の e2e_fake_studio(Edge で別に)・
+一式に入れないもの: chrome-ext の e2e_fake_studio(Edge で別に)・
 friend-apps/holo-colors の e2e_holo_colors(本物のキー入力を送るので 1 本だけで)。dev/tests/test_run_e2e.py が、リポジトリの e2e_*.py が
 この一覧か NOT_IN_SUITE のどちらかに必ずあることを確かめる(足した e2e の入れ忘れを止める)。
 """
@@ -24,51 +24,34 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
 
-# (組, スクリプト, 追加の引数, 何を確かめるか)。所要秒は 2026-10-10 の実測(i9-12900KF。31 本で約 18 分、うちライブの 2 本で約 7 分)。
+# (組, スクリプト, 追加の引数, 何を確かめるか)。所要秒は 2026-10-11 の実測(i9-12900KF)。RS8 C4(0.59.0)で古いスタジオ・編集の画面と、その e2e 18 本
+# (編集 15 本・スタジオの e2e_ui 2 回・見本の e2e_review)を消し、確かめの要点を案件の画面の 4 本(組 cases)・e2e_portal・unittest へ移した。
 SUITE = [
-    # 編集(src/editor/tests/。合わせて約 6 分)
-    ("editor", "src/editor/tests/e2e_ui_mounted.py", [], "入口に取り込んだ形: CSP・合言葉・ワーカーの立ち直り・履歴の一覧・パック(23 秒)"),
-    ("editor", "src/editor/tests/e2e_edit_tabs.py", [], "2 つのタブ・メニュー・URL の #・題名の行・文字起こしせずに開く(40 秒)"),
-    ("editor", "src/editor/tests/e2e_edit_cut.py", [], "2 カット: ドラッグ・吸着・分割・I/O・元に戻す・409・たたき台(55 秒)"),
-    ("editor", "src/editor/tests/e2e_edit_pack.py", [], "パック: 設定・見積もり・サムネ案・配信者・中止・30fps(36 秒)"),
-    ("editor", "src/editor/tests/e2e_row_editing.py", [], "行の追加・結合・分割・重なり・下書き・Z・画面幅(42 秒)"),
-    ("editor", "src/editor/tests/e2e_proofread_keys.py", [], "設定のチェックの即保存・キー・表示・保存の競合・4000 行(26 秒)"),
-    ("editor", "src/editor/tests/e2e_proofread_accuracy.py", [], "校正済み・絞り込み・精度のカード(6 秒)"),
-    ("editor", "src/editor/tests/e2e_folder_marker_range.py", [], "フォルダ一括・スタジオのマーク・範囲の再認識(7 秒)"),
-    ("editor", "src/editor/tests/e2e_eval_set.py", [], "評価用を守る(学習・辞書・再認識・測定・⚙ の評価用フォルダ)(12 秒)"),
-    ("editor", "src/editor/tests/e2e_ui_handoff.py", [], "受け渡し ?media= / ?clip=・動画の隣に保存・409・390px の引き出し(17 秒)"),
-    ("editor", "src/editor/tests/e2e_edit_voices.py", [], "声を覚える・判別し直す・忘れる(14 秒)"),
-    ("editor", "src/editor/tests/e2e_drill.py", [], "評価ドリル・全行をこの人に・話者の自動判別(38 秒)"),
-    ("editor", "src/editor/tests/e2e_alt.py", [], "2 つ目のエンジンと YouTube の字幕の候補(15 秒)"),
-    ("editor", "src/editor/tests/e2e_fill.py", [], "認識のあとの後処理(別の読み)の札と戻す(7 秒)"),
-    ("editor", "src/editor/tests/e2e_follow_scroll.py", [], "再生の追いかけで窓が動かない(8 秒)"),
+    # 案件の画面 /cases(src/app/tests/。RS8)
+    ("cases", "src/app/tests/e2e_cases.py", [], "案件の画面の殻: 一覧・タブ・URL・キー・② の問い合わせ・引数なしで前の案件・appnav(7 秒)"),
+    ("cases", "src/app/tests/e2e_cases_cand.py", [], "候補のパネル: 再生・グラフ・採用・キー・書き出し・時刻の欄・引き出し・まとめて実行・一瞬とつなげる・再生できない配信・片付け(52 秒)"),
+    ("cases", "src/app/tests/e2e_cases_proof.py", [], "校正のパネル: 編集の行・キー・保存・切り替え・競合・行の道具・評価用・2 つ目のエンジン・別の読み・声・配信のプレーヤー・3 択(層が正)"),
+    ("cases", "src/app/tests/e2e_cases_cut.py", [], "カット・パックのパネル: 区間・保存・キー・パックの設定・パックを作る・作り直し・zip・2 つの窓の 409・切り替え"),
     # 3 ツールの通し・作業データの置き場所(dev/tests/)
-    ("dev", "dev/tests/e2e_pipeline.py", [], "スタジオ → 編集 → cut2resolve の API の通し(Playwright なし)(14 秒)"),
-    ("dev", "dev/tests/e2e_datadir.py", [], "作業データを外へ写す(入口を本物で起動)(7 秒)"),
+    ("dev", "dev/tests/e2e_pipeline.py", [], "スタジオ → 編集 → cut2resolve の API の通し(Playwright なし)(20 秒)"),
+    ("dev", "dev/tests/e2e_datadir.py", [], "作業データを外へ写す(入口を本物で起動)(10 秒)"),
     # 入口(src/home/tests/)
-    ("home", "src/home/tests/e2e_portal.py", [], "ホーム(本番と同じ取り込み)・案件・次にやること・子プロセスの文字起こし(59 秒)"),
-    ("home", "src/home/tests/e2e_autorun.py", [], "まとめて実行(画面と API・起動し直し後の記録)(28 秒)"),
-    ("home", "src/home/tests/e2e_window.py", [], "画面のエラーの記録・離れた/戻った・窓で開く(12 秒)"),
-    ("home", "src/home/tests/e2e_keymap.py", [], "共通の再生キーの移行・? の一覧・キーの変更(19 秒)"),
-    ("home", "src/home/tests/e2e_settings.py", [], "設定の画面 /settings(5 秒)"),
-    ("home", "src/app/tests/e2e_cases.py", [], "案件の画面 /cases の殻: 一覧・タブ・URL・キー・② の問い合わせ(RS8 C1)(6 秒)"),
-    ("home", "src/app/tests/e2e_cases_cand.py", [], "案件の画面の候補のパネル: 再生・グラフ・採用・キー・書き出し・片付け(RS8 C2a)(30 秒)"),
-    ("home", "src/app/tests/e2e_cases_proof.py", [], "案件の画面 /cases の校正のパネル: 編集の行・キー・保存・切り替え・競合・配信のプレーヤー・3 択(層が正)(RS8 C2b)(40 秒)"),
-    ("home", "src/app/tests/e2e_cases_cut.py", [], "案件の画面 /cases のカット・パックのパネル: 区間・保存・キー・パックの設定・パックを作る・切り替え(RS8 C2c)(15 秒)"),
-    ("home", "src/home/tests/e2e_intake_ui.py", [], "依頼の受付の画面(3 秒)"),
-    ("home", "src/home/tests/e2e_backup_ui.py", [], "バックアップの画面(本物のバックアップ)(6 秒)"),
-    ("home", "src/home/tests/e2e_live.py", [], "ライブ(線 D)の入口の API(録画の部品は本物)(9 秒)"),
-    ("home", "src/home/tests/e2e_live_studio.py", [], "ライブ: スタジオの画面(録画 → 再生 → マーク → 書き出し・候補)(約 3 分)"),
-    ("home", "src/home/tests/e2e_live_archive.py", [], "ライブ: アーカイブで本番版に入れ替え・自動の消去・配信後の全自動(約 4 分)"),
+    ("home", "src/home/tests/e2e_portal.py", [], "ホーム(本番と同じ取り込み)・appnav・古い URL の転送・案件の画面の候補/校正/カット・新しい案件と探す設定・案件・次にやること・子プロセスの文字起こし(約 2 分)"),
+    ("home", "src/home/tests/e2e_autorun.py", [], "まとめて実行(画面と API・起動し直し後の記録)(35 秒)"),
+    ("home", "src/home/tests/e2e_window.py", [], "画面のエラーの記録・離れた/戻った・窓で開く(案件の画面)(13 秒)"),
+    ("home", "src/home/tests/e2e_keymap.py", [], "共通の再生キーの移行・? の一覧・キーの変更(校正・候補のパネル)(55 秒)"),
+    ("home", "src/home/tests/e2e_settings.py", [], "設定の画面 /settings(12 秒)"),
+    ("home", "src/home/tests/e2e_intake_ui.py", [], "依頼の受付の画面(9 秒)"),
+    ("home", "src/home/tests/e2e_backup_ui.py", [], "バックアップの画面(本物のバックアップ)(9 秒)"),
+    ("home", "src/home/tests/e2e_live.py", [], "ライブ(線 D)の入口の API(録画の部品は本物)(17 秒)"),
+    ("home", "src/home/tests/e2e_live_studio.py", [], "ライブ: ホームの /#new から録画 → 案件の画面の候補で再生 → マーク → 書き出し・候補(約 3 分)"),
+    ("home", "src/home/tests/e2e_live_archive.py", [], "ライブ: 案件の画面の候補でアーカイブの本番版に入れ替え・自動の消去・配信後の全自動(約 6 分)"),
     # スタジオ(src/studio/tests/)・ui-kit
     ("studio", "src/studio/tests/e2e_analyze.py", [], "解析の通し(合成の音声とチャット。Playwright なし)(15 秒)"),
-    ("studio", "src/studio/tests/e2e_ui.py", [], "スタジオの画面 25 場面(単体)(46 秒)"),
-    ("studio", "src/studio/tests/e2e_ui.py", ["--mounted"], "同じ 25 場面を入口に取り込んだ形で(CSP・合言葉)(53 秒)"),
-    ("ui-kit", "src/ui-kit/tests/e2e_styleguide.py", [], "ui-kit の見本(部品の動き・版の帯・録画中の札・http)(17 秒)"),
+    ("ui-kit", "src/ui-kit/tests/e2e_styleguide.py", [], "ui-kit の見本(部品の動き・版の帯・録画中の札・http)(21 秒)"),
 ]
 # リポジトリにあるが一式に入れない e2e(理由は先頭の説明)
 NOT_IN_SUITE = {
-    "src/studio/tests/e2e_review.py",
     "chrome-ext/yt-studio-time/tests/e2e_fake_studio.py",
     "friend-apps/holo-colors/tests/e2e_holo_colors.py",
 }

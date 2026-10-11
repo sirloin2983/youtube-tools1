@@ -1103,9 +1103,12 @@ function renderPlayerMsg(){
   if (!S.doc || S.playerErr !== S.docId){ m.hidden = true; return; }
   const cs = CUT ? CUT.state() : null, known = !!(cs && cs.loaded && cs.docId === S.docId);
   const missing = known && cs.offCode === 'source_missing', tail = '文字の編集と書き出しは、再生できなくても使えます。';
+  /* 案件の画面(EDIT_HOST)ではカットの欄が別のパネル = 見つからないのか形式なのかを CUT から読めない。パスがあれば「選び直す」を出す(確かめは選び直しのダイアログ。RS8 C4) */
+  const hostGuess = !known && !!EDIT_HOST && !!S.doc.sourcePath;
   $('#playerMsgText').textContent = missing ? `元の動画が見つかりません: ${S.doc.sourcePath || '(パスの記録なし)'}。${tail}`
     : known && cs.offCode === 'network_path' ? `${cs.off}。${tail}`
-    : known ? `この形式は再生できません(mkv など)。${tail}` : `元のファイルを再生できません。${tail}`;
-  $('#playerRelink').hidden = !missing;
+    : known ? `この形式は再生できません(mkv など)。${tail}`
+    : hostGuess ? `元のファイルを再生できません(動画が見つからないか、再生できない形式です: ${S.doc.sourcePath})。${tail}` : `元のファイルを再生できません。${tail}`;
+  $('#playerRelink').hidden = !(missing || hostGuess);
   m.hidden = false;
 }
