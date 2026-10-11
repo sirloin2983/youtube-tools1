@@ -46,7 +46,7 @@ function showErr(msg, opt = {}){
 
 /* 知らせの次の一手(段7): 「元に戻す」(1 文字起こし の元に戻す)・「2 カットへ」 */
 function undoToast(msg, ms = 5000){ return toast(msg, { kind: 'ok', ms, action: { label: '元に戻す', fn: () => doUndo('tx') } }); }
-const TO_CUT = Object.freeze({ label: '2 カットへ', fn: () => setEditTab('cut', { focus: true }) });
+const TO_CUT = Object.freeze({ label: window.EditHost ? 'カット・パックへ' : '2 カットへ', fn: () => setEditTab('cut', { focus: true }) });   // 案件の画面ではタブの名前(RS8 C4)
 
 /* ---------- 区間の終わりで止める見張り(「この行だけ再生」・▶・評価ドリルの帯の「聞く」・端を動かしたあとの聞き直し) ----------
    以前は timeupdate(Chromium で約 250ms ごと)で止めていて、止まるまでに 9〜236ms(平均 約 116ms)行の終わりを過ぎた。機械の行の終わりは次の声の出だしの

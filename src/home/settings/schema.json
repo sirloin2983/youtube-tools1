@@ -121,7 +121,7 @@
         { "key": "diarSmooth", "type": "bool", "label": "短い 1 行だけ別の人になるのをならす(試験中)", "default": false, "validated": true }
       ] },
       { "id": "text", "title": "用語集・置換辞書", "items": [
-        { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "認識のヒントとして渡します。効き目は限定的なので、直らないものは置換辞書で直します。「ホロライブの名簿から追加」は編集の 1 文字起こし で。" },
+        { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "認識のヒントとして渡します。効き目は限定的なので、直らないものは置換辞書で直します。(RS8 C4 で編集の画面と一緒に「ホロライブの名簿から追加」の欄は無くなった。名前はここに 1 行ずつ足す)" },
         { "key": "replacements", "type": "textarea", "label": "置換辞書(1 行に「誤=>正」)", "default": "", "maxlength": 20000, "placeholder": "例:\nふぶき=>フブキ", "hint": "どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません。" }
       ] }
     ] },
