@@ -384,7 +384,7 @@ class TestEdMiscNames(unittest.TestCase):
 
     def test_old_ed_misc_names_still_resolve(self):
         names = _old_names("data_ed_misc_names.txt")
-        self.assertEqual(len(names), 17)
+        self.assertEqual(len(names), 16)   # OTHER_JSON_MAX は ytt/studiodata.STUDIO_JSON_MAX に一本化(RS8 B3-1)
         self.assertEqual([n for n in names if not hasattr(S, n)], [])
 
     def test_moved_owners(self):

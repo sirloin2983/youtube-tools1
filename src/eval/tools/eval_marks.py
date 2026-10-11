@@ -67,6 +67,7 @@ from eval.tools import _studioapi as API  # noqa: E402  スタジオの API を�
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・分布・保存。src を sys.path に足す)
 from eval.tools._evalcommon import pct, rate, read_json  # noqa: E402
 from manage.cases import txindex  # noqa: E402
+from ytt import studiodata  # noqa: E402  スタジオの data.json の読み口
 from pipeline.analyze import excite  # noqa: E402
 
 SCHEMA = "youtube-tools-marks-eval/v1"
@@ -122,8 +123,7 @@ def locate(data_dir=None):
 
 def studio_videos(studio):
     """スタジオの data.json の videos(読めない・形が違えば {})。ライブの録画も含めたまま"""
-    data = read_json(os.path.join(studio, "data.json"), {}, C.DOC_BYTES)
-    return data.get("videos") if isinstance(data, dict) and isinstance(data.get("videos"), dict) else {}
+    return studiodata.videos(os.path.join(studio, "data.json"))
 
 
 def load_feedback(studio):

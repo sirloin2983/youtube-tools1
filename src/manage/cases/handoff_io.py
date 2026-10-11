@@ -14,7 +14,7 @@ import json
 import os
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402
-from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
+from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from flow import pack as _flowpack  # noqa: E402   (受け渡しの JSON と SRT の組み立て。RS6 a-5a に pipeline/pack/resolve_export から。呼ぶたびに _flowpack.名前 で読む)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
 from human.proof import store as _store  # noqa: E402   文書の読み・編集の内容(呼ぶたびに _store.名前 で読む)
@@ -23,9 +23,8 @@ from . import pipeline_io  # noqa: E402   (受け渡しの読み・保存。RS3-
 
 
 # ---------- clip-marker との連携 ----------
-OTHER_JSON_MAX = 64 * 1024 * 1024   # 他のツールが書く JSON(スタジオの data.json・旧マーカー・波形の記録)を読む上限(これより大きいものは読めない扱い)
 # 他のツール(スタジオ・旧マーカー)が書くファイルを読む。BOM 付きでも読む。読めなければ None(ytt.fsio.read_json_or。名前はテストが呼ぶので残す)
-_read_json_file = functools.partial(_fsio.read_json_or, default=None, max_bytes=OTHER_JSON_MAX)  # lint: keep 写しではなく別名(上限つき。名前はテストが呼ぶ)
+_read_json_file = functools.partial(_fsio.read_json_or, default=None, max_bytes=_studiodata.STUDIO_JSON_MAX)  # lint: keep 写しではなく別名(上限つき。名前はテストが呼ぶ)
 
 
 def studio_out_dir(data_path):
@@ -66,7 +65,7 @@ def read_marker():
     for kind, path in (("studio", _workdata.STUDIO_DATA), ("marker", _workdata.MARKER_DATA)):
         if not os.path.isfile(path):
             continue
-        d = _read_json_file(path)
+        d = _studiodata.read(path) if kind == "studio" else _read_json_file(path)   # スタジオの data.json は読み口を通す(旧マーカーは別のファイル)
         if d is None:
             continue
         vs = marker_videos(d)

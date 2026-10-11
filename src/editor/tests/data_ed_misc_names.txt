@@ -1,6 +1,5 @@
 # RS3-E7(2026-10-10)の前に ed_misc が持っていた名前(標準のモジュールと ytt の部品を除く。設定の比較 A/B は 0.68.0・進行度 progress_stats は 0.69.0 で消したあと)。中身を manage/cases/handoff_io・human/proof/batch へ分けても serve と ed_misc の名前で読めることを test_names.py が確かめる(runtime_path_dir は app の ed_state へ移したので serve の名前だけ)
 MAX_SCAN_FILES
-OTHER_JSON_MAX
 _covered
 _done_and_active
 _pipeline_error

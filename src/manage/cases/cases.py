@@ -46,7 +46,7 @@ import time
 import urllib.parse
 
 from . import txindex   # 同じ manage/cases の兄弟
-from ytt import datadir, fsio, schemas, tools
+from ytt import datadir, fsio, schemas, studiodata, tools
 from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
 from flow import live_failures   # 失敗の文は 1 か所。線 D の M3
 from flow import placement   # 置き場所の持ち主(スタジオの data.json。RS6 b-B0)
@@ -91,9 +91,7 @@ def locations(repo_root, env=None):
 # ---------------------------------------------------------------- 各ツールのデータを読む(読むだけ)
 
 def read_studio(path):
-    d = _read_json(path)
-    videos = d.get("videos") if isinstance(d, dict) else None
-    return videos if isinstance(videos, dict) else {}
+    return studiodata.videos(path)
 
 
 def read_transcripts(folder):

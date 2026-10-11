@@ -7,20 +7,49 @@
 """
 from . import fsio as _fsio, workdata as _workdata
 
-STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(manage/cases/handoff_io の OTHER_JSON_MAX と同じ値。これより大きい data.json は読めない扱い)
+STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(スタジオの data.json・旧マーカーなど他のツールが書く JSON の上限の 1 か所。これより大きいものは読めない扱い)
+SCHEMA = "clip-studio/v1"
+
+
+def read(path=None):
+    """スタジオの data.json(path を省くと workdata.STUDIO_DATA)を読む。-> dict か None(無い・読めない・大きすぎる・JSON の最上位が dict でない)。
+    data.json を直に読む所はここを通す(のち data.json が索引 + 案件のファイルに分かれたとき、この中だけを直す)"""
+    d = _fsio.read_json_or(path if path else _workdata.STUDIO_DATA, None, max_bytes=STUDIO_JSON_MAX)
+    return d if isinstance(d, dict) else None
+
+
+def load_all(path=None):
+    """-> {"schema", "videos", "groups"}(全部の形。壊れていた・無い・形が違う部分は空の形。呼ぶたびに読み直し、複製を返す)"""
+    d = read(path) or {}
+    videos, groups = d.get("videos"), d.get("groups")
+    return {"schema": d.get("schema") if isinstance(d.get("schema"), str) else SCHEMA,
+            "videos": videos if isinstance(videos, dict) else {}, "groups": groups if isinstance(groups, dict) else {}}
+
+
+def videos(path=None):
+    """-> {配信の id: 配信}(読めなければ {})"""
+    return load_all(path)["videos"]
+
+
+def video(vid, path=None):
+    """-> 配信 1 本の dict か None"""
+    v = videos(path).get(str(vid or ""))
+    return v if isinstance(v, dict) else None
+
+
 _studio_cache = _fsio.StampCache()   # スタジオの data.json のパス → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(更新日時と大きさでキャッシュ)
 
 
 def _studio_parse(path):
     """スタジオの data.json → ({videoId: {"channel", "title"}}, コラボのまとまり [[videoId, …]])(読めなければ空)"""
-    d = _fsio.read_json_or(path, None, max_bytes=STUDIO_JSON_MAX)
+    d = read(path)
     out, groups = {}, []
-    vids = d.get("videos") if isinstance(d, dict) else None
+    vids = d.get("videos") if d else None
     if isinstance(vids, dict):
         for vid, v in list(vids.items())[:5000]:
             if isinstance(v, dict):
                 out[str(vid)[:40]] = {"channel": str(v.get("channel") or "")[:100], "title": str(v.get("title") or "")[:200]}
-    gs = d.get("groups") if isinstance(d, dict) else None
+    gs = d.get("groups") if d else None
     for g in (list(gs.values())[:2000] if isinstance(gs, dict) else []):
         ms = g.get("members") if isinstance(g, dict) else None
         if isinstance(ms, list):

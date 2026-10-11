@@ -76,6 +76,46 @@ class TestStudiodata(_Saved):
         self.assertEqual(studiodata.studio_videos(), {})
         self.assertIsNone(studiodata.studio_stream("v1"))
 
+    def test_load_read_paths(self):
+        """読み口 load_all・videos・video・read: path 指定・省略(STUDIO_DATA)・無い・壊れた・大きすぎる・最上位が dict でない"""
+        tmp = tempfile.mkdtemp(prefix="b31-studio-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        empty = {"schema": studiodata.SCHEMA, "videos": {}, "groups": {}}
+        good = os.path.join(tmp, "good.json")
+        with open(good, "w", encoding="utf-8") as f:
+            json.dump({"schema": "clip-studio/v1", "videos": {"v1": {"title": "T"}, "bad": 3}, "groups": {"g": {}}}, f)
+        self.assertEqual(studiodata.load_all(good)["videos"]["v1"], {"title": "T"})
+        self.assertEqual(studiodata.video("v1", good), {"title": "T"})
+        self.assertIsNone(studiodata.video("bad", good))   # 配信が dict でなければ無い扱い
+        self.assertIsNone(studiodata.video("zz", good))
+        self.assertEqual(studiodata.load_all(good)["groups"], {"g": {}})
+        workdata.STUDIO_DATA = good   # path を省くと STUDIO_DATA
+        self.assertIn("v1", studiodata.videos())
+        missing = os.path.join(tmp, "none.json")
+        self.assertIsNone(studiodata.read(missing))
+        self.assertEqual(studiodata.load_all(missing), empty)
+        broken = os.path.join(tmp, "broken.json")
+        with open(broken, "w", encoding="utf-8") as f:
+            f.write("{壊れた")
+        self.assertIsNone(studiodata.read(broken))
+        self.assertEqual(studiodata.load_all(broken), empty)
+        lst = os.path.join(tmp, "list.json")
+        with open(lst, "w", encoding="utf-8") as f:
+            f.write("[1, 2]")
+        self.assertEqual(studiodata.load_all(lst), empty)
+        shape = os.path.join(tmp, "shape.json")
+        with open(shape, "w", encoding="utf-8") as f:
+            f.write('{"videos": [1], "groups": 5}')
+        self.assertEqual(studiodata.load_all(shape), empty)
+        big = os.path.join(tmp, "big.json")
+        with open(big, "w", encoding="utf-8") as f:
+            f.write('{"videos": {"v": {}}}' + " " * 64)
+        saved = studiodata.STUDIO_JSON_MAX
+        self.addCleanup(setattr, studiodata, "STUDIO_JSON_MAX", saved)
+        studiodata.STUDIO_JSON_MAX = 32   # 上限を超えるファイルは読めない扱い
+        self.assertIsNone(studiodata.read(big))
+        self.assertEqual(studiodata.videos(big), {})
+
 
 if __name__ == "__main__":
     unittest.main()
