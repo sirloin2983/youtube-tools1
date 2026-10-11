@@ -47,14 +47,14 @@ def fixture(root):
                                                          "pack": pack, "auto": None, "state": state}
     v1 = {"id": "v1", "kind": "", "caseKind": "stream", "root": root, "title": "【雑談】テストの配信", "channel": "配信者 A", "streamedAt": 1760000000000,
           "marks": {"total": 8, "adopted": 1, "exported": 4, "candidates": 3},
-          "clips": [clip("m1", 760, 812, tx("t1", 10, 10), "packed", {"textplus": True, "updatedAt": 1}),
-                    clip("m2", 2285, 2332, tx("t2", 10, 4), "proofing"),
-                    clip("m3", 3771, 3829, tx("t3", 8, 0), "proofing"),
+          "clips": [clip("m1", 760, 812, tx("a0000000000a", 10, 10), "packed", {"textplus": True, "updatedAt": 1}),
+                    clip("m2", 2285, 2332, tx("a0000000000b", 10, 4), "proofing"),
+                    clip("m3", 3771, 3829, tx("a0000000000c", 8, 0), "proofing"),
                     clip("m4", 4814, 4855, None, "none")]}
     v2 = {"id": "v2", "kind": "", "caseKind": "stream", "root": "", "title": "まだ切り抜きの無い配信", "marks": {"total": 2, "candidates": 2}, "clips": []}
     ev = {"id": "eval", "kind": "", "caseKind": "eval", "root": "", "title": "評価用",
-          "clips": [{"markId": "", "label": "評価 01", "start": None, "end": None, "transcript": tx("e1", 5, 5, "評価 01"), "state": "proofed"},
-                    {"markId": "", "label": "評価 02", "start": None, "end": None, "transcript": tx("e2", 5, 0, "評価 02"), "state": "proofing"}]}
+          "clips": [{"markId": "", "label": "評価 01", "start": None, "end": None, "transcript": tx("e0000000000a", 5, 5, "評価 01"), "state": "proofed"},
+                    {"markId": "", "label": "評価 02", "start": None, "end": None, "transcript": tx("e0000000000b", 5, 0, "評価 02"), "state": "proofing"}]}
     orphan = {"id": "orphan", "kind": "", "caseKind": "orphan", "root": "", "title": "どの案件にも入らない文字起こし", "clips": []}
     return {"cases": [v1, v2], "virtual": [ev, orphan], "unlinked": [], "todoOrder": []}
 
@@ -120,16 +120,16 @@ def main():
                 # 2. ?c=v1#proof: 左の一覧・最初の未校正・タブ・URL
                 pg.goto(base + "cases?c=v1#proof")
                 check(wait_js(pg, "document.querySelectorAll('#csRail [data-cs-key]').length === 5"), "左の一覧は 候補 + 切り抜き 4 本: %s" % rail_keys())
-                check(rail_keys() == ["cand", "d:t1", "d:t2", "d:t3", "m:m4"], "並び: %s" % rail_keys())
+                check(rail_keys() == ["cand", "d:a0000000000a", "d:a0000000000b", "d:a0000000000c", "m:m4"], "並び: %s" % rail_keys())
                 check(pg.text_content("#csTitle") == "【雑談】テストの配信" and pg.title() == "動画編集ツール — 【雑談】テストの配信", "題名")
                 s = st()
-                check(s["sel"] == "d:t2" and s["tab"] == "proof" and s["panel"] == "proof", "#proof は最初の未校正の切り抜き(t2)の校正: %s" % s)
-                check(pg.evaluate("location.search + location.hash") == "?c=v1&d=t2#proof", "URL に c・d・#proof: %s" % pg.evaluate("location.search + location.hash"))
+                check(s["sel"] == "d:a0000000000b" and s["tab"] == "proof" and s["panel"] == "proof", "#proof は最初の未校正の切り抜き(a0000000000b)の校正: %s" % s)
+                check(pg.evaluate("location.search + location.hash") == "?c=v1&d=a0000000000b#proof", "URL に c・d・#proof: %s" % pg.evaluate("location.search + location.hash"))
                 check(tabs() == ["proof*", "cut"], "切り抜きのタブは 校正・カット・パック: %s" % tabs())
-                check(pill("d:t1") == "パック済み" and pill("d:t2").startswith("校正中") and pill("d:t3") == "未校正" and pill("m:m4") == "文字起こし前",
-                      "札: %s / %s / %s / %s" % (pill("d:t1"), pill("d:t2"), pill("d:t3"), pill("m:m4")))
-                check(pg.evaluate("document.querySelector('#csRail [aria-current=\"true\"]').dataset.csKey") == "d:t2", "選んだ行に aria-current")
-                check(pg.get_attribute("[data-cs-stub=proof] a.btn", "href") == "transcribe/?doc=t2#tx", "空のパネルから今の編集へ(相対パス)")
+                check(pill("d:a0000000000a") == "パック済み" and pill("d:a0000000000b").startswith("校正中") and pill("d:a0000000000c") == "未校正" and pill("m:m4") == "文字起こし前",
+                      "札: %s / %s / %s / %s" % (pill("d:a0000000000a"), pill("d:a0000000000b"), pill("d:a0000000000c"), pill("m:m4")))
+                check(pg.evaluate("document.querySelector('#csRail [aria-current=\"true\"]').dataset.csKey") == "d:a0000000000b", "選んだ行に aria-current")
+                check(pg.get_attribute("[data-cs-stub=proof] a.btn", "href") == "transcribe/?doc=a0000000000b#tx", "空のパネルから今の編集へ(相対パス)")
                 check(wait_js(pg, "['Alt+1', 'Alt+2', 'Shift+N'].every(k => !!document.querySelector('.ui-keybar [data-k=\"' + k + '\"]'))"), "下の帯に殻のキー")
 
                 # 3. キー: Alt+2 / Alt+1 / Shift+N(入力中は効かない)
@@ -138,13 +138,13 @@ def main():
                 pg.keyboard.press("Alt+1")
                 check(wait_js(pg, "CasesShell.state().tab === 'proof'"), "Alt+1 で校正")
                 pg.keyboard.press("Shift+N")
-                check(wait_js(pg, "CasesShell.state().sel === 'd:t3'") and pg.evaluate("location.search") == "?c=v1&d=t3", "Shift+N で次の未校正(t3): %s" % st())
+                check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000c'") and pg.evaluate("location.search") == "?c=v1&d=a0000000000c", "Shift+N で次の未校正(a0000000000c): %s" % st())
                 pg.click("#csNext")
-                check(wait_js(pg, "CasesShell.state().sel === 'd:t2'"), "ボタンでも次へ(末尾から先頭へ回る): %s" % st())
+                check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000b'"), "ボタンでも次へ(末尾から先頭へ回る): %s" % st())
                 pg.evaluate("(() => { const i = document.createElement('input'); i.id = 'tmpIn'; i.setAttribute('aria-label', 'test'); document.querySelector('#main').appendChild(i); i.focus(); })()")
                 pg.keyboard.press("Shift+N")
                 time.sleep(0.3)
-                check(st()["sel"] == "d:t2", "入力中の Shift+N は効かない")
+                check(st()["sel"] == "d:a0000000000b", "入力中の Shift+N は効かない")
                 pg.evaluate("document.querySelector('#tmpIn').remove()")
 
                 # 4. 候補を選ぶ: タブは 候補だけ・URL に d が無い
@@ -157,35 +157,35 @@ def main():
 
                 # 5. ② の status: 動いているジョブの札・2 秒 → 終われば 15 秒・終わったら ④ を読み直す
                 check(wait_js(pg, "document.body.dataset.csPoll === '15000'"), "止まっている間は 15 秒ごと: %s" % pg.evaluate("document.body.dataset.csPoll"))
-                pg.click("#csRail [data-cs-key='d:t3']")
-                job = {"id": "tx:job1", "kind": "transcribe", "state": "running", "case": root, "target": {"docId": "t3"}, "progress": 0.4,
+                pg.click("#csRail [data-cs-key='d:a0000000000c']")
+                job = {"id": "tx:job1", "kind": "transcribe", "state": "running", "case": root, "target": {"docId": "a0000000000c"}, "progress": 0.4,
                        "title": "文字起こし", "phase": "認識中", "canCancel": True}
                 srv.board.upsert(job)
-                other = dict(job, id="tx:job2", case=os.path.join(tmp, "ほかの案件"), target={"docId": "t2"})
+                other = dict(job, id="tx:job2", case=os.path.join(tmp, "ほかの案件"), target={"docId": "a0000000000b"})
                 srv.board.upsert(other)
                 pg.evaluate("CasesShell.poll()")   # 15 秒を待たずに今問い合わせる(画面に戻ったときと同じ)
-                check(wait_js(pg, "((document.querySelector('#csRail [data-cs-key=\"d:t3\"] .pill')||{}).textContent||'').includes('40%')", 20000), "動いているジョブの札: %r" % pill("d:t3"))
-                check(not pill("d:t2").startswith("文字起こし"), "ほかの案件のジョブは載らない: %r" % pill("d:t2"))
+                check(wait_js(pg, "((document.querySelector('#csRail [data-cs-key=\"d:a0000000000c\"] .pill')||{}).textContent||'').includes('40%')", 20000), "動いているジョブの札: %r" % pill("d:a0000000000c"))
+                check(not pill("d:a0000000000b").startswith("文字起こし"), "ほかの案件のジョブは載らない: %r" % pill("d:a0000000000b"))
                 check(wait_js(pg, "document.body.dataset.csPoll === '2000'"), "動いている間は 2 秒ごと: %s" % pg.evaluate("document.body.dataset.csPoll"))
                 check("文字起こし" in pg.text_content("[data-cs-stub=proof]"), "パネルの ctx.status.jobs にも載る")
                 srv.board.upsert(dict(job, state="done", progress=1.0, canCancel=False, finishedAt=int(time.time() * 1000)))
                 check(wait_js(pg, "document.body.dataset.csPoll === '15000'", 10000), "終わったら 15 秒へ戻る")
-                check(pill("d:t3") == "未校正", "終わったら進み具合の札へ戻る: %r" % pill("d:t3"))
+                check(pill("d:a0000000000c") == "未校正", "終わったら進み具合の札へ戻る: %r" % pill("d:a0000000000c"))
 
                 # 6. d だけ・#tx・#pack の読み替え
-                pg.goto(base + "cases?d=t3#tx")
-                check(wait_js(pg, "CasesShell.state().sel === 'd:t3'") and st()["caseId"] == "v1" and st()["tab"] == "proof", "d だけで案件を引く・#tx は校正: %s" % st())
-                check(pg.evaluate("location.search + location.hash") == "?c=v1&d=t3#proof", "URL を c つきに直す: %s" % pg.evaluate("location.search + location.hash"))
-                pg.goto(base + "cases?c=v1&d=t1#pack")
-                check(wait_js(pg, "CasesShell.state().tab === 'cut'") and st()["sel"] == "d:t1", "#pack はカット・パック: %s" % st())
+                pg.goto(base + "cases?d=a0000000000c#tx")
+                check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000c'") and st()["caseId"] == "v1" and st()["tab"] == "proof", "d だけで案件を引く・#tx は校正: %s" % st())
+                check(pg.evaluate("location.search + location.hash") == "?c=v1&d=a0000000000c#proof", "URL を c つきに直す: %s" % pg.evaluate("location.search + location.hash"))
+                pg.goto(base + "cases?c=v1&d=a0000000000a#pack")
+                check(wait_js(pg, "CasesShell.state().tab === 'cut'") and st()["sel"] == "d:a0000000000a", "#pack はカット・パック: %s" % st())
                 pg.goto(base + "cases?c=v1")
                 check(wait_js(pg, "CasesShell.state().sel === 'cand'") and st()["tab"] == "cand", "タブの指定が無ければ一覧の先頭(候補): %s" % st())
 
                 # 7. 仮の案件 eval(候補なし)・切り抜きの無い案件・見つからない
                 pg.goto(base + "cases?c=eval")
-                check(wait_js(pg, "CasesShell.state().caseId === 'eval'") and rail_keys() == ["d:e1", "d:e2"] and tabs() == ["proof*", "cut"], "eval は候補なし・文書 2 本: %s %s" % (rail_keys(), tabs()))
+                check(wait_js(pg, "CasesShell.state().caseId === 'eval'") and rail_keys() == ["d:e0000000000a", "d:e0000000000b"] and tabs() == ["proof*", "cut"], "eval は候補なし・文書 2 本: %s %s" % (rail_keys(), tabs()))
                 check("仮の案件" in pg.text_content("#csSub"), "仮の案件と分かる: %r" % pg.text_content("#csSub"))
-                pg.click("#csRail [data-cs-key='d:e2']")
+                pg.click("#csRail [data-cs-key='d:e0000000000b']")
                 check(wait_js(pg, "document.querySelector('#csNext').disabled") and "ほかの未校正" in pg.get_attribute("#csNext", "title"), "ほかに未校正が無ければ押せない + 理由")
                 pg.goto(base + "cases?c=v2")
                 check(wait_js(pg, "CasesShell.state().sel === 'cand'") and "まだ書き出した切り抜きはありません" in pg.text_content("#csRail"), "切り抜きの無い配信は候補だけ + 案内")
@@ -204,12 +204,12 @@ def main():
 
                 # 9. 候補を開いているときに #proof へ(同じ文書の中の移動)= 最初の未校正の切り抜き
                 pg.goto(base + "cases?c=v1#proof")
-                check(wait_js(pg, "CasesShell.state().sel === 'd:t2' && CasesShell.state().tab === 'proof'"), "#cand → #proof で最初の未校正へ: %s" % st())
+                check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000b' && CasesShell.state().tab === 'proof'"), "#cand → #proof で最初の未校正へ: %s" % st())
 
                 # 10. 幅 390: 横にはみ出さない(左の一覧は上に積む)
                 pg.set_viewport_size({"width": 390, "height": 800})
-                pg.goto(base + "cases?c=v1&d=t2#proof")
-                check(wait_js(pg, "CasesShell.state().sel === 'd:t2'"), "390 でも開ける")
+                pg.goto(base + "cases?c=v1&d=a0000000000b#proof")
+                check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000b'"), "390 でも開ける")
                 check(pg.evaluate("document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth + 1"), "390 で横にはみ出さない: %s" % pg.evaluate("[document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]"))
 
                 check(not errors, "コンソールのエラーなし: %s" % errors[:3])
