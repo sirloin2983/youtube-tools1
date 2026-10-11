@@ -19,6 +19,7 @@ import shutil
 import threading
 import time
 
+from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import datadir, fsio, jobs, tools
 from . import live_export as LX, livehost, machine as _machine, spec as _spec
 
@@ -39,12 +40,6 @@ PAUSE_SEC = 600.0         # 休む秒
 RECENT_SEC = 120.0        # API の差分(changes)に「文字が付いた候補」として入れる、付けてからの秒
 TEXT_MAX = 2000
 DOC_MAX = 2 * 1024 * 1024
-
-
-def wav_args(ffmpeg, src, dst, ss, dur):
-    """セグメントをつないだ .ts から、候補の区間の 16kHz モノラルの wav を作る ffmpeg の引数(whisper の入力)"""
-    return [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-ss", "%.3f" % max(0.0, ss), "-i", src, "-t", "%.3f" % max(0.5, dur),
-            "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", dst]
 
 
 class LiveTx:
@@ -306,7 +301,9 @@ class LiveTx:
             s0 = LX.iso_epoch(segs[0].get("pdt"))
             ss = max(0.0, a - s0) if s0 is not None else 0.0
             wav = os.path.join(wdir, "in.wav")
-            cmd = wav_args(self._ffmpeg(), files[0][0], wav, ss, b - a)
+            # セグメントをつないだ .ts から候補の区間の 16kHz モノラルの wav(whisper の入力)。引数は ① の recognize.wav_args
+            cmd = _recognize.wav_args(self._ffmpeg(), files[0][0], wav, max(0.0, ss), max(0.5, b - a), opts=("-loglevel", "error", "-y"),
+                                      drop=("-vn", "-sn", "-dn"), fmt="wav")
             try:   # 入口の終了(_halt)で止まる・120 秒で止める(ytt/tools.run)
                 p = tools.run(cmd, timeout=WAV_TIMEOUT, cancelled=self._halt.is_set, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=20)
             except OSError as e:   # ffmpeg が消えた

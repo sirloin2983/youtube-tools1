@@ -967,23 +967,11 @@ class Exporter:
             raise LiveError("ffmpeg が見つかりません")
         first = iso_epoch(segs[0]["pdt"])
         ss, dur = max(0.0, a - first), b - a
-        if len(files) == 1:
-            src = ["-i", files[0][0]]
-        else:   # 繋ぎ直しをまたぐ(欠けは無い): セッションごとのファイルを concat でつなぐ(時刻はファイルの長さで続ける)
-            lst = os.path.join(wdir, "parts.txt")
-            with open(lst, "w", encoding="utf-8") as f:
-                for p, _ in files:
-                    f.write("file '%s'\n" % p.replace("\\", "/").replace("'", "'\\''"))
-            src = ["-f", "concat", "-safe", "0", "-i", lst]
         folder, base, title = self.target(job, d, rec, a, b)
         tmp = names.partial_path(folder, base)
         flags = tools.no_window_flags(priority="low")   # 書き出しは「通常より下」(録画は「通常より上」)
-        # -ss は入力の前(作り直しなので位置はコマ単位で正確)。長さは出力の -t で決める(入力の -t だけだと、fps フィルタが最後のコマを
-        # 増やして映像が約 0.5 秒長くなる。2026-10-04 に確かめた)。入力の -t は読む量を抑えるだけ(少し長めに)
-        head_args = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % ss, "-t", "%.3f" % (dur + 1.0)] + src + \
-                    ["-t", "%.3f" % dur, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
-        code, tail, why = normalize.run_with_legacy(   # ffmpeg 5.1 より古ければ -vsync で 1 回だけやり直す
-            lambda enc: self._run(job, head_args + enc + ["-progress", "pipe:1", "-nostats", tmp], dur, flags), normalize.encode_args(), tmp)
+        # 切り出し・30fps・繋ぎ直しをまたぐ(欠けは無い)ときのセッションごとのファイルの concat は ① の ytt/normalize(OPT2)。ここは動かし方だけ
+        code, tail, why = normalize.encode_section(ff, [p for p, _ in files], ss, dur, tmp, lambda cmd: self._run(job, cmd, dur, flags))
         if why == "cancel":
             fsio.unlink_quiet(tmp)
             self._cancelled(job)

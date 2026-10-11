@@ -65,6 +65,7 @@ import threading
 import time
 import urllib.parse
 
+from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import fsio, jobs, normalize, schemas, tools
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
@@ -1262,18 +1263,10 @@ class Archiver:
         ff = self.ffmpeg or tools.find_tool("ffmpeg")
         if not ff:
             raise ArchiveError("ffmpeg が見つかりません")
-        cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error"]
-        # 入力側の -ss だけだと、AAC(m4a・mp4)は 13ms ほどずれ、頭の音も崩れる(2026-10-05 に測った。opus は 1ms)。
-        # PRE_SEEK 秒手前まで入力側で飛び、残りは出力側で(デコードして)切る = サンプル単位で正確
-        pre = max(0.0, (ss or 0.0) - PRE_SEEK)
-        if pre > 0:
-            cmd += ["-ss", "%.3f" % pre]
-        cmd += ["-i", src]
-        if ss and ss - pre > 0:
-            cmd += ["-ss", "%.3f" % (ss - pre)]
-        if t:
-            cmd += ["-t", "%.3f" % t]
-        cmd += ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-c:a", "pcm_s16le", "-f", "wav", dst]
+        # 精密な切り方: PRE_SEEK 秒手前まで入力側で飛び、残りは出力側で(デコードして)切る = サンプル単位で正確(AAC の入力側の -ss は 13ms ほどずれる)。
+        # 引数を組むのは ① の recognize.wav_args(OPT2)
+        cmd = _recognize.wav_args(ff, src, dst, ss, t or None, rate=8000, opts=("-nostdin", "-y", "-v", "error"), pre_seek=PRE_SEEK,
+                                  drop=("-vn", "-sn", "-dn"), fmt="wav")
         code, _o, tail = run_proc(cmd, FFMPEG_TIMEOUT, (lambda: job["id"] in self._cancel or self._halt.is_set()) if job else None)
         if code != 0 or not os.path.isfile(dst):
             raise ArchiveError("音を取り出せませんでした(%s)" % (" / ".join(tail) or "終了コード %s" % code))

@@ -220,6 +220,33 @@ def run_with_legacy(run, enc, tmp=None, cancelled=None):
     return code, tail, why
 
 
+def concat_list(paths, list_path):
+    """ffmpeg の concat の一覧を list_path に書く(1 行 1 ファイル。区切りは / にそろえ、' は逃がす)。-> list_path"""
+    with open(list_path, "w", encoding="utf-8") as f:
+        for p in paths:
+            f.write("file '%s'\n" % p.replace("\\", "/").replace("'", "'\\''"))
+    return list_path
+
+
+def section_cmd(ffmpeg, paths, ss, dur, out, enc, list_path=None):
+    """区間を切り出して 30fps に作り直す ffmpeg の引数の全部(enc = encode_args() か legacy_args の結果。-progress pipe:1 つき)。
+    paths が 1 つならそのまま読み、2 つ以上なら concat の一覧 list_path(concat_list で書いた物)を読む(時刻はファイルの長さで続ける)。
+    -ss は入力の前(作り直しなので位置はコマ単位で正確)。長さは出力の -t で決める(入力の -t だけだと、fps フィルタが最後のコマを
+    増やして映像が約 0.5 秒長くなる。2026-10-04 に確かめた)。入力の -t は読む量を抑えるだけ(1 秒長め)"""
+    src = ["-i", paths[0]] if len(paths) == 1 else ["-f", "concat", "-safe", "0", "-i", list_path]
+    return [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % ss, "-t", "%.3f" % (dur + 1.0)] + src + \
+        ["-t", "%.3f" % dur, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + list(enc) + ["-progress", "pipe:1", "-nostats", out]
+
+
+def encode_section(ffmpeg, paths, ss, dur, out, run):
+    """paths(時刻の順。1 つか、つなぎ直しごとのファイル)の ss 秒から dur 秒を 30fps に作り直して out に書く(ライブの書き出し)。
+    2 つ以上なら concat の一覧を最初のファイルと同じフォルダの parts.txt に書いてつなぐ。run(引数の全部) -> (終了コード, エラーの行, 止めた理由) は
+    呼ぶ側の動かし方(取り消し・進み具合・優先度)。ffmpeg が 5.1 より古ければ -vsync で 1 回だけやり直す(run_with_legacy)。
+    -> 最後の (終了コード, エラーの行, 止めた理由)。検証(verify)と置き換えは呼ぶ側"""
+    lst = concat_list(paths, os.path.join(os.path.dirname(paths[0]), "parts.txt")) if len(paths) > 1 else None
+    return run_with_legacy(lambda enc: run(section_cmd(ffmpeg, paths, ss, dur, out, enc, lst)), encode_args(), out)
+
+
 def verify(path, dur, tol=DURATION_TOL, ffprobe=None, what="作り直した動画", ref="元", got="作り直し", error=NormalizeError):
     """作り直した path が 30/1 の固定で、長さが dur と ±tol 秒か確かめる。-> probe の結果。違えば error(文)を上げる。
     dur が None なら長さは見ない。文は「<what>が 30fps になっていません(…)」「<what>の長さが<ref>と違います(<ref> … 秒 / <got> … 秒)」"""

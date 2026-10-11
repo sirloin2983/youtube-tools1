@@ -36,20 +36,47 @@ def _stripper(spec):
     return _head_stripper[0](spec)
 
 
+BOOST_AF = "highpass=f=70,dynaudnorm=f=200:g=15:m=15"   # 小さい声を持ち上げる(低域のこもりを削り、音量のばらつきをならす)
+
+
+def wav_args(ffmpeg, src, dst, ss=None, t=None, rate=16000, opts=("-nostdin", "-y"), pre_seek=None, af=None, drop=("-vn",), fmt=None):
+    """音声を取り出してモノラル・16bit の wav にする ffmpeg の引数(組む所はここ 1 か所。OPT2)。
+    使う所: 認識の extract_audio(16kHz)・配信中の候補の文字起こし flow/live_tx(16kHz)・アーカイブとの照合 flow/live_archive(8kHz・精密な切り方)。
+    - opts: -hide_banner のあとに続ける引数(呼ぶ所ごとに違う。並びも引数の列の一部)
+    - ss: 頭の秒(None なら付けない)。pre_seek が None なら -ss は入力の前だけ(速い)。
+      pre_seek が数なら精密な切り方: 入力側の -ss だけだと AAC(m4a・mp4)は 13ms ほどずれ、頭の音も崩れる(2026-10-05 に測った。opus は 1ms)ので、
+      pre_seek 秒手前までは入力側で飛び、残りは出力側で(デコードして)切る = サンプル単位で正確(どちらも 0 なら付けない)
+    - t: 長さ(None なら付けない)。af: 音のフィルタ。drop: 外す流れ(-vn など)。fmt: -f の形式(None なら付けない = 出力の拡張子で決まる)"""
+    cmd = [ffmpeg, "-hide_banner"] + list(opts)
+    if pre_seek is None:
+        if ss is not None:
+            cmd += ["-ss", "%.3f" % ss]
+        cmd += ["-i", src]
+    else:
+        pre = max(0.0, (ss or 0.0) - pre_seek)
+        if pre > 0:
+            cmd += ["-ss", "%.3f" % pre]
+        cmd += ["-i", src]
+        if ss and ss - pre > 0:
+            cmd += ["-ss", "%.3f" % (ss - pre)]
+    if t is not None:
+        cmd += ["-t", "%.3f" % t]
+    cmd += list(drop)
+    if af:
+        cmd += ["-af", af]
+    cmd += ["-ac", "1", "-ar", str(rate), "-c:a", "pcm_s16le"]
+    if fmt:
+        cmd += ["-f", fmt]
+    return cmd + [dst]
+
+
 def extract_audio(job, spec, wav):
     ff = _tools.find_ffmpeg()
     if not ff:
         raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-    cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file"]
-    if spec["start"] > 0:
-        cmd += ["-ss", "%.3f" % spec["start"]]
-    cmd += ["-i", spec["sourcePath"]]
-    if spec["end"]:
-        cmd += ["-t", "%.3f" % (spec["end"] - spec["start"])]
-    cmd += ["-vn"]
-    if spec.get("boost"):  # 小さい声を持ち上げる(低域のこもりを削り、音量のばらつきをならす)
-        cmd += ["-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"]
-    cmd += ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]
+    cmd = wav_args(ff, spec["sourcePath"], wav, spec["start"] if spec["start"] > 0 else None,
+                   spec["end"] - spec["start"] if spec["end"] else None,
+                   opts=("-nostdin", "-y", "-protocol_whitelist", "file"), af=BOOST_AF if spec.get("boost") else None)
 
     def started(p):
         job["proc"] = p   # cancel_job が止める
