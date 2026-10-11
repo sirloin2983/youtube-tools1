@@ -131,8 +131,11 @@ class TestRouting(Base):
         self.assertEqual(self.req("PUT", "/api/export", {})[0], 404)      # POST 専用
 
     def test_static_only_whitelist(self):
-        self.assertEqual(self.req("GET", "/")[0], 200)
-        self.assertEqual(self.req("GET", "/core.js")[0], 200)
+        # RS8 C4: 画面のページ(index.html・core.js など)は消した。配るのは案件の画面が読む部品 4 本だけ
+        for p in ("/review.js", "/rank.js", "/queue.js", "/collab.js"):
+            self.assertEqual(self.req("GET", p)[0], 200, p)
+        for p in ("/", "/index.html", "/core.js", "/settings.js", "/app.css", "/review.css", "/ui-kit.js", "/ui-kit.css"):
+            self.assertEqual(self.req("GET", p)[0], 404, p)
         for p in ("/serve.py", "/store.py", "/data.json", "/../serve.py", "/%2e%2e/serve.py", "/feedback.jsonl", "/studio.log", "/seed.json"):
             self.assertEqual(self.req("GET", p)[0], 404, p)
 

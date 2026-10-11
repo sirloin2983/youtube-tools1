@@ -1,5 +1,7 @@
-// Run: node --test src/studio/tests/test_review.cjs
+// Run: node --test src/app/tests/test_cand_panel.cjs
 // Exercise real save/navigation/export functions with delayed and failed API replies.
+// 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/studio/review.js を切り出して試す(RS8 C4 で src/studio/tests/test_review.cjs から移した)。
+// 新しい案件の引き出し(panels/new.js)が読む src/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わり(core.js の後継)もここ。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -8,7 +10,8 @@ const { test } = require('node:test');
 // UIKit の代わり(ui-kit v24)。切り出した関数が UIKit を直接呼んでも動くように、vm の context にはいつも withUIKit(context) を通す
 // (context.UIKit・context.window.UIKit。テストが自分で入れた UIKit / window.UIKit はそのまま)。呼ばれた部品は context.UIKit.called('toast') などで読める
 const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
-const source =fs.readFileSync(path.join(__dirname, '..', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
+const SRC = path.join(__dirname, '..', '..');   // src/
+const source = fs.readFileSync(path.join(SRC, 'studio', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
 function between(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'application function boundaries must exist');
@@ -304,8 +307,9 @@ test('transcript lines: escaped text, stale replies ignored, open state kept', a
 });
 
 /* ---- 2026-09-26 v0.8.0 画面の全面見直しで足したテスト ---- */
+/* file: 'rank.js' など名前だけならスタジオのフォルダ(src/studio/)、'app/ui/cases/panels/cand.js' のように / を含めば src/ から */
 function sliceOf(file, start, end) {
-  const src = fs.readFileSync(path.join(__dirname, '..', file), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
+  const src = fs.readFileSync(path.join(SRC, file.includes('/') ? file : path.join('studio', file)), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも、'\n' を含む切り出しの印が当たるように
   const a = src.indexOf(start), b = src.indexOf(end, a);
   assert.ok(a >= 0 && b > a, `${file}: application function boundaries must exist (${start})`);
   return src.slice(a, b);
@@ -713,8 +717,9 @@ test('autoTx lives in the review settings (server); before it is saved there, th
   const load2 = between('async function loadSettings(', 'function syncSettingsUI(');
   assert.ok(load2.includes("typeof raw.autoTx === 'boolean'") && load2.includes('autoTxLegacy() !== null') && load2.includes('touchSettings()'), 'loadSettings sends the old value to the server once');
   assert.ok(between('function autoTxEnabled(', 'async function maybeAutoTranscribe(').includes('S.settings.autoTx'), 'maybeAutoTranscribe reads the server setting');
-  const stAll = sliceOf('settings.js', '/* 切り抜きスタジオ', 'S.onReady(');   // 0.25.0: the ⚙ switch moved to the settings page (home /settings → review.autoTx)
-  assert.ok(!stAll.includes('setAutoTx') && stAll.includes('settings#sec-studio') && !stAll.includes('localStorage'), 'the ⚙ no longer has the switch; it links to the settings page');
+  // 0.25.0: the switch is on the settings page (home /settings → review.autoTx). RS8 C4: the studio ⚙ (settings.js) is gone; the panel's "settings" goes to that page
+  const open = sliceOf('app/ui/cases/panels/cand.js', 'openSettings:', 'enqueue:');
+  assert.ok(open.includes("homeUrl('settings')") && open.includes('#sec-studio') && !open.includes('localStorage'), 'the panel opens the studio section of the settings page');
 });
 
 function placeHarness(store) {
@@ -882,14 +887,23 @@ test('the band does not rebuild its select / streamer field on the 3-second chec
   assert.ok(!between('function renderLiveWho(', '/* 録画を開いたとき').includes('innerHTML'));
 });
 
-test('live recordings are registered in one place with the channel name (core.js register; rank.js "録画する" / "開く" pass the row channel)', async () => {
-  // core.js: Studio.live.register / begin(begin の返事のチャンネル名 → 無ければ opts.channel)
+/* パネルが渡す window.Studio の代わり(var Studio = {…})を、まわりの変数を偽物にして切り出す(RS8 C4: core.js の後継) */
+function studioShim(file, start, end, extra) {
+  const ctx = withUIKit({ Map, String, Promise, Date, encodeURIComponent, esc: s => s, tokenTag: { content: 't' }, params: {}, readyFns: [], subs: {}, dead: false, visible: true,
+    LIVE: { infoP: null, offAt: 0 }, LIVE_RECHECK_MS: 60000, STUDIO_OFFLINE: 'スタジオにつながりませんでした', HOME_OFFLINE: 'ホームにつながりませんでした',
+    setStep() {}, emit() {}, q: () => null, location: { assign() {} }, window: {}, ...extra });
+  vm.createContext(ctx);
+  vm.runInContext(sliceOf(file, start, end), ctx);
+  return ctx;
+}
+const NEW_SHIM = ['app/ui/cases/panels/new.js', 'var Studio = {', '/* パネルが見えている間だけ'];
+const CAND_SHIM = ['app/ui/cases/panels/cand.js', 'var Studio = {', '/* review.js に渡す env'];
+
+test('live recordings are registered in one place with the channel name (new case panel register; rank.js "録画する" / "開く" pass the row channel)', async () => {
+  // 新しい案件の引き出し(panels/new.js。core.js の後継): Studio.live.register / begin(begin の返事のチャンネル名 → 無ければ opts.channel)
   const opened = [];
-  const ctx = { Studio: { token: 't', api: async (url, o) => { opened.push({ url, body: o.body }); return { video: { id: o.body.recording } }; } }, String, Promise,
-    window: {}, LIVE: { infoP: null, offAt: 0 } };
-  vm.createContext(withUIKit(ctx));
-  const core = sliceOf('core.js', 'Studio.live = {', '/* 通知。');
-  vm.runInContext(core, ctx);
+  const ctx = studioShim(...NEW_SHIM);
+  ctx.Studio.api = async (url, o) => { opened.push({ url, body: o.body }); return { video: { id: o.body.recording } }; };
   let reply = { live: true, recorder: 'local', recording: { id: '20261005-185300-abcdefghijk', url: 'https://www.youtube.com/watch?v=abcdefghijk', title: 'T', state: 'recording', channel: '' } };
   ctx.Studio.live.available = async () => ({});
   ctx.Studio.live.api = async () => reply;
@@ -910,25 +924,24 @@ test('live recordings are registered in one place with the channel name (core.js
 });
 
 // ---- 0.23.4(コードの見直し B): スタジオの API の包み 3 つは ui-kit の UIKit.http / homeApi を呼ぶだけ・② の設定と欄の対応は 1 つの表 ----
-test('core.js API wrappers go through UIKit.http / homeApi with the studio messages, the live timeouts and the empty POST body', async () => {
+test('the panels\' Studio API wrappers (core.js successor) go through UIKit.http / homeApi with their messages, the live timeouts and the empty POST body', async () => {
   const calls = [];
-  const kit = makeUIKit({
+  const kit = () => makeUIKit({
     http: (url, o) => { calls.push(['http', url, o]); return Promise.resolve({ ok: 1 }); },
     homeApi: (p, o) => { calls.push(['home', p, o]); return Promise.resolve({ ok: 2 }); },
-    homeUrl: p => 'http://h/' + p });
-  const ctx = { Studio: { url: p => '/studio' + p, token: 't' }, UIKit: kit, LIVE: { infoP: null, offAt: 0 }, String, Promise };
-  vm.createContext(withUIKit(ctx));
-  const src = sliceOf('core.js', 'const OFFLINE_STUDIO', '/* ---------- 入口のリアルタイム切り抜き') + sliceOf('core.js', 'Studio.live = {', '/* 通知。');
-  vm.runInContext(src, ctx);
+    homeUrl: p => 'http://h/' + p,
+    toast: (m, o) => { calls.push(['toast', m, o]); } });
+  // 新しい案件の引き出し(panels/new.js): スタジオの API は UIKit.http(Studio.url)・入口は homeApi
+  let ctx = studioShim(...NEW_SHIM, { UIKit: kit() });
   assert.deepEqual(plain(await ctx.Studio.api('/api/video', { method: 'PUT', body: { id: 'A' } })), { ok: 1 });
   let [kind, url, o] = calls.at(-1);
-  assert.equal(kind, 'http'); assert.equal(url, '/studio/api/video', 'the URL is still made by Studio.url (one place)');
+  assert.equal(kind, 'http'); assert.equal(url, 'studio/api/video', 'the URL is made by Studio.url (relative, one place)');
   assert.deepEqual(plain({ method: o.method, body: o.body }), { method: 'PUT', body: { id: 'A' } });
-  assert.ok(o.offline.includes('サーバーに接続できません') && !('fail' in o), 'the failure text without a server message is the ui-kit default (same words as before)');
+  assert.equal(o.offline, ctx.STUDIO_OFFLINE);
   await ctx.Studio.portalApi('api/autorun');
   [kind, url, o] = calls.at(-1);
   assert.equal(kind, 'home'); assert.equal(url, 'api/autorun'); assert.equal(o.body, undefined, 'no body = GET (no token)');
-  assert.ok(o.offline.includes('ホームのサーバーに接続できません'));
+  assert.equal(o.offline, ctx.HOME_OFFLINE);
   await ctx.Studio.live.api('api/info');
   [kind, url, o] = calls.at(-1);
   assert.deepEqual([kind, url, o.method, o.body, o.timeout], ['home', 'live/api/info', 'GET', undefined, 10000], 'GET: 10 seconds, no body');
@@ -941,6 +954,31 @@ test('core.js API wrappers go through UIKit.http / homeApi with the studio messa
   assert.equal(ctx.Studio.live.url('hls.min.js'), 'http://h/live/hls.min.js', 'media URLs come from UIKit.homeUrl');
   assert.equal(ctx.Studio.live.begunText({ existing: true }), 'この配信はもう録画しています。その録画を開きました');
   assert.equal(ctx.Studio.live.begunText({}), '配信の録画を始めました。見ながらマークできます');
+  // 候補のパネル(panels/cand.js): スタジオの API は殻の ctx.api('studio', …)(待ちの時間切れなし)・ライブの口は同じ時間・録画の登録はしない
+  const shell = [];
+  ctx = studioShim(...CAND_SHIM, { UIKit: kit(), cctx: { api: (tool, p, opt) => { shell.push([tool, p, opt]); return Promise.resolve({ ok: 3 }); } } });
+  assert.deepEqual(plain(await ctx.Studio.api('/api/video', { method: 'PUT', body: { id: 'A' } })), { ok: 3 });
+  [kind, url, o] = shell.at(-1);
+  assert.deepEqual([kind, url, o.method, plain(o.body), o.timeout], ['studio', '/api/video', 'PUT', { id: 'A' }, 0], 'studio API through the shell, no timeout (exports can be long)');
+  assert.ok(o.offline.includes('スタジオにつながりませんでした'));
+  assert.equal(ctx.Studio.url('/media?id=x'), 'studio/media?id=x');
+  await ctx.Studio.portalApi('api/autorun/start', { id: 'A' });
+  [kind, url, o] = calls.at(-1);
+  assert.deepEqual([kind, url, plain(o.body)], ['home', 'api/autorun/start', { id: 'A' }]);
+  await ctx.Studio.live.api('api/info');
+  o = calls.at(-1)[2];
+  assert.deepEqual([calls.at(-1)[1], o.method, o.body, o.timeout], ['live/api/info', 'GET', undefined, 10000]);
+  await ctx.Studio.live.api('r/local/R1/stop', { method: 'POST' });
+  o = calls.at(-1)[2];
+  assert.deepEqual([o.method, plain(o.body), o.timeout], ['POST', {}, 45000]);
+  await assert.rejects(ctx.Studio.live.register('local', { id: 'R1' }), /録画の登録はしません/);
+  // Studio.toast(msg, 0, kind) の 0 は昔の「既定の秒数」(ui-kit の「消えない」ms: 0 として渡さない)。オブジェクトはそのまま(旧 e2e_ui の check_header)
+  for (const c of [CAND_SHIM, NEW_SHIM]) {
+    const seen = [];
+    const t = studioShim(...c, { UIKit: makeUIKit({ toast: (m, opt) => { seen.push(opt); } }) });
+    t.Studio.toast('a', 0, 'ok'); t.Studio.toast('b', 1200); t.Studio.toast('c', { ms: 0, kind: 'err' });
+    assert.deepEqual(seen.map(x => [x.ms === undefined ? null : x.ms, x.kind || null]), [[null, 'ok'], [1200, null], [0, 'err']], c[0]);
+  }
 });
 
 test('review settings: one table of field ↔ setting; every field value read back through sanitizeSettings gives the same setting', () => {
