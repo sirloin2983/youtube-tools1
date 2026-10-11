@@ -18,8 +18,9 @@ import time
 
 from ytt import fsio as _fsio, marks as _marks, mediainfo as _media, schemas, settings as _settings, studio_env as _env, yturl as _yturl  # noqa: E402  (check_live・LIVE_NO_ANALYZE は RS6 a-5a で ytt/yturl へ・prune_cache は ytt/fsio へ)
 # マークの純粋な語彙(検査・整形・同じ区間・手を入れたか)は RS8 B3-2 で ytt/marks へ下ろした。下の名前は今までどおり store からも読める
-from ytt.marks import BadMark, EDIT_TOL, ID_RE, MAX_MARKS, MAX_REQUEST_RANGES, check_times, load_marks  # noqa: E402,F401
+from ytt.marks import BadMark, EDIT_TOL, ID_RE, MAX_MARKS, check_times, load_marks  # noqa: E402,F401
 
+from flow import adopt as _flow_adopt  # noqa: E402  採用の規則 F-5 の口(① pipeline/analyze/adopt。RS8 B3-2 の G1a)
 from . import feedback  # noqa: E402  判定の記録(RS3-5 に analyze から隣へ。呼ぶたびに feedback.名前 で読む)
 from ytt.errors import ApiError  # noqa: E402
 from ytt.textutil import num  # noqa: E402  純粋な関数
@@ -555,63 +556,21 @@ class Store:
         return r["added"], r["video"]
 
     def adopt_marks(self, vid, ranges, top):
-        """採用の規則(F-5。plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ):
+        """採用の規則(F-5。plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
+        規則の本体は ① pipeline/analyze/adopt.py(RS8 B3-2 の G1a)。③ は ② flow/adopt を通して呼び、ここは配信を読んで保存するだけ:
         採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
-        ranges = [[開始, 終了], …](秒)。同じ区間(±0.5 秒)のマークがあれば、それを使い回す(候補・不採用なら採用に戻す)。無ければ足す(区間は上限を超えても全部)。
-        人が採用したマーク = 採用・書き出し済みで、機械が採用した印(adoptedBy)が無いもの。
-        自動の分は、前に機械が採用・書き出したもの(同じ配信の送り直し・再実行)も点数の順に数に入れ、候補(判定前)のものを採用にする。
-        人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない。
+        人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない。kind live の録画は断る(400)。
         -> {"rangeIds"(ranges の順), "humanIds"(時刻の順), "autoIds"(点数の高い順), "added"(この呼び出しで採用にした id), "video"(公開用の動画)}"""
-        if not isinstance(ranges, list) or len(ranges) > MAX_REQUEST_RANGES:
-            raise ApiError("bad_request", "区間は%d個までです" % MAX_REQUEST_RANGES, 400)
-        if schemas.int_in(top, 0, 30) is None:
-            raise ApiError("bad_request", "採用する数は0〜30です", 400)
-        want = []
-        for r in ranges:
-            if not isinstance(r, (list, tuple)) or len(r) != 2:
-                raise ApiError("bad_request", "区間の形が正しくありません([開始, 終了])", 400)
-            try:
-                want.append(check_times(r[0], r[1]))
-            except BadMark as e:
-                raise ApiError("bad_request", "区間が正しくありません: %s" % e, 400)
+        want = _flow_adopt.check(ranges, top)   # 区間・上限がだめなら 400(配信を読む前)
         with self.lock:
             v = self._need(vid)
-            if v["kind"] == "live":   # 解析していない録画に自動マークは無い・依頼(時刻指定)は YouTube の配信が対象(録画の時刻は録画の頭からの秒)
-                raise ApiError("bad_request", _yturl.LIVE_NO_ANALYZE, 400)
+            r = _flow_adopt.pick(v, want, top)
             nv = copy.deepcopy(v)
-            range_ids, added = [], []
-            for s, e in want:
-                e = _marks.clamp_end(nv["duration"], s, e)
-                if e is None:
-                    raise ApiError("bad_request", "区間が配信の長さの外です(%s 秒から)" % s, 400)
-                m = next((x for x in nv["marks"] if _marks.same(x, {"start": s, "end": e})), None)
-                if m is None:
-                    if len(nv["marks"]) >= MAX_MARKS:
-                        raise ApiError("bad_request", "マークは%d件までです" % MAX_MARKS, 400)
-                    m = _marks.new_mark("r", s, e, "adopted")
-                    m["adoptedBy"] = "request"
-                    nv["marks"].append(m)
-                    added.append(m["id"])
-                elif m["status"] in ("", "rejected"):
-                    m["status"], m["adoptedBy"] = "adopted", "request"
-                    added.append(m["id"])
-                if m["id"] not in range_ids:
-                    range_ids.append(m["id"])
-            human_ids = [m["id"] for m in sorted(nv["marks"], key=_marks.by_time)
-                         if m["status"] in ("adopted", "exported") and not m.get("adoptedBy") and m["id"] not in range_ids]
-            taken = set(range_ids) | set(human_ids)
-            picked = [(m["start"], m["end"]) for m in nv["marks"] if m["id"] in taken]
-            room = max(0, top - len(taken))
-            autos = sorted((m for m in nv["marks"] if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken
-                            and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score)[:room]
-            for m in autos:
-                if m["status"] == "":
-                    m["status"], m["adoptedBy"] = "adopted", "auto"
-                    added.append(m["id"])
-            if added:
-                nv["marks"] = sorted(nv["marks"], key=_marks.by_time)
+            nv["marks"] = r.pop("marks")
+            if r["added"]:
                 self._bump(nv)
-            return {"rangeIds": range_ids, "humanIds": human_ids, "autoIds": [m["id"] for m in autos], "added": added, "video": self._pub(nv)}
+            r["video"] = self._pub(nv)
+            return r
 
     def replace_auto(self, vid, cands, analysis, duration, series):
         """解析結果を反映する。手を入れていない・書き出していない自動マークだけを置き換える。

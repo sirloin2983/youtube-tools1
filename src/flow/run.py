@@ -36,7 +36,7 @@ Run の中身の欄(top・ranges・weights・cut・video_tracks・speakers・eng
 待ちの記録(saved・restore)は封筒 + 束も入れる(古い形の欄だけの記録も読める)。段の始まりと終わりの時刻は steps[].startedAt・finishedAt(ミリ秒)。
 ツールの仕事は self.tools(flow/tools.py の HttpTools(client) = 今の API の形・LocalTools = 入口なし)に頼む。
 
-RS6 b-A(2026-10-10): 採用は 1 つの段 _step_adopt(規則 F-5 はスタジオの store.adopt_marks の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで)。
+RS6 b-A(2026-10-10): 採用は 1 つの段 _step_adopt(規則 F-5 は pipeline/analyze/adopt.py の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで。RS8 B3-2 でスタジオの store.adopt_marks から出した)。
 RS6 b-K2(2026-10-10): 文字起こし・パックは成果物の鍵(flow/keys)を読んで飛ばす。文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 TX_DIFFER /
 force(Run.force か束の run.force)なら作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは今のまま。
 素の Runner の文書の一覧(_docs・_pick_doc の既定)は tools の docs・doc(HttpTools = GET /api/transcripts・LocalTools = 作業データを直に)。
@@ -786,7 +786,7 @@ class Runner:
 
     # 採用 -------------------------------------------------------
     def _step_adopt(self, run, st, v):
-        """採用(F-5。規則はスタジオの 1 つ = tools.request_marks の先の store.adopt_marks。RS6 b-A):
+        """採用(F-5。規則は 1 つ = pipeline/analyze/adopt.py。今は tools.request_marks の先のスタジオの store.adopt_marks が当てて保存する。RS6 b-A・RS8 B3-2):
         友人が時刻で指定した区間(前後に束の adopt.pad 秒の余白)∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 = Run の top か束の adopt.top までの残り)。
         不採用と、区間・人の採用に重なる自動マークは除く。人が採用済みの配信の再実行でも、上限までの残りを自動で足す。
         友人の依頼(URL)は、この実行で扱うマークをその集合にする(run.marks。同じ配信の送り直しでは、前に作った切り抜き・文字起こしを使い回す)"""
