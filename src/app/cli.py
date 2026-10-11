@@ -34,7 +34,7 @@ import uuid
 SRC =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/app -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from flow import envelope as _envelope, keys as _keys, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
+from flow import envelope as _envelope, keys as _keys, learning as _learning, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
 from flow import studiobook as _studiobook  # noqa: E402  スタジオなしの配信の台帳(URL を入口なしで。RS8)
 from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
@@ -157,10 +157,7 @@ def use_data_dir(data_dir=None):
     _roster.ROSTER = os.path.join(editor, "hololive-roster.json")
     if not os.environ.get("TRANSCRIBE_STUDIO_DATA"):   # 配信の文脈はこの作業データのスタジオの data.json(無ければ文脈なし。リポジトリの中の src/studio は読まない。RS7-1 F-k)
         _workdata.STUDIO_DATA = _flow_placement.studio_data()
-    ld = learning_dir()
-    if ld:   # 学習データが別の場所のとき: 置換辞書(settings.json)と採用の記録はそこから読む
-        _workdata.SETTINGS = os.path.join(ld, "settings.json")
-        _workdata.FEEDBACK = os.path.join(ld, "learn-feedback.json")
+    _learning.apply_places(learning_dir())   # 学習データが別の場所のとき: 置換辞書・採用の記録(学習の束なら名簿・声・色も)はそこから読む
     return _datadir.data_root()
 
 
@@ -175,55 +172,21 @@ def use_studio_data():
     return _studiobook.StudioBook(_studio_env.p(_flow_placement.STUDIO_DATA_NAME))
 
 
-def learning_dir():
-    """machine の learningDir が既定(作業データの根)と違うときの、その下の編集の作業データのフォルダ。既定なら None(今の置き場所のまま)"""
-    ld = _machine.get("learningDir")
-    if os.path.normcase(os.path.normpath(ld)) == os.path.normcase(os.path.normpath(_machine.root())):
-        return None
-    return _datadir.locate("transcribe", env=dict(os.environ, YTT_DATA_DIR=ld))
+# 学習データの読み手 Learning・置き場所 learning_dir は ② flow/learning へ移した(F1)。ここは別名(テスト・呼び出しの名前を変えない)
+learning_dir = _learning.learning_dir
 
 
-class Learning:
-    """LocalTools に貸す学習データの読み手(入口の経路で編集が読むのと同じ物 = ③ の learn。用語は doc_jobs.glossary_of と同じ learn.auto_glossary、
-    学習済みの置換は doc_jobs.learned_finder)。置き場所が既定と違うとき(machine の learningDir)は、読む間だけ文書の置き場所 TX_DIR をそちらへ向ける。
-    ③ は友人の PC の ② + ① には無いことがあるので、学習のもとになる文書が 1 つも無いとき・③ を読めないときは読まずに「学習なし」にする(遅延 import)"""
+def _human_loader():
+    """③ 人の学習の部品(文書があるときだけ遅延で読む。友人の PC には無いことがある)"""
+    from human.proof import doc_jobs, learn
+    return learn, doc_jobs
+
+
+class Learning(_learning.Learning):
+    """② の学習データの読み手に ③ の読み込みを渡した物(束のときは ③ を使わない)"""
 
     def __init__(self, ld=None):
-        self.ld = ld
-
-    def _tx_dir(self):
-        return _docloc.tx_root(self.ld)
-
-    def _human(self):
-        """(learn, doc_jobs) か None(学習のもとの文書が無い・③ を読めない)"""
-        try:
-            if not _docloc.iter_tids(self.ld):
-                return None
-            from human.proof import doc_jobs, learn
-        except (OSError, TypeError, ImportError):
-            return None
-        return learn, doc_jobs
-
-    def _scoped(self, fn):
-        keep = _workdata.TX_DIR
-        _workdata.TX_DIR = self._tx_dir()
-        try:
-            return fn()
-        finally:
-            _workdata.TX_DIR = keep
-
-    def glossary(self, terms):
-        h = self._human()
-        return self._scoped(lambda: h[0].auto_glossary(terms)) if h else []
-
-    def dict_learned(self):
-        """辞書の版(records.dict_version)の learned の元の文字(学習の記録が変われば作り直す鍵になる)。学習なしは空"""
-        h = self._human()
-        return self._scoped(h[1].dict_learned) if h else ""
-
-    def learned(self):
-        h = self._human()
-        return self._scoped(lambda: h[1].learned_finder(h[0].learn_rules(), h[0].load_feedback())) if h else None
+        super().__init__(ld, human_loader=_human_loader)
 
 
 def _read_doc(path):
@@ -482,6 +445,7 @@ def run_local(target, bundle, title, root, prog, kind="file"):
     run, code, runner = None, EXIT_FAIL, None
     try:
         learning = Learning(learning_dir())
+        bundle = _learning.stamp(bundle, learning)   # 学習の束の版を束に(束でないなら変わらない)
         _wire.install(tool="cli", tmp_dir=lambda: _workdata.TMP_DIR, dict_learned=learning.dict_learned)   # 辞書の版の学習の記録は ③ があれば Learning から
         run, runner = (_url_run if kind == "url" else _file_run)(target, bundle, title, prog, learning)
         if run is None:

@@ -29,6 +29,22 @@ def _bounded(text, k, w):
     return True
 
 
+def spans(text, w, r):
+    """text の中で w がある位置(r の一部になっている箇所・単語の途中は除く)。学習した置換の選び方(③ learn)と確度「高」だけを当てる側(① replace)の共通の数え方"""
+    rs = []
+    if r:
+        k = text.find(r)
+        while k >= 0:
+            rs.append((k, k + len(r)))
+            k = text.find(r, k + 1)
+    out, k = [], text.find(w)
+    while k >= 0:
+        if not any(a <= k and k + len(w) <= b for a, b in rs) and _bounded(text, k, w):   # 単語の途中には当てない(トル→ポル が「トルコ」に当たらない)
+            out.append(k)
+        k = text.find(w, k + 1)
+    return out
+
+
 def wb_split(w):
     """置換辞書の「誤」が |語| の形なら、(語, True)。単語の途中には当てない指定。それ以外は (w, False)。"""
     if len(w) >= 3 and w[0] == "|" and w[-1] == "|":

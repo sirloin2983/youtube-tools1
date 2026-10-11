@@ -18,7 +18,6 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 単語の時刻の読み read_words は ytt/txwords(RS6 a-5b)。
 """
 import bisect
-import json
 import os
 import time
 import uuid
@@ -268,9 +267,7 @@ def learned_finder(lrules, lfb):
 def dict_learned():
     """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
     学習(learn)を読むのは文書の側のここだけ(① の records は learn を読まない。serve が records.set_dict_inputs で登録する。RS2-5)"""
-    rules = learn.learn_rules()
-    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in learn.load_feedback().items() if k not in ("alt", "yt")}},
-                      ensure_ascii=False, sort_keys=True)
+    return learn.dict_learned_text()
 
 
 def _fresh_id(used, make, n=0):
