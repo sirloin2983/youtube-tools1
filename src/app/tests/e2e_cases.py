@@ -110,6 +110,10 @@ def main():
                 ctx.route(re.compile(r'.*/(transcribe|cut2resolve)/.*'), lambda route: route.fulfill(
                     status=200, content_type='application/javascript' if route.request.url.split('?')[0].endswith('.js') else 'application/json',
                     body='' if route.request.url.split('?')[0].endswith('.js') else '{}'))
+                # 確かめると効く物 n 件(V1 確かめる V3): 入口の GET api/check/next?c=<案件>&n=0 の total を、この確かめの中では見本で返す
+                nx_urls = []
+                ctx.route(re.compile(r'.*/api/check/next.*'), lambda route: (nx_urls.append(route.request.url), route.fulfill(
+                    status=200, content_type='application/json', body='{"total": 3, "cards": [], "goal": null, "goals": {}}'))[1])
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.on("response", lambda r: bad_status.append("%s %s" % (r.status, r.url)) if r.status >= 400 else None)
@@ -125,6 +129,8 @@ def main():
                 # 2. ?c=v1#proof: 左の一覧・最初の未校正・タブ・URL
                 pg.goto(base + "cases?c=v1#proof")
                 check(wait_js(pg, "document.querySelectorAll('#csRail [data-cs-key]').length === 5"), "左の一覧は 候補 + 切り抜き 4 本: %s" % rail_keys())
+                check(wait_js(pg, "!document.querySelector('#csCheck').hidden && document.querySelector('#csCheck').textContent === '確かめると効く物 3 件'"), "案件の頭に「確かめると効く物 3 件」: %s" % pg.text_content("#csCheck"))
+                check(pg.get_attribute("#csCheck", "href") == "check?c=v1&back=cases" and any("c=v1" in u and "n=0" in u for u in nx_urls), "押すと /check?c=<案件>&back=cases・数は next?c=&n=0 から: %s %s" % (pg.get_attribute("#csCheck", "href"), nx_urls[:2]))
                 check(rail_keys() == ["cand", "d:a0000000000a", "d:a0000000000b", "d:a0000000000c", "m:m4"], "並び: %s" % rail_keys())
                 check(pg.text_content("#csTitle") == "【雑談】テストの配信" and pg.title() == "動画編集ツール — 【雑談】テストの配信", "題名")
                 s = st()

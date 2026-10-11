@@ -91,7 +91,7 @@
     tab: '',
     panel: null, panelTab: '', panelKey: '',
     status: { rev: null, all: [] },
-    railHtml: '', timer: 0, pollMs: 0, noCaseFilter: false, loading: false
+    railHtml: '', timer: 0, pollMs: 0, noCaseFilter: false, loading: false, checkN: 0, checkAt: 0
   };
 
   /* ---- API(相対パス。/cases は入口の直下なので '' = 入口・'studio/' = 取り込んだスタジオ)---- */
@@ -255,6 +255,27 @@
     b.disabled = !nx;
     b.title = nx ? '「' + nx.label + '」を開きます(Shift+N)' : (S.kase ? 'この案件に、ほかの未校正の切り抜きはありません' : '案件を開くと使えます');
   }
+  /* 確かめると効く物 n 件(V1 確かめる V3)。入口の GET api/check/next?c=<案件>&n=0 の total。殻の問い合わせ(poll)に合わせて 15 秒ごと(案件を開いたときにも 1 回)。
+     0 件・読めないときは出さない。押すと /check?c=<案件>&back=cases(終わったら案件へ戻るボタンが出る) */
+  var CHECK_EVERY_MS = 14000;
+  function renderCheckLink() {
+    var a = $('#csCheck'), n = S.checkN, c = S.kase;
+    a.hidden = !(c && n > 0 && /^[A-Za-z0-9_-]{1,64}$/.test(c.id));
+    if (a.hidden) return;
+    a.textContent = '確かめると効く物 ' + n + ' 件';
+    a.href = 'check?c=' + encodeURIComponent(c.id) + '&back=cases';
+    a.title = 'この案件の、人が確かめると効く物(切り抜く価値・読み・誰の声・時刻)を 1 枚ずつ見ます';
+  }
+  function loadCheckCount() {
+    var kase = S.kase;
+    S.checkAt = Date.now();
+    if (!kase || !/^[A-Za-z0-9_-]{1,64}$/.test(kase.id)) { S.checkN = 0; renderCheckLink(); return; }
+    api('home', 'api/check/next?c=' + encodeURIComponent(kase.id) + '&n=0', { timeout: 15000 }).then(function (j) {
+      if (S.kase !== kase) return;
+      S.checkN = j && j.total > 0 ? j.total : 0;
+      renderCheckLink();
+    }, function () { if (S.kase === kase) { S.checkN = 0; renderCheckLink(); } });   // 数が読めないだけ(画面の仕事は止めない)
+  }
   function renderHead() {
     var c = S.kase, kind = caseKind(c);
     var title = c ? (PSEUDO[kind] && !c.title ? PSEUDO[kind] : (c.title || c.id)) : '案件';
@@ -272,6 +293,7 @@
       if (c.gone) sub.push('スタジオから消えた配信(候補は見られません)');
     }
     $('#csSub').textContent = sub.join(' ・ ');
+    renderCheckLink();
   }
 
   /* ---- パネル ---- */
@@ -418,7 +440,7 @@
       var same = S.kase && S.kase.id === c.id;
       S.kase = c;
       S.items = itemsOf(c);
-      if (!same) { S.status = { rev: null, all: [] }; S.railHtml = ''; }
+      if (!same) { S.status = { rev: null, all: [] }; S.railHtml = ''; S.checkN = 0; S.checkAt = 0; }
       $('#csEmpty').hidden = true;
       $('#csWrap').hidden = false;
       renderHead();
@@ -468,6 +490,7 @@
         if (S.panel) showPanel(false);
         if (finished) load(true);   // 文字起こし・パックが終わった = 切り抜きの札が変わる(④ を読み直す)
       }
+      if (Date.now() - S.checkAt >= CHECK_EVERY_MS) loadCheckCount();
       schedule(active ? POLL_ACTIVE : POLL_IDLE);
     }, function (e) {
       if (S.kase !== kase) return;

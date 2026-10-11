@@ -58,7 +58,7 @@
        ⚙ の「全体」の節に「すべての設定を 1 つの画面で」(入口に取り込まれているときだけ。/settings へ)。README.md の「v25」
     v26(2026-10-11・RS8 案件の画面 C1): 左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」
     v27(2026-10-11・RS8 案件の画面 C4): 古い画面(スタジオ・編集のページ)を消したので、appnav を「ホーム / 案件 / 設定」に(案件 = /cases・設定 = /settings。
-       <nav data-ui-appnav="portal|cases|settings">)・録画中の札の「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)・「他のツール」のメニューの「案件の一覧」はホームへ。
+       <nav data-ui-appnav="portal|cases|settings">。V1 確かめる V3 で「確かめる」(= /check)を足して「ホーム / 案件 / 確かめる / 設定」の 4 つに)・録画中の札の「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)・「他のツール」のメニューの「案件の一覧」はホームへ。
        ツールごとの写し(src/studio/ui-kit.*・src/editor/ui-kit.*)は無くなった(画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む)。README.md の「v27」 */
 (function () {
   'use strict';
@@ -624,9 +624,9 @@
 
   /* ==== v6(2026-09-27・画面の全面見直し 段階1): 共通の部品。使い方は README.md の「v6」 ==== */
 
-  /* ---- appnav(ホーム/案件/設定の切り替え。ヘッダーの左。v27 = RS8 C4 でスタジオ・編集の画面を消した) ---- <nav data-ui-appnav="portal|cases|settings"> に中身を作る。
-     どの画面も入口の直下(/・/cases・/settings)= 行き先は入口の直下からの相対(homeUrl。絶対パスを書かない) */
-  var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'cases', label: '案件' }, { id: 'settings', label: '設定' }];
+  /* ---- appnav(ホーム/案件/確かめる/設定の切り替え。ヘッダーの左。v27 = RS8 C4 でスタジオ・編集の画面を消した) ---- <nav data-ui-appnav="portal|cases|check|settings"> に中身を作る。
+     どの画面も入口の直下(/・/cases・/check・/settings)= 行き先は入口の直下からの相対(homeUrl。絶対パスを書かない) */
+  var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'cases', label: '案件' }, { id: 'check', label: '確かめる' }, { id: 'settings', label: '設定' }];
   var appnavSuffix = {}, appnavVersion = '';
   function appnavHref(id) { return id === 'portal' ? homeUrl('') : homeUrl(id); }
   function renderAppNav() {

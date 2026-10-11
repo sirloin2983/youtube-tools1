@@ -21,7 +21,7 @@
 </head>
 <body>
 <header class="ui-header top">
-  <nav class="ui-appnav" data-ui-appnav="cases" aria-label="ホーム/案件/設定"></nav>
+  <nav class="ui-appnav" data-ui-appnav="cases" aria-label="ホーム/案件/確かめる/設定"></nav>
   <span class="ui-ver" id="ver"></span>
   <div class="ui-header-actions">
     <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(テーマ・文字の大きさ・キーの帯)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
@@ -36,6 +36,7 @@
       <h1 class="cs-title" id="csTitle">案件</h1>
       <p class="hint cs-sub" id="csSub"></p>
     </div>
+    <a class="btn small primary" id="csCheck" href="check" hidden></a>
     <button type="button" class="btn small" id="csNext" disabled title="この案件に未校正の切り抜きはありません">次の未校正の切り抜き <kbd class="ui-kbd">Shift+N</kbd></button>
   </div>
 

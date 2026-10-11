@@ -233,6 +233,8 @@ def _scene_summary_and_end(cx):
     check(wait_js(pg, "CheckShell.state().empty"), "全部答えたら空の状態: %s" % state(pg))
     check("今日の分は終わりです" in pg.text_content("#chkEmpty") and pg.get_attribute("#chkEmpty a.btn.primary", "href") == "cases?c=v1",
           "空の状態の文と 案件へ戻る(back=cases)")
+    check(pg.evaluate("[...document.querySelectorAll('[data-ui-appnav-item]')].map(a => a.dataset.uiAppnavItem + (a.getAttribute('aria-current') ? '*' : '')).join()") == "portal,cases,check*,settings",
+          "ヘッダーの appnav は ホーム / 案件 / 確かめる / 設定(確かめるが今の場所)")
     press(pg, "z")
     check(wait_js(pg, "!!CheckShell.state().cur && !CheckShell.state().empty"), "空の状態からも Z で 1 つ前に戻る")
 

@@ -331,5 +331,6 @@
 ## v27(2026-10-11・RS8 案件の画面 C4 = 古い画面を消した)
 - `UIKit.appnav` の 3 項目を「ホーム / 案件 / 設定」に(`<nav data-ui-appnav="portal|cases|settings">`。行き先は入口の直下 `/`・`/cases`・`/settings` = `homeUrl`)。
   案件の画面を引数なしで開くと、前に開いていた案件を開く(`src/app/ui/cases/cases.js`)
+  (V1 確かめる V3 で「確かめる」(`/check`)を足して 4 項目 = 「ホーム / 案件 / 確かめる / 設定」。`data-ui-appnav="portal|cases|check|settings"`)
 - 録画中の札の「開く」は案件の画面の候補(`/cases?c=<録画の id>#cand`)。「他のツール」のメニューの「案件の一覧」はホームの案件の一覧(`/#cases`)
 - スタジオ・編集の写し(`src/studio/ui-kit.*`・`src/editor/ui-kit.*`)は消した(`dev/sync_ui_kit.py` の写し先は空)。`UIKit.version` は 27

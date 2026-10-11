@@ -3,7 +3,7 @@
 
     python src/home/tests/e2e_window.py
 
-  (RS8 C4: スタジオ・編集の画面は消えたので、ツールの画面の場面は案件の画面 /cases で確かめる。appnav の 3 項目と旧 URL の転送は e2e_portal.py)
+  (RS8 C4: スタジオ・編集の画面は消えたので、ツールの画面の場面は案件の画面 /cases で確かめる。appnav の 4 項目と旧 URL の転送は e2e_portal.py)
   7-0 画面のエラーの記録: 案件の画面・設定の画面で起きたエラー(throw・Promise の失敗)が client-errors.jsonl に1行ずつ残る
   (7-1 解析の設定の引き継ぎ(localStorage → サーバー)は、欄を設定の画面へ移し引き継ぎの仕組みも消えたので 2026-10-10 に外した)
   7-2 離れた・戻った: 別の窓へ移った(blur)で「離れた」、埋め込み(iframe)にフォーカスがあるときは離れたことにしない、戻った(focus)
