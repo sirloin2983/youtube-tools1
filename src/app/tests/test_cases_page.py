@@ -80,7 +80,7 @@ class CasesPageHttpTest(unittest.TestCase):
         self.assertIn(b'name="ytt-token"', body)
 
     def test_parts_are_served(self):
-        for path in ["/cases.js", "/cases.css"] + ["/cases-panels/%s.js" % n for n in PANELS]:
+        for path in ["/cases.js", "/cases.css", "/cases-panels/cand.css"] + ["/cases-panels/%s.js" % n for n in PANELS]:
             r, body = self.req(path)
             self.assertEqual(r.status, 200, path)
             self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff", path)

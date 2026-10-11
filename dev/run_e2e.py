@@ -52,6 +52,7 @@ SUITE = [
     ("home", "src/home/tests/e2e_keymap.py", [], "共通の再生キーの移行・? の一覧・キーの変更(19 秒)"),
     ("home", "src/home/tests/e2e_settings.py", [], "設定の画面 /settings(5 秒)"),
     ("home", "src/app/tests/e2e_cases.py", [], "案件の画面 /cases の殻: 一覧・タブ・URL・キー・② の問い合わせ(RS8 C1)(6 秒)"),
+    ("home", "src/app/tests/e2e_cases_cand.py", [], "案件の画面の候補のパネル: 再生・グラフ・採用・キー・書き出し・片付け(RS8 C2a)(30 秒)"),
     ("home", "src/home/tests/e2e_intake_ui.py", [], "依頼の受付の画面(3 秒)"),
     ("home", "src/home/tests/e2e_backup_ui.py", [], "バックアップの画面(本物のバックアップ)(6 秒)"),
     ("home", "src/home/tests/e2e_live.py", [], "ライブ(線 D)の入口の API(録画の部品は本物)(9 秒)"),

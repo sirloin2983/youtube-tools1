@@ -1,0 +1,469 @@
+/* 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js。RS8 C2a)の見た目。中身はスタジオ ② の src/studio/review.css の写し + src/studio/app.css の要る分
+   (古い画面は凍結 = 動きを変えない。C4 で古い画面を消すとき、この写しが正になる)。クラス名は rv- のまま。
+   写すときに変えた所: 配信の選択(探す一覧・開く)の規則は消した(パネルでは案件を左の一覧で選ぶ)・幅の区切りは左の一覧(280px)の分だけ広げた(960/961 → 1240/1241・1180 → 1460)・シアター表示の列の幅は 100vw でなく 100%(パネルの幅)から */
+:root{--cs-head:var(--header-h,52px);--cs-in:#0a6e78;--cs-out:#a8420e;--cs-auto:var(--c-4);--cs-cand:var(--warn)}
+:root[data-theme=dark]{--cs-in:var(--c-5);--cs-out:#ff9358}
+@media (prefers-color-scheme:dark){:root:not([data-theme]){--cs-in:var(--c-5);--cs-out:#ff9358}}
+.rv-root{max-width:1760px;margin:0 auto;color:var(--ink)}
+.rv-root.theater-wide{max-width:none}
+.rv-root kbd{margin-left:6px}
+.rv-fl{font-size:11.5px;color:var(--ink-3);font-weight:550}
+.rv-check{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+.rv-check input[type=number]{width:8ch}
+.rv-root input[type=range]{width:100%}
+.rv-warn{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:0 0 8px}
+
+/* ---- 上の行: 配信の選択(押すと探せる一覧が開く)・保存の状態・シアター・配信の操作 ---- */
+.rv-top{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:2px 0 8px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.rv-topsp{flex:1 1 0}
+.rv-lbl{font-size:12px;font-weight:600;color:var(--ink-3);flex:none}
+/* 保存の状態(自動保存。失敗したときだけ押せる) */
+.rv-save{border:0;background:transparent;font-size:12px;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px;padding:2px 6px;cursor:default;white-space:nowrap;border-radius:var(--r-pill);min-height:28px}
+.rv-save::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.rv-save[data-k=idle]::before{background:var(--line-strong)}
+.rv-save[data-k=saving]::before,.rv-save[data-k=pending]::before{background:var(--warn)}   /* 保存中も点滅させない(静かな点と「保存中…」の文字。A-32・guidelines 2) */
+.rv-save[data-k=error]{color:var(--danger-ink);background:var(--danger-soft);cursor:pointer;font-weight:600}
+.rv-save[data-k=error]::before{background:var(--danger)}
+#rvTheater[aria-pressed=true]{color:var(--accent-ink2);background:var(--accent-soft)}
+/* 配信の操作(名前・YouTube で開く・解析・削除) */
+.rv-vmenu>summary{display:inline-flex}
+.rv-auto{position:relative}
+.rv-autopop .btn{width:100%;justify-content:flex-start}
+.rv-autofull{display:flex;gap:8px;align-items:center}
+.rv-autofull .btn{width:auto;flex:1}
+.rv-autofull input{width:4.5em}
+.rv-autofull .lag{flex:none;white-space:nowrap}
+/* 長い選択肢の select・入力欄と組のラベルは、入りきらなければ欄を次の行へ折り返す(390 で「パックの音量」が 1 文字ずつ縦に割れていた。A-30) */
+.rv-autoloud,.rv-autowho{flex-wrap:wrap}
+.rv-autoloud select{max-width:100%;min-width:0}
+/* 640px 以下は上の帯が折り返して「まとめて実行」が左に来るので、右にそろえた欄が画面の左の外へ出ていた: 画面の幅に置く(top:auto = ボタンの真下) */
+@media (max-width:640px){.rv-auto>.rv-autopop{position:fixed;left:12px;right:12px;top:auto;width:auto;margin-top:6px;max-height:calc(100dvh - 140px);overflow-y:auto}}
+.rv-autobar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;margin-bottom:8px;border:1px solid var(--line-2);border-radius:var(--r-md, 8px);background:var(--panel)}
+.rv-autosteps{flex:1 1 100%;overflow-wrap:anywhere;font-size:12px}
+.rv-vmenu>summary svg{width:16px;height:16px}
+.rv-vmenupop{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(380px,calc(100vw - 24px));padding:12px;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease);display:flex;flex-direction:column;gap:6px}
+.rv-vmenupop>input{width:100%}   /* 幅いっぱいは名前の欄(#rvTitle)だけ。label.lag の中の欄(配信者・パックの音量の %)まで 100% にすると、ラベルが 1 文字ずつ縦に割れていた(見直し M4) */
+.rv-vmenuacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.rv-vmenuacts .btn{white-space:normal;text-align:left}
+/* 画面の中の移動(プレーヤー・マーク・書き出し) */
+.rv-jump{display:flex;gap:4px;align-items:center}
+.rv-jumpb{gap:5px;white-space:nowrap}   /* 0.22.3: 押せるものは .btn(以前は丸い札の形。見直し S12) */
+.rv-jumpb b{font-weight:700;color:var(--ink)}
+.rv-jumpb svg{width:13px;height:13px}
+.rv-jump-exp{border-color:var(--accent-line);color:var(--accent-ink2);background:var(--accent-soft)}
+.rv-jump-exp b{color:var(--accent-ink2)}
+.rv-jump-exp b:empty{display:none}
+.rv-jump:not(.is-bar) .rv-jump-n{display:none}   /* 広い画面では「書き出し」への入口だけ(マークの一覧は右に見えている) */
+.rv-jump.is-bar{position:sticky;top:var(--cs-head);z-index:30;margin:-4px -8px 8px;padding:6px 8px;background:var(--header-bg);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+.rv-jump.is-bar .rv-jumpb{flex:1 1 0;justify-content:center;min-width:0;padding:0 6px}
+.rv-emptybox{display:grid;gap:8px;margin-top:24px;padding:40px 20px}
+.rv-emptybox b{font-size:15px}
+
+/* ---- レイアウト: 左 = プレーヤーと操作、右 = マーク一覧(右は画面の高さに収め、一覧だけをスクロールする)。
+   書き出しは右の列の中ではなく、ui-drawer(#rvExport)として別に浮く(1680px 以上は docked = 主画面が右を空けて並ぶ、それより狭いときは重ねる) ---- */
+.rv-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(360px,1fr);gap:12px;align-items:start}
+.rv-stage{display:flex;flex-direction:column;gap:8px;min-width:0}
+.rv-clips{min-width:0;display:flex;flex-direction:column;gap:8px;position:sticky;top:calc(var(--cs-head) + 8px);max-height:calc(100dvh - var(--cs-head) - 16px)}
+.rv-clipbox{display:flex;flex-direction:column;gap:6px;min-width:0;min-height:0;flex:1 1 auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:10px 10px 6px;box-shadow:var(--shadow-1)}
+@media (max-width:1240px){
+  .rv-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+  .rv-clips{position:static;max-height:none}
+  .rv-theaterbtn{display:none}
+  .rv-player,.rv-clipbox{scroll-margin-top:calc(var(--cs-head) + 52px)}
+}
+/* シアター表示: プレーヤーを画面の高さいっぱいに広げる。マークは右の列のまま(列の幅の上限はパネルの幅 = 100% から。100vw だと左の一覧の分はみ出す) */
+@media (min-width:1241px){
+  .rv-grid.theater{grid-template-columns:minmax(0,min(calc(100% - 12px - 360px),calc((100dvh - var(--cs-head) - 150px) * 16 / 9))) minmax(360px,1fr)}
+}
+/* 書き出しの引き出し(ui-drawer)。1680px 以上は docked: 主画面(.rv-root)の右をあらかじめ空けておくので、映像・一覧の上に重ならない。
+   それより狭いときは何もしない(ui-drawer は position:fixed のままなので、開けば普通に重なる = overlay) */
+@media (min-width:1680px){
+  .rv-root.rv-dock{padding-right:calc(var(--drawer-w) + var(--sp-3))}
+}
+/* ヘッダー(sticky・z-index 40)の上に重ならないよう、ヘッダーの高さぶん下から始める(ui-drawer の既定は top:0) */
+.rv-exportdrawer{top:var(--cs-head)}
+.rv-exportdrawer .ui-drawer-body{display:flex;flex-direction:column;gap:6px;padding:10px 12px 16px}
+.rv-expmore .ui-pop-body{width:max-content;max-width:260px}
+.rv-expmore .ui-pop-body button{white-space:normal}
+
+/* 印(自動・書き出し済みなど) */
+.rv-chip{display:inline-flex;align-items:center;font-size:11px;font-weight:600;line-height:18px;color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:0 6px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.rv-chip.auto{color:color-mix(in srgb,var(--cs-auto) 70%,var(--ink));border-color:color-mix(in srgb,var(--cs-auto) 40%,transparent);background:color-mix(in srgb,var(--cs-auto) 10%,transparent)}   /* 文字は --ink 寄りに混ぜて 4.5:1 以上(A-22) */
+.rv-chip.done{color:var(--ok-ink);border-color:color-mix(in srgb,var(--ok) 40%,transparent);background:var(--ok-soft)}
+.rv-chip.live{color:var(--danger-ink);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:var(--danger-soft)}
+.rv-chip.score{color:var(--ink);font-family:var(--mono)}
+.rv-chip.st.exported{color:var(--ink-2);background:var(--panel-3)}
+.rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直して入れ替えた。ライブの録画の P4) */
+
+/* ---- プレーヤー(映像の背景は常に黒) ---- */
+.rv-player{aspect-ratio:16/9;max-width:100%;background:#000;border-radius:var(--r-lg);overflow:hidden;position:relative;box-shadow:var(--shadow-2)}
+.rv-player:focus{outline:none}
+.rv-player:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* キーボードで来たときは輪を出す(A-07。クリックでは出さない) */
+.rv-host{position:absolute;inset:0}
+.rv-host iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.rv-host video{display:block;width:100%;height:100%;background:#000;object-fit:contain}
+.rv-host iframe:focus,.rv-host iframe:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* YouTube の埋め込み(iframe)にもフォーカスの輪(A-26) */
+.rv-phmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:#c9d0dc;padding:16px;font-size:13px;pointer-events:none}
+.rv-notice{margin:0}
+.rv-notice .hint{display:inline-block;margin-top:2px}
+.rv-notice a{white-space:nowrap;font-weight:600}
+
+/* ---- タイムライン・グラフ・再生の操作(1枚の面にまとめる) ---- */
+.rv-deck{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:8px 10px;box-shadow:var(--shadow-1);display:flex;flex-direction:column;gap:4px}
+.rv-tl{position:relative;height:40px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none}
+.rv-tl.dragging{cursor:grabbing}
+.rv-seg{position:absolute;top:5px;bottom:5px;min-width:4px;border:0;padding:0;border-radius:4px;background:var(--cs-cand);opacity:.92;cursor:pointer}   /* 高さ 28px(.rv-tl の中 38px - 上下 5px。押せる部品は 28px 以上。A-21) */
+.rv-seg.auto{background:var(--cs-auto)}
+.rv-seg.st-adopted{background:var(--ok)}
+.rv-seg.st-rejected{background:var(--ink-4);opacity:.45}
+.rv-seg.st-exported{background:var(--ink-3);opacity:.8}
+.rv-seg:hover{opacity:1;filter:brightness(1.1)}
+.rv-seg.sel{outline:2px solid var(--ink);outline-offset:1px;z-index:2;opacity:1}
+.rv-draft{position:absolute;top:3px;bottom:3px;border-radius:4px;border:1.5px dashed var(--cs-in);background:color-mix(in srgb,var(--cs-in) 18%,transparent);pointer-events:none;z-index:1}
+.rv-ph{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);pointer-events:none;z-index:3}
+.rv-ph::before{content:"";position:absolute;top:0;left:-4px;width:10px;height:6px;background:var(--accent);clip-path:polygon(0 0,100% 0,50% 100%)}
+/* 盛り上がりグラフ(2026-10-04 見やすく。横幅と時間はタイムラインの .rv-tl とそろえたまま)。
+   上から: 山の札の段(--g-top。段の数で JS が決める)→ 曲線(.rv-gplot)→ 時間の目盛りの帯(--g-axis)。帯と補助線(.rv-gbg)は上から目盛りの帯まで */
+.rv-graph{--g-top:28px;--g-axis:17px;position:relative;height:152px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);overflow:hidden;cursor:crosshair}
+@media (max-width:640px){.rv-graph{height:128px}}
+.rv-gsvg{position:absolute;inset:0}
+.rv-gsvg svg{position:absolute;left:0;width:100%;display:block}
+.rv-gbg{top:0;height:calc(100% - var(--g-axis))}
+.rv-gplot{top:var(--g-top);height:calc(100% - var(--g-top) - var(--g-axis));overflow:visible}
+.rv-g-area{fill:var(--accent);fill-opacity:.28;stroke:var(--accent);stroke-width:1.75;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.rv-g-grid{stroke:var(--ink-4);stroke-opacity:.35;stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+/* マークの帯: 状態の色(タイムラインの .rv-seg と同じ色)。端に線。選んでいるマークは濃く・太い端 */
+.rv-g-band rect{fill:var(--cs-auto);fill-opacity:.2}
+.rv-g-band line{stroke:var(--cs-auto);stroke-opacity:.75;stroke-width:1;vector-effect:non-scaling-stroke}
+.rv-g-band.st-adopted rect{fill:var(--ok);fill-opacity:.24}.rv-g-band.st-adopted line{stroke:var(--ok)}
+.rv-g-band.st-rejected rect{fill:var(--ink-4);fill-opacity:.16}.rv-g-band.st-rejected line{stroke:var(--ink-4);stroke-opacity:.5;stroke-dasharray:3 3}
+.rv-g-band.st-exported rect{fill:var(--ink-3);fill-opacity:.16}.rv-g-band.st-exported line{stroke:var(--ink-3)}
+.rv-g-band.sel rect{fill-opacity:.38}.rv-g-band.sel line{stroke:var(--ink);stroke-opacity:1;stroke-width:2;stroke-dasharray:none}
+.rv-g-line{fill:none;stroke-width:1.5;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:.95}
+.rv-g-line.a{stroke:var(--c-audio)}.rv-g-line.c{stroke:var(--c-chat)}.rv-g-line.m{stroke:var(--c-com)}
+/* 時間の目盛り(下の帯) */
+.rv-gticks{position:absolute;left:0;right:0;bottom:0;height:var(--g-axis);border-top:1px solid var(--line);background:var(--panel);pointer-events:none}
+.rv-gtick{position:absolute;top:0;transform:translateX(-50%);font:500 10.5px/16px var(--mono);color:var(--ink-3);white-space:nowrap}
+.rv-gtick::before{content:"";position:absolute;left:50%;top:-1px;height:4px;border-left:1px solid var(--ink-4)}
+/* 山の札(順位 + 理由)・縦の線・曲線の上の点。押すとその山の5秒前へ。札の段と横の位置は JS(重ならない) */
+.rv-gpeaks{position:absolute;inset:0;pointer-events:none}
+.rv-gpeak{position:absolute;top:5px;z-index:2;pointer-events:auto;display:inline-flex;align-items:center;gap:4px;max-width:150px;height:19px;padding:0 7px 0 2px;border:1px solid var(--accent-line);border-radius:var(--r-pill);background:var(--panel);color:var(--ink);font:600 11.5px/1 var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;box-shadow:var(--shadow-1)}
+.rv-gpk-n{display:inline-grid;place-items:center;flex:none;min-width:15px;height:15px;padding:0 3px;border-radius:var(--r-pill);background:var(--accent-soft);color:var(--accent-ink2);font:700 10.5px/1 var(--mono)}
+.rv-gpeak.r1{border-color:var(--accent)}
+.rv-gpeak.r1 .rv-gpk-n{background:var(--accent);color:var(--accent-ink)}
+.rv-gpeak:hover,.rv-gpeak:focus-visible{border-color:var(--accent);background:var(--accent-soft)}
+.rv-gpk-stem{position:absolute;bottom:var(--g-axis);width:0;border-left:1px dashed var(--accent-line);pointer-events:none}
+.rv-gpk-stem.r1{border-left-color:var(--accent)}
+.rv-gpk-dot{position:absolute;top:calc(var(--g-top) + (100% - var(--g-top) - var(--g-axis)) * var(--f));width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:50%;background:var(--panel);border:2px solid var(--accent);box-sizing:border-box;pointer-events:none}
+.rv-gpk-dot.r1{background:var(--accent)}
+.rv-gcur{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--accent);pointer-events:none;z-index:1}
+/* マウスの位置の時刻 */
+.rv-ghover{position:absolute;top:0;bottom:0;width:0;border-left:1px solid var(--ink-3);pointer-events:none;z-index:1}
+.rv-ghover>span{position:absolute;bottom:1px;left:3px;padding:0 4px;border-radius:var(--r-xs);background:var(--ink);color:var(--panel);font:600 10.5px/15px var(--mono);white-space:nowrap}
+.rv-ghover.flip>span{left:auto;right:3px}
+.rv-scale{display:flex;justify-content:space-between;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--ink-3);min-height:20px}
+.rv-glegend{flex:1 1 auto;display:flex;flex-wrap:wrap;justify-content:center;gap:2px 14px;align-items:center;font:11.5px/1.4 var(--font);color:var(--ink-2)}
+.rv-glegend .rv-check{font-size:11.5px}
+.rv-glegend input[type=checkbox]{width:14px;height:14px}
+.rv-lg{display:inline-flex;align-items:center;gap:5px}
+.rv-sw{display:inline-block;width:14px;height:8px;border-radius:2px}
+.rv-sw.tot{background:color-mix(in srgb,var(--accent) 30%,transparent);border:1px solid var(--accent)}
+.rv-sw.band{background:color-mix(in srgb,var(--cs-auto) 30%,transparent);border:1px solid var(--cs-auto)}
+.rv-sw.band.ok{background:color-mix(in srgb,var(--ok) 30%,transparent);border-color:var(--ok)}
+.rv-sw.band.ng{background:color-mix(in srgb,var(--ink-4) 18%,transparent);border:1px dashed var(--ink-4)}
+.rv-sw.band+.rv-sw.band{margin-left:6px}
+.rv-sw.a{background:var(--c-audio)}.rv-sw.c{background:var(--c-chat)}.rv-sw.m{background:var(--c-com)}
+.rv-transport{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding-top:6px;margin-top:2px;border-top:1px solid var(--line)}
+.rv-nowbox{display:flex;align-items:baseline;gap:8px}
+#rvNow{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;width:10.5ch;padding:2px 8px;min-height:38px}
+.rv-dur{color:var(--ink-3);font-size:12px}
+.rv-tbtns{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.rv-tbtns .btn-group .btn{font-family:var(--mono);font-size:12px}
+.rv-playbtn svg{width:13px;height:13px}
+#rvRate{min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;font-size:12.5px}
+
+/* ---- 今をマーク(マークの操作でいちばん上・いちばん大きく。IMPLEMENTATION.md 4) ---- */
+.rv-quickbar{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
+.rv-quickbar>.rv-fl{font-size:12.5px;color:var(--ink-2)}
+.rv-quickbar>.rv-fl .muted{font-weight:400;margin-left:4px}
+.rv-qrow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.rv-qslot{display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:0}
+.rv-qslot>.btn{min-height:56px;padding:2px 4px;font-size:15px;font-weight:650}
+.rv-qn{font:700 20px/1 var(--mono)}
+.rv-qslot kbd{margin-left:4px}
+.rv-stepper{display:inline-flex;align-items:center;justify-content:center;gap:3px;font-size:12px;color:var(--ink-2)}
+.rv-step{width:28px;height:28px;padding:0;border:1px solid var(--line-2);border-radius:6px;background:var(--panel-2);color:var(--ink);cursor:pointer;font-size:14px;line-height:1;flex:none}
+.rv-step:hover{border-color:var(--accent);color:var(--accent)}
+.rv-stv{min-width:62px;text-align:center;font-family:var(--mono)}
+.rv-qslot .rv-stv{min-width:0;flex:1;white-space:nowrap}
+.rv-qslot .rv-pre{display:none}
+/* シアター表示で右の列に移したとき(幅が狭い)は、長さの − ＋ を隠して長さだけ出す(長さは「操作の設定」のキー配置でも変えられる) */
+.rv-clipbox .rv-quickbar{flex:none}
+.rv-clipbox .rv-qslot .rv-step{display:none}
+.rv-clipbox .rv-quickbar>.rv-fl .muted{display:none}
+.rv-pre{margin-right:3px;color:var(--ink-3)}
+
+/* ---- ライブ配信 ---- */
+.rv-livebar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;border:1px solid color-mix(in srgb,var(--danger) 50%,transparent);border-radius:var(--r-lg);padding:8px 12px;background:var(--danger-soft)}
+.rv-live-l{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:baseline}
+.rv-live-badge{background:var(--danger);color:var(--danger-on);font-weight:700;font-size:11px;padding:1px 8px;border-radius:4px}
+.rv-live-k{font-size:11.5px;color:var(--ink-3)}
+/* 「ライブ端へ」と音量・消音(0.26.0。録画のプレーヤーは標準のコントロールを出さないので、音量を変える口はここ) */
+.rv-live-r{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.rv-livevol{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.rv-livevol input[type=range]{width:110px}
+.rv-livevol output{min-width:2.4em;text-align:right}
+.rv-livevol .btn[aria-pressed=true]{background:var(--ink-3);color:var(--panel);border-color:transparent}
+/* ライブの録画(kind live。線 D の P3): 録画の状態・「マークしたらすぐ書き出す」・停止の行と、次にすることの案内。録画が終わったら赤をやめる */
+.rv-liverec{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;flex:1 1 100%}
+.rv-liverec .rv-topsp{flex:1 1 0;display:block}
+.rv-recmsg{font-size:12px}
+.rv-liveguide{flex:1 1 100%;margin:0;font-size:12.5px;color:var(--ink-2)}
+.rv-livebar.is-ended{border-color:var(--line);background:var(--panel-2)}
+.rv-livebar.is-ended .rv-live-badge{background:var(--ink-3)}
+.rv-arch{padding-top:2px}
+.rv-archmsg{font-size:12.5px;overflow-wrap:anywhere;min-width:0;flex:1 1 220px}
+.rv-archmsg.rv-warnline{color:var(--warn-ink)}
+/* 配信中の候補: 見出し(件数・この 1 時間・遅れ・チャット・自動採用)と一覧。一覧は 1 枚の紙(行の間は細い線)。
+   再生中の行はアクセントの左の線、外れた行は薄くして数秒で消す(JS が inert・aria-hidden も付ける)。行のボタンは .btn.small(28px) */
+.rv-peaks{flex:1 1 100%;display:flex;flex-direction:column;gap:4px;min-width:0;padding-top:6px;border-top:1px solid color-mix(in srgb,var(--danger) 25%,transparent)}
+.rv-livebar.is-ended .rv-peaks{border-top-color:var(--line)}
+.rv-peakhead{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;min-width:0}
+.rv-peakcount{font-size:13px;font-weight:650}
+.rv-peakinfo{font-size:12px;overflow-wrap:anywhere;min-width:0}
+.rv-peakhead .ui-count{margin-left:4px}
+.rv-peakmsg{margin:0;font-size:12px}
+.rv-peaklist{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);max-height:216px;overflow-y:auto;overscroll-behavior:contain}
+.rv-peaklist:empty{display:none}
+.rv-peak{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:3px 8px;min-width:0;transition:opacity var(--dur) var(--ease)}
+.rv-peak+.rv-peak{border-top:1px solid var(--line)}
+.rv-peak.is-playing{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.rv-peak.is-gone{opacity:.35}
+.rv-peak.st-dismissed .rv-peakt{color:var(--ink-3)}
+.rv-peakplay svg{width:11px;height:11px;margin-right:4px}
+.rv-peakt{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.rv-peakwhy{display:inline-flex;min-width:0}
+.rv-peaktx{flex-basis:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--ink-3)}
+.rv-peakacts{display:inline-flex;gap:4px;margin-left:auto}
+/* タイムラインの候補の印: マークの下に重ねる点線の枠(マークと見分ける)。控えは薄く */
+.rv-seg.cand{background:color-mix(in srgb,var(--accent) 14%,transparent);border:1.5px dashed var(--accent);opacity:1}
+.rv-seg.cand.bench{border-color:var(--ink-4);background:color-mix(in srgb,var(--ink-4) 10%,transparent)}
+.rv-seg.cand.sel{border-style:solid;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+/* 設定の「ライブの録画」の中の「配信中の候補」の群(settings.js の #livePeaksBox) */
+.rv-setgroup{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.rv-setgroup input[type=number]{width:8ch}
+.rv-openmsg{margin:6px 0 0}
+
+/* ---- IN / OUT / 追加(既定で閉じた「細かく決める」の中。今をマークが主役なので、こちらは控えめに) ---- */
+.rv-markdetails{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:6px 10px}
+/* 一瞬をマーク(今をマークの欄の2行目。前・後の秒数はあらかじめ決める) */
+.rv-momrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+.rv-momrow .btn{min-height:28px}
+.rv-momset{display:inline-flex;align-items:center;gap:4px;font-size:12.5px}
+.rv-momset input{width:5.2em;min-height:28px}
+.rv-markdetails>summary{font-size:12.5px;min-height:28px;flex-wrap:wrap}
+.rv-markdetails>summary .muted{font-weight:400;font-size:11.5px}
+.rv-markdetails[open]{padding-bottom:8px}
+.rv-mark{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) minmax(0,1.2fr);gap:6px;align-items:stretch;margin-top:8px}
+.rv-markcell{border:1px solid var(--line);background:var(--panel);border-radius:var(--r-lg);padding:8px 10px;display:flex;flex-direction:column;gap:4px;justify-content:space-between;min-width:0}
+.rv-val{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:17px;font-weight:600;min-height:1.4em}
+.rv-val.is-empty{color:var(--ink-3)}
+.rv-markbtn{min-height:34px;border-radius:var(--r);font-weight:700;font-size:13px;background:transparent;border:1.5px solid currentColor;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+.rv-markbtn.in{color:var(--cs-in)}.rv-markbtn.out{color:var(--cs-out)}
+.rv-markbtn:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
+.rv-markbtn kbd{margin-left:6px}
+#rvAdd{min-height:40px}
+.rv-addcell .hint{font-size:12px}
+
+/* ---- 操作の設定(音量・キー) ---- */
+/* 0.22.3: ⚙ 設定の「② の操作」の節の中(#opsHost)に置く。節のカードの中なので、自分の枠は持たない */
+.rv-setpanel{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:0 24px}
+.rv-setpanel>.rv-sec:first-child{border-top:0;padding-top:0}
+.rv-sec{padding:10px 0;border-top:1px solid var(--line);min-width:0}
+.rv-sec h3{margin:0 0 8px;font-size:13.5px;font-weight:650}
+.rv-subh{font-size:13px;font-weight:550;margin:4px 0}
+.rv-sechint{margin:6px 0 8px;font-size:12px;line-height:1.55;color:var(--ink-2)}
+.rv-setrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+.rv-setrow+.rv-setrow{margin-top:6px}
+.rv-setrow input[type=range]{flex:1;min-width:120px}
+.rv-setrow select{width:auto}
+.rv-adv{margin-top:10px}
+.rv-adv>summary{font-size:12.5px;font-weight:550}
+
+.ui-km-row .rv-kmspan{flex:none;font-size:12px}   /* キー配置(UIKit.keymap)の「今をマーク」の行の長さ(見せるだけ) */
+.btn.armed{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger-ink)}
+
+/* ---- 書き出し(ui-drawer #rvExport。主な操作「書き出す」はいつも見える。設定は閉じておく) ---- */
+.rv-exp-sum{margin-left:auto;font-size:12px}
+.rv-status{font-size:12.5px;color:var(--danger-ink);margin:0;white-space:pre-line}
+.rv-status:empty{display:none}
+.rv-tools{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.rv-expcount{margin:0;font-size:12px}
+.rv-expcount:empty{display:none}
+.rv-expbar{margin-top:2px}
+.rv-expset{border-top:1px solid var(--line);padding-top:6px}
+.rv-expset>summary{font-size:13px;min-height:28px;flex-wrap:wrap}
+.rv-expsetsum{font-weight:400;font-size:12px}
+.rv-expgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 12px;margin:8px 0}
+.rv-fld{display:flex;flex-direction:column;gap:3px;min-width:0}
+.rv-fld select{width:100%;min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;font-size:13px}
+.rv-fld .rv-setrow{min-height:var(--ctl-h-sm);flex-wrap:nowrap;gap:8px}
+.rv-explist{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto}
+.rv-explist:empty{display:none}
+.rv-ejob{border:1px solid var(--line);border-radius:var(--r);padding:7px 10px;background:var(--panel-2);display:flex;flex-direction:column;gap:4px;border-left:3px solid var(--line-strong)}
+.rv-ejob.st-ok{border-left-color:var(--ok)}.rv-ejob.st-err{border-left-color:var(--danger)}.rv-ejob.st-run{border-left-color:var(--accent)}.rv-ejob.st-warn{border-left-color:var(--warn)}
+.rv-ejob-h{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.rv-ejob-t{font-size:12.5px}
+.rv-ejob-n{margin-right:auto;font-size:12.5px;color:var(--ink-2);min-width:0;overflow-wrap:anywhere}
+.rv-ejob-bar{margin-top:0;height:4px}
+.rv-ejob-s{font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}
+.rv-ejob-a{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;margin-top:2px}
+.rv-ejob-a .btn{text-decoration:none}
+.rv-ejob-hint{list-style:none;padding:4px 2px}
+.rv-warnline{color:var(--warn-ink)}
+.rv-err{color:var(--danger-ink)}
+.rv-err details{margin-top:2px}
+.rv-err code{font-size:11.5px}
+.rv-outline{margin:4px 0 2px;overflow-wrap:anywhere;font-size:12px}
+.rv-outline .btn{margin-left:4px}
+
+/* ---- マーク一覧 ---- */
+.rv-clips-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;padding:0 2px}
+.rv-clips-head h2{margin:0;font:650 14.5px/1.35 var(--font-display)}
+.rv-clips-head .hint{font-size:12px}
+.rv-listtools{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.rv-filters.ui-seg>button{min-height:28px;padding:0 8px;font-size:12.5px}
+.rv-filters .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-left:2px}
+.rv-filters>button[aria-pressed=true] .n{color:var(--accent-ink2)}
+.rv-listtools2{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+#rvSort{min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;font-size:12.5px}
+/* 5-4: マークの一覧は、ホーム・編集と同じ「1枚の紙」(.ui-sheet と同じ: 外枠1つ・行の間は細い線・行ごとの角丸/影なし)。
+   左の状態の色の線は border ではなく inset の影で描く(border-top の線と左上で斜めに噛み合わないため)。選んだ行は outline(隣の線と重ならない) */
+.rv-list{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:0;overflow-y:auto;overscroll-behavior:contain;flex:0 1 auto;min-height:0;scrollbar-gutter:stable;container-type:inline-size;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
+@media (max-width:1240px){.rv-list{max-height:none;overflow:visible}}
+.rv-list>.rv-mark-row+.rv-mark-row{border-top:1px solid var(--line)}
+.rv-mark-row{--rv-st:var(--cs-cand);position:relative;background:var(--panel);border:0;border-radius:0;padding:4px 8px 4px 11px;display:flex;flex-direction:column;gap:4px;box-shadow:inset 3px 0 0 var(--rv-st);transition:background var(--dur) var(--ease)}
+.rv-mark-row.auto{--rv-st:var(--cs-auto)}
+.rv-mark-row.st-adopted{--rv-st:var(--ok);background:color-mix(in srgb,var(--ok) 4%,var(--panel))}
+.rv-mark-row.st-rejected{--rv-st:var(--ink-4)}
+.rv-mark-row.st-rejected .rv-tc,.rv-mark-row.st-rejected .rv-dur{color:var(--ink-3)}
+.rv-mark-row.st-exported{--rv-st:var(--ink-3)}
+/* 開いた行(畳んでいない)・選んだ行は紙の中で少し濃い背景と余白 */
+.rv-mark-row:not(.folded),.rv-mark-row.sel{background:var(--panel-2)}
+.rv-mark-row:not(.folded){padding-top:7px;padding-bottom:7px}
+.rv-mark-row.sel{outline:2px solid var(--accent);outline-offset:-2px;z-index:1}
+/* 畳んだ行は1行の高さ(時刻・長さ・札・ラベル・判定)。ラベルは余った幅で省略し、判定・削除は右端にそろえる */
+.rv-mark-row.folded .rv-mh{min-height:28px}
+@container (min-width:460px){
+  .rv-mark-row.folded .rv-mh{flex-wrap:nowrap}
+  .rv-mark-row.folded .rv-mh>*{flex:none}
+  .rv-mark-row.folded .rv-mh>.rv-lab-s{flex:1 1 0;min-width:0;max-width:none}
+}
+.rv-mh{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.rv-fold{width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--ink-3);cursor:pointer;line-height:1;flex:none;font-size:12px}
+.rv-fold:hover{border-color:var(--line-2);color:var(--ink);background:var(--panel-2)}
+.rv-play{width:28px;padding:0!important;color:var(--accent)}
+.rv-play svg{width:12px;height:12px}
+.rv-tc{font-size:13px;font-weight:600;color:var(--ink);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.rv-mh .rv-dur{font-size:11.5px}
+.rv-lab-s{font-size:12.5px;color:var(--ink-2);max-width:14em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-mact{display:inline-flex;align-items:center;gap:4px;margin-left:auto;flex-wrap:nowrap}
+.rv-stgroup{display:inline-flex}
+.rv-stgroup .btn{border-radius:0;margin-left:-1px;padding:0 10px;min-height:28px;box-shadow:none;font-size:12.5px}
+.rv-stgroup .btn:first-child{border-radius:7px 0 0 7px;margin-left:0}
+.rv-stgroup .btn:last-child{border-radius:0 7px 7px 0}
+.rv-stb[aria-pressed=true]{position:relative;z-index:1;font-weight:700}
+.rv-stb.adopted[aria-pressed=true]{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 55%,transparent);color:color-mix(in srgb,var(--ok-ink) 85%,var(--ink))}
+.rv-stb.rejected[aria-pressed=true]{background:var(--panel-3);border-color:var(--line-strong);color:var(--ink-2)}
+.rv-stb.cand[aria-pressed=true]{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 55%,transparent);color:var(--warn-ink)}
+.rv-del{width:28px;padding:0!important;color:var(--ink-3)}
+.rv-del svg{width:12px;height:12px}
+.rv-del:hover:not(:disabled){color:var(--danger)!important;background:var(--danger-soft)!important}
+.rv-del.armed{width:auto;padding:0 8px!important;color:var(--danger-ink);white-space:nowrap}
+.rv-body{display:flex;flex-direction:column;gap:5px;padding:0 0 3px}
+.rv-rtags{display:flex;flex-wrap:wrap;gap:4px}
+.rv-rtag{font-size:11px;font-weight:550;border:1px solid var(--line-2);border-radius:var(--r-pill);padding:0 8px;white-space:nowrap;line-height:18px;color:var(--ink-2)}
+/* 札の文字はグラフの色を --ink 寄りに混ぜる(グラフの色そのままでは、明るいテーマの薄い面の上で 3.1〜4.6:1 しかない。A-22。暗いテーマでは明るくなる) */
+.rv-rtag.a{border-color:color-mix(in srgb,var(--c-audio) 45%,transparent);color:color-mix(in srgb,var(--c-audio) 70%,var(--ink));background:color-mix(in srgb,var(--c-audio) 8%,transparent)}
+.rv-rtag.c{border-color:color-mix(in srgb,var(--c-chat) 45%,transparent);color:color-mix(in srgb,var(--c-chat) 70%,var(--ink));background:color-mix(in srgb,var(--c-chat) 8%,transparent)}
+.rv-rtag.m{border-color:color-mix(in srgb,var(--c-com) 45%,transparent);color:color-mix(in srgb,var(--c-com) 70%,var(--ink));background:color-mix(in srgb,var(--c-com) 8%,transparent)}
+.rv-times{display:grid;grid-template-columns:minmax(0,1fr);gap:6px 12px}
+@container (min-width:440px){.rv-times{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.rv-tfield{display:flex;flex-direction:column;gap:3px;min-width:0}
+.rv-tlab{min-width:2em}
+.rv-trow{display:flex;gap:4px;align-items:center;flex-wrap:nowrap}
+.rv-trow input{width:9ch;flex:0 0 auto;min-height:28px;padding:1px 6px;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:13px}
+.rv-trow .ui-time{min-width:0;width:11ch;flex:0 0 auto;min-height:28px;padding:1px 4px;font-size:13px}   /* 開始・終了の時刻の欄(UIKit.timebox。0:01:23.5) */
+.rv-trow .btn{min-height:28px;padding:0 8px;font-size:12px;flex:0 0 auto;box-shadow:none}
+.rv-nudges .btn{flex:1 1 0;min-width:0;padding:0;font-family:var(--mono)}
+/* B-11: 微調整(±5/±1/±0.5・現在位置)は選んだマークにだけ出す。一覧では時刻・長さ・ラベル・判定を比べやすく */
+.rv-mark-row:not(.sel) .rv-nudges,.rv-mark-row:not(.sel) [data-act=setnow]{display:none}
+.rv-labelrow input{width:100%;min-height:30px;padding:2px 8px;font-size:13px}
+.rv-file{overflow-wrap:anywhere;font-size:12px}
+.rv-off{opacity:.5}
+/* セリフ(書き出した切り抜きの文字起こし。行を押すとその行を再生) */
+.rv-tx{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.rv-tx>summary{cursor:pointer;font-size:13px;min-height:28px}
+.rv-tx-note{font-size:12px;margin:4px 0}
+.rv-tx-lines{list-style:none;margin:4px 0 0;padding:0;max-height:260px;overflow:auto}
+.rv-tx-line{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;background:none;border:0;border-radius:var(--r);padding:4px 6px;color:var(--ink);font:inherit;font-size:13px;cursor:pointer;min-height:28px}
+.rv-tx-line:hover,.rv-tx-line:focus-visible{background:var(--panel-2)}
+.rv-tx-line.cut .rv-tx-text{text-decoration:line-through;color:var(--ink-3)}
+.rv-tx-tc{color:var(--ink-3);font-size:12px;flex:none}
+.rv-tx-spk{color:var(--accent-ink2);font-size:12px;flex:none}
+.rv-tx-text{overflow-wrap:anywhere}
+.rv-emptylist{list-style:none;padding:24px 16px}
+
+@media (max-width:1460px) and (min-width:1241px){
+  .rv-mark{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:600px){
+  .rv-topsp{display:none}
+  .rv-mark{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rv-addcell{grid-column:1/-1}
+  .rv-qrow{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+  .rv-mact{margin-left:0}
+  #rvNow{font-size:18px;width:9.5ch}
+  .rv-transport{justify-content:flex-start}
+  .rv-tools .btn{flex:1 1 auto}
+}
+
+/* つなげて1本に(マークの行のチェック) */
+.rv-join{width:18px;height:18px;margin:0 2px 0 0;flex:none;cursor:pointer}
+/* ライブの録画: 編集で再生している間の配信の音(下げる / 消す / そのまま) */
+.rv-duck{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.rv-duck select{font-size:12.5px}
+.rv-ducknote{color:var(--ink-2);font-weight:600}
+/* ライブの録画: 帯の「配信者」(字幕の色)。押すと名前の欄(UIKit.streamer の候補と色の見本)が開く */
+.rv-livewho>summary{font-size:12.5px;max-width:28ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.rv-livewho>summary>span{text-decoration:underline dotted;text-underline-offset:3px}
+.rv-livewhobody{width:min(320px,calc(100vw - 32px));padding:10px}
+.rv-livewhobody>label{display:block;margin-bottom:4px}
+.rv-livewhobody input[type=text]{width:calc(100% - 28px)}
+.rv-livewhobody .hint{margin:6px 0 0}
+
+/* ---- スタジオの app.css から写した、パネルの中で使う部品 ---- */
+.cs-notice-act{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
+.cs-notice-act>div{flex:1 1 320px;min-width:0}
+.q-dot{color:var(--ink-3)}
+.q-raw{font-size:11.5px;color:var(--ink-3)}
+.q-raw>summary{cursor:pointer;width:max-content;max-width:100%;min-height:28px;line-height:28px;font-weight:400}   /* 開閉の印は ui-disclosure の線の山形(ブラウザの三角をやめた。2 周目 N5) */   /* 押せる部品は 28px 以上(A-21) */
+.q-raw code{display:block;margin-top:2px;white-space:pre-wrap}
+.cs-emptyacts{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:10px}
+.cs-keyhelp{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100dvh - 48px);padding:0;overflow:hidden}
+.cs-keyhelp[open]{display:flex;flex-direction:column}
+#keyHelpBody{padding:14px 20px 20px;overflow-y:auto}
+.cs-keypreset{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px 0}
+.cs-keypreset select{max-width:100%;min-width:0;flex:1 1 260px}
+.cd-panel h2{margin:0 0 8px;font-size:15px}
+
+/* ---- パネルの枠(cand.js が作る箱)---- */
+/* 配信の選択(探す一覧・URL を開く)と「配信が開かれていない」の案内はパネルでは出さない(案件は左の一覧で選ぶ。読み込み中・失敗は .cd-status) */
+.cd-panel #rvPick,.cd-panel #rvEmpty{display:none!important}
+.cd-panel{display:flex;flex-direction:column;gap:12px;min-width:0}
+.cd-status{display:grid;gap:6px;justify-items:center;text-align:center;padding:32px 16px;color:var(--ink-2)}
+.cd-status b{font-size:15px;color:var(--ink)}
+.cd-status .hint{overflow-wrap:anywhere}
+.cd-ops{border-top:1px solid var(--line);padding-top:8px}
+.cd-ops>summary{min-height:28px;font-size:13px}
+.cd-ops .rv-settings{padding-top:6px}

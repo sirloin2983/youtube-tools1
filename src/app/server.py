@@ -567,6 +567,7 @@ CASES_DIR = os.path.join(ROOT, "app", "ui", "cases")
 CASES_PANELS = ("cand", "proof", "cut")   # 候補・校正・カットとパック(C2 で中身を移す)
 STATIC.update({"/cases": ("index.html", CASES_DIR), "/cases.js": ("cases.js", CASES_DIR), "/cases.css": ("cases.css", CASES_DIR)})
 STATIC.update({"/cases-panels/%s.js" % n: (os.path.join("panels", n + ".js"), CASES_DIR) for n in CASES_PANELS})
+STATIC["/cases-panels/cand.css"] = (os.path.join("panels", "cand.css"), CASES_DIR)   # 候補のパネルの見た目(スタジオ ② の review.css の写し。C2a)
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
 NAV_PAGES = httpsec.PAGES + ("/settings", "/cases")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "

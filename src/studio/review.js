@@ -1,11 +1,15 @@
 /* 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
-   Studio.review = { open(id), refresh() }。データはすべてサーバー保存(PUT /api/video)。UI設定は /api/settings の settings.review。 */
+   Studio.review = { open(id), refresh() }。データはすべてサーバー保存(PUT /api/video)。UI設定は /api/settings の settings.review。
+   RS8 C2a で部品にした: window.StudioReview.create(env) が ② を 1 つ作る。スタジオの画面はこのファイルの最後で document の env を渡して作る(動きは今までと同じ)。
+   案件の画面の「候補」のパネル(src/app/ui/cases/panels/cand.js)も、このファイルを読んで自分の env で作る(DOM はパネルの箱の中だけ・keydown は殻の 1 本から・離れた / 戻ったは殻から)。
+   env = { Studio(core.js の window.Studio と同じ形), $(sel)・$$(sel)(DOM を引く場所), listen(target, type, fn, opt)(見張りを付ける。document の keydown も),
+           keybar(list | null)(下のキーの帯), life(onLeave, onReturn)(画面を離れた・戻った), wide(広い画面の media query。省略 = 961px 以上) } */
 (() => {
 'use strict';
-const Studio = window.Studio;
-if (!Studio) return;
+function create(env){
+const Studio = env.Studio;
 const esc = Studio.esc;
-const $ = s => document.querySelector(s);
+const $ = env.$, $$ = env.$$;
 const enc = encodeURIComponent;
 const round1 = x => Math.round(x * 10) / 10;
 const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -462,14 +466,14 @@ function renderListKeep(){
   if (!inList()){ renderList(); return; }
   const li = a.closest('.rv-mark-row'), id = li && li.dataset.id, f = a.dataset && a.dataset.f, val = a.value, ss = a.selectionStart, se = a.selectionEnd;
   renderList();
-  const el = id && document.querySelector(`.rv-mark-row[data-id="${CSS.escape(id)}"] [data-f="${f}"]`);
+  const el = id && $(`.rv-mark-row[data-id="${CSS.escape(id)}"] [data-f="${f}"]`);
   if (el){ el.focus(); try { if (f === 'label'){ el.value = val; el.setSelectionRange(ss, se); } } catch {} }
 }
 /* 一覧を描き直したあと、押したボタンへフォーカスを戻す(見直し M2。行は innerHTML で作り直すので、そのままだと body に落ちる)。
    同じマークの行の同じボタン(sel)へ。行が一覧から消えた(削除・絞り込み)ときは、同じ位置の行(無ければ前の行)の折りたたみのボタン、行が無ければ一覧の見出し */
-const rowIndex = li => [...document.querySelectorAll('#rvList .rv-mark-row')].indexOf(li);
+const rowIndex = li => [...$$('#rvList .rv-mark-row')].indexOf(li);
 function focusRow(id, sel, idx){
-  const rows = [...document.querySelectorAll('#rvList .rv-mark-row')];
+  const rows = [...$$('#rvList .rv-mark-row')];
   const same = id ? rows.find(r => r.dataset.id === id) : null;
   const li = same || rows[Math.min(Math.max(0, idx), rows.length - 1)];
   let el = (same && sel && li.querySelector(sel)) || (li && li.querySelector('.rv-fold'));
@@ -1228,7 +1232,7 @@ function renderKeyUI(){
   const km = curKeymap();
   $('#rvQuickSlots').innerHTML = S.settings.quickSpans.map((sp, i) =>
     `<div class="rv-qslot"><button class="btn${i === 0 ? ' soft' : ''}" type="button" data-slot="${i}" title="今の位置の前後${spanLabel(sp)}をマーク"><span class="rv-qn">${i + 1}</span><kbd class="ui-kbd" data-kbd="${i ? 'quickMark' + (i + 1) : 'quickMark'}"></kbd></button>${spanSelHTML(i)}</div>`).join('');
-  for (const el of document.querySelectorAll('#rvRoot kbd[data-kbd]')){ el.textContent = km[el.dataset.kbd] ? keyText(km[el.dataset.kbd]) : ''; el.hidden = !km[el.dataset.kbd]; }   // 割り当てを外したら、ボタンの横のキーも出さない
+  for (const el of $$('#rvRoot kbd[data-kbd]')){ el.textContent = km[el.dataset.kbd] ? keyText(km[el.dataset.kbd]) : ''; el.hidden = !km[el.dataset.kbd]; }   // 割り当てを外したら、ボタンの横のキーも出さない
   const pre = $('#rvKeyPreset');
   if (pre){
     for (const o of pre.options) if (PRESET_NAMES[o.value]) o.textContent = presetLabel(o.value);
@@ -1427,7 +1431,7 @@ function liveOpened(v){
   $('#rvLiveRec').hidden = !rec; $('#rvLiveGuide').hidden = true;
   $('#rvLiveBar').classList.toggle('is-rec', rec); $('#rvLiveBar').classList.remove('is-ended');
   liveSet('#rvLiveBadge', 'LIVE'); liveSet('#rvLiveElapsedK', rec ? '録画の長さ' : '配信経過');
-  for (const el of document.querySelectorAll('#rvLiveBar .rv-live-edgeinfo')) el.hidden = false;
+  for (const el of $$('#rvLiveBar .rv-live-edgeinfo')) el.hidden = false;
   $('#rvEdge').hidden = false;
   const ol = $('#rvExpList'), want = rec ? 'live:' + v.id : '';
   if (ol && String(ol.dataset.job || '').startsWith('live:') && ol.dataset.job !== want){   // 前に開いていた録画の書き出しの行を残さない
@@ -1536,12 +1540,12 @@ function renderLiveRec(){
   if (pill.className !== pc) pill.className = pc;
   liveSet('#rvRecState', label); liveSet('#rvRecMsg', msg);
   $('#rvRecStop').hidden = !active;
-  for (const sel of ['label[for="rvAutoExp"]', 'label[for="rvDuck"]', 'label[for="rvAfter"]']){ const el = document.querySelector(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出す・音の扱い・書き出したあとは意味が無い
+  for (const sel of ['label[for="rvAutoExp"]', 'label[for="rvDuck"]', 'label[for="rvAfter"]']){ const el = $(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出す・音の扱い・書き出したあとは意味が無い
   { const w = $('#rvLiveWho'), can = !gone && !!Studio.token; if (w && w.hidden !== !can) w.hidden = !can; }
   const ended = (!!st && !err && !active) || gone;
   $('#rvLiveBar').classList.toggle('is-ended', ended);
   liveSet('#rvLiveBadge', ended ? '録画' : 'LIVE');
-  for (const el of document.querySelectorAll('#rvLiveBar .rv-live-edgeinfo')) el.hidden = !active;
+  for (const el of $$('#rvLiveBar .rv-live-edgeinfo')) el.hidden = !active;
   $('#rvEdge').hidden = !active;
   if (!active && st) liveSet('#rvLiveElapsed', tickLabel(Math.max(liveTotal(st), S.duration)));
   else if (active && !S.playerAlive) liveSet('#rvLiveElapsed', fmt(S.duration));   // 再生できない間は録画の状態の長さ(再生中は updateLive が直す)
@@ -1876,7 +1880,7 @@ function peaksShownNow(v){
   return !!(LV.status && LV.status.active) || PKV.list.length > 0 || !!(PKV.worker && PKV.worker.running);
 }
 const peakById = id => PKV.list.find(p => p.id === id) || null;
-const peakRowOf = id => document.querySelector(`#rvPeakList .rv-peak[data-pid="${CSS.escape(id)}"]`);
+const peakRowOf = id => $(`#rvPeakList .rv-peak[data-pid="${CSS.escape(id)}"]`);
 /* 録画を開いた(か、ライブの録画でない配信を開いた = vid null)。前の録画の行は残さない(見回りでは作り直さないので、ここでだけ空にする) */
 function peaksOpened(vid){
   for (const t of PKV.fading.values()) clearTimeout(t);
@@ -2193,7 +2197,7 @@ function pushMark(m){
   v.marks.push(m); S.seen.add(m.id); S.sel = m.id; S.fold.set(m.id, false);
   markDirty(); renderTimeline(); renderStats(); renderLiveCount();
   if (!inList()) renderList();
-  const li = document.querySelector(`.rv-mark-row[data-id="${CSS.escape(m.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
+  const li = $(`.rv-mark-row[data-id="${CSS.escape(m.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
   if (autoExp) startLiveExport(new Set([m.id]), { auto: true });
 }
 /* サーバーと同じ規則: 0 ≤ start < end、長さ ≤ 60分、有限の数。通常動画では終了を動画の長さに収める。返り値は [start, end] か、エラー文の文字列 */
@@ -2268,7 +2272,7 @@ function addClip(){
   const m = newMark(r[0], r[1], markLive());
   S.draft = { start: null, end: null }; renderDraft();
   pushMark(m);
-  const el = document.querySelector(`.rv-mark-row[data-id="${CSS.escape(m.id)}"] [data-f="label"]`); if (el) el.focus();
+  const el = $(`.rv-mark-row[data-id="${CSS.escape(m.id)}"] [data-f="label"]`); if (el) el.focus();
 }
 function setBound(c, w, val){
   val = round1(val);
@@ -2285,7 +2289,7 @@ function setBound(c, w, val){
 }
 function refresh(keyToFocus){
   renderTimeline(); renderStats(); renderList(); renderLiveCount();
-  if (keyToFocus){ const el = document.querySelector(`[data-key="${CSS.escape(keyToFocus)}"]`); if (el) el.focus(); }
+  if (keyToFocus){ const el = $(`[data-key="${CSS.escape(keyToFocus)}"]`); if (el) el.focus(); }
 }
 /* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1。実行したらすぐ元に戻る) */
 function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
@@ -2310,7 +2314,7 @@ function setStatus(c, st, advance){
 function selectMark(c, jump){
   S.sel = c.id; S.fold.set(c.id, false);
   renderTimeline(); renderList();
-  const li = document.querySelector(`.rv-mark-row[data-id="${CSS.escape(c.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
+  const li = $(`.rv-mark-row[data-id="${CSS.escape(c.id)}"]`); if (li) li.scrollIntoView({ block: 'nearest' });
   if (jump){ if (S.settings.autoPlay) previewClip(c, true); else seek(c.start); }
 }
 /* 前/次のマークへ。一覧の並び順(時刻順 / 点数順)どおりに動く(以前は点数順で表示していても時刻順に飛んでいた)。
@@ -3029,7 +3033,7 @@ function renderStats(){
   for (const m of v.marks){ cnt[statusOf(m)]++; if (m.status === 'adopted') sum += m.end - m.start; }
   $('#rvStats').textContent = `${v.marks.length}件 ・ 採用 ${cnt.adopted}件(合計 ${fmt(sum)})`;
   { const jm = $('#rvJumpMarks'); if (jm) jm.textContent = String(v.marks.length); }
-  for (const b of document.querySelectorAll('#rvFilters [data-filter]')){
+  for (const b of $$('#rvFilters [data-filter]')){
     const f = b.dataset.filter, n = f === 'all' ? v.marks.length : cnt[f];
     b.querySelector('.n').textContent = n; b.setAttribute('aria-pressed', String(S.filter === f));
   }
@@ -3043,7 +3047,7 @@ function renderAll(){
   else { renderExportUI(); renderLiveCount(); }
   setSaveState('idle');
 }
-const WIDE = '(min-width:961px)';
+const WIDE = env.wide || '(min-width:961px)';
 function placeQuickBar(){
   const qb = $('#rvQuickbar'), cb = $('#rvClipbox'), lb = $('#rvLiveBar'), anchor = $('#rvMarkDetails'); if (!qb || !cb || !lb || !anchor) return;
   const wide = window.matchMedia(WIDE).matches, side = !!S.settings.theater && wide;
@@ -3144,11 +3148,11 @@ const handlePlayback = UIKit.keys.playback({
 /* キーの帯(下の細い帯)の中身。② の場面(配信を開いている間)に合わせて置き換える。場面に合ったキー 7 個まで。名前はボタンと同じ(「今をマーク①」「IN / OUT」。見直し S18)。
    書き出しの欄を重ねて開いている間(② のキーは効かない)は、その欄で使うキーだけにする(重ねているかは属性で見る。S.expModal は開いたあとで入るため) */
 function keybarScene(){
-  { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ UIKit.keybar.set([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
+  { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ env.keybar([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字をなくす。段6)
   /* ライブの録画で配信中の候補が出ている間は、マークの採用・不採用の代わりに候補のキー(7 個までに収める) */
   const pb = $('#rvPeaks'), pk = !!pb && !pb.hidden;
-  UIKit.keybar.set([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
+  env.keybar([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
     row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), 'IN / OUT'), pk ? row(t('nextPeak'), '次の候補') : row(t('adopt'), '採用'), pk ? row(t('adoptPeak'), '候補を採用') : row(t('reject'), '不採用'),
     { k: '?', l: 'キー操作' }].filter(Boolean));
 }
@@ -3358,7 +3362,7 @@ function wire(){
   $('#rvOut').addEventListener('click', markOut);
   $('#rvAdd').addEventListener('click', addClip);
   $('#rvToggle').addEventListener('click', togglePlay);
-  document.querySelectorAll('#rvRoot [data-seek]').forEach(b => b.addEventListener('click', () => seek(S.now + Number(b.dataset.seek))));
+  $$('#rvRoot [data-seek]').forEach(b => b.addEventListener('click', () => seek(S.now + Number(b.dataset.seek))));
   $('#rvRate').addEventListener('change', e => { S.rate = Number(e.target.value); if (yt) yt.setPlaybackRate(S.rate); });
   $('#rvNow').addEventListener('change', e => {
     const t = parseTime(e.target.value);
@@ -3436,10 +3440,10 @@ function wire(){
   });
   $('#rvList').addEventListener('click', onCopy);
   Studio.on('ports', () => { if (S.lastJob) renderJob(S.lastJob); if (S.cur) renderList(); });   // 他のツールの実際のポートが分かったら、リンクを作り直す
-  window.matchMedia(WIDE).addEventListener('change', () => { placeQuickBar(); placeJump(); });
-  window.matchMedia(WIDE_EXPORT).addEventListener('change', syncExportDock);
+  env.listen(window.matchMedia(WIDE), 'change', () => { placeQuickBar(); placeJump(); });
+  env.listen(window.matchMedia(WIDE_EXPORT), 'change', syncExportDock);
   $('#rvExpClose').addEventListener('click', () => closeExportDrawer(true));
-  document.addEventListener('ui-drawer', e => { const d = e.detail || {}; if (d.el && d.el.id === 'rvExport' && Studio.step === 'review') keybarScene(); });   // 欄を開いた・閉じた(Esc も)で帯を合わせる
+  env.listen(document, 'ui-drawer', e => { const d = e.detail || {}; if (d.el && d.el.id === 'rvExport' && Studio.step === 'review') keybarScene(); });   // 欄を開いた・閉じた(Esc も)で帯を合わせる
   $('#rvExpMore').addEventListener('click', e => { if (e.target.closest('button[id]')) $('#rvExpMore').open = false; });   // 「…」の中を押したら閉じる
 
   // 書き出し
@@ -3453,7 +3457,7 @@ function wire(){
   });
 
   // キーボードショートカット(このステップが表示されているときだけ)
-  document.addEventListener('keydown', e => {
+  env.listen(document, 'keydown', e => {
     if (Studio.step !== 'review' || !S.cur) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;   // 日本語の変換中は受け取らない
     if (Studio.overlayOpen()) return;   // 設定の引き出し・キー一覧を開いている間は、裏の配信を操作しない
@@ -3493,7 +3497,7 @@ async function activate(){
 function deactivate(){
   pausePlayback(); stopPoll(); liveStopPoll();   // ② を離れたら再生を止める(ライブの録画も。録画そのものは裏で続く)
   placeFlush();   // 前回の場所(S-8)をすぐ書く
-  UIKit.keybar.clear();
+  env.keybar(null);
   if (setTimer) saveSettings();
   if (S.dirty || saveTimer) save();
 }
@@ -3510,7 +3514,9 @@ Studio.review = {
   keymap: KM,   // キーの一覧(? の一覧も同じ部品を出す。core.js)
   /* 書き出しのあと自動で文字起こし(設定の「書き出し」節のスイッチ。settings.js)。値は review の節(サーバー)の autoTx */
   autoTx: () => S.settings.autoTx !== false,
-  setAutoTx(on){ S.settings.autoTx = !!on; touchSettings(); }
+  setAutoTx(on){ S.settings.autoTx = !!on; touchSettings(); },
+  /* 片付ける(案件の画面のパネルを閉じるとき。スタジオの画面は呼ばない): 離れたときと同じ保存と停止に加えて、プレーヤー・書き出しとまとめて実行の確かめを止め、書き出しの欄を閉じる */
+  dispose(){ deactivate(); unmountPlayer(); stopExpPoll(); clearTimeout(AUTO.t); clearTimeout(quietT); closeExportDrawer(); peaksOpened(null); }
 };
 /* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
@@ -3539,7 +3545,7 @@ async function maybeAutoTranscribe(videoId, markIds){
 /* まとめて実行(② のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ。段4)。
    採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
 /* マークの行の「この後を」: 実行する前に字幕の色(② のまとめて実行の配信者の欄の名前)を見せる(S-10。以前は閉じたメニューの欄を黙って使っていた) */
-function autoWhoText(){ const el = document.getElementById('rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
+function autoWhoText(){ const el = $('#rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
 function fillAutoWho(){
   if (Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
 }
@@ -3623,12 +3629,20 @@ Studio.onReady(() => {
     if (setFailed && !setLoadErr) saveSettings();   // 離れるときの保存が失敗していたら送り直す(監査 11)
     if (Studio.step === 'review'){ startPoll(); loadTranscripts(); liveResume(); }   // 文字起こしのタブ・窓で直してから戻ったとき
   };
-  UIKit.life.onLeave(onLeft); UIKit.life.onReturn(onBack);
-  window.addEventListener('beforeunload', e => {
+  env.life(onLeft, onBack);
+  env.listen(window, 'beforeunload', e => {
     if (S.dirty || saveP || S.exportAll){ e.preventDefault(); e.returnValue = ''; }
   });
   loadSettings();
   refreshList();
   resumeJob();
 });
+}
+window.StudioReview = { create };
+/* スタジオの画面(core.js の window.Studio がある)では、今までどおり document に ② を作る */
+const Studio = window.Studio;
+if (Studio) create({ Studio, $: s => document.querySelector(s), $$: s => document.querySelectorAll(s),
+  listen: (target, type, fn, opt) => target.addEventListener(type, fn, opt),
+  keybar: list => (list ? UIKit.keybar.set(list) : UIKit.keybar.clear()),
+  life: (onLeave, onReturn) => { UIKit.life.onLeave(onLeave); UIKit.life.onReturn(onReturn); } });
 })();

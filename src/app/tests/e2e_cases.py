@@ -151,7 +151,9 @@ def main():
                 pg.click("#csRail [data-cs-key=cand]")
                 check(wait_js(pg, "CasesShell.state().tab === 'cand'") and tabs() == ["cand*"], "候補のタブ: %s" % tabs())
                 check(pg.evaluate("location.search + location.hash") == "?c=v1#cand", "URL: %s" % pg.evaluate("location.search + location.hash"))
-                check(pg.get_attribute("[data-cs-stub=cand] a.btn", "href") == "studio/?video=v1", "空のパネルから今のスタジオへ")
+                # 候補のパネル(C2a)はスタジオの studio/review.js を読む。この入口はスタジオを取り込まないので、読めない案内(何が / 次に + もう一度)が出る
+                # (中身の確かめは e2e_cases_cand.py)。この 404 は最後に除く
+                check(wait_js(pg, "!!document.querySelector('#csPane [data-cd-status] [data-cd-retry]')"), "候補のパネル: 部品を読めないときは案内ともう一度")
                 pg.click("#csRail [data-cs-key='m:m4']")
                 check(wait_js(pg, "CasesShell.state().sel === 'm:m4'") and pg.evaluate("location.search") == "?c=v1&m=m4", "文字起こし前の切り抜きは m=: %s" % pg.evaluate("location.search"))
 
@@ -212,6 +214,9 @@ def main():
                 check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000b'"), "390 でも開ける")
                 check(pg.evaluate("document.scrollingElement.scrollWidth <= document.scrollingElement.clientWidth + 1"), "390 で横にはみ出さない: %s" % pg.evaluate("[document.scrollingElement.scrollWidth, document.scrollingElement.clientWidth]"))
 
+                studio_js = "/studio/review.js"   # スタジオを取り込まない入口で候補のパネルを開いたときの 404(上の 4)
+                bad_status[:] = [u for u in bad_status if not (u.startswith("404 ") and u.endswith(studio_js))]
+                errors[:] = [e for e in errors if studio_js not in e and "status of 404" not in e]
                 check(not errors, "コンソールのエラーなし: %s" % errors[:3])
                 check(not bad_status, "4xx / 5xx の応答なし: %s" % bad_status[:3])
             finally:
