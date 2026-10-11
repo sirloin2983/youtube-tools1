@@ -309,11 +309,19 @@ def _scan_roots(repo_root, env=None):
         out = datadir.studio_out_dir(repo_root, env)
         if not os.path.isabs(out) or casefiles.is_remote(out) or not fsio.is_fixed_drive(out) or not os.path.isdir(out):
             return []
-        names = sorted(os.listdir(out))
+        parents = [out]
+        req = os.path.join(out, placement.REQUEST_DIR)   # 友人の依頼の案件 <outDir>/依頼/<日付>_<題>_<id6>(1 階層)
+        if os.path.isdir(req):
+            parents.append(req)
+        found = []
+        for par in parents:
+            for n in sorted(os.listdir(par)):
+                d = os.path.join(par, n)
+                if os.path.isfile(casefiles.work_path(d, casefiles.ADOPTIONS_NAME)):
+                    found.append(d)
+        return found
     except OSError:
         return []
-    return [os.path.join(out, n) for n in names
-            if os.path.isfile(casefiles.work_path(os.path.join(out, n), casefiles.ADOPTIONS_NAME))]
 
 
 def _studio_view(repo_root, env, loc):

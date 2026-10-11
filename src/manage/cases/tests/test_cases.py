@@ -555,6 +555,18 @@ class TestCaseRoot(Base):
         self.assertEqual([c["id"] for c in res["cases"]], [VID])
         self.assertEqual(len(res["cases"][0]["clips"]), 1)
 
+    def test_request_folder_scanned_and_case_json_only_ignored(self):
+        self.studio({})
+        req = os.path.join(self.out, "依頼", "2026-10-11_題_abc123")
+        v2 = "yyyyyyyyyyy"
+        c2, a2 = casebook.split({"id": v2, "kind": "file", "title": "依頼", "channel": "", "fileName": "a.mp4", "marks": []}, req)
+        os.makedirs(os.path.join(req, schemas.WORK_DIR))
+        casebook.write(req, c2, a2)
+        bare = os.path.join(self.out, "依頼", "2026-10-11_空_def456", schemas.WORK_DIR)
+        os.makedirs(bare)
+        self.touch(os.path.join(bare, "case.json"), "{}")   # 採用.json が無い依頼の案件は配信が無いので一覧に出さない
+        self.assertEqual(sorted(c["id"] for c in cases.snapshot(self.root, self.env)["cases"]), sorted([VID, v2]))
+
     def test_listed_once_with_index(self):
         self.index()
         self.assertEqual([c["id"] for c in cases.snapshot(self.root, self.env)["cases"]], [VID])
