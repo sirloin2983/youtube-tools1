@@ -76,3 +76,11 @@ def env_off(name):
     """環境変数 name が「止める」の値(off・0・no・false。大文字小文字と前後の空白は問わない)か(裏の処理を止めるスイッチ。
     RS2-9 に編集の ed_state から移した。ed_state には別名がある)"""
     return os.environ.get(name, "").strip().lower() in ("off", "0", "no", "false")
+
+
+LAYERS_ENV = "TRANSCRIBE_LAYERS"   # 文書の機械の層・人の層(RS8 O2-2): 既定 shadow = 文書を書くたびに影の層も書いて比べる(正は文書のまま)・off = 書かない
+
+
+def layers_on():
+    """文書の機械の層・人の層を書くか(環境変数 TRANSCRIBE_LAYERS が off・0・no・false でなければ書く。既定 shadow)。呼ぶたびに読む"""
+    return not env_off(LAYERS_ENV)

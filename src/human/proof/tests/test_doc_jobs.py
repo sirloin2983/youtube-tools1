@@ -7,6 +7,7 @@ doc_jobs は editor の部品を裸の名前(import ed_store など)で読むの
 (serve の登録で口が埋まり、評価用の作り直しの差し替えが本体に届くことは src/editor/tests/test_evalbatch.py・test_names.py が確かめる)。
 """
 import contextlib
+import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
 import shutil
@@ -205,6 +206,14 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertEqual(docloc.placed(tid), os.path.normpath(wd))
         self.assertTrue(os.path.isfile(os.path.join(wd, tid + ".over.json")))   # 引き継いだので控えも案件へ
         self.assertEqual(doc["segments"][0]["text"], "待って")
+        # 影の層(RS8 O2-2)も文書と同じ 作業用 に。機械の層は引き継ぐ前の機械の行・引き継いだ人の直しは人の層
+        for sfx in (".mach.json", ".hum.json"):
+            self.assertTrue(os.path.isfile(os.path.join(wd, tid + sfx)), sfx)
+            self.assertFalse(os.path.exists(os.path.join(self.workdata.TX_DIR, tid + sfx)), sfx)
+        with open(os.path.join(wd, tid + ".mach.json"), encoding="utf-8") as f:
+            self.assertEqual([r["text"] for r in json.load(f)["rows"]], ["まって"])
+        with open(os.path.join(wd, tid + ".hum.json"), encoding="utf-8") as f:
+            self.assertIn("待って", [h.get("text") for h in json.load(f)["rows"]])
 
     def test_eval_doc_asks_with_eval_flag(self):
         calls = []

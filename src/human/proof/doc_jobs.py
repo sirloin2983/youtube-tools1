@@ -411,9 +411,10 @@ def run_job(job):
                 doc["clip"] = spec["clip"]   # youtube-tools-clip/v1 の中身そのもの(transcript/v1 にもそのまま入る)
             if spec.get("evalSet"):
                 doc["evalSet"] = True
+            mach = _yschemas.make_mach(doc["segments"], speakers=doc.get("speakers"))   # 機械の層 = 引き継ぐ前の機械の行(引き継いだ人の行は人の層へ。RS8 O2-2)
             carried = carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(RS6 b-O1。評価用には当てない)
             # 書き出し先の案件の動画なら、その 作業用 に置く(② flow/placement.doc_home。評価用・案件でなければ今までどおり transcripts。RS8 B2-2)
-            store.commit(tid, doc, why="whole", folder=_placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
+            store.commit(tid, doc, why="whole", mach=mach, folder=_placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
             if carried:
                 _overrides.save_after(tid, doc)
         _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)

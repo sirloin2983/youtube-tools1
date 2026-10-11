@@ -326,6 +326,87 @@ class MachFromDocTest(unittest.TestCase):
         self.assertEqual(m["rows"], [{"id": "s1", "start": 0, "end": 1, "text": "あ", "flag": "要確認"}, {"id": "s2", "start": 1, "end": 2, "text": "い", "flag": ""}])
         self.assertEqual(L.roundtrip(m, dict(d, speakers=[{"id": "S1", "name": "a", "color": ""}]))[1], [])
 
+    def test_loose_compare_for_missing_row_fields(self):
+        """行に speaker・flag の欄が無い文書: 厳しい比べ方では「違う」・loose(影のモード)では同じ(読み手は空として読む)"""
+        d = base_doc()
+        for g in d["segments"]:
+            if not g["flag"]:
+                g.pop("flag")
+            g.pop("speaker")
+        self.assertEqual([c for c, _x in L.roundtrip(M0, d)[1]], ["speaker", "flag"])
+        self.assertEqual(L.roundtrip(M0, d, loose=True)[1], [])
+        d2 = copy.deepcopy(d)
+        seg(d2, "s1")["speaker"] = "S9"
+        self.assertEqual([c for c, _x in L.compare_docs(d, d2, loose=True)], ["speaker"])   # 値の違いは loose でも違う
+
+    def test_doc_without_speakers_field(self):
+        d = base_doc()
+        d.pop("speakers")
+        hum, reasons = L.roundtrip(M0, d)
+        self.assertEqual(reasons, [])
+        self.assertTrue(hum["noSpeakers"])
+
+
+class AdvanceMachTest(unittest.TestCase):
+    """機械の操作のあとの機械の層(RS8 O2-2 の影のモード。store.commit が機械の why で使う)"""
+
+    def test_nothing_written(self):
+        d = base_doc()
+        m, changed = L.advance_mach(M0, d, copy.deepcopy(d))
+        self.assertFalse(changed)
+        self.assertEqual((m["rev"], m["rows"]), (1, M0["rows"]))
+
+    def test_rewritten_rows_replace_machine_rows(self):
+        old = base_doc()
+        old["segments"][0]["text"] = "こんにちわ"   # 人が直した行(操作は触らない)
+        new = copy.deepcopy(old)
+        seg(new, "s2").update(text="今日は良い天気", flag="")   # 再認識 each
+        new["segments"] = [g for g in new["segments"] if g["id"] != "s4"] + [
+            {"id": "s4-r1", "start": 6.0, "end": 7.5, "text": "では", "speaker": "", "flag": ""},
+            {"id": "s4-r2", "start": 7.5, "end": 9.0, "text": "また", "speaker": "", "flag": ""}]   # redo が 2 行に
+        new["segments"].sort(key=lambda g: (g["start"], g["end"]))   # 機械の操作は時刻の順に並べて書く
+        m, changed = L.advance_mach(M0, old, new)
+        self.assertTrue(changed)
+        self.assertEqual(m["rev"], 2)
+        self.assertEqual([(r["id"], r["text"]) for r in m["rows"]],
+                         [("s1", "こんにちは"), ("s2", "今日は良い天気"), ("s3", "ですね"), ("s4-r1", "では"), ("s4-r2", "また"), ("s5", "さようなら")])
+        self.assertEqual(L.roundtrip(m, new)[1], [])
+        self.assertEqual([h["id"] for h in L.diff(m, new)["rows"]], ["s1"])   # 人の直しだけが人の層に
+
+    def test_neighbour_overlap_keeps_unchanged_rows(self):
+        mach = machine([mrow(1, 0.0, 2.2, "あ"), mrow(2, 2.0, 4.0, "い")])   # s1 は s2 に少し重なる
+        old = L.compose(mach, None, META)
+        new = copy.deepcopy(old)
+        seg(new, "s2")["text"] = "いい"
+        m, _ch = L.advance_mach(mach, old, new)
+        self.assertEqual([(r["id"], r["text"]) for r in m["rows"]], [("s1", "あ"), ("s2", "いい")])
+
+    def test_id_collision_gets_suffix(self):
+        mach = machine([mrow(1, 0.0, 1.0, "あ"), mrow(2, 5.0, 6.0, "い")])
+        old = L.compose(mach, None, META)
+        new = copy.deepcopy(old)
+        new["segments"] = [dict(seg(new, "s1"), text="あ2"), {"id": "s2", "start": 2.0, "end": 3.0, "text": "う", "speaker": "", "flag": ""},
+                           dict(seg(new, "s2"), id="s3")]   # 文書の id が機械の別の行と重なる
+        m, _ch = L.advance_mach(mach, old, new)
+        self.assertEqual(len({r["id"] for r in m["rows"]}), len(m["rows"]))
+        self.assertEqual(L.roundtrip(m, new)[1], [])
+
+    def test_speakers(self):
+        old = base_doc()
+        seg(old, "s3")["text"] = "ですねえ"   # 人が直した行も判別の話者は機械
+        new = copy.deepcopy(old)
+        new["speakers"] = [{"id": "S1", "name": "話者1", "color": "#f00"}]
+        for g in new["segments"]:
+            g["speaker"] = "S1"
+        m, changed = L.advance_mach(M0, old, new, speakers=True)
+        self.assertTrue(changed)
+        self.assertEqual({r.get("speaker") for r in m["rows"]}, {"S1"})
+        self.assertEqual(m["speakers"], new["speakers"])
+        self.assertEqual([r["text"] for r in m["rows"]], [r["text"] for r in M0["rows"]])   # 文字は変えない(判別は行を書き換えない)
+
+    def test_near(self):
+        self.assertEqual(L._near([(0.0, 1.0), (5.0, 5.0), None], [(1.0, 2.0), (0.5, 0.6), (4.0, 6.0), (9.0, 30.0)]), [[0, 1], [2], []])
+
 
 if __name__ == "__main__":
     unittest.main()

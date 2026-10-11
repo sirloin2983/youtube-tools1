@@ -108,6 +108,41 @@ class TestTranscribe(_Env):
         tx.write_clip_records("abc123def456", clip, SPEC)   # 横のファイルは索引に従って案件へ
         self.assertTrue(os.path.isfile(os.path.join(wd, "abc123def456.asr.json")))
         self.assertTrue(os.path.isfile(os.path.join(wd, "abc123def456.transcribe.key.json")))
+        self.assertTrue(os.path.isfile(os.path.join(wd, "abc123def456.mach.json")))   # 機械の層も文書と同じ所(RS8 O2-2)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "abc123def456.mach.json")))
+
+    def read(self, name):
+        with open(os.path.join(self.tmp, name), encoding="utf-8") as fp:
+            return json.load(fp)
+
+    def test_machine_layer(self):
+        """② は機械の層 <id>.mach.json(fields の行)を書く。人の層があれば文書は ③ の物なので書かない (r8t)。スイッチ off なら今までどおり(RS8 O2-2)"""
+        from ytt import schemas
+        _job, clip = self.clip()
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": ""}):
+            tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+            mach = self.read("abc123def456.mach.json")
+            self.assertEqual((mach["schema"], mach["rev"]), (schemas.MACH_SCHEMA, 1))
+            self.assertEqual([r["text"] for r in mach["rows"]], ["テスト文1", "テスト文2"])
+            with open(os.path.join(self.tmp, "abc123def456.hum.json"), "w", encoding="utf-8") as fp:
+                json.dump({"schema": schemas.HUM_SCHEMA, "rows": []}, fp)
+            doc_before = self.read("abc123def456.json")
+            fields = dict(clip["fields"], segments=[dict(clip["fields"]["segments"][0], text="新しい")])
+            path = tx.write_machine_doc("abc123def456", fields, SPEC)
+            self.assertEqual(path, os.path.join(self.tmp, "abc123def456.json"))
+            self.assertEqual(self.read("abc123def456.json"), doc_before)   # 文書は書かない
+            mach = self.read("abc123def456.mach.json")
+            self.assertEqual((mach["rev"], [r["text"] for r in mach["rows"]]), (2, ["新しい"]))
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "off"}):
+            tx.write_machine_doc("abc123def456", fields, SPEC)
+        self.assertEqual(self.read("abc123def456.json")["segments"][0]["text"], "新しい")   # off は層を見ずに文書を書く
+        self.assertEqual(self.read("abc123def456.mach.json")["rev"], 2)   # 機械の層は書かない
+
+    def test_machine_layer_failure_keeps_doc(self):
+        _job, clip = self.clip()
+        with mock.patch.object(tx._yschemas, "make_mach", side_effect=OSError("disk")), self.assertLogs("tx", level="WARNING"):
+            path = tx.write_machine_doc("abc123def456", clip["fields"], SPEC)
+        self.assertTrue(os.path.isfile(path))
 
 
 class TestSmallVerbs(_Env):

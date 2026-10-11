@@ -188,7 +188,7 @@ class TestEvalBatch(unittest.TestCase):
         (j,) = self.mine()
         self.assertEqual(j["spec"]["intoDoc"], tid)
         self.finish(j)
-        self.assertEqual(len([n for n in os.listdir(S.TX_DIR) if n.endswith(".json") and ".edit" not in n and ".words" not in n and ".asr" not in n and ".key." not in n]), 1)
+        self.assertEqual(len([n for n in os.listdir(S.TX_DIR) if S.TID_RE.match(n[:-5]) and n.endswith(".json")]), 1)   # 文書 <id>.json だけ(横のファイルは数えない)
 
     def test_user_job_makes_it_wait(self):
         """ユーザーのジョブが動いている・待っているときは自分の分を増やさない。終われば再開する"""

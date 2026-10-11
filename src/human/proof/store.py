@@ -23,6 +23,7 @@ from ytt import settings as _settings  # noqa: E402   編集の設定の読み�
 from ytt import docloc as _docloc, tools as _tools, workdata as _workdata  # noqa: E402   (置き場所と版の今の値・動画と音声の小道具。RS3-0A に ed_state・ed_store から移した)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log・1 行の文字数の上限 MAX_TEXT(RS3-E5a まで ed_state の別名で読んでいた)
 from . import overrides as _overrides  # noqa: E402   校正の上書きの控え <id>.over.json(RS6 b-O1。保存のたびに save_after)
+from . import layers as _layers  # noqa: E402   機械の層・人の層の組み立てと差分(RS8 O2-1。commit の影のモードが使う。O2-2)
 
 
 # ---------- 文字起こしの保存 ----------
@@ -53,20 +54,86 @@ def write_doc(tid, doc, folder=None):
         _write(_doc_file(tid, ".json", for_write=True))
 
 
-# 文書を書く操作(why)。人の操作か機械の操作かの印(のちの O2 で、機械の層・人の層のどちらへ書くかをここで決める)
-HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "fill", "open_video", "single_speaker", "speaker_sub", "relink", "eval_mark"})
-MACHINE_WHYS = frozenset({"whole", "rerun_each", "rerun_range", "redo", "resplit", "diar", "diar_context", "diar_voices", "eval_rebuild", "drill"})
+# 文書を書く操作(why)。人の操作か機械の操作かの印(機械の操作のときだけ機械の層を進める。RS8 O2-2)。
+# O2-2 で 2 つ入れ替えた: fill = 行の無い文書へ文字起こしの結果を入れる(fill_doc)= 機械・drill = 評価ドリルの「全部聞いて直した」の印と行の校正済み = 人
+HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "open_video", "single_speaker", "speaker_sub", "relink", "eval_mark", "drill"})
+MACHINE_WHYS = frozenset({"whole", "fill", "rerun_each", "rerun_range", "redo", "resplit", "diar", "diar_context", "diar_voices", "eval_rebuild"})
+FULL_WHYS = frozenset({"whole", "fill", "eval_rebuild"})   # 機械が文書の行を丸ごと書いた操作: 機械の層 = 文書の行(呼び手が mach を渡せばそれ)
+DIAR_WHYS = frozenset({"diar", "diar_context", "diar_voices"})   # 話者の判別: 機械の層の話者と話者の表も文書から写す
+LAYER_MAX_BYTES = 64 * 1024 * 1024   # 層のファイルを読む上限(測る道具が文書を読む上限と同じ)
+
+
+def _read_layer(tid, suffix, schema):
+    """機械の層・人の層のファイル(無い・大きすぎる・壊れている・形が違えば None)。
+    読む上限はファイルの大きさにする(read_json_or は上限の分の入れ物を先に取るので、大きな上限のままだと保存のたびに遅い)"""
+    path = _doc_file(tid, suffix)
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    if size > LAYER_MAX_BYTES:
+        return None
+    d = _fsio.read_json_or(path, None, size, kind=dict)
+    return d if d is not None and d.get("schema") == schema else None
+
+
+def _shadow_prepare(tid, doc, why, given):
+    """影のモード(RS8 O2-2)の下ごしらえ = 書く前の文書と層を読んで、新しい機械の層・人の層と、組み立てた文書が doc と合うかを決める(ファイルは書かない)。
+    -> {"mach", "hum", "writeMach", "reasons"}。機械の層が無い文書は、操作の前の文書(無ければ doc)から layers.mach_from_doc で作る(移行もここで)。
+    人の操作は機械の層をそのまま・機械の操作は機械の層を進めてから(FULL_WHYS は文書の行・ほかは layers.advance_mach)人の層を作る"""
+    prev_mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
+    prev_hum = _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA)
+    rev = (_yschemas.plain_int(prev_mach.get("rev")) or 0) + 1 if prev_mach else 1
+    if given is not None or why in FULL_WHYS:
+        mach = dict(given) if given is not None else _yschemas.make_mach(doc.get("segments"), speakers=doc.get("speakers"))
+        mach["rev"], moved = rev, True
+    else:
+        old = _load_doc(tx_path(tid)) if prev_mach is None or why in MACHINE_WHYS else None   # 書く前の文書(人の操作で機械の層があれば読まない)
+        mach, moved = prev_mach, False
+        if mach is None:
+            mach, moved = _layers.mach_from_doc(old if old is not None else doc, rev=rev), True
+        if why in MACHINE_WHYS and old is not None:
+            mach, changed = _layers.advance_mach(mach, old, doc, speakers=why in DIAR_WHYS)
+            moved = moved or changed
+    hum, reasons = _layers.roundtrip(mach, doc, prev_hum, loose=True)   # 行の話者・印の欄が無いのと空は同じ(読み手は空として読む)
+    return {"mach": mach, "hum": hum, "writeMach": moved, "reasons": reasons}
+
+
+def _shadow_write(tid, why, sh):
+    """影の層を書く(人の層 → 機械の層。機械の層は変わったときだけ)。合わなければ警告(書くのはやめない = 次の commit がこの層から続ける)"""
+    if sh["reasons"]:
+        _txbase.log.warning("影の層の組み立てが文書と合いません %s why=%s: %s", tid, why,
+                            "・".join("%s(%s)" % (_layers.REASONS.get(c, c), str(x)[:40]) for c, x in sh["reasons"]))
+    _fsio.write_json(_doc_file(tid, _yschemas.HUM_SUFFIX, for_write=True), sh["hum"], indent=1)
+    if sh["writeMach"]:
+        _fsio.write_json(_doc_file(tid, _yschemas.MACH_SUFFIX, for_write=True), sh["mach"], indent=1)
 
 
 def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
-    """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。今は write_doc と同じ書き方で書き、ログに 1 行残すだけ。
-    mach・hum = 機械の層・人の層(今は None だけ)。呼び手の _save_lock・履歴・バックアップはこれまでどおり呼び手の側(動きは変えない)。のちに機械の層・人の層・組み立て済みの写しを書く場所になる"""
+    """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。文書は write_doc と同じ書き方で書き、ログに 1 行残す。
+    **影のモード(RS8 O2-2。スイッチ TRANSCRIBE_LAYERS。既定 shadow・off で書かない)**: 文書を書いたあと、横に人の層 <id>.hum.json → 機械の層 <id>.mach.json を書き、
+    layers.compose(機械, 人) が文書と合わなければ警告をログに。**正は文書のまま**(読み手は文書を読む)。影の層を作れない・書けないときもログだけで保存は成功のまま。
+    文書を先に書くのは、新しい文書の置き場所(folder = 案件の 作業用)が決まってから層を同じ所に置くため・文書が書けなかったときに層だけ進まないため
+    (O2-3 で層を正にするときは 人の層 → 機械の層 → 組み立て済みの写し の順に変える)。
+    mach = 機械の層(呼び手が機械の行を知っているとき。今は whole の新しい文書だけ = 引き継いだ人の行を機械に入れない)。hum は O2-3 から。
+    呼び手の _save_lock・履歴・バックアップはこれまでどおり呼び手の側"""
     if why not in HUMAN_WHYS and why not in MACHINE_WHYS:
         raise ValueError("commit: unknown why " + repr(why))
-    if mach is not None or hum is not None:   # のち(O2-2)に _save_lock の中で hum → mach → 組み立て済みの写しの順に書く口。今は受けるだけ
-        raise NotImplementedError("commit: mach / hum は O2-2 から")
+    if hum is not None:   # 人の層を呼び手が渡すのは O2-3(層が正になってから)
+        raise NotImplementedError("commit: hum は O2-3 から")
+    sh = None
+    if _txbase.layers_on():
+        try:   # 書く前の文書と層を読む(文書を書いたあとでは前の文書が読めない)
+            sh = _shadow_prepare(tid, doc, why, mach)
+        except Exception as e:   # 影の層は保存を止めない(壊れた層・組み立ての不具合でも文書は書く)
+            _txbase.log.warning("影の層を作れませんでした %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
     write_doc(tid, doc, folder)
     _txbase.log.info("commit %s why=%s by=%s", tid, why, "human" if why in HUMAN_WHYS else "machine")
+    if sh is not None:
+        try:
+            _shadow_write(tid, why, sh)
+        except Exception as e:   # 書けなくても保存は成功のまま(ログだけ)
+            _txbase.log.warning("影の層を書けませんでした %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
 
 
 def snapshot(tid, force=True):

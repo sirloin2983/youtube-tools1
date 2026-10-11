@@ -123,6 +123,35 @@ def blank_draft_row(g):
     return isinstance(g, dict) and g.get("draft") in ROW_DRAFT_KINDS and not str(g.get("text") or "").strip()
 
 
+# ---------- 文書の機械の層 <id>.mach.json と人の層 <id>.hum.json(RS8 O2-2。決定 3-37 の (r8r)〜(r8u)) ----------
+# 組み立て(compose)と差分(diff)は ③ human/proof/layers。ここは形だけ(② flow/tx が ③ を読まずに機械の層を書けるように)
+MACH_SCHEMA = "youtube-tools-mach/v1"
+HUM_SCHEMA = "youtube-tools-hum/v1"
+MACH_SUFFIX = ".mach.json"
+HUM_SUFFIX = ".hum.json"
+MACH_ROW_KEYS = ("id", "start", "end", "text", "flag", "speaker", "fill")   # 機械の行の欄(文書の行のうち機械が決める物)
+
+
+def mach_row(g):
+    """文書の行 -> 機械の行の写し(MACH_ROW_KEYS の欄だけ。text・flag は文字に。fill は dict のときだけ・speaker は空でないときだけ)"""
+    r = {"id": str(g.get("id") or ""), "start": g.get("start"), "end": g.get("end"), "text": str(g.get("text") or ""), "flag": str(g.get("flag") or "")}
+    if g.get("speaker"):
+        r["speaker"] = str(g["speaker"])
+    if isinstance(g.get("fill"), dict):
+        r["fill"] = json.loads(json.dumps(g["fill"]))
+    return r
+
+
+def make_mach(rows, rev=1, keys=None, speakers=None):
+    """機械の層 {schema, rev, keys, rows, speakers}。rows = 文書の行の形(時刻の読めない行・dict でない行は捨てる)"""
+    out = []
+    for g in rows or []:
+        if isinstance(g, dict) and num_or(g.get("start")) is not None and num_or(g.get("end")) is not None:
+            out.append(mach_row(g))
+    return {"schema": MACH_SCHEMA, "rev": rev, "keys": dict(keys or {}), "rows": out,
+            "speakers": [json.loads(json.dumps(s)) for s in speakers or [] if isinstance(s, dict)]}
+
+
 # ---------- 途中のファイルの置き場所(2026-09-27。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 1) ----------
 # 出力先(動画のフォルダ)の直下に並べるのはパックと元動画(書き出した切り抜き)だけ(ユーザー決定)。それ以外の途中のファイル
 # (.clip.json・.edit.json・_edit.mp4・.transcript.json・.srt・.cut-plan.json・.studio-id)は下のフォルダ「作業用」に書く。

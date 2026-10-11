@@ -143,9 +143,15 @@ def write_machine_doc(tid, fields, spec=None, folder=None):
     """③ なしで文書 transcripts/<id>.json の機械の分を書く最小の口(CLI 用。RS6 b の S1 が使う)。fields = transcribe_clip の "fields"。
     spec があれば題名・動画(title・sourcePath・sourceName)・clip・評価用の印も入れる。-> 書いたパス。
     folder = 新しい文書を置く 作業用(placement.doc_home が決める。None = 今までどおり。あれば docloc.place_new = 本体のあとに索引。RS8 B2-2)。
+    機械の層 (r8t。RS8 O2-2): 文書の横に機械の層 <id>.mach.json(fields の行 = ① の後処理まで当てた行)も書く。人の層 <id>.hum.json があれば
+    文書は ③ の物なので書かない(機械の層だけ)。スイッチ TRANSCRIBE_LAYERS=off なら層を見ずに今までどおり文書だけ。機械の層を書けなくても文書は残す(ログだけ)。
     ② が足すこと = 置き場所(ytt/workdata の TX_DIR か案件の 作業用)と原子的な書き込み(ytt/fsio。③ の store.write_doc と同じ形の JSON)"""
     if not _yschemas.TID_RE.match(str(tid or "")):
         raise _errors.ApiError("bad_request", "文書の id が正しくありません", 400)
+    layers = _txbase.layers_on()
+    if layers and os.path.isfile(_docloc.doc_file(tid, _yschemas.HUM_SUFFIX)):   # 人の層がある = 文書(組み立て済みの写し)は ③ が書く
+        _write_mach(tid, fields)
+        return _docloc.doc_file(tid, ".json")
     doc = {"schema": "transcribe/v1", "id": tid}
     if spec:
         doc.update({"title": spec.get("title") or "", "sourcePath": spec.get("sourcePath") or "", "sourceName": spec.get("sourceName") or ""})
@@ -158,10 +164,24 @@ def write_machine_doc(tid, fields, spec=None, folder=None):
     def _write(path):
         _fsio.write_json(path, doc, indent=1, fsync_required=True)
     if folder:
-        return _docloc.place_new(tid, folder, _write)
-    path = _docloc.doc_file(tid, ".json", for_write=True)
-    _write(path)
+        path = _docloc.place_new(tid, folder, _write)
+    else:
+        path = _docloc.doc_file(tid, ".json", for_write=True)
+        _write(path)
+    if layers:
+        _write_mach(tid, fields)   # 文書のあと(新しい文書の置き場所が決まってから同じ所へ)
     return path
+
+
+def _write_mach(tid, fields):
+    """機械の層 <id>.mach.json を書く(rev は前の機械の層の次)。書けなくてもログだけ(影のモード。正は文書)"""
+    try:
+        path = _docloc.doc_file(tid, _yschemas.MACH_SUFFIX, for_write=True)
+        prev = _fsio.read_json_or(path, None, os.path.getsize(path), kind=dict) if os.path.isfile(path) else None   # 上限 = 大きさ(大きな入れ物を取らない)
+        rev = (_yschemas.plain_int(prev.get("rev")) or 0) + 1 if prev and prev.get("schema") == _yschemas.MACH_SCHEMA else 1
+        _fsio.write_json(path, _yschemas.make_mach(fields.get("segments"), rev=rev, speakers=fields.get("speakers")), indent=1)
+    except (OSError, ValueError, TypeError, _errors.ApiError) as e:
+        _txbase.log.warning("機械の層を書けませんでした %s: %s %s", tid, e.__class__.__name__, str(e)[:200])
 
 
 # ---------- 再認識(選んだ行・範囲・全体)と疑わしい所の認識し直し ----------

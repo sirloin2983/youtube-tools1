@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・plan/rs8-cases-ui.md の決めたこと 3)。
 
-ファイルも store も触らない(保存の経路に入れるのは O2-2 以降の別の段)。O1 の overrides(extract・apply)を一般にした物で、
+ファイルも store も触らない(保存の経路から使うのは store.commit の影のモード = O2-2。機械の操作のあとの機械の層は advance_mach)。O1 の overrides(extract・apply)を一般にした物で、
 対応づけの決まり(match・COVER_DROP・TEXT_DROP)は O1 と同じ値(O2-5 で O1 を消すのでここが持ち主)。
 
 - 機械の層 mach = {schema, rev, keys{transcribe, post, diar}, rows[{id, start, end, text, flag, fill?, speaker?}], speakers}
   (① の後処理まで当てた行。rev は機械の行が変わるたびに上がる)
 - 人の層 hum = {schema, rev, machRev, rows[人の行], dead[消す印], speakers[], spkMap{判別の鍵: {機械の話者: 人の話者}}, spkFresh?[],
-  docFields{title・evalSet・evalReviewed・effort・diarNum・relinks・sourcePath}, order?[行 id]}
+  docFields{title・evalSet・evalReviewed・effort・diarNum・relinks・sourcePath}, order?[行 id], noSpeakers?(文書に話者の表の欄が無い)}
   - 人の行 = {id, start, end, text?, speaker?, flag? / flagOff?, fill? / fillOff?, tags?, proofed?, proofedAt?, cutState?, noSub?, draft?,
     covers[機械の行 id], base{rev, diar, rows[覆ったときの機械の行の写し]}}。
     text を持つ行(文字の行)は自分の時刻と文字で機械の行 covers を置き換える(直す・時刻を動かす・分ける・つなぐ・足す・校正済み)。
@@ -19,14 +19,15 @@
   (人が話者を決めた行で機械の話者が前と変わったとき・自動で新しく作った話者の行。spkMap で自動に当たった行は印なし)
 - 往復: compose(mach, diff(mach, doc), split_meta(doc)) == doc(compare_docs で比べる。測る道具は src/eval/tools/eval_layers.py)
 """
+import bisect
 import copy
 import difflib
 import re
 
 from ytt import schemas as _ys
 
-MACH_SCHEMA = "youtube-tools-mach/v1"
-HUM_SCHEMA = "youtube-tools-hum/v1"
+MACH_SCHEMA = _ys.MACH_SCHEMA   # 形の名前は ytt/schemas(② flow/tx も機械の層を書くため。RS8 O2-2)
+HUM_SCHEMA = _ys.HUM_SCHEMA
 MACH_CHANGED = "機械の結果が変わりました(前の機械・今の機械・あなたの直しを比べてください)"   # 案 A の印(O1 の STALE_FLAG を広げた物)
 SPK_CHANGED = "話者の判別が変わりました"   # 弱い印(話者だけが変わった)
 HALF = 0.5          # 重なりが短い方の長さのこの割合以上なら対応づける(overrides.HALF と同じ)
@@ -37,8 +38,9 @@ MAX_SPEAKERS = 20   # 組み込みの「ゲーム音声など」を除いた話�
 DOC_FIELDS = ("title", "evalSet", "evalReviewed", "effort", "diarNum", "relinks", "sourcePath")   # 人の層が持つ文書の欄
 ROW_KEYS = ("id", "start", "end", "text", "speaker", "flag", "tags", "proofed", "proofedAt", "cutState", "noSub", "fill", "draft")   # 行の欄の並び(sanitize と同じ)
 COPY_KEYS = ("tags", "proofed", "proofedAt", "cutState", "noSub", "draft")   # 人の行がそのまま持つ欄
-BASE_KEYS = ("id", "start", "end", "text", "flag", "speaker", "fill")       # 機械の行の写しの欄
+BASE_KEYS = _ys.MACH_ROW_KEYS   # 機械の行の写しの欄("id", "start", "end", "text", "flag", "speaker", "fill")
 H_PREFIX = "H"      # 人の層が新しく振る話者の id の頭
+EPS = 1e-6          # 区間の候補を絞るときの小数の誤差(_near)
 REASONS = {"rowCount": "行の数", "rowIds": "行の id", "order": "並び", "time": "時刻", "text": "文字", "speaker": "話者", "flag": "印",
            "rowFields": "そのほかの行の欄", "speakers": "話者の表", "docFields": "文書の欄"}
 
@@ -87,6 +89,22 @@ def _contained(a, b):
 def _hit(hsp, htext, msp, mtext):
     """人の文字の行(区間・文字)が機械の行に対応づくか: 時刻の決まり match か、重なっていて機械の文字の TEXT_DROP 以上が人の行に現れる"""
     return match(hsp, msp) or (_overlap(hsp, msp) > 0 and _contained(mtext, htext) >= TEXT_DROP - 1e-9)
+
+
+def _near(a_spans, b_spans):
+    """a の各区間 -> 端を含めて重なる b の区間の番号(小さい順)。match・_hit が真になる組はかならずここに入る(候補を絞るだけ。
+    行の多い文書で全部の組を比べると保存のたびに数秒かかったため。RS8 O2-2)。None の区間は何とも重ならない"""
+    order = sorted((k for k, s in enumerate(b_spans) if s is not None), key=lambda k: b_spans[k][0])
+    starts = [b_spans[k][0] for k in order]
+    longest = max([b_spans[k][1] - b_spans[k][0] for k in order] or [0.0])
+    out = []
+    for s in a_spans:
+        if s is None:
+            out.append([])
+            continue
+        lo, hi = bisect.bisect_left(starts, s[0] - longest - EPS), bisect.bisect_right(starts, s[1] + EPS)   # EPS = 小数の誤差で端の接する組を落とさない
+        out.append(sorted(order[x] for x in range(lo, hi) if b_spans[order[x]][1] >= s[0] - EPS))
+    return out
 
 
 def _replaced(msp, mtext, hums):
@@ -202,9 +220,16 @@ def _resolve(h, M, by, fast):
     return True, js
 
 
-def _dead_rows(hum, M, by, sp):
-    """消す印に当たる機械の行の番号: mid の行が今も同じならそれだけ、違えば中心が範囲に入る行"""
+def _centers(sp):
+    """機械の行の中心の時刻の並び(小さい順) -> ([中心], [行の番号])(_dead_rows が範囲で引く)"""
+    cs = sorted((_center(s), k) for k, s in enumerate(sp))
+    return [c for c, _k in cs], [k for _c, k in cs]
+
+
+def _dead_rows(hum, M, by, sp, cs=None):
+    """消す印に当たる機械の行の番号: mid の行が今も同じならそれだけ、違えば中心が範囲に入る行。cs = _centers(sp)(何度も呼ぶ呼び手が先に作る)"""
     out = set()
+    cs = cs or _centers(sp)
     for d in (hum or {}).get("dead") or []:
         if not isinstance(d, dict):
             continue
@@ -215,7 +240,7 @@ def _dead_rows(hum, M, by, sp):
         ds = _span(d)
         if ds is None:
             continue
-        out.update(k for k, s in enumerate(sp) if ds[0] <= _center(s) <= ds[1])
+        out.update(cs[1][bisect.bisect_left(cs[0], ds[0]):bisect.bisect_right(cs[0], ds[1])])
     return out
 
 
@@ -325,17 +350,24 @@ def compose_rows(mach, hum):
         else:
             loose_attr.append(i)
     free = [j for j in range(len(M)) if j not in taken]
+    free_set = set(free)
     cands = [i for i in loose_text if _norm(H[i].get("text"))]   # 3 機械が変わった文字の行: 時刻の重なりで(O1 の apply と同じ決まり。空の行は覆わない)
-    hits = {i: [j for j in free if _hit(_span(H[i]), H[i].get("text"), sp[j], M[j]["text"])] for i in cands}
-    drop = {j for j in free if _replaced(sp[j], M[j]["text"], [(_span(H[i]), str(H[i].get("text") or "")) for i in cands if j in hits[i]])}
+    near = _near([_span(H[i]) for i in cands], sp)
+    hits = {i: [j for j in near[n] if j in free_set and _hit(_span(H[i]), H[i].get("text"), sp[j], M[j]["text"])] for n, i in enumerate(cands)}
+    by_m = {}
+    for i in cands:
+        for j in hits[i]:
+            by_m.setdefault(j, []).append(i)
+    drop = {j for j in free if _replaced(sp[j], M[j]["text"], [(_span(H[i]), str(H[i].get("text") or "")) for i in by_m.get(j, [])])}
     for i in loose_text:
         cover[i] = [j for j in hits.get(i, []) if j in drop]
         changed[i] = _joined((H[i].get("base") or {}).get("rows") or []) != _joined([M[j] for j in cover[i]])
     for j in drop:
         taken[j] = "text"
-    for i in loose_attr:   # 4 機械が変わった属性の行: 残りの機械の行でいちばん重なる行(当たらなければ捨てる)
+    near_attr = _near([_span(H[i]) for i in loose_attr], sp)
+    for n, i in enumerate(loose_attr):   # 4 機械が変わった属性の行: 残りの機械の行でいちばん重なる行(当たらなければ捨てる)
         hs, best = _span(H[i]), None
-        for j in range(len(M)):
+        for j in near_attr[n]:
             if j in taken or not match(hs, sp[j]):
                 continue
             score = (_overlap(hs, sp[j]), -abs(_center(hs) - _center(sp[j])))
@@ -385,7 +417,8 @@ def compose(mach, hum, meta=None):
                 doc[k] = copy.deepcopy(fields[k])
             else:
                 doc.pop(k, None)
-        doc["speakers"] = _speakers_of(hum)
+        if not hum.get("noSpeakers"):   # 話者の表の欄の無い文書(古いテストの文書など)は欄を作らない
+            doc["speakers"] = _speakers_of(hum)
     else:
         doc["speakers"] = _speakers_of(mach)
     doc["segments"] = rows
@@ -465,10 +498,11 @@ def _keep_base(g, prev_rows):
 def _prev_dead(prev, M, by, sp, keep_js, have):
     """前の人の層の消す印のうち、今の文書に残っている行を消さない物(機械の行が無い時間帯の印も残す = 作り直しても出さない)"""
     out = []
+    cs = _centers(sp)
     for d in (prev or {}).get("dead") or []:
         if not isinstance(d, dict) or str(d.get("mid")) in have or _span(d) is None:
             continue
-        if _dead_rows({"dead": [d]}, M, by, sp) & keep_js:
+        if _dead_rows({"dead": [d]}, M, by, sp, cs) & keep_js:
             continue
         out.append(copy.deepcopy(d))
     return out
@@ -492,6 +526,8 @@ def _new_hum(mach, doc, prev):
     fresh = [x for x in prev.get("spkFresh") or [] if x in hum_ids]
     if fresh:
         hum["spkFresh"] = fresh
+    if "speakers" not in (doc or {}):
+        hum["noSpeakers"] = True
     return hum
 
 
@@ -525,10 +561,11 @@ def diff(mach, doc, prev_hum=None):
     loose = [gi for gi in range(len(segs)) if gi not in link]
     covers = {gi: [] for gi in loose}
     linked = set(link.values())
+    near = _near(sp, [_span(segs[gi]) for gi in loose])   # 機械の行 -> 時刻の重なる文字の行(loose の中の番号)
     for j, m in enumerate(M):   # 文書に無い機械の行: 対応づく文字の行が覆う・無ければ消す印
         if j in linked:
             continue
-        hit = [gi for gi in loose if _norm(segs[gi].get("text")) and _hit(_span(segs[gi]), segs[gi].get("text"), sp[j], m["text"])]
+        hit = [loose[x] for x in near[j] if _norm(segs[loose[x]].get("text")) and _hit(_span(segs[loose[x]]), segs[loose[x]].get("text"), sp[j], m["text"])]
         if hit and _replaced(sp[j], m["text"], [(_span(segs[gi]), str(segs[gi].get("text") or "")) for gi in hit]):
             for gi in hit:
                 covers[gi].append(j)
@@ -643,22 +680,96 @@ def mach_from_doc(doc, rev=1):
     return {"schema": MACH_SCHEMA, "rev": rev, "keys": {}, "rows": rows, "speakers": []}
 
 
-def _row_diff(a, b):
-    """同じ id の 2 つの行の違う所 -> 理由の名前の一覧"""
+def _row_key(g):
+    return (g.get("start"), g.get("end"), str(g.get("text") or ""))
+
+
+def _speaker_rows(rows, segs):
+    """機械の行の話者を文書の行の話者に(同じ id で同じ時刻の行・無ければ同じ時刻の行。文字は見ない = 人が直した行も話者は判別の結果)"""
+    by_id = {str(g.get("id")): g for g in segs}
+    at = {}
+    for g in segs:
+        at.setdefault(_span(g), g)
+    for m in rows:
+        g = by_id.get(m["id"])
+        if g is None or _span(g) != _span(m):
+            g = at.get(_span(m))
+        if g is None:
+            continue
+        spk = str(g.get("speaker") or "")
+        if spk:
+            m["speaker"] = spk
+        else:
+            m.pop("speaker", None)
+
+
+def advance_mach(mach, old_doc, new_doc, speakers=False):
+    """機械の操作(再認識・疑わしい所・分け直し・話者の判別など)のあとの機械の層 -> (新しい機械の層, 変わったか)(RS8 O2-2 の影のモード)。
+    old_doc = 操作の前の文書・new_doc = 操作のあとの文書。mach は書き換えない。操作が書いた行だけを機械の層で入れ替える:
+    - 機械が書いた行 = 新しい文書の行のうち、前の文書に同じ id が無いか、同じ id の行と時刻か文字が違う行(印・話者・校正済みなどだけの違いは人の層へ)
+    - 書き換えた範囲(機械が書いた行と、消えた・書き換えられた前の行の区間)に match で当たる機械の行は捨てる。
+      ただし、そのまま残った文書の行と同じ id か同じ区間の機械の行は残す(隣の行の小さな重なりで消さない)
+    - 機械が書いた行は文書の行の写し(id も同じ。残した機械の行と同じ id なら末尾に x)
+    - speakers=True(話者の判別): 機械の行の話者を文書の行の話者に(_speaker_rows)・話者の表を文書の表に
+    rev は中身(行・話者の表)が変わったときだけ 1 上げる"""
+    base = _mrows(mach)
+    old_by = {}
+    for g in (old_doc or {}).get("segments") or []:
+        if isinstance(g, dict) and _span(g):
+            old_by.setdefault(str(g.get("id")), g)
+    segs = [g for g in (new_doc or {}).get("segments") or [] if isinstance(g, dict) and _span(g)]
+    wrote, same_ids, same_spans = [], set(), set()
+    for g in segs:
+        o = old_by.get(str(g.get("id")))
+        if o is not None and _row_key(o) == _row_key(g):
+            same_ids.add(str(g.get("id")))
+            same_spans.add(_span(g))
+        else:
+            wrote.append(g)
+    wrote_ids = {str(g.get("id")) for g in wrote}
+    new_ids = {str(g.get("id")) for g in segs}
+    hit = [_span(g) for g in wrote] + [_span(o) for i, o in old_by.items() if i not in new_ids or i in wrote_ids]
+    near = _near([_span(m) for m in base], hit)
+    rows = [m for k, m in enumerate(base) if m["id"] in same_ids or _span(m) in same_spans or not any(match(_span(m), hit[x]) for x in near[k])]
+    used = {m["id"] for m in rows}
+    for g in wrote:
+        r = _ys.mach_row(g)
+        while r["id"] in used:
+            r["id"] += "x"
+        used.add(r["id"])
+        rows.append(r)
+    if wrote or len(rows) != len(base):
+        rows.sort(key=lambda m: (m["start"], m["end"]))
+    table = _speakers_of(mach)
+    if speakers:
+        _speaker_rows(rows, segs)
+        table = _speakers_of(new_doc)
+    changed = rows != _mrows(mach) or table != _speakers_of(mach)   # base は _speaker_rows が書き換えた行と同じ物なので、作り直して比べる
+    out = {"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + (1 if changed else 0),
+           "keys": copy.deepcopy((mach or {}).get("keys") or {}), "rows": rows, "speakers": table}
+    return out, changed
+
+
+def _row_diff(a, b, loose=False):
+    """同じ id の 2 つの行の違う所 -> 理由の名前の一覧。loose = 話者・印の欄が無いのと空の文字を同じに数える
+    (読み手はどれも g.get(…) or "" で読む。組み立ては欄をいつも書く。影のモードの比べ方 = store.commit。O2-2)"""
     out = []
     if (a.get("start"), a.get("end")) != (b.get("start"), b.get("end")):
         out.append("time")
-    for k, why in (("text", "text"), ("speaker", "speaker"), ("flag", "flag")):
-        if a.get(k) != b.get(k) or (k in a) != (k in b):
-            out.append(why)
+    for k in ("text", "speaker", "flag"):
+        if loose and k != "text":
+            if (a.get(k) or "") != (b.get(k) or ""):
+                out.append(k)
+        elif a.get(k) != b.get(k) or (k in a) != (k in b):
+            out.append(k)
     rest = set(a) | set(b)
     if any(a.get(k) != b.get(k) or (k in a) != (k in b) for k in rest - {"id", "start", "end", "text", "speaker", "flag"}):
         out.append("rowFields")
     return out
 
 
-def compare_docs(want, got):
-    """2 つの文書の違い -> [(理由の名前, 最初の例)…](同じなら空。理由の名前は REASONS)"""
+def compare_docs(want, got, loose=False):
+    """2 つの文書の違い -> [(理由の名前, 最初の例)…](同じなら空。理由の名前は REASONS)。loose = 行の話者・印の欄が無いのと空を同じに(_row_diff)"""
     found = {}
 
     def add(code, detail):
@@ -681,12 +792,12 @@ def compare_docs(want, got):
     gby = {r["id"]: r for r in ga}
     for g in wa:
         if isinstance(g, dict) and str(g.get("id")) in gby:
-            for code in _row_diff(g, gby[str(g.get("id"))]):
+            for code in _row_diff(g, gby[str(g.get("id"))], loose):
                 add(code, str(g.get("id")))
     return [(k, found[k]) for k in REASONS if k in found]
 
 
-def roundtrip(mach, doc, prev_hum=None):
-    """往復の検査: compose(mach, diff(mach, doc), split_meta(doc)) と doc の違い -> (人の層, [(理由, 例)…])"""
+def roundtrip(mach, doc, prev_hum=None, loose=False):
+    """往復の検査: compose(mach, diff(mach, doc), split_meta(doc)) と doc の違い -> (人の層, [(理由, 例)…])。loose は compare_docs と同じ"""
     hum = diff(mach, doc, prev_hum)
-    return hum, compare_docs(doc, compose(mach, hum, split_meta(doc)))
+    return hum, compare_docs(doc, compose(mach, hum, split_meta(doc)), loose)
