@@ -7,9 +7,9 @@
 いまは「文字起こし」も入口に取り込める(段階3-3。src/home/mount.py の MOUNTS)ので、2つの形をそれぞれ確かめる:
 
   (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
-      2枚のカードが「ホームに取り込み」で動作中になる → 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし →
-      開く(3つとも同じポートの /studio/・/transcribe/・/cut2resolve/ で新しいタブが開く。文字起こしの画面も #ver・
-      合言葉・他のツールへのリンクを確かめる)→ /cases.html は #cases へ転送 → テーマ → 狭い画面 →
+      2枚のカードが「ホームに取り込み」で動作中になる → ヘッダーの appnav(ホーム / 案件 / 設定)→ 案件の画面(/cases の候補・校正・
+      カット。#ver・合言葉・appnav)→ 古い画面の URL の転送(RS8 C4 で /studio/・/transcribe/ の画面を消した。src/app/redirects.py の表・
+      /cases.html・/live/・/cut2resolve/)→ 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし → テーマ → 狭い画面 →
       すべて終了(2回押し)→ 切断の表示、を確かめる。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
       文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(停止・起動・再起動・異常終了の表示・
@@ -71,38 +71,30 @@ def open_advanced(pg):
     return ok
 
 
-def appnav_links(pg):
-    """studio・編集の画面のツール切り替えのリンク一覧 -> ("appnav"|"toolmenu", {id: href})。新(ui-appnav。他の AI が画面を
-    直している途中に対応)を先に見て、無ければ旧(#toolMenu の details・#toolNav)を開いて読む。
-    新の方は、まだ画面側で UIKit.tools.setPaths() を呼ぶ前に描かれて href が確定していないことがある(ui-kit 側の
-    既知の制約。appnav に再描画の仕組みが無いため)。href の中身までは新のときは厳しく求めない(下の呼び出し側で分岐)"""
-    if pg.query_selector('[data-ui-appnav-item]'):
-        items = pg.eval_on_selector_all("[data-ui-appnav-item]", "els => els.map(e => [e.getAttribute('data-ui-appnav-item'), e.getAttribute('href')])")
-        return "appnav", dict(items)
-    if pg.query_selector("#toolMenu summary"):
-        pg.click("#toolMenu summary")
-        wait_js(pg, "document.querySelectorAll('#toolNav a').length >= 1", 10000)
-        hrefs = pg.eval_on_selector_all("#toolNav a", "els => els.map(a => a.getAttribute('href'))")
-        out = {}
-        for h in hrefs:
-            if "/transcribe/" in h:
-                out["transcribe"] = h
-            elif "/studio/" in h:
-                out["studio"] = h
-        return "toolmenu", out
-    return "none", {}
+APPNAV_JS = ("[...document.querySelectorAll('[data-ui-appnav-item]')].map(a => [a.getAttribute('data-ui-appnav-item'), a.href,"
+             " a.getAttribute('aria-current')])")
 
 
-def check_tool_nav(check, pg, other_id, port, label):
-    """スタジオ・編集の画面から、もう一方のツールへのリンクが出ていて cut2resolve(部品)が出ないことを確かめる。
-    新(ui-appnav)は href の中身まで厳しく求めない(まだ移行の途中の画面があるため。report で orchestrator に伝える)"""
-    kind, links = appnav_links(pg)
-    if kind == "toolmenu":
-        check(other_id in links and links[other_id].endswith(":%d/%s/" % (port, other_id)) and "cut2resolve" not in links,
-              "[A] %s: 編集/スタジオは同じポートに取り込み済み・cut2resolve(部品)は出さない: %s" % (label, links))
-    else:
-        check(other_id in links and "cut2resolve" not in links,
-              "[A] %s: ツール切り替えに項目が出て、cut2resolve(部品)は出さない(ui-appnav。href の中身は移行の途中のため緩め): %s" % (label, links))
+def check_appnav(check, pg, base, current, label):
+    """ヘッダーの appnav(ui-kit v27 = RS8 C4): ホーム / 案件 / 設定 の 3 つ・行き先は入口の直下(/・/cases・/settings)・
+    今の画面の項目だけ aria-current="page"。href は入口の直下からの相対で作る(homeUrl)ので、解決した a.href で比べる"""
+    want = [["portal", base], ["cases", base + "cases"], ["settings", base + "settings"]]
+    wait_js(pg, "%s.length === 3" % APPNAV_JS, 10000)
+    got = pg.evaluate(APPNAV_JS)
+    check([g[:2] for g in got] == want and [g[0] for g in got if g[2] == "page"] == [current],
+          "[A] %s: appnav は ホーム / 案件 / 設定 の 3 つ(/・/cases・/settings)で、%s が aria-current: %s" % (label, current, got))
+
+
+def http_get(port, path):
+    """入口へ転送を追わずに GET する -> (HTTP の番号, Location)。path は ASCII(日本語は % にしてから渡す)"""
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        conn.request("GET", path, headers={"Host": "127.0.0.1:%d" % port})
+        r = conn.getresponse()
+        r.read()
+        return r.status, r.getheader("Location")
+    finally:
+        conn.close()
 
 
 CASE_TITLE = "案件の通し確認<b>配信</b>"   # < を含めて、textContent で入れていること(画面を壊さない)も確かめる
@@ -124,7 +116,7 @@ def seed_cases(tmp, studio_home):
     # 文字起こしの文書 id は src/editor/serve.py の TID_RE(12文字の16進)を満たす必要がある(manage.cases.txindex は緩いが、
     # /transcribe/api/transcripts はこちらの規則で一覧する)
     with open(os.path.join(tx, "deadbeef0001.json"), "w", encoding="utf-8") as f:
-        json.dump({"id": "deadbeef0001", "title": "案件の字幕", "sourcePath": clip, "updatedAt": 1,
+        json.dump({"id": "deadbeef0001", "title": "案件の字幕", "sourcePath": clip, "updatedAt": 1, "speakers": [],   # 保存した文書には必ずある(校正のパネルが読む)
                    "segments": [{"id": "s1", "start": 0.5, "end": 2.0, "text": "a", "proofed": True}, {"id": "s2", "start": 2.5, "end": 4.0, "text": "b"}]}, f, ensure_ascii=False)
 
 
@@ -134,7 +126,7 @@ def seed_unlinked(tmp):
     os.makedirs(tx, exist_ok=True)
     solo = os.path.join(tmp, "solo.mp4")
     with open(os.path.join(tx, "deadbeef0002.json"), "w", encoding="utf-8") as f:
-        json.dump({"id": "deadbeef0002", "title": "単体の字幕", "sourcePath": solo, "updatedAt": 2,
+        json.dump({"id": "deadbeef0002", "title": "単体の字幕", "sourcePath": solo, "updatedAt": 2, "speakers": [],
                    "segments": [{"id": "s1", "start": 0.0, "end": 1.5, "text": "c"}]}, f, ensure_ascii=False)
 
 
@@ -201,12 +193,13 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         cx = types.SimpleNamespace(**locals())   # 場面の関数(下の _mounted_*)へ渡す値。場面が作って、あとで使う値は場面が cx に戻す
         _mounted_cards_and_health(cx)
         _mounted_open_tools(cx)
+        _mounted_old_urls(cx)
         _mounted_cases_and_memo(cx)
         _mounted_todo_and_unlinked(cx)
         _mounted_list_tools(cx)
         _mounted_next_steps(cx)
         _mounted_new_case_and_ops(cx)
-        _mounted_redirect_theme_narrow(cx)
+        _mounted_theme_narrow(cx)
         mob = cx.mob   # 8. の狭い画面のタブ(10. で使う)
         _mounted_auto_clips(cx)   # スタジオの data.json を書き直すので最後に(前の場面が足した配信はスタジオが知らないので消える)
 
@@ -251,10 +244,7 @@ def _mounted_cards_and_health(cx):
     check(c2r["state"] == "running" and c2r["mounted"] and c2r["hidden"], "[A] cut2resolve はホームに取り込まれて動いている(カードは出さない): %s" % {k: c2r[k] for k in ("state", "mounted", "hidden")})
     check(pg.text_content("#ver") == "ホーム v" + L.VERSION, "[A] ヘッダーの版: %s" % pg.text_content("#ver"))
     check(pg.is_hidden("#conn") and pg.text_content("#conn") == "接続済み", "[A] つながったあとは「接続」の札を出さない(切れたときだけ「切断」。S12): %s" % pg.text_content("#conn"))
-    check(wait_js(pg, "document.querySelector('[data-ui-appnav-item=\"studio\"]')?.getAttribute('href') === '/studio/'"
-                      " && document.querySelector('[data-ui-appnav-item=\"transcribe\"]')?.getAttribute('href') === '/transcribe/'", 10000),
-          "[A] ホームの ui-appnav の「スタジオ」「編集」は、取り込みが分かってから正しい場所に直る: %s"
-          % pg.eval_on_selector_all("[data-ui-appnav-item]", "els => els.map(e => [e.getAttribute('data-ui-appnav-item'), e.getAttribute('href')])"))
+    check_appnav(check, pg, cx.base, "portal", "ホーム")   # RS8 C4: 「スタジオ」「編集」の項目は無くなった(ホーム / 案件 / 設定)
 
     # 1b. 「詳しく」は既定で閉じている。テストのため開く(サーバーの管理の操作をクリックできるように)
     check(open_advanced(pg), "[A] 「詳しく」は既定で閉じている")
@@ -302,43 +292,88 @@ def _mounted_cards_and_health(cx):
 
 
 def _mounted_open_tools(cx):
-    """[A] 2. スタジオを開く・2b. /cut2resolve/ の転送・2c. 編集を開く"""
+    """[A] 2. ツールのカードの「開く」・2b. 古い URL(/studio/?video=)をブラウザで開くと案件の画面の候補に着く・
+    2c. 案件の画面の校正・カット(同じポートの /cases で、取り込んだスタジオ・編集の API を読める)"""
     base, check, ctx, pg, port = cx.base, cx.check, cx.ctx, cx.pg, cx.port
-    # 2. 開く: 新しいタブでスタジオの画面が開く(入口のポートからのリンクをツールが 403 にしない)
-    href = pg.get_attribute(".pt-tool[data-tool=studio] .pt-open", "href")
-    check(href == "http://127.0.0.1:%d/studio/" % port, "[A] 開くのリンクは同じアドレスの /studio/: %s" % href)
+    # 2. 開く: 新しいタブで同じアドレスの画面が開く(noopener)。RS8 C4 でスタジオ・編集の画面を消したので、カードの「開く」(今も
+    # /studio/・/transcribe/ を指す)は入口の転送でホームに戻る。行き先の中身(旧 Studio.state・APP_VERSION・ツール切り替え)は下の案件の画面で確かめる
+    for tid in SHOWN:
+        href = pg.get_attribute(".pt-tool[data-tool=%s] .pt-open" % tid, "href") or ""
+        check(href.startswith("http://127.0.0.1:%d/" % port), "[A] %s の「開く」は同じアドレス: %s" % (tid, href))
     with ctx.expect_page() as info:
         pg.click(".pt-tool[data-tool=studio] .pt-open")
     tab = info.value
     tab.wait_for_load_state()
-    check("切り抜きスタジオ" in (tab.title() + tab.content()), "[A] スタジオの画面が開いた")
-    check(wait_js(tab, "!!(window.Studio && Studio.state)", 20000), "[A] スタジオの画面が /studio/ の下で API を読めた(CSP・相対パス)")
-    check(tab.evaluate("Studio.base") == "/studio" and bool(tab.evaluate("Studio.token")), "[A] スタジオは場所と合言葉を知っている")
-    check_tool_nav(check, tab, "transcribe", port, "スタジオのツール切り替え")
-    u = tab.evaluate("UIKit.tools.url('studio', Studio.ports, '/?url=x')")
-    check(u == "http://localhost:%d/studio/?url=x" % port, "[A] 他のツールから取り込んだスタジオへのリンク(ui-kit の paths): %s" % u)
+    check(tab.url.startswith(base) and tab.evaluate("location.pathname") in ("/", "/cases"),
+          "[A] カードの「開く」は同じアドレスの画面に着く(古い /studio/ は転送でホームへ): %s" % tab.url)
     check(tab.evaluate("window.opener") is None, "[A] 開いたタブからホームを操作できない(noopener)")
     tab.close()
 
-    # 2b. cut2resolve の画面(/cut2resolve/)は「編集」に統合して消したので、「編集」へ転送する(?video= → ?media=)
+    # 2b. 古い URL をブラウザで開くと転送を追って、案件の画面の候補(#cand)に着く。候補のパネルは取り込んだスタジオの API を読む(CSP・相対パス)
     tab = ctx.new_page()
-    tab.goto(base + "cut2resolve/?video=" + urllib.parse.quote("C:\\x\\無い動画.mp4"))
-    check(wait_js(tab, "location.pathname === '/transcribe/' && document.querySelector('#srcPath') && document.querySelector('#srcPath').value.endsWith('無い動画.mp4')", 20000),
-          "[A] /cut2resolve/ を開くと「編集」(/transcribe/)へ転送し、?video= の動画を ?media= で渡す")
+    tab.on("pageerror", lambda e: cx.errors.append(str(e)))
+    tab.goto(base + "studio/?video=e2eCase0001")
+    check(wait_js(tab, "typeof CasesShell === 'object' && CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'cand'", 20000)
+          and tab.url == base + "cases?c=e2eCase0001#cand",
+          "[A] /studio/?video= をブラウザで開くと /cases?c=…#cand に着いて、その配信の候補が開く: %s" % tab.url)
+    check(wait_js(tab, "!!document.querySelector('#csPane .cd-panel #rvList .rv-mark-row[data-id=\"m1\"]')", 25000),
+          "[A] 候補のパネルが /studio/ の API を読めた(マークの一覧。旧 Studio.state の確かめ)")
+    check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 案件の画面も合言葉(ytt-token)を受け取っている")
+    check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === '%s'" % TX_VER, 15000),
+          "[A] 案件の画面の版(全体で 1 つ): %s" % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
+    check_appnav(check, tab, base, "cases", "案件の画面")
+
+    # 2c. 校正(#proof)は取り込んだ編集の部品(edhost)が文書を読む・カット(#cut)へ切り替わる(旧 /transcribe/ の画面の確かめの代わり)
+    tab.goto(base + "cases?d=deadbeef0001#proof")
+    check(wait_js(tab, "CasesShell.state().caseId === 'e2eCase0001' && CasesShell.state().tab === 'proof' && CasesShell.state().sel === 'd:deadbeef0001'"
+                       " && typeof S === 'object' && S.docId === 'deadbeef0001' && document.querySelectorAll('#csPane #segs .seg').length === 2", 30000),
+          "[A] /cases?d=…#proof は文書から案件を引いて、校正のパネルが /transcribe/ の API で文書の 2 行を出す: %s"
+          % tab.evaluate("[CasesShell.state(), typeof S === 'object' && S.docId, document.querySelectorAll('#csPane #segs .seg').length,"
+                         " (document.querySelector('#csPane') || {}).textContent.slice(0, 200)]"))
+    tab.goto(base + "cases?d=deadbeef0001#cut")
+    check(wait_js(tab, "CasesShell.state().tab === 'cut' && CasesShell.state().panel === 'cut'", 20000),
+          "[A] /cases?d=…#cut はカット・パックのパネル: %s" % tab.evaluate("CasesShell.state()"))
     tab.close()
-    # 2c. 編集(文字起こし)も同じアドレスの /transcribe/ で開ける(段階3-3。認識自体は別プロセスの pipeline/transcribe/worker.py)
-    href = pg.get_attribute(".pt-tool[data-tool=transcribe] .pt-open", "href")
-    check(href == "http://127.0.0.1:%d/transcribe/" % port, "[A] 文字起こしの開くのリンク: %s" % href)
-    with ctx.expect_page() as info:
-        pg.click(".pt-tool[data-tool=transcribe] .pt-open")
-    tab = info.value
-    tab.wait_for_load_state()
-    check(wait_js(tab, "document.querySelector('#ver') && document.querySelector('#ver').textContent === '%s'" % TX_VER, 20000),
-          "[A] 文字起こしの画面が /transcribe/ の下で読み込めた(app.js の APP_VERSION): %s"
-          % tab.evaluate("document.querySelector('#ver') && document.querySelector('#ver').textContent"))
-    check(bool(tab.evaluate("(document.querySelector('meta[name=\"ytt-token\"]') || {}).content")), "[A] 文字起こしの画面も合言葉(ytt-token)を受け取っている")
-    check_tool_nav(check, tab, "studio", port, "編集のツール切り替え")
-    check(tab.evaluate("window.opener") is None, "[A] 文字起こしのタブからもホームを操作できない(noopener)")
+
+
+def _mounted_old_urls(cx):
+    """[A] 2h. 古い画面の URL の転送(RS8 C4。表は src/app/redirects.py・/cases.html と /live/ は入口・/cut2resolve/ は取り込みの page_to)。
+    転送を追わずに GET して 302 と Location を見る + /cut2resolve/?video= をブラウザで追って新しい案件の欄に入るところまで"""
+    base, check, ctx, port = cx.base, cx.check, cx.ctx, cx.port
+    q = lambda s: urllib.parse.quote(s, safe="")
+    yt, missing = "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "C:\\x\\無い動画.mp4"
+    clip = os.path.join(cx.tmp, "exports", "01_案件.mp4")   # seed_cases の文書 deadbeef0001 の元の動画
+    table = [("/studio/?video=e2eCase0001", "/cases?c=e2eCase0001#cand"),
+             ("/studio/?video=" + q("../x"), "/"),   # 案件の id の形でなければホーム
+             ("/studio/?step=rank", "/#new"),
+             ("/studio/?url=" + q(yt), "/#new?url=" + q(yt)),
+             ("/studio/", "/"),
+             ("/studio/index.html", "/"),
+             ("/transcribe/?doc=deadbeef0001", "/cases?d=deadbeef0001"),
+             ("/transcribe/?doc=" + q("../x"), "/"),
+             ("/transcribe/?drill=1", "/cases?c=eval#proof"),
+             ("/transcribe/?media=" + q(missing), "/#new?media=" + q(missing)),   # 文書の無い動画は新しい案件の欄へ
+             ("/transcribe/?clip=" + q(clip), "/cases?d=deadbeef0001#proof"),   # 文書のある動画はその文書の校正へ
+             ("/transcribe/", "/"),
+             ("/cases.html", "/"),
+             ("/cut2resolve/?video=" + q(missing), "/transcribe/?" + urllib.parse.urlencode([("media", missing)])),   # 取り込みの page_to → 上の ?media= の行へ
+             ("/cut2resolve/", "/transcribe/")]
+    got = [(path, http_get(port, path)) for path, _want in table]
+    bad = [(path, res, want) for (path, res), (_p, want) in zip(got, table) if res != (302, want)]
+    check(not bad, "[A] 古い URL はどれも 302 で表の行き先へ(%d 行): %s" % (len(table), bad))
+    # /live/ は線 D の設定がオンのときだけ入口が受け持つ(オフは今までどおり 404)。オンをこの 1 回の要求の糸だけに見せて確かめる(見回りの糸には見せない)
+    check(http_get(port, "/live/")[0] == 404, "[A] /live/ は線 D がオフなら 404")
+    on_req = lambda: "process_request" in threading.current_thread().name
+    with mock.patch.object(cx.srv.live, "enabled", on_req):
+        live = [http_get(port, p) for p in ("/live/", "/live")]
+    check(live == [(302, "/")] * 2, "[A] /live/ は線 D がオンならホームへ 302(以前の録画の画面): %s" % live)
+    # ブラウザで 2 回の転送を追う: /cut2resolve/?video= → /transcribe/?media= → /#new?media= = 新しい案件の引き出しが開いて、動画のパスが欄に入る
+    tab = ctx.new_page()
+    tab.on("pageerror", lambda e: cx.errors.append(str(e)))
+    tab.goto(base + "cut2resolve/?video=" + q(missing))
+    check(wait_js(tab, "location.pathname === '/' && location.hash.indexOf('#new?media=') === 0 && !document.getElementById('newDrawer').hidden"
+                       " && !!document.getElementById('qPath') && document.getElementById('qPath').value.endsWith('無い動画.mp4')", 25000),
+          "[A] /cut2resolve/?video= をブラウザで開くと新しい案件の引き出しが開き、動画のパスが欄に入る: %s" % tab.url)
     tab.close()
 
 
@@ -664,6 +699,7 @@ def _mounted_new_case_and_ops(cx):
     p.click("#newCaseBtn")
     check(wait_js(p, "!document.getElementById('newDrawer').hidden && document.getElementById('qUrls').value.indexOf('dQw4w9WgXcQ') >= 0", 5000), "[A] 2j: 開き直しても入れた URL が残る(作り直さない)")
     p.close()
+    _new_case_search_settings(cx)
 
     # ?url= を付けた /#new は引き出しを開いて、欄に入れるだけ(解析は押すまで始めない)
     q = ctx.new_page()
@@ -712,6 +748,54 @@ def _mounted_new_case_and_ops(cx):
     check(list(puts[0].keys()) == ["patch"] and patch.get("replacements") == "|ホシミ|=>星見" and patch.get("glossary") == "既存\n星見" and "learnIgnore" not in patch,
           "[A] 2j: 置換辞書に「|誤|=>正」(カタカナの語は単語の途中に当てない形)・用語集に正・patch の形: %s" % puts)
     s.close()
+
+
+def _new_case_search_settings(cx):
+    """[A] 2j-2. 新しい案件の末尾の「探す設定」(RS8 C4。スタジオの ⚙ から移した): API キーの保存と削除(札が変わる)・事務所の登録(rank.js の
+    mountRegistry)・コラボ(studio/collab.js を開いたときに読む)・/#new?set=reg で事務所の登録まで開く・画面のエラーの記録(client-errors.jsonl)が増えない"""
+    check, ctx = cx.check, cx.ctx
+    log = os.path.join(cx.sup.logs_dir, "client-errors.jsonl")
+    size0 = os.path.getsize(log) if os.path.exists(log) else 0
+    errs = []
+    p = ctx.new_page()
+    p.on("pageerror", lambda e: errs.append(str(e)))
+    p.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)   # CSP の違反もここに入る
+    p.goto(cx.base + "#new")
+    check(wait_js(p, "!!document.querySelector('#newDrawer #nwSet') && document.getElementById('nwKeyState').textContent !== ''", 25000),
+          "[A] 2j-2: 新しい案件の末尾に「探す設定」とキーの札: %s" % p.evaluate("(document.getElementById('nwKeyState') || {}).textContent"))
+    st0 = p.text_content("#nwKeyState")
+    check(st0 == "疑似モード(キー不要)" and p.evaluate("!document.getElementById('nwSet').open") and p.is_hidden("#nwToolNotice"),
+          "[A] 2j-2: 探す設定は既定で畳んである・疑似のスタジオはキー不要の札・ffmpeg と yt-dlp の案内は出さない: %s" % st0)
+    p.click("#nwSet > summary")
+    p.fill("#nwKeyIn", "AIza" + "e2eTestKey" * 3)
+    p.click("#nwKeySave")
+    check(wait_js(p, "document.getElementById('nwKeyMsg').textContent === '保存しました' && document.getElementById('nwKeyState').textContent === 'キー: 設定済み'"
+                     " && document.getElementById('nwKeyIn').value === ''", 10000),
+          "[A] 2j-2: API キーを保存すると札が「キー: 設定済み」に変わり、欄は空に戻る: %s / %s" % (p.text_content("#nwKeyMsg"), p.text_content("#nwKeyState")))
+    p.click("#nwKeyDel")   # キーがあるので確かめのダイアログ(取り消せない)
+    check(wait_js(p, "!!document.querySelector('dialog[open] .btn.danger')", 5000), "[A] 2j-2: 「キーを削除」は確かめのダイアログを出す")
+    p.click("dialog[open] .btn.danger")
+    check(wait_js(p, "document.getElementById('nwKeyMsg').textContent === '削除しました' && document.getElementById('nwKeyState').textContent === %s" % json.dumps(st0), 10000),
+          "[A] 2j-2: 削除すると札が元に戻る: %s / %s" % (p.text_content("#nwKeyMsg"), p.text_content("#nwKeyState")))
+    p.click("#nwSetReg > summary")
+    check(wait_js(p, "!!document.querySelector('#nwRegHost.reg-host') && document.getElementById('nwRegHost').textContent.indexOf('各事務所に所属するチャンネル') >= 0", 10000),
+          "[A] 2j-2: 事務所の登録を開くと rank.js の登録の欄が描かれる")
+    p.click("#nwSetCollab > summary")
+    check(wait_js(p, "!!document.querySelector('#nwCollabHost #clMake')", 15000), "[A] 2j-2: コラボを開くと studio/collab.js を読んで描く(#clMake)")
+    check(p.evaluate("typeof window.Studio === 'undefined'"), "[A] 2j-2: コラボを読んだあとも window.Studio は残さない")
+    p.close()
+    r = ctx.new_page()
+    r.on("pageerror", lambda e: errs.append(str(e)))
+    r.goto(cx.base + "#new?set=reg")
+    check(wait_js(r, "!document.getElementById('newDrawer').hidden && !!document.getElementById('nwSet') && document.getElementById('nwSet').open"
+                     " && document.getElementById('nwSetReg').open && !!document.querySelector('#nwRegHost.reg-host')", 25000),
+          "[A] 2j-2: /#new?set=reg は引き出しを開いて、探す設定の事務所の登録まで開く")
+    r.close()
+    real = [e for e in errs if "Failed to load resource" not in e]
+    check(not real, "[A] 2j-2: 探す設定を操作しても画面のエラーなし(CSP 違反を含む): %s" % real[:3])
+    time.sleep(0.5)   # 記録の送信(api/ytt/client-log)が届くまで
+    size1 = os.path.getsize(log) if os.path.exists(log) else 0
+    check(size1 == size0, "[A] 2j-2: 画面のエラーの記録(client-errors.jsonl)が増えない: %d → %d" % (size0, size1))
 
 
 def _next_todo(cx):
@@ -966,22 +1050,9 @@ def _ui_review_checks(cx):
     p8.close()
 
 
-def _mounted_redirect_theme_narrow(cx):
-    """[A] 2h. /cases.html の転送・7. テーマ・8. 狭い画面"""
-    base, check, ctx, pg, port, shots = cx.base, cx.check, cx.ctx, cx.pg, cx.port, cx.shots
-    # 2h. /cases.html は以前のリンク・ブックマークのために残す(ホームの案件の一覧へ転送)
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    conn.request("GET", "/cases.html", headers={"Host": "127.0.0.1:%d" % port})
-    r = conn.getresponse()
-    r.read()
-    conn.close()
-    check((r.status, r.getheader("Location")) == (302, "/#cases"), "[A] /cases.html はホームの案件の一覧(#cases)へ 302: %s %s" % (r.status, r.getheader("Location")))
-    rtab = ctx.new_page()
-    rtab.goto(base + "cases.html")
-    check(wait_js(rtab, "!!document.querySelector('.pt-case')", 15000) and rtab.url == base + "#cases",
-          "[A] ブラウザで開いても、ホームの案件の一覧に移って表示される: %s" % rtab.url)
-    rtab.close()
-
+def _mounted_theme_narrow(cx):
+    """[A] 7. テーマ・8. 狭い画面(/cases.html の転送は 2h の表へ移した)"""
+    base, check, ctx, pg, shots = cx.base, cx.check, cx.ctx, cx.pg, cx.shots
     # 7. テーマ(ui-kit)
     before = pg.get_attribute("html", "data-theme")
     check(pg.locator("[data-theme-toggle]").count() == 0, "[A] ヘッダーに明暗の切り替えボタンは無い(⚙ 設定のテーマで選ぶ)")

@@ -212,6 +212,11 @@ def main():
                 # 9. 候補を開いているときに #proof へ(同じ文書の中の移動)= 最初の未校正の切り抜き
                 pg.goto(base + "cases?c=v1#proof")
                 check(wait_js(pg, "CasesShell.state().sel === 'd:a0000000000b' && CasesShell.state().tab === 'proof'"), "#cand → #proof で最初の未校正へ: %s" % st())
+                # 9b. 引数なし(ヘッダーの「案件」)は、このブラウザで前に開いた案件を開く(RS8 C4。localStorage 'ytt-cases-last')
+                pg.goto(base + "cases")
+                check(wait_js(pg, "CasesShell.state().caseId === 'v1'"), "引数なしは前に開いた案件(v1): %s" % st())
+                check(pg.evaluate("document.querySelector('a[data-ui-appnav-item=\"cases\"]').getAttribute('aria-current')") == "page",
+                      "ヘッダーの appnav は「案件」が今の場所")
 
                 # 10. 幅 390: 横にはみ出さない(左の一覧は上に積む)
                 pg.set_viewport_size({"width": 390, "height": 800})

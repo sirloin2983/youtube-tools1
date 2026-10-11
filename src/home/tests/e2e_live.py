@@ -8,12 +8,12 @@
 
 P3(2026-10-05)で別ページ /live/(録画の画面)をやめてスタジオの中に入れたので、この確認は**入口の API で**行う
 (ホームの画面はオン/オフのスイッチと案内の1行だけを Playwright で見る)。
-スタジオの画面を通した確認(URL の欄に入れる → ② で再生・マーク → すぐ書き出す・ヘッダーの札)は e2e_live_studio.py・アーカイブは e2e_live_archive.py。
+画面を通した確認(ホームの新しい案件の URL の欄に入れる → 案件の画面の候補で再生・マーク → すぐ書き出す・ヘッダーの札)は e2e_live_studio.py・アーカイブは e2e_live_archive.py。
 
 確かめること:
   1. オフ: ホームの「詳しく」の「試験中の機能」のスイッチ(オフ)・案内の1行・録画の画面へのリンクは無い・/live/ は 404・
      api/ytt/live の status は {enabled: false}
-  2. スイッチでオンにする → 設定に残る・/live/ はスタジオへ 302・hls.js(スタジオが ../live/hls.min.js で読む)・録画元につながる(置き場所・空き容量)
+  2. スイッチでオンにする → 設定に残る・/live/ はホームへ 302(RS8 C4)・hls.js(スタジオが ../live/hls.min.js で読む)・録画元につながる(置き場所・空き容量)
   3. begin(偽の yt-dlp = is_live。テストの録画元は --source direct で手元の URL しか受けないので、入口の allow_local_urls をテストだけ立てる)
      → 録画が始まる・もう一度 begin → 録画中のものを返す(existing)・配信中でない(was_live)→ live: false
   4. api/ytt/live の status に録画中の録画(題は文字のまま)
@@ -179,7 +179,7 @@ def main():
                 check(wait_js(pg, "!!document.querySelector('#sec-live [data-ui-set-key]')"), "設定の画面に「リアルタイム切り抜き」の節が出る")
                 check(pg.evaluate("document.getElementById('uiSet-live_enabled').checked") is False, "既定はオフ")
                 check(pg.evaluate("document.getElementById('liveLink')") is None, "録画の画面へのリンクは無い(スタジオに統合した)")
-                check("スタジオの URL の欄に配信中の URL を入れるだけで録画します" in (pg.text_content("[data-ui-set-key='live.enabled'] .ui-set-hint") or ""),
+                check("配信中の URL を入れるだけで録画します" in (pg.text_content("[data-ui-set-key='live.enabled'] .ui-set-hint") or ""),
                       "案内の1行: %s" % pg.text_content("[data-ui-set-key='live.enabled'] .ui-set-hint"))
                 check(api.call("GET", "/live/")[0] == 404, "オフの間は /live/ が 404")
                 check(api.call("POST", "/api/ytt/live", {"op": "status"})[1] == {"enabled": False}, "オフの間は札の status が {enabled: false}")
@@ -189,7 +189,7 @@ def main():
                 check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'"), "設定の画面で「保存しました」")
                 check(srv.prefs.get(["live"])["live"]["enabled"] is True, "設定に残る")
                 code, _, _, loc = api.call("GET", "/live/", redirect=False)
-                check((code, loc) == (302, "/studio/"), "/live/ はスタジオへ 302: %s %s" % (code, loc))
+                check((code, loc) == (302, "/"), "/live/ はホームへ 302(RS8 C4 でスタジオの画面を消した): %s %s" % (code, loc))
                 code, raw, ctype, _ = api.call("GET", "/live/hls.min.js")
                 check(code == 200 and ctype.startswith("application/javascript") and len(raw) > 100000, "hls.js(../live/hls.min.js)")
                 code, info, _, _ = api.call("GET", "/live/api/info")

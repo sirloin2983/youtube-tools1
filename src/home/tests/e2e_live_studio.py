@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """リアルタイム切り抜き(線 D の P3。plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
-ブラウザでスタジオの画面を操作する。本物の YouTube には繋がない。
+ブラウザでホームの「新しい案件」(/#new)から録画を始め、案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js が
+スタジオの review.js と LivePlayer を載せる)で再生・マーク・書き出しを操作する。本物の YouTube には繋がない。
+(RS8 C4 でスタジオの画面のページ(/studio/)を消した。古い URL /studio/?video=<id> は入口が /cases?c=<id>#cand へ転送する = 12 で確かめる)
 
     py -3.10 src/home/tests/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
     py -3.10 src/home/tests/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
@@ -14,17 +16,20 @@
     入口から録画元への要求(Live.call)だけをテストの中で手元の HLS の URL に読み替える(本番の検査は緩めない。画面・API からは変えられない)
   - ブラウザは Edge(channel="msedge"。H.264 を再生できる)を先に試す。無ければ Playwright の chromium(再生は読み込みまで。再生が要る確認は飛ばす)
   - hls.js の再生位置の受信時刻(hls.playingDate)は、テストの init script で window.Hls を包んで読む(画面のコードには手を入れない)
+  - 11 の「呼んだ側のチャンネル名」の確かめだけ、ホームのページに init script を足して、新しい案件のつなぎ(panels/new.js)が読み込みの間だけ
+    window.Studio に置く代わりの Studio を控えて、その Studio.live.begin を呼ぶ(① 探す の「録画する」と同じ呼び方。画面のコードには手を入れない)
 
 確かめること(番号は依頼の 1〜14):
-  13 オフ: URL を入れても begin に進まず /api/queue/add(今までどおりの解析)・ヘッダーに札が出ない
-  1 ホームの「試験中の機能」でオン → 2 ① の URL 欄 →「解析に追加」→ 録画が始まり ② へ移ってその録画が開く・一覧に kind live
+  13 オフ: ホームの /#new の URL を入れても begin に進まず /studio/api/queue/add(今までどおりの解析)・ヘッダーに札が出ない
+  1 設定の画面でオン → 2 ホームの /#new の URL 欄 →「解析に追加」→ 録画が始まり /cases?c=<録画 id>#cand へ移ってその録画が開く・一覧に kind live
   3 自動で再生(currentTime が進む)・LIVE の帯・「録画中」・ヘッダーの札「録画中 1」
   4 I → O → 追加 → すぐ書き出す → 書き出しの欄に状態 → 済み・30fps・長さ・.clip.json の source.kind live・スタジオのマークが「書き出し済み」
   5 書き出した区間の絶対時刻 = マークした時点の hls.playingDate ± 0.3 秒
-  6 タイムラインで頭へ → 「ライブ端へ」  7 ① へ移ると止まる・戻ると続きから  8 見回りで要素が作り直されない
-  9 札 → 一覧 →「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
-  10 終わった録画でマーク → 採用 →「書き出す」  11 設定の引き出しの「ライブの録画」(置き場所・空き・画質 → live.quality → 次の begin)
-  12 ?video=<id> で開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし・375px で横にはみ出さない
+  6 タイムラインで頭へ → 「ライブ端へ」  7 画面を離れる(タブを隠す)と止まる・戻ると続きから  8 見回りで要素が作り直されない
+  9 札 → 一覧(「開く」は /cases?c=<録画 id>#cand)→「停止」二度押し → 帯「録画は終わりました…」・札「録画終了」・duration が有限・最後まで再生
+  10 終わった録画でマーク → 採用 →「書き出す」  11 画質(live.quality)→ 次の begin・置き場所と空きは「調子」(/api/health の live)
+     (スタジオの ⚙ の「ライブの録画」の欄はスタジオの画面と一緒に消えた。案件の画面の ⚙ はテーマなどだけ)
+  12 古い URL /studio/?video=<id> は /cases?c=<id>#cand へ転送され、開き直すとマークが残っている  14 コンソールのエラー・404・CSP 違反なし・375px で横にはみ出さない
   15 書き出したあと(帯の select。設定 liveAfter)と配信者(字幕の色): begin のチャンネル名がスタジオの配信に入る・帯の「配信者」がチャンネル名から自動で入る・
      「全自動」にしてマーク → 入口がまとめて実行へ flow auto と配信者の名前を渡す・帯で名前を直すと次の書き出しに渡り、録画とチャンネルに覚える・
      見回りで select・欄が作り直されない(値も戻らない)・開き直しても選んだ値と直した名前
@@ -80,6 +85,21 @@ INIT_JS = r"""
 """
 NO_HSCROLL_JS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
 VIDEO = "document.querySelector('#rvHost video')"
+# 案件の画面の候補のパネル(panels/cand.js)に録画が開いて、LIVE の帯(録画の行)が出ている
+CAND_LIVE = ("() => !!window.CasesShell && CasesShell.state().panel === 'cand' && !!document.querySelector('#csPane .cd-panel #rvLiveRec')"
+             " && !document.querySelector('#rvLiveRec').hidden")
+# ホームの「新しい案件」の引き出し(/#new)が開いて、URL の欄(スタジオ ① の queue.js)ができている
+NEW_READY = "() => !document.getElementById('newDrawer').hidden && !!document.querySelector('#newDrawer #qUrls')"
+# 新しい案件のつなぎ(panels/new.js)は rank.js・queue.js を読む間だけ window.Studio に代わりの Studio を置く。それを控える(11 の begin を呼ぶため。このページだけ)
+CAPTURE_STUDIO_JS = r"""
+(() => {
+  let cur;
+  Object.defineProperty(window, 'Studio', { configurable: true, get(){ return cur; }, set(v){ cur = v; if (v && v.live) window.__newStudio = v; } });
+})();
+"""
+# 画面を離れた / 戻った(UIKit.life の 'hidden')を起こす(e2e_cases_cand.py と同じ)
+HIDE_JS = "() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); }"
+SHOW_JS = "() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange')); delete document.hidden; }"
 
 
 def wait_js(pg, expr, timeout=20000):
@@ -161,7 +181,10 @@ def run(tmp, shots, force_chromium):
         return 1
     serve.Handler.log_message = lambda self, fmt, *a: None
     base = "http://127.0.0.1:%d" % port
-    studio_url = base + "/studio/"
+    studio_url = base + "/studio/"   # 古い画面の URL(C4 で消した。入口が案件の画面へ転送する = 12 で確かめる)
+
+    def cases_url(r):
+        return base + "/cases?c=%s#cand" % r
 
     def api(method, path, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -324,8 +347,8 @@ def run(tmp, shots, force_chromium):
 
 def _scene_off(cx):
     """13. オフのとき"""
-    check, ctx, errors, not_found, probes, studio_url, watch = cx.check, cx.ctx, cx.errors, cx.not_found, cx.probes, cx.studio_url, cx.watch
-    # ---------------- 13. オフのとき ----------------
+    base, check, ctx, errors, not_found, probes, watch = cx.base, cx.check, cx.ctx, cx.errors, cx.not_found, cx.probes, cx.watch
+    # ---------------- 13. オフのとき(ホームの「新しい案件」の引き出し /#new の URL の欄) ----------------
     pg = ctx.new_page()
     watch(pg, "off")
     queued = []
@@ -336,13 +359,13 @@ def _scene_off(cx):
     pg.route("**/studio/api/queue/add", fake_queue)
     begins = []
     pg.on("request", lambda r: begins.append(r.url) if "/live/api/begin" in r.url else None)
-    pg.goto(studio_url)
-    wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
-    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
+    pg.goto(base + "/#new")
+    check(wait_js(pg, NEW_READY, 25000), "13 オフ: ホームの /#new で「新しい案件」の引き出しが開き、URL の欄が出る")
     pg.fill("#qUrls", YT1)
     pg.click("#qAdd")
-    check(wait_for(lambda: queued, 10), "13 オフ: URL を入れて「解析に追加」→ 今までどおり /api/queue/add: %s" % queued[:1])
+    check(_pw_wait(pg, lambda: queued, 10), "13 オフ: URL を入れて「解析に追加」→ 今までどおり /studio/api/queue/add: %s" % queued[:1])
     check(not begins and not probes, "13 オフ: begin に進まない(配信の状態も調べない)")
+    check(pg.evaluate("() => location.pathname") == "/", "13 オフ: 案件の画面へは移らない(ホームのまま)")
     pg.wait_for_timeout(500)
     check(pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !b || b.hidden; }"), "13 オフ: ヘッダーに録画の札が出ない")
     pg.close()
@@ -386,28 +409,29 @@ def _scene_turn_on(cx):
 
 
 def _scene_begin_and_play(cx):
-    """2. ① の URL 欄から録画を始める / 3. 自動で再生・録画中・札"""
-    LX, api, check, ctx, edge, shots, skip, starts = cx.LX, cx.api, cx.check, cx.ctx, cx.edge, cx.shots, cx.skip, cx.starts
-    studio_url, watch = cx.studio_url, cx.watch
-    # ---------------- 2. ① の URL 欄から録画を始める ----------------
+    """2. ホームの /#new の URL 欄から録画を始める → 案件の画面の候補 / 3. 自動で再生・録画中・札"""
+    LX, api, base, check, ctx, edge, shots, skip, starts = cx.LX, cx.api, cx.base, cx.check, cx.ctx, cx.edge, cx.shots, cx.skip, cx.starts
+    watch = cx.watch
+    # ---------------- 2. ホームの /#new の URL 欄から録画を始める ----------------
     pg = ctx.new_page()
-    watch(pg, "studio")
-    pg.goto(studio_url)
-    wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
-    wait_js(pg, "() => !document.querySelector('#rvOpenForm .rv-openlive').hidden", 8000)
-    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
+    watch(pg, "cases")   # ホームで始めて、案件の画面へ移る(同じページ)
+    pg.goto(base + "/#new")
+    wait_js(pg, NEW_READY, 25000)
     pg.fill("#qUrls", YT1)
     pg.click("#qAdd")
-    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000),
-          "2 録画が始まり、自動で ② 確認・書き出しへ移って LIVE の帯(録画の行)が出る")
+    check(wait_js(pg, CAND_LIVE, 30000),
+          "2 録画が始まり、案件の画面の候補(panels/cand.js)へ移って LIVE の帯(録画の行)が出る")
     code, vs = api("GET", "/studio/api/videos")
     lv = [v for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"]
     rid = cx.rid = lv[0]["id"] if lv else None
+    here = pg.evaluate("() => location.pathname + location.search + location.hash")
+    check(rid and here == "/cases?c=%s#cand" % rid, "2 移った先は /cases?c=<録画 id>#cand(Studio.openReview): %s" % here)
+    check(pg.evaluate("() => CasesShell.state().caseId") == rid, "2 案件の画面はその録画の案件(案件の id = 録画の id)を開いている")
     check(len(lv) == 1 and LX.REC_RE.match(rid or "") and lv[0]["live"]["url"] == YT1 and lv[0]["live"]["recorder"] == "local"
           and lv[0]["live"]["videoId"] == "TESTlive001", "2 スタジオの一覧に kind live の配信(id = 録画の id): %s" % (lv[:1],))
     check(lv and lv[0]["title"] == TITLE, "2 題は yt-dlp の題(HTML にしない): %s" % (lv[0]["title"] if lv else None))
     check(pg.evaluate("() => document.querySelector('#rvTitle').value") == TITLE and pg.evaluate("() => !document.querySelector('#rvTitle b')"),
-          "2 ② の題の欄に配信の題")
+          "2 候補のパネルの題の欄に配信の題")
     check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
     check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
     bd = cx.live.bundles.get("local", rid) if rid else None
@@ -520,7 +544,7 @@ def _scene_mark_and_export(cx):
 
 
 def _scene_seek_and_leave(cx):
-    """6. シーク / 7. ② を離れると止まる / 8. 作り直されない"""
+    """6. シーク / 7. 画面を離れると止まる / 8. 作り直されない"""
     check, edge, keep_at, pg, skip = cx.check, cx.edge, cx.keep_at, cx.pg, cx.skip
     # ---------------- 6. シーク ----------------
     if edge:
@@ -533,14 +557,16 @@ def _scene_seek_and_leave(cx):
     else:
         skip("6 シーク(再生できない)")
 
-    # ---------------- 7. ② を離れると止まる ----------------
+    # ---------------- 7. 画面を離れると止まる ----------------
+    # 古い画面では「① へ移る → ② に戻る」で見ていた。案件の画面には ① が無い(新しい案件はホームの引き出し)ので、
+    # 同じ「離れたら再生を止め、戻ると同じ録画の止めた位置から」を、画面を離れる(UIKit.life の hidden → パネルの leave / back)で見る
     if edge:
         wait_js(pg, "() => !%s.paused" % VIDEO, 5000)
-        pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
-        check(wait_js(pg, "() => %s.paused" % VIDEO, 3000), "7 ① へ移ると再生が止まる")
+        pg.evaluate(HIDE_JS)
+        check(wait_js(pg, "() => %s.paused" % VIDEO, 3000), "7 画面を離れる(タブを隠す)と再生が止まる")
         pos = pg.evaluate("() => %s.currentTime" % VIDEO)
         pg.wait_for_timeout(1200)
-        pg.click('#steps [data-step="review"]')
+        pg.evaluate(SHOW_JS)
         check(wait_js(pg, "() => !!%s && Math.abs(%s.currentTime - %f) < 0.5" % (VIDEO, VIDEO, pos)) and not pg.is_hidden("#rvLiveRec"),
               "7 戻ると同じ録画が開いていて、止めた位置から")
         pg.evaluate("() => document.activeElement && document.activeElement.blur()")
@@ -629,7 +655,7 @@ def _scene_gap(cx):
 
 def _scene_settings_and_sound(cx):
     """11a. LIVE の帯の音量と消音 / 11. 設定の引き出し / 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す"""
-    api, base, check, ctx, edge, pg, rfolder, shots, srv = cx.api, cx.base, cx.check, cx.ctx, cx.edge, cx.pg, cx.rfolder, cx.shots, cx.srv
+    api, base, check, ctx, edge, pg, rfolder, srv = cx.api, cx.base, cx.check, cx.ctx, cx.edge, cx.pg, cx.rfolder, cx.srv
     # ---------------- 11a. LIVE の帯の音量と消音(0.26.0。(gq) ②: 録画のプレーヤーは標準のコントロールを出さないので、帯のつまみとキーで変える) ----------------
     set_vol = "(v) => { const el = document.querySelector('#rvLiveVol'); el.value = String(v); el.dispatchEvent(new Event('input', { bubbles: true })); }"
     check(pg.is_visible("#rvLiveVol") and pg.input_value("#rvLiveVol") == "100" and pg.get_attribute("#rvLiveMute", "aria-pressed") == "false"
@@ -650,23 +676,16 @@ def _scene_settings_and_sound(cx):
           "11a 音量はスタジオの設定 review.volume に残る(消音は false のまま): %s" % ((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review", {}).get("muted"))
     pg.evaluate(set_vol, 100)
     check(wait_js(pg, "() => Math.abs(%s.volume - 1) < 0.01" % VIDEO, 3000), "11a 100 に戻す")
-    # ---------------- 11. 設定の引き出し ----------------
-    pg.click("#btnSettings")
-    check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "11 設定の引き出しに「ライブの録画」")
-    check(wait_js(pg, "() => /空き/.test(document.querySelector('#liveFree').textContent) && document.querySelector('#liveFolderNow').textContent.toLowerCase() === %s"
-                  % json.dumps(rfolder.lower()), 8000),
-          "11 置き場所と空き: %s / %s" % (pg.text_content("#liveFolderNow"), pg.text_content("#liveFree")))
-    check(wait_js(pg, "() => /録画中\\(1本\\)/.test(document.querySelector('#liveFolderNote').textContent)", 5000), "11 録画中は置き場所を変えられない(案内): %s" % pg.text_content("#liveFolderNote"))
-    # 0.25.0: 画質などの欄は ⚙ に無い(設定の画面へ)。リンクだけ
-    check(pg.locator("#liveQuality, #liveFolderIn, #liveAutoArch, #liveDetect").count() == 0 and (pg.get_attribute("#liveSetLink", "href") or "").endswith("/settings#sec-live"),
-          "11 ⚙ のライブの録画は表示と「設定の画面で変える」だけ: %s" % pg.get_attribute("#liveSetLink", "href"))
+    # ---------------- 11. 置き場所と空き・画質 ----------------
+    # スタジオの ⚙ の「ライブの録画」(置き場所・空き・「録画中は置き場所を変えられない」の案内・設定の画面へのリンク)は、RS8 C4 でスタジオの画面と一緒に消えた
+    # (案件の画面の ⚙ は UIKit.settings = テーマ・文字の大きさ・キーの帯だけ)。置き場所と空き・録画中の本数は、ホームの「調子」が読む /api/health の live で見る
+    hl = (api("GET", "/api/health")[1] or {}).get("live") or {}
+    rr = next((r for r in hl.get("recorders") or [] if r.get("ok")), {})
+    check(os.path.normcase(rr.get("folder") or "") == os.path.normcase(rfolder) and rr.get("freeBytes") is not None and rr.get("active") == 1,
+          "11 「調子」(/api/health の live)に録画元の置き場所・空き・録画中 1 本: %s" % {k: rr.get(k) for k in ("folder", "freeBytes", "active")})
     check(srv.prefs.get(["live"])["live"]["quality"] == "1080p", "11 画質の既定は 1080p(入口の設定)")
     srv.prefs.patch("live", {"quality": "720p"})
     check(srv.prefs.get(["live"])["live"]["quality"] == "720p", "11 画質は設定の画面(prefs の live.quality)で変える")
-    if shots:
-        pg.screenshot(path=os.path.join(shots, "live_03_settings.png"))
-    pg.keyboard.press("Escape")
-    pg.wait_for_timeout(300)
 
     # ---------------- 8b. ほかの窓(編集)で再生している間は、配信の音を下げる・消す(UIKit.sound。2026-10-05) ----------------
     other = ctx.new_page()
@@ -677,13 +696,15 @@ def _scene_settings_and_sound(cx):
     if edge:
         pg.evaluate("() => { const v = %s; v.muted = false; v.play().catch(() => {}); }" % VIDEO)
         vol0 = pg.evaluate("() => %s.volume" % VIDEO)
-        check(wait_js(other, "() => window.__got.some(d => d.tool === 'studio' && d.playing === true)", 8000), "8b スタジオの配信が鳴っている間、ほかの窓へ知らせる")
+        # UIKit.sound の tool はページのパスの 1 段目(案件の画面は 'cases'。古いスタジオの画面は 'studio' だった)
+        check(wait_js(other, "() => window.__got.some(d => d.tool === 'cases' && d.playing === true)", 8000),
+              "8b 案件の画面で配信が鳴っている間、ほかの窓へ知らせる(tool cases): %s" % other.evaluate("() => window.__got.slice(-3)"))
         other.evaluate(say, True)
         check(wait_js(pg, "() => Math.abs(%s.volume - %s * 0.2) < 0.02 && !%s.muted && !document.querySelector('#rvDuckNote').hidden" % (VIDEO, vol0, VIDEO), 5000),
               "8b 編集で再生中: 配信の音を 2 割に下げて、案内を出す: %s" % pg.evaluate("() => %s.volume" % VIDEO))
         pg.select_option("#rvDuck", "mute")
         check(wait_js(pg, "() => %s.muted" % VIDEO, 3000) and "消しています" in (pg.text_content("#rvDuckNote") or ""), "8b 「音を消す」に切り替えると消音")
-        check(pg.evaluate("() => Studio.api('/api/settings').then(j => !!(j.settings && j.settings.review && j.settings.review.muted))") is False, "8b 設定の消音そのものは変えない")
+        check((((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review") or {}).get("muted") is not True, "8b 設定の消音そのものは変えない")
         other.evaluate(say, False)
         check(wait_js(pg, "() => !%s.muted && Math.abs(%s.volume - %s) < 0.02 && document.querySelector('#rvDuckNote').hidden" % (VIDEO, VIDEO, vol0), 5000), "8b 編集の再生が止まると元の音に戻る")
         other.evaluate(say, True)
@@ -701,6 +722,8 @@ def _scene_badge_stop(cx):
     check(wait_js(pg, "() => !document.querySelector('.ui-live-panel').hidden", 3000), "9 札を押すと録画の一覧")
     row_title = pg.text_content(".ui-live-row .ui-live-title") or ""
     check(row_title == TITLE, "9 一覧の題(文字のまま): %s" % row_title)
+    open_href = pg.get_attribute(".ui-live-row .ui-live-acts a", "href") or ""
+    check(open_href.endswith("/cases?c=%s#cand" % rid), "9 一覧の「開く」は案件の画面の候補(/cases?c=<録画 id>#cand): %s" % open_href)
     if shots:
         pg.screenshot(path=os.path.join(shots, "live_04_badge_panel.png"))
     stop = pg.locator(".ui-live-row .btn.danger")
@@ -742,8 +765,8 @@ def _scene_badge_stop(cx):
 
 def _scene_after_end(cx):
     """10. 終わった録画でマークして「書き出す」 / 12. 読み込み直す / 11 の続き: 次の begin はその画質で"""
-    api, check, edge, handed, handed_who, live, n_jobs, normalize = cx.api, cx.check, cx.edge, cx.handed, cx.handed_who, cx.live, cx.n_jobs, cx.normalize
-    pg, probes, rid, shots, srv, starts, studio_url = cx.pg, cx.probes, cx.rid, cx.shots, cx.srv, cx.starts, cx.studio_url
+    api, base, check, edge, handed, handed_who, live, n_jobs, normalize = cx.api, cx.base, cx.check, cx.edge, cx.handed, cx.handed_who, cx.live, cx.n_jobs, cx.normalize
+    ctx, pg, probes, rid, shots, srv, starts, studio_url, watch = cx.ctx, cx.pg, cx.probes, cx.rid, cx.shots, cx.srv, cx.starts, cx.studio_url, cx.watch
     # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
     pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
     check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
@@ -795,19 +818,28 @@ def _scene_after_end(cx):
               "10 2本目も 30fps・長さが区間と合う: %.2f 秒" % (info or {}).get("duration", 0))
     pg.click("#rvExpClose")
 
-    # ---------------- 12. 読み込み直す ----------------
+    # ---------------- 12. 読み込み直す(古い URL /studio/?video=<id> → 入口が /cases?c=<id>#cand へ転送) ----------------
     pg.goto(studio_url + "?video=" + rid)
-    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden && document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n_jobs + 1), 15000),
-          "12 ?video=<id> で開き直すと、その録画が開いてマークが残っている")
+    here = pg.evaluate("() => location.pathname + location.search + location.hash")
+    check(here == "/cases?c=%s#cand" % rid, "12 古い URL /studio/?video=<id> は案件の画面の候補へ転送される: %s" % here)
+    check(wait_js(pg, "() => (%s)() && document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (CAND_LIVE, n_jobs + 1), 15000),
+          "12 開き直すと、その録画が開いてマークが残っている")
     check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")
     check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.exported').length") == n_jobs + 1, "12 マークは全部「書き出し済み」")
     check(pg.input_value("#rvAfter") == "check" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
           "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
 
     # ---------------- 11 の続き: 次の begin はその画質で ----------------
-    # 画面の Studio.live.begin(① 探す の「録画する」と同じ呼び方)。yt-dlp がチャンネル名を返さないときは、呼んだ側の名前(① 探す の行)を入れる
+    # ホームの「新しい案件」の Studio.live.begin(panels/new.js。① 探す の「録画する」と同じ呼び方)。yt-dlp がチャンネル名を返さないときは、呼んだ側の名前(① 探す の行)を入れる。
+    # new.js の Studio は読み込みの間しか window に無いので、このページだけ init script で控える(CAPTURE_STUDIO_JS)
     live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": "", "message": ""}
-    b2 = pg.evaluate("async (u) => { const b = await Studio.live.begin(u, { channel: 'Marine Ch. 宝鐘マリン' }); return b && { id: b.video.id, channel: b.video.channel, rch: b.recording.channel }; }", YT2)
+    hp = ctx.new_page()
+    watch(hp, "home")
+    hp.add_init_script(CAPTURE_STUDIO_JS)
+    hp.goto(base + "/#new")
+    check(wait_js(hp, "() => (%s)() && !!window.__newStudio" % NEW_READY, 25000), "11 ホームの /#new で新しい案件のつなぎ(new.js)が読めた")
+    b2 = hp.evaluate("async (u) => { const b = await window.__newStudio.live.begin(u, { channel: 'Marine Ch. 宝鐘マリン' }); return b && { id: b.video.id, channel: b.video.channel, rch: b.recording.channel }; }", YT2)
+    hp.close()
     rid2 = cx.rid2 = (b2 or {}).get("id")
     check(b2 and starts[-1]["quality"] == "720p" and starts[-1]["url"] == YT2,
           "11 次の begin は設定の画質 720p で録画元へ頼む: %s" % (starts[-1] if starts else None))
@@ -821,9 +853,9 @@ def _scene_after_end(cx):
 def _scene_adopt_api(cx):
     """M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt)・M3 の「調子」"""
     LX, api, check, handed, handed_kw, live, n_jobs, normalize = cx.LX, cx.api, cx.check, cx.handed, cx.handed_kw, cx.live, cx.n_jobs, cx.normalize
-    pg, rid, schemas, studio_url = cx.pg, cx.rid, cx.schemas, cx.studio_url
+    cases_url, pg, rid, schemas = cx.cases_url, cx.pg, cx.rid, cx.schemas
     # ---------------- M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt。画面を閉じていても) ----------------
-    pg.goto("about:blank")   # スタジオの画面を閉じる(② でこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
+    pg.goto("about:blank")   # 案件の画面を閉じる(候補のパネルでこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
     n_handed = len(handed)
 
     def marks_of(v):
@@ -858,9 +890,9 @@ def _scene_adopt_api(cx):
           "M1 同じ区間をもう一度 → 新しく作らない(マークもジョブも増えない)")
     code, bad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 1.0, "end": 3.0, "origin": "robot"})
     check(code == 400, "M1 origin は manual・auto・archive だけ: %s" % (code,))
-    pg.goto(studio_url + "?video=" + rid)
-    check(wait_js(pg, "() => Studio.step === 'review' && document.querySelectorAll('#rvList .rv-chip.exported').length === %d" % (n_jobs + 2), 15000),
-          "M1 ② で開くと、足したマークも「書き出し済み」")
+    pg.goto(cases_url(rid))
+    check(wait_js(pg, "() => (%s)() && document.querySelectorAll('#rvList .rv-chip.exported').length === %d" % (CAND_LIVE, n_jobs + 2), 15000),
+          "M1 案件の画面の候補で開くと、足したマークも「書き出し済み」")
     # M3: 「調子」にリアルタイム切り抜きの失敗の行(この通しでは失敗が無い = 「なし」)
     code, hh = api("GET", "/api/health")
     check(code == 200 and isinstance(((hh or {}).get("live") or {}).get("failures"), list), "M3 「調子」の live に failures: %s" % (((hh or {}).get("live") or {}).get("failures"),))
@@ -897,7 +929,7 @@ def _scene_peaks(cx):
     peaks.json・worker.json に書き、decisions.json を本物と同じに当てる)で、帯の一覧・見出し・タイムラインの印・グラフ・[再生]・[採用](POST /live/api/peaks → M1 の adopt)・
     [見送り]・控えも見る・[戻す]・採用した候補の見送りは 409・p / z・見回りで作り直さない・⚙ の設定(live.detect / live.autoAdopt)・「調子」・375px。
     音・チャット・ffmpeg は使わない(ワーカーの計算は src/pipeline/analyze/tests/test_live_excite_worker.py)"""
-    api, check, pg, rid, shots, studio_url, srv, live = cx.api, cx.check, cx.pg, cx.rid, cx.shots, cx.studio_url, cx.srv, cx.live
+    api, cases_url, check, pg, rid, shots, srv, live = cx.api, cx.cases_url, cx.check, cx.pg, cx.rid, cx.shots, cx.srv, cx.live
     det = live.detector
     det.worker, det.spawn_ok, det.python = os.path.join(TESTS, "fake_excite_worker.py"), True, sys.executable
     excite_dir = det.dir
@@ -944,8 +976,9 @@ def _scene_peaks(cx):
     check(g.get("ok") is True and g.get("enabled") is True and len(g.get("peaks") or []) == 4 and (g.get("series") or {}).get("n") == n and g["worker"]["running"] is True,
           "L2 GET /live/api/peaks: 候補 4 件・series(%s 秒)・ワーカーの状態: %s" % (n, {x: g.get(x) for x in ("seq", "enabled", "hour", "autoAdopt")}))
     reqs = []
+    pg.goto("about:blank")   # 今も同じ URL(/cases?c=<id>#cand)を開いている。同じ URL への goto は # だけの移動で読み込み直さないので、いったん離れる
     pg.on("request", lambda r: reqs.append(r.url) if "/live/api/peaks" in r.url else None)
-    pg.goto(studio_url + "?video=" + rid)
+    pg.goto(cases_url(rid))
     row = lambda pid: '#rvPeakList .rv-peak[data-pid="%s"]' % pid   # noqa: E731
     live_rows = "() => [...document.querySelectorAll('#rvPeakList .rv-peak:not(.is-gone)')].map(x => x.dataset.pid)"
     check(wait_js(pg, "() => !document.querySelector('#rvPeaks').hidden && document.querySelectorAll('#rvPeakList .rv-peak').length === 3", 15000),
@@ -1065,11 +1098,10 @@ def _scene_peaks(cx):
     g_auto = (api("GET", "/live/api/peaks?recorder=local&recording=%s" % rid)[1] or {}).get("autoAdopt")
     check(b_wait == 5 and g_auto == {"enabled": True, "waitMin": 5},
           "b1 録画中に待つ分を変えても、この録画は録画を始めたときの束の値(束 %s・候補の API %s)" % (b_wait, g_auto))
-    pg.click("#btnSettings")   # 開くと refreshLive が入口の live を読み直して ② の帯へ伝える(studio:liveprefs)
-    check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "L3 ⚙ に「ライブの録画」(表示だけ)")
+    # 古い画面では ⚙ を開くとスタジオの設定の引き出しが入口の live を読み直して帯へ伝えていた(studio:liveprefs)。その引き出しは C4 で消えた。
+    # 案件の画面では、帯の見出しの自動採用は候補の API の答え(autoAdopt = 入口が今使っている値)の見回りで変わる
     _scene_live_tx_switch(cx)
-    pg.keyboard.press("Escape")
-    check(wait_js(pg, "() => /自動採用 オン\\(5 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 15000),
+    check(wait_js(pg, "() => /自動採用 オン\\(5 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 30000),
           "L3 帯の見出しに「自動採用 オン(5 分待ち)」(待つ分は入口が今使っている録画の束の値): %s" % pg.text_content("#rvPeakInfo"))
     srv.prefs.patch("live", {"autoAdopt": {"enabled": False, "waitMin": 5}})
     h = (api("GET", "/api/health")[1] or {}).get("live") or {}
@@ -1124,10 +1156,10 @@ def _scene_peak_text(cx, row):
 
 
 def _scene_live_tx_switch(cx):
-    """D-11 案 b: 候補を文字起こしする(live.liveTx.enabled)。0.25.0 で ⚙ の欄は外した(設定の画面 = prefs)。外すと見出しの「文字起こしなし」が消え、戻すと出る"""
+    """D-11 案 b: 候補を文字起こしする(live.liveTx.enabled)。0.25.0 で ⚙ の欄は外した(設定の画面 = prefs)。外すと見出しの「文字起こしなし」が消え、戻すと出る
+    (「⚙ に欄が無い」の確かめはスタジオの ⚙ と一緒に消えた = 案件の画面の ⚙ はテーマなどだけ)"""
     check, pg, srv = cx.check, cx.pg, cx.srv
     has_note = "() => /文字起こしなし\\(/.test(document.querySelector('#rvPeakInfo').textContent)"
-    check(pg.locator("#liveTx, #liveAutoDeliver").count() == 0, "D-11 ⚙ に候補の文字起こし・届けるの欄は無い(設定の画面へ)")
     check(srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": True, "model": "large-v3"}, "D-11 候補の文字起こしは既定オン: %s" % srv.prefs.get(["live"])["live"]["liveTx"])
     srv.prefs.patch("live", {"liveTx": {"enabled": False}})
     check(srv.prefs.get(["live"])["live"]["liveTx"] == {"enabled": False, "model": "large-v3"}, "D-11 外すと live.liveTx.enabled が False")
@@ -1149,7 +1181,7 @@ def _scene_narrow_and_errors(cx):
     # ---------------- 14. 狭い画面・エラー ----------------
     pg.set_viewport_size({"width": 375, "height": 812})
     pg.wait_for_timeout(400)
-    check(pg.evaluate(NO_HSCROLL_JS), "14 375px の ②(録画を開いている)で横にはみ出さない")
+    check(pg.evaluate(NO_HSCROLL_JS), "14 375px の案件の画面(候補のパネルで録画を開いている)で横にはみ出さない")
     wait_js(pg, "() => { const b = document.querySelector('[data-ui-live]'); return b && !b.hidden; }", 15000)
     if pg.evaluate("() => { const b = document.querySelector('[data-ui-live]'); return !!b && !b.hidden; }"):
         pg.click("[data-ui-live] .ui-live-btn")
@@ -1163,9 +1195,10 @@ def _scene_narrow_and_errors(cx):
         pg.evaluate("window.scrollTo(0, 0)")
         pg.screenshot(path=os.path.join(shots, "live_07_narrow.png"), full_page=True)
     # 想定内: ホームの画面は「編集」の /transcribe/api/transcripts を読むが、このテストはスタジオだけを取り込む(編集は無い)ので 404
+    #   (録画はホームの /#new から始めるので、"off"・"cases"(ホームから案件の画面へ移るページ)・"home" のどれでもホームの分が出る)
     # 想定内: Edge は /favicon.ico を自分で読みに行く(どのツールの画面にもアイコンは無い。画面のコードの要求ではない)
-    not_found[:] = [x for x in not_found if not (x.startswith("home: ") and "/transcribe/" in x) and not x.endswith("/favicon.ico")]
-    errors[:] = [x for x in errors if not ("404" in x and ((x.startswith("home: ") and "/transcribe/" in x) or "/favicon.ico" in x))]
+    not_found[:] = [x for x in not_found if "/transcribe/api/" not in x and not x.endswith("/favicon.ico")]
+    errors[:] = [x for x in errors if not ("404" in x and ("/transcribe/api/" in x or "/favicon.ico" in x))]
     csp = pg.evaluate("() => window.__csp")
     check(not csp, "14 CSP の違反なし: %s" % csp)
     check(not errors, "14 コンソールのエラーなし: %s" % errors[:6])

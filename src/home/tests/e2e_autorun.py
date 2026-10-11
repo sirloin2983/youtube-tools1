@@ -3,7 +3,7 @@
 
     python src/home/tests/e2e_autorun.py [--shots <フォルダ>]
 
-① 案件の画面(/cases.html)で「採用後を全部」を押す → 書き出し → 文字起こし → Resolve パック(Text+)が順に進み、
+① ホームの案件の一覧(/。旧 /cases.html は RS8 C4 で / へ転送)で「採用後を全部」を押す → 書き出し → 文字起こし → Resolve パック(Text+)が順に進み、
    案件の画面に文字起こし・パックが出る。もう一度押すと、何も作り直さない(すべて「飛ばした」)
 ② API で「解析から全部」(未解析のファイルの動画 → 解析 → 自動マークの上位1件を採用 → … → パック)
 ③ 画面のエラー(CSP 違反を含む)が無い
@@ -121,9 +121,9 @@ def main():
                 errors = []
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
                 pg.on("pageerror", lambda e: errors.append(str(e)))
-                pg.goto(base + "/cases.html")
+                pg.goto(base + "/")
                 card = '.pt-case[data-id="%s"]' % vid_a
-                check(wait_js(pg, "!!document.querySelector('%s')" % card.replace("'", "\\'"), 15000), "案件の画面に配信が1行出た")
+                check(wait_js(pg, "!!document.querySelector('%s')" % card.replace("'", "\\'"), 15000), "ホームの案件の一覧に配信が1行出た")
                 check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is False,
                       "行は既定で閉じている(1件1行。2026-09-26 画面の見直し)")
                 pg.click(card + " .pt-case-row")   # 開かないと「まとめて実行」が操作できない(details の中身)

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """リアルタイム切り抜き P4(アーカイブで本番版に作り直す・録画を自動で消す。plan/line-d-live-clipping.md の 0-9)の通しの確認。
-入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでスタジオの画面を操作する。本物の YouTube には繋がない。
+入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでホームの「新しい案件」(/#new)の URL の欄から録画を始め、
+案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
+(RS8 C4 でスタジオの画面のページと、その ⚙ の「ライブの録画」の欄を消した。案件の画面の帯は開いたときに入口の設定 live.autoArchive・autoDelete を読む)
 
     py -3.10 src/home/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
     py -3.10 src/home/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
@@ -17,12 +19,13 @@
   - 時間は縮める: 自動の作り直し(録画が終わって 8 秒・確かめる間隔 2 秒)・録画を消す見回り(毎回)・マークの無い録画(6 秒)・退避した速報版(40 秒)
 
 確かめること:
-  S  設定の引き出しの「自動で本番版に作り直す」「録画を消す」が本物の入口(live.autoArchive・live.autoDelete)に保存される
-  1  録画 → ② でマーク(自動の書き出し)→ 速報版 / 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要差し替え / 欠けのあとのマーク
+  S  「自動で本番版に作り直す」「録画を消す」(live.autoArchive・live.autoDelete)は入口の既定のとおり・外すと入口の設定に残る
+     (スタジオの ⚙ の「ライブの録画」の確かめは、その引き出しと一緒に消えた)
+  1  /#new の URL → /cases?c=<録画 id>#cand → 候補のパネルでマーク(自動の書き出し)→ 速報版 / 欠け(つなぎ直しの間をまたぐマーク)→ 失敗・要差し替え / 欠けのあとのマーク
   2  止める → 帯の案内・「アーカイブで作り直す」/ 用意がまだ(post_live)→ 409 の文が帯に出る
   3  押す → 帯の進み具合(n/3 本・段)・スタジオが 409 busy の間は待つ → 速報版が同じ名前で本番版に入れ替わる(30fps・長さ・退避先に速報版・
      clip.json の source.live.archive・速報版との音のずれが 1 コマ以内)・欠けのマークは本番版で新しく書き出される(書き出し済み)
-  4  マークに「本番版」の札(スタジオの /api/video の archived・② の行)・前に作った Resolve のパックの注意(無いので出ない)
+  4  マークに「本番版」の札(スタジオの /api/video の archived・候補のパネルの行)・前に作った Resolve のパックの注意(無いので出ない)
   5  「録画を消す」がオフの間は録画が残る → オンにすると録画が消え、帯とプレーヤーの所が「録画は消しました…」(開き直しても同じ)・マークは残る
   6  自動: 録画が終わる → 見回りが本番版に作り直す(archive.auto)→ 入れ替えが全部済んだので録画を消す
   7  マークの無い録画: 終わって(縮めた)1 日 → 録画とスタジオの行が消える / 退避した速報版は(縮めた)7 日で消える
@@ -74,6 +77,11 @@ INIT_JS = r"""
 })();
 """
 VIDEO = "document.querySelector('#rvHost video')"
+# 案件の画面の候補のパネル(panels/cand.js)に録画が開いて、LIVE の帯(録画の行)が出ている
+CAND_LIVE = ("() => !!window.CasesShell && CasesShell.state().panel === 'cand' && !!document.querySelector('#csPane .cd-panel #rvLiveRec')"
+             " && !document.querySelector('#rvLiveRec').hidden")
+# ホームの「新しい案件」の引き出し(/#new)が開いて、URL の欄(スタジオ ① の queue.js)ができている
+NEW_READY = "() => !document.getElementById('newDrawer').hidden && !!document.querySelector('#newDrawer #qUrls')"
 
 
 def ff(*args):
@@ -187,7 +195,9 @@ def run(tmp, shots, force_chromium):
         return 1
     serve.Handler.log_message = lambda self, fmt, *a: None
     base = "http://127.0.0.1:%d" % port
-    studio_url = base + "/studio/"
+
+    def cases_url(r):
+        return base + "/cases?c=%s#cand" % r
 
     def api(method, path, body=None):
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -333,13 +343,16 @@ def run(tmp, shots, force_chromium):
             pg.wait_for_timeout(200)
         pg.evaluate("() => document.querySelector('#rvAdd').click()")
 
-    def open_settings(pg):
-        pg.click("#btnSettings")
-        return wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent && /空き/.test(document.querySelector('#liveFree').textContent); }", 10000)
+    def begin_from_home(pg, url):
+        """ホームの「新しい案件」(/#new)の URL の欄 →「解析に追加」→ 録画が始まり、案件の画面の候補(/cases?c=<録画 id>#cand)へ移る。-> 移れたか"""
+        pg.goto(base + "/#new")
+        wait_js(pg, NEW_READY, 25000)
+        pg.fill("#qUrls", url)
+        pg.click("#qAdd")
+        return wait_js(pg, CAND_LIVE, 40000)
 
-    def close_settings(pg):
-        pg.keyboard.press("Escape")
-        pg.wait_for_timeout(300)
+    def here(pg):
+        return pg.evaluate("() => location.pathname + location.search + location.hash")
 
     rid1 = rid2 = rid3 = rid4 = None
     errors, not_found = [], []
@@ -365,9 +378,6 @@ def run(tmp, shots, force_chromium):
                 pg.on("console", lambda m: errors.append("%s (%s)" % (m.text, (m.location or {}).get("url", ""))) if m.type == "error" else None)
                 pg.on("pageerror", lambda e: errors.append("pageerror: %s" % e))
                 pg.on("response", lambda r: not_found.append(r.url) if r.status == 404 else None)
-                pg.goto(studio_url)
-                wait_js(pg, "() => !!(window.Studio && Studio.ready)", 20000)
-                wait_js(pg, "() => !document.querySelector('#rvOpenForm .rv-openlive').hidden", 10000)
 
                 cx.__dict__.update(locals())   # 場面の関数へ渡す値(この run の中の値。場面が作って、あとで使う値は場面が cx に戻す)
                 _scene_settings(cx)
@@ -410,37 +420,31 @@ def run(tmp, shots, force_chromium):
 
 
 def _scene_settings(cx):
-    """S. 設定の引き出しのチェック 2 つ(本物の入口に保存)"""
-    check, close_settings, open_settings, pg, srv = cx.check, cx.close_settings, cx.open_settings, cx.pg, cx.srv
-    # ---------------- S. 設定の引き出しのチェック 2 つ(本物の入口に保存)----------------
-    check(open_settings(pg), "S 設定の引き出しに「ライブの録画」")
+    """S. 「自動で本番版に作り直す」「録画を消す」(入口の設定)"""
+    check, srv = cx.check, cx.srv
+    # ---------------- S. 「自動で本番版に作り直す」「録画を消す」(入口の設定)----------------
+    # 0.25.0 から欄は設定の画面(prefs)。スタジオの ⚙ の「ライブの録画」(表示と「設定の画面で変える」のリンク)は C4 でスタジオの画面と一緒に消えた
+    # (案件の画面の ⚙ はテーマなどだけ)ので、「⚙ に出る・開き直すと帯へ伝わる」の確かめは外した。帯は録画を開いたときに入口の設定を読む(1・6 で見る)
     import prefs as P  # noqa: E402  (home。既定の値)
     defs = P.DEFAULTS["live"]
-    # 0.25.0: 「自動で本番版に作り直す」「録画を消す」の欄は ⚙ に無い(設定の画面 = prefs)。ここでは入口の設定を直接変えて、⚙ を開き直すと ② の帯へ伝わることを見る
-    check(pg.locator("#liveAutoArch, #liveAutoDel").count() == 0 and (pg.get_attribute("#liveSetLink", "href") or "").endswith("/settings#sec-live"),
-          "S ⚙ のライブの録画は表示と「設定の画面で変える」だけ")
     lv = srv.prefs.get(["live"])["live"]
     check(lv["autoArchive"] == defs["autoArchive"] and lv["autoDelete"] == defs["autoDelete"],
           "S 2 つの値は入口の既定のとおり(自動で作り直す %s・録画を消す %s)" % (defs["autoArchive"], defs["autoDelete"]))
-    srv.prefs.patch("live", {"autoArchive": False, "autoDelete": False})   # 最後は外す(この e2e の録画で自動の作り直し・削除を動かさない所から始める)
-    close_settings(pg)
-    check(open_settings(pg) and srv.prefs.get(["live"])["live"]["autoArchive"] is False and srv.prefs.get(["live"])["live"]["autoDelete"] is False,
-          "S 開き直しても外れたまま(入口の設定)")
-    close_settings(pg)
+    srv.prefs.patch("live", {"autoArchive": False, "autoDelete": False})   # 外す(この e2e の録画で自動の作り直し・削除を動かさない所から始める)
+    check(srv.prefs.get(["live"])["live"]["autoArchive"] is False and srv.prefs.get(["live"])["live"]["autoDelete"] is False,
+          "S 外すと入口の設定に残る")
 
 
 def _scene_record_marks(cx):
     """1. 録画 → マーク(速報版)・欠け・欠けのあと"""
-    LX, api, check, jobs_of, mark, pg, rec_len, rec_status = cx.LX, cx.api, cx.check, cx.jobs_of, cx.mark, cx.pg, cx.rec_len, cx.rec_status
-    srcs = cx.srcs
+    LX, api, begin_from_home, check, here, jobs_of, mark, pg = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.here, cx.jobs_of, cx.mark, cx.pg
+    rec_len, rec_status, srcs = cx.rec_len, cx.rec_status, cx.srcs
     # ---------------- 1. 録画 → マーク(速報版)・欠け・欠けのあと ----------------
-    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
-    pg.fill("#qUrls", YT1)
-    pg.click("#qAdd")
-    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden", 30000), "1 URL を入れると録画が始まり ② で開く")
+    check(begin_from_home(pg, YT1), "1 ホームの /#new で URL を入れると録画が始まり、案件の画面の候補で開く")
     code, vs = api("GET", "/studio/api/videos")
     rid1 = cx.rid1 = next((v["id"] for v in (vs or {}).get("videos") or [] if v.get("kind") == "live"), None)
     check(rid1 and LX.REC_RE.match(rid1), "1 録画の id: %s" % rid1)
+    check(here(pg) == "/cases?c=%s#cand" % rid1, "1 移った先は /cases?c=<録画 id>#cand: %s" % here(pg))
     check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 30000), "1 録画中")
     wait_for(lambda: rec_len(rid1) > 13, 40, 0.5)
     mark(pg, 3.0, 9.0)
@@ -615,13 +619,13 @@ def _scene_rebuild_by_hand(cx):
 
 def _scene_chips_and_delete(cx):
     """4. 本番版の札 / 5. 消す設定オフ → 残る / オン → 消える"""
-    api, check, close_settings, deleted_rids, gone_from_list, jobs_of, open_settings, pg = cx.api, cx.check, cx.close_settings, cx.deleted_rids, cx.gone_from_list, cx.jobs_of, cx.open_settings, cx.pg
-    rec_ids, rfolder, rid1, shots, smarks, srv, studio_url = cx.rec_ids, cx.rfolder, cx.rid1, cx.shots, cx.smarks, cx.srv, cx.studio_url
+    api, cases_url, check, deleted_rids, gone_from_list, jobs_of, pg = cx.api, cx.cases_url, cx.check, cx.deleted_rids, cx.gone_from_list, cx.jobs_of, cx.pg
+    rec_ids, rfolder, rid1, shots, smarks, srv = cx.rec_ids, cx.rfolder, cx.rid1, cx.shots, cx.smarks, cx.srv
     # ---------------- 4. 本番版の札 ----------------
     ms = wait_for(lambda: (lambda m: m and len([x for x in m if x.get("archived")]) == 3 and m)(smarks(rid1)), 30, 0.5)
     check(ms and all(x["status"] == "exported" and x.get("archived") for x in ms),
           "4 スタジオのマーク 3 つが書き出し済み + 本番版(/api/video の archived): %s" % [(x.get("status"), x.get("archived")) for x in (smarks(rid1) or [])])
-    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 3", 15000), "4 ② のマークの行に「本番版」の札が 3 つ")
+    check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row .rv-chip.arch').length === 3", 15000), "4 候補のパネルのマークの行に「本番版」の札が 3 つ")
     code, vs = api("GET", "/studio/api/videos")
     row = next((v for v in (vs or {}).get("videos") or [] if v["id"] == rid1), {})
     check(row.get("archived") == 3, "4 一覧の行の本番版の数: %s" % row.get("archived"))
@@ -637,9 +641,8 @@ def _scene_chips_and_delete(cx):
     # ---------------- 5. 消す設定オフ → 残る / オン → 消える ----------------
     time.sleep(3)   # 入口の見回り(1 秒ごと)が何回か回る
     check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、入れ替えが済んでも録画は残る")
-    srv.prefs.patch("live", {"autoDelete": True})   # 0.25.0: 設定の画面(prefs)で付ける。⚙ を開くと ② の帯へ伝わる
-    check(open_settings(pg) and srv.prefs.get(["live"])["live"]["autoDelete"] is True, "5 「録画を消す」を付けると live.autoDelete = true")
-    close_settings(pg)
+    srv.prefs.patch("live", {"autoDelete": True})   # 0.25.0: 設定の画面(prefs)で付ける(帯の案内は録画を開いたときに読む = 6 で見る)
+    check(srv.prefs.get(["live"])["live"]["autoDelete"] is True, "5 「録画を消す」を付けると live.autoDelete = true")
     gone = wait_for(lambda: gone_from_list(rid1), 30, 0.5)
     if gone:
         deleted_rids.add(rid1)
@@ -656,8 +659,10 @@ def _scene_chips_and_delete(cx):
     if shots:
         pg.evaluate("window.scrollTo(0, 0)")
         pg.screenshot(path=os.path.join(shots, "p4_03_recording_deleted.png"))
-    pg.goto(studio_url + "?video=" + rid1)
-    check(wait_js(pg, "() => /録画は消しました/.test(document.querySelector('#rvLiveGuide').textContent) && !document.querySelector('#rvNotice').hidden", 20000)
+    pg.goto("about:blank")   # 今も同じ URL(/cases?c=<id>#cand)を開いている。同じ URL への goto は # だけの移動で読み込み直さないので、いったん離れる
+    pg.goto(cases_url(rid1))
+    check(wait_js(pg, "() => !!window.CasesShell && CasesShell.state().panel === 'cand' && !!document.querySelector('#csPane .cd-panel #rvLiveGuide')"
+                      " && /録画は消しました/.test(document.querySelector('#rvLiveGuide').textContent) && !document.querySelector('#rvNotice').hidden", 20000)
           and "見つかりません" not in (pg.text_content("#rvRecState") or ""), "5 開き直しても「録画は消しました」(「録画が見つかりません」にしない)")
     check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.arch').length") == 3, "5 開き直しても本番版の札")
     code, d = api("POST", "/live/r/local/%s/delete" % rid1, {})
@@ -666,18 +671,14 @@ def _scene_chips_and_delete(cx):
 
 def _scene_auto_rebuild(cx):
     """6. 自動: 録画が終わる → 作り直す → 消す / 7. マークの無い録画 / 退避した速報版"""
-    LX, api, check, close_settings, deleted_rids, fetches, first, gone_from_list = cx.LX, cx.api, cx.check, cx.close_settings, cx.deleted_rids, cx.fetches, cx.first, cx.gone_from_list
-    jobs_of, mark, open_settings, pg, probes, rec_ids, rec_len, rec_status = cx.jobs_of, cx.mark, cx.open_settings, cx.pg, cx.probes, cx.rec_ids, cx.rec_len, cx.rec_status
+    LX, api, begin_from_home, check, deleted_rids, fetches, first, gone_from_list = cx.LX, cx.api, cx.begin_from_home, cx.check, cx.deleted_rids, cx.fetches, cx.first, cx.gone_from_list
+    jobs_of, mark, pg, probes, rec_ids, rec_len, rec_status = cx.jobs_of, cx.mark, cx.pg, cx.probes, cx.rec_ids, cx.rec_len, cx.rec_status
     rfolder, rid1, smarks, srv = cx.rfolder, cx.rid1, cx.smarks, cx.srv
     # ---------------- 6. 自動: 録画が終わる → 作り直す → 消す ----------------
-    srv.prefs.patch("live", {"autoArchive": True})   # 0.25.0: 設定の画面(prefs)で付ける。⚙ を開くと ② の帯へ伝わる
-    check(open_settings(pg) and srv.prefs.get(["live"])["live"]["autoArchive"] is True, "6 「自動で本番版に作り直す」を付けると live.autoArchive = true")
-    close_settings(pg)
-    pg.click('#steps [data-step="rank"]')   # URL の欄は ① の先頭(0.24.0)
-    pg.fill("#qUrls", YT2)
-    pg.click("#qAdd")
-    check(wait_js(pg, "() => Studio.step === 'review' && !document.querySelector('#rvLiveRec').hidden && /録画中/.test(document.querySelector('#rvRecState').textContent)", 40000),
-          "6 2 本目の録画が始まる")
+    srv.prefs.patch("live", {"autoArchive": True})   # 0.25.0: 設定の画面(prefs)で付ける。帯は次に録画を開いたときに読む(下の 2 本目)
+    check(srv.prefs.get(["live"])["live"]["autoArchive"] is True, "6 「自動で本番版に作り直す」を付けると live.autoArchive = true")
+    check(begin_from_home(pg, YT2) and wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 40000),
+          "6 2 本目の録画が始まる(ホームの /#new → 案件の画面の候補)")
     code, vs = api("GET", "/studio/api/videos")
     rid2 = cx.rid2 = next((v["id"] for v in (vs or {}).get("videos") or [] if v.get("kind") == "live" and v["id"] != rid1), None)
     wait_for(lambda: rec_len(rid2) > 12, 40, 0.5)
@@ -728,7 +729,7 @@ def _scene_after_stream(cx):
     F, LX, api, back, check, deleted_rids, first, gone_from_list = cx.F, cx.LX, cx.api, cx.back, cx.check, cx.deleted_rids, cx.first, cx.gone_from_list
     handed, handed_ino, jobs_of, live, rec_ids, rec_len, rec_status, schemas = cx.handed, cx.handed_ino, cx.jobs_of, cx.live, cx.rec_ids, cx.rec_len, cx.rec_status, cx.schemas
     segs, srcs, srv, tmp, url_map = cx.segs, cx.srcs, cx.srv, cx.tmp, cx.url_map
-    pg, studio_url = cx.pg, cx.studio_url
+    cases_url, pg = cx.cases_url, cx.pg
     # ---------------- 9. 配信後の全自動(M7): 人は触らない ----------------
     code, _d = api("PUT", "/studio/api/settings", {"section": "analyze", "value": {"count": 30, "length": 10, "headSec": 0}})   # 短いアーカイブでも候補が録画の範囲に入るように
     check(code == 200, "9 スタジオの解析の設定(候補 30・長さ 10 秒・冒頭の減点なし): HTTP %s" % code)
@@ -753,10 +754,10 @@ def _scene_after_stream(cx):
     rid4 = cx.rid4 = ((d or {}).get("recording") or {}).get("id")
     check(code == 200 and rid4, "9 4 本目の録画(人はマークしない): %s" % rid4)
     wait_for(lambda: rec_len(rid4) > 2, 30, 0.5)
-    # 見るだけ(マークしない): スタジオに登録して ② で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)。帯の進み具合の 1 行を見る
+    # 見るだけ(マークしない): スタジオに登録して案件の画面の候補で開いておく(採用のときに入口が同じ登録をする = 結果は同じ)。帯の進み具合の 1 行を見る
     api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid4, "url": YT4, "title": "配信後の全自動"})
-    pg.goto(studio_url + "?video=" + rid4)
-    wait_js(pg, "() => !document.querySelector('#rvLiveRec').hidden", 20000)
+    pg.goto(cases_url(rid4))
+    check(wait_js(pg, CAND_LIVE, 20000), "9 登録した録画を案件の画面の候補(/cases?c=<録画 id>#cand)で開ける")
     first["TESTarch004"] = LX.iso_epoch((rec_status(rid4)[1] or {}).get("firstPdt"))
     wait_for(lambda: rec_len(rid4) > 75, 120, 0.5)
     api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid4})
@@ -832,11 +833,14 @@ def _scene_errors(cx):
     # 想定内: 用意がまだのときの POST ../live/api/archive の 409(帯に入口の文を出す。2 の確認)
     # 想定内: 消した録画の状態・再生リスト・セグメントの 404(録画を消した = 5・6。画面はこれを見て「録画は消しました」にする)
     # 想定内: Edge は /favicon.ico を自分で読みに行く
+    # 想定内: ホームの画面(/#new で録画を始めるとき)は「編集」の /transcribe/api/… を読むが、このテストはスタジオだけを取り込む(編集は無い)ので 404
     pg.wait_for_timeout(500)   # 画面を触らなかった間(9)のコンソール・応答のできごとを、選り分ける前に受け取る(Playwright は次の操作のときに届ける)
     deleted_rids.update(r for r in (rid1, rid2, rid3, rid4) if r and not os.path.exists(os.path.join(rfolder, r)))
 
     def expected(x):
         if "/favicon.ico" in x:
+            return True
+        if "/transcribe/api/" in x and (x.startswith("http") or "404" in x):
             return True
         if "409" in x and "/live/api/archive" in x:
             return True

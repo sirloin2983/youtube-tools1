@@ -353,7 +353,6 @@ def live_off_on_list(pg, base, fake, check):
     check(st["calls"][0] == ("tok-live", {"op": "status"}, "POST"), "POST api/ytt/live {op: status} に合言葉(X-YTT-Token)を付ける: %s" % (st["calls"][0],))
 
     # ---- オンにする(オフから戻った最初の1回は知らせを出さない) ----
-    pg.evaluate("UIKit.tools.setPaths({studio: '/studio/'})")
     st["mode"], st["recs"] = "on", [live_rec()]
     live_refresh(pg)
     check(live_badge(pg) == "録画中 1", "録画中は「録画中 1」: %s" % live_badge(pg))
@@ -372,7 +371,8 @@ def live_off_on_list(pg, base, fake, check):
     check(pg.query_selector(".ui-live-state").text_content() == "録画中", "状態の文字")
     t = pg.query_selector(".ui-live-time").text_content()
     check(t.startswith("1:4") and len(t.split(":")) == 2, "録画済みの時間 m:ss(100 秒 + 経過): %s" % t)
-    check(pg.get_attribute(".ui-live-row a", "href") == "/studio/?video=20261005-185300-U972n0ncl4k", "「開く」はスタジオの ?video=<録画の id>: %s" % pg.get_attribute(".ui-live-row a", "href"))
+    check(pg.get_attribute(".ui-live-row a", "href") == base + "cases?c=20261005-185300-U972n0ncl4k#cand",
+          "「開く」は案件の画面の候補 cases?c=<録画の id>#cand(入口の直下からの相対。v27): %s" % pg.get_attribute(".ui-live-row a", "href"))
     check(pg.evaluate("document.activeElement === document.querySelector('.ui-live-panel')"), "開いたらフォーカスは一覧へ")
     pg.keyboard.press("Escape")
     check(pg.evaluate("document.querySelector('.ui-live-panel').hidden && document.activeElement === document.querySelector('.ui-live-btn')"), "Esc で閉じて、フォーカスは札に戻る")
@@ -480,11 +480,10 @@ def live_first_open(ctx, base, fake, check):
     pg3.wait_for_selector(".ui-live:not([hidden])")
     pg3.wait_for_timeout(300)
     check(live_toasts(pg3) == [], "ページを開いた最初の1回では知らせない: %s" % live_toasts(pg3))
-    pg3.evaluate("UIKit.tools.setPaths({studio: '/studio/'})")
     pg3.click(".ui-live-btn")
     with pg3.expect_navigation(timeout=8000):
         pg3.click(".ui-live-row a")
-    check(pg3.url.endswith("/studio/?video=20261005-185300-U972n0ncl4k"), "onOpen が無ければ「開く」はスタジオのその録画へ移る: %s" % pg3.url)
+    check(pg3.url == base + "cases?c=20261005-185300-U972n0ncl4k#cand", "onOpen が無ければ「開く」は案件の画面のその録画の候補へ移る: %s" % pg3.url)
     pg3.close()
 
 

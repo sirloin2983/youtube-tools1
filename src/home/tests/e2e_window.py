@@ -3,12 +3,13 @@
 
     python src/home/tests/e2e_window.py
 
-  7-0 画面のエラーの記録: スタジオ・文字起こしの画面で起きたエラー(throw・Promise の失敗)が client-errors.jsonl に1行ずつ残る
+  (RS8 C4: スタジオ・編集の画面は消えたので、ツールの画面の場面は案件の画面 /cases で確かめる。appnav の 3 項目と旧 URL の転送は e2e_portal.py)
+  7-0 画面のエラーの記録: 案件の画面・設定の画面で起きたエラー(throw・Promise の失敗)が client-errors.jsonl に1行ずつ残る
   (7-1 解析の設定の引き継ぎ(localStorage → サーバー)は、欄を設定の画面へ移し引き継ぎの仕組みも消えたので 2026-10-10 に外した)
   7-2 離れた・戻った: 別の窓へ移った(blur)で「離れた」、埋め込み(iframe)にフォーカスがあるときは離れたことにしない、戻った(focus)
   7-3 窓: 入口の「窓で開く」の切り替え(2026-09-27 から既定で窓)。窓(display-mode: standalone)の中の「開く」は入口に頼んで Edge のアプリモードで開き
       (Edge の代わりに引数を記録する偽のプログラム。YTT_APP_BROWSER)、外のサイトはいつものブラウザ(偽の記録)で開く。
-      普通のタブでは今までどおり新しいタブで開く。ホームの中身のリンク(target なし。入口 0.42.0 の S-15)は窓の中でも同じ窓で移り、
+      普通のタブでは今までどおり新しいタブで開く(target=_blank のリンクを足して押す)。ホームの中身のリンク(target なし。入口 0.42.0 の S-15)は窓の中でも同じ窓で移り、
       Ctrl を押しながらのときだけ窓で開く(配信が無いときの空の表示のボタンで確かめる。S-13)
 
 Edge の本物の窓(リンクの行き先・YouTube の埋め込み・閉じる操作)はクラウド(Linux)で再現できないので、実機で確かめる。
@@ -78,31 +79,14 @@ def wait_until(fn, timeout=10.0):
     return fn()
 
 
-def has_portal_link(pg):
-    """スタジオ・編集の画面に「ホーム(入口)」へのリンクが出ているか。新(ui-appnav)・旧([data-ui-home])のどちらでも"""
-    return bool(pg.query_selector('a[data-ui-appnav-item="portal"]') or pg.query_selector('[data-ui-home]:not([hidden])'))
+PORTAL_LINK = 'a[data-ui-appnav-item="portal"]'   # ヘッダーの appnav の「ホーム」(data-ui-portal 付き。ui-kit v27)
 
 
-def click_portal_link(pg):
-    """スタジオ・編集の画面の「ホーム(入口)」を押す。新(ui-appnav。他の AI が画面を直している途中に対応)・旧([data-ui-home]・
-    #toolMenu の details)のどちらでも押せるようにする"""
-    if pg.query_selector('a[data-ui-appnav-item="portal"]'):
-        pg.click('a[data-ui-appnav-item="portal"]')
-    elif pg.query_selector('[data-ui-home]'):
-        pg.click('[data-ui-home]')
-    else:
-        pg.click('#toolMenu summary')
-        pg.click('#toolNav a[data-ui-portal]')
-
-
-def click_tool_link(pg, tool_id):
-    """スタジオ・編集の画面の「他のツール」から、そのツールへのリンクを押す(新・旧どちらでも)"""
-    sel = 'a[data-ui-appnav-item="%s"]' % tool_id
-    if pg.query_selector(sel):
-        pg.click(sel)
-        return
-    pg.click('#toolMenu summary')
-    pg.click('#toolNav a[href*="/%s/"]' % tool_id)
+def add_link(pg, el_id, href, blank):
+    """画面に <a> を 1 つ足す(target=_blank のリンクの扱いを、ツールのカードに頼らずに確かめる)"""
+    pg.evaluate("""([id, href, blank]) => { const a = document.createElement('a'); a.id = id; a.href = href; if (blank) { a.target = '_blank'; a.rel = 'noopener'; }
+                    a.textContent = id; document.body.appendChild(a); }""",
+                [el_id, href, blank])
 
 
 def main():
@@ -138,10 +122,6 @@ def main():
         base = "http://127.0.0.1:%d/" % port
         clog = srv.client_log.path
 
-        def studio_settings():
-            with urllib.request.urlopen(urllib.request.Request(base + "studio/api/settings", headers={"Host": "127.0.0.1:%d" % port}), timeout=10) as r:
-                return json.loads(r.read())["settings"]
-
         with sync_playwright() as p:
             browser = p.chromium.launch()
             try:
@@ -171,12 +151,13 @@ def main():
                 check(not any("remote-debugging" in a for a in (got[-1] if got else [])), "[7-3] リモートデバッグのポートは開かない")
                 pg.keyboard.press("Escape")   # ⚙ を閉じる(開いている間は後ろの画面を押せない)
                 wait_js(pg, "document.getElementById('uiSettingsDrawer').hidden", 5000)
-                # 普通のタブ: 開くは今までどおり新しいタブ
+                # 普通のタブ: target=_blank のリンクは今までどおり新しいタブ(RS8 C4: ツールの画面が消えたので、案件の画面へのリンクを足して押す)
+                add_link(pg, "blankLink", "/cases?c=x", True)
                 with ctx.expect_page() as info:
-                    pg.click(".pt-tool[data-tool=transcribe] .pt-open")
+                    pg.click("#blankLink")
                 tab = info.value
                 tab.wait_for_load_state()
-                check("/transcribe/" in tab.url, "[7-3] 普通のタブでは「開く」は新しいタブ(今までどおり)")
+                check("/cases?c=x" in tab.url, "[7-3] 普通のタブでは target=_blank のリンクは新しいタブ(今までどおり): %s" % tab.url)
                 tab.close()
 
                 # 窓の中(display-mode: standalone のふり)
@@ -195,9 +176,10 @@ def main():
                 n0 = len(read_lines(edge_log))
                 opened = []
                 actx.on("page", lambda pg2: opened.append(pg2.url))
-                win.click(".pt-tool[data-tool=studio] .pt-open")
+                add_link(win, "blankLink", "/cases?c=y", True)
+                win.click("#blankLink")
                 got = wait_until(lambda: read_lines(edge_log)[n0:])
-                check(got and got[-1][0] == "--app=http://localhost:%d/studio/" % port, "[7-3] 窓の中の「開く」は Edge のアプリモードの窓で開く: %s" % got[-1:])
+                check(got and got[-1][0] == "--app=http://localhost:%d/cases?c=y" % port, "[7-3] 窓の中の target=_blank のリンクは Edge のアプリモードの窓で開く: %s" % got[-1:])
                 time.sleep(0.5)
                 check(not opened, "[7-3] 窓の中ではタブを増やさない: %s" % opened)
                 win.evaluate("""() => { const a = document.createElement('a'); a.id = 'ext'; a.href = 'https://www.youtube.com/watch?v=abc123DEF45'; a.target = '_blank';
@@ -230,33 +212,28 @@ def main():
                 time.sleep(0.5)
                 check("/cases" in win.url and len(read_lines(edge_log)) == n3 and not opened,
                       "[S-15] 普通に押すと同じ窓の中で案件の画面へ移る(Edge を新しく起動しない・タブを増やさない): %s" % win.url)
-                # 窓の中のスタジオ: 「他のツール」のリンクも窓で(ただし ui-appnav は target=_blank を付けないので、
-                # 同じ窓の中でその場所へ移るだけでよい(Edge を新しく起動する必要が無い)。旧(#toolMenu の target=_blank)は今までどおり窓で開く
-                win.goto(base + "studio/")
-                check(wait_js(win, "!!(window.Studio && Studio.state)", 30000), "[7-3] 窓の中のスタジオ")
-                if win.query_selector('a[data-ui-appnav-item="transcribe"]'):
-                    # ui-appnav は target=_blank を付けないので、Edge を新しく起動する必要が無い(同じ窓の中でその場所へ移るだけでよい)。
-                    # 移った先の場所までは確かめない(studio 側の appnav がまだ場所を正しく持てていないことがある。他の AI が画面を直している途中)
-                    n1 = len(read_lines(edge_log))
-                    win.click('a[data-ui-appnav-item="transcribe"]')
-                    time.sleep(0.5)
-                    check(len(read_lines(edge_log)) == n1, "[7-3] ui-appnav の切り替えでは Edge を新しく起動しない(同じ窓の中で移る)")
-                else:
-                    n1 = len(read_lines(edge_log))
-                    click_tool_link(win, "transcribe")
-                    got = wait_until(lambda: read_lines(edge_log)[n1:])
-                    check(got and got[-1][0] == "--app=http://localhost:%d/transcribe/" % port, "[7-3] 取り込んだツールの画面からも窓で開く(/studio/api/ytt/… → 入口): %s" % got[-1:])
+                # 窓の中の案件の画面: ui-appnav(ホーム / 案件 / 設定)は target=_blank を付けないので、同じ窓の中でその場所へ移るだけ(Edge を新しく起動しない)
+                check(wait_js(win, "!!window.UIKit && !!document.querySelector('a[data-ui-appnav-item=\"settings\"]')", 30000), "[7-3] 窓の中の案件の画面")
+                n1 = len(read_lines(edge_log))
+                win.click('a[data-ui-appnav-item="settings"]')
+                try:
+                    win.wait_for_url(lambda u: "/settings" in u, timeout=15000)
+                except Exception:
+                    pass
+                time.sleep(0.5)
+                check("/settings" in win.url and len(read_lines(edge_log)) == n1 and not opened,
+                      "[7-3] ui-appnav の切り替えでは Edge を新しく起動しない(同じ窓の中で移る): %s" % win.url)
                 actx.close()
                 pg.click("[data-ui-settings]")
                 pg.click("#winMode")   # オフに戻す
                 check(wait_js(pg, "document.querySelector('#toast').textContent.indexOf('いつものブラウザ') >= 0", 10000) and W.read_mode(srv.window.settings_path) == "browser",
                       "[7-3] オフに戻せる")
 
-                # ---- 7-2 離れた・戻った(スタジオの画面で) ----
+                # ---- 7-2 離れた・戻った(案件の画面で。RS8 C4 までスタジオの画面) ----
                 st = ctx.new_page()
                 st.on("pageerror", lambda e: errors.append(str(e)))
-                st.goto(base + "studio/")
-                check(wait_js(st, "!!window.UIKit && !!UIKit.life", 30000), "[7-2] スタジオの画面")
+                st.goto(base + "cases")
+                check(wait_js(st, "!!window.UIKit && !!UIKit.life", 30000), "[7-2] 案件の画面")
                 st.evaluate("""() => { window.__ev = []; UIKit.life.onLeave(r => __ev.push('leave:' + r)); UIKit.life.onReturn(r => __ev.push('back:' + r));
                                        document.hasFocus = () => true; }""")
                 st.evaluate("() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); }")
@@ -280,49 +257,47 @@ def main():
                 check(st.evaluate("__ev") == ["back:focus", "leave:blur", "leave:hidden", "back:visible"],
                       "[7-2] 隣の窓へ移ったあと最小化・タブの切り替え → もう一度「離れた」(再生の停止などをさせる): %s" % st.evaluate("__ev"))
 
-                # ---- 7-0 画面のエラーの記録 ----
-                st.evaluate("() => { setTimeout(() => { throw new Error('e2e-boom-studio'); }, 0); }")
+                # ---- 7-0 画面のエラーの記録(案件の画面と設定の画面。どちらも入口の画面なので tool は portal・page で分かれる) ----
+                st.evaluate("() => { setTimeout(() => { throw new Error('e2e-boom-cases'); }, 0); }")
                 tx = ctx.new_page()
-                tx.goto(base + "transcribe/")
-                check(wait_js(tx, "!!document.querySelector('#ver')", 30000), "[7-0] 文字起こしの画面")
-                tx.evaluate("() => { Promise.reject(new Error('e2e-reject-transcribe')); }")
-                tx.evaluate("() => { setTimeout(() => { throw new Error('e2e-boom-studio'); }, 0); }")   # 別の画面なら同じ文も記録する
+                tx.goto(base + "settings")
+                check(wait_js(tx, "!!window.UIKit && !!document.querySelector('[data-ui-appnav-item]')", 30000), "[7-0] 設定の画面")
+                tx.evaluate("() => { Promise.reject(new Error('e2e-reject-settings')); }")
+                tx.evaluate("() => { setTimeout(() => { throw new Error('e2e-boom-cases'); }, 0); }")   # 別の画面なら同じ文も記録する
                 mine = lambda: [e for e in read_lines(clog) if "e2e-" in e.get("message", "")]
                 got = wait_until(lambda: len(mine()) >= 3 and mine(), 10) or mine()
-                by = {(e["tool"], e["kind"]): e for e in got}
-                s = by.get(("studio", "error"))
-                check(s and "e2e-boom-studio" in s["message"] and s.get("page") == "/studio/" and s.get("version") == sup.by_id["studio"].snapshot()["version"],
-                      "[7-0] スタジオの画面のエラーが記録された(画面・版・場所つき): %s" % s)
-                t = by.get(("transcribe", "rejection"))
-                check(t and "e2e-reject-transcribe" in t["message"] and t.get("page") == "/transcribe/", "[7-0] 文字起こしの Promise の失敗も: %s" % t)
-                check(("transcribe", "error") in by, "[7-0] 画面ごとに記録(同じ文でも別の画面なら)")
-                st.evaluate("() => { for (let i = 0; i < 3; i++) setTimeout(() => { throw new Error('e2e-boom-studio'); }, 0); }")
+                by = {(e.get("page"), e["kind"]): e for e in got}
+                s = by.get(("/cases", "error"))
+                check(s and "e2e-boom-cases" in s["message"] and s["tool"] == "portal" and s.get("version"),
+                      "[7-0] 案件の画面のエラーが記録された(画面・版・場所つき): %s" % s)
+                t = by.get(("/settings", "rejection"))
+                check(t and "e2e-reject-settings" in t["message"], "[7-0] 設定の画面の Promise の失敗も: %s" % t)
+                check(("/settings", "error") in by, "[7-0] 画面ごとに記録(同じ文でも別の画面なら)")
+                st.evaluate("() => { for (let i = 0; i < 3; i++) setTimeout(() => { throw new Error('e2e-boom-cases'); }, 0); }")
                 time.sleep(1.0)
-                n = len([e for e in read_lines(clog) if e["tool"] == "studio" and "e2e-boom-studio" in e.get("message", "")])
+                n = len([e for e in read_lines(clog) if e.get("page") == "/cases" and "e2e-boom-cases" in e.get("message", "")])
                 check(n == 1, "[7-0] 同じ画面の同じエラーは1回だけ送る: %d 件" % n)
                 with urllib.request.urlopen(urllib.request.Request(base + "api/log?tool=client&lines=50", headers={"Host": "127.0.0.1:%d" % port}), timeout=10) as r:
                     lines = json.loads(r.read())["lines"]
-                check(any("e2e-reject-transcribe" in x for x in lines), "[7-0] 入口の /api/log?tool=client で読める")
+                check(any("e2e-reject-settings" in x for x in lines), "[7-0] 入口の /api/log?tool=client で読める")
 
-                # ---- ホームへ戻る(2026-09-27): ホームがほかのタブで開いていれば、ツールの画面は移らずにホーム(サーバー)へ「前に出して」と頼む ----
+                # ---- ホームへ戻る(2026-09-27): ホームがほかのタブで開いていれば、案件の画面は移らずにホーム(サーバー)へ「前に出して」と頼む ----
                 focused, focus_ok = [], [True]
                 srv.window.focus = lambda title: focused.append(title) or focus_ok[0]   # 本物の窓は動かさない(テストを流す PC の画面を奪わない)
                 sp = ctx.new_page()
                 sp.on("pageerror", lambda e: errors.append(str(e)))
-                sp.goto(base + "studio/")
-                check(wait_js(sp, "!!(window.Studio && Studio.state)", 30000) and has_portal_link(sp), "[ホーム] スタジオの画面")
-                click_portal_link(sp)
-                check(wait_until(lambda: focused, 5) == [L.PORTAL_TITLE] and "/studio/" in sp.url,
+                sp.goto(base + "cases")
+                check(wait_js(sp, "!!window.UIKit && !!document.querySelector('%s')" % PORTAL_LINK.replace("'", "\\'"), 30000), "[ホーム] 案件の画面のヘッダーに「ホーム」")
+                sp.click(PORTAL_LINK)
+                check(wait_until(lambda: focused, 5) == [L.PORTAL_TITLE] and "/cases" in sp.url,
                       "[ホーム] ホームが開いていれば、移らずにホームの窓を前に出すよう頼む(ホームが二つにならない): %s %s" % (focused, sp.url))
                 focus_ok[0] = False
-                click_portal_link(sp)
-                check(wait_js(sp, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('ほかの窓') >= 0)", 5000) and "/studio/" in sp.url,
-                      "[ホーム] 前に出せなかったら知らせる(画面はそのまま)")
                 n0 = len(focused)
-                click_portal_link(sp)
-                check(wait_until(lambda: len(focused) > n0, 5) and "/studio/" in sp.url, "[ホーム] 「他のツール」の「ホーム」も同じ")
+                sp.click(PORTAL_LINK)
+                check(wait_js(sp, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.indexOf('ほかの窓') >= 0)", 5000) and "/cases" in sp.url
+                      and len(focused) > n0, "[ホーム] 前に出せなかったら知らせる(画面はそのまま)")
                 pg.close()                                                          # ホームのタブを閉じる → 答えが無いので、その場でホームへ移る
-                click_portal_link(sp)
+                sp.click(PORTAL_LINK)
                 try:
                     sp.wait_for_url(base, timeout=15000)                            # 移っている間は evaluate できないので、URL で待つ
                 except Exception:

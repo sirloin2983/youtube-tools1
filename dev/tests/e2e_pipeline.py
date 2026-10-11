@@ -89,7 +89,8 @@ def main():
         # ---- ② 文字起こし(一時フォルダに写して動かす: transcripts/ などを本物と混ぜない)
         tt = os.path.join(tmp, "editor")
         os.makedirs(tt)
-        for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "ui-kit.css", "proof.css", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+        # RS8 C4: 編集の index.html・ui-kit の写しは消した(画面は案件の画面 /cases。ここは API だけ使う)
+        for n in ("serve.py", "app.js", "cut.js", "pack-tab.js", "proof.css", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(os.path.join(ROOT, "editor"))) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
             shutil.copy(os.path.join(ROOT, "editor", n), tt)
         procs.append(subprocess.Popen([sys.executable, os.path.join(tt, "serve.py"), str(pt), "--no-open"], env=env, cwd=tt,
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NEW_GROUP))
@@ -115,7 +116,9 @@ def main():
                 code = urllib.request.urlopen(req, timeout=10).status
             except urllib.error.HTTPError as e:
                 code = e.code
-            check(code == 200, "%s の画面を他のツールのリンクで開ける(%s)" % (name, code))
+            # RS8 C4: スタジオ・編集の画面のページは消した(単独のサーバーは 404。入口では /cases へ転送)= 見るのは「遷移を 403 で断らない」こと
+            want = 200 if name == "cut2resolve" else 404
+            check(code == want, "%s の画面のリンクを Host/Origin の検査で断らない(%s。画面を消したツールは 404)" % (name, code))
             check(call(port, "GET", "/api/siblings", headers={"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"})[0] == 403,
                   "%s の API は他のツールの画面からは使えない" % name)
 
