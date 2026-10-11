@@ -117,6 +117,7 @@ function create(h){
   /* 配信者の名前は、ホームの設定に文書ごとに覚える(UIKit.streamer.autoFill。直したら文書・配信・チャンネルに。段5)。
      以前のこのブラウザの記憶(tx.streamer.v1)は、初めて開いた文書で1回だけ移す(消さない) */
   $('#pkWho').addEventListener('ui-streamer', e => {   // 合う人が決まったら、字幕の見本(パック・カットのタブ)の色と見出しを変える
+    if (disposed) return;   // 案件の画面でパネルを開いてすぐ閉じたとき、照らし合わせの答えは閉じたあとに届く = 消えた欄に書かない(RS8 C4)
     const who = e.detail;
     const capHost = h.root || document.body;   // 古い画面は body(1 文字起こし の字幕も同じ色)。案件の画面はパネルの中だけ
     if (who) capHost.style.setProperty('--tt-cap-color', who.hex); else capHost.style.removeProperty('--tt-cap-color');
@@ -164,7 +165,7 @@ function create(h){
     const old = docId ? whoFor(docId) : '';
     if (old && UIKit.prefs.available()) UIKit.prefs.get(['streamer']).then(p => {
       if (!(docId in ((p.streamer || {}).docs || {}))) return UIKit.prefs.remember('docs', docId, old);
-    }).catch(() => {}).then(() => UIKit.streamer.autoFill($('#pkWho'), { docId }));
+    }).catch(() => {}).then(() => { if (!disposed && P.docId === docId) UIKit.streamer.autoFill($('#pkWho'), { docId }); });   // 閉じた・別の文書へ移ったあとの答えは捨てる(RS8 C4)
     else if (docId) UIKit.streamer.autoFill($('#pkWho'), { docId });
     else UIKit.streamer.set($('#pkWho'), '');
     if (!docId) return render();
@@ -609,7 +610,7 @@ function create(h){
       }, () => {});
     },
     changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'cut') schedulePreview(); else { P.previewKey = ''; } },
-    refreshWho(){ if (h.S.docId) UIKit.streamer.autoFill($('#pkWho'), { docId: h.S.docId }); },   // 題名の行で配信者を直したあと(隠した欄を入れ直す。0.62.0)   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
+    refreshWho(){ if (!disposed && h.S.docId) UIKit.streamer.autoFill($('#pkWho'), { docId: h.S.docId }); },   // 題名の行で配信者を直したあと(隠した欄を入れ直す。0.62.0)   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
     refresh: render,
     state: () => ({ building: P.building, pack: P.pack }),
     /* 案件の画面のパネルを閉じるとき: 予約したタイマー・描き直し・読み込みを止める */

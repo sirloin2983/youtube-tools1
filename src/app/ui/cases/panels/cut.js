@@ -551,6 +551,8 @@
       el.innerHTML = '<p class="hint" style="padding:12px">カットの欄を読み込んでいます…</p>';
       running = true;
       loadScripts().then(function () {
+        return window.CasesPanels.settled();   // 校正のパネルが閉じるときに送った保存を待ってから文書を読む(RS8 C4。古い文書を読んで 409 にならない)
+      }).then(function () {
         if (!alive || my !== seq) return null;
         return Promise.all([hApi('/api/transcript?id=' + enc(docId)), hApi('/api/settings'), probeC2r()]);
       }).then(function (r) {
@@ -581,7 +583,7 @@
       seq++;
       var cut = CUT, pack = PACK;
       if (cut) { try { cut.onHidden(); } catch (e) { UIKit.report('カットを閉じられませんでした: ' + (e && e.message), { stack: e && e.stack }); } }
-      if (S && S.doc) saveDoc();
+      if (S && S.doc) window.CasesPanels.track(saveDoc());   // 次に開くパネル(校正)はこの保存を待ってから文書を読む
       clearTimeout(cutSyncT);
       if (pack) pack.dispose();
       if (cut) cut.dispose();

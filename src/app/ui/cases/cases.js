@@ -23,14 +23,29 @@
            docId(文書 id か null), markId(マーク id か null), item(左の一覧の 1 行 = {key, kind:'cand'|'clip', n, label, sub, state, clip, tx}),
            case(④ の案件の行そのまま), status: {rev, jobs(② の Job をこの物に絞った物), all(この案件の Job 全部)},
            api(tool, path, opt)(tool = 'home'|'studio'|'transcribe'|'cut2resolve'。UIKit.http の包み = 合言葉・失敗の形は ui-kit のまま),
-           onDone()(この切り抜きが済んだ → 次の未校正の切り抜きへ), setHint(text)(タブの横の短い説明), refreshKeys(), reload()(④ を読み直す) } */
+           onDone()(この切り抜きが済んだ → 次の未校正の切り抜きへ), setHint(text)(タブの横の短い説明), refreshKeys(), reload()(④ を読み直す) }
+   文書の保存の受け渡し(RS8 C4): 校正(編集の S)とカット・パック(panels/cut.js の S)は同じ文書を別々に持つ。閉じるパネルは送り始めた保存を
+   CasesPanels.track(promise) に渡し、開くパネルは文書を読む前に CasesPanels.settled() を待つ(タブを素早く切り替えても、前のパネルの保存より前の文書を読まない) */
 (function () {
   'use strict';
 
   /* ---- パネルの登録の口(パネルのファイルはこのあとに読む。DOMContentLoaded までに全部そろう)---- */
-  var defs = {};
+  var defs = {}, saving = [];
+  var SETTLE_MAX_MS = 15000;   // 保存の答えが来ないときも、ここまで待ったら読む(固まらない。読んだ文書が古ければ保存の 409 の案内になる)
   window.CasesPanels = {
     define: function (id, create) { if (typeof create === 'function') defs[id] = create; },
+    track: function (p) {
+      if (!p || typeof p.then !== 'function') return p;
+      saving.push(p);
+      var drop = function () { var i = saving.indexOf(p); if (i >= 0) saving.splice(i, 1); };
+      p.then(drop, drop);
+      return p;
+    },
+    settled: function () {
+      if (!saving.length) return Promise.resolve();
+      var all = Promise.all(saving.map(function (p) { return p.then(null, function () { /* 失敗も「終わった」*/ }); }));
+      return Promise.race([all, new Promise(function (r) { setTimeout(r, SETTLE_MAX_MS); })]);
+    },
     create: function (id) {
       var f = defs[id], p = f ? f() : null;
       if (p && !p.id) p.id = id;

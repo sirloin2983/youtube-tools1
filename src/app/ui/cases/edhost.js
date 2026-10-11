@@ -130,7 +130,7 @@
     detach: function () {
       if (!wrap) return;
       H.active = false; H.onKeys = null;
-      try { player().pause(); saveDoc(); } catch (e) { /* 編集が起動できていない */ }
+      try { player().pause(); window.CasesPanels.track(saveDoc()); } catch (e) { /* 編集が起動できていない */ }   // 次に開くパネル(カット・パック)はこの保存を待ってから文書を読む
       park.appendChild(wrap);
     },
     tools: function () { return wrap ? wrap.querySelector('[data-ed-tools]') : null; }

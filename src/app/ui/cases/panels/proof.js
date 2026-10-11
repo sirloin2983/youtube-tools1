@@ -68,7 +68,10 @@
       H.ensure().then(function () {
         if (!alive || my !== seq) return;
         attach();
-        return openFor(id, my);
+        return window.CasesPanels.settled().then(function () {   // カット・パックのパネルが閉じるときに送った保存を待ってから読む(RS8 C4)
+          if (!alive || my !== seq) return;
+          return openFor(id, my);
+        });
       }).catch(function (e) {
         if (!alive || my !== seq) return;
         detach();
