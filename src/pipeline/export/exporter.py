@@ -562,8 +562,7 @@ def _reencode_audio(ctl, it, path, afilter, what):
     # 期待する長さは、切り出した動画そのものの長さ(マークの終了が元の末尾を超えると、切り出しは末尾で止まって短くなるため。
     # 以前はマークの長さと比べていて、末尾をまたぐマークが「短すぎます」で失敗していた)
     dur = _media.media_info(path)[0] or (it["end"] - it["start"])
-    cmd = [_env.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-i", path, "-c:v", "copy", "-af", afilter,
-           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + PROGRESS + [tmp]
+    cmd = _loud.reencode_args(_env.find_tool("ffmpeg"), path, tmp, afilter)
     _make(ctl, cmd, it, dur, tmp, what)
     info = _media.media_info_known(tmp)   # _make の確かめで測った結果(置き換えたあとのファイルの中身と同じ)
     _fsio.replace_retry(tmp, path)
@@ -576,14 +575,13 @@ def apply_volume(ctl, spec, it, rel_file):
     vol = spec.get("volume", 100)
     if vol == 100 or spec.get("loudness"):
         return
-    _reencode_audio(ctl, it, os.path.join(spec["outDir"], os.path.basename(rel_file)), "volume=%.3f" % (vol / 100), "音量調整")
+    _reencode_audio(ctl, it, os.path.join(spec["outDir"], os.path.basename(rel_file)), _loud.volume_filter(vol), "音量調整")
 
 
 def measure_loudness(ctl, it, path):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)。ffmpeg の loudnorm で測るだけ(書き換えない)"""
     dur = _media.media_info(path)[0] or (it["end"] - it["start"])
-    cmd = [_env.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json",
-           "-f", "null", "-"] + PROGRESS
+    cmd = _loud.measure_args(_env.find_tool("ffmpeg"), path)
     tail = _pump(ctl, cmd, it, dur)
     return _loud.parse("\n".join(tail))
 
@@ -607,7 +605,7 @@ def apply_loudness(ctl, spec, it):
     gain = _loud.gain(target, i, tp, etp)
     if abs(gain) >= _loud.MIN_GAIN_DB:
         for path in [main] + ([edit] if edit else []):
-            _reencode_audio(ctl, it, path, "volume=%.2fdB" % gain, "ラウドネス調整")
+            _reencode_audio(ctl, it, path, _loud.gain_filter(gain), "ラウドネス調整")
     it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}
 
 

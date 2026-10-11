@@ -1,7 +1,7 @@
 """聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う。2026-09-29)。
 
 測るのは ffmpeg の loudnorm(print_format=json)。ここは「どの値を選べるか」「測った結果の読み方」「どれだけ上げ下げするか」だけを持ち、
-ffmpeg を動かすのは各ツール(スタジオ exporter.py の _pump・cut2resolve の _ffmpeg_run)。
+ffmpeg を動かすのは各ツール(スタジオ exporter.py の _pump・ライブの書き出し・cut2resolve の _ffmpeg_run)。引数の形(測る・音声だけ作り直す)はここ(OPT2)。
 YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする。
 """
 import math
@@ -80,3 +80,30 @@ def select_filter(spans):
 def result(target, i, g):
     """結果の形(画面に出す): {"target", "measured", "gainDb"}"""
     return {"target": target, "measured": round(i, 1), "gainDb": g}
+
+
+# ---- ffmpeg の引数(OPT2: 音量・ラウドネスの引数の 1 か所。動かすのは各ツール = スタジオの exporter・ライブの書き出し)
+PROGRESS = ["-progress", "pipe:1", "-nostats"]
+
+
+def volume_filter(pct):
+    """音量(%)の -af"""
+    return "volume=%.3f" % (pct / 100.0)
+
+
+def gain_filter(db):
+    """上げ下げ(dB)の -af"""
+    return "volume=%.2fdB" % db
+
+
+def measure_args(ff, path):
+    """loudnorm で測るだけ(書き換えない)の引数。出力(標準エラー)を parse に渡す"""
+    return [ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-"] + PROGRESS
+
+
+def reencode_args(ff, path, out, afilter, first_streams=False):
+    """映像は無劣化(-c:v copy)・音声だけ afilter で作り直す引数。
+    first_streams: 映像と音声の最初の 1 本だけを残し、字幕・データは落とす(ライブの録画の作り直し。エラーだけ出す)"""
+    head = [ff, "-hide_banner", "-nostdin", "-y"] + (["-v", "error"] if first_streams else []) + ["-i", path]
+    pick = ["-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] if first_streams else []
+    return head + pick + ["-c:v", "copy", "-af", afilter, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + PROGRESS + [out]

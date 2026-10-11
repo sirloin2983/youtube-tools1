@@ -2140,6 +2140,17 @@ class TestPick(unittest.TestCase):
 class TestLoudness(unittest.TestCase):
     """ラウドネスの決まり(ytt/loudness.py。スタジオの書き出し・パック作りが共通で使う)"""
 
+    def test_ffmpeg_args(self):
+        """OPT2: 音量・ラウドネスの引数は 1 か所(スタジオの書き出しとライブの書き出しの引数の列は移す前と同じ)"""
+        from ytt import loudness as L
+        P = ["-progress", "pipe:1", "-nostats"]
+        self.assertEqual((L.volume_filter(75), L.gain_filter(-3.456)), ("volume=0.750", "volume=-3.46dB"))
+        self.assertEqual(L.measure_args("ff", "a.mp4"), ["ff", "-hide_banner", "-nostdin", "-i", "a.mp4", "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-"] + P)
+        tail = ["-c:v", "copy", "-af", "volume=1.000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + P + ["o.mp4"]
+        self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000"), ["ff", "-hide_banner", "-nostdin", "-y", "-i", "a.mp4"] + tail)
+        self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000", first_streams=True),
+                         ["ff", "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", "a.mp4", "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + tail)
+
     def test_check_target_and_volume(self):
         from ytt import loudness as L
         self.assertEqual([L.check_target(v) for v in (None, "", 0, "0", -14, "-18")], [None, None, None, None, -14.0, -18.0])

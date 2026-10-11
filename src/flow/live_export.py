@@ -1117,9 +1117,7 @@ class Exporter(Patrol):
             return {"loudness": {"target": loud, "skipped": "音声がありません"}} if loud else {"volume": vol}
         if loud:
             self._set(job, message="音量(%g LUFS)をそろえています" % loud)
-            cmd = [ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-",
-                   "-progress", "pipe:1", "-nostats"]
-            code, tail, why = self._run(job, cmd, dur, flags)
+            code, tail, why = self._run(job, loudness.measure_args(ff, path), dur, flags)
             if why == "cancel":
                 self._check(job, stopped=True)
             i, tp = loudness.parse(" ".join(tail)) if code == 0 else (None, None)
@@ -1129,14 +1127,12 @@ class Exporter(Patrol):
             res = {"loudness": loudness.result(loud, i, g)}
             if abs(g) < loudness.MIN_GAIN_DB:
                 return res
-            af, what = "volume=%.2fdB" % g, "ラウドネス調整"
+            af, what = loudness.gain_filter(g), "ラウドネス調整"
         else:
-            res, af, what = {"volume": vol}, "volume=%.3f" % (vol / 100.0), "音量調整"
+            res, af, what = {"volume": vol}, loudness.volume_filter(vol), "音量調整"
         self._set(job, message="音量を調整しています")
         out = path + ".vol.mp4"
-        cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", path, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn",
-               "-c:v", "copy", "-af", af, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
-        code, tail, why = self._run(job, cmd, dur, flags)
+        code, tail, why = self._run(job, loudness.reencode_args(ff, path, out, af, first_streams=True), dur, flags)
         if why == "cancel" or code != 0:
             fsio.unlink_quiet(out)
             if why == "cancel":
