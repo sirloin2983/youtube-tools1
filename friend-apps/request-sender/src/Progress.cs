@@ -402,11 +402,13 @@ namespace RequestSender
             if (s.Rev < 0 || s.Rev != flowRev || wasBusy != !s.Idle)
             {
                 flowRev = s.Rev;
-                SetFlowLine(s.Line(), s.Blocked ? Tone.Error : Tone.Muted);
+                bool missing = !s.Blocked && Setup.MissingCount > 0;   // 初回の取得が終わっていない理由(F4b)は、空き容量の止めの次に大事
+                SetFlowLine(missing ? "⚠ " + Setup.MissingReason() : s.Line(), s.Blocked || missing ? Tone.Error : Tone.Muted);
                 UpdatePcHint();
                 TaskbarProgress.Set(this, s.Idle ? (double?)null : s.Fraction(), s.Blocked);
                 if (closeWhenIdle) Text = AppInfo.Title + "(処理中 " + (int)Math.Round(s.Fraction() * 100) + "%・済んだら閉じます)";
             }
+            LocalOnFlow(s);   // 終わった数が変わったら、この PC のパックを「受け取る」の一覧に読み直す(LocalPacks.cs)
             if (closeWhenIdle && s.Idle)
             {
                 Log.Write("backend: idle, closing");

@@ -157,6 +157,9 @@ namespace RequestSender
                 PollArrivals();
                 StartBackendAsync();   // この PC で処理できる形なら ② を裏で起こす(前の起動の待ちも続きから)
                 Setup.OfferFetch(this, exeDir);   // 初回に取る部品が足りなければ小窓(F4b。fetch.json が無ければ何もしない)
+                flowRev = long.MinValue;          // 小窓のあとの足りない数で上の帯を描き直す(次の問い合わせで。② が無ければここで)
+                if (Setup.MissingCount > 0 && (flow == null || !flow.Blocked)) SetFlowLine("⚠ " + Setup.MissingReason(), Tone.Error);
+                else if (flow != null) ShowFlow(flow);
             };
             FormClosing += OnClosing;
             Disposed += (s, e) => { Theme.Changed -= ApplyTheme; poll.Dispose(); flowTimer.Dispose(); tips.Dispose(); };
@@ -1168,7 +1171,7 @@ namespace RequestSender
                 List<OutputEntry> listed = null;
                 try { listed = new Receiving(client).List().Entries; count = OutputFolder.CountItems(listed); }
                 catch (Exception ex) { Log.Write("poll: " + ex.GetType().Name + ": " + ex.Message); }
-                OnUi(() => { polling = false; if (count >= 0) { SetArrived(count, true); QueuePreviews(listed); } });   // 届いたまとめ動画は裏で先に取る(2.7.0)
+                OnUi(() => { polling = false; if (count >= 0) { SetArrived(count + OutputFolder.CountItems(localEntries), true); QueuePreviews(listed); } });   // 届いたまとめ動画は裏で先に取る(2.7.0)。数はこの PC のパックも足す(F6b)
             });
             t.IsBackground = true;
             t.Start();

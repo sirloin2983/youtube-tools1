@@ -280,7 +280,7 @@ namespace RequestSender
                 try
                 {
                     int failed;
-                    r.Uploaded = SendReturns(io, flow, Path.Combine(dataRoot, "app", "outbox"), log, out failed);
+                    r.Uploaded = SendReturns(io, flow, LocalPacks.OutboxDir(dataRoot), log, out failed);   // この PC のパックの採否も同じ所(LocalPacks.cs)
                     r.UploadFailed = failed;
                 }
                 catch (CanceledException) { throw; }
@@ -304,6 +304,7 @@ namespace RequestSender
         void BuildSyncRow()
         {
             if (Offline) return;
+            Sync.UpdateHandler = OfferUpdate;   // 帯の「更新する」→ 確かめの小窓 → Setup.DownloadUpdate → Setup.StartUpdate(F6b)
             updateLbl.Font = Theme.Small;
             updateLbl.Cursor = System.Windows.Forms.Cursors.Hand;
             updateLbl.Visible = false;
@@ -342,8 +343,64 @@ namespace RequestSender
             t.Start();
         }
 
+        bool updating;
+
+        // 「更新する」: 送る・受け取る・この PC の処理の途中なら「終わってから」(帯の文だけ)。でなければ確かめの小窓 1 つ → 取る → 入れ替え(アプリは閉じて開き直す)
+        void OfferUpdate(UpdateInfo u)
+        {
+            if (u == null || updating || IsDisposed) return;
+            string why = UpdateBlocker(Busy, RecvBusy, flow);
+            if (why != null) { updateLbl.Text = why; return; }
+            string notes = string.IsNullOrWhiteSpace(u.Notes) ? "" : "\n\n" + Validation.Shorten(u.Notes.Trim(), 300);
+            if (System.Windows.Forms.MessageBox.Show(this, "新しい版 " + u.Version + "(" + Setup.Mb(u.Size) + ")に更新します。" + notes +
+                    "\n\n取ってきたらアプリを閉じて入れ替え、自動で開き直します。この PC の処理の部品も止めます(待っていた依頼は次に開いたとき続きから)。よろしいですか?",
+                    "更新する", System.Windows.Forms.MessageBoxButtons.OKCancel, System.Windows.Forms.MessageBoxIcon.Question) != System.Windows.Forms.DialogResult.OK) return;
+            var config = LoadConfig(text => updateLbl.Text = text);
+            if (config == null) return;
+            updating = true;
+            updateLbl.Text = "更新を取ってきています…";
+            string appDir = exeDir;
+            var t = new Thread(() =>
+            {
+                string zip = null, error = null;
+                long shownMb = -1;
+                try
+                {
+                    var dbx = new DropboxClient(config) { IsCanceled = () => IsDisposed, Log = Log.Write };
+                    zip = Setup.DownloadUpdate(dbx, u.File, u.Size, u.Sha256, appDir, n =>
+                    {
+                        long mb = n / (1024 * 1024);
+                        if (mb == shownMb) return;
+                        shownMb = mb;
+                        OnUi(() => updateLbl.Text = "更新を取ってきています… " + Setup.Mb(n) + " / " + Setup.Mb(u.Size));
+                    });
+                }
+                catch (CanceledException) { return; }
+                catch (Exception ex) { error = ex.Message; Log.Write("update: download " + ex); }
+                OnUi(() =>
+                {
+                    if (error == null)
+                        try { updateLbl.Text = "入れ替えています…"; Setup.StartUpdate(zip); return; }
+                        catch (Exception ex) { error = ex.Message; Log.Write("update: start " + ex); }
+                    updating = false;
+                    updateLbl.Text = "更新できませんでした: " + error + "(ここを押すと、もう一度試します)";
+                });
+            }) { IsBackground = true, Name = "update" };
+            t.Start();
+        }
+
+        // 更新を止める理由(null = 更新してよい)。テストする
+        public static string UpdateBlocker(bool sending, bool receiving, FlowStatus flow)
+        {
+            if (sending) return "送っている途中です。終わってから、ここを押して更新してください";
+            if (receiving) return "受け取っている途中です。終わってから、ここを押して更新してください";
+            if (flow != null && !flow.Idle) return "この PC で処理している途中です。終わってから、ここを押して更新してください";
+            return null;
+        }
+
         void ShowUpdate(UpdateInfo u)
         {
+            if (updating) return;   // 取っている途中の帯の文を消さない
             updateInfo = u;
             updateLbl.Text = u == null ? "" : "新しい版 " + u.Version + " があります。" + (Sync.UpdateHandler != null ? "ここを押して更新する" : "更新は送り先の人に伝えてください");
             updateLbl.Visible = u != null;

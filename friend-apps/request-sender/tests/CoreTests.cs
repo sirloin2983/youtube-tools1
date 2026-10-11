@@ -81,6 +81,9 @@ static class CoreTests
         Run("初回の取得: fetch.json の読み(危ない dest・https でない URL・SHA の形違いは断る)", FetchPlanRead);
         Run("初回の取得: 続きから・SHA が違えば消して 1 回やり直す・失敗した物だけ次の回・zip / tar.bz2 / member の置き場所・取り消し", FetchRun);
         Run("更新: new\\ に展開・manifest と違えば断る・外へ出る名前は断る・update.cmd の入れ替え(config.json などは触らない)", UpdateFlow);
+        Run("この PC のパック: history の読み(無い・決めた物は出さない)・verdict の名前と中身・outbox と 済み・まとめ動画の探し方", LocalPacksRead);
+        Run("画面: この PC のパックを受け取るの一覧に(印・開く・すべて受け取るは Dropbox だけ・読み直しで選びを保つ)", LocalPacksForm);
+        Run("更新: 送る・受け取る・この PC の処理の途中は「終わってから」・② に --parent-pid", UpdateBlockers);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -2322,5 +2325,129 @@ static class CoreTests
         // 起こし直す行(既定)
         True(Setup.UpdateCmd(app, Path.Combine(app, "new"), 7, true).Contains("start \"\" \"%APP%\\RequestSender.exe\""), "既定は起こし直す");
         True(Setup.UpdateCmd(app, Path.Combine(app, "new"), 7, true).Contains("set \"PID=7\""), "待つ pid");
+    }
+
+    // ---------------------------------------------------------------- F6b この PC のパック(LocalPacks.cs)・更新の止め
+    const string LocalHistory = "{\"runs\":[" +
+        "{\"id\":\"a1b2c3d4e5\",\"requestId\":\"20261011-120000-abc123\",\"title\":\"配信 A\",\"finished\":1760151600000,\"state\":\"done\"," +
+        "\"packs\":[\"C:\\\\cases\\\\A\\\\みこ_pack\",\"C:\\\\cases\\\\A\\\\gone_pack\",\"C:\\\\cases\\\\A\\\\decided_pack\"]}," +
+        "{\"id\":\"ffffffff00\",\"requestId\":null,\"title\":\"動画 B\",\"finished\":1760150000000," +
+        "\"packs\":[\"C:\\\\cases\\\\A\\\\みこ_pack\\\\\",\"C:\\\\cases\\\\B\\\\clip_pack\",\"\",5]}," +
+        "{\"id\":\"0000000001\",\"title\":\"パックなし\",\"packs\":[]}]}";
+
+    static void LocalPacksRead()
+    {
+        var gone = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\cases\A\gone_pack" };
+        var list = LocalPacks.FromHistory(Json.Parse(LocalHistory), d => !gone.Contains(d), (rid, name) => name == "decided_pack", d => 42, d => d.EndsWith("みこ_pack") ? d + ".preview.mp4" : null);
+        Eq(2, list.Count, "フォルダの無い・採否を決めた物は出さず、同じフォルダは 1 つ: " + string.Join(" | ", list.Select(x => x.LocalPath)));
+        var a = list[0];
+        True(a.Local && a.Kind == OutputKind.Pack && a.LocalPath == @"C:\cases\A\みこ_pack" && a.Name == "みこ_pack" && a.Title == "みこ", "パック名と題(_pack を外す)");
+        Eq("20261011-120000-abc123", a.RequestId, "依頼の id は実行の requestId");
+        Eq("a1b2c3d4e5", a.RunId, "実行の id");
+        True(a.Size == 42 && a.LocalPreview == @"C:\cases\A\みこ_pack.preview.mp4", "大きさとまとめ動画");
+        True(a.Modified.Year == 2025 || a.Modified.Year == 2026, "できた日時(finished のミリ秒)");
+        Eq("ffffffff00", list[1].RequestId, "requestId が無ければ実行の id");
+        True(list[1].LocalPreview == null && list[1].Key != a.Key, "鍵は別");
+        Eq("local", LocalPacks.RequestIdOf("../x", "bad id"), "どちらも形が違えば local");
+
+        // パック名の整え方と送り返しの名前(Sync・ユーザーの PC の returns.py と同じ形)
+        Eq("a_b", LocalPacks.PackName(@"C:\x\a_b\"), "末尾の \\ は外す");
+        Eq(LocalPacks.PackNameMax, LocalPacks.PackName(@"C:\x\" + new string('あ', 150)).Length, "長さの上限");
+        string vn = LocalPacks.VerdictFileName(a.RequestId, a.Name);
+        Eq("20261011-120000-abc123__みこ_pack.verdict.json", vn, "verdict の名前");
+        True(SyncPaths.VerdictName.IsMatch(vn), "Sync が上げる形に合う");
+        var j = Json.Parse(LocalPacks.VerdictJson("keep", a.RequestId, a.Name, a.Title, 1760151600123));
+        True(Json.Int(j, "v", 0) == 1 && Json.Str(j, "verdict") == "keep" && Json.Str(j, "requestId") == a.RequestId && Json.Str(j, "zip") == "みこ_pack" &&
+             Json.Str(j, "title") == "みこ" && Json.Long(j, "at", 0) == 1760151600123, "verdict の中身 {v, verdict, requestId, zip, title, at}");
+        try { LocalPacks.VerdictJson("maybe", "r", "p", "t", 0); True(false, "知らない verdict は断る"); }
+        catch (ArgumentException) { }
+
+        // 書く・決めたか(outbox と 済み)・Sync が上げて 済み へ移したあとも決めたまま
+        string dir = TempDir();
+        try
+        {
+            string outbox = LocalPacks.OutboxDir(dir);
+            Eq(Path.Combine(dir, "app", "outbox"), outbox, "outbox の場所(Sync と同じ)");
+            True(!LocalPacks.Decided(outbox, a.RequestId, a.Name), "まだ決めていない");
+            string p = LocalPacks.WriteVerdict(outbox, a, "reject", new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.Zero));
+            Eq(Path.Combine(outbox, vn), p, "outbox の直下");
+            Eq("reject", Json.Str(Json.ReadFileOrNull(p), "verdict"), "書いた中身");
+            True(!File.Exists(p + ".tmp") && LocalPacks.Decided(outbox, a.RequestId, a.Name), "一時の名前は残らず・決めた");
+            LocalPacks.WriteVerdict(outbox, a, "made_video", DateTimeOffset.Now);
+            Eq("made_video", Json.Str(Json.ReadFileOrNull(p), "verdict"), "置き換える");
+            var io = new FakeIo();
+            int failed;
+            Sync.SendReturns(io, new OutboxFlow(), outbox, s => { }, out failed);
+            True(io.Uploaded.Contains(SyncPaths.ReturnFile(vn)) &&!File.Exists(p) && File.Exists(Path.Combine(outbox, "済み", vn)), "Sync が /送り返し/ へ上げて 済み へ");
+            True(LocalPacks.Decided(outbox, a.RequestId, a.Name), "済み にあっても決めたまま");
+
+            // まとめ動画の探し方: 隣の .preview.mp4 > 中の *.preview.mp4 > 切り抜きの動画(いちばん大きい・_roughcut は除く)
+            string pack = Path.Combine(dir, "case", "x_pack");
+            Directory.CreateDirectory(pack);
+            Eq<string>(null, LocalPacks.FindPreview(pack), "何も無い");
+            File.WriteAllBytes(Path.Combine(pack, "clip.mp4"), new byte[10]);
+            File.WriteAllBytes(Path.Combine(pack, "clip_roughcut.mp4"), new byte[100]);
+            File.WriteAllBytes(Path.Combine(pack, "subs.srt"), new byte[1000]);
+            Eq(Path.Combine(pack, "clip.mp4"), LocalPacks.FindPreview(pack), "切り抜きの動画(粗編集・字幕は除く)");
+            File.WriteAllBytes(Path.Combine(pack, "x.preview.mp4"), new byte[1]);
+            Eq(Path.Combine(pack, "x.preview.mp4"), LocalPacks.FindPreview(pack), "中のまとめ動画");
+            File.WriteAllBytes(pack + ".preview.mp4", new byte[1]);
+            Eq(pack + ".preview.mp4", LocalPacks.FindPreview(pack), "隣のまとめ動画がいちばん先");
+            Eq(1111L, LocalPacks.DirSize(pack), "フォルダの大きさ(隣のまとめ動画は数えない)");
+            var read = LocalPacks.Read(Json.Parse("{\"runs\":[{\"id\":\"a1b2c3d4e5\",\"requestId\":\"r1\",\"packs\":[" + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(pack) + "]}]}"), outbox);
+            True(read.Count == 1 && read[0].Size == 1111 && read[0].LocalPreview == pack + ".preview.mp4", "本物のフォルダで読む");
+        }
+        finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
+    }
+
+    static void LocalPacksForm()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                var local = LocalPacks.FromHistory(Json.Parse(LocalHistory), d => true, (r, n) => false, d => 2048, d => null);
+                OutputEntry group;
+                f.ShowEntries(new OutputListing { Entries = OutputFolder.Arrange(GroupRaw(out group)) });
+                f.ShowLocal(local);
+                var outList = FindAll(f).OfType<EntryList>().Single();
+                Func<int, string[]> row = i => outList.Texts((OutputEntry)outList.Items[i]);
+                Eq("この PC|みこ", string.Join("|", row(0).Take(2)), "この PC のパックが先頭に・印つき");
+                True(((OutputEntry)outList.Items[local.Count]).Kind == OutputKind.Group, "そのあとに Dropbox の届いたもの");
+                True(f.Text.Contains((5 + local.Count) + " 件届いています"), "届いた数にこの PC の分も足す: " + f.Text);
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var receive = (Btn)typeof(MainForm).GetField("receiveBtn", flags).GetValue(f);
+                var all = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "すべて受け取る");
+                var preview = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "まとめ動画を見る");
+                f.SelectEntry(0);
+                True(receive.Text == "開く" && receive.Enabled, "この PC の行: 開く: " + receive.Text);
+                True(!preview.Enabled, "まとめ動画が無ければ見られない");
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "要らない" && b.Enabled), "要らないは押せる");
+                Eq("すべて受け取る(4 本)", all.Text, "すべて受け取るは Dropbox のパックだけ");
+                var detail = FindAll(f).OfType<System.Windows.Forms.TextBox>().Single(t => t.AccessibleName == "選んだものの説明");
+                True(detail.Text.Contains("この PC で作ったパック") && detail.Text.Contains(@"C:\cases\A\みこ_pack"), "説明に場所: " + detail.Text);
+                // 読み直しても選びは保つ・Dropbox の一覧を調べ直してもこの PC の分は残る
+                f.SelectEntry(1);
+                var sel = outList.SelectedItem as OutputEntry;
+                f.ShowLocal(LocalPacks.FromHistory(Json.Parse(LocalHistory), d => true, (r, n) => false, d => 2048, d => null));
+                Eq(sel.Key, ((OutputEntry)outList.SelectedItem).Key, "読み直しても選びを保つ");
+                f.ShowEntries(new OutputListing());
+                Eq(local.Count, outList.Items.Count, "Dropbox が空でもこの PC の分は残る");
+                Call(f, typeof(MainForm), "RemoveEntries", (IEnumerable<OutputEntry>)new[] { (OutputEntry)outList.Items[0] });
+                Eq(local.Count - 1, outList.Items.Count, "決めたら外れる");
+            }
+        }
+        finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
+    }
+
+    static void UpdateBlockers()
+    {
+        Eq<string>(null, MainForm.UpdateBlocker(false, false, null), "何もしていなければ更新してよい");
+        Eq<string>(null, MainForm.UpdateBlocker(false, false, FlowStatus.Parse(Json.Parse("{\"idle\":true}"))), "② が待ちなし");
+        True(MainForm.UpdateBlocker(true, false, null).Contains("送っている途中"), "送っている途中");
+        True(MainForm.UpdateBlocker(false, true, null).Contains("受け取っている途中"), "受け取っている途中");
+        True(MainForm.UpdateBlocker(false, false, FlowStatus.Parse(Json.Parse("{\"idle\":false,\"running\":1}"))).Contains("終わってから"), "この PC で処理中は終わってから");
+        True(Backend.Arguments("s.py", 9, new Backend(null, "x").UseParentPid).Contains("--parent-pid 9"), "② に --parent-pid を渡す(既定)");
     }
 }

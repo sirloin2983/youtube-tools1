@@ -150,7 +150,7 @@ namespace RequestSender
 
         int PackCount
         {
-            get { return entries.Count(IsPack); }
+            get { return entries.Count(x => IsPack(x) && !x.Local); }   // Dropbox のパック(「すべて受け取る」の数。この PC のパックは開くだけ)
         }
 
         static bool IsPack(OutputEntry e)
@@ -175,7 +175,7 @@ namespace RequestSender
 
         static bool HasPreview(OutputEntry e)
         {
-            return PreviewOwner(e) != null;
+            return IsLocal(e) ? e.LocalPreview != null : PreviewOwner(e) != null;
         }
 
         // 組の残り(n の順)
@@ -186,7 +186,7 @@ namespace RequestSender
 
         static string KindText(OutputEntry e)
         {
-            return e.Kind == OutputKind.Group ? "組" : e.Kind == OutputKind.Pack ? "パック" : "失敗";
+            return e.Local ? "この PC" : e.Kind == OutputKind.Group ? "組" : e.Kind == OutputKind.Pack ? "パック" : "失敗";
         }
 
         // 一覧の題: 組 =「<題> 1-5(5 本)」/ 組の 1 本 =「  ├ 1. 題」(最後の本は └)/ ほか = 題
@@ -224,8 +224,8 @@ namespace RequestSender
             refreshBtn.Enabled = !busy;
             changeDirBtn.Enabled = !busy;
             receiveBtn.Enabled = !busy && (IsPack(e) || IsGroup(e));
-            receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : IsGroup(e) ? "受け取る(" + e.Members.Count + " 本)" : "受け取る";
-            receiveBtn.AccessibleName = IsGroup(e) ? "この組の残り " + e.Members.Count + " 本を受け取る" : "受け取る";
+            receiveBtn.Text = busy && recvDownloading && !recvAll ? "受け取っています…" : IsGroup(e) ? "受け取る(" + e.Members.Count + " 本)" : IsLocal(e) ? "開く" : "受け取る";
+            receiveBtn.AccessibleName = IsGroup(e) ? "この組の残り " + e.Members.Count + " 本を受け取る" : IsLocal(e) ? "この PC のパックのフォルダを開く" : "受け取る";
             receiveAllBtn.Enabled = !busy && packs > 0;
             receiveAllBtn.Text = busy && recvAll ? "すべて受け取っています…" : packs > 1 ? "すべて受け取る(" + packs + " 本)" : "すべて受け取る";
             receiveAllBtn.FitWidth();
@@ -249,6 +249,7 @@ namespace RequestSender
         void RefreshList()
         {
             if (RecvBusy) return;
+            RefreshLocal();   // この PC のパック(② が動いていれば。Dropbox の鍵が無くても出る)
             Config config = RecvConfig();
             if (config == null) return;
             listedOnce = true;
@@ -264,7 +265,14 @@ namespace RequestSender
         // テストと画面の確認でも使う(通信しない)
         public void ShowEntries(OutputListing listing)
         {
-            entries = listing.Entries;
+            dropboxEntries = listing.Entries;
+            RebuildEntries(true);
+        }
+
+        // 一覧 = この PC のパック(LocalPacks.cs。新しい順)+ Dropbox の届いたもの。fresh = Dropbox を調べ直した(下の文と選びを出し直す)
+        void RebuildEntries(bool fresh)
+        {
+            entries = localEntries.Concat(dropboxEntries).ToList();
             outList.BeginUpdate();
             outList.Items.Clear();
             foreach (var e in entries) outList.Items.Add(e);
@@ -272,17 +280,24 @@ namespace RequestSender
             listHeader.Invalidate();
             detail.Text = "";
             SetArrived(OutputFolder.CountItems(entries), false);
-            int packs = PackCount, groups = entries.Count(IsGroup), fails = OutputFolder.CountItems(entries) - packs;
+            if (!fresh)   // この PC のパックだけ読み直した: 下の文はそのまま(選びは呼ぶ側が戻す。無ければ先頭)
+            {
+                if (outList.Items.Count > 0) outList.SelectedIndex = 0;
+                UpdateRecvButtons();
+                return;
+            }
+            int local = localEntries.Count, packs = PackCount, groups = entries.Count(IsGroup), fails = OutputFolder.CountItems(entries) - packs - local;
             if (entries.Count == 0) SetRecvStatus("まだ届いたものはありません", false);
             else
             {
-                string what = (packs > 0 ? "パック " + packs + " 本" + (groups > 0 ? "(組 " + groups + ")" : "") : "") + (packs > 0 && fails > 0 ? "・" : "") + (fails > 0 ? "失敗の知らせ " + fails + " 件" : "");
-                string how = packs > 1 ? "「すべて受け取る」でまとめて受け取れます。" : packs == 1 ? "選んで「受け取る」を押してください。" : "選ぶと理由が出ます。";
+                string what = (local > 0 ? "この PC のパック " + local + " 本" : "") + (local > 0 && packs + fails > 0 ? "・" : "") +
+                              (packs > 0 ? "パック " + packs + " 本" + (groups > 0 ? "(組 " + groups + ")" : "") : "") + (packs > 0 && fails > 0 ? "・" : "") + (fails > 0 ? "失敗の知らせ " + fails + " 件" : "");
+                string how = packs > 1 ? "「すべて受け取る」でまとめて受け取れます。" : packs + local >= 1 ? "選んで「受け取る」「開く」を押してください。" : "選ぶと理由が出ます。";
                 SetRecvStatus(what + "があります。" + how, false);
                 outList.SelectedIndex = 0;
             }
             UpdateRecvButtons();
-            QueuePreviews(entries);
+            QueuePreviews(dropboxEntries);
         }
 
         void ShowSelected()
@@ -290,6 +305,7 @@ namespace RequestSender
             UpdateRecvButtons();
             var e = SelectedEntry;
             if (e == null) { detail.Text = ""; return; }
+            if (IsLocal(e)) { detail.Text = LocalDetail(e); return; }
             if (IsGroup(e)) { detail.Text = GroupDetail(e); return; }
             if (e.Kind == OutputKind.Pack)
             {
@@ -349,6 +365,7 @@ namespace RequestSender
             var e = SelectedEntry;
             if (RecvBusy) return;
             if (IsGroup(e)) { StartDownloadMany(GroupPacks(e), "この組の残り(" + OutputFolder.GroupLabel(e) + ")", "組を受け取る", false); return; }   // 組の行 = 組の残りを全部
+            if (IsLocal(e)) { OpenLocal(e); return; }   // この PC のパック = フォルダを開く(取ってこない)
             if (!IsPack(e)) return;
             string dir = downloadDir;
             var receiving = BeginFetch("受け取る準備をしています…", false);
@@ -384,7 +401,7 @@ namespace RequestSender
         // 届いているパックを古い順にまとめて受け取る(Receiving.DownloadAll。1 本ずつ ReceiveOne と同じように)
         void StartDownloadAll()
         {
-            StartDownloadMany(OutputFolder.PacksOldestFirst(entries), "届いているパック", "すべて受け取る", true);
+            StartDownloadMany(OutputFolder.PacksOldestFirst(entries.Where(x => !x.Local)), "届いているパック", "すべて受け取る", true);
         }
 
         // 何本かを順に受け取る(すべて受け取る・組の行の「受け取る」)。押すと本数と合計の大きさの確認を 1 回出す。all = 「すべて受け取る」のボタンから
@@ -604,6 +621,12 @@ namespace RequestSender
         void StartPreview()
         {
             var sel = SelectedEntry;
+            if (IsLocal(sel))   // この PC のパック: 案件のまとめ動画(か切り抜きの動画)をそのまま小窓で
+            {
+                if (sel.LocalPreview != null && File.Exists(sel.LocalPreview)) OpenPreview(sel, sel.LocalPreview);
+                else SetRecvStatus("まとめ動画が見つかりません", true);
+                return;
+            }
             var e = PreviewOwner(sel);
             if (e == null) return;
             string path;
@@ -701,6 +724,7 @@ namespace RequestSender
         {
             var e = SelectedEntry;
             if (RecvBusy || !IsPack(e)) return;
+            if (IsLocal(e)) { MadeVideoLocal(e); return; }   // この PC のパック = outbox の verdict.json(Sync が送り返す)
             Config config = RecvConfig();
             if (config == null) return;
             SetRecvStatus("知らせています…", false);
@@ -718,6 +742,7 @@ namespace RequestSender
         {
             var e = SelectedEntry;
             if (RecvBusy || !CanDelete(e)) return;
+            if (IsLocal(e)) { DiscardLocal(e); return; }   // この PC のパック = 一覧から外して reject を書く(フォルダは消さない)
             if (IsGroup(e))   // 組の行 = 組の残りを全部要らない(1 本ずつ記録を置いてから消し、最後に .group.json と組のまとめ動画も消す)
             {
                 var all = GroupPacks(e);
@@ -776,6 +801,8 @@ namespace RequestSender
             foreach (var e in list)
             {
                 entries.Remove(e);
+                localEntries.Remove(e);
+                dropboxEntries.Remove(e);
                 failureTexts.Remove(e.Key);
                 previewQueue.MarkGone(e);
                 previewReady.Remove(e.Key);

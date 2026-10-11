@@ -547,6 +547,8 @@ namespace RequestSender
         public List<OutputEntry> Members = new List<OutputEntry>();   // (組)いま届いている 1 本ずつの zip(n の順。受け取った・要らないにしたものは外す)
         public OutputEntry Parent;   // (パック)属する組(無ければ null)
         public GroupPack Slot;       // (パック)組の中での n・まとめ動画の中で始まる秒・長さ
+        public bool Local;           // この PC の ② が作ったパック(F6b。LocalPacks.cs)。Dropbox には無い = 受け取る = 開く・採否は outbox の verdict.json
+        public string LocalPath, LocalPreview, RunId;   // (この PC)パックのフォルダ・再生する動画(無ければ null)・実行の id
 
         // 受け取った記録の鍵。同じ名前で置き直されたら rev が変わるので「まだ」に戻る
         public string Key
