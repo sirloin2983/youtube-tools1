@@ -1651,6 +1651,56 @@ class TestHeavySlots(unittest.TestCase):
         self.assertEqual(s.snapshot()["active"], [])
 
 
+class TestCtl(unittest.TestCase):
+    """OPT2 の J0: ① の関数への手渡し ytt/jobs.Ctl(取り消し・報告・覚え書き・合図・子の写し・時間)と run_capture が Ctl を受けること"""
+
+    def test_cancel_and_check(self):
+        c = jobs.Ctl()
+        self.assertFalse(c.cancelled or c.is_cancelled())
+        c.check()
+        c.cancel()
+        self.assertTrue(c.cancelled and c.is_cancelled())
+        with self.assertRaises(errors.Cancelled):
+            c.check()
+
+        class Mine(Exception):
+            pass
+        with self.assertRaises(Mine):
+            jobs.Ctl(exc=Mine, cancel_event=c.cancel_event).check()
+
+    def test_report_note_flag_span_timer(self):
+        got, notes = [], {}
+        c = jobs.Ctl(lambda f, m: got.append((f, m)), on_note=notes.__setitem__)
+        c.report(0.5, "半分")
+        c.note("chat", {"state": "wait"})
+        sub = c.span(0.5, 1.0)
+        sub.report(0.5)
+        sub.report(None, "文だけ")
+        sub.raise_flag("skipChat")
+        self.assertTrue(c.flag("skipChat"))
+        c.timer(10)(5)
+        c.timer(0)(5)   # 長さが分からなければ報告しない
+        self.assertEqual(got, [(0.5, "半分"), (0.75, None), (None, "文だけ"), (0.5, None)])
+        self.assertEqual(notes, {"chat": {"state": "wait"}})
+        c.cancel()
+        self.assertTrue(sub.cancelled)   # 取り消しは親と共有
+
+    def test_report_errors_are_swallowed(self):
+        def boom(*a):
+            raise RuntimeError("x")
+        c = jobs.Ctl(boom, on_note=boom)
+        c.report(0.1)
+        c.note("k", 1)
+
+    def test_run_capture_with_ctl(self):
+        c = jobs.Ctl()
+        code, _err = procs.run_capture(c, [sys.executable, "-c", "print('a')"], on_line=lambda l: None)
+        self.assertEqual(code, 0)
+        c.cancel()
+        with self.assertRaises(errors.Cancelled):
+            procs.run_capture(c, [sys.executable, "-c", "import time; time.sleep(5)"])
+
+
 class TestTxIndex(unittest.TestCase):
     """文字起こしの文書を他のツールから読む(入口の案件・スタジオのセリフの表示で共通の紐づけの規則)"""
     VID = "abcdefghijk"

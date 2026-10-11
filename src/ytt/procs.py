@@ -172,17 +172,23 @@ def idle_message(what, sec):
 
 def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=None, what="処理", cwd=None, on_time=None):
     """コマンドを実行し、標準出力を1行ずつ on_line に渡す(-progress の進み具合の行は on_time(秒) へ)。(終了コード, 標準エラーの最後の 40 行) を返す。
-    job は {"cancel": bool, <slot>: Popen} を持つ辞書(動いている間 job[slot] に子を置く = cancel_job が止める)。job["cancel"] が立てば止めて errors.Cancelled。
+    job は ytt/jobs.Ctl(OPT2 の J0。取り消しは ctl が持つ・子は置かない)か、{"cancel": bool, <slot>: Popen} を持つ辞書(動いている間 job[slot] に子を置く
+    = cancel_job が止める)。取り消されたら止めて errors.Cancelled。
     timeout 秒を過ぎたら止めて、そのまま返す。idle_timeout 秒のあいだ出力(標準出力・標準エラー)が無ければ止めて ApiError("timeout")。
     cwd: 子の作業フォルダ(None = このプロセスと同じ)。中身は ytt.tools.run_progress(spawn で起動 = 終了の流れで止まる。OPT2)"""
+    is_ctl = not isinstance(job, dict)
+    cancelled = job.is_cancelled if is_ctl else (lambda: job["cancel"])
+
     def started(p_):
-        job[slot] = p_
+        if not is_ctl:
+            job[slot] = p_
     try:
-        code, err, why = _tools.run_progress(cmd, cancelled=lambda: job["cancel"], idle_sec=idle_timeout, on_time=on_time, tail=40, timeout=timeout,
+        code, err, why = _tools.run_progress(cmd, cancelled=cancelled, idle_sec=idle_timeout, on_time=on_time, tail=40, timeout=timeout,
                                              split=True, on_line=on_line, spawn=True, cwd=cwd, on_start=started)
     finally:
-        job[slot] = None
-    if job["cancel"]:
+        if not is_ctl:
+            job[slot] = None
+    if cancelled():
         raise errors.Cancelled()
     if why == "idle":
         raise errors.ApiError("timeout", idle_message(what, idle_timeout), 504)
