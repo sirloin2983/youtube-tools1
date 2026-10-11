@@ -66,6 +66,12 @@ static class CoreTests
         Run("組: 最後の 1 本まで片付けた組だけ消す・まとめ動画は組ごとに 1 本先に取る・小窓の決めるボタンの文字", GroupsDoneAndQueue);
         Run("画面: ライブ配信の欄(① に固定・重みは使わない・届け方は選べる・ほかと一緒には送らない・要約)", FormLive);
         Run("画面: 受け取るの組の行(受け取る(n 本)・要らない(n 本)・まとめ動画は組のもの)・1 本の行・片付けたら組の行も消える", FormGroups);
+        Run("この PC で処理: 封筒 + 束(URL ごとに 1 本・欄の行き先・friend-defaults を鍵ごとに重ねる)", FlowBundleUrl);
+        Run("この PC で処理: ライブ配信と動画ファイルの封筒 + 束", FlowBundleLiveFile);
+        Run("この PC で処理: friend-defaults.json の読み(無い・壊れた・schema 違い)と重ね方", FriendDefaultsLoad);
+        Run("② の口: ready の 1 行・起動の引数・.flow.lock のポート・合言葉の meta・Python が無ければ Dropbox だけ・子の環境変数", BackendPieces);
+        Run("② の状態: status の読み(段・進み具合・blocked・1 行)・問い合わせの間隔・× の 3 択を出すか", FlowStatusRead);
+        Run("この PC で処理: submit を 1 件ずつ・断られたら理由(版の違いは更新を促す)・受け付けた分は残す", FlowSubmit);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -1576,5 +1582,287 @@ static class CoreTests
         True(ErrorText.FromDropbox(503, "<html>").Contains("503"), "5xx");
         True(ErrorText.FromDropbox(409, "{\"error_summary\": \"path/disallowed_name/\"}").Contains("名前"), "名前");
         True(ErrorText.FromDropbox(418, "{\"error_summary\": \"something/else/\"}").Contains("something/else"), "その他は要約を出す");
+    }
+
+    // ---------------------------------------------------------------- この PC で処理する(F1 の F3a)
+    static Dictionary<string, object> D(params object[] kv)
+    {
+        var d = new Dictionary<string, object>();
+        for (int i = 0; i < kv.Length; i += 2) d[(string)kv[i]] = kv[i + 1];
+        return d;
+    }
+
+    static IDictionary<string, object> Sec(Dictionary<string, object> b, string name)
+    {
+        return (IDictionary<string, object>)b[name];
+    }
+
+    static string Ser(object o)
+    {
+        return new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(o);
+    }
+
+    static Func<string> Ids_()
+    {
+        int n = 0;
+        return () => (++n).ToString("x10");
+    }
+
+    static void FlowBundleUrl()
+    {
+        var people = new SpeakerSet { Count = 3 };
+        people.Rows.Add(new SpeakerRow("さくらみこ", "FF00AA"));
+        people.Rows.Add(new SpeakerRow("ゲスト", ""));
+        people.Rows.Add(new SpeakerRow("", ""));
+        var a = new UrlItem { Url = Norm, Top = 3 };
+        a.Ranges.Add(new ClipRange(100, 160));
+        var b = new UrlItem { Url = "https://www.youtube.com/watch?v=AAAAAAAAAAA", Top = 1 };
+        b.Ranges.Add(new ClipRange(5, 50));
+        b.Ranges.Add(new ClipRange(60, 90));
+        var input = new SendInput { Items = new List<UrlItem> { a, b }, Memo = "  メモ  ", People = people, VideoTracks = 2, Cut = Cut.Silence, DeliverBatch = 3,
+                                    Weights = new Weights { Enabled = true, Audio = 1.5, Chat = 0.0, Comments = 9 } };
+        var defs = FriendDefaults.From(D("schema", FriendDefaults.Schema,
+            "bundle", D("adopt", D("top", 10, "pad", 1.5), "pack", D("size", "1080x1920", "cut", "none"), "hints", D("ranges", new List<object> { new List<object> { 1, 2 } })),
+            "request", D("top", 10)));
+        True(defs.Problem == null, "既定が読める");
+        var reqs = FlowBundle.Build(input, defs, "20261011-120000-abcdef", "v7", Ids_(), new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.FromHours(9)));
+        Eq(2, reqs.Count, "URL ごとに 1 本");
+        var e0 = reqs[0].Envelope;
+        Eq("0000000001", (string)e0["id"], "封筒の id(10 桁の 16 進)");
+        True(Regex.IsMatch(FlowBundle.NewId(), "^[0-9a-f]{10}$"), "NewId は 10 桁の 16 進");
+        Eq("url", (string)e0["kind"], "kind");
+        Eq(Norm, (string)((IDictionary<string, object>)e0["input"])["url"], "input.url");
+        Eq("20261011-120000-abcdef", (string)e0["requestId"], "requestId = 送る 1 回の id");
+        Eq("20261011-120000-abcdef", (string)reqs[1].Envelope["requestId"], "2 本目も同じ依頼");
+        Eq("0000000002", (string)reqs[1].Envelope["id"], "2 本目の封筒の id は別");
+        Eq("メモ", (string)e0["note"], "memo → note(前後の空白を除く)");
+        Eq(3, (int)((IDictionary<string, object>)e0["deliver"])["batch"], "deliverBatch → deliver.batch");
+        True(!((IDictionary<string, object>)e0["deliver"]).ContainsKey("dir"), "届け先は書かない(この PC では届けない)");
+        var lg = (IDictionary<string, object>)e0["legacy"];
+        Eq("request_auto", (string)lg["mode"], "段の並びは今の友人の受付と同じ");
+        Eq("さくらみこ", (string)lg["streamer"], "1 人目の配信者 → legacy.streamer");
+        Eq(1791687600000L, (long)e0["createdAt"], "createdAt はミリ秒");
+        var s0 = reqs[0].Spec;
+        Eq(3, (int)Sec(s0, "adopt")["top"], "1 本ごとの切り抜く数");
+        Eq(1.5, Convert.ToDouble(Sec(s0, "adopt")["pad"]), "既定の adopt.pad は残る(辞書は鍵ごと)");
+        Eq("[[100,160]]", Ser(Sec(s0, "hints")["ranges"]), "1 本ごとの区間(既定の区間は置き換え)");
+        Eq("[[5,50],[60,90]]", Ser(Sec(reqs[1].Spec, "hints")["ranges"]), "2 本目の区間");
+        Eq(2, (int)Sec(reqs[1].Spec, "adopt")["top"], "切り抜く数は区間の数より小さくしない");
+        Eq("[{\"name\":\"さくらみこ\",\"color\":\"#FF00AA\"},{\"name\":\"ゲスト\"}]", Ser(Sec(s0, "hints")["people"]), "配信者 → hints.people(名前のある行だけ・色は #)");
+        Eq(3, (int)Sec(s0, "transcribe")["diarize"], "人数 → transcribe.diarize");
+        Eq("silence", (string)Sec(s0, "pack")["cut"], "カット");
+        Eq("1080x1920", (string)Sec(s0, "pack")["size"], "既定の pack.size は残る");
+        Eq(2, (int)Sec(s0, "pack")["videoTracks"], "映像トラック");
+        Eq(1.5, (double)Sec(s0, "analyze")["wAudio"], "重み");
+        Eq(3.0, (double)Sec(s0, "analyze")["wComments"], "重みは範囲に収める");
+        Eq("[\"cut\",\"videoTracks\",\"weights\"]", Ser(Sec(s0, "run")["pinned"]), "依頼が決めた印");
+        Eq(true, (bool)Sec(s0, "run")["repack"], "送り直しは作り直す");
+        Eq("{\"version\":\"v7\"}", Ser(Sec(s0, "post")["learning"]), "学習の版");
+        True(!Sec(s0, "transcribe").ContainsKey("engine") && !Sec(s0, "transcribe").ContainsKey("device"), "エンジン・デバイスは書かない(② がこの PC の設定を重ねる)");
+        True(!Ser(defs.Bundle).Contains("100"), "既定の辞書は変えない");
+
+        // 配信者なし・重みなし・届け方の範囲の外
+        var plain = FlowBundle.Build(new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 4 } }, DeliverBatch = 0 }, null, null, null, Ids_(), DateTimeOffset.Now)[0];
+        True(!plain.Envelope.ContainsKey("deliver") && !plain.Envelope.ContainsKey("requestId"), "届け方 0・依頼 id なしは書かない");
+        True(!((IDictionary<string, object>)plain.Envelope["legacy"]).ContainsKey("streamer"), "配信者が無ければ streamer を書かない(② が決める)");
+        True(!Sec(plain.Spec, "hints").ContainsKey("people") && !plain.Spec.ContainsKey("transcribe"), "配信者なし = people・diarize なし");
+        Eq("[\"cut\",\"videoTracks\"]", Ser(Sec(plain.Spec, "run")["pinned"]), "重みなし = pinned に weights なし");
+        True(!plain.Spec.ContainsKey("post"), "学習の版なし = post なし");
+        Eq("[]", Ser(Sec(plain.Spec, "hints")["ranges"]), "区間なし");
+
+        // 名前の無い人数だけ・長い名前・同じ名前・長いメモ
+        Eq("{\"count\":2}", Ser(FlowBundle.People(new SpeakerSet { Count = 2 })), "名前なしは {count}");
+        True(FlowBundle.People(new SpeakerSet { Count = 0 }) == null, "0 人 = なし");
+        var dup = new SpeakerSet { Count = 2 };
+        dup.Rows.Add(new SpeakerRow(new string('あ', 50), ""));
+        dup.Rows.Add(new SpeakerRow(new string('あ', 50), "12"));
+        Eq("[{\"name\":\"" + new string('あ', 40) + "\"}]", Ser(FlowBundle.People(dup)), "40 字まで・同じ名前は 1 つ・6 桁でない色は書かない");
+        var longMemo = FlowBundle.Build(new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm } }, Memo = new string('x', 1500) }, null, null, null, Ids_(), DateTimeOffset.Now)[0];
+        Eq(FlowBundle.NoteMax, ((string)longMemo.Envelope["note"]).Length, "note は 1000 字まで");
+    }
+
+    static void FlowBundleLiveFile()
+    {
+        var people = new SpeakerSet { Count = 1 };
+        people.Rows.Add(new SpeakerRow("ぺこら", ""));
+        var live = new SendInput { Live = new LiveRequest { Url = Norm, Settings = new LiveSettings { Sens = LiveSettings.High, PerHour = 8, Length = 60, WaitMin = 99, Pad = 3, AfterStream = false } },
+                                   People = people, Cut = Cut.None, VideoTracks = 1, DeliverBatch = 2, Memo = "m" };
+        var reqs = FlowBundle.Build(live, null, "r", null, Ids_(), DateTimeOffset.Now);
+        Eq(1, reqs.Count, "ライブは 1 件");
+        var e = reqs[0].Envelope;
+        Eq("live", (string)e["kind"], "kind live");
+        Eq("{\"url\":\"" + Norm + "\"}", Ser(e["input"]), "input は url だけ");
+        True(!((IDictionary<string, object>)e["legacy"]).ContainsKey("mode"), "ライブは段の並びを書かない");
+        Eq("{\"sens\":\"high\",\"perHour\":8,\"waitMin\":5,\"pad\":3,\"afterStream\":false}", Ser(Sec(reqs[0].Spec, "adopt")), "ライブの設定 → adopt(範囲の外は既定)");
+        Eq(60, (int)Sec(reqs[0].Spec, "analyze")["length"], "長さ → analyze.length");
+        Eq(2, (int)((IDictionary<string, object>)e["deliver"])["batch"], "ライブの届け方");
+
+        string dir = Path.Combine(Path.GetTempPath(), "rs-f3a-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string v1 = Path.Combine(dir, "にぇの叫び.mp4"), v2 = Path.Combine(dir, "b.mov");
+            File.WriteAllText(v1, "x");
+            File.WriteAllText(v2, "x");
+            var vids = FlowBundle.Build(new SendInput { Videos = new List<string> { v1, v2 }, Cut = Cut.Silence, VideoTracks = 3 }, null, "r", null, Ids_(), DateTimeOffset.Now);
+            Eq(2, vids.Count, "動画は 1 本ずつ");
+            Eq("file", (string)vids[0].Envelope["kind"], "kind file");
+            var inp = (IDictionary<string, object>)vids[0].Envelope["input"];
+            Eq(v1, (string)inp["path"], "パスをそのまま(送らない)");
+            Eq("にぇの叫び.mp4", (string)inp["title"], "題 = ファイルの名前");
+            Eq("file_auto", (string)((IDictionary<string, object>)vids[0].Envelope["legacy"])["mode"], "動画は file_auto");
+            True(!Sec(vids[0].Spec, "run").ContainsKey("repack") && !vids[0].Spec.ContainsKey("adopt"), "動画は作り直しの印・切り抜く数なし");
+            Eq(3, (int)Sec(vids[1].Spec, "pack")["videoTracks"], "動画にもパックの指定");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void FriendDefaultsLoad()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "rs-f3a-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string p = Path.Combine(dir, FriendDefaults.FileName);
+            var none = FriendDefaults.Load(p);
+            True(none.Problem == null && none.Bundle.Count == 0, "無ければ既定なし(理由も無し)");
+            File.WriteAllText(p, "{ broken", Encoding.UTF8);
+            True(FriendDefaults.Load(p).Problem != null, "壊れていれば理由");
+            File.WriteAllText(p, "{\"schema\":\"other/v9\",\"bundle\":{\"adopt\":{\"top\":5}}}", Encoding.UTF8);
+            var other = FriendDefaults.Load(p);
+            True(other.Problem != null && other.Bundle.Count == 0, "schema が違えば使わない");
+            File.WriteAllText(p, "{\"schema\":\"" + FriendDefaults.Schema + "\",\"bundle\":{\"adopt\":{\"top\":5}},\"request\":{\"top\":7,\"streamers\":[\"a\"]}}", Encoding.UTF8);
+            var ok = FriendDefaults.Load(p);
+            Eq(5, Json.Int(Json.Dict(ok.Bundle, "adopt"), "top", 0), "bundle を読む");
+            Eq(7, Json.Int(ok.Request, "top", 0), "request を読む");
+        }
+        finally { Directory.Delete(dir, true); }
+        var m = BundleMerge.Merge(D("a", D("x", 1, "y", 2), "b", new List<object> { 1, 2 }, "c", 1), D("a", D("y", 3), "b", new List<object> { 9 }, "c", D("z", 1)));
+        Eq("{\"a\":{\"x\":1,\"y\":3},\"b\":[9],\"c\":{\"z\":1}}", Ser(m), "辞書は鍵ごと・それ以外は置き換え");
+    }
+
+    static void BackendPieces()
+    {
+        int port; string token;
+        True(Backend.ParseReady("{\"event\": \"ready\", \"port\": 51234, \"token\": \"abc_DEF-1\", \"pid\": 99}", out port, out token) && port == 51234 && token == "abc_DEF-1", "ready の 1 行");
+        True(!Backend.ParseReady("{\"event\": \"other\", \"port\": 1, \"token\": \"t\"}", out port, out token), "ほかの event は読まない");
+        True(!Backend.ParseReady("ホームを起動しました", out port, out token), "JSON でない行");
+        True(!Backend.ParseReady("{\"event\": \"ready\", \"port\": 0, \"token\": \"t\"}", out port, out token), "ポート 0");
+        True(!Backend.ParseReady("{\"event\": \"ready\", \"port\": 80}", out port, out token), "合言葉なし");
+        Eq("\"C:\\a b\\src\\app\\server.py\" --headless --port 0 --parent-pid 1234", Backend.Arguments(@"C:\a b\src\app\server.py", 1234, true), "起動の引数(1-2 の口の表)");
+        Eq("\"x.py\" --headless --port 0", Backend.Arguments("x.py", 1, false), "--parent-pid を付けない形");
+        Eq("tok-1_A", Backend.TokenFromPage("<head><meta name=\"ytt-version\" content=\"0.58.0\"><meta name=\"ytt-token\" content=\"tok-1_A\"></head>"), "画面の meta の合言葉");
+        True(Backend.TokenFromPage("<html></html>") == null, "meta が無ければ null");
+
+        string dir = Path.Combine(Path.GetTempPath(), "rs-f3a-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string lockPath = Path.Combine(dir, Backend.LockName);
+            Eq(0, Backend.LockPort(lockPath), ".flow.lock が無い");
+            File.WriteAllText(lockPath, "{\"pid\": 5, \"port\": 8700, \"at\": 1, \"token\": \"x\"}");
+            Eq(8700, Backend.LockPort(lockPath), ".flow.lock のポート");
+            File.WriteAllText(lockPath, "{\"pid\": 5, \"port\": null}");
+            Eq(0, Backend.LockPort(lockPath), "ポートなし(CLI の印)");
+
+            True(BackendPaths.Locate(dir) == null, "Python・src が無ければ null = Dropbox だけ");
+            Directory.CreateDirectory(Path.Combine(dir, "python"));
+            File.WriteAllText(Path.Combine(dir, "python", "python.exe"), "");
+            True(BackendPaths.Locate(dir) == null, "src が無ければ null");
+            Directory.CreateDirectory(Path.Combine(dir, "src", "app"));
+            File.WriteAllText(Path.Combine(dir, "src", "app", "server.py"), "");
+            var paths = BackendPaths.Locate(dir);
+            True(paths != null && paths.Server.EndsWith(@"src\app\server.py"), "そろえば場所");
+            var env0 = Backend.ChildEnv(paths, @"C:\Windows");
+            Eq("utf-8", env0["PYTHONIOENCODING"], "文字コード");
+            True(!env0.ContainsKey("PATH") && !env0.ContainsKey("YTT_FFMPEG"), "tools が無ければ PATH はそのまま");
+            Directory.CreateDirectory(Path.Combine(dir, "tools", "ffmpeg", "bin"));
+            File.WriteAllText(Path.Combine(dir, "tools", "ffmpeg", "bin", "ffmpeg.exe"), "");
+            File.WriteAllText(Path.Combine(dir, "tools", "yt-dlp.exe"), "");
+            var env1 = Backend.ChildEnv(paths, @"C:\Windows");
+            Eq(Path.Combine(dir, "tools", "ffmpeg", "bin", "ffmpeg.exe"), env1["YTT_FFMPEG"], "tools の下 2 段の ffmpeg");
+            Eq(Path.Combine(dir, "tools", "yt-dlp.exe"), env1["YTT_YTDLP"], "tools の直下の yt-dlp");
+            True(env1["PATH"].StartsWith(Path.Combine(dir, "tools") + ";" + Path.Combine(dir, "tools", "ffmpeg") + ";") && env1["PATH"].EndsWith(@";C:\Windows"), "PATH の前に tools: " + env1["PATH"]);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void FlowStatusRead()
+    {
+        string json = "{\"queued\":1,\"running\":1,\"done\":2,\"idle\":false,\"closed\":false,\"rev\":17,\"live\":{\"recording\":0,\"detecting\":0,\"exporting\":0}," +
+                      "\"machine\":{\"engine\":\"whisper.cpp\",\"gpu\":{\"name\":\"RTX 3060\",\"vramGB\":12}},\"blocked\":null,\"jobs\":[],\"unknown\":1," +
+                      "\"runs\":[{\"id\":\"a\",\"title\":\"配信 A\",\"state\":\"running\",\"steps\":[{\"key\":\"analyze\",\"label\":\"解析\",\"state\":\"done\"},{\"key\":\"adopt\",\"label\":\"採用(自動)\",\"state\":\"skip\"}," +
+                      "{\"key\":\"export\",\"label\":\"書き出し\",\"state\":\"run\"},{\"key\":\"pack\",\"label\":\"パック\",\"state\":\"wait\"}]}," +
+                      "{\"id\":\"b\",\"title\":\"B\",\"state\":\"queued\",\"steps\":[]},{\"id\":\"c\",\"title\":\"C\",\"state\":\"done\",\"steps\":[]},{\"id\":\"d\",\"title\":\"D\",\"state\":\"error\",\"steps\":[]}]}";
+        var s = FlowStatus.Parse(Json.Parse(json));
+        True(!s.Idle && s.Queued == 1 && s.Running == 1 && s.Rev == 17 && !s.Blocked, "数・rev・blocked なし");
+        Eq("RTX 3060", s.GpuName, "GPU の名前");
+        Eq("書き出し", s.Runs[0].Step, "実行中の段の名前");
+        Eq(0.5, s.Runs[0].Fraction, "済んだ段 / 段の数(飛ばした段も済み)");
+        Eq((0.5 + 0 + 1 + 1) / 4, s.Fraction(), "全体の進み具合");
+        Eq("この PC: 処理中: 配信 A(書き出し) ・ 待ち 1 本", s.Line(), "上の帯の 1 行");
+        Eq(2000, CloseChoice.PollMs(s), "動いていれば 2 秒");
+        True(CloseChoice.Needed(true, s), "自分の ② が動いていれば 3 択");
+        True(!CloseChoice.Needed(false, s), "ほかの入口に頼んでいるときは聞かない");
+
+        var idle = FlowStatus.Parse(Json.Parse("{\"queued\":0,\"running\":0,\"done\":3,\"idle\":true,\"runs\":[]}"));
+        Eq(15000, CloseChoice.PollMs(idle), "止まっていれば 15 秒");
+        Eq(15000, CloseChoice.PollMs(null), "まだ読んでいなければ 15 秒");
+        True(!CloseChoice.Needed(true, idle) && !CloseChoice.Needed(true, null), "idle・まだ読んでいない = 聞かずに閉じる");
+        Eq(-1L, idle.Rev, "rev の無い古い ② は -1");
+        Eq("この PC: 済み 3 本(待ちなし)", idle.Line(), "済みの数");
+        Eq(0.0, idle.Fraction(), "実行が無ければ 0");
+
+        var live = FlowStatus.Parse(Json.Parse("{\"queued\":0,\"running\":0,\"idle\":false,\"live\":{\"recording\":1,\"detecting\":1,\"exporting\":0},\"runs\":[]}"));
+        True(CloseChoice.Needed(true, live), "録画中も 3 択");
+        Eq("この PC: 録画中 1", live.Line(), "録画中の 1 行");
+
+        var blocked = FlowStatus.Parse(Json.Parse("{\"queued\":2,\"running\":0,\"idle\":false,\"blocked\":{\"reason\":\"disk\",\"freeGB\":12.34,\"minGB\":20},\"runs\":[]}"));
+        True(blocked.Blocked, "blocked");
+        Eq("⚠ 空きが 12 GB。20 GB を切ったので新しい処理を始めていません", blocked.Line(), "空き容量の帯");
+        var blocked2 = FlowStatus.Parse(Json.Parse("{\"idle\":false,\"blocked\":{\"reason\":\"disk\",\"freeGB\":3.25,\"minGB\":20.0}}"));
+        Eq("⚠ 空きが 3.3 GB。20 GB を切ったので新しい処理を始めていません", blocked2.Line(), "10 GB 未満は小数 1 桁");
+    }
+
+    class FakeFlow : IFlowClient
+    {
+        public List<string> Posted = new List<string>();
+        public int FailAt = -1;
+        public FlowReply Reply;
+
+        public FlowReply Get(string path) { return new FlowReply { Status = 200 }; }
+
+        public FlowReply Post(string path, object body)
+        {
+            Posted.Add(path + " " + Ser(body));
+            if (Posted.Count - 1 == FailAt) return Reply;
+            var env = (IDictionary<string, object>)((IDictionary<string, object>)body)["envelope"];
+            return new FlowReply { Status = 200, Body = D("run", D("id", env["id"])) };
+        }
+    }
+
+    static void FlowSubmit()
+    {
+        var input = new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 2 }, new UrlItem { Url = "https://www.youtube.com/watch?v=AAAAAAAAAAA" } } };
+        var ok = new FakeFlow();
+        var sent = new List<string>();
+        var steps = new List<string>();
+        var ids = Sending.RunLocal(input, ok, new FriendDefaults(), "v1", sent, steps.Add);
+        Eq(2, ids.Count, "2 本とも受け付けた");
+        True(ok.Posted.All(x => x.StartsWith("/api/flow/submit {\"envelope\":")), "submit に {envelope, spec}");
+        True(ok.Posted[0].Contains("\"spec\":") && ok.Posted[0].Contains("\"learning\":{\"version\":\"v1\"}"), "束に学習の版");
+        Eq(2, sent.Count, "受け付けた物の名前");
+        True(steps.Count == 2 && steps[1].Contains("2 / 2"), "進み具合の文");
+
+        var ng = new FakeFlow { FailAt = 1, Reply = new FlowReply { Status = 400, Body = D("ok", false, "error", "bad_request", "message", "知らない項目です: adopt.foo") } };
+        sent.Clear();
+        try { Sending.RunLocal(input, ng, null, null, sent, null); True(false, "断られたら例外"); }
+        catch (BackendException ex) { True(ex.Message.Contains("更新してください") && ex.Message.Contains("adopt.foo"), "知らない項目 = 更新を促す: " + ex.Message); }
+        Eq(1, sent.Count, "それまでに受け付けた分は残る");
+
+        Eq("このアプリと処理の部品の版が合いません。アプリを更新してください(x)", FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "spec_version", "message", "x") }), "spec_version");
+        True(FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "bad_spec", "message", "y") }).Contains("更新"), "bad_spec");
+        Eq("受け付けられませんでした: 同じ入力が待ち・実行中です", FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "bad_request", "message", "同じ入力が待ち・実行中です") }), "ほかの断り");
+        True(FlowErrors.Submit(new FlowReply { Status = 0, Error = "処理の部品につながりませんでした(WebException)" }).Contains("つながりません"), "つながらない");
     }
 }
