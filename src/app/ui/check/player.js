@@ -127,6 +127,7 @@
       UIKit.http(localUrl('transcribe/api/peaks?id=' + encodeURIComponent(opt.docId)), { raw: true, timeout: 30000 }).then(function (r) {
         if (gone) return;
         if (r.status === 202) {
+          r.text().catch(function () {});   // 本文を読み切る(読まないと要求が終わらないまま残る = ブラウザの「通信中」が続く。2 カットの cut.js も読む)
           if (note) note.textContent = '波形を用意しています…(再生はできます)';
           if (tries < 60) setTimeout(function () { if (!gone) loadPeaks(tries + 1); }, 1000);
           return;
