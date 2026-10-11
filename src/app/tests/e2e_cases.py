@@ -7,6 +7,7 @@
 Alt+1・Alt+2・Shift+N(次の未校正の切り抜き。入力中は効かない)/ ② の status の問い合わせ(動いていれば 2 秒・止まれば 15 秒・札)/ 仮の案件 eval /
 ヘッダー(appnav・版・設定)/ 幅 390 で横にはみ出さない / コンソールにエラーが無い。"""
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -105,6 +106,10 @@ def main():
             try:
                 ctx = browser.new_context(viewport={"width": 1280, "height": 900})
                 pg = ctx.new_page()
+                # カット・パックのパネル(C2c)は /transcribe/ の cut.js・pack-tab.js と編集の API を読みに行く。この確かめは編集を載せないので空で返す(404 を出さない)
+                ctx.route(re.compile(r'.*/(transcribe|cut2resolve)/.*'), lambda route: route.fulfill(
+                    status=200, content_type='application/javascript' if route.request.url.split('?')[0].endswith('.js') else 'application/json',
+                    body='' if route.request.url.split('?')[0].endswith('.js') else '{}'))
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.on("response", lambda r: bad_status.append("%s %s" % (r.status, r.url)) if r.status >= 400 else None)
