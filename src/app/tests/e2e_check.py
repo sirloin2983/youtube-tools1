@@ -194,12 +194,23 @@ def _scene_kinds(cx):
           "区間の末 + pad で止まる: %s" % pg.evaluate("document.querySelector('#chkBody video').currentTime"))
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "再生のあとの Enter = 機械の予想どおり")
+    n_before = len(fq.answers)
     check(wait_js(pg, "!!document.querySelector('#chkBody canvas[data-chk-wave]')") and wait_js(pg, "!document.querySelector('[data-chk-wavemsg]').textContent"),
           "時刻のカードに波形の帯(peaks を読めた)")
+    check(cx.retime_hits and cx.retime_hits[0] == {"id": "a0000000000c", "rows": ["r6"]}, "単語の印は POST transcribe/api/retime {id, rows:[行]}: %s" % cx.retime_hits[:1])
     check(cx.peaks_hits and "id=a0000000000c" in cx.peaks_hits[0], "波形は transcribe/api/peaks?id=<文書 id>: %s" % cx.peaks_hits[:1])
     check("B1 行の時刻" in pg.text_content("#chkGoal") and "目標に届きました" in pg.text_content("#chkGoal"), "帯はカードの種類の目標(goals): %r" % pg.text_content("#chkGoal"))
+    check(wait_js(pg, "!!document.querySelector('[data-chk-tguide]').textContent"), "単語の時刻の候補(api/retime)を点線の参考の印と文で出す: %r" % pg.text_content("[data-chk-tguide]"))
+    press(pg, "ArrowLeft")
+    check(wait_js(pg, "CheckShell.state().kind === 'time'") and "ちょうどいい" in pg.text_content("[data-chk-tstate]"), "印を選ぶ前の ← は再生の移動(答えない・印も動かない)")
     press(pg, "h")
-    check(wait_js(pg, "CheckShell.state().kind === 'value'") and fq.answers[-1]["body"]["answer"] == {"choice": "head"}, "H(頭がずれている)で答える")
+    for _ in range(3):
+        press(pg, "ArrowLeft")
+    check("頭がずれている" in pg.text_content("[data-chk-tstate]") and "−0.10 秒" in pg.text_content("[data-chk-tstate]"), "H で頭を選び ← 3 コマ = 0.10 秒前へ: %r" % pg.text_content("[data-chk-tstate]"))
+    check(state(pg)["kind"] == "time" and len(fq.answers) == n_before, "動かしただけでは答えない")
+    press(pg, "Enter")
+    check(wait_js(pg, "CheckShell.state().kind === 'value'") and fq.answers[-1]["body"]["answer"] == {"choice": "head", "dStart": -0.1, "dEnd": 0},
+          "Enter で答える(動かした量つき): %s" % fq.answers[-1]["body"]["answer"])
 
 
 def _scene_summary_and_end(cx):
@@ -295,7 +306,7 @@ def main():
     srv, port = L.make_server(0, sup)
     sup.attach(srv)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    errors, bad_status, peaks_hits = [], [], []
+    errors, bad_status, peaks_hits, retime_hits = [], [], [], []
     fq = FakeQueue(fixture_cards())
 
     def media_route(route):
@@ -303,6 +314,11 @@ def main():
         if "/api/peaks" in u:
             peaks_hits.append(u)
             return route.fulfill(status=200, body=bytes((i * 7) % 256 for i in range(800)), headers={"X-Peaks-Rate": "100", "Content-Type": "application/octet-stream"})
+        if "/api/retime" in u:
+            retime_hits.append(json.loads(route.request.post_data or "{}"))
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(
+                {"items": [{"id": "r6", "start": 0.85, "end": 2.2, "matched": True, "dStart": -0.15, "dEnd": 0.2, "edges": ["start", "end"], "from": {"start": 1.0, "end": 2.0}}],
+                 "checked": 1, "updatedAt": 1}))
         return route.fulfill(status=200, body=video, headers={"Content-Type": "video/webm", "Accept-Ranges": "none"})
 
     try:
@@ -316,7 +332,7 @@ def main():
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.on("response", lambda r: bad_status.append("%s %s" % (r.status, r.url)) if r.status >= 400 else None)
-                cx = types.SimpleNamespace(pg=pg, check=check, fq=fq, base="http://127.0.0.1:%d/" % port, peaks_hits=peaks_hits, ctx=ctx)
+                cx = types.SimpleNamespace(pg=pg, check=check, fq=fq, base="http://127.0.0.1:%d/" % port, peaks_hits=peaks_hits, retime_hits=retime_hits, ctx=ctx)
                 _scene_open(cx)
                 _scene_answer_undo_skip(cx)
                 _scene_kinds(cx)

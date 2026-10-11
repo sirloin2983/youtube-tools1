@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """行の時刻(字幕の区間)を、行の時刻の原則(docs/spec/row-timing-policy.md)の数字で測る道具(plan/line-b-row-timing.md の 7-4)。
 
-    python src/eval/tools/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply]
+    python src/eval/tools/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply] [--check]
 
 - 作業データは**読むだけ**(transcribe の transcripts/<id>.json と、--apply のときの <id>.asr.json)。何も書き換えない。--json のときだけ、結果を
   文字起こしの作業データの evals/timing/<日時>.json(schema youtube-tools-timing-eval/v1)に残す(置き場所は eval_effort.py・eval_cut.py と同じ規則)。
@@ -28,6 +28,10 @@
   音声を聞き直す 1 秒丸めの配り直し(quant_retime。編集 0.65.0 で消した)はかけない(音声を聞き直さない = 認識し直さない)。
   「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
   (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
+- --check: 「確かめる」(/check)の時刻のカードの答え(入口の作業データ app の check/answers.jsonl。docs/design/v1-check-build.md の V2d)を
+  もう 1 つの正解として読み、同じ報告の終わりに並べる。カードは文字が正しいと分かっている行(校正済み・読みのカードで決めた行)の区間 ± 2.5 秒を再生して
+  「ちょうどいい / 頭がずれている / 末がずれている / 両方」と答えた物。出すのは判定の数(率)・← → で動かした量(行の時刻を実際に変えた分)の分布・
+  頭と末のどちらへどれだけずれていたか。評価用の文書の数字(上の原則の数字)とは別の母集団なので混ぜずに並べる。戻した(Z)答えは数えない。--since / --until は答えた時刻で絞る
 - --since / --until は機械の出力を作った時刻(最初の認識の at。無ければ updatedAt)で絞る(until はその日を含む)。文字が合う行が FEW_ROWS 未満なら「まだ少ない(参考)」
 """
 import argparse
@@ -47,6 +51,7 @@ from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業デ
 from eval.tools._evalcommon import rate, read_json  # noqa: E402
 from ytt import docloc  # noqa: E402
 from ytt.schemas import num  # noqa: E402  有限の数(bool は除く)なら float、それ以外は None
+from human.check import answerlog  # noqa: E402  「確かめる」の答えの記録(--check が読むだけ)
 from eval.tools import eval_asr  # noqa: E402  確かめ済みの条件(is_reviewed)・最初の認識(draft_run)・後処理を当て直す editor の読み込み(load_serve)は eval_asr.py と同じ
 
 SCHEMA = "youtube-tools-timing-eval/v1"
@@ -367,6 +372,54 @@ def evaluate(data_dir=None, since=None, until=None, apply=False, serve=None):
     return res
 
 
+# ---------------------------------------------------------------- --check(確かめるの時刻のカードの答え)
+
+CHECK_CHOICES = (("ok", "ちょうどいい"), ("head", "頭がずれている"), ("tail", "末がずれている"), ("both", "両方"))
+
+
+def check_summary(data_dir=None, since=None, until=None):
+    """入口の作業データ app の check/answers.jsonl の時刻のカード(kind time)の答えを数える(読むだけ)。
+    -> {n, docs, counts, okRate, moved(行の時刻を実際に変えた数), start / end: {n, median, mean, early(前へ動かした数), late(後ろへ)}}"""
+    app = C.locate("app", data_dir)
+    since_ms, until_ms = C.period(since, until)
+    names = dict(CHECK_CHOICES)
+    rows = [r for r in answerlog.state(app).effective() if r.get("kind") == "time" and isinstance(r.get("answer"), dict) and r["answer"].get("choice") in names
+            and C.in_period(r.get("at"), since_ms, until_ms, unknown=False)]
+    counts = {k: 0 for k, _ in CHECK_CHOICES}
+    moved, ds, de, docs = 0, [], [], set()
+    for r in rows:
+        a = r["answer"]
+        counts[a["choice"]] += 1
+        docs.add((r.get("target") or {}).get("docId"))
+        s_, e_ = num(a.get("dStart")) or 0.0, num(a.get("dEnd")) or 0.0
+        if s_ or e_:
+            moved += 1
+        if s_:
+            ds.append(s_)
+        if e_:
+            de.append(e_)
+
+    def edge(v):
+        ab = [abs(x) for x in v]
+        return {"n": len(v), "median": round(statistics.median(ab), 3) if ab else None, "mean": round(sum(ab) / len(ab), 3) if ab else None,
+                "early": sum(1 for x in v if x < 0), "late": sum(1 for x in v if x > 0)}
+    n = len(rows)
+    return {"n": n, "docs": len(docs - {None}), "counts": counts, "okRate": rate(counts["ok"], n), "moved": moved, "start": edge(ds), "end": edge(de),
+            "since": since, "until": until, "appDir": app}
+
+
+def print_check(c):
+    print("  [確かめる(時刻のカード)の答え。行の文字が正しいと分かっている行を再生して聞いた判定。上の評価用の数字とは別の母集団]")
+    if not c["n"]:
+        print("    (まだ答えがありません。/check の「行の時刻が合っているか」に答えると並びます)")
+        return
+    print("    答え %d 件(行のある文書 %d 本)  %s" % (c["n"], c["docs"], "  ".join("%s %d(%s)" % (lb, c["counts"][k], pct(rate(c["counts"][k], c["n"]))) for k, lb in CHECK_CHOICES)))
+    print("    ちょうどいい %s  /  ← → で行の時刻を実際に動かした %d 件" % (pct(c["okRate"]), c["moved"]))
+    for key, lb in (("start", "頭"), ("end", "末")):
+        e = c[key]
+        print("    %s を動かした %d 件: 中央 %s 秒・平均 %s 秒(前へ %d・後ろへ %d)" % (lb, e["n"], sec(e["median"]), sec(e["mean"]), e["early"], e["late"]))
+
+
 # ---------------------------------------------------------------- 表示・保存
 
 def pct(x):
@@ -432,9 +485,14 @@ def main(argv=None):
                       json_help="同じ形の JSON を 文字起こしの作業データの evals/timing/<日時>.json に残す")
     p.add_argument("--out", help="JSON をこのファイルに書く(作業データには書かない。--json を付けなくてよい)")
     p.add_argument("--apply", action="store_true", help="保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直した数字も出す")
+    p.add_argument("--check", action="store_true", help="「確かめる」の時刻のカードの答え(app の check/answers.jsonl)の数も並べる")
     args = p.parse_args(argv)
     res = evaluate(args.data_dir, args.since, args.until, args.apply)
+    if args.check:
+        res["check"] = check_summary(args.data_dir, args.since, args.until)
     print_report(res)
+    if args.check:
+        print_check(res["check"])
     C.report_saved(res, args.json or args.out, res["meta"]["dataDir"], "timing", out=args.out)
     return res
 

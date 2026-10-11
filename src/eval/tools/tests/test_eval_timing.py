@@ -192,6 +192,55 @@ class TimingTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.env.root, "transcribe", "evals")))   # 作業データには書かない
 
 
+class CheckTest(unittest.TestCase):
+    """--check: 「確かめる」の時刻のカードの答え(app の check/answers.jsonl)を数える。戻した答えは数えない"""
+
+    def setUp(self):
+        self.env = Env()
+        self.app = os.path.join(self.env.root, "app")
+
+    def tearDown(self):
+        self.env.close()
+
+    def add(self, i, choice, ds=0.0, de=0.0, kind="time", at=None, undo=False):
+        from human.check import answerlog
+        at = at or ms("2026-10-11")
+        aid = "a%013d-%06x" % (at + i, i)
+        answerlog.append(self.app, {"id": aid, "at": at, "kind": kind, "source": "row", "card": "%s:row:aaaaaaaaaaaa#s%d" % (kind, i), "case": None,
+                                    "target": {"docId": "aaaaaaaaaaaa", "row": "s%d" % i}, "guess": "ok",
+                                    "answer": {"choice": choice, "dStart": ds, "dEnd": de}, "ms": 1000, "applied": {}})
+        if undo:
+            answerlog.append(self.app, {"id": "a%013d-%06x" % (at + i, 900 + i), "at": at, "undo": aid, "reverted": {}})
+
+    def test_counts_and_moves(self):
+        self.add(1, "ok")
+        self.add(2, "head", ds=-0.2)
+        self.add(3, "tail", de=0.3)
+        self.add(4, "both", ds=0.1, de=-0.1)
+        self.add(5, "head")                    # 印だけ(動かしていない)
+        self.add(6, "ok", undo=True)           # 戻した答えは数えない
+        self.add(7, "ok", kind="value")        # 時刻のカードでない答えは数えない
+        c = T.check_summary(self.env.root)
+        self.assertEqual((c["n"], c["docs"], c["counts"]), (5, 1, {"ok": 1, "head": 2, "tail": 1, "both": 1}))
+        self.assertEqual((c["okRate"], c["moved"]), (0.2, 3))
+        self.assertEqual((c["start"]["n"], c["start"]["early"], c["start"]["late"], c["start"]["median"]), (2, 1, 1, 0.15))
+        self.assertEqual((c["end"]["n"], c["end"]["early"], c["end"]["late"]), (2, 1, 1))
+
+    def test_period_and_empty_and_main(self):
+        self.assertEqual(T.check_summary(self.env.root)["n"], 0)
+        self.add(1, "ok", at=ms("2026-09-01"))
+        self.add(2, "head", at=ms("2026-10-11"))
+        self.assertEqual(T.check_summary(self.env.root, since="2026-10-01")["n"], 1)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            res = T.main(["--data-dir", self.env.root, "--check"])
+        self.assertEqual(res["check"]["n"], 2)
+        self.assertIn("確かめる(時刻のカード)の答え", buf.getvalue())
+        self.assertIn("答え 2 件", buf.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertNotIn("check", T.main(["--data-dir", self.env.root]))
+
+
 class ApplyTest(unittest.TestCase):
     """--apply: 保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直す。editor の expand_segments をそのまま使う"""
 

@@ -133,6 +133,30 @@ class CheckApiTest(TL.Base):
         st, j = self.post("/api/check/answer", {"card": "time:tst:aaaaaaaaaaaa#s1", "answer": "ok"})
         self.assertEqual((st, j["error"]), (409, "not_ready"))
 
+    def test_time_card_wired(self):
+        """入口が time:row の反映を登録している(V2d)。同じ部品を別の出どころ名で試す: 形の違う答えは 400・文書が無ければ 409"""
+        self.assertTrue(apply.registered("time", "row"))
+        from human.check import timerow as check_time
+        sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
+        apply.register("time", "tst", check_time.apply_time, check_time.revert_time, check_time.check)
+        self.addCleanup(sources.unregister, "time", "tst")
+        self.addCleanup(apply.unregister, "time", "tst")
+        deck.invalidate()
+        cid = "time:tst:aaaaaaaaaaaa#s1"
+        st, j = self.post("/api/check/answer", {"card": cid, "answer": {"choice": "ok", "dStart": 0.5}})
+        self.assertEqual((st, j["error"]), (400, "bad_request"))
+        from ytt import workdata
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
+        workdata.TX_DIR = None
+        st, j = self.post("/api/check/answer", {"card": cid, "answer": {"choice": "head", "dStart": -0.1}})
+        self.assertEqual((st, j["error"]), (503, "unavailable"))
+        workdata.set_data_dir(os.path.join(self.tmp, "wd"))
+        os.makedirs(workdata.TX_DIR, exist_ok=True)
+        st, j = self.post("/api/check/answer", {"card": cid, "answer": {"choice": "head", "dStart": -0.1}})
+        self.assertEqual((st, j["error"]), (409, "no_doc"))
+        self.assertEqual(answerlog.state(os.path.dirname(self.sup.logs_dir)).order, [])   # 反映できない答えは記録しない
+
 
 if __name__ == "__main__":
     unittest.main()

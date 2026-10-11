@@ -8,7 +8,8 @@
      media = {url: 'transcribe/media?id=…'(入口の直下からの相対。絶対パス・ほかのサイトは断る) | youtube: '<動画 id 11 文字>', start, end, pad}(秒。pad 既定 0)
      opt   = {text(字幕 1 行), wave(true = 波形の帯), docId(波形の文書 id), autoplay(既定 true = 出したら自動で再生)}
    手 = {media() = <video> か null(埋め込み), play(), stop(), ended() = 区間の終わりまで 1 度は再生したか, onEnded(fn), range() = [頭, 末](再生する窓),
-         marks() = [行の始まり, 行の終わり], setMarks(a, b)(波形の頭・末の印を動かす = 時刻のカード), destroy()}
+         marks() = [行の始まり, 行の終わり], setMarks(a, b)(波形の頭・末の印を動かす = 時刻のカード),
+         setGuides([頭, 末] | null)(波形に点線の参考の印 = 単語の時刻の候補。時刻のカード), destroy()}
    CSP(script-src 'self')の下で動く。色は ui-kit のトークンを読む(固定の色を書かない) */
 (function () {
   'use strict';
@@ -90,7 +91,7 @@
     }
 
     /* ---- 波形(区間 win だけ。頭・末の印 mk と再生位置)---- */
-    var peaks = null, rate = 100;
+    var peaks = null, rate = 100, guides = null;
     function drawWave() {
       var cv = el.querySelector('[data-chk-wave]');
       if (!cv) return;
@@ -114,6 +115,11 @@
       }
       g.fillStyle = cssVar('--accent', 'blue');
       g.fillRect(x(mk[0]) - 1, 0, 2, h); g.fillRect(x(mk[1]) - 1, 0, 2, h);
+      if (guides) {   // 単語の時刻の候補(点線)
+        g.strokeStyle = cssVar('--ink-2', 'gray'); g.lineWidth = 1; g.setLineDash([3, 3]);
+        guides.forEach(function (t) { g.beginPath(); g.moveTo(Math.round(x(t)) + 0.5, 0); g.lineTo(Math.round(x(t)) + 0.5, h); g.stroke(); });
+        g.setLineDash([]);
+      }
       if (video) { g.fillStyle = cssVar('--playhead', 'red'); g.fillRect(x(video.currentTime || 0), 0, 1, h); }
     }
     function loadPeaks(tries) {
@@ -149,6 +155,7 @@
       range: function () { return win.slice(); },
       marks: function () { return mk.slice(); },
       setMarks: function (s, e) { s = num(s, mk[0]); e = num(e, mk[1]); if (e >= s) { mk = [s, e]; if (wave) drawWave(); } },
+      setGuides: function (v) { guides = Array.isArray(v) && v.length === 2 && isFinite(+v[0]) && isFinite(+v[1]) ? [+v[0], +v[1]] : null; if (wave) drawWave(); },
       destroy: function () {
         gone = true; endFns = [];
         cancelAnimationFrame(raf); clearTimeout(timer);
