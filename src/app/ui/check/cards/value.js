@@ -8,7 +8,10 @@
     adopt: '70 点以上として数え、書き出して案件の切り抜きに足します', reject: '70 点未満として数えます' };
   CheckCards.define('value', CheckCards.simple({
     question: function () { return '切り抜く価値があるか(70 点以上か)?'; },
-    body: function (card) { return card.text ? '<p>' + UIKit.esc(card.text) + '</p>' : ''; },
+    body: function (card) {
+      var s = typeof card.score === 'number' && isFinite(card.score) ? '<p class="hint">機械の点数: ' + Math.round(card.score) + '</p>' : '';
+      return (card.text ? '<p>' + UIKit.esc(card.text) + '</p>' : '') + s;
+    },
     options: function (card) {
       var o = Array.isArray(card.options) && card.options.length === 2 ? card.options : (card.source === 'auto' ? ['send', 'drop'] : ['adopt', 'reject']);
       return [{ k: 'A', label: LABEL[o[0]] || String(o[0]), primary: true, answer: { choice: o[0] }, title: TITLE[o[0]] || '' },

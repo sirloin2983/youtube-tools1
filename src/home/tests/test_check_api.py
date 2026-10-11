@@ -106,6 +106,23 @@ class CheckApiTest(TL.Base):
         self.assertEqual((st, j6["flushed"]), (200, []))
         self.assertTrue(os.path.isfile(answerlog.answers_path(os.path.dirname(self.sup.logs_dir))))   # app/check/answers.jsonl
 
+    def test_value_card_wiring(self):
+        """価値のカードの反映が入口の hooks(auto_review・studio)につながっている(V2a)"""
+        self.assertTrue(apply.registered("value", "auto") and apply.registered("value", "cand"))
+        ctx = self.srv.check_ctx()
+        code, j = ctx.hook("auto_review")({"op": "discard", "id": "abcdefghijk", "markId": "nope"})
+        self.assertEqual((code, j["error"]), (404, "not_found"))   # 一覧に無い切り抜き = 今の POST /api/cases/auto と同じ答え
+        orig = dict(sources._SOURCES)
+        sources.register("value", "auto", lambda view: [{"id": "value:auto:abcdefghijk#a1", "kind": "value", "source": "auto", "case": {"id": "abcdefghijk", "title": "t"},
+                                                         "target": {"videoId": "abcdefghijk", "markId": "a1", "docId": None, "row": None}, "media": {}, "text": "", "guess": None,
+                                                         "options": ["send", "drop"], "score": 80, "note": "", "_order": [0]}])
+        self.addCleanup(lambda: (sources._SOURCES.clear(), sources._SOURCES.update(orig), deck.invalidate()))
+        deck.invalidate()
+        st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "adopt"}})
+        self.assertEqual((st, j["error"]), (400, "bad_request"))
+        st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "drop"}})
+        self.assertEqual((st, j["error"]), (404, "not_found"))   # 反映できなければ記録しない
+
     def test_not_ready(self):
         sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
         self.addCleanup(sources.unregister, "time", "tst")

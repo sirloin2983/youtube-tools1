@@ -47,7 +47,8 @@ FILES = {
     "src/eval/check/sources.py": ("eval", "eval/check", "カードの出どころの登録と V0 の 5 つ(value:auto・value:cand・read:fill・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),
     "src/eval/check/deck.py": ("eval", "eval/check", "GET /api/check/next の組み立てと、答える前にカードを引き直す find(sources + lineup + goals + 答えの記録)"),
     "src/human/check/answerlog.py": ("human", "human/check", "確かめるの答えの記録 app/check/answers.jsonl(答え・確定・戻す)と skip.json の読み書き(ytt だけを読む)"),
-    "src/human/check/apply.py": ("human", "human/check", "答えを実物へ反映する土台(種類と出どころごとの register・1 枚遅れの保留と flush・Z の undo・skip。④ の操作は入口が hooks で渡す)"),
+    "src/human/check/value.py": ("human", "human/check", "価値のカード(value:auto = 届ける・要らない(auto_review の口)/ value:cand = 採用 + 書き出しを頼む・不採用(studio の口))の反映の登録(V2a)"),
+    "src/human/check/apply.py":("human", "human/check", "答えを実物へ反映する土台(種類と出どころごとの register・1 枚遅れの保留と flush・Z の undo・skip。④ の操作は入口が hooks で渡す)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
     "src/pipeline/analyze/fetch.py": ("pipeline", "pipeline/analyze", "解析の材料を取ってくる仕事(音声のダウンロード・チャットの取得と先読み・コメント欄・付加情報)とそのキャッシュの掃除(OPT2。analyze.py から分けた)"),
     "src/pipeline/pack/request.py": ("pipeline", "pipeline/pack", "パックの指定(spec・output)-> pack.Request と build_pack の引数の 1 か所(OPT2。cut2resolve の API と flow/tools の LocalTools が呼ぶ。検査は API の厳しさ)"),

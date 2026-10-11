@@ -144,6 +144,7 @@ def _scene_open(cx):
     check(fq.next_q and fq.next_q[0].get("c") == ["v1"] and fq.next_q[0].get("kind") == ["value"] and fq.next_q[0].get("n") == ["10"],
           "URL の c・kind を口へ渡し、10 枚を先に読む: %s" % (fq.next_q[:1],))
     check(pg.text_content("#chkToday") == "0", "帯: 今日 0 件")
+    check("機械の点数: 82" in pg.text_content("#chkBody"), "価値のカード: 字幕と機械の点数が出る: %r" % pg.text_content("#chkBody")[:80])
     goal = pg.text_content("#chkGoal")
     check("C1 盛り上がりの重み(I-4a)" in goal and "あと 2 本" in goal and "採用の記録 配信 10 本" in goal, "帯: この確認で決まる物とあと何本: %r" % goal)
     check("切り抜く価値があるか" in pg.text_content("#chkKind") and "自動で採った" in pg.text_content("#chkKind"), "カードの種類と出どころの札")
@@ -268,7 +269,7 @@ def _scene_narrow(cx):
 
 def fixture_cards():
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
-    cards = [card(i, "value", options=["send", "drop"]) for i in (1, 2, 3)]
+    cards = [card(i, "value", options=["send", "drop"], score=82.4 if i == 1 else None) for i in (1, 2, 3)]
     cards.append(card(4, "read", source="fill", guess="1", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]))
     cards.append(card(5, "voice", source="diar", media=vid, guess={"id": "B", "name": "配信者 B"},
                       options=[{"id": "A", "name": "配信者 A"}, {"id": "B", "name": "配信者 B"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]))
