@@ -5,17 +5,45 @@
 呼ぶたびに読む(テストの S.STUDIO_DATA = … が効く)。スタジオのデータは書き換えない。
 読む側は呼ぶたびに studiodata.名前 で読む(テストの S.studio_stream の差し替えは編集の serve の名前の受付がここへ届ける)。
 """
-from . import fsio as _fsio, workdata as _workdata
+import logging
+
+from . import casefiles as _casefiles, errors as _errors, fsio as _fsio, workdata as _workdata
+
+_log = logging.getLogger("ytt.studiodata")
 
 STUDIO_JSON_MAX = 64 * 1024 * 1024   # 読む上限(スタジオの data.json・旧マーカーなど他のツールが書く JSON の上限の 1 か所。これより大きいものは読めない扱い)
 SCHEMA = "clip-studio/v1"
 
 
+def _case_row(vid, row):
+    """案件にした配信(行が case = 案件の根を持つ)-> 案件の 候補.json・採用.json を重ねた全部の形(行の marks は見ない。RS8 B3-4a)。
+    案件が見えない(ドライブが外れた・フォルダが消えた・ファイルが壊れた・採用.json にこの配信が無い)ときは、索引の行に
+    caseUnseen: true と marks 空の形を足して返す(一覧の行は出す。書く側は 503 にする)。ファイルの更新日時と大きさが同じなら読み直さない"""
+    root = row.get("case")
+    if not isinstance(root, str) or not root:
+        return row
+    try:
+        cands, adopts = _casefiles.read(root, cached=True)
+        v = _casefiles.merge(cands, adopts, str(vid), root)
+    except _errors.ApiError as e:
+        _log.info("案件を読めません: %s %s", getattr(e, "code", ""), root)
+        v = None
+    if v is None:
+        return dict(row, marks=[], duration=row.get("duration") or 0.0, analysis=None, caseUnseen=True)
+    v["case"] = root
+    return v
+
+
 def read(path=None):
     """スタジオの data.json(path を省くと workdata.STUDIO_DATA)を読む。-> dict か None(無い・読めない・大きすぎる・JSON の最上位が dict でない)。
-    data.json を直に読む所はここを通す(のち data.json が索引 + 案件のファイルに分かれたとき、この中だけを直す)"""
+    data.json を直に読む所はここを通す。videos の行が case(案件の根)を持つ配信は、案件の候補.json・採用.json を重ねた全部の形にして返す(B3-4a)"""
     d = _fsio.read_json_or(path if path else _workdata.STUDIO_DATA, None, max_bytes=STUDIO_JSON_MAX)
-    return d if isinstance(d, dict) else None
+    if not isinstance(d, dict):
+        return None
+    vids = d.get("videos")
+    if isinstance(vids, dict) and any(isinstance(v, dict) and v.get("case") for v in vids.values()):
+        d["videos"] = {k: (_case_row(k, v) if isinstance(v, dict) else v) for k, v in vids.items()}
+    return d
 
 
 def load_all(path=None):

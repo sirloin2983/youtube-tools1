@@ -24,7 +24,7 @@ if not __package__:   # スクリプトとして起動したとき(py -3.10 src/
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・読み方。src を sys.path に足す)
 from flow import casebook  # noqa: E402
 from human.review import store as _store  # noqa: E402
-from ytt import datadir, fsio, marks as _marks  # noqa: E402
+from ytt import casefiles, datadir, fsio, marks as _marks  # noqa: E402
 
 SCHEMA = "youtube-tools-casebook-eval/v1"
 DATA_BYTES = 256 * 2**20
@@ -35,8 +35,8 @@ REASONS = {"fields": "配信の欄が違う", "count": "マークの数が違う
 def _through_json(docs):
     """ファイルに書いて読んだつもり(JSON の往復 + parse_*)"""
     c, a = docs
-    return (casebook.parse_candidates(json.loads(json.dumps(c, ensure_ascii=False))),
-            casebook.parse_adoptions(json.loads(json.dumps(a, ensure_ascii=False))))
+    return (casefiles.parse_candidates(json.loads(json.dumps(c, ensure_ascii=False))),
+            casefiles.parse_adoptions(json.loads(json.dumps(a, ensure_ascii=False))))
 
 
 def diff_reasons(want, got):
@@ -117,9 +117,9 @@ def evaluate(data_dir=None, out_dir=None, ids=None, show=10):
             res["candidateMarks"] += len(cs.get("auto") or [])
             res["pinned"] += sum(1 for m in adopts["marks"] if m["source"] == v["id"] and m.get("src") == "auto" and not _marks.touched(m))
             res["ordered"] += 1 if adopts["sources"].get(v["id"], {}).get("order") else 0
-            reasons = diff_reasons(v, casebook.merge(cands, adopts, v["id"], root))
+            reasons = diff_reasons(v, casefiles.merge(cands, adopts, v["id"], root))
             kc, ka = _through_json(casebook.split(v, root, prev=(cands, adopts), keep_candidates=True))
-            if diff_reasons(v, casebook.merge(kc, ka, v["id"], root)):
+            if diff_reasons(v, casefiles.merge(kc, ka, v["id"], root)):
                 reasons.append(("keep", ""))
             if len(ka["rejected"]) != len(adopts["rejected"]):
                 reasons.append(("keepRejected", "%d -> %d" % (len(adopts["rejected"]), len(ka["rejected"]))))

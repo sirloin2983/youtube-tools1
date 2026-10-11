@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 案件の候補と採用のファイルの持ち主(RS8 B3-3。決定 3-37 の (r8j)〜(r8q)。下調べは WORKLOG の 10-11)。
+"""② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q)。下調べは WORKLOG の 10-11)。
 
+**読む側・形・重ね方・ロックは ytt/casefiles(B3-4a で下ろした。ytt/studiodata が data.json の行の case から読むため)。ここは分ける split・案件の引き方 case_of・書く write**。
 スタジオの配信 1 本(data.json の videos の 1 つの形)を、案件のフォルダの 2 つのファイルに分けて持つための読み書きと、分ける・重ねるの関数。
-**今の保存の経路にはまだ入れていない**(スタジオの Store を替えるのは B3-4)。
+読む側は ytt/casefiles(B3-4a)・保存の経路に入れるのは B3-4b。
 
 - `<案件>/作業用/候補.json`(CANDIDATES_SCHEMA。① の機械の候補): {schema, sources: {<スタジオの id>: {analysis, duration, auto: [手つかずの自動マーク]}}}
 - `<案件>/作業用/採用.json`(ADOPTIONS_SCHEMA。③ の人の採用): {schema, sources: {<スタジオの id>: {kind, title, channel, fileName, path, rev,
@@ -17,73 +18,23 @@
 - 案件の引き方 `case_of`: 書き出したマークの path の親(作業用/ の中なら 1 つ上)で、作業用/.studio-id の持ち主がその配信のもの・
   書き出し先(outDir)の下・書き出し先が固定ディスク・ネットワーク上でない(flow/placement の doc_home と同じ規則)。
   1 つに決まらなければ None(題で探さない・勝手に直さない((r8o)))
-- 読み書き `read`・`write`: 案件の根を受ける。書く順は 採用 → 候補・どちらも fsio.write_json で原子的・採用.json だけ .bak 1 世代
-  (今の採用.json が読めるときだけ写す。読めなければ .broken-<日時> へ退けて .bak を守る)・パスごとのロック `lock(root)`。
+- 読み `ytt/casefiles.read`・書き `write`: 案件の根を受ける。書く順は 採用 → 候補・どちらも fsio.write_json で原子的・採用.json だけ .bak 1 世代
+  (今の採用.json が読めるときだけ写す。読めなければ .broken-<日時> へ退けて .bak を守る)・パスごとのロック `casefiles.lock(root)`(Store.lock のあとに取る。逆の順は作らない。casebook.lock を持ったままスタジオの API を呼ばない)。
   置き場所が見えない(ドライブが外れた・フォルダが消えた・ネットワーク上)ときは ytt/docloc と同じ 503 の形(code case_unseen)で断る
 """
 import copy
 import logging
 import os
 import shutil
-import threading
 import time
 
-from ytt import datadir as _datadir, errors as _errors, fsio as _fsio, marks as _marks, names as _names, schemas as _schemas
+from ytt import casefiles as _cf, datadir as _datadir, errors as _errors, fsio as _fsio, marks as _marks, names as _names, schemas as _schemas
+from ytt.casefiles import (ADOPTIONS_NAME, ADOPTIONS_SCHEMA, CANDIDATES_NAME, CANDIDATES_SCHEMA, MAX_REJECTED, empty_adoptions,
+                           empty_candidates, lock, need_root, work_path, visible)
 
 log = logging.getLogger("ytt.flow.casebook")
 
-CANDIDATES_NAME = "候補.json"
-ADOPTIONS_NAME = "採用.json"
-CANDIDATES_SCHEMA = "youtube-tools-candidates/v1"
-ADOPTIONS_SCHEMA = "youtube-tools-adoptions/v1"
-MAX_BYTES = 16 * 2**20          # 読むときの大きさの上限(data.json の配信 1 本ぶんより十分大きい)
-MAX_REJECTED = _marks.MAX_MARKS  # 1 つの配信の消した印の上限(古い物から捨てる)
-UNSEEN_CODE = "case_unseen"     # 置き場所が見えないときの ApiError の code(503。ytt/docloc の doc_unseen と同じ形)
-BROKEN_CODE = "case_broken"     # 採用.json も .bak も読めないときの ApiError の code(500)
-KINDS = ("youtube", "file", "live")
 _VIDEO_OWN = ("id", "marks", "analysis", "duration")   # 配信の欄のうち 採用.json の sources に写さない物(id は鍵・残りは別の持ち主)
-
-_locks = {}
-_locks_guard = threading.Lock()
-
-
-# ---------------------------------------------------------------- 置き場所
-def work_path(root, name):
-    """<案件の根>/作業用/<name>"""
-    return os.path.join(root, _schemas.WORK_DIR, name)
-
-
-def lock(root):
-    """案件ごとのロック(同じプロセスの中。RLock なので read・write を包んで読み → 書きを 1 つにできる)"""
-    key = _fsio.norm_path(root)
-    with _locks_guard:
-        lk = _locks.get(key)
-        if lk is None:
-            lk = _locks[key] = threading.RLock()
-        return lk
-
-
-def _remote(p):
-    return _fsio.is_network_path(p) or _fsio.is_remote_drive(p)
-
-
-def problem(root):
-    """案件の根として使えないなら理由の文字列、使えるなら None(絶対パス・ネットワーク上でない・フォルダが見える)。
-    ネットワーク上のパスは名前だけで断る(存在を調べるだけで資格情報を送ってしまうため)"""
-    if not isinstance(root, str) or not root or not os.path.isabs(root):
-        return "絶対パスではない"
-    if _remote(root):
-        return "ネットワーク上のパス"
-    if not os.path.isdir(root):
-        return "フォルダが見えない"
-    return None
-
-
-def _need_root(root):
-    why = problem(root)
-    if why:
-        raise _errors.ApiError(UNSEEN_CODE, "案件のフォルダが見えません(%s)。ドライブをつないでから、もう一度試してください" % why,
-                               503, {"dir": str(root or ""), "reason": why})
 
 
 def owners(video):
@@ -106,13 +57,13 @@ def case_of(video, out_dir=None):
     書き出し先が固定ディスクでネットワーク上でない、を満たすものが 1 つだけのとき。読むだけ(作らない・書かない)。題で探さない"""
     try:
         out = out_dir or _datadir.studio_out_dir()
-        if not isinstance(out, str) or not os.path.isabs(out) or _remote(out) or not _fsio.is_fixed_drive(out):
+        if not isinstance(out, str) or not os.path.isabs(out) or _cf.is_remote(out) or not _fsio.is_fixed_drive(out):
             return None
         want = owners(video)
         seen, good = set(), []
         for m in video.get("marks") or ():
             p = m.get("path") if isinstance(m, dict) and m.get("status") == "exported" else None
-            if not isinstance(p, str) or not p or not os.path.isabs(p) or _remote(p):
+            if not isinstance(p, str) or not p or not os.path.isabs(p) or _cf.is_remote(p):
                 continue
             root = os.path.normpath(_schemas.media_folder(p))
             key = _fsio.norm_path(root)
@@ -126,149 +77,6 @@ def case_of(video, out_dir=None):
         log.info("案件を引けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
         return None
 
-
-# ---------------------------------------------------------------- パス(案件の根からの相対)
-def _abs(path, root):
-    """相対のパス(区切り /)-> 案件の根の下の絶対パス。根の外に出るなら None。root が無い・絶対パス・空ならそのまま"""
-    if not root or not isinstance(path, str) or not path or os.path.isabs(path):
-        return path
-    p = os.path.normpath(os.path.join(root, path))
-    return p if _fsio.is_inside(p, root, strict=True) else None
-
-
-def _rel(path, root):
-    """絶対パス -> 案件の根からの相対(区切り /)。根の下でない・正規化されていない・戻すと同じ文字にならないなら、そのまま(往復で変えない)"""
-    if not root or not isinstance(path, str) or not path or not os.path.isabs(path) or os.path.normpath(path) != path:
-        return path
-    if not _fsio.is_inside(path, root, strict=True):
-        return path
-    try:
-        rel = os.path.relpath(path, root).replace(os.sep, "/")
-    except ValueError:
-        return path
-    return rel if not rel.startswith("..") and _abs(rel, root) == path else path
-
-
-# ---------------------------------------------------------------- 形
-def empty_candidates():
-    return {"schema": CANDIDATES_SCHEMA, "sources": {}}
-
-
-def empty_adoptions():
-    return {"schema": ADOPTIONS_SCHEMA, "sources": {}, "marks": [], "rejected": [], "status": "", "memo": ""}
-
-
-def _sid_ok(sid):
-    return isinstance(sid, str) and bool(_marks.ID_RE.match(sid))
-
-
-def parse_candidates(d):
-    """読んだ 候補.json -> 整えた形か None(形が違う)。壊れたマーク・id の形が違う配信は読み飛ばす(ytt/marks.load_marks)"""
-    if not isinstance(d, dict) or d.get("schema") != CANDIDATES_SCHEMA or not isinstance(d.get("sources"), dict):
-        return None
-    out = empty_candidates()
-    for sid, s in d["sources"].items():
-        if not _sid_ok(sid) or not isinstance(s, dict):
-            continue
-        dur = _marks.fnum(s.get("duration"))
-        an = s.get("analysis")
-        out["sources"][sid] = {"analysis": an if isinstance(an, dict) else None, "duration": dur if dur is not None and dur >= 0 else 0.0,
-                               "auto": _marks.load_marks(s.get("auto"))}
-    return out
-
-
-def _rejected_entry(r):
-    """消した印 1 件を整える。形が違えば None"""
-    if not isinstance(r, dict) or not _sid_ok(r.get("source")):
-        return None
-    s, e = _marks.fnum(r.get("start")), _marks.fnum(r.get("end"))
-    if s is None or e is None or e <= s:
-        return None
-    out = {"source": r["source"], "id": r["id"] if _sid_ok(r.get("id")) else "", "start": round(s, 1), "end": round(e, 1),
-           "at": _marks.ms_or_now(r.get("at"))}
-    return out
-
-
-def parse_adoptions(d):
-    """読んだ 採用.json -> 整えた形か None(形が違う)。sources にない配信のマーク・壊れたマーク・壊れた印は読み飛ばす"""
-    if not isinstance(d, dict) or d.get("schema") != ADOPTIONS_SCHEMA or not isinstance(d.get("sources"), dict) \
-            or not isinstance(d.get("marks"), list):
-        return None
-    out = empty_adoptions()
-    for sid, s in d["sources"].items():
-        if not _sid_ok(sid) or not isinstance(s, dict) or s.get("kind") not in KINDS:
-            continue
-        src = copy.deepcopy(s)
-        order = src.get("order")
-        if order is not None and not (isinstance(order, list) and all(isinstance(x, str) for x in order)):
-            src.pop("order")
-        out["sources"][sid] = src
-    by_src = {}
-    for m in d["marks"]:
-        if isinstance(m, dict) and m.get("source") in out["sources"]:
-            by_src.setdefault(m["source"], []).append({k: v for k, v in m.items() if k != "source"})
-    for sid, ms in by_src.items():
-        out["marks"] += [dict(m, source=sid) for m in _marks.load_marks(ms)]
-    rej = d.get("rejected") if isinstance(d.get("rejected"), list) else []
-    out["rejected"] = [r for r in map(_rejected_entry, rej) if r is not None and r["source"] in out["sources"]]
-    out["status"] = d["status"][:40] if isinstance(d.get("status"), str) else ""
-    out["memo"] = d["memo"][:4000] if isinstance(d.get("memo"), str) else ""
-    return out
-
-
-# ---------------------------------------------------------------- 重ねる・分ける
-def _hidden_by(c, adopted, adopted_ids, rejected):
-    """候補 c が画面に出ないか(採用と同じ id・採用と same・消した印の id か similar)"""
-    if c["id"] in adopted_ids or any(_marks.same(c, a) for a in adopted):
-        return True
-    return any((r.get("id") and r["id"] == c["id"]) or _marks.similar(c, r) for r in rejected)
-
-
-def visible(pool, adopted, rejected):
-    """候補 pool のうち画面に出る物(pool の並びのまま)"""
-    ids = {a["id"] for a in adopted}
-    return [c for c in pool if not _hidden_by(c, adopted, ids, rejected)]
-
-
-def _ordered(marks, order):
-    """画面の並び: order(id の並び)があればその順・order に無い id は後ろに時刻の順。無ければ時刻の順(同じ時刻は元の並び)"""
-    if not order:
-        return sorted(marks, key=_marks.by_time)
-    idx = {mid: i for i, mid in enumerate(order)}
-    known = sorted((m for m in marks if m["id"] in idx), key=lambda m: idx[m["id"]])
-    return known + sorted((m for m in marks if m["id"] not in idx), key=_marks.by_time)
-
-
-def merge(candidates, adoptions, source_id, root=None):
-    """2 つを重ねて data.json の配信 1 本の形に戻す。採用.json に source_id が無ければ None。
-    root(案件の根)を渡すと、相対の path を絶対に戻す(根の外を指す path は外す)"""
-    adoptions = adoptions or empty_adoptions()
-    src = adoptions["sources"].get(source_id)
-    if src is None:
-        return None
-    cs = (candidates or empty_candidates())["sources"].get(source_id) or {}
-    adopted = []
-    for m in adoptions["marks"]:
-        if m.get("source") != source_id:
-            continue
-        a = {k: copy.deepcopy(v) for k, v in m.items() if k != "source"}
-        if "path" in a:
-            p = _abs(a["path"], root)
-            if p is None:
-                a.pop("path")
-            else:
-                a["path"] = p
-        adopted.append(a)
-    rejected = [r for r in adoptions.get("rejected") or () if r.get("source") == source_id]
-    shown = copy.deepcopy(visible(cs.get("auto") or [], adopted, rejected))
-    video = {k: copy.deepcopy(v) for k, v in src.items() if k != "order"}
-    video["id"] = source_id
-    if video.get("path"):
-        video["path"] = _abs(video["path"], root) or ""
-    video["duration"] = cs.get("duration") or 0.0
-    video["analysis"] = copy.deepcopy(cs.get("analysis"))
-    video["marks"] = _ordered(adopted + shown, src.get("order"))
-    return video
 
 
 def _rejected_of(c, sid, at):
@@ -311,13 +119,13 @@ def split(video, root=None, prev=None, keep_candidates=False, at=None):
         cand_ids -= bad
     src = {k: copy.deepcopy(v) for k, v in video.items() if k not in _VIDEO_OWN}
     if src.get("path"):
-        src["path"] = _rel(src["path"], root)
+        src["path"] = _cf.rel_path(src["path"], root)
     shown = [c for c in pool if c["id"] in cand_ids]
-    if [m["id"] for m in _ordered(adopted + shown, None)] != [m["id"] for m in marks]:
+    if [m["id"] for m in _cf.ordered(adopted + shown, None)] != [m["id"] for m in marks]:
         src["order"] = [m["id"] for m in marks]
     for m in adopted:
         if m.get("path"):
-            m["path"] = _rel(m["path"], root)
+            m["path"] = _cf.rel_path(m["path"], root)
         m["source"] = sid
     adopts["sources"][sid] = src
     adopts["marks"] += adopted
@@ -325,36 +133,6 @@ def split(video, root=None, prev=None, keep_candidates=False, at=None):
     cands["sources"][sid] = {"analysis": copy.deepcopy(video.get("analysis")), "duration": video.get("duration") or 0.0,
                              "auto": pool if keep_candidates else shown}
     return cands, adopts
-
-
-# ---------------------------------------------------------------- 読み書き
-def _read_doc(path, parse):
-    """(整えた中身か None, ファイルがあるか)"""
-    if not os.path.exists(path):
-        return None, False
-    raw = _fsio.read_json_or(path, None, MAX_BYTES, kind=dict, allow_nan=True)
-    return (parse(raw) if raw is not None else None), True
-
-
-def read(root):
-    """案件の (候補, 採用) を読む(無いファイルは空の形)。置き場所が見えなければ ApiError 503(case_unseen)。
-    候補.json が壊れていれば空(ログに 1 行。① が作り直せる)。採用.json が壊れていれば .bak を使い(ログ)、.bak も読めなければ ApiError 500(case_broken)
-    = 人の採用を空と取り違えて上書きしない"""
-    with lock(root):
-        _need_root(root)
-        cp, ap = work_path(root, CANDIDATES_NAME), work_path(root, ADOPTIONS_NAME)
-        cands, there = _read_doc(cp, parse_candidates)
-        if cands is None:
-            if there:
-                log.warning("候補.json が読めないので空として扱います: %s", cp)
-            cands = empty_candidates()
-        adopts, there = _read_doc(ap, parse_adoptions)
-        if adopts is None and there:
-            adopts, _ = _read_doc(ap + ".bak", parse_adoptions)
-            if adopts is None:
-                raise _errors.ApiError(BROKEN_CODE, "案件の採用の記録(採用.json)が壊れていて、控え(.bak)も読めません", 500, {"path": ap})
-            log.warning("採用.json が読めないので 1 つ前の控え(.bak)を使います: %s", ap)
-        return cands, adopts or empty_adoptions()
 
 
 def _set_aside(path):
@@ -376,12 +154,12 @@ def write(root, candidates=None, adoptions=None):
         if doc is not None and (not isinstance(doc, dict) or doc.get("schema") != schema):
             raise ValueError("案件のファイルの形が違います(%s)" % schema)
     with lock(root):
-        _need_root(root)
+        need_root(root)
         try:
             if adoptions is not None:
                 ap = work_path(root, ADOPTIONS_NAME)
                 if os.path.exists(ap):
-                    if _read_doc(ap, parse_adoptions)[0] is not None:
+                    if _cf.read_doc(ap, _cf.parse_adoptions)[0] is not None:
                         try:
                             shutil.copyfile(ap, ap + ".bak")   # 1 つ前の世代(できなくても保存は続ける)
                         except OSError as e:

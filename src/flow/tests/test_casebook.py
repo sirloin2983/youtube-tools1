@@ -17,7 +17,7 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
 from flow import casebook as CB  # noqa: E402
-from ytt import errors, marks as M, names, schemas  # noqa: E402
+from ytt import casefiles as CF, errors, studiodata, marks as M, names, schemas  # noqa: E402
 
 VID = "vidAAAAAAAA"
 REC = "20261011-120000"
@@ -45,7 +45,7 @@ def video(marks, vid=VID, **kw):
 
 def through_json(docs):
     c, a = docs
-    return CB.parse_candidates(json.loads(json.dumps(c, ensure_ascii=False))), CB.parse_adoptions(json.loads(json.dumps(a, ensure_ascii=False)))
+    return CF.parse_candidates(json.loads(json.dumps(c, ensure_ascii=False))), CF.parse_adoptions(json.loads(json.dumps(a, ensure_ascii=False)))
 
 
 class SplitMergeTest(unittest.TestCase):
@@ -55,8 +55,8 @@ class SplitMergeTest(unittest.TestCase):
 
     def test_split_border_is_touched(self):
         c, a = CB.split(self.sample())
-        self.assertEqual(c["schema"], CB.CANDIDATES_SCHEMA)
-        self.assertEqual(a["schema"], CB.ADOPTIONS_SCHEMA)
+        self.assertEqual(c["schema"], CF.CANDIDATES_SCHEMA)
+        self.assertEqual(a["schema"], CF.ADOPTIONS_SCHEMA)
         self.assertEqual([m["id"] for m in c["sources"][VID]["auto"]], ["a1", "a4"])
         self.assertEqual([m["id"] for m in a["marks"]], ["m1", "a2", "a3"])
         self.assertTrue(all(m["source"] == VID for m in a["marks"]))
@@ -68,18 +68,18 @@ class SplitMergeTest(unittest.TestCase):
 
     def test_round_trip(self):
         v = self.sample()
-        self.assertEqual(CB.merge(*through_json(CB.split(v)), VID), v)
+        self.assertEqual(CF.merge(*through_json(CB.split(v)), VID), v)
 
     def test_round_trip_keeps_unsorted_order(self):
         v = video([mark("m2", 500, 520), auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
         c, a = CB.split(v)
         self.assertEqual(a["sources"][VID]["order"], ["m2", "a1", "m1"])
-        self.assertEqual(CB.merge(*through_json((c, a)), VID), v)
+        self.assertEqual(CF.merge(*through_json((c, a)), VID), v)
 
     def test_round_trip_live(self):
         live = {"recorder": "rec1", "recording": REC, "url": "https://www.youtube.com/watch?v=" + VID, "videoId": VID}
         v = video([mark("m1", 5, 30, status="adopted", live=True)], vid=REC, kind="live", live=live, analysis=None, duration=0.0)
-        self.assertEqual(CB.merge(*through_json(CB.split(v)), REC), v)
+        self.assertEqual(CF.merge(*through_json(CB.split(v)), REC), v)
 
     def test_hidden_candidate_stays_on_adoption_side(self):
         """手つかずの自動マークが別のマークと same で重なっている(コラボ転写・手で足した)= 候補の側に置くと隠れるので採用の側に残す"""
@@ -87,22 +87,22 @@ class SplitMergeTest(unittest.TestCase):
         c, a = CB.split(v)
         self.assertEqual([m["id"] for m in c["sources"][VID]["auto"]], ["a2"])
         self.assertIn("a1", [m["id"] for m in a["marks"]])
-        self.assertEqual(CB.merge(*through_json((c, a)), VID), v)
+        self.assertEqual(CF.merge(*through_json((c, a)), VID), v)
 
     def test_merge_hides_same_and_same_id(self):
-        c = {"schema": CB.CANDIDATES_SCHEMA, "sources": {VID: {"analysis": None, "duration": 100.0,
+        c = {"schema": CF.CANDIDATES_SCHEMA, "sources": {VID: {"analysis": None, "duration": 100.0,
                                                               "auto": [auto("a1", 10, 40), auto("a2", 50, 60), auto("a3", 70, 80)]}}}
-        a = CB.empty_adoptions()
+        a = CF.empty_adoptions()
         a["sources"][VID] = {"kind": "youtube", "title": "", "channel": "", "fileName": "", "path": "", "rev": 1, "createdAt": 1, "updatedAt": 1}
         a["marks"] = [dict(mark("m1", 10.4, 39.6, status="adopted"), source=VID), dict(auto("a2", 52, 62, label="動かした"), source=VID)]
-        v = CB.merge(c, a, VID)
+        v = CF.merge(c, a, VID)
         self.assertEqual([m["id"] for m in v["marks"]], ["m1", "a2", "a3"])   # a1 は same・a2 は同じ id で採用の側が出る
         self.assertEqual(v["marks"][1]["start"], 52)
-        self.assertIsNone(CB.merge(c, a, "otherAAAAAA"))
+        self.assertIsNone(CF.merge(c, a, "otherAAAAAA"))
 
     def test_merge_without_candidates(self):
         a = CB.split(self.sample())[1]
-        v = CB.merge(None, a, VID)
+        v = CF.merge(None, a, VID)
         self.assertEqual([m["id"] for m in v["marks"]], ["m1", "a2", "a3"])
         self.assertEqual(v["duration"], 0.0)
         self.assertIsNone(v["analysis"])
@@ -115,14 +115,14 @@ class SplitMergeTest(unittest.TestCase):
         docs = CB.split(v2, prev=docs)
         c, a = through_json(docs)
         self.assertEqual(set(a["sources"]), {REC, VID})
-        self.assertEqual(CB.merge(c, a, REC), v1)
-        self.assertEqual(CB.merge(c, a, VID), v2)
+        self.assertEqual(CF.merge(c, a, REC), v1)
+        self.assertEqual(CF.merge(c, a, VID), v2)
         # 片方を分け直しても、もう片方はそのまま
         v2b = copy.deepcopy(v2)
         v2b["marks"][1]["status"] = "rejected"
         c2, a2 = through_json(CB.split(v2b, prev=(c, a)))
-        self.assertEqual(CB.merge(c2, a2, REC), v1)
-        self.assertEqual(CB.merge(c2, a2, VID), v2b)
+        self.assertEqual(CF.merge(c2, a2, REC), v1)
+        self.assertEqual(CF.merge(c2, a2, VID), v2b)
         self.assertEqual(sum(1 for m in a2["marks"] if m["source"] == VID), 1)
 
 
@@ -138,22 +138,22 @@ class RejectedTest(unittest.TestCase):
         c2, a2 = CB.split(v2, prev=docs, keep_candidates=True, at=1800000000000)
         self.assertEqual(c2, docs[0])   # ① の候補は書き換えない
         self.assertEqual(a2["rejected"], [{"source": VID, "id": "a1", "start": 100.0, "end": 140.0, "at": 1800000000000}])
-        self.assertEqual(CB.merge(*through_json((c2, a2)), VID), v2)
+        self.assertEqual(CF.merge(*through_json((c2, a2)), VID), v2)
         # 再解析で時刻が少しずれた(id も新しい)候補にも当たる
         c3 = copy.deepcopy(c2)
         c3["sources"][VID]["auto"] = [auto("b1", 102.5, 143), auto("b2", 300, 340), auto("b3", 700, 720)]
-        shown = [m["id"] for m in CB.merge(c3, a2, VID)["marks"]]
+        shown = [m["id"] for m in CF.merge(c3, a2, VID)["marks"]]
         self.assertEqual(shown, ["b2", "m1", "b3"])
         # 離れすぎ(±5 秒を超える)なら当たらない
         c3["sources"][VID]["auto"] = [auto("b1", 106, 146)]
-        self.assertIn("b1", [m["id"] for m in CB.merge(c3, a2, VID)["marks"]])
+        self.assertIn("b1", [m["id"] for m in CF.merge(c3, a2, VID)["marks"]])
 
     def test_keep_candidates_without_change_adds_nothing(self):
         v = self.base()
         docs = through_json(CB.split(v))
         c2, a2 = CB.split(v, prev=docs, keep_candidates=True)
         self.assertEqual(a2["rejected"], [])
-        self.assertEqual(CB.merge(c2, a2, VID), v)
+        self.assertEqual(CF.merge(c2, a2, VID), v)
 
     def test_marks_carry_over_on_reanalysis_split(self):
         """候補を作り直す split(keep_candidates なし)でも、前の消した印は残る。印に当たる新しい候補は採用の側に残して往復は崩さない"""
@@ -165,7 +165,7 @@ class RejectedTest(unittest.TestCase):
         v3 = video([auto("b1", 101, 141), mark("m1", 500, 520, status="adopted")])   # 再解析の後の画面(まだ b1 が出ている形)
         c3, a3 = CB.split(v3, prev=docs2)
         self.assertEqual(len(a3["rejected"]), 1)
-        self.assertEqual(CB.merge(*through_json((c3, a3)), VID), v3)
+        self.assertEqual(CF.merge(*through_json((c3, a3)), VID), v3)
 
 
 class PathTest(unittest.TestCase):
@@ -188,22 +188,22 @@ class PathTest(unittest.TestCase):
         got = {m["id"]: m["path"] for m in a["marks"]}
         self.assertEqual(got["m1"], "01_x.mp4")
         self.assertEqual(got["m2"], outside)   # 根の外は絶対のまま
-        self.assertEqual(CB.merge(*through_json((c, a)), VID, self.root), v)
+        self.assertEqual(CF.merge(*through_json((c, a)), VID, self.root), v)
         # 案件のフォルダごと動かしても、新しい根で絶対パスに戻る
         moved = os.path.join(self.tmp, "moved")
-        self.assertEqual(CB.merge(c, a, VID, moved)["marks"][0]["path"], os.path.join(moved, "01_x.mp4"))
+        self.assertEqual(CF.merge(c, a, VID, moved)["marks"][0]["path"], os.path.join(moved, "01_x.mp4"))
 
     def test_file_video_path(self):
         src = os.path.join(self.root, "元.mp4")
         v = video([], kind="file", fileName="元.mp4", path=src)
         c, a = CB.split(v, self.root)
         self.assertEqual(a["sources"][VID]["path"], "元.mp4")
-        self.assertEqual(CB.merge(c, a, VID, self.root), v)
+        self.assertEqual(CF.merge(c, a, VID, self.root), v)
 
     def test_path_escaping_root_is_dropped(self):
         a = CB.split(video([self.exported("m1", 10, 40, os.path.join(self.root, "01.mp4"))]), self.root)[1]
         a["marks"][0]["path"] = "../../evil.mp4"
-        self.assertNotIn("path", CB.merge(None, a, VID, self.root)["marks"][0])
+        self.assertNotIn("path", CF.merge(None, a, VID, self.root)["marks"][0])
 
     def test_case_of(self):
         inside = os.path.join(self.root, "01_x.mp4")
@@ -241,32 +241,32 @@ class ReadWriteTest(unittest.TestCase):
         self.v = video([auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
 
     def path(self, name):
-        return CB.work_path(self.root, name)
+        return CF.work_path(self.root, name)
 
     def test_empty_when_missing(self):
-        c, a = CB.read(self.root)
-        self.assertEqual(c, CB.empty_candidates())
-        self.assertEqual(a, CB.empty_adoptions())
+        c, a = CF.read(self.root)
+        self.assertEqual(c, CF.empty_candidates())
+        self.assertEqual(a, CF.empty_adoptions())
 
     def test_write_then_read(self):
         c, a = CB.split(self.v, self.root)
         CB.write(self.root, c, a)
-        self.assertTrue(os.path.isfile(self.path(CB.CANDIDATES_NAME)))
-        self.assertFalse(os.path.exists(self.path(CB.ADOPTIONS_NAME) + ".bak"))   # 初めては控えなし
-        self.assertEqual(CB.merge(*CB.read(self.root), VID, self.root), self.v)
+        self.assertTrue(os.path.isfile(self.path(CF.CANDIDATES_NAME)))
+        self.assertFalse(os.path.exists(self.path(CF.ADOPTIONS_NAME) + ".bak"))   # 初めては控えなし
+        self.assertEqual(CF.merge(*CF.read(self.root), VID, self.root), self.v)
         a2 = copy.deepcopy(a)
         a2["memo"] = "メモ"
         CB.write(self.root, adoptions=a2)
-        with open(self.path(CB.ADOPTIONS_NAME) + ".bak", encoding="utf-8") as f:
+        with open(self.path(CF.ADOPTIONS_NAME) + ".bak", encoding="utf-8") as f:
             self.assertEqual(json.load(f)["memo"], "")   # 1 つ前の世代
-        self.assertEqual(CB.read(self.root)[1]["memo"], "メモ")
+        self.assertEqual(CF.read(self.root)[1]["memo"], "メモ")
 
     def test_write_order_adoptions_first(self):
         seen = []
         real = CB._fsio.write_json
         with mock.patch.object(CB._fsio, "write_json", side_effect=lambda p, *x, **k: (seen.append(os.path.basename(p)), real(p, *x, **k))):
             CB.write(self.root, *CB.split(self.v))
-        self.assertEqual(seen, [CB.ADOPTIONS_NAME, CB.CANDIDATES_NAME])
+        self.assertEqual(seen, [CF.ADOPTIONS_NAME, CF.CANDIDATES_NAME])
 
     def test_bad_schema(self):
         with self.assertRaises(ValueError):
@@ -274,55 +274,55 @@ class ReadWriteTest(unittest.TestCase):
 
     def test_broken_candidates_read_as_empty(self):
         CB.write(self.root, *CB.split(self.v))
-        with open(self.path(CB.CANDIDATES_NAME), "w", encoding="utf-8") as f:
+        with open(self.path(CF.CANDIDATES_NAME), "w", encoding="utf-8") as f:
             f.write("{壊れた")
-        c, a = CB.read(self.root)
-        self.assertEqual(c, CB.empty_candidates())
-        self.assertEqual([m["id"] for m in CB.merge(c, a, VID)["marks"]], ["m1"])
+        c, a = CF.read(self.root)
+        self.assertEqual(c, CF.empty_candidates())
+        self.assertEqual([m["id"] for m in CF.merge(c, a, VID)["marks"]], ["m1"])
 
     def test_broken_adoptions_uses_bak_and_keeps_it(self):
         c, a = CB.split(self.v)
         CB.write(self.root, c, a)
         CB.write(self.root, adoptions=a)   # .bak ができる
-        with open(self.path(CB.ADOPTIONS_NAME), "w", encoding="utf-8") as f:
+        with open(self.path(CF.ADOPTIONS_NAME), "w", encoding="utf-8") as f:
             f.write("{壊れた")
-        got = CB.read(self.root)[1]
+        got = CF.read(self.root)[1]
         self.assertEqual([m["id"] for m in got["marks"]], ["m1"])
         # 壊れた物の上から書いても .bak は壊れた物で上書きしない(退ける)
         a2 = copy.deepcopy(a)
         a2["memo"] = "新"
         CB.write(self.root, adoptions=a2)
         wd = os.path.join(self.root, schemas.WORK_DIR)
-        self.assertTrue(any(n.startswith(CB.ADOPTIONS_NAME + ".broken-") for n in os.listdir(wd)))
-        with open(self.path(CB.ADOPTIONS_NAME) + ".bak", encoding="utf-8") as f:
-            self.assertIsNotNone(CB.parse_adoptions(json.load(f)))
+        self.assertTrue(any(n.startswith(CF.ADOPTIONS_NAME + ".broken-") for n in os.listdir(wd)))
+        with open(self.path(CF.ADOPTIONS_NAME) + ".bak", encoding="utf-8") as f:
+            self.assertIsNotNone(CF.parse_adoptions(json.load(f)))
 
     def test_broken_adoptions_without_bak_refuses(self):
         os.makedirs(os.path.join(self.root, schemas.WORK_DIR))
-        with open(self.path(CB.ADOPTIONS_NAME), "w", encoding="utf-8") as f:
+        with open(self.path(CF.ADOPTIONS_NAME), "w", encoding="utf-8") as f:
             f.write("[]")
         with self.assertRaises(errors.ApiError) as cm:
-            CB.read(self.root)
-        self.assertEqual((cm.exception.code, cm.exception.status), (CB.BROKEN_CODE, 500))
+            CF.read(self.root)
+        self.assertEqual((cm.exception.code, cm.exception.status), (CF.BROKEN_CODE, 500))
 
     def test_parse_skips_broken_marks(self):
         c, a = CB.split(self.v)
         a["marks"].append({"id": "bad id!", "start": 1, "end": 2, "source": VID})
         a["marks"].append(dict(mark("z1", 1, 2), source="unknownAAAA"))   # sources にない配信
         a["rejected"] = [{"source": VID, "id": "a9", "start": 5, "end": 1}, "x"]
-        got = CB.parse_adoptions(json.loads(json.dumps(a)))
+        got = CF.parse_adoptions(json.loads(json.dumps(a)))
         self.assertEqual([m["id"] for m in got["marks"]], ["m1"])
         self.assertEqual(got["rejected"], [])
-        self.assertIsNone(CB.parse_adoptions({"schema": "x"}))
-        self.assertIsNone(CB.parse_candidates({"schema": CB.CANDIDATES_SCHEMA, "sources": []}))
+        self.assertIsNone(CF.parse_adoptions({"schema": "x"}))
+        self.assertIsNone(CF.parse_candidates({"schema": CF.CANDIDATES_SCHEMA, "sources": []}))
 
     def test_unseen_root(self):
         gone = os.path.join(self.root, "消えた")
-        for call in (lambda: CB.read(gone), lambda: CB.write(gone, *CB.split(self.v)), lambda: CB.read("//server/share/x"),
-                     lambda: CB.read("relative/x")):
+        for call in (lambda: CF.read(gone), lambda: CB.write(gone, *CB.split(self.v)), lambda: CF.read("//server/share/x"),
+                     lambda: CF.read("relative/x")):
             with self.assertRaises(errors.ApiError) as cm:
                 call()
-            self.assertEqual((cm.exception.code, cm.exception.status), (CB.UNSEEN_CODE, 503))
+            self.assertEqual((cm.exception.code, cm.exception.status), (CF.UNSEEN_CODE, 503))
             self.assertIn("reason", cm.exception.extra)
         self.assertFalse(os.path.exists(gone))   # 見えない置き場所にフォルダを作らない
 
@@ -333,10 +333,10 @@ class ReadWriteTest(unittest.TestCase):
         self.assertEqual(cm.exception.status, 500)
 
     def test_lock_per_path(self):
-        self.assertIs(CB.lock(self.root), CB.lock(self.root + os.sep))
-        self.assertIsNot(CB.lock(self.root), CB.lock(os.path.join(self.root, "x")))
+        self.assertIs(CF.lock(self.root), CF.lock(self.root + os.sep))
+        self.assertIsNot(CF.lock(self.root), CF.lock(os.path.join(self.root, "x")))
         # ほかの糸がロックを持っている間は書けない(読み → 書きを 1 つにできる)
-        lk, started, done = CB.lock(self.root), threading.Event(), threading.Event()
+        lk, started, done = CF.lock(self.root), threading.Event(), threading.Event()
 
         def writer():
             started.set()
@@ -347,9 +347,70 @@ class ReadWriteTest(unittest.TestCase):
             t.start()
             started.wait(5)
             self.assertFalse(done.wait(0.3))
-            self.assertFalse(os.path.exists(self.path(CB.ADOPTIONS_NAME)))
+            self.assertFalse(os.path.exists(self.path(CF.ADOPTIONS_NAME)))
         t.join(5)
         self.assertTrue(done.is_set())
+
+
+class StudiodataCaseTest(unittest.TestCase):
+    """ytt/studiodata の読み口: data.json の行が case を持つ配信は 候補.json・採用.json を重ねて返す(B3-4a)"""
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="casebook-sd-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.v = video([auto("a1", 10, 40), mark("m1", 50, 80, status="adopted")])
+        CB.write(self.root, *CB.split(self.v, self.root))
+        self.data = os.path.join(self.root, "data.json")
+
+    def put(self, videos):
+        with open(self.data, "w", encoding="utf-8") as f:
+            json.dump({"schema": "clip-studio/v1", "videos": videos, "groups": {}}, f, ensure_ascii=False)
+
+    def index_row(self, **kw):
+        r = {k: self.v[k] for k in ("id", "kind", "title", "channel", "rev", "createdAt", "updatedAt")}
+        r["case"] = self.root
+        r.update(kw)
+        return r
+
+    def test_case_row_is_merged_and_plain_row_untouched(self):
+        plain = video([mark("p1", 1, 9)], vid="plainAAAAAA")
+        self.put({VID: self.index_row(marks=[mark("zzz", 1, 2)]), "plainAAAAAA": plain})
+        got = studiodata.videos(self.data)
+        self.assertEqual([m["id"] for m in got[VID]["marks"]], ["a1", "m1"])   # 行の marks は見ない
+        self.assertEqual(got[VID]["case"], self.root)
+        self.assertEqual(got[VID]["duration"], 3600.0)
+        self.assertNotIn("caseUnseen", got[VID])
+        self.assertEqual(got["plainAAAAAA"], plain)
+        self.assertEqual(studiodata.video(VID, self.data)["rev"], 3)
+        self.assertEqual(studiodata.load_all(self.data)["videos"][VID]["marks"], got[VID]["marks"])
+
+    def test_unseen_case(self):
+        gone = os.path.join(self.root, "消えた")
+        self.put({VID: self.index_row(case=gone)})
+        v = studiodata.videos(self.data)[VID]
+        self.assertTrue(v["caseUnseen"])
+        self.assertEqual(v["marks"], [])
+        self.assertEqual(v["title"], "題")   # 一覧の行は出す
+        other = video([], vid="otherAAAAAA")   # 採用.json にこの配信が無い
+        self.put({"otherAAAAAA": dict(self.index_row(), id="otherAAAAAA")})
+        self.assertTrue(studiodata.videos(self.data)["otherAAAAAA"]["caseUnseen"])
+        self.assertEqual(other["id"], "otherAAAAAA")
+
+    def test_cached_read_follows_file_changes(self):
+        self.put({VID: self.index_row()})
+        self.assertEqual(len(studiodata.videos(self.data)[VID]["marks"]), 2)
+        v2 = video([auto("a1", 10, 40), mark("m1", 50, 80, status="adopted"), mark("m2", 100, 130, status="adopted")])
+        CB.write(self.root, *CB.split(v2, self.root, prev=CF.read(self.root)))
+        self.assertEqual(len(studiodata.videos(self.data)[VID]["marks"]), 3)
+        calls = []
+        real = CF._fsio.read_json_or
+        with mock.patch.object(CF._fsio, "read_json_or", side_effect=lambda *a, **k: (calls.append(a[0]), real(*a, **k))[1]):
+            studiodata.videos(self.data)
+        self.assertEqual([c for c in calls if CF.CANDIDATES_NAME in c or CF.ADOPTIONS_NAME in c], [])   # 変わっていないファイルは読み直さない
+
+    def test_returned_video_is_a_copy(self):
+        self.put({VID: self.index_row()})
+        studiodata.videos(self.data)[VID]["marks"][0]["label"] = "いじった"
+        self.assertEqual(studiodata.videos(self.data)[VID]["marks"][0]["label"], "")
 
 
 if __name__ == "__main__":
