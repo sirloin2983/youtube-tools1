@@ -176,6 +176,7 @@ namespace RequestSender
             if (!string.IsNullOrEmpty(dataRoot)) psi.EnvironmentVariables["YTT_DATA_DIR"] = dataRoot;
             string ytKey = KeyStore.Load(dataRoot); if (ytKey.Length > 0) psi.EnvironmentVariables["YTT_YT_API_KEY"] = ytKey;   // F3b: 設定で貼った YouTube の API キー(keys.json)。束・ログには入れない
             OpenErrLog();
+            lock (errTail) errTail.Clear();
             var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
             p.ErrorDataReceived += (s, e) => WriteErr(e.Data);
             try { p.Start(); }
@@ -220,7 +221,8 @@ namespace RequestSender
             p.WaitForExit(5000);
             int code = p.HasExited ? p.ExitCode : -1;
             if (code == ExitRunning) { AttachExisting(); return; }
-            throw new BackendException("処理の部品が途中で終わりました(終了コード " + code + ")。記録: " + ErrLogPath());
+            string tail = ErrTail();
+            throw new BackendException("処理の部品が途中で終わりました(終了コード " + code + ")。" + (tail.Length > 0 ? "最後の記録: " + tail + " / " : "") + "記録: " + ErrLogPath());
         }
 
         // もう入口が動いている(終了コード 3): その入口に頼む。止めるのはその入口の持ち主(アプリは止めない)
@@ -296,9 +298,26 @@ namespace RequestSender
             catch (Exception ex) { errLog = null; Log("backend: stderr log: " + ex.Message); }
         }
 
+        // 標準エラーの最後の数行(起動で終わったときに理由を画面の文に添える。友人が記録のファイルを開かなくても原因が見える)
+        readonly Queue<string> errTail = new Queue<string>();
+        const int ErrTailLines = 3;
+
+        public static string TailText(IEnumerable<string> lines)
+        {
+            return string.Join(" | ", lines.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+        }
+
+        string ErrTail()
+        {
+            Thread.Sleep(300);   // 標準エラーの読みの糸が最後の行を渡し終えるのを少し待つ
+            lock (errTail) return TailText(errTail);
+        }
+
         void WriteErr(string line)
         {
             if (line == null) return;
+            if (line.Trim().Length > 0)
+                lock (errTail) { errTail.Enqueue(line); while (errTail.Count > ErrTailLines) errTail.Dequeue(); }
             var w = errLog;
             if (w == null) return;
             try { lock (w) w.WriteLine(line); }

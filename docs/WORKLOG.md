@@ -3603,3 +3603,8 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 気づいたこと(直していない): 作業データの違う画面なしの ② も終わるときに既定のポートの録画の部品を止めにいく(403 で害なし)/ analytics のテストはフォルダの中から流す
 - 次: 友人の PC での確かめ(初回の zip を作る = py -3.10 dev/build_friend_zip.py --first --with-key → 友人に渡す・本物の Dropbox で学習・送り返し・更新を 1 回)→ RV
 - 未コミット: なし
+
+## 2026-10-11 深夜 Claude Code(PC。Opus)— 友人の PC で「処理の部品が途中で終わりました(終了コード 1)」
+- 送るアプリが ② (python server.py --headless)を起こしたが ready の前に終了コード 1 で終わった = Python の例外。この PC では配る zip の python・src をそのまま(空の作業データ・日本語と空白の入ったパス・--parent-pid・tools なし)で起こしても ready まで行き再現しない。原因は友人の PC の %LOCALAPPDATA%/youtube-tools/app/logs/headless-stderr.log の末尾待ち
+- 直した: Backend.cs が標準エラーの最後の 3 行を覚え、起動で終わったときの文に「最後の記録: …」として添える(友人が記録のファイルを開かなくても原因が見える)。CoreTests 65 件 OK
+- 未コミット: なし

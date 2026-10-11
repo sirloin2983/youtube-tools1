@@ -1759,6 +1759,7 @@ static class CoreTests
         True(Backend.ParseReady("{\"event\": \"ready\", \"port\": 51234, \"token\": \"abc_DEF-1\", \"pid\": 99}", out port, out token) && port == 51234 && token == "abc_DEF-1", "ready の 1 行");
         True(!Backend.ParseReady("{\"event\": \"other\", \"port\": 1, \"token\": \"t\"}", out port, out token), "ほかの event は読まない");
         True(!Backend.ParseReady("ホームを起動しました", out port, out token), "JSON でない行");
+        True(Backend.TailText(new[] { "  File \"x.py\"", " ", "ModuleNotFoundError: No module named 'y'" }) == "File \"x.py\" | ModuleNotFoundError: No module named 'y'", "標準エラーの最後の行を 1 行に(空行は飛ばす)");
         True(!Backend.ParseReady("{\"event\": \"ready\", \"port\": 0, \"token\": \"t\"}", out port, out token), "ポート 0");
         True(!Backend.ParseReady("{\"event\": \"ready\", \"port\": 80}", out port, out token), "合言葉なし");
         Eq("\"C:\\a b\\src\\app\\server.py\" --headless --port 0 --parent-pid 1234", Backend.Arguments(@"C:\a b\src\app\server.py", 1234, true), "起動の引数(1-2 の口の表)");
