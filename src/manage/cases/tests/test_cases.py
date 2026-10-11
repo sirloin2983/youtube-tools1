@@ -18,7 +18,8 @@ from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
 from human.friend import deliver  # noqa: E402
 from manage.cases import txindex  # noqa: E402
-from ytt import schemas  # noqa: E402
+from flow import casebook  # noqa: E402
+from ytt import casefiles, schemas  # noqa: E402
 
 VID = "abcdefghijk"
 REC = "20261007-120000"   # ライブの録画の id(スタジオの配信の id = 録画の id)
@@ -521,6 +522,91 @@ class TestAutoClips(Base):
         self.assertEqual(code, 409)
         self.assertIn("届けている途中", r["message"])
         self.assertTrue(os.path.isfile(self.auto1))
+
+
+class TestCaseRoot(Base):
+    """案件にした配信(RS8 B3-6): 状態・メモ・自動の確認は 採用.json の上の段・一覧は書き出し先の走査 ∪ 索引"""
+
+    def setUp(self):
+        super().setUp()
+        out = os.path.join(self.tmp, "out")
+        sdir = os.path.join(self.data, "studio")
+        os.makedirs(sdir)
+        with open(os.path.join(sdir, "settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"outDir": out}, f)
+        self.out = out
+        self.folder = os.path.join(out, "配信A")
+        self.clip = self.touch(os.path.join(self.folder, "01_見どころ.mp4"))
+        self.touch(os.path.join(self.folder, schemas.WORK_DIR, ".studio-id"), VID)
+        video = {"id": VID, "kind": "youtube", "title": "配信A", "channel": "ch", "duration": 100.0, "updatedAt": 5,
+                 "marks": [dict(mark("m1", "exported", self.clip), src="manual", createdAt=1000)]}
+        cands, adopts = casebook.split(video, self.folder)
+        casebook.write(self.folder, cands, adopts)
+
+    def index(self, row=None):
+        self.studio({VID: row or {"id": VID, "kind": "youtube", "title": "配信A", "case": self.folder}})
+
+    def adopts(self):
+        return casefiles.read(self.folder)[1]
+
+    def test_listed_by_scan_without_index(self):
+        self.studio({})   # 索引を失っても書き出し先の走査で一覧に出る
+        res = cases.snapshot(self.root, self.env)
+        self.assertEqual([c["id"] for c in res["cases"]], [VID])
+        self.assertEqual(len(res["cases"][0]["clips"]), 1)
+
+    def test_listed_once_with_index(self):
+        self.index()
+        self.assertEqual([c["id"] for c in cases.snapshot(self.root, self.env)["cases"]], [VID])
+
+    def test_update_writes_upper_tier_not_cases_json(self):
+        self.index()
+        before = self.adopts()
+        got = cases.update(self.root, VID, status="working", memo="メモ", env=self.env)
+        self.assertEqual((got["status"], got["memo"]), ("working", "メモ"))
+        a = self.adopts()
+        self.assertEqual((a["status"], a["memo"]), ("working", "メモ"))
+        self.assertTrue(a["statusUpdatedAt"])
+        self.assertEqual((a["marks"], a["sources"]), (before["marks"], before["sources"]))   # marks・sources は触らない
+        self.assertFalse(os.path.exists(cases.locations(self.root, self.env)["cases"]))
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["status"], c["memo"]), ("working", "メモ"))
+        cases.update(self.root, VID, status="", memo="", env=self.env)
+        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["status"], "")
+
+    def test_carries_cases_json_row_on_first_write(self):
+        self.index()
+        loc = cases.locations(self.root, self.env)
+        cases._write(loc["cases"], {VID: {"status": "posted", "memo": "前の", "statusUpdatedAt": 7, "last": {"title": "x"}}})
+        c = cases.snapshot(self.root, self.env)["cases"][0]
+        self.assertEqual((c["status"], c["memo"]), ("posted", "前の"))   # 採用.json が空の間は cases.json の行を使う
+        cases.update(self.root, VID, memo="新しい", env=self.env)
+        a = self.adopts()
+        self.assertEqual((a["status"], a["memo"], a["statusUpdatedAt"]), ("posted", "新しい", 7))   # 引き継いで書く
+        self.assertEqual(cases.load_saved(loc["cases"]), {})   # cases.json の行は消える
+
+    def test_auto_review_remembered_in_case(self):
+        self.index()
+        r = cases._remember(self.root, VID, "m1", self.env)
+        self.assertTrue(r["seenAt"])
+        self.assertIn("m1", self.adopts()["auto"])
+        cases._remember(self.root, VID, "m1", self.env, delivered="z.zip")
+        self.assertEqual(self.adopts()["auto"]["m1"]["delivered"], "z.zip")
+        self.assertFalse(os.path.exists(cases.locations(self.root, self.env)["cases"]))
+
+    def test_unseen_case_folder_says_so(self):
+        self.index()
+        shutil.rmtree(self.folder)
+        with self.assertRaises(ValueError) as cm:
+            cases.update(self.root, VID, status="working", env=self.env)
+        self.assertIn("見えません", str(cm.exception))
+        self.assertFalse(os.path.exists(self.folder))   # 勝手に作り直さない
+
+    def test_non_case_video_still_uses_cases_json(self):
+        other = "zzzzzzzzzzz"
+        self.studio({other: {"kind": "youtube", "title": "別", "marks": []}})
+        cases.update(self.root, other, status="working", env=self.env)
+        self.assertEqual(cases.load_saved(cases.locations(self.root, self.env)["cases"])[other]["status"], "working")
 
 
 if __name__ == "__main__":

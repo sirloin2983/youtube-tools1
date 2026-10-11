@@ -8,6 +8,9 @@
   - パック … 切り抜きの隣の <名前>_pack フォルダ(cut2resolve の既定の出力先)
 案件ファイル(<作業データ>\\app\\cases.json)に持つのは、人が付ける状態・メモと、最後に見えた紐づけ(元のファイルを消しても履歴が残るように)。
 各ツールのデータは読むだけで、書き換えない。
+**RS8 B3-6**: 案件にした配信(data.json の行が case を持つ・または書き出し先の直下に 作業用/採用.json がある)の状態・メモ・自動の確認は、cases.json でなく
+案件の 採用.json の上の段(status・memo・statusUpdatedAt・auto)に持つ(書くのは flow/casebook.write・ロックは ytt/casefiles.lock。marks・sources は触らない)。
+一覧は索引(data.json)∪ 書き出し先の走査。cases.json は案件の無い配信の分だけ(採用.json に欄がまだ無い案件は cases.json の行を引き継いで書き、行を消す)。
 
 画面が一覧(1件1行)を組み立てやすいように、案件1件ごとに追加で持たせる項目(2026-09-26 画面の見直し。既存の項目は変えない):
   - streamedAt: 「いつの配信か」の目安(ms)。① スタジオの解析結果(analysis.uploadDate、実際の配信日)② 無ければ案件が
@@ -46,9 +49,9 @@ import time
 import urllib.parse
 
 from . import txindex   # 同じ manage/cases の兄弟
-from ytt import datadir, fsio, schemas, studiodata, tools
+from ytt import casefiles, datadir, errors, fsio, schemas, studiodata, tools
 from manage.keep import cleanup  # noqa: E402  (ごみ箱フォルダの場所・名前の付け方・manifest・一緒に片付ける途中のファイルの決まりは片付けと同じ)
-from flow import live_failures   # 失敗の文は 1 か所。線 D の M3
+from flow import casebook, live_failures   # 失敗の文は 1 か所。線 D の M3 / 案件の採用.json を書く口(RS8 B3-6)
 from flow import placement   # 置き場所の持ち主(スタジオの data.json。RS6 b-B0)
 
 SCHEMA = "youtube-tools-cases/v1"
@@ -296,6 +299,91 @@ def _write(path, saved):
     fsio.write_json(path, {"schema": SCHEMA, "cases": saved})
 
 
+# ---------------------------------------------------------------- 案件の根(RS8 B3-6。状態・メモ・自動の確認は案件の 採用.json の上の段へ)
+FIELDS = ("status", "memo", "statusUpdatedAt", "auto")   # cases.json の 1 件から 採用.json の上の段に移った欄(last は案件の行では要らない)
+
+
+def _scan_roots(repo_root, env=None):
+    """書き出し先(outDir)の直下で 作業用/採用.json を持つフォルダ = 案件の根の一覧(読むだけ・固定ディスクの外・ネットワーク上は見ない)"""
+    try:
+        out = datadir.studio_out_dir(repo_root, env)
+        if not os.path.isabs(out) or casefiles.is_remote(out) or not fsio.is_fixed_drive(out) or not os.path.isdir(out):
+            return []
+        names = sorted(os.listdir(out))
+    except OSError:
+        return []
+    return [os.path.join(out, n) for n in names
+            if os.path.isfile(casefiles.work_path(os.path.join(out, n), casefiles.ADOPTIONS_NAME))]
+
+
+def _studio_view(repo_root, env, loc):
+    """-> (配信 {id: 配信}, 案件の根 {配信の id: 根})。配信 = data.json の索引(案件の行は 候補.json・採用.json を重ねた形。ytt/studiodata)
+    ∪ 書き出し先の走査で見つけた案件の配信(索引に無い物 = 索引を失っても一覧に出る)"""
+    videos = dict(read_studio(loc["studio"]))
+    roots = {vid: v["case"] for vid, v in videos.items() if isinstance(v, dict) and isinstance(v.get("case"), str) and v["case"]}
+    for root in _scan_roots(repo_root, env):
+        try:
+            cands, adopts = casefiles.read(root, cached=True)
+        except errors.ApiError:
+            continue
+        for sid in adopts["sources"]:
+            if sid in videos:
+                continue
+            v = casefiles.merge(cands, adopts, sid, root)
+            if v is not None:
+                v["case"] = root
+                videos[sid], roots[sid] = v, root
+    return videos, roots
+
+
+def _fields_of(adopts):
+    """採用.json の上の段 -> {status, memo, statusUpdatedAt, auto} のうち持っている物(空なら {})"""
+    return {k: adopts[k] for k in FIELDS if adopts.get(k)}
+
+
+def _saved_view(saved, roots):
+    """cases.json の中身に、案件にした配信の分(採用.json の上の段)を重ねる。採用.json に何も無い案件は cases.json の行を使う(移す前の記録)"""
+    out = dict(saved)
+    for vid, root in roots.items():
+        try:
+            rec = _fields_of(casefiles.read(root, cached=True)[1])
+        except errors.ApiError:
+            continue
+        if rec:
+            out[vid] = rec
+    return out
+
+
+def _edit_case(loc, root, vid, change):
+    """案件にした配信の状態・メモ・自動の確認を採用.json の上の段に書く(呼ぶ側が _lock を持つ)。change(rec) は rec(上の段の欄)を直して値を返す。
+    採用.json に欄がまだ無く cases.json に行があれば、それを引き継いで書き、cases.json の行を消す(移す前の記録)。
+    ロックは案件のだけ(スタジオの Store のロックは取らない)。採用.json の marks・sources には触らない。-> change の値。案件にこの配信が無ければ None"""
+    old = None
+    with casefiles.lock(root):
+        _c, adopts = casefiles.read(root)
+        if vid not in adopts["sources"]:
+            return None
+        rec = _fields_of(adopts)
+        if not rec:
+            old = load_saved(loc["cases"]).get(vid)
+            if isinstance(old, dict):
+                rec = {k: old[k] for k in FIELDS if old.get(k)}
+        got = change(rec)
+        for k in FIELDS:
+            if rec.get(k):
+                adopts[k] = rec[k]
+            else:
+                adopts.pop(k, None)
+        adopts.setdefault("status", "")
+        adopts.setdefault("memo", "")
+        casebook.write(root, adoptions=adopts)
+    if isinstance(old, dict):   # 採用.json に移したので cases.json の行は要らない
+        saved = load_saved(loc["cases"])
+        if saved.pop(vid, None) is not None:
+            _write(loc["cases"], saved)
+    return got
+
+
 def _case_file(c):
     """案件の case.json の要点 {id, createdAt} か None(書き出した切り抜きのフォルダから引く。無い・壊れていれば None)"""
     for cl in c.get("clips") or ():
@@ -310,13 +398,13 @@ def snapshot(repo_root, env=None):
     loc = locations(repo_root, env)
     with _lock:
         saved = load_saved(loc["cases"])
-        videos = read_studio(loc["studio"])
+        videos, roots = _studio_view(repo_root, env, loc)
         fails = live_failures_by_mark(loc) if any(isinstance(v, dict) and v.get("kind") == "live" for v in videos.values()) else {}
-        res = build(videos, read_transcripts(loc["transcripts"]), saved, failures=fails)
+        res = build(videos, read_transcripts(loc["transcripts"]), _saved_view(saved, roots), failures=fails)
         changed = False
         for c in res["cases"]:
             s = saved.get(c["id"])
-            if s is not None and not c["gone"]:
+            if s is not None and not c["gone"] and c["id"] not in roots:   # 案件にした配信は last を持たない(採用.json の側が正)
                 last = {k: c[k] for k in ("kind", "title", "channel", "duration", "marks", "updatedAt", "streamedAt")}
                 last["clips"] = [{k: x for k, x in cl.items() if k != "review"} for cl in c["clips"]]   # 人の確認・失敗の文は毎回重ね直す(残さない)
                 if s.get("last") != last:
@@ -348,6 +436,21 @@ def update(repo_root, case_id, status=None, memo=None, env=None):
         raise ValueError("メモは %d 文字までです" % MAX_MEMO)
     loc = locations(repo_root, env)
     with _lock:
+        root = _studio_view(repo_root, env, loc)[1].get(case_id)
+        if root:
+            def change(rec):
+                if status is not None:
+                    rec["status"] = status
+                    rec["statusUpdatedAt"] = int(time.time() * 1000)
+                if memo is not None:
+                    rec["memo"] = memo
+                return {"status": rec.get("status", ""), "memo": rec.get("memo", ""), "statusUpdatedAt": rec.get("statusUpdatedAt", 0)}
+            try:
+                got = _edit_case(loc, root, case_id, change)
+            except errors.ApiError as e:   # 案件のフォルダが見えない・採用.json が壊れている(画面には 400 で文を出す)
+                raise ValueError(e.message)
+            if got is not None:
+                return got
         saved = load_saved(loc["cases"])
         s = saved.setdefault(case_id, {})
         if status is not None:
@@ -393,6 +496,8 @@ def auto_review(repo_root, body, deliveries=None, studio=None, feedback=None, tr
         return 200, _discard(repo_root, c, cl, studio, feedback, trash, hide, deliveries, env)
     except ReviewError as e:
         return e.code, {"error": e.error, "message": str(e)}
+    except errors.ApiError as e:   # 案件のフォルダが見えない・採用.json が壊れている
+        return e.status, {"error": e.code, "message": e.message}
     except ValueError as e:
         return 400, {"error": "bad_request", "message": str(e)}
     except OSError as e:
@@ -486,9 +591,8 @@ def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=N
     -> その記録 {seenAt, deliveredAt?, delivered?, discardedAt?, tx?}"""
     now = int(time.time() * 1000)
     loc = locations(repo_root, env)
-    with _lock:
-        saved = load_saved(loc["cases"])
-        s = saved.setdefault(case_id, {})
+
+    def remember(s):
         recs = _auto_records(s)
         r = dict(recs.get(mark_id)) if isinstance(recs.get(mark_id), dict) else {}
         if not _int_ms(r.get("seenAt")):
@@ -506,6 +610,19 @@ def _remember(repo_root, case_id, mark_id, env=None, delivered=None, discarded=N
             keep = sorted(recs, key=lambda k: -max(_int_ms(recs[k].get(x)) for x in ("seenAt", "deliveredAt", "discardedAt")))[:AUTO_KEEP]
             recs = {k: recs[k] for k in keep}
         s["auto"] = recs
+        return r
+
+    with _lock:
+        root = _studio_view(repo_root, env, loc)[1].get(case_id)
+        if root:
+            try:
+                got = _edit_case(loc, root, case_id, remember)
+            except errors.ApiError as e:   # 案件のフォルダが見えない・採用.json が壊れている(呼び手は OSError を受ける)
+                raise OSError(e.message)
+            if got is not None:
+                return got
+        saved = load_saved(loc["cases"])
+        r = remember(saved.setdefault(case_id, {}))
         _write(loc["cases"], saved)
         return r
 

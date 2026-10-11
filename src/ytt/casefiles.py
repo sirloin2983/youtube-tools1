@@ -160,6 +160,13 @@ def parse_adoptions(d):
     out["rejected"] = [r for r in map(_rejected_entry, rej) if r is not None and r["source"] in out["sources"]]
     out["status"] = d["status"][:40] if isinstance(d.get("status"), str) else ""
     out["memo"] = d["memo"][:4000] if isinstance(d.get("memo"), str) else ""
+    at = _marks.fnum(d.get("statusUpdatedAt"))
+    if at is not None and at > 0:   # 案件の状態・メモ(manage/cases。cases.json から移った欄。B3-6): 状態を付けた時刻・自動でできた切り抜きの確認 {マークの id: 記録}
+        out["statusUpdatedAt"] = int(at)
+    if isinstance(d.get("auto"), dict):
+        auto = {k: copy.deepcopy(v) for k, v in d["auto"].items() if _sid_ok(k) and isinstance(v, dict)}
+        if auto:
+            out["auto"] = auto
     return out
 
 
