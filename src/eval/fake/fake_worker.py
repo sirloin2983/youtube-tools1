@@ -9,7 +9,7 @@ serve が pipeline/transcribe/worker_client.FAKES_MODULE にこのモジュー�
 faster-whisper・sherpa-onnx・whisper.cpp・SenseVoice・文字の LLM の代わり。本物の _load_model_local(モデルの使い回し・手放し)の流れはそのまま通す。
 TRANSCRIBE_WORKER_CRASH=<n> なら、認識の n 行目を送ったあとにプロセスごと落ちる(異常終了からの立ち直りの確認用)。
 話者判別と声の特徴は、サーバーの疑似(fake_asr の diarize_fake・embed_fake)と同じ区切り(偽物どうしが食い違わないよう、本体を共有する)。
-差し替えるのはモジュールの名前(worker_client._gpu_ready_local・diarize._diarize_local・_embed_local・tx_engines)= 読み手は呼ぶたびに読む。
+差し替えるのはモジュールの名前(models._gpu_ready_local・diarize._diarize_local・_embed_local・tx_engines)= 読み手は呼ぶたびに読む。
 """
 import os
 import sys
@@ -17,7 +17,7 @@ import time
 import types
 import wave
 
-from pipeline.transcribe import diarize, tx_engines, worker_client
+from pipeline.transcribe import diarize, models, tx_engines, worker_client
 from ytt import layout
 from . import fake_asr
 
@@ -70,7 +70,7 @@ def install():
     fw = types.ModuleType("faster_whisper")
     fw.WhisperModel = FakeWhisper
     sys.modules["faster_whisper"] = fw
-    worker_client._gpu_ready_local = lambda: False
+    models._gpu_ready_local = lambda: False
 
     def fake_diarize(job, wav, num, emb=None, threshold=None, min_on=None, min_off=None):
         """サーバーの疑似の判別(fake_asr.diarize_fake)と同じ区切りを、wav の長さで作る(偽物どうしが食い違わないよう、本体を共有する)"""

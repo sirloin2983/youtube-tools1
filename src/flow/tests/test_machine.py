@@ -201,7 +201,7 @@ class TestFirstLayer(Base):
             self.assertEqual(llm.llm_model({"llmModel": "unknown-llm"}), llm.LLM_MODEL)   # 知らない名前は既定(警告だけ)
 
     def test_worker_prefers_request_device(self):
-        from pipeline.transcribe import worker_client as W
+        from pipeline.transcribe import models, worker_client as W
         seen = []
 
         class Eng:
@@ -215,7 +215,7 @@ class TestFirstLayer(Base):
         with mock.patch.object(W.tx_engines, "get", return_value=Eng), mock.patch.dict(os.environ, {"TRANSCRIBE_DEVICE": "cuda"}):
             for pref in ("cpu", "auto"):
                 with self.assertRaises(Exception):
-                    W._load_model_local("small", {}, pref, engine="whisper.cpp")
+                    models._load_model_local("small", {}, pref, engine="whisper.cpp")
         self.assertEqual(seen, ["cpu", "cuda"])   # 本文の cpu が先・auto のときだけ環境変数
 
     def test_live_tx_machine(self):

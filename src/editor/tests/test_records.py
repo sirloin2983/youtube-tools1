@@ -24,7 +24,7 @@ from test_edit import doc_obj, edit_obj
 from human.proof import doc_jobs  # noqa: E402
 from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
-from pipeline.transcribe import worker_client  # noqa: E402
+from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
 
 
@@ -252,12 +252,12 @@ class TestEffort(StoreDir):
 class TestCudaCompute(unittest.TestCase):
     def test_cuda_compute_env(self):
         with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "int8_float16"}):
-            self.assertEqual(worker_client.cuda_compute(), "int8_float16")
+            self.assertEqual(models.cuda_compute(), "int8_float16")
         with patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "rm -rf"}):
-            self.assertEqual(worker_client.cuda_compute(), "float16")
+            self.assertEqual(models.cuda_compute(), "float16")
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TRANSCRIBE_CUDA_COMPUTE", None)
-            self.assertEqual(worker_client.cuda_compute(), "float16")   # 既定は今までどおり
+            self.assertEqual(models.cuda_compute(), "float16")   # 既定は今までどおり
 
 
 class TestAsrRaw(StoreDir):

@@ -27,7 +27,7 @@ from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
-from pipeline.transcribe import worker_client  # noqa: E402
+from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 
@@ -258,10 +258,10 @@ class TestSenseVoiceEngine(unittest.TestCase):
     def test_light_model_keeps_heavy_one(self):
         """小さいモデル(SenseVoice)を読んでも、主のモデル(faster-whisper など)は手放さない(文字起こしのたびに読み直さない)"""
         heavy = ("large-v3", "cpu", "faster-whisper")
-        with mock.patch.dict(worker_client._models, {heavy: object()}, clear=True), mock.patch.object(E.SenseVoice, "FAKE_TEXT", "x"):
-            m, dev = worker_client._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")
-            self.assertEqual((dev, set(worker_client._models)), ("cpu", {heavy, ("sense-voice-small", "cpu", "sense-voice")}))
-            self.assertIs(worker_client._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")[0], m)   # 2 回目は使い回す
+        with mock.patch.dict(models._models, {heavy: object()}, clear=True), mock.patch.object(E.SenseVoice, "FAKE_TEXT", "x"):
+            m, dev = models._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")
+            self.assertEqual((dev, set(models._models)), ("cpu", {heavy, ("sense-voice-small", "cpu", "sense-voice")}))
+            self.assertIs(models._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")[0], m)   # 2 回目は使い回す
 
 
 if __name__ == "__main__":

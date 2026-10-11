@@ -7,14 +7,14 @@
 
 faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メモリ不足・GPU のドライバなどでプロセスごと落ちることがある。
 その処理だけをこのプロセスで行い、落ちてもサーバー(入口に取り込んだときはスタジオ・cut2resolve も同じプロセス)は止まらないようにする。
-中身の処理は ① の部品の関数(worker_client._load_model_local・diarize._diarize_local・_embed_local)をそのまま使う(2か所に同じ処理を書かない)。
+中身の処理は ① の部品の関数(models._load_model_local・diarize._diarize_local・_embed_local)をそのまま使う(2か所に同じ処理を書かない)。
 
 役割で組み直す RS2-9(2026-10-10)に src/editor/tx_worker.py から移した(旧い場所の転送は RS5-G で消した)。編集の serve を読まない:
 - 起動はスクリプトのパスのまま(python -u <src>/pipeline/transcribe/worker.py。cwd は編集のフォルダ)なので相対 import を使えない。
   スクリプトとして起動したときだけ、sys.path からこのフォルダを外して src を先頭に置き、兄弟は絶対 import(from pipeline.transcribe import …)で読む(層の決まりの例外)。
   import したとき(テスト・src/eval/tools/_evalcommon の _audio)は sys.path に触らない
 - 作業データの場所(ytt/workdata の DATA_DIR)はこのプロセスで入れる(_setup_env): 環境変数 TRANSCRIBE_DATA_DIR(サーバーの worker_env が必ず渡す。
-  無ければ以前の既定 = 編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので worker_client._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
+  無ければ以前の既定 = 編集のフォルダ)。GPU の有無 worker_client.gpu_ready は IN_WORKER なので models._gpu_ready_local を呼ぶたびに読む(疑似の差し替えが効く)・
   疑似のワーカーの判定 worker_client.worker_fake は環境変数 TRANSCRIBE_BACKEND(RS3-0A まではこのプロセスで txenv の口に登録していた)
 - 疑似(TRANSCRIBE_BACKEND=worker-fake のテスト)は ④ の eval/fake/fake_worker.install()。① は ④ を import しないので、サーバーが渡す環境変数
   YTT_WORKER_FAKES(モジュール名の文字。app = 編集の serve が worker_client.FAKES_MODULE に入れる)を importlib で読む
@@ -50,7 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # transcribe -> pipeline -> src
 if not __package__:   # スクリプトとして起動したとき(python worker.py・旧い場所の転送の runpy)だけ。兄弟を裸の名前で読まないように、このフォルダを外して src を先頭に
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
-from pipeline.transcribe import diarize, tx_engines, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
+from pipeline.transcribe import diarize, models, tx_engines, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
 from ytt import errors as _errors, jobs as _heavy, layout as _layout, workdata as _workdata  # noqa: E402
 
 PROGRESS_EVERY = 0.25   # 進み具合を送る間隔(秒)。行ごとに送ると、長い音声で無駄に多くなる
@@ -185,16 +185,16 @@ def _engine(m):
 
 
 def _op_load(m, rid, job, out, cancels):
-    model, dev = worker_client._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(m))
+    model, dev = models._load_model_local(str(m.get("name")), job, str(m.get("pref") or "auto"), bool(m.get("force_cpu")), _engine(m))
     return {"device": dev, "params": list(model.params())}   # エンジンが受け付ける引数の名前(サーバーはこれに無い引数を渡さない)
 
 
 def _op_transcribe(m, rid, job, out, cancels):
     name, dev, eng = str(m.get("name")), str(m.get("device") or "cpu"), _engine(m)
-    with worker_client._model_lock:
-        model = worker_client._models.get((name, dev, eng))
+    with models._model_lock:
+        model = models._models.get((name, dev, eng))
     if model is None:   # 読み込んだあとに手放された(通常は起きない)→ 同じ機器で読み直す
-        model, dev = worker_client._load_model_local(name, job, dev, False, eng)
+        model, dev = models._load_model_local(name, job, dev, False, eng)
     audio = _audio(m.get("audio") or {})
     kw = m.get("kw") or {}
     # 子プロセスで動くエンジン(whisper.cpp)は、終わるまで行が出ないので、取り消しと進み具合をエンジンに渡す
@@ -210,7 +210,7 @@ def _op_transcribe(m, rid, job, out, cancels):
             break
         out.send({"rid": rid, "ev": "item", "v": _seg_dict(s)})
         n += 1
-    worker_client._model_used[0] = time.time()
+    models._model_used[0] = time.time()
     return {"count": n, "cancelled": rid in cancels, "language": getattr(info, "language", None)}
 
 
@@ -235,13 +235,13 @@ def _op_complete(m, rid, job, out, cancels):
     if not isinstance(msgs, list) or not 0 < len(msgs) <= 40 or not all(
             isinstance(x, dict) and x.get("role") in ("system", "user", "assistant") and isinstance(x.get("content"), str) and len(x["content"]) <= 8000 for x in msgs):
         raise _errors.ApiError("bad_request", "問い合わせの形が違います", 400)
-    with worker_client._model_lock:
-        model = worker_client._models.get((name, dev, eng))
+    with models._model_lock:
+        model = models._models.get((name, dev, eng))
     if model is None:   # 読み込んだあとに手放された → 同じ機器で読み直す
-        model, dev = worker_client._load_model_local(name, job, dev, False, eng)
+        model, dev = models._load_model_local(name, job, dev, False, eng)
     model.hooks = {"cancelled": lambda: rid in cancels}
     content = model.complete([{"role": x["role"], "content": x["content"]} for x in msgs], max(1, min(2000, int(m.get("max_tokens") or 400))))
-    worker_client._model_used[0] = time.time()
+    models._model_used[0] = time.time()
     return {"content": content}
 
 
@@ -281,12 +281,12 @@ def main(argv=None):
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s [worker %(process)d] %(message)s")
     _setup_env()   # 編集の serve は読まない(RS2-9)。作業データの場所はここで
     worker_client.IN_WORKER = True
-    worker_client.setup_cuda_paths()
+    models.setup_cuda_paths()
     _install_fakes()
     out = Out(fp)
     if "--probe" in argv:
         try:
-            ok = bool(worker_client._gpu_ready_local())
+            ok = bool(models._gpu_ready_local())
         except Exception:
             ok = False
         out.send({"cuda": ok})

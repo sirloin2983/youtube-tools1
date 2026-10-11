@@ -18,7 +18,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from pipeline.transcribe import worker_client as W  # noqa: E402
+from pipeline.transcribe import models, worker_client as W  # noqa: E402
 from ytt import workdata  # noqa: E402
 from ytt import errors  # noqa: E402
 
@@ -96,7 +96,7 @@ class TestWorkerModule(unittest.TestCase):
             def send(self, obj):
                 sent.append(obj)
         worker.handle({"rid": 1, "op": "load", "name": "small", "engine": "no-such"}, Out(), set())   # 知らないエンジンは ApiError
-        with mock.patch.object(W, "_load_model_local", mock.Mock(side_effect=jobs.Cancelled())):
+        with mock.patch.object(models, "_load_model_local", mock.Mock(side_effect=jobs.Cancelled())):
             worker.handle({"rid": 2, "op": "load", "name": "small"}, Out(), {2})
         self.assertEqual((sent[0]["code"], sent[0]["status"]), ("bad_engine", 400))
         self.assertEqual((sent[1]["rid"], sent[1]["code"]), (2, "cancelled"))
@@ -134,9 +134,9 @@ class TestWav(unittest.TestCase):
 class TestKwargs(unittest.TestCase):
     def test_cuda_compute_and_filter(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "int8_float16"}):
-            self.assertEqual(W.cuda_compute(), "int8_float16")
+            self.assertEqual(models.cuda_compute(), "int8_float16")
         with mock.patch.dict(os.environ, {"TRANSCRIBE_CUDA_COMPUTE": "bogus"}):
-            self.assertEqual(W.cuda_compute(), "float16")
+            self.assertEqual(models.cuda_compute(), "float16")
         kw = W.whisper_kwargs({"language": "ja", "beam": 5, "model": "small", "vadMode": "off", "wordSplit": True})
         self.assertEqual((kw["vad_filter"], kw["word_timestamps"], kw["language"]), (False, True, "ja"))
 

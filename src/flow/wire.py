@@ -14,7 +14,7 @@ import os
 
 from ytt import workdata as _workdata
 from . import jobs as _jobs, tx as _tx
-from pipeline.transcribe import backend as _backend, fill as _fill, recognize as _recognize, records as _records, worker_client as _worker_client
+from pipeline.transcribe import backend as _backend, fill as _fill, models as _models, recognize as _recognize, records as _records, worker_client as _worker_client
 
 # 同じ文字起こしに同時に入れない組み合わせ(exclusive)。10-09: 声を覚える(voice-learn)は入口だけが再認識・疑わしい所の最中を断り、判別・再認識は入口と登録で見る組が違っていたのをそろえた。
 # 0.65.0(10-09): 表を対称に(a が b を断るなら b も a を断る)= 再認識・疑わしい所も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、覚える区間がずれる)。
@@ -47,7 +47,7 @@ def install(*, bodies=None, tool=None, log=None, tmp_dir=None, max_queue=None, m
         _jobs.register(kind, run, **JOB_KINDS[kind])   # JOB_KINDS に無い種類は KeyError = 登録の取りこぼしを黙らせない
     conf = {"tool": tool, "log": log, "tmp_dir": tmp_dir, "max_queue": max_queue, "mark": mark, "no_retry": no_retry}
     # ジョブの終わりごとにモデルの使用を記録し、待機列が空いたらモデルを手放す(① の worker_client。呼ぶたびに読む)
-    _jobs.configure(after=lambda: _worker_client.models_touched(), idle=lambda: _worker_client.release_idle_models(),
+    _jobs.configure(after=lambda: _models.models_touched(), idle=lambda: _worker_client.release_idle_models(),
                     **{k: v for k, v in conf.items() if v is not None})
     if fake_backend is not None:
         _backend.set_selector(lambda: fake_backend if (backend_name() if backend_name else "") == "fake" else _backend.REAL)
