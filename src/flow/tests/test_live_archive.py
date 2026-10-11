@@ -58,6 +58,36 @@ class FakeExLive:
         return {"id": rid, "name": rid}
 
 
+class WavArgsTest(unittest.TestCase):
+    def test_wav_args_unchanged(self):
+        """OPT2: 照合の wav(8kHz・精密な切り方)を作る ffmpeg の引数の列は、引数を組む所を ① へ移しても 1 つも変わらない"""
+        tmp = tempfile.mkdtemp(prefix="ytt-arc-wav-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        cmds = []
+
+        def run(cmd, timeout, cancelled=None):
+            cmds.append((list(cmd), timeout, cancelled is not None))
+            with open(cmd[-1], "wb") as f:
+                f.write(b"x")
+            return 0, "", []
+        me = mock.Mock(ffmpeg="FF", _cancel=set())
+        me._halt.is_set.return_value = False
+        dst = os.path.join(tmp, "a.wav")
+        with mock.patch.object(A, "run_proc", side_effect=run):
+            A.Archiver._wav(me, "src.m4a", dst)
+            A.Archiver._wav(me, "src.m4a", dst, 3.0, 5.0, {"id": "j"})
+            A.Archiver._wav(me, "src.m4a", dst, 25.5, 4.25, {"id": "j"})
+            A.Archiver._wav(me, "src.m4a", dst, 0.0, 0)
+        head = ["FF", "-hide_banner", "-nostdin", "-y", "-v", "error"]
+        tail = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-c:a", "pcm_s16le", "-f", "wav", dst]
+        self.assertEqual([c for c, _, _ in cmds], [
+            head + ["-i", "src.m4a"] + tail,
+            head + ["-i", "src.m4a", "-ss", "3.000", "-t", "5.000"] + tail,                         # 手前 10 秒より前: 全部デコードして切る
+            head + ["-ss", "15.500", "-i", "src.m4a", "-ss", "10.000", "-t", "4.250"] + tail,      # 手前まで入力側・残り 10 秒は出力側
+            head + ["-i", "src.m4a"] + tail])                                                     # 0 は付けない
+        self.assertEqual([(t, c) for _, t, c in cmds], [(A.FFMPEG_TIMEOUT, False), (A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, False)])
+
+
 @unittest.skipUnless(FF, "ffmpeg が無い")
 class ArchiveTest(unittest.TestCase):
     @classmethod

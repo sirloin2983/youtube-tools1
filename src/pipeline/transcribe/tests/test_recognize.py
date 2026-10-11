@@ -136,6 +136,23 @@ class TestAudio(_Env):
             recognize.extract_audio({}, {"start": 0.0, "end": None, "sourcePath": "x.mp4"}, os.path.join(self.tmp, "a.wav"))
         self.assertEqual(cm.exception.code, "no_ffmpeg")
 
+    def test_extract_audio_args_unchanged(self):
+        """OPT2: 音声を取り出す ffmpeg の引数の列(16kHz)は、引数を組む関数を 1 か所(wav_args)にしても 1 つも変わらない"""
+        cmds = []
+
+        def run(cmd, **kw):
+            cmds.append(list(cmd))
+            return 1, [], None
+        wav = os.path.join(self.tmp, "a.wav")
+        with mock.patch.object(recognize._tools, "find_ffmpeg", return_value="FF"), mock.patch.object(recognize._tools, "run_progress", side_effect=run):
+            for spec in ({"start": 0.0, "end": None, "sourcePath": "x.mp4"}, {"start": 5.0, "end": 12.5, "sourcePath": "x.mp4", "boost": True}):
+                with self.assertRaises(errors.ApiError):
+                    recognize.extract_audio({}, spec, wav)
+        head = ["FF", "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file"]
+        tail = ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]
+        self.assertEqual(cmds, [head + ["-i", "x.mp4", "-vn"] + tail,
+                                head + ["-ss", "5.000", "-i", "x.mp4", "-t", "7.500", "-vn", "-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"] + tail])
+
 
 if __name__ == "__main__":
     unittest.main()

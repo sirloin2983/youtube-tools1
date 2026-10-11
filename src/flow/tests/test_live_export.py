@@ -537,6 +537,42 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual(os.path.basename(out["path"]), "03_00h01m00s-00h01m05s.mp4")   # 名前の時刻は録画の頭(firstPdt)からの秒
         self.assertEqual(os.path.basename(os.path.dirname(out["path"])), "またぐ")
 
+    def test_encode_args_unchanged(self):
+        """OPT2: 作り直しの ffmpeg の引数の列(区間・concat・古い ffmpeg の -vsync のやり直し)と concat の一覧は、① の ytt/normalize へ移しても 1 つも変わらない"""
+        folder = os.path.join(self.tmp, "live")
+        ex = LX.Exporter(mock.Mock(), folder, lambda: os.path.join(self.tmp, "out"), ffmpeg="FF")
+        wdir = os.path.join(folder, "work", "lx-0000000002")
+        os.makedirs(wdir)
+        a = LX.iso_epoch("2026-10-04T06:00:00Z")
+        seg_list = [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": LX.epoch_iso(a - 2.25), "dur": 1.0}]
+        job = {"id": "lx-0000000002", "n": 4, "label": "", "recorder": "local", "recording": "20261004-000000-a"}
+        d = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "引数", "firstPdt": LX.epoch_iso(a - 60)}
+        cmds, answers = [], []
+
+        def run(job_, cmd, dur, flags):
+            cmds.append(list(cmd))
+            return answers.pop(0) if answers else (0, [], None)
+        one = [(os.path.join(wdir, "part_00.ts"), "session_001")]
+        two = one + [(os.path.join(wdir, "it's_01.ts"), "session_002")]
+        with mock.patch.object(ex, "_run", side_effect=run), mock.patch.object(ex, "_adjust_audio", return_value={"volume": 100}), \
+                mock.patch.object(LX.normalize, "verify", return_value={}), mock.patch.object(LX.fsio, "replace_retry"):
+            ex._encode(job, {"id": "local"}, job["recording"], d, seg_list, one, a, a + 5.5, wdir)
+            answers.append((1, ["Unrecognized option 'fps_mode'."], None))
+            ex._encode(job, {"id": "local"}, job["recording"], d, seg_list, two, a, a + 5.5, wdir)
+        head = ["FF", "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "2.250", "-t", "6.500"]
+        tail = ["-t", "5.500", "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-vf", "fps=30", "-fps_mode", "cfr", "-c:v", "libx264",
+                "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+                "-progress", "pipe:1", "-nostats"]
+        lst = os.path.join(wdir, "parts.txt")
+        cat = head + ["-f", "concat", "-safe", "0", "-i", lst] + tail
+        self.assertEqual(len(cmds), 3)
+        self.assertEqual(cmds[0], head + ["-i", one[0][0]] + tail + [cmds[0][-1]])
+        self.assertEqual(cmds[1], cat + [cmds[1][-1]])
+        self.assertEqual(cmds[2], ["-vsync" if x == "-fps_mode" else x for x in cat] + [cmds[1][-1]])   # 5.1 より古い ffmpeg: 同じ書きかけへ 1 回だけ
+        self.assertTrue(cmds[0][-1].endswith(".mp4") and os.path.dirname(cmds[0][-1]) == os.path.dirname(cmds[1][-1]), cmds[0][-1])
+        with open(lst, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "file '%s'\nfile '%s'\n" % (one[0][0].replace("\\", "/"), two[1][0].replace("\\", "/").replace("'", "'\\''")))
+
     def _pieces_exporter(self, free, runner=None, slots=None):
         """録画元に繋がない Exporter(録画元の答えは _query を差し替える)。free: {"v": 空きのバイト数}"""
         live = mock.Mock()

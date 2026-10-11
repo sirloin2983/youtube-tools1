@@ -363,6 +363,8 @@ class OneTest(LiveTxBase):
         self.assertEqual(self.rec.ts_gets(), ["/live/%s/session_001/seg_%06d.ts" % (REC, i) for i in (2, 3, 4)])   # 8〜20 秒のセグメント 3 本
         args = read_jsonl(self.fflog)[0]
         self.assertEqual([args[args.index(k) + 1] for k in ("-ss", "-t", "-ac", "-ar", "-c:a", "-f")], ["2.000", "8.000", "1", "16000", "pcm_s16le", "wav"])
+        self.assertEqual(args, ["-hide_banner", "-loglevel", "error", "-y", "-ss", "2.000", "-i", args[args.index("-i") + 1], "-t", "8.000",
+                                "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", args[-1]])   # OPT2: 引数の列は ① へ移しても同じ
         self.assertTrue(args[args.index("-i") + 1].endswith("part_00.ts") and args[-1].endswith("in.wav"), args)
         self.assertEqual(len(self.calls), 1)
         c = self.calls[0]
