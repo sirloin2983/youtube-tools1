@@ -28,6 +28,10 @@
 .chk-info{flex:1 1 220px;min-width:0}
 .chk-info p{margin:0 0 6px}
 .chk-acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.chk-type{margin-top:12px}
+.chk-type[hidden]{display:none}
+.chk-type .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chk-text{flex:1 1 240px;min-width:0}
 .chk-foot{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
 .chk-sum .chk-q{margin-top:0}
 .chk-empty .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}

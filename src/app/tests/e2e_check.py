@@ -258,6 +258,34 @@ def _scene_failures(cx):
     fq.failed = 0
 
 
+def _scene_read_type(cx):
+    """読みのカード(V2b): 1 / 2 で答える形は _scene_kinds。ここは 3(どちらも違う)= 入力欄 → 打つ → Enter で {choice: other, text}。入力欄の中の 1 は答えにならない"""
+    pg, check, fq = cx.pg, cx.check, cx.fq
+    fq.cards = [card(90, "read", source="alt", guess=None, text="今日は晴れです", note="違い: 「晴」→「腫」",
+                     options=[{"id": "1", "text": "今日は晴れです"}, {"id": "2", "text": "今日は腫れです"}])]
+    n = len(fq.live_answers())
+    pg.goto(cx.base + "check?kind=read")
+    check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:90'"), "読みのカード(別のエンジン)が出る: %s" % state(pg))
+    check("2 つ目のエンジン" in pg.text_content("#chkBody .ui-pair") and "違い: 「晴」→「腫」" in pg.text_content("#chkBody"), "出どころの名前と違い")
+    check(pg.is_hidden("#chkBody [data-chk-type]"), "入力欄は 3 を押すまで隠れている")
+    press(pg, "3")
+    check(pg.is_visible("#chkBody [data-chk-text]") and pg.evaluate("document.activeElement.matches('[data-chk-text]')"), "3 で入力欄が開き、そこに入る")
+    pg.fill("#chkBody [data-chk-text]", "")
+    pg.keyboard.type("今日は春1です")
+    time.sleep(0.2)
+    check(len(fq.live_answers()) == n and state(pg)["cur"] == "read:e2e:90", "入力欄の中の 1 は答えにならない")
+    press(pg, "Escape")
+    check(pg.is_hidden("#chkBody [data-chk-type]") and len(fq.live_answers()) == n, "Esc でやめる(答えない)")
+    press(pg, "3")
+    pg.fill("#chkBody [data-chk-text]", "   ")
+    press(pg, "Enter")
+    check(len(fq.live_answers()) == n, "空のままの Enter は答えにならない")
+    pg.fill("#chkBody [data-chk-text]", "今日は晴れでした")
+    press(pg, "Enter")
+    check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and len(fq.live_answers()) == n + 1, "Enter で答える: %s" % state(pg))
+    check(fq.answers[-1]["body"]["answer"] == {"choice": "other", "text": "今日は晴れでした"}, "答えは {choice: other, text}: %s" % fq.answers[-1]["body"]["answer"])
+
+
 def _scene_real_api(cx):
     """偽物を外して本物の入口の口(V0 の src/eval/check/deck.py)で開く: 作業データが空なら「いま確かめる物はありません」・帯の目標は ⑤ の goals"""
     pg, check = cx.pg, cx.check
@@ -339,6 +367,7 @@ def main():
                 _scene_summary_and_end(cx)
                 _scene_failures(cx)
                 _scene_narrow(cx)
+                _scene_read_type(cx)
                 _scene_real_api(cx)
                 unexpected = [s for s in bad_status if not s.startswith("500 ")]
                 check(not unexpected, "4xx/5xx が出ない(試しに起こした 500 を除く): %s" % unexpected[:5])

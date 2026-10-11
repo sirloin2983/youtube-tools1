@@ -231,7 +231,8 @@ def load_feedback():
     return out
 
 
-def record_feedback(obj):
+def _fb_items(obj):
+    """record_feedback・unrecord_feedback が読む記録の内容 -> (tid, action, [(seg, wrong, right, 出どころ)])"""
     tid = str(obj.get("tid") or "")
     action = obj.get("action")
     if action not in ("accept", "reject") or not _yschemas.TID_RE.match(tid):
@@ -243,6 +244,32 @@ def record_feedback(obj):
             raw = [x.get("tier")] + (list(x["also"])[:4] if isinstance(x.get("also"), list) else [])
             srcs = [t for t in dict.fromkeys(t for t in raw if isinstance(t, str)) if t in ("alt", "yt")]
             items.append((re.sub(r"[^\w-]", "", str(x.get("seg", "")))[:16], x["wrong"], x["right"], srcs))
+    return tid, action, items
+
+
+def unrecord_feedback(obj):
+    """record_feedback で足した記録を 1 回分取り消す(確かめるの Z。数は 0 より下げない・却下の印は外す)。同じ形の obj を渡す。-> 取り消した数"""
+    tid, action, items = _fb_items(obj)
+    with _fb_lock:
+        fb = load_feedback()
+        for seg, w, r, srcs in items:
+            for st in [fb[t] for t in srcs if t in fb] or [fb["stat"].get("%s=>%s" % (w, r))]:
+                if st:
+                    k = "acc" if action == "accept" else "rej"
+                    st[k] = max(0, st[k] - 1)
+            if action == "reject" and seg:
+                lst = fb["dismissed"].get(tid, [])
+                key = "%s|%s=>%s" % (seg, w, r)
+                if key in lst:
+                    lst.remove(key)
+                if not lst:
+                    fb["dismissed"].pop(tid, None)
+        _fsio.atomic_write(_workdata.FEEDBACK, json.dumps(fb, ensure_ascii=False).encode("utf-8"), fsync_required=True)
+    return len(items)
+
+
+def record_feedback(obj):
+    tid, action, items = _fb_items(obj)
     with _fb_lock:
         fb = load_feedback()
         for seg, w, r, srcs in items:

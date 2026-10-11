@@ -10,7 +10,7 @@ V0 で入れた出どころ(細部は V2 で直す):
   read:fill   後処理(fill)が直した行で、校正していない・今の文字と認識のままが違う物
   voice:diar  話者の判別(.diar.json の latest.rows)の行で、1 秒以上・混ざり無し・校正していない物。自信の低い順
   time:row    文字が決まった行(校正済みか、読みのカードで答えた行)で、時刻のカードにまだ答えていない物
-read の「別のエンジン / YouTube の字幕」(alt / yt)は V2b が register で足す。
+read の「別のエンジン / YouTube の字幕」(alt / yt)は read_sources.py(V2b)が register で足す。
 """
 import os
 import re
@@ -312,6 +312,8 @@ def time_row(view):
 for _k, _s, _f in (("value", "auto", value_auto), ("value", "cand", value_cand), ("read", "fill", read_fill),
                    ("voice", "diar", voice_diar), ("time", "row", time_row)):
     register(_k, _s, _f)
+
+from . import read_sources   # noqa: E402,F401  read:alt・read:yt を足す(V2b。read_sources は上の register・_doc_card を読む)
 
 
 def collect(ctx, state=None, kinds=None):

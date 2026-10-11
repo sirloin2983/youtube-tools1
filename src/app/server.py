@@ -118,6 +118,7 @@ from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/bac
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
 from eval.check import deck as check_deck, lineup as check_lineup  # noqa: E402  (src/eval/check: 「確かめる」の待ち行列。V1)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
+from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
 from human.check import timerow as _check_timerow  # noqa: E402,F401  (時刻のカードの反映を apply に登録する。V2d)
 from human.check import value as check_value  # noqa: E402, F401  (src/human/check/value.py: 価値のカードの反映を apply に登録する。V2a)
 from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
