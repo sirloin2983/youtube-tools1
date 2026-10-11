@@ -1,6 +1,6 @@
 /* app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行(段10 で app.js から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
-   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は index.html の1か所) */
+   関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所。RS8 C4 で編集の画面のページは消した) */
 'use strict';
 
 /* ---------- 保存済み一覧(履歴。v0.15.0 で作り直し: docs/spec/ui-guidelines.md 4.) ----------

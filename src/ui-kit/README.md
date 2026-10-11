@@ -1,7 +1,7 @@
-# ui-kit(共通の見た目)v26
+# ui-kit(共通の見た目)v27
 
-ツール(ホーム・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
-将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
+画面(ホーム・案件の画面・設定の画面)で共通の、色・文字・部品・ダーク/ライト切り替え。
+正本はここ1か所。画面はどれも入口の直下にあり、正本を `ui-kit.js`・`ui-kit.css` として直に読む(RS8 C4 = v27 でスタジオ・編集の画面を消したので、各ツールへの写しは無くなった)。
 
 - `ui-kit.css` … 色の変数(トークン)と部品(ボタン・入力・カード・タブ・表・通知など)
 - `ui-kit.js` … テーマ切り替え(`window.UIKit.theme`)と「他のツール」メニュー(`window.UIKit.tools`)。v2(2026-09-26・段階7)で次を追加:
@@ -23,9 +23,8 @@
 - `styleguide.html` … 見本。ブラウザで直接開いて、ダーク/ライトの両方で確認する
 
 ## 使い方
-1. 正本(このフォルダ)を直す
-2. `python dev/sync_ui_kit.py` で各ツールへ写す(`--check` でずれの確認だけ)
-3. 各ツールのテストに加えて `python -m unittest dev/tests/test_ui_kit_sync.py` が通ること
+1. 正本(このフォルダ)を直す(写し先は無い。`python dev/sync_ui_kit.py` は写し先が増えたときのために残してある = 今は何もしない)
+2. 画面のテストに加えて `python -m unittest dev/tests/test_ui_kit_sync.py` が通ること
 
 各ツールでの読み込み:
 - スタジオ: `<head>` で `<script src="/ui-kit.js"></script>`(CSS より先・同期)→ `<link rel="stylesheet" href="/ui-kit.css">` → ツール固有の CSS
@@ -68,7 +67,7 @@
 - 文字の大きさ「大きい」: `html[data-fs=lg]` で `--fs-*` を少し(1〜1.5px)大きく(設定の「文字の大きさ」から)
 
 ### 部品(JS は `window.UIKit`。CSS クラスは ui-kit.css)
-- **`UIKit.appnav`**: `<nav data-ui-appnav="studio|transcribe|portal">` に、ホーム/スタジオ/編集の3つを DOMContentLoaded で描く(ホームは入口に取り込まれているときだけ)。
+- **`UIKit.appnav`**: `<nav data-ui-appnav="studio|transcribe|portal">` に、ホーム/スタジオ/編集の3つを DOMContentLoaded で描く(ホームは入口に取り込まれているときだけ)。**v27 で「ホーム / 案件 / 設定」(`portal|cases|settings`)に変えた**
   今の場所は `aria-current="page"`。`setLink(id, suffix)`(`'?media=…'` のように `?`/`#` で始まる文字列だけ受け付け、そのツールへ今の動画を引き継ぐ)・`setVersion(text)`(今の場所の項目の `title` に版を出す)
 - **`UIKit.drawer`**: 右から出る引き出し(設定・書き出し・パックの詳しい設定などで共通)。`<aside class="ui-drawer" hidden>` + `.ui-drawer-head` / `.ui-drawer-body`。
   `open(el, {modal, opener})` / `close(el)` / `isOpen(el)`。`modal:true`(既定)は幕つき・裏(body 直下。引き出し自身・幕・トースト・下の帯は除く)を `inert` にしてフォーカスを閉じ込め、Esc で閉じる。
@@ -328,3 +327,9 @@
 - 左の一覧 `.ui-rail`(ui-kit.css)… 1 行 = `button.ui-rail-item`(Tab で届く)の中に `.ui-rail-t`(`<b>` の名前 + `.ui-rail-s` の 1 行の説明)と状態の札 `.pill`。選んだ行は `aria-current="true"`(左の線と薄い青)。見出しは `.ui-rail-sep`。
   行の中の札は行と一緒に押される物なので `data-ui-audit-allow="A-33"` を付ける。案件の画面(`src/app/ui/cases/`)が使う
 - 共通の再生キーにできないキー(`PB_BLOCKED`)に `Shift+N`(案件: 次の未校正の切り抜き)。`UIKit.version` は 26
+
+## v27(2026-10-11・RS8 案件の画面 C4 = 古い画面を消した)
+- `UIKit.appnav` の 3 項目を「ホーム / 案件 / 設定」に(`<nav data-ui-appnav="portal|cases|settings">`。行き先は入口の直下 `/`・`/cases`・`/settings` = `homeUrl`)。
+  案件の画面を引数なしで開くと、前に開いていた案件を開く(`src/app/ui/cases/cases.js`)
+- 録画中の札の「開く」は案件の画面の候補(`/cases?c=<録画の id>#cand`)。「他のツール」のメニューの「案件の一覧」はホームの案件の一覧(`/#cases`)
+- スタジオ・編集の写し(`src/studio/ui-kit.*`・`src/editor/ui-kit.*`)は消した(`dev/sync_ui_kit.py` の写し先は空)。`UIKit.version` は 27

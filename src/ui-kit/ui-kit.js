@@ -1,4 +1,4 @@
-/* ui-kit v25 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v27 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
@@ -56,7 +56,10 @@
        icon.names()。ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形に。README.md の「v24」
    v25(2026-10-09・設定を 1 つに S5): UIKit.settingsForm(宣言的なスキーマから設定の節を描く。入口の /settings/ の画面が使う)・
        ⚙ の「全体」の節に「すべての設定を 1 つの画面で」(入口に取り込まれているときだけ。/settings へ)。README.md の「v25」
-    v26(2026-10-11・RS8 案件の画面 C1): 左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」 */
+    v26(2026-10-11・RS8 案件の画面 C1): 左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」
+    v27(2026-10-11・RS8 案件の画面 C4): 古い画面(スタジオ・編集のページ)を消したので、appnav を「ホーム / 案件 / 設定」に(案件 = /cases・設定 = /settings。
+       <nav data-ui-appnav="portal|cases|settings">)・録画中の札の「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)・「他のツール」のメニューの「案件の一覧」はホームへ。
+       ツールごとの写し(src/studio/ui-kit.*・src/editor/ui-kit.*)は無くなった(画面はどれも入口の直下の正本 ui-kit.js・ui-kit.css を読む)。README.md の「v27」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -240,7 +243,7 @@
       var html = '';
       if (tools.mounted()) {   // 入口・案件へ戻る(ツールを開いたタブから、迷わず戻れるように)
         html += '<a href="/" data-ui-portal><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>ホーム</b><small>ツールの状態・起動と終了</small></span></a>' +
-          '<a href="/cases.html"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
+          '<a href="/#cases"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
           '<div class="ui-menu-sep" role="separator"></div>';
       }
       for (var i = 0; i < TOOLS.length; i++) {
@@ -621,17 +624,17 @@
 
   /* ==== v6(2026-09-27・画面の全面見直し 段階1): 共通の部品。使い方は README.md の「v6」 ==== */
 
-  /* ---- appnav(ホーム/スタジオ/編集の切り替え。ヘッダーの左) ---- <nav data-ui-appnav="studio|transcribe|portal"> に中身を作る */
-  var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'studio', label: 'スタジオ' }, { id: 'transcribe', label: '編集' }];
+  /* ---- appnav(ホーム/案件/設定の切り替え。ヘッダーの左。v27 = RS8 C4 でスタジオ・編集の画面を消した) ---- <nav data-ui-appnav="portal|cases|settings"> に中身を作る。
+     どの画面も入口の直下(/・/cases・/settings)= 行き先は入口の直下からの相対(homeUrl。絶対パスを書かない) */
+  var APPNAV_ITEMS = [{ id: 'portal', label: 'ホーム' }, { id: 'cases', label: '案件' }, { id: 'settings', label: '設定' }];
   var appnavSuffix = {}, appnavVersion = '';
-  function appnavHref(id) { return id === 'portal' ? '/' : (tools.mounted() ? tools.base(id) : tools.url(id)); }
+  function appnavHref(id) { return id === 'portal' ? homeUrl('') : homeUrl(id); }
   function renderAppNav() {
     var navs = document.querySelectorAll('[data-ui-appnav]');
     for (var n = 0; n < navs.length; n++) {
       var nav = navs[n], current = nav.getAttribute('data-ui-appnav') || '', html = '';
       for (var i = 0; i < APPNAV_ITEMS.length; i++) {
         var it = APPNAV_ITEMS[i];
-        if (it.id === 'portal' && !tools.mounted()) continue;   // 単体で開いたとき(入口の外)はホームを出さない
         var base = appnavHref(it.id), href = base + (appnavSuffix[it.id] || '');
         html += '<a href="' + esc(href) + '" data-ui-appnav-item="' + it.id + '" data-ui-appnav-base="' + esc(base) + '"' +
           (it.id === current ? ' aria-current="page"' : '') + (it.id === 'portal' ? ' data-ui-portal' : '') + '>' + esc(it.label) + '</a>';
@@ -2544,7 +2547,7 @@
   }
   function liveTimes() { for (var k in live.rows) { if (Object.prototype.hasOwnProperty.call(live.rows, k)) liveSet(live.rows[k].time, liveTimeText(live.rows[k].rec)); } }
 
-  function liveStudioHref(r) { return appnavHref('studio') + '?video=' + encodeURIComponent(r.id); }
+  function liveStudioHref(r) { return homeUrl('cases') + '?c=' + encodeURIComponent(r.id) + '#cand'; }   // v27: 案件の画面の候補(スタジオの画面は消した)
   function liveStop(row, btn) {
     btn.disabled = true;
     yttPost('live', { op: 'stop', recorder: row.rec.recorder, recording: row.rec.id }).then(function () { liveClose(true); return liveRefresh(); }, function (e) {   // 止めたら一覧を閉じる(終わりの知らせは札と toast で)
@@ -2658,7 +2661,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 26, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 27, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };

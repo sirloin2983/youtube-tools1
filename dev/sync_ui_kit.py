@@ -4,10 +4,9 @@
     python dev/sync_ui_kit.py          # 写す
     python dev/sync_ui_kit.py --check  # ずれがあれば一覧を出して終了コード 1(テスト用)
 
-正本は src/ui-kit/ui-kit.css と src/ui-kit/ui-kit.js。各ツールは実行時に ui-kit/ を参照しない(フォルダ単体で動く)ように、
-写しを自分のフォルダに持つ。写し先:
-  - src/studio/ui-kit.css, src/studio/ui-kit.js         (静的ファイルとして配信)
-  - src/editor/ui-kit.css, src/editor/ui-kit.js         (同上。JS は CSP 対応、CSS は RS8 C2b-0 で index.html の埋め込みから外に出した)
+正本は src/ui-kit/ui-kit.css と src/ui-kit/ui-kit.js。RS8 C4(0.59.0)でスタジオ・編集の画面(ページ)を消したので、写し先は無い
+(画面はどれも入口の直下 = ホーム・案件の画面・設定の画面が正本を /ui-kit.js・/ui-kit.css として直に読む)。
+写しと埋め込みの仕組みは、写し先がまた要るときのために残す(--check は写し先が無ければいつも 0)。
 """
 import os
 import sys
@@ -17,10 +16,9 @@ SRC = os.path.join(ROOT, "src")   # ツール・ytt・ui-kit の置き場所
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from ytt import fsio  # noqa: E402
-from ytt.layout import TOOL_DIRS  # noqa: E402  フォルダ名はここだけが知っている
 KIT = os.path.join(SRC, "ui-kit")
 HEADER = "/* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */\n"
-FILE_TARGETS = [(TOOL_DIRS["studio"], ("css", "js")), (TOOL_DIRS["transcribe"], ("css", "js"))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)
+FILE_TARGETS = []   # (ツールのフォルダ, ("css", "js"))。スタジオ・編集の写しは RS8 C4 で消した(cut2resolve の画面は 2026-09-26 に消した)
 EMBED_TARGETS = []   # 編集の CSS も RS8 C2b-0 で静的ファイル(src/editor/ui-kit.css)にした。埋め込みの印の仕組みは残す(テストが使う)
 MARKS = {"css": ("/* ui-kit:css:begin */", "/* ui-kit:css:end */"), "js": ("/* ui-kit:js:begin */", "/* ui-kit:js:end */")}
 

@@ -3,9 +3,9 @@
 
     python3 serve.py [開始ポート] [--no-open]
 
-  GET  /                     index.html
-  GET  /app.js, /ui-kit.js, /cut.js, /pack-tab.js   画面の JS(CSP script-src 'self' のため外部ファイルで配信)
-  GET  /ui-kit.css, /proof.css                       画面の CSS(index.html の <style> から外へ。RS8 C2b-0)
+  GET  /app.js, /cut.js, /pack-tab.js, /app-*.js   画面の部品の JS(案件の画面の校正・カット・パックのパネルが transcribe/ から読む。
+                             RS8 C4 で編集の画面のページ index.html と ui-kit の写しを消した。/ は入口が案件の画面へ転送する)
+  GET  /proof.css            校正のパネルの CSS
   GET  /api/ping             起動確認
   GET  /api/tools            ffmpeg / faster-whisper / GPU の有無
   GET  /api/settings, PUT    用語集・置換辞書・前回の設定
@@ -517,12 +517,10 @@ class Handler(BaseHTTPRequestHandler):
             return (q.get(k) or [default])[0]
         name = u.path.lstrip("/")
         try:
-            if u.path in ("/", "/index.html"):
-                return self._send_path(ed_state.INDEX, "text/html; charset=utf-8", PAGE_HEADERS)
-            if u.path in ("/app.js", "/ui-kit.js"):
-                return self._send_path(ed_state.APP_JS if u.path == "/app.js" else ed_state.UI_KIT_JS, "text/javascript; charset=utf-8")
-            if u.path in ("/ui-kit.css", "/proof.css"):
-                return self._send_path(ed_state.UI_KIT_CSS if u.path == "/ui-kit.css" else ed_state.PROOF_CSS, "text/css; charset=utf-8")
+            if u.path == "/app.js":
+                return self._send_path(ed_state.APP_JS, "text/javascript; charset=utf-8")
+            if u.path == "/proof.css":
+                return self._send_path(ed_state.PROOF_CSS, "text/css; charset=utf-8")
             if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(_workdata.ROOT, name)):
                 return self._send_path(os.path.join(_workdata.ROOT, name), "text/javascript; charset=utf-8")
             fn = GET_API.get(u.path)
@@ -712,8 +710,6 @@ def startup_checks():
             out.append("ディスクの空きが少なくなっています(残り %.1fGB)。長い動画の文字起こし・保管が途中で失敗することがあります" % (free / 1024 ** 3))
     except OSError:
         pass
-    if not os.path.exists(ed_state.INDEX):
-        out.append("index.html が見つかりません。フォルダの中身をまとめて置き直してください")
     if not os.path.exists(ed_state.APP_JS):   # 画面の版は全体の版 1 つ(ytt/version.py)なので食い違いは無い。ファイルの有無だけ見る
         out.append("app.js が見つかりません。フォルダの中身をまとめて置き直してください")
     return out

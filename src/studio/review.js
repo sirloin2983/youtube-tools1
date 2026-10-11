@@ -310,7 +310,7 @@ function settingsHTML(){
         </div>
       </div>`;
 }
-/* ⚙ の節の器(#opsHost。settings.js が先に作る。index.html で settings.js は review.js より前)に入れる */
+/* ⚙ の節の器(#opsHost。案件の画面の候補のパネル panels/cand.js が作る。RS8 C4 でスタジオの画面と settings.js は消した)に入れる */
 function mountSettings(){ $('#opsHost').innerHTML = settingsHTML(); }
 /* 書き出しの引き出し(書き出す・つなげて1本に・設定・一覧) */
 function exportDrawerHTML(){

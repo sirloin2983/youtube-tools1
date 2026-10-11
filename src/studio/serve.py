@@ -41,7 +41,9 @@ SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。
 TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 exporter.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 CODE_DIR = startup.CODE_DIR
-STATIC = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/core.js": "core.js", "/settings.js": "settings.js", "/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/review.css": "review.css", "/collab.js": "collab.js", "/ui-kit.css": "ui-kit.css", "/ui-kit.js": "ui-kit.js"}
+# 画面の部品だけ(RS8 C4 でスタジオの画面のページ・core.js・settings.js・CSS・ui-kit の写しを消した)。案件の画面とホームの「新しい案件」が
+# studio/review.js(候補のパネル)・studio/rank.js と queue.js(新しい案件)・studio/collab.js(新しい案件の「探す設定」のコラボ)を相対パスで読む
+STATIC = {"/rank.js": "rank.js", "/queue.js": "queue.js", "/review.js": "review.js", "/collab.js": "collab.js"}
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8"}
 PORT = 8800
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/studio/"(home/mount.py が prepare() で入れる)

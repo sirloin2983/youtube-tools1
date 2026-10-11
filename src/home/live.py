@@ -7,7 +7,7 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 スタジオのサーバーは録画の部品と話さず、スタジオの**画面が**ここの API を呼ぶ(同じオリジン・入口の合言葉)。
 
 オンのとき:
-  GET  /live/・/live/index.html・/live    スタジオ /studio/ へ 302(以前の録画の画面のブックマーク)
+  GET  /live/・/live/index.html・/live    ホーム / へ 302(以前の録画の画面のブックマーク。スタジオの画面は RS8 C4 で消した)
   GET  /live/hls.min.js                   hls.js(src/home/vendor/ に同梱 = CSP script-src 'self' のまま。スタジオの画面が ../live/hls.min.js で読む)
   GET  /live/api/info                     録画元の一覧(名前・URL。合言葉は出さない)・録画の置き場所の設定・書き出しの音量(スタジオの設定の引き出しが読む)
   POST /live/api/begin  {url}             配信の状態を yt-dlp で調べ(live_status)、配信中・配信前なら既定の録画元(一覧の先頭)で録画を始める
@@ -90,10 +90,10 @@ from human.friend.intake import OUT_DIR  # noqa: E402  # lint: keep 別名(RS3-3
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "vendor")
-PAGES = {"/live/hls.min.js": ("hls.min.js", VENDOR_DIR)}   # 部品だけ(画面はスタジオ。P3)
+PAGES = {"/live/hls.min.js": ("hls.min.js", VENDOR_DIR)}   # 部品だけ(画面は案件の画面の候補。P3・RS8 C4)
 TYPES = {".js": "application/javascript; charset=utf-8"}
-TO_STUDIO = ("/live", "/live/", "/live/index.html")       # 以前の録画の画面 → スタジオ
-STUDIO_PATH = "/studio/"
+TO_STUDIO = ("/live", "/live/", "/live/index.html")       # 以前の録画の画面 → ホーム(録画中の帯から案件の画面へ。スタジオの画面は RS8 C4 で消した)
+STUDIO_PATH = "/"
 RELAY_RE = re.compile(r"^/live/r/([a-z][a-z0-9-]{0,15})/([A-Za-z0-9._/-]{1,200})\Z")
 RELAY_POST_RE = re.compile(r"^\d{8}-\d{6}(?:-[A-Za-z0-9_-]{1,24})?/stop\Z")   # POST で中継してよい残り(録画の id/stop だけ。P4 で録画の部品に delete を足したため)
 PASS_TYPES = ("application/json", "application/vnd.apple.mpegurl", "video/mp2t")   # 中継で返してよい種類
@@ -257,7 +257,7 @@ class Live(livesession.LiveSession):
     def _handle_get(self, h, u):
         if not self.enabled():
             return False
-        if u.path in TO_STUDIO:   # 以前の録画の画面(P3 でスタジオへ統合した)
+        if u.path in TO_STUDIO:   # 以前の録画の画面(P3 でスタジオへ統合 → RS8 C4 でホームへ)
             h._send(302, b"", "text/plain; charset=utf-8", {"Location": STUDIO_PATH})
             return True
         if u.path in PAGES:
