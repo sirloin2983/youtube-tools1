@@ -356,7 +356,7 @@ def _mounted_old_urls(cx):
              ("/transcribe/?clip=" + q(clip), "/cases?d=deadbeef0001#proof"),   # 文書のある動画はその文書の校正へ
              ("/transcribe/", "/"),
              ("/cases.html", "/"),
-             ("/cut2resolve/?video=" + q(missing), "/transcribe/?" + urllib.parse.urlencode([("media", missing)])),   # 取り込みの page_to → 上の ?media= の行へ
+             ("/cut2resolve/?video=" + q(missing), "/#new?media=" + q(missing)),   # ?video= は入口が 1 回で(引数なしは取り込みの page_to)
              ("/cut2resolve/", "/transcribe/")]
     got = [(path, http_get(port, path)) for path, _want in table]
     bad = [(path, res, want) for (path, res), (_p, want) in zip(got, table) if res != (302, want)]
@@ -367,7 +367,7 @@ def _mounted_old_urls(cx):
     with mock.patch.object(cx.srv.live, "enabled", on_req):
         live = [http_get(port, p) for p in ("/live/", "/live")]
     check(live == [(302, "/")] * 2, "[A] /live/ は線 D がオンならホームへ 302(以前の録画の画面): %s" % live)
-    # ブラウザで 2 回の転送を追う: /cut2resolve/?video= → /transcribe/?media= → /#new?media= = 新しい案件の引き出しが開いて、動画のパスが欄に入る
+    # ブラウザで転送を追う: /cut2resolve/?video= → /#new?media= = 新しい案件の引き出しが開いて、動画のパスが欄に入る
     tab = ctx.new_page()
     tab.on("pageerror", lambda e: cx.errors.append(str(e)))
     tab.goto(base + "cut2resolve/?video=" + q(missing))
@@ -748,6 +748,8 @@ def _mounted_new_case_and_ops(cx):
     check(list(puts[0].keys()) == ["patch"] and patch.get("replacements") == "|ホシミ|=>星見" and patch.get("glossary") == "既存\n星見" and "learnIgnore" not in patch,
           "[A] 2j: 置換辞書に「|誤|=>正」(カタカナの語は単語の途中に当てない形)・用語集に正・patch の形: %s" % puts)
     s.close()
+    _new_case_rank(cx)
+    _new_case_queue_narrow(cx)   # 解析の順番待ちに 1 本入れるので最後に(上の ?url= の場面は順番待ちが空のことを見る)
 
 
 def _new_case_search_settings(cx):
@@ -796,6 +798,149 @@ def _new_case_search_settings(cx):
     time.sleep(0.5)   # 記録の送信(api/ytt/client-log)が届くまで
     size1 = os.path.getsize(log) if os.path.exists(log) else 0
     check(size1 == size0, "[A] 2j-2: 画面のエラーの記録(client-errors.jsonl)が増えない: %d → %d" % (size0, size1))
+
+
+AGC_JS = "[...document.querySelectorAll('#newDrawer #agChecks .agc')].map(e => [e.value, e.checked])"
+NO_HSCROLL_JS = ("document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+                 " && document.getElementById('newDrawer').scrollWidth <= document.getElementById('newDrawer').clientWidth + 1")
+
+
+def _watch_errors(p, errs):
+    p.on("pageerror", lambda e: errs.append(str(e)))
+    p.on("console", lambda m: errs.append(m.text) if m.type == "error" and "Failed to load resource" not in m.text else None)   # CSP の違反もここに入る
+
+
+def _new_case_rank(cx):
+    """[A] 2j-3. 新しい案件の ① 配信を探す(旧スタジオ e2e_ui.py の ① の要点。RS8 C4 で引き出しへ): 登録した事務所だけにチェック・外したのは残る /
+    期間の早見「昨日0時〜今」と「10分以上の動画だけ」(minDur 600)/ 検索の結果(疑似の YouTube API)/ まとめて実行(入口の start-new は偽物)"""
+    check, ctx = cx.check, cx.ctx
+    from human.find import rank as _rank   # 取り込んだスタジオと同じ部品(同じプロセス・置き場所は疑似のスタジオの STUDIO_HOME)
+    from ytt import apikey as _apikey
+    for ag in ("hololive", "nijisanji"):   # 疑似のスタジオ(STUDIO_FAKE)なので YouTube へは繋がない
+        _rank.import_official_channels(ag)
+        _rank.resolve(ag)
+    _apikey.set_api_key("AIzaTESTKEY0123456789abcdefghij")
+    errs = []
+    p = ctx.new_page()
+    _watch_errors(p, errs)
+    p.goto(cx.base + "#new")
+    want = {"hololive": True, "nijisanji": True, "vspo": False, "neoporte": False}
+    check(wait_js(p, "%s.length === 4" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == want,
+          "[A] 2j-3: チャンネルを登録した事務所だけにチェックが入る: %s" % p.evaluate(AGC_JS))
+    p.uncheck('#agChecks .agc[value="nijisanji"]')
+    p.reload()
+    check(wait_js(p, "%s.length === 4" % AGC_JS, 25000) and dict(p.evaluate(AGC_JS)) == dict(want, nijisanji=False),
+          "[A] 2j-3: 自分で外した事務所は、読み込み直しても外れたまま: %s" % p.evaluate(AGC_JS))
+    p.check('#agChecks .agc[value="nijisanji"]')
+    # 期間の早見と「10分以上の動画だけ」
+    check(p.evaluate("document.querySelector('#rkCond .cs-quick .btn').hasAttribute('data-yday')"), "[A] 2j-3: 期間の早見の先頭は「昨日0時〜今」")
+    p.click("#rkCond [data-yday]")
+    days = p.evaluate("""() => { const f = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        const e = new Date(), s = new Date(); s.setDate(s.getDate() - 1); return [f(s), f(e)]; }""")
+    check([p.input_value("#dStart"), p.input_value("#dEnd")] == days, "[A] 2j-3: 「昨日0時〜今」で 開始 = 昨日・終了 = 今日: %s" % days)
+    check(p.is_checked("#minDur10") and "10分以上" in (p.text_content("#rkAdvSum") or ""), "[A] 2j-3: 「10分以上の動画だけ」は既定でオン(閉じた見出しの要約にも出る)")
+    p.click('#rkCond [data-days="30"]')
+    check(wait_js(p, "!document.getElementById('btnGo').disabled", 10000), "[A] 2j-3: 事務所を登録すると「検索する」が押せる")
+    with p.expect_request(lambda r: r.url.endswith("/api/rank/search") and r.method == "POST") as rq:
+        p.click("#btnGo")
+    check(json.loads(rq.value.post_data or "{}").get("minDur") == 600, "[A] 2j-3: 検索の条件に最低の再生時間 600 秒を送る: %s" % rq.value.post_data)
+    _rank_results(cx, p)
+    _rank_autorun(cx, p)
+    p.close()
+    check(not errs, "[A] 2j-3: ① を操作しても画面のエラーなし(CSP 違反を含む): %s" % errs[:3])
+
+
+def _rank_results(cx, p):
+    """2j-3 の検索の結果: 既定「全部まとめて」上位 30 本・各行に事務所名・「事務所ごと」・結果の絞り込みと空の案内・チェックで選択数"""
+    check = cx.check
+    check(wait_js(p, "document.querySelectorAll('#results .rk-table tr[data-vid]').length > 5", 30000), "[A] 2j-3: 検索の結果が並ぶ")
+    views = p.eval_on_selector_all("#results tr[data-vid] td.n.num:not(.hide-s)", "els => els.map(e => Number(e.textContent.replace(/,/g, '')))")
+    check(p.locator("#results .rk-table").count() == 1 and views == sorted(views, reverse=True) and 5 < len(views) <= 30,
+          "[A] 2j-3: 既定は「全部まとめて」= 全事務所を 1 つの表に再生数の多い順(上位 30 本): %d 本" % len(views))
+    check(p.locator("#results tr[data-vid] .rk-ag-name").count() == len(views), "[A] 2j-3: 全部まとめて: 各行に事務所名")
+    p.click('#results [data-view="ag"]')
+    check(wait_js(p, "document.querySelectorAll('#results details.rk-ag').length === 2", 5000), "[A] 2j-3: 「事務所ごと」で事務所ごとのまとまり(選んだ 2 事務所)")
+    p.click('#results [data-view="all"]')
+    p.fill("#rkQ", "zzzz-no-hit")
+    check(wait_js(p, "document.querySelectorAll('#results tr[data-vid]').length === 0 && document.querySelectorAll('#rkBody .empty').length === 1", 5000),
+          "[A] 2j-3: 結果の中を絞り込める(合わないときは空の案内)")
+    p.fill("#rkQ", "")
+    p.check("#results tr[data-vid] .pk >> nth=0")
+    check(p.text_content("#pickN") == "1" and p.is_enabled("#pickGo"), "[A] 2j-3: チェックすると選択数が増え、追加ボタンが押せる")
+
+
+def _rank_autorun(cx, p):
+    """2j-3 のまとめて実行: 入口の start-new・autorun は偽物。送る中身(items の id と題名・top)・始めた行の印・チェックできない"""
+    check = cx.check
+    check(p.is_visible("#rkAuto"), "[A] 2j-3: 選んだ配信の「まとめて実行」が出る(ホームの中)")
+    vid = p.get_attribute("#results tr[data-vid] .pk >> nth=0", "data-id")
+    sent = []
+
+    def fake_runs():
+        return [{"id": "e2erun00002", "kind": "video", "videoId": vid, "docId": None, "mode": "full", "modeLabel": "全部", "title": "検索の配信", "state": "queued",
+                 "created": int(time.time() * 1000), "finished": None, "message": "", "error": "", "steps": []}] if sent else []
+
+    def fake_start(route):
+        sent.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(json={"runs": fake_runs(), "skipped": []})
+    p.route("**/api/autorun/start-new", fake_start)
+    p.route("**/api/autorun", lambda route: route.fulfill(json={"runs": fake_runs(), "past": [], "modes": {}}))
+    p.click("#rkAuto > summary")
+    check(p.is_enabled("#rkAutoGo") and "1 本" in (p.text_content("#rkAutoGo") or ""), "[A] 2j-3: 選んだ本数が「まとめて実行」のボタンに出る: %s" % p.text_content("#rkAutoGo"))
+    p.fill("#rkAutoTop", "2")
+    p.click("#rkAutoGo")
+    check(wait_js(p, "/まとめて実行の順番待ち/.test((document.querySelector('#results tr[data-vid=\"%s\"] .chip') || {}).textContent || '')" % vid, 10000),
+          "[A] 2j-3: 始めた配信の行に「まとめて実行の順番待ち」の印")
+    it = (sent[0].get("items") or [{}])[0] if sent else {}
+    check(it.get("id") == vid and it.get("title") and sent[0].get("top") == 2, "[A] 2j-3: 選んだ配信(id と題名)と採用する数(top)を入口に送る: %s" % (sent[:1],))
+    check(p.text_content("#pickN") == "0" and p.is_disabled('#results tr[data-vid="%s"] .pk' % vid), "[A] 2j-3: 始めた配信は選択から外れ、順番待ちの間はチェックできない")
+    p.unroute("**/api/autorun/start-new")
+    p.unroute("**/api/autorun")
+
+
+def _new_case_queue_narrow(cx):
+    """[A] 2j-4. 新しい案件の「URL から入れる」(旧スタジオ e2e_ui.py の check_queue の要点): 「解析に追加」で順番待ち → 疑似の解析が終わると「確認する」→
+    案件の画面の候補へ / 失敗は「何が起きたか + どうすればいいか」/ 幅 390 で ① が横にはみ出さない(?url= を欄に入れるだけは 2j で確かめた)"""
+    check, ctx = cx.check, cx.ctx
+    media = os.path.join(cx.tmp, "fake-media.webm")   # 疑似のスタジオの解析が「取ってきた」ことにする見本の動画(STUDIO_FAKE_MEDIA。main の環境の patch が戻す)
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=15:duration=40",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=40", "-shortest", "-c:v", "libvpx", "-b:v", "200k", "-deadline", "realtime",
+                    "-c:a", "libopus", media], check=True, timeout=120)
+    os.environ["STUDIO_FAKE_MEDIA"] = media
+    errs = []
+    p = ctx.new_page()
+    _watch_errors(p, errs)
+    p.goto(cx.base + "#new")
+    check(wait_js(p, "!!document.querySelector('#newDrawer #qUrls')", 25000), "[A] 2j-4: 新しい案件の引き出し")
+    p.fill("#qUrls", "https://youtu.be/abcdefghijk")
+    p.click("#qAdd")
+    check(wait_js(p, "!!document.querySelector('#qList .q-item') && document.getElementById('qUrls').value === ''", 10000), "[A] 2j-4: 「解析に追加」で順番待ちに入り、欄が空になる")
+    wait_js(p, "(() => { const i = document.querySelector('#qList .q-item'); return !!i && ['done', 'error'].includes(i.dataset.status); })()", 90000)
+    check(p.get_attribute("#qList .q-item", "data-status") == "done" and p.locator('#qList [data-act="review"]').count() == 1
+          and "確認する" in (p.text_content("#qNext") or ""), "[A] 2j-4: 疑似の解析が終わり「確認する」と次にやることが出る: %s" % p.get_attribute("#qList .q-item", "data-status"))
+    raw = "音声を取得できませんでした: ERROR: [youtube] abcdefghijk: Sign in to confirm your age"
+    p.route("**/api/queue", lambda route: route.fulfill(json={"items": [{"qid": "e1", "videoId": "abcdefghijk", "kind": "youtube", "title": "失敗した配信", "channel": "星見ルナ",
+                                                                         "status": "error", "phase": "失敗", "progress": 0, "error": raw, "chat": None, "marks": 0,
+                                                                         "finishedAt": int(time.time() * 1000)}], "running": False, "max": 10}))
+    check(wait_js(p, "!!document.querySelector('#qList .q-item[data-status=\"error\"]') && /年齢制限/.test(document.querySelector('#qList .q-err b').textContent)", 15000)
+          and "年齢制限" in (p.text_content("#qList .q-err b") or "")
+          and p.is_visible("#qList .q-how") and p.text_content("#qList .q-raw code") == raw and not p.is_visible("#qList .q-raw code"),
+          "[A] 2j-4: 解析の失敗は「何が起きたか」+「どうすればいいか」・元のメッセージは閉じた欄に: %s" % p.text_content("#qList .q-err"))
+    p.unroute("**/api/queue")
+    check(wait_js(p, "!!document.querySelector('#qList [data-act=\"review\"]')", 15000), "[A] 2j-4: 偽物を外すと終わった解析の「確認する」に戻る")
+    p.click('#qList [data-act="review"]')
+    p.wait_for_url(lambda u: "/cases?c=abcdefghijk" in u and u.endswith("#cand"), timeout=20000)
+    check(True, "[A] 2j-4: 「確認する」は案件の画面の候補(/cases?c=…#cand)へ: %s" % p.url)
+    p.close()
+    m = ctx.new_page()
+    _watch_errors(m, errs)
+    m.set_viewport_size({"width": 390, "height": 844})
+    m.goto(cx.base + "#new")
+    check(wait_js(m, "!!document.querySelector('#newDrawer #rkCond') && !!document.querySelector('#newDrawer #qUrls')", 25000) and wait_js(m, NO_HSCROLL_JS, 3000),
+          "[A] 2j-4: 幅 390 で新しい案件の ① が横にはみ出さない: %s" % m.evaluate("[document.documentElement.scrollWidth, document.getElementById('newDrawer').scrollWidth,"
+                                                                   " document.getElementById('newDrawer').clientWidth]"))
+    m.close()
+    check(not errs, "[A] 2j-4: URL から入れる・狭い幅で画面のエラーなし: %s" % errs[:3])
 
 
 def _next_todo(cx):

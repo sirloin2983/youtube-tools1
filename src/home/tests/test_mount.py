@@ -326,8 +326,8 @@ class TestCut2ResolveMounted(unittest.TestCase):
         """「編集」(/transcribe)も取り込まれているときは、cut2resolve の画面は編集へ転送する(?video= → ?media=)。API はそのまま"""
         self.srv.mounts["/transcribe"] = object   # 編集が取り込まれている印だけ(このテストでは /transcribe/ には要求しない)
         try:
-            r, _ = self.req("GET", "/cut2resolve/?video=C%3A%5Ca.mp4&srt=x")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/?media=C%3A%5Ca.mp4"))
+            r, _ = self.req("GET", "/cut2resolve/?video=C%3A%5Ca.mp4&srt=x")   # RS8 C4: ?video= は入口が 1 回で新しい案件の欄(文書が無い)へ
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/#new?media=C%3A%5Ca.mp4"))
             r, _ = self.req("GET", "/cut2resolve/index.html")
             self.assertEqual((r.status, r.getheader("Location")), (302, "/transcribe/"))
             r, _ = self.req("GET", "/cut2resolve/?classic=1")

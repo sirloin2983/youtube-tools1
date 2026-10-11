@@ -2409,7 +2409,6 @@ function handoffHTML(j, it){
   const path = it.status === 'done' ? clipPathOf(j, it) : '';
   if (!path) return '';
   const man = typeof it.manifest === 'string' && it.manifest ? it.manifest : '';
-  UIKit.appnav.setLink('transcribe', '?media=' + enc(path));   // 「編集」に今の切り抜きを引き継ぐ(ヘッダーの appnav)
   const tt = editorHref(path);
   return `<div class="rv-ejob-a">${tt ? `<a class="btn small" href="${esc(tt)}" target="_blank" rel="noopener" data-edit-open title="「編集」(文字起こし・カット・Resolve へのパック)で、この切り抜きを開きます(文字起こしは自動では始めません)">編集で開く</a>` : ''}<button type="button" class="btn small ghost" data-act="copy" data-path="${esc(path)}" title="${esc(path)}">パスをコピー</button>${man ? `<span class="pill info" title="${esc(man)}">切り抜きの記録あり</span>` : ''}</div>`;
 }

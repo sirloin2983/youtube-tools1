@@ -60,8 +60,14 @@ class TestTarget(unittest.TestCase):
         self.assertEqual(t("/transcribe/", "clip=C%3A%2Fz.mp4", lambda p: ""), "/#new?media=C%3A%2Fz.mp4")   # 文書が無ければ新しい案件の欄へ
         self.assertEqual(t("/transcribe/", "media=C%3A%2Fz.mp4"), "/#new?media=C%3A%2Fz.mp4")
 
+    def test_cut2resolve_video_goes_once(self):
+        """以前の cut2resolve の画面の ?video= は、編集の ?media= と同じ行き先へ 1 回で(RS8 C4)。引数なしは取り込みの案内のまま"""
+        self.assertEqual(t("/cut2resolve/", "video=C%3A%2Fz.mp4", lambda p: ""), "/#new?media=C%3A%2Fz.mp4")
+        self.assertEqual(t("/cut2resolve/index.html", "video=C%3A%2Fz.mp4", lambda p: TID), "/cases?d=%s#proof" % TID)
+        self.assertIsNone(t("/cut2resolve/"))
+
     def test_others_are_not_redirected(self):
-        for p in ("/", "/studio/api/ping", "/studio/review.js", "/transcribe/api/jobs", "/cut2resolve/", "/settings"):
+        for p in ("/", "/studio/api/ping", "/studio/review.js", "/transcribe/api/jobs", "/cut2resolve/", "/cut2resolve/api/ping", "/settings"):
             self.assertIsNone(t(p), p)
 
 

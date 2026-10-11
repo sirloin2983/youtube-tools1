@@ -1261,8 +1261,9 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def handler_for(self, path):
         if path and self.mounts:
-            p = urllib.parse.urlsplit(path).path
-            if redirects_mod.target(p, {}) is not None:   # 古い画面の URL は入口が転送する(取り込んだツールの Handler に渡さない)
+            sp = urllib.parse.urlsplit(path)
+            p = sp.path
+            if redirects_mod.target(p, urllib.parse.parse_qs(sp.query)) is not None:   # 古い画面の URL は入口が転送する(取り込んだツールの Handler に渡さない。文書は引かずに形だけ見る)
                 return PortalHandler
             for prefix, handler in self.mounts.items():
                 if p == prefix or p.startswith(prefix + "/"):

@@ -537,14 +537,8 @@ function renderDocExtras(d){
   renderClipBox($('#docClip'), d && d.clip);
   if (S.handoff && S.handoff.id !== S.docId) S.handoff = null;
   renderHandoff();
-  /* ヘッダーの ui-appnav の「スタジオ」に、元の配信を引き継ぐ(スタジオの ?url= は解析の欄に入るだけ)。
-     url が無い文書に切り替えたときは '?'(パラメータ無し)を渡して、前の文書の分を消す(渡さないと残ってしまう) */
-  const src = d && d.clip && typeof d.clip === 'object' && d.clip.source && typeof d.clip.source === 'object' ? d.clip.source : null;
-  const url = src && typeof src.url === 'string' && src.url.startsWith(YT_PREFIX) ? src.url : '';
-  const vid = src && typeof src.videoId === 'string' && /^[\w-]{1,64}$/.test(src.videoId) ? src.videoId : '';
-  /* B-6: ?video= を先に(スタジオに保存済みなら、その配信の確認画面で開く)。?url= は保存されていなかったときの予備(解析の欄に入る) */
-  const q = [vid ? 'video=' + encodeURIComponent(vid) : '', url ? 'url=' + encodeURIComponent(url) : ''].filter(Boolean).join('&');
-  UIKit.appnav.setLink('studio', '?' + q);
+  /* 以前はヘッダーの appnav の「スタジオ」に元の配信を引き継いでいた(setLink('studio', …))。RS8 C4 で appnav は「ホーム / 案件 / 設定」になり、
+     案件の画面では元の配信は同じ案件の候補のタブ = 引き継ぐ物が無いので消した */
 }
 
 function renderHandoff(){

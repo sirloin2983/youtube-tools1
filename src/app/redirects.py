@@ -10,6 +10,7 @@ from ytt import schemas
 
 STUDIO_PAGES = ("/studio", "/studio/", "/studio/index.html")
 EDITOR_PAGES = ("/transcribe", "/transcribe/", "/transcribe/index.html")
+C2R_PAGES = ("/cut2resolve/", "/cut2resolve/index.html")   # 以前の cut2resolve の画面(?video= だけ。引数なしは取り込みの page_to の案内のまま)
 
 
 def _id_ok(s):
@@ -32,6 +33,8 @@ def target(path, query, doc_for=None):
         if _one(query, "url"):
             return "/#new?url=" + urllib.parse.quote(_one(query, "url"), safe="")
         return "/"
+    if path in C2R_PAGES:   # ?video=<動画のパス> は編集の ?media= と同じ行き先へ 1 回で(以前は /transcribe/?media= を挟んで 2 回。RS8 C4)
+        return _media_target(_one(query, "video"), doc_for) if _one(query, "video") else None
     if path in EDITOR_PAGES:
         tid = _one(query, "doc")
         if tid:
@@ -40,9 +43,14 @@ def target(path, query, doc_for=None):
             return "/cases?c=eval#proof"
         media = _one(query, "media") or _one(query, "clip")
         if media:
-            found = doc_for(media) if doc_for else ""
-            if found and schemas.TID_RE.match(found):
-                return "/cases?d=%s#proof" % found
-            return "/#new?media=" + urllib.parse.quote(media, safe="")
+            return _media_target(media, doc_for)
         return "/"
     return None
+
+
+def _media_target(media, doc_for):
+    """動画のパス -> その文書の校正か、無ければ新しい案件の動画ファイルの欄"""
+    found = doc_for(media) if doc_for else ""
+    if found and schemas.TID_RE.match(found):
+        return "/cases?d=%s#proof" % found
+    return "/#new?media=" + urllib.parse.quote(media, safe="")
