@@ -3,9 +3,10 @@
 
 Runner(flow/run.py)の段は、ツールの仕事を self.tools.<動詞>(...) で頼む。動詞は今の各ツールの API 1 つずつ(返す形も API の応答のまま)。
   HttpTools(client) … 今の形(既定)。入口の中の 3 ツールの公開している API を client(call・ok)で呼ぶ。呼ぶ API と本文は RS6 b-0 の前と同じ
-  LocalTools()      … 入口なしで動かす最小の形(あとで CLI が使う)。文字起こし = ② flow/tx の動詞を同じスレッドで(ジョブの表は通さない。
+  LocalTools()      … 入口なしで動かす最小の形(app の CLI が使う)。文字起こし = ② flow/tx の動詞を同じスレッドで(ジョブの表は通さない。
                       重い処理の枠 ytt.jobs.SLOTS は取る)・パック = ① pipeline/pack の plan_cut → build_pack を直に。
-                      解析・採用・書き出し・話者分離・配信の読みは作っていない(呼ぶと「入口に頼んでください」の StepError)。
+                      配信の読み・解析・採用・書き出しは studio(② flow/studiobook の LocalStudio = スタジオなしの台帳。RS8 の「URL も CLI で」)を
+                      渡したときだけ、その動詞に任せる(無ければ「入口に頼んでください」の StepError)。話者分離は作っていない(同じ StepError)。
                       文書は作業データ(ytt/workdata の TX_DIR。呼ぶ側が先に決める)に ② の write_machine_doc で書く(書き出し先の案件の動画なら
                       その 作業用 に置いて索引を TX_DIR に = placement.doc_home。RS8 B2-2)。人のカット(edit.json)は読まない
 HttpTools の動詞の名前と返す形が「段が道具に頼むこと」の一覧(LocalTools は同じ名前で同じ形を返す)。
@@ -123,7 +124,8 @@ def _step_error(msg):
 
 def _refuse(what):
     """LocalTools に無い段 -> StepError"""
-    return _step_error("%sは、入口(ホームのまとめて実行)に頼んでください(入口なしの実行は文字起こしとパックだけです)" % what)
+    return _step_error("%sは、入口(ホームのまとめて実行)に頼んでください(入口なしの実行で使えるのは文字起こし・パックと、"
+                       "コマンドに URL を渡したときの配信の段だけです)" % what)
 
 
 def _public(job):
@@ -146,38 +148,56 @@ def doc_row(tid, d):
 class LocalTools:
     """入口なしで動かす最小の形(HttpTools と同じ動詞・同じ返す形)。仕事はその場で終わらせ、ジョブの id を返す(段は終わった状態を読む)"""
 
-    def __init__(self, learning=None):
+    def __init__(self, learning=None, studio=None):
         """learning = 学習データを読む人(無ければ置換辞書と名簿の表だけ = 今まで)。呼ぶ側(app の CLI)が ③ の学習から作って渡す
         (② は ③ を読まない)。持つ口は 2 つ: glossary(ユーザーの用語) -> 自動で足す用語・learned() -> 確度「高」の学習済み置換の選び方か None。
-        置き場所(machine の learningDir)は渡す側が決める(束には入れない = 決定 3-30)"""
+        置き場所(machine の learningDir)は渡す側が決める(束には入れない = 決定 3-30)。
+        studio = 配信の段の動詞(flow/studiobook.LocalStudio。URL の実行で app の CLI が作って渡す。None = 配信の段は断る)"""
         self.learning = learning
+        self.studio = studio
         self._jobs = {}    # 文字起こしのジョブの id -> ジョブ
         self._packs = {}   # パックの仕事の id -> {"id", "state", "result" / "error"}
 
-    # 入口に頼む段
+    # 配信の段(studio があればスタジオなしの台帳に任せる・無ければ入口に頼む)
+    def _studio(self, what):
+        if self.studio is None:
+            raise _refuse(what)
+        return self.studio
+
     def video(self, vid):
-        raise _refuse("配信の読み")
+        return self._studio("配信の読み").video(vid)
+
+    def studio_video(self, vid):
+        """台帳の配信 1 本(全部の形)か {}(台帳が無い・無い・読めない)。結果の束が切り抜きを引く手がかり(Runner の _studio_video)"""
+        if self.studio is None:
+            return {}
+        st, obj = self.studio.video(vid)
+        return (obj.get("video") or {}) if st == 200 else {}
 
     def analyze_add(self, item, settings):
-        raise _refuse("解析")
+        return self._studio("解析").analyze_add(item, settings)
 
     def analyze_items(self):
-        raise _refuse("解析")
+        return self._studio("解析").analyze_items()
 
     def analyze_cancel(self, qid):
-        """取り消す解析は無い(analyze_add が断る)"""
+        """取り消す(台帳が無ければ取り消す解析は無い = analyze_add が断る)"""
+        if self.studio is not None:
+            self.studio.analyze_cancel(qid)
 
     def request_marks(self, body):
-        raise _refuse("採用")
+        return self._studio("採用").request_marks(body)
 
     def export_start(self, body):
-        raise _refuse("書き出し")
+        return self._studio("書き出し").export_start(body)
 
     def export_job(self, jid):
-        raise _refuse("書き出し")
+        return self._studio("書き出し").export_job(jid)
 
     def export_cancel(self, jid):
-        """取り消す書き出しは無い(export_start が断る)"""
+        """取り消す(台帳が無ければ取り消す書き出しは無い = export_start が断る)"""
+        if self.studio is not None:
+            self.studio.export_cancel(jid)
 
     def diarize_start(self, body):
         raise _refuse("話者分離")
