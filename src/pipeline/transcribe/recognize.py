@@ -16,7 +16,6 @@ run_job は transcribe_rows が返す行を受け取って、別の読み(fill)�
 import hashlib
 import json
 import os
-import subprocess
 import time
 
 from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _tools, workdata as _workdata
@@ -51,19 +50,16 @@ def extract_audio(job, spec, wav):
     if spec.get("boost"):  # 小さい声を持ち上げる(低域のこもりを削り、音量のばらつきをならす)
         cmd += ["-af", "highpass=f=70,dynaudnorm=f=200:g=15:m=15"]
     cmd += ["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav]
-    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-                         encoding="utf-8", errors="replace")
-    job["proc"] = p
-    try:
-        err = p.stderr.read()
-        p.wait()
+
+    def started(p):
+        job["proc"] = p   # cancel_job が止める
+    try:   # 窓なし・優先度「低」・取り消しは job["cancel"] でも止める(ytt.tools.run_progress。OPT2)
+        code, err, _why = _tools.run_progress(cmd, cancelled=lambda: job.get("cancel"), tail=None, split=True, on_start=started)
     finally:
         job["proc"] = None
-        _tools.kill_quiet(p)
-        p.stderr.close()   # 読み終えたパイプを閉じる(閉じないと GC まで残る)
     _heavy.check_cancel(job)
-    if p.returncode != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
-        tail = " / ".join([l.strip() for l in (err or "").splitlines() if l.strip()][-2:])
+    if code != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
+        tail = " / ".join([l.strip() for l in err if l.strip()][-2:])
         raise _errors.ApiError("extract_failed", "音声を取り出せませんでした。音声の無い動画か、壊れたファイルの可能性があります。別の動画を選んでください", 400,
                                 {"detail": tail[:300]})   # ffmpeg の原文(パスを含む)は「詳しく」だけ(2 周目 N2)
 

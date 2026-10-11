@@ -22,12 +22,11 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
-from ytt import fsio
+from ytt import fsio, tools as _tools
 from . import srt2resolve as S
 
 ToolError = S.ToolError
@@ -274,79 +273,28 @@ def drop_short(ranges, min_len):
 # ---------------------------------------------------------------- 無音の検出
 
 def _ffmpeg_run(cmd, timeout, task=None, duration=None):
-    """ffmpeg / ffprobe を実行する(シェルは使わない。引数はリストのまま渡す)。
-    task を渡すと、-progress で進み具合を報告し、取り消されたら ffmpeg を止めて Cancelled を出す(画面用)"""
+    """ffmpeg / ffprobe を実行する(シェルは使わない。引数はリストのまま渡す)。-> CompletedProcess(stdout・stderr は文字。行の区切りは改行)。
+    task を渡すと、-progress pipe:1 を足して out_time から task.report(0〜1) し、取り消されたら ffmpeg を止めて Cancelled を出す(画面用。
+    task なしは標準出力も集める = ffprobe の JSON)。時間切れ・起動できない(無い)は ToolError。
+    中身は ytt.tools.run_progress(窓なし・優先度「低」・標準エラーは別に全部持つ。OPT2 に _ffmpeg_stream を畳んだ)"""
+    out = []
+    on_time = None
     if task is not None:
-        return _ffmpeg_stream(cmd, timeout, task, duration)
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
-    except FileNotFoundError:
-        raise ToolError("ffmpeg が見つかりません。ffmpeg をインストールして PATH に通してください。")
-    except subprocess.TimeoutExpired:
-        raise ToolError("ffmpeg の処理が時間内に終わりませんでした。")
-
-
-def _ffmpeg_stream(cmd, timeout, task, duration):
-    """-progress pipe:1 の「out_time_us=」を読んで task.report(0〜1)。取り消し・時間切れは見張りのスレッドが ffmpeg を止める
-    (標準出力の読み取りで止まっていても取り消せるように)。標準エラーは別のスレッドで全部読む(パイプが詰まらないように)"""
-    task.check()
-    cmd = [cmd[0], "-progress", "pipe:1"] + list(cmd[1:])
-    try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
-                                text=True, encoding="utf-8", errors="replace")
-    except FileNotFoundError:
-        raise ToolError("ffmpeg が見つかりません。ffmpeg をインストールして PATH に通してください。")
-    err, why = [], []
-    done = threading.Event()
-    deadline = time.monotonic() + timeout
-
-    def read_err():
-        err.append(proc.stderr.read())
-
-    def watch():
-        while not done.wait(0.2):
-            if task.cancelled or time.monotonic() > deadline:
-                why.append("cancel" if task.cancelled else "timeout")
-                try:
-                    proc.kill()
-                except OSError:
-                    pass
-                return
-    t_err = threading.Thread(target=read_err, daemon=True)
-    t_watch = threading.Thread(target=watch, daemon=True)
-    t_err.start()
-    t_watch.start()
-    try:
-        for line in proc.stdout:
-            key, _, val = line.strip().partition("=")
-            if key in ("out_time_us", "out_time_ms") and duration:   # out_time_ms も中身はマイクロ秒(ffmpeg の既知の名前違い)
-                try:
-                    sec = int(val) / 1e6
-                except ValueError:
-                    continue
+        task.check()
+        cmd = [cmd[0], "-progress", "pipe:1"] + list(cmd[1:])
+        if duration:
+            def on_time(sec):
                 task.report(max(0.0, min(1.0, sec / duration)), None)
-        proc.wait()
-    finally:
-        done.set()
-        if proc.poll() is None:
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            proc.wait()
-        t_err.join(10)
-        t_watch.join(1)
-        for pipe in (proc.stdout, proc.stderr):
-            try:
-                pipe.close()
-            except OSError:
-                pass
-    if (why and why[0] == "cancel") or (not why and task.cancelled):   # 見張りが気づく前(0.2 秒)に ffmpeg が書き終えても、取り消しは取り消し
+    try:
+        code, err, why = _tools.run_progress(cmd, cancelled=(lambda: task.cancelled) if task is not None else None, on_time=on_time,
+                                             tail=None, timeout=timeout, split=True, on_line=out.append if task is None else None)
+    except FileNotFoundError:
+        raise ToolError("ffmpeg が見つかりません。ffmpeg をインストールして PATH に通してください。")
+    if why == "cancel" or (why is None and task is not None and task.cancelled):   # 見張りが気づく前に ffmpeg が書き終えても、取り消しは取り消し
         raise Cancelled()
-    if why:
+    if why == "timeout":
         raise ToolError("ffmpeg の処理が時間内に終わりませんでした。")
-    return subprocess.CompletedProcess(cmd, proc.returncode, "", "".join(x for x in err if x))
+    return subprocess.CompletedProcess(cmd, code, "\n".join(out), "\n".join(err))
 
 
 def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):

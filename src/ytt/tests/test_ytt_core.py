@@ -19,7 +19,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from manage.cases import txindex  # noqa: E402
-from ytt import colors, datadir, fsio, httpsec, jobs, layout, pick, runtime, schemas, studio_env, tools  # noqa: E402
+from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, pick, procs, runtime, schemas, studio_env, tools  # noqa: E402
 
 
 def locked(winerror=32):
@@ -1267,6 +1267,54 @@ class TestTools(unittest.TestCase):
         self.assertEqual(calls[0]["creationflags"], 0)               # 起動の差し替え・flags はそのまま渡す
         with self.assertRaises(OSError):
             tools.run_progress([os.path.join(tempfile.gettempdir(), "無いプログラム.exe")])
+
+    def test_run_progress_options(self):
+        """OPT2: 時間の上限・標準エラーを別に全部・行ごとの on_line・CR の区切り・作業フォルダ・spawn の一覧・既定は窓なしで優先度「低」"""
+        both = ("import sys, os\n"
+                "sys.stdout.write('out_time_us=2000000\\nhello\\nframe=1\\rtime=00:00:03.00\\n' + os.getcwd() + '\\n')\n"
+                "sys.stderr.write('e1\\n\\nk=v\\n')\n"
+                "sys.exit(2)\n")
+        got, times = [], []
+        cwd = tempfile.mkdtemp()
+        try:
+            code, err, why = tools.run_progress(self.py(both), on_time=times.append, on_line=got.append, split=True, tail=None, cwd=cwd)
+        finally:
+            shutil.rmtree(cwd, ignore_errors=True)
+        self.assertEqual((code, why, times), (2, None, [2.0]))
+        self.assertEqual(got[:3], ["hello", "frame=1", "time=00:00:03.00"])           # 進み具合の行は on_time へ・CR も行の区切り
+        self.assertEqual(os.path.normcase(got[3]), os.path.normcase(cwd))
+        self.assertEqual(err, ["e1", "", "k=v"])                                      # split = 標準エラーをそのまま全部
+        sleeper = self.py("import time; time.sleep(60)")
+        t0 = time.monotonic()
+        self.assertEqual(tools.run_progress(sleeper, timeout=0.5)[2], "timeout")
+        self.assertLess(time.monotonic() - t0, 20)
+        calls, seen = [], []
+
+        def popen(cmd, **kw):
+            calls.append(kw)
+            return subprocess.Popen(cmd, **kw)
+        tools.run_progress(self.py("pass"), popen=popen, on_start=seen.append)
+        self.assertEqual(calls[0]["creationflags"], tools.no_window_flags(priority="low"))
+        self.assertIsNotNone(seen[0].poll())
+        self.assertTrue(seen[0].stdout.closed)                                        # パイプを閉じる(ResourceWarning を出さない)
+        started = []
+        self.assertEqual(tools.run_progress(sleeper, cancelled=lambda: bool(started and started[0] in procs.children()), spawn=True,
+                                            on_start=started.append)[2], "cancel")   # spawn の一覧に載り、終われば外れる
+        self.assertNotIn(started[0], procs.children())
+
+    def test_run_capture(self):
+        """procs.run_capture(中身は run_progress): 標準出力は on_line・標準エラーは最後の 40 行・job[slot] は終われば空・パイプを閉じる"""
+        code = "import sys\nprint('a'); print('out_time_us=1000000')\nfor i in range(50): sys.stderr.write('e%d\\n' % i)\nsys.exit(3)\n"
+        got, times = [], []
+        job = {"cancel": False, "proc": None}
+        rc, err = procs.run_capture(job, self.py(code), got.append, on_time=times.append)
+        self.assertEqual((rc, got, times, len(err), err[-1], job["proc"]), (3, ["a"], [1.0], 40, "e49", None))
+        with self.assertRaises(errors.Cancelled):
+            procs.run_capture({"cancel": True, "proc": None}, self.py("import time; time.sleep(60)"))
+        with self.assertRaises(errors.ApiError) as cm:
+            procs.run_capture({"cancel": False, "proc": None}, self.py("import time; time.sleep(60)"), idle_timeout=0.5, what="テスト")
+        self.assertEqual(cm.exception.code, "timeout")
+        self.assertEqual(procs.children(), [])
 
     def test_out_time(self):
         """-progress の進み具合の行(スタジオの exporter._pump も読む。us も ms もマイクロ秒)"""

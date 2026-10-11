@@ -3,7 +3,7 @@
 - find_tool … 外部プログラムの場所(固有の環境変数 → YTT_ → PATH → winget。全部の部品がここで探す)。tool_version / tool_output … その版を調べる
 - no_window_flags … creationflags(窓を出さない・別グループ・優先度)。python_exe … 子プロセスに使う python.exe
 - start_logged … 常駐の子プロセスを、出力をログに足す形で起こす
-- run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg の -progress を読みながら動かす(取り消し・無出力で止める)
+- run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg・yt-dlp の出力(-progress の進み具合)を 1 行ずつ読みながら動かす(取り消し・時間切れ・無出力で止める。窓なし・優先度「低」。ffmpeg を動かす形はこの 1 つ)
 - kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
 - MEDIA_TYPES・find_ffmpeg・ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・長さ・元のファイルの検査・映像と音声の有無。RS3-0A に編集の ed_state・ed_store から)
@@ -300,49 +300,112 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
     return RunResult(proc.returncode, b"".join(out), b"".join(err), reason)
 
 
-def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, popen=None, tail=20):
-    """ffmpeg を -progress pipe:1 つきで 1 回動かす(標準出力と標準エラーを 1 本で読む)。-> (終了コード, エラーの行の最後の tail 行, 止めた理由)
-    止めた理由: None | "cancel"(cancelled() が真)| "idle"(idle_sec 秒なにも出力しなかった)。0.3 秒ごとに見る(取り消しが先)。
+def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, popen=None, tail=20, *,
+                 timeout=None, split=False, on_line=None, spawn=False, cwd=None, on_start=None):
+    """ffmpeg など(yt-dlp も)を 1 回動かし、出力を 1 行ずつ読む。進み具合・取り消し・無出力・時間切れつきで子プロセスを動かす形はこの 1 つ
+    (OPT2。2026-10-11 に exporter._pump・cut2resolve_core._ffmpeg_stream・procs.run_capture・recognize.extract_audio・
+    live_excite_worker.measure_levels を寄せた)。シェルを通さない・標準入力なし・文字は UTF-8(壊れた文字は置き換える。行の区切りは改行と CR)。
+    -> (終了コード, 行, 止めた理由)。止めた理由: None | "cancel"(cancelled() が真)| "timeout"(timeout 秒を過ぎた)|
+    "idle"(idle_sec 秒なにも出力しなかった)。0.3 秒ごとにこの順で見る。timeout・idle_sec は 0・None なら見ない。
+    - 行(2 つ目): split=False(既定)は標準出力と標準エラーを 1 本で読み、進み具合の行と key=value の行(頭の 20 字に = がある)を除いた
+      空でない行(前後の空白を除く)。split=True は標準エラーを別に読み、その行をそのまま(行末の空白を除く。空の行も)。
+      どちらも最後の tail 行だけ持つ(tail=None は全部)
     - on_time(秒): 進み具合の行(out_time_us= / out_time_ms=。どちらもマイクロ秒)ごとに、出力した長さ(秒)で呼ぶ
-    - エラーの行 = 進み具合の行と key=value の行(頭の 20 字に = がある)を除いた、空でない行
-    - popen: 子プロセスの起動を差し替える(既定 subprocess.Popen)。flags: creationflags(既定 no_window_flags())
-    起動できなければ OSError をそのまま上げる。on_time が上げた例外は、子を止めてから上げる"""
-    lines = collections.deque(maxlen=tail)
-    proc = (popen or subprocess.Popen)(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                       creationflags=no_window_flags() if flags is None else flags)
-    state = {"last": time.time(), "why": None}
+    - on_line(行): 進み具合の行のほかの、読んだ 1 行ずつ(前後の空白を除く。空の行も)。split=True なら標準出力の行だけ
+    - flags: creationflags(既定 no_window_flags(priority="low") = 窓を出さない・優先度「低」)。popen: 起動を差し替える(既定 subprocess.Popen)
+    - spawn=True: procs.spawn で起動する(スタジオの終了の流れ procs.stop_children で止められる一覧に載せる。別グループ)。
+      止めるのは procs.terminate(孫ごと)、終わったら一覧から外す。spawn=False は子だけ kill
+    - cwd: 子の作業フォルダ。on_start(proc): 起動した直後に呼ぶ(呼ぶ側が外から止めるために覚えるとき)
+    起動できなければ OSError をそのまま上げる。on_time・on_line・on_start が上げた例外は、子を止めてから上げる。
+    出力が閉じたあと 30 秒で終わらなければ止める"""
+    procs = None
+    if spawn:
+        from . import procs   # procs が tools を読むので、使うときに読む
+    kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE if split else subprocess.STDOUT,
+              text=True, encoding="utf-8", errors="replace", creationflags=no_window_flags(priority="low") if flags is None else flags)
+    if cwd is not None:
+        kw["cwd"] = cwd
+    proc = (popen or (procs.spawn if spawn else subprocess.Popen))(cmd, **kw)
+    lines = collections.deque(maxlen=tail) if tail is not None else []
+    t0 = time.monotonic()
+    state = {"last": t0, "why": None}
     done = threading.Event()
+
+    def stop():
+        if procs is not None:
+            procs.terminate(proc)
+        else:
+            kill_quiet(proc)
 
     def watchdog():
         while not done.wait(0.3):
+            now = time.monotonic()
             if cancelled is not None and cancelled():
                 state["why"] = "cancel"
-            elif idle_sec is not None and time.time() - state["last"] > idle_sec:
+            elif timeout and now - t0 > timeout:
+                state["why"] = "timeout"
+            elif idle_sec and now - state["last"] > idle_sec:
                 state["why"] = "idle"
             else:
                 continue
-            kill_quiet(proc)
+            stop()
             return
+
+    def drain_err():
+        try:
+            for raw in proc.stderr:
+                state["last"] = time.monotonic()
+                lines.append(raw.rstrip())
+        except (OSError, ValueError):
+            pass
+    reader = threading.Thread(target=drain_err, daemon=True) if split else None
+    if reader is not None:
+        reader.start()
     threading.Thread(target=watchdog, daemon=True).start()
     try:
+        if on_start is not None:
+            on_start(proc)
         for raw in proc.stdout:
-            state["last"] = time.time()
-            line = raw.decode("utf-8", "replace").strip()
+            state["last"] = time.monotonic()
+            line = raw.strip()
             m = OUT_TIME.match(line)
             if m:
                 if on_time is not None:
                     on_time(int(m.group(1)) / 1e6)
                 continue
-            if line and "=" not in line[:20]:
+            if on_line is not None:
+                on_line(line)
+            if not split and line and "=" not in line[:20]:
                 lines.append(line)
-        proc.wait()
+        try:
+            proc.wait(30)
+        except subprocess.TimeoutExpired:
+            stop()
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                pass
     finally:
         done.set()
-        kill_quiet(proc)
-        try:
-            proc.stdout.close()
-        except OSError:
-            pass
+        if proc.poll() is None:
+            if procs is not None:
+                kill_tree(proc)
+            else:
+                kill_quiet(proc)
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                pass
+        if reader is not None:
+            reader.join(5)
+        for f in (proc.stdout, proc.stderr):
+            if f is not None:
+                try:
+                    f.close()
+                except OSError:
+                    pass
+        if procs is not None:
+            procs.forget(proc)
     return proc.returncode, list(lines), state["why"]
 
 

@@ -5,7 +5,8 @@
 - `spawn(cmd, **kw)`: 別のプロセスグループ・窓なしで起動して覚える。終わりを見届けたら `forget`。動いている子は `children()`
 - `stop_children(wait)`: 終了の流れで、動いている子を孫ごと止める
 - `run_short(cmd, timeout)`: すぐ終わる情報の読み取り(subprocess.run の代わり。spawn を通す)
-- `run_capture(job, cmd, …)`: 1 行ずつ読みながら実行し、job の cancel・時間切れ・出力が止まったときに止める(中止は errors.Cancelled・出力なしは ApiError("timeout"))
+- `run_capture(job, cmd, …)`: 1 行ずつ読みながら実行し、job の cancel・時間切れ・出力が止まったときに止める(中止は errors.Cancelled・出力なしは ApiError("timeout"))。
+  中身は ytt.tools.run_progress(spawn=True。OPT2)
 - `terminate`(止める依頼。待たない)・`hard_kill`(孫ごと強制終了)・`idle_message`(出力が止まったときの文)
 - `pid_alive(pid)`: 自分の子でないプロセスが動いているか(flow/placement の .flow.lock の取り残しの見分け。RS6 b-B0)
 テストは `common.spawn` などの旧い名前でも読み書きできる(スタジオの common.py の転送。RS5 で消す)。読む側は `procs.名前` を呼ぶたびに読む。
@@ -169,62 +170,20 @@ def idle_message(what, sec):
     return "%sが%s、出力がなかったため中止しました" % (what, ("%d分間" % max(1, round(sec / 60))) if sec >= 60 else ("%d秒間" % max(1, round(sec))))
 
 
-def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=None, what="処理", cwd=None):
-    """コマンドを実行し、標準出力を1行ずつ on_line に渡す。(終了コード, 標準エラーの末尾) を返す。中止に対応。
-    job は {"cancel": bool, <slot>: Popen} を持つ辞書。idle_timeout 秒のあいだ出力(標準出力・標準エラー)が無ければ止めて ApiError("timeout")。
-    cwd: 子の作業フォルダ(None = このプロセスと同じ)"""
-    p_ = spawn(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=cwd)
-    job[slot] = p_
-    err = []
-    last = [time.time()]
-    idle = [False]
-
-    def drain():
-        for l in p_.stderr:
-            last[0] = time.time()
-            err.append(l.rstrip())
-            del err[:-40]
-    th = threading.Thread(target=drain, daemon=True)
-    th.start()
-    t0 = time.time()
-    done = threading.Event()
-
-    def watchdog():   # 出力が止まっていても、中止・時間切れで確実に止める
-        while not done.wait(0.5):
-            now = time.time()
-            if job["cancel"] or (timeout and now - t0 > timeout):
-                terminate(p_)
-                return
-            if idle_timeout and now - last[0] > idle_timeout:
-                idle[0] = True
-                terminate(p_)
-                return
-    threading.Thread(target=watchdog, daemon=True).start()
+def run_capture(job, cmd, on_line=None, timeout=None, slot="proc", idle_timeout=None, what="処理", cwd=None, on_time=None):
+    """コマンドを実行し、標準出力を1行ずつ on_line に渡す(-progress の進み具合の行は on_time(秒) へ)。(終了コード, 標準エラーの最後の 40 行) を返す。
+    job は {"cancel": bool, <slot>: Popen} を持つ辞書(動いている間 job[slot] に子を置く = cancel_job が止める)。job["cancel"] が立てば止めて errors.Cancelled。
+    timeout 秒を過ぎたら止めて、そのまま返す。idle_timeout 秒のあいだ出力(標準出力・標準エラー)が無ければ止めて ApiError("timeout")。
+    cwd: 子の作業フォルダ(None = このプロセスと同じ)。中身は ytt.tools.run_progress(spawn で起動 = 終了の流れで止まる。OPT2)"""
+    def started(p_):
+        job[slot] = p_
     try:
-        for line in p_.stdout:
-            last[0] = time.time()
-            if job["cancel"] or (timeout and time.time() - t0 > timeout):
-                terminate(p_)
-                break
-            if on_line:
-                on_line(line.rstrip("\n"))
-        try:
-            p_.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            hard_kill(p_)
-            try:
-                p_.wait(5)
-            except subprocess.TimeoutExpired:
-                pass
-        th.join(2)
+        code, err, why = _tools.run_progress(cmd, cancelled=lambda: job["cancel"], idle_sec=idle_timeout, on_time=on_time, tail=40, timeout=timeout,
+                                             split=True, on_line=on_line, spawn=True, cwd=cwd, on_start=started)
     finally:
-        done.set()
         job[slot] = None
-        if p_.poll() is None:
-            hard_kill(p_)
-        forget(p_)
     if job["cancel"]:
         raise errors.Cancelled()
-    if idle[0]:
+    if why == "idle":
         raise errors.ApiError("timeout", idle_message(what, idle_timeout), 504)
-    return p_.returncode, err
+    return code, err

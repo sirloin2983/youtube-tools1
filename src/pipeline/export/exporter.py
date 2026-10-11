@@ -26,6 +26,7 @@ from ytt.textutil import fmt_ts, permission_message, redact   # 純粋な関数(
 MAX_EXPORT_CLIPS = 50
 MAX_CLIP_SEC = 3600
 EXPORT_IDLE = 600   # 書き出しのコマンドが、この秒数まったく出力しなければ中止
+_STATS_TIME = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")   # ffmpeg の統計の行の位置(yt-dlp の区間取得が流す。_pump_once の進み具合)
 DEFAULT_EXPORT_VOLUME = 75   # 書き出しの音量(%)。元の音量(100)だと大きすぎるとのことで既定は下げ気味
 MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
 # ラウドネス(聞こえ方の音量。LUFS)をそろえる(2026-09-26。音量(%)の代わりに選べる)。YouTube は再生時に約 -14 LUFS に下げるので、それを目安にする
@@ -387,59 +388,28 @@ def _pump(job, cmd, it, dur, span=(0.0, 1.0)):
 
 
 def _pump_once(job, cmd, it, dur, span):
-    """_pump の 1 回分。-> (終了コード, 出力の最後の 30 行, 止めた理由 None|"cancel"|"idle")"""
+    """_pump の 1 回分。-> (終了コード, 出力の最後の 30 行, 止めた理由 None|"cancel"|"idle")。
+    中身は ytt.tools.run_progress(spawn = 終了の流れで止まる・job["proc"] に子を置く = cancel が止める。OPT2)。
+    進み具合は -progress の out_time と、yt-dlp が流す ffmpeg の統計の行の time=(区間取得)の両方から"""
     lo, hi = span
-    proc = _procs.spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", bufsize=1)
-    job["proc"] = proc
-    tail = []
-    last = [time.time()]
-    idle = [False]
-    done = threading.Event()
 
-    def watchdog():
-        while not done.wait(0.5):
-            if job["cancel"]:
-                _procs.terminate(proc)
-                return
-            if time.time() - last[0] > EXPORT_IDLE:
-                idle[0] = True
-                _procs.terminate(proc)
-                return
-    threading.Thread(target=watchdog, daemon=True).start()
+    def put(sec):
+        if dur > 0:
+            it["progress"] = min(0.99, lo + (hi - lo) * min(1.0, sec / dur))
+
+    def on_line(line):
+        m = _STATS_TIME.search(line)
+        if m:
+            put(int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)))
+
+    def started(proc):
+        job["proc"] = proc
     try:
-        for line in proc.stdout:
-            last[0] = time.time()
-            if job["cancel"]:
-                _procs.terminate(proc)
-                break
-            line = line.strip()
-            m = _tools.OUT_TIME.match(line)   # -progress の進み具合(us も ms もマイクロ秒)
-            if m and dur > 0:
-                it["progress"] = min(0.99, lo + (hi - lo) * min(1.0, int(m.group(1)) / 1e6 / dur))
-                continue
-            m = re.search(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)", line)
-            if m and dur > 0:
-                it["progress"] = min(0.99, lo + (hi - lo) * min(1.0, (int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))) / dur))
-            if line and not line.startswith(("out_time", "frame=", "fps=", "stream_", "bitrate=", "total_size=", "dup_frames", "drop_frames", "speed=", "progress=")):
-                tail.append(line)
-                tail = tail[-30:]
-        try:
-            proc.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            _procs.hard_kill(proc)
-            try:
-                proc.wait(5)
-            except subprocess.TimeoutExpired:
-                pass
+        code, tail, why = _tools.run_progress(cmd, cancelled=lambda: job["cancel"], idle_sec=EXPORT_IDLE, on_time=put, tail=30,
+                                              on_line=on_line, spawn=True, on_start=started)
     finally:
-        done.set()
         job["proc"] = None
-        if proc.poll() is None:
-            _procs.hard_kill(proc)
-        _procs.forget(proc)
-        if proc.poll() is not None:
-            proc.stdout.close()
-    return proc.returncode, tail, ("cancel" if job["cancel"] else "idle" if idle[0] else None)
+    return code, tail, ("cancel" if job["cancel"] else why)
 
 
 def _make(job, cmd, it, dur, out, what, log_cmd=None):

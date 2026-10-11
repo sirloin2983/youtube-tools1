@@ -202,16 +202,16 @@ def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
         raise NoTool("ffmpeg が見つかりません(setup の install.bat で入れてください)")
     levels.clear(wdir)
     cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path)
-    try:
-        r = tools.run(cmd, timeout=timeout, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=40, cwd=wdir,
-                      on_start=job.add if job is not None else None)
+    try:   # 窓なし・優先度「低」(ytt.tools.run_progress。OPT2)
+        code, err, why = tools.run_progress(cmd, tail=40, timeout=timeout, split=True, cwd=wdir, on_start=job.add if job is not None else None)
     except OSError as e:
         raise NoTool("ffmpeg を起動できませんでした: %s" % tools.why(e))
     full, band = levels.collect(wdir)
-    if r.why == "timeout":
+    if why == "timeout":
         raise MeasureError("ffmpeg が %d 秒で終わりませんでした" % int(timeout))
-    if r.code != 0 or not full:
-        raise MeasureError("音を測れませんでした(ffmpeg %s: %s)" % (r.code, ((r.err_lines(1) or [""])[0])[:160]))
+    if code != 0 or not full:
+        last = [x.strip() for x in err if x.strip()][-1:] or [""]
+        raise MeasureError("音を測れませんでした(ffmpeg %s: %s)" % (code, last[0][:160]))
     return full, band
 
 

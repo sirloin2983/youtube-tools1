@@ -21,7 +21,7 @@ import uuid
 from . import levels  # 1 秒ごとの音量の測り方(配信中の検出と同じ 1 か所。OPT1)
 from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/ytt_core/excite.py に移した。配信中の検出と同じ式。隣のファイル)
 from ytt import yturl as _yturl   # URL・動画 ID の形と入力の判定(sources.py を畳んだ)
-from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env, tools as _tools  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
+from ytt import apikey as _key, fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, redact, tail_reason   # 純粋な関数(差し替えない)
 from .excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
@@ -637,14 +637,13 @@ def audio_levels(job, path, dur, wdir, p0=0.12, p1=0.48):
     if not ff:
         raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)")
 
-    def on(line):
-        m = _tools.OUT_TIME.match(line.strip())
-        if m and dur:
-            job["progress"] = p0 + (p1 - p0) * min(1.0, int(m.group(1)) / 1e6 / dur)
+    def on_time(sec):
+        if dur:
+            job["progress"] = p0 + (p1 - p0) * min(1.0, sec / dur)
     levels.clear(wdir)
     cmd = [ff, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path) + ["-progress", "pipe:1", "-nostats"]
     try:
-        rc, err = _procs.run_capture(job, cmd, on, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析", cwd=wdir)
+        rc, err = _procs.run_capture(job, cmd, None, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析", cwd=wdir, on_time=on_time)
     finally:
         full, band = levels.collect(wdir)
     if rc != 0 or not full:
