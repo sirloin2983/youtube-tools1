@@ -10,11 +10,13 @@
   learningDir  学習データの場所(既定 = 作業データの根 = 今の場所。データは動かさない。決定 3-30 の Q3)
   docMove      入口の起動のときに文字起こしの文書を案件の 作業用 へ自動で移すか(真偽。既定 false = 移さない。RS8 B2-3 の
                manage/cases/docmove。移す規則をユーザーが見てからオンにするスイッチ。コマンドの --now・--back は関係なく使える)
+  markMove     入口の起動のときに前からあるスタジオの配信(data.json)と案件の状態(cases.json)を案件の 採用.json・候補.json へ自動で移すか
+               (真偽。既定 false。RS8 B3-8 の manage/cases/markmove。docMove と同じ形のスイッチ。コマンドの --now・--back・--relink は関係なく使える)
 
 読む順の強さ: 引数 > 環境変数(ENV)> ファイル(作業データの根の machine.json)> 既定(DEFAULT の説明)。
   既定 = 今の値: engine・device は編集の設定 settings.json(ytt/settings・workdata.SETTINGS)の device とそこから決まるエンジン・
   llmModel = qwen3-8b(llm.py の LLM_MODEL と同じ。test_machine が確かめる)・caseRoot = スタジオの outDir(datadir.studio_out_dir)・
-  diskMinGB = 20・learningDir = 作業データの根・docMove = false。
+  diskMinGB = 20・learningDir = 作業データの根・docMove = false・markMove = false。
   machine.json が無ければ読むときに既定から組む(書くのは save を呼んだときだけ)。ファイル・環境変数の合わない値は使わずに次の層へ(ログに 1 行)。
   置き場所: 環境変数 YTT_MACHINE_FILE があればそれ。無ければ作業データの根(datadir.data_root。YTT_DATA_DIR=inplace のときは src = 各ツールのフォルダの親)。
 
@@ -45,7 +47,8 @@ FILE_NAME = "machine.json"
 SCHEMA = "youtube-tools-machine/v1"
 FILE_ENV = "YTT_MACHINE_FILE"            # machine.json の場所を直に決める(テスト・別の置き場所)
 FILE_MAX = 64 * 1024
-FIELDS = ("engine", "device", "llmModel", "caseRoot", "diskMinGB", "learningDir", "docMove")
+FIELDS = ("engine", "device", "llmModel", "caseRoot", "diskMinGB", "learningDir", "docMove", "markMove")
+SWITCHES = ("docMove", "markMove")       # 真偽のスイッチ(既定 false)
 DEVICES = _spec.TX_DEVICES               # spec.SCHEMA の transcribe.device と同じ(旧い値は check が spec.read_legacy_tx で読み替える)
 LLM_MODEL = "qwen3-8b"                   # pipeline/transcribe/llm.py の LLM_MODEL(入口のプロセスで llm を読まないので値を持つ。test_machine が同じことを確かめる)
 DISK_MIN_GB = 20
@@ -57,7 +60,8 @@ ENV = {"engine": ("YTT_MACHINE_ENGINE",),
        "caseRoot": ("YTT_MACHINE_CASE_ROOT",),
        "diskMinGB": ("YTT_MACHINE_DISK_MIN_GB",),
        "learningDir": ("YTT_MACHINE_LEARNING_DIR",),
-       "docMove": ("YTT_MACHINE_DOC_MOVE",)}
+       "docMove": ("YTT_MACHINE_DOC_MOVE",),
+       "markMove": ("YTT_MACHINE_MARK_MOVE",)}
 BOOL_WORDS = {"1": True, "true": True, "yes": True, "on": True, "0": False, "false": False, "no": False, "off": False}   # 環境変数の真偽の書き方
 SOURCES = ("arg", "env", "file", "default")
 
@@ -93,12 +97,12 @@ def check(field, value):
         if _spec.num_ok(value) and 0 <= value <= DISK_MAX_GB:
             return int(value) if float(value).is_integer() else round(float(value), 1)
         raise ValueError("diskMinGB は 0〜%d の数(GB)にしてください" % DISK_MAX_GB)
-    if field == "docMove":
+    if field in SWITCHES:
         if isinstance(value, str) and value.strip().lower() in BOOL_WORDS:
             return BOOL_WORDS[value.strip().lower()]
         if isinstance(value, bool):
             return value
-        raise ValueError("docMove は true か false にしてください")
+        raise ValueError("%s は true か false にしてください" % field)
     raise ValueError("知らない項目です: %s(使えるのは %s)" % (field, "・".join(FIELDS)))
 
 
@@ -174,7 +178,7 @@ def _default(field, have, env):
         return _datadir.studio_out_dir(env=None if env is os.environ else env)
     if field == "diskMinGB":
         return DISK_MIN_GB
-    if field == "docMove":
+    if field in SWITCHES:
         return False
     return root(env)   # learningDir
 

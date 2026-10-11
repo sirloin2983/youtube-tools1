@@ -149,6 +149,17 @@ class TestSave(Base):
                 M.check("docMove", bad)
         self.assertEqual(M.save({"docMove": True}, p=self.file)["docMove"], True)
 
+    def test_mark_move_switch(self):
+        """RS8 B3-8: 起動のときの配信の記録の移行のスイッチ markMove(既定 false)。docMove とは別に決まる"""
+        m = M.load(env=self.env)
+        self.assertEqual((m["markMove"], m["sources"]["markMove"]), (False, "default"))
+        self.write({"markMove": True})
+        self.assertEqual((M.get("markMove", env=self.env), M.get("docMove", env=self.env)), (True, False))
+        self.assertIs(M.get("markMove", env=dict(self.env, YTT_MACHINE_MARK_MOVE="off")), False)
+        with self.assertRaises(ValueError):
+            M.check("markMove", "x")
+        self.assertEqual(M.save({"markMove": False}, p=self.file)["markMove"], False)
+
     def test_check_paths_and_numbers(self):
         p = os.path.abspath(self.tmp)
         self.assertEqual(M.check("caseRoot", " %s " % p), os.path.normpath(p))

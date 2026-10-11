@@ -34,6 +34,7 @@ FILES = {
     "src/pipeline/analyze/adopt.py": ("pipeline", "pipeline/analyze", "採用の規則 F-5 の純粋な関数(RS8 B3-2 の G1a。human/review/store の Store.adopt_marks から出した。入力 = マークの一覧・区間・上限 → 出力 = 採る印をつけた一覧)"),
     "src/flow/adopt.py": ("flow", "flow", "② 採用の口(RS8 B3-2 の G1a。③ の Store.adopt_marks が ① pipeline/analyze/adopt を直に読まずに済む動詞。② が足すこと = kind live を通さない・配信の長さ・ApiError 400)"),
     "src/manage/cases/docmove.py": ("manage", "manage/cases", "文書を案件の 作業用 へ移す・戻す(RS8 B2-3。入口の起動のときと、コマンド --back・--resume・--now・--purge-migrated。ytt・flow/placement・manage/keep を読む)"),
+    "src/manage/cases/markmove.py": ("manage", "manage/cases", "data.json の配信と cases.json の状態を案件の 採用.json・候補.json へ移す・戻す・繋ぎ直す(RS8 B3-8。入口の起動のときと、コマンド --now・--back・--resume・--relink。ytt・flow/casebook・human/review/store の読み方を読む)"),
     "src/human/proof/layers.py": ("human", "human/proof", "文書を機械の層 + 人の層から組み立てる純粋な関数(RS8 O2-1。compose・diff・案 A の印・話者の対応表。ファイルを触らない。ytt だけを読む)"),
     "src/eval/tools/eval_layers.py": ("eval", "eval/tools", "機械の層 + 人の層の往復を作業データで確かめる道具(RS8 O2-1。読むだけ。human/proof/layers を読む)"),
     "src/flow/casebook.py": ("flow", "flow", "案件の候補と採用のファイル(RS8 B3-3。作業用/候補.json = ① の機械の候補・作業用/採用.json = ③ の人の採用。分ける split・重ねる merge・案件の引き方 case_of・読み書きとパスごとのロック。ytt だけを読む。保存の経路に入れるのは B3-4)"),

@@ -486,6 +486,39 @@ class HelpersTest(unittest.TestCase):
                 self.assertIsNone(L.move_docs(srv, logs.append))
         self.assertTrue(any("移せませんでした" in x for x in logs))
 
+    def test_move_marks_on_start(self):
+        """RS8 B3-8: 起動のときの配信の記録の移行。inplace は何もしない・スイッチ markMove がオフなら移さない(書き出し先の繋ぎ直しは毎回)・
+        バックアップが済んでいなければ移さない・失敗しても上げない"""
+        from types import SimpleNamespace
+        tmp = tempfile.mkdtemp(prefix="movemarks-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        data = os.path.join(tmp, "studio", "data.json")
+        os.makedirs(os.path.dirname(data))
+        with open(data, "w", encoding="utf-8") as f:
+            json.dump({"schema": "clip-studio/v1", "videos": {"abcdefghijk": {"id": "abcdefghijk", "kind": "youtube", "marks": []}}, "groups": {}}, f)
+        srv = SimpleNamespace(sup=SimpleNamespace(root=tmp), backup=SimpleNamespace(last={}))
+        logs = []
+        self.assertIsNone(L.move_marks(srv, logs.append))   # inplace
+        with mock.patch.object(L.datadir, "data_root", return_value=tmp), mock.patch.object(L.placement, "studio_data", return_value=data), \
+                mock.patch.object(L.cases_mod, "locations", return_value={"cases": os.path.join(tmp, "app", "cases.json")}), \
+                mock.patch.object(L.datadir, "studio_out_dir", return_value=os.path.join(tmp, "exports")):
+            with mock.patch.object(L.machine_mod, "get", return_value=False):   # この PC の設定 markMove の既定 = オフ
+                self.assertEqual(L.move_marks(srv, logs.append), {"state": "off", "moved": 0, "relinked": 0})
+            self.assertEqual(L.markmove_mod.read_result(data)["outDirs"], [os.path.join(tmp, "exports")], "オフでも書き出し先は覚える")
+            on = mock.patch.object(L.machine_mod, "get", side_effect=lambda f: True if f == "markMove" else None)
+            on.start()
+            self.addCleanup(on.stop)
+            self.assertEqual(L.move_marks(srv, logs.append)["state"], "waitBackup")
+            srv.backup.last = {"ok": 1700000000.0}
+            r = L.move_marks(srv, logs.append)
+            self.assertEqual((r["state"], r["moved"], r["kept"]), ("done", 0, {}))   # 書き出したマークの無い配信は対象でない
+            with mock.patch.object(L.markmove_mod, "run", side_effect=OSError("x")):
+                self.assertIsNone(L.move_marks(srv, logs.append))
+            with mock.patch.object(L.markmove_mod, "relink_out_dir", side_effect=OSError("y")):
+                self.assertEqual(L.move_marks(srv, logs.append)["relinked"], 0)
+        self.assertTrue(any("移せませんでした" in x for x in logs))
+        self.assertTrue(any("繋ぎ直しができませんでした" in x for x in logs))
+
     def test_logger_does_not_block_when_console_is_stuck(self):
         # Windows の黒い画面で文字を選択している間は表示の書き込みが止まる。そのときも log() はすぐ戻り、ファイルには残る
         release = threading.Event()

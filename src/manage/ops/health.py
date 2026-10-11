@@ -263,14 +263,16 @@ class Health:
     extra_dirs() = 空き容量を見る追加の場所(スタジオの書き出し先など)"""
 
     def __init__(self, sup, logs_dir, repo_root=None, worker_probe=None, extra_dirs=None, clock=time.time, cache_sec=CACHE_SEC, crash_fn=None,
-                 live_probe=None, accuracy_probe=None, docs_probe=None):
+                 live_probe=None, accuracy_probe=None, docs_probe=None, marks_probe=None):
         """live_probe() = リアルタイム切り抜きの録画元ごとの状態と空き容量(src/home/live.py の Live.health)。オフなら None を返す = 「調子」に出さない。
         accuracy_probe() = 精度の自動測定の状態と領域ごとの直近・前回(src/eval/drill/accuracy.py の Accuracy.snapshot。軽い。無ければ「調子」に出さない)。
-        docs_probe() = 文書の置き場所(案件へ移した・残した・見えない文書の数。src/manage/cases/docmove.py の status。None なら出さない)"""
+        docs_probe() = 文書の置き場所(案件へ移した・残した・見えない文書の数。src/manage/cases/docmove.py の status。None なら出さない)。
+        marks_probe() = 配信の記録の置き場所(案件へ移した・残した配信・案件が見えない索引の行の数。src/manage/cases/markmove.py の status。None なら出さない)"""
         self.sup, self.logs_dir, self.repo_root = sup, logs_dir, repo_root
         self.live_probe = live_probe
         self.accuracy_probe = accuracy_probe
         self.docs_probe = docs_probe
+        self.marks_probe = marks_probe
         self.crash_fn = crash_fn or crash_counts
         self.worker_probe = worker_probe or (lambda: None)
         self.extra_dirs = extra_dirs or (lambda: [])
@@ -360,6 +362,10 @@ class Health:
             dc = _try(self.docs_probe)
             if dc is not None:
                 out["docs"] = dc
+        if self.marks_probe is not None:   # 配信の記録の置き場所(RS8 B3-8): 移した・残した配信・見えない案件があるとき・スイッチがオフのときだけ "marks" を足す
+            mk = _try(self.marks_probe)
+            if mk is not None:
+                out["marks"] = mk
         if slow:
             out["data"] = slow["data"]
             out["tools"] = slow["tools"]

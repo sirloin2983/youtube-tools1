@@ -1616,7 +1616,22 @@
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
     if (h.docs) ul.appendChild(docsHealthRow(h.docs));
+    if (h.marks) ul.appendChild(marksHealthRow(h.marks));
     renderAccuracy(h.accuracy, ul);
+  }
+  /* 配信の記録の置き場所の 1 行(RS8 B3-8。src/manage/cases/markmove.py の status): data.json の配信を案件の 採用.json へ移した・残した数と、案件が見えない配信の数 */
+  function marksHealthRow(mk) {
+    var kept = mk.kept || {}, keptN = 0, subs = [];
+    Object.keys(kept).forEach(function (k) { keptN += kept[k]; subs.push('残した理由: ' + ((mk.reasons || {})[k] || k) + ' ' + kept[k] + ' 本'); });
+    if (mk.relinked) subs.push('書き出し先を変えたので繋ぎ直した案件 ' + mk.relinked + ' 本');
+    var text = mk.state === 'off' ? '配信の記録の移行は止めています(machine.json の markMove)'
+      : mk.state === 'waitBackup' ? 'バックアップが 1 回済むまで、配信の記録を案件のフォルダへ移すのを待っています(設定のバックアップをオンに)'
+      : mk.state === 'paused' ? '移すのを止めています(再開は py -3.10 src/manage/cases/markmove.py --resume)'
+      : '案件のフォルダへ移した ' + (mk.moved || 0) + ' 本・data.json に残した ' + keptN + ' 本' + (mk.remaining ? '・続きの ' + mk.remaining + ' 本は次の起動で' : '');
+    if (mk.unseen) text += '。案件のフォルダが見えない配信が ' + mk.unseen + ' 本あります(ドライブがつながっているか確かめてください。動かしたなら markmove.py --relink で繋ぎ直せます)';
+    var row = healthRow(mk.unseen || mk.state === 'waitBackup' ? 'warn' : mk.state === 'off' ? 'info' : 'ok', '配信の記録の置き場所', text, subs);
+    row.id = 'marksHealth';
+    return row;
   }
   /* 文書の置き場所の 1 行(RS8 B2-3。src/manage/cases/docmove.py の status): 案件の 作業用 へ移した・transcripts に残した・見えない文書の数 */
   function docsHealthRow(dc) {

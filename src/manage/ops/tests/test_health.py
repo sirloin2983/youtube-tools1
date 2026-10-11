@@ -274,6 +274,16 @@ class HealthTest(unittest.TestCase):
         s = H.Health(FakeSup([]), self.logs, worker_probe=boom).snapshot()
         self.assertIsNone(s["worker"])
 
+    def test_docs_and_marks_rows(self):
+        """RS8 B2-3・B3-8: 文書・配信の記録の置き場所の行は、probe が値を返したときだけ足す(落ちても「調子」は出る)"""
+        def boom():
+            raise RuntimeError("x")
+        s = H.Health(FakeSup([]), self.logs, docs_probe=lambda: None, marks_probe=lambda: {"state": "off"}).snapshot()
+        self.assertNotIn("docs", s)
+        self.assertEqual(s["marks"], {"state": "off"})
+        s = H.Health(FakeSup([]), self.logs, marks_probe=boom).snapshot()
+        self.assertNotIn("marks", s)
+
 
 if __name__ == "__main__":
     unittest.main()
