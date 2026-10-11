@@ -1,0 +1,38 @@
+/* 案件の画面(/cases。src/app/ui/cases/。RS8 C1 = 殻)。部品の見た目は ui-kit(左の一覧 .ui-rail・タブ .ui-tabs・札 .pill・空の状態 .empty)。
+   ここは置き方だけ(見本 docs/design/briefs/rs8-cases/mock/index.html の .case-wrap・.pane を写した)。接頭辞は cs-(パネルの中身はパネルの CSS が持つ) */
+.cs-main{max-width:1440px;margin:0 auto;padding:16px 16px calc(var(--keybar-h, 26px) + 32px)}
+.cs-head{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+.cs-head-t{flex:1 1 320px;min-width:0}
+.cs-crumb{font-size:var(--fs-sm);color:var(--ink-3)}
+.cs-crumb a{color:var(--ink-3);display:inline-block;min-height:28px;line-height:28px}
+.cs-title{margin:0;font:650 18px/1.35 var(--font-display, var(--font));overflow-wrap:anywhere}
+.cs-sub{margin:2px 0 0}
+.cs-sub:empty{display:none}
+
+.cs-wrap{display:grid;grid-template-columns:280px minmax(0,1fr);gap:12px;align-items:start}
+.cs-rail{position:sticky;top:calc(var(--header-h) + 12px);max-height:calc(100vh - var(--header-h) - 60px);overflow-y:auto}
+.cs-pane{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);min-height:480px;min-width:0}
+.cs-pane-head{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.cs-spacer{flex:1 1 auto}
+.cs-hint{margin:0}
+.cs-pane-body{padding:12px;min-width:0}
+
+/* 空の状態(2 文 + 次のボタン)・失敗(何が / 次にどうする) */
+.cs-empty{max-width:640px;margin:24px auto}
+.cs-empty .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+
+/* パネルの中の「まだ移していない」案内(C1 の空のパネル。C2 で中身に替わる) */
+.cs-stub{display:flex;flex-direction:column;gap:8px;max-width:640px}
+.cs-stub p{margin:0}
+.cs-stub dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 12px;margin:4px 0 0;font-size:13px}
+.cs-stub dt{color:var(--ink-3)}
+.cs-stub dd{margin:0;overflow-wrap:anywhere}
+.cs-stub .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.cs-jobs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.cs-jobs li{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+@media (max-width:760px){
+  .cs-wrap{grid-template-columns:minmax(0,1fr)}
+  .cs-rail{position:static;max-height:none}
+  .cs-pane{min-height:0}
+}

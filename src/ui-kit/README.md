@@ -1,4 +1,4 @@
-# ui-kit(共通の見た目)v25
+# ui-kit(共通の見た目)v26
 
 ツール(ホーム・切り抜きスタジオ・編集)で共通の、色・文字・部品・ダーク/ライト切り替え。
 将来1つのアプリに統合するときに見た目がそろっているよう、正本はここ1か所にして、各ツールへ写す。
@@ -323,3 +323,8 @@
   範囲と形の検査・「標準に戻す」(既定と違うときだけ)・保存の印(「保存しました」2 秒。失敗は理由を行に出して値を戻す)・`when` で出す/隠す・ツールが動いていないときの無効化(`io.disabled()`)が自動で付く。
   節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/home/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
 - `UIKit.settings.general()` … ⚙ の「全体」の節(テーマ・文字の大きさ・キーの帯)の要素。/settings にも置く。入口に取り込まれている画面の「全体」の節には「すべての設定を 1 つの画面で → 設定の画面を開く」(`/settings`)が付く
+
+## v26(2026-10-11・RS8 案件の画面 C1。`docs/design/rs8-cases-build.md`)
+- 左の一覧 `.ui-rail`(ui-kit.css)… 1 行 = `button.ui-rail-item`(Tab で届く)の中に `.ui-rail-t`(`<b>` の名前 + `.ui-rail-s` の 1 行の説明)と状態の札 `.pill`。選んだ行は `aria-current="true"`(左の線と薄い青)。見出しは `.ui-rail-sep`。
+  行の中の札は行と一緒に押される物なので `data-ui-audit-allow="A-33"` を付ける。案件の画面(`src/app/ui/cases/`)が使う
+- 共通の再生キーにできないキー(`PB_BLOCKED`)に `Shift+N`(案件: 次の未校正の切り抜き)。`UIKit.version` は 26

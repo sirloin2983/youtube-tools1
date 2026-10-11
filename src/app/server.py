@@ -561,10 +561,20 @@ STATIC = {"/": ("portal.html", CODE_DIR), "/index.html": ("portal.html", CODE_DI
           "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
           "/settings": ("index.html", SETTINGS_DIR), "/settings.js": ("settings.js", SETTINGS_DIR),
           "/settings.css": ("settings.css", SETTINGS_DIR), "/settings-schema.json": ("schema.json", SETTINGS_DIR)}
+# 案件の画面(/cases。RS8 C1。docs/design/rs8-cases-build.md)。/settings と同じく入口の直下の 1 枚(相対パス api/… が入口・studio/api/… が取り込んだスタジオ)。
+# パネルは /cases-panels/<名前>.js(/cases/ で始めない = 画面の相対パスがずれない)。URL は完全一致の表だけ(フォルダを丸ごと配らない)
+CASES_DIR = os.path.join(ROOT, "app", "ui", "cases")
+CASES_PANELS = ("cand", "proof", "cut")   # 候補・校正・カットとパック(C2 で中身を移す)
+STATIC.update({"/cases": ("index.html", CASES_DIR), "/cases.js": ("cases.js", CASES_DIR), "/cases.css": ("cases.css", CASES_DIR)})
+STATIC.update({"/cases-panels/%s.js" % n: (os.path.join("panels", n + ".js"), CASES_DIR) for n in CASES_PANELS})
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
-NAV_PAGES = httpsec.PAGES + ("/settings",)   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
+NAV_PAGES = httpsec.PAGES + ("/settings", "/cases")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# 案件の画面はスタジオ ② の候補(YouTube の埋め込みのプレイヤー)と編集を載せるので、取り込んだスタジオの CSP と同じ(home/mount.py の MOUNTS["studio"]。
+# スタイルの属性は移すパネルが使うので制限しない)。インラインのスクリプトは動かない・ほかのサイトの枠には入らない
+PAGE_CSP = {"/cases": "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
+                      "form-action 'none'; frame-ancestors 'none'"}
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 # GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/human/friend/intake.py)
@@ -677,6 +687,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/" if redirects_mod.enabled() else "/#cases"})
         if u.path in ("/settings/", "/settings/index.html"):   # 設定の画面は /settings(入口の直下。相対パスが入口の API を指すように)
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/settings"})
+        if u.path in ("/cases/", "/cases/index.html"):   # 案件の画面も入口の直下の 1 枚(引数 ?c=&d= はそのまま渡す)
+            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/cases" + ("?" + u.query if u.query else "")})
         if u.path in STATIC:
             name, base = STATIC[u.path]
             try:
@@ -688,7 +700,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             if page:   # 書き込み系の API の合言葉(CSRF トークン)を画面に渡す。取り込んだツールと同じ合言葉
                 body = mount_mod.inject_token(body, self.server.token)
             return self._send(200, body, STATIC_TYPES[os.path.splitext(name)[1]],
-                              {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
+                              {"Content-Security-Policy": PAGE_CSP.get(u.path, CSP), "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} if page else None)
         sup, q = self.server.sup, urllib.parse.parse_qs(u.query)
         if u.path == "/api/ping":
             return self._json(200, {"app": APP_ID, "version": VERSION})

@@ -63,7 +63,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
 MOUNTED = ("studio", "editor")   # 入口に取り込まれる画面(絶対パス禁止の対象)
 SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js",
-                    "settings/index.html", "settings/settings.js", "settings/settings.css"],
+                    "settings/index.html", "settings/settings.js", "settings/settings.css",
+                    # 案件の画面(/cases。RS8 C1。入口が配る 1 枚なのでホームの組。置き場所は src/app/ui/cases/)
+                    "../app/ui/cases/index.html", "../app/ui/cases/cases.js", "../app/ui/cases/cases.css",
+                    "../app/ui/cases/panels/cand.js", "../app/ui/cases/panels/proof.js", "../app/ui/cases/panels/cut.js"],
            "studio": ["index.html", "core.js", "rank.js", "queue.js", "review.js", "collab.js", "settings.js", "app.css", "review.css"],
            "editor": ["index.html", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}

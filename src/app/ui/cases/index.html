@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>動画編集ツール — 案件</title>
+<!-- 案件の画面(/cases。入口の直下の 1 枚。RS8 C1 = 殻。docs/design/rs8-cases-build.md)。部品は相対パスで読む(api/… = 入口・studio/api/… = 取り込んだスタジオ)。
+     CSP の下で動く: インラインの script・on〇〇= は書かない。cases.js が先(パネルの登録の口 CasesPanels を作る)→ パネル 3 本(DOMContentLoaded で殻が起きる) -->
+<script src="ui-kit.js"></script>
+<link rel="stylesheet" href="ui-kit.css">
+<link rel="stylesheet" href="cases.css">
+<script src="cases.js" defer></script>
+<script src="cases-panels/cand.js" defer></script>
+<script src="cases-panels/proof.js" defer></script>
+<script src="cases-panels/cut.js" defer></script>
+</head>
+<body>
+<header class="ui-header">
+  <nav class="ui-appnav" data-ui-appnav="cases" aria-label="ホーム/スタジオ/編集"></nav>
+  <span class="ui-ver" id="ver"></span>
+  <div class="ui-header-actions">
+    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(テーマ・文字の大きさ・キーの帯)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
+  </div>
+</header>
+<div class="errbar" id="errbar" role="alert" hidden></div>
+
+<main class="cs-main" id="main">
+  <div class="cs-head">
+    <div class="cs-head-t">
+      <nav class="cs-crumb" aria-label="場所"><a href="./">ホーム</a> › 案件</nav>
+      <h1 class="cs-title" id="csTitle">案件</h1>
+      <p class="hint cs-sub" id="csSub"></p>
+    </div>
+    <button type="button" class="btn small" id="csNext" disabled title="この案件に未校正の切り抜きはありません">次の未校正の切り抜き <kbd class="ui-kbd">Shift+N</kbd></button>
+  </div>
+
+  <div class="cs-empty" id="csEmpty" hidden></div>
+
+  <div class="cs-wrap" id="csWrap" hidden>
+    <nav class="ui-rail cs-rail" id="csRail" aria-label="この案件の候補と切り抜き"></nav>
+    <section class="cs-pane" aria-labelledby="csTabs">
+      <div class="cs-pane-head">
+        <div class="ui-tabs" id="csTabs" role="tablist" aria-label="作業"></div>
+        <span class="cs-spacer"></span>
+        <span class="hint cs-hint" id="csHint"></span>
+      </div>
+      <div class="cs-pane-body" id="csPane"></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

@@ -55,7 +55,8 @@
        UIKit.homeApi(path, opt) / homeUrl(path)(入口の API。画面の 1 つ上)・UIKit.copy(text, opt)(クリップボード)・fmt.day・fmt.dur の opt(floor・tenths・noHours)・
        icon.names()。ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形に。README.md の「v24」
    v25(2026-10-09・設定を 1 つに S5): UIKit.settingsForm(宣言的なスキーマから設定の節を描く。入口の /settings/ の画面が使う)・
-       ⚙ の「全体」の節に「すべての設定を 1 つの画面で」(入口に取り込まれているときだけ。/settings へ)。README.md の「v25」 */
+       ⚙ の「全体」の節に「すべての設定を 1 つの画面で」(入口に取り込まれているときだけ。/settings へ)。README.md の「v25」
+    v26(2026-10-11・RS8 案件の画面 C1): 左の一覧 .ui-rail・.ui-rail-item(ui-kit.css)・共通の再生キーにできないキーに Shift+N(案件: 次の未校正の切り抜き)。README.md の「v26」 */
 (function () {
   'use strict';
   var KEY = 'ytt:theme';
@@ -1546,7 +1547,8 @@
     s: '編集 2 カット: 分割', h: '編集 2 カット: I〜O を削る', q: '編集 2 カット: 始まりの端', w: '編集 2 カット: 終わりの端',
     '[': '編集 2 カット: 前の区間', ']': '編集 2 カット: 次の区間', Delete: '編集 2 カット: 削る/戻す', Backspace: '編集 2 カット: 削る/戻す',
     '+': '編集 2 カット: 拡大', '=': '編集 2 カット: 拡大', '-': '編集 2 カット: 縮小', Home: '編集 2 カット: 先頭へ', End: '編集 2 カット: 末尾へ',
-    '<': '編集 2 カット: 選んだ端を10コマ戻す(Shift+,)', '>': '編集 2 カット: 選んだ端を10コマ進める(Shift+.)' };   // Shift+, / Shift+. は e.key が < > になる(段3 3-2)
+    '<': '編集 2 カット: 選んだ端を10コマ戻す(Shift+,)', '>': '編集 2 カット: 選んだ端を10コマ進める(Shift+.)',   // Shift+, / Shift+. は e.key が < > になる(段3 3-2)
+    'Shift+n': '案件: 次の未校正の切り抜き' };   // v26: 案件の画面(/cases)
   for (var dgi = 0; dgi <= 9; dgi++) PB_BLOCKED[String(dgi)] = '編集: 話者の番号';
   var KM_COMBO_RE = /^(?:Shift\+)?(?:[^\x00-\x1f\x7f]|[A-Z][A-Za-z0-9]{1,20})$/;   /* home/prefs.py の COMBO_RE と同じ */
   /* ← → に当たるキー + Shift(5 秒)。1文字の記号は Shift で文字そのものが変わるので派生しない(comboOf と同じ決まり) */
@@ -2656,7 +2658,7 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 25, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  window.UIKit = { version: 26, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText };

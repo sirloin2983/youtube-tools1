@@ -423,6 +423,18 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-sheet{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
 .ui-sheet>*+*{border-top:1px solid var(--line)}
 
+/* 左の一覧(v26。案件の画面 /cases の「候補(配信全体)+ 切り抜き 1 本 1 行」)。行は button.ui-rail-item(Tab で届く)・選んだ行は aria-current="true"・
+   見出しは .ui-rail-sep。行の中の状態の札(.pill)は行と一緒に押される(札だけでは押せない = data-ui-audit-allow="A-33" を付ける) */
+.ui-rail{display:flex;flex-direction:column;gap:1px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:6px;min-width:0}
+.ui-rail-sep{font:600 11.5px/1 var(--font);color:var(--ink-3);padding:10px 8px 4px}
+.ui-rail-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ctl-h);padding:7px 8px;margin:0;border:0;border-left:2px solid transparent;border-radius:var(--r-sm);background:transparent;color:var(--ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.ui-rail-item:hover{background:var(--panel-2)}
+.ui-rail-item[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent)}
+.ui-rail-t{flex:1 1 auto;min-width:0}
+.ui-rail-t>b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-rail-s{display:block;font-size:var(--fs-xs);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-rail-item .pill{flex:none}
+
 /* 通知(重ねて最大2つ(v21。以前は3つ)。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
 .ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}
