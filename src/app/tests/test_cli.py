@@ -2,8 +2,9 @@
 """app/cli(② + ① で動くコマンド。役割で組み直す RS6 b-S1)のテスト。  py -3.10 -m unittest src/app/tests/test_cli.py -v
 
 - 引数・束の検査(形が違えば終了コード 2・API キーを書いた束は断る)
-- lock があって入口が動いていれば入口に頼む(HTTP は差し替え)・入口が応答しない / 別の実行が使っている = 4・URL で入口が無い = 3
+- lock があって入口が動いていれば入口に頼む(HTTP は差し替え)・入口が応答しない / 別の実行が使っている = 4
 - 入口が無ければ動画ファイルを LocalTools で 1 本(疑似のエンジン。疑似の差し込みはテストの側)。2 回目は文字起こしを飛ばす
+- 入口が無ければ URL も LocalTools + スタジオなしの台帳(flow/studiobook)で最後まで(RS8。スタジオの疑似 STUDIO_FAKE = ネットワークに出ない)
 - 終わるとき(Ctrl+C でも)認識ワーカーを止めて lock を返す
 - CLI の流れで ③ 人(human)を読まない(別のプロセスで sys.modules を見る)
 作業データは必ず一時フォルダ(--data-dir)。flow/placement(並行して作っている段)はテストの側の偽物に差し替える
@@ -25,7 +26,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SRC)
 from app import cli  # noqa: E402
 from pipeline.transcribe import backend, roster, worker_client  # noqa: E402
-from ytt import workdata  # noqa: E402
+from ytt import datadir, studio_env, workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402  (疑似の認識。CLI は eval を読まないので、テストの側で差し込む)
 
 HAS_FFMPEG = bool(shutil.which("ffmpeg"))
@@ -63,7 +64,7 @@ class FakePlacement:
     def release(self, handle):
         self.released.append(handle)
 
-    def write_result(self, run):
+    def write_result(self, run, exc=None, runner=None):
         path = os.path.join(self.result_dir, run.id + ".json")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(run.public(), f)
@@ -92,6 +93,13 @@ class Base(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         p = mock.patch.object(roster, "ROSTER", roster.ROSTER)
+        p.start()
+        self.addCleanup(p.stop)
+        for obj, name in ((studio_env, "_home"), (studio_env, "_out_dir")):   # URL の実行はスタジオの置き場所を入れる = テストの終わりに戻す
+            p = mock.patch.object(obj, name, getattr(obj, name))
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.dict(datadir._registered)
         p.start()
         self.addCleanup(p.stop)
         self.worker = FakeWorker()
@@ -315,11 +323,34 @@ class TestPortal(Base):
         self.assertIn("pid 77", err)
         self.assertEqual(self.pl.acquired, [])
 
-    def test_url_without_portal_exit_3(self):
-        code, res, err = self.main("https://youtu.be/abcdefghijk")
-        self.assertEqual(code, 3)
-        self.assertIn("start.bat", res["error"])
-        self.assertEqual(self.pl.acquired, [])
+    def test_url_without_portal_runs_locally(self):
+        """RS8: 入口が無ければ URL も自分で(lock を取り、入口に頼むときと同じ封筒の Run + スタジオなしの台帳)。終わったら台帳の糸を止める"""
+        seen = {}
+
+        def fake_run(client, run, spec=None, hooks=None):
+            seen.update(run=run, tools=hooks.tools)
+        with mock.patch.object(cli._run, "run", fake_run), mock.patch.object(cli._studiobook.LocalStudio, "close") as close:
+            code, res, err = self.main("https://youtu.be/abcdefghijk", "--title", "題", "--spec", self.spec({"adopt": {"top": 2}}))
+        self.assertEqual((code, res["via"], res["state"]), (0, "local", "done"), err)
+        run = seen["run"]
+        self.assertEqual((run.video_id, run.mode, run.title, run.fresh, run.spec["adopt"]["top"]),
+                         ("abcdefghijk", "full", "題", {"title": "題", "channel": ""}, 2))
+        self.assertEqual([s["key"] for s in run.steps], ["analyze", "adopt", "export", "transcribe", "pack"])
+        self.assertIsInstance(seen["tools"].studio, cli._studiobook.LocalStudio)
+        self.assertEqual(seen["tools"].studio.book.path, os.path.join(os.path.abspath(self.data), "studio", "data.json"))
+        self.assertEqual((len(self.pl.acquired), self.pl.released, close.call_count, self.worker.closed), (1, self.pl.acquired, 1, 1))
+        # 書き出しから(--from export)= 採用後を全部(まだ無い配信の印 fresh は付けない)
+        with mock.patch.object(cli._run, "run", fake_run), mock.patch.object(cli._studiobook.LocalStudio, "close"):
+            code, res, err = self.main("abcdefghijk", "--from", "export")
+        self.assertEqual((code, seen["run"].mode, seen["run"].fresh, [s["key"] for s in seen["run"].steps]),
+                         (0, "adopted", None, ["export", "transcribe", "pack"]))
+
+    def test_url_step_error_closes_studio(self):
+        err_run = mock.patch.object(cli._run, "run", side_effect=cli._run.StepError("解析を始められませんでした: yt-dlp が見つかりません"))
+        with err_run, mock.patch.object(cli._studiobook.LocalStudio, "close") as close:
+            code, res, err = self.main("https://youtu.be/abcdefghijk")
+        self.assertEqual((code, res["state"], close.call_count), (1, "error", 1))
+        self.assertIn("yt-dlp", res["error"])
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -434,6 +465,40 @@ class TestLocalRun(Base):
         self.assertEqual(code, 0, err)
         self.assertEqual([(s["key"], s["state"]) for s in res3["steps"]], [("transcribe", "skip"), ("pack", "done")], res3["steps"])
 
+    def test_url_to_pack(self):
+        """RS8: 入口なしの URL = 解析 → 採用 → 書き出し → 文字起こし → パック(スタジオの疑似 = YouTube の代わりに手元の動画・ネットワークに出ない)。
+        data.json(スタジオの Store が読める形)・案件の 採用.json・case.json・結果の束。2 回目は全部飛ばす"""
+        from human.review import store as store_mod   # 書いた物をスタジオの Store が読めるか(CLI 自身は ③ を読まない)
+        from ytt import casefiles
+        spec = self.spec({"hints": {"ranges": [[1, 4]]}, "adopt": {"top": 1}, "post": {"autoLlm": False}, "pack": {"volume": 100}})
+        url = "https://youtu.be/abcdefghijk"
+        stream = os.path.join(self.tmp, "配信.mp4")   # 配信の代わり(解析は 20 秒以上の動画だけ)
+        _make_video(stream, 24)
+        with mock.patch.dict(os.environ, {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": stream}):
+            code, res, err = self.main(url, "--spec", spec, "--title", "配信の題")
+            self.assertEqual(code, 0, err)
+            self.assertEqual([(s["key"], s["state"]) for s in res["steps"]],
+                             [("analyze", "done"), ("adopt", "done"), ("export", "done"), ("transcribe", "done"), ("pack", "done")], res["steps"])
+            self.assertEqual((res["via"], len(res["artifacts"]["packs"]), len(res["artifacts"]["docs"])), ("local", 1, 1))
+            data = os.path.join(self.data, "studio", "data.json")
+            with open(data, encoding="utf-8") as f:
+                row = json.load(f)["videos"]["abcdefghijk"]
+            self.assertEqual((row["title"], sorted(row)), ("配信の題", sorted(casefiles.INDEX_KEYS + ("case",))))   # 初めて書き出した = 案件の索引の行
+            case = row["case"]
+            self.assertTrue(os.path.isfile(casefiles.work_path(case, casefiles.ADOPTIONS_NAME)))
+            self.assertTrue(os.path.isfile(os.path.join(case, "作業用", "case.json")))
+            self.assertTrue(os.path.isfile(res["resultFile"]))
+            with mock.patch.object(studio_env, "get_out_dir", lambda: os.path.join(self.data, "studio", "exports")):
+                v, _series = store_mod.Store(data).get("abcdefghijk")
+            exported = [m for m in v["marks"] if m["status"] == "exported"]
+            self.assertEqual(len(exported), 1)
+            self.assertTrue(os.path.isfile(exported[0]["path"]))
+            self.assertEqual((self.pl.released, self.worker.closed), (self.pl.acquired, 1))
+            # 2 回目: 解析済み・新しい採用なし・書き出し済み・文字起こし済み・パック済み
+            code, res2, err = self.main(url, "--spec", spec)
+            self.assertEqual(code, 0, err)
+            self.assertEqual([s["state"] for s in res2["steps"]], ["skip"] * 5, res2["steps"])
+
 
 DRIVER = r"""
 import json, os, sys, types
@@ -451,17 +516,27 @@ print(json.dumps({"code": code, "before": before, "human": sorted(k for k in sys
 
 @unittest.skipUnless(HAS_FFMPEG, "ffmpeg が無い")
 class TestNoHumanLayer(unittest.TestCase):
-    def test_local_run_does_not_import_human(self):
-        """友人に渡す ② + ① だけで動く: 入口なしの 1 本の間に ③ 人(human)の部品を 1 つも読まない(別のプロセスで見る)"""
+    def drive(self, target_of, extra_env=None, sec=3):
+        """別のプロセスで CLI を 1 回 -> (結果 {code, before, human}, 標準エラーの終わり)"""
         tmp = tempfile.mkdtemp(prefix="ytt_cli_iso_")
         self.addCleanup(shutil.rmtree, tmp, True)
         video = os.path.join(tmp, "v.mp4")
-        _make_video(video, 3)
-        env = dict(os.environ, TRANSCRIBE_FAKE_DELAY="0", YTT_RUNTIME_DIR=os.path.join(tmp, "runtime"))
-        p = subprocess.run([sys.executable, "-c", DRIVER, SRC, video, os.path.join(tmp, "data")], capture_output=True, env=env, timeout=300)
+        _make_video(video, sec)
+        env = dict(os.environ, TRANSCRIBE_FAKE_DELAY="0", YTT_RUNTIME_DIR=os.path.join(tmp, "runtime"), **(extra_env(video) if extra_env else {}))
+        p = subprocess.run([sys.executable, "-c", DRIVER, SRC, target_of(video), os.path.join(tmp, "data")], capture_output=True, env=env, timeout=300)
         self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace"))
         res = json.loads(p.stdout.decode("utf-8").strip().splitlines()[-1])
-        self.assertEqual((res["code"], res["before"], res["human"]), (0, [], []), p.stderr.decode("utf-8", "replace")[-2000:])
+        return res, p.stderr.decode("utf-8", "replace")[-2000:]
+
+    def test_local_run_does_not_import_human(self):
+        """友人に渡す ② + ① だけで動く: 入口なしの 1 本の間に ③ 人(human)の部品を 1 つも読まない(別のプロセスで見る)"""
+        res, err = self.drive(lambda video: video)
+        self.assertEqual((res["code"], res["before"], res["human"]), (0, [], []), err)
+
+    def test_local_url_does_not_import_human(self):
+        """URL も同じ(RS8。スタジオなしの台帳は ③ の Store を読まない。スタジオの疑似 = 手元の動画を配信の代わりに)"""
+        res, err = self.drive(lambda video: "https://youtu.be/abcdefghijk", lambda video: {"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": video}, sec=24)
+        self.assertEqual((res["code"], res["before"], res["human"]), (0, [], []), err)
 
 
 if __name__ == "__main__":

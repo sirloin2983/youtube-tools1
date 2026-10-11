@@ -11,14 +11,16 @@
     入口でそのまま効く = 入口なしで動かしたときと同じ束)。URL = 解析から(--from analyze か無し)か書き出しから(--from export)・動画ファイル = 文字起こし → パック
     (--from pack = 文字起こし済みの文書でパックだけ。届けない)。submit の無い古い入口(404)には頼まない(起動し直しを促して失敗で終わる)。
     入口の場所は lock の port(無ければ .runtime/portal.json で、同じ作業データの入口だけ)。合言葉は入口の画面の HTML の meta から読む
-  - 動いていなければ、動画ファイルは自分で lock を取って ① を直に動かす(flow/tools の LocalTools。③ の人の部品は、学習のもとの文書があるときだけ学習した置換・用語を読むために遅延で読む = 無ければ読まない。RS7-1 F-k)。
-    URL は入口が要る(URL の流れは B-3 まで入口に頼む = 一時の形。コマンドの形は最終)
+  - 動いていなければ、自分で lock を取って ① を直に動かす(flow/tools の LocalTools。③ の人の部品は、学習のもとの文書があるときだけ学習した置換・用語を読むために遅延で読む = 無ければ読まない。RS7-1 F-k)。
+    URL も同じ(RS8 の「URL も CLI で」。B-3 のあと): 配信の読み・解析・採用・書き出しは ② flow/studiobook の LocalStudio(スタジオなしの台帳)が、
+    スタジオの作業データの data.json と案件の 候補.json・採用.json へスタジオの Store と同じ形で書く(入口をあとで起動すると画面に出る)。
+    解析の順番・書き出しは同じプロセスの中の糸(終わるとき止める)。③(スタジオの store・学習の記録)は読まない
 - 動画ファイルは丸ごと 1 本(決定 3-29 の Q2)。文字起こし済みの文書があれば文字起こしは飛ばす(--force で作り直す・--from pack はその文書でパックだけ)
 - 結果: Run.public() に、段ごとの成果物と鍵のパス・結果の束のパス(あれば)を足した JSON を標準出力と --out へ。進み具合は標準エラーに 1 行ずつ
 - 終わるとき(Ctrl+C・閉じる合図でも)認識ワーカーを止め、lock を返す
 
-終了コード: 0 済み(やることが無かったも)/ 1 実行が失敗・中止 / 2 引数・束の形が違う / 3 URL なのに入口が動いていない /
-4 作業データを別の実行が使っている(入口が応答しない)/ 130 Ctrl+C
+終了コード: 0 済み(やることが無かったも)/ 1 実行が失敗・中止(yt-dlp・ffmpeg が無いときも = 段の失敗の文に出る)/ 2 引数・束の形が違う /
+4 作業データを別の実行が使っている(入口が応答しない)/ 130 Ctrl+C。3(URL なのに入口が動いていない)は RS8 で使わなくなった(欠番。番号は使い回さない)
 """
 import argparse
 import http.client   # HTTPConnection は属性で引く(テストが差し替えられるように)
@@ -34,10 +36,11 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from flow import envelope as _envelope, keys as _keys, machine as _machine, placement as _flow_placement, run as _run, spec as _spec, tools as _tools, wire as _wire  # noqa: E402
 from pipeline.transcribe import roster as _roster, worker_client as _worker_client  # noqa: E402
+from flow import studiobook as _studiobook  # noqa: E402  スタジオなしの配信の台帳(URL を入口なしで。RS8)
 from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as _layout, runtime as _runtime, schemas as _schemas  # noqa: E402
-from ytt import tools as _ytools, workdata as _workdata, yturl as _yturl  # noqa: E402
+from ytt import studio_env as _studio_env, tools as _ytools, workdata as _workdata, yturl as _yturl  # noqa: E402
 
-EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_NO_PORTAL, EXIT_BUSY, EXIT_INTERRUPT = 0, 1, 2, 3, 4, 130
+EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_BUSY, EXIT_INTERRUPT = 0, 1, 2, 4, 130   # 3(URL なのに入口が無い)は RS8 で欠番
 PORTAL_APP = "ytt-launcher"     # 入口の /api/ping の app(src/home/launch.py の APP_ID)
 POLL = 2.0                      # 入口に頼んだ仕事を見に行く間隔(秒)
 RUN_LOST = 15                   # 入口の一覧から頼んだ実行がこの回数続けて見えなければ失敗にする
@@ -159,6 +162,17 @@ def use_data_dir(data_dir=None):
         _workdata.SETTINGS = os.path.join(ld, "settings.json")
         _workdata.FEEDBACK = os.path.join(ld, "learn-feedback.json")
     return _datadir.data_root()
+
+
+def use_studio_data():
+    """スタジオの作業データ(data.json・解析のキャッシュ・書き出し先の設定)を ytt/studio_env に入れ、同じプロセスの読み手(datadir.resolve =
+    結果の束の書き出し先・文書の置き場所)へ知らせる -> スタジオなしの台帳(flow/studiobook.StudioBook)。URL を入口なしで流すときだけ呼ぶ
+    (入口のスタジオの prepare と同じ場所 = datadir の規則。以前の場所からの写しはしない = 入口の起動がする)"""
+    home = os.path.abspath(_datadir.locate("studio"))
+    _studio_env.set_home(home)
+    _studio_env.load_out_dir()
+    _datadir.register("studio", home)
+    return _studiobook.StudioBook(_studio_env.p(_flow_placement.STUDIO_DATA_NAME))
 
 
 def learning_dir():
@@ -404,11 +418,16 @@ def _portal_result(pub):
 
 # ---------------------------------------------------------------- 入口なし(② + ① を自分で)
 class CliRunner(_run.Runner):
-    """素の Runner + 進み具合を標準エラーへ・文字起こし済みの文書(find_doc)を一覧に足す。人の部品(③)は読まない"""
+    """素の Runner + 進み具合を標準エラーへ・文字起こし済みの文書(find_doc)を一覧に足す・URL のときスタジオなしの台帳(studio)を道具に貸す。
+    人の部品(③)は読まない"""
 
-    def __init__(self, prog, extra=(), learning=None):
-        super().__init__(None, poll=0.5, tools=_tools.LocalTools(learning=learning or Learning(learning_dir())))
+    def __init__(self, prog, extra=(), learning=None, studio=None):
+        super().__init__(None, poll=0.5, tools=_tools.LocalTools(learning=learning or Learning(learning_dir()), studio=studio))
         self.prog, self.extra = prog, list(extra)
+
+    def _studio_video(self, vid):
+        """台帳の配信 1 本(結果の束の切り抜き・案件を引く手がかり。flow/placement.write_result)"""
+        return self.tools.studio_video(vid)
 
     def _checkpoint(self, run):
         self.prog.steps(run.steps)
@@ -418,39 +437,55 @@ class CliRunner(_run.Runner):
         return mine + [d for d in self.extra if d["id"] not in {x["id"] for x in mine}]
 
 
-def _write_result(pl, run, prog):
-    """結果の束(flow/placement.write_result。<案件>/作業用/runs/<実行id>.json)-> パスか None。書けなくても実行は失敗にしない"""
+def _write_result(pl, run, prog, runner=None):
+    """結果の束(flow/placement.write_result。<案件>/作業用/runs/<実行id>.json)-> パスか None。書けなくても実行は失敗にしない。
+    runner = 手がかりの hook(URL の実行の書き出した切り抜き = 台帳の配信)"""
     fn = getattr(pl, "write_result", None)
     if fn is None:
         return None
     try:
-        return fn(run)
+        return fn(run, None, runner)
     except Exception as e:   # 結果の束は付け足し(書けないことで成果物の報告を失わない)
         prog.line("※ 結果の束を書けませんでした: %s" % e)
         return None
 
 
-def run_local(target, bundle, title, root, prog):
-    """lock を取り、① を直に動かす(動画ファイル → 文字起こし → パック)-> (結果の辞書, 終了コード)"""
+def _file_run(target, bundle, title, prog, learning):
+    """動画ファイルの実行と Runner -> (Run, CliRunner) か (None, 失敗の結果)。文字起こし済みなら文書 → パック"""
+    force, frm = bundle["run"]["force"], bundle["run"]["from"]
+    doc = find_doc(target) if (frm == "pack" or not force) else None
+    if frm == "pack" and not doc:
+        return None, _failed("この動画の文字起こしの文書がありません(--from pack をやめて文字起こしから)", prog)
+    runner = CliRunner(prog, [doc] if doc else (), learning)
+    if doc:   # 文字起こし済み: 文書 → パック(文字起こしの段は飛ばす)
+        run = _run.Run(None, title or doc["title"], _run.DOC_MODE, None, doc_id=doc["id"], overwrite=force)
+    else:
+        run = _run.Run(None, title or os.path.basename(target), "file_auto", None, source_path=target, overwrite=force)
+        run.steps = [s for s in run.steps if s["key"] != "deliver"]   # 届ける先は無い(友人の受付の段)
+    return run, runner
+
+
+def _url_run(vid, bundle, title, prog, learning):
+    """URL(配信)の実行と Runner -> (Run, CliRunner)。入口に頼むときと同じ封筒(解析から = full・書き出しから = adopted)を Run にする。
+    配信の段はスタジオなしの台帳(flow/studiobook)に任せる"""
+    run = _run.Run.from_envelope(_url_envelope(envelope_for("url", vid, title), bundle), bundle)
+    return run, CliRunner(prog, (), learning, studio=_studiobook.LocalStudio(use_studio_data()))
+
+
+def run_local(target, bundle, title, root, prog, kind="file"):
+    """lock を取り、① を直に動かす(動画ファイル → 文字起こし → パック・URL → 解析 → 採用 → 書き出し → 文字起こし → パック)-> (結果の辞書, 終了コード)"""
     pl = _placement()
     try:
         handle = pl.acquire(data_root=root)
     except pl.LockBusy as e:
         return _busy(getattr(e, "info", None) or (e.args[0] if e.args else None), prog)
-    force, frm = bundle["run"]["force"], bundle["run"]["from"]
-    run, code = None, EXIT_FAIL
+    run, code, runner = None, EXIT_FAIL, None
     try:
         learning = Learning(learning_dir())
         _wire.install(tool="cli", tmp_dir=lambda: _workdata.TMP_DIR, dict_learned=learning.dict_learned)   # 辞書の版の学習の記録は ③ があれば Learning から
-        doc = find_doc(target) if (frm == "pack" or not force) else None
-        if frm == "pack" and not doc:
-            return _failed("この動画の文字起こしの文書がありません(--from pack をやめて文字起こしから)", prog), EXIT_FAIL
-        runner = CliRunner(prog, [doc] if doc else (), learning)
-        if doc:   # 文字起こし済み: 文書 → パック(文字起こしの段は飛ばす)
-            run = _run.Run(None, title or doc["title"], _run.DOC_MODE, None, doc_id=doc["id"], overwrite=force)
-        else:
-            run = _run.Run(None, title or os.path.basename(target), "file_auto", None, source_path=target, overwrite=force)
-            run.steps = [s for s in run.steps if s["key"] != "deliver"]   # 届ける先は無い(友人の受付の段)
+        run, runner = (_url_run if kind == "url" else _file_run)(target, bundle, title, prog, learning)
+        if run is None:
+            return runner, EXIT_FAIL
         run.state, run.message = "running", "実行中"
         try:
             _run.run(None, run, spec=bundle, hooks=runner)
@@ -462,9 +497,12 @@ def run_local(target, bundle, title, root, prog):
         run.finished = time.time()
         run.message = run.error or _run.RUN_STATE_LABELS["nothing" if run.nothing else "done"]
         prog.steps(run.steps)
-        result = _write_result(pl, run, prog)
+        result = _write_result(pl, run, prog, runner)
         return dict(run.public(), via="local", resultFile=result), code   # public に packs・newDocs・文書単位の docs も入る(RS7-1 S3)
     finally:
+        studio = getattr(getattr(runner, "tools", None), "studio", None)
+        if studio is not None:
+            studio.close()   # 解析・書き出しの糸と子プロセス(ffmpeg・yt-dlp)を残さない
         _worker_client.WORKER.close()   # 認識ワーカー(別プロセス)を残さない
         pl.release(handle)
 
@@ -506,7 +544,7 @@ def emit(result, out_path, stdout):
 
 # ---------------------------------------------------------------- 入口
 def dispatch(kind, target, bundle, title, root, prog):
-    """入口が動いていれば頼む・無ければ自分で(URL は入口が要る)-> (結果, 終了コード)"""
+    """入口が動いていれば頼む・無ければ自分で(動画ファイルも URL も)-> (結果, 終了コード)"""
     pl = _placement()
     info = pl.lock_info(data_root=root)
     if info:
@@ -519,9 +557,7 @@ def dispatch(kind, target, bundle, title, root, prog):
         portal = runtime_portal(root)
     if portal is not None:
         return delegate(portal, kind, target, bundle, title, prog)
-    if kind == "url":
-        return _failed("入口(start.bat)を起動してください(URL の流れは今は入口が要ります)", prog), EXIT_NO_PORTAL
-    return run_local(target, bundle, title, root, prog)
+    return run_local(target, bundle, title, root, prog, kind)
 
 
 def _interrupt(signum, frame):
