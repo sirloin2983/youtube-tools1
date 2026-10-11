@@ -37,7 +37,7 @@ DEST_NAME = "youtube-tools-data"
 FIRST_WAIT = 90            # 起動してから最初に見るまで(秒。ツールの起動・以前の場所からのコピーとぶつけない)
 CHECK_EVERY = 180          # 時間が来たか・変わったかを見る間隔(秒)
 QUIET = 120                # 最後の変更からこの秒数たってから、変わった分を写す(校正の保存が続いている間は待つ)
-SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__"}
+SKIP_DIRS = {"cache", "work", "logs", "models", "bin", "browser-profile", "exports", ".runtime", "__pycache__", "intake"}   # intake = app/intake の友人の依頼の動画の写し(元は友人の Dropbox。RS8 B3-7。(r8h))
 SKIP_SUFFIX = (".log", ".tmp", ".lock")
 SKIP_MARK = ".part-"       # datadir.prepare・fsio の途中のファイル
 KEEP_BIN_PREFIX = "whisper.cpp-"   # transcribe\\bin の下で、これで始まるフォルダだけは写す(作り直しに Visual Studio が要る)
@@ -114,18 +114,21 @@ def plan(source):
 CASES_DIR = "cases"        # 写す先の下の、案件の 作業用 を置くフォルダ(<写す先>/youtube-tools-data/cases/<題名>/作業用/…)
 CASE_WORK = schemas.WORK_DIR
 CASE_STUDIO_ID = ".studio-id"
+REQUEST_DIR = "依頼"        # 友人の依頼の案件を置く outDir の下のフォルダ(flow/placement.REQUEST_DIR と同じ。manage は flow を読めるが定数だけなので写す)
 # 作業用の下で入るフォルダ → 入り方(RS8 B2-0。文字起こしの文書を案件へ移す前に、文書の履歴 .hist と機械の書き換え前の控え .bak も写す)。
 # ここに無い名前(速報版・.tmp・.resume など)には入らない。.hist だけは <tid> のフォルダの 1 段下まで入る
 CASE_SUBDIRS = {"runs": "runs", ".hist": "hist", ".bak": "bak"}
 
 
 def _cases_enter(r, name, mode):
-    """案件の根(outDir)の入り方: "" = outDir 直下 / "case" = 題名のフォルダ / "work" = 作業用 / "runs"・"bak" = その中(下には入らない) /
+    """案件の根(outDir)の入り方: "" = outDir 直下 / "case" = 題名のフォルダ / "req" = 依頼 フォルダ(下は case) / "work" = 作業用 / "runs"・"bak" = その中(下には入らない) /
     "hist" = .hist(下の <tid> のフォルダへは "histdoc" で入り、その下には入らない)。動画・パック・その他は入らない"""
     if mode == "":
-        return "case"
+        return "req" if name == REQUEST_DIR else "case"
     if mode == "case":
         return "work" if name == CASE_WORK else None
+    if mode == "req":
+        return "case"   # 依頼/<日付>_<題>_<id6>/ も案件(友人の依頼。RS8 B3-7)
     if mode == "work":
         return CASE_SUBDIRS.get(name.lower())
     if mode == "hist":

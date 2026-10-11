@@ -9,7 +9,9 @@
 - work   … 動画の「作業用」フォルダの途中のファイルのうち、元の動画がもう無いもの(記録から辿れない)
 - cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
 - log    … 回したログ(*.old.log・*.log.old・*.1・*.old)
-- intake … 依頼の受付の 受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(受け取った動画。動画は 受付済み に残る決まり)
+- intake … 依頼の受付の 受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(受け取った動画。動画は 受付済み に残る決まり)と、
+  書き出し先の 依頼\\<日付>_<題>_<id6>\\(友人の依頼 1 件 = 1 案件。RS8 B3-7)のうち受付日が KEEP_DAYS より古く、届けた記録(logs/deliveries.jsonl)に
+  その依頼 id(の末尾 6 文字)があるもの = 届け済み。届けていない依頼は日数がたっても出さない(文書・パックの元になる動画のため)
 """
 import hashlib
 import json
@@ -25,6 +27,9 @@ KEEP_DAYS = 3             # 受け付けた依頼の動画(受付済み。作業
 TRASH_DAYS = 3            # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
 PACK_AGE_DAYS = 3         # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
 MANIFEST = "manifest.jsonl"
+REQUEST_DIR = "依頼"       # 書き出し先の下の友人の依頼のフォルダ(flow/placement.REQUEST_DIR と同じ。test_cleanup が一致を確かめる)
+DELIVERIES_LOG = "deliveries.jsonl"   # 届けた記録(human/friend/friend_feedback.DELIVERIES_LOG と同じ。logs の中)
+DELIVERIES_MAX = 4 * 1024 * 1024      # 届けた記録を末尾から読む上限
 ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
 DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
 SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")   # 元動画と一緒に片付ける途中のファイル
@@ -160,6 +165,10 @@ class Cleanup:
         found["cache"] = self._cache()
         found["log"] = self._logs()
         found["intake"] = self._intake(intake_dir)
+        try:
+            found["intake"] += self._requests()
+        except Exception as e:
+            self.log("片付けの候補(友人の依頼の案件)を調べられませんでした: %r" % (e,))
         self._known = {}
         kinds, total = [], 0
         for k, label in KINDS:
@@ -269,6 +278,41 @@ class Cleanup:
         if not os.path.isdir(done):
             return []
         return [_item("intake", p, "受け付けた日 %s" % n[:10]) for n, p in _old_day_dirs(done, self.keep_days, self.clock())]
+
+    def _delivered_ids(self):
+        """届けた記録に依頼 id が出ている依頼の id の末尾 6 文字の集まり(読めなければ空 = 何も候補に出さない)"""
+        p = os.path.join(self.app_dir, "logs", DELIVERIES_LOG)
+        try:
+            size = os.path.getsize(p)
+            with open(p, "rb") as f:
+                if size > DELIVERIES_MAX:
+                    f.seek(size - DELIVERIES_MAX)
+                text = f.read().decode("utf-8", "replace")
+        except OSError:
+            return set()
+        out = set()
+        for line in text.splitlines():
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            rid = d.get("requestId") if isinstance(d, dict) else None
+            if isinstance(rid, str) and rid:
+                out.add("".join(c for c in rid if c.isalnum())[-6:])
+        return out
+
+    def _requests(self):
+        """書き出し先の 依頼\\<日付>_<題>_<id6>\\ のうち、受付日が keep_days より古く届け済みの案件(フォルダごと)。
+        名前の頭 10 文字が受付日・末尾 6 文字が依頼 id の末尾(placement.request_root)。届けた記録の無い依頼は出さない"""
+        delivered = self._delivered_ids()
+        if not delivered:
+            return []
+        out = []
+        for o in self._out_dirs():
+            for name, p in _old_day_dirs(os.path.join(o, REQUEST_DIR), self.keep_days, self.clock()):
+                if name[-6:] in delivered:
+                    out.append(_item("intake", p, "受け付けた日 %s・届け済み" % name[:10]))
+        return out
 
     # ---------- 移す・消す ----------
     def move(self, ids):

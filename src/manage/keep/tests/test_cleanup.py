@@ -92,6 +92,32 @@ class CleanupTest(unittest.TestCase):
         self.assertEqual([i["name"] for i in by["intake"]["items"]], [old_day])
         self.assertTrue(by["intake"]["items"][0]["dir"])
 
+    def test_request_folders_need_old_and_delivered(self):
+        """書き出し先の 依頼/<日付>_<題>_<id6>/ は、受付日が古く届け済み(届けた記録に依頼 id)のものだけ(RS8 B3-7)"""
+        out = os.path.join(self.tmp, "出力")
+        cl = C.Cleanup(self.app, env=self.env, clock=lambda: self.now[0], keep_days=14, out_dirs=[out])
+        old = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 20 * 86400))
+        new = time.strftime("%Y-%m-%d", time.localtime(self.now[0] - 2 * 86400))
+        d_ok = os.path.join(out, C.REQUEST_DIR, "%s_題_aaaaaa" % old)
+        touch(os.path.join(d_ok, "v.mp4"), 30)
+        touch(os.path.join(d_ok, "作業用", "case.json"), 5)
+        touch(os.path.join(out, C.REQUEST_DIR, "%s_題_bbbbbb" % old, "v.mp4"), 30)   # 届けていない
+        touch(os.path.join(out, C.REQUEST_DIR, "%s_題_aaaaaa" % new, "v.mp4"), 30)   # 新しい
+        touch(os.path.join(self.app, "logs", C.DELIVERIES_LOG), 0)
+        with open(os.path.join(self.app, "logs", C.DELIVERIES_LOG), "w", encoding="utf-8") as f:
+            f.write('{"requestId": "20261001-120000-aaaaaa", "zip": "z.zip"}\n')
+        r = cl.candidates([])
+        items = next(k for k in r["kinds"] if k["kind"] == "intake")["items"]
+        self.assertEqual([i["path"] for i in items], [d_ok])
+        self.assertIn("届け済み", items[0]["note"])
+        self.assertEqual(items[0]["bytes"], 35)
+        os.remove(os.path.join(self.app, "logs", C.DELIVERIES_LOG))   # 記録が無ければ何も出さない
+        self.assertEqual(next(k for k in cl.candidates([])["kinds"] if k["kind"] == "intake")["items"], [])
+
+    def test_request_dir_name_matches_placement(self):
+        from flow import placement
+        self.assertEqual(C.REQUEST_DIR, placement.REQUEST_DIR)
+
     def test_move_only_known_and_purge(self):
         peaks = os.path.join(self.tmp, "data", "transcribe", "cache", "peaks")
         p1 = touch(os.path.join(peaks, "x.peaks"), 50)

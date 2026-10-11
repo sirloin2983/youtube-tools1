@@ -314,6 +314,20 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=os.path.join(self.tmp, "無い"))["errors"], [])   # 無い outDir は何もしない
         self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 0)
 
+    def test_request_cases_are_copied_and_intake_videos_are_not(self):
+        """依頼/<日付>_<題>_<id6>/作業用 の json は案件として写す。app/intake の動画は写さない(RS8 B3-7。(r8h))"""
+        out = os.path.join(self.tmp, "出力")
+        put(os.path.join(out, "依頼", "2026-10-11_題_abc123", "作業用", "case.json"), "{}")
+        put(os.path.join(out, "依頼", "2026-10-11_題_abc123", "v.mp4"), "video")
+        put(os.path.join(self.src, "app", "intake", "2026-10-11", "x.mp4"), "video")
+        put(os.path.join(self.src, "app", "intake", "2026-10-11", "20261011-101500-abc123", "y.mp4"), "video")
+        r = backup.run_once(self.src, self.dst, out_dir=out)
+        self.assertEqual(r["errors"], [])
+        files = self.files()
+        self.assertIn("cases/依頼/2026-10-11_題_abc123/作業用/case.json", files)
+        self.assertEqual([f for f in files if f.endswith(".mp4")], [])
+        self.assertEqual(backup.REQUEST_DIR, "依頼")
+
     def test_cases_change_is_noticed_by_latest_change(self):
         out = self.make_cases()
         before = backup.latest_change(self.src)

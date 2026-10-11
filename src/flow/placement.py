@@ -122,6 +122,41 @@ def doc_home(source_path, out_dir=None, eval_set=False):
         return None
 
 
+REQUEST_DIR = "依頼"            # 友人の依頼の動画を置く 書き出し先 の下のフォルダ(1 依頼 1 フォルダ。RS8 B3-7)
+REQUEST_TITLE_MAX = 40          # フォルダ名に入れる題の長さ(文字数の上限。パスの長さの枠でさらに削る)
+
+
+def configured_out_dir():
+    """スタジオの設定に書かれた書き出し先(絶対パス)か None(未設定 = 既定の exports に落ちる状態)。読むだけ"""
+    sdir = _datadir.resolve("studio")
+    st = _fsio.read_json_or(os.path.join(sdir, "settings.json"), None, kind=dict)
+    out = st.get("outDir") if st else None
+    return out if isinstance(out, str) and out and os.path.isabs(out) else None
+
+
+def request_root(day, title, request_id, out_dir=None):
+    """友人の依頼 1 件の置き場所 <書き出し先>/依頼/<日付>_<題>_<id6> か None(= 今までの app/intake/<日付>/<依頼 id> に置く)。
+    フォルダは作らない(読むだけ)。決め方は doc_home と同じ判定: 書き出し先が設定されている(out_dir が無ければスタジオの設定。未設定の既定の
+    exports は使わない)・絶対パス・ネットワーク上でない・固定ディスク。day は YYYY-MM-DD。id6 = 依頼 id の末尾 6 文字(同じ日の同じ題を分ける)。
+    題は ytt.names.safe_name で潰し、パスの長さの枠(MAX_PATH_UNITS から動画の名前の分を引いた残り)に収める"""
+    try:
+        out = out_dir or configured_out_dir()
+        if not isinstance(out, str) or not os.path.isabs(out) or _fsio.is_network_path(out) or _fsio.is_remote_drive(out) \
+                or not _fsio.is_fixed_drive(out):
+            return None
+        rid = str(request_id or "")
+        id6 = "".join(c for c in rid if c.isalnum())[-6:] or "000000"
+        parent = os.path.join(out, REQUEST_DIR)
+        fixed = "%s__%s" % (day, id6)   # 題の前後の分(区切りの _ を 2 つ数える)
+        room = _names.MAX_PATH_UNITS - _names.path_units(parent) - 1 - _names.path_units(fixed) - _names.SUFFIX_ROOM - 60   # 60 = 動画の名前の最低の分
+        t = _names.trim_units(_names.safe_name(title, REQUEST_TITLE_MAX), max(0, room))
+        name = "%s_%s_%s" % (day, t, id6) if t else "%s_%s" % (day, id6)
+        return os.path.join(parent, name)
+    except Exception as e:   # 決められないなら app/intake へ(依頼の受付は止めない)
+        log.info("依頼の置き場所を決められませんでした(app/intake に置きます): %s %s", e.__class__.__name__, str(e)[:150])
+        return None
+
+
 def work_dir(media, out_dir=None):
     """<案件>/作業用(途中のファイル・鍵・結果の束の置き場)。案件が分からなければ None"""
     root = case_root(media, out_dir)

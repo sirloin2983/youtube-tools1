@@ -429,6 +429,46 @@ class TestDocHome(_Tmp):
             self.assertIsNone(placement.doc_home(self.video, self.out))
 
 
+class TestRequestRoot(_Tmp):
+    """友人の依頼の置き場所(RS8 B3-7)"""
+
+    def setUp(self):
+        super().setUp()
+        self.out = os.path.join(self.tmp, "out")
+        fixed = mock.patch.object(placement._fsio, "is_fixed_drive", return_value=True)
+        fixed.start()
+        self.addCleanup(fixed.stop)
+
+    def test_name_and_none_cases(self):
+        got = placement.request_root("2026-10-11", "題:名*?", "20261011-101500-abc123", self.out)
+        self.assertEqual(got, os.path.join(self.out, "依頼", "2026-10-11_題_名_abc123"))
+        self.assertEqual(placement.request_root("2026-10-11", "", "20261011-101500-abc123", self.out), os.path.join(self.out, "依頼", "2026-10-11_abc123"))
+        self.assertIsNone(placement.request_root("2026-10-11", "x", "r", "relative/path"))
+        with mock.patch.object(placement._fsio, "is_fixed_drive", return_value=False):
+            self.assertIsNone(placement.request_root("2026-10-11", "x", "r", self.out))
+        with mock.patch.object(placement, "configured_out_dir", return_value=None):
+            self.assertIsNone(placement.request_root("2026-10-11", "x", "r"))   # 未設定
+
+    def test_long_title_fits_path_budget(self):
+        got = placement.request_root("2026-10-11", "あ" * 300, "20261011-101500-abc123", self.out)
+        self.assertLessEqual(len(os.path.basename(got)), 10 + 1 + 40 + 1 + 6)
+        deep = os.path.join(self.tmp, "n" * 150)
+        got = placement.request_root("2026-10-11", "あ" * 300, "20261011-101500-abc123", deep)
+        self.assertEqual(os.path.basename(got), "2026-10-11_abc123", "パスの枠が足りなければ題を付けない")
+        mid = os.path.join(self.tmp, "n" * 60)
+        got = placement.request_root("2026-10-11", "あ" * 300, "20261011-101500-abc123", mid)
+        self.assertLessEqual(placement._names.path_units(got) + placement._names.SUFFIX_ROOM + 60, placement._names.MAX_PATH_UNITS)
+
+    def test_configured_out_dir_reads_studio_settings(self):
+        d = os.path.join(self.tmp, "studio-data")
+        os.makedirs(d)
+        with mock.patch.object(placement._datadir, "resolve", return_value=d):
+            self.assertIsNone(placement.configured_out_dir())
+            with open(os.path.join(d, "settings.json"), "w", encoding="utf-8") as f:
+                json.dump({"outDir": self.out}, f)
+            self.assertEqual(placement.configured_out_dir(), self.out)
+
+
 class TestLock(_Tmp):
     def path(self):
         return os.path.join(self.tmp, placement.LOCK_NAME)

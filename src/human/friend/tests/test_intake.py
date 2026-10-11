@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
@@ -513,6 +514,66 @@ class TestVideo(Base):
 
 
 @unittest.skipUnless(tools.find_tool("ffmpeg") and tools.find_tool("ffprobe"), "ffmpeg / ffprobe が無い")
+class TestRequestFolder(Base):
+    """友人の依頼は 1 依頼 1 フォルダ(RS8 B3-7)。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/ に置いて案件にする。
+    そうでなければ app/intake/<日付>/<依頼 id>/"""
+
+    def send(self, rid, names):
+        for n in names:
+            self.put("%s__%s" % (rid, n), ("clip-" + n).encode("utf-8"))
+        self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "video", "id": rid, "files": ["%s__%s" % (rid, n) for n in names], "flow": "auto"}))
+        self.scan2()
+
+    def with_out(self, out):
+        for p in (mock.patch.object(intake.placement, "configured_out_dir", return_value=out),
+                  mock.patch.object(intake.placement._fsio, "is_fixed_drive", return_value=True)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_into_request_folder_with_case(self):
+        from flow import placement
+        out = os.path.join(self.tmp, "出力")
+        self.with_out(out)
+        rid = "20261001-120000-abc123"
+        self.send(rid, ["一本目.mp4", "二本目.mp4"])
+        a, b = (f["path"] for f in self.runner.files)
+        want = os.path.join(out, "依頼", "%s_一本目_abc123" % self.it._today())
+        self.assertEqual((os.path.dirname(a), os.path.dirname(b)), (want, want), "同じ依頼の動画は 1 つのフォルダ")
+        self.assertIsNotNone(placement.read_case(want), "案件の身分証がある = 文書が 作業用 に置ける")
+        self.assertEqual(placement.doc_home(a, out), os.path.normpath(os.path.join(want, "作業用")))
+        self.assertFalse(os.path.exists(os.path.join(self.data, "intake")))
+        # 別の依頼 = 別のフォルダ(同じ日・同じ題でも id6 が違う)
+        self.send("20261001-120100-def456", ["一本目.mp4"])
+        self.assertNotEqual(os.path.dirname(self.runner.files[2]["path"]), want)
+
+    def test_long_and_bad_title_is_trimmed(self):
+        out = os.path.join(self.tmp, "出力")
+        self.with_out(out)
+        self.send("20261001-120000-abc125", ['【配信者】' + "あ" * 80 + '.mp4'])
+        d = os.path.dirname(self.runner.files[0]["path"])
+        name = os.path.basename(d)
+        self.assertTrue(name.endswith("_abc125") and not any(c in name for c in ':*?"<>|'), name)
+        self.assertIn("【配信者】", name)
+        self.assertLessEqual(len(name), 10 + 1 + 40 + 1 + 6)
+        self.assertLessEqual(len(self.runner.files[0]["path"]), 240)
+
+    def test_fallback_to_app_intake(self):
+        """書き出し先が未設定(既定)・固定ディスクでない → app/intake/<日付>/<依頼 id>/"""
+        rid = "20261001-120000-abc126"
+        self.send(rid, ["x.mp4"])
+        self.assertEqual(os.path.dirname(self.runner.files[0]["path"]), os.path.join(self.data, "intake", self.it._today(), rid))
+        with mock.patch.object(intake.placement, "configured_out_dir", return_value=os.path.join(self.tmp, "外付け")), \
+                mock.patch.object(intake.placement._fsio, "is_fixed_drive", return_value=False):
+            self.send("20261001-120000-abc127", ["y.mp4"])
+        self.assertEqual(os.path.dirname(self.runner.files[1]["path"]), os.path.join(self.data, "intake", self.it._today(), "20261001-120000-abc127"))
+
+    def test_manual_video_has_own_folder(self):
+        self.put("手で置いた.mp4", b"manual")
+        self.scan2()
+        d = os.path.dirname(self.runner.files[0]["path"])
+        self.assertEqual(os.path.dirname(d), os.path.join(self.data, "intake", self.it._today()))
+
+
 class TestNormalize(Base):
     """友人の動画を 30fps にそろえる(Q1。2026-10-04)。本物の ffmpeg で、lavfi の短い動画を「届いた動画」にする"""
 

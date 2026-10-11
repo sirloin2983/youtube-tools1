@@ -30,7 +30,8 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio, jobs, normalize, studio_env, tools
+from flow import placement
+from ytt import colors, fsio, jobs, names as ytt_names, normalize, studio_env, tools
 from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
 
@@ -43,6 +44,7 @@ REQ_KINDS = ("video", "url", "live")   # 依頼の種類(live = ライブ配信�
 NOTE_LABELS = ("配信者", "ライブ配信")   # 受け付けた・断ったの数に入れない知らせの行
 BAD_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')   # ファイル名に使えない文字(_ に置き換える。届ける側 deliver.py も使う)
 DELIVER_BATCH_RANGE = (1, 10)          # 依頼ごとの届け方(1 = 1 本ずつ・n = n 本の組。無ければホームの設定。2-16)
+REQ_DIRS_MAX = 64   # 依頼 id -> 置き場所の覚えの数（古い物から忘れる。依頼の途中で入口を起こし直すと 1 本目と別のフォルダになるだけ）
 REQ_ID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")
 APP_FILE_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")   # 友人のプログラムが送った動画の名前
 NAME_PREFIX_RE = re.compile(r"^((?:【[^】]{1,60}】)+)\s*(.*)$")        # 手で送った動画の【名前】
@@ -347,6 +349,7 @@ class Intake:
         self.wake = threading.Event()
         self.closed = False
         self.thread = None
+        self._req_dirs = {}                 # 依頼 id -> (動画の置き場所, 案件か)。同じ依頼の動画を 1 つのフォルダに集める(B3-7。REQ_DIRS_MAX 件まで)
         self._seen_size = {}                # パス -> (大きさ, 更新時刻, 最初に今の形で見た時刻)
         self.state = "off"
         self.message = ""
@@ -742,10 +745,11 @@ class Intake:
         if pr.get("duration") and pr["duration"] > float(cfg["maxHours"]) * 3600:
             return {"state": "rejected", "reason": "動画が長すぎます(%.1f 時間。上限 %s 時間)" % (pr["duration"] / 3600, cfg["maxHours"])}
         day = self._today()
-        dest_dir = os.path.join(self.data_dir, "intake", day)
+        dest_dir, in_case = self._request_dir(rid, label, day)
         base = BAD_NAME_CHARS.sub("_", label)[:150] or ("video" + ext)
         if not base.lower().endswith(ext):
             base += ext
+        base = ytt_names.trim_units(os.path.splitext(base)[0], max(20, ytt_names.MAX_PATH_UNITS - ytt_names.path_units(dest_dir) - len(ext) - 24)) + ext   # パスの長さの枠
         try:
             os.makedirs(dest_dir, exist_ok=True)
             dest = os.path.join(dest_dir, base)
@@ -756,6 +760,8 @@ class Intake:
             os.replace(tmp, dest)
         except OSError as e:
             return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % tools.why(e)}
+        if in_case:   # 依頼のフォルダを案件にする(文書を最初から 作業用 へ置けるように。無ければ作るだけ)
+            placement.ensure_case({"kind": "file", "path": dest}, channel=who or "", root=dest_dir)
         dest, note = self._normalize_copy(dest, label)   # 30fps でなければ写しを作り直す(元の動画は触らない。失敗しても写しのまま続ける)
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
@@ -769,6 +775,22 @@ class Intake:
             return {"state": "rejected", "reason": "文字起こしに入れられませんでした(%s)" % e}
         self._count()
         return {"state": "accepted", "reason": note, "runId": run["id"]}
+
+    def _request_dir(self, rid, label, day):
+        """依頼 1 件の動画の置き場所 -> (フォルダ, 案件か)。書き出し先が設定されていて固定ディスクなら <書き出し先>/依頼/<日付>_<題>_<id6>/
+        (案件にする。placement.request_root)、そうでなければ今までの作業データ app/intake/<日付>/<依頼 id>/。同じ依頼の 2 本目以降は 1 本目と同じフォルダ。
+        rid が無い(手で置いた動画)ときは動画ごとに新しい id を作る。前からある app/intake/<日付>/ 直下の動画は動かさない"""
+        key = rid or ""
+        if key and key in self._req_dirs:
+            return self._req_dirs[key]
+        use = key if REQ_ID_RE.match(key) else "m%s" % uuid.uuid4().hex[:8]
+        root = placement.request_root(day, os.path.splitext(label)[0], use)
+        got = (root, True) if root else (os.path.join(self.data_dir, "intake", day, use), False)
+        if key:
+            if len(self._req_dirs) >= REQ_DIRS_MAX:
+                self._req_dirs.pop(next(iter(self._req_dirs)))
+            self._req_dirs[key] = got
+        return got
 
     def _normalize_copy(self, dest, label):
         """作業データへコピーした動画 dest が 30fps(H.264・yuv420p・AAC)でなければ、写しを作り直して置き換える(Q1。2026-10-04 ユーザー決定)。
