@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>動画編集ツール — 確かめる</title>
+<!-- 確かめる(/check。入口の直下の 1 枚。RS8 V1 = 殻。作り方 docs/design/v1-check-build.md・何を作るか docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3)。
+     部品は相対パスで読む(api/check/… = 入口・transcribe/… = 取り込んだ編集)。CSP の下で動く: インラインの script・on〇〇= は書かない。
+     check.js が先(カードの登録の口 CheckCards を作る)→ 再生部品 → カード 4 本(DOMContentLoaded で殻が起きる) -->
+<script src="ui-kit.js"></script>
+<link rel="stylesheet" href="ui-kit.css">
+<link rel="stylesheet" href="check.css">
+<script src="check.js" defer></script>
+<script src="check-player.js" defer></script>
+<script src="check-cards/value.js" defer></script>
+<script src="check-cards/read.js" defer></script>
+<script src="check-cards/voice.js" defer></script>
+<script src="check-cards/time.js" defer></script>
+</head>
+<body>
+<header class="ui-header">
+  <nav class="ui-appnav" data-ui-appnav="check" aria-label="ホーム/案件/設定"></nav>
+  <span class="ui-ver" id="ver"></span>
+  <div class="ui-header-actions">
+    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(テーマ・文字の大きさ・キーの帯)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
+  </div>
+</header>
+<div class="errbar" id="errbar" role="alert" hidden></div>
+
+<main class="chk-main" id="main">
+  <nav class="chk-crumb" aria-label="場所"><a href="./">ホーム</a> › 確かめる</nav>
+  <h1 class="chk-title">確かめる</h1>
+  <div class="chk-band" id="chkBand" aria-live="polite">
+    <span>今日 <b id="chkToday">0</b> 件</span>
+    <span class="chk-goal" id="chkGoal"></span>
+    <span class="notice err chk-failed" id="chkFailed" hidden></span>
+    <span class="hint chk-rule">順: 目標まであと少しの物 → 軽い物 ・ <kbd class="ui-kbd">Z</kbd> で 1 つ前に戻す</span>
+  </div>
+
+  <div class="chk-wrap">
+    <section class="chk-stage" aria-label="確認のカード">
+      <div class="chk-card" id="chkCard" hidden>
+        <div class="chk-kind" id="chkKind"></div>
+        <div class="chk-body" id="chkBody"></div>
+        <div class="chk-foot">
+          <button type="button" class="btn ghost" id="chkSkip" title="このカードは今日は後ろへ回します">飛ばす <kbd class="ui-kbd">N</kbd></button>
+          <button type="button" class="btn ghost" id="chkUndo" disabled title="まだ答えたカードがありません">1 つ前に戻す <kbd class="ui-kbd">Z</kbd></button>
+        </div>
+      </div>
+      <div class="chk-card chk-sum" id="chkSum" hidden></div>
+      <div id="chkEmpty" hidden></div>
+    </section>
+    <aside class="card chk-side" aria-labelledby="chkNextTitle">
+      <div class="card-title" id="chkNextTitle">このあと</div>
+      <ul class="chk-queue" id="chkQueue"></ul>
+      <p class="hint chk-side-note">[飛ばす] はその日は後ろへ回します。重い確認は案件の画面で開き、終わったらここへ戻ります。</p>
+    </aside>
+  </div>
+</main>
+</body>
+</html>

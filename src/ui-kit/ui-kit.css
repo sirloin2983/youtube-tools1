@@ -434,6 +434,16 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 .ui-rail-s{display:block;font-size:var(--fs-xs);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ui-rail-item .pill{flex:none}
 
+/* 読みの比べる欄(v28。RS8 V1 確かめる)。2〜3 個の読みを同じ幅で横に並べる(校正のパネルの 3 択「前の機械 / 今の機械 / あなたの直し」と、
+   確かめるの読みのカード「1 / 2」で共用)。<div class="ui-pair"><div class="ui-pair-opt"><span class="ui-pair-lb">1 認識のまま</span><p>…</p></div>…</div>。
+   目立たせる 1 つは .is-accent。狭い画面(560px 以下)では縦に積む */
+.ui-pair{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px}
+.ui-pair-opt{min-width:0;padding:8px 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel-2)}
+.ui-pair-opt.is-accent{border-color:var(--accent-line)}
+.ui-pair-lb{display:block;margin:0 0 2px;font-size:12px;color:var(--ink-3)}
+.ui-pair-opt p{margin:0;font-size:13.5px;line-height:1.55;overflow-wrap:anywhere;color:var(--ink)}
+@media (max-width:560px){.ui-pair{grid-auto-flow:row}}
+
 /* 通知(重ねて最大2つ(v21。以前は3つ)。UIKit.toast)。#toast(既存の単発の .toast)を見つけたら入れ物として作り直す。両テーマで暗い面 */
 .ui-toasts{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;max-width:min(560px,calc(100% - 32px));pointer-events:none}
 .ui-toast{display:flex;align-items:flex-start;gap:10px;padding:10px 16px;border-radius:var(--r-lg);background:var(--toast-bg);color:var(--toast-ink);border:1px solid rgba(255,255,255,.08);font-size:13px;overflow-wrap:anywhere;cursor:pointer;pointer-events:auto;animation:ui-toast .2s var(--ease)}

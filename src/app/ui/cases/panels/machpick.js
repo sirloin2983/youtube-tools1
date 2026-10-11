@@ -28,10 +28,10 @@
       function boxHTML(r) {
         var e = err[r.id];
         return '<div class="cs-mc" data-mc-box="' + esc(r.id) + '" role="group" aria-label="機械の結果が変わった行を比べる">' +
-          '<div class="cs-mc-pair">' +
-            '<div class="cs-mc-opt"><span class="cs-mc-lb">前の機械</span><p>' + esc(texts(r.before)) + '</p></div>' +
-            '<div class="cs-mc-opt"><span class="cs-mc-lb">今の機械</span><p>' + esc(texts(r.now)) + '</p></div>' +
-            '<div class="cs-mc-opt is-mine"><span class="cs-mc-lb">あなたの直し</span><p>' + esc(r.human && r.human.text || '(文字なし)') + '</p></div>' +
+          '<div class="ui-pair">' +
+            '<div class="ui-pair-opt"><span class="ui-pair-lb">前の機械</span><p>' + esc(texts(r.before)) + '</p></div>' +
+            '<div class="ui-pair-opt"><span class="ui-pair-lb">今の機械</span><p>' + esc(texts(r.now)) + '</p></div>' +
+            '<div class="ui-pair-opt is-accent"><span class="ui-pair-lb">あなたの直し</span><p>' + esc(r.human && r.human.text || '(文字なし)') + '</p></div>' +
           '</div>' +
           '<div class="row cs-mc-acts"><button type="button" class="btn small primary" data-mc-pick="mine" title="あなたの直しを残し、今の機械の結果を見たことにします(印が外れます)">自分の直しのまま</button>' +
             '<button type="button" class="btn small" data-mc-pick="machine" title="あなたの直し(文字・時刻・話者・校正済み)を外して、今の機械の行にします。「以前の版に戻す」で戻せます">今の機械にする</button>' +

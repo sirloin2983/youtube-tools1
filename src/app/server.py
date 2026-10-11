@@ -582,14 +582,22 @@ STATIC["/cases-panels/new.css"] = (os.path.join("panels", "new.css"), CASES_DIR)
 STATIC["/portal-edit.js"] = ("portal-edit.js", CODE_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
 STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), CASES_DIR),   # 校正のパネル(C2b): 見た目・3 択の部品・編集を載せる台(編集の app-*.js は transcribe/ から読む)
                "/cases-panels/machpick.js": (os.path.join("panels", "machpick.js"), CASES_DIR), "/cases-edhost.js": ("edhost.js", CASES_DIR)})
-STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
-NAV_PAGES = httpsec.PAGES + ("/settings", "/cases")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
+# 確かめる(/check。RS8 V1。docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
+# カードの描き方は /check-cards/<種類>.js(V2 の 4 本が中身を足す)・カード用の軽い再生部品は /check-player.js
+CHECK_DIR = os.path.join(ROOT, "app", "ui", "check")
+CHECK_CARDS = ("value", "read", "voice", "time")   # 切り抜く価値・どちらの読み・誰の声・行の時刻
+STATIC.update({"/check": ("index.html", CHECK_DIR), "/check.js": ("check.js", CHECK_DIR), "/check.css": ("check.css", CHECK_DIR),
+               "/check-player.js": ("player.js", CHECK_DIR)})
+STATIC.update({"/check-cards/%s.js" % n: (os.path.join("cards", n + ".js"), CHECK_DIR) for n in CHECK_CARDS})
+STATIC_TYPES = {".html":"text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
+NAV_PAGES = httpsec.PAGES + ("/settings", "/cases", "/check")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 # 案件の画面はスタジオ ② の候補(YouTube の埋め込みのプレイヤー)と編集を載せるので、取り込んだスタジオの CSP と同じ(home/mount.py の MOUNTS["studio"]。
 # スタイルの属性は移すパネルが使うので制限しない)。インラインのスクリプトは動かない・ほかのサイトの枠には入らない
 PAGE_CSP = {"/cases": "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                       "form-action 'none'; frame-ancestors 'none'"}
+PAGE_CSP["/check"] = PAGE_CSP["/cases"]   # 確かめる: 候補のままのカードが配信の区間を YouTube の埋め込みで再生する(案件の画面と同じ)
 # ホームは「新しい案件」の引き出し(スタジオ ① の配信を探す。サムネイルは ytimg。画面の部品が style 属性を使う)を載せるので、画像とスタイルの属性だけ足す。
 # スクリプトは 'self' のまま(YouTube のプレイヤーはホームに無い)
 HOME_CSP = CSP.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'").replace("img-src 'self' data:", "img-src 'self' data: https://*.ytimg.com https://*.ggpht.com")
@@ -715,6 +723,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/settings"})
         if u.path in ("/cases/", "/cases/index.html"):   # 案件の画面も入口の直下の 1 枚(引数 ?c=&d= はそのまま渡す)
             return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/cases" + ("?" + u.query if u.query else "")})
+        if u.path in ("/check/", "/check/index.html"):   # 確かめるも入口の直下の 1 枚(?c=&kind=&back= はそのまま渡す)
+            return self._send(302, b"", "text/plain; charset=utf-8", {"Location": "/check" + ("?" + u.query if u.query else "")})
         if u.path in STATIC:
             name, base = STATIC[u.path]
             try:

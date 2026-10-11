@@ -20,21 +20,17 @@
   .cs-ed-wrap .app.has-doc:not(.tab-wide) .tx-grid{grid-template-columns:minmax(0,1fr)}
 }
 
-/* 3 択(machpick.js): 行の札「機械の結果が変わりました」と、行の下の比較欄(前の機械 / 今の機械 / あなたの直し) */
+/* 3 択(machpick.js): 行の札「機械の結果が変わりました」と、行の下の比較欄(前の機械 / 今の機械 / あなたの直し。並びは ui-kit の .ui-pair) */
 .seg .cs-mc-tag{grid-column:5;justify-self:start;min-height:26px;font-size:12px;font-weight:550;background:var(--warn-soft);color:var(--warn-ink);border-color:color-mix(in srgb,var(--warn) 55%,transparent)}
 .seg .cs-mc-tag[aria-expanded=true]{box-shadow:inset 0 0 0 1px var(--warn)}
 .seg .cs-mc{grid-column:3/-1;margin-top:4px;padding:10px;border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r);background:var(--panel)}
-.cs-mc-pair{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.cs-mc-opt{min-width:0;padding:8px 10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel-2)}
-.cs-mc-opt.is-mine{border-color:var(--accent-line)}
-.cs-mc-lb{display:block;margin:0 0 2px;font-size:12px;color:var(--ink-3)}
-.cs-mc-opt p{margin:0;font-size:13.5px;line-height:1.55;overflow-wrap:anywhere;color:var(--ink)}
+/* 比べる欄の見た目は ui-kit の .ui-pair(確かめるの読みのカードと共用。v28) */
 .cs-mc-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .cs-mc-err{margin:8px 0 0}
 .cs-mc-count b{font-variant-numeric:tabular-nums}
 @container (max-width:700px){
   #segs .seg .cs-mc,#segs .seg .cs-mc-tag{grid-column:1/-1}
-  .cs-mc-pair{grid-template-columns:minmax(0,1fr)}
+  .cs-mc .ui-pair{grid-auto-flow:row}
 }
 
 /* 小さい配信のプレーヤー(元の配信の YouTube を、この切り抜きの前後だけ。映像の列の再生の道具の下) */

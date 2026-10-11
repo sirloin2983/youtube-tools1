@@ -1,0 +1,64 @@
+/* 確かめる(/check。src/app/ui/check/。RS8 V1 = 殻)。部品の見た目は ui-kit(札 .pill・空の状態 .empty・比べる欄 .ui-pair・キー .ui-kbd)。
+   ここは置き方だけ(見本 docs/design/briefs/rs8-cases/mock/index.html の .chk-* を写した)。接頭辞は chk-(カードの中身もこの接頭辞で足す) */
+.chk-main{max-width:1180px;margin:0 auto;padding:16px 16px calc(var(--keybar-h, 26px) + 32px)}
+.chk-crumb{font-size:var(--fs-sm);color:var(--ink-3)}
+.chk-crumb a{color:var(--ink-3);display:inline-block;min-height:28px;line-height:28px}
+.chk-title{margin:0 0 10px;font:650 18px/1.35 var(--font-display, var(--font))}
+
+/* 上の帯: 今日 n 件・この確認で決まる物・順の説明 */
+.chk-band{display:flex;align-items:center;gap:6px 14px;flex-wrap:wrap;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);margin-bottom:12px;font-size:13.5px}
+.chk-band b{font-variant-numeric:tabular-nums}
+.chk-goal{flex:1 1 280px;min-width:0}
+.chk-goal:empty{display:none}
+.chk-rule{margin:0}
+.chk-failed{flex:1 1 100%;margin:0}
+.chk-goal .hint{margin-left:4px}
+
+.chk-wrap{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:start}
+.chk-stage{min-width:0}
+.chk-card{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:16px;min-width:0}
+.chk-kind{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-3)}
+.chk-kind b{color:var(--ink-2);font-weight:600}
+.chk-case{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chk-body{min-width:0}
+.chk-q{font:650 17px/1.4 var(--font-display, var(--font));margin:6px 0 12px}
+.chk-media{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.chk-stagebox{flex:0 1 420px;min-width:0;width:100%}
+.chk-stagebox:empty{display:none}
+.chk-info{flex:1 1 220px;min-width:0}
+.chk-info p{margin:0 0 6px}
+.chk-acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.chk-foot{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.chk-sum .chk-q{margin-top:0}
+.chk-empty .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.chk-empty>b,.chk-empty>span{display:block}
+.chk-loading{margin:24px 0;text-align:center}
+
+/* 再生部品(player.js) */
+.chk-player{display:flex;flex-direction:column;gap:6px;min-width:0}
+.chk-screen{background:var(--stage-bg);border-radius:var(--r);overflow:hidden;min-height:120px;display:grid;place-items:center}
+.chk-video{display:block;width:100%;max-height:min(60vh,520px);background:var(--stage-bg)}
+.chk-frame{display:block;width:100%;aspect-ratio:16/9;border:0}
+.chk-nomedia{color:var(--stage-ink);padding:24px;margin:0;text-align:center}
+.chk-cap{margin:0;padding:6px 10px;background:var(--panel-2);border-radius:var(--r);font-size:14.5px;line-height:1.5;overflow-wrap:anywhere}
+.chk-wave{position:relative}
+.chk-wave canvas{display:block;width:100%;height:72px;background:var(--panel-2);border-radius:var(--r)}
+.chk-wave-msg,.chk-play-msg{margin:0}
+.chk-wave-msg:empty,.chk-play-msg:empty{display:none}
+
+/* 右の欄: このあと */
+.chk-side{margin:0}
+.chk-queue{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column}
+.chk-queue li{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+.chk-queue li:first-child{border-top:0}
+.chk-queue li[aria-current="true"]{font-weight:600}
+.chk-queue .hint{font-size:var(--fs-xs)}
+.chk-side-note{margin:8px 0 0}
+
+@media (max-width:900px){
+  .chk-wrap{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  .chk-card{padding:12px}
+  .chk-foot{justify-content:flex-start}
+}
