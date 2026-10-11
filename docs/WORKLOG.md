@@ -3585,3 +3585,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 次: 入口を起動し直して新しい画面を使う(0.59.0)→ primary への切り替え(ユーザーの合図で)→ V1 確かめる(ホームの [始める] の枠が空いている)→ F1 → RV。OPT2 の後半(器を本当に 1 つに)
 - 未コミット: なし(この記録と HANDOVER・data.js・decisions を一緒にコミット)
 - 追記(17:40): 2fb9c12f 案件の画面の小さな直し(校正の ? の一覧から効かないキーを外す・キー配置が殻のキー Alt+1/2・Shift+N を断る・?clip= は指す動画に直して転送・音声だけを校正の中に限る・1 コマを動画の fps で(60fps は手で未確認)・2 列で最後の行が窓の外に出る・review.js の案件で見るを /cases へ)。e2e_cases_proof・cand・cut OK
+
+## 2026-10-11 夜 Claude Code(PC。Opus まとめ役。セッション「RS8」の続き)— V1 確かめる = 版 0.60.0
+- 計画 docs/design/v1-check-build.md(Fable)・決定 3-41(ユーザー 4 問 = 全部おすすめ)。V0 7dd91a38 ⑤ src/eval/check(lineup・sources・goals・deck)+ ③ src/human/check(answerlog・apply)+ /api/check/* + accuracy に fill・timing / V1 1897d87e 画面 /check(src/app/ui/check)・player.js・ui-kit .ui-pair / V2a 価値(52ba08ba で「要らない」も 1 枚遅れ)・V2b 読み・V2c 声(30 秒で voice-learn)・V2d 時刻(timerow・eval_timing --check)/ V3 9272b594 ホームの [始める]・案件の「確かめると効く物」・appnav 4 項目・続けて確認を消した / V4 締め(版 0.60.0・ui_audit の場面・demo_env・AGENTS・README・pipeline.md 2.10)
+- 直した揺れ: test_mount の子の出力の文字コード(794a707d)・入口のサーバーの受け付けの待ち行列 5 → 64(e2e_live_studio の ERR_CONNECTION_REFUSED)
+- テスト: unittest 約 3,900 件・lint 0・層 OK・node 74・ui_audit all --demo Must 0・e2e 一式 19 本(e2e_live_studio は直したあと単独で 2 回 OK)
+- 次: F1(並行のセッション)→ RV。文書の層の primary はユーザーの合図で
+- 未コミット: なし
