@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D の P1)の入口の側(src/home/live.py・prefs の節 live・launch.py の /live/…・「調子」の行)のテスト。
+"""リアルタイム切り抜き(線 D の P1)の入口の側(src/home/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
 ② の部分は src/flow/tests に移した: 録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
 
     py -3.10 -m unittest src/home/tests/test_live.py
@@ -37,7 +37,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "flow", "tests"))   # 共有の偽物 _livefix
 import _livefix as LF  # noqa: E402
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 import live as LV  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
 from flow import livesession as LS  # noqa: E402

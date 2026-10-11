@@ -9,7 +9,7 @@
 フォルダ名を知っている場所はここを読む(次にフォルダを変えるとき、直す場所を1つにするため)。
 
 「root」の意味: ツールの親のフォルダ(= `src/`。テストが一時フォルダにツールと共通のコードを平らに写したときはその一時フォルダ)。
-入口の launch.py の ROOT・datadir・txindex・各テストの REPO はこの意味で使う(src_root)。
+入口の server.py の ROOT・datadir・txindex・各テストの REPO はこの意味で使う(src_root)。
 dev/・setup/・friend-apps/ のようにリポジトリ直下にあるものを探すときだけ repo_root を使う。
 各ツールが共通部品を探す `_load_core()`(「ツールのフォルダの1つ上」)は ytt を読む前なので、ここを使わない。
 """

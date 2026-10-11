@@ -18,13 +18,13 @@ echo.
 pause
 goto :eof
 :usepy310
-py -3.10 src\home\launch.py %*
+py -3.10 src\app\server.py %*
 goto finish
 :usepy
-py -3 src\home\launch.py %*
+py -3 src\app\server.py %*
 goto finish
 :usepython
-python src\home\launch.py %*
+python src\app\server.py %*
 :finish
 if errorlevel 1 (
   echo.

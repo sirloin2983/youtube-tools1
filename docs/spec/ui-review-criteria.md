@@ -34,7 +34,7 @@
 | A-06 | ツールの `serve.py` に `/api/ytt/` を作らない | grep | Must | AGENTS.md |
 | A-07 | `outline:none` でフォーカスの輪を消さない(同じ規則に `box-shadow` か、同じセレクタの `:focus-visible` の規則があれば可。見えるかは A-26 で測る) | CSS の grep(ui-kit は正本だけ) | Must | ui-guidelines 6・WIG「Focus」 |
 | A-08 | ツールの CSS/JS に固定の色(`#hex`・`rgb()`・`white`/`black`)を書かない(トークン `var(--…)`) | CSS の値と JS の `style.color =` などの grep(トークンの定義行 `--x: #…`・`url()` は除く) | Should(1 件ずつ判断。字幕の縁取り・幕の黒のように両テーマで同じでよい色は allow) | ui-overhaul ブリーフ「Colors」・ui-kit README |
-| A-09 | 用語集の「使わない言葉」(ストリーム・トランスクリプト・セグメント・クリップ・パッケージ・プリセット・入口・ポータル・一括実行・ショートカット など)が画面の文言に無い | HTML の文と属性(title・placeholder・aria-label・alt・data-ui-why)・JS の文字列・ホームの画面に出る .py の文字列(docstring・コメント・launch.py の argparse・backup.py の CLI は除く)。「動画」「削除」「更新」「ショート」は別の意味で使うので人が見る(B-04) | Must | ui-guidelines 1 |
+| A-09 | 用語集の「使わない言葉」(ストリーム・トランスクリプト・セグメント・クリップ・パッケージ・プリセット・入口・ポータル・一括実行・ショートカット など)が画面の文言に無い | HTML の文と属性(title・placeholder・aria-label・alt・data-ui-why)・JS の文字列・ホームの画面に出る .py の文字列(docstring・コメント・server.py の argparse・backup.py の CLI は除く)。「動画」「削除」「更新」「ショート」は別の意味で使うので人が見る(B-04) | Must | ui-guidelines 1 |
 | A-10 | 絵文字・記号のアイコン(☰ ⚙ ✂ ✓ ▶ ▾ ▸ ⋮ × ↶ ↷ など)を文言・ボタンの名前に使わない(SVG の `UIKit.icon`)。可: 矢印 ← → ↑ ↓(kbd・「A → B」の文)・①〜⑤(今をマーク。ユーザー決定)・数字の横の ×(0.5×・1080×1920) | 同上 | Must | ui-overhaul ブリーフ「Anti-references」(決定 P-6: ▾ ▸ も SVG に) |
 | A-11 | `ui-kit.css` に `prefers-reduced-motion` で全部の動きを止める節がある(各ツールはこれに乗る) | grep | Must | ui-overhaul ブリーフ「Accessibility」 |
 | A-12 | `<html lang>`・`<title>`・`<meta viewport>` がある | HTML の grep | Must | WIG「Accessibility」 |

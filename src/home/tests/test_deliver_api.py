@@ -1,4 +1,4 @@
-"""入口の ytt_api("deliver") の受け渡し(src/home/launch.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/human/friend/tests/test_deliver.py。
+"""入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/human/friend/tests/test_deliver.py。
 
 実行(リポジトリ直下から): python -m unittest src/home/tests/test_deliver_api.py -v
 """
@@ -39,7 +39,7 @@ class ApiTest(unittest.TestCase):
     """入口の ytt_api("deliver") の受け渡し(HTTP の検査は test_window の api/ytt と同じ ytt_request)"""
 
     def test_api(self):
-        import launch
+        from app import server
         tmp = tempfile.mkdtemp(prefix="ytt-deliver-")
         self.addCleanup(shutil.rmtree, tmp, True)
         pack = os.path.join(tmp, "p_pack")
@@ -47,7 +47,7 @@ class ApiTest(unittest.TestCase):
         os.makedirs(os.path.join(tmp, "Dropbox"))
 
         class Fake:
-            ytt_api = launch.PortalServer.ytt_api
+            ytt_api = server.PortalServer.ytt_api
         srv = Fake()
         srv.deliveries = deliver.Deliveries(lambda: os.path.join(tmp, "Dropbox"), lambda d: d == os.path.normpath(pack))
         code, obj = srv.ytt_api("deliver", {"op": "start", "dir": os.path.join(tmp, "nope"), "title": "t"})

@@ -3,7 +3,7 @@
 
     py -3.10 src/home/tests/e2e_live.py
 
-入口(launch.py)は e2e_backup_ui.py と同じ形で動かす(ツールは起動しない)。録画の部品は本物(src/pipeline/ingest/recorder.py)を
+入口(server.py)は e2e_backup_ui.py と同じ形で動かす(ツールは起動しない)。録画の部品は本物(src/pipeline/ingest/recorder.py)を
 --source direct で別のプロセスとして動かし、ffmpeg の lavfi で作った HLS を手元の HTTP サーバーで配信中のように出して録る。
 
 P3(2026-10-05)で別ページ /live/(録画の画面)をやめてスタジオの中に入れたので、この確認は**入口の API で**行う
@@ -44,7 +44,8 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 import hls_fixture as F  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import normalize, schemas  # noqa: E402

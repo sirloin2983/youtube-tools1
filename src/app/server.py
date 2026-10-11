@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
 
-    python src/home/launch.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
-    python src/home/launch.py --headless [--port 8700]   画面なし(送るアプリが子プロセスとして起こす ②。RS7-2 G5a。下の「画面なし」)
+    python src/app/server.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
+    python src/app/server.py --headless [--port 8700]   画面なし(送るアプリが子プロセスとして起こす ②。RS7-2 G5a。下の「画面なし」)
 
 統合計画の段階1(docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
 `serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(docs/spec/pipeline.md)。
@@ -85,10 +85,12 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
-CODE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(CODE_DIR)
-if ROOT not in sys.path:   # 共通部品 ytt(リポジトリ直下)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py。RS7-2 G5b で src/home/launch.py から移した)
+CODE_DIR = os.path.join(ROOT, "home")   # 入口の画面(portal.*・settings/)と home の部品(mount・autorun・prefs・live・appwindow)の置き場所 = layout.TOOL_DIRS["app"]
+if ROOT not in sys.path:   # 役割の層・共通部品 ytt(src)
     sys.path.append(ROOT)
+if CODE_DIR not in sys.path:   # home の部品を裸の名前で読む(import mount など。画面と同じ場所)
+    sys.path.insert(0, CODE_DIR)
 from manage.cases import txindex  # noqa: E402
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
@@ -1326,7 +1328,7 @@ def ignore_stop_signals():
 
 
 def parse_args(argv):
-    ap = argparse.ArgumentParser(prog="launch.py", description="3つのツールをまとめて起動し、入口の画面を開く")
+    ap = argparse.ArgumentParser(prog="server.py", description="3つのツールをまとめて起動し、入口の画面を開く")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT, help="入口の画面のポート(既定 %d。使用中なら次の番号)" % DEFAULT_PORT)
     ap.add_argument("--no-open", action="store_true", help="ブラウザを開かない")
     ap.add_argument("--only", default="", help="起動するツールを絞る(例: studio,transcribe)")

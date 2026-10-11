@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(launch.py を通して)と、
+"""アーカイブで本番版に作り直す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)と、
 入口のプロセスで numpy を import しない検査。本体(照合・入れ替え・自動の見回り)は ② の src/flow/tests/test_live_archive.py。
 
     py -3.10 -m unittest src/home/tests/test_live_archive_api.py
@@ -32,16 +32,16 @@ VID = "abcdefghijk"
 
 class NoNumpyTest(unittest.TestCase):
     def test_no_numpy_in_portal(self):
-        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import flow.live_archive, flow.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
+        code = "import sys; sys.path[:0] = [%r, %r]; import live; from app import server; import flow.live_archive, flow.live_export; print('numpy' in sys.modules)" % (HERE, REPO)
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
 
 
 class ApiTest(unittest.TestCase):
-    """POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(入口の launch.py を通して)"""
+    """POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(入口の server.py を通して)"""
 
     def setUp(self):
-        import launch as L
+        from app import server as L
         import test_live as TL   # 同じ home/tests の FakeRecorder・PortalLiveTest.jreq/req を借りる
         self.TL = TL
         self.tmp = tempfile.mkdtemp(prefix="ytt-live-arc-api-")

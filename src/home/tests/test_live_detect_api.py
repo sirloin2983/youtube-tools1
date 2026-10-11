@@ -4,7 +4,7 @@ Detector の中身(api_get・採用・自動の採用など)は ② の src/flow
 
     py -3.10 -m unittest src/home/tests/test_live_detect_api.py
 
-  - Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は launch.py が先に済ませる)・オフなら 404・1 回の要求で設定を読むのは 1 回
+  - Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)・オフなら 404・1 回の要求で設定を読むのは 1 回
   - 設定 detect・autoAdopt の検査(既定・範囲・壊れた値は既定へ)
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
@@ -23,7 +23,7 @@ HERE = os.path.dirname(TESTS)
 SRC = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(SRC, "flow", "tests"))   # 共有の偽物 _livefix
-if SRC not in sys.path:   # src(層のパッケージ。launch.py と同じく後ろに)
+if SRC not in sys.path:   # src(層のパッケージ。server.py と同じく後ろに)
     sys.path.append(SRC)
 import _livefix as LF  # noqa: E402
 import live as LV  # noqa: E402
@@ -36,7 +36,7 @@ REC = "20261007-200000-" + VID
 
 
 class Handler:
-    """launch.py の PortalHandler の代わり(Live.handle_get / handle_post が呼ぶ口だけ)"""
+    """server.py の PortalHandler の代わり(Live.handle_get / handle_post が呼ぶ口だけ)"""
 
     def __init__(self):
         self.out, self.server = None, None
@@ -103,7 +103,7 @@ class DetectRouteTest(unittest.TestCase):
         self.assertIsNone(getattr(self.live._scope, "cfg", None))   # 要求が終われば捨てる
 
     def test_routes_through_live(self):
-        """Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は launch.py が先に済ませる)"""
+        """Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)"""
         h = Handler()
         self.assertTrue(self.live.handle_get(h, urllib.parse.urlsplit("/live/api/peaks?recorder=fake&recording=%s&since=4" % REC)))
         self.assertEqual((h.out[0], [x["id"] for x in h.out[1]["changes"]]), (200, ["p1-903"]))

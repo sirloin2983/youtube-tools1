@@ -39,7 +39,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> analyze -> pipeline -> src
 HERE = os.path.join(SRC, "home")                                  # 入口(NoNumpyTest が子プロセスで読む)
-if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。launch.py と同じく後ろに)
+if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。server.py と同じく後ろに)
     sys.path.append(SRC)
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from flow import live_export as LX  # noqa: E402   (SameAsExportTest が flow の写しと比べる)
@@ -1131,7 +1131,7 @@ class SameAsExportTest(unittest.TestCase):
 class NoNumpyTest(unittest.TestCase):
     def test_no_numpy_in_portal_or_worker(self):
         """入口のプロセス(live・live_detect)とワーカー(live_excite_worker)は numpy を読まない(0-10-2)"""
-        code = "import sys; sys.path[:0] = [%r, %r]; import live, launch; import flow.live_detect, pipeline.analyze.live_excite_worker; print('numpy' in sys.modules)" % (HERE, SRC)
+        code = "import sys; sys.path[:0] = [%r, %r]; import live; from app import server; import flow.live_detect, pipeline.analyze.live_excite_worker; print('numpy' in sys.modules)" % (HERE, SRC)
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60, env=dict(os.environ, YTT_DATA_DIR="inplace"))
         self.assertEqual(r.stdout.decode().strip().splitlines()[-1], "False", r.stderr.decode("utf-8", "replace"))
 

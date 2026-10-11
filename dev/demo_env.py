@@ -177,7 +177,7 @@ def main(argv=None):
     keep = bool(a.dir)
     os.environ.update({"YTT_DATA_DIR": "inplace", "YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime"), "STUDIO_FAKE": "1",
                        "TRANSCRIBE_BACKEND": "fake", "STUDIO_HOME": os.path.join(tmp, "studio-home")})
-    import launch as L   # noqa: E402  (環境変数を決めてから読む)
+    from app import server as L   # noqa: E402  (環境変数を決めてから読む)
     import mount as M    # noqa: E402
     from test_launch import _copy_tool  # noqa: E402
     fresh = not os.path.isdir(os.path.join(tmp, "studio"))

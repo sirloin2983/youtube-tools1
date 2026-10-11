@@ -49,8 +49,8 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
                                           配信中の盛り上がりの候補(線 D の L2・M11。設定 live.detect・live.autoAdopt 既定オン(0.46.3 から)。中身と形は src/flow/live_detect.py)
   POST api/ytt/live  {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(録画中 + 終わって 10 分以内。
                      全ツールのヘッダーの札が 10 秒ごとに呼ぶので、録画元への問い合わせは短い時間切れで、結果を 3 秒覚える)
-                     {op: "stop", recorder, recording} → {ok: true, recording}(launch.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
-  検査は入口の API と同じ(Host・Sec-Fetch-Site。POST は Origin と入口の合言葉 X-YTT-Token も。launch.py の do_GET / do_POST が先に通す)
+                     {op: "stop", recorder, recording} → {ok: true, recording}(server.py の ytt_api から。合言葉・Origin の検査は ytt_request が済ませる)
+  検査は入口の API と同じ(Host・Sec-Fetch-Site。POST は Origin と入口の合言葉 X-YTT-Token も。server.py の do_GET / do_POST が先に通す)
 
 録画元の一覧(設定 live.recorders。空 = 手元の1つ「この PC」http://127.0.0.1:8730)を通して読む: 2台(P5)のときは一覧に1行足すだけ。
 手元の録画元の合言葉は、録画の部品の作業データの token.txt を読む(設定に書かない)。
@@ -168,7 +168,7 @@ class Live(livesession.LiveSession):
         self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
 
     def use_headless(self, disk_min_gb=None):
-        """画面なし(launch.py --headless。plan/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
+        """画面なし(server.py --headless。plan/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
         スタジオなしの採用(LocalMarks)・友人へ届けない・D-13 なし(未確認で休まない・6 時間で止めない・同時の上限なし)・自動の採用の上限は束の adopt.top・
         空き容量が disk_min_gb(GB)より少なければ新しい録画を始めない"""
         self.headless = True
@@ -248,7 +248,7 @@ class Live(livesession.LiveSession):
         out = self.submit(env, livesession.request_bundle(ctx, self.live_bundle(), top=live_requests.TOP_DEFAULT), ctx=ctx)
         return {k: out[k] for k in ("recorder", "recording", "existing")}
 
-    # --- 画面と中継(launch.py の PortalHandler から) ---
+    # --- 画面と中継(server.py の PortalHandler から) ---
     def handle_get(self, h, u):
         """GET /live…。オフなら False(入口の今までどおりの 404 になる)"""
         with self.cfg_scope():
@@ -309,7 +309,7 @@ class Live(livesession.LiveSession):
         return True
 
     def handle_post(self, h, u, body):
-        """POST /live…(入口の合言葉・Origin の検査と本文の読み取りは launch.py が済ませてある)。オフなら False"""
+        """POST /live…(入口の合言葉・Origin の検査と本文の読み取りは server.py が済ませてある)。オフなら False"""
         with self.cfg_scope():
             return self._handle_post(h, u, body)
 
@@ -456,7 +456,7 @@ class Live(livesession.LiveSession):
                                         title=body.get("title") if isinstance(body.get("title"), str) else None,
                                         after=after, streamer=streamer, origin=origin, auto=auto, request=req)
 
-    # --- 画面の共通の API api/ytt/live(launch.py の PortalServer.ytt_api から。全ツールのヘッダーの札) ---
+    # --- 画面の共通の API api/ytt/live(server.py の PortalServer.ytt_api から。全ツールのヘッダーの札) ---
     def ytt(self, body):
         """-> (HTTP の番号, JSON)"""
         with self.cfg_scope():

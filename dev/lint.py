@@ -48,7 +48,7 @@ VERSION_FILE = ("src/ytt/version.py", r'^VERSION\s*=\s*"(\d+\.\d+\.\d+)"')
 VERSION_LITERALS = [   # 版の数字そのものを書いてはいけない所(version.py から読む)
     ("src/studio/serve.py", r'^SERVER_VERSION\s*=\s*"(\d[^"]*)"'), ("src/editor/serve.py", r'^SERVER_VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/studio/core.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"), ("src/editor/app.js", r"APP_VERSION\s*=\s*['\"](\d[^'\"]*)['\"]"),
-    ("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/home/launch.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
+    ("src/pipeline/pack/cut2resolve_core.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/app/server.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/pipeline/ingest/recorder.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/analytics/__init__.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/pipeline/pack/srt2resolve.py", r'^VERSION\s*=\s*"(\d[^"]*)"'), ("src/pipeline/pack/auto_cut.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),
     ("src/flow/live_export.py", r'^VERSION\s*=\s*"(\d[^"]*)"'),

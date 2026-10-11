@@ -2,7 +2,7 @@
 """「編集」(docs/design/edit-tool-design.md)の画面のテスト(e2e_edit_*.py)の共通部分。
 
 - ツールのフォルダの直下のファイルはまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
-- 単体(serve.py の疑似モード)と、入口に取り込んだ形(home/launch.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)の両方を起動できる
+- 単体(serve.py の疑似モード)と、入口に取り込んだ形(app/server.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)の両方を起動できる
 - テスト用の動画は webm(VP9 + Opus)。Playwright の chromium は H.264 を再生できない
 """
 import json
@@ -94,7 +94,7 @@ class Server:
             _layout.copy_shared_code(self.tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
             self.base = "http://localhost:%d/transcribe/" % self.port
             self.api_prefix = "/transcribe"
-            cmd = [sys.executable, os.path.join(self.tmp, _layout.TOOL_DIRS["app"], "launch.py"), "--port", str(self.port), "--no-open", "--only", "transcribe,cut2resolve"]
+            cmd = [sys.executable, os.path.join(self.tmp, "app", "server.py"), "--port", str(self.port), "--no-open", "--only", "transcribe,cut2resolve"]
         else:
             copy_tool(HERE, self.tmp)
             self.base = "http://localhost:%d/" % self.port

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """統合サーバーへのツールの取り込み(統合計画の段階3。docs/design/integration-plan.md)。
 
-入口のサーバー(src/home/launch.py の PortalServer)が、ツールの serve.py を別名のモジュールとして読み込み、
+入口のサーバー(src/app/server.py の PortalServer)が、ツールの serve.py を別名のモジュールとして読み込み、
 同じポートの /studio/ などで画面と API を受け持つ。ファイルは動かさない。取り込めないときは入口が serve.py を子プロセスとして起動する(各ツールの start.bat による単独起動は 09-26 に廃止)。
 
 - 読み込み: ツールのフォルダの serve.py を "ytt_tool_<ID>" という名前で読み込む(3つとも serve.py なので、名前をそろえると取り違える)。
@@ -23,7 +23,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt import httpsec, layout, version as _version   # フォルダ名・合言葉と本文の読み捨て(入口の launch.py が src を sys.path に入れてから読み込む)
+from ytt import httpsec, layout, version as _version   # フォルダ名・合言葉と本文の読み捨て(入口の server.py が src を sys.path に入れてから読み込む)
 
 # 取り込めるツール。prefix は画面の場所(/studio/)。順番は スタジオ → cut2resolve → 文字起こし(段階3 の決定)。
 # csp が None のツールは、ツール自身の CSP(serve.py の CSP。script-src 'self' で外部・インラインのスクリプトなし)をそのまま使う
@@ -43,10 +43,10 @@ MOUNTS = {
 }
 TOKEN_HEADER = "X-YTT-Token"
 SAFE_METHODS = ("GET", "HEAD")
-YTT_API = "/api/ytt/"   # 画面の共通の API(入口が受け持つ。src/home/launch.py の PortalServer.ytt_request)
+YTT_API = "/api/ytt/"   # 画面の共通の API(入口が受け持つ。src/app/server.py の PortalServer.ytt_request)
 
 
-# 合言葉が違うときの応答(入口の API・取り込んだツール・画面の共通の API で同じ文。src/home/launch.py も使う)
+# 合言葉が違うときの応答(入口の API・取り込んだツール・画面の共通の API で同じ文。src/app/server.py も使う)
 TOKEN_FAIL = {"error": "token", "message": "画面を開き直してから、もう一度操作してください(合言葉が違います)"}
 
 

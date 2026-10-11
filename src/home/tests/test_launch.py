@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口(src/home/launch.py)のテスト。  python -m unittest src/home/tests/test_launch.py -v
+"""入口(src/app/server.py)のテスト。  python -m unittest src/home/tests/test_launch.py -v
 
 - 偽のツール(serve.py の約束だけをまねた小さなサーバー)で、起動・停止・再起動・異常終了・別の画面で起動済み・
   強制終了・ポートの繰り上げ・入口の画面の安全検査を確かめる
@@ -25,7 +25,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 from ytt import layout  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
 
 REPO = os.path.dirname(HERE)
@@ -590,7 +591,7 @@ class PortalHttpTest(Base):
         self.assertIn(b'name="ytt-token"', body)
         r, _ = self.req("GET", "/settings/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
-        r, _ = self.req("GET", "/launch.py")   # コードや他のファイルは配らない
+        r, _ = self.req("GET", "/server.py")   # コードや他のファイルは配らない
         self.assertEqual(r.status, 404)
 
     def test_host_check(self):

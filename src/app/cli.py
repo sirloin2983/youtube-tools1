@@ -41,7 +41,7 @@ from ytt import datadir as _datadir, docloc as _docloc, fsio as _fsio, layout as
 from ytt import studio_env as _studio_env, tools as _ytools, workdata as _workdata, yturl as _yturl  # noqa: E402
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE, EXIT_BUSY, EXIT_INTERRUPT = 0, 1, 2, 4, 130   # 3(URL なのに入口が無い)は RS8 で欠番
-PORTAL_APP = "ytt-launcher"     # 入口の /api/ping の app(src/home/launch.py の APP_ID)
+PORTAL_APP = "ytt-launcher"     # 入口の /api/ping の app(src/app/server.py の APP_ID)
 POLL = 2.0                      # 入口に頼んだ仕事を見に行く間隔(秒)
 RUN_LOST = 15                   # 入口の一覧から頼んだ実行がこの回数続けて見えなければ失敗にする
 DETAIL_EVERY = 10.0             # 実行中の段の細かい進み具合を標準エラーに出す間隔(秒)

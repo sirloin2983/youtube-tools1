@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""作業データの置き場所(統合計画の段階4)の通し確認。本物の入口(src/home/launch.py)を、以前の場所にデータがある状態で起動する。
+"""作業データの置き場所(統合計画の段階4)の通し確認。本物の入口(src/app/server.py)を、以前の場所にデータがある状態で起動する。
 
 1. リポジトリを一時フォルダに写し、以前の場所(各ツールのフォルダの中)に作業データを置く
 2. YTT_DATA_DIR=<一時フォルダ>/data で入口を起動 → 3つのツールのデータが <data>/<ツール> へコピーされ、画面(API)から読める
@@ -78,7 +78,7 @@ def main():
             env.pop(k, None)
 
         def start():
-            p = subprocess.Popen([sys.executable, os.path.join(repo, "home", "launch.py"), "--port", str(port), "--no-open"],
+            p = subprocess.Popen([sys.executable, os.path.join(repo, "app", "server.py"), "--port", str(port), "--no-open"],
                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
             for _ in range(300):
                 try:

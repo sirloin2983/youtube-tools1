@@ -135,15 +135,15 @@ MOUNT = {"prefix": "", "token": ""}   # --mounted のとき: 画面の場所 /st
 
 
 def start_mounted():
-    """入口(home/launch.py)の統合サーバーにスタジオを取り込んで立てる。fixture で使った serve モジュールをそのまま取り込ませる
+    """入口(app/server.py)の統合サーバーにスタジオを取り込んで立てる。fixture で使った serve モジュールをそのまま取り込ませる
     (別に読み込むと、データの置き場所などの設定が別になるため)。"""
-    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "home"))
-    import launch
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "home"))   # mount(app の部品)
+    from app import server
     import mount
     sys.modules[mount.MOUNTS["studio"]["alias"]] = serve
     root = os.path.dirname(HERE)
-    sup = launch.Supervisor(root, only=["studio"], mounts=("studio",), log=lambda m: None)
-    srv, port = launch.make_server(0, sup)
+    sup = server.Supervisor(root, only=["studio"], mounts=("studio",), log=lambda m: None)
+    srv, port = server.make_server(0, sup)
     sup.attach(srv)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     sup.start("studio")

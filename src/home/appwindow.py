@@ -222,7 +222,7 @@ class Opener:
         self._times = []
         self._exe = None
         self._looked = False
-        self.force_mode = None   # 起動のオプションで決めた形(launch.py --app-window。設定には保存しない)
+        self.force_mode = None   # 起動のオプションで決めた形(server.py --app-window。設定には保存しない)
 
     @property
     def mode(self):

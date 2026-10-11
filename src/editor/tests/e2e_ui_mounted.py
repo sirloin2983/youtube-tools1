@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""文字起こしツールを入口(home/launch.py)に取り込んだ形の通し確認(統合計画の段階3-3)。
+"""文字起こしツールを入口(app/server.py)に取り込んだ形の通し確認(統合計画の段階3-3)。
 
     python3 e2e_ui_mounted.py
 
-本物の入口(home/launch.py --only transcribe,cut2resolve)を子プロセスとして起動し、http://localhost:<port>/transcribe/ で:
+本物の入口(app/server.py --only transcribe,cut2resolve)を子プロセスとして起動し、http://localhost:<port>/transcribe/ で:
   - CSP(home/mount.py の MOUNTS["transcribe"]["csp"])の下で画面が動く・合言葉(<meta name="ytt-token">)が入る
   - 認識は別プロセスのワーカー(pipeline/transcribe/worker.py。TRANSCRIBE_BACKEND=worker-fake でワーカーの中だけ偽のモデル)を通る
   - ワーカーを強制終了しても、入口・次の文字起こしは止まらない(次の要求で起動し直す)
@@ -159,7 +159,7 @@ def main():
         os.makedirs(os.path.join(tmp, EDITOR, "tests"), exist_ok=True)
         shutil.copy(os.path.join(REPO, EDITOR, "tests", "fake_whisper_cli.py"), os.path.join(tmp, EDITOR, "tests"))
         _layout.copy_shared_code(tmp, ignore=shutil.ignore_patterns("__pycache__"), root=REPO)   # 共通のコード(ytt と役割の層 = layout.SHARED_CODE_DIRS。本物と同じ並び)
-        # studio は写さない(--only なら Supervisor はそのツールの Tool を作らないので不要。home/launch.py 参照)。
+        # studio は写さない(--only なら Supervisor はそのツールの Tool を作らないので不要。app/server.py 参照)。
         # cut2resolve も入口に取り込む(v0.15.0: 校正画面の「カットとパック」が同じ入口の /cut2resolve/api/... を呼ぶ。zip も pipeline/pack/pack.py で作る)
         copy_dir(os.path.join(REPO, "cut2resolve"), os.path.join(tmp, "cut2resolve"))
 
@@ -195,7 +195,7 @@ def main():
         env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND="worker-fake", TRANSCRIBE_FAKE_DELAY="0.05", TRANSCRIBE_STUDIO_DATA=studio_data,
                    TRANSCRIBE_CARRY_OVERRIDES="off",   # 校正の上書きの引き継ぎ(O1)は止める(同じ動画を何度も文字起こしするため)
                    TRANSCRIBE_NORMALIZE="off")   # 30fps の写し(H.264)は作らない(Q1): chromium で再生できる webm(24fps)のまま、どの fps でも動くパックの道(保険)を確かめる
-        proc = subprocess.Popen([sys.executable, os.path.join(tmp, HOME, "launch.py"), "--port", str(port), "--no-open", "--only", "transcribe,cut2resolve"],
+        proc = subprocess.Popen([sys.executable, os.path.join(tmp, "app", "server.py"), "--port", str(port), "--no-open", "--only", "transcribe,cut2resolve"],
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))   # Windows: Ctrl+Break を入口にだけ送るため
 
@@ -482,7 +482,7 @@ def main():
         check(st == 403 and body.get("error") == "token", "合言葉(X-YTT-Token)なしの POST は 403: %s %s" % (st, body))
     finally:
         if proc is not None:
-            if os.name == "nt":   # Windows は黒い画面の×・Ctrl+Break と同じ SIGBREAK(home/launch.py はこれで後始末してから終わる)
+            if os.name == "nt":   # Windows は黒い画面の×・Ctrl+Break と同じ SIGBREAK(app/server.py はこれで後始末してから終わる)
                 os.kill(proc.pid, signal.CTRL_BREAK_EVENT)
             else:
                 proc.terminate()   # Linux は SIGTERM

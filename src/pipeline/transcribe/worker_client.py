@@ -555,7 +555,7 @@ _has_cache = {}
 
 def worker_python():
     """認識ワーカーを動かす Python。Mac/Linux で このフォルダに .venv があればそちら(install.command が faster-whisper を入れる先。
-    入口(home/launch.py)が単独起動のときに使うのと同じ規則)。Windows は今と同じ Python。"""
+    入口(app/server.py)が単独起動のときに使うのと同じ規則)。Windows は今と同じ Python。"""
     if os.name != "nt":
         v = os.path.join(_workdata.ROOT, ".venv", "bin", "python")
         if os.path.isfile(v):

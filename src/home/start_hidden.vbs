@@ -1,6 +1,6 @@
 ' Start the home (launcher) in the background: no browser window, no console window.
 ' Used by start-background.bat and by a shortcut in the Startup folder (shell:startup).
-' Details: src\home\README.txt (section "background"). If the home is already running, launch.py just exits.
+' Details: src\home\README.txt (section "background"). If the home is already running, server.py just exits.
 Option Explicit
 Dim fso, sh, root, py
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -20,4 +20,4 @@ Else
   WScript.Quit 1
 End If
 ' Window style 0 = hidden. The tools started by the launcher share this hidden console.
-sh.Run "cmd /c " & py & " src\home\launch.py --no-open", 0, False
+sh.Run "cmd /c " & py & " src\app\server.py --no-open", 0, False

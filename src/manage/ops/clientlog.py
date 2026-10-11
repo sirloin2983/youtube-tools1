@@ -16,7 +16,7 @@ import os
 import threading
 import time
 
-from ytt import fsio   # 入口(launch.py)が src を sys.path に入れてから読み込む
+from ytt import fsio   # 入口(server.py)が src を sys.path に入れてから読み込む
 
 FILE_NAME = "client-errors.jsonl"
 PER_MINUTE = 30

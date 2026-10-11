@@ -19,7 +19,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
 SRC = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-if SRC not in sys.path:   # 共通部品 ytt(launch.py と同じ)
+if SRC not in sys.path:   # 共通部品 ytt(server.py と同じ)
     sys.path.append(SRC)
 from flow import live_tx as TX  # noqa: E402
 import prefs as P  # noqa: E402

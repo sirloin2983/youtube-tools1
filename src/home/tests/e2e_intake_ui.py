@@ -4,7 +4,7 @@
     python src/home/tests/e2e_intake_ui.py [--shots <フォルダ>]
 
 バックエンド(src/human/friend/intake.py)には頼らない: api/intake・api/intake/scan・intake の設定の保存(api/ytt/prefs)・
-api/autorun は page.route で偽物に差し替える。入口(launch.py)は e2e_portal.py と同じ形で動かすが、ツールは起動しない。
+api/autorun は page.route で偽物に差し替える。入口(server.py)は e2e_portal.py と同じ形で動かすが、ツールは起動しない。
 確かめること: オフのときの表示(閉じている)/ 設定の保存が正しい patch を送る・サーバーのエラーを出す・範囲外を送らない /
 届いた依頼の一覧(受け付けた・断った・理由・項目ごとの結果)/ 「今すぐ確認」が scan を呼ぶ /
 api/autorun に mode "file"・"request" の実行があっても画面が壊れない(コンソールのエラーなし・進行中に出る)。
@@ -26,7 +26,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 
 NOW = int(time.time() * 1000)

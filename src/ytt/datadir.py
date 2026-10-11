@@ -109,7 +109,7 @@ def resolve(tool, repo_root=None, env=None, legacy_dir=None):
 
 
 def studio_out_dir(repo_root=None, env=None):
-    """スタジオの書き出し先(他のツールから読むだけ。2026-10-09 に入口の live.py・launch.py の写しから移した)。
+    """スタジオの書き出し先(他のツールから読むだけ。2026-10-09 に入口の live.py・server.py の写しから移した)。
     スタジオの作業データ(resolve)の settings.json の outDir が空でない絶対パスならそれ、無い・読めない・形が違えば <スタジオの作業データ>/exports"""
     sdir = resolve("studio", repo_root, env)
     st = fsio.read_json_or(os.path.join(sdir, "settings.json"), None, kind=dict)

@@ -94,7 +94,7 @@ LUFS = (-11, -14, -16, -18)           # 聞こえ方をそろえる目標(スタ
 ROW_EDGE_NOTE = "「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から」で直せます)"
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
               "pack": ("transcribe", "cut2resolve"), "deliver": ()}
-# 画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)で、ツールの仕事を止めてよい段(起動し直したあとに頭からやり直す = M5)。
+# 画面の「起動し直す」(server.py の restart_self。入口 0.41.0)で、ツールの仕事を止めてよい段(起動し直したあとに頭からやり直す = M5)。
 # 書き出し(export)は入れない: 書き出し中は今までどおり断る
 REDO_STEPS = ("analyze", "transcribe", "diarize", "pack")
 TX_ACTIVE = ("queued", "loading", "extracting", "running")   # 「編集」のジョブの動いている状態(src/ytt/jobs.py の ACTIVE_STATES)
@@ -431,7 +431,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
 
     # ------------------------------------------------------------ 起動し直す(画面の「起動し直す」の確かめ。ToolClient を使うので入口に残す)
     def restart_info(self, timeout=5):
-        """画面の「起動し直す」(launch.py の restart_self。入口 0.41.0)が断るかを決める材料。待ち・実行中は起動し直したあとに戻る(M5)ので、それだけでは断らない。
+        """画面の「起動し直す」(server.py の restart_self。入口 0.41.0)が断るかを決める材料。待ち・実行中は起動し直したあとに戻る(M5)ので、それだけでは断らない。
         -> {"runs": 待ち・実行中の数, "redo": restart.can_restart の redo か None}。
         redo は、実行中の段が REDO_STEPS で、その段がツールで動かしている仕事を、ツールの一覧(timeout 秒で読む)で確かめられたときだけ"""
         with self.cv:

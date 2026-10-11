@@ -2,7 +2,7 @@
 """入口を起動し直す(段9 9-3。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md の「9-3」)。
 
 取り込んだツール(スタジオ・編集・cut2resolve)は入口と同じプロセスで動くので、版の赤い帯を直すには入口ごと起動し直す必要がある。
-手順(src/home/launch.py の POST api/ytt/restart-self):
+手順(src/app/server.py の POST api/ytt/restart-self):
   1. can_restart(): 重い処理・取り込んだツールの処理が動いていれば断る(理由の文を返す)。まとめて実行の待ち・実行中は断らない
      (線 D の M5 で、起動し直したあとに同じ実行が続きから進むため。入口 0.41.0)。実行中の段がツールで動かしている仕事
      (文字起こし・解析・パック。起動し直したあとに頭からやり直す)も数えない。書き出しの段・人が始めた仕事は今までどおり断る
@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-from ytt import httpsec, layout   # 入口の launch.py が src を sys.path に入れてから読み込む(mount.py と同じ)
+from ytt import httpsec, layout   # 入口の server.py が src を sys.path に入れてから読み込む(mount.py と同じ)
 
 WAIT_PORT_TIMEOUT = 30.0   # 新しい入口が、古い入口がポートを離すのを待つ最長(秒)。古い入口の後始末は子1つにつき最大 8 秒
 WAIT_PORT_POLL = 0.25
@@ -42,8 +42,8 @@ SW_SHOWMINNOACTIVE = 7     # 見えるコンソールで起動するとき: 最�
 
 
 def launcher_script(root):
-    """<root = src>/home/launch.py(start.bat の `py -3 src\\home\\launch.py` と同じもの)"""
-    return os.path.join(os.path.abspath(root), "home", "launch.py")
+    """<root = src>/app/server.py(start.bat の `py -3 src\\app\\server.py` と同じもの)"""
+    return os.path.join(os.path.abspath(root), "app", "server.py")
 
 
 def restart_args(port, only=(), no_mount=False, wait_pid=None):

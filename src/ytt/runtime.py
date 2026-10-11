@@ -1,4 +1,4 @@
-"""実行中のポートの共有(docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の launch.py にあった同じ処理を1つにしたもの。
+"""実行中のポートの共有(docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
 
 - <リポジトリ直下>/.runtime/<ツールID>.json … 起動時に {"tool", "port", "version", "startedAt", "pid"} を書き、正常終了時に消す
 - /api/ping に問い合わせて、本当にそのツールが応答するかを確かめる(.runtime のファイルは誰でも書けるので信用しない)

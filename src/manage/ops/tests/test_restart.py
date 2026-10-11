@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """入口を起動し直す部品(src/manage/ops/restart.py。段9 9-3)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
 
-- spawn_new_launcher: 一時フォルダに偽の home/launch.py(受け取った引数・環境変数・作業フォルダを書いて終わる)を置き、
+- spawn_new_launcher: 一時フォルダに偽の app/server.py(受け取った引数・環境変数・作業フォルダを書いて終わる)を置き、
   本物の Python で起動して、引数・環境・作業フォルダ・待ち受けのソケットを引き継がないことを確かめる
 - wait_port_free / port_free: 本物の待ち受けのソケット(少しあとで閉じる)で
 - can_restart: 重い処理の枠(ytt.jobs.SLOTS.snapshot() の形)・取り込んだツールの busy・まとめて実行の実行中の段の仕事(redo。0.41.0)で
@@ -57,8 +57,8 @@ class SpawnTest(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="ytt-restart-")
         self.addCleanup(shutil.rmtree, self.root, True)
-        os.makedirs(os.path.join(self.root, "home"))
-        with open(os.path.join(self.root, "home", "launch.py"), "w", encoding="utf-8") as f:
+        os.makedirs(os.path.join(self.root, "app"))
+        with open(os.path.join(self.root, "app", "server.py"), "w", encoding="utf-8") as f:
             f.write(FAKE_LAUNCH)
         self.out = os.path.join(self.root, "record.json")
 
@@ -78,7 +78,7 @@ class SpawnTest(unittest.TestCase):
         self.assertEqual(R.restart_args(8701, ["studio", "transcribe"], True),
                          ["--port", "8701", "--wait-port", "--no-open", "--only", "studio,transcribe", "--no-mount"])
         self.assertEqual(R.restart_args(8700, wait_pid=1234), ["--port", "8700", "--wait-port", "--no-open", "--wait-pid", "1234"])
-        self.assertEqual(R.launcher_script(self.root), os.path.join(os.path.abspath(self.root), "home", "launch.py"))
+        self.assertEqual(R.launcher_script(self.root), os.path.join(os.path.abspath(self.root), "app", "server.py"))
 
     def test_spawns_launcher_with_same_python_env_and_cwd(self):
         env = dict(os.environ, YTT_TEST_RESTART_OUT=self.out, YTT_TEST_RESTART_MARK="mark-1")

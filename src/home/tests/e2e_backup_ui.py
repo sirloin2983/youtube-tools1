@@ -3,7 +3,7 @@
 
     python src/home/tests/e2e_backup_ui.py
 
-入口(launch.py)は e2e_intake_ui.py と同じ形で動かす(ツールは起動しない)。バックエンドは本物:
+入口(server.py)は e2e_intake_ui.py と同じ形で動かす(ツールは起動しない)。バックエンドは本物:
 作業データの代わりの一時フォルダを srv.backup.source に入れ、画面から 先を決める → オンにする → 写る → 今すぐ写す を通す。
 確かめること: まだ決めていないときは開いて見せる / フォルダが空ではオンにできない / 作業データの中は断って「止まっています」/
 正しい先なら保存 → すぐ1回写る(ファイルができる・キャッシュは写さない)/ 「今すぐ写す」/ 読み直しても設定が残る / コンソールのエラーなし。
@@ -24,7 +24,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 
 

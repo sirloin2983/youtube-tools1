@@ -6,7 +6,7 @@
 
 いまは「文字起こし」も入口に取り込める(段階3-3。src/home/mount.py の MOUNTS)ので、2つの形をそれぞれ確かめる:
 
-  (A) 本番と同じ形(python src/home/launch.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
+  (A) 本番と同じ形(python src/app/server.py と同じ mounts=tuple(mount.MOUNTS)): 3つとも入口に取り込み。
       2枚のカードが「ホームに取り込み」で動作中になる → 「次にやること」・案件(配信ごと)の一覧・単体の文字起こし →
       開く(3つとも同じポートの /studio/・/transcribe/・/cut2resolve/ で新しいタブが開く。文字起こしの画面も #ver・
       合言葉・他のツールへのリンクを確かめる)→ /cases.html は #cases へ転送 → テーマ → 狭い画面 →
@@ -39,7 +39,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
 from ytt import layout, schemas  # noqa: E402
@@ -215,9 +216,9 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[A] 終了中の表示")
         th.join(30)
         check(not th.is_alive(), "[A] ホームのサーバーが止まった")
-        srv.server_close()   # launch.main() と同じく、待ち受けを閉じる
+        srv.server_close()   # server.main() と同じく、待ち受けを閉じる
         check(wait_js(pg, "document.getElementById('doneTitle').textContent === 'すべて終了しました'", 20000), "[A] 終了の表示")
-        sup.unmount_all()   # launch.main() の終了処理と同じ(request_shutdown でも呼ばれる)
+        sup.unmount_all()   # server.main() の終了処理と同じ(request_shutdown でも呼ばれる)
         check(not any(os.path.exists(os.path.join(sup.rdir, t + ".json")) for t in L.TOOL_IDS), "[A] .runtime が片付いた(3つとも取り込みでも)")
 
         # 10. ホームが止まったら、開いたままの別のタブに「接続できません」を出す

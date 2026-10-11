@@ -59,7 +59,7 @@ FILES = {
     "src/editor/ed_state.py": ("app", "app", "split: 設定は ytt/settings、backend_name は eval/fake の登録"),
     "src/editor/serve.py": ("app", "app", "名前の受付と API の配線"),
     # ---- home
-    "src/home/launch.py": ("app", "app", ""),
+    "src/home/launch.py": ("app", "app", "旧パスの起動用の転送(runpy で src/app/server.py を動かすだけ。RS7-2 G5b で本体を app へ移した。start.bat は新しい場所を直に呼ぶ)"),
     "src/home/mount.py": ("app", "app", ""),
     "src/home/appwindow.py": ("app", "app", ""),
     "src/home/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),

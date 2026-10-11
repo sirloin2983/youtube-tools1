@@ -1,7 +1,7 @@
 """設定の画面(/settings。部品は src/home/settings/。設定を 1 つに S5)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
     python src/home/tests/e2e_settings.py
-入口(launch.py)は e2e_backup_ui.py と同じ形で動かす(ツールは取り込まない = スタジオ・編集・分析の節は「動いていません」になる)。
+入口(server.py)は e2e_backup_ui.py と同じ形で動かす(ツールは取り込まない = スタジオ・編集・分析の節は「動いていません」になる)。
 見るもの: スキーマから節が描かれる・値を変えるとホームの設定(prefs)に保存され「保存しました」が出る・範囲の外は断って保存しない・
 「標準に戻す」・when(リアルタイム切り抜きをオンにすると下の欄が出る)・検索・動いていないツールの節は無効・コンソールにエラーが無い。"""
 import os
@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import launch as L  # noqa: E402
+from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 
 

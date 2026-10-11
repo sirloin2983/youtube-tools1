@@ -80,7 +80,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   ホームのプログラムの中で動くので、カードに「ホームに取り込み」と出て、「停止」「再起動」は押せません(「すべて終了」で一緒に終わります)。
   アクセスの記録は …\app\logs\studio.log・cut2resolve.log に、ツール自身の記録は %LOCALAPPDATA%\youtube-tools\studio\studio.log・…\cut2resolve\work\serve.log に出ます。
   「すべて終了」のとき cut2resolve の書き出しが動いていれば、取り消してから終わります。
-  取り込みで問題が出たときは、start.bat の代わりに黒い画面で「python src\home\launch.py --no-mount」と打つと、以前と同じく別のプログラムとして起動します。
+  取り込みで問題が出たときは、start.bat の代わりに黒い画面で「python src\app\server.py --no-mount」と打つと、以前と同じく別のプログラムとして起動します。
   安全のため、ホームと取り込んだツールの画面には、外から入れられたスクリプトを動かさない仕組み(CSP)と、書き込みの操作の合言葉(起動ごとに変わる)を付けています。
   画面を開いたままホームを起動し直したときに「合言葉が違います」と出たら、画面を再読み込みしてください。
 
@@ -95,13 +95,13 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 
 ■ ファイル
   start.bat / start.command   起動用(リポジトリ直下)
-  src\home\launch.py                    ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面。/cases.html は #cases へ 302)
+  src\app\server.py                    ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面。/cases.html は #cases へ 302)
   src\home\portal.html / portal.js / portal.css   ホームの画面(次にやること・案件の一覧・単体の文字起こし・「詳しく」。見た目は src\ui-kit\ をそのまま使う)
   app\logs\                            以前のログ(v0.5.0 から %LOCALAPPDATA%\youtube-tools\app\logs。消してよい)
   src\home\tests\test_launch.py / e2e_portal.py   テスト
   .runtime\portal.json                 ホームのポート(各ツールの .runtime と同じ置き場。各ツールの動きには影響しない)
   役割で組み直した(2026-10-10・RS3〜RS4。動きは同じ)ので、ホームの部品の多くは src\ の役割の層へ移りました。今の src\home\ に残るのは、
-  launch.py・mount.py・autorun.py(まとめて実行)・live.py(ライブ)・prefs.py(設定)・appwindow.py と画面(portal.*・settings\)です。移った先:
+  server.py・mount.py・autorun.py(まとめて実行)・live.py(ライブ)・prefs.py(設定)・appwindow.py と画面(portal.*・settings\)です。移った先:
     友人の依頼の受付・届ける・友人の返事    src\human\friend\(intake.py・deliver.py・delivery.py・friend_feedback.py・live_requests.py)
     案件(cases.py)・文字起こしの紐づけ      src\manage\cases\(cases.py・txindex.py・txlink.py ほか)
     バックアップ・片付け・録画の片付け       src\manage\keep\(backup.py・cleanup.py・live_cleanup.py)
@@ -112,7 +112,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
   src\home\ の live_excite_worker.py・live_align_worker.py・live_tx_worker.py は、起動中の古いホームのための転送だけです(消す予定)
 
 ■ コマンド(上級者向け)
-  python src\home\launch.py [--no-open] [--port 8700] [--only studio,transcribe]
+  python src\app\server.py [--no-open] [--port 8700] [--only studio,transcribe]
     --no-open   ブラウザを開かない
     --port      ホームのポート(使用中なら次の番号。8700〜8719)
     --only      起動するツールを絞る(studio / transcribe / cut2resolve をカンマ区切り)
@@ -458,7 +458,7 @@ v0.10.0(2026-09-26)から、文字起こしツールは「編集」(文字起こ
 ■ v0.40.1(2026-10-07・内部の整理。動きは同じ)
   - ホームのプログラムの見直し(同じ処理を 1 か所に・使っていないものを消した)。API・合言葉・画面の安全の決まり(CSP・Host / Origin の検査)・
     作業データの形・画面の見た目と文言は変えていません
-  - 画面の API の振り分けを表にしました(src\home\launch.py)。終了の後始末・録画元の合言葉を画面に渡さない処理を 1 か所に
+  - 画面の API の振り分けを表にしました(src\app\server.py)。終了の後始末・録画元の合言葉を画面に渡さない処理を 1 か所に
   - まとめて実行(src\home\autorun.py): 段を順に進める処理・「編集」のジョブを待つ処理・順番待ちに入れる処理を、それぞれ 1 か所に
   - リアルタイム切り抜き(src\home\live*.py): 録画元の一覧の読み方・マークごとの最新の書き出しの決め方・アーカイブとの音の照合の窓の探し方を、それぞれ 1 か所に
   - 記録のファイルに 1 行ずつ足す形(1MB などを超えたら .1 へ回す)を 1 か所に(画面のエラーの記録・まとめて実行の記録・採用の記録)

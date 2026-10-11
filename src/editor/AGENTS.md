@@ -471,7 +471,7 @@ python src/editor/tests/e2e_edit_tabs.py            # 「編集」E2: 3つのタ
 python src/editor/tests/e2e_edit_cut.py             # 「編集」E3: カットのタブ(入口に取り込んだ形。ドラッグ・吸着・分割・削る/戻す・I/O/X・元に戻す・保存・409・カット後の再生・無音のたたき台)
 python src/editor/tests/e2e_edit_voices.py          # 話者の声を覚える(A-3。名前を付ける → 覚える → 判別し直すと名前が付く → 忘れる)
 python src/editor/tests/e2e_edit_pack.py            # 「編集」E4: パックのタブ(入口に取り込んだ形。カットのとおりのパック・短い区間と 60fps の注意・前回のパック・中止・Text+ なし)
-python src/editor/tests/e2e_ui_mounted.py           # 入口(home/launch.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
+python src/editor/tests/e2e_ui_mounted.py           # 入口(app/server.py --only transcribe,cut2resolve)に取り込んだ形。CSP・合言葉・認識ワーカー(強制終了からの立ち直り)・
                                               # 履歴の一覧(配信ごと・配信者)・パックのタブ(cut2resolve の API・上書きの確認・zip)
 python src/editor/tests/e2e_drill.py               # 評価ドリル(編集の画面の ?drill=1 の帯・確かめ済みの印)と「全行をこの人に」・話者の自動判別(入口に取り込んだ形。サーバー側は test_drill.py・test_autodiar.py = test_metrics から読む)
 python src/editor/tests/e2e_alt.py                 # 2つ目のエンジンの候補(D1-b。聞く → 行に「別」の候補 → 採用・却下 → autoAlt → 削除で alt.json も。入口に取り込んだ形。サーバー側は test_alt.py = test_metrics から読む)

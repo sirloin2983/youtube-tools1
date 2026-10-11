@@ -19,7 +19,8 @@ HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import appwindow as W  # noqa: E402
-import launch as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt を読むので先に)
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402  (src を sys.path に入れる。clientlog が ytt を読むので先に)
 import prefs as PR  # noqa: E402
 from ytt import fsio  # noqa: E402
 
@@ -152,7 +153,7 @@ class TestFocusWindow(unittest.TestCase):
             o.focus("x", focus=lambda t: True)
 
     def test_portal_title_matches_page(self):
-        with open(os.path.join(os.path.dirname(os.path.abspath(L.__file__)), "portal.html"), encoding="utf-8") as f:
+        with open(os.path.join(L.CODE_DIR, "portal.html"), encoding="utf-8") as f:
             self.assertIn("<title>%s</title>" % L.PORTAL_TITLE, f.read())
 
 

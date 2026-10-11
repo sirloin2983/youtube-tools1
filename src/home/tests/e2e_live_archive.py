@@ -145,7 +145,7 @@ def run(tmp, shots, force_chromium):
     import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
     from ytt import studio_env  # noqa: E402
     import serve   # noqa: E402  (studio)
-    import launch as L  # noqa: E402
+    from app import server as L  # noqa: E402
     import mount  # noqa: E402
     import hls_fixture as F  # noqa: E402
     from flow import live_export as LX  # noqa: E402

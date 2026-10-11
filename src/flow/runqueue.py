@@ -10,7 +10,7 @@ docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S5・plan/f1-friend-pc.md
   hook を埋めなければ何もしない(素の Runner の既定 + 下の build_spec・_on_error の既定)= 画面なしの ② の形
 - 口: submit(封筒, 束)= 封筒 + 束を受けて Run.from_envelope で積む(束にこの PC の設定 flow/machine.py を重ねる = 受けたときに組んだ束のまま流す)/
   status() = 待ち・実行中の数と進み具合(「終わったら閉じる」のため)/ cancel・snapshot・history・estimate・close。
-  HTTP の口は入口の POST /api/flow/submit・GET /api/flow/status(src/home/launch.py。RS7-1 S4)
+  HTTP の口は入口の POST /api/flow/submit・GET /api/flow/status(src/app/server.py。RS7-1 S4)
 - 束は受けたときに組む(RS7-1 S4): submit は受けた束、入口の受付(AutoRunner.start*)は hook の _accept(画面の設定 + この PC の設定 = build_spec と、
   友人の区間の長さ・配信者・届け方の n 本)。待ちの間に設定を変えても、その実行の中身は変わらない
 - 糸 _loop: 待ちを 1 本ずつ _execute(Run の束で流す。束の無い Run = 直に積んだ物だけ、ここで hook の build_spec で組む)

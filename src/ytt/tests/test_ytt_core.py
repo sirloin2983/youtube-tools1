@@ -1361,7 +1361,7 @@ class TestDatadir(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_studio_out_dir(self):
-        """スタジオの書き出し先(入口の live.py・launch.py が読む): settings.json の outDir(絶対パス)か、無ければ作業データの exports"""
+        """スタジオの書き出し先(入口の live.py・server.py が読む): settings.json の outDir(絶対パス)か、無ければ作業データの exports"""
         env = {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}
         sdir = os.path.join(self.tmp, "data", "studio")
         self.assertEqual(datadir.studio_out_dir(env=env), os.path.join(sdir, "exports"))
@@ -1538,7 +1538,7 @@ class TestDatadir(unittest.TestCase):
         for f in files:
             with open(f, encoding="utf-8") as fp:
                 src = fp.read()
-            if re.search(r"\bserve\b|launch\.py|import launch|import mount", src) and "YTT_DATA_DIR" not in src:
+            if re.search(r"\bserve\b|launch\.py|server\.py|from app import server|import mount", src) and "YTT_DATA_DIR" not in src:
                 bad.append(os.path.relpath(f, REPO))
         self.assertEqual(bad, [])
 
@@ -1559,7 +1559,7 @@ class TestLayout(unittest.TestCase):
             self.assertEqual(layout.tool_dir(tool, "/r"), os.path.join("/r", name))
         for tool in ("studio", "transcribe", "cut2resolve"):
             self.assertTrue(os.path.isfile(os.path.join(layout.tool_dir(tool), "serve.py")), tool)
-        self.assertTrue(os.path.isfile(os.path.join(layout.tool_dir("app"), "launch.py")))
+        self.assertTrue(os.path.isfile(os.path.join(layout.src_root(), "app", "server.py")))
         self.assertTrue(os.path.isfile(os.path.join(TOP, layout.HOLO_COLORS_DIR, "members.json")))
         self.assertEqual(layout.holo_colors_dir(), os.path.join(TOP, "friend-apps", "holo-colors"))
         self.assertTrue(os.path.isdir(os.path.join(TOP, layout.REQUEST_SENDER_DIR)))

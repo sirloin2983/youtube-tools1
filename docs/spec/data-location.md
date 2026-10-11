@@ -32,7 +32,7 @@
   - 全部終わったら `.migrated.json`。次からは写さない(新しい場所が正)
   - シンボリックリンクはたどらない
 - 各ツール: スタジオ `serve._data_home()`(環境変数 `STUDIO_HOME` があればそれ。下の「置き場所の求め方」)、文字起こし `serve.choose_data_dir()` / `set_data_dir()`(ワーカーには `TRANSCRIBE_DATA_DIR`)、
-  cut2resolve `serve._choose_work_dir()`、入口 `launch.logs_dir_for()`。どれも「テスト・入口が先に場所を決めていれば、それを使う」
+  cut2resolve `serve._choose_work_dir()`、入口 `server.logs_dir_for()`。どれも「テスト・入口が先に場所を決めていれば、それを使う」
 - 入口の画面(`/api/status` の `dataDir`)に置き場所を出す(隠しフォルダなので、パスをコピーしてエクスプローラーで開く)
 
 ## 置き場所の求め方は ytt/datadir の1か所(2026-10-01 ユーザー決定)
@@ -44,11 +44,11 @@
      **`env` を渡したとき(テスト・明示の指定)は見ない**(`txindex.packs_dir` と同じ決まり)
   2. **ツールごとの環境変数** `datadir.ENV_OVERRIDE`(`studio` → `STUDIO_HOME`、`transcribe` → `TRANSCRIBE_DATA_DIR`。テスト用・以前からの指定)
   3. `tool_dir`(`YTT_DATA_DIR` → `%LOCALAPPDATA%\youtube-tools\<ツールID>` など。`inplace` なら各ツールのフォルダの中。フォルダ名は `src/ytt/layout.py`)
-- `datadir.locate(...)` は 2 → 3 だけ(登録を見ない。自分で決める側 = 入口の `launch.app_data_dir` が使う)
+- `datadir.locate(...)` は 2 → 3 だけ(登録を見ない。自分で決める側 = 入口の `server.app_data_dir` が使う)
 - `datadir.prepare(...)`(ツールの起動時): 2 の環境変数があれば、写さずにそこを使う(`state: "override"`)。無ければ 3 の場所へ移行する。
   **`env` を渡さない(本物の起動の)ときは、決めたフォルダを登録する**(テストが `env` を渡して呼んでも、プロセス全体の登録は変わらない)
 - 登録するところ: スタジオ `serve.prepare()`(テスト・入口が先に決めていたときも、実際に使う `ytt/studio_env.home()`(旧 `common.home()`)を登録)、
-  「編集」は `serve.set_data_dir()`(`TRANSCRIBE_DATA_DIR` のときも `datadir.prepare` のときも通る)、cut2resolve は `datadir.prepare` の中で、入口は `launch.main()`(`app`)。cut2resolve の `txindex.use_packs_dir(<作業データ>/packs)` も
+  「編集」は `serve.set_data_dir()`(`TRANSCRIBE_DATA_DIR` のときも `datadir.prepare` のときも通る)、cut2resolve は `datadir.prepare` の中で、入口は `server.main()`(`app`)。cut2resolve の `txindex.use_packs_dir(<作業データ>/packs)` も
   `cut2resolve` の登録になる
 - 読むところ: 入口の案件 `src/manage/cases/cases.py` の `locations()`(スタジオの data.json・案件ファイル)、`txindex.folder()`(文字起こし)・`txindex.packs_dir()`(パックを作った記録)、
   スタジオのセリフの表示(`src/manage/cases/txlink.py` → `txindex.folder`)

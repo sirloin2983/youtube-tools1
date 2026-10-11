@@ -27,7 +27,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
 HERE = os.path.dirname(TESTS)   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import launch as L  # noqa: E402
+sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
+from app import server as L  # noqa: E402
 import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
 from e2e_autorun import make_media, wait_js  # noqa: E402
