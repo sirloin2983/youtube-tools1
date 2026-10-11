@@ -28,8 +28,10 @@ APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のた
 _workdata.set_root(os.path.dirname(os.path.abspath(__file__)))
 INDEX = os.path.join(_workdata.ROOT, "index.html")
 APP_JS = os.path.join(_workdata.ROOT, "app.js")      # 画面の JS(CSP で index.html からインラインの <script> を外したため、静的配信する)
+UI_KIT_CSS = os.path.join(_workdata.ROOT, "ui-kit.css")   # 同じく CSS の写し(RS8 C2b-0 で index.html の埋め込みから外に出した)
+PROOF_CSS = os.path.join(_workdata.ROOT, "proof.css")     # 画面固有の CSS(同じく index.html から外に出した。案件の画面の校正のパネルも使う)
 UI_KIT_JS = os.path.join(_workdata.ROOT, "ui-kit.js")  # ui-kit/ui-kit.js の写し(dev/sync_ui_kit.py。同上)
-PAGE_JS = ("cut.js", "pack-tab.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
+PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 _txroster.ROSTER = os.path.join(_workdata.ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)の場所の既定。持ち主は pipeline/transcribe/roster の ROSTER(RS3-0A。JSON は編集のフォルダのまま)
 PORT = 8775
 ALLOWED_HOSTS = set()

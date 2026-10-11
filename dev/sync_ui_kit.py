@@ -7,9 +7,7 @@
 正本は src/ui-kit/ui-kit.css と src/ui-kit/ui-kit.js。各ツールは実行時に ui-kit/ を参照しない(フォルダ単体で動く)ように、
 写しを自分のフォルダに持つ。写し先:
   - src/studio/ui-kit.css, src/studio/ui-kit.js         (静的ファイルとして配信)
-  - src/editor/ui-kit.js                             (同上。CSP 対応で index.html から外に出した)
-  - src/editor/index.html の中の印の間                  (CSS だけは画面が1ファイルのため埋め込み)
-      /* ui-kit:css:begin */ … /* ui-kit:css:end */   (<style> の中。インラインの CSS は CSP で許可している)
+  - src/editor/ui-kit.css, src/editor/ui-kit.js         (同上。JS は CSP 対応、CSS は RS8 C2b-0 で index.html の埋め込みから外に出した)
 """
 import os
 import sys
@@ -22,8 +20,8 @@ from ytt import fsio  # noqa: E402
 from ytt.layout import TOOL_DIRS  # noqa: E402  フォルダ名はここだけが知っている
 KIT = os.path.join(SRC, "ui-kit")
 HEADER = "/* このファイルは src/ui-kit/ から dev/sync_ui_kit.py で写したもの。直すときは src/ui-kit/ の正本を直して写し直す */\n"
-FILE_TARGETS = [(TOOL_DIRS["studio"], ("css", "js")), (TOOL_DIRS["transcribe"], ("js",))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)
-EMBED_TARGETS = [(TOOL_DIRS["transcribe"], "index.html", ("css",))]
+FILE_TARGETS = [(TOOL_DIRS["studio"], ("css", "js")), (TOOL_DIRS["transcribe"], ("css", "js"))]   # cut2resolve の画面は「編集」に統合して消した(2026-09-26)
+EMBED_TARGETS = []   # 編集の CSS も RS8 C2b-0 で静的ファイル(src/editor/ui-kit.css)にした。埋め込みの印の仕組みは残す(テストが使う)
 MARKS = {"css": ("/* ui-kit:css:begin */", "/* ui-kit:css:end */"), "js": ("/* ui-kit:js:begin */", "/* ui-kit:js:end */")}
 
 

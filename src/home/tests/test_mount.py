@@ -489,7 +489,7 @@ class TestTranscribeMounted(unittest.TestCase):
         self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
         self.assertNotIn(b"<script>", body)                     # インラインのスクリプトは無い(CSP で動かないため)
         self.assertNotIn(b'src="/', body)
-        for asset in ("app.js", "ui-kit.js"):
+        for asset in ("app.js", "ui-kit.js", "ui-kit.css", "proof.css", "app-tpl.js"):
             r, _ = self.req("GET", "/transcribe/" + asset)
             self.assertEqual(r.status, 200, asset)
         r, _ = self.req("GET", "/transcribe?media=x")

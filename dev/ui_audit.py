@@ -68,7 +68,7 @@ SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "in
                     "../app/ui/cases/index.html", "../app/ui/cases/cases.js", "../app/ui/cases/cases.css",
                     "../app/ui/cases/panels/cand.js", "../app/ui/cases/panels/proof.js", "../app/ui/cases/panels/cut.js"],
            "studio": ["index.html", "core.js", "rank.js", "queue.js", "review.js", "collab.js", "settings.js", "app.css", "review.css"],
-           "editor": ["index.html", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
+           "editor": ["index.html", "proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "human/friend/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "human/friend/deliver.py", "human/friend/intake.py", "manage/ops/restart.py"]

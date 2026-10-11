@@ -1,0 +1,689 @@
+.tt-docauto{margin-left:auto}.tt-docauto-pop{min-width:min(420px,calc(100vw - 32px));display:grid;gap:8px;padding:12px}
+.tt-docauto-pop .lag{flex-wrap:wrap}
+/* ==================== 文字起こしツール固有の見た目 ====================
+   色・文字・部品(ボタン・入力・カード・ピル・通知・表・ダイアログ)は上の ui-kit にある。ここには「このツール固有の配置と部品」だけを書く。
+   色は必ず ui-kit の変数で書く(固定色は片方のテーマで読めなくなるため)。新しく足すクラスには tt- を付ける(docs/spec/pipeline.md 5.)。
+   既存のクラス名・id は JS と e2e が使っているので変えない。 */
+:root{
+  --fs:15px;--vh:38vh;--pbh:300px;--toph:52px;
+  /* 行の状態の色(校正の画面で一番よく見る所なので、状態ごとに色の役割を分ける)
+     今の行 = accent(紫の太枠)/ 再生中 = accent の薄い色と左の線 / 一括選択 = info(青)/ 要確認 = warn(黄)/ カット済 = danger(斜線)/ 校正済み = ok(右の線) */
+  --tt-pick:var(--info);--tt-pick-soft:var(--info-soft);
+  --tt-play-soft:color-mix(in srgb,var(--accent) 9%,var(--panel));
+  --tt-flag-soft:color-mix(in srgb,var(--warn) 9%,var(--panel));
+  --tt-cut-stripe:color-mix(in srgb,var(--danger) 7%,transparent);
+}
+body{overflow-x:hidden}
+h2{margin:0;font-size:15px}
+
+/* ---------- ヘッダー(ui-kit の .ui-header。ここは中身の並びだけ) ---------- */
+.top{--hb:var(--ctl-h-sm)}
+.tt-hbtn{gap:6px;position:relative}
+.tt-hbtn svg{width:16px;height:16px}
+.ui-menu>summary.tt-hbtn,.pop>summary.tt-hbtn{display:inline-flex}
+#btnMenu .ic{display:inline-grid;place-items:center}
+.tt-hstat{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+/* 処理中の件数(押すとメニューの「処理状況」を開く。押せるので .btn。校正の目標の札 .tt-hgoal は 0.69.0 で消した) */
+.tt-hjob{font-variant-numeric:tabular-nums;gap:7px}
+.tt-hjob{color:var(--accent-ink2)}
+.tt-hjob::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}   /* 0.59.3: 点滅をやめて .pill.run と同じ静かな回転の輪(docs/spec/ui-guidelines.md 2「実行中の札は点滅させない」。A-32) */
+@media (max-width:1180px){.tt-hlabel{display:none}.tt-hbtn{width:var(--ctl-h-sm);padding:0;justify-content:center}#btnMenu{width:auto;padding:0 8px}}
+@media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}.tt-hjob{padding:0 6px}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
+.errbar{position:sticky;top:var(--toph);z-index:39}
+/* 画面の赤い帯の次の一手と閉じる(段8 E-26。app-core.js の showErr)。版の違いの帯(UIKit.restart)はこの形にしない */
+.errbar:has(> .tt-err-msg){display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.errbar .tt-err-msg{flex:1 1 360px;min-width:0}
+.errbar .tt-err-detail{font-weight:400;font-size:12px}
+.errbar .tt-err-detail summary{cursor:pointer;text-decoration:underline}
+.errbar .tt-err-detail span{display:block;margin-top:2px;word-break:break-all}
+.errbar .tt-err-acts{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.errbar .tt-err-acts a.btn{color:var(--ink)}
+.errbar .tt-err-x svg{width:14px;height:14px}
+.errbar .tt-err-x{background:transparent;color:var(--danger-on);border-color:color-mix(in srgb,var(--danger-on) 65%,transparent)}   /* 0.59.2: 赤い帯の上の文字は --danger-on(暗いテーマで白は読みにくい。段9) */
+
+/* ---------- 全体の配置: 左のメニュー + 編集欄 ---------- */
+.app{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;padding:16px;align-items:start;max-width:1760px;margin:0 auto}
+.app.has-doc{grid-template-columns:310px minmax(0,1fr)}
+/* v0.9.8: 左のメニューを閉じる(旧「集中モード」)。.tx-stage も <aside> なので、必ず .app の直下だけを対象にする */
+.app.menu-closed{grid-template-columns:minmax(0,1fr)}.app.menu-closed>aside{display:none}
+@media (max-width:960px){.app,.app.has-doc{grid-template-columns:minmax(0,1fr)}}
+#menuPanel{min-width:0}
+/* v0.15.0: 狭い画面(720px 未満)では、左のメニューを本文の上に重ねる引き出しにする(本文を押しのけない)。
+   後ろの暗い幕(.tt-scrim)を押すか Esc・G で閉じる。文字起こしを開くと自動で閉じる */
+.tt-scrim{display:none}
+@media (max-width:719.98px){
+  .app{padding:10px}
+  .app:not(.menu-closed)>#menuPanel{position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
+    background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
+  .app:not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
+  .app:not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
+}
+@keyframes tt-drawer{from{transform:translateX(-16px);opacity:.6}to{transform:none;opacity:1}}
+/* B-7(2026-09-27): 文書を開いている間、720〜1600px では左のメニュー(履歴など)を本文の上に重ねる(列を取らない)。
+   列を取ると、1440px で字幕の行が2段に割れて一度に見える行が減っていた。履歴はそのまま(開閉は ☰ / G、幕・Esc で閉じる)。映像の大きさは閉じているときと同じ */
+@media (min-width:720px) and (max-width:1599.98px){
+  .app.has-doc:not(.tab-wide){grid-template-columns:minmax(0,1fr)}
+  .app.has-doc:not(.tab-wide) .tx-grid{grid-template-columns:minmax(300px,min(760px,44%)) minmax(420px,1fr)}
+  .app.has-doc:not(.tab-wide):not(.menu-closed)>#menuPanel{position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(400px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
+    background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
+  .app.has-doc:not(.tab-wide):not(.menu-closed)+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
+  .app.has-doc:not(.tab-wide):not(.menu-closed)>#menuPanel .side-tabs{top:-12px}
+}
+@media (prefers-reduced-motion:reduce){.app:not(.menu-closed)>#menuPanel{animation:none}}
+.menuhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 10px}
+.menuhead b{font:650 13px/1.3 var(--font);letter-spacing:.06em;color:var(--ink-3)}
+/* メニューのタブ(新規・履歴・精度・学習)。ui-kit の .ui-tabs と同じ見た目 */
+.side-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;padding:3px;margin:0 0 12px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-lg);position:sticky;top:calc(var(--toph,52px) + 8px);z-index:20;box-shadow:0 6px 12px -8px color-mix(in srgb,var(--bg) 80%,transparent)}
+.side-tabs button{border:0;background:transparent;border-radius:9px;min-height:30px;padding:0 4px;cursor:pointer;font-size:13px;font-weight:550;color:var(--ink-2);min-width:0;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.side-tabs button:hover{color:var(--ink)}
+.side-tabs button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.card>summary .hint{font-weight:400}
+.card>summary{font-size:14px}
+.card:not([open])>summary{margin-bottom:0}
+.card details>summary{cursor:pointer}
+#menuPanel .fld>label,#menuPanel .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+#menuPanel .fld>.hint{display:block;margin-top:4px;font-size:12px;color:var(--ink-3);line-height:1.5}
+#menuPanel .fld>input,#menuPanel .fld>select,#menuPanel .fld>textarea{width:100%}
+.tt-sub{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.tt-sub>summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--ink-2)}
+/* 入力の種類(手元のファイル/フォルダ/スタジオ): ui-kit の .ui-seg と同じ見た目で、3つを等分 */
+.seg-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:3px;margin:10px 0 0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px}
+.seg-tabs button{border:0;background:transparent;color:var(--ink-2);min-height:30px;padding:4px 6px;border-radius:7px;cursor:pointer;font-weight:550;font-size:12.5px;line-height:1.3;word-break:keep-all}   /* 語の途中で折らない(折るのは <wbr> の所だけ。2 周目 S21) */
+.seg-tabs button:hover{color:var(--ink)}
+.seg-tabs button[aria-pressed=true]{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.clist{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:var(--r);margin-top:6px;background:var(--field)}
+.clist label{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);font-size:13px;cursor:pointer}
+.clist label:hover{background:var(--panel-2)}
+.clist label:last-child{border-bottom:0}
+.job{border-bottom:1px solid var(--line);padding:9px 0}.job:last-child{border-bottom:0}
+.job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
+.job .tt-jerr{color:var(--danger-ink);margin-top:3px}
+.job .tt-jerr-detail{font-size:12px;margin-top:2px;color:var(--ink-3)}.job .tt-jerr-detail summary{cursor:pointer;min-height:24px}.job .tt-jerr-detail .mono{display:block;overflow-wrap:anywhere}   /* 想定外の失敗の原文は畳む(M9) */
+/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。docs/spec/ui-guidelines.md 4.) ----------
+   道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
+   1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
+#txHomeLink{display:inline-flex;margin:0 0 8px}
+.tt-listbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px;margin:10px 0 10px}
+.tt-listbar input[type=search]{grid-column:1/-1;width:100%}
+.tt-listbar select{width:100%;min-width:0;font-size:12.5px;padding-left:8px}
+.tt-listbar .ui-count{grid-column:1/-1;margin:0;text-align:right}
+#txList .ui-group{margin-bottom:6px;overflow:visible}
+#txList .ui-group>summary{padding:7px 10px;font-weight:600;font-size:13px;gap:8px;border-radius:var(--r-lg)}
+#txList .ui-group[open]>summary{border-radius:var(--r-lg) var(--r-lg) 0 0}
+.tt-g-main{display:flex;flex-direction:column;min-width:0;flex:1}
+.tt-g-main b{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-g-main small{font-size:11.5px;font-weight:500;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#txList .ui-group-n{flex:none;font-variant-numeric:tabular-nums}
+.tt-g-done{color:var(--ok-ink)}
+.tt-g-rows{padding:2px 10px 6px}
+.txi{border-bottom:1px solid var(--line);padding:7px 0;min-height:48px}.txi:last-child{border-bottom:0}
+.txi.cur{background:var(--accent-soft);margin:0 -10px;padding:7px 10px;border-radius:var(--r);border-bottom-color:transparent}
+.txi-head{display:flex;align-items:center;gap:6px}
+.txi .t{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:none;border:0;padding:2px 0;cursor:pointer;text-align:left;flex:1;min-width:0;color:var(--ink);border-radius:var(--r-xs)}
+.txi .t:hover{color:var(--accent)}
+.txi-sub{display:flex;align-items:center;gap:4px 8px;margin-top:2px;font-size:12px;color:var(--ink-3);min-width:0}
+.txi-meta{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.txi-side{display:inline-flex;align-items:center;gap:6px;flex:none}
+.txi-side .pill{line-height:18px;padding:0 7px;font-size:11px}
+.tt-prog{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:11.5px}
+.tt-prog i{display:block;width:38px;height:5px;border-radius:var(--r-pill);background:var(--panel-3);overflow:hidden}
+.tt-prog i b{display:block;height:100%;background:var(--ok);border-radius:inherit}
+.tt-batch{margin:8px 0 4px;padding:8px 10px;border:1px dashed var(--line-2);border-radius:8px}
+.tt-batch .row{gap:10px;flex-wrap:wrap;align-items:center}
+.tt-batch-go{margin-top:6px}
+.txi-pick{margin:0 6px 0 0;flex:none;width:16px;height:16px}
+.tt-run{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
+.tt-run:first-child{border-top:0}
+.tt-run b{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-run .tt-run-steps{flex:1 1 100%;color:var(--ink-3);font-size:12px;overflow-wrap:anywhere}
+.txi-menu>summary{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:7px;color:var(--ink-3);font-size:16px;line-height:1}
+.txi-menu>summary:hover{border-color:var(--line-2);color:var(--ink)}
+.txi-menu .vpop{width:min(280px,calc(100vw - 48px));padding:10px 12px}
+.txi-menu .vpop .tt-full{font-weight:600;font-size:13px;overflow-wrap:anywhere;margin:0 0 4px}
+.txi-menu .vpop .hint{display:block;overflow-wrap:anywhere;font-size:12px;margin:0 0 8px}
+.txi-menu .vpop .btn{width:100%}
+.list-more{width:100%;margin-top:6px}
+.tt-list-empty{margin:8px 0 0}.tt-list-empty .hint{display:block;margin:0 0 8px}   /* 履歴の空の状態: 2 文 + 次のボタン(M8) */
+/* 狭い画面(指で使う)では、長い題名を2行まで出す(末尾で見分けることが多いため) */
+@media (max-width:719.98px){.txi .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}
+.setup-banner{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:var(--r);margin:0 0 10px;font-size:13px}
+.setup-banner>summary{cursor:pointer;padding:7px 10px;font-weight:600}.setup-body{border-top:1px solid color-mix(in srgb,var(--warn) 35%,transparent);padding:8px 10px}
+.setup-banner.info{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.src{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12.5px;margin:2px 0}.src .mono{min-width:0;overflow-wrap:anywhere;color:var(--ink-3)}
+/* 元の配信(.clip.json)の表示 */
+.tt-clip{display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+.tt-clip .ic{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-top:1px}
+.tt-clip .ic svg{width:12px;height:12px}
+.tt-clip b{font-weight:600}
+.tt-clip a{padding:7px 0}   /* 文の中のリンク(元の配信)の当たり判定を上下に広げる(見た目と行の高さは変わらない。A-29) */
+.tt-clip .mono{color:var(--ink-2)}
+.tt-clip.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.tt-clip.warn .ic{background:transparent;color:var(--warn)}
+
+/* ---------- 精度・学習・保管のカードの中 ---------- */
+.acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+.acct th,.acct td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;background:transparent}
+.acct th:first-child,.acct td:first-child{text-align:left}
+.acct tbody tr:hover,.acct tr:hover{background:transparent}
+.accmain{font-size:15px;margin-top:8px}.accmain b{font-variant-numeric:tabular-nums}
+.wl{font-size:12px;border-bottom:1px solid var(--line);padding:4px 0;word-break:break-all}
+.ln{border-bottom:1px solid var(--line);padding:7px 0}.ln input.lw,.ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 7px;min-height:30px}.ln.edited input{border-color:var(--accent)}.ln:last-child{border-bottom:0}
+.sp-row{display:flex;gap:6px;align-items:center;margin-top:6px}.sp-row input[type=color]{width:34px;height:30px;padding:2px;flex:none}
+.sp-row .n{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tt-sp-member{flex:none;width:34px;height:30px;border-radius:var(--r-sm);border:1px solid var(--line-2)}   /* 話者の名前がメンバーと合ったときの色(気が利く画面へ 段2) */
+.tt-sp-why{margin:2px 0 0 40px}
+.sp-row .btn svg{width:12px;height:12px}   /* 「聞く」の再生の印(以前の ▶ の文字と同じくらい) */
+
+/* ---------- 空の状態 ---------- */
+#noDoc{padding:48px 24px;margin-top:4px}
+.tt-empty-ic{width:44px;height:44px;margin:0 auto 12px;border-radius:12px;display:grid;place-items:center;color:var(--accent-ink);background:var(--accent)}
+.tt-empty-ic svg{width:22px;height:22px}
+.tt-steps{display:inline-grid;gap:6px;margin:14px auto 0;text-align:left;font-size:13px;color:var(--ink-2)}
+.tt-steps li{display:flex;gap:8px;align-items:baseline}
+.tt-steps b{display:inline;margin:0;font-size:inherit}   /* 手順の中の太字は文の中のまま(.empty b の 1 行にしない。段7 E-9) */
+.tt-resume{display:flex;flex-direction:column;align-items:center;gap:4px;margin:14px auto 0;max-width:100%}
+.tt-resume .btn{max-width:100%}
+.tt-resume-t{min-width:0;max-width:46ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-steps .n{display:inline-grid;place-items:center;flex:none;width:18px;height:18px;border-radius:6px;background:var(--panel-3);color:var(--ink-2);font:700 11px/1 var(--mono)}
+
+/* ---------- 編集画面: 左 = 映像と道具(.tx-stage)・右 = セリフの一覧(.tx-list) ----------
+   v0.9.6: 表示部(映像)を左、セリフの一覧を右に配置。HTML の並び順は変えず(セリフの一覧が先)、order だけで見た目を入れ替えている */
+.editor{min-width:0;container:editor / inline-size}
+/* 映像の列は最大 460px(メニューを閉じたら 540px)だが、編集欄の 40% を超えない(校正の主役はセリフの一覧なので、狭い画面では一覧を優先) */
+.tx-grid{display:grid;grid-template-columns:minmax(300px,min(640px,40%)) minmax(420px,1fr);gap:16px;align-items:start}   /* 広い画面では映像を大きく(以前は 460px まで) */
+.app.menu-closed .tx-grid{grid-template-columns:minmax(300px,min(760px,44%)) minmax(420px,1fr)}   /* メニューを閉じたら、映像を少し大きく */
+.tx-list{min-width:0;order:2}
+/* v0.9.8: 2カラムのときは、映像の列(.tx-stage)ごと画面に固定し、列の中だけでスクロールする。
+   (以前は .pbox だけが固定で、その下の「話者・置換・書き出し」が映像の裏に潜って見えなかった) */
+.tx-stage{min-width:0;order:1;position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100dvh - var(--toph,52px) - 16px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-bottom:8px}
+.pbox{position:sticky;top:var(--toph,52px);z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px;box-shadow:var(--shadow-1)}
+.tx-stage>.pbox{position:static}
+/* 1カラムに戻すかどうかは、ビューポートではなく編集欄そのものの幅で決める(メニューの開閉で幅が変わるため)。
+   v0.15.0: 1カラムのときは .tx-stage と .pbox を display:contents にして、映像と再生の道具(.tt-player)だけを一覧の上に固定し、道具のカードは一覧の後ろに置く
+   (以前は題名・道具・進み具合まで固定していて、狭い画面では一覧がほとんど見えなかった。sticky は親の箱の中でしか効かないため contents にする) */
+@container editor (max-width:780px){
+  .tx-grid,.app.menu-closed .tx-grid{grid-template-columns:minmax(0,1fr);row-gap:10px}
+  .tx-stage,.tx-stage>.pbox{display:contents}
+  .pbox>*{order:0}
+  .tx-stage>.pbox>.tt-player{position:sticky;top:var(--toph,52px);z-index:5;background:var(--bg);padding:6px 0 0;box-shadow:0 10px 12px -12px rgba(0,0,0,.45)}   /* ui-audit: allow A-08 下に落ちる影(両テーマで同じ黒) */
+  .tt-player video{max-height:min(var(--vh),32vh)}
+  .tt-player .tools-play{margin-top:4px;border-top:0}
+  .tt-edit{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:0 12px 10px}
+  .tt-edit>.tools:first-child{border-top:0}
+  .tt-docmeta,#docClip{margin:0}
+  .tx-list{order:3}
+  .tx-stage>:not(.pbox){order:4}   /* 道具のカード(話者など)は一覧の後ろ(一覧に早く届くように。「道具 ▾」から飛べる) */
+  .tx-stage>.card{margin-top:0}
+  #segs .seg{scroll-margin-top:calc(var(--toph,52px) + var(--pbh,300px) + 8px)}   /* 固定した映像の下に隠れないように */
+}
+/* タイトルと保存の状態 */
+#docTitle{flex:1;min-width:0;font:650 16px/1.3 var(--font-display);border-color:transparent;background:transparent;padding:4px 8px;margin-left:-8px}
+#docTitle:hover{border-color:var(--line-2)}
+#docTitle:focus{background:var(--field)}
+.savest{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap;flex:none}
+.savest:not(:empty)::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-4)}
+.savest[data-state=ok]::before{background:var(--ok)}
+.savest[data-state=busy]::before{background:var(--accent)}   /* 点滅させない(保存は校正中に何度も起きるので、数千行の画面で描き直しを増やさない) */
+.savest[data-state=err]{color:var(--danger)}.savest[data-state=err]::before{background:var(--danger)}
+.tt-docmeta{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
+#docClip{margin:0 0 8px}
+video{width:100%;max-height:var(--vh);background:var(--stage-bg);border-radius:var(--r);display:block}   /* 映像の周りは両テーマで暗い灰色(ブリーフの舞台) */
+html.vid-audio video{height:54px;max-height:none}
+#playerMsg{margin:6px 0 0;color:var(--danger);overflow-wrap:anywhere}
+#playerMsg .btn{margin-left:6px;vertical-align:baseline}
+#diarBanner{margin:8px 0 0}
+#conflictBar{margin:0 0 8px}#conflictBar .row{margin-top:6px}
+/* 評価ドリルの帯(?drill=1。マスタープラン Q4)と、評価用の文書の「確かめ済み」(app-learn.js の renderDrillBar・renderEvalReview) */
+.tt-drill{margin:0 0 10px;padding:8px 12px;border:1px solid var(--accent-line);border-left:4px solid var(--accent);border-radius:var(--r);background:var(--accent-soft)}
+.tt-drill-main{display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;font-size:13.5px}
+.tt-drill p{margin:4px 0 0}
+.tt-drill .row{margin-top:6px}
+.tt-drill .btn kbd{margin-left:4px}
+.tt-evrev{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;margin:0 0 8px;font-size:12.5px}
+.tt-evrev .hint{flex:1 1 220px;margin:0}
+/* 道具の段(再生・編集・探す)。段ごとに細い線で区切る */
+.tools{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap;margin:0;padding:8px 0;border-top:1px solid var(--line)}
+.tools-play{margin-top:10px}
+.tools input[type=search]{flex:1;min-width:150px;min-height:var(--ctl-h-sm);padding:3px 10px}
+.tools select,.tools .btn{min-height:var(--ctl-h-sm)}
+.tools select{padding-top:2px;padding-bottom:2px}
+.tools select.mini{width:auto;padding-left:8px}
+.tools .lag{font-size:12.5px;color:var(--ink-2)}
+.tools2{display:flex;flex-wrap:wrap;gap:4px 12px;padding:8px 0 4px;border-top:1px solid var(--line)}
+.tools2 .hint{font-size:12px;font-variant-numeric:tabular-nums}
+.tools2 .hint:empty{display:none}
+.terms{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:4px 0}
+.chip{border:1px solid var(--line-2);background:var(--panel);border-radius:var(--r-pill);padding:1px 10px;font-size:12.5px;cursor:pointer;color:var(--ink)}.chip:hover{background:var(--accent-soft);border-color:var(--accent-line)}
+.stripbox{position:relative;height:14px;margin-top:6px;cursor:pointer}
+#strip{width:100%;height:100%;display:block;border-radius:var(--r-xs);background:var(--panel-3)}
+#stripHead{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);left:0;pointer-events:none;border-radius:1px;box-shadow:0 0 0 1px var(--panel)}
+#docInfo{margin:8px 2px 0;font-size:12px;color:var(--ink-3)}
+.tt-strip-legend{display:flex;flex-wrap:wrap;gap:2px 12px;margin:4px 0 0;font-size:11.5px;color:var(--ink-3)}
+.tt-strip-legend span{display:inline-flex;align-items:center;gap:4px}.tt-strip-legend i{width:10px;height:6px;border-radius:2px;background:var(--line-2)}.tt-strip-legend i.ok{background:var(--ok)}.tt-strip-legend i.warn{background:var(--warn)}   /* 帯(#strip)と同じ色 */
+.tx-stage>.card{margin-top:10px}
+/* 映像の下の道具のカード(話者・文字をまとめて直す・書き出し・以前の版)。v0.15.0 で「話者・置換・書き出し」を役割ごとに分けた */
+.tt-tool>summary{font-size:14px}
+.tt-tool>summary .hint{font-weight:450;font-size:12px}
+.tt-tool .fld{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.tt-tool>summary+.fld{border-top:0;padding-top:4px}
+.tt-tool .fld>.l{display:block;font:650 13px/1.35 var(--font-display);color:var(--ink);margin-bottom:6px}
+.tt-tool .fld>.hint,.tt-tool .fld>span.hint{display:block;margin-top:6px;font-size:12px;color:var(--ink-3);line-height:1.5}
+.tt-tool .row+.row{margin-top:8px}
+/* 道具への移動(「道具 ▾」) */
+/* ---------- パックのタブの進み具合・手順書(v0.15.0 の「カットとパック」のカードの名残の名前。カードは v0.16.0 で 2 カット・3 パック のタブへ移した)---------- */
+.tt-cp-job{margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12.5px}
+.tt-cp-job .row{margin-top:6px;justify-content:space-between;flex-wrap:nowrap}
+.tt-cp-job .bar{margin-top:6px}
+.tt-cp-readme{white-space:pre-wrap;font:12px/1.55 var(--mono);max-height:260px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;margin:6px 0 0;color:var(--ink-2)}
+.tt-player{position:relative}
+/* 映像の上に重ねる今の行の字幕(段2。1 文字起こし のタブ)。飾り扱い(aria-hidden。同じ情報は一覧から読める) */
+.tt-vbox{position:relative}
+html.vid-audio .tt-caption{display:none}   /* 音声だけのとき(映像が 54px)は重ねない */
+.tt-caption{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:clamp(14px,2.4vw,26px);line-height:1.3;pointer-events:none;white-space:pre-wrap;word-break:break-word;z-index:1}
+dialog.ui-dialog .ui-dlg-body{white-space:pre-line;overflow-wrap:anywhere;max-height:min(60vh,520px)}   /* UIKit.dialog の本文の改行を残す(上書きするファイルの一覧・声を覚える人の一覧。M3) */
+/* 動画を選び直す(段2 B-4) */
+#relinkDlg{width:min(620px,calc(100% - 32px));padding:0}
+.tt-rl-old{display:flex;gap:6px;align-items:center}
+.tt-rl-old input{flex:1;min-width:0;color:var(--ink-2)}
+.tt-rl-res{margin:10px 0 0}
+.tt-rl-res dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}
+.tt-rl-res dt{color:var(--ink-2);font-size:12.5px}
+.tt-rl-res dd{margin:0;overflow-wrap:anywhere}
+.tt-rl-res ul{margin:6px 0 0;padding-left:18px}
+#relinkAllDlg{width:min(860px,calc(100% - 32px));padding:0}
+.tt-rl-missing{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:6px 0}
+.tt-ra-list{margin:10px 0 0;display:flex;flex-direction:column;gap:8px;max-height:min(52vh,520px);overflow:auto}
+.tt-ra-row{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start}
+.tt-ra-row > input[type=checkbox]{margin-top:3px}
+.tt-ra-main{min-width:0;display:flex;flex-direction:column;gap:4px}
+.tt-ra-title{font-weight:600;overflow-wrap:anywhere}
+.tt-ra-old{color:var(--ink-2);font-size:12.5px;overflow-wrap:anywhere}
+.tt-ra-path{display:flex;gap:6px;align-items:center}
+.tt-ra-path input,.tt-ra-path select{flex:1;min-width:0}
+.tt-ra-st{font-size:12.5px;color:var(--ink-2)}
+.tt-ra-st.ok{color:var(--ok-ink)}
+.tt-ra-st.err{color:var(--danger-ink)}
+.tt-ra-st.warn{color:var(--warn-ink)}
+.tt-dev-hint{color:var(--warn-ink);margin:6px 0 0}   /* 処理方式 GPU(whisper.cpp)で使えないモデル */
+/* ---------- 行の一覧の上: 道具の行(検索・絞り込み・件数)とキー操作の手がかり ---------- */
+.tt-listhead{margin:0 0 8px}
+.tt-rowbar{margin:0;gap:6px 8px}
+.tt-rowbar input[type=search]{flex:1 1 180px;min-height:var(--ctl-h-sm);padding:3px 10px}
+.tt-rowbar select{min-height:var(--ctl-h-sm);padding-top:2px;padding-bottom:2px;max-width:100%}
+.tt-rowbar .btn{min-height:var(--ctl-h-sm)}
+.tt-rowbar .btn kbd{margin-left:4px;font-size:10px}
+.tt-rb-end{display:inline-flex;align-items:center;gap:6px 8px;white-space:nowrap;margin-left:auto}
+.tt-rb-end .ui-count{margin-left:0}
+/* 編集欄が狭いときは、ボタンの中のキー(Shift ↓)を隠す(キーは下の帯と title に出ている) */
+@container editor (max-width:1100px){.tt-rowbar #btnNextUn kbd{display:none}}
+/* ⚙ 設定の「名前 + select」の1行の下に小さい説明を置く(ui-kit の1行の形は変えず、折り返して下の段に) */
+#edSettings .tt-set-hinted:has(>select){flex-wrap:wrap}
+#edSettings .tt-set-hinted>.hint{flex:0 0 100%;margin:-2px 0 0;font-size:12px;color:var(--ink-3);line-height:1.5}
+/* 行の右クリックのメニュー(段2)。押した位置に浮かせる(.ui-pop-body の既定の absolute/right ではなく) */
+.tt-ctxmenu{position:fixed;top:auto;right:auto;left:0;min-width:200px;z-index:65}
+.tt-keyhint{display:flex;flex-wrap:wrap;align-items:center;gap:3px 12px;margin:6px 0 0;padding:4px 4px 4px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);font-size:12px;color:var(--ink-2)}
+.tt-keyhint kbd{font-size:10.5px}
+.tt-kh-l{color:var(--ink-3);font-weight:600}
+.tt-kh-i{white-space:nowrap}
+.tt-kh-end{margin-left:auto;display:inline-flex;gap:2px;align-items:center}
+.tt-kh-end .btn{min-height:24px}
+/* 2列のときは、一覧の上に固定する(長い一覧のどこにいても、検索・絞り込み・キーの手がかりが見える) */
+/* v0.56.1(2026-10-06 ユーザーの指摘「再生で行が切り替わるとき、画面全体が動くのはよくない」): 2列のときは、行の一覧(.tx-list)も映像の列と同じく
+   画面に固定し、列の中だけでスクロールする。再生に合わせた行の追いかけ(ensureVisible)は、この列の中だけを動かす(窓は動かさない)。
+   一覧の端まで来たら窓へ続けてスクロールする(contain にしない。上の題名の行の分だけ窓を動かして、一覧の下の端を見られるように) */
+@container editor (min-width:781px){.tx-list{position:sticky;top:calc(var(--toph,52px) + 8px);max-height:calc(100dvh - var(--toph,52px) - 16px);overflow:auto;scrollbar-width:thin}
+  .tt-listhead{position:sticky;top:0;z-index:4;background:var(--bg);margin:0 0 8px;padding:0 0 6px;box-shadow:0 8px 10px -12px rgba(0,0,0,.45)}   /* ui-audit: allow A-08 下に落ちる影(両テーマで同じ黒) */
+  #segs .seg{scroll-margin-top:calc(var(--khh,0px) + 8px)}}
+@media (max-width:559.98px){.tt-keyhint{display:none!important}}   /* 指で使う狭い画面では、キーの手がかりは出さない */
+.tt-exbtns{display:flex;flex-wrap:wrap;gap:6px}
+.tt-handoff{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
+.tt-handoff .path{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere;color:var(--ink-2)}
+.tt-handoff .row{margin-top:6px}
+.tt-handoff a.btn,.tt-handoff a.btn:hover{text-decoration:none}
+.tt-handoff .btn.ghost{min-height:22px;padding:0 6px;font-size:11.5px}
+/* ポップオーバー(表示・⚙設定・まとめて校正・一覧の「…」) */
+.pop{position:relative}.pop>summary{list-style:none;cursor:pointer;display:inline-flex}.pop>summary::-webkit-details-marker{display:none}
+.vpop{position:absolute;right:0;top:100%;margin-top:6px;z-index:60;background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:12px 14px;width:280px;box-shadow:var(--shadow-3);animation:ui-pop .14s var(--ease)}
+.pop.l .vpop{left:0;right:auto}
+.vpop.tt-vpop-fixed{position:fixed;margin-top:0;overflow-y:auto;z-index:70}   /* 「まとめて」: 映像の列の overflow で切れないよう画面に固定(S1。app.js の placeMoreTools) */
+.vpop .fld:first-child{margin-top:0}
+.vpop .fld>label,.vpop .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.vpop .fld>select{width:100%}
+.vpop .col{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.vpop .row .btn{flex:1}
+
+/* ---------- セリフの行(.seg) ----------
+   校正はこのツールで一番長くやる作業なので、文字を主役にする(入力欄の枠は、触れたときだけ出す)。
+   行の数が数千になっても重くならないように、content-visibility で画面外の行の描画を省く(v0.7.1 から) */
+#segs{container-type:inline-size;border:1px solid var(--line);border-bottom:0;border-radius:var(--r-lg);overflow:clip;background:var(--panel)}
+#segs:empty{border:0}
+.seg{display:grid;grid-template-columns:18px 30px 140px 118px minmax(0,1fr) auto;gap:6px 8px;align-items:start;padding:7px 10px 7px 8px;
+  border:0;border-bottom:1px solid var(--line);border-left:4px solid var(--sp,var(--line));border-radius:0;background:var(--panel);margin:0;   /* 段3 の仕上げ: 行は1枚の紙の上に細い線で並べる */
+  content-visibility:auto;contain-intrinsic-size:auto 58px;scroll-margin-top:calc(var(--toph,52px) + 8px);scroll-margin-bottom:24px;
+  transition:background-color .2s}
+.seg[hidden]{display:none}
+.seg>input.sel{margin-top:8px}
+.seg .play{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line-2);background:var(--panel);border-radius:50%;cursor:pointer;color:var(--ink-2);font-size:10px;padding:0;transition:background var(--dur),color var(--dur),border-color var(--dur)}
+.seg .play:hover{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.seg .times{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--ink-3);padding-top:2px}   /* 時刻の間の「–」は情報の文字なので --ink-3(--ink-4 は 3.6:1。A-22) */
+.seg .t{width:66px;min-width:0;min-height:28px;padding:3px 4px;font-family:var(--mono);font-size:12px;text-align:center;background:var(--panel-2);border-color:transparent;color:var(--ink-2);font-variant-numeric:tabular-nums}   /* 時刻の欄(UIKit.timebox の .ui-time) */
+.seg .t:hover{border-color:var(--line-2)}
+.seg .t:focus{background:var(--field);color:var(--ink);border-color:var(--accent)}
+.seg .times.ovl .t{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
+.seg .spk{width:100%;min-height:30px;padding:3px 26px 3px 8px;font-size:12.5px;background-position:right 8px center;border-color:transparent;
+  background-color:color-mix(in srgb,var(--sp,transparent) 14%,var(--panel-2));color:var(--ink)}
+.seg .spk:hover{border-color:var(--line-2)}
+.seg textarea{resize:none;overflow:hidden;min-height:34px;padding:4px 8px;font-size:var(--fs);line-height:1.6;letter-spacing:.01em;color:var(--ink);background:transparent;border-color:transparent;width:100%}
+.seg:hover textarea{border-color:var(--line)}
+.seg textarea:focus{background:var(--field);border-color:var(--accent)}
+.seg textarea::placeholder{color:var(--ink-4)}
+html.fsz .seg textarea{field-sizing:content;height:auto}
+/* 右端の状態の切り替え(残す/カット済・校正済み) */
+.seg .ops{display:flex;gap:4px;flex-wrap:nowrap;justify-content:flex-end;align-items:center;padding-top:1px}
+/* 0.59.3(UI の見直し M1・S15): 行の「残す / カット」は 2 択の切り替え(.tt-kc。今の状態の側が押された形。2 カット の字幕の一覧も同じ)、「校正済み」は .btn.small + aria-pressed */
+.seg .ops .btn.pf{min-height:28px;padding:0 10px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.seg .ops .btn.pf[aria-pressed=true]{background:var(--ok-soft);color:var(--ok-ink);border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.seg .ops .btn.pf[aria-pressed=true]::before{content:"";width:8px;height:4px;margin:-3px 0 0;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);flex:none}   /* 済みの印(線で描く。文字の ✓ はやめた) */
+.tt-kc{display:inline-flex;flex:none;border:1px solid var(--line-strong);border-radius:var(--r);overflow:hidden;background:var(--panel)}
+.tt-kc>button{border:0;background:transparent;color:var(--ink-2);min-height:28px;padding:0 9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background var(--dur),color var(--dur)}
+.tt-kc>button+button{border-left:1px solid var(--line-strong)}
+.tt-kc>button:hover{color:var(--ink);background:var(--panel-2)}
+.tt-kc>button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tt-kc>button[aria-pressed=true]{background:var(--panel-3);color:var(--ink)}
+.tt-kc>button[aria-pressed=true]:is([data-act=cut],[data-act=cutrow]){background:var(--danger);color:var(--danger-on)}   /* カット済は赤(行の取り消し線と同じ意味) */
+.tt-kc>button:disabled{opacity:.5;cursor:not-allowed}
+/* 状態の見分け: 再生中(.cur)・今の行(.nav)・一括選択(チェック)・要確認(.flag)・カット済(.cut)・校正済み(.proofed) */
+.seg.proofed{border-right:4px solid var(--ok)}
+.seg.flag{background:var(--tt-flag-soft)}
+.seg.cur{background:var(--tt-play-soft);box-shadow:inset 3px 0 0 0 var(--accent)}
+.seg:has(.sel:checked){background:var(--tt-pick-soft);border-color:color-mix(in srgb,var(--tt-pick) 55%,transparent)}   /* v0.9.6: 一括操作のチェック(複数選択)は、今の行(太枠)と見た目を分ける */
+.seg.cut{background-image:repeating-linear-gradient(135deg,transparent 0 9px,var(--tt-cut-stripe) 9px 18px)}
+.seg.cut textarea{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}
+.seg.cut .times .t,.seg.cut .spk{opacity:.7}
+.seg.nav{outline:3px solid var(--accent);outline-offset:-3px}   /* 影は付けない(行の移動のたびに影の描き直しが入り、4000行で少し遅くなったため。太枠だけで十分見分けられる) */
+.seg.was{animation:wasfade 1.4s ease-out forwards}@keyframes wasfade{from{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px}to{outline:3px solid transparent;outline-offset:-1px}}
+@media (prefers-reduced-motion:reduce){.seg.was{animation:none}}
+/* 要確認の印・提案・音の状態のメモ・選んだ行の操作 */
+/* 0.59.3: 要確認の印は押せるので .btn.small.ghost の形(押すと確認済み・知らせに [元に戻す]。UI の見直し S15)。文字は --warn-ink を少し濃く(A-22) */
+.seg .btn.fl{grid-column:5;justify-self:start;justify-content:flex-start;gap:5px;font-size:12px;font-weight:550;color:color-mix(in srgb,var(--warn-ink) 85%,var(--ink));padding:3px 8px 3px 4px;max-width:100%;white-space:normal;text-align:left;line-height:1.4}
+.seg .btn.fl::before{content:"!";display:inline-grid;place-items:center;flex:none;width:14px;height:14px;border-radius:50%;background:var(--warn);color:var(--panel);font:800 10px/1 var(--font)}
+.seg .btn.fl:hover:not(:disabled){color:var(--ink);background:var(--warn-soft)}
+.seg .sug{grid-column:5;display:flex;flex-wrap:wrap;gap:6px}.seg .sug:empty{display:none}
+.sg{font-size:12px;border:1px solid var(--accent-line);border-radius:var(--r);padding:2px 3px 2px 8px;background:var(--accent-soft);display:inline-flex;align-items:center;gap:6px;max-width:100%;color:var(--ink)}
+.sg .sgl{font-weight:650;color:var(--accent)}.sg.high{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.sg.tt-sg-alt{border-style:dashed;border-color:var(--info);background:var(--info-soft)}.sg.tt-sg-alt .sgl{color:var(--info-ink)}
+.sg.tt-sg-yt{border-style:dotted;border-color:var(--line-strong);background:var(--panel)}.sg.tt-sg-yt .sgl{color:var(--ink-2)}
+.sg.tt-sg-both{border-style:solid;box-shadow:inset 0 0 0 1px var(--info)}
+.sg button{border:1px solid var(--line-2);background:var(--panel);border-radius:6px;padding:0 8px;min-height:22px;font-size:12px;cursor:pointer;color:var(--ink-2)}
+.sg button:hover{color:var(--ink);border-color:var(--line-strong)}
+.seg .tg{grid-column:3/-1;display:none;gap:6px;flex-wrap:wrap}.seg.tagged .tg,.seg.nav .tg{display:flex}
+.tg button{border:1px dashed var(--line-strong);background:transparent;border-radius:var(--r-pill);padding:0 10px;min-height:28px;font-size:12px;color:var(--ink-2);cursor:pointer}
+.tg button:hover{color:var(--ink)}
+.tg button[aria-pressed=true]{background:var(--warn-soft);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);color:var(--warn);font-weight:600}
+.seg .adj{grid-column:3/-1;display:none;gap:4px 10px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-3);margin-top:2px;padding:6px 8px;background:var(--panel-2);border-radius:var(--r)}
+.seg.nav .adj{display:flex}
+.adj .g{display:inline-flex;align-items:center;gap:3px}
+.adj button{border:1px solid var(--line-strong);background:var(--panel);border-radius:6px;min-width:28px;height:28px;padding:0 6px;font-size:12px;color:var(--ink);cursor:pointer}
+.adj button:hover{border-color:var(--line-strong);background:var(--panel-3)}
+.adj button.now{padding:0 7px}
+.adj .sep{width:1px;align-self:stretch;background:var(--line-2);margin:2px 2px}
+.adj .rowops{gap:4px;flex-wrap:wrap}.adj .rowops button{padding:0 9px}
+.adj .rowops button.del{color:var(--danger)}
+.adj .rowops button.del:hover{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 45%,transparent)}
+/* 字幕に出さない行(noSub。ゲームの声など。2026-10-05): 薄く出して札を付ける(行は消さない・時刻も文字も直せる) */
+.seg.nosub textarea,.seg.nosub .times .t,.seg.nosub .spk{opacity:.5}
+.seg.nosub textarea:focus{opacity:.85}
+.seg .tt-nosub-pill{grid-column:5;justify-self:start}
+.seg:not(.nosub) .tt-nosub-pill{display:none}
+.adj button.tt-nosub-btn[aria-pressed=true]{background:var(--info-soft);border-color:color-mix(in srgb,var(--info) 45%,transparent);color:var(--info-ink);font-weight:600}
+/* 字幕の読む速さの札(2026-10-05。app-rows.js の readHTML。速い n字/秒・短い n秒)と、選んだ行の「時刻を言葉に合わせる」(.adj の中の .tt-rt) */
+.seg .tt-read{grid-column:5;justify-self:start;display:flex;gap:6px;flex-wrap:wrap}.seg .tt-read:empty{display:none}
+.tt-read-count{white-space:nowrap}
+.adj .tt-rt{gap:4px;flex-wrap:wrap}
+.adj .tt-rt .tt-rt-prev{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-2);padding:0 4px}
+.adj .tt-rt button.tt-rt-ok{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.adj .tt-rt button:disabled{opacity:.5;cursor:default}
+@container (max-width:700px){ #segs .seg .tt-read{grid-column:1/-1} }
+@container (max-width:520px){ #segs .seg .tt-read{order:2} }
+/* 映像の上の字幕で、重なる行を積んだとき(2026-10-05)。1 行ずつ話者の色(--tt-cap-color。無ければ外側の色のまま) */
+.tt-cap-line{display:block;color:var(--tt-cap-color,#000)}   /* ui-audit: allow A-08 字幕の既定の黒(仕上がりと同じ色。両テーマで同じ) */
+.tt-cap-line+.tt-cap-line{margin-top:.15em}
+/* 話者の欄の「字幕の色」(16 進 6 桁・# なし) */
+.tt-sp-sub{gap:3px}
+.tt-sp-sub input{width:5.6em;font-family:var(--mono);text-transform:uppercase;padding:3px 5px;min-height:28px}
+.tt-sp-sub input[aria-invalid=true]{border-color:var(--danger)}
+.tt-sp-subsw{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid var(--line-strong);vertical-align:middle}
+.tt-sp-subsw[hidden]{display:none}
+.sp-row.tt-sp-other input[type=text]{color:var(--ink-3)}
+/* 重なりの所に置いた空の行(印 draft。2026-10-05): 札と、打つ欄の点線の枠(空のままでも欄が見える)。重なりの赤にはしない(app-rows.js の badOverlap) */
+.seg .tt-draft-pill{grid-column:5;justify-self:start}
+.seg.tt-draft textarea{border:1px dashed color-mix(in srgb,var(--info) 55%,transparent);background:color-mix(in srgb,var(--info-soft) 50%,transparent)}
+.seg.tt-draft textarea:focus{border-style:solid;border-color:var(--accent);background:var(--field)}
+.tt-ovd-count{margin:0 0 6px}
+.tt-ovd-count.tt-ovd-none{color:var(--ink-4)}
+/* 一覧が狭いとき: 1段目に「□ ▶ 時刻 話者 校正済み」、2段目から文字(全幅)と、選んだ行の操作
+   (v0.9.6: 一覧の実際の幅で判断する。2カラム化でビューポート幅と一覧の幅が一致しなくなったため、コンテナクエリにした) */
+@container (max-width:700px){
+  #segs .seg{grid-template-columns:18px 30px auto minmax(0,1fr) auto}
+  #segs .seg .times{grid-column:3}#segs .seg .spk{grid-column:4;min-width:0;max-width:170px}#segs .seg .ops{grid-column:5;grid-row:1}
+  #segs .seg textarea,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .tt-draft-pill,#segs .seg .sug,#segs .seg .tg,#segs .seg .adj{grid-column:1/-1}
+  #segs .seg textarea{margin-top:-2px}
+}
+@container (max-width:520px){
+  /* v0.15.0: とても狭いとき(スマホ)は「残す/カット済・校正済み」を文字の下の段に(話者の欄と重ならないように) */
+  #segs .seg{gap:6px;grid-template-columns:18px 30px auto minmax(0,1fr)}
+  #segs .seg .ops{grid-column:1/-1;grid-row:auto;order:1}
+  #segs .seg .sug,#segs .seg .tg,#segs .seg .adj,#segs .seg .fl,#segs .seg .tt-nosub-pill,#segs .seg .tt-draft-pill{order:2}
+  #segs .seg .ops .btn{padding:0 10px;min-height:28px}
+  #segs .seg .t{width:56px;font-size:11.5px;padding:3px 2px}
+  #segs .seg .spk{padding-right:20px;background-position:right 6px center;min-width:76px}
+}
+/* 行の間隔を詰める(表示の設定) */
+html.dense .seg{padding:3px 8px 3px 6px;margin-bottom:3px;gap:3px 6px}html.dense .seg textarea{min-height:28px;padding:2px 6px;line-height:1.45}html.dense .seg>input.sel{margin-top:6px}
+
+/* ---------- キー操作の一覧(ダイアログ) ---------- */
+#keys{width:min(820px,calc(100% - 32px));max-width:none;max-height:calc(100dvh - 48px);padding:0;overflow:hidden}
+#keys[open]{display:flex;flex-direction:column}
+.tt-flow{margin:12px 0 0;padding:10px 12px;border-radius:var(--r);background:var(--accent-soft);font-size:13px;color:var(--ink)}
+
+
+/* ---------- 「編集」の3つのタブ(docs/design/edit-tool-design.md 3。E2 = 骨組み) ---------- */
+.tt-edtabs .ui-tab{min-height:32px}
+.ui-header-actions>.savest{margin-right:4px}
+@media (max-width:720px){.ui-header-actions>.savest{display:none}}
+/* 題名の行: どのタブにも出す */
+.tt-docbar{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin:0 0 12px;min-width:0}
+.tt-docbar #docTitle{flex:0 1 auto;width:auto;min-width:8em;max-width:min(640px,100%);field-sizing:content}
+.tt-docbar-meta{flex:1 1 200px;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-docbar-pills{display:inline-flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.tt-docbar-pills .pill{font-variant-numeric:tabular-nums}
+.tt-tabpanel{min-width:0}
+.tt-norows{margin:0 0 10px}
+.tt-norec-btns{justify-content:center;margin:10px 0 6px}   /* 文字が認識されなかった文書の次の一手(段7 E-14) */
+/* ホームから開いていないときの「まとめて実行」(段7 E-17): 隠さず、押せない見た目と理由 */
+.tt-need-home{display:block;margin:2px 0 0}
+.tt-batch label:has(> input:disabled){opacity:.6;cursor:not-allowed}
+.tt-bulkcut{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.tt-mchoice{margin:0 0 10px}
+/* カット・パックのタブでは、左のメニューを細い帯(☰・履歴・新規)に畳む。帯から開くと本文の上に重ねる(タイムラインの幅を変えない) */
+.tt-mstrip{display:none}
+.app.tab-wide{grid-template-columns:44px minmax(0,1fr)}
+html[data-edtab-now=cut] #btnMenu{display:none}   /* カットのタブでは帯の ☰ を使う(同じ操作を2か所に置かない) */
+.app.tab-wide>.tt-mstrip{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(var(--toph,52px) + 8px);align-self:start}
+.app.tab-wide>.tt-mstrip .btn{width:36px;height:36px;padding:0;justify-content:center}
+.app.tab-wide>#menuPanel{display:none}
+.app.tab-wide.menu-overlay>#menuPanel{display:block;position:fixed;left:0;top:var(--toph,52px);bottom:0;width:min(380px,calc(100vw - 28px));z-index:45;overflow:auto;overscroll-behavior:contain;
+  background:var(--bg);padding:12px;border-right:1px solid var(--line-2);box-shadow:var(--shadow-3);animation:tt-drawer .16s var(--ease)}
+.app.tab-wide.menu-overlay+.tt-scrim{display:block;position:fixed;left:0;right:0;bottom:0;top:var(--toph,52px);z-index:44;background:rgba(8,10,14,.45)}   /* ui-audit: allow A-08 幕(両テーマで同じ暗さ) */
+@media (max-width:719.98px){.app.tab-wide{grid-template-columns:minmax(0,1fr)}.app.tab-wide>.tt-mstrip{flex-direction:row;position:static}}
+
+/* ---------- 2 カット(E3。cut.js) ---------- */
+html[data-edtab-now=cut]{scrollbar-gutter:stable}   /* カットのタブでは、ページの縦のスクロールバーの出入りで、タイムラインの幅(と倍率)が変わらないように */
+.tt-cut-off{margin:0 0 12px}
+.tt-cut-off .btn{margin-left:6px}
+#cutConflict{margin:0 0 12px}
+.tt-cut-top{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,1fr);gap:14px;align-items:stretch}
+.tt-cut-prev{padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.tt-cut-video{position:relative;background:var(--stage-bg);border-radius:var(--r);overflow:hidden;aspect-ratio:16/9;max-height:min(46vh,520px)}
+.tt-cut-video video{width:100%;height:100%;object-fit:contain;display:block}
+.tt-cut-mode-pill{position:absolute;left:10px;top:10px}
+/* 字幕の見た目(パックの Text+ と同じ指定のおおよその見え方: けいふぉんと・黒い文字・白いふち(少し右下へずらす)・外側の黒いふち。cut2resolve の resolve_textplus.TEXT_STYLE) */
+.tt-cap-look{font-family:"けいふぉんと","Keifont","Yu Gothic","Meiryo",sans-serif;font-weight:400;color:var(--tt-cap-color,#000);   /* ui-audit: allow A-08 仕上がりの見本(Text+ と同じ黒い文字と白・黒のふち) */
+  text-shadow:0.057em 0.016em 0 #fff,0.054em 0.033em 0 #fff,0.044em 0.048em 0 #fff,0.029em 0.058em 0 #fff,0.012em 0.061em 0 #fff,-0.005em 0.058em 0 #fff,-0.02em 0.048em 0 #fff,-0.03em 0.033em 0 #fff,-0.033em 0.016em 0 #fff,-0.03em -0.001em 0 #fff,-0.02em -0.016em 0 #fff,-0.005em -0.026em 0 #fff,0.012em -0.029em 0 #fff,0.029em -0.026em 0 #fff,0.044em -0.016em 0 #fff,0.054em -0.001em 0 #fff,0.07em 0em 0 #000,0.065em 0.027em 0 #000,0.049em 0.049em 0 #000,0.027em 0.065em 0 #000,0em 0.07em 0 #000,-0.027em 0.065em 0 #000,-0.049em 0.049em 0 #000,-0.065em 0.027em 0 #000,-0.07em 0em 0 #000,-0.065em -0.027em 0 #000,-0.049em -0.049em 0 #000,-0.027em -0.065em 0 #000,-0em -0.07em 0 #000,0.027em -0.065em 0 #000,0.049em -0.049em 0 #000,0.065em -0.027em 0 #000}   /* ui-audit: allow A-08 仕上がりの見本のふち(両テーマで同じ) */
+.tt-cut-cap{position:absolute;left:6%;right:6%;bottom:7%;text-align:center;font-size:clamp(16px,2.6vw,30px);line-height:1.3;
+  pointer-events:none;white-space:pre-wrap;word-break:break-word}
+.tt-cut-ctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tt-cut-time{font-size:14px;font-variant-numeric:tabular-nums}.tt-cut-time b{font-size:16px}.tt-acc{color:var(--accent)}
+.tt-cut-mode{margin-left:auto}
+.tt-cut-subs{padding:10px 12px;display:flex;flex-direction:column;min-width:0;max-height:min(calc(46vh + 60px),580px)}
+.tt-cut-subs-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
+.tt-cut-subs-list{overflow:auto;flex:1;min-height:80px;overscroll-behavior:contain}
+.tt-cut-subs-foot{margin:6px 0 0}
+.tt-csub{display:flex;align-items:center;gap:6px;border-radius:var(--r);padding:1px 4px}
+.tt-csub.now{background:color-mix(in srgb,var(--accent) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent)}
+.tt-csub-go{flex:1;min-width:0;display:flex;gap:10px;align-items:baseline;text-align:left;background:none;border:0;padding:6px 4px;cursor:pointer;color:var(--ink);font:inherit}
+.tt-csub-go .mono{color:var(--ink-3);font-size:12px;flex:none}
+.tt-csub.now .tt-csub-go .mono{color:var(--ink-2)}   /* 今の行(薄い accent の上)は --ink-3 だと 4.3:1(A-22) */
+.tt-csub-go .tx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-csub.cut{background:repeating-linear-gradient(135deg,transparent 0 8px,color-mix(in srgb,var(--ink-4) 16%,transparent) 8px 10px)}
+.tt-csub.cut .tx,.tt-csub.cut .mono{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--danger) 70%,transparent);color:var(--ink-3)}   /* 0.59.3(段9): 1 文字起こし のカット済の行(.seg.cut)と同じ色。--ink-4 は 3.5:1 で基準(4.5:1)に届かなかった */
+.tt-csub-empty{margin:8px 4px}
+.tt-csub .tt-kc{margin-left:2px}
+.tt-cut-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px}
+.tt-cut-tools .tt-sep{width:1px;height:22px;background:var(--line-2);margin:0 4px}
+.tt-cut-tools .tt-grow{flex:1}
+.tt-cut-tools kbd{margin-left:4px}
+.tt-split{display:inline-flex;align-items:center;flex:none}   /* 「行から」と設定の山形は 1 つの塊(折り返しで山形だけ次の行に落ちない。S19) */
+.tt-split>#cutDraftRows{border-top-right-radius:0;border-bottom-right-radius:0}.tt-split>details>summary{border-top-left-radius:0;border-bottom-left-radius:0}
+.tt-cut-tools .btn .ui-icon{width:14px;height:14px}   /* 分割・元に戻す・やり直すの線のアイコン(以前の ✂ ↶ ↷ の文字と同じくらいの大きさ) */
+.tt-cut-tools details.pop>summary.disabled{opacity:.5;cursor:not-allowed}
+.tt-cut-tools .vpop{min-width:260px}
+.tt-cut-tools .vpop .fld>label{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin:8px 0 4px}
+.tt-cut-tools .vpop .fld>input,.tt-cut-tools .vpop .fld>textarea{width:100%}
+.tt-cut-tools .vpop .fld>.hint{display:block;font-size:12px;margin-top:3px}
+/* タイムライン(段3): 左に帯の名前、右は横にスクロールする中身。3段(目盛り・区間(中に波形)・字幕)+ 上のミニマップ */
+.tt-tl{display:grid;grid-template-columns:52px minmax(0,1fr);padding:0;overflow:hidden}
+.tt-tl-heads{display:grid;grid-template-rows:26px 64px 34px;border-right:1px solid var(--line);font-size:12px;font-weight:600;color:var(--ink-2)}
+.tt-tl-heads>span{display:flex;align-items:center;justify-content:center}
+.tt-tl-scroll{overflow-x:auto;overflow-y:hidden;position:relative;scrollbar-width:thin}
+/* 段1: --ring は影の指定そのもの(0 0 0 3px …)なので inset の中に入れると値が不正になり、枠が出ていなかった。横スクロールの枠の内側に outline で出す */
+.tt-tl-scroll:focus{outline:none}
+.tt-tl-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tt-tl-content{position:relative;height:124px;min-width:100%;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:pan-x}   /* 目盛りの最後のラベルなどが中身の幅を押し広げない */
+.tt-tl-ruler{position:absolute;left:0;right:0;top:0;height:26px;border-bottom:1px solid var(--line);background:var(--panel);cursor:pointer}   /* 下地を明示(目盛りの文字の読みやすさを両テーマで決める。A-22) */
+.tt-tick{position:absolute;top:0;height:26px;padding-left:4px;border-left:1px solid var(--line-2);font:11px/26px var(--mono);color:var(--ink-3);white-space:nowrap}
+.tt-tl-track{position:absolute;left:0;right:0;overflow:hidden}   /* 中の canvas・区間が中身の幅を押し広げない(ズームを戻したとき横に余白が残らない) */
+/* 区間(中に波形)。canvas(#tlAudio)を区間(#tlVideo)の後ろに重ね、同じ帯の中で見せる(段3: 4段 → 3段) */
+.tt-tl-v{top:26px;height:64px}
+.tt-tl-a{top:26px;height:64px;pointer-events:none}   /* 波形は区間(#tlVideo)の上に重ねるだけ。クリックは下の区間・削る区間に通す */
+.tt-tl-a canvas{position:absolute;top:0;display:block}
+.tt-tl-s{top:90px;height:34px;border-top:1px solid var(--line)}
+.tt-k{position:absolute;top:6px;height:52px;border-radius:6px;background:color-mix(in srgb,var(--accent) 62%,transparent);background-image:repeating-linear-gradient(90deg,transparent 0 22px,rgba(255,255,255,.18) 22px 34px);   /* ui-audit: allow A-08 区間の縞(--accent の上の薄い白。両テーマで同じ) */
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);cursor:pointer;box-sizing:border-box}   /* ui-audit: allow A-08 区間の縁の影(両テーマで同じ) */
+.tt-k.sel{outline:2px solid var(--accent);outline-offset:2px;box-shadow:inset 0 0 0 2px var(--panel)}
+/* 区間の端のつまみ: 見た目より当たり判定を広く(左右に張り出す)。近づくと光る */
+.tt-h{position:absolute;top:-4px;width:12px;height:60px;background:var(--panel);border:2px solid var(--accent);border-radius:4px;cursor:ew-resize;z-index:3;box-sizing:border-box;transition:box-shadow .12s var(--ease),background .12s var(--ease)}
+.tt-h.in{left:-6px}.tt-h.out{right:-6px}
+.tt-h:hover,.tt-h.on{background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 30%,transparent)}
+.tt-x{position:absolute;top:6px;height:52px;border-radius:6px;cursor:pointer;box-sizing:border-box;
+  background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--danger) 26%,transparent) 0 6px,transparent 6px 12px);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 30%,transparent)}
+.tt-x.sel{outline:2px dashed var(--danger);outline-offset:1px}
+.tt-s{position:absolute;top:5px;height:24px;border-radius:5px;padding:0 6px;font:12px/24px var(--font-ui,inherit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  background:color-mix(in srgb,var(--info) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--info) 35%,transparent);color:var(--ink);cursor:pointer;box-sizing:border-box}
+.tt-s.cut{opacity:.45;text-decoration:line-through}
+.tt-s.sel{outline:2px solid var(--accent);outline-offset:-1px;overflow:visible;z-index:3}   /* 選んだ行(段6 6-3。つまみを外に出すので overflow は visible) */
+.tt-rh{position:absolute;top:-4px;width:9px;height:32px;background:var(--panel);border:2px solid var(--accent);border-radius:3px;cursor:ew-resize;box-sizing:border-box;z-index:4}
+.tt-rh.in{left:-5px}.tt-rh.out{right:-5px}
+.tt-rh:hover,.tt-rh.on{background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)}
+.tt-tl-head{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--playhead);pointer-events:none;z-index:4}
+.tt-tl-head::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top-color:var(--playhead)}
+.tt-tl-io{position:absolute;top:26px;bottom:0;background:color-mix(in srgb,var(--warn) 16%,transparent);border-left:2px dashed var(--warn);border-right:2px dashed var(--warn);pointer-events:none;z-index:2;box-sizing:border-box}
+.tt-tl-io b{position:absolute;top:-24px;margin-left:-6px;font:700 11px/1 var(--mono);color:var(--warn-ink)}
+.tt-tl-snap{position:absolute;top:26px;bottom:0;width:0;border-left:1px dashed var(--ink-2);pointer-events:none;z-index:4}
+.tt-tl-tip{position:absolute;top:2px;transform:translateX(-50%);background:var(--toast-bg);color:var(--toast-ink);border-radius:6px;padding:2px 8px;font:12px/18px var(--mono);white-space:nowrap;z-index:6;pointer-events:none}
+/* ミニマップ(全体。見ている範囲の枠をドラッグで移動・枠の端をドラッグで拡大縮小) */
+.tt-tl-mini{position:relative;height:34px;margin:0 0 8px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer}
+.tt-tl-mini canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.tt-tl-mini-view{position:absolute;top:1px;bottom:1px;background:color-mix(in srgb,var(--accent) 18%,transparent);border:1px solid var(--accent);border-radius:4px;box-sizing:border-box;cursor:grab}
+.tt-tl-mini-view:active{cursor:grabbing}
+.tt-tl-mini-h{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize}
+.tt-tl-mini-h.l{left:-4px}.tt-tl-mini-h.r{right:-4px}
+.tt-cut-status{display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline;margin:8px 2px 0;font-size:13px}
+.tt-cut-status b{font-weight:650}
+.tt-cut-status .tt-cut-next{margin-left:auto}   /* 次の一手「3 パックへ」は状態の行の右端(M6) */
+.tt-cut-keys{margin:6px 2px 0;font-size:12px}
+.tt-cut-keys .savest{margin-left:10px}
+#tabCut.tt-cut-disabled .tt-cut-tools,#tabCut.tt-cut-disabled .tt-tl,#tabCut.tt-cut-disabled .tt-tl-mini,#tabCut.tt-cut-disabled .tt-cut-prev{opacity:.55}
+@container editor (max-width:900px){.tt-cut-top{grid-template-columns:minmax(0,1fr)}.tt-cut-subs{max-height:260px}}
+
+/* ---------- 3 パック(E4。pack-tab.js) ---------- */
+/* パック(0.62.0 で「3 パック」のタブから 2 カット の末尾へ。設定は ⚙ の「パック」の節 #edSetPack) */
+.tt-pack{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.tt-pack-h{margin:0 0 10px;font:650 16px/1.35 var(--font-display)}
+#edSetPack .tt-pk-row{margin:6px 0}
+#edSetPack .tt-pk-l{min-width:9em}
+#edSetPack .tt-pk-item{padding:8px 0}
+.tt-pk-off{margin:0 0 12px}
+.tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
+.tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+/* サムネの案(P5。0.64.0) */
+.tt-th-row{gap:8px;align-items:center;flex-wrap:wrap}
+.tt-th-img{display:block;width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:var(--r)}
+.tt-pk-card{padding:14px 16px}
+.tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
+.tt-pk-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--panel-3);color:var(--ink-2);font:700 12px/1 var(--mono);flex:none}   /* 0.59.3: .ui-tab-n と同じ色(白 on 黄色は 2:1 で読めなかった。A-22) */
+.tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
+.tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
+.tt-pk-p{margin:8px 0 0;line-height:1.6}
+.tt-pk-item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.tt-pk-item:first-of-type{border-top:0}
+.tt-pk-item b{display:block;font-weight:650}
+.tt-pk-item .hint{display:block;margin-top:2px;line-height:1.5}
+.tt-pk-item input{margin-top:3px}
+.tt-pk-more{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
+.tt-pk-more .fld{margin-top:10px}
+.tt-pk-more .fld>label,.tt-pk-more .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
+.tt-pk-more .fld>input,.tt-pk-more .fld>select{width:100%}
+.tt-pk-more .fld>.hint{display:block;margin-top:4px;font-size:12px}
+#pkDir{width:100%}
+.tt-pk-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.tt-pk-stats>div{background:var(--panel-2);border-radius:var(--r);padding:12px}
+.tt-pk-stats b{display:block;font-size:22px;font-weight:650;letter-spacing:.02em}
+.tt-pk-stats>div>span{display:block;margin-top:4px;font-size:12.5px;color:var(--ink-3)}
+.tt-pk-map{position:relative;height:22px;margin:12px 0 0;background:var(--panel-2);border-radius:6px;overflow:hidden}
+.tt-pk-map i{position:absolute;top:3px;bottom:3px;background:var(--accent);border-radius:3px}
+.tt-pk-sub{display:flex;align-items:center;gap:8px;margin:14px 0 8px;font-size:13.5px;color:var(--ink-2)}
+.tt-pk-who{flex-wrap:wrap;margin:0 0 8px}
+.tt-pk-look{display:flex;gap:14px;align-items:flex-start}
+.tt-pk-phone{position:relative;flex:none;width:118px;aspect-ratio:9/16;border-radius:10px;background:var(--stage-bg);overflow:hidden}
+.tt-pk-phone.land{width:180px;aspect-ratio:16/9}
+.tt-pk-phone-cap{position:absolute;left:6%;right:6%;bottom:14%;text-align:center;font-size:12px;line-height:1.3;white-space:pre-line}
+.tt-pk-looktxt{min-width:0;flex:1}
+.tt-pk-cap{background:var(--ink-3);font-size:15px;line-height:1.5;padding:6px 14px;border-radius:6px;margin-bottom:6px;overflow:hidden;white-space:pre-line;text-align:center}
+.tt-pk-warn{margin:12px 0 0;padding:8px 12px 8px 28px}
+.tt-pk-warn.old{opacity:.6}   /* 見積もりが古い間(設定を変えた直後)は前の設定での注意を薄く残す(4-1) */
+.tt-pk-pvstate{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 0}
+.tt-pk-pvstate>span{flex:1;min-width:0}
+.tt-pk-place{margin:6px 0 0;overflow-wrap:anywhere}
+.tt-pk-diff{margin:0 0 8px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.tt-pk-notes{margin:0 0 8px;padding-left:1.2em;font-size:12.5px;overflow-wrap:anywhere}   /* 作ったときの案内(cut2resolve の warningLevels が info のもの。段7) */
+.tt-pk-zipwarn{margin:6px 0 0;font-size:12.5px}
+.tt-pk-warn li{margin:2px 0;line-height:1.5}
+.tt-pk-go{margin-top:14px;gap:10px}
+.tt-pk-dir{margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pk-file{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
+.tt-pk-file .mono{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tt-pk-file .hint{flex:none}
+.tt-pk-lastbtns{margin-top:10px}
+#pkDeliverMsg{margin:6px 0 0}
+.tt-pk-dl-ok{color:var(--ok-ink)}
+.tt-pk-dl-err{color:var(--danger)}
+@container editor (max-width:900px){.tt-pk-grid{grid-template-columns:minmax(0,1fr)}}
+.tt-set-sub{margin:16px 0 6px;font-size:12px;color:var(--ink-2);font-weight:600}
+.tt-set-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+/* パック: 話者ごとの字幕の色(A-2) */
+.tt-pk-spk{margin-top:8px}
+.tt-pk-spklist{margin:4px 0 0;line-height:1.7}
+.tt-pk-spk-i{display:inline-flex;align-items:center;gap:5px}
+.tt-pk-spk-sw{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid var(--line-strong)}

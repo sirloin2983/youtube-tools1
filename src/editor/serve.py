@@ -5,6 +5,7 @@
 
   GET  /                     index.html
   GET  /app.js, /ui-kit.js, /cut.js, /pack-tab.js   画面の JS(CSP script-src 'self' のため外部ファイルで配信)
+  GET  /ui-kit.css, /proof.css                       画面の CSS(index.html の <style> から外へ。RS8 C2b-0)
   GET  /api/ping             起動確認
   GET  /api/tools            ffmpeg / faster-whisper / GPU の有無
   GET  /api/settings, PUT    用語集・置換辞書・前回の設定
@@ -520,6 +521,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_path(ed_state.INDEX, "text/html; charset=utf-8", PAGE_HEADERS)
             if u.path in ("/app.js", "/ui-kit.js"):
                 return self._send_path(ed_state.APP_JS if u.path == "/app.js" else ed_state.UI_KIT_JS, "text/javascript; charset=utf-8")
+            if u.path in ("/ui-kit.css", "/proof.css"):
+                return self._send_path(ed_state.UI_KIT_CSS if u.path == "/ui-kit.css" else ed_state.PROOF_CSS, "text/css; charset=utf-8")
             if name in ed_state.PAGE_JS and os.path.isfile(os.path.join(_workdata.ROOT, name)):
                 return self._send_path(os.path.join(_workdata.ROOT, name), "text/javascript; charset=utf-8")
             fn = GET_API.get(u.path)
