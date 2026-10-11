@@ -313,9 +313,10 @@ def _sort_rows(items, order):
     return [r for r, _n in items]
 
 
-def compose_rows(mach, hum):
+def compose_rows(mach, hum, covers_out=None):
     """機械の層 + 人の層 -> (文書の行, stats)。stats = {kept: 機械のままの行, human: 人の文字の行, attr: 属性を重ねた行, dead: 消した機械の行,
-    dropped: 当たる機械の行が無くて捨てた属性の行, machChanged: 印 MACH_CHANGED, spkChanged: 印 SPK_CHANGED}"""
+    dropped: 当たる機械の行が無くて捨てた属性の行, machChanged: 印 MACH_CHANGED, spkChanged: 印 SPK_CHANGED}。
+    covers_out = dict を渡すと {人の文字の行の id: [今覆う機械の行(写し)]} を入れる(3 択の口。O2-4)"""
     hum = hum if isinstance(hum, dict) else machine_hum(mach)
     M = _mrows(mach)
     by = {m["id"]: j for j, m in enumerate(M)}
@@ -402,6 +403,8 @@ def compose_rows(mach, hum):
     for i in text_i:
         items.append((_text_row(H[i], [M[j] for j in cover[i]], changed[i], ctx), len(items)))
         stats["human"] += 1
+        if covers_out is not None:
+            covers_out[str(H[i].get("id"))] = [_base_row(M[j]) for j in cover[i]]
     return _sort_rows(items, hum.get("order")), stats
 
 
@@ -603,6 +606,60 @@ def diff(mach, doc, prev_hum=None):
         if tied:
             hum["order"] = tied
     return hum
+
+
+# ---------- 3 択の口(O2-4。案 A): 機械の結果が変わった人の行 ----------
+def strip_flag(flag, mark):
+    """印の並び(「、」区切り)から mark を外す"""
+    return "、".join(x for x in str(flag or "").split("、") if x and x != mark)
+
+
+def mach_changes(mach, hum, rid=None):
+    """組み立てで印 MACH_CHANGED が付く人の文字の行 -> [{"id", "human": {start, end, text, speaker, proofed}, "before": [覆ったときの機械の行],
+    "now": [今覆う機械の行]}](文書の並び)。rid = その行だけ"""
+    if not isinstance(hum, dict):
+        return []
+    cov = {}
+    rows, _st = compose_rows(mach, hum, cov)
+    H = {str(h.get("id")): h for h in hum.get("rows") or [] if isinstance(h, dict) and "text" in h}
+    out = []
+    for g in rows:
+        h = H.get(g["id"])
+        if h is None or MACH_CHANGED not in str(g.get("flag") or "").split("、") or (rid is not None and g["id"] != str(rid)):
+            continue
+        out.append({"id": g["id"], "human": {"start": g["start"], "end": g["end"], "text": g["text"], "speaker": g.get("speaker") or "",
+                                             "proofed": g.get("proofed") is True},
+                    "before": [_base_row(b) for b in (h.get("base") or {}).get("rows") or [] if isinstance(b, dict)],
+                    "now": cov.get(g["id"], [])})
+    return out
+
+
+def pick(mach, hum, rid, choice):
+    """3 択の選んだ結果 -> 新しい人の層(写し。hum は書き換えない)。choice:
+    - "mine"(自分の直しのまま): 行の base を今の機械にして印 MACH_CHANGED を外す(次に機械が変わるまで印は付かない)
+    - "machine"(今の機械にする): 人の層からその行を外す(文字・時刻・話者・校正済みなどの直しごと。今の機械の行が出る)
+    行が人の文字の行で無ければ KeyError・choice が違えば ValueError"""
+    if choice not in ("mine", "machine"):
+        raise ValueError("choice: " + repr(choice))
+    out = copy.deepcopy(hum)
+    rows = out.get("rows") or []
+    k = next((n for n, h in enumerate(rows) if isinstance(h, dict) and "text" in h and str(h.get("id")) == str(rid)), None)
+    if k is None:
+        raise KeyError(rid)
+    if choice == "machine":
+        del rows[k]
+        if out.get("order"):
+            out["order"] = [x for x in out["order"] if str(x) != str(rid)]
+        return out
+    cov = {}
+    compose_rows(mach, hum, cov)
+    now = cov.get(str(rid), [])
+    h = rows[k]
+    h["covers"] = [m["id"] for m in now]
+    h["base"] = {"rev": (mach or {}).get("rev"), "diar": diar_key(mach), "rows": now}
+    if "flag" in h:
+        h["flag"] = strip_flag(h["flag"], MACH_CHANGED)
+    return out
 
 
 # ---------- 話者の対応表 (r8r) ----------

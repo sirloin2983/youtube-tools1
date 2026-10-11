@@ -56,7 +56,7 @@ def write_doc(tid, doc, folder=None):
 
 # 文書を書く操作(why)。人の操作か機械の操作かの印(機械の操作のときだけ機械の層を進める。RS8 O2-2)。
 # O2-2 で 2 つ入れ替えた: fill = 行の無い文書へ文字起こしの結果を入れる(fill_doc)= 機械・drill = 評価ドリルの「全部聞いて直した」の印と行の校正済み = 人
-HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "open_video", "single_speaker", "speaker_sub", "relink", "eval_mark", "drill"})
+HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "open_video", "single_speaker", "speaker_sub", "relink", "eval_mark", "drill", "mach_pick"})   # mach_pick = 3 択(O2-4)
 MACHINE_WHYS = frozenset({"whole", "fill", "rerun_each", "rerun_range", "redo", "resplit", "diar", "diar_context", "diar_voices", "eval_rebuild"})
 FULL_WHYS = frozenset({"whole", "fill", "eval_rebuild"})   # 機械が文書の行を丸ごと書いた操作: 機械の層 = 文書の行(呼び手が mach を渡せばそれ)
 DIAR_WHYS = frozenset({"diar", "diar_context", "diar_voices"})   # 話者の判別: 機械の層の話者と話者の表も文書から写す
@@ -160,6 +160,8 @@ def _commit_primary(tid, doc, why, given_mach, given_hum, folder):
         _txbase.log.warning("層を作れませんでした(写しだけ書きます) %s why=%s: %s %s", tid, why, e.__class__.__name__, str(e)[:200])
         sh = None
     copy = sh["copy"] if sh and sh["copy"] is not None else doc
+    if sh and sh["copy"] is not None:
+        apply_edit_cuts(tid, copy)   # 組み立てた写しの行の「カット済」も編集の内容に合わせる(機械の行が出た所など)
     copy.pop(_yschemas.COMPOSED_FROM, None)
     by = "human" if why in HUMAN_WHYS else "machine"
     if sh is None:

@@ -36,6 +36,7 @@ FILES = {
     "src/manage/cases/docmove.py": ("manage", "manage/cases", "文書を案件の 作業用 へ移す・戻す(RS8 B2-3。入口の起動のときと、コマンド --back・--resume・--now・--purge-migrated。ytt・flow/placement・manage/keep を読む)"),
     "src/manage/cases/markmove.py": ("manage", "manage/cases", "data.json の配信と cases.json の状態を案件の 採用.json・候補.json へ移す・戻す・繋ぎ直す(RS8 B3-8。入口の起動のときと、コマンド --now・--back・--resume・--relink。ytt・flow/casebook・human/review/store の読み方を読む)"),
     "src/human/proof/layers.py": ("human", "human/proof", "文書を機械の層 + 人の層から組み立てる純粋な関数(RS8 O2-1。compose・diff・案 A の印・話者の対応表。ファイルを触らない。ytt だけを読む)"),
+    "src/human/proof/machpick.py": ("human", "human/proof", "3 択の口(RS8 O2-4。機械の結果が変わった人の行の 前の機械・今の機械・人の直しと、自分の直しのまま / 今の機械にする。層が正のときだけ)"),
     "src/eval/tools/eval_layers.py": ("eval", "eval/tools", "機械の層 + 人の層の往復を作業データで確かめる道具(RS8 O2-1。読むだけ。human/proof/layers を読む)"),
     "src/flow/casebook.py": ("flow", "flow", "案件の候補と採用のファイル(RS8 B3-3。作業用/候補.json = ① の機械の候補・作業用/採用.json = ③ の人の採用。分ける split・重ねる merge・案件の引き方 case_of・読み書きとパスごとのロック。ytt だけを読む。保存の経路に入れるのは B3-4)"),
     "src/flow/studiobook.py": ("flow", "flow", "スタジオなしの配信の台帳と URL の段の動詞(RS8 の「URL も CLI で」。StudioBook = data.json + 案件の 候補.json・採用.json をスタジオの Store と同じ形で・LocalStudio = flow/tools の LocalTools が任せる配信の読み・解析・採用・書き出し。ytt・flow(batch・casebook・adopt・keys)・① pipeline/analyze・export を読む。③ は読まない)"),

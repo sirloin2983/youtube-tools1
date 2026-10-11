@@ -41,6 +41,8 @@
   POST /api/effort           {"id", "activeSec", "cutSec"?, "newSession"?} 校正の手間(操作していた秒)を文書の effort に足す(updatedAt は変えない。
                              校正済みにした行の数は保存のときにサーバーが数える。Q2)
   POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
+  GET  /api/mach-changes?id=&row=  機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直し(層が正のときだけ。RS8 O2-4)
+  POST /api/mach-changes/pick {"id", "row", "pick": mine|machine, "baseUpdatedAt"?} 自分の直しのまま / 今の機械にする(本体は human/proof/machpick.py)
   POST /api/thumb-ideas      {"id", "crop"?: alt|center|right} サムネの案(6 案を 1 枚の PNG に。作業用/<名前>_thumb-ideas.png。ジョブ kind thumb。文書は読むだけ。P5。本体は ed_thumb.py → thumb_ideas.py)
   GET  /api/thumb-ideas?id=   その文書のサムネの案の有無・作った時刻・案ごとの型と文字 / GET /api/thumb-ideas/image?id= で PNG
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
@@ -135,6 +137,7 @@ from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測�
 from human.proof import alt as _alt  # noqa: E402  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b。RS3-E6 に ed_alt から移した。ed_alt は転送だけの殻)
 from human.proof import ytcap as _ytcap  # noqa: E402  (元の配信の YouTube の字幕との食い違いの候補。案 A1。RS3-E6 に ed_ytcap から移した。ed_ytcap は転送だけの殻)
 from human.proof import retime as _proofretime  # noqa: E402  (字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補の API の包み。2026-10-05。RS3-E6 に ed_retime から移した。計算は _txretime)
+from human.proof import machpick as _machpick  # noqa: E402  (3 択の口: 機械の結果が変わった人の行。RS8 O2-4)
 from human.proof import store as _store  # noqa: E402  (文書の読み書き・履歴・整形・手間・要約のキャッシュ・編集の内容・文字起こしせずに開く。RS3-E5a に ed_store から移した。ed_store は転送だけの殻)
 from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a に ed_store から切り出した)
 from manage.cases import relink as _relink  # noqa: E402  (付け替え・まとめて付け替える・「参照…」・素材を 30fps にそろえる。RS3-E7 に ed_relink から移した。ed_relink は転送だけの殻)
@@ -275,6 +278,7 @@ GET_API = {
     "/api/thumb-ideas": lambda a: ed_thumb.thumb_info(a("id")),   # サムネの案の有無・作った時刻・案ごとの型と文字(P5)
     "/api/edit/pack-readme": lambda a: _doclist.pack_readme(a("id")),
     "/api/doc-for": lambda a: {"doc": _store.find_doc_for_media(a("path"))},
+    "/api/mach-changes": lambda a: _machpick.changes(a("id"), a("row", "")),   # 3 択: 機械の結果が変わった人の行(前の機械・今の機械・人の直し。RS8 O2-4。層が正のときだけ)
 }
 
 
@@ -333,6 +337,7 @@ POST_API = {
     "/api/edit/preview": lambda o: _store.edit_preview(o),
     "/api/effort": lambda o: _store.add_effort(o),
     "/api/doc-diarnum": lambda o: _store.set_diar_num(o),   # 文書ごとの話者判別の人数(updatedAt は変えない。段7 E-6)
+    "/api/mach-changes/pick": lambda o: _machpick.pick(o),   # 3 択: 自分の直しのまま / 今の機械にする(RS8 O2-4。409 = 別の所で変わった・層が正でない)
     "/api/drill/reviewed": lambda o: _drill.drill_reviewed(o),   # 評価ドリル(Q4): 動画を全部聞いて直した印(409 = 別の所で変わった)
     "/api/drill/unreviewed": lambda o: _drill.drill_unreviewed(o),   # 確かめ済みの印を外す
     "/api/transcribe/cancel": _cancel,
