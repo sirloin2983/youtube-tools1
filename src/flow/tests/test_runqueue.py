@@ -16,7 +16,8 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from flow import runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
+from flow import board as B, runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
+from ytt import fsio  # noqa: E402
 
 WAIT = 10.0
 
@@ -285,6 +286,91 @@ class TestCancel(Base):
         self.assertEqual(tools.cancelled, ["j1"])   # 実行中の段の仕事も取り消す
         with self.assertRaises(ValueError):
             q.cancel("ffffffffff")
+
+
+class TestBoard(Base):
+    """RS8 の ② の口 S3: attach_board で Run が掲示板(flow/board.py)に載る(引く形・頭 run)。取り消し・やり直しも掲示板の id で"""
+
+    def board(self, q):
+        b = B.Board()
+        q.attach_board(b)
+        return b
+
+    @staticmethod
+    def job_of(b, jid):
+        return next(j for j in b.snapshot()["jobs"] if j["id"] == jid)
+
+    def test_run_on_board(self):
+        """待ち・実行中(器のジョブに親の印)→ 済み(progress 1・案件の根は結果の束から)。history の case で絞れる"""
+        tools = Tools()
+        tools.gate.clear()
+        q = self.queue(tools)
+        b = self.board(q)
+        q.submit(self.env_of(self.media[0]))
+        _until(lambda: q.runs[0].owned, "編集のジョブを待つ")
+        j = self.job_of(b, "run:0123456789")
+        self.assertEqual((j["kind"], j["state"], j["target"], j["canCancel"], j["canRetry"]),
+                         ("run", "running", {"path": self.media[0]}, True, False))
+        self.assertEqual([s["key"] for s in j["steps"]], ["transcribe"])
+        self.assertIn(R.STEP_LABELS["transcribe"], j["phase"])
+        self.assertEqual(b.upsert({"id": "tx:j1", "kind": "transcribe", "state": "running"})["parent"], "run:0123456789")   # 親子の印
+        tools.gate.set()
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+        j = self.job_of(b, "run:0123456789")
+        self.assertEqual((j["state"], j["progress"], j["canCancel"], j["canRetry"], j["finishedAt"] is not None), ("done", 1.0, False, False, True))
+        run = q.runs[0]
+        self.assertTrue(run.result_path, "動画のあるフォルダ = 案件の根に結果の束")
+        self.assertEqual(j["case"], fsio.norm_path(self.tmp))
+        self.assertEqual(b.cases()[fsio.norm_path(self.tmp)]["lastState"], "done")
+        self.assertEqual([r["id"] for r in q.history(case=self.tmp)["runs"]], ["0123456789"])
+        self.assertEqual(q.history(case=os.path.join(self.tmp, "nai"))["total"], 0)
+        self.assertEqual(q.history(case="相対")["total"], 0)
+
+    def test_cancel_and_retry(self):
+        """掲示板の cancel は Queue.cancel・retry は同じ封筒(新しい id)+ 同じ束をもう一度 submit。できない物は Refused・無い id は NotFound"""
+        tools = Tools()
+        tools.gate.clear()
+        q = self.queue(tools)
+        b = self.board(q)
+        q.submit(self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
+        _until(lambda: q.status()["running"] == 1, "実行中")
+        with self.assertRaises(B.Refused):   # 実行中はやり直せない
+            b.retry("run:0123456789")
+        out = b.cancel("run:0123456789")
+        self.assertEqual((out["id"], out["canCancel"]), ("run:0123456789", False))   # 止める印 = もう止められない
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+        old = self.job_of(b, "run:0123456789")
+        self.assertEqual((old["state"], old["canRetry"]), ("cancelled", True))
+        new = b.retry("run:0123456789")
+        self.assertNotEqual(new["id"], "run:0123456789")
+        self.assertEqual((new["kind"], new["state"] in ("queued", "running"), new["target"]), ("run", True, {"path": self.media[0]}))
+        again = next(r for r in q.runs if "run:" + r.id == new["id"])
+        self.assertEqual(again.spec["transcribe"]["model"], "large-v3")   # 同じ束
+        with self.assertRaisesRegex(B.Refused, "すでに実行中"):   # 同じ入力が待ち・実行中
+            b.retry("run:0123456789")
+        tools.gate.set()
+        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
+        with self.assertRaises(B.Refused):   # 済んだ物は止められない・やり直せない
+            b.cancel(new["id"])
+        with self.assertRaises(B.Refused):
+            b.retry(new["id"])
+        with self.assertRaises(B.NotFound):
+            b.cancel("run:ffffffffff")
+        self.assertIsNone(q.board_cancel("0123456789"))
+        with self.assertRaises(LookupError):
+            q.board_retry("ffffffffff")
+
+    def test_board_job_shape(self):
+        """board_job は掲示板の形のまま(normalize を通る)。失敗は error・案件の根は結果の束のパスの形だけで決める"""
+        run = R.Run("vid", "配信", "full", 3)
+        run.state, run.error = "error", "止まりました"
+        j = B.normalize(Q.board_job(run))
+        self.assertEqual((j["state"], j["error"]["text"], j["canRetry"], j["target"]), ("error", "止まりました", True, {"videoId": "vid"}))
+        self.assertFalse(B.normalize(Q.board_job(run, closed=True))["canRetry"])   # 終了の途中はやり直さない
+        root = os.path.join(self.tmp, "案件")
+        self.assertEqual(Q.result_case(os.path.join(root, "作業用", "runs", "0123456789.json")), root)
+        for bad in (None, "x.json", os.path.join(root, "runs", "0123456789.json"), os.path.join(root, "作業用", "x", "0123456789.json")):
+            self.assertIsNone(Q.result_case(bad), bad)
 
 
 class TestStatusLive(Base):

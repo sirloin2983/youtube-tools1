@@ -31,9 +31,10 @@ import os
 import threading
 import time
 import urllib.parse
+import uuid
 
-from ytt import colors as _colors, fsio, tools as _ytools
-from . import envelope as _envelope, machine as _machine, run as run_mod, runlog, spec as _spec
+from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
+from . import board as _board, envelope as _envelope, machine as _machine, placement as _placement, run as run_mod, runlog, spec as _spec
 from .run import (DOC_MODE, MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, analyze_verdict, pack_verdict, tx_verdict)
 
@@ -105,6 +106,39 @@ def _status_of(run):
             "step": next((s["key"] for s in steps if s["state"] == "run"), None),
             "created": int(run.created * 1000), "startedAt": min(started) if started else None,
             "finished": int(run.finished * 1000) if run.finished else None, "resultPath": run.result_path, "steps": steps}
+
+
+BOARD_PREFIX = "run"   # 掲示板(flow/board.py)の id の頭
+RETRY_STATES = ("error", "cancelled")   # 掲示板からやり直せる実行の状態
+
+
+def result_case(path):
+    """結果の束のパス <案件>/作業用/runs/<id>.json -> 案件の根か None(形が違う・相対パス)。ファイルには触らない"""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return None
+    runs = os.path.dirname(path)
+    work = os.path.dirname(runs)
+    if os.path.basename(runs) != _placement.RUNS_DIR or os.path.basename(work) != _schemas.WORK_DIR:
+        return None
+    return os.path.dirname(work)
+
+
+def board_job(run, closed=False):
+    """Run -> 掲示板の Job(flow/board.py の形。kind run・steps = status() の steps)。案件の根は結果の束から(まだ無ければ None = 掲示板の case_hook が
+    target の動画・文書から引く)。phase = 実行中の段の名前と詳細(無ければ run.message)・progress = 済んだ段の割合(済みは 1)・waiting = 段が SLOTS 待ち"""
+    s = _status_of(run)
+    steps, state = s["steps"], run.state
+    cur = next((x for x in steps if x["state"] == "run"), None)
+    detail = (cur.get("detail") or "") if cur else ""
+    phase = ("%s %s" % (cur["label"], detail)).strip() if cur else (run.message or "")
+    ended = sum(1 for x in steps if x["state"] in run_mod.DONE_STEPS or x["state"] == "error")
+    progress = 1.0 if state == "done" else (ended / len(steps) if steps and state == "running" else None)
+    return {"id": "%s:%s" % (BOARD_PREFIX, run.id), "kind": "run", "case": result_case(run.result_path),
+            "target": {"videoId": run.video_id, "docId": run.doc_id, "path": run.source_path}, "title": run.title or run.id,
+            "state": state, "stateLabel": s["stateLabel"], "phase": phase, "progress": progress, "waiting": _yjobs.WAIT_MESSAGE in detail,
+            "createdAt": s["created"], "startedAt": s["startedAt"], "finishedAt": s["finished"],
+            "error": {"code": "run", "text": run.error, "detail": None} if state == "error" and run.error else None,
+            "canCancel": state in ACTIVE_STATES and not run.cancel and not closed, "canRetry": state in RETRY_STATES and not closed, "steps": steps}
 
 
 class Queue(run_mod.Runner):
@@ -455,16 +489,67 @@ class Queue(run_mod.Runner):
             past = [{k: rec.get(k) for k in PAST_KEYS} for key, rec in reversed(self._past.items()) if key not in keys][:PAST_MAX]
         return {"runs": runs, "past": past, "modes": MODES}
 
-    def history(self, limit=None, offset=0):
-        """終わった実行の記録(今のファイルと .1。新しい順)。-> {"runs", "total", "more", "offset"}。limit・offset は範囲に丸める"""
+    def history(self, limit=None, offset=0, case=None):
+        """終わった実行の記録(今のファイルと .1。新しい順)。-> {"runs", "total", "more", "offset"}。limit・offset は範囲に丸める。
+        case = 案件の根(1 行の resultPath の案件がそれの物だけ。比べ方は flow/board.norm_case。RS8 の GET /api/flow/history)"""
         limit = HISTORY_DEFAULT if not isinstance(limit, int) or isinstance(limit, bool) else min(HISTORY_MAX, max(1, limit))
         offset = 0 if not isinstance(offset, int) or isinstance(offset, bool) else max(0, offset)
         if not self.log_path:
             return {"runs": [], "total": 0, "more": False, "offset": offset}
         with self._log_lock:   # 書き込み(.1 へ回す)と重ねない
             recs = runlog.read_runs_log(self.log_path)
+        if case is not None:
+            want = _board.norm_case(case)
+            recs = [r for r in recs if want is not None and _board.norm_case(result_case(r.get("resultPath"))) == want]
         recs.reverse()
         return {"runs": recs[offset:offset + limit], "total": len(recs), "more": offset + limit < len(recs), "offset": offset}
+
+    # ------------------------------------------------------------ 掲示板(RS8 の ② の口 S3。flow/board.py)
+    _board_ref = None   # attach_board した掲示板(親子の印を付けるため)
+
+    def attach_board(self, board):
+        """掲示板にこの待ち行列の実行を載せる(引く形・頭 run = 問い合わせのたびに board_jobs を読む)。取り消し・やり直しも掲示板の id で
+        (board_cancel・board_retry)。入口(src/app/server.py)が 1 回呼ぶ。器のジョブ(Run.owned)は親の下に畳む印を付ける"""
+        self._board_ref = board
+        board.register(BOARD_PREFIX, source=self.board_jobs, cancel=self.board_cancel, retry=self.board_retry)
+
+    def board_jobs(self):
+        """掲示板の引く形: メモリの実行(入れた順)-> [Job]。実行が今待っている器のジョブ(Run.owned = 編集・スタジオの解析・パック)には親の印を付ける"""
+        with self.cv:
+            closed = self.closed
+            items = [(board_job(r, closed), r.owned) for r in self.runs]
+        b = self._board_ref
+        for job, owned in items if b is not None else ():
+            tool, ids = owned if isinstance(owned, tuple) and len(owned) == 2 else (None, ())
+            prefix = _board.OWNED_PREFIX.get(tool)
+            for i in list(ids or ()) if prefix else ():
+                try:
+                    b.link("%s:%s" % (prefix, i), job["id"])
+                except ValueError:   # 器の id が掲示板の形に合わない(印を付けないだけ)
+                    pass
+        return [job for job, _ in items]
+
+    def board_cancel(self, run_id):
+        """掲示板の取り消し: cancel と同じ(待ちは「中止」・実行中は止める印)。無い id は LookupError"""
+        with self.cv:
+            if not any(r.id == run_id for r in self.runs):
+                raise LookupError("その実行はありません")
+        self.cancel(run_id)
+
+    def board_retry(self, run_id):
+        """掲示板のやり直し: 失敗・中止した実行と同じ封筒(新しい id)+ 同じ束をもう一度 submit(済んだ段は鍵で飛ぶ)-> 新しい実行の Job。
+        無い id は LookupError・失敗・中止でない・同じ入力が待ち・実行中なら理由つきの ValueError"""
+        with self.cv:
+            run = next((r for r in self.runs if r.id == run_id), None)
+        if run is None:
+            raise LookupError("その実行はありません")
+        if run.state not in RETRY_STATES:
+            raise ValueError("やり直せるのは失敗・中止した実行だけです")
+        env = dict(run.envelope(), id=uuid.uuid4().hex[:10], createdAt=None)
+        pub = self.submit(env, run.spec)
+        with self.cv:
+            new = next(r for r in self.runs if r.id == pub["id"])
+            return board_job(new, self.closed)
 
     def _remember(self, rec):
         """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)。

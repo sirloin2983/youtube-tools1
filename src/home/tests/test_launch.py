@@ -19,6 +19,7 @@ import textwrap
 import threading
 import time
 import unittest
+import urllib.parse
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
@@ -942,6 +943,55 @@ class PortalHttpTest(Base):
         self.assertEqual(next(x for x in self.srv.autorun.runs if x.id == "0123456789").spec["transcribe"]["model"], "large-v3")   # 受けた束のまま
         r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
+
+    def test_flow_board_api(self):
+        """RS8 の ② の口 S3: status に rev・jobs・cases を足す(今の項目はそのまま)・?case= の検査と絞り込み・POST /api/flow/cancel・retry
+        (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate(旧い名前と同じ口)"""
+        quote = urllib.parse.quote
+        r, body = self.req("GET", "/api/flow/status")
+        st = json.loads(body)
+        self.assertEqual(r.status, 200)
+        self.assertLessEqual({"queued", "running", "done", "idle", "closed", "live", "runs", "rev", "jobs", "cases"}, set(st))
+        self.assertIsInstance(st["rev"], int)
+        for path in ("/api/flow/status?case=" + quote("相対/パス"), "/api/flow/history?case=" + quote("x")):
+            r, body = self.req("GET", path)
+            self.assertEqual((r.status, json.loads(body)["error"]), (400, "bad_request"), path)
+        media = os.path.join(self.tmp, "切り抜き.mp4")
+        with open(media, "wb") as f:
+            f.write(b"x")
+        env = {"id": "0123456789", "kind": "file", "input": {"path": media, "title": "切り抜き"}, "legacy": {"mode": "file"}}
+        r, _ = self.post("/api/flow/submit", body=json.dumps({"envelope": env}, ensure_ascii=False).encode("utf-8"))
+        self.assertEqual(r.status, 200)
+        st = json.loads(self.req("GET", "/api/flow/status")[1])
+        job = next(j for j in st["jobs"] if j["id"] == "run:0123456789")
+        self.assertEqual((job["kind"], job["target"]["path"], [s["key"] for s in job["steps"]]), ("run", media, ["transcribe"]))
+        st = json.loads(self.req("GET", "/api/flow/status?case=" + quote(os.path.join(self.tmp, "nai")))[1])
+        self.assertEqual((st["jobs"], [x["id"] for x in st["runs"]]), ([], ["0123456789"]))   # 絞るのは jobs だけ
+        r, _ = self.post("/api/flow/cancel", headers={"X-YTT-Token": "x"}, body=b'{"id": "run:0123456789"}')   # 書き込み系 = 合言葉が要る
+        self.assertEqual(r.status, 403)
+        for payload, code, err in (({"id": "nai"}, 400, "bad_request"), ({}, 400, "bad_request"), ({"id": "run:ffffffffff"}, 404, "not_found")):
+            for op in ("cancel", "retry"):
+                r, body = self.post("/api/flow/" + op, body=json.dumps(payload).encode("utf-8"))
+                self.assertEqual((r.status, json.loads(body)["error"]), (code, err), (op, payload))
+        r, body = self.post("/api/flow/cancel", body=b'{"id": "run:0123456789"}')
+        self.assertIn(r.status, (200, 409))   # 実行中なら止める・もう終わっていれば cannot_cancel
+        end = time.time() + 30
+        while not self.srv.autorun.status()["idle"] and time.time() < end:
+            time.sleep(0.05)
+        r, body = self.post("/api/flow/cancel", body=b'{"id": "run:0123456789"}')
+        self.assertEqual((r.status, json.loads(body)["error"]), (409, "cannot_cancel"))
+        r, body = self.post("/api/flow/retry", body=b'{"id": "run:0123456789"}')
+        self.assertEqual(r.status, 200, body)
+        new = json.loads(body)["job"]
+        self.assertNotEqual(new["id"], "run:0123456789")
+        self.post("/api/flow/cancel", body=json.dumps({"id": new["id"]}).encode("utf-8"))
+        r, body = self.req("GET", "/api/flow/history?case=" + quote(self.tmp) + "&limit=5")
+        self.assertEqual(r.status, 200)
+        self.assertLessEqual({"runs", "total", "more", "offset"}, set(json.loads(body)))
+        r, _ = self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
+        self.assertEqual(r.status, 403)
+        r, _ = self.post("/api/flow/estimate", body=b'{"ids": []}')
+        self.assertEqual(r.status, 400)   # 旧い /api/autorun/estimate と同じ検査(文書は 1 本から)
 
     def test_flow_submit_live_goes_to_live(self):
         """RS7-2 G2b: 封筒 kind live は ② の口からライブ係(Live.submit)へ(入口が Queue.set_live_hook で登録)。リアルタイム切り抜きがオフなら 400 と理由

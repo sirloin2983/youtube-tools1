@@ -160,6 +160,24 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 - **待ちの記録** `app\logs\autorun-active.json` は**版 2** = 各実行が封筒 + 束 + 状態(`Run.saved()`)。版 2 でない記録(版 1 など。欄だけ・束なし)は読まずに捨てる(ログに 1 行。変換はしない)。古すぎる実行は戻さず記録に「中止」。待ち行列・糸・記録は `Queue`(`runqueue.py`)が持ち、入口の AutoRunner は受付と hook だけ
 - `Run.public` に `packs`・`newDocs`(文書単位の実行でも `docs`)
 
+### 2.9 ② のジョブの掲示板と画面が見る口(RS8 の ② の口 S1・S3。`src/flow/board.py`・`src/flow/runqueue.py`・`src/app/server.py`。設計 `docs/design/rs8-flow-api.md`)
+新しい画面(入口・案件の画面)は「今・何が・どこまで動いているか」を**この口だけ**から読む(各ツールの進み具合の API を直に見ない)。**案件の中身(候補・採用・文書・パックの有無)と人の操作は ② を通さず** ④ `GET /api/cases`・③ の今の口のまま。② が持つ案件の知識は「根」(案件のフォルダの絶対パス)まで。
+- **Job**(掲示板が器ごとの言葉の違いを吸収した 1 つの形。`board.normalize`): `{id, kind, parent, case, target, title, state, stateLabel, phase, progress, waiting, createdAt, startedAt, finishedAt, error, canCancel, canRetry, steps}`
+  - `id` = `<頭>:<器の中の id>`。頭は `run`(② の実行)・`tx`(編集のジョブ)・`an`(解析)・`ex`(書き出し)・`pk`(パック)・`lx`・`la`・`lt`(ライブの書き出し・作り直し・配信中の候補の文字起こし)・`dl`(届ける)・`se`(配信の検索)= `board.PREFIXES`。器の中の id は英数字と `. _ -` の 80 字まで
+  - `kind` は `board.KINDS`(`run`・`analyze`・`adopt`・`export`・`transcribe`・`diarize`・`pack`・`deliver`・`rerun`・`search`・`live_export`・`live_archive`・`live_tx`)・`state` は 6 つ(`queued`・`running`・`done`・`error`・`cancelled`・`skipped`)。器ごとの細かい状態は `running` + `phase`(人が読む短い文)に畳む。語彙の外・知らない項目は ValueError(増やすときは `board.py` の表に足す)
+  - `parent` = ② の実行が頼んで動いた器のジョブならその `run:` の id(`Run.owned` から `board.link` が付ける)・`case` = 案件の根(`fsio.norm_path` = 大文字小文字と区切りをそろえた絶対パス)か null・`target` = `videoId`・`docId`・`markId`・`path`・`recording` のある物だけ
+  - `progress` は 0〜1 か null・`waiting` = SLOTS 待ち(待ち・実行中のときだけ真)・時刻はミリ秒・`error` は `{code, text, detail}` か null(`text` は画面に出す文・`detail` は「詳しく」の中だけ)・`canCancel` は待ち・実行中のときだけ・`canRetry` は終わったときだけ真・`steps` は `kind run` だけ(`status` の `steps[]` と同じ)
+  - 案件の根を器が知らなければ `target` から引く(入口が `set_case_hook(board.guess_case)` = 動画のパスのフォルダ・文書の索引の 作業用 の 1 つ上・配信の書き出した切り抜き)。引けなかった物は 30 秒ごとにだけ引き直す。② の Run は結果の束のパス(`<案件>\作業用\runs\<id>.json`)から
+- **載せ方**(器の本体と今の API は変えない): 押す形 `upsert(job)`(器が状態を変える所で 1 行)か、引く形 `register(頭, source=fn)`(問い合わせのたびに `fn()` → `[Job]` を読んで写す。返さなくなった待ち・実行中の物は消す)。取り消し・やり直しは `register(頭, cancel=fn, retry=fn)` の `fn(器の中の id)`(cancel は None か止めたあとの Job・retry は新しい Job。できなければ ValueError・無ければ LookupError)。終わったジョブは終わった時刻の新しい 30 件まで残す(器が忘れても)。**① の器(書き出し・パック)は flow を読めないので、呼び手(app の serve)が器の on_change の hook で upsert する**。掲示板はプロセスに 1 つ(`board.default()`)
+- 今載っている器: ② の Run(`Queue.attach_board`。引く形・頭 `run`。retry = 同じ封筒(新しい id)+ 同じ束をもう一度 submit = 済んだ段は鍵で飛ぶ。失敗・中止した実行だけ)。ほかの器は RS8 の S2 で包む
+- **口**(合言葉・Host / Origin の検査は今の書き込み系の口と同じ):
+  - `GET /api/flow/status[?case=<根>]` = 2.8 の項目 + `rev`(変わるたびに増える整数)・`jobs`(待ち・実行中 + 終わった直近 30 件。入れた順)・`cases`(`{根: {active, lastState, lastFinished}}`)。`?case=` は `jobs` だけを絞る(`idle`・`live`・数・`runs`・`cases` は絞らない = 送るアプリの意味は変わらない)。`case` が絶対パスでなければ 400
+  - `POST /api/flow/cancel {id}`・`POST /api/flow/retry {id}` → `{job}`(retry は新しい id の Job)。id の形が違えば 400 `bad_request`・無い id は 404 `not_found`・できない物は 409 `cannot_cancel` / `cannot_retry`
+  - `GET /api/flow/history[?case=&limit=&offset=]` = `/api/autorun/history` と同じ中身。`case` は記録の 1 行の `resultPath` の案件で絞る
+  - `POST /api/flow/estimate` = `/api/autorun/estimate` と同じ(② の名前)
+- **知らせ方は間隔での問い合わせ**: 動いている物があれば 2 秒・無ければ 15 秒。`rev` が前と同じなら描き直さない。SSE・long-poll は作らない(入口は標準ライブラリの `ThreadingHTTPServer` で接続 1 本が糸 1 本を塞ぐ・律速は人の校正)
+- 旧い進み具合・取り消しの口(`/api/autorun`・編集 `/api/jobs`・各 cancel)は新しい画面に替えるまで残す。`status` の `runs` は `jobs` の `kind run` と同じ中身(新しい画面が読まなくなったら消す)。知らない項目は無視する決まり(1 節)なので、送るアプリ・CLI はそのまま読める
+
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
 

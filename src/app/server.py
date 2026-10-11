@@ -23,7 +23,13 @@
                                           形が違う・同じ入力が待ち・実行中は 400 と理由。動画ファイルの封筒は実在するパス・動画か音声の拡張子だけ。届け先が無ければ届けない
   GET  /api/flow/status                   ② の待ち・実行中の数と進み具合 {queued, running, done, idle, closed, live, runs}(src/flow/runqueue.py の status。CLI・送るアプリが聞く)。
                                           live = {recording, detecting, exporting}(ライブの録画中・検出中・書き出しの途中の数。PortalServer.live_activity)。
-                                          idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(送るアプリの「終わったら閉じる」。RS7-2 G5a)
+                                          idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(送るアプリの「終わったら閉じる」。RS7-2 G5a)。
+                                          RS8: + rev(変わるたびに増える)・jobs(掲示板 src/flow/board.py の Job。待ち・実行中 + 終わった直近 30 件・入れた順)・
+                                          cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。docs/spec/pipeline.md 2.9
+  POST /api/flow/cancel                   {id} 掲示板の id(「頭:id」)のジョブを止める → {job}。無い id は 404・止められない物は 409 cannot_cancel・形が違えば 400
+  POST /api/flow/retry                    {id} 失敗・中止したジョブを同じ指定で入れ直す → {job}(新しい id)。無い id は 404・できない物は 409 cannot_retry
+  GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(/api/autorun/history と同じ中身。case = 結果の束の案件で絞る)
+  POST /api/flow/estimate                 /api/autorun/estimate と同じ(② の名前。旧い名前も残す)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
@@ -93,6 +99,7 @@ if CODE_DIR not in sys.path:   # home の部品を裸の名前で読む(import m
     sys.path.insert(0, CODE_DIR)
 from manage.cases import txindex  # noqa: E402
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
+from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
 from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b)
@@ -568,6 +575,7 @@ POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("
                "/api/autorun/start": ("_post_autorun", True), "/api/autorun/cancel": ("_post_autorun", True),
                "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
                "/api/autorun/estimate": ("_post_autorun", True), "/api/flow/submit": ("_post_flow_submit", True),
+               "/api/flow/estimate": ("_post_autorun", True), "/api/flow/cancel": ("_post_flow_job", True), "/api/flow/retry": ("_post_flow_job", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
                "/api/cleanup": ("_post_cleanup", False), "/api/shutdown": ("_post_shutdown", False)}
@@ -691,10 +699,16 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._json(200, {"tool": tid, "exists": lines is not None, "lines": lines or [], "log": path})
         if u.path in GET_SNAPSHOTS:
             return self._json(200, getattr(self.server, GET_SNAPSHOTS[u.path]).snapshot())
-        if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・送るアプリの「終わったら閉じる」)
-            return self._json(200, self.server.autorun.status())
-        if u.path == "/api/autorun/history":   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
-            return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0)))
+        case = (q.get("case") or [None])[0] if u.path in ("/api/flow/status", "/api/flow/history") else None   # 案件の根の絶対パス(RS8)
+        if case is not None and board_mod.norm_case(case) is None:
+            return self._fail(400, "bad_request", "case は案件のフォルダの絶対パスにしてください")
+        if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・送るアプリの「終わったら閉じる」)+ 掲示板(RS8)
+            st = self.server.autorun.status()   # autorun を作る = 掲示板に Run を載せる(PortalServer.autorun)
+            st.update(self.server.board.snapshot(case=case))
+            return self._json(200, st)
+        if u.path in ("/api/autorun/history", "/api/flow/history"):   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
+            return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0),
+                                                               case=case))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
             try:
                 return self._json(200, cases_mod.snapshot(sup.root))
@@ -775,6 +789,19 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._fail(400, "bad_request", str(e))
         except (TypeError, KeyError, AttributeError) as e:   # 検査を抜けた形の違い(外から来る本文なので 500 にしない)
             return self._fail(400, "bad_request", "封筒・束の形が正しくありません(%s)" % e.__class__.__name__)
+
+    def _post_flow_job(self, path, body):
+        """掲示板のジョブ 1 つを止める・やり直す(RS8。/api/flow/<cancel|retry> {id})。振り分けは src/flow/board.py(id の頭 → 器の関数)"""
+        op = path.rsplit("/", 1)[1]
+        self.server.autorun   # ② の Run を掲示板に載せておく(初めて読むとき PortalServer.autorun が attach_board する)
+        try:
+            return self._json(200, {"job": getattr(self.server.board, op)(body.get("id"))})
+        except board_mod.NotFound as e:
+            return self._fail(404, "not_found", str(e))
+        except board_mod.Refused as e:
+            return self._fail(409, e.code, str(e))
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
 
     def _post_intake_scan(self, path, body):
         """今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)"""
@@ -881,6 +908,10 @@ class PortalServer(httpsec.ExclusiveServer):
         self.mounts = {}
         self._autorun = None
         self._autorun_lock = threading.Lock()
+        # ② のジョブの掲示板(プロセスに 1 つ = 器を包む所と同じ物。RS8 の ② の口)。案件の根を知らない器の Job は target から引く(既定の guess_case)
+        self.board = board_mod.default()
+        self.board.log = sup.log
+        self.board.set_case_hook(board_mod.guess_case)
         self._torn_down = False
         self._teardown_lock = threading.Lock()
         app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
@@ -1160,6 +1191,7 @@ class PortalServer(httpsec.ExclusiveServer):
                                                        log=self.sup.log)   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
                 self._autorun.set_status_hook(self.live_activity)   # GET /api/flow/status の live 欄と idle(Queue はライブを知らない。RS7-2 G5a)
                 self._autorun.set_live_hook(lambda env, spec: self.live.submit(env, spec))   # 封筒 kind live はライブ係が受ける(録画を始めて録画の束を残す。画面なしでも。RS7-2 G2b)
+                self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)
             return self._autorun
 
     def live_activity(self):
