@@ -59,7 +59,7 @@ class TestPackJobs(unittest.TestCase):
         ids = []
         for _ in range(KEEP_JOBS + 3):
             ids.append(wait(pj.start_job("plan", lambda task: 1)).id)
-        self.assertEqual(len(pj.jobs), KEEP_JOBS)
+        self.assertEqual(len(pj.table.jobs), KEEP_JOBS)
         with self.assertRaises(ApiError):
             pj.job(ids[0])
         self.assertIs(pj.job(ids[-1]).id, ids[-1])

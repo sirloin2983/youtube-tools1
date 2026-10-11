@@ -26,7 +26,6 @@ from pipeline.export import exporter
 from flow import export as flow_export
 import serve
 from ytt.errors import ApiError
-from ytt.jobs import Ctl
 
 
 class Home(unittest.TestCase):
@@ -560,16 +559,18 @@ class TestShutdownJobs(Home):
 
     def test_queue_waiting_and_running_are_cancelled(self):
         b = serve.BATCH
+        t = b.table   # ② の器 flow/jobs.Table(OPT2 の J6)。記録を糸に渡さずに直に置く
         src = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
-        wait_it = b._new_item(src, {}, "待ちの配信", "")
-        run_it = b._new_item(dict(src, videoId="bbcdefghijk"), {}, "解析中の配信", "")
-        run_it["status"], run_it["ctl"] = "running", Ctl()
-        b.items += [run_it, wait_it]
+        extra = {"channel": "", "marks": 0, "chatSnap": None}
+        wait_it = t._new({"src": src, "settings": {}}, "analyze", "待ちの配信", extra)
+        run_it = t._new({"src": dict(src, videoId="bbcdefghijk"), "settings": {}}, "analyze", "解析中の配信", extra)
+        run_it["state"] = "running"
+        t.jobs.update({run_it["id"]: run_it, wait_it["id"]: wait_it})
         self.assertEqual(sorted(b.shutdown()), sorted(["待ちの配信", "解析中の配信"]))
-        self.assertEqual((wait_it["status"], wait_it["error"]), ("cancelled", "終了のため中断しました"))
+        self.assertEqual((wait_it["state"], wait_it["error"]), ("cancelled", "終了のため中断しました"))
         self.assertTrue(run_it["ctl"].is_cancelled())
-        b._complete(run_it, "cancelled")   # 解析のスレッドが中止を見て終わった
-        self.assertEqual((run_it["status"], run_it["error"], run_it["phase"]), ("cancelled", "終了のため中断しました", "中断しました(終了)"))
+        t.finish(run_it, "cancelled")   # 解析の糸が中止を見て終わった
+        self.assertEqual((run_it["state"], run_it["error"], run_it["phase"]), ("cancelled", "終了のため中断しました", "中断しました(終了)"))
         self.assertFalse(b.is_busy())
         with self.assertRaises(ApiError) as cm:   # 終了の流れのあとは新しく入れない
             b.add([{"kind": "youtube", "videoId": "cbcdefghijk"}], {})
@@ -589,12 +590,13 @@ class TestExportJobSettles(Home):
     def test_unexpected_error_does_not_leave_running(self):
         spec = {"videoId": "fabcdefghij", "clips": [{"id": "m1", "start": 0.0, "end": 1.0, "title": "a", "label": ""}]}
         ex = flow_export.ExportJobs()
-        rec = {"id": "x", "videoId": spec["videoId"], "created": time.time(), "outDir": "", "res": exporter.new_result(spec),
-               "ctl": flow_export._jobs.Ctl(), "waiting": False, "finishedAt": None, "interrupted": False}
+        rec = ex.table._new(spec, "export", "", {"videoId": spec["videoId"], "outDir": "", "res": exporter.new_result(spec)})
+        rec["state"] = "running"
+        ex.table.jobs[rec["id"]] = rec
         job = rec["res"]
         with patch.object(exporter, "_run_job", side_effect=ValueError("boom")):
-            with self.assertRaises(ValueError):
-                ex.work(rec, spec)   # 器の糸の中身(枠 → ① の run → 実行中のまま終われば後始末)
+            ex.table.work(rec)   # 器の糸の中身(枠 → ① の run → 実行中のまま終われば後始末)。想定外の例外は糸の外へ出さない
+        self.assertEqual(rec["state"], "error")
         self.assertEqual(job["state"], "error")
         self.assertEqual(job["items"][0]["status"], "error")
         self.assertIn("studio-errors.log", job["items"][0]["error"])

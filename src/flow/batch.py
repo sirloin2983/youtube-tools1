@@ -1,17 +1,18 @@
-"""解析キュー(バッチ): 最大10本(待ち+実行中)。1つのワーカースレッドが古い順に1本ずつ analyze.run(spec, ctl) で解析する(item ごとに Ctl を作る。OPT2 の J1)。
+"""解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
+J6 で ② の 1 つの器 `flow/jobs.Table`(頭 an)の上に載せた: 積む・糸・枠・状態・取り消し・やり直し・履歴・掲示板は Table、
+受け入れの検査(形・ffmpeg・yt-dlp・いっぱい・同じ配信)・store.ensure・チャットの先読み・結果を store へ入れる段取りはここ。
 
 - 終わったら候補を「自動マーク」に変換して store に保存(その動画の既存の自動マークは置き換え、手動マークは残す)。series はメモリに保持。
 - 失敗・中止は次の item へ続行。終わった item の履歴は新しい順に最大30件。
+- 応答(/api/queue の items)の形は今のまま: qid・videoId・kind(src の kind)・title・channel・status(waiting・running・done・error・cancelled・skipped)・phase・progress・error・chat・marks・finishedAt
 """
-import threading
-import uuid
-
-from ytt import jobs, schemas, studio_env as _env
+from ytt import schemas, studio_env as _env
 
 from pipeline.analyze import fetch   # 解析の材料の取得と先読み(OPT2)
 from pipeline.analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
-from ytt.errors import ApiError, Cancelled
-from ytt.jobs import Ctl
+from ytt.errors import ApiError
+
+from .jobs import Table
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
@@ -20,218 +21,158 @@ BOARD_STATE = {"waiting": "queued", "running": "running", "done": "done", "error
 RETRYABLE = ("error", "cancelled", "skipped")
 FULL_MSG = "一度に入れられるのは%d本までです" % MAX_ACTIVE
 DUP_MSG = "すでに解析の順番待ちにあります"
+PHASES = {"done": "完了", "error": "失敗", "cancelled": "中止しました", "skipped": "取り除きました"}
+
+
+def _vid(rec):
+    return rec["spec"]["src"]["videoId"]
+
+
+def _admit(active, spec, kind):
+    """待ち + 実行中に入れられないとき ApiError(いっぱい・同じ配信がもうある。409)"""
+    if len(active) >= MAX_ACTIVE:
+        raise ApiError("full", FULL_MSG, 409)
+    if any(_vid(r) == spec["src"]["videoId"] for r in active):
+        raise ApiError("duplicate", DUP_MSG, 409)
 
 
 class Batch:
     def __init__(self, store):
         self.store = store
-        self.cv = threading.Condition()
-        self.items = []      # 作成順(待ち・実行中・履歴)
-        self.running = None  # 実行中の qid
-        self._fseq = 0
-        self._thread = None
-        self.closing = False   # 終了の流れ(shutdown)のあと: 新しく入れない・待ちを始めない
+        self.table = Table("an", "studio", run=self._run, kinds=("analyze",), admit=_admit, keep=MAX_HISTORY,
+                           slot=lambda rec: rec["title"] or _vid(rec), before=self._before, on_start=lambda rec: self._kick_prefetch(),
+                           on_finish=self._on_finish, phases=PHASES, drop_state="skipped", interrupt_phase="中断しました(終了)",
+                           retryable=RETRYABLE, board_job=self._board_job,
+                           messages={"missing": "解析の順番待ちにありません", "closing": "終了しているところです。起動し直してから入れてください",
+                                     "no_retry": "やり直せるのは、失敗・中止・取り除いた配信だけです"})
 
     def start(self):
-        """ワーカーを1つだけ起動する(何度呼んでも、同時に呼んでも、1つしか作らない)。"""
-        with self.cv:
-            if self._thread is None:
-                self._thread = threading.Thread(target=self._loop, daemon=True, name="batch-worker")
-                self._thread.start()
+        """糸を1つだけ起動する(何度呼んでも、同時に呼んでも、1つしか作らない)。"""
+        self.table.start()
 
     # ---- 状態 ----
-    def _active(self):
-        return [i for i in self.items if i["status"] in ("waiting", "running")]
-
     def is_busy(self):
-        with self.cv:
-            return bool(self._active())
+        return self.table.busy()
 
-    def _find(self, qid):
-        it = next((i for i in self.items if i["qid"] == str(qid or "")), None)
-        if not it:
-            raise ApiError("not_found", "解析の順番待ちにありません", 404)
-        return it
+    def running_now(self):
+        return self.table.busy(lambda r: r["state"] == "running")
 
-    def _finish(self, it, status, error="", phase=None):
-        self._fseq += 1
-        it["status"], it["error"], it["fseq"], it["finishedAt"] = status, error, self._fseq, schemas.now_ms()
-        if status in ("skipped", "cancelled"):
-            fetch.cancel_prefetch(it["videoId"])   # 先読み中なら止める
-        it["phase"] = phase or {"done": "完了", "error": "失敗", "cancelled": "中止しました", "skipped": "取り除きました"}[status]
-        it["progress"] = 1.0 if status == "done" else it["progress"]
-        fin = sorted((i for i in self.items if i["status"] in FINISHED), key=lambda i: i["fseq"])
-        for old in fin[:-MAX_HISTORY]:
-            self.items.remove(old)
-
-    def _public(self, it):
-        chat = analyze.chat_public(it["notes"].get("chat")) if it.get("ctl") else it.get("chatSnap")
-        return {"qid": it["qid"], "videoId": it["videoId"], "kind": it["kind"], "title": it["title"], "channel": it["channel"], "status": it["status"],
-                "phase": it["phase"], "progress": round(it["progress"], 3),
-                "error": it["error"], "chat": chat, "marks": it["marks"], "finishedAt": it["finishedAt"]}
+    @staticmethod
+    def _public(rec):
+        chat = analyze.chat_public(rec["notes"].get("chat")) if rec["state"] == "running" else rec.get("chatSnap")
+        return {"qid": rec["id"], "videoId": _vid(rec), "kind": rec["spec"]["src"]["kind"], "title": rec["title"], "channel": rec["channel"],
+                "status": "waiting" if rec["state"] == "queued" else rec["state"], "phase": rec["phase"], "progress": round(rec["progress"] or 0.0, 3),
+                "error": rec["error"] or "", "chat": chat, "marks": rec["marks"], "finishedAt": rec["finishedAt"]}
 
     def snapshot(self):
-        with self.cv:
-            run = [i for i in self.items if i["status"] == "running"]
-            wait = [i for i in self.items if i["status"] == "waiting"]
-            fin = sorted((i for i in self.items if i["status"] in FINISHED), key=lambda i: -i["fseq"])
-            return {"items": [self._public(i) for i in run + wait + fin], "running": self.running, "max": MAX_ACTIVE}
+        recs = self.table.list()
+        run = [r for r in recs if r["state"] == "running"]
+        wait = [r for r in recs if r["state"] == "queued"]
+        fin = sorted((r for r in recs if r["state"] in FINISHED), key=lambda r: -r["fseq"])
+        return {"items": [self._public(r) for r in run + wait + fin], "running": run[0]["id"] if run else None, "max": MAX_ACTIVE}
 
     # ---- 追加 ----
-    def _new_item(self, src, settings, title, channel):
-        return {"qid": uuid.uuid4().hex[:8], "videoId": src["videoId"], "kind": src["kind"], "title": title, "channel": channel, "status": "waiting", "phase": "順番待ち",
-                "progress": 0.0, "error": "", "src": src, "settings": settings, "ctl": None, "notes": {}, "chatSnap": None, "marks": 0, "finishedAt": None, "fseq": 0}
-
     def add(self, items, settings):
         if not isinstance(items, list) or not items:
             raise ApiError("bad_request", "解析する配信を指定してください", 400)
         if not _env.fake() and not _env.find_tool("ffmpeg"):
             raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
         settings = analyze.validate_settings(settings)
+        if self.table.closing:
+            raise ApiError("closing", self.table.messages["closing"], 503)
         added, rejected = [], []
-        with self.cv:
-            if self.closing:
-                raise ApiError("closing", "終了しているところです。起動し直してから入れてください", 503)
-            for raw in items[:100]:
-                label = (str(raw.get("path") if raw.get("kind") == "file" else (raw.get("url") or raw.get("videoId")) or "")[:200]) if isinstance(raw, dict) else ""
-                try:
-                    src = analyze.validate_source(raw)
-                    if src["kind"] == "youtube" and not _env.fake() and not _env.find_tool("yt-dlp"):
-                        raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
-                except ApiError as e:
-                    rejected.append({"input": label, "reason": e.message})
-                    continue
-                if src["kind"] == "file":
-                    label = src["name"]
-                full = self._admit_error(src["videoId"])
-                if full:
-                    rejected.append({"input": label, "reason": full[1]})
-                    continue
-                title, channel = str(raw.get("title") or "")[:120], str(raw.get("channel") or "")[:100]
-                try:
-                    v = self.store.ensure(src, title, channel)
-                except ApiError as e:
-                    rejected.append({"input": label, "reason": e.message})
-                    continue
-                it = self._new_item(src, settings, v["title"], v["channel"])
-                self.items.append(it)
-                added.append({"qid": it["qid"], "videoId": it["videoId"]})
-            if added:
-                self.cv.notify_all()
+        for raw in items[:100]:
+            label = (str(raw.get("path") if raw.get("kind") == "file" else (raw.get("url") or raw.get("videoId")) or "")[:200]) if isinstance(raw, dict) else ""
+            try:
+                src = analyze.validate_source(raw)
+                if src["kind"] == "youtube" and not _env.fake() and not _env.find_tool("yt-dlp"):
+                    raise ApiError("no_ytdlp", "yt-dlp が見つかりません(README の準備手順を確認してください)", 400)
+            except ApiError as e:
+                rejected.append({"input": label, "reason": e.message})
+                continue
+            if src["kind"] == "file":
+                label = src["name"]
+            title, channel = str(raw.get("title") or "")[:120], str(raw.get("channel") or "")[:100]
+
+            def prepare(src=src, title=title, channel=channel):
+                v = self.store.ensure(src, title, channel)   # 受け入れの検査のあと・同じロックの中(入れられない配信は store に足さない)
+                return {"title": v["title"], "channel": v["channel"], "marks": 0, "chatSnap": None}
+            try:
+                rec = self.table.add({"src": src, "settings": settings}, prepare=prepare)
+            except ApiError as e:
+                rejected.append({"input": label, "reason": e.message})
+                continue
+            added.append({"qid": rec["id"], "videoId": src["videoId"]})
         if added:
-            self.start()
             self._kick_prefetch()
         for i in items[100:]:
             rejected.append({"input": "", "reason": "一度に指定できる数を超えています"})
         return {"added": added, "rejected": rejected}
 
-    def _admit_error(self, vid):
-        """待ち + 実行中に入れられないとき (code, 文)(いっぱい・同じ配信がもうある)。入れられるなら None。cv を持って呼ぶ"""
-        act = self._active()
-        if len(act) >= MAX_ACTIVE:
-            return "full", FULL_MSG
-        if any(i["videoId"] == vid for i in act):
-            return "duplicate", DUP_MSG
-        return None
-
     # ---- 操作 ----
     def cancel(self, qid):
-        with self.cv:
-            it = self._find(qid)
-            if it["status"] == "waiting":
-                self._finish(it, "skipped")
-            elif it["status"] == "running" and it.get("ctl"):
-                it["ctl"].cancel()
+        self.table.cancel(qid)
         return True
 
     def skipchat(self, qid):
-        with self.cv:
-            it = self._find(qid)
-            ctl = it.get("ctl") if it["status"] == "running" else None
-            c = it["notes"].get("chat")
+        with self.table.cv:
+            rec = self.table.get(qid)
+            ctl = rec["ctl"] if rec["state"] == "running" else None
+            c = rec["notes"].get("chat")
         if ctl and c and c["state"] == "running":
             ctl.raise_flag("skipChat")   # チャット待ちだけ打ち切る(音声などの解析は続ける)
         return True
 
     def retry(self, qid):
-        with self.cv:
-            it = self._find(qid)
-            if it["status"] not in RETRYABLE:
-                raise ApiError("bad_state", "やり直せるのは、失敗・中止・取り除いた配信だけです", 409)
-            full = self._admit_error(it["videoId"])
-            if full:
-                raise ApiError(full[0], full[1], 409)
-            self.store.ensure(it["src"], it["title"], it["channel"])
-            new = self._new_item(it["src"], it["settings"], it["title"], it["channel"])
-            self.items.remove(it)
-            self.items.append(new)
-            self.cv.notify_all()
-        self.start()
-        return new["qid"]
+        def prepare(old):
+            self.store.ensure(old["spec"]["src"], old["title"], old["channel"])
+            return {"channel": old["channel"], "marks": 0, "chatSnap": None}
+        return self.table.retry(qid, prepare)["id"]
 
     def cancel_video(self, vid, wait=20.0):
         """動画の削除前: その動画の待ち item は取り除き(skipped)、実行中の解析は中止して終わるのを待つ。
         戻り値: 実行中の解析が止まったか(待ちきれなければ False)。"""
-        with self.cv:
-            for it in list(self.items):
-                if it["videoId"] == vid and it["status"] == "waiting":
-                    self._finish(it, "skipped", "動画が削除されました", "取り除きました")
-            run = next((i for i in self.items if i["videoId"] == vid and i["status"] == "running"), None)
+        t = self.table
+        with t.cv:
+            for rec in t.list():
+                if _vid(rec) == vid and rec["state"] == "queued":
+                    t.finish(rec, "skipped", "動画が削除されました", "取り除きました")
+            run = next((r for r in t.list() if _vid(r) == vid and r["state"] == "running"), None)
             if run is None:
                 return True
-            if run.get("ctl"):
-                run["ctl"].cancel()
-            return self.cv.wait_for(lambda: run["status"] != "running", wait)
+            run["ctl"].cancel()
+            return t.wait(lambda: run["state"] != "running", wait)
 
     def shutdown(self, reason="終了のため中断しました"):
         """終了の流れ用(serve.shutdown_jobs): 待ちの配信を「中止」にして取り除き、実行中の解析に中止を伝える(待たない)。
         子プロセスは procs.stop_children がまとめて止める。中断した配信の名前の一覧を返す"""
-        out = []
-        with self.cv:
-            self.closing = True
-            for it in list(self.items):
-                if it["status"] == "waiting":
-                    self._finish(it, "cancelled", reason, "中断しました(終了)")
-                    out.append(it["title"] or it["videoId"])
-                elif it["status"] == "running" and it.get("ctl"):
-                    it["interrupted"] = True
-                    it["ctl"].cancel()
-                    out.append(it["title"] or it["videoId"])
-            self.cv.notify_all()
-        return out
-
-    def running_now(self):
-        with self.cv:
-            return any(i["status"] == "running" for i in self.items)
+        return [r["title"] or _vid(r) for r in self.table.shutdown(reason)]
 
     def clear(self):
-        with self.cv:
-            n = len(self.items)
-            self.items = [i for i in self.items if i["status"] not in FINISHED]
-            return n - len(self.items)
+        return self.table.clear()
 
     def _kick_prefetch(self):
         """解析が走っているあいだ、待ちの配信のうち先頭から順にチャットを先読みする(同時に1本)。取れたら次を先読みする。"""
-        with self.cv:
-            if not any(i["status"] == "running" for i in self.items):
-                return
-            for i in self.items:
-                if i["status"] != "waiting" or i["src"]["kind"] != "youtube" or not i["settings"].get("useChat"):
-                    continue
-                r = fetch.prefetch_chat(i["videoId"], i["settings"]["chatTimeout"] * 60, self._kick_prefetch)
-                if r != "skip":
-                    break
+        recs = self.table.list()
+        if not any(r["state"] == "running" for r in recs):
+            return
+        for r in recs:
+            src, settings = r["spec"]["src"], r["spec"]["settings"]
+            if r["state"] != "queued" or src["kind"] != "youtube" or not settings.get("useChat"):
+                continue
+            if fetch.prefetch_chat(src["videoId"], settings["chatTimeout"] * 60, self._kick_prefetch) != "skip":
+                break
 
-    # ---- 掲示板(RS8 の ② の口 S2。flow/board.py。頭 an・id = an:<qid>。器の本体と今の API は変えない: 状態を写して見せるだけ) ----
+    # ---- 掲示板(RS8 の ② の口 S2。flow/board.py。頭 an・id = an:<qid>。今の API は変えない: 状態を写して見せるだけ) ----
     def attach_board(self, board):
         """解析のキューを掲示板に載せる(引く形・頭 an。取り消し・やり直しも掲示板の id で)。スタジオの serve が init で 1 回呼ぶ"""
         board.register("an", source=self.board_jobs, cancel=self.board_cancel, retry=self.board_retry)
 
-    def _board_job(self, it):
-        """item -> 掲示板の Job(self.cv を持って呼ぶ)。案件の根は掲示板の case_hook が target から引く"""
-        p = self._public(it)
+    def _board_job(self, rec):
+        """記録 -> 掲示板の Job(Table の cv を持って呼ぶ)。案件の根は掲示板の case_hook が target から引く"""
+        p = self._public(rec)
         state = BOARD_STATE.get(p["status"], "error")
-        src = it["src"]
+        src = rec["spec"]["src"]
         target = {"videoId": p["videoId"]}
         if src.get("kind") == "file":
             target["path"] = src.get("path")
@@ -242,8 +183,7 @@ class Batch:
 
     def board_jobs(self):
         """掲示板の引く形: 今のキュー(作成順)-> [Job]"""
-        with self.cv:
-            return [self._board_job(i) for i in self.items]
+        return self.table.board_jobs()
 
     def board_cancel(self, qid):
         """掲示板の取り消し: cancel と同じ(待ちは取り除く・実行中は中止を伝える)。無い id は LookupError"""
@@ -258,78 +198,43 @@ class Batch:
             new = self.retry(qid)
         except ApiError as e:
             raise (LookupError if e.status == 404 else ValueError)(e.message)
-        with self.cv:
-            return self._board_job(self._find(new))
+        with self.table.cv:
+            return self._board_job(self.table.get(new))
 
-    # ---- ワーカー ----
-    def _loop(self):
-        while True:
-            with self.cv:
-                while True:
-                    it = None if self.closing else next((i for i in self.items if i["status"] == "waiting"), None)
-                    if it:
-                        break
-                    self.cv.wait()
-                if not self.store.has(it["videoId"]):   # 待っている間に動画が消された
-                    self._finish(it, "skipped", "動画が削除されました", "取り除きました")
-                    continue
-                it["status"], it["phase"], it["progress"] = "running", "開始", 0.0
-                ctl = Ctl(on_progress=lambda frac, msg, it=it: self._on_progress(it, frac, msg), on_note=lambda key, value, it=it: it["notes"].__setitem__(key, value))
-                it["ctl"], it["notes"] = ctl, {}
-                spec = analyze.make_spec(it["src"], it["settings"])
-                self.running = it["qid"]
-            self._kick_prefetch()
-            status, err, result = "done", "", None
-            try:
-                # 重い処理の同時実行数の上限(入口の中では文字起こし・書き出しと順番を待つ。ytt.jobs)
-                with jobs.SLOTS.slot("studio", it["title"] or it["videoId"], cancelled=ctl.is_cancelled,
-                                     on_wait=lambda: it.update(phase=jobs.WAIT_MESSAGE)) as ok:
-                    if ok:
-                        result = analyze.run(spec, ctl)
-                    else:
-                        status = "cancelled"
-            except Cancelled:
-                status = "cancelled"
-            except ApiError as e:
-                status, err = "error", e.message or "解析に失敗しました"
-            except BaseException as e:   # 想定外でも次の item へ続ける
-                status, err = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
-            self._complete(it, status, err, result)
+    # ---- 糸の中身(Table が呼ぶ) ----
+    def _before(self, rec):
+        """動かす直前(Table の cv の中): 待っている間に動画が消されていれば取り除く"""
+        if not self.store.has(_vid(rec)):
+            return "skipped", "動画が削除されました", "取り除きました"
+        rec["phase"], rec["progress"] = "開始", 0.0
+        return None
+
+    def _run(self, rec, ctl):
+        """解析して結果を store へ入れる(失敗は ApiError = その文が error になる)"""
+        result = analyze.run(analyze.make_spec(rec["spec"]["src"], rec["spec"]["settings"]), ctl)
+        if not result:
+            raise ApiError("no_result", "解析結果がありません")
+        try:
+            n = self._apply(rec, result)
+        except Exception as e:   # noqa: BLE001
+            raise ApiError("save", "結果の保存に失敗しました: %s" % e.__class__.__name__)
+        if n is None:
+            raise ApiError("deleted", "解析中に動画が削除されました")
+        rec["marks"] = n or 0
 
     @staticmethod
-    def _on_progress(it, frac, message):
-        if frac is not None:
-            it["progress"] = frac
-        if message is not None:
-            it["phase"] = message
+    def _on_finish(rec):
+        """終わりの状態を入れた直後(Table の cv の中)"""
+        if rec["state"] in ("skipped", "cancelled"):
+            fetch.cancel_prefetch(_vid(rec))   # 先読み中なら止める
+        if rec["state"] == "done":
+            rec["progress"] = 1.0
+        if rec["startedAt"]:
+            rec["chatSnap"] = analyze.chat_public(rec["notes"].get("chat"))
+        if rec["state"] == "error" and not rec["error"]:
+            rec["error"] = "解析に失敗しました"
 
-    def _complete(self, it, status, err="", result=None):
-        n = 0
-        try:
-            if status == "done" and result:
-                n = self._apply(it, result)
-                if n is None:
-                    status, err = "error", "解析中に動画が削除されました"
-            elif status == "done":
-                status, err = "error", "解析結果がありません"
-            elif status == "error":
-                err = err or "解析に失敗しました"
-            elif status == "cancelled" and it.get("interrupted"):
-                err = "終了のため中断しました"
-            elif status != "cancelled":
-                status, err = "error", "解析が途中で止まりました"
-        except Exception as e:
-            status, err = "error", "結果の保存に失敗しました: %s" % e.__class__.__name__
-        with self.cv:
-            it["marks"] = n or 0
-            it["chatSnap"] = analyze.chat_public(it["notes"].get("chat"))
-            it["ctl"] = None
-            self.running = None
-            if it in self.items:
-                self._finish(it, status, err, "中断しました(終了)" if status == "cancelled" and it.get("interrupted") else None)
-            self.cv.notify_all()
-
-    def _apply(self, it, res):
+    def _apply(self, rec, res):
         a = {"at": schemas.now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type")}
         cands = [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"], "reasons": c["reasons"]} for c in res["candidates"]]
-        return self.store.replace_auto(it["videoId"], cands, a, res["source"].get("duration"), res["series"])
+        return self.store.replace_auto(_vid(rec), cands, a, res["source"].get("duration"), res["series"])

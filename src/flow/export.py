@@ -1,90 +1,68 @@
-"""② 書き出しの器(OPT2 の J2。docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
+"""② 書き出しの器(OPT2 の J2・J6。docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
+J6 で ② の 1 つの器 `flow/jobs.Table`(頭 ex)の上の薄い殻にした。
 
-- 同時に 1 本(動いている間の start は 409 busy)・履歴は 20 件(動いている物は消さない)・プロセスに 1 つ(`default()`)
-- 1 ジョブに 1 つの `ytt/jobs.Ctl` を作って ① に渡す(取り消しは ctl.cancel。子プロセスは ① の run_progress の見張りが止める)
-- 重い処理の枠(`SLOTS.slot("studio", …)`)は器が取る。待っている間は waiting が真
+- 同時に 1 本(動いている間の start は 409 busy = Table の admit)・履歴は 20 件(動いている物は消さない)・プロセスに 1 つ(`default()`)
+- 1 ジョブに 1 つの `ytt/jobs.Ctl`(Table が作る)を ① に渡す(取り消しは ctl.cancel。子プロセスは ① の run_progress の見張りが止める)
+- 重い処理の枠(`SLOTS.slot("studio", …)`)は Table が取る。待っている間は waiting が真
 - 登録は出力先の変更(`studio_env.set_out_dir`)と同じロック `_out_lock` の下(出力先が書き出しの途中で変わらない)
 - `public(jid)` は今の GET /api/export の形(id・state・outDir・folder・waiting・items・combined)
 - 掲示板(頭 ex)の引く形・取り消し。登録は `attach_board(board)`(呼び手のスタジオの serve)
 変換のコードは書かない(書き出しの中身・結果の形は ①)。実行中のまま終わったときの後始末(`_settle`)だけ持つ。
 """
 import threading
-import time
-import uuid
 
 from pipeline.export import exporter as _exporter
-from ytt import jobs as _jobs, studio_env as _env
+from ytt import studio_env as _env
 from ytt.errors import ApiError
 
+from .jobs import Table
+
 KEEP = 20   # 終わったジョブを覚えておく数(画面の進み具合の問い合わせ用。メモリだけ)
+BUSY_MSG = "別の書き出しが実行中です。完了または中止してから始めてください"
+
+
+def _admit(active, spec, kind):
+    if active:
+        raise ApiError("busy", BUSY_MSG, 409)
 
 
 class ExportJobs:
     def __init__(self, keep=KEEP):
-        self.keep = keep
-        self._jobs = {}
-        self._lock = threading.Lock()
+        self.table = Table("ex", "studio", run=self._run, kinds=("export",), admit=_admit, keep=keep,
+                           title=lambda spec, kind: "書き出し %d 本" % len(spec["clips"]),
+                           slot=lambda rec: "書き出し %d 本" % len(rec["res"]["items"]), on_finish=self._settle,
+                           board_job=self._board_job,
+                           messages={"missing": "その書き出しは見つかりません(ツールを起動し直すと、前の書き出しの記録は消えます)"})
 
     # ---------- 受付 ----------
     def start(self, spec, on_done=None):
         """書き出しを始める -> ジョブの記録(id・res・ctl…)。動いている書き出しがあれば ApiError busy(409)"""
-        with _env._out_lock, self._lock:   # 出力先の変更と同時に走らない(set_out_dir と同じ順でロックを取る)
-            if any(self._running(j) for j in self._jobs.values()):
-                raise ApiError("busy", "別の書き出しが実行中です。完了または中止してから始めてください", 409)
-            rec = {"id": uuid.uuid4().hex[:12], "videoId": spec["videoId"], "created": time.time(), "outDir": _env.get_out_dir(),
-                   "res": _exporter.new_result(spec), "ctl": _jobs.Ctl(), "waiting": False, "finishedAt": None, "interrupted": False}
-            self._jobs[rec["id"]] = rec
-            for old in sorted(self._jobs.values(), key=lambda j: j["created"])[:-self.keep]:
-                if not self._running(old):
-                    self._jobs.pop(old["id"], None)
-        threading.Thread(target=self.work, args=(rec, spec, on_done), daemon=True, name="export-" + rec["id"]).start()
-        return rec
+        with _env._out_lock:   # 出力先の変更と同時に走らない(set_out_dir と同じ順でロックを取る)
+            return self.table.add(spec, prepare=lambda: {"videoId": spec["videoId"], "outDir": _env.get_out_dir(),
+                                                          "res": _exporter.new_result(spec), "onDone": on_done})
 
-    def work(self, rec, spec, on_done=None):
-        """1 ジョブを動かす(start の糸の中身。テストは直に呼ぶ): 枠を待つ → ① の run → 実行中のまま終わっていれば後始末。
-        想定外の例外でもジョブを「実行中」のまま残さない(残ると is_busy が真のままで、次の書き出し・出力先の変更・動画の削除が 409 になり、
-        終了の流れも止まるのを待ち続ける)"""
-        res, ctl = rec["res"], rec["ctl"]
-        try:
-            with _jobs.SLOTS.slot("studio", "書き出し %d 本" % len(res["items"]), cancelled=ctl.is_cancelled,
-                                  on_wait=lambda: rec.update(waiting=True)) as ok:
-                rec["waiting"] = False
-                if not ok:
-                    for it in res["items"]:
-                        if it["status"] == "queued":
-                            it["status"] = "cancelled"
-                    res["state"] = "cancelled"
-                    return
-                _exporter.run(spec, res, ctl, on_done)
-        finally:
-            self._settle(rec)
-            rec["finishedAt"] = int(time.time() * 1000)   # 掲示板が読む(public には出さない)
+    @staticmethod
+    def _run(rec, ctl):
+        _exporter.run(rec["spec"], rec["res"], ctl, rec.get("onDone"))
 
     @staticmethod
     def _settle(rec):
-        """ジョブが「実行中」のまま終わったら、終わりの状態を付ける(中止を伝えていれば中止、そうでなければ失敗)"""
+        """Table が終わりの状態を入れたあと: ① の結果(res)がまだ「実行中」なら終わりの状態を付け(中止を伝えていれば中止、そうでなければ失敗)、
+        記録の state を res の state にそろえる。想定外の例外でもジョブを「実行中」のまま残さない(残ると次の書き出し・出力先の変更・動画の削除が 409 になる)"""
         res = rec["res"]
-        rec["waiting"] = False
-        if res["state"] != "running":
-            return
-        stop = rec["ctl"].cancelled
-        for it in res["items"] + ([res["combined"]] if res.get("combined") else []):
-            if it.get("status") in ("queued", "running"):
-                it["status"] = "cancelled" if stop else "error"
-                if not stop and not it.get("error"):
-                    it["error"] = "内部エラーで止まりました(詳細は studio-errors.log)"
-        res["state"] = "cancelled" if stop else "error"
+        if res["state"] == "running":
+            stop = rec["ctl"].cancelled
+            for it in res["items"] + ([res["combined"]] if res.get("combined") else []):
+                if it.get("status") in ("queued", "running"):
+                    it["status"] = "cancelled" if stop else "error"
+                    if not stop and not it.get("error"):
+                        it["error"] = "内部エラーで止まりました(詳細は studio-errors.log)"
+            res["state"] = "cancelled" if stop else "error"
+        rec["state"] = res["state"] if res["state"] in ("done", "error", "cancelled") else "error"
 
     # ---------- 読み・取り消し ----------
-    @staticmethod
-    def _running(rec):
-        return rec["res"]["state"] == "running"
-
     def get(self, jid):
-        rec = self._jobs.get(str(jid or ""))
-        if not rec:
-            raise ApiError("not_found", "その書き出しは見つかりません(ツールを起動し直すと、前の書き出しの記録は消えます)", 404)
-        return rec
+        return self.table.get(jid)
 
     @staticmethod
     def public_of(rec):
@@ -98,36 +76,26 @@ class ExportJobs:
         return self.public_of(self.get(jid))
 
     def cancel(self, jid):
-        self.get(jid)["ctl"].cancel()
+        self.table.cancel(jid)
 
     def cancel_all(self):
         """終了の流れ用(スタジオの serve.shutdown_jobs・studiobook.close): 実行中の書き出しに中止を伝える(待たない)。
         子プロセスは procs.stop_children がまとめて止める。中止したジョブの記録の一覧を返す(終了のためであることは interrupted に残す)"""
-        with self._lock:
-            running = [j for j in self._jobs.values() if self._running(j)]
-        for j in running:
-            j["interrupted"] = True
-            j["ctl"].cancel()
-        return running
+        return self.table.cancel_all()
 
     def is_busy(self):
-        with self._lock:
-            return any(self._running(j) for j in self._jobs.values())
+        return self.table.busy()
 
     def is_busy_for(self, video_id):
-        with self._lock:
-            return any(self._running(j) and j.get("videoId") == video_id for j in self._jobs.values())
+        return self.table.busy(lambda r: r.get("videoId") == video_id)
 
     def clear(self):
         """テスト用: 覚えている記録を消す(動いている物には中止を伝える)"""
-        with self._lock:
-            recs = list(self._jobs.values())
-            self._jobs.clear()
-        for j in recs:
-            j["ctl"].cancel()
+        self.table.clear(finished_only=False)
 
     # ---------- 掲示板(RS8 の ② の口 S2。flow/board.py の Job の形の辞書) ----------
-    def _board_job(self, rec):
+    @staticmethod
+    def _board_job(rec):
         res = rec["res"]
         items = res["items"]
         state = res["state"] if res["state"] in ("running", "done", "error", "cancelled") else "error"
@@ -139,28 +107,21 @@ class ExportJobs:
                 "title": "書き出し %d 本" % len(items), "state": state,
                 "phase": "順番待ち" if active and rec.get("waiting") else "%d/%d 本" % (nd, len(items)), "waiting": bool(rec.get("waiting")),
                 "progress": 1.0 if state == "done" else (sum(float(it.get("progress") or 0) for it in items) / len(items) if items else None),
-                "createdAt": int(rec["created"] * 1000), "finishedAt": rec.get("finishedAt"),
+                "createdAt": rec["createdAt"], "finishedAt": rec.get("finishedAt"),
                 "error": {"code": None, "text": str(err), "detail": None} if state == "error" else None,
                 "canCancel": active and not rec["ctl"].cancelled, "canRetry": False}
 
     def board_jobs(self):
         """掲示板の引く形: 書き出しのジョブ(入れた順)-> [Job の辞書]"""
-        with self._lock:
-            recs = sorted(self._jobs.values(), key=lambda j: j["created"])
-        return [self._board_job(j) for j in recs]
+        return self.table.board_jobs()
 
     def board_cancel(self, jid):
         """掲示板の取り消し: cancel と同じ。無い id は LookupError・実行中でなければ ValueError"""
-        rec = self._jobs.get(str(jid or ""))
-        if not rec:
-            raise LookupError("その書き出しはありません")
-        if not self._running(rec):
-            raise ValueError("その書き出しは終わっています")
-        rec["ctl"].cancel()
+        self.table.board_cancel(jid)
 
     def attach_board(self, board):
         """書き出し(頭 ex)を掲示板に載せる(引く形・取り消し)"""
-        board.register("ex", source=self.board_jobs, cancel=self.board_cancel)
+        self.table.attach_board(board)
 
 
 _default = None

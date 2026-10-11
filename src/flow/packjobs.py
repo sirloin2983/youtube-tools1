@@ -1,43 +1,42 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: パックのジョブの器(OPT2 後半 J3。2026-10-11)。cut2resolve/serve.py の Job・AppState のジョブの部分を移した。
+"""② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6。2026-10-11)。cut2resolve/serve.py の Job・AppState のジョブの部分を移した。
+J6 で ② の 1 つの器 `flow/jobs.Table`(頭 pk)の上の薄い殻にした。
 
-同時に 1 本だけ(画面の二度押しで並ばない)・履歴は 20・糸 1 本・build は必ず SLOTS を待つ / plan は heavy() が真のときだけ待つ・
-Task(= ytt/jobs.Ctl の子)を作って fn(task) を呼ぶ。変換のコードは書かない(fn は呼ぶ側 = serve が渡す ① の呼び出し)。
-応答の形(public)と掲示板の頭 pk の形は移す前と同じ。docs/design/opt2-jobs-plan.md の J3。
+同時に 1 本だけ(画面の二度押しで並ばない = Table の admit)・履歴は 20・糸 1 本・build は必ず SLOTS を待つ / plan は heavy() が真のときだけ待つ・
+Task(= ytt/jobs.Ctl の子)を Table が作って fn(task) を呼ぶ。変換のコードは書かない(fn は呼ぶ側 = serve が渡す ① の呼び出し)。
+応答の形(public)と掲示板の頭 pk の形は移す前と同じ。docs/design/opt2-jobs-plan.md の J3・J6。
 """
-import secrets
-import threading
 import time
 import traceback
-from collections import OrderedDict
 
 from pipeline.pack import cut2resolve_core as C
 from ytt import jobs as _heavy
 from ytt.errors import ApiError
 
+from .jobs import Table
+
 KEEP_JOBS = 20
 BOARD_STATE = {"running": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
+BUSY_MSG = "前の処理が終わっていません(「取り消す」で止められます)"
 
 
 class Job:
-    def __init__(self, kind):
-        self.id = secrets.token_hex(6)
-        self.kind = kind
-        self.state = "running"
-        self.progress = None
-        self.message = ""
-        self.result = None
-        self.error = None
-        self.started = time.time()
-        self.finished = None
-        self.task = C.Task(self._on_progress)
+    """Table の記録 1 つの見え方(serve と画面が読む今の形: id・kind・state・progress・message・result・error・task・public())。
+    記録を読むだけ(動いている間の値もそのまま見える)。待ち(queued)は画面には「実行中」で見せる(移す前は受けたときから running)"""
 
-    def _on_progress(self, frac, message):
-        if frac is not None:
-            self.progress = round(float(frac), 4)
-        if message:
-            self.message = message
-            self.progress = None if frac is None else self.progress
+    def __init__(self, rec):
+        self.rec = rec
+
+    id = property(lambda self: self.rec["id"])
+    kind = property(lambda self: self.rec["kind"])
+    state = property(lambda self: "running" if self.rec["state"] == "queued" else self.rec["state"])
+    progress = property(lambda self: self.rec["progress"])
+    message = property(lambda self: self.rec["phase"])
+    result = property(lambda self: self.rec["result"])
+    error = property(lambda self: self.rec["error"])
+    task = property(lambda self: self.rec["ctl"])
+    started = property(lambda self: self.rec["createdAt"] / 1000.0)
+    finished = property(lambda self: self.rec["finishedAt"] / 1000.0 if self.rec["finishedAt"] else None)
 
     def public(self):
         d = {"id": self.id, "kind": self.kind, "state": self.state, "progress": self.progress, "message": self.message,
@@ -63,6 +62,19 @@ def board_job(job):
             "finishedAt": int(job.finished * 1000) if job.finished else None, "error": err, "canCancel": state == "running", "canRetry": False}
 
 
+def _admit(active, spec, kind):
+    if active:
+        raise ApiError("busy", BUSY_MSG, 409, {"job": Job(active[0]).public()})
+
+
+def _on_progress(rec, frac, message):
+    if frac is not None:
+        rec["progress"] = round(float(frac), 4)
+    if message:
+        rec["phase"] = message
+        rec["progress"] = None if frac is None else rec["progress"]
+
+
 class PackJobs:
     """1 つのサーバーのパックのジョブ(テストで複数のサーバーを作ってもぶつからないよう、グローバルではなく持ち主に持たせる)。
     tool_id: SLOTS の待ち行列に出す名前。log: 想定外のエラーを記録する関数(msg)。log_path: 画面の文に出す記録の場所"""
@@ -71,77 +83,44 @@ class PackJobs:
         self.tool_id = tool_id
         self.log = log or (lambda msg: None)
         self.log_path = log_path
-        self.lock = threading.Lock()
-        self.jobs = OrderedDict()
-        self.running = None
+        self.table = Table("pk", tool_id, run=lambda rec, task: rec["fn"](task), kinds=("plan", "build"), admit=_admit, keep=KEEP_JOBS,
+                           slot=self._slot, make_ctl=lambda on_progress, on_note: C.Task(on_progress), on_progress=_on_progress,
+                           fail=self._fail, cancelled_exc=(C.Cancelled,), phases={"cancelled": "取り消しました"},
+                           board_job=lambda rec: board_job(Job(rec)),
+                           messages={"missing": "その処理は見つかりません(サーバーを起動し直した可能性があります)"})
 
     def start_job(self, kind, fn, heavy=None):
         """heavy: 引数なしで呼べる関数。真を返すなら、その処理は他のツールの重い処理と順番を待つ(build は常に待つ。試算は無音の検出が要るときだけ)"""
-        with self.lock:
-            if self.running is not None and self.running.state == "running":
-                raise ApiError("busy", "前の処理が終わっていません(「取り消す」で止められます)", 409,
-                               {"job": self.running.public()})
-            job = Job(kind)
-            self.running = job
-            self.jobs[job.id] = job
-            while len(self.jobs) > KEEP_JOBS:
-                self.jobs.popitem(last=False)
-        th = threading.Thread(target=self._run, args=(job, fn, heavy), daemon=True, name="job-" + kind)
-        th.start()
-        return job
+        return Job(self.table.add({}, kind, extra={"fn": fn, "heavy": heavy, "phase": ""}))
 
-    def _run(self, job, fn, heavy=None):
-        try:
-            # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
-            if job.kind == "build" or (heavy is not None and heavy()):
-                with _heavy.SLOTS.slot(self.tool_id, "パックの作成" if job.kind == "build" else "試算(無音の検出)", cancelled=lambda: job.task.cancelled,
-                                       on_wait=lambda: setattr(job, "message", _heavy.WAIT_MESSAGE)) as ok:
-                    if not ok:
-                        raise C.Cancelled()
-                    job.message = ""
-                    job.result = fn(job.task)
-            else:
-                job.result = fn(job.task)
-            job.state = "done"
-        except C.Cancelled:
-            job.state = "cancelled"
-            job.message = "取り消しました"
-        except C.OutputExists as e:
-            job.state = "error"
-            job.error = {"code": "exists", "message": str(e), "files": [p.name for p in e.existing]}
-        except (C.ToolError, ApiError) as e:
-            job.state = "error"
-            job.error = {"code": getattr(e, "code", "tool"), "message": getattr(e, "message", None) or str(e)}
-        except Exception as e:   # 想定外でもサーバーは落とさない(詳細は記録)
-            self.log("error: job %s: %s" % (job.kind, traceback.format_exc()))
-            job.state = "error"
-            job.error = {"code": "internal", "message": "内部エラー: %s %s(%s に記録しました)" % (e.__class__.__name__, str(e)[:200], self.log_path)}
-        finally:
-            job.finished = time.time()
+    @staticmethod
+    def _slot(rec):
+        # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
+        if rec["kind"] == "build":
+            return "パックの作成"
+        heavy = rec.get("heavy")
+        return "試算(無音の検出)" if heavy is not None and heavy() else None
+
+    def _fail(self, rec, e):
+        if isinstance(e, C.OutputExists):
+            return {"code": "exists", "message": str(e), "files": [p.name for p in e.existing]}
+        if isinstance(e, (C.ToolError, ApiError)):
+            return {"code": getattr(e, "code", "tool"), "message": getattr(e, "message", None) or str(e)}
+        self.log("error: job %s: %s" % (rec["kind"], traceback.format_exc()))   # 想定外でもサーバーは落とさない(詳細は記録)
+        return {"code": "internal", "message": "内部エラー: %s %s(%s に記録しました)" % (e.__class__.__name__, str(e)[:200], self.log_path)}
 
     def job(self, jid):
-        with self.lock:
-            j = self.jobs.get(str(jid or ""))
-        if j is None:
-            raise ApiError("not_found", "その処理は見つかりません(サーバーを起動し直した可能性があります)", 404)
-        return j
+        return Job(self.table.get(jid))
 
     def running_now(self):
         """動いているジョブ(無ければ None)。入口の「すべて終了」の確認と後始末用"""
-        job = self.running
-        return job if job is not None and job.state == "running" else None
+        act = self.table.active()
+        return Job(act[0]) if act else None
 
     def board_jobs(self):
         """入れた順のジョブを掲示板の Job に(引く形の source)"""
-        with self.lock:
-            jobs = list(self.jobs.values())
-        return [board_job(j) for j in jobs]
+        return self.table.board_jobs()
 
     def board_cancel(self, jid):
         """掲示板の cancel(器の中の id)。無い id は LookupError"""
-        try:
-            job = self.job(jid)
-        except ApiError as e:
-            raise LookupError(e.message)
-        if job.state == "running":
-            job.task.cancel()
+        self.table.board_cancel(jid)

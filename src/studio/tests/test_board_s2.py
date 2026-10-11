@@ -5,7 +5,6 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない
 os.environ["STUDIO_FAKE"] = "1"
 import sys
-import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
@@ -32,30 +31,30 @@ class TestAnalyze(unittest.TestCase):
     def new(self):
         bt, b = batch_mod.Batch(Store()), B.Board()
         bt.attach_board(b)
-        bt.start = lambda: None   # 糸は起こさない
-        it = bt._new_item({"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}, {}, "配信A", "ch")
-        bt.items.append(it)
+        bt.table.start = lambda: None   # 糸は起こさない(② の器 flow/jobs.Table。OPT2 の J6)
+        src = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
+        it = bt.table.add({"src": src, "settings": {}}, extra={"title": "配信A", "channel": "ch", "marks": 0, "chatSnap": None})
         return bt, b, it
 
     def test_states_on_board(self):
         bt, b, it = self.new()
         b.refresh()
-        j = b.get("an:" + it["qid"])
+        j = b.get("an:" + it["id"])
         self.assertEqual((j["kind"], j["state"], j["canCancel"], j["title"]), ("analyze", "queued", True, "配信A"))
-        it["status"] = "running"
+        it["state"] = "running"
         b.refresh()
-        self.assertEqual(state_of(b, "an:" + it["qid"]), "running")
-        bt._finish(it, "error", "だめ")
+        self.assertEqual(state_of(b, "an:" + it["id"]), "running")
+        bt.table.finish(it, "error", "だめ")
         b.refresh()
-        j = b.get("an:" + it["qid"])
+        j = b.get("an:" + it["id"])
         self.assertEqual((j["state"], j["error"]["text"], j["canRetry"]), ("error", "だめ", True))
 
     def test_cancel_and_retry_by_board_id(self):
         bt, b, it = self.new()
-        j = b.cancel("an:" + it["qid"])
+        j = b.cancel("an:" + it["id"])
         self.assertEqual(j["state"], "skipped")
-        new = b.retry("an:" + it["qid"])
-        self.assertEqual((new["state"], new["id"] != "an:" + it["qid"]), ("queued", True))
+        new = b.retry("an:" + it["id"])
+        self.assertEqual((new["state"], new["id"] != "an:" + it["id"]), ("queued", True))
         with self.assertRaises(B.NotFound):
             b.cancel("an:nai")
 
@@ -69,8 +68,9 @@ class TestExport(unittest.TestCase):
     def job(self, state="running"):
         res = {"videoId": "abcdefghijk", "state": state, "folder": "", "combined": None,
                "items": [{"id": "m1", "status": "running", "progress": 0.5, "path": None, "error": None}]}
-        self.ex._jobs["e1"] = {"id": "e1", "videoId": "abcdefghijk", "created": time.time(), "outDir": "", "res": res,
-                               "ctl": flow_export._jobs.Ctl(), "waiting": False, "finishedAt": None, "interrupted": False}
+        rec = self.ex.table._new({"videoId": "abcdefghijk", "clips": []}, "export", "", {"videoId": "abcdefghijk", "outDir": "", "res": res})
+        rec.update(id="e1", state="running")
+        self.ex.table.jobs["e1"] = rec
         return res
 
     def test_states_on_board(self):

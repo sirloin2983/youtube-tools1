@@ -106,9 +106,9 @@ class TestExportJobs(Base):
             for _ in range(25):
                 ids.append(self.ex.start(spec())["id"])
                 self.assertTrue(wait(lambda: not self.ex.is_busy()))
-        self.assertLessEqual(len(self.ex._jobs), 21)   # 登録した 1 本 + 前の 20 本まで
-        self.assertIn(ids[-1], self.ex._jobs)
-        self.assertNotIn(ids[0], self.ex._jobs)
+        self.assertLessEqual(len(self.ex.table.jobs), 21)   # 登録した 1 本 + 前の 20 本まで
+        self.assertIn(ids[-1], self.ex.table.jobs)
+        self.assertNotIn(ids[0], self.ex.table.jobs)
         p = self.ex.public(ids[-1])
         self.assertEqual((p["state"], p["folder"], p["items"][0]["path"]), ("done", "f", os.path.abspath("a.mp4")))
 
@@ -122,11 +122,12 @@ class TestExportJobs(Base):
             self.assertTrue(wait(lambda: not self.ex.is_busy()))
 
     def test_unexpected_error_settles(self):
-        rec = {"id": "x", "videoId": "abcdefghijk", "created": time.time(), "outDir": "", "res": exporter.new_result(spec()),
-               "ctl": jobs.Ctl(), "waiting": False, "finishedAt": None, "interrupted": False}
+        rec = self.ex.table._new(spec(), "export", "", {"videoId": "abcdefghijk", "outDir": "", "res": exporter.new_result(spec())})
+        rec["state"] = "running"
+        self.ex.table.jobs[rec["id"]] = rec
         with patch.object(exporter, "_run_job", side_effect=ValueError("boom")), patch.object(studio_env, "log_failure"):
-            with self.assertRaises(ValueError):
-                self.ex.work(rec, spec())
+            self.ex.table.work(rec)   # 糸の中身(② の器 flow/jobs.Table。OPT2 の J6)。想定外の例外は糸の外へ出さない
+        self.assertEqual(rec["state"], "error")
         self.assertEqual((rec["res"]["state"], rec["res"]["items"][0]["status"]), ("error", "error"))
         self.assertIn("studio-errors.log", rec["res"]["items"][0]["error"])
         self.assertIsNotNone(rec["finishedAt"])
