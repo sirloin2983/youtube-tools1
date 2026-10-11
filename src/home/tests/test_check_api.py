@@ -121,7 +121,10 @@ class CheckApiTest(TL.Base):
         st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "adopt"}})
         self.assertEqual((st, j["error"]), (400, "bad_request"))
         st, j = self.post("/api/check/answer", {"card": "value:auto:abcdefghijk#a1", "answer": {"choice": "drop"}})
-        self.assertEqual((st, j["error"]), (404, "not_found"))   # 反映できなければ記録しない
+        self.assertEqual((st, j["held"]), (200, True))   # 要らないも 1 枚遅れ(まとめ役 10-11)
+        st, j = self.post("/api/check/flush", {})
+        self.assertEqual(st, 200)
+        self.assertTrue(j["flushed"][0].get("failed"))   # 一覧に無い切り抜き = 確定の失敗は記録に残す
 
     def test_not_ready(self):
         sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])

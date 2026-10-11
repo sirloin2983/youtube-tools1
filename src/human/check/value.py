@@ -1,9 +1,9 @@
 """「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(V1 の V2a。docs/design/v1-check-build.md・決定 3-41)。
 
 出どころ 2 つ(カードは src/eval/check/sources.py の value_auto・value_cand):
-  value:auto  自動で採ってもう作った切り抜き。答え {choice: "send"} = 友人へ届ける(1 枚遅れで確定 = defer)/ {choice: "drop"} = 要らない
+  value:auto  自動で採ってもう作った切り抜き。答え {choice: "send"} = 友人へ届ける / {choice: "drop"} = 要らない(どちらも 1 枚遅れで確定 = defer)
               どちらもホームの「続けて確認」と同じ口(ctx.hook("auto_review") = POST /api/cases/auto と同じ body)を呼ぶ。
-              記録(live_feedback.jsonl の deliver / reject)はその口が残す。[送る] を保留のうちに Z で戻せば何も起きない。
+              記録(live_feedback.jsonl の deliver / reject)はその口が残す。保留のうち(次のカードに答えるまで)に Z で戻せば何も起きない。
               届けた後・要らないにした後は戻せない(revert なし。要らないはごみ箱フォルダに TRASH_DAYS の間は残る)
   value:cand  まだ切り抜いていない候補。答え {choice: "adopt"} = 採用して書き出しを頼む / {choice: "reject"} = 不採用
               スタジオの PUT /api/video(画面の保存と同じ。put_video が feedback.jsonl の良い / 悪いを残す = eval_marks が読む形)で
@@ -120,5 +120,5 @@ def _cand_revert(ctx, row):
     return {"videoId": vid, "markId": mid, "status": back}
 
 
-apply.register("value", "auto", _auto_apply, None, check=_check(AUTO_CHOICES), defer=lambda a: (a or {}).get("choice") == "send")
+apply.register("value", "auto", _auto_apply, None, check=_check(AUTO_CHOICES), defer=lambda a: True)   # 届ける・要らないはどちらも戻せない = 1 枚遅れで確定して Z を効かせる(10-11 まとめ役)
 apply.register("value", "cand", _cand_apply, _cand_revert, check=_check(CAND_CHOICES))

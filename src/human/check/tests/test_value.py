@@ -81,8 +81,8 @@ class ValueTest(unittest.TestCase):
         apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
         other = dict(auto_card(), id="value:auto:%s#a2" % VID, target=dict(auto_card()["target"], markId="a2"))
         got = apply.answer(self.ctx, other, {"answer": {"choice": "drop"}})
-        self.assertEqual([r["op"] for r in self.reviews], ["deliver", "discard"])
-        self.assertEqual(len(got["flushed"]), 1)
+        self.assertEqual([r["op"] for r in self.reviews], ["deliver"])   # 要らないも保留(次の答えか flush で確定)
+        self.assertEqual((len(got["flushed"]), got["held"]), (1, True))
 
     def test_send_failure_is_recorded_not_raised_on_flush(self):
         apply.answer(self.ctx, auto_card(), {"answer": {"choice": "send"}})
@@ -90,15 +90,16 @@ class ValueTest(unittest.TestCase):
         out = apply.flush(self.ctx)
         self.assertIn("パックがまだありません", out["flushed"][0]["failed"])
 
-    def test_drop_applies_now_and_refuses_on_error(self):
-        self.review_result = (409, {"error": "conflict", "message": "片付けている途中です"})
-        with self.assertRaises(apply.Refused) as e:
-            apply.answer(self.ctx, auto_card(), {"answer": {"choice": "drop"}})
-        self.assertEqual((e.exception.code, e.exception.message), (409, "片付けている途中です"))
-        self.assertEqual(answerlog.state(self.tmp).by_card, {})   # 反映できなければ記録しない
-        self.review_result = (200, {"ok": True, "moved": 3, "trash": "T", "studio": "rejected"})
+    def test_drop_is_held_and_undoable(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "drop"}})
-        self.assertEqual((got["held"], got["applied"]["moved"]), (False, 3))
+        self.assertEqual((got["held"], self.reviews), (True, []))   # 1 枚遅れ = まだ片付けない
+        apply.undo(self.ctx, got["answer"])                          # 保留のうちの Z は何もしない
+        self.assertEqual(apply.flush(self.ctx)["flushed"], [])
+        self.assertEqual(self.reviews, [])
+        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "drop"}})
+        self.review_result = (409, {"error": "conflict", "message": "片付けている途中です"})
+        out = apply.flush(self.ctx)
+        self.assertIn("片付けている途中です", out["flushed"][0]["failed"])   # 確定の失敗は記録に残す
 
     def test_bad_answer(self):
         for bad in ({"choice": "adopt"}, "send", {"choice": None}, {}):
