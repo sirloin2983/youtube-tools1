@@ -259,7 +259,7 @@ def _drill_write(tid, base, doc):
     _store.effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
     _store.apply_edit_cuts(tid, doc)
     _store.snapshot(tid, False)   # 履歴が残せなくても保存は止めない
-    _store.write_doc(tid, doc)
+    _store.commit(tid, doc, why="drill")
 
 
 def drill_reviewed(obj):

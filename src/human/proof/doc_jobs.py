@@ -338,7 +338,7 @@ def resplit_doc(obj):
         doc["updatedAt"] = int(time.time() * 1000)
         doc["resplit"] = {"maxChars": max_chars, "rows": changed, "at": doc["updatedAt"]}
         store.apply_edit_cuts(tid, doc)
-        store.write_doc(tid, doc)
+        store.commit(tid, doc, why="resplit")
         return {"changed": changed, "added": added, "skipped": skipped, "rows": len(doc["segments"]), "updatedAt": doc["updatedAt"]}
 
 
@@ -413,7 +413,7 @@ def run_job(job):
                 doc["evalSet"] = True
             carried = carry_overrides(job, spec, doc)   # 同じ動画の文書があれば人の行を引き継ぐ(RS6 b-O1。評価用には当てない)
             # 書き出し先の案件の動画なら、その 作業用 に置く(② flow/placement.doc_home。評価用・案件でなければ今までどおり transcripts。RS8 B2-2)
-            store.write_doc(tid, doc, _placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
+            store.commit(tid, doc, why="whole", folder=_placement.doc_home(spec["sourcePath"], eval_set=spec.get("evalSet") is True))
             if carried:
                 _overrides.save_after(tid, doc)
         _flowtx.write_clip_records(tid, clip, spec)   # 単語の時刻・生出力・LLM の生の提案(② が文書の横に書く。書けなくても文書は残す)

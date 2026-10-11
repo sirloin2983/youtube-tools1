@@ -53,6 +53,22 @@ def write_doc(tid, doc, folder=None):
         _write(_doc_file(tid, ".json", for_write=True))
 
 
+# 文書を書く操作(why)。人の操作か機械の操作かの印(のちの O2 で、機械の層・人の層のどちらへ書くかをここで決める)
+HUMAN_WHYS = frozenset({"save", "restore", "effort", "diar_num", "edit_cutstate", "fill", "open_video", "single_speaker", "speaker_sub", "relink", "eval_mark"})
+MACHINE_WHYS = frozenset({"whole", "rerun_each", "rerun_range", "redo", "resplit", "diar", "diar_context", "diar_voices", "eval_rebuild", "drill"})
+
+
+def commit(tid, doc, *, why, mach=None, hum=None, folder=None):
+    """文書 <id>.json を書く唯一の口(RS8 O2-0)。why = どの操作か(HUMAN_WHYS か MACHINE_WHYS の名前)。今は write_doc と同じ書き方で書き、ログに 1 行残すだけ。
+    mach・hum = 機械の層・人の層(今は None だけ)。呼び手の _save_lock・履歴・バックアップはこれまでどおり呼び手の側(動きは変えない)。のちに機械の層・人の層・組み立て済みの写しを書く場所になる"""
+    if why not in HUMAN_WHYS and why not in MACHINE_WHYS:
+        raise ValueError("commit: unknown why " + repr(why))
+    if mach is not None or hum is not None:   # のち(O2-2)に _save_lock の中で hum → mach → 組み立て済みの写しの順に書く口。今は受けるだけ
+        raise NotImplementedError("commit: mach / hum は O2-2 から")
+    write_doc(tid, doc, folder)
+    _txbase.log.info("commit %s why=%s by=%s", tid, why, "human" if why in HUMAN_WHYS else "machine")
+
+
 def snapshot(tid, force=True):
     """いまの文書を履歴へ1つ残す(hist_snapshot。残せなくても続ける)"""
     try:
@@ -360,7 +376,7 @@ def save_transcript(tid, obj):
         effort_rows(base, doc)   # 校正済みにした行・外した行の数(校正の手間。Q2)
         apply_edit_cuts(tid, doc)   # 編集の内容があれば、行の「カット済」はそちらから決める(画面の古い印で上書きしない)
         snapshot(tid, False)   # 履歴が残せなくても保存は止めない
-        write_doc(tid, doc)
+        commit(tid, doc, why="save")
         _overrides.save_after(tid, doc)   # 人の行の控え <id>.over.json(派生。書けなくても保存は成功。RS6 b-O1)
         return doc
 
@@ -385,7 +401,7 @@ def restore_history(tid, ts):
             if _settings.in_eval_dir(old.get("sourcePath")):   # 評価用のフォルダの動画は、印の無い版へ戻しても評価用のまま
                 old["evalSet"] = True
             apply_edit_cuts(tid, old)   # 戻すのは文字と行。カットは今の編集の内容のまま
-            write_doc(tid, old)
+            commit(tid, old, why="restore")
         except (OSError, ValueError):
             raise _errors.ApiError("broken", "履歴を読み込めません", 500)
         return old
@@ -438,7 +454,7 @@ def add_effort(obj):
         ef["sessions"] += 1 if obj.get("newSession") is True else 0
         ef["lastAt"] = _yschemas.now_ms()
         doc["effort"] = ef
-        write_doc(tid, doc)
+        commit(tid, doc, why="effort")
         return {"effort": ef}
 
 
@@ -453,7 +469,7 @@ def set_diar_num(obj):
     with _save_lock:
         doc = read_transcript(tid)   # id の形もここで確かめる(TID_RE)
         doc["diarNum"] = n
-        write_doc(tid, doc)
+        commit(tid, doc, why="diar_num")
         return {"diarNum": n}
 
 
@@ -741,7 +757,7 @@ def save_edit(tid, obj):
             raise _errors.ApiError("too_big", "区間が多すぎて保存できません", 413)
         _fsio.atomic_write(edit_path(tid, for_write=True), body, fsync_required=True)   # 先に編集の内容(文書の書き込みが失敗しても、次の保存で cutState は合う)
         if apply_edit_cuts(tid, doc, d):
-            write_doc(tid, doc)
+            commit(tid, doc, why="edit_cutstate")
         cut_rows = [s.get("id") for s in doc.get("segments") or [] if isinstance(s, dict) and s.get("cutState") == "cut"]
         return {"rev": d["rev"], "cutRows": cut_rows, "updatedAt": now}
 
@@ -886,7 +902,7 @@ def fill_doc(spec, fields):
             doc["evalSet"] = True   # 評価用として文字起こしした(外すのは画面の「評価用にする」)
         doc.pop("evalReviewed", None)   # 機械が行を書いたので「全部聞いて確かめた」印は外す(行の無い文書を確かめ済みにしていたとき)
         apply_edit_cuts(tid, doc)   # 先にカットを決めてあれば、行の「カット済」もそれに合わせる
-        write_doc(tid, doc)
+        commit(tid, doc, why="fill")
         return tid
 
 
@@ -931,6 +947,6 @@ def open_video(req):
         if clip:
             doc["clip"] = clip
         with _save_lock:
-            write_doc(tid, doc, _placement.doc_home(src))   # 書き出し先の案件の動画なら、その 作業用 に置く(RS8 B2-2)
+            commit(tid, doc, why="open_video", folder=_placement.doc_home(src))   # 書き出し先の案件の動画なら、その 作業用 に置く(RS8 B2-2)
     _txbase.log.info("文字起こしせずに開く: %s", os.path.basename(src))
     return {"id": tid, "created": True, "warnings": [warn] if warn else []}

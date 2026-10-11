@@ -123,7 +123,7 @@ def _apply_retranscribe(spec, results):
     doc["retranscribed"] = {"model": spec["model"], "lines": done, "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
     store.apply_edit_cuts(spec["tid"], doc)
-    store.write_doc(spec["tid"], doc)
+    store.commit(spec["tid"], doc, why="rerun_each")
     return done, unsure
 
 
@@ -256,7 +256,7 @@ def _apply_range(spec, lines, loose=()):
                             "kept": len(plan["kept"]), "emptyKept": len(empty_ids), "loose": n_loose, "at": int(time.time() * 1000)}
     doc["updatedAt"] = int(time.time() * 1000)
     store.apply_edit_cuts(spec["tid"], doc)   # 差し替えた行の「カット済」は、編集の内容(時刻)から付け直す
-    store.write_doc(spec["tid"], doc)
+    store.commit(spec["tid"], doc, why="rerun_range")
     try:   # 単語の時刻も範囲の分を差し替える(守った行の単語は残す。古い文書は、ここで取り直せる = 「今の文書を分け直す」の案内)
         replace_words(spec["tid"], a, b, [w for x in new_lines for w in x.get("words") or []], spec["model"], keep_spans)
     except OSError as e:
@@ -325,7 +325,7 @@ def apply_redo(spec, results):
         doc["updatedAt"] = int(time.time() * 1000)
         doc["redo"] = {"model": spec["model"], "rows": n_rep, "at": doc["updatedAt"]}
         store.apply_edit_cuts(tid, doc)
-        store.write_doc(tid, doc)
+        store.commit(tid, doc, why="redo")
         for a, b, ws in new_words:
             try:
                 replace_words(tid, a, b, ws, spec["model"])

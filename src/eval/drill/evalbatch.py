@@ -874,7 +874,7 @@ def eb_redo_fill(job, spec, fields):
             doc.pop(k, None)
         doc["evalSet"] = True
         _store.apply_edit_cuts(tid, doc)
-        _store.write_doc(tid, doc)
+        _store.commit(tid, doc, why="eval_rebuild")
     _txbase.log.info("評価用の文書を作り直しました: %s(%d 行)", tid, len(fields.get("segments") or []))
     return tid
 

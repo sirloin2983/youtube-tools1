@@ -59,15 +59,17 @@ def diar_smooth_setting():
     return _settings.load_settings().get("diarSmooth") is True
 
 
-def apply_diarization(tid, turns, offset, requested, emb=None, auto=None, smooth=False):
+def apply_diarization(tid, turns, offset, requested, emb=None, auto=None, smooth=False, with_map=False):
     """最新の文字起こしを読み直して話者を書き込む(判別中に行を編集されていても、時刻で割り当てるので矛盾しない)。
     読み直し〜書き込みは保存と同じロックの中で行う(間に画面の保存が挟まると、その保存が黙って上書きされるため)。
     auto(文字起こしのあとの自動の判別。v0.50.0)なら文書の diarization と diar.json に印を残す(画面の「自動で付けた」の案内・人の最終との比べ)。
-    smooth = 短い 1 行だけ別の人になるのをならす(S2。smooth_speakers。行の話者だけ。turns・overlaps はそのまま記録する)。emb = 判別モデル(None なら既定)"""
+    smooth = 短い 1 行だけ別の人になるのをならす(S2。smooth_speakers。行の話者だけ。turns・overlaps はそのまま記録する)。emb = 判別モデル(None なら既定)。
+    戻り値は (話者の数, 要確認の数)。with_map=True なら 3 つ目に {idmap, remap}(S1… の振り直しの対応。O2-0b)"""
     if emb is None:
         emb = _diar.default_embedding()
     with store._save_lock:
-        return _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
+        n, unsure, maps = _apply_diarization(tid, turns, offset, requested, emb, auto, smooth)
+    return (n, unsure, maps) if with_map else (n, unsure)
 
 
 def _spk_ids(doc):
@@ -143,9 +145,9 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
                                     **({"fillDropped": dropped} if dropped else {}))})
-    store.write_doc(tid, doc)
+    store.commit(tid, doc, why="diar")
     _diar.record_run(tid, a, turns, offset, requested, emb, idmap, auto)   # 機械の最初の結果(人が直す前)を <id>.diar.json に
-    return len(order), unsure
+    return len(order), unsure, {"idmap": idmap, "remap": remap}   # idmap = 生の話者 → S1…(話した長さ順)・remap = 守った行の話者の付け替え(話者の対応表の材料。O2-0b)
 
 
 def validate_diarize(req):
@@ -194,7 +196,7 @@ def single_speaker(tid, name):
         store.backup_doc(tid, "diarize")
         doc.update({"speakers": [{"id": "S1", "name": name or "話者1", "color": SPK_COLORS[0]}] + kept_sps, "segments": segs, "updatedAt": int(time.time() * 1000),
                     "diarization": {"engine": "single", "requested": 1, "found": 1, "unsure": 0, "at": int(time.time() * 1000)}})
-        store.write_doc(tid, doc)
+        store.commit(tid, doc, why="single_speaker")
         _diar.record_single(tid, segs, name)
         return len(segs)
 
@@ -593,7 +595,7 @@ def autodiar_name_by_context(tid, name):
             if isinstance(doc.get("diarization"), dict):
                 doc["diarization"]["contextName"] = nm
             doc["updatedAt"] = int(time.time() * 1000)
-            store.write_doc(tid, doc)
+            store.commit(tid, doc, why="diar_context")
     _diar.record_context(tid, nm, hit, reason)   # diar.json の voices に by = context と経過(RS6 a-4 まで ③ の _autodiar_record)
     return hit
 
@@ -675,7 +677,7 @@ def recognize_voices(job, tid, wav, offset, emb, names=None):
                 named.append({"speaker": left[0]["id"], "name": unused[0], "score": None, "by": "elimination"})
         if named:
             doc["updatedAt"] = int(time.time() * 1000)
-            store.write_doc(tid, doc)
+            store.commit(tid, doc, why="diar_voices")
     record(doc, named)
     return named
 
@@ -865,5 +867,5 @@ def speakers_sub_apply(obj):
                 applied.append(str(s.get("name") or ""))
         if applied:
             doc["updatedAt"] = max(int(time.time() * 1000), int(_yschemas.num_or(doc.get("updatedAt"), 0) or 0) + 1)
-            store.write_doc(tid, doc)
+            store.commit(tid, doc, why="speaker_sub")
     return {"ok": True, "applied": applied}

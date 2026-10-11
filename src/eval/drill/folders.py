@@ -451,7 +451,7 @@ def _eval_mark_docs(tids):
             _store.snapshot(tid)
             doc["evalSet"] = True
             doc["updatedAt"] = max(_yschemas.now_ms(), int(doc.get("updatedAt") or 0) + 1)
-            _store.write_doc(tid, doc)
+            _store.commit(tid, doc, why="eval_mark")
             n += 1
     return n
 

@@ -182,7 +182,7 @@ def _relink_write(tid, doc, path, diff, why=None, bump=True):
     if _settings.in_eval_dir(path):
         doc["evalSet"] = True
     _store.apply_edit_cuts(tid, doc)
-    _store.write_doc(tid, doc)
+    _store.commit(tid, doc, why="relink")
     return now
 
 
