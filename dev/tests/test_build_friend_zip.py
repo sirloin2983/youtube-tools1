@@ -220,6 +220,25 @@ class BuildTest(Base):
         with self.assertRaisesRegex(B.BuildError, "build.bat"):
             self.build()
 
+    def test_app_rebuilt_when_old(self):
+        src = os.path.join(self.tmp, "app2")
+        shutil.copytree(self.app_src, src)
+        b = os.path.join(src, "build")
+        shutil.rmtree(b, ignore_errors=True)
+        shutil.copytree(self.app_build, b)
+        with open(os.path.join(b, "version.txt"), "w") as f:
+            f.write("0.0.1")
+        calls = []
+
+        def rebuild(app_src):
+            calls.append(app_src)
+            with open(os.path.join(b, "version.txt"), "w") as f:
+                f.write(B._version.VERSION)
+        stage = tempfile.mkdtemp(dir=self.tmp)
+        B.lay_app(stage, b, False, app_src=src, rebuild=rebuild)
+        self.assertEqual(calls, [src])
+        self.assertTrue(os.path.isfile(os.path.join(stage, "RequestSender.exe")))
+
     def test_prune_keeps_two(self):
         os.makedirs(self.out)
         for v in ("0.9.0", "0.10.0", "0.8.5"):

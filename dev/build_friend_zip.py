@@ -286,14 +286,32 @@ def lay_wcpp(stage, wcpp_dir):
     return "tools/" + sub
 
 
-def lay_app(stage, app_build, with_key, app_src=APP_SRC):
-    """送るアプリ(build.bat が作った exe・members.json)と README・任意の 2 つ・(--with-key のときだけ)config.json"""
-    ver = _version.VERSION
+def _built_version(app_build):
     try:
         with open(os.path.join(app_build, "version.txt"), encoding="ascii") as f:
-            built = f.read().strip()
+            return f.read().strip()
     except OSError:
-        built = ""
+        return ""
+
+
+def run_app_build(app_src=APP_SRC):
+    """build.bat を窓なしで流す(コンパイルとテスト)。失敗は BuildError"""
+    print("送るアプリを作り直します(build.bat)…")
+    r = subprocess.run(["cmd", "/c", "build.bat", "--no-pause"], cwd=app_src, capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if r.returncode != 0:
+        tail = (r.stdout + r.stderr).decode("cp932", "replace").strip().splitlines()[-5:]
+        raise BuildError("build.bat が失敗しました:\n" + "\n".join(tail))
+
+
+def lay_app(stage, app_build, with_key, app_src=APP_SRC, rebuild=None):
+    """送るアプリ(build.bat が作った exe・members.json)と README・任意の 2 つ・(--with-key のときだけ)config.json。
+    版が全体の版と違えば build.bat を流し直してから(rebuild を渡すとそれを呼ぶ。テスト用)"""
+    ver = _version.VERSION
+    built = _built_version(app_build)
+    if built != ver and os.path.normcase(os.path.abspath(app_build)) == os.path.normcase(os.path.join(app_src, "build")):
+        (rebuild or run_app_build)(app_src)
+        built = _built_version(app_build)
     if built != ver:
         raise BuildError("アプリの版(%s の version.txt = %r)が全体の版 %s と違います。friend-apps/request-sender/build.bat を流し直してください"
                          % (app_build, built, ver))
