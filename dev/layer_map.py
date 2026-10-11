@@ -31,6 +31,7 @@ FILES = {
     "src/ytt/docloc.py": ("ytt", "ytt", "文字起こしの文書の置き場所を引く口(RS8 B2-1a。索引 transcripts/<id>.loc.json が無ければ workdata.TX_DIR。標準ライブラリと ytt だけ)"),
     "src/manage/cases/docmove.py": ("manage", "manage/cases", "文書を案件の 作業用 へ移す・戻す(RS8 B2-3。入口の起動のときと、コマンド --back・--resume・--now・--purge-migrated。ytt・flow/placement・manage/keep を読む)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
+    "src/pipeline/pack/request.py": ("pipeline", "pipeline/pack", "パックの指定(spec・output)-> pack.Request と build_pack の引数の 1 か所(OPT2。cut2resolve の API と flow/tools の LocalTools が呼ぶ。検査は API の厳しさ)"),
     # ---- cut2resolve → pipeline/pack は RS1-2 で移した(pack・resolve_textplus・cut2resolve_core・cut2resolve(CLI)・srt2resolve・auto_cut。DIRS で読む)
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
     # ---- studio: analyze・batch・store(+ 新しい feedback)・rank(+ seed.json)・txlink は RS3-5 で層へ移した(DIRS で読む)。残るのは serve・startup・handoff = app

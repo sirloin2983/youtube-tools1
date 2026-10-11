@@ -20,6 +20,7 @@ sys.path.insert(0, str(TESTS.parent))   # cut2resolve/(部品)
 sys.path.insert(0, str(TESTS))
 sys.path.append(str(TESTS.parents[1] / "pipeline" / "pack" / "tests"))   # test_cut2resolve の道具(RS1-2 で pipeline/pack/tests へ移した)
 import serve  # noqa: E402
+from pipeline.pack import request  # noqa: E402
 from test_cut2resolve import HAVE_FFMPEG, make_video, parse_edl  # noqa: E402
 
 
@@ -823,7 +824,7 @@ class SpeakerStylesTest(unittest.TestCase):
         self.assertEqual(len(f(many)), 50)
         self.assertEqual(list(f(many))[:2], ["人0", "人1"])
         self.assertEqual(f({"a": {"color": "#ff0000"}, "a ": {"color": "#00ff00"}}), {"a": {"color": "#FF0000"}})   # 同じ名前は先のもの
-        self.assertEqual(set(serve.SPEAKER_STYLE_KEYS), {"color"})
+        self.assertEqual(set(request.SPEAKER_STYLE_KEYS), {"color"})
         o = serve.output_from_spec({"textplus": True, "speakerStyles": {"みこ": {"color": "#ff0000", "x": 1}}}, Path("x.mp4"))
         self.assertEqual(o["speakerStyles"], {"みこ": {"color": "#FF0000"}})
         self.assertEqual(serve.output_from_spec({"speakerStyles": "bad"}, Path("x.mp4"))["speakerStyles"], {})

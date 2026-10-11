@@ -17,8 +17,8 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-from pipeline.pack import cut2resolve_core as _core, pack as _pack, resolve_textplus as _tp
-from ytt import colors as _colors, docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, loudness as _loud, schemas as _yschemas, tools as _ytools
+from pipeline.pack import cut2resolve_core as _core, pack as _pack, request as _packreq
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _slots, schemas as _yschemas, tools as _ytools
 from ytt import txbase as _txbase, txtext as _txtext, workdata as _workdata
 
 from . import jobs as _jobs, keys as _keys, pack as _flowpack, tx as _tx
@@ -292,13 +292,15 @@ class LocalTools:
         カットのとおり keeps・行から preset・カットしない list・無音で削る silence)。② が足すこと = 本文 → ① の Request と引数・枠 SLOTS・上書きの確かめ"""
         sp, o = body.get("spec") or {}, body.get("output") or {}
         try:
-            req = _pack_request(sp)
-            out = _pack_args(o)
+            req = _packreq.request_from_spec(sp)
+            out = _packreq.output_from_spec(o, req.video)
+        except _errors.ApiError as e:   # cut2resolve の API と同じ検査(pipeline/pack/request.py)。理由と番号もそのまま
+            return e.status, {"error": e.code, "message": e.message}
         except (_core.ToolError, ValueError, TypeError, KeyError) as e:
             return 400, {"error": "bad_value", "message": str(e)}
-        out_dir = _pack.default_out_dir(req.video)
-        if not o.get("force"):
-            names = _pack.expected_paths(req, out_dir, bool(req.sub or req.transcript), render=out["render"], copy_video=out["copy_video"],
+        out_dir = out["dir"]
+        if not out["force"]:
+            names = _pack.expected_paths(req, out_dir, bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
                                          textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
             existing = [p.name for p in names.values() if p.exists()]
             if existing:
@@ -310,7 +312,7 @@ class LocalTools:
                 job.update(state="cancelled")
                 return 200, {"job": dict(job)}
             try:
-                job.update(state="done", result=_build(req, out_dir, out, o))
+                job.update(state="done", result=_build(req, out_dir, out))
                 _keys.write_pack(job["result"]["outDir"], sp, o)   # <パック>/pack.key.json(cut2resolve の API と同じ。書けなくてもログだけ。RS6 b-K2)
             except (_core.ToolError, ValueError, OSError) as e:
                 job.update(state="error", error={"message": str(e)})
@@ -333,56 +335,13 @@ def _read_doc(path):
     return doc if isinstance(doc, dict) else {}
 
 
-def _pack_request(sp):
-    """本文の spec -> ① の Request(cut2resolve の API の受付 request_from_spec のうち、段が作る 4 つの形だけ)"""
-    video = Path(str(sp["video"]))
-    tr = Path(str(sp["transcript"])) if sp.get("transcript") else None
-    if sp.get("keeps") is not None:   # 「編集」のカットのとおり
-        return _pack.Request(video=video, transcript=tr, keep_pairs=[(float(a), float(b)) for a, b in sp["keeps"]], **_pack.EDIT_KEEPS)
-    if sp.get("preset") == "transcript-rows":   # 行から
-        return _pack.Request(video=video, transcript=tr, **dict(_pack.TRANSCRIPT_ROWS, row_edge=_pack.row_edge_from(sp.get("rowEdge"))))
-    if sp.get("mode") == "list" and sp.get("listKind") == "drop" and not sp.get("listText"):   # カットしない(動画全体)
-        return _pack.Request(video=video, transcript=tr, drop_cut_rows=sp.get("dropCutRows") is not False, min_len=float(sp.get("minLen") or 0))
-    if sp.get("mode") == "silence":   # 無音で削る
-        sil = sp.get("silence") if isinstance(sp.get("silence"), dict) else {}
-        return _pack.Request(video=video, transcript=tr, silence=True, noise=float(sil.get("noise", _core.DEFAULT_NOISE_DB)),
-                             silence_min=float(sil.get("min", _core.DEFAULT_SILENCE_MIN)), silence_pad=float(sil.get("pad", _core.DEFAULT_SILENCE_PAD)))
-    raise ValueError("このカットの指定は入口なしでは作れません")
-
-
-def _pack_args(o):
-    """本文の output -> build_pack の引数のもと(cut2resolve の API の受付 output_from_spec と同じ読み方。出力先は動画の隣の既定だけ)"""
-    textplus = bool(o.get("textplus"))
-    copy_video, _fcpxml = _pack.normalize_outputs(o.get("copyVideo"), False, textplus)
-    loud = _loud.check_target(o.get("loudness"))
-    wrap = o.get("textplusWrap")
-    return {"textplus": textplus, "copy_video": copy_video, "render": o.get("render") is True, "backup": o.get("backup") is True,
-            "target": _tp.parse_target(o.get("textplusFps"), o.get("textplusSize")), "color": _colors.resolve(o.get("streamer") or ""),
-            "loudness": loud, "volume": None if loud is not None else _loud.check_volume(o.get("volume")),
-            "tracks": 1 if o.get("videoTracks") in (None, "") else _tp.video_tracks_value(o.get("videoTracks")),
-            "wrap": None if wrap in (None, "") else int(wrap)}
-
-
-def _speaker_map(plan, o, textplus):
-    """話者の字幕の色 {文字起こしの話者の名前: "#RRGGBB"}: メンバーカラー(speakerColors)に、指定の色(speakerStyles。名前は ytt.colors.normalize でそろえて同じなら)を重ねる"""
-    names = sorted({n for _s, _e, n in (plan.speaker_spans or []) if n})
-    out = _colors.speaker_colors(names)[0] if textplus and o.get("speakerColors") is not False else {}
-    styles = o.get("speakerStyles") if isinstance(o.get("speakerStyles"), dict) else {}
-    want = {_colors.normalize(k): _colors.norm_hex((v or {}).get("color")) for k, v in styles.items() if isinstance(v, dict)}
-    for n in names:
-        hx = want.get(_colors.normalize(n)) if textplus else None
-        if hx:
-            out[n] = hx
-    return out
-
-
-def _build(req, out_dir, out, o):
+def _build(req, out_dir, out):
     """① plan_cut → build_pack -> 段が読む結果 {"outDir", "files", "warnings"}"""
     plan = _pack.plan_cut(req)
-    who, hex_ = out["color"]
-    res = _pack.build_pack(plan, out_dir, render=out["render"], copy_video=out["copy_video"], textplus=out["textplus"], textplus_target=out["target"],
-                           force=o.get("force") is True, backup=out["backup"], plan_file=False, readme_file=False, textplus_wrap=out["wrap"],
-                           textplus_color={"hex": hex_, "who": who} if hex_ else None, speaker_colors=_speaker_map(plan, o, out["textplus"]) or None,
-                           loudness=out["loudness"], volume=out["volume"], video_tracks=out["tracks"])
+    spk_map, _shown = _packreq.speaker_colors_for(plan, out)
+    res = _pack.build_pack(plan, out_dir, render=out["render"], copy_video=out["copyVideo"], textplus=out["textplus"], textplus_target=out["textplusTarget"],
+                           force=out["force"], backup=out["backup"], plan_file=False, readme_file=False, textplus_wrap=out["textplusWrap"],
+                           textplus_color=out["textplusColor"], speaker_colors=spk_map or None,
+                           loudness=out["loudness"], volume=out["volume"], video_tracks=out["videoTracks"])
     return {"outDir": str(res["out_dir"]), "files": [{"kind": k, "name": Path(p).name, "path": str(p)} for k, p in res["files"]],
             "warnings": res["warnings"]}

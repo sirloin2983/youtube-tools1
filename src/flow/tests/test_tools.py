@@ -94,6 +94,16 @@ class TestLocalRefuses(unittest.TestCase):
             self.assertEqual(t.jobs()[0]["id"], jid)
 
 
+class TestLocalPackSpecChecks(unittest.TestCase):
+    def test_same_checks_as_the_api(self):
+        """パックの指定は cut2resolve の API と同じ検査(pipeline/pack/request.py)。画面から来る値を守る厳しさが正"""
+        t = T.LocalTools()
+        for sp, o, code in (({}, {}, "no_video"), ({"video": "rel.mp4"}, {}, "bad_path"), ({"video": os.path.join(os.sep, "no", "such.mp4")}, {}, "not_found"),
+                            ({"video": __file__}, {}, "bad_ext")):
+            st, obj = t.pack_start({"spec": sp, "output": o})
+            self.assertEqual((st, obj["error"]), (400, code))
+
+
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
 class TestLocalTranscribePack(unittest.TestCase):
     def setUp(self):
