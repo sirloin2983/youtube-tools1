@@ -812,7 +812,8 @@ test('export done notice has [編集で開く] with the same URL as the row link
 
 test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used (S-15・S-25)', () => {
   const rv = between('async function pollAuto(', 'function showDataWarning(');
-  assert.ok(rv.includes('href="../#cases" data-ui-portal') && !rv.includes('target="_blank"'), '案件で見る');
+  // 「案件で見る」は 2fb9c12f からホームの一覧でなくこの配信の案件の画面(候補)を新しいタブで開く(ホームへのリンクではない = data-ui-portal の決まりの外)
+  assert.ok(rv.includes('href="../cases?c=${encodeURIComponent(vid)}#cand"') && !rv.includes('href="../#cases"'), '案件で見る');
   const rk = sliceOf('rank.js', 'class="row rk-autogo"', '</div>');
   assert.ok(rk.includes('data-ui-portal') && !rk.includes('_blank'), '案件の一覧');
   const ctx = load([['function autoOffReason(', 'function renderAutoMenu(']], { Studio: { token: '' } });
