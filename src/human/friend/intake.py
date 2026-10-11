@@ -761,7 +761,7 @@ class Intake:
         except OSError as e:
             return {"state": "rejected", "reason": "作業データへコピーできませんでした(%s)" % tools.why(e)}
         if in_case:   # 依頼のフォルダを案件にする(文書を最初から 作業用 へ置けるように。無ければ作るだけ)
-            placement.ensure_case({"kind": "file", "path": dest}, channel=who or "", root=dest_dir)
+            placement.ensure_case({"kind": "file", "path": dest}, channel=who or "", root=dest_dir, request_id=rid or "")
         dest, note = self._normalize_copy(dest, label)   # 30fps でなければ写しを作り直す(元の動画は触らない。失敗しても写しのまま続ける)
         try:
             run = self.runner().start_file(dest, title=os.path.splitext(label)[0], streamer=who, request_id=rid, flow=flow,
@@ -784,8 +784,13 @@ class Intake:
         if key and key in self._req_dirs:
             return self._req_dirs[key]
         use = key if REQ_ID_RE.match(key) else "m%s" % uuid.uuid4().hex[:8]
-        root = placement.request_root(day, os.path.splitext(label)[0], use)
-        got = (root, True) if root else (os.path.join(self.data_dir, "intake", day, use), False)
+        old = os.path.join(self.data_dir, "intake", day, use)
+        root = placement.find_request_dir(use) if use == key else None   # 入口を起こし直したあとも同じ依頼は同じフォルダへ(覚えは速さのため)
+        if root is None and use == key and os.path.isdir(old):
+            root = False
+        if root is None:
+            root = placement.request_root(day, os.path.splitext(label)[0], use)
+        got = (root, True) if root else (old, False)
         if key:
             if len(self._req_dirs) >= REQ_DIRS_MAX:
                 self._req_dirs.pop(next(iter(self._req_dirs)))

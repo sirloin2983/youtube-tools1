@@ -546,6 +546,29 @@ class TestRequestFolder(Base):
         self.send("20261001-120100-def456", ["一本目.mp4"])
         self.assertNotEqual(os.path.dirname(self.runner.files[2]["path"]), want)
 
+    def test_restart_keeps_same_request_folder(self):
+        """入口を起こし直して覚えが空でも、同じ依頼の 2 本目は 1 本目のフォルダへ(書き出し先が設定済み・未設定のどちらも)"""
+        out = os.path.join(self.tmp, "出力")
+        self.with_out(out)
+        rid = "20261001-120000-abc130"
+        self.send(rid, ["一本目.mp4"])
+        self.it._req_dirs.clear()
+        self.send("20261001-120000-abd130", ["他.mp4"])   # id6 の違う別の依頼
+        rid2 = "20261001-120500-xyz130"                  # id6 が同じ(130 でなく末尾 6 文字 abc130 と別)で依頼 id は別
+        self.it._req_dirs.clear()
+        self.send(rid, ["二本目.mp4"])
+        a, _, c = (f["path"] for f in self.runner.files)
+        self.assertEqual(os.path.dirname(a), os.path.dirname(c))
+        self.assertNotEqual(os.path.dirname(a), os.path.dirname(self.runner.files[1]["path"]))
+        self.assertTrue(rid2)
+
+    def test_restart_keeps_same_folder_in_app_intake(self):
+        rid = "20261001-120000-abc131"
+        self.send(rid, ["一本目.mp4"])
+        self.it._req_dirs.clear()
+        self.send(rid, ["二本目.mp4"])
+        self.assertEqual(os.path.dirname(self.runner.files[0]["path"]), os.path.dirname(self.runner.files[1]["path"]))
+
     def test_long_and_bad_title_is_trimmed(self):
         out = os.path.join(self.tmp, "出力")
         self.with_out(out)

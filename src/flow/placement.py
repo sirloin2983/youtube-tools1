@@ -157,6 +157,27 @@ def request_root(day, title, request_id, out_dir=None):
         return None
 
 
+def find_request_dir(request_id, out_dir=None):
+    """この依頼 id のフォルダが <書き出し先>/依頼/ の下に既にあれば、そのパス(無ければ None)。名前が _<id6> で終わるフォルダのうち、
+    作業用/case.json の requestId が一致する物(id6 が重なっても取り違えない)。入口を起こし直した後に同じ依頼の動画を同じフォルダへ入れるため"""
+    try:
+        out = out_dir or configured_out_dir()
+        rid = str(request_id or "")
+        id6 = "".join(c for c in rid if c.isalnum())[-6:]
+        parent = os.path.join(out, REQUEST_DIR) if out else ""
+        if not id6 or not parent or not os.path.isdir(parent):
+            return None
+        for n in sorted(os.listdir(parent)):
+            d = os.path.join(parent, n)
+            if n.endswith("_" + id6) and os.path.isdir(d):
+                got = read_case(d)
+                if got and got.get("requestId") == rid:
+                    return d
+    except OSError:
+        pass
+    return None
+
+
 def work_dir(media, out_dir=None):
     """<案件>/作業用(途中のファイル・鍵・結果の束の置き場)。案件が分からなければ None"""
     root = case_root(media, out_dir)
@@ -192,10 +213,11 @@ def read_case(root):
     return d if d and d.get("schema") == CASE_SCHEMA and isinstance(d.get("id"), str) and d["id"] else None
 
 
-def ensure_case(media, out_dir=None, channel="", root=None):
+def ensure_case(media, out_dir=None, channel="", root=None, request_id=""):
     """案件のフォルダに case.json(youtube-tools-case/v1)を**無いときだけ**原子的に作る。-> 中身(dict)か None(案件が分からない・書けない)。
     既にあれば読んで返すだけ(上書きしない)。あるのに壊れていれば作り直さずログだけ(人が直せるように残す)。何があっても上げない。
-    形 {schema, id, media: {kind, videoId | path}, title, channel, createdAt(ミリ秒), madeBy}。id の決め方は _case_id"""
+    形 {schema, id, media: {kind, videoId | path}, title, channel, createdAt(ミリ秒), madeBy, requestId?}。id の決め方は _case_id。
+    requestId = 友人の依頼 id(依頼のフォルダを探し直すときの突き合わせ。RS8 B3-7)"""
     try:
         root = root or case_root(media, out_dir)
         if not root:
@@ -215,6 +237,8 @@ def ensure_case(media, out_dir=None, channel="", root=None):
         doc = {"schema": CASE_SCHEMA, "id": _case_id(media, root), "media": m, "title": str(title or "")[:120],
                "channel": str(channel or "")[:100], "createdAt": int(time.time() * 1000),
                "madeBy": {"name": "flow", "version": _version.VERSION}}
+        if request_id:
+            doc["requestId"] = str(request_id)[:64]
         os.makedirs(os.path.dirname(path), exist_ok=True)
         _fsio.write_json(path, doc)
         return doc

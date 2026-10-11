@@ -114,6 +114,10 @@ class CleanupTest(unittest.TestCase):
         os.remove(os.path.join(self.app, "logs", C.DELIVERIES_LOG))   # 記録が無ければ何も出さない
         self.assertEqual(next(k for k in cl.candidates([])["kinds"] if k["kind"] == "intake")["items"], [])
 
+    def test_deliveries_log_name_matches_friend_feedback(self):
+        from human.friend import friend_feedback
+        self.assertEqual(C.DELIVERIES_LOG, friend_feedback.DELIVERIES_LOG)
+
     def test_request_dir_name_matches_placement(self):
         from flow import placement
         self.assertEqual(C.REQUEST_DIR, placement.REQUEST_DIR)
