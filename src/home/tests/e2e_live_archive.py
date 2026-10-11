@@ -518,12 +518,12 @@ def _scene_rebuild_by_hand(cx):
     sx = serve.exporter
     real_cut = sx.run_ffmpeg
 
-    def held_cut(job, spec, it, base):   # この書き出しだけ、取り消されるまで終わらない(重なりを確実にする。ほかは本物のまま)
+    def held_cut(ctl, spec, it, base):   # この書き出しだけ、取り消されるまで終わらない(重なりを確実にする。ほかは本物のまま)
         if spec.get("finalPath") == busy_path:
-            while not job["cancel"]:
+            while not ctl.cancelled:   # OPT2 の J2 から 1 つ目は ytt/jobs.Ctl
                 time.sleep(0.1)
             raise sx.ExportError("取り消しました")
-        return real_cut(job, spec, it, base)
+        return real_cut(ctl, spec, it, base)
     sx.run_ffmpeg = held_cut
     code, bj = api("POST", "/studio/api/live/section", {"videoId": "TESTarch001", "start": 0, "end": 60, "path": busy_path,
                                                         "volume": 100, "precision": "accurate"})
