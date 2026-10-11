@@ -13,7 +13,7 @@ force で作り直す)、パックは pack_state(違えば作り直す)。鍵が
 
 段ごとの inputs(組み立ては下の *_inputs。秒は ms の整数に):
 - export     {media: media_identity, start, end, settings}
-- transcribe {export: 切り抜きの鍵の hash か {media}, engine, engineVersion, model, language, quality(beam), vadMode, boost, (span)}
+- transcribe {export: 切り抜きの鍵の hash か {media}, engine, engineVersion, model, language, quality(beam), vadMode, boost, (span), (device = cuda のときだけ)}
 - post       {transcribe: transcribe の hash, post: 後処理の設定, dict: 辞書の版}
 - diar       {transcribe: transcribe の hash, people: 出る人, voices: 覚えた声の版(ファイルの内容のハッシュ)}
 - pack       {clips: 切り抜きの鍵の hash の並び, doc: カットの指定と字幕のファイルの中身の版, settings: パックの設定}(pack_body_inputs。
@@ -116,10 +116,16 @@ def export_inputs(media_id, start, end, export_settings):
     return {"media": media_id, "start": _schemas.sec_ms(start), "end": _schemas.sec_ms(end), "settings": export_settings or {}}
 
 
-def transcribe_inputs(export_hash, engine, engine_version, model, language, quality, vad_mode, boost, span=None):
-    """export_hash = 切り抜きの export の鍵の hash(無ければ媒体の識別 {media: ...} の dict)。span = (開始, 終了) 秒(媒体の一部を認識したとき)"""
+KEY_DEVICES = ("cuda",)   # 鍵の inputs に書く機器(F1 F6a)。vulkan など他の機器は書かない = 今までの鍵のまま(この PC の実行を作り直さない)
+
+
+def transcribe_inputs(export_hash, engine, engine_version, model, language, quality, vad_mode, boost, span=None, device=None):
+    """export_hash = 切り抜きの export の鍵の hash(無ければ媒体の識別 {media: ...} の dict)。span = (開始, 終了) 秒(媒体の一部を認識したとき)。
+    device = 頼んだ認識の機器。KEY_DEVICES(cuda)のときだけ inputs に入れる(同じモデルでも CUDA 版と Vulkan 版の結果は別の物として扱う)"""
     out = {"export": export_hash, "engine": engine, "engineVersion": engine_version, "model": model, "language": language,
            "quality": quality, "vadMode": vad_mode, "boost": bool(boost)}
+    if device in KEY_DEVICES:
+        out["device"] = device
     if span is not None:
         out["span"] = [_schemas.sec_ms(span[0]), _schemas.sec_ms(span[1])]
     return out
@@ -225,7 +231,8 @@ def write_after_transcribe(tid, spec, run):
         st = run.get("settings") or {}
         span = (spec["start"], spec["end"]) if not spec.get("whole") and spec.get("end") is not None and spec.get("start") is not None else None
         ti = transcribe_inputs(_clip_basis(spec.get("sourcePath")), run.get("engine", ""), run.get("engineVersion", ""), run.get("model", ""),
-                               run.get("language", ""), st.get("beam"), st.get("vadMode"), st.get("boost"), span)
+                               run.get("language", ""), st.get("beam"), st.get("vadMode"), st.get("boost"), span,
+                               device=spec.get("device"))
         key = _schemas.make_key("transcribe", ti, _made_by())
         n = 0
         if write("transcribe", doc_key_path(tid, "transcribe", True), ti):
@@ -389,7 +396,8 @@ def transcribe_req_inputs(source_path, req):
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else ("off" if req.get("vad") is False else "weak"),
             "boost": req.get("boost") is True}
     eid, ever = _records.run_engine(spec)
-    return transcribe_inputs(_clip_basis(source_path), eid, ever, model, spec["language"], spec["beam"], spec["vadMode"], spec["boost"])
+    return transcribe_inputs(_clip_basis(source_path), eid, ever, model, spec["language"], spec["beam"], spec["vadMode"], spec["boost"],
+                             device=req.get("device"))
 
 
 def transcribe_state(tid, source_path, req):

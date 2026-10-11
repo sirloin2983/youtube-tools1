@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
@@ -141,6 +142,30 @@ class TestSubmit(Base):
         hist = q.history()
         self.assertEqual((hist["total"], hist["runs"][0]["id"], hist["runs"][0]["state"]), (1, "0123456789", "done"))
         self.assertEqual(self.active_file()["runs"], [])   # 終わった実行は待ちの記録から外れる
+
+    def test_learning_stamp_and_finished_hook(self):
+        """F1 F6a: 学習の読み手があれば束の post.learning.version に版が入る・終わったら finished_hook(run)(失敗してもログだけ)"""
+        seen = []
+
+        class Tools2(Tools):
+            def transcribe_start(self, req, bundle=None):
+                seen.append(bundle["post"]["learning"]["version"])
+                return super().transcribe_start(req, bundle)
+        q = self.queue(Tools2())
+        q.learning = mock.Mock(version="20261011-120000-abcdef12")
+        done = []
+
+        def hook(run):
+            done.append((run.id, run.state))
+            raise RuntimeError("壊れた hook")
+        q.set_finished_hook(hook)
+        q.submit(self.env_of(self.media[0]))
+        _until(lambda: q.status()["idle"] and done, "終わったあとの hook")
+        self.assertEqual(seen, ["20261011-120000-abcdef12"])
+        self.assertEqual(done, [("0123456789", "done")])
+        q.submit(self.env_of(self.media[1], eid="0123456780"), {"post": {"learning": {"version": "given"}}})   # 束に版があればそのまま
+        _until(lambda: len(done) == 2, "2 本目")
+        self.assertEqual(seen[-1], "given")
 
     def test_submit_rejects(self):
         """封筒の形が違う・同じ入力が待ち・実行中・同じ id は理由つきの ValueError(積まない)"""

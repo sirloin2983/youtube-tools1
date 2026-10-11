@@ -646,7 +646,8 @@ class Intake:
             except (OSError, ValueError, RuntimeError) as e:
                 res = {"ok": False, "reason": "%s: %s" % (e.__class__.__name__, str(e)[:120])}
         item = {"label": fb["zip"], "state": "accepted" if res.get("ok") else "rejected", "reason": res.get("summary") or res.get("reason") or ""}
-        self._record(folder, "feedback", "app", "要らない: %s" % (fb.get("title") or fb["zip"]), [n], "", "", [], [item])
+        label = friend_feedback.LABELS.get(fb.get("verdict"), "要らない")   # 動画にした(F1 F6a)は片付けずに記録だけ
+        self._record(folder, "feedback", "app", "%s: %s" % (label, fb.get("title") or fb["zip"]), [n], "", "", [], [item])
 
     def _handle_text(self, folder, n, p, cfg):
         try:

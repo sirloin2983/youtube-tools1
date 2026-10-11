@@ -26,6 +26,7 @@ import してよいのは標準ライブラリ・ytt・同じ flow だけ(層の
 文の中の「ホーム」は今の入口の言葉のまま(画面の JSON と記録の形を変えないため。玄関を分けるとき RS7-2 で見直す)。
 """
 import collections
+import importlib
 import json
 import os
 import threading
@@ -34,7 +35,7 @@ import urllib.parse
 import uuid
 
 from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
-from . import board as _board, envelope as _envelope, machine as _machine, placement as _placement, run as run_mod, runlog, spec as _spec
+from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, run as run_mod, runlog, spec as _spec
 from .run import (DOC_MODE, MODE_STEPS, MODES, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, analyze_verdict, pack_verdict, tx_verdict)
 
@@ -97,7 +98,7 @@ def disk_blocked(case_root, min_gb, usage=None):
 def gpu_info():
     """GPU の情報(ytt/gpuinfo。F1 の F0-2 が作る)-> {name, vramGB, ...} か None(まだ無い・読めない・調べに失敗)"""
     try:
-        from ytt import gpuinfo   # 遅い import(無ければ None。F0-2 の前でも動く)
+        gpuinfo = importlib.import_module("ytt.gpuinfo")   # 遅い import(無ければ None。sys.modules の差し替えも効く = テスト)
     except ImportError:
         return None
     fn = next((getattr(gpuinfo, n) for n in GPU_FUNCS if callable(getattr(gpuinfo, n, None))), None)
@@ -217,6 +218,8 @@ class Queue(run_mod.Runner):
         self.cv = threading.Condition(self.lock)
         self.runs = []
         self.live_hook = None   # ライブの封筒の受け口(set_live_hook)
+        self.learning = None    # 学習データの読み手(flow/learning.Learning。入口が machine の learningDir があるときに入れる。束の版を束に入れる。F1 F6a)
+        self.finished_hook = None   # 実行が終わって記録を書いたあとに呼ぶ fn(run)(set_finished_hook。画面なしの送り返しの zip。F1 F6a)
         self.thread = None
         self.blocked = None     # 空き容量が下限を切って次の実行を始めていない理由(disk_blocked の形。F1 F0-1)
         self._gpu_lock = threading.Lock()
@@ -357,6 +360,19 @@ class Queue(run_mod.Runner):
             out = self._push(run)
         self._save_active()
         return out
+
+    def set_finished_hook(self, fn):
+        """実行が 1 本終わって(完了・失敗・中止)記録を書いたあとに fn(run) を呼ぶ(糸の中・self.cv の外。失敗してもログだけ)"""
+        self.finished_hook = fn
+
+    def _finished(self, run):
+        fn = self.finished_hook
+        if fn is None:
+            return
+        try:
+            fn(run)
+        except Exception as e:   # 終わったあとの物で次の実行を止めない
+            self.log("まとめて実行: 終わったあとの処理に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:200]))
 
     def set_live_hook(self, fn):
         """ライブの封筒(kind live)の受け口を登録する: fn(封筒(検査済み), 束(検査済み)) -> {"id", ...}(ライブ係 = RS7-2 G2。入口が登録)"""
@@ -738,10 +754,13 @@ class Queue(run_mod.Runner):
                 self._trim()
                 self.cv.notify_all()
             self._save_active()   # 終わった実行を待ちの記録から外す(M5)
+            self._finished(run)   # 結果の束が書かれたあと(画面なしの送り返しの zip。F1 F6a)
 
     def _execute(self, run):
         """1 回の実行(_loop の糸から)。受けたときに組んだ束(Run.spec。RS7-1 S4)で流す。
         束の無い Run(受付を通さずに直に積んだ物)だけ、ここで hook の _accept(= build_spec)で組む"""
         if run.spec is None:
             self._accept(run)
+        if self.learning is not None and run.spec is not None:   # 学習の束の版を束の post.learning.version に(束でない・版が既にあればそのまま。F1 F6a)
+            run.spec = _learning.stamp(run.spec, self.learning)
         return run_mod.run(self.client, run, hooks=self)

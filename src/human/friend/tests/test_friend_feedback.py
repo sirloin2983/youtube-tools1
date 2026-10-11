@@ -95,6 +95,24 @@ class TestApply(Base):
         self.assertEqual(sorted(p["markId"] for p in recs[-1]["packs"]), ["m1", "m2"], "あとで精度の道具が読めるように配信の id とマークの id を残す")
         self.assertTrue(any("要らない" in x for x in self.lines))
 
+    def test_made_video_records_only(self):
+        """動画にした(F1 F6a): 何も片付けず friend_feedback.jsonl に verdict made_video の 1 行。名前は送り返しの採否(returns.VERDICTS)と同じ"""
+        from human.friend import returns
+        self.assertTrue(set(F.VERDICTS) <= set(returns.VERDICTS))
+        marks = {self.pack1: {"path": self.clip1, "markId": "m1"}}
+        z = "20261002-120000-0a1b2c__配信A 1-2.zip"
+        F.record_delivery(self.logs, os.path.join(self.tmp, "出力", z), self.run, [self.pack1], marks)
+        fb = F.parse(json.dumps({"v": 1, "kind": "feedback", "verdict": "made_video", "zip": z, "requestId": "20261002-120000-0a1b2c"}))
+        res = F.apply(self.logs, fb, trash=None, log=self.lines.append, discard=None)
+        self.assertTrue(res["ok"], res)
+        self.assertTrue(os.path.exists(self.clip1) and os.path.isdir(self.pack1), "片付けない")
+        res2 = F.apply(self.logs, dict(fb, zip="無い.zip"), log=self.lines.append)   # 届けた記録が無くても数える
+        self.assertTrue(res2["ok"])
+        with open(os.path.join(self.logs, F.FEEDBACK_LOG), encoding="utf-8") as f:
+            recs = [json.loads(l) for l in f if l.strip()]
+        self.assertEqual([(r["verdict"], r["videoId"]) for r in recs], [("made_video", "VID"), ("made_video", "")])
+        self.assertEqual(recs[0]["packs"], [{"dir": self.pack1, "markId": "m1"}])
+
     def test_no_record_or_no_parts(self):
         res = F.apply(self.logs, self.fb(), trash=self.trash, discard=cases.discard_clip)
         self.assertFalse(res["ok"])

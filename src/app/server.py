@@ -35,6 +35,9 @@
                                           {machine: 書いたあとの load, file: ファイルの中身}。知らない項目・合わない値は 400 bad_request と理由(F1 F0-1)
   POST /api/flow/cancel                   {id} 掲示板の id(「頭:id」)のジョブを止める → {job}。無い id は 404・止められない物は 409 cannot_cancel・形が違えば 400
   POST /api/flow/retry                    {id} 失敗・中止したジョブを同じ指定で入れ直す → {job}(新しい id)。無い id は 404・できない物は 409 cannot_retry
+  GET  /api/flow/outbox                   送り返す zip の一覧 {files: [{id, requestId, runId, size, at}]}(src/flow/outbox.py の list_outbox。画面なしで
+                                          依頼(requestId のある実行)が終わるたびに <app>/outbox に組む。F1 F6a)
+  POST /api/flow/outbox/done              {id} 上げ終えた zip を outbox/済み へ → {ok: true}。無い・名前の形が違う id は 404(F1 F6a)
   GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(/api/autorun/history と同じ中身。case = 結果の束の案件で絞る)
   POST /api/flow/estimate                 /api/autorun/estimate と同じ(② の名前。旧い名前も残す)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)
@@ -121,6 +124,9 @@ from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② �
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
 from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b・GET/PUT /api/flow/machine。F1 F0-1)
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
+from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
+from flow import outbox as outbox_mod  # noqa: E402  (送り返しの zip。画面なしで依頼の実行が終わるたびに組む・GET /api/flow/outbox。F1 F6a)
+from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 時間ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 import mount as mount_mod  # noqa: E402  (src/home/mount.py: 統合サーバーへのツールの取り込み)
 import autorun as autorun_mod
@@ -168,6 +174,16 @@ HEADLESS_RUNNING = "ホームはすでに起動しています(ポート %d)。�
 HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起こしたアプリから起動し直してください)"
 PARENT_POLL = 2.0          # 親の見張り: Windows 以外で親の生死を見る間隔(秒。Windows は WaitForSingleObject で待つ)
 MACHINE_PUT_FIELDS = ("device", "llmModel", "caseRoot", "diskMinGB", "learningDir")   # PUT /api/flow/machine で変えられる項目(F1 の 1-2 の口)
+LEARNPACK_DIR = "学習"          # 学習の束の置き場所 <依頼の受付のフォルダ>/学習(F1 の 3 の (f1c))
+LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 3600.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 時間。中身が変わらなければ作らない)
+
+
+def _human_learn():
+    """③ の学習の部品(flow/learning.Learning の human_loader。作業データの置き方のときだけ・文書があるときだけ呼ばれる)。
+    doc_jobs の代わりに学習の読み手を通さない物を渡す(doc_jobs.dict_learned は set_learning の読み手へ戻ってくるので)"""
+    import types
+    from human.proof import doc_jobs, learn
+    return learn, types.SimpleNamespace(dict_learned=learn.dict_learned_text, learned_finder=doc_jobs.learned_finder)
 
 def _spec(tid, name, sub, port, **kw):
     """ツールの表の 1 行。app(/api/ping の名前。互換のため変えない)と dir(src/ の中のフォルダ)は ytt の正(runtime.TOOL_APPS・layout.TOOL_DIRS)から。
@@ -631,6 +647,7 @@ POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("
                "/api/autorun/start-docs": ("_post_autorun", True), "/api/autorun/start-new": ("_post_autorun", True),
                "/api/autorun/estimate": ("_post_autorun", True), "/api/flow/submit": ("_post_flow_submit", True),
                "/api/flow/estimate": ("_post_autorun", True), "/api/flow/cancel": ("_post_flow_job", True), "/api/flow/retry": ("_post_flow_job", True),
+               "/api/flow/outbox/done": ("_post_outbox_done", False),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
                "/api/check/answer": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
@@ -785,6 +802,8 @@ class PortalHandler(BaseHTTPRequestHandler):
                 return self._json(200, machine_mod.load())
             except (OSError, ValueError) as e:
                 return self._fail(500, "machine", "この PC の設定を読めませんでした: %s" % e.__class__.__name__)
+        if u.path == "/api/flow/outbox":   # 送り返す zip の一覧(F1 F6a。送るアプリが Dropbox へ上げる)
+            return self._json(200, {"files": outbox_mod.list_outbox(self.server.app_dir)})
         if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・送るアプリの「終わったら閉じる」)+ 掲示板(RS8)
             st = self.server.autorun.status()   # autorun を作る = 掲示板に Run を載せる(PortalServer.autorun)
             st.update(self.server.board.snapshot(case=case))
@@ -967,6 +986,16 @@ class PortalHandler(BaseHTTPRequestHandler):
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
 
+    def _post_outbox_done(self, path, body):
+        """上げ終えた送り返しの zip を outbox/済み へ(F1 F6a。src/flow/outbox.py の mark_done。名前の形が違う・無い id は 404)"""
+        try:
+            moved = outbox_mod.mark_done(self.server.app_dir, body.get("id"))
+        except OSError as e:
+            return self._fail(500, "write", "送り返しの zip を移せませんでした: %s" % tools.why(e))
+        if not moved:
+            return self._fail(404, "not_found", "その zip はありません")
+        return self._json(200, {"ok": True})
+
     def _post_intake_scan(self, path, body):
         """今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)"""
         self.server.intake.wake.set()
@@ -1079,6 +1108,9 @@ class PortalServer(httpsec.ExclusiveServer):
         self._torn_down = False
         self._teardown_lock = threading.Lock()
         app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
+        self.app_dir = app_dir   # 送り返しの zip の置き場所 <app>/outbox(F1 F6a)
+        self.learning = None     # 学習データの読み手(wire_learning。machine の learningDir があるときだけ。F1 F6a)
+        self.learnpack_last = None   # 最後に学習の束を置いた結果か理由(build_learnpack。F1 F6a)
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(app_dir, fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
@@ -1370,7 +1402,63 @@ class PortalServer(httpsec.ExclusiveServer):
                 self._autorun.set_status_hook(self.live_activity)   # GET /api/flow/status の live 欄と idle(Queue はライブを知らない。RS7-2 G5a)
                 self._autorun.set_live_hook(lambda env, spec: self.live.submit(env, spec))   # 封筒 kind live はライブ係が受ける(録画を始めて録画の束を残す。画面なしでも。RS7-2 G2b)
                 self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)
+                self._autorun.learning = self.learning   # 学習の束の版を束の post.learning.version に(F1 F6a)
+                self._autorun.set_finished_hook(self.after_run)   # 画面なしの送り返しの zip(F1 F6a)
             return self._autorun
+
+    def wire_learning(self):
+        """machine の learningDir があれば、入口の文字起こし(編集のジョブ = human/proof/doc_jobs)も学習データを flow/learning で読む(F1 F6a。
+        CLI の prepare と同じ: 置き場所を ytt/workdata・名簿・声・色に入れ、学習した用語・置換・辞書の版はその読み手から)。
+        取り込みのあと(編集の set_data_dir が置き場所を決めたあと)・まとめて実行を作る前に 1 回。既定(learningDir = 作業データの根)なら何もしない
+        -> 学習データの読み手か None"""
+        ld = learning_mod.learning_dir()
+        if not ld:
+            return None
+        learning_mod.apply_places(ld)
+        lr = learning_mod.Learning(ld, human_loader=_human_learn)
+        from human.proof import doc_jobs   # 呼ぶときだけ(既定の入口では読まない)
+        doc_jobs.set_learning(lr)
+        self.learning = lr
+        if self._autorun is not None:
+            self._autorun.learning = lr
+        return lr
+
+    def after_run(self, run):
+        """実行が 1 本終わって結果の束が書かれたあと(Queue の finished_hook)。画面なし(友人の PC の ②)で依頼の実行(requestId)だけ、
+        送り返しの zip を <app>/outbox に組む(F1 F6a。ユーザーの PC の入口では組まない = 受け取る側)"""
+        if not self.headless or not getattr(run, "request_id", None) or not getattr(run, "result_path", None):
+            return None
+        path = outbox_mod.build(run.result_path, self.app_dir, request_id=run.request_id,
+                                log_path=os.path.join(self.sup.logs_dir, "launcher.log"))
+        if path:
+            self.sup.log("送り返しの zip を作りました: %s" % os.path.basename(path))
+        return path
+
+    def build_learnpack(self):
+        """依頼の受付のフォルダ(intake.folder)が設定されていれば、学習の束を <フォルダ>/学習 に置く(F1 F6a。中身が変わらなければ作らない)。
+        -> learnpack.build の結果か None(フォルダが無い・失敗 = ログだけ)"""
+        folder = ((self.prefs.get(["intake"]) or {}).get("intake") or {}).get("folder") or ""
+        if not folder or not os.path.isdir(folder):
+            return None
+        try:
+            got = learnpack_mod.build(os.path.join(folder, LEARNPACK_DIR))
+        except Exception as e:   # 学習の束が作れなくても入口は止めない
+            self.learnpack_last = {"error": "%s: %s" % (e.__class__.__name__, str(e)[:200])}
+            self.sup.log("学習の束を置けませんでした: %s" % self.learnpack_last["error"])
+            return None
+        self.learnpack_last = got
+        if got.get("created"):
+            self.sup.log("学習の束を置きました: %s" % got.get("version"))
+        return got
+
+    def learnpack_loop(self):
+        """起動の少しあとに 1 回、そのあと LEARNPACK_EVERY 秒ごとに build_learnpack(終了で止まる。画面なしでは起こさない)"""
+        if self.closing.wait(LEARNPACK_FIRST):
+            return
+        while True:
+            self.build_learnpack()
+            if self.closing.wait(LEARNPACK_EVERY):
+                return
 
     def live_activity(self):
         """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(送るアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
@@ -1792,6 +1880,11 @@ def _main(opts, ready_out=None):
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
         sup.start_all()
         sup.start_monitor()
+        try:   # 学習データの置き場所(machine の learningDir。F1 F6a)。取り込みのあと・まとめて実行を作る前
+            if srv.wire_learning() is not None:
+                log("学習データ: %s から読みます(版 %s)" % (learning_mod.learning_dir(), srv.learning.version or "-"))
+        except Exception as e:   # 読めなくても入口は動かす(今の置き場所のまま)
+            log("学習データの置き場所を使えませんでした(今の置き場所のまま): %r" % (e,))
         try:   # まとめて実行を起動のときに作る: 前の起動で待ち・実行中だった実行(M5)を、ホームを開かなくても続ける
             srv.autorun
         except Exception as e:   # 作れなくても入口は動かす(画面から使うときにもう一度作る)
@@ -1805,6 +1898,7 @@ def _main(opts, ready_out=None):
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         if not headless:
             threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
+            threading.Thread(target=srv.learnpack_loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 時間ごと。F1 F6a)
         if opts.parent_pid:   # 親の見張り(F1 F0-1): 親が終わる・標準入力が閉じられたら「すべて終了」と同じ後始末(待ちは次の起動で続く)
             watch_parent(opts.parent_pid, sys.stdin, lambda why: threading.Thread(target=srv.request_shutdown, daemon=True).start(), log)
         if headless:   # 待ち受けて ② を準備できた = 送るアプリに合言葉とポートを渡す(画面は開かない)

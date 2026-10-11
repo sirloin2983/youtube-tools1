@@ -1013,6 +1013,74 @@ class PortalHttpTest(Base):
             r, _ = self.req("PUT", "/api/flow/machine", b"{}", {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token})
             self.assertEqual(r.status, 403)
 
+    def test_flow_outbox_api(self):
+        """F1 F6a: GET /api/flow/outbox = 送り返す zip の一覧・POST /api/flow/outbox/done {id} で 済み へ(無い・形が違う id は 404・合言葉が要る)"""
+        r, body = self.req("GET", "/api/flow/outbox")
+        self.assertEqual((r.status, json.loads(body)), (200, {"files": []}))
+        ob = os.path.join(self.srv.app_dir, "outbox")
+        os.makedirs(ob, exist_ok=True)
+        with open(os.path.join(ob, "req1__run1.zip"), "wb") as f:
+            f.write(b"PK")
+        r, body = self.req("GET", "/api/flow/outbox")
+        self.assertEqual([x["id"] for x in json.loads(body)["files"]], ["req1__run1.zip"])
+        self.assertEqual(self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}', headers={"X-YTT-Token": "x"})[0].status, 403)
+        for bad in (b'{"id":"nai__run1.zip"}', b'{"id":"../x.zip"}', b'{}'):
+            self.assertEqual(self.post("/api/flow/outbox/done", body=bad)[0].status, 404, bad)
+        r, body = self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}')
+        self.assertEqual((r.status, json.loads(body)), (200, {"ok": True}))
+        self.assertTrue(os.path.isfile(os.path.join(ob, "済み", "req1__run1.zip")))
+        self.assertEqual(json.loads(self.req("GET", "/api/flow/outbox")[1])["files"], [])
+
+    def test_after_run_outbox_only_headless(self):
+        """F1 F6a: 実行が終わったあとの送り返しの zip は、画面なし・依頼(requestId)の実行だけ"""
+        run = mock.Mock(request_id="req1", result_path=os.path.join(self.tmp, "r.json"))
+        with mock.patch.object(L.outbox_mod, "build", return_value=os.path.join(self.tmp, "x.zip")) as build:
+            self.assertIsNone(self.srv.after_run(run))   # 画面あり(ユーザーの PC)は組まない
+            self.srv.headless = True
+            self.assertIsNone(self.srv.after_run(mock.Mock(request_id=None, result_path="r.json")))
+            self.assertTrue(self.srv.after_run(run))
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual((build.call_args[0], build.call_args[1]["request_id"]), ((run.result_path, self.srv.app_dir), "req1"))
+        self.assertIs(self.srv.autorun.finished_hook.__func__, L.PortalServer.after_run)
+
+    def test_wire_learning(self):
+        """F1 F6a: machine の learningDir が学習の束なら、入口の文字起こし(doc_jobs)とまとめて実行(束の版)がその読み手を使う。既定なら何もしない"""
+        from human.proof import doc_jobs
+        self.addCleanup(doc_jobs.set_learning, None)
+        with mock.patch.object(L.learning_mod, "learning_dir", return_value=None):
+            self.assertIsNone(self.srv.wire_learning())
+        self.assertIsNone(doc_jobs._learning[0])
+        pack = os.path.join(self.tmp, "学習", "v9")
+        os.makedirs(pack)
+        with open(os.path.join(pack, "learning.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": "v9"}, f)
+        with open(os.path.join(pack, "learned-rules.json"), "w", encoding="utf-8") as f:
+            json.dump({"high": [], "glossary": ["星街すいせい"], "dictLearned": "d1"}, f)
+        self.srv.autorun   # 先に作ってあっても読み手が入る
+        with mock.patch.object(L.learning_mod, "learning_dir", return_value=pack), mock.patch.object(L.learning_mod, "apply_places") as ap:
+            lr = self.srv.wire_learning()
+        ap.assert_called_once_with(pack)
+        self.assertEqual(lr.version, "v9")
+        self.assertIs(doc_jobs._learning[0], lr)
+        self.assertIs(self.srv.autorun.learning, lr)
+        self.assertEqual(doc_jobs.dict_learned(), "d1")
+        self.assertEqual(doc_jobs.glossary_of({"glossary": "すいせい"})[0], ["すいせい"])
+        self.assertEqual(doc_jobs.glossary_of({"glossary": "", "autoGloss": False})[1], [])
+
+    def test_build_learnpack_needs_intake_folder(self):
+        """F1 F6a: 学習の束は依頼の受付のフォルダが設定されているときだけ <フォルダ>/学習 へ"""
+        folder = os.path.join(self.tmp, "受付")
+        with mock.patch.object(L.learnpack_mod, "build", return_value={"version": "v", "dir": "d", "created": True}) as build:
+            with mock.patch.object(self.srv.prefs, "get", return_value={"intake": {"folder": ""}}):
+                self.assertIsNone(self.srv.build_learnpack())
+            os.makedirs(folder)
+            with mock.patch.object(self.srv.prefs, "get", return_value={"intake": {"folder": folder}}):
+                self.assertEqual(self.srv.build_learnpack()["version"], "v")
+                build.side_effect = OSError("x")
+                self.assertIsNone(self.srv.build_learnpack())
+        self.assertEqual(build.call_args[0][0], os.path.join(folder, "学習"))
+        self.assertIn("error", self.srv.learnpack_last)
+
     def test_flow_board_api(self):
         """RS8 の ② の口 S3: status に rev・jobs・cases を足す(今の項目はそのまま)・?case= の検査と絞り込み・POST /api/flow/cancel・retry
         (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate(旧い名前と同じ口)"""
