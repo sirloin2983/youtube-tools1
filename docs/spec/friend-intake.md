@@ -205,6 +205,13 @@
 - **依頼ごとの本数**: 友人のアプリの設定「届け方」(1 本ずつ / n 本ごと。1〜10)を依頼の JSON の `deliverBatch` で送る(url・video の依頼。無ければ PC の設定 `intake.deliverBatch` = 今までどおり)。ライブ配信の依頼も 2.9.0 から送る(2-15。10-09 ユーザー決定)
 - **要らない**: 1 本ずつの zip ごとに 2-14 の `.feedback.json`(変えない)。PC の届けた記録 `deliveries.jsonl` も zip ごと
 
+### 2-17. 友人の PC で処理する形の Dropbox(F1。0.61.0。送るアプリ 2.10.0 → 全体の版 0.61.0)
+Dropbox のアプリのフォルダの直下は `/`(依頼。今のまま)・`/出力`(今のまま)に加えて 3 つ(ユーザーの PC では全部 `intake.folder` の下 = 入口は Dropbox の API を呼ばない)。
+- **`/学習`**: ユーザーの PC の入口が計算済みの束を `学習\<版>\`(版 = `YYYYMMDD-HHMMSS-<sha256 の先頭 8>`・直近 3 版)と `learning.json`・`latest.json` で置く。声は名簿にある人だけ。友人のアプリは起動時に `latest.json` を読み新しければ取る(sha 検査)。
+- **`/送り返し`**: 友人の ② が組んだ `<requestId>__<runId>.zip`(動画なし)と、採否 `<requestId>__<pack>.verdict.json`。受付(`human/friend/returns.py`)が `app\friend-returns\<YYYY-MM>\<requestId>\` へ並べ(zip slip は断る)、同期フォルダ側は `送り返し\受付済み\` へ移す。
+- **`/更新`**: `RequestSender-<版>.zip` と `latest.json {version, file, size, sha256, notes}`(`dev/build_friend_zip.py` が書く)。アプリは新しければ「更新する」を出す(自動では入れ替えない)。`config.json`・`keys.json`・`settings.json` は触らない。
+- **verdict に `made_video`** を足した: 友人が受け取ったパックを「動画にした」ときの印(`keep`・`reject` に並ぶ)。
+
 ## 3. 全体の流れ
 ```
 友人の PC                          ユーザーの Dropbox(2TB)                  ユーザーの PC

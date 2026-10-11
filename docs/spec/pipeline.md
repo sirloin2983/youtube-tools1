@@ -195,6 +195,15 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
   実物への反映は今の ③ の口を通すので、測る道具が読む記録はそのまま増える: 文書は `human/proof/store.commit` の why `check:read`・`check:voice`・`check:time`、採否は `feedback.jsonl`、読みの提案は `learn-feedback.json`、
   声は登録簿 `voices/<emb>.json` の `learnedFrom`(名前で答えた行が 1 人 30 秒たまったら覚え直す)。行の時刻の答えは `eval_timing --check` が answers.jsonl を読む。
 
+### 2.11 F1: 友人の PC で ② を子として動かす口(0.61.0。`src/app/server.py`・`src/flow/runqueue.py`・`src/flow/machine.py`・`src/flow/outbox.py`。設計 `docs/design/f1-build.md`)
+送るアプリ(C#)が `server.py --headless --port 0 --parent-pid <pid>` を子に起こし、`ready` の 1 行で port と合言葉を受けて HTTP で使う(Dropbox はアプリだけが呼ぶ。② は知らない)。
+- **`--parent-pid <pid>`**: 親の生死を見る糸 1 本 + 標準入力の EOF の 2 本立て。どちらかで今の実行を取り消し・待ちを `autorun-active.json` に保存して終了コード 0。ユーザーの PC の入口は付けない(今のまま)。
+- **`GET /api/flow/machine`・`PUT /api/flow/machine {device?, llmModel?, caseRoot?, diskMinGB?, learningDir?}`**: `machine.json` の読み書き。保存した値を返し、合わない値は 400 とその理由。`device` は `spec.TX_DEVICES`(`vulkan`・`cuda`)。
+- **`GET /api/flow/status`** に `blocked: null | {reason: "disk", freeGB, minGB}`(空きが `diskMinGB` を下回ると**処理の開始**も止める。録画の開始だけでなく)と `machine: {engine, device, llmModel, gpu: {name, vramGB|null}}`(`ytt/gpuinfo`。調べられなければ `gpu: null`)。
+- **`GET /api/flow/outbox`**: 送り返す zip(`app\outbox\<requestId>__<runId>.zip`。結果の束・鍵・文字起こしの機械の結果と文書・候補・採用・ログの末尾・health。**動画・音声なし**・50MB 超は中身を減らして印)の一覧。`POST /api/flow/outbox/done {id}` で済みの印。採否はアプリが `<requestId>__<pack>.verdict.json` を直に書く。
+- **`POST /api/flow/submit`** の断り: 束の版違い = 400 `{error: "spec_version", message}`・知らない項目 = 400 `{error: "bad_spec", message}`(アプリは「更新してください」と出す)。
+- **学習の束**: `machine.learningDir` に `learning.json` があれば、`flow/learning` が文書なしで規則ファイル(置換・用語・名簿・色・声)を読む。無ければ今の作業データの置き方。`post.learning.version` が後処理の鍵に入る。
+
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
 

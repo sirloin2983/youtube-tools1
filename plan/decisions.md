@@ -636,3 +636,18 @@ O2(文書を機械の層 + 人の層から組み立てる)
 ### 3-41 V1 確かめるの作り方(2026-10-11 夕。計画 docs/design/v1-check-build.md = Fable。下の 4 つはユーザーが答えた = 全部おすすめ)
 - **決定(ユーザー)**: 価値のカードの [送る] は 1 枚遅れて確定(次のカードに答えた時に届ける・それまで Z で取り消せる)/ ホームの「続けて確認」の引き出しは消して確かめるに 1 つ / 時刻のカードは ← → で動かした量だけ行の時刻を変える(動かさなければ記録だけ)/ カードの再生は案件のパネルを丸ごと載せず軽い再生部品 1 つ + 口・見た目・キーの共用
 - **決定(計画の推奨のまま)**: 置き場所 /check(src/app/ui/check/)・待ち行列は ⑤ src/eval/check/・反映は ③ src/human/check/apply.py・記録 app/check/answers.jsonl・段 V0 ∥ V1 → V2a〜d → V3 → V4
+
+### 3-43 F1 友人の PC で ② を動かす形の仮決め(2026-10-11。作り方の計画 `docs/design/f1-build.md` 3 節 = Fable。(f1b)・(f1g) の一部はユーザー確認済み)
+- (f1a) 空き容量の下限は 20GB(`machine.DISK_MIN_GB`)。録画の開始と処理の開始の両方に効き、アプリの設定の欄で変えられる
+- (f1b) **ユーザー確認済み**: VRAM 10GB 以上は qwen3-8b・6〜10GB(8GB)は **qwen3-4b**・6GB 未満は後処理なし(`none`)・不明は今の qwen3-8b。CUDA 版の whisper.cpp が公式に無ければ Vulkan だけで渡す
+- (f1c) 学習の束は `学習\<版>\`(zip にしない)・版は `日時-sha256 先頭 8`・中身 7 ファイル・声は名簿の人だけ・入口の起動時と 1 時間ごとの見回りで置き直し・直近 3 版
+- (f1d) 送り返しは Dropbox `/送り返し/`・ユーザーの PC は `app\friend-returns\<YYYY-MM>\<requestId>\`・zip は 50MB まで
+- (f1e) Dropbox のフォルダは `/`・`/出力`(今のまま)+ `/学習`・`/送り返し`・`/更新`
+- (f1f) 友人の PC の既定のファイル `friend-defaults.json`(束の部分集合 + 依頼の既定。更新で置き換わる)
+- (f1g) 更新の zip に `config.json` を入れない。**初回の zip だけ鍵入りで手渡し(ユーザー確認済み)**
+- (f1h) 更新 zip は `<intake.folder>\更新\RequestSender-<版>.zip` + `latest.json`・古い zip は 2 つ残す・自動では入れ替えない
+- (f1i) 友人の PC の置き場所: アプリ `<任意>\RequestSender\`・作業データ `%LOCALAPPDATA%\youtube-tools\`・案件の根の既定 `%USERPROFILE%\Videos\youtube-tools\`
+- (f1j) 親の見張りは `--parent-pid` の糸 + 標準入力の EOF の 2 本立て・Job Object は作らない
+- (f1k) CUDA 版 whisper.cpp は公式リリースの zip を URL・size・SHA の表で取り・切り替えたときだけ取る
+- (f1l) 送るアプリの版は全体の版(`src/ytt/version.py`)に合わせる(0.61.0)
+- (f1m) API キーは `<app>\keys.json` にだけ置き、環境変数 `YTT_YT_API_KEY` で ② に渡す。束・鍵・送り返し・ログに入れない
