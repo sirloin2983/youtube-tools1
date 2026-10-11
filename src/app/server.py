@@ -932,6 +932,7 @@ class PortalServer(httpsec.ExclusiveServer):
                                               last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])
         self.deliveries = deliver_mod.Deliveries(lambda: (self.prefs.get(["intake"])["intake"] or {}).get("folder") or "",
                                                  txindex.is_pack_dir, log=sup.log)   # 「編集」の ③ パックの「友人へ届ける」(api/ytt/deliver)
+        self.deliveries.attach_board(self.board)   # 届ける(頭 dl)を掲示板へ(RS8 の ② の口 S2)
         # リアルタイム切り抜き(線 D。既定はオフ。見回り = 録画の部品を起こすのは main で start。テストで作る入口では動かさない)
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log, server=self)   # server: P4 の作り直しがスタジオの API を呼ぶ
         self.live.unconfirmed = lambda: cases_mod.snapshot(sup.root)["auto"]["unconfirmed"]   # 自動の切り抜きの未確認の数(D-13: 20 本で自動の採用を休む)

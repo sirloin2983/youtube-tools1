@@ -26,7 +26,7 @@ import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/sib
 from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
-from flow import batch as batch_mod, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1)
+from flow import batch as batch_mod, board as board_mod, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1)
 from pipeline.analyze import analyze  # noqa: E402
 from pipeline.analyze import fetch  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
@@ -63,7 +63,15 @@ def init(home=None):
     _env.load_out_dir()
     STORE = store_mod.Store(_env.p("data.json"))
     BATCH = batch_mod.Batch(STORE)
+    attach_board(board_mod.default())
     return STORE, BATCH
+
+
+def attach_board(board):
+    """解析(頭 an)・書き出し(頭 ex)・配信の検索(頭 se)を掲示板(RS8 の ② の口 S2。flow/board.py)に載せる。① の書き出しと ③ の検索は flow を読めないので、ここ(取り込みの側)で登録する"""
+    BATCH.attach_board(board)
+    board.register("ex", source=exporter.board_jobs, cancel=exporter.board_cancel)
+    rank.attach_board(board)
 
 
 def busy():

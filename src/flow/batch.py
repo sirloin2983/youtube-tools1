@@ -15,6 +15,7 @@ from ytt.errors import ApiError
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
 FINISHED = ("done", "error", "cancelled", "skipped")
+BOARD_STATE = {"waiting": "queued", "running": "running", "done": "done", "error": "error", "cancelled": "cancelled", "skipped": "skipped"}   # item の status -> 掲示板の state
 RETRYABLE = ("error", "cancelled", "skipped")
 FULL_MSG = "一度に入れられるのは%d本までです" % MAX_ACTIVE
 DUP_MSG = "すでに解析の順番待ちにあります"
@@ -220,6 +221,45 @@ class Batch:
                 r = fetch.prefetch_chat(i["videoId"], i["settings"]["chatTimeout"] * 60, self._kick_prefetch)
                 if r != "skip":
                     break
+
+    # ---- 掲示板(RS8 の ② の口 S2。flow/board.py。頭 an・id = an:<qid>。器の本体と今の API は変えない: 状態を写して見せるだけ) ----
+    def attach_board(self, board):
+        """解析のキューを掲示板に載せる(引く形・頭 an。取り消し・やり直しも掲示板の id で)。スタジオの serve が init で 1 回呼ぶ"""
+        board.register("an", source=self.board_jobs, cancel=self.board_cancel, retry=self.board_retry)
+
+    def _board_job(self, it):
+        """item -> 掲示板の Job(self.cv を持って呼ぶ)。案件の根は掲示板の case_hook が target から引く"""
+        p = self._public(it)
+        state = BOARD_STATE.get(p["status"], "error")
+        src = it["src"]
+        target = {"videoId": p["videoId"]}
+        if src.get("kind") == "file":
+            target["path"] = src.get("path")
+        return {"id": "an:" + p["qid"], "kind": "analyze", "target": target, "title": p["title"] or p["videoId"], "state": state,
+                "phase": p["phase"], "progress": p["progress"], "finishedAt": p["finishedAt"],
+                "error": {"code": None, "text": p["error"] or "解析に失敗しました", "detail": None} if state == "error" else None,
+                "canCancel": state in ("queued", "running"), "canRetry": p["status"] in RETRYABLE}
+
+    def board_jobs(self):
+        """掲示板の引く形: 今のキュー(作成順)-> [Job]"""
+        with self.cv:
+            return [self._board_job(i) for i in self.items]
+
+    def board_cancel(self, qid):
+        """掲示板の取り消し: cancel と同じ(待ちは取り除く・実行中は中止を伝える)。無い id は LookupError"""
+        try:
+            self.cancel(qid)
+        except ApiError as e:
+            raise LookupError(e.message)
+
+    def board_retry(self, qid):
+        """掲示板のやり直し: retry と同じ(新しい qid で入れ直す)-> 新しい item の Job。無い id は LookupError・入れられないは ValueError"""
+        try:
+            new = self.retry(qid)
+        except ApiError as e:
+            raise (LookupError if e.status == 404 else ValueError)(e.message)
+        with self.cv:
+            return self._board_job(self._find(new))
 
     # ---- ワーカー ----
     def _loop(self):

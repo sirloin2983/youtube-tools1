@@ -319,6 +319,7 @@ class Deliveries:
         self.lock = threading.Lock()
         self.jobs = {}
         self.busy = threading.Lock()   # 同時に作るのは1本
+        self._finished = {}            # 仕事の id -> 終わった時刻(ms)。掲示板が読む(status には出さない)
 
     def start(self, d, title="", on_done=None):
         """-> 仕事の状態。断るときは ValueError(画面にそのまま出す文)。
@@ -343,6 +344,7 @@ class Deliveries:
             self.jobs[job["id"]] = job
             for k in [k for k, j in self.jobs.items() if j["state"] != "running"][:-KEEP_JOBS]:
                 del self.jobs[k]
+                self._finished.pop(k, None)
         threading.Thread(target=self._run, args=(job, os.path.join(folder, OUT_DIR), on_done), daemon=True, name="deliver").start()
         return dict(job)
 
@@ -380,6 +382,24 @@ class Deliveries:
             self.log("友人へ届ける: 失敗 %s (%s)" % (job["dir"], job["message"]))
         finally:
             self.busy.release()
+            with self.lock:
+                self._finished[job["id"]] = int(self.clock() * 1000)
+
+    # ---- 掲示板(RS8 の ② の口 S2。flow/board.py。頭 dl・id = dl:<仕事の id>。入口が board を渡して 1 回呼ぶ。取り消し・やり直しは無い) ----
+    def attach_board(self, board):
+        board.register("dl", source=self.board_jobs)
+
+    def board_jobs(self):
+        """掲示板の引く形: 仕事(入れた順)-> [Job の辞書]。target.path = パックのフォルダ(案件の根は掲示板の case_hook が引く)"""
+        with self.lock:
+            rows = [(dict(j), self._finished.get(j["id"])) for j in self.jobs.values()]
+        out = []
+        for j, fin in rows:
+            state = j["state"] if j["state"] in ("running", "done", "error") else "error"
+            out.append({"id": "dl:" + j["id"], "kind": "deliver", "target": {"path": j["dir"]}, "title": j["name"], "state": state,
+                        "phase": j["message"], "progress": j["progress"], "createdAt": j["startedAt"], "startedAt": j["startedAt"], "finishedAt": fin,
+                        "error": {"code": None, "text": j["message"], "detail": j["error"] or None} if state == "error" else None})
+        return out
 
     def status(self, job_id):
         with self.lock:

@@ -372,6 +372,41 @@ def cancel_all():
     return running
 
 
+# ---------- 掲示板(RS8 の ② の口 S2。flow/board.py の Job の形の辞書) ----------
+# ① は flow を読めない(層の向き)ので、形の辞書を返す読み出しと取り消しだけ持つ。登録(board.register("ex", …))は呼び手のスタジオの serve。
+def _board_job(job):
+    items = job["items"]
+    state = job["state"] if job["state"] in ("running", "done", "error", "cancelled") else "error"
+    paths = [it["path"] for it in items if it.get("status") == "done" and it.get("path")]
+    nd = sum(1 for it in items if it.get("status") == "done")
+    err = next((it["error"] for it in items if it.get("status") == "error" and it.get("error")), None)
+    active = state == "running"
+    return {"id": "ex:" + job["id"], "kind": "export", "target": {"videoId": job.get("videoId"), "path": paths[0] if paths else None},
+            "title": "書き出し %d 本" % len(items), "state": state,
+            "phase": "順番待ち" if active and job.get("waiting") else "%d/%d 本" % (nd, len(items)), "waiting": bool(job.get("waiting")),
+            "progress": 1.0 if state == "done" else (sum(float(it.get("progress") or 0) for it in items) / len(items) if items else None),
+            "createdAt": int(job["created"] * 1000), "finishedAt": job.get("finishedAt"),
+            "error": {"code": None, "text": str(err), "detail": None} if state == "error" else None,
+            "canCancel": active and not job.get("cancel"), "canRetry": False}
+
+
+def board_jobs():
+    """掲示板の引く形: 書き出しのジョブ(入れた順)-> [Job の辞書]"""
+    with _jobs_lock:
+        jobs = sorted(_jobs.values(), key=lambda j: j["created"])
+    return [_board_job(j) for j in jobs]
+
+
+def board_cancel(jid):
+    """掲示板の取り消し: cancel と同じ。無い id は LookupError・実行中でなければ ValueError"""
+    j = _jobs.get(str(jid or ""))
+    if not j:
+        raise LookupError("その書き出しはありません")
+    if j["state"] != "running":
+        raise ValueError("その書き出しは終わっています")
+    cancel(jid)
+
+
 def _pump(job, cmd, it, dur, span=(0.0, 1.0)):
     """コマンドを実行して出力を読み、進捗(0〜1)を更新する。失敗時は ExportError。
     EXPORT_IDLE 秒のあいだ出力がなければ止める。中止・時間切れでは子プロセスごと止める。
@@ -858,6 +893,7 @@ def run_job(job, spec, on_done=None):
         raise
     finally:
         _settle(job)
+        job["finishedAt"] = int(time.time() * 1000)   # 掲示板が読む(job_public には出さない)
 
 
 def _settle(job):

@@ -402,6 +402,24 @@ class DeliveriesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "見つかりません"):
             self.dl.start(self.pack, "t")
 
+    def test_state_on_board(self):
+        """RS8 の ② の口 S2: 仕事の状態が変わると、掲示板に dl:<id> がその state で載る"""
+        from flow import board as B
+        b = B.Board()
+        self.dl.attach_board(b)
+        j = wait(self.dl, self.dl.start(self.pack, "t"))
+        b.refresh()
+        got = b.get("dl:" + j["id"])
+        self.assertEqual((got["kind"], got["state"], got["target"]["path"], got["finishedAt"] is not None), ("deliver", "done", os.path.normpath(self.pack), True))
+        orig = deliver.zip_pack
+        deliver.zip_pack = mock.Mock(side_effect=OSError(28, "No space left on device"))
+        self.addCleanup(setattr, deliver, "zip_pack", orig)
+        j2 = wait(self.dl, self.dl.start(self.pack, "t2"))
+        b.refresh()
+        got = b.get("dl:" + j2["id"])
+        self.assertEqual(got["state"], "error")
+        self.assertIn("No space left", got["error"]["text"])
+
     def test_status_unknown(self):
         self.assertIsNone(self.dl.status("nope"))
         self.assertIsNone(self.dl.status(None))

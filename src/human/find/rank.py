@@ -620,7 +620,8 @@ def _start_search(spec):
         for k in list(_jobs)[:-5]:
             _jobs.pop(k, None)
         jid = uuid.uuid4().hex[:10]
-        job = {"id": jid, "state": "running", "phase": "開始", "progress": 0.0, "cancel": False, "error": "", "result": None}
+        job = {"id": jid, "state": "running", "phase": "開始", "progress": 0.0, "cancel": False, "error": "", "result": None,
+               "created": int(time.time() * 1000), "spec": spec}   # created・spec は掲示板が読む(job_public には出さない)
         _jobs[jid] = job
     threading.Thread(target=run_search, args=(job, spec), daemon=True).start()
     return job
@@ -821,6 +822,43 @@ def get_search(jid):
     if not j:
         raise ApiError("not_found", "検索が見つかりません", 404)
     return job_public(j)
+
+
+# 掲示板(RS8 の ② の口 S2。flow/board.py。頭 se・id = se:<検索の id>)。入口の側(スタジオの serve)が board を渡して 1 回呼ぶ
+def attach_board(board):
+    board.register("se", source=board_jobs, cancel=board_cancel, retry=board_retry)
+
+
+def _board_job(j):
+    state = j["state"] if j["state"] in ("running", "done", "error", "cancelled") else "error"
+    return {"id": "se:" + j["id"], "kind": "search", "title": "配信の検索", "state": state, "phase": j["phase"], "progress": j["progress"],
+            "createdAt": j.get("created"), "error": {"code": j.get("code") or None, "text": j["error"], "detail": j.get("detail") or None} if state == "error" else None,
+            "canCancel": state == "running" and not j["cancel"], "canRetry": state in ("error", "cancelled")}
+
+
+def board_jobs():
+    """掲示板の引く形: 検索のジョブ(入れた順)-> [Job の辞書]"""
+    with _jobs_lock:
+        return [_board_job(j) for j in _jobs.values()]
+
+
+def board_cancel(jid):
+    """掲示板の取り消し: cancel_search と同じ。無い id は LookupError"""
+    if str(jid or "") not in _jobs:
+        raise LookupError("その検索はありません")
+    cancel_search(jid)
+
+
+def board_retry(jid):
+    """掲示板のやり直し: 同じ指定でもう一度検索する -> 新しい検索の Job。無い id は LookupError・別の検索が動いていれば ValueError"""
+    j = _jobs.get(str(jid or ""))
+    if not j or not j.get("spec"):
+        raise LookupError("その検索はありません")
+    try:
+        new = _start_search(j["spec"])
+    except ApiError as e:
+        raise ValueError(e.message)
+    return _board_job(new)
 
 
 def cancel_search(jid):
