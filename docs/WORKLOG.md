@@ -3592,3 +3592,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - テスト: unittest 約 3,900 件・lint 0・層 OK・node 74・ui_audit all --demo Must 0・e2e 一式 19 本(e2e_live_studio は直したあと単独で 2 回 OK)
 - 次: F1(並行のセッション)→ RV。文書の層の primary はユーザーの合図で
 - 未コミット: なし
+
+## 2026-10-11 夜 Claude Code(PC。Opus まとめ役。セッション「F1」。ユーザー「F1 始めて」)— F1 友人の PC で ② + ① = 版 0.61.0(AI の分は済み・友人の PC での確かめ待ち)
+- 下調べ 3 本(Sonnet)→ 作り方の計画 docs/design/f1-build.md(Fable)→ 第 1 波 6 本・第 2 波 4 本・仕上げ 3 本を worktree で並列(Opus = ② の口・GPU・送るアプリの土台・配る zip・配線 / Sonnet = 学習の束・送り返し・設定・同期・取得と更新・説明・文書)
+- ② : server の --parent-pid(親の待ち + 標準入力の EOF で保存して終わる)・処理の開始にも diskMinGB(status.blocked)・status の machine(GPU)・GET/PUT /api/flow/machine・submit の 400 spec_version/bad_spec・GET /api/flow/outbox・done・画面なしで実行が終わったら送り返しの zip(flow/outbox)/ ytt/gpuinfo(nvidia-smi → レジストリ → CIM)・device cuda(whisper.cpp の CUDA 版 b5130 を切り替えたときに取る・置き場所は ytt/txbase の 1 か所)・VRAM で LLM(10GB 以上 8B・6〜10GB 4B・未満 none)・鍵の device は cuda のときだけ / 学習の束 manage/keep/learnpack(入口が intake.folder の 学習 へ 1 時間ごと)・flow/learning(入口も読む・文書なしで動く)/ 送り返しの受け取り human/friend/returns・eval_friend・made_video
+- 送るアプリ: Backend(② を子に)・Bundle(封筒 + 束)・Progress(進み具合・× の 3 択・処理する PC)・Settings(API キーの確かめ・エンジン A/C)・Sync(学習・送り返し・更新の確認)・Setup(初回の取得・更新)・LocalPacks(この PC のパックを受け取るに)・guide.html。配る zip は dev/build_friend_zip.py(鍵は --first --with-key のときだけ)。アプリの版は全体の VERSION
+- ユーザー確認(3 問とも推奨): 8GB は qwen3-4b / CUDA 版が無ければ Vulkan だけ / 鍵は初回の zip だけ。ほかの仮決めは decisions 3-43
+- 計画と違えた所: tx_engines.DEFAULT・requirements.txt の faster-whisper は外していない(機器なしの要求が使う。配る zip は requirements を読まないので友人の PC には入らない)
+- テスト: unittest 全部 OK(dev 75・app 53・eval 394・flow 417・human 382・manage 198・pipeline 517・studio 133・ytt 233・cut2resolve 38・home 189+27+66・editor 1220・契約 35・analytics 27)・lint 0・送るアプリ CoreTests 65・e2e 一式 19 本 OK(12 分)
+- 気づいたこと(直していない): 作業データの違う画面なしの ② も終わるときに既定のポートの録画の部品を止めにいく(403 で害なし)/ analytics のテストはフォルダの中から流す
+- 次: 友人の PC での確かめ(初回の zip を作る = py -3.10 dev/build_friend_zip.py --first --with-key → 友人に渡す・本物の Dropbox で学習・送り返し・更新を 1 回)→ RV
+- 未コミット: なし

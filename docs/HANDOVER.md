@@ -13,6 +13,7 @@
 - テスト(10-11・8e7f901): unittest 23 組・3,417 件 OK(フォルダごとにまとめて 1 プロセス = 16 分)・lint 0・層 0・契約 35 件・**e2e 一式 31 本 OK**(e2e_autorun は case.json の置き場所を直したあと単独で OK)。0.58.0 のあと: unittest 24 組・3,361 件 OK・画面に近い e2e 5 本 OK
 
 ## 次
+0. **10-11 夜(F1)**: F1 の AI の分は済み = 版 0.61.0(`docs/design/f1-build.md`・WORKLOG の末尾)。残りは友人の PC での確かめ(`py -3.10 dev/build_friend_zip.py --first --with-key` で初回の zip → 友人へ・本物の Dropbox で学習・送り返し・更新を 1 回)。そのあと RV
 0. **10-11 夜**: V1 確かめる(/check)も済み = 版 0.60.0。次は F1 → RV
 0. **10-11 夕(WORKLOG の末尾)**: RS8 の新しい画面ができた = 案件の画面 `/cases`(`src/app/ui/cases/`。殻 cases.js + パネル cand・proof・cut・new・machpick・台 edhost.js)とホームの組み替え。古い画面のページは消した(部品の JS は `src/studio`・`src/editor` に残して案件の画面が相対パスで読む)。版 0.59.0。e2e は 18 本。文書の層は shadow のまま(primary はユーザーの合図で)。次は V1 → F1 → RV
 - 以下は 10-11 昼の記録。**10-11 昼の続き**: O2-3〜5 = `TRANSCRIBE_LAYERS=primary` で層が正(**既定は shadow のまま = ユーザーに直接聞いた答え。新しい画面の 3 択ができてから primary に**)・3 択の口 `/api/mach-changes`(`human/proof/machpick.py`)・再認識と話者は primary のときだけ新しい動き。URL も入口なしで CLI から最後まで(`flow/studiobook.py`。終了コード 3 は欠番)。入口の本体は `src/app/server.py`(旧パス `src/home/launch.py` は runpy の転送)。② の口 = 掲示板 `flow/board.py`・`GET /api/flow/status` の jobs・cases・rev・`POST /api/flow/cancel`・`retry`・`GET /api/flow/history`(仕様 `docs/spec/pipeline.md` 2.9・設計 `docs/design/rs8-flow-api.md`)。器 10 通りは包んで載せた(器を本当に 1 つにする OPT2 の後半は新しい画面の直後)。**次は新しい画面**(`docs/design/briefs/rs8-cases/`。進み具合は掲示板を 2 秒 / 15 秒で問い合わせ・案件の中身と人の操作は ③④ の今の口)→ primary へ → V1
