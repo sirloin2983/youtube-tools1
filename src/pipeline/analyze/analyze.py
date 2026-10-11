@@ -3,7 +3,6 @@
 音声(音量・高音域)・チャットのリプレイ・動画コメント欄のタイムスタンプから「盛り上がっている部分」を見つけ、区間の候補にする。
 解析は関数 run(spec, ctl) -> {source, candidates, series, signals, counts, warnings, spec}(失敗・中止は例外)。batch.py が Ctl を作って1本ずつ回す。
   進み具合は ctl.report・取り消しは ctl.check()/is_cancelled・チャットの状態は ctl.note("chat", …)・「チャット待ちを打ち切る」は ctl.flag("skipChat")。
-  new_job / run_analyze / cancel_job / skip_chat は状態を辞書で持つ互換の包み(e2e・テスト用)。
 """
 import glob
 import gzip
@@ -83,39 +82,10 @@ def make_spec(src, settings):
     return spec
 
 
-# ---------- ジョブ(互換の薄い包み。本体は run(spec, ctl)。J4 で消す) ----------
-def new_job(spec):
-    """互換: 状態を辞書で持つ形(e2e・テスト用)。進み具合と覚え書きは辞書へ写す Ctl(job["ctl"])が受ける"""
-    job = {"id": uuid.uuid4().hex[:10], "kind": "analyze", "state": "running", "phase": "開始", "progress": 0.0, "error": "", "spec": spec, "result": None,
-           "cancel": False, "chat": None}
-
-    def on_progress(frac, message):
-        if frac is not None:
-            job["progress"] = frac
-        if message is not None:
-            job["phase"] = message
-    job["ctl"] = Ctl(on_progress=on_progress, on_note=lambda key, value: job.__setitem__(key, value))
-    return job
-
-
 def chat_public(c):
     if not c:
         return None
     return {"state": c["state"], "elapsed": int((c["t1"] or time.time()) - c["t0"]), "bytes": c["bytes"]}
-
-
-def cancel_job(job):
-    job["cancel"] = True
-    job["ctl"].cancel()
-
-
-def skip_chat(job):
-    """チャット待ちだけ打ち切る(音声などの解析は続ける)。"""
-    c = job.get("chat")
-    if c and c["state"] == "running":
-        job["ctl"].raise_flag("skipChat")
-        return True
-    return False
 
 
 # ---------- 音量の解析結果のキャッシュ ----------
@@ -147,8 +117,6 @@ def save_sig(vid, dur, full, band):
         _fsio.prune_cache(sig_cache_dir(), "*.json", fetch.CHAT_CACHE_KEEP)
     except OSError:
         pass
-
-
 
 
 # ---------- 解析データの保存(archive: 後から重みや判定ロジックを実データで見直すための記録) ----------
@@ -434,17 +402,3 @@ def run(spec, ctl=None):
     finally:
         _stop_helpers(run_, wdir, chat_vid)
 
-
-def run_analyze(job):
-    """互換: 状態を辞書で持つ形で run を回す(結果は job["result"]、状態は job["state"]・job["phase"]・job["error"])"""
-    ctl = job["ctl"]
-    if job["cancel"]:
-        ctl.cancel()
-    try:
-        job["state"], job["phase"] = "running", "素材を取得中"
-        job["result"] = run(job["spec"], ctl)
-        job["state"], job["phase"], job["progress"] = "done", "解析が完了しました", 1.0
-    except Cancelled:
-        job["state"], job["phase"] = "cancelled", "中止しました"
-    except ApiError as e:
-        job["state"], job["error"], job["phase"] = "error", e.message, "失敗"

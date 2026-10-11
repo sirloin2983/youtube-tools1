@@ -5,7 +5,6 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import random
 import sys
 import tempfile
-import time
 import unittest
 from unittest import mock
 
@@ -298,24 +297,6 @@ class TestRunCtl(unittest.TestCase):
             return self.levels()()
         with mock.patch.object(analyze, "_levels", levels), self.assertRaises(Cancelled):
             analyze.run(self.spec, ctl)
-
-    def test_legacy_wrapper_mirrors_state(self):
-        job = analyze.new_job(self.spec)
-        with mock.patch.object(analyze, "_levels", self.levels()):
-            analyze.run_analyze(job)
-        self.assertEqual((job["state"], job["progress"]), ("done", 1.0))
-        self.assertTrue(job["result"]["candidates"])
-        job = analyze.new_job(self.spec)
-        analyze.cancel_job(job)
-        analyze.run_analyze(job)
-        self.assertEqual(job["state"], "cancelled")
-
-    def test_skip_chat_raises_flag_only_while_running(self):
-        job = analyze.new_job(self.spec)
-        self.assertFalse(analyze.skip_chat(job))   # チャットが始まっていない
-        job["ctl"].note("chat", {"state": "running", "t0": time.time(), "t1": None, "bytes": 0})
-        self.assertTrue(analyze.skip_chat(job))
-        self.assertTrue(job["ctl"].flag("skipChat"))
 
 
 if __name__ == "__main__":
