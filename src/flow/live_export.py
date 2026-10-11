@@ -11,6 +11,9 @@
   lm- + sha1(スタジオのマークの id) の頭 12 桁)。ジョブには studio {video, mark, start, end} を残す(スタジオの画面がどのマークの書き出しか分かる)。
   バックアップは作業データのバックアップ(src/manage/keep/backup.py。変わってから QUIET 秒で写す)に乗る。
   スタジオなしの採用(RS7-2 G1b。flow/live_adopt.py の LocalMarks)は、正本のマークに採用の印(key・sec・status adopted|exported・src "local")を置く(MarkStore.adopt)。
+  RS8 B3-5(決定 3-37 の (r8j)): 採用の正は案件の 採用.json。スタジオなしの採用の印は初めて書き出したとき案件へ写し(録画の記録に case = 案件の根)、
+  そのあとの採用はここに置かない(書き出しのジョブの入力 upsert だけ)。正本のファイルはライブの片付けが録画を消したあと、写っていれば消す(settled・drop)。
+  画面からマークを直に足す POST /live/api/marks は消した(MarkStore.apply は P2 の形のまま残す = テストと手で使う)。
 
 書き出しのジョブ(Exporter。計画の 6。1本ずつ順に):
   1. 録画待ち … マークの終わりの時刻まで録画が届くのを待つ(録画元の /live/<録画>/segments の lastPdt。届く前に録画が終われば、録れた所までで切る)
@@ -368,16 +371,59 @@ class MarkStore:
             self._save_or_raise(d)
             return dict(m), m["n"]
 
-    def mark_exported(self, rc, rec, mid, path):
-        """採用の印(adopt)を「書き出し済み」に(書き出しが済んだとき。Exporter の exported hook から)。-> 変えたか(そのマークが無ければ False)"""
+    def mark_exported(self, rc, rec, mid, path, file=None):
+        """採用の印(adopt)を「書き出し済み」に(書き出しが済んだとき。Exporter の exported hook から)。file = 書き出し先からの相対(区切り /。
+        案件へ写すときのマークの file)。-> 変えたか(そのマークが無ければ False)"""
         with self.lock:
             d = self.load(rc, rec)
             m = next((x for x in d["marks"] if x["id"] == mid), None)
             if m is None:
                 return False
             m.update(status="exported", path=str(path or ""), updated=now_iso())
+            if isinstance(file, str) and file:
+                m["file"] = file[:300]
             self._save_or_raise(d)
             return True
+
+    # --- 案件(RS8 B3-5。決定 3-37 の (r8j)): スタジオなしの採用の印は、初めて書き出したとき案件の 採用.json へ写し、録画の記録に case(案件の根)を持つ ---
+    def case(self, rc, rec):
+        """録画を写した案件の根(絶対パス)か None(まだ写していない = 採用の正はこの正本)"""
+        root = self.load(rc, rec).get("case")
+        return root if isinstance(root, str) and root and os.path.isabs(root) else None
+
+    def set_case(self, rc, rec, root):
+        """録画を写した案件の根を覚える(LocalMarks が初めて書き出したとき)"""
+        with self.lock:
+            d = self.load(rc, rec)
+            d["case"] = root
+            self._save_or_raise(d)
+
+    def local(self, rc, rec):
+        """スタジオなしの採用の印(key のあるマーク)の写し"""
+        return [dict(m) for m in self.load(rc, rec)["marks"] if m.get("key")]
+
+    def settled(self, rc, rec):
+        """この正本を消してよいか(ライブの片付け。(r8j)): 採用・書き出し済みの採用の印が無い(スタジオの物か、人の P2 の形だけ)か、
+        全部が案件の 採用.json に写っている。読めない・案件が見えなければ False(消さない)"""
+        try:
+            d = self.load(rc, rec)
+        except LiveError:
+            return False
+        keys = [m["key"] for m in d["marks"] if m.get("key") and m.get("status") in ("adopted", "exported")]
+        if not keys:
+            return True
+        root = self.case(rc, rec)
+        from . import casebook   # 呼ぶときに読む(案件の部品。マークの正本だけを使うテストを軽く)
+        return bool(root) and casebook.live_has(root, rec, keys)
+
+    def drop(self, rc, rec):
+        """録画の正本のファイルを消す(ライブの片付けが録画を消したあと。settled を確かめてから)。-> 消したか"""
+        with self.lock:
+            try:
+                os.unlink(self.path(rc, rec))
+                return True
+            except FileNotFoundError:
+                return False
 
     @staticmethod
     def _order(marks, m):

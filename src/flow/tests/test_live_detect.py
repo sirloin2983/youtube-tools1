@@ -271,7 +271,7 @@ class DetectApiTest(unittest.TestCase):
             self.assertEqual(self.det.failures() != [], i == D.AUTO_TRIES - 1, i)
         n = len(calls)
         self.det.auto_tick()
-        self.assertEqual(len([c for c in calls[n:] if c == "/api/videos/open"]), 0)   # 諦めた候補はもう試さない
+        self.assertEqual(len([c for c in calls[n:] if c == "/api/live/adopt"]), 0)   # 諦めた候補はもう試さない
         f = [x for x in self.live.health()["failures"] if x["kind"] == "detect"]
         self.assertEqual(len(f), 2, f)   # p0・p1(どちらも枠の中で 1 分たった)
         self.assertIn("自動で採用できませんでした", f[0]["text"])

@@ -13,11 +13,12 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from flow import live_adopt as LA, live_export as LX, livehost as H, run as R, spec as S  # noqa: E402
-from ytt import schemas  # noqa: E402
+from flow import casebook as CB, live_adopt as LA, live_export as LX, livehost as H, run as R, spec as S  # noqa: E402
+from ytt import casefiles as CF, schemas  # noqa: E402
 
 VID = "abcdefghijk"
 REC = "20261011-200000-" + VID
@@ -171,6 +172,80 @@ class LocalMarksTest(unittest.TestCase):
         self.assertEqual((third["existing"], third["job"]["id"]), (True, j["id"]))
         self.assertEqual(sum(1 for x in ex.jobs if x["markId"] == LX.studio_mark_id(key)), 1)
         self.no_strays()
+
+    def finish(self, job, name):
+        """書き出しが済んだ所から(録画元に繋がないので _finish を直に)。-> 書き出した動画のパス"""
+        ex = self.host.exporter
+        media = os.path.join(self.folder, name)
+        open(media, "wb").close()
+        ex._finish(next(x for x in ex.jobs if x["id"] == job["id"]), self.host.find("fake"), REC, {"url": URL, "firstPdt": LX.epoch_iso(FIRST)},
+                   {"path": media, "title": "テスト配信", "duration": 30.0}, FIRST + 1, FIRST + 31)
+        return media
+
+    def test_case_after_first_export(self):
+        """RS8 B3-5(決定 3-37 の (r8j)): スタジオなしの採用は書き出しまで正本に置き、初めて書き出したとき録画の採用を全部 案件の 採用.json へ写す。
+        そのあとの採用・書き出し済み・読み(G3 の adopted)は 採用.json を通り、正本には採用の印を足さない。片付けは写っていれば正本を消してよい"""
+        p = mock.patch.object(CB._fsio, "is_fixed_drive", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+        h, ex = self.host, self.host.exporter
+        ms, marks = ex.marks, self.host.marks
+        out = os.path.join(self.tmp, "out")
+        os.makedirs(out)
+        self.folder = LX.pick_folder(out, "テスト配信", VID)   # 書き出しと同じ置き場(作業用/.studio-id = 配信の videoId)
+        r1 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 100.0, "end": 130.0, "after": "none"})
+        r2 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 200.0, "end": 230.0, "after": "none"})
+        self.assertIsNone(ms.case("fake", REC))
+        self.assertEqual([(x["id"], x["status"], x["start"]) for x in marks.adopted("fake", REC)], [(r1["mark"], "adopted", 100.0), (r2["mark"], "adopted", 200.0)])
+        self.assertFalse(ms.settled("fake", REC))   # まだ案件に写っていない = 正本を消さない
+        m1 = self.finish(r1["job"], "01.mp4")       # 初めて書き出した → 案件へ写す
+        root = ms.case("fake", REC)
+        self.assertEqual(root, os.path.normpath(self.folder))
+        c, a = CF.read(root)
+        self.assertEqual((list(a["sources"]), a["sources"][REC]["kind"], a["sources"][REC]["live"]["videoId"]), ([REC], "live", VID))
+        self.assertEqual([(x["id"], x["status"], x.get("path"), x.get("file")) for x in a["marks"]],
+                         [(r1["mark"], "exported", "01.mp4", "テスト配信/01.mp4"), (r2["mark"], "adopted", None, "")])
+        self.assertTrue(ms.settled("fake", REC))
+        # そのあとの採用は 採用.json(正本には採用の印を足さない = 書き出しのジョブの入力 upsert だけ)
+        r3 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 50.0, "end": 60.0, "label": "前", "after": "none"})
+        self.assertEqual((r3["job"]["n"], r3["job"]["label"]), (1, "前"))   # 番号は案件のマークの開始の順
+        self.assertEqual([x["id"] for x in CF.merge(*CF.read(root), REC, root)["marks"]], [r1["mark"], r2["mark"], r3["mark"]])
+        self.assertNotIn(r3["mark"], [x["key"] for x in ms.local("fake", REC)])
+        self.assertEqual(ms.get("fake", REC, LX.studio_mark_id(r3["mark"]))["src"], "studio")   # ジョブの入力
+        again = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 50.3, "end": 59.8, "after": "none"})
+        self.assertEqual((again["existing"], again["mark"]), (True, r3["mark"]))
+        self.assertEqual(len(CF.merge(*CF.read(root), REC, root)["marks"]), 3)
+        # 写したあとの書き出し済みも 採用.json(写す前の採用 r2・写したあとの採用 r3)
+        self.finish(r2["job"], "02.mp4")
+        m3 = self.finish(r3["job"], "03.mp4")
+        got = {x["id"]: x for x in CF.merge(*CF.read(root), REC, root)["marks"]}
+        self.assertEqual({k: v["status"] for k, v in got.items()}, {r1["mark"]: "exported", r2["mark"]: "exported", r3["mark"]: "exported"})
+        self.assertEqual((got[r1["mark"]]["path"], got[r3["mark"]]["path"]), (m1, m3))
+        self.assertEqual(sorted(x["id"] for x in marks.adopted("fake", REC)), sorted(got))   # G3 の読みは案件から
+        self.assertTrue(ms.settled("fake", REC))
+        # 正本にだけある採用の印(写っていない)があれば消さない
+        ms.adopt("fake", REC, "a00000000000f", FIRST, 400.0, 410.0)
+        self.assertFalse(ms.settled("fake", REC))
+        self.assertTrue(ms.drop("fake", REC))   # drop は settled を見ない(呼ぶ側 = ライブの片付けが確かめる)
+        self.assertFalse(os.path.exists(ms.path("fake", REC)))
+        self.no_strays()
+
+    def test_case_unseen_refuses(self):
+        """案件に写した録画の案件が見えない(フォルダを動かした・ドライブが外れた)→ 採用は 503 で断る((r8d)・(r8o))・読みは正本の印に落ちる"""
+        p = mock.patch.object(CB._fsio, "is_fixed_drive", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+        out = os.path.join(self.tmp, "out")
+        os.makedirs(out)
+        self.folder = LX.pick_folder(out, "テスト配信", VID)
+        r1 = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 100.0, "end": 130.0, "after": "none"})
+        self.finish(r1["job"], "01.mp4")
+        shutil.move(self.folder, self.folder + "-moved")
+        with self.assertRaises(LX.LiveError) as cm:
+            self.ad.adopt({"recorder": "fake", "recording": REC, "start": 300.0, "end": 330.0, "after": "none"})
+        self.assertEqual(cm.exception.code, 503)
+        self.assertEqual([x["id"] for x in self.host.marks.adopted("fake", REC)], [r1["mark"]])
+        self.assertFalse(self.host.exporter.marks.settled("fake", REC))
 
     def test_request_and_bad_input(self):
         """友人の依頼の録画は after auto・余白は依頼の設定(2-15)。区間・録画元の検査は今と同じ文"""

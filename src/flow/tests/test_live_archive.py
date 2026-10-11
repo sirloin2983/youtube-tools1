@@ -547,7 +547,7 @@ class AfterStreamTest(unittest.TestCase):
             return 200, {"items": self.queue}
         if method == "GET" and path == "/api/video?id=" + VID:
             return 200, {"video": {"id": VID, "kind": "youtube", "analysis": self.analysis, "marks": self.marks}}
-        if method == "GET" and path == "/api/video?id=" + REC:
+        if method == "GET" and path == "/api/video?id=" + REC and self.live_marks is not None:
             return 200, {"video": {"id": REC, "kind": "live", "marks": self.live_marks}}
         return 404, {"error": "not_found"}
 
@@ -562,10 +562,10 @@ class AfterStreamTest(unittest.TestCase):
         self.ex.jobs.append(j)
         return {"job": dict(j), "existing": False}
 
-    def archiver(self):
+    def archiver(self, **kw):
         a = A.Archiver(self.ex, self.studio, probe=lambda vid: {"status": self.status, "release": RELEASE, "duration": self.HOURS * 3600, "availability": "public"},
                        after_stream=lambda: self.on, per_hour=lambda: 2, recordings=lambda: [self.rec], adopt=self.adopt, first_delay=60, interval=0, poll=0.1,
-                       request=lambda rc, rec: self.reqs.get((rc, rec)))
+                       request=lambda rc, rec: self.reqs.get((rc, rec)), **kw)
         a._after_offset = lambda rc, rec, vid, t0, first, last: (-SKEW, "テスト")
         a._queue = lambda js, auto: [j.update(archive={"state": "wait", "auto": auto}) for j in js]   # 本番版への作り直しは動かさない(順番に入れたことだけ)
         self.arcs.append(a)
@@ -634,6 +634,29 @@ class AfterStreamTest(unittest.TestCase):
         n = len(self.calls)
         self.assertEqual(a.after_tick(), 0)                                    # 済んだ録画はもう触らない
         self.assertEqual(len(self.calls), n)
+
+    def test_taken_from_marks_book(self):
+        """G3(RS8 B3-5): 重ねない採用はマークの置き場から(taken。headless のスタジオなしの採用 = 案件の 採用.json か正本)。
+        スタジオに録画の配信が無くても、置き場の採用と重なる候補は飛ばす・読めない(None・例外)なら重ねる物なしで続ける"""
+        self.live_marks = None   # スタジオに録画の配信は無い(スタジオなし)
+        asked = []
+
+        def taken(rc, rec):
+            asked.append((rc, rec))
+            return [{"id": "a1", "status": "adopted", "start": 1000.0, "end": 1060.0}, {"id": "a2", "status": "", "start": 5000.0, "end": 5060.0}]
+        a = self.archiver(taken=taken)
+        self.status, self.analysis = "was_live", {"at": 1}
+        a.after_tick()   # 解析済み → すぐ採用
+        self.assertEqual(asked, [("local", REC)])
+        secs = sorted(round(LX.iso_epoch(b["start"]) - self.first, 1) for b, h in self.adopted)
+        self.assertNotIn(1000.0, secs)   # 置き場の採用と重なる
+        self.assertIn(5000.0, secs)      # 候補のまま(採用でない)の印は重ねない区間に入れない
+        self.assertIn(110.0, secs)       # スタジオの録画の配信(人のマーク 100〜160)はもう見ない
+        a2 = self.archiver(taken=lambda rc, rec: 1 / 0)
+        self.adopted.clear()
+        a2.info.clear()
+        a2.after_tick()
+        self.assertEqual(len(self.adopted), 6)   # 読めなくても止めない
 
     def test_progress_for_the_band(self):
         """スタジオの LIVE の帯に出す進み具合(入口 0.41.0): GET /live/api/exports の archiveInfo.afterStream の progress と text"""

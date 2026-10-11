@@ -41,6 +41,8 @@ class MarkBook(Protocol):
 
     def exported(self, job: dict, media: str, archived: bool = False) -> str: ...
 
+    def adopted(self, rc_id: str, rec: str) -> Optional[List[dict]]: ...   # 採用・書き出し済みのマーク(秒)。読めなければ None(RS8 B3-5 の G3)
+
 
 class LiveHost(Protocol):
     """ライブの親(flow/livesession.py の LiveSession。入口の Live はそれを継ぐ)。子 4 つと採用が求める物を全部"""

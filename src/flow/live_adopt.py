@@ -5,32 +5,37 @@ POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信
 その周り(区間の秒・余白・スタジオのマーク・友人の依頼の結びつき)。Live.adopt は Adopter.adopt を呼ぶだけ(名前は残す = Detector・HTTP の受け口が呼ぶ)。
 
 マークの置き場は差し込み口(親の marks。flow/livehost.py の MarkBook):
-  StudioMarks  今の動き(ユーザーの PC)。取り込んだスタジオの API で kind live の配信(id = 録画の id)を(無ければ)登録し、採用のマークを足す
-               (同じ区間 ±SAME 秒のマークがあれば使い回し、候補・不採用なら採用に)。番号 n = スタジオの配信のマークを開始の順に並べた位置。
-               書き出したら「書き出し済み」(POST /api/live/exported)
+  StudioMarks  今の動き(ユーザーの PC)。取り込んだスタジオの POST /api/live/adopt 1 回で kind live の配信(id = 録画の id)を(無ければ)登録し、採用のマークを足す
+               (同じ区間 ±SAME 秒のマークがあれば使い回し、候補・不採用なら採用に。スタジオが自分のロックの中で 1 度に = RS8 B3-5 で画面と同じ PUT と
+               409 のやり直しをやめた)。番号 n = スタジオの配信のマークを開始の順に並べた位置。書き出したら「書き出し済み」(POST /api/live/exported)。
+               初めて書き出した配信はスタジオが案件にする(B3-4b)= そのあとの採用もスタジオを通って 採用.json へ
   LocalMarks   スタジオなし(友人の PC・headless。ライブ係 flow/livesession.py の既定・入口の Live.use_headless)。マークの正本 live_export.MarkStore
                (live/marks/<録画元>__<録画>.json)に採用の印を置く(MarkStore.adopt。配信の登録はしない)。
                採用の印の形: マークに key(スタジオのマークの id の代わり = "a" + 16 進 12 桁)・status(adopted → 書き出したら exported)・src "local"。
                マークの id は studio_mark_id(key)(スタジオのマークと同じ規則)= 書き出しのジョブ・.clip.json の studio {video: 録画の id, mark: key} も同じ形。
-               使い回し・番号 n の決まりは StudioMarks と同じ(同じ録画の正本のマークを開始の順に並べた位置)
+               使い回し・番号 n の決まりは StudioMarks と同じ(同じ録画の正本のマークを開始の順に並べた位置)。
+               RS8 B3-5((r8j)): 初めて書き出したとき録画の採用の印を全部 案件の 採用.json へ写し(flow/casebook.live_into)、そのあとの採用・書き出し済みは 採用.json
 どちらでも Exporter.add_studio へ同じ呼び方で渡る(studio {video, mark, n, label, start, end})。
+配信後の全自動(live_archive の _after_adopt。G3)が重ねない区間は置き場の adopted(rc, rec)で読む(StudioMarks = スタジオ・LocalMarks = 案件か正本)。
 
 本数の上限(D-13)はここでは数えない = 自動の採用を数えるのは live_detect.Detector(親の auto_max。無ければ AUTO_MAX_PER_REC。
 友人の PC は束の adopt.top = top_of)。人のマーク・配信後の追加は数えない(今と同じ)。
 友人へ届ける(自分の配信の自動の切り抜き live.autoDeliver)は app の hook(deliver_for)。友人の依頼の結びつきは親の requests(livehost.RequestBook)。
 """
+import os
 import secrets
 import threading
 import urllib.parse
 
-from ytt import marks as _marks, schemas
+from ytt import fsio as _fsio, marks as _marks, schemas
+from ytt.errors import ApiError
+from . import casebook as _casebook   # 案件の 採用.json(RS8 B3-5。スタジオなしの採用を初めて書き出したとき写す)
 from . import live_export as LX
 from . import live_tx
 from . import livehost   # 親の口の型(RS7-2 G0・G1b)
 from . import spec as _spec
 
 SAME = _marks.DUP_TOL   # マークを使い回す区間の差(秒。スタジオの同じ区間 = ytt/marks の DUP_TOL。もとは live.ADOPT_SAME)
-TRIES = 3          # スタジオの配信の保存が画面の保存とぶつかったときに読み直す回数
 WHO = {"manual": "人", "auto": "自動", "archive": "アーカイブ"}
 
 
@@ -94,71 +99,122 @@ class StudioMarks:
 
     def adopt_mark(self, rc_id, rec, st, first, a, b, label):
         """スタジオの配信(kind live。id = 録画の id)を(無ければ)登録し、採用のマーク [a, b] を足す(同じ区間 ±SAME 秒があれば使い回し、候補・不採用なら採用に)。
-        画面と同じ PUT /api/video(baseRev つき。画面の保存とぶつかったら読み直して TRIES 回まで)。first は使わない(秒のまま渡す)。-> (配信の id, マーク, 番号 n)"""
-        v = self._ok("POST", "/api/videos/open", {"kind": "live", "recorder": rc_id, "recording": rec, "url": st.get("url") or "",
-                                                  "title": (st.get("title") or "")[:LX.TITLE_MAX], "channel": ""}).get("video") or {}
-        vid = v.get("id")
-        if not isinstance(vid, str) or not vid:
-            raise LX.LiveError("切り抜きスタジオに録画を登録できませんでした", 502)
-        for _try in range(TRIES):
-            v = self._ok("GET", "/api/video?id=" + urllib.parse.quote(vid)).get("video") or {}
-            marks = [m for m in v.get("marks") or [] if isinstance(m, dict)]
-            hit = next((m for m in marks if _marks.near(m.get("start") or 0, m.get("end") or 0, a, b, SAME)), None)
-            if hit is not None and hit.get("status") in ("adopted", "exported"):
-                mark = hit
-                break
-            if hit is not None:
-                new = [dict(m, status="adopted") if m.get("id") == hit.get("id") else m for m in marks]
-            else:
-                new = marks + [{"start": a, "end": b, "label": label, "status": "adopted"}]
-            code, d = self.call("PUT", "/api/video", {"id": vid, "marks": new, "baseRev": v.get("rev")})
-            if code == 409:   # 画面の保存・解析とぶつかった: 読み直してもう一度
-                continue
-            if code != 200 or not isinstance(d, dict):
-                raise LX.LiveError("切り抜きスタジオにマークを足せませんでした: %s" % ((d or {}).get("message") or "HTTP %s" % code), 502)
-            v = d.get("video") or {}
-            old_ids = {m.get("id") for m in marks}
-            got = [m for m in v.get("marks") or [] if isinstance(m, dict)]
-            mark = next((m for m in got if m.get("id") == (hit or {}).get("id")), None) if hit is not None else \
-                next((m for m in got if m.get("id") not in old_ids and abs((m.get("start") or 0) - a) <= SAME), None)
-            if mark is None:
-                raise LX.LiveError("切り抜きスタジオに足したマークが見つかりません", 502)
-            marks = got
-            break
-        else:
-            raise LX.LiveError("切り抜きスタジオの配信が続けて書き換えられているので、マークを足せませんでした(少し待ってもう一度)", 409)
-        order = sorted(marks, key=lambda m: (m.get("start") or 0, m.get("end") or 0))
-        n = next((i + 1 for i, m in enumerate(order) if m.get("id") == mark.get("id")), 0)
+        スタジオの POST /api/live/adopt 1 回(RS8 B3-5。登録・使い回し・保存をスタジオがロックの中で 1 度に = 画面の保存とぶつかる 409 のやり直しが無い。
+        案件にした配信はスタジオが 採用.json に書く)。first は使わない(秒のまま渡す)。-> (配信の id, マーク, 番号 n)"""
+        d = self._ok("POST", "/api/live/adopt", {"recorder": rc_id, "recording": rec, "url": st.get("url") or "",
+                                                 "title": (st.get("title") or "")[:LX.TITLE_MAX], "start": a, "end": b, "label": label or ""})
+        vid, mark, n = d.get("video"), d.get("mark"), d.get("n")
+        if not isinstance(vid, str) or not vid or not isinstance(mark, dict) or not isinstance(mark.get("id"), str) or not isinstance(n, int):
+            raise LX.LiveError("切り抜きスタジオの採用の応答の形が違います", 502)
         return vid, mark, n
 
     def exported(self, job, media, archived=False):
         """書き出したら、スタジオのマークを「書き出し済み」に(Exporter の exported hook)。-> 警告の文か "\""""
         return LX.studio_exported(self.call, job, media, archived)
 
+    def adopted(self, rc_id, rec):
+        """録画の採用・書き出し済みのマーク [{id, start, end, status}](秒 = 録画の頭から。配信後の全自動 = G3 が重ねない区間)。
+        スタジオの GET /api/video(案件にした配信はスタジオが 採用.json から読む)。登録が無ければ []・つながらない・読めなければ None"""
+        code, d = self.call("GET", "/api/video?id=" + urllib.parse.quote(rec))
+        if code == 404 and isinstance(d, dict) and d.get("error") == "not_found":
+            return []
+        v = d.get("video") if code == 200 and isinstance(d, dict) else None
+        if not isinstance(v, dict):
+            return None
+        return [{"id": m.get("id"), "start": m["start"], "end": m["end"], "status": m.get("status")} for m in v.get("marks") or []
+                if isinstance(m, dict) and m.get("status") in _casebook.LIVE_ADOPTED and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
+
 
 class LocalMarks:
-    """マークの置き場 = マークの正本 live_export.MarkStore(スタジオなし。友人の PC)。exporter() -> live_export.Exporter(初めて使うときに作る親の物)"""
+    """マークの置き場 = マークの正本 live_export.MarkStore → 初めて書き出したあとは案件の 採用.json(スタジオなし。友人の PC)。
+    exporter() -> live_export.Exporter(初めて使うときに作る親の物)。
+    RS8 B3-5(決定 3-37 の (r8j)): 録画中の採用は書き出しまで正本に置き、初めて書き出したとき(exported)録画の採用の印を全部 案件の 採用.json へ写して
+    (flow/casebook.live_into。案件の根はスタジオの初めての書き出しと同じ規則 = 引けなければ正本のまま・次の書き出しでもう一度)、正本の録画の記録に case を持つ。
+    写したあとの採用(adopt_mark)・書き出し済み(exported)・読み(adopted)は 採用.json を通る(正本には書き出しのジョブの入力だけが残る = Exporter.add_studio)。
+    ロックの順は正本のロック → 案件のロック(casefiles.lock)"""
 
     def __init__(self, exporter):
         self.exporter = exporter
 
     def adopt_mark(self, rc_id, rec, st, first, a, b, label):
-        """採用の印を正本に置く(同じ区間 ±SAME 秒の採用の印があれば使い回す)。配信の id = 録画の id(スタジオの kind live と同じ)。
+        """採用の印を置く(同じ区間 ±SAME 秒の採用があれば使い回す)。配信の id = 録画の id(スタジオの kind live と同じ)。
+        案件に写した録画は 採用.json へ(案件が見えなければ 503 で断る = (r8d)。スタジオの書きと同じ)・まだなら正本へ。
         -> (配信の id, マーク {id: key, start, end, label, status}(秒は録画の頭から), 番号 n)"""
-        m, n = self.exporter().marks.adopt(rc_id, rec, "a" + secrets.token_hex(6), first, a, b, label, tol=SAME,
-                                           url=st.get("url") if isinstance(st.get("url"), str) else None,
-                                           title=st.get("title") if isinstance(st.get("title"), str) else None)
+        ms = self.exporter().marks
+        key = "a" + secrets.token_hex(6)
+        with ms.lock:
+            root = ms.case(rc_id, rec)
+            if root:
+                try:
+                    m, n = _casebook.live_adopt(root, rec, a, b, label, key, tol=SAME)
+                except ApiError as e:
+                    raise LX.LiveError("案件の採用の記録に書けませんでした: %s" % e.message, e.status if e.status in (409, 503) else 500)
+                return rec, {"id": m["id"], "start": m["start"], "end": m["end"], "label": m.get("label") or "", "status": m["status"]}, n
+            m, n = ms.adopt(rc_id, rec, key, first, a, b, label, tol=SAME,
+                            url=st.get("url") if isinstance(st.get("url"), str) else None,
+                            title=st.get("title") if isinstance(st.get("title"), str) else None)
         return rec, {"id": m["key"], "start": m["sec"][0], "end": m["sec"][1], "label": m.get("label") or "", "status": m.get("status")}, n
 
     def exported(self, job, media, archived=False):
-        """書き出したら、正本の採用の印を「書き出し済み」に(Exporter の exported hook)。-> 警告の文か "\""""
+        """書き出したら、採用を「書き出し済み」に(Exporter の exported hook): 正本の印(書き出しのジョブの入力)と、
+        案件に写した録画は 採用.json のマーク。まだ写していなければ、ここで録画の採用の印を全部 案件へ写す(初めて書き出したとき)。-> 警告の文か "\""""
         if not isinstance(job.get("studio"), dict) or not job.get("markId"):
             return ""
+        ex = self.exporter()
+        ms, rc, rec = ex.marks, job.get("recorder"), job.get("recording")
+        rel = _rel_file(media, ex.out_dir)
         try:
-            self.exporter().marks.mark_exported(job.get("recorder"), job.get("recording"), job["markId"], media)
+            with ms.lock:
+                ms.mark_exported(rc, rec, job["markId"], media, file=rel)
+                root = ms.case(rc, rec)
+                if root:
+                    if not _casebook.live_exported(root, rec, job["studio"].get("mark"), rel, media, archived):
+                        return "案件の採用の記録にこのマークがありません(書き出した動画はそのまま使えます)"
+                    return ""
+                d = ms.load(rc, rec)
+                video = _casebook.live_video(rc, rec, d.get("url") or "", d.get("title") or "",
+                                             [x for x in map(_casebook.live_mark, ms.local(rc, rec)) if x is not None])
+                if archived:
+                    for x in video["marks"]:
+                        if x["id"] == job["studio"].get("mark") and x["status"] == "exported":
+                            x["archived"] = True
+                root = _casebook.live_into(video, ex.out_dir())
+                if root:
+                    ms.set_case(rc, rec, root)
         except LX.LiveError as e:
             return "マークを「書き出し済み」にできませんでした: %s" % e
+        except ApiError as e:
+            return "案件の採用の記録に「書き出し済み」を書けませんでした: %s" % e.message
         return ""
+
+    def adopted(self, rc_id, rec):
+        """録画の採用・書き出し済みのマーク [{id, start, end, status}](秒 = 録画の頭から。配信後の全自動 = G3 が重ねない区間)。
+        案件に写した録画は 採用.json(読めなければ正本の印)・まだなら正本の印。正本も読めなければ None"""
+        ms = self.exporter().marks
+        try:
+            root = ms.case(rc_id, rec)
+            local = ms.local(rc_id, rec)
+        except LX.LiveError:
+            return None
+        if root:
+            try:
+                return _casebook.live_marks(root, rec)
+            except ApiError:
+                pass
+        return [{"id": m["key"], "start": m["sec"][0], "end": m["sec"][1], "status": m.get("status")} for m in local
+                if m.get("status") in _casebook.LIVE_ADOPTED and LX._sec_pair(m.get("sec"))]
+
+
+def _rel_file(media, out_dir):
+    """書き出した動画 -> 書き出し先からの相対(区切り /。スタジオの /api/live/exported と同じ)。書き出し先の外・分からなければ名前だけ"""
+    try:
+        out = out_dir()
+        real, root = os.path.realpath(media), os.path.realpath(out)
+        if _fsio.is_inside(real, root, strict=True):
+            return os.path.relpath(real, root).replace("\\", "/")
+    except (OSError, TypeError, ValueError):
+        pass
+    return os.path.basename(str(media or ""))
 
 
 class Adopter:

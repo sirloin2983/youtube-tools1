@@ -10,6 +10,7 @@ MarkStore)・束の検査(flow/spec.py)も、同じ区間の幅・長さの上�
 - 同じ区間 = 開始・終了の差がどちらも DUP_TOL(0.5 秒)以内(same・near)。少しでも重なる = overlaps。
   同じ場所 = ±SPOT_TOL(5 秒)以内で重なりが短いほうの半分以上(similar。人が消した候補の印の当て方。B3-3)
 - 手を入れた自動マーク = 判定した・ラベルあり・時刻を EDIT_TOL より動かした(touched。再解析で残す境目)
+- ライブの採用の使い回し = 同じ区間の最初のマーク(near_mark)・番号 = 開始の順の位置(order_of)(RS8 B3-5)
 """
 import math
 import operator
@@ -228,6 +229,18 @@ def near(a_s, a_e, b_s, b_e, tol=DUP_TOL):
 def same(a, b):
     """2 つのマーク(start・end を持つ辞書)が同じ区間か(±DUP_TOL 秒)"""
     return near(a["start"], a["end"], b["start"], b["end"])
+
+
+def near_mark(marks, a, b, tol=DUP_TOL):
+    """マークの並びのうち区間 [a, b] と同じ区間(開始・終了の差がどちらも tol 秒以内)の最初のマークか None。
+    ライブの採用の使い回し(RS8 B3-5。スタジオの Store.adopt_live・案件の flow/casebook.live_adopt で同じ決まり)"""
+    return next((m for m in marks if isinstance(m, dict) and near(m.get("start") or 0, m.get("end") or 0, a, b, tol)), None)
+
+
+def order_of(marks, mid):
+    """マークの番号 n = 開始(同じなら終了)の順に並べた位置(1 から。そのマークが無ければ 0)。ライブの書き出しの名前の番号(スタジオの画面と同じ)"""
+    order = sorted((m for m in marks if isinstance(m, dict)), key=lambda m: (m.get("start") or 0, m.get("end") or 0))
+    return next((i + 1 for i, m in enumerate(order) if m.get("id") == mid), 0)
 
 
 def similar(a, b, tol=SPOT_TOL, ratio=SPOT_RATIO):

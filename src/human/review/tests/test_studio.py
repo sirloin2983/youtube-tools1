@@ -828,6 +828,33 @@ class TestLive(Base):
         self.assertIsNone(self.st.replace_auto(LIVE["recording"], [cand(1, 9)], {"spec": {}}, 100, {}))
         self.assertEqual(self.st.get(LIVE["recording"])[0]["marks"], [])
 
+    def test_adopt_live(self):
+        """入口のライブの採用(POST /api/live/adopt = Store.adopt_live。RS8 B3-5): 登録・同じ区間 ±0.5 秒の使い回し・候補と不採用は採用に・番号は開始の順。
+        ロックの中で 1 度に保存する = 版(rev)は 1 つずつ上がり、画面の保存とぶつかる 409 が無い"""
+        rid = LIVE["recording"]
+        vid, m1, n = self.st.adopt_live(LIVE_SRC, "配信", 100.04, 130.0, "山")
+        self.assertEqual((vid, m1["start"], m1["end"], m1["status"], m1["label"], m1["src"], n), (rid, 100.0, 130.0, "adopted", "山", "manual", 1))
+        v = self.st.get(rid)[0]
+        self.assertEqual((v["title"], v["kind"], v["live"], len(v["marks"])), ("配信", "live", LIVE, 1))
+        rev = v["rev"]
+        self.assertEqual(self.st.adopt_live(LIVE_SRC, "", 100.4, 129.6)[1:], (m1, 1))   # 使い回し(書き換えない = 版も上がらない)
+        self.assertEqual(self.st.get(rid)[0]["rev"], rev)
+        _v, m0, n0 = self.st.adopt_live(LIVE_SRC, "", 10.0, 20.0)
+        self.assertEqual((n0, self.st.adopt_live(LIVE_SRC, "", 100.0, 130.0)[2]), (1, 2))   # 番号は開始の順(前に足したので 2 番目に)
+        # 画面で候補・不採用にしたマークは、同じ区間を採用すると採用に戻る
+        ms = self.st.get(rid)[0]["marks"]
+        self.st.put_video(rid, None, [dict(m, status="rejected") if m["id"] == m0["id"] else m for m in ms])
+        _v, again, _n = self.st.adopt_live(LIVE_SRC, "", 10.2, 19.8)
+        self.assertEqual((again["id"], again["status"]), (m0["id"], "adopted"))
+        self.assertEqual(len(self.st.get(rid)[0]["marks"]), 2)
+        for bad in ((None, 5.0), (5.0, "x"), (True, 5.0)):
+            with self.assertRaises(ApiError) as c:
+                self.st.adopt_live(LIVE_SRC, "", *bad)
+            self.assertEqual(c.exception.status, 400, bad)
+        with self.assertRaises(ApiError) as c:   # 区間の検査は画面の保存と同じ(put_video)
+            self.st.adopt_live(LIVE_SRC, "", 50.0, 40.0)
+        self.assertEqual(c.exception.status, 400)
+
     def test_mark_exported_and_delete(self):
         self.st.ensure(LIVE_SRC, "配信")
         self.st.put_video(LIVE["recording"], "配信", [{"id": "m1", "start": 5, "end": 20, "status": "adopted"}])
@@ -1053,6 +1080,19 @@ class TestCaseFiles(Base):
         st2 = store.Store(self.path)
         self.assertEqual(st2.get(rec)[0], self.st.get(rec)[0])
         self.assertEqual(st2.get(arc)[0], self.st.get(arc)[0])
+
+    def test_adopt_live_goes_to_case(self):
+        """入口のライブの採用(adopt_live。RS8 B3-5): 案件にした録画の配信は 採用.json に足す(data.json の索引の行にはマークを持たない)"""
+        names.write_owner(self.root, LIVE["videoId"])
+        rec = LIVE["recording"]
+        vid, m1, _n = self.st.adopt_live(LIVE_SRC, "配信", 5.0, 20.0)
+        self.assertTrue(self.export(rec, m1["id"], "01.mp4"))
+        vid, m2, n = self.st.adopt_live(LIVE_SRC, "配信", 1.0, 3.0, "前")
+        self.assertEqual((vid, m2["status"], m2["label"], n), (rec, "adopted", "前", 1))
+        self.assertNotIn("marks", self.row(rec))
+        adopts = casefiles.read(self.root)[1]
+        self.assertEqual([(m["id"], m["status"]) for m in adopts["marks"]], [(m1["id"], "exported"), (m2["id"], "adopted")])
+        self.assertEqual(self.st.adopt_live(LIVE_SRC, "", 1.2, 3.3)[1]["id"], m2["id"])   # 使い回し(案件から読んだマークで)
 
     def test_if_no_marks_uses_merged_marks(self):
         """ライブの片付けの ifNoMarks は重ねたマークで決める(data.json の索引の行にはマークが無い)。削除は索引の行だけ"""

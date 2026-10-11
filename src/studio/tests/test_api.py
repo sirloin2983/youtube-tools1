@@ -573,6 +573,22 @@ class TestLiveApi(Base):
             self.assertEqual((st, j["error"]), (400, "bad_source"), kw)
         self.assertEqual(self.req("GET", "/api/video?id=20261005-185399")[0], 404)   # 断ったものは登録されない
 
+    def test_live_adopt(self):
+        """入口のライブの採用 POST /api/live/adopt(RS8 B3-5。flow/live_adopt.py の StudioMarks): 登録 + 同じ区間の使い回し + 採用のマークを 1 回で"""
+        rid = "20261005-185310"
+        body = dict(live_body(rid), start=100.04, end=130.0, label="山")
+        body.pop("kind")
+        st, j, *_ = self.req("POST", "/api/live/adopt", body)
+        self.assertEqual(st, 200, j)
+        self.assertEqual((j["video"], j["n"], j["mark"]["start"], j["mark"]["status"], j["mark"]["label"]), (rid, 1, 100.0, "adopted", "山"))
+        st, j2, *_ = self.req("POST", "/api/live/adopt", dict(body, start=100.3, end=129.8, label=""))
+        self.assertEqual((st, j2["mark"]["id"]), (200, j["mark"]["id"]))   # 同じ区間 ±0.5 秒は使い回し
+        v = self.req("GET", "/api/video?id=" + rid)[1]["video"]
+        self.assertEqual((v["kind"], v["title"], [m["id"] for m in v["marks"]]), ("live", "配信中", [j["mark"]["id"]]))
+        for bad in (dict(body, url="http://evil.example/"), dict(body, start="x"), dict(body, end=None), dict(body, title=5), dict(body, label=["x"]),
+                    dict(body, start=50.0, end=40.0)):
+            self.assertEqual(self.req("POST", "/api/live/adopt", bad)[0], 400, bad)
+
     def _exported_setup(self, rid):
         self.req("POST", "/api/videos/open", live_body(rid))
         st, j, *_ = self.req("PUT", "/api/video", {"id": rid, "marks": [{"id": "m1", "start": 10, "end": 40, "label": "L", "status": "adopted"}]})

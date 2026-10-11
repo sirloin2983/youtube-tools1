@@ -118,6 +118,14 @@ class TestSameTouched(unittest.TestCase):
         self.assertFalse(M.touched(dict(auto_mark(10, 40), start=10.04)))   # EDIT_TOL の中
         self.assertTrue(M.touched(M.build_mark({"id": "m1", "start": 1, "end": 9}, None)))   # auto0 が無い = 手のマーク
 
+    def test_near_mark_and_order_of(self):
+        """ライブの採用の使い回しと番号(RS8 B3-5)"""
+        ms = [{"id": "b", "start": 50.0, "end": 60.0}, {"id": "a", "start": 10.0, "end": 20.0}, {"id": "c", "start": 10.0, "end": 15.0}, "壊れた"]
+        self.assertEqual(M.near_mark(ms, 10.4, 19.6)["id"], "a")
+        self.assertIsNone(M.near_mark(ms, 10.6, 20.0))
+        self.assertEqual(M.near_mark(ms, 10.6, 20.0, tol=1.0)["id"], "a")
+        self.assertEqual([M.order_of(ms, x) for x in ("c", "a", "b", "z")], [1, 2, 3, 0])   # 開始の順・同じなら終了の順・無ければ 0
+
 
 if __name__ == "__main__":
     unittest.main()

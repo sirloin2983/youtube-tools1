@@ -276,6 +276,19 @@ def _open_video(o):
     return {"video": STORE.ensure(src)}
 
 
+def _live_adopt(o):
+    """入口のライブの採用(flow/live_adopt.py の StudioMarks。RS8 B3-5): {recorder, recording, url, title?, start, end, label?}(秒 = 録画の頭から)。
+    録画の配信を(無ければ)登録し、同じ区間のマークを使い回すか採用のマークを足す(Store.adopt_live。ロックの中で 1 度に)。-> {video, mark, n}"""
+    src = analyze.validate_live(o)
+    title, label = o.get("title"), o.get("label")
+    if title is not None and not isinstance(title, str):
+        raise ApiError("bad_source", "title が正しくありません", 400)
+    if label is not None and not isinstance(label, str):
+        raise ApiError("bad_request", "label が正しくありません", 400)
+    vid, mark, n = STORE.adopt_live(src, title or "", o.get("start"), o.get("end"), label or "")
+    return {"video": vid, "mark": mark, "n": n}
+
+
 def _live_exported(o):
     """入口のライブの書き出し(home/live_export.py)が済んだマークを「書き出し済み」にする。
     path は書き出し先(今の設定の out dir)の中にある実在の .mp4 だけ(画面・入口から来る値なので realpath で比べる)。"""
@@ -412,6 +425,7 @@ POST_ROUTES = {
     "/api/queue/retry": lambda o: {"ok": True, "qid": BATCH.retry(o.get("qid"))},
     "/api/queue/clear": lambda o: {"ok": True, "removed": BATCH.clear()},
     "/api/videos/open": _open_video,
+    "/api/live/adopt": _live_adopt,   # 入口のライブの採用(登録 + 同じ区間の使い回し + 採用のマーク。RS8 B3-5)
     "/api/live/exported": _live_exported,   # 入口のライブの書き出しが済んだマークを書き出し済みに(path は書き出し先の中の mp4 だけ)
     "/api/live/section": _live_section,   # YouTube の区間を、書き出し先の中の指定のパスへ(線 D の P4。マークは触らない)
     "/api/video/delete": _video_delete,

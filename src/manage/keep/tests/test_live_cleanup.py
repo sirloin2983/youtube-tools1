@@ -170,6 +170,40 @@ class CleanupTest(unittest.TestCase):
         self.assertTrue(any("録画を消しました" in m and self.R1 in m for m in self.logs), self.logs)
         self.assertEqual(self.cl.tick()["deleted"], [])   # もう一覧に無い
 
+    def test_marks_file_is_dropped_only_after_copied_to_case(self):
+        """RS8 B3-5(決定 3-37 の (r8j)): 本番版に入れ替え済みで録画を消したら、マークの正本(live/marks)も消す。
+        スタジオの採用の正本(書き出しのジョブの入力の写し)は消してよい・スタジオなしの採用の印は案件の 採用.json に写ったあとだけ"""
+        ms = self.live.exporter.marks
+        for rec, local in ((self.R1, False), (self.R2, True)):
+            self.live.add(rec)
+            self.job(rec, 1)
+            self.studio_videos[rec] = [self.smark(1)]
+            ms.upsert("local", rec, "lm-%012x" % 1, 1, LX.epoch_iso(RELEASE + 10), LX.epoch_iso(RELEASE + 15))   # 書き出しのジョブの入力(スタジオの採用)
+            if local:   # スタジオなしの採用の印(案件に写っていない = 書き出したのに案件を引けなかった)
+                ms.adopt("local", rec, "a00000000000f", RELEASE, 10.0, 15.0)
+        self.assertEqual(sorted(self.cl.tick()["deleted"]), sorted([self.R1, self.R2]))
+        self.assertFalse(os.path.exists(ms.path("local", self.R1)))
+        self.assertTrue(os.path.exists(ms.path("local", self.R2)))   # 写っていない採用の印は残す
+        self.assertTrue(any("案件にまだ写っていない" in m for m in self.logs), self.logs)
+
+    def test_adopted_marks_from_marks_book(self):
+        """G3(RS8 B3-5): 親がマークの置き場(marks.adopted)を持てば、採用のまま書き出していないマークはそこから見る(スタジオなしの headless)"""
+        class Book:
+            got = [{"id": "m1", "status": "exported", "start": 10.0, "end": 15.0}]
+
+            def adopted(self, rc_id, rec):
+                return self.got
+        self.live.marks = Book()
+        self.live.add(self.R1)
+        self.job(self.R1, 1)
+        Book.got = Book.got + [{"id": "m9", "status": "adopted", "start": 90.0, "end": 95.0}]   # スタジオには無い採用
+        self.assertEqual(self.cl.tick()["deleted"], [])
+        Book.got = None   # 読めない
+        self.assertEqual(self.cl.tick()["deleted"], [])
+        Book.got = [{"id": "m1", "status": "exported", "start": 10.0, "end": 15.0}]
+        self.assertEqual(self.cl.tick()["deleted"], [self.R1])
+        self.assertFalse(any(p.startswith("/api/video?id=") for _m, p, _b in self.studio_calls))   # スタジオには聞かない
+
     def test_replaced_but_not_yet(self):
         """1 本でも本番版でない・途中・失敗・取り消し・採用のまま・録画中・スタジオが答えない → 消さない"""
         cases = [

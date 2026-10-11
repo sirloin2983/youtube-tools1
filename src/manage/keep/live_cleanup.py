@@ -10,6 +10,7 @@
      - 書き出しの途中・本番版への作り直しの途中(待ちを含む)・失敗・取り消しのマークが1つも無い
      - スタジオのその録画に「採用」のまま書き出していないマークが無い(GET /studio/api/video。スタジオが答えなければ消さない)
      → 録画元の POST /live/<録画>/delete → その録画のジョブに recordingDeleted(時刻)を残す(スタジオの画面が「録画は消しました」と出す)
+     → マークの正本(live/marks/<録画元>__<録画>.json)も消す。ただし スタジオなしの採用の印が案件の 採用.json に写ったあとだけ(RS8 B3-5。(r8j))
   2. マークが1つも無い録画(試しに始めて止めた・見ただけ)
      - 録画が終わって no_mark_sec(24 時間)たった・入口の書き出しのジョブもマークの正本(live/marks)も無い
      - スタジオにマークが1つも無い(GET /studio/api/video?id=<録画>。スタジオに登録が無い録画も「マークなし」。つながらない・答えが読めなければ消さない)
@@ -124,8 +125,29 @@ class Cleaner:
                     return self._delete_with_jobs(rc, rec, js, "終わって %d 日たっても本番版にならない" % int(STALE_SEC // 86400))
             if why:
                 return self._keep(r, why)
-            return self._delete_with_jobs(rc, rec, js, "本番版に入れ替え済み")
+            if not self._delete_with_jobs(rc, rec, js, "本番版に入れ替え済み"):
+                return False
+            self._drop_marks(rc["id"], rec)
+            return True
         return self._consider_no_jobs(rc, r, rec, now)
+
+    def _drop_marks(self, rc_id, rec):
+        """本番版に入れ替え済みで録画を消したあと、その録画のマークの正本(live/marks)も消す。ただし案件に写したあとだけ(RS8 B3-5。決定 3-37 の (r8j)):
+        スタジオなしの採用の印(LocalMarks)が残っていれば、全部が案件の 採用.json に写っているときだけ(写っていなければ残して記録に 1 行)。
+        スタジオの採用(StudioMarks)の正本は書き出しのジョブの入力の写しなので消してよい。終わって 3 日の録画(本番版にならない)の正本は残す
+        (あとでアーカイブから作り直すときに URL・題を読む)"""
+        ms = self.live.exporter.marks
+        try:
+            with ms.lock:
+                if not ms.settled(rc_id, rec):
+                    self._say(rec, "マークの正本は案件にまだ写っていないので残します")
+                    return False
+                if ms.drop(rc_id, rec):
+                    self.log("リアルタイム切り抜き: 録画のマークの正本を消しました %s" % rec)
+                return True
+        except (OSError, LX.LiveError) as e:
+            self._say(rec, "マークの正本を消せませんでした(%s)" % e)
+            return False
 
     def _stale(self, r, now):
         ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
@@ -205,9 +227,20 @@ class Cleaner:
             return NOT_REPLACED
         return self._studio_why(last, rec)
 
+    def _adopted_marks(self, rc_id, rec):
+        """録画の採用のマーク(秒)。マークの置き場(親の marks.adopted = スタジオか、スタジオなしは案件の 採用.json・マークの正本。RS8 B3-5 の G3)から。
+        親が置き場を持たなければスタジオに聞く。読めなければ None"""
+        book = getattr(self.live, "marks", None)
+        if book is None or not hasattr(book, "adopted"):
+            return self._studio_marks(rec)[0]
+        try:
+            return book.adopted(rc_id, rec)
+        except Exception:   # noqa: BLE001  (確かめられなければ消さない)
+            return None
+
     def _studio_why(self, last, rec):
-        """スタジオの側で消せない理由(採用のまま書き出していないマーク・確かめられない)。無ければ """""
-        marks, _registered = self._studio_marks(rec)
+        """採用の側で消せない理由(採用のまま書き出していないマーク・確かめられない)。無ければ """""
+        marks = self._adopted_marks((last[0] if last else {}).get("recorder"), rec)
         if marks is None:
             return "スタジオに確かめられない"
         done = {(j.get("studio") or {}).get("mark"): j.get("studio") or {} for j in last}

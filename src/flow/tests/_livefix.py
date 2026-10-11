@@ -152,7 +152,7 @@ class ArchiveStudio:
 
 
 class FakeStudio:
-    """取り込んだスタジオの API の代わり(studio_call に差し替える。M1): 配信の登録・読む・マークの保存(baseRev)・書き出し済み"""
+    """取り込んだスタジオの API の代わり(studio_call に差し替える。M1): 配信の登録・読む・マークの保存(baseRev)・ライブの採用(RS8 B3-5)・書き出し済み"""
 
     def __init__(self):
         self.videos = {}
@@ -187,6 +187,19 @@ class FakeStudio:
                 marks.append(m)
             v["marks"], v["rev"] = marks, v["rev"] + 1
             return 200, {"video": json.loads(json.dumps(v))}
+        if method == "POST" and path == "/api/live/adopt":   # 入口のライブの採用(RS8 B3-5。スタジオの Store.adopt_live と同じ決まり)
+            v = self.videos.setdefault(body["recording"], {"id": body["recording"], "kind": "live", "rev": 1, "marks": [], "title": body.get("title") or ""})
+            a, b = body["start"], body["end"]
+            hit = next((m for m in v["marks"] if abs(m["start"] - a) <= 0.5 and abs(m["end"] - b) <= 0.5), None)
+            if hit is None or hit.get("status") not in ("adopted", "exported"):
+                if hit is None:
+                    self.seq += 1
+                    hit = {"id": "m%d" % self.seq, "src": "manual", "start": round(a, 1), "end": round(b, 1), "label": body.get("label") or ""}
+                    v["marks"].append(hit)
+                hit["status"] = "adopted"
+                v["rev"] += 1
+            order = sorted(v["marks"], key=lambda m: (m["start"], m["end"]))
+            return 200, {"video": v["id"], "mark": json.loads(json.dumps(hit)), "n": next(i + 1 for i, m in enumerate(order) if m["id"] == hit["id"])}
         if method == "POST" and path == "/api/live/exported":
             v = self.videos[body["id"]]
             m = next((x for x in v["marks"] if x["id"] == body["markId"]), None)

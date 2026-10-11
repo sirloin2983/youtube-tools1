@@ -50,7 +50,8 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
              無ければ録画の真ん中あたりの REF_SEC(60 秒)の音を録画元から取って、アーカイブの丸ごとの音と照合する(P4 と同じ窓・同じしきい値・同じ子プロセス)
   analyze  … アーカイブ(kind youtube・videoId)をスタジオの今の解析にかける(POST /studio/api/queue/add。設定はスタジオで保存した解析の設定、
              候補の数 count は N の 2 倍まで増やす)。スタジオで解析済みならそれを使う。進み具合は GET /studio/api/queue
-  (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の範囲に入る(半分以上入るものは録画の範囲に切り詰める)・人のマークと重ならない上位 N を選び
+  (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の範囲に入る(半分以上入るものは録画の範囲に切り詰める)・録画の採用済みのマーク
+             (マークの置き場から = taken。スタジオなしの headless は案件の 採用.json かマークの正本。RS8 B3-5 の G3)と重ならない上位 N を選び
              (N = 録画の長さ(時間)× 1 時間あたりの数。1〜30)、M1 の採用(src/home/live.py の Live.adopt。origin archive・after auto = 文字起こし → パック・
              hold archive)を 1 本ずつ呼ぶ = スタジオの録画の配信に採用のマーク・live_feedback.jsonl(自動は「良い」に数えない)・書き出しのジョブ(速報版)
   export   … 書き出しが済んだ(・欠けで書き出せなかった)ジョブを本番版への作り直しに入れ(P4。設定 live.autoArchive がオフでも)、入れ替えたら
@@ -374,7 +375,7 @@ class Archiver(LX.Patrol):
                  slots=None, python=None, ffmpeg=None, ffprobe=None, log=None, first_delay=FIRST_DELAY, interval=INTERVAL,
                  give_up=GIVE_UP, poll=POLL, retry_sec=RETRY_SEC, step=STEP, after=None,
                  after_stream=None, per_hour=None, recordings=None, adopt=None, after_max_age=AFTER_MAX_AGE, compare=None, request=None,
-                 pack_info=None, settings_for=None):
+                 pack_info=None, settings_for=None, taken=None):
         """exporter: src/flow/live_export.py の Exporter(ジョブ・マーク・書き出し先・音量)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(src/home/live.py が autorun と同じ形で呼ぶ)。
         enabled()・auto(): リアルタイム切り抜きがオンか・設定 live.autoArchive。recording_state(録画元, 録画) -> {"active", "endedAt"(epoch)} か None。
@@ -387,9 +388,13 @@ class Archiver(LX.Patrol):
         パックの有無の規則は manage/cases/txindex.pack_info だけが持つので、入口(Live)が渡す。None = 知らせない)。
         settings_for(録画元, 録画) -> 配信後の全自動のアーカイブの解析の設定(録画の束の analyze 節。flow/livesession.py。RS7-2 G2b)か None
         (束の無い録画 = 今までどおりスタジオの GET /api/settings)。
+        taken(録画元, 録画) -> その録画の採用・書き出し済みのマーク [{start, end, …}](秒 = 録画の頭から)か None(読めない):
+        配信後の全自動が重ねない区間(RS8 B3-5 の G3。ライブ係はマークの置き場 marks.adopted = スタジオか、スタジオなしは案件・正本)。
+        無ければ今までどおりスタジオの GET /api/video?id=<録画>。
         テストは probe・audio・studio を偽物に、間隔を短くする(本物の YouTube へ繋がない)"""
         super().__init__()
         self.ex, self.studio = exporter, studio
+        self.taken = taken or self._studio_taken
         self.after = after
         self.after_stream = after_stream or (lambda: False)
         self.per_hour = per_hour or (lambda: 6)
@@ -950,6 +955,11 @@ class Archiver(LX.Patrol):
         v = d.get("video") if code == 200 and isinstance(d, dict) else None
         return code, v if isinstance(v, dict) else None
 
+    def _studio_taken(self, rc, rec):
+        """taken の既定: スタジオの録画の配信のマーク(GET /api/video?id=<録画>)。つながらない・無ければ None"""
+        _code, lv = self._studio_video(rec)
+        return lv.get("marks") if lv is not None else None
+
     def _after_adopt(self, rc, rec, a):
         """候補から上位 N を選び、M1 の採用(origin archive)を 1 本ずつ頼む"""
         if self.adopt is None:
@@ -963,12 +973,13 @@ class Archiver(LX.Patrol):
                 self.compare(rc, rec, a, marks)
             except Exception as e:
                 self.log("リアルタイム切り抜き: 配信中の候補とアーカイブの候補を比べられませんでした: %r" % (e,))
-        _code, lv = self._studio_video(rec)
-        taken = []
-        if lv is not None:   # 録画の配信の、もう採用・書き出し済みのマーク(人が付けたもの)と重ねない
-            for m in lv.get("marks") or []:
-                if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and isinstance(m.get("start"), (int, float)) and isinstance(m.get("end"), (int, float)):
-                    taken.append((a["first"] + m["start"], a["first"] + m["end"]))
+        try:   # 録画の、もう採用・書き出し済みのマーク(人が付けたもの・配信中の自動)と重ねない。置き場から読む(G3。読めなければ重ねる物なし = 今までどおり)
+            got = self.taken(rc, rec)
+        except Exception as e:   # noqa: BLE001
+            self.log("リアルタイム切り抜き: 録画の採用を読めませんでした(重ねない区間なしで続けます): %r" % (e,))
+            got = None
+        taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
+                 if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
         picked = pick_candidates(marks, a["n"], a["t0"], a["offset"], a["first"], a["last"] - LX.READY_PAD, taken)
         cands = sum(1 for m in marks if isinstance(m, dict) and m.get("src") == "auto")
         if not picked:

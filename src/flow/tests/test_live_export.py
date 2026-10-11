@@ -327,7 +327,6 @@ class ExportTest(unittest.TestCase):
         """M1: POST /live/api/adopt の中身(Live.adopt)。画面なしで スタジオのマーク(採用)→ 正本 → 書き出し → スタジオのマークを「書き出し済み」。
         origin を .clip.json と live_feedback.jsonl に残す・同じ区間は二重に作らない・live.auto(M2)をまとめて実行へ渡す"""
         studio = FIX.FakeStudio()
-        studio.conflicts = 1                                                  # 1 回目の保存は画面の保存とぶつかる → 読み直して入れる
         self.live.studio_call = studio
         FIX.patch_cfg(self.cfg, {"auto": {"after": "auto", "cut": "silence", "engine": "whisper.cpp", "model": "large-v3"}})
         rid = self.start_rec(8)

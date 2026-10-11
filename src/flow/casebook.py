@@ -21,6 +21,8 @@
 - 読み `ytt/casefiles.read`・書き `write`: 案件の根を受ける。書く順は 採用 → 候補・どちらも fsio.write_json で原子的・採用.json だけ .bak 1 世代
   (今の採用.json が読めるときだけ写す。読めなければ .broken-<日時> へ退けて .bak を守る)・パスごとのロック `casefiles.lock(root)`(Store.lock のあとに取る。逆の順は作らない。casebook.lock を持ったままスタジオの API を呼ばない)。
   置き場所が見えない(ドライブが外れた・フォルダが消えた・ネットワーク上)ときは ytt/docloc と同じ 503 の形(code case_unseen)で断る
+- ライブの録画(スタジオなし。B3-5): live_video・live_mark(マークの正本の採用の印 -> 案件のマーク)・live_into(初めて書き出したとき案件へ写す)・
+  live_adopt・live_exported・live_marks・live_has。説明は下の節の頭
 """
 import copy
 import logging
@@ -28,7 +30,8 @@ import os
 import shutil
 import time
 
-from ytt import casefiles as _cf, datadir as _datadir, errors as _errors, fsio as _fsio, marks as _marks, names as _names, schemas as _schemas
+from ytt import casefiles as _cf, datadir as _datadir, errors as _errors, fsio as _fsio, marks as _marks, names as _names, recproto as _recproto, \
+    schemas as _schemas
 from ytt.casefiles import (ADOPTIONS_NAME, ADOPTIONS_SCHEMA, CANDIDATES_NAME, CANDIDATES_SCHEMA, MAX_REJECTED, empty_adoptions,
                            empty_candidates, lock, need_root, work_path, visible)
 
@@ -174,3 +177,142 @@ def write(root, candidates=None, adoptions=None):
             raise _errors.ApiError("save_failed", "案件のファイルを保存できませんでした(ディスクの空きなど)", 500, {"dir": root})
         finally:
             _cf.forget(root)   # 読み口のキャッシュ(更新日時と大きさ)を捨てる = 同じ刻みで同じ大きさに書いても古い中身を返さない
+
+
+# ---------------------------------------------------------------- ライブの録画(スタジオなし。RS8 B3-5。決定 3-37 の (r8j))
+# スタジオなしの採用(flow/live_adopt の LocalMarks。友人の PC・headless)の録画を案件の 採用.json に持つ。
+# 録画中の採用は書き出しまでマークの正本(flow/live_export の MarkStore)に置き、初めて書き出したとき live_into で 採用.json へ写す
+# (案件の根は case_of = スタジオの初めての書き出しと同じ規則)。写したあとの採用(live_adopt)・書き出し済み(live_exported)・
+# 読み(live_marks)は 採用.json を通る。配信の id(sources の鍵)= 録画の id(スタジオの kind live の配信と同じ形)。
+# 呼ぶ側はマークの正本のロック → casefiles.lock(root) の順(逆の順は作らない)。スタジオの API はここから呼ばない
+LIVE_ADOPTED = ("adopted", "exported")
+
+
+def live_video(rc, rec, url="", title="", marks=()):
+    """ライブの録画 1 本 -> 案件の配信の形(data.json の配信 1 本。kind live・id = 録画の id・マークの秒は録画の頭から)"""
+    now = _schemas.now_ms()
+    url = url if isinstance(url, str) else ""
+    return {"id": rec, "kind": "live", "title": (title if isinstance(title, str) else "")[:120], "channel": "", "fileName": "", "path": "",
+            "marks": list(marks), "analysis": None, "duration": 0.0, "rev": 1, "createdAt": now, "updatedAt": now,
+            "live": {"recorder": rc, "recording": rec, "url": url, "videoId": _recproto.video_id_of(url, rec)}}
+
+
+def live_mark(m):
+    """マークの正本のスタジオなしの採用の印 1 件(key・sec・status・label・path・file)-> 案件のマークの形(ytt/marks.build_mark。秒は小数 1 桁)か None(印でない・壊れた)"""
+    sec, key = m.get("sec") if isinstance(m, dict) else None, m.get("key") if isinstance(m, dict) else None
+    if not isinstance(key, str) or not _marks.ID_RE.match(key) or m.get("status") not in LIVE_ADOPTED:
+        return None
+    if not (isinstance(sec, list) and len(sec) == 2 and all(_marks.fnum(x) is not None for x in sec)):
+        return None
+    raw = {"id": key, "start": sec[0], "end": sec[1], "label": m.get("label") or "", "status": m["status"], "live": False}
+    path = m.get("path")
+    if m["status"] == "exported" and isinstance(path, str) and path and os.path.isabs(path):
+        raw.update(file=m.get("file") or os.path.basename(path), path=path)
+    elif m["status"] == "exported":
+        raw["status"] = "adopted"   # 書き出した動画が分からない印は採用のまま(書き出し済みの形 = file・path を持てない)
+    try:
+        return _marks.build_mark(raw, None, trusted=True)
+    except _marks.BadMark:
+        return None
+
+
+def _bump(v, marks):
+    return dict(v, marks=marks, rev=v["rev"] + 1, updatedAt=_schemas.now_ms())
+
+
+def _live_of(prev, rec, root):
+    """読んだ案件から録画の配信の形。採用.json に録画が無ければ ApiError 503(case_unseen = 指し先が切れた。(r8o))"""
+    v = _cf.merge(*prev, rec, root)
+    if v is None:
+        raise _errors.ApiError(_cf.UNSEEN_CODE, "案件の採用の記録にこの録画がありません", 503, {"dir": root, "recording": rec})
+    return v
+
+
+def _put_live(root, prev, nv):
+    write(root, None, split(nv, root, prev=prev, keep_candidates=True)[1])   # 候補.json(① の物)は書き換えない
+
+
+def live_into(video, out_dir=None):
+    """初めて書き出した録画(live_video の形。書き出したマークの path がある)を案件にする: case_of で根を引き、採用.json の sources に録画を足す。
+    同じ録画が既にあれば、id の同じマークを置き換え・無いマークを足す(題は空のときだけ)。-> 案件の根か None(引けない = マークの正本のまま)。
+    書けなければ ApiError(503 case_unseen・500 save_failed など)"""
+    root = case_of(video, out_dir)
+    if not root:
+        return None
+    with lock(root):
+        prev = _cf.read(root)
+        old = _cf.merge(*prev, video["id"], root)
+        if old is None:
+            nv = video
+        else:
+            by = {m["id"]: m for m in video["marks"]}
+            marks = [by.pop(m["id"], m) for m in old["marks"]] + [m for m in video["marks"] if m["id"] in by]
+            nv = _bump(old, marks)
+            nv["title"] = old.get("title") or video.get("title") or ""
+        _put_live(root, prev, nv)
+    return root
+
+
+def live_adopt(root, rec, a, b, label, new_id, tol=_marks.DUP_TOL):
+    """案件にした録画の採用: 採用.json の録画のマークで同じ区間(±tol 秒)があれば使い回し(候補・不採用なら採用に)、無ければ new_id で足す。
+    -> (マーク(秒は小数 1 桁), 番号 n)。案件が見えない・録画が採用.json に無い -> ApiError 503(case_unseen)。マークが多すぎる -> ApiError 409"""
+    with lock(root):
+        prev = _cf.read(root)
+        v = _live_of(prev, rec, root)
+        hit = _marks.near_mark(v["marks"], a, b, tol)
+        if hit is not None and hit["status"] in LIVE_ADOPTED:
+            return copy.deepcopy(hit), _marks.order_of(v["marks"], hit["id"])
+        if hit is not None:
+            mark = dict(hit, status="adopted")
+            mark.pop("adoptedBy", None)
+            marks = [mark if m["id"] == hit["id"] else m for m in v["marks"]]
+        else:
+            if len(v["marks"]) >= _marks.MAX_MARKS:
+                raise _errors.ApiError("too_many", "1本の録画に付けられるマークは %d 個までです" % _marks.MAX_MARKS, 409)
+            mark = _marks.build_mark({"id": new_id, "start": a, "end": b, "label": label or "", "status": "adopted", "live": False,
+                                      "createdAt": _schemas.now_ms()}, None, trusted=True)
+            marks = v["marks"] + [mark]
+        _put_live(root, prev, _bump(v, marks))
+        return copy.deepcopy(mark), _marks.order_of(marks, mark["id"])
+
+
+def live_exported(root, rec, mark_id, relfile, abspath, archived=False):
+    """案件にした録画のマークを「書き出し済み」にする(スタジオの Store._mark_exported と同じ決まりの archived:
+    True = 本番版の印を立てる / それ以外 = 同じファイル(file・path が同じ)で前に立っていれば残す・違うファイルなら外す)。
+    -> 変えたか(そのマークが無ければ False)。案件が見えない・録画が無い -> ApiError 503"""
+    with lock(root):
+        prev = _cf.read(root)
+        v = _live_of(prev, rec, root)
+        m = next((x for x in v["marks"] if x["id"] == mark_id), None)
+        if m is None:
+            return False
+        nm = dict(m, status="exported", file=str(relfile or os.path.basename(str(abspath or "")))[:300])
+        if isinstance(abspath, str) and abspath and len(abspath) <= 600 and os.path.isabs(abspath):
+            nm["path"] = abspath
+        else:
+            nm.pop("path", None)
+        same_file = m["status"] == "exported" and m.get("file") == nm["file"] and m.get("path") == nm.get("path")
+        if archived is True or (same_file and m.get("archived")):
+            nm["archived"] = True
+        else:
+            nm.pop("archived", None)
+        _put_live(root, prev, _bump(v, [nm if x["id"] == mark_id else x for x in v["marks"]]))
+        return True
+
+
+def live_marks(root, rec):
+    """案件にした録画の採用・書き出し済みのマーク [{id, start, end, status}](秒 = 録画の頭から。配信後の全自動が重ねない区間 = G3)。
+    案件が見えない・録画が無い -> ApiError 503"""
+    v = _live_of(_cf.read(root), rec, root)
+    return [{"id": m["id"], "start": m["start"], "end": m["end"], "status": m["status"]} for m in v["marks"] if m["status"] in LIVE_ADOPTED]
+
+
+def live_has(root, rec, keys):
+    """マークの正本の採用の印(key)が全部、案件の録画のマークにあるか(ライブの片付けがマークの正本を消してよいか。(r8j))。
+    案件が読めなければ False(消さない)"""
+    try:
+        v = _live_of(_cf.read(root), rec, root)
+    except _errors.ApiError:
+        return False
+    have = {m["id"] for m in v["marks"]}
+    return all(k in have for k in keys)

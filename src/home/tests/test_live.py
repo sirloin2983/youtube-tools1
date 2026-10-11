@@ -385,33 +385,36 @@ class PortalLiveTest(unittest.TestCase):
         q = "/live/api/marks?recorder=fake&recording=" + rec
         code, d = self.jreq("GET", q)
         self.assertEqual((code, d["marks"], d["exports"]), (200, [], []))
-        code, d = self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "fake", "recording": rec, "start": "2026-10-04T06:00:00.000Z",
-                                                        "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信<b>"})
-        self.assertEqual(code, 200, d)
-        m = d["mark"]
+        # 画面からマークを直に足す POST /live/api/marks は消した(RS8 B3-5。呼ぶ画面が 0 件)= 今は無い操作の 404
+        code, d = self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "fake", "recording": rec, "start": "2026-10-04T06:00:00.000Z"})
+        self.assertEqual((code, d.get("error")), (404, "not_found"), d)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "live", "marks", "fake__%s.json" % rec)))
+        ms = self.srv.live.exporter.marks   # 正本の P2 の形(MarkStore.apply)は残る = 書き出しの API の入力
+        m, _ = ms.apply("fake", rec, {"op": "add", "start": "2026-10-04T06:00:00.000Z", "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "配信<b>"})
         self.assertEqual((m["n"], m["start"], m["end"]), (1, "2026-10-04T06:00:00.000Z", None))
         path = os.path.join(self.tmp, "live", "marks", "fake__%s.json" % rec)
         with open(path, encoding="utf-8") as f:   # 正本(押すたびに置き換える)
             saved = json.load(f)
         self.assertEqual((saved["schema"], saved["title"], len(saved["marks"])), (LX.MARKS_SCHEMA, "配信<b>", 1))
+        code, d = self.jreq("GET", q)
+        self.assertEqual((code, [x["id"] for x in d["marks"]], d["title"]), (200, [m["id"]], "配信<b>"))
         code, d = self.jreq("POST", "/live/api/export", {"recorder": "fake", "recording": rec, "markId": m["id"]})
         self.assertEqual(code, 400)   # 終了が無いと書き出せない
         for bad in ({"op": "update", "id": m["id"], "end": "2026-10-04T05:59:59.000Z"},     # 開始より前
                     {"op": "update", "id": m["id"], "end": "2026-10-04T07:00:01.000Z"},     # 1 時間を超える
                     {"op": "update", "id": m["id"], "end": "x"}, {"op": "add"}, {"op": "add", "start": "2026-13-01T00:00:00Z"},
                     {"op": "nope"}):
-            code, d = self.jreq("POST", "/live/api/marks", dict(bad, recorder="fake", recording=rec))
-            self.assertEqual(code, 400, (bad, d))
-        self.assertEqual(self.jreq("POST", "/live/api/marks", {"op": "update", "id": "lm-0000000000", "recorder": "fake", "recording": rec,
-                                                               "label": "x"})[0], 404)
-        self.assertEqual(self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "nope", "recording": rec, "start": m["start"]})[0], 404)
-        self.assertEqual(self.jreq("POST", "/live/api/marks", {"op": "add", "recorder": "fake", "recording": "../x", "start": m["start"]})[0], 400)
-        code, d = self.jreq("POST", "/live/api/marks", {"op": "update", "id": m["id"], "recorder": "fake", "recording": rec,
-                                                        "end": "2026-10-04T06:00:30.5Z", "label": "見どころ\n"})
-        self.assertEqual((code, d["mark"]["end"], d["mark"]["label"]), (200, "2026-10-04T06:00:30.500Z", "見どころ"), d)
-        self.assertEqual(self.req("POST", "/live/api/marks", {"op": "delete", "id": m["id"], "recorder": "fake", "recording": rec}, token=False)[0], 403)
-        code, d = self.jreq("POST", "/live/api/marks", {"op": "delete", "id": m["id"], "recorder": "fake", "recording": rec})
-        self.assertEqual((code, d["marks"]), (200, []))
+            with self.assertRaises(LX.LiveError, msg=repr(bad)) as cm:
+                ms.apply("fake", rec, bad)
+            self.assertEqual(cm.exception.code, 400, bad)
+        with self.assertRaises(LX.LiveError) as cm:
+            ms.apply("fake", rec, {"op": "update", "id": "lm-0000000000", "label": "x"})
+        self.assertEqual(cm.exception.code, 404)
+        with self.assertRaises(LX.LiveError):
+            ms.apply("fake", "../x", {"op": "add", "start": m["start"]})
+        m2, _ = ms.apply("fake", rec, {"op": "update", "id": m["id"], "end": "2026-10-04T06:00:30.5Z", "label": "見どころ\n"})
+        self.assertEqual((m2["end"], m2["label"]), ("2026-10-04T06:00:30.500Z", "見どころ"))
+        self.assertEqual(ms.apply("fake", rec, {"op": "delete", "id": m["id"]})[1], [])
         code, d = self.jreq("GET", "/live/api/exports")
         self.assertEqual((code, d["jobs"]), (200, []))
         self.assertEqual(self.jreq("POST", "/live/api/export/cancel", {"id": "lx-0000000000"})[0], 404)

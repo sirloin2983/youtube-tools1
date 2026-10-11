@@ -17,7 +17,8 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
                                           例: /live/r/local/<録画>/index.m3u8・…/status・…/stop・…/session_001/seg_000000.ts
                                           POST は <録画>/stop だけ(録画を消す …/delete・終わる quit などは中継しない = 入口の中の処理だけが呼ぶ。P4)
   GET  /live/api/marks?recorder=&recording=   録画1本のマークの正本と書き出し(P2。中身は src/flow/live_export.py)
-  POST /live/api/marks   {op: add|update|delete, recorder, recording, id?, start?, end?, label?, url?, title?}  マーク(押すたびに fsync。P2 の形)
+  (POST /live/api/marks は RS8 B3-5 で消した = 画面から呼ぶ所が 0 件。マークの正本は書き出しのジョブの入力と、スタジオなしの採用の書き出しまでの置き場
+   = flow/live_export.py の MarkStore・flow/live_adopt.py の LocalMarks)
   GET  /live/api/exports?recorder=&recording=  書き出しのジョブの一覧(状態: 録画待ち・取得中・作り直し中・済み・失敗と理由・取り消し。studio を含む)
   POST /live/api/export  {recorder, recording, title, url, transcribe, studio: {video, mark, n, label, start, end}}
                                           スタジオのマークから書き出す(start・end は録画の最初のセグメントの受信時刻からの秒。入口が録画元の status の
@@ -327,17 +328,11 @@ class Live(livesession.LiveSession):
         return True
 
     def _api_post(self, h, path, body):
-        """録画を始める(P3)・マークと書き出し(P2・P3)"""
+        """録画を始める(P3)・書き出し(P2・P3)・採用(M1)"""
         try:
             if path == "/live/api/begin":
                 return h._json(200, self.begin_own(body.get("url")))   # 自分の配信も録画を始めたときに束を組む(RS8。flow/livesession.py の begin_own)
             ex = self.exporter
-            if path == "/live/api/marks":
-                rc, rec = body.get("recorder"), body.get("recording")
-                if self.find(rc) is None:
-                    raise live_export.LiveError("その録画元はありません", 404)
-                m, marks = ex.marks.apply(rc, rec, body)
-                return h._json(200, {"mark": m, "marks": marks})
             if path == "/live/api/export":
                 if "studio" in body:   # スタジオのマークから(P3)
                     return h._json(200, {"job": self.export_studio(body)})

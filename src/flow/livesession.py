@@ -582,6 +582,7 @@ class LiveSession:
                            "recordings": self.list_recordings, "adopt": self.adopt, "request": self.requests.get,   # 友人の依頼の録画は afterStream の設定で(2-15)
                            "compare": self.detector.compare,   # 配信中の候補とアーカイブの候補を比べる(0-10-6)
                            "settings_for": lambda rc, rec: (self.bundle(rc, rec) or {}).get("analyze"),   # 配信後の解析の設定はその録画の束から(RS7-2 G2b)
+                           "taken": lambda rc, rec: self.marks.adopted(rc, rec),   # 配信後の全自動が重ねない採用はマークの置き場から(RS8 B3-5 の G3。呼ぶときに読む = use_headless の差し替えが効く)
                            "pack_info": self._pack_info},   # パックの有無の規則は入口が渡す(live_archive は読まない)
                           **self.archive_opts)
                 self._archiver = live_archive.Archiver(ex, **kw)

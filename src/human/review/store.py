@@ -15,6 +15,8 @@
   ロックの順はいつも Store.lock → casefiles.lock(root)(逆の順は作らない。② の側は casefiles.lock を持ったままスタジオの API を呼ばない)。
   案件が見えない(ドライブが外れた・フォルダが消えた)とき: 一覧の行は caseUnseen で出す・get・put_video・adopt_marks・mark_exported・ifNoMarks の削除は 503
   (case_unseen)・replace_auto とコラボの転写はログだけで反映しない。削除は索引の行だけ消す(案件のファイルは触らない)。コラボのまとまりは data.json のまま
+- 入口のライブの採用(adopt_live = POST /api/live/adopt。RS8 B3-5): 録画の配信の登録・同じ区間の使い回し・保存を self.lock の中で 1 度に(put_video を通す)。
+  案件にした録画の配信も同じ道で 採用.json へ = スタジオの採用もスタジオなしの採用(flow/casebook.live_adopt)も、案件にしたあとは 採用.json を通る
 """
 import contextlib
 import copy
@@ -739,6 +741,34 @@ class Store:
                 self._bump(nv, prev)
             r["video"] = self._pub(nv)
             return r
+
+    def adopt_live(self, src, title, start, end, label=""):
+        """入口のライブの採用(POST /api/live/adopt。flow/live_adopt.py の StudioMarks。RS8 B3-5): 録画の配信(kind live。src は analyze.validate_live)を
+        (無ければ)登録し、区間 [start, end](録画の頭からの秒)と同じ区間(±ytt/marks.DUP_TOL 秒)のマークがあれば使い回し(候補・不採用なら採用に)、
+        無ければ採用のマークを足す。登録・読み・保存を self.lock の中で 1 度にする(前は入口が open → GET → PUT(baseRev)と 409 のやり直し)。
+        保存は put_video(画面の保存と同じ検査・学習の記録。案件にした配信は 採用.json へ)。
+        -> (配信の id, マーク(公開の形), 番号 n = 配信のマークを開始の順に並べた位置)"""
+        if not (schemas.is_num(start) and schemas.is_num(end)):
+            raise ApiError("bad_request", "start・end は録画の頭からの秒(数)で指定してください", 400)
+        a, b = float(start), float(end)
+        with self.lock:
+            vid = self.ensure(src, title)["id"]
+            v = self._full(self._need(vid), strict=True)
+            hit = _marks.near_mark(v["marks"], a, b)
+            if hit is not None and hit["status"] in ("adopted", "exported"):
+                return vid, json.loads(json.dumps(hit)), _marks.order_of(v["marks"], hit["id"])
+            if hit is not None:
+                want = hit["id"]
+                new = [dict(m, status="adopted") if m["id"] == want else m for m in v["marks"]]
+            else:
+                taken = {m["id"] for m in v["marks"]}
+                want = "m" + os.urandom(6).hex()
+                while want in taken:
+                    want = "m" + os.urandom(6).hex()
+                new = v["marks"] + [{"id": want, "start": a, "end": b, "label": str(label or "")[:120], "status": "adopted"}]
+            snap = self.put_video(vid, None, new, base_rev=v["rev"])   # 同じロックの中 = 版がぶつからない
+            mark = next(m for m in snap["marks"] if m["id"] == want)
+            return vid, mark, _marks.order_of(snap["marks"], want)
 
     def replace_auto(self, vid, cands, analysis, duration, series):
         """解析結果を反映する。手を入れていない・書き出していない自動マークだけを置き換える。

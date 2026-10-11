@@ -413,5 +413,98 @@ class StudiodataCaseTest(unittest.TestCase):
         self.assertEqual(studiodata.videos(self.data)[VID]["marks"][0]["label"], "")
 
 
+class LiveCaseTest(unittest.TestCase):
+    """スタジオなしのライブの録画を案件の 採用.json に持つ(RS8 B3-5。決定 3-37 の (r8j)): 初めて書き出したとき写す・そのあとの採用と書き出し済み・読み"""
+    URL = "https://www.youtube.com/watch?v=" + VID
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="casebook-live-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.out = os.path.join(self.tmp, "out")
+        self.root = os.path.join(self.out, "配信")
+        os.makedirs(os.path.join(self.root, schemas.WORK_DIR))
+        names.write_owner(self.root, VID)   # ライブの書き出しの持ち主 = 配信の videoId(flow/live_export の target)
+        p = mock.patch.object(CB._fsio, "is_fixed_drive", return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def local(self, key, s, e, status="adopted", path=None):
+        """マークの正本のスタジオなしの採用の印(flow/live_export.MarkStore.adopt の形)"""
+        m = {"id": "lm-" + key, "key": key, "sec": [s, e], "label": "", "status": status, "src": "local", "start": "x", "end": "y"}
+        if path:
+            m.update(path=path, file="配信/" + os.path.basename(path))
+        return m
+
+    def test_live_mark(self):
+        media = os.path.join(self.root, "01.mp4")
+        m = CB.live_mark(self.local("a000000000001", 10.04, 40.0, "exported", media))
+        self.assertEqual((m["id"], m["start"], m["end"], m["status"], m["src"], m["file"], m["path"]), ("a000000000001", 10.0, 40.0, "exported", "manual", "配信/01.mp4", media))
+        self.assertEqual(CB.live_mark(self.local("a000000000002", 10, 40, "exported"))["status"], "adopted")   # 動画の分からない書き出し済みは採用のまま
+        for bad in ({"key": "a1", "sec": [1, 2], "status": ""}, {"sec": [1, 2], "status": "adopted"}, {"key": "a1", "sec": [5, 1], "status": "adopted"},
+                    {"key": "../x", "sec": [1, 2], "status": "adopted"}, {"key": "a1", "sec": "1-2", "status": "adopted"}, None):
+            self.assertIsNone(CB.live_mark(bad), bad)
+
+    def test_into_then_adopt_export_read(self):
+        media = os.path.join(self.root, "01.mp4")
+        v = CB.live_video("rc1", REC, self.URL, "配信の題", [CB.live_mark(self.local("a000000000001", 10, 40, "exported", media)),
+                                                            CB.live_mark(self.local("a000000000002", 100, 130))])
+        self.assertEqual(v["live"], {"recorder": "rc1", "recording": REC, "url": self.URL, "videoId": VID})
+        self.assertIsNone(CB.live_into(v, os.path.join(self.tmp, "other")))   # 書き出し先の下でない = 案件にしない(正本のまま)
+        self.assertEqual(CB.live_into(v, self.out), os.path.normpath(self.root))
+        c, a = CF.read(self.root)
+        self.assertEqual((list(a["sources"]), [m["id"] for m in a["marks"]], a["marks"][0]["path"]), ([REC], ["a000000000001", "a000000000002"], "01.mp4"))
+        self.assertEqual(c["sources"], {})   # 候補.json(① の物)は書かない
+        self.assertEqual(CF.merge(c, a, REC, self.root)["title"], "配信の題")
+        # 写したあとの採用: 同じ区間 ±0.5 秒は使い回し・新しい区間は足す(番号は開始の順)
+        m, n = CB.live_adopt(self.root, REC, 100.3, 129.8, "x", "a000000000009")
+        self.assertEqual((m["id"], n), ("a000000000002", 2))
+        m, n = CB.live_adopt(self.root, REC, 50.04, 60.0, "ラベル", "a000000000003")
+        self.assertEqual((m["id"], m["start"], m["status"], m["label"], n), ("a000000000003", 50.0, "adopted", "ラベル", 2))
+        self.assertEqual(CF.merge(*CF.read(self.root), REC, self.root)["rev"], 2)
+        # 書き出し済み(本番版の印は同じファイルのあいだ残る・違うファイルで外れる)
+        m3 = os.path.join(self.root, "03.mp4")
+        self.assertTrue(CB.live_exported(self.root, REC, "a000000000003", "配信/03.mp4", m3, archived=True))
+        got = {x["id"]: x for x in CF.merge(*CF.read(self.root), REC, self.root)["marks"]}
+        self.assertEqual((got["a000000000003"]["status"], got["a000000000003"]["path"], got["a000000000003"].get("archived")), ("exported", m3, True))
+        CB.live_exported(self.root, REC, "a000000000003", "配信/03.mp4", m3)
+        self.assertTrue(next(x for x in CF.merge(*CF.read(self.root), REC, self.root)["marks"] if x["id"] == "a000000000003").get("archived"))
+        CB.live_exported(self.root, REC, "a000000000003", "配信/04.mp4", os.path.join(self.root, "04.mp4"))
+        self.assertNotIn("archived", next(x for x in CF.merge(*CF.read(self.root), REC, self.root)["marks"] if x["id"] == "a000000000003"))
+        self.assertFalse(CB.live_exported(self.root, REC, "nope", "x.mp4", m3))
+        # 読み(G3)・写ったか(片付け)
+        self.assertEqual([(x["id"], x["status"]) for x in CB.live_marks(self.root, REC)],
+                         [("a000000000001", "exported"), ("a000000000002", "adopted"), ("a000000000003", "exported")])   # 足した順(スタジオと同じ)
+        self.assertTrue(CB.live_has(self.root, REC, ["a000000000001", "a000000000002"]))
+        self.assertFalse(CB.live_has(self.root, REC, ["a000000000001", "a00000000000f"]))
+        self.assertFalse(CB.live_has(os.path.join(self.tmp, "gone"), REC, ["a000000000001"]))   # 見えない = 写っていない扱い(消さない)
+        # 2 回目の live_into(同じ録画): id の同じマークは置き換え・無いマークは足す・題は空のときだけ・ほかのマークは残す
+        v2 = CB.live_video("rc1", REC, self.URL, "別の題", [CB.live_mark(self.local("a000000000002", 100, 130, "exported", os.path.join(self.root, "02.mp4"))),
+                                                          CB.live_mark(self.local("a000000000004", 200, 230))])
+        self.assertEqual(CB.live_into(v2, self.out), os.path.normpath(self.root))
+        got = CF.merge(*CF.read(self.root), REC, self.root)
+        self.assertEqual(got["title"], "配信の題")
+        self.assertEqual({x["id"]: x["status"] for x in got["marks"]},
+                         {"a000000000001": "exported", "a000000000002": "exported", "a000000000003": "exported", "a000000000004": "adopted"})
+
+    def test_unseen_and_missing_recording(self):
+        for fn in (lambda: CB.live_adopt(self.root, REC, 1, 5, "", "a1"), lambda: CB.live_exported(self.root, REC, "a1", "x", None),
+                   lambda: CB.live_marks(self.root, REC)):
+            with self.assertRaises(errors.ApiError) as cm:   # 録画が 採用.json に無い = 指し先が切れた(503)
+                fn()
+            self.assertEqual((cm.exception.code, cm.exception.status), (CF.UNSEEN_CODE, 503))
+        with self.assertRaises(errors.ApiError) as cm:
+            CB.live_marks(os.path.join(self.tmp, "gone"), REC)
+        self.assertEqual(cm.exception.status, 503)
+
+    def test_too_many_marks(self):
+        media = os.path.join(self.root, "01.mp4")
+        marks = [CB.live_mark(self.local("a%012x" % i, i * 2.0, i * 2.0 + 1, "exported" if i == 0 else "adopted", media if i == 0 else None))
+                 for i in range(M.MAX_MARKS)]
+        CB.live_into(CB.live_video("rc1", REC, self.URL, "", marks), self.out)
+        with self.assertRaises(errors.ApiError) as cm:
+            CB.live_adopt(self.root, REC, 5000.0, 5010.0, "", "afffffffffff")
+        self.assertEqual(cm.exception.status, 409)
+
+
 if __name__ == "__main__":
     unittest.main()
