@@ -20,11 +20,19 @@ def t(path, qs="", doc_for=None):
 
 
 class TestTarget(unittest.TestCase):
-    def test_switch_default_off(self):
-        self.assertFalse(redirects.enabled({}))
-        self.assertFalse(redirects.enabled({"YTT_CASES_REDIRECT": "0"}))
-        self.assertTrue(redirects.enabled({"YTT_CASES_REDIRECT": "1"}))
-        self.assertTrue(redirects.enabled({"YTT_CASES_REDIRECT": "On"}))
+    def test_no_switch_always_on(self):
+        """RS8 C4: スイッチ YTT_CASES_REDIRECT は消した = 転送はいつも有効(環境変数に何があっても表は同じ)"""
+        self.assertFalse(hasattr(redirects, "enabled"))
+        self.assertFalse(hasattr(redirects, "ENV"))
+        saved = os.environ.get("YTT_CASES_REDIRECT")
+        try:
+            os.environ["YTT_CASES_REDIRECT"] = "0"
+            self.assertEqual(t("/studio/", "video=abc_1"), "/cases?c=abc_1#cand")
+        finally:
+            if saved is None:
+                os.environ.pop("YTT_CASES_REDIRECT", None)
+            else:
+                os.environ["YTT_CASES_REDIRECT"] = saved
 
     def test_studio(self):
         self.assertEqual(t("/studio/", "video=abc_1"), "/cases?c=abc_1#cand")

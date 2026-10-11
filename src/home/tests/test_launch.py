@@ -596,18 +596,15 @@ class PortalHttpTest(Base):
         self.assertEqual(r.status, 404)
 
     def test_cases_redirects_switch_and_doc_lookup(self):
-        """RS8 C0: 今の URL -> /cases の転送は YTT_CASES_REDIRECT が on のときだけ(既定 off)。/api/cases の足した欄と ?doc="""
+        """RS8 C0・C4: 今の URL -> /cases の転送はいつも有効(C4 でスイッチ YTT_CASES_REDIRECT を消した)。/api/cases の足した欄と ?doc="""
         env = {k: v for k, v in os.environ.items() if k != "YTT_CASES_REDIRECT"}
-        with mock.patch.dict(os.environ, env, clear=True):
-            r, _ = self.req("GET", "/studio/?video=abc")
-            self.assertNotEqual(r.status, 302)   # off: 今のページのまま(ここでは取り込みが無いので 404)
-            r, _ = self.req("GET", "/cases.html")
-            self.assertEqual((r.status, r.getheader("Location")), (302, "/#cases"))
-        with mock.patch.dict(os.environ, dict(env, YTT_CASES_REDIRECT="1"), clear=True):
+        with mock.patch.dict(os.environ, dict(env, YTT_CASES_REDIRECT="0"), clear=True):   # 古いスイッチの値は効かない(オフにできない)
             r, _ = self.req("GET", "/studio/?video=abc")
             self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=abc#cand"))
             r, _ = self.req("GET", "/transcribe/?drill=1")
             self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=eval#proof"))
+            r, _ = self.req("GET", "/studio/")
+            self.assertEqual((r.status, r.getheader("Location")), (302, "/"))
             r, _ = self.req("GET", "/cases.html")
             self.assertEqual((r.status, r.getheader("Location")), (302, "/"))
             r, _ = self.req("GET", "/transcribe/api/jobs")   # API は転送しない

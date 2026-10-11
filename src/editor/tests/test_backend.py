@@ -307,11 +307,9 @@ class TestPerformance(StoreDir):
 
 class TestStartupChecks(StoreDir):
     def test_checks(self):
-        old = (S.INDEX, S.APP_JS, S.find_ffmpeg)
+        old = (S.APP_JS, S.find_ffmpeg)
         try:
-            S.INDEX = os.path.join(self.tmp, "index.html")
-            with open(S.INDEX, "w", encoding="utf-8") as f:
-                f.write("<html></html>")
+            self.assertFalse(hasattr(S, "INDEX"))   # RS8 C4: 編集の画面のページ index.html は無い(入口が案件の画面へ転送する) = その検査もない
             S.APP_JS = os.path.join(self.tmp, "app.js")
             with open(S.APP_JS, "w", encoding="utf-8") as f:
                 f.write("// app")
@@ -327,10 +325,9 @@ class TestStartupChecks(StoreDir):
                 self.assertIn(word, w)
             os.unlink(S.APP_JS)
             self.assertIn("app.js が見つかりません", " / ".join(S.startup_checks()))
-            os.unlink(S.INDEX)
-            self.assertIn("index.html が見つかりません", " / ".join(S.startup_checks()))
+            self.assertNotIn("index.html", " / ".join(S.startup_checks()))   # 画面のページを確かめない
         finally:
-            S.INDEX, S.APP_JS, S.find_ffmpeg = old
+            S.APP_JS, S.find_ffmpeg = old
 
 
 class TestBomTolerant(StoreDir):
@@ -643,7 +640,7 @@ class _PingServer:
 
 
 def start_server(tmp, port, runtime):
-    for n in ("serve.py", "index.html", "app.js", "cut.js", "pack-tab.js", "ui-kit.js", "ui-kit.css", "proof.css", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
+    for n in ("serve.py", "app.js", "cut.js", "pack-tab.js", "proof.css", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if (n.startswith("ed_") and n.endswith(".py")) or (n.startswith("app-") and n.endswith(".js"))):   # 段10 で serve.py・app.js から分けた部品
         shutil.copy(os.path.join(HERE, n), tmp)
     env = dict(os.environ, TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.005", YTT_RUNTIME_DIR=runtime,
                YTT_MACHINE_FILE=os.path.join(tmp, "machine.json"))   # この PC の設定は一時フォルダへ(src に書かない。RS7-1 S6b)
@@ -888,13 +885,20 @@ class TestPipelineHttp(unittest.TestCase):
     # ---- HTTP の検査 ----
     def test_navigation_from_other_tool_is_allowed_but_api_is_not(self):
         nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
-        st, hd, body = self.call("GET", "/?media=" + self.q(self.wav), headers=nav, raw=True)
-        self.assertEqual(st, 200)
-        self.assertEqual(hd.get("X-Frame-Options"), "DENY")
-        self.assertIn("frame-ancestors 'none'", hd.get("Content-Security-Policy", ""))
-        self.assertEqual(self.call("GET", "/", headers=dict(nav, **{"Sec-Fetch-Site": "cross-site"}), raw=True)[0], 200)
+        # RS8 C4: 編集の画面のページ(/・/index.html)は配らない(入口が案件の画面へ転送する)= 404。
+        # 守りの検査(iframe・cors の断り)は、まだ配っている静的ファイルと API で確かめる
+        for p in ("/", "/index.html"):
+            st, hd, body = self.call("GET", p, headers=nav, raw=True)
+            self.assertEqual(st, 404, p)
+            self.assertNotIn(b"<html", body.lower())
+        for p in ("/ui-kit.js", "/ui-kit.css"):   # ui-kit の写しも配らない
+            self.assertEqual(self.call("GET", p, headers={"Sec-Fetch-Site": "same-origin"}, raw=True)[0], 404, p)
         self.assertEqual(self.call("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}), raw=True)[0], 403)
         self.assertEqual(self.call("GET", "/", headers=dict(nav, **{"Sec-Fetch-Mode": "cors"}), raw=True)[0], 403)
+        self.assertEqual(self.call("GET", "/app.js", headers={"Sec-Fetch-Site": "same-origin"}, raw=True)[0], 200)   # 案件の画面の校正のパネルが読む部品
+        self.assertEqual(self.call("GET", "/app.js", headers={"Sec-Fetch-Site": "cross-site"}, raw=True)[0], 403)       # 別のサイトからは読めない
+        self.assertEqual(self.call("GET", "/proof.css", headers={"Sec-Fetch-Site": "cross-site"}, raw=True)[0], 403)
+        self.assertEqual(self.call("GET", "/app.js", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}), raw=True)[0], 403)
         r = self.call("GET", "/api/transcripts", headers=nav)
         self.assertEqual((r["_status"], r["error"]), (403, "forbidden"))
         self.assertIn("message", r)                                                  # 理由も JSON で返す

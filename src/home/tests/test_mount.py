@@ -154,20 +154,23 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual(self.sup.by_id["studio"].snapshot()["state"], "running")   # 入口と一緒にしか止まらない
 
     def test_page_assets_and_security_headers(self):
-        r, body = self.req("GET", "/studio/")
-        self.assertEqual(r.status, 200)
-        csp = r.getheader("Content-Security-Policy")
+        # RS8 C4: スタジオの画面のページは消えた。入口が案件の画面(ホーム)へ転送する(取り込んだスタジオの Handler には渡さない)
+        for path, want in (("/studio/", "/"), ("/studio/index.html", "/"), ("/studio/?video=abc", "/cases?c=abc#cand"), ("/studio?url=abc", "/#new?url=abc")):
+            r, body = self.req("GET", path)
+            self.assertEqual((r.status, r.getheader("Location")), (302, want), path)
+            self.assertEqual(body, b"", path)
+        # 取り込み(MOUNTS)の CSP は今のまま(script-src にインラインを許さない・YouTube のプレイヤーだけ外部。起動のとき Mount.start が検査する)
+        csp = M.MOUNTS["studio"]["csp"]
         self.assertIn("script-src 'self' https://www.youtube.com", csp)
         self.assertIn("frame-ancestors 'none'", csp)
-        self.assertEqual(r.getheader("X-Frame-Options"), "DENY")
-        self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
-        self.assertNotIn(b'src="/', body)   # 画面の部品は相対パス(/studio/ の下でも読める)
-        for asset in ("core.js", "ui-kit.js", "ui-kit.css", "app.css", "review.js"):
+        self.assertNotIn("unsafe-inline", csp)
+        for asset in ("rank.js", "queue.js", "review.js", "collab.js"):   # 案件の画面が読む部品だけ配る(スタジオの serve.py の STATIC)
             r, data = self.req("GET", "/studio/" + asset)
             self.assertEqual(r.status, 200, asset)
             self.assertIsNone(r.getheader("Content-Security-Policy"), asset)
-        r, _ = self.req("GET", "/studio?url=abc")
-        self.assertEqual((r.status, r.getheader("Location")), (301, "/studio/?url=abc"))
+        for gone in ("core.js", "settings.js", "app.css", "review.css", "ui-kit.js", "ui-kit.css"):   # 消えた物は 404(配らない)
+            r, data = self.req("GET", "/studio/" + gone)
+            self.assertEqual(r.status, 404, gone)
         r, body = self.req("GET", "/")   # ホームの画面はそのまま
         self.assertIn("動画編集ツール — ホーム".encode("utf-8"), body)
 
@@ -316,7 +319,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
         self.assertEqual((r.status, r.getheader("Location")), (301, "/cut2resolve/?video=C%3A%5Ca.mp4"))
         r, _ = self.req("GET", "/cut2resolvex/api/ping")   # 前方一致の取り違えがない(入口の 404)
         self.assertEqual(r.status, 404)
-        r, _ = self.req("GET", "/studio/")   # スタジオも並んで動く
+        r, _ = self.req("GET", "/studio/api/ping")   # スタジオも並んで動く(画面のページは RS8 C4 で消した)
         self.assertEqual(r.status, 200)
 
     def test_page_moves_to_edit_tool_when_mounted(self):
@@ -483,17 +486,21 @@ class TestTranscribeMounted(unittest.TestCase):
         snap = self.sup.by_id["transcribe"].snapshot()
         self.assertEqual((snap["state"], snap["mounted"], snap["path"]), ("running", True, "/transcribe/"), self.events)
         self.assertIsNone(self.sup.by_id["transcribe"].proc)
-        r, body = self.req("GET", "/transcribe/")
-        self.assertEqual(r.status, 200)
-        self.assertEqual(r.getheader("Content-Security-Policy"), M.MOUNTS["transcribe"]["csp"])
-        self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
-        self.assertNotIn(b"<script>", body)                     # インラインのスクリプトは無い(CSP で動かないため)
-        self.assertNotIn(b'src="/', body)
-        for asset in ("app.js", "ui-kit.js", "ui-kit.css", "proof.css", "app-tpl.js"):
+        # RS8 C4: 編集の画面のページは消えた。入口が案件の画面(ホーム)へ転送する(取り込んだ編集の Handler には渡さない)
+        for path, want in (("/transcribe/", "/"), ("/transcribe/index.html", "/"), ("/transcribe/?drill=1", "/cases?c=eval#proof"),
+                           ("/transcribe?media=x", "/#new?media=x")):
+            r, body = self.req("GET", path)
+            self.assertEqual((r.status, r.getheader("Location")), (302, want), path)
+            self.assertEqual(body, b"", path)
+        csp = M.MOUNTS["transcribe"]["csp"]   # 取り込みの CSP(インラインのスクリプトを許さない)は今のまま
+        self.assertIn("script-src 'self';", csp)
+        self.assertNotIn("unsafe-inline", csp)
+        for asset in ("app.js", "proof.css", "app-tpl.js", "cut.js", "pack-tab.js"):   # 案件の画面の校正のパネルが読む部品は配る
             r, _ = self.req("GET", "/transcribe/" + asset)
             self.assertEqual(r.status, 200, asset)
-        r, _ = self.req("GET", "/transcribe?media=x")
-        self.assertEqual((r.status, r.getheader("Location")), (301, "/transcribe/?media=x"))
+        for gone in ("ui-kit.js", "ui-kit.css"):   # ui-kit の写しは消した(案件の画面は入口の /ui-kit.js を読む)
+            r, _ = self.req("GET", "/transcribe/" + gone)
+            self.assertEqual(r.status, 404, gone)
 
     def test_token_and_guards(self):
         r, body = self.post("/transcribe/api/transcribe", {"sourcePath": self.media}, token=False)

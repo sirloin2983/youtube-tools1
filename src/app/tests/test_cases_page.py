@@ -120,8 +120,8 @@ class CasesPageHttpTest(unittest.TestCase):
         self.assertEqual((r.status, r.getheader("Location")), (302, "/cases?c=abc"))
         r, _ = self.req("/cases/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/cases"))
-        r, _ = self.req("/cases.html")   # 以前の一覧のリンクは今までどおりホームへ(行き先を /cases にするのは C4)
-        self.assertEqual((r.status, r.getheader("Location")), (302, "/#cases"))
+        r, _ = self.req("/cases.html")   # 以前の一覧のリンクはホームへ(C4 で /#cases から / に)
+        self.assertEqual((r.status, r.getheader("Location")), (302, "/"))
 
     def test_navigation_from_other_screens(self):
         nav = {"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
