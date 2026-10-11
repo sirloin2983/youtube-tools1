@@ -269,14 +269,27 @@ def voices_edit(emb):
             save_voices(emb, voices)
 
 
-def merge_voice(old, vec, rows, sec, doc=None):
+LEARNED_ROWS_MAX = 2000   # learnedFrom の 1 文書に控える行の id の上限(古い物から捨てる)
+
+
+def merge_voice(old, vec, rows, sec, doc=None, by=None, row_ids=None):
     """覚える声の 1 人分 -> {"vec", "rows", "sec", "updatedAt", "learnedFrom"}。前に覚えた声 old(同じ次元のとき)とは、使った長さで重みを付けて混ぜる
     (配信ごとの声の揺れをならす。前の重みは 1 時間まで)。doc = 覚えた文書の id(learnedFrom に {doc, at} を足す。同じ文書は重ねず at だけ新しくする。
-    古い形(learnedFrom が無い声)もそのまま読める)。② が足すこと: 登録簿の 1 人分の形と混ぜ方(長さ 1 にするのは ① の _unit)・どの文書から覚えたかの記録"""
+    古い形(learnedFrom が無い声)もそのまま読める)。by = 何が覚えさせたか(例 "check" = 確かめるの声のカード。V1 V2c)・
+    row_ids = 使った行の id(learnedFrom の rows に前の分と合わせて控え、sec に足す = 同じ行を 2 度覚えないための印。確かめるが読む)。
+    ② が足すこと: 登録簿の 1 人分の形と混ぜ方(長さ 1 にするのは ① の _unit)・どの文書から覚えたかの記録"""
     now = int(time.time() * 1000)
     src = [x for x in (old or {}).get("learnedFrom") or [] if isinstance(x, dict) and x.get("doc")]
     if doc:
-        src = [x for x in src if x["doc"] != doc] + [{"doc": str(doc), "at": now}]
+        prev = next((x for x in src if x["doc"] == str(doc)), None)
+        entry = dict(prev or {}, doc=str(doc), at=now)   # 前の控え(by・rows・sec)は引き継ぐ(普通の「声を覚える」で控えの行を忘れない)
+        if by:
+            entry["by"] = str(by)[:20]
+        if row_ids is not None:
+            ids = [str(r) for r in (prev or {}).get("rows") or [] if isinstance(r, str)] + [str(r) for r in row_ids]
+            entry["rows"] = list(dict.fromkeys(ids))[-LEARNED_ROWS_MAX:]
+            entry["sec"] = round(float(_yschemas.num_or((prev or {}).get("sec"), 0.0) or 0.0) + float(sec), 1)
+        src = [x for x in src if x["doc"] != str(doc)] + [entry]
     if old and len(old["vec"]) == len(vec):
         w0 = min(float(old.get("sec") or 0.0), 3600.0)
         vec = _calc._unit([a * w0 + b * sec for a, b in zip(old["vec"], vec)]) or vec

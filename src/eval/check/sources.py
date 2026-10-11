@@ -8,7 +8,8 @@ V0 で入れた出どころ(細部は V2 で直す):
   value:auto  自動でできた切り抜き(案件の clips[].auto で、届けていない・pending でない・文書がある物。ホームの続けて確認 rvItems と同じ)
   value:cand  候補のまま(スタジオの YouTube の配信で、まだ 1 本も採用・書き出ししていない配信の、状態が空のマーク。点数の高い順)
   read:fill   後処理(fill)が直した行で、校正していない・今の文字と認識のままが違う物
-  voice:diar  話者の判別(.diar.json の latest.rows)の行で、1 秒以上・混ざり無し・校正していない物。自信の低い順
+  voice:diar  話者の判別(.diar.json の latest.rows)の行で、1 秒以上・混ざり無し・校正していない物。自信の低い順(照合の弱い話者 → 弱い行 → 声の無い人)。
+              選択肢と機械の予想は ③ human/check/voice(答えの形の持ち主。V2c)が組む = 文書の話者 + 覚えた声の登録簿にいて文書にいない人 + その他 + 混ざり
   time:row    文字が決まった行(校正済みか、読みのカードで答えた行)で、時刻のカードにまだ答えていない物
 read の「別のエンジン / YouTube の字幕」(alt / yt)は read_sources.py(V2b)が register で足す。
 """
@@ -16,6 +17,7 @@ import os
 import re
 import threading
 
+from human.check import voice as voice_mod
 from manage.cases import cases as cases_mod, txindex
 from ytt import fsio, settings
 from . import lineup   # 同じ eval/check の兄弟
@@ -262,7 +264,7 @@ def read_fill(view):
 
 
 def voice_diar(view):
-    out = []
+    out, voices = [], {}
     for tid, path, doc in view.docs():
         latest = view.diar(tid, path)
         rows = latest.get("rows") if isinstance(latest, dict) else None
@@ -270,8 +272,9 @@ def voice_diar(view):
             continue
         sps = latest.get("voices") if isinstance(latest.get("voices"), dict) else {}
         sps = sps.get("speakers") if isinstance(sps.get("speakers"), dict) else {}
-        names = {s.get("id"): str(s.get("name") or s.get("id")) for s in doc.get("speakers") or () if isinstance(s, dict) and s.get("id")}
-        opts = [{"id": k, "name": n} for k, n in names.items() if k != OTHER] + [{"id": OTHER, "name": "その他"}, {"id": MIXED, "name": "混ざり"}]
+        reg = voice_mod.registry(voice_mod.doc_embedding(doc), voices)
+        opts = voice_mod.options_for(doc, reg)
+        names = {o["id"]: o for o in opts}
         for g in _rows(doc):
             r = rows.get(g["id"])
             if not isinstance(r, dict) or r.get("mixed") or g.get("proofed") is True or g.get("noSub") is True:
@@ -282,10 +285,11 @@ def voice_diar(view):
             v = sps.get(sp) if isinstance(sps.get(sp), dict) else {}
             low = 0 if v.get("reason") in ("below_match", "margin") else 1   # 声の照合が弱い話者を先に
             margin = _num(v.get("score"), 1.0) - _num(v.get("secondScore"), 0.0)
+            novoice = 0 if sp in names and not names[sp].get("voice") else 1   # まだ声を覚えていない人を先に
             out.append(_doc_card(view, "voice", "diar", tid, doc, g, 0.3, {
-                "guess": {"id": sp, "name": names.get(sp, sp)} if sp else None, "options": opts, "score": r.get("ratio"),
+                "guess": voice_mod.guess_for(doc, sp, v, opts), "options": opts, "score": r.get("ratio"),
                 "note": str(v.get("reason") or ""),
-                "_order": [low, 0 if r.get("weak") else 1, _num(r.get("ratio"), 1.0), margin, -_num(doc.get("updatedAt")), _num(g.get("start"))]}))
+                "_order": [low, 0 if r.get("weak") else 1, novoice, _num(r.get("ratio"), 1.0), margin, -_num(doc.get("updatedAt")), _num(g.get("start"))]}))
             if len(out) >= MAX_PER_SOURCE:
                 return out
     return out

@@ -297,6 +297,34 @@ def _scene_real_api(cx):
     check(pg.text_content("#chkToday") == "0", "本物の口: 今日 0 件")
 
 
+def _scene_voice(cx):
+    """誰の声のカード(V2c): 予想の Enter のボタンは再生が終わるまで押せない(理由つき)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻すとまた待つ"""
+    pg, check = cx.pg, cx.check
+    vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
+    fv = FakeQueue([card(30, "voice", source="diar", media=vid, guess={"id": "name:みこ", "name": "みこ"}, note="below_match",
+                         options=[{"id": "S1", "name": "ぺこら", "voice": True}, {"id": "name:みこ", "name": "みこ", "voice": True},
+                                  {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}])])
+    cx.ctx.unroute(re.compile(r".*/api/check/.*"))
+    cx.ctx.route(re.compile(r".*/api/check/.*"), fv.handle)
+    try:
+        pg.goto(cx.base + "check?kind=voice")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'"), "声のカードを開く: %s" % state(pg))
+        enter = "#chkBody [data-chk-k='Enter']"
+        check(pg.evaluate("(() => { const b = document.querySelector(\"%s\"); return !!b && b.disabled && !!b.getAttribute('data-ui-why'); })()" % enter),
+              "予想どおり(Enter)のボタンは再生が終わるまで押せない・理由つき")
+        check("みこ" in pg.text_content("#chkBody .notice") and "似かたが弱い" in pg.text_content("#chkBody"), "機械の予想の名前と自信の低い理由")
+        press(pg, "m")
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "mixed"}, "M = 声が混ざっている")
+        press(pg, "z")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'") and pg.evaluate("document.querySelector(\"%s\").disabled" % enter), "Z で戻すと、また再生が終わるまで待つ")
+        check(wait_js(pg, "!document.querySelector(\"%s\").disabled" % enter, 10000), "再生が終わると押せる")
+        pg.click(enter)
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"name": "みこ"}, "登録簿の人の予想は {name} で答える: %s" % fv.answers[-1:])
+    finally:
+        cx.ctx.unroute(re.compile(r".*/api/check/.*"))
+        cx.ctx.route(re.compile(r".*/api/check/.*"), cx.fq.handle)
+
+
 def _scene_narrow(cx):
     pg, check = cx.pg, cx.check
     pg.set_viewport_size({"width": 390, "height": 844})
@@ -368,6 +396,7 @@ def main():
                 _scene_failures(cx)
                 _scene_narrow(cx)
                 _scene_read_type(cx)
+                _scene_voice(cx)
                 _scene_real_api(cx)
                 unexpected = [s for s in bad_status if not s.startswith("500 ")]
                 check(not unexpected, "4xx/5xx が出ない(試しに起こした 500 を除く): %s" % unexpected[:5])

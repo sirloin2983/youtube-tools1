@@ -80,6 +80,17 @@ class TestMergeVoice(unittest.TestCase):
         self.assertEqual(sorted(x["doc"] for x in v["learnedFrom"]), ["d1", "d2"])
         self.assertEqual(v["rows"], 12)
 
+    def test_learned_rows_from_check(self):
+        """確かめるの声のカード(V2c): by と使った行の id を控え、同じ文書は行を合わせて秒を足す。普通の「声を覚える」でも控えは消さない"""
+        v = diar.merge_voice(None, [1.0, 0.0], 2, 12.0, "d1", by="check", row_ids=["s1", "s2"])
+        self.assertEqual(v["learnedFrom"][0]["rows"], ["s1", "s2"])
+        self.assertEqual((v["learnedFrom"][0]["by"], v["learnedFrom"][0]["sec"]), ("check", 12.0))
+        v = diar.merge_voice(v, [1.0, 0.0], 2, 20.0, "d1", by="check", row_ids=["s2", "s3"])
+        e = v["learnedFrom"][0]
+        self.assertEqual((e["rows"], e["sec"], len(v["learnedFrom"])), (["s1", "s2", "s3"], 32.0, 1))
+        v = diar.merge_voice(v, [1.0, 0.0], 5, 40.0, "d1")   # 普通の「声を覚える」(校正済みの行)
+        self.assertEqual(v["learnedFrom"][0]["rows"], ["s1", "s2", "s3"])
+
 
 if __name__ == "__main__":
     unittest.main()

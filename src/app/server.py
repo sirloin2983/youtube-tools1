@@ -121,6 +121,7 @@ from human.check import apply as check_apply  # noqa: E402  (src/human/check/app
 from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
 from human.check import timerow as _check_timerow  # noqa: E402,F401  (時刻のカードの反映を apply に登録する。V2d)
 from human.check import value as check_value  # noqa: E402, F401  (src/human/check/value.py: 価値のカードの反映を apply に登録する。V2a)
+from human.check import voice as _check_voice  # noqa: E402,F401  (誰の声のカードの反映と声の覚え直し。読み込みで apply に登録する。V2c)
 from human.friend import deliver as deliver_mod  # noqa: E402 (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
 from manage.cases import docmove as docmove_mod  # noqa: E402  (src/manage/cases/docmove.py: 起動のとき文書を案件の 作業用 へ移す。RS8 B2-3)

@@ -1,0 +1,272 @@
+"""「確かめる」の誰の声のカード(src/human/check/voice.py。V1 V2c)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
+評価用と処理中を断る・層(O2)と食い違わない・声の覚え直し(1 人 30 秒・rows= で行を明示・learnedFrom で 2 度覚えない・待っている覚え直しを数えない)・
+human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業データだけを使う。
+
+実行(リポジトリ直下から): py -3.10 -m unittest src/human/check/tests/test_voice.py -v
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+os.environ.setdefault("YTT_DATA_DIR", "inplace")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from flow import diar as _diar, jobs as _heavy  # noqa: E402
+from human.check import answerlog, apply, voice  # noqa: E402
+from human.proof import layers, speakers, store  # noqa: E402
+from ytt import schemas, txbase, workdata  # noqa: E402
+
+TID = "0123456789ab"
+EMB = _diar.default_embedding()
+
+
+def row(rid, a, b, sp, flag="", **kw):
+    return dict({"id": rid, "start": a, "end": b, "text": "行" + rid, "speaker": sp, "flag": flag}, **kw)
+
+
+def make_doc(**kw):
+    d = {"schema": "transcribe/v1", "id": TID, "title": "テストの配信", "updatedAt": 1000, "diarization": {"embedding": EMB},
+         "speakers": [{"id": "S1", "name": "ぺこら", "color": "#2f62d6"}, {"id": "S2", "name": "話者2", "color": "#d9534f"}],
+         "segments": [row("s1", 0.0, 12.0, "S2", txbase.WEAK_FLAG), row("s2", 12.0, 24.0, "S2"), row("s3", 24.0, 24.5, "S1"),
+                      row("s4", 30.0, 50.0, "S1"), row("s5", 50.0, 62.0, "S2", tags=["bgm"])]}
+    d.update(kw)
+    return d
+
+
+def card(rid, guess=None):
+    return {"id": "voice:diar:%s#%s" % (TID, rid), "kind": "voice", "source": "diar", "case": {"id": "", "title": "t"},
+            "target": {"docId": TID, "row": rid, "videoId": None}, "guess": guess}
+
+
+class Base(unittest.TestCase):
+    LAYERS = "shadow"   # 今の既定(TRANSCRIBE_LAYERS)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="check-voice-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "EVAL_BASE", "SETTINGS", "FEEDBACK")}
+        self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
+        workdata.set_data_dir(os.path.join(self.tmp, "data"))
+        os.makedirs(workdata.TX_DIR)
+        for p in (mock.patch.object(_diar, "VOICES_DIR", os.path.join(self.tmp, "voices")),
+                  mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": self.LAYERS})):
+            p.start()
+            self.addCleanup(p.stop)
+        self.app = os.path.join(self.tmp, "app")
+        self.ctx = apply.Context(self.app)
+        self.put(make_doc())
+
+    def put(self, doc):
+        store.commit(TID, doc, why="whole")
+
+    def doc(self):
+        return store.read_transcript(TID)
+
+    def seg(self, rid):
+        return next(g for g in self.doc()["segments"] if g["id"] == rid)
+
+    def answer(self, rid, ans, guess=None):
+        return apply.answer(self.ctx, card(rid, guess), {"answer": ans})
+
+
+class AnswerFormTest(unittest.TestCase):
+    def test_check_answer(self):
+        self.assertEqual(voice.check_answer({"choice": "S1"}), {"choice": "S1"})
+        self.assertEqual(voice.check_answer({"choice": "name:みこ"}), {"name": "みこ"})
+        self.assertEqual(voice.check_answer({"name": " みこ "}), {"name": "みこ"})
+        for bad in ("S1", {"choice": "S1", "x": 1}, {"choice": "a b"}, {"name": ""}, {"name": "x" * 31}, {"name": "a\nb"}, {}, {"choice": 3}):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                voice.check_answer(bad)
+
+    def test_registered(self):
+        self.assertTrue(apply.registered("voice", "diar"))
+
+    def test_options_and_guess(self):
+        doc = make_doc()
+        doc["speakers"].append({"id": "other", "name": "ゲーム音声など", "builtin": "other"})
+        reg = {"みこ": {"vec": [1.0], "updatedAt": 5}, "ぺこら": {"vec": [1.0], "updatedAt": 9}, "本人": {"vec": [1.0]}, "話者3": {"vec": [1.0]}}
+        opts = voice.options_for(doc, reg)
+        self.assertEqual([o["id"] for o in opts], ["S1", "S2", "name:みこ", "other", "mixed"])   # 一般的な名前・仮の名前・文書にいる人は登録簿から出さない
+        self.assertEqual([o.get("voice") for o in opts[:3]], [True, False, True])
+        self.assertEqual(voice.guess_for(doc, "S1", {}, opts), {"id": "S1", "name": "ぺこら"})
+        self.assertEqual(voice.guess_for(doc, "S2", {"top": "みこ"}, opts), {"id": "name:みこ", "name": "みこ"})   # 仮の名前の話者は照合のいちばん近い声
+        self.assertEqual(voice.guess_for(doc, "S2", {"top": "だれか"}, opts), {"id": "S2", "name": "話者2"})
+        self.assertIsNone(voice.guess_for(doc, "", {}, opts))
+
+
+class ApplyTest(Base):
+    def test_name_choice(self):
+        before = self.doc()["updatedAt"]
+        got = self.answer("s1", {"choice": "S1"}, guess={"id": "S2", "name": "話者2"})
+        g = self.seg("s1")
+        self.assertEqual((g["speaker"], g["flag"]), ("S1", ""))   # 話者の印(話者が不確か)は外れる
+        self.assertNotIn("proofed", g)                          # カードの行は校正済みにしない
+        self.assertGreater(self.doc()["updatedAt"], before)
+        self.assertEqual(got["applied"]["learn"], {"name": "ぺこら", "sec": 12.0, "emb": EMB})
+        self.assertIn("check:voice", store.HUMAN_WHYS)
+        row = answerlog.state(self.app).answers[got["answer"]]
+        self.assertEqual((row["guess"], row["answer"]), ({"id": "S2", "name": "話者2"}, {"choice": "S1"}))   # 答える前の予想と答え(おまけの記録)
+
+    def test_mixed_and_other(self):
+        got = self.answer("s2", {"choice": "mixed"})
+        g = self.seg("s2")
+        self.assertEqual((g["speaker"], g["flag"], g["tags"]), ("S2", txbase.MIXED_FLAG, ["overlap"]))
+        self.assertNotIn("learn", got["applied"])
+        got = self.answer("s4", {"choice": "other"})
+        g, d = self.seg("s4"), self.doc()
+        self.assertEqual((g["speaker"], g.get("noSub")), ("other", True))   # その他 = 組み込みの「ゲーム音声など」+ 字幕に出さない
+        self.assertTrue(any(schemas.other_speaker(s) for s in d["speakers"]))
+        self.assertEqual(got["applied"]["added"], "other")
+        self.assertNotIn("learn", got["applied"])
+        apply.undo(self.ctx, got["answer"])
+        g, d = self.seg("s4"), self.doc()
+        self.assertEqual((g["speaker"], g.get("noSub")), ("S1", None))
+        self.assertFalse(any(schemas.other_speaker(s) for s in d["speakers"]))   # 足した話者は誰も使っていなければ外す
+
+    def test_new_name_and_undo(self):
+        got = self.answer("s2", {"name": "みこ"})
+        d = self.doc()
+        sp = next(s for s in d["speakers"] if s["name"] == "みこ")
+        self.assertEqual((sp["id"], self.seg("s2")["speaker"], got["applied"]["added"]), ("S3", "S3", "S3"))
+        self.assertEqual(got["applied"]["learn"]["name"], "みこ")
+        got2 = self.answer("s1", {"name": "みこ"})                       # 同じ名前はもういる人に
+        self.assertEqual((self.seg("s1")["speaker"], got2["applied"]["added"]), ("S3", None))
+        apply.undo(self.ctx, got["answer"])
+        self.assertEqual(self.seg("s2")["speaker"], "S2")
+        self.assertTrue(any(s["name"] == "みこ" for s in self.doc()["speakers"]))   # s1 がまだ使っている
+        with self.assertRaises(apply.Refused) as cm:
+            apply.undo(self.ctx, got["answer"])
+        self.assertEqual(cm.exception.error, "undone")
+
+    def test_undo_refused_after_edit(self):
+        got = self.answer("s1", {"choice": "S1"})
+        d = self.doc()
+        d["segments"][0]["speaker"] = "S2"                               # 編集の画面で直した
+        store.commit(TID, d, why="save")
+        with self.assertRaises(apply.Refused) as cm:
+            apply.undo(self.ctx, got["answer"])
+        self.assertEqual(cm.exception.error, "changed")
+
+    def test_refuse(self):
+        with self.assertRaises(apply.Refused) as cm:
+            self.answer("s1", {"choice": "S9"})
+        self.assertEqual(cm.exception.error, "gone")
+        with self.assertRaises(apply.Refused) as cm:
+            self.answer("zz", {"choice": "S1"})
+        self.assertEqual(cm.exception.error, "gone")
+        with mock.patch.object(_heavy, "tid_busy", return_value=True):
+            with self.assertRaises(apply.Refused) as cm:
+                self.answer("s1", {"choice": "S1"})
+        self.assertEqual(cm.exception.error, "busy")
+        self.put(make_doc(evalSet=True))
+        with self.assertRaises(apply.Refused) as cm:
+            self.answer("s1", {"choice": "S1"})
+        self.assertEqual(cm.exception.error, "eval_set")
+        self.assertEqual(answerlog.state(self.app).order, [])           # 断った答えは記録しない
+
+    def test_layers_shadow_matches(self):
+        """影のモード(今の既定): 人の層の話者の表と行の話者が文書と同じ(O2 の話者の表と矛盾しない)"""
+        self.answer("s2", {"name": "みこ"})
+        self.answer("s4", {"choice": "other"})
+        d = self.doc()
+        with open(os.path.join(workdata.TX_DIR, TID + schemas.MACH_SUFFIX), encoding="utf-8") as f:
+            mach = json.load(f)
+        with open(os.path.join(workdata.TX_DIR, TID + schemas.HUM_SUFFIX), encoding="utf-8") as f:
+            hum = json.load(f)
+        out = layers.compose(mach, hum, layers.split_meta(d))
+        self.assertEqual(out["speakers"], d["speakers"])
+        self.assertEqual([(g["id"], g.get("speaker"), g.get("noSub")) for g in out["segments"]], [(g["id"], g.get("speaker"), g.get("noSub")) for g in d["segments"]])
+
+
+class PrimaryLayersTest(Base):
+    LAYERS = "primary"
+
+    def test_primary_roundtrip(self):
+        """層が正(primary): 答えも Z も組み立てた文書に出る"""
+        got = self.answer("s2", {"name": "みこ"})
+        d = self.doc()
+        self.assertEqual(self.seg("s2")["speaker"], "S3")
+        self.assertTrue(any(s["name"] == "みこ" for s in d["speakers"]))
+        apply.undo(self.ctx, got["answer"])
+        self.assertEqual(self.seg("s2")["speaker"], "S2")
+        self.assertFalse(any(s["name"] == "みこ" for s in self.doc()["speakers"]))
+
+
+class RelearnTest(Base):
+    def setUp(self):
+        super().setUp()
+        self.jobs = []
+
+        def add_job(spec, kind):
+            self.jobs.append((kind, spec))
+            return {"id": "job%d" % len(self.jobs)}
+        for p in (mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn": lambda job: None}), mock.patch.object(_diar, "models_ready", return_value=True),
+                  mock.patch.object(voice._tools, "check_source", return_value="x.mp4"), mock.patch.object(_heavy, "add_job", side_effect=add_job)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_learn_after_30_sec(self):
+        self.answer("s1", {"choice": "S1"})                              # ぺこら 12 秒
+        self.answer("s3", {"choice": "S1"})                              # 1 秒未満 = 材料にしない
+        self.answer("s5", {"choice": "S1"})                              # BGM のメモ = 材料にしない
+        self.assertEqual(self.jobs, [])
+        got = self.answer("s4", {"choice": "S1"})                         # + 20 秒 = 32 秒 ≥ 30
+        self.assertEqual(len(self.jobs), 1)
+        kind, spec = self.jobs[0]
+        self.assertEqual((kind, spec["tid"], spec["names"], spec["rows"], spec["by"], spec["confirmSame"], spec["embedding"]),
+                         ("voice-learn", TID, ["ぺこら"], ["s1", "s4"], "check", ["ぺこら"], EMB))
+        self.assertEqual(got["applied"]["relearn"][0]["job"], "job1")
+        self.assertNotIn("proofed", self.seg("s4"))
+        # 覚えた(登録簿の learnedFrom に行を控えた)= もう材料に数えない
+        with _diar.voices_edit(EMB) as v:
+            v["ぺこら"] = _diar.merge_voice(None, [1.0, 0.0], 2, 32.0, TID, by="check", row_ids=["s1", "s4"])
+        self.assertEqual(voice.pending(self.ctx), {})
+
+    def test_undo_and_threshold_and_inflight(self):
+        a = self.answer("s1", {"choice": "S1"})
+        apply.undo(self.ctx, a["answer"])                                # Z で戻した = 材料から外れる
+        self.answer("s4", {"choice": "S1"})                              # 20 秒だけ
+        self.assertEqual(self.jobs, [])
+        self.assertEqual(voice.pending(self.ctx), {(EMB, "ぺこら"): {TID: {"s4": 20.0}}})
+        with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 10}}):
+            self.assertEqual(voice.relearn_sec(), 10.0)
+            with mock.patch.dict(_heavy._jobs, {"j": {"kind": "voice-learn", "state": "running", "spec": {"by": "check", "tid": TID, "rows": ["s4"]}}}):
+                self.assertEqual(voice.maybe_relearn(self.ctx), [])          # 待っている・動いている覚え直しの行は数えない
+            got = voice.maybe_relearn(self.ctx)
+        self.assertEqual((got[0]["names"], self.jobs[0][1]["rows"]), (["ぺこら"], ["s4"]))
+        with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 1}}):
+            self.assertEqual(voice.relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
+
+    def test_no_learn_for_default_name(self):
+        self.answer("s4", {"choice": "S2"})                              # 「話者2」= 仮の名前は覚えない
+        self.assertEqual(voice.pending(self.ctx), {})
+
+    def test_not_ready(self):
+        with mock.patch.object(_diar, "models_ready", return_value=False):
+            self.answer("s4", {"choice": "S1"})
+            self.answer("s1", {"choice": "S1"})
+        self.assertEqual(self.jobs, [])                                  # 部品が無い = 材料は残す
+        self.assertEqual(sum(voice.pending(self.ctx)[(EMB, "ぺこら")][TID].values()), 32.0)
+
+
+class LearnPlanRowsTest(unittest.TestCase):
+    def test_rows_override_proofed(self):
+        doc = make_doc()
+        doc["segments"][3]["proofed"] = True
+        plan = speakers.voice_learn_plan(doc)
+        self.assertEqual(plan["rowIds"], {"ぺこら": ["s4"]})
+        plan = speakers.voice_learn_plan(doc, rows=["s1", "s5"])            # s1 の話者は「話者2」(仮)= 覚えない・s5 は BGM
+        self.assertEqual(plan["groups"], {})
+        doc["segments"][0]["speaker"] = "S1"
+        plan = speakers.voice_learn_plan(doc, rows=["s1"])                   # 校正済みでなくても指定の行は使う・指定に無い s4 は使わない
+        self.assertEqual((plan["rowIds"], plan["groups"]["ぺこら"][1]), ({"ぺこら": ["s1"]}, 12.0))
+
+
+if __name__ == "__main__":
+    unittest.main()

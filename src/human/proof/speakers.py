@@ -710,11 +710,14 @@ VOICE_LEARN_TAGS = ("overlap", "bgm", "unclear")   # この印の行は覚えな
 EVAL_SET_VOICE_MSG = "評価用の文字起こしでは声を覚えません(評価用のデータを、ほかの文書の話者の名前付けに使わないため)。評価用を外してから行ってください"
 
 
-def voice_learn_plan(doc):
+def voice_learn_plan(doc, rows=None):
     """声を覚えるときに使う行(監査17。段1): voice_groups の条件(1秒以上・声が混ざっていない)に加えて、校正済みで、音のメモ(重なり・BGM・聞き取れない)が無い行だけ。
     話者判別のときの照らし合わせ(recognize_voices)は voice_groups のまま(校正前の文書でも名前が付くように。変えない決定)。
+    rows = 使う行の id を明示する(確かめるの声のカードで人が名前を答えた行。V1 V2c)。渡すとその行だけを使い、校正済みかは見ない
+    (カードの行は校正済みにしない = 文字は確かめていない)。ほかの条件(1 秒以上・混ざり・音のメモ・名前)は同じ。
     -> {"groups": {名前: ([(開始, 終了)...], 秒)}, "speakers": {名前: [話者の id]}, "refused": [{"name", "speakers", "reason": "generic"|"no_rows"}],
-        "skipped": {"unproofed", "tagged", "mixed", "short"}(覚える人の行のうち使わなかった数。理由は 1秒未満 → 混ざる → 音のメモ → 未校正 の順に1つ)}"""
+        "skipped": {"unproofed", "tagged", "mixed", "short"}(覚える人の行のうち使わなかった数。理由は 1秒未満 → 混ざる → 音のメモ → 未校正 の順に1つ。
+        rows を渡したときの unproofed = 指定に無い行), "rowIds": {名前: [使える行の id]}(条件を通った行。上限で使わない行も含む)}"""
     names = {s.get("id"): str(s.get("name") or "").strip()[:60] for s in doc.get("speakers") or [] if isinstance(s, dict) and not _yschemas.other_speaker(s)}   # 組み込みの「ゲーム音声など」は覚えない(断った扱いにもしない)
     by_name, refused = {}, {}
     for sid, n in names.items():
@@ -725,17 +728,23 @@ def voice_learn_plan(doc):
             continue
         by_name.setdefault(n, []).append(sid)
     who = {sid: n for n, sids in by_name.items() for sid in sids}
+    pick = None if rows is None else {str(r) for r in rows}
+    row_ids = {}
     def accept(g):
         tags = g.get("tags") if isinstance(g.get("tags"), list) else []
         if any(t in tags for t in VOICE_LEARN_TAGS):
             return "tagged"
-        return None if g.get("proofed") is True else "unproofed"
+        ok = g.get("proofed") is True if pick is None else str(g.get("id")) in pick
+        if not ok:
+            return "unproofed"
+        row_ids.setdefault(who.get(g.get("speaker")), []).append(str(g.get("id")))
+        return None
     groups, skipped = _diar.voice_learn_rows(doc.get("segments") or [], who, accept)
     for n, sids in by_name.items():
         if n not in groups:
             refused[n] = {"name": n, "speakers": sids, "reason": "no_rows"}
     return {"groups": groups, "speakers": {n: sids for n, sids in by_name.items() if n in groups},
-            "refused": sorted(refused.values(), key=lambda r: r["name"]), "skipped": skipped}
+            "refused": sorted(refused.values(), key=lambda r: r["name"]), "skipped": skipped, "rowIds": {n: ids for n, ids in row_ids.items() if n in groups}}
 
 
 def _voice_emb(req, doc):
@@ -792,7 +801,8 @@ def run_voice_learn(job):
             raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
         src = _tools.check_source(doc.get("sourcePath"))
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
-        plan = voice_learn_plan(doc)   # 読み直した文書で決め直し、確認した人(spec["names"])との積だけを覚える(確認のあとで名前を付けた人を黙って覚えない)
+        plan = voice_learn_plan(doc, spec.get("rows"))   # 読み直した文書で決め直し、確認した人(spec["names"])との積だけを覚える(確認のあとで名前を付けた人を黙って覚えない)。
+        # spec["rows"] = 確かめるの声のカードで名前を答えた行(by "check"。V1 V2c)
         grp = {n: plan["groups"][n] for n in spec.get("names") or [] if n in plan["groups"]}
         if not grp:
             raise _errors.ApiError("no_names", "覚えられる話者の行がありません(待っている間に名前・校正済みの印が変わった可能性があります)", 400)
@@ -811,7 +821,8 @@ def run_voice_learn(job):
                 if old and n not in same:   # 待っている間にほかで同じ名前を覚えた(確かめていない人の声には足さない)
                     _txbase.add_warning(job, "「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
                     continue
-                voices[n] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"])   # 前に覚えた声とは使った長さで重みを付けて混ぜる
+                voices[n] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"],   # 前に覚えた声とは使った長さで重みを付けて混ぜる
+                                              by=spec.get("by"), row_ids=plan["rowIds"].get(n) if spec.get("rows") is not None else None)
                 learned.append(n)
             if len(voices) > VOICE_MAX_PEOPLE:
                 raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % VOICE_MAX_PEOPLE, 400)
