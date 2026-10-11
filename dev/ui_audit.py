@@ -71,6 +71,7 @@ SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "in
            "editor": ["index.html", "proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
 SCREENS["home"] += ["../app/ui/cases/panels/cand.css"]   # 候補のパネルの見た目(RS8 C2a)
+SCREENS["home"] += ["portal-edit.js", "../app/ui/cases/panels/new.js", "../app/ui/cases/panels/new.css"]   # ホームの組み替え(RS8 C3): 運用の中の精度と学習・新しい案件のパネル
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "human/friend/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "human/friend/deliver.py", "human/friend/intake.py", "manage/ops/restart.py"]
 # 用語集(docs/spec/ui-guidelines.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
@@ -524,7 +525,9 @@ def default_scenes(base):
         {"name": "home", "url": base + "/", "header": True, "wide": True},
         {"name": "home-case-open", "url": base + "/", "actions": [("click", "details.pt-case > summary"), ("wait", 500)]},
         {"name": "home-empty-filter", "url": base + "/", "actions": [("fill", "#fText", "zzzz-no-match-zzzz"), ("wait", 500)]},
-        {"name": "home-advanced", "url": base + "/", "actions": [("click", "#advancedBox > summary"), ("wait", 400)]},
+        {"name": "home-ops", "url": base + "/", "actions": [("click", "#opsBox > summary"), ("wait", 400)]},   # 運用の枠(RS8 C3)
+        {"name": "home-advanced", "url": base + "/", "actions": [("eval", "document.getElementById('opsBox').open = true"), ("click", "#advancedBox > summary"), ("wait", 400)]},
+        {"name": "home-new-case", "url": base + "/", "actions": [("click", "#newCaseBtn"), ("wait", 1500)], "modal": {"root": "#newDrawer", "opener": "#newCaseBtn"}},   # 新しい案件の引き出し(RS8 C3)
         {"name": "home-settings", "url": base + "/", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
         {"name": "home-settings-page", "url": base + "/settings", "wide": True, "actions": [("wait", 800)]},   # 設定の画面(S5。schema.json から描く。設定の画面そのものなので header の ⚙(A-28)は見ない)
         {"name": "studio-rank", "url": base + "/studio/?step=rank", "header": True},

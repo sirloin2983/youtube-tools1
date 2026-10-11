@@ -568,6 +568,10 @@ CASES_PANELS = ("cand", "proof", "cut")   # 候補・校正・カットとパッ
 STATIC.update({"/cases": ("index.html", CASES_DIR), "/cases.js": ("cases.js", CASES_DIR), "/cases.css": ("cases.css", CASES_DIR)})
 STATIC.update({"/cases-panels/%s.js" % n: (os.path.join("panels", n + ".js"), CASES_DIR) for n in CASES_PANELS})
 STATIC["/cases-panels/cand.css"] = (os.path.join("panels", "cand.css"), CASES_DIR)   # 候補のパネルの見た目(スタジオ ② の review.css の写し。C2a)
+# 新しい案件のパネル(ホームの引き出しで開く。スタジオ ① の rank.js + queue.js のつなぎ。RS8 C3)。ホームが読む(/cases の画面では使わない)
+STATIC["/cases-panels/new.js"] = (os.path.join("panels", "new.js"), CASES_DIR)
+STATIC["/cases-panels/new.css"] = (os.path.join("panels", "new.css"), CASES_DIR)
+STATIC["/portal-edit.js"] = ("portal-edit.js", CODE_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8"}
 NAV_PAGES = httpsec.PAGES + ("/settings", "/cases")   # ほかの画面のリンクで開ける画面(httpsec.navigation_ok)
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
@@ -576,6 +580,10 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 # スタイルの属性は移すパネルが使うので制限しない)。インラインのスクリプトは動かない・ほかのサイトの枠には入らない
 PAGE_CSP = {"/cases": "script-src 'self' https://www.youtube.com https://s.ytimg.com; object-src 'none'; base-uri 'none'; "
                       "form-action 'none'; frame-ancestors 'none'"}
+# ホームは「新しい案件」の引き出し(スタジオ ① の配信を探す。サムネイルは ytimg。画面の部品が style 属性を使う)を載せるので、画像とスタイルの属性だけ足す。
+# スクリプトは 'self' のまま(YouTube のプレイヤーはホームに無い)
+HOME_CSP = CSP.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'").replace("img-src 'self' data:", "img-src 'self' data: https://*.ytimg.com https://*.ggpht.com")
+PAGE_CSP["/"] = PAGE_CSP["/index.html"] = HOME_CSP
 ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 # GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/human/friend/intake.py)

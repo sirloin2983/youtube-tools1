@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/ui-kit.css">
 <link rel="stylesheet" href="/portal.css">
 <script src="/portal.js" defer></script>
+<script src="/portal-edit.js" defer></script>
 </head>
 <body>
 <header class="ui-header">
@@ -24,20 +25,37 @@
 <main class="pt-main" id="main">
   <h1 class="pt-h1">ホーム</h1>
 
+  <!-- やること(種類ごとの件数。押すとその作業の案件の画面へ)と 確かめる(今いちばん効く確認。RS8 C3・docs/design/briefs/rs8-cases/DESIGN_BRIEF.md の 2-1) -->
+  <div class="pt-top">
   <section class="pt-todo-box" id="todoBox">
-    <h2 class="pt-h2">次にやること</h2>
+    <h2 class="pt-h2">やること</h2>
     <div class="empty pt-empty" id="todoEmpty" hidden>
-      <b>いま手が要る作業はありません</b><span id="todoEmptyText">スタジオで配信を解析すると、ここに出ます。</span>
-      <div class="row pt-empty-acts"><a class="btn small" id="todoEmptyBtn" href="/studio/?step=rank">スタジオで配信を探す</a></div>
+      <b>いま手が要る作業はありません</b><span id="todoEmptyText">「新しい案件」で配信を解析すると、ここに出ます。</span>
+      <div class="row pt-empty-acts"><button type="button" class="btn small" id="todoEmptyBtn" aria-haspopup="dialog" aria-controls="newDrawer">新しい案件を始める</button></div>
     </div>
     <ul class="pt-todo-list" id="todoList"></ul>
     <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る</button>
     <button type="button" class="btn small ghost" id="todoHidden" hidden></button>
   </section>
 
+  <section class="pt-check-box" id="checkBox" aria-labelledby="checkTitle">
+    <h2 class="pt-h2" id="checkTitle">確かめる</h2>
+    <div class="card pt-check">
+      <p class="pt-check-now" id="checkNow">読み込んでいます…</p>
+      <p class="hint pt-check-sub" id="checkSub"></p>
+      <div class="row pt-check-acts">
+        <button type="button" class="btn primary" id="checkStart" disabled title="確かめるの画面は V1 で入ります" data-ui-why="確かめるの画面は V1 で入ります">始める</button>
+        <span class="hint" id="checkWhy">確かめるの画面は V1 で入ります。下の「続けて確認」は今も使えます。</span>
+      </div>
+      <details class="ui-disclosure pt-check-all" id="checkAll"><summary>すべての条件(今 / 目標 / あと)</summary>
+        <ul class="pt-health-list" id="checkGoals"></ul></details>
+    </div>
+  </section>
+  </div>
+
   <section class="pt-cases-box" id="caseListSection">
     <h2 class="pt-h2">案件(配信ごと)</h2>
-    <p class="hint" title="紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。</p>
+    <p class="hint" title="紐づけは開くたびに各ツールのデータから作り直し、状態とメモだけをここで保存します">配信1本を1行にまとめます。行を開くと、切り抜きの一覧・まとめて実行・メモが出ます。「案件の画面で開く」から校正・カット・パックへ進みます。</p>
 
     <div class="ui-listbar">
       <input id="fText" type="search" placeholder="配信のタイトル・配信者で絞り込み" aria-label="配信のタイトル・配信者で絞り込み">
@@ -63,6 +81,7 @@
       <button type="button" class="btn small" id="autoFilter" aria-pressed="false" hidden></button>
       <!-- 続けて確認(A5): まだ届けていない自動の切り抜きを、引き出しで続けて再生しながら決める。無ければ出さない(portal.js の paintAutoReview) -->
       <button type="button" class="btn small primary" id="autoReview" aria-haspopup="dialog" aria-controls="rvDrawer" hidden></button>
+      <button type="button" class="btn small primary" id="newCaseBtn" aria-haspopup="dialog" aria-controls="newDrawer" title="配信を探す・URL や動画ファイルから入れる・解析の順番待ち(引き出しで開きます)"><span class="ui-icon" data-icon="plus" aria-hidden="true"></span>新しい案件</button>
       <button type="button" class="btn small ghost" id="btnReload">読み込み直す</button>
       <button type="button" class="btn small ghost" id="casesHidden" hidden></button>
       <span class="ui-count" id="count"></span>
@@ -71,12 +90,17 @@
 
     <div id="list" class="stack"></div>
     <div class="row" id="moreBox" hidden><button type="button" class="btn" id="btnMore"></button></div>
+    <!-- 配信の案件に入らない文書の入れ物(動画ファイルの案件・評価用・案件の分からない文書)。開くとふつうの案件と同じ案件の画面(portal.js の renderVirtual) -->
+    <div class="pt-vlist" id="vlistBox" hidden>
+      <h3 class="pt-h3">配信のない案件 <span class="hint">動画ファイルの案件・評価用・どの案件にも入らない文字起こし</span></h3>
+      <ul class="pt-vlist-ul" id="vlist"></ul>
+    </div>
 
-    <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は「編集」の履歴が主。ここは件数と「編集の履歴で見る」の1行 + 選んでまとめて実行する入口(09-29 決定: 入口は減らさない) -->
+    <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は案件の画面の「どの案件にも入らない文字起こし」が主。ここは件数と「案件の画面で見る」の1行 + 選んでまとめて実行する入口(09-29 決定: 入口は減らさない) -->
     <div class="row pt-unlinked" id="unlinkedHead" hidden>
       <span class="pt-group-label">単体の文字起こし <span class="ui-group-n" id="unlinkedCount"></span></span>
-      <span class="hint grow">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)。一覧は「編集」の履歴で(種類: それ以外)</span>
-      <a class="btn small" id="unlinkedOpen" href="/transcribe/?list=other#tx">編集の履歴で見る</a>
+      <span class="hint grow">どの配信にも紐づかない文字起こし(手元の動画ファイルなど)。一覧は案件の画面の「どの案件にも入らない文字起こし」で</span>
+      <a class="btn small" id="unlinkedOpen" href="/cases?c=orphan#proof">案件の画面で見る</a>
     </div>
     <details class="ui-group" id="unlinkedGroup" hidden>
       <summary><span class="pt-group-label">単体の文字起こしを選んで、まとめて実行</span></summary>
@@ -106,6 +130,12 @@
       </div>
     </details>
   </section>
+
+  <!-- 運用(依頼の受付・バックアップ・まとめて実行の記録・編集の精度と学習・調子)。毎日は見ない物なので 1 つに畳む(RS8 C3・brief 原則 8)。
+       中身の DOM と id は今のまま(portal.js の受付・バックアップ・記録・調子はそのまま動く)。中の欄を開く操作は、この枠も開く -->
+  <details class="ui-disclosure pt-ops" id="opsBox">
+    <summary>運用 <span class="hint">依頼の受付・バックアップ・まとめて実行の記録・編集の精度と学習・調子</span> <span class="pill warn" id="opsAlert" hidden></span></summary>
+    <div class="pt-ops-body">
 
   <details class="ui-disclosure pt-intake" id="intakeBox">
     <summary><span>依頼の受付</span> <span class="pill wait" id="intakeState">確認中…</span></summary>
@@ -168,6 +198,35 @@
     </div>
   </details>
 
+  <!-- 編集の左メニューにあった「精度」「学習」(RS8 C3。古い編集の画面は C4 で消えるので、ここから使えるようにした。中身は portal-edit.js。開いたときに初めて読む) -->
+  <details class="ui-disclosure pt-intake" id="editOpsBox">
+    <summary>編集の精度と学習</summary>
+    <div class="pt-intake-body">
+      <section class="card flat pt-edit-card" id="accCard" aria-labelledby="accTitle">
+        <h3 class="pt-h3" id="accTitle">認識精度の測定</h3>
+        <p class="hint">行の「校正済み」(聞いて確認して、文字が正しいと判断した印)を正解として、機械の出力との文字誤り率(<abbr class="ui-term" title="Character Error Rate。正解の文字数に対する、間違えた文字(別の字・聞き逃し・余計な字)の割合。低いほど良い">CER</abbr>)を出します。句読点・空白・記号・全角半角の違いは数えません。校正した行が増えるほど、数値が安定します。</p>
+        <div class="row"><label class="lag" for="accScope">対象 <select id="accScope"><option value="all">すべて</option><option value="eval">評価用のみ</option><option value="train">学習用のみ</option></select></label>
+          <button type="button" class="btn small" id="accRefresh">測定を更新</button>
+          <label class="lag" title="校正済みの印がない文書のうち、修正のあるものを全行校正済みとして仮計算します(見直していない行が混じると数値が甘くなります)"><input type="checkbox" id="accLegacy">印のない旧データも含める(仮)</label></div>
+        <div id="accOut" aria-live="polite"></div>
+        <div class="fld"><label class="l" for="blLabel">評価用の基準の記録</label>
+          <span class="hint">施策(辞書・名簿・前処理・モデル・追加学習)を入れる前後で、評価用の成績を残して比べます。記録するのは「評価用のみ」の成績です。</span>
+          <div class="row"><input id="blLabel" type="text" maxlength="80" placeholder="メモ(例: 基準・large-v3・用語集なし)"><button type="button" class="btn small primary" id="blGo">基準を記録</button></div>
+          <div id="blOut"></div></div>
+      </section>
+      <section class="card flat pt-edit-card" id="learnCard" aria-labelledby="learnTitle">
+        <h3 class="pt-h3" id="learnTitle">修正から学習した候補</h3>
+        <p class="hint">直した文章と、元の認識結果の違いから「誤=>正」の候補を集めます。「登録」すると置換辞書に入り、次の文字起こしから自動で直ります。同じ間違いが何度も出るものから登録すると効果的です。1文字だけの修正は、前後の1文字を含めた形で候補に出ます。<br>登録しなくても、直した回数が多い間違いは、文字起こしの各行に「候補」として出ます(採用・却下できます。却下すると出にくくなります)。</p>
+        <p class="hint" id="lnStat"></p>
+        <div class="row"><label class="lag" for="lnMin">回数 <select id="lnMin"><option value="1">1回以上</option><option value="2" selected>2回以上</option><option value="3">3回以上</option></select></label>
+          <button type="button" class="btn small" id="lnRefresh">更新</button>
+          <label class="lag" title="用語集は先頭から約150文字までが認識のヒントに使われます"><input type="checkbox" id="lnGloss" checked>用語集にも追加</label></div>
+        <div class="fld"><label class="l" for="lnSearch">候補を検索</label><input id="lnSearch" type="search" placeholder="誤り・正しい表記"></div>
+        <div id="lnList" aria-live="polite"></div><button type="button" class="btn small ghost" id="lnMore" hidden></button>
+      </section>
+    </div>
+  </details>
+
   <details class="ui-disclosure pt-advanced" id="advancedBox">
     <summary>詳しく(サーバーの管理)</summary>
     <div class="pt-advanced-body">
@@ -205,6 +264,9 @@
       </section>
     </div>
   </details>
+
+    </div>
+  </details>
 </main>
 
 <section class="pt-done" id="done" hidden>
@@ -215,6 +277,13 @@
 </section>
 
 <div class="toast" id="toast" role="status" hidden></div>
+
+<!-- 新しい案件(RS8 C3): 配信を探す・URL や動画ファイルから入れる・解析の順番待ち。中身は cases-panels/new.js(スタジオ ① のつなぎ)。開いたときに初めて読む -->
+<aside class="ui-drawer" id="newDrawer" hidden aria-labelledby="newTitle">
+  <div class="ui-drawer-head"><h2 class="ui-drawer-title" id="newTitle">新しい案件</h2>
+    <button type="button" class="btn ghost icon small" id="newClose" aria-label="閉じる"><span class="ui-icon" data-icon="close" aria-hidden="true"></span></button></div>
+  <div class="ui-drawer-body" id="newBody"></div>
+</aside>
 
 <!-- 続けて確認(A5): 自動でできた切り抜きを続けて再生しながら 採用(友人へ届ける)・要らない・あとで を決める。中身は portal.js の「続けて確認」 -->
 <aside class="ui-drawer pt-rv" id="rvDrawer" hidden aria-labelledby="rvTitle">
@@ -324,6 +393,7 @@
       </span>
       <span class="pill pt-case-statuspill"></span>
       <span class="pill pt-case-autopill" hidden></span>
+      <span class="hint num pt-case-clips" hidden></span>
       <span class="hint num pt-case-tx" hidden></span>
       <span class="hint num pt-case-pack" hidden></span>
       <!-- 次にやること(S-18): 押すとその作業の画面へ(同じ窓)。行き先が無いときは href なしの札(portal.js の paintNext) -->
@@ -369,7 +439,7 @@
       <span class="pill pt-doc-runpill" hidden></span>
     </div>
     <div class="row pt-doc-steps">
-      <a class="btn small pt-doc-open">編集で開く</a>
+      <a class="btn small pt-doc-open">校正で開く</a>
       <span class="hint pt-doc-runmsg" hidden></span>
     </div>
   </li>

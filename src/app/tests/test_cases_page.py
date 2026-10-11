@@ -5,6 +5,9 @@
 - /cases の CSP はスタジオと同じ(YouTube のプレイヤーだけ外のスクリプトを許す・インラインなし・枠に入らない)・合言葉の meta が入る・/cases/ は /cases へ
 - 画面のファイル: インラインの script・on〇〇= が無い・パネル 3 本が同じ口(define・mount・update・unmount・keys・keybar)を持つ・
   パネルの中で document.getElementById / document.querySelector を使わない(殻とほかのパネルの id とぶつけない。docs/design/rs8-cases-build.md 1-2)
+- ホームの組み替え(RS8 C3): 新しい案件のパネル cases-panels/new.js・new.css と ホームの運用の中の portal-edit.js を配る・ホーム(/)の CSP は
+  スクリプトを 'self' のままに画像(ytimg)とスタイルの属性だけ足す・新しい案件の引き出しの中の id(スタジオ ① の rank.js・queue.js が document.querySelector で引く物)は
+  ホームの id とぶつからない
 (名前は test_cases_page = manage/cases/tests/test_cases.py と重ねない)"""
 import http.client
 import os
@@ -89,6 +92,23 @@ class CasesPageHttpTest(unittest.TestCase):
         r, _ = self.req("/cases.js")
         self.assertTrue(r.getheader("Content-Type").startswith("application/javascript"))
 
+    def test_home_parts_and_csp(self):
+        for path in ("/cases-panels/new.js", "/cases-panels/new.css", "/portal-edit.js"):
+            r, body = self.req(path)
+            self.assertEqual(r.status, 200, path)
+            self.assertGreater(len(body), 200, path)
+            self.assertIsNone(r.getheader("Content-Security-Policy"), path)
+        r, body = self.req("/")
+        self.assertEqual(r.status, 200)
+        csp = r.getheader("Content-Security-Policy")
+        self.assertEqual(csp, L.PAGE_CSP["/"])
+        self.assertIn("script-src 'self';", csp)   # スクリプトは自分のファイルだけ(YouTube のプレイヤーはホームに無い)
+        self.assertIn("img-src 'self' data: https://*.ytimg.com", csp)
+        self.assertIn("style-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("frame-ancestors 'none'", csp)
+        for needle in (b'id="newDrawer"', b'id="opsBox"', b'id="checkStart"', b'id="editOpsBox"', b'src="/portal-edit.js"'):
+            self.assertIn(needle, body)
+
     def test_only_exact_paths(self):
         for path in ("/cases/cases.js", "/cases-panels/x.js", "/cases-panels/../cases.js", "/cases/index.html.bak", "/app/ui/cases/index.html", "/cases-panels/"):
             r, _ = self.req(path)
@@ -139,9 +159,29 @@ class CasesPageFilesTest(unittest.TestCase):
         self.assertNotIn("visibilitychange", js)
         self.assertNotRegex(js, r"['\"]/(api|studio|transcribe|cut2resolve)/", "API は相対パス(api() の 1 か所)")
 
+    def test_home_new_panel_shape(self):
+        js = read(os.path.join(UI, "panels", "new.js"))
+        self.assertIn("window.NewCasePanel", js)
+        self.assertIn("CasesPanels.define('new'", js)
+        for key in ("mount:", "update:", "unmount:", "setVisible:"):
+            self.assertIn(key, js)
+        self.assertNotRegex(js, r"document\.(getElementById|querySelector(All)?)\(")
+        self.assertNotIn("visibilitychange", js)
+
+    def test_home_ids_do_not_collide_with_new_panel(self):
+        """rank.js・queue.js は document.querySelector('#id') で引くので、引き出しの中の id はホームの id と重ならないこと"""
+        ids = lambda text: set(re.findall(r'\bid="([A-Za-z][\w-]*)"', text))
+        home = ids(read(os.path.join(SRC, "home", "portal.html")))
+        mine = set()
+        for name in ("rank.js", "queue.js"):
+            mine |= ids(read(os.path.join(SRC, "studio", name)))
+        mine |= {"paneRank"}
+        self.assertGreater(len(mine), 40)   # 取り損ねていない
+        self.assertEqual(sorted(home & mine), [])
+
     def test_static_table_points_to_files(self):
         for url, (name, base) in L.STATIC.items():
-            if url.startswith("/cases"):
+            if url.startswith("/cases") or url == "/portal-edit.js":
                 self.assertTrue(os.path.isfile(os.path.join(base, name)), url)
 
 

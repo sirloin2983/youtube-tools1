@@ -241,3 +241,49 @@
 .pt-settings .ui-ar-pop{width:100%}
 .pt-settings .ui-ar-pop>.ui-pop-body{position:static!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
   width:auto;max-height:none!important;overflow:visible!important;margin-top:6px;padding:10px 0 0;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;background:transparent;animation:none}
+
+/* ---- RS8 C3: ホームの組み替え(やること | 確かめる の 2 列・配信のない案件・運用の枠・編集の精度と学習) ---- */
+.pt-top{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px 20px;align-items:start;margin:0 0 26px}
+.pt-top .pt-todo-box{margin:0}
+.pt-check-box{min-width:0}
+.pt-check{padding:14px 16px}
+.pt-check-now{font:650 15px/1.45 var(--font-display);margin:0 0 4px;overflow-wrap:anywhere}
+.pt-check-sub{margin:0 0 12px}
+.pt-check-acts{gap:8px 12px;align-items:center;flex-wrap:wrap}
+.pt-check-all{margin-top:12px}
+.pt-check-all .pt-health-list{margin-top:8px}
+@media (max-width:860px){.pt-top{grid-template-columns:minmax(0,1fr)}}
+.pt-case-clips{white-space:nowrap}
+.pt-vlist{margin:14px 0 0}
+.pt-vlist .pt-h3{margin:0 0 8px}
+.pt-vlist-ul{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden}
+.pt-vrow+.pt-vrow{border-top:1px solid var(--line)}
+.pt-vrow-link{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:10px 14px;min-height:52px;color:inherit;text-decoration:none}
+.pt-vrow-link:hover{background:var(--panel-2)}
+.pt-vrow-main{display:flex;flex-direction:column;gap:1px;min-width:160px;flex:1 1 auto}
+/* 運用の枠: 中の欄は今の見た目のまま、外側の枠を 1 つにする */
+.pt-ops{margin:24px 0 0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);padding:4px 14px}
+.pt-ops>summary{padding:10px 2px;font-size:13.5px;color:var(--ink-2);display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.pt-ops-body{padding:2px 0 12px}
+.pt-ops-body>details{margin:0 0 10px;background:var(--panel-2)}
+.pt-ops-body>details:last-child{margin-bottom:0}
+.pt-ops-body>.pt-advanced{margin-top:0}
+/* 編集の精度と学習(portal-edit.js。編集の proof.css の同じ部品の写し) */
+.pt-edit-card{margin:0 0 12px;padding:12px 14px}
+.pt-edit-card .pt-h3{margin:0 0 6px}
+.pt-edit-card>.hint{margin:0 0 8px}
+.pt-edit-card .row{gap:8px 14px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.pt-edit-card .fld{margin-top:12px}
+.pt-edit-card .fld input[type=text]{flex:1 1 200px;min-width:160px}
+.pt-edit-err{color:var(--danger)}
+.pt-edit-card .acct{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+.pt-edit-card .acct th,.pt-edit-card .acct td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;background:transparent}
+.pt-edit-card .acct th:first-child,.pt-edit-card .acct td:first-child{text-align:left}
+.pt-edit-card .accmain{font-size:15px;margin-top:8px}
+.pt-edit-card .accmain b{font-variant-numeric:tabular-nums}
+.pt-edit-card .wl{font-size:12px;border-bottom:1px solid var(--line);padding:4px 0;word-break:break-all}
+.pt-edit-card .ln{border-bottom:1px solid var(--line);padding:7px 0}
+.pt-edit-card .ln:last-child{border-bottom:0}
+.pt-edit-card .ln input.lw,.pt-edit-card .ln input.lr{font-family:var(--mono);font-size:13px;padding:4px 7px;min-height:30px;flex:1;min-width:0}
+.pt-edit-card .ln.edited input{border-color:var(--accent)}
+.pt-edit-card .pt-ln-edit{flex-wrap:nowrap;gap:4px}

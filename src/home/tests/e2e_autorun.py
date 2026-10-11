@@ -246,6 +246,7 @@ def main():
                 pills = pg.eval_on_selector_all(card + " .pt-auto-step .pill", "els => els.map(e => e.textContent)")
                 check(pills == ["書き出し 済み", "文字起こし 済み", "パック 済み"], "前回の段の札も出る: %s" % pills)
                 check(pg.is_enabled(card + " .pt-auto-run") and pg.is_hidden(card + " .pt-auto-cancel"), "前回の結果では実行を押せる・中止は出さない")
+                pg.evaluate("document.getElementById('opsBox').open = true")   # RS8 C3: 記録は運用の枠の中
                 pg.click("#historyBox > summary")
                 check(wait_js(pg, "document.querySelectorAll('#historyList .pt-history-item').length === 3", 15000), "「まとめて実行の記録」に3件")
                 rows = pg.eval_on_selector_all("#historyList .pt-history-item", """els => els.map(e => ({pill: e.querySelector('.pt-history-pill').textContent,

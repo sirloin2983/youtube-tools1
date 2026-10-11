@@ -197,6 +197,7 @@ def main():
                 check(any("依頼: 文字起こし" in t and h == "#intake" for t, h in todo), "kind file: 「依頼: 文字起こし」・リンクは #intake: %s" % todo)
                 check(any("依頼: 解析 → 文字起こし" in t and h == "#intake" for t, h in todo), "mode request(案件の行がまだ無い): リンクは #intake: %s" % todo)
                 check(not any("null" in h or "undefined" in h for _, h in todo), "リンクに null / undefined が入らない")
+                pg.evaluate("document.getElementById('opsBox').open = true")   # RS8 C3: 記録は運用の枠の中
                 pg.click("#historyBox > summary")
                 time.sleep(0.5)
                 check(wait_js(pg, "document.querySelectorAll('#historyList .pt-history-item').length >= 0"), "まとめて実行の記録を開ける")

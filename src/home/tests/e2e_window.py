@@ -204,26 +204,32 @@ def main():
                                         a.rel = 'noopener'; a.textContent = 'yt'; document.body.appendChild(a); }""")
                 win.click("#ext")
                 check(wait_until(lambda: browsed) == ["https://www.youtube.com/watch?v=abc123DEF45"], "[7-3] 外のサイトはいつものブラウザで開く: %s" % browsed)
-                # S-13・S-15(入口 0.42.0): 配信が無いときの空の表示に「スタジオで配信を探す」(target なし)。窓の中で普通に押すと同じ窓で移り
-                # (Edge を新しく起動しない)、Ctrl を押しながらだと入口に頼んで窓で開く(UIKit.win)
+                # S-13・S-15(入口 0.42.0): 配信が無いときの空の表示の「新しい案件を始める」(RS8 C3 でリンクからボタンに変わった = 引き出しを開く。窓の中で Edge を新しく起動しない)。
+                # 案件の画面へのリンクは、窓の中で普通に押すと同じ窓で移り、Ctrl を押しながらだと入口に頼んで窓で開く(UIKit.win)
                 check(wait_js(win, "!!document.getElementById('emptyStudio') && !!document.getElementById('emptyIntake')", 15000),
-                      "[S-13] 配信が無いときの空の表示に、次に押すボタン(スタジオで配信を探す・依頼の受付を設定する)")
-                check(win.get_attribute("#emptyStudio", "target") is None and win.get_attribute("#emptyStudio", "href") == "/studio/?step=rank",
-                      "[S-15] 中身のリンクは target なし(同じ窓で移る)")
+                      "[S-13] 配信が無いときの空の表示に、次に押すボタン(新しい案件を始める・依頼の受付を設定する)")
+                check(win.get_attribute("#emptyStudio", "target") is None and win.get_attribute("#emptyStudio", "href") is None,
+                      "[S-15] 新しい案件のボタンはリンクではない(押すと引き出しが開く。窓も移らない)")
                 n2 = len(read_lines(edge_log))
-                win.click("#emptyStudio", modifiers=["Control"])
-                got = wait_until(lambda: read_lines(edge_log)[n2:])
-                check(got and got[-1][0] == "--app=http://localhost:%d/studio/?step=rank" % port, "[S-15] 窓の中で Ctrl を押しながらだと、窓で開く: %s" % got[-1:])
-                check("/studio/" not in win.url, "[S-15] Ctrl のときは今の窓は移らない: %s" % win.url)
-                n3 = len(read_lines(edge_log))
                 win.click("#emptyStudio")
+                check(wait_js(win, "!document.getElementById('newDrawer').hidden", 10000) and len(read_lines(edge_log)) == n2 and not opened,
+                      "[S-15] 普通に押すと同じ窓の中で引き出しが開く(Edge を新しく起動しない・タブを増やさない)")
+                win.keyboard.press("Escape")
+                check(wait_js(win, "document.getElementById('newDrawer').hidden", 5000), "[S-15] Esc で閉じる")
+                win.evaluate("""() => { const a = document.createElement('a'); a.id = 'csLink'; a.href = '/cases?c=x'; a.textContent = 'cs'; document.body.appendChild(a); }""")
+                win.click("#csLink", modifiers=["Control"])
+                got = wait_until(lambda: read_lines(edge_log)[n2:])
+                check(got and got[-1][0] == "--app=http://localhost:%d/cases?c=x" % port, "[S-15] 窓の中で案件の画面へのリンクを Ctrl を押しながらだと、窓で開く: %s" % got[-1:])
+                check("/cases" not in win.url, "[S-15] Ctrl のときは今の窓は移らない: %s" % win.url)
+                n3 = len(read_lines(edge_log))
+                win.click("#csLink")
                 try:
-                    win.wait_for_url(lambda u: "/studio/" in u, timeout=15000)
+                    win.wait_for_url(lambda u: "/cases" in u, timeout=15000)
                 except Exception:
                     pass
                 time.sleep(0.5)
-                check("/studio/" in win.url and len(read_lines(edge_log)) == n3 and not opened,
-                      "[S-15] 普通に押すと同じ窓の中でスタジオへ移る(Edge を新しく起動しない・タブを増やさない): %s" % win.url)
+                check("/cases" in win.url and len(read_lines(edge_log)) == n3 and not opened,
+                      "[S-15] 普通に押すと同じ窓の中で案件の画面へ移る(Edge を新しく起動しない・タブを増やさない): %s" % win.url)
                 # 窓の中のスタジオ: 「他のツール」のリンクも窓で(ただし ui-appnav は target=_blank を付けないので、
                 # 同じ窓の中でその場所へ移るだけでよい(Edge を新しく起動する必要が無い)。旧(#toolMenu の target=_blank)は今までどおり窓で開く
                 win.goto(base + "studio/")

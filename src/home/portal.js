@@ -1,8 +1,9 @@
 /* ホーム(src/home/portal.html。段階5で入口 + 案件を1つにした)。
    - ツールの起動状態(旧・入口)は /api/status を定期的に読んで「詳しく」の中のカードに出す(開く・起動・停止・再起動・すべて終了)
    - 案件(配信ごと)の一覧(旧・cases.html)は /api/cases を読んで組み立てる。状態・メモは /api/cases/update に保存
-   - 「次にやること」は、案件の一覧・まとめて実行(/api/autorun)・「編集」の文書の一覧(/transcribe/api/transcripts。読めるときだけ)
-     から、この画面の中で組み立てる。確認前の候補・書き出し待ち・文字起こし待ちは案件の一覧の todo(cases.py。入口 0.42.0・S-6)
+   - 「やること」(RS8 C3)は、実行中の物(まとめて実行 /api/autorun)と、種類ごとの件数(採用待ち・校正待ち・パック待ち・失敗 = 案件の一覧の todoSum・todoFirst。
+     cases.py)。押すと案件の画面(/cases?c=&d=#タブ)へ移る。「確かめる」は /api/accuracy の goals から今いちばん効く確認を 1 つ(始めるは V1 まで押せない)。
+     「新しい案件」は引き出し(cases-panels/new.js = スタジオ ① のつなぎ)。受付・バックアップ・記録・編集の精度と学習・調子は「運用」の枠に畳む
    - 画面の移り方(S-15): ツールの画面へのリンクは同じ窓で移る(target を付けない。新しい窓は Ctrl・中クリック = 窓の中なら UIKit.win)。
      「詳しく」のツールのカードの「開く」(サーバーの管理)だけは新しい窓
    - 「単体の文字起こし」は、案件の一覧が返す unlinked(どの配信にも紐づかない文字起こし。src/manage/cases/txindex の規則そのまま)を、
@@ -17,7 +18,7 @@
   var STATUS_PILL = { '': '', working: 'accent', posted: 'ok', skipped: 'wait' };   // 作業中は人が付けた状態(回る輪の run は本当に動いているときだけ。M7)
   var STEP_PILL = { wait: 'wait', run: 'run', done: 'ok', skip: 'wait', warn: 'warn', error: 'err' };
   var POLL_MS = 1500, POLL_HIDDEN_MS = 5000;
-  var PAGE_SIZE = 30, DOC_PAGE = 20, TODO_CAP = 5;
+  var PAGE_SIZE = 30, DOC_PAGE = 20, TODO_CAP = 8;
 
   var cards = {};        // ツールID → {el, data}
   var busy = {};         // ツールID → 実行中の操作(二重押し防止)
@@ -426,8 +427,8 @@
       st.appendChild(el('span', 'pill wait', 'パック まだ'));
     }
     var open = null;
-    if (c.transcript && c.transcript.id) open = link('編集で開く', docHref(c.transcript.id, c.exists ? c.path : '', 'tx'));
-    else if (c.exists && c.path) open = link('編集で開く', '/transcribe/?media=' + encodeURIComponent(c.path) + '#tx');
+    if (c.transcript && c.transcript.id) open = link('校正で開く', docHref(c.transcript.id, '', 'tx', kase && kase.id));
+    else if (c.exists && c.path && kase && c.markId) open = link('校正で開く', markHref(kase.id, c.markId));
     if (open) {
       st.appendChild(open);
       if (auto) ['click', 'auxclick'].forEach(function (ev) { open.addEventListener(ev, function () { markSeen(kase, c); }); });   // 開いたら「見た」
@@ -477,7 +478,7 @@
     var s;
     if (rv.deliveredAt) { s = el('span', 'pill ok pt-ac-done', '届けた ' + ago(rv.deliveredAt)); s.title = 'Dropbox の 出力 に置きました' + (rv.delivered ? ': ' + rv.delivered : ''); }
     else if (rv.seenAt) { s = el('span', 'hint pt-ac-seen', '見た ' + ago(rv.seenAt)); s.title = when(rv.seenAt); }
-    else { s = el('span', 'pill info pt-ac-unseen', '未見'); s.title = 'まだ開いていません(「編集で開く」・採用・要らない のどれかで「見た」になります)'; }
+    else { s = el('span', 'pill info pt-ac-unseen', '未見'); s.title = 'まだ開いていません(「校正で開く」・採用・要らない のどれかで「見た」になります)'; }
     head.appendChild(s);
   }
   /* 失敗の文(「調子」・スタジオの LIVE の帯と同じ文 = src/flow/live_failures.py の failure_of) */
@@ -723,7 +724,8 @@
     ok.disabled = !und || !!why; no.disabled = !und;
     $('#rvWhy').textContent = !und ? 'この切り抜きは「' + rvState(it) + '」です。N で次へ進めます' : why;
     open.hidden = !f || (!tid && !(f.cl.exists && f.cl.path));
-    if (!open.hidden) open.href = tid ? docHref(tid, f.cl.exists ? f.cl.path : '', 'tx') : '/transcribe/?media=' + encodeURIComponent(f.cl.path) + '#tx';
+    if (!open.hidden) open.href = tid ? docHref(tid, '', 'tx', f.kase.id) : markHref(f.kase.id, f.cl.markId);
+    open.textContent = '校正で開く';
     rvPaintList();
   }
   function rvPaintList() {
@@ -886,8 +888,8 @@
     var cand = (c.marks && c.marks.candidates) || 0, adopted = (c.marks && c.marks.adopted) || 0, exported = (c.marks && c.marks.exported) || 0;
     var next = '', act = null;
     if (!c.gone && !adopted && !exported) {
-      if (cand) { next = '。スタジオの ② 確認で候補を採用すると、書き出せます'; act = { label: '候補の確認へ', href: studioHref(c.id) }; }
-      else { next = '。スタジオで配信を解析すると、候補が出ます'; act = { label: 'スタジオで解析する', href: studioHref(c.id) }; }
+      if (cand) { next = '。案件の画面で候補を採用すると、書き出せます'; act = { label: '候補の確認へ', href: studioHref(c.id) }; }
+      else { next = '。配信を解析すると、候補が出ます'; act = { label: '案件の画面で開く', href: studioHref(c.id) }; }
     }
     var opt = { kind: 'info', ms: 12000 };
     if (act) opt.action = { label: act.label, fn: function () { location.href = act.href; } };   // 同じ窓で移る(S-15)
@@ -924,14 +926,19 @@
 
   /* 編集で文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
      パスは文書が見つからなかったときの予備(編集の takeUrlParams が ?doc= を先に見る) */
-  function docHref(id, path, tab) {
+  /* RS8 C3: 行き先は案件の画面(/cases)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。タブ名は編集の古い呼び名(tx・pack)も受ける。
+     case を渡せば案件も決まる(仮の案件 eval・orphan・動画ファイルの案件を開くとき) */
+  var CASE_TAB = { tx: 'proof', proof: 'proof', pack: 'cut', cut: 'cut', cand: 'cand' };
+  function docHref(id, path, tab, caseId) {
     var q = [];
-    if (id) q.push('doc=' + encodeURIComponent(id));
-    if (path) q.push('media=' + encodeURIComponent(path));
-    return '/transcribe/' + (q.length ? '?' + q.join('&') : '') + '#' + (tab || 'tx');
+    if (caseId) q.push('c=' + encodeURIComponent(caseId));
+    if (id) q.push('d=' + encodeURIComponent(id));
+    return '/cases' + (q.length ? '?' + q.join('&') : '') + '#' + (CASE_TAB[tab || 'tx'] || 'proof');
   }
-  /* その配信をスタジオの ② 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を確かめ、保存済みなら ② で開く。B-8) */
-  function studioHref(id) { return '/studio/?video=' + encodeURIComponent(id); }
+  /* その配信を案件の画面の候補で開く(案件の id = スタジオの配信の id。B-8) */
+  function studioHref(id) { return '/cases?c=' + encodeURIComponent(id) + '#cand'; }
+  /* 文字起こしがまだの切り抜きは、マーク id で校正の欄を開く(殻が ?m= を受ける) */
+  function markHref(caseId, markId) { return '/cases?c=' + encodeURIComponent(caseId) + (markId ? '&m=' + encodeURIComponent(markId) : '') + '#proof'; }
   /* 案件の「次にやること」の行き先(S-6・S-18)。候補の確認・書き出し・文字起こし = スタジオの ② でその配信を開く・
      校正・パック = 最初に残っている切り抜きの文書を編集で開く(そのタブへ)。スタジオから消えた配信は ② で開けないので、
      文字起こしは残っている切り抜きを編集で開く。行き先が無ければ '' */
@@ -939,15 +946,15 @@
     var clips = c.clips || [];
     for (var i = 0; i < clips.length; i++) {
       var cl = clips[i], t = cl.transcript, path = cl.exists ? cl.path : '';
-      if (kind === 'proof' && t && t.proofed < t.segments) return docHref(t.id, path, 'tx');
-      if (kind === 'pack' && t && !cl.pack) return docHref(t.id, path, 'pack');
-      if (kind === 'transcribe' && c.gone && !t && path) return '/transcribe/?media=' + encodeURIComponent(path) + '#tx';
+      if (kind === 'proof' && t && t.proofed < t.segments) return docHref(t.id, path, 'tx', c.id);
+      if (kind === 'pack' && t && !cl.pack) return docHref(t.id, path, 'pack', c.id);
+      if (kind === 'transcribe' && c.gone && !t && path) return markHref(c.id, cl.markId);
     }
     return kind === 'proof' || kind === 'pack' || c.gone ? '' : studioHref(c.id);
   }
-  var NEXT_TITLE = { review: 'スタジオの ② 確認でこの配信を開きます(候補を採用・見送りする)', export: 'スタジオの ② 確認でこの配信を開きます(採用したマークを書き出す)',
-    transcribe: 'スタジオの ② 確認でこの配信を開きます(書き出した切り抜きを文字起こしする)', proof: '編集で、校正が残っている切り抜きの文書を開きます',
-    pack: '編集で、パックがまだの切り抜きの文書を「3 パック」のタブで開きます' };
+  var NEXT_TITLE = { review: '案件の画面の候補でこの配信を開きます(候補を採用・見送りする)', export: '案件の画面の候補でこの配信を開きます(採用したマークを書き出す)',
+    transcribe: '案件の画面の候補でこの配信を開きます(書き出した切り抜きを文字起こしする)', proof: '案件の画面で、校正が残っている切り抜きを開きます',
+    pack: '案件の画面で、パックがまだの切り抜きを「カット・パック」のタブで開きます' };
   /* 案件の行の「次にやること」(S-18): 押せるボタン(同じ窓で移る)。行き先が無ければ押せない札。見送り・投稿済みの案件には出さない(次にやることと同じ。B-4) */
   function paintNext(node, c) {
     var a = $('.pt-case-next', node), n = c.next;
@@ -962,7 +969,6 @@
   function caseSubText(c) {
     var parts = [c.channel || '(配信者不明)'];
     if (c.streamedAt) parts.push(ago(c.streamedAt));
-    parts.push('切り抜き ' + c.marks.exported + '本');
     if (c.gone) parts.push('スタジオから消えた配信(最後に見えた内容)');
     return parts.filter(Boolean).join(' ・ ');
   }
@@ -989,6 +995,8 @@
     var pill = $('.pt-case-statuspill', node);
     pill.className = 'pill pt-case-statuspill' + (STATUS_PILL[c.status || ''] ? ' ' + STATUS_PILL[c.status || ''] : '');
     pill.textContent = STATUS[c.status || ''];
+    var cn = $('.pt-case-clips', node), cnt = c.marks && c.marks.exported ? '切り抜き ' + c.marks.exported + '本' : '切り抜き なし';
+    cn.hidden = false; cn.textContent = cnt;
     var tx = $('.pt-case-tx', node), txt = txSummaryText(c.tx);
     tx.hidden = !txt; tx.textContent = txt;
     var pk = $('.pt-case-pack', node), pkt = packSummaryText(c.packs);
@@ -1021,9 +1029,8 @@
         failToast('状態を保存できませんでした', '少し待って、もう一度選んでください', e, function () { sel.value = want; sel.dispatchEvent(new Event('change')); });
       });
     });
-    // B-8(段1): その配信をスタジオの ② 確認で開く(案件の id = スタジオの配信の id。スタジオが ?video= を正規表現で確かめ、保存済みなら ② で開く)。
-    // スタジオから消えた配信は開いても ① に落ちるので出さない。場所は /studio/ の直書き(docHref が /transcribe/ を直書きしているのと同じ。取り込みに失敗して子プロセスで動いたときは合わない → B-7 で見直す候補)
-    if (!c.gone) $('.pt-case-studio', node).appendChild(link('スタジオで開く', studioHref(c.id)));
+    // RS8 C3: その配信を案件の画面で開く(案件の id = スタジオの配信の id。B-8)。スタジオから消えた配信は候補を開けないので、校正・パックのタブへ
+    $('.pt-case-studio', node).appendChild(link('案件の画面で開く', c.gone ? '/cases?c=' + encodeURIComponent(c.id) + '#proof' : studioHref(c.id)));
     if (hideApi()) $('.pt-case-studio', node).parentNode.appendChild(hideBtn('cases', c.id, c.title || c.id));
     fillClips(node, c);
     wireAuto(node, c);
@@ -1195,6 +1202,35 @@
     paintAutoReview();
     restoreFocus(focusInfo);
     updateSummaryLine();
+    renderVirtual();
+  }
+  /* 配信のない案件(RS8 C3。brief 3-3・3-4): 動画ファイルの案件・評価用・どの案件にも入らない文字起こし。④ の virtual をそのまま並べ、押すと案件の画面で開く。
+     状態・メモ・まとめて実行は持たない(配信の案件だけ)ので、展開しない 1 行。題名の絞り込みには従うが、状態・自動の絞り込みのときは出さない */
+  var VKIND = { file: '動画ファイルの案件', 'eval': '評価用(精度を測るための文書)', orphan: 'どの案件にも入らない文字起こし' };
+  function renderVirtual() {
+    var box = $('#vlistBox'), ul = $('#vlist'), q = $('#fText').value.trim().toLowerCase();
+    var list = ((casesData && casesData.virtual) || []).filter(function (c) { return !q || (c.title || '').toLowerCase().indexOf(q) >= 0; });
+    if (!casesData || $('#fStatus').value || autoOnly) list = [];
+    ul.textContent = '';
+    box.hidden = !list.length;
+    list.forEach(function (c) {
+      var li = el('li', 'pt-vrow'), a = el('a', 'pt-vrow-link');
+      a.href = '/cases?c=' + encodeURIComponent(c.id) + '#proof';
+      a.setAttribute('data-case', c.id);
+      var main = el('span', 'pt-vrow-main');
+      main.appendChild(el('span', 'pt-case-title', c.title || c.id));
+      main.appendChild(el('span', 'hint pt-case-sub', VKIND[c.caseKind] || ''));
+      a.appendChild(main);
+      var n = (c.clips || []).length;
+      a.appendChild(el('span', 'hint num', '文書 ' + n + ' 本'));
+      var tx = txSummaryText(c.tx), pk = packSummaryText(c.packs);
+      if (tx) a.appendChild(el('span', 'hint num', tx));
+      if (pk) a.appendChild(el('span', 'hint num', pk));
+      if (c.caseKind !== 'file') a.appendChild(el('span', 'pill wait', '仮の案件'));
+      a.appendChild(el('span', 'ui-caret right', ''));
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
   }
   /* 一覧の件数の文と「もっと見る(あと n 件)」(案件・単体の文字起こし)。絞り込んだときは「合う数 / 全体の数」(分母は全体。
      「もっと見る」で隠れている分は「(m 件を表示)」と別に書く。S5) */
@@ -1227,14 +1263,15 @@
     if (t) t.focus({ preventScroll: false });
   }
 
-  /* 配信が 1 本も無いときの空の表示(S-13): 2 文 + 次に押すボタン(スタジオで配信を探す・依頼の受付を設定する) */
+  /* 配信が 1 本も無いときの空の表示(S-13): 2 文 + 次に押すボタン(新しい案件を始める・依頼の受付を設定する) */
   function emptyCases() {
     var box = el('div', 'empty pt-empty');
     box.appendChild(el('b', '', 'まだ配信はありません'));
-    box.appendChild(document.createTextNode('切り抜きスタジオで配信を探して解析するか、友人からの依頼を受け付けると、ここに出ます。'));
+    box.appendChild(document.createTextNode('「新しい案件」で配信を探して解析するか、友人からの依頼を受け付けると、ここに出ます。'));
     var row = el('div', 'row pt-empty-acts');
-    var a = el('a', 'btn small primary', 'スタジオで配信を探す');
-    a.id = 'emptyStudio'; a.href = '/studio/?step=rank'; a.title = 'スタジオの ① 探す を開きます(① 探す・② 解析で配信を入れます)';
+    var a = el('button', 'btn small primary', '新しい案件を始める');
+    a.type = 'button'; a.id = 'emptyStudio'; a.title = '配信を探す・URL から入れる引き出しを開きます';
+    a.addEventListener('click', function () { openNewCase(a); });
     row.appendChild(a);
     if (!$('#intakeBox').hidden) {   // 受付の無い古い入口では出さない
       var b = el('button', 'btn small', '依頼の受付を設定する');
@@ -1246,8 +1283,10 @@
     return box;
   }
   /* 受付・バックアップのパネルを開いて、オン/オフのスイッチへ(フォルダ・数の欄は設定の画面 = 0.54.0) */
+  function openOps() { var o = $('#opsBox'); if (o) o.open = true; }
   function openSettingsBox(boxSel, switchSel) {
     var box = $(boxSel);
+    openOps();
     box.open = true;
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     $(switchSel).focus({ preventScroll: true });
@@ -1280,6 +1319,7 @@
   }
   /* 案件の一覧・文字起こしの一覧を読み直す(ヘッダーの「読み込み直す」と、読めなかったときのボタン) */
   function reloadAll() {
+    loadCheck();
     return Promise.all([loadCases(), loadTxList()]).then(function () { renderDocs(); buildTodo(); if (!casesLoadFailed) toast('読み込み直しました'); });
   }
   function refreshCases() {
@@ -1342,7 +1382,7 @@
     chk.checked = !!docPicked[d.id];
     chk.addEventListener('change', function () { if (chk.checked) docPicked[d.id] = true; else delete docPicked[d.id]; syncDocRunButton(); });
     var openA = $('.pt-doc-open', li);
-    openA.href = docHref(d.id, d.sourcePath, 'tx'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
+    openA.href = docHref(d.id, '', 'tx'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
     if (hideApi()) $('.pt-doc-steps', li).appendChild(hideBtn('transcripts', d.id, d.title));
     markHid(li, 'transcripts', d.id, $('.pt-doc-main', li).parentNode);
     return li;
@@ -1681,19 +1721,22 @@
     var win = '夜 ' + ac.nightFrom + '〜' + ac.nightTo + ' 時に手が空いていれば 1 日 1 回';
     ul.appendChild(healthRow('info', '精度の自動測定', ac.stateLabel + (ac.message ? '。' + ac.message : '') + (ac.enabled ? '(' + win + (ac.lastRun ? '・最後に ' + ago(ac.lastRun) : '') + ')' : '')));
     (ac.areas || []).forEach(function (a) { if (a.available || a.latest || a.error) ul.appendChild(accuracyRow(a)); });
-    if (ac.goals && ac.goals.length) ul.appendChild(goalsRow(ac.goals));
+    renderCheck(ac);   // 始める条件(あと何本・何分)は「確かめる」の枠へ(RS8 C3)
     if (live) accTimer = setTimeout(function () { loadHealth(false); }, 2500);   // 測っている間・手が空くのを待っている間は軽く読み直す
   }
   /* 入口の条件(入口 0.38.0。accuracy.py の GOALS = plan/README.md の 7): 各工程を始めてよい量の「今 / 目標 / あと」を 1 行ずつ。値は直近の測定のもの */
   function goalAmount(v, unit) { return unit === 'sec' ? String(+(v / 60).toFixed(1)) + ' 分' : Math.round(v) + ' ' + unit; }
+  function goalPlain(s) {   // 計画の記号(G1・B4・I-2a など)は本文から外し、元の文は title に(S9)
+    return String(s || '').replace(/\([A-Z]-\d+[a-z]?\)/g, '').replace(/(^|・)[A-Z]\d+(?:-[a-z])?\s+/g, '$1').replace(/^[A-Z]\d\s+/, '').trim();
+  }
+  function goalAmt(g, v) {   // 時間の目標は「時間」で並べる(分と時間が混ざって読み違えないように)
+    return g.unit === 'sec' && g.target >= 3600 ? String(+(v / 3600).toFixed(2)) + ' 時間' : goalAmount(v, g.unit);
+  }
   function goalsRow(goals) {
     var done = goals.filter(function (g) { return g.reached; }).length, unknown = goals.filter(function (g) { return g.now == null; }).length;
-    var plain = function (s) {   // 計画の記号(G1・B4・I-2a など)は本文から外し、元の文は title に(S9)
-      return String(s || '').replace(/\([A-Z]-\d+[a-z]?\)/g, '').replace(/(^|・)[A-Z]\d+(?:-[a-z])?\s+/g, '$1').replace(/^[A-Z]\d\s+/, '').trim();
-    };
+    var plain = goalPlain;
     var subs = goals.map(function (g) {
-      var big = g.unit === 'sec' && g.target >= 3600;   // 時間の目標は「時間」で並べる(分と時間が混ざって読み違えないように)
-      var amt = function (v) { return big ? String(+(v / 3600).toFixed(2)) + ' 時間' : goalAmount(v, g.unit); };
+      var amt = function (v) { return goalAmt(g, v); };
       var body = g.now == null ? '未測定' : '今 ' + amt(g.now) + ' / 目標 ' + amt(g.target) + ' / ' + (g.reached ? '届いた' : 'あと ' + amt(g.left));
       return { text: plain(g.label) + ': ' + body + '(→ ' + plain(g.opens) + ')', title: g.label + ' → ' + g.opens };
     });
@@ -1702,88 +1745,96 @@
     row.id = 'accuracyGoals';
     return row;
   }
+  /* ---- 確かめる(RS8 C3。brief 2-1・2-3。V1 の枠) ----
+     「今いちばん効く確認 + あと何本」だけ先に出す。選び方は brief の順 = 目標まであと少しの物(あと / 目標 がいちばん小さい届いていない条件)→ まだ測っていない物。
+     [始める] は押せない(確かめるの画面は V1 で入る)。理由を隣に出し、押せない理由の決まりどおり title と data-ui-why にも付ける。
+     すべての条件(今 / 目標 / あと)は畳んだ欄に(前の「調子」の中の「始める条件」の行と同じ物)。値は /api/accuracy の goals(精度の自動測定の直近の結果) */
+  var CHECK_WHY = '確かめるの画面は V1 で入ります';
+  function pickCheck(goals) {
+    var open = goals.filter(function (g) { return !g.reached; });
+    var known = open.filter(function (g) { return g.now != null && g.target > 0; });
+    known.sort(function (a, b) { return (a.left / a.target) - (b.left / b.target); });
+    return known[0] || open[0] || null;
+  }
+  function renderCheck(ac) {
+    var now = $('#checkNow'), sub = $('#checkSub'), list = $('#checkGoals'), start = $('#checkStart');
+    if (!now) return;
+    start.disabled = true; start.title = CHECK_WHY; start.setAttribute('data-ui-why', CHECK_WHY);
+    list.textContent = '';
+    var goals = (ac && ac.goals) || [];
+    if (!ac) { now.textContent = '確かめる物を読み込めませんでした'; sub.textContent = '「読み込み直す」を押してください。続くときは運用の「調子」を見てください。'; return; }
+    if (!goals.length) { now.textContent = 'まだ測っていません'; sub.textContent = '手が空いた夜に自動で測ります(運用の「調子」の「精度を今すぐ測る」でも測れます)。'; return; }
+    var best = pickCheck(goals), done = goals.filter(function (g) { return g.reached; }).length;
+    if (!best) { now.textContent = 'どの確認も、目標に届いています'; sub.textContent = '届いた ' + done + ' / ' + goals.length + '。新しい確認が増えたら、ここに出ます。'; }
+    else if (best.now == null) {
+      now.textContent = goalPlain(best.label) + ': まだ測っていません';
+      sub.textContent = '測ると「あと何本」が出ます(→ 届くと ' + goalPlain(best.opens) + ' を始められます)。届いた ' + done + ' / ' + goals.length;
+    } else {
+      now.textContent = goalPlain(best.label) + ': あと ' + goalAmt(best, best.left);
+      sub.textContent = '今 ' + goalAmt(best, best.now) + ' / 目標 ' + goalAmt(best, best.target) + '(→ 届くと ' + goalPlain(best.opens) + ' を始められます)。届いた ' + done + ' / ' + goals.length;
+    }
+    now.title = best ? best.label + ' → ' + best.opens : '';
+    list.appendChild(goalsRow(goals));
+  }
+  function loadCheck() {
+    api('api/accuracy').then(renderCheck, function () { renderCheck(null); });
+  }
   function accuracyNow() {
     var btn = $('#btnAccuracyNow');
     btn.disabled = true;
-    api('api/accuracy/run', 'POST', {}).then(function () { toast('精度の測定を受け付けました(手が空くまで待つことがあります)'); loadHealth(false); },
+    api('api/accuracy/run', 'POST', {}).then(function () { toast('精度の測定を受け付けました(手が空くまで待つことがあります)'); loadHealth(false); loadCheck(); },
       function (e) { failToast('精度を測れませんでした', '少し待って、もう一度押してください', e); loadHealth(false); });
   }
 
-  /* ================================================================ 次にやること ================================================================ */
-
-  function buildPathMap() {
-    var map = {};
-    ((casesData && casesData.cases) || []).forEach(function (c) {
-      (c.clips || []).forEach(function (cl) { if (cl.transcript) map[cl.transcript.id] = { path: cl.path, caseId: c.id, kase: c }; });
-    });
-    ((casesData && casesData.unlinked) || []).forEach(function (u) { if (!map[u.id]) map[u.id] = { path: u.sourcePath, caseId: null, kase: null }; });
-    return map;
-  }
-  /* 案件の状態が「見送り」「投稿済み」なら、次にやることに出さない(B-4。作業をやめた・終えた案件を勧めない) */
+  /* ================================================================ やること(RS8 C3。brief 2-1) ================================================================
+     種類ごとの件数(採用待ち・校正待ち・パック待ち・失敗)。数えるのは案件の一覧(④ の todoSum。cases.py)で、画面は足し合わせるだけ。
+     押すと、その種類のいちばん古い 1 件の作業の所(案件の画面 /cases?c=&d=#tab)へ移る(サーバーの todoFirst を使う。見送り・投稿済み・非表示にした案件、
+     まとめて実行の最中の案件は数えない = 前の「次にやること」と同じ決まり B-4。それらで todoFirst の案件が外れたら、残りの案件から同じ規則で選び直す)。
+     案件の画面の「次へ」で同じ種類の次の 1 件へ続ける(殻の仕事)。 */
+  /* 案件の状態が「見送り」「投稿済み」なら、やることに出さない(B-4。作業をやめた・終えた案件を勧めない) */
   var DONE_STATUS = { skipped: 1, posted: 1 };
-
-  function clipHint(it) {
-    // 同じ配信から複数の切り抜きを作ると title(配信の題名)が同じになるので、マークの名前・時間帯で見分けられるようにする(E2 finding 2)
-    if (it.markLabel) return it.markLabel;
-    if (it.clipStart != null && it.clipEnd != null) return tc(it.clipStart) + '–' + tc(it.clipEnd);
+  /* 種類 → [札, 札の色, 件数の文, 行き先のタブ, clips[].state の絞り込み]。並びは採用 → 校正 → パック → 失敗(brief 2-1) */
+  var TODO_KINDS = [
+    ['adopt', '採用待ち', 'wait', function (n, k) { return k + ' 配信 ・ 候補 ' + n + ' 個(採用・見送りをまだ決めていない)'; }, 'cand', null],
+    ['proof', '校正待ち', 'wait', function (n, k) { return '校正 ' + n + ' 本' + (k > 1 ? ' ・ ' + k + ' 配信' : ''); }, 'proof', 'proofing'],
+    ['pack', 'パック待ち', 'wait', function (n, k) { return 'パック ' + n + ' 本(校正済みでパックがまだ)' + (k > 1 ? ' ・ ' + k + ' 配信' : ''); }, 'cut', 'proofed'],
+    ['failed', '失敗', 'err', function (n) { return n + ' 件(自動の切り抜きの書き出し・文字起こし・パック)'; }, 'cand', null]
+  ];
+  /* やることの対象になる案件(動画ファイルの案件も含む。仮の案件 eval・orphan は含めない = 評価用はカードで触らない) */
+  function todoCases() {
+    var list = ((casesData && casesData.cases) || []).concat(((casesData && casesData.virtual) || []).filter(function (c) { return c.caseKind === 'file'; }));
+    return list.filter(function (c) { return !c.gone && !DONE_STATUS[c.status] && !isHid('cases', c.id) && !active(runsByVideo[c.id]); });
+  }
+  function todoDocOf(c, kind, state) {   // その案件の中の最初の該当の切り抜きの文書(無ければ '')
+    var clips = c.clips || [];
+    for (var i = 0; i < clips.length; i++) {
+      var cl = clips[i], t = cl.transcript;
+      if (kind === 'failed' ? !!(cl.review || {}).failure : cl.state === state) { if (t && t.id) return t.id; }
+    }
     return '';
   }
-  function buildTodoFine() {
-    var items = [], pathMap = buildPathMap();
-    txList.forEach(function (it) {
-      var rows = it.rows || 0, proofed = it.proofed || 0;
-      if (!rows) return;
-      var title = it.streamTitle || it.clipTitle || it.title || it.markLabel || '(無題)';
-      var hint = clipHint(it), suffix = hint ? '(' + hint + ')' : '';
-      var loc = pathMap[it.id];
-      if (loc && loc.kase && DONE_STATUS[loc.kase.status]) return;
-      if (isHid('transcripts', it.id) || (loc && loc.kase && isHid('cases', loc.kase.id))) return;   // 非表示にした文書・案件の作業は勧めない
-      /* どの配信か分かるように、配信者と配信日(案件に無ければ文字起こしの配信者)を添える(B-5) */
-      var kase = loc && loc.kase, who = (kase && kase.channel) || it.channel || '';
-      var day = kase && kase.streamedAt ? UIKit.fmt.day(kase.streamedAt) : '';
-      var meta = [who, day ? day + ' の配信' : ''].filter(Boolean).join(' ・ ');
-      // 配信に紐づかない文書は同じ題名が並びやすいので、元のファイル名と更新日時も添える(S-26)
-      if (!kase) meta = [meta, docSubText(it.sourceName || baseName(loc && loc.path), it.updatedAt)].filter(Boolean).join(' ・ ');
-      if (meta) suffix = ' ・ ' + meta + suffix;
-      if (proofed < rows) {
-        items.push({ kind: 'proof', key: 'proof:' + it.id, updatedAt: it.updatedAt || 0, title: title, sub: '校正 ' + proofed + '/' + rows + '行' + suffix,
-          href: docHref(it.id, loc && loc.path, 'tx'), pillText: '校正待ち', pillClass: 'wait' });
-      }
-      // パック待ち・作り直しは、校正が済んでいて(proofed >= rows)、かつ元の動画の有無を実際に確かめられたとき(mediaOk === true)だけ出す。
-      // it.pack が null なのは、まだパックが無いときだけでなく、確かめる時間切れ(PACK_CHECK_BUDGET)・動画が見つからない(mediaOk === false)
-      // ときもある(src/editor/serve.py の _files_state)。それらまで「パック待ち」にすると、校正中の文書と重複したり
-      // 見当違いの案内になる(E2 finding 2)
-      if (proofed >= rows && it.mediaOk === true && (!it.pack || it.packStale)) {
-        items.push({ kind: 'pack', key: 'pack:' + it.id, updatedAt: it.updatedAt || 0, title: title, sub: (it.pack ? 'パックの作り直しが要ります' : 'パックがまだありません') + suffix,
-          href: docHref(it.id, loc && loc.path, 'pack'), pillText: it.pack ? '作り直し' : 'パック待ち', pillClass: it.pack ? 'warn' : 'wait' });
-      }
-    });
-    return items;
+  function todoHref(kind, tab, state, cases) {
+    var first = casesData && casesData.todoFirst && casesData.todoFirst[kind], c = null, i;
+    if (first) for (i = 0; i < cases.length; i++) if (cases[i].id === first.case) { c = cases[i]; break; }
+    if (!c) {   // サーバーの選んだ案件が外れた(非表示・見送りなど)ときは、残りの案件でいちばん古い配信
+      var hit = cases.filter(function (x) { return ((x.todoSum || {})[kind] || 0) > 0; });
+      hit.sort(function (a, b) { return (a.streamedAt || 0) - (b.streamedAt || 0) || (a.id < b.id ? -1 : 1); });
+      c = hit[0] || null;
+    }
+    if (!c) return '';
+    var d = (first && first.case === c.id && first.doc) || todoDocOf(c, kind, state);
+    if (kind === 'failed') tab = d ? 'proof' : 'cand';
+    return '/cases?c=' + encodeURIComponent(c.id) + (d ? '&d=' + encodeURIComponent(d) : '') + '#' + tab;
   }
-  /* 案件(配信)ごとの作業(S-6。入口 0.42.0): 文字起こし待ち・書き出し待ち・確認前の候補は案件の一覧の todo(cases.py)から、いつも出す
-     (リンクはスタジオの ② でその配信を開く = caseNextHref)。校正待ち・パック待ちは、「編集」の文書の一覧が読めれば文書ごと(buildTodoFine)・
-     読めないとき(withDocs が false)だけここで配信ごとに出す */
-  var CASE_TODO = [
-    ['transcribe', '文字起こし待ち', function (n) { return '文字起こし ' + n + '本(書き出した切り抜き)'; }],
-    ['export', '書き出し待ち', function (n) { return '書き出し ' + n + '本(採用したマーク)'; }],
-    ['review', '候補の確認待ち', function (n) { return '候補 ' + n + '個(採用・見送りをまだ決めていない)'; }]   // 作業の名前は案件の行のボタン(cases.py の TODO_LABEL)と同じ言葉(S1)
-  ];
-  function buildTodoCoarse(withDocs) {
-    var items = [];
-    ((casesData && casesData.cases) || []).forEach(function (c) {
-      if (!c.next || DONE_STATUS[c.status] || isHid('cases', c.id)) return;
-      var meta = [c.channel, c.streamedAt ? UIKit.fmt.day(c.streamedAt) + ' の配信' : ''].filter(Boolean).join(' ・ ');
-      meta = meta ? ' ・ ' + meta : '';
-      CASE_TODO.forEach(function (k) {
-        var n = active(runsByVideo[c.id]) ? 0 : (c.todo || {})[k[0]] || 0;   // まとめて実行の最中は進行中の行だけ(同じ作業を二重に勧めない)
-        if (n) items.push({ kind: k[0], key: k[0] + ':case:' + c.id, updatedAt: c.updatedAt || 0, title: c.title, sub: k[2](n) + meta,
-          href: caseNextHref(c, k[0]) || '#case-' + c.id, pillText: k[1], pillClass: 'wait' });
-      });
-      if (withDocs) return;
-      if (c.next.kind === 'proof') items.push({ kind: 'proof', key: 'proof:case:' + c.id, updatedAt: c.updatedAt || 0, title: c.title, sub: '校正 ' + c.next.count + '本' + meta,
-        href: '#case-' + c.id, pillText: '校正待ち', pillClass: 'wait' });
-      else if (c.next.kind === 'pack') items.push({ kind: 'pack', key: 'pack:case:' + c.id, updatedAt: c.updatedAt || 0, title: c.title, sub: 'パック ' + c.next.count + '本' + meta,
-        href: '#case-' + c.id, pillText: 'パック待ち', pillClass: 'wait' });
+  function buildTodoKinds() {
+    if (!casesData) return [];
+    var cases = todoCases(), items = [];
+    TODO_KINDS.forEach(function (k) {
+      var n = 0, cn = 0;
+      cases.forEach(function (c) { var v = (c.todoSum || {})[k[0]] || 0; if (v > 0) { n += v; cn++; } });
+      if (!n) return;
+      items.push({ kind: k[0], updatedAt: 0, title: k[1] + ' ' + n + (k[0] === 'adopt' ? ' 個' : k[0] === 'failed' ? ' 件' : ' 本'), sub: k[3](n, cn),
+        href: todoHref(k[0], k[4], k[5], cases) || '#cases', pillText: k[1], pillClass: k[2] });
     });
     return items;
   }
@@ -1809,6 +1860,7 @@
   function todoRow(it) {
     var li = $('#tplTodo').content.firstElementChild.cloneNode(true);
     if (it.key) li.setAttribute('data-fkey', 'todo:' + it.key);
+    li.setAttribute('data-kind', it.kind || '');
     var a = $('.pt-todo-link', li);
     a.setAttribute('href', it.href);
     var pill = $('.pt-todo-pill', li);
@@ -1821,27 +1873,19 @@
     ts.title = it.sub || '';
     var prog = $('.pt-todo-prog', li);
     if (typeof it.progress === 'number') { prog.hidden = false; prog.style.setProperty('--p', it.progress + '%'); }
-    if (it.key && hideApi()) {   // 実行中の行は隠せない(終われば消える)
-      var hb = hideBtn('todo', it.key, it.title);
-      hb.classList.add('pt-todo-hide');
-      li.appendChild(hb);
-      markHid(li, 'todo', it.key, $('.pt-todo-main', li));
-    }
     return li;
   }
   function renderTodo(all) {
     var box = $('#todoList'), empty = $('#todoEmpty'), more = $('#todoMore');
-    var hidN = all.filter(function (it) { return it.key && isHid('todo', it.key); }).length;
-    if (!showHid('todo')) all = all.filter(function (it) { return !it.key || !isHid('todo', it.key); });
-    hideToggle('#todoHidden', 'todo', hidN);
+    hideToggle('#todoHidden', 'todo', 0);
     box.textContent = '';
     if (!all.length) {
       empty.hidden = false;
       // casesData が無い(案件の一覧をまだ読めていない)ときは「作業は無い」ではなく、読めていないと分かる文言にする(E2 finding 4)
       var go = $('#todoEmptyBtn');
       $('b', empty).textContent = casesData ? 'いま手が要る作業はありません' : '案件の一覧を読み込めていません';
-      $('#todoEmptyText').textContent = casesData ? 'スタジオで配信を解析すると、ここに出ます。' : '案件の一覧の欄に、直し方が出ています(「読み込み直す」を押してください)。';
-      go.hidden = !casesData;   // 次の一手(スタジオで配信を探す)は、案件の一覧を読めているときだけ
+      $('#todoEmptyText').textContent = casesData ? '「新しい案件」で配信を解析すると、ここに出ます。' : '案件の一覧の欄に、直し方が出ています(「読み込み直す」を押してください)。';
+      go.hidden = !casesData;   // 次の一手(新しい案件を始める)は、案件の一覧を読めているときだけ
       more.hidden = true;
       return;
     }
@@ -1853,19 +1897,9 @@
     more.textContent = todoShowAll ? '少なく表示' : 'すべて見る(あと ' + rest + ' 件)';
   }
   function buildTodo() {
-    // casesData が無くても、実行中(running)だけは出せる・空のときの案内も出したい(E2 finding 4: 前は早期リターンで
-    // まとめて実行の進み具合すら出なかった)。案件の一覧が要る校正待ち・パック待ちだけ、読めているときに限る
-    var running = runningItems();
-    var rest = casesData ? (txList ? buildTodoFine() : []).concat(buildTodoCoarse(!!txList)) : [];
-    rest.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
-    // 進行中 → 仕上げに近い作業から(校正 → パック → 文字起こし → 書き出し → 候補の確認。仕掛かりを先に終わらせる。S-6)。
-    // 並びの表は案件の一覧(cases.py の TODO_ORDER)が返す todoOrder と同じ 1 つ: 案件の行のボタン(case.next)も同じ順で決まるので、
-    // 同じ配信なら上の一覧の先頭の作業と行のボタンが必ず同じになる(UI の見直し M1)
-    var order = (casesData && casesData.todoOrder) || TODO_ORDER;
-    var byKind = order.map(function (k) { return rest.filter(function (i) { return i.kind === k; }); });
-    renderTodo(running.concat.apply(running, byKind));
+    // casesData が無くても、実行中(running)だけは出せる・空のときの案内も出したい(E2 finding 4)。種類ごとの件数は案件の一覧が読めているときだけ
+    renderTodo(runningItems().concat(buildTodoKinds()));
   }
-  var TODO_ORDER = ['proof', 'pack', 'transcribe', 'export', 'review'];   // 案件の一覧が todoOrder を返さない古いサーバーのときの予備(正は cases.py)
 
   /* ================================================================ まとめて実行の進み具合(配信・文書。共通の定期読み込み) ================================================================ */
 
@@ -2114,7 +2148,7 @@
     pill.textContent = runLabel(r);
     var a = $('.pt-history-title', li);
     a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || (r.kind === 'file' ? '依頼の動画' : '');
-    if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'tx'); a.title = '編集で開く'; }   // 文書 → 編集で開く(同じ窓。S-15)
+    if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'tx'); a.title = '案件の画面で校正を開く'; }   // 文書 → 編集で開く(同じ窓。S-15)
     else if (r.kind === 'file' || !r.videoId) { a.href = '#intake'; a.title = '依頼の受付へ'; }
     else { a.href = '#case-' + encodeURIComponent(r.videoId || ''); a.title = '案件の行へ'; }   // 配信 → 案件の行
     var why = runReason(r);
@@ -2171,12 +2205,66 @@
   /* 試験中の機能(リアルタイム切り抜き。線 D)の欄は 0.54.0 で設定の画面(/settings の「リアルタイム切り抜き」の節)へ移した(docs/spec/settings.md の 6)。
      録画と再生・マークはスタジオの中(P3)。入口の側の切り替え(録画の部品の起動)は api/ytt/prefs の patch(section live)で今までどおり動く */
 
+  /* ================================================================ 新しい案件(RS8 C3。引き出し #newDrawer) ================================================================
+     配信を探す・URL や動画ファイルから入れる・解析の順番待ち = スタジオ ① の部品(rank.js・queue.js)を、つなぎ cases-panels/new.js が載せる。
+     引き出しを初めて開いたときに css と js を読む(ホームを開くたびには読まない)。URL: /#new(?url=<配信の URL>・?media=<動画のパス> は欄に入れるだけ。解析は押すまで始めない) */
+  var newPanel = null, newLoad = null;
+  function newCaseArgs() {
+    var q = new URLSearchParams(location.search), h = location.hash, i = h.indexOf('?'), hq = i >= 0 ? new URLSearchParams(h.slice(i + 1)) : new URLSearchParams();
+    return { url: (q.get('url') || hq.get('url') || '').trim(), media: (q.get('media') || hq.get('media') || '').trim() };
+  }
+  function loadNewPanel() {
+    if (newLoad) return newLoad;
+    newLoad = new Promise(function (resolve, reject) {
+      var css = document.createElement('link');
+      css.rel = 'stylesheet'; css.href = 'cases-panels/new.css';
+      document.head.appendChild(css);
+      var tag = document.createElement('script');
+      tag.src = 'cases-panels/new.js';
+      tag.onload = function () { if (window.NewCasePanel) resolve(); else reject(new Error('部品の形が違います')); };
+      tag.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
+      document.head.appendChild(tag);
+    }).catch(function (e) { newLoad = null; throw e; });
+    return newLoad;
+  }
+  function openNewCase(opener, opts) {
+    var d = $('#newDrawer');
+    if (!d) return;
+    opts = opts || {};
+    UIKit.drawer.open(d, { modal: true, opener: opener || document.activeElement });
+    loadNewPanel().then(function () {
+      if (!newPanel) { newPanel = window.NewCasePanel.create(); newPanel.mount($('#newBody'), opts); }
+      else newPanel.update(opts);
+      newPanel.setVisible(UIKit.drawer.isOpen(d));
+    }, function (e) {
+      $('#newBody').textContent = '';
+      var box = el('div', 'empty pt-empty');
+      box.appendChild(el('b', '', '新しい案件の画面を読み込めませんでした'));
+      box.appendChild(document.createTextNode(reasonOf(e) + ' スタジオが動いていないかもしれません。「調子」で確かめてから、もう一度開いてください。'));
+      $('#newBody').appendChild(box);
+    });
+  }
+  function wireNewCase() {
+    var d = $('#newDrawer');
+    if (!d) return;
+    $('#newCaseBtn').addEventListener('click', function () { openNewCase($('#newCaseBtn'), newCaseArgs()); });
+    $('#todoEmptyBtn').addEventListener('click', function () { openNewCase($('#todoEmptyBtn')); });
+    $('#newClose').addEventListener('click', function () { UIKit.drawer.close(d); });
+    document.addEventListener('ui-drawer', function (e) {
+      if (!e.detail || e.detail.el !== d) return;
+      if (newPanel) newPanel.setVisible(e.detail.open);
+      if (!e.detail.open && (location.hash === '#new' || location.hash.indexOf('#new?') === 0)) history.replaceState(null, '', location.pathname);
+    });
+  }
+
   /* ================================================================ ハッシュ(#cases・#case-<id>・#doc-<id>): 次にやることのリンク先へ移る ================================================================ */
 
   function focusHash() {
     var h = location.hash;
     if (!h) return;
-    if (h === '#intake') { var ib = $('#intakeBox'); if (ib) { ib.open = true; ib.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    if (h === '#intake') { var ib = $('#intakeBox'); if (ib) { openOps(); ib.open = true; ib.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    if (h === '#new' || h.indexOf('#new?') === 0) { openNewCase(null, newCaseArgs()); return; }
+    if (h === '#edit-acc' || h === '#edit-learn') { openOps(); var eb = $('#editOpsBox'); if (eb) { eb.open = true; eb.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
     if (h === '#cases') { var sec = $('#caseListSection'); if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     var m = /^#(case|doc)-(.+)$/.exec(h);
     if (!m) return;
@@ -2253,6 +2341,12 @@
     wireIntake();
     wireBackup();
     wireReview();
+    wireNewCase();
+    /* 運用の枠: 中の欄(受付・バックアップ・記録・編集の精度と学習・調子)が開いたら枠も開く(コードで開く「まだ決めていない」の受付・バックアップも見える) */
+    ['intakeBox', 'backupBox', 'historyBox', 'editOpsBox', 'advancedBox'].forEach(function (id) {
+      var b = $('#' + id);
+      if (b) b.addEventListener('toggle', function () { if (b.open) openOps(); });
+    });
     UIKit.hide.onChange(function (list) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
       if (!list || list === 'cases') render();
       if (!list || list === 'transcripts') renderDocs();
@@ -2264,9 +2358,10 @@
 
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため。visibilitychange は直接使わない) */
-    UIKit.life.onReturn(function () { poll(); refreshCases(); });
+    UIKit.life.onReturn(function () { poll(); refreshCases(); loadCheck(); });
 
     poll();
+    loadCheck();
     loadCases().then(function () { return loadTxList(); }).then(function () { renderDocs(); buildTodo(); pollAuto(); focusHash(); });
   });
 })();
