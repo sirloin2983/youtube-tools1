@@ -34,6 +34,7 @@ from flow import placement
 from ytt import colors, fsio, jobs, names as ytt_names, normalize, studio_env, tools
 from . import friend_feedback  # noqa: E402  (友人のアプリの「要らない」<zip の名前>.feedback.json の読み取り。片付けは入口が feedback= で渡す)
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.begin_request が書く。2-15)
+from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 TEXT_EXT = (".txt", ".url")
@@ -479,6 +480,7 @@ class Intake:
                 else:
                     self._record(folder, "video", "manual", n, [n], "", "", [], [{"label": n, "state": "rejected",
                                  "reason": "受け付けない種類のファイルです(動画 %s か、URL を書いた .txt)" % " ".join(VIDEO_EXT)}])
+            returns.scan(folder, self.data_dir, self.clock, self.log)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
 
     def _settled(self, p):
         try:
@@ -644,7 +646,8 @@ class Intake:
             except (OSError, ValueError, RuntimeError) as e:
                 res = {"ok": False, "reason": "%s: %s" % (e.__class__.__name__, str(e)[:120])}
         item = {"label": fb["zip"], "state": "accepted" if res.get("ok") else "rejected", "reason": res.get("summary") or res.get("reason") or ""}
-        self._record(folder, "feedback", "app", "要らない: %s" % (fb.get("title") or fb["zip"]), [n], "", "", [], [item])
+        label = friend_feedback.LABELS.get(fb.get("verdict"), "要らない")   # 動画にした(F1 F6a)は片付けずに記録だけ
+        self._record(folder, "feedback", "app", "%s: %s" % (label, fb.get("title") or fb["zip"]), [n], "", "", [], [item])
 
     def _handle_text(self, folder, n, p, cfg):
         try:

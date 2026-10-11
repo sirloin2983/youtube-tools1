@@ -289,19 +289,8 @@ def record_feedback(obj):
 
 
 def _spans(text, w, r):
-    """text の中で w がある位置(r の一部になっている箇所は除く)。"""
-    rs = []
-    if r:
-        k = text.find(r)
-        while k >= 0:
-            rs.append((k, k + len(r)))
-            k = text.find(r, k + 1)
-    out, k = [], text.find(w)
-    while k >= 0:
-        if not any(a <= k and k + len(w) <= b for a, b in rs) and _dictfmt._bounded(text, k, w):   # 単語の途中には当てない(トル→ポル が「トルコ」に当たらない)
-            out.append(k)
-        k = text.find(w, k + 1)
-    return out
+    """text の中で w がある位置(r の一部になっている箇所は除く)。数え方は ytt/dictfmt.spans(呼ぶたびに読む)"""
+    return _dictfmt.spans(text, w, r)
 
 
 def learn_rules(settings=None):
@@ -414,6 +403,29 @@ def suggest_for_doc(tid):
 
 # 確度「高」の学習済み置換を当てる auto_learned_replace は RS6 a-3 に ① pipeline/transcribe/replace へ(選び方 find_suggestions(only_high)は ここのまま。
 # 文字起こしのジョブ doc_jobs.learned_finder が包んで ① の clipjob に渡す)
+
+
+def dict_learned_text(rules=None, fb=None):
+    """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
+    rules・fb = 読んである物(無ければ読む)"""
+    rules = learn_rules() if rules is None else rules
+    fb = load_feedback() if fb is None else fb
+    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in fb.items() if k not in ("alt", "yt")}},
+                      ensure_ascii=False, sort_keys=True)
+
+
+def export_rules(settings=None):
+    """今の学習を、文書を読まずに使える計算済みの形にする(④ manage/keep/learnpack が束に書く。友人の PC の ② flow/learning が読む)。
+    {"schema", "high": [{wrong, right, pos, docs}](確度「高」= 自動で当てる置換。文脈に依らず決まる)・"glossary": [語](認識のヒントにする順位)・
+    "dictLearned": 辞書の版の元の文字(入口の経路と同じ値 = 鍵が同じになる)}。時刻は入れない(同じ学習なら同じ中身 = 版が変わらない)"""
+    rules, fb = learn_rules(settings), load_feedback()
+    high = []
+    for (w, r), x in rules.items():
+        if _tier(x, "", "", fb["stat"].get("%s=>%s" % (w, r), {}))[0] == "high":
+            high.append({"wrong": w, "right": r, "pos": x["pos"], "docs": len(x["docs"])})
+    high.sort(key=lambda d: (-d["pos"], d["wrong"], d["right"]))
+    ranked = sorted(((x["pos"], r) for (w, r), x in rules.items() if not x["ctx"] and x["pos"] >= 2 and 2 <= len(r) <= 15), key=lambda t: (-t[0], t[1]))
+    return {"schema": "ytt-learned-rules/v1", "high": high, "glossary": list(dict.fromkeys(r for _pos, r in ranked)), "dictLearned": dict_learned_text(rules, fb)}
 
 
 def load_roster():

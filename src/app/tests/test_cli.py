@@ -191,6 +191,30 @@ class TestLearningPlaces(Base):
             self.assertEqual((workdata.SETTINGS, workdata.FEEDBACK), (os.path.join(ld, "settings.json"), os.path.join(ld, "learn-feedback.json")))
             self.assertEqual(workdata.TX_DIR, os.path.join(os.path.abspath(self.data), "transcribe", "transcripts"))   # 出力の文書はそのまま作業データへ
 
+    def test_learning_pack_used_without_docs(self):
+        """F1: learningDir が学習の束なら文書なしで置換辞書・用語・規則を使い、束の版が束に入る(友人の PC の形)"""
+        from flow import diar, learning
+        from manage.keep import learnpack
+        data = os.path.join(self.tmp, "src-data")
+        os.makedirs(data)
+        with open(os.path.join(data, "settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"replacements": "あ=>い"}, f)
+        rules = {"schema": "ytt-learned-rules/v1", "high": [{"wrong": "ぺこ", "right": "ぺこら", "pos": 3, "docs": 2}], "glossary": ["ぺこら"], "dictLearned": "x"}
+        pack = learnpack.build(os.path.join(self.tmp, "学習"), data_dir=data, roster_path=os.path.join(self.tmp, "no-roster.json"),
+                               members_path=os.path.join(self.tmp, "no-members.json"), rules=rules)
+        keep = (workdata.SETTINGS, workdata.FEEDBACK, roster.ROSTER, diar.VOICES_DIR)
+        self.addCleanup(lambda: (setattr(workdata, "SETTINGS", keep[0]), setattr(workdata, "FEEDBACK", keep[1]), setattr(roster, "ROSTER", keep[2]),
+                                 setattr(diar, "VOICES_DIR", keep[3])))
+        with mock.patch.dict(os.environ, {"YTT_MACHINE_LEARNING_DIR": pack["dir"]}):
+            cli.use_data_dir(self.data)
+            ld = cli.learning_dir()
+            self.assertEqual(ld, os.path.abspath(pack["dir"]))
+            self.assertEqual(workdata.SETTINGS, os.path.join(ld, "settings.json"))
+            lr = cli.Learning(ld)
+            self.assertEqual((lr.glossary([]), lr.dict_learned(), lr.learned()("ぺこ")[0]["right"]), (["ぺこら"], "x", "ぺこら"))
+            b = learning.stamp(cli.load_spec(None), lr)
+            self.assertEqual(b["post"]["learning"]["version"], pack["version"])
+
     def test_learning_reader_skips_without_docs(self):
         """学習のもとの文書が無ければ ③ を読まずに「学習なし」(友人の PC の ② + ① だけの形)"""
         empty = os.path.join(self.tmp, "ld")

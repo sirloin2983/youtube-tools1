@@ -19,7 +19,10 @@ from ytt import tools
 DELIVERIES_LOG = "deliveries.jsonl"       # 届けた記録(入口の作業データの logs の中)
 FEEDBACK_LOG = "friend_feedback.jsonl"    # 友人の「要らない」の記録
 SUFFIX = ".feedback.json"
-VERDICTS = ("reject",)
+# 判定: reject = 要らない(片付ける)/ made_video = 動画にした(F1 F6a。片付けずに記録だけ = 採用の数に数える)。
+# 名前は送り返しの採否 returns.VERDICTS(keep・reject・made_video)と同じ(数え方をそろえる。keep は .feedback.json では送らない)
+VERDICTS = ("reject", "made_video")
+LABELS = {"reject": "要らない", "made_video": "動画にした"}
 MAX_BYTES = 64 * 1024
 MAX_SCAN = 4 * 1024 * 1024                # 届けた記録を末尾から読む上限
 NAME_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,200}$')
@@ -93,6 +96,8 @@ def apply(log_dir, fb, trash=None, log=None, discard=None):
     -> {"ok", "summary", "packs": [...]}。届けた記録が無い・部品が無いときは ok False と理由"""
     log = log or (lambda msg: None)
     row = find_delivery(log_dir, fb["zip"])
+    if fb.get("verdict") == "made_video":
+        return _record_made(log_dir, fb, row, log)
     if not row:
         return {"ok": False, "reason": "届けた記録に %s がありません(この入口が届けたものではないか、記録が消えています)" % fb["zip"]}
     if trash is None:
@@ -123,6 +128,22 @@ def apply(log_dir, fb, trash=None, log=None, discard=None):
         summary += "。片付けられなかった %d 本: %s" % (len(errors), errors[0][:120])
     log("友人の返事: 要らない %s → %s" % (fb["zip"], summary))
     return {"ok": bool(done), "summary": summary, "packs": results}
+
+
+def _record_made(log_dir, fb, row, log):
+    """友人の「動画にした」(F1 F6a): 何も片付けず、friend_feedback.jsonl に verdict made_video の 1 行だけ(届けた記録が無くても残す = 数える)"""
+    row = row or {}
+    packs = [{"dir": str(p.get("dir") or ""), "markId": str(p.get("markId") or "")} for p in row.get("packs") or [] if isinstance(p, dict)]
+    rec = {"at": int(time.time() * 1000), "zip": fb["zip"], "verdict": "made_video", "requestId": fb.get("requestId") or row.get("requestId") or "",
+           "title": fb.get("title") or row.get("title") or "", "videoId": row.get("videoId") or "", "runId": row.get("runId") or "", "packs": packs}
+    try:
+        _append(log_dir, FEEDBACK_LOG, rec)
+    except OSError as e:
+        log("友人の返事: 記録を書けませんでした(%s)" % tools.why(e))
+        return {"ok": False, "reason": "記録を書けませんでした(%s)" % tools.why(e)}
+    summary = "記録だけ(片付けない。記録は %s)" % FEEDBACK_LOG + ("" if row else "。届けた記録にこの zip はありません")
+    log("友人の返事: 動画にした %s → %s" % (fb["zip"], summary))
+    return {"ok": True, "summary": summary, "packs": packs}
 
 
 def read_text(path, limit=MAX_BYTES):

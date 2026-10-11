@@ -11,6 +11,13 @@
   function opts(card) {
     return (Array.isArray(card.options) ? card.options : []).filter(function (x) { return x && typeof x === 'object'; }).slice(0, 2);
   }
+  /* 後処理(fill)のカードの note は直した部品の名前(by = name / llm / エンジンの名前)。画面には何をした行かの文で出す(編集の「別の読み」の札と同じ言い方) */
+  var FILL_BY = { name: '行の頭の話者名(「名前:」)を外した行です', llm: 'LLM が名簿の呼び名に直した行です' };
+  function noteText(card) {
+    var n = String(card.note || '');
+    if (card.source !== 'fill' || !n) return n;
+    return FILL_BY[n] || '別のエンジン(' + n + ')の読みで埋めた行です';
+  }
   function pair(card) {
     var o = opts(card), lb = LABELS[card.source] || ['', ''];
     if (o.length < 2) return '';
@@ -52,7 +59,7 @@
         cur = card; root = el; ctxRef = ctx; typing = false;
         el.innerHTML = '<div class="chk-q">どちらの読みが正しい?</div>' +
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' + pair(card) +
-          (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') +
+          (card.note ? '<p class="hint">' + esc(noteText(card)) + '</p>' : '') +
           '<p class="hint">文字だけの判定です(行を校正済みにしない・時刻の正解には使わない)。</p></div></div>' +
           '<div class="chk-acts">' + CheckCards.btn('1 が正しい', '1', '') + CheckCards.btn('2 が正しい', '2', '') + CheckCards.btn('どちらも違う(打つ)', '3', '') + '</div>' +
           '<div class="chk-type" data-chk-type hidden><label class="hint" for="chkReadText">正しい文字(行の全体を打ち直します)</label>' +

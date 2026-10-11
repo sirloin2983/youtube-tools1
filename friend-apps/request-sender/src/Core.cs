@@ -17,7 +17,7 @@ namespace RequestSender
     public static class AppInfo
     {
         public const string Title = "切り抜き依頼";
-        public const string Version = "2.10.0";
+        public const string Version = BuildVersion.Value;   // 全体の版(src/ytt/version.py)。build.bat が build\AppVersion.g.cs に埋める(F1 の f1l)
     }
 
     // ---- PC でどこまでやるか。2.10.0 から画面で選ぶ欄は無く、いつも auto(② check・③ manual は古い形の読み書きのために残す。PC は ②③ を送られても ① として扱う) ----
@@ -462,7 +462,18 @@ namespace RequestSender
 
         public static string Reject(OutputEntry e, DateTimeOffset now)
         {
-            return "{\"v\":1,\"kind\":\"feedback\",\"verdict\":\"reject\",\"zip\":" + JsonText.Quote(e.Name, false) +
+            return Verdict(e, "reject", now);
+        }
+
+        // 「動画にした」(F3b): 受け取ったパックを実際に動画にした印。Reject と同じ形で verdict だけ違う
+        public static string MadeVideo(OutputEntry e, DateTimeOffset now)
+        {
+            return Verdict(e, "made_video", now);
+        }
+
+        public static string Verdict(OutputEntry e, string verdict, DateTimeOffset now)
+        {
+            return "{\"v\":1,\"kind\":\"feedback\",\"verdict\":" + JsonText.Quote(verdict, false) + ",\"zip\":" + JsonText.Quote(e.Name, false) +
                    ",\"requestId\":" + JsonText.Quote(e.RequestId ?? "", false) + ",\"title\":" + JsonText.Quote(e.Title ?? "", false) +
                    ",\"sentAt\":" + JsonText.Quote(now.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture), false) + "}";
         }
@@ -536,6 +547,8 @@ namespace RequestSender
         public List<OutputEntry> Members = new List<OutputEntry>();   // (組)いま届いている 1 本ずつの zip(n の順。受け取った・要らないにしたものは外す)
         public OutputEntry Parent;   // (パック)属する組(無ければ null)
         public GroupPack Slot;       // (パック)組の中での n・まとめ動画の中で始まる秒・長さ
+        public bool Local;           // この PC の ② が作ったパック(F6b。LocalPacks.cs)。Dropbox には無い = 受け取る = 開く・採否は outbox の verdict.json
+        public string LocalPath, LocalPreview, RunId;   // (この PC)パックのフォルダ・再生する動画(無ければ null)・実行の id
 
         // 受け取った記録の鍵。同じ名前で置き直されたら rev が変わるので「まだ」に戻る
         public string Key

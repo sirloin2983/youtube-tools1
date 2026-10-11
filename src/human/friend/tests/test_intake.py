@@ -729,6 +729,27 @@ class TestFeedback(Base):
         self.assertIn("部品", rec["reason"])
 
 
+class TestReturns(Base):
+    """友人の送り返し(同期フォルダの 送り返し\\。F1 の F2): 見回りのたびに returns.scan が app/friend-returns へ並べる。依頼の一覧には出さない"""
+
+    def test_scan_files_returns(self):
+        import json
+        import zipfile
+        inbox = os.path.join(self.folder, "送り返し")
+        os.makedirs(inbox)
+        zp = os.path.join(inbox, "20261011-120000-abcdef__r1.zip")
+        with zipfile.ZipFile(zp, "w") as z:
+            z.writestr("manifest.json", json.dumps({"schema": "youtube-tools-outbox/v1"}))
+            z.writestr("run.json", "{}")
+        os.utime(zp, (self.now - 600, self.now - 600))
+        self.it.clock = lambda: self.now
+        self.it.scan()
+        self.assertTrue(os.path.isfile(os.path.join(self.data, "friend-returns", time.strftime("%Y-%m", time.localtime(self.now)),
+                                                    "20261011-120000-abcdef", "r1", "run.json")))
+        self.assertTrue(os.path.isfile(os.path.join(inbox, "受付済み", "20261011-120000-abcdef__r1.zip")))
+        self.assertEqual(self.it.st["requests"], [])
+
+
 class TestDeliverBatch(Base):
     """依頼ごとの届け方(docs/spec/friend-intake.md の 2-16。2.8.0 のアプリの deliverBatch 1〜10): url・video の依頼はまとめて実行へ渡す。
     無い・範囲の外・手で置いた依頼は None(= ホームの設定 intake.deliverBatch のまま)"""

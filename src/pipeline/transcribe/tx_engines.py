@@ -38,11 +38,13 @@ import wave
 import zlib
 
 try:
-    from ytt import fsio as _fsio, tools as _tools, workdata as _workdata   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
+    from ytt import fsio as _fsio, tools as _tools, txbase as _txbase, workdata as _workdata   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
 except ImportError:   # このファイルだけを読み込んだとき(tests/test_worker.py の子プロセスなど): ツールの 1 つ上(src/)の共通部品
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    from ytt import fsio as _fsio, tools as _tools, workdata as _workdata
+    from ytt import fsio as _fsio, tools as _tools, txbase as _txbase, workdata as _workdata
 
+# 要求にエンジンも GPU の機器(vulkan・cuda)も無いときのエンジン。F1 F0-2 で whisper.cpp にする予定だったが、機器なしの要求
+# (測る道具・テストの model small など)が whisper.cpp で断られるので faster-whisper のまま(機器 vulkan・cuda は worker_client.req_engine が whisper.cpp に)
 DEFAULT = "faster-whisper"
 ENGINE_DIR = None   # エンジンの実行ファイル・モデルの置き場所(既定 = 作業データ)。RS2-4a(2026-10-10)に編集の ed_jobs から移した
 
@@ -57,7 +59,7 @@ def engine_home():
 
 
 def engine_of(spec):
-    """指定(spec)の認識エンジンの名前(無ければ既定 = faster-whisper)"""
+    """指定(spec)の認識エンジンの名前(無ければ既定 DEFAULT = faster-whisper)"""
     return str(spec.get("engine") or DEFAULT)
 
 
@@ -180,20 +182,31 @@ class FasterWhisper(Engine):
 # ---------------------------------------------------------------- whisper.cpp(段2-2)
 # 実行ファイルは公式の配布に Windows の Vulkan 版が無いので、公式のソースを決まったコミットで取り、この PC で作る(setup/build-whisper-vulkan.bat。
 # 2026-10-02 ユーザー決定)。作った物は作業データの bin\whisper.cpp-<版>-vulkan\ に置き、build.json にコミットを記録する(違えば使わない)。
-WHISPER_CPP = {"version": "v1.9.4", "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a", "repo": "https://github.com/ggml-org/whisper.cpp.git"}
+# CUDA 版(F1 F0-2。友人の PC の RTX)は公式のリリースの zip を URL・大きさ・SHA-256 固定で取り bin\whisper.cpp-<版>-cuda\ に置く(WCPP_BINARIES。
+# 取るのは機器を cuda に切り替えて最初に読み込むときだけ)。置き場所の決まりは ytt/txbase の wcpp_bin_dir(入口の flow/live_tx も同じ関数を読む)
+WHISPER_CPP = {"version": _txbase.WCPP_VERSION, "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a", "repo": "https://github.com/ggml-org/whisper.cpp.git"}
+# 種類 -> 公式の配布の zip。cuda = リリース b5130(タグ v1.9.4 と同じコミット 927cfce)の whisper-cublas-12.4.0-bin-x64.zip(CUDA ランタイムの DLL 込みの大きさ)。
+# 大きさと SHA-256 は 2026-10-11 に GitHub の API(リリースの assets の size・digest)で確かめた(zip は取っていない = 中のフォルダの形は取ったときに探す)。
+# sha256 が空の種類は取らない(wcpp_binary_ok)
+WCPP_BINARIES = {
+    "cuda": {"file": "whisper-cublas-12.4.0-bin-x64.zip", "size": 674539285,
+             "sha256": "af520ddd034d985b55dfeea3e465ed93653ba2aee1a55e865033edc548c272a7",
+             "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-cublas-12.4.0-bin-x64.zip"},
+}
 _HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
 WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の ggerganov/whisper.cpp。大きさと SHA-256 は 2026-10-02 に API で確かめた)
-    "large-v3": {"file": "ggml-large-v3.bin", "url": _HF + "ggml-large-v3.bin", "size": 3095033483,
+    "large-v3": {"file": _txbase.WCPP_MODEL_FILES["large-v3"], "url": _HF + "ggml-large-v3.bin", "size": 3095033483,
                  "sha256": "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"},
 }   # large-v3-turbo は 0.58.0 で外した(主の文字起こしのモデルは large-v3 だけ)
 WCPP_VAD = {"file": "ggml-silero-v6.2.0.bin", "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", "size": 885098,
             "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"}   # 声の検出(Silero v6.2。計画の 3)
 # ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は 0.65.0(2026-10-09)で消した = 編集はもう取得しない。
 #   定数は入口の home/live_tx_worker.py が名前を参照しているので残す(fetch_file の固定の形の例としても test_whispercpp が確かめる)
-WCPP_EXE = "whisper-cli.exe" if os.name == "nt" else "whisper-cli"
+WCPP_EXE = _txbase.WCPP_EXE
 _GPU_LINE = re.compile(r"whisper_backend_init_gpu: (?:using (.+?) backend|no GPU found)")
 _PROGRESS = re.compile(r"progress\s*=\s*(\d+)%")
 _VK_DEV = re.compile(r"ggml_vulkan: \d+ = ([^|(]+)")
+_CUDA_DEV = re.compile(r"Device \d+: ([^,]+), compute capability")   # ggml_cuda_init の機器の行(CUDA 版。F1 F0-2)
 
 
 def wcpp_env():
@@ -205,12 +218,54 @@ def wcpp_env():
     return env
 
 
-def wcpp_bin_dir(data_dir):
-    return os.path.join(data_dir, "bin", "whisper.cpp-%s-vulkan" % WHISPER_CPP["version"])
+def wcpp_bin_dir(data_dir, device="vulkan"):
+    """実行ファイルのフォルダ(機器で種類を選ぶ。決まりは ytt/txbase の 1 か所)"""
+    return _txbase.wcpp_bin_dir(data_dir, device)
 
 
 def wcpp_model_dir(data_dir):
-    return os.path.join(data_dir, "models", "whispercpp")
+    return _txbase.wcpp_model_dir(data_dir)
+
+
+def wcpp_binary_ok(flavor):
+    """種類 flavor の配布の zip を取ってよいか(URL が https・大きさ・SHA-256 がそろっている)。SHA-256 を確かめていない物は取らない"""
+    spec = WCPP_BINARIES.get(flavor) or {}
+    return bool(str(spec.get("url") or "").startswith("https://") and spec.get("size")
+                and re.fullmatch(r"[0-9a-f]{64}", str(spec.get("sha256") or "")))
+
+
+def _dir_with(root, name):
+    """root の下で name のファイルがあるフォルダ(浅い順)。無ければ None"""
+    for d, _dirs, files in sorted(os.walk(root), key=lambda x: x[0].count(os.sep)):
+        if name in files:
+            return d
+    return None
+
+
+def fetch_wcpp_binary(flavor, data_dir, log=None, cancelled=None, progress=None):
+    """種類 flavor(cuda)の公式の zip を取って bin/whisper.cpp-<版>-<種類>/ に置き、build.json にコミットを書く -> フォルダ。
+    zip の中で whisper-cli のあるフォルダを丸ごと置く(zip の形が変わっても探す)。SHA-256 が未確認・取れない・中身が違えば EngineError"""
+    if not wcpp_binary_ok(flavor):
+        raise EngineError("engine_missing", "whisper.cpp の %s 版の取得先(SHA-256)を確かめていないので取りません" % flavor, 400)
+    spec = WCPP_BINARIES[flavor]
+    bdir = wcpp_bin_dir(data_dir, flavor)
+    z = fetch_file(spec, os.path.dirname(bdir), log, cancelled, progress)
+    tmp = bdir + ".part"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    try:
+        _safe_unzip(z, tmp)
+        src = _dir_with(tmp, WCPP_EXE)
+        if not src:
+            raise EngineError("fetch_failed", "whisper.cpp の %s 版の圧縮ファイルに %s がありません" % (flavor, WCPP_EXE))
+        shutil.rmtree(bdir, ignore_errors=True)
+        shutil.move(src, bdir)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    _fsio.write_json(os.path.join(bdir, "build.json"), {"commit": WHISPER_CPP["commit"], "version": WHISPER_CPP["version"], "flavor": flavor,
+                                                        "source": spec["url"], "sha256": spec["sha256"]})
+    _fsio.unlink_quiet(z)
+    return bdir
 
 
 def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
@@ -291,7 +346,8 @@ def _ascii_path(p):
 
 
 class WhisperCpp(Engine):
-    """whisper.cpp(whisper-cli を子プロセスで)。機器は vulkan(AMD などの GPU)か cpu。GPU を頼んだのに Vulkan で動かなければ、黙って CPU にせず止める(計画 段2-2)"""
+    """whisper.cpp(whisper-cli を子プロセスで)。機器は vulkan(AMD などの GPU)・cuda(NVIDIA。公式の CUDA 版。F1 F0-2)か cpu。
+    GPU を頼んだのにその GPU で動かなければ、黙って CPU にせず止める(計画 段2-2)"""
     id = "whisper.cpp"
     package = ""
     PARAMS = ["beam_size", "condition_on_previous_text", "initial_prompt", "language", "no_speech_threshold", "temperature",
@@ -300,25 +356,33 @@ class WhisperCpp(Engine):
 
     @classmethod
     def device_order(cls, pref, cuda_ok):
-        return ["cpu"] if pref == "cpu" else ["vulkan"]   # 自動でも GPU が使えないときは CPU にしない(理由を出して止める)
+        if pref in ("cpu", "cuda"):   # cuda = CUDA 版(F1 F0-2)。CPU は明示のときだけ
+            return [pref]
+        return ["vulkan"]   # 自動でも GPU が使えないときは CPU にしない(理由を出して止める)
 
     @classmethod
     def valid_model(cls, name):
         return name in WCPP_MODELS
 
     @classmethod
-    def manifest(cls, data_dir):
-        return _fsio.read_json_or(os.path.join(wcpp_bin_dir(data_dir), "build.json"), None, kind=dict)
+    def manifest(cls, data_dir, device="vulkan"):
+        return _fsio.read_json_or(os.path.join(wcpp_bin_dir(data_dir, device), "build.json"), None, kind=dict)
 
     @classmethod
-    def ready(cls, data_dir):
+    def ready(cls, data_dir, device="vulkan"):
+        """(使えるか, 理由)。cuda は実行ファイルがまだ無くても取得先が確かめてあれば使える(読み込みのときに取る = fetch_wcpp_binary)"""
         if cls.COMMAND:
             return True, ""
-        exe = os.path.join(wcpp_bin_dir(data_dir), WCPP_EXE)
-        if not os.path.isfile(exe):
+        flavor = _txbase.wcpp_flavor(device)
+        m = cls.manifest(data_dir, flavor)
+        have = os.path.isfile(_txbase.wcpp_exe(data_dir, flavor)) and m and m.get("commit") == WHISPER_CPP["commit"]
+        if flavor != "vulkan":
+            if have or wcpp_binary_ok(flavor):
+                return True, ""
+            return False, "whisper.cpp の %s 版の取得先を確かめていません(機器を vulkan にしてください)" % flavor
+        if not os.path.isfile(_txbase.wcpp_exe(data_dir, flavor)):
             return False, "whisper.cpp がまだ作られていません(setup\\build-whisper-vulkan.bat を実行してください)"
-        m = cls.manifest(data_dir)
-        if not m or m.get("commit") != WHISPER_CPP["commit"]:
+        if not have:
             return False, "whisper.cpp の版が想定と違います(setup\\build-whisper-vulkan.bat で作り直してください)"
         return True, ""
 
@@ -331,13 +395,18 @@ class WhisperCpp(Engine):
         spec = WCPP_MODELS.get(name)
         if spec is None:
             raise EngineError("bad_model", "whisper.cpp で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(WCPP_MODELS)), 400)
-        ok, why = cls.ready(data_dir)
+        ok, why = cls.ready(data_dir, device)
         if not ok:
             raise EngineError("engine_missing", why, 400)
         hooks = hooks or {}
+        flavor = _txbase.wcpp_flavor(device)
+        if not cls.COMMAND and flavor != "vulkan":   # CUDA 版は切り替えて最初に読み込むときに取る(無い・版が違うとき)
+            m = cls.manifest(data_dir, flavor)
+            if not os.path.isfile(_txbase.wcpp_exe(data_dir, flavor)) or not m or m.get("commit") != WHISPER_CPP["commit"]:
+                fetch_wcpp_binary(flavor, data_dir, log, hooks.get("cancelled"), hooks.get("download"))
         mdir = wcpp_model_dir(data_dir)
         model = fetch_file(spec, mdir, log, hooks.get("cancelled"), hooks.get("download"))
-        cmd = list(cls.COMMAND) if cls.COMMAND else [os.path.join(wcpp_bin_dir(data_dir), WCPP_EXE)]
+        cmd = list(cls.COMMAND) if cls.COMMAND else [_txbase.wcpp_exe(data_dir, flavor)]
         e = cls(name, device, {"cmd": cmd, "model": model})
         e.gpu_name = ""
         return e
@@ -442,12 +511,12 @@ class WhisperCpp(Engine):
             m = _GPU_LINE.search(s)
             if m and (used is None or m.group(1)):
                 used = m.group(1) or used or ""
-            d = _VK_DEV.search(s)
+            d = _VK_DEV.search(s) or _CUDA_DEV.search(s)
             if d:
                 self.gpu_name = d.group(1).strip()
-        if self.device == "vulkan" and not (used and "vulkan" in used.lower()):
-            raise EngineError("gpu_failed", "GPU(Vulkan)を使えませんでした(%s)。GPU のドライバを確かめるか、処理方式を「CPU」にしてください"
-                              % ("GPU が見つからない" if used is not None else "GPU の初期化の記録が無い"))
+        if self.device in ("vulkan", "cuda") and not (used and self.device in used.lower()):
+            raise EngineError("gpu_failed", "GPU(%s)を使えませんでした(%s)。GPU のドライバを確かめるか、処理方式を「CPU」にしてください"
+                              % ("CUDA" if self.device == "cuda" else "Vulkan", "GPU が見つからない" if used is not None else "GPU の初期化の記録が無い"))
 
 
 def parse_json(data):
@@ -723,6 +792,9 @@ LLAMA_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
 LLAMA_TEXT_MODELS = {
     "qwen3-8b": {"model": {"file": "Qwen3-8B-Q4_K_M.gguf", "size": 5027783488, "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
                            "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/7c41481f57cb95916b40956ab2f0b139b296d974/Qwen3-8B-Q4_K_M.gguf"}},
+    # VRAM 6〜10GB の PC の既定(F1 の仮決め f1b。flow/machine が VRAM で選ぶ)。2026-10-11 に Hugging Face の API(コミット固定の tree の lfs の oid・size)で確かめた・Apache-2.0
+    "qwen3-4b": {"model": {"file": "Qwen3-4B-Q4_K_M.gguf", "size": 2497280256, "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+                           "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf"}},
 }
 # ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(ed_fill。10-08 の実験ループの A・D。編集 0.60.0) ----------
 # モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2026-10-08 に確かめた。2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力)。

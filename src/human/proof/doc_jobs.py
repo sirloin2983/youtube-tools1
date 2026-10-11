@@ -18,7 +18,6 @@ git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。認識その
 単語の時刻の読み read_words は ytt/txwords(RS6 a-5b)。
 """
 import bisect
-import json
 import os
 import time
 import uuid
@@ -75,10 +74,24 @@ def _hook(name):
         raise RuntimeError("doc_jobs の口 %s が登録されていません(編集の serve.py が読み込みのときに登録する)" % name) from None
 
 
+# ---------- 学習データの読み手(F1 F6a。入口が machine の learningDir があるときだけ set_learning で入れる) ----------
+# 入れた物(② flow/learning.Learning の形: glossary(terms)・learned()・dict_learned())があれば、用語の自動追加・確度「高」の学習済み置換・
+# 辞書の版の learned をそこから読む(学習の束なら計算済みの規則 = 文書を読まない)。None(既定)= 今まで通り隣の learn から
+_learning = [None]
+
+
+def set_learning(learning):
+    """学習データの読み手を入れる(None で外す)。入口(app)が起動のときに 1 回"""
+    _learning[0] = learning
+
+
 def glossary_of(req, st=None):
     """要求の用語集(200 語まで)と、自動で足す語(autoGloss。よく直される正しい語)-> (用語集, 自動の語)。st = 読んである設定"""
     glossary = _txtext.split_terms(req.get("glossary"))[:200]
-    return glossary, (learn.auto_glossary(glossary, settings=st) if req.get("autoGloss") is not False else [])
+    if req.get("autoGloss") is False:
+        return glossary, []
+    lr = _learning[0]
+    return glossary, (list(lr.glossary(glossary)) if lr is not None else learn.auto_glossary(glossary, settings=st))
 
 
 def _llm_model_of(req):
@@ -267,10 +280,10 @@ def learned_finder(lrules, lfb):
 
 def dict_learned():
     """辞書の版(records.dict_version)の learned の元の文字: 学習済みの置換の規則と採用・却下の記録(別のエンジン alt・YouTube の字幕 yt の数は除く)。
-    学習(learn)を読むのは文書の側のここだけ(① の records は learn を読まない。serve が records.set_dict_inputs で登録する。RS2-5)"""
-    rules = learn.learn_rules()
-    return json.dumps({"rules": sorted([w, r, x["pos"], len(x["docs"])] for (w, r), x in rules.items()), "fb": {k: v for k, v in learn.load_feedback().items() if k not in ("alt", "yt")}},
-                      ensure_ascii=False, sort_keys=True)
+    学習(learn)を読むのは文書の側のここだけ(① の records は learn を読まない。serve が records.set_dict_inputs で登録する。RS2-5)。
+    学習データの読み手(set_learning)があればそこから"""
+    lr = _learning[0]
+    return lr.dict_learned() if lr is not None else learn.dict_learned_text()
 
 
 def _fresh_id(used, make, n=0):
@@ -390,10 +403,15 @@ def run_job(job):
     with _heavy.job_temp_wav(job) as wav:
         # 置換辞書の組と学習した置換は認識の前に 1 回だけ読む(F-8。RS2-8e までは音声の取り出しのあと・認識の行を読み始める前に読んでいた)
         pairs = _flowtx.dict_pairs(spec)
-        lrules, lfb = (learn.learn_rules(), learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
+        lr = _learning[0]
+        if lr is not None:   # 学習データの読み手(F1 F6a。machine の learningDir)
+            finder = lr.learned() if spec.get("autoLearned") else None
+        else:
+            lrules, lfb = (learn.learn_rules(), learn.load_feedback()) if spec.get("autoLearned") else ({}, None)
+            finder = learned_finder(lrules, lfb)
         # 機械の分(② flow/tx.transcribe_clip → ① clipjob = 取り出し → 認識 → 後処理 B・A・C → 文書の行 → D → LLM の E。② が fields を組む。RS6 a-3)。
         # ここから下は ③ の分(文書の id・clip・評価用・入れる文書・評価用の作り直し・30fps・話者・続きのジョブ)
-        clip = _flowtx.transcribe_clip(job, spec, wav, pairs, learned_finder(lrules, lfb))
+        clip = _flowtx.transcribe_clip(job, spec, wav, pairs, finder)
         fields = clip["fields"]
         if spec.get("evalRedo"):
             # 評価用の作り直し: 同じ文書の行・機械の出力を置き換える(評価用の再認識を断る決まりの、この道だけの例外。ユーザー承認 2026-10-04)。

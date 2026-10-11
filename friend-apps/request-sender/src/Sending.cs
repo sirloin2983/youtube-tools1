@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using FriendApps;
 
 namespace RequestSender
 {
@@ -135,6 +136,24 @@ namespace RequestSender
                 Sent.Add("動画(" + input.Videos.Count + " 本)");
             }
             Progress(new SendProgress { Done = prog.Total, Total = prog.Total, Step = "送りました" });
+        }
+
+        // この PC で処理する(F1 の F3a): 封筒 + 束を 1 件ずつ ② の口 POST /api/flow/submit へ(動画は送らない = パスを渡す)。
+        // 断られたら理由つきの BackendException(それまでに受け付けた分は Sent に残る)。-> 受け付けた実行の id
+        public static List<string> RunLocal(SendInput input, IFlowClient flow, FriendDefaults defaults, string learningVersion, List<string> sent, Action<string> step)
+        {
+            var reqs = FlowBundle.Build(input, defaults, RequestId.New(DateTime.Now), learningVersion, null, DateTimeOffset.Now);
+            var ids = new List<string>();
+            for (int i = 0; i < reqs.Count; i++)
+            {
+                if (step != null) step("この PC の処理に渡しています(" + (i + 1) + " / " + reqs.Count + "): " + reqs[i].Label);
+                var r = flow.Post("/api/flow/submit", reqs[i].Body());
+                if (!r.Ok) throw new BackendException(reqs[i].Label + ": " + FlowErrors.Submit(r));
+                var run = Json.Dict(r.Body, "run");
+                ids.Add(Json.Str(run, "id") ?? (string)reqs[i].Envelope["id"]);
+                if (sent != null) sent.Add(reqs[i].Label);
+            }
+            return ids;
         }
     }
 }

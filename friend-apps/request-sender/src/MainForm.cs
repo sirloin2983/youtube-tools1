@@ -2,6 +2,7 @@
 //   上の帯: 「送る」「受け取る ●n」・右上に配色の札(A〜D)
 //   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル / ライブ配信(2.8.0))、右 = 02 仕上げ方(届け方も)・03 配信者とメモ(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
 //   受け取る: MainForm.Receive.cs
+//   この PC で処理する(F1 の F3a。② を子プロセスで・進み具合・× の 3 択・処理する PC の切り替え): Progress.cs・Backend.cs・Bundle.cs
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -121,6 +122,7 @@ namespace RequestSender
 
             root.Dock = DockStyle.Fill;
             Controls.Add(root);
+            InitBackend();
             BuildTopBar();
             BuildSendPage();
             BuildReceiveLayout();
@@ -137,7 +139,7 @@ namespace RequestSender
             LayoutAll();
 
             Theme.Changed += ApplyTheme;
-            Resize += (s, e) => LayoutAll();
+            Resize += (s, e) => { LayoutAll(); OnRestoredFromWait(); };
             DragEnter += OnDragEnter;
             DragDrop += OnDragDrop;
             Shown += (s, e) =>
@@ -153,9 +155,14 @@ namespace RequestSender
                 poll.Tick += (s2, e2) => PollArrivals();
                 poll.Start();
                 PollArrivals();
+                StartBackendAsync();   // この PC で処理できる形なら ② を裏で起こす(前の起動の待ちも続きから)
+                Setup.OfferFetch(this, exeDir);   // 初回に取る部品が足りなければ小窓(F4b。fetch.json が無ければ何もしない)
+                flowRev = long.MinValue;          // 小窓のあとの足りない数で上の帯を描き直す(次の問い合わせで。② が無ければここで)
+                if (Setup.MissingCount > 0 && (flow == null || !flow.Blocked)) SetFlowLine("⚠ " + Setup.MissingReason(), Tone.Error);
+                else if (flow != null) ShowFlow(flow);
             };
             FormClosing += OnClosing;
-            Disposed += (s, e) => { Theme.Changed -= ApplyTheme; poll.Dispose(); tips.Dispose(); };
+            Disposed += (s, e) => { Theme.Changed -= ApplyTheme; poll.Dispose(); flowTimer.Dispose(); tips.Dispose(); };
         }
 
         // ---------------------------------------------------------------- 組み立て
@@ -169,6 +176,7 @@ namespace RequestSender
             brand.Font = Theme.MonoSmall;
             lTheme.Font = Theme.Small;
             topBar.Controls.AddRange(new Control[] { tabSend, tabRecv, brand, lTheme });
+            InitSettingsButton();
             foreach (var p in Theme.All)
             {
                 var sw = new Swatch(p);
@@ -186,6 +194,8 @@ namespace RequestSender
             BuildLeftPane();
             BuildFlowSection();
             BuildSpeakerSection();
+            BuildPcRow();
+            BuildSyncRow();   // Sync.cs: 学習・送り返し・更新の確認(10 分ごとのタイマー 1 つ + 帯 1 行)
             BuildBottomBand();
             sendPage.Controls.AddRange(new Control[] { leftPane, right, bottom });
             SetCut(cut);
@@ -392,9 +402,11 @@ namespace RequestSender
                 x -= Ui.S(4);
             }
             lTheme.Location = new Point(x - Ui.S(2) - lTheme.Width, (top - lTheme.Height) / 2);
-            x = lTheme.Left;
+            settingsBtn.Location = new Point(lTheme.Left - Ui.S(14) - settingsBtn.Width, (top - settingsBtn.Height) / 2);
+            x = settingsBtn.Left;
             brand.Location = new Point(x - Ui.S(16) - brand.Width, (top - brand.Height) / 2);
             brand.Visible = brand.Left > tabRecv.Right + m;
+            LayoutFlowLine(top, m);
 
             int ph = h - top;
             sendPage.SetBounds(0, top, w, ph);
@@ -744,6 +756,7 @@ namespace RequestSender
             parts.Add(Flow.Label(f).Split('(')[0]);
             if (f == Flow.Auto) { parts.Add(Cut.Label(cut)); parts.Add("トラック " + tracks.Value); parts.Add(DeliverBatch.Label(deliver.Value)); }
             if (speakerCount.Value > 0) parts.Add("配信者 " + speakerCount.Value + " 人");
+            if (backend != null) parts.Add(UseLocal ? "この PC で処理" : "送り先の人の PC で処理");
             summary.Tone = Tone.Text;
             summary.Text = string.Join(" ・ ", parts);
             tips.SetToolTip(summary, summary.Text);
@@ -896,6 +909,7 @@ namespace RequestSender
             if (Busy) return;
             var input = CollectInput();
             if (input == null || Offline) return;   // 画面の確認・テストでは送らない
+            if (UseLocal) { RunSendLocal(input); return; }   // この PC で処理する(F1。動画は送らない・鍵は要らない)
             Config config = LoadConfig(text => SetStatus(text, Tone.Error));
             if (config == null) return;
             RunSend(input, config);
@@ -1115,6 +1129,7 @@ namespace RequestSender
             foreach (var c in speakerNames) c.Enabled = !busy;   // プルダウンには ReadOnly が無い
             foreach (var c in speakerColors) c.ReadOnly = busy;
             speakerCount.Enabled = tracks.Enabled = deliver.Enabled = !busy;
+            pcSelf.Enabled = pcRemote.Enabled = !busy;
             cutNone.Enabled = cutSilence.Enabled = weightsOn.Enabled = !busy;
             if (!busy) { UpdateFlow(); UpdateWeights(); }
             else foreach (var s in weightSteps) s.Enabled = false;
@@ -1156,7 +1171,7 @@ namespace RequestSender
                 List<OutputEntry> listed = null;
                 try { listed = new Receiving(client).List().Entries; count = OutputFolder.CountItems(listed); }
                 catch (Exception ex) { Log.Write("poll: " + ex.GetType().Name + ": " + ex.Message); }
-                OnUi(() => { polling = false; if (count >= 0) { SetArrived(count, true); QueuePreviews(listed); } });   // 届いたまとめ動画は裏で先に取る(2.7.0)
+                OnUi(() => { polling = false; if (count >= 0) { SetArrived(count + OutputFolder.CountItems(localEntries), true); QueuePreviews(listed); } });   // 届いたまとめ動画は裏で先に取る(2.7.0)。数はこの PC のパックも足す(F6b)
             });
             t.IsBackground = true;
             t.Start();
@@ -1201,8 +1216,10 @@ namespace RequestSender
                 // 受け取りの途中なら .part を消し終えるまで少し待つ(バックグラウンドのスレッドなので、待ちきれなくても閉じる)
                 if (recvWorker != null) recvWorker.Join(3000);
             }
+            if (AskBeforeClose(e)) return;   // この PC の処理が動いていれば 3 択(終わったら閉じる・やめる = 閉じない)
             poll.Stop();
             SaveSettings();
+            StopBackend();   // 自分が起こした ② を止める(待ちは ② が残す = 次に開いたとき続きから)
         }
 
         void OnUi(Action a)

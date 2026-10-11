@@ -179,7 +179,7 @@ def transcribe_real(job, spec, wav, total):
         job["segments"] = n   # 処理状況の「n 行」(行は最後まで読んでから流すので、ここで数える)
 
     def reload():
-        use[0] = worker_client.load_model(spec["model"], job, force_cpu=True)[0]
+        use[0] = worker_client.load_model(spec["model"], job, force_cpu=True, engine=tx_engines.engine_of(spec))[0]   # 同じエンジンを CPU で(F1 F0-2 で既定のエンジンが変わっても逃げ道は今のまま)
 
     # やり直しに備えて、行は最後まで読んでから流す(やり直す前の行を文書に入れないため)
     raw, vad = worker_client.cpu_fallback(job, device, spec.get("device"), lambda: transcribe_vad_fallback(job, use[0], wav, spec, progress), reload, worker_client.GPU_FAILED_SETUP_MSG)
@@ -251,7 +251,7 @@ class ChunkModel:
     自動のとき、最初の行で GPU が実行時に失敗(CUDA のライブラリ不足など)したら、CPU で読み直してやり直す"""
 
     def __init__(self, job, name, pref, kw_spec, engine=tx_engines.DEFAULT):
-        self.job, self.name, self.pref, self.kw_spec = job, name, pref, kw_spec
+        self.job, self.name, self.pref, self.kw_spec, self.engine = job, name, pref, kw_spec, engine
         self._use(*worker_client.load_model(name, job, pref, engine=engine))
 
     def _use(self, model, device):
@@ -263,7 +263,7 @@ class ChunkModel:
         """recognize_chunk と同じ (文章, 要確認の理由) か None。CPU に切り替えるのは最初の行(first)だけ。
         取り消し・理由のある失敗(ApiError)はそのまま上げる(0.65.1。それまでは GPU 固定で最初の行の途中に取り消すと gpu_failed になっていた = ユーザー「なおす」)"""
         return worker_client.cpu_fallback(self.job, self.device, self.pref, lambda: recognize_chunk(self.model, self.kw, chunk, row, sep, terms),
-                            lambda: self._use(*worker_client.load_model(self.name, self.job, force_cpu=True)), retry=first)
+                            lambda: self._use(*worker_client.load_model(self.name, self.job, force_cpu=True, engine=self.engine)), retry=first)
 
 
 def range_lines_real(job, model, kw, audio, spec, offset):
@@ -346,7 +346,7 @@ class RangeRecognizer:
             self.job["progress"] = s0 + (s1 - s0) * min(0.9, 0.05 + r["end"] / total * 0.85)
 
         def reload():
-            self.model = worker_client.load_model(self.spec["model"], self.job, force_cpu=True)[0]
+            self.model = worker_client.load_model(self.spec["model"], self.job, force_cpu=True, engine=tx_engines.engine_of(self.spec))[0]
         raw, self.vad = worker_client.cpu_fallback(self.job, self.job.get("device"), self.spec["device"],
                                      lambda: transcribe_vad_fallback(self.job, self.model, chunk, self.spec, progress), reload)
         return finish_range_lines(raw, dict(self.spec, range=[a, b]), lo + self.offset)

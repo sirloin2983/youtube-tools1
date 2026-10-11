@@ -101,6 +101,8 @@ class FakeQueue:
                                  "opens": "C1 盛り上がりの重み(I-4a)", "now": 8 + values, "reached": False},
                         "goals": {"value": {"kind": "value", "id": "marks", "label": "採用の記録 配信 10 本", "left": max(0, 2 - values), "target": 10, "unit": "本",
                                             "opens": "C1 盛り上がりの重み(I-4a)", "now": 8 + values, "reached": False},
+                                  "read": {"kind": "read", "id": "fill", "label": "後処理の札の判定 30 行", "left": None, "target": 30, "unit": "行",
+                                           "opens": "K1 後処理の割合", "now": None, "reached": False},   # 未測定(V4 で直した帯の文)
                                   "time": {"kind": "time", "id": "timing", "label": "行の時刻の判定 100 行", "left": 0, "target": 100, "unit": "行",
                                            "opens": "B1 行の時刻", "now": 100, "reached": True}},
                         "held": [], "failed": [], "errors": []}
@@ -184,6 +186,9 @@ def _scene_kinds(cx):
     check(wait_js(pg, "CheckShell.state().kind === 'read'"), "読みのカード: %s" % state(pg))
     check(pg.evaluate("document.querySelectorAll('#chkBody .ui-pair .ui-pair-opt').length") == 2 and "まけないからね" in pg.text_content("#chkBody .ui-pair") and "認識のまま" in pg.text_content("#chkBody .ui-pair"),
           "比べる欄(ui-kit の .ui-pair)に 2 つの読みと出どころの名前")
+    goal = pg.text_content("#chkGoal")
+    check("LLM が名簿の呼び名に直した行です" in pg.text_content("#chkBody") and "llm" not in pg.text_content("#chkBody"), "後処理の部品の名前(by)は文で出す")
+    check("K1 後処理の割合" in goal and "まだ測っていません" in goal and "あと" not in goal, "帯: 未測定の目標は「あと 0」と出さない: %r" % goal)
     press(pg, "2")
     check(wait_js(pg, "CheckShell.state().kind === 'voice'") and fq.answers[-1]["body"]["answer"] == {"choice": "2"}, "2 で答える")
     check(wait_js(pg, "!!document.querySelector('#chkBody video')"), "誰の声のカードは動画を出す")
@@ -339,7 +344,7 @@ def _scene_narrow(cx):
 def fixture_cards():
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     cards = [card(i, "value", options=["send", "drop"], score=82.4 if i == 1 else None) for i in (1, 2, 3)]
-    cards.append(card(4, "read", source="fill", guess="1", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]))
+    cards.append(card(4, "read", source="fill", guess="1", note="llm", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]))
     cards.append(card(5, "voice", source="diar", media=vid, guess={"id": "B", "name": "配信者 B"},
                       options=[{"id": "A", "name": "配信者 A"}, {"id": "B", "name": "配信者 B"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]))
     cards.append(card(6, "time", source="row", guess="ok", options=["ok", "head", "tail", "both"], target={"docId": "a0000000000c", "row": "r6"},

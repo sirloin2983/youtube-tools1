@@ -13,6 +13,7 @@
     作った日は約90日に散らす(履歴がたくさんある状態)
   - パック: 一部の切り抜きの隣に <名前>_pack フォルダ(案件の画面の「パック済み」)
   - 案件: 一部に状態・メモ
+  - 確かめる(/check): 4 種類のカード(切り抜く価値 = 自動でできた切り抜き・候補のまま / 読み / 誰の声 / 時刻)が少なくとも 1 枚ずつ出る配信 2 本と文書 1 件(seed_check)
 """
 import argparse
 import json
@@ -158,12 +159,72 @@ def seed(tmp, rnd, streams, samples):
                   "sourcePath": src, "sourceName": os.path.basename(src), "start": 0, "end": None, "whole": True, "duration": 40.0, "model": "large-v3",
                   "language": "ja", "speakers": SPEAKERS[:1], "segments": segments(120 if whole else rnd.randint(8, 25), 40.0, rnd.random() * 0.5, 0, False),
                   "createdAt": tcreated, "updatedAt": tcreated, "evalSet": i % 8 == 3})
+    seed_check(tmp, txdir, samples, videos, write_tx, now)
     with open(os.path.join(studio_home, "data.json"), "w", encoding="utf-8") as f:
         json.dump({"schema": "clip-studio/v1", "groups": {}, "videos": videos}, f, ensure_ascii=False)
     os.makedirs(os.path.join(tmp, "home"), exist_ok=True)
     with open(os.path.join(tmp, "home", "cases.json"), "w", encoding="utf-8") as f:
         json.dump({"schema": "youtube-tools-cases/v1", "cases": cases}, f, ensure_ascii=False)
     return studio_home, len(videos), n_tx
+
+
+CHECK_LIVE = "20261010-200000-demo"   # 確かめるの見本: 自分の配信の録画(kind live。録画の id の形 = ytt/yturl.LIVE_ID_RE)
+CHECK_CAND = "democand001"            # 確かめるの見本: まだ 1 本も選んでいない YouTube の配信(候補のまま)
+CHECK_DOC = "c4ec0000000a"            # 確かめるの見本: 自動でできた切り抜きの文字起こし(読み・誰の声・時刻のカード)
+
+
+def seed_check(tmp, txdir, samples, videos, write_tx, now):
+    """確かめる(/check。RS8 V1)の 4 種類のカードが少なくとも 1 枚ずつ出る見本(src/eval/check/sources.py の出どころの条件に合わせる)。
+    乱数を使わない(上の見本の並び = 画面の検査の場面が使う配信・文書を変えない)。
+      value:auto  録画の配信の自動でできた切り抜き(.clip.json の source.live.origin = auto・届けていない)
+      value:cand  候補のまま(選び始めていない YouTube の配信の、状態が空のマーク)
+      read:fill   後処理(fill)が直した行(校正していない)
+      voice:diar  話者の判別(.diar.json)の行(1 秒以上・混ざり無し・校正していない)
+      time:row    校正済みの行"""
+    from manage.cases import cases as cases_mod
+    from ytt import schemas
+    created = int((now - 86400) * 1000)
+    title = "【自分の配信】まったり雑談"
+    d = os.path.join(tmp, "exports", "%s_%s" % (CHANNELS[0], CHECK_LIVE))
+    os.makedirs(d, exist_ok=True)
+    clip = os.path.join(d, "01_自動の山.mp4")
+    shutil.copyfile(samples[0], clip)
+    t = max(now, cases_mod.REVIEW_SINCE + 60)
+    os.utime(clip, (t, t))   # REVIEW_SINCE より前に作った切り抜きは「未定のまま」(pending)で確かめるに出ない
+    mk = {"id": "lm1", "start": 600.0, "end": 640.0, "label": "自動の山", "status": "exported", "src": "auto", "score": 8.2,
+          "file": os.path.basename(clip), "path": clip}
+    cj = schemas.build_clip(clip, 40.0, {"kind": "youtube", "videoId": "", "title": title}, (600.0, 640.0), mk,
+                            {"mode": "precise", "fps": "30/1"}, {"name": "ytt-live", "version": "demo"})
+    cj["source"] = {"kind": "live", "videoId": "", "url": None, "title": title, "path": None,   # ライブの書き出し(src/flow/live_export.py)と同じ形
+                    "live": {"url": "", "recorder": "local", "recording": CHECK_LIVE, "base": "", "start": "", "end": "", "markId": "lm1",
+                             "origin": "auto", "score": 8.2}}
+    os.makedirs(os.path.dirname(schemas.clip_path_for(clip)), exist_ok=True)
+    with open(schemas.clip_path_for(clip), "w", encoding="utf-8") as f:
+        json.dump(cj, f, ensure_ascii=False)
+    videos[CHECK_LIVE] = {"id": CHECK_LIVE, "kind": "live", "title": title, "channel": CHANNELS[0], "duration": 7200, "marks": [mk], "analysis": None,
+                          "createdAt": created, "updatedAt": created,
+                          "live": {"recorder": "local", "recording": CHECK_LIVE, "url": "https://www.youtube.com/@demo/live"}}
+    videos[CHECK_CAND] = {"id": CHECK_CAND, "kind": "youtube", "title": "【雑談】候補を見てほしい配信", "channel": CHANNELS[1], "duration": 5400,
+                          "marks": [{"id": "m%d" % i, "start": s, "end": s + 40.0, "label": lb, "status": "", "src": "auto", "score": sc,
+                                     "reasons": ["音量の山", "チャットの量"], "auto0": [s, s + 40.0]}
+                                    for i, (s, lb, sc) in enumerate(((320.0, "叫び", 8.8), (1210.0, "笑い", 6.4), (2600.0, "名言", 4.1)))],
+                          "analysis": {"at": created, "counts": {"audio": 1}}, "createdAt": created, "updatedAt": created}
+    speakers = [{"id": "S1", "name": "星見ルナ"}, {"id": "S2", "name": "ゲスト"}]
+    rows = [{"id": "s1", "start": 0.4, "end": 3.2, "text": "こんばんは、星見ルナです", "speaker": "S1", "fill": {"from": "こんばんは、ほしみるなです", "by": "name"}},
+            {"id": "s2", "start": 3.4, "end": 6.8, "text": "今日はマイクラの拠点づくり", "speaker": "S1", "fill": {"from": "今日はマイクロの拠点づくり", "by": "llm"}},
+            {"id": "s3", "start": 7.0, "end": 10.5, "text": "えっ、今の聞こえた?", "speaker": "S2"},
+            {"id": "s4", "start": 10.8, "end": 14.0, "text": "ちょっと待ってね、水飲む", "speaker": "S1"},
+            {"id": "s5", "start": 14.2, "end": 18.0, "text": "よし、勝った!", "speaker": "S1", "proofed": True},
+            {"id": "s6", "start": 18.4, "end": 22.0, "text": "みんなおつかれさまでした", "speaker": "S1", "proofed": True}]
+    write_tx({"schema": "transcribe/v1", "id": CHECK_DOC, "title": "%s 自動の山" % title, "sourcePath": clip, "sourceName": os.path.basename(clip),
+              "start": 0, "end": None, "whole": True, "duration": 40.0, "model": "large-v3", "language": "ja", "speakers": speakers,
+              "segments": rows, "createdAt": created, "updatedAt": created, "clip": cj})
+    diar = {"schema": "youtube-tools-diar/v1", "history": [],   # src/pipeline/transcribe/diarize.py の DIAR_SCHEMA
+            "latest": {"rows": {"s1": {"speaker": "S1", "ratio": 0.92}, "s2": {"speaker": "S1", "ratio": 0.88},
+                                "s3": {"speaker": "S2", "ratio": 0.55, "weak": True}, "s4": {"speaker": "S1", "ratio": 0.71}},
+                       "voices": {"speakers": {"S2": {"score": 0.52, "secondScore": 0.47, "reason": "margin"}}}}}
+    with open(os.path.join(txdir, CHECK_DOC + ".diar.json"), "w", encoding="utf-8") as f:
+        json.dump(diar, f, ensure_ascii=False)
 
 
 def main(argv=None):

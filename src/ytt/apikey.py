@@ -15,7 +15,7 @@ KEY_RE = re.compile(r"^[A-Za-z0-9_-]{20,80}\Z")
 
 def get_api_key():
     """(キー, "env"|"file"|None)。環境変数 YOUTUBE_API_KEY が優先。"""
-    key = os.environ.get("YOUTUBE_API_KEY", "").strip()
+    key = (os.environ.get("YOUTUBE_API_KEY", "") or os.environ.get("YTT_YT_API_KEY", "")).strip()   # YTT_YT_API_KEY = 友人のアプリが設定の keys.json から渡す(F1 F3b)
     if key:
         return key, "env"
     key = str(_fsio.read_json_or(_env.p("config.json"), {}, kind=dict).get("apiKey", "")).strip()

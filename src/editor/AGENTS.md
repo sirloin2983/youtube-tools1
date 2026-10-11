@@ -368,6 +368,7 @@ GPT の `TRANSCRIPTION_V2_DESIGN.md`(09-23)と `git の履歴の docs/archive/pr
   `ed_alt`(今は `human/proof/alt`): `alt_cached`・`alt_spans_of`・`alt_skip`(候補の計算を覚える・出さない候補。ed_ytcap も使う)。`resolve_export`(`pipeline/pack/resolve_export.py`): `_source_and_pack`・`_write_transcript`(たたき台・見積もり・zip で同じ)。
   serve.py の HTTP の振り分けは表 `GET_API`・`POST_API`(パス → 関数。部品の関数は lambda の中で `ed_xxx.名前` と呼ぶたびに読む = テストの差し替えが効く)。
   新しい API はこの表に 1 行足す(zip を返す `_resolve_package` と /api/settings・/api/peaks・/media だけ Handler の中。修正データの zip `_export_corrections` は 0.68.0 で消した)
+  **確かめる(/check。V1 = 0.60.0)が使う編集の口(形を変えるときは `src/app/ui/check/` と `src/app/tests/e2e_check.py` も)**: 動画 `/media?id=`(Range)・波形 `/api/peaks?id=`(作成中は 202)・単語の印 `POST /api/retime {id, rows}`(読むだけ)。答えの反映は ③ `src/human/check/` が `human/proof/store.commit` を why `check:read`・`check:voice`・`check:time`(`store.HUMAN_WHYS`)で呼ぶ・声の覚え直しは `speakers.voice_learn_plan(doc, rows=…)`(校正済みでない行を明示して渡す)。作り方 `docs/design/v1-check-build.md`
 - **画面の共通の小道具(v0.58.1 の整理。動きは同じ)**: ボタンの処理の決まった形は `app-core.js` の 1 か所を使う(同じ書き方を画面ごとに書き直さない)。
   `kickJobs`(ジョブを入れたあと = startPolling + pollJobs)・`saveFirst`(保存中なら「保存中です…」)・`saveDone`(保存できなければ「保存が終わっていません…」)・`savedFor(id)`(保存の途中・競合・別の文書なら false)・
   `savedAll`(文書とカットの両方。まとめて実行・付け替え・zip)・`showConflict`(409 の案内)・`copyPath`・`setUrlParam`(?doc= ・?drill=)・`modalOpen`(ダイアログ・引き出しが開いている = 文書のキーを止める。cut.js には h で渡す)・

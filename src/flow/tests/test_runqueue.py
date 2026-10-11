@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
@@ -141,6 +142,30 @@ class TestSubmit(Base):
         hist = q.history()
         self.assertEqual((hist["total"], hist["runs"][0]["id"], hist["runs"][0]["state"]), (1, "0123456789", "done"))
         self.assertEqual(self.active_file()["runs"], [])   # 終わった実行は待ちの記録から外れる
+
+    def test_learning_stamp_and_finished_hook(self):
+        """F1 F6a: 学習の読み手があれば束の post.learning.version に版が入る・終わったら finished_hook(run)(失敗してもログだけ)"""
+        seen = []
+
+        class Tools2(Tools):
+            def transcribe_start(self, req, bundle=None):
+                seen.append(bundle["post"]["learning"]["version"])
+                return super().transcribe_start(req, bundle)
+        q = self.queue(Tools2())
+        q.learning = mock.Mock(version="20261011-120000-abcdef12")
+        done = []
+
+        def hook(run):
+            done.append((run.id, run.state))
+            raise RuntimeError("壊れた hook")
+        q.set_finished_hook(hook)
+        q.submit(self.env_of(self.media[0]))
+        _until(lambda: q.status()["idle"] and done, "終わったあとの hook")
+        self.assertEqual(seen, ["20261011-120000-abcdef12"])
+        self.assertEqual(done, [("0123456789", "done")])
+        q.submit(self.env_of(self.media[1], eid="0123456780"), {"post": {"learning": {"version": "given"}}})   # 束に版があればそのまま
+        _until(lambda: len(done) == 2, "2 本目")
+        self.assertEqual(seen[-1], "given")
 
     def test_submit_rejects(self):
         """封筒の形が違う・同じ入力が待ち・実行中・同じ id は理由つきの ValueError(積まない)"""
@@ -379,7 +404,8 @@ class TestStatusLive(Base):
     def test_without_hook_live_is_zero(self):
         st = self.queue().status()
         self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0}, True))
-        self.assertEqual(set(st) - {"live"}, {"queued", "running", "done", "idle", "closed", "runs"})   # 今までの欄はそのまま
+        self.assertEqual(set(st) - {"live", "blocked", "machine"}, {"queued", "running", "done", "idle", "closed", "runs"})   # 今までの欄はそのまま(F1 F0-1 で 2 つ足した)
+        self.assertIsNone(st["blocked"])
 
     def test_recording_or_detecting_makes_not_idle(self):
         q = self.queue()
@@ -423,6 +449,72 @@ class TestStatusLive(Base):
         self.assertEqual((st["live"], st["idle"]), ({"recording": 0, "detecting": 0, "exporting": 0}, True))
         q.set_status_hook(lambda: {"recording": None})   # 数が分からない = 閉じない側
         self.assertFalse(q.status()["idle"])
+
+
+class TestFriendIntake(Base):
+    """F1 F0-1: 処理の開始の空き容量の下限(status.blocked)・status の machine・submit の版違いと束の形"""
+
+    def test_disk_blocked_shape(self):
+        big = lambda p: (5 * Q.GB, 100 * Q.GB)
+        self.assertIsNone(Q.disk_blocked(self.tmp, 4, usage=big))
+        self.assertEqual(Q.disk_blocked(self.tmp, 20, usage=big), {"reason": "disk", "freeGB": 5.0, "minGB": 20})
+        self.assertIsNone(Q.disk_blocked(self.tmp, 0, usage=big))     # 下限 0 = 見ない
+        self.assertIsNone(Q.disk_blocked("", 20, usage=big))
+        self.assertIsNone(Q.disk_blocked(self.tmp, 20, usage=lambda p: (_ for _ in ()).throw(OSError("x"))))   # 測れない = 止めない
+        self.assertIsNotNone(Q.disk_blocked(os.path.join(self.tmp, "nai", "mada"), 100000))   # 無いフォルダは在る所まで上へ(本物の空き)
+
+    def test_disk_min_blocks_start(self):
+        """diskMinGB=100000 で submit -> 実行を始めず status.blocked が出る。空きが戻れば(見直しで)始まる"""
+        tools = Tools()
+        q = self.queue(tools, env=dict(self.env, YTT_MACHINE_DISK_MIN_GB="100000", YTT_MACHINE_CASE_ROOT=self.tmp))
+        q.submit(self.env_of(self.media[0]))
+        _until(lambda: q.status()["blocked"] is not None, "blocked")
+        st = q.status()
+        self.assertEqual((st["blocked"]["reason"], st["blocked"]["minGB"], st["queued"], st["running"], st["idle"]),
+                         ("disk", 100000, 1, 0, False))
+        self.assertIsInstance(st["blocked"]["freeGB"], float)
+        self.assertEqual(tools.started, [])
+        self.assertEqual([r["id"] for r in self.active_file()["runs"]], ["0123456789"])   # 待ちの記録に残る
+        q.disk_check = lambda: None
+        with q.cv:
+            q.cv.notify_all()
+        _until(lambda: q.status()["idle"], "空きが戻って済む")
+        self.assertIsNone(q.status()["blocked"])
+        self.assertEqual(len(tools.started), 1)
+
+    def test_status_machine(self):
+        """status.machine = この PC の設定の engine・device・llmModel と GPU(ytt/gpuinfo が無い・失敗 = null)"""
+        from unittest import mock
+        with mock.patch.object(Q, "gpu_info", return_value={"name": "RTX 3060", "vramGB": 12}):
+            q = self.queue(env=dict(self.env, YTT_MACHINE_LLM_MODEL="qwen3-4b"))
+            m = q.status()["machine"]
+            self.assertEqual((m["engine"], m["device"], m["llmModel"]), (SP.TX_ENGINES[0], SP.TX_DEVICES[0], "qwen3-4b"))
+            _until(lambda: q.status()["machine"]["gpu"] is not None, "GPU を調べ終える")
+            self.assertEqual(q.status()["machine"]["gpu"], {"name": "RTX 3060", "vramGB": 12})
+        with mock.patch.dict(sys.modules, {"ytt.gpuinfo": None}):   # import できない = null
+            self.assertIsNone(Q.gpu_info())
+
+    def test_gpu_info_reads_module(self):
+        import types
+        from unittest import mock
+        fake = types.ModuleType("ytt.gpuinfo")
+        fake.info = lambda: {"name": "Radeon", "vramGB": None, "vendor": "amd"}
+        with mock.patch.dict(sys.modules, {"ytt.gpuinfo": fake}):
+            self.assertEqual(Q.gpu_info(), {"name": "Radeon", "vramGB": None, "vendor": "amd"})
+            fake.info = lambda: 1 / 0
+            self.assertIsNone(Q.gpu_info())
+
+    def test_submit_spec_version_and_bad_spec(self):
+        q = self.queue()
+        with self.assertRaises(Q.SpecVersionError) as c:
+            q.submit(dict(self.env_of(self.media[0]), specVersion=99))
+        self.assertIn("99", str(c.exception))
+        with self.assertRaises(Q.BadSpecError):
+            q.submit(self.env_of(self.media[0]), {"nai": {}})
+        with self.assertRaises(Q.BadSpecError):
+            q.submit(self.env_of(self.media[0]), {"transcribe": {"nai": 1}})
+        self.assertTrue(issubclass(Q.SpecVersionError, ValueError) and issubclass(Q.BadSpecError, ValueError))   # 今の呼び手は ValueError のまま
+        self.assertEqual(q.status()["runs"], [])
 
 
 if __name__ == "__main__":

@@ -35,6 +35,7 @@ from . import backend as _backend, roster as _roster, tx_engines, worker_client 
 from ytt import txbase as _txbase
 
 LLM_ENGINE, LLM_MODEL = "llama-text", "qwen3-8b"   # tx_engines.LlamaText と LLAMA_TEXT_MODELS の名前。LLM_MODEL は既定 = 要求の llmModel(llm_model)が無いとき
+LLM_NONE = "none"   # 要求の llmModel がこれなら LLM の後処理を飛ばす(VRAM 6GB 未満の PC の既定。flow/machine の LLM_NONE。F1 F0-2)
 LLM_SCHEMA = "youtube-tools-llm/v1"
 LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
 LLM_MIN_ALIAS = 3        # 近い所を探す呼び名の最小の文字数(かなに寄せたあと)
@@ -284,7 +285,7 @@ def _llm_ask_real(job, spec):
 def llm_after_doc(job, spec, segs):
     """run_job の文書の行(_rows_to_doc のあと・後処理 D のあと)に LLM の直しを当てる(segs を書き換える)。
     -> 記録(recognition.runs[].llm に入れる。設定オフなら None)と、<id>.llm.json に書く中身(記録の items)の組"""
-    if not spec.get("autoLlm"):
+    if not spec.get("autoLlm") or spec.get("llmModel") == LLM_NONE:   # none = この PC では後処理しない(印は鍵・要求の llmModel)
         return None, None
     rec = {"engine": LLM_ENGINE, "model": llm_model(spec), "picked": 0, "proposed": 0, "applied": 0, "rejected": {}}
     try:

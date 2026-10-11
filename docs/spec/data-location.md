@@ -94,6 +94,12 @@
 - `live/bundles.json`(作業データの `app\live\` の中): 録画ごとの封筒 + 束。形 `{"<recorder の名前>/<録画 id>": {"envelope", "spec", "at"}}`。7 日を過ぎた物・200 件を超えた古い物は書くときに落とす。録画を始めた時点の値に固定する(検出・採用の待ち・配信後の解析・音量。決定 3-31。自分の配信も RS8 から束を組む)。束が無い録画(封筒にできない URL・束より前の録画)は今までの読み方
 - `live/marks/<recorder>__<録画 id>.json`: スタジオなしの採用の置き場 `LocalMarks`(ヘッドレス)。マークごとの採用の印と番号。スタジオのある PC は今までどおりスタジオの data.json(`StudioMarks`)で、このファイルは作らない
 
+## 友人の PC で処理する形の置き場所(F1・2026-10-11。詳しくは `docs/spec/pipeline.md` 2.11)
+- `app\friend-returns\<YYYY-MM>\<requestId>\`: ユーザーの PC が受付で並べた、友人からの送り返し(`human/friend/returns.py`。`eval_friend.py` が読む)。`app\` の下なので D:\backup の写しにも入る。
+- `app\outbox\`: 友人の PC で ② が組んだ送り返しの zip と `verdict.json`(`flow/outbox.py`。Dropbox へ上げて `done`)。
+- `app\keys.json`: 友人の送るアプリが持つ YouTube の API キー(束・送り返し・ログに入れない。② には環境変数 `YTT_YT_API_KEY` で渡す)。
+- `learning\<版>\`: 取ってきた学習の束(アプリのフォルダの下。`machine.learningDir` が指す)。ユーザーの PC では `<intake.folder>\学習\<版>\` に置く側。
+
 ## 以前の場所のデータの片付け(`setup/cleanup_legacy_data.py`・`setup\cleanup_legacy_data.bat`)
 - 新しい場所で使えることを確かめてから、ユーザーが実行する(Cowork は PC のファイルを消せない)。消すものの一覧と大きさを見せ、y で**ごみ箱へ**移す(戻せる)
 - 消すのは、確かめられたものだけ: 新しい場所に `.migrated.json` があり、写した元がこのリポジトリのフォルダで、写した一覧にあり、新しい場所にも同じ名前があるもの。

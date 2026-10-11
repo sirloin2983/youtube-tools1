@@ -131,6 +131,7 @@
     if (!g) return '';
     var what = '<b>' + esc(g.opens || g.label) + '</b>', left = Math.max(0, +g.left || 0), unit = g.unit || '件';
     if (g.reached || (g.left != null && left === 0)) return 'この確認で決まる物: ' + what + ' は目標に届きました';
+    if (g.left == null) return 'この確認で決まる物: ' + what + '<span class="hint">(' + (g.label ? esc(g.label) + '・' : '') + 'まだ測っていません)</span>';   // 未測定(now も left も無い)を「あと 0」と出さない
     if (unit === 'sec') { left = Math.ceil(left / 60); unit = '分'; }
     return 'この確認で決まる物: ' + what + ' まで あと <b data-chk-left>' + left + '</b> ' + esc(unit) + (g.opens && g.label ? '<span class="hint">(' + esc(g.label) + ')</span>' : '');
   }

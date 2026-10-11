@@ -66,6 +66,24 @@ static class CoreTests
         Run("組: 最後の 1 本まで片付けた組だけ消す・まとめ動画は組ごとに 1 本先に取る・小窓の決めるボタンの文字", GroupsDoneAndQueue);
         Run("画面: ライブ配信の欄(① に固定・重みは使わない・届け方は選べる・ほかと一緒には送らない・要約)", FormLive);
         Run("画面: 受け取るの組の行(受け取る(n 本)・要らない(n 本)・まとめ動画は組のもの)・1 本の行・片付けたら組の行も消える", FormGroups);
+        Run("この PC で処理: 封筒 + 束(URL ごとに 1 本・欄の行き先・friend-defaults を鍵ごとに重ねる)", FlowBundleUrl);
+        Run("この PC で処理: ライブ配信と動画ファイルの封筒 + 束", FlowBundleLiveFile);
+        Run("この PC で処理: friend-defaults.json の読み(無い・壊れた・schema 違い)と重ね方", FriendDefaultsLoad);
+        Run("② の口: ready の 1 行・起動の引数・.flow.lock のポート・合言葉の meta・Python が無ければ Dropbox だけ・子の環境変数", BackendPieces);
+        Run("② の状態: status の読み(段・進み具合・blocked・1 行)・問い合わせの間隔・× の 3 択を出すか", FlowStatusRead);
+        Run("この PC で処理: submit を 1 件ずつ・断られたら理由(版の違いは更新を促す)・受け付けた分は残す", FlowSubmit);
+        Run("同期: 版の比較・パスの形・束の中の安全・古い版を消す", SyncVersionsAndPaths);
+        Run("同期: 学習の束(hash 検査・壊れた版は置かない・machine へ向ける)", SyncLearning);
+        Run("同期: 送り返し(失敗は次で再送)・更新の確認", SyncReturnsAndUpdate);
+        Run("設定: API キーの確かめ(返事 → 使えます / 理由の文)・keys.json の読み書き(ほかの項目を消さない)", SettingsKey);
+        Run("設定: machine の返事の読み・PUT の本文・404 は更新が要る・空き容量の欄・説明のリンク・窓が作れる", SettingsMachine);
+        Run("動画にした: made_video の記録(要らないと同じ形で verdict だけ違う)", MadeVideoJson);
+        Run("初回の取得: fetch.json の読み(危ない dest・https でない URL・SHA の形違いは断る)", FetchPlanRead);
+        Run("初回の取得: 続きから・SHA が違えば消して 1 回やり直す・失敗した物だけ次の回・zip / tar.bz2 / member の置き場所・取り消し", FetchRun);
+        Run("更新: new\\ に展開・manifest と違えば断る・外へ出る名前は断る・update.cmd の入れ替え(config.json などは触らない)", UpdateFlow);
+        Run("この PC のパック: history の読み(無い・決めた物は出さない)・verdict の名前と中身・outbox と 済み・まとめ動画の探し方", LocalPacksRead);
+        Run("画面: この PC のパックを受け取るの一覧に(印・開く・すべて受け取るは Dropbox だけ・読み直しで選びを保つ)", LocalPacksForm);
+        Run("更新: 送る・受け取る・この PC の処理の途中は「終わってから」・② に --parent-pid", UpdateBlockers);
         Console.WriteLine();
         Console.WriteLine(failures == 0 ? "OK: " + passed + " 件" : "失敗: " + failures + " 件(成功 " + passed + " 件)");
         return failures == 0 ? 0 : 1;
@@ -1576,5 +1594,860 @@ static class CoreTests
         True(ErrorText.FromDropbox(503, "<html>").Contains("503"), "5xx");
         True(ErrorText.FromDropbox(409, "{\"error_summary\": \"path/disallowed_name/\"}").Contains("名前"), "名前");
         True(ErrorText.FromDropbox(418, "{\"error_summary\": \"something/else/\"}").Contains("something/else"), "その他は要約を出す");
+    }
+
+    // ---------------------------------------------------------------- この PC で処理する(F1 の F3a)
+    static Dictionary<string, object> D(params object[] kv)
+    {
+        var d = new Dictionary<string, object>();
+        for (int i = 0; i < kv.Length; i += 2) d[(string)kv[i]] = kv[i + 1];
+        return d;
+    }
+
+    static IDictionary<string, object> Sec(Dictionary<string, object> b, string name)
+    {
+        return (IDictionary<string, object>)b[name];
+    }
+
+    static string Ser(object o)
+    {
+        return new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(o);
+    }
+
+    static Func<string> Ids_()
+    {
+        int n = 0;
+        return () => (++n).ToString("x10");
+    }
+
+    static void FlowBundleUrl()
+    {
+        var people = new SpeakerSet { Count = 3 };
+        people.Rows.Add(new SpeakerRow("さくらみこ", "FF00AA"));
+        people.Rows.Add(new SpeakerRow("ゲスト", ""));
+        people.Rows.Add(new SpeakerRow("", ""));
+        var a = new UrlItem { Url = Norm, Top = 3 };
+        a.Ranges.Add(new ClipRange(100, 160));
+        var b = new UrlItem { Url = "https://www.youtube.com/watch?v=AAAAAAAAAAA", Top = 1 };
+        b.Ranges.Add(new ClipRange(5, 50));
+        b.Ranges.Add(new ClipRange(60, 90));
+        var input = new SendInput { Items = new List<UrlItem> { a, b }, Memo = "  メモ  ", People = people, VideoTracks = 2, Cut = Cut.Silence, DeliverBatch = 3,
+                                    Weights = new Weights { Enabled = true, Audio = 1.5, Chat = 0.0, Comments = 9 } };
+        var defs = FriendDefaults.From(D("schema", FriendDefaults.Schema,
+            "bundle", D("adopt", D("top", 10, "pad", 1.5), "pack", D("size", "1080x1920", "cut", "none"), "hints", D("ranges", new List<object> { new List<object> { 1, 2 } })),
+            "request", D("top", 10)));
+        True(defs.Problem == null, "既定が読める");
+        var reqs = FlowBundle.Build(input, defs, "20261011-120000-abcdef", "v7", Ids_(), new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.FromHours(9)));
+        Eq(2, reqs.Count, "URL ごとに 1 本");
+        var e0 = reqs[0].Envelope;
+        Eq("0000000001", (string)e0["id"], "封筒の id(10 桁の 16 進)");
+        True(Regex.IsMatch(FlowBundle.NewId(), "^[0-9a-f]{10}$"), "NewId は 10 桁の 16 進");
+        Eq("url", (string)e0["kind"], "kind");
+        Eq(Norm, (string)((IDictionary<string, object>)e0["input"])["url"], "input.url");
+        Eq("20261011-120000-abcdef", (string)e0["requestId"], "requestId = 送る 1 回の id");
+        Eq("20261011-120000-abcdef", (string)reqs[1].Envelope["requestId"], "2 本目も同じ依頼");
+        Eq("0000000002", (string)reqs[1].Envelope["id"], "2 本目の封筒の id は別");
+        Eq("メモ", (string)e0["note"], "memo → note(前後の空白を除く)");
+        Eq(3, (int)((IDictionary<string, object>)e0["deliver"])["batch"], "deliverBatch → deliver.batch");
+        True(!((IDictionary<string, object>)e0["deliver"]).ContainsKey("dir"), "届け先は書かない(この PC では届けない)");
+        var lg = (IDictionary<string, object>)e0["legacy"];
+        Eq("request_auto", (string)lg["mode"], "段の並びは今の友人の受付と同じ");
+        Eq("さくらみこ", (string)lg["streamer"], "1 人目の配信者 → legacy.streamer");
+        Eq(1791687600000L, (long)e0["createdAt"], "createdAt はミリ秒");
+        var s0 = reqs[0].Spec;
+        Eq(3, (int)Sec(s0, "adopt")["top"], "1 本ごとの切り抜く数");
+        Eq(1.5, Convert.ToDouble(Sec(s0, "adopt")["pad"]), "既定の adopt.pad は残る(辞書は鍵ごと)");
+        Eq("[[100,160]]", Ser(Sec(s0, "hints")["ranges"]), "1 本ごとの区間(既定の区間は置き換え)");
+        Eq("[[5,50],[60,90]]", Ser(Sec(reqs[1].Spec, "hints")["ranges"]), "2 本目の区間");
+        Eq(2, (int)Sec(reqs[1].Spec, "adopt")["top"], "切り抜く数は区間の数より小さくしない");
+        Eq("[{\"name\":\"さくらみこ\",\"color\":\"#FF00AA\"},{\"name\":\"ゲスト\"}]", Ser(Sec(s0, "hints")["people"]), "配信者 → hints.people(名前のある行だけ・色は #)");
+        Eq(3, (int)Sec(s0, "transcribe")["diarize"], "人数 → transcribe.diarize");
+        Eq("silence", (string)Sec(s0, "pack")["cut"], "カット");
+        Eq("1080x1920", (string)Sec(s0, "pack")["size"], "既定の pack.size は残る");
+        Eq(2, (int)Sec(s0, "pack")["videoTracks"], "映像トラック");
+        Eq(1.5, (double)Sec(s0, "analyze")["wAudio"], "重み");
+        Eq(3.0, (double)Sec(s0, "analyze")["wComments"], "重みは範囲に収める");
+        Eq("[\"cut\",\"videoTracks\",\"weights\"]", Ser(Sec(s0, "run")["pinned"]), "依頼が決めた印");
+        Eq(true, (bool)Sec(s0, "run")["repack"], "送り直しは作り直す");
+        Eq("{\"version\":\"v7\"}", Ser(Sec(s0, "post")["learning"]), "学習の版");
+        True(!Sec(s0, "transcribe").ContainsKey("engine") && !Sec(s0, "transcribe").ContainsKey("device"), "エンジン・デバイスは書かない(② がこの PC の設定を重ねる)");
+        True(!Ser(defs.Bundle).Contains("100"), "既定の辞書は変えない");
+
+        // 配信者なし・重みなし・届け方の範囲の外
+        var plain = FlowBundle.Build(new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 4 } }, DeliverBatch = 0 }, null, null, null, Ids_(), DateTimeOffset.Now)[0];
+        True(!plain.Envelope.ContainsKey("deliver") && !plain.Envelope.ContainsKey("requestId"), "届け方 0・依頼 id なしは書かない");
+        True(!((IDictionary<string, object>)plain.Envelope["legacy"]).ContainsKey("streamer"), "配信者が無ければ streamer を書かない(② が決める)");
+        True(!Sec(plain.Spec, "hints").ContainsKey("people") && !plain.Spec.ContainsKey("transcribe"), "配信者なし = people・diarize なし");
+        Eq("[\"cut\",\"videoTracks\"]", Ser(Sec(plain.Spec, "run")["pinned"]), "重みなし = pinned に weights なし");
+        True(!plain.Spec.ContainsKey("post"), "学習の版なし = post なし");
+        Eq("[]", Ser(Sec(plain.Spec, "hints")["ranges"]), "区間なし");
+
+        // 名前の無い人数だけ・長い名前・同じ名前・長いメモ
+        Eq("{\"count\":2}", Ser(FlowBundle.People(new SpeakerSet { Count = 2 })), "名前なしは {count}");
+        True(FlowBundle.People(new SpeakerSet { Count = 0 }) == null, "0 人 = なし");
+        var dup = new SpeakerSet { Count = 2 };
+        dup.Rows.Add(new SpeakerRow(new string('あ', 50), ""));
+        dup.Rows.Add(new SpeakerRow(new string('あ', 50), "12"));
+        Eq("[{\"name\":\"" + new string('あ', 40) + "\"}]", Ser(FlowBundle.People(dup)), "40 字まで・同じ名前は 1 つ・6 桁でない色は書かない");
+        var longMemo = FlowBundle.Build(new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm } }, Memo = new string('x', 1500) }, null, null, null, Ids_(), DateTimeOffset.Now)[0];
+        Eq(FlowBundle.NoteMax, ((string)longMemo.Envelope["note"]).Length, "note は 1000 字まで");
+    }
+
+    static void FlowBundleLiveFile()
+    {
+        var people = new SpeakerSet { Count = 1 };
+        people.Rows.Add(new SpeakerRow("ぺこら", ""));
+        var live = new SendInput { Live = new LiveRequest { Url = Norm, Settings = new LiveSettings { Sens = LiveSettings.High, PerHour = 8, Length = 60, WaitMin = 99, Pad = 3, AfterStream = false } },
+                                   People = people, Cut = Cut.None, VideoTracks = 1, DeliverBatch = 2, Memo = "m" };
+        var reqs = FlowBundle.Build(live, null, "r", null, Ids_(), DateTimeOffset.Now);
+        Eq(1, reqs.Count, "ライブは 1 件");
+        var e = reqs[0].Envelope;
+        Eq("live", (string)e["kind"], "kind live");
+        Eq("{\"url\":\"" + Norm + "\"}", Ser(e["input"]), "input は url だけ");
+        True(!((IDictionary<string, object>)e["legacy"]).ContainsKey("mode"), "ライブは段の並びを書かない");
+        Eq("{\"sens\":\"high\",\"perHour\":8,\"waitMin\":5,\"pad\":3,\"afterStream\":false}", Ser(Sec(reqs[0].Spec, "adopt")), "ライブの設定 → adopt(範囲の外は既定)");
+        Eq(60, (int)Sec(reqs[0].Spec, "analyze")["length"], "長さ → analyze.length");
+        Eq(2, (int)((IDictionary<string, object>)e["deliver"])["batch"], "ライブの届け方");
+
+        string dir = Path.Combine(Path.GetTempPath(), "rs-f3a-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string v1 = Path.Combine(dir, "にぇの叫び.mp4"), v2 = Path.Combine(dir, "b.mov");
+            File.WriteAllText(v1, "x");
+            File.WriteAllText(v2, "x");
+            var vids = FlowBundle.Build(new SendInput { Videos = new List<string> { v1, v2 }, Cut = Cut.Silence, VideoTracks = 3 }, null, "r", null, Ids_(), DateTimeOffset.Now);
+            Eq(2, vids.Count, "動画は 1 本ずつ");
+            Eq("file", (string)vids[0].Envelope["kind"], "kind file");
+            var inp = (IDictionary<string, object>)vids[0].Envelope["input"];
+            Eq(v1, (string)inp["path"], "パスをそのまま(送らない)");
+            Eq("にぇの叫び.mp4", (string)inp["title"], "題 = ファイルの名前");
+            Eq("file_auto", (string)((IDictionary<string, object>)vids[0].Envelope["legacy"])["mode"], "動画は file_auto");
+            True(!Sec(vids[0].Spec, "run").ContainsKey("repack") && !vids[0].Spec.ContainsKey("adopt"), "動画は作り直しの印・切り抜く数なし");
+            Eq(3, (int)Sec(vids[1].Spec, "pack")["videoTracks"], "動画にもパックの指定");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void FriendDefaultsLoad()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "rs-f3a-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string p = Path.Combine(dir, FriendDefaults.FileName);
+            var none = FriendDefaults.Load(p);
+            True(none.Problem == null && none.Bundle.Count == 0, "無ければ既定なし(理由も無し)");
+            File.WriteAllText(p, "{ broken", Encoding.UTF8);
+            True(FriendDefaults.Load(p).Problem != null, "壊れていれば理由");
+            File.WriteAllText(p, "{\"schema\":\"other/v9\",\"bundle\":{\"adopt\":{\"top\":5}}}", Encoding.UTF8);
+            var other = FriendDefaults.Load(p);
+            True(other.Problem != null && other.Bundle.Count == 0, "schema が違えば使わない");
+            File.WriteAllText(p, "{\"schema\":\"" + FriendDefaults.Schema + "\",\"bundle\":{\"adopt\":{\"top\":5}},\"request\":{\"top\":7,\"streamers\":[\"a\"]}}", Encoding.UTF8);
+            var ok = FriendDefaults.Load(p);
+            Eq(5, Json.Int(Json.Dict(ok.Bundle, "adopt"), "top", 0), "bundle を読む");
+            Eq(7, Json.Int(ok.Request, "top", 0), "request を読む");
+        }
+        finally { Directory.Delete(dir, true); }
+        var m = BundleMerge.Merge(D("a", D("x", 1, "y", 2), "b", new List<object> { 1, 2 }, "c", 1), D("a", D("y", 3), "b", new List<object> { 9 }, "c", D("z", 1)));
+        Eq("{\"a\":{\"x\":1,\"y\":3},\"b\":[9],\"c\":{\"z\":1}}", Ser(m), "辞書は鍵ごと・それ以外は置き換え");
+    }
+
+    static void BackendPieces()
+    {
+        int port; string token;
+        True(Backend.ParseReady("{\"event\": \"ready\", \"port\": 51234, \"token\": \"abc_DEF-1\", \"pid\": 99}", out port, out token) && port == 51234 && token == "abc_DEF-1", "ready の 1 行");
+        True(!Backend.ParseReady("{\"event\": \"other\", \"port\": 1, \"token\": \"t\"}", out port, out token), "ほかの event は読まない");
+        True(!Backend.ParseReady("ホームを起動しました", out port, out token), "JSON でない行");
+        True(!Backend.ParseReady("{\"event\": \"ready\", \"port\": 0, \"token\": \"t\"}", out port, out token), "ポート 0");
+        True(!Backend.ParseReady("{\"event\": \"ready\", \"port\": 80}", out port, out token), "合言葉なし");
+        Eq("\"C:\\a b\\src\\app\\server.py\" --headless --port 0 --parent-pid 1234", Backend.Arguments(@"C:\a b\src\app\server.py", 1234, true), "起動の引数(1-2 の口の表)");
+        Eq("\"x.py\" --headless --port 0", Backend.Arguments("x.py", 1, false), "--parent-pid を付けない形");
+        Eq("tok-1_A", Backend.TokenFromPage("<head><meta name=\"ytt-version\" content=\"0.58.0\"><meta name=\"ytt-token\" content=\"tok-1_A\"></head>"), "画面の meta の合言葉");
+        True(Backend.TokenFromPage("<html></html>") == null, "meta が無ければ null");
+
+        string dir = Path.Combine(Path.GetTempPath(), "rs-f3a-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string lockPath = Path.Combine(dir, Backend.LockName);
+            Eq(0, Backend.LockPort(lockPath), ".flow.lock が無い");
+            File.WriteAllText(lockPath, "{\"pid\": 5, \"port\": 8700, \"at\": 1, \"token\": \"x\"}");
+            Eq(8700, Backend.LockPort(lockPath), ".flow.lock のポート");
+            File.WriteAllText(lockPath, "{\"pid\": 5, \"port\": null}");
+            Eq(0, Backend.LockPort(lockPath), "ポートなし(CLI の印)");
+
+            True(BackendPaths.Locate(dir) == null, "Python・src が無ければ null = Dropbox だけ");
+            Directory.CreateDirectory(Path.Combine(dir, "python"));
+            File.WriteAllText(Path.Combine(dir, "python", "python.exe"), "");
+            True(BackendPaths.Locate(dir) == null, "src が無ければ null");
+            Directory.CreateDirectory(Path.Combine(dir, "src", "app"));
+            File.WriteAllText(Path.Combine(dir, "src", "app", "server.py"), "");
+            var paths = BackendPaths.Locate(dir);
+            True(paths != null && paths.Server.EndsWith(@"src\app\server.py"), "そろえば場所");
+            var env0 = Backend.ChildEnv(paths, @"C:\Windows");
+            Eq("utf-8", env0["PYTHONIOENCODING"], "文字コード");
+            True(!env0.ContainsKey("PATH") && !env0.ContainsKey("YTT_FFMPEG"), "tools が無ければ PATH はそのまま");
+            Directory.CreateDirectory(Path.Combine(dir, "tools", "ffmpeg", "bin"));
+            File.WriteAllText(Path.Combine(dir, "tools", "ffmpeg", "bin", "ffmpeg.exe"), "");
+            File.WriteAllText(Path.Combine(dir, "tools", "yt-dlp.exe"), "");
+            var env1 = Backend.ChildEnv(paths, @"C:\Windows");
+            Eq(Path.Combine(dir, "tools", "ffmpeg", "bin", "ffmpeg.exe"), env1["YTT_FFMPEG"], "tools の下 2 段の ffmpeg");
+            Eq(Path.Combine(dir, "tools", "yt-dlp.exe"), env1["YTT_YTDLP"], "tools の直下の yt-dlp");
+            True(env1["PATH"].StartsWith(Path.Combine(dir, "tools") + ";" + Path.Combine(dir, "tools", "ffmpeg") + ";") && env1["PATH"].EndsWith(@";C:\Windows"), "PATH の前に tools: " + env1["PATH"]);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    static void FlowStatusRead()
+    {
+        string json = "{\"queued\":1,\"running\":1,\"done\":2,\"idle\":false,\"closed\":false,\"rev\":17,\"live\":{\"recording\":0,\"detecting\":0,\"exporting\":0}," +
+                      "\"machine\":{\"engine\":\"whisper.cpp\",\"gpu\":{\"name\":\"RTX 3060\",\"vramGB\":12}},\"blocked\":null,\"jobs\":[],\"unknown\":1," +
+                      "\"runs\":[{\"id\":\"a\",\"title\":\"配信 A\",\"state\":\"running\",\"steps\":[{\"key\":\"analyze\",\"label\":\"解析\",\"state\":\"done\"},{\"key\":\"adopt\",\"label\":\"採用(自動)\",\"state\":\"skip\"}," +
+                      "{\"key\":\"export\",\"label\":\"書き出し\",\"state\":\"run\"},{\"key\":\"pack\",\"label\":\"パック\",\"state\":\"wait\"}]}," +
+                      "{\"id\":\"b\",\"title\":\"B\",\"state\":\"queued\",\"steps\":[]},{\"id\":\"c\",\"title\":\"C\",\"state\":\"done\",\"steps\":[]},{\"id\":\"d\",\"title\":\"D\",\"state\":\"error\",\"steps\":[]}]}";
+        var s = FlowStatus.Parse(Json.Parse(json));
+        True(!s.Idle && s.Queued == 1 && s.Running == 1 && s.Rev == 17 && !s.Blocked, "数・rev・blocked なし");
+        Eq("RTX 3060", s.GpuName, "GPU の名前");
+        Eq("書き出し", s.Runs[0].Step, "実行中の段の名前");
+        Eq(0.5, s.Runs[0].Fraction, "済んだ段 / 段の数(飛ばした段も済み)");
+        Eq((0.5 + 0 + 1 + 1) / 4, s.Fraction(), "全体の進み具合");
+        Eq("この PC: 処理中: 配信 A(書き出し) ・ 待ち 1 本", s.Line(), "上の帯の 1 行");
+        Eq(2000, CloseChoice.PollMs(s), "動いていれば 2 秒");
+        True(CloseChoice.Needed(true, s), "自分の ② が動いていれば 3 択");
+        True(!CloseChoice.Needed(false, s), "ほかの入口に頼んでいるときは聞かない");
+
+        var idle = FlowStatus.Parse(Json.Parse("{\"queued\":0,\"running\":0,\"done\":3,\"idle\":true,\"runs\":[]}"));
+        Eq(15000, CloseChoice.PollMs(idle), "止まっていれば 15 秒");
+        Eq(15000, CloseChoice.PollMs(null), "まだ読んでいなければ 15 秒");
+        True(!CloseChoice.Needed(true, idle) && !CloseChoice.Needed(true, null), "idle・まだ読んでいない = 聞かずに閉じる");
+        Eq(-1L, idle.Rev, "rev の無い古い ② は -1");
+        Eq("この PC: 済み 3 本(待ちなし)", idle.Line(), "済みの数");
+        Eq(0.0, idle.Fraction(), "実行が無ければ 0");
+
+        var live = FlowStatus.Parse(Json.Parse("{\"queued\":0,\"running\":0,\"idle\":false,\"live\":{\"recording\":1,\"detecting\":1,\"exporting\":0},\"runs\":[]}"));
+        True(CloseChoice.Needed(true, live), "録画中も 3 択");
+        Eq("この PC: 録画中 1", live.Line(), "録画中の 1 行");
+
+        var blocked = FlowStatus.Parse(Json.Parse("{\"queued\":2,\"running\":0,\"idle\":false,\"blocked\":{\"reason\":\"disk\",\"freeGB\":12.34,\"minGB\":20},\"runs\":[]}"));
+        True(blocked.Blocked, "blocked");
+        Eq("⚠ 空きが 12 GB。20 GB を切ったので新しい処理を始めていません", blocked.Line(), "空き容量の帯");
+        var blocked2 = FlowStatus.Parse(Json.Parse("{\"idle\":false,\"blocked\":{\"reason\":\"disk\",\"freeGB\":3.25,\"minGB\":20.0}}"));
+        Eq("⚠ 空きが 3.3 GB。20 GB を切ったので新しい処理を始めていません", blocked2.Line(), "10 GB 未満は小数 1 桁");
+    }
+
+    class FakeFlow : IFlowClient
+    {
+        public List<string> Posted = new List<string>();
+        public int FailAt = -1;
+        public FlowReply Reply;
+
+        public FlowReply Get(string path) { return new FlowReply { Status = 200 }; }
+
+        public FlowReply Post(string path, object body)
+        {
+            Posted.Add(path + " " + Ser(body));
+            if (Posted.Count - 1 == FailAt) return Reply;
+            var env = (IDictionary<string, object>)((IDictionary<string, object>)body)["envelope"];
+            return new FlowReply { Status = 200, Body = D("run", D("id", env["id"])) };
+        }
+    }
+
+    static void FlowSubmit()
+    {
+        var input = new SendInput { Items = new List<UrlItem> { new UrlItem { Url = Norm, Top = 2 }, new UrlItem { Url = "https://www.youtube.com/watch?v=AAAAAAAAAAA" } } };
+        var ok = new FakeFlow();
+        var sent = new List<string>();
+        var steps = new List<string>();
+        var ids = Sending.RunLocal(input, ok, new FriendDefaults(), "v1", sent, steps.Add);
+        Eq(2, ids.Count, "2 本とも受け付けた");
+        True(ok.Posted.All(x => x.StartsWith("/api/flow/submit {\"envelope\":")), "submit に {envelope, spec}");
+        True(ok.Posted[0].Contains("\"spec\":") && ok.Posted[0].Contains("\"learning\":{\"version\":\"v1\"}"), "束に学習の版");
+        Eq(2, sent.Count, "受け付けた物の名前");
+        True(steps.Count == 2 && steps[1].Contains("2 / 2"), "進み具合の文");
+
+        var ng = new FakeFlow { FailAt = 1, Reply = new FlowReply { Status = 400, Body = D("ok", false, "error", "bad_request", "message", "知らない項目です: adopt.foo") } };
+        sent.Clear();
+        try { Sending.RunLocal(input, ng, null, null, sent, null); True(false, "断られたら例外"); }
+        catch (BackendException ex) { True(ex.Message.Contains("更新してください") && ex.Message.Contains("adopt.foo"), "知らない項目 = 更新を促す: " + ex.Message); }
+        Eq(1, sent.Count, "それまでに受け付けた分は残る");
+
+        Eq("このアプリと処理の部品の版が合いません。アプリを更新してください(x)", FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "spec_version", "message", "x") }), "spec_version");
+        True(FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "bad_spec", "message", "y") }).Contains("更新"), "bad_spec");
+        Eq("受け付けられませんでした: 同じ入力が待ち・実行中です", FlowErrors.Submit(new FlowReply { Status = 400, Body = D("error", "bad_request", "message", "同じ入力が待ち・実行中です") }), "ほかの断り");
+        True(FlowErrors.Submit(new FlowReply { Status = 0, Error = "処理の部品につながりませんでした(WebException)" }).Contains("つながりません"), "つながらない");
+    }
+
+    // ---- F3c Sync.cs ----
+    class FakeIo : ISyncIo
+    {
+        public Dictionary<string, byte[]> Remote = new Dictionary<string, byte[]>();
+        public List<string> Uploaded = new List<string>();
+        public HashSet<string> FailUpload = new HashSet<string>();
+
+        public byte[] ReadSmall(string path) { byte[] b; return Remote.TryGetValue(path, out b) ? b : null; }
+
+        public bool Download(string path, string localPath)
+        {
+            byte[] b;
+            if (!Remote.TryGetValue(path, out b)) return false;
+            File.WriteAllBytes(localPath, b);
+            return true;
+        }
+
+        public void Upload(string localPath, string path)
+        {
+            if (FailUpload.Contains(Path.GetFileName(localPath))) throw new IOException("offline");
+            Uploaded.Add(path);
+        }
+    }
+
+    class OutboxFlow : IFlowClient
+    {
+        public List<string> Ids = new List<string>();
+        public List<string> Done = new List<string>();
+        public FlowReply Get(string path)
+        {
+            return new FlowReply { Status = 200, Body = D("files", Ids.Select(i => (object)D("id", i)).ToList()) };
+        }
+        public FlowReply Post(string path, object body)
+        {
+            Done.Add(((IDictionary<string, object>)body)["id"].ToString());
+            return new FlowReply { Status = 200 };
+        }
+    }
+
+    static string Sha(byte[] b)
+    {
+        using (var h = System.Security.Cryptography.SHA256.Create()) return string.Concat(h.ComputeHash(b).Select(x => x.ToString("x2")));
+    }
+
+    static void SyncVersionsAndPaths()
+    {
+        Eq(-1, Sync.CompareVersion("0.58.0", "0.59.0"), "版: 小さい");
+        Eq(1, Sync.CompareVersion("0.60.0", "0.59.9"), "版: 大きい");
+        Eq(1, Sync.CompareVersion("0.10.0", "0.9.0"), "版: 数として比べる(文字ではなく)");
+        Eq(0, Sync.CompareVersion("1.0", "1.0.0"), "版: 足りない桁は 0");
+        Eq("/学習/latest.json", SyncPaths.LearningLatest, "パス: 学習");
+        Eq("/更新/latest.json", SyncPaths.UpdateLatest, "パス: 更新");
+        Eq("/送り返し/a__b.zip", SyncPaths.ReturnFile("a__b.zip"), "パス: 送り返し");
+        Eq("/学習/20261011-101010-abcdef01/voices/x.json", SyncPaths.LearningFile("20261011-101010-abcdef01", "voices/x.json"), "パス: 束の中");
+        True(Sync.SafeRel("voices/x.json") && !Sync.SafeRel("../x") && !Sync.SafeRel("a/../b") && !Sync.SafeRel("C:/x") && !Sync.SafeRel("/x") && !Sync.SafeRel("a\\b"), "束の中のパスの安全");
+        var prune = Sync.ToPrune(new[] { "20260101-000000-aaaaaaaa", "20260105-000000-bbbbbbbb", "20260103-000000-cccccccc", "20260104-000000-dddddddd", "current", "x.part" }, 3);
+        Eq(1, prune.Count, "直近 3 版を残す");
+        Eq("20260101-000000-aaaaaaaa", prune[0], "いちばん古い版を消す(版でない名前は触らない)");
+    }
+
+    static void SyncLearning()
+    {
+        string root = Path.Combine(TempDir(), "learning");
+        var io = new FakeIo();
+        string v = "20261011-101010-abcdef01";
+        byte[] a = Encoding.UTF8.GetBytes("{\"x\":1}"), b = Encoding.UTF8.GetBytes("{\"voices\":{}}");
+        string pack = "{\"schema\":\"ytt-learning/v1\",\"version\":\"" + v + "\",\"files\":[" +
+                      "{\"path\":\"settings.json\",\"sha256\":\"" + Sha(a) + "\",\"size\":" + a.Length + "}," +
+                      "{\"path\":\"voices/m.json\",\"sha256\":\"" + Sha(b) + "\",\"size\":" + b.Length + "}]}";
+        Eq<string>(null, Sync.FetchLearning(io, root, s => { }), "Dropbox に latest.json が無ければ何もしない");
+        io.Remote["/学習/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"" + v + "\",\"dir\":\"" + v + "\"}");
+        io.Remote["/学習/" + v + "/learning.json"] = Encoding.UTF8.GetBytes(pack);
+        io.Remote["/学習/" + v + "/settings.json"] = a;
+        io.Remote["/学習/" + v + "/voices/m.json"] = b;
+        Eq(v, Sync.FetchLearning(io, root, s => { }), "新しい版を取る");
+        True(File.Exists(Path.Combine(root, v, "settings.json")) && File.Exists(Path.Combine(root, v, "voices", "m.json")) && File.Exists(Path.Combine(root, v, "learning.json")), "ファイルがそろった");
+        True(!Directory.Exists(Path.Combine(root, v + ".part")), "作業のフォルダは残らない");
+        io.Remote.Remove("/学習/" + v + "/settings.json");
+        Eq(v, Sync.FetchLearning(io, root, s => { }), "取り済みなら取り直さない(ネットが無くても通る)");
+
+        // 壊れた版: hash が合わない -> 例外・何も残らない
+        string v2 = "20261012-101010-abcdef02";
+        io.Remote["/学習/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"" + v2 + "\"}");
+        io.Remote["/学習/" + v2 + "/learning.json"] = Encoding.UTF8.GetBytes(pack.Replace(Sha(a), new string('0', 64)));
+        io.Remote["/学習/" + v2 + "/settings.json"] = a;
+        io.Remote["/学習/" + v2 + "/voices/m.json"] = b;
+        try { Sync.FetchLearning(io, root, s => { }); True(false, "hash が違えば例外"); }
+        catch (InvalidDataException ex) { True(ex.Message.Contains("hash"), "hash の理由: " + ex.Message); }
+        True(!Directory.Exists(Path.Combine(root, v2)) && !Directory.Exists(Path.Combine(root, v2 + ".part")), "壊れた版は置かない");
+        // 安全でないパス
+        io.Remote["/学習/" + v2 + "/learning.json"] = Encoding.UTF8.GetBytes("{\"files\":[{\"path\":\"../evil.json\",\"sha256\":\"x\",\"size\":1}]}");
+        try { Sync.FetchLearning(io, root, s => { }); True(false, "安全でないパスは例外"); }
+        catch (InvalidDataException) { True(true, "安全でないパス"); }
+
+        // machine へ向ける: 動いていなければ記録だけ・次の回で向ける
+        var puts = new List<string>();
+        Func<string, object, FlowReply> okPut = (p, body) => { puts.Add(p + " " + ((IDictionary<string, object>)body)["learningDir"]); return new FlowReply { Status = 200 }; };
+        True(!Sync.ApplyLearning(root, v, null, s => { }), "② が動いていない = 記録だけ");
+        Eq(0, puts.Count, "PUT しない");
+        True(Sync.ApplyLearning(root, v, okPut, s => { }), "次の回で向ける");
+        Eq("/api/flow/machine " + Path.Combine(root, v), puts[0], "learningDir は版のフォルダ");
+        True(Sync.ApplyLearning(root, v, okPut, s => { }) && puts.Count == 1, "向け済みなら PUT しない");
+        True(!Sync.ApplyLearning(root, "20261013-000000-abcdef03", (p, bd) => new FlowReply { Status = 400 }, s => { }), "断られたら向けていない印のまま");
+    }
+
+    static void SyncReturnsAndUpdate()
+    {
+        string data = TempDir();
+        string outbox = Path.Combine(data, "app", "outbox");
+        Directory.CreateDirectory(outbox);
+        File.WriteAllText(Path.Combine(outbox, "r1__run1.zip"), "z1");
+        File.WriteAllText(Path.Combine(outbox, "r2__run2.zip"), "z2");
+        File.WriteAllText(Path.Combine(outbox, "r1__pack1.verdict.json"), "{\"verdict\":\"keep\"}");
+        File.WriteAllText(Path.Combine(outbox, "notes.txt"), "x");
+        var io = new FakeIo();
+        var flow = new OutboxFlow();
+        flow.Ids.AddRange(new[] { "r1__run1.zip", "r2__run2.zip", "../evil.zip" });
+        io.FailUpload.Add("r2__run2.zip");
+        int failed;
+        int ok = Sync.SendReturns(io, flow, outbox, s => { }, out failed);
+        Eq(2, ok, "上げた数(zip 1 + verdict 1)");
+        Eq(1, failed, "失敗は 1 本");
+        Eq("r1__run1.zip", string.Join(",", flow.Done), "上がった物だけ done(失敗と不正な名前は送らない)");
+        True(io.Uploaded.Contains("/送り返し/r1__run1.zip") && io.Uploaded.Contains("/送り返し/r1__pack1.verdict.json"), "送り先のパス");
+        True(!File.Exists(Path.Combine(outbox, "r1__pack1.verdict.json")) && File.Exists(Path.Combine(outbox, "済み", "r1__pack1.verdict.json")), "上げた verdict は 済み へ");
+        io.FailUpload.Clear();
+        ok = Sync.SendReturns(io, flow, outbox, s => { }, out failed);
+        True(failed == 0 && flow.Done.Contains("r2__run2.zip"), "失敗した物は次の回で再送");
+
+        Eq<UpdateInfo>(null, Sync.CheckUpdate(io, "0.58.0"), "更新の置き場が無ければ無し");
+        io.Remote["/更新/latest.json"] = Encoding.UTF8.GetBytes("{\"version\":\"0.59.0\",\"file\":\"RequestSender-0.59.0.zip\",\"size\":10,\"sha256\":\"ab\",\"notes\":\"n\"}");
+        var u = Sync.CheckUpdate(io, "0.58.0");
+        True(u != null && u.Version == "0.59.0" && u.File == "RequestSender-0.59.0.zip" && u.Size == 10, "新しい版を知らせる");
+        Eq<UpdateInfo>(null, Sync.CheckUpdate(io, "0.59.0"), "同じ版は出さない");
+        Eq<UpdateInfo>(null, Sync.CheckUpdate(io, "0.60.0"), "古い版は出さない");
+
+        // 全体: 1 つが失敗してもほかは進む
+        var all = Sync.RunAll(io, flow, null, data, "0.58.0", s => { });
+        True(all.Update != null && all.Update.Version == "0.59.0", "RunAll: 更新の確認は学習が無くても動く");
+        Eq(0, all.Problems.Count, "RunAll: 問題なし");
+    }
+
+    static void SettingsKey()
+    {
+        string m;
+        const string Key = "AIzaSyA-0123456789abcdefghijklmnopqrs";
+        True(YtKeyCheck.LooksLikeKey(Key) && !YtKeyCheck.LooksLikeKey("short") && !YtKeyCheck.LooksLikeKey(Key + "!"), "キーの形");
+        Eq(Key, YtKeyCheck.Clean("  \"" + Key + "\"\r\n"), "前後の空白・引用符を落とす");
+        True(YtKeyCheck.Url(Key).StartsWith("https://www.googleapis.com/youtube/v3/videos?part=id&id=") && YtKeyCheck.Url(Key).EndsWith("&key=" + Key), "videos.list の URL");
+        True(YtKeyCheck.Judge(200, "{}", out m) && m == "使えます", "200 = 使えます");
+        True(!YtKeyCheck.Judge(400, "{\"error\":{\"code\":400,\"message\":\"API key not valid. Please pass a valid API key.\",\"errors\":[{\"reason\":\"badRequest\"}],\"status\":\"INVALID_ARGUMENT\"}}", out m) && m.Contains("キーが違います"), "偽のキー = 理由が出る");
+        True(!YtKeyCheck.Judge(403, "{\"error\":{\"message\":\"x\",\"errors\":[{\"reason\":\"accessNotConfigured\"}]}}", out m) && m.Contains("有効になっていません"), "API が無効");
+        True(!YtKeyCheck.Judge(403, "{\"error\":{\"errors\":[{\"reason\":\"quotaExceeded\"}]}}", out m) && m.Contains("上限"), "上限");
+        True(!YtKeyCheck.Judge(403, "{\"error\":{\"status\":\"PERMISSION_DENIED\"}}", out m) && m.Contains("制限"), "場所の制限");
+        True(!YtKeyCheck.Judge(500, "not json", out m) && m.Contains("HTTP 500"), "読めない返事");
+        True(!YtKeyCheck.Judge(0, "Timeout", out m) && m.Contains("つながりませんでした"), "つながらない");
+        int calls = 0;
+        True(YtKeyCheck.Check(Key, u => { calls++; return new KeyValuePair<int, string>(200, "{}"); }, out m) && calls == 1, "貼ったら 1 回だけ呼ぶ");
+        True(!YtKeyCheck.Check("bad", u => { calls++; return new KeyValuePair<int, string>(200, "{}"); }, out m) && calls == 1, "形が違えば呼ばない");
+
+        string dir = Path.Combine(Path.GetTempPath(), "rs-keys-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Eq("", KeyStore.Load(dir), "無ければ空");
+            Directory.CreateDirectory(Path.Combine(dir, "app"));
+            File.WriteAllText(KeyStore.PathFor(dir), "{\"other\":\"keep\"}");
+            KeyStore.Save(dir, Key);
+            Eq(Key, KeyStore.Load(dir), "書いて読める");
+            True(File.ReadAllText(KeyStore.PathFor(dir)).Contains("\"other\":\"keep\""), "ほかの項目を消さない");
+            KeyStore.Save(dir, "");
+            Eq("", KeyStore.Load(dir), "空で消す");
+            True(File.ReadAllText(KeyStore.PathFor(dir)).Contains("other"), "消してもほかの項目は残る");
+            True(!File.Exists(KeyStore.PathFor(dir) + ".tmp"), "一時ファイルを残さない");
+            var env = Backend.ChildEnv(new BackendPaths { Python = "p", Src = "s" }, "");
+            True(!env.ContainsKey("YTT_YT_API_KEY"), "ChildEnv は鍵を持たない(起こすときに keys.json から)");
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
+    static void SettingsMachine()
+    {
+        var v = MachineView.Parse(Json.Parse("{\"machine\":{\"device\":\"cuda\",\"caseRoot\":\"C:\\\\Videos\",\"diskMinGB\":20,\"gpu\":{\"name\":\"RTX 3060\",\"vramGB\":12}}}"));
+        Eq("cuda", v.Device, "device");
+        Eq(20.0, v.DiskMinGB, "diskMinGB");
+        Eq("GPU: RTX 3060(12 GB)", v.GpuText, "GPU の表示");
+        var flat = MachineView.Parse(Json.Parse("{\"device\":\"vulkan\",\"diskMinGB\":12.5}"));
+        Eq('A', MachineApi.EngineOf(flat.Device), "vulkan = A");
+        Eq('C', MachineApi.EngineOf(v.Device), "cuda = C");
+        Eq("GPU: 調べられていません", flat.GpuText, "GPU が分からない");
+        Eq("cuda", MachineApi.DeviceOf('C'), "C → cuda");
+        Eq("vulkan", MachineApi.DeviceOf('A'), "A → vulkan");
+        Eq("{\"device\":\"cuda\"}", Ser(MachineApi.Body("cuda", null, null)), "指定した項目だけ送る");
+        Eq("{\"caseRoot\":\"D:\\\\x\",\"diskMinGB\":30}", Ser(MachineApi.Body(null, "D:\\x", 30.0)), "案件の根と下限");
+        string m;
+        Eq(25.0, MachineApi.ParseDisk(" 25 ", out m), "空き容量");
+        True(MachineApi.ParseDisk("abc", out m) == null && m.Contains("数"), "数でない");
+        True(MachineApi.ParseDisk("-1", out m) == null && m.Contains("0〜"), "範囲の外");
+        True(MachineApi.Problem(new FlowReply { Status = 200 }) == null, "成功は問題なし");
+        True(MachineApi.Problem(new FlowReply { Status = 404 }).Contains("アプリを更新"), "404 = 更新が要る");
+        True(MachineApi.Problem(new FlowReply { Status = 400, Body = D("message", "device は vulkan のどれかにしてください") }).Contains("device は vulkan"), "400 は理由");
+        True(MachineApi.Problem(new FlowReply { Status = 0, Error = "つながりません" }).Contains("つながりません"), "つながらない");
+        True(SettingsForm.GuideUrl("C:\\app\\guide.html").EndsWith("guide.html#%E8%A8%AD%E5%AE%9A"), "説明は guide.html#設定");
+        string tmp = Path.Combine(Path.GetTempPath(), "rs-settings-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using (var f = new SettingsForm(null, tmp, tmp))
+            {
+                Eq(false, f.MachineEnabled, "部品が動いていなければ machine の欄は触れない");
+                Eq("", f.KeyText, "窓が作れる");
+            }
+            True(!Directory.Exists(tmp), "開いただけでは何も書かない");
+        }
+        finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
+    }
+
+    static void MadeVideoJson()
+    {
+        var e = new OutputEntry { Name = "20261011-120000-abc123__題 1-5.zip", RequestId = "20261011-120000-abc123", Title = "題" };
+        var now = new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.FromHours(9));
+        string made = FeedbackJson.MadeVideo(e, now);
+        Eq(FeedbackJson.Reject(e, now).Replace("\"verdict\":\"reject\"", "\"verdict\":\"made_video\""), made, "要らないと verdict だけ違う");
+        True(made.Contains("\"kind\":\"feedback\"") && made.Contains("\"requestId\":\"20261011-120000-abc123\""), "形");
+        Eq("/20261011-120000-abc123__題 1-5.feedback.json", FeedbackJson.PathFor(e), "置き場所は同じ");
+    }
+
+    // ---------------------------------------------------------------- F4b 初回の取得と更新(Setup.cs。通信しない)
+    class FakeHttp : IDownloader
+    {
+        public Dictionary<string, byte[]> Blobs = new Dictionary<string, byte[]>();
+        public List<long> Starts = new List<long>();
+        public List<string> Urls = new List<string>();
+
+        public void Get(string url, string part, long expect, Action<long> progress, Func<bool> canceled)
+        {
+            Urls.Add(url);
+            byte[] b = Blobs[url];
+            long have = File.Exists(part) ? new FileInfo(part).Length : 0;
+            Starts.Add(have);
+            Directory.CreateDirectory(Path.GetDirectoryName(part));
+            using (var fs = new FileStream(part, FileMode.Append, FileAccess.Write))
+            {
+                fs.Write(b, (int)have, b.Length - (int)have);
+                if (progress != null) progress(b.Length);
+            }
+        }
+    }
+
+    class FakeTar : ITarTool
+    {
+        public string[] Parts;
+        public FakeTar(params string[] parts) { Parts = parts; }
+
+        public void ExtractAll(string archive, string destDir, string top)
+        {
+            foreach (string p in Parts)
+            {
+                string f = Path.Combine(destDir, top, p);
+                Directory.CreateDirectory(Path.GetDirectoryName(f));
+                File.WriteAllText(f, "x");
+            }
+        }
+
+        public void ExtractMember(string archive, string member, string outFile, long maxBytes)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(outFile));
+            File.WriteAllText(outFile, "member:" + member);
+        }
+    }
+
+
+    static byte[] ZipBytes(params string[] nameAndText)
+    {
+        var ms = new MemoryStream();
+        using (var z = new ZipArchive(ms, ZipArchiveMode.Create, true))
+            for (int i = 0; i < nameAndText.Length; i += 2)
+                using (var w = new StreamWriter(z.CreateEntry(nameAndText[i]).Open(), new UTF8Encoding(false))) w.Write(nameAndText[i + 1]);
+        return ms.ToArray();
+    }
+
+    static string FetchJson(string name, string file, string url, byte[] blob, string extra)
+    {
+        return "{\"name\":\"" + name + "\",\"file\":\"" + file + "\",\"url\":\"" + url + "\",\"sha256\":\"" + Sha(blob) + "\"," + extra + "}";
+    }
+
+    static void FetchPlanRead()
+    {
+        var blob = Encoding.UTF8.GetBytes("0123456789");
+        string ok = "{\"version\":\"1.2.3\",\"items\":[" +
+            FetchJson("m", "model.bin", "https://h/model.bin", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/x\",\"unzip\":null") + "," +
+            FetchJson("sv", "sv.tar.bz2", "https://h/sv.tar.bz2", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/sv\",\"unzip\":\"tar.bz2\",\"top\":\"sv\",\"parts\":[\"model.int8.onnx\",\"tokens.txt\"]") + "," +
+            FetchJson("seg", "segmentation.onnx", "https://h/p/seg.tar.bz2?x=1", blob, "\"size\":null,\"maxBytes\":1000,\"base\":\"data\",\"dest\":\"transcribe/models/diar\",\"unzip\":\"tar.bz2-member\",\"member\":\"d/model.onnx\"") +
+            "]}";
+        var plan = FetchPlan.Parse(Json.Parse(ok));
+        Eq(3, plan.Items.Count, "3 行");
+        Eq("1.2.3", plan.Version, "版");
+        Eq(-1L, plan.Items[2].Size, "size: null = -1");
+        Eq(1000L, plan.Items[2].Expect, "size が無ければ maxBytes");
+        Eq("seg.tar.bz2", plan.Items[2].ArchiveName, "member の取る名前は URL の最後(? の前まで)");
+        Eq("sv.tar.bz2", plan.Items[1].ArchiveName, "tar.bz2 は file");
+        Eq(2, plan.Items[1].Parts.Count, "parts");
+
+        string[] bad = {
+            FetchJson("a", "f", "http://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"../x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"C:/x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"/x\""),
+            FetchJson("a", "a/f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"web\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"base\":\"data\",\"dest\":\"x\""),
+            FetchJson("a", "f", "https://h/f", blob, "\"size\":10,\"base\":\"data\",\"dest\":\"x\",\"unzip\":\"rar\""),
+            "{\"name\":\"a\",\"file\":\"f\",\"url\":\"https://h/f\",\"sha256\":\"zz\",\"size\":10,\"base\":\"data\",\"dest\":\"x\"}",
+        };
+        foreach (string b in bad)
+        {
+            try { FetchPlan.Parse(Json.Parse("{\"items\":[" + b + "]}")); True(false, "断られるはず: " + b); }
+            catch (FormatException) { }
+        }
+        True(FetchPlan.SafeRelative("a/b") && FetchPlan.SafeRelative("") && !FetchPlan.SafeRelative("a/../b") && !FetchPlan.SafeRelative("a//b"), "SafeRelative");
+        Eq("\"C:\\a b\\\\\"", PythonTar.Quote("C:\\a b\\"), "末尾の \\ は 2 つに");
+    }
+
+    static void FetchRun()
+    {
+        string data = TempDir(), app = TempDir();
+        var a = Encoding.UTF8.GetBytes("0123456789");
+        var z = ZipBytes("bin/tool.exe", "exe");
+        var tarBlob = Encoding.UTF8.GetBytes("TARBALL");
+        var segBlob = Encoding.UTF8.GetBytes("SEGTAR");
+        var wrong = Encoding.UTF8.GetBytes("WRONGBYTES");
+        var http = new FakeHttp();
+        http.Blobs["https://h/model.bin"] = a;
+        http.Blobs["https://h/bad.bin"] = wrong;
+        http.Blobs["https://h/deno.zip"] = z;
+        http.Blobs["https://h/sv.tar.bz2"] = tarBlob;
+        http.Blobs["https://h/seg.tar.bz2"] = segBlob;
+        string json = "{\"items\":[" +
+            FetchJson("model", "model.bin", "https://h/model.bin", a, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/x\",\"unzip\":null") + "," +
+            FetchJson("bad", "bad.bin", "https://h/bad.bin", a, "\"size\":10,\"base\":\"data\",\"dest\":\"transcribe/models/x\",\"unzip\":null") + "," +
+            FetchJson("deno", "deno.zip", "https://h/deno.zip", z, "\"size\":" + z.Length + ",\"base\":\"app\",\"dest\":\"tools/deno\",\"unzip\":\"zip\",\"pinnedBy\":\"build\"") + "," +
+            FetchJson("sv", "sv.tar.bz2", "https://h/sv.tar.bz2", tarBlob, "\"size\":" + tarBlob.Length + ",\"base\":\"data\",\"dest\":\"transcribe/models/sv\",\"unzip\":\"tar.bz2\",\"top\":\"sv\",\"parts\":[\"model.int8.onnx\"]") + "," +
+            FetchJson("seg", "segmentation.onnx", "https://h/seg.tar.bz2", segBlob, "\"size\":null,\"maxBytes\":100,\"base\":\"data\",\"dest\":\"transcribe/models/diar\",\"unzip\":\"tar.bz2-member\",\"member\":\"d/model.onnx\"") +
+            "]}";
+        var plan = FetchPlan.Parse(Json.Parse(json));
+        Eq(5, plan.Missing(data, app).Count, "最初は全部足りない");
+
+        // 途中まで取ってあれば続きから(model.bin の先頭 4 バイト)
+        string modelDir = Path.Combine(data, "transcribe", "models", "x");
+        Directory.CreateDirectory(modelDir);
+        File.WriteAllBytes(Path.Combine(modelDir, "model.bin.part"), a.Take(4).ToArray());
+
+        var steps = new List<FetchProgress>(); var phases = new List<string>();
+        var f = new Fetcher(http, new FakeTar("model.int8.onnx"), data, app) { Progress = x => { steps.Add(x); phases.Add(x.Phase); } };
+        var res = f.Run(plan.Items);
+        Eq(4, res.Done.Count, "4 つ取れた");
+        Eq(1, res.Failed.Count, "SHA-256 の違う 1 つは失敗");
+        Eq("bad", res.Failed[0].Key, "失敗した名前");
+        True(res.Failed[0].Value.Contains("想定と違います"), "失敗の理由: " + res.Failed[0].Value);
+        Eq(4L, http.Starts[0], "model.bin は 4 バイト目から");
+        Eq("0123456789", File.ReadAllText(Path.Combine(modelDir, "model.bin")), "続きから取った中身");
+        True(!File.Exists(Path.Combine(modelDir, "model.bin.part")), ".part は残らない");
+        int badCalls = http.Urls.Count(u => u == "https://h/bad.bin");
+        Eq(2, badCalls, "違えば消して 1 回だけやり直す");
+        True(http.Starts.Skip(1).Take(2).All(s => s == 0) && !File.Exists(Path.Combine(modelDir, "bad.bin")) && !File.Exists(Path.Combine(modelDir, "bad.bin.part")), "違う物は残さない・続きから取らない");
+        True(File.Exists(Path.Combine(app, "tools", "deno", "bin", "tool.exe")), "zip は app の下に展開");
+        True(!File.Exists(Path.Combine(app, "tools", "deno", "deno.zip")), "展開した zip は消す");
+        True(File.Exists(Path.Combine(data, "transcribe", "models", "sv", "sv", "model.int8.onnx")), "tar.bz2 は top の下");
+        string seg = Path.Combine(data, "transcribe", "models", "diar");
+        True(File.Exists(Path.Combine(seg, "segmentation.onnx")) && !File.Exists(Path.Combine(seg, "seg.tar.bz2")), "member は file の名前で置き、tar は消す");
+        True(steps.Count > 0, "進み具合が来る"); True(steps.Last().Fraction > 0.99, "最後は 100%: " + steps.Last().Fraction + " " + steps.Last().OverallDone + "/" + steps.Last().OverallTotal); True(phases.Contains("展開しています"), "展開の段もある");
+
+        var miss = plan.Missing(data, app);
+        Eq(1, miss.Count, "足りないのは失敗した 1 つだけ");
+        Eq("bad", miss[0].Name, "失敗した物が次の回に出る");
+
+        // 次の回: 取れた物はもう取りに行かない
+        http.Urls.Clear();
+        http.Blobs["https://h/bad.bin"] = a;
+        var res2 = new Fetcher(http, new FakeTar("model.int8.onnx"), data, app).Run(miss);
+        True(res2.Ok && http.Urls.Count == 1 && plan.Missing(data, app).Count == 0, "失敗した物だけやり直してそろう");
+
+        // 取り消し
+        var http2 = new FakeHttp();
+        var canceled = new Fetcher(new CancelHttp(), new FakeTar(), TempDir(), TempDir()) { Canceled = () => true };
+        var cr = canceled.Run(FetchPlan.Parse(Json.Parse("{\"items\":[" + FetchJson("c", "c.bin", "https://h/c", a, "\"size\":10,\"base\":\"data\",\"dest\":\"x\"") + "]}")).Items);
+        True(cr.Canceled && !cr.Ok, "取り消しは結果に出る");
+    }
+
+    class CancelHttp : IDownloader
+    {
+        public void Get(string url, string part, long expect, Action<long> progress, Func<bool> canceled) { throw new CanceledException(); }
+    }
+
+    static void UpdateFlow()
+    {
+        string tmp = TempDir();
+        var exe = Encoding.UTF8.GetBytes("exe-new");
+        var py = Encoding.UTF8.GetBytes("print('new')");
+        string manifest = "{\"version\":\"9.9.9\",\"files\":{\"RequestSender.exe\":\"" + Sha(exe) + "\",\"src/a.py\":\"" + Sha(py) + "\"}}";
+        string zip = Path.Combine(tmp, "RequestSender-9.9.9.zip");
+        File.WriteAllBytes(zip, ZipBytes("RequestSender.exe", "exe-new", "src/a.py", "print('new')", "config.json", "FROM-ZIP", "manifest.json", manifest));
+
+        string app = Path.Combine(tmp, "app");
+        Directory.CreateDirectory(Path.Combine(app, "src"));
+        Directory.CreateDirectory(Path.Combine(app, "learning"));
+        File.WriteAllText(Path.Combine(app, "config.json"), "KEEP-CONFIG");
+        File.WriteAllText(Path.Combine(app, "keys.json"), "KEEP-KEYS");
+        File.WriteAllText(Path.Combine(app, "settings.json"), "KEEP-SETTINGS");
+        File.WriteAllText(Path.Combine(app, "src", "a.py"), "print('old')");
+        File.WriteAllText(Path.Combine(app, "learning", "v1.txt"), "KEEP-LEARNING");
+
+        True(Setup.UpdateFile.IsMatch("RequestSender-0.58.0.zip") && !Setup.UpdateFile.IsMatch("..\\RequestSender-0.58.0.zip") && !Setup.UpdateFile.IsMatch("RequestSender-0.58.0-first.zip"), "更新の zip の名前の形");
+
+        // 壊れた物は入れ替えに進まない(manifest と中身が違う・名前が外へ出る)
+        string badZip = Path.Combine(tmp, "bad.zip");
+        File.WriteAllBytes(badZip, ZipBytes("RequestSender.exe", "tampered", "manifest.json", manifest));
+        try { Setup.PrepareUpdate(badZip, app, 1, false); True(false, "manifest と違えば断る"); }
+        catch (InvalidDataException) { }
+        True(!Directory.Exists(Path.Combine(app, "new")) && !File.Exists(Path.Combine(app, "update.cmd")), "断ったら new\\ も update.cmd も残さない");
+        string slipZip = Path.Combine(tmp, "slip.zip");
+        File.WriteAllBytes(slipZip, ZipBytes("RequestSender.exe", "x", "../evil.txt", "x"));
+        try { Setup.PrepareUpdate(slipZip, app, 1, false); True(false, "外へ出る名前は断る"); }
+        catch (InvalidDataException) { }
+        True(!File.Exists(Path.Combine(tmp, "evil.txt")), "外へは書かない");
+
+        // 入れ替え(本物の update.cmd を、もう終わっている pid で流す)
+        var dead = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c exit") { UseShellExecute = false, CreateNoWindow = true });
+        dead.WaitForExit();
+        string cmd = Setup.PrepareUpdate(zip, app, dead.Id, false);
+        string text = File.ReadAllText(cmd);
+        True(text.Contains("robocopy") && text.Contains(" /E ") && text.Contains("/XF config.json keys.json settings.json"), "robocopy /E と /XF: " + text);
+        True(Directory.Exists(Path.Combine(app, "new")) && File.Exists(Path.Combine(app, "new", "RequestSender.exe")), "new\\ に展開");
+        True(!text.Contains("start \"\""), "起こし直さない指定のときは start を書かない");
+        var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c \"\"" + cmd + "\"\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = app };
+        using (var p = System.Diagnostics.Process.Start(psi)) True(p.WaitForExit(60000), "update.cmd が終わる");
+        for (int i = 0; i < 50 && File.Exists(cmd); i++) System.Threading.Thread.Sleep(100);
+        Eq("exe-new", File.ReadAllText(Path.Combine(app, "RequestSender.exe")), "exe が新しくなる");
+        Eq("print('new')", File.ReadAllText(Path.Combine(app, "src", "a.py")), "src が新しくなる");
+        Eq("KEEP-CONFIG", File.ReadAllText(Path.Combine(app, "config.json")), "config.json は触らない(zip に入っていても)");
+        Eq("KEEP-KEYS", File.ReadAllText(Path.Combine(app, "keys.json")), "keys.json は触らない");
+        Eq("KEEP-SETTINGS", File.ReadAllText(Path.Combine(app, "settings.json")), "settings.json は触らない");
+        Eq("KEEP-LEARNING", File.ReadAllText(Path.Combine(app, "learning", "v1.txt")), "zip に無い物(learning\\)は残る");
+        True(!Directory.Exists(Path.Combine(app, "new")), "new\\ は片付く");
+        True(!File.Exists(cmd), "update.cmd は自分を消す");
+
+        // 起こし直す行(既定)
+        True(Setup.UpdateCmd(app, Path.Combine(app, "new"), 7, true).Contains("start \"\" \"%APP%\\RequestSender.exe\""), "既定は起こし直す");
+        True(Setup.UpdateCmd(app, Path.Combine(app, "new"), 7, true).Contains("set \"PID=7\""), "待つ pid");
+    }
+
+    // ---------------------------------------------------------------- F6b この PC のパック(LocalPacks.cs)・更新の止め
+    const string LocalHistory = "{\"runs\":[" +
+        "{\"id\":\"a1b2c3d4e5\",\"requestId\":\"20261011-120000-abc123\",\"title\":\"配信 A\",\"finished\":1760151600000,\"state\":\"done\"," +
+        "\"packs\":[\"C:\\\\cases\\\\A\\\\みこ_pack\",\"C:\\\\cases\\\\A\\\\gone_pack\",\"C:\\\\cases\\\\A\\\\decided_pack\"]}," +
+        "{\"id\":\"ffffffff00\",\"requestId\":null,\"title\":\"動画 B\",\"finished\":1760150000000," +
+        "\"packs\":[\"C:\\\\cases\\\\A\\\\みこ_pack\\\\\",\"C:\\\\cases\\\\B\\\\clip_pack\",\"\",5]}," +
+        "{\"id\":\"0000000001\",\"title\":\"パックなし\",\"packs\":[]}]}";
+
+    static void LocalPacksRead()
+    {
+        var gone = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\cases\A\gone_pack" };
+        var list = LocalPacks.FromHistory(Json.Parse(LocalHistory), d => !gone.Contains(d), (rid, name) => name == "decided_pack", d => 42, d => d.EndsWith("みこ_pack") ? d + ".preview.mp4" : null);
+        Eq(2, list.Count, "フォルダの無い・採否を決めた物は出さず、同じフォルダは 1 つ: " + string.Join(" | ", list.Select(x => x.LocalPath)));
+        var a = list[0];
+        True(a.Local && a.Kind == OutputKind.Pack && a.LocalPath == @"C:\cases\A\みこ_pack" && a.Name == "みこ_pack" && a.Title == "みこ", "パック名と題(_pack を外す)");
+        Eq("20261011-120000-abc123", a.RequestId, "依頼の id は実行の requestId");
+        Eq("a1b2c3d4e5", a.RunId, "実行の id");
+        True(a.Size == 42 && a.LocalPreview == @"C:\cases\A\みこ_pack.preview.mp4", "大きさとまとめ動画");
+        True(a.Modified.Year == 2025 || a.Modified.Year == 2026, "できた日時(finished のミリ秒)");
+        Eq("ffffffff00", list[1].RequestId, "requestId が無ければ実行の id");
+        True(list[1].LocalPreview == null && list[1].Key != a.Key, "鍵は別");
+        Eq("local", LocalPacks.RequestIdOf("../x", "bad id"), "どちらも形が違えば local");
+
+        // パック名の整え方と送り返しの名前(Sync・ユーザーの PC の returns.py と同じ形)
+        Eq("a_b", LocalPacks.PackName(@"C:\x\a_b\"), "末尾の \\ は外す");
+        Eq(LocalPacks.PackNameMax, LocalPacks.PackName(@"C:\x\" + new string('あ', 150)).Length, "長さの上限");
+        string vn = LocalPacks.VerdictFileName(a.RequestId, a.Name);
+        Eq("20261011-120000-abc123__みこ_pack.verdict.json", vn, "verdict の名前");
+        True(SyncPaths.VerdictName.IsMatch(vn), "Sync が上げる形に合う");
+        var j = Json.Parse(LocalPacks.VerdictJson("keep", a.RequestId, a.Name, a.Title, 1760151600123));
+        True(Json.Int(j, "v", 0) == 1 && Json.Str(j, "verdict") == "keep" && Json.Str(j, "requestId") == a.RequestId && Json.Str(j, "zip") == "みこ_pack" &&
+             Json.Str(j, "title") == "みこ" && Json.Long(j, "at", 0) == 1760151600123, "verdict の中身 {v, verdict, requestId, zip, title, at}");
+        try { LocalPacks.VerdictJson("maybe", "r", "p", "t", 0); True(false, "知らない verdict は断る"); }
+        catch (ArgumentException) { }
+
+        // 書く・決めたか(outbox と 済み)・Sync が上げて 済み へ移したあとも決めたまま
+        string dir = TempDir();
+        try
+        {
+            string outbox = LocalPacks.OutboxDir(dir);
+            Eq(Path.Combine(dir, "app", "outbox"), outbox, "outbox の場所(Sync と同じ)");
+            True(!LocalPacks.Decided(outbox, a.RequestId, a.Name), "まだ決めていない");
+            string p = LocalPacks.WriteVerdict(outbox, a, "reject", new DateTimeOffset(2026, 10, 11, 12, 0, 0, TimeSpan.Zero));
+            Eq(Path.Combine(outbox, vn), p, "outbox の直下");
+            Eq("reject", Json.Str(Json.ReadFileOrNull(p), "verdict"), "書いた中身");
+            True(!File.Exists(p + ".tmp") && LocalPacks.Decided(outbox, a.RequestId, a.Name), "一時の名前は残らず・決めた");
+            LocalPacks.WriteVerdict(outbox, a, "made_video", DateTimeOffset.Now);
+            Eq("made_video", Json.Str(Json.ReadFileOrNull(p), "verdict"), "置き換える");
+            var io = new FakeIo();
+            int failed;
+            Sync.SendReturns(io, new OutboxFlow(), outbox, s => { }, out failed);
+            True(io.Uploaded.Contains(SyncPaths.ReturnFile(vn)) &&!File.Exists(p) && File.Exists(Path.Combine(outbox, "済み", vn)), "Sync が /送り返し/ へ上げて 済み へ");
+            True(LocalPacks.Decided(outbox, a.RequestId, a.Name), "済み にあっても決めたまま");
+
+            // まとめ動画の探し方: 隣の .preview.mp4 > 中の *.preview.mp4 > 切り抜きの動画(いちばん大きい・_roughcut は除く)
+            string pack = Path.Combine(dir, "case", "x_pack");
+            Directory.CreateDirectory(pack);
+            Eq<string>(null, LocalPacks.FindPreview(pack), "何も無い");
+            File.WriteAllBytes(Path.Combine(pack, "clip.mp4"), new byte[10]);
+            File.WriteAllBytes(Path.Combine(pack, "clip_roughcut.mp4"), new byte[100]);
+            File.WriteAllBytes(Path.Combine(pack, "subs.srt"), new byte[1000]);
+            Eq(Path.Combine(pack, "clip.mp4"), LocalPacks.FindPreview(pack), "切り抜きの動画(粗編集・字幕は除く)");
+            File.WriteAllBytes(Path.Combine(pack, "x.preview.mp4"), new byte[1]);
+            Eq(Path.Combine(pack, "x.preview.mp4"), LocalPacks.FindPreview(pack), "中のまとめ動画");
+            File.WriteAllBytes(pack + ".preview.mp4", new byte[1]);
+            Eq(pack + ".preview.mp4", LocalPacks.FindPreview(pack), "隣のまとめ動画がいちばん先");
+            Eq(1111L, LocalPacks.DirSize(pack), "フォルダの大きさ(隣のまとめ動画は数えない)");
+            var read = LocalPacks.Read(Json.Parse("{\"runs\":[{\"id\":\"a1b2c3d4e5\",\"requestId\":\"r1\",\"packs\":[" + new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(pack) + "]}]}"), outbox);
+            True(read.Count == 1 && read[0].Size == 1111 && read[0].LocalPreview == pack + ".preview.mp4", "本物のフォルダで読む");
+        }
+        finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
+    }
+
+    static void LocalPacksForm()
+    {
+        string dir = TempDir();
+        try
+        {
+            using (var f = new MainForm(dir, new string[0]))
+            {
+                var local = LocalPacks.FromHistory(Json.Parse(LocalHistory), d => true, (r, n) => false, d => 2048, d => null);
+                OutputEntry group;
+                f.ShowEntries(new OutputListing { Entries = OutputFolder.Arrange(GroupRaw(out group)) });
+                f.ShowLocal(local);
+                var outList = FindAll(f).OfType<EntryList>().Single();
+                Func<int, string[]> row = i => outList.Texts((OutputEntry)outList.Items[i]);
+                Eq("この PC|みこ", string.Join("|", row(0).Take(2)), "この PC のパックが先頭に・印つき");
+                True(((OutputEntry)outList.Items[local.Count]).Kind == OutputKind.Group, "そのあとに Dropbox の届いたもの");
+                True(f.Text.Contains((5 + local.Count) + " 件届いています"), "届いた数にこの PC の分も足す: " + f.Text);
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var receive = (Btn)typeof(MainForm).GetField("receiveBtn", flags).GetValue(f);
+                var all = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "すべて受け取る");
+                var preview = FindAll(f).OfType<Btn>().Single(b => b.AccessibleName == "まとめ動画を見る");
+                f.SelectEntry(0);
+                True(receive.Text == "開く" && receive.Enabled, "この PC の行: 開く: " + receive.Text);
+                True(!preview.Enabled, "まとめ動画が無ければ見られない");
+                True(FindAll(f).OfType<Btn>().Any(b => b.Text == "要らない" && b.Enabled), "要らないは押せる");
+                Eq("すべて受け取る(4 本)", all.Text, "すべて受け取るは Dropbox のパックだけ");
+                var detail = FindAll(f).OfType<System.Windows.Forms.TextBox>().Single(t => t.AccessibleName == "選んだものの説明");
+                True(detail.Text.Contains("この PC で作ったパック") && detail.Text.Contains(@"C:\cases\A\みこ_pack"), "説明に場所: " + detail.Text);
+                // 読み直しても選びは保つ・Dropbox の一覧を調べ直してもこの PC の分は残る
+                f.SelectEntry(1);
+                var sel = outList.SelectedItem as OutputEntry;
+                f.ShowLocal(LocalPacks.FromHistory(Json.Parse(LocalHistory), d => true, (r, n) => false, d => 2048, d => null));
+                Eq(sel.Key, ((OutputEntry)outList.SelectedItem).Key, "読み直しても選びを保つ");
+                f.ShowEntries(new OutputListing());
+                Eq(local.Count, outList.Items.Count, "Dropbox が空でもこの PC の分は残る");
+                Call(f, typeof(MainForm), "RemoveEntries", (IEnumerable<OutputEntry>)new[] { (OutputEntry)outList.Items[0] });
+                Eq(local.Count - 1, outList.Items.Count, "決めたら外れる");
+            }
+        }
+        finally { try { Directory.Delete(dir, true); } catch (Exception) { } }
+    }
+
+    static void UpdateBlockers()
+    {
+        Eq<string>(null, MainForm.UpdateBlocker(false, false, null), "何もしていなければ更新してよい");
+        Eq<string>(null, MainForm.UpdateBlocker(false, false, FlowStatus.Parse(Json.Parse("{\"idle\":true}"))), "② が待ちなし");
+        True(MainForm.UpdateBlocker(true, false, null).Contains("送っている途中"), "送っている途中");
+        True(MainForm.UpdateBlocker(false, true, null).Contains("受け取っている途中"), "受け取っている途中");
+        True(MainForm.UpdateBlocker(false, false, FlowStatus.Parse(Json.Parse("{\"idle\":false,\"running\":1}"))).Contains("終わってから"), "この PC で処理中は終わってから");
+        True(Backend.Arguments("s.py", 9, new Backend(null, "x").UseParentPid).Contains("--parent-pid 9"), "② に --parent-pid を渡す(既定)");
     }
 }

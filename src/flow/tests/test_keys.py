@@ -214,6 +214,18 @@ class TestReadK2(_Env):
         self.assertEqual(keys.transcribe_state(TID, self.media, self.REQ), "differ")
         self.assertEqual(keys.transcribe_state("bad id", self.media, self.REQ), "none")
 
+    def test_transcribe_state_device(self):
+        """機器は cuda のときだけ鍵に入る(F1 F6a): vulkan は今までの鍵のまま = 作り直さない・cuda と vulkan は別の物"""
+        self.write_tx()   # 機器なしで書いた(今までの鍵)
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, engine="faster-whisper", device="vulkan")), "same")
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, engine="faster-whisper", device="cuda")), "differ")
+        run = {"engine": "fake", "engineVersion": "", "model": "small", "language": "ja", "settings": {"beam": 5, "vadMode": "weak", "boost": False}}
+        keys.write_after_transcribe(TID, {"sourcePath": self.media, "whole": True, "device": "cuda"}, run)
+        self.assertEqual(keys.read(keys.doc_key_path(TID, "transcribe"), "transcribe")["inputs"]["device"], "cuda")
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, engine="faster-whisper", device="cuda")), "same")
+        self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, engine="faster-whisper", device="vulkan")), "differ")
+        self.assertNotIn("device", keys.transcribe_inputs("h", "e", "1", "m", "ja", 5, "weak", False, device="vulkan"))
+
     def test_pack_state(self):
         body = {"spec": {"video": self.media, "mode": "silence", "silence": {"noise": -35}}, "output": {"textplus": True, "textplusFps": "30"}}
         calls = []

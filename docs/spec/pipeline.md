@@ -178,6 +178,32 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 - **知らせ方は間隔での問い合わせ**: 動いている物があれば 2 秒・無ければ 15 秒。`rev` が前と同じなら描き直さない。SSE・long-poll は作らない(入口は標準ライブラリの `ThreadingHTTPServer` で接続 1 本が糸 1 本を塞ぐ・律速は人の校正)
 - 旧い進み具合・取り消しの口(`/api/autorun`・編集 `/api/jobs`・各 cancel)は新しい画面に替えるまで残す。`status` の `runs` は `jobs` の `kind run` と同じ中身(新しい画面が読まなくなったら消す)。知らない項目は無視する決まり(1 節)なので、送るアプリ・CLI はそのまま読める
 
+### 2.10 「確かめる」の口と答えの記録(V1 = 0.60.0。⑤ `src/eval/check/`・③ `src/human/check/`・`src/app/server.py`。設計 `docs/design/v1-check-build.md`)
+案件をまたぐ軽い確認(画面 `/check`)。**② は通らない**(進み具合でなくデータの読みと人の操作。2.9 の掲示板は見ない)。並べる・数えるのは ⑤(読むだけ)、答えの記録と実物への反映は ③。
+- **カード** `{id, kind, source, case: {id, title}, target: {videoId, markId, docId, row}, media: {url, start, end, pad}, text, guess, options, score, note}`。`id` = `<kind>:<出どころ>:<対象の鍵>`(例 `voice:diar:<文書>#<行>`。同じ対象を 2 回出さない鍵)。
+  種類と出どころ: `value`(`auto` = 自動でできた切り抜き・`cand` = 候補のまま)・`read`(`fill` = 後処理・`alt` = 別のエンジン・`yt` = YouTube の字幕)・`voice`(`diar`)・`time`(`row`)。
+  **評価用(文書の `evalSet`・評価用のフォルダの動画)は出さない**(`sources.View.docs` の 1 か所)。並びは「目標まであと少しの種類 → 軽い種類(value → read → voice → time)→ 種類の中の鍵」(`lineup.py`)。
+- **口**(合言葉・Host / Origin の検査は今の書き込み系の口と同じ。**開いただけでは何も書かない**):
+  - `GET /api/check/next?c=<案件 id>&kind=<種類>&n=<0〜50。既定 10。0 = 数だけ>&skip=<カードの id,…>` → `{rev, cards, counts: {today, perKind, failed}, goal, goals: {種類: 目標の行}, total, held, failed, errors}`。
+    目標の行 = `{kind, id, label, left, target, unit, opens, now, reached}`(`left`・`now` が null = まだ測っていない)。数は精度の自動測定の直近の結果 + 答えの記録(`eval/check/goals.extra_counter`)。
+  - `POST /api/check/answer {card, answer, ms?, skip?}` → `{ok, answer, card, applied, held, flushed, next}`。カードはサーバーが引き直す(画面の送ったカードの中身は信じない)。
+    答えの形: value:auto `{choice: send|drop}`(**1 枚遅れで確定** = 次の答え・skip・flush のときに友人へ届ける / ごみ箱へ)・value:cand `{choice: adopt|reject}`(採用は書き出しも頼む)・
+    read `{choice: "1"|"2"|"other", text?}`(文字だけ。`proofed` にしない)・voice `{choice: <話者 id>|other|mixed}` か `{name}`・time `{choice: ok|head|tail|both, dStart, dEnd}`(秒。動かした量だけ行の時刻を変える)。
+    `{undo: <答えの id>}` = Z で戻す → `{ok, answer, card, reverted}`。断り: 形が違う 400 `bad_request`・もう答えた 409 `answered`・反映の部品が無い 409 `not_ready`・戻せない 409 `undone` / `cannot_undo`・無い答え 404。
+  - `POST /api/check/skip {card}`(今日の間だけ後ろへ。保留を先に確定)・`POST /api/check/flush {}`(保留 = 1 枚遅れの答えを確定。画面を離れたとき)。
+- **答えの記録** `app\check\answers.jsonl`(追記だけ・1 行 1 件。答え / 確定 `confirm` / 戻す `undo` の 3 通り。形は `src/human/check/answerlog.py`)と `app\check\skip.json`(その日の分)。
+  実物への反映は今の ③ の口を通すので、測る道具が読む記録はそのまま増える: 文書は `human/proof/store.commit` の why `check:read`・`check:voice`・`check:time`、採否は `feedback.jsonl`、読みの提案は `learn-feedback.json`、
+  声は登録簿 `voices/<emb>.json` の `learnedFrom`(名前で答えた行が 1 人 30 秒たまったら覚え直す)。行の時刻の答えは `eval_timing --check` が answers.jsonl を読む。
+
+### 2.11 F1: 友人の PC で ② を子として動かす口(0.61.0。`src/app/server.py`・`src/flow/runqueue.py`・`src/flow/machine.py`・`src/flow/outbox.py`。設計 `docs/design/f1-build.md`)
+送るアプリ(C#)が `server.py --headless --port 0 --parent-pid <pid>` を子に起こし、`ready` の 1 行で port と合言葉を受けて HTTP で使う(Dropbox はアプリだけが呼ぶ。② は知らない)。
+- **`--parent-pid <pid>`**: 親の生死を見る糸 1 本 + 標準入力の EOF の 2 本立て。どちらかで今の実行を取り消し・待ちを `autorun-active.json` に保存して終了コード 0。ユーザーの PC の入口は付けない(今のまま)。
+- **`GET /api/flow/machine`・`PUT /api/flow/machine {device?, llmModel?, caseRoot?, diskMinGB?, learningDir?}`**: `machine.json` の読み書き。保存した値を返し、合わない値は 400 とその理由。`device` は `spec.TX_DEVICES`(`vulkan`・`cuda`)。
+- **`GET /api/flow/status`** に `blocked: null | {reason: "disk", freeGB, minGB}`(空きが `diskMinGB` を下回ると**処理の開始**も止める。録画の開始だけでなく)と `machine: {engine, device, llmModel, gpu: {name, vramGB|null}}`(`ytt/gpuinfo`。調べられなければ `gpu: null`)。
+- **`GET /api/flow/outbox`**: 送り返す zip(`app\outbox\<requestId>__<runId>.zip`。結果の束・鍵・文字起こしの機械の結果と文書・候補・採用・ログの末尾・health。**動画・音声なし**・50MB 超は中身を減らして印)の一覧。`POST /api/flow/outbox/done {id}` で済みの印。採否はアプリが `<requestId>__<pack>.verdict.json` を直に書く。
+- **`POST /api/flow/submit`** の断り: 束の版違い = 400 `{error: "spec_version", message}`・知らない項目 = 400 `{error: "bad_spec", message}`(アプリは「更新してください」と出す)。
+- **学習の束**: `machine.learningDir` に `learning.json` があれば、`flow/learning` が文書なしで規則ファイル(置換・用語・名簿・色・声)を読む。無ければ今の作業データの置き方。`post.learning.version` が後処理の鍵に入る。
+
 ## 3. 画面どうしのリンク(URL)
 他のツールの画面を、入力欄を埋めた状態で開く(今はどれも入口のポート 8700 の `/studio/`・`/transcribe/` 配下)。**URL だけで重い処理を自動で始めない**(ブラウザで開いた別サイトのリンクから処理を走らせられないようにするため。サーバー側の Host / Origin の検査も従来どおり)。
 
@@ -185,6 +211,7 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 |---|---|---|
 | 切り抜きスタジオ | `http://localhost:8700/studio/?url=<YouTube URL>` | ② 解析の URL 欄(既存) |
 | 編集(文字起こしツール) | `http://localhost:8700/transcribe/?media=<動画のパス>` / `?clip=<.clip.json のパス>` | その動画の文字起こしがあれば開く(`GET /api/doc-for`)。無ければ新規文字起こしのファイル欄 |
+| 確かめる(V1) | `http://localhost:8700/check?c=<案件 id>&kind=<value\|read\|voice\|time>&back=cases` | その案件・種類のカードだけ。`back=cases` で終わったら案件へ戻るボタン。開いただけでは何も書かない(2.10) |
 | ~~cut2resolve~~ | 画面は「編集」に統合して消した(2026-09-26)。入口の中の `/cut2resolve/?video=<動画>` は `/transcribe/?media=<動画>` へ転送 | — |
 
 パスは `encodeURIComponent` で包む。受け取った画面は、値を入力欄に入れるだけで、存在確認などはボタンを押してからサーバーで行う。
@@ -232,6 +259,7 @@ GPT が `src/pipeline/pack/auto_cut.py` で決めた形。スタジオの採用�
 | 友人の依頼の受付の記録 `intake-state.json` ほか | 取り込み・流す(`src/home/autorun.py` の AutoRunner) | 確認・届ける(`human/friend/intake.py`・`deliver.py`・`delivery.py`) | | `manage/cases/cases.py` が案件として束ねる |
 | 実行の記録 `autorun-runs.jsonl` | 書くのは `src/home/autorun.py` の AutoRunner | | | 読むのは `pipeline/runlog.py`(`read_runs_log`)。履歴の画面・autorun・ライブの失敗の集約 `pipeline/live_failures.py` |
 | `live/reports/*.json`(配信ごとの記録) | `samples`(遅れ・メモリ・再起動)・`detect`(候補数)・`tx`・`exports`・`disk`(`pipeline/live_report.py`) | `detect.adoptedAuto/Manual`(`_decisions` の origin)・`request {rid, streamer}`(友人) | 読むのは `src/eval/tools/eval_marks.py --live` | `live_detect`(`pipeline/analyze/live_detect.py`)は ① の `peaks.json` + ② の `decisions.json` の重ね合わせで、望む形の見本 |
+| 確かめるの答え `app\check\answers.jsonl`(V1) | | 答え・確定・戻す(`human/check/apply.py` が書く。`answerlog.py`) | 目標の数に足す(`eval/check/goals.py`)・`eval_timing --check` | 読むのは ⑤ `eval/check`(待ち行列)。2.10 |
 | `learn-feedback.json` | | 提案の採用・却下 | | 書くのは `human/proof/learn.py` の `record_feedback`、① の `doc_jobs` が `autoLearned` のとき読む(計画 6(B) のとおり) |
 | `evals/<領域>/<日時>.json` | | | 測る道具の結果(`src/eval/tools/_evalcommon.py` が書く) | ① の 3 か所が読む: `src/home/autorun.py`・`pipeline/analyze/live_detect.py`・`pipeline/analyze/live_excite_worker.py`(`evals/marks` の `clipLength.suggest`) |
 

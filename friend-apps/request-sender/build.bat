@@ -1,9 +1,24 @@
 @echo off
 rem Build RequestSender.exe with the C# compiler that ships with Windows (.NET Framework 4.x), run the tests,
 rem and make dist\RequestSender.zip to send to the friend. Details: README.txt
-rem config.json (the Dropbox key) goes into the zip only when it exists here. It is never compiled into the exe.
+rem config.json (the Dropbox key) goes into the zip only with --with-key (default: no key). It is never compiled into the exe.
+rem The app version is the one version of the whole tool set: src\ytt\version.py (VERSION). It is written into build\AppVersion.g.cs.
+rem Usage: build.bat [--no-pause] [--with-key]
 setlocal
 cd /d "%~dp0"
+set "NOPAUSE="
+set "WITHKEY="
+for %%A in (%*) do (
+  if /i "%%~A"=="--no-pause" set "NOPAUSE=1"
+  if /i "%%~A"=="--with-key" set "WITHKEY=1"
+)
+set "YTT_VER="
+for /f "tokens=3" %%V in ('findstr /b /c:"VERSION = " ..\..\src\ytt\version.py') do set "YTT_VER=%%~V"
+echo %YTT_VER%| findstr /r /x "[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*" >nul
+if errorlevel 1 (
+  echo Could not read VERSION from ..\..\src\ytt\version.py
+  goto fail
+)
 set "CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if not exist "%CSC%" set "CSC=%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe"
 if not exist "%CSC%" (
@@ -16,9 +31,12 @@ for %%I in ("%CSC%") do set "FW=%%~dpI"
 rem In-app player of the preview video (2.7.0): WPF MediaElement in an ElementHost. These ship with .NET Framework 4 (no install).
 set "WPF=/lib:%FW%WPF /r:PresentationCore.dll /r:PresentationFramework.dll /r:WindowsBase.dll /r:WindowsFormsIntegration.dll /r:System.Xaml.dll"
 set "REFS=/r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll /r:System.IO.Compression.dll /r:System.IO.Compression.FileSystem.dll %WPF%"
-echo [1/4] RequestSender.exe
-"%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\RequestSender.exe /win32manifest:src\app.manifest %REFS% src\*.cs ..\common\*.cs
+echo [1/4] RequestSender.exe %YTT_VER%
+> build\AppVersion.g.cs echo namespace RequestSender { static class BuildVersion { public const string Value = "%YTT_VER%"; } }
+"%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /warn:4 /out:build\RequestSender.exe /win32manifest:src\app.manifest %REFS% src\*.cs ..\common\*.cs build\AppVersion.g.cs
 if errorlevel 1 goto fail
+rem dev\build_friend_zip.py checks this file: the exe must have the same version as the Python code in the zip.
+> build\version.txt echo %YTT_VER%
 copy /y ..\holo-colors\members.json build\members.json >nul || goto fail
 
 echo [2/4] tests
@@ -44,12 +62,14 @@ copy /y build\RequestSender.exe dist\RequestSender\ >nul || goto fail
 copy /y ..\holo-colors\members.json dist\RequestSender\ >nul || goto fail
 copy /y README.txt dist\RequestSender\ >nul || goto fail
 set EXPECT=3
+if not defined WITHKEY goto nokey
 if exist config.json (
   copy /y config.json dist\RequestSender\ >nul || goto fail
   set EXPECT=4
 ) else (
   echo NOTE: config.json is not here, so the zip has no key. Make it first: python dev\dropbox_auth.py ^<app key^> - run it in the repository top folder
 )
+:nokey
 
 rem Antivirus software may hold the new exe for a moment: retry, then check that the zip really has all the files.
 echo [4/4] dist\RequestSender.zip
@@ -61,13 +81,13 @@ echo.
 if "%EXPECT%"=="4" (
   echo Done. Send dist\RequestSender.zip to your friend. It contains the key: send it privately.
 ) else (
-  echo Done, but without config.json the friend cannot send anything yet.
+  echo Done. dist\RequestSender.zip has no key: config.json goes in only with --with-key.
 )
-if not "%1"=="--no-pause" pause
+if not defined NOPAUSE pause
 exit /b 0
 
 :fail
 echo.
 echo Build failed.
-if not "%1"=="--no-pause" pause
+if not defined NOPAUSE pause
 exit /b 1

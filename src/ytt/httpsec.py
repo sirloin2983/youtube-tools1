@@ -211,9 +211,12 @@ def bind_opts(sock):
 class ExclusiveServer(ThreadingHTTPServer):
     """各ツールのサーバーの土台。Windows では SO_REUSEADDR を付けると「他のアプリが使用中のポート」にも bind できてしまい、
     どちらに繋がるか分からなくなる(例: 8810 の cut2resolve と同じポートで起動してしまう)。Windows では使わず、SO_EXCLUSIVEADDRUSE で独占する。
-    要求ごとのスレッドは daemon(終了を待たせない)"""
+    要求ごとのスレッドは daemon(終了を待たせない)。
+    受け付けの待ち行列(listen の backlog)は 64: 既定の 5 だと、画面が一度に多くの要求を出したとき(設定の画面の読み込みなど)に
+    Windows が溢れた接続を断り、ブラウザに ERR_CONNECTION_REFUSED が出る(V1 V4 の e2e_live_studio で設定の画面の analytics/api/state)"""
     allow_reuse_address = os.name != "nt"
     daemon_threads = True
+    request_queue_size = 64
 
     def server_bind(self):
         if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):

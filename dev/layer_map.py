@@ -30,6 +30,7 @@ FILES = {
     # ---- ytt_core → ytt(基盤)は RS1-1 で移した(DIRS で読む)。残るのは旧い名前の転送だけ(FORWARDERS)
     "src/ytt/docloc.py": ("ytt", "ytt", "文字起こしの文書の置き場所を引く口(RS8 B2-1a。索引 transcripts/<id>.loc.json が無ければ workdata.TX_DIR。標準ライブラリと ytt だけ)"),
     "src/ytt/casefiles.py": ("ytt", "ytt", "案件の 候補.json・採用.json の読む側(RS8 B3-4a。形・パスの相対 ⇔ 絶対・読み read(cached)・重ね merge・ロック。flow/casebook から下ろした。ytt/studiodata が data.json の行の case から読むため。書く側は flow/casebook)"),
+    "src/ytt/gpuinfo.py": ("ytt", "ytt", "この PC の GPU の名前と VRAM(F1 F0-2。nvidia-smi → レジストリ → CIM。窓を出さない子プロセス・結果を覚える。flow/machine の llmModel の既定と ② の状態が読む)"),
     "src/ytt/marks.py": ("ytt", "ytt", "マークの純粋な語彙(RS8 B3-2。検査・整形 build_mark・読み込み load_marks・同じ区間 same/near・手を入れたか touched。human/review/store から下ろした。ファイルにもロックにも触らない)"),
     "src/pipeline/analyze/adopt.py": ("pipeline", "pipeline/analyze", "採用の規則 F-5 の純粋な関数(RS8 B3-2 の G1a。human/review/store の Store.adopt_marks から出した。入力 = マークの一覧・区間・上限 → 出力 = 採る印をつけた一覧)"),
     "src/flow/adopt.py": ("flow", "flow", "② 採用の口(RS8 B3-2 の G1a。③ の Store.adopt_marks が ① pipeline/analyze/adopt を直に読まずに済む動詞。② が足すこと = kind live を通さない・配信の長さ・ApiError 400)"),
@@ -88,6 +89,9 @@ FILES = {
     # ---- 精度の自動測定 accuracy と測る道具(dev/eval_*.py 13 本・_evalcommon)は RS4-4 で eval/drill・eval/tools へ移した(DIRS で読む)。旧い dev/eval_*.py の転送は RS5-G で消した(dev/ は test_layering の外)
     # ---- flow(② 管理)は DIRS で読む。RS7-1 で足した物も明示しておく
     "src/flow/machine.py": ("flow", "flow", "この PC の設定(machine.json・環境変数・既定。束に重ねる overlay。RS7-1 S1)"),
+    "src/flow/learning.py": ("flow", "flow", "学習データを読む側(F1。app/cli の Learning・learning_dir を移した。学習の束 learning.json があれば計算済みの規則 learned-rules.json だけで文書も ③ も読まない = 友人の PC。"
+                             "束の置き場所を使う側へ入れる apply_places・束の版を束に入れる stamp。ytt・pipeline を読む。③ は文書があるときだけ遅延 import)"),
+    "src/manage/keep/learnpack.py": ("manage", "manage/keep", "学習の束を作る側(F1。置換辞書・用語・学習した置換・計算済みの規則・名簿・色・名簿にある人の声 -> 同期フォルダの 学習/<版>/ + learning.json + latest.json。直近 3 版を残す。③ の learn.export_rules を読む)"),
     "src/flow/envelope.py": ("flow", "flow", "依頼の封筒(RS7-1 S3。何を入れたか・どの依頼か・届け方 = 処理の中身でない物。中身は束 flow/spec.py)"),
     "src/flow/runqueue.py": ("flow", "flow", "② の待ち行列と実行の糸(RS7-1 S5。submit(封筒, 束)・status・cancel・snapshot・history・estimate・待ちの記録と終わった実行の記録。"
                           "Runner を継ぎ、入口の AutoRunner が受付と hook だけを足して継ぐ)"),

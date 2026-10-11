@@ -478,9 +478,10 @@ class RemoteModel:
 
 
 def req_engine(req, model):
-    """要求の認識エンジン(無ければ faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る。
-    画面の「処理方式」の GPU(AMD など・whisper.cpp)は device = "vulkan" で来る → whisper.cpp(機器は auto = Vulkan。黙って CPU にしない)"""
-    e = str(req.get("engine") or (tx_engines.WhisperCpp.id if req.get("device") == "vulkan" else tx_engines.DEFAULT))
+    """要求の認識エンジン(無ければ機器 vulkan・cuda は whisper.cpp・それ以外は tx_engines.DEFAULT = faster-whisper)。一覧に無い名前・そのエンジンで使えないモデルは断る。
+    画面の「処理方式」の GPU(AMD など・whisper.cpp)は device = "vulkan" で来る → whisper.cpp(機器は auto = Vulkan。黙って CPU にしない)。
+    device = "cuda"(束の機器。友人の PC の NVIDIA)も whisper.cpp の CUDA 版(F1 F0-2。それまでは faster-whisper の CUDA)"""
+    e = str(req.get("engine") or (tx_engines.WhisperCpp.id if req.get("device") in ("vulkan", "cuda") else tx_engines.DEFAULT))
     if not tx_engines.valid(e):
         raise _errors.ApiError("bad_engine", "知らない認識エンジンです: %s" % e[:40], 400)
     if not tx_engines.get(e).valid_model(model):
@@ -499,11 +500,12 @@ def engines_info():
 def check_engine(spec):
     """認識を始める前に、そのエンジンが使えるか(サーバー側。ネイティブの部品は読まない)"""
     e = tx_engines.engine_of(spec)
-    if e == tx_engines.DEFAULT or worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
+    if e == tx_engines.FasterWhisper.id or worker_fake():   # worker-fake(テスト)のワーカーは偽の whisper-cli を使う
         if not has_faster_whisper():
             raise _errors.ApiError("no_whisper", "faster-whisper が入っていません(README の準備手順を確認してください)", 400)
         return
-    ok, why = tx_engines.get(e).ready(tx_engines.engine_home())
+    eng = tx_engines.get(e)
+    ok, why = eng.ready(tx_engines.engine_home(), spec.get("device") or "vulkan") if eng is tx_engines.WhisperCpp else eng.ready(tx_engines.engine_home())
     if not ok:
         raise _errors.ApiError("engine_missing", why, 400)
 
