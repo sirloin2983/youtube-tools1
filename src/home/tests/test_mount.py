@@ -233,7 +233,7 @@ class TestStudioMounted(unittest.TestCase):
         """取り込まれている間に serve.py を直接起動しても、2つ目のサーバーは立てない(同じ data.json を取り合わないため)"""
         port = free_ports(1)[0]
         r = subprocess.run([sys.executable, os.path.join(self.studio_dir, "serve.py"), str(port), "--no-open"],
-                           capture_output=True, text=True, timeout=60, env=dict(os.environ))
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("入口の中ですでに起動しています", r.stdout)
         self.assertIn("/studio/", r.stdout)
@@ -389,7 +389,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
     def test_standalone_start_opens_the_mounted_one(self):
         port = free_ports(1)[0]
         r = subprocess.run([sys.executable, os.path.join(self.c2r_dir, "serve.py"), str(port), "--no-open"],
-                           capture_output=True, text=True, timeout=60, env=dict(os.environ))
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("入口の中ですでに起動しています", r.stdout)
         self.assertIn("/cut2resolve/", r.stdout)
@@ -548,7 +548,7 @@ class TestTranscribeMounted(unittest.TestCase):
         port = free_ports(1)[0]
         env = dict(os.environ, YTT_CORE_DIR=self.tmp)
         r = subprocess.run([sys.executable, os.path.join(self.tx_dir, "serve.py"), str(port), "--no-open"],
-                           capture_output=True, text=True, timeout=60, env=env)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(env, PYTHONIOENCODING="utf-8"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("入口の中ですでに起動しています", r.stdout)
         self.assertIn("/transcribe/", r.stdout)
