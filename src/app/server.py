@@ -106,6 +106,7 @@ if CODE_DIR not in sys.path:   # home の部品を裸の名前で読む(import m
 from manage.cases import handoff_io, txindex  # noqa: E402
 from app import redirects as redirects_mod  # noqa: E402  (古い画面の URL -> /cases の転送の表。RS8 C0・C4 でいつも有効)
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
+from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段が仕事を頼む先 FlowTools = ① の動詞は取り込んだツールの ② の器を直に。OPT2 後半 J7)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
@@ -1311,13 +1312,24 @@ class PortalServer(httpsec.ExclusiveServer):
             return None
         return snap["port"], snap["path"] or "/"
 
+    def flow_host(self, tid):
+        """まとめて実行が ① の動詞を直に呼ぶ口(flow/tools.FlowTools。OPT2 後半 J7): 入口に取り込んで動いているツールの serve の flow_host()
+        (スタジオ = 解析・書き出しの LocalStudio・cut2resolve = パックの PackHost)。取り込んでいない・動いていない・口が無いときは None(HTTP の道)"""
+        t = self.sup.by_id.get(tid)
+        if t is None or not t.mounted or t.mount is None or t.snapshot()["state"] != "running":
+            return None
+        fn = getattr(t.mount.mod, "flow_host", None)
+        return fn() if fn is not None else None
+
     @property
     def autorun(self):
         with self._autorun_lock:
             if self._autorun is None:
-                self._autorun = autorun_mod.AutoRunner(autorun_mod.ToolClient(self.tool_endpoint, self.token), self.sup.root, prefs=self.prefs,
+                client = autorun_mod.ToolClient(self.tool_endpoint, self.token)
+                self._autorun = autorun_mod.AutoRunner(client, self.sup.root, prefs=self.prefs,
                                                        log_dir=self.sup.logs_dir,   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
-                                                       log=self.sup.log)   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
+                                                       log=self.sup.log,   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
+                                                       tools=flowtools_mod.FlowTools(client, self.flow_host))   # ① の動詞は ② の器を直に(J7)
                 self._autorun.set_status_hook(self.live_activity)   # GET /api/flow/status の live 欄と idle(Queue はライブを知らない。RS7-2 G5a)
                 self._autorun.set_live_hook(lambda env, spec: self.live.submit(env, spec))   # 封筒 kind live はライブ係が受ける(録画を始めて録画の束を残す。画面なしでも。RS7-2 G2b)
                 self._autorun.attach_board(self.board)   # ② の Run を掲示板へ(引く形・頭 run。取り消し・やり直しも。RS8 の ② の口 S3)

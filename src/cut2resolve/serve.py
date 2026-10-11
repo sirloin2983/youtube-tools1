@@ -68,6 +68,7 @@ from manage.cases import txindex as _txi  # noqa: E402
 from flow import keys as _flowkeys  # noqa: E402  成果物の鍵(RS6 b-K1)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口 S2)
 from flow.packjobs import PackJobs  # noqa: E402  パックのジョブの器(OPT2 J3)
+from flow import tools as _flowtools  # noqa: E402  入口のまとめて実行が直に呼ぶ口 PackHost(OPT2 後半 J7)
 from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP, srt2resolve as S  # noqa: E402
 from ytt.errors import ApiError as _ApiError  # noqa: E402
 from ytt import colors as _colors, datadir, fsio, httpsec, loudness as _loud, runtime as _runtime, tools  # noqa: E402
@@ -427,43 +428,7 @@ class Handler(BaseHTTPRequestHandler):
         return {"job": app.start_job("plan", work, heavy=lambda: pack.detect_pending(req, app.cache)).public()}
 
     def _build(self, o):
-        req = request_from_spec(o.get("spec"))
-        app = self.app
-        out = output_from_spec(o.get("output"), req.video)
-        if out["dir"].exists() and not out["dir"].is_dir():
-            raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
-        if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
-            names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
-                                        textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
-            existing = [p for p in names.values() if p.exists()]
-            if existing:
-                raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
-
-        def work(task):
-            plan = pack.plan_cut(req, task=task, cache=app.cache)
-            # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
-            spk_map, spk_shown = speaker_colors_for(plan, out)
-            prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
-            res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
-                                  textplus=out["textplus"], textplus_target=out["textplusTarget"],
-                                  force=out["force"], task=task, backup=out["backup"], plan_file=False,
-                                  textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
-                                  speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
-                                  video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))
-            app.allow_out_dir(res["out_dir"])
-            try:
-                write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
-            except (OSError, ValueError) as e:
-                log("warn: パックの記録を書けません: %s" % e)
-                res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
-            _flowkeys.write_pack(res["out_dir"], o.get("spec") or {}, o.get("output") or {})   # <パック>/pack.key.json(要求の本文から。書けなくてもログだけ。RS6 b-K1・K2)
-            files = [file_info(k, p) for k, p in res["files"]]
-            r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
-                 "warningLevels": classify_warnings(res["warnings"]),
-                 "summary": with_warning_levels(pack.summary(plan)),
-                 "editMedia": res["editMedia"], "speakerColors": spk_shown, "loudness": res.get("loudness")}
-            return r
-        return {"job": app.start_job("build", work).public()}
+        return start_build(self.app, o)
 
     def _cancel(self, o):
         job = self.app.job(o.get("id"))
@@ -482,6 +447,54 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             raise ApiError("open_failed", "フォルダを開けませんでした: %s" % (e.strerror or e))
         return {"ok": True}
+
+
+def start_build(app, o):
+    """POST /api/build の中身: 要求 o -> {"job"}(入れられなければ ApiError。上書きの確かめは 409 exists)。入口のまとめて実行も同じ物を直に呼ぶ(flow_host。OPT2 後半 J7)"""
+    req = request_from_spec(o.get("spec"))
+    out = output_from_spec(o.get("output"), req.video)
+    if out["dir"].exists() and not out["dir"].is_dir():
+        raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
+    if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
+        names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
+                                    textplus=out["textplus"], backup=out["backup"], plan_file=False, readme_file=False)
+        existing = [p for p in names.values() if p.exists()]
+        if existing:
+            raise ApiError("exists", "出力ファイルが既にあります", 409, {"files": [p.name for p in existing], "dir": str(out["dir"])})
+
+    def work(task):
+        plan = pack.plan_cut(req, task=task, cache=app.cache)
+        # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
+        spk_map, spk_shown = speaker_colors_for(plan, out)
+        prev = _txi.read_pack_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
+        res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
+                              textplus=out["textplus"], textplus_target=out["textplusTarget"],
+                              force=out["force"], task=task, backup=out["backup"], plan_file=False,
+                              textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],
+                              speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
+                              video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"))
+        app.allow_out_dir(res["out_dir"])
+        try:
+            write_pack_record(res, plan, out["textplus"], out["backup"], out["textplusColor"])
+        except (OSError, ValueError) as e:
+            log("warn: パックの記録を書けません: %s" % e)
+            res["warnings"].append("パックを作った記録を残せませんでした(一覧の「パック済み」が出ないことがあります): %s" % e)
+        _flowkeys.write_pack(res["out_dir"], o.get("spec") or {}, o.get("output") or {})   # <パック>/pack.key.json(要求の本文から。書けなくてもログだけ。RS6 b-K1・K2)
+        files = [file_info(k, p) for k, p in res["files"]]
+        r = {"outDir": str(res["out_dir"]), "files": files, "readme": res["readme"], "warnings": res["warnings"],
+             "warningLevels": classify_warnings(res["warnings"]),
+             "summary": with_warning_levels(pack.summary(plan)),
+             "editMedia": res["editMedia"], "speakerColors": spk_shown, "loudness": res.get("loudness")}
+        return r
+    return {"job": app.start_job("build", work).public()}
+
+
+def flow_host():
+    """入口のまとめて実行の口(flow/tools.PackHost。OPT2 後半 J7): 取り込まれていればこのサーバーのパックの器と start_build を直に呼ぶ口・取り込まれていなければ None(HTTP の道)"""
+    if MOUNT is None:
+        return None
+    app = MOUNT.app
+    return _flowtools.PackHost(app.packjobs, lambda o: start_build(app, o))
 
 
 class C2RServer(httpsec.ExclusiveServer):

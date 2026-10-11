@@ -26,6 +26,7 @@ import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/sib
 from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
+from flow import studiobook as _studiobook  # noqa: E402  入口のまとめて実行が直に呼ぶ口 LocalStudio(OPT2 後半 J7)
 from flow import batch as batch_mod, board as board_mod, export as _flowexport, keys as _flowkeys  # noqa: E402  (keys = 成果物の鍵。RS6 b-K1・export = 書き出しの器。OPT2 の J2)
 from pipeline.analyze import analyze  # noqa: E402
 from pipeline.analyze import fetch  # noqa: E402
@@ -75,6 +76,14 @@ def attach_board(board):
     BATCH.attach_board(board)
     EXPORTS.attach_board(board)
     rank.attach_board(board)
+
+
+def flow_host():
+    """入口のまとめて実行の口(OPT2 後半 J7): このスタジオの Store と解析の順番 Batch を直に呼ぶ LocalStudio(解析・書き出しの動詞。
+    書き出しの器はプロセスに 1 つの flow/export)。init の前は None(HTTP の道)"""
+    if STORE is None or BATCH is None:
+        return None
+    return _studiobook.LocalStudio(STORE, batch=BATCH)
 
 
 def busy():

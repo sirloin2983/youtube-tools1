@@ -226,8 +226,9 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
     (届ける本数の既定と範囲・案件に届けた印)は下の _deliver_batch_limits・_remember_delivered で渡す"""
 
     def __init__(self, client, repo_root, env=None, poll=1.0, sleep=None, find_pack=None, prefs=None, log_dir=None, log_max=LOG_MAX_BYTES,
-                 clock=None, log=None):
+                 clock=None, log=None, tools=None):
         """log_dir: 終わった実行の記録を書くフォルダ(入口は作業データの logs。None = 記録しない = メモリだけ)。
+        tools: 段が仕事を頼む先(入口は flow/tools.FlowTools = ① の動詞は同じプロセスの ② の器を直に。OPT2 後半 J7。None = HttpTools(client))。
         待ちと実行中の記録(M5)も log_dir に置く(None = 残せないので、起動し直しで戻さない)。clock はテスト用"""
         # hook が使う値は Queue の __init__ の前に置く(前の起動の待ちを戻すと、すぐに糸が段を進める)
         self.root = repo_root
@@ -236,7 +237,7 @@ class AutoRunner(delivery_mod.Delivery, queue_mod.Queue):
         # パックの有無の見方は案件の画面とそろえる(cases.find_pack)。client・env・poll・sleep・log(入口のログ launcher.log に1行)・clock・closed は Runner、
         # 待ち行列・記録・待ちの記録(log_dir の autorun-runs.jsonl・autorun-active.json)は Queue が持つ
         super().__init__(client, env=env, poll=poll, sleep=sleep, log=log, clock=clock, find_pack=cases.find_pack if find_pack is None else find_pack,
-                         log_dir=log_dir, log_max=log_max)
+                         log_dir=log_dir, log_max=log_max, tools=tools)
 
     # ------------------------------------------------------------ 起動し直しで戻す(M5。ツールの準備を待つ hook)
     def _await_tools(self, run):

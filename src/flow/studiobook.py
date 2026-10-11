@@ -281,11 +281,12 @@ def _step_error(msg):
 
 
 class LocalStudio:
-    """URL の段の動詞(入口なし)。book = StudioBook。HttpTools の同じ名前の動詞と同じ返す形"""
+    """URL の段の動詞(入口なし)。book = StudioBook。HttpTools の同じ名前の動詞と同じ返す形。
+    入口の FlowTools の口にも使う(OPT2 後半 J7): book = スタジオの Store・batch = スタジオの serve の Batch(入口が渡す。② は ③ を読まない)"""
 
-    def __init__(self, book):
+    def __init__(self, book, batch=None):
         self.book = book
-        self.batch = _batch.Batch(book)
+        self.batch = batch if batch is not None else _batch.Batch(book)
         if not _exporter.TOOL.get("version"):   # .clip.json の tool の版(スタジオの serve と同じく全体の版)
             _exporter.TOOL["version"] = _version.VERSION
 
@@ -354,6 +355,12 @@ class LocalStudio:
             _export.default().cancel(jid)
         except ApiError:
             pass
+
+    @staticmethod
+    def export_free(timeout):
+        """書き出しの器(プロセスに 1 つ)が空くまで待つ(timeout 秒まで)-> 空いたか(J7。Runner の 409 busy の待ち)"""
+        t = _export.default().table
+        return t.wait(lambda: not t.active(), timeout)
 
     def close(self, wait=STOP_WAIT):
         """終わるとき(Ctrl+C・失敗でも): 解析の待ちを取り除き、解析・書き出し・チャットの先読みに中止を伝え、子プロセス(ffmpeg・yt-dlp)を孫ごと止め、
