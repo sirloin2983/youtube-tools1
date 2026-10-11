@@ -1,0 +1,118 @@
+"""入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
+待ち行列の中身のテストは src/eval/check/tests/、記録と反映は src/human/check/tests/test_apply.py。
+
+実行(リポジトリ直下から): py -3.10 -m unittest src/home/tests/test_check_api.py -v
+"""
+import http.client
+import json
+import os
+import sys
+import threading
+import unittest
+
+os.environ.setdefault("YTT_DATA_DIR", "inplace")
+HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+ROOT = os.path.dirname(HOME)
+for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from eval.check import deck, lineup, sources  # noqa: E402
+from human.check import answerlog, apply  # noqa: E402
+from app import server as L  # noqa: E402
+import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす道具を借りる。テストそのものは集めない)
+
+
+def fake_cards(view):
+    return [{"id": lineup.card_id("read", "tst", "aaaaaaaaaaaa", r), "kind": "read", "source": "tst", "case": {"id": "v1", "title": "t"},
+             "target": {"docId": "aaaaaaaaaaaa", "row": r}, "media": {"url": "transcribe/media?id=aaaaaaaaaaaa", "start": 0, "end": 1, "pad": 0},
+             "text": r, "guess": "1", "options": [], "score": None, "note": "", "_order": [i]} for i, r in enumerate(("s1", "s2"))]
+
+
+class CheckApiTest(TL.Base):
+    def setUp(self):
+        super().setUp()
+        self.applied = []
+        sources.register("read", "tst", fake_cards)
+        apply.register("read", "tst", lambda ctx, c, ans: self.applied.append(c["id"]) or {"n": len(self.applied)},
+                       lambda ctx, row: self.applied.remove(row["card"]) or {"ok": True})
+        self.addCleanup(sources.unregister, "read", "tst")
+        self.addCleanup(apply.unregister, "read", "tst")
+        deck.invalidate()
+        self.srv, self.port = L.make_server(0, self.sup)
+        self.th = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        self.th.start()
+        self.host = "127.0.0.1:%d" % self.port
+
+    def tearDown(self):
+        if not self.srv.closing.is_set():
+            self.srv.shutdown()
+        self.srv.server_close()
+        deck.invalidate()
+        super().tearDown()
+
+    def req(self, method, path, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
+        conn.request(method, path, body=body, headers=dict({"Host": self.host}, **(headers or {})))
+        r = conn.getresponse()
+        data = r.read()
+        conn.close()
+        return r.status, json.loads(data) if data[:1] == b"{" else data
+
+    def post(self, path, obj, token=None):
+        h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin", "X-YTT-Token": token or self.srv.token}
+        return self.req("POST", path, json.dumps(obj).encode(), h)
+
+    def ids(self, **q):
+        st, j = self.req("GET", "/api/check/next?" + "&".join("%s=%s" % kv for kv in q.items()))
+        self.assertEqual(st, 200, j)
+        return [c["id"] for c in j["cards"] if c["source"] == "tst"], j
+
+    def test_next(self):
+        got, j = self.ids(kind="read", n=5)
+        self.assertEqual(got, ["read:tst:aaaaaaaaaaaa#s1", "read:tst:aaaaaaaaaaaa#s2"])
+        for k in ("rev", "counts", "goal", "goals", "total", "held", "failed", "errors"):
+            self.assertIn(k, j)
+        self.assertNotIn("_order", j["cards"][0])
+        self.assertEqual(self.ids(n=0)[1]["cards"], [])
+        self.assertEqual(self.ids(c="v9")[0], [])
+        for bad in ("kind=talk", "n=51", "c=../x"):
+            st, j = self.req("GET", "/api/check/next?" + bad)
+            self.assertEqual((st, j["error"]), (400, "bad_request"), bad)
+        st, _ = self.req("GET", "/api/check/next", headers={"Sec-Fetch-Site": "cross-site"})
+        self.assertEqual(st, 403)
+
+    def test_answer_undo_skip_flush(self):
+        c1, c2 = "read:tst:aaaaaaaaaaaa#s1", "read:tst:aaaaaaaaaaaa#s2"
+        st, _ = self.post("/api/check/answer", {"card": c1, "answer": "1"}, token="x")
+        self.assertEqual(st, 403)
+        st, j = self.post("/api/check/answer", {"card": c1, "answer": "1", "ms": 900})
+        self.assertEqual((st, j["ok"], j["held"], j["next"]["id"], self.applied), (200, True, False, c2, [c1]), j)
+        self.assertEqual(self.ids(kind="read")[0], [c2])
+        st, j2 = self.post("/api/check/answer", {"card": c1, "answer": "1"})
+        self.assertEqual((st, j2["error"]), (409, "answered"))
+        st, j3 = self.post("/api/check/answer", {"undo": j["answer"]})
+        self.assertEqual((st, j3["card"], self.applied), (200, c1, []))
+        self.assertEqual(self.ids(kind="read")[0], [c1, c2])
+        st, j4 = self.post("/api/check/answer", {"card": c1, "answer": "1", "skip": [c2]})
+        self.assertEqual((st, j4["next"] is None or j4["next"]["id"] != c2), (200, True))
+        self.assertEqual(self.post("/api/check/answer", {"card": "read:tst:aaaaaaaaaaaa#s9", "answer": "1"})[1]["error"], "gone")
+        self.assertEqual(self.post("/api/check/answer", {"card": "nope", "answer": "1"})[1]["error"], "bad_request")
+        st, j5 = self.post("/api/check/skip", {"card": c2})
+        self.assertEqual((st, j5["ok"]), (200, True))
+        self.assertEqual(answerlog.read_skips(os.path.dirname(self.sup.logs_dir)), [c2])
+        self.assertEqual(self.post("/api/check/skip", {"card": 3})[0], 400)
+        st, j6 = self.post("/api/check/flush", {})
+        self.assertEqual((st, j6["flushed"]), (200, []))
+        self.assertTrue(os.path.isfile(answerlog.answers_path(os.path.dirname(self.sup.logs_dir))))   # app/check/answers.jsonl
+
+    def test_not_ready(self):
+        sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
+        self.addCleanup(sources.unregister, "time", "tst")
+        deck.invalidate()
+        st, j = self.post("/api/check/answer", {"card": "time:tst:aaaaaaaaaaaa#s1", "answer": "ok"})
+        self.assertEqual((st, j["error"]), (409, "not_ready"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -36,6 +36,12 @@
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
   GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
+  GET  /api/check/next?c=&kind=&n=&skip=  「確かめる」(V1)の待ち行列(src/eval/check/deck.py。読むだけ)。c = 案件の id・kind = value|read|voice|time・
+                                          n = 0〜50(既定 10。0 = 数だけ)・skip = 画面が持っているカードの id(カンマ区切り。外す)
+                                          → {rev, cards, counts: {today, perKind, failed}, goal, goals, total, held, failed, errors}
+  POST /api/check/answer                  {card, answer, ms?, skip?} カードに答える(カードはサーバーが引き直す。反映は src/human/check/apply.py に登録した部品)
+                                          → {ok, answer, card, applied, held, flushed, next} / {undo: 答えの id} Z で戻す → {ok, answer, card, reverted}
+  POST /api/check/skip                    {card} 今日の間だけ後ろへ(保留を先に確定)・POST /api/check/flush {} 保留(1 枚遅れの [送る])を確定(画面を離れたとき)
   POST /api/autorun/start-new             {items: [{id, title, channel}], top?, streamer?} スタジオの ① 探す で選んだ配信を「解析から全部」で
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
@@ -110,6 +116,8 @@ import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
+from eval.check import deck as check_deck, lineup as check_lineup  # noqa: E402  (src/eval/check: 「確かめる」の待ち行列。V1)
+from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
 from human.friend import deliver as deliver_mod  # noqa: E402  (src/human/friend/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
 from manage.cases import docmove as docmove_mod  # noqa: E402  (src/manage/cases/docmove.py: 起動のとき文書を案件の 作業用 へ移す。RS8 B2-3)
@@ -600,6 +608,7 @@ POST_ROUTES = {"/api/cases/update": ("_post_case", False), "/api/cases/auto": ("
                "/api/flow/estimate": ("_post_autorun", True), "/api/flow/cancel": ("_post_flow_job", True), "/api/flow/retry": ("_post_flow_job", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
+               "/api/check/answer": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
                "/api/cleanup": ("_post_cleanup", False), "/api/shutdown": ("_post_shutdown", False)}
 
 
@@ -751,6 +760,12 @@ class PortalHandler(BaseHTTPRequestHandler):
         if u.path in ("/api/autorun/history", "/api/flow/history"):   # 終わった実行の記録(段2 B-6。ホームの「まとめて実行の記録」を開いたときだけ読む)
             return self._json(200, self.server.autorun.history(query_int(q, "limit", autorun_mod.HISTORY_DEFAULT), query_int(q, "offset", 0),
                                                                case=case))
+        if u.path == "/api/check/next":   # 「確かめる」の待ち行列(V1。src/eval/check/deck.py。読むだけ = 開いただけでは何も書かない)
+            c, kind, n, skip = ((q.get(k) or [None])[0] for k in ("c", "kind", "n", "skip"))
+            try:
+                return self._json(200, check_deck.next_cards(self.server.check_ctx(), c, kind, n, skip))
+            except ValueError as e:
+                return self._fail(400, "bad_request", str(e))
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
             if "doc" in q:   # 文書 1 本から案件を引く(案件の画面が d だけの URL を開いたとき。無ければ 404)
                 try:
@@ -806,10 +821,41 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     def _post_case_auto(self, path, body):
         """自動でできた切り抜きの確認(線 D の M9・M12): 見た・採用 = 友人へ届ける・要らない。中身は src/manage/cases/cases.py の auto_review"""
-        s = self.server
-        return self._json(*cases_mod.auto_review(s.sup.root, body, deliveries=s.deliveries, studio=s.live.studio_call,
-                                                 feedback=lambda row: s.live.exporter.feedback(row), trash=s.cleanup,
-                                                 hide=lambda tid: s.prefs.hide("transcripts", [tid], True)))
+        return self._json(*self.server.auto_review(body))
+
+    def _post_check(self, path, body):
+        """「確かめる」(V1): answer {card, answer, ms?, skip?} か {undo} / skip {card} / flush {}。カードは src/eval/check/deck.py で引き直し、
+        記録と反映は src/human/check/apply.py(種類ごとの反映の部品は V2 が登録する。無い種類は 409 not_ready)"""
+        op, ctx = path.rsplit("/", 1)[1], self.server.check_ctx()
+        try:
+            if op == "flush":
+                out = check_apply.flush(ctx)
+            elif op == "skip":
+                if not check_lineup.parse_id(body.get("card")):
+                    return self._fail(400, "bad_request", "飛ばすカード(card)の指定が正しくありません")
+                out = check_apply.skip(ctx, body["card"])
+            elif "undo" in body:
+                out = check_apply.undo(ctx, body.get("undo"))
+            else:
+                if not check_lineup.parse_id(body.get("card")):
+                    return self._fail(400, "bad_request", "カード(card)の指定が正しくありません")
+                card = check_deck.find(ctx, body["card"])
+                if card is None:
+                    return self._fail(404, "gone", "そのカードはもう確かめる物ではありません(読み込み直してください)")
+                out = check_apply.answer(ctx, card, body)
+                check_deck.invalidate()
+                held = body.get("skip") if isinstance(body.get("skip"), list) else []
+                nxt = check_deck.next_cards(ctx, n=1, skip=[x for x in held if isinstance(x, str)][:check_deck.MAX_SKIP_PARAM - 1] + [card["id"]])
+                out["next"] = nxt["cards"][0] if nxt["cards"] else None
+        except check_apply.Refused as e:
+            return self._fail(e.code, e.error, e.message)
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        except OSError as e:
+            return self._fail(500, "write", "確かめるの記録を書けませんでした: %s" % tools.why(e))
+        finally:
+            check_deck.invalidate()
+        return self._json(200, out)
 
     def _post_autorun(self, path, body):
         """まとめて実行(配信1本ぶん・選んだ文書を順に自動で)。/api/autorun/<start|cancel|start-docs|start-new|estimate>"""
@@ -994,6 +1040,19 @@ class PortalServer(httpsec.ExclusiveServer):
         self.cleanup_lock = threading.Lock()
         # 分析と日報(見張りは main で start。テストで作る入口では動かさない。連携の設定が無ければ何もしない)
         self.analytics = analytics_mod.Service(log=sup.log, token=self.token) if analytics_mod else None
+
+    def auto_review(self, body):
+        """自動でできた切り抜きの確認(POST /api/cases/auto と「確かめる」の価値のカード)。-> (HTTP の番号, JSON)。部品は入口が渡す"""
+        return cases_mod.auto_review(self.sup.root, body, deliveries=self.deliveries, studio=self.live.studio_call,
+                                     feedback=lambda row: self.live.exporter.feedback(row), trash=self.cleanup,
+                                     hide=lambda tid: self.prefs.hide("transcripts", [tid], True))
+
+    def check_ctx(self):
+        """「確かめる」(V1)の部品に渡す物(src/human/check/apply.py の Context)。③ が読めない層の操作(案件の確認・スタジオの API)は hooks で渡す。
+        goals = 入口の条件(帯の「あと何本」と待ち行列の順。答えの数を足した物)"""
+        return check_apply.Context(os.path.dirname(self.sup.logs_dir), self.sup.root,
+                                   hooks={"auto_review": self.auto_review, "studio": self.live.studio_call},
+                                   goals=lambda: self.accuracy.snapshot()["goals"])
 
     def _accuracy_busy(self):
         """精度の自動測定の「手が空いているか」。空いていなければ理由の文、空いていれば None。

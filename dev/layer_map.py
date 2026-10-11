@@ -41,6 +41,13 @@ FILES = {
     "src/flow/casebook.py": ("flow", "flow", "案件の候補と採用のファイル(RS8 B3-3。作業用/候補.json = ① の機械の候補・作業用/採用.json = ③ の人の採用。分ける split・重ねる merge・案件の引き方 case_of・読み書きとパスごとのロック。ytt だけを読む。保存の経路に入れるのは B3-4)"),
     "src/flow/studiobook.py": ("flow", "flow", "スタジオなしの配信の台帳と URL の段の動詞(RS8 の「URL も CLI で」。StudioBook = data.json + 案件の 候補.json・採用.json をスタジオの Store と同じ形で・LocalStudio = flow/tools の LocalTools が任せる配信の読み・解析・採用・書き出し。ytt・flow(batch・casebook・adopt・keys)・① pipeline/analyze・export を読む。③ は読まない)"),
     "src/eval/tools/eval_casebook.py": ("eval", "eval/tools", "スタジオの配信を候補 + 採用に分けて重ね直す往復を作業データで確かめる道具(RS8 B3-3。読むだけ。flow/casebook と human/review/store の読み込みを読む)"),
+    # ---- V1 確かめる(V0。docs/design/v1-check-build.md)。⑤ が待ち行列を数えて並べ(読むだけ)、③ が答えを記録して反映する(入口の /api/check/*)
+    "src/eval/check/lineup.py": ("eval", "eval/check", "確かめるの待ち行列の並びと数え方(純粋。名前は標準の queue と重ねない。カードの id・種類の並び・n の検査)"),
+    "src/eval/check/goals.py": ("eval", "eval/check", "カードの種類 → 入口の条件 GOALS の対応と、答えの数え方(accuracy.goals_of の extra。human/check/answerlog を読む)"),
+    "src/eval/check/sources.py": ("eval", "eval/check", "カードの出どころの登録と V0 の 5 つ(value:auto・value:cand・read:fill・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),
+    "src/eval/check/deck.py": ("eval", "eval/check", "GET /api/check/next の組み立てと、答える前にカードを引き直す find(sources + lineup + goals + 答えの記録)"),
+    "src/human/check/answerlog.py": ("human", "human/check", "確かめるの答えの記録 app/check/answers.jsonl(答え・確定・戻す)と skip.json の読み書き(ytt だけを読む)"),
+    "src/human/check/apply.py": ("human", "human/check", "答えを実物へ反映する土台(種類と出どころごとの register・1 枚遅れの保留と flush・Z の undo・skip。④ の操作は入口が hooks で渡す)"),
     # ---- recorder → pipeline/ingest は RS1-3 で移した(DIRS で読む)。残るのは旧い場所の起動用の転送だけ
     "src/pipeline/analyze/fetch.py": ("pipeline", "pipeline/analyze", "解析の材料を取ってくる仕事(音声のダウンロード・チャットの取得と先読み・コメント欄・付加情報)とそのキャッシュの掃除(OPT2。analyze.py から分けた)"),
     "src/pipeline/pack/request.py": ("pipeline", "pipeline/pack", "パックの指定(spec・output)-> pack.Request と build_pack の引数の 1 か所(OPT2。cut2resolve の API と flow/tools の LocalTools が呼ぶ。検査は API の厳しさ)"),

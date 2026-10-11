@@ -55,7 +55,7 @@ class AccuracyApiTest(TL.Base):
         r, body = self.req("GET", "/api/accuracy")
         j = json.loads(body)
         self.assertEqual((r.status, j["enabled"], j["state"], j["nightFrom"], j["nightTo"], j["heavyEnabled"]), (200, True, "idle", 1, 6, False))
-        self.assertEqual([a["id"] for a in j["areas"]], ["asr", "marks", "speakers", "cut", "alt"])
+        self.assertEqual([a["id"] for a in j["areas"]], ["asr", "marks", "speakers", "cut", "alt", "fill", "timing"])
         self.assertEqual(len(j["goals"]), len(accuracy.GOALS))   # 入口の条件(あと何本・何分)
         r, _ = self.req("GET", "/api/accuracy", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)

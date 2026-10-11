@@ -65,6 +65,9 @@ GOALS = (
     {"id": "marks", "label": "採用の記録 配信 10 本", "opens": "C1 盛り上がりの重み(I-4a)", "src": ("marks", "docs"), "target": 10, "unit": "本"},
     {"id": "packs", "label": "たたき台つきのパック 20 本", "opens": "C3 カット(I-3a)", "src": ("cut", "fromPack"), "target": 20, "unit": "本"},
     {"id": "alt", "label": "「別」の候補の判定 100 件", "opens": "D1-b 候補の既定オン", "src": ("alt", "judged"), "target": 100, "unit": "件"},
+    # V1 確かめる(V0): 後処理の札(src/eval/tools/eval_fill.py の FEW_ROWS)・行の時刻(eval_timing.py の FEW_ROWS)。開く物の文言は仮
+    {"id": "fill", "label": "後処理の札の判定 30 行", "opens": "K1 後処理の既定", "src": ("fill", "judged"), "target": 30, "unit": "行"},
+    {"id": "timing", "label": "行の時刻の判定 100 行", "opens": "B1 行の時刻", "src": ("timing", "rows"), "target": 100, "unit": "行"},
 )
 
 
@@ -155,6 +158,32 @@ def summarize_alt(res):
     return out
 
 
+def summarize_fill(res):
+    """src/eval/tools/eval_fill.py: 認識のあとの後処理(札)を人が残した割合。judged = 残した・直した・戻した・消した行の数(入口の条件)"""
+    a = res.get("a")
+    if not isinstance(a, dict):
+        return summarize_generic(res)      # 道具が accuracy の鍵を足していれば、それを使う
+    out = _summary("後処理を残した行", a.get("keptRate"), a.get("docs"), "文書", "higher", a.get("few"),
+                   extra=[{"label": "戻した行", "value": _num(a.get("revertRate")), "better": "lower"},
+                          {"label": "直した行", "value": _num(a.get("editRate")), "better": "lower"}])
+    out["judged"] = _num(a.get("judged"))
+    return out
+
+
+def summarize_timing(res):
+    """src/eval/tools/eval_timing.py: 行の頭が遅れた割合(①頭)。rows = 文字が合う行の数(入口の条件)"""
+    o, m = res.get("overall"), res.get("meta")
+    if not isinstance(o, dict):
+        return summarize_generic(res)
+    m = m if isinstance(m, dict) else {}
+    out = _summary("頭が遅れた行", o.get("head"), m.get("docs"), "文書", "lower", m.get("few"),
+                   extra=[{"label": "末が早く切れた行", "value": _num(o.get("tail")), "better": "lower"},
+                          {"label": "前の行に食い込んだ", "value": _num(o.get("prev")), "better": "lower"},
+                          {"label": "次の行に食い込んだ", "value": _num(o.get("next")), "better": "lower"}])
+    out["rows"] = _num(o.get("n"))
+    return out
+
+
 def summarize_generic(res):
     """道具が結果に `accuracy` の鍵(label・value・docs・unit・better・extra)を足してあれば、それをそのまま使う(カットなど、これから足す道具用)"""
     a = res.get("accuracy")
@@ -173,6 +202,8 @@ AREAS = (
     {"id": "speakers", "label": "話者", "script": "eval_speakers.py", "args": ("--json",), "tool": "transcribe", "sub": "speakers", "summarize": summarize_speakers},
     {"id": "cut", "label": "カット", "script": "eval_cut.py", "args": ("--json",), "tool": "transcribe", "sub": "cut", "summarize": summarize_cut},   # src/eval/tools/eval_cut.py(無ければ飛ばす)
     {"id": "alt", "label": "「別」の候補", "script": "eval_alt.py", "args": ("--json",), "tool": "transcribe", "sub": "alt", "summarize": summarize_alt},   # 入口 0.38.0 から
+    {"id": "fill", "label": "後処理の札", "script": "eval_fill.py", "args": ("--json",), "tool": "transcribe", "sub": "fill", "summarize": summarize_fill},   # V1 確かめる(V0)
+    {"id": "timing", "label": "行の時刻", "script": "eval_timing.py", "args": ("--json",), "tool": "transcribe", "sub": "timing", "summarize": summarize_timing},
 )
 
 
@@ -210,8 +241,10 @@ def count_daily(folder):
     return {"sec": round(sec, 1), "docs": docs, "lines": lines}
 
 
-def goals_of(last):
-    """記録(Accuracy.last)-> 入口の条件の一覧 [{id, label, opens, target, unit, now(None = 未測定), left, reached, at}]。GOALS の順"""
+def goals_of(last, extra=None):
+    """記録(Accuracy.last)-> 入口の条件の一覧 [{id, label, opens, target, unit, now(None = 未測定), left, reached, at, check}]。GOALS の順。
+    extra(目標の id, 直近の測定の時刻 ms か None) -> 「確かめる」の答えから足す数(src/eval/check/goals.py の extra_counter。V1 V0)。
+    足した数は check に出す(0 なら now はそのまま。未測定でも答えがあれば now = 答えの数)"""
     out = []
     areas = last.get("areas") if isinstance(last.get("areas"), dict) else {}
     for g in GOALS:
@@ -224,10 +257,19 @@ def goals_of(last):
             latest = latest if isinstance(latest, dict) else {}
             summ = latest.get("summary") if isinstance(latest.get("summary"), dict) else {}
             now, at = _num(summ.get(key)), latest.get("at")
+        at = at if isinstance(at, (int, float)) and not isinstance(at, bool) else None
+        add = 0
+        if extra is not None:
+            try:
+                add = int(extra(g["id"], at) or 0)
+            except Exception:
+                add = 0
+        if add > 0:
+            now = (now or 0.0) + add
         left = max(0.0, g["target"] - now) if now is not None else None
         out.append({"id": g["id"], "label": g["label"], "opens": g["opens"], "target": g["target"], "unit": g["unit"], "now": now,
                     "left": left if left is None or g["unit"] == "sec" else int(math.ceil(left)),
-                    "reached": now is not None and now >= g["target"], "at": at if isinstance(at, (int, float)) and not isinstance(at, bool) else None})
+                    "reached": now is not None and now >= g["target"], "at": at, "check": add})
     return out
 
 
@@ -543,4 +585,13 @@ class Accuracy:
         ran = self.last.get("ran")
         state = "off" if not cfg.get("enabled") else self.state
         return dict(cfg, state=state, stateLabel=STATE_LABELS[state], message=self.message if state != "off" else "", heavyEnabled=self.heavy_enabled,
-                    forced=bool(self.force), lastRun=int(ran * 1000) if isinstance(ran, (int, float)) else None, areas=areas, goals=goals_of(self.last))
+                    forced=bool(self.force), lastRun=int(ran * 1000) if isinstance(ran, (int, float)) else None, areas=areas,
+                    goals=goals_of(self.last, extra=self._check_extra()))
+
+    def _check_extra(self):
+        """「確かめる」の答え(app/check/answers.jsonl)から入口の条件に足す数の関数(src/eval/check/goals.py。読めなければ None)"""
+        try:
+            from eval.check import goals as check_goals   # 同じ ⑤ の層(check の goals は accuracy を読まない)
+            return check_goals.extra_from(self.data_dir)
+        except Exception:
+            return None

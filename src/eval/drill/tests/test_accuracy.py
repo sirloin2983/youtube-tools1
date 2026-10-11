@@ -186,7 +186,7 @@ class AccuracyTest(unittest.TestCase):
     # ---- いつ測るか
     def test_runs_in_night_window_once_a_day(self):
         r = self.acc.tick()
-        self.assertEqual(r, {"asr": "ok", "marks": "ok", "speakers": "ok", "cut": "ok", "alt": "ok"})
+        self.assertEqual(r, {"asr": "ok", "marks": "ok", "speakers": "ok", "cut": "ok", "alt": "ok", "fill": "ok", "timing": "ok"})
         snap = self.acc.snapshot()
         by = {a["id"]: a for a in snap["areas"]}
         self.assertEqual(by["asr"]["latest"]["summary"]["value"], 0.2)
@@ -426,14 +426,14 @@ class AccuracyTest(unittest.TestCase):
         snap = self.acc.snapshot()
         for k in ("enabled", "nightFrom", "nightTo", "state", "stateLabel", "message", "heavyEnabled", "forced", "lastRun", "areas"):
             self.assertIn(k, snap)
-        self.assertEqual([a["id"] for a in snap["areas"]], ["asr", "marks", "speakers", "cut", "alt"])
+        self.assertEqual([a["id"] for a in snap["areas"]], ["asr", "marks", "speakers", "cut", "alt", "fill", "timing"])
         self.assertEqual([g["id"] for g in snap["goals"]], [g["id"] for g in accuracy.GOALS])
         json.dumps(snap)                                 # そのまま JSON にできる
 
     # ---- 入口の条件(あと何本・何分。入口 0.38.0)
     def test_goals_before_any_measurement_are_unmeasured(self):
         goals = self.acc.snapshot()["goals"]
-        self.assertEqual(len(goals), 8)
+        self.assertEqual(len(goals), 10)
         for g in goals:
             self.assertEqual((g["now"], g["left"], g["reached"], g["at"]), (None, None, False, None), g["id"])   # 画面は「未測定」
         by = {g["id"]: g for g in goals}
@@ -462,6 +462,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual((by["alt"]["now"], by["alt"]["left"], by["alt"]["reached"]), (40.0, 60, False))   # 判定できた候補(eval_alt の meta.judged)
         self.assertIsNone(by["packs"]["now"])            # 偽のカットの道具は fromPack を出さない = 未測定のまま
         self.assertIsNone(by["packs"]["left"])
+        self.assertEqual((by["fill"]["now"], by["timing"]["now"]), (None, None))   # 偽の道具は judged・rows を出さない = 未測定のまま
         self.assertIsInstance(by["g1"]["at"], int)
         self.assertEqual(self.acc.last["daily"]["docs"], 1)
         again = self.make()                              # 記録に残る(起動し直しても出る)
@@ -499,6 +500,27 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(by["marks"], const("eval_marks.py", "FEW_VIDEOS"))
         self.assertEqual(by["packs"], const("eval_cut.py", "FEW_PACKS"))
         self.assertEqual(by["alt"], const("eval_alt.py", "FEW_CANDS"))
+        self.assertEqual(by["fill"], const("eval_fill.py", "FEW_ROWS"))      # V1 確かめる(V0)
+        self.assertEqual(by["timing"], const("eval_timing.py", "FEW_ROWS"))
+
+    def test_summarize_fill_and_timing(self):
+        fill = accuracy.summarize_fill({"a": {"docs": 4, "judged": 12, "keptRate": 0.75, "revertRate": 0.2, "editRate": 0.05, "few": True}})
+        self.assertEqual((fill["value"], fill["judged"], fill["lowData"], fill["better"]), (0.75, 12.0, True, "higher"))
+        tm = accuracy.summarize_timing({"meta": {"docs": 2, "few": False}, "overall": {"n": 120, "head": 0.1, "tail": 0.2, "prev": 0.0, "next": 0.05}})
+        self.assertEqual((tm["value"], tm["rows"], tm["better"], len(tm["extra"])), (0.1, 120.0, "lower", 3))
+        self.assertEqual(accuracy.summarize_fill({"accuracy": {"label": "x", "value": 0.5}})["value"], 0.5)   # 形が違えば accuracy の鍵
+        with self.assertRaises(ValueError):
+            accuracy.summarize_timing({})
+
+    def test_goals_add_check_answers(self):
+        """「確かめる」の答え(app/check/answers.jsonl)を入口の条件に足す(V1 V0。数え方は src/eval/check/goals.py)"""
+        from human.check import answerlog
+        for i, (kind, source, case) in enumerate((("voice", "diar", "v1"), ("voice", "diar", "v1"), ("value", "auto", "v1"), ("value", "cand", "v1"))):
+            answerlog.append(self.app, {"id": answerlog.new_id(), "at": 1000 + i, "kind": kind, "source": source, "card": "%s:%s:k%d" % (kind, source, i), "case": case})
+        by = {g["id"]: g for g in self.acc.snapshot()["goals"]}
+        self.assertEqual((by["speakers"]["now"], by["speakers"]["check"], by["speakers"]["left"]), (2.0, 2, 198))
+        self.assertEqual((by["marks"]["now"], by["marks"]["check"]), (1.0, 1))   # 配信の単位
+        self.assertEqual((by["alt"]["now"], by["alt"]["check"]), (None, 0))
 
     def test_summarize_alt_and_counts(self):
         alt = accuracy.summarize_alt({"meta": {"docs": 3, "few": True, "judged": 7, "candidates": 31}, "feedback": None,

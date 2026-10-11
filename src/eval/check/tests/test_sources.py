@@ -1,0 +1,173 @@
+"""「確かめる」のカードの出どころ(src/eval/check/sources.py)と組み立て(deck.py)の単体テスト。一時フォルダの文書・.diar.json・スタジオの data.json だけを使う。
+評価用の文書(evalSet・評価用のフォルダの動画)が 1 枚でも出たら落ちる。
+
+実行(リポジトリ直下から): py -3.10 -m unittest src/eval/check/tests/test_sources.py -v
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+
+os.environ.setdefault("YTT_DATA_DIR", "inplace")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> eval -> src
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from eval.check import deck, lineup, sources  # noqa: E402
+from human.check import answerlog, apply  # noqa: E402
+
+DOC, EVAL_DOC, EVAL_DIR_DOC = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
+VID, VID2 = "dQw4w9WgXcQ", "AAAAAAAAAAA"
+
+
+def write(path, obj):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False)
+
+
+def doc(updated, src="", eval_set=False, rows=None):
+    d = {"title": "t", "sourcePath": src, "updatedAt": updated, "speakers": [{"id": "S1", "name": "あ"}, {"id": "S2", "name": "い"}],
+         "segments": rows if rows is not None else [
+             {"id": "s1", "start": 0.0, "end": 2.0, "text": "埋めた文", "fill": {"from": "うめたぶん", "by": "llm"}},
+             {"id": "s2", "start": 2.0, "end": 4.0, "text": "校正済み", "proofed": True, "speaker": "S1"},
+             {"id": "s3", "start": 4.0, "end": 6.5, "text": "声の行", "speaker": "S2"},
+             {"id": "s4", "start": 6.5, "end": 7.0, "text": "短い", "speaker": "S2"},
+             {"id": "s5", "start": 7.0, "end": 9.0, "text": "同じ", "fill": {"from": "同 じ", "by": "name"}}]}
+    if eval_set:
+        d["evalSet"] = True
+    return d
+
+
+def diar(rows):
+    return {"schema": sources.DIAR_SCHEMA, "latest": {"rows": rows, "voices": {"speakers": {"S2": {"score": 0.5, "secondScore": 0.45, "reason": "margin"}}}},
+            "history": []}
+
+
+class Ctx(apply.Context):
+    pass
+
+
+class SourcesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-check-src-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.env = {"YTT_DATA_DIR": self.tmp}
+        tx = os.path.join(self.tmp, "transcribe", "transcripts")
+        self.evaldir = os.path.join(self.tmp, "評価用")
+        os.makedirs(self.evaldir)
+        write(os.path.join(tx, DOC + ".json"), doc(200))
+        write(os.path.join(tx, EVAL_DOC + ".json"), doc(300, eval_set=True))
+        write(os.path.join(tx, EVAL_DIR_DOC + ".json"), doc(400, src=os.path.join(self.evaldir, "x.mp4")))
+        rows = {"s2": {"speaker": "S1", "ratio": 0.9}, "s3": {"speaker": "S2", "ratio": 0.6, "weak": True}, "s4": {"speaker": "S2", "ratio": 0.9},
+                "s5": {"speaker": "S1", "ratio": 0.8, "mixed": True}}
+        for t in (DOC, EVAL_DOC, EVAL_DIR_DOC):
+            write(os.path.join(tx, t + ".diar.json"), diar(rows))
+        marks = [{"id": "m1", "start": 10, "end": 40, "score": 0.4}, {"id": "m2", "start": 50, "end": 80, "score": 0.9},
+                 {"id": "m3", "start": 90, "end": 120, "status": "rejected"}]
+        write(os.path.join(self.tmp, "studio", "data.json"), {"videos": {
+            VID: {"id": VID, "kind": "youtube", "title": "配信", "marks": marks},
+            VID2: {"id": VID2, "kind": "youtube", "title": "選んだ配信", "marks": [{"id": "m1", "start": 1, "end": 5, "status": "adopted"},
+                                                                              {"id": "m2", "start": 6, "end": 9}]}}})
+        self.app = os.path.join(self.tmp, "app")
+        self.ctx = Ctx(self.app, ROOT, env=self.env, eval_dirs=[self.evaldir])
+        deck.invalidate()
+
+    def collect(self, state=None):
+        return sources.collect(self.ctx, state)[0]
+
+    def test_schema_matches_diarize(self):
+        from pipeline.transcribe import diarize
+        self.assertEqual(sources.DIAR_SCHEMA, diarize.DIAR_SCHEMA)
+
+    def test_eval_docs_never_appear(self):
+        cards = self.collect()
+        self.assertTrue(cards)
+        for c in cards:
+            self.assertNotIn(EVAL_DOC, c["id"])
+            self.assertNotIn(EVAL_DIR_DOC, c["id"])
+            self.assertNotIn((c.get("target") or {}).get("docId"), (EVAL_DOC, EVAL_DIR_DOC))
+
+    def test_v0_sources(self):
+        by = {c["id"]: c for c in self.collect()}
+        fill = by["read:fill:%s#s1" % DOC]
+        self.assertEqual([o["text"] for o in fill["options"]], ["埋めた文", "うめたぶん"])
+        self.assertEqual((fill["target"]["docId"], fill["target"]["row"], fill["media"]["url"]), (DOC, "s1", "transcribe/media?id=" + DOC))
+        self.assertNotIn("read:fill:%s#s5" % DOC, by)       # 空白だけの違いは出さない
+        voice = by["voice:diar:%s#s3" % DOC]
+        self.assertEqual(voice["guess"], {"id": "S2", "name": "い"})
+        self.assertEqual([o["id"] for o in voice["options"]], ["S1", "S2", "other", "mixed"])
+        self.assertNotIn("voice:diar:%s#s2" % DOC, by)      # 校正済み
+        self.assertNotIn("voice:diar:%s#s4" % DOC, by)      # 1 秒未満
+        self.assertNotIn("voice:diar:%s#s5" % DOC, by)      # 混ざり
+        self.assertIn("time:row:%s#s2" % DOC, by)           # 校正済みの行
+        self.assertNotIn("time:row:%s#s1" % DOC, by)
+        cand = sorted(c["id"] for c in by.values() if c["source"] == "cand")
+        self.assertEqual(cand, ["value:cand:%s#m1" % VID, "value:cand:%s#m2" % VID])   # 選び始めた配信・決めたマークは出さない
+        self.assertIn("youtube-nocookie.com/embed/%s?start=50&end=80" % VID, by["value:cand:%s#m2" % VID]["media"]["url"])
+
+    def test_time_after_read_answer(self):
+        st = answerlog.State([{"id": answerlog.new_id(), "at": 1, "kind": "read", "source": "fill", "card": "read:fill:%s#s1" % DOC,
+                               "target": {"docId": DOC, "row": "s1"}}])
+        self.assertIn("time:row:%s#s1" % DOC, {c["id"] for c in self.collect(st)})
+
+    def test_value_auto(self):
+        snap = {"cases": [{"id": VID, "title": "ライブ", "streamedAt": 5, "clips": [
+            {"markId": "a1", "start": 3, "auto": {"score": 0.7, "originLabel": "配信中の候補"}, "review": {}, "transcript": {"id": DOC}},
+            {"markId": "a2", "auto": {}, "review": {"deliveredAt": 9}, "transcript": {"id": DOC}},
+            {"markId": "a3", "auto": {}, "review": {"pending": True}, "transcript": {"id": DOC}},
+            {"markId": "a4", "auto": {}, "review": {}, "transcript": {"id": EVAL_DOC}},
+            {"markId": "a5", "auto": None, "review": {}, "transcript": {"id": DOC}}]}], "virtual": []}
+        view = sources.View(self.ctx)
+        view._cases = snap
+        got = sources.value_auto(view)
+        self.assertEqual([c["id"] for c in got], ["value:auto:%s#a1" % VID])
+        self.assertEqual((got[0]["target"]["markId"], got[0]["options"], got[0]["note"]), ("a1", ["send", "drop"], "配信中の候補"))
+
+    def test_broken_source_does_not_stop_others(self):
+        sources.register("time", "boom", lambda view: 1 / 0)
+        self.addCleanup(sources.unregister, "time", "boom")
+        cards, view = sources.collect(self.ctx)
+        self.assertTrue(cards)
+        self.assertTrue(any("time:boom" in e for e in view.errors))
+
+    def test_deck_next_and_find(self):
+        got = deck.next_cards(self.ctx, n=3)
+        self.assertEqual(len(got["cards"]), 3)
+        self.assertGreater(got["total"], 3)
+        self.assertEqual(sum(got["counts"]["perKind"].values()), got["total"])
+        self.assertTrue(all("_order" not in c for c in got["cards"]))
+        self.assertEqual(deck.next_cards(self.ctx, n=0)["cards"], [])
+        only = deck.next_cards(self.ctx, kind="voice", n=50)
+        self.assertEqual({c["kind"] for c in only["cards"]}, {"voice"})
+        self.assertEqual(only["goal"]["kind"] if only["goal"] else "voice", "voice")
+        mine = deck.next_cards(self.ctx, case=VID, n=50)
+        self.assertEqual({c["case"]["id"] for c in mine["cards"]}, {VID})
+        first = got["cards"][0]["id"]
+        self.assertNotIn(first, [c["id"] for c in deck.next_cards(self.ctx, n=50, skip=first)["cards"]])
+        self.assertEqual(deck.find(self.ctx, first)["id"], first)
+        self.assertIsNone(deck.find(self.ctx, "read:fill:%s#s9" % DOC))
+        self.assertIsNone(deck.find(self.ctx, "nope"))
+        for bad in ({"kind": "talk"}, {"case": "../x"}, {"n": 99}):
+            with self.assertRaises(ValueError):
+                deck.next_cards(self.ctx, **bad)
+
+    def test_deck_hides_answered_and_moves_skipped(self):
+        cid = "read:fill:%s#s1" % DOC
+        answerlog.append(self.app, {"id": answerlog.new_id(), "at": answerlog.now_ms(), "kind": "read", "source": "fill", "card": cid,
+                                    "target": {"docId": DOC, "row": "s1"}, "answer": "1", "applied": {}})
+        deck.invalidate()
+        got = deck.next_cards(self.ctx, n=50)
+        self.assertNotIn(cid, [c["id"] for c in got["cards"]])
+        self.assertEqual(got["counts"]["today"], 1)
+        first = got["cards"][0]["id"]
+        answerlog.add_skip(self.app, first)
+        deck.invalidate()
+        again = [c["id"] for c in deck.next_cards(self.ctx, n=50)["cards"]]
+        self.assertEqual(again[-1], first)
+
+
+if __name__ == "__main__":
+    unittest.main()
