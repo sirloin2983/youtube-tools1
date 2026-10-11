@@ -40,6 +40,7 @@ PAUSE_SEC = 600.0         # 休む秒
 RECENT_SEC = 120.0        # API の差分(changes)に「文字が付いた候補」として入れる、付けてからの秒
 TEXT_MAX = 2000
 DOC_MAX = 2 * 1024 * 1024
+BOARD_META_MAX = 500     # 掲示板に載せた候補の覚え(区間・載せた時刻)の上限
 
 
 class LiveTx(LX.Patrol):
@@ -70,6 +71,10 @@ class LiveTx(LX.Patrol):
         self.failed = 0
         self._docs = {}            # (rc, rec) -> tx.json の中身(メモリ。書くたびに更新)
         self._ready_note = None
+        self.board = None          # 掲示板(attach_board。RS8 の ② の口 S2)
+        self._meta = {}            # (rc, rec, id) -> {start, end, createdAt}(掲示板の Job を組む覚え)
+        self._skip = set()         # 掲示板で取り消した (rc, rec, id)(見回りが入れ直さない。メモリだけ)
+        self._ended = set()        # 処理中に済み・失敗を掲示板へ載せた (rc, rec, id)
 
     # ---- 設定・準備
     def cfg(self):
@@ -191,6 +196,7 @@ class LiveTx(LX.Patrol):
         if self.clock() < self.pause_until:
             return 0
         added = 0
+        new = []
         try:
             recs = self.host.list_recordings()
         except Exception as e:   # noqa: BLE001  (録画元につながらない: 次の見回りで)
@@ -214,13 +220,17 @@ class LiveTx(LX.Patrol):
                         continue
                     key = (rc, rec, pid)
                     cur = items.get(pid)
-                    if (cur and "error" not in cur) or key in self.queued or key == self.busy:   # 済み(認識できた。文字が空 = 声の無い区間も済み)は入れ直さない
+                    if (cur and "error" not in cur) or key in self.queued or key == self.busy or key in self._skip:   # 済み(認識できた。文字が空 = 声の無い区間も済み)は入れ直さない
                         continue
                     if int((cur or {}).get("tries") or 0) >= TX_TRIES:
                         continue
                     self.queue.append((rc, rec, dict(pk), float(r["firstPdt"])))
                     self.queued.add(key)
+                    self._remember(key, pk)
                     added += 1
+                    new.append(key)
+        for key in new:
+            self._publish(key, "queued")
         if added:
             self.start()
             self.wake.set()
@@ -241,6 +251,9 @@ class LiveTx(LX.Patrol):
         if item is None:
             return False
         rc, rec, pk, first = item
+        key = (rc, rec, pk["id"])
+        self._ended.discard(key)
+        self._publish(key, "running")
         try:
             self._one(rc, rec, pk, first)
         except Exception as e:   # noqa: BLE001  (1 本の不具合で止めない)
@@ -249,9 +262,15 @@ class LiveTx(LX.Patrol):
         finally:
             with self.lock:
                 self.busy = None
+            if key in self._ended:
+                self._ended.discard(key)
+            elif self.board is not None:   # 入口の終了で止めた(失敗に数えない = 次の起動の見回りでやり直す): 掲示板から外す
+                self.board.remove(self.board_id(key))
         return True
 
     def _after(self, rc, rec, pid, ok, why=""):
+        self._ended.add((rc, rec, pid))
+        self._publish((rc, rec, pid), "done" if ok else "error", why)
         if ok:
             self.fails, self.done = 0, self.done + 1
             return
@@ -263,6 +282,62 @@ class LiveTx(LX.Patrol):
             self.pause_until = self.clock() + PAUSE_SEC
             self.fails = 0
             self.log("配信中の文字起こし: 続けて %d 回失敗したので %d 分休みます" % (FAIL_PAUSE_AFTER, int(PAUSE_SEC // 60)))
+
+    # ---- 掲示板(flow/board.py。RS8 の ② の口 S2。押す形 = 列に入れた・始めた・済んだ所で載せる。器の本体と今の API はそのまま)
+    def attach_board(self, board):
+        """掲示板に候補の文字起こしを載せる(頭 lt。順番待ちの取り消しも掲示板の id で)。ライブ係(flow/livesession.py)が 1 回呼ぶ。今の列も載せる"""
+        self.board = board
+        board.register("lt", cancel=self.board_cancel)
+        with self.lock:
+            keys = [("queued", (rc, rec, pk["id"])) for rc, rec, pk, _f in self.queue] + ([("running", self.busy)] if self.busy else [])
+        for st, key in keys:
+            self._publish(key, st)
+
+    @staticmethod
+    def board_id(key):
+        """(録画元, 録画, 候補の id) -> 掲示板の id「lt:<録画元>.<録画>.<候補の id>」(どれも . を含まない形)"""
+        return "lt:%s.%s.%s" % key
+
+    def _remember(self, key, pk):
+        if len(self._meta) > BOARD_META_MAX:
+            self._meta.clear()
+        self._meta[key] = {"start": pk.get("start"), "end": pk.get("end"), "createdAt": int(self.clock() * 1000)}
+
+    def board_job(self, key, state, why=""):
+        rc, rec, pid = key
+        m = self._meta.get(key) or {}
+        span = "%d〜%d 秒" % (m["start"], m["end"]) if isinstance(m.get("start"), (int, float)) and isinstance(m.get("end"), (int, float)) else pid
+        end = state not in ("queued", "running")
+        phase = {"queued": "順番待ち", "running": "重い処理の順番待ち" if self.slot_wait else "認識中", "done": "文字を付けました",
+                 "error": "文字を付けられませんでした", "cancelled": "取り消しました"}.get(state, "")
+        return {"id": self.board_id(key), "kind": "live_tx", "case": None, "target": {"recording": rec},
+                "title": "配信中の候補の文字起こし: %s %s" % (rec, span), "state": state, "phase": phase,
+                "waiting": state == "running" and self.slot_wait, "createdAt": m.get("createdAt"),
+                "finishedAt": int(self.clock() * 1000) if end else None, "error": (why or "失敗しました") if state == "error" else None,
+                "canCancel": state == "queued", "canRetry": False}
+
+    def _publish(self, key, state, why=""):
+        b = self.board
+        if b is None or not key:
+            return
+        try:
+            b.upsert(self.board_job(key, state, why))
+        except ValueError as e:   # 載せられなくても文字起こしは止めない
+            self.log("配信中の文字起こし: 掲示板に載せられませんでした(%s)" % e)
+
+    def board_cancel(self, inner):
+        """掲示板の取り消し: 順番待ちの候補を列から外す(この入口が動いている間は見回りも入れ直さない)。認識中は ValueError・無ければ LookupError"""
+        key = tuple(inner.split("."))
+        with self.lock:
+            if len(key) == 3 and key == self.busy:
+                raise ValueError("認識中の候補は止められません")
+            item = next((x for x in self.queue if (x[0], x[1], x[2]["id"]) == key), None) if len(key) == 3 else None
+            if item is None:
+                raise LookupError("その候補は順番待ちにありません")
+            self.queue.remove(item)
+            self.queued.discard(key)
+            self._skip.add(key)
+        return self.board_job(key, "cancelled")
 
     # ---- 1 本
     def _one(self, rc, rec, pk, first):

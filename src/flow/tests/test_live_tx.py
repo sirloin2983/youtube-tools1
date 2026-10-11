@@ -33,6 +33,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
+from flow import board as Board  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_tx as TX  # noqa: E402
 from ytt import datadir, fsio  # noqa: E402
@@ -348,6 +349,28 @@ class TickTest(LiveTxBase):
         self.put_wcpp()
         self.rec.close()
         self.assertEqual(self.tx.tick(), 0)   # 録画の一覧を読めない: 次の見回りで
+
+
+class BoardTest(LiveTxBase):
+    def test_board_follows_queue_and_result(self):
+        """掲示板(RS8 の ② の口 S2): 列に入れた・始めた・済んだで lt:<録画元>.<録画>.<候補> がその state で載る・順番待ちは取り消せる"""
+        self.put_wcpp()
+        b = Board.Board()
+        self.tx.attach_board(b)
+        self.tx.start = lambda: None   # 裏の糸は動かさない(_step を直に呼ぶ)
+        self.put_peaks([peak("p0-12", 10), peak("p4-52", 50, "bench")])
+        self.assertEqual(self.tx.tick(), 2)
+        jid, other = "lt:fake.%s.p0-12" % REC, "lt:fake.%s.p4-52" % REC
+        got = b.get(jid)
+        self.assertEqual((got["kind"], got["state"], got["canCancel"], got["target"]), ("live_tx", "queued", True, {"recording": REC}))
+        self.assertEqual(b.cancel(other)["state"], "cancelled")
+        self.assertEqual(self.tx.tick(), 0)   # 取り消した候補は入れ直さない
+        self.assertEqual([q[2]["id"] for q in self.tx.queue], ["p0-12"])
+        self.assertTrue(self.tx._step())
+        self.assertEqual(b.get(jid)["state"], "done")
+        self.assertEqual(self.tx.text_for("fake", REC, "p0-12"), "ここで大きな声")
+        with self.assertRaises(Board.Refused):
+            b.cancel(jid)   # 終わった物は止められない(掲示板の canCancel が偽)
 
 
 class OneTest(LiveTxBase):

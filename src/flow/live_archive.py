@@ -117,6 +117,10 @@ REF_SEC = 60.0               # 録画とアーカイブの時刻を合わせる�
 AFTER_LABELS = {"wait": "アーカイブの用意を待っています", "analyze": "アーカイブを解析しています", "export": "書き出し → 本番版 → パック",
                 "done": "済み", "none": "採用する候補がありませんでした", "error": "失敗"}
 AFTER_END = ("done", "none", "error")
+# 掲示板(flow/board.py。RS8 の ② の口 S2): 本番版への作り直し・配信後の全自動の state -> 掲示板の state
+BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", error="error", cancelled="cancelled")
+AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "error": "error"}
+AFTER_PREFIX = "as-"   # 掲示板の id「la:as-<録画元>.<録画>」= 配信後の全自動(録画 1 本)。それ以外の la: は書き出しのジョブの id
 SPEED_DIR = "速報版"                      # 作業用\速報版\(退避した速報版)
 BUILD_DIR = "本番版の作りかけ"            # 作業用\本番版の作りかけ\<ジョブ>\(スタジオが書く先。済んだら消す)
 UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private")
@@ -423,6 +427,7 @@ class Archiver(LX.Patrol):
         self.lock = threading.RLock()
         self._cancel = set()      # 取り消しを頼まれたジョブの id(動いている途中のもの)
         self.info = {}
+        self.board = None         # 掲示板(attach_board。RS8 の ② の口 S2)
         self._load()
 
     # --- 録画ごとの記録(archive.json) ---
@@ -472,6 +477,7 @@ class Archiver(LX.Patrol):
             job["updated"] = LX.now_iso()
         if save:
             self.ex._save()
+        self._publish(self.board_job(job))
 
     def _rec_jobs(self, rc, rec):
         with self.ex.lock:
@@ -511,21 +517,89 @@ class Archiver(LX.Patrol):
 
     def cancel(self, rc, rec):
         """POST /live/api/archive/cancel。-> 取り消した数(待ちはすぐ、途中のものは今の段を止めてから)"""
-        n = 0
-        for j in self._rec_jobs(rc, rec):
-            st = (j.get("archive") or {}).get("state")
-            if st == "wait":
-                built = (j.get("archive") or {}).get("built")
-                if isinstance(built, str) and inside(built, self.ex.out_dir()) and os.path.basename(os.path.dirname(built)) == j["id"]:
-                    shutil.rmtree(os.path.dirname(built), ignore_errors=True)   # 使用中で入れ替え待ちだった本番版(自分で作った作りかけのフォルダだけ)
-                self._aset(j, save=False, state="cancelled", message="取り消しました(速報版のままです)", progress=0, built=None)
-                n += 1
-            elif st in RUN:
-                self._cancel.add(j["id"])
-                n += 1
+        n = sum(1 for j in self._rec_jobs(rc, rec) if self._cancel_one(j))
         self.ex._save()
         self.wake.set()
         return n
+
+    def _cancel_one(self, j):
+        """1 本を取り消す(待ちはすぐ、途中のものは今の段を止めてから)。-> 取り消したか"""
+        st = (j.get("archive") or {}).get("state")
+        if st == "wait":
+            built = (j.get("archive") or {}).get("built")
+            if isinstance(built, str) and inside(built, self.ex.out_dir()) and os.path.basename(os.path.dirname(built)) == j["id"]:
+                shutil.rmtree(os.path.dirname(built), ignore_errors=True)   # 使用中で入れ替え待ちだった本番版(自分で作った作りかけのフォルダだけ)
+            self._aset(j, save=False, state="cancelled", message="取り消しました(速報版のままです)", progress=0, built=None)
+            return True
+        if st in RUN:
+            self._cancel.add(j["id"])
+            self._publish(self.board_job(j))
+            return True
+        return False
+
+    # --- 掲示板(flow/board.py。RS8 の ② の口 S2。押す形 = 状態を変えた所で載せる。器の本体と今の API はそのまま) ---
+    def attach_board(self, board):
+        """掲示板に本番版への作り直し(ジョブごと)と配信後の全自動(録画ごと)を載せる(頭 la。取り消しも掲示板の id で)。
+        ライブ係(flow/livesession.py)が作ったときに 1 回呼ぶ。今ある物も載せる"""
+        self.board = board
+        board.register("la", cancel=self.board_cancel)
+        with self.ex.lock:
+            js = [j for j in self.ex.jobs if isinstance(j.get("archive"), dict) and j["archive"].get("state")]
+        for j in js:
+            self._publish(self.board_job(j))
+        with self.lock:
+            afters = [(i.get("recorder"), i.get("recording"), dict(i["afterStream"])) for i in self.info.values()
+                      if isinstance(i.get("afterStream"), dict) and i["afterStream"].get("state")]
+        for rc, rec, a in afters:
+            if isinstance(rc, str) and isinstance(rec, str):
+                self._publish(self.after_board_job(rc, rec, a))
+
+    def board_job(self, job):
+        """書き出しのジョブの本番版への作り直し(job["archive"])-> 掲示板の Job"""
+        a = job.get("archive") or {}
+        st = BOARD_STATES.get(a.get("state"), "error")
+        end = st not in ("queued", "running")
+        updated = LX.iso_epoch(job.get("updated"))
+        return {"id": "la:" + job["id"], "kind": "live_archive", "case": self.ex.case_of(job.get("recorder"), job.get("recording")),
+                "target": {"markId": job.get("markId"), "recording": job.get("recording"), "path": job.get("path") or None},
+                "title": "本番版に作り直し: %s" % (job.get("label") or "マーク %s" % (job.get("n") or "")),
+                "state": st, "phase": a.get("message") or a.get("label") or "", "progress": a.get("progress"),
+                "finishedAt": int(updated * 1000) if end and updated is not None else None,
+                "error": (a.get("message") or "失敗しました") if st == "error" else None,
+                "canCancel": not end and job["id"] not in self._cancel, "canRetry": False}
+
+    def after_board_job(self, rc, rec, a):
+        """配信後の全自動(録画 1 本の afterStream)-> 掲示板の Job(取り消しは無い = canCancel は偽)"""
+        st = AFTER_BOARD.get(a.get("state"), "error")
+        at = LX.iso_epoch(a.get("at"))
+        return {"id": "la:%s%s.%s" % (AFTER_PREFIX, rc, rec), "kind": "live_archive", "case": self.ex.case_of(rc, rec),
+                "target": {"recording": rec}, "title": "配信後の自動の切り抜き: %s" % rec, "state": st,
+                "phase": a.get("message") or a.get("label") or "",
+                "finishedAt": int(at * 1000) if st not in ("queued", "running") and at is not None else None,
+                "error": (a.get("message") or "失敗しました") if st == "error" else None, "canCancel": False, "canRetry": False}
+
+    def _publish(self, job):
+        b = self.board
+        if b is None:
+            return
+        try:
+            b.upsert(job)
+        except ValueError as e:   # 載せられなくても作り直しは止めない
+            self.log("リアルタイム切り抜き: 本番版の作り直しを掲示板に載せられませんでした(%s)" % e)
+
+    def board_cancel(self, jid):
+        """掲示板の取り消し(ジョブ 1 本。POST /live/api/archive/cancel の 1 本分)。配信後の全自動は ValueError・無い id は LookupError"""
+        if jid.startswith(AFTER_PREFIX):
+            raise ValueError("配信後の自動の切り抜きは止められません")
+        with self.ex.lock:
+            job = next((j for j in self.ex.jobs if j.get("id") == jid and isinstance(j.get("archive"), dict)), None)
+        if job is None:
+            raise LookupError("その作り直しはありません")
+        if not self._cancel_one(job):
+            raise ValueError("この作り直しは今は止められません")
+        self.ex._save()
+        self.wake.set()
+        return self.board_job(job)
 
     # --- アーカイブの用意 ---
     def video_id(self, rc, rec):
@@ -730,6 +804,7 @@ class Archiver(LX.Patrol):
             i["afterStream"] = a
             self.info[self.key(rc, rec)] = i
         self._save_info()
+        self._publish(self.after_board_job(rc, rec, a))
         if kw.get("state") == "error":
             self.log("リアルタイム切り抜き: 配信後の自動の切り抜きに失敗しました(%s): %s" % (rec, a.get("message")))
         return a

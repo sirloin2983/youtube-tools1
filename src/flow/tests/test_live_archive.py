@@ -33,6 +33,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
+from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import fsio, jobs, normalize, schemas, tools  # noqa: E402
@@ -338,6 +339,31 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(A.free_name(self.tmp, "elsewhere.mp4"), os.path.join(self.tmp, "elsewhere_2.mp4"))
         self.assertFalse(A.inside(os.path.join(self.out, "..", "x.mp4"), self.out))
         self.assertEqual(A.probe_archive("bad id!")["status"], "unknown")   # 動画の id は 11 文字の形だけ
+
+    def test_board_follows_archive(self):
+        """掲示板(RS8 の ② の口 S2): 作り直しの状態が変わったら la:<ジョブの id> がその state で載る・配信後の全自動は la:as-<録画元>.<録画>"""
+        j1 = self.job(150.0, 6.0, 1, "done", "山場")
+        ar = self.archiver()
+        ar.start = lambda: None   # 裏の糸は動かさない(状態は _aset で進める)
+        b = Board.Board()
+        ar.attach_board(b)
+        jid = "la:" + j1["id"]
+        self.assertIsNone(b.get(jid))   # 作り直しを頼むまでは載らない
+        ar._queue([j1], auto=False)
+        got = b.get(jid)
+        self.assertEqual((got["kind"], got["state"], got["canCancel"]), ("live_archive", "queued", True))
+        self.assertIn("山場", got["title"])
+        ar._aset(j1, state="align", progress=0.3)
+        self.assertEqual((b.get(jid)["state"], b.get(jid)["progress"]), ("running", 0.3))
+        self.assertFalse(b.cancel(jid)["canCancel"])   # 途中: 今の段を止める印(state は止まるまで running)
+        self.assertIn(j1["id"], ar._cancel)
+        ar._aset(j1, state="cancelled", progress=0)
+        self.assertEqual(b.get(jid)["state"], "cancelled")
+        ar._after_set("local", REC, state="none", message="採用する候補がありませんでした")
+        got = b.get("la:as-local." + REC)
+        self.assertEqual((got["state"], got["canCancel"], got["target"]), ("skipped", False, {"recording": REC}))
+        with self.assertRaises(Board.Refused):
+            b.cancel("la:as-local." + REC)
 
     def test_cancel(self):
         j1, p1 = self.speed(150.047, 6.0, 1)

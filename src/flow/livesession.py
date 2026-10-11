@@ -38,6 +38,7 @@ import urllib.parse
 
 from pipeline.ingest import rec_core   # 録画の状態の名前(ACTIVE)。録画の部品と同じ物
 from ytt import datadir, fsio, layout, schemas, tools, version as _version
+from . import board as _board   # ② のジョブの掲示板(RS8 の ② の口 S2。書き出し lx・作り直し la・候補の文字起こし lt を載せる)
 from . import envelope as _envelope
 from . import live_adopt   # 採用 = マーク + 書き出し(M1。RS7-2 G1b)
 from . import live_archive   # アーカイブで本番版に作り直す。P4
@@ -397,7 +398,7 @@ class MemoryRequests:
 
 class LiveSession:
     def __init__(self, root, logs_dir, requests=None, cfg=None, log=None, python=None, data_dir=None, watch_sec=WATCH_SEC, spawn=True,
-                 store_dir=None, out_dir=None, runner=None, audio=None, archive_opts=None, cleanup_opts=None, marks=None, deliver_for=None):
+                 store_dir=None, out_dir=None, runner=None, audio=None, archive_opts=None, cleanup_opts=None, marks=None, deliver_for=None, board=None):
         """root: src/(ツールの 1 つ上)。logs_dir: 入口の作業データの logs。requests: 友人の依頼の結びつき(livehost.RequestBook。入口は live_requests.Store。
         無ければメモリだけ)。cfg() -> ライブの設定 {enabled, folder, recorders, quality, auto, detect, autoAdopt, …}(入口はホームの設定の節 live。
         無い・読めなければオフ)。data_dir: 手元の録画の部品の作業データ(テスト用。既定 recorder_data_dir)。
@@ -405,7 +406,9 @@ class LiveSession:
         runner(): まとめて実行(flow/runqueue.py の Queue。書き出した切り抜きを submit する)か None。
         audio(): 束の無い録画の書き出しの音量 {"volume", "loudness"}(None = 変えない)。
         archive_opts・cleanup_opts: Archiver・片付けへ渡す引数(テスト用)。marks: マークの置き場(既定 LocalMarks = スタジオなし)。
-        deliver_for: 友人の依頼の無い録画を確認なしで届けるか(app の hook。flow/live_adopt.py の Adopter)"""
+        deliver_for: 友人の依頼の無い録画を確認なしで届けるか(app の hook。flow/live_adopt.py の Adopter)。
+        board: ジョブの掲示板(flow/board.py。既定はプロセスに 1 つの board.default() = 入口の GET /api/flow/status と同じ物)。
+        書き出し・作り直し・候補の文字起こしは作ったときに 1 回 attach_board する(RS8 の ② の口 S2)"""
         self.root, self.logs_dir = root, logs_dir
         self._cfg_fn = cfg
         self.store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
@@ -419,6 +422,7 @@ class LiveSession:
         self.cleanup_opts = dict(cleanup_opts or {})
         self._ex_lock = threading.Lock()
         self.log = log or (lambda m: None)
+        self.board = board if board is not None else _board.default()
         self.python = python or sys.executable
         self.data_dir = data_dir or recorder_data_dir(root)
         self.watch_sec, self.spawn_ok = watch_sec, spawn
@@ -442,6 +446,7 @@ class LiveSession:
         self.requests = requests if requests is not None else MemoryRequests()   # 友人のライブ配信の依頼と録画の結びつき(2-15)
         self.bundles = BundleBook(lambda: os.path.join(self.store_dir, BUNDLES_FILE), log=self.log)   # 録画ごとの封筒 + 束(RS7-2 G2b)
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
+        self.livetx.attach_board(self.board)
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
         self.unconfirmed = None            # () -> 「自動の切り抜き: 未確認」の数(D-13 の休む判断。入口が渡す。None = 休まない)
         self.auto_max = None               # (録画元, 録画) -> 1 録画の自動の採用の上限(D-13)。None = live_detect.AUTO_MAX_PER_REC
@@ -566,6 +571,7 @@ class LiveSession:
                                              audio=lambda: self.audio() if self.audio is not None else None,
                                              runs_log=os.path.join(self.logs_dir, runlog.RUNS_LOG),   # 失敗の集約(M3)が読む まとめて実行の記録
                                              exported=lambda job, media, archived=False: self.marks.exported(job, media, archived))   # マークを「書き出し済み」に
+                self._exporter.attach_board(self.board)
             return self._exporter
 
     @property
@@ -586,6 +592,7 @@ class LiveSession:
                            "pack_info": self._pack_info},   # パックの有無の規則は入口が渡す(live_archive は読まない)
                           **self.archive_opts)
                 self._archiver = live_archive.Archiver(ex, **kw)
+                self._archiver.attach_board(self.board)
             return self._archiver
 
     @property

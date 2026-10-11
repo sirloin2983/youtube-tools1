@@ -29,6 +29,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTS))   # tests -> flow -> src
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
+from flow import board as Board  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_failures as LF  # noqa: E402
@@ -496,6 +497,35 @@ class ExportPiecesTest(unittest.TestCase):
         os.makedirs(os.path.join(p1, schemas.WORK_DIR), exist_ok=True)
         open(os.path.join(p1, schemas.WORK_DIR, "01_x_2_edit.mp4"), "wb").close()
         self.assertEqual(LX.unique_base("01_x", p1), "01_x_3")
+
+    def test_board_follows_jobs(self):
+        """掲示板(RS8 の ② の口 S2): 状態が変わったら lx:<ジョブの id> がその state で載る・掲示板の id で取り消せる"""
+        ex = LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: self.tmp)
+        ex.start = lambda: None   # 裏の糸は動かさない(状態は _set で進める)
+        b = Board.Board()
+        ex.attach_board(b)
+        rec, mid, t = "20261004-000000-a", "lm-0123456789", 1790000000.0
+        ex.marks.upsert("local", rec, mid, 1, LX.epoch_iso(t), LX.epoch_iso(t + 30), "大きな声")
+        j1 = ex.add("local", rec, mid, transcribe=False)
+        got = b.get("lx:" + j1["id"])
+        self.assertEqual((got["kind"], got["state"], got["canCancel"], got["target"]["markId"]), ("live_export", "queued", True, mid))
+        self.assertIn("大きな声", got["title"])
+        ex._set(ex.jobs[0], state="encode", progress=0.5, message="30fps に作り直しています")
+        got = b.get("lx:" + j1["id"])
+        self.assertEqual((got["state"], got["progress"], got["phase"]), ("running", 0.5, "30fps に作り直しています"))
+        media = os.path.join(self.tmp, "01_x.mp4")
+        ex._set(ex.jobs[0], state="done", progress=1.0, path=media)
+        got = b.get("lx:" + j1["id"])
+        self.assertEqual((got["state"], got["target"]["path"], got["canCancel"]), ("done", media, False))
+        self.assertIsNotNone(got["finishedAt"])
+        j2 = ex.add("local", rec, mid, transcribe=False)
+        self.assertEqual(b.cancel("lx:" + j2["id"])["state"], "cancelled")   # 録画待ちはすぐ取り消し
+        self.assertEqual(ex.jobs[-1]["state"], "cancelled")
+        with self.assertRaises(Board.NotFound):
+            b.cancel("lx:lx-ffffffffff")
+        b2 = Board.Board()
+        LX.Exporter(mock.Mock(), os.path.join(self.tmp, "live"), lambda: self.tmp).attach_board(b2)   # 起動し直し: 記録のジョブも載る
+        self.assertEqual([(j["id"], j["state"]) for j in b2.list()], [("lx:" + j1["id"], "done"), ("lx:" + j2["id"], "cancelled")])
 
     def test_restart_resets_running_jobs(self):
         folder = os.path.join(self.tmp, "live")

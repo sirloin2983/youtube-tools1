@@ -103,6 +103,9 @@ DISK_POLL = 60.0           # 空きを調べ直す間隔(秒)
 HOLDS = ("archive",)       # まとめて実行へ渡すのを待つ理由(holdFor。M7: 本番版にしてから)
 ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # 本番版への作り直し(src/flow/live_archive.py の RUN と同じ)の動いている段
 ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
+# 掲示板(flow/board.py。RS8 の ② の口 S2): 書き出しの state -> 掲示板の 6 つの state
+BOARD_STATES = {"wait": "queued", "fetch": "running", "encode": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
+CASE_RECHECK = 30.0        # 録画の案件の根(マークの正本の case)が分からなかったとき、読み直すまでの秒(掲示板に載せるたびに読まない)
 
 
 class LiveError(ValueError):
@@ -526,6 +529,8 @@ class Exporter(Patrol):
         self.jobs_path = os.path.join(folder, "exports.json")
         self.lock = threading.RLock()
         self.jobs = []
+        self.board = None          # 掲示板(attach_board。RS8 の ② の口 S2)
+        self._cases = {}           # (録画元, 録画) -> (案件の根か None, 読んだ時刻)
         self._load()
 
     # --- 記録 ---
@@ -560,6 +565,7 @@ class Exporter(Patrol):
             job.update(kw)
             job["updated"] = now_iso()
         self._save()
+        self._publish(job)
 
     def _trim(self):
         done = [j for j in self.jobs if j["state"] not in ACTIVE]
@@ -691,6 +697,7 @@ class Exporter(Patrol):
             self.jobs.append(job)
             self._trim()
         self._save()
+        self._publish(job)
         self.start()
         self.wake.set()
         return dict(job, stateLabel=STATE_LABELS["wait"])
@@ -706,8 +713,63 @@ class Exporter(Patrol):
             if job["state"] == "wait":
                 job.update(state="cancelled", message="取り消しました")
         self._save()
+        self._publish(job)
         self.wake.set()
         return dict((k, v) for k, v in job.items() if k != "cancel")
+
+    # --- 掲示板(flow/board.py。RS8 の ② の口 S2。押す形 = 状態を変えた所で載せる。器の本体と今の API はそのまま) ---
+    def attach_board(self, board):
+        """掲示板に書き出しのジョブを載せる(頭 lx。取り消しも掲示板の id で)。ライブ係(flow/livesession.py)が作ったときに 1 回呼ぶ。今あるジョブも載せる"""
+        self.board = board
+        board.register("lx", cancel=self.board_cancel)
+        with self.lock:
+            jobs_ = list(self.jobs)
+        for j in jobs_:
+            self._publish(j)
+
+    def case_of(self, rc, rec):
+        """録画の案件の根(マークの正本の case)か None。分からなければ CASE_RECHECK 秒ごとにだけ読み直す"""
+        now = time.time()
+        got = self._cases.get((rc, rec))
+        if got and (got[0] or now - got[1] < CASE_RECHECK):
+            return got[0]
+        try:
+            root = self.marks.case(rc, rec)
+        except LiveError:
+            root = None
+        if len(self._cases) > 500:
+            self._cases.clear()
+        self._cases[(rc, rec)] = (root, now)
+        return root
+
+    def board_job(self, job):
+        """書き出しのジョブ -> 掲示板の Job(docs/spec/pipeline.md 2.9)"""
+        st = BOARD_STATES.get(job.get("state"), "error")
+        end = st not in ("queued", "running")
+        created, updated = iso_epoch(job.get("created")), iso_epoch(job.get("updated"))
+        return {"id": "lx:" + job["id"], "kind": "live_export", "case": self.case_of(job.get("recorder"), job.get("recording")),
+                "target": {"markId": job.get("markId"), "recording": job.get("recording"), "path": job.get("path") or None},
+                "title": "ライブの書き出し: %s" % (job.get("label") or "マーク %s" % (job.get("n") or "")),
+                "state": st, "phase": job.get("message") or STATE_LABELS.get(job.get("state"), ""), "progress": job.get("progress"),
+                "waiting": bool(job.get("diskWait")), "createdAt": int(created * 1000) if created is not None else None,
+                "finishedAt": int(updated * 1000) if end and updated is not None else None, "error": job.get("error") or None,
+                "canCancel": not end and not job.get("cancel"), "canRetry": False}
+
+    def _publish(self, job):
+        b = self.board
+        if b is None:
+            return
+        try:
+            b.upsert(self.board_job(job))
+        except ValueError as e:   # 載せられなくても書き出しは止めない
+            self.log("リアルタイム切り抜き: 書き出しを掲示板に載せられませんでした(%s)" % e)
+
+    def board_cancel(self, jid):
+        """掲示板の取り消し(cancel と同じ)。無い id は LookupError"""
+        try:
+            return self.board_job(self.cancel(jid))
+        except LiveError as e:
+            raise LookupError(str(e))
 
     def pending(self):
         """書き出しの途中・順番待ちか、空きを待ってまとめて実行へ渡すもの(M4)がある(入口を起動し直したら見回りを動かす)"""
