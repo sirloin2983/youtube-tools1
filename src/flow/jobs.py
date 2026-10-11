@@ -193,6 +193,7 @@ def work_one(jid):
     try:
         if job and job["state"] == "queued" and not job["cancel"]:
             sp = job.get("spec") or {}
+            job["startedAt"] = int(time.time() * 1000)
             info = {"id": job["id"], "kind": job.get("kind", "transcribe"), "model": sp.get("model", ""), "title": str(sp.get("title", ""))[:60], "at": int(time.time())}
             _conf["mark"](info)
             t0 = time.time()
@@ -212,6 +213,8 @@ def work_one(jid):
         if job:
             set_internal_error(job, e)
     finally:
+        if job and job["state"] not in ACTIVE_STATES:
+            job.setdefault("finishedAt", int(time.time() * 1000))
         _conf["after"]()
         _conf["mark"](None)
 
@@ -223,9 +226,59 @@ def cancel_job(jid):
     job["cancel"] = True
     if job["state"] == "queued":
         set_cancelled(job)
+        job.setdefault("finishedAt", int(time.time() * 1000))
     p = job.get("proc")
     if p and p.poll() is None:
         try:
             p.terminate()
         except OSError:
             pass
+
+
+# ---------- ② のジョブの掲示板に見せる(RS8 の ② の口 S2。flow/board.py。器の本体と今の API(/api/jobs など)は変えない) ----------
+# 掲示板の kind の語彙(board.KINDS)に載せる写し: 文字起こし・話者(声を覚えるも)・それ以外の作り直し(再認識・疑わしい所・比較・30fps・字幕・サムネ)。仮の分け方
+BOARD_KIND = {"transcribe": "transcribe", "diarize": "diarize", "voice-learn": "diarize"}
+BOARD_STATE = {"queued": "queued", "loading": "running", "extracting": "running", "running": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
+
+
+def board_job(j):
+    """編集のジョブ 1 つ -> 掲示板の Job(id = "tx:<ジョブの id>")。表の中身は読むだけ"""
+    state = BOARD_STATE.get(j["state"], "running")
+    active = state in ("queued", "running")
+    err = None
+    if j.get("error"):
+        err = {"code": j.get("errorCode"), "text": str(j["error"]), "detail": j.get("errorDetail") or None}
+    return {"id": "tx:" + j["id"], "kind": BOARD_KIND.get(j.get("kind"), "rerun"), "target": {"docId": j["tid"]} if j.get("tid") else {},
+            "title": j.get("title") or "", "state": state, "phase": j.get("phase") or "", "progress": j.get("progress"),
+            "waiting": state == "queued" or j.get("phase") == _slots.WAIT_MESSAGE, "createdAt": j.get("createdAt"),
+            "startedAt": j.get("startedAt"), "finishedAt": j.get("finishedAt"), "error": err,
+            "canCancel": active, "canRetry": can_retry(j)}
+
+
+def board_jobs():
+    """表の今のジョブ(入れた順)を掲示板の Job に(引く形の source)"""
+    with _jobs_lock:
+        return [board_job(_jobs[i]) for i in _order if i in _jobs]
+
+
+def board_cancel(jid):
+    """掲示板の cancel(器の中の id)。無い id は LookupError"""
+    try:
+        cancel_job(jid)
+    except errors.ApiError as e:
+        raise LookupError(e.message)
+
+
+def board_retry(jid):
+    """掲示板の retry。-> 入れ直した新しい Job。できなければ ValueError・無ければ LookupError"""
+    try:
+        return board_job(retry_job(jid))
+    except errors.ApiError as e:
+        if e.status == 404:
+            raise LookupError(e.message)
+        raise ValueError(e.message)
+
+
+def attach_board(board):
+    """掲示板(flow/board.Board)に頭 tx で載せる(app が 1 回)。やり直し(retry)は RETRY_KINDS の失敗だけ(can_retry)"""
+    board.register("tx", source=board_jobs, cancel=board_cancel, retry=board_retry)

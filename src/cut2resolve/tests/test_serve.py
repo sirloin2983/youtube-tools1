@@ -292,6 +292,39 @@ class TestHeavyJobLimit(unittest.TestCase):
             self.assertEqual((job2.state, job2.result, job2.message), ("done", "built", ""))
 
 
+class TestBoard(unittest.TestCase):
+    """② の掲示板(flow/board)に頭 pk で見える(RS8 の ② の口 S2)"""
+
+    def _wait(self, job):
+        for _ in range(200):
+            if job.state != "running":
+                break
+            time.sleep(0.02)
+
+    def test_job_state_reaches_board(self):
+        from flow import board as B
+        b = B.Board()
+        b.register("pk", source=serve.board_jobs, cancel=serve.board_cancel)
+        gate = threading.Event()
+        with mock.patch.object(serve, "MOUNT", serve.MountContext(0, {"localhost"})):
+            app = serve.MOUNT.app
+            job = app.start_job("build", lambda task: gate.wait(5) and (task.check() or {"outDir": "D:/x/pack"}))
+            got = b.snapshot()["jobs"]
+            self.assertEqual([(j["id"], j["kind"], j["state"], j["canCancel"]) for j in got], [("pk:" + job.id, "pack", "running", True)])
+            self.assertEqual(b.cancel("pk:" + job.id)["id"], "pk:" + job.id)
+            gate.set()
+            self._wait(job)
+            j = b.snapshot()["jobs"][0]
+            self.assertEqual((j["state"], j["canCancel"], j["finishedAt"] is not None), ("cancelled", False, True))
+            done = app.start_job("plan", lambda task: {"outDir": "D:/x/pack"})
+            self._wait(done)
+            b.snapshot()
+            d = b.get("pk:" + done.id)
+            self.assertEqual((d["state"], d["target"]), ("done", {"path": "D:/x/pack"}))
+            with self.assertRaises(B.NotFound):
+                b.cancel("pk:nothere")
+
+
 class TestSiblings(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

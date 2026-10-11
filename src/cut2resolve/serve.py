@@ -68,6 +68,7 @@ def _load_core():
 _load_core()
 from manage.cases import txindex as _txi  # noqa: E402
 from flow import keys as _flowkeys  # noqa: E402  成果物の鍵(RS6 b-K1)
+from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口 S2)
 from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP, srt2resolve as S  # noqa: E402
 from ytt.errors import ApiError as _ApiError  # noqa: E402
 from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools  # noqa: E402
@@ -258,6 +259,51 @@ class AppState:
         if j is None:
             raise ApiError("not_found", "その処理は見つかりません(サーバーを起動し直した可能性があります)", 404)
         return j
+
+
+BOARD_STATE = {"running": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
+
+
+def board_job(job):
+    """パックのジョブ 1 つ -> 掲示板の Job(id = "pk:<ジョブの id>"。kind pack。試算も同じ kind で題だけ違う)。読むだけ"""
+    state = BOARD_STATE.get(job.state, "running")
+    err = None
+    if job.error:
+        err = {"code": job.error.get("code"), "text": job.error.get("message") or "", "detail": None}
+    res = job.result if isinstance(job.result, dict) else {}
+    target = {"path": str(res["outDir"])} if res.get("outDir") else {}
+    return {"id": "pk:" + job.id, "kind": "pack", "target": target, "title": "パックの作成" if job.kind == "build" else "試算",
+            "state": state, "phase": job.message or "", "progress": job.progress, "waiting": job.message == _heavy.WAIT_MESSAGE and state == "running",
+            "createdAt": int(job.started * 1000), "startedAt": int(job.started * 1000),
+            "finishedAt": int(job.finished * 1000) if job.finished else None, "error": err, "canCancel": state == "running", "canRetry": False}
+
+
+def board_jobs():
+    """入口に取り込まれているときのジョブ(入れた順)を掲示板の Job に(引く形の source)。取り込まれていなければ空"""
+    mount = MOUNT
+    if mount is None:
+        return []
+    with mount.app.lock:
+        jobs = list(mount.app.jobs.values())
+    return [board_job(j) for j in jobs]
+
+
+def board_cancel(jid):
+    """掲示板の cancel(器の中の id)。無い id は LookupError"""
+    mount = MOUNT
+    try:
+        job = mount.app.job(jid) if mount else None
+    except ApiError as e:
+        raise LookupError(e.message)
+    if job is None:
+        raise LookupError("そのジョブはありません")
+    if job.state == "running":
+        job.task.cancel()
+
+
+def attach_board(board):
+    """掲示板(flow/board.Board)に頭 pk で載せる(読み込みのときに 1 回)。やり直しは無い(始めるのは今の POST /api/build)"""
+    board.register("pk", source=board_jobs, cancel=board_cancel)
 
 
 def is_pack_dir(path):
@@ -687,6 +733,8 @@ def main(argv=None):
         log("終了")
     return 0
 
+
+attach_board(_flowboard.default())   # ② のジョブの掲示板に頭 pk で見せる(RS8 の ② の口 S2)
 
 if __name__ == "__main__":
     sys.exit(main() or 0)
