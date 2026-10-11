@@ -3573,3 +3573,14 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 気づいたこと(直していない): サブエージェントの worktree の中でだけ test_mount の standalone_start 3 本が cp932 の UnicodeDecodeError(main では 27 件 OK)/ 書き出し ex を親の run に繋ぐ `board.link` はまだ(書き出しを頼む側が呼ぶ)/ 配信中の候補の文字起こし lt は case が空
 - 次: 新しい画面(案件の画面。`docs/design/briefs/rs8-cases/`・status の掲示板を読む・3 択の画面もここ)→ primary へ切り替え → V1。OPT2 の後半(器を本当に 1 つに)は新しい画面の直後
 - 未コミット: なし(この記録と HANDOVER・data.js・AGENTS を一緒にコミット)
+
+## 2026-10-11 午後〜夕 Claude Code(PC。Opus まとめ役。セッション「RS8」の続き。ユーザー「次」。設計 Fable 1 回・実装 Opus 4 体・Sonnet 4 体 + C4 の中の下請け)— RS8 の新しい画面(案件の画面 /cases)を作って古い画面を消した = 版 0.59.0
+- 作り方の計画 `docs/design/rs8-cases-build.md`(Fable)。ユーザーの答え: 古い画面は C4 で即消す・精度と学習はホームの運用へ・3 択は校正の行の中(decisions 3-40)
+- C0 4c29172 `/api/cases` に root・caseKind・切り抜きの state・仮の案件(file・eval・orphan)・todo・`?doc=`・転送の表 / C1 76e2a9c 殻 `/cases`(`src/app/ui/cases/`・左の一覧 = ④ + ② の掲示板を 2 秒 / 15 秒・タブ・Shift+N・Panel の口・ui-kit v26)/ C2a 7f32bbef 候補のパネル(スタジオの review.js を部品 `StudioReview.create(env)` にして共用)/ C2b-0 e839e375 編集の CSS とテンプレートを外へ / C2c bdac6c22 カット・パック(cut.js・pack-tab.js を共用・予備の欄なし = 3-34)/ C3 c6de1e5b ホームの組み替え(やること・確かめるの枠・案件の一覧・運用を畳む・新しい案件 panels/new.js・精度と学習 portal-edit.js)/ C2b e307c4bc 校正のパネル(edhost.js が編集の app-*.js を包まずに載せる・小さい配信のプレーヤー・3 択 panels/machpick.js)
+- C4(16 コミット。2d2801c0〜20f430f2): 古い画面のページを git rm(スタジオ・編集の index.html など。部品の JS・CSS は残す)・古い URL は入口が新しい画面へ 302(いつも)・appnav をホーム / 案件 / 設定(ui-kit v27)・C2 の直し残し(閉じたパネルの遅い答え・校正とカットの文書の受け渡しは保存の完了を待つ)・e2e で見つけた不具合(区間がある文書で校正の行のカットが黙って消えていた・動画を選び直すの入口が無かった など)・旧 e2e の整理(編集 15 本・スタジオ 3 本を消し、要点を案件の画面の e2e と `test_proof_api.py` へ。一式 31 → 18 本)・AGENTS と README・版 0.59.0
+- 黒い窓: ユーザー「テスト中に黒い窓が一瞬出て画面を取られる」→ 見張り(見える ConsoleWindowClass / Windows Terminal の窓を列挙)で e2e_window の時間帯に 3 回を捕まえた。原因 = 窓で開くの子を DETACHED_PROCESS で起こし、テストの偽のブラウザ(.bat → Python)の Python に新しいコンソールが作られていた → 9bd12a30 で CREATE_NO_WINDOW + 別のグループに(Ctrl+C を Edge に伝えないのは同じ)。直したあと 0 回
+- 消えた機能(ユーザー確認 = 戻さない): 評価ドリルの帯とカード・文字起こしせずに開く・認識の設定つきの新規・フォルダの一括・スタジオのマークからの文字起こし・名簿から用語集へ・履歴の検索と片付け・校正とカットをまたいだ元に戻す・まとめて付け替える・配信の選択の一覧(API は残る)
+- テスト: C4 の中で unittest をフォルダごとに全部 OK(dev 58・app 44・eval 360・flow 389・home 241・human 314・manage 186・pipeline 517・studio 133・ytt 226・editor 647・単独 3 本・analytics 27)・lint 0・層 OK・node 67・ui_audit all --demo Must 0・**e2e 一式 18 本 OK**(e2e_live_archive は単独で流し直して OK)。main に取り込んだあと lint・層・test_window・test_launch・test_cases_page・e2e_window・e2e_cases OK
+- 直していない小さな物: ? の一覧に案件の画面で効かないキー(G・Shift+D)が載る・Shift+N が殻のキーと重なる / 2 列の追いかけで最後の行が窓の外 / review.js の「案件で見る」がホームの一覧へ / タブを閉じたときの ConnectionAbortedError が入口の黒い画面に出る(前から)
+- 次: 入口を起動し直して新しい画面を使う(0.59.0)→ primary への切り替え(ユーザーの合図で)→ V1 確かめる(ホームの [始める] の枠が空いている)→ F1 → RV。OPT2 の後半(器を本当に 1 つに)
+- 未コミット: なし(この記録と HANDOVER・data.js・decisions を一緒にコミット)
