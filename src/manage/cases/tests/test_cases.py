@@ -299,6 +299,9 @@ class TestAutoClips(Base):
 
     def setUp(self):
         super().setUp()
+        since = cases.REVIEW_SINCE   # 10-11 より前の切り抜きは未定のまま(pending)。ほかの試験は時刻に関係なく対象にする
+        cases.REVIEW_SINCE = 0
+        self.addCleanup(setattr, cases, "REVIEW_SINCE", since)
         self.auto1 = self.live_clip("10_自動.mp4", "auto", markId="lm-aaaaaaaaaaaa")
         self.auto2 = self.live_clip("11_アーカイブ.mp4", "archive", bench=True)
         self.manual = self.live_clip("12_人.mp4", "manual")
@@ -354,7 +357,7 @@ class TestAutoClips(Base):
         self.assertEqual(by["m2"]["auto"], {"origin": "archive", "originLabel": "配信後の解析", "score": 0.88, "bench": True})   # 点数はスタジオのマークから
         self.assertIsNone(by["m3"]["auto"])   # 人の切り抜きは今までどおり
         self.assertNotIn("review", by["m3"])
-        self.assertEqual(by["m1"]["review"], {"seenAt": 0, "deliveredAt": 0, "delivered": "", "failure": None, "unconfirmed": True})
+        self.assertEqual(by["m1"]["review"], {"seenAt": 0, "deliveredAt": 0, "delivered": "", "failure": None, "unconfirmed": True, "pending": False})
         self.assertEqual((c["autoClips"], res["auto"]), ({"total": 2, "unconfirmed": 2}, {"total": 2, "unconfirmed": 2}))
         # .clip.json の点数が先(source.live.score)
         self.live_clip("10_自動.mp4", "auto", score=1.234)
@@ -363,6 +366,22 @@ class TestAutoClips(Base):
         self.studio({VID: {"kind": "youtube", "title": "配信", "marks": [mark("m1", "exported", self.auto1)]}})
         c = cases.snapshot(self.root, self.env)["cases"][0]
         self.assertEqual((c["clips"][0]["auto"], c["autoClips"]), (None, {"total": 0, "unconfirmed": 0}))
+
+    def test_clips_made_before_review_since_stay_pending(self):
+        """10-11 より前に作った自動の切り抜きは未定のまま(未確認に数えない・3 日の片付けもしない)。見た物は今までどおり"""
+        cases.REVIEW_SINCE = time.time() - 3600
+        old = cases.REVIEW_SINCE - 86400
+        os.utime(self.auto1, (old, old))
+        c = self.case()
+        m1 = next(cl for cl in c["clips"] if cl["markId"] == "m1")
+        self.assertEqual((m1["review"]["pending"], m1["review"]["unconfirmed"], c["autoClips"]), (True, False, {"total": 2, "unconfirmed": 1}))
+        moved = cases.expire_unseen(self.root, self.fs, self.rows.append, self.trash, self.hidden.append, self.dl, env=self.env,
+                                    now=cases.REVIEW_SINCE + 30 * 86400)
+        self.assertNotIn((REC, "m1"), moved)
+        self.assertTrue(os.path.isfile(self.auto1))
+        self.review("seen", "m1")
+        m1 = next(cl for cl in self.case()["clips"] if cl["markId"] == "m1")
+        self.assertEqual((m1["review"]["pending"], m1["review"]["unconfirmed"]), (False, False))
 
     def test_clip_live_reads_only_live_clips(self):
         """.clip.json の読み方(まとめて実行の M8 = autorun.live_auto_origin も同じ): ライブの書き出しだけ。無い・ライブでないものは (None, None)"""

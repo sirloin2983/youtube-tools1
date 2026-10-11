@@ -624,7 +624,7 @@
     var out = [];
     ((casesData && casesData.cases) || []).forEach(function (c) {
       if (isHid('cases', c.id)) return;
-      (c.clips || []).filter(function (cl) { return cl.auto && !(cl.review || {}).deliveredAt; })
+      (c.clips || []).filter(function (cl) { return cl.auto && !(cl.review || {}).deliveredAt && !(cl.review || {}).pending; })   // pending = 10-11 より前の物は未定のまま(対象外)
         .sort(function (a, b) { return (a.start || 0) - (b.start || 0); })
         .forEach(function (cl) { out.push({ id: c.id, markId: cl.markId, k: autoKey(c, cl), unseen: !!(cl.review || {}).unconfirmed }); });
     });

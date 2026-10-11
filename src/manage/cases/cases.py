@@ -33,7 +33,9 @@
     bench = 1 時間の枠から外れた候補(「控え」。M13: 書き出し済みなら取り消さない。ワーカーが付けたら出すだけ)
   - clip["review"] = {seenAt, deliveredAt, delivered, failure, unconfirmed}: 人が見たか・届けたか(案件ファイルの auto)・失敗の文
     (M3。src/pipeline/live_failures.failure_of だけが作る。<作業データ>/app/live/exports.json の書き出しのジョブをスタジオのマークで引く。読むだけ)。
-    unconfirmed = 見ても・届けてもいない(「自動の切り抜き: 未確認 n 件」の数)。案件の autoClips {total, unconfirmed}・一覧全体の auto も同じ数
+    unconfirmed = 見ても・届けてもいない(「自動の切り抜き: 未確認 n 件」の数)。案件の autoClips {total, unconfirmed}・一覧全体の auto も同じ数。
+    pending = REVIEW_SINCE より前に動画を作った切り抜きで、見ても届けてもいない物(10-11 ユーザー「今あるものはすべて未定のままでいい・次回以降の
+    動画からこの機能の対象にして」)= unconfirmed に数えない(D-13 の休む数・続けて確認・3 日の片付けの対象外)。一覧には今までどおり出て、手で決められる
   - 操作は auto_review(POST /api/cases/auto): seen = 見た / deliver = 採用 = パックを zip にして Dropbox の 出力 へ(src/human/friend/deliver.py。
     全自動では届けない = 10-06 ユーザー決定)/ discard = 要らない = パック・切り抜きの mp4・.clip.json などを ごみ箱フォルダ へ移す(片付けと同じ場所。
     片付けの TRASH_DAYS で起動時に消える)+ スタジオのマークを不採用に + live_feedback.jsonl に誤検出の記録 + その文字起こしを一覧で非表示に(データは消さない)
@@ -225,6 +227,18 @@ def _auto_records(s):
     return {k: v for k, v in a.items() if isinstance(k, str) and isinstance(v, dict)} if isinstance(a, dict) else {}
 
 
+REVIEW_SINCE = datetime.datetime(2026, 10, 11, 13, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=9))).timestamp()
+# 自動の切り抜きの確認(続けて確認・未確認の数・3 日の片付け)の対象にするのは、この時刻より後に動画を作った物だけ(前の物は pending = 未定のまま)
+
+
+def _before_review(path):
+    """切り抜きの動画を REVIEW_SINCE より前に作ったか(動画の更新時刻。読めなければ False = 今までどおり対象にする)"""
+    try:
+        return bool(path) and os.path.getmtime(path) < REVIEW_SINCE
+    except OSError:
+        return False
+
+
 def _apply_review(cases, saved, failures):
     """自動でできた切り抜きに、人の確認(案件ファイルの auto)と失敗の文を重ねる(clip["review"])"""
     for c in cases:
@@ -234,8 +248,10 @@ def _apply_review(cases, saved, failures):
                 continue
             r = rec.get(cl.get("markId")) if isinstance(rec.get(cl.get("markId")), dict) else {}
             seen, done = _int_ms(r.get("seenAt")), _int_ms(r.get("deliveredAt"))
+            pending = not (seen or done) and _before_review(cl.get("path"))
             cl["review"] = {"seenAt": seen, "deliveredAt": done, "delivered": str(r.get("delivered") or "")[:200],
-                            "failure": failures.get((c["id"], cl.get("markId"))), "unconfirmed": not (seen or done)}
+                            "failure": failures.get((c["id"], cl.get("markId"))), "unconfirmed": not (seen or done) and not pending,
+                            "pending": pending}
 
 
 # ---------------------------------------------------------------- 組み立て
