@@ -3532,3 +3532,24 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 層ごとの本体の行数(src の .py・tests を除く。数え方が 10-11 の loc2.py と少し違う): pipeline 15,319・flow 10,947・human 8,519・manage 4,279(docmove が増えた)・eval 11,410・ytt 4,886(docloc が増えた)・home 3,700・app 559
 - 次: B2-4 = ユーザーが 3-36 を見て docMove をオン → 入口を起動し直して本物で移行 → 画面で本数を確かめ → `--purge-migrated`。そのあと B-3(スタジオの data.json の候補と採用・cases.json の状態とメモ・友人の依頼の写しの案件の共有の穴)
 - 未コミット: なし(この記録と decisions・data.js・AGENTS.md・HANDOVER を一緒にコミット)
+
+## 2026-10-11 Claude Code(PC。Opus まとめ役。セッション「RS8」の続き。ユーザー「待たずにどんどん進めて」→ 最後に「8 が終わったら作業止めて」= B3-8 で止めた。下調べ Opus 2 体・判断 Fable 2 回・実装 Opus 9 体・Sonnet 8 体(worktree で並列 → cherry-pick))— RS8 の B-3・O2-0〜2・OPT2 の大半
+- 下調べ: B-3(スタジオの data.json・cases.json・ライブのマーク)と O2(文書を機械の層 + 人の層から)。O2 の穴 = 話者の id が判別のたびに振り直される・後処理まで当てた機械の行がどこにも残っていない。B-3 の要 = 案件 1 つ ≠ 配信 1 本(ライブの録画とアーカイブ)
+- 仮決め: `plan/decisions.md` 3-37 の (r8j)〜(r8ad)(Fable が決めた物と実装で決めた物)。**まだ確認していない**
+- B-3(main):
+  - B3-1 3e88600 data.json を直に読む所を `ytt/studiodata` の読み口 1 つに
+  - B3-2 ed79bd5・3b54bc2 マークの語彙 `ytt/marks.py`・G1a = F-5 を `pipeline/analyze/adopt.py` と ② の口 `flow/adopt.py` に
+  - B3-3 9d6d605 `flow/casebook.py`(`作業用/候補.json`・`採用.json` の split・merge・case_of・write)と `eval_casebook`(本物の data.json 41 本で往復一致)
+  - B3-4 a50dd56(読み口が案件を読む・純粋な部分を `ytt/casefiles.py` へ)・6caea48(**初めて書き出した配信からスタジオの保存が案件へ**。data.json は索引の行・見えなければ caseUnseen と 503・自己検査のログ)。Fable の見直しで影のモードは入れない (r8w)
+  - B3-5 785cf89 マークを 1 つに・G3(スタジオの採用は `POST /studio/api/live/adopt` 1 回・スタジオなしは書き出したら 採用.json へ・配信後の全自動と片付けは採用をマークの置き場から読む・`POST /live/api/marks` を消した)
+  - B3-6 f403d63・0a89e57 案件の状態とメモを 採用.json の上の段へ・一覧 = 索引 ∪ 書き出し先と `依頼\` の走査
+  - B3-7 a2c826a・bad00fe 友人の依頼を `<outDir>\依頼\<日付>_<題>_<id6>\` の 1 依頼 1 フォルダ(バックアップは app\intake を写さない = 約 2GB の (r8h) が片付いた)
+  - B3-8 a4c5a50 既存の data.json と cases.json の移行 `src/manage/cases/markmove.py`(スイッチ `markMove` 既定オフ。写しで 28 本中 28 本が移せる見込み)
+- O2(main): O2-0 180d37a 文書を書く 18 か所を `store.commit(why つき)` 1 つに / O2-1 20a5d2e 組み立てと差分の純粋な関数 `human/proof/layers.py` と `eval_layers`(本物 214 本で往復一致)/ O2-2 2dd326f **影のモード(既定オン)** = 保存のたびに `<id>.hum.json`・`<id>.mach.json` を書いて比べてログ(正は文書のまま。写し 214 本で合わない 0・測る道具 8 種の出力は同じ・1 回 5〜23 ms)
+- RS7-2 の残り: cda0c72 自分の配信も録画を始めたときに束を組む(e2e_live_studio の waitMin の期待を束に)・G1a と G3 も上で済み
+- OPT2(main): da6cdda ffmpeg を動かす部品 6 つを `tools.run_progress` 1 つに(ResourceWarning も直った)/ 53f78bb パックの指定の読み方を `pipeline/pack/request.py` 1 つに(CLI が API と同じ厳しさ (r8v))/ cbc33c1 解析の材料の取得を `pipeline/analyze/fetch.py` へ(analyze.py 877 → 428 行)/ 982c701 `worker_client` のワーカーの中の物を `models.py` へ(879 → 744 行)/ b3ea752・6a14328 ライブの切り出しと wav の引数を ① へ(引数の列は同じ = 先にテストを入れて確かめた)/ b1df619 段を飛ばす判定を実行と見積もりで共有(見積もりがパックの鍵の違いも数える)/ 79b8393 ライブの見回りの糸の骨組みを `flow/live_patrol.Patrol` に(行は横ばい)
+- テスト: 段ごとに触った組の unittest・lint 0・層 OK。e2e は途中で 5 本(e2e_ui --mounted 237・e2e_analyze・e2e_live_studio 191・e2e_live_archive 95・e2e_pipeline)OK。締めの一式(main 2dd326f): unittest をフォルダごとに ② 355・① 517・CLI 22・測る道具 334・⑤ 26・④ 179・③ 285・ytt 224・スタジオ 127・入口 239・test_mount 27・cut2resolve 37・契約 35・dev 58・編集 1165 = 全部 OK(入口の組で 1 回だけ test_autorun の test_crash_continues_from_saved_steps が落ちた = 単独・組・入口の組 2 回の流し直しでは通る = 揺れ。中身は控えられなかった)・lint 0・e2e 7 本(e2e_live・e2e_live_studio 191・e2e_live_archive 95・e2e_portal・e2e_datadir・e2e_ui_mounted・e2e_edit_tabs)全部 OK。10-11 にユーザーが 3-36・3-37 を確認し、本物の machine.json の docMove・markMove はセッション「今日の作業と今後の計画」がオンにした(d6953a1)= 次に入口を起動し直すと移る
+- 層ごとの本体の行数(src の .py・tests を除く。今日の始め → 今): pipeline 15,319 → 15,705・flow 10,947 → 11,534・human 8,519 → 9,428・manage 4,279 → 4,988・eval 11,410 → 11,709・ytt 4,886 → 5,575・home 3,700 → 3,740・app 559。新しい仕組み(案件のファイル・影の層・移行の部品 2 つ)で増えた。OPT2 で減らした分(analyze・worker_client)は別ファイルへ移した分が多い
+- 気づいたこと(直していない): `flow/live_tx.py` 先頭のコメント「入口は編集の部品を import しないので値を持つ」は実態と合わない(RV)/ 案件が見えないときの画面の表示はまだ(一覧に caseUnseen が付くだけ・開くと 503 の文)= 新しい画面で
+- 次(ユーザーの確認のあと): 3-36・3-37 の確認 → `docMove`・`markMove` をオンにして入口を起動し直す(本物で移す)→ O2-3(切り替え。影のログで食い違い 0 を見てから)→ O2-4・O2-5 → URL も CLI で → serverkit・launch.py → app/server.py → ② の口の形 → 新しい画面
+- 未コミット: なし(この記録と decisions・data.js・AGENTS・HANDOVER を一緒にコミット)
