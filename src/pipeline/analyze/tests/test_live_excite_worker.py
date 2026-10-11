@@ -647,8 +647,8 @@ class FfmpegTest(unittest.TestCase):
                        check=True, creationflags=tools.no_window_flags())
         full, band = W.measure_levels(FF, wav, self.tmp)
         from pipeline.analyze import analyze   # スタジオの解析(RS3-5 で pipeline/analyze へ。読むのはテストだけ)
-        job = {"cancel": False}
-        self.assertEqual(analyze.audio_levels(job, wav, 14.0, self.tmp), (full, band))
+        from ytt.jobs import Ctl
+        self.assertEqual(analyze.audio_levels(Ctl(), wav, 14.0, self.tmp), (full, band))
         self.assertEqual(sorted(os.listdir(self.tmp)), ["t.wav"])   # 結果のファイルは読んだら消す
 
         def two_pass(hp):   # 以前の analyze.audio_levels(帯域ごとに 1 回。標準出力に出す)

@@ -25,6 +25,7 @@ from pipeline.analyze import analyze, fetch
 from pipeline.export import exporter
 import serve
 from ytt.errors import ApiError
+from ytt.jobs import Ctl
 
 
 class Home(unittest.TestCase):
@@ -561,13 +562,12 @@ class TestShutdownJobs(Home):
         src = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
         wait_it = b._new_item(src, {}, "待ちの配信", "")
         run_it = b._new_item(dict(src, videoId="bbcdefghijk"), {}, "解析中の配信", "")
-        run_it["status"], run_it["job"] = "running", analyze.new_job({})
+        run_it["status"], run_it["ctl"] = "running", Ctl()
         b.items += [run_it, wait_it]
         self.assertEqual(sorted(b.shutdown()), sorted(["待ちの配信", "解析中の配信"]))
         self.assertEqual((wait_it["status"], wait_it["error"]), ("cancelled", "終了のため中断しました"))
-        self.assertTrue(run_it["job"]["cancel"])
-        run_it["job"]["state"] = "cancelled"   # 解析のスレッドが中止を見て終わった
-        b._complete(run_it, run_it["job"])
+        self.assertTrue(run_it["ctl"].is_cancelled())
+        b._complete(run_it, "cancelled")   # 解析のスレッドが中止を見て終わった
         self.assertEqual((run_it["status"], run_it["error"], run_it["phase"]), ("cancelled", "終了のため中断しました", "中断しました(終了)"))
         self.assertFalse(b.is_busy())
         with self.assertRaises(ApiError) as cm:   # 終了の流れのあとは新しく入れない

@@ -4,12 +4,17 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import random
 import sys
+import tempfile
+import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
 from human.review import feedback  # noqa: E402
 from pipeline.analyze import analyze, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
+from ytt.errors import ApiError, Cancelled  # noqa: E402
+from ytt.jobs import Ctl  # noqa: E402
 
 
 def synth(n=4000, lag=12, events=40, seed=1, chat_noise=1.0, related=True):
@@ -247,6 +252,70 @@ class TestCommentTexts(unittest.TestCase):
         self.assertEqual(len(st), len(texts))
         self.assertTrue(texts[0].startswith("12:34 ここ最高 二行目"))
         self.assertTrue(all(len(t) <= 60 for t in texts))
+
+
+class TestRunCtl(unittest.TestCase):
+    """analyze.run(spec, ctl)(OPT2 の J1): 進み具合は ctl.report・取り消しは Cancelled・失敗は ApiError・互換の包みは辞書に写す"""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for p in (mock.patch.object(fetch, "work_dir", lambda: tmp.name), mock.patch.object(analyze, "_save_record", lambda *a, **k: None)):
+            p.start()
+            self.addCleanup(p.stop)
+        self.spec = analyze.make_spec({"kind": "file", "path": "x.mp4", "name": "x.mp4", "videoId": "f_x"},
+                                      analyze.validate_settings({"useComments": False, "count": 3, "length": 30, "noCache": True}))
+
+    def levels(self):
+        full, band, *_ = synth(n=600, events=6)
+        return lambda *a, **k: (600.0, 600, full[:600], band[:600])
+
+    def test_run_returns_result_and_reports(self):
+        seen = []
+        ctl = Ctl(on_progress=lambda frac, msg: seen.append((frac, msg)))
+        with mock.patch.object(analyze, "_levels", self.levels()):
+            res = analyze.run(self.spec, ctl)
+        self.assertTrue(res["candidates"])
+        self.assertEqual(set(res), {"source", "candidates", "series", "signals", "counts", "warnings", "spec"})
+        self.assertEqual(seen[-1], (1.0, "解析が完了しました"))
+        self.assertIn((None, "素材を取得中"), seen)
+
+    def test_cancel_and_failure_are_exceptions(self):
+        ctl = Ctl()
+        ctl.cancel()
+        with self.assertRaises(Cancelled):
+            analyze.run(self.spec, ctl)
+        with mock.patch.object(analyze, "_levels", side_effect=ValueError("boom")), mock.patch.object(analyze._env, "log_failure", lambda *a: None):
+            with self.assertRaises(ApiError) as cm:
+                analyze.run(self.spec)   # ctl なし
+        self.assertEqual(cm.exception.code, "internal")
+
+    def test_cancel_during_run(self):
+        ctl = Ctl()
+
+        def levels(*a, **k):
+            ctl.cancel()   # 区切りで見つかる
+            return self.levels()()
+        with mock.patch.object(analyze, "_levels", levels), self.assertRaises(Cancelled):
+            analyze.run(self.spec, ctl)
+
+    def test_legacy_wrapper_mirrors_state(self):
+        job = analyze.new_job(self.spec)
+        with mock.patch.object(analyze, "_levels", self.levels()):
+            analyze.run_analyze(job)
+        self.assertEqual((job["state"], job["progress"]), ("done", 1.0))
+        self.assertTrue(job["result"]["candidates"])
+        job = analyze.new_job(self.spec)
+        analyze.cancel_job(job)
+        analyze.run_analyze(job)
+        self.assertEqual(job["state"], "cancelled")
+
+    def test_skip_chat_raises_flag_only_while_running(self):
+        job = analyze.new_job(self.spec)
+        self.assertFalse(analyze.skip_chat(job))   # チャットが始まっていない
+        job["ctl"].note("chat", {"state": "running", "t0": time.time(), "t1": None, "bytes": 0})
+        self.assertTrue(analyze.skip_chat(job))
+        self.assertTrue(job["ctl"].flag("skipChat"))
 
 
 if __name__ == "__main__":

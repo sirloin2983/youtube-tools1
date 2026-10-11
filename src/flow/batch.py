@@ -1,4 +1,4 @@
-"""解析キュー(バッチ): 最大10本(待ち+実行中)。1つのワーカースレッドが古い順に1本ずつ analyze.run_analyze で解析する。
+"""解析キュー(バッチ): 最大10本(待ち+実行中)。1つのワーカースレッドが古い順に1本ずつ analyze.run(spec, ctl) で解析する(item ごとに Ctl を作る。OPT2 の J1)。
 
 - 終わったら候補を「自動マーク」に変換して store に保存(その動画の既存の自動マークは置き換え、手動マークは残す)。series はメモリに保持。
 - 失敗・中止は次の item へ続行。終わった item の履歴は新しい順に最大30件。
@@ -10,7 +10,8 @@ from ytt import jobs, schemas, studio_env as _env
 
 from pipeline.analyze import fetch   # 解析の材料の取得と先読み(OPT2)
 from pipeline.analyze import analyze   # 解析(隣のパッケージ。RS3-5 でスタジオから pipeline へ)
-from ytt.errors import ApiError
+from ytt.errors import ApiError, Cancelled
+from ytt.jobs import Ctl
 
 MAX_ACTIVE = 10
 MAX_HISTORY = 30
@@ -64,11 +65,9 @@ class Batch:
             self.items.remove(old)
 
     def _public(self, it):
-        job = it.get("job")
-        chat = analyze.chat_public(job["chat"]) if job else it.get("chatSnap")
-        running = bool(job) and it["status"] == "running"
+        chat = analyze.chat_public(it["notes"].get("chat")) if it.get("ctl") else it.get("chatSnap")
         return {"qid": it["qid"], "videoId": it["videoId"], "kind": it["kind"], "title": it["title"], "channel": it["channel"], "status": it["status"],
-                "phase": job["phase"] if running else it["phase"], "progress": round(job["progress"], 3) if running else it["progress"],
+                "phase": it["phase"], "progress": round(it["progress"], 3),
                 "error": it["error"], "chat": chat, "marks": it["marks"], "finishedAt": it["finishedAt"]}
 
     def snapshot(self):
@@ -81,7 +80,7 @@ class Batch:
     # ---- 追加 ----
     def _new_item(self, src, settings, title, channel):
         return {"qid": uuid.uuid4().hex[:8], "videoId": src["videoId"], "kind": src["kind"], "title": title, "channel": channel, "status": "waiting", "phase": "順番待ち",
-                "progress": 0.0, "error": "", "src": src, "settings": settings, "job": None, "chatSnap": None, "marks": 0, "finishedAt": None, "fseq": 0}
+                "progress": 0.0, "error": "", "src": src, "settings": settings, "ctl": None, "notes": {}, "chatSnap": None, "marks": 0, "finishedAt": None, "fseq": 0}
 
     def add(self, items, settings):
         if not isinstance(items, list) or not items:
@@ -141,16 +140,17 @@ class Batch:
             it = self._find(qid)
             if it["status"] == "waiting":
                 self._finish(it, "skipped")
-            elif it["status"] == "running" and it.get("job"):
-                analyze.cancel_job(it["job"])
+            elif it["status"] == "running" and it.get("ctl"):
+                it["ctl"].cancel()
         return True
 
     def skipchat(self, qid):
         with self.cv:
             it = self._find(qid)
-            job = it.get("job") if it["status"] == "running" else None
-        if job:
-            analyze.skip_chat(job)
+            ctl = it.get("ctl") if it["status"] == "running" else None
+            c = it["notes"].get("chat")
+        if ctl and c and c["state"] == "running":
+            ctl.raise_flag("skipChat")   # チャット待ちだけ打ち切る(音声などの解析は続ける)
         return True
 
     def retry(self, qid):
@@ -179,8 +179,8 @@ class Batch:
             run = next((i for i in self.items if i["videoId"] == vid and i["status"] == "running"), None)
             if run is None:
                 return True
-            if run.get("job"):
-                analyze.cancel_job(run["job"])
+            if run.get("ctl"):
+                run["ctl"].cancel()
             return self.cv.wait_for(lambda: run["status"] != "running", wait)
 
     def shutdown(self, reason="終了のため中断しました"):
@@ -193,9 +193,9 @@ class Batch:
                 if it["status"] == "waiting":
                     self._finish(it, "cancelled", reason, "中断しました(終了)")
                     out.append(it["title"] or it["videoId"])
-                elif it["status"] == "running" and it.get("job"):
-                    it["job"]["interrupted"] = True
-                    it["job"]["cancel"] = True
+                elif it["status"] == "running" and it.get("ctl"):
+                    it["interrupted"] = True
+                    it["ctl"].cancel()
                     out.append(it["title"] or it["videoId"])
             self.cv.notify_all()
         return out
@@ -273,35 +273,48 @@ class Batch:
                 if not self.store.has(it["videoId"]):   # 待っている間に動画が消された
                     self._finish(it, "skipped", "動画が削除されました", "取り除きました")
                     continue
-                it["status"], it["phase"] = "running", "開始"
-                job = analyze.new_job(analyze.make_spec(it["src"], it["settings"]))
-                it["job"] = job
+                it["status"], it["phase"], it["progress"] = "running", "開始", 0.0
+                ctl = Ctl(on_progress=lambda frac, msg, it=it: self._on_progress(it, frac, msg), on_note=lambda key, value, it=it: it["notes"].__setitem__(key, value))
+                it["ctl"], it["notes"] = ctl, {}
+                spec = analyze.make_spec(it["src"], it["settings"])
                 self.running = it["qid"]
             self._kick_prefetch()
+            status, err, result = "done", "", None
             try:
                 # 重い処理の同時実行数の上限(入口の中では文字起こし・書き出しと順番を待つ。ytt.jobs)
-                with jobs.SLOTS.slot("studio", it["title"] or it["videoId"], cancelled=lambda: job["cancel"],
-                                     on_wait=lambda: job.update(phase=jobs.WAIT_MESSAGE)) as ok:
+                with jobs.SLOTS.slot("studio", it["title"] or it["videoId"], cancelled=ctl.is_cancelled,
+                                     on_wait=lambda: it.update(phase=jobs.WAIT_MESSAGE)) as ok:
                     if ok:
-                        analyze.run_analyze(job)
+                        result = analyze.run(spec, ctl)
                     else:
-                        job["state"] = "cancelled"
+                        status = "cancelled"
+            except Cancelled:
+                status = "cancelled"
+            except ApiError as e:
+                status, err = "error", e.message or "解析に失敗しました"
             except BaseException as e:   # 想定外でも次の item へ続ける
-                job["state"], job["error"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
-            self._complete(it, job)
+                status, err = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])
+            self._complete(it, status, err, result)
 
-    def _complete(self, it, job):
-        n, err, status = 0, "", job["state"]
+    @staticmethod
+    def _on_progress(it, frac, message):
+        if frac is not None:
+            it["progress"] = frac
+        if message is not None:
+            it["phase"] = message
+
+    def _complete(self, it, status, err="", result=None):
+        n = 0
         try:
-            if status == "done" and job.get("result"):
-                n = self._apply(it, job)
+            if status == "done" and result:
+                n = self._apply(it, result)
                 if n is None:
                     status, err = "error", "解析中に動画が削除されました"
             elif status == "done":
                 status, err = "error", "解析結果がありません"
             elif status == "error":
-                err = job.get("error") or "解析に失敗しました"
-            elif status == "cancelled" and job.get("interrupted"):
+                err = err or "解析に失敗しました"
+            elif status == "cancelled" and it.get("interrupted"):
                 err = "終了のため中断しました"
             elif status != "cancelled":
                 status, err = "error", "解析が途中で止まりました"
@@ -309,15 +322,14 @@ class Batch:
             status, err = "error", "結果の保存に失敗しました: %s" % e.__class__.__name__
         with self.cv:
             it["marks"] = n or 0
-            it["chatSnap"] = analyze.chat_public(job.get("chat"))
-            it["job"] = None
+            it["chatSnap"] = analyze.chat_public(it["notes"].get("chat"))
+            it["ctl"] = None
             self.running = None
             if it in self.items:
-                self._finish(it, status, err, "中断しました(終了)" if status == "cancelled" and job.get("interrupted") else None)
+                self._finish(it, status, err, "中断しました(終了)" if status == "cancelled" and it.get("interrupted") else None)
             self.cv.notify_all()
 
-    def _apply(self, it, job):
-        res = job["result"]
+    def _apply(self, it, res):
         a = {"at": schemas.now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type")}
         cands = [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"], "reasons": c["reasons"]} for c in res["candidates"]]
         return self.store.replace_auto(it["videoId"], cands, a, res["source"].get("duration"), res["series"])

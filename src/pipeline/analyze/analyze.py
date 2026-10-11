@@ -1,8 +1,9 @@
 """解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
 
 音声(音量・高音域)・チャットのリプレイ・動画コメント欄のタイムスタンプから「盛り上がっている部分」を見つけ、区間の候補にする。
-解析ジョブは辞書: state / phase / progress / error / cancel / proc / proc2 / chat / result。batch.py がこれを1本ずつ回す。
-  new_job(spec) → run_analyze(job) → job["result"] = {source, candidates, series, signals, counts, warnings, spec}
+解析は関数 run(spec, ctl) -> {source, candidates, series, signals, counts, warnings, spec}(失敗・中止は例外)。batch.py が Ctl を作って1本ずつ回す。
+  進み具合は ctl.report・取り消しは ctl.check()/is_cancelled・チャットの状態は ctl.note("chat", …)・「チャット待ちを打ち切る」は ctl.flag("skipChat")。
+  new_job / run_analyze / cancel_job / skip_chat は状態を辞書で持つ互換の包み(e2e・テスト用)。
 """
 import glob
 import gzip
@@ -20,6 +21,7 @@ from . import excite  # noqa: E402  盛り上がりの式(線 D の L1 で src/y
 from ytt import yturl as _yturl   # URL・動画 ID の形と入力の判定(sources.py を畳んだ)
 from ytt import fsio as _fsio, mediainfo as _media, procs as _procs, studio_env as _env  # noqa: E402  (RS3-4 にスタジオの common から。呼ぶたびに持ち主から読む)
 from ytt.errors import ApiError, Cancelled
+from ytt.jobs import Ctl   # ① の関数への手渡し(進み具合・取り消し・合図。OPT2 の J1)
 from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, tail_reason   # 純粋な関数(差し替えない)
 from .excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
                              chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
@@ -81,10 +83,19 @@ def make_spec(src, settings):
     return spec
 
 
-# ---------- ジョブ ----------
+# ---------- ジョブ(互換の薄い包み。本体は run(spec, ctl)。J4 で消す) ----------
 def new_job(spec):
-    return {"id": uuid.uuid4().hex[:10], "kind": "analyze", "state": "running", "phase": "開始", "progress": 0.0, "error": "", "spec": spec, "result": None,
-            "cancel": False, "proc": None, "proc2": None, "proc3": None, "chat": None, "meta": None}
+    """互換: 状態を辞書で持つ形(e2e・テスト用)。進み具合と覚え書きは辞書へ写す Ctl(job["ctl"])が受ける"""
+    job = {"id": uuid.uuid4().hex[:10], "kind": "analyze", "state": "running", "phase": "開始", "progress": 0.0, "error": "", "spec": spec, "result": None,
+           "cancel": False, "chat": None}
+
+    def on_progress(frac, message):
+        if frac is not None:
+            job["progress"] = frac
+        if message is not None:
+            job["phase"] = message
+    job["ctl"] = Ctl(on_progress=on_progress, on_note=lambda key, value: job.__setitem__(key, value))
+    return job
 
 
 def chat_public(c):
@@ -95,16 +106,14 @@ def chat_public(c):
 
 def cancel_job(job):
     job["cancel"] = True
-    for k in ("proc", "proc2", "proc3"):
-        _procs.terminate(job.get(k))
+    job["ctl"].cancel()
 
 
 def skip_chat(job):
     """チャット待ちだけ打ち切る(音声などの解析は続ける)。"""
     c = job.get("chat")
     if c and c["state"] == "running":
-        c["skip"] = True
-        _procs.terminate(job.get("proc2"))
+        job["ctl"].raise_flag("skipChat")
         return True
     return False
 
@@ -180,21 +189,21 @@ def save_archive(vid, payload, run, keep=ARCHIVE_KEEP):
 
 
 # ---------- 解析 ----------
-def audio_levels(job, path, dur, wdir, p0=0.12, p1=0.48):
+def audio_levels(ctl, path, dur, wdir, p0=0.12, p1=0.48):
     """1秒ごとの音量(RMS, dB)を ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に。-> (full, band)。
     測り方・値の扱い(-90〜20 dB)は levels.py の 1 か所(配信中の検出 live_excite_worker.measure_levels と同じ物。OPT1)。
-    wdir = 結果のファイルを置く作業フォルダ。進み具合は job["progress"] の p0〜p1"""
+    wdir = 結果のファイルを置く作業フォルダ。進み具合は ctl.report の p0〜p1"""
     ff = _env.find_tool("ffmpeg")
     if not ff:
         raise ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)")
 
     def on_time(sec):
         if dur:
-            job["progress"] = p0 + (p1 - p0) * min(1.0, sec / dur)
+            ctl.report(p0 + (p1 - p0) * min(1.0, sec / dur))
     levels.clear(wdir)
     cmd = [ff, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path) + ["-progress", "pipe:1", "-nostats"]
     try:
-        rc, err = _procs.run_capture(job, cmd, None, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析", cwd=wdir, on_time=on_time)
+        rc, err = _procs.run_capture(ctl, cmd, None, idle_timeout=AUDIO_LEVEL_IDLE, what="音量の解析", cwd=wdir, on_time=on_time)
     finally:
         full, band = levels.collect(wdir)
     if rc != 0 or not full:
@@ -246,7 +255,7 @@ def parse_chat(path, n, extra=None):
     return act, total, warm_total
 
 
-def _levels(job, spec, src, wdir, warnings):
+def _levels(ctl, spec, src, wdir, warnings):
     """音量(全体・高音域)を 1 秒ごとに。YouTube は前回の結果があれば再利用する。-> (dur, n, full, band)。full・band は長さ n にそろえる"""
     sig = load_sig(src["videoId"]) if src["kind"] == "youtube" and not spec["noCache"] else None
     if sig:   # 前回の音量の解析結果を再利用(ダウンロードも ffmpeg も不要)
@@ -254,7 +263,7 @@ def _levels(job, spec, src, wdir, warnings):
         n = int(math.ceil(dur))
         warnings.append("音量の解析は前回の結果を再利用しました(最初からやり直すには、詳しい設定の「キャッシュを使わない」をオン)")
     else:
-        media = src["path"] if src["kind"] == "file" else fetch.download_audio(job, src["videoId"], wdir)
+        media = src["path"] if src["kind"] == "file" else fetch.download_audio(ctl, src["videoId"], wdir)
         dur, _v, has_audio, _l = _media.media_info(media)   # 長さと音声の有無を1回で(ffmpeg が無ければ dur が None になり、下で止まる)
         if not dur or dur < 20:
             raise ApiError("bad_media", "動画の長さを読み取れません(または短すぎます)")
@@ -263,8 +272,8 @@ def _levels(job, spec, src, wdir, warnings):
         if not has_audio:
             raise ApiError("no_audio", "このファイルには音声トラックがありません(音声・チャット・コメントのどれも使えないため、解析できません)")
         n = int(math.ceil(dur))
-        job["phase"] = "音量(全体と高音域 = 笑い声・叫び)を解析中"
-        full, band = audio_levels(job, media, dur, wdir, 0.12, 0.48)
+        ctl.report(None, "音量(全体と高音域 = 笑い声・叫び)を解析中")
+        full, band = audio_levels(ctl, media, dur, wdir, 0.12, 0.48)
         full, band = [round(x, 1) for x in full], [round(x, 1) for x in band]   # 保存するのと同じ精度にそろえる(キャッシュの有無で結果が変わらないように)
         dur = round(dur, 2)
         if src["kind"] == "youtube":
@@ -274,15 +283,14 @@ def _levels(job, spec, src, wdir, warnings):
     return dur, n, full, band
 
 
-def _chat_signal(job, spec, n, comps, info, warnings):
+def _chat_signal(ctl, run, spec, n, comps, info, warnings):
     """チャットの取得(start_chat で始めたもの)を待って解析し、30 件以上なら comps["chat"] に入れる。
     -> {"act", "count", "warm", "extra"}(archive に残す材料。取れなければ act は None)"""
     out = {"act": None, "count": 0, "warm": 0, "extra": None}
-    c = job["chat"]
+    c = run["chat"]
     while c["state"] == "running":
-        if job["cancel"]:
-            raise Cancelled()
-        job["phase"], job["progress"] = "チャットのリプレイを取得中(音声の解析は完了、経過 %s)" % fmt_ms(time.time() - c["t0"]), 0.5
+        ctl.check()
+        ctl.report(0.5, "チャットのリプレイを取得中(音声の解析は完了、経過 %s)" % fmt_ms(time.time() - c["t0"]))
         c["thread"].join(0.3)
     path, why = c["path"], c["why"]
     if c["cached"] and path:
@@ -290,7 +298,7 @@ def _chat_signal(job, spec, n, comps, info, warnings):
     if not path:
         warnings.append(why)
         return out
-    job["phase"] = "チャットを解析中"
+    ctl.report(None, "チャットを解析中")
     out["extra"] = {}
     out["act"], out["count"], out["warm"] = parse_chat(path, n, out["extra"])
     if out["count"] < 30:
@@ -311,9 +319,9 @@ def _chat_signal(job, spec, n, comps, info, warnings):
     return out
 
 
-def _comment_signal(job, src, dur, n, comps, info, warnings, ctexts):
+def _comment_signal(ctl, src, dur, n, comps, info, warnings, ctexts):
     """コメント欄の時刻の書き込み → comps["comments"]。-> 書き込みの一覧(無ければ None)。ctexts に本文が並ぶ(archive 用)"""
-    job["phase"], job["progress"] = "コメント欄のタイムスタンプを取得中", 0.56
+    ctl.report(0.56, "コメント欄のタイムスタンプを取得中")
     st, why = fetch.fetch_comments(src["videoId"], dur, ctexts)
     if st is None:
         warnings.append(why)
@@ -326,11 +334,11 @@ def _comment_signal(job, src, dur, n, comps, info, warnings, ctexts):
     return st
 
 
-def _weights(job, spec, warnings):
+def _weights(run, spec, warnings):
     """材料の重みと、記録用の付加情報(start_meta で始めたもの)を待つ。-> (wts, meta)。配信タイプ別の倍率は 0.26.0 で廃止"""
     wts = {"audio": spec["wAudio"], "chat": spec["wChat"], "comments": spec["wComments"]}
     meta = None
-    mj = job.get("meta")
+    mj = run.get("meta")
     if mj:
         mj["thread"].join(fetch.META_TIMEOUT + 5)
         meta = mj["data"]
@@ -355,74 +363,88 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
         pass
 
 
-def _stop_helpers(job, wdir, chat_vid):
-    """後始末: 途中で失敗・中止したときに付加情報・チャットの取得を残さない。作業フォルダを消し、チャットのキャッシュの使用中を外す"""
-    mj = job.get("meta")
+def _stop_helpers(run, wdir, chat_vid):
+    """後始末: 途中で失敗・中止したときに付加情報・チャットの取得を残さない(それぞれの stop を立てる = 子は run_progress の見張りが止める)。
+    作業フォルダを消し、チャットのキャッシュの使用中を外す"""
+    mj = run.get("meta")
     if mj and mj["thread"].is_alive():
-        _procs.terminate(job.get("proc3"))
+        mj["stop"].set()
         mj["thread"].join(5)
-    c = job.get("chat")
+    c = run.get("chat")
     if c and c["state"] == "running":
-        c["skip"] = True
-        _procs.terminate(job.get("proc2"))
+        c["stop"].set()
         c["thread"].join(10)
     shutil.rmtree(wdir, ignore_errors=True)
     if chat_vid:
         fetch.use_chat_cache(chat_vid, -1)
 
 
-def run_analyze(job):
-    """解析の 1 ジョブ(裏のスレッド): 素材の取得(音声・チャット・付加情報は同時に)→ 材料ごとの点数 → 重み付きの合計 → 山を区間に。
-    結果は job["result"]、状態は job["state"]・job["phase"]・job["progress"]"""
-    spec = job["spec"]
+def run(spec, ctl=None):
+    """解析 1 本(呼ぶ側のスレッドで動く): 素材の取得(音声・チャット・付加情報は同時に)→ 材料ごとの点数 → 重み付きの合計 → 山を区間に。
+    -> 結果の辞書 {source, candidates, series, signals, counts, warnings, spec}。中止は errors.Cancelled・失敗は ApiError(message が画面に出る文)。
+    ctl = ytt/jobs.Ctl(None なら報告も取り消しもしない)。枠(SLOTS)は呼ぶ側が取る"""
+    ctl = ctl or Ctl()
     src = spec["source"]
-    wdir = os.path.join(fetch.work_dir(), job["id"])
+    wdir = os.path.join(fetch.work_dir(), uuid.uuid4().hex[:10])
+    run_ = {"chat": None, "meta": None}   # この実行の取得(チャット・付加情報)
     chat_vid = src["videoId"] if src["kind"] == "youtube" and spec["useChat"] else None
     if chat_vid:
         fetch.use_chat_cache(chat_vid, +1)   # 解析が終わるまで、この動画のチャットのキャッシュを消させない
     try:
         os.makedirs(wdir, exist_ok=True)
-        if job["cancel"]:
-            raise Cancelled()
+        ctl.check()
         warnings = []
-        job["state"], job["phase"] = "running", "素材を取得中"
+        ctl.report(None, "素材を取得中")
         if spec["useChat"]:
-            fetch.start_chat(job, src["videoId"], wdir, spec["chatTimeout"] * 60)   # 音声の取得・解析と同時に始める
+            fetch.start_chat(ctl, run_, src["videoId"], wdir, spec["chatTimeout"] * 60)   # 音声の取得・解析と同時に始める
         if src["kind"] == "youtube":
-            fetch.start_meta(job, src["videoId"])   # 動画の付加情報(記録用)も同時に取得する
-        dur, n, full, band = _levels(job, spec, src, wdir, warnings)
+            fetch.start_meta(ctl, run_, src["videoId"])   # 動画の付加情報(記録用)も同時に取得する
+        dur, n, full, band = _levels(ctl, spec, src, wdir, warnings)
         comps, info = {}, {"audio": False, "chat": False, "comments": False}
         if spec["useAudio"]:
             comps["audio"] = audio_score(full, band)
             info["audio"] = True
-        chat = _chat_signal(job, spec, n, comps, info, warnings) if spec["useChat"] else {"act": None, "count": 0, "warm": 0, "extra": None}
+        chat = _chat_signal(ctl, run_, spec, n, comps, info, warnings) if spec["useChat"] else {"act": None, "count": 0, "warm": 0, "extra": None}
         ctexts = []
-        stamps = _comment_signal(job, src, dur, n, comps, info, warnings, ctexts) if spec["useComments"] else None
+        stamps = _comment_signal(ctl, src, dur, n, comps, info, warnings, ctexts) if spec["useComments"] else None
         if not comps:
             raise ApiError("no_signal", "使える材料がありません(音声の解析をオンにするか、チャット・コメントが取れる動画を指定してください)")
-        job["phase"], job["progress"] = "盛り上がりの区間を決定中", 0.6
-        wts, meta = _weights(job, spec, warnings)
+        ctl.report(0.6, "盛り上がりの区間を決定中")
+        wts, meta = _weights(run_, spec, warnings)
         total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点
         # 材料が重なるほど合計が大きくなる(音声・チャット・コメントが同じ場面を指すと強い)
         cands = excite.candidates(pick_clips(total, full, spec, n), comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
         _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
-        if job["cancel"]:
-            raise Cancelled()
-        job["result"] = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
-                         "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
-                         "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
+        ctl.check()
+        result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
+                  "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
+                  "warnings": warnings, "spec": dict({k: spec[k] for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"]))}
+        ctl.report(1.0, "解析が完了しました")
+        return result
+    except (Cancelled, ApiError):
+        raise
+    except PermissionError as e:
+        _env.log_failure("動画解析", e)
+        raise ApiError("permission", permission_message(e)) from e
+    except Exception as e:
+        _env.log_failure("動画解析", e)
+        raise ApiError("internal", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200])) from e
+    finally:
+        _stop_helpers(run_, wdir, chat_vid)
+
+
+def run_analyze(job):
+    """互換: 状態を辞書で持つ形で run を回す(結果は job["result"]、状態は job["state"]・job["phase"]・job["error"])"""
+    ctl = job["ctl"]
+    if job["cancel"]:
+        ctl.cancel()
+    try:
+        job["state"], job["phase"] = "running", "素材を取得中"
+        job["result"] = run(job["spec"], ctl)
         job["state"], job["phase"], job["progress"] = "done", "解析が完了しました", 1.0
     except Cancelled:
         job["state"], job["phase"] = "cancelled", "中止しました"
     except ApiError as e:
         job["state"], job["error"], job["phase"] = "error", e.message, "失敗"
-    except PermissionError as e:
-        _env.log_failure("動画解析", e)
-        job["state"], job["error"], job["phase"] = "error", permission_message(e), "失敗"
-    except Exception as e:
-        _env.log_failure("動画解析", e)
-        job["state"], job["error"], job["phase"] = "error", "内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]), "失敗"
-    finally:
-        _stop_helpers(job, wdir, chat_vid)

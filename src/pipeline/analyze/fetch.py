@@ -1,6 +1,7 @@
 """解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
 点数の計算は excite.py・音量は levels.py・ジョブの流れは analyze.py。動きは analyze.py にあった頃と同じ(OPT2 で分けた)。
-ジョブの辞書(state・phase・progress・cancel・proc/proc2/proc3・chat・meta)は analyze.new_job が作る。ここの関数はそれを受けて進み具合などを書き込む。
+ここの関数は ytt/jobs.Ctl(進み具合・取り消し・合図 skipChat)と、実行ごとの辞書 run({"chat", "meta"}。analyze.run が作る)を受ける(OPT2 の J1)。
+子プロセスは Ctl の見張り(run_progress)が止める。チャット・付加情報の取得は、自分だけ止められる小さな Ctl(_Stop)を使う。
 """
 import glob
 import json
@@ -15,6 +16,7 @@ import urllib.request
 
 from ytt import yturl as _yturl
 from ytt import apikey as _key, fsio as _fsio, procs as _procs, studio_env as _env
+from ytt.jobs import Ctl
 from ytt.errors import ApiError, Cancelled
 from ytt.textutil import redact, tail_reason
 
@@ -38,7 +40,17 @@ def chat_cache_dir():
 
 
 # ---------- 素材の取得(YouTube) ----------
-def download_audio(job, vid, wdir):
+class _Stop:
+    """取り消し(親の Ctl)か、自分の stop が立つと止まる Ctl の代わり(run_capture に渡す)。skip=True なら親の合図 skipChat でも止まる"""
+
+    def __init__(self, ctl, stop, skip=False):
+        self.ctl, self.stop, self.skip = ctl, stop, skip
+
+    def is_cancelled(self):
+        return self.ctl.is_cancelled() or self.stop.is_set() or (self.skip and self.ctl.flag("skipChat"))
+
+
+def download_audio(ctl, vid, wdir):
     if _env.fake():
         return _env.fake_media()
     yt = _env.find_tool("yt-dlp")
@@ -50,8 +62,8 @@ def download_audio(job, vid, wdir):
     def on(line):
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
         if m:
-            job["progress"] = 0.02 + 0.10 * float(m.group(1)) / 100
-    rc, err = _procs.run_capture(job, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
+            ctl.report(0.02 + 0.10 * float(m.group(1)) / 100)
+    rc, err = _procs.run_capture(ctl, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
     files = [f for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
     if rc != 0 or not files:
         raise ApiError("download", "音声を取得できませんでした: " + (tail_reason(err) or "不明なエラー"), 502)
@@ -140,10 +152,11 @@ def prune_chat_cache(limit=None, keep=CHAT_CACHE_KEEP):
     return freed
 
 
-def download_chat(job, vid, wdir, timeout):
+def download_chat(ctl, run, vid, wdir, timeout):
     """チャットのリプレイ(live_chat)。取れなければ (None, 理由)。
     完走したものは cache/chat/<動画ID> に残す(途中で打ち切ったものは残さない)。"""
-    c = job["chat"]
+    c = run["chat"]
+    sub = _Stop(ctl, c.setdefault("stop", threading.Event()), skip=True)
     if _env.fake():
         p = os.environ.get("STUDIO_FAKE_CHAT", "")
         return (p, "") if os.path.isfile(p) else (None, "疑似モード: チャットなし")
@@ -154,17 +167,17 @@ def download_chat(job, vid, wdir, timeout):
         _pf_done.discard(vid)
         os.utime(cp, None)
         return cp, ""
-    if not job.get("prefetch"):
+    if not run.get("prefetch"):
         with _pf_lock:
             pf = PREFETCH.get(vid)
         if pf:   # 先読みが同じ動画を取得中なら、もう1つ起動せず、その完了を待つ
             while not pf["done"].wait(0.5):
-                if job["cancel"] or c["skip"]:
+                if sub.is_cancelled():
                     cancel_prefetch(vid)
-                    if job["cancel"]:
+                    if ctl.is_cancelled():
                         raise Cancelled()
                     return None, "チャットは待たずに進めました"
-                c["bytes"] = pf["job"]["chat"]["bytes"] if pf["job"].get("chat") else c["bytes"]
+                c["bytes"] = pf["run"]["chat"]["bytes"] if pf["run"].get("chat") else c["bytes"]
             if _usable_chat(cp):
                 c["cached"] = c["prefetched"] = True
                 return cp, ""
@@ -184,10 +197,14 @@ def download_chat(job, vid, wdir, timeout):
     threading.Thread(target=watch, daemon=True).start()
     t0 = time.time()
     try:
-        rc, err = _procs.run_capture(job, cmd, None, timeout=timeout, slot="proc2")
+        rc, err = _procs.run_capture(sub, cmd, None, timeout=timeout)
+    except Cancelled:
+        if ctl.is_cancelled():
+            raise
+        return None, "チャットは待たずに進めました"   # skipChat か後始末の stop
     finally:
         stop.set()
-    if c["skip"]:
+    if ctl.flag("skipChat"):
         return None, "チャットは待たずに進めました"
     if timeout and time.time() - t0 >= timeout:
         return None, "チャットの取得が %d 分を超えたため、チャットは使っていません(設定で待ち時間を延ばせます)" % (timeout // 60)
@@ -214,7 +231,7 @@ def download_chat(job, vid, wdir, timeout):
 PREFETCH_MAX = 1
 _pf_lock = threading.Lock()
 _pf_done = set()   # 先読みで取得できた動画ID(画面の文言用)
-PREFETCH = {}   # 動画ID -> {"job", "done": Event, "why", "path"}
+PREFETCH = {}   # 動画ID -> {"ctl", "run", "done": Event, "why", "path"}
 
 
 def prefetch_chat(vid, timeout, on_done=None):
@@ -230,16 +247,16 @@ def prefetch_chat(vid, timeout, on_done=None):
             return "skip"
         if not _env.find_tool("yt-dlp"):
             return "skip"
-        pjob = {"cancel": False, "proc": None, "proc2": None, "prefetch": True,
-                "chat": {"state": "running", "t0": time.time(), "t1": None, "bytes": 0, "skip": False, "cached": False}}
-        pf = {"job": pjob, "done": threading.Event(), "why": "", "path": None}
+        pctl = Ctl()
+        prun = {"prefetch": True, "chat": {"state": "running", "t0": time.time(), "t1": None, "bytes": 0, "cached": False}}
+        pf = {"ctl": pctl, "run": prun, "done": threading.Event(), "why": "", "path": None}
         PREFETCH[vid] = pf
 
     def work():
         wdir = os.path.join(work_dir(), "pf_" + vid)
         try:
             os.makedirs(wdir, exist_ok=True)
-            pf["path"], pf["why"] = download_chat(pjob, vid, wdir, timeout)
+            pf["path"], pf["why"] = download_chat(pctl, prun, vid, wdir, timeout)
             if pf["path"] and os.path.isfile(chat_cache_path(vid)):
                 _pf_done.add(vid)
         except Cancelled:
@@ -264,10 +281,7 @@ def cancel_prefetch(vid, kill=True):
     with _pf_lock:
         pf = PREFETCH.get(vid)
     if pf:
-        pf["job"]["cancel"] = True
-        if kill:
-            for k in ("proc", "proc2"):
-                _procs.terminate(pf["job"].get(k))
+        pf["ctl"].cancel()   # 子プロセスは run_progress の見張りが 0.3 秒で止める
 
 
 def cancel_all_prefetch():
@@ -279,14 +293,15 @@ def cancel_all_prefetch():
     return len(vids)
 
 
-def start_chat(job, vid, wdir, timeout):
+def start_chat(ctl, run, vid, wdir, timeout):
     """チャット取得を別スレッドで始める(音声のダウンロード・解析と並行して進める)。"""
-    c = {"state": "running", "t0": time.time(), "t1": None, "bytes": 0, "skip": False, "cached": False, "path": None, "why": "", "err": None}
-    job["chat"] = c
+    c = {"state": "running", "t0": time.time(), "t1": None, "bytes": 0, "stop": threading.Event(), "cached": False, "path": None, "why": "", "err": None}
+    run["chat"] = c
+    ctl.note("chat", c)   # 器が画面に見せる(進み具合のチャットの欄)
 
     def work():
         try:
-            c["path"], c["why"] = download_chat(job, vid, wdir, timeout)
+            c["path"], c["why"] = download_chat(ctl, run, vid, wdir, timeout)
         except Cancelled:
             c["why"] = "中止"
         except Exception as e:   # 想定外でも本体の解析は続ける
@@ -417,7 +432,7 @@ def load_meta(vid):
     return None
 
 
-def fetch_meta(job, vid):
+def fetch_meta(ctl, vid):
     """(付加情報 or None, 理由)。失敗しても解析には影響しない。24時間以内に取得済みならそれを使う。"""
     if _env.fake():
         p = os.environ.get("STUDIO_FAKE_META", "")
@@ -433,8 +448,8 @@ def fetch_meta(job, vid):
         return None, "yt-dlp が見つかりません"
     buf = []
     try:
-        rc, err = _procs.run_capture(job, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
-                              lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, slot="proc3", what="動画情報の取得")
+        rc, err = _procs.run_capture(ctl, [yt, "--no-playlist", "--no-warnings", "--skip-download", "-J", "--", _yturl.watch_url(vid)],
+                              lambda l: buf.append(l) if len(buf) < 20000 else None, timeout=META_TIMEOUT, what="動画情報の取得")
     except ApiError as e:
         return None, e.message
     if rc != 0:
@@ -452,14 +467,15 @@ def fetch_meta(job, vid):
     return m, ""
 
 
-def start_meta(job, vid):
-    """付加情報の取得を別スレッドで始める(音声などの解析と並行)。結果は job["meta"] = {"data", "why", "thread"}。"""
-    r = {"data": None, "why": "", "thread": None}
-    job["meta"] = r
+def start_meta(ctl, run, vid):
+    """付加情報の取得を別スレッドで始める(音声などの解析と並行)。結果は run["meta"] = {"data", "why", "thread", "stop"}。stop を立てると取得だけ止まる。"""
+    r = {"data": None, "why": "", "thread": None, "stop": threading.Event()}
+    run["meta"] = r
+    sub = _Stop(ctl, r["stop"])
 
     def work():
         try:
-            r["data"], r["why"] = fetch_meta(job, vid)
+            r["data"], r["why"] = fetch_meta(sub, vid)
         except Cancelled:
             r["why"] = "中止"
         except Exception as e:   # 記録用なので、何があっても本体の解析は続ける
