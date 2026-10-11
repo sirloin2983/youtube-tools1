@@ -968,6 +968,19 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/api/flow/status", headers={"Sec-Fetch-Site": "cross-site"})   # ほかのサイトからは読めない
         self.assertEqual(r.status, 403)
 
+    def test_flow_submit_waits_for_tools(self):
+        """起動直後(ツールの取り込みの途中)の submit は取り込みが済むまで待つ・待ちきれなければ 503 starting(CLI が「編集が動いていない」で落ちない)"""
+        self.srv.tools_started = threading.Event()
+        try:
+            with mock.patch.object(L, "SUBMIT_START_WAIT", 0.2):
+                r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))
+                self.assertEqual((r.status, json.loads(body)["error"]), (503, "starting"))
+            threading.Timer(0.3, self.srv.tools_started.set).start()
+            r, body = self.post("/api/flow/submit", body=json.dumps({}).encode("utf-8"))   # 済んだら今までどおり検査へ進む
+            self.assertEqual(r.status, 400)
+        finally:
+            self.srv.tools_started = None
+
     def test_flow_board_api(self):
         """RS8 の ② の口 S3: status に rev・jobs・cases を足す(今の項目はそのまま)・?case= の検査と絞り込み・POST /api/flow/cancel・retry
         (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate(旧い名前と同じ口)"""

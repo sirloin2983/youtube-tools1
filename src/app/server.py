@@ -148,6 +148,7 @@ UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正�
 LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超えたら <名前>.old.log に回す(fsio.rotate。回せなければそのまま追記)
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの取り込みを待つ最長の秒(_post_flow_submit)
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
@@ -892,7 +893,11 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._fail(400, "bad_request", str(e))
 
     def _post_flow_submit(self, path, body):
-        """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400"""
+        """② の口(RS7-1 S4): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)。形が違う・積めない理由は 400。
+        入口の起動直後(ツールの取り込みの途中)は済むまで SUBMIT_START_WAIT 秒まで待つ(待ちきれなければ 503 starting)"""
+        started = getattr(self.server, "tools_started", None)
+        if started is not None and not started.wait(SUBMIT_START_WAIT):
+            return self._fail(503, "starting", "入口がまだツールを準備しています。少し待ってからもう一度頼んでください")
         try:
             return self._json(200, {"run": self.server.autorun.submit(body.get("envelope"), body.get("spec"))})
         except ValueError as e:
@@ -1661,9 +1666,13 @@ def _main(opts, ready_out=None):
                 srv.serve_forever()
             finally:
                 served.set()
+        srv.tools_started = threading.Event()   # 取り込みが済んだ印(済む前の submit は待つ = 起動直後の CLI が「編集が動いていない」で落ちない)
         http_thread = threading.Thread(target=serve, daemon=True, name="portal-http")
         http_thread.start()   # 取り込みの準備中も画面を開けるように、先に待ち受ける
-        sup.start_all()
+        try:
+            sup.start_all()
+        finally:
+            srv.tools_started.set()
         sup.start_monitor()
         try:   # まとめて実行を起動のときに作る: 前の起動で待ち・実行中だった実行(M5)を、ホームを開かなくても続ける
             srv.autorun
