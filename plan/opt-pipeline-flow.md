@@ -22,7 +22,7 @@
 ## OPT2 形を決めて進める(約 400 行減・② が決まりどおりになる)
 - ffmpeg を進み具合・取り消しつきで動かす部品 6 つ(`tools.run_progress`・`exporter._pump`・`cut2resolve_core._ffmpeg_stream`/`_ffmpeg_run`・`procs.run_capture`・`recognize.extract_audio`・`live_excite_worker.measure_levels`)→ `run_progress` に時間の上限・標準エラーを全部持つ選択・spawn の一覧に載せる選択を足して 1 つに。窓を出さない・優先度「低」を全部に。約 120 行 → **済み(da6cdda。tools.run_progress 1 つ)**
 - ② に残る ① の仕事を ① へ: 音量とラウドネスの ffmpeg(`flow/live_export` と `exporter` → `pipeline/export/audio.py`)・ライブの切り出しのエンコード(`normalize` に区間・concat 版)・wav の取り出しの引数(`flow/live_tx`・`flow/live_archive._wav`。精密な切り方は残す)・パックの指定の組み立て(`flow/tools.py` の _pack_request など = cut2resolve の serve の写し → `pipeline/pack` に 1 つ。エラーの厳しさをどちらに合わせるか決める) → **パックの指定は済み(53f78bb。pipeline/pack/request.py。CLI の build_request は形が違うので別のまま)**
-- ライブの見回りの糸の骨組み 3 つ(書き出し・取り込み・配信中の文字起こし)を小さな基底に・`Cancelled` / `Halted` を 1 組に
+- ライブの見回りの糸の骨組み 3 つ(書き出し・取り込み・配信中の文字起こし)を小さな基底に・`Cancelled` / `Halted` を 1 組に → **済み(79b8393。flow/live_patrol.Patrol・行は横ばい)**
 - `ffmpeg -i` の読み 2 つ(カバー画像の扱い)・音量の ffmpeg の引数を `ytt/loudness` へ(パックの写しが 1 回作り直し)
 - 字幕の時刻が数 ms 動く所(wav の切り方をそろえる)は `src/eval/tools/eval_timing.py` で確かめてから
 
@@ -52,7 +52,7 @@
 
 ### 2. 解析(盛り上がり)`pipeline/analyze/`(10-11)
 - 盛り上がりの式 `excite.py`(852 行)は配信後と配信中の 1 か所・golden で縛る・標準ライブラリだけ = 形は良い。動かさない
-- `analyze.py`(881 行)の約半分(およそ 450 行)は「材料を取ってくる」仕事 = 音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄(YouTube API)・付加情報(yt-dlp -J)・それぞれのキャッシュと掃除(prune_chat_cache など)。点数の計算と分けて `pipeline/analyze/fetch.py`(か `pipeline/ingest/`)へ → 解析の本体が読みやすくなる・取得だけ使い回せる → OPT2
+- `analyze.py`(881 行)の約半分(およそ 450 行)は「材料を取ってくる」仕事 = 音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄(YouTube API)・付加情報(yt-dlp -J)・それぞれのキャッシュと掃除(prune_chat_cache など)。点数の計算と分けて `pipeline/analyze/fetch.py`(か `pipeline/ingest/`)へ → 解析の本体が読みやすくなる・取得だけ使い回せる → OPT2 → **済み(cbc33c1。pipeline/analyze/fetch.py。877 → 428 行)**
 - `analyze.py` の解析ジョブが辞書で state・phase・progress・cancel・proc を持つ = ② の仕事(ジョブの状態・取り消し)が ① に入っている。① は「入力 → 結果」の関数にして、ジョブの器は `flow/batch.py` 側へ → OPT2(RS8 と相談)
 - 音量を 2 回デコード(`audio_levels` を全帯域と高音域で 2 回)→ 配信中と同じ asplit の 1 回に → OPT1(上の表にある)
 - `live_excite_worker.py`(1,589 行)の小物の写し: `pid_alive`(`ytt/procs.pid_alive` と同じ)・`write_json`(`fsio.write_json` に NaN を断る選択を足せば同じ)・`append_jsonl`。もう ytt を読んでいるので写しは要らない → OPT1 の小物(約 20 行)
@@ -71,7 +71,7 @@
 
 ### 4. 文字起こし `pipeline/transcribe/`(10-11)
 - **エンジンが 6 つ**(faster-whisper・whisper.cpp・Qwen3-ASR 0.6B・SenseVoice・Qwen3-ASR 1.7B の llama.cpp・文字の LLM)。使わない物は RS7-2 のセッションが「使わないモデル・エンジンの選択肢を消す」で今消している(10-11)= ここでは扱わない。入ったあとで `tx_engines.py`(1,200 行)の残りを見直す(Qwen3 の区切りの共通部分 `_Qwen3Chunked` が 1 つのエンジンだけになるなら畳む)→ OPT1 のあと
-- `worker_client.py`(881 行)に**ワーカーの中で動く物**(モデルの読み込み `_load_model_local`・使い回し `_models`・`release_idle_models`)と**サーバー側の物**(`WorkerClient` = 起動・要求・取り消し・強制終了、`RemoteModel` = 代理)が同居。名前が「client」なのに中身の半分はワーカー側 → ワーカー側を `worker.py` か `models.py` へ分ける(numpy などを読まない決まり = サーバー側に重い import を持ち込まない守りも分かりやすくなる)→ OPT2
+- `worker_client.py`(881 行)に**ワーカーの中で動く物**(モデルの読み込み `_load_model_local`・使い回し `_models`・`release_idle_models`)と**サーバー側の物**(`WorkerClient` = 起動・要求・取り消し・強制終了、`RemoteModel` = 代理)が同居。名前が「client」なのに中身の半分はワーカー側 → ワーカー側を `worker.py` か `models.py` へ分ける(numpy などを読まない決まり = サーバー側に重い import を持ち込まない守りも分かりやすくなる)→ OPT2 → **済み(982c701。pipeline/transcribe/models.py。879 → 744 行)**
 - **認識の入口が 4 つ**: 文書全体 `transcribe_real`/`transcribe_rows`(声の検出を緩めてやり直す `transcribe_vad_fallback` つき)・範囲の再認識 `RangeRecognizer`/`range_lines_real`/`finish_range_lines`・全体の再認識 `whole_lines`(区間に分けて続きから)・選んだ行の 1 行ずつ `recognize_chunk`。どれも「wav の区間 → 整えた行」で、時刻のずらし方・行の整え方が少しずつ違う → 「区間の一覧 → 整えた行」の 1 つの関数に寄せられるか調べる(結果の行が変わると校正済みの文書と合わなくなるので eval_asr・eval_timing で確かめる)→ OPT3
 - **配信中の候補の文字起こし `live_tx_worker.py`(71 行)は別の認識プロセス**(1 本ごとに起動して whisper-cli を 1 回)。編集の認識ワーカー(常駐)とは別の道。配信中は入口のプロセスから動かすため・候補は 1 時間に数本で足りるため(説明あり)。エンジンを whisper.cpp に絞ったあとなら、どちらも「whisper-cli を動かす」だけになる = 起動の仕方(引数・モデルの場所)を `tx_engines.WhisperCpp` の 1 か所から作っているか確かめる → OPT1 のあと
 - 後処理 4 つ(`fill` 378・`llm` 338・`postproc` 300・`retime` 267 = 1,283 行)は役目が別(行の整え・2 つ目のエンジンとの突き合わせ・LLM・時刻)で重なりは小さい。文字の寄せ方 7 つ(上の OPT1・OPT3)だけ
@@ -103,7 +103,7 @@
 - **段の中身が入力の種類ごとに 3 組**: 配信 `_step_*`・文書 `_doc_*`・動画ファイル `_file_*`(文字起こし 3 つ・パック 3 つ・話者 2 つ)。中身は「どの文書を対象にするか」が違うだけの所が多い → 「対象の文書の一覧 → 段」の 1 組に寄せられるか調べる → OPT2
 - **流れの種類 `MODE_STEPS` が 8 つ**(full・adopted・transcribe・doc・request・file・request_auto・file_auto)。中身は段の並びの違いだけ。束の `run`(どこまで進めるか・届けるか)で表せれば種類は要らない = 封筒の `legacy.mode` を消すのと同じ話 → RV(上の RV の観点「一時の欄を正式な欄に」)
 - **実行の状態が 2 つの形**: Run の欄(画面の受付から来た mode・onFail・streamer・pins など)と束。`_asked_spec`・`_with_asked`・`_pins` で欄 → 束へ写している = 受付を submit(封筒 + 束)1 つにすれば写しが消える → RV(「受付を submit 1 つに」)
-- **見積もり `Queue.estimate`(47 行 + 文書 19 行)は実行と同じ規則を別に書いている**(説明に「ずれることがある」)。段の「飛ばすか」の判定を 1 つの関数にして実行と見積もりの両方から呼ぶ → OPT2
+- **見積もり `Queue.estimate`(47 行 + 文書 19 行)は実行と同じ規則を別に書いている**(説明に「ずれることがある」)。段の「飛ばすか」の判定を 1 つの関数にして実行と見積もりの両方から呼ぶ → OPT2 → **済み(b1df619。判定 4 つを flow/run.py に・見積もりがパックの鍵の違いも数える)**
 - **継ぎ方が 3 段**: Runner ← Queue ← 入口の AutoRunner(hook を上書き。Runner の hook は 12 個)。hook の多くは「③④ の物を ② に渡す」ための口 = 層の決まりで要る。ただ継ぐより、hook をまとめた 1 つの物(ホストの口)を渡す形の方が追いやすい → RV
 - `spec.py`・`envelope.py`・`runlog.py` は純粋で小さく形は良い。動かさない(envelope の legacy は RV に記録済み)
 
