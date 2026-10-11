@@ -38,6 +38,7 @@ FILES = {
     "src/human/proof/layers.py": ("human", "human/proof", "文書を機械の層 + 人の層から組み立てる純粋な関数(RS8 O2-1。compose・diff・案 A の印・話者の対応表。ファイルを触らない。ytt だけを読む)"),
     "src/human/proof/machpick.py": ("human", "human/proof", "3 択の口(RS8 O2-4。機械の結果が変わった人の行の 前の機械・今の機械・人の直しと、自分の直しのまま / 今の機械にする。層が正のときだけ)"),
     "src/eval/tools/eval_layers.py": ("eval", "eval/tools", "機械の層 + 人の層の往復を作業データで確かめる道具(RS8 O2-1。読むだけ。human/proof/layers を読む)"),
+    "src/flow/packjobs.py": ("flow", "flow", "パックのジョブの器(OPT2 J3。cut2resolve/serve の Job・AppState のジョブを移した。同時 1 本・履歴 20・糸・SLOTS(build は必ず・plan は heavy() のとき)・Task を作って fn(task)・掲示板の頭 pk。pipeline の cut2resolve_core と ytt を読む)"),
     "src/flow/casebook.py": ("flow", "flow", "案件の候補と採用のファイル(RS8 B3-3。作業用/候補.json = ① の機械の候補・作業用/採用.json = ③ の人の採用。分ける split・重ねる merge・案件の引き方 case_of・読み書きとパスごとのロック。ytt だけを読む。保存の経路に入れるのは B3-4)"),
     "src/flow/studiobook.py": ("flow", "flow", "スタジオなしの配信の台帳と URL の段の動詞(RS8 の「URL も CLI で」。StudioBook = data.json + 案件の 候補.json・採用.json をスタジオの Store と同じ形で・LocalStudio = flow/tools の LocalTools が任せる配信の読み・解析・採用・書き出し。ytt・flow(batch・casebook・adopt・keys)・① pipeline/analyze・export を読む。③ は読まない)"),
     "src/eval/tools/eval_casebook.py": ("eval", "eval/tools", "スタジオの配信を候補 + 採用に分けて重ね直す往復を作業データで確かめる道具(RS8 B3-3。読むだけ。flow/casebook と human/review/store の読み込みを読む)"),

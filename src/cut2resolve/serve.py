@@ -35,7 +35,6 @@ output.fcpxml・output.crf。送っても黙って無視する(知らない鍵�
 """
 import json
 import os
-import secrets
 import socket
 import subprocess
 import sys
@@ -45,7 +44,6 @@ import traceback
 import urllib.parse
 import urllib.request
 import webbrowser
-from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -69,9 +67,10 @@ _load_core()
 from manage.cases import txindex as _txi  # noqa: E402
 from flow import keys as _flowkeys  # noqa: E402  成果物の鍵(RS6 b-K1)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口 S2)
+from flow.packjobs import PackJobs  # noqa: E402  パックのジョブの器(OPT2 J3)
 from pipeline.pack import cut2resolve_core as C, pack, resolve_textplus as TP, srt2resolve as S  # noqa: E402
 from ytt.errors import ApiError as _ApiError  # noqa: E402
-from ytt import colors as _colors, datadir, fsio, httpsec, jobs as _heavy, loudness as _loud, runtime as _runtime, tools  # noqa: E402
+from ytt import colors as _colors, datadir, fsio, httpsec, loudness as _loud, runtime as _runtime, tools  # noqa: E402
 
 APP_ID = "cut2resolve"
 TOOL_ID = "cut2resolve"
@@ -158,43 +157,12 @@ from pipeline.pack.request import (  # noqa: E402,F401
 
 # ---------------------------------------------------------------- アプリの状態(ジョブ・開いてよいフォルダ・キャッシュ)
 
-class Job:
-    def __init__(self, kind):
-        self.id = secrets.token_hex(6)
-        self.kind = kind
-        self.state = "running"
-        self.progress = None
-        self.message = ""
-        self.result = None
-        self.error = None
-        self.started = time.time()
-        self.finished = None
-        self.task = C.Task(self._on_progress)
-
-    def _on_progress(self, frac, message):
-        if frac is not None:
-            self.progress = round(float(frac), 4)
-        if message:
-            self.message = message
-            self.progress = None if frac is None else self.progress
-
-    def public(self):
-        d = {"id": self.id, "kind": self.kind, "state": self.state, "progress": self.progress, "message": self.message,
-             "elapsed": round((self.finished or time.time()) - self.started, 1)}
-        if self.result is not None:
-            d["result"] = self.result
-        if self.error is not None:
-            d["error"] = self.error
-        return d
-
-
 class AppState:
     """1つのサーバーの状態。テストで複数のサーバーを作ってもぶつからないよう、グローバルではなくサーバーに持たせる"""
 
     def __init__(self, opener=None):
         self.lock = threading.Lock()
-        self.jobs = OrderedDict()
-        self.running = None
+        self.packjobs = PackJobs(TOOL_ID, log=log, log_path=LOG_PATH)   # ジョブの器は ② の flow/packjobs(OPT2 J3)
         self.cache = pack.Cache()
         self.out_dirs = set()             # パックを書いたフォルダ(「フォルダを開く」を許すもの)
         self.opener = opener or open_folder
@@ -208,97 +176,24 @@ class AppState:
         with self.lock:
             return os.path.normcase(os.path.realpath(str(path))) in self.out_dirs
 
-    # ---- ジョブ(同時に1つだけ。無音の検出・書き出しは重いので、画面の二度押しで並ばないように)
+    # ---- ジョブ(同時に1つだけ。器は flow/packjobs)
     def start_job(self, kind, fn, heavy=None):
-        """heavy: 引数なしで呼べる関数。真を返すなら、その処理は他のツールの重い処理と順番を待つ(build は常に待つ。試算は無音の検出が要るときだけ)"""
-        with self.lock:
-            if self.running is not None and self.running.state == "running":
-                raise ApiError("busy", "前の処理が終わっていません(「取り消す」で止められます)", 409,
-                               {"job": self.running.public()})
-            job = Job(kind)
-            self.running = job
-            self.jobs[job.id] = job
-            while len(self.jobs) > 20:
-                self.jobs.popitem(last=False)
-        th = threading.Thread(target=self._run, args=(job, fn, heavy), daemon=True, name="job-" + kind)
-        th.start()
-        return job
-
-    def _run(self, job, fn, heavy=None):
-        try:
-            # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
-            if job.kind == "build" or (heavy is not None and heavy()):
-                with _heavy.SLOTS.slot(TOOL_ID, "パックの作成" if job.kind == "build" else "試算(無音の検出)", cancelled=lambda: job.task.cancelled,
-                                       on_wait=lambda: setattr(job, "message", _heavy.WAIT_MESSAGE)) as ok:
-                    if not ok:
-                        raise C.Cancelled()
-                    job.message = ""
-                    job.result = fn(job.task)
-            else:
-                job.result = fn(job.task)
-            job.state = "done"
-        except C.Cancelled:
-            job.state = "cancelled"
-            job.message = "取り消しました"
-        except C.OutputExists as e:
-            job.state = "error"
-            job.error = {"code": "exists", "message": str(e), "files": [p.name for p in e.existing]}
-        except (C.ToolError, ApiError) as e:
-            job.state = "error"
-            job.error = {"code": getattr(e, "code", "tool"), "message": getattr(e, "message", None) or str(e)}
-        except Exception as e:   # 想定外でもサーバーは落とさない(詳細は serve.log)
-            log("error: job %s: %s" % (job.kind, traceback.format_exc()))
-            job.state = "error"
-            job.error = {"code": "internal", "message": "内部エラー: %s %s(%s に記録しました)" % (e.__class__.__name__, str(e)[:200], LOG_PATH)}
-        finally:
-            job.finished = time.time()
+        return self.packjobs.start_job(kind, fn, heavy)
 
     def job(self, jid):
-        with self.lock:
-            j = self.jobs.get(str(jid or ""))
-        if j is None:
-            raise ApiError("not_found", "その処理は見つかりません(サーバーを起動し直した可能性があります)", 404)
-        return j
-
-
-BOARD_STATE = {"running": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
-
-
-def board_job(job):
-    """パックのジョブ 1 つ -> 掲示板の Job(id = "pk:<ジョブの id>"。kind pack。試算も同じ kind で題だけ違う)。読むだけ"""
-    state = BOARD_STATE.get(job.state, "running")
-    err = None
-    if job.error:
-        err = {"code": job.error.get("code"), "text": job.error.get("message") or "", "detail": None}
-    res = job.result if isinstance(job.result, dict) else {}
-    target = {"path": str(res["outDir"])} if res.get("outDir") else {}
-    return {"id": "pk:" + job.id, "kind": "pack", "target": target, "title": "パックの作成" if job.kind == "build" else "試算",
-            "state": state, "phase": job.message or "", "progress": job.progress, "waiting": job.message == _heavy.WAIT_MESSAGE and state == "running",
-            "createdAt": int(job.started * 1000), "startedAt": int(job.started * 1000),
-            "finishedAt": int(job.finished * 1000) if job.finished else None, "error": err, "canCancel": state == "running", "canRetry": False}
+        return self.packjobs.job(jid)
 
 
 def board_jobs():
-    """入口に取り込まれているときのジョブ(入れた順)を掲示板の Job に(引く形の source)。取り込まれていなければ空"""
-    mount = MOUNT
-    if mount is None:
-        return []
-    with mount.app.lock:
-        jobs = list(mount.app.jobs.values())
-    return [board_job(j) for j in jobs]
+    """入口に取り込まれているときのジョブ(入れた順)を掲示板の Job に(引く形の source。形は flow/packjobs.board_job)。取り込まれていなければ空"""
+    return MOUNT.app.packjobs.board_jobs() if MOUNT is not None else []
 
 
 def board_cancel(jid):
     """掲示板の cancel(器の中の id)。無い id は LookupError"""
-    mount = MOUNT
-    try:
-        job = mount.app.job(jid) if mount else None
-    except ApiError as e:
-        raise LookupError(e.message)
-    if job is None:
+    if MOUNT is None:
         raise LookupError("そのジョブはありません")
-    if job.state == "running":
-        job.task.cancel()
+    MOUNT.app.packjobs.board_cancel(jid)
 
 
 def attach_board(board):
@@ -671,16 +566,15 @@ def prepare(port, base_path="/", opener=None):
 
 def busy():
     """書き出しなどのジョブが動いているか(入口の「すべて終了」の確認用)"""
-    job = MOUNT.app.running if MOUNT else None
-    return job is not None and job.state == "running"
+    return MOUNT is not None and MOUNT.app.packjobs.running_now() is not None
 
 
 def finish():
     """取り込まれたときの後始末。動いているジョブ(ffmpeg での書き出しなど)を取り消し、自分が書いた .runtime の記録を消す"""
     if MOUNT is None:
         return
-    job = MOUNT.app.running
-    if job is not None and job.state == "running":
+    job = MOUNT.app.packjobs.running_now()
+    if job is not None:
         job.task.cancel()
     remove_runtime(MOUNT.port)
     log("終了(入口)")
