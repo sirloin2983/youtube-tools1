@@ -12,6 +12,7 @@ recognize_voices・voice_learn_plan・run_voice_learn・delete_voice)・話者�
 文書の置き場は隣の store(RS3-E5a)。
 """
 import bisect
+import copy
 import re
 import time
 import unicodedata
@@ -23,6 +24,7 @@ from ytt import txbase as _txbase  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings(RS3-1 に ed_learn から ytt/settings へ)
 from flow import diar as _diar  # noqa: E402   ② 判別と声の段取り(判別・割り当て・判別の記録・声の特徴と照合・覚えた声の置き場所。RS6 a-4。呼ぶたびに _diar.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
+from . import layers as _layers  # noqa: E402   層が正のときの話者の判別(機械の層・話者の対応表。RS8 O2-5)
 
 # ---------- serve が登録する口(RS2-9。eval の drill を ② から読まない) ----------
 _namer = {}
@@ -112,8 +114,27 @@ def _diar_kept_speakers(doc, segs, keep, taken):
     return out, remap
 
 
+def _commit_diar_primary(tid, before, doc, keep_ids):
+    """層が正のときの話者の判別の書き込み(RS8 O2-5 の (r8r)): 機械の層に判別の結果(話者 S…・話者の印)を入れ、判別の鍵 keys.diar を新しくする。
+    判別し直し(前の文書に話者の付いた行がある)なら、人の層の話者の表はそのまま(付け直さない)で、機械の S… → 人の話者の対応表 spkMap を
+    重なり時間で当てる(layers.assign_speakers。当たらない話者だけ新しい H… と弱い印 SPK_CHANGED)。人が決めた話者は残し、層より前の判別の話者は判別に従う
+    (layers.after_rediar)。初めての判別は今と同じ(文書の話者 = 機械の話者)"""
+    mach0, hum0 = store.layers_for(tid, before)
+    mach1, _changed = _layers.advance_mach(mach0, before, doc, speakers=True)
+    mach1["keys"] = dict(mach1.get("keys") or {}, diar="diar-%s" % ((doc.get("diarization") or {}).get("at") or int(time.time() * 1000)))
+    _layers.set_spk_flags(mach1, doc, _txbase.SPK_FLAGS)
+    ids = _spk_ids(before)
+    if not any(str(g.get("speaker") or "") in ids and g.get("speaker") != _yschemas.OTHER_SPK_ID for g in before.get("segments") or [] if isinstance(g, dict)):
+        store.commit(tid, doc, why="diar", mach=mach1)
+        return
+    hum1 = _layers.after_rediar(mach1, _layers.assign_speakers(mach1, hum0, before.get("segments")), keep_ids, _txbase.SPK_FLAGS)
+    store.commit(tid, doc, why="diar", mach=mach1, hum=hum1)
+
+
 def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=False):
     doc = store.read_transcript(tid)
+    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 人の層が話者の表を持つ(RS8 O2-5 の (r8r))
+    before = copy.deepcopy(doc) if primary else None
     ids = _spk_ids(doc)
     # 定型の幻覚で声の区間と重ならない行を捨ててから(autoFill の文書だけ。0.60.0)割り当てる。手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
     a = _diar.assign(doc, turns, offset, lambda g: diar_keep_row(g, ids), smooth)
@@ -145,7 +166,10 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
                                     **({"fillDropped": dropped} if dropped else {}))})
-    store.commit(tid, doc, why="diar")
+    if primary:
+        _commit_diar_primary(tid, before, doc, {str(g.get("id")) for g, k in zip(segs, keep) if k})
+    else:
+        store.commit(tid, doc, why="diar")
     _diar.record_run(tid, a, turns, offset, requested, emb, idmap, auto)   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure, {"idmap": idmap, "remap": remap}   # idmap = 生の話者 → S1…(話した長さ順)・remap = 守った行の話者の付け替え(話者の対応表の材料。O2-0b)
 

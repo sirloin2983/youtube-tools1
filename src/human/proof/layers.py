@@ -700,6 +700,12 @@ def assign_speakers(mach, hum, rows):
                 tally[s][str(g["speaker"])] = tally[s].get(str(g["speaker"]), 0.0) + ov
     mp, fresh = {}, list(out.get("spkFresh") or [])
     for s in seen:
+        if s == _ys.OTHER_SPK_ID:   # 組み込みの「ゲーム音声など」は決まった id(人の表に無ければ足す・弱い印は付けない。O2-5)
+            if s not in ids:
+                speakers.append({"id": s, "name": _ys.OTHER_SPK_NAME, "color": _ys.OTHER_SPK_COLOR, "builtin": _ys.OTHER_SPK_BUILTIN})
+                ids.add(s)
+            mp[s] = s
+            continue
         if tally[s]:
             mp[s] = max(tally[s], key=lambda h: (tally[s][h], -order.index(h)))
             continue
@@ -805,6 +811,95 @@ def advance_mach(mach, old_doc, new_doc, speakers=False):
     out = {"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + (1 if changed else 0),
            "keys": copy.deepcopy((mach or {}).get("keys") or {}), "rows": rows, "speakers": table}
     return out, changed
+
+
+# ---------- 層が正のときの機械の操作(RS8 O2-5。(r8s)(r8r)) ----------
+def put_mach_rows(mach, rows):
+    """機械の層の行を差し替える(再認識 each。(r8s))-> 新しい機械の層(写し・rev + 1)。rows = 新しい機械の行(文書の行の形)。
+    rows の各行の区間に match で当たる機械の行を捨てて rows を足す。新しい行に話者が無ければ、捨てた行でいちばん重なる行の話者。
+    id が残した行と重なれば末尾に x"""
+    base = _mrows(mach)
+    new = [_ys.mach_row(r) for r in rows or [] if isinstance(r, dict) and _span(r)]
+    spans = [_span(r) for r in new]
+    near = _near([_span(m) for m in base], spans)
+    keep, gone = [], []
+    for k, m in enumerate(base):
+        (gone if any(match(_span(m), spans[x]) for x in near[k]) else keep).append(m)
+    used = {m["id"] for m in keep}
+    out = list(keep)
+    for r in new:
+        if "speaker" not in r:
+            best = max(gone, key=lambda m: _overlap(_span(m), _span(r)), default=None)
+            if best is not None and _overlap(_span(best), _span(r)) > 0 and best.get("speaker"):
+                r["speaker"] = best["speaker"]
+        while r["id"] in used:
+            r["id"] += "x"
+        used.add(r["id"])
+        out.append(r)
+    out.sort(key=lambda m: (m["start"], m["end"]))
+    return {"schema": MACH_SCHEMA, "rev": (_ys.plain_int((mach or {}).get("rev")) or 0) + 1, "keys": copy.deepcopy((mach or {}).get("keys") or {}),
+            "rows": out, "speakers": _speakers_of(mach)}
+
+
+def mach_moved(hum, rid, new_text, human_text):
+    """人の文字の行 rid を覆ったときの機械(base)と新しい機械の文字 new_text が違い、新しい機械が人の文字とも違うか(= 印 MACH_CHANGED を付ける)。
+    人の層にその行が無ければ、新しい機械が人の文字と違うか"""
+    h = next((x for x in (hum or {}).get("rows") or [] if isinstance(x, dict) and "text" in x and str(x.get("id")) == str(rid)), None)
+    now = _norm(new_text)
+    if now == _norm(human_text):
+        return False
+    return h is None or _joined((h.get("base") or {}).get("rows") or []) != now
+
+
+def set_spk_flags(mach, doc, flags):
+    """機械の層の行の話者の印(flags = 話者判別の印の一覧)を文書の行の印に合わせる(話者の判別のあと。(r8r))。
+    行は同じ id で同じ時刻・無ければ同じ時刻の文書の行。mach を書き換える"""
+    segs = [g for g in (doc or {}).get("segments") or [] if isinstance(g, dict) and _span(g)]
+    by_id = {str(g.get("id")): g for g in segs}
+    at = {}
+    for g in segs:
+        at.setdefault(_span(g), g)
+    for m in (mach or {}).get("rows") or []:
+        g = by_id.get(str(m.get("id")))
+        if g is None or _span(g) != _span(m):
+            g = at.get(_span(m))
+        if g is None:
+            continue
+        mine = [x for x in str(m.get("flag") or "").split("、") if x and x not in flags]
+        spk = [x for x in str(g.get("flag") or "").split("、") if x in flags]
+        m["flag"] = "、".join(mine + spk)[:FLAG_MAX]
+
+
+def after_rediar(mach, hum, keep_ids, flags):
+    """判別し直したあと(層が正。(r8r))の人の層を整える -> 新しい人の層(写し)。keep_ids = 判別が話者を変えない行の id(diar_keep_row)。
+    - 覆ったときの機械の行に話者が 1 つも無い行(層より前の判別の結果 = 人が決めたか分からない)の話者は人の層から外す(今と同じく判別に従う)
+    - 属性の行の印が、話者の印(flags)を除くと今の機械の印と同じなら印を外す(話者の印は今の判別のまま)
+    - 外したあと何も持たない属性の行は消す"""
+    out = copy.deepcopy(hum)
+    by = {m["id"]: m for m in _mrows(mach)}
+
+    def plain(f):
+        return [x for x in str(f or "").split("、") if x and x not in flags]
+    rows = []
+    for h in out.get("rows") or []:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("id")) in keep_ids:
+            rows.append(h)
+            continue
+        brows = [b for b in (h.get("base") or {}).get("rows") or [] if isinstance(b, dict)]
+        if brows and not any(b.get("speaker") for b in brows):
+            h.pop("speaker", None)
+        if "text" not in h:
+            covers = [str(c) for c in h.get("covers") or []]
+            m = by.get(covers[0]) if covers else None
+            if m is not None and "flag" in h and plain(h["flag"]) == plain(m["flag"]):
+                h.pop("flag")
+            if not set(h) - {"id", "start", "end", "covers", "base"} and covers == [str(h.get("id"))]:   # 何も持たない(id も機械と同じ)
+                continue
+        rows.append(h)
+    out["rows"] = rows
+    return out
 
 
 def _row_diff(a, b, loose=False):

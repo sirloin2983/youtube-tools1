@@ -12,6 +12,7 @@ each_lines・recognize_range)・全体の続きの記録の後始末(end_whole)�
 ed_state は読まない(置き場所と元のファイルの検査は ytt の workdata・tools・ジョブの表は ytt/jobs)。S.名前 は serve の受付がここへ回す
 (テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
 """
+import copy
 import time
 
 from ytt import errors as _errors, schemas as _yschemas, tools as _tools  # noqa: E402
@@ -23,6 +24,7 @@ from flow import tx as _flowtx  # noqa: E402   ② 再認識の動詞(extract_sp
 from ytt import txbase as _txbase  # noqa: E402
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(RS3-E5a に editor/ed_store から隣へ。呼ぶたびに store.名前 で読む)
 from . import doc_jobs  # noqa: E402   受付の側の _fresh_id・redo_targets(呼ぶたびに doc_jobs.名前 で読む)
+from . import layers as _layers  # noqa: E402   層が正のときの再認識 each(機械の層の差し替え・印 MACH_CHANGED。RS8 O2-5)
 
 
 # ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2。original を差し替える前の分を recognition.runs に残す) ----------
@@ -97,34 +99,57 @@ def apply_retranscribe(spec, results):
 
 def _apply_retranscribe(spec, results):
     doc = store.read_transcript(spec["tid"])
+    primary = _txbase.layers_mode() == _txbase.LAYERS_PRIMARY   # 層が正: 校正済みの行は機械で置き換えない(RS8 O2-5 の (r8s))
+    before = copy.deepcopy(doc) if primary else None
     pairs = _flowtx.dict_pairs(spec)
     have_orig = isinstance(doc.get("original"), list)
     orig = doc["original"] if have_orig else []
     spans = [(sg["start"], sg["end"]) for sg in doc.get("segments") or [] if results.get(sg["id"])]
     record_rerun(doc, spec, "each", spans, replaced_rows(orig, spans), pairs)   # 差し替える前の機械の出力を残す(マスタープラン Q2)
     done = unsure = 0
+    mrows, kept = [], []   # 層が正: 新しい機械の行・機械で置き換えなかった校正済みの行 (行, 新しい機械の文字)
     for sg in doc.get("segments") or []:
         r = results.get(sg["id"])
         if not r:
             continue
         raw, flag = r
         keep = [x for x in str(sg.get("flag", "")).split("、") if x in _txbase.SPK_FLAGS]   # 話者の印は残し、文字の印は付け直す
-        sg["text"], _ = _dictfmt.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
-        sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
-        sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
-        sg["flag"] = "、".join(([flag] if flag else []) + keep)[:100]
+        text, _ = _dictfmt.apply_replacements(raw[:_txbase.MAX_TEXT], pairs)
+        new_flag = "、".join(([flag] if flag else []) + keep)[:100]
+        mrows.append({"id": sg["id"], "start": sg["start"], "end": sg["end"], "text": text, "flag": new_flag})
         unsure += 1 if flag else 0
         done += 1
         if have_orig:
             orig = replace_original(orig, sg["start"], sg["end"], raw)
+        if primary and sg.get("proofed") is True:
+            kept.append((sg, text))
+            continue
+        sg["text"] = text
+        sg.pop("proofed", None)   # 機械が書き換えた行は、人が確認し直すまで校正済みにしない
+        sg.pop("proofedAt", None)   # 校正した時刻も一緒に外す(次に校正済みにした時刻から数え直す)
+        sg["flag"] = new_flag
     if have_orig:
         doc["original"] = orig
     store.backup_doc(spec["tid"], "retranscribe")
-    doc["retranscribed"] = {"model": spec["model"], "lines": done, "at": int(time.time() * 1000)}
+    doc["retranscribed"] = dict({"model": spec["model"], "lines": done, "at": int(time.time() * 1000)}, **({"keptProofed": len(kept)} if kept else {}))
     doc["updatedAt"] = int(time.time() * 1000)
     store.apply_edit_cuts(spec["tid"], doc)
-    store.commit(spec["tid"], doc, why="rerun_each")
+    if primary:
+        _commit_each_primary(spec["tid"], before, doc, mrows, kept)
+    else:
+        store.commit(spec["tid"], doc, why="rerun_each")
     return done, unsure
+
+
+def _commit_each_primary(tid, before, doc, mrows, kept):
+    """層が正のときの再認識 each の書き込み((r8s)): 機械の層の行を新しい機械の行に差し替え、校正済みの行は人の直しのまま
+    (機械の文字が覆ったときの機械と違い、人の文字とも違えば印 MACH_CHANGED = 3 択)。校正していない行は文書の側で置き換え済み"""
+    mach0, hum0 = store.layers_for(tid, before)
+    mach1 = _layers.put_mach_rows(mach0, mrows)
+    for sg, text in kept:
+        if _layers.mach_moved(hum0, sg["id"], text, sg.get("text")):
+            sg["flag"] = _layers.join_flags(sg.get("flag"), _layers.MACH_CHANGED)
+    store.commit(tid, doc, why="rerun_each", mach=mach1, hum=_layers.diff(mach1, doc, hum0))
 
 
 def _in_spans(t, spans):

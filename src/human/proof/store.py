@@ -190,6 +190,15 @@ def _commit_primary(tid, doc, why, given_mach, given_hum, folder):
     return copy
 
 
+def layers_for(tid, doc):
+    """機械の操作の前の層(層が正のとき。RS8 O2-5)-> (機械の層, 人の層)。ファイルは書かない。
+    機械の層が無い・壊れていれば doc から作る(影のモードの移行と同じ割り方)。人の層は doc との差分(前の人の層の base・消す印・話者の対応表を引き継ぐ)"""
+    mach = _read_layer(tid, _yschemas.MACH_SUFFIX, _yschemas.MACH_SCHEMA)
+    if mach is None:
+        mach = _layers.mach_from_doc(doc, rev=1)
+    return mach, _layers.diff(mach, doc, _read_layer(tid, _yschemas.HUM_SUFFIX, _yschemas.HUM_SCHEMA))
+
+
 # ---------- 層が正のときの読み(RS8 O2-3): 写しが古ければ組み立て直す ----------
 _layer_rev_cache = {}   # (tid, suffix) -> (パスと stamp, rev か _BROKEN)
 _BROKEN = object()
