@@ -31,7 +31,7 @@ static で見るもの(ID は基準の文書と同じ):
   (target="_blank" は見ない: 窓の中では UIKit.win が自動で「このパソコンの画面 → 窓・外のサイト → ブラウザ」に振り分ける決まり)
 
 live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 も)× 明・暗。文字「大きい」は 390/960 で はみ出し・縦割れ だけ):
-  A-01 abs-path      … (実行時)案件の画面(/cases)が許した所(自分の部品・/ui-kit.*・/api/・取り込んだツール /studio/・/transcribe/・/cut2resolve/・/live/)の外へ要求を出していない
+  A-01 abs-path      … (実行時)案件の画面(/cases)・確かめる(/check)が許した所(自分の部品・/ui-kit.*・/api/・取り込んだツール /studio/・/transcribe/・/cut2resolve/・/live/。/check は /transcribe/ まで)の外へ要求を出していない
   A-20 overflow      … 横にはみ出さない(scrollWidth ≤ 窓の幅)
   A-21 target-size   … 押せる部品(button・input・select・summary・role=button・a.btn)の高さと幅が 28px 以上(::before/::after で広げた当たり判定も数える。checkbox/radio は 16px)
   A-22 contrast      … 文字と背景のコントラストが 4.5:1 以上(大きい文字は 3:1)。背景は文字の中心の点に重なる要素を上から合成。disabled・placeholder・aria-hidden・背景画像の上は除く
@@ -68,7 +68,7 @@ SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "portal-edit.js", 
            # 案件の画面(/cases。RS8。入口が配る 1 枚。panels/new.* はホームの「新しい案件」の引き出しも読む)
            "app/ui/cases": ["index.html", "cases.js", "cases.css", "edhost.js", "panels/cand.js", "panels/cand.css", "panels/proof.js", "panels/proof.css",
                             "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css"],
-           # 確かめる(/check。RS8 V1。入口が配る 1 枚。見る場面(live)は V4 で足す)
+           # 確かめる(/check。RS8 V1。入口が配る 1 枚。見る場面は default_scenes の check-*。V4)
            "app/ui/check": ["index.html", "check.js", "check.css", "player.js", "cards/value.js", "cards/read.js", "cards/voice.js", "cards/time.js"],
            # 案件の画面が studio/・transcribe/ から読む部品(古い画面のページは C4 で消した = 部品だけ)
            "studio": ["rank.js", "queue.js", "review.js", "collab.js"],
@@ -93,7 +93,8 @@ VARIANTS = ("light", "dark", "light-lg")
 IGNORE_CONSOLE = ("/live/api/info", "compute-pressure")   # YouTube の埋め込みプレイヤーが出す Permissions policy の警告(Windows で埋め込みが読めるときだけ出る。画面側では直せない)
 REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")   # この文字のあとの / は正規表現の始まり(割り算ではない)
 # 取り込まれた画面が要求してよい場所(取り込みの場所 + ホームの API /api/(まとめて実行・api/ytt)+ 録画の部品 /live/)。UIKit.tools.base() が作る他ツールの URL も含む
-ALLOWED_PREFIX = {"/cases": ("/cases", "/ui-kit.", "/api/", "/studio/", "/transcribe/", "/cut2resolve/", "/live/")}   # 案件の画面(RS8 C4。古い /studio/・/transcribe/ のページは消した)
+ALLOWED_PREFIX = {"/cases": ("/cases", "/ui-kit.", "/api/", "/studio/", "/transcribe/", "/cut2resolve/", "/live/"),   # 案件の画面(RS8 C4。古い /studio/・/transcribe/ のページは消した)
+                  "/check": ("/check", "/ui-kit.", "/api/", "/transcribe/")}   # 確かめる(RS8 V1: 自分の部品 /check*・入口の api/check・編集の動画と波形 transcribe/)
 
 
 class Findings:
@@ -554,6 +555,14 @@ def default_scenes(base):
         {"name": "cases-proof-keys", "url": ed + "#proof", "actions": [("wait", 800), ("click", "#btnKeys"), ("wait", 400)], "modal": {"root": "#keys", "opener": "#btnKeys"}, "min_width": 561},   # 560px 以下はキー操作のボタンを出さない(? キーだけ)
         {"name": "cases-cut", "url": ed + "#cut", "wide": True},
         {"name": "cases-pack-more", "url": ed + "#cut", "actions": [("wait", 800), ("click", "#pkMore > summary"), ("wait", 300)]},   # パックはカットの末尾。「詳しく」(出力先・zip)を開いた形
+        # 確かめる(/check。RS8 V1 の V4)。見本のデータ(demo_env.seed_check)で 4 種類のカードが 1 枚ずつ出る。開くだけ(答えない = 作業データを書かない)
+        {"name": "check", "url": base + "/check", "header": True, "wide": True, "actions": [("wait", 800)]},
+        {"name": "check-value", "url": base + "/check?kind=value", "actions": [("wait", 800)]},   # 自動でできた切り抜き(動画の再生)
+        {"name": "check-value-cand", "url": base + "/check?c=democand001&kind=value", "actions": [("wait", 800)]},   # 候補のまま(配信の区間を YouTube の埋め込みで)
+        {"name": "check-read", "url": base + "/check?kind=read", "actions": [("wait", 800)]},   # 2 つの読みの比較(.ui-pair)
+        {"name": "check-voice", "url": base + "/check?kind=voice", "actions": [("wait", 800)]},   # 誰の声(名前の選択肢)
+        {"name": "check-time", "url": base + "/check?kind=time", "actions": [("wait", 1500)]},   # 行の時刻(波形と頭・末の印)
+        {"name": "check-empty", "url": base + "/check?c=zz-no-such-case&back=cases", "actions": [("wait", 800)]},   # 空の状態(この案件に確かめる物が無い・案件へ戻る)
         {"name": "styleguide", "url": styleguide},
     ]
 
@@ -701,11 +710,11 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
                         continue
                     run_scene(pg, scene, width, variant, out, shots)
                 ctx.close()
-        # A-32: prefers-reduced-motion で動きが止まる(主な 3 場面)
+        # A-32: prefers-reduced-motion で動きが止まる(主な 4 場面)
         ctx = browser.new_context(viewport={"width": 1440, "height": 900}, reduced_motion="reduce")
         pg = ctx.new_page()
         for scene in scenes:
-            if scene["name"] in ("home", "cases-cand", "cases-proof"):
+            if scene["name"] in ("home", "cases-cand", "cases-proof", "check"):
                 try:
                     pg.goto(scene["url"], wait_until="networkidle", timeout=30000)
                     pg.wait_for_timeout(500)
