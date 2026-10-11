@@ -66,8 +66,9 @@ P3(2026-10-05。計画の 0-8): 録画と再生・マークは**スタジオの�
 src/flow/livesession.py の LiveSession(ライブ係)へ移した。Live はそれを継ぎ、ここに残すのは app の物だけ: HTTP の受け口(handle_get・handle_post)・
 中継(_relay)・札(ytt)・スタジオ(studio_call・StudioMarks・書き出しの音量の settings-ui.json)・友人へ届ける(_auto_deliver_for)・D-13(stop_long_requests・
 unconfirmed)・組の溜め(flush_pools)・見ていない自動の切り抜きの片付け(expire_unseen)・ホームの設定(prefs)・片付けの部品(Cleaner)・依頼の録画の束(live_bundle)。
-自分の配信(スタジオの URL の欄 POST /live/api/begin)は束を組まず今の読み方のまま(plan_order_v3.md 6 節の時間の上限で切った。束で動くのは封筒 kind live =
-友人のライブ配信の依頼・画面なし・② の口 POST /api/flow/submit。配信中に設定を変えると効く今の動きと、e2e_live_studio の確かめをそのまま残すため)。
+自分の配信(スタジオの URL の欄 POST /live/api/begin)も RS8 から録画を始めたときに束を組む(livesession.begin_own。封筒 kind live + own_bundle =
+画面の設定の束 + ホームの設定 live + 今のスタジオの解析の設定・書き出しの音量)。録画中に設定を変えても、その録画の検出の感度・枠・採用の待ち・余白・
+配信後の解析・書き出しの音量・書き出したあとのエンジン・モデル・カットには効かない(決定 3-31 の b1・b2)。封筒にできない URL(テストの手元の録画元)は束なし。
 画面なし(--headless)は use_headless: スタジオなしの採用(LocalMarks)・届けない・D-13 なし・上限は束の adopt.top・空き容量の下限(machine.json の diskMinGB)。
 """
 import http.client
@@ -115,7 +116,7 @@ def studio_review(root):
 def studio_audio(root):
     """書き出しの音量の設定(スタジオの書き出しの設定と同じ値を使う。sanitizeSettings(src/studio/review.js)と同じ丸め方):
     -> {"volume": 1〜200(%。既定 75), "loudness": -11|-14|-16|-18(LUFS)か None(そろえない)}。loudness があるときは音量(%)は使わない。
-    束の無い録画の書き出しと /live/api/info が使う(束のある録画は束の export。決定 3-31 の仮 b2)"""
+    束の無い録画の書き出し・自分の配信の束(livesession.own_bundle が録画を始めたときに写す)・/live/api/info が使う(束のある録画は束の export。決定 3-31 の b2)"""
     r = studio_review(root)
     try:
         vol = min(200, max(1, int(round(float(r.get("exportVolume", STUDIO_EXPORT_VOLUME))))))
@@ -219,17 +220,21 @@ class Live(livesession.LiveSession):
                 ("見ていない自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 3 日見ない自動の切り抜きはごみ箱へ(10-09 ユーザー決定。オフでも前の分は片付ける)
 
     # --- 束(RS7-2 G2b) ---
-    def live_bundle(self):
-        """友人の依頼の録画を始めるときの束の土台 = 画面の設定から組む束(まとめて実行の build_spec = スタジオ・編集の設定ファイル + この PC の設定)+ ホームの設定 live の
-        検出・採用の待ち・余白・書き出したあとのエンジン・モデル・カット(決定 3-31 の仮 b1・b3。livesession.cfg_bundle)"""
+    def _bundle_base(self):
+        """録画を始めるときの束の土台 = 画面の設定から組む束(まとめて実行の build_spec = スタジオ・編集の設定ファイル + この PC の設定)。組めなければ None(束の既定)"""
         r = self.runner()
-        base = None
         if r is not None and hasattr(r, "build_spec"):
             try:
-                base = r.build_spec()[0]
+                return r.build_spec()[0]
             except Exception as e:   # noqa: BLE001  (組めなければ束の既定 = 各ツールの既定)
                 self.note("リアルタイム切り抜き: 録画の束を画面の設定から組めませんでした(既定で続けます): %r" % (e,))
-        return livesession.cfg_bundle(base, self.cfg())
+        return None
+
+    def live_bundle(self):
+        """友人の依頼の録画を始めるときの束の土台 = _bundle_base + ホームの設定 live の
+        検出・採用の待ち・余白・書き出したあとのエンジン・モデル・カット(決定 3-31 の仮 b1・b3。livesession.cfg_bundle)。
+        自分の配信の束は livesession の own_bundle(これに今のスタジオの解析の設定・書き出しの音量を重ねる。RS8)"""
+        return livesession.cfg_bundle(self._bundle_base(), self.cfg())
 
     def submit_request(self, url, ctx):
         """友人のライブ配信の依頼(src/human/friend/intake.py の live_begin。2-15): 欄 ctx から封筒 + 束(自分の配信と同じ束に依頼の設定・
@@ -325,7 +330,7 @@ class Live(livesession.LiveSession):
         """録画を始める(P3)・マークと書き出し(P2・P3)"""
         try:
             if path == "/live/api/begin":
-                return h._json(200, self.begin(body.get("url")))   # 自分の配信は束なし(今の読み方。RS7-2 G2b は 6 節の時間の上限で切った)
+                return h._json(200, self.begin_own(body.get("url")))   # 自分の配信も録画を始めたときに束を組む(RS8。flow/livesession.py の begin_own)
             ex = self.exporter
             if path == "/live/api/marks":
                 rc, rec = body.get("recorder"), body.get("recording")

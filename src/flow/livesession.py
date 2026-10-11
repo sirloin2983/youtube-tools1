@@ -11,7 +11,8 @@ use_headless でスタジオなしの採用(LocalMarks)・届けない・D-13 �
   封筒 kind live(flow/envelope.py)を受けて録画を始め、録画ごとに封筒 + 束を live/bundles.json に残す(BundleBook)。
   友人の依頼(封筒の requestId・入口の intake から ctx つき)と画面なしの依頼は requests.json の結びつき(human/friend/live_requests.Store)も今までどおり作る
   (= 依頼の録画の検出・自動の採用・after auto・配信後の追加は今の「友人の依頼の録画」の決まりのまま)。
-  ユーザーの PC の自分の配信(スタジオの URL の欄 → 芯の begin)は今は束なし(plan_order_v3.md 6 節の時間の上限で切った。束を渡せば同じ芯で残る)。
+  ユーザーの PC の自分の配信(スタジオの URL の欄 → begin_own)も録画を始めたときに束を組む(RS8): 封筒 kind live + own_bundle
+  (土台 + ライブの設定 + 束の無い録画が読んでいた今の値 = スタジオの解析の設定・書き出しの音量)。封筒にできない URL(テストの手元の録画元)だけ束なし。
 
 live/bundles.json の形: {"<録画元>/<録画>": {"envelope": 封筒(検査済み。無い = 束だけ), "spec": 束(検査済み), "at": 受けた時刻(epoch 秒)}}
   一時ファイルから置き換える(fsio.atomic_write)。無い・読めない・形の違う行 = その録画は束なし(今までどおりの読み方)。BUNDLES_KEEP_DAYS で片付ける。
@@ -19,7 +20,8 @@ live/bundles.json の形: {"<録画元>/<録画>": {"envelope": 封筒(検査済
   検出(live_detect.Detector.config の bundles = 録画ごとの解析の設定・感度・枠)・自動の採用の待ち(Detector.adopt_for)・
   配信後の全自動の解析の設定(live_archive の settings_for)・書き出しの音量(live_export.Exporter._audio_cfg)・
   書き出したあとの設定(auto_cfg の cut・engine・model・pad。束の run.pinned にある物だけ)・まとめて実行へ渡す束(Exporter._handoff)。
-  束の無い録画は今の読み方(スタジオの GET /api/settings・settings-ui.json・ホームの設定 live.auto)に落ちる。
+  束の無い録画(封筒にできない URL・束より前の録画)は今の読み方(スタジオの GET /api/settings・settings-ui.json・ホームの設定 live.auto)に落ちる。
+  録画中に設定を変えても、束のある録画には効かない(変えるなら録画を止めて始め直す)。検出・自動採用のオン/オフ・書き出したあと(auto.after)・画質は束に無い = 今の設定。
 
 import してよいのは標準ライブラリ・ytt・pipeline・同じ flow だけ(層の向き。友人の依頼の結びつき・片付け・案件は入口が hook で渡す)。
 """
@@ -200,6 +202,25 @@ def cfg_bundle(base, cfg):
             b[sec][key] = _spec.read_legacy_tx(key, v) if sec == "transcribe" else v   # 旧い名前は key_ok と同じく今の値に読む(0.58.0)
             pins.append(key)
     b["run"]["pinned"] = list(dict.fromkeys(pins))
+    return _spec.validate(b)
+
+
+def now_bundle(bundle, analyze=None, audio=None):
+    """束に、束の無い録画が読んでいた「今の値」を重ねる(自分の配信の束。RS8): analyze = スタジオの解析の設定(GET /api/settings の analyze。
+    検出の spec・配信後の解析が読んでいた物)・audio = 書き出しの音量 {"volume", "loudness"}(Exporter の audio() = スタジオの書き出しの設定)。
+    合わない値・無い値は束のまま"""
+    b = copy.deepcopy(_spec.validate(_spec.merge(bundle)))
+    an = analyze if isinstance(analyze, dict) else {}
+    for key in _spec.DEFAULTS["analyze"]:
+        if key in an and _spec.key_ok("analyze", key, an[key]):
+            b["analyze"][key] = an[key]
+    au = audio if isinstance(audio, dict) else {}
+    for key in ("volume", "loudness"):
+        v = au.get(key)
+        if isinstance(v, float) and v.is_integer():   # studio_audio は -14.0 の形(束は整数)
+            v = int(v)
+        if key in au and _spec.key_ok("export", key, v):
+            b["export"][key] = v
     return _spec.validate(b)
 
 
@@ -481,6 +502,36 @@ class LiveSession:
     def bundle(self, rc, rec):
         """その録画の束(録画を始めたときに受けた物。RS7-2 G2b)か None(束の無い録画 = 今までの設定の読み方)"""
         return self.bundles.spec(rc, rec)
+
+    def _bundle_base(self):
+        """録画を始めるときの束の土台(入口の Live は画面の設定から組む束 = まとめて実行の build_spec)。ここ(画面なしの芯)は None = 束の既定"""
+        return None
+
+    def own_bundle(self):
+        """自分の配信(スタジオの URL の欄)の録画の束(RS8。決定 3-31 の b1・b2 を自分の配信にも): 土台(_bundle_base)+ ライブの設定(cfg_bundle)+
+        束の無い録画が読んでいた今の値(スタジオの解析の設定 = GET /api/settings の analyze・書き出しの音量 audio())。録画を始めたときの値に固定する"""
+        b = cfg_bundle(self._bundle_base(), self.cfg())
+        try:
+            code, d = self.studio_call("GET", "/api/settings")
+        except Exception as e:   # noqa: BLE001  (読めなければ土台の解析の設定のまま)
+            self.log("リアルタイム切り抜き: 録画の束にスタジオの解析の設定を読めませんでした: %r" % (e,))
+            code, d = None, None
+        an = (d.get("settings") or {}).get("analyze") if code == 200 and isinstance(d, dict) and isinstance(d.get("settings"), dict) else None
+        try:
+            au = self.audio() if self.audio is not None else None
+        except Exception:   # noqa: BLE001  (読めなければ土台の音量のまま)
+            au = None
+        return now_bundle(b, an, au)
+
+    def begin_own(self, url):
+        """自分の配信(スタジオの URL の欄 POST /live/api/begin)の録画を始める: 封筒 kind live + 自分の配信の束(own_bundle)で begin
+        (同じ配信を録画中なら、その録画の束は始めたときのまま)。封筒にできない URL(テストの手元の録画元)は束なし。-> begin の JSON"""
+        url = validate_url(url, self.allow_local_urls)
+        try:
+            env = live_envelope(url)
+        except ValueError:
+            return self.begin(url)
+        return self.begin(url, envelope=env, bundle=self.own_bundle())
 
     def bundle_top(self, rc, rec):
         """1 録画の自動の採用の上限 = その録画の束の adopt.top(友人の PC の auto_max。束の無い録画は None = live_detect.AUTO_MAX_PER_REC)"""

@@ -5,6 +5,7 @@
   束から検出の設定(config.json の bundles)・自動の採用の待ち・配信後の解析の設定・書き出したあとの設定
 - 画面なしの形(どの封筒も依頼の決まり・D-13 なし・上限は束の adopt.top): 採用(LocalMarks)→ 書き出しのジョブ → まとめて実行へ
   封筒 kind file + 録画の束(submit。欄は以前の start_file と同じ実行)・書き出しの音量は束から
+- 自分の配信(begin_own。RS8): 録画を始めたときに束を組み(ホームの設定 + スタジオの解析の設定・書き出しの音量)、録画中に設定を変えても束の値
 - 空き容量の下限(disk_min_gb)を下回ったら録画を始めない
 - 起動し直し: 新しい LiveSession が bundles.json から束を戻す(形の違う行は束なし)・古い束は片付ける
 - 入口の Live(app)の use_headless と、友人の依頼(intake の live_begin = submit_request)が封筒 + 束で submit を通る(requests.json は今の形のまま)
@@ -161,6 +162,72 @@ class SubmitTest(Base):
         self.assertEqual(self.s.auto_cfg(), {"after": "check", "cut": "none", "engine": "faster-whisper", "model": "small", "pad": 0.5})   # 束の無い録画
 
 
+class OwnStreamTest(Base):
+    """自分の配信(スタジオの URL の欄 → begin_own。RS8): 録画を始めたときに束を組み、録画中に設定を変えても束の値を使う(決定 3-31 の b1・b2)"""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg["auto"] = {"engine": "whisper.cpp", "model": "large-v3", "pad": 1.0}
+        self.analyze = {"length": 20, "headSec": 0, "count": 12, "wChat": 2.5, "nope": 1}
+        self.audio = {"volume": 100, "loudness": -16.0}   # studio_audio の形(LUFS は小数)
+        self.s.studio_call = lambda method, path, body=None: (200, {"settings": {"analyze": dict(self.analyze)}}) if path == "/api/settings" else (None, {})
+        self.s.audio = lambda: dict(self.audio)
+
+    def test_bundle_fixed_while_recording(self):
+        out = self.s.begin_own("https://youtu.be/%s?t=5" % VID)
+        self.assertEqual((out["live"], out["recording"]["id"], out["existing"]), (True, REC, False))
+        item = self.s.bundles.get("local", REC)
+        self.assertEqual((item["envelope"]["kind"], item["envelope"]["input"]["url"], item["envelope"]["requestId"]), ("live", URL, None))
+        sp = item["spec"]
+        self.assertEqual((sp["adopt"]["sens"], sp["adopt"]["perHour"], sp["adopt"]["waitMin"], sp["adopt"]["pad"]), ("low", 4, 9, 1.0))
+        self.assertEqual((sp["analyze"]["length"], sp["analyze"]["headSec"], sp["analyze"]["count"], sp["analyze"]["wChat"]), (20, 0, 12, 2.5))
+        self.assertNotIn("nope", sp["analyze"])
+        self.assertEqual(sp["export"], {"volume": 100, "loudness": -16})
+        self.assertEqual(sorted(sp["run"]["pinned"]), ["engine", "model"])
+        self.assertEqual(self.s.requests.all(), {}, "自分の配信は依頼の結びつきを作らない")
+        # 録画中に設定を変える(ホームの設定・スタジオの解析の設定・書き出しの音量)
+        self.cfg.update(detect={"enabled": True, "sens": "high", "perHour": 20}, autoAdopt={"enabled": True, "waitMin": 60},
+                        auto={"engine": "whisper.cpp", "model": "large-v3", "cut": "silence", "pad": 3.0})
+        self.analyze.update(length=90, headSec=300)
+        self.audio.update(volume=50, loudness=None)
+        other = "20261011-210000-x"   # 束の無い録画は今の値
+        self.assertEqual((self.s.detector.adopt_for(None, "local", REC), self.s.detector.adopt_for(None, "local", other)),
+                         ({"enabled": True, "waitMin": 9}, {"enabled": True, "waitMin": 60}))
+        b = self.s.detector.bundles_cfg()["local/" + REC]
+        self.assertEqual((b["sens"], b["perHour"], b["spec"]["length"], b["spec"]["headSec"]), ("low", 4, 20.0, 0.0))
+        self.assertEqual((self.s.archiver.settings_for("local", REC)["length"], self.s.archiver.settings_for("local", REC)["headSec"]), (20, 0))
+        self.assertEqual((self.s.exporter._audio_cfg({"recorder": "local", "recording": REC}), self.s.exporter._audio_cfg({"recorder": "local", "recording": other})),
+                         ((100, -16), (50, None)))
+        self.assertEqual(self.s.auto_cfg("local", REC), {"after": "check", "cut": "", "engine": "whisper.cpp", "model": "large-v3", "pad": 1.0})
+        self.assertEqual(self.s.auto_cfg("local", other)["pad"], 3.0)
+        # 同じ配信をもう一度: 録画中のものを返し、束は始めたときのまま
+        out2 = self.s.begin_own(URL)
+        self.assertEqual((out2["existing"], len(self.rec.started()), self.s.bundle("local", REC)["adopt"]["waitMin"]), (True, 1, 9))
+
+    def test_not_live_and_local(self):
+        self.s.probe = lambda url: {"status": "was_live", "title": "", "channel": "", "message": ""}
+        self.assertEqual(self.s.begin_own(URL), {"live": False, "status": "was_live"})
+        self.assertFalse(os.path.isfile(self.bundles_path))
+        with self.assertRaises(LX.LiveError):
+            self.s.begin_own("https://example.com/watch?v=" + VID)
+        # 封筒にできない URL(テストの手元の録画元)は束なし
+        self.s.probe = lambda url: {"status": "is_live", "title": "手元", "channel": "", "message": ""}
+        self.s.allow_local_urls = True
+        out = self.s.begin_own("http://127.0.0.1:9/live.m3u8")
+        self.assertTrue(out["live"])
+        self.assertIsNone(self.s.bundle("local", REC))
+        self.assertFalse(os.path.isfile(self.bundles_path))
+
+    def test_studio_unreachable(self):
+        """スタジオに聞けない(画面なしの芯・スタジオが動いていない)ときは土台の解析の設定のまま"""
+        self.s.studio_call = lambda method, path, body=None: (None, {"message": "切り抜きスタジオがありません"})
+        self.s.audio = None
+        self.s.begin_own(URL)
+        sp = self.s.bundle("local", REC)
+        self.assertEqual((sp["analyze"], sp["export"]), (S.DEFAULTS["analyze"], S.DEFAULTS["export"]))
+        self.assertEqual(LS.now_bundle(None, {"length": 5, "count": True}, {"volume": 0, "loudness": -15}), S.validate(S.merge(None)), "範囲の外は束のまま")
+
+
 class HeadlessTest(Base):
     """画面なしの形(入口の Live.use_headless と同じ値をライブ係に置く): どの封筒も依頼の決まり・D-13 なし・上限は束の adopt.top"""
 
@@ -304,10 +371,24 @@ class LiveAppTest(unittest.TestCase):
                          (10, "high", 3, False, "silence", 2, 1, [{"name": "兎田ぺこら"}], ["cut", "videoTracks"]))
         self.assertEqual(sp["analyze"]["length"], S.DEFAULTS["analyze"]["length"], "依頼の長さは束の analyze に入れない(検出は requests.json の長さ)")
         self.assertEqual(LS.bundle_ctx(b["envelope"], sp, URL)["settings"], dict(ctx["settings"], length=S.DEFAULTS["analyze"]["length"]))
-        # 自分の配信(スタジオの URL の欄)は束なし(今の読み方。6 節の時間の上限で切った)
+        # 束を渡さない芯の begin は、録画の束に触らない
         self.rec.recs.clear()
         self.assertTrue(self.live.begin(URL)["live"])
-        self.assertEqual(self.live.bundle("local", REC)["adopt"]["top"], 10, "begin は録画中の録画の束を変えない")
+        self.assertEqual(self.live.bundle("local", REC)["adopt"]["top"], 10, "束なしの begin は録画の束を変えない")
+
+    def test_own_stream_bundle(self):
+        """自分の配信(POST /live/api/begin = Live.begin_own。RS8): 画面の設定の束 + ホームの設定 live + スタジオの書き出しの音量で束を組み、
+        録画中にホームの設定を変えても束の値(採用の待ち・余白)を使う"""
+        self.prefs.patch("live", {"enabled": True, "autoAdopt": {"enabled": True, "waitMin": 7}, "auto": {"pad": 1.0}})
+        out = self.live.begin_own(URL)
+        self.assertEqual((out["live"], out["recording"]["id"]), (True, REC))
+        sp = self.live.bundle("local", REC)
+        self.assertEqual((sp["adopt"]["waitMin"], sp["adopt"]["pad"], sp["export"]), (7, 1.0, {"volume": 75, "loudness": -14}))   # 音量はスタジオの既定(studio_audio)
+        self.assertEqual(self.live.requests.all(), {})
+        self.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 60}, "auto": {"pad": 4.0}})
+        self.assertEqual(self.live.detector.adopt_for(None, "local", REC), {"enabled": True, "waitMin": 7})
+        self.assertEqual(self.live.auto_cfg("local", REC)["pad"], 1.0)
+        self.assertEqual(self.live.detector.adopt_for(None, "local", "20261011-210000-x")["waitMin"], 60)   # 束の無い録画は今の設定
 
 
 if __name__ == "__main__":

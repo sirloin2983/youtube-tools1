@@ -85,7 +85,7 @@
 - コマンド(入口を「すべて終了」してから。`.flow.lock` を取る): `py -3.10 src/manage/cases/docmove.py --back [--dry-run]` = 作業用 → transcripts へ写し戻して索引を消す(上書きしない・作業用の写しは残す)+ 自動の移行を止める(paused)/ `--resume` = 再開 / `--now` = バックアップを待たずに今すぐ(y/N・予算なし)/ `--purge-migrated` = `transcripts\.migrated\` を消す(y/N。画面で本数が合うのを確かめてから)
 
 ## ライブの束と採用の印(RS7-2 G2b・G1b・2026-10-11。持ち主は `src/flow/livesession.py`・`src/flow/live_adopt.py`)
-- `live/bundles.json`(作業データの `app\live\` の中): 録画ごとの封筒 + 束。形 `{"<recorder の名前>/<録画 id>": {"envelope", "spec", "at"}}`。7 日を過ぎた物・200 件を超えた古い物は書くときに落とす。録画を始めた時点の値に固定する(検出・採用の待ち・配信後の解析・音量。仮決定 3-31)。束が無い録画・自分の配信は今までの読み方
+- `live/bundles.json`(作業データの `app\live\` の中): 録画ごとの封筒 + 束。形 `{"<recorder の名前>/<録画 id>": {"envelope", "spec", "at"}}`。7 日を過ぎた物・200 件を超えた古い物は書くときに落とす。録画を始めた時点の値に固定する(検出・採用の待ち・配信後の解析・音量。決定 3-31。自分の配信も RS8 から束を組む)。束が無い録画(封筒にできない URL・束より前の録画)は今までの読み方
 - `live/marks/<recorder>__<録画 id>.json`: スタジオなしの採用の置き場 `LocalMarks`(ヘッドレス)。マークごとの採用の印と番号。スタジオのある PC は今までどおりスタジオの data.json(`StudioMarks`)で、このファイルは作らない
 
 ## 以前の場所のデータの片付け(`setup/cleanup_legacy_data.py`・`setup\cleanup_legacy_data.bat`)

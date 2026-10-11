@@ -410,6 +410,11 @@ def _scene_begin_and_play(cx):
           "2 ② の題の欄に配信の題")
     check(starts and starts[0]["quality"] == "1080p" and starts[0]["title"] == TITLE, "2 録画元へ既定の画質 1080p と題で頼む: %s" % starts[:1])
     check(lv and lv[0].get("channel") == CHANNEL, "15 begin のチャンネル名がスタジオの配信の channel に入る: %s" % (lv[0].get("channel") if lv else None))
+    bd = cx.live.bundles.get("local", rid) if rid else None
+    check(bd and bd["envelope"]["kind"] == "live" and bd["envelope"]["requestId"] is None and bd["spec"]["export"] == {"volume": 100, "loudness": None}
+          and sorted(bd["spec"]["run"]["pinned"]) == ["engine", "model"],
+          "RS8 自分の配信も録画を始めたときに束を組む(live/bundles.json。書き出しの音量・書き出したあとのエンジン・モデルはその時点の値): %s"
+          % ((bd or {}).get("spec") or {}).get("export"))
 
     # ---------------- 3. 自動で再生・録画中・札 ----------------
     check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 20000),
@@ -1054,11 +1059,18 @@ def _scene_peaks(cx):
     srv.prefs.patch("live", {"autoAdopt": {"enabled": True, "waitMin": 60}})
     check((lambda a: a["enabled"] is True and a["waitMin"] == 60)(srv.prefs.get(["live"])["live"]["autoAdopt"]),
           "L2 自動採用をオンにすると live.autoAdopt に入る: %s" % srv.prefs.get(["live"])["live"]["autoAdopt"])
+    # RS8: 自分の配信も録画を始めたときに束を組む(決定 3-31 の b1)= 録画中に待つ分を 60 にしても、この録画は始めたときの束の値(既定の 5 分)のまま。
+    # オン/オフは束に無い(今の設定)。60 分待ちは次に始める録画から
+    b_wait = (live.bundle("local", rid) or {}).get("adopt", {}).get("waitMin")
+    g_auto = (api("GET", "/live/api/peaks?recorder=local&recording=%s" % rid)[1] or {}).get("autoAdopt")
+    check(b_wait == 5 and g_auto == {"enabled": True, "waitMin": 5},
+          "b1 録画中に待つ分を変えても、この録画は録画を始めたときの束の値(束 %s・候補の API %s)" % (b_wait, g_auto))
     pg.click("#btnSettings")   # 開くと refreshLive が入口の live を読み直して ② の帯へ伝える(studio:liveprefs)
     check(wait_js(pg, "() => { const s = document.querySelector('#setLive'); return s && !s.hidden && s.offsetParent; }", 8000), "L3 ⚙ に「ライブの録画」(表示だけ)")
     _scene_live_tx_switch(cx)
     pg.keyboard.press("Escape")
-    check(wait_js(pg, "() => /自動採用 オン\\(60 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 12000), "L3 帯の見出しに「自動採用 オン(60 分待ち)」: %s" % pg.text_content("#rvPeakInfo"))
+    check(wait_js(pg, "() => /自動採用 オン\\(5 分待ち\\)/.test(document.querySelector('#rvPeakInfo').textContent)", 15000),
+          "L3 帯の見出しに「自動採用 オン(5 分待ち)」(待つ分は入口が今使っている録画の束の値): %s" % pg.text_content("#rvPeakInfo"))
     srv.prefs.patch("live", {"autoAdopt": {"enabled": False, "waitMin": 5}})
     h = (api("GET", "/api/health")[1] or {}).get("live") or {}
     check((h.get("detect") or {}).get("running") is True, "L2 「調子」に検出のワーカー(動いている): %s" % {x: (h.get("detect") or {}).get(x) for x in ("running", "behindSec", "restarts")})
