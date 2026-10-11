@@ -14,6 +14,11 @@
 .cs-ed-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cs-ed-tools:empty{display:none}
 .cs-ed-wrap>.errbar{margin:0 0 8px}
+/* 編集の proof.css の「720〜1600px の画面では 2 列」(@media。編集が 1 枚の画面だったとき)が、案件の画面の狭い欄で 1 列の規則(@container editor)に勝って
+   横にはみ出した(960 の窓で 110px。RS8 C4 の ui_audit)。欄の幅で決める規則を強くする */
+@container editor (max-width:780px){
+  .cs-ed-wrap .app.has-doc:not(.tab-wide) .tx-grid{grid-template-columns:minmax(0,1fr)}
+}
 
 /* 3 択(machpick.js): 行の札「機械の結果が変わりました」と、行の下の比較欄(前の機械 / 今の機械 / あなたの直し) */
 .seg .cs-mc-tag{grid-column:5;justify-self:start;min-height:26px;font-size:12px;font-weight:550;background:var(--warn-soft);color:var(--warn-ink);border-color:color-mix(in srgb,var(--warn) 55%,transparent)}

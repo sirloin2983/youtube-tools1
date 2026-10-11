@@ -5,21 +5,6 @@
 #newDrawer .ui-drawer-body{container-type:inline-size}
 .nw-panel{min-width:0}
 .nw-panel h2{margin:0 0 8px;font-size:15px}
-@container (max-width:900px){
-  .nw-panel .q-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"entry" "list"}
-  .nw-panel .q-listcard{max-height:none}
-  .nw-panel .q-listcard #qList{overflow:visible}
-}
-@container (max-width:640px){
-  .nw-panel .hide-s{display:none}
-  .nw-panel .rk-table td img,.nw-panel .rk-noimg{width:64px;height:36px}
-  .nw-panel .lv-row{grid-template-columns:64px minmax(0,1fr);padding:10px 12px}
-  .nw-panel .lv-th img,.nw-panel .lv-th.lv-noimg{width:64px;height:36px}
-  .nw-panel .lv-act{grid-column:2/-1;justify-content:flex-start}
-  .nw-panel .cs-search-grid{grid-template-columns:minmax(0,1fr)}
-  .nw-panel .q-item{grid-template-columns:auto minmax(0,1fr)}
-  .nw-panel .q-act{grid-column:2/-1;justify-content:flex-start}
-}
 .nw-panel .cs-dates{flex-wrap:wrap}
 .nw-panel .cs-loading{padding:8px 0}
 .nw-panel .msg{margin:8px 0 0;font-size:13px;overflow-wrap:anywhere}
@@ -253,3 +238,21 @@
 .nw-panel .cl-apoints .cs-opt>.l{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nw-panel .cl-a2{margin-top:10px}
 .nw-panel .cl-amsg{color:var(--danger)}
+.nw-panel .reg .ag>summary{min-height:28px}   /* 押せる大きさ(A-21) */
+
+/* 狭い引き出し(幅は #newDrawer .ui-drawer-body の container)。上の同じ名前の規則より後ろに置く(前にあると後ろの規則が勝って 1 列にならなかった。RS8 C4 の ui_audit) */
+@container (max-width:900px){
+  .nw-panel .q-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"entry" "list"}
+  .nw-panel .q-listcard{max-height:none}
+  .nw-panel .q-listcard #qList{overflow:visible}
+}
+@container (max-width:640px){
+  .nw-panel .hide-s{display:none}
+  .nw-panel .rk-table td img,.nw-panel .rk-noimg{width:64px;height:36px}
+  .nw-panel .lv-row{grid-template-columns:64px minmax(0,1fr);padding:10px 12px}
+  .nw-panel .lv-th img,.nw-panel .lv-th.lv-noimg{width:64px;height:36px}
+  .nw-panel .lv-act{grid-column:2/-1;justify-content:flex-start}
+  .nw-panel .cs-search-grid{grid-template-columns:minmax(0,1fr)}
+  .nw-panel .q-item{grid-template-columns:auto minmax(0,1fr)}
+  .nw-panel .q-act{grid-column:2/-1;justify-content:flex-start}
+}

@@ -13,7 +13,7 @@
 同じ原因の指摘は、報告の末尾で「場面を除いた一意の数」としてもまとめる(直す量の目安)。
 
 static で見るもの(ID は基準の文書と同じ):
-  A-01 abs-path      … 取り込まれる画面(studio・editor)が fetch・href・src・location・window.open・EventSource に絶対パス("/api/" など)を書いていない
+  A-01 abs-path      … 案件の画面(src/app/ui/cases)と、そこが読む部品(studio の review.js など・editor の app-*.js など)が fetch・href・src・location・window.open・EventSource に絶対パス("/api/" など)を書いていない
                        (API の URL は Studio.api / apiUrl() / c2rUrl() の 1 か所で作る決まり。その関数へ渡す '/api/…' は見ない。ホームへの a[data-ui-portal] も可)
   A-02 inline-script … HTML にインラインの <script>(src なし)・on〇〇= 属性が無い(CSP script-src 'self')
   A-03 native-dialog … ブラウザの confirm/alert/prompt を使っていない(UIKit.dialog を使う)
@@ -26,12 +26,12 @@ static で見るもの(ID は基準の文書と同じ):
   A-11 reduced-motion… ui-kit.css に prefers-reduced-motion の全体の節がある(各ツールは ui-kit の節に乗る)
   A-12 html-base     … <html lang>・<title>・<meta viewport> がある
   A-13 transition-all… transition: all を書いていない
-  A-14 ui-kit-sync   … ui-kit の写しが正本と同じ(dev/sync_ui_kit.py --check)
+  A-14 ui-kit-sync   … ui-kit の写しが正本と同じ(dev/sync_ui_kit.py --check。RS8 C4 から写し先は無い = いつも 0)
   A-15 abbr-term     … 専門用語(EDL・Text+・FCPXML・LUFS・CER)を出す画面に abbr.ui-term の説明がある
   (target="_blank" は見ない: 窓の中では UIKit.win が自動で「このパソコンの画面 → 窓・外のサイト → ブラウザ」に振り分ける決まり)
 
 live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 も)× 明・暗。文字「大きい」は 390/960 で はみ出し・縦割れ だけ):
-  A-01 abs-path      … (実行時)取り込まれた画面が自分の場所(/studio/・/transcribe/)と許した所(/cut2resolve/・/live/)の外へ要求を出していない
+  A-01 abs-path      … (実行時)案件の画面(/cases)が許した所(自分の部品・/ui-kit.*・/api/・取り込んだツール /studio/・/transcribe/・/cut2resolve/・/live/)の外へ要求を出していない
   A-20 overflow      … 横にはみ出さない(scrollWidth ≤ 窓の幅)
   A-21 target-size   … 押せる部品(button・input・select・summary・role=button・a.btn)の高さと幅が 28px 以上(::before/::after で広げた当たり判定も数える。checkbox/radio は 16px)
   A-22 contrast      … 文字と背景のコントラストが 4.5:1 以上(大きい文字は 3:1)。背景は文字の中心の点に重なる要素を上から合成。disabled・placeholder・aria-hidden・背景画像の上は除く
@@ -40,10 +40,10 @@ live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 �
   A-25 focusable     … cursor:pointer の要素は Tab で届く(button・a[href]・input・summary・tabindex≥0 か、その中)
   A-26 focus-ring    … Tab で移った要素に見えるフォーカスの輪がある(outline か box-shadow か border-color の変化)
   A-27 console       … 画面の読み込み・操作でエラー(pageerror・console.error・同じサーバーへの要求の 4xx/5xx・CSP 違反)が出ない(録画の部品が無いときの /live/api/info の 404 は除く。外のサイトの失敗は見ない)
-  A-28 header        … 3 画面のヘッダーに同じ部品が同じ順にある(nav[data-ui-appnav] → .ui-ver → .ui-header-actions の最後が [data-ui-settings])
+  A-28 header        … ホームと案件の画面のヘッダーに同じ部品が同じ順にある(nav[data-ui-appnav] → .ui-ver → .ui-header-actions の最後が [data-ui-settings])
   A-29 tap-link      … 文の中以外のリンク(a)が 28px 以上(Should)
   A-30 wrap-split    … 文字が 1 文字ずつ縦に割れない(390・960。3 文字以上の文字で、行の数が文字の数以上なら不可)
-  A-31 modal         … 重ねる欄(設定の引き出し・キー操作の一覧・パックの詳しい設定・スタジオの書き出し(1680 未満))は、開いたらフォーカスが中・Tab で外へ出ない・aria-modal・Esc で閉じる・閉じたら開いたボタンへ戻る
+  A-31 modal         … 重ねる欄(設定の引き出し・キー操作の一覧・新しい案件・候補の書き出し(1680 未満))は、開いたらフォーカスが中・Tab で外へ出ない・aria-modal・Esc で閉じる・閉じたら開いたボタンへ戻る
   A-32 animation     … ずっと動き続ける表示は回転の輪・読み込み中だけ。prefers-reduced-motion で動きが止まる(1 ms より長い animation が走っていない)
   A-33 pill          … 状態の札(.pill)は押せない(button・a・role=button・tabindex・cursor:pointer でない)
   A-34 disabled-why  … 押せない部品(disabled・aria-disabled)に理由(title・data-ui-why・aria-describedby)がある(Should)
@@ -61,17 +61,17 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
-MOUNTED = ("studio", "editor")   # 入口に取り込まれる画面(絶対パス禁止の対象)
-SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js",
-                    "settings/index.html", "settings/settings.js", "settings/settings.css",
-                    # 案件の画面(/cases。RS8 C1。入口が配る 1 枚なのでホームの組。置き場所は src/app/ui/cases/)
-                    "../app/ui/cases/index.html", "../app/ui/cases/cases.js", "../app/ui/cases/cases.css",
-                    "../app/ui/cases/panels/cand.js", "../app/ui/cases/panels/proof.js", "../app/ui/cases/panels/cut.js"],
-           "studio": ["index.html", "core.js", "rank.js", "queue.js", "review.js", "collab.js", "settings.js", "app.css", "review.css"],
-           "editor": ["index.html", "proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
+# 絶対パス禁止(A-01)の対象 = 案件の画面と、そこが相対パスで読む部品(RS8 C4 でスタジオ・編集の画面のページは消した。部品の JS・CSS は残る)
+MOUNTED = ("studio", "editor", "app/ui/cases")
+SCREENS = {"home": ["portal.html", "portal.js", "portal.css", "portal-edit.js", "intake.html", "intake.js", "backup.html", "backup.js", "live.html", "live.js",
+                    "settings/index.html", "settings/settings.js", "settings/settings.css"],
+           # 案件の画面(/cases。RS8。入口が配る 1 枚。panels/new.* はホームの「新しい案件」の引き出しも読む)
+           "app/ui/cases": ["index.html", "cases.js", "cases.css", "edhost.js", "panels/cand.js", "panels/cand.css", "panels/proof.js", "panels/proof.css",
+                            "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css"],
+           # 案件の画面が studio/・transcribe/ から読む部品(古い画面のページは C4 で消した = 部品だけ)
+           "studio": ["rank.js", "queue.js", "review.js", "collab.js"],
+           "editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
            "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
-SCREENS["home"] += ["../app/ui/cases/panels/cand.css"]   # 候補のパネルの見た目(RS8 C2a)
-SCREENS["home"] += ["portal-edit.js", "../app/ui/cases/panels/new.js", "../app/ui/cases/panels/new.css"]   # ホームの組み替え(RS8 C3): 運用の中の精度と学習・新しい案件のパネル
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層へ移した物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "human/friend/delivery.py", "live.py", "pipeline/ingest/live_archive.py", "pipeline/export/live_export.py", "pipeline/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "human/friend/deliver.py", "human/friend/intake.py", "manage/ops/restart.py"]
 # 用語集(docs/spec/ui-guidelines.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
@@ -91,7 +91,7 @@ VARIANTS = ("light", "dark", "light-lg")
 IGNORE_CONSOLE = ("/live/api/info", "compute-pressure")   # YouTube の埋め込みプレイヤーが出す Permissions policy の警告(Windows で埋め込みが読めるときだけ出る。画面側では直せない)
 REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^")   # この文字のあとの / は正規表現の始まり(割り算ではない)
 # 取り込まれた画面が要求してよい場所(取り込みの場所 + ホームの API /api/(まとめて実行・api/ytt)+ 録画の部品 /live/)。UIKit.tools.base() が作る他ツールの URL も含む
-ALLOWED_PREFIX = {"/studio/": ("/studio/", "/transcribe/", "/cut2resolve/", "/live/", "/api/"), "/transcribe/": ("/transcribe/", "/cut2resolve/", "/studio/", "/live/", "/api/")}
+ALLOWED_PREFIX = {"/cases": ("/cases", "/ui-kit.", "/api/", "/studio/", "/transcribe/", "/cut2resolve/", "/live/")}   # 案件の画面(RS8 C4。古い /studio/・/transcribe/ のページは消した)
 
 
 class Findings:
@@ -524,7 +524,8 @@ def default_scenes(base):
     modal = {root, opener} は A-31(重ねる欄の約束)を見る。wide は 1920 でも見る。
     見本のデータ(dev/demo_env.py)の配信 demo0000000 と、文字起こし 1 件を使う。副作用のあるボタン(終了・片付け・実行)は押さない。"""
     doc = demo_doc_id(base)
-    ed = base + "/transcribe/?doc=" + doc if doc else base + "/transcribe/"
+    ed = base + "/cases?d=" + doc if doc else base + "/cases?c=demo0000000"   # 案件の画面の校正・カット(RS8 C4。古い編集の画面は消した)
+    cand = base + "/cases?c=demo0000000#cand"
     styleguide = pathlib.Path(os.path.join(SRC, "ui-kit", "styleguide.html")).resolve().as_uri()   # Windows でも file:///C:/... の形(区切りが / でないと origin が取れない)
     settings = {"root": "#uiSettingsDrawer", "opener": "[data-ui-settings]"}
     return [
@@ -536,24 +537,21 @@ def default_scenes(base):
         {"name": "home-new-case", "url": base + "/", "actions": [("click", "#newCaseBtn"), ("wait", 1500)], "modal": {"root": "#newDrawer", "opener": "#newCaseBtn"}},   # 新しい案件の引き出し(RS8 C3)
         {"name": "home-settings", "url": base + "/", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
         {"name": "home-settings-page", "url": base + "/settings", "wide": True, "actions": [("wait", 800)]},   # 設定の画面(S5。schema.json から描く。設定の画面そのものなので header の ⚙(A-28)は見ない)
-        {"name": "studio-rank", "url": base + "/studio/?step=rank", "header": True},
-        {"name": "studio-review-empty", "url": base + "/studio/?step=review"},
-        {"name": "studio-review", "url": base + "/studio/?video=demo0000000", "wide": True},
-        {"name": "studio-review-marks", "url": base + "/studio/?video=demo0000002"},   # マークのある配信(行の札・理由の札)
-        {"name": "studio-review-export", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#rvJump [data-jump=export]"), ("wait", 500)],
+        # 案件の画面(RS8 C4。古いスタジオ・編集の画面の場面を置き換えた)。空の状態は最初に(開いた案件をこのブラウザが覚えるため)
+        {"name": "cases-empty", "url": base + "/cases?c=zz-no-such-case", "header": True},
+        {"name": "cases-new-case", "url": base + "/#new", "actions": [("wait", 1500)]},   # 新しい案件の引き出し(探す設定を含む)
+        {"name": "cases-new-set", "url": base + "/#new?set=reg", "actions": [("wait", 2000)]},   # 探す設定(API キー・事務所の登録。RS8 C4 でスタジオの ⚙ から移した)
+        {"name": "cases-cand", "url": cand, "header": True, "wide": True},
+        {"name": "cases-cand-marks", "url": base + "/cases?c=demo0000002#cand"},   # マークのある配信(行の札・理由の札)
+        {"name": "cases-cand-export", "url": cand, "actions": [("click", "#rvJump [data-jump=export]"), ("wait", 500)],
          "modal": {"root": "#rvExport", "opener": "#rvJump [data-jump=export]", "docked_from": 1680}},
-        {"name": "studio-review-pick", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#rvPick > summary"), ("wait", 400)]},
-        {"name": "studio-keys", "url": base + "/studio/?video=demo0000000", "actions": [("click", "#btnKeys"), ("wait", 400)], "modal": {"root": "#keyHelp", "opener": "#btnKeys"}},
-        {"name": "studio-settings", "url": base + "/studio/?step=rank", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
-        {"name": "editor-empty", "url": base + "/transcribe/", "header": True},
-        {"name": "editor-tx", "url": ed + "#tx", "wide": True},
-        {"name": "editor-tx-more", "url": ed + "#tx", "actions": [("click", "#moreTools > summary"), ("wait", 300)]},
-        {"name": "editor-tx-jump", "url": ed + "#tx", "actions": [("click", "#jumpMenu > summary"), ("wait", 300)]},
-        {"name": "editor-cut", "url": ed + "#cut", "wide": True},
-        {"name": "editor-pack-more", "url": ed + "#cut", "actions": [("click", "#pkMore > summary"), ("wait", 300)]},   # 0.62.0: パックは 2 カット の末尾。「詳しく」(出力先・zip)を開いた形
-        {"name": "editor-pack-settings", "url": ed + "#cut", "actions": [("click", "#pkSettingsBtn"), ("wait", 500)], "modal": {"root": "#uiSettingsDrawer", "opener": "#pkSettingsBtn"}},   # 0.62.0: パックの設定は ⚙ の節
-        {"name": "editor-keys", "url": ed + "#tx", "actions": [("click", "#btnKeys"), ("wait", 400)], "modal": {"root": "#keys", "opener": "#btnKeys"}, "min_width": 561},   # 560px 以下はキー操作のボタンを出さない(? キーだけ)
-        {"name": "editor-settings", "url": base + "/transcribe/", "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
+        {"name": "cases-settings", "url": cand, "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
+        {"name": "cases-proof", "url": ed + "#proof", "wide": True},
+        {"name": "cases-proof-more", "url": ed + "#proof", "actions": [("click", "#moreTools > summary"), ("wait", 300)]},
+        {"name": "cases-proof-jump", "url": ed + "#proof", "actions": [("click", "#jumpMenu > summary"), ("wait", 300)]},
+        {"name": "cases-proof-keys", "url": ed + "#proof", "actions": [("wait", 800), ("click", "#btnKeys"), ("wait", 400)], "modal": {"root": "#keys", "opener": "#btnKeys"}, "min_width": 561},   # 560px 以下はキー操作のボタンを出さない(? キーだけ)
+        {"name": "cases-cut", "url": ed + "#cut", "wide": True},
+        {"name": "cases-pack-more", "url": ed + "#cut", "actions": [("wait", 800), ("click", "#pkMore > summary"), ("wait", 300)]},   # パックはカットの末尾。「詳しく」(出力先・zip)を開いた形
         {"name": "styleguide", "url": styleguide},
     ]
 
@@ -705,7 +703,7 @@ def live_checks(base, out, shots=None, scenes=None, widths=WIDTHS, variants=VARI
         ctx = browser.new_context(viewport={"width": 1440, "height": 900}, reduced_motion="reduce")
         pg = ctx.new_page()
         for scene in scenes:
-            if scene["name"] in ("home", "studio-review", "editor-tx"):
+            if scene["name"] in ("home", "cases-cand", "cases-proof"):
                 try:
                     pg.goto(scene["url"], wait_until="networkidle", timeout=30000)
                     pg.wait_for_timeout(500)
