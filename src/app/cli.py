@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理 + ① 道具で動くコマンド(役割で組み直す RS6 b-S1。決定 3-29・notes:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の b-S1)。
+"""② 管理 + ① 道具で動くコマンド(役割で組み直す RS6 b-S1。決定 3-29・資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の b-S1)。
 
     py -3.10 src/app/cli.py <動画のパス | URL> [--spec spec.json] [--from 段] [--force] [--data-dir D] [--out result.json] [--title T]
 

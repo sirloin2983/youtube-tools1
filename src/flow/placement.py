@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 置き場所の持ち主(役割で組み直す RS6 b-B0。2026-10-10。決定 3-29・
-notes:docs/design/surveys/rs6-survey-2026-10-10/option_b.md の 2 節・7 節の B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
+資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/option_b.md の 2 節・7 節の B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
 
 「どこに何があるか」をここ 1 か所で答える。**値は今と同じ**(新しく書くのは 作業用/runs/ と .flow.lock だけ。データは移さない)。
 

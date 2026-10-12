@@ -76,6 +76,16 @@ class NotesToolTest(unittest.TestCase):
         self.assertIn("notes:docs/spec/all.md", get(self.repo, "src/x.py"))
         self.assertTrue(os.path.isfile(os.path.join(self.v, "docs", "spec", "a.md")))   # 旧は残す(消すのは呼び手)
 
+    def test_drop_points_refs_to_git(self):
+        put(self.v, "plan/data.js", 'docs: ["p.md"] 文 docs/spec/a.md(説明)\n')
+        notes_tool.drop(["docs/spec"], "abc1234")
+        self.assertIn("[`git:abc1234:docs/spec/a.md`]".strip("[]"), get(self.v, "plan/p.md"))
+        self.assertNotIn("](../docs/spec/a.md)", get(self.v, "plan/p.md"))
+        self.assertIn("文 git:abc1234:docs/spec/a.md(説明)", get(self.v, "plan/data.js"))
+        self.assertIn("資料の git:abc1234:docs/spec/a.md", get(self.repo, "src/x.py"))
+        subprocess.run(["git", "-C", self.v, "rm", "-rq", "docs/spec"], check=True)
+        self.assertEqual(notes_tool.check(), [])   # 消したあと切れたパスは無い
+
     def test_prose_brackets(self):
         put(self.v, "docs/b.md", "[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る](`pollJobs`)\n")
         self.assertEqual([p for w, _, p in notes_tool.check() if w == "docs/b.md"][0][-12:], "[送る](友人へ届ける)")

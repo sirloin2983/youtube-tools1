@@ -4,6 +4,7 @@
     python dev/notes_tool.py check                 # 切れたパスを並べる(終了コード 1 = 切れた物がある)
     python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
     python dev/notes_tool.py retarget <旧> <新> [...]   # 動かさずに、旧を指すリンク・data.js・notes: を新へ向け直す(文書をまとめたとき)
+    python dev/notes_tool.py drop <コミット> <消す物> [...]   # 消す前に、指している所を git:<コミット>:<パス> の文字にする
     python dev/notes_tool.py fix-prose            # 本文のかっこ書き [送る](説明) に空白を入れてリンクにしない・タグになる #7BDF0E を `` で囲む
 
 check が見る物(dev/lint.py も同じ物を数える):
@@ -26,7 +27,7 @@ from ytt import layout  # noqa: E402
 LINK = re.compile(r"(!?\[)([^\]\n]*)(\]\()(<[^>\n]+>|[^)\s]+)((?:\s+\"[^\"\n]*\")?\))")
 NOTE_REF = re.compile(r"notes:((?:docs|plan)/[A-Za-z0-9_\-][A-Za-z0-9_./\-]*)")
 DATA_DOCS = re.compile(r"docs:\s*\[([^\]]*)\]")
-DATA_TEXT = re.compile(r"(?<![A-Za-z0-9_./\-])((?:docs|plan)/[A-Za-z0-9_./\-]+\.(?:md|html))")
+DATA_TEXT = re.compile(r"(?<![A-Za-z0-9_./\-:])((?:docs|plan)/[A-Za-z0-9_./\-]+\.(?:md|html))")
 QUOTED = re.compile(r"\"([^\"]+)\"")
 FILE_EXT = re.compile(r"\.(md|html|js|css|png|jpg|jpeg|gif|svg|tsv|csv|json|txt|pdf|py)$", re.I)
 FENCE = re.compile(r"^\s*(```|~~~)")
@@ -287,6 +288,56 @@ def mv(pairs, move=True):
     return n
 
 
+def drop(paths, rev):
+    """資料のフォルダから消す物(ファイルかフォルダ。資料のフォルダからの相対)を指している所を「git の履歴の場所」の文字に置き換える。
+    md のリンク → 表示の文字 + (`git:<rev>:<パス>`)・data.js の文の中のパス → git:<rev>:<パス>・コードの notes:<パス> → 資料の git:<rev>:<パス>。
+    消すこと自体(git rm)は呼び手がする。rev は消す前のコミット"""
+    root = vault()
+    gone = [os.path.normpath(os.path.join(root, p)) for p in paths]
+
+    def dropped(full):
+        full = os.path.normpath(full)
+        return any(full == g or full.startswith(g + os.sep) for g in gone)
+
+    def sub(m, here):
+        lt = local_target(m.group(4))
+        if m.group(1) != "[" or not lt or not lt[0]:
+            return m.group(0)
+        full = os.path.normpath(os.path.join(os.path.dirname(here), lt[0]))
+        if not dropped(full):
+            return m.group(0)
+        ref = "`git:%s:%s`" % (rev, vrel(full, root))
+        return ref if m.group(2).strip("`") == vrel(full, root) else "%s(%s)" % (m.group(2), ref)
+
+    n = 0
+    for p in md_files(root):
+        if dropped(p):
+            continue
+        text = read(p)
+        new = LINK.sub(lambda m: sub(m, p), text)
+        if new != text:
+            write(p, new)
+            n += 1
+    pats = [re.escape(vrel(g, root)) for g in gone]
+    data = os.path.join(root, "plan", "data.js")
+    if os.path.isfile(data):
+        text = read(data)
+        new = re.sub(r"(?<![A-Za-z0-9_./\-:])((?:%s)[A-Za-z0-9_./\-]*)" % "|".join(pats), lambda m: "git:%s:%s" % (rev, m.group(1)), text)
+        if new != text:
+            write(data, new)
+            n += 1
+    for p in code_files():
+        try:
+            text = read(p)
+        except UnicodeDecodeError:
+            continue
+        new = re.sub(r"notes:((?:%s)[A-Za-z0-9_./\-]*)" % "|".join(pats), lambda m: "資料の git:%s:%s" % (rev, m.group(1)), text)
+        if new != text:
+            write(p, new)
+            n += 1
+    return n
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -307,6 +358,9 @@ def main(argv):
                 write(p, new)
                 n += 1
         print("直したファイル %d 本" % n)
+        return 0
+    if argv[:1] == ["drop"] and len(argv) >= 3:
+        print("直したファイル %d 本" % drop([x.replace("\\", "/").rstrip("/") for x in argv[2:]], argv[1]))
         return 0
     if argv[:1] in (["mv"], ["retarget"]) and len(argv) >= 3 and len(argv) % 2 == 1:
         pairs = [(argv[i].replace("\\", "/").rstrip("/"), argv[i + 1].replace("\\", "/").rstrip("/")) for i in range(1, len(argv), 2)]

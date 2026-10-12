@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 文字起こしの動詞。役割で組み直す RS6 a-3(2026-10-10。決定 3-29・notes:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の 2-2)。
+"""② 管理の層 flow: 文字起こしの動詞。役割で組み直す RS6 a-3(2026-10-10。決定 3-29・資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の 2-2)。
 
 ③ 人(human/proof の doc_jobs・rerun・alt・retime・learn)は ① pipeline/transcribe を直に読まず、ここの動詞を呼ぶ。動詞は ① を呼ぶ前後で ② の責任
 (本物と疑似の選び方と本物の処理 = ワーカーでモデルを読む・ジョブの状態・認識の記録 words.json・asr.json・llm.json の書き込み・学習データ(置換辞書と名簿)の読み・
