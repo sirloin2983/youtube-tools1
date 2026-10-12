@@ -90,6 +90,7 @@
 | `plan/f1-friend-requirements.md` | 友人用の送るアプリが満たすべき要件の見直し(友人の指摘・画面の文字と動きの突き合わせ・置き場所。2026-10-11 深夜。案・ユーザーの確認待ち) |
 | `docs/design/rv-survey-2026-10-11/` | 全体の見直し RV の下調べ(読むだけ。`README.md` = 要約・観点ごとの候補の表・RV を始めるときの相談の問い 13 問 / `code.md`・`eval.md`・`ui.md`・`folders.md`・`docs.md`(R1 の案も)・`tests.md`。2026-10-11。RV の本番はこの問いから) |
 | `docs/design/code-review-2026-10-12.md` | GPT/Astra の動作・保存・同期のレビュー。再現した指摘 7 件(P1 1・P2 6)と修正方針。コードの修正は未着手 |
+| `docs/design/code-review-2026-10-12-2.md` | GPT の 2 回目のレビュー(依頼書 8 節中心)。校正・学習の保存先・録画・Text+ の再現済み新規指摘 6 件(P1 2・P2 4)、再現コードと修正方針。コードの修正なし |
 | `docs/design/code-review-brief-2026-10-12.md` | GPT にコードレビューを頼むための依頼書(層・主な流れと境目・守る決まり・セキュリティの前提・既知の物・前回が見ていない重点・貼る依頼文)。コードは変えない |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
