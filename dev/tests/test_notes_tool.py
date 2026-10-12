@@ -82,6 +82,12 @@ class NotesToolTest(unittest.TestCase):
         fixed = notes_tool.unlink_prose(get(self.v, "docs/b.md"))
         self.assertEqual(fixed, "[送る] (友人へ届ける)・[`x`] (y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る] (`pollJobs`)\n")
 
+    def test_tags(self):
+        text = "色 #7BDF0E と #1D3467、こぼ・かなえる・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n"
+        fixed = notes_tool.unlink_prose(text)
+        self.assertEqual(fixed, "色 `#7BDF0E` と `#1D3467`、こぼ・かなえる・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n")
+        self.assertEqual(notes_tool.tag_spans("a #タブ と"), [(2, 5)])   # 日本語のタグは区切りまで
+
     def test_relink_text(self):
         old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")
         out = notes_tool.relink_text("[`docs/spec/a.md`](spec/a.md#2)・[u](http://x)", old, new)

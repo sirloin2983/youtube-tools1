@@ -4,7 +4,7 @@
     python dev/notes_tool.py check                 # 切れたパスを並べる(終了コード 1 = 切れた物がある)
     python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
     python dev/notes_tool.py retarget <旧> <新> [...]   # 動かさずに、旧を指すリンク・data.js・notes: を新へ向け直す(文書をまとめたとき)
-    python dev/notes_tool.py fix-prose            # 本文のかっこ書き [送る](説明) に空白を入れてリンクにしない
+    python dev/notes_tool.py fix-prose            # 本文のかっこ書き [送る](説明) に空白を入れてリンクにしない・タグになる #7BDF0E を `` で囲む
 
 check が見る物(dev/lint.py も同じ物を数える):
   - 資料のフォルダの md の相対リンク(外の URL・#だけ・obsidian: は見ない)と、リンクになってしまう本文のかっこ書き
@@ -31,6 +31,7 @@ QUOTED = re.compile(r"\"([^\"]+)\"")
 FILE_EXT = re.compile(r"\.(md|html|js|css|png|jpg|jpeg|gif|svg|tsv|csv|json|txt|pdf|py)$", re.I)
 FENCE = re.compile(r"^\s*(```|~~~)")
 CODE_SPAN = re.compile(r"`+[^`\n]*`+")
+TAG = re.compile(r"(?:(?<=\s)|^)#([^\s#`\[\]()\"',.;:!?|{}<>]+)")
 SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".css", ".html", ".bat", ".txt", ".md", ".cs", ".ps1", ".command", ".sh", ".gs")
 SKIP_DIRS = {".git", "node_modules", "dist", "__pycache__", ".artifact-build", "worktrees", "0old"}
@@ -104,8 +105,27 @@ def unlink_prose(text):
                 if m.group(1) == "[" and pseudo_link(m.group(4)):
                     i = m.start(3) + 1
                     line = line[:i] + " " + line[i:]
+            for a, b in reversed(tag_spans(line)):
+                line = line[:a] + "`" + line[a:b] + "`" + line[b:]
         out.append(line)
     return "".join(out)
+
+
+def tag_spans(line):
+    """本文の中で Obsidian がタグと読んでしまう「#7BDF0E」「#saveState」「#タブ」の、囲むべき範囲 [(始め, 終わり)]。
+    空白か行頭の後ろの # だけ(見出しの「# 」・数字だけ・コードの `...` の中は除く)。囲む範囲は英数字の続きか、日本語の区切りの手前まで"""
+    if re.match(r"^\s*#+\s", line):
+        line = re.sub(r"^\s*#+\s", lambda m: " " * len(m.group(0)), line)
+    spans = [m.span() for m in CODE_SPAN.finditer(line)]
+    out = []
+    for m in TAG.finditer(line):
+        if any(a <= m.start() < b for a, b in spans):
+            continue
+        body = m.group(1)
+        core = re.match(r"[A-Za-z0-9_\-/]+", body) or re.match(r"[^、。・「」『』()()\s]+", body)
+        if core and not core.group(0).isdigit():
+            out.append((m.start(), m.start() + 1 + core.end()))
+    return out
 
 
 def vrel(full, root):
@@ -130,6 +150,8 @@ def check():
                 fence = not fence
             if fence:
                 continue
+            for a, b in tag_spans(line):
+                bad.append((vrel(p, root), ln, "タグになる(`` で囲む): " + line[a:b]))
             for m in _links(line):
                 if m.group(1) == "[" and pseudo_link(m.group(4)):
                     bad.append((vrel(p, root), ln, "かっこ書きがリンクになる(] と ( の間に空白): " + m.group(0)))

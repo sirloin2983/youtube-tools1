@@ -308,8 +308,11 @@ def merge_home(existing, auto):
 
 
 def write_text(path, text):
+    # data.js の文に入っている「#pack」「[送る](説明)」が Obsidian のタグ・リンクにならないように(notes_tool と同じ直し)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import notes_tool
     with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+        f.write(notes_tool.unlink_prose(text) if path.endswith(".md") else text)
 
 
 def write_index(plan_dir):
