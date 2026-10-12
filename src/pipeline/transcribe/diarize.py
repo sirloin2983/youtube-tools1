@@ -279,7 +279,7 @@ def smooth_speakers(segs, res, ts, keep, ratios=None):
     return smooth_labels(rows, [tuple(x) for x in _turn_overlaps(ts)])
 
 
-# ---------- 判別の記録(transcripts/<id>.diar.json。Q2。plan/line-bc-master-plan.md) ----------
+# ---------- 判別の記録(transcripts/<id>.diar.json。Q2。notes:plan/line-bc-master-plan.md) ----------
 # 機械の最初の結果を残す(行の speaker・名前は人が直すので、あとから「機械はこう割り当てた」を比べられるように)。判別・声の照合のたびに書き、
 # し直したら前の回は同じファイルの history に残す(最新を含めて DIAR_KEEP 回まで。付き物を1つのファイルにして、削除・付け替えの扱いを1か所で済ませるため)。
 # 埋め込みのベクトルそのものは書かない(大きい・個人を見分けられる情報)。書けなくても判別は失敗にしない(② flow/diar の _record_diar。RS6 a-4 にここから移した)

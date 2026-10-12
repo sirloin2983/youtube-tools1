@@ -85,7 +85,7 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
 
 
 ■ 受け渡しの形式
-  docs/spec/pipeline.md(リポジトリ直下)を参照。youtube-tools-transcript/v1・youtube-tools-cut-plan/v1 を読みます。
+  notes:docs/spec/pipeline.md(リポジトリ直下)を参照。youtube-tools-transcript/v1・youtube-tools-cut-plan/v1 を読みます。
 
 
 ■ 注意
@@ -223,7 +223,7 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
   - 途中のファイルの「作業用」フォルダ(ytt_core と同じ名前 cut2resolve_core.WORK_DIR): 余白つき素材の .edit.json・動画と同じ名前の字幕/文字起こしの候補は
     作業用\ → 動画の隣(以前の置き方)の順に探す。文字起こしの JSON が 作業用 の中なら、動画は1つ上から探す
 
-■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④ ①。docs/design/edit-tool-design.md の 12)
+■ v0.12.0 の変更点(2026-09-26・追加機能 ⑥ ④ ①。notes:docs/design/edit-tool-design.md の 12)
   - Text+ 字幕の見た目をユーザーの指定に(①): フォント「けいふぉんと」Regular・黒い文字・白いふち(太さ 0.12・少しずらす)・外側の黒いふち(0.18)・大きさ 0.14・
     アンカー 下/中央。スクリプトが値を入れ、最初の字幕で読み直して、入らなかった項目はマーカーのメモに出す(resolve_textplus.TEXT_STYLE・style_inputs)。
     けいふぉんと はパックに入れない(友人が各自で入れる)。無ければ Windows の日本語フォントを自動で選び、マーカーを黄色にする
@@ -280,7 +280,7 @@ cut2resolve(「編集」の部品・コマンド。版は全体で 1 つ = ytt/v
 ■ v0.6.0 の変更点(2026-09-26・文字起こしツールの Resolve パッケージと一本化)
   - 文字起こしツールの「Resolveパッケージ(zip)」は、このツールの Text+ パックを作るようになった(pack.py が唯一の実装)。
     文字起こしの行を残すときの規則は pack.TRANSCRIPT_ROWS(行の時間だけ・短い行も残す・1フレームの隙間はつなぐ)。
-    同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。詳しくは docs/design/resolve-pack-unification.md
+    同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。詳しくは notes:docs/design/resolve-pack-unification.md
   - 切り抜きスタジオの前後の余白つき素材(.edit.json)を、動画を入れるパックで使う(上の「3. 書き出し」)
   - 時刻をフレームに直すときの丸めを四捨五入(0.5 は大きい方へ)にした。以前は Python の round(偶数への丸め)で、
     30fps の 0.15 秒(4.5 フレーム)が 4、0.25 秒(7.5 フレーム)が 8 と、ちょうど半フレームの時刻が上下ばらばらに丸まっていた

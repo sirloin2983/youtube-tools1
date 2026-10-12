@@ -10,7 +10,7 @@ src/pipeline/analyze/tests/test_live_excite_worker.py、設定(prefs)の検査�
     (マークと decisions.json)/「調子」の detect の行と失敗(kind detect)/ ワーカーの起動・心拍が止まったら起動し直す・止める
   - M11: 確定から waitMin 後に 1 回だけ採用(origin auto・after auto・live_feedback の human false)・見送り・控えは採用しない・スタジオ不通は 5 回で諦めて失敗の文
   - D-13(1 録画の上限・未確認で休む)・D-14(終わったあとの採用)・D-12(配信ごとの記録)・0-10-6(アーカイブとの比べ)・config.json(スタジオの解析の設定)
-  - 友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く・依頼の waitMin・pad で自動の採用
+  - 友人のライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く・依頼の waitMin・pad で自動の採用
   - 配信中の候補の文字起こし(D-11 案 b。本体は test_live_tx.py): 候補の text・textAt・since の差分・応答の tx・採用の記録 live_feedback.jsonl の text
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """

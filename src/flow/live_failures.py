@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D)の失敗の集約(M3。plan/line-d-auto-pack.md の 4)。
+"""リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
 
 書き出し(src/flow/live_export.py のジョブ = 入口の作業データの live/exports.json)と、書き出したあとの文字起こし・パック
 (まとめて実行 = logs/autorun-runs.jsonl。ジョブの runId で紐づける)の失敗を、**1 つの関数(failure_of)で 1 つの文にする**。

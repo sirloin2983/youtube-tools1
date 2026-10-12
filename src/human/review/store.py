@@ -670,7 +670,7 @@ class Store:
         return r["added"], r["video"]
 
     def adopt_marks(self, vid, ranges, top):
-        """採用の規則(F-5。plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
+        """採用の規則(F-5。notes:plan/role-restructure.md 5-5・決定 3-29 Q3。スタジオの「上位 n 本を採用」・まとめて実行・友人の依頼で同じ 1 つ)を当てて保存する。
         規則の本体は ① pipeline/analyze/adopt.py(RS8 B3-2 の G1a)。③ は ② flow/adopt を通して呼び、ここは配信を読んで保存するだけ:
         採用の集合 = 区間 ranges のマーク ∪ 人が採用したマーク ∪ 自動マークの点数の高い順(上限 top までの残り)。不採用と、前の 2 つに重なる自動マークは除く。
         人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない。kind live の録画は断る(400)。

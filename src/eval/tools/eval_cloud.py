@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
-(計画 B2 = E1 の「クラウドとの比較を 1 回」。plan/line-b-transcription.md の E1。2026-10-07)。
+(計画 B2 = E1 の「クラウドとの比較を 1 回」。notes:plan/line-b-transcription.md の E1。2026-10-07)。
 
     python src/eval/tools/eval_cloud.py run --service openai --model gpt-4o-transcribe-diarize [--label 名前]
         送らない(既定): 対象の文書・秒数・見積もり(USD)・先方の保持の扱いを出して終わる(送る前にユーザーへ見せる)

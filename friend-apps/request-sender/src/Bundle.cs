@@ -1,4 +1,4 @@
-// この PC で処理するときの依頼の形: friend-defaults.json(送り先の人が配る既定)+ 画面の欄 → 封筒 + 束(F1 の F3a。設計 docs/design/f1-build.md の 1-2・3 の (f1f)、
+// この PC で処理するときの依頼の形: friend-defaults.json(送り先の人が配る既定)+ 画面の欄 → 封筒 + 束(F1 の F3a。設計 notes:docs/design/f1-build.md の 1-2・3 の (f1f)、
 // 封筒 = src/flow/envelope.py・束 = src/flow/spec.py)。アプリは束の形を知らずに重ねるだけ(検査は ② = 断られたら理由を出す)。
 //   - URL は 1 本ごとに封筒 + 束を 1 つ(1 本ごとの切り抜く数・区間はその束の adopt.top・hints.ranges)
 //   - 動画ファイルは 1 本ごとに kind file(パスをそのまま渡す = 送らない)・ライブ配信は kind live 1 つ

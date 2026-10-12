@@ -1,4 +1,4 @@
-"""「編集」のサムネの案(提案 P5 の S。plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
+"""「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
 
 - ジョブ kind `thumb`(`POST /api/thumb-ideas {id, crop?}` → `thumb_spec` → `run_thumb`)。切り抜きの動画と文書の行から 6 案を 1 枚の PNG に。
   文書は読むだけ(書き換えない・updatedAt も動かさない)ので、編集を止めるジョブ(LOCK_KINDS)にしない。同じ文書で 1 つだけ(ytt/jobs の EXCLUSIVE。serve が登録する)

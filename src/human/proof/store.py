@@ -280,7 +280,7 @@ def backup_doc(tid, kind):
     snapshot(tid)
 
 
-# ---------- 話者ごとの字幕の見た目 sub(2026-10-05。docs/spec/friend-intake.md の 6) ----------
+# ---------- 話者ごとの字幕の見た目 sub(2026-10-05。notes:docs/spec/friend-intake.md の 6) ----------
 # 色を単独の値で持たず「字幕の見た目」のまとまりの 1 項目にする(あとでフォント・大きさなどを足しても形を変えない)。
 # 検査は鍵ごとの許可の一覧: 知っている鍵だけ受け、形を確かめ、知らない鍵・形の違う値は黙って捨てる(画面・Lua に入るので必ずここを通す)
 def _sub_color(v):
@@ -399,7 +399,7 @@ def doc_length(d):
     return max(0.0, max([_yschemas.num_or(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
 
 
-# 文書ごとの要約のキャッシュは 1 つ(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
+# 文書ごとの要約のキャッシュは 1 つ(2026-10-09。notes:docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
 # 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・評価ドリル(eval/drill/drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため
@@ -667,7 +667,7 @@ def set_diar_num(obj):
         return {"diarNum": n}
 
 
-# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。docs/design/edit-tool-design.md の 4・5) ----------
+# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。notes:docs/design/edit-tool-design.md の 4・5) ----------
 # 文書 transcripts/<id>.json の隣の <id>.edit.json。校正の保存(文書の baseUpdatedAt)と、タイムラインの細かい保存(rev)を別にするため別のファイル。
 # 行の「カット済」(cutState)は、編集の内容があるときは常にそこから決める(文書のどの書き込みでも apply_edit_cuts を通す)。
 EDIT_SCHEMA = "youtube-tools-edit/v1"
@@ -837,7 +837,7 @@ def apply_edit_cuts(tid, doc, edit=None):
 def edit_draft(tid, rows=False):
     """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は cut2resolve の pack.py(flow.pack.cut_draft)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
-    行の端を広げるかは設定の rowEdge(docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
+    行の端を広げるかは設定の rowEdge(notes:docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ)は {"unavailable": {"code", "message"}}。
     ネットワーク上の動画は調べない(カット・パックに使えない理由を画面に出す。一覧・clip-info と同じく、開くだけで資格情報を送らない)。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""

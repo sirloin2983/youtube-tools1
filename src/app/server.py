@@ -4,8 +4,8 @@
     python src/app/server.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
     python src/app/server.py --headless [--port 8700]   画面なし(送るアプリが子プロセスとして起こす ②。RS7-2 G5a。下の「画面なし」)
 
-統合計画の段階1(docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
-`serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(docs/spec/pipeline.md)。
+統合計画の段階1(notes:docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
+`serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(notes:docs/spec/pipeline.md)。
 
   GET  /                                  入口の画面(portal.html)
   GET  /api/ping                          {"app": "ytt-launcher", "version"}
@@ -27,7 +27,7 @@
                                           live = {recording, detecting, exporting}(ライブの録画中・検出中・書き出しの途中の数。PortalServer.live_activity)。
                                           idle は待ち・実行中が 0 かつ live の数がどれも 0 のときだけ真(送るアプリの「終わったら閉じる」。RS7-2 G5a)。
                                           RS8: + rev(変わるたびに増える)・jobs(掲示板 src/flow/board.py の Job。待ち・実行中 + 終わった直近 30 件・入れた順)・
-                                          cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。docs/spec/pipeline.md 2.9
+                                          cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。notes:docs/spec/pipeline.md 2.9
                                           F1 F0-1: + blocked(null か {reason: "disk", freeGB, minGB} = 空き容量が下限を切って次の実行を始めていない)・
                                           machine({engine, device, llmModel, gpu: {name, vramGB, ...} か null}。src/flow/runqueue.py の machine_status)
   GET  /api/flow/machine                  この PC の設定(src/flow/machine.py の load。{engine, device, llmModel, caseRoot, diskMinGB, learningDir, docMove, markMove, sources})
@@ -40,9 +40,9 @@
   POST /api/flow/outbox/done              {id} 上げ終えた zip を outbox/済み へ → {ok: true}。無い・名前の形が違う id は 404(F1 F6a)
   GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(/api/autorun/history と同じ中身。case = 結果の束の案件で絞る)
   POST /api/flow/estimate                 /api/autorun/estimate と同じ(② の名前。旧い名前も残す)
-  GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)
+  GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。notes:docs/spec/friend-intake.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
-  GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。docs/spec/data-location.md の「バックアップ」)
+  GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data-location.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
   GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと。0.38.0)(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a))
   POST /api/accuracy/run                  {} 今すぐ測る(裏で。手が空くまで待つ。オフなら 409。応答は今の状態)
@@ -78,19 +78,19 @@
 設計の要点
 - 子プロセスの出力は <作業データ>/app/logs/<ID>.log に書く(1つの黒い画面に3つのツールの出力が混ざらないように)
 - ツールが準備できたかは、ツールが書く .runtime/<ID>.json のポートに /api/ping を問い合わせて確かめる。
-  pid では確かめない(Windows の os.kill(pid, 0) はプロセスを終了させてしまう。docs/spec/pipeline.md の 4)
+  pid では確かめない(Windows の os.kill(pid, 0) はプロセスを終了させてしまう。notes:docs/spec/pipeline.md の 4)
 - すでに別の黒い画面で動いているツールは「別の画面で起動済み」として扱い、起動も停止もしない(二重起動で data.json を取り合わないため)
 - 止めるときは、Windows は Ctrl+Break(子を別のプロセスグループで起動しておく)、Mac/Linux は SIGTERM を送る。
   どちらも各ツールが .runtime を消してから終わる合図。一定時間で終わらなければ強制終了する
 
-画面なし(--headless。RS7-2 G5a・plan/f1-friend-pc.md の 2〜4)
+画面なし(--headless。RS7-2 G5a・notes:plan/f1-friend-pc.md の 2〜4)
 - 友人の送るアプリが ② を子プロセスとして起こす形。ブラウザ・窓を開かない。取り込み(3 ツール)と ②(まとめて実行 = flow の Queue・ライブ)は載せる。
   ③④⑤ の常駐(依頼の受付の見張り・バックアップ・精度の自動測定・分析と日報・ごみ箱フォルダの片付け)は起こさない(部品は作るので API は今までどおり答える)。
   「起動し直す」(api/ytt/restart-self)は 409 で断る(新しい入口は送るアプリの子にならないため。起こし直すのは送るアプリ)
 - 標準出力・標準エラーは UTF-8。標準出力は 1 行の JSON だけ: 待ち受けて ② を準備できたら {"event": "ready", "port", "token"(書き込み系の X-YTT-Token), "pid"}(HEADLESS_READY)。
   黒い画面への記録・取り込んだツールの print は標準エラーへ
 - 入口がすでに動いている(そのポート範囲の入口・同じ作業データの .flow.lock)ときは、読める文を標準エラーへ出して EXIT_RUNNING で終わる(ブラウザは開かない)
-- 親の見張り(--parent-pid <pid>。F1 F0-1・docs/design/f1-build.md (f1j)): 起こしたアプリのプロセスが終わるか、標準入力が閉じられたら(EOF)、
+- 親の見張り(--parent-pid <pid>。F1 F0-1・notes:docs/design/f1-build.md (f1j)): 起こしたアプリのプロセスが終わるか、標準入力が閉じられたら(EOF)、
   「すべて終了」と同じ後始末で終わる(終了コード 0。実行中・待ちの実行は autorun-active.json に残り、次の起動で続く)。
   標準入力を見るのは --parent-pid を付けたときだけ(付けないときは今までどおり)
 """
@@ -152,7 +152,7 @@ from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/c
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 import prefs as prefs_mod  # noqa: E402  (src/home/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 import live as live_mod  # noqa: E402  (src/home/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
-try:   # src/analytics: 分析と日報(/analytics/ を受け持つ。plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
+try:   # src/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
     from analytics import service as analytics_mod  # noqa: E402
 except ImportError:
     analytics_mod = None
@@ -198,7 +198,7 @@ def _spec(tid, name, sub, port, **kw):
 TOOLS = (
     _spec("studio", "切り抜きスタジオ", "配信を探す・切り抜く区間を選ぶ・書き出す", 8800),
     _spec("transcribe", "編集", "文字起こし・カット・Resolve へのパック", 8775, venv=True),
-    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。docs/design/edit-tool-design.md の 6)
+    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。notes:docs/design/edit-tool-design.md の 6)
     _spec("cut2resolve", "cut2resolve", "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)", 8810, hidden=True),
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
@@ -612,7 +612,7 @@ STATIC = {"/": ("portal.html", CODE_DIR), "/index.html": ("portal.html", CODE_DI
           "/portal.css": ("portal.css", CODE_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
           "/settings": ("index.html", SETTINGS_DIR), "/settings.js": ("settings.js", SETTINGS_DIR),
           "/settings.css": ("settings.css", SETTINGS_DIR), "/settings-schema.json": ("schema.json", SETTINGS_DIR)}
-# 案件の画面(/cases。RS8 C1。docs/design/rs8-cases-build.md)。/settings と同じく入口の直下の 1 枚(相対パス api/… が入口・studio/api/… が取り込んだスタジオ)。
+# 案件の画面(/cases。RS8 C1。notes:docs/design/rs8-cases-build.md)。/settings と同じく入口の直下の 1 枚(相対パス api/… が入口・studio/api/… が取り込んだスタジオ)。
 # パネルは /cases-panels/<名前>.js(/cases/ で始めない = 画面の相対パスがずれない)。URL は完全一致の表だけ(フォルダを丸ごと配らない)
 CASES_DIR = os.path.join(ROOT, "app", "ui", "cases")
 CASES_PANELS = ("cand", "proof", "cut")   # 候補・校正・カットとパック(C2 で中身を移す)
@@ -625,7 +625,7 @@ STATIC["/cases-panels/new.css"] = (os.path.join("panels", "new.css"), CASES_DIR)
 STATIC["/portal-edit.js"] = ("portal-edit.js", CODE_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
 STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), CASES_DIR),   # 校正のパネル(C2b): 見た目・3 択の部品・編集を載せる台(編集の app-*.js は transcribe/ から読む)
                "/cases-panels/machpick.js": (os.path.join("panels", "machpick.js"), CASES_DIR), "/cases-edhost.js": ("edhost.js", CASES_DIR)})
-# 確かめる(/check。RS8 V1。docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
+# 確かめる(/check。RS8 V1。notes:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
 # カードの描き方は /check-cards/<種類>.js(V2 の 4 本が中身を足す)・カード用の軽い再生部品は /check-player.js
 CHECK_DIR = os.path.join(ROOT, "app", "ui", "check")
 CHECK_CARDS = ("value", "read", "voice", "time")   # 切り抜く価値・どちらの読み・誰の声・行の時刻
@@ -1749,7 +1749,7 @@ def _wait_eof(stream):
 
 
 def watch_parent(pid, stdin, on_gone, log=None):
-    """親の見張り(--parent-pid。F1 F0-1・docs/design/f1-build.md (f1j)): 親のプロセスが終わるか、標準入力が閉じられたら on_gone(理由の文) を 1 回呼ぶ。
+    """親の見張り(--parent-pid。F1 F0-1・notes:docs/design/f1-build.md (f1j)): 親のプロセスが終わるか、標準入力が閉じられたら on_gone(理由の文) を 1 回呼ぶ。
     糸を 2 本(親の待ち・標準入力)起こす(どちらも daemon)。stdin が None なら標準入力は見ない。-> 起こした糸のリスト"""
     fired = threading.Lock()
 

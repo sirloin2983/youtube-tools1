@@ -1,5 +1,5 @@
 /* ui-kit v27 — テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
-   画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
+   画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。各ツールへは dev/sync_ui_kit.py で写す(手で直接直さない)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。**v6: 保存が無いときは既定で 'light'**。以前は OS の設定(system)に従っていた) / resolved() 実際の見た目 / set(p) / toggle() / onChange(fn)
    window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
@@ -12,7 +12,7 @@
                          窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
    v3: 入口・案件へ戻るリンク(ヘッダーの <a data-ui-home>・<a data-ui-cases> と「他のツール」メニューの先頭)、
        window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)、window.UIKit.esc(s)
-   v4: 文字起こしツールと cut2resolve を「編集」に統合(docs/design/edit-tool-design.md)。transcribe の表示名を「編集」に、cut2resolve は hidden
+   v4: 文字起こしツールと cut2resolve を「編集」に統合(notes:docs/design/edit-tool-design.md)。transcribe の表示名を「編集」に、cut2resolve は hidden
    v5: 配信者の名前(字幕の色)の欄 <input data-ui-streamer>(UIKit.streamer。候補と色の見本。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)、
        入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(UIKit.portal。入口が二つにならないように。2026-09-27)
        (一覧には残す = 編集が UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない)
@@ -20,7 +20,7 @@
        UIKit.appnav(ホーム/スタジオ/編集の切り替え)・UIKit.drawer(右から出る引き出し)・UIKit.dialog(確認・警告)・
        details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大3つ → v21 で2つ)・UIKit.keybar(下の細い帯)・
        UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン)
-   v7(2026-09-29・気が利く画面へ 段1。docs/design/briefs/ux-consistency/): UIKit.toast の ms: 0 = 消えない(以前は 0 が既定の秒数に戻っていた)・
+   v7(2026-09-29・気が利く画面へ 段1。notes:docs/design/briefs/ux-consistency/): UIKit.toast の ms: 0 = 消えない(以前は 0 が既定の秒数に戻っていた)・
        action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
        UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
        available()。保存に失敗したら知らせと [もう一度])。
@@ -37,7 +37,7 @@
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
    v17(2026-10-05): UIKit.sound(ほかの窓で音が鳴っているかを BroadcastChannel で知らせ合う: other(tool) / onChange。スタジオの配信の音を、編集で再生している間だけ下げる・消すのに使う)。
    v16(2026-10-05): UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
-       録画が終わった・切れたときの知らせ付き。線 D・plan/line-d-live-clipping.md の 0-8。README.md の「v16」)
+       録画が終わった・切れたときの知らせ付き。線 D・notes:plan/line-d-live-clipping.md の 0-8。README.md の「v16」)
    v11(2026-10-02): UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)
    v18(2026-10-07): 内部の整理(確認・お知らせのダイアログ・編集の設定の保存・エラーの記録を共通に)。使っている画面の無い data-ui-home / data-ui-cases と .ui-home を消した。UIKit の形・動きは同じ
    v20(2026-10-07): UIKit.restart の「起動し直す」で、入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む。入口 0.41.0)があれば、待つ間の帯の文に足す
@@ -295,7 +295,7 @@
      どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
   function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
 
-  /* ---- http(v24。docs/design/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
+  /* ---- http(v24。notes:docs/design/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
      UIKit.http(url, opt) -> Promise<応答の JSON(JSON でなければ {})>(opt.raw なら成功のときは Response)。opt:
        method(既定: body があれば POST・無ければ GET)・body(JSON にして送る。Content-Type も付ける)・keepalive・
        timeout(ミリ秒。応答の見出しが届くまで)・signal(呼ぶ側の AbortSignal)・raw・
@@ -1230,7 +1230,7 @@
   var settings = { mount: settingsMount, status: settingsStatus, statusOf: function () { return { state: setStatus.state, message: setStatus.message }; },
                    general: buildGeneralSection };   /* v25: 「全体」の節(テーマ・文字の大きさ・キーの帯)を /settings/ の画面にも置く */
 
-  /* ---- settingsForm(v25。設定を 1 つに S5。docs/spec/settings.md の 4)---- 宣言的なスキーマから設定の節を描く。
+  /* ---- settingsForm(v25。設定を 1 つに S5。notes:docs/spec/settings.md の 4)---- 宣言的なスキーマから設定の節を描く。
      ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は今までの作り)。
      UIKit.settingsForm.render(host, group, io) -> {refresh()}
        group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link}]}
@@ -2251,7 +2251,7 @@
   };
 
   /* ==== v11(2026-10-02): 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
-     時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(friend-apps/request-sender の TimeBox)と同じ動き(docs/spec/friend-intake.md の 2-10):
+     時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(friend-apps/request-sender の TimeBox)と同じ動き(notes:docs/spec/friend-intake.md の 2-10):
        欄は1つ。時・分・秒 のどれか1つが選ばれていて(反転)、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る(分・秒の最初が 6〜9 なら1桁で次へ)。
        ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
        貼り付け(1:23:45 / 83:45 / 1h23m45s。youtube: true のときだけ YouTube の URL の t= も読む)。
@@ -2426,7 +2426,7 @@
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  /* ---- liveBadge(v16: ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(plan/line-d-live-clipping.md の 0-8)。
+  /* ---- liveBadge(v16: ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(notes:plan/line-d-live-clipping.md の 0-8)。
      入口の POST api/ytt/live {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(合言葉つき。入口が受け持つ)を
      オンのときは 10 秒ごと・オフ(enabled:false・404 などの 4xx)のときは 60 秒ごとに問い合わせ、appnav のあるヘッダー(.ui-header-actions の先頭)に札を出す。
      録画が無い・機能がオフ・合言葉が無いページ(入口を通さない単独起動)では何も作らない(場所も取らない)。隠れているタブは問い合わせない(戻ったらすぐ)。

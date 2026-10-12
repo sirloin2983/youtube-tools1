@@ -445,7 +445,7 @@ function coveredBy(entries, path, start, end){   // サーバーの _covered と
   return '';
 }
 
-/* ---------- 受け渡し(docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
+/* ---------- 受け渡し(notes:docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 
 /* youtube-tools-clip/v1 の「元の配信: タイトル 12:34〜13:20」。中の文字列(配信タイトル・マークの名前・URL・パス)は外から来るので必ずエスケープし、
    リンクにするのは https://www.youtube.com/ で始まる URL だけ(javascript: などを踏ませないため) */
@@ -478,7 +478,7 @@ async function lookupClip(path){
 }
 
 /* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
-   ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。docs/spec/pipeline.md 3)。
+   ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。notes:docs/spec/pipeline.md 3)。
    読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
 /* まだ文書の無い動画の「文字起こしをする / 文字起こしせずに開く」。主ボタンにフォーカスを置く(次に押す所。段8 E-27) */
 function showMediaChoice(){ $('#mediaChoice').hidden = false; requestAnimationFrame(() => { const b = $('#mcTx'); if (b && b.offsetParent) b.focus({ preventScroll: true }); }); }
@@ -574,7 +574,7 @@ async function exportBeside(fmt, btn){
 }
 
 /* ---------- cut2resolve の API(3 パック のタブ・カットのたたき台が使う) ----------
-   パックを作るのは pipeline/pack/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。docs/design/resolve-pack-unification.md)。
+   パックを作るのは pipeline/pack/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。notes:docs/design/resolve-pack-unification.md)。
    cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
    (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
 

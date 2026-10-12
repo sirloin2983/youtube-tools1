@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D。plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+"""リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
 オフの間は何もしない: /live/… は今までどおり 404(handle が False を返し、入口の 404 になる)・録画の部品も起動しない・「調子」にも出さない。
 api/ytt/live の status だけはオフでも {enabled: false} を返す(録画元に問い合わせない)。
 
@@ -84,7 +84,7 @@ from flow import live_adopt   # 採用 = マーク + 書き出し(M1)の本体�
 from flow import live_export   # マークと書き出し。P2
 from flow import livesession   # ライブ係(RS7-2 G2b。Live はこれを継ぐ app の殻)
 from manage.keep import live_cleanup   # 録画を自動で消す。P4
-from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。docs/spec/friend-intake.md の 2-15)
+from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。notes:docs/spec/friend-intake.md の 2-15)
 from human.friend import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
 from human.friend.intake import OUT_DIR  # noqa: E402  # lint: keep 別名(RS3-3。差し替えない定数)= (見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む)
 
@@ -168,7 +168,7 @@ class Live(livesession.LiveSession):
         self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
 
     def use_headless(self, disk_min_gb=None):
-        """画面なし(server.py --headless。plan/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
+        """画面なし(server.py --headless。notes:plan/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
         スタジオなしの採用(LocalMarks)・友人へ届けない・D-13 なし(未確認で休まない・6 時間で止めない・同時の上限なし)・自動の採用の上限は束の adopt.top・
         空き容量が disk_min_gb(GB)より少なければ新しい録画を始めない"""
         self.headless = True

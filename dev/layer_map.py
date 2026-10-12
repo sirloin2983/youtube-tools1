@@ -1,6 +1,6 @@
-"""役割の層と、今のファイルの行き先(役割で組み直す計画 `plan/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
+"""役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
 
-層(RS6 の決定 3-29。`docs/design/rs6-survey-2026-10-10/plan_order_v2.md` の 2-3):
+層(RS6 の決定 3-29。`notes:docs/design/rs6-survey-2026-10-10/plan_order_v2.md` の 2-3):
     ytt(基盤)/ pipeline(① 道具 = データを加工する)/ flow(② 管理 = ① をいつ・どの順で・どこに置いて・飛ばすか)/
     human(③ 人の操作)/ manage(④ データ)/ eval(⑤ 検証)/ app(入口と画面。全部を使ってよい)
 決まり: ③④ は ① を直に読まない(全部 ② を通す)。⑤ は ① を直に読んでよい(本物の作業データへ書くときだけ ②)。
@@ -10,7 +10,7 @@ import してよい相手は ALLOWED の表(順位の比較ではない)。
 違反は KNOWN に一覧で許す(減らすだけ。新しい違反はテストが落とす)。RS1 以降でファイルを移したら、この表の行き先が実際のフォルダになる。
 
 表の値: (層, 行き先のサブパッケージ, 備考)。"split" が付く物は分割が要るファイル(主の層を書く。関数ごとの行き先は
-`docs/design/role-restructure-map-2026-10-09.md`)。
+`notes:docs/design/role-restructure-map-2026-10-09.md`)。
 """
 LAYERS = ["ytt", "pipeline", "flow", "human", "manage", "eval", "app"]
 
@@ -44,7 +44,7 @@ FILES = {
     "src/flow/export.py": ("flow", "flow", "② 書き出しの器(OPT2 の J2。ExportJobs = ① pipeline/export/exporter.run を 1 本ずつ動かすジョブの表・同時 1 本 409・履歴 20・枠 SLOTS・_out_lock の下で登録・取り消し・掲示板の頭 ex。default() でプロセスに 1 つ。ytt・① export を読む)"),
     "src/flow/studiobook.py": ("flow", "flow", "スタジオなしの配信の台帳と URL の段の動詞(RS8 の「URL も CLI で」。StudioBook = data.json + 案件の 候補.json・採用.json をスタジオの Store と同じ形で・LocalStudio = flow/tools の LocalTools が任せる配信の読み・解析・採用・書き出し。ytt・flow(batch・casebook・adopt・keys・export)・① pipeline/analyze・export を読む。③ は読まない)"),
     "src/eval/tools/eval_casebook.py": ("eval", "eval/tools", "スタジオの配信を候補 + 採用に分けて重ね直す往復を作業データで確かめる道具(RS8 B3-3。読むだけ。flow/casebook と human/review/store の読み込みを読む)"),
-    # ---- V1 確かめる(V0。docs/design/v1-check-build.md)。⑤ が待ち行列を数えて並べ(読むだけ)、③ が答えを記録して反映する(入口の /api/check/*)
+    # ---- V1 確かめる(V0。notes:docs/design/v1-check-build.md)。⑤ が待ち行列を数えて並べ(読むだけ)、③ が答えを記録して反映する(入口の /api/check/*)
     "src/eval/check/lineup.py": ("eval", "eval/check", "確かめるの待ち行列の並びと数え方(純粋。名前は標準の queue と重ねない。カードの id・種類の並び・n の検査)"),
     "src/eval/check/goals.py": ("eval", "eval/check", "カードの種類 → 入口の条件 GOALS の対応と、答えの数え方(accuracy.goals_of の extra。human/check/answerlog を読む)"),
     "src/eval/check/sources.py": ("eval", "eval/check", "カードの出どころの登録と V0 の 5 つ(value:auto・value:cand・read:fill・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),
@@ -96,7 +96,7 @@ FILES = {
     "src/flow/runqueue.py": ("flow", "flow", "② の待ち行列と実行の糸(RS7-1 S5。submit(封筒, 束)・status・cancel・snapshot・history・estimate・待ちの記録と終わった実行の記録。"
                           "Runner を継ぎ、入口の AutoRunner が受付と hook だけを足して継ぐ)"),
     "src/flow/board.py": ("flow", "flow", "② のジョブの掲示板(RS8 の ② の口 S1。Job の形・id の頭・kind / state の語彙・upsert・引く形の register・rev・直近の履歴・案件ごとの絞り込み・"
-                          "cancel / retry の振り分け・親子の印。入口の GET /api/flow/status の jobs・cases・rev。docs/spec/pipeline.md 2.9)"),
+                          "cancel / retry の振り分け・親子の印。入口の GET /api/flow/status の jobs・cases・rev。notes:docs/spec/pipeline.md 2.9)"),
     "src/flow/livehost.py": ("flow", "flow", "ライブの親の口(RS7-2 G0。typing.Protocol だけ。Detector・LiveTx・Reporter・Exporter・Adopter が親に求める物 = LiveHost 1 つ。flow/livesession の LiveSession が満たす)"),
     "src/flow/live_adopt.py": ("flow", "flow", "ライブの採用 = マーク + 書き出し(M1。RS7-2 G1b。Live.adopt の本体。マークの置き場 StudioMarks(スタジオ)・LocalMarks(マークの正本。スタジオなし))"),
     "src/flow/livesession.py": ("flow", "flow", "ライブ係(RS7-2 G2b。Live から app でない部分 = 録画元のクライアント・録画を始める・受付 submit(封筒 kind live + 束 → live/bundles.json)・"

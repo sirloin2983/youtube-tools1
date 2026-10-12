@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""録画を自動で消す(線 D の P4。plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定)の入口の側。
+"""録画を自動で消す(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定)の入口の側。
 設定 live.autoDelete(既定オン。src/home/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
 
 消すのは戻せないので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
@@ -36,7 +36,7 @@ from flow import live_export as LX
 from flow import live_archive as LA
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
-KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = docs/spec/data-location.md の保存の方針)
+KEEP_SEC = 3 * 86400.0         # 退避した速報版を消すまで(入れ替えてから。ただの控えは早めに消す = notes:docs/spec/data-location.md の保存の方針)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/home/live.py の tick から)で調べる間隔
 STALE_SEC = 3 * 86400.0        # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が NOT_REPLACED だけなら、このとき消す(10-09 ユーザー決定)
 WARN_SEC = 2 * 86400.0         # NOT_REPLACED の録画を消す 1 日前から「調子」に予告する

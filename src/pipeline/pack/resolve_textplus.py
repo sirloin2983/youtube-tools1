@@ -16,7 +16,7 @@ TARGET_FPS = (24, 25, 30, 50, 60)
 VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ(2026-10-02)
 
 
-# 字幕の見た目(ユーザーの指定 2026-09-26。docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
+# 字幕の見た目(ユーザーの指定 2026-09-26。notes:docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
 # C:\Users\you11\Desktop\素材 の「基本設定」「シェード1〜3」)。縦・横とも同じ(ユーザー決定)。雛形(.drb)は今のまま、スクリプトが値を入れる。
 #   フォント「けいふぉんと」Regular・大きさ 0.14・字間 1.0・行間 1.0・アンカー 縦 1.0(下)/ 横 0.0(中央)
 #   シェード 1 = 塗り 黒(優先順位 8)/ 2 = ふち 白・太さ 0.12・ずらす X 0.015 Y −0.02(優先順位 7)/ 5 = ふち 黒・太さ 0.18(優先順位 4)
@@ -168,7 +168,7 @@ def caption_segments(keeps, cues_out):
     return out
 
 
-# 重なる字幕の段(plan/line-b-overlap.md の 2-2・6-2 の 4。6 が正)。Resolve は同じトラックにクリップを重ねて置けないので、
+# 重なる字幕の段(notes:plan/line-b-overlap.md の 2-2・6-2 の 4。6 が正)。Resolve は同じトラックにクリップを重ねて置けないので、
 # 時刻が重なる字幕は上のトラック(段)へ分け、縦の位置も上へずらす。数えるのはカットで詰めたあとのコマ(パックが正。画面は同じ関数を使う)
 LANE_MAX = 3              # 段の数の上限。4 つ目以降の重なりは 3 段目に入れ、3 段目の中の重なりは「切る」で解く
 LANE_OVERLAP_SEC = 0.3    # 前の字幕がこれ未満だけはみ出すなら、段を分けずに前の字幕の終わりを次の字幕の始まりで切る(認識の時刻のぶれ 0.1〜0.2 秒で跳ねないため)
@@ -227,7 +227,7 @@ def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_O
             "stacked": sum(1 for x in lane if x > 1), "trimmed": len(trimmed)}
 
 
-# 字幕の改行(2段。docs/design/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
+# 字幕の改行(2段。notes:docs/design/edit-tool-design.md の 12 ②。ユーザー決定 2026-09-26: 縦 8・横 14 文字前後で改行)。
 # Text+ は自動で折り返さない(大きさ 0.14 だと縦の画面の1段に 7〜8 文字ほど)ので、字幕の文字に改行を入れる
 WRAP_DEFAULT = {"vertical": 8, "horizontal": 14}
 WRAP_SLACK = 2                        # 1段の文字数を 2 文字まで超えるのは許す(変な所で切らない)

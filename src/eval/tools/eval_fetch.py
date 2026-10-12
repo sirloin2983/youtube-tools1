@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""編集前の定点(評価用)を、配信のアーカイブから取得する道具(文字起こしの精度改善の計画 第2版 D0-b。plan/line-b-transcription.md の 3-3)。
+"""編集前の定点(評価用)を、配信のアーカイブから取得する道具(文字起こしの精度改善の計画 第2版 D0-b。notes:plan/line-b-transcription.md の 3-3)。
 
     python src/eval/tools/eval_fetch.py plan  [--root 評価用のフォルダ] [--minutes 40] [--clip-sec 40] [--since YYYY-MM-DD] [--seed 文字] [--redo]
     python src/eval/tools/eval_fetch.py show  [--root 評価用のフォルダ]

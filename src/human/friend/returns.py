@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。docs/design/f1-build.md の (f1d))。
+"""③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
 
 友人の PC のアプリが Dropbox の `/送り返し/` へ上げた物が、ユーザーの PC では同期フォルダ(intake.folder)の `送り返し\\` に届く:
 - `<requestId>__<runId>.zip`            ② が組んだ 1 実行の結果(flow/outbox。動画なし)

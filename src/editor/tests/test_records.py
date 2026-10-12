@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""記録の土台(マスタープラン Q2。plan/line-bc-master-plan.md)のテスト。
+"""記録の土台(マスタープラン Q2。notes:plan/line-bc-master-plan.md)のテスト。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_records -q                # これだけ(src/editor/tests で)

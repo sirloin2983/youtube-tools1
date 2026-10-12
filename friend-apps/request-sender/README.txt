@@ -162,7 +162,7 @@
   ここから下は、アプリを渡す人(PC で受け取る人)向け
 ==========================================================
 友人の PC → Dropbox の API → 自分の Dropbox の「アプリ」フォルダ → 同期 → PC のホームが見て自動で文字起こし、という流れです。
-設計: docs/spec/friend-intake.md
+設計: notes:docs/spec/friend-intake.md
 
 【鍵を作る(最初に1回)】
   1. https://www.dropbox.com/developers/apps →「Create app」
@@ -208,7 +208,7 @@
     flow(v1.1.0 から。v2.10.0 からアプリは "auto" 固定で送ります。受ける側は ② ③ を送られても ① として扱います): "auto" = ① 全自動(パックまで)/ "check" = ② 文字起こしまで / "manual" = ③ 解析まで。
       1回の「送る」の動画と URL の両方に同じ値が付く。v1.0.0 の依頼には flow が無い
     deliverBatch(v2.8.0。届け方。① 全自動の url・video・live(live は v2.9.0 から)の依頼だけ・1〜10 だけ。sentAt の直前。live では live の後): 1 = 1 本ずつ / n = n 本の組(まとめ動画 1 本 + 1 本ずつの zip + .group.json)。
-      無いとき(v2.7.0 までのアプリ・②③)は PC の設定(ホームの intake.deliverBatch)。設計 docs/spec/friend-intake.md の 2-16
+      無いとき(v2.7.0 までのアプリ・②③)は PC の設定(ホームの intake.deliverBatch)。設計 notes:docs/spec/friend-intake.md の 2-16
     kind "live"(v2.8.0。ライブ配信の依頼。設計 2-15): url 1 本(正規化した watch?v=)・flow は "auto" 固定・streamer はいつも書く(無ければ "")。
       speakers・videoTracks・cut は URL の依頼と同じ。live = 友人のベータの設定: sens(high / normal / low)・perHour(1〜30)・length(10〜120 秒)・
       waitMin(1〜60 分)・pad(0〜5 秒)・afterStream(真偽)。アプリは範囲の外を既定にして送る(受ける側も範囲の外・無い鍵は既定に)。weights は書かない。deliverBatch は v2.9.0 から書く(live の後・sentAt の直前。1〜10 のときだけ。
@@ -296,7 +296,7 @@
                      色は 6 桁のカラーコード(# なし)で、横に色の見本。色が空のときは「メンバーカラー」/「色なし」の注が出る。
                      色だけで名前が空の行・6 桁そろっていない色は、「送る」で止めて、その欄を示す。
                      依頼の JSON は、speakers に people(名前と style.color)を足し、URL の依頼にも 1 人目の名前を streamer で書く(names など今までのキーはそのまま。
-                     古い PC でも今までどおり動く)。受ける側(色を字幕に使う)は、設計 docs/spec/friend-intake.md の順で別に作る
+                     古い PC でも今までどおり動く)。受ける側(色を字幕に使う)は、設計 notes:docs/spec/friend-intake.md の順で別に作る
   v2.1.1(2026-10-07)内部の整理。動きは同じ(依頼の JSON の形・画面・設定ファイルも変えていない)。
                      今の画面が使わない古い作り方(人数と名前だけで JSON を作る呼び出し・「受け取り済み」の記録)のコードを削り、
                      通信の失敗の包み方・鍵(config.json)の読み込み・一覧の描き方など、重なっていたコードを1か所にまとめた

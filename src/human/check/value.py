@@ -1,4 +1,4 @@
-"""「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(V1 の V2a。docs/design/v1-check-build.md・決定 3-41)。
+"""「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(V1 の V2a。notes:docs/design/v1-check-build.md・決定 3-41)。
 
 出どころ 2 つ(カードは src/eval/check/sources.py の value_auto・value_cand):
   value:auto  自動で採ってもう作った切り抜き。答え {choice: "send"} = 友人へ届ける / {choice: "drop"} = 要らない(どちらも 1 枚遅れで確定 = defer)

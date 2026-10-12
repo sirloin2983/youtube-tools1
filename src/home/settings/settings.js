@@ -1,4 +1,4 @@
-/* 設定の画面(/settings = 入口の直下の 1 枚。部品は src/home/settings/。設定を 1 つに S5。docs/spec/settings.md の 4)。
+/* 設定の画面(/settings = 入口の直下の 1 枚。部品は src/home/settings/。設定を 1 つに S5。notes:docs/spec/settings.md の 4)。
    スキーマ schema.json(鍵・型・範囲・既定値・ラベル・説明)を読み、UIKit.settingsForm が節を描く。値の置き場所(store)ごとに読み書きの口を 1 つずつ:
      home      … 入口の api/ytt/prefs(節ごと。入れ子の鍵は {auto: {after: …}} の形で送る = 送った鍵だけ直る)
      studio    … studio/api/settings(節を丸ごと置き換えるので、今の節に鍵を 1 つ直して送る)・outDir は studio/api/outdir

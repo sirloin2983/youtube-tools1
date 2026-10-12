@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。docs/design/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・plan/f1-friend-pc.md)。
+"""② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。notes:docs/design/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・notes:plan/f1-friend-pc.md)。
 
 もとは入口の src/home/live.py の Live の中の app でない部分。録画元のクライアント(一覧・要求・状態)・録画を始める(begin・友人の依頼の begin_request)・
 見回りの列(tick)・子プロセス(録画の部品の起動と後始末・検出のワーカー)・「調子」・採用の口(adopt)をここに置き、4 つの子(Detector・LiveTx・Reporter・
@@ -752,7 +752,7 @@ class LiveSession:
         return rc
 
     def _disk_guard(self, rc):
-        """空き容量の下限(disk_min_gb。画面なし = machine.json の diskMinGB。plan/f1-friend-pc.md 決めたこと 7)を下回っていたら LiveError(409)。
+        """空き容量の下限(disk_min_gb。画面なし = machine.json の diskMinGB。notes:plan/f1-friend-pc.md 決めたこと 7)を下回っていたら LiveError(409)。
         見る所: 書き出し先・パック・live\\work(Exporter.disk の行)と録画元の録画の置き場所(GET /live/list の freeBytes)"""
         gb = self.disk_min_gb
         if not schemas.is_num(gb) or gb <= 0:
@@ -824,7 +824,7 @@ class LiveSession:
         return ""
 
     def begin_request(self, url, ctx, envelope=None, bundle=None, recorder=None):
-        """友人のライブ配信の依頼(docs/spec/friend-intake.md の 2-15。submit から・入口の intake の live_begin から): 録画を始めて(begin)、その録画を依頼に結びつける。
+        """友人のライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15。submit から・入口の intake の live_begin から): 録画を始めて(begin)、その録画を依頼に結びつける。
         ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings, deliverBatch}。封筒 + 束があれば録画の束として残す(置き換える)。
         -> {"recorder", "recording", "existing"}。だめなら LiveError"""
         if not self.enabled():

@@ -243,7 +243,7 @@ class TestTextStyle(unittest.TestCase):
 
 
 class TestCaptionLanes(unittest.TestCase):
-    """重なる字幕の段(plan/line-b-overlap.md の 6-2 の 4)。規則は resolve_textplus.stack_captions の 1 か所。
+    """重なる字幕の段(notes:plan/line-b-overlap.md の 6-2 の 4)。規則は resolve_textplus.stack_captions の 1 か所。
     この PC には Lua が無いので、Lua に埋めた計画(read_script_plan)と Lua の文字列で確かめる(Lua を動かすテストは TestResolveTextPlusLuaRun)"""
 
     def lanes(self, cues, fps=(30, 1), order=None):
@@ -1437,7 +1437,7 @@ class TestEditMediaPack(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無いためスキップ")
 class TestMinimalPack(unittest.TestCase):
-    """パックの出力を最小限に(docs/design/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
+    """パックの出力を最小限に(notes:docs/design/edit-tool-design.md の 12 ④): 画面・API の Text+ パックは動画(直下)・Lua・雛形・登録用の ps1/bat だけ
     (readme_file=False: 手順書は画面の「手順を見る」。2026-09-27 ユーザー)。backup=True で EDL・予備_EDLで開く手順.txt・カット後の SRT も。
     plan_file=False で cut-plan.json を書かない(画面・API。記録は作業データ)。コマンドは今までどおり 友人へ.txt も書く"""
 
@@ -1674,7 +1674,7 @@ class TestMinimalPack(unittest.TestCase):
 
 
 class TestRowEdgeRule(unittest.TestCase):
-    """行から作るカットの端を声の止まる所まで広げる規則(pack.widen_row_edges。docs/design/edit-tool-design.md の 12 ⑥)。30fps: 0.1 秒 = 3 フレーム"""
+    """行から作るカットの端を声の止まる所まで広げる規則(pack.widen_row_edges。notes:docs/design/edit-tool-design.md の 12 ⑥)。30fps: 0.1 秒 = 3 フレーム"""
     E = pack.ROW_EDGE   # 後 0.5 秒(15)・前 0.3 秒(9)まで。無音が無ければ 後 0.2 秒(6)・前 0.1 秒(3)
 
     def w(self, spans, silence, total=900, edge=None):

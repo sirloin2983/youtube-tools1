@@ -1,4 +1,4 @@
-"""友人のライブ配信の依頼と録画の結びつき(docs/spec/friend-intake.md の 2-15。ホーム 0.47.0)。
+"""友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend-intake.md の 2-15。ホーム 0.47.0)。
 
 依頼の受付(src/human/friend/intake.py)が配信中・配信前の URL の依頼を受け付けると、録画を始めて(src/home/live.py の Live.begin_request)ここに結びつけ、
 録画の候補の検出・自動の採用(src/flow/live_detect.py・live_excite_worker.py)・採用した切り抜きの書き出しのあと(src/flow/live_export.py の _handoff)・
@@ -19,7 +19,7 @@ SENS = ("high", "normal", "low")
 SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}
 RANGES = {"perHour": (1, 30), "length": (10, 120), "waitMin": (1, 60), "pad": (0.0, 5.0)}
 KEEP_DAYS = 3           # 結びつきを残す日数(録画 12 時間 + 配信後の全自動 live_archive.AFTER_MAX_AGE 2 日に足りる。10-09 ユーザー「14 日は長い = 7・3・1 日か要らなくなったらすぐ」→ 3 日)
-TOP_DEFAULT = 10        # 1 録画の自動の採用の上限の既定(依頼の欄 = アーカイブの top と同じ。plan/f1-friend-pc.md 決めたこと 7。束の adopt.top の既定 3 とは別なので依頼の束に明示する。RS7-2 G2b)
+TOP_DEFAULT = 10        # 1 録画の自動の採用の上限の既定(依頼の欄 = アーカイブの top と同じ。notes:plan/f1-friend-pc.md 決めたこと 7。束の adopt.top の既定 3 とは別なので依頼の束に明示する。RS7-2 G2b)
 MAX_ACTIVE = 2         # 友人のライブ配信の依頼を同時に録画する本数(10-09 ユーザー「今は同時に 2 本。あとで増やすかもしれない」。以前は 1 = D-13)
 MAX_SEC = 6 * 3600.0    # D-13(仮の数): 1 依頼の録画の上限(依頼から。超えたら入口が録画を止める = src/home/live.py の stop_long_requests)
 MAX_ITEMS = 50

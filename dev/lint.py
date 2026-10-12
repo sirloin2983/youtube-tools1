@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""コードの見直しの合格の基準を測る道具(読むだけ。基準は `docs/spec/code-quality.md`)。
+"""コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code-quality.md`)。
 
     python dev/lint.py            # 一覧と件数。問題が 1 つでもあれば終了コード 1
     python dev/lint.py --json     # 同じ内容を JSON で
@@ -31,7 +31,7 @@ SKIP_DIRS = {"__pycache__", "node_modules", ".venv", "build", "dist", "packs", "
 TEXT_EXT = (".py", ".js", ".cjs", ".html", ".css", ".cs", ".md", ".txt", ".bat", ".vbs", ".json")
 DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_quiet", "_no_window": "tools.no_window_flags", "NO_WINDOW": "tools.no_window_flags",
                "KillJob": "tools.KillJob(1 か所に)", "_kill_on_close_job": "tools.KillJob(1 か所に)",
-               # 別名の写し(2026-10-09。ytt_core 1.3.0 で足した小道具。docs/design/code-review-simplify-2026-10-08.md の A・G10)
+               # 別名の写し(2026-10-09。ytt_core 1.3.0 で足した小道具。notes:docs/design/code-review-simplify-2026-10-08.md の A・G10)
                "unlink_quiet": "fsio.unlink_quiet", "file_stamp": "fsio.stamp", "rotate": "fsio.rotate",
                "read_json": "fsio.read_json_or", "_read_json_file": "fsio.read_json_or", "_inside": "fsio.is_inside",
                "dir_size": "fsio.dir_size", "_dir_bytes": "fsio.dir_size",
@@ -84,7 +84,7 @@ class Corpus:
 
     def __init__(self):
         self.texts, self.counts = {}, {}
-        for root in (SRC, os.path.join(REPO, "dev"), os.path.join(REPO, "setup"), os.path.join(REPO, "friend-apps"), os.path.join(REPO, "docs"), os.path.join(REPO, "plan")):
+        for root in (SRC, os.path.join(REPO, "dev"), os.path.join(REPO, "setup"), os.path.join(REPO, "friend-apps")):
             for p in walk(root, TEXT_EXT):
                 t = read(p)
                 self.texts[p] = t

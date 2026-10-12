@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。plan/line-bc-master-plan.md の Q3・I-4a)。
+"""盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
 
     python src/eval/tools/eval_marks.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--status-fallback]
     python src/eval/tools/eval_marks.py --live [--since …] [--until …] [--json]     配信ごと(線 D の D-12。下の「--live」)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LLM の後処理(提案 P18。pipeline/transcribe/llm.py(旧 src/editor/ed_llm.py)。plan/llm-postfix.md)を、確かめ済みの評価用の文書で測る道具。
+"""LLM の後処理(提案 P18。pipeline/transcribe/llm.py(旧 src/editor/ed_llm.py)。notes:plan/llm-postfix.md)を、確かめ済みの評価用の文書で測る道具。
 
     python src/eval/tools/eval_llm.py [--docs id,id] [--limit 30] [--only name,mis] [--dry] [--label 名前] [--no-save]
 
@@ -14,7 +14,7 @@
   無ければ取得する = 編集の初回と同じ)を、このプロセスの中で起動する
 - --dry は選ぶだけ(LLM を起動しない)。選んだ所の数を出す
 - 当たり: 当てた直しのうち、人の最終(同じ時間の校正済みの行)に置き換え後の文字があり、置き換え前の文字が無いもの
-- 10-09 の結果(22 本): 名前の手がかりだけで CER 13.5 → 13.4%・名前 28 → 34/53(plan/llm-postfix.md の 8)
+- 10-09 の結果(22 本): 名前の手がかりだけで CER 13.5 → 13.4%・名前 28 → 34/53(notes:plan/llm-postfix.md の 8)
 """
 import argparse
 import copy

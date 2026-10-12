@@ -39,7 +39,7 @@ from ytt.textutil import permission_message, redact  # noqa: E402  純粋な関�
 
 APP_ID = ytt_runtime.TOOL_APPS["studio"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。画面は入口が入れる meta ytt-version から読む)
-TOOL_ID = "studio"        # docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
+TOOL_ID = "studio"        # notes:docs/spec/pipeline.md の 4 のツールID(.runtime/studio.json)
 exporter.TOOL.update(name=APP_ID, version=SERVER_VERSION)   # .clip.json の tool
 EXPORTS = _flowexport.default()   # 書き出しの器(② の flow/export。プロセスに 1 つ = スタジオなしの台帳 flow/studiobook と同じ物。OPT2 の J2)
 CODE_DIR = startup.CODE_DIR
@@ -131,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
     def _navigation_ok(self, path):
         """他のツールの画面のリンク(「他のツール」メニュー・?url=)でこの画面を開くのは許す。
         ポートが違うだけでもブラウザは Sec-Fetch-Site: same-site(localhost と 127.0.0.1 なら cross-site)を送るため、以前は 403 になっていた。
-        画面を新しいタブで開くだけで、URL で処理は始まらない(docs/spec/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
+        画面を新しいタブで開くだけで、URL で処理は始まらない(notes:docs/spec/pipeline.md の 3)。API・静的ファイルは同じ画面からだけ。
         iframe への埋め込みは X-Frame-Options / frame-ancestors で拒否する(文字起こしツール・cut2resolve と同じ扱い)"""
         return httpsec.navigation_ok(self.headers, path)
 

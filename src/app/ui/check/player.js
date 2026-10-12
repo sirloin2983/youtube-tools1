@@ -1,4 +1,4 @@
-/* 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 docs/design/v1-check-build.md の 4・5 節)。
+/* 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
    案件のパネル(編集の全画面・review.js)は丸ごと載せず、口・見た目・キーを共用する:
      切り抜き・文書 = 編集の transcribe/media?id=<文書 id>(Range つき。ホームの続けて確認と同じ口)を <video> で、行の区間 ± pad 秒だけ再生して止まる
      候補のまま(配信の区間)= YouTube の埋め込み(youtube-nocookie.com。校正の小さい配信プレーヤーと同じ形)

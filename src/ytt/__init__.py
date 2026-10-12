@@ -1,4 +1,4 @@
-"""ytt — 基盤(役割で組み直す計画 plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で ytt_core から移した。どの層からも読める)。
+"""ytt — 基盤(役割で組み直す計画 notes:plan/role-restructure.md の 3 節。2026-10-09 の RS1-1 で ytt_core から移した。どの層からも読める)。
 
 Python 標準ライブラリだけで動く。読む側は src/ を sys.path に入れて `from ytt import fsio` のように読む(層のパッケージの中は兄弟を相対で)。
 旧い名前 `ytt_core` の転送は RS5-G で消した。excite は pipeline/analyze、evaldata は eval/tools、txindex は manage/cases に移した。
@@ -7,7 +7,7 @@ Python 標準ライブラリだけで動く。読む側は src/ を sys.path に
 - fsio      … 原子的な書き込み(Windows の一時的なロックはやり直す)・大きさの上限つきの JSON の読み込み(読めなければ既定値 read_json_or も)・
               ネットワークパスの判定・静かに消す・更新日時のキャッシュ StampCache・ログの回し rotate・フォルダの中か is_inside・フォルダの大きさ dir_size
 - runtime   … 実行中のポートの共有(.runtime/<ツールID>.json)・/api/ping の問い合わせ・/api/siblings の中身
-- schemas   … 受け渡しの形式(docs/spec/pipeline.md)の名前・youtube-tools-clip/v1 の組み立てと検証・途中のファイルの置き場所(作業用/)
+- schemas   … 受け渡しの形式(notes:docs/spec/pipeline.md)の名前・youtube-tools-clip/v1 の組み立てと検証・途中のファイルの置き場所(作業用/)
 - httpsec   … ローカルサーバーの安全検査(Host・Origin・Sec-Fetch-*・合言葉 token_ok)と画面の応答ヘッダー・JSON の本文 read_json_body・
               動画の Range 応答 send_file・使用中のポートに bind しないサーバー ExclusiveServer
 - datadir   … 作業データの置き場所(リポジトリの外)と、以前の場所からのコピー

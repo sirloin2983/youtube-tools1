@@ -8,7 +8,7 @@
 
 API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まとめて実行」(home/autorun.py)が呼ぶ):
   GET  /api/ping                 {"app": "cut2resolve", "version"}
-  GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(docs/spec/pipeline.md の 4)
+  GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(notes:docs/spec/pipeline.md の 4)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ。0.22.3)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
   POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, backup?, force}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは media の動画・Lua・雛形・登録用の ps1/bat・友人へ.txt。backup: true で EDL・予備の手順書・SRT も)。
@@ -83,7 +83,7 @@ LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
 SOCKET_TIMEOUT = 120
 # 画面(index.html・app.js・app.css)は「編集」(editor の 2 カット・3 パック のタブ)に統合して消した(ユーザー決定 2026-09-26。
-# docs/design/edit-tool-design.md)。入口の中では home/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
+# notes:docs/design/edit-tool-design.md)。入口の中では home/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
 PAGE_PATHS = ("/", "/index.html")
 MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
@@ -93,7 +93,7 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
-TOOL_APPS = _runtime.TOOL_APPS          # docs/spec/pipeline.md の 4(ytt.runtime が正)
+TOOL_APPS = _runtime.TOOL_APPS          # notes:docs/spec/pipeline.md の 4(ytt.runtime が正)
 PING_TIMEOUT = _runtime.PING_TIMEOUT
 BASE_PATH = "/"          # 画面の場所。入口の統合サーバーに取り込まれたときは "/cut2resolve/"(home/mount.py が prepare() で入れる)
 ALLOWED_HOSTS = set()    # 取り込まれたときに許す Host(home/mount.py が入口のポートで入れる。単独で動くときはサーバーごとに持つ)
@@ -311,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
     def _guard(self, write, path=""):
         """検査の規則は ytt.httpsec(全ツール・入口で1か所)。ここは許可する Host(単独 / 入口の中)を渡すだけ。
         Host は DNS rebinding 対策。書き込みの Origin は "http://" + 許可した Host と完全一致だけ(CSRF 対策)。
-        他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。docs/spec/pipeline.md の 3)"""
+        他のツールの画面のリンクで、この画面(/ と /index.html)を開くのは許す(URL で処理は始まらない。notes:docs/spec/pipeline.md の 3)"""
         h, hosts = self.headers, self.ctx.allowed_hosts
         bad = not httpsec.host_ok(h, hosts) or not (httpsec.fetch_site_ok(h) or (not write and httpsec.navigation_ok(h, path))) \
             or (write and not httpsec.origin_ok(h, hosts))

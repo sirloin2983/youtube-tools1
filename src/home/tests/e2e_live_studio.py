@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""リアルタイム切り抜き(線 D の P3。plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
+"""リアルタイム切り抜き(線 D の P3。notes:plan/line-d-live-clipping.md の 0-8)の通しの確認: 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、
 ブラウザでホームの「新しい案件」(/#new)から録画を始め、案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js が
 スタジオの review.js と LivePlayer を載せる)で再生・マーク・書き出しを操作する。本物の YouTube には繋がない。
 (RS8 C4 でスタジオの画面のページ(/studio/)を消した。古い URL /studio/?video=<id> は入口が /cases?c=<id>#cand へ転送する = 12 で確かめる)
@@ -381,7 +381,7 @@ def _scene_turn_on(cx):
     # ---------------- 1. ホームでオンにする ----------------
     pg = ctx.new_page()
     watch(pg, "home")
-    pg.goto(base + "/settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(docs/spec/settings.md の 6)
+    pg.goto(base + "/settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(notes:docs/spec/settings.md の 6)
     wait_js(pg, "!!document.getElementById('uiSet-live_enabled')")
     pg.click("#uiSet-live_enabled")
     check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'") and srv.prefs.get(["live"])["live"]["enabled"] is True, "1 設定の画面でオンにする")

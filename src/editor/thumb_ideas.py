@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
+"""サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。notes:plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
 
     python src/editor/thumb_ideas.py <切り抜きの動画> [--doc 文字起こしの id] [--name 配信者] [--out 出力の png]
 

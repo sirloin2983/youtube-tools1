@@ -1,6 +1,6 @@
 """raw(ブックマークが Studio の内部 API から取った JSON)→ 形をそろえたデータ。
 
-raw の形(既存の「Youtube日次」の Apps Script が Drive の raw/<日付>.json に置く。監査 plan/analytics-daily-report.md の 12-1):
+raw の形(既存の「Youtube日次」の Apps Script が Drive の raw/<日付>.json に置く。監査 notes:plan/analytics-daily-report.md の 12-1):
 - fetched_at(UTC)・received_at・date(JST の受信日)・channel
 - daily: [{DAY(PT の日。20261007), CREATOR_CONTENT_TYPE(SHORTS / VIDEO_ON_DEMAND / …), ENGAGED_VIEWS, EXTERNAL_VIEWS,
           TOTAL_ESTIMATED_EARNINGS, SUBSCRIBERS_NET_CHANGE}]

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""④ 文字起こしの文書を案件の 作業用 へ移す(RS8 B2-3。決定は plan/rs8-cases-ui.md の「B-2 の移し方」)。
+"""④ 文字起こしの文書を案件の 作業用 へ移す(RS8 B2-3。決定は notes:plan/rs8-cases-ui.md の「B-2 の移し方」)。
 
 入口が起動のとき(.flow.lock を取った直後・待ち受けの前 = CLI・画面の書き込みとぶつからない)に run を 1 回呼ぶ。
 自動で呼ぶのはこの PC の設定(flow/machine.py)の docMove が true のときだけ(既定 false。入口の move_docs が見る)。下のコマンドはスイッチに関係なく使える。

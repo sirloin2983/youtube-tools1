@@ -1,4 +1,4 @@
-// この PC で処理する ② + ①(Python の入口 src/app/server.py --headless)を子プロセスとして起こし・つなぎ・止める(F1 の F3a。設計 docs/design/f1-build.md の 1-2・3 の (f1i)(f1j))。
+// この PC で処理する ② + ①(Python の入口 src/app/server.py --headless)を子プロセスとして起こし・つなぎ・止める(F1 の F3a。設計 notes:docs/design/f1-build.md の 1-2・3 の (f1i)(f1j))。
 //   起こし方: <app>\python\python.exe <app>\src\app\server.py --headless --port 0 --parent-pid <このアプリの pid>
 //             標準出力の最初の 1 行 {"event":"ready","port","token","pid"} でポートと合言葉を受ける。標準エラーは <作業データ>\app\logs\headless-stderr.log へ
 //             終了コード 3 = もう入口が動いている → その入口(作業データの根の .flow.lock のポート・合言葉は画面の HTML の meta)に頼む(止めない)

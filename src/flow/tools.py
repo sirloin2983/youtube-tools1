@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(役割で組み直す RS6 b-0。2026-10-10。docs/design/rs6-survey-2026-10-10/plan_order_v2.md の b-0)。
+"""② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(役割で組み直す RS6 b-0。2026-10-10。notes:docs/design/rs6-survey-2026-10-10/plan_order_v2.md の b-0)。
 
 Runner(flow/run.py)の段は、ツールの仕事を self.tools.<動詞>(...) で頼む。動詞は今の各ツールの API 1 つずつ(返す形も API の応答のまま)。
   HttpTools(client) … 今の形(既定)。入口の中の 3 ツールの公開している API を client(call・ok)で呼ぶ。呼ぶ API と本文は RS6 b-0 の前と同じ

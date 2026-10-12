@@ -1,4 +1,4 @@
-"""「確かめる」の答えを実物へ反映する土台(V1 の V0。docs/design/v1-check-build.md の 3-2・3-3)。
+"""「確かめる」の答えを実物へ反映する土台(V1 の V0。notes:docs/design/v1-check-build.md の 3-2・3-3)。
 
 カードの種類(kind)と出どころ(source)ごとに「反映の関数」を登録し(register)、入口の口(POST /api/check/answer・/skip・/flush)が呼ぶ:
   answer(ctx, card, body) -> 答えを検査 → 前の保留を先に確定(flush)→ 反映(または保留)→ answers.jsonl に 1 行

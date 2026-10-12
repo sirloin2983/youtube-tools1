@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""文字起こしの認識エンジンの口(精度改善の計画 段2。plan/line-b-transcription.md(付録))。
+"""文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
 
 認識ワーカー(worker.py)が読み込むモデルは、ここのエンジンの1つとして作る。
   faster-whisper … CPU の逃げ道(GPU が実行時に失敗したときの CPU・再認識・時刻の候補など内部の自動の使い道)。段2-1

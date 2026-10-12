@@ -1,4 +1,4 @@
-// この PC で処理するときの進み具合・閉じるときの 3 択・処理する PC の切り替え(F1 の F3a。設計 docs/design/f1-build.md の 2 の F3a・plan/f1-friend-pc.md の決めたこと 3・5)。
+// この PC で処理するときの進み具合・閉じるときの 3 択・処理する PC の切り替え(F1 の F3a。設計 notes:docs/design/f1-build.md の 2 の F3a・notes:plan/f1-friend-pc.md の決めたこと 3・5)。
 //   進み具合: ② の GET /api/flow/status を、動いている物があれば 2 秒・無ければ 15 秒ごとに聞く(rev が前と同じなら描き直さない)。上の帯に 1 行・blocked(空き容量)は赤い文
 //   × の 3 択(自分が起こした ② が待ち・実行中・録画中のとき): [終わったら閉じる](既定。最小化してタスクバーのボタンに進み具合・idle になったら自分で終わる)/
 //                                                             [今すぐ止めて閉じる](② を止める = 次に開いたとき続きから)/ [やめる]
@@ -16,7 +16,7 @@ using FriendApps;
 
 namespace RequestSender
 {
-    // ---- ② の GET /api/flow/status の読み(docs/spec/pipeline.md 2.8・2.9。知らない項目は無視)----
+    // ---- ② の GET /api/flow/status の読み(notes:docs/spec/pipeline.md 2.8・2.9。知らない項目は無視)----
     public class FlowRun
     {
         public string Id = "", Title = "", State = "", StateLabel = "", Step = "", Message = "";

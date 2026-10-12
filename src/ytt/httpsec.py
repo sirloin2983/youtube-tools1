@@ -4,12 +4,12 @@
 - Origin    … 他サイトからの書き込み(CSRF)対策。送られてきたら「http://」+ 許可した Host と完全に一致するものだけ
 - Sec-Fetch-Site … 他サイトからの読み取り・API の消費を断る(同じ画面からの same-origin と、アドレス欄からの none だけ)
 - 画面への移動 … 他のツールの画面のリンクで、画面(/ と /index.html)を新しいタブで開くのだけは許す。
-  ポートが違うだけでもブラウザは same-site(localhost と 127.0.0.1 なら cross-site)を送るため。URL で処理は始まらない(docs/spec/pipeline.md の 3)。
+  ポートが違うだけでもブラウザは same-site(localhost と 127.0.0.1 なら cross-site)を送るため。URL で処理は始まらない(notes:docs/spec/pipeline.md の 3)。
   埋め込み(iframe)は Sec-Fetch-Dest と PAGE_HEADERS(X-Frame-Options / frame-ancestors)で断る
 - 応答 …… send / send_head: どの応答にも no-store(古い内容を見せない)と nosniff(型を推測させない)を付ける。
   スタジオ・編集・入口の Handler._send と、スタジオの動画(_media)の見出しがこれを使う(見出しの順番もここで決まる)
 
-各サーバーにあった定型(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の T6):
+各サーバーにあった定型(2026-10-09。notes:docs/design/code-review-simplify-2026-10-08.md の T6):
 - read_json_body … 書き込み系の要求の JSON の本文(Content-Type・大きさの検査。断る理由は BodyError の kind。文は呼ぶ側)
 - drain_body …… 断る要求の本文を読み捨てる(読まずに閉じると Windows では応答が届かないことがある)
 - token_ok ……… 合言葉の比べ方(時間で漏れない比べ方・文字の種類で落ちない)

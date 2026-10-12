@@ -40,7 +40,7 @@ const norm = s => String(s).normalize('NFKC').toLowerCase();
 const VIEW_KEY = 'tx.view.v1';
 const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
-/* 「編集」の 2 つのタブ(docs/design/edit-tool-design.md 3)。今のタブは URL の #tx / #cut に残す(再読み込み・窓で開いても同じタブ)。
+/* 「編集」の 2 つのタブ(notes:docs/design/edit-tool-design.md 3)。今のタブは URL の #tx / #cut に残す(再読み込み・窓で開いても同じタブ)。
    0.62.0: 「3 パック」のタブは無くした(パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。旧 #pack・tab=pack は setEditTab が cut に読み替えてパックの所へ)。
    カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
 const ED_TABS = ['tx', 'cut'];
@@ -1238,7 +1238,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preventDefault(); e.returnValue = ''; } });   // 送信中の保存も、閉じると届かないことがある
 
-/* ---------- 受け渡し(docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
+/* ---------- 受け渡し(notes:docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 const YT_PREFIX = 'https://www.youtube.com/';
 const CLIP_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>';
 const WARN_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>';

@@ -6,7 +6,7 @@
   transcribe  文字起こしまで … 採用したマークの書き出し → 文字起こし(パックは校正してから人が作る)
 
 作り:
-- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 plan/role-restructure.md の 5-1)。
+- ① の経路(Run・段の表・段の中身・待つ骨組み)は RS1-7 で src/flow/run.py へ移した(役割で組み直す計画 notes:plan/role-restructure.md の 5-1)。
   順番待ちと糸・中止・状態と記録・起動し直しで戻す・見積もりは RS7-1 S5 で src/flow/runqueue.py の Queue へ移した(② が画面なしでも動くように。
   AutoRunner は Queue を継ぐ)。ここに残すのは、受付(start*)・ToolClient・画面の設定から束を組む build_spec・起動し直すの確かめ restart_info と、
   Runner・Queue の hook(案件・ホームの設定・届けることを読む所)の中身。移した名前は同じ名前で読み直している。
@@ -36,7 +36,7 @@
   (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2)。
 - ① 全自動の Dropbox へ届ける段: パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、組 = まとめ動画 1 本 +
   1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。n=1 か 1 本だけのときは
-  1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(docs/spec/friend-intake.md の 2-16)。作り方・名前は src/human/friend/deliver.py、
+  1 本の zip + その隣のまとめ動画(<同じ名前>.preview.mp4)。友人は 1 本ずつ受け取る・要らないを選べる(notes:docs/spec/friend-intake.md の 2-16)。作り方・名前は src/human/friend/deliver.py、
   届ける段と組の溜めの中身は src/human/friend/delivery.py(RS3-3)
   ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool。依頼 × 配信中 / 配信後の追加)に預け、
   n 本たまったら組で届ける。録画が終わって書き出しも実行も残っていなければ、最後に預けてから POOL_IDLE_SEC で残りを届ける(flush_pools。入口の src/home/live.py が見回りで呼ぶ)。

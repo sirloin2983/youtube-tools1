@@ -1,4 +1,4 @@
-"""「確かめる」の読みのカードの出どころ read:alt・read:yt(V1 の V2b。docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+"""「確かめる」の読みのカードの出どころ read:alt・read:yt(V1 の V2b。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
 read:fill(後処理が直した行)は sources.py の V0 のまま。ここは 2 つ目のエンジン(alt)と YouTube の字幕(yt)が今の行と食い違う所を 1 行 1 枚のカードにする。
   2 択 = 1「今の字幕」と 2「その読みを入れた行」(行の文字のうち食い違う所だけを置き換えた物)。答えは 1 / 2 / どちらも違う(打つ)
 候補の計算は編集の「提案」と同じ(human/proof の alt_diffs・ytcap_diffs。却下した候補は learn-feedback.json の dismissed に残っていて出さない)。

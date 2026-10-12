@@ -1,4 +1,4 @@
-"""役割の層の import の向きを守るテスト(役割で組み直す計画 `plan/role-restructure.md` の 4 節 1。RS0)。
+"""役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/role-restructure.md` の 4 節 1。RS0)。
 
 src/ の .py(tests/ を除く)の import を解き、`dev/layer_map.py` の層の表(許される相手の表 ALLOWED)で向きを検査する。
 ② 管理(src/flow)に ① の別名だけの関数が無いことも検査する(test_flow_is_not_alias。RS6 a-0)。

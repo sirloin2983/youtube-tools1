@@ -1,4 +1,4 @@
-"""ツール間の受け渡し(docs/spec/pipeline.md の 4)。
+"""ツール間の受け渡し(notes:docs/spec/pipeline.md の 4)。
 
 - 実行中のポートの共有: `<リポジトリ直下>/.runtime/studio.json` の読み書きと、`GET /api/siblings` の中身
 中身は共通部品 ytt(runtime。統合計画の段階2)にあり、ここはスタジオ用の呼び方(関数名・引数)を保つ薄い入口。

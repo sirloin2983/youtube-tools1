@@ -1,4 +1,4 @@
-"""受け渡しの形式(docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
+"""受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
 transcript/v1・cut-plan/v1 の組み立ては文字起こしツールの行の規則に依存するので、文字起こしの pipeline_io.py に残している。"""
 import datetime
 import hashlib
@@ -93,7 +93,7 @@ def _r3(x):
 TID_RE = re.compile(r"^[0-9a-f]{12}$")   # 文書の id の形(12 文字の 16 進)
 MAX_SEGMENTS = 20000   # 文書の行の数の上限(画面から保存できる行。RS3-E5a に ed_state から。文書の置き場 human/proof/store が読む)
 ROW_TAGS = ("unclear", "overlap", "bgm")   # 行に付ける音のメモ(聞き取れない・声が重なる・BGMが大きい)。unclear の行は精度測定・学習の正解に使わない(RS3-E5a に ed_state の TAGS から)
-# 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。plan/line-b-overlap.md の 6)。
+# 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声。2026-10-05。notes:plan/line-b-overlap.md の 6)。
 # 文書の speakers に {"id": OTHER_SPK_ID, "name": OTHER_SPK_NAME, "builtin": OTHER_SPK_BUILTIN} で 1 つだけ入る(選んだときに画面が足す)。
 # 名前は変えない・声を覚えない・判別のやり直しで上書きしない。画面の app.js の OTHER_SP と同じ値(変えるときは両方)
 OTHER_SPK_ID = "other"
@@ -289,7 +289,7 @@ def find_clip(media_path, media_duration=None):
     return clip, warn, p
 
 
-# ---------- youtube-tools-key/v1(成果物の鍵。plan/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
+# ---------- youtube-tools-key/v1(成果物の鍵。notes:plan/role-restructure.md 4 の 4・5-2。2026-10-09 RS1-5) ----------
 # 成果物(切り抜き 1 本・認識・パックなど)の横に置く小さな JSON。「同じ鍵の成果物があれば作らない = 使い回し」の判定に使う。
 # RS1 では形と純粋な関数だけを置く(どこにも書かない)。書く側は RS6。
 KEY_SCHEMA = "youtube-tools-key/v1"

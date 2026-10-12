@@ -1,4 +1,4 @@
-// 設定の小窓(F1 の F3b。設計 docs/design/f1-build.md の F3b・1-2・3 の (f1m))。
+// 設定の小窓(F1 の F3b。設計 notes:docs/design/f1-build.md の F3b・1-2・3 の (f1m))。
 //   YouTube の API キー … 貼った瞬間に videos.list を 1 回呼んで「使えます / 理由」。キーは <作業データ>\app\keys.json だけに置く(束・送り返しに入れない)。
 //                         ② へは起こすときの環境変数 YTT_YT_API_KEY で渡す(Backend.StartLocked)= 変えたら次にアプリを開いたときから効く
 //   エンジン A(Vulkan)/ C(CUDA) … PUT /api/flow/machine {device}(口は ② の F0-1)。口が無い古い ② は 404 → 「更新が要る」

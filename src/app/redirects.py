@@ -1,4 +1,4 @@
-"""今の画面の URL を、案件の画面(/cases)の URL へ転送する表(RS8 の案件の画面 C0。計画 docs/design/rs8-cases-build.md の 2 節)。
+"""今の画面の URL を、案件の画面(/cases)の URL へ転送する表(RS8 の案件の画面 C0。計画 notes:docs/design/rs8-cases-build.md の 2 節)。
 
 C4(0.59.0)で古い画面(スタジオ・編集のページ)を消したので、転送はいつも有効(スイッチ YTT_CASES_REDIRECT は消した)。
 表は純粋な関数 target(path, query, doc_for) だけ(入口の PortalHandler が do_GET の頭で呼ぶ)。

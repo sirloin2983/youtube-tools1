@@ -76,7 +76,7 @@ def write_text_atomic(path, text, encoding="utf-8", newline="\n"):
         newline = os.linesep
     if newline not in ("", "\n"):
         text = text.replace("\n", newline)
-    fsio.atomic_write(path, text.encode(encoding), fsync_required=True)   # 書きかけを Resolve・他のツールに読ませない(docs/spec/pipeline.md の 1)
+    fsio.atomic_write(path, text.encode(encoding), fsync_required=True)   # 書きかけを Resolve・他のツールに読ませない(notes:docs/spec/pipeline.md の 1)
 
 
 def tool(name):

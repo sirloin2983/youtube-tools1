@@ -7,7 +7,7 @@
 - 形は「指定 → 結果」(OPT2 の J2): new_result(spec) → run(spec, res, ctl, on_done) → result_public(res)。
   ジョブの表・同時 1 本・履歴・枠(SLOTS)・取り消しの受付・掲示板は器 = ② の flow/export.ExportJobs(① は表を持たない)。
 - 各 item が成功した時点で on_done(video_id, mark_id, "フォルダ/ファイル.mp4", 開始, 終了) を呼ぶ(store がマークを exported にする)。
-- 書き出した mp4 ごとに、隣へ youtube-tools-clip/v1 の <名前>.clip.json を書く(docs/spec/pipeline.md の 2.1。書けなくても書き出しは成功扱いで、警告だけ出す)。
+- 書き出した mp4 ごとに、隣へ youtube-tools-clip/v1 の <名前>.clip.json を書く(notes:docs/spec/pipeline.md の 2.1。書けなくても書き出しは成功扱いで、警告だけ出す)。
 """
 import glob
 import json

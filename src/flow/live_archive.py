@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""アーカイブで本番版に作り直す(線 D の P4。plan/line-d-live-clipping.md の 0-9)の入口の側の中身。API は src/home/live.py(設定 live.enabled がオンのときだけ)。
+"""アーカイブで本番版に作り直す(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の入口の側の中身。API は src/home/live.py(設定 live.enabled がオンのときだけ)。
 
 単位は入口の書き出しのジョブ(src/flow/live_export.py の Exporter。live/exports.json)。ジョブに archive を足して残す(入口を起動し直しても続く):
   archive {state: wait|probe|align|fetch|verify|done|error|cancelled, label(日本語), message(失敗のときは理由), progress(0〜1),

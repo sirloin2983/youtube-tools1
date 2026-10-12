@@ -2017,7 +2017,7 @@ class TestColors(unittest.TestCase):
         es = colors.load({"YTT_DATA_DIR": "inplace"})                                     # リポジトリの holo-colors/members.json
         self.assertGreater(len(es), 50)
         self.assertTrue(all(colors.norm_hex(e["hex"]) == e["hex"] for e in es))
-        with open(colors.members_path({}), encoding="utf-8") as f:                         # version 2 の形(docs/design/holo-colors.md)
+        with open(colors.members_path({}), encoding="utf-8") as f:                         # version 2 の形(notes:docs/design/holo-colors.md)
             d = json.load(f)
         self.assertEqual(d["version"], 2)
         ids = [m["id"] for g in d["groups"] for m in g["members"]]

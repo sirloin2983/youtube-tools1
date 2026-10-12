@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の PC に配る zip(送るアプリ + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(F1 の F4a。設計 docs/design/f1-build.md の 2・3 節)。
+"""友人の PC に配る zip(送るアプリ + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(F1 の F4a。設計 notes:docs/design/f1-build.md の 2・3 節)。
 
 zip の中(アプリのフォルダ <任意>/RequestSender/ にそのまま展開する形。3 節 (f1i)):
     RequestSender.exe・members.json・README.txt(friend-apps/request-sender/build/ と README。build.bat で作ってから)

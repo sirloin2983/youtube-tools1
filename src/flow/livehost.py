@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ライブの親(host)の口(役割で組み直す RS7-2 G0。docs/design/rs7-survey-2026-10-10/plan_order_v3.md)。
+"""ライブの親(host)の口(役割で組み直す RS7-2 G0。notes:docs/design/rs7-survey-2026-10-10/plan_order_v3.md)。
 
 ② のライブの子 4 つ(live_detect.Detector・live_tx.LiveTx・live_report.Reporter・live_export.Exporter)は、
 親(flow/livesession.py の LiveSession = ライブ係。RS7-2 G2b。入口の src/home/live.py の Live はそれを継ぐ app の殻)を受け取って呼び返す。

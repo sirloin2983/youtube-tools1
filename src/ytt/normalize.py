@@ -1,4 +1,4 @@
-"""素材を 30fps にそろえる(Q1。plan/line-bc-master-plan.md。2026-10-04 ユーザー決定)。
+"""素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。2026-10-04 ユーザー決定)。
 
 決まり: **H.264・8bit・yuv420p・30/1 の固定(CFR)・AAC** ならそのまま使う(作り直さない)。違えば ffmpeg(libx264)で作り直す。
 画質の設定はスタジオの書き出しと同じ(crf 18。ENC_ARGS を1か所にして、スタジオの exporter もこれを使う)。GPU(AMF)は測ってから。

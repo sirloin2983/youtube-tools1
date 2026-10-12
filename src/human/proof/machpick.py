@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""③ 3 択の口(RS8 O2-4。決定 3-37・plan/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
+"""③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
 前の機械・今の機械・人の直しで並べて返し、[自分の直しのまま] / [今の機械にする] を選ぶ。
 
 - 層が正(TRANSCRIBE_LAYERS=primary)のときだけ動く(shadow・off では印は組み立てに出ない = 一覧は空・選ぶ口は 409 not_primary)

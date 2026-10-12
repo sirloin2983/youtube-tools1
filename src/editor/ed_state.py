@@ -28,7 +28,7 @@ APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のた
 _workdata.set_root(os.path.dirname(os.path.abspath(__file__)))
 APP_JS = os.path.join(_workdata.ROOT, "app.js")      # 画面の部品の JS(案件の画面の校正のパネルが読む。RS8 C4 で編集の画面のページ index.html と ui-kit の写しは消した)
 PROOF_CSS = os.path.join(_workdata.ROOT, "proof.css")     # 校正のパネルの CSS(RS8 C2b-0 で index.html から外に出した)
-PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
+PAGE_JS = ("cut.js", "pack-tab.js", "app-tpl.js", "app-core.js", "app-jobs.js", "app-list.js", "app-learn.js", "app-rows.js", "app-tools.js")          # 「編集」のタブの JS(notes:docs/design/edit-tool-design.md の 7。app.js より先に読む。無いものは 404)
 _txroster.ROSTER = os.path.join(_workdata.ROOT, "hololive-roster.json")   # ホロライブの名簿(用語集に足すための一覧)の場所の既定。持ち主は pipeline/transcribe/roster の ROSTER(RS3-0A。JSON は編集のフォルダのまま)
 PORT = 8775
 ALLOWED_HOSTS = set()
@@ -110,7 +110,7 @@ fake_sleep = _fake_asr.fake_wait   # lint: keep 別名(RS2-2)= 疑似のバッ�
 LOG_FILE = os.path.join(_workdata.DATA_DIR, "serve.log")
 CRASH_FILE = os.path.join(_workdata.DATA_DIR, "serve.crash.log")
 RUN_MARK = os.path.join(_workdata.DATA_DIR, ".running.json")
-TOOL_ID = "transcribe"   # docs/spec/pipeline.md の 4 のツールID(.runtime/transcribe.json)
+TOOL_ID = "transcribe"   # notes:docs/spec/pipeline.md の 4 のツールID(.runtime/transcribe.json)
 log = _txbase.log   # 別名(RS2-1a)= logging.getLogger("tx")
 _run_state = {"pid": os.getpid(), "started": 0, "job": None}
 _crash_fp = None

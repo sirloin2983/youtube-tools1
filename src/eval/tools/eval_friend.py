@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""友人の PC から送り返された物(app/friend-returns/)を並べて数える最小の道具(F1 の F2。docs/design/f1-build.md の (f1d))。
+"""友人の PC から送り返された物(app/friend-returns/)を並べて数える最小の道具(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
 
     py -3.10 src/eval/tools/eval_friend.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ]
 
 - 作業データは**読むだけ**(human/friend/returns.iter_requests で依頼ごとの実行・採否を読む)。--json のときだけ evals/friend/<日時>.json に結果を残す
 - 依頼ごとに、実行の状態・エンジン / モデル / デバイス(文字起こしの鍵の inputs。無ければ -)と、パックごとの採否を並べる
 - 採否 = keep(要る)/ reject(要らない)/ made_video(動画にした = 確実な当たり)/ 不明(押さなかった。答えなくても困らない)
-- 注意: 友人の reject はユーザーの基準(70 点)での外れの印にしない(友人は 95 点以上を動画にする。plan/improvements.md の 13)。
+- 注意: 友人の reject はユーザーの基準(70 点)での外れの印にしない(友人は 95 点以上を動画にする。notes:plan/improvements.md の 13)。
   made_video が当たりの印。点数との突き合わせは eval_marks.py の側で(この道具は数えるだけ)
 - --since / --until は 実行の時刻(結果の束の at)で絞る(until はその日を含む)
 """

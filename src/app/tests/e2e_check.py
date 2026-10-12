@@ -2,7 +2,7 @@
     set PYTHONIOENCODING=utf-8
     py -3.10 src/app/tests/e2e_check.py
 入口(server.py)は e2e_cases.py と同じ形で動かす(ツールは取り込まない)。⑤ の待ち行列の口(api/check/next・answer・skip。V0)は
-計画 docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
+計画 notes:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる / 時刻のカード = 波形の帯 / 10 件ごとのまとめ(Enter で続ける)/

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理: 学習データを読む側(F1。docs/design/f1-build.md の 2 の F1・3 の (f1c))。app/cli の Learning と learning_dir をここへ移した。
+"""② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。app/cli の Learning と learning_dir をここへ移した。
 
 学習データの置き方は 2 つ(machine の learningDir):
 - 作業データの置き方(既定。ユーザーの PC): <根>/transcribe/ に settings.json・learn-feedback.json・文書がある。学習のもとの文書があるときだけ

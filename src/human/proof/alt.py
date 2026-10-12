@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。plan/line-b-transcription.md)。
+"""② 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
 役割で組み直す RS3-E6(2026-10-10)に編集の src/editor/ed_alt.py から human/proof へ移した(中身は同じ)。旧い名前 ed_alt.名前 は editor/ed_alt.py(転送だけの殻。RS5 で消す)が回す。
 
 ねらい: 校正を速くする。主のエンジンの文字起こしとは別に、2つ目のエンジンで同じ音声を認識し、2つの結果が食い違う所を

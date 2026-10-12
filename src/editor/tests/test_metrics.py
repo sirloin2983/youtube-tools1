@@ -55,7 +55,7 @@ class TestPure(unittest.TestCase):
         self.assertEqual(S.norm_cer("すご〜い"), S.norm_cer("すごーい"))
         self.assertEqual(S.norm_cer("すご～い"), S.norm_cer("すご~い"))
         self.assertEqual(S.norm_cer("すご〜い"), "すごーい")
-        # 表記の違いを数えない(2026-10-06 ユーザー決定。docs/spec/subtitle-notation.md の B)
+        # 表記の違いを数えない(2026-10-06 ユーザー決定。notes:docs/spec/subtitle-notation.md の B)
         self.assertEqual(S.norm_cer("イエターーーーー"), S.norm_cer("いえたー"))      # 伸ばし棒の連続は 1 つ・カタカナ = ひらがな
         self.assertEqual(S.norm_cer("フワモコ"), S.norm_cer("ふわもこ"))
         self.assertEqual(S.norm_cer("ヴィ"), "ゔい")
@@ -118,7 +118,7 @@ class TestPure(unittest.TestCase):
         st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
         v = S.subtitle_settings(st)
         self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 24})
-        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40 → 0.59.6 で 24。plan/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
+        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40 → 0.59.6 で 24。notes:plan/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
         self.assertEqual(S.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24(0.59.6)
@@ -159,7 +159,7 @@ class TestPure(unittest.TestCase):
         self.assertEqual((kw["vad_filter"], kw["vad_parameters"]["min_silence_duration_ms"], kw["chunk_length"]), (True, 250, 10))   # 普通の VAD・短く区切る
 
     def test_make_flags_sparse_long_rows(self):
-        """長い区間に文字が少ない行(抜けの可能性。docs/design/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
+        """長い区間に文字が少ない行(抜けの可能性。notes:docs/design/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
         row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731
         self.assertIn(S.SPARSE_FLAG, S.make_flags(row(0, 7.2, "黒"), []))
         self.assertIn(S.SPARSE_FLAG, S.make_flags(row(4.2, 24.6, "いや、なんだ!"), []))          # 記号は数えない(5 文字 / 20.4 秒)

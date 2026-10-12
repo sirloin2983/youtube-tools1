@@ -1,4 +1,4 @@
-﻿// Dropbox との同期 3 つ(F1 の F3c。docs/design/f1-build.md の 2 の F3c・3 の (f1c)(f1d)(f1e)(f1h))。起動時と 10 分ごと。
+﻿// Dropbox との同期 3 つ(F1 の F3c。notes:docs/design/f1-build.md の 2 の F3c・3 の (f1c)(f1d)(f1e)(f1h))。起動時と 10 分ごと。
 //   学習の束   … /学習/latest.json の版が新しければ /学習/<版>/ の learning.json の各ファイルを sha256 を確かめて <data>\learning\<版>\ へ。
 //                終わったら ② の machine の learningDir を向ける(PUT /api/flow/machine。② が動いていなければ記録だけ = 次の回で向ける)。直近 3 版を残す
 //   送り返し   … ② の GET /api/flow/outbox の zip(と outbox の verdict.json)を /送り返し/ へ上げ、上がったら POST /api/flow/outbox/done(失敗は次の回で再送)

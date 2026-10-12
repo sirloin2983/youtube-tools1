@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """重なりの所の空の行の下書き(ed_speakers の ovdraft_・GET /api/overlap-drafts・行の印 draft)のテスト。
-計画 plan/line-b-overlap.md の 5-3 の C・6-2 の 1・2(2026-10-05)。
+計画 notes:plan/line-b-overlap.md の 5-3 の C・6-2 の 1・2(2026-10-05)。
 
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_ovdraft -q                # これだけ(src/editor/tests で)

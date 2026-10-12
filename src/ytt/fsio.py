@@ -1,6 +1,6 @@
 """ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
 
-ほかに、各ツールが自前で書いていた小道具(2026-10-09。docs/design/code-review-simplify-2026-10-08.md の A・G10):
+ほかに、各ツールが自前で書いていた小道具(2026-10-09。notes:docs/design/code-review-simplify-2026-10-08.md の A・G10):
 read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
 is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
 import glob
@@ -96,7 +96,7 @@ def create_new(path, data):
 
 
 def write_json(path, obj, indent=2, mode=None, fsync_required=False, allow_nan=True, separators=None):
-    """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。docs/spec/pipeline.md の 1)。
+    """UTF-8(BOM なし)の JSON を原子的に書く(受け渡しのファイルの約束。notes:docs/spec/pipeline.md の 1)。
     mode を渡すとそのファイルの権限(例 0o600 = 鍵のファイル。atomic_write と同じ)。
     fsync_required=True はディスクへの書き出しに失敗したら保存も失敗にする(失うと困る成果。atomic_write と同じ)。
     allow_nan=False は NaN / Infinity を書かない(ValueError。JSON として読めないファイルを作らない)。

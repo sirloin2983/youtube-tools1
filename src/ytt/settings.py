@@ -1,4 +1,4 @@
-"""設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。docs/spec/settings.md の 4)。
+"""設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/settings.md の 4)。
 
 ホームの prefs.json(src/home/prefs.py)・スタジオの settings-ui.json(src/human/review/store.py)・編集の settings.json(src/human/proof/learn.py)が
 同じ決まりで扱う: 読めない・形が違う・大きすぎるファイルは「壊れている」として既定({})で動き、次に書くときに `.broken-<日時>` に退避してから
@@ -286,7 +286,7 @@ def replace_settings(obj):
     return {"ok": True}
 
 
-# ---------- 評価用のフォルダの判定(2026-10-01 ユーザー決定。docs/spec/eval-folder.md。RS3-1 に editor/ed_relink.py から移した = RS0-f)----------
+# ---------- 評価用のフォルダの判定(2026-10-01 ユーザー決定。notes:docs/spec/eval-folder.md。RS3-1 に editor/ed_relink.py から移した = RS0-f)----------
 # 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こし・保存・付け替え・履歴から戻すときに評価用の印を付ける。
 # 判定はパスを比べるだけ(ネットワーク上のパスには触らない)。整理(名前をそろえる)と仮置きは editor/ed_relink に残る
 EVAL_DIRS_MAX = 10

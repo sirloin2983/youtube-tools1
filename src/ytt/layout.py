@@ -1,6 +1,6 @@
-"""リポジトリの中のフォルダの並び(2026-10-07 に整理。段0 2026-09-30 の改名は `docs/design/phase0-restructure.md`)。
+"""リポジトリの中のフォルダの並び(2026-10-07 に整理。段0 2026-09-30 の改名は `notes:docs/design/phase0-restructure.md`)。
 
-    <リポジトリ直下>/            start.bat・push.bat・README.txt・AGENTS.md・setup/・plan/・docs/・dev/(ユーザーと AI が触る)
+    <リポジトリ直下>/            start.bat・push.bat・README.txt・AGENTS.md(保管庫への案内)・setup/・dev/(ユーザーと AI が触る。資料 docs/・plan/ は保管庫 notes_root())
       src/                       動くコード = ツール(home・studio・editor・cut2resolve・recorder)・共通部品(ytt・ui-kit)・役割の層(pipeline・human・manage・eval・app)
       friend-apps/               友人用の Windows アプリ(holo-colors・request-sender。C#)
 
@@ -24,7 +24,7 @@ UI_KIT_DIR = "ui-kit"               # src/ の中(共通の見た目の正本)
 PACK_CORE = os.path.join("pipeline", "pack", "cut2resolve_core.py")   # src/ の中(cut2resolve の版 VERSION の正。RS1-2 で cut2resolve から移した)
 HOLO_COLORS_DIR = os.path.join(FRIEND_APPS_DIR, "holo-colors")          # リポジトリ直下からの相対
 REQUEST_SENDER_DIR = os.path.join(FRIEND_APPS_DIR, "request-sender")    # 同上
-# src/ の中の共通のコード(ツールのフォルダではない物)。役割で組み直す計画(plan/role-restructure.md)の層のパッケージと、
+# src/ の中の共通のコード(ツールのフォルダではない物)。役割で組み直す計画(notes:plan/role-restructure.md)の層のパッケージと、
 # (旧い名前の転送 ytt_core は RS5-G で消した)。ツールを一時フォルダに写すテストは、ツールと一緒にこれを全部写す(copy_shared_code)
 SHARED_CODE_DIRS = ("ytt", "pipeline", "flow", "human", "manage", "eval", "app")   # flow = ② 管理(RS6 a-0)
 
@@ -47,6 +47,16 @@ def tool_dir(tool, root=None):
 def holo_colors_dir(repo=None):
     """ホロカラーのフォルダ(members.json の場所)。repo の既定は repo_root()"""
     return os.path.join(repo or repo_root(), HOLO_COLORS_DIR)
+
+
+def notes_root(repo=None):
+    """資料の保管庫(Obsidian。docs/・plan/・AGENTS.md の置き場所。2026-10-12 にリポジトリの外へ移した)。
+    環境変数 YTT_NOTES_DIR があればそれ、無ければリポジトリの隣の notes/<リポジトリ名>(C:/dev/notes/youtube-tools)"""
+    env = os.environ.get("YTT_NOTES_DIR")
+    if env:
+        return os.path.abspath(env)
+    repo = os.path.abspath(repo or repo_root())
+    return os.path.join(os.path.dirname(repo), "notes", os.path.basename(repo))
 
 
 def copy_shared_code(dst, ignore=None, root=None):

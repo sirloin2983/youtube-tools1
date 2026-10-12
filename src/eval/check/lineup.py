@@ -1,4 +1,4 @@
-"""「確かめる」の待ち行列の並び(lineup)と数え方(V1 の V0。名前は標準の queue と重ねない。docs/design/v1-check-build.md の 2-3)。純粋な関数だけ(ファイルを読まない)。
+"""「確かめる」の待ち行列の並び(lineup)と数え方(V1 の V0。名前は標準の queue と重ねない。notes:docs/design/v1-check-build.md の 2-3)。純粋な関数だけ(ファイルを読まない)。
 
 カード = {id, kind, source, case: {id, title}, target, media, text, guess, options, score, note} と、並べるための内側の鍵 `_order`(数の並び。
 出どころ sources.py が付ける。外へ出す前に public() で外す)。

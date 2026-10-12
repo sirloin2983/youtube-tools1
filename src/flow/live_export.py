@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D の P2: マークと書き出し。plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+"""リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
 画面と API は src/home/live.py(設定 live.enabled がオンのときだけ)。ここは「マークの正本」と「書き出しのジョブ」。
 
 マーク(MarkStore):
@@ -743,7 +743,7 @@ class Exporter(Patrol):
         return root
 
     def board_job(self, job):
-        """書き出しのジョブ -> 掲示板の Job(docs/spec/pipeline.md 2.9)"""
+        """書き出しのジョブ -> 掲示板の Job(notes:docs/spec/pipeline.md 2.9)"""
         st = BOARD_STATES.get(job.get("state"), "error")
         end = st not in ("queued", "running")
         created, updated = iso_epoch(job.get("created")), iso_epoch(job.get("updated"))

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 依頼の封筒(役割で組み直す RS7-1 S3。2026-10-10。決定 3-30・plan/f1-friend-pc.md の決めたこと 9・
-docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S3)。
+"""② 管理の層 flow: 依頼の封筒(役割で組み直す RS7-1 S3。2026-10-10。決定 3-30・notes:plan/f1-friend-pc.md の決めたこと 9・
+notes:docs/design/rs7-survey-2026-10-10/plan_order_v2.md の S3)。
 
 依頼 = **封筒**(処理の中身でない物 = 何を入れたか・どの依頼か・届け方・メモ)+ **束**(何を作るか = flow/spec.py)。
 ② の段は束だけを読み、封筒は記録と届け方(③ の hook)に使う。ここは封筒の形と検査だけ(純粋。ファイル・ネットワークを読まない)。

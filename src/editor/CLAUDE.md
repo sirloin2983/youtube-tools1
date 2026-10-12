@@ -1,3 +1,3 @@
 # CLAUDE.md(editor)
 
-@AGENTS.md
+@../../../notes/youtube-tools/src/editor/AGENTS.md

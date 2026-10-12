@@ -780,7 +780,7 @@ def copy_video(video, out_dir, task=None, dst=None, final=None):
     return dst
 
 
-# ---------------------------------------------------------------- 受け渡しの JSON(docs/spec/pipeline.md)
+# ---------------------------------------------------------------- 受け渡しの JSON(notes:docs/spec/pipeline.md)
 
 def read_json_file(path, what="JSON", max_bytes=MAX_JSON_BYTES):
     """UTF-8(BOM があっても可)の JSON を読む(fsio.read_json_file の ToolError 版)。大きすぎる・壊れている・NaN を含むものは ToolError"""
@@ -796,7 +796,7 @@ def read_json_file(path, what="JSON", max_bytes=MAX_JSON_BYTES):
 
 
 def check_schema(d, schema, what):
-    """schema が一致しなければ ToolError。同じ種類の別の版は「未対応の版」と伝える(docs/spec/pipeline.md の 1)"""
+    """schema が一致しなければ ToolError。同じ種類の別の版は「未対応の版」と伝える(notes:docs/spec/pipeline.md の 1)"""
     got = d.get("schema") if isinstance(d, dict) else None
     if got == schema:
         return
@@ -869,7 +869,7 @@ def read_transcript(path):
     """youtube-tools-transcript/v1 -> {"rows": [{"id","start","end","text","cut","speaker","noSub"}](時刻順), "bad": 読めなかった行の数,
     "media": {...}, "title", "speakerOrder": [話者の名前](speakers の並び順・重なりなし)}。時刻は秒(動画の先頭 = 0)。
     speaker は話者の名前(speakers の name。話者なしは "")。noSub は行の任意の項目 noSub が true(字幕に出さない行。
-    時間はカットの「残す」に数えるが、字幕は作らない。plan/line-b-overlap.md の 6-2 の 3)"""
+    時間はカットの「残す」に数えるが、字幕は作らない。notes:plan/line-b-overlap.md の 6-2 の 3)"""
     d = read_json_file(path, "文字起こし(.transcript.json)")
     check_schema(d, TRANSCRIPT_SCHEMA, "文字起こし(youtube-tools-transcript/v1)")
     segs = d.get("segments")

@@ -290,7 +290,7 @@ function markToolsHTML(){
 }
 /* ② の操作(キー配置を変える・ライブのマークをまとめてずらす)。置き場所は ⚙ 設定の「このツール」の節「② の操作」(settings.js の #opsHost)。
    0.22.3(見直し M9・仮決め (aw)): 以前は ② の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた。
-   0.25.0(docs/spec/settings.md の 6): 音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の欄は外した(値は設定の画面 = 入口の /settings のスタジオの節。
+   0.25.0(notes:docs/spec/settings.md の 6): 音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の欄は外した(値は設定の画面 = 入口の /settings のスタジオの節。
    音量・ミュートは再生の欄とキーで)。設定の値 S.settings は今までどおり読み書きする(SET_UI は無い欄を飛ばす) */
 function settingsHTML(){
   return `      <div class="rv-settings" id="rvSettings">
@@ -401,7 +401,7 @@ function markDirty(){
   clearTimeout(saveTimer); saveTimer = setTimeout(save, 600);
 }
 const snap = ms => new Map(ms.map(m => [m.id, { start: m.start, end: m.end, label: m.label, live: !!m.live, status: m.status || '' }]));
-/* Studio.api を通す(失敗時の e.status / e.code / e.body は Studio.api が付ける。API の置き場所を1か所で決めるため: docs/spec/pipeline.md 5.) */
+/* Studio.api を通す(失敗時の e.status / e.code / e.body は Studio.api が付ける。API の置き場所を1か所で決めるため: notes:docs/spec/pipeline.md 5.) */
 function putVideo(body){ return Studio.api('/api/video', { method: 'PUT', body }); }
 const MERGE_MSG = '解析や書き出しで内容が更新されたため、最新の内容に合わせて読み込み直しました';
 function save(){
@@ -1275,7 +1275,7 @@ function updateLive(){
   $('#rvLiveGap').textContent = (gap >= 0 ? '−' : '+') + Math.round(Math.abs(gap)) + '秒';
 }
 
-/* ---------- ライブの録画(kind live。線 D の P3。plan/line-d-live-clipping.md の 0-8) ----------
+/* ---------- ライブの録画(kind live。線 D の P3。notes:plan/line-d-live-clipping.md の 0-8) ----------
    録画 = スタジオの配信1本。マークはいつものマーク(保存も PUT /api/video)で、時刻は「録画の最初のセグメントの受信時刻」からの秒(LT)。
    画面が入口の ../live/… を呼ぶ(Studio.live): 録画の状態(r/<録画元>/<録画>/status。3 秒ごと・見えている間だけ)・停止・書き出し(api/export)・書き出しの一覧(api/exports)。
    入口の書き出しが済んだマークは POST /api/live/exported でスタジオの「書き出し済み」にする(閉じていた間に済んだ分は、次に開いたときに突き合わせる)。
@@ -1680,7 +1680,7 @@ async function liveApplyDone(v){
   }
   if (n && S.cur === v) await syncFromServer();
 }
-/* 帯の「配信者」(字幕の色。docs/spec/friend-intake.md の「配信者の名前 → 見た目」の流れに乗せる = 名前だけを入口へ渡す)。
+/* 帯の「配信者」(字幕の色。notes:docs/spec/friend-intake.md の「配信者の名前 → 見た目」の流れに乗せる = 名前だけを入口へ渡す)。
    名前は今のアーカイブの配信と同じ仕組み(UIKit.streamer.autoFill = 覚えた名前(この録画 → チャンネル)→ チャンネル名から)。直したら UIKit が覚える。
    LV.who = {vid, name, match(色の一覧で1人に決まったか)}。開いている録画の分だけ使う */
 function liveWhoName(v){ return LV.who && v && LV.who.vid === v.id ? String(LV.who.name || '').trim().slice(0, 60) : ''; }
@@ -1770,7 +1770,7 @@ async function openLiveRecording(rec){
   Studio.review.open(id);
 }
 
-/* ---------- 配信中の候補(plan/line-d-detect.md の 3「候補の API の約束」) ----------
+/* ---------- 配信中の候補(notes:plan/line-d-detect.md の 3「候補の API の約束」) ----------
    入口のワーカーが録画しながら見つけた盛り上がりの候補を、LIVE の帯の一覧・タイムラインの印・グラフに出す。押すと少し前から再生、「採用」でマークにして書き出しへ。
    API(入口): GET ../live/api/peaks?recorder=&recording=&since=<seq>(since 無し = 全部 + series・ある = 変わった候補 changes だけ)/ POST ../live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}。
    見回りは録画の状態と同じ(pollLiveStatus。録画中は 3 秒・終わったらゆっくり)。検出がオフ(設定 live.detect)のときは API を呼ばない(入口に無い間の 404 を出さない = A-27)。
@@ -3263,7 +3263,7 @@ function wire(){
   };
   tl.addEventListener('pointerup', end); tl.addEventListener('pointercancel', end);
   $('#rvGraph').addEventListener('click', e => {
-    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。docs/design/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
+    const p = e.target.closest('.rv-gpeak');   // 山の札: その山の少し前へ(順位と理由。notes:docs/design/edit-tool-design.md 系ではなく IMPLEMENTATION.md 4)
     if (p){ seek(Math.max(0, Number(p.dataset.t) - PEAK_PRE)); return; }
     seek(timeAt(e, $('#rvGraph')));
   });
@@ -3517,7 +3517,7 @@ Studio.review = {
   /* 片付ける(案件の画面のパネルを閉じるとき。スタジオの画面は呼ばない): 離れたときと同じ保存と停止に加えて、プレーヤー・書き出しとまとめて実行の確かめを止め、書き出しの欄を閉じる */
   dispose(){ deactivate(); unmountPlayer(); stopExpPoll(); clearTimeout(AUTO.t); clearTimeout(quietT); closeExportDrawer(); peaksOpened(null); }
 };
-/* ---------- まとめて実行(docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
+/* ---------- まとめて実行(notes:docs/design/edit-tool-design.md の 12 ⑦(a)。入口の /api/autorun。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
 const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };   // 実行の状態の色(言葉は UIKit.autorun.runLabel の 1 か所)
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */

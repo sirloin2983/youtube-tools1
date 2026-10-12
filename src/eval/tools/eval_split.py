@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""評価用_仮置き の動画を、評価用(定点)と学習用に分ける道具(文字起こしの精度改善の計画 第2版 D0。plan/line-b-transcription.md の 3-1)。
+"""評価用_仮置き の動画を、評価用(定点)と学習用に分ける道具(文字起こしの精度改善の計画 第2版 D0。notes:plan/line-b-transcription.md の 3-1)。
 
     python src/eval/tools/eval_split.py plan  [--root 評価用のフォルダ] [--train 学習用のフォルダ] [--eval-min 30] [--seed 文字] [--data 文字起こしの作業データ]
     python src/eval/tools/eval_split.py show  [--root 評価用のフォルダ]

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・plan/rs8-cases-ui.md の決めたこと 3)。
+"""③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/rs8-cases-ui.md の決めたこと 3)。
 
 ファイルも store も触らない(保存の経路から使うのは store.commit の影のモード = O2-2。機械の操作のあとの機械の層は advance_mach)。O1 の overrides(extract・apply)を一般にした物で、
 対応づけの決まり(match・COVER_DROP・TEXT_DROP)は O1 と同じ値(O2-5 で O1 を消すのでここが持ち主)。

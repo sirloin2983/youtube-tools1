@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ホームの「依頼の受付」(友人の依頼の自動受付。docs/spec/friend-intake.md の 6)の画面の確認(Playwright)。
+"""ホームの「依頼の受付」(友人の依頼の自動受付。notes:docs/spec/friend-intake.md の 6)の画面の確認(Playwright)。
 
     python src/home/tests/e2e_intake_ui.py [--shots <フォルダ>]
 

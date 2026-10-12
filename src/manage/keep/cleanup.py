@@ -22,7 +22,7 @@ import time
 from ytt import datadir, fsio, schemas
 
 TRASH_DIR = "ごみ箱"
-# 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(docs/spec/data-location.md)
+# 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data-location.md)
 KEEP_DAYS = 3             # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
 TRASH_DAYS = 3            # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
 PACK_AGE_DAYS = 3         # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)

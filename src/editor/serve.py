@@ -36,7 +36,7 @@
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
-  「編集」(docs/design/edit-tool-design.md の 5):
+  「編集」(notes:docs/design/edit-tool-design.md の 5):
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev", "draft"?} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる。
                              draft = 始めたたき台。初めての保存のときだけ edit.json に一度書く = マスタープラン Q2)
   POST /api/effort           {"id", "activeSec", "cutSec"?, "newSession"?} 校正の手間(操作していた秒)を文書の effort に足す(updatedAt は変えない。
@@ -54,7 +54,7 @@
   POST /api/open-video       {"path", "title"?} 文字起こしせずに開く → {"id", "created"}(同じ動画の文書があればそれ)
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
-  受け渡し(docs/spec/pipeline.md。読み・保存・.runtime は manage/cases/pipeline_io.py・JSON と SRT の組み立ては pipeline/pack/resolve_export.py):
+  受け渡し(notes:docs/spec/pipeline.md。読み・保存・.runtime は manage/cases/pipeline_io.py・JSON と SRT の組み立ては pipeline/pack/resolve_export.py):
   GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
   GET  /api/transcript-v1?id= youtube-tools-transcript/v1 の JSON
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
@@ -423,7 +423,7 @@ class Handler(BaseHTTPRequestHandler):
     def _navigation_ok(self, path):
         """他のツールの画面のリンク(http://localhost:8800 → http://localhost:8775/?media=...)で、この画面を開くのは許す。
         ポートが違うだけでも Sec-Fetch-Site は same-site(127.0.0.1 と localhost なら cross-site)になるため、以前は 403 になっていた。
-        画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(docs/spec/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
+        画面(index.html)を新しいタブで開くだけで、URL で重い処理は始まらない(notes:docs/spec/pipeline.md の 3)。API は従来どおり同じ画面からだけ。
         埋め込み(iframe)での悪用は X-Frame-Options / frame-ancestors で防ぐ。"""
         return httpsec.navigation_ok(self.headers, path)
 

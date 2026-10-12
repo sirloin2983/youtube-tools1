@@ -1,5 +1,5 @@
 /* 確かめる(/check。src/app/ui/check/。RS8 V1 = 殻)。部品の見た目は ui-kit(札 .pill・空の状態 .empty・比べる欄 .ui-pair・キー .ui-kbd)。
-   ここは置き方だけ(見本 docs/design/briefs/rs8-cases/mock/index.html の .chk-* を写した)。接頭辞は chk-(カードの中身もこの接頭辞で足す) */
+   ここは置き方だけ(見本 notes:docs/design/briefs/rs8-cases/mock/index.html の .chk-* を写した)。接頭辞は chk-(カードの中身もこの接頭辞で足す) */
 .chk-main{max-width:1180px;margin:0 auto;padding:16px 16px calc(var(--keybar-h, 26px) + 32px)}
 .chk-crumb{font-size:var(--fs-sm);color:var(--ink-3)}
 .chk-crumb a{color:var(--ink-3);display:inline-block;min-height:28px;line-height:28px}

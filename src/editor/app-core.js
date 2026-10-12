@@ -389,7 +389,7 @@ async function reloadSettings(){
 /* 設定のチェック [設定の鍵, 欄の id, 無いときの扱い](readOpts・applySettings・jobOpts と、変えたら保存する配線(app.js)が同じ表を使う)。
    扱い: true = 明示の false のときだけ外す / false = true のときだけ付ける / null = 真らしい値なら付ける。
    OPT_CHECKS = 「認識の設定」(文字起こしの要求にも付ける。autoYtcap = 終わったら元の配信の YouTube の字幕と比べる 案 A1)。
-   0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(docs/spec/settings.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
+   0.66.0: OPT_CHECKS の欄は 1 文字起こし から外して設定の画面へ(notes:docs/spec/settings.md の 6)。表は鍵と既定の扱いのために残し、欄が無ければ S.settings を読む */
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false], ['autoRedo', 'optAutoRedo', false],
   ['autoAlt', 'optAutoAlt', false], ['autoYtcap', 'optAutoYtcap', false], ['autoDiarize', 'optAutoDiar', false],

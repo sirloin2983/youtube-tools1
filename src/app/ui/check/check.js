@@ -1,4 +1,4 @@
-/* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 docs/design/v1-check-build.md・何を作るか docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
+/* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
    案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ・10 件ごとに小さなまとめ。
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    読む口・書く口(入口。⑤ src/eval/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):

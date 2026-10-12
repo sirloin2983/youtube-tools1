@@ -42,7 +42,7 @@
 ブランドの色は `.ui-brand-mark[data-tool=studio|transcribe|cut2resolve]`。
 
 ## v3(2026-09-26・画面の全面見直し)
-共通のルールは `docs/spec/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
+共通のルールは `notes:docs/spec/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
 - 状態の札(`.pill`)の文字は `--ok-ink` `--warn-ink` `--danger-ink` `--info-ink` `--accent-ink2`(明るいテーマで 5.5:1 以上)。札は枠なし・押せない表示だけ
 - 入口へ戻る(v18 で消した): ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
   「他のツール」のメニュー(`UIKit.tools.render`)も、取り込まれているときは先頭に「入口」「案件の一覧」を出す。`UIKit.tools.mounted()`
@@ -51,13 +51,13 @@
 - `.lag.keep`: 短いラベル + select の組を折り返さない(狭い画面で1文字ずつ縦に割れないように)
 - `UIKit.fmt.ago(ms)`(「3日前」「今日 14:32」)・`UIKit.fmt.date(ms)`・`UIKit.fmt.dur(秒)`・`UIKit.esc(s)`
 
-## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`docs/design/edit-tool-design.md`)
+## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`notes:docs/design/edit-tool-design.md`)
 - ツールの一覧(`UIKit.tools`)の transcribe の表示名を「編集」(カット・字幕・Resolve へのパック)に
 - cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
 - 写し先は studio(css・js)と editor(js と index.html の CSS)だけ(`dev/sync_ui_kit.py`)
 
-## v6(2026-09-27・画面の全面見直し 段階1。`docs/design/briefs/ui-overhaul/`)
-土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `docs/design/briefs/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
+## v6(2026-09-27・画面の全面見直し 段階1。`notes:docs/design/briefs/ui-overhaul/`)
+土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `notes:docs/design/briefs/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
 
 ### トークン
 - **既定のテーマが明るいに変わった**: 保存が無いときは `light`(以前は OS の設定に従う `system`)。「OSに合わせる」は選んだときだけ `localStorage['ytt:theme']` に `'system'` と明示的に保存する
@@ -137,7 +137,7 @@
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
 
-## v24(2026-10-09・コードの見直しの直す順番 B の土台。`docs/design/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
+## v24(2026-10-09・コードの見直しの直す順番 B の土台。`notes:docs/design/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
 - **`UIKit.http(url, opt)`** → Promise<応答の JSON(JSON でなければ `{}`)>。JSON の API を呼ぶ 1 か所で、**合言葉 `X-YTT-Token` を付けるのはここだけ**
   (GET・HEAD 以外で、送り先が同じオリジンのときだけ。ほかのサイトへ合言葉を出さない)。opt: `method`(既定: body があれば POST)・`body`(JSON)・`keepalive`・
   `timeout`(ミリ秒)・`signal`・`raw`(成功なら Response = zip の受け取り)・`token`(省略 = meta / 文字列 / false)・`needToken`(合言葉が無ければ送らずに失敗)・
@@ -157,7 +157,7 @@
   本物と食い違っていないかは `node --test src/ui-kit/tests/test_uikit_stub.cjs`(本物の window.UIKit の名前を全部知っているか。名前を足したら stub の kit か FALLBACK にも足す)
 - テスト: `e2e_styleguide` の `check_http`(偽の API で 合言葉・失敗の形・時間切れ・取り消し・raw・ほかのオリジン・homeApi)・`check_v24_fmt_copy`・アイコンの一覧(`lock`)。`UIKit.version` は 24
 
-## v23(2026-10-07・UI の見直しの基準 `docs/spec/ui-review-criteria.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
+## v23(2026-10-07・UI の見直しの基準 `notes:docs/spec/ui-review-criteria.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
 - 文字記号のアイコンをやめる(A-10): 知らせの × は `UIKit.icon('close')`。メニューが開く印は `.ui-caret`(線で描く小さな山形。`<span class="ui-caret" aria-hidden="true">`。右向きは `.right`・上向きは `.up`)。各ツールの「まとめて ▾」「無音 ▾」「この後を ▸」はこれに替える
 - 文字の青(`a`・`.ui-next-btn`)は `--accent-ink2`(明るいテーマの `--accent` は薄い面の上で 4.3:1 と足りない。A-22)。`--ink-4` は placeholder・空の欄・押せない物・飾りにだけ(決定 P-4)
 - `.card>summary`・`.ui-disclosure>summary` に `min-height:28px`(押せる部品は 28px 以上。A-21)。`.ui-live-panel:focus-visible` の輪(A-07)
@@ -190,8 +190,8 @@
 - まとめて実行の設定の欄のチェック(`.ui-ar-c > input[type=checkbox]`)の幅を固定(置いた画面の `input{width:100%}`(スタジオ ③ のメニュー)で、文字が 1 文字ずつ縦に割れていた)
 - `UIKit.version` は 22
 
-## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`plan/ux-stage7-9.md` の 1)
-- 画面に出る文言の「入口」を「ホーム」に(用語集 `docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
+## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`notes:plan/ux-stage7-9.md` の 1)
+- 画面に出る文言の「入口」を「ホーム」に(用語集 `notes:docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
   配信者の欄の「ホームから開くと使えます」・`api/ytt/…` を合言葉なしで呼んだときの失敗の文(「ホーム(start.bat)から開いたときだけ使えます」)。見本の案内の文も
 - **`UIKit.toast` は重ねて 2 つまで**(以前は 3 つ。積み上がると画面の下の操作 = 編集の 3 パック の「中止」などを隠していた)。あふれたら古いものから閉じる。
   ただし消えない知らせ(`ms: 0`)・ボタン(`action`)のある知らせ(`data-ui-keep` を付ける)は後回しにして、時間で消える知らせから閉じる
@@ -223,14 +223,14 @@
 
 ## v18(2026-10-07・内部の整理。動きは同じ)
 - 確認・お知らせのダイアログ(`UIKit.dialog`)・編集の設定の保存(`UIKit.packLoud`・`UIKit.autorun`)・捕まえたエラーの記録を、中で 1 つの関数にまとめた。`UIKit` の形と動きは変えていない
-- 使っている画面が無くなっていた `<a data-ui-home>` / `data-ui-cases`(v3 の入口・案件へ戻るリンク)の処理と `.ui-home` の見た目を消した(ヘッダーは `ui-appnav` に一本化済み = `docs/spec/ui-guidelines.md` の 2)
+- 使っている画面が無くなっていた `<a data-ui-home>` / `data-ui-cases`(v3 の入口・案件へ戻るリンク)の処理と `.ui-home` の見た目を消した(ヘッダーは `ui-appnav` に一本化済み = `notes:docs/spec/ui-guidelines.md` の 2)
 
 ## v17(2026-10-05・ほかの窓で音が鳴っているかを知らせ合う `UIKit.sound`)
 - 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(ユーザー)。この画面の `<video>`・`<audio>` が鳴っている間(再生中・消音でない・音量 0 でない)、同じオリジンの窓へ BroadcastChannel `ytt-sound` で知らせる(`{id, tool, playing}`。外へは送らない)
 - 鳴っている間は 2 秒ごとに送り直し、受ける側は 6 秒来なければ止まったとみなす(窓を閉じた・落ちたとき)
 - `UIKit.sound.other(tool?)` = ほかの窓(tool を渡せばそのツール以外)で鳴っているか・`UIKit.sound.onChange(fn)`。各画面で足すものは無い(ui-kit が自動で見る)。使うのはスタジオのライブの録画(`src/studio/review.js` の `duckMode`)
 
-## v16(2026-10-05・線 D「リアルタイム切り抜き」P3。`UIKit.liveBadge`。`plan/line-d-live-clipping.md` の 0-8)
+## v16(2026-10-05・線 D「リアルタイム切り抜き」P3。`UIKit.liveBadge`。`notes:plan/line-d-live-clipping.md` の 0-8)
 全ツールのヘッダーの「録画中」の札。**録画があるときだけ**、appnav のあるヘッダー(`.ui-header` の中の `.ui-header-actions` の先頭)に出る。**ヘッダーの HTML に足すものは無い**(JS が作る)。
 録画が無い・機能がオフ・合言葉(`ytt-token`)が無いページ(入口を通さない単独起動)では、要素も作らない(場所も取らない)。
 - データ: 入口の `POST api/ytt/live {op: "status"}`(相対パス。合言葉 `X-YTT-Token` は他の `api/ytt/…` と同じ)→ `{enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}`。
@@ -272,11 +272,11 @@
 - 決まり: 今開いている・実行中の項目は、隠していても一覧から消さない(迷わないため)
 
 ## v12(2026-10-02・サイバー風: 計器盤の形と配色4つ)
-ユーザーが見本(`docs/design/briefs/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。
+ユーザーが見本(`notes:docs/design/briefs/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。
 - 形(`ui-kit.css` の末尾の「v12」。v19 で多くを前の節の各部品の規則へまとめた): 角はほぼ直角(`--r` = 2px)・細い 1px の線・`.card` の左上と右下に角の括弧(`::before` / `::after`。**ツールで `.card` の疑似要素を使わない**)・
   タブと `.ui-seg` は下線・`.pill` は枠だけで等幅・`.bar` は目盛り・`.notice` は左の線・`th` と `.card-sub` は等幅。光らせない
 - 色: 明るい = **アイスライト**(`:root`)/ 暗い = **ネオンシアン**(`:root[data-theme=dark]`)。暗いときだけ `data-palette` で **鋼の白**(`steel`)・**ターミナルグリーン**(`green`)に替えられる
-  (どれも文字/地 4.5:1 以上・状態の色どうしが紛れない。決めた数値と直した理由は `docs/design/briefs/cyber-theme/patterns.css` の「調整した4つ」)
+  (どれも文字/地 4.5:1 以上・状態の色どうしが紛れない。決めた数値と直した理由は `notes:docs/design/briefs/cyber-theme/patterns.css` の「調整した4つ」)
 - JS: `<html data-palette="ice|cyan|steel|green">` を `UIKit.theme` が付ける。暗いときの配色は `UIKit.theme.palette()`(読む)・`palette('steel')`(変えて `localStorage['ytt:palette']` に保存)。
   明るい/暗い(`ytt:theme`)とは別に持つので、「OSに合わせる」・以前の保存はそのまま使える(暗くしたときに、最後に選んだ暗い配色になる)
 - ⚙ 設定の「テーマ」: アイスライト(明るい)/ ネオンシアン / 鋼の白 / ターミナルグリーン(暗い)/ OSに合わせる
@@ -284,8 +284,8 @@
 - 送るアプリ(`friend-apps/request-sender/`)の配色は別(A ネオンシアン・B シンセウェーブ・C ターミナルグリーン・D アイスライト)
 
 ## v11(2026-10-02・時刻の欄 `UIKit.timebox`)
-時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(`friend-apps/request-sender/` の TimeBox)で決めた動き(`docs/spec/friend-intake.md の 2-10` の「時刻の欄」)を、Web の画面でも使い回すための部品。
-**時刻を手で入れる欄を新しく作るときは、これを使う**(`docs/spec/ui-guidelines.md` の 3-2)。スタジオの「現在位置」の欄だけは今までの入力欄のまま(5025 のような秒の数字でジャンプする使い方があるため)。
+時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(`friend-apps/request-sender/` の TimeBox)で決めた動き(`notes:docs/spec/friend-intake.md の 2-10` の「時刻の欄」)を、Web の画面でも使い回すための部品。
+**時刻を手で入れる欄を新しく作るときは、これを使う**(`notes:docs/spec/ui-guidelines.md` の 3-2)。スタジオの「現在位置」の欄だけは今までの入力欄のまま(5025 のような秒の数字でジャンプする使い方があるため)。
 - 置き方: `<span data-ui-time aria-label="開始の時刻"></span>`(DOMContentLoaded で自動)。画面をあとから作るときは `UIKit.timebox.attach(el, opt)` か `UIKit.timebox.create(opt)`(要素を返す)
 - 形は3つ: **時:分:秒**(既定。`1:23:45`)/ **時:分:秒.0.1秒**(`data-ui-time-tenths` / `tenths`。`0:01:23.5`。スタジオのマーク・コラボ)/
   **分:秒.0.1秒**(`data-ui-time-short` / `short`。`1:23.5`。1時間を超えたら分が 60 以上 = `83:45.6`。編集の字幕の行。ユーザー決定 2026-10-02)。
@@ -317,13 +317,13 @@
 - 50: 画面の下のキーの帯 / 60〜65: ポップオーバー・「…」・右クリックのメニュー
 - 70・75: 右の欄の幕・右の欄 / 80: ツールチップ / 90: トースト
 
-## v25(2026-10-09・設定を 1 つに S5。`docs/spec/settings.md` の 4)
+## v25(2026-10-09・設定を 1 つに S5。`notes:docs/spec/settings.md` の 4)
 - `UIKit.settingsForm.render(host, group, io)` … 宣言的なスキーマ(`src/home/settings/schema.json`。鍵・型・範囲・既定値・ラベル・1 行の説明)から設定の節を描く。
   範囲と形の検査・「標準に戻す」(既定と違うときだけ)・保存の印(「保存しました」2 秒。失敗は理由を行に出して値を戻す)・`when` で出す/隠す・ツールが動いていないときの無効化(`io.disabled()`)が自動で付く。
   節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/home/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
 - `UIKit.settings.general()` … ⚙ の「全体」の節(テーマ・文字の大きさ・キーの帯)の要素。/settings にも置く。入口に取り込まれている画面の「全体」の節には「すべての設定を 1 つの画面で → 設定の画面を開く」(`/settings`)が付く
 
-## v26(2026-10-11・RS8 案件の画面 C1。`docs/design/rs8-cases-build.md`)
+## v26(2026-10-11・RS8 案件の画面 C1。`notes:docs/design/rs8-cases-build.md`)
 - 左の一覧 `.ui-rail`(ui-kit.css)… 1 行 = `button.ui-rail-item`(Tab で届く)の中に `.ui-rail-t`(`<b>` の名前 + `.ui-rail-s` の 1 行の説明)と状態の札 `.pill`。選んだ行は `aria-current="true"`(左の線と薄い青)。見出しは `.ui-rail-sep`。
   行の中の札は行と一緒に押される物なので `data-ui-audit-allow="A-33"` を付ける。案件の画面(`src/app/ui/cases/`)が使う
 - 共通の再生キーにできないキー(`PB_BLOCKED`)に `Shift+N`(案件: 次の未校正の切り抜き)。`UIKit.version` は 26

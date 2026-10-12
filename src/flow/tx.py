@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 文字起こしの動詞。役割で組み直す RS6 a-3(2026-10-10。決定 3-29・docs/design/rs6-survey-2026-10-10/plan_order_v2.md の 2-2)。
+"""② 管理の層 flow: 文字起こしの動詞。役割で組み直す RS6 a-3(2026-10-10。決定 3-29・notes:docs/design/rs6-survey-2026-10-10/plan_order_v2.md の 2-2)。
 
 ③ 人(human/proof の doc_jobs・rerun・alt・retime・learn)は ① pipeline/transcribe を直に読まず、ここの動詞を呼ぶ。動詞は ① を呼ぶ前後で ② の責任
 (本物と疑似の選び方と本物の処理 = ワーカーでモデルを読む・ジョブの状態・認識の記録 words.json・asr.json・llm.json の書き込み・学習データ(置換辞書と名簿)の読み・
@@ -32,7 +32,7 @@ from . import keys as _keys, machine as _machine
 # ---------- 学習データ(置換辞書と名簿)----------
 def dict_pairs(spec):
     """置換辞書の組 [(誤, 正)](autoDict のときだけ。評価用の文書は autoDict が外れるので当たらない)= 設定の replacements + 名簿の呼び名の表記ゆれ(roster.variant_pairs。0.59.7。
-    はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = plan/line-b-transcription.md の「10-08 の実験ループ」B)。
+    はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = notes:plan/line-b-transcription.md の「10-08 の実験ループ」B)。
     設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ。
     ② が足すこと = 学習データ(設定の辞書と名簿のファイル)を読んで ① の表記ゆれの表と合わせる(RS6 a-3 に human/proof/doc_jobs から)"""
     if not spec.get("autoDict"):
@@ -350,7 +350,7 @@ def alt_lines(job, spec, wav):
     """文書の範囲(spec の start〜end)の音声を 2 つ目のエンジンで認識した行(時刻は元の動画の秒)。
     -> {"rows": [{start, end, text}], "total": 音声の長さ, "wallSec", "engineVersion", "fake"}。取り消しは Cancelled。
     文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方・長さより後ろを捨てる・繰り返しをまとめる。① postproc.expand_segments)。置換・学習はかけない。
-    続いている行をつなぐ join_rows(0.57.1)はかけない(候補は文字を比べるだけで行の時刻を使わない。plan/line-b-row-timing.md の 7-2)。
+    続いている行をつなぐ join_rows(0.57.1)はかけない(候補は文字を比べるだけで行の時刻を使わない。notes:plan/line-b-row-timing.md の 7-2)。
     ② が足すこと = 一時の wav への取り出しとジョブの状態・本物と疑似の選び方と本物の処理(_alt_real)・行の数・取り消しの確かめ・エンジンの版"""
     os.makedirs(_workdata.TMP_DIR, exist_ok=True)
     job["state"], job["phase"] = "extracting", "音声を取り出し中"

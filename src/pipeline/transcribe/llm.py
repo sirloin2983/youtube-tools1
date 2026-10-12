@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: LLM の後処理(提案 P18。plan/llm-postfix.md。編集 0.61.0)。
+"""「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/llm-postfix.md。編集 0.61.0)。
 
 ねらい: 認識の結果のうち「名簿の呼び名の聞き違い」らしい所だけを、ローカルの LLM(Qwen3-8B。llama-server・Vulkan)に直させて校正を短くする。
   1 選ぶ llm_pick      名簿の呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)に、かなに寄せて 1 字違いの所と、名簿の誤りやすい形(misrecognitions)。

@@ -839,7 +839,7 @@ class SpeakerColorMapTest(unittest.TestCase):
 
 
 class SpeakerStylesTest(unittest.TestCase):
-    """話者ごとの字幕の見た目の指定 output.speakerStyles(docs/spec/friend-intake.md の 6)。
+    """話者ごとの字幕の見た目の指定 output.speakerStyles(notes:docs/spec/friend-intake.md の 6)。
     検査は鍵ごとの許可の一覧(今は color だけ)。知らない鍵・形の違う値はその項目だけ捨てる。全体の形が違えば無かったことにする"""
 
     def test_sanitize(self):

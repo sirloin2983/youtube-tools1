@@ -1,4 +1,4 @@
-/* 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 docs/design/rs8-cases-build.md・何を作るか docs/design/briefs/rs8-cases/)。
+/* 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
    URL: /cases?c=<案件 id>&d=<文書 id>#cand|proof|cut(#tx は proof・#pack は cut と読む)。d だけでも開ける(④ に ?doc= で案件を聞く)。
      文字起こしがまだの切り抜きは d の代わりに m=<マーク id>。根のパスは URL に出さない。
    読む口: 案件の中身 = ④ GET api/cases(?doc=)/ 今動いている物 = ② GET api/flow/status?case=<根>(動いていれば 2 秒・止まっていれば 15 秒。rev が同じなら描き直さない)。

@@ -1,4 +1,4 @@
-"""① 自動の流れの経路(役割で組み直す RS1-7。計画 plan/role-restructure.md の 5-1)。
+"""① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/role-restructure.md の 5-1)。
 
 入力(配信の ID・文書の ID・動画ファイル)を、段(解析 → 採用 → 書き出し → 文字起こし → 話者分離 → パック)の順に、各ツールの公開している API を
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。
@@ -62,15 +62,15 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("transcribe",),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
               "file_auto": ("transcribe", "pack", "deliver")}
-# 友人からの依頼(src/human/friend/intake.py。docs/spec/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
+# 友人からの依頼(src/human/friend/intake.py。notes:docs/spec/friend-intake.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
 # 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
 # (③ 全部人が行う manual = 解析まで は RS5-F で無くした。② check は自分の配信の書き出しのあと(L2)と手で置いた動画・URL が使う)。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし",
                  "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし"}
-# 友人が時刻で指定した区間(送るアプリ 2.0.0。docs/spec/friend-intake.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
+# 友人が時刻で指定した区間(送るアプリ 2.0.0。notes:docs/spec/friend-intake.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
 REQUEST_URL_MODES = ("request", "request_auto")
-# 文書単位の実行(docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
+# 文書単位の実行(notes:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
 # カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 # 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
 STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "skip": "飛ばした", "warn": "一部失敗", "error": "失敗"}

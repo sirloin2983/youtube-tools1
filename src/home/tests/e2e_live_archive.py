@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""リアルタイム切り抜き P4(アーカイブで本番版に作り直す・録画を自動で消す。plan/line-d-live-clipping.md の 0-9)の通しの確認。
+"""リアルタイム切り抜き P4(アーカイブで本番版に作り直す・録画を自動で消す。notes:plan/line-d-live-clipping.md の 0-9)の通しの確認。
 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでホームの「新しい案件」(/#new)の URL の欄から録画を始め、
 案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
 (RS8 C4 でスタジオの画面のページと、その ⚙ の「ライブの録画」の欄を消した。案件の画面の帯は開いたときに入口の設定 live.autoArchive・autoDelete を読む)

@@ -1,4 +1,4 @@
-/* 校正のパネルの 3 択(RS8 C2b。作り方 docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
+/* 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
    機械の結果が変わって人の直しと食い違う行(印「機械の結果が変わりました」= layers.MACH_CHANGED)に札を付け、押すと(キー Shift+C も)行の下に
    前の機械 / 今の機械 / あなたの直し を並べ、[自分の直しのまま](既定)/ [今の機械にする] を選ぶ。
    口は編集のサーバー GET transcribe/api/mach-changes?id= と POST transcribe/api/mach-changes/pick {id, row, pick, baseUpdatedAt}(src/human/proof/machpick.py)。

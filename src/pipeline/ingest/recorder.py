@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""録画の部品(線 D: リアルタイム切り抜きの P1。plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
+"""録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
 
     py -3.10 src/pipeline/ingest/recorder.py [--port 8730] [--folder E:\\Video\\live-rec] [--host 127.0.0.1 --allow-host <ホスト:ポート>]
                                   [--data-dir <フォルダ>] [--source streamlink|direct]

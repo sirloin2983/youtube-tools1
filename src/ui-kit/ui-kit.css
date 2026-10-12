@@ -1,4 +1,4 @@
-/* ui-kit v6〜v23 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(docs/design/briefs/ui-overhaul/)の段階1。
+/* ui-kit v6〜v23 — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。
    v6(2026-09-27): 既定のテーマを明るいに(保存が無いとき。以前は OS に合わせていた)・トークン追加(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
    飾りの除去(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
    新しい部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
@@ -512,7 +512,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--fs-xl:21.5px}
 
 /* ================================================================ v12(2026-10-02): サイバー風 ― 計器盤(HUD)の形と配色
-   決めたこと: docs/design/briefs/cyber-theme/(見本 board.html・patterns.css。ユーザーが A 計器盤 と 配色4つ を選んだ)。
+   決めたこと: notes:docs/design/briefs/cyber-theme/(見本 board.html・patterns.css。ユーザーが A 計器盤 と 配色4つ を選んだ)。
    形: 角はほぼ直角(2px)・細い 1px の線・カードの左上と右下に角の括弧・タブと切り替えは下線・状態の札は枠だけ・
        進み具合は目盛り・知らせは左の線。数字と札は等幅の文字。光らせない(情報が主役)。
    色: 明るい = アイスライト(:root)・暗い = ネオンシアン(:root[data-theme=dark])。暗いときの配色は data-palette(UIKit.theme.palette)で
@@ -610,7 +610,7 @@ html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--f
    --danger-on: 赤い面(--danger)の上の文字の色。明るいテーマは白、暗いテーマは濃い色(暗いテーマの --danger は明るい赤なので、白い文字は 2.9:1 で読みにくかった)。
    使う所: .errbar(赤い帯)・.badge・.btn.danger.solid・録画の停止の二度押し・編集の行の札「カット済」・スタジオの LIVE の札。新しく赤い面に文字を置くときもこれ */
 
-/* ---------- v23(2026-10-07・UI の見直しの基準 docs/spec/ui-review-criteria.md に合わせる) ----------
+/* ---------- v23(2026-10-07・UI の見直しの基準 notes:docs/spec/ui-review-criteria.md に合わせる) ----------
    - 文字記号のアイコン(▾ ▸ × ☰ ⚙ ✂ ▶ ✓)をやめる(ブリーフの Anti-references・A-10)。メニューが開く印は .ui-caret(線で描く小さな山形。文字ではない)、ほかは UIKit.icon の SVG
      使い方: <summary class="btn">まとめて <span class="ui-caret" aria-hidden="true"></span></summary>。右向き(「この後を ▸」のような)は .ui-caret.right
    - --ink-4(薄い灰色)は、明るいテーマで面に対して 3.2〜3.6:1 しかない。placeholder・空の欄(--)・押せない物・飾りにだけ使い、情報の文字(時刻・件数・説明)には --ink-3 以上を使う(A-22。決定 P-4)

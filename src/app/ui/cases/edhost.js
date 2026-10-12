@@ -1,4 +1,4 @@
-/* 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 docs/design/rs8-cases-build.md の C2b)。
+/* 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
    編集の app-*.js・app.js は包みの無いトップレベルの名前(S・$・openDoc・saveDoc …)で動くので、包まずにそのまま読む(凍結した古い画面と同じコード)。
    ここがするのは:
    (1) 初めて校正を開いたときに 1 回だけ組み立てる: ホームの api/status で編集(transcribe)が取り込まれているかを見る → 版の meta → transcribe/app-tpl.js(欄の

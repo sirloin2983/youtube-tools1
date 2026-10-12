@@ -1,4 +1,4 @@
-// 初回の取得と更新(F1 の F4b。設計 docs/design/f1-build.md の F4b・(f1g)(f1h)(f1i))。
+// 初回の取得と更新(F1 の F4b。設計 notes:docs/design/f1-build.md の F4b・(f1g)(f1h)(f1i))。
 //   初回の取得: zip に入っている fetch.json(dev/build_friend_zip.py が書く。モデル・llama.cpp・ffmpeg・yt-dlp・Deno)の各物を、進み具合つきで取る。
 //     続きから(.part に書く)・大きさと SHA-256 を確かめる・違えば消してやり直す・失敗した物だけ次の回にやり直す。置き場所は fetch.json の base(data = ② の作業データの根 / app = アプリのフォルダ)+ dest
 //     足りない物があれば、起動時に小窓で [取ってくる](Setup.OfferFetch。MainForm の Shown から 1 回)

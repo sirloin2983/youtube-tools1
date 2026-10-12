@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""行の時刻(字幕の区間)を、行の時刻の原則(docs/spec/row-timing-policy.md)の数字で測る道具(plan/line-b-row-timing.md の 7-4)。
+"""行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/row-timing-policy.md)の数字で測る道具(notes:plan/line-b-row-timing.md の 7-4)。
 
     python src/eval/tools/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply] [--check]
 
@@ -17,18 +17,18 @@
     ②次 next = 次の発言が入る:   機械の終わり > 次の人の行の始まり + 0.1
           (前・次の人の行 = 文字のある人の行を時刻の順に並べたときの隣。校正済みでなくてよい。無ければ「入らない」)
     ③ extra  = 喋っていない時間: 人の区間の外へはみ出した秒(前のはみ出し + 後ろのはみ出し)の中央値・平均
-  2026-10-07 の試算(plan/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
+  2026-10-07 の試算(notes:plan/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
 - 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
   行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap}。0.64.0 までは pullEnds・retime も(0.65.0 で部品ごと消した。古い記録の鍵は読んで見出しに出す)。
   無い記録は「後処理の記録なし(0.57.0 まで)」・1 秒丸めの配り直しの記録 retimed(0.64.0 まで)があればそう書く)
-- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。plan/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
+- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
   再現(人の境目のうち機械にもあった割合)。人の境目は両側が校正済みで話者が同じ所だけ(boundary_agreement)。全体・組ごと・文書ごと・--apply の当て直しにも出す
 - --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す(VARIANTS: 0.57.0 の後処理 /
   7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40 / 0.59.6 = 24(splitChars は spec に入れる))。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
   音声を聞き直す 1 秒丸めの配り直し(quant_retime。編集 0.65.0 で消した)はかけない(音声を聞き直さない = 認識し直さない)。
   「0.57.0 の後処理」を当て直した行が保存してある original と同じか(reproduced。始まり・終わりが REPRO_TOL 以内の行の割合)も出す
   (低い文書は、original を作ったときの後処理がそれと違う = 0.53.1 より前の文書・配り直しのあった文書・人が分け直した文書)
-- --check: 「確かめる」(/check)の時刻のカードの答え(入口の作業データ app の check/answers.jsonl。docs/design/v1-check-build.md の V2d)を
+- --check: 「確かめる」(/check)の時刻のカードの答え(入口の作業データ app の check/answers.jsonl。notes:docs/design/v1-check-build.md の V2d)を
   もう 1 つの正解として読み、同じ報告の終わりに並べる。カードは文字が正しいと分かっている行(校正済み・読みのカードで決めた行)の区間 ± 2.5 秒を再生して
   「ちょうどいい / 頭がずれている / 末がずれている / 両方」と答えた物。出すのは判定の数(率)・← → で動かした量(行の時刻を実際に変えた分)の分布・
   頭と末のどちらへどれだけずれていたか。評価用の文書の数字(上の原則の数字)とは別の母集団なので混ぜずに並べる。戻した(Z)答えは数えない。--since / --until は答えた時刻で絞る
@@ -132,7 +132,7 @@ def measure_rows(human, machine):
     return {"proofed": proofed, "rows": out}
 
 
-# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。plan/line-b-row-split.md)
+# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/line-b-row-split.md)
 
 def _pos_map(src, dst):
     """src の文字の位置 p -> dst の文字の位置(difflib の一致ブロックで写す。一致の中なら正確、外なら近い方のブロックの端)"""

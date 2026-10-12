@@ -4,7 +4,7 @@ J6 で ② の 1 つの器 `flow/jobs.Table`(頭 pk)の上の薄い殻にした�
 
 同時に 1 本だけ(画面の二度押しで並ばない = Table の admit)・履歴は 20・糸 1 本・build は必ず SLOTS を待つ / plan は heavy() が真のときだけ待つ・
 Task(= ytt/jobs.Ctl の子)を Table が作って fn(task) を呼ぶ。変換のコードは書かない(fn は呼ぶ側 = serve が渡す ① の呼び出し)。
-応答の形(public)と掲示板の頭 pk の形は移す前と同じ。docs/design/opt2-jobs-plan.md の J3・J6。
+応答の形(public)と掲示板の頭 pk の形は移す前と同じ。notes:docs/design/opt2-jobs-plan.md の J3・J6。
 """
 import time
 import traceback

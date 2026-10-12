@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。2026-10-11。形は docs/spec/pipeline.md 2.9・設計 docs/design/rs8-flow-api.md)。
+"""② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。2026-10-11。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
 
 新しい画面(入口・案件の画面)が「今・何が・どこまで動いているか」を 1 つの形(Job)で読むための表。プロセスに 1 つ(default())。
 画面が読むのは入口の GET /api/flow/status の jobs・cases・rev(src/app/server.py)。取り消し・やり直しも id 1 つで(POST /api/flow/cancel・retry)。
@@ -129,7 +129,7 @@ def _steps(v):
 
 
 def normalize(job, now_ms=None):
-    """器が渡した Job -> 整えた新しい dict(docs/spec/pipeline.md 2.9 の形)。知らない項目・語彙の外の kind / state・形の違う id は理由つきの ValueError。
+    """器が渡した Job -> 整えた新しい dict(notes:docs/spec/pipeline.md 2.9 の形)。知らない項目・語彙の外の kind / state・形の違う id は理由つきの ValueError。
     無い項目は既定(parent・case・progress・時刻・error・steps = None・target = {}・文字 = ""・真偽 = False・stateLabel = STATE_LABELS)。
     canCancel は待ち・実行中のときだけ・canRetry は終わったときだけ真にできる。createdAt が無ければ now_ms(掲示板は None で渡し、置くときに最初の時刻)"""
     if not isinstance(job, dict):

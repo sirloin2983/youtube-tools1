@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。docs/design/rs7-survey-2026-10-10/plan_order_v3.md)。
+"""ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。notes:docs/design/rs7-survey-2026-10-10/plan_order_v3.md)。
 
 POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信後の追加(live_archive の M7)が通る。もとは src/home/live.py の Live.adopt と
 その周り(区間の秒・余白・スタジオのマーク・友人の依頼の結びつき)。Live.adopt は Adopter.adopt を呼ぶだけ(名前は残す = Detector・HTTP の受け口が呼ぶ)。
@@ -61,7 +61,7 @@ def adopt_secs(body, first):
 
 
 def pad_secs(a, b, pad, st, first):
-    """自動・アーカイブの採用の区間 (a, b) を前後 pad 秒だけ広げる(M8。plan/improvements.md の M8)。
+    """自動・アーカイブの採用の区間 (a, b) を前後 pad 秒だけ広げる(M8。notes:plan/improvements.md の M8)。
     0 より前と、録れている範囲(録画元の状態の lastPdt)の外へは広げない(終わりが録れていなければ後ろは足さない)。1 つのマークの上限も守る"""
     pad = float(pad)
     a2, b2 = max(0.0, a - pad), b + pad
@@ -73,7 +73,7 @@ def pad_secs(a, b, pad, st, first):
 
 
 def top_of(bundle):
-    """束の adopt.top(友人の PC の 1 録画の自動の採用の上限 = 親の auto_max が返す値。plan/f1-friend-pc.md 決めたこと 7)。
+    """束の adopt.top(友人の PC の 1 録画の自動の採用の上限 = 親の auto_max が返す値。notes:plan/f1-friend-pc.md 決めたこと 7)。
     無い・形が違えば束の既定(spec.DEFAULTS)"""
     a = bundle.get("adopt") if isinstance(bundle, dict) else None
     try:

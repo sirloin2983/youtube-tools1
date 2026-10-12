@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ui-kit v6(画面の全面見直し docs/design/briefs/ui-overhaul/ の段階1)の見本(styleguide.html)の動作確認(Playwright・chromium・headless)。
+"""ui-kit v6(画面の全面見直し notes:docs/design/briefs/ui-overhaul/ の段階1)の見本(styleguide.html)の動作確認(Playwright・chromium・headless)。
 
     python src/ui-kit/tests/e2e_styleguide.py
 

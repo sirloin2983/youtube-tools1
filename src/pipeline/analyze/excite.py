@@ -1,9 +1,9 @@
-"""盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。plan/line-d-detect.md)。
+"""盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes:plan/line-d-detect.md)。
 
 決まり:
 - **一括の関数(smooth・local_baseline・robust_scale・audio_score・chat_z・estimate_lag・pick_clips …)は analyze.py から移しただけ**で、式・加算の順・丸めを変えていない。
   アーカイブの結果(候補・series)が移す前と完全に一致することを pipeline/analyze/tests/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(src/eval/tools/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
-- 配信中は「未来を見る量」だけが違う(plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
+- 配信中は「未来を見る量」だけが違う(notes:plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
   跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。この 2 つを持つのが windowed_scores(一括)と Online(1 秒ずつ足す)。2 つは同じ値を返す(テストで確かめる)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。
   配信中だけの足し(どれも呼ばなければ候補は同じ): しきい値を上げる区間 thr_scale(雰囲気の変わり目 MoodShift のあと 60 秒は 1.3 倍。0-10-5)・

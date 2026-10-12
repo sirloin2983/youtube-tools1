@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配信中の盛り上がりの検出のワーカー(線 D の L2。plan/line-d-detect.md・plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+"""配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
 
     py -3.10 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
     (旧い場所 src/home/live_excite_worker.py の転送は RS5-G で消した)
@@ -97,7 +97,7 @@ STATE_MAX = 64 * 1024 * 1024
 SPEC_DEFAULT = {"length": 45.0, "preRatio": excite.PRE_RATIO_DEFAULT, "lag": 8.0, "lagAuto": True, "wAudio": 1.0, "wChat": 1.0, "headSec": 180.0}
 MAX_ACTIVE = 2             # 同時に測る録画の数(0-10-4)。3 本目からは「順番待ち」(前の録画の検出が終わったら、古い順に始める)
 QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す間隔(文が変わったときはすぐ)
-# M10: 自動の候補の長さを人の記録から(plan/line-d-auto-pack.md の M10・6 の決定 4)。src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ
+# M10: 自動の候補の長さを人の記録から(notes:plan/line-d-auto-pack.md の M10・6 の決定 4)。src/eval/tools/eval_marks.py --json の結果(スタジオの作業データ
 # evals/marks/<日時>.json。入口の夜の自動測定 accuracy.py が流す)の clipLength.suggest を入口が読み(length_hint)、config.json の lengthHint に入れる。
 # ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま。dev/ は import しない(結果のファイルを読むだけ)
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"        # off = 使わない(スタジオの解析の設定の長さのまま)

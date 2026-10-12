@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """③ 受け渡し: 切り抜きスタジオ(と旧クリップマーカー)のマークを読む・元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
-(docs/spec/pipeline.md の 2・4・6。段10 で editor/serve.py から分けた ed_misc。役割で組み直す RS3-E7(2026-10-10)に manage/cases/handoff_io.py へ移した。
+(notes:docs/spec/pipeline.md の 2・4・6。段10 で editor/serve.py から分けた ed_misc。役割で組み直す RS3-E7(2026-10-10)に manage/cases/handoff_io.py へ移した。
 旧い名前 ed_misc は転送だけの殻 = RS5 で消す)。
 
 - フォルダの一括読み込みと文字起こし済みの範囲(transcribed_ranges)は human/proof/batch.py(進行度 progress は編集 0.69.0 で消した)
@@ -125,7 +125,7 @@ def marker_videos(d):
     return out
 
 
-# ---------- 受け渡しの API(docs/spec/pipeline.md の 2・4・6) ----------
+# ---------- 受け渡しの API(notes:docs/spec/pipeline.md の 2・4・6) ----------
 def _pipeline_error(e):
     return _errors.ApiError(e.code, e.message, e.status)
 
@@ -212,7 +212,7 @@ def export_file(req):
         schema = None   # SRT は中身で「前にこのツールが書いたか」を判断できないので、同名があれば常に別名にする
         if not count:
             raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
-        data = text.encode("utf-8")   # BOM なし(docs/spec/pipeline.md の 1)
+        data = text.encode("utf-8")   # BOM なし(notes:docs/spec/pipeline.md の 1)
     try:
         path, overwritten = pm.save_beside(src, suffix, data, schema)
     except pm.PipelineError as e:

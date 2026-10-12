@@ -1,4 +1,4 @@
-// この PC の ② が作ったパックを「受け取る」の一覧に出す(F1 の F6b。設計 docs/design/f1-build.md の F3a・F2 の採否・plan/f1-friend-pc.md の決めたこと 6・11)。
+// この PC の ② が作ったパックを「受け取る」の一覧に出す(F1 の F6b。設計 notes:docs/design/f1-build.md の F3a・F2 の採否・notes:plan/f1-friend-pc.md の決めたこと 6・11)。
 //   一覧の元: ② の GET /api/flow/history(終わった実行の記録。1 行 = Run.public() = packs(作った物 + 鍵で飛ばした前からある物)・requestId・title・finished)。
 //             パックはこの PC の案件フォルダにもうある = 取ってこない。フォルダが無くなった物・採否を決めた物は出さない
 //   受け取る = 開く(エクスプローラーでフォルダ)/ 要らない(フォルダは消さない)/ 動画にした は、Dropbox の feedback.json ではなく

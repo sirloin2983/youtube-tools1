@@ -1,5 +1,5 @@
 // 配信のカード(2.0.0): URL・題名・切り抜く数・区間の行(開始〜終了)。区間が切り抜く数に足りない分は PC が自動の見どころで埋める。
-// 設計: docs/spec/friend-intake.md の 2-10 の「配信のカード」「切り抜く数と区間」
+// 設計: notes:docs/spec/friend-intake.md の 2-10 の「配信のカード」「切り抜く数と区間」
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -463,7 +463,7 @@ namespace RequestSender
         }
     }
 
-    // ---- ライブ配信の依頼(2.8.0。docs/spec/friend-intake.md の 2-15): 配信中か配信前の URL 1 本 + 友人のベータの設定。----
+    // ---- ライブ配信の依頼(2.8.0。notes:docs/spec/friend-intake.md の 2-15): 配信中か配信前の URL 1 本 + 友人のベータの設定。----
     //   URL と題名の出し方は配信のカードと同じ(oEmbed)。設定は 1 行ずつ短い説明つき。値は呼んだ側が settings.json に覚える
     public class LiveCard : VStack
     {
