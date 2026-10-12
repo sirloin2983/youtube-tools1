@@ -1,18 +1,17 @@
-# HANDOVER — 次のセッションへの引き継ぎ(2026-10-11 夕。役割で組み直す計画 = RS8 まで済み・版 0.59.0。**RS8 は案件の画面 /cases まで済み・古い画面は消した。次は V1 確かめる → F1 → RV**)
+# HANDOVER — 次のセッションへの引き継ぎ(2026-10-12 朝。版 0.61.0。RS8・V1・F1 の AI の分は済み。**友人の PC で試して問題が出た → 送るアプリの要件を見直し中(暫定・覆りうる)。実装はユーザーの次の見直しのあと**)
 
 セッションを切り替えるたびに上書きする。全体の計画と進捗は `plan/index.html`(データ `plan/data.js`)、文書の索引は `docs/ROADMAP.md`、経緯は `docs/WORKLOG.md`
 
 ## いまの状態
 - 作業フォルダは `C:\dev\youtube-tools`(GitHub: https://github.com/sirloin2983/youtube-tools1)。**push はユーザーが `push.bat`**
-- **版**: 全体で 1 つ = `src/ytt/version.py` の **0.58.0**(仮。1.0.0 は RS8・V1・F1・RV 全体の見直しが全部済んでから = decisions 3-33)・ui-kit v25・送るアプリ 2.10.0。ユーザーの入口は 0.57.0 で動いている = 0.58.0 にするには「すべて終了」→ start.bat(画面に版の赤い帯が出る)
-- **層は 5 つ**: ① 道具 `src/pipeline/`・② 管理 `src/flow/`・③ 人 `src/human/`・④ データ `src/manage/`・⑤ 検証 `src/eval/`・app は全部を読める。③④ は ① を直に読まず ② を通す。向きは `dev/layer_map.py` の `ALLOWED` と `dev/tests/test_layering.py`(違反 0)
-- **RS7-1 束と口・RS7-2 玄関とヘッドレス は済み**。RS7-2 の段の並びは `docs/design/rs7-survey-2026-10-10/plan_order_v3.md`(Fable)、結果は `plan/role-restructure.md` 8 節「RS7-2 の結果」、仕様は `docs/spec/pipeline.md` 2.8・`docs/spec/data-location.md`
-- **RS7-2 で入った物**: ライブの親の口 `flow/livehost.py`(10-11 の片付けで `LiveHost` 1 つ + `RequestBook`・`MarkBook` に)/ 採用 `flow/live_adopt.py`(StudioMarks = スタジオの HTTP / LocalMarks = スタジオなし)/ ライブ係 `flow/livesession.py`(Live から app でない部分を抜き出した。封筒 kind `live` + 束で録画を始め、録画ごとの束を `live/bundles.json`。検出・採用の待ち・配信後の解析・書き出しの音量はその束から。書き出したあとは `Queue.submit(kind file)`)/ 入口の `--headless`(ready の 1 行・既に動いていれば終了コード 3・restart-self は 409・status に `live` と `idle`)/ 案件の `作業用\case.json`(`flow/placement.ensure_case`)/ 鍵で飛ばしたパックも結果の `keptPacks` に / 書き込み系を断るとき本文を読み捨てる(3 ツール)/ パックの書き出しの取り消しの競合の直し
-- **決定 3-31(10-11 朝にユーザー確認済み)**: b1 ライブの検出・採用の設定は録画を始めたときの束に固定 / b2 書き出しの音量も同じ / b3 ホームの `live.auto.engine/model` の欄は残す・選べるモデルは普段使う物だけ。**自分の配信(スタジオの URL の欄)は束を組まず今の読み方のまま**(= b1・b2 は友人の依頼と headless の録画にだけ効く。RS8 で自分の配信も束に)
-- **使わないモデル・エンジンの選択肢を消した(0.58.0。b74e86d)**: 残したのは whisper.cpp(Vulkan)+ large-v3・faster-whisper は内部の CPU の逃げ道だけ・SenseVoice-small・Qwen3-8B・Qwen3-ASR 1.7B(2 つ目)・voxceleb。Qwen3-ASR 0.6B のエンジン・small/medium/turbo/kotoba・処理方式の auto/cuda/cpu・2 つ目の whisper.cpp/faster-whisper・campplus/standard は消した(欄は残す)。保存済みの古い値は `flow/spec.read_legacy_tx` で今の値に読み替え(断らない)。束の既定は whisper.cpp・large-v3・vulkan
-- テスト(10-11・8e7f901): unittest 23 組・3,417 件 OK(フォルダごとにまとめて 1 プロセス = 16 分)・lint 0・層 0・契約 35 件・**e2e 一式 31 本 OK**(e2e_autorun は case.json の置き場所を直したあと単独で OK)。0.58.0 のあと: unittest 24 組・3,361 件 OK・画面に近い e2e 5 本 OK
+- **版**: 全体で 1 つ = `src/ytt/version.py` の **0.61.0**(仮。1.0.0 は RV のあと = decisions 3-33)。RS8(案件の画面 /cases・0.59.0)・V1(確かめる /check・0.60.0)・F1(友人の PC で ② + ①・0.61.0)の AI の分は済み
+- **層は 5 つ**: ① 道具 `src/pipeline/`・② 管理 `src/flow/`・③ 人 `src/human/`・④ データ `src/manage/`・⑤ 検証 `src/eval/`・app は全部を読める。向きは `dev/layer_map.py` の `ALLOWED` と `dev/tests/test_layering.py`(違反 0)
+- **友人の PC で試した結果(10-11 夜)**: 起動で落ちた(終了コード 1)= アプリが E:・作業データが C: で `os.path.relpath` が ValueError → 73bc2c21 で直した(友人に届けるのは次の zip)。送るアプリは ② が起動で終わったとき標準エラーの最後の行を文に添える(d69ef85d)。ほかに友人の指摘: 何本か選んで消せない・開いたら一覧から消える・文字と動きが合わない・フォルダの管理に疑問
+- **送るアプリの要件の見直し(10-11 深夜〜10-12)**: ユーザーと 1 問ずつ決めた結果が `plan/f1-friend-requirements.md`。**状態は暫定**(ユーザー「このあと更なる見直しをするので、ここで決めたことも根本的に覆る可能性がある」)= この文書を前提に実装も段取りも始めない。主な決定: 一覧は未決の箱・受け取る = 保存先へ移す・[動画にした] はやめる・物には必ず終わり(日数は既存の 3 日)・動画 / URL / ライブを区別しない・一時保管だけ場所を選べる・アプリは版ごとのフォルダ・採否の道は 送り返し に 1 本化
+- **見つけたが直していない不具合**: 設定の「案件の保存先」(machine の caseRoot)は空き容量を測る所が変わるだけで出来上がる場所は変わらない / アプリの更新(`robocopy /E`)が新しい版で消したファイルを消さない / 画面なしの ② はまとめ動画を作らない
 
 ## 次
+0. **10-12 朝(このセッション)**: 送るアプリの要件の見直し 1 回目は済み(暫定)。**次はユーザーの「更なる見直し」を待つ**(基本の仕様から 1 問ずつ・AI の案を 1 つ添えて)。決まったら直す順の段取り → 実装 → 初回の zip を作り直して友人へ
 0. **10-11 夜(F1)**: F1 の AI の分は済み = 版 0.61.0(`docs/design/f1-build.md`・WORKLOG の末尾)。残りは友人の PC での確かめ(`py -3.10 dev/build_friend_zip.py --first --with-key` で初回の zip → 友人へ・本物の Dropbox で学習・送り返し・更新を 1 回)。そのあと RV
 0. **10-11 夜**: V1 確かめる(/check)も済み = 版 0.60.0。次は F1 → RV
 0. **10-11 夕(WORKLOG の末尾)**: RS8 の新しい画面ができた = 案件の画面 `/cases`(`src/app/ui/cases/`。殻 cases.js + パネル cand・proof・cut・new・machpick・台 edhost.js)とホームの組み替え。古い画面のページは消した(部品の JS は `src/studio`・`src/editor` に残して案件の画面が相対パスで読む)。版 0.59.0。e2e は 18 本。文書の層は shadow のまま(primary はユーザーの合図で)。次は V1 → F1 → RV
@@ -35,4 +34,4 @@
 - 入口が起動中の間はコードを変えても古いまま動く。**配信中に入口を落とさない**
 
 ## 次のセッションに貼る指示文
-「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。役割で組み直す計画は RS7-2(玄関とヘッドレス)まで済み・使わないモデルの選択肢を消して版 0.58.0(決定 3-31 は確認済み)。RS8(plan/rs8-cases-ui.md)は ③④ の見直し・B-2 の 0〜3・OPT1 まで済み(HANDOVER の「次」の 0)。仮決め decisions 3-36 をユーザーに確認してから docMove をオンにして B2-4、そのあと B-3 → O2 → URL も CLI → 新しい画面。画面の材料は docs/design/briefs/rs8-cases/。RS7-2 から送った残り(自分の配信も束で・G1a・G3・serverkit・launch.py → app/server.py)も RS8 で。優先の順は decisions 3-33(RS8 → V1 → F1 → RV → 1.0.0)・本物の確認で止めない(3-32)。設計の判断は Fable と相談・一時の形でない物だけユーザーに確認。サブエージェントは仕事に合わせてモデルとエフォートを選ぶ(単純作業は Haiku・low)。段ごとは unittest・lint・層だけ(unittest はテストのフォルダごとにまとめて 1 プロセス)・e2e 一式と文書は RS の終わりに 1 回。別のセッション(片付け・計画)が並行しているので git add -A を使わない。」
+「AGENTS.md → plan/data.js → docs/HANDOVER.md → docs/WORKLOG.md の末尾 3 件 → git status・git log -15 を見て。版 0.61.0。RS8・V1・F1 の AI の分は済み。F1 は友人の PC で試して問題が出て、送るアプリの要件を plan/f1-friend-requirements.md で見直し中(暫定・覆りうる)。ユーザーがさらに見直すので、その文書を前提に実装を始めない。見直しは基本の仕様から 1 問ずつ、AI の案を 1 つ添えて聞く。日数は既存の 3 日(cleanup.py)に合わせる。質問されたら検証より先に答える。優先の順は decisions 3-33(F1 → RV → 1.0.0)。別のセッションが並行しうるので git add -A を使わない。」
