@@ -367,8 +367,10 @@ def write_vault_extras(notes, graph=True):
     with open(gp, encoding="utf-8") as f:
         g = json.load(f)
     pj = os.path.basename(notes)
-    # 普段は隠す: 作業の記録と経緯の原本(docs/design・plan/done。要約は docs/済んだことのまとめ.md に出る。2026-10-13)
-    g["search"] = '-path:"%s/docs/worklog" -path:"%s/docs/design" -path:"%s/plan/done" -file:WORKLOG' % (pj, pj, pj)
+    # 普段は隠す: 作業の記録と経緯の原本(docs/design・plan/done。要約は docs/済んだことのまとめ.md に出る。2026-10-13)。
+    # 直し待ちが残るコードレビュー(docs/design/reviews)は出す。全部・経緯だけの見方は Obsidian のブックマークで切り替える
+    g["search"] = ('-path:"%s/docs/worklog" -(path:"%s/docs/design" -path:"%s/docs/design/reviews") -path:"%s/plan/done" -file:WORKLOG'
+                   % (pj, pj, pj, pj))
     g["colorGroups"] = [{"query": q, "color": {"a": 1, "rgb": rgb}} for q, rgb in GRAPH_COLORS]
     write_text(gp, json.dumps(g, ensure_ascii=False, indent=2) + "\n")
 
