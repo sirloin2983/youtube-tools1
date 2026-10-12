@@ -5,11 +5,41 @@
 const { Plugin, Notice } = require("obsidian");
 
 const HIDE = "-[状態:済み] -[状態:置き換え済み] -[状態:取り下げ]";
+// 前に dev/plan_artifact.py が入れていた「フォルダで隠す」条件(これが残ると、ボタンを押しても経緯が出てこない)。見つけたら HIDE に置き換える
+const OLD = [
+  /-path:"[^"]*\/docs\/worklog"\s+-path:"[^"]*\/docs\/design\/surveys"\s+-file:WORKLOG/,
+  /-path:"[^"]*\/docs\/worklog"\s+-path:"[^"]*\/docs\/design"\s+-path:"[^"]*\/plan\/done"\s+-file:WORKLOG/,
+  /-path:"[^"]*\/docs\/worklog"\s+-\(path:"[^"]*\/docs\/design"\s+-path:"[^"]*\/docs\/design\/reviews"\)\s+-path:"[^"]*\/plan\/done"\s+-file:WORKLOG/,
+];
+
+function migrate(search) {
+  let s = search;
+  for (const re of OLD) s = s.replace(re, HIDE);
+  return s;
+}
 
 module.exports = class GraphHistoryToggle extends Plugin {
   async onload() {
     this.addRibbonIcon("history", "経緯(済んだ文書)の表示・非表示", () => this.toggle());
     this.addCommand({ id: "toggle", name: "経緯(済んだ文書)の表示・非表示を切り替える", callback: () => this.toggle() });
+    this.app.workspace.onLayoutReady(() => this.migrateAll());
+  }
+
+  migrateAll() {
+    const now = this.current();
+    const next = migrate(now);
+    if (next !== now) this.set(next);
+  }
+
+  set(query) {
+    let n = 0;
+    for (const leaf of this.leaves()) if (this.apply(leaf, query)) n++;
+    const g = this.graph();   // 次に開くグラフも同じにする(graph.json)
+    if (g && g.options) {
+      g.options.search = query;
+      if (g.saveOptions) g.saveOptions();
+    }
+    return n;
   }
 
   graph() {
@@ -32,16 +62,10 @@ module.exports = class GraphHistoryToggle extends Plugin {
   }
 
   toggle() {
-    const now = this.current();
+    const now = migrate(this.current());
     const wasHidden = now.includes(HIDE);
     const next = wasHidden ? now.replace(HIDE, "").replace(/\s+/g, " ").trim() : (now.trim() + " " + HIDE).trim();
-    let n = 0;
-    for (const leaf of this.leaves()) if (this.apply(leaf, next)) n++;
-    const g = this.graph();   // 次に開くグラフも同じにする(graph.json)
-    if (g && g.options) {
-      g.options.search = next;
-      if (g.saveOptions) g.saveOptions();
-    }
+    const n = this.set(next);
     new Notice((wasHidden ? "経緯を表示しました" : "経緯を隠しました") + (n ? "" : "(グラフを開くと効きます)"));
   }
 
