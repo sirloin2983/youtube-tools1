@@ -85,9 +85,11 @@ class NotesToolTest(unittest.TestCase):
     def test_tags(self):
         text = "色 #7BDF0E と #1D3467、こぼ・かなえる・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n"
         fixed = notes_tool.unlink_prose(text)
-        self.assertEqual(fixed, "色 `#7BDF0E` と `#1D3467`、こぼ・かなえる・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n")
+        self.assertEqual(fixed, "色 `#7BDF0E` と `#1D3467`、こぼ・かなえる・`#タブ`・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n")
         self.assertEqual(notes_tool.tag_spans("a #タブ と"), [(2, 5)])   # 日本語のタグは区切りまで
         self.assertEqual(notes_tool.unlink_prose("背景 #000・LIVE と #1・2\n"), "背景 `#000`・LIVE と `#1`・2\n")   # 数字の後ろに続く物があればタグ
+        self.assertEqual(notes_tool.unlink_prose("URL の #tx/#cut・【#名前 ／#shorts】・[節](a.md#x)・http://h/#y・C#\n"),
+                         "URL の `#tx`/`#cut`・【`#名前` ／`#shorts`】・[節](a.md#x)・http://h/#y・C#\n")   # 記号の後ろもタグ。リンク先・URL は触らない
 
     def test_relink_text(self):
         old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")

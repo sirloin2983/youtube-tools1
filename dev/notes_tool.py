@@ -31,7 +31,8 @@ QUOTED = re.compile(r"\"([^\"]+)\"")
 FILE_EXT = re.compile(r"\.(md|html|js|css|png|jpg|jpeg|gif|svg|tsv|csv|json|txt|pdf|py)$", re.I)
 FENCE = re.compile(r"^\s*(```|~~~)")
 CODE_SPAN = re.compile(r"`+[^`\n]*`+")
-TAG = re.compile(r"(?:(?<=\s)|^)#([^\s#`\[\]()\"',.;:!?|{}<>]+)")
+TAG = re.compile(r"(?<![A-Za-z0-9_&#`\"'=])#([^\s#`\[\]()\"',.;:!?|{}<>]+)")
+URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://\S+")
 SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".css", ".html", ".bat", ".txt", ".md", ".cs", ".ps1", ".command", ".sh", ".gs")
 SKIP_DIRS = {".git", "node_modules", "dist", "__pycache__", ".artifact-build", "worktrees", "0old"}
@@ -113,16 +114,18 @@ def unlink_prose(text):
 
 def tag_spans(line):
     """本文の中で Obsidian がタグと読んでしまう「#7BDF0E」「#saveState」「#タブ」の、囲むべき範囲 [(始め, 終わり)]。
-    空白か行頭の後ろの # だけ(見出しの「# 」・数字だけ・コードの `...` の中は除く)。囲む範囲は英数字の続きか、日本語の区切りの手前まで"""
+    前が英数字でない # だけ(「/#pack」「【#名前」もタグになる。見出しの「# 」・数字だけ・コードの `...`・リンク先・URL の中は除く)。
+    囲む範囲は英数字の続きか、日本語の区切りの手前まで"""
     if re.match(r"^\s*#+\s", line):
         line = re.sub(r"^\s*#+\s", lambda m: " " * len(m.group(0)), line)
     spans = [m.span() for m in CODE_SPAN.finditer(line)]
+    spans += [(m.start(4), m.end(4)) for m in LINK.finditer(line)] + [m.span() for m in URL.finditer(line)]
     out = []
     for m in TAG.finditer(line):
         if any(a <= m.start() < b for a, b in spans):
             continue
         body = m.group(1)
-        core = re.match(r"[A-Za-z0-9_\-/]+", body) or re.match(r"[^、。・「」『』()()\s]+", body)
+        core = re.match(r"[A-Za-z0-9_\-]+", body) or re.match(r"[^、。・「」『』()()／/【】［］〜\s]+", body)
         if core and not body.isdigit():   # タグかどうかは # の後ろ全体で決まる(「#000・LIVE」「#1・」はタグ。「#12」だけは違う)
             out.append((m.start(), m.start() + 1 + core.end()))
     return out
