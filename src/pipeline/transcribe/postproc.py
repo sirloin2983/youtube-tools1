@@ -163,10 +163,10 @@ REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに�
 # 行の終わりを音の谷へ寄せる pull_ends(0.51.0)は 2026-10-05 に既定でやめ、0.65.0(2026-10-09)で部品ごと消した(早めすぎて言葉の終わりが切れた。履歴 c2dde44 以前)
 # whisper.cpp の続いている行の終わりを早める秒(2026-10-05 ユーザーの目安 0.1 秒)。2026-10-07(0.57.1)に既定でやめた(0): 行の時刻の原則の ①
 # 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。10-05 の目安は「この行だけ再生」で聞くための値)。
-# TRANSCRIBE_END_TRIM=0.1 で戻せる(測り直すとき用。notes:plan/line-b-row-timing.md の 7-1)
+# TRANSCRIBE_END_TRIM=0.1 で戻せる(測り直すとき用。notes:plan/done/line-b-row-timing.md の 7-1)
 END_TRIM = tx_engines.env_num("TRANSCRIBE_END_TRIM", 0.0, lo=0.0, hi=0.5, cast=float)
 # 続いている行の終わりを次の行の始まりへ延ばす、すき間の上限(秒。2026-10-07 = 0.57.1。原則の ①: 字幕が一瞬消えてまた出るのをやめ、言葉の末を切らない。
-# 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。notes:plan/line-b-row-timing.md の 7-2)。TRANSCRIBE_JOIN_GAP=0 でやめる
+# 確かめ済み 22 本の試算で ①末 34% → 20%・②次 6% → 10%。notes:plan/done/line-b-row-timing.md の 7-2)。TRANSCRIBE_JOIN_GAP=0 でやめる
 JOIN_GAP = tx_engines.env_num("TRANSCRIBE_JOIN_GAP", 0.5, lo=0.0, hi=2.0, cast=float)
 TRIM_GAP = 0.3        # trim_ends: 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを早める(0.64.0 までの名前は PULL_GAP)
 TRIM_MIN = 0.3        # trim_ends: 早めたあとの行の長さの下限(秒。0.64.0 までの名前は PULL_MIN)
@@ -266,7 +266,7 @@ def trim_ends(rows, sec):
 
 
 def join_rows(rows, gap=None):
-    """続いている行の前の行の終わりを、次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ① 言葉の末を切らない > ② > ③。notes:plan/line-b-row-timing.md の 7-2)。
+    """続いている行の前の行の終わりを、次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ① 言葉の末を切らない > ② > ③。notes:plan/done/line-b-row-timing.md の 7-2)。
     0 < 次の始まり − 前の終わり ≤ gap(既定 JOIN_GAP)のときだけ。縮めない・重なり(次の始まりが前の終わりより前)は触らない・最後の行はそのまま・
     文字と単語は変えない(延ばした所は単語の無いすき間)。gap が 0 以下なら何もしない。流れ(生成器)で受けて流す(次の行を1つ先に読む)"""
     gap = JOIN_GAP if gap is None else gap

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/row-timing-policy.md)の数字で測る道具(notes:plan/line-b-row-timing.md の 7-4)。
+"""行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/row-timing-policy.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
 
     python src/eval/tools/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply] [--check]
 
@@ -17,7 +17,7 @@
     ②次 next = 次の発言が入る:   機械の終わり > 次の人の行の始まり + 0.1
           (前・次の人の行 = 文字のある人の行を時刻の順に並べたときの隣。校正済みでなくてよい。無ければ「入らない」)
     ③ extra  = 喋っていない時間: 人の区間の外へはみ出した秒(前のはみ出し + 後ろのはみ出し)の中央値・平均
-  2026-10-07 の試算(notes:plan/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
+  2026-10-07 の試算(notes:plan/done/line-b-row-timing.md の 7 の表の「今」= 確かめ済み 22 本・文字が合う 255 行)と同じ尺度
 - 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
   行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap}。0.64.0 までは pullEnds・retime も(0.65.0 で部品ごと消した。古い記録の鍵は読んで見出しに出す)。
   無い記録は「後処理の記録なし(0.57.0 まで)」・1 秒丸めの配り直しの記録 retimed(0.64.0 まで)があればそう書く)

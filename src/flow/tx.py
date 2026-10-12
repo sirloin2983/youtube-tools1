@@ -350,7 +350,7 @@ def alt_lines(job, spec, wav):
     """文書の範囲(spec の start〜end)の音声を 2 つ目のエンジンで認識した行(時刻は元の動画の秒)。
     -> {"rows": [{start, end, text}], "total": 音声の長さ, "wallSec", "engineVersion", "fake"}。取り消しは Cancelled。
     文字起こしのジョブと同じ整え方(句読点の除去・長い行の分け方・長さより後ろを捨てる・繰り返しをまとめる。① postproc.expand_segments)。置換・学習はかけない。
-    続いている行をつなぐ join_rows(0.57.1)はかけない(候補は文字を比べるだけで行の時刻を使わない。notes:plan/line-b-row-timing.md の 7-2)。
+    続いている行をつなぐ join_rows(0.57.1)はかけない(候補は文字を比べるだけで行の時刻を使わない。notes:plan/done/line-b-row-timing.md の 7-2)。
     ② が足すこと = 一時の wav への取り出しとジョブの状態・本物と疑似の選び方と本物の処理(_alt_real)・行の数・取り消しの確かめ・エンジンの版"""
     os.makedirs(_workdata.TMP_DIR, exist_ok=True)
     job["state"], job["phase"] = "extracting", "音声を取り出し中"

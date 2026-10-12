@@ -4,7 +4,8 @@
     python dev/plan_artifact.py [--out <フォルダ>] [--plan <保管庫の plan フォルダ>] [--no-index]
     # --out の既定: <リポジトリ直下>/.artifact-build/plan/   --plan の既定: <保管庫>/plan
 
-あわせて、保管庫の plan/data.js から計画の索引 <plan>/計画の索引.md を書き出す(Obsidian で読む用。--no-index で止める)。
+あわせて、保管庫の plan/data.js から計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
+(Obsidian で読む用。--no-index で止める)。--graph で保管庫の根の ホーム.md(無いとき)と .obsidian/graph.json の colorGroups・search も書く。
 data.js は JSON ではない JS なので、コメントと引用符なしのキーを外して Python だけで読む(node は使わない)。
 
 Artifact は外部の CSS・JS を読めない(CDN 以外)ので、plan.css・data.js・plan.js(2 ページ共通の表示部品)を各ページに埋め込む。
@@ -26,6 +27,7 @@ from ytt import layout  # noqa: E402
 
 PLAN = os.path.join(layout.notes_root(), "plan")
 INDEX_NAME = "計画の索引.md"
+HOME_NAME = "ホーム.md"
 STATE_JA = {"done": "済み", "doing": "進行中", "next": "次(今できる)", "todo": "あと",
             "wait": "ユーザー待ち", "cont": "継続"}
 DOC_PATH = re.compile(r"(?:docs|plan)/[\w./-]*?\.(?:md|html)")
@@ -106,67 +108,265 @@ def task_line(t, linked):
     return "- %s %s(%s)" % (t.get("id", ""), linked(t.get("name", ""), t.get("id", "")), state)
 
 
-def build_index(plan, plan_dir, warn):
-    """計画の索引(Markdown)の文字列を作る。同じ data.js なら同じ中身(順序は data.js の並び)"""
-    notes = os.path.dirname(plan_dir)
-    warned = set()
+class Linker:
+    """文中の資料のパスを Markdown の相対リンクにする(無い資料は同じ (パス, 名前) を 1 回だけ warn)"""
 
-    def w(path, name):
-        if (path, name) not in warned:
-            warned.add((path, name))
-            warn(path, name)
+    def __init__(self, plan_dir, warn):
+        self.plan_dir = plan_dir
+        self.notes = os.path.dirname(plan_dir)
+        self.warn = warn
+        self.warned = set()
 
-    def linked(text, name):
-        return link_paths(text, notes, name, w)
+    def w(self, path, name):
+        if (path, name) not in self.warned:
+            self.warned.add((path, name))
+            self.warn(path, name)
 
-    def doc_ref(d, name):
+    def text(self, text, name):
+        return link_paths(text, self.notes, name, self.w)
+
+    def doc_ref(self, d, name):
         """lines[].docs の項目(plan/ からの相対。docs/・plan/ の頭が付く物も)"""
         if re.match(r"(?:docs|plan)/", d):
-            return linked(d, name)
-        if os.path.isfile(os.path.normpath(os.path.join(plan_dir, d))):
+            return self.text(d, name)
+        if os.path.isfile(os.path.normpath(os.path.join(self.plan_dir, d))):
             return "[`%s`](%s)" % (d, d)
-        w(d, name)
+        self.w(d, name)
         return d
 
-    out = ["# 計画の索引", "",
-           "状態: 自動で作る(dev/plan_artifact.py)・手で直さない", "",
-           "更新日: %s" % plan.get("updated", ""), "",
-           "計画のページ: [index.html](index.html)・[user-tasks.html](user-tasks.html)", ""]
+
+def line_page_name(lid):
+    return "線%s.md" % lid
+
+
+def line_groups(plan):
+    """[(線の id・表示名 or None, 線の dict or None, その線の tasks)] を data.js の並びで。最後に当たらない物の「その他」"""
     tasks = plan.get("tasks", [])
-    used = set()
+    used, groups = set(), []
     for ln in plan.get("lines", []):
         lid = ln.get("id", "")
-        label = "線 " + lid
-        out += ["## 線 %s: %s" % (lid, ln.get("name", "")), ""]
+        mine = [t for t in tasks if lid in str(t.get("line", "")).split("・")]
+        used.update(t.get("id") for t in mine)
+        groups.append((lid, ln, mine))
+    rest = [t for t in tasks if t.get("id") not in used]
+    if rest:
+        groups.append(("その他", None, rest))
+    return groups
+
+
+def build_line_page(plan, lid, ln, mine, lk):
+    """線 1 本のまとめ(Markdown)。ln が None なら「その他」"""
+    label = "線 " + lid
+    out = ["---", "種類: 索引", "状態: 有効", "線:", "  - %s" % lid, "---", "",
+           "# %s%s" % (label, ": " + ln.get("name", "") if ln else "(どの線にも当たらない物)"), "",
+           "更新(%s): 自動で作る(dev/plan_artifact.py)・手で直さない" % plan.get("updated", ""), "",
+           "[計画の索引](計画の索引.md)・[ホーム](../ホーム.md)", ""]
+    if ln:
         if "pct" in ln:
             out += ["進み: %s%%" % ln["pct"], ""]
         for key, head in (("aim", "狙い"), ("done", "済み"), ("next", "次"), ("gate", "条件")):
             if ln.get(key):
-                out.append("- %s: %s" % (head, linked(ln[key], label)))
+                out.append("- %s: %s" % (head, lk.text(ln[key], label)))
         if ln.get("docs"):
-            out.append("- 資料: " + "・".join(doc_ref(d, label) for d in ln["docs"]))
+            out.append("- 資料: " + "・".join(lk.doc_ref(d, label) for d in ln["docs"]))
         out.append("")
-        for t in tasks:
-            if lid in str(t.get("line", "")).split("・"):
-                used.add(t.get("id"))
-                out.append(task_line(t, linked))
-        out.append("")
-    rest = [t for t in tasks if t.get("id") not in used]
-    if rest:
-        out += ["## その他", ""] + [task_line(t, linked) for t in rest] + [""]
+    out += [task_line(t, lk.text) for t in mine] + [""]
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def build_line_pages(plan, plan_dir, warn):
+    """{ファイル名: 中身}。同じ data.js なら同じ中身"""
+    lk = Linker(plan_dir, warn)
+    return {line_page_name(lid): build_line_page(plan, lid, ln, mine, lk)
+            for lid, ln, mine in line_groups(plan)}
+
+
+def build_index(plan, plan_dir, warn=None):
+    """計画の索引(Markdown。短い)の文字列。線ごとのまとめへのリンクの一覧"""
+    out = ["---", "種類: 索引", "状態: 有効", "---", "", "# 計画の索引", "",
+           "更新(%s): 自動で作る(dev/plan_artifact.py)・手で直さない" % plan.get("updated", ""), "",
+           "計画のページ: [index.html](index.html)・[user-tasks.html](user-tasks.html)", "",
+           "## 線ごとのまとめ", ""]
+    for lid, ln, mine in line_groups(plan):
+        head = "線 %s" % lid
+        if ln:
+            pct = " %s%%" % ln["pct"] if "pct" in ln else ""
+            out.append("- [%s %s](%s)%s" % (head, ln.get("name", ""), line_page_name(lid),
+                                            "(進み%s)" % pct if pct else ""))
+        else:
+            out.append("- [%s](%s)(%d 件)" % (lid, line_page_name(lid), len(mine)))
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+HOME_BEGIN = "<!-- 自動: ここから(dev/plan_artifact.py が書く。手で直さない) -->"
+HOME_END = "<!-- 自動: ここまで -->"
+HOME_HAND = """---
+種類: 索引
+状態: 有効
+---
+
+# youtube-tools
+
+## よく見る
+
+- 計画: [全体の計画](plan/index.html)・[やること](plan/user-tasks.html)・[計画の索引](plan/計画の索引.md)
+- 決めたこと [decisions](plan/decisions.md)・改善案 [improvements](plan/improvements.md)
+- 仕様: [受け渡し](docs/spec/pipeline.md)・[作業データの置き場所](docs/spec/data-location.md)・[設定](docs/spec/settings.md)
+- AI 向け: [AGENTS](AGENTS.md)・[索引 ROADMAP](docs/ROADMAP.md)・[作業の記録](docs/WORKLOG.md)
+"""
+WEEK_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}週\.md$")
+STATE_ORDER = ("doing", "next", "wait")
+STATE_CAP = 8
+
+
+def first_sentences(text, n=3):
+    """。で区切って先頭 n 文(括弧の中の。では区切らない)"""
+    depth, sents, cur = 0, [], []
+    for c in text:
+        cur.append(c)
+        if c in "((":
+            depth += 1
+        elif c in "))":
+            depth = max(0, depth - 1)
+        elif c == "。" and depth == 0:
+            sents.append("".join(cur))
+            cur = []
+            if len(sents) == n:
+                break
+    if cur and len(sents) < n:
+        sents.append("".join(cur))
+    return "".join(sents).strip()
+
+
+def cell(text, limit=60):
+    text = re.sub(r"\s+", " ", str(text)).replace("|", "/").strip()
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def week_summary(notes):
+    """docs/worklog/ の最新の週のファイル名と「## まとめ」の節(無ければ (None, None))"""
+    d = os.path.join(notes, "docs", "worklog")
+    names = sorted(n for n in os.listdir(d) if WEEK_FILE.match(n)) if os.path.isdir(d) else []
+    if not names:
+        return None, None
+    with open(os.path.join(d, names[-1]), encoding="utf-8") as f:
+        lines = f.read().replace("\r\n", "\n").split("\n")
+    body, on = [], False
+    for ln in lines:
+        if not on:
+            on = ln.strip() == "## まとめ"
+        elif ln.startswith("## ") or ln.strip() == "---":
+            break
+        else:
+            body.append(ln)
+    return names[-1], "\n".join(body).strip("\n")
+
+
+def build_home_auto(plan, plan_dir):
+    """ホームの自動の部分(印の間)の中身"""
+    notes = os.path.dirname(plan_dir)
+    out = ["## 今の状況(%s)" % plan.get("updated", ""), "", first_sentences(plan.get("summary", "")), "",
+           "| 線 | 進み | 次 |", "| --- | --- | --- |"]
+    for lid, ln, mine in line_groups(plan):
+        if ln:
+            pct = "%s%%" % ln["pct"] if "pct" in ln else ""
+            out.append("| [線 %s %s](plan/%s) | %s | %s |" % (lid, ln.get("name", ""), line_page_name(lid), pct,
+                                                           cell(ln.get("next", ""))))
+        else:
+            out.append("| [%s](plan/%s) | | %d 件 |" % (lid, line_page_name(lid), len(mine)))
+    out += ["", "## 動いている・次にやる", ""]
+    tasks = plan.get("tasks", [])
+    for st in STATE_ORDER:
+        sel = [t for t in tasks if t.get("state") == st]
+        if not sel:
+            continue
+        out.append("- %s(%d 件)" % (STATE_JA[st], len(sel)))
+        for t in sel[:STATE_CAP]:
+            out.append("  - 線 %s: %s %s" % (t.get("line", ""), t.get("id", ""), cell(t.get("name", ""), 80)))
+        if len(sel) > STATE_CAP:
+            out.append("  - ほか %d 件" % (len(sel) - STATE_CAP))
+    out += ["", "## 確認待ちの仮決め: %d 件" % len(plan.get("userTasks", {}).get("provisional", [])), "",
+            "[一覧](plan/decisions.md)", "", "## 今週の作業", ""]
+    name, summary = week_summary(notes)
+    if name is None:
+        out.append("(まだ無い)")
+    else:
+        out += [summary, "", "[詳しく](docs/worklog/%s)" % name]
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def merge_home(existing, auto):
+    """既存のホームの印の間だけ差し替える(印が無ければ末尾に足す。existing が None なら手書きの初めの中身から)"""
+    block = HOME_BEGIN + "\n" + auto + HOME_END + "\n"
+    if existing is None:
+        return HOME_HAND + "\n" + block
+    a = existing.find(HOME_BEGIN)
+    b = existing.find(HOME_END, a + 1) if a >= 0 else -1
+    if a >= 0 and b >= 0:
+        return existing[:a] + block + existing[b + len(HOME_END):].lstrip("\n")
+    return existing.rstrip("\n") + "\n\n" + block
+
+
+def write_text(path, text):
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
 def write_index(plan_dir):
+    """計画の索引・線ごとのまとめ・ホームを書く(plan_dir は <保管庫>/plan)"""
     with open(os.path.join(plan_dir, "data.js"), encoding="utf-8") as f:
         plan = parse_plan_js(f.read())
 
     def warn(path, name):
         print("無い資料: %s(%s)" % (path, name), file=sys.stderr)
-    text = build_index(plan, plan_dir, warn)
-    with open(os.path.join(plan_dir, INDEX_NAME), "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+    for name, body in build_line_pages(plan, plan_dir, warn).items():
+        write_text(os.path.join(plan_dir, name), body)
+    text = build_index(plan, plan_dir)
+    write_text(os.path.join(plan_dir, INDEX_NAME), text)
+    home = os.path.join(os.path.dirname(plan_dir), HOME_NAME)
+    existing = None
+    if os.path.isfile(home):
+        with open(home, encoding="utf-8") as f:
+            existing = f.read().replace("\r\n", "\n")
+    write_text(home, merge_home(existing, build_home_auto(plan, plan_dir)))
     return text
+
+
+# 保管庫の根(notes_root の 1 つ上)の物。無いときだけ作る/キーを足す
+VAULT_HOME = """---
+種類: 索引
+---
+
+# 保管庫のホーム
+
+## プロジェクト
+
+- [youtube-tools](%s/ホーム.md) — YouTube ショート動画の編集支援ツール
+"""
+GRAPH_COLORS = (  # 上から先に当たった色。灰(済んだ物)→ 種類ごと
+    ("[状態:済み]", 0x8A8F98), ("[状態:置き換え済み]", 0x8A8F98), ("[状態:取り下げ]", 0x8A8F98),
+    ("[種類:決まり]", 0xE5484D), ("[種類:索引]", 0xF2C94C), ("[種類:仕様]", 0x3B82F6),
+    ("[種類:設計]", 0xA855F7), ("[種類:計画]", 0x22C55E), ("[種類:レビュー]", 0xF97316))
+
+
+def write_vault_extras(notes, graph=True):
+    """保管庫の根のホーム(無いときだけ)と graph.json の colorGroups・search(今の中身のほかのキーは残す)"""
+    root = os.path.dirname(notes)
+    home = os.path.join(root, HOME_NAME)
+    if not os.path.isfile(home):
+        write_text(home, VAULT_HOME % os.path.basename(notes))
+    gp = os.path.join(root, ".obsidian", "graph.json")
+    if not graph:
+        return
+    if not os.path.isfile(gp):
+        print("graph.json が無い(Obsidian で一度グラフを開く): %s" % gp, file=sys.stderr)
+        return
+    with open(gp, encoding="utf-8") as f:
+        g = json.load(f)
+    pj = os.path.basename(notes)
+    g["search"] = '-path:"%s/docs/worklog" -path:"%s/docs/design/surveys" -file:WORKLOG' % (pj, pj)
+    g["colorGroups"] = [{"query": q, "color": {"a": 1, "rgb": rgb}} for q, rgb in GRAPH_COLORS]
+    write_text(gp, json.dumps(g, ensure_ascii=False, indent=2) + "\n")
 
 
 def main():
@@ -174,12 +374,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(REPO, ".artifact-build", "plan"))
     ap.add_argument("--plan", default=None, help="plan フォルダ(既定: 保管庫の plan)")
-    ap.add_argument("--no-index", action="store_true", help="計画の索引.md を書かない")
+    ap.add_argument("--no-index", action="store_true", help="計画の索引・線ごとのまとめ・ホームを書かない")
+    ap.add_argument("--graph", action="store_true",
+                    help="保管庫の根のホーム(無いとき)と .obsidian/graph.json の色と検索を書く(Obsidian を閉じてから)")
     a = ap.parse_args()
     if a.plan:
         PLAN = os.path.abspath(a.plan)
     if not a.no_index:
         write_index(PLAN)
+    if a.graph:
+        write_vault_extras(os.path.dirname(PLAN))
     css, data, common = read("plan.css"), read("data.js"), read("plan.js")
     os.makedirs(a.out, exist_ok=True)
     index = inline_assets(read("index.html"), css, data, common)

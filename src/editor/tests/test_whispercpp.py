@@ -322,7 +322,7 @@ class RowTidyTest(unittest.TestCase):
 
 
 class JoinRowsTest(unittest.TestCase):
-    """続いている行の終わりを次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ①。notes:plan/line-b-row-timing.md の 7-2)"""
+    """続いている行の終わりを次の行の始まりへ延ばす(2026-10-07 = 0.57.1。行の時刻の原則 ①。notes:plan/done/line-b-row-timing.md の 7-2)"""
 
     def test_join_small_gaps_only(self):
         rows = [row(0.0, 1.0, "a"), row(1.3, 2.0, "b"), row(2.5, 3.0, "c"), row(3.51, 4.0, "d"), row(3.9, 5.0, "e"), row(5.0, 6.0, "f"), row(6.2, 7.0, "g")]

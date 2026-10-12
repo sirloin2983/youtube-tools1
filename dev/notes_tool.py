@@ -58,7 +58,7 @@ def code_files():
     for d, dirs, files in os.walk(REPO):
         dirs[:] = [x for x in dirs if x not in SKIP_DIRS and not (d == REPO and x.startswith(".") and x != ".claude")]
         for f in files:
-            if f.endswith(CODE_EXTS):
+            if f.endswith(CODE_EXTS) and f != "test_notes_tool.py":   # テストの見本の notes: は本物の資料を指さない
                 yield os.path.join(d, f)
 
 
