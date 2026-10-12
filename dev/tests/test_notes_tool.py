@@ -69,10 +69,10 @@ class NotesToolTest(unittest.TestCase):
         self.assertEqual(notes_tool.check(), [])
 
     def test_prose_brackets(self):
-        put(self.v, "docs/b.md", "[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n")
+        put(self.v, "docs/b.md", "[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る](`pollJobs`)\n")
         self.assertEqual([p for w, _, p in notes_tool.check() if w == "docs/b.md"][0][-12:], "[送る](友人へ届ける)")
         fixed = notes_tool.unlink_prose(get(self.v, "docs/b.md"))
-        self.assertEqual(fixed, "[送る] (友人へ届ける)・[`x`] (y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n")
+        self.assertEqual(fixed, "[送る] (友人へ届ける)・[`x`] (y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る] (`pollJobs`)\n")
 
     def test_relink_text(self):
         old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")

@@ -87,8 +87,9 @@ def pseudo_link(t):
 
 
 def _links(line):
-    """行の中のリンクの形(コードの `...` の中は除く)"""
-    return LINK.finditer(CODE_SPAN.sub(lambda m: " " * len(m.group(0)), line))
+    """行の中のリンクの形(コードの `...` の中で始まる物は除く。[開く](`pollJobs`) のように先がコードの物は数える)"""
+    spans = [m.span() for m in CODE_SPAN.finditer(line)]
+    return [m for m in LINK.finditer(line) if not any(a <= m.start() < b for a, b in spans)]
 
 
 def unlink_prose(text):
