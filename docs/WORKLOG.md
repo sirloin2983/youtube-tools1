@@ -3649,3 +3649,10 @@ Windows の入れ直し(10-03)より前の 219 件を、日付ごとに 1 件 1 
 - 注意: py -3.10 はシェルで Python を発見せず Python310/python.exe を直接使用。sandbox 一時領域の atomic replace が WinError 5 で落ちるため同じ unittest を許可された通常権限で再実行して成功(製品の不具合ではない)。
 - 未完了・次: 指摘の修正。既存の担当表どおりコードは直していない。今回のレビューは重点範囲の検査で全機能の保証ではない。
 - 未コミット: この追記・docs/design/code-review-2026-10-12.md・docs/ROADMAP.md をこのあとまとめてコミット。
+
+## 2026-10-12 昼 Claude Code(PC。Opus)— 取り残されていた 2 つの枝を main に取り込んだ・作業用の枝の片付け
+- claude/eager-ritchie-6cb469(OPT2 の後半 J0〜J8・RS8 の直し残し・起動直後の submit の待ち。13 コミット)と claude/busy-engelbart-40e533(RV の下調べ docs/design/rv-survey-2026-10-11/)が main に入っていなかった(公開ページは枝の data.js から出されていた)→ 50383679・b077d954 で取り込み。衝突は WORKLOG・ROADMAP・data.js の書き足しだけ(両方を残した。data.js は F1・V1・OPT を main 側・RV を下調べ側)
+- 取り込んだあとの確かめ: lint 0・層 OK・unittest 全部 OK(dev 76・app 53・editor 1220・eval 394・flow 446・home 255・human 382・manage 198・pipeline 519・studio 133・ytt 239・単独 3 本 100・analytics 27)。e2e は流していない
+- 作業用の枝(worktree と枝 約 40)を、未コミットの変更が無く中身が main に入っていると 1 つずつ確かめてから消した(1 つの未コミットの 145 行も全部 main にあった)。空のフォルダ 1 つは別のプロセスが掴んでいて残った
+- 計画の公開ページを取り込んだ data.js から出し直した(版 108)
+- 未コミット: なし
