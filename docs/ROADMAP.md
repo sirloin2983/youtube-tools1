@@ -89,6 +89,7 @@
 | `docs/design/f1-build.md` | F1(友人の PC で ② + ① を動かす形)の作り方: 段・② の口・仮決め (f1a)〜(f1m)(2026-10-11。実装済み 0.61.0・友人の PC での確かめ待ち。何を作るかは `plan/f1-friend-pc.md`) |
 | `plan/f1-friend-requirements.md` | 友人用の送るアプリが満たすべき要件の見直し(友人の指摘・画面の文字と動きの突き合わせ・置き場所。2026-10-11 深夜。案・ユーザーの確認待ち) |
 | `docs/design/rv-survey-2026-10-11/` | 全体の見直し RV の下調べ(読むだけ。`README.md` = 要約・観点ごとの候補の表・RV を始めるときの相談の問い 13 問 / `code.md`・`eval.md`・`ui.md`・`folders.md`・`docs.md`(R1 の案も)・`tests.md`。2026-10-11。RV の本番はこの問いから) |
+| `docs/design/code-review-2026-10-12.md` | GPT/Astra の動作・保存・同期のレビュー。再現した指摘 7 件(P1 1・P2 6)と修正方針。コードの修正は未着手 |
 | `docs/design/holo-colors.md` | ホロカラーの設計・決めたこと・色の調べ方 |
 | `docs/design/phase0-restructure.md` | 09-30 のフォルダ整理(旧 → 新の対応表・変えないもの) |
 | `docs/design/briefs/ui-overhaul/` | 画面の全面見直しのブリーフ(承認済み)と実装で決めた細部 |
