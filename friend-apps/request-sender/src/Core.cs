@@ -1,6 +1,6 @@
 // 切り抜き依頼(RequestSender)の画面に依らない部品: URL の読み取り・依頼の id・依頼の JSON・Dropbox のヘッダーの JSON・
 // 大きな動画の分け方・設定(config.json)・メンバーの一覧・「/出力」の名前の読み取り・手元の記録(settings.json)。テスト(tests\CoreTests.cs)はここを確かめる。
-// 設計: notes:docs/spec/friend-intake.md の 4・5・7
+// 設計: notes:docs/spec/friend.md の 4・5・7
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -337,7 +337,7 @@ namespace RequestSender
         }
     }
 
-    // 届け方(2.8.0。notes:docs/spec/friend-intake.md の 2-16): 1 = 1 本ずつ / n = n 本の組(まとめ動画 1 本 + 1 本ずつの zip)。
+    // 届け方(2.8.0。notes:docs/spec/friend.md の 2-16): 1 = 1 本ずつ / n = n 本の組(まとめ動画 1 本 + 1 本ずつの zip)。
     // ① 全自動の依頼(url・video・ライブ配信)だけ JSON に書く(②③ はパックを届けない)。1〜10 の外は書かない(= PC の設定 intake.deliverBatch)。
     // ライブ配信の依頼(2.9.0)も書く: PC は依頼ごとに n 本たまったら組で届け、録画が終わったら残りを届ける。配信後のアーカイブからの追加は別の組になる
     public static class DeliverBatch
@@ -417,7 +417,7 @@ namespace RequestSender
             return Finish(sb, sentAt);
         }
 
-        // ライブ配信の依頼(2.8.0。notes:docs/spec/friend-intake.md の 2-15): 配信の URL 1 本(正規化済み)・flow は auto 固定・友人のベータの設定 live。
+        // ライブ配信の依頼(2.8.0。notes:docs/spec/friend.md の 2-15): 配信の URL 1 本(正規化済み)・flow は auto 固定・友人のベータの設定 live。
         // 鍵の順: v kind id flow url streamer memo [speakers] videoTracks cut live sentAt。streamer は 1 人目の名前(無ければ空文字)。届け方 deliverBatch は live の後・sentAt の直前(2.9.0。1〜10 のときだけ。0 や範囲の外は書かない = PC の設定)
         public static string Live(string id, string url, string memo, DateTimeOffset sentAt, SpeakerSet speakers, int videoTracks, string cut, LiveSettings live, int deliverBatch = 0)
         {
@@ -777,7 +777,7 @@ namespace RequestSender
         }
     }
 
-    // ---- 組の一覧(.group.json。2.8.0。notes:docs/spec/friend-intake.md の 2-16)----
+    // ---- 組の一覧(.group.json。2.8.0。notes:docs/spec/friend.md の 2-16)----
     //   {"v":1,"title":"<題>","range":"1-5","preview":"<組のまとめ動画の名前>","packs":[{"n":1,"zip":"<zip の名前>","title":"<パックの題>","previewStart":0.0,"duration":48.2}, …],"sentAt":"…"}
     //   鍵を知る人なら置けるので、形と名前を確かめる(zip・preview は区切り文字の無い名前だけ・数は範囲に収める・題は制御文字を除いて短く)。
     //   名前は一覧にあるものと照らすだけに使い、Dropbox の場所は一覧の値を使う

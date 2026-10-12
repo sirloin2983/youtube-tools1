@@ -68,6 +68,14 @@ class NotesToolTest(unittest.TestCase):
         self.assertIn("notes:docs/old/spec/a.md", get(self.repo, "src/x.py"))
         self.assertEqual(notes_tool.check(), [])
 
+    def test_retarget_merged_doc(self):
+        put(self.v, "docs/spec/all.md", "まとめ\n")
+        notes_tool.mv([("docs/spec/a.md", "docs/spec/all.md")], move=False)
+        self.assertIn("[`docs/spec/all.md`](../docs/spec/all.md)", get(self.v, "plan/p.md"))
+        self.assertIn('"../docs/spec/all.md"', get(self.v, "plan/data.js"))
+        self.assertIn("notes:docs/spec/all.md", get(self.repo, "src/x.py"))
+        self.assertTrue(os.path.isfile(os.path.join(self.v, "docs", "spec", "a.md")))   # 旧は残す(消すのは呼び手)
+
     def test_prose_brackets(self):
         put(self.v, "docs/b.md", "[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る](`pollJobs`)\n")
         self.assertEqual([p for w, _, p in notes_tool.check() if w == "docs/b.md"][0][-12:], "[送る](友人へ届ける)")

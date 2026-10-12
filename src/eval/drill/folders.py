@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
-(notes:docs/spec/eval-folder.md。段10 で editor/serve.py から分けた ed_relink の後半。役割で組み直す RS3-E7(2026-10-10)に eval/drill/folders.py へ切り出した)。
+(notes:docs/spec/data.md。段10 で editor/serve.py から分けた ed_relink の後半。役割で組み直す RS3-E7(2026-10-10)に eval/drill/folders.py へ切り出した)。
 
 - 文書を付け替える書き込みは ③ の manage/cases/relink(_relink_write・_doc_busy。④ → ③ の下向き = 呼ぶたびに _relink.名前 で読む = S._relink_write = … が届く)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir)は ytt/settings、別のドライブへの移動 move_file は ytt/fsio(RS3-1)
@@ -22,7 +22,7 @@ from human.proof import store as _store  # noqa: E402   文書の読み書き・
 from manage.cases import relink as _relink  # noqa: E402   付け替えの書き込み _relink_write・文書が処理中か _doc_busy(呼ぶたびに _relink.名前 で読む)
 
 
-# ---------- 評価用のフォルダ(2026-10-01 ユーザー決定。notes:docs/spec/eval-folder.md) ----------
+# ---------- 評価用のフォルダ(2026-10-01 ユーザー決定。notes:docs/spec/data.md) ----------
 # 設定 evalDirs のフォルダ(の下)にある動画は、精度を測るためだけのデータ。文字起こしを始めたとき・保存・付け替え・履歴から戻したときに
 # 評価用の印(evalSet)を付け、画面からは外せない。「整理」は動画の名前を「フォルダ名_番号_状態」にそろえ、文書を付け替える
 # (入口の起動時に1回 + 画面のボタン)。状態 = 済(文字のある行がすべて校正済み)・未・未文字起こし

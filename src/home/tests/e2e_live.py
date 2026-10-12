@@ -175,7 +175,7 @@ def main():
                 pg.on("pageerror", lambda e: errors.append(str(e)))
 
                 # 1. オフ
-                pg.goto(base + "settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(notes:docs/spec/settings.md の 6)
+                pg.goto(base + "settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(notes:docs/spec/data.md の 6)
                 check(wait_js(pg, "!!document.querySelector('#sec-live [data-ui-set-key]')"), "設定の画面に「リアルタイム切り抜き」の節が出る")
                 check(pg.evaluate("document.getElementById('uiSet-live_enabled').checked") is False, "既定はオフ")
                 check(pg.evaluate("document.getElementById('liveLink')") is None, "録画の画面へのリンクは無い(スタジオに統合した)")

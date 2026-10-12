@@ -381,7 +381,7 @@ def _scene_turn_on(cx):
     # ---------------- 1. ホームでオンにする ----------------
     pg = ctx.new_page()
     watch(pg, "home")
-    pg.goto(base + "/settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(notes:docs/spec/settings.md の 6)
+    pg.goto(base + "/settings")   # 0.54.0: リアルタイム切り抜きの欄はホームの ⚙ から設定の画面へ(notes:docs/spec/data.md の 6)
     wait_js(pg, "!!document.getElementById('uiSet-live_enabled')")
     pg.click("#uiSet-live_enabled")
     check(wait_js(pg, "(document.querySelector('[data-ui-set-key=\"live.enabled\"] .ui-set-mark')||{}).textContent === '保存しました'") and srv.prefs.get(["live"])["live"]["enabled"] is True, "1 設定の画面でオンにする")

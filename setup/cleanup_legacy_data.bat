@@ -1,7 +1,7 @@
 @echo off
 rem Double-click: move the OLD copies of the work data (inside each tool folder) to the Recycle Bin,
 rem after checking that they were copied to %LOCALAPPDATA%\youtube-tools. Shows the list and asks first.
-rem Details: docs\data-location.md
+rem Details: docs/spec/data.md in the notes folder
 setlocal
 cd /d "%~dp0.."
 chcp 65001 >nul

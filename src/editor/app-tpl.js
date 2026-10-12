@@ -26,7 +26,7 @@
    </section>
    <div class="tx-grid">
     <section class="tx-list" aria-label="行の一覧">
-     <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。notes:docs/spec/ui-guidelines.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
+     <!-- v0.15.0: 行の一覧の上の道具(検索・絞り込み・件数。notes:docs/spec/ui.md 4.)と、主なキー操作の手がかり。広い画面では一覧の上に固定する -->
      <div class="tt-listhead" id="listHead">
       <div class="ui-listbar tt-rowbar" role="search">
         <input type="search" id="q" placeholder="行を検索(該当する行だけ表示)" aria-label="行を検索" autocomplete="off">
@@ -297,7 +297,7 @@
         <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
         <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="vulkan">GPU(whisper.cpp)</option></select></label></div>
       <p class="hint tt-dev-hint" id="optDevHint" role="status" hidden></p>
-      <!-- 0.66.0: 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(notes:docs/spec/settings.md の 6)。
+      <!-- 0.66.0: 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(notes:docs/spec/data.md の 6)。
            文字起こしの要求には保存した設定が付く(app-core.js の checksOf・readSubtitle が S.settings から読む) -->
       <p class="hint" style="margin-top:8px">声の検出・小さい声を持ち上げる・単語の時刻・字幕の文字数・終わったあとの自動の後処理(置換辞書・用語集・LLM・話者の自動判別など)は、
         <a href="../settings#sec-editor">設定の画面(編集の節)</a>で変えます(保存した設定を次の文字起こしに使います)。</p>
@@ -328,7 +328,7 @@
   <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
   <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
     <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
-    <!-- v0.15.0: 一覧の道具(notes:docs/spec/ui-guidelines.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
+    <!-- v0.15.0: 一覧の道具(notes:docs/spec/ui.md 4.)。検索は題名・配信の題名・配信者・ファイル名が対象。選んだ条件はこのブラウザに覚える -->
     <div class="ui-listbar tt-listbar" role="search">
       <input id="txSearch" type="search" placeholder="題名・配信・配信者・ファイル名" aria-label="保存済みの文字起こしを検索" autocomplete="off">
       <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>

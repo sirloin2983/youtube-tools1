@@ -751,7 +751,7 @@ class TestReturns(Base):
 
 
 class TestDeliverBatch(Base):
-    """依頼ごとの届け方(notes:docs/spec/friend-intake.md の 2-16。2.8.0 のアプリの deliverBatch 1〜10): url・video の依頼はまとめて実行へ渡す。
+    """依頼ごとの届け方(notes:docs/spec/friend.md の 2-16。2.8.0 のアプリの deliverBatch 1〜10): url・video の依頼はまとめて実行へ渡す。
     無い・範囲の外・手で置いた依頼は None(= ホームの設定 intake.deliverBatch のまま)"""
 
     def test_parse_deliver_batch(self):
@@ -810,7 +810,7 @@ class TestLiveSettings(unittest.TestCase):
 
 
 class TestLiveRequest(Base):
-    """ライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15。2.8.0 のアプリの kind live): 配信中・配信前なら live_begin(= Live.begin_request)で録画を始めて結びつける。
+    """ライブ配信の依頼(notes:docs/spec/friend.md の 2-15。2.8.0 のアプリの kind live): 配信中・配信前なら live_begin(= Live.begin_request)で録画を始めて結びつける。
     終わっていれば kind url の ① 全自動(切り抜く数はホームの既定・1 本ずつ届ける)。終わった直後(post_live)・live_begin が無い・だめなら断る(出力 に .失敗.txt)"""
     VID = "abcdefghijk"
     SPEAKERS = {"count": 1, "names": ["さくらみこ"], "styles": {}}

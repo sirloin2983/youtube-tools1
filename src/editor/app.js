@@ -851,7 +851,7 @@ const keyParen = id => { const k = keymap()[id]; return k ? '(' + keyText(k) + '
 const titlePlay = () => `この行だけ再生${keyParen('replay')}。行の終わりで止まります`;
 const titleProof = () => `聞いて確認して、この行の文字が正しいと判断したら押す${keyParen('proof').replace(/\)$/, '。次の行へ進みます)') || '(次の行へ進みます)'}`;
 const TAG_ACT = { unclear: 'tagUnclear', overlap: 'tagOverlap', bgm: 'tagBgm' };
-/* BGM の付け方の基準(2026-10-06 ユーザー決定。../../docs/spec/sound-tags.md) */
+/* BGM の付け方の基準(2026-10-06 ユーザー決定。notes:docs/spec/subtitles.md) */
 const TAG_RULE = { bgm: '付けるのは BGM・ゲーム音のせいで聞き取りにくい行だけ(聞き直したくなった・声と同じくらいか大きい・歌声が流れている・効果音が言葉にかぶる)。鳴っているだけで楽に聞き取れる行・迷う行には付けません' };
 const titleTag = t => `この行の音の状態のメモ${keyParen(TAG_ACT[t])}。` + (TAG_RULE[t] || '「聞き取れない」の行は、精度の測定と学習の正解に使いません');
 const titleAddAfter = () => `この行の後に、空の行を足します${keyParen('insert')}`;

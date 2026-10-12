@@ -16,7 +16,7 @@
     1 本目が終わったら次へ・順番待ちのうちに終わった録画は音だけで締める)・雰囲気の変わり目のあと 60 秒はしきい値 1.3 倍・M10 の長さの目安(length_hint・
     clean_hint・新しく受け持つ録画だけ)・止まらない・溜めない(yt-dlp を子ごと止める・改行の無い末尾で止まらない・途中から受け持つと測り直さない・
     測り直しを 60 秒分ずつ・心拍・上限・1 本の例外で止めない・まだ無い候補の決定は待つ・壊れた値)
-  - 友人のライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く(config.json の detectAll・requests・
+  - 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く(config.json の detectAll・requests・
     画面の答えは録画ごと)・依頼の waitMin・pad で自動の採用(結びついていない録画は採用しない)・ワーカーは detectAll false なら依頼の録画だけ・
     感度・枠・長さは依頼の値(lengthFrom friend・起動し直しても)・clean_requests の検査
 本物の YouTube にはつながない。作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。

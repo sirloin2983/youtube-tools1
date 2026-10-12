@@ -19,7 +19,7 @@ import zipfile
 
 FORMAT = "youtube-tools-eval/v1"   # 送る用 zip の形式の名前(meta.json・final.json・asr_raw.json に入れる)
 FORMAT_VERSION = 1
-RULES_VERSION = 1                  # 友人に渡した書き方のルールの版(届いた zip の meta.json と比べる。ルールの文面は notes:docs/spec/subtitle-notation.md が正)
+RULES_VERSION = 1                  # 友人に渡した書き方のルールの版(届いた zip の meta.json と比べる。ルールの文面は notes:docs/spec/subtitles.md が正)
 MARK_UNSURE, MARK_LAUGH = "[?]", "[笑]"
 MARKS = (MARK_UNSURE, MARK_LAUGH)
 

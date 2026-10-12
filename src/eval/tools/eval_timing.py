@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/row-timing-policy.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
+"""行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
 
     python src/eval/tools/eval_timing.py [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--out 結果.json] [--data-dir 作業データの親フォルダ] [--apply] [--check]
 

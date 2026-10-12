@@ -597,7 +597,7 @@ class PortalLiveTest(unittest.TestCase):
         self.assertFalse(self.jreq("GET", "/live/api/marks?recorder=fake&recording=" + rec2)[1]["marks"])
         self.assertEqual(self.req("POST", "/live/api/export", body, token=False)[0], 403)
 
-    # ---------- 友人のライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15) ----------
+    # ---------- 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15) ----------
     def friend_ctx(self, **extra):
         """src/human/friend/intake.py の _handle_live_request が live_begin へ渡す ctx の形"""
         return dict({"rid": "20261008-200000-abc123", "deliverDir": os.path.join(self.tmp, "Dropbox", "切り抜き依頼", "出力"),

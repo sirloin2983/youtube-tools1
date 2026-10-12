@@ -3,6 +3,7 @@
 
     python dev/notes_tool.py check                 # 切れたパスを並べる(終了コード 1 = 切れた物がある)
     python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
+    python dev/notes_tool.py retarget <旧> <新> [...]   # 動かさずに、旧を指すリンク・data.js・notes: を新へ向け直す(文書をまとめたとき)
     python dev/notes_tool.py fix-prose            # 本文のかっこ書き [送る](説明) に空白を入れてリンクにしない
 
 check が見る物(dev/lint.py も同じ物を数える):
@@ -214,14 +215,16 @@ def relink_text(text, old_file, new_file, resolve=lambda p: p, root=None):
     return LINK.sub(sub, text)
 
 
-def mv(pairs):
-    """資料のフォルダの中で git mv し、md のリンク・data.js・リポジトリの notes: を直す"""
+def mv(pairs, move=True):
+    """資料のフォルダの中で git mv し、md のリンク・data.js・リポジトリの notes: を直す。
+    move=False は動かさずに「旧を指す所を新へ向け直す」だけ(文書をまとめたとき。旧は呼び手が消す)"""
     root = vault()
     files = _mapping(root, pairs)
-    for old, new in pairs:
-        os.makedirs(os.path.dirname(os.path.join(root, new)), exist_ok=True)
-        subprocess.run(["git", "-C", root, "mv", old, new], check=True)
-    back = {v: k for k, v in files.items()}
+    if move:
+        for old, new in pairs:
+            os.makedirs(os.path.dirname(os.path.join(root, new)), exist_ok=True)
+            subprocess.run(["git", "-C", root, "mv", old, new], check=True)
+    back = {v: k for k, v in files.items()} if move else {}
     resolve = lambda p: _moved(p, files, pairs, root)  # noqa: E731
     n = 0
     for p in md_files(root):
@@ -280,9 +283,9 @@ def main(argv):
                 n += 1
         print("直したファイル %d 本" % n)
         return 0
-    if argv[:1] == ["mv"] and len(argv) >= 3 and len(argv) % 2 == 1:
+    if argv[:1] in (["mv"], ["retarget"]) and len(argv) >= 3 and len(argv) % 2 == 1:
         pairs = [(argv[i].replace("\\", "/").rstrip("/"), argv[i + 1].replace("\\", "/").rstrip("/")) for i in range(1, len(argv), 2)]
-        print("直したファイル %d 本" % mv(pairs))
+        print("直したファイル %d 本" % mv(pairs, move=argv[0] == "mv"))
         return 0
     print(__doc__)
     return 2

@@ -854,7 +854,7 @@ def delete_voice(emb, name):
         del voices[name]
 
 
-# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。2026-10-05。notes:docs/spec/friend-intake.md の 3・6) ----------
+# ---------- 話者ごとの字幕の見た目を外から入れる(入口のまとめて実行。2026-10-05。notes:docs/spec/friend.md の 3・6) ----------
 # POST /api/speakers/sub {"id": 文書の id, "styles": {"名前": {"color": "#RRGGBB" か "RRGGBB"}}} -> {"ok": true, "applied": [名前…]}
 # 友人の依頼で指定した色を、話者分離のあとに文書の話者へ覚える(PC の「自分の色」には入れない)。名前がちょうど合った人(NFKC・空白を寄せて比べる)だけ。
 # 合う人がいなくても 200(applied が空)。履歴の控えは recognize_voices が名前を付けるときと同じく残さない(話者の見た目だけの書き込み)

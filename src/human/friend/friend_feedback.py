@@ -1,4 +1,4 @@
-"""友人の「要らない」を PC 側に戻す(送るアプリ 2.6.0。notes:docs/spec/friend-intake.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
+"""友人の「要らない」を PC 側に戻す(送るアプリ 2.6.0。notes:docs/spec/friend.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
 
 アプリは届いたパックを受け取らずに消すとき、受付のフォルダ(Dropbox の 切り抜き依頼\\)の直下に <zip の名前(.zip 抜き)>.feedback.json を置く:
   {"v": 1, "kind": "feedback", "verdict": "reject", "zip": "<依頼 id>__<題> 1-5.zip", "requestId": "...", "title": "...", "sentAt": "..."}

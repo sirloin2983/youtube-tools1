@@ -4,9 +4,9 @@
   autorun  … まとめて実行の形・採用数・カットの方法・上書き・失敗したとき
   streamer … 配信者(字幕の色)の記憶: 文書 id / 配信(video id)/ チャンネル → 名前(空 = 「色なし」を覚えた)
   keymap   … 共通の再生キーの割り当て(編集・スタジオで同じ)
-  intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend-intake.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
+  intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
              配信の長さと動画の大きさの上限・見る間隔・① 全自動のパックをまとめて届ける本数 deliverBatch(src/home/autorun.py。1 = 1 本ずつ)
-  backup   … 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data-location.md): オン/オフ・写す先のフォルダ・間隔(時間)
+  backup   … 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data.md): オン/オフ・写す先のフォルダ・間隔(時間)
   accuracy … 精度の自動測定(src/eval/drill/accuracy.py。git の履歴(679ff01 以前)の docs/plan/q3-q4-design.md の (a)): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
   live     … リアルタイム切り抜き(線 D。src/home/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・

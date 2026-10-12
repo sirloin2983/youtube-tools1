@@ -8,7 +8,7 @@ Dropbox の App console で作ったアプリ(Scoped access・App folder・権�
 PKCE(secret を使わない OAuth の方式)で承認して refresh token を得て、config.json に {"appKey", "refreshToken"} を書く。
 - 鍵の値は画面に出さない。config.json は .gitignore と dev/push_helper.py の検査でコミットされない
 - 無効にするときは https://www.dropbox.com/account/connected_apps でアプリの接続を切る
-手順の全体: friend-apps/request-sender/README.txt の「鍵を作る」。設計: notes:docs/spec/friend-intake.md の 4・7
+手順の全体: friend-apps/request-sender/README.txt の「鍵を作る」。設計: notes:docs/spec/friend.md の 4・7
 """
 import argparse
 import base64

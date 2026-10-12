@@ -290,7 +290,7 @@ function markToolsHTML(){
 }
 /* ② の操作(キー配置を変える・ライブのマークをまとめてずらす)。置き場所は ⚙ 設定の「このツール」の節「② の操作」(settings.js の #opsHost)。
    0.22.3(見直し M9・仮決め (aw)): 以前は ② の左の列の下の別の欄(「操作の設定」)で、設定の置き場所が ⚙ と 2 か所になっていた。
-   0.25.0(notes:docs/spec/settings.md の 6): 音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の欄は外した(値は設定の画面 = 入口の /settings のスタジオの節。
+   0.25.0(notes:docs/spec/data.md の 6): 音量・ミュート・確認の進め方・反応の遅れ補正・ライブ判定の欄は外した(値は設定の画面 = 入口の /settings のスタジオの節。
    音量・ミュートは再生の欄とキーで)。設定の値 S.settings は今までどおり読み書きする(SET_UI は無い欄を飛ばす) */
 function settingsHTML(){
   return `      <div class="rv-settings" id="rvSettings">
@@ -1680,7 +1680,7 @@ async function liveApplyDone(v){
   }
   if (n && S.cur === v) await syncFromServer();
 }
-/* 帯の「配信者」(字幕の色。notes:docs/spec/friend-intake.md の「配信者の名前 → 見た目」の流れに乗せる = 名前だけを入口へ渡す)。
+/* 帯の「配信者」(字幕の色。notes:docs/spec/friend.md の「配信者の名前 → 見た目」の流れに乗せる = 名前だけを入口へ渡す)。
    名前は今のアーカイブの配信と同じ仕組み(UIKit.streamer.autoFill = 覚えた名前(この録画 → チャンネル)→ チャンネル名から)。直したら UIKit が覚える。
    LV.who = {vid, name, match(色の一覧で1人に決まったか)}。開いている録画の分だけ使う */
 function liveWhoName(v){ return LV.who && v && LV.who.vid === v.id ? String(LV.who.name || '').trim().slice(0, 60) : ''; }
@@ -3616,7 +3616,7 @@ Studio.onReady(() => {
   renderAll();
   Studio.on('step', st => { if (st === 'review') activate(); else deactivate(); renderLiveCount(); });   // ⚙ の [適用] が押せるかは ② にいるか次第
   Studio.on('state', () => { renderExportUI(); showDataWarning(); });
-  /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2。ブラウザのタブの切り替えの合図を直接使わない = AGENTS.md の決まり)。別の窓へ移った('blur')ときは保存だけ:
+  /* 画面を離れた・戻った(ui-kit の UIKit.life。段階7-2。ブラウザのタブの切り替えの合図を直接使わない = notes:docs/spec/code.md の 9 の決まり)。別の窓へ移った('blur')ときは保存だけ:
      再生を止めない・状態の確認も続ける(窓を並べて、見ながら別の窓で作業できるように)。タブを離れた・閉じるときは今までどおり再生も止める */
   const onLeft = reason => {
     if (setTimer) saveSettings();

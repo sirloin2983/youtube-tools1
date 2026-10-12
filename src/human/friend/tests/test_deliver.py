@@ -134,7 +134,7 @@ class ZipPacksTest(unittest.TestCase):
 
 
 class GroupFilesTest(unittest.TestCase):
-    """組で届ける(notes:docs/spec/friend-intake.md の 2-16)の部品: 組の名前・一覧の packs・一覧のファイル・クリップの長さ"""
+    """組で届ける(notes:docs/spec/friend.md の 2-16)の部品: 組の名前・一覧の packs・一覧のファイル・クリップの長さ"""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-deliver-")

@@ -1,5 +1,5 @@
 // 配色とフォント(2.0.0)。4つの配色(A ネオンシアン / B シンセウェーブ / C ターミナルグリーン / D アイスライト)を窓の右上で切り替える。
-// 色・フォント・大きさの倍率はここだけに置く。設計: notes:docs/spec/friend-intake.md の 2-10
+// 色・フォント・大きさの倍率はここだけに置く。設計: notes:docs/spec/friend.md の 2-10
 using System;
 using System.Drawing;
 using System.Linq;

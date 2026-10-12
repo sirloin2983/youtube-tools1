@@ -55,7 +55,7 @@ class TestPure(unittest.TestCase):
         self.assertEqual(S.norm_cer("すご〜い"), S.norm_cer("すごーい"))
         self.assertEqual(S.norm_cer("すご～い"), S.norm_cer("すご~い"))
         self.assertEqual(S.norm_cer("すご〜い"), "すごーい")
-        # 表記の違いを数えない(2026-10-06 ユーザー決定。notes:docs/spec/subtitle-notation.md の B)
+        # 表記の違いを数えない(2026-10-06 ユーザー決定。notes:docs/spec/subtitles.md の B)
         self.assertEqual(S.norm_cer("イエターーーーー"), S.norm_cer("いえたー"))      # 伸ばし棒の連続は 1 つ・カタカナ = ひらがな
         self.assertEqual(S.norm_cer("フワモコ"), S.norm_cer("ふわもこ"))
         self.assertEqual(S.norm_cer("ヴィ"), "ゔい")

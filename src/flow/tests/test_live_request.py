@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人のライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
+"""友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
 結びついた録画の採用(adopt。after は auto に固定・余白は依頼の pad・配信者は依頼のもの・アーカイブは afterStream が真のときだけ)。
 入口 home の Live は使わない(同時の上限 _request_limit は入口の物 = 本テストでは差し替える。入口の既定は src/home/tests/test_live.py)。
 

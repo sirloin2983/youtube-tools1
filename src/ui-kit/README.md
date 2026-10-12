@@ -42,7 +42,7 @@
 ブランドの色は `.ui-brand-mark[data-tool=studio|transcribe|cut2resolve]`。
 
 ## v3(2026-09-26・画面の全面見直し)
-共通のルールは `notes:docs/spec/ui-guidelines.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
+共通のルールは `notes:docs/spec/ui.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
 - 状態の札(`.pill`)の文字は `--ok-ink` `--warn-ink` `--danger-ink` `--info-ink` `--accent-ink2`(明るいテーマで 5.5:1 以上)。札は枠なし・押せない表示だけ
 - 入口へ戻る(v18 で消した): ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
   「他のツール」のメニュー(`UIKit.tools.render`)も、取り込まれているときは先頭に「入口」「案件の一覧」を出す。`UIKit.tools.mounted()`
@@ -157,7 +157,7 @@
   本物と食い違っていないかは `node --test src/ui-kit/tests/test_uikit_stub.cjs`(本物の window.UIKit の名前を全部知っているか。名前を足したら stub の kit か FALLBACK にも足す)
 - テスト: `e2e_styleguide` の `check_http`(偽の API で 合言葉・失敗の形・時間切れ・取り消し・raw・ほかのオリジン・homeApi)・`check_v24_fmt_copy`・アイコンの一覧(`lock`)。`UIKit.version` は 24
 
-## v23(2026-10-07・UI の見直しの基準 `notes:docs/spec/ui-review-criteria.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
+## v23(2026-10-07・UI の見直しの基準 `notes:docs/spec/ui.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
 - 文字記号のアイコンをやめる(A-10): 知らせの × は `UIKit.icon('close')`。メニューが開く印は `.ui-caret`(線で描く小さな山形。`<span class="ui-caret" aria-hidden="true">`。右向きは `.right`・上向きは `.up`)。各ツールの「まとめて ▾」「無音 ▾」「この後を ▸」はこれに替える
 - 文字の青(`a`・`.ui-next-btn`)は `--accent-ink2`(明るいテーマの `--accent` は薄い面の上で 4.3:1 と足りない。A-22)。`--ink-4` は placeholder・空の欄・押せない物・飾りにだけ(決定 P-4)
 - `.card>summary`・`.ui-disclosure>summary` に `min-height:28px`(押せる部品は 28px 以上。A-21)。`.ui-live-panel:focus-visible` の輪(A-07)
@@ -191,7 +191,7 @@
 - `UIKit.version` は 22
 
 ## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`notes:plan/done/ux-stage7-9.md` の 1)
-- 画面に出る文言の「入口」を「ホーム」に(用語集 `notes:docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
+- 画面に出る文言の「入口」を「ホーム」に(用語集 `notes:docs/spec/ui.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
   配信者の欄の「ホームから開くと使えます」・`api/ytt/…` を合言葉なしで呼んだときの失敗の文(「ホーム(start.bat)から開いたときだけ使えます」)。見本の案内の文も
 - **`UIKit.toast` は重ねて 2 つまで**(以前は 3 つ。積み上がると画面の下の操作 = 編集の 3 パック の「中止」などを隠していた)。あふれたら古いものから閉じる。
   ただし消えない知らせ(`ms: 0`)・ボタン(`action`)のある知らせ(`data-ui-keep` を付ける)は後回しにして、時間で消える知らせから閉じる
@@ -223,7 +223,7 @@
 
 ## v18(2026-10-07・内部の整理。動きは同じ)
 - 確認・お知らせのダイアログ(`UIKit.dialog`)・編集の設定の保存(`UIKit.packLoud`・`UIKit.autorun`)・捕まえたエラーの記録を、中で 1 つの関数にまとめた。`UIKit` の形と動きは変えていない
-- 使っている画面が無くなっていた `<a data-ui-home>` / `data-ui-cases`(v3 の入口・案件へ戻るリンク)の処理と `.ui-home` の見た目を消した(ヘッダーは `ui-appnav` に一本化済み = `notes:docs/spec/ui-guidelines.md` の 2)
+- 使っている画面が無くなっていた `<a data-ui-home>` / `data-ui-cases`(v3 の入口・案件へ戻るリンク)の処理と `.ui-home` の見た目を消した(ヘッダーは `ui-appnav` に一本化済み = `notes:docs/spec/ui.md` の 2)
 
 ## v17(2026-10-05・ほかの窓で音が鳴っているかを知らせ合う `UIKit.sound`)
 - 「編集」を別の窓で開いて再生すると、スタジオの配信の音と二重になる(ユーザー)。この画面の `<video>`・`<audio>` が鳴っている間(再生中・消音でない・音量 0 でない)、同じオリジンの窓へ BroadcastChannel `ytt-sound` で知らせる(`{id, tool, playing}`。外へは送らない)
@@ -284,8 +284,8 @@
 - 送るアプリ(`friend-apps/request-sender/`)の配色は別(A ネオンシアン・B シンセウェーブ・C ターミナルグリーン・D アイスライト)
 
 ## v11(2026-10-02・時刻の欄 `UIKit.timebox`)
-時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(`friend-apps/request-sender/` の TimeBox)で決めた動き(`notes:docs/spec/friend-intake.md の 2-10` の「時刻の欄」)を、Web の画面でも使い回すための部品。
-**時刻を手で入れる欄を新しく作るときは、これを使う**(`notes:docs/spec/ui-guidelines.md` の 3-2)。スタジオの「現在位置」の欄だけは今までの入力欄のまま(5025 のような秒の数字でジャンプする使い方があるため)。
+時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(`friend-apps/request-sender/` の TimeBox)で決めた動き(`notes:docs/spec/friend.md の 2-10` の「時刻の欄」)を、Web の画面でも使い回すための部品。
+**時刻を手で入れる欄を新しく作るときは、これを使う**(`notes:docs/spec/ui.md` の 3-2)。スタジオの「現在位置」の欄だけは今までの入力欄のまま(5025 のような秒の数字でジャンプする使い方があるため)。
 - 置き方: `<span data-ui-time aria-label="開始の時刻"></span>`(DOMContentLoaded で自動)。画面をあとから作るときは `UIKit.timebox.attach(el, opt)` か `UIKit.timebox.create(opt)`(要素を返す)
 - 形は3つ: **時:分:秒**(既定。`1:23:45`)/ **時:分:秒.0.1秒**(`data-ui-time-tenths` / `tenths`。`0:01:23.5`。スタジオのマーク・コラボ)/
   **分:秒.0.1秒**(`data-ui-time-short` / `short`。`1:23.5`。1時間を超えたら分が 60 以上 = `83:45.6`。編集の字幕の行。ユーザー決定 2026-10-02)。
@@ -317,7 +317,7 @@
 - 50: 画面の下のキーの帯 / 60〜65: ポップオーバー・「…」・右クリックのメニュー
 - 70・75: 右の欄の幕・右の欄 / 80: ツールチップ / 90: トースト
 
-## v25(2026-10-09・設定を 1 つに S5。`notes:docs/spec/settings.md` の 4)
+## v25(2026-10-09・設定を 1 つに S5。`notes:docs/spec/data.md` の 4)
 - `UIKit.settingsForm.render(host, group, io)` … 宣言的なスキーマ(`src/home/settings/schema.json`。鍵・型・範囲・既定値・ラベル・1 行の説明)から設定の節を描く。
   範囲と形の検査・「標準に戻す」(既定と違うときだけ)・保存の印(「保存しました」2 秒。失敗は理由を行に出して値を戻す)・`when` で出す/隠す・ツールが動いていないときの無効化(`io.disabled()`)が自動で付く。
   節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/home/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)

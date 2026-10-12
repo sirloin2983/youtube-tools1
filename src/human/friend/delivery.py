@@ -10,7 +10,7 @@ AutoRunner から mixin に切り出した。中身と動きは変えていな�
     Runner の _check・_clips・_analyze_item
 溜めの置き場所とロックは _delivery_init(log_dir) で作る(AutoRunner の __init__ が呼ぶ)。
 
-届け方(notes:docs/spec/friend-intake.md の 2-16): パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、
+届け方(notes:docs/spec/friend.md の 2-16): パックを n 本(依頼ごとの deliver_batch。無ければホームの設定 intake.deliverBatch)たまるごとに、
 組 = まとめ動画 1 本 + 1 本ずつの zip + 組の一覧(.group.json)で Dropbox の 出力 へ置く(実行の終わりには n 本に満たない残りも)。
 n=1 か 1 本だけのときは 1 本の zip + その隣のまとめ動画。作り方・名前は同じフォルダの deliver.py。
 ライブの切り抜き(友人のライブ配信の依頼・live.autoDeliver)は 1 本ごとに別の実行なので、実行をまたいで「組の溜め」(run.pool)に預け、
@@ -142,7 +142,7 @@ class Delivery:
                 self._deliver_group(run, st, batch, prefix)
 
     def _deliver_group(self, run, st, batch, prefix):
-        """n 本のパックを組にして 出力 へ(notes:docs/spec/friend-intake.md の 2-16): ① 組のまとめ動画 <依頼 id>__<題> 1-5.preview.mp4(2-13 の中身のまま)→
+        """n 本のパックを組にして 出力 へ(notes:docs/spec/friend.md の 2-16): ① 組のまとめ動画 <依頼 id>__<題> 1-5.preview.mp4(2-13 の中身のまま)→
         ② 1 本ずつの zip(_deliver_one と同じ <依頼 id>__<パックの題>.zip。まとめ動画は組のものを使うので付けない)→ ③ 最後に <同じ名前>.group.json(zip の名前・何本目・
         まとめ動画の中の開始秒)。友人のアプリ(2.8.0)はまとめ動画を見てから 1 本ずつ受け取る・要らないを選べる。古いアプリは 1 本ずつの zip として受け取れる。
         まとめ動画を作れなくても(ffmpeg が無い・動画が壊れている)zip と一覧は届ける。届けた記録(deliveries.jsonl)は zip ごと"""

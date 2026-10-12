@@ -25,7 +25,7 @@ Python 標準ライブラリだけで動く。読む側は src/ を sys.path に
               節を置き換える / 節の鍵を直す / 最上位の鍵を直す)。ホームの prefs.json・スタジオの settings-ui.json・編集の settings.json が読む
 
 ここを変えるときは `python -m unittest src/ytt/tests/test_ytt_core.py src/ytt/tests/test_normalize.py src/ytt/tests/test_settings.py` と、
-使っている各ツールのテスト(AGENTS.md の表)を通すこと。
+使っている各ツールのテスト(notes:docs/spec/code.md の 6 の表)を通すこと。
 """
 # 版は全体で 1 つ = ytt/version.py の VERSION(RS5-E。ytt 自身の版 1.8.0 は廃止。__init__ は import しない決まり)。以下は ytt の変更の経緯
 # 1.8.0(2026-10-09): ytt_core から ytt へ移した(RS1-1。excite → pipeline/analyze・evaldata → eval/tools・txindex → manage/cases。旧い名前は転送)。layout の SHARED_CODE_DIRS・copy_shared_code

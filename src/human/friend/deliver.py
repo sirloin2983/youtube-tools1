@@ -1,5 +1,5 @@
 """パックを友人へ届ける(Dropbox の見張るフォルダの 出力\\ に zip で置く。友人のアプリの「受け取る」が読む)。
-notes:docs/spec/friend-intake.md の 2-7。
+notes:docs/spec/friend.md の 2-7。
 
 - zip_pack: 1本のパックのフォルダを zip にして置く。「編集」の ③ パックの「友人へ届ける」と、① 全自動(src/home/autorun.py)の 1 本ずつの届け方が使う
 - zip_packs: パックを zip に(① 全自動は 1 本ずつ呼ぶ。n 本を 1 つにも、まとめ動画 extra を中に入れることもできる = 前の形)。中は <題>_pack/ が並ぶ
@@ -267,7 +267,7 @@ def batch_preview(dirs, check=None, log=None):
     return None
 
 
-# ---- 組で届ける(notes:docs/spec/friend-intake.md の 2-16。ホーム 0.47.0): まとめ動画 1 本 + 1 本ずつの zip + 組の一覧 <名前>.group.json
+# ---- 組で届ける(notes:docs/spec/friend.md の 2-16。ホーム 0.47.0): まとめ動画 1 本 + 1 本ずつの zip + 組の一覧 <名前>.group.json
 GROUP_SUFFIX = ".group.json"
 
 

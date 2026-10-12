@@ -824,7 +824,7 @@ class LiveSession:
         return ""
 
     def begin_request(self, url, ctx, envelope=None, bundle=None, recorder=None):
-        """友人のライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15。submit から・入口の intake の live_begin から): 録画を始めて(begin)、その録画を依頼に結びつける。
+        """友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15。submit から・入口の intake の live_begin から): 録画を始めて(begin)、その録画を依頼に結びつける。
         ctx = {rid, deliverDir, url, title, streamer, speakers, videoTracks, cut, memo, settings, deliverBatch}。封筒 + 束があれば録画の束として残す(置き換える)。
         -> {"recorder", "recording", "existing"}。だめなら LiveError"""
         if not self.enabled():

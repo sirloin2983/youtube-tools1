@@ -107,7 +107,7 @@ echo        https://visualstudio.microsoft.com/downloads/  (Tools for Visual Stu
 echo      Vulkan SDK:
 echo        https://vulkan.lunarg.com/sdk/home  (or: winget install --id KhronosGroup.VulkanSDK -e)
 echo    Then run setup\build-whisper-vulkan.bat
-echo  - To restore your work data from the backup, see "docs\spec\data-location.md"
+echo  - To restore your work data from the backup, see "docs/spec/data.md in the notes folder"
 echo    (section on copying back; close the app first).
 echo  - Start the tools with start.bat in the parent folder.
 echo.

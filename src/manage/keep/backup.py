@@ -1,4 +1,4 @@
-"""作業データのバックアップ(2026-10-03。notes:docs/spec/data-location.md の「バックアップ」)。
+"""作業データのバックアップ(2026-10-03。notes:docs/spec/data.md の「バックアップ」)。
 
 作業データ(%LOCALAPPDATA%\\youtube-tools\\)はリポジトリの外にあり、git にも GitHub にも入らない。
 2026-10-03 に Windows の入れ直しで失ったので、入口が動いている間に、決めた間隔で別のドライブのフォルダへ写す。
@@ -14,7 +14,7 @@
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
 - 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)のほかに、**変わったらすぐ写す**: 写す対象のファイルが前回の写し始めより新しく更新され、
   最後の変更から QUIET 秒(保存が続いている間は待つ)たっていれば、間隔を待たずに写す(CHECK_EVERY ごとに見る)
-- 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は notes:docs/spec/data-location.md の「写し戻しの手順」。
+- 写し戻し: `restore_once`(コマンド `py -3.10 src/manage/keep/backup.py --restore <folder>`)。手順は notes:docs/spec/data.md の「写し戻しの手順」。
   案件の 作業用 の写し(cases/)は作業データの根へは戻さず、案件の根(--out-dir。既定はスタジオの設定の書き出し先)へ戻す。既にあるファイルは上書きしない
 - 鍵(studio\\config.json の YouTube の API キー)も写る。写す先は自分の PC のドライブにする(共有のフォルダ・クラウドに置かない)
 """
@@ -476,7 +476,7 @@ def _studio_out_dir_from(*roots):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="作業データのバックアップの写し戻し(入口を止めてから。notes:docs/spec/data-location.md)")
+    ap = argparse.ArgumentParser(description="作業データのバックアップの写し戻し(入口を止めてから。notes:docs/spec/data.md)")
     ap.add_argument("--restore", metavar="FOLDER", required=True, help="バックアップ先のフォルダ(その下の youtube-tools-data から写し戻す)")
     ap.add_argument("--target", metavar="DIR", help="写し戻す先(既定: 作業データの本物の場所)")
     ap.add_argument("--out-dir", metavar="DIR", help="案件の 作業用 を写し戻す案件の根(既定: スタジオの設定の書き出し先。既にあるファイルは上書きしない)")

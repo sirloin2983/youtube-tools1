@@ -1,4 +1,4 @@
-"""友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend-intake.md の 2-15。ホーム 0.47.0)。
+"""友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
 
 依頼の受付(src/human/friend/intake.py)が配信中・配信前の URL の依頼を受け付けると、録画を始めて(src/home/live.py の Live.begin_request)ここに結びつけ、
 録画の候補の検出・自動の採用(src/flow/live_detect.py・live_excite_worker.py)・採用した切り抜きの書き出しのあと(src/flow/live_export.py の _handoff)・

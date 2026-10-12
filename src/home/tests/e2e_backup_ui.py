@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ホームの「作業データのバックアップ」(src/manage/keep/backup.py。notes:docs/spec/data-location.md の「バックアップ」)の画面の確認(Playwright)。
+"""ホームの「作業データのバックアップ」(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)の画面の確認(Playwright)。
 
     python src/home/tests/e2e_backup_ui.py
 

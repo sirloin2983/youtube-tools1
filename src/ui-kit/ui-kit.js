@@ -1230,7 +1230,7 @@
   var settings = { mount: settingsMount, status: settingsStatus, statusOf: function () { return { state: setStatus.state, message: setStatus.message }; },
                    general: buildGeneralSection };   /* v25: 「全体」の節(テーマ・文字の大きさ・キーの帯)を /settings/ の画面にも置く */
 
-  /* ---- settingsForm(v25。設定を 1 つに S5。notes:docs/spec/settings.md の 4)---- 宣言的なスキーマから設定の節を描く。
+  /* ---- settingsForm(v25。設定を 1 つに S5。notes:docs/spec/data.md の 4)---- 宣言的なスキーマから設定の節を描く。
      ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は今までの作り)。
      UIKit.settingsForm.render(host, group, io) -> {refresh()}
        group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link}]}
@@ -2251,7 +2251,7 @@
   };
 
   /* ==== v11(2026-10-02): 時刻の欄 UIKit.timebox。使い方は README.md の「v11」 ====
-     時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(friend-apps/request-sender の TimeBox)と同じ動き(notes:docs/spec/friend-intake.md の 2-10):
+     時刻(1:23:45)を「:」を打たずに入れる欄。送るアプリ(friend-apps/request-sender の TimeBox)と同じ動き(notes:docs/spec/friend.md の 2-10):
        欄は1つ。時・分・秒 のどれか1つが選ばれていて(反転)、数字は 時(1桁)→ 分(2桁)→ 秒(2桁)の順に入る(分・秒の最初が 6〜9 なら1桁で次へ)。
        ← → で場所を選ぶ(クリックでも)・↑ ↓ で選んだ単位を ±1(Shift で ±10)・BackSpace = 選んだ所を 0(もう 0 なら左へ)・Delete = 空に・
        貼り付け(1:23:45 / 83:45 / 1h23m45s。youtube: true のときだけ YouTube の URL の t= も読む)。

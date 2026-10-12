@@ -1,5 +1,5 @@
 // 切り抜き依頼 2.0.0 で足した、画面に依らない部品: 時刻の読み書き・時刻の欄の状態・区間・カット・解析の重み・配信の題名・覚える設定。
-// 設計: notes:docs/spec/friend-intake.md の 2-10(時刻の欄は「:」を打たせない。時 → 分 → 秒 の順に数字だけで入れる)
+// 設計: notes:docs/spec/friend.md の 2-10(時刻の欄は「:」を打たせない。時 → 分 → 秒 の順に数字だけで入れる)
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -311,7 +311,7 @@ namespace RequestSender
         }
     }
 
-    // ---- ライブ配信の依頼の、友人のベータの設定(2.8.0。notes:docs/spec/friend-intake.md の 2-15。依頼の JSON の "live")----
+    // ---- ライブ配信の依頼の、友人のベータの設定(2.8.0。notes:docs/spec/friend.md の 2-15。依頼の JSON の "live")----
     //   sens = 感度 high|normal|low・perHour = 1 時間の候補の枠 1〜30・length = 切り抜きの長さ 10〜120 秒・waitMin = 自動で採用するまでの分 1〜60・
     //   pad = 前後の余白 0〜5 秒・afterStream = 配信後にアーカイブからも追加する。範囲の外・無い値は既定(PC の受付も同じ規則)
     public class LiveSettings

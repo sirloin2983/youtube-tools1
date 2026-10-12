@@ -211,7 +211,7 @@ HOME_HAND = """---
 
 - 計画: [全体の計画](plan/index.html)・[やること](plan/user-tasks.html)・[計画の索引](plan/計画の索引.md)
 - 決めたこと [decisions](plan/decisions.md)・改善案 [improvements](plan/improvements.md)
-- 仕様: [受け渡し](docs/spec/pipeline.md)・[作業データの置き場所](docs/spec/data-location.md)・[設定](docs/spec/settings.md)
+- 仕様: [受け渡し](docs/spec/pipeline.md)・[作業データの置き場所](docs/spec/data.md)・[設定](docs/spec/data.md)
 - AI 向け: [AGENTS](AGENTS.md)・[索引 ROADMAP](docs/ROADMAP.md)・[作業の記録](docs/WORKLOG.md)
 """
 WEEK_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}週\.md$")
@@ -364,7 +364,8 @@ def write_vault_extras(notes, graph=True):
     with open(gp, encoding="utf-8") as f:
         g = json.load(f)
     pj = os.path.basename(notes)
-    g["search"] = '-path:"%s/docs/worklog" -path:"%s/docs/design/surveys" -file:WORKLOG' % (pj, pj)
+    # 普段は隠す: 作業の記録と経緯の原本(docs/design・plan/done。要約は docs/済んだことのまとめ.md に出る。2026-10-13)
+    g["search"] = '-path:"%s/docs/worklog" -path:"%s/docs/design" -path:"%s/plan/done" -file:WORKLOG' % (pj, pj, pj)
     g["colorGroups"] = [{"query": q, "color": {"a": 1, "rgb": rgb}} for q, rgb in GRAPH_COLORS]
     write_text(gp, json.dumps(g, ensure_ascii=False, indent=2) + "\n")
 

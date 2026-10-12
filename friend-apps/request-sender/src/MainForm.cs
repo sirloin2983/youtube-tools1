@@ -1,4 +1,4 @@
-// 画面(2.1.0。設計: notes:docs/spec/friend-intake.md の 2-10・notes:docs/spec/friend-intake.md)
+// 画面(2.1.0。設計: notes:docs/spec/friend.md の 2-10・notes:docs/spec/friend.md)
 //   上の帯: 「送る」「受け取る ●n」・右上に配色の札(A〜D)
 //   送る: 左 = 01 送るもの(配信の URL のカード / 動画ファイル / ライブ配信(2.8.0))、右 = 02 仕上げ方(届け方も)・03 配信者とメモ(配信者 = 名前のプルダウン + 字幕の色)、下 = 要約・進み具合・「送る」
 //   受け取る: MainForm.Receive.cs

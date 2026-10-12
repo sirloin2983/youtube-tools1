@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
 
-経緯: 2つの実装(src/editor/resolve_export.py(旧 transcribe-tool)と src/cut2resolve/pack.py。今は src/pipeline/pack/pack.py)があった(AGENTS.md の【高】リスク)。
+経緯: 2つの実装(src/editor/resolve_export.py(旧 transcribe-tool)と src/cut2resolve/pack.py。今は src/pipeline/pack/pack.py)があった(notes:docs/spec/code.md の 9 のリスク)。
 2026-09-26 に、先にこのテストで「同じ入力から同じ中身」を固定してから、resolve_export を pack.py を呼ぶだけの形に寄せた。
 
 このテストが守ること:

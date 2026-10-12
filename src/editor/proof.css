@@ -26,7 +26,7 @@ h2{margin:0;font-size:15px}
 /* 処理中の件数(押すとメニューの「処理状況」を開く。押せるので .btn。校正の目標の札 .tt-hgoal は 0.69.0 で消した) */
 .tt-hjob{font-variant-numeric:tabular-nums;gap:7px}
 .tt-hjob{color:var(--accent-ink2)}
-.tt-hjob::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}   /* 0.59.3: 点滅をやめて .pill.run と同じ静かな回転の輪(notes:docs/spec/ui-guidelines.md 2「実行中の札は点滅させない」。A-32) */
+.tt-hjob::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;border:2px solid color-mix(in srgb,currentColor 30%,transparent);border-top-color:currentColor;animation:ui-rot .8s linear infinite}   /* 0.59.3: 点滅をやめて .pill.run と同じ静かな回転の輪(notes:docs/spec/ui.md 2「実行中の札は点滅させない」。A-32) */
 @media (max-width:1180px){.tt-hlabel{display:none}.tt-hbtn{width:var(--ctl-h-sm);padding:0;justify-content:center}#btnMenu{width:auto;padding:0 8px}}
 @media (max-width:560px){.top .ui-ver{display:none}#btnMenuT{display:none}.tt-hjob{padding:0 6px}#btnKeys{display:none}.top .ui-header-actions{gap:2px}}
 .errbar{position:sticky;top:var(--toph);z-index:39}
@@ -99,7 +99,7 @@ h2{margin:0;font-size:15px}
 .job .tt-jwarn{margin:6px 0 0;padding:6px 9px;font-size:12px}
 .job .tt-jerr{color:var(--danger-ink);margin-top:3px}
 .job .tt-jerr-detail{font-size:12px;margin-top:2px;color:var(--ink-3)}.job .tt-jerr-detail summary{cursor:pointer;min-height:24px}.job .tt-jerr-detail .mono{display:block;overflow-wrap:anywhere}   /* 想定外の失敗の原文は畳む(M9) */
-/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。notes:docs/spec/ui-guidelines.md 4.) ----------
+/* ---------- 履歴(保存済みの文字起こし)の一覧(v0.15.0。notes:docs/spec/ui.md 4.) ----------
    道具の行(検索・状態・種類・並び替え・まとめ方・件数)→ まとまり(details.ui-group。既定は配信ごと)→ 1件1行。
    1行 = 題名(見分けやすいように、配信ごとのときは配信の題名を省いてマークの名前を出す)+ だれの・いつの + 校正の進み具合 + 状態の札 */
 #txHomeLink{display:inline-flex;margin:0 0 8px}

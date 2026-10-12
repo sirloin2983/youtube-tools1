@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code-quality.md`)。
+"""コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
 
     python dev/lint.py            # 一覧と件数。問題が 1 つでもあれば終了コード 1
     python dev/lint.py --json     # 同じ内容を JSON で

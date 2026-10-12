@@ -1,4 +1,4 @@
-"""友人からの依頼の受付(notes:docs/spec/friend-intake.md。2026-09-30)。
+"""友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
 
 友人のプログラム(friend-apps/request-sender/)か Dropbox のファイルリクエストで届いた依頼を、Dropbox が同期したフォルダで見張り、
 まとめて実行(入口の src/home/autorun.py。読み込まない = 入口が runner= で渡す)に入れて文字起こしまで流す。ホームの起動と一緒に動き、「すべて終了」で止まる。
@@ -561,7 +561,7 @@ class Intake:
         return {n} | set(names)
 
     def _handle_live_request(self, folder, n, d, rid, cfg, memo, speakers, tracks, cut):
-        """ライブ配信の依頼(notes:docs/spec/friend-intake.md の 2-15。2.8.0 のアプリ。kind live・url 1 本・live = 友人の設定)。
+        """ライブ配信の依頼(notes:docs/spec/friend.md の 2-15。2.8.0 のアプリ。kind live・url 1 本・live = 友人の設定)。
         配信中・配信前: 録画を始めて依頼に結びつける(live_begin = Live.begin_request)。以後はその録画の候補の検出・自動の採用・書き出し → パック → 届ける が
         友人の設定で動く。もう終わっていれば kind url の ① 全自動と同じ(切り抜く数はホームの既定。1 本ずつ届ける)"""
         url = str(d.get("url") or "")[:300]
