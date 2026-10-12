@@ -1,3 +1,3 @@
 # CLAUDE.md(editor)
 
-@../../../notes/youtube-tools/src/editor/AGENTS.md
+@D:/Obsidian保管庫/youtube-tools/src/editor/AGENTS.md

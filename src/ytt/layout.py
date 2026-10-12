@@ -49,14 +49,13 @@ def holo_colors_dir(repo=None):
     return os.path.join(repo or repo_root(), HOLO_COLORS_DIR)
 
 
-def notes_root(repo=None):
-    """資料の保管庫(Obsidian。docs/・plan/・AGENTS.md の置き場所。2026-10-12 にリポジトリの外へ移した)。
-    環境変数 YTT_NOTES_DIR があればそれ、無ければリポジトリの隣の notes/<リポジトリ名>(C:/dev/notes/youtube-tools)"""
-    env = os.environ.get("YTT_NOTES_DIR")
-    if env:
-        return os.path.abspath(env)
-    repo = os.path.abspath(repo or repo_root())
-    return os.path.join(os.path.dirname(repo), "notes", os.path.basename(repo))
+NOTES_DIR = "D:/Obsidian保管庫/youtube-tools"   # 資料のフォルダの既定(Obsidian の保管庫 D:/Obsidian保管庫 の中。ユーザー決定 2026-10-12)
+
+
+def notes_root():
+    """資料のフォルダ(Obsidian の保管庫の中。docs/・plan/・AGENTS.md の置き場所。2026-10-12 にリポジトリの外へ移した)。
+    環境変数 YTT_NOTES_DIR があればそれ、無ければ NOTES_DIR"""
+    return os.path.abspath(os.environ.get("YTT_NOTES_DIR") or NOTES_DIR)
 
 
 def copy_shared_code(dst, ignore=None, root=None):

@@ -102,6 +102,6 @@ src/home/live/
 src/analytics/data/
 .artifact-build/
 
-# 資料は保管庫 C:/dev/notes/youtube-tools へ移した(2026-10-12)。リポジトリに作り直してもコミットしない
+# 資料は保管庫 D:/Obsidian保管庫/youtube-tools へ移した(2026-10-12)。リポジトリに作り直してもコミットしない
 /docs/
 /plan/

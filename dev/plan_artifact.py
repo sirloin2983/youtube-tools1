@@ -24,7 +24,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from ytt import layout  # noqa: E402
 
-PLAN = os.path.join(layout.notes_root(REPO), "plan")
+PLAN = os.path.join(layout.notes_root(), "plan")
 INDEX_NAME = "計画の索引.md"
 STATE_JA = {"done": "済み", "doing": "進行中", "next": "次(今できる)", "todo": "あと",
             "wait": "ユーザー待ち", "cont": "継続"}
