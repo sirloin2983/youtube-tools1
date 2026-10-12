@@ -28,7 +28,7 @@ class NotesToolTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.v = os.path.join(self.tmp, "vault")
         self.repo = os.path.join(self.tmp, "repo")
-        put(self.v, "docs/spec/a.md", "[`plan/p.md`](../../plan/p.md) と [送る](友人へ届ける)\n")
+        put(self.v, "docs/spec/a.md", "[`plan/p.md`](../../plan/p.md) と [送る] (友人へ届ける)\n")
         put(self.v, "plan/p.md", "[`docs/spec/a.md`](../docs/spec/a.md)・[外](https://example.com)\n")
         put(self.v, "plan/data.js", 'docs: ["p.md", "../docs/spec/a.md"] 文 plan/p.md(説明)\n')
         put(self.repo, "src/x.py", '"""設計 notes:plan/p.md の 2 節・notes:docs/spec/a.md"""\n')
@@ -56,7 +56,7 @@ class NotesToolTest(unittest.TestCase):
 
     def test_mv_fixes_links_data_and_notes_refs(self):
         notes_tool.mv([("plan/p.md", "plan/done/p.md")])
-        self.assertEqual(get(self.v, "docs/spec/a.md"), "[`plan/done/p.md`](../../plan/done/p.md) と [送る](友人へ届ける)\n")
+        self.assertEqual(get(self.v, "docs/spec/a.md"), "[`plan/done/p.md`](../../plan/done/p.md) と [送る] (友人へ届ける)\n")
         self.assertIn("[`docs/spec/a.md`](../../docs/spec/a.md)", get(self.v, "plan/done/p.md"))   # 動かした文書の中のリンク
         self.assertEqual(get(self.v, "plan/data.js"), 'docs: ["done/p.md", "../docs/spec/a.md"] 文 plan/done/p.md(説明)\n')
         self.assertIn("notes:plan/done/p.md の 2 節", get(self.repo, "src/x.py"))
@@ -67,6 +67,12 @@ class NotesToolTest(unittest.TestCase):
         self.assertIn("(../../../plan/p.md)", get(self.v, "docs/old/spec/a.md"))
         self.assertIn("notes:docs/old/spec/a.md", get(self.repo, "src/x.py"))
         self.assertEqual(notes_tool.check(), [])
+
+    def test_prose_brackets(self):
+        put(self.v, "docs/b.md", "[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n")
+        self.assertEqual([p for w, _, p in notes_tool.check() if w == "docs/b.md"][0][-12:], "[送る](友人へ届ける)")
+        fixed = notes_tool.unlink_prose(get(self.v, "docs/b.md"))
+        self.assertEqual(fixed, "[送る] (友人へ届ける)・[`x`] (y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n")
 
     def test_relink_text(self):
         old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")

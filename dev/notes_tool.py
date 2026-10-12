@@ -3,9 +3,10 @@
 
     python dev/notes_tool.py check                 # 切れたパスを並べる(終了コード 1 = 切れた物がある)
     python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
+    python dev/notes_tool.py fix-prose            # 本文のかっこ書き [送る](説明) に空白を入れてリンクにしない
 
 check が見る物(dev/lint.py も同じ物を数える):
-  - 資料のフォルダの md の相対リンク(外の URL・#だけ・obsidian: は見ない)
+  - 資料のフォルダの md の相対リンク(外の URL・#だけ・obsidian: は見ない)と、リンクになってしまう本文のかっこ書き
   - plan/data.js の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html
   - リポジトリのコード・README の notes:docs/… notes:plan/…
 mv が直す物: md の相対リンク(動かした文書の中のリンクも)・リンクの表示が旧いパスそのものならその文字・
@@ -28,6 +29,8 @@ DATA_TEXT = re.compile(r"(?<![A-Za-z0-9_./\-])((?:docs|plan)/[A-Za-z0-9_./\-]+\.
 QUOTED = re.compile(r"\"([^\"]+)\"")
 FILE_EXT = re.compile(r"\.(md|html|js|css|png|jpg|jpeg|gif|svg|tsv|csv|json|txt|pdf|py)$", re.I)
 FENCE = re.compile(r"^\s*(```|~~~)")
+CODE_SPAN = re.compile(r"`+[^`\n]*`+")
+SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".css", ".html", ".bat", ".txt", ".md", ".cs", ".ps1", ".command", ".sh", ".gs")
 SKIP_DIRS = {".git", "node_modules", "dist", "__pycache__", ".artifact-build", "worktrees", "0old"}
 
@@ -74,6 +77,35 @@ def local_target(t):
     return path, frag
 
 
+def pseudo_link(t):
+    """本文のかっこ書き「[送る](友人へ届ける)」なら True(Obsidian が中身の無いノートへのリンクにしてしまう)"""
+    t = t[1:-1] if t.startswith("<") else t
+    if not t or t.startswith("#") or SCHEME.match(t):
+        return False
+    path = t.partition("#")[0]
+    return bool(path) and not (FILE_EXT.search(path) or path.endswith("/"))
+
+
+def _links(line):
+    """行の中のリンクの形(コードの `...` の中は除く)"""
+    return LINK.finditer(CODE_SPAN.sub(lambda m: " " * len(m.group(0)), line))
+
+
+def unlink_prose(text):
+    """かっこ書き「[送る](友人へ届ける)」の ] と ( の間に空白を入れてリンクにしない(コードのブロックと `...` の中は触らない)"""
+    out, fence = [], False
+    for line in text.splitlines(keepends=True):
+        if FENCE.match(line):
+            fence = not fence
+        if not fence:
+            for m in reversed(list(_links(line))):
+                if m.group(1) == "[" and pseudo_link(m.group(4)):
+                    i = m.start(3) + 1
+                    line = line[:i] + " " + line[i:]
+        out.append(line)
+    return "".join(out)
+
+
 def vrel(full, root):
     return os.path.relpath(full, root).replace(os.sep, "/")
 
@@ -96,7 +128,10 @@ def check():
                 fence = not fence
             if fence:
                 continue
-            for m in LINK.finditer(line):
+            for m in _links(line):
+                if m.group(1) == "[" and pseudo_link(m.group(4)):
+                    bad.append((vrel(p, root), ln, "かっこ書きがリンクになる(] と ( の間に空白): " + m.group(0)))
+                    continue
                 lt = local_target(m.group(4))
                 if lt and lt[0] and not os.path.exists(os.path.normpath(os.path.join(os.path.dirname(p), lt[0]))):
                     bad.append((vrel(p, root), ln, lt[0]))
@@ -234,6 +269,16 @@ def main(argv):
             print("%s:%d %s" % (where, ln, p))
         print("切れたパス %d 件" % len(bad))
         return 1 if bad else 0
+    if argv[:1] == ["fix-prose"]:
+        n = 0
+        for p in md_files(vault()):
+            text = read(p)
+            new = unlink_prose(text)
+            if new != text:
+                write(p, new)
+                n += 1
+        print("直したファイル %d 本" % n)
+        return 0
     if argv[:1] == ["mv"] and len(argv) >= 3 and len(argv) % 2 == 1:
         pairs = [(argv[i].replace("\\", "/").rstrip("/"), argv[i + 1].replace("\\", "/").rstrip("/")) for i in range(1, len(argv), 2)]
         print("直したファイル %d 本" % mv(pairs))
