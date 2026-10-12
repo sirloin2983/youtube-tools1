@@ -1,0 +1,9 @@
+{
+  "id": "graph-history-toggle",
+  "name": "経緯の表示切り替え",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "グラフで済んだ文書(状態が 済み・置き換え済み・取り下げ)の表示・非表示をボタン 1 つで切り替える",
+  "author": "youtube-tools",
+  "isDesktopOnly": false
+}

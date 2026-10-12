@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -346,6 +347,8 @@ VAULT_HOME = """---
 
 - [youtube-tools](%s/ホーム.md) — YouTube ショート動画の編集支援ツール
 """
+PLUGIN_ID = "graph-history-toggle"
+GRAPH_HIDE = "-[状態:済み] -[状態:置き換え済み] -[状態:取り下げ]"   # dev/obsidian/graph-history-toggle/main.js の HIDE と同じ
 GRAPH_COLORS = (  # 上から先に当たった色。灰(済んだ物)→ 種類ごと
     ("[状態:済み]", 0x8A8F98), ("[状態:置き換え済み]", 0x8A8F98), ("[状態:取り下げ]", 0x8A8F98),
     ("[種類:決まり]", 0xE5484D), ("[種類:索引]", 0xF2C94C), ("[種類:仕様]", 0x3B82F6),
@@ -361,16 +364,20 @@ def write_vault_extras(notes, graph=True):
     gp = os.path.join(root, ".obsidian", "graph.json")
     if not graph:
         return
+    # グラフの「経緯の表示・非表示」のボタン(自作のプラグイン。正本は dev/obsidian/。オンにするのは Obsidian の設定で人が 1 回)
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "obsidian", PLUGIN_ID)
+    dst = os.path.join(root, ".obsidian", "plugins", PLUGIN_ID)
+    os.makedirs(dst, exist_ok=True)
+    for name in ("manifest.json", "main.js"):
+        shutil.copyfile(os.path.join(src, name), os.path.join(dst, name))
     if not os.path.isfile(gp):
         print("graph.json が無い(Obsidian で一度グラフを開く): %s" % gp, file=sys.stderr)
         return
     with open(gp, encoding="utf-8") as f:
         g = json.load(f)
-    pj = os.path.basename(notes)
-    # 普段は隠す: 作業の記録と経緯の原本(docs/design・plan/done。要約は docs/済んだことのまとめ.md に出る。2026-10-13)。
-    # 直し待ちが残るコードレビュー(docs/design/reviews)は出す。全部・経緯だけの見方は Obsidian のブックマークで切り替える
-    g["search"] = ('-path:"%s/docs/worklog" -(path:"%s/docs/design" -path:"%s/docs/design/reviews") -path:"%s/plan/done" -file:WORKLOG'
-                   % (pj, pj, pj, pj))
+    # 普段は経緯(状態が 済み・置き換え済み・取り下げ)を隠す。直し待ちのレビュー・今週の記録(進行中)は出る。
+    # 出す・隠すはグラフの左のボタン(プラグイン graph-history-toggle)で切り替える。条件の文字はプラグインの HIDE と同じ
+    g["search"] = GRAPH_HIDE
     g["colorGroups"] = [{"query": q, "color": {"a": 1, "rgb": rgb}} for q, rgb in GRAPH_COLORS]
     write_text(gp, json.dumps(g, ensure_ascii=False, indent=2) + "\n")
 

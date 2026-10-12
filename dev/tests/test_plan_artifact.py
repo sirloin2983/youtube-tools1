@@ -173,8 +173,11 @@ class PlanArtifactTest(unittest.TestCase):
             with open(os.path.join(gdir, "graph.json"), encoding="utf-8") as f:
                 g = json.load(f)
             self.assertEqual(g["scale"], 2)
-            self.assertIn('-path:"proj/docs/worklog"', g["search"])
-            self.assertIn("-file:WORKLOG", g["search"])
+            self.assertEqual(g["search"], "-[状態:済み] -[状態:置き換え済み] -[状態:取り下げ]")
+            for name in ("manifest.json", "main.js"):   # 経緯の表示・非表示のボタン(プラグイン)を写す
+                self.assertTrue(os.path.isfile(os.path.join(gdir, "plugins", "graph-history-toggle", name)))
+            with open(os.path.join(REPO, "dev", "obsidian", "graph-history-toggle", "main.js"), encoding="utf-8") as f:
+                self.assertIn('const HIDE = "%s";' % g["search"], f.read())   # プラグインと条件の文字が同じ
             qs = [c["query"] for c in g["colorGroups"]]
             self.assertEqual(qs[0], "[状態:済み]")
             self.assertIn("[種類:レビュー]", qs)
