@@ -1116,7 +1116,7 @@ class WorkerRestTest(unittest.TestCase):
 
 class SameAsExportTest(unittest.TestCase):
     """ワーカー(live_excite_worker。別のプロセス)と入口の live_export が、録画元との約束(id の形・時刻の書き方・動画の id)に
-    同じ物(ytt/recproto.py)を使う(以前は写しを持っていて、値の一致をここで確かめていた。notes:docs/design/code-review-simplify-2026-10-08.md の
+    同じ物(ytt/recproto.py)を使う(以前は写しを持っていて、値の一致をここで確かめていた。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の
     4 節の 7・T8)。値そのものの検査は src/ytt/tests/test_ytt_core.py の RecprotoTest"""
 
     def test_same_objects(self):

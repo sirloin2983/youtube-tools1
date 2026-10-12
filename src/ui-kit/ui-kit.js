@@ -295,7 +295,7 @@
      どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
   function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
 
-  /* ---- http(v24。notes:docs/design/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
+  /* ---- http(v24。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
      UIKit.http(url, opt) -> Promise<応答の JSON(JSON でなければ {})>(opt.raw なら成功のときは Response)。opt:
        method(既定: body があれば POST・無ければ GET)・body(JSON にして送る。Content-Type も付ける)・keepalive・
        timeout(ミリ秒。応答の見出しが届くまで)・signal(呼ぶ側の AbortSignal)・raw・

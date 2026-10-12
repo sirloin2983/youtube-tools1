@@ -334,7 +334,7 @@ class ResolvePackContract(unittest.TestCase):
         self.assertSamePack(self.doc(rows, "30"), "30", None, backup=True)   # 予備(EDL・予備の手順書・SRT)も入れたとき
 
     def test_same_pack_with_overlapping_rows(self):
-        """重なる行(同時にしゃべっている所)のある文書(notes:plan/line-b-overlap.md の 6-2 の 4): 文字起こしの zip と
+        """重なる行(同時にしゃべっている所)のある文書(notes:plan/done/line-b-overlap.md の 6-2 の 4): 文字起こしの zip と
         cut2resolve のパックが同じ(重なる字幕の段・切った字幕の終わりも同じ)。区間・字幕・SRT は段分けの前と同じ(A。SRT は重なったまま)。
         重なりの無い文書は、計画に段の項目が無い(Lua・手順書は今までと同じ。resolve_textplus の印を消しただけ)"""
         rows = [seg(1, 0.5, 2.5, "一"), seg(2, 1.0, 3.0, "二"), seg(3, 2.9, 4.0, "三"), seg(4, 3.9, 4.6, "四"), seg(5, 5, 6, "五")]

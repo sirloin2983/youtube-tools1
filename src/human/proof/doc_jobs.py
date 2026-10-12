@@ -253,7 +253,7 @@ def subtitle_max_chars(req=None, st=None):
 def split_chars_for(req=None, st=None):
     """行を分けるときの最大文字数(要求の splitChars → 環境変数 TRANSCRIBE_SPLIT_CHARS → 設定の subtitle.splitChars。既定 24 = 0.59.6。0.59.5 は 40)。
     要求の splitChars は「長い行を分け直す」(/api/resplit)が字幕の最大文字数を明示して渡す。文字起こしの要求には付けない(0.59.5 から。画面の app-rows.js の subtitleReq)。
-    0.59.4 までは字幕の向きの最大文字数(縦 16)で分けていた = 区切りを意識した校正で 73% が戻された(notes:plan/line-b-row-split.md の 8)ので、字幕の向きでは変えない"""
+    0.59.4 までは字幕の向きの最大文字数(縦 16)で分けていた = 区切りを意識した校正で 73% が戻された(notes:plan/done/line-b-row-split.md の 8)ので、字幕の向きでは変えない"""
     req = req or {}
     n = _chars_in(req.get("splitChars"), 4, 80)
     if n is not None:

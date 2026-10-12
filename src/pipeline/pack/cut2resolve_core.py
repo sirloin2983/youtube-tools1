@@ -869,7 +869,7 @@ def read_transcript(path):
     """youtube-tools-transcript/v1 -> {"rows": [{"id","start","end","text","cut","speaker","noSub"}](時刻順), "bad": 読めなかった行の数,
     "media": {...}, "title", "speakerOrder": [話者の名前](speakers の並び順・重なりなし)}。時刻は秒(動画の先頭 = 0)。
     speaker は話者の名前(speakers の name。話者なしは "")。noSub は行の任意の項目 noSub が true(字幕に出さない行。
-    時間はカットの「残す」に数えるが、字幕は作らない。notes:plan/line-b-overlap.md の 6-2 の 3)"""
+    時間はカットの「残す」に数えるが、字幕は作らない。notes:plan/done/line-b-overlap.md の 6-2 の 3)"""
     d = read_json_file(path, "文字起こし(.transcript.json)")
     check_schema(d, TRANSCRIPT_SCHEMA, "文字起こし(youtube-tools-transcript/v1)")
     segs = d.get("segments")

@@ -373,7 +373,7 @@ async function startDiarize(){
   await kickJobs(); toast('話者の判別を待機列に追加しました');
 }
 
-/* ---------- 重なり・抜けの所に空の行を置く(2026-10-05。notes:plan/line-b-overlap.md の 5-3 の C・6-2 の 1・2。抜けは第2版 E2 の前倒し) ----------
+/* ---------- 重なり・抜けの所に空の行を置く(2026-10-05。notes:plan/done/line-b-overlap.md の 5-3 の C・6-2 の 1・2。抜けは第2版 E2 の前倒し) ----------
    同時にしゃべっている所は、認識が片方しか書かない。話者判別の記録(diar.json)で声があったのに行の無い所を GET api/overlap-drafts で数え、
    押したら時刻(と分かれば話者)を入れた空の行(印 draft・重なりは音のメモ「声が重なる」も)を画面で足す。サーバーに行を作る API は無い。
    置く所は「重なり」(why overlap・unassigned)と「抜け」(why missing = 主の話者も含めて、どの行も無い所)をチェックで選ぶ(kinds。上限 40 は選んだ所で数える)

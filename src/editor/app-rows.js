@@ -724,7 +724,7 @@ function updateCaption(){
   paintCaps(el, idxs, segs);
 }
 
-/* ---------- 重なる行の字幕(2026-10-05。notes:plan/line-b-overlap.md の 2-2・6)----------
+/* ---------- 重なる行の字幕(2026-10-05。notes:plan/done/line-b-overlap.md の 2-2・6)----------
    1 文字起こし の映像の上(#playerCaption)と 2 カット のプレビュー(#cutCaption)が同じ関数を使う(cut.js には app.js が渡す) */
 const CAP_SCAN = 40;   // 再生位置より前に始まった行を何行さかのぼって見るか(長い行が続く所でも足りる数。全部は見ない)
 const capOk = g => hasText(g) && !g.noSub;

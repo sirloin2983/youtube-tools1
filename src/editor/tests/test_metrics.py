@@ -118,7 +118,7 @@ class TestPure(unittest.TestCase):
         st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
         v = S.subtitle_settings(st)
         self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 24})
-        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40 → 0.59.6 で 24。notes:plan/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
+        # 0.59.5: 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 40 → 0.59.6 で 24。notes:plan/done/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
         self.assertEqual(S.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
         self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24(0.59.6)

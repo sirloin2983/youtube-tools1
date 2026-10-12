@@ -31,7 +31,7 @@ SKIP_DIRS = {"__pycache__", "node_modules", ".venv", "build", "dist", "packs", "
 TEXT_EXT = (".py", ".js", ".cjs", ".html", ".css", ".cs", ".md", ".txt", ".bat", ".vbs", ".json")
 DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_quiet", "_no_window": "tools.no_window_flags", "NO_WINDOW": "tools.no_window_flags",
                "KillJob": "tools.KillJob(1 か所に)", "_kill_on_close_job": "tools.KillJob(1 か所に)",
-               # 別名の写し(2026-10-09。ytt_core 1.3.0 で足した小道具。notes:docs/design/code-review-simplify-2026-10-08.md の A・G10)
+               # 別名の写し(2026-10-09。ytt_core 1.3.0 で足した小道具。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10)
                "unlink_quiet": "fsio.unlink_quiet", "file_stamp": "fsio.stamp", "rotate": "fsio.rotate",
                "read_json": "fsio.read_json_or", "_read_json_file": "fsio.read_json_or", "_inside": "fsio.is_inside",
                "dir_size": "fsio.dir_size", "_dir_bytes": "fsio.dir_size",
@@ -259,7 +259,7 @@ def main():
     except Exception:
         pass
     corpus = Corpus()
-    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version")}
+    issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path")}
 
     def add(kind, file, line, name, **extra):
         issues[kind].append(dict({"file": file, "line": line, "name": name}, **extra))
@@ -289,6 +289,11 @@ def main():
         add("dup-block", locs[0][0], locs[0][1], "同じ %d 行以上: " % a.dup + "・".join("%s:%d" % loc for loc in locs[1:4]))
     for tool, found in version_mismatch():
         add("version", found[0][0], 1, tool + ": " + "・".join("%s=%s" % (os.path.basename(f), v) for f, v in found))
+    # 資料のフォルダ(Obsidian の保管庫)の切れたパス = dev/notes_tool.py の check(資料のフォルダが無い PC では 0)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import notes_tool
+    for where, ln, path in notes_tool.check():
+        add("notes-path", where, ln, path)
     total = sum(len(v) for v in issues.values())
     if a.json:
         print(json.dumps({"total": total, "issues": issues}, ensure_ascii=False, indent=1))

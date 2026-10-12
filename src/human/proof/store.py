@@ -399,7 +399,7 @@ def doc_length(d):
     return max(0.0, max([_yschemas.num_or(s.get("end"), 0.0) or 0.0 for s in segs] or [0.0]) - a)
 
 
-# 文書ごとの要約のキャッシュは 1 つ(2026-10-09。notes:docs/design/code-review-simplify-2026-10-08.md の C・G7-2)。
+# 文書ごとの要約のキャッシュは 1 つ(2026-10-09。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の C・G7-2)。
 # 一覧(manage/cases/doclist.list_transcripts)・文字起こし済みの判定・評価ドリル(eval/drill/drill.drill_docs)が同じ要約を使うので、
 # 保存のたびに変わった文書の JSON を読むのは 1 回だけ(以前は 3 つのキャッシュが別々に読んでいた)。
 # 鍵 = (パス, 更新日時ns, 大きさ)。パスも入れるのは、作業データの場所を切り替えたとき(テストの一時フォルダ)に同じ id・同じ大きさ・同じ時刻の別の文書を引かないため

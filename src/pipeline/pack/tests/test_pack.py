@@ -243,7 +243,7 @@ class TestTextStyle(unittest.TestCase):
 
 
 class TestCaptionLanes(unittest.TestCase):
-    """重なる字幕の段(notes:plan/line-b-overlap.md の 6-2 の 4)。規則は resolve_textplus.stack_captions の 1 か所。
+    """重なる字幕の段(notes:plan/done/line-b-overlap.md の 6-2 の 4)。規則は resolve_textplus.stack_captions の 1 か所。
     この PC には Lua が無いので、Lua に埋めた計画(read_script_plan)と Lua の文字列で確かめる(Lua を動かすテストは TestResolveTextPlusLuaRun)"""
 
     def lanes(self, cues, fps=(30, 1), order=None):

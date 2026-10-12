@@ -21,7 +21,7 @@
 - 組: 全体・文書ごと・最初の認識(recognition.runs の kind の無い記録 = 今の original を作った認識。eval_asr.draft_run)の engine・model と
   行の後処理の記録 post(編集 0.57.1 から。{version, endTrim, joinGap}。0.64.0 までは pullEnds・retime も(0.65.0 で部品ごと消した。古い記録の鍵は読んで見出しに出す)。
   無い記録は「後処理の記録なし(0.57.0 まで)」・1 秒丸めの配り直しの記録 retimed(0.64.0 まで)があればそう書く)
-- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
+- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/done/line-b-row-split.md): 人の行と機械の行の境目を文字の位置で突き合わせ、的中(機械の境目のうち人も境目にした割合)と
   再現(人の境目のうち機械にもあった割合)。人の境目は両側が校正済みで話者が同じ所だけ(boundary_agreement)。全体・組ごと・文書ごと・--apply の当て直しにも出す
 - --apply: 保存してある生出力 <id>.asr.json(分ける前の認識の行と単語)に、行の後処理を当て直したときの数字も出す(VARIANTS: 0.57.0 の後処理 /
   7-1 だけ / 0.57.1 / 0.59.5 = 0.57.1 + 行を分ける文字数 40 / 0.59.6 = 24(splitChars は spec に入れる))。後処理は editor の ed_jobs.expand_segments をそのまま使う(eval_asr.load_serve。serve の作業データは一時の置き場で、最後に消す)。
@@ -132,7 +132,7 @@ def measure_rows(human, machine):
     return {"proofed": proofed, "rows": out}
 
 
-# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/line-b-row-split.md)
+# ---------------------------------------------------------------- 行の境目の一致率(I-5 字幕の分け方。2026-10-08。notes:plan/done/line-b-row-split.md)
 
 def _pos_map(src, dst):
     """src の文字の位置 p -> dst の文字の位置(difflib の一致ブロックで写す。一致の中なら正確、外なら近い方のブロックの端)"""

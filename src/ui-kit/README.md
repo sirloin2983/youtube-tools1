@@ -137,7 +137,7 @@
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
 
-## v24(2026-10-09・コードの見直しの直す順番 B の土台。`notes:docs/design/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
+## v24(2026-10-09・コードの見直しの直す順番 B の土台。`notes:docs/design/reviews/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
 - **`UIKit.http(url, opt)`** → Promise<応答の JSON(JSON でなければ `{}`)>。JSON の API を呼ぶ 1 か所で、**合言葉 `X-YTT-Token` を付けるのはここだけ**
   (GET・HEAD 以外で、送り先が同じオリジンのときだけ。ほかのサイトへ合言葉を出さない)。opt: `method`(既定: body があれば POST)・`body`(JSON)・`keepalive`・
   `timeout`(ミリ秒)・`signal`・`raw`(成功なら Response = zip の受け取り)・`token`(省略 = meta / 文字列 / false)・`needToken`(合言葉が無ければ送らずに失敗)・
@@ -190,7 +190,7 @@
 - まとめて実行の設定の欄のチェック(`.ui-ar-c > input[type=checkbox]`)の幅を固定(置いた画面の `input{width:100%}`(スタジオ ③ のメニュー)で、文字が 1 文字ずつ縦に割れていた)
 - `UIKit.version` は 22
 
-## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`notes:plan/ux-stage7-9.md` の 1)
+## v21(2026-10-07・気が利く画面へ 段7: 用語の統一と小さな部品。`notes:plan/done/ux-stage7-9.md` の 1)
 - 画面に出る文言の「入口」を「ホーム」に(用語集 `notes:docs/spec/ui-guidelines.md` の 1): 「他のツール」メニューの項目・ホームがほかの窓にあるときの知らせ・
   配信者の欄の「ホームから開くと使えます」・`api/ytt/…` を合言葉なしで呼んだときの失敗の文(「ホーム(start.bat)から開いたときだけ使えます」)。見本の案内の文も
 - **`UIKit.toast` は重ねて 2 つまで**(以前は 3 つ。積み上がると画面の下の操作 = 編集の 3 パック の「中止」などを隠していた)。あふれたら古いものから閉じる。

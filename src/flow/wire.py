@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。役割で組み直す RS6 a-5b(2026-10-10。
-決定 3-29・notes:docs/design/rs6-survey-2026-10-10/plan_order_v2.md の 2-2)。編集の serve.py が読み込みのときにしていた登録を 1 つの install にまとめた。
+決定 3-29・notes:docs/design/surveys/rs6-survey-2026-10-10/plan_order_v2.md の 2-2)。編集の serve.py が読み込みのときにしていた登録を 1 つの install にまとめた。
 
 install は ① と ② だけを読む。③ の関数(doc_jobs.run_job・speakers.run_diarize など)と ⑤ の物(疑似の本体・疑似の認識ワーカー)は引数で受け取る
 (flow は ③⑤ を import できない)。引数を省いた種類は登録しない・省いた口は何もしない既定のまま = ③ なしでも呼べる(あとで CLI が使う)。

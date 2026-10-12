@@ -25,7 +25,7 @@ from human.proof import store  # noqa: E402   文書の一覧と読み(_tids・r
 
 
 # ---------- 同時にしゃべっている所(重なり)と「字幕に出さない」行(noSub)の別集計 ----------
-# noSub の行の外し方(split_nosub)と対応づけは human/proof/learn。ここは数え方だけ(計画: notes:plan/line-b-overlap.md の 2-2・6-2 の 5)
+# noSub の行の外し方(split_nosub)と対応づけは human/proof/learn。ここは数え方だけ(計画: notes:plan/done/line-b-overlap.md の 2-2・6-2 の 5)
 OVERLAP_SEC = 0.3     # 人の行どうしが違う話者でこれ(秒)以上時刻が重なる所を「重なりのまとまり」にする(認識の時刻のぶれ 0.1〜0.2 秒を数えないため。計画 2-2 と同じ値)
 OVERLAP_PERM = 3      # 重なりのまとまりの話者が、これ以下の人数なら並べ方を全部試す(それより多ければ開始時刻の順と話者ごとの 1 通り)
 

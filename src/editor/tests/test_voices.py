@@ -424,7 +424,7 @@ class TestDiarRecord(StoreDir):
 
 
 class TestOtherVoice(StoreDir):
-    """組み込みの話者「ゲーム音声など」・行の印「字幕に出さない」(noSub)・話者ごとの字幕の見た目(sub)(2026-10-05。notes:plan/line-b-overlap.md の 6)"""
+    """組み込みの話者「ゲーム音声など」・行の印「字幕に出さない」(noSub)・話者ごとの字幕の見た目(sub)(2026-10-05。notes:plan/done/line-b-overlap.md の 6)"""
 
     def setUp(self):
         super().setUp()

@@ -57,7 +57,7 @@ def _prep(doc):
 # ---------- 「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり) ----------
 # 行の印 noSub: true = 字幕に出さない(ゲームのキャラ・NPC の声など)。行は消えず、機械の出力 original も変わらない。
 # 学習・辞書・提案・保管の材料にはしない。精度の数え方では、人の行のうち noSub の行を正解に入れず、その時間に機械が書いた文字も本体から外して別に数える
-# (確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように)。計画: notes:plan/line-b-overlap.md の 2-1・6-2 の 5
+# (確かめ済みの文書で「何も話していない所の機械の文字 = 余分」に数えられないように)。計画: notes:plan/done/line-b-overlap.md の 2-1・6-2 の 5
 NOSUB_IN = 0.5        # 機械の行のうち、noSub の行の時間に入る長さの割合がこれ以上なら、noSub の時間の文字として本体から外す
 
 
@@ -105,7 +105,7 @@ def learn_events(doc):
         if not go or not ge:
             continue   # 片方にしかない(行の追加・削除)は、置換ではないので対象外
         if any(isinstance(segs[j].get("fill"), dict) for j in ge):
-            continue   # 後処理(ed_fill の A・D・ed_llm)が直した行は機械の直し。「人の直し」として覚えると自己強化になる(notes:plan/llm-postfix.md の 3)
+            continue   # 後処理(ed_fill の A・D・ed_llm)が直した行は機械の直し。「人の直し」として覚えると自己強化になる(notes:plan/done/llm-postfix.md の 3)
         a, b = _norm(orig, go), _norm(segs, ge)
         if a == b or len(a) > 600 or len(b) > 600:
             continue
