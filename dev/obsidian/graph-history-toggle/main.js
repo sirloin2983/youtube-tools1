@@ -1,11 +1,12 @@
-/* Obsidian のプラグイン: グラフで「経緯」= 状態が 済み・置き換え済み・取り下げ の文書の表示・非表示をボタン 1 つで切り替える(2026-10-13)。
+/* Obsidian のプラグイン: グラフを「いつもの見え方」と「すべてのファイル」でボタン 1 つで切り替える(2026-10-13)。
+   すべてのファイル = 絞り込みの条件を外し、md 以外(html・画像など)も出す。いつもの見え方 = 押す前の条件と設定に戻す。
    ビルドなしの CommonJS。dev/plan_artifact.py --graph が保管庫の根の .obsidian/plugins/ へ写す。
-   グラフの絞り込みの欄に HIDE の条件を足す・外すだけ(ほかに書いた条件は残す)。
    開いているグラフへの反映は Obsidian の非公開の口(dataEngine)を使う = Obsidian の更新で効かなくなったら、ここを直す */
 const { Plugin, Notice } = require("obsidian");
 
+// いつもの見え方の既定 = 経緯(状態が 済み・置き換え済み・取り下げ)を隠す。dev/plan_artifact.py の GRAPH_HIDE と同じ
 const HIDE = "-[状態:済み] -[状態:置き換え済み] -[状態:取り下げ]";
-// 前に dev/plan_artifact.py が入れていた「フォルダで隠す」条件(これが残ると、ボタンを押しても経緯が出てこない)。見つけたら HIDE に置き換える
+// 前に dev/plan_artifact.py が入れていた「フォルダで隠す」条件。見つけたら HIDE に置き換える
 const OLD = [
   /-path:"[^"]*\/docs\/worklog"\s+-path:"[^"]*\/docs\/design\/surveys"\s+-file:WORKLOG/,
   /-path:"[^"]*\/docs\/worklog"\s+-path:"[^"]*\/docs\/design"\s+-path:"[^"]*\/plan\/done"\s+-file:WORKLOG/,
@@ -18,28 +19,16 @@ function migrate(search) {
   return s;
 }
 
-module.exports = class GraphHistoryToggle extends Plugin {
+module.exports = class GraphAllToggle extends Plugin {
   async onload() {
-    this.addRibbonIcon("history", "経緯(済んだ文書)の表示・非表示", () => this.toggle());
-    this.addCommand({ id: "toggle", name: "経緯(済んだ文書)の表示・非表示を切り替える", callback: () => this.toggle() });
-    this.app.workspace.onLayoutReady(() => this.migrateAll());
-  }
-
-  migrateAll() {
-    const now = this.current();
-    const next = migrate(now);
-    if (next !== now) this.set(next);
-  }
-
-  set(query) {
-    let n = 0;
-    for (const leaf of this.leaves()) if (this.apply(leaf, query)) n++;
-    const g = this.graph();   // 次に開くグラフも同じにする(graph.json)
-    if (g && g.options) {
-      g.options.search = query;
-      if (g.saveOptions) g.saveOptions();
-    }
-    return n;
+    this.state = Object.assign({ all: false, search: HIDE, attachments: false }, await this.loadData());
+    this.addRibbonIcon("layers", "グラフ: すべてのファイル / いつもの見え方", () => this.toggle());
+    this.addCommand({ id: "toggle", name: "グラフ: すべてのファイル / いつもの見え方を切り替える", callback: () => this.toggle() });
+    this.app.workspace.onLayoutReady(() => {
+      const o = this.current();
+      const s = migrate(o.search);
+      if (!this.state.all && s !== o.search) this.set({ search: s });
+    });
   }
 
   graph() {
@@ -55,35 +44,55 @@ module.exports = class GraphHistoryToggle extends Plugin {
     for (const leaf of this.leaves()) {
       const e = leaf.view && leaf.view.dataEngine;
       const o = e && e.getOptions && e.getOptions();
-      if (o && typeof o.search === "string") return o.search;
+      if (o && typeof o.search === "string") return { search: o.search, attachments: !!o.showAttachments };
     }
     const g = this.graph();
-    return (g && g.options && typeof g.options.search === "string") ? g.options.search : "";
+    const o = (g && g.options) || {};
+    return { search: typeof o.search === "string" ? o.search : "", attachments: !!o.showAttachments };
   }
 
-  toggle() {
-    const now = migrate(this.current());
-    const wasHidden = now.includes(HIDE);
-    const next = wasHidden ? now.replace(HIDE, "").replace(/\s+/g, " ").trim() : (now.trim() + " " + HIDE).trim();
-    const n = this.set(next);
-    new Notice((wasHidden ? "経緯を表示しました" : "経緯を隠しました") + (n ? "" : "(グラフを開くと効きます)"));
+  async toggle() {
+    let n;
+    if (this.state.all) {
+      n = this.set({ search: this.state.search, showAttachments: this.state.attachments });
+      this.state.all = false;
+      new Notice("いつもの見え方に戻しました" + (n ? "" : "(グラフを開くと効きます)"));
+    } else {
+      const o = this.current();
+      this.state.search = migrate(o.search);
+      this.state.attachments = o.attachments;
+      n = this.set({ search: "", showAttachments: true });
+      this.state.all = true;
+      new Notice("すべてのファイルを表示しました" + (n ? "" : "(グラフを開くと効きます)"));
+    }
+    await this.saveData(this.state);
   }
 
-  apply(leaf, query) {
+  /* 開いているグラフと、次に開くグラフ(graph.json)の両方に opts を当てる。当てられたグラフの数を返す */
+  set(opts) {
+    let n = 0;
+    for (const leaf of this.leaves()) if (this.apply(leaf, opts)) n++;
+    const g = this.graph();
+    if (g && g.options) {
+      Object.assign(g.options, opts);
+      if (g.saveOptions) g.saveOptions();
+    }
+    return n;
+  }
+
+  apply(leaf, opts) {
     const e = leaf.view && leaf.view.dataEngine;
     if (!e) return false;
     try {
       if (e.getOptions && e.setOptions) {
-        const o = e.getOptions();
-        o.search = query;
-        e.setOptions(o);
+        e.setOptions(Object.assign(e.getOptions(), opts));
         return true;
       }
     } catch (err) { console.error("graph-history-toggle", err); }
     try {
       const s = e.filterOptions && e.filterOptions.search;
-      if (s && s.setValue) {
-        s.setValue(query);
+      if (s && s.setValue && "search" in opts) {
+        s.setValue(opts.search);
         if (e.requestUpdateSearch) e.requestUpdateSearch();
         return true;
       }

@@ -376,7 +376,7 @@ def write_vault_extras(notes, graph=True):
     with open(gp, encoding="utf-8") as f:
         g = json.load(f)
     # 普段は経緯(状態が 済み・置き換え済み・取り下げ)を隠す。直し待ちのレビュー・今週の記録(進行中)は出る。
-    # 出す・隠すはグラフの左のボタン(プラグイン graph-history-toggle)で切り替える。条件の文字はプラグインの HIDE と同じ
+    # グラフの左のボタン(プラグイン graph-history-toggle)で「すべてのファイル」と切り替える。条件の文字はプラグインの HIDE と同じ
     g["search"] = GRAPH_HIDE
     g["colorGroups"] = [{"query": q, "color": {"a": 1, "rgb": rgb}} for q, rgb in GRAPH_COLORS]
     write_text(gp, json.dumps(g, ensure_ascii=False, indent=2) + "\n")
